@@ -1,0 +1,16 @@
+{
+  "type": "miningdim:mining",
+  "generator": {
+    "type": "miningdim:mining_chunk_generator",
+    "biome_source": {
+      "type": "miningdim:mining_biome_source"
+    },
+    "settings": {
+      "region_size_x": 256,
+      "region_size_z": 256,
+      "region_gap": 32,
+      "min_y": -64,
+      "height": 384
+    }
+  }
+}

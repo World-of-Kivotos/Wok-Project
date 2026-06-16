@@ -1,0 +1,17 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        // ForgeGradle 6 插件托管在 MinecraftForge maven, 不在 plugin portal
+        maven { url = 'https://maven.minecraftforge.net/' }
+        // parchment 数据生成插件
+        maven { url = 'https://maven.parchmentmc.org/' }
+    }
+    plugins {
+        // ForgeGradle 6.x: 与 Gradle 8.1.1 + 1.20.1 配套的稳定线
+        id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+        // parchment 映射注入插件
+        id 'org.parchmentmc.librarian.forgegradle' version '1.+'
+    }
+}
+
+rootProject.name = 'MiningDimension'

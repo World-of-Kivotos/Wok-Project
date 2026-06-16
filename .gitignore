@@ -1,0 +1,26 @@
+# Gradle / 构建产物
+build/
+.gradle/
+out/
+bin/
+
+# Forge 运行目录与生成数据
+run/
+runs/
+src/generated/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.eclipse/
+.settings/
+.classpath
+.project
+*.launch
+.vscode/
+
+# 系统
+*.log
+.DS_Store

@@ -1,0 +1,15 @@
+# 仓库内统一以 LF 存储并检出文本, 消除 Windows CRLF 与跨平台行尾漂移。
+* text=auto eol=lf
+
+# Windows 脚本必须 CRLF, 否则在 Windows 上行为异常。
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Gradle wrapper 脚本必须 LF, 否则在 Unix 上无法执行。
+gradlew text eol=lf
+*.sh    text eol=lf
+
+# 二进制: 禁止行尾转换 (gradle-wrapper.jar、纹理等)。
+*.jar   binary
+*.png   binary
+*.ico   binary

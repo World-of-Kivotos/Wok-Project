@@ -1,0 +1,34 @@
+# Mining Dimension System - mods.toml
+# 平台锁定: MC 1.20.1 + Forge 47.x. 字段约束见设计文档 1.2.
+modLoader = "javafml"
+# FML 主版本下限, 与 Forge 47.x 对齐
+loaderVersion = "[47,)"
+license = "All Rights Reserved"
+issueTrackerURL = "https://example.invalid/miningdim/issues"
+
+[[mods]]
+modId = "miningdim"
+# ${file.jarVersion} 由 FML 运行期从 jar MANIFEST 的 Implementation-Version 注入
+version = "${file.jarVersion}"
+displayName = "Mining Dimension System"
+authors = "miningdim"
+description = '''
+可重复刷新的随机矿洞副本维度。单一独立维度内按 region 网格切分多实例, 离线确定性生成, 全连通矿洞, 三难度分层。
+'''
+
+# 自定义 ChunkGenerator/BiomeSource 的 Codec 在客户端登录阶段参与维度同步反序列化,
+# 故 side 必须 BOTH, 否则客户端缺失本 mod 将直接断连 (设计文档 1.2 硬约束).
+[[dependencies.miningdim]]
+modId = "forge"
+mandatory = true
+versionRange = "[47,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.miningdim]]
+modId = "minecraft"
+mandatory = true
+# 上界开区间, 硬性拒绝在 1.20.2+ 误加载 (维度数据包格式不兼容)
+versionRange = "[1.20.1,1.20.2)"
+ordering = "NONE"
+side = "BOTH"

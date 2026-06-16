@@ -1,0 +1,97 @@
+{
+  "itemGroup.miningdim": "矿业维度",
+
+  "block.miningdim.mining_portal": "矿山传送门",
+  "block.miningdim.fake_ore": "假矿石",
+  "block.miningdim.entrance_easy": "简单矿洞入口",
+  "block.miningdim.entrance_medium": "普通矿洞入口",
+  "block.miningdim.entrance_hard": "困难矿洞入口",
+  "item.miningdim.mining_portal": "矿山传送门",
+  "item.miningdim.fake_ore": "假矿石",
+  "item.miningdim.entrance_easy": "简单矿洞入口",
+  "item.miningdim.entrance_medium": "普通矿洞入口",
+  "item.miningdim.entrance_hard": "困难矿洞入口",
+
+  "difficulty.miningdim.easy": "简单",
+  "difficulty.miningdim.medium": "普通",
+  "difficulty.miningdim.hard": "困难",
+
+  "message.miningdim.enter.entered_hint": "已进入 %s 矿洞，输入 /mining leave 退出。",
+  "message.miningdim.enter.requested": "正在准备你的矿洞实例（%s）……",
+  "message.miningdim.enter.already_inside": "你已经身处一个矿洞实例中。",
+  "message.miningdim.enter.bad_difficulty": "未知难度：%s（可用 easy、medium 或 hard）。",
+  "message.miningdim.enter.alloc_failed": "无法分配矿洞实例，请稍后重试。",
+  "message.miningdim.enter.instance_gone": "该矿洞实例已不存在。",
+  "message.miningdim.enter.resetting": "该矿洞实例正在重置，请稍后再试。",
+  "message.miningdim.enter.gen_timeout": "矿洞生成超时，请重试。",
+  "message.miningdim.enter.chunk_timeout": "加载出生点区块超时，请重试。",
+  "message.miningdim.enter.cap_global_cap": "当前所有矿洞实例均已占满，请稍后再试。",
+  "message.miningdim.enter.cap_queue_timeout": "排队等待矿洞超时，请重试。",
+
+  "message.miningdim.gate.level_too_low": "你的等级不足以进入该难度。",
+  "message.miningdim.gate.missing_advancement": "你尚未解锁该难度。",
+  "message.miningdim.gate.no_ticket": "进入该难度需要对应的入场券。",
+
+  "message.miningdim.leave.done": "你已离开矿业维度。",
+  "message.miningdim.leave.not_inside": "你当前不在任何矿洞实例中。",
+
+  "message.miningdim.info.not_inside": "你当前不在任何矿洞实例中。",
+  "message.miningdim.info.unknown": "未知的矿洞实例：%s",
+  "message.miningdim.info.line": "实例 #%s ｜ 难度 %s ｜ 状态 %s ｜ 在场玩家 %s",
+
+  "message.miningdim.reset.auto_warn": "%s 矿洞区域将在 %s 秒后重置，请尽快离开该区域。",
+  "message.miningdim.rules.placement_denied": "你无法在矿业维度内放置该方块。",
+
+  "message.miningdim.reset.unknown": "未知的矿洞实例：%s",
+  "message.miningdim.reset.failed": "重置实例 #%s 失败：%s",
+  "message.miningdim.reset.done": "实例 #%s 已重置完成。",
+  "message.miningdim.reset.enqueued": "已将实例 #%s 的重置加入队列（模式 %s）。",
+  "message.miningdim.reset.all": "已将 %s 个矿洞实例加入重置队列。",
+
+  "miningdim.msg.gen_retry": "正在重新生成洞穴布局以获得更好的连通性……",
+  "miningdim.msg.instances_full": "所有矿洞实例已占满，你的排队序号为 %s。",
+  "miningdim.msg.preparing": "你的矿洞实例正在生成中……",
+  "miningdim.msg.enter_timeout": "进入超时，已退还相应费用。",
+  "miningdim.msg.reset_evict": "该实例正在重置，你已被送回进入前的坐标。",
+  "miningdim.msg.dimension_missing": "矿业维度加载失败，请联系管理员。",
+  "miningdim.msg.reset_cooldown": "该实例仍处于重置冷却中。",
+  "miningdim.msg.reset_daily_limit": "该实例当日重置次数已达上限。",
+  "miningdim.msg.reset_cost_unpaid": "你的重置费用不足。",
+  "miningdim.msg.economy_softcap": "%s 当日产量已达软上限（已挖 %s 个），收购价开始递减。",
+  "miningdim.msg.death_penalty": "你在矿洞中死亡，已被送回进入前的坐标。",
+  "miningdim.msg.death_reentry_cooldown": "死亡后需等待冷却才能再次进入。",
+
+  "commands.miningdim.enter.requested": "正在请求进入（%s）……",
+  "commands.miningdim.enter.success": "已进入矿洞实例 #%s。",
+  "commands.miningdim.enter.bad_difficulty": "未知难度：%s（可用 easy、medium 或 hard）。",
+  "commands.miningdim.enter.full": "当前所有矿洞实例均已占满。",
+  "commands.miningdim.enter.generating": "你的矿洞实例仍在生成中……",
+  "commands.miningdim.enter.queued": "所有实例已占满，你已被加入排队。",
+  "commands.miningdim.enter.queue_timeout": "排队等待矿洞超时。",
+  "commands.miningdim.enter.error": "进入矿业维度时发生错误。",
+
+  "commands.miningdim.leave.success": "你已离开矿洞实例 #%s。",
+  "commands.miningdim.leave.not_in_instance": "你当前不在任何矿洞实例中。",
+
+  "commands.miningdim.status.none": "你当前不在任何矿洞实例中。",
+  "commands.miningdim.status.line": "实例 #%s ｜ 难度 %s ｜ 状态 %s ｜ 原点 (%s, %s)",
+
+  "commands.miningdim.list.header": "矿洞实例：共 %s 个（第 %s/%s 页）",
+  "commands.miningdim.list.entry": "#%s ｜ %s ｜ 引用 %s ｜ %s ｜ 创建于 %s",
+
+  "commands.miningdim.tp.success": "已传送至矿洞实例 #%s。",
+  "commands.miningdim.kick.instance": "已将 %s 名玩家踢出实例 #%s。",
+  "commands.miningdim.kick.player": "已将该玩家踢出其所在矿洞实例。",
+  "commands.miningdim.kick.player_not_in": "该玩家不在任何矿洞实例中。",
+
+  "commands.miningdim.no_dimension": "矿业维度尚未加载。",
+  "commands.miningdim.notfound": "未知的矿洞实例：%s",
+
+  "commands.miningdim.reset.start": "正在重置实例 #%s……",
+  "commands.miningdim.reset.done": "实例 #%s 已重置完成。",
+  "commands.miningdim.reset.failed": "重置失败：%s",
+  "commands.miningdim.reset.occupied": "实例 #%s 仍有玩家，请先撤离。",
+  "commands.miningdim.reset.armed": "再次输入该命令以确认重置。",
+  "commands.miningdim.reset.no_pending": "没有待确认的重置操作。",
+  "commands.miningdim.reset.all_start": "正在重置所有符合条件的矿洞实例……"
+}

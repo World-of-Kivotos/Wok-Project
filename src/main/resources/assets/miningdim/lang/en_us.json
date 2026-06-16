@@ -1,0 +1,97 @@
+{
+  "itemGroup.miningdim": "Mining Dimension",
+
+  "block.miningdim.mining_portal": "Mining Portal",
+  "block.miningdim.fake_ore": "Fake Ore",
+  "block.miningdim.entrance_easy": "Easy Mine Entrance",
+  "block.miningdim.entrance_medium": "Medium Mine Entrance",
+  "block.miningdim.entrance_hard": "Hard Mine Entrance",
+  "item.miningdim.mining_portal": "Mining Portal",
+  "item.miningdim.fake_ore": "Fake Ore",
+  "item.miningdim.entrance_easy": "Easy Mine Entrance",
+  "item.miningdim.entrance_medium": "Medium Mine Entrance",
+  "item.miningdim.entrance_hard": "Hard Mine Entrance",
+
+  "difficulty.miningdim.easy": "Easy",
+  "difficulty.miningdim.medium": "Medium",
+  "difficulty.miningdim.hard": "Hard",
+
+  "message.miningdim.enter.entered_hint": "Entered the %s mine. Type /mining leave to exit.",
+  "message.miningdim.enter.requested": "Preparing your mining instance (%s)...",
+  "message.miningdim.enter.already_inside": "You are already inside a mining instance.",
+  "message.miningdim.enter.bad_difficulty": "Unknown difficulty: %s (use easy, medium or hard).",
+  "message.miningdim.enter.alloc_failed": "Could not allocate a mining instance. Please try again.",
+  "message.miningdim.enter.instance_gone": "The mining instance no longer exists.",
+  "message.miningdim.enter.resetting": "That mining instance is being reset; try again shortly.",
+  "message.miningdim.enter.gen_timeout": "Mining instance generation timed out. Please try again.",
+  "message.miningdim.enter.chunk_timeout": "Timed out loading spawn chunks. Please try again.",
+  "message.miningdim.enter.cap_global_cap": "All mining instances are full right now. Please try again later.",
+  "message.miningdim.enter.cap_queue_timeout": "Timed out waiting in the mining queue. Please try again.",
+
+  "message.miningdim.gate.level_too_low": "Your level is too low to enter this difficulty.",
+  "message.miningdim.gate.missing_advancement": "You have not unlocked this difficulty yet.",
+  "message.miningdim.gate.no_ticket": "You need an entry ticket for this difficulty.",
+
+  "message.miningdim.leave.done": "You have left the mining dimension.",
+  "message.miningdim.leave.not_inside": "You are not inside a mining instance.",
+
+  "message.miningdim.info.not_inside": "You are not inside a mining instance.",
+  "message.miningdim.info.unknown": "Unknown mining instance: %s",
+  "message.miningdim.info.line": "Instance #%s | difficulty %s | state %s | players %s",
+
+  "message.miningdim.reset.auto_warn": "The %s mining region will reset in %s second(s). Please leave the area.",
+  "message.miningdim.rules.placement_denied": "You cannot place that block inside the mining dimension.",
+
+  "message.miningdim.reset.unknown": "Unknown mining instance: %s",
+  "message.miningdim.reset.failed": "Reset of instance #%s failed: %s",
+  "message.miningdim.reset.done": "Instance #%s has been reset.",
+  "message.miningdim.reset.enqueued": "Reset of instance #%s queued (mode %s).",
+  "message.miningdim.reset.all": "Queued reset of %s mining instance(s).",
+
+  "miningdim.msg.gen_retry": "Re-rolling the cave layout for a better connection...",
+  "miningdim.msg.instances_full": "All mining instances are full. You are number %s in the queue.",
+  "miningdim.msg.preparing": "Your mining instance is being generated...",
+  "miningdim.msg.enter_timeout": "Entry timed out; any cost has been refunded.",
+  "miningdim.msg.reset_evict": "This instance is being reset; you were sent back to where you entered from.",
+  "miningdim.msg.dimension_missing": "The mining dimension failed to load. Please contact an administrator.",
+  "miningdim.msg.reset_cooldown": "This instance is still on reset cooldown.",
+  "miningdim.msg.reset_daily_limit": "This instance has reached its daily reset limit.",
+  "miningdim.msg.reset_cost_unpaid": "You cannot afford the reset cost.",
+  "miningdim.msg.economy_softcap": "Daily soft cap reached for %s (%s mined); buyback price is now reduced.",
+  "miningdim.msg.death_penalty": "You died in the mines and were sent back to where you entered from.",
+  "miningdim.msg.death_reentry_cooldown": "You must wait before re-entering after dying.",
+
+  "commands.miningdim.enter.requested": "Requesting entry (%s)...",
+  "commands.miningdim.enter.success": "Entered mining instance #%s.",
+  "commands.miningdim.enter.bad_difficulty": "Unknown difficulty: %s (use easy, medium or hard).",
+  "commands.miningdim.enter.full": "All mining instances are full right now.",
+  "commands.miningdim.enter.generating": "Your mining instance is still generating...",
+  "commands.miningdim.enter.queued": "All instances are full; you have been queued.",
+  "commands.miningdim.enter.queue_timeout": "Timed out waiting in the mining queue.",
+  "commands.miningdim.enter.error": "An error occurred while entering the mining dimension.",
+
+  "commands.miningdim.leave.success": "You have left mining instance #%s.",
+  "commands.miningdim.leave.not_in_instance": "You are not inside a mining instance.",
+
+  "commands.miningdim.status.none": "You are not inside a mining instance.",
+  "commands.miningdim.status.line": "Instance #%s | difficulty %s | state %s | origin (%s, %s)",
+
+  "commands.miningdim.list.header": "Mining instances: %s total (page %s/%s)",
+  "commands.miningdim.list.entry": "#%s | %s | refs %s | %s | created %s",
+
+  "commands.miningdim.tp.success": "Teleported to mining instance #%s.",
+  "commands.miningdim.kick.instance": "Kicked %s player(s) from instance #%s.",
+  "commands.miningdim.kick.player": "Kicked player from their mining instance.",
+  "commands.miningdim.kick.player_not_in": "That player is not inside a mining instance.",
+
+  "commands.miningdim.no_dimension": "The mining dimension is not loaded.",
+  "commands.miningdim.notfound": "Unknown mining instance: %s",
+
+  "commands.miningdim.reset.start": "Resetting instance #%s...",
+  "commands.miningdim.reset.done": "Instance #%s has been reset.",
+  "commands.miningdim.reset.failed": "Reset failed: %s",
+  "commands.miningdim.reset.occupied": "Instance #%s is occupied; evacuate players first.",
+  "commands.miningdim.reset.armed": "Type the command again to confirm the reset.",
+  "commands.miningdim.reset.no_pending": "No reset is pending confirmation.",
+  "commands.miningdim.reset.all_start": "Resetting all eligible mining instances..."
+}

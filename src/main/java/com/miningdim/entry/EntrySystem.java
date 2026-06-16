@@ -11,6 +11,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
@@ -47,9 +48,12 @@ public final class EntrySystem implements Subsystem {
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
         MiningCapabilities caps = new MiningCapabilities();
-        // RegisterCapabilitiesEvent 在 modBus; AttachCapabilitiesEvent/Clone 在 forgeBus。
-        modBus.register(caps);
-        forgeBus.register(caps);
+        // 混总线对象不可整体 register: mod 总线拒收 forge 事件、forge 总线拒收 IModBusEvent,
+        // 整体注册到任一总线都会在另一类事件上抛 IllegalArgumentException。故按方法各挂正确总线:
+        // RegisterCapabilitiesEvent 走 modBus; AttachCapabilities(泛型, 过滤 Entity) 与 Clone 走 forgeBus。
+        modBus.addListener(caps::onRegisterCapabilities);
+        forgeBus.addGenericListener(Entity.class, caps::onAttachCapabilities);
+        forgeBus.addListener(caps::onPlayerClone);
         forgeBus.register(this);
     }
 

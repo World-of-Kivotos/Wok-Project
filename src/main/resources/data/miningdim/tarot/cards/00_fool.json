@@ -1,0 +1,103 @@
+{
+  "cooldownCategory": "buff",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_heal_over_time",
+          "amount": 40,
+          "periodTicks": 600,
+          "count": 3
+        }
+      ],
+      [
+        {
+          "kind": "self_heal_over_time",
+          "amount": 50,
+          "periodTicks": 600,
+          "count": 3
+        }
+      ],
+      [
+        {
+          "kind": "self_heal_over_time",
+          "amount": 60,
+          "periodTicks": 600,
+          "count": 3
+        }
+      ],
+      [
+        {
+          "kind": "self_heal_over_time",
+          "amount": 70,
+          "periodTicks": 600,
+          "count": 3
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "self_true_damage",
+          "amount": 70
+        },
+        {
+          "kind": "self_heal_over_time",
+          "amount": 100,
+          "periodTicks": 300,
+          "count": 3
+        }
+      ],
+      [
+        {
+          "kind": "self_true_damage",
+          "amount": 60
+        },
+        {
+          "kind": "self_heal_over_time",
+          "amount": 100,
+          "periodTicks": 300,
+          "count": 3
+        }
+      ],
+      [
+        {
+          "kind": "self_true_damage",
+          "amount": 50
+        },
+        {
+          "kind": "self_heal_over_time",
+          "amount": 100,
+          "periodTicks": 300,
+          "count": 3
+        }
+      ],
+      [
+        {
+          "kind": "self_true_damage",
+          "amount": 30
+        },
+        {
+          "kind": "self_heal_over_time",
+          "amount": 100,
+          "periodTicks": 300,
+          "count": 3
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 12000,
+    "ops": [
+      {
+        "kind": "self_invulnerable",
+        "durationTicks": 300
+      },
+      {
+        "kind": "self_full_heal"
+      }
+    ]
+  }
+}

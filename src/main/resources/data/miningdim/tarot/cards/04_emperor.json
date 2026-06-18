@@ -1,0 +1,109 @@
+{
+  "cooldownCategory": "buff",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 0,
+          "durationTicks": 600
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 0,
+          "durationTicks": 900
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 1,
+          "durationTicks": 1200
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 1,
+          "durationTicks": 1500
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "self_true_damage",
+          "amount": 70
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 2,
+          "durationTicks": 600
+        }
+      ],
+      [
+        {
+          "kind": "self_true_damage",
+          "amount": 60
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 2,
+          "durationTicks": 600
+        }
+      ],
+      [
+        {
+          "kind": "self_true_damage",
+          "amount": 50
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 2,
+          "durationTicks": 600
+        }
+      ],
+      [
+        {
+          "kind": "self_true_damage",
+          "amount": 40
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 2,
+          "durationTicks": 600
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 18000,
+    "ops": [
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:resistance",
+        "amplifier": 2,
+        "durationTicks": 600
+      },
+      {
+        "kind": "aoe_enemy_potion",
+        "effect": "minecraft:slowness",
+        "amplifier": 2,
+        "durationTicks": 1200,
+        "radius": 50
+      }
+    ]
+  }
+}

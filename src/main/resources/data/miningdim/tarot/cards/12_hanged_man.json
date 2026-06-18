@@ -1,0 +1,264 @@
+{
+  "cooldownCategory": "combat",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:levitation",
+          "amplifier": 0,
+          "durationTicks": 240
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 0,
+          "durationTicks": 240
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 1,
+          "durationTicks": 240
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 0,
+          "durationTicks": 240
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 20
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:levitation",
+          "amplifier": 0,
+          "durationTicks": 280
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 0,
+          "durationTicks": 280
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 1,
+          "durationTicks": 280
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 1,
+          "durationTicks": 280
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 25
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:levitation",
+          "amplifier": 0,
+          "durationTicks": 320
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 0,
+          "durationTicks": 320
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 2,
+          "durationTicks": 320
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 1,
+          "durationTicks": 320
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 30
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:levitation",
+          "amplifier": 0,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 0,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 2,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 40
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "self_death_gamble",
+          "chance": 0.20,
+          "amount": 15,
+          "durationTicks": 1800,
+          "floorDown": 20
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 4,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 40
+        },
+        {
+          "kind": "self_knockback_immunity",
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_lifesteal",
+          "percent": 0.35,
+          "durationTicks": 500
+        }
+      ],
+      [
+        {
+          "kind": "self_death_gamble",
+          "chance": 0.12,
+          "amount": 15,
+          "durationTicks": 1800,
+          "floorDown": 20
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 4,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 50
+        },
+        {
+          "kind": "self_knockback_immunity",
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_lifesteal",
+          "percent": 0.35,
+          "durationTicks": 600
+        }
+      ],
+      [
+        {
+          "kind": "self_death_gamble",
+          "chance": 0.06,
+          "amount": 15,
+          "durationTicks": 1800,
+          "floorDown": 20
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 4,
+          "durationTicks": 700
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 60
+        },
+        {
+          "kind": "self_knockback_immunity",
+          "durationTicks": 700
+        },
+        {
+          "kind": "self_lifesteal",
+          "percent": 0.35,
+          "durationTicks": 700
+        }
+      ],
+      [
+        {
+          "kind": "self_death_gamble",
+          "chance": 0.02,
+          "amount": 15,
+          "durationTicks": 1800,
+          "floorDown": 20
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 4,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 70
+        },
+        {
+          "kind": "self_knockback_immunity",
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_lifesteal",
+          "percent": 0.35,
+          "durationTicks": 800
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 13200,
+    "ops": [
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:strength",
+        "amplifier": 4,
+        "durationTicks": 360
+      },
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:regeneration",
+        "amplifier": 2,
+        "durationTicks": 360
+      },
+      {
+        "kind": "self_absorption",
+        "amount": 40
+      }
+    ]
+  }
+}

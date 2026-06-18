@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "miningdim:item/tarot_pack_shiny"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "miningdim:farmer_farmland_premium" },
+    { "item": "minecraft:diamond" }
+  ],
+  "result": {
+    "item": "miningdim:farmer_farmland_supreme",
+    "count": 1
+  }
+}

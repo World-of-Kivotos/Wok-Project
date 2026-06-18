@@ -1,0 +1,12 @@
+{
+  "variants": {
+    "age=0": { "model": "miningdim:block/farmer_crop_age0" },
+    "age=1": { "model": "miningdim:block/farmer_crop_age1" },
+    "age=2": { "model": "miningdim:block/farmer_crop_age2" },
+    "age=3": { "model": "miningdim:block/farmer_crop_age3" },
+    "age=4": { "model": "miningdim:block/farmer_crop_age4" },
+    "age=5": { "model": "miningdim:block/farmer_crop_age5" },
+    "age=6": { "model": "miningdim:block/farmer_crop_age6" },
+    "age=7": { "model": "miningdim:block/farmer_crop_age7" }
+  }
+}

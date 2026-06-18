@@ -1,0 +1,162 @@
+{
+  "cooldownCategory": "buff",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 1,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_cleanse"
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 1,
+          "durationTicks": 520
+        },
+        {
+          "kind": "self_cleanse"
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 640
+        },
+        {
+          "kind": "self_cleanse"
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_cleanse"
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 3,
+          "durationTicks": 120
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:mining_fatigue",
+          "amplifier": 1,
+          "durationTicks": 120
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:nausea",
+          "amplifier": 0,
+          "durationTicks": 120
+        }
+      ],
+      [
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 3,
+          "durationTicks": 160
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:mining_fatigue",
+          "amplifier": 1,
+          "durationTicks": 160
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:nausea",
+          "amplifier": 0,
+          "durationTicks": 160
+        }
+      ],
+      [
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 3,
+          "durationTicks": 200
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:mining_fatigue",
+          "amplifier": 1,
+          "durationTicks": 200
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:nausea",
+          "amplifier": 0,
+          "durationTicks": 200
+        }
+      ],
+      [
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 3,
+          "durationTicks": 240
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:mining_fatigue",
+          "amplifier": 1,
+          "durationTicks": 240
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:nausea",
+          "amplifier": 0,
+          "durationTicks": 240
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 12000,
+    "ops": [
+      {
+        "kind": "aoe_ally_potion",
+        "effect": "minecraft:regeneration",
+        "amplifier": 2,
+        "durationTicks": 360,
+        "radius": 10
+      },
+      {
+        "kind": "self_cleanse"
+      }
+    ]
+  }
+}

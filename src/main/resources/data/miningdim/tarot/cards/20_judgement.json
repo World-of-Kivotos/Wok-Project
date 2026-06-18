@@ -1,0 +1,165 @@
+{
+  "cooldownCategory": "buff",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_heal",
+          "amount": 35
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 1,
+          "durationTicks": 160
+        },
+        {
+          "kind": "self_cleanse"
+        }
+      ],
+      [
+        {
+          "kind": "self_heal",
+          "amount": 45
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 1,
+          "durationTicks": 200
+        },
+        {
+          "kind": "self_cleanse"
+        }
+      ],
+      [
+        {
+          "kind": "self_heal",
+          "amount": 55
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 1,
+          "durationTicks": 240
+        },
+        {
+          "kind": "self_cleanse"
+        }
+      ],
+      [
+        {
+          "kind": "self_heal",
+          "amount": 70
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 1,
+          "durationTicks": 300
+        },
+        {
+          "kind": "self_cleanse"
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "aoe_enemy_damage",
+          "amount": 30,
+          "radius": 4
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:glowing",
+          "amplifier": 0,
+          "durationTicks": 80,
+          "radius": 4
+        },
+        {
+          "kind": "self_true_damage",
+          "amount": 35
+        }
+      ],
+      [
+        {
+          "kind": "aoe_enemy_damage",
+          "amount": 40,
+          "radius": 6
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:glowing",
+          "amplifier": 0,
+          "durationTicks": 100,
+          "radius": 6
+        },
+        {
+          "kind": "self_true_damage",
+          "amount": 28
+        }
+      ],
+      [
+        {
+          "kind": "aoe_enemy_damage",
+          "amount": 50,
+          "radius": 8
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:glowing",
+          "amplifier": 0,
+          "durationTicks": 120,
+          "radius": 8
+        },
+        {
+          "kind": "self_true_damage",
+          "amount": 20
+        }
+      ],
+      [
+        {
+          "kind": "aoe_enemy_damage",
+          "amount": 65,
+          "radius": 10
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:glowing",
+          "amplifier": 0,
+          "durationTicks": 160,
+          "radius": 10
+        },
+        {
+          "kind": "self_true_damage",
+          "amount": 12
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 12000,
+    "ops": [
+      {
+        "kind": "aoe_ally_absorption",
+        "amount": 25,
+        "radius": 15
+      },
+      {
+        "kind": "aoe_enemy_damage",
+        "amount": 80,
+        "radius": 15
+      },
+      {
+        "kind": "aoe_enemy_potion",
+        "effect": "minecraft:glowing",
+        "amplifier": 0,
+        "durationTicks": 120,
+        "radius": 15
+      }
+    ]
+  }
+}

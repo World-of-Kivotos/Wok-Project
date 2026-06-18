@@ -61,6 +61,19 @@ public final class MiningNetwork implements IMiningNetwork {
         CHANNEL.registerMessage(nextId(), InstanceStatusS2C.class,
                 InstanceStatusS2C::encode, InstanceStatusS2C::decode, InstanceStatusS2C::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        // 职业框架全职业进度同步 (JobFramework spec 第七章: 复用本 CHANNEL, discriminator 集中自增登记)。
+        // 追加在既有 4 包之后, 两端同序, 不改动既有 id 分配。
+        CHANNEL.registerMessage(nextId(), JobSyncS2C.class,
+                JobSyncS2C::encode, JobSyncS2C::decode, JobSyncS2C::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+    }
+
+    /**
+     * 下发全职业进度同步包到指定玩家 (职业框架登录同步 / 等级变化时调用)。静态便捷入口: 职业框架经此发包,
+     * 无需经 IMiningNetwork core 门面 (该门面为阶段0 定稿, 不含职业方法; 职业包直接用 CHANNEL 是第七章纪律)。
+     */
+    public static void sendJobSync(ServerPlayer player, JobSyncS2C msg) {
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), msg);
     }
 
     // ---- IMiningNetwork (服务端调用; 下发到指定玩家) ----

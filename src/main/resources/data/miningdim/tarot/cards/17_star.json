@@ -1,0 +1,192 @@
+{
+  "cooldownCategory": "buff",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_heal",
+          "amount": 30
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 0,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_cleanse"
+        }
+      ],
+      [
+        {
+          "kind": "self_heal",
+          "amount": 40
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 1,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_cleanse"
+        }
+      ],
+      [
+        {
+          "kind": "self_heal",
+          "amount": 50
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 1,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_cleanse"
+        }
+      ],
+      [
+        {
+          "kind": "self_heal",
+          "amount": 65
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_cleanse"
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "aoe_ally_heal",
+          "amount": 40,
+          "radius": 4
+        },
+        {
+          "kind": "aoe_ally_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 400,
+          "radius": 4
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 0,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 1,
+          "durationTicks": 400
+        }
+      ],
+      [
+        {
+          "kind": "aoe_ally_heal",
+          "amount": 50,
+          "radius": 6
+        },
+        {
+          "kind": "aoe_ally_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 400,
+          "radius": 6
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 0,
+          "durationTicks": 320
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 1,
+          "durationTicks": 320
+        }
+      ],
+      [
+        {
+          "kind": "aoe_ally_heal",
+          "amount": 60,
+          "radius": 8
+        },
+        {
+          "kind": "aoe_ally_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 400,
+          "radius": 8
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 0,
+          "durationTicks": 240
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 1,
+          "durationTicks": 240
+        }
+      ],
+      [
+        {
+          "kind": "aoe_ally_heal",
+          "amount": 75,
+          "radius": 10
+        },
+        {
+          "kind": "aoe_ally_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 400,
+          "radius": 10
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 0,
+          "durationTicks": 160
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 1,
+          "durationTicks": 160
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 9600,
+    "ops": [
+      {
+        "kind": "aoe_ally_absorption",
+        "amount": 40,
+        "radius": 12
+      },
+      {
+        "kind": "aoe_ally_potion",
+        "effect": "minecraft:regeneration",
+        "amplifier": 2,
+        "durationTicks": 900,
+        "radius": 12
+      }
+    ]
+  }
+}

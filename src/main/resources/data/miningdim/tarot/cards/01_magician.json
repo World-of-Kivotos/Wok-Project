@@ -1,0 +1,110 @@
+{
+  "cooldownCategory": "utility",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 9,
+          "durationTicks": 60
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 9,
+          "durationTicks": 80
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 9,
+          "durationTicks": 100
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 9,
+          "durationTicks": 120
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 14,
+          "durationTicks": 60
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 100
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 14,
+          "durationTicks": 80
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 80
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 14,
+          "durationTicks": 100
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 60
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 14,
+          "durationTicks": 120
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 40
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 900,
+    "ops": [
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:speed",
+        "amplifier": 14,
+        "durationTicks": 40
+      }
+    ]
+  }
+}

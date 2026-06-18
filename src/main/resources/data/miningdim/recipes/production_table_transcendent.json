@@ -1,0 +1,14 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "BNB",
+    "NTN",
+    "BNB"
+  ],
+  "key": {
+    "B": { "item": "minecraft:netherite_block" },
+    "N": { "item": "minecraft:netherite_ingot" },
+    "T": { "item": "miningdim:production_table_superior" }
+  },
+  "result": { "item": "miningdim:production_table_transcendent" }
+}

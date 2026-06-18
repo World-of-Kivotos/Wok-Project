@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "LBL",
+    "LDL",
+    "LLL"
+  ],
+  "key": {
+    "L": { "item": "minecraft:lapis_lazuli" },
+    "B": { "item": "minecraft:book" },
+    "D": { "item": "minecraft:diamond" }
+  },
+  "result": {
+    "item": "miningdim:tarot_craft_table"
+  }
+}

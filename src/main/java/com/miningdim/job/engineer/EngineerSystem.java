@@ -1,0 +1,68 @@
+package com.miningdim.job.engineer;
+
+import com.miningdim.core.Subsystem;
+import com.miningdim.job.engineer.client.ProductionTableScreen;
+import com.miningdim.job.engineer.effect.NanoAnvilGuard;
+import com.miningdim.job.engineer.effect.NanoEffectTicker;
+import com.miningdim.job.engineer.effect.NanoReactorHandler;
+import com.miningdim.job.engineer.effect.NanoShieldHandler;
+import net.minecraft.client.gui.screens.MenuScreens;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.fml.DistExecutor;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * 千年工程师子系统入口 (MillenniumEngineer_Mod_DesignSpec 10.1; 模块化铁律 3)。在 register 内完成自己的全部
+ * DeferredRegister (Block/Item/BlockEntity/MenuType/CreativeTab) + SERVER 配置 spec + 事件订阅 + 客户端
+ * Screen 注册; 跨子系统协作只经职业框架门面 (JobServices) + 易伤等共享 effect, 不 import 他系统实现类。
+ *
+ * 集成阶段 (本任务不做): 在 MiningDim.registerSubsystems() 追加一行 new EngineerSystem()。
+ * 工程师等级/经验/CD 数据走共享职业框架 capability (JobProgress, JobId.ENGINEER), 不新挂 capability
+ * (与框架 spec 第 2.3 节一致)。
+ *
+ * 配置: 因任务铁律禁改中央 config.MiningServerConfig, 工程师自带 SERVER spec (miningdim-engineer.toml),
+ * 在此经 ModLoadingContext.registerConfig 注册 (集成阶段若合并进主 config 仅搬运 spec 段, 业务实时 get 不受影响)。
+ */
+public final class EngineerSystem implements Subsystem {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/engineer");
+
+    @Override
+    public void register(IEventBus modBus, IEventBus forgeBus) {
+        // 自有 DeferredRegister (注册顺序: Block -> BlockEntity (依赖 Block) -> Item (依赖 Block) -> Menu/Tab)。
+        ModEngineerBlocks.register(modBus);
+        ModEngineerBlockEntities.register(modBus);
+        ModEngineerItems.register(modBus);
+        ModEngineerMenus.register(modBus);
+        ModEngineerTab.register(modBus);
+
+        // SERVER 配置 spec (10.3 C6: 全部平衡数值进 ForgeConfigSpec)。
+        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER,
+                EngineerConfig.SPEC, "miningdim-engineer.toml");
+
+        // 特效事件订阅 (forgeBus): PlayerTick (重塑/机能修复/护盾) / LivingHurt (护盾免疫窗) /
+        // LivingDeath (图腾拦截致死) / AnvilUpdate (禁纳米特效甲铁砧修复)。
+        forgeBus.register(new NanoEffectTicker());
+        forgeBus.register(new NanoShieldHandler());
+        forgeBus.register(new NanoReactorHandler());
+        forgeBus.register(new NanoAnvilGuard());
+
+        // 客户端 Screen 注册 (FMLClientSetupEvent.enqueueWork; 经 DistExecutor 隔离, 防专用服务器触链)。
+        modBus.addListener((FMLClientSetupEvent event) ->
+                event.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
+                        () -> () -> MenuScreens.register(
+                                ModEngineerMenus.PRODUCTION_TABLE.get(), ProductionTableScreen::new))));
+
+        LOGGER.info("[miningdim] millennium engineer subsystem registered (6 plates + 6 tables + effects + QTE)");
+    }
+
+    @Override
+    public String name() {
+        return "EngineerSystem";
+    }
+}

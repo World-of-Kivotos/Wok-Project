@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    "miningdim:tarot_card",
+    "miningdim:tarot_pack_common",
+    "miningdim:tarot_pack_advanced",
+    "miningdim:tarot_pack_shiny"
+  ]
+}

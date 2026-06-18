@@ -1,0 +1,134 @@
+{
+  "cooldownCategory": "buff",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 0,
+          "durationTicks": 200
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 900
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 1,
+          "durationTicks": 300
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 1200
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 2,
+          "durationTicks": 400
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 2400
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 3,
+          "durationTicks": 500
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 1200
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 2,
+          "durationTicks": 2400
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 1600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 1,
+          "durationTicks": 2000
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 2400
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 1,
+          "durationTicks": 1600
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 2900
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 0,
+          "durationTicks": 1200
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 8400,
+    "ops": [
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:invisibility",
+        "amplifier": 0,
+        "durationTicks": 300
+      }
+    ]
+  }
+}

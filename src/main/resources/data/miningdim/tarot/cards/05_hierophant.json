@@ -1,0 +1,146 @@
+{
+  "cooldownCategory": "utility",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "self_max_health",
+          "amount": 40,
+          "durationTicks": 2400,
+          "capUp": 40,
+          "floorDown": 0
+        }
+      ],
+      [
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "self_max_health",
+          "amount": 40,
+          "durationTicks": 2400,
+          "capUp": 40,
+          "floorDown": 0
+        }
+      ],
+      [
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "self_max_health",
+          "amount": 40,
+          "durationTicks": 2400,
+          "capUp": 40,
+          "floorDown": 0
+        }
+      ],
+      [
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "self_max_health",
+          "amount": 40,
+          "durationTicks": 2400,
+          "capUp": 40,
+          "floorDown": 0
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "self_max_health",
+          "amount": 60,
+          "durationTicks": 4800,
+          "capUp": 60,
+          "floorDown": 0
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:levitation",
+          "amplifier": 0,
+          "durationTicks": 2400
+        }
+      ],
+      [
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "self_max_health",
+          "amount": 60,
+          "durationTicks": 4800,
+          "capUp": 60,
+          "floorDown": 0
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:levitation",
+          "amplifier": 0,
+          "durationTicks": 1800
+        }
+      ],
+      [
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "self_max_health",
+          "amount": 60,
+          "durationTicks": 4800,
+          "capUp": 60,
+          "floorDown": 0
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:levitation",
+          "amplifier": 0,
+          "durationTicks": 1200
+        }
+      ],
+      [
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "self_max_health",
+          "amount": 60,
+          "durationTicks": 4800,
+          "capUp": 60,
+          "floorDown": 0
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:levitation",
+          "amplifier": 0,
+          "durationTicks": 900
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 10800,
+    "ops": [
+      {
+        "kind": "self_cleanse"
+      },
+      {
+        "kind": "self_max_health",
+        "amount": 120,
+        "durationTicks": 2400,
+        "capUp": 120,
+        "floorDown": 0
+      }
+    ]
+  }
+}

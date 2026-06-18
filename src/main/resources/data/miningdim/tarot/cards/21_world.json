@@ -1,0 +1,428 @@
+{
+  "cooldownCategory": "buff",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 1,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 1,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 1,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_heal",
+          "amount": 30
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 20
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 1,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 1,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 1,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_heal",
+          "amount": 40
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 25
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 1,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 2,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 1,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_heal",
+          "amount": 50
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 30
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 1,
+          "durationTicks": 1000
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 2,
+          "durationTicks": 1000
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 1000
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 1,
+          "durationTicks": 1000
+        },
+        {
+          "kind": "self_heal",
+          "amount": 60
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 40
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 2,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 2,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 2,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 30
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 1,
+          "durationTicks": 500,
+          "radius": 4
+        },
+        {
+          "kind": "self_max_health",
+          "amount": -40,
+          "durationTicks": 500,
+          "capUp": 0,
+          "floorDown": 40
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 1,
+          "durationTicks": 200
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 1,
+          "durationTicks": 200
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 2,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 2,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 2,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 35
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 1,
+          "durationTicks": 600,
+          "radius": 6
+        },
+        {
+          "kind": "self_max_health",
+          "amount": -35,
+          "durationTicks": 600,
+          "capUp": 0,
+          "floorDown": 40
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 1,
+          "durationTicks": 160
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 1,
+          "durationTicks": 160
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 2,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 3,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 2,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 40
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 1,
+          "durationTicks": 800,
+          "radius": 8
+        },
+        {
+          "kind": "self_max_health",
+          "amount": -30,
+          "durationTicks": 800,
+          "capUp": 0,
+          "floorDown": 40
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 1,
+          "durationTicks": 120
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 1,
+          "durationTicks": 120
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 2,
+          "durationTicks": 1000
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 3,
+          "durationTicks": 1000
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 2,
+          "durationTicks": 1000
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 1000
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 50
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 1,
+          "durationTicks": 1000,
+          "radius": 10
+        },
+        {
+          "kind": "self_max_health",
+          "amount": -20,
+          "durationTicks": 1000,
+          "capUp": 0,
+          "floorDown": 40
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 1,
+          "durationTicks": 80
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 1,
+          "durationTicks": 80
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 10800,
+    "ops": [
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:resistance",
+        "amplifier": 2,
+        "durationTicks": 400
+      },
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:strength",
+        "amplifier": 3,
+        "durationTicks": 400
+      },
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:speed",
+        "amplifier": 2,
+        "durationTicks": 400
+      },
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:haste",
+        "amplifier": 2,
+        "durationTicks": 400
+      },
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:jump_boost",
+        "amplifier": 1,
+        "durationTicks": 400
+      },
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:regeneration",
+        "amplifier": 2,
+        "durationTicks": 400
+      },
+      {
+        "kind": "self_absorption",
+        "amount": 50
+      },
+      {
+        "kind": "self_periodic_absorption",
+        "amount": 25,
+        "periodTicks": 100,
+        "count": 108
+      },
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:night_vision",
+        "amplifier": 0,
+        "durationTicks": 400
+      }
+    ]
+  }
+}

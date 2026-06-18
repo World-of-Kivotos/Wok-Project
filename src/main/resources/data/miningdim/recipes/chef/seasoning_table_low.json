@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "minecraft:smithing_table" },
+    { "item": "minecraft:bowl" },
+    { "item": "minecraft:bowl" }
+  ],
+  "result": {
+    "item": "miningdim:seasoning_table_low",
+    "count": 1
+  }
+}

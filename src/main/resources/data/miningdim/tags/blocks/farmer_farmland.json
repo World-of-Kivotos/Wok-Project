@@ -1,0 +1,10 @@
+{
+  "replace": false,
+  "values": [
+    "miningdim:farmer_farmland_low",
+    "miningdim:farmer_farmland_medium",
+    "miningdim:farmer_farmland_high",
+    "miningdim:farmer_farmland_premium",
+    "miningdim:farmer_farmland_supreme"
+  ]
+}

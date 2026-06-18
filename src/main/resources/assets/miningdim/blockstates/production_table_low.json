@@ -1,0 +1,5 @@
+{
+  "variants": {
+    "": { "model": "miningdim:block/production_table_low" }
+  }
+}

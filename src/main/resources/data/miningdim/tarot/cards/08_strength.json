@@ -1,0 +1,130 @@
+{
+  "cooldownCategory": "buff",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 4,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 15
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 5,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 20
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 6,
+          "durationTicks": 1000
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 25
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 7,
+          "durationTicks": 1200
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 30
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:haste",
+          "amplifier": 1,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:nausea",
+          "amplifier": 0,
+          "durationTicks": 600
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:haste",
+          "amplifier": 2,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:nausea",
+          "amplifier": 0,
+          "durationTicks": 500
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:haste",
+          "amplifier": 3,
+          "durationTicks": 1000
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:nausea",
+          "amplifier": 0,
+          "durationTicks": 400
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:haste",
+          "amplifier": 4,
+          "durationTicks": 1200
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:nausea",
+          "amplifier": 0,
+          "durationTicks": 300
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 9600,
+    "ops": [
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:strength",
+        "amplifier": 4,
+        "durationTicks": 300
+      },
+      {
+        "kind": "self_absorption",
+        "amount": 40
+      }
+    ]
+  }
+}

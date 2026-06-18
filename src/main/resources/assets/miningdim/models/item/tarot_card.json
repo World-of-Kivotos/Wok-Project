@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "miningdim:item/tarot/border_r"
+  },
+  "overrides": [
+    { "predicate": { "miningdim:tarot_quality": 0.1 }, "model": "miningdim:item/tarot_card_sr" },
+    { "predicate": { "miningdim:tarot_quality": 0.2 }, "model": "miningdim:item/tarot_card_ssr" },
+    { "predicate": { "miningdim:tarot_quality": 0.3 }, "model": "miningdim:item/tarot_card_ur" },
+    { "predicate": { "miningdim:tarot_quality": 0.4 }, "model": "miningdim:item/tarot_card_shiny" }
+  ]
+}

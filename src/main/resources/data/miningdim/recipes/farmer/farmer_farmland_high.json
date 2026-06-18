@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "miningdim:farmer_farmland_medium" },
+    { "item": "minecraft:iron_ingot" }
+  ],
+  "result": {
+    "item": "miningdim:farmer_farmland_high",
+    "count": 1
+  }
+}

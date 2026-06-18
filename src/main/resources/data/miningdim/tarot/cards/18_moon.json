@@ -1,0 +1,327 @@
+{
+  "cooldownCategory": "combat",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 40,
+          "radius": 3
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 0,
+          "durationTicks": 40,
+          "radius": 3
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:nausea",
+          "amplifier": 0,
+          "durationTicks": 40,
+          "radius": 3
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 120
+        }
+      ],
+      [
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 60,
+          "radius": 4
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 1,
+          "durationTicks": 60,
+          "radius": 4
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:nausea",
+          "amplifier": 0,
+          "durationTicks": 60,
+          "radius": 4
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 160
+        }
+      ],
+      [
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 80,
+          "radius": 5
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 1,
+          "durationTicks": 80,
+          "radius": 5
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:nausea",
+          "amplifier": 0,
+          "durationTicks": 80,
+          "radius": 5
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 200
+        }
+      ],
+      [
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 100,
+          "radius": 6
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 2,
+          "durationTicks": 100,
+          "radius": 6
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:nausea",
+          "amplifier": 0,
+          "durationTicks": 100,
+          "radius": 6
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 240
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 200
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 200
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 120,
+          "radius": 4
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 2,
+          "durationTicks": 120,
+          "radius": 4
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 0,
+          "durationTicks": 120,
+          "radius": 4
+        },
+        {
+          "kind": "self_max_health",
+          "amount": -40,
+          "durationTicks": 200,
+          "capUp": 0,
+          "floorDown": 40
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 280
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 280
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 160,
+          "radius": 6
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 2,
+          "durationTicks": 160,
+          "radius": 6
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 1,
+          "durationTicks": 160,
+          "radius": 6
+        },
+        {
+          "kind": "self_max_health",
+          "amount": -30,
+          "durationTicks": 280,
+          "capUp": 0,
+          "floorDown": 40
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 360
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 360
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 200,
+          "radius": 8
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 2,
+          "durationTicks": 200,
+          "radius": 8
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 1,
+          "durationTicks": 200,
+          "radius": 8
+        },
+        {
+          "kind": "self_max_health",
+          "amount": -20,
+          "durationTicks": 360,
+          "capUp": 0,
+          "floorDown": 40
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:invisibility",
+          "amplifier": 0,
+          "durationTicks": 480
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 480
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 280,
+          "radius": 10
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 2,
+          "durationTicks": 280,
+          "radius": 10
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 2,
+          "durationTicks": 280,
+          "radius": 10
+        },
+        {
+          "kind": "self_max_health",
+          "amount": -10,
+          "durationTicks": 480,
+          "capUp": 0,
+          "floorDown": 40
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 8400,
+    "ops": [
+      {
+        "kind": "aoe_enemy_potion",
+        "effect": "minecraft:blindness",
+        "amplifier": 0,
+        "durationTicks": 160,
+        "radius": 12
+      },
+      {
+        "kind": "aoe_enemy_potion",
+        "effect": "minecraft:slowness",
+        "amplifier": 2,
+        "durationTicks": 160,
+        "radius": 12
+      },
+      {
+        "kind": "aoe_enemy_potion",
+        "effect": "miningdim:vulnerability",
+        "amplifier": 2,
+        "durationTicks": 160,
+        "radius": 12
+      },
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:invisibility",
+        "amplifier": 0,
+        "durationTicks": 160
+      }
+    ]
+  }
+}

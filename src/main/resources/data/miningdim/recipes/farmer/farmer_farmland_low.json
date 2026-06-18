@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "minecraft:dirt" },
+    { "item": "miningdim:farmer_seed" }
+  ],
+  "result": {
+    "item": "miningdim:farmer_farmland_low",
+    "count": 1
+  }
+}

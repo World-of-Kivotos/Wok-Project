@@ -1,0 +1,13 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "DDD",
+    "DTD",
+    "DDD"
+  ],
+  "key": {
+    "D": { "item": "minecraft:diamond" },
+    "T": { "item": "miningdim:production_table_medium" }
+  },
+  "result": { "item": "miningdim:production_table_high" }
+}

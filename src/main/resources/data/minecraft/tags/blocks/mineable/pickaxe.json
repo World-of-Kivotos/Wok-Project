@@ -1,0 +1,11 @@
+{
+  "replace": false,
+  "values": [
+    "miningdim:production_table_low",
+    "miningdim:production_table_medium",
+    "miningdim:production_table_high",
+    "miningdim:production_table_superior",
+    "miningdim:production_table_transcendent",
+    "miningdim:production_table_radiant"
+  ]
+}

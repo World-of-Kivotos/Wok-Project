@@ -1,0 +1,13 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "NNN",
+    "NTN",
+    "NNN"
+  ],
+  "key": {
+    "N": { "item": "minecraft:netherite_ingot" },
+    "T": { "item": "miningdim:production_table_high" }
+  },
+  "result": { "item": "miningdim:production_table_superior" }
+}

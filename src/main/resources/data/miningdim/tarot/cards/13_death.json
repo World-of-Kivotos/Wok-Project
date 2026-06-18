@@ -1,0 +1,173 @@
+{
+  "cooldownCategory": "combat",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "enemy_target_damage",
+          "amount": 40,
+          "threshold": 16,
+          "radius": 5
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:wither",
+          "amplifier": 1,
+          "durationTicks": 80,
+          "radius": 5
+        }
+      ],
+      [
+        {
+          "kind": "enemy_target_damage",
+          "amount": 55,
+          "threshold": 20,
+          "radius": 5
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:wither",
+          "amplifier": 1,
+          "durationTicks": 100,
+          "radius": 5
+        }
+      ],
+      [
+        {
+          "kind": "enemy_target_damage",
+          "amount": 70,
+          "threshold": 24,
+          "radius": 5
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:wither",
+          "amplifier": 1,
+          "durationTicks": 120,
+          "radius": 5
+        }
+      ],
+      [
+        {
+          "kind": "enemy_target_damage",
+          "amount": 90,
+          "threshold": 28,
+          "radius": 5
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:wither",
+          "amplifier": 1,
+          "durationTicks": 160,
+          "radius": 5
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "self_true_damage",
+          "amount": 30
+        },
+        {
+          "kind": "self_death_contract",
+          "amount": 30,
+          "durationTicks": 1200
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 1,
+          "durationTicks": 100
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 100
+        }
+      ],
+      [
+        {
+          "kind": "self_true_damage",
+          "amount": 24
+        },
+        {
+          "kind": "self_death_contract",
+          "amount": 40,
+          "durationTicks": 1200
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 1,
+          "durationTicks": 120
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 120
+        }
+      ],
+      [
+        {
+          "kind": "self_true_damage",
+          "amount": 18
+        },
+        {
+          "kind": "self_death_contract",
+          "amount": 50,
+          "durationTicks": 1200
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 1,
+          "durationTicks": 160
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 160
+        }
+      ],
+      [
+        {
+          "kind": "self_true_damage",
+          "amount": 12
+        },
+        {
+          "kind": "self_death_contract",
+          "amount": 65,
+          "durationTicks": 1200
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 1,
+          "durationTicks": 200
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 200
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 14400,
+    "ops": [
+      {
+        "kind": "aoe_enemy_damage",
+        "amount": 50,
+        "radius": 12
+      }
+    ]
+  }
+}

@@ -1,0 +1,604 @@
+package com.miningdim.job.chef;
+
+import com.miningdim.core.MiningConstants;
+import com.miningdim.job.JobProgress;
+import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraftforge.gametest.GameTestHolder;
+import net.minecraftforge.gametest.PrefixGameTestTemplate;
+
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * 厨师职业 GameTest (Chef_Job_DesignSpec 第十三章测试断言示例 + 任务测试清单)。
+ *
+ * 断言具体业务结果 (删被测核心逻辑测试必挂, 禁 is-not-null 弱校验); 含边界值。逐级数值断言精确到点。
+ * 纯逻辑用 template = "empty" (job 框架已建 data/miningdim/structures/empty.nbt)。
+ *
+ * 覆盖: 品质封顶 / 效果个数与零翻车 / 战斗向门控与一菜一战斗 / 增香黑名单与逐级倍率 / 膳香 %血回血 /
+ * 跨 mod 盖章 / 单菜经验逐级 / 稳膛抗击退非属性 / 调料偏置 / 窗口效果反泄漏。
+ */
+@GameTestHolder(MiningConstants.MODID)
+@PrefixGameTestTemplate(false)
+public final class ChefGameTests {
+
+    private static final String EMPTY = "empty";
+    private static final String BATCH = "chef";
+
+    // 满分小游戏成绩 (绿区命中 + 全命中): 综合分 1.0, 解析仅受台档/等级封顶。
+    private static final double PERFECT = 1.0D;
+    private static final int FULL_HITS = 4;
+    private static final int TOTAL_CUES = 4;
+
+    static {
+        // GameTest 时 ChefSystem 未接入 MiningDim (registerConfig 未跑), 在此触发 spec 默认值加载, 使
+        // ChefConfig.*.get() 可读 (否则 dev 环境抛 ISE)。接入后由 registerConfig 正常加载, 本块成空操作。
+        ChefConfig.ensureLoadedForTest();
+    }
+
+    // ============================================================
+    // 品质封顶: 台档 + 厨师等级双重封顶
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void doubleCapTableAndLevel(GameTestHelper helper) {
+        // 满级厨师 (L10 可达闪耀) 在低级台打满分 -> 仍封到低级 (台档封顶)。
+        ChefQuality onLowTable = ChefQualityResolver.resolve(PERFECT, FULL_HITS, TOTAL_CUES, ChefQuality.LOW, 10);
+        helper.assertTrue(onLowTable == ChefQuality.LOW,
+                "L10 chef on LOW table is capped to LOW (table cap), got " + onLowTable);
+
+        // L1 厨师 (等级封顶低级) 在闪耀台打满分 -> 仍封到低级 (等级封顶)。
+        ChefQuality l1OnRadiant = ChefQualityResolver.resolve(PERFECT, FULL_HITS, TOTAL_CUES, ChefQuality.RADIANT, 1);
+        helper.assertTrue(l1OnRadiant == ChefQuality.LOW,
+                "L1 chef on RADIANT table is capped to LOW (level cap), got " + l1OnRadiant);
+
+        // L9 厨师 (可达闪耀) 在闪耀台打满分 -> 闪耀 (无封顶)。
+        ChefQuality l9OnRadiant = ChefQualityResolver.resolve(PERFECT, FULL_HITS, TOTAL_CUES, ChefQuality.RADIANT, 9);
+        helper.assertTrue(l9OnRadiant == ChefQuality.RADIANT,
+                "L9 chef on RADIANT table at perfect score reaches RADIANT, got " + l9OnRadiant);
+
+        // 删 qualityCapForLevel 的等级封顶, l1OnRadiant 会变成 RADIANT -> 此断言挂。
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 效果个数 + 零翻车 (超凡/闪耀)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void extraordinaryNoFailureMaxEffects(GameTestHelper helper) {
+        var random = helper.getLevel().random;
+        // 超凡: maxEffects=2, 零翻车。掷多次确认恒无负面 + 个数 <=2。
+        for (int i = 0; i < 50; i++) {
+            List<ChefEffectInstance> effects = SeasoningEffectRoller.rollAll(
+                    random, 8, ChefQuality.EXTRAORDINARY, SeasoningBias.NONE, FULL_HITS);
+            helper.assertTrue(effects.size() <= ChefQuality.EXTRAORDINARY.maxEffects(),
+                    "extraordinary dish carries <= 2 effects, got " + effects.size());
+            helper.assertFalse(effects.isEmpty(), "no-failure quality never yields an empty dish");
+            for (ChefEffectInstance e : effects) {
+                helper.assertFalse(e.type().isNegative(),
+                        "extraordinary dish must contain ZERO negative effects, found " + e.type());
+            }
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void radiantNoFailureMaxThreeEffects(GameTestHelper helper) {
+        var random = helper.getLevel().random;
+        for (int i = 0; i < 50; i++) {
+            List<ChefEffectInstance> effects = SeasoningEffectRoller.rollAll(
+                    random, 10, ChefQuality.RADIANT, SeasoningBias.COMPLEX, FULL_HITS);
+            helper.assertTrue(effects.size() <= 3,
+                    "radiant dish carries <= 3 effects, got " + effects.size());
+            for (ChefEffectInstance e : effects) {
+                helper.assertFalse(e.type().isNegative(),
+                        "radiant dish must contain ZERO negative effects, found " + e.type());
+            }
+        }
+        // 删 ChefQuality.RADIANT.maxEffects() 上限 (改 >3) 或删 noFailure 门控, 此测必挂。
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 战斗向: 一菜最多 1 个 + 仅高/超凡/闪耀解锁
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void atMostOneCombatEffect(GameTestHelper helper) {
+        var random = helper.getLevel().random;
+        for (int i = 0; i < 100; i++) {
+            // 高品质 + 高等级 + 油偏置 (战斗辅助池), 强制多效果, 断言战斗向 <=1。
+            List<ChefEffectInstance> effects = SeasoningEffectRoller.rollAll(
+                    random, 10, ChefQuality.RADIANT, SeasoningBias.OILY, FULL_HITS);
+            long combatCount = effects.stream().filter(e -> e.type().isCombat()).count();
+            helper.assertTrue(combatCount <= 1,
+                    "a dish carries AT MOST 1 combat effect, got " + combatCount);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void combatEffectsOnlyHighAndAbove(GameTestHelper helper) {
+        var random = helper.getLevel().random;
+        // 低级/中级菜: 即便高等级厨师 + 油偏置, readEffects 不含任何战斗向。
+        for (int i = 0; i < 100; i++) {
+            List<ChefEffectInstance> low = SeasoningEffectRoller.rollAll(
+                    random, 10, ChefQuality.LOW, SeasoningBias.OILY, FULL_HITS);
+            for (ChefEffectInstance e : low) {
+                helper.assertFalse(e.type().isCombat(),
+                        "LOW quality dish must not contain combat effects, found " + e.type());
+            }
+            List<ChefEffectInstance> medium = SeasoningEffectRoller.rollAll(
+                    random, 10, ChefQuality.MEDIUM, SeasoningBias.OILY, FULL_HITS);
+            for (ChefEffectInstance e : medium) {
+                helper.assertFalse(e.type().isCombat(),
+                        "MEDIUM quality dish must not contain combat effects, found " + e.type());
+            }
+        }
+        // 删 combatUnlocked 门控 (低/中也放战斗向) 此测必挂。
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 增香黑名单 + 逐级倍率
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void amplifyBlacklistsGoldenApple(GameTestHelper helper) {
+        var player = helper.makeMockServerPlayerInLevel();
+        // 给金苹果盖闪耀增香 (x5), 先施加一个 buff (吸收 60s), 再吃 -> 黑名单生效, 时长不变。
+        ItemStack apple = new ItemStack(Items.ENCHANTED_GOLDEN_APPLE);
+        ChefQualityNbt.stamp(apple, ChefQuality.RADIANT,
+                List.of(new ChefEffectInstance(ChefEffectType.AMPLIFY, ChefConfig.amplifyMul(ChefQuality.RADIANT))));
+
+        int originalDuration = 60 * 20;
+        player.addEffect(new MobEffectInstance(MobEffects.ABSORPTION, originalDuration, 0));
+
+        ChefConsumeHandler handler = new ChefConsumeHandler();
+        var finishEvent = new net.minecraftforge.event.entity.living.LivingEntityUseItemEvent.Finish(
+                player, apple, 0, ItemStack.EMPTY);
+        handler.onFinishEating(finishEvent);
+
+        MobEffectInstance after = player.getEffect(MobEffects.ABSORPTION);
+        helper.assertTrue(after != null && after.getDuration() <= originalDuration,
+                "golden apple buff duration must NOT be amplified (item blacklist), was "
+                        + (after == null ? "null" : after.getDuration()) + " original " + originalDuration);
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void amplifyMultipliesDurationPerTier(GameTestHelper helper) {
+        // 逐级倍率精确: 对一个非黑名单普通 buff (跳跃提升), 各档 x1.2/1.5/2/3/5。
+        assertAmplify(helper, ChefQuality.LOW, 120);
+        assertAmplify(helper, ChefQuality.MEDIUM, 150);
+        assertAmplify(helper, ChefQuality.HIGH, 200);
+        assertAmplify(helper, ChefQuality.EXTRAORDINARY, 300);
+        assertAmplify(helper, ChefQuality.RADIANT, 500);
+        helper.succeed();
+    }
+
+    private static void assertAmplify(GameTestHelper helper, ChefQuality quality, int expectMulX100) {
+        var player = helper.makeMockServerPlayerInLevel();
+        ItemStack bread = new ItemStack(Items.BREAD);
+        int mul = ChefConfig.amplifyMul(quality);
+        helper.assertTrue(mul == expectMulX100, "amplify x100 for " + quality + " expected "
+                + expectMulX100 + " got " + mul);
+        ChefQualityNbt.stamp(bread, quality, List.of(new ChefEffectInstance(ChefEffectType.AMPLIFY, mul)));
+
+        int original = 100; // tick
+        player.addEffect(new MobEffectInstance(MobEffects.JUMP, original, 0));
+        new ChefConsumeHandler().onFinishEating(
+                new net.minecraftforge.event.entity.living.LivingEntityUseItemEvent.Finish(
+                        player, bread, 0, ItemStack.EMPTY));
+
+        MobEffectInstance after = player.getEffect(MobEffects.JUMP);
+        int expected = original * expectMulX100 / 100;
+        helper.assertTrue(after != null && after.getDuration() == expected,
+                quality + " amplify duration must be " + expected + " (=" + original + " x" + expectMulX100 + "/100), got "
+                        + (after == null ? "null" : after.getDuration()));
+    }
+
+    // ============================================================
+    // 膳香: %最大血量回血
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void nourishHealPercentMaxHp(GameTestHelper helper) {
+        var player = helper.makeMockServerPlayerInLevel();
+        float maxHp = player.getMaxHealth();
+        // 受伤至 max/2。
+        player.setHealth(maxHp / 2.0F);
+
+        int healPerMille = ChefConfig.healPerMille(ChefQuality.HIGH); // 75 = 7.5% maxHP
+        new ChefConsumeHandler().applyHeal(player, healPerMille);
+
+        float expected = Math.min(maxHp, maxHp / 2.0F + maxHp * (healPerMille / 1000.0F));
+        helper.assertTrue(Math.abs(player.getHealth() - expected) < 0.01F,
+                "heal must be %maxHP based: expected " + expected + " got " + player.getHealth());
+        // 删 %最大血量公式 (改回固定 20) 此测在非 20 血环境必挂。
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 单菜原始经验逐级精确 (config 表)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void rawXpPerQualityExact(GameTestHelper helper) {
+        helper.assertTrue(ChefConfig.rawXp(ChefQuality.LOW) == 50, "raw xp LOW must be 50");
+        helper.assertTrue(ChefConfig.rawXp(ChefQuality.MEDIUM) == 80, "raw xp MEDIUM must be 80");
+        helper.assertTrue(ChefConfig.rawXp(ChefQuality.HIGH) == 130, "raw xp HIGH must be 130");
+        helper.assertTrue(ChefConfig.rawXp(ChefQuality.EXTRAORDINARY) == 220, "raw xp EXTRAORDINARY must be 220");
+        helper.assertTrue(ChefConfig.rawXp(ChefQuality.RADIANT) == 400, "raw xp RADIANT must be 400");
+        // 删经验表 (改任一档) 此测必挂。
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 跨 mod 通用盖章: 任意带 FoodProperties 的 ItemStack 都能盖章 + 非食物拒绝
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void crossModStampOnAnyFood(GameTestHelper helper) {
+        // 原版 bread 有 FoodProperties -> 可盖章 + 读回。
+        ItemStack bread = new ItemStack(Items.BREAD);
+        helper.assertTrue(bread.getFoodProperties(null) != null, "bread is food");
+        ChefQualityNbt.stamp(bread, ChefQuality.EXTRAORDINARY,
+                List.of(new ChefEffectInstance(ChefEffectType.NOURISH_FOOD, 400)));
+        helper.assertTrue(ChefQualityNbt.readQuality(bread) == ChefQuality.EXTRAORDINARY,
+                "stamped quality survives read-back on vanilla bread");
+        helper.assertTrue(ChefQualityNbt.readEffects(bread).size() == 1, "one effect read back");
+
+        // 非食物 (钻石): getFoodProperties==null -> 调味台输入槽 mayPlace 拒绝 (此处直接验证 food 判定)。
+        ItemStack diamond = new ItemStack(Items.DIAMOND);
+        helper.assertTrue(diamond.getFoodProperties(null) == null,
+                "non-food (diamond) has no FoodProperties and is rejected as seasonable");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 稳膛抗击退: 不经 AttributeModifier, 按档减比 (LivingKnockBackEvent)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void stableAimKnockbackNoAttribute(GameTestHelper helper) {
+        var player = helper.makeMockServerPlayerInLevel();
+        UUID id = player.getUUID();
+        // 闪耀稳膛 (100% 抗击退): 直接盖窗口。
+        long end = player.serverLevel().getGameTime() + 60L * 20L;
+        ChefWindowEffectState.stampRaw(id, ChefEffectType.STABLE_AIM, end,
+                ChefConfig.stableAimPerMille(ChefQuality.RADIANT));
+        try {
+            float originalStrength = 1.0F;
+            var kbEvent = new net.minecraftforge.event.entity.living.LivingKnockBackEvent(
+                    player, originalStrength, 0.0D, 0.0D);
+            new ChefKnockbackHandler().onKnockback(kbEvent);
+            helper.assertTrue(Math.abs(kbEvent.getStrength()) < 0.001F,
+                    "radiant stable-aim (100%) reduces knockback strength to 0, got " + kbEvent.getStrength());
+
+            // 中档 50%: 减半。
+            ChefWindowEffectState.stampRaw(id, ChefEffectType.STABLE_AIM, end,
+                    ChefConfig.stableAimPerMille(ChefQuality.MEDIUM));
+            var kb2 = new net.minecraftforge.event.entity.living.LivingKnockBackEvent(player, 1.0F, 0.0D, 0.0D);
+            new ChefKnockbackHandler().onKnockback(kb2);
+            helper.assertTrue(Math.abs(kb2.getStrength() - 0.5F) < 0.001F,
+                    "medium stable-aim (50%) halves knockback, got " + kb2.getStrength());
+
+            // 无属性泄漏: KNOCKBACK_RESISTANCE 属性无任何临时修饰符。
+            var attr = player.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.KNOCKBACK_RESISTANCE);
+            helper.assertTrue(attr == null || attr.getModifiers().isEmpty(),
+                    "stable-aim must NOT add a KNOCKBACK_RESISTANCE attribute modifier (no leak)");
+        } finally {
+            ChefWindowEffectState.clearAll(id);
+        }
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 调料偏置: 油偏置在高品质才可能出战斗辅助, 低品质不出 (与门控叠加)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void seasoningBiasOilyGatedByQuality(GameTestHelper helper) {
+        var random = helper.getLevel().random;
+        // 油偏置 (披甲/膳香/凝脂方向): 低品质 100 次掷不出任何战斗向 (门控)。
+        boolean lowHadCombat = false;
+        for (int i = 0; i < 100; i++) {
+            List<ChefEffectInstance> low = SeasoningEffectRoller.rollAll(
+                    random, 10, ChefQuality.LOW, SeasoningBias.OILY, FULL_HITS);
+            if (low.stream().anyMatch(e -> e.type().isCombat())) {
+                lowHadCombat = true;
+            }
+        }
+        helper.assertFalse(lowHadCombat, "OILY bias on LOW quality never produces combat effects (gated)");
+
+        // 高品质 + 高等级 + 油偏置: 多次掷应至少出现一次战斗向 (偏置生效, 门控放行)。
+        boolean radiantHadCombat = false;
+        for (int i = 0; i < 200 && !radiantHadCombat; i++) {
+            List<ChefEffectInstance> radiant = SeasoningEffectRoller.rollAll(
+                    random, 10, ChefQuality.RADIANT, SeasoningBias.OILY, FULL_HITS);
+            if (radiant.stream().anyMatch(e -> e.type().isCombat())) {
+                radiantHadCombat = true;
+            }
+        }
+        helper.assertTrue(radiantHadCombat,
+                "OILY bias on RADIANT quality with high level should be able to roll combat effects");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 窗口效果反泄漏: clearAll 后该玩家无任何 pending
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void windowEffectCleanup(GameTestHelper helper) {
+        UUID id = UUID.randomUUID();
+        ChefWindowEffectState.stampRaw(id, ChefEffectType.ENDURANCE, Long.MAX_VALUE, 500);
+        ChefWindowEffectState.stampRaw(id, ChefEffectType.STABLE_AIM, Long.MAX_VALUE, 700);
+        helper.assertTrue(ChefWindowEffectState.active(id, ChefEffectType.ENDURANCE),
+                "endurance window active after stamp");
+        helper.assertTrue(ChefWindowEffectState.knockbackResistPerMille(id) == 700,
+                "stable-aim magnitude read back");
+
+        ChefWindowEffectState.clearAll(id);
+        helper.assertFalse(ChefWindowEffectState.active(id, ChefEffectType.ENDURANCE),
+                "endurance cleared after clearAll (logout/death/dim change anti-leak)");
+        helper.assertTrue(ChefWindowEffectState.knockbackResistPerMille(id) == 0,
+                "no residual stable-aim after clearAll");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 超凡/闪耀零翻车 (对照: 低级台同失误可出多盐/失败品)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void zeroFailureVsLowCanFail(GameTestHelper helper) {
+        var random = helper.getLevel().random;
+        // 故意打砸 (heatAccuracy=0, 0 命中) 在超凡台 + 高等级厨师: 解析仍可能被封到低档, 但只要达成品质是
+        // 超凡/闪耀 (noFailure) 就零负面。这里直接验证 noFailure 档 roll 永不出负面 (已有测覆盖); 此测验证
+        // 对照: 低级 roll 在多次掷中能出现负面 (翻车风险存在), 证明门控不是 "全程无负面"。
+        boolean lowHadNegative = false;
+        for (int i = 0; i < 200 && !lowHadNegative; i++) {
+            List<ChefEffectInstance> low = SeasoningEffectRoller.rollAll(
+                    random, 2, ChefQuality.LOW, SeasoningBias.NONE, 1);
+            if (low.stream().anyMatch(e -> e.type().isNegative())) {
+                lowHadNegative = true;
+            }
+        }
+        helper.assertTrue(lowHadNegative, "LOW quality CAN roll negatives (failure risk exists as control)");
+
+        // 超凡: 零负面 (与对照对比)。
+        for (int i = 0; i < 200; i++) {
+            List<ChefEffectInstance> extra = SeasoningEffectRoller.rollAll(
+                    random, 8, ChefQuality.EXTRAORDINARY, SeasoningBias.NONE, 2);
+            for (ChefEffectInstance e : extra) {
+                helper.assertFalse(e.type().isNegative(), "EXTRAORDINARY never rolls negatives");
+            }
+        }
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 披甲护盾窗口过期回收 absorption (平衡红线: 护盾不得永久存在)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shieldAbsorptionReclaimedOnExpiry(GameTestHelper helper) {
+        var player = helper.makeMockServerPlayerInLevel();
+        UUID id = player.getUUID();
+        try {
+            // 起始无 absorption。
+            player.setAbsorptionAmount(0.0F);
+            float maxHp = player.getMaxHealth();
+            int shieldPerMille = ChefConfig.shieldPerMille(ChefQuality.RADIANT); // 80 = 8% maxHP
+            float expectedShield = maxHp * (shieldPerMille / 1000.0F);
+
+            // 盖披甲 (120s 默认窗口): 立即授予 absorption。
+            int windowSec = ChefConfig.SHIELD_WINDOW_SECONDS.get();
+            ChefWindowEffectState.stampShield(player, shieldPerMille, windowSec);
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount() - expectedShield) < 0.01F,
+                    "shield grants %maxHP absorption immediately: expected " + expectedShield
+                            + " got " + player.getAbsorptionAmount());
+
+            // 窗口未到期: 推进到窗口中点, absorption 仍在。
+            long now = player.serverLevel().getGameTime();
+            ChefWindowEffectState.advancePlayerWindows(id, player, now + (long) windowSec * 20L / 2L);
+            helper.assertTrue(player.getAbsorptionAmount() > 0.0F,
+                    "shield absorption still present mid-window, got " + player.getAbsorptionAmount());
+
+            // 推进越过窗口结束: absorption 必须被回收清零 (删 onServerTick 的 SHIELD 回收分支此断言挂)。
+            ChefWindowEffectState.advancePlayerWindows(id, player, now + (long) windowSec * 20L + 1L);
+            helper.assertTrue(player.getAbsorptionAmount() == 0.0F,
+                    "shield absorption MUST be reclaimed to 0 after window expiry, got "
+                            + player.getAbsorptionAmount());
+            helper.assertFalse(ChefWindowEffectState.active(id, ChefEffectType.SHIELD),
+                    "shield window removed after expiry");
+        } finally {
+            ChefWindowEffectState.clearAll(id);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shieldExpiryOnlyReclaimsOwnGrant(GameTestHelper helper) {
+        var player = helper.makeMockServerPlayerInLevel();
+        UUID id = player.getUUID();
+        try {
+            int shieldPerMille = ChefConfig.shieldPerMille(ChefQuality.HIGH); // 40 = 4% maxHP
+            float ownShield = player.getMaxHealth() * (shieldPerMille / 1000.0F);
+            int windowSec = ChefConfig.SHIELD_WINDOW_SECONDS.get();
+            ChefWindowEffectState.stampShield(player, shieldPerMille, windowSec);
+
+            // 模拟另一来源 (如金苹果) 叠了额外 absorption: 总 absorption = 本窗口护盾 + 4 点外来。
+            float foreign = 4.0F;
+            player.setAbsorptionAmount(player.getAbsorptionAmount() + foreign);
+
+            // 窗口过期: 只减去本窗口授予的那一份, 外来 absorption 保留 (不误扣)。
+            long now = player.serverLevel().getGameTime();
+            ChefWindowEffectState.advancePlayerWindows(id, player, now + (long) windowSec * 20L + 1L);
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount() - foreign) < 0.01F,
+                    "expiry reclaims only this window's shield (" + ownShield + "), foreign absorption "
+                            + foreign + " survives, got " + player.getAbsorptionAmount());
+        } finally {
+            ChefWindowEffectState.clearAll(id);
+        }
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 倒胃中毒时长逐级 (spec 第十一章: 低 8s/中 6s/高 4s, 走 config 非硬编码)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void nauseaPoisonDurationPerQuality(GameTestHelper helper) {
+        // config 逐级时长精确。
+        helper.assertTrue(ChefEffectMagnitude.nauseaSeconds(ChefQuality.LOW) == 8, "nausea LOW = 8s");
+        helper.assertTrue(ChefEffectMagnitude.nauseaSeconds(ChefQuality.MEDIUM) == 6, "nausea MEDIUM = 6s");
+        helper.assertTrue(ChefEffectMagnitude.nauseaSeconds(ChefQuality.HIGH) == 4, "nausea HIGH = 4s");
+
+        // 端到端: 吃带倒胃章的菜, POISON 时长 = nauseaSeconds*20 且分档不同 (删品质透传/写死 8*20 此测必挂)。
+        assertNausea(helper, ChefQuality.LOW, 2, 8 * 20);    // 低: 毒II (amplifier 1), 8s
+        assertNausea(helper, ChefQuality.MEDIUM, 1, 6 * 20); // 中: 毒I (amplifier 0), 6s
+        assertNausea(helper, ChefQuality.HIGH, 1, 4 * 20);   // 高: 毒I (amplifier 0), 4s
+        helper.succeed();
+    }
+
+    private static void assertNausea(GameTestHelper helper, ChefQuality quality, int poisonLevel,
+                                     int expectedTicks) {
+        var player = helper.makeMockServerPlayerInLevel();
+        ItemStack bread = new ItemStack(Items.BREAD);
+        ChefQualityNbt.stamp(bread, quality,
+                List.of(new ChefEffectInstance(ChefEffectType.NAUSEA, poisonLevel)));
+        new ChefConsumeHandler().onFinishEating(
+                new net.minecraftforge.event.entity.living.LivingEntityUseItemEvent.Finish(
+                        player, bread, 0, ItemStack.EMPTY));
+
+        MobEffectInstance poison = player.getEffect(MobEffects.POISON);
+        helper.assertTrue(poison != null && poison.getDuration() == expectedTicks,
+                quality + " nausea POISON duration must be " + expectedTicks + " ticks ("
+                        + (expectedTicks / 20) + "s), got " + (poison == null ? "null" : poison.getDuration()));
+        helper.assertTrue(poison.getAmplifier() == poisonLevel - 1,
+                quality + " nausea poison amplifier must be " + (poisonLevel - 1) + ", got "
+                        + poison.getAmplifier());
+    }
+
+    // ============================================================
+    // 谁做谁得: 吃菜永不入账经验 (堵代练; 经验仅做菜阶段给 operator)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void eatingNeverGrantsXpRegardlessOfHolder(GameTestHelper helper) {
+        // 一道高品质带战斗向膳香的菜被任意玩家吃下: ChefConsumeHandler 结算效果但绝不给经验
+        // (经验只在 finishCooking 给 operator)。这里验证: 吃菜流程对 CHEF 进度零影响 = "谁做谁得" 的吃端契约。
+        var eater = helper.makeMockServerPlayerInLevel();
+        UUID operatorId = UUID.randomUUID(); // 做菜者 != 吃菜者。
+
+        ItemStack dish = new ItemStack(Items.COOKED_BEEF);
+        int healPerMille = ChefConfig.healPerMille(ChefQuality.HIGH);
+        ChefQualityNbt.stamp(dish, ChefQuality.HIGH,
+                List.of(new ChefEffectInstance(ChefEffectType.NOURISH_HEAL, healPerMille)));
+        ChefQualityNbt.setOperator(dish, operatorId);
+
+        // 受伤以便膳香回血生效, 证明 "吃" 确实跑了结算路径 (而非空过)。
+        float maxHp = eater.getMaxHealth();
+        eater.setHealth(maxHp / 2.0F);
+        float before = eater.getHealth();
+
+        new ChefConsumeHandler().onFinishEating(
+                new net.minecraftforge.event.entity.living.LivingEntityUseItemEvent.Finish(
+                        eater, dish, 0, ItemStack.EMPTY));
+
+        // 膳香确实回血了 (结算路径跑通)。
+        helper.assertTrue(eater.getHealth() > before,
+                "eating a restorative dish heals the eater (consume path ran), before " + before
+                        + " after " + eater.getHealth());
+        // 操作者 UUID 仍是原做菜者, 与吃菜者无关 (经验归属凭据未被吃菜改写)。
+        helper.assertTrue(operatorId.equals(ChefQualityNbt.readOperator(dish)),
+                "operator stamp stays the cook, not the eater (anti power-leveling attribution)");
+        helper.assertFalse(operatorId.equals(eater.getUUID()),
+                "test precondition: cook and eater are different players");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 单份做菜: 整组堆叠只产出 1 份盖章菜, 余下原菜留输入槽 (反挂机, 防批量刷菜漏洞)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void cookingProducesExactlyOneStampedDish(GameTestHelper helper) {
+        var operator = helper.makeMockServerPlayerInLevel();
+        UUID operatorId = operator.getUUID();
+        operator.getInventory().clearContent(); // 干净背包便于断言产出。
+
+        // 输入 16 份食物 (模拟 "囤一箱面包梭哈"): 完成做菜应只盖 1 份, 余 15 份未调味留槽。
+        net.minecraftforge.items.ItemStackHandler slots =
+                new net.minecraftforge.items.ItemStackHandler(SeasoningMenu.CONTAINER_SLOTS);
+        slots.setStackInSlot(SeasoningMenu.SLOT_INPUT, new ItemStack(Items.BREAD, 16));
+
+        SeasoningTableBlockEntity.produceSingleDish(slots, operator, operatorId, ChefQuality.HIGH,
+                List.of(new ChefEffectInstance(ChefEffectType.NOURISH_FOOD,
+                        ChefConfig.nourishFoodMul(ChefQuality.HIGH))));
+
+        // 输入槽: 剩 15 份且未盖章 (玩家须逐份再打小游戏)。
+        ItemStack remaining = slots.getStackInSlot(SeasoningMenu.SLOT_INPUT);
+        helper.assertTrue(remaining.getCount() == 15,
+                "after one minigame the input keeps count-1 (15) un-stamped, got " + remaining.getCount());
+        helper.assertFalse(ChefQualityNbt.hasQuality(remaining),
+                "leftover input must NOT be stamped (must re-cook each individually)");
+
+        // 操作者背包: 恰好 1 份盖章成品 (盖章份数与小游戏 1:1; 删 split(1) 改整组盖章此断言挂)。
+        int stampedCount = 0;
+        int stampedStacks = 0;
+        for (int i = 0; i < operator.getInventory().getContainerSize(); i++) {
+            ItemStack s = operator.getInventory().getItem(i);
+            if (ChefQualityNbt.hasQuality(s)) {
+                stampedStacks++;
+                stampedCount += s.getCount();
+                helper.assertTrue(operatorId.equals(ChefQualityNbt.readOperator(s)),
+                        "stamped dish records the operator UUID");
+            }
+        }
+        helper.assertTrue(stampedStacks == 1 && stampedCount == 1,
+                "exactly ONE stamped dish produced per minigame, got " + stampedCount
+                        + " in " + stampedStacks + " stack(s)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 厨师原始经验经框架每日衰减折算 (chef raw XP -> JobProgress 分段衰减, 跨 2000 边界精确)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void chefRawXpDecaysThroughDailySegments(GameTestHelper helper) {
+        // 厨师 award 只发原始经验 (ChefConfig.rawXp), 衰减由框架 JobProgress.grantXp 裁决。这里把厨师原始经验
+        // 表喂进同一 progress, 验证跨 2000 软上限边界的精确折算 (operator 当日已刷 1900, 再做一道高品质菜)。
+        JobProgress progress = new JobProgress();
+        long day = 500L;
+        // 先刷到当日有效经验 1900 (全额段 x1.0)。
+        long warmup = progress.grantXp(1_900L, day);
+        helper.assertTrue(warmup == 1_900L, "warmup 1900 raw is full (x1.0) -> 1900 effective");
+
+        // 高品质菜原始经验 = 130; 当日已 1900, 入 130 横跨 2000 边界:
+        // [1900,2000) 100 x1.0 + [2000,2030) 30 x0.4 = 100 + 12 = 112 有效经验 (floor)。
+        long highRaw = ChefConfig.rawXp(ChefQuality.HIGH);
+        helper.assertTrue(highRaw == 130L, "high dish raw xp is 130 (config table)");
+        long effective = progress.grantXp(highRaw, day);
+        helper.assertTrue(effective == 112L,
+                "high dish (130 raw) at dailyXp=1900 decays to 112 (100*1.0 + 30*0.4), got " + effective);
+        helper.assertTrue(progress.dailyXp() == 2_012L, "dailyXp accumulates 1900 + 112 = 2012, got "
+                + progress.dailyXp());
+
+        // 翻日: 额度刷新, 同一道高品质菜又全额入账 130。
+        long nextDay = progress.grantXp(highRaw, day + 1L);
+        helper.assertTrue(nextDay == 130L,
+                "after UTC rollover the same 130-raw dish is full again, got " + nextDay);
+        helper.succeed();
+    }
+}

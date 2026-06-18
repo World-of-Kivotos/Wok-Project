@@ -1,0 +1,279 @@
+{
+  "cooldownCategory": "buff",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:jump_boost",
+          "amplifier": 1,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:haste",
+          "amplifier": 1,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 0,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "aoe_enemy_damage",
+          "amount": 4,
+          "radius": 2
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:jump_boost",
+          "amplifier": 1,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:haste",
+          "amplifier": 1,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 0,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "aoe_enemy_damage",
+          "amount": 5,
+          "radius": 3
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:jump_boost",
+          "amplifier": 1,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:haste",
+          "amplifier": 1,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 1,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "aoe_enemy_damage",
+          "amount": 6,
+          "radius": 4
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 1,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:jump_boost",
+          "amplifier": 1,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:haste",
+          "amplifier": 1,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 1,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_cleanse"
+        },
+        {
+          "kind": "aoe_enemy_damage",
+          "amount": 8,
+          "radius": 5
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 2,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 2,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 25
+        },
+        {
+          "kind": "aoe_enemy_damage",
+          "amount": 6,
+          "radius": 3
+        },
+        {
+          "kind": "self_true_damage",
+          "amount": 36
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 2,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 2,
+          "durationTicks": 500
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 30
+        },
+        {
+          "kind": "aoe_enemy_damage",
+          "amount": 8,
+          "radius": 4
+        },
+        {
+          "kind": "self_true_damage",
+          "amount": 28
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 3,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 2,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 35
+        },
+        {
+          "kind": "aoe_enemy_damage",
+          "amount": 10,
+          "radius": 5
+        },
+        {
+          "kind": "self_true_damage",
+          "amount": 20
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 3,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:speed",
+          "amplifier": 2,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_absorption",
+          "amount": 45
+        },
+        {
+          "kind": "aoe_enemy_damage",
+          "amount": 13,
+          "radius": 6
+        },
+        {
+          "kind": "self_true_damage",
+          "amount": 12
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 9600,
+    "ops": [
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:strength",
+        "amplifier": 3,
+        "durationTicks": 300
+      },
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:speed",
+        "amplifier": 2,
+        "durationTicks": 300
+      },
+      {
+        "kind": "self_absorption",
+        "amount": 45
+      },
+      {
+        "kind": "self_cleanse"
+      }
+    ]
+  }
+}

@@ -1,0 +1,197 @@
+{
+  "cooldownCategory": "combat",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 2,
+          "durationTicks": 360
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:wither",
+          "amplifier": 0,
+          "durationTicks": 360
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 1,
+          "durationTicks": 160
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 3,
+          "durationTicks": 440
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:wither",
+          "amplifier": 0,
+          "durationTicks": 440
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 1,
+          "durationTicks": 140
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 4,
+          "durationTicks": 520
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:wither",
+          "amplifier": 0,
+          "durationTicks": 520
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 1,
+          "durationTicks": 120
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 5,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:wither",
+          "amplifier": 0,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 1,
+          "durationTicks": 100
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 2,
+          "durationTicks": 120,
+          "radius": 5
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 60,
+          "radius": 5
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 3,
+          "durationTicks": 400
+        }
+      ],
+      [
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 2,
+          "durationTicks": 160,
+          "radius": 6
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 80,
+          "radius": 6
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 3,
+          "durationTicks": 480
+        }
+      ],
+      [
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 2,
+          "durationTicks": 200,
+          "radius": 7
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 100,
+          "radius": 7
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 3,
+          "durationTicks": 560
+        }
+      ],
+      [
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 2,
+          "durationTicks": 240,
+          "radius": 8
+        },
+        {
+          "kind": "aoe_enemy_potion",
+          "effect": "minecraft:blindness",
+          "amplifier": 0,
+          "durationTicks": 120,
+          "radius": 8
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:strength",
+          "amplifier": 3,
+          "durationTicks": 640
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 10800,
+    "ops": [
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:strength",
+        "amplifier": 5,
+        "durationTicks": 440
+      },
+      {
+        "kind": "self_max_health",
+        "amount": -30,
+        "durationTicks": 440,
+        "capUp": 0,
+        "floorDown": 20
+      }
+    ]
+  }
+}

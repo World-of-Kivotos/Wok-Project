@@ -1,0 +1,14 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "BSB",
+    "BTB",
+    "BBB"
+  ],
+  "key": {
+    "B": { "item": "minecraft:netherite_block" },
+    "S": { "item": "minecraft:nether_star" },
+    "T": { "item": "miningdim:production_table_transcendent" }
+  },
+  "result": { "item": "miningdim:production_table_radiant" }
+}

@@ -20,6 +20,8 @@ import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingDropsEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.level.BlockEvent;
+import net.minecraftforge.event.server.ServerStartedEvent;
+import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.slf4j.Logger;
@@ -45,8 +47,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * 属未交付压力子系统的职责, 本子系统只在 {@link AbuseGuard} 算出裁决值并存 {@link PlayerAbuseState},
  * 待压力子系统经其门面消费; 此处不 import 其实现类 (铁律 2)。
  *
- * 本子系统不提供 core 门面接口 (第十八章在 core 无对应 IXxx), 故不向 MiningServices 注入服务,
- * 仅做事件接线; 与 ErrorSystem 同属"无对外门面"的事件型子系统。
+ * 货币层接线 (经济文档第九章 + 框架 spec 第三章): 在 {@link ServerStartedEvent} 取矿山维度 ServerLevel 建
+ * {@link EconomyWalletData} 账本、构造 {@link EconomyService}、注入 {@link EconomyServices} 定位器
+ * (job 包定位器范式; 不碰 core.MiningServices, 见 EconomyServices 注释)。{@link ServerStoppingEvent} 时
+ * 经 {@link EconomyServices#reset} 清引用防跨存档脏引用。第十八章闸门本身在 core 无对应门面接口, 仍只做事件接线。
  *
  * 线程: 全部回调在服务端主线程。状态表用并发容器仅作 Clone/登入登出可能的事件时序防御, 写仍只主线程。
  */
@@ -61,9 +65,34 @@ public final class EconomySystem implements Subsystem {
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
-        // 全部是 forge 总线运行期事件 (挖掘/死亡/tick/玩家生命周期), 不涉及 mod 总线注册。
+        // 全部是 forge 总线运行期事件 (挖掘/死亡/tick/玩家生命周期/服务端启停), 不涉及 mod 总线注册。
         forgeBus.register(this);
         LOGGER.info("[miningdim] economy subsystem registered (abuse gates: reset/ore-softcap/afk/reentry/death)");
+    }
+
+    // ============================================================
+    // 货币层接线 (服务端启停: 建账本 + 注入门面 / 清引用)
+    // ============================================================
+
+    @SubscribeEvent
+    public void onServerStarted(ServerStartedEvent event) {
+        ServerLevel mining = event.getServer().getLevel(MiningConstants.MINING_LEVEL);
+        if (mining == null) {
+            // 矿山维度未加载是配置错误 (20.2); 货币账本无处落盘, 不注入门面 (取用方在 EconomyServices 自然抛
+            // IllegalStateException 暴露未接线, 不静默 fallback 掩盖)。启动期 ErrorSystem 已记 ERROR。
+            LOGGER.error("[miningdim] economy: mining dimension absent at server start, wallet ledger not bound");
+            return;
+        }
+        // 门面引用由 EconomyServices 定位器持有 (单一所有者); 本子系统不另存字段, 避免与定位器重复持有。
+        EconomyWalletData ledger = EconomyWalletData.get(mining);
+        EconomyServices.registerEconomyService(new EconomyService(ledger, abuseGuard));
+        LOGGER.info("[miningdim] economy: wallet ledger bound, IEconomyService registered (faucet/sink/settleOreSale live)");
+    }
+
+    @SubscribeEvent
+    public void onServerStopping(ServerStoppingEvent event) {
+        // 清门面引用防跨存档/跨重启脏引用 (与 MiningServices.reset / JobServices.reset 同纪律)。
+        EconomyServices.reset();
     }
 
     // ============================================================

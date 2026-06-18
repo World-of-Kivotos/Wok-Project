@@ -101,5 +101,20 @@ public final class MiningDim {
         subsystems.add(new com.miningdim.entry.EntrySystem());
         // 15. 入口方块子系统 (R4): 三难度入口方块的方块实体类型 + 创造物品栏注册。
         subsystems.add(new com.miningdim.entrance.EntranceSystem());
+
+        // 16. 职业框架地基 (JobFramework_Shared_Foundation): 职业进度 Capability + 共享效果/menu 脚手架
+        //     + 易伤单一全局仲裁 + IJobService 门面注入 + /job 命令 + 登录同步。须排在所有具体职业之前:
+        //     各职业在事件回调内经 JobServices.jobService() 读等级/给经验, 框架须先注入门面。
+        subsystems.add(new com.miningdim.job.JobFrameworkSystem());
+        // 17. 矿工职业: 挖速加成 / 谁挖谁得经验 / 连锁挖矿 / 矿物探测 / 便利技能 (依赖职业框架门面)。
+        subsystems.add(new com.miningdim.job.miner.MinerSystem());
+        // 18. 农夫职业: 分档耕地 + mod 小麦 + 收购闸门 (依赖职业框架门面)。
+        subsystems.add(new com.miningdim.job.farmer.FarmerSystem());
+        // 19. 千年工程师职业: 六档纳米护甲板 + 生产台 GUI/校准 QTE + 修复曲线 (依赖职业框架门面)。
+        subsystems.add(new com.miningdim.job.engineer.EngineerSystem());
+        // 20. 塔罗师职业: 塔罗牌 datapack 牌效 + 卡包 gacha + 合成台 (依赖职业框架门面)。
+        subsystems.add(new com.miningdim.job.tarot.TarotSystem());
+        // 21. 厨师职业: 五档调味台 + 火候小游戏 + 菜肴效果 (依赖职业框架门面 + 共享 menu 脚手架)。
+        subsystems.add(new com.miningdim.job.chef.ChefSystem());
     }
 }

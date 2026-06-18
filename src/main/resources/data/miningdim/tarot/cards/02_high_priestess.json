@@ -1,0 +1,110 @@
+{
+  "cooldownCategory": "utility",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:night_vision",
+          "amplifier": 0,
+          "durationTicks": 7200
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:night_vision",
+          "amplifier": 0,
+          "durationTicks": 7200
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:night_vision",
+          "amplifier": 0,
+          "durationTicks": 7200
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:night_vision",
+          "amplifier": 0,
+          "durationTicks": 7200
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:night_vision",
+          "amplifier": 0,
+          "durationTicks": 24000
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 0,
+          "durationTicks": 7200
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:night_vision",
+          "amplifier": 0,
+          "durationTicks": 24000
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 0,
+          "durationTicks": 6000
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:night_vision",
+          "amplifier": 0,
+          "durationTicks": 24000
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 0,
+          "durationTicks": 3600
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:night_vision",
+          "amplifier": 0,
+          "durationTicks": 24000
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:slowness",
+          "amplifier": 0,
+          "durationTicks": 1200
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 1728000,
+    "ops": [
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:night_vision",
+        "amplifier": 0,
+        "durationTicks": 1200
+      }
+    ]
+  }
+}

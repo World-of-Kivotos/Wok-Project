@@ -1,0 +1,130 @@
+{
+  "cooldownCategory": "buff",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "aoe_ally_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 0,
+          "durationTicks": 200,
+          "radius": 3
+        },
+        {
+          "kind": "aoe_ally_absorption",
+          "amount": 15,
+          "radius": 3
+        }
+      ],
+      [
+        {
+          "kind": "aoe_ally_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 0,
+          "durationTicks": 300,
+          "radius": 5
+        },
+        {
+          "kind": "aoe_ally_absorption",
+          "amount": 20,
+          "radius": 5
+        }
+      ],
+      [
+        {
+          "kind": "aoe_ally_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 1,
+          "durationTicks": 400,
+          "radius": 7
+        },
+        {
+          "kind": "aoe_ally_absorption",
+          "amount": 30,
+          "radius": 7
+        }
+      ],
+      [
+        {
+          "kind": "aoe_ally_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 500,
+          "radius": 10
+        },
+        {
+          "kind": "aoe_ally_absorption",
+          "amount": 40,
+          "radius": 10
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "aoe_enemy_random_damage",
+          "amount": 150,
+          "radius": 8
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 2,
+          "durationTicks": 300
+        }
+      ],
+      [
+        {
+          "kind": "aoe_enemy_random_damage",
+          "amount": 100,
+          "radius": 8
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 2,
+          "durationTicks": 340
+        }
+      ],
+      [
+        {
+          "kind": "aoe_enemy_random_damage",
+          "amount": 60,
+          "radius": 8
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 2,
+          "durationTicks": 400
+        }
+      ],
+      [
+        {
+          "kind": "aoe_enemy_random_damage",
+          "amount": 40,
+          "radius": 8
+        },
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:resistance",
+          "amplifier": 2,
+          "durationTicks": 500
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 18000,
+    "ops": [
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:resistance",
+        "amplifier": 2,
+        "durationTicks": 300
+      }
+    ]
+  }
+}

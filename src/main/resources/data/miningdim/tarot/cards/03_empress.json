@@ -1,0 +1,121 @@
+{
+  "cooldownCategory": "buff",
+  "upright": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 0,
+          "durationTicks": 600
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 0,
+          "durationTicks": 900
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 1,
+          "durationTicks": 1200
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 1500
+        }
+      ]
+    ]
+  },
+  "reversed": {
+    "tiers": [
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_max_health",
+          "amount": -50,
+          "durationTicks": 400,
+          "capUp": 0,
+          "floorDown": 20
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_max_health",
+          "amount": -45,
+          "durationTicks": 600,
+          "capUp": 0,
+          "floorDown": 20
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 800
+        },
+        {
+          "kind": "self_max_health",
+          "amount": -40,
+          "durationTicks": 800,
+          "capUp": 0,
+          "floorDown": 20
+        }
+      ],
+      [
+        {
+          "kind": "self_potion",
+          "effect": "minecraft:regeneration",
+          "amplifier": 2,
+          "durationTicks": 1000
+        },
+        {
+          "kind": "self_max_health",
+          "amount": -30,
+          "durationTicks": 1000,
+          "capUp": 0,
+          "floorDown": 20
+        }
+      ]
+    ]
+  },
+  "shiny": {
+    "cooldownTicks": 24000,
+    "ops": [
+      {
+        "kind": "self_potion",
+        "effect": "minecraft:regeneration",
+        "amplifier": 2,
+        "durationTicks": 1000
+      },
+      {
+        "kind": "self_max_health",
+        "amount": 50,
+        "durationTicks": 7200,
+        "capUp": 50,
+        "floorDown": 0
+      }
+    ]
+  }
+}

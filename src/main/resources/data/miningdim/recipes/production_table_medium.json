@@ -1,0 +1,13 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "GGG",
+    "GTG",
+    "GGG"
+  ],
+  "key": {
+    "G": { "item": "minecraft:gold_ingot" },
+    "T": { "item": "miningdim:production_table_low" }
+  },
+  "result": { "item": "miningdim:production_table_medium" }
+}

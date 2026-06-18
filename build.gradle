@@ -68,11 +68,14 @@ dependencies {
     // Forge MDK 基础: forge 自带 Minecraft + 全部原版依赖
     minecraft "net.minecraftforge:forge:${forge_full_version}"
 
-    // 外部 mod 依赖 (本地 deobf jar, 编译期 API; 运行期需 mod 本体 + 其依赖在 mods/):
-    //   军火商接 TACZ (com.tacz.guns.api.*), 精英怪接 Champions (top.theillusivec4.champions.api.*)。
-    // jar 在 libs/ (gitignore, 本地调试用)。fg.deobf 把发布 jar 重映射到本工程 parchment 开发映射。
-    implementation fg.deobf(files("libs/tacz-1.20.1-1.1.8-hotfix.jar"))
-    implementation fg.deobf(files("libs/champions-forge-1.20.1-2.1.10.2.jar"))
+    // 外部 mod 依赖 (本地 jar, 仅编译期 API): 军火商接 TACZ (com.tacz.guns.api.*),
+    //   精英怪/特勤接 Champions (top.theillusivec4.champions.api.*)。用 compileOnly 不上 dev 运行期 classpath:
+    //   这俩发布 jar 的 mixin/refmap 是 SRG(生产)态, fg.deobf(files) 无法 deobf, 一旦在 dev 加载其 mixin
+    //   (如 tacz LivingEntityMixin 注 m_8119_) 会找不到 dev 官方映射目标而 FATAL 崩服。compileOnly 只取 API
+    //   (javap 核实公共签名全官方 MC 类名, 编译无碍), 真 mod + 其依赖在正式服 mods/ 加载, 集成在真服验。
+    //   含义: 我方代码对 TACZ/Champions 的调用编译期校验, dev GameTest 不加载这俩 (其运行期行为在真服测)。
+    compileOnly files("libs/tacz-1.20.1-1.1.8-hotfix.jar")
+    compileOnly files("libs/champions-forge-1.20.1-2.1.10.2.jar")
 }
 
 // 注意: mods.toml 中的 ${file.jarVersion} 是 FML 运行期从 jar MANIFEST 注入的占位,

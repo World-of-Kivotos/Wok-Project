@@ -2,6 +2,7 @@ package com.miningdim.pressure;
 
 import com.miningdim.core.Difficulty;
 import com.miningdim.core.IMiningConfig;
+import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerPlayer;
@@ -20,7 +21,7 @@ import java.util.List;
  *
  * 纯逻辑断言: Danger / PlayerMiningData 可在内存直接构造; config 用本测试的最小 spec 默认值替身 (未触达方法抛
  * UnsupportedOperationException, 异常痛纪律: 本测试不该读到的配置项一旦被读即编程错)。涉及 ServerPlayer 的 seam
- * 用 helper.makeMockServerPlayerInLevel 取真实 ServerPlayer。template = "empty"。
+ * 用 MockGameTestPlayers.makeMockServerPlayerWithChannel(helper) 取真实 ServerPlayer。template = "empty"。
  */
 @GameTestHolder(com.miningdim.core.MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -36,7 +37,7 @@ public final class PressureGameTests {
     @GameTest(templateNamespace = com.miningdim.core.MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void dangerJobFactorUnboundDefaultsToOne(GameTestHelper helper) {
         DangerJobFactor.unbind();
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         helper.assertTrue(DangerJobFactor.factorFor(player) == 1.0f,
                 "unbound DangerJobFactor must default to 1.0 (no scaling)");
         helper.succeed();
@@ -44,7 +45,7 @@ public final class PressureGameTests {
 
     @GameTest(templateNamespace = com.miningdim.core.MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void dangerJobFactorReflectsBoundProvider(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         try {
             DangerJobFactor.bind(p -> 0.6f);
             helper.assertTrue(DangerJobFactor.factorFor(player) == 0.6f,

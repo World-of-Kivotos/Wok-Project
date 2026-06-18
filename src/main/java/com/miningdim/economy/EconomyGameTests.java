@@ -2,6 +2,7 @@ package com.miningdim.economy;
 
 import com.miningdim.core.MiningConstants;
 import com.miningdim.economy.EconomyConstants.HighValueOre;
+import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
@@ -29,7 +30,7 @@ import java.util.function.Function;
  *  - tryChargeDaily 每日上限边界。
  *
  * 纯逻辑/SavedData 断言: 钱包与账本可在内存直接构造 (new), 不依赖世界写; 涉及 ServerPlayer 的门面方法
- * 用 helper.makeMockServerPlayerInLevel() 取真实 ServerPlayer。template = "empty"。
+ * 用 MockGameTestPlayers.makeMockServerPlayerWithChannel(helper) 取真实 ServerPlayer。template = "empty"。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -200,7 +201,7 @@ public final class EconomyGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void settleOreSaleDecay(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         EconomyWalletData ledger = new EconomyWalletData();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
 
@@ -232,7 +233,7 @@ public final class EconomyGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void serviceGrantOverflowBubbles(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         EconomyWalletData ledger = new EconomyWalletData();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
 
@@ -312,7 +313,7 @@ public final class EconomyGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void recordMinedOreDropsCountsByDrops(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         Map<UUID, PlayerAbuseState> states = new HashMap<>();
         EconomyWalletData ledger = new EconomyWalletData();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), states::get);
@@ -353,7 +354,7 @@ public final class EconomyGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void isAfkFrozenReflectsState(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         Map<UUID, PlayerAbuseState> states = new HashMap<>();
         states.put(player.getUUID(), new PlayerAbuseState());
         EconomyService eco = new EconomyService(new EconomyWalletData(), new AbuseGuard(), states::get);
@@ -372,7 +373,7 @@ public final class EconomyGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void grantDailyFaucetSoftCapDecay(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         EconomyWalletData ledger = new EconomyWalletData();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
 
@@ -404,7 +405,7 @@ public final class EconomyGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void grantDailySharedAcrossFaucetKeys(GameTestHelper helper) {
         // 经济文档 8.5: 矿工卖矿与农夫卖菜传同一 faucetKey 即共享同一每人每日信用点天花板 (而非各自私有上限)。
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         EconomyWalletData ledger = new EconomyWalletData();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
 

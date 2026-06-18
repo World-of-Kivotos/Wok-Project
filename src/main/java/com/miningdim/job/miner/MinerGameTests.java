@@ -11,6 +11,7 @@ import com.miningdim.job.JobId;
 import com.miningdim.job.JobProgress;
 import com.miningdim.job.JobServices;
 import com.miningdim.ore.OreType;
+import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerPlayer;
@@ -348,7 +349,7 @@ public final class MinerGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void evacuateInterruptedOnHurt(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         MinerChargeState state = new MinerChargeState();
         // 起读条 (在起点)。
         state.beginEvacuateChannel(100L, player.getX(), player.getY(), player.getZ());
@@ -367,7 +368,7 @@ public final class MinerGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void chainReplayCountsProducedItems(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         RecordingEconomy eco = new RecordingEconomy();
         IEconomyService prev = swapEconomy(eco);
         try {
@@ -405,7 +406,7 @@ public final class MinerGameTests {
         int augmented = ChainMiningEngine.countDropItems(withFortune);
         helper.assertTrue(augmented == 20, "L10 fortune (E=0.5, roll=0) doubles 10 base items to 20 produced items");
 
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         RecordingEconomy eco = new RecordingEconomy();
         IEconomyService prev = swapEconomy(eco);
         try {
@@ -450,7 +451,7 @@ public final class MinerGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void afkFrozenBlocksMiningXp(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         RecordingEconomy eco = new RecordingEconomy();
         RecordingJobService job = new RecordingJobService();
         IEconomyService prevEco = swapEconomy(eco);

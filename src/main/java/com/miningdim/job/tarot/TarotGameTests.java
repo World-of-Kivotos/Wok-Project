@@ -8,6 +8,7 @@ import com.miningdim.job.tarot.card.TarotEffectKind;
 import com.miningdim.job.tarot.card.TarotEffectOp;
 import com.miningdim.job.tarot.craft.TarotCraftService;
 import com.miningdim.job.tarot.pack.PackGachaService;
+import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
@@ -155,7 +156,7 @@ public final class TarotGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void derivedPackExpectationConverges(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         PackGachaService gacha = new PackGachaService();
         RandomSource rng = RandomSource.create(42L);
 
@@ -179,7 +180,7 @@ public final class TarotGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void derivedPackMisconfigThrows(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         PackGachaService gacha = new PackGachaService();
         RandomSource rng = RandomSource.create(1L);
         boolean threw = false;
@@ -199,7 +200,7 @@ public final class TarotGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void pityGuaranteesSsr(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         PackGachaService gacha = new PackGachaService();
         RandomSource rng = RandomSource.create(7L);
         int pityN = 10;
@@ -224,7 +225,7 @@ public final class TarotGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void maxHealthBoundedAndRemovable(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         MaxHealthModifierManager mgr = new MaxHealthModifierManager();
         double base = player.getAttribute(Attributes.MAX_HEALTH).getValue();
         java.util.UUID s1 = java.util.UUID.randomUUID();
@@ -262,7 +263,7 @@ public final class TarotGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void maxHealthMultiSourceAggregates(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         MaxHealthModifierManager mgr = new MaxHealthModifierManager();
         double base = player.getAttribute(Attributes.MAX_HEALTH).getValue();
         java.util.UUID pope = java.util.UUID.randomUUID();
@@ -301,7 +302,7 @@ public final class TarotGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void cooldownGcdAndPerCard(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         TarotCooldownManager cd = new TarotCooldownManager();
 
         // 第一次用 cardId 0: 通过并占用 (gcd 30, 卡 cd 200, 非闪耀级)。
@@ -319,7 +320,7 @@ public final class TarotGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void clearAllCardsPreservesShinyCd(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         TarotCooldownManager cd = new TarotCooldownManager();
         java.util.UUID id = player.getUUID();
 
@@ -345,7 +346,7 @@ public final class TarotGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void schedulerCancelClearsQueue(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         ScheduledEffectManager sched = new ScheduledEffectManager();
         sched.schedule(player, 100, 100, 5, p -> { });
         helper.assertTrue(sched.pendingCountFor(player.getUUID()) == 1, "one task scheduled");
@@ -361,7 +362,7 @@ public final class TarotGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void vulnerabilityAmplifiesHurt(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         // 易伤 III (amplifier 2 = +50%)。
         player.addEffect(new MobEffectInstance(com.miningdim.effect.ModJobEffects.VULNERABILITY.get(), 200, 2));
         double pct = com.miningdim.effect.VulnerabilityHurtHandler.resolveVulnerabilityPct(player);
@@ -441,7 +442,7 @@ public final class TarotGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void deathContractInterceptsOnce(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         java.util.UUID id = player.getUUID();
         long now = 1000L;
         TarotCombatState.clearAll(id);
@@ -737,7 +738,7 @@ public final class TarotGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void deathGambleConsumedByActiveContract(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         java.util.UUID id = player.getUUID();
         TarotEffectEngine engine = new TarotEffectEngine(new MaxHealthModifierManager(), new ScheduledEffectManager());
         // 强制赌输: chance=1.0 -> rollDeath 必为 true。牺牲最大生命 15, 归还延迟 1800, 下限 20。
@@ -776,7 +777,7 @@ public final class TarotGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void duplicateCardConvertsToShards(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
         PackGachaService gacha = new PackGachaService();
         // 让玩家先持有 cardId 0 (任意品质)。
@@ -816,7 +817,7 @@ public final class TarotGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void shardExchangeGraduationLine(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
         int cost = TarotConfig.SHARD_EXCHANGE_COST.get();
 

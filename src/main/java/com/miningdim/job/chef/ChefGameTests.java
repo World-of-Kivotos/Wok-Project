@@ -2,6 +2,7 @@ package com.miningdim.job.chef;
 
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.JobProgress;
+import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -151,7 +152,7 @@ public final class ChefGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void amplifyBlacklistsGoldenApple(GameTestHelper helper) {
-        var player = helper.makeMockServerPlayerInLevel();
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         // 给金苹果盖闪耀增香 (x5), 先施加一个 buff (吸收 60s), 再吃 -> 黑名单生效, 时长不变。
         ItemStack apple = new ItemStack(Items.ENCHANTED_GOLDEN_APPLE);
         ChefQualityNbt.stamp(apple, ChefQuality.RADIANT,
@@ -184,7 +185,7 @@ public final class ChefGameTests {
     }
 
     private static void assertAmplify(GameTestHelper helper, ChefQuality quality, int expectMulX100) {
-        var player = helper.makeMockServerPlayerInLevel();
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         int mul = ChefConfig.amplifyMul(quality);
         helper.assertTrue(mul == expectMulX100, "amplify x100 for " + quality + " expected "
                 + expectMulX100 + " got " + mul);
@@ -207,7 +208,7 @@ public final class ChefGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void amplifyOnlyTouchesDishOwnDeclaredBuffs(GameTestHelper helper) {
-        var player = helper.makeMockServerPlayerInLevel();
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
 
         // 玩家先喝下无关战斗药水/续航 buff (非本菜赋予): 速度 (BENEFICIAL, 非黑名单) + 跳跃提升。
         int speedDuration = 200; // tick
@@ -239,7 +240,7 @@ public final class ChefGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void amplifyDoesNotCompoundAcrossDishes(GameTestHelper helper) {
-        var player = helper.makeMockServerPlayerInLevel();
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
 
         // 第一道菜自带 JUMP, 第二道菜自带 NIGHT_VISION (各声明各自不同的自带 buff)。
         int jumpDuration = 100;
@@ -276,7 +277,7 @@ public final class ChefGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void nourishHealPercentMaxHp(GameTestHelper helper) {
-        var player = helper.makeMockServerPlayerInLevel();
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         float maxHp = player.getMaxHealth();
         // 受伤至 max/2。
         player.setHealth(maxHp / 2.0F);
@@ -334,7 +335,7 @@ public final class ChefGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void stableAimKnockbackNoAttribute(GameTestHelper helper) {
-        var player = helper.makeMockServerPlayerInLevel();
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         UUID id = player.getUUID();
         // 闪耀稳膛 (100% 抗击退): 直接盖窗口。
         long end = player.serverLevel().getGameTime() + 60L * 20L;
@@ -457,7 +458,7 @@ public final class ChefGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void shieldAbsorptionReclaimedOnExpiry(GameTestHelper helper) {
-        var player = helper.makeMockServerPlayerInLevel();
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         UUID id = player.getUUID();
         try {
             // 起始无 absorption。
@@ -494,7 +495,7 @@ public final class ChefGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void shieldExpiryOnlyReclaimsOwnGrant(GameTestHelper helper) {
-        var player = helper.makeMockServerPlayerInLevel();
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         UUID id = player.getUUID();
         try {
             int shieldPerMille = ChefConfig.shieldPerMille(ChefQuality.HIGH); // 40 = 4% maxHP
@@ -538,7 +539,7 @@ public final class ChefGameTests {
 
     private static void assertNausea(GameTestHelper helper, ChefQuality quality, int poisonLevel,
                                      int expectedTicks) {
-        var player = helper.makeMockServerPlayerInLevel();
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         ItemStack bread = new ItemStack(Items.BREAD);
         ChefQualityNbt.stamp(bread, quality,
                 List.of(new ChefEffectInstance(ChefEffectType.NAUSEA, poisonLevel)));
@@ -561,7 +562,7 @@ public final class ChefGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void spoiledDishRevertsBothFoodAndSaturation(GameTestHelper helper) {
-        var player = helper.makeMockServerPlayerInLevel();
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
 
         // 模拟 "刚吃完面包" 的进食后状态: 原版 eat() 同时加 food 与 saturation。面包 nutrition=5, satMod=0.6,
         // 故 satGained = 5 * 0.6 * 2 = 6.0。这里把进食后状态设为 food=20, sat=10 (满足原版 sat<=food 不变量)。
@@ -602,7 +603,7 @@ public final class ChefGameTests {
     public static void eatingNeverGrantsXpRegardlessOfHolder(GameTestHelper helper) {
         // 一道高品质带战斗向膳香的菜被任意玩家吃下: ChefConsumeHandler 结算效果但绝不给经验
         // (经验只在 finishCooking 给 operator)。这里验证: 吃菜流程对 CHEF 进度零影响 = "谁做谁得" 的吃端契约。
-        var eater = helper.makeMockServerPlayerInLevel();
+        var eater = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         UUID operatorId = UUID.randomUUID(); // 做菜者 != 吃菜者。
 
         ItemStack dish = new ItemStack(Items.COOKED_BEEF);
@@ -638,7 +639,7 @@ public final class ChefGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void cookingProducesExactlyOneStampedDish(GameTestHelper helper) {
-        var operator = helper.makeMockServerPlayerInLevel();
+        var operator = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         UUID operatorId = operator.getUUID();
         operator.getInventory().clearContent(); // 干净背包便于断言产出。
 

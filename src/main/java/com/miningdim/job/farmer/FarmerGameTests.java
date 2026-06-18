@@ -10,6 +10,7 @@ import com.miningdim.economy.EconomyWalletData;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.job.JobXpCurve;
 import com.miningdim.job.farmer.item.FarmerItems;
+import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerPlayer;
@@ -281,7 +282,7 @@ public final class FarmerGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void sellGrantsCreditsAndDecrementsInventory(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
         EconomyWalletData ledger = registerFreshEconomy();
         try {
@@ -317,6 +318,7 @@ public final class FarmerGameTests {
                     "100 wheat at base 1 within both caps grants 100 credits, got " + result.creditsGranted());
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 100L,
                     "wallet credit balance reflects the granted 100 via the economy locator");
+            helper.succeed();
         } finally {
             EconomyServices.reset();
         }
@@ -324,7 +326,7 @@ public final class FarmerGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void sellWhenEconomyUnregisteredIsOffline(GameTestHelper helper) {
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
         EconomyServices.reset(); // 确保未注册 (定位器空 -> sell 应判 offline, 不扣不发)。
         try {
@@ -340,6 +342,7 @@ public final class FarmerGameTests {
             int kept = player.getInventory().clearOrCountMatchingItems(
                     s -> s.is(FarmerItems.FARMER_WHEAT.get()), 0, new net.minecraft.world.SimpleContainer(0));
             helper.assertTrue(kept == 10, "offline sale keeps all 10 wheat in inventory, got " + kept);
+            helper.succeed();
         } finally {
             EconomyServices.reset();
         }
@@ -350,7 +353,7 @@ public final class FarmerGameTests {
         // Major: 卖菜并入全服每人每日信用点 faucet 软上限 (与其它 faucet 共享 WHEAT_SELL_FAUCET_KEY 命名空间),
         // 而非农夫私有 per-player 上限。先用同一 faucetKey 把当日累计原始信用点推到 2*cap (模拟矿工卖矿先发两档),
         // 再卖菜: 卖菜落进第二衰减档 (实发 < 毛收), 证明它读的是共享 faucet 计数器而非农夫私有上限。
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
         EconomyWalletData ledger = registerFreshEconomy();
         try {
@@ -381,6 +384,7 @@ public final class FarmerGameTests {
             long expectedBalance = firstTier + secondTier + expected;
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == expectedBalance,
                     "wallet equals sum of all post-decay grants on the shared per-player cap (not a private cap)");
+            helper.succeed();
         } finally {
             EconomyServices.reset();
         }

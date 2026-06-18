@@ -37,8 +37,24 @@ public enum TarotEffectKind {
     SELF_LIFESTEAL("self_lifesteal"),
     /** 反伤窗 (正义正位): durationTicks 内受伤把 percent 回击攻击者, 单次封顶 capUp。 */
     SELF_REFLECT("self_reflect"),
+    /**
+     * 累计反击窗 (正义闪耀结算尾): durationTicks 内逐攻击者累计其对使用者造成的伤害; 窗口结束时对 radius 格内
+     * 仍在场的每个攻击者各回击其累计伤害的 percent, 单次封顶 capUp。与 SELF_REFLECT 的即时反伤独立叠加
+     * (闪耀同时挂 80% 即时反伤 + 本窗 40% 累计结算)。
+     */
+    SELF_REFLECT_ACCUM("self_reflect_accum"),
+    /**
+     * 延迟记账冻死窗 (倒吊人闪耀): durationTicks 内对使用者的伤害累加进挂起账本, 致命伤被冻结 (setHealth 不致死);
+     * 窗口结束时结算挂起伤害的 percent (扣血), 若仍存活则额外回 amount 血 (spec: 结束结算 50%, 存活 +40)。
+     */
+    SELF_DELAYED_LEDGER("self_delayed_ledger"),
     /** 无敌窗 (愚者闪耀): durationTicks 内 LivingHurtEvent 对使用者伤害归零 (真免疫, 非抗性减伤)。 */
     SELF_INVULNERABLE("self_invulnerable"),
+    /**
+     * 绑定共享生死 (恋人闪耀): 准星锁定一个已同意 ({@code /tarot consent}) 的玩家, 双向绑定 durationTicks;
+     * 任一方死亡则另一方 count ticks (3s) 后同死; 两者距离 > radius 格则提前解绑。需对方同意的握手在锁定期校验。
+     */
+    SHINY_BIND_SHARE_LIFE("shiny_bind_share_life"),
     /** 准星单体 (死神正位): 准星目标当前血 < threshold 处决, 否则 amount 穿刺; reach=radius。 */
     ENEMY_TARGET_DAMAGE("enemy_target_damage"),
     /** 均值化 (正义逆位): 准星目标与使用者当前血各设为均值, 单次最多 ±capUp; reach=radius。 */
@@ -49,6 +65,12 @@ public enum TarotEffectKind {
     AOE_ENEMY_POTION("aoe_enemy_potion"),
     /** 半径 radius 格内的敌对生物各受 amount 伤害 (高塔/审判逆位/死神闪耀)。 */
     AOE_ENEMY_DAMAGE("aoe_enemy_damage"),
+    /**
+     * 处决斩杀 AoE (死神闪耀): radius 格内当前血占比 &lt; percent 的敌处决 (setHealth 0); 每处决一个玩家/精英
+     * 给使用者回 threshold 血并把力量提升一级 (上限 amplifier, 4=V)。若无任何处决目标则对全体敌各 amount 穿刺。
+     * "回血/叠层仅对玩家/精英" = 普通杂兵被处决不给回血/叠层 (spec 死神闪耀)。
+     */
+    AOE_EXECUTE_BELOW_PCT("aoe_execute_below_pct"),
     /** 半径 radius 格内的友方玩家各加一个 MobEffect (恋人正位/节制闪耀)。 */
     AOE_ALLY_POTION("aoe_ally_potion"),
     /** 半径 radius 格内的友方玩家各加黄心 amount (星星闪耀/世界闪耀)。 */

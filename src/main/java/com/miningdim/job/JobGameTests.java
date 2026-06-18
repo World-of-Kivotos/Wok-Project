@@ -2,6 +2,7 @@ package com.miningdim.job;
 
 import com.miningdim.core.MiningConstants;
 import com.miningdim.effect.VulnerabilityEffect;
+import com.miningdim.entry.MiningPlayerData;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
@@ -195,6 +196,43 @@ public final class JobGameTests {
         split.grantXp(1_000L, day);
         helper.assertTrue(split.xp() == whole.xp(),
                 "grant(4000)+grant(1000) effective total must equal grant(5000) (split invariance, anti-arbitrage)");
+
+        // 强化: 同总额 5000 换一种 3 路拆分 (1000 + 3000 + 1000, 跨 x1.0/x0.4/x0.2 三段边界) 仍必须等于单笔。
+        // 不同切分粒度走不同段边界, 只要折算引擎是 "当前有效指针的确定性函数" 就三者全相等。
+        JobProgress split3 = new JobProgress();
+        split3.grantXp(1_000L, day); // 全额 (x1.0) -> 1000 有效, 指针 1000。
+        split3.grantXp(3_000L, day); // 1000 原始填到 2000 (x1.0, +1000) + 2000 原始填满 x0.4 段 (+800) -> +1800, 指针 2800。
+        split3.grantXp(1_000L, day); // x0.2 段内 1000 原始 -> +200, 指针 3000。三笔合计 3000, 与单笔 5000 等。
+        helper.assertTrue(split3.xp() == whole.xp(),
+                "3-way split (1000+3000+1000) effective total must equal grant(5000) (split invariance)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // Critical 回归守卫: 整日多次小额 grant 跨段累加 == 等量单笔 (carry 进位 + 跨段拆分不变, 修复前必挂)
+    // ============================================================
+    // 比 grantSmallChunksDoNotFloorToZero 更强: 小额流不止停在 x0.4 单段, 而是逐步把有效指针从 0 推过
+    // x1.0/x0.4/x0.2 三段边界。旧逐笔 floor 实现会在每一档边界附近系统性吞掉小数, 与单笔大额产生明显偏差。
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void grantManySmallChunksAcrossBandsEqualsSingle(GameTestHelper helper) {
+        long day = 100L;
+        // 700 笔 grantXp(10) = 总原始 7000。单笔 7000 的权威定值 (见 dailyDecayChapter8Profiles) = 3400 有效。
+        // 小额流逐笔把有效指针从 0 推到末档前: 跨 x1.0(填到 2000) -> x0.4(到 2800) -> x0.2(到 3400) 三段。
+        JobProgress small = new JobProgress();
+        for (int i = 0; i < 700; i++) {
+            small.grantXp(10L, day);
+        }
+        JobProgress single = new JobProgress();
+        single.grantXp(7_000L, day);
+        helper.assertTrue(single.xp() == 3_400L, "single 7000 raw -> 3400 effective (capacity model anchor)");
+        // 700 笔小额跨三段的有效累计必须收敛到与单笔一致 (亚单位 double 舍入内): |差| <= 1 整数单位。
+        // 旧逐笔 floor 会在 x0.4(每 0.x 有效)/x0.2(每 0.x 有效) 档把每笔小数吞光, 系统性远低于 3400, 此处必挂。
+        helper.assertTrue(small.xp() <= single.xp() && single.xp() - small.xp() <= 1L,
+                "700 grantXp(10) across three decay bands equals single grant(7000) up to sub-unit rounding");
+        // 绝对下界: 必须真实越过 x0.4/x0.2 两段进位 (远高于若逐笔 floor 的 ~2000 死钉)。
+        helper.assertTrue(small.xp() >= 3_399L,
+                "small-grant carry must accrue ~3400 across bands, not be floored down to the x1.0 ceiling");
         helper.succeed();
     }
 
@@ -299,16 +337,16 @@ public final class JobGameTests {
     }
 
     // ============================================================
-    // capability 数据层: 给某职业入账经验后等级精确 + per-job 独立 + Clone 复制
+    // capability 数据层 (第 2.3 节并入后): 职业进度落 entry.MiningPlayerData 唯一权威 capability
     // ============================================================
-    // 说明: capability 的 attach (RegisterCapabilitiesEvent / AttachCapabilitiesEvent) 在 JobFrameworkSystem
-    // 接入 MiningDim 后才对玩家实体生效 (本任务不接线, 归集成阶段)。故此处直接验证 capability 持有的数据实现
-    // JobPlayerData 的端到端契约 (grant -> level -> 读回 + copyFrom 复制), 这正是 capability 挂载后玩家身上
-    // 运行的同一份逻辑; attach 接线后再由 GameTest mock player 覆盖 (见 notes)。
+    // 说明: 第 2.3 节 Critical 裁决已落地——职业进度 EnumMap 收敛进 entry.MiningPlayerData (删 job.JobCapability
+    // 第二套玩家 capability)。此处直接验证 entry 权威数据实现的端到端契约 (grant -> level -> 读回 + 全职业进度
+    // 随 entry NBT 'jobs' 子标签往返 + copyFrom Clone 复制), 这正是 entry capability 挂载后玩家身上运行的同一
+    // 份逻辑 (entry capability 的 attach/Clone 接线由 entry.MiningCapabilities 提供, 已随 EntrySystem 实装)。
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void jobPlayerDataGrantAndLevel(GameTestHelper helper) {
-        JobPlayerData data = new JobPlayerData();
+    public static void entryCapabilityGrantAndLevel(GameTestHelper helper) {
+        MiningPlayerData data = new MiningPlayerData();
         // 固定常量日戳 (与本文件其它衰减/曲线用例一致): 避免在 UTC 午夜跨日窄窗口取实时戳引入罕见 flaky。
         // currentUtcDayStamp 的 UTC 口径正确性由 utcDayStampIsUtcEpochDay 独立断言, 不在业务断言里引时钟。
         long day = 100L;
@@ -331,13 +369,54 @@ public final class JobGameTests {
         helper.assertTrue(data.jobProgress(JobId.FARMER).level() == 1,
                 "farmer stays L1 (per-job independent progress)");
 
-        // Clone 复制 (PlayerEvent.Clone 用同一 copyFrom): 全职业进度全量复制, 不丢级。
-        JobPlayerData cloned = new JobPlayerData();
+        // entry capability NBT 往返 (第 2.3 节 'jobs' 子标签): 职业进度随 entry 唯一权威 capability 持久化,
+        // 删 MiningPlayerData 的 jobs 子标签 save/load 必挂在此 (职业进度落盘是迁移的核心交付物)。
+        MiningPlayerData reloaded = new MiningPlayerData();
+        reloaded.deserializeNBT(data.serializeNBT());
+        helper.assertTrue(reloaded.jobProgress(JobId.MINER).level() == 2,
+                "miner level survives entry MiningPlayerData NBT round-trip (jobs subtag)");
+        helper.assertTrue(reloaded.jobProgress(JobId.MINER).xp() == miner.xp(),
+                "miner xp survives entry MiningPlayerData NBT round-trip");
+        // 未入账职业经 NBT 往返后取用仍懒建默认 L1/0xp (旧存档/新职业向后兼容)。
+        helper.assertTrue(reloaded.jobProgress(JobId.TAROT).level() == 1
+                        && reloaded.jobProgress(JobId.TAROT).xp() == 0L,
+                "absent job lazily defaults to L1/0xp after entry NBT round-trip");
+
+        // Clone 复制 (entry PlayerEvent.Clone 用同一 copyFrom): 全职业进度连回退态一起全量复制, 不丢级。
+        MiningPlayerData cloned = new MiningPlayerData();
         cloned.copyFrom(data);
         helper.assertTrue(cloned.jobProgress(JobId.MINER).level() == 2,
-                "miner level survives JobPlayerData.copyFrom (Clone replication)");
+                "miner level survives entry MiningPlayerData.copyFrom (Clone replication)");
         helper.assertTrue(cloned.jobProgress(JobId.MINER).xp() == miner.xp(),
-                "miner xp survives JobPlayerData.copyFrom");
+                "miner xp survives entry MiningPlayerData.copyFrom");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 第 2.3 节迁移守卫: 旧存档 (无 jobs 子标签) 缺键不崩 + 取用懒建默认
+    // ============================================================
+    // 删除 MiningPlayerData.deserializeNBT 对缺失 'jobs' 子标签的容错 (getCompound 缺键给空 tag) 必挂在此:
+    // 旧存档升级 (entry capability 此前无职业进度) 时不得抛/不得污染, 取用任意职业懒建默认。
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void entryCapabilityLegacySaveWithoutJobsTag(GameTestHelper helper) {
+        // 构造一份只有矿山回退态字段、无 jobs 子标签的旧存档 NBT (模拟迁移前落盘)。
+        MiningPlayerData legacyWriter = new MiningPlayerData();
+        CompoundTag legacyTag = legacyWriter.serializeNBT();
+        legacyTag.remove("jobs"); // 强制移除职业子标签, 还原迁移前的旧 schema。
+
+        MiningPlayerData migrated = new MiningPlayerData();
+        migrated.deserializeNBT(legacyTag); // 不得抛 (缺键容错)。
+        helper.assertTrue(migrated.jobProgress(JobId.MINER).level() == 1
+                        && migrated.jobProgress(JobId.MINER).xp() == 0L,
+                "legacy save without jobs subtag yields default L1/0xp on first access");
+
+        // 迁移后新入账正常生效并能再次落盘读回 (旧存档升级路径闭环)。
+        migrated.jobProgress(JobId.MINER).grantXp(2_000L, 50L);
+        MiningPlayerData reloaded = new MiningPlayerData();
+        reloaded.deserializeNBT(migrated.serializeNBT());
+        helper.assertTrue(reloaded.jobProgress(JobId.MINER).xp() == 2_000L,
+                "post-migration grant persists through entry NBT round-trip");
         helper.succeed();
     }
 }

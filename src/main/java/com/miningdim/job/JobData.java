@@ -13,9 +13,9 @@ import java.util.Map;
  * 若 Map 无该 key 则建一份默认 (level=1/xp=0) 放入并返回, 保证 {@link #jobProgress(JobId)} 永不返回 null
  * (调用方可直接 grant/读级, 与 capability "未挂载返回 empty" 是两层语义)。
  *
- * 框架 spec 第 2.3 节裁定本数据最终并入 entry.MiningPlayerData 唯一权威 capability; 本任务在
- * com.miningdim.job 包先落地自包含的 JobData + 自有 capability ({@link JobCapability}), 集成阶段 (MiningDim
- * 接线) 再按第 2.3 节收敛。两者持久化形态一致 (EnumMap 遍历), 收敛只需迁移 attach 点, 不改本类。
+ * 框架 spec 第 2.3 节已落地: 本数据作为 {@code entry.MiningPlayerData} 的内部委派 (单一权威玩家 capability
+ * 持本 EnumMap), 不再另挂第二套 job 玩家 capability。本类仍是纯数据 (无世界/事件/Provider 引用), 序列化挂
+ * entry capability 的 {@code jobs} 子标签, Clone 复制由 entry 的 PlayerEvent.Clone 经 copyFrom 全量复制。
  *
  * 线程: 玩家进度只在主线程读写 (玩家事件/tick/命令均主线程), 无需并发保护 (与 entry.MiningPlayerData 一致)。
  */

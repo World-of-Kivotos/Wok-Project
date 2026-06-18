@@ -8,10 +8,16 @@ import com.miningdim.job.farmer.block.FarmerCropBlock;
 import com.miningdim.job.farmer.block.FarmerFarmlandBlock;
 import com.miningdim.job.farmer.item.FarmerCreativeTab;
 import com.miningdim.job.farmer.item.FarmerItems;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.player.BonemealEvent;
 import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -27,12 +33,14 @@ import org.slf4j.LoggerFactory;
  *  - 收获经验结算 ({@link #onCropHarvested}, forgeBus BreakEvent): 只认 mod 作物成熟态破坏;
  *  - 放置上限 + 档位门控 ({@link #onFarmlandPlace}, forgeBus EntityPlaceEvent): 超限/未解锁拒放;
  *  - 耕地破坏回收计数 ({@link #onFarmlandBroken}, 复用 BreakEvent);
- *  - 反作弊骨粉 ({@link #onBonemeal}, forgeBus BonemealEvent): mod 作物禁骨粉。
+ *  - 反作弊骨粉 ({@link #onBonemeal}, forgeBus BonemealEvent): mod 作物禁骨粉;
+ *  - 卖菜命令 ({@link #onRegisterCommands}, RegisterCommandsEvent): 自注册 /farmer sell &lt;amount&gt; 子根作为
+ *    {@link FarmerWheatSellService#sell} 的触发点 (包内闭合, 不改共享 JobCommands; 审查 Critical 1)。
  *
  * 不持有玩家进度: 经验走共享 {@link JobServices#jobService()} 入账 (JobId.FARMER), 衰减/翻日/升级由框架裁决;
  * 耕地放置计数走 {@link FarmerSavedData} (overworld 持久层)。
  *
- * 集成阶段 (本任务不做): 把本子系统加进 MiningDim.registerSubsystems() 一行 (见结构化输出 subsystemFqn)。
+ * 已在 {@code MiningDim.registerSubsystems()} 实装 (本子系统经 modBus/forgeBus 自注册其全部注册项与事件)。
  */
 public final class FarmerSystem implements Subsystem {
 
@@ -44,7 +52,50 @@ public final class FarmerSystem implements Subsystem {
         FarmerItems.register(modBus);
         FarmerCreativeTab.register(modBus);
         forgeBus.register(this);
-        LOGGER.info("[miningdim] farmer job subsystem registered (5 farmland tiers + mod wheat + harvest xp + placement cap)");
+        LOGGER.info("[miningdim] farmer job subsystem registered (5 farmland tiers + mod wheat + harvest xp + placement cap + /farmer sell)");
+    }
+
+    // ============================================================
+    // 卖菜命令 (审查 Critical 1: FarmerWheatSellService.sell 的运行期触发点)
+    // ============================================================
+
+    /**
+     * 自注册农夫包私有命令根 /farmer sell &lt;amount&gt; 作为 {@link FarmerWheatSellService#sell} 的触发点。
+     *
+     * 为何在本子系统自注册而非改共享 JobCommands: 卖菜是农夫专有的经济交互, 包内闭合 (不污染 /job 通用根, 不改
+     * 共享 JobCommands)。amount 下界 1 由 {@link IntegerArgumentType#integer(int)} 在 Brigadier 层强制。
+     * 反馈用 {@link Component#literal} (不引入新 lang key, 共享 lang 文件由集成阶段维护)。
+     */
+    @SubscribeEvent
+    public void onRegisterCommands(RegisterCommandsEvent event) {
+        event.getDispatcher().register(
+                Commands.literal("farmer")
+                        .then(Commands.literal("sell")
+                                .then(Commands.argument("amount", IntegerArgumentType.integer(1))
+                                        .executes(this::sellCommand))));
+    }
+
+    /**
+     * /farmer sell &lt;amount&gt; 执行体: 委派 {@link FarmerWheatSellService#sell}, 据结果回显。命令边界统一兜底
+     * 玩家输入/业务结果 (与 entry.MiningCommands 同范式), 不内联结算逻辑。
+     */
+    private int sellCommand(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        int amount = IntegerArgumentType.getInteger(ctx, "amount");
+        FarmerWheatSellService.SellResult result = FarmerWheatSellService.sell(player, amount);
+        if (result.economyOffline()) {
+            ctx.getSource().sendFailure(Component.literal("Economy service is not available; nothing was sold."));
+            return 0;
+        }
+        if (result.soldCount() <= 0) {
+            ctx.getSource().sendFailure(Component.literal("You have no mod wheat to sell."));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(
+                () -> Component.literal("Sold " + result.soldCount() + " wheat for "
+                        + result.creditsGranted() + " credit(s)."),
+                false);
+        return result.soldCount();
     }
 
     // ============================================================

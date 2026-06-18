@@ -309,6 +309,82 @@ public final class EngineerGameTests {
     }
 
     // ============================================================
+    // 闪耀板对满耐久护甲重 roll 特效 (5.1/6.1 line 117: 闪耀作用于 "任意" 护甲)
+    // 回归: 修复前 pickRepairTarget bestDamage 起点 0 + 严格 > 使满甲 (damage=0) 永不被选,
+    // 闪耀放行满甲的分支成死代码; 满甲玩家持闪耀板得 no_target。下列断言锁死该修复。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void radiantTargetsFullDurabilityArmor(GameTestHelper helper) {
+        // 一组 "穿戴甲": 一件满耐久 (damage=0) 的下界合金胸甲, 其余空。
+        ItemStack fullArmor = new ItemStack(Items.NETHERITE_CHESTPLATE);
+        helper.assertTrue(fullArmor.getDamageValue() == 0, "fresh armor is full durability (damage=0)");
+        java.util.List<ItemStack> worn = java.util.List.of(
+                ItemStack.EMPTY, ItemStack.EMPTY, fullArmor, ItemStack.EMPTY);
+
+        // 普通档 (LOW): 满甲不被选 (满甲无固定值修复意义) -> null。
+        helper.assertTrue(com.miningdim.job.engineer.item.NanoArmorPlateItem
+                        .selectWornTarget(worn, NanoTier.LOW) == null,
+                "non-radiant plate does NOT pick full-durability armor (would be no_target)");
+        // 闪耀档 (RADIANT): 满甲仍可被选 (重 roll 特效) -> 命中那件满甲。
+        ItemStack picked = com.miningdim.job.engineer.item.NanoArmorPlateItem
+                .selectWornTarget(worn, NanoTier.RADIANT);
+        helper.assertTrue(picked == fullArmor,
+                "RADIANT plate picks the full-durability worn armor (dead branch now reachable)");
+
+        // 单件 eligibility 同口径: 普通档拒满甲, 闪耀放行。
+        helper.assertFalse(com.miningdim.job.engineer.item.NanoArmorPlateItem
+                        .eligibleAsTarget(fullArmor, NanoTier.HIGH),
+                "non-radiant: full-durability single item not eligible");
+        helper.assertTrue(com.miningdim.job.engineer.item.NanoArmorPlateItem
+                        .eligibleAsTarget(fullArmor, NanoTier.RADIANT),
+                "radiant: full-durability single item eligible (reroll effects)");
+        // 空/不可破坏物品任何档都不合格。
+        helper.assertFalse(com.miningdim.job.engineer.item.NanoArmorPlateItem
+                        .eligibleAsTarget(ItemStack.EMPTY, NanoTier.RADIANT),
+                "empty stack never eligible even for radiant");
+
+        // 端到端: 闪耀板对满耐久甲掷特效 (必出, 不读品质) —— 证明 NanoRepair line 57 放行的满甲分支可达且产出特效。
+        NanoRepair.applyEffectsOnRepair(fullArmor, NanoTier.RADIANT, 0, fixedRoll(0.99));
+        helper.assertFalse(NanoNbt.effects(fullArmor).isEmpty(),
+                "RADIANT always rolls an effect on full-durability armor (roll value irrelevant)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 图腾人级共享 CD 单一权威时钟 (6.2 / line 152: 人级跨维度)
+    // 回归: CD 截止 tick 与就绪检查必须用同一全服权威时钟 (主世界), 否则跨维度时钟漂移导致就绪误判。
+    // 此处锁死纯逻辑不变量: 同一权威 now 下 set 的 cdEnd, 用同一权威 now 检查时序自洽。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void totemCdSingleAuthoritativeClock(GameTestHelper helper) {
+        long cdTicks = EngineerConfig.TOTEM_SHARED_CD_TICKS.get();
+        // 权威时钟 (主世界) 在触发瞬间读到的 now。
+        long authoritativeNow = 5000L;
+        long cdEnd = NanoReactor.nextCdEndTick(authoritativeNow);
+        helper.assertTrue(cdEnd == authoritativeNow + cdTicks, "cdEnd = authoritative now + cd");
+
+        // 缺陷场景模拟: 玩家所在维度时钟落后/超前主世界 (per-level drift)。若就绪检查误用维度时钟,
+        // 落后维度会提前就绪 (再救一次), 超前维度会延后就绪。修复后两端都用同一权威 now -> 决策唯一。
+        long laggingLevelClock = authoritativeNow - cdTicks; // 远落后维度。
+        long leadingLevelClock = authoritativeNow + cdTicks; // 远超前维度。
+        // 用 (错误的) 维度时钟检查会得出不同结论, 证明漂移确实改变就绪判定 (缺陷可复现性)。
+        helper.assertFalse(NanoReactor.cooldownReady(laggingLevelClock, cdEnd),
+                "lagging-level clock would (wrongly) report still-on-cd vs authoritative");
+        helper.assertTrue(NanoReactor.cooldownReady(leadingLevelClock, cdEnd),
+                "leading-level clock would (wrongly) report ready early vs authoritative");
+        // 用权威时钟 (修复口径): 刚触发后立即检查必然未就绪 (CD 中), 整段 CD 内保持未就绪, 期满才就绪。
+        helper.assertFalse(NanoReactor.cooldownReady(authoritativeNow, cdEnd),
+                "authoritative clock: just-triggered totem is on cooldown");
+        helper.assertFalse(NanoReactor.cooldownReady(authoritativeNow + cdTicks - 1L, cdEnd),
+                "authoritative clock: still on cooldown 1 tick before expiry");
+        helper.assertTrue(NanoReactor.cooldownReady(authoritativeNow + cdTicks, cdEnd),
+                "authoritative clock: ready exactly at expiry (single-clock self-consistent)");
+        helper.succeed();
+    }
+
+    // ============================================================
     // 特效 NBT 往返 + 重塑/机能修复失效判定 (6.2 / 6.3)
     // ============================================================
 

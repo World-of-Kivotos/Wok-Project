@@ -1,6 +1,6 @@
 package com.miningdim.job.engineer.effect;
 
-import com.miningdim.job.JobCapability;
+import com.miningdim.entry.MiningCapabilities;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobProgress;
 import com.miningdim.job.engineer.EngineerConfig;
@@ -21,6 +21,9 @@ import java.util.Optional;
  *
  * 共享 CD (人级 30min): 叠穿多件图腾甲共享同一 CD, CD 内不再拦截 (玩家正常死亡)。这是防多命的核心铁律。
  * 触发后 broadcastEntityEvent((byte)35) 全屏图腾动画 + 扣耐久后 broadcastChanges 刷新耐久条 (6.4 同步坑)。
+ *
+ * 职业进度读写经 entry 唯一权威 capability ({@link MiningCapabilities}, 第 2.3 节并入); 不再走已删的
+ * job.JobCapability。nanoReactorCdEndTick 落在 ENGINEER 的 JobProgress 上, 随 entry capability 持久化/Clone。
  */
 public final class NanoReactorHandler {
 
@@ -44,13 +47,15 @@ public final class NanoReactorHandler {
             return;
         }
 
-        Optional<JobProgress> progress = JobCapability.get(player).map(d -> d.jobProgress(JobId.ENGINEER));
+        Optional<JobProgress> progress = MiningCapabilities.get(player).map(d -> d.jobProgress(JobId.ENGINEER));
         if (progress.isEmpty()) {
             return; // 能力未挂载 (极端): 不拦, 正常死亡。
         }
         JobProgress engineer = progress.get();
 
-        long now = player.level().getGameTime();
+        // 人级共享 CD 跨维度: 取全服权威主世界时钟 (overworld), 而非 player.level() 的 per-ServerLevel 计时,
+        // 避免某维度被卸载/暂停 tick 或自定义时钟时跨维度比较 cdEndTick 出现就绪误判 (Minor 边界隐患修复)。
+        long now = player.server.overworld().getGameTime();
         if (!NanoReactor.cooldownReady(now, engineer.nanoReactorCdEndTick())) {
             return; // 共享 CD 中: 不拦, 玩家正常死亡 (叠穿仍只救一次)。
         }

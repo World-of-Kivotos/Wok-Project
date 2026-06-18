@@ -5,10 +5,16 @@ import com.miningdim.job.tarot.card.TarotCardLoader;
 import com.miningdim.job.tarot.client.TarotClientSetup;
 import com.miningdim.job.tarot.craft.TarotCraftService;
 import com.miningdim.job.tarot.pack.PackGachaService;
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.event.AddReloadListenerEvent;
+import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -80,6 +86,46 @@ public final class TarotSystem implements Subsystem {
         event.addListener(cardLoader);
     }
 
+    // ---- 命令: 恋人闪耀绑定的同意握手 (spec 恋人闪耀 "需同意") ----
+
+    @SubscribeEvent
+    public void onRegisterCommands(RegisterCommandsEvent event) {
+        // /tarot consent: 开一个短同意窗, 允许另一玩家在窗内用恋人闪耀绑定本人 (共享生死, spec 第六章)。
+        // /tarot exchange <cardId> [upright]: 攒够碎片确定性兑换一张指定 SSR 牌 (spec 第七/十三章 6 反非酋毕业线)。
+        event.getDispatcher().register(Commands.literal("tarot")
+                .then(Commands.literal("consent").executes(this::cmdConsent))
+                .then(Commands.literal("exchange")
+                        .then(Commands.argument("cardId",
+                                        com.mojang.brigadier.arguments.IntegerArgumentType.integer(0, TarotArcana.COUNT - 1))
+                                .executes(ctx -> cmdExchange(ctx, true))
+                                .then(Commands.argument("upright",
+                                                com.mojang.brigadier.arguments.BoolArgumentType.bool())
+                                        .executes(ctx -> cmdExchange(ctx,
+                                                com.mojang.brigadier.arguments.BoolArgumentType.getBool(ctx, "upright")))))));
+    }
+
+    private int cmdConsent(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        TarotConsentRegistry.grantConsent(player);
+        ctx.getSource().sendSuccess(
+                () -> Component.translatable("message.miningdim.tarot.lovers.consent_granted"), false);
+        return 1;
+    }
+
+    private int cmdExchange(CommandContext<CommandSourceStack> ctx, boolean upright) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        int cardId = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "cardId");
+        TarotShardExchange.ExchangeResult result = TarotShardExchange.exchange(player, cardId, upright);
+        if (!result.success()) {
+            ctx.getSource().sendFailure(Component.translatable(
+                    "message.miningdim.tarot.exchange.not_enough", TarotConfig.SHARD_EXCHANGE_COST.get()));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.translatable(
+                "message.miningdim.tarot.exchange.done", TarotArcana.byId(cardId).id(), result.shardsSpent()), false);
+        return 1;
+    }
+
     // ---- 调度器推进 (全局 tick; spec 第十二章 ServerTickEvent 全局时钟) ----
 
     @SubscribeEvent
@@ -90,6 +136,32 @@ public final class TarotSystem implements Subsystem {
         MinecraftServer server = event.getServer();
         scheduler.tick(server);
         TarotCombatState.tick(server);
+        TarotConsentRegistry.tick(server);
+        unbindDistantLifeBonds(server);
+    }
+
+    /**
+     * 恋人绑定的距离解绑 (spec 恋人闪耀 "&gt;50 格解绑"): 遍历当前在场绑定, 任一对距离超解绑距离 (或一方离线/跨维度)
+     * 即双向解绑。{@link TarotCombatState} 不持实体引用, 故按坐标的距离判定落在子系统门面 (本类持 server)。
+     */
+    private void unbindDistantLifeBonds(MinecraftServer server) {
+        for (java.util.UUID id : TarotCombatState.bondedPlayers()) {
+            java.util.UUID partner = TarotCombatState.bondPartner(id, server.getTickCount());
+            if (partner == null) {
+                continue;
+            }
+            ServerPlayer self = server.getPlayerList().getPlayer(id);
+            ServerPlayer other = server.getPlayerList().getPlayer(partner);
+            if (self == null || other == null) {
+                // 一方离线: 解绑 (登出已各自清理, 此处兜底防半边残留)。
+                TarotCombatState.clearBond(id);
+                continue;
+            }
+            double unbind = TarotCombatState.bondUnbindDistance(id);
+            if (self.level() != other.level() || self.distanceTo(other) > unbind) {
+                TarotCombatState.clearBond(id);
+            }
+        }
     }
 
     // ---- 属性修饰符 + 调度队列清理 (登出/死亡/换维度; spec 第十二章防泄漏) ----
@@ -137,7 +209,7 @@ public final class TarotSystem implements Subsystem {
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         // 清运行期态防跨存档脏引用 (与 MiningServices.reset / JobServices.reset 同纪律)。
-        TarotEconomyHooks.unbind();
+        // 经济门面引用由 economy 子系统经 EconomyServices.reset 自清 (本职业不再持悬空 seam)。
         TarotRuntime.reset();
     }
 
@@ -147,6 +219,7 @@ public final class TarotSystem implements Subsystem {
         cooldown.clear(player.getUUID());
         gacha.clear(player.getUUID());
         TarotCombatState.clearAll(player.getUUID());
+        TarotConsentRegistry.clear(player.getUUID());
     }
 
     @Override

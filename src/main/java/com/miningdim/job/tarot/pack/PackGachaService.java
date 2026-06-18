@@ -11,8 +11,10 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -23,24 +25,32 @@ import java.util.UUID;
  *
  * 全部概率/张数从 {@link TarotConfig} 实时读 (C6 硬编码即缺陷)。开出的牌一律盖 ownerUUID (绑定; spec 第十章)。
  *
+ * 重复牌转碎片 (spec 第七/十三章 6 反非酋承诺): 开包给牌前检测玩家是否已持同 cardId 的牌 (或本包已发过同 cardId),
+ * 已持则改发 {@link TarotConfig#DUPLICATE_SHARD_REFUND} 张碎片而非重复牌。攒够碎片经 {@code /tarot exchange <id>}
+ * (见 {@link com.miningdim.job.tarot.TarotSystem}) 确定性兑换指定牌 —— 给非洲玩家毕业线。
+ *
  * pity 计数内存态 (UUID -> 连续未出 SSR 的高级包数); 登出清理。注: 跨重启不持久 (见 notes; 需持久化时挂 SavedData)。
  * 派生包不产出物品 ItemStack 本身的 "包" —— 直接返回额外卡牌的 OpenResult.derivedPacks 计数, 由 use 层再开。
  */
 public final class PackGachaService {
 
-    /** 一次开包结果: 给玩家的牌 + 触发的派生高级包个数 (派生包就地再开, 并入产物)。 */
-    public record OpenResult(List<ItemStack> cards, int derivedPacks) {
+    /**
+     * 一次开包结果: 给玩家的牌 + 重复牌转出的碎片总数 + 触发的派生高级包个数 (派生包就地再开, 并入产物)。
+     * 重复牌不进 cards (改记 shardRefund), 由 use 层据 shardRefund 给等量碎片。
+     */
+    public record OpenResult(List<ItemStack> cards, int shardRefund, int derivedPacks) {
     }
 
     private final Map<UUID, Integer> advancedNoSsrStreak = new HashMap<>();
 
     /**
-     * 开一个普通包: 1 张 R, 随机 cardId + 随机正逆 (spec 第七章)。
+     * 开一个普通包: 1 张 R, 随机 cardId + 随机正逆 (spec 第七章)。重复牌 (已持同 cardId) 改转碎片。
      */
     public OpenResult openCommon(ServerPlayer player, RandomSource rng) {
         List<ItemStack> out = new ArrayList<>(1);
-        out.add(makeCard(player, randomCardId(rng), TarotQuality.R, rng.nextBoolean()));
-        return new OpenResult(out, 0);
+        Set<Integer> grantedThisPack = new HashSet<>();
+        int shards = grantOrRefund(player, randomCardId(rng), TarotQuality.R, rng.nextBoolean(), out, grantedThisPack);
+        return new OpenResult(out, shards, 0);
     }
 
     /**
@@ -70,6 +80,8 @@ public final class PackGachaService {
         int streak = advancedNoSsrStreak.getOrDefault(id, 0);
 
         List<ItemStack> out = new ArrayList<>(draws);
+        Set<Integer> grantedThisPack = new HashSet<>();
+        int shards = 0;
         boolean gotSsr = false;
         for (int i = 0; i < draws; i++) {
             // pity: 已连续 streak 个包未出 SSR 且本包首张, streak >= pityN 则首张保底 SSR。
@@ -79,7 +91,9 @@ public final class PackGachaService {
             if (ssr) {
                 gotSsr = true;
             }
-            out.add(makeCard(player, randomCardId(rng), q, rng.nextBoolean()));
+            // 重复牌转碎片 (spec 第七章): 已持同 cardId (或本包已发过) 改发碎片。品质保底 (pity/ssr) 仍按计数前判定,
+            // 故 pity 不会因转碎片而失效 (pity 是 "本包必出 SSR 品质" 的承诺, 与具体 cardId 是否重复无关)。
+            shards += grantOrRefund(player, randomCardId(rng), q, rng.nextBoolean(), out, grantedThisPack);
         }
         advancedNoSsrStreak.put(id, gotSsr ? 0 : streak + 1);
 
@@ -90,7 +104,7 @@ public final class PackGachaService {
                 derived++;
             }
         }
-        return new OpenResult(out, derived);
+        return new OpenResult(out, shards, derived);
     }
 
     /**
@@ -103,13 +117,49 @@ public final class PackGachaService {
         if (cardId < 0 || cardId >= TarotArcana.COUNT) {
             throw new IllegalArgumentException("shiny pack selection cardId out of range: " + cardId);
         }
-        // 闪耀包只产 SSR 品质 (spec 第七章: 不含 UR/闪耀); 正逆随机。
+        // 闪耀包是玩家显式自选 (青辉石高价), 不走重复转碎片 (自选即想要该牌, 转碎片反损玩家利益): 直接给 SSR。
         return makeCard(player, cardId, TarotQuality.SSR, rng.nextBoolean());
     }
 
     /** 登出清 pity 内存态 (跨会话不持久; 见 notes)。 */
     public void clear(UUID player) {
         advancedNoSsrStreak.remove(player);
+    }
+
+    /**
+     * 给牌或转碎片 (spec 第七章重复牌转碎片): 玩家已持同 cardId (背包/副手) 或本包已发过同 cardId 则不发重复牌,
+     * 改记 {@link TarotConfig#DUPLICATE_SHARD_REFUND} 张碎片返还; 否则发牌并记入本包已发集合。
+     *
+     * @return 本次因重复转出的碎片数 (0 = 发了真牌)
+     */
+    private static int grantOrRefund(ServerPlayer player, int cardId, TarotQuality quality, boolean upright,
+                                     List<ItemStack> out, Set<Integer> grantedThisPack) {
+        if (playerOwnsCard(player, cardId) || grantedThisPack.contains(cardId)) {
+            return TarotConfig.DUPLICATE_SHARD_REFUND.get();
+        }
+        out.add(makeCard(player, cardId, quality, upright));
+        grantedThisPack.add(cardId);
+        return 0;
+    }
+
+    /** 玩家背包 (含副手) 是否已持有某 cardId 的塔罗牌 (任意品质/朝向; 重复判定按身份不按品质)。 */
+    private static boolean playerOwnsCard(ServerPlayer player, int cardId) {
+        for (ItemStack s : player.getInventory().items) {
+            if (isCard(s, cardId)) {
+                return true;
+            }
+        }
+        for (ItemStack s : player.getInventory().offhand) {
+            if (isCard(s, cardId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isCard(ItemStack stack, int cardId) {
+        return !stack.isEmpty() && stack.getItem() instanceof TarotCardItem
+                && TarotCardItem.cardId(stack) == cardId;
     }
 
     private static int randomCardId(RandomSource rng) {

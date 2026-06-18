@@ -4,6 +4,7 @@ import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
 import com.miningdim.core.Subsystem;
+import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.miner.network.MinerNetwork;
@@ -36,16 +37,18 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * 事件订阅 (forgeBus):
  *  - {@link PlayerEvent.BreakSpeed}: 矿洞 region 内挖速加成 + 抗疲劳 (统一结算防互相覆盖)。
- *  - {@link BlockEvent.BreakEvent}: 谁挖谁得经验 (region 内) + 连锁触发 + 自动入包/熔炼 + 省耐久抢拍 (回补在同 tick 末)。
+ *  - {@link BlockEvent.BreakEvent}: AFK 冻结即跳过 (反挂机) -> 谁挖谁得经验 (region 内) + 连锁触发 (连带产出经货币门面
+ *    回放当日矿物计数 + 时运额外掉落) + 自动入包/熔炼 + 省耐久抢拍 (回补在同 tick 末)。
  *  - {@link TickEvent.ServerTickEvent}: 连锁充能回充 + 脱险读条推进 (移动打断) + 省耐久同 tick 末回补核对。
- *  - {@link LivingHurtEvent}: 脱险读条受伤即打断 (不能当 PvP 逃跑后门, 第七章护栏)。
+ *  - {@link LivingHurtEvent}: 脱险读条受伤即打断 (不能当 PvP 逃跑后门, 第七章护栏) + 矿脉抗性陷阱专属来源减伤。
  *  - 玩家生命周期 (登出/换维度/克隆): 清瞬态运行态 (第五章纪律, 防反复进出矿洞泄漏)。
  * 事件订阅 (modBus):
  *  - {@link FMLCommonSetupEvent}: 在 enqueueWork 内注册矿工专属 SimpleChannel 的两个包。
  *
- * 跨子系统只经 core 门面 ({@link MiningServices}) 与职业框架门面 ({@link JobServices}); 不硬 import 对方实现类。
- * 经济计数口径改造 (方案 B) / 隐藏软上限删提示 / 难度门控读矿工等级 / danger 时间项注入 / 陷阱专属源 等
- * 属其它子系统的同步改动, 见 foundationGaps; 本子系统提供查询/计算入口供集成阶段接线。
+ * 跨子系统只经 core 门面 ({@link MiningServices}) / 职业框架门面 ({@link JobServices}) / 货币门面定位器
+ * ({@link EconomyServices}); 不硬 import 对方实现类。经济当日矿物计数回放 (方案 B, 含时运额外) 与 AFK 冻结查询经
+ * {@link EconomyServices#economyService()} 取 IEconomyService 完成; 难度门控读矿工等级 / danger 时间项注入 (pressure)
+ * / 陷阱专属 DamageSource (trap) 仍属其它子系统的同步改动, 见 foundationGaps。
  */
 public final class MinerSystem implements Subsystem {
 
@@ -67,6 +70,23 @@ public final class MinerSystem implements Subsystem {
         // 网络包注册推迟到 FMLCommonSetupEvent.enqueueWork (线程安全窗口, 与 NetworkSystem 同纪律)。
         modBus.addListener((FMLCommonSetupEvent event) -> event.enqueueWork(MinerNetwork::register));
         LOGGER.info("[miningdim] miner subsystem registered (break speed / who-mines-gets-xp / chain / scan / convenience)");
+    }
+
+    @SubscribeEvent
+    public void onServerStarted(net.minecraftforge.event.server.ServerStartedEvent event) {
+        // Major 缺陷四接线: 把矿工耐压的 danger 时间项系数 (MinerSkills.dangerTimeFactor, 封底 0.6) 绑进压力子系统的
+        // seam (DangerJobFactor)。压力 tick 经此取系数缩放 tWin 累积/衰减, 二者经 seam 解耦 (压力不 import miner,
+        // miner 不 import 压力实现类, 只用其暴露的接线点; 同 entry->entrance.EntranceHooks 范式)。provider 在每次
+        // tick 求值故等级实时生效 (升级即变); 取等级走职业框架门面 (JobServices)。在 ServerStartedEvent 接线 (而非
+        // register) 与 entry->EntranceHooks 同纪律: 单机退到标题再进档会再次 start, 须每次启动重绑 (register 仅 mod 构造跑一次)。
+        com.miningdim.pressure.DangerJobFactor.bind(
+                player -> (float) MinerSkills.dangerTimeFactor(minerLevel(player)));
+    }
+
+    @SubscribeEvent
+    public void onServerStopping(net.minecraftforge.event.server.ServerStoppingEvent event) {
+        // 清压力 seam 引用, 防跨存档/跨重启脏引用 (与 JobServices.reset / EntranceHooks.unbind 同纪律)。
+        com.miningdim.pressure.DangerJobFactor.unbind();
     }
 
     @Override
@@ -149,11 +169,11 @@ public final class MinerSystem implements Subsystem {
         int minerLevel = minerLevel(player);
         MinerChargeState state = stateOf(player);
 
-        // 谁挖谁得经验: region 内挖矿给挖矿者加原始经验, 框架统一做每日衰减/翻日/升级。
-        // 反挂机红线 (第九章 "AFK 态不计经验"): AFK 冻结判定属 economy 子系统 (AbuseGuard.evaluateAfk 写 PlayerAbuseState),
-        // 本子系统无 core 门面查询其冻结态。IEconomyService 当前未暴露 isAfkFrozen, 故此处暂无法前置拦截 ——
-        // 这是已知接线缺口 (见 notes), 不静默掩盖: 集成阶段 IEconomyService 增 isAfkFrozen 后, 在此前置 return。
-        grantMiningXp(player);
+        // 反挂机红线 (第九章 "AFK 态不计经验/不计产矿"): AFK 冻结态下不发经验且不连锁/不抢省耐久, 直接 return
+        // 杜绝挂机刷经验与连锁清矿。冻结查询经货币门面 (见 grantMiningXpUnlessAfk), 与产矿计数 AFK 拦截同口径。
+        if (!grantMiningXpUnlessAfk(player)) {
+            return;
+        }
 
         // 省耐久 (L1 被动) 抢拍: BreakEvent 早于 mineBlock 扣耐久, 此处按等级概率掷骰决定是否回补, 命中则登记
         // 当前工具与扣前 damageValue, 同 tick 末 (onServerTick) 核对回补 (净零耐久损耗)。详见 MinerChargeState 字段注释。
@@ -175,46 +195,57 @@ public final class MinerSystem implements Subsystem {
     }
 
     /**
-     * 连锁连带破坏的每块产出回放 (反通胀第一道硬约束): 唯一物化这批掉落 (入包或落点 spawn) + 逐块走经济计数口径
-     * (产出物个数)。destroyBlock 已 dropBlock=false, 故本回调是产出物的唯一出口, 杜绝双发与计数漂移。
+     * 连锁连带破坏的每块产出回放 (反通胀第一道硬约束): 先按矿工等级时运 (方案 B) 追加额外掉落 -> 唯一物化这批掉落
+     * (入包或落点 spawn) -> 逐块走经济计数口径 (产出物个数, 含时运额外)。destroyBlock 已 dropBlock=false, 故本回调是
+     * 产出物的唯一出口, 杜绝双发与计数漂移; 时运在物化与计数之前施加, 保证额外产出既掉出来又计入隐藏软上限。
      */
     private void onChainProduce(ServerPlayer player, ServerLevel level, int minerLevel, net.minecraft.core.BlockPos pos,
                                 Block brokenBlock, List<ItemStack> drops, boolean autoCollect, boolean autoSmelt) {
+        // 矿脉时运 (L4 起): 在唯一物化前追加额外掉落 (服务端 RandomSource 权威); 额外产出随之物化并计入方案 B 计数。
+        List<ItemStack> withFortune = MinerFortune.withFortuneExtras(drops, minerLevel, level.getRandom());
         // 唯一物化: 自动入包则入库存 (可附带熔炼), 否则在破坏点 spawn (替代被禁用的原版掉落)。
         if (autoCollect) {
-            AutoCollectSmelt.collect(player, minerLevel, ChainMiningEngine.copyDrops(drops), true, autoSmelt);
+            AutoCollectSmelt.collect(player, minerLevel, withFortune, true, autoSmelt);
         } else {
-            ChainMiningEngine.spawnDropsAt(level, pos, drops);
+            ChainMiningEngine.spawnDropsAt(level, pos, withFortune);
         }
-        replayEconomyOreCount(player, brokenBlock, drops);
+        replayEconomyOreCount(player, brokenBlock, withFortune);
     }
 
     /**
      * 连锁/隧道连带产出的经济计数回放唯一入口 (反通胀第一道硬约束, Miner_Job_DesignSpec 第十章第一条):
-     * 连带破坏绕过了原版 BreakEvent (ChainMiningEngine 用 destroyBlock), 故连带块的产出物个数必须在此显式回放进
-     * 经济计数, 严禁静默绕过 EconomySystem 的隐藏软上限 —— 否则满级矿工开连锁可整脉清矿而当日计数恒为 0 (印钞口)。
+     * 连带破坏绕过了原版 BreakEvent (ChainMiningEngine 用 destroyBlock dropBlock=false), 故连带块的产出物个数必须在此
+     * 显式回放进经济当日矿物计数, 严禁静默绕过隐藏软上限 —— 否则满级矿工开连锁可整脉清矿而当日计数恒为 0 (印钞口)。
      *
-     * 接线缺口 (BLOCKING, 见 notes): 回放须经 economy 子系统的 AbuseGuard.recordMinedOre, 但其唯一对外门面
-     * {@link com.miningdim.economy.IEconomyService} 当前未暴露 "按产出物个数计入当日矿物计数" 的方法 (现有方法均为
-     * 货币扣费/入账/卖矿结算), 且 economy 尚无 IEconomyService 实现/定位器 (与 Farmer/Chef/Tarot 同处的 foundationGap)。
-     * 跨子系统铁律禁止本包 import economy 实现类或直接调 AbuseGuard。故本方法是已就绪的回放 chokepoint:
-     * economy 在 IEconomyService 增 recordMinedOreDrops(ServerPlayer, Block, int count) 并经 MinerEconomyHooks seam 绑定后,
-     * 此处一行 hook.recordMinedOreDrops(player, brokenBlock, produced) 即闭环。在该方法落地前, 连带产出计数为 0 是
-     * 已知未闭合的反通胀缺口, 不得视为已实现 (诚实标注, 不静默掩盖)。
+     * 跨子系统经货币门面定位器 {@link EconomyServices#economyService()} 取 {@link com.miningdim.economy.IEconomyService}
+     * (不 import economy 实现类, 守模块化铁律 2): 内部 recordMinedOreDrops 按产出物个数 (方案 B) 累加进与原版单块挖矿
+     * ({@link com.miningdim.economy.EconomySystem#onBlockBreak}) 同一玩家态的当日计数, 共用同一隐藏软上限。
+     * 非高价矿 / AFK 冻结 / producedCount&lt;=0 由门面内部判定不计 (返回 -1), 故连锁白名单内的普通方块 (铁/铜/煤/石)
+     * 不属高价矿时门面自然 no-op; 当白名单未来含高价矿时计数随产出物个数同步增长, 反通胀约束不被连锁绕过。
      */
     void replayEconomyOreCount(ServerPlayer player, Block brokenBlock, List<ItemStack> drops) {
         int produced = ChainMiningEngine.countDropItems(drops);
         if (produced <= 0) {
             return;
         }
-        // 接线就绪前显式记录每次未闭合的回放, 保留现场便于集成阶段核对 (非 "已实现" 假象)。
-        LOGGER.debug("[miningdim] miner produced {} ore item(s) from {} via chain/tunnel; economy count replay BLOCKED "
-                + "on IEconomyService.recordMinedOreDrops (foundationGap, see notes)", produced, brokenBlock);
+        // 经货币门面回放产出物个数进当日矿物计数 (方案 B); 高价矿种判定/AFK 拦截/软上限均在门面内部, 本处只供个数。
+        EconomyServices.economyService().recordMinedOreDrops(player, brokenBlock, produced);
     }
 
-    /** 给挖矿者矿工经验 (原始经验, 框架做衰减/翻日/升级)。每破坏一块给一份基础经验。 */
-    private void grantMiningXp(ServerPlayer player) {
+    /**
+     * 反挂机门控的挖矿经验发放 (第九章红线 "AFK 态不计经验"): 经货币门面 {@link EconomyServices#economyService()}
+     * 的 isAfkFrozen 只读查询冻结态 (不 import economy 实现类, 守模块化铁律 2); 冻结时不发经验返回 false, 否则发一份
+     * 基础原始经验 (框架统一做每日衰减/翻日/升级) 返回 true。返回值供 {@link #onBlockBreak} 决定是否继续后续连锁/省耐久
+     * (冻结即整条 break 处理短路, 与产矿计数 AFK 拦截同口径)。拆出为包级方法供 GameTest 直接断言冻结门控。
+     *
+     * @return true=非冻结且已发经验 (可继续后续处理); false=AFK 冻结, 未发经验 (调用方应短路)
+     */
+    boolean grantMiningXpUnlessAfk(ServerPlayer player) {
+        if (EconomyServices.economyService().isAfkFrozen(player)) {
+            return false;
+        }
         JobServices.jobService().grantXp(player, JobId.MINER, MINING_XP_PER_BLOCK);
+        return true;
     }
 
     /** 每破坏一块矿洞方块给的原始经验 (PENDING 标定; 取一个保守初值, 集成阶段进 config)。 */
@@ -242,15 +273,22 @@ public final class MinerSystem implements Subsystem {
     }
 
     // ============================================================
-    // LivingHurt: 脱险读条受伤即打断 (第七章护栏: 不能当 PvP 逃跑后门)
+    // LivingHurt: 脱险读条受伤即打断 + 矿脉抗性减伤 (第七章护栏 + 守不漂战斗力红线)
     // ============================================================
 
     /**
-     * 受伤即打断脱险读条 (Miner_Job_DesignSpec 第七章: 读条 ~3s, 受伤/移动即打断, 长 CD = 不能当 PvP 逃跑后门)。
-     * 移动打断在 {@link #onServerTick} 每 tick 由 {@link MinerActions#advanceEvacuateChannel} 做; 受伤打断在此。
+     * 矿工受伤统一处理 (Miner_Job_DesignSpec 第七章):
+     *  - 脱险读条受伤即打断 (读条 ~3s, 受伤/移动即打断, 长 CD = 不能当 PvP 逃跑后门): 委派
+     *    {@link MinerActions#interruptEvacuateOnHurt} (内部判 evacuating, 不在读条则空转)。
+     *  - 矿脉抗性 (L5 被动) 减伤: 仅当来源为 "陷阱专属来源" ({@link MinerSurvival#isTrapSource}) 时按矿工等级减伤,
+     *    event.setAmount 施加。守红线: 对怪/枪/玩家 TNT 等非陷阱来源零减免 (isTrapSource 返回 false 即原样, 不动伤害)。
      *
-     * 只对受伤的 ServerPlayer 处理 (撤离态是 per-player 服务端态); 仅在确处于读条中时打断 (无副作用空转)。
-     * 不改伤害本身 (不减伤、不取消事件), 只取消读条 —— 与矿脉抗性 (减伤) 严格分离, 守 "不漂战斗力" 红线。
+     * 二者严格分离: 打断只取消读条不改伤害; 减伤只缩放陷阱专属来源的伤害, 不取消事件、不加战力。
+     *
+     * 陷阱专属来源识别现状: trap 子系统动态陷阱用原版机制造伤 (落石 FALLING_BLOCK / 岩浆 / 苦力怕爆炸), 尚未暴露专属
+     * DamageSource, 故 {@link MinerSurvival#isTrapSource} 当前对所有来源返回 false, 减伤实际不生效 (红线安全降级:
+     * 宁可不减伤, 不可误把战斗伤当陷阱伤减)。本处接线已就绪: trap 暴露专属源并修正 isTrapSource 后减伤自动生效,
+     * 无需再改本接线 (见 notes 的 foundationGap)。
      */
     @SubscribeEvent
     public void onLivingHurt(LivingHurtEvent event) {
@@ -259,6 +297,16 @@ public final class MinerSystem implements Subsystem {
         }
         // interruptEvacuateOnHurt 内部已判 evacuating() (不在读条则空转), 此处直接委派 (单一入口, 不重复取态)。
         MinerActions.interruptEvacuateOnHurt(player);
+
+        // 矿脉抗性: 仅陷阱专属来源减伤 (非矿洞 region / 非陷阱来源零作用)。先判 region 再判来源, 避免对域外伤害空算。
+        if (!inMiningRegion(player) || !MinerSurvival.isTrapSource(event.getSource())) {
+            return;
+        }
+        int level = minerLevel(player);
+        float reduced = MinerSurvival.reducedDamage(level, event.getSource(), event.getAmount());
+        if (reduced < event.getAmount()) {
+            event.setAmount(reduced);
+        }
     }
 
     // ============================================================
@@ -307,7 +355,7 @@ public final class MinerSystem implements Subsystem {
 
     @SubscribeEvent
     public void onPlayerClone(PlayerEvent.Clone event) {
-        // 死亡重生: 瞬态 CD/充能不跨死亡保留 (持久进度由 JobCapability 复制, 运行态重置)。
+        // 死亡重生: 瞬态 CD/充能不跨死亡保留 (持久进度由 entry 唯一权威 capability 复制, 运行态重置)。
         if (event.isWasDeath()) {
             playerStates.remove(event.getEntity().getUUID());
         }

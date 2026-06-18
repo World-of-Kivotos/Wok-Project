@@ -164,9 +164,12 @@
     "cooldownTicks": 14400,
     "ops": [
       {
-        "kind": "aoe_enemy_damage",
+        "kind": "aoe_execute_below_pct",
+        "percent": 0.30,
+        "radius": 12,
         "amount": 50,
-        "radius": 12
+        "threshold": 20,
+        "amplifier": 4
       }
     ]
   }

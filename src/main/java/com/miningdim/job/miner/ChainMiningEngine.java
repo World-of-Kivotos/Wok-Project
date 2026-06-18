@@ -9,7 +9,6 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Queue;
@@ -218,15 +217,6 @@ public final class ChainMiningEngine {
             total += s.getCount();
         }
         return total;
-    }
-
-    /** 防御性: 复制掉落列表 (避免 sink 持有可变引用)。 */
-    static List<ItemStack> copyDrops(List<ItemStack> drops) {
-        List<ItemStack> out = new ArrayList<>(drops.size());
-        for (ItemStack s : drops) {
-            out.add(s.copy());
-        }
-        return out;
     }
 
     /** 把一组产出物 spawn 到破坏点 (自动入包关闭时由 sink 调用, 替代原版掉落; 与 destroyBlock 不再双发)。 */

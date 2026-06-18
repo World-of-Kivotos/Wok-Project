@@ -39,8 +39,18 @@ public final class EconomyWalletData extends SavedData {
     /** 玩家 UUID -> 钱包。无记录的玩家视为余额 0 (新玩家)。 */
     private final Map<UUID, PlayerWallet> wallets = new HashMap<>();
 
+    private static final String K_FAUCET = "dailyFaucets";
+
     /** 每日扣费累计: (玩家 UUID, dailyKey) -> 当日已扣量。键拼接 UUID 与 dailyKey, UTC 翻日清零。 */
     private final Map<String, DailyCharge> dailyCharges = new HashMap<>();
+
+    /**
+     * 每日入账累计 (faucet 侧, 经济文档 8.5): (玩家 UUID, faucetKey) -> 当日已入账的"原始信用点"累计。
+     * 与扣费侧 {@link #dailyCharges} 对称但语义相反 (累计 faucet 入账而非扣费), 复用同一 UTC 翻日时钟。
+     * 供 {@link #recordFaucetGrant} 在发币前取本次入账前的累计 n0, 交 {@link AbuseGuard#faucetCreditAfterDecay}
+     * 算衰减后实发额; 矿工卖矿 / 农夫卖菜等所有 faucet 共用同一 faucetKey 命名空间即并入全服每人每日统一软上限。
+     */
+    private final Map<String, DailyCharge> dailyFaucets = new HashMap<>();
 
     /** 单条每日扣费计数 (当日累计 + 所属 UTC 日戳, 翻日清零)。 */
     private static final class DailyCharge {
@@ -127,6 +137,33 @@ public final class EconomyWalletData extends SavedData {
         return true;
     }
 
+    /**
+     * 累计一次 faucet 当日"原始信用点"入账并返回本次入账前的累计值 n0 (经济文档 8.5 全服每人每日信用点软上限)。
+     * UTC 翻日先清零该 (playerId, faucetKey) 计数 (与扣费侧 {@link #tryChargeDaily} 共用 epochDay 口径)。
+     *
+     * 本法只维护"原始入账累计"计数器, 不做衰减也不动余额 (衰减由 {@link AbuseGuard#faucetCreditAfterDecay} 算,
+     * 实发由调用方经 {@link #credit} 落账)。累计的是 rawAmount (拟入账原始额) 而非实发额, 使衰减档随玩家当日 faucet
+     * 总产出单调推进 (实发额因衰减低于 raw, 若累计实发额会令衰减永不深入)。
+     *
+     * @param playerId   玩家 UUID
+     * @param faucetKey  faucet 计数键 (矿工卖矿 / 农夫卖菜等共用命名空间即并入同一软上限)
+     * @param rawAmount  本次拟入账的原始信用点 (&gt; 0)
+     * @param todayStamp 当前 UTC 日戳 (epochDay; 与 AbuseGuard.currentPlayerDayStamp 同口径)
+     * @return 本次入账前当日已累计的原始信用点 n0 (翻日后为 0)
+     */
+    public long recordFaucetGrant(UUID playerId, String faucetKey, long rawAmount, long todayStamp) {
+        if (rawAmount <= 0L) {
+            throw new EconomyException(EconomyException.Reason.ILLEGAL_AMOUNT,
+                    "faucet grant amount must be > 0, got " + rawAmount);
+        }
+        String key = playerId + "|" + faucetKey;
+        DailyCharge dc = dailyFaucets.get(key);
+        long before = (dc == null || dc.dayStamp != todayStamp) ? 0L : dc.amount;
+        dailyFaucets.put(key, new DailyCharge(before + rawAmount, todayStamp));
+        setDirty();
+        return before;
+    }
+
     @Override
     public CompoundTag save(CompoundTag tag) {
         ListTag list = new ListTag();
@@ -147,6 +184,16 @@ public final class EconomyWalletData extends SavedData {
             daily.add(entry);
         }
         tag.put(K_DAILY, daily);
+
+        ListTag faucets = new ListTag();
+        for (Map.Entry<String, DailyCharge> e : dailyFaucets.entrySet()) {
+            CompoundTag entry = new CompoundTag();
+            entry.putString(K_DAILY_KEY, e.getKey());
+            entry.putLong(K_DAILY_AMOUNT, e.getValue().amount);
+            entry.putLong(K_DAILY_STAMP, e.getValue().dayStamp);
+            faucets.add(entry);
+        }
+        tag.put(K_FAUCET, faucets);
         return tag;
     }
 
@@ -163,6 +210,12 @@ public final class EconomyWalletData extends SavedData {
         for (int i = 0; i < daily.size(); i++) {
             CompoundTag entry = daily.getCompound(i);
             data.dailyCharges.put(entry.getString(K_DAILY_KEY),
+                    new DailyCharge(entry.getLong(K_DAILY_AMOUNT), entry.getLong(K_DAILY_STAMP)));
+        }
+        ListTag faucets = tag.getList(K_FAUCET, Tag.TAG_COMPOUND);
+        for (int i = 0; i < faucets.size(); i++) {
+            CompoundTag entry = faucets.getCompound(i);
+            data.dailyFaucets.put(entry.getString(K_DAILY_KEY),
                     new DailyCharge(entry.getLong(K_DAILY_AMOUNT), entry.getLong(K_DAILY_STAMP)));
         }
         return data;

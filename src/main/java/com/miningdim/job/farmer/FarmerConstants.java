@@ -69,19 +69,18 @@ public final class FarmerConstants {
     public static final double WHEAT_PRICE_FLOOR_RATIO = 0.25D;
 
     /**
-     * 卖菜信用点 faucet 的每日计数键 (经济文档 8.5: 所有 faucet 须并入每人每日信用点软上限)。
-     * 当前未被引用: 地基 {@link com.miningdim.economy.IEconomyService} 只有扣费侧 tryChargeDaily (含 dailyKey),
-     * 无发放侧 grantDaily, 故卖菜暂走农夫私有 per-player 上限 ({@link #WHEAT_SELL_DAILY_CREDIT_CAP}) 而非全服
-     * 统一 dailyKey 软上限。待地基补 grantDaily(player, currency, amount, dailyKey, dailyCap) 后, 卖菜改走它并
-     * 复用与矿物收购同一 dailyKey 命名空间 (见 foundationGaps)。本键先行声明该命名空间, 接线即用。
+     * 卖菜信用点 faucet 的每日计数键 (经济文档 8.5: 所有信用点 faucet 并入每人每日统一软上限)。值刻意取全服共享
+     * 的 {@value} 而非农夫私有键: 卖菜经 {@link com.miningdim.economy.IEconomyService#grantDaily} 入账时传此键,
+     * 与矿工卖矿等其它 faucet 共用同一 (playerId, faucetKey) 每日累计计数器, 故各 faucet 不再各算独立日上限,
+     * 而是并入同一每人每日信用点天花板 (经济文档 8.5; 与 economy 测试 grantDailySharedAcrossFaucetKeys 同键)。
      */
-    public static final String WHEAT_SELL_DAILY_KEY = "farmer_wheat_sell";
+    public static final String WHEAT_SELL_FAUCET_KEY = "credit_faucet";
 
     /**
-     * 卖菜信用点每日上限 (信用点): basePrice × softCap 量级, 防单职业灌爆信用点。PENDING 经济校准。
-     * 当前为农夫私有 per-player 上限 (非全服统一 faucet 软上限): 矿工卖矿与农夫卖菜各算独立日上限, 未共享同一
-     * 每日信用点天花板。这与经济文档 8.5 "全服 faucet 并入同一软上限" 相悖, 根因是地基缺发放侧 grantDaily 每日
-     * 计数 API (见 foundationGaps); 待补齐后并入全服统一上限再据 "满级日纯经济约 3 万株" 锚回算校准。
+     * 卖菜入账传给 {@link com.miningdim.economy.IEconomyService#grantDaily} 的每人每日信用点软上限 (信用点)。
+     * 这是全服共享 faucet 软上限 (非农夫私有上限): 当日经 {@link #WHEAT_SELL_FAUCET_KEY} 累计入账超此值后,
+     * grantDaily 内部按 0.97 逐档衰减 / 0.25 地板递减实发额 (经济文档 8.5), 矿工卖矿等同键 faucet 共享此天花板。
+     * basePrice × softCap 量级。PENDING 经济校准 (据 "满级日纯经济约 3 万株" 锚回算); 接通后须与矿工传同一值。
      */
-    public static final long WHEAT_SELL_DAILY_CREDIT_CAP = 2160L;
+    public static final long DAILY_CREDIT_FAUCET_CAP = 2160L;
 }

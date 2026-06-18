@@ -28,11 +28,11 @@ import java.util.List;
  *
  * 跨子系统冲突的集成裁决 (阶段2, 见 README "已知架构裁决"):
  *   - 玩家 Capability 与入场/离开/登录恢复路径以 entry 子系统为唯一权威 (EntrySystem + MiningCapabilities):
- *     它实现了设计文档 14.2 完整防虚空进入链路与 14.6 登录恢复, reset 子系统亦依赖其能力。并行开发期
- *     persistence 包另产出一套等价玩家 Capability (PlayerMiningCapability/PlayerMiningEvents) 并由 InstanceSystem
- *     接线 —— 二者同时挂载会重复 attach 能力并重复触发 onPlayerLeave/登录恢复 (双重传送/双重引用计数)。
- *     故 InstanceSystem 只保留实例后端 (InstanceManager/SavedData/区块加载/GC), 不再注册 persistence 玩家
- *     Capability 与离开路径 (已在 InstanceSystem 内裁撤)。
+ *     它实现了设计文档 14.2 完整防虚空进入链路与 14.6 登录恢复, reset 子系统亦依赖其能力。职业进度 EnumMap
+ *     亦并入此唯一权威 capability (JobFramework_Shared_Foundation_DesignSpec 第 2.3 节)。并行开发期 persistence
+ *     包曾另产出一套等价玩家 Capability (二者同时挂载会重复 attach 能力并重复触发离开/登录恢复, 双重传送/双重
+ *     引用计数), 现已按第 2.3 节删除该死包 (仅保留 InstanceManager 仍用的 MiningSavedData); InstanceSystem
+ *     只保留实例后端 (InstanceManager/SavedData/区块加载/GC)。
  *   - /mining 命令树以 entry.MiningCommands 为唯一权威 (匹配设计文档 14.1 DECIDED: enter/leave/reset/info,
  *     且 enter 走 EntryGateway 真实传送)。command 包的 CommandSystem 是并行期产出的另一套 /mining (其 enter
  *     仅 allocate 不传送, 与 14.2 不符), 不接入主类以避免 Brigadier 双根冲突。

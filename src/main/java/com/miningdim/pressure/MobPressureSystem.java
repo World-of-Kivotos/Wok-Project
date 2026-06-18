@@ -141,7 +141,11 @@ public final class MobPressureSystem {
         // 活跃判定: 玩家在 region 内即视为作业 (移动/挖掘细分待行为事件接入, 此处按在区作业累积)。
         boolean activeInRegion = true;
 
-        float dangerValue = danger.evaluate(data, zone, activeInRegion, oreRichness01, now, config);
+        // 职业 danger 时间项系数 (Major 缺陷四): 经 pressure 自有 seam 取 (矿工耐压等职业子系统启动期 bind),
+        // 缩放 tWin 累积/衰减。未接线 / 非耐压职业返回 1.0 (无缩放)。不硬 import 职业实现类 (模块化铁律 2)。
+        float timeAccrueFactor = DangerJobFactor.factorFor(player);
+
+        float dangerValue = danger.evaluate(data, zone, activeInRegion, oreRichness01, timeAccrueFactor, now, config);
         SpawnTier tier = SpawnTier.forDanger(dangerValue);
 
         // HUD 同步 (15.4.2): 下发 danger + tier + 光照感知系数。

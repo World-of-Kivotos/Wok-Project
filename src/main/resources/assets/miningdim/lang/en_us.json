@@ -48,7 +48,6 @@
   "miningdim.msg.reset_cooldown": "This instance is still on reset cooldown.",
   "miningdim.msg.reset_daily_limit": "This instance has reached its daily reset limit.",
   "miningdim.msg.reset_cost_unpaid": "You cannot afford the reset cost.",
-  "miningdim.msg.economy_softcap": "Daily soft cap reached for %s (%s mined); buyback price is now reduced.",
   "miningdim.msg.death_penalty": "You died in the mines and were sent back to where you entered from.",
   "miningdim.msg.death_reentry_cooldown": "You must wait before re-entering after dying.",
   "commands.miningdim.enter.requested": "Requesting entry (%s)...",

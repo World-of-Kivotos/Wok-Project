@@ -1,5 +1,8 @@
 package com.miningdim.entry;
 
+import com.miningdim.job.JobData;
+import com.miningdim.job.JobId;
+import com.miningdim.job.JobProgress;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
@@ -12,6 +15,10 @@ import net.minecraftforge.common.util.INBTSerializable;
 /**
  * {@link IMiningPlayerData} 的 Capability 数据实现 (设计文档 12.5)。纯数据对象, 无世界引用,
  * 序列化经 {@link INBTSerializable}。复制规则 (PlayerEvent.Clone) 由 {@link MiningCapabilities} 处理。
+ *
+ * 全职业进度 (第 2.3 节): 内持一个 {@link JobData} (EnumMap 持有者) 作为唯一权威职业存储, 序列化挂子标签
+ * {@value #K_JOBS}, copyFrom 全量复制 (死亡/换维度保留全职业进度)。JobData/JobProgress 是纯数据类, 不带任何
+ * 第二套 capability/事件 (已删 job.JobCapability)。
  *
  * 线程: Capability 数据只在主线程读写 (玩家事件 / tick 均主线程), 无需并发保护。
  */
@@ -26,6 +33,9 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
     private long currentInstanceId = NO_INSTANCE;
     private float danger = 0.0f;
     private long spawnFreezeUntil = 0L;
+
+    /** 全职业进度 (第 2.3 节并入): EnumMap<JobId,JobProgress> 持有者, 按需懒建默认。 */
+    private final JobData jobData = new JobData();
 
     @Override
     public ResourceKey<Level> prevDimension() {
@@ -92,7 +102,12 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
         this.spawnFreezeUntil = 0L;
     }
 
-    /** 把另一份数据全字段拷入本对象 (PlayerEvent.Clone 复制: 死亡重生/换维度均保留回退态)。 */
+    @Override
+    public JobProgress jobProgress(JobId job) {
+        return jobData.jobProgress(job);
+    }
+
+    /** 把另一份数据全字段拷入本对象 (PlayerEvent.Clone 复制: 死亡重生/换维度均保留回退态 + 全职业进度)。 */
     public void copyFrom(MiningPlayerData other) {
         this.prevDimension = other.prevDimension;
         this.prevPos = other.prevPos;
@@ -101,6 +116,7 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
         this.currentInstanceId = other.currentInstanceId;
         this.danger = other.danger;
         this.spawnFreezeUntil = other.spawnFreezeUntil;
+        this.jobData.copyFrom(other.jobData);
     }
 
     // ---- 持久化 (12.5) ----
@@ -112,6 +128,8 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
     private static final String K_CURRENT_INSTANCE = "currentInstanceId";
     private static final String K_DANGER = "danger";
     private static final String K_SPAWN_FREEZE = "spawnFreezeUntil";
+    /** 全职业进度子标签 (第 2.3 节并入): JobData 自身遍历 EnumMap 的 CompoundTag 挂此键。 */
+    private static final String K_JOBS = "jobs";
 
     @Override
     public CompoundTag serializeNBT() {
@@ -123,6 +141,7 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
         tag.putLong(K_CURRENT_INSTANCE, currentInstanceId);
         tag.putFloat(K_DANGER, danger);
         tag.putLong(K_SPAWN_FREEZE, spawnFreezeUntil);
+        tag.put(K_JOBS, jobData.serializeNBT());
         return tag;
     }
 
@@ -138,5 +157,7 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
         this.currentInstanceId = tag.contains(K_CURRENT_INSTANCE) ? tag.getLong(K_CURRENT_INSTANCE) : NO_INSTANCE;
         this.danger = tag.getFloat(K_DANGER);
         this.spawnFreezeUntil = tag.getLong(K_SPAWN_FREEZE);
+        // 缺键 (旧存档无职业进度) 时 JobData.deserializeNBT 收空 tag, 各职业取用时懒建默认 (向后兼容)。
+        this.jobData.deserializeNBT(tag.getCompound(K_JOBS));
     }
 }

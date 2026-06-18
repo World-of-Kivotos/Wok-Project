@@ -122,8 +122,36 @@ public record TarotEffectOp(
                 capUp = GsonHelper.getAsDouble(obj, "capUp"); // 单次反伤封顶 (绝对 HP)。
                 durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
                 break;
+            case SELF_REFLECT_ACCUM:
+                // 累计反击窗 (正义闪耀): percent 回击比, capUp 单次封顶, radius 结算半径, durationTicks 窗口时长。
+                percent = GsonHelper.getAsDouble(obj, "percent");
+                capUp = GsonHelper.getAsDouble(obj, "capUp");
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                break;
+            case SELF_DELAYED_LEDGER:
+                // 延迟记账冻死窗 (倒吊人闪耀): percent 结算比 (0.50), amount 存活回血 (40), durationTicks 窗口时长。
+                percent = GsonHelper.getAsDouble(obj, "percent");
+                amount = GsonHelper.getAsDouble(obj, "amount");
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                break;
             case SELF_INVULNERABLE:
                 durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                break;
+            case SHINY_BIND_SHARE_LIFE:
+                // 恋人闪耀: durationTicks 绑定时长, radius 解绑距离 (50), count 一方死后另一方延迟死亡 ticks (60=3s)。
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                count = GsonHelper.getAsInt(obj, "count");
+                break;
+            case AOE_EXECUTE_BELOW_PCT:
+                // 死神闪耀: percent 处决血占比阈值 (0.30), radius 半径 (12), amount 无目标穿刺 (50),
+                // threshold 每杀回血 (20), amplifier 力量叠层上限 (4=V)。
+                percent = GsonHelper.getAsDouble(obj, "percent");
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                amount = GsonHelper.getAsDouble(obj, "amount");
+                threshold = GsonHelper.getAsDouble(obj, "threshold");
+                amplifier = GsonHelper.getAsInt(obj, "amplifier");
                 break;
             case ENEMY_TARGET_DAMAGE:
                 // 准星单体 (死神正位): 准星目标血 < threshold 处决, 否则 amount 伤害。reach=radius。

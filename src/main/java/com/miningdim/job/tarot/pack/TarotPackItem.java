@@ -1,9 +1,9 @@
 package com.miningdim.job.tarot.pack;
 
 import com.miningdim.economy.Currency;
+import com.miningdim.economy.EconomyServices;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.job.tarot.TarotConfig;
-import com.miningdim.job.tarot.TarotEconomyHooks;
 import com.miningdim.job.tarot.TarotRuntime;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -16,8 +16,6 @@ import net.minecraft.world.level.Level;
 import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.network.NetworkHooks;
 
-import java.util.List;
-
 /**
  * 卡包物品 (TarotReader spec 第七章)。右键 {@link #use} 服务端权威开包 (if !level.isClientSide), 客户端只回
  * success 触发挥手动画。开包前经 {@link IEconomyService} 扣费 (普通/高级=信用点, 闪耀=青辉石), 每日限购并入
@@ -25,8 +23,9 @@ import java.util.List;
  *
  * 闪耀包不直接给牌, 开出后打开自选 GUI ({@link ShinyPackSelectMenu}) 让玩家选一张 SSR (spec 第七章)。
  *
- * 货币扣费经 {@link TarotEconomyHooks} seam (地基 IEconomyService 暂无实现/定位器, 见 foundationGaps):
- * 未接线即开包是装配缺陷, 在此 use 边界自然抛 IllegalStateException 暴露 (异常纪律: 不静默掩盖)。
+ * 货币扣费经 {@link EconomyServices#economyService()} 定位器 (项目既定服务定位器范式; 原 TarotEconomyHooks
+ * 静态 bind seam 无任何 bind 调用方, 已移除悬空 seam): 未注入即开包是装配缺陷, 在此 use 边界自然抛
+ * IllegalStateException 暴露 (异常纪律: 不静默掩盖)。
  */
 public final class TarotPackItem extends Item {
 
@@ -75,7 +74,7 @@ public final class TarotPackItem extends Item {
 
     /** 普通/高级扣信用点 (含每日限购; spec 第十章)。闪耀包不走此路 (青辉石, 选牌时扣)。 */
     private boolean chargeCreditPack(ServerPlayer player) {
-        IEconomyService eco = TarotEconomyHooks.service();
+        IEconomyService eco = EconomyServices.economyService();
         return switch (kind) {
             case COMMON -> eco.tryChargeDaily(player, Currency.CREDIT, TarotConfig.PRICE_COMMON_PACK.get(),
                     DAILY_KEY_PACK, dailyPackCap());
@@ -89,26 +88,31 @@ public final class TarotPackItem extends Item {
         return TarotConfig.DAILY_PACK_LIMIT.get();
     }
 
-    /** 服务端开普通/高级包 (RNG 权威)。 */
+    /** 服务端开普通/高级包 (RNG 权威)。重复牌转出的碎片一并给物 (spec 第七章)。 */
     private void openCreditPack(ServerPlayer player) {
         PackGachaService gacha = TarotRuntime.gacha();
         switch (kind) {
-            case COMMON -> giveAll(player, gacha.openCommon(player, player.getRandom()).cards());
+            case COMMON -> giveResult(player, gacha.openCommon(player, player.getRandom()));
             case ADVANCED -> {
                 PackGachaService.OpenResult result = gacha.openAdvanced(player, player.getRandom());
-                giveAll(player, result.cards());
+                giveResult(player, result);
                 // 派生包: 就地再开等量高级包 (期望 E<1 收敛; spec 第七章), 并入本次产物。
                 for (int i = 0; i < result.derivedPacks(); i++) {
-                    giveAll(player, gacha.openAdvanced(player, player.getRandom()).cards());
+                    giveResult(player, gacha.openAdvanced(player, player.getRandom()));
                 }
             }
             default -> throw new IllegalStateException("openCreditPack called for non-credit pack: " + kind);
         }
     }
 
-    private static void giveAll(ServerPlayer player, List<ItemStack> cards) {
-        for (ItemStack card : cards) {
+    /** 给一次开包结果: 真牌逐张给物, 重复牌转出的碎片合并成一堆给物 (spec 第七章重复转碎片)。 */
+    private static void giveResult(ServerPlayer player, PackGachaService.OpenResult result) {
+        for (ItemStack card : result.cards()) {
             ItemHandlerHelper.giveItemToPlayer(player, card);
+        }
+        if (result.shardRefund() > 0) {
+            ItemHandlerHelper.giveItemToPlayer(player,
+                    com.miningdim.job.tarot.craft.TarotCraftService.makeShards(result.shardRefund()));
         }
     }
 
@@ -123,7 +127,7 @@ public final class TarotPackItem extends Item {
         if (pack == null) {
             return false; // 无闪耀包 (界面残留/被丢弃): 不发牌。
         }
-        IEconomyService eco = TarotEconomyHooks.service();
+        IEconomyService eco = EconomyServices.economyService();
         if (!eco.tryCharge(player, Currency.AZURE, TarotConfig.PRICE_SHINY_PACK_AZURE.get())) {
             return false; // 青辉石不足: 不扣不消耗。
         }

@@ -2,6 +2,7 @@ package com.miningdim.economy;
 
 import com.miningdim.economy.EconomyConstants.HighValueOre;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.block.Block;
 
 /**
  * 货币门面接口 (JobFramework_Shared_Foundation_DesignSpec 第三章 DECIDED 接口 + 经济文档 0.3/1.1/8.1)。
@@ -81,4 +82,52 @@ public interface IEconomyService {
      * @return 本块实际入账的信用点 (衰减后单价向下取整; 0 表示衰减后不足 1 信用点)
      */
     long settleOreSale(ServerPlayer player, HighValueOre ore, int countSoFar, double basePrice);
+
+    /**
+     * 把"连带破坏的高价矿产出物个数"回放进玩家当日矿物计数 (方案 B; Miner_Job_DesignSpec 第十章第一条反通胀第一道
+     * 硬约束)。矿工连锁/隧道挖矿用 {@code destroyBlock(dropBlock=false)} 绕过了原版 {@code BlockEvent.BreakEvent},
+     * 故连带块的产出不会经 {@link EconomySystem#onBlockBreak} 自动计数; 矿工子系统必须在物化连带产出时显式调用本法,
+     * 否则满级矿工开连锁可整脉清矿而当日计数恒不增长 = 隐藏软上限/收购价递减对连锁产出完全失效的印钞口。
+     *
+     * 口径与单块挖矿统一 (方案 B "按产出物个数"): 内部经 {@link AbuseGuard#recordMinedOreDrops} 把 producedCount 累加进
+     * 与 {@link EconomySystem#onBlockBreak} 同一 {@link PlayerAbuseState} 的当日计数, 共用同一隐藏软上限。AFK 冻结态 /
+     * 非高价矿 / producedCount&lt;=0 不计 (内部判定)。
+     *
+     * @param player        挖矿玩家 (服务端权威)
+     * @param block         被连带破坏的方块 (决定矿种; 非高价矿不计)
+     * @param producedCount 本方块连带产出的物品总个数 (含连锁/时运额外掉落)
+     * @return 计入后该矿种当日累计值; 非高价矿 / AFK 冻结 / producedCount&lt;=0 返回 -1
+     */
+    int recordMinedOreDrops(ServerPlayer player, Block block, int producedCount);
+
+    /**
+     * 含每日 faucet 软上限 + 衰减的信用点入账 (经济文档 1.1/8.5: 所有 faucet —— 矿工卖矿 / 农夫卖菜 / 任务 / 刷怪 ——
+     * 必须并入"每人每日信用点统一软上限 + 0.97 衰减 / 0.25 地板", 复用 UTC 翻日; 否则各 faucet 各自私有上限即留印钞口)。
+     *
+     * 与扣费侧 {@link #tryChargeDaily} 对称 (发放侧每日计数): 当日经同一 faucetKey 累计入账超出 dailyCap 后, 本批入账按
+     * {@link AbuseGuard#faucetCreditAfterDecay} 逐档衰减 (每超一个完整 dailyCap 档再乘 0.97, 夹 basePrice 的 25% 地板),
+     * 衰减后实发额经 {@link #grant} 落账本。矿工卖矿与农夫卖菜传同一 faucetKey 命名空间即共享同一每人每日信用点天花板。
+     *
+     * 与 {@link #tryChargeDaily} 的差异: 扣费侧超额"拒绝"(返 false 不扣); 发放侧超额"衰减"(仍发, 但实发额递减), 因 faucet
+     * 软上限是"无形递减"不是"硬墙"(经济文档 8.5 / Miner_Job_DesignSpec 第六章无撞墙挫败)。
+     *
+     * @param player    入账玩家 (服务端权威)
+     * @param rawCredit 本次拟入账的原始信用点 (必须 &gt; 0; 非法金额抛 {@link EconomyException.Reason#ILLEGAL_AMOUNT})
+     * @param faucetKey faucet 计数键 (所有信用点 faucet 共用同一键即并入全服统一软上限)
+     * @param dailyCap  每日信用点软上限 (累计入账超出后逐档衰减; 必须 &gt; 0)
+     * @return 本次衰减后实际入账的信用点 (&gt;= 0; 0 表示衰减后不足 1 信用点)
+     */
+    long grantDaily(ServerPlayer player, long rawCredit, String faucetKey, long dailyCap);
+
+    /**
+     * 玩家当前是否处于 AFK 经济冻结态 (经济文档 18.4 反挂机; Miner_Job_DesignSpec 第九章反挂机红线)。
+     * 供矿工子系统在发放挖矿经验 / 产矿计数前前置拦截挂机玩家 (AFK 期间不计经验、不计产矿)。
+     *
+     * 冻结态由经济子系统 {@link AbuseGuard#evaluateAfk} 在降频 tick 评估写入 {@link PlayerAbuseState#afkFrozen()};
+     * 本法只读该字段, 不触发评估 (评估时机由经济子系统的 tick 主导)。
+     *
+     * @param player 玩家 (服务端权威)
+     * @return true=处于 AFK 冻结态
+     */
+    boolean isAfkFrozen(ServerPlayer player);
 }

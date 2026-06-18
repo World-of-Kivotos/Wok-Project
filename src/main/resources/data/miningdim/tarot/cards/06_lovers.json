@@ -120,10 +120,10 @@
     "cooldownTicks": 18000,
     "ops": [
       {
-        "kind": "self_potion",
-        "effect": "minecraft:resistance",
-        "amplifier": 2,
-        "durationTicks": 300
+        "kind": "shiny_bind_share_life",
+        "durationTicks": 300,
+        "radius": 50,
+        "count": 60
       }
     ]
   }

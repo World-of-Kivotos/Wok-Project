@@ -171,6 +171,22 @@ public final class AbuseGuard {
      * @return 计入后当日累计值; 非高价矿或 AFK 冻结返回 -1
      */
     public int recordMinedOre(PlayerAbuseState state, Block minedBlock) {
+        return recordMinedOreDrops(state, minedBlock, 1);
+    }
+
+    /**
+     * 按"产出物个数"把一批高价矿产出计入玩家当日计数 (方案 B; Miner_Job_DesignSpec 第六/十章: 当日上限按产出物
+     * 个数计, 而非挖了几块)。供矿工连锁/隧道连带破坏的产出回放 ({@link IEconomyService#recordMinedOreDrops}) 与原版
+     * 单块挖矿 (count=1, 经 {@link #recordMinedOre}) 共用同一口径与同一隐藏软上限, 杜绝连锁绕过软上限的印钞口。
+     *
+     * AFK 冻结态不计 (18.4 第3条)。非高价矿或 producedCount &lt;= 0 不计。
+     *
+     * @param state         玩家反滥用态
+     * @param minedBlock    被破坏的方块 (决定矿种)
+     * @param producedCount 本次该方块产出的物品总个数 (含时运/连锁额外掉落)
+     * @return 计入后当日累计值; 非高价矿 / AFK 冻结 / producedCount&lt;=0 返回 -1
+     */
+    public int recordMinedOreDrops(PlayerAbuseState state, Block minedBlock, int producedCount) {
         HighValueOre ore = oreClassification.get(minedBlock);
         if (ore == null) {
             return -1;
@@ -179,7 +195,10 @@ public final class AbuseGuard {
             // AFK 期间挖到的高价矿不计入经济统计 (18.4); 仍正常掉落 (不阻挖, 软上限本就不阻挖)。
             return -1;
         }
-        return state.addDailyOreCount(ore, 1);
+        if (producedCount <= 0) {
+            return -1;
+        }
+        return state.addDailyOreCount(ore, producedCount);
     }
 
     /** 把方块分类为高价矿种; 非高价矿返回 null。供事件层在计数后取种类做软上限提示。 */
@@ -222,6 +241,30 @@ public final class AbuseGuard {
     /** 是否已超某矿种当日软上限 (超限即触发递减/提示, 但不阻挖)。 */
     public boolean overSoftCap(HighValueOre ore, int countSoFar) {
         return countSoFar > dailySoftCap(ore);
+    }
+
+    /**
+     * 全服每人每日信用点 faucet 软上限的衰减系数 (经济文档 8.5: 所有 faucet 并入同一软上限 + 0.97 衰减 / 0.25 地板,
+     * 复用 UTC 翻日)。与矿物收购 {@link #buyPrice} 同构, 但衰减档以"软上限的整数倍"递进 (非单信用点): 当日累计入账
+     * 信用点每超出一个完整 dailyCap 档, 衰减底数再乘一次 0.97, 夹 0.25 地板。
+     *
+     * 为何按 dailyCap 档而非单信用点递进: 信用点面值是 ×10 锚 (8.1), 单信用点 0.97 会令几十信用点即跌破 0.25 地板,
+     * 与"软上限内全额、超额温和递减"的设计相悖; 按 cap 档递进使首个 cap 全额、第二个 cap 档 ×0.97、远超后夹地板,
+     * 与卖矿"软上限内不衰减、超后逐步递减"的体感一致 (8.5 复用同一衰减语言)。纯函数, 确定性。
+     *
+     * @param creditsBeforeThisGrant 本次入账前当日已累计入账的原始信用点 n0
+     * @param rawCreditAmount        本次拟入账的原始信用点 (&gt; 0)
+     * @param dailyCap               每日信用点软上限 (&gt; 0; 累计入账超出后逐档衰减)
+     * @return 本次实际应入账的信用点 (衰减后向下取整, &gt;= 0)
+     */
+    public long faucetCreditAfterDecay(long creditsBeforeThisGrant, long rawCreditAmount, long dailyCap) {
+        long newCumulative = creditsBeforeThisGrant + rawCreditAmount;
+        long over = Math.max(0L, newCumulative - dailyCap);
+        // 衰减档 = 超出软上限的完整 dailyCap 个数 (0 = 仍在首个 cap 内, 全额)。
+        long tier = over / dailyCap;
+        double decayed = Math.pow(EconomyConstants.ECONOMY_DECAY_BASE, tier);
+        double ratio = Math.max(EconomyConstants.ECONOMY_PRICE_FLOOR_RATIO, decayed);
+        return (long) Math.floor(rawCreditAmount * ratio);
     }
 
     // ============================================================

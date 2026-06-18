@@ -2,13 +2,25 @@ package com.miningdim.job.miner;
 
 import com.miningdim.core.Difficulty;
 import com.miningdim.core.MiningConstants;
+import com.miningdim.economy.Currency;
+import com.miningdim.economy.EconomyServices;
+import com.miningdim.economy.IEconomyService;
+import com.miningdim.economy.EconomyConstants.HighValueOre;
+import com.miningdim.job.IJobService;
+import com.miningdim.job.JobId;
+import com.miningdim.job.JobProgress;
+import com.miningdim.job.JobServices;
 import com.miningdim.ore.OreType;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.levelgen.PositionalRandomFactory;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -18,9 +30,15 @@ import java.util.Set;
 /**
  * 矿工职业核心逻辑 GameTest (断言具体业务结果, 删被测核心逻辑测试必挂; 禁 is-not-null 弱校验; 含边界值)。
  *
- * 覆盖契约 tests 字段的可纯逻辑断言项 (世界依赖项如连锁 destroyBlock / 经济计数回放须 economy 接线后补,
- * 见 notes): 挖速封顶、省耐久封顶、时运封顶、难度门控边界、减 danger 满级封底、矿脉抗性陷阱专属、
- * 连锁白名单/硬排除、自动熔炼 1:1、探测可探矿种里程碑、陷阱探测致死门控。
+ * 覆盖: 挖速封顶、省耐久封顶、时运封顶、难度门控边界、减 danger 满级封底、矿脉抗性陷阱专属、连锁白名单/硬排除、
+ * 自动熔炼 1:1、探测可探矿种里程碑、陷阱探测致死门控; 以及复审缺陷闭合的回归断言 (删修复测试必挂):
+ *  - 连锁/隧道经济计数回放按产出物个数 (方案 B) 经货币门面入账 (反通胀第一道硬约束, 非 debug-log/计数 0);
+ *  - 时运额外掉落随连带产出进经济计数 (时运计入隐藏软上限, 非死代码);
+ *  - 矿脉时运按期望确定性追加额外掉落 + 等级门控 (L1-3 死 / L4+ 活);
+ *  - AFK 冻结态不计挖矿经验 (第九章反挂机红线), 解冻后正常计经验。
+ *
+ * 货币门面/职业门面经测试替身 ({@link RecordingEconomy}/{@link RecordingJobService}) 注入定位器后断言矿工侧接线
+ * (真实计数/衰减逻辑在 economy 子系统 EconomyGameTests 覆盖)。时运随机性用定值 {@link FixedRandom} 消除, 确定可测。
  *
  * 用 template = "empty" (data/miningdim/structures/empty.nbt 空模板); 纯逻辑断言不依赖结构。
  */
@@ -343,7 +361,315 @@ public final class MinerGameTests {
         helper.succeed();
     }
 
+    // ============================================================
+    // 连锁/隧道经济计数回放: 连带产出按产出物个数回放进货币门面 (反通胀第一道硬约束, 第十章第一条)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void chainReplayCountsProducedItems(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        RecordingEconomy eco = new RecordingEconomy();
+        IEconomyService prev = swapEconomy(eco);
+        try {
+            MinerSystem sys = new MinerSystem();
+            Block diamond = Blocks.DIAMOND_ORE;
+
+            // 连带产出 [4 钻石, 2 钻石] = 6 个产出物 (方案 B 按个数, 非 1 块): 必须以 6 回放进当日矿物计数,
+            // 严禁 debug-log-only / 计数 0 (印钞口)。
+            List<ItemStack> drops = List.of(new ItemStack(Items.DIAMOND, 4), new ItemStack(Items.DIAMOND, 2));
+            sys.replayEconomyOreCount(player, diamond, drops);
+            helper.assertTrue(eco.recordCalls == 1, "replay must call economy facade recordMinedOreDrops exactly once");
+            helper.assertTrue(eco.lastBlock == diamond, "replay forwards the broken block (diamond) for ore classification");
+            helper.assertTrue(eco.lastProducedCount == 6,
+                    "replay forwards produced ITEM count 6 (4+2), not block count 1, not 0 (anti-inflation scheme B)");
+
+            // 空/零产出不回放 (countDropItems<=0 短路, 不打扰门面)。
+            sys.replayEconomyOreCount(player, diamond, List.of());
+            helper.assertTrue(eco.recordCalls == 1, "empty drops must not call the economy facade (no spurious count)");
+            helper.succeed();
+        } finally {
+            restoreEconomy(prev);
+        }
+    }
+
+    // ============================================================
+    // 时运随连带产出进经济计数: 时运额外掉落使回放个数 > 基础产出物个数 (方案 B, 时运计入隐藏软上限)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void chainReplayIncludesFortuneExtras(GameTestHelper helper) {
+        // 满级时运期望 0.5, roll 强制为 0 (< 0.5) -> 每个基础产出物各得 1 个额外。10 个基础 -> 10 额外 -> 共 20 个,
+        // 经济回放个数必须是含时运的 20 (而非基础 10), 否则时运额外产出绕过隐藏软上限 = 反通胀缺口。
+        List<ItemStack> base = List.of(new ItemStack(Items.RAW_IRON, 10));
+        List<ItemStack> withFortune = MinerFortune.withFortuneExtras(base, 10, new FixedRandom(0.0D));
+        int augmented = ChainMiningEngine.countDropItems(withFortune);
+        helper.assertTrue(augmented == 20, "L10 fortune (E=0.5, roll=0) doubles 10 base items to 20 produced items");
+
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        RecordingEconomy eco = new RecordingEconomy();
+        IEconomyService prev = swapEconomy(eco);
+        try {
+            new MinerSystem().replayEconomyOreCount(player, Blocks.DIAMOND_ORE, withFortune);
+            helper.assertTrue(eco.lastProducedCount == 20,
+                    "the fortune-augmented produced count (20) is what gets replayed into the daily ore count");
+            helper.succeed();
+        } finally {
+            restoreEconomy(prev);
+        }
+    }
+
+    // ============================================================
+    // 矿脉时运额外掉落 (方案 B): 期望 -> 额外个数 (确定性) + 等级门控 (L1-3 死, L4+ 活)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void fortuneExtraDropsApplied(GameTestHelper helper) {
+        // 确定性额外个数: roll < frac -> 每个基础产出物多 1; roll >= frac -> 0。E=0.5, base=4。
+        helper.assertTrue(MinerFortune.extraDropCount(4, 0.5D, 0.0D) == 4, "roll 0 < 0.5 -> 4 base items each +1 = 4 extra");
+        helper.assertTrue(MinerFortune.extraDropCount(4, 0.5D, 0.49D) == 4, "roll just below frac -> still 4 extra");
+        helper.assertTrue(MinerFortune.extraDropCount(4, 0.5D, 0.5D) == 0, "roll == frac (not <) -> 0 extra");
+        helper.assertTrue(MinerFortune.extraDropCount(4, 0.5D, 0.99D) == 0, "roll above frac -> 0 extra");
+        // 期望 0 (未解锁) / base 0: 恒 0 额外。
+        helper.assertTrue(MinerFortune.extraDropCount(4, 0.0D, 0.0D) == 0, "zero expectancy -> 0 extra");
+        helper.assertTrue(MinerFortune.extraDropCount(0, 0.5D, 0.0D) == 0, "zero base -> 0 extra");
+
+        // 等级门控经 withFortuneExtras (取真实 fortuneExtraExpectancy): L3 锁死 -> 无额外 (RNG 无关);
+        // L4 解锁 + roll 0 -> 有额外。删 fortuneExtraExpectancy 修复 (回到永远 0) 时 L4 分支必挂。
+        List<ItemStack> oneStack = List.of(new ItemStack(Items.RAW_IRON, 3));
+        List<ItemStack> lockedL3 = MinerFortune.withFortuneExtras(oneStack, 3, new FixedRandom(0.0D));
+        helper.assertTrue(ChainMiningEngine.countDropItems(lockedL3) == 3, "L3 fortune locked: no extra drops (still 3)");
+        List<ItemStack> unlockedL4 = MinerFortune.withFortuneExtras(oneStack, 4, new FixedRandom(0.0D));
+        helper.assertTrue(ChainMiningEngine.countDropItems(unlockedL4) > 3,
+                "L4 fortune unlocked with roll 0: extra drops appended (> 3 base items)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 反挂机: AFK 冻结态不计挖矿经验 (第九章红线); 解冻后正常计经验
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void afkFrozenBlocksMiningXp(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        RecordingEconomy eco = new RecordingEconomy();
+        RecordingJobService job = new RecordingJobService();
+        IEconomyService prevEco = swapEconomy(eco);
+        IJobService prevJob = swapJob(job);
+        try {
+            MinerSystem sys = new MinerSystem();
+
+            // 冻结态: 不发经验, 返回 false (上游 onBlockBreak 据此短路连锁/省耐久)。
+            eco.afkFrozen = true;
+            boolean granted = sys.grantMiningXpUnlessAfk(player);
+            helper.assertFalse(granted, "AFK-frozen miner gets no mining XP (returns false)");
+            helper.assertTrue(job.grantXpCalls == 0, "AFK-frozen: grantXp must NOT be called (anti-idle red line)");
+
+            // 解冻态: 发一份经验, 返回 true。
+            eco.afkFrozen = false;
+            boolean granted2 = sys.grantMiningXpUnlessAfk(player);
+            helper.assertTrue(granted2, "unfrozen miner gets mining XP (returns true)");
+            helper.assertTrue(job.grantXpCalls == 1, "unfrozen: grantXp called exactly once");
+            helper.assertTrue(job.lastJob == JobId.MINER, "XP granted to the MINER job track");
+            helper.assertTrue(job.lastRawXp > 0L, "a positive raw XP amount is granted per block");
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
+    }
+
     private static boolean approx(double a, double b) {
         return Math.abs(a - b) < 1.0e-6D;
+    }
+
+    // ============================================================
+    // 定位器 swap/restore: 注入测试替身, 测试后还原启动期绑定的真实门面 (GameTest 在已启动服务端跑, 真实门面
+    // 可能已注入; 直接 reset 会让后续 economy/job 依赖测试取门面时 IllegalStateException, 故保存并还原原值)。
+    // ============================================================
+
+    private static IEconomyService swapEconomy(IEconomyService fake) {
+        IEconomyService prev = EconomyServices.isRegistered() ? EconomyServices.economyService() : null;
+        EconomyServices.registerEconomyService(fake);
+        return prev;
+    }
+
+    private static void restoreEconomy(IEconomyService prev) {
+        if (prev != null) {
+            EconomyServices.registerEconomyService(prev);
+        } else {
+            EconomyServices.reset();
+        }
+    }
+
+    private static IJobService swapJob(IJobService fake) {
+        IJobService prev = null;
+        try {
+            prev = JobServices.jobService();
+        } catch (IllegalStateException notRegistered) {
+            // 未注册时 jobService() 抛 (无 isRegistered 谓词); 视为无前值, 测试后 reset。
+            prev = null;
+        }
+        JobServices.registerJobService(fake);
+        return prev;
+    }
+
+    private static void restoreJob(IJobService prev) {
+        if (prev != null) {
+            JobServices.registerJobService(prev);
+        } else {
+            JobServices.reset();
+        }
+    }
+
+    // ============================================================
+    // 测试替身 (fakes): 记录调用的货币门面 / 职业门面 + 定值 RandomSource
+    // ============================================================
+
+    /** 记录 recordMinedOreDrops / isAfkFrozen 调用的货币门面替身; 其余方法在本测试不触达, 调用即编程错抛。 */
+    private static final class RecordingEconomy implements IEconomyService {
+        int recordCalls = 0;
+        Block lastBlock = null;
+        int lastProducedCount = Integer.MIN_VALUE;
+        boolean afkFrozen = false;
+
+        @Override
+        public int recordMinedOreDrops(ServerPlayer player, Block block, int producedCount) {
+            recordCalls++;
+            lastBlock = block;
+            lastProducedCount = producedCount;
+            return producedCount;
+        }
+
+        @Override
+        public boolean isAfkFrozen(ServerPlayer player) {
+            return afkFrozen;
+        }
+
+        @Override
+        public long creditBalance(ServerPlayer player) {
+            throw new UnsupportedOperationException("not exercised by miner wiring tests");
+        }
+
+        @Override
+        public long heartstoneBalance(ServerPlayer player) {
+            throw new UnsupportedOperationException("not exercised by miner wiring tests");
+        }
+
+        @Override
+        public boolean tryCharge(ServerPlayer player, Currency currency, long amount) {
+            throw new UnsupportedOperationException("not exercised by miner wiring tests");
+        }
+
+        @Override
+        public void grant(ServerPlayer player, Currency currency, long amount) {
+            throw new UnsupportedOperationException("not exercised by miner wiring tests");
+        }
+
+        @Override
+        public boolean tryChargeDaily(ServerPlayer player, Currency currency, long amount, String dailyKey, long dailyCap) {
+            throw new UnsupportedOperationException("not exercised by miner wiring tests");
+        }
+
+        @Override
+        public long settleOreSale(ServerPlayer player, HighValueOre ore, int countSoFar, double basePrice) {
+            throw new UnsupportedOperationException("not exercised by miner wiring tests");
+        }
+
+        @Override
+        public long grantDaily(ServerPlayer player, long rawCredit, String faucetKey, long dailyCap) {
+            throw new UnsupportedOperationException("not exercised by miner wiring tests");
+        }
+    }
+
+    /** 记录 grantXp 调用的职业门面替身; level/totalXp 给固定值供其它读法, progress 不触达。 */
+    private static final class RecordingJobService implements IJobService {
+        int grantXpCalls = 0;
+        JobId lastJob = null;
+        long lastRawXp = Long.MIN_VALUE;
+
+        @Override
+        public int level(Player player, JobId job) {
+            return 1;
+        }
+
+        @Override
+        public long totalXp(Player player, JobId job) {
+            return 0L;
+        }
+
+        @Override
+        public long grantXp(Player player, JobId job, long rawXp) {
+            grantXpCalls++;
+            lastJob = job;
+            lastRawXp = rawXp;
+            return rawXp;
+        }
+
+        @Override
+        public JobProgress progress(Player player, JobId job) {
+            throw new UnsupportedOperationException("not exercised by miner wiring tests");
+        }
+    }
+
+    /**
+     * 定值 RandomSource: nextDouble 恒返回构造时给定值, 使时运额外掉落判定确定可测 (不引入随机性)。
+     * 其余方法本测试不触达, 调用即编程错抛 (不静默返默认值掩盖误用)。
+     */
+    private static final class FixedRandom implements RandomSource {
+        private final double value;
+
+        FixedRandom(double value) {
+            this.value = value;
+        }
+
+        @Override
+        public double nextDouble() {
+            return value;
+        }
+
+        @Override
+        public RandomSource fork() {
+            throw new UnsupportedOperationException("FixedRandom: not exercised");
+        }
+
+        @Override
+        public PositionalRandomFactory forkPositional() {
+            throw new UnsupportedOperationException("FixedRandom: not exercised");
+        }
+
+        @Override
+        public void setSeed(long seed) {
+            throw new UnsupportedOperationException("FixedRandom: not exercised");
+        }
+
+        @Override
+        public int nextInt() {
+            throw new UnsupportedOperationException("FixedRandom: not exercised");
+        }
+
+        @Override
+        public int nextInt(int bound) {
+            throw new UnsupportedOperationException("FixedRandom: not exercised");
+        }
+
+        @Override
+        public long nextLong() {
+            throw new UnsupportedOperationException("FixedRandom: not exercised");
+        }
+
+        @Override
+        public boolean nextBoolean() {
+            throw new UnsupportedOperationException("FixedRandom: not exercised");
+        }
+
+        @Override
+        public float nextFloat() {
+            throw new UnsupportedOperationException("FixedRandom: not exercised");
+        }
+
+        @Override
+        public double nextGaussian() {
+            throw new UnsupportedOperationException("FixedRandom: not exercised");
+        }
     }
 }

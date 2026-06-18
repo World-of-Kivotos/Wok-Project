@@ -55,6 +55,8 @@ public final class TarotConfig {
     public static final ForgeConfigSpec.IntValue PITY_SSR_PACKS;
     /** 重复牌转塔罗碎片的张数 (spec 第七章: 转化率)。 */
     public static final ForgeConfigSpec.IntValue DUPLICATE_SHARD_REFUND;
+    /** 碎片兑换指定牌所需碎片数 (spec 第七/十三章 6: 攒够换指定牌, 给非洲玩家确定性毕业线)。 */
+    public static final ForgeConfigSpec.IntValue SHARD_EXCHANGE_COST;
 
     // ---- 合成四结果概率 (spec 第八章表; 进 config) ----
     // R->SR
@@ -120,6 +122,8 @@ public final class TarotConfig {
                 .defineInRange("pitySsrPacks", 10, 1, 1000);
         DUPLICATE_SHARD_REFUND = b.comment("Tarot shards refunded per duplicate card converted (spec 7)")
                 .defineInRange("duplicateShardRefund", 1, 0, 64);
+        SHARD_EXCHANGE_COST = b.comment("Tarot shards required to exchange for a chosen card (spec 7/13.6: deterministic graduation line)")
+                .defineInRange("shardExchangeCost", 40, 1, 100000);
         b.pop();
 
         // 合成四结果: 大破碎概率 = 1 - 成功 - 逆转 - 破碎 (派生, 不单列, 保证四率和恒为 1)。

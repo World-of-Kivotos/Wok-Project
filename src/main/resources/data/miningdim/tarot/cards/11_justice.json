@@ -176,9 +176,20 @@
     "cooldownTicks": 12000,
     "ops": [
       {
-        "kind": "self_potion",
-        "effect": "minecraft:resistance",
-        "amplifier": 2,
+        "kind": "self_reflect",
+        "percent": 0.80,
+        "capUp": 80,
+        "durationTicks": 300
+      },
+      {
+        "kind": "self_knockback_immunity",
+        "durationTicks": 300
+      },
+      {
+        "kind": "self_reflect_accum",
+        "percent": 0.40,
+        "capUp": 60,
+        "radius": 15,
         "durationTicks": 300
       }
     ]

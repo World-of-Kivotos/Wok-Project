@@ -47,8 +47,8 @@ public final class MiningMessages {
     /** 重置成本不足, 扣费失败 (18.2 reset.costItem/costAmount)。 */
     public static final String RESET_COST_UNPAID = "miningdim.msg.reset_cost_unpaid";
 
-    /** 高价矿物当日产出已达软上限, 收购价递减 (18.3 economy.daily.*)。 */
-    public static final String ECONOMY_SOFTCAP = "miningdim.msg.economy_softcap";
+    // 隐藏软上限 (经济文档 8.5 / Miner_Job_DesignSpec 第六章): 撞软上限不再向玩家发"已达软上限"提示,
+    // 仅在收购价 (settleOreSale) 无形递减体现; 原 ECONOMY_SOFTCAP 文案常量与 lang 词条随此设计删除。
 
     /** 死亡惩罚: 已被送回进入前坐标并进入再入冷却 (18.6 death.*)。 */
     public static final String DEATH_PENALTY = "miningdim.msg.death_penalty";

@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.miningdim.job.tarot.TarotArcana;
+import net.minecraft.resources.FileToIdConverter;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener;
@@ -41,13 +42,21 @@ public final class TarotCardLoader extends SimpleJsonResourceReloadListener {
     @Override
     protected void apply(Map<ResourceLocation, JsonElement> parsed, ResourceManager manager, ProfilerFiller profiler) {
         Map<TarotArcana, TarotCardData> loaded = new EnumMap<>(TarotArcana.class);
+        // SimpleJsonResourceReloadListener 用 FileToIdConverter.json(DIRECTORY).fileToId 把扫到的物理文件
+        // miningdim:tarot/cards/NN_id.json 去掉目录前缀与 .json 后缀后作为 parsed 键 (即 miningdim:NN_id)。
+        // arcana.dataKey() 是含目录前缀的完整资源路径 miningdim:tarot/cards/NN_id (同时被 GameTest classpath
+        // 读取复用), 即物理文件去掉 .json 的形态; 用同一 converter 的 fileToId 把它折算成 listener 实际入表的键,
+        // 否则拿带前缀的 dataKey 直查 parsed 必然 miss -> 误报"缺张"导致服务端数据包加载失败、整套 GameTest 跑不起来。
+        FileToIdConverter idConverter = FileToIdConverter.json(DIRECTORY);
         for (TarotArcana arcana : TarotArcana.values()) {
-            ResourceLocation key = arcana.dataKey();
+            ResourceLocation resourcePath = arcana.dataKey();
+            ResourceLocation physicalFile = new ResourceLocation(resourcePath.getNamespace(), resourcePath.getPath() + ".json");
+            ResourceLocation key = idConverter.fileToId(physicalFile);
             JsonElement el = parsed.get(key);
             if (el == null) {
                 // 缺张即数据包不完整 (spec C9: 不静默给默认, 直接报错冒泡让运维修复)。
-                throw new IllegalStateException("Missing tarot card datapack entry: " + key
-                        + " (expected data/" + key.getNamespace() + "/" + DIRECTORY + "/"
+                throw new IllegalStateException("Missing tarot card datapack entry: " + resourcePath
+                        + " (expected data/" + resourcePath.getNamespace() + "/" + DIRECTORY + "/"
                         + String.format("%02d_%s.json", arcana.cardId(), arcana.id()) + ")");
             }
             TarotCardData data = TarotCardData.fromJson(GsonHelper.convertToJsonObject(el, "tarot card"));

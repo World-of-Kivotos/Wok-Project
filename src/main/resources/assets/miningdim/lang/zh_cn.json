@@ -48,7 +48,6 @@
   "miningdim.msg.reset_cooldown": "该实例仍处于重置冷却中。",
   "miningdim.msg.reset_daily_limit": "该实例当日重置次数已达上限。",
   "miningdim.msg.reset_cost_unpaid": "你的重置费用不足。",
-  "miningdim.msg.economy_softcap": "%s 当日产量已达软上限（已挖 %s 个），收购价开始递减。",
   "miningdim.msg.death_penalty": "你在矿洞中死亡，已被送回进入前的坐标。",
   "miningdim.msg.death_reentry_cooldown": "死亡后需等待冷却才能再次进入。",
   "commands.miningdim.enter.requested": "正在请求进入（%s）……",

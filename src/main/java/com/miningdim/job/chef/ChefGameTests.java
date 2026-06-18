@@ -185,23 +185,89 @@ public final class ChefGameTests {
 
     private static void assertAmplify(GameTestHelper helper, ChefQuality quality, int expectMulX100) {
         var player = helper.makeMockServerPlayerInLevel();
-        ItemStack bread = new ItemStack(Items.BREAD);
         int mul = ChefConfig.amplifyMul(quality);
         helper.assertTrue(mul == expectMulX100, "amplify x100 for " + quality + " expected "
                 + expectMulX100 + " got " + mul);
-        ChefQualityNbt.stamp(bread, quality, List.of(new ChefEffectInstance(ChefEffectType.AMPLIFY, mul)));
 
+        // 本菜声明自带 JUMP buff (模拟别的 mod 菜 FoodProperties 里带的 buff): 增香只乘其时长。
         int original = 100; // tick
         player.addEffect(new MobEffectInstance(MobEffects.JUMP, original, 0));
-        new ChefConsumeHandler().onFinishEating(
-                new net.minecraftforge.event.entity.living.LivingEntityUseItemEvent.Finish(
-                        player, bread, 0, ItemStack.EMPTY));
+        new ChefConsumeHandler().amplifyDeclaredBuffs(player, java.util.Set.of(MobEffects.JUMP), mul);
 
         MobEffectInstance after = player.getEffect(MobEffects.JUMP);
         int expected = original * expectMulX100 / 100;
         helper.assertTrue(after != null && after.getDuration() == expected,
                 quality + " amplify duration must be " + expected + " (=" + original + " x" + expectMulX100 + "/100), got "
                         + (after == null ? "null" : after.getDuration()));
+    }
+
+    // ============================================================
+    // 增香只放大本菜自带 buff: 外来 BENEFICIAL buff (药水/信标/前菜残留) 时长不被改写 (Major 回归)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void amplifyOnlyTouchesDishOwnDeclaredBuffs(GameTestHelper helper) {
+        var player = helper.makeMockServerPlayerInLevel();
+
+        // 玩家先喝下无关战斗药水/续航 buff (非本菜赋予): 速度 (BENEFICIAL, 非黑名单) + 跳跃提升。
+        int speedDuration = 200; // tick
+        int jumpDuration = 100;  // tick
+        player.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED, speedDuration, 0));
+        player.addEffect(new MobEffectInstance(MobEffects.JUMP, jumpDuration, 0));
+
+        // 吃一份只声明了 JUMP 自带 buff 的闪耀增香菜 (x5): 仅 JUMP 被放大, 外来 MOVEMENT_SPEED 时长一字不改。
+        int mul = ChefConfig.amplifyMul(ChefQuality.RADIANT); // 500 = x5
+        new ChefConsumeHandler().amplifyDeclaredBuffs(player, java.util.Set.of(MobEffects.JUMP), mul);
+
+        MobEffectInstance speedAfter = player.getEffect(MobEffects.MOVEMENT_SPEED);
+        helper.assertTrue(speedAfter != null && speedAfter.getDuration() == speedDuration,
+                "unrelated MOVEMENT_SPEED buff (not declared by the dish) MUST NOT be amplified: expected "
+                        + speedDuration + " got " + (speedAfter == null ? "null" : speedAfter.getDuration()));
+
+        MobEffectInstance jumpAfter = player.getEffect(MobEffects.JUMP);
+        int expectedJump = jumpDuration * mul / 100;
+        helper.assertTrue(jumpAfter != null && jumpAfter.getDuration() == expectedJump,
+                "the dish's own declared JUMP buff IS amplified to " + expectedJump + ", got "
+                        + (jumpAfter == null ? "null" : jumpAfter.getDuration()));
+        // 删 ownEffects 限定 (改回放大全部活跃 BENEFICIAL) -> MOVEMENT_SPEED 也被乘 x5, 速度断言挂。
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 增香不复利: 连吃两道增香菜, 第二道不对第一道已放大时长再乘一次 (各菜只乘各自自带 buff)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void amplifyDoesNotCompoundAcrossDishes(GameTestHelper helper) {
+        var player = helper.makeMockServerPlayerInLevel();
+
+        // 第一道菜自带 JUMP, 第二道菜自带 NIGHT_VISION (各声明各自不同的自带 buff)。
+        int jumpDuration = 100;
+        int nightDuration = 100;
+        player.addEffect(new MobEffectInstance(MobEffects.JUMP, jumpDuration, 0));
+        player.addEffect(new MobEffectInstance(MobEffects.NIGHT_VISION, nightDuration, 0));
+
+        int mul = ChefConfig.amplifyMul(ChefQuality.RADIANT); // x5
+        ChefConsumeHandler handler = new ChefConsumeHandler();
+
+        // 第一道 (只声明 JUMP): JUMP x5, NIGHT_VISION 不动。
+        handler.amplifyDeclaredBuffs(player, java.util.Set.of(MobEffects.JUMP), mul);
+        // 第二道 (只声明 NIGHT_VISION): NIGHT_VISION x5, 不得对已放大的 JUMP 再乘一次。
+        handler.amplifyDeclaredBuffs(player, java.util.Set.of(MobEffects.NIGHT_VISION), mul);
+
+        MobEffectInstance jumpAfter = player.getEffect(MobEffects.JUMP);
+        int expectedJump = jumpDuration * mul / 100; // 只被第一道乘一次 = 500
+        helper.assertTrue(jumpAfter != null && jumpAfter.getDuration() == expectedJump,
+                "first dish's JUMP is amplified exactly once (no compounding by the second dish): expected "
+                        + expectedJump + " got " + (jumpAfter == null ? "null" : jumpAfter.getDuration()));
+
+        MobEffectInstance nightAfter = player.getEffect(MobEffects.NIGHT_VISION);
+        int expectedNight = nightDuration * mul / 100; // 只被第二道乘一次 = 500
+        helper.assertTrue(nightAfter != null && nightAfter.getDuration() == expectedNight,
+                "second dish's NIGHT_VISION is amplified exactly once: expected " + expectedNight
+                        + " got " + (nightAfter == null ? "null" : nightAfter.getDuration()));
+        // 删 ownEffects 限定 -> 第二道会把第一道已放大的 JUMP (500) 再 x5 = 2500, 复利, JUMP 断言挂。
+        helper.succeed();
     }
 
     // ============================================================
@@ -487,6 +553,45 @@ public final class ChefGameTests {
         helper.assertTrue(poison.getAmplifier() == poisonLevel - 1,
                 quality + " nausea poison amplifier must be " + (poisonLevel - 1) + ", got "
                         + poison.getAmplifier());
+    }
+
+    // ============================================================
+    // 失败品 (SPOILED): 销毁菜肴 = 零回复, 须同时抵消饱食 AND 饱和 (Minor 回归)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void spoiledDishRevertsBothFoodAndSaturation(GameTestHelper helper) {
+        var player = helper.makeMockServerPlayerInLevel();
+
+        // 模拟 "刚吃完面包" 的进食后状态: 原版 eat() 同时加 food 与 saturation。面包 nutrition=5, satMod=0.6,
+        // 故 satGained = 5 * 0.6 * 2 = 6.0。这里把进食后状态设为 food=20, sat=10 (满足原版 sat<=food 不变量)。
+        ItemStack bread = new ItemStack(Items.BREAD);
+        var props = bread.getFoodProperties(player);
+        helper.assertTrue(props != null && props.getNutrition() == 5,
+                "test precondition: vanilla bread nutrition is 5");
+        float satGained = props.getNutrition() * props.getSaturationModifier() * 2.0F; // 6.0
+        helper.assertTrue(Math.abs(satGained - 6.0F) < 0.001F,
+                "test precondition: bread satGained = nutrition*satMod*2 = 6.0, got " + satGained);
+
+        net.minecraft.world.food.FoodData food = player.getFoodData();
+        food.setFoodLevel(20);
+        food.setSaturation(10.0F);
+
+        // 失败品菜: onFinishEating 走 SPOILED 前置分支 -> revertVanillaFood 抵消 food + saturation。
+        ChefQualityNbt.stamp(bread, ChefQuality.LOW,
+                List.of(new ChefEffectInstance(ChefEffectType.SPOILED, 0)));
+        new ChefConsumeHandler().onFinishEating(
+                new net.minecraftforge.event.entity.living.LivingEntityUseItemEvent.Finish(
+                        player, bread, 0, ItemStack.EMPTY));
+
+        // 饱食: 20 - 5 = 15。
+        helper.assertTrue(food.getFoodLevel() == 15,
+                "spoiled dish reverts food by nutrition (20-5=15), got " + food.getFoodLevel());
+        // 饱和: 10 - 6 = 4 (钳 [0, foodLevel]); 删饱和回退分支 -> 饱和留在 10, 此断言挂。
+        helper.assertTrue(Math.abs(food.getSaturationLevel() - 4.0F) < 0.001F,
+                "spoiled dish MUST also revert saturation (10-6=4) so destroy=zero-recovery, got "
+                        + food.getSaturationLevel());
+        helper.succeed();
     }
 
     // ============================================================

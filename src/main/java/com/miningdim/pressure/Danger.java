@@ -120,21 +120,27 @@ public final class Danger {
      * 对一个玩家推进一次评估 (10.3 累积/衰减 + 10.2 合成 + 11.7 冻结钳制)。
      * 调用方负责按评估周期 (dangerEvalIntervalTicks) 节流, 并已确认玩家在该实例 region 内。
      *
-     * @param data           该玩家压力态 (原地更新 tWin/danger/lastEvalTick)
-     * @param difficulty     评估所用难度 (玩家实际所处难度子盒, 见 zoneAt)
-     * @param activeInRegion 本评估周期玩家是否在 region 内主动作业 (true 累积 tWin, false 衰减)
-     * @param oreRichness01  附近矿物富集度 [0,1]
-     * @param currentTick    server game time (用于冻结判定)
-     * @param config         配置门面
+     * @param data             该玩家压力态 (原地更新 tWin/danger/lastEvalTick)
+     * @param difficulty       评估所用难度 (玩家实际所处难度子盒, 见 zoneAt)
+     * @param activeInRegion   本评估周期玩家是否在 region 内主动作业 (true 累积 tWin, false 衰减)
+     * @param oreRichness01    附近矿物富集度 [0,1]
+     * @param timeAccrueFactor 职业 danger 时间项缩放系数 (Major 缺陷四): 缩放 tWin 累积/衰减量, 取值越小累积越慢
+     *                         (矿工耐压: 1.0 未解锁 -> 0.60 满级封底)。须 > 0 (不钳 0, 不动 zoneTerm); 无职业系数传 1.0。
+     * @param currentTick      server game time (用于冻结判定)
+     * @param config           配置门面
      * @return 评估后的 danger (= data.danger())
      */
     public float evaluate(PlayerMiningData data, Difficulty difficulty, boolean activeInRegion,
-                          float oreRichness01, long currentTick, IMiningConfig config) {
-        // tWin 累积/衰减 (10.3)。衰减量按配置 decayPerEval 相对基准缩放, 保证"撤一会儿"显著降压。
+                          float oreRichness01, float timeAccrueFactor, long currentTick, IMiningConfig config) {
+        // tWin 累积/衰减 (10.3)。累积/衰减量同乘职业系数 (Major 缺陷四): 耐压玩家既慢累积也慢衰减, 净效果是
+        // 时间项更平缓; 衰减量另按配置 decayPerEval 相对基准缩放, 保证"撤一会儿"仍显著降压。系数只缩放时间项 tWin,
+        // 不动 zoneTerm (难度基础压力), 故耐压玩家在高难区仍承受 zone 压力, 不会实质免疫压力系统。
         if (activeInRegion) {
-            data.setTWin(data.tWin() + TWIN_ACCRUE_PER_EVAL);
+            int accrue = Math.round(TWIN_ACCRUE_PER_EVAL * timeAccrueFactor);
+            data.setTWin(data.tWin() + accrue);
         } else {
-            data.setTWin(Math.max(0, data.tWin() - decayTicks(config)));
+            int decay = Math.round(decayTicks(config) * timeAccrueFactor);
+            data.setTWin(Math.max(0, data.tWin() - decay));
         }
 
         float danger = compose(difficulty, data.tWin(), oreRichness01, config);

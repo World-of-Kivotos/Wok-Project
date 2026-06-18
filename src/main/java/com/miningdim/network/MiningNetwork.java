@@ -73,7 +73,21 @@ public final class MiningNetwork implements IMiningNetwork {
      * 无需经 IMiningNetwork core 门面 (该门面为阶段0 定稿, 不含职业方法; 职业包直接用 CHANNEL 是第七章纪律)。
      */
     public static void sendJobSync(ServerPlayer player, JobSyncS2C msg) {
+        if (!canReceive(player)) {
+            return;
+        }
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), msg);
+    }
+
+    /**
+     * S2C 发包健壮性守卫 (N1): 仅向持有活动连接的玩家下发定向包。向尚未连上 (握手未完成) 或正在断开
+     * (channel 已关闭) 的连接发包, 在 Forge 网络栈深处会因 netty channel 为空/关闭而异常, 这不是业务错误,
+     * 故在出口处过滤为 no-op。判定基于 ServerGamePacketListenerImpl.isAcceptingMessages()
+     * (1.20.1 为 public, 等价于内部 Connection.isConnected() == channel != null && channel.isOpen())。
+     * connection 在玩家完成登录前理论上非 null, 仍做空判防御极端时序。
+     */
+    private static boolean canReceive(ServerPlayer player) {
+        return player.connection != null && player.connection.isAcceptingMessages();
     }
 
     // ---- IMiningNetwork (服务端调用; 下发到指定玩家) ----
@@ -134,6 +148,9 @@ public final class MiningNetwork implements IMiningNetwork {
     // ---- 内部下发 (PacketDistributor.PLAYER) ----
 
     private <MSG> void sendTo(ServerPlayer player, MSG msg) {
+        if (!canReceive(player)) {
+            return;
+        }
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), msg);
     }
 

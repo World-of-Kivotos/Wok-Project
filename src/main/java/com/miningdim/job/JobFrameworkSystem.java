@@ -3,11 +3,12 @@ package com.miningdim.job;
 import com.miningdim.core.Subsystem;
 import com.miningdim.effect.ModJobEffects;
 import com.miningdim.effect.VulnerabilityHurtHandler;
+import com.miningdim.entry.IMiningPlayerData;
+import com.miningdim.entry.MiningCapabilities;
 import com.miningdim.menu.ModMenus;
 import com.miningdim.network.JobSyncS2C;
 import com.miningdim.network.MiningNetwork;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.Entity;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
@@ -22,18 +23,19 @@ import java.util.Optional;
 
 /**
  * 职业框架子系统入口 (JobFramework_Shared_Foundation_DesignSpec 第九/十二章; 模块化铁律 3)。装配:
- *  - 职业进度 capability 注册/挂载/复制 ({@link JobCapability}, mod + forge 双总线);
  *  - 共享效果注册 ({@link ModJobEffects}, modBus) + 易伤单一全局仲裁 ({@link VulnerabilityHurtHandler}, forgeBus);
  *  - 公共 menu 脚手架 DeferredRegister ({@link ModMenus}, modBus);
  *  - 职业框架门面 ({@link IJobService}) 注入 {@link JobServices} 定位器 (构造期立即注入);
  *  - /job 命令独立根 ({@link JobCommands}, RegisterCommandsEvent);
  *  - 登录同步: PlayerLoggedInEvent 下发全职业进度 S2C 给客户端镜像。
  *
- * 注入顺序: 构造期即 registerJobService (引用绑定, 不依赖其它子系统); 取用他人服务推迟到事件回调,
- * 故对主类 List&lt;Subsystem&gt; 顺序不敏感 (与 entry/economy 同范式)。
+ * 职业进度存储 (第 2.3 节已落地): 全职业进度 EnumMap 收敛进 entry 唯一权威玩家 capability
+ * ({@link MiningCapabilities}), 本子系统不再持第二套 capability/attach/Clone (已删 job.JobCapability)。
+ * 职业进度的注册/挂载/Clone 复制随 entry capability 走; 本子系统只经 {@link MiningCapabilities#get} 取用。
  *
- * 集成阶段 (本任务不做): 把本子系统加进 MiningDim.registerSubsystems() 一行; 并按框架 spec 第 2.3 节
- * 把职业进度收敛进 entry.MiningPlayerData 唯一权威 capability (届时本子系统的 JobCapability attach 点迁移)。
+ * 注入顺序: 构造期即 registerJobService (引用绑定, 不依赖其它子系统); 取用他人服务推迟到事件回调,
+ * 故对主类 List&lt;Subsystem&gt; 顺序不敏感 (与 entry/economy 同范式)。本子系统已在
+ * {@code MiningDim.registerSubsystems()} 实装 (排在 EntrySystem 之后, 确保 entry capability 先注册)。
  */
 public final class JobFrameworkSystem implements Subsystem {
 
@@ -46,11 +48,7 @@ public final class JobFrameworkSystem implements Subsystem {
         // 构造期注入门面 (引用绑定先于任何取用)。
         JobServices.registerJobService(jobService);
 
-        // capability 三件套: RegisterCapabilities 走 modBus; AttachCapabilities(泛型) 与 Clone 走 forgeBus。
-        JobCapability caps = new JobCapability();
-        modBus.addListener(caps::onRegisterCapabilities);
-        forgeBus.addGenericListener(Entity.class, caps::onAttachCapabilities);
-        forgeBus.addListener(caps::onPlayerClone);
+        // 职业进度存储已并入 entry 唯一权威 capability (第 2.3 节), 此处不再注册第二套玩家 capability。
 
         // 共享效果 DeferredRegister (modBus) + menu DeferredRegister (modBus)。
         ModJobEffects.register(modBus);
@@ -62,7 +60,7 @@ public final class JobFrameworkSystem implements Subsystem {
         // /job 命令 + 登录同步 (本子系统自身的 forge 事件)。
         forgeBus.register(this);
 
-        LOGGER.info("[miningdim] job framework subsystem registered (capability + effects + menu scaffold + /job)");
+        LOGGER.info("[miningdim] job framework subsystem registered (effects + menu scaffold + /job; progress on entry capability)");
     }
 
     @SubscribeEvent
@@ -85,14 +83,14 @@ public final class JobFrameworkSystem implements Subsystem {
 
     /** 把某玩家全职业进度下发 S2C 同步客户端镜像 (登录 / OP 改级后调用)。 */
     public void syncTo(ServerPlayer player) {
-        Optional<IJobPlayerData> data = JobCapability.get(player);
+        Optional<IMiningPlayerData> data = MiningCapabilities.get(player);
         if (data.isEmpty()) {
             return; // 能力未挂载 (极端时序): 无可同步, 跳过。
         }
-        IJobPlayerData jpd = data.get();
+        IMiningPlayerData mpd = data.get();
         Map<JobId, long[]> levels = new EnumMap<>(JobId.class);
         for (JobId job : JobId.values()) {
-            JobProgress p = jpd.jobProgress(job);
+            JobProgress p = mpd.jobProgress(job);
             levels.put(job, new long[]{p.level(), p.xp()});
         }
         MiningNetwork.sendJobSync(player, new JobSyncS2C(levels));

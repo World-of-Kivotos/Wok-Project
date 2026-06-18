@@ -12,6 +12,8 @@ import net.minecraftforge.event.entity.living.LivingKnockBackEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
+import java.util.UUID;
+
 /**
  * 塔罗师战斗窗口事件接线 (TarotReader spec 第六/十二章)。读 {@link TarotCombatState} 的 per-player 窗口快照,
  * 在 forge 战斗事件上施加有状态机制。由 {@link TarotSystem} new 一个实例注册到 forgeBus。
@@ -44,7 +46,10 @@ public final class TarotCombatHandlers {
         }
     }
 
-    /** 受伤侧: 无敌窗归零伤害 (真免疫); 反伤窗回击攻击者 (单次封顶)。 */
+    /**
+     * 受伤侧: 无敌窗归零伤害 (真免疫); 延迟记账冻死窗挂账并冻结致命伤 (倒吊人闪耀); 反伤窗回击 (正义正位);
+     * 累计反击窗逐攻击者累计伤害 (正义闪耀, 窗口结束统一回击)。
+     */
     @SubscribeEvent
     public void onLivingHurtVictim(LivingHurtEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer victim)) {
@@ -56,10 +61,20 @@ public final class TarotCombatHandlers {
         }
         long now = server.getTickCount();
 
-        // 无敌窗 (愚者闪耀): 全免疫, 伤害归零并提前返回 (不再吃反伤等后续)。
+        // 无敌窗 (愚者闪耀): 全免疫, 伤害归零并提前返回 (不再吃反伤/记账等后续)。
         if (TarotCombatState.hasWindow(victim.getUUID(), TarotCombatState.WindowKind.INVULNERABLE, now)) {
             event.setAmount(0.0F);
             return;
+        }
+
+        // 延迟记账冻死窗 (倒吊人闪耀): 本次伤害挂账; 若会致命则把伤害削到 "留 1 滴血" (冻结不死), 否则照常承伤。
+        // 挂起账本在窗口结束按 50% 结算 (TarotEffectEngine.settleLedger)。spec "致命伤冻结不死"。
+        if (TarotCombatState.hasLedger(victim.getUUID(), now)) {
+            TarotCombatState.recordLedgerDamage(victim.getUUID(), event.getAmount(), now);
+            float lethalGuard = victim.getHealth() - 1.0F; // 最多扣到剩 1 血 (冻结致命伤)。
+            if (event.getAmount() > lethalGuard) {
+                event.setAmount(Math.max(0.0F, lethalGuard));
+            }
         }
 
         // 反伤窗 (正义正位): 把本次受到伤害的 percent 回击攻击者, 单次封顶 perHitCap。
@@ -72,6 +87,12 @@ public final class TarotCombatHandlers {
                 // 用 magic 源 (绕过攻击者护甲/抗性的近战格挡; 不递归触发本类吸血)。
                 attacker.hurt(level.damageSources().magic(), (float) reflected);
             }
+        }
+
+        // 累计反击窗 (正义闪耀): 逐攻击者累计本次承伤 (基于事件原始伤害, 含被记账窗削减前的量); 窗口结束统一回击。
+        if (TarotCombatState.hasReflectAccum(victim.getUUID(), now)
+                && event.getSource().getEntity() instanceof LivingEntity src && src != victim) {
+            TarotCombatState.recordReflectAccum(victim.getUUID(), src.getUUID(), event.getAmount(), now);
         }
     }
 
@@ -96,8 +117,12 @@ public final class TarotCombatHandlers {
     }
 
     /**
-     * 复活契约 (死神逆位): 拦截 1 次致死, 复活回血 (一次性; 仿 NanoReactorHandler 的拦截致死)。
-     * HIGH 优先级: 须早于 {@link TarotSystem#onDeath} 的清理 (后者读 isCanceled 跳过, 保留 continuation)。
+     * 复活契约 (死神逆位): 拦截 1 次致死, 复活回血 (一次性; 仿 NanoReactorHandler 的拦截致死)。命中即取消事件返回,
+     * 不触发恋人绑定连死 (玩家未真死)。HIGH 优先级: 须早于 {@link TarotSystem#onDeath} 的清理 (后者读 isCanceled
+     * 跳过, 保留 continuation)。
+     *
+     * 未被契约拦截的真死: 若死者处于恋人绑定中, 给其 partner 排一个 deathDelayTicks 后的连死任务 (spec "一方死另一方
+     * 3 秒后死"), 并立即解绑 (双向)。partner 的连死走 setHealth(0) (若届时仍在线), 是 magic 之外的强制结算。
      */
     @SubscribeEvent(priority = EventPriority.HIGH)
     public void onLivingDeath(LivingDeathEvent event) {
@@ -108,12 +133,25 @@ public final class TarotCombatHandlers {
         if (server == null) {
             return;
         }
-        double revive = TarotCombatState.consumeDeathContract(player.getUUID(), server.getTickCount());
-        if (revive < 0.0D) {
-            return; // 无契约或已用过: 不拦, 玩家正常死亡。
+        long now = server.getTickCount();
+        double revive = TarotCombatState.consumeDeathContract(player.getUUID(), now);
+        if (revive >= 0.0D) {
+            event.setCanceled(true);
+            player.setHealth((float) Math.min(revive, player.getMaxHealth()));
+            player.clearFire();
+            return; // 契约救命: 未真死, 不触发绑定连死。
         }
-        event.setCanceled(true);
-        player.setHealth((float) Math.min(revive, player.getMaxHealth()));
-        player.clearFire();
+
+        // 恋人绑定连死 (spec 恋人闪耀): 死者有未过期绑定则给 partner 排延迟连死任务, 并双向解绑。
+        UUID partner = TarotCombatState.bondPartner(player.getUUID(), now);
+        if (partner != null) {
+            int delay = TarotCombatState.bondDeathDelay(player.getUUID());
+            ServerPlayer partnerPlayer = server.getPlayerList().getPlayer(partner);
+            TarotCombatState.clearBond(player.getUUID()); // 双向解绑 (避免连死再反向触发)。
+            if (partnerPlayer != null && delay > 0) {
+                // 延迟连死: 经调度器在 delay ticks 后对 partner setHealth(0); partner 此时已无绑定, 不会再连锁。
+                TarotRuntime.scheduler().scheduleOnce(partnerPlayer, delay, p -> p.setHealth(0.0F));
+            }
+        }
     }
 }

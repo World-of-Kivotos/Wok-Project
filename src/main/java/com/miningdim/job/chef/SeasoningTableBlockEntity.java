@@ -1,5 +1,6 @@
 package com.miningdim.job.chef;
 
+import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import net.minecraft.core.BlockPos;
@@ -211,9 +212,9 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
             return;
         }
 
-        // 经济 sink (信用点扣费): 经 ChefEconomyHooks; 经济未接线时放行不扣 (不阻塞核心循环, 见 foundationGaps),
-        // 已接线且余额不足时拒绝做菜 (菜不盖章, 返还 idle, 玩家保有未调味的原菜)。
-        if (!ChefEconomyHooks.tryChargeTableUse(operator, ChefConfig.TABLE_USE_COST_CREDIT.get())) {
+        // 经济 sink (信用点扣费): 经 EconomyServices 定位器; 经济未注入时放行不扣 (不阻塞核心循环),
+        // 已注入且余额不足时拒绝做菜 (菜不盖章, 返还 idle, 玩家保有未调味的原菜)。
+        if (!tryChargeTableUse(operator, ChefConfig.TABLE_USE_COST_CREDIT.get())) {
             resetToIdle();
             return;
         }
@@ -263,6 +264,23 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         if (!operator.getInventory().add(result)) {
             operator.drop(result, false);
         }
+    }
+
+    /**
+     * 调味台做菜信用点 sink (Chef_Job_DesignSpec 7.2 经济 sink): 经 {@link EconomyServices} 定位器取门面扣费。
+     * 经济子系统未注入 ({@link EconomyServices#isRegistered()} false) 或 cost &lt;= 0 时放行不扣 (经济未上线不阻塞
+     * 核心循环; 注入后自动开始扣费) —— "经济可选 sink" 语义, 非掩盖空值: 余额足扣返 true, 不足返 false 由调用方
+     * 据此拒绝做菜。直接走定位器而非 per-job static bind seam (审查 Major: 消除无 bind 调用方的悬空 seam)。
+     *
+     * @param operator 操作厨师 (服务端)
+     * @param cost     做菜信用点成本 ({@link ChefConfig#TABLE_USE_COST_CREDIT}); &lt;= 0 视为免费直接放行
+     * @return 是否允许做菜 (扣费成功 / 免费 / 经济未注入 = true; 余额不足 = false)
+     */
+    private static boolean tryChargeTableUse(ServerPlayer operator, long cost) {
+        if (cost <= 0L || !EconomyServices.isRegistered()) {
+            return true;
+        }
+        return EconomyServices.economyService().tryCharge(operator, com.miningdim.economy.Currency.CREDIT, cost);
     }
 
     private void resetToIdle() {

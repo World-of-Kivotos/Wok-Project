@@ -4,6 +4,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,8 +46,46 @@ public final class TarotCombatState {
         double reviveHealth;
     }
 
+    /**
+     * 累计反击窗 (正义闪耀): 窗口内逐攻击者累计其造成的伤害; 窗口结束时对仍在 radius 格内的每个攻击者回击
+     * 其累计伤害的 percent (单次封顶 perHitCap)。结算由 {@link #drainReflectAccum} 抽出 (调度器到点调)。
+     */
+    private static final class ReflectAccum {
+        long endTick;
+        double percent;
+        double perHitCap;
+        double radius;
+        /** attackerUUID -> 该攻击者在窗口内对持有者累计造成的伤害。 */
+        final Map<UUID, Double> perAttacker = new HashMap<>();
+    }
+
+    /**
+     * 延迟记账冻死窗 (倒吊人闪耀): 窗口内对持有者的伤害累加进 pendingDamage 且致命伤被冻结 (不死); 窗口结束时
+     * 由 {@link #drainLedger} 结算 pendingDamage 的 settlePercent, 存活则额外回 surviveHeal。
+     */
+    private static final class Ledger {
+        long endTick;
+        double settlePercent;
+        double surviveHeal;
+        double pendingDamage;
+    }
+
+    /**
+     * 生死绑定 (恋人闪耀): 与 partner 双向绑定至 endTick; 距离 > unbindDistance 解绑; 一方死则另一方
+     * deathDelayTicks 后同死。两侧各存一份 (互为 partner), 任一侧解绑/到期都清两侧由 {@link #clearBond}。
+     */
+    private static final class Bond {
+        UUID partner;
+        long endTick;
+        double unbindDistance;
+        int deathDelayTicks;
+    }
+
     private static final Map<UUID, Map<WindowKind, Window>> WINDOWS = new ConcurrentHashMap<>();
     private static final Map<UUID, Contract> CONTRACTS = new ConcurrentHashMap<>();
+    private static final Map<UUID, ReflectAccum> REFLECT_ACCUMS = new ConcurrentHashMap<>();
+    private static final Map<UUID, Ledger> LEDGERS = new ConcurrentHashMap<>();
+    private static final Map<UUID, Bond> BONDS = new ConcurrentHashMap<>();
 
     private TarotCombatState() {
     }
@@ -79,6 +118,44 @@ public final class TarotCombatState {
         c.endTick = now(player) + durationTicks;
         c.reviveHealth = reviveHealth;
         CONTRACTS.put(player.getUUID(), c);
+    }
+
+    /** 开一个累计反击窗 (正义闪耀): durationTicks 内逐攻击者累计伤害, 结束对 radius 格内各攻击者回击 percent (封顶 perHitCap)。 */
+    public static void openReflectAccum(ServerPlayer player, int durationTicks, double percent,
+                                        double perHitCap, double radius) {
+        ReflectAccum a = new ReflectAccum();
+        a.endTick = now(player) + durationTicks;
+        a.percent = percent;
+        a.perHitCap = perHitCap;
+        a.radius = radius;
+        REFLECT_ACCUMS.put(player.getUUID(), a);
+    }
+
+    /** 开一个延迟记账冻死窗 (倒吊人闪耀): durationTicks 内伤害挂账且致命伤冻结, 结束结算 settlePercent, 存活回 surviveHeal。 */
+    public static void openLedger(ServerPlayer player, int durationTicks, double settlePercent, double surviveHeal) {
+        Ledger l = new Ledger();
+        l.endTick = now(player) + durationTicks;
+        l.settlePercent = settlePercent;
+        l.surviveHeal = surviveHeal;
+        l.pendingDamage = 0.0D;
+        LEDGERS.put(player.getUUID(), l);
+    }
+
+    /** 开一对生死绑定 (恋人闪耀): a/b 双向绑定 durationTicks, 距离 > unbindDistance 解绑, 一方死则另一方 deathDelayTicks 后同死。 */
+    public static void openLifeBond(ServerPlayer a, ServerPlayer b, int durationTicks,
+                                    double unbindDistance, int deathDelayTicks) {
+        long end = now(a) + durationTicks;
+        putBond(a.getUUID(), b.getUUID(), end, unbindDistance, deathDelayTicks);
+        putBond(b.getUUID(), a.getUUID(), end, unbindDistance, deathDelayTicks);
+    }
+
+    private static void putBond(UUID self, UUID partner, long endTick, double unbindDistance, int deathDelayTicks) {
+        Bond b = new Bond();
+        b.partner = partner;
+        b.endTick = endTick;
+        b.unbindDistance = unbindDistance;
+        b.deathDelayTicks = deathDelayTicks;
+        BONDS.put(self, b);
     }
 
     private static void putWindow(ServerPlayer player, WindowKind kind, int durationTicks,
@@ -140,18 +217,141 @@ public final class TarotCombatState {
         return c.reviveHealth;
     }
 
-    /** 清某玩家全部窗口/契约 (登出/死亡/换维度防泄漏)。 */
+    // ---- 累计反击窗 (正义闪耀) ----
+
+    /** 是否有未过期累计反击窗。 */
+    public static boolean hasReflectAccum(UUID playerId, long now) {
+        ReflectAccum a = REFLECT_ACCUMS.get(playerId);
+        return a != null && now < a.endTick;
+    }
+
+    /** 在累计反击窗内累计某攻击者对持有者造成的伤害 (无窗则 no-op)。 */
+    public static void recordReflectAccum(UUID playerId, UUID attacker, double amount, long now) {
+        ReflectAccum a = REFLECT_ACCUMS.get(playerId);
+        if (a == null || now >= a.endTick || amount <= 0.0D) {
+            return;
+        }
+        a.perAttacker.merge(attacker, amount, Double::sum);
+    }
+
+    /**
+     * 抽干并移除累计反击窗: 返回 attacker -> 应回击的伤害 (= 累计伤害 * percent, 单次封顶 perHitCap)。无窗返回空表。
+     * 结算后窗口移除 (一次性结算; 由调度器在窗口结束 tick 调)。
+     */
+    public static Map<UUID, Double> drainReflectAccum(UUID playerId) {
+        ReflectAccum a = REFLECT_ACCUMS.remove(playerId);
+        if (a == null) {
+            return Map.of();
+        }
+        Map<UUID, Double> out = new HashMap<>();
+        for (Map.Entry<UUID, Double> e : a.perAttacker.entrySet()) {
+            double retaliate = Math.min(e.getValue() * a.percent, a.perHitCap);
+            if (retaliate > 0.0D) {
+                out.put(e.getKey(), retaliate);
+            }
+        }
+        return out;
+    }
+
+    // ---- 延迟记账冻死窗 (倒吊人闪耀) ----
+
+    /** 是否有未过期延迟记账窗。 */
+    public static boolean hasLedger(UUID playerId, long now) {
+        Ledger l = LEDGERS.get(playerId);
+        return l != null && now < l.endTick;
+    }
+
+    /** 在延迟记账窗内累加挂起伤害 (无窗则 no-op)。 */
+    public static void recordLedgerDamage(UUID playerId, double amount, long now) {
+        Ledger l = LEDGERS.get(playerId);
+        if (l == null || now >= l.endTick || amount <= 0.0D) {
+            return;
+        }
+        l.pendingDamage += amount;
+    }
+
+    /**
+     * 抽干并移除延迟记账窗: 返回 [结算应扣伤害 = pendingDamage * settlePercent, 存活回血 surviveHeal]。
+     * 无窗返回 null。结算逻辑 (扣血/判存活/回血) 由调用方 (调度器到点) 执行。
+     */
+    public static double[] drainLedger(UUID playerId) {
+        Ledger l = LEDGERS.remove(playerId);
+        if (l == null) {
+            return null;
+        }
+        return new double[]{l.pendingDamage * l.settlePercent, l.surviveHeal};
+    }
+
+    // ---- 生死绑定 (恋人闪耀) ----
+
+    /** 该玩家当前绑定的 partner UUID (无未过期绑定返回 null)。 */
+    public static UUID bondPartner(UUID playerId, long now) {
+        Bond b = BONDS.get(playerId);
+        return (b != null && now < b.endTick) ? b.partner : null;
+    }
+
+    /** 该玩家绑定的解绑距离 (无绑定返回 -1)。 */
+    public static double bondUnbindDistance(UUID playerId) {
+        Bond b = BONDS.get(playerId);
+        return b == null ? -1.0D : b.unbindDistance;
+    }
+
+    /** 该玩家绑定的一方死亡后另一方延迟死亡 ticks (无绑定返回 -1)。 */
+    public static int bondDeathDelay(UUID playerId) {
+        Bond b = BONDS.get(playerId);
+        return b == null ? -1 : b.deathDelayTicks;
+    }
+
+    /** 是否有未过期绑定。 */
+    public static boolean hasBond(UUID playerId, long now) {
+        Bond b = BONDS.get(playerId);
+        return b != null && now < b.endTick;
+    }
+
+    /** 解绑某玩家 (含其 partner 的反向绑定; 双向清除幂等)。 */
+    public static void clearBond(UUID playerId) {
+        Bond b = BONDS.remove(playerId);
+        if (b != null) {
+            Bond reverse = BONDS.get(b.partner);
+            if (reverse != null && playerId.equals(reverse.partner)) {
+                BONDS.remove(b.partner);
+            }
+        }
+    }
+
+    /** 清某玩家全部窗口/契约 (登出/死亡/换维度防泄漏)。绑定经 {@link #clearBond} 双向清。 */
     public static void clearAll(UUID playerId) {
         WINDOWS.remove(playerId);
         CONTRACTS.remove(playerId);
+        REFLECT_ACCUMS.remove(playerId);
+        LEDGERS.remove(playerId);
+        clearBond(playerId);
     }
 
-    /** 服务端 tick: 过期窗口/契约移除 (由 {@link TarotSystem} 在 ServerTickEvent.END 调用)。 */
+    /**
+     * 服务端 tick: 过期窗口/契约移除 (由 {@link TarotSystem} 在 ServerTickEvent.END 调用)。
+     * 累计反击窗 / 延迟记账窗的过期由各自 scheduleOnce 结算任务到点 drain 移除 (结算后窗口即除); 此处不重复扫
+     * (避免与结算任务竞争把未结算的伤害账本丢弃)。{@link #clearAll} 在登出/死亡/换维度兜底防泄漏。
+     * 绑定无结算任务, 故在此扫过期 (双向解绑); 距离解绑由 {@link TarotSystem} 在 tick 内按在线实体坐标判定后调
+     * {@link #clearBond} (本类无实体引用)。
+     */
     public static void tick(MinecraftServer server) {
         long now = server.getTickCount();
         WINDOWS.values().forEach(m -> m.values().removeIf(w -> now >= w.endTick));
         WINDOWS.entrySet().removeIf(e -> e.getValue().isEmpty());
         CONTRACTS.entrySet().removeIf(e -> now >= e.getValue().endTick);
+        // 过期绑定双向解绑 (拷贝键集后再清, 避免遍历中改 map)。
+        for (UUID id : java.util.List.copyOf(BONDS.keySet())) {
+            Bond b = BONDS.get(id);
+            if (b != null && now >= b.endTick) {
+                clearBond(id);
+            }
+        }
+    }
+
+    /** 当前在场绑定的玩家 UUID 快照 (供 {@link TarotSystem} 按坐标做距离解绑遍历)。 */
+    public static java.util.Set<UUID> bondedPlayers() {
+        return java.util.Set.copyOf(BONDS.keySet());
     }
 
     private static long now(ServerPlayer player) {
@@ -177,5 +377,27 @@ public final class TarotCombatState {
         c.endTick = endTick;
         c.reviveHealth = reviveHealth;
         CONTRACTS.put(playerId, c);
+    }
+
+    static void openReflectAccumRaw(UUID playerId, long endTick, double percent, double perHitCap, double radius) {
+        ReflectAccum a = new ReflectAccum();
+        a.endTick = endTick;
+        a.percent = percent;
+        a.perHitCap = perHitCap;
+        a.radius = radius;
+        REFLECT_ACCUMS.put(playerId, a);
+    }
+
+    static void openLedgerRaw(UUID playerId, long endTick, double settlePercent, double surviveHeal) {
+        Ledger l = new Ledger();
+        l.endTick = endTick;
+        l.settlePercent = settlePercent;
+        l.surviveHeal = surviveHeal;
+        LEDGERS.put(playerId, l);
+    }
+
+    static void openBondRaw(UUID a, UUID b, long endTick, double unbindDistance, int deathDelayTicks) {
+        putBond(a, b, endTick, unbindDistance, deathDelayTicks);
+        putBond(b, a, endTick, unbindDistance, deathDelayTicks);
     }
 }

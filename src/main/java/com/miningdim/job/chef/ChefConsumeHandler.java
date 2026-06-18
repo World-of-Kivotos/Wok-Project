@@ -166,16 +166,51 @@ public final class ChefConsumeHandler {
         entity.addEffect(new MobEffectInstance(MobEffects.DIG_SPEED, 240 * 20, hasteLevel - 1, false, true));
     }
 
-    // ---- 增香: 乘原 buff 时长 (黑名单跳过金苹果/FID 战斗效果, 只乘时长不乘等级) ----
+    // ---- 增香: 乘 "本菜自带 buff" 时长 (黑名单跳过金苹果/FID 战斗效果, 只乘时长不乘等级) ----
 
     private void amplifyExistingBuffs(LivingEntity entity, ItemStack stack, int mulX100) {
         if (SeasoningBlacklist.isItemBlacklisted(stack)) {
             return; // 物品级黑名单 (金苹果/附魔金苹果): 整菜不增香。
         }
-        // 增香作用于 "这道菜刚施加的自带 buff": Finish 时原版已先 addEffect 了菜的 food effects, 故此刻
-        // 实体身上的 BENEFICIAL 非黑名单效果即可视为本菜赋予者, 对其乘时长 (不乘等级)。
+        // spec 6.1 / 第 20 行: 增香只放大 "别的 mod 菜自带的 buff", 即本菜 FoodProperties 声明的 food effects。
+        var props = stack.getFoodProperties(entity);
+        if (props == null) {
+            return; // 非食物 (理论不达, 盖章只在食物上): 无自带 buff 可放大。
+        }
+        // 本菜声明的 food effect 集合 (1.20.1 返回 List<Pair<MobEffectInstance, Float>>, Pair.first 为效果实例)。
+        java.util.Set<MobEffect> ownEffects = new java.util.HashSet<>();
+        for (com.mojang.datafixers.util.Pair<MobEffectInstance, Float> pair : props.getEffects()) {
+            MobEffectInstance declared = pair.getFirst();
+            if (declared != null) {
+                ownEffects.add(declared.getEffect());
+            }
+        }
+        amplifyDeclaredBuffs(entity, ownEffects, mulX100);
+    }
+
+    /**
+     * 增香核心 (Chef_Job_DesignSpec 6.1 平衡红线): 仅放大 "本菜自带 buff" 的时长 (ownEffects = 本菜
+     * FoodProperties 声明的 MobEffect 集合)。严禁对身上任意活跃 BENEFICIAL 效果放大 —— 那会乘到原版战斗
+     * 药水 (力量/速度/抗性/再生/吸收)、信标 buff、前一道增香菜的残留窗外 buff, 直接破 "战斗向一律 %最大血量、
+     * 不破枪战 attrition" 红线, 且连吃两道增香菜会对前菜已放大时长再乘一次 (复利叠加, 无上限)。
+     *
+     * 抽出为包级 + 显式 ownEffects 入参: 生产路径 {@link #amplifyExistingBuffs} 从 FoodProperties 算出集合传入;
+     * GameTest 直接喂一个声明集合驱动同一逻辑 (无需注册带 buff 的测试食物即可断言 "外来 buff 不被改写")。
+     *
+     * @param entity     吃菜实体
+     * @param ownEffects 本菜 FoodProperties 声明的效果集合 (空集 = 本菜不自带 buff, 无可放大)
+     * @param mulX100    时长倍率 x100 (只乘时长不乘等级)
+     */
+    void amplifyDeclaredBuffs(LivingEntity entity, java.util.Set<MobEffect> ownEffects, int mulX100) {
+        if (ownEffects.isEmpty()) {
+            return; // 本菜不自带任何 buff: 无可增香 (避免乘到外来增益)。
+        }
+        // 仅放大活跃效果中其 MobEffect 属于本菜声明集合的实例 (信标/药水/前菜残留 buff 不在集合内, 一律跳过)。
         List<MobEffectInstance> snapshot = new ArrayList<>(entity.getActiveEffects());
         for (MobEffectInstance inst : snapshot) {
+            if (!ownEffects.contains(inst.getEffect())) {
+                continue; // 非本菜自带 buff: 不放大 (外来增益/前菜残留不被乘)。
+            }
             if (SeasoningBlacklist.isEffectBlacklisted(inst)) {
                 continue; // 效果级黑名单 (FID 战斗向/HARMFUL): 不放大。
             }
@@ -230,7 +265,15 @@ public final class ChefConsumeHandler {
             return;
         }
         FoodData food = player.getFoodData();
-        food.setFoodLevel(Math.max(0, food.getFoodLevel() - props.getNutrition()));
+        // 抵消该菜默认进食回复 (失败品销毁 = 零回复语义): 先抵饱食, 再抵饱和。原版 eat() 同时加 food 与
+        // saturation (satGained = nutrition * saturationModifier * 2, 钳 <= foodLevel), 只回退 food 会白送饱和
+        // (隐藏续航), 与 "销毁菜肴" 语义不符。
+        int newFoodLevel = Math.max(0, food.getFoodLevel() - props.getNutrition());
+        food.setFoodLevel(newFoodLevel);
+        float satGained = props.getNutrition() * props.getSaturationModifier() * 2.0F;
+        // 饱和钳到 [0, 当前饱食]: 原版 saturation 不变量恒 <= foodLevel, 回退后维持此不变量。
+        float newSat = Math.min(newFoodLevel, Math.max(0.0F, food.getSaturationLevel() - satGained));
+        food.setSaturation(newSat);
     }
 
     // ---- 窗口型统一盖章入口 ----

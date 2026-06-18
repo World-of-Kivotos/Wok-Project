@@ -1,10 +1,10 @@
 package com.miningdim.job.tarot;
 
-import com.miningdim.effect.ModJobEffects;
 import com.miningdim.job.tarot.card.TarotCardData;
 import com.miningdim.job.tarot.card.TarotEffectOp;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffect;
@@ -40,6 +40,16 @@ public final class TarotEffectEngine {
 
     /** 抗性 (Resistance) amplifier 封顶 III = 2 (spec 第五章 1: 严禁 IV/V/VI)。 */
     private static final int RESISTANCE_MAX_AMPLIFIER = 2;
+
+    /**
+     * 死神闪耀 "回血/叠层仅对玩家/精英" 的精英判定阈值 (maxHealth)。80 血公服下普通杂兵 (僵尸 20 / 骷髅 20 等)
+     * 远低于此, 6 星精英/Boss/玩家 (>=80) 高于此; 玩家另在 {@link #isEliteForReward} 恒判精英。本阈值不进 config:
+     * 它只决定死神闪耀单张牌的回血/叠层资格, 不是系统级闸门 (复杂度匹配问题; YAGNI)。
+     */
+    private static final float ELITE_HP_THRESHOLD = 80.0F;
+
+    /** 死神闪耀力量叠层的续期时长 (ticks); 15s, 与签名窗同量级。 */
+    private static final int STRENGTH_STACK_DURATION = 300;
 
     private final MaxHealthModifierManager maxHealth;
     private final ScheduledEffectManager scheduler;
@@ -87,13 +97,17 @@ public final class TarotEffectEngine {
                     TarotCombatState.openLifesteal(caster, op.durationTicks(), op.percent());
             case SELF_REFLECT ->
                     TarotCombatState.openReflect(caster, op.durationTicks(), op.percent(), op.capUp());
+            case SELF_REFLECT_ACCUM -> openReflectAccum(caster, op);
+            case SELF_DELAYED_LEDGER -> openDelayedLedger(caster, op);
             case SELF_INVULNERABLE ->
                     TarotCombatState.openInvulnerable(caster, op.durationTicks());
+            case SHINY_BIND_SHARE_LIFE -> bindShareLife(level, caster, op);
             case ENEMY_TARGET_DAMAGE -> targetDamage(level, caster, op);
             case ENEMY_TARGET_AVERAGE_HEALTH -> targetAverageHealth(level, caster, op);
             case AOE_ENEMY_RANDOM_DAMAGE -> aoeEnemyRandomDamage(level, caster, op);
             case AOE_ENEMY_POTION -> aoeEnemyPotion(level, caster, op);
             case AOE_ENEMY_DAMAGE -> aoeEnemyDamage(level, caster, op);
+            case AOE_EXECUTE_BELOW_PCT -> aoeExecuteBelowPct(level, caster, op);
             case AOE_ALLY_POTION -> aoeAllyPotion(level, caster, op);
             case AOE_ALLY_HEAL -> aoeAllyHeal(level, caster, op);
             case AOE_ALLY_ABSORPTION -> aoeAllyAbsorption(level, caster, op);
@@ -106,12 +120,25 @@ public final class TarotEffectEngine {
      * 死亡不掉落环境下不丢物); 赌赢牺牲最大生命 amount (durationTicks 后归还, 下限 floorDown), 返回 false 让
      * 剩余收益 op 继续施加。
      *
-     * @return true 赌输死亡 (中止剩余 op); false 存活 (已牺牲最大生命, 继续后续 op)
+     * 与死神逆位复活契约的边界 (review Minor): 若赌输但玩家身上有未过期复活契约, 直接 setHealth(0) 会被
+     * {@link TarotCombatHandlers#onLivingDeath} 的契约拦截复活, 而本法已返回 true 中止后续收益 op —— 玩家既没
+     * 真死也没拿到赌赢收益 (一次空过)。修正: 赌输前先判定有效契约, 有则视为 "契约救命未真死", 显式消费契约并按
+     * 存活路径继续给收益 (契约的一次性拦截在此被这次自杀消耗, 与拦截外部致死同口径)。
+     *
+     * @return true 赌输且无契约救命 (当场死亡, 中止剩余 op); false 存活 (赌赢, 或赌输但被契约救; 继续后续 op)
      */
     private boolean applyDeathGamble(ServerPlayer caster, TarotEffectOp op) {
         if (rollDeath(caster.getRandom(), op.chance())) {
-            caster.setHealth(0.0F);
-            return true;
+            MinecraftServer server = caster.getServer();
+            long now = server == null ? 0L : server.getTickCount();
+            double revive = server == null ? -1.0D
+                    : TarotCombatState.consumeDeathContract(caster.getUUID(), now);
+            if (revive < 0.0D) {
+                caster.setHealth(0.0F);
+                return true; // 无契约: 真死, 中止收益。
+            }
+            // 有契约救命: 视为未真死。按契约复活血量保命 (与 onLivingDeath 拦截外部致死同口径), 落入存活收益路径。
+            caster.setHealth((float) Math.min(revive, caster.getMaxHealth()));
         }
         // 牺牲当前最大生命 amount (负向修饰), durationTicks 后归还; 下限 floorDown。
         applyMaxHealthDelta(caster, -op.amount(), 0.0D, op.floorDown(), op.durationTicks());
@@ -121,6 +148,14 @@ public final class TarotEffectEngine {
     /** 赌死判定 (倒吊人逆位): rng < chance 即当场死亡。抽出供 TDD 大样本统计 R 20%/UR 2% 区间。 */
     public static boolean rollDeath(net.minecraft.util.RandomSource rng, double chance) {
         return rng.nextDouble() < chance;
+    }
+
+    /**
+     * 测试钩子 (同包可见): 直接驱动 {@link #applyDeathGamble} 验证赌死 x 契约边界 (review Minor)。
+     * 返回值同 {@link #applyDeathGamble} (true 真死中止; false 存活继续收益)。
+     */
+    boolean applyDeathGambleForTest(ServerPlayer caster, TarotEffectOp op) {
+        return applyDeathGamble(caster, op);
     }
 
     // ---- self ----
@@ -188,6 +223,76 @@ public final class TarotEffectEngine {
                 .forEach(target::removeEffect);
     }
 
+    /**
+     * 累计反击窗 (正义闪耀结算尾): 开窗 durationTicks 内逐攻击者累计伤害 (handler 记账), 排一个窗口结束的结算
+     * 任务: 对 radius 格内仍在场的每个攻击者各回击其累计伤害的 percent (单次封顶 capUp; spec 40% 封顶 60)。
+     */
+    private void openReflectAccum(ServerPlayer caster, TarotEffectOp op) {
+        double radius = op.radius();
+        TarotCombatState.openReflectAccum(caster, op.durationTicks(), op.percent(), op.capUp(), radius);
+        // 半径在闭包内捕获: drain 会移除窗口, 结算时已无法再从窗口读半径。
+        scheduler.scheduleOnce(caster, op.durationTicks(), p -> settleReflectAccum(p, radius));
+    }
+
+    /** 窗口结束结算: 抽干账本, 对半径内仍在场的攻击者各回击累计伤害的 percent (封顶), 用 magic 源 (不触吸血/反伤递归)。 */
+    private void settleReflectAccum(ServerPlayer caster, double radius) {
+        java.util.Map<UUID, Double> retaliations = TarotCombatState.drainReflectAccum(caster.getUUID());
+        if (retaliations.isEmpty() || !(caster.level() instanceof ServerLevel level)) {
+            return;
+        }
+        AABB box = caster.getBoundingBox().inflate(radius);
+        for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class, box)) {
+            Double dmg = retaliations.get(entity.getUUID());
+            if (dmg != null && dmg > 0.0D && entity.distanceTo(caster) <= radius) {
+                entity.hurt(level.damageSources().magic(), dmg.floatValue());
+            }
+        }
+    }
+
+    /**
+     * 延迟记账冻死窗 (倒吊人闪耀): 开窗 durationTicks 内伤害挂账且致命伤被冻结 (handler 拦致死), 排窗口结束结算:
+     * 扣 pendingDamage 的 percent (绕护甲/抗性 setHealth), 若仍存活则额外回 amount 血 (spec 结束 50% + 存活 +40)。
+     */
+    private void openDelayedLedger(ServerPlayer caster, TarotEffectOp op) {
+        TarotCombatState.openLedger(caster, op.durationTicks(), op.percent(), op.amount());
+        scheduler.scheduleOnce(caster, op.durationTicks(), this::settleLedger);
+    }
+
+    /** 倒吊人闪耀窗结束: 结算挂起伤害 50% (真扣血), 扣后存活则 +40 血。 */
+    private void settleLedger(ServerPlayer caster) {
+        double[] result = TarotCombatState.drainLedger(caster.getUUID());
+        if (result == null) {
+            return;
+        }
+        double settleDamage = result[0];
+        double surviveHeal = result[1];
+        // 结算扣血绕护甲/抗性 (与延迟期的冻结记账口径一致); 下限 0 (扣到 0 即真死, 不再回血)。
+        float newHealth = (float) Math.max(0.0D, caster.getHealth() - settleDamage);
+        caster.setHealth(newHealth);
+        if (newHealth > 0.0F) {
+            caster.heal((float) surviveHeal);
+        }
+    }
+
+    /**
+     * 绑定共享生死 (恋人闪耀): 准星锁定一个已 {@code /tarot consent} 同意的玩家 (reach=radius), 双向绑定
+     * durationTicks; 无目标或目标未同意则空过 (签名打空不报错)。一方死则另一方延迟 count ticks 同死,
+     * 距离 > radius 解绑 (距离/死亡判定在 handler 与 TarotSystem tick)。
+     */
+    private void bindShareLife(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        LivingEntity target = crosshairAlly(level, caster, op.radius());
+        if (!(target instanceof ServerPlayer partner) || partner == caster) {
+            return;
+        }
+        if (!TarotConsentRegistry.consume(partner.getUUID(), caster.getServer().getTickCount())) {
+            // 对方未在同意窗内 (需 /tarot consent): 不绑定 (spec "需同意"), 提示发起方。
+            caster.displayClientMessage(
+                    net.minecraft.network.chat.Component.translatable("message.miningdim.tarot.lovers.no_consent"), true);
+            return;
+        }
+        TarotCombatState.openLifeBond(caster, partner, op.durationTicks(), op.radius(), op.count());
+    }
+
     // ---- AoE ----
 
     private void aoeEnemyPotion(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
@@ -203,6 +308,62 @@ public final class TarotEffectEngine {
         for (LivingEntity enemy : enemiesInRadius(level, caster, op.radius())) {
             enemy.hurt(level.damageSources().magic(), dmg);
         }
+    }
+
+    /**
+     * 处决斩杀 AoE (死神闪耀): radius 格内当前血占比 &lt; percent 的敌处决 (setHealth 0); 每处决一个玩家/精英给
+     * caster 回 threshold 血并把力量提升一级 (上限 amplifier=4=V)。若无任何处决目标则对全体敌各 amount 穿刺。
+     *
+     * "回血/叠层仅对玩家/精英" (spec): 精英判定无原版/本工程现成标签, 用 maxHealth >= ELITE_HP_THRESHOLD 作确定性
+     * 代理 (80 血公服下杂兵远低于此, 6 星精英/Boss 高于此); 玩家恒视为精英 (PvP)。普通杂兵被处决不给回血/叠层。
+     */
+    private void aoeExecuteBelowPct(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        List<LivingEntity> enemies = enemiesInRadius(level, caster, op.radius());
+        int executed = 0;
+        int killedEliteCount = 0;
+        for (LivingEntity enemy : enemies) {
+            float maxHp = enemy.getMaxHealth();
+            if (maxHp > 0.0F && enemy.getHealth() / maxHp < op.percent()) {
+                boolean elite = isEliteForReward(enemy);
+                enemy.hurt(level.damageSources().magic(), enemy.getHealth()); // 处决: 一击至 0。
+                executed++;
+                if (elite) {
+                    killedEliteCount++;
+                }
+            }
+        }
+        if (executed == 0) {
+            // 无处决目标: 全体敌各 amount 穿刺 (spec "无目标则全体 50 穿刺")。
+            float dmg = (float) op.amount();
+            for (LivingEntity enemy : enemies) {
+                enemy.hurt(level.damageSources().magic(), dmg);
+            }
+            return;
+        }
+        // 每处决一个玩家/精英: 回 threshold 血 + 力量叠一级 (上限 amplifier)。
+        if (killedEliteCount > 0) {
+            caster.heal((float) (op.threshold() * killedEliteCount));
+            stackStrengthUpTo(caster, op.amplifier(), killedEliteCount);
+        }
+    }
+
+    /** 精英判定 (死神闪耀回血/叠层资格): 玩家恒精英; 非玩家生物按 maxHealth 阈值代理 (见 ELITE_HP_THRESHOLD)。 */
+    private static boolean isEliteForReward(LivingEntity entity) {
+        return entity instanceof Player || entity.getMaxHealth() >= ELITE_HP_THRESHOLD;
+    }
+
+    /**
+     * 力量叠层至上限 (死神闪耀每杀一精英叠一级, 不超 maxAmplifier=4=V)。按已有力量等级累加 killCount 级, 钳到上限,
+     * 续期等长 STRENGTH_STACK_DURATION (不可续期约束仅针对抗性/隐身等防御性强增益, 力量按击杀叠层是设计内特例)。
+     */
+    private static void stackStrengthUpTo(ServerPlayer caster, int maxAmplifier, int killCount) {
+        MobEffectInstance current = caster.getEffect(MobEffects.DAMAGE_BOOST);
+        int currentAmp = current == null ? -1 : current.getAmplifier();
+        int newAmp = Math.min(maxAmplifier, currentAmp + killCount);
+        if (newAmp < 0) {
+            return;
+        }
+        caster.addEffect(new MobEffectInstance(MobEffects.DAMAGE_BOOST, STRENGTH_STACK_DURATION, newAmp));
     }
 
     /** 半径内随机抽 1 敌打 amount; 无敌则使用者受双倍真伤 (恋人逆位 "无敌人则自己双倍")。 */
@@ -332,6 +493,23 @@ public final class TarotEffectEngine {
         // 友方 = 半径内玩家 (含 caster 本人, 多数 "友方恢复" 含自己)。
         return level.getEntitiesOfClass(Player.class, box,
                 p -> p.isAlive() && p.distanceTo(caster) <= radius);
+    }
+
+    /**
+     * 准星指向的友方玩家 (恋人闪耀 "锁定 1 玩家")。沿视线 reach 格射线命中的玩家 (排除自身)。无命中返回 null。
+     * 与 {@link #crosshairEnemy} 对称, 但锁的是玩家 (绑定对象必须是玩家, 共享生死无意义于杂兵)。
+     */
+    private static LivingEntity crosshairAlly(ServerLevel level, ServerPlayer caster, double reach) {
+        Vec3 eye = caster.getEyePosition();
+        Vec3 end = eye.add(caster.getViewVector(1.0F).scale(reach));
+        AABB searchBox = caster.getBoundingBox().expandTowards(caster.getViewVector(1.0F).scale(reach)).inflate(1.0D);
+        EntityHitResult hit = ProjectileUtil.getEntityHitResult(
+                level, caster, eye, end, searchBox,
+                e -> e instanceof Player other && other != caster);
+        if (hit == null || !(hit.getEntity() instanceof Player target)) {
+            return null;
+        }
+        return target;
     }
 
     private static MobEffect resolveEffect(String effectId) {

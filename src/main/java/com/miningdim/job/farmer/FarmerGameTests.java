@@ -1,11 +1,26 @@
 package com.miningdim.job.farmer;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.economy.AbuseGuard;
+import com.miningdim.economy.Currency;
+import com.miningdim.economy.EconomyConstants;
+import com.miningdim.economy.EconomyService;
+import com.miningdim.economy.EconomyServices;
+import com.miningdim.economy.EconomyWalletData;
+import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.job.JobXpCurve;
+import com.miningdim.job.farmer.item.FarmerItems;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * 农夫职业核心逻辑 GameTest (FarmingXP_Mod_DesignSpec 第六节测试断言 + 实现手册 GameTest 范式)。
@@ -204,7 +219,7 @@ public final class FarmerGameTests {
     }
 
     // ============================================================
-    // 当日卖菜记录持久层 (FarmerSavedData: 株数 + 已发信用点 同条记录, UTC 翻日整条清)
+    // 当日卖菜株数持久层 (FarmerSavedData: 仅株数 + 日戳, UTC 翻日整条清; 每日信用点 cap 已收敛进货币层)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
@@ -212,28 +227,24 @@ public final class FarmerGameTests {
         FarmerSavedData data = new FarmerSavedData();
         java.util.UUID p = new java.util.UUID(0xF1L, 0xA1L);
         long day = 100L;
-        // 同一日内多次记账累加株数与信用点 (两量同存一条记录)。
-        data.recordWheatSale(p, 50, 50L, day);
-        data.recordWheatSale(p, 30, 28L, day);
+        // 同一日内多次记账累加株数 (供收购曲线定位边际单价档)。
+        data.recordWheatSale(p, 50, day);
+        data.recordWheatSale(p, 30, day);
         helper.assertTrue(data.wheatSoldToday(p, day) == 80, "same-day sold count accumulates to 50+30=80");
-        helper.assertTrue(data.wheatCreditedToday(p, day) == 78L, "same-day credited accumulates to 50+28=78");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void wheatSaleRolloverClearsBothCountAndCredits(GameTestHelper helper) {
+    public static void wheatSaleRolloverClearsCount(GameTestHelper helper) {
         FarmerSavedData data = new FarmerSavedData();
         java.util.UUID p = new java.util.UUID(0xF2L, 0xB2L);
-        data.recordWheatSale(p, 100, 100L, 200L);
+        data.recordWheatSale(p, 100, 200L);
         helper.assertTrue(data.wheatSoldToday(p, 200L) == 100, "day 200 sold = 100");
-        helper.assertTrue(data.wheatCreditedToday(p, 200L) == 100L, "day 200 credited = 100");
-        // 翻到下一日: 读取即整条清零 (株数与信用点都归 0, 不留任一量的孤儿残值)。
+        // 翻到下一日: 读取即整条清零 (株数归 0, 不留孤儿残值)。
         helper.assertTrue(data.wheatSoldToday(p, 201L) == 0, "day 201 sold rolls over to 0");
-        helper.assertTrue(data.wheatCreditedToday(p, 201L) == 0L, "day 201 credited rolls over to 0");
         // 翻日后再记账从新一日 0 起累加 (不继承旧日)。
-        data.recordWheatSale(p, 5, 5L, 201L);
+        data.recordWheatSale(p, 5, 201L);
         helper.assertTrue(data.wheatSoldToday(p, 201L) == 5, "day 201 fresh accumulation = 5");
-        helper.assertTrue(data.wheatCreditedToday(p, 201L) == 5L, "day 201 fresh credited = 5");
         helper.succeed();
     }
 
@@ -241,15 +252,13 @@ public final class FarmerGameTests {
     public static void wheatSaleRolloverRemovesOrphanEntry(GameTestHelper helper) {
         FarmerSavedData data = new FarmerSavedData();
         java.util.UUID p = new java.util.UUID(0xF3L, 0xC3L);
-        data.recordWheatSale(p, 10, 10L, 300L);
+        data.recordWheatSale(p, 10, 300L);
         // 翻日读取触发整条丢弃 (无孤儿日戳滞留); 落盘后重载该玩家应无任何卖菜记录。
         helper.assertTrue(data.wheatSoldToday(p, 301L) == 0, "rolled-over day reads 0 sold");
         net.minecraft.nbt.CompoundTag saved = data.save(new net.minecraft.nbt.CompoundTag());
         FarmerSavedData reloaded = FarmerSavedData.load(saved);
         helper.assertTrue(reloaded.wheatSoldToday(p, 301L) == 0,
                 "reloaded data has no orphan stamp: rolled-over entry was removed before save");
-        helper.assertTrue(reloaded.wheatCreditedToday(p, 301L) == 0L,
-                "reloaded data carries no orphan credited residue");
         helper.succeed();
     }
 
@@ -257,16 +266,140 @@ public final class FarmerGameTests {
     public static void wheatSaleRecordRoundTrips(GameTestHelper helper) {
         FarmerSavedData data = new FarmerSavedData();
         java.util.UUID p = new java.util.UUID(0xF4L, 0xD4L);
-        data.recordWheatSale(p, 2200, 2160L, 400L); // 株数超 cap, 信用点已被调用方钳到日上限 2160。
+        data.recordWheatSale(p, 2200, 400L); // 株数超 cap。
         net.minecraft.nbt.CompoundTag saved = data.save(new net.minecraft.nbt.CompoundTag());
         FarmerSavedData reloaded = FarmerSavedData.load(saved);
         helper.assertTrue(reloaded.wheatSoldToday(p, 400L) == 2200, "sold count survives save/load round-trip");
-        helper.assertTrue(reloaded.wheatCreditedToday(p, 400L) == 2160L,
-                "credited amount survives save/load (persisted, not reconstructed from buyback curve)");
         helper.succeed();
     }
 
+    // ============================================================
+    // 卖菜端到端: 触发点可达 (Critical 1) + 经 EconomyServices 定位器真发币 (Critical 2) + 并入全服每日
+    // 信用点 faucet 软上限 (Major)。经济门面注册进 EconomyServices 定位器后, FarmerWheatSellService.sell
+    // 必须真扣库存小麦、真增当日卖出株数、经 grantDaily 真入账。删任一修复测试必挂 (见各断言注释)。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sellGrantsCreditsAndDecrementsInventory(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        player.getInventory().clearContent();
+        EconomyWalletData ledger = registerFreshEconomy();
+        try {
+            // 给 100 株 mod 小麦 (远低于收购 softCap 2160, 故全价 base=1 -> 毛收 100)。
+            int amount = 100;
+            long today = FarmerClock.currentUtcDayStamp();
+            FarmerSavedData data = FarmerSavedData.get(player.server.overworld());
+            int soldBefore = data.wheatSoldToday(player.getUUID(), today); // 基线 (共享持久层, 取增量防跨测试串扰)。
+            player.getInventory().add(new ItemStack(FarmerItems.FARMER_WHEAT.get(), amount));
+
+            FarmerWheatSellService.SellResult result = FarmerWheatSellService.sell(player, amount);
+
+            // 触发点可达且经济已注册 -> 非 offline (删 /farmer sell 触发点或回退 isBound 死 seam 即 offline, 此断言挂)。
+            helper.assertFalse(result.economyOffline(),
+                    "sell with registered economy must not be offline (trigger point + locator wired)");
+            helper.assertTrue(result.soldCount() == amount,
+                    "sell removes all " + amount + " wheat, got soldCount=" + result.soldCount());
+
+            // 库存小麦清零 (先扣后发, 真扣物品)。
+            int leftover = player.getInventory().clearOrCountMatchingItems(
+                    s -> s.is(FarmerItems.FARMER_WHEAT.get()), 0, new net.minecraft.world.SimpleContainer(0));
+            helper.assertTrue(leftover == 0, "inventory mod wheat decremented to 0 after sale, got " + leftover);
+
+            // 当日卖出株数 += amount (收购曲线计数真增; 取增量, 不依赖共享持久层的绝对值)。
+            int soldAfter = data.wheatSoldToday(player.getUUID(), today);
+            helper.assertTrue(soldAfter - soldBefore == amount,
+                    "wheatSoldToday increased by exactly " + amount + " after sale, delta="
+                            + (soldAfter - soldBefore));
+
+            // 经 EconomyServices 定位器真入账 (删定位器调用或回退死 seam -> grant 不发生, 余额 0, 此断言挂)。
+            // base=1, 全在 softCap 内 -> 毛收 100; 全在每日 faucet 首档 (cap=2160) 内 -> 全额入账 100。
+            helper.assertTrue(result.creditsGranted() == 100L,
+                    "100 wheat at base 1 within both caps grants 100 credits, got " + result.creditsGranted());
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 100L,
+                    "wallet credit balance reflects the granted 100 via the economy locator");
+        } finally {
+            EconomyServices.reset();
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sellWhenEconomyUnregisteredIsOffline(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        player.getInventory().clearContent();
+        EconomyServices.reset(); // 确保未注册 (定位器空 -> sell 应判 offline, 不扣不发)。
+        try {
+            player.getInventory().add(new ItemStack(FarmerItems.FARMER_WHEAT.get(), 10));
+
+            FarmerWheatSellService.SellResult result = FarmerWheatSellService.sell(player, 10);
+
+            // 未注册经济 -> offline, 不扣物品 (回退为 "未注册仍发币" 或抛 IllegalStateException 此断言挂)。
+            helper.assertTrue(result.economyOffline(),
+                    "sell with no registered economy must return offline (isRegistered gate)");
+            helper.assertTrue(result.soldCount() == 0, "offline sale removes nothing");
+            helper.assertTrue(result.creditsGranted() == 0L, "offline sale grants nothing");
+            int kept = player.getInventory().clearOrCountMatchingItems(
+                    s -> s.is(FarmerItems.FARMER_WHEAT.get()), 0, new net.minecraft.world.SimpleContainer(0));
+            helper.assertTrue(kept == 10, "offline sale keeps all 10 wheat in inventory, got " + kept);
+        } finally {
+            EconomyServices.reset();
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sellSharesPerPlayerDailyFaucetCapWithOtherFaucets(GameTestHelper helper) {
+        // Major: 卖菜并入全服每人每日信用点 faucet 软上限 (与其它 faucet 共享 WHEAT_SELL_FAUCET_KEY 命名空间),
+        // 而非农夫私有 per-player 上限。先用同一 faucetKey 把当日累计原始信用点推到 2*cap (模拟矿工卖矿先发两档),
+        // 再卖菜: 卖菜落进第二衰减档 (实发 < 毛收), 证明它读的是共享 faucet 计数器而非农夫私有上限。
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        player.getInventory().clearContent();
+        EconomyWalletData ledger = registerFreshEconomy();
+        try {
+            long cap = FarmerConstants.DAILY_CREDIT_FAUCET_CAP; // 2160
+            String sharedKey = FarmerConstants.WHEAT_SELL_FAUCET_KEY; // credit_faucet
+
+            // 另一 faucet (如矿工卖矿) 先用同一 key 发两个完整 cap 档, 累计原始信用点推到 2*cap。
+            // 第一档全额 cap; 第二档 floor(cap*0.97)。累计计数器 (原始, 非衰减后) = 2*cap。
+            long firstTier = EconomyServices.economyService().grantDaily(player, cap, sharedKey, cap);
+            long secondTier = EconomyServices.economyService().grantDaily(player, cap, sharedKey, cap);
+            helper.assertTrue(firstTier == cap, "first cap-batch full (got " + firstTier + ")");
+            helper.assertTrue(secondTier == (long) Math.floor(cap * EconomyConstants.ECONOMY_DECAY_BASE),
+                    "second cap-batch decays one tier x0.97 (got " + secondTier + ")");
+
+            // 卖 100 株小麦 (毛收 100, base=1 全在收购 softCap 内)。共享累计原始 = 2*cap, 本批 over=cap+100,
+            // tier = (cap+100)/cap = 1 -> ratio 0.97 -> floor(100*0.97)=97。若卖菜走农夫私有上限 (回退), 则不受
+            // 前述同 key faucet 影响, 全额 100, 此断言挂。
+            int amount = 100;
+            player.getInventory().add(new ItemStack(FarmerItems.FARMER_WHEAT.get(), amount));
+            FarmerWheatSellService.SellResult result = FarmerWheatSellService.sell(player, amount);
+
+            helper.assertTrue(result.soldCount() == amount, "all wheat sold");
+            long expected = (long) Math.floor(100 * EconomyConstants.ECONOMY_DECAY_BASE);
+            helper.assertTrue(result.creditsGranted() == expected,
+                    "wheat sale sharing the daily faucet key is already in decay tier x0.97: floor(100*0.97)="
+                            + expected + ", got " + result.creditsGranted());
+            // 账本余额 = 三笔实发之和 (共享同一玩家钱包): cap + floor(cap*0.97) + decayed wheat sale。
+            long expectedBalance = firstTier + secondTier + expected;
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == expectedBalance,
+                    "wallet equals sum of all post-decay grants on the shared per-player cap (not a private cap)");
+        } finally {
+            EconomyServices.reset();
+        }
+    }
+
     // ---- 测试辅助 (与 FarmerSystem.onCropHarvested 的原始经验公式同源) ----
+
+    /**
+     * 新建一套内存经济门面 (账本 + AbuseGuard + 惰性 PlayerAbuseState 解析器) 注册进 {@link EconomyServices} 定位器,
+     * 供卖菜端到端测试经定位器真发币。返回账本以便断言余额。调用方 finally 务必 {@link EconomyServices#reset()}。
+     */
+    private static EconomyWalletData registerFreshEconomy() {
+        EconomyWalletData ledger = new EconomyWalletData();
+        Map<UUID, PlayerAbuseState> states = new HashMap<>();
+        Function<UUID, PlayerAbuseState> resolver = id -> states.computeIfAbsent(id, k -> new PlayerAbuseState());
+        EconomyServices.reset();
+        EconomyServices.registerEconomyService(new EconomyService(ledger, new AbuseGuard(), resolver));
+        return ledger;
+    }
 
     private static long rawXpForTier(FarmerTier tier) {
         return (long) FarmerConstants.SINGLE_CROP_XP * tier.yieldPerHarvest();

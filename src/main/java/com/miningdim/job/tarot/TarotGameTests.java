@@ -16,6 +16,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -547,6 +548,314 @@ public final class TarotGameTests {
                 "lifesteal 0 after expiry");
         TarotCombatState.clearAll(id);
         helper.succeed();
+    }
+
+    // ============================================================
+    // 正义闪耀: 不再降级为药水 —— shiny 含 80% 即时反伤(封顶80) + 免疫击退 + 40% 累计回击(封顶60)
+    // (删任一 op 或破坏 drainReflectAccum 封顶逻辑必挂)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void justiceShinyReflectAndAccumNotDowngraded(GameTestHelper helper) {
+        TarotCardData justice = loadCard(TarotArcana.JUSTICE);
+        List<TarotEffectOp> shiny = justice.opsFor(TarotQuality.SHINY, true);
+
+        // 必须含 80% 即时反伤(封顶80)、免疫击退、40% 累计回击(封顶60, 半径15)。降级为单条 resistance 药水必挂。
+        TarotEffectOp reflect = findKind(shiny, TarotEffectKind.SELF_REFLECT);
+        helper.assertTrue(reflect != null && Math.abs(reflect.percent() - 0.80D) < 1e-9
+                        && Math.abs(reflect.capUp() - 80.0D) < 1e-9,
+                "justice shiny must have 80% reflect cap 80, got " + (reflect == null ? "none" : reflect.percent()));
+        helper.assertTrue(findKind(shiny, TarotEffectKind.SELF_KNOCKBACK_IMMUNITY) != null,
+                "justice shiny must grant knockback immunity");
+        TarotEffectOp accum = findKind(shiny, TarotEffectKind.SELF_REFLECT_ACCUM);
+        helper.assertTrue(accum != null && Math.abs(accum.percent() - 0.40D) < 1e-9
+                        && Math.abs(accum.capUp() - 60.0D) < 1e-9 && Math.abs(accum.radius() - 15.0D) < 1e-9,
+                "justice shiny must have 40% accumulated retaliation cap 60 radius 15");
+        // 降级回归: shiny 不应只是一条 resistance 药水 (复审缺陷复现)。
+        helper.assertFalse(shiny.size() == 1 && shiny.get(0).kind() == TarotEffectKind.SELF_POTION,
+                "justice shiny must NOT be a single resistance potion (downgrade regression)");
+
+        // 累计回击结算: 攻击者累计 200 伤害 -> 40% = 80, 封顶 60 -> 实回 60。另一攻击者累计 100 -> 40 (未触顶)。
+        java.util.UUID victim = java.util.UUID.randomUUID();
+        java.util.UUID atkHeavy = java.util.UUID.randomUUID();
+        java.util.UUID atkLight = java.util.UUID.randomUUID();
+        TarotCombatState.clearAll(victim);
+        TarotCombatState.openReflectAccumRaw(victim, 1000L, 0.40D, 60.0D, 15.0D);
+        TarotCombatState.recordReflectAccum(victim, atkHeavy, 120.0D, 10L);
+        TarotCombatState.recordReflectAccum(victim, atkHeavy, 80.0D, 20L);  // 累计 200
+        TarotCombatState.recordReflectAccum(victim, atkLight, 100.0D, 30L);
+        // 过期后不再累计 (窗口外伤害不计)。
+        TarotCombatState.recordReflectAccum(victim, atkLight, 500.0D, 2000L);
+        var retaliations = TarotCombatState.drainReflectAccum(victim);
+        helper.assertTrue(Math.abs(retaliations.get(atkHeavy) - 60.0D) < 1e-9,
+                "heavy attacker 200 dmg -> 40% = 80 capped to 60, got " + retaliations.get(atkHeavy));
+        helper.assertTrue(Math.abs(retaliations.get(atkLight) - 40.0D) < 1e-9,
+                "light attacker 100 dmg -> 40% = 40 (under cap), got " + retaliations.get(atkLight));
+        // drain 是一次性: 二次 drain 为空 (窗口已移除)。
+        helper.assertTrue(TarotCombatState.drainReflectAccum(victim).isEmpty(),
+                "reflect-accum drained once then empty (no leak)");
+        TarotCombatState.clearAll(victim);
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 倒吊人闪耀: 不再降级为药水 —— shiny 含延迟记账冻死(50%结算+存活+40) + 力量V + 恢复III + 免疫击退
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void hangedManShinyDelayedLedgerNotDowngraded(GameTestHelper helper) {
+        TarotCardData hanged = loadCard(TarotArcana.HANGED_MAN);
+        List<TarotEffectOp> shiny = hanged.opsFor(TarotQuality.SHINY, true);
+
+        TarotEffectOp ledger = findKind(shiny, TarotEffectKind.SELF_DELAYED_LEDGER);
+        helper.assertTrue(ledger != null && Math.abs(ledger.percent() - 0.50D) < 1e-9
+                        && Math.abs(ledger.amount() - 40.0D) < 1e-9,
+                "hanged man shiny must have delayed ledger settle 50% + survive heal 40");
+        helper.assertTrue(findKind(shiny, TarotEffectKind.SELF_KNOCKBACK_IMMUNITY) != null,
+                "hanged man shiny must grant knockback immunity (was missing in review)");
+        // 力量V (amplifier 4) + 恢复III (amplifier 2) 仍在。
+        boolean strengthV = false, regenIII = false;
+        for (TarotEffectOp op : shiny) {
+            if (op.kind() == TarotEffectKind.SELF_POTION && "minecraft:strength".equals(op.effectId()) && op.amplifier() == 4) {
+                strengthV = true;
+            }
+            if (op.kind() == TarotEffectKind.SELF_POTION && "minecraft:regeneration".equals(op.effectId()) && op.amplifier() == 2) {
+                regenIII = true;
+            }
+        }
+        helper.assertTrue(strengthV, "hanged man shiny must grant Strength V");
+        helper.assertTrue(regenIII, "hanged man shiny must grant Regeneration III");
+
+        // 延迟记账结算: 挂起 200 伤害 -> 50% = 100。drainLedger 返回 [settleDamage, surviveHeal]。
+        java.util.UUID id = java.util.UUID.randomUUID();
+        TarotCombatState.clearAll(id);
+        TarotCombatState.openLedgerRaw(id, 1000L, 0.50D, 40.0D);
+        TarotCombatState.recordLedgerDamage(id, 120.0D, 10L);
+        TarotCombatState.recordLedgerDamage(id, 80.0D, 20L);  // 累计 200
+        TarotCombatState.recordLedgerDamage(id, 999.0D, 2000L); // 窗口外不计
+        double[] settle = TarotCombatState.drainLedger(id);
+        helper.assertTrue(settle != null && Math.abs(settle[0] - 100.0D) < 1e-9,
+                "ledger pending 200 settles 50% = 100, got " + (settle == null ? "null" : settle[0]));
+        helper.assertTrue(Math.abs(settle[1] - 40.0D) < 1e-9, "ledger survive heal = 40");
+        helper.assertTrue(TarotCombatState.drainLedger(id) == null, "ledger drained once then null (no leak)");
+        TarotCombatState.clearAll(id);
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 死神闪耀: 不再退化为平 AoE —— shiny 是 <30% 血处决 + 每杀回20/叠力量至V + 无目标全体50穿刺
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void deathShinyExecuteNotFlatAoe(GameTestHelper helper) {
+        TarotCardData death = loadCard(TarotArcana.DEATH);
+        List<TarotEffectOp> shiny = death.opsFor(TarotQuality.SHINY, true);
+        helper.assertTrue(shiny.size() == 1, "death shiny is a single execute op");
+        TarotEffectOp exec = shiny.get(0);
+        helper.assertTrue(exec.kind() == TarotEffectKind.AOE_EXECUTE_BELOW_PCT,
+                "death shiny must be aoe_execute_below_pct, not flat aoe_enemy_damage (downgrade regression)");
+        helper.assertTrue(Math.abs(exec.percent() - 0.30D) < 1e-9, "execute threshold = 30% health, got " + exec.percent());
+        helper.assertTrue(Math.abs(exec.radius() - 12.0D) < 1e-9, "execute radius = 12");
+        helper.assertTrue(Math.abs(exec.amount() - 50.0D) < 1e-9, "no-target fallback = 50 piercing");
+        helper.assertTrue(Math.abs(exec.threshold() - 20.0D) < 1e-9, "heal per elite kill = 20");
+        helper.assertTrue(exec.amplifier() == 4, "strength stack cap = V (amplifier 4)");
+        helper.assertFalse(exec.kind() == TarotEffectKind.AOE_ENEMY_DAMAGE,
+                "death shiny must NOT be plain aoe_enemy_damage (downgrade regression)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 恋人闪耀: 不再降级为药水 —— shiny 是绑定共享生死 (需同意握手 + 一方死另一方延迟死 + 距离解绑)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void loversShinyBindShareLifeNotDowngraded(GameTestHelper helper) {
+        TarotCardData lovers = loadCard(TarotArcana.LOVERS);
+        List<TarotEffectOp> shiny = lovers.opsFor(TarotQuality.SHINY, true);
+        helper.assertTrue(shiny.size() == 1 && shiny.get(0).kind() == TarotEffectKind.SHINY_BIND_SHARE_LIFE,
+                "lovers shiny must be bind-share-life, not a resistance potion (downgrade regression)");
+        TarotEffectOp bind = shiny.get(0);
+        helper.assertTrue(bind.durationTicks() == 300, "bind duration 15s = 300 ticks");
+        helper.assertTrue(Math.abs(bind.radius() - 50.0D) < 1e-9, "unbind distance = 50 blocks");
+        helper.assertTrue(bind.count() == 60, "delayed co-death = 3s = 60 ticks");
+        helper.assertFalse(bind.kind() == TarotEffectKind.SELF_POTION,
+                "lovers shiny must NOT be a self potion (downgrade regression)");
+
+        // 绑定状态机: 双向绑定 + partner 查询 + 双向解绑。
+        java.util.UUID a = java.util.UUID.randomUUID();
+        java.util.UUID b = java.util.UUID.randomUUID();
+        TarotCombatState.clearAll(a);
+        TarotCombatState.clearAll(b);
+        TarotCombatState.openBondRaw(a, b, 1000L, 50.0D, 60);
+        helper.assertTrue(b.equals(TarotCombatState.bondPartner(a, 100L)), "a bonded to b");
+        helper.assertTrue(a.equals(TarotCombatState.bondPartner(b, 100L)), "b bonded to a (bidirectional)");
+        helper.assertTrue(Math.abs(TarotCombatState.bondUnbindDistance(a) - 50.0D) < 1e-9, "unbind distance recorded");
+        helper.assertTrue(TarotCombatState.bondDeathDelay(a) == 60, "death delay recorded");
+        // 清一侧即双向解绑。
+        TarotCombatState.clearBond(a);
+        helper.assertTrue(TarotCombatState.bondPartner(a, 100L) == null, "a unbound");
+        helper.assertTrue(TarotCombatState.bondPartner(b, 100L) == null, "b unbound (bidirectional clear)");
+        // 过期绑定不再有效。
+        TarotCombatState.openBondRaw(a, b, 100L, 50.0D, 60);
+        helper.assertTrue(TarotCombatState.bondPartner(a, 200L) == null, "expired bond not active");
+        TarotCombatState.clearAll(a);
+        TarotCombatState.clearAll(b);
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 恋人闪耀同意握手: /tarot consent 开窗 -> consume 一次性 -> 过期不可用 (无同意不绑定)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void loversConsentHandshakeOneShot(GameTestHelper helper) {
+        java.util.UUID partner = java.util.UUID.randomUUID();
+        TarotConsentRegistry.clear(partner);
+        long now = 1000L;
+
+        // 无同意: consume 返回 false (绑定被拒, spec "需同意")。
+        helper.assertFalse(TarotConsentRegistry.consume(partner, now), "no consent -> cannot bind");
+
+        // 开一个同意窗 (endTick = now+200)。窗内 consume 成功一次, 第二次失败 (一次性)。
+        TarotConsentRegistry.injectConsentForTest(partner, now + 200L);
+        helper.assertTrue(TarotConsentRegistry.hasConsent(partner, now + 100L), "consent active within window");
+        helper.assertTrue(TarotConsentRegistry.consume(partner, now + 100L), "consent consumable within window");
+        helper.assertFalse(TarotConsentRegistry.consume(partner, now + 100L),
+                "consent one-shot: second consume fails (cannot reuse one consent for two binds)");
+
+        // 过期同意不可消费。
+        TarotConsentRegistry.injectConsentForTest(partner, now + 200L);
+        helper.assertFalse(TarotConsentRegistry.consume(partner, now + 300L), "expired consent not consumable");
+        helper.assertFalse(TarotConsentRegistry.hasConsent(partner, now + 300L), "expired consent not active");
+        TarotConsentRegistry.clear(partner);
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 倒吊人逆位赌死 x 死神逆位复活契约: 赌输但有契约 -> 契约救命且不空过 (Minor 修正)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void deathGambleConsumedByActiveContract(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        java.util.UUID id = player.getUUID();
+        TarotEffectEngine engine = new TarotEffectEngine(new MaxHealthModifierManager(), new ScheduledEffectManager());
+        // 强制赌输: chance=1.0 -> rollDeath 必为 true。牺牲最大生命 15, 归还延迟 1800, 下限 20。
+        TarotEffectOp gamble = new TarotEffectOp(TarotEffectKind.SELF_DEATH_GAMBLE, "", 0, 1800,
+                15.0D, 0.0D, 0, 0.0D, 20.0D, 1.0D, 0.0D, 0.0D);
+
+        // 路径 B (先跑, 避免后续给已死 mock 玩家复活): 有有效契约 + 赌输 -> 契约救命, applyDeathGamble 返回 false
+        // (存活, 继续给收益), 玩家未死。删 Minor 修正 (契约判定) 则此处会真死 + 返回 true, 测试挂。
+        TarotCombatState.clearAll(id);
+        player.setHealth(player.getMaxHealth());
+        long now = player.getServer().getTickCount();
+        TarotCombatState.openContractRaw(id, now + 1200L, 40.0D);
+        boolean diedWithContract = engine.applyDeathGambleForTest(player, gamble);
+        helper.assertFalse(diedWithContract,
+                "gamble loss WITH active contract -> survives (no empty-pass; rewards continue) [delete Minor fix -> fails]");
+        helper.assertTrue(player.getHealth() > 0.0F,
+                "contract-saved gamble survivor has positive health, got " + player.getHealth());
+        // 契约被这次赌死消费 (一次性): 再无契约可救。
+        helper.assertTrue(TarotCombatState.consumeDeathContract(id, player.getServer().getTickCount()) < 0.0D,
+                "contract one-shot consumed by gamble-loss life-save");
+
+        // 路径 A (最后跑, 真死): 无契约 + 赌输 -> 真死 (setHealth 0), applyDeathGamble 返回 true (中止收益)。
+        TarotCombatState.clearAll(id);
+        player.setHealth(player.getMaxHealth());
+        boolean diedNoContract = engine.applyDeathGambleForTest(player, gamble);
+        helper.assertTrue(diedNoContract, "gamble loss with no contract -> dies (abort rewards)");
+        helper.assertTrue(player.getHealth() <= 0.0F, "no-contract gamble loss sets health to 0");
+
+        TarotCombatState.clearAll(id);
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 重复牌转碎片: 玩家已持同 cardId -> 开包改发碎片而非重复牌 (删重复检测必挂)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void duplicateCardConvertsToShards(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        player.getInventory().clearContent();
+        PackGachaService gacha = new PackGachaService();
+        // 让玩家先持有 cardId 0 (任意品质)。
+        player.getInventory().add(TarotCardItem.create(
+                TarotRegistry.TAROT_CARD.get(), 0, TarotQuality.R, true, player.getUUID()));
+
+        // 用一个必然抽到 cardId 0 的 RNG: nextInt(22) 受种子影响, 故改用直接断言 grantOrRefund 语义经 openCommon
+        // 大样本: 既持 cardId 0, 若开出 cardId 0 必转碎片 (cards 不含 cardId 0)。统计 1000 包, 所有产出牌都不应是
+        // 已持有的 cardId 0 (重复牌全转碎片), 且至少出现一次碎片返还 (证明转化发生)。
+        RandomSource rng = RandomSource.create(99L);
+        int packsWithShard = 0;
+        boolean anyOwnedDuplicateLeaked = false;
+        for (int i = 0; i < 1000; i++) {
+            PackGachaService.OpenResult r = gacha.openCommon(player, rng);
+            if (r.shardRefund() > 0) {
+                packsWithShard++;
+            }
+            for (var card : r.cards()) {
+                if (TarotCardItem.cardId(card) == 0) {
+                    anyOwnedDuplicateLeaked = true;
+                }
+            }
+        }
+        helper.assertFalse(anyOwnedDuplicateLeaked,
+                "owned cardId 0 must NEVER be granted again as a card (always converts to shards)");
+        helper.assertTrue(packsWithShard > 0,
+                "duplicate-to-shard conversion must actually fire (delete duplicate check -> no shards)");
+        // 每次转化恰好返还 DUPLICATE_SHARD_REFUND 张 (精确; 普通包 1 张牌, 命中即整张转碎片)。
+        helper.assertTrue(TarotConfig.DUPLICATE_SHARD_REFUND.get() >= 1, "refund per duplicate >= 1");
+        player.getInventory().clearContent();
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 碎片兑换毕业线: 攒够 SHARD_EXCHANGE_COST 张碎片 -> 确定性兑换指定 SSR 牌, 扣碎片精确; 不足无副作用
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shardExchangeGraduationLine(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        player.getInventory().clearContent();
+        int cost = TarotConfig.SHARD_EXCHANGE_COST.get();
+
+        // 碎片不足 (cost-1): 兑换失败且无副作用 (不扣不发)。
+        player.getInventory().add(TarotCraftService.makeShards(cost - 1));
+        TarotShardExchange.ExchangeResult fail = TarotShardExchange.exchange(player, 5, true);
+        helper.assertFalse(fail.success(), "exchange with insufficient shards must fail");
+        helper.assertTrue(TarotShardExchange.countShards(player) == cost - 1,
+                "failed exchange does not consume shards (transactional), got " + TarotShardExchange.countShards(player));
+
+        // 补足到恰好 cost: 兑换成功, 扣光 cost 张, 给一张指定 cardId 5 SSR 牌。
+        player.getInventory().add(TarotCraftService.makeShards(1)); // 现在 cost 张
+        helper.assertTrue(TarotShardExchange.countShards(player) == cost, "now exactly cost shards");
+        TarotShardExchange.ExchangeResult ok = TarotShardExchange.exchange(player, 5, true);
+        helper.assertTrue(ok.success() && ok.shardsSpent() == cost,
+                "exchange spends exactly cost shards, got " + ok.shardsSpent());
+        helper.assertTrue(TarotShardExchange.countShards(player) == 0,
+                "all cost shards consumed, got " + TarotShardExchange.countShards(player));
+        // 产物: 指定 cardId 5 的 SSR 牌存在于背包。
+        boolean gotCard = false;
+        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+            ItemStack s = player.getInventory().getItem(i);
+            if (!s.isEmpty() && s.getItem() instanceof TarotCardItem
+                    && TarotCardItem.cardId(s) == 5 && TarotCardItem.quality(s) == TarotQuality.SSR) {
+                gotCard = true;
+            }
+        }
+        helper.assertTrue(gotCard, "exchange grants the chosen cardId 5 as SSR (deterministic graduation)");
+        player.getInventory().clearContent();
+        helper.succeed();
+    }
+
+    private static TarotEffectOp findKind(List<TarotEffectOp> ops, TarotEffectKind kind) {
+        for (TarotEffectOp op : ops) {
+            if (op.kind() == kind) {
+                return op;
+            }
+        }
+        return null;
     }
 
     // ---- helpers ----

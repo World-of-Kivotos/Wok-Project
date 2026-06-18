@@ -6,10 +6,15 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * 货币层核心逻辑 GameTest (经济文档第九章 tests 块 + 框架 spec 第三章 + 实现手册 GameTest 范式)。
@@ -197,7 +202,7 @@ public final class EconomyGameTests {
     public static void settleOreSaleDecay(GameTestHelper helper) {
         ServerPlayer player = helper.makeMockServerPlayerInLevel();
         EconomyWalletData ledger = new EconomyWalletData();
-        EconomyService eco = new EconomyService(ledger, new AbuseGuard());
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
 
         double base = ShopPriceTable.ORE_BASE_DIAMOND; // 8.1 ×10 锚: 500
         helper.assertTrue(base == 500.0D, "diamond ore anchor base price is 500 (economy spec 8.1)");
@@ -229,7 +234,7 @@ public final class EconomyGameTests {
     public static void serviceGrantOverflowBubbles(GameTestHelper helper) {
         ServerPlayer player = helper.makeMockServerPlayerInLevel();
         EconomyWalletData ledger = new EconomyWalletData();
-        EconomyService eco = new EconomyService(ledger, new AbuseGuard());
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
 
         eco.grant(player, Currency.CREDIT, Long.MAX_VALUE);
         helper.assertTrue(eco.creditBalance(player) == Long.MAX_VALUE, "grant fills balance to MAX_VALUE");
@@ -299,5 +304,130 @@ public final class EconomyGameTests {
         helper.assertTrue(!reloaded.tryChargeDaily(b, Currency.CREDIT, 1L, "pack", 100L, today),
                 "the persisted daily counter is now at cap; a further 1 is rejected");
         helper.succeed();
+    }
+
+    // ============================================================
+    // recordMinedOreDrops: 方案 B 按产出物个数计入当日矿物计数 (Miner_Job_DesignSpec 第十章反通胀第一道硬约束)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void recordMinedOreDropsCountsByDrops(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        Map<UUID, PlayerAbuseState> states = new HashMap<>();
+        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), states::get);
+        // 解析器需对未知 UUID 建态 (与 EconomySystem.playerState 同纪律), 否则 isAfkFrozen/记数取不到态。
+        states.put(player.getUUID(), new PlayerAbuseState());
+
+        Block diamond = Blocks.DIAMOND_ORE;
+        // 连锁回放 3 个钻石产出: 计入后当日累计 = 3 (方案 B 按产出物个数, 非块数 +1)。
+        int afterThree = eco.recordMinedOreDrops(player, diamond, 3);
+        helper.assertTrue(afterThree == 3, "recording 3 produced diamonds yields daily count 3 (scheme B by item count)");
+        // 再回放 2 个: 累计 = 5 (与单块路径同口径, 同一玩家态累加)。
+        int afterTwoMore = eco.recordMinedOreDrops(player, diamond, 2);
+        helper.assertTrue(afterTwoMore == 5, "a further 2 produced diamonds accumulate to 5 (same daily counter)");
+        helper.assertTrue(states.get(player.getUUID()).dailyOreCount(HighValueOre.DIAMOND) == 5,
+                "the underlying PlayerAbuseState reflects the replayed produced-item count (5), not the block count (2)");
+
+        // 非高价矿不计 (返回 -1)。
+        helper.assertTrue(eco.recordMinedOreDrops(player, Blocks.STONE, 10) == -1,
+                "non high-value blocks are not counted (returns -1)");
+        // producedCount <= 0 不计 (返回 -1, 不污染计数)。
+        helper.assertTrue(eco.recordMinedOreDrops(player, diamond, 0) == -1,
+                "producedCount <= 0 is not counted (returns -1)");
+        helper.assertTrue(states.get(player.getUUID()).dailyOreCount(HighValueOre.DIAMOND) == 5,
+                "rejected records leave the daily count unchanged at 5");
+
+        // AFK 冻结态不计 (反挂机 18.4): 冻结后回放不增长计数。
+        states.get(player.getUUID()).setAfkFrozen(true);
+        helper.assertTrue(eco.recordMinedOreDrops(player, diamond, 4) == -1,
+                "AFK-frozen players do not accrue ore count (anti-idle 18.4)");
+        helper.assertTrue(states.get(player.getUUID()).dailyOreCount(HighValueOre.DIAMOND) == 5,
+                "AFK-frozen replay leaves the daily count at 5");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // isAfkFrozen: 门面读冻结态 (Miner_Job_DesignSpec 第九章反挂机前置拦截)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void isAfkFrozenReflectsState(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        Map<UUID, PlayerAbuseState> states = new HashMap<>();
+        states.put(player.getUUID(), new PlayerAbuseState());
+        EconomyService eco = new EconomyService(new EconomyWalletData(), new AbuseGuard(), states::get);
+
+        helper.assertTrue(!eco.isAfkFrozen(player), "a fresh player is not AFK-frozen");
+        states.get(player.getUUID()).setAfkFrozen(true);
+        helper.assertTrue(eco.isAfkFrozen(player), "facade reports AFK-frozen once the abuse state is frozen");
+        states.get(player.getUUID()).setAfkFrozen(false);
+        helper.assertTrue(!eco.isAfkFrozen(player), "facade reports unfrozen once the abuse state clears");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // grantDaily: 全服每人每日信用点 faucet 软上限 + 衰减 (经济文档 8.5: 0.97 逐档衰减 / 0.25 地板)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void grantDailyFaucetSoftCapDecay(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+
+        long cap = 1_000L;
+        String key = "faucet_shared";
+
+        // 第一档 (累计落在 [0, cap] 内): 全额入账, 实发 = raw。
+        long first = eco.grantDaily(player, cap, key, cap);
+        helper.assertTrue(first == cap, "first grant within the daily cap credits in full (1000)");
+
+        // 第二档 (累计进入 (cap, 2*cap]): 衰减一档 ×0.97。再发 cap -> 累计 2*cap, tier=1, floor(1000*0.97)=970。
+        long second = eco.grantDaily(player, cap, key, cap);
+        helper.assertTrue(second == 970L, "second cap-batch decays one tier x0.97: floor(1000*0.97)=970");
+
+        // 远超额: 逐档衰减跌破 0.25 地板后夹地板。预先把 faucet 计数推到极深档 (累计 >> cap)。
+        // 直接再发一大批使累计远超: tier 极大 -> ratio 夹 0.25 -> floor(1000*0.25)=250。
+        // 当前累计 = 2*cap; 再发 100*cap 使累计 = 102*cap, tier=101, 0.97^101≈0.045 < 0.25 -> 夹地板。
+        long deep = eco.grantDaily(player, 100L * cap, key, cap);
+        helper.assertTrue(deep == (long) Math.floor(100L * cap * 0.25D),
+                "a deep over-cap batch clamps to the 0.25 floor: floor(100000*0.25)=25000");
+
+        // 账本入账 = 三次实发之和 (faucet 入账落账本, 衰减后实发额)。
+        long expectedBalance = first + second + deep;
+        helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == expectedBalance,
+                "wallet credit balance equals the sum of post-decay grants (1000 + 970 + 25000)");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void grantDailySharedAcrossFaucetKeys(GameTestHelper helper) {
+        // 经济文档 8.5: 矿工卖矿与农夫卖菜传同一 faucetKey 即共享同一每人每日信用点天花板 (而非各自私有上限)。
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+
+        long cap = 500L;
+        String shared = "credit_faucet"; // 卖矿与卖菜共用此键。
+
+        // 卖矿先发满 cap (落在首档, 全额)。
+        long mining = eco.grantDaily(player, cap, shared, cap);
+        helper.assertTrue(mining == cap, "mining faucet fills the shared cap in full (500)");
+        // 卖菜随后用同一 key 再发 cap: 因共享累计已达 cap, 进入第二档 ×0.97, 而非另起一个私有上限全额发。
+        long farming = eco.grantDaily(player, cap, shared, cap);
+        helper.assertTrue(farming == (long) Math.floor(cap * 0.97D),
+                "farming faucet sharing the same key is already in the decay tier: floor(500*0.97)=485");
+        helper.succeed();
+    }
+
+    /**
+     * 测试用 {@link PlayerAbuseState} 解析器: 以 UUID 为键惰性建态 (与 {@link EconomySystem#playerState} 同纪律,
+     * 未知 UUID 建新态而非返回 null), 供门面 {@link EconomyService#recordMinedOreDrops}/{@link
+     * EconomyService#isAfkFrozen} 取同一玩家态。每次调用返回独立 map 的解析器, 保证测试间不串态。
+     */
+    private static Function<UUID, PlayerAbuseState> newStateResolver() {
+        Map<UUID, PlayerAbuseState> states = new HashMap<>();
+        return id -> states.computeIfAbsent(id, k -> new PlayerAbuseState());
     }
 }

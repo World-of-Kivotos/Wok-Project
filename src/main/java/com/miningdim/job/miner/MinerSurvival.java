@@ -12,9 +12,10 @@ import net.minecraft.world.damagesource.DamageSource;
  * 本类只放可单测的纯函数与来源判定, 与 MinerSkills 分工: MinerSkills 给数值, 本类给 "怎么用在伤害上"。
  *
  * 陷阱专属来源判定 (第七章): 理想路径是 trap 子系统暴露 {@code TrapDamageSources} 专属 DamageSource,
- * LivingHurtEvent 判 source 身份精确区分陷阱伤与怪/枪/玩家 TNT 伤。当前 trap 子系统未提供该专属源 (跨子系统改动,
- * 不在本任务可写范围, 见 foundationGaps); 故 {@link #isTrapSource} 现按 source 的 msgId 前缀做保守识别,
- * trap 专属源落地后改为身份比较。无法精确区分时降级为反应窗 (由 MinerActions 在陷阱触发时给 0.5s 无敌, 待 trap 暴露触发钩子)。
+ * LivingHurtEvent 判 source 身份精确区分陷阱伤与怪/枪/玩家 TNT 伤。当前 trap 子系统未提供该专属源 (动态陷阱用原版
+ * 机制造伤: 落石 FALLING_BLOCK / 岩浆 / 苦力怕爆炸, 跨子系统改动不在本任务可写范围, 见 foundationGaps); 故
+ * {@link #isTrapSource} 现一律返回 false (红线安全降级: 宁可不减伤, 不可误把战斗伤当陷阱伤减), trap 暴露专属源后改为
+ * 身份比较即自动生效。{@link MinerSystem#onLivingHurt} 的减伤接线已就绪 (按 isTrapSource 门控), 无需再改接线。
  */
 public final class MinerSurvival {
 

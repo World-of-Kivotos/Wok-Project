@@ -1,5 +1,7 @@
 package com.miningdim.job;
 
+import com.miningdim.entry.IMiningPlayerData;
+import com.miningdim.entry.MiningCapabilities;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -19,8 +21,8 @@ import net.minecraft.server.level.ServerPlayer;
  * 玩家级: /job list (各职业等级/经验/当日剩余衰减额度)、/job info &lt;job&gt;。
  * OP 级 (level 2): /job set &lt;player&gt; &lt;job&gt; &lt;level&gt;。权限沿用 OP_LEVEL=2 (与 entry.MiningCommands 一致)。
  *
- * 命令只做参数解析 + 委派 {@link IJobService} / 直接读 {@link JobCapability}; 业务异常自然冒泡 (用户输入错误
- * 在此兜底 sendFailure)。
+ * 命令只做参数解析 + 委派 {@link IJobService} / 直接读 entry 唯一权威 capability ({@link MiningCapabilities},
+ * 第 2.3 节并入); 业务异常自然冒泡 (用户输入错误在此兜底 sendFailure)。
  */
 public final class JobCommands {
 
@@ -51,7 +53,7 @@ public final class JobCommands {
 
     private int list(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
-        IJobPlayerData data = JobCapability.get(player).orElse(null);
+        IMiningPlayerData data = MiningCapabilities.get(player).orElse(null);
         if (data == null) {
             ctx.getSource().sendFailure(Component.translatable("message.miningdim.job.no_data"));
             return 0;
@@ -73,7 +75,7 @@ public final class JobCommands {
             ctx.getSource().sendFailure(Component.translatable("message.miningdim.job.bad_job", raw));
             return 0;
         }
-        JobProgress p = JobCapability.get(player).map(d -> d.jobProgress(job)).orElse(null);
+        JobProgress p = MiningCapabilities.get(player).map(d -> d.jobProgress(job)).orElse(null);
         if (p == null) {
             ctx.getSource().sendFailure(Component.translatable("message.miningdim.job.no_data"));
             return 0;
@@ -96,7 +98,7 @@ public final class JobCommands {
             return 0;
         }
         int level = IntegerArgumentType.getInteger(ctx, "level");
-        IJobPlayerData data = JobCapability.get(target).orElse(null);
+        IMiningPlayerData data = MiningCapabilities.get(target).orElse(null);
         if (data == null) {
             ctx.getSource().sendFailure(Component.translatable("message.miningdim.job.no_data"));
             return 0;

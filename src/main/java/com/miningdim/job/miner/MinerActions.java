@@ -117,15 +117,18 @@ public final class MinerActions {
                                       List<net.minecraft.world.item.ItemStack> drops) {
         boolean autoCollect = state.toggled(MinerSkill.AUTO_COLLECT) && MinerSkills.autoCollectUnlocked(minerLevel);
         boolean autoSmelt = state.toggled(MinerSkill.AUTO_SMELT) && MinerSkills.autoSmeltBaseUnlocked(minerLevel);
+        // 矿脉时运 (方案 B): 在唯一物化前追加额外掉落 (与连锁同口径), 额外产出随之物化并计入当日矿物计数。
+        List<net.minecraft.world.item.ItemStack> withFortune =
+                MinerFortune.withFortuneExtras(drops, minerLevel, level.getRandom());
         // 唯一物化 (destroyBlock 已 dropBlock=false): 入包或破坏点 spawn, 不双发。
         if (autoCollect) {
-            AutoCollectSmelt.collect(player, minerLevel, ChainMiningEngine.copyDrops(drops), true, autoSmelt);
+            AutoCollectSmelt.collect(player, minerLevel, withFortune, true, autoSmelt);
         } else {
-            ChainMiningEngine.spawnDropsAt(level, pos, drops);
+            ChainMiningEngine.spawnDropsAt(level, pos, withFortune);
         }
-        // 隧道连带产出与连锁同走唯一经济计数回放 chokepoint (反通胀第一道硬约束); 实际入账接线缺口见
-        // MinerSystem.replayEconomyOreCount 注释与 notes。
-        MinerSystem.get().replayEconomyOreCount(player, block, drops);
+        // 隧道连带产出与连锁同走唯一经济计数回放 chokepoint (反通胀第一道硬约束, 含时运额外); 经货币门面回放, 见
+        // MinerSystem.replayEconomyOreCount。
+        MinerSystem.get().replayEconomyOreCount(player, block, withFortune);
     }
 
     // ---- 生存类: 脱险归途 ----

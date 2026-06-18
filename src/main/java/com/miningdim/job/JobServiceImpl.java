@@ -1,5 +1,7 @@
 package com.miningdim.job;
 
+import com.miningdim.entry.IMiningPlayerData;
+import com.miningdim.entry.MiningCapabilities;
 import net.minecraft.world.entity.player.Player;
 
 import java.time.Instant;
@@ -7,8 +9,9 @@ import java.time.ZoneOffset;
 import java.util.Optional;
 
 /**
- * {@link IJobService} 实现 (JobFramework_Shared_Foundation_DesignSpec 第十二章)。无状态门面: 全部数据落
- * 玩家 capability ({@link JobCapability}), 本类只做 capability 解包 + 委派 {@link JobProgress#grantXp}。
+ * {@link IJobService} 实现 (JobFramework_Shared_Foundation_DesignSpec 第十二章)。无状态门面: 全部职业进度
+ * 落 entry 唯一权威玩家 capability ({@link MiningCapabilities}, 第 2.3 节并入), 本类只做 capability 解包 +
+ * 委派 {@link JobProgress#grantXp}。不再持第二套 job.JobCapability (已删)。
  *
  * UTC 翻日时钟 (第四章): 信用点每日 faucet 上限与职业经验软上限共用同一 UTC 翻日时钟。该时钟即
  * {@code Instant.now().atZone(UTC).toLocalDate().toEpochDay()} (与 economy.AbuseGuard.currentPlayerDayStamp
@@ -19,20 +22,20 @@ public final class JobServiceImpl implements IJobService {
 
     @Override
     public int level(Player player, JobId job) {
-        Optional<IJobPlayerData> data = JobCapability.get(player);
+        Optional<IMiningPlayerData> data = MiningCapabilities.get(player);
         return data.map(d -> d.jobProgress(job).level()).orElse(JobXpCurve.MIN_LEVEL);
     }
 
     @Override
     public long totalXp(Player player, JobId job) {
-        Optional<IJobPlayerData> data = JobCapability.get(player);
+        Optional<IMiningPlayerData> data = MiningCapabilities.get(player);
         return data.map(d -> d.jobProgress(job).xp()).orElse(0L);
     }
 
     @Override
     public long grantXp(Player player, JobId job, long rawXp) {
         // 负值非法在 JobProgress.grantXp 内抛, 自然冒泡 (异常纪律: 不在此生吞)。先解包 capability。
-        Optional<IJobPlayerData> data = JobCapability.get(player);
+        Optional<IMiningPlayerData> data = MiningCapabilities.get(player);
         if (data.isEmpty()) {
             return 0L; // 未挂载能力 (极端时序/非玩家实体): 无处入账, 返回 0 让调用方短路。
         }
@@ -41,7 +44,7 @@ public final class JobServiceImpl implements IJobService {
 
     @Override
     public JobProgress progress(Player player, JobId job) {
-        Optional<IJobPlayerData> data = JobCapability.get(player);
+        Optional<IMiningPlayerData> data = MiningCapabilities.get(player);
         return data.map(d -> d.jobProgress(job)).orElse(null);
     }
 

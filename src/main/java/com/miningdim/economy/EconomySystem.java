@@ -5,7 +5,6 @@ import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
 import com.miningdim.core.Subsystem;
-import com.miningdim.economy.EconomyConstants.HighValueOre;
 import com.miningdim.error.MiningErrors;
 import com.miningdim.error.MiningMessages;
 import net.minecraft.core.BlockPos;
@@ -85,7 +84,8 @@ public final class EconomySystem implements Subsystem {
         }
         // 门面引用由 EconomyServices 定位器持有 (单一所有者); 本子系统不另存字段, 避免与定位器重复持有。
         EconomyWalletData ledger = EconomyWalletData.get(mining);
-        EconomyServices.registerEconomyService(new EconomyService(ledger, abuseGuard));
+        // 态表唯一所有者仍是本子系统; 门面经 playerState 取同一 PlayerAbuseState (recordMinedOreDrops 计数 / isAfkFrozen 读冻结态)。
+        EconomyServices.registerEconomyService(new EconomyService(ledger, abuseGuard, this::playerState));
         LOGGER.info("[miningdim] economy: wallet ledger bound, IEconomyService registered (faucet/sink/settleOreSale live)");
     }
 
@@ -160,16 +160,10 @@ public final class EconomySystem implements Subsystem {
         }
 
         // 18.3: 高价矿计数 (AFK 冻结态不计, 由 recordMinedOre 内部判定)。
+        // 隐藏软上限 (经济文档 8.5 / Miner_Job_DesignSpec 第六章): 软上限"无形递减", 撞限后只在收购价 (settleOreSale)
+        // 衰减体现, 不向玩家发任何"已达软上限"红字提示 (无撞墙挫败); 故此处仅计数, 不再 notify。
         Block block = event.getState().getBlock();
-        int countSoFar = abuseGuard.recordMinedOre(state, block);
-        if (countSoFar < 0) {
-            return;
-        }
-        HighValueOre ore = abuseGuard.classify(block);
-        if (ore != null && abuseGuard.overSoftCap(ore, countSoFar)) {
-            // 软上限"软": 不阻挖、不改掉落; 仅提示玩家收购价已进入递减区 (18.3)。
-            MiningErrors.notify(player, MiningMessages.ECONOMY_SOFTCAP, ore.name(), countSoFar);
-        }
+        abuseGuard.recordMinedOre(state, block);
     }
 
     // ============================================================

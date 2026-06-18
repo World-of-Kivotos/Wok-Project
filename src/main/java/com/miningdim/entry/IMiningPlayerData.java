@@ -1,5 +1,7 @@
 package com.miningdim.entry;
 
+import com.miningdim.job.JobId;
+import com.miningdim.job.JobProgress;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
@@ -7,11 +9,17 @@ import net.minecraft.world.level.GameType;
 
 /**
  * 玩家级矿山数据门面 (设计文档 3.3 IMiningPlayerData / 12.5 第二层 Capability)。承载 "进入矿山前的
- * 回退状态 + 当前实例 + danger", 用于死亡 / 换维度 / 断线重连恢复 (14.6)。
+ * 回退状态 + 当前实例 + danger + 全职业进度", 用于死亡 / 换维度 / 断线重连恢复 (14.6)。
  *
  * core 契约层未定义玩家 Capability 接口 (core 不可改); 本接口由 entry 子系统 (Capability 的拥有者) 提供,
  * entry 写回退态/currentInstanceId/spawnFreeze, 第十章 MobPressureSystem 经同一接口读写 danger 字段 ——
  * 双方只依赖本接口, 不 import 实现类 {@link MiningPlayerData}, 维持子系统解耦 (模块化铁律 2)。
+ *
+ * 职业进度并入 (JobFramework_Shared_Foundation_DesignSpec 第 2.3 节 Critical 裁决): 全职业进度
+ * {@code EnumMap<JobId,JobProgress>} 收敛进本唯一权威 capability, 不再另挂第二套玩家 capability。job
+ * 子系统经 {@link MiningCapabilities#get(net.minecraft.world.entity.player.Player)} 取本接口后调
+ * {@link #jobProgress(JobId)} 读写。{@link JobProgress}/{@code JobData}/{@code JobXpCurve} 仍是纯数据类,
+ * 仅作 entry 的内部委派, 不引入对方 capability/事件实现。
  *
  * 字段语义与复制规则见 12.5 表; 持久化经 {@link net.minecraftforge.common.util.INBTSerializable}。
  */
@@ -62,4 +70,13 @@ public interface IMiningPlayerData {
 
     /** /mining leave 或撤离时清空矿山相关运行态 (currentInstanceId=NO_INSTANCE, danger=0, spawnFreeze=0)。 */
     void clearMiningState();
+
+    // ---- 全职业进度 (第 2.3 节: 并入唯一权威 capability; 取代已删的 job.JobCapability) ----
+
+    /**
+     * 取某职业进度 (永不返回 null, 缺则懒建默认 level=1/xp=0)。grant/读级/读进度统一入口。
+     * 职业子系统经 {@code MiningCapabilities.get(player).map(d -> d.jobProgress(job))} 读写, 不再走第二套
+     * 玩家 capability (第 2.3 节)。
+     */
+    JobProgress jobProgress(JobId job);
 }

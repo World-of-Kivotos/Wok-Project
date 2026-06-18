@@ -244,27 +244,94 @@ public final class AbuseGuard {
     }
 
     /**
-     * 全服每人每日信用点 faucet 软上限的衰减系数 (经济文档 8.5: 所有 faucet 并入同一软上限 + 0.97 衰减 / 0.25 地板,
-     * 复用 UTC 翻日)。与矿物收购 {@link #buyPrice} 同构, 但衰减档以"软上限的整数倍"递进 (非单信用点): 当日累计入账
-     * 信用点每超出一个完整 dailyCap 档, 衰减底数再乘一次 0.97, 夹 0.25 地板。
+     * 全服每人每日信用点衰减主闸的逐档积分折算 (第十一章决策 2: 取代硬上限, 0.6 衰减 / 1% 地板 / 60000 档大小)。
+     * 所有信用点 faucet (矿工卖矿 / 农夫卖菜 / 任务 / 刷怪) 并入同一 (playerId, faucetKey) 累计计数器即共享本主闸,
+     * 复用 UTC 翻日。返回本次拟入账原始信用点经主闸衰减后实际应入账的信用点。
      *
-     * 为何按 dailyCap 档而非单信用点递进: 信用点面值是 ×10 锚 (8.1), 单信用点 0.97 会令几十信用点即跌破 0.25 地板,
-     * 与"软上限内全额、超额温和递减"的设计相悖; 按 cap 档递进使首个 cap 全额、第二个 cap 档 ×0.97、远超后夹地板,
-     * 与卖矿"软上限内不衰减、超后逐步递减"的体感一致 (8.5 复用同一衰减语言)。纯函数, 确定性。
+     * 模型 (容量模型, 对标 {@link com.miningdim.job.JobXpCurve#applyDailyDecayExact}): 衰减档划在"当日累计原始毛收入"轴上,
+     * 每档容量 = dailyCap (60000 毛收入)。第 k 档 (k 从 0 起) 的实发系数 = max(地板, base^k) = max(0.01, 0.6^k):
+     * 第 0 档全额、第 1 档 ×0.6、第 2 档 ×0.36 ... 夹 1% 地板。本次 rawCredit 从 creditsBeforeThisGrant 这个累计指针起,
+     * 沿毛收入轴逐档切分: 落在第 k 档的那段毛收入按 max(0.01, 0.6^k) 折算, 跨档则分段折算, 累加。几何主项前 10 档 ≈ 14.9 万
+     * (sum dailyCap*0.6^k, k=0..9 = 149093), 正常游玩落点 ~10 万 (正常) / ~14.9 万 (硬肝), 基本撞顶。但 0.6^10≈0.006<0.01,
+     * 自第 10 档 (累计毛收入 >=60 万) 起系数被 1% 地板钳住恒定, 此后每多 60000 毛收入恒发 +600, 线性、不收敛、无数学硬顶
+     * (faucet(0,1e9)≈1014 万); 该深档只有 xray/自动化挖得到, 实操封顶靠反矿透/反挂机巡查 (用户决策: 保留 1% 地板 + 巡查兜底)。
      *
-     * @param creditsBeforeThisGrant 本次入账前当日已累计入账的原始信用点 n0
+     * 拆分不变性 (修复 Critical, 对标 JobXpCurve): 本函数是"累计指针 creditsBeforeThisGrant"的确定性分段积分, 不含任何
+     * 与切分粒度相关的取整。"一笔大额 grant 横跨多档"与"拆成多笔小额逐笔入账 (每笔把上次累计推进 dailyFaucets 计数器再调
+     * 本函数)"折算总和完全一致 (计数器累计 RAW, 见 {@link EconomyWalletData#recordFaucetGrant}), 杜绝把大额收益拆成小批
+     * 系统性多刷 (旧实现用单一末档比例乘整个 raw, 既非拆分不变又会逐笔 floor 吞光小额)。
+     *
+     * 小额不被 floor 吞光 (修复 Critical): 全程 double 累计折算量, 仅在最末 floor 一次。深档单矿毛收入仅几信用点 (钻 500×1%=5)
+     * 时, 不再逐笔 floor(几×0.6)=0, 而是把小数累进 (例 5×0.36=1.8) 再统一 floor, 使主闸深档仍有薄收益注入而非恒 0。
+     *
+     * 精度纪律 (对标 JobXpCurve 的 exact/floor 对): 本法是 floor 版便捷入口 (直接断言/文档口径用), 委派
+     * {@link #faucetCreditAfterDecayExact} 全程 double 积分后 floor 一次。业务入账走 {@link EconomyService#grantDaily}
+     * -> {@link EconomyWalletData#creditFaucetWithCarry} 以保留跨笔小数 (持久化 carry), 不经本 floor 版,
+     * 否则深档单矿毛收入仅几信用点时本法 floor(几×0.6)=0 会逐笔吞光 (旧实现的小额归零漏洞)。
+     *
+     * @param creditsBeforeThisGrant 本次入账前当日已累计入账的原始信用点 n0 (&gt;= 0; = dailyFaucets 计数器返回的 before)
      * @param rawCreditAmount        本次拟入账的原始信用点 (&gt; 0)
-     * @param dailyCap               每日信用点软上限 (&gt; 0; 累计入账超出后逐档衰减)
-     * @return 本次实际应入账的信用点 (衰减后向下取整, &gt;= 0)
+     * @param dailyCap               衰减主闸单档大小 (&gt; 0; 累计毛收入每满一档系数再乘 base)
+     * @return 本次实际应入账的信用点 (逐档积分后向下取整, &gt;= 0)
      */
     public long faucetCreditAfterDecay(long creditsBeforeThisGrant, long rawCreditAmount, long dailyCap) {
-        long newCumulative = creditsBeforeThisGrant + rawCreditAmount;
-        long over = Math.max(0L, newCumulative - dailyCap);
-        // 衰减档 = 超出软上限的完整 dailyCap 个数 (0 = 仍在首个 cap 内, 全额)。
-        long tier = over / dailyCap;
-        double decayed = Math.pow(EconomyConstants.ECONOMY_DECAY_BASE, tier);
-        double ratio = Math.max(EconomyConstants.ECONOMY_PRICE_FLOOR_RATIO, decayed);
-        return (long) Math.floor(rawCreditAmount * ratio);
+        return (long) Math.floor(faucetCreditAfterDecayExact(creditsBeforeThisGrant, rawCreditAmount, dailyCap));
+    }
+
+    /**
+     * {@link #faucetCreditAfterDecay} 的精确版 (全程 double 不取整, 返回未 floor 的实发额): 业务入账经此法取精确实发,
+     * 把小数交 {@link EconomyWalletData#creditFaucetWithCarry} 跨笔累进 carry, 仅整数部分落账本 —— 这是"小额不被
+     * 逐笔 floor 吞光"的修法 (对标 {@link com.miningdim.job.JobXpCurve#applyDailyDecayExact} + JobProgress double 累计)。
+     *
+     * 拆分不变性: 本函数是 creditsBeforeThisGrant 的确定性分段积分 (积分区间 [n0, n0+raw]), 无任何与切分粒度相关的取整。
+     * 区间可加性 (∫[a,b] + ∫[b,c] = ∫[a,c]) 保证"一笔大额 grant"与"拆成多笔小额 (计数器累计 RAW 单调推进 n0)"折算总和
+     * 完全一致, 杜绝拆批系统性多刷。
+     *
+     * @param creditsBeforeThisGrant 本次入账前当日已累计入账的原始信用点 n0 (&gt;= 0)
+     * @param rawCreditAmount        本次拟入账的原始信用点 (&gt; 0)
+     * @param dailyCap               衰减主闸单档大小 (&gt; 0)
+     * @return 本次逐档积分后的精确实发额 (&gt;= 0, 不取整)
+     */
+    public double faucetCreditAfterDecayExact(long creditsBeforeThisGrant, long rawCreditAmount, long dailyCap) {
+        if (creditsBeforeThisGrant < 0L) {
+            throw new IllegalArgumentException(
+                    "creditsBeforeThisGrant must be >= 0, got " + creditsBeforeThisGrant);
+        }
+        if (rawCreditAmount <= 0L) {
+            throw new IllegalArgumentException(
+                    "rawCreditAmount must be > 0, got " + rawCreditAmount);
+        }
+        if (dailyCap <= 0L) {
+            throw new IllegalArgumentException(
+                    "dailyCap must be > 0, got " + dailyCap);
+        }
+
+        double base = EconomyConstants.FAUCET_DECAY_BASE;
+        double floor = EconomyConstants.ECONOMY_PRICE_FLOOR_RATIO;
+        // pos = 当日累计毛收入指针 (随折算前移); remaining = 本次尚未折算的原始毛收入。全程 double, 不逐档取整。
+        double pos = creditsBeforeThisGrant;
+        double remaining = rawCreditAmount;
+        double effective = 0.0D;
+
+        while (remaining > 0.0D) {
+            // 当前指针落在第 tier 档 (tier 从 0 起); 本档系数 = max(地板, base^tier)。
+            long tier = (long) (pos / dailyCap);
+            double ratio = Math.max(floor, Math.pow(base, tier));
+            // 本档在毛收入轴上的剩余容量 = 下一档边界 - 当前指针。
+            double bandEnd = (double) (tier + 1L) * dailyCap;
+            double roomInBand = bandEnd - pos;
+            double used = Math.min(remaining, roomInBand);
+            effective += used * ratio;
+            pos += used;
+            remaining -= used;
+            // 一旦 base^tier 夹到地板 (后续所有档系数恒 = 地板), 不必再逐档循环, 一次性结算剩余原始毛收入。
+            if (ratio <= floor && remaining > 0.0D) {
+                effective += remaining * floor;
+                remaining = 0.0D;
+            }
+        }
+
+        return effective;
     }
 
     // ============================================================

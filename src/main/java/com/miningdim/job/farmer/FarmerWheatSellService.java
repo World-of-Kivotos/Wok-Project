@@ -22,8 +22,9 @@ import net.minecraft.world.SimpleContainer;
  *  2. 先扣物品 (clearOrCountMatchingItems 返回实际移除数), 发币量严格锚定已离手小麦 (先扣后发, 杜绝得币未失麦);
  *  3. 按当日已售株数沿 {@link FarmerWheatBuyback} 收购曲线逐株求和 = 本批毛收 gross (跨 softCap 边界连续);
  *  4. gross 作 rawCredit 经 {@link com.miningdim.economy.IEconomyService#grantDaily} 入账: 传全服共享
- *     {@link FarmerConstants#WHEAT_SELL_FAUCET_KEY} 与 {@link FarmerConstants#DAILY_CREDIT_FAUCET_CAP},
- *     由货币层按全服每人每日统一软上限逐档衰减 (0.97/0.25, 经济文档 8.5) 后落账本; 返回实发额。
+ *     {@link FarmerConstants#WHEAT_SELL_FAUCET_KEY} 与 {@link FarmerConstants#DAILY_CREDIT_FAUCET_CAP}
+ *     (二者均转引经济全局常量, 第十一章决策 4), 由货币层按全服统一衰减主闸逐档衰减 (0.6 衰减 / 60000 档 / 1% 地板,
+ *     渐近 15 万; 与矿工卖矿同档同键) 后落账本; 返回实发额。
  *
  * 两条曲线分工 (第八节明示独立): 收购曲线 (FarmerWheatBuyback, 按当日卖出株数) 是边际单价递减; 全服每日信用点
  * faucet 软上限 (grantDaily, 按当日累计入账信用点) 是货币注入天花板。前者农夫私有持久 (本服务记 wheatSoldToday),
@@ -88,8 +89,8 @@ public final class FarmerWheatSellService {
             return new SellResult(removed, 0L, false);
         }
 
-        // 入账经全服每人每日统一信用点 faucet 软上限 (grantDaily 内部 0.97/0.25 逐档衰减, 与矿工卖矿共享同一
-        // faucetKey 命名空间 -> 同一天花板, 经济文档 8.5)。返回衰减后实发额。
+        // 入账经全服每人每日统一信用点衰减主闸 (grantDaily 内部 0.6 衰减 / 60000 档 / 1% 地板, 第十一章决策 2/4,
+        // 与矿工卖矿共享同一 faucetKey 命名空间 -> 同一天花板)。返回衰减后实发额。
         long credits = EconomyServices.economyService().grantDaily(
                 player, gross, FarmerConstants.WHEAT_SELL_FAUCET_KEY, FarmerConstants.DAILY_CREDIT_FAUCET_CAP);
         return new SellResult(removed, credits, false);

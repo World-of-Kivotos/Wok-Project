@@ -68,18 +68,19 @@ public interface IEconomyService {
     boolean tryChargeDaily(ServerPlayer player, Currency currency, long amount, String dailyKey, long dailyCap);
 
     /**
-     * 矿物收购 faucet 结算 (经济文档 1.1 最大 faucet + 8.1 ×10 锚价 + 18.3 软上限衰减): 把第 n 块高价矿按
-     * {@link AbuseGuard#buyPrice} 衰减后的单价折成信用点入账 (内部 {@link #grant} CREDIT)。
+     * 矿物收购 faucet 结算 (经济文档 1.1 最大 faucet + 8.1 ×10 锚价 + 第十一章衰减主闸): 把第 n 块高价矿按两层串联折成
+     * 信用点入账。(1) 逐矿 steering 毛值 = {@link AbuseGuard#buyPrice} (per-ore 0.97 衰减至 1% 地板, 引导撞主闸前优先卖
+     * 高价矿); (2) 毛值再经 {@link #grantDaily} 并入全服统一衰减主闸 (0.6 衰减 / 60000 档 / 1% 地板; 几何主项前 10 档 ≈ 14.9 万)。
      *
-     * 衰减口径与 18.3 完全一致 (复用 AbuseGuard.buyPrice 纯函数, 不另起一套): countSoFar &lt;= 软上限时全价,
-     * 超限按 {@code base * 0.97^(n-cap)} 衰减至 25% 地板。这是把"矿石 -&gt; 信用点"龙头真正接到货币层 (此前
-     * AbuseGuard.buyPrice 无任何调用者)。
+     * 契约变更 (第十一章决策 3): 此前直接 {@link #grant} 绕过主闸, 现并入主闸故返回值是"经主闸衰减后的净入账额"(随当日
+     * 累计毛收入推进逐档递减, 深档可 &lt; 毛值), 不再等于逐矿毛单价。settleOreSale 与农夫卖菜共享同一每人每日
+     * faucet 天花板 ({@link EconomyConstants#GLOBAL_DAILY_CREDIT_FAUCET_KEY} / {@link EconomyConstants#GLOBAL_DAILY_CREDIT_FAUCET_TIER})。
      *
      * @param player     卖矿玩家 (服务端)
-     * @param ore        高价矿种 (决定软上限)
+     * @param ore        高价矿种 (决定逐矿软上限)
      * @param countSoFar 当日已产出该矿的累计数 n (含本块; 与 18.3 dailyOreCount 同口径)
      * @param basePrice  该矿基础收购价 (8.1 ×10 锚价: 钻石 500 / 金锭 120 / 残骸 4500)
-     * @return 本块实际入账的信用点 (衰减后单价向下取整; 0 表示衰减后不足 1 信用点)
+     * @return 本块经衰减主闸后的净入账信用点 (&gt;= 0; 0 表示毛值不足 1 信用点或主闸深档夹地板后不足 1)
      */
     long settleOreSale(ServerPlayer player, HighValueOre ore, int countSoFar, double basePrice);
 
@@ -101,12 +102,15 @@ public interface IEconomyService {
     int recordMinedOreDrops(ServerPlayer player, Block block, int producedCount);
 
     /**
-     * 含每日 faucet 软上限 + 衰减的信用点入账 (经济文档 1.1/8.5: 所有 faucet —— 矿工卖矿 / 农夫卖菜 / 任务 / 刷怪 ——
-     * 必须并入"每人每日信用点统一软上限 + 0.97 衰减 / 0.25 地板", 复用 UTC 翻日; 否则各 faucet 各自私有上限即留印钞口)。
+     * 含每日 faucet 衰减主闸的信用点入账 (经济文档 1.1/8.5 + 第十一章决策 2: 所有 faucet —— 矿工卖矿 / 农夫卖菜 / 任务 /
+     * 刷怪 —— 必须并入"每人每日信用点统一衰减主闸 (0.6 衰减 / 60000 档 / 1% 地板)", 复用 UTC 翻日; 否则各 faucet 各自
+     * 私有上限即留印钞口)。主闸取代硬上限: 几何主项前 10 档 ≈ 14.9 万 (sum dailyCap*0.6^k, k=0..9 = 149093), 正常游玩落点
+     * ~10 万 (正常) / ~14.9 万 (硬肝), 基本撞顶; 但 1% 地板使深档 (累计毛收入 >=60 万) 留极薄线性尾巴 (每 60000 毛 +600,
+     * 不收敛、无数学硬顶), 该深档只有 xray/自动化挖得到, 实操封顶靠反矿透/反挂机巡查 (用户决策: 保留 1% 地板 + 巡查兜底)。
      *
-     * 与扣费侧 {@link #tryChargeDaily} 对称 (发放侧每日计数): 当日经同一 faucetKey 累计入账超出 dailyCap 后, 本批入账按
-     * {@link AbuseGuard#faucetCreditAfterDecay} 逐档衰减 (每超一个完整 dailyCap 档再乘 0.97, 夹 basePrice 的 25% 地板),
-     * 衰减后实发额经 {@link #grant} 落账本。矿工卖矿与农夫卖菜传同一 faucetKey 命名空间即共享同一每人每日信用点天花板。
+     * 与扣费侧 {@link #tryChargeDaily} 对称 (发放侧每日计数): 当日经同一 faucetKey 累计入账每跨一个完整 dailyCap 档, 本批
+     * 落在该档的毛收入按 {@link AbuseGuard#faucetCreditAfterDecay} 的逐档积分 (第 k 档系数 max(1%, 0.6^k)) 折算, 衰减后实发额
+     * 经 {@link #grant} 落账本。矿工卖矿与农夫卖菜传同一 faucetKey 命名空间即共享同一每人每日信用点天花板。
      *
      * 与 {@link #tryChargeDaily} 的差异: 扣费侧超额"拒绝"(返 false 不扣); 发放侧超额"衰减"(仍发, 但实发额递减), 因 faucet
      * 软上限是"无形递减"不是"硬墙"(经济文档 8.5 / Miner_Job_DesignSpec 第六章无撞墙挫败)。

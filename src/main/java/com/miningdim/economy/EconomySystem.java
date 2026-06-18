@@ -163,7 +163,20 @@ public final class EconomySystem implements Subsystem {
         // 隐藏软上限 (经济文档 8.5 / Miner_Job_DesignSpec 第六章): 软上限"无形递减", 撞限后只在收购价 (settleOreSale)
         // 衰减体现, 不向玩家发任何"已达软上限"红字提示 (无撞墙挫败); 故此处仅计数, 不再 notify。
         Block block = event.getState().getBlock();
-        abuseGuard.recordMinedOre(state, block);
+        int countSoFar = abuseGuard.recordMinedOre(state, block);
+
+        // 第十一章决策 3: 挖到高价矿真发钱 (修复"矿工挖矿零收入" Major —— 此前只 recordMinedOre 计数从不结算)。
+        // 防重口径: recordMinedOre 已把本块计入当日计数并返回计入后的累计 (含本块), 直接用作 settleOreSale 的 countSoFar,
+        // 一块只发一次。非高价矿 / AFK 冻结时 recordMinedOre 返回 -1, 自然短路不发钱 (计数与发钱共用同一 state 同一口径)。
+        // settleOreSale 内部经 grantDaily 并入全服统一衰减主闸 (与农夫卖菜共享天花板); 货币层未绑定时 EconomyServices
+        // 自然抛 IllegalStateException 由最外层 ErrorSystem 兜底 (不静默吞), 故此处仅在 isRegistered 时结算。
+        if (countSoFar > 0) {
+            EconomyConstants.HighValueOre ore = abuseGuard.classify(block);
+            if (ore != null && EconomyServices.isRegistered()) {
+                EconomyServices.economyService().settleOreSale(
+                        player, ore, countSoFar, ShopPriceTable.oreBasePrice(ore));
+            }
+        }
     }
 
     // ============================================================

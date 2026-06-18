@@ -313,9 +313,11 @@ public final class FarmerGameTests {
                             + (soldAfter - soldBefore));
 
             // 经 EconomyServices 定位器真入账 (删定位器调用或回退死 seam -> grant 不发生, 余额 0, 此断言挂)。
-            // base=1, 全在 softCap 内 -> 毛收 100; 全在每日 faucet 首档 (cap=2160) 内 -> 全额入账 100。
+            // base=1, 全在收购 softCap(2160 株) 内 -> 毛收 100; 主闸首档 [0,60000) 系数 1.0 -> 全额入账 100
+            // (第十一章: 统一 60000 档 / 0.6 衰减; 100 远在首档内不触衰减, carry 池 0.0+100.0=100.0 落整 100 留 0.0)。
             helper.assertTrue(result.creditsGranted() == 100L,
-                    "100 wheat at base 1 within both caps grants 100 credits, got " + result.creditsGranted());
+                    "100 wheat at base 1, faucet band 0 (cumulative raw 0..100 < 60000 tier) grants full 100 credits, got "
+                            + result.creditsGranted());
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 100L,
                     "wallet credit balance reflects the granted 100 via the economy locator");
             helper.succeed();
@@ -350,40 +352,56 @@ public final class FarmerGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void sellSharesPerPlayerDailyFaucetCapWithOtherFaucets(GameTestHelper helper) {
-        // Major: 卖菜并入全服每人每日信用点 faucet 软上限 (与其它 faucet 共享 WHEAT_SELL_FAUCET_KEY 命名空间),
-        // 而非农夫私有 per-player 上限。先用同一 faucetKey 把当日累计原始信用点推到 2*cap (模拟矿工卖矿先发两档),
-        // 再卖菜: 卖菜落进第二衰减档 (实发 < 毛收), 证明它读的是共享 faucet 计数器而非农夫私有上限。
+        // Major (第十一章决策 3/4): 卖菜与卖矿并入全服每人每日统一信用点衰减主闸 —— 同一 faucetKey (credit_faucet)、
+        // 同一 60000 档值。主闸把衰减档划在"当日累计原始毛收入"轴上, 第 k 档系数 = max(0.01, 0.6^k)。
+        // 本测先用同一 key 把累计原始毛收入推进满两整档 (模拟矿工卖矿先撞两档), 再卖菜: 卖菜落进第 2 档 (x0.36),
+        // 证明它读的是共享 (player,key) 累计计数器而非农夫私有上限, 且系数是主闸的 0.6 几何衰减 (非逐矿 0.97)。
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
         EconomyWalletData ledger = registerFreshEconomy();
         try {
-            long cap = FarmerConstants.DAILY_CREDIT_FAUCET_CAP; // 2160
-            String sharedKey = FarmerConstants.WHEAT_SELL_FAUCET_KEY; // credit_faucet
+            long tier = FarmerConstants.DAILY_CREDIT_FAUCET_CAP;            // 60000 (= 全服统一主闸档值)
+            String sharedKey = FarmerConstants.WHEAT_SELL_FAUCET_KEY;       // credit_faucet
+            // 卖菜键/档值就是全服唯一真源 (回退到农夫私有字面量/旧 2160 株档此处即挂)。
+            helper.assertTrue(tier == EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER && tier == 60000L,
+                    "wheat faucet tier IS the global 60000 tier, got " + tier);
+            helper.assertTrue(sharedKey.equals(EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY),
+                    "wheat faucet key IS the shared credit_faucet key, got " + sharedKey);
 
-            // 另一 faucet (如矿工卖矿) 先用同一 key 发两个完整 cap 档, 累计原始信用点推到 2*cap。
-            // 第一档全额 cap; 第二档 floor(cap*0.97)。累计计数器 (原始, 非衰减后) = 2*cap。
-            long firstTier = EconomyServices.economyService().grantDaily(player, cap, sharedKey, cap);
-            long secondTier = EconomyServices.economyService().grantDaily(player, cap, sharedKey, cap);
-            helper.assertTrue(firstTier == cap, "first cap-batch full (got " + firstTier + ")");
-            helper.assertTrue(secondTier == (long) Math.floor(cap * EconomyConstants.ECONOMY_DECAY_BASE),
-                    "second cap-batch decays one tier x0.97 (got " + secondTier + ")");
+            // 另一 faucet (如矿工卖矿) 先用同一 key 发两笔, 各 60000 原始毛收入, 把累计原始毛收入推进到 120000 (= 2 整档)。
+            // 第 0 档系数 1.0 全额 60000; 第 1 档系数 0.6 整档 -> 60000*0.6 = 36000 (无小数, carry 始终 0)。
+            long band0 = EconomyServices.economyService().grantDaily(player, tier, sharedKey, tier);
+            long band1 = EconomyServices.economyService().grantDaily(player, tier, sharedKey, tier);
+            helper.assertTrue(band0 == 60000L, "band 0 full ratio 1.0: 60000 raw -> 60000 (got " + band0 + ")");
+            helper.assertTrue(band1 == 36000L,
+                    "band 1 ratio 0.6 (cumulative raw 60000..120000): 60000 raw -> 36000 (got " + band1 + ")");
 
-            // 卖 100 株小麦 (毛收 100, base=1 全在收购 softCap 内)。共享累计原始 = 2*cap, 本批 over=cap+100,
-            // tier = (cap+100)/cap = 1 -> ratio 0.97 -> floor(100*0.97)=97。若卖菜走农夫私有上限 (回退), 则不受
-            // 前述同 key faucet 影响, 全额 100, 此断言挂。
+            // 卖 100 株小麦: 共享累计原始毛收入 = 120000, 本批毛收 100 全落第 2 档 (raw 120000..120100, tier=120000/60000=2),
+            // 系数 0.6^2 = 0.36 -> 精确实发 100*0.36 = 36.0, carry 池 0.0+36.0 -> 落整 36 留 0.0。
+            // 株档 softCap 独立: 100 株远在 WHEAT_DAILY_SOFTCAP(2160 株) 内, 收购曲线全价 -> 毛收 gross = 100,
+            // 不受 CP 主闸已深入第 2 档影响 (两条曲线不同量纲, 互不串扰)。
+            helper.assertTrue(FarmerConstants.WHEAT_DAILY_SOFTCAP == 2160,
+                    "buyback softcap stays 2160 株, decoupled from the 60000 CP faucet tier");
+            helper.assertTrue(FarmerWheatBuyback.totalBuyPrice(0, 100, FarmerConstants.WHEAT_BASE_PRICE) == 100L,
+                    "100 wheat within 2160-株 softcap is full base price, gross=100 (株 softcap not yet triggered)");
+
             int amount = 100;
             player.getInventory().add(new ItemStack(FarmerItems.FARMER_WHEAT.get(), amount));
             FarmerWheatSellService.SellResult result = FarmerWheatSellService.sell(player, amount);
 
-            helper.assertTrue(result.soldCount() == amount, "all wheat sold");
-            long expected = (long) Math.floor(100 * EconomyConstants.ECONOMY_DECAY_BASE);
-            helper.assertTrue(result.creditsGranted() == expected,
-                    "wheat sale sharing the daily faucet key is already in decay tier x0.97: floor(100*0.97)="
-                            + expected + ", got " + result.creditsGranted());
-            // 账本余额 = 三笔实发之和 (共享同一玩家钱包): cap + floor(cap*0.97) + decayed wheat sale。
-            long expectedBalance = firstTier + secondTier + expected;
-            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == expectedBalance,
-                    "wallet equals sum of all post-decay grants on the shared per-player cap (not a private cap)");
+            helper.assertTrue(result.soldCount() == amount, "all 100 wheat sold");
+            // 主闸第 2 档 x0.36 -> floor(100*0.36)=36。若卖菜走农夫私有/独立上限 (回退), 它读不到矿工已推进的累计原始毛收入,
+            // 会落第 0 档全额 100, 此断言挂 (区分共享主闸 vs 私有上限的判定锚)。同时 36 != floor(100*0.97)=97 区分 0.6 主闸 vs 0.97 逐矿。
+            helper.assertTrue(result.creditsGranted() == 36L,
+                    "wheat sale shares the cumulative faucet axis at band 2 (0.6^2=0.36): floor(100*0.36)=36, got "
+                            + result.creditsGranted());
+
+            // 账本余额 = 三笔实发之和 (共享同一玩家钱包同一主闸): 60000 + 36000 + 36 = 96036。
+            long expectedBalance = band0 + band1 + 36L; // 96036
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 96036L
+                            && ledger.balance(player.getUUID(), Currency.CREDIT) == expectedBalance,
+                    "wallet = sum of all post-decay grants on the shared per-player faucet band = 96036, got "
+                            + ledger.balance(player.getUUID(), Currency.CREDIT));
             helper.succeed();
         } finally {
             EconomyServices.reset();

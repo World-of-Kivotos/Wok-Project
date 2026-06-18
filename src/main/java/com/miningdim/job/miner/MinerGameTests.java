@@ -2,9 +2,15 @@ package com.miningdim.job.miner;
 
 import com.miningdim.core.Difficulty;
 import com.miningdim.core.MiningConstants;
+import com.miningdim.economy.AbuseGuard;
 import com.miningdim.economy.Currency;
+import com.miningdim.economy.EconomyConstants;
+import com.miningdim.economy.EconomyService;
 import com.miningdim.economy.EconomyServices;
+import com.miningdim.economy.EconomyWalletData;
 import com.miningdim.economy.IEconomyService;
+import com.miningdim.economy.PlayerAbuseState;
+import com.miningdim.economy.ShopPriceTable;
 import com.miningdim.economy.EconomyConstants.HighValueOre;
 import com.miningdim.job.IJobService;
 import com.miningdim.job.JobId;
@@ -25,8 +31,12 @@ import net.minecraft.world.level.levelgen.PositionalRandomFactory;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * 矿工职业核心逻辑 GameTest (断言具体业务结果, 删被测核心逻辑测试必挂; 禁 is-not-null 弱校验; 含边界值)。
@@ -36,7 +46,11 @@ import java.util.Set;
  *  - 连锁/隧道经济计数回放按产出物个数 (方案 B) 经货币门面入账 (反通胀第一道硬约束, 非 debug-log/计数 0);
  *  - 时运额外掉落随连带产出进经济计数 (时运计入隐藏软上限, 非死代码);
  *  - 矿脉时运按期望确定性追加额外掉落 + 等级门控 (L1-3 死 / L4+ 活);
- *  - AFK 冻结态不计挖矿经验 (第九章反挂机红线), 解冻后正常计经验。
+ *  - AFK 冻结态不计挖矿经验 (第九章反挂机红线), 解冻后正常计经验;
+ *  - 卖矿真发钱接线 (第十一章决策 3, 闭合"矿工挖矿零收入" Major): settleOreSale 经主闸真入钱包 (此前只计数从不结算),
+ *    首档满额落账 + 撞档后按主闸 0.6 几何衰减 (反通胀北极星: 吞吐只能更快撞顶不能突破);
+ *  - 连锁回放产出也并入同一主闸真发钱 (replayEconomyOreCount -> recordMinedOreDrops 逐产出物 settleOreSale),
+ *    与单块卖矿共享 credit_faucet/60000 档天花板, 撞档同样衰减 (杜绝连锁产出绕过统一封顶的印钞口)。
  *
  * 货币门面/职业门面经测试替身 ({@link RecordingEconomy}/{@link RecordingJobService}) 注入定位器后断言矿工侧接线
  * (真实计数/衰减逻辑在 economy 子系统 EconomyGameTests 覆盖)。时运随机性用定值 {@link FixedRandom} 消除, 确定可测。
@@ -479,6 +493,128 @@ public final class MinerGameTests {
         }
     }
 
+    // ============================================================
+    // 卖矿真发钱 (第十一章决策 3, 闭合"矿工挖矿零收入" Major): EconomySystem.onBlockBreak 接线后挖一颗高价矿
+    // 经 settleOreSale 真入钱包 (此前只 recordMinedOre 计数从不结算 = 零收入); 首档满额, 撞档后主闸 0.6 衰减。
+    //
+    // 用真实 EconomyService + EconomyWalletData + AbuseGuard (onBlockBreak 与连锁回放都经此实现 settleOreSale),
+    // 走 settleOreSale 这一条 onBlockBreak 实际调用的发钱路径并断言钱包余额真增长 (删 grantDaily 入账则余额恒 0 必挂)。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void oreSaleCreditsPlayerThroughMainFaucet(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newAbuseStateResolver());
+
+        // 钻石锚价 500 (经济文档 8.1 ×10 锚); 首颗 (n=1 <= 软上限 64) 逐矿毛值 = 500 全额, 主闸首档 (累计毛收入 0) 系数 1.0。
+        double base = ShopPriceTable.ORE_BASE_DIAMOND;
+        helper.assertTrue(base == 500.0D, "diamond anchor base price is 500 (economy spec 8.1)");
+
+        long beforeBalance = ledger.balance(player.getUUID(), Currency.CREDIT);
+        helper.assertTrue(beforeBalance == 0L, "fresh wallet starts at 0 credit (pre-sale, the old 'zero income' state)");
+
+        // onBlockBreak 对高价矿调用的正是 settleOreSale(player, ore, countSoFar, oreBasePrice(ore)); 首颗钻石 countSoFar=1。
+        long credited = eco.settleOreSale(player, HighValueOre.DIAMOND, 1, base);
+        helper.assertTrue(credited == 500L,
+                "first diamond sale credits the full first-band amount 500 (per-ore full 500, main faucet band0 x1.0)");
+
+        // Major 闭合的硬证据: 钱包真的增加了 500 (settleOreSale 经 grantDaily 真入账, 不再只计数). 删发钱逻辑 -> 余额恒 0 必挂。
+        helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 500L,
+                "selling one diamond actually credits 500 to the wallet (closes 'miner mining zero income' Major)");
+
+        // 收购价递减地板已降到 1% (第十一章决策 1: 0.25 -> 0.01): 深档单颗钻石毛值 floor(500*0.01)=5, 仍 >= 1 (不被早返吞)。
+        // 用一个全新玩家避开上面已累计的主闸毛收入, 隔离断言"逐矿 1% 地板"这一层 (与主闸衰减层解耦)。
+        AbuseGuard guard = new AbuseGuard();
+        double deepUnit = guard.buyPrice(HighValueOre.DIAMOND, 64 + 100_000, base);
+        helper.assertTrue(approx(deepUnit, 5.0D),
+                "deep over-softcap per-ore diamond unit floors to 1%: 500*0.01 = 5 (decision 1, was 125 at 0.25)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 卖矿撞主闸后衰减 (反通胀北极星: 收入靠衰减主闸封顶, 吞吐只能更快撞顶不能突破)。
+    // 把主闸毛收入累计预推到第 1 档边界 (60000) 后, 同一颗 500 毛值的钻石只到手 floor(500*0.6)=300 (band1 x0.6, 非首档 500)。
+    // 删主闸逐档积分 (faucetCreditAfterDecayExact 的 band-walking) -> 仍按 band0 全额发 500 -> 本断言必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void oreSaleDecaysAfterMainFaucetBandCollision(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newAbuseStateResolver());
+
+        long tier = EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER; // 60000 每档毛收入
+        helper.assertTrue(tier == 60_000L, "main faucet band size is 60000 gross income per band (decision 2)");
+
+        // 预推: 经同一 credit_faucet 键发满整整一档毛收入 (60000), 当日累计原始毛收入指针推到 band1 起点。首档全额 60000 落账。
+        long band0 = eco.grantDaily(player, tier, EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY, tier);
+        helper.assertTrue(band0 == tier, "filling exactly one band (60000) credits in full at band0 x1.0");
+
+        // 现在卖一颗钻石 (毛值 500): 累计毛收入指针在 [60000, 60500] 全落第 1 档, 系数 max(1%, 0.6^1)=0.6 -> 到手 floor(500*0.6)=300。
+        // settleOreSale 与上面的预推 grant 共用同一 (player, credit_faucet) 累计计数器, 故撞进同一衰减档 (卖矿并入统一主闸)。
+        long afterCollision = eco.settleOreSale(player, HighValueOre.DIAMOND, 1, ShopPriceTable.ORE_BASE_DIAMOND);
+        helper.assertTrue(afterCollision == 300L,
+                "a diamond sale landing in main-faucet band1 nets floor(500*0.6)=300, not the band0 full 500 (income capped by decay)");
+
+        // 撞档后到手 (300) 严格小于首档同一颗钻石到手 (500): 吞吐再高也只是更快撞向 15 万渐近线, 不能突破封顶。
+        helper.assertTrue(afterCollision < 500L,
+                "post-collision diamond income (300) is strictly below the first-band income (500) (anti-inflation north star)");
+
+        // 钱包真增长 = 首档 60000 + 撞档 300 (主闸把两笔并入同一玩家当日衰减带, 共享天花板)。
+        helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 60_300L,
+                "wallet holds band0 grant 60000 + band1 diamond 300 = 60300 (shared per-player daily faucet)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 连锁回放产出也真发钱且受主闸封顶 (第十一章决策 3 单一发钱出口 + 反通胀第一道硬约束)。
+    // MinerSystem.replayEconomyOreCount -> EconomyServices.economyService().recordMinedOreDrops -> 逐产出物 settleOreSale,
+    // 与单块卖矿共享同一 credit_faucet 主闸: 3 颗钻石产出在首档各 500 -> 钱包 +1500; 撞第 1 档后各 300 -> +900 (受封顶)。
+    // 删 recordMinedOreDrops 内的逐产出物 settleOreSale 循环 -> 钱包恒 0 必挂; 删主闸衰减 -> 撞档仍 1500 必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void chainReplaySettlesHighValueThroughSharedFaucet(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        Map<UUID, PlayerAbuseState> states = new HashMap<>();
+        states.put(player.getUUID(), new PlayerAbuseState());
+        EconomyWalletData ledger = new EconomyWalletData();
+        // 注入真实门面到定位器, 使 MinerSystem.replayEconomyOreCount 经 EconomyServices 取到它 (端到端连锁发钱接线)。
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), states::get);
+        IEconomyService prev = swapEconomy(eco);
+        try {
+            MinerSystem sys = new MinerSystem();
+
+            // 首档: 连带产出 3 颗钻石 (方案 B 按产出物个数), 经 replayEconomyOreCount 回放。每颗 countSoFar=1..3 均 <= 软上限 64,
+            // 逐矿毛值各 500, 主闸首档 (累计毛收入 < 60000) 各全额 -> 钱包 +500*3=1500。证明连锁产出真发钱 (非 debug-log / 计数 0)。
+            List<ItemStack> band0Drops = List.of(new ItemStack(Items.DIAMOND, 3));
+            sys.replayEconomyOreCount(player, Blocks.DIAMOND_ORE, band0Drops);
+            helper.assertTrue(states.get(player.getUUID()).dailyOreCount(HighValueOre.DIAMOND) == 3,
+                    "chain replay records 3 produced diamonds into the daily ore count (scheme B by item count)");
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 1_500L,
+                    "chain-replayed high-value produced units actually pay: 3 diamonds x 500 (band0) = 1500 credited");
+
+            // 撞档: 再把主闸毛收入累计推到刚过第 1 档边界, 然后连锁回放 3 颗钻石 -> 每颗落第 1 档系数 0.6, 各到手 floor(500*0.6)=300。
+            // 当前主闸累计毛收入 = 1500 (上一步 3*500); 再发 (60000-1500)=58500 把累计精确推到 60000 (band1 起点), band0 内全额落账。
+            long fill = eco.grantDaily(player, 60_000L - 1_500L,
+                    EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY, EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER);
+            helper.assertTrue(fill == 58_500L, "topping up to the band boundary credits the remaining band0 room in full (58500)");
+            long balanceAtBoundary = ledger.balance(player.getUUID(), Currency.CREDIT);
+            helper.assertTrue(balanceAtBoundary == 60_000L, "wallet sits exactly at one full band of credited income (60000)");
+
+            sys.replayEconomyOreCount(player, Blocks.DIAMOND_ORE, List.of(new ItemStack(Items.DIAMOND, 3)));
+            helper.assertTrue(states.get(player.getUUID()).dailyOreCount(HighValueOre.DIAMOND) == 6,
+                    "second chain replay accumulates the daily ore count to 6 (3 + 3)");
+            // 撞档后 3 颗钻石各只到手 300 (band1 x0.6) -> 钱包仅 +900 (60000 -> 60900), 远低于首档同样 3 颗的 +1500 (受主闸封顶)。
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 60_900L,
+                    "chain replay in band1 nets 3 x floor(500*0.6)=900 (60000 -> 60900), capped by the SAME main faucet as single-block sale");
+            helper.succeed();
+        } finally {
+            restoreEconomy(prev);
+        }
+    }
+
     private static boolean approx(double a, double b) {
         return Math.abs(a - b) < 1.0e-6D;
     }
@@ -520,6 +656,16 @@ public final class MinerGameTests {
         } else {
             JobServices.reset();
         }
+    }
+
+    /**
+     * 测试用 {@link PlayerAbuseState} 解析器 (与 {@link com.miningdim.economy.EconomySystem#playerState} 同纪律:
+     * 未知 UUID 惰性建态而非返回 null), 供真实 {@link EconomyService} 的 settleOreSale/recordMinedOreDrops 取同一玩家态。
+     * 每次调用返回独立 map 的解析器, 保证测试间不串态。
+     */
+    private static Function<UUID, PlayerAbuseState> newAbuseStateResolver() {
+        Map<UUID, PlayerAbuseState> states = new HashMap<>();
+        return id -> states.computeIfAbsent(id, k -> new PlayerAbuseState());
     }
 
     // ============================================================

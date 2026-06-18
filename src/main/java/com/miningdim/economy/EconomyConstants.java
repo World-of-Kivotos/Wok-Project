@@ -55,11 +55,39 @@ public final class EconomyConstants {
     /** economy.daily.gold: 金每玩家每日软上限 (默认 256)。 */
     public static final int DAILY_SOFTCAP_GOLD = 256;
 
-    /** economy.decayBase: 收购价递减底数 (默认 0.97); price(n)=base*max(floor, decayBase^max(0,n-cap))。 */
+    /** economy.decayBase: 逐矿收购价 steering 递减底数 (per-ore, 默认 0.97); buyPrice(n)=base*max(floor, decayBase^max(0,n-cap))。
+     *  保留 0.97 仅作"逐矿吸引力 steering": 软上限内全额、超后逐矿温和递减, 引导玩家在撞主闸前优先卖高价矿。它不是收入封顶手段
+     *  (封顶由下方衰减主闸 {@link #FAUCET_DECAY_BASE} 负责), 故底数与主闸 0.6 语义不同、不可共用 (第十一章决策 2/3)。 */
     public static final double ECONOMY_DECAY_BASE = 0.97D;
 
-    /** 收购价递减地板比例 (18.3 建议 0.25; 18.7 表未列为独立键, 取 18.3 正文建议值)。 */
-    public static final double ECONOMY_PRICE_FLOOR_RATIO = 0.25D;
+    /** 收购价/faucet 两层统一地板比例 (第十一章决策 1: 0.25 -> 0.01, 即 1%)。
+     *  同时喂给 {@link AbuseGuard#buyPrice} (逐矿 steering 地板) 与 {@link AbuseGuard#faucetCreditAfterDecay} (衰减主闸地板):
+     *  改这一处即令两层地板同时落到 1%。为何砍到 1%: 决策要求深档仍保留极薄收益 (不归零) 但远低于首档。注意 1% 地板使深档
+     *  (累计毛收入 >=60 万) 不归零而留极薄线性收益 (每 60000 毛 +600, 不收敛、无数学硬顶); 该深档只有 xray/自动化挖得到,
+     *  实操封顶靠反矿透/反挂机巡查 (用户决策: 保留 1% 地板 + 巡查兜底)。 */
+    public static final double ECONOMY_PRICE_FLOOR_RATIO = 0.01D;
+
+    // ---- 第十一章 衰减主闸 (取代硬上限): 统一信用点 faucet 软上限 + 几何衰减 ----
+
+    /** 衰减主闸递减底数 (第十一章决策 2: 0.6)。当日累计毛收入每跨过一个完整 {@link #GLOBAL_DAILY_CREDIT_FAUCET_TIER} 档,
+     *  本档内信用点的实发系数再乘一次 0.6, 夹 {@link #ECONOMY_PRICE_FLOOR_RATIO} (1%) 地板。
+     *
+     *  为何 0.6 而非逐矿的 0.97: 主闸是"收入封顶"手段。几何主项前 10 档 ≈ 14.9 万 (sum 60000*0.6^k, k=0..9 = 149093),
+     *  正常游玩落点 ~10 万 (正常) / ~14.9 万 (硬肝), 基本撞顶。但 0.6^10≈0.006<0.01, 自第 10 档 (累计毛收入 >=60 万) 起
+     *  系数被 1% 地板钳住恒定, 此后每多 60000 毛收入恒发 +600, 线性、不收敛、无数学硬顶; 该深档只有 xray/自动化挖得到,
+     *  实操封顶靠反矿透/反挂机巡查 (用户决策: 保留 1% 地板 + 巡查兜底)。逐矿 0.97 衰减太缓只作引导, 故二者底数分离。 */
+    public static final double FAUCET_DECAY_BASE = 0.6D;
+
+    /** 衰减主闸单档大小 (第十一章决策 2: 60000 信用点毛收入/档)。注意是"每档毛收入", 不是"每日总上限":
+     *  当日累计毛收入每满 60000 进入下一档, 下一档系数 ×0.6。每日实发总额不是 60000: 几何主项前 10 档 ≈ 14.9 万 (正常落点),
+     *  其后 1% 地板留极薄线性尾巴 (每 60000 毛 +600, 不收敛、无数学硬顶, 靠巡查兜底)。所有信用点 faucet (矿工卖矿 / 农夫卖菜 /
+     *  任务 / 刷怪) 传同一档值即并入同一每人每日衰减主闸 (决策 3/4)。 */
+    public static final long GLOBAL_DAILY_CREDIT_FAUCET_TIER = 60000L;
+
+    /** 全服统一信用点 faucet 计数键 (第十一章决策 3/4): 所有信用点 faucet 传同一键即并入同一 (playerId, key) 每日累计计数器,
+     *  共享同一衰减主闸天花板。矿工卖矿 ({@link EconomyService#settleOreSale}) 与农夫卖菜 (FarmerWheatSellService) 均引用本常量,
+     *  消灭字符串字面量副本漂移 (此前农夫私有声明同值字面量)。 */
+    public static final String GLOBAL_DAILY_CREDIT_FAUCET_KEY = "credit_faucet";
 
     // ---- 18.4 AFK / 挂机检测 ----
 

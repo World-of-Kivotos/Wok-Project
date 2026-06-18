@@ -36,6 +36,9 @@ public final class EconomyWalletData extends SavedData {
     private static final String K_DAILY_AMOUNT = "amount";
     private static final String K_DAILY_STAMP = "dayStamp";
 
+    /** faucet 条目的衰减主闸小数余量 carry (第十一章决策 2; 仅 faucet 侧用, 扣费侧无此键)。 */
+    private static final String K_FAUCET_CARRY = "creditCarry";
+
     /** 玩家 UUID -> 钱包。无记录的玩家视为余额 0 (新玩家)。 */
     private final Map<UUID, PlayerWallet> wallets = new HashMap<>();
 
@@ -52,14 +55,26 @@ public final class EconomyWalletData extends SavedData {
      */
     private final Map<String, DailyCharge> dailyFaucets = new HashMap<>();
 
-    /** 单条每日扣费计数 (当日累计 + 所属 UTC 日戳, 翻日清零)。 */
+    /**
+     * 单条每日计数 (当日累计 + 所属 UTC 日戳, 翻日清零)。
+     *
+     * faucet 侧附带 {@link #creditCarry} 小数余量 (第十一章决策 2 "小额不被逐笔取整吞光"): 衰减主闸算出的精确实发额是
+     * 小数 (例深档单矿 5×0.36=1.8), 整数部分落账本, 小数部分累进本字段, 跨笔累加满 1 再随下次入账落账。扣费侧 (dailyCharges)
+     * 不用此字段恒 0 (扣费是整数量纲, 无小数衰减)。随存档持久化保证跨重启不丢余量。
+     */
     private static final class DailyCharge {
         long amount;
         long dayStamp;
+        double creditCarry;
 
         DailyCharge(long amount, long dayStamp) {
+            this(amount, dayStamp, 0.0D);
+        }
+
+        DailyCharge(long amount, long dayStamp, double creditCarry) {
             this.amount = amount;
             this.dayStamp = dayStamp;
+            this.creditCarry = creditCarry;
         }
     }
 
@@ -158,10 +173,51 @@ public final class EconomyWalletData extends SavedData {
         }
         String key = playerId + "|" + faucetKey;
         DailyCharge dc = dailyFaucets.get(key);
-        long before = (dc == null || dc.dayStamp != todayStamp) ? 0L : dc.amount;
-        dailyFaucets.put(key, new DailyCharge(before + rawAmount, todayStamp));
+        boolean newDay = dc == null || dc.dayStamp != todayStamp;
+        long before = newDay ? 0L : dc.amount;
+        // 翻日: 重置累计与 carry; 同日: 累加 raw, carry 原样保留 (carry 由 creditFaucetWithCarry 推进)。
+        double carry = newDay ? 0.0D : dc.creditCarry;
+        dailyFaucets.put(key, new DailyCharge(before + rawAmount, todayStamp, carry));
         setDirty();
         return before;
+    }
+
+    /**
+     * 把衰减主闸算出的精确实发额 (小数) 累进 carry 并落整数部分到账本 (第十一章决策 2 "小额不被逐笔取整吞光")。
+     * 与 {@link #recordFaucetGrant} 操作同一 (playerId, faucetKey) 条目: recordFaucetGrant 先推进当日原始累计并返回 n0,
+     * 调用方据 n0 经 {@link AbuseGuard#faucetCreditAfterDecayExact} 算精确实发 exactEffective, 再调本法落账。
+     *
+     * carry 机制 (对标 {@link com.miningdim.job.JobProgress} 以 double 累计有效经验、仅读出时 floor): 把 exactEffective
+     * 加入条目 carry, 取整数部分 payout 作本次实发, 余下小数留 carry 跨笔累进。深档单矿仅 1.8 实发时不再逐笔 floor 归零,
+     * 而是 1.8 -> 落 1 留 0.8, 下次再来 1.8 -> 2.6 落 2 留 0.6, 主闸深档薄收益不被吞光。整数 payout 由本法不直接动余额,
+     * 返回给调用方经 {@link #credit} 落账 (统一走 Math.addExact 防溢出, 经济文档 7.3)。
+     *
+     * @param playerId        玩家 UUID
+     * @param faucetKey       faucet 计数键 (须与本次 recordFaucetGrant 同键, 锁定同一当日条目)
+     * @param exactEffective  衰减主闸精确实发额 (&gt;= 0; 由 faucetCreditAfterDecayExact 算)
+     * @param todayStamp      当前 UTC 日戳 (与 recordFaucetGrant 同口径)
+     * @return 本次落账的整数实发信用点 (&gt;= 0; 小数余量留 carry)
+     */
+    public long creditFaucetWithCarry(UUID playerId, String faucetKey, double exactEffective, long todayStamp) {
+        if (exactEffective < 0.0D) {
+            throw new EconomyException(EconomyException.Reason.ILLEGAL_AMOUNT,
+                    "faucet exactEffective must be >= 0, got " + exactEffective);
+        }
+        String key = playerId + "|" + faucetKey;
+        DailyCharge dc = dailyFaucets.get(key);
+        // recordFaucetGrant 必先于本法对同键调用 (grantDaily 内顺序保证), 故条目必存在且同日; 防御性按缺失/翻日归零 carry。
+        double carryBefore = (dc == null || dc.dayStamp != todayStamp) ? 0.0D : dc.creditCarry;
+        double pooled = carryBefore + exactEffective;
+        long payout = (long) Math.floor(pooled);
+        double carryAfter = pooled - payout;
+        if (dc != null && dc.dayStamp == todayStamp) {
+            dc.creditCarry = carryAfter;
+        } else {
+            // 极端时序 (无前置 recordFaucetGrant): 以本次 carry 建条目, amount 留 0 (raw 计数由 recordFaucetGrant 专管)。
+            dailyFaucets.put(key, new DailyCharge(0L, todayStamp, carryAfter));
+        }
+        setDirty();
+        return payout;
     }
 
     @Override
@@ -191,6 +247,7 @@ public final class EconomyWalletData extends SavedData {
             entry.putString(K_DAILY_KEY, e.getKey());
             entry.putLong(K_DAILY_AMOUNT, e.getValue().amount);
             entry.putLong(K_DAILY_STAMP, e.getValue().dayStamp);
+            entry.putDouble(K_FAUCET_CARRY, e.getValue().creditCarry);
             faucets.add(entry);
         }
         tag.put(K_FAUCET, faucets);
@@ -215,8 +272,10 @@ public final class EconomyWalletData extends SavedData {
         ListTag faucets = tag.getList(K_FAUCET, Tag.TAG_COMPOUND);
         for (int i = 0; i < faucets.size(); i++) {
             CompoundTag entry = faucets.getCompound(i);
+            // K_FAUCET_CARRY 缺失 (旧存档) 时 getDouble 返回 0.0, 向后兼容无 carry 的历史 faucet 条目。
             data.dailyFaucets.put(entry.getString(K_DAILY_KEY),
-                    new DailyCharge(entry.getLong(K_DAILY_AMOUNT), entry.getLong(K_DAILY_STAMP)));
+                    new DailyCharge(entry.getLong(K_DAILY_AMOUNT), entry.getLong(K_DAILY_STAMP),
+                            entry.getDouble(K_FAUCET_CARRY)));
         }
         return data;
     }

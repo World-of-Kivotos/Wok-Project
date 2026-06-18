@@ -69,18 +69,28 @@ public final class FarmerConstants {
     public static final double WHEAT_PRICE_FLOOR_RATIO = 0.25D;
 
     /**
-     * 卖菜信用点 faucet 的每日计数键 (经济文档 8.5: 所有信用点 faucet 并入每人每日统一软上限)。值刻意取全服共享
-     * 的 {@value} 而非农夫私有键: 卖菜经 {@link com.miningdim.economy.IEconomyService#grantDaily} 入账时传此键,
-     * 与矿工卖矿等其它 faucet 共用同一 (playerId, faucetKey) 每日累计计数器, 故各 faucet 不再各算独立日上限,
-     * 而是并入同一每人每日信用点天花板 (经济文档 8.5; 与 economy 测试 grantDailySharedAcrossFaucetKeys 同键)。
+     * 卖菜信用点 faucet 的每日计数键 (第十一章决策 4: 引用全服唯一真源)。直接转引
+     * {@link com.miningdim.economy.EconomyConstants#GLOBAL_DAILY_CREDIT_FAUCET_KEY}, 消灭农夫包内的字符串字面量副本:
+     * 卖菜经 {@link com.miningdim.economy.IEconomyService#grantDaily} 入账时传此键, 与矿工卖矿 (settleOreSale 内部同键)
+     * 共用同一 (playerId, faucetKey) 每日累计计数器, 各 faucet 并入同一衰减主闸天花板而非各算独立日上限。
+     *
+     * 跨包依赖说明 (第十一章决策 4 拍板"引用全局常量"): 本类历来避免 import 经济实现常量 (上方 TICKS_PER_SECOND 注释),
+     * 但 {@link com.miningdim.economy.EconomyConstants} 是常量持有类 (非实现/状态), 且 {@link FarmerWheatSellService}
+     * 已 import 经济门面类型, 该 job->economy 编译依赖在服务层本已存在; 转引常量令"全服统一 faucet 档值/键"只有一处真源,
+     * 优于复制字面量再加"必须匹配"注释 (后者是漂移温床)。
      */
-    public static final String WHEAT_SELL_FAUCET_KEY = "credit_faucet";
+    public static final String WHEAT_SELL_FAUCET_KEY =
+            com.miningdim.economy.EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY;
 
     /**
-     * 卖菜入账传给 {@link com.miningdim.economy.IEconomyService#grantDaily} 的每人每日信用点软上限 (信用点)。
-     * 这是全服共享 faucet 软上限 (非农夫私有上限): 当日经 {@link #WHEAT_SELL_FAUCET_KEY} 累计入账超此值后,
-     * grantDaily 内部按 0.97 逐档衰减 / 0.25 地板递减实发额 (经济文档 8.5), 矿工卖矿等同键 faucet 共享此天花板。
-     * basePrice × softCap 量级。PENDING 经济校准 (据 "满级日纯经济约 3 万株" 锚回算); 接通后须与矿工传同一值。
+     * 卖菜入账传给 {@link com.miningdim.economy.IEconomyService#grantDaily} 的衰减主闸单档大小 (信用点; 第十一章决策 4)。
+     * 直接转引 {@link com.miningdim.economy.EconomyConstants#GLOBAL_DAILY_CREDIT_FAUCET_TIER} (= 60000): 农夫卖菜与矿工卖矿
+     * 撞同一档值即并入同一每人每日衰减主闸 (0.6/60000/1% 地板, 渐近 15 万), 共享同一天花板。此前农夫私有占位 2160L (株量纲
+     * 误塞 CP 档) 已废, 改为全服唯一真源。
+     *
+     * 与 {@link #WHEAT_DAILY_SOFTCAP} 的量纲区分 (改动雷区): 本常量是 CP 档 (60000 信用点, 喂 grantDaily 第 4 参);
+     * WHEAT_DAILY_SOFTCAP 是株档 (2160 株, 喂 FarmerWheatBuyback 收购曲线 softCap)。两条独立曲线, 量纲不同不可共用。
      */
-    public static final long DAILY_CREDIT_FAUCET_CAP = 2160L;
+    public static final long DAILY_CREDIT_FAUCET_CAP =
+            com.miningdim.economy.EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER;
 }

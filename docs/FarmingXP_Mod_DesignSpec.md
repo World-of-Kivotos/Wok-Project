@@ -1,4 +1,6 @@
-# 农业经验等级 Mod — 设计规格文档
+# 农夫经验等级 Mod — 设计规格文档
+
+> SUPERSEDED 对齐说明(完整性审计补): 本文档早于多职业框架决策。其持久化 / ModLoader / MC 版本 / 经济(第十一章 A/B/C PENDING)一律以 `JobFramework_Shared_Foundation_DesignSpec.md` 为准——FARMER 进度并入统一 `EnumMap<JobId,JobProgress>` capability(**作废本文档的独立 capability 方案**),平台锁 1.20.1 / Forge,经济用信用点。本文档的等级曲线、每日衰减表、耕地数值仍有效,作为农夫职业的数值参考。
 
 ## 文档元信息
 

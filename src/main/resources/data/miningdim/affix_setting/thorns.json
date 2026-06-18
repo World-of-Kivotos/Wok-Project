@@ -1,0 +1,10 @@
+{
+  "type": "miningdim:thorns",
+  "category": "defence",
+  "enable": true,
+  "hasSub": false,
+  "tier": {
+    "min": 2,
+    "max": 10
+  }
+}

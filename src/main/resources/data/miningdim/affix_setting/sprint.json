@@ -1,0 +1,10 @@
+{
+  "type": "miningdim:sprint",
+  "category": "offense",
+  "enable": true,
+  "hasSub": false,
+  "tier": {
+    "min": 1,
+    "max": 10
+  }
+}

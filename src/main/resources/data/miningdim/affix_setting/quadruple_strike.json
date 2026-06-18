@@ -1,0 +1,10 @@
+{
+  "type": "miningdim:quadruple_strike",
+  "category": "offense",
+  "enable": true,
+  "hasSub": false,
+  "tier": {
+    "min": 5,
+    "max": 10
+  }
+}

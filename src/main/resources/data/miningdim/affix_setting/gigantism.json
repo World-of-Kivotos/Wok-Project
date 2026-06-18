@@ -1,0 +1,10 @@
+{
+  "type": "miningdim:gigantism",
+  "category": "defence",
+  "enable": true,
+  "hasSub": false,
+  "tier": {
+    "min": 3,
+    "max": 10
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "type": "miningdim:phase_walk",
+  "category": "offense",
+  "enable": true,
+  "hasSub": false,
+  "tier": {
+    "min": 4,
+    "max": 10
+  }
+}

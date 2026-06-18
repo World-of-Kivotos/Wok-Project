@@ -1,0 +1,10 @@
+{
+  "type": "miningdim:tactical_blink",
+  "category": "offense",
+  "enable": true,
+  "hasSub": false,
+  "tier": {
+    "min": 2,
+    "max": 10
+  }
+}

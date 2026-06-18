@@ -1,0 +1,10 @@
+{
+  "type": "miningdim:fortitude_shield",
+  "category": "defence",
+  "enable": true,
+  "hasSub": false,
+  "tier": {
+    "min": 6,
+    "max": 10
+  }
+}

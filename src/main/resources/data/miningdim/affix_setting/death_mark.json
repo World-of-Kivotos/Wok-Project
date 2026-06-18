@@ -1,0 +1,10 @@
+{
+  "type": "miningdim:death_mark",
+  "category": "cc",
+  "enable": true,
+  "hasSub": false,
+  "tier": {
+    "min": 8,
+    "max": 10
+  }
+}

@@ -265,6 +265,10 @@ public final class MobPressureSystem {
         // 注册进实例计数与生命周期跟踪 (10.5 step4)。
         instance.liveMobs().add(mob.getUUID());
         mobInstanceIndex.put(mob.getUUID(), instance.instanceId());
+
+        // 精英怪升格 seam (模块化铁律 2: 不硬 import champion 实现类): 落地成功后按实例难度尝试升格为冠军。
+        // 未接线 (Champions 未加载) 时 promote 直接短路 (普通怪)。冠军仍占用本实例 liveMobs 计数 (已 add)。
+        com.miningdim.champion.ChampionSpawnSeam.promote(mob, instance.difficulty());
         return mob;
     }
 

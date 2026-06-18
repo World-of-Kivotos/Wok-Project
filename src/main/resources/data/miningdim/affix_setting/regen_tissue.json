@@ -1,0 +1,10 @@
+{
+  "type": "miningdim:regen_tissue",
+  "category": "defence",
+  "enable": true,
+  "hasSub": false,
+  "tier": {
+    "min": 1,
+    "max": 10
+  }
+}

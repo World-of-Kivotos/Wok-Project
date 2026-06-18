@@ -1,0 +1,10 @@
+{
+  "type": "miningdim:miniaturization",
+  "category": "defence",
+  "enable": true,
+  "hasSub": false,
+  "tier": {
+    "min": 3,
+    "max": 10
+  }
+}

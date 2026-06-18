@@ -116,5 +116,7 @@ public final class MiningDim {
         subsystems.add(new com.miningdim.job.tarot.TarotSystem());
         // 21. 厨师职业: 五档调味台 + 火候小游戏 + 菜肴效果 (依赖职业框架门面 + 共享 menu 脚手架)。
         subsystems.add(new com.miningdim.job.chef.ChefSystem());
+        // 22. 军火商职业: 军火台被动产线 + 双推进剂弹药制造 + 工费 sink (依赖职业框架门面 + 货币门面 + TACZ compileOnly)。
+        subsystems.add(new com.miningdim.job.munitions.MunitionsSystem());
     }
 }

@@ -1,0 +1,9 @@
+{
+  "_comment": "Munitions_Job_DesignSpec 3/十一: disable TACZ default gun_smith_table ammo/gun recipes so weapons & ammo are buy-only and the munitions bench is the sole ammo source. Uses TACZ's built-in RecipeFilterManager (com.tacz.guns.resource.manager.RecipeFilterManager) which scans data/<ns>/recipe_filters/*.json with schema {whitelist,blacklist}. Regex must start with ^ and end with $. blacklist entries match TACZ recipe RLs (e.g. tacz:762x39 ammo, tacz:<gun> guns).",
+  "whitelist": [
+    "^.*$"
+  ],
+  "blacklist": [
+    "^tacz:.*$"
+  ]
+}

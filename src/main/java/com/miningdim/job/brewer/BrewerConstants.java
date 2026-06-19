@@ -39,4 +39,43 @@ public final class BrewerConstants {
 
     /** 伏特加永久减伤比例 (0.20 = 减 20% 伤害; 由受伤结算读取)。 */
     public static final double VODKA_DAMAGE_REDUCTION = 0.20D;
+
+    // ---- 喝酒效果缩放 (强度 S = 年份 × 品质系数; "部分软上限"见设计文档第三节) ----
+    // 软上限 = 软化强度: S 超过 knee 后只按 diminish 折算 (越往上越难推)。战斗类 (抗性/力量) 收紧, 其余放宽。
+
+    /** 战斗类软上限拐点。 */
+    public static final double COMBAT_SOFTCAP_KNEE = 8.0D;
+    /** 战斗类超拐点后的递减系数 (0.15 = 超出部分只算 15%)。 */
+    public static final double COMBAT_SOFTCAP_DIMINISH = 0.15D;
+    /** 续航/工具/经济类软上限拐点。 */
+    public static final double LOOSE_SOFTCAP_KNEE = 16.0D;
+    /** 续航/工具/经济类超拐点后的递减系数。 */
+    public static final double LOOSE_SOFTCAP_DIMINISH = 0.40D;
+
+    /** 持续效果: 每多少"软化强度"提升 1 放大等级 (floor)。 */
+    public static final double AMP_PER_SOFT_STRENGTH = 6.0D;
+    /** 持续效果基础时长 (tick, 20 秒)。 */
+    public static final int EFFECT_BASE_DURATION_TICKS = 400;
+    /** 持续效果每点软化强度追加时长 (tick)。 */
+    public static final int EFFECT_DURATION_PER_SOFT = 30;
+    /** 持续效果时长上限 (tick, 5 分钟)。 */
+    public static final int EFFECT_MAX_DURATION_TICKS = 6000;
+    /** 战斗类持续效果放大等级上限 (0-indexed; 1 = 等级 II, 直接战力收紧)。 */
+    public static final int AMP_CAP_COMBAT = 1;
+    /** 续航/工具类持续效果放大等级上限 (0-indexed; 2 = 等级 III)。 */
+    public static final int AMP_CAP_LOOSE = 2;
+
+    /** 威士忌瞬间恢复: 每点软化强度恢复的生命 (半心 = 1.0)。 */
+    public static final double WHISKEY_HEAL_PER_SOFT = 0.5D;
+    /** 茅台: 每点软化强度给的经验值。 */
+    public static final int MAOTAI_XP_PER_SOFT = 2;
+
+    /** 月光赌博: 好结果基础概率。 */
+    public static final double MOONSHINE_GOOD_BASE_PROB = 0.40D;
+    /** 月光赌博: 每点强度对好结果概率的加成 (强度越高越可能好)。 */
+    public static final double MOONSHINE_GOOD_PROB_PER_STRENGTH = 0.01D;
+    /** 月光赌博: 好结果概率上限 (永远留一线翻车)。 */
+    public static final double MOONSHINE_GOOD_PROB_MAX = 0.85D;
+    /** 月光赌博: 坏结果效果时长 (tick, 等级 I 的小惩罚, 死亡不掉落服上不致死)。 */
+    public static final int MOONSHINE_BAD_DURATION_TICKS = 300;
 }

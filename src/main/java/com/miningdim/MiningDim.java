@@ -123,5 +123,12 @@ public final class MiningDim {
         //     仅 ModList.isLoaded("champions") 为真时装配。压力子系统 spawnMob 经 ChampionSpawnSeam 回调升格,
         //     故须排在压力子系统 (第 10) 之后 (seam 在启动期 bind, 对 register 顺序不敏感, 此处列尾即可)。
         subsystems.add(new com.miningdim.champion.ChampionSystem());
+        // 24. 特勤干员职业 (Champions compileOnly): 探测精英 + 临时封印词条 (不叠加, 到期恢复) + 加强奖励 (按初始
+        //     星级×等级倍率, 经 grantDaily 并入 credit_faucet 主闸, 复用精英怪贡献池按伤害分) + 日常/周常悬赏 (周
+        //     青辉石 AZURE 绑定) + 对精英少量伤害加成。纯逻辑层 (五支线查表/封印账本/加强奖励倍率/悬赏计数/周序)
+        //     始终生效; 真探测/真封印/奖励结算仅 ModList.isLoaded("champions") 为真时装配。复用已落地 champion 子系统
+        //     的贡献池/盖章 NBT (经 IChampion 探测), 故须排在 ChampionSystem 之后 (handler 挂 forgeBus, 对 register
+        //     顺序不敏感, 列尾即可)。等级/经验走共享职业框架 capability (JobId.AGENT), 故须在 JobFrameworkSystem 之后。
+        subsystems.add(new com.miningdim.job.agent.AgentSystem());
     }
 }

@@ -76,6 +76,13 @@ public final class MarketDaoSqlite implements MarketDao {
                         + "amount INTEGER NOT NULL, "
                         + "currency TEXT NOT NULL, "
                         + "created_at INTEGER NOT NULL)";
+        // 基准价值 V0 admin 覆盖 (偏离费锚最高优先层); item_id 主键, INSERT OR REPLACE 幂等。
+        final String ddlBaseValues =
+                "CREATE TABLE IF NOT EXISTS base_values ("
+                        + "item_id TEXT PRIMARY KEY, "
+                        + "v0 INTEGER NOT NULL, "
+                        + "updated_by TEXT, "
+                        + "updated_at INTEGER NOT NULL)";
         // 索引 (契约第 3 节): listings(status,item_id) 主浏览路径; listings(seller_uuid) 我的挂单;
         // transactions(buyer_uuid)/(seller_uuid) 双向历史。
         final String[] indices = {
@@ -88,6 +95,7 @@ public final class MarketDaoSqlite implements MarketDao {
             st.executeUpdate(ddlListings);
             st.executeUpdate(ddlTransactions);
             st.executeUpdate(ddlPendingPayout);
+            st.executeUpdate(ddlBaseValues);
             for (String idx : indices) {
                 st.executeUpdate(idx);
             }
@@ -330,6 +338,51 @@ public final class MarketDaoSqlite implements MarketDao {
             throw new MarketStoreException("drainPendingPayout failed", e);
         } finally {
             restoreAutoCommit(priorAutoCommit);
+        }
+    }
+
+    // ---- base_values (V0 admin 覆盖) ----
+
+    @Override
+    public void upsertBaseValue(String itemId, long v0, String updatedBy, long updatedAt) {
+        final String sql =
+                "INSERT OR REPLACE INTO base_values (item_id, v0, updated_by, updated_at) VALUES (?, ?, ?, ?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, itemId);
+            ps.setLong(2, v0);
+            ps.setString(3, updatedBy);
+            ps.setLong(4, updatedAt);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new MarketStoreException("upsertBaseValue failed for " + itemId, e);
+        }
+    }
+
+    @Override
+    public Long getBaseValue(String itemId) {
+        final String sql = "SELECT v0 FROM base_values WHERE item_id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, itemId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : null;
+            }
+        } catch (SQLException e) {
+            throw new MarketStoreException("getBaseValue failed for " + itemId, e);
+        }
+    }
+
+    @Override
+    public java.util.Map<String, Long> allBaseValues() {
+        final String sql = "SELECT item_id, v0 FROM base_values";
+        java.util.Map<String, Long> out = new java.util.HashMap<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                out.put(rs.getString(1), rs.getLong(2));
+            }
+            return out;
+        } catch (SQLException e) {
+            throw new MarketStoreException("allBaseValues failed", e);
         }
     }
 

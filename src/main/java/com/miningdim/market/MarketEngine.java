@@ -46,6 +46,7 @@ public final class MarketEngine {
 
     private final MarketDao dao;
     private final MinecraftServer server;
+    private final BaseValueResolver baseValues;
 
     /**
      * @param dao    作者 A 的 SQLite DAO 实现 (持单一服务端 Connection; 契约第 4 节签名)
@@ -60,6 +61,7 @@ public final class MarketEngine {
         }
         this.dao = dao;
         this.server = server;
+        this.baseValues = new BaseValueResolver(dao);
     }
 
     // ============================================================
@@ -114,7 +116,7 @@ public final class MarketEngine {
 
         // 挂单手续费 (偏离费, 上单即收 sink, 撤单/未售不退; 经济文档"偏离校验"通道)。V0 解析: 内置预设 -> 无锚退平率
         // (admin 覆盖层 / 市场中位数兜底见后续 commit)。先查后扣 (tryCharge 余额不足返 false -> 抛, 此时未托管未动库存)。
-        OptionalLong baseValue = DefaultBaseValues.resolve(itemId);
+        OptionalLong baseValue = baseValues.resolve(itemId);
         long listFee = MarketFee.listingFee(baseValue, unitPrice, count);
         IEconomyService economy = EconomyServices.economyService();
         if (!economy.tryCharge(seller, Currency.CREDIT, listFee)) {
@@ -279,6 +281,32 @@ public final class MarketEngine {
     /** 某卖家的挂单 (契约第 6 节 market.mine; statusOrNull=null 取全部状态, "ACTIVE" 取在售)。 */
     public List<ListingRow> listingsBySeller(UUID seller, String statusOrNull) {
         return dao.listingsBySeller(seller, statusOrNull);
+    }
+
+    // ============================================================
+    // 基准价值 V0 admin curate (OP 门控在 action 层; 引擎只做 dao 读写与解析)
+    // ============================================================
+
+    /** 写入 admin 手写 V0 覆盖 (覆盖优先于代码预设; v0 须 &gt;= MIN_ANCHOR_VALUE)。 */
+    public void setBaseValueOverride(String itemId, long v0, UUID by) {
+        if (itemId == null || itemId.isEmpty()) {
+            throw new IllegalArgumentException("itemId must not be empty");
+        }
+        if (v0 < MarketConstants.MIN_ANCHOR_VALUE) {
+            throw new IllegalArgumentException(
+                    "base value V0 must be >= " + MarketConstants.MIN_ANCHOR_VALUE + ", got " + v0);
+        }
+        dao.upsertBaseValue(itemId, v0, by.toString(), System.currentTimeMillis());
+    }
+
+    /** 解析某物品当前生效的 V0 (admin 覆盖 &gt; 代码预设 &gt; 空), 供 admin 面板展示当前锚。 */
+    public OptionalLong resolveBaseValue(String itemId) {
+        return baseValues.resolve(itemId);
+    }
+
+    /** 全部 admin 覆盖 (item_id -&gt; v0), 供 admin 面板批量标注哪些已 curate。 */
+    public java.util.Map<String, Long> baseValueOverrides() {
+        return dao.allBaseValues();
     }
 
     // ============================================================

@@ -78,4 +78,23 @@ public interface MarketDao {
      * 返回 [amount] 数组的列表 (每条一个 long[]{amount}; currency 当前恒 CREDIT, 由 B 累加 grant)。
      */
     List<long[]> drainPendingPayout(UUID seller);
+
+    // ---- 基准价值 V0 admin 覆盖 (偏离费锚的最高优先层; DefaultBaseValues 代码预设之上) ----
+
+    /**
+     * 写入/更新某物品的 admin 手写基准价值 V0 覆盖 (INSERT OR REPLACE, 幂等)。覆盖优先于代码预设 (见
+     * {@link com.miningdim.market.BaseValueResolver})。v0 由调用方校验 &gt;= 1。
+     *
+     * @param itemId    物品注册 id
+     * @param v0        基准价值 (信用点/个, &gt;= 1)
+     * @param updatedBy 操作者 (OP 玩家 UUID 文本, 审计用)
+     * @param updatedAt epoch millis
+     */
+    void upsertBaseValue(String itemId, long v0, String updatedBy, long updatedAt);
+
+    /** 取某物品的 admin 覆盖 V0; 无覆盖返 null (调用方退代码预设)。 */
+    Long getBaseValue(String itemId);
+
+    /** 全部 admin 覆盖 (item_id -&gt; v0); 供 admin 面板列出当前覆盖与 resolver 批量取用。 */
+    java.util.Map<String, Long> allBaseValues();
 }

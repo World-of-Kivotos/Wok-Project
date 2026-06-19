@@ -1,8 +1,7 @@
 package com.miningdim.worldgen;
 
 import com.miningdim.core.Difficulty;
-import com.miningdim.core.InstanceState;
-import com.miningdim.core.MiningServices;
+import com.miningdim.core.MiningConstants;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.core.Holder;
@@ -68,16 +67,28 @@ public final class MiningBiomeSource extends BiomeSource {
      */
     @Override
     public Holder<Biome> getNoiseBiome(int x, int y, int z, Climate.Sampler sampler) {
-        int blockX = QuartPos.toBlock(x);
-        int blockZ = QuartPos.toBlock(z);
-        InstanceState inst = MiningServices.instanceManager().regionAt(blockX, blockZ);
-        if (inst == null) {
-            return hard;
+        return biomeForRegion(QuartPos.toBlock(x), QuartPos.toBlock(z));
+    }
+
+    /**
+     * 纯几何 region -> 难度 biome (R2: 难度由固定网格单元决定, 与运行时 InstanceManager 无关)。
+     * 关键: 客户端也会调 getNoiseBiome 渲染群系, 故绝不能依赖服务端 InstanceManager (否则客户端 NPE 崩溃);
+     * 三固定区域几何 (Difficulty.regionCellX + MiningConstants 网格常量) 客户端服务端完全一致, 安全。
+     * 三区外 (缓冲带等) 归 hard 兜底, 仅需一个合法 holder。
+     */
+    private Holder<Biome> biomeForRegion(int blockX, int blockZ) {
+        for (Difficulty d : Difficulty.values()) {
+            int originX = MiningConstants.REGION_ORIGIN_X + d.regionCellX() * MiningConstants.REGION_STRIDE_X;
+            int originZ = MiningConstants.REGION_ORIGIN_Z + MiningConstants.FIXED_REGION_CELL_Z * MiningConstants.REGION_STRIDE_Z;
+            if (blockX >= originX && blockX < originX + MiningConstants.REGION_SIZE_X
+                    && blockZ >= originZ && blockZ < originZ + MiningConstants.REGION_SIZE_Z) {
+                return switch (d) {
+                    case EASY -> easy;
+                    case MEDIUM -> medium;
+                    case HARD -> hard;
+                };
+            }
         }
-        return switch (inst.difficulty()) {
-            case EASY -> easy;
-            case MEDIUM -> medium;
-            case HARD -> hard;
-        };
+        return hard;
     }
 }

@@ -9,11 +9,15 @@ import com.miningdim.core.InstanceLimitException;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
 import com.miningdim.core.RegionBox;
+import com.miningdim.job.JobId;
+import com.miningdim.job.JobServices;
+import com.miningdim.job.miner.MinerLevelGate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.block.Blocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,9 +45,7 @@ public final class EntryGateway {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/entry");
 
-    // ---- 14.4 等级门槛 (PENDING 待平衡; 数值取设计文档 14.4 建议值) ----
-    private static final int MEDIUM_MIN_LEVEL = 10;
-    private static final int HARD_MIN_LEVEL = 25;
+    // ---- 14.4 等级门槛: 改为委派矿工职业等级 (MinerLevelGate), 不再用原版经验等级常量 (见 gateCheck)。 ----
 
     // ---- 14.3 force-load 等待 (PENDING; 取设计文档建议) ----
     /** awaitChunksLoaded 最大等待 tick (默认 200 = 10s)。 */
@@ -282,9 +284,9 @@ public final class EntryGateway {
         RegionBox box = inst.regionBox();
         int centerX = box.originX() + box.sizeX() / 2;
         int centerZ = box.originZ() + box.sizeZ() / 2;
-        // R2: 整块 region 单难度, 出生扫描覆盖全高 (-64..319, 顶部内收 2 格防贴顶)。
-        int yTop = MiningConstants.REGION_MAX_Y_EXCLUSIVE - 2;
-        int yBottom = MiningConstants.REGION_FULL_MIN_WORLD_Y;
+        // 原版噪声生成: 扫描范围限制在维度实际可建高度内 (caves 维度仅 min..maxBuild, 非 region 全高)。
+        int yTop = Math.min(MiningConstants.REGION_MAX_Y_EXCLUSIVE - 2, level.getMaxBuildHeight() - 2);
+        int yBottom = Math.max(MiningConstants.REGION_FULL_MIN_WORLD_Y, level.getMinBuildHeight() + 1);
 
         // 以 region 中心为心做由内向外环形水平搜索, 每列自顶向下找站立点。
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
@@ -309,9 +311,27 @@ public final class EntryGateway {
                 }
             }
         }
-        // C4: 主连通分量保证至少一个安全点存在; 走到这里说明生成或连通性有缺陷, 抛出暴露之 (不兜底掩盖)。
-        throw new IllegalStateException(
-                "no safe spawn found in instance " + inst.instanceId() + " region " + box);
+        // 原版噪声地形不保证中心列附近一定有现成空腔 (镐子连通理念: 只需保证安全落点)。
+        // 找不到则强制建一个 3x3 安全平台 + 头顶净空, 任何地形下都能安全落地, 玩家自行挖出。
+        return buildFallbackPlatform(level, centerX, centerZ);
+    }
+
+    /** 兜底安全平台: region 中心建 3x3 石台 + 头顶 3 格净空, 返回站立点。保证任何地形都有安全出生 (11.5)。 */
+    private BlockPos buildFallbackPlatform(ServerLevel level, int centerX, int centerZ) {
+        int y = Math.min(48, level.getMaxBuildHeight() - 5);
+        BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                p.set(centerX + dx, y, centerZ + dz);
+                level.setBlockAndUpdate(p, Blocks.STONE.defaultBlockState());
+                for (int dy = 1; dy <= 3; dy++) {
+                    p.set(centerX + dx, y + dy, centerZ + dz);
+                    level.setBlockAndUpdate(p, Blocks.AIR.defaultBlockState());
+                }
+            }
+        }
+        LOGGER.info("[miningdim] built fallback spawn platform at {} {} {}", centerX, y + 1, centerZ);
+        return new BlockPos(centerX, y + 1, centerZ);
     }
 
     /** region 几何中心 (XZ), Y 取 region 全高上界附近, 供 force-load 圆心。 */
@@ -322,14 +342,14 @@ public final class EntryGateway {
                 box.originZ() + box.sizeZ() / 2);
     }
 
-    /** 14.4 难度门控: 等级门槛 (Easy 无 / Medium L10 / Hard L25)。 */
+    /**
+     * 14.4 难度门控: 按矿工职业等级门槛 (Easy L1 / Medium L4 / Hard L8, 见 {@link MinerLevelGate})。
+     * 集成阶段裁决 (Miner_Job_DesignSpec 第八章): 门槛口径从原版经验等级 (experienceLevel) 改为矿工职业等级,
+     * 经职业框架门面 {@link com.miningdim.job.JobServices#jobService()} 读取; 数值表权威在 MinerLevelGate。
+     */
     private GateResult gateCheck(ServerPlayer player, Difficulty difficulty) {
-        int level = player.experienceLevel;
-        return switch (difficulty) {
-            case EASY -> GateResult.PASS;
-            case MEDIUM -> level >= MEDIUM_MIN_LEVEL ? GateResult.PASS : GateResult.LEVEL_TOO_LOW;
-            case HARD -> level >= HARD_MIN_LEVEL ? GateResult.PASS : GateResult.LEVEL_TOO_LOW;
-        };
+        int minerLevel = JobServices.jobService().level(player, JobId.MINER);
+        return MinerLevelGate.canEnter(minerLevel, difficulty) ? GateResult.PASS : GateResult.LEVEL_TOO_LOW;
     }
 
     /** 失败回滚: 撤 force ticket (若已申请)。playerSet 此前未 add, 无需 remove (14.3 竞态表)。 */

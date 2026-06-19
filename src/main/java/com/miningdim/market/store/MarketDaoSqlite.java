@@ -237,6 +237,20 @@ public final class MarketDaoSqlite implements MarketDao {
         }
     }
 
+    @Override
+    public boolean reduceListing(long id, int newCount, byte[] newNbt) {
+        // 部分买入拆分: 改剩余 count + 同步余量托管 NBT, 条件 status=ACTIVE (并发防御)。
+        final String sql = "UPDATE listings SET count = ?, item_nbt = ? WHERE id = ? AND status = 'ACTIVE'";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, newCount);
+            ps.setBytes(2, newNbt);
+            ps.setLong(3, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            throw new MarketStoreException("reduceListing failed for id " + id, e);
+        }
+    }
+
     // ---- transactions ----
 
     @Override

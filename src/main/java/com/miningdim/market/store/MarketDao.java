@@ -56,6 +56,12 @@ public interface MarketDao {
      */
     boolean markCancelled(long id, UUID seller);
 
+    /**
+     * 部分买入拆分: 把 ACTIVE 挂单的剩余 count 改为 newCount 并同步 item_nbt (余量托管 stack), 保持 ACTIVE。
+     * 条件 UPDATE WHERE id=? AND status='ACTIVE'; 返回受影响行 >0 (false = 非 ACTIVE, 并发防御, 供退款)。
+     */
+    boolean reduceListing(long id, int newCount, byte[] newNbt);
+
     /** 插入一条成交流水 (审计, 30 天留存; 清理 deferred)。全字段对应 transactions 模式。 */
     void insertTxn(long listingId, UUID buyer, UUID seller, String itemId, int count,
                    long unitPrice, long total, long fee, long createdAt);

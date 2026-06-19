@@ -141,12 +141,14 @@ public final class MarketEngine {
     // ============================================================
 
     /**
-     * 买入 (契约第 5 节)。扣买家 total, 卖家实收全额 total (手续费已在挂单时 place 收过, 买入不再二次收费; BuyResult.fee=0)。
-     * 物品交付买家, 卖家在线即时入账、离线落 pending_payout 待登录结算。
+     * 买入 (契约第 5 节)。支持部分购买: requestedCount &lt;= 0 买下整单剩余; &gt; 0 买 1..剩余 中指定量, 不足整单时拆分托管
+     * (交付买走部分, 余量留挂单继续 ACTIVE)。扣买家 total=单价×买入量, 卖家实收全额 total (手续费已在挂单时 place 收过,
+     * 买入不二次收费; BuyResult.fee=0)。卖家在线即时入账、离线落 pending_payout 待登录结算。
      *
-     * @return 成交回执 (供 action 构 resultJson)
+     * @param requestedCount 买入数量; &lt;= 0 表示买下整单剩余
+     * @return 成交回执 (供 action 构 resultJson; count = 实际买入量)
      */
-    public BuyResult buy(ServerPlayer buyer, long listingId) {
+    public BuyResult buy(ServerPlayer buyer, long listingId, int requestedCount) {
         ListingRow row = dao.findListing(listingId);
         if (row == null || !"ACTIVE".equals(row.status())) {
             throw new IllegalStateException("挂单不存在或已售 (listingId=" + listingId + ")");
@@ -155,12 +157,21 @@ public final class MarketEngine {
             throw new IllegalArgumentException("不能买自己的挂单 (listingId=" + listingId + ")");
         }
 
-        long total = Math.multiplyExact(row.unitPrice(), (long) row.count());
+        // 买入量: <=0 取整单剩余 (买全部); >0 校验落在 1..剩余。
+        int buyCount = requestedCount <= 0 ? row.count() : requestedCount;
+        if (buyCount < 1 || buyCount > row.count()) {
+            throw new IllegalArgumentException(
+                    "买入量越界 (请求 " + requestedCount + ", 挂单剩余 " + row.count() + ", listingId=" + listingId + ")");
+        }
+
+        long total = Math.multiplyExact(row.unitPrice(), (long) buyCount);
         // 手续费已在挂单时 (place) 向卖家收过 (上单即收 sink); 买入不再二次收费, 卖家实收全额 total, 流水 fee 记 0。
 
-        // 反序列化托管物品, 先做背包容量预检 (不够则抛, 此时未扣款 —— 先验空间再动钱, 杜绝扣了钱却交付不了)。
-        ItemStack item = deserializeStack(row.itemNbt());
-        if (!canInsert(buyer.getInventory(), item)) {
+        // 托管物品反序列化 (含整单 count); 交付件 = 买走的 buyCount 个。先做背包容量预检 (不够则抛, 此时未扣款)。
+        ItemStack escrow = deserializeStack(row.itemNbt());
+        ItemStack delivered = escrow.copy();
+        delivered.setCount(buyCount);
+        if (!canInsert(buyer.getInventory(), delivered)) {
             throw new IllegalStateException("背包空间不足 (listingId=" + listingId + ")");
         }
 
@@ -178,17 +189,25 @@ public final class MarketEngine {
         // 偏离说明 (见 notes 报告): 真正跨方法显式事务需 A 提供原子 DAO 方法 (如 markSoldAndRecordTxn) 或暴露事务边界;
         // 当前 markSold 成功后 insertTxn 抛 (单线程下 SQL 异常极罕见) 的极小窗口会留 SOLD 行无对应 txn —— 契约第 5 节
         // "崩溃恢复 deferred" 已接受此 v1 窗口。此处不 try-catch insertTxn (让存储异常自然冒泡到 Gateway, 不吞)。
-        boolean sold = dao.markSold(listingId);
-        if (!sold) {
-            // 已扣款但挂单非 ACTIVE (并发被抢, MC 单线程下防御性): 全额退款 (grant 回 CREDIT) 再抛 —— 钱不蒸发, 物品未交付。
+        // 买下整单 -> markSold; 部分买入 -> 拆分托管 (余量 = 整单 - 买入, 同步更新 count 与 item_nbt 的 count, 留 ACTIVE)。
+        // 条件 UPDATE WHERE status=ACTIVE 返 false = 已非 ACTIVE (并发被抢, 单线程下防御) -> 退款 + 抛, 不写脏流水。
+        boolean committed;
+        if (buyCount == row.count()) {
+            committed = dao.markSold(listingId);
+        } else {
+            ItemStack remaining = escrow.copy();
+            remaining.setCount(row.count() - buyCount);
+            committed = dao.reduceListing(listingId, row.count() - buyCount, serializeStack(remaining));
+        }
+        if (!committed) {
+            // 已扣款但挂单非 ACTIVE (并发被抢, MC 单线程下防御性): 全额退款再抛 —— 钱不蒸发, 物品未交付。
             economy.grant(buyer, Currency.CREDIT, total);
             throw new IllegalStateException("挂单不存在或已售 (并发被抢, 已退款, listingId=" + listingId + ")");
         }
         dao.insertTxn(listingId, buyer.getUUID(), row.sellerUuid(), row.itemId(),
-                row.count(), row.unitPrice(), total, 0L, System.currentTimeMillis());
+                buyCount, row.unitPrice(), total, 0L, System.currentTimeMillis());
 
-        // 交付物品进买家库存 (容量已预检, 此处必成功; add 返回剩余应为空)。
-        ItemStack delivered = item.copy();
+        // 交付买走的部分进买家库存 (容量已预检, 此处必成功; add 返回剩余应为空)。
         boolean added = buyer.getInventory().add(delivered);
         if (!added || !delivered.isEmpty()) {
             // 预检与实际插入不一致是引擎不变量被破坏 (canInsert 漏算): 落地不丢失, 但暴露为状态错。
@@ -205,7 +224,7 @@ public final class MarketEngine {
                     MarketConstants.CURRENCY_CREDIT, System.currentTimeMillis());
         }
 
-        return new BuyResult(row.itemId(), row.count(), total, 0L);
+        return new BuyResult(row.itemId(), buyCount, total, 0L);
     }
 
     // ============================================================

@@ -97,7 +97,7 @@ public final class MarketGameTests {
             long buyerBefore = ledger.balance(buyer.getUUID(), Currency.CREDIT);     // 1200
             long sellerBeforeBuy = ledger.balance(seller.getUUID(), Currency.CREDIT); // 10000 - listFee
 
-            MarketEngine.BuyResult result = engine.buy(buyer, listingId);
+            MarketEngine.BuyResult result = engine.buy(buyer, listingId, 10);
 
             // 回执字段精确: 买入不再收费 (fee 已挪到挂单时), 卖家实收全额 total。
             helper.assertTrue(result.total() == 1_000L, "buy total = unitPrice*count = 100*10 = 1000");
@@ -129,7 +129,7 @@ public final class MarketGameTests {
             // 再买同一挂单: 已 SOLD, 抛"挂单不存在或已售" (markSold 的条件 UPDATE 已落, 不可二次成交)。
             boolean secondBuyThrew = false;
             try {
-                engine.buy(buyer, listingId);
+                engine.buy(buyer, listingId, 10);
             } catch (IllegalStateException e) {
                 secondBuyThrew = true;
             }
@@ -172,7 +172,7 @@ public final class MarketGameTests {
 
             boolean threw = false;
             try {
-                engine.buy(buyer, listingId);
+                engine.buy(buyer, listingId, 5);
             } catch (IllegalStateException e) {
                 threw = true;
             }
@@ -396,7 +396,7 @@ public final class MarketGameTests {
             EconomyServices.economyService().grant(buyer, Currency.CREDIT, 2_000L);
             buyer.getInventory().clearContent();
 
-            MarketEngine.BuyResult result = engine.buy(buyer, listingId);
+            MarketEngine.BuyResult result = engine.buy(buyer, listingId, 5);
             helper.assertTrue(result.total() == 1_000L && result.fee() == 0L,
                     "offline-seller buy computes total=1000 fee=0 like the online path (fee moved to place)");
 
@@ -419,6 +419,76 @@ public final class MarketGameTests {
             engine.settlePendingOnLogin(sellerOnLogin);
             helper.assertTrue(ledger.balance(offlineSeller, Currency.CREDIT) == 1_000L,
                     "a second login settlement does not double-pay (pending already drained): still 1000");
+
+            helper.succeed();
+        } finally {
+            MarketDb.close(dao);
+            restoreEconomy(prev);
+        }
+    }
+
+    // ============================================================
+    // 8. 部分购买: 10 个里买 4 -> 交付 4, 挂单余 6 仍 ACTIVE; 再买 6 -> SOLD; 卖家累计收全额; 越界拒
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void partialBuySplitsListingAndConservesTotals(GameTestHelper helper) {
+        EconomyWalletData ledger = new EconomyWalletData();
+        IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
+        MarketDaoSqlite dao = MarketDb.openInMemory();
+        try {
+            ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            ServerPlayer buyer = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            MarketEngine engine = new MarketEngine(dao, helper.getLevel().getServer());
+
+            // 卖家挂 10 个铁锭 @ 单价 50 (铁无锚 -> 平率挂单费); 给卖家付挂单费, 给买家足额。
+            seller.getInventory().clearContent();
+            seller.getInventory().setItem(0, new ItemStack(Items.IRON_INGOT, 10));
+            EconomyServices.economyService().grant(seller, Currency.CREDIT, 10_000L);
+            long listingId = engine.place(seller, 0, 10, 50L, "CREDIT").listingId();
+            long sellerAfterPlace = ledger.balance(seller.getUUID(), Currency.CREDIT);
+
+            EconomyServices.economyService().grant(buyer, Currency.CREDIT, 10_000L);
+            buyer.getInventory().clearContent();
+
+            // 第一笔: 买 4 个 (10 个里的 4) -> total = 50*4 = 200。
+            MarketEngine.BuyResult r1 = engine.buy(buyer, listingId, 4);
+            helper.assertTrue(r1.count() == 4 && r1.total() == 200L && r1.fee() == 0L,
+                    "partial buy reports count=4 total=200 fee=0");
+            helper.assertTrue(countItem(buyer, Items.IRON_INGOT) == 4,
+                    "buyer receives exactly the 4 purchased iron ingots (not the whole stack)");
+            // 挂单仍 ACTIVE, 剩余 count = 6。
+            com.miningdim.market.store.ListingRow afterFirst = dao.findListing(listingId);
+            helper.assertTrue("ACTIVE".equals(afterFirst.status()) && afterFirst.count() == 6,
+                    "after the partial buy the listing stays ACTIVE with remaining count 6");
+            helper.assertTrue(ledger.balance(seller.getUUID(), Currency.CREDIT) == sellerAfterPlace + 200L,
+                    "seller receives the full 200 for the partial sale (fee was already taken at place)");
+
+            // 第二笔: 买下剩余 6 -> total = 300, 挂单转 SOLD。
+            MarketEngine.BuyResult r2 = engine.buy(buyer, listingId, 6);
+            helper.assertTrue(r2.count() == 6 && r2.total() == 300L,
+                    "buying the remaining 6 reports count=6 total=300");
+            helper.assertTrue(countItem(buyer, Items.IRON_INGOT) == 10,
+                    "buyer now holds all 10 iron ingots across the two partial buys (no item lost/duped)");
+            helper.assertTrue("SOLD".equals(dao.findListing(listingId).status()),
+                    "the listing flips to SOLD once the remaining quantity is bought out");
+            helper.assertTrue(ledger.balance(seller.getUUID(), Currency.CREDIT) == sellerAfterPlace + 500L,
+                    "seller cumulative proceeds equal the full 10*50 = 500 (200 + 300)");
+
+            // 越界: 买超过挂单剩余 -> 抛且不动挂单 (校验在扣款前, 无副作用)。
+            seller.getInventory().clearContent();
+            seller.getInventory().setItem(0, new ItemStack(Items.IRON_INGOT, 3));
+            long small = engine.place(seller, 0, 3, 50L, "CREDIT").listingId();
+            boolean overThrew = false;
+            try {
+                engine.buy(buyer, small, 5); // 想买 5 但只剩 3
+            } catch (IllegalArgumentException e) {
+                overThrew = true;
+            }
+            helper.assertTrue(overThrew, "buying more than the listing's remaining count throws (越界)");
+            com.miningdim.market.store.ListingRow afterOver = dao.findListing(small);
+            helper.assertTrue("ACTIVE".equals(afterOver.status()) && afterOver.count() == 3,
+                    "the rejected over-count buy leaves the listing untouched (still ACTIVE, count 3)");
 
             helper.succeed();
         } finally {

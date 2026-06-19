@@ -38,14 +38,15 @@ public final class BrewerFoundationGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void vintageClockConvertsTicksToYears(GameTestHelper helper) {
-        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromTicks(24_000L) - 1.0D) < EPS, "24000 ticks = 1 year");
-        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromTicks(48_000L) - 2.0D) < EPS, "48000 ticks = 2 years");
-        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromTicks(12_000L) - 0.5D) < EPS, "12000 ticks = 0.5 year");
-        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromTicks(0L)) < EPS, "0 ticks = 0 year");
-        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromTicks(-5L)) < EPS, "negative ticks = 0 year");
-        helper.assertTrue(VintageClock.ticksForYears(1.0D) == 24_000L, "1 year = 24000 ticks");
-        helper.assertTrue(VintageClock.ticksForYears(0.0D) == 0L, "0 year = 0 ticks");
+    public static void vintageClockConvertsRealMillisToYears(GameTestHelper helper) {
+        // 现实挂钟: 默认 86_400_000 毫秒 (现实一天) = 1 年份。
+        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromMillis(86_400_000L) - 1.0D) < EPS, "1 real day = 1 year");
+        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromMillis(172_800_000L) - 2.0D) < EPS, "2 real days = 2 years");
+        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromMillis(43_200_000L) - 0.5D) < EPS, "12 real hours = 0.5 year");
+        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromMillis(0L)) < EPS, "0 millis = 0 year");
+        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromMillis(-5L)) < EPS, "negative millis = 0 year");
+        helper.assertTrue(VintageClock.millisForYears(1.0D) == 86_400_000L, "1 year = 1 real day millis");
+        helper.assertTrue(VintageClock.millisForYears(0.0D) == 0L, "0 year = 0 millis");
         helper.succeed();
     }
 

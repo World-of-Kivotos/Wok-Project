@@ -3,20 +3,21 @@ package com.miningdim.job.brewer;
 /**
  * 酿酒师全局可调常量 (单一来源, 杜绝跨类各写一份漂移)。数值为 v1 初值, 平衡集中在此一处调。
  *
- * 年份时钟与潮汐 (Tide) mod 同源: 二者都读原版 level 时钟 ({@code getGameTime} / {@code getMoonPhase}),
- * 不引入自定义时钟、零跨 mod 依赖 (见 {@link VintageClock})。
+ * 年份时钟用现实挂钟 (服务端 {@code System.currentTimeMillis()}, 与经济衰减闸的 UTC 时间观同源): 离线/区块卸载
+ * 也陈酿 (酒窖本就该你不在也熟), "至少七天周期"字面=现实天, 服务端权威无客户端作弊。潮汐 (Tide) 关联保留在
+ * 月相加成上 (同读原版 {@code level.getMoonPhase()}, 这才是 Tide 满月稀有鱼的真味), 见 {@link VintageClock}。
  */
 public final class BrewerConstants {
 
     private BrewerConstants() {
     }
 
-    // ---- 年份时钟 (酒窖箱陈酿) ----
+    // ---- 年份时钟 (酒窖箱陈酿; 现实挂钟) ----
 
-    /** 1 年份对应的原版 gameTime tick 数 (默认 24000 = 一个游戏日)。getGameTime 单调, 不受 /time、睡觉跳夜影响。 */
-    public static final long TICKS_PER_VINTAGE_YEAR = 24_000L;
+    /** 1 年份对应的现实毫秒数 (默认 86_400_000 = 现实一天)。配合软上限锚 ~25 年, 顶级酒满熟约 3-4 周 (硬核长线)。 */
+    public static final long MILLIS_PER_VINTAGE_YEAR = 86_400_000L;
 
-    /** 酒窖箱结算节流: 每多少 tick 结算一次年份/燃料 (摊薄每 tick 开销; 懒结算按 gameTime 差补齐)。 */
+    /** 酒窖箱结算节流: 每多少 tick 唤醒一次结算 (摊薄每 tick 开销; 懒结算按现实挂钟差补齐加载/离线期间的年份与燃料)。 */
     public static final int CELLAR_SETTLE_INTERVAL_TICKS = 100;
 
     /** 满月 (moonPhase==0) 期间陈酿的额外年份加成比例 (与 Tide 满月稀有鱼同源的潮汐关联; 纯原版 API 读取)。 */
@@ -24,7 +25,8 @@ public final class BrewerConstants {
 
     // ---- 干小麦燃料门控 (保持阴凉) ----
 
-    /** 每瓶酒每陈酿 1 年份消耗的干小麦数 (要求量大: 长线职业的小麦 sink, 联动农夫经济)。 */
+    /** 每瓶酒每陈酿 1 年份的【基础】干小麦耗量 (要求量大: 长线职业的小麦 sink, 联动农夫经济)。实际耗量随年份
+     *  递增 (老酒烧钱凶, 自然经济封顶), 递增公式与变质结算落在酒窖箱阶段 (阶段 4)。 */
     public static final int DRIED_WHEAT_PER_BOTTLE_YEAR = 16;
 
     // ---- 闪耀永久增益 (一条命) ----

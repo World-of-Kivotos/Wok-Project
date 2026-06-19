@@ -32,3 +32,13 @@ mandatory = true
 versionRange = "[1.20.1,1.20.2)"
 ordering = "NONE"
 side = "BOTH"
+
+# MCEF 客户端 Web UI 前置: mandatory=false 优雅降级 (代码侧 ModList.isLoaded 守卫),
+# 未装 MCEF 的玩家仍可正常游玩, 仅 Web UI 不可用; side=CLIENT 因 MCEF 仅客户端渲染,
+# 服务端权威逻辑不依赖它 (服务端派发只走 MiningNetwork)。ordering=AFTER 保证 MCEF 先于本 mod 初始化。
+[[dependencies.miningdim]]
+modId = "mcef"
+mandatory = false
+versionRange = "[2.1.6,)"
+ordering = "AFTER"
+side = "CLIENT"

@@ -130,5 +130,14 @@ public final class MiningDim {
         //     的贡献池/盖章 NBT (经 IChampion 探测), 故须排在 ChampionSystem 之后 (handler 挂 forgeBus, 对 register
         //     顺序不敏感, 列尾即可)。等级/经验走共享职业框架 capability (JobId.AGENT), 故须在 JobFrameworkSystem 之后。
         subsystems.add(new com.miningdim.job.agent.AgentSystem());
+
+        // 25. Web UI 服务端派发 (服务端权威, 无 MCEF): 填充 WebUiServerDispatcher 动作注册表 (system.echo 等),
+        //     经 MiningNetwork.CHANNEL 收 C2S 意图并下发 S2C 响应/事件。须排在 NetworkSystem (第 2) 之后,
+        //     依赖其 CHANNEL 已注册三包 (构造期注入即满足)。服务端安全, 不 classload 任何 MCEF。
+        subsystems.add(new com.miningdim.webui.server.WebUiServerSubsystem());
+        // 26. Web UI 客户端外壳 (MCEF 浏览器/Screen/路由): register 内全部客户端逻辑用 DistExecutor.safeRunWhenOn
+        //     (Dist.CLIENT) 关进 client-only lambda, 故主类无条件加入列表即可 (服务端 GameTest 进程不 classload
+        //     MCEF, 不崩)。同样须在 NetworkSystem 之后, 依赖 CHANNEL 已注册。
+        subsystems.add(new com.miningdim.client.webui.WebUiClientSubsystem());
     }
 }

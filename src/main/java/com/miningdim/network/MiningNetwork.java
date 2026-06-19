@@ -66,6 +66,17 @@ public final class MiningNetwork implements IMiningNetwork {
         CHANNEL.registerMessage(nextId(), JobSyncS2C.class,
                 JobSyncS2C::encode, JobSyncS2C::decode, JobSyncS2C::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        // Web UI bridge (契约第 4 节: 复用本 CHANNEL, discriminator 集中自增登记)。追加在 JobSyncS2C 之后,
+        // 两端同序, 不改动既有 id 分配。C2S 请求 + S2C 回执 + S2C 主动事件三包。
+        CHANNEL.registerMessage(nextId(), C2SWebUiRequest.class,
+                C2SWebUiRequest::encode, C2SWebUiRequest::decode, C2SWebUiRequest::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(nextId(), S2CWebUiResponse.class,
+                S2CWebUiResponse::encode, S2CWebUiResponse::decode, S2CWebUiResponse::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(nextId(), S2CWebUiEvent.class,
+                S2CWebUiEvent::encode, S2CWebUiEvent::decode, S2CWebUiEvent::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 
     /**
@@ -73,6 +84,28 @@ public final class MiningNetwork implements IMiningNetwork {
      * 无需经 IMiningNetwork core 门面 (该门面为阶段0 定稿, 不含职业方法; 职业包直接用 CHANNEL 是第七章纪律)。
      */
     public static void sendJobSync(ServerPlayer player, JobSyncS2C msg) {
+        if (!canReceive(player)) {
+            return;
+        }
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), msg);
+    }
+
+    /**
+     * 下发 Web UI 请求回执到指定玩家 (Web UI bridge 契约第 4 节)。服务端 WebUiServerDispatcher 在 Gateway
+     * 边界处理完一次请求后经此发回执 (success/failure 都走本路径)。镜像 {@link #sendJobSync} 的 canReceive 守卫。
+     */
+    public static void sendWebUiResponse(ServerPlayer player, S2CWebUiResponse msg) {
+        if (!canReceive(player)) {
+            return;
+        }
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), msg);
+    }
+
+    /**
+     * 下发 Web UI 主动事件到指定玩家 (Web UI bridge 契约第 4 节)。服务端无请求地推送事件给客户端 Web UI。
+     * 镜像 {@link #sendJobSync} 的 canReceive 守卫。
+     */
+    public static void sendWebUiEvent(ServerPlayer player, S2CWebUiEvent msg) {
         if (!canReceive(player)) {
             return;
         }

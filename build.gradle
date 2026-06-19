@@ -76,6 +76,9 @@ dependencies {
     //   含义: 我方代码对 TACZ/Champions 的调用编译期校验, dev GameTest 不加载这俩 (其运行期行为在真服测)。
     compileOnly files("libs/tacz-1.20.1-1.1.8-hotfix.jar")
     compileOnly files("libs/champions-forge-1.20.1-2.1.10.2.jar")
+    // MCEF 客户端前置 (浏览器/JCEF 外壳): compileOnly 仅取 API, 零 mixin/refmap, 不像 TACZ 会在 dev 崩。
+    //   真 mod 由玩家在客户端 mods/ 加载; 服务端 GameTest 进程不触 MCEF (Web UI 客户端逻辑全部 DistExecutor 关进 client-only)。
+    compileOnly files("libs/mcef-forge-2.1.6-1.20.1.jar")
 }
 
 // 注意: mods.toml 中的 ${file.jarVersion} 是 FML 运行期从 jar MANIFEST 注入的占位,

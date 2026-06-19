@@ -119,7 +119,9 @@
 
 ---
 
-## 六、跳蚤市场后端（DRAFT，SQLite + 撮合）
+## 六、跳蚤市场后端（v1 已落地 2026-06-19，DRAFT 数值待标定）
+
+> 落地状态：`com.miningdim.market`（17 类）+ 6 个 `market.*` action + 252/252 GameTest 全绿（6 项真连 SQLite）。托管物品折叠进 listings 行的 `item_nbt` BLOB（v1 不单列 escrow 表）。手续费率 `FEE_RATE=0.05` / 铜铁日 cap `512` 为 DRAFT 待标定。崩溃原子性（charge 与 SQLite SOLD 间极小窗口）、30 天流水清理、偏离/反洗钱价格校验 deferred。
 
 ### 6.1 表结构草案
 
@@ -161,7 +163,7 @@ MC 原生 `EditBox` 浮在 WebUiScreen 上接收键盘（含中文 IME，因为�
 
 - 子系统范式：客户端 `com.miningdim.client.webui` + 服务端 `com.miningdim.market`，各 `Subsystem.register(modBus, forgeBus)`、各自管 DeferredRegister、门面注入 `MiningServices`、在 `MiningDim.registerSubsystems()` 接线。
 - 网络：接入现有 `MiningNetwork.CHANNEL`（新增 `C2SWebUiRequest`/`S2CWebUiResponse`/`S2CWebUiEvent` 三包），**照搬现有 `register()` 的 `registerMessage(nextId(), ...)` 追加范式**（与既有职业包 `JobSyncS2C` 同序追加，不另起通道——一致性优先；现有工程刻意用 `NetworkRegistry.newSimpleChannel` 并注释为"1.20.1 正确 API"，故第三章关于迁 `ChannelBuilder` 的建议在本工程不采纳）。发包带现有 `canReceive` 守卫。
-- 构建：`compileOnly files("libs/mcef-forge-2.1.6-1.20.1.jar")`（同 TACZ/Champions 范式，见 [[external-mod-deps-gap]]）；`org.xerial:sqlite-jdbc` 经 jarJar 真打包（运行期要）。gradle 必须 JDK17（改 build.gradle 才暴露，见 [[build-toolchain]]）。
+- 构建：`compileOnly files("libs/mcef-forge-2.1.6-1.20.1.jar")`（同 TACZ/Champions 范式，见 [[external-mod-deps-gap]]）。SQLite 驱动 `org.xerial:sqlite-jdbc` 的 **三连坑**（嵌任何 JDBC/纯 java 库到 Forge 1.20.1 dev 运行期必踩）：(1) `jarJar` 内嵌进产物 jar 的 `META-INF/jarjar`（生产，需 `jarJar.enable()` 先调）；(2) dev run classpath 必须用 FG6 的 `minecraftLibrary` 配置——`runtimeOnly`/`implementation` 都进不了 `build/classpath/run*_minecraftClasspath.txt`，否则 GameTest 抛 `No suitable driver found`；(3) 还需显式 `Class.forName("org.sqlite.JDBC")`——FML 模块层 ServiceLoader 在 boot 层早跑一次、game 层 jar 没赶上，不显式注册即便在 classpath 也找不到驱动。gradle 必须 JDK17（改 build.gradle 才暴露，见 [[build-toolchain]]）。
 - 前端共栈：React 应用与 Astro Wiki 共设计系统/组件/真源 JSON，托管在同一基础设施（见 [[wiki-architecture-decision]]）。
 
 ---

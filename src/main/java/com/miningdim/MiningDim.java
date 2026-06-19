@@ -135,7 +135,14 @@ public final class MiningDim {
         //     经 MiningNetwork.CHANNEL 收 C2S 意图并下发 S2C 响应/事件。须排在 NetworkSystem (第 2) 之后,
         //     依赖其 CHANNEL 已注册三包 (构造期注入即满足)。服务端安全, 不 classload 任何 MCEF。
         subsystems.add(new com.miningdim.webui.server.WebUiServerSubsystem());
-        // 26. Web UI 客户端外壳 (MCEF 浏览器/Screen/路由): register 内全部客户端逻辑用 DistExecutor.safeRunWhenOn
+        // 26. 跳蚤市场服务端 (服务端权威 P2P 交易通道, 纯服务端无 MCEF): SQLite 托管挂单/流水/离线待结 +
+        //     成交手续费 sink + 铜铁日 cap + 6 个 market.* action 注册进派发器。须排在经济子系统 (第 11) 之后
+        //     —— 买卖结算回调 EconomyServices 的 tryCharge/grant 原子接口, 经济门面须先注入; 须排在网络 (第 2) +
+        //     Web UI 服务端派发 (第 25) 之后 —— 复用 WebUiServerDispatcher.register 挂 action, 派发器须先就绪。
+        //     生命周期事件 (ServerStarting 开库建表 / ServerStopping 关库 / PlayerLoggedIn 结算离线待结) 在其
+        //     register 内订阅 forgeBus, 对 register 顺序不敏感; 仅上述门面/派发器依赖约束此处列序。
+        subsystems.add(new com.miningdim.market.MarketSubsystem());
+        // 27. Web UI 客户端外壳 (MCEF 浏览器/Screen/路由): register 内全部客户端逻辑用 DistExecutor.safeRunWhenOn
         //     (Dist.CLIENT) 关进 client-only lambda, 故主类无条件加入列表即可 (服务端 GameTest 进程不 classload
         //     MCEF, 不崩)。同样须在 NetworkSystem 之后, 依赖 CHANNEL 已注册。
         subsystems.add(new com.miningdim.client.webui.WebUiClientSubsystem());

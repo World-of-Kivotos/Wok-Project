@@ -130,6 +130,11 @@ public final class MiningDim {
         //     的贡献池/盖章 NBT (经 IChampion 探测), 故须排在 ChampionSystem 之后 (handler 挂 forgeBus, 对 register
         //     顺序不敏感, 列尾即可)。等级/经验走共享职业框架 capability (JobId.AGENT), 故须在 JobFrameworkSystem 之后。
         subsystems.add(new com.miningdim.job.agent.AgentSystem());
+        // 24b. 酿酒师职业: 至少七天周期的制造职业 (酿酒台按等级 roll 品质酿基酒 + 酒窖箱陈酿年份 + 喝酒按
+        //     S=年份×品质系数 获增益 + 闪耀档永久一条命增益)。年份时钟同读原版 level 时钟 (与潮汐 Tide mod 同源,
+        //     零跨 mod 依赖)。等级/经验走共享职业框架 capability (JobId.BREWER), 故须在 JobFrameworkSystem 之后;
+        //     事件订阅在其 register 内挂 forgeBus, 对 register 顺序不敏感, 列于职业簇末即可。
+        subsystems.add(new com.miningdim.job.brewer.BrewerSystem());
 
         // 25. Web UI 服务端派发 (服务端权威, 无 MCEF): 填充 WebUiServerDispatcher 动作注册表 (system.echo 等),
         //     经 MiningNetwork.CHANNEL 收 C2S 意图并下发 S2C 响应/事件。须排在 NetworkSystem (第 2) 之后,

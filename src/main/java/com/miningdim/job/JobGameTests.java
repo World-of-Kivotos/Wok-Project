@@ -305,14 +305,15 @@ public final class JobGameTests {
     }
 
     // ============================================================
-    // JobId 成员一致性 (7 个, 含 AGENT/MUNITIONS 占位)
+    // JobId 成员一致性 (8 个: 5 core + AGENT/MUNITIONS 占位 + BREWER 酿酒师)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void jobIdMembers(GameTestHelper helper) {
-        helper.assertTrue(JobId.values().length == 7, "JobId must have 7 members (5 core + AGENT + MUNITIONS)");
+        helper.assertTrue(JobId.values().length == 8, "JobId must have 8 members (5 core + AGENT + MUNITIONS + BREWER)");
         helper.assertTrue(JobId.byId("miner") == JobId.MINER, "byId(miner) resolves MINER");
         helper.assertTrue(JobId.byId("munitions") == JobId.MUNITIONS, "byId(munitions) resolves MUNITIONS");
+        helper.assertTrue(JobId.byId("brewer") == JobId.BREWER, "byId(brewer) resolves BREWER");
         helper.assertTrue(JobId.byId("nonexistent") == null, "byId unknown returns null");
         helper.succeed();
     }

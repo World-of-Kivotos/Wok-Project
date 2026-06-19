@@ -1,0 +1,93 @@
+package com.miningdim.job.brewer;
+
+import com.miningdim.core.MiningConstants;
+import com.miningdim.job.JobId;
+import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraftforge.gametest.GameTestHolder;
+import net.minecraftforge.gametest.PrefixGameTestTemplate;
+
+import java.util.UUID;
+
+/**
+ * 酿酒师地基纯逻辑 GameTest: 品质系数曲线 + 年份时钟换算 + 满月加成 + NBT 盖章往返 + 强度公式 + JobId 接入。
+ * 这些断言均为具体业务结果 (删掉被测逻辑即挂), 不依赖世界/网络, 故放地基提交即可全绿。
+ */
+@GameTestHolder(MiningConstants.MODID)
+@PrefixGameTestTemplate(false)
+public final class BrewerFoundationGameTests {
+
+    private static final String EMPTY = "empty";
+    private static final String BATCH = "brewer";
+    private static final double EPS = 1e-9D;
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void qualityCoefficientsAreSpecCurve(GameTestHelper helper) {
+        helper.assertTrue(Math.abs(WineQuality.LOW.coefficient() - 1.0D) < EPS, "low coeff = 1.0");
+        helper.assertTrue(Math.abs(WineQuality.MID.coefficient() - 1.5D) < EPS, "mid coeff = 1.5");
+        helper.assertTrue(Math.abs(WineQuality.HIGH.coefficient() - 2.0D) < EPS, "high coeff = 2.0");
+        helper.assertTrue(Math.abs(WineQuality.SUPERB.coefficient() - 3.0D) < EPS, "superb coeff = 3.0");
+        helper.assertTrue(Math.abs(WineQuality.BRILLIANT.coefficient() - 5.0D) < EPS, "brilliant coeff = 5.0");
+        helper.assertTrue(WineQuality.BRILLIANT.isBrilliant(), "BRILLIANT.isBrilliant()");
+        helper.assertTrue(!WineQuality.SUPERB.isBrilliant(), "SUPERB not brilliant");
+        helper.assertTrue(WineQuality.fromId("superb") == WineQuality.SUPERB, "fromId(superb) resolves SUPERB");
+        helper.assertTrue(WineQuality.fromId("nope") == null, "fromId unknown -> null");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void vintageClockConvertsTicksToYears(GameTestHelper helper) {
+        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromTicks(24_000L) - 1.0D) < EPS, "24000 ticks = 1 year");
+        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromTicks(48_000L) - 2.0D) < EPS, "48000 ticks = 2 years");
+        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromTicks(12_000L) - 0.5D) < EPS, "12000 ticks = 0.5 year");
+        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromTicks(0L)) < EPS, "0 ticks = 0 year");
+        helper.assertTrue(Math.abs(VintageClock.vintageYearsFromTicks(-5L)) < EPS, "negative ticks = 0 year");
+        helper.assertTrue(VintageClock.ticksForYears(1.0D) == 24_000L, "1 year = 24000 ticks");
+        helper.assertTrue(VintageClock.ticksForYears(0.0D) == 0L, "0 year = 0 ticks");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void fullMoonBonusOnlyOnPhaseZero(GameTestHelper helper) {
+        helper.assertTrue(VintageClock.isFullMoon(0), "phase 0 is full moon");
+        helper.assertTrue(!VintageClock.isFullMoon(4), "phase 4 is not full moon");
+        // 满月: 2.0 * 1.25 = 2.5; 非满月: 原值 2.0。
+        helper.assertTrue(Math.abs(VintageClock.applyMoonBonus(2.0D, 0) - 2.5D) < EPS, "full-moon 2.0 -> 2.5");
+        helper.assertTrue(Math.abs(VintageClock.applyMoonBonus(2.0D, 3) - 2.0D) < EPS, "non-full-moon 2.0 -> 2.0");
+        helper.assertTrue(Math.abs(VintageClock.applyMoonBonus(0.0D, 0)) < EPS, "zero base stays zero even full moon");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void wineNbtRoundTripsQualityVintageAndStrength(GameTestHelper helper) {
+        ItemStack stack = new ItemStack(Items.GLASS_BOTTLE);
+        helper.assertTrue(!WineNbt.isWine(stack), "plain stack is not wine before stamp");
+
+        UUID brewer = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
+        WineNbt.stamp(stack, WineQuality.SUPERB, brewer);
+        helper.assertTrue(WineNbt.isWine(stack), "stamped stack is wine");
+        helper.assertTrue(WineNbt.readQuality(stack) == WineQuality.SUPERB, "reads back SUPERB");
+        helper.assertTrue(Math.abs(WineNbt.readVintage(stack)) < EPS, "fresh wine vintage = 0");
+        helper.assertTrue(brewer.equals(WineNbt.readBrewer(stack)), "reads back brewer uuid");
+        helper.assertTrue(Math.abs(WineNbt.strength(stack)) < EPS, "strength 0 at vintage 0");
+
+        double v = WineNbt.addVintage(stack, 4.0D);
+        helper.assertTrue(Math.abs(v - 4.0D) < EPS, "addVintage returns 4.0");
+        helper.assertTrue(Math.abs(WineNbt.readVintage(stack) - 4.0D) < EPS, "vintage persisted 4.0");
+        // S = 年份4 × 超凡系数3.0 = 12.0
+        helper.assertTrue(Math.abs(WineNbt.strength(stack) - 12.0D) < EPS, "strength = 4 * 3.0 = 12.0");
+
+        // 非酒 stack: strength/readQuality 短路为 0/null, 不静默默认。
+        helper.assertTrue(Math.abs(WineNbt.strength(new ItemStack(Items.STONE))) < EPS, "non-wine strength 0");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void brewerJobIdWired(GameTestHelper helper) {
+        helper.assertTrue(JobId.byId("brewer") == JobId.BREWER, "byId(brewer) resolves BREWER");
+        helper.assertTrue(JobId.BREWER.id().equals("brewer"), "BREWER.id() = brewer");
+        helper.succeed();
+    }
+}

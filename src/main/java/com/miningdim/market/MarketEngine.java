@@ -20,6 +20,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 /**
@@ -74,7 +75,7 @@ public final class MarketEngine {
      * @param currency      计价货币 (必须 "CREDIT"; AZURE/其它一律拒绝, 因 AZURE 不可转移, 契约第 1 节)
      * @return 新挂单 listing id
      */
-    public long place(ServerPlayer seller, int inventorySlot, int count, long unitPrice, String currency) {
+    public PlaceResult place(ServerPlayer seller, int inventorySlot, int count, long unitPrice, String currency) {
         // 计价货币: 市场只允许 CREDIT (AZURE 不可转移, 货币层据 isTransferable 拒绝转移; 此处从挂单源头堵死)。
         if (!MarketConstants.CURRENCY_CREDIT.equals(currency)) {
             throw new IllegalArgumentException(
@@ -111,6 +112,16 @@ public final class MarketEngine {
             }
         }
 
+        // 挂单手续费 (偏离费, 上单即收 sink, 撤单/未售不退; 经济文档"偏离校验"通道)。V0 解析: 内置预设 -> 无锚退平率
+        // (admin 覆盖层 / 市场中位数兜底见后续 commit)。先查后扣 (tryCharge 余额不足返 false -> 抛, 此时未托管未动库存)。
+        OptionalLong baseValue = DefaultBaseValues.resolve(itemId);
+        long listFee = MarketFee.listingFee(baseValue, unitPrice, count);
+        IEconomyService economy = EconomyServices.economyService();
+        if (!economy.tryCharge(seller, Currency.CREDIT, listFee)) {
+            throw new IllegalStateException("信用点不足以支付挂单手续费 (需 " + listFee + ", 挂单未创建)");
+        }
+        // listFee 蒸发 = sink (不 grant 给任何人, 反通胀)。
+
         // 托管: 序列化"单位物品 ItemStack(item, count)"的 NBT (整 stack 含 NBT, 但 count 收紧为挂单量),
         // 再从卖家库存精确扣 count 个。先序列化后扣 (序列化失败则不扣, 自然冒泡, 不留物品凭空消失)。
         ItemStack escrow = stack.copy();
@@ -118,8 +129,9 @@ public final class MarketEngine {
         byte[] nbt = serializeStack(escrow);
         stack.shrink(count);
 
-        return dao.insertListing(seller.getUUID(), seller.getName().getString(),
+        long listingId = dao.insertListing(seller.getUUID(), seller.getName().getString(),
                 itemId, nbt, count, unitPrice, MarketConstants.CURRENCY_CREDIT, System.currentTimeMillis());
+        return new PlaceResult(listingId, listFee);
     }
 
     // ============================================================
@@ -127,8 +139,8 @@ public final class MarketEngine {
     // ============================================================
 
     /**
-     * 买入 (契约第 5 节)。扣买家 total, 手续费 fee 蒸发 (sink), 卖家实收 proceeds = total - fee。物品交付买家,
-     * 卖家在线即时入账、离线落 pending_payout 待登录结算。
+     * 买入 (契约第 5 节)。扣买家 total, 卖家实收全额 total (手续费已在挂单时 place 收过, 买入不再二次收费; BuyResult.fee=0)。
+     * 物品交付买家, 卖家在线即时入账、离线落 pending_payout 待登录结算。
      *
      * @return 成交回执 (供 action 构 resultJson)
      */
@@ -142,8 +154,7 @@ public final class MarketEngine {
         }
 
         long total = Math.multiplyExact(row.unitPrice(), (long) row.count());
-        long fee = Math.round(total * MarketConstants.FEE_RATE);
-        long proceeds = total - fee;
+        // 手续费已在挂单时 (place) 向卖家收过 (上单即收 sink); 买入不再二次收费, 卖家实收全额 total, 流水 fee 记 0。
 
         // 反序列化托管物品, 先做背包容量预检 (不够则抛, 此时未扣款 —— 先验空间再动钱, 杜绝扣了钱却交付不了)。
         ItemStack item = deserializeStack(row.itemNbt());
@@ -172,7 +183,7 @@ public final class MarketEngine {
             throw new IllegalStateException("挂单不存在或已售 (并发被抢, 已退款, listingId=" + listingId + ")");
         }
         dao.insertTxn(listingId, buyer.getUUID(), row.sellerUuid(), row.itemId(),
-                row.count(), row.unitPrice(), total, fee, System.currentTimeMillis());
+                row.count(), row.unitPrice(), total, 0L, System.currentTimeMillis());
 
         // 交付物品进买家库存 (容量已预检, 此处必成功; add 返回剩余应为空)。
         ItemStack delivered = item.copy();
@@ -182,17 +193,17 @@ public final class MarketEngine {
             buyer.drop(delivered, false);
         }
 
-        // 卖家结算: 在线即时 grant proceeds; 离线落 pending_payout 待登录结算 (契约第 5 节)。
-        // 手续费 fee 不发给任何人 = sink (反通胀)。崩溃原子性: charge 在 markSold 前的极小窗口 v1 接受 (崩溃恢复 deferred)。
+        // 卖家结算: 在线即时 grant 全额 total; 离线落 pending_payout 待登录结算 (契约第 5 节)。手续费已在挂单时收过 (sink),
+        // 此处卖家实收 total。崩溃原子性: charge 在 markSold 前的极小窗口 v1 接受 (崩溃恢复 deferred)。
         ServerPlayer onlineSeller = server.getPlayerList().getPlayer(row.sellerUuid());
         if (onlineSeller != null) {
-            economy.grant(onlineSeller, Currency.CREDIT, proceeds);
+            economy.grant(onlineSeller, Currency.CREDIT, total);
         } else {
-            dao.insertPendingPayout(row.sellerUuid(), proceeds,
+            dao.insertPendingPayout(row.sellerUuid(), total,
                     MarketConstants.CURRENCY_CREDIT, System.currentTimeMillis());
         }
 
-        return new BuyResult(row.itemId(), row.count(), total, fee);
+        return new BuyResult(row.itemId(), row.count(), total, 0L);
     }
 
     // ============================================================
@@ -357,7 +368,11 @@ public final class MarketEngine {
     // 回执 record (供 action 构 resultJson, 契约第 6 节)
     // ============================================================
 
-    /** 买入成交回执 (契约第 6 节 market.buy: itemId/count/total/fee)。 */
+    /** 挂单回执 (新挂单 id + 上单即收的挂单手续费 listFee, 供 action 回前端展示"已付手续费")。 */
+    public record PlaceResult(long listingId, long listFee) {
+    }
+
+    /** 买入成交回执 (契约第 6 节 market.buy: itemId/count/total/fee; fee 现恒 0, 费已挪到挂单时收)。 */
     public record BuyResult(String itemId, int count, long total, long fee) {
     }
 

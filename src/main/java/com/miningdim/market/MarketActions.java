@@ -5,6 +5,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.miningdim.market.MarketEngine.BuyResult;
 import com.miningdim.market.MarketEngine.CancelResult;
+import com.miningdim.market.MarketEngine.PlaceResult;
 import com.miningdim.market.store.ListingRow;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
@@ -78,7 +79,7 @@ public final class MarketActions {
     };
 
     // ============================================================
-    // market.place: {slot,count,unitPrice,currency?} -> {listingId}
+    // market.place: {slot,count,unitPrice,currency?} -> {listingId,listFee}
     // ============================================================
 
     static final WebUiAction PLACE = (sender, payload) -> {
@@ -89,10 +90,12 @@ public final class MarketActions {
         // currency 缺省 CREDIT (市场只允许 CREDIT; 显式传 AZURE/其它由引擎拒绝)。
         String currency = optString(payload, "currency", MarketConstants.CURRENCY_CREDIT);
 
-        long listingId = MarketServices.marketEngine().place(sender, slot, count, unitPrice, currency);
+        // 引擎在挂单时按偏离费向卖家收取挂单手续费 (上单即收 sink), 回执含 listingId 与已付 listFee 供前端展示。
+        PlaceResult pr = MarketServices.marketEngine().place(sender, slot, count, unitPrice, currency);
 
         JsonObject result = new JsonObject();
-        result.addProperty("listingId", listingId);
+        result.addProperty("listingId", pr.listingId());
+        result.addProperty("listFee", pr.listFee());
         return GSON.toJson(result);
     };
 

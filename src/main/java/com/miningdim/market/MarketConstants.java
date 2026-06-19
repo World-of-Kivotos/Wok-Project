@@ -18,10 +18,26 @@ public final class MarketConstants {
     }
 
     /**
-     * 成交手续费率 (DRAFT, 待用户标定)。买家付 total, 卖家实收 proceeds = total - fee, fee = round(total*FEE_RATE)
-     * 不 grant 给任何人 = 凭空蒸发 = sink (反通胀, 契约第 1 节)。0.05 = 5% 是设计草案锚点, 非定稿。
+     * 挂单手续费的【平价基础费率】(DRAFT, 待用户标定)。偏离费 {@link MarketFee} 在 VR==V0 (诚实按基准价挂单) 时
+     * 退化到本费率: fee = round(FEE_RATE * unitPrice * count); 无可信锚的物品也用本平率兜底。0.05 = 5% 是草案锚点。
+     *
+     * 收费时机 (用户决策"上单即收"): 本费在 {@link MarketEngine#place} 向卖家一次性收取, 蒸发为 sink (不 grant 给任何人,
+     * 反通胀), 撤单/未售【不退】(EFT 非退性)。买入 ({@link MarketEngine#buy}) 不再二次收费, 卖家实收全额 total。
      */
     public static final double FEE_RATE = 0.05D;
+
+    /**
+     * 偏离费二次系数 K (DRAFT, 待标定): fee = max(V0,VR)*count*(FEE_RATE + DEVIATION_K * ln(VR/V0)^2)。
+     * 0.00717 使"基准价 V0 的物挂到极端价 (偏离 10^5 倍)"时费 ≈ 物品自身价值 (校准自用户意图: 基准 10w 物挂 1 块约付 10w 费);
+     * 对称 —— 贱卖 (VR&lt;V0) 与天价 (VR&gt;V0) 同等惩罚 (用户决策: 不对称非故意)。调大则偏离更狠。见 {@link MarketFee}。
+     */
+    public static final double DEVIATION_K = 0.00717D;
+
+    /**
+     * 偏离费取 ln 前对 V0/VR 的下钳值 (防 ln(0)/除零): 任何 &lt; 1 的基准价/挂出价按 1 算。挂出价 unitPrice 本已 &gt; 0
+     * (place 校验), 本钳主要兜底基准价 V0 的极小值。
+     */
+    public static final long MIN_ANCHOR_VALUE = 1L;
 
     /**
      * 铜/铁每卖家每日 P2P 量上限 (DRAFT, 待用户依定价台账标定)。对齐定价台账"铜 P2P 单人 cap"遗留约束:

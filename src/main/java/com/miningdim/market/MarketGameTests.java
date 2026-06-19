@@ -36,7 +36,7 @@ import java.util.function.Function;
  * 货币侧用真实 {@link EconomyService} 背靠内存 {@link EconomyWalletData} 账本 (余额是真账本, 可精确断言总量守恒),
  * 经 {@link EconomyServices} 定位器 swap/restore (仿 MinerGameTests: GameTest 在已启动服务端跑, 真实门面可能已注入,
  * 测后还原)。强断言 (删被测核心逻辑测试必挂, 禁 is-not-null 弱校验):
- *  1. 挂单->买入 happy path: 买家 -total / 卖家 +proceeds(=total-fee) / 手续费 fee 蒸发 (总量守恒: 减 total = 加 proceeds + 蒸发 fee),
+ *  1. 挂单->买入 happy path: 挂单时向卖家收偏离费 listFee 蒸发 (sink, 上单即收), 买入时买家 -total / 卖家 +全额 total (买入不再收费),
  *     物品进买家库存, listing 变 SOLD, transactions 有 1 行。
  *  2. 余额不足: tryCharge 返 false 路径, 买入抛, listing 仍 ACTIVE, 双方余额不变, 物品未交付。
  *  3. AZURE 计价挂单被拒。
@@ -68,12 +68,25 @@ public final class MarketGameTests {
             ServerPlayer buyer = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             MarketEngine engine = new MarketEngine(dao, helper.getLevel().getServer());
 
-            // 卖家挂 10 个钻石 @ 单价 100 -> total = 1000, fee = round(1000*0.05) = 50, proceeds = 950。
+            // 卖家挂 10 个钻石 @ 单价 100 (基准价 V0=500, 贱卖) -> 挂单时按偏离费向卖家收 listFee (sink, 上单即收)。
             seller.getInventory().clearContent();
             int slot = 0;
             seller.getInventory().setItem(slot, new ItemStack(Items.DIAMOND, 10));
-            long listingId = engine.place(seller, slot, 10, 100L, "CREDIT");
+            long expectedListFee = MarketFee.listingFee(
+                    DefaultBaseValues.resolve("minecraft:diamond"), 100L, 10);
+            helper.assertTrue(expectedListFee > 0L, "deviation listing fee for under-priced diamonds is positive");
+            // 给卖家足额信用点付挂单手续费 (10000 > listFee)。
+            EconomyServices.economyService().grant(seller, Currency.CREDIT, 10_000L);
+            long sellerFunded = ledger.balance(seller.getUUID(), Currency.CREDIT); // 10000
+
+            MarketEngine.PlaceResult placed = engine.place(seller, slot, 10, 100L, "CREDIT");
+            long listingId = placed.listingId();
             helper.assertTrue(listingId > 0L, "place returns a positive listing id");
+            helper.assertTrue(placed.listFee() == expectedListFee,
+                    "place charges exactly the computed deviation listing fee");
+            // 上单即收 sink: 卖家挂单后余额精确减 listFee (蒸发, 不进任何人)。
+            helper.assertTrue(ledger.balance(seller.getUUID(), Currency.CREDIT) == sellerFunded - expectedListFee,
+                    "the listing fee is charged from the seller at place time and vanishes (sink)");
             // 托管: 挂单后卖家该槽位被精确扣 10 个 (物品移出库存进 DB)。
             helper.assertTrue(seller.getInventory().getItem(slot).isEmpty(),
                     "escrow removes the listed stack from the seller inventory (slot now empty)");
@@ -81,26 +94,23 @@ public final class MarketGameTests {
             // 给买家足额信用点 (1200 > total 1000)。买前清买家库存确保有容量收物品。
             EconomyServices.economyService().grant(buyer, Currency.CREDIT, 1_200L);
             buyer.getInventory().clearContent();
-            long buyerBefore = ledger.balance(buyer.getUUID(), Currency.CREDIT);   // 1200
-            long sellerBefore = ledger.balance(seller.getUUID(), Currency.CREDIT); // 0
+            long buyerBefore = ledger.balance(buyer.getUUID(), Currency.CREDIT);     // 1200
+            long sellerBeforeBuy = ledger.balance(seller.getUUID(), Currency.CREDIT); // 10000 - listFee
 
             MarketEngine.BuyResult result = engine.buy(buyer, listingId);
 
-            // 回执字段精确。
+            // 回执字段精确: 买入不再收费 (fee 已挪到挂单时), 卖家实收全额 total。
             helper.assertTrue(result.total() == 1_000L, "buy total = unitPrice*count = 100*10 = 1000");
-            helper.assertTrue(result.fee() == 50L, "buy fee = round(1000*0.05) = 50");
+            helper.assertTrue(result.fee() == 0L, "buy no longer charges a fee (moved to place time): fee=0");
             helper.assertTrue(result.count() == 10, "buy delivered count = 10");
 
             long buyerAfter = ledger.balance(buyer.getUUID(), Currency.CREDIT);
             long sellerAfter = ledger.balance(seller.getUUID(), Currency.CREDIT);
 
-            // 守恒断言 (sink): 买家减 total=1000, 卖家加 proceeds=950, 差额 50 = fee 蒸发 (不进任何人)。
-            long buyerDelta = buyerBefore - buyerAfter;   // 1000
-            long sellerDelta = sellerAfter - sellerBefore; // 950
-            helper.assertTrue(buyerDelta == 1_000L, "buyer is charged exactly total (1000)");
-            helper.assertTrue(sellerDelta == 950L, "online seller receives exactly proceeds = total - fee (950)");
-            helper.assertTrue(buyerDelta - sellerDelta == 50L,
-                    "the fee (50) vanishes: buyer outflow minus seller inflow equals the fee sink, credited to nobody");
+            // 买家减 total=1000; 卖家加全额 total=1000 (买入侧无 sink, sink 在挂单时已收)。
+            helper.assertTrue(buyerBefore - buyerAfter == 1_000L, "buyer is charged exactly total (1000)");
+            helper.assertTrue(sellerAfter - sellerBeforeBuy == 1_000L,
+                    "online seller receives the full total at buy time (no second fee; fee taken at place)");
 
             // 物品交付买家库存 (10 个钻石确实到手)。
             helper.assertTrue(countItem(buyer, Items.DIAMOND) == 10,
@@ -149,14 +159,16 @@ public final class MarketGameTests {
 
             seller.getInventory().clearContent();
             seller.getInventory().setItem(0, new ItemStack(Items.IRON_INGOT, 5));
+            // 铁锭无内置基准价 V0 -> 挂单手续费走平率 round(0.05*500)=25; 先给卖家足额付挂单费。
+            EconomyServices.economyService().grant(seller, Currency.CREDIT, 1_000L);
             // 单价 100, count 5 -> total 500。
-            long listingId = engine.place(seller, 0, 5, 100L, "CREDIT");
+            long listingId = engine.place(seller, 0, 5, 100L, "CREDIT").listingId();
 
             // 买家只有 499 (< total 500): tryCharge 必返 false。
             EconomyServices.economyService().grant(buyer, Currency.CREDIT, 499L);
             buyer.getInventory().clearContent();
             long buyerBefore = ledger.balance(buyer.getUUID(), Currency.CREDIT);   // 499
-            long sellerBefore = ledger.balance(seller.getUUID(), Currency.CREDIT); // 0
+            long sellerBefore = ledger.balance(seller.getUUID(), Currency.CREDIT); // 1000 - 25(平率挂单费) = 975
 
             boolean threw = false;
             try {
@@ -255,7 +267,14 @@ public final class MarketGameTests {
 
             seller.getInventory().clearContent();
             seller.getInventory().setItem(0, new ItemStack(Items.DIAMOND, 8));
-            long listingId = engine.place(seller, 0, 8, 50L, "CREDIT");
+            long expectedListFee = MarketFee.listingFee(
+                    DefaultBaseValues.resolve("minecraft:diamond"), 50L, 8);
+            EconomyServices.economyService().grant(seller, Currency.CREDIT, 10_000L);
+            long sellerFunded = ledger.balance(seller.getUUID(), Currency.CREDIT); // 10000
+            MarketEngine.PlaceResult placed = engine.place(seller, 0, 8, 50L, "CREDIT");
+            long listingId = placed.listingId();
+            helper.assertTrue(placed.listFee() == expectedListFee,
+                    "place charges the deviation listing fee for the under-priced diamonds");
             // 托管后库存空。
             helper.assertTrue(countItem(seller, Items.DIAMOND) == 0,
                     "escrow empties the seller stack on place");
@@ -269,6 +288,9 @@ public final class MarketGameTests {
             // listing 变 CANCELLED。
             helper.assertTrue("CANCELLED".equals(dao.findListing(listingId).status()),
                     "listing status flips to CANCELLED after cancel");
+            // 挂单手续费不退 (EFT 非退性): 撤单退回物品, 但 listFee 已蒸发, 不随撤单返还。
+            helper.assertTrue(ledger.balance(seller.getUUID(), Currency.CREDIT) == sellerFunded - expectedListFee,
+                    "cancel refunds the item but NOT the listing fee (fee is a non-refundable sink)");
             // 撤后无 ACTIVE 挂单。
             helper.assertTrue(dao.listingsBySeller(seller.getUUID(), "ACTIVE").isEmpty(),
                     "the cancelled listing is no longer ACTIVE");
@@ -307,11 +329,13 @@ public final class MarketGameTests {
 
             int cap = MarketConstants.COPPER_IRON_DAILY_P2P_CAP; // 512 (DRAFT)
             seller.getInventory().clearContent();
+            // 挂单手续费上单即收: 给卖家足额信用点 (铜锭平率费 + 后面钻石偏离费均需先付)。
+            EconomyServices.economyService().grant(seller, Currency.CREDIT, 200_000L);
 
             // 先挂满 cap 个铜锭 (恰达上限, 成功)。给一组 64 stack 摆满前若干槽, 简化为单槽 setItem cap 个 (mock 允许超 64 单槽计数,
             // shrink 精确扣 cap 个; place 只校验 stack.getCount() >= count, 与单槽最大堆叠无关, 内存测试可行)。
             seller.getInventory().setItem(0, new ItemStack(Items.COPPER_INGOT, cap));
-            long atCap = engine.place(seller, 0, cap, 10L, "CREDIT");
+            long atCap = engine.place(seller, 0, cap, 10L, "CREDIT").listingId();
             helper.assertTrue(atCap > 0L, "listing exactly at the daily cap succeeds (达上限不拒)");
             // soldOrListedCountToday 现应 == cap (该 ACTIVE 挂单计入今日量)。
             helper.assertTrue(dao.soldOrListedCountToday(seller.getUUID(),
@@ -334,7 +358,7 @@ public final class MarketGameTests {
 
             // 非铜铁标的不受此 cap 约束: 同日再挂大量钻石成功 (cap 只管铜铁集合)。
             seller.getInventory().setItem(2, new ItemStack(Items.DIAMOND, cap));
-            long diamondListing = engine.place(seller, 2, cap, 10L, "CREDIT");
+            long diamondListing = engine.place(seller, 2, cap, 10L, "CREDIT").listingId();
             helper.assertTrue(diamondListing > 0L,
                     "non copper/iron items are not subject to the copper/iron daily cap");
 
@@ -359,8 +383,8 @@ public final class MarketGameTests {
             ServerPlayer buyer = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             MarketEngine engine = new MarketEngine(dao, helper.getLevel().getServer());
 
-            // 离线卖家: 用一个不在 PlayerList 的 UUID, 直接经 DAO 写入 ACTIVE 挂单 (模拟挂单后卖家下线)。
-            // 单价 200, count 5 -> total 1000, fee = round(1000*0.05)=50, proceeds = 950。
+            // 离线卖家: 用一个不在 PlayerList 的 UUID, 直接经 DAO 写入 ACTIVE 挂单 (模拟挂单后卖家下线; 绕过 place 故无挂单费)。
+            // 单价 200, count 5 -> total 1000; 买入不再收费, 卖家实收全额 proceeds = total = 1000。
             UUID offlineSeller = UUID.randomUUID();
             helper.assertTrue(helper.getLevel().getServer().getPlayerList().getPlayer(offlineSeller) == null,
                     "the offline seller UUID is genuinely not in the player list");
@@ -373,8 +397,8 @@ public final class MarketGameTests {
             buyer.getInventory().clearContent();
 
             MarketEngine.BuyResult result = engine.buy(buyer, listingId);
-            helper.assertTrue(result.total() == 1_000L && result.fee() == 50L,
-                    "offline-seller buy computes total=1000 fee=50 like the online path");
+            helper.assertTrue(result.total() == 1_000L && result.fee() == 0L,
+                    "offline-seller buy computes total=1000 fee=0 like the online path (fee moved to place)");
 
             // 离线分支: 卖家钱包未即时入账 (余额仍 0), proceeds 落 pending_payout。
             helper.assertTrue(ledger.balance(offlineSeller, Currency.CREDIT) == 0L,
@@ -388,19 +412,52 @@ public final class MarketGameTests {
             // 卖家登录结算: 用同一 UUID 造 mock 玩家, settlePendingOnLogin 把 pending 累加 grant -> 余额 = proceeds 950。
             ServerPlayer sellerOnLogin = makeMockPlayerWithUuid(helper, offlineSeller);
             engine.settlePendingOnLogin(sellerOnLogin);
-            helper.assertTrue(ledger.balance(offlineSeller, Currency.CREDIT) == 950L,
-                    "after login settlement the seller balance equals the deferred proceeds (950)");
+            helper.assertTrue(ledger.balance(offlineSeller, Currency.CREDIT) == 1_000L,
+                    "after login settlement the seller balance equals the deferred proceeds = full total (1000)");
 
-            // 二次登录结算: pending 已 drain 清空, 不重复发放 (余额仍 950)。
+            // 二次登录结算: pending 已 drain 清空, 不重复发放 (余额仍 1000)。
             engine.settlePendingOnLogin(sellerOnLogin);
-            helper.assertTrue(ledger.balance(offlineSeller, Currency.CREDIT) == 950L,
-                    "a second login settlement does not double-pay (pending already drained): still 950");
+            helper.assertTrue(ledger.balance(offlineSeller, Currency.CREDIT) == 1_000L,
+                    "a second login settlement does not double-pay (pending already drained): still 1000");
 
             helper.succeed();
         } finally {
             MarketDb.close(dao);
             restoreEconomy(prev);
         }
+    }
+
+    // ============================================================
+    // 7. 偏离费校准 (纯函数): 平价=平率地板 / 极端偏离≈物品价值 / 两端对称 / 小幅偏离便宜 / 无锚退平率
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void deviationFeeCalibrationMatchesIntent(GameTestHelper helper) {
+        // 平价 (VR==V0): ln(1)=0, 费率落到 FEE_RATE 地板 = round(0.05 * V0 * count) = 5000。
+        long parity = MarketFee.deviationFee(100_000L, 100_000L, 1);
+        helper.assertTrue(parity == 5_000L,
+                "at parity (VR==V0) the fee is the flat base-rate floor 0.05*100000 = 5000, got " + parity);
+
+        // 贱卖到极端 (基准 10w 的物挂 1 块): 费 ≈ 物品自身价值 ~10w (用户意图); 容差吸收 K 取整。
+        long firesale = MarketFee.deviationFee(100_000L, 1L, 1);
+        helper.assertTrue(firesale >= 98_000L && firesale <= 102_000L,
+                "firesale (V0=100000 listed at 1) fee approximates the item value ~100000, got " + firesale);
+
+        // 对称: 天价 (基准 1 挂 10w) 与贱卖同费 (用户决策: 对称惩罚)。
+        long overprice = MarketFee.deviationFee(1L, 100_000L, 1);
+        helper.assertTrue(overprice == firesale,
+                "deviation fee is symmetric: overprice equals firesale, got over=" + overprice + " fire=" + firesale);
+
+        // 小幅偏离 (2 倍) 便宜: 诚实还价不疼 (< 8% of the 1000 listed value)。
+        long mild = MarketFee.deviationFee(500L, 1_000L, 1);
+        helper.assertTrue(mild < 80L,
+                "a mild 2x deviation stays cheap for honest haggling, got " + mild);
+
+        // 无锚兜底 = 平率费 round(0.05*unitPrice*count) = 50。
+        long flat = MarketFee.listingFee(java.util.OptionalLong.empty(), 100L, 10);
+        helper.assertTrue(flat == 50L, "no-anchor listing fee falls back to flat 0.05*total = 50, got " + flat);
+
+        helper.succeed();
     }
 
     // ============================================================

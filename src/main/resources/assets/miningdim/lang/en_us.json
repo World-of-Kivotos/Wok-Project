@@ -288,5 +288,12 @@
   "tooltip.miningdim.brewer.vintage": "Vintage: %s yr",
   "tooltip.miningdim.brewer.strength": "Strength: %s",
   "message.miningdim.brewer.moonshine.good": "Moonshine gamble: lucky! A warm rush hits you.",
-  "message.miningdim.brewer.moonshine.bad": "Moonshine gamble: bad batch... your head spins."
+  "message.miningdim.brewer.moonshine.bad": "Moonshine gamble: bad batch... your head spins.",
+  "block.miningdim.brewing_station": "Brewing Station",
+  "block.miningdim.wine_cellar": "Wine Cellar",
+  "brewer.cellar.out_of_fuel": "No dried wheat! Aging paused",
+  "brewer.cellar.empty": "Empty",
+  "brewer.cellar.aging": "Aging",
+  "brewer.cellar.spoiled": "Spoiled",
+  "brewer.cellar.vintage": "Vintage %s"
 }

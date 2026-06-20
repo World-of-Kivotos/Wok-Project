@@ -288,5 +288,12 @@
   "tooltip.miningdim.brewer.vintage": "陈酿年份: %s",
   "tooltip.miningdim.brewer.strength": "强度: %s",
   "message.miningdim.brewer.moonshine.good": "月光赌博: 大吉! 一阵畅快涌上来。",
-  "message.miningdim.brewer.moonshine.bad": "月光赌博: 翻车... 这口烈得发昏。"
+  "message.miningdim.brewer.moonshine.bad": "月光赌博: 翻车... 这口烈得发昏。",
+  "block.miningdim.brewing_station": "酿酒台",
+  "block.miningdim.wine_cellar": "酒窖箱",
+  "brewer.cellar.out_of_fuel": "缺干小麦! 陈酿暂停",
+  "brewer.cellar.empty": "空",
+  "brewer.cellar.aging": "陈酿中",
+  "brewer.cellar.spoiled": "已变质",
+  "brewer.cellar.vintage": "年份 %s"
 }

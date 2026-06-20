@@ -26,6 +26,8 @@ public final class BrewerTab {
                     .title(Component.translatable("itemGroup.miningdim_brewer"))
                     .icon(() -> new ItemStack(BrewerItems.itemFor(WineType.WHISKEY)))
                     .displayItems((params, output) -> {
+                        output.accept(com.miningdim.job.brewer.station.BrewingStationRegistry.STATION_ITEM.get());
+                        output.accept(com.miningdim.job.brewer.cellar.WineCellarRegistry.WINE_CELLAR_ITEM.get());
                         output.accept(BrewerItems.DRIED_WHEAT.get());
                         for (WineType type : WineType.values()) {
                             output.accept(BrewerItems.itemFor(type));

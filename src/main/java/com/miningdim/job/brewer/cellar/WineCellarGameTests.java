@@ -31,27 +31,26 @@ public final class WineCellarGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void ampleFuelAgesOneYearPerDayAndConsumesEscalatingFuel(GameTestHelper helper) {
         // 单瓶 vintage 0, 3 天, 足量燃料, 非满月: vintage -> 3.0。
-        // 燃料 (小数债累加, 跨整数才扣): 第1天 16.0->扣16(债0); 第2天 +17.6(债17.6)->扣17(债0.6);
-        //   第3天 +19.2(债19.8)->扣19(债0.8) => 共 52 (旧 per-step ceil 会是 54)。
+        // 燃料 (每年耗 = 16 + 5×V², 整天债恰为整数): 第1天 v0->16; 第2天 v1->16+5=21; 第3天 v2->16+20=36 => 共 73。
         CellarSettle.Result r = CellarSettle.settle(
                 List.of(new CellarSettle.BottleState(0.0D, false)), 3L * DAY, AMPLE_FUEL, NO_MOON, 0.0D);
         helper.assertTrue(r.bottles().size() == 1, "one bottle returned");
         CellarSettle.BottleState b = r.bottles().get(0);
         helper.assertTrue(Math.abs(b.vintage() - 3.0D) < EPS, "vintage = 3.0 after 3 days, got " + b.vintage());
         helper.assertTrue(!b.spoiled(), "not spoiled with ample fuel");
-        helper.assertTrue(r.fuelConsumed() == 52, "fuel consumed = 16+17+19 = 52, got " + r.fuelConsumed());
+        helper.assertTrue(r.fuelConsumed() == 73, "fuel consumed = 16+21+36 = 73, got " + r.fuelConsumed());
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void olderWineConsumesMoreFuelPerDay(GameTestHelper helper) {
-        // 整天足量燃料 (债恰为整数): 新酒 (vintage 0) 耗 16; 老酒 (vintage 10) 耗 16×(1+10/10)=32 (恰翻倍)。
+        // 整天足量燃料: 新酒 (vintage 0) 耗 16; 老酒 (vintage 10) 耗 16+5×10² = 516 (二次递增, 老酒烧钱凶)。
         int freshCost = CellarSettle.settle(
                 List.of(new CellarSettle.BottleState(0.0D, false)), DAY, AMPLE_FUEL, NO_MOON, 0.0D).fuelConsumed();
         int oldCost = CellarSettle.settle(
                 List.of(new CellarSettle.BottleState(10.0D, false)), DAY, AMPLE_FUEL, NO_MOON, 0.0D).fuelConsumed();
         helper.assertTrue(freshCost == 16, "fresh wine 1 day fuel = 16, got " + freshCost);
-        helper.assertTrue(oldCost == 32, "vintage-10 wine 1 day fuel = 32, got " + oldCost);
+        helper.assertTrue(oldCost == 516, "vintage-10 wine 1 day fuel = 16+5*100 = 516, got " + oldCost);
         helper.assertTrue(oldCost > freshCost, "older wine consumes more fuel");
         helper.succeed();
     }
@@ -71,19 +70,19 @@ public final class WineCellarGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void starvationDecaysVintageThenSpoils(GameTestHelper helper) {
-        // 断粮 (fuel 0) 1 天: vintage 5 -> 5 - 3.0×1 = 2.0, 未变质, 零耗燃料。
-        CellarSettle.Result oneDay = CellarSettle.settle(
-                List.of(new CellarSettle.BottleState(5.0D, false)), DAY, 0, NO_MOON, 0.0D);
-        CellarSettle.BottleState afterOne = oneDay.bottles().get(0);
-        helper.assertTrue(Math.abs(afterOne.vintage() - 2.0D) < EPS, "starved 1 day: vintage 5 -> 2.0, got " + afterOne.vintage());
-        helper.assertTrue(!afterOne.spoiled(), "not yet spoiled after 1 starved day");
-        helper.assertTrue(oneDay.fuelConsumed() == 0, "no fuel consumed when starving");
+        // 断粮衰退极快 (200/天)。短时 0.01 天 (DAY/100): vintage 5 -> 5 - 200×0.01 = 3.0, 未变质, 零耗燃料。
+        CellarSettle.Result brief = CellarSettle.settle(
+                List.of(new CellarSettle.BottleState(5.0D, false)), DAY / 100L, 0, NO_MOON, 0.0D);
+        CellarSettle.BottleState afterBrief = brief.bottles().get(0);
+        helper.assertTrue(Math.abs(afterBrief.vintage() - 3.0D) < EPS, "starved 0.01 day: vintage 5 -> 3.0, got " + afterBrief.vintage());
+        helper.assertTrue(!afterBrief.spoiled(), "not yet spoiled after brief starve");
+        helper.assertTrue(brief.fuelConsumed() == 0, "no fuel consumed when starving");
 
-        // 断粮 2 天: 第1天 5->2; 第2天 2 - 3 = -1 <= 0 -> 变质, vintage 0。
-        CellarSettle.BottleState afterTwo = CellarSettle.settle(
-                List.of(new CellarSettle.BottleState(5.0D, false)), 2L * DAY, 0, NO_MOON, 0.0D).bottles().get(0);
-        helper.assertTrue(afterTwo.spoiled(), "starved 2 days -> spoiled");
-        helper.assertTrue(Math.abs(afterTwo.vintage()) < EPS, "spoiled wine vintage clamped to 0, got " + afterTwo.vintage());
+        // 断粮 1 整天: 5 - 200 = 负 <= 0 -> 秒变质, vintage 0 (v25 满酒断粮约 3 小时即归零)。
+        CellarSettle.BottleState afterDay = CellarSettle.settle(
+                List.of(new CellarSettle.BottleState(5.0D, false)), DAY, 0, NO_MOON, 0.0D).bottles().get(0);
+        helper.assertTrue(afterDay.spoiled(), "starved a full day -> spoiled (fast decay)");
+        helper.assertTrue(Math.abs(afterDay.vintage()) < EPS, "spoiled wine vintage clamped to 0, got " + afterDay.vintage());
         helper.succeed();
     }
 
@@ -93,10 +92,10 @@ public final class WineCellarGameTests {
         CellarSettle.BottleState aged = CellarSettle.settle(
                 List.of(new CellarSettle.BottleState(0.0D, false)), DAY / 2L, AMPLE_FUEL, NO_MOON, 0.0D).bottles().get(0);
         helper.assertTrue(Math.abs(aged.vintage() - 0.5D) < EPS, "half day ages 0.5, got " + aged.vintage());
-        // 半天断粮: vintage 5 -> 5 - 3.0×0.5 = 3.5。
+        // 短断粮 (DAY/200 = 0.005 天): vintage 5 -> 5 - 200×0.005 = 4.0 (衰退快, 短时仍有量, 按比例)。
         CellarSettle.BottleState decayed = CellarSettle.settle(
-                List.of(new CellarSettle.BottleState(5.0D, false)), DAY / 2L, 0, NO_MOON, 0.0D).bottles().get(0);
-        helper.assertTrue(Math.abs(decayed.vintage() - 3.5D) < EPS, "half day starve: 5 -> 3.5, got " + decayed.vintage());
+                List.of(new CellarSettle.BottleState(5.0D, false)), DAY / 200L, 0, NO_MOON, 0.0D).bottles().get(0);
+        helper.assertTrue(Math.abs(decayed.vintage() - 4.0D) < EPS, "brief starve: 5 -> 4.0, got " + decayed.vintage());
         helper.succeed();
     }
 

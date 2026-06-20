@@ -32,19 +32,19 @@ public final class BrewerConstants {
 
     // ---- 干小麦燃料门控 + 陈酿/变质 (酒窖箱, 阶段 4) ----
 
-    /** 酒窖箱的陈酿酒槽数 (干小麦燃料槽另算)。 */
-    public static final int CELLAR_WINE_SLOTS = 9;
+    /** 酒窖箱的陈酿酒槽数 (干小麦燃料槽另算)。12 瓶高年份满产 ≈ 满级 L10 农夫供给 (对标农夫产量, 见设计文档)。 */
+    public static final int CELLAR_WINE_SLOTS = 12;
 
-    /** 每瓶酒每陈酿 1 年份的【基础】干小麦耗量 (要求量大: 长线职业的小麦 sink, 联动农夫经济)。 */
+    /** 每瓶酒每陈酿 1 年份的【基础】干小麦耗量 (年份 0 时的量; 实耗随年份二次递增, 见 {@link #FUEL_QUAD_COEF})。 */
     public static final int DRIED_WHEAT_PER_BOTTLE_YEAR = 16;
 
-    /** 干小麦耗量随年份递增的比例: 一瓶 vintage V 的酒每年实耗 = 基础 ×(1 + V / 此值)。10 => vintage 10 翻倍、
-     *  vintage 25 约 3.5 倍 (老酒烧钱凶, 自然经济封顶: 推高年份的边际收益被燃料成本吃掉)。 */
-    public static final double FUEL_ESCALATION_SCALE = 10.0D;
+    /** 干小麦耗量随年份【二次】递增的系数: 一瓶 vintage V 的酒每年实耗 = 基础 + 此值×V² (超线性, 嫩酒便宜、
+     *  高年份指数爆炸)。5 => v10 耗 516、v25 耗 3141/瓶/年; 满 12 瓶 v25 ≈ 3.8 万小麦/天 ≈ 满级农夫专职供给。 */
+    public static final double FUEL_QUAD_COEF = 5.0D;
 
-    /** 断干小麦时年份的衰退速率 (每现实天倒扣的年份)。快于 1 年/天的陈酿速度 => 缺粮净亏; 衰退到 0 即变质
-     *  (WineNbt spoiled, buff 归零、不可再陈)。 */
-    public static final double SPOILAGE_DECAY_YEARS_PER_DAY = 3.0D;
+    /** 断干小麦时年份的衰退速率 (每现实天倒扣的年份)。200 => v25 满酒断粮约 3 小时归零变质 (全玩家掌控、无 RNG,
+     *  替代随机损毁; 逼"高端闪耀酒必须有不间断的农夫供应链, 链一断宝贝几小时就没")。 */
+    public static final double SPOILAGE_DECAY_YEARS_PER_DAY = 200.0D;
 
     // ---- 闪耀永久增益 (一条命) ----
 

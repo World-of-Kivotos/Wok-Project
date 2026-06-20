@@ -11,7 +11,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.items.SlotItemHandler;
 
 /**
- * 酒窖箱容器菜单 (酿酒师 阶段 4; 复用 {@link AbstractMiningMenu} 脚手架)。容器槽: 9 酒槽 (3x3, 仅接受
+ * 酒窖箱容器菜单 (酿酒师 阶段 4; 复用 {@link AbstractMiningMenu} 脚手架)。容器槽: 12 酒槽 (3x4, 仅接受
  * {@link WineNbt#isWine} 的酒) + 1 干小麦燃料槽 (仅 {@link BrewerItems#DRIED_WHEAT}) + 玩家 36 槽。
  *
  * 双构造 (照调味台范式): 服务端由 {@link WineCellarBlockEntity#createMenu} 调 (持 BE 引用直接绑槽); 客户端经
@@ -23,8 +23,8 @@ public final class WineCellarMenu extends AbstractMiningMenu {
     /** 容器槽数 (9 酒槽 + 1 燃料槽)。 */
     public static final int CONTAINER_SLOTS = WineCellarBlockEntity.TOTAL_SLOTS;
 
-    // 酒槽 3x3 网格布局 (相对界面左上角)。
-    private static final int WINE_GRID_COLS = 3;
+    // 酒槽 3x4 网格布局 (12 槽, 相对界面左上角)。
+    private static final int WINE_GRID_COLS = 4;
     private static final int WINE_GRID_ROWS = 3;
     private static final int WINE_GRID_X = 44;
     private static final int WINE_GRID_Y = 18;
@@ -59,7 +59,7 @@ public final class WineCellarMenu extends AbstractMiningMenu {
     }
 
     private void addContainerSlots(WineCellarBlockEntity be) {
-        // 9 酒槽 3x3 (仅接受酒)。
+        // 12 酒槽 3x4 (仅接受酒)。
         for (int row = 0; row < WINE_GRID_ROWS; row++) {
             for (int col = 0; col < WINE_GRID_COLS; col++) {
                 int index = row * WINE_GRID_COLS + col;

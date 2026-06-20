@@ -78,9 +78,10 @@ public final class CellarSettle {
                     if (b.spoiled()) {
                         continue; // 已变质: 不增龄不耗燃料。
                     }
-                    double demand = BrewerConstants.DRIED_WHEAT_PER_BOTTLE_YEAR * stepYears
-                            * (1.0D + b.vintage() / BrewerConstants.FUEL_ESCALATION_SCALE);
-                    debt += demand;
+                    // 该瓶每年实耗 = 基础 + 二次系数×vintage² (超线性: 嫩酒便宜、高年份指数爆炸)。
+                    double fuelPerYear = BrewerConstants.DRIED_WHEAT_PER_BOTTLE_YEAR
+                            + BrewerConstants.FUEL_QUAD_COEF * b.vintage() * b.vintage();
+                    debt += fuelPerYear * stepYears;
                     working.set(i, new BottleState(b.vintage() + stepYears, false));
                 }
                 // 债跨过整数才扣相应整数颗 (上限为槽内现存); 小数余债跨步保留。

@@ -106,6 +106,9 @@ public final class MiningDim {
         //     + 易伤单一全局仲裁 + IJobService 门面注入 + /job 命令 + 登录同步。须排在所有具体职业之前:
         //     各职业在事件回调内经 JobServices.jobService() 读等级/给经验, 框架须先注入门面。
         subsystems.add(new com.miningdim.job.JobFrameworkSystem());
+        // 16.5 战斗基建: 玩家受击减伤的单点乘法结算 (各职业把命名减伤源 register 进 PlayerDamageReduction 静态表)。
+        //      静态注册表对 register 顺序不敏感; 挂减伤源的职业 (厨师凝脂/矿工矿脉抗性/酿酒烈酒钝感) 在场即生效。
+        subsystems.add(new com.miningdim.combat.CombatSystem());
         // 17. 矿工职业: 挖速加成 / 谁挖谁得经验 / 连锁挖矿 / 矿物探测 / 便利技能 (依赖职业框架门面)。
         subsystems.add(new com.miningdim.job.miner.MinerSystem());
         // 18. 农夫职业: 分档耕地 + mod 小麦 + 收购闸门 (依赖职业框架门面)。

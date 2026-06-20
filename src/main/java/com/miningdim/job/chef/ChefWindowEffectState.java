@@ -120,7 +120,7 @@ public final class ChefWindowEffectState {
         return magnitudeOf(playerId, ChefEffectType.STABLE_AIM);
     }
 
-    /** 凝脂爆炸减伤比例 (千分比基点; 0 = 无)。供 {@link ChefExplosionHandler} 读 (LivingHurtEvent 爆炸 Tag)。 */
+    /** 凝脂爆炸减伤比例 (千分比基点; 0 = 无)。供 {@link ChefGreaseReduction} 读 (玩家减伤单点结算的爆炸源)。 */
     public static int greaseReducePerMille(UUID playerId) {
         return magnitudeOf(playerId, ChefEffectType.GREASE);
     }

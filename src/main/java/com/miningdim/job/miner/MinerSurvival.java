@@ -15,7 +15,8 @@ import net.minecraft.world.damagesource.DamageSource;
  * LivingHurtEvent 判 source 身份精确区分陷阱伤与怪/枪/玩家 TNT 伤。当前 trap 子系统未提供该专属源 (动态陷阱用原版
  * 机制造伤: 落石 FALLING_BLOCK / 岩浆 / 苦力怕爆炸, 跨子系统改动不在本任务可写范围, 见 foundationGaps); 故
  * {@link #isTrapSource} 现一律返回 false (红线安全降级: 宁可不减伤, 不可误把战斗伤当陷阱伤减), trap 暴露专属源后改为
- * 身份比较即自动生效。{@link MinerSystem#onLivingHurt} 的减伤接线已就绪 (按 isTrapSource 门控), 无需再改接线。
+ * 身份比较即自动生效。减伤接线已迁至玩家减伤单点结算 ({@link MinerSystem} register 注册的"矿脉抗性"源,
+ * 按 isTrapSource 门控); trap 落地后只改 isTrapSource 即自动生效, 无需再改接线。
  */
 public final class MinerSurvival {
 

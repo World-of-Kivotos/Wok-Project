@@ -67,6 +67,22 @@ public final class MinerSystem implements Subsystem {
     public void register(IEventBus modBus, IEventBus forgeBus) {
         instance = this;
         forgeBus.register(this);
+        // 矿脉抗性 (陷阱专属来源减伤): 作为独立命名减伤源迁入玩家减伤单点结算 (减伤统一)。当前 isTrapSource 恒
+        // false -> 实际 0 减伤 (陷阱专属源未落地的红线安全降级); trap 暴露专属源后自动生效。捕获 this 取 region/等级。
+        com.miningdim.combat.PlayerDamageReduction.register(new com.miningdim.combat.PlayerDamageReduction.ReductionSource() {
+            @Override
+            public String name() {
+                return "矿脉抗性";
+            }
+
+            @Override
+            public double rate(net.minecraft.world.entity.player.Player victim, net.minecraft.world.damagesource.DamageSource source) {
+                if (!inMiningRegion(victim) || !MinerSurvival.isTrapSource(source)) {
+                    return 0.0D;
+                }
+                return MinerSkills.trapDamageReduction(minerLevel(victim));
+            }
+        });
         // 网络包注册推迟到 FMLCommonSetupEvent.enqueueWork (线程安全窗口, 与 NetworkSystem 同纪律)。
         modBus.addListener((FMLCommonSetupEvent event) -> event.enqueueWork(MinerNetwork::register));
         LOGGER.info("[miningdim] miner subsystem registered (break speed / who-mines-gets-xp / chain / scan / convenience)");
@@ -297,16 +313,7 @@ public final class MinerSystem implements Subsystem {
         }
         // interruptEvacuateOnHurt 内部已判 evacuating() (不在读条则空转), 此处直接委派 (单一入口, 不重复取态)。
         MinerActions.interruptEvacuateOnHurt(player);
-
-        // 矿脉抗性: 仅陷阱专属来源减伤 (非矿洞 region / 非陷阱来源零作用)。先判 region 再判来源, 避免对域外伤害空算。
-        if (!inMiningRegion(player) || !MinerSurvival.isTrapSource(event.getSource())) {
-            return;
-        }
-        int level = minerLevel(player);
-        float reduced = MinerSurvival.reducedDamage(level, event.getSource(), event.getAmount());
-        if (reduced < event.getAmount()) {
-            event.setAmount(reduced);
-        }
+        // 矿脉抗性减伤已迁至玩家减伤单点结算 (见 register 注册的"矿脉抗性"源); 本处只保留脱险读条打断, 不改伤害。
     }
 
     // ============================================================

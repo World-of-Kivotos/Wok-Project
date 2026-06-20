@@ -56,9 +56,10 @@ public final class ChefSystem implements Subsystem {
         forgeBus.register(new ChefConsumeHandler());
         forgeBus.register(new ChefTooltipHandler());
         forgeBus.register(new ChefKnockbackHandler());
-        forgeBus.register(new ChefExplosionHandler());
         forgeBus.register(new ChefHungerHandler());
         forgeBus.register(windowState);
+        // 凝脂 (爆炸减伤): 迁入玩家减伤单点结算, 不再自挂 LivingHurtEvent (减伤统一, 见 ChefGreaseReduction)。
+        com.miningdim.combat.PlayerDamageReduction.register(new ChefGreaseReduction());
 
         LOGGER.info("[miningdim] chef subsystem registered (5 seasoning tables + minigame + effects + amplify blacklist)");
     }

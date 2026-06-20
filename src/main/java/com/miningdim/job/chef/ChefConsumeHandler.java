@@ -29,7 +29,7 @@ import java.util.List;
  *  - 翻车负面 (夹生/烧焦/倒胃/多盐): 仅低/中/高 (盖章时 noFailure 档已不掷, 此处按 instance 直接结算)。
  *
  * 战斗向回血/护盾用 %最大血量 (服务器 80 血环境铁律); 严禁改最大生命值属性 (披甲走 absorption, 不改 maxHealth)。
- * 战斗向减伤/易伤经共享 ModEffects 仲裁, 本类不挂 LivingHurtEvent (凝脂减伤在 {@link ChefExplosionHandler})。
+ * 战斗向减伤/易伤经共享 ModEffects 仲裁, 本类不挂 LivingHurtEvent (凝脂减伤迁入玩家减伤单点结算, 见 {@link ChefGreaseReduction})。
  */
 public final class ChefConsumeHandler {
 

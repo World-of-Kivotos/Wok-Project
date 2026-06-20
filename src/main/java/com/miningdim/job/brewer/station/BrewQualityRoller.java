@@ -35,8 +35,18 @@ public final class BrewQualityRoller {
     public static final int MIN_LEVEL = 1;
     public static final int MAX_LEVEL = 10;
 
+    /** 闪耀【仅 L10】可出 (<10 恒 0); 此为 L10 非满月的原始权重, 归一后约 5% (闪耀难做)。 */
+    public static final double BRILLIANT_L10_WEIGHT = 0.158D;
+    /** 满月酿造时闪耀原始权重的乘子 (归一后约 9.5%, 近翻倍; 蹭潮汐 Tide 满月主题, 逼玩家挑满月开酿)。 */
+    public static final double FULL_MOON_BRILLIANT_MULT = 2.0D;
+
+    /** 非满月权重 (便利重载)。 */
+    public static double[] weights(int level) {
+        return weights(level, false);
+    }
+
     /**
-     * 给定酿酒师等级 (1-10) 的五档品质权重 (索引 = {@link WineQuality#ordinal()}; 之和 = 1, 每档 >= 0)。
+     * 给定酿酒师等级 (1-10) + 是否满月的五档品质权重 (索引 = {@link WineQuality#ordinal()}; 之和 = 1, 每档 >= 0)。
      * 越界等级 clamp 到 [1,10] (容错, 不抛 —— level() 契约保证 1-10, 此为双保险)。
      *
      * 未归一化分值 (p = (level-1)/9):
@@ -44,9 +54,10 @@ public final class BrewQualityRoller {
      *  - MID      = 0.6 + 0.2p      (中段稳定主力)
      *  - HIGH     = 1.2p            (随等级线性抬升)
      *  - SUPERB   = 0.9p^2          (高段二次抬升)
-     *  - BRILLIANT= 0.7p^3          (仅满级附近显著: p=1 时 0.7, p<=0.5 时 <0.09)
+     *  - BRILLIANT= 仅 L10 可出 (lv<10 恒 0); L10 = {@link #BRILLIANT_L10_WEIGHT} ×(满月 ? {@link #FULL_MOON_BRILLIANT_MULT} : 1)。
+     *               归一后 L10 非满月 ≈ 5%, 满月 ≈ 9.5% (闪耀难做 + 满月翻倍)。
      */
-    public static double[] weights(int level) {
+    public static double[] weights(int level, boolean fullMoon) {
         int lv = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, level));
         double p = (lv - MIN_LEVEL) / (double) (MAX_LEVEL - MIN_LEVEL); // [0,1]
 
@@ -55,7 +66,9 @@ public final class BrewQualityRoller {
         raw[IDX_MID] = 0.6D + 0.2D * p;
         raw[IDX_HIGH] = 1.2D * p;
         raw[IDX_SUPERB] = 0.9D * p * p;
-        raw[IDX_BRILLIANT] = 0.7D * p * p * p;
+        raw[IDX_BRILLIANT] = (lv >= MAX_LEVEL)
+                ? BRILLIANT_L10_WEIGHT * (fullMoon ? FULL_MOON_BRILLIANT_MULT : 1.0D)
+                : 0.0D;
 
         double sum = 0.0D;
         for (double w : raw) {
@@ -72,11 +85,11 @@ public final class BrewQualityRoller {
      * 按等级权重抽一档品质 (纯函数, 随机源由调用方传入便于确定性测试)。在 [0,1) 抽一个数, 沿五档累积概率落入
      * 对应区间。浮点累积末档兜底返回 BRILLIANT (防累积和因浮点误差略小于 1 时漏档)。
      */
-    public static WineQuality roll(int brewerLevel, RandomSource random) {
+    public static WineQuality roll(int brewerLevel, boolean fullMoon, RandomSource random) {
         if (random == null) {
             throw new IllegalArgumentException("random source must not be null");
         }
-        double[] w = weights(brewerLevel);
+        double[] w = weights(brewerLevel, fullMoon);
         double r = random.nextDouble();
         double cumulative = 0.0D;
         WineQuality[] order = {

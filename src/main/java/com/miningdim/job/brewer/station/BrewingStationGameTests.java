@@ -41,17 +41,20 @@ public final class BrewingStationGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void lowLevelBrilliantNearZeroFullLevelSignificant(GameTestHelper helper) {
-        // 闪耀档 = 索引 4 (BRILLIANT)。
+    public static void brilliantGatedToL10AndDoubledOnFullMoon(GameTestHelper helper) {
+        // 闪耀档 = 索引 4 (BRILLIANT)。闪耀难做: 仅 L10 可出, L10 非满月 ≈ 5%, 满月近翻倍。
         int brilliant = 4;
-        double lvl1Brilliant = BrewQualityRoller.weights(1)[brilliant];
-        double lvl10Brilliant = BrewQualityRoller.weights(10)[brilliant];
-        // 1 级闪耀概率恒 0 (p=0 -> 0.7*0^3 = 0)。
-        helper.assertTrue(Math.abs(lvl1Brilliant) < EPS, "level 1 brilliant prob = 0, got " + lvl1Brilliant);
-        // 10 级闪耀概率显著 (> 0.10; p=1 raw=0.7, 归一后约 0.18)。
-        helper.assertTrue(lvl10Brilliant > 0.10D, "level 10 brilliant prob > 0.10, got " + lvl10Brilliant);
-        // 低段 (<=3 级) 闪耀仍 < 0.02 (新手几乎不出闪耀)。
+        // 仅 L10: 1-9 级闪耀恒 0。
+        helper.assertTrue(Math.abs(BrewQualityRoller.weights(1)[brilliant]) < EPS, "level 1 brilliant = 0");
+        helper.assertTrue(Math.abs(BrewQualityRoller.weights(9)[brilliant]) < EPS, "level 9 brilliant = 0 (only L10)");
         helper.assertTrue(BrewQualityRoller.weights(3)[brilliant] < 0.02D, "level 3 brilliant < 0.02");
+        // L10 非满月闪耀 ≈ 5% (难做)。
+        double lvl10 = BrewQualityRoller.weights(10)[brilliant];
+        helper.assertTrue(Math.abs(lvl10 - 0.05D) < 0.01D, "level 10 brilliant ~= 5%, got " + lvl10);
+        // L10 满月闪耀近翻倍 (≈ 9.5%, 显著高于非满月但仍受归一约束)。
+        double lvl10Moon = BrewQualityRoller.weights(10, true)[brilliant];
+        helper.assertTrue(lvl10Moon > lvl10 * 1.5D, "full-moon brilliant ~doubled, got " + lvl10Moon + " vs " + lvl10);
+        helper.assertTrue(lvl10Moon < 0.12D, "full-moon brilliant still bounded (~9.5%), got " + lvl10Moon);
         helper.succeed();
     }
 

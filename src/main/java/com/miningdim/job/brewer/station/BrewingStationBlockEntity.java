@@ -160,7 +160,8 @@ public final class BrewingStationBlockEntity extends BlockEntity implements Menu
             return;
         }
         pendingType = type;
-        pendingQuality = BrewQualityRoller.roll(operatorBrewerLevel(), level.getRandom());
+        // 满月酿造闪耀几率翻倍 (读原版 level.getMoonPhase()==0; 蹭潮汐 Tide 满月主题)。
+        pendingQuality = BrewQualityRoller.roll(operatorBrewerLevel(), level.getMoonPhase() == 0, level.getRandom());
         setChanged();
     }
 

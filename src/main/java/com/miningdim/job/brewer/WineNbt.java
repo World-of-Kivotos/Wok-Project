@@ -24,6 +24,7 @@ public final class WineNbt {
     private static final String K_QUALITY = "quality";
     private static final String K_VINTAGE = "vintage";
     private static final String K_BREWER = "brewer";
+    private static final String K_SPOILED = "spoiled";
 
     /** 给基酒盖品质章 (年份初始 0; 酿酒台产出时调用)。原地修改 stack 的 tag。 */
     public static void stamp(ItemStack stack, WineQuality quality, UUID brewer) {
@@ -95,8 +96,25 @@ public final class WineNbt {
         return (r != null && r.hasUUID(K_BREWER)) ? r.getUUID(K_BREWER) : null;
     }
 
-    /** 强度值 S = 年份 × 品质系数 (喝酒增益强度的统一入口; 无章返回 0)。 */
+    /** 是否已变质 (酒窖断干小麦致年份衰退到 0 时标记; 变质酒强度恒 0、不可再陈)。 */
+    public static boolean isSpoiled(ItemStack stack) {
+        CompoundTag r = root(stack);
+        return r != null && r.getBoolean(K_SPOILED);
+    }
+
+    /** 写变质标记 (酒窖箱结算用; 无章则忽略)。 */
+    public static void setSpoiled(ItemStack stack, boolean spoiled) {
+        CompoundTag r = root(stack);
+        if (r != null) {
+            r.putBoolean(K_SPOILED, spoiled);
+        }
+    }
+
+    /** 强度值 S = 年份 × 品质系数 (喝酒增益强度的统一入口; 无章或已变质返回 0)。 */
     public static double strength(ItemStack stack) {
+        if (isSpoiled(stack)) {
+            return 0.0D;
+        }
         WineQuality q = readQuality(stack);
         if (q == null) {
             return 0.0D;

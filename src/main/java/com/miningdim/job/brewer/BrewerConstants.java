@@ -23,11 +23,28 @@ public final class BrewerConstants {
     /** 满月 (moonPhase==0) 期间陈酿的额外年份加成比例 (与 Tide 满月稀有鱼同源的潮汐关联; 纯原版 API 读取)。 */
     public static final double FULL_MOON_BONUS = 0.25D;
 
-    // ---- 干小麦燃料门控 (保持阴凉) ----
+    // ---- 酿造 (酿酒台, 阶段 3) ----
 
-    /** 每瓶酒每陈酿 1 年份的【基础】干小麦耗量 (要求量大: 长线职业的小麦 sink, 联动农夫经济)。实际耗量随年份
-     *  递增 (老酒烧钱凶, 自然经济封顶), 递增公式与变质结算落在酒窖箱阶段 (阶段 4)。 */
+    /** 一次酿造耗时 (tick); 7 天周期的前半段 (后半段为酒窖箱陈酿)。 */
+    public static final int BREW_DURATION_TICKS = 2_400;
+    /** 一次酿造产出的基酒瓶数。 */
+    public static final int BREW_OUTPUT_COUNT = 1;
+
+    // ---- 干小麦燃料门控 + 陈酿/变质 (酒窖箱, 阶段 4) ----
+
+    /** 酒窖箱的陈酿酒槽数 (干小麦燃料槽另算)。 */
+    public static final int CELLAR_WINE_SLOTS = 9;
+
+    /** 每瓶酒每陈酿 1 年份的【基础】干小麦耗量 (要求量大: 长线职业的小麦 sink, 联动农夫经济)。 */
     public static final int DRIED_WHEAT_PER_BOTTLE_YEAR = 16;
+
+    /** 干小麦耗量随年份递增的比例: 一瓶 vintage V 的酒每年实耗 = 基础 ×(1 + V / 此值)。10 => vintage 10 翻倍、
+     *  vintage 25 约 3.5 倍 (老酒烧钱凶, 自然经济封顶: 推高年份的边际收益被燃料成本吃掉)。 */
+    public static final double FUEL_ESCALATION_SCALE = 10.0D;
+
+    /** 断干小麦时年份的衰退速率 (每现实天倒扣的年份)。快于 1 年/天的陈酿速度 => 缺粮净亏; 衰退到 0 即变质
+     *  (WineNbt spoiled, buff 归零、不可再陈)。 */
+    public static final double SPOILAGE_DECAY_YEARS_PER_DAY = 3.0D;
 
     // ---- 闪耀永久增益 (一条命) ----
 

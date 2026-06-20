@@ -80,6 +80,13 @@ public final class BrewerFoundationGameTests {
         // S = 年份4 × 超凡系数3.0 = 12.0
         helper.assertTrue(Math.abs(WineNbt.strength(stack) - 12.0D) < EPS, "strength = 4 * 3.0 = 12.0");
 
+        // 变质: 强度归 0 (即便年份/品质仍在); 取消变质则恢复。
+        WineNbt.setSpoiled(stack, true);
+        helper.assertTrue(WineNbt.isSpoiled(stack), "spoiled flag set");
+        helper.assertTrue(Math.abs(WineNbt.strength(stack)) < EPS, "spoiled wine strength 0");
+        WineNbt.setSpoiled(stack, false);
+        helper.assertTrue(Math.abs(WineNbt.strength(stack) - 12.0D) < EPS, "un-spoiled strength restored 12.0");
+
         // 非酒 stack: strength/readQuality 短路为 0/null, 不静默默认。
         helper.assertTrue(Math.abs(WineNbt.strength(new ItemStack(Items.STONE))) < EPS, "non-wine strength 0");
         helper.succeed();

@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "WCW",
+    "CBC",
+    "WCW"
+  ],
+  "key": {
+    "B": { "item": "minecraft:brewing_stand" },
+    "C": { "item": "minecraft:copper_ingot" },
+    "W": { "item": "minecraft:wheat" }
+  },
+  "result": {
+    "item": "miningdim:brewing_station",
+    "count": 1
+  }
+}

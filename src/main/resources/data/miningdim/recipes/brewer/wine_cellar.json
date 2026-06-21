@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "PIP",
+    "IBI",
+    "PIP"
+  ],
+  "key": {
+    "B": { "item": "minecraft:barrel" },
+    "I": { "item": "minecraft:ice" },
+    "P": { "item": "minecraft:oak_planks" }
+  },
+  "result": {
+    "item": "miningdim:wine_cellar",
+    "count": 1
+  }
+}

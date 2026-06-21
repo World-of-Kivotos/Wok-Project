@@ -83,6 +83,8 @@
   "message.miningdim.job.list_line": "%s | level %s | xp %s | daily remaining %s",
   "message.miningdim.job.info_line": "%s | level %s | xp %s | next-level total %s | today %s",
   "message.miningdim.job.set_done": "Set %s's %s to level %s.",
+  "message.miningdim.job.wallet_line": "Wallet | credit %s | azure %s",
+  "message.miningdim.job.no_economy": "Economy not ready yet (server starting).",
   "category.miningdim.miner": "Miner",
   "key.miningdim.miner.ore_scan": "Ore Scan",
   "key.miningdim.miner.trap_scan": "Trap Scan",

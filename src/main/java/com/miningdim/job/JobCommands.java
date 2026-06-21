@@ -1,5 +1,7 @@
 package com.miningdim.job;
 
+import com.miningdim.economy.EconomyServices;
+import com.miningdim.economy.IEconomyService;
 import com.miningdim.entry.IMiningPlayerData;
 import com.miningdim.entry.MiningCapabilities;
 import com.mojang.brigadier.CommandDispatcher;
@@ -41,6 +43,8 @@ public final class JobCommands {
                 .then(Commands.literal("info")
                         .then(Commands.argument("job", StringArgumentType.word())
                                 .executes(this::info)))
+                .then(Commands.literal("wallet")
+                        .executes(this::wallet))
                 .then(Commands.literal("set")
                         .requires(src -> src.hasPermission(OP_LEVEL))
                         .then(Commands.argument("target", EntityArgument.player())
@@ -86,6 +90,21 @@ public final class JobCommands {
                 job.id(), shown.level(), shown.xp(),
                 JobXpCurve.cumulativeXpForLevel(Math.min(shown.level() + 1, JobXpCurve.MAX_LEVEL)),
                 shown.dailyXp()), false);
+        return 1;
+    }
+
+    private int wallet(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        // 临时调试命令: 无前端 Web UI 时让玩家在游戏内看自己的双货币余额 (顶栏余额上线后可移除)。仅查自己, 不收 target。
+        if (!EconomyServices.isRegistered()) {
+            ctx.getSource().sendFailure(Component.translatable("message.miningdim.job.no_economy"));
+            return 0;
+        }
+        IEconomyService eco = EconomyServices.economyService();
+        long credit = eco.creditBalance(player);
+        long azure = eco.heartstoneBalance(player);
+        ctx.getSource().sendSuccess(() -> Component.translatable(
+                "message.miningdim.job.wallet_line", credit, azure), false);
         return 1;
     }
 

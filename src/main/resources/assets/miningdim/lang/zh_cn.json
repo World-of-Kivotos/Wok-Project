@@ -83,6 +83,8 @@
   "message.miningdim.job.list_line": "%s | 等级 %s | 经验 %s | 当日剩余额度 %s",
   "message.miningdim.job.info_line": "%s | 等级 %s | 经验 %s | 下一级累计 %s | 当日 %s",
   "message.miningdim.job.set_done": "已将 %s 的 %s 设为 %s 级。",
+  "message.miningdim.job.wallet_line": "钱包 | 信用点 %s | 青辉石 %s",
+  "message.miningdim.job.no_economy": "经济系统尚未就绪 (服务端启动中)。",
   "category.miningdim.miner": "矿工",
   "key.miningdim.miner.ore_scan": "矿物探测",
   "key.miningdim.miner.trap_scan": "陷阱探测",

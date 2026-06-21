@@ -8,6 +8,7 @@ import net.minecraft.network.chat.TextColor;
 import net.minecraft.server.level.ServerBossEvent;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.BossEvent;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
@@ -97,12 +98,11 @@ public final class ChampionBossBarHandler {
             View view = e.getValue();
             ServerBossEvent bar = bars.get(e.getKey());
             if (bar == null) {
-                bar = new ServerBossEvent(view.name, ChampionBossBarText.colorForTier(view.tier),
-                        ChampionBossBarText.overlayForTier(view.tier));
+                bar = new ServerBossEvent(view.name, view.barColor, ChampionBossBarText.overlayForTier(view.tier));
                 bars.put(e.getKey(), bar);
             } else {
                 bar.setName(view.name);
-                bar.setColor(ChampionBossBarText.colorForTier(view.tier));
+                bar.setColor(view.barColor);
                 bar.setOverlay(ChampionBossBarText.overlayForTier(view.tier));
             }
             bar.setProgress(ChampionBossBarText.progress(view.health, view.maxHealth));
@@ -158,10 +158,15 @@ public final class ChampionBossBarHandler {
         }
         MutableComponent title = ChampionBossBarText.title(entity.getDisplayName(), tier, affixNames);
         TextColor color = rank.getDefaultColor();
+        BossEvent.BossBarColor barColor;
         if (color != null) {
+            // 文字色 = rank 色; 条色取最近的离散 BossBarColor —— 与 Champions 自带粒子(也是 rank 色)统一显示色。
             title = title.withStyle(Style.EMPTY.withColor(color));
+            barColor = ChampionBossBarText.nearestBossBarColor(color.getValue());
+        } else {
+            barColor = ChampionBossBarText.colorForTier(tier);
         }
-        return new View(title, tier, entity.getHealth(), entity.getMaxHealth());
+        return new View(title, tier, barColor, entity.getHealth(), entity.getMaxHealth());
     }
 
     /**
@@ -181,13 +186,15 @@ public final class ChampionBossBarHandler {
     private static final class View {
         final Component name;
         final int tier;
+        final BossEvent.BossBarColor barColor;
         final double health;
         final double maxHealth;
         final Set<ServerPlayer> viewers = new HashSet<>();
 
-        View(Component name, int tier, double health, double maxHealth) {
+        View(Component name, int tier, BossEvent.BossBarColor barColor, double health, double maxHealth) {
             this.name = name;
             this.tier = tier;
+            this.barColor = barColor;
             this.health = health;
             this.maxHealth = maxHealth;
         }

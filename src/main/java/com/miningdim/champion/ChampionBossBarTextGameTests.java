@@ -65,4 +65,14 @@ public final class ChampionBossBarTextGameTests {
         helper.assertTrue(ChampionBossBarText.progress(10.0D, 0.0D) == 0.0F, "zero max -> 0 (no div-by-zero)");
         helper.succeed();
     }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void nearestBossBarColorMapsRgbToDiscreteColor(GameTestHelper helper) {
+        helper.assertTrue(ChampionBossBarText.nearestBossBarColor(0xFF0000) == BossEvent.BossBarColor.RED, "red rgb -> RED");
+        helper.assertTrue(ChampionBossBarText.nearestBossBarColor(0x00FF00) == BossEvent.BossBarColor.GREEN, "green rgb -> GREEN");
+        helper.assertTrue(ChampionBossBarText.nearestBossBarColor(0xFFFFFF) == BossEvent.BossBarColor.WHITE, "white rgb -> WHITE");
+        helper.assertTrue(ChampionBossBarText.nearestBossBarColor(0xAA00FF) == BossEvent.BossBarColor.PURPLE, "purple rgb -> PURPLE");
+        helper.assertTrue(ChampionBossBarText.nearestBossBarColor(0xFFFF00) == BossEvent.BossBarColor.YELLOW, "yellow rgb -> YELLOW");
+        helper.succeed();
+    }
 }

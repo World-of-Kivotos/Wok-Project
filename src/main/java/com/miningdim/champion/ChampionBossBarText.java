@@ -65,6 +65,52 @@ public final class ChampionBossBarText {
         return BossEvent.BossBarColor.WHITE;
     }
 
+    /**
+     * 把任意 RGB (Champions rank 的展示色) 映射到最近的 vanilla BOSS 条颜色 (BossBarColor 仅 7 固定色)。
+     * 用途: 让 条色 ≈ 文字色 ≈ 粒子色 三者统一 (文字与粒子都已是 rank 色, 条色取最近的离散 BossBarColor)。
+     * 按 RGB 欧氏距离取最近的一个。
+     */
+    public static BossEvent.BossBarColor nearestBossBarColor(int rgb) {
+        int r = (rgb >> 16) & 0xFF;
+        int g = (rgb >> 8) & 0xFF;
+        int b = rgb & 0xFF;
+        BossEvent.BossBarColor best = BossEvent.BossBarColor.WHITE;
+        long bestDist = Long.MAX_VALUE;
+        for (BossEvent.BossBarColor c : BossEvent.BossBarColor.values()) {
+            int ref = referenceRgb(c);
+            long dr = r - ((ref >> 16) & 0xFF);
+            long dg = g - ((ref >> 8) & 0xFF);
+            long db = b - (ref & 0xFF);
+            long dist = dr * dr + dg * dg + db * db;
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = c;
+            }
+        }
+        return best;
+    }
+
+    /** 7 个 vanilla BOSS 条颜色的代表 RGB (供 {@link #nearestBossBarColor} 取最近)。 */
+    private static int referenceRgb(BossEvent.BossBarColor color) {
+        switch (color) {
+            case PINK:
+                return 0xFF69B4;
+            case BLUE:
+                return 0x4169E1;
+            case RED:
+                return 0xFF2020;
+            case GREEN:
+                return 0x30C030;
+            case YELLOW:
+                return 0xF0F020;
+            case PURPLE:
+                return 0xA020F0;
+            case WHITE:
+            default:
+                return 0xFFFFFF;
+        }
+    }
+
     /** 星级 -> 分段样式 (spec 9.7 高星血条分段: 8★+ 10 段, 6-7★ 6 段, 低星不分段)。 */
     public static BossEvent.BossBarOverlay overlayForTier(int tier) {
         if (tier >= 8) {

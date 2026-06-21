@@ -1,0 +1,10 @@
+{
+  "type": "champions:knocking",
+  "category": "offence",
+  "enable": false,
+  "hasSub": false,
+  "tier": {
+    "min": 1,
+    "max": 10
+  }
+}

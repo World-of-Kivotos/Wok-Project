@@ -1,10 +1,6 @@
 {
   "type": "champions:lively",
-  "category": "offence",
+  "category": "defence",
   "enable": false,
-  "hasSub": false,
-  "tier": {
-    "min": 1,
-    "max": 10
-  }
+  "hasSub": false
 }

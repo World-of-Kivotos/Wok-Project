@@ -46,16 +46,41 @@ public final class BrewerConstants {
      *  替代随机损毁; 逼"高端闪耀酒必须有不间断的农夫供应链, 链一断宝贝几小时就没")。 */
     public static final double SPOILAGE_DECAY_YEARS_PER_DAY = 200.0D;
 
-    // ---- 闪耀永久增益 (一条命) ----
+    // ---- 闪耀永久增益 (一条命 = 永久层数系统, 阶段 5(iii)(iv)) ----
 
-    /** 同时在身的永久增益上限 (可叠加但封顶; 满则 FIFO 替换最旧)。 */
-    public static final int MAX_PERMANENT_BUFFS = 3;
+    /** 每类型永久层数封顶 (喝闪耀酒按年份加层, 死亡清零; 满层=该酒类永久特殊的满值)。 */
+    public static final int MAX_LAYERS_PER_TYPE = 5;
 
-    /** 金酒永久生命上限的硬帽 (额外最大生命, 单位半心=1.0; 防生命叠叠乐, 经 MaxHealthModifierManager 的 capUp 执行)。 */
-    public static final double GIN_MAX_HEALTH_CAP = 10.0D;
+    /** 闪耀酒"年份 -> 本次加层"阈值 (含端点): [T1,T2) +1 / [T2,T3) +2 / >=T3 +3; <T1 +0 (嫩闪耀酒不固化层)。 */
+    public static final double VINTAGE_LAYER_T1 = 10.0D;
+    public static final double VINTAGE_LAYER_T2 = 18.0D;
+    public static final double VINTAGE_LAYER_T3 = 25.0D;
 
-    /** 伏特加永久减伤比例 (0.20 = 减 20% 伤害; 由受伤结算读取)。 */
-    public static final double VODKA_DAMAGE_REDUCTION = 0.20D;
+    // 9 种闪耀永久特殊的"每层"值 (满层 = 每层值 × MAX_LAYERS_PER_TYPE; 血量类按属性 base 算绝对 HP)。
+
+    /** 金酒: 每层 +10% 最大生命 (满 5 层 +50%); 经金酒专属持久 maxHP 管理器施加。 */
+    public static final double GIN_MAX_HEALTH_PCT_PER_LAYER = 0.10D;
+    /** 跨职业额外最大生命的全局硬帽 (取 base 的 +100%; 塔罗 + 金酒等额外最大生命加总不得超此, 防生命叠叠乐)。 */
+    public static final double GLOBAL_BONUS_MAX_HEALTH_CAP_PCT = 1.0D;
+
+    /** 伏特加 (烈酒钝感): 每层 +5% 全伤减伤 (满 5 层 +25%); 注册为命名减伤源连乘进单点结算。 */
+    public static final double VODKA_REDUCTION_PER_LAYER = 0.05D;
+
+    /** 威士忌: 每层每 30 秒回 +5% 最大生命 (满 5 层每 30 秒回 25%)。 */
+    public static final double WHISKEY_HEAL_PCT_PER_LAYER = 0.05D;
+    /** 威士忌周期: 600 tick = 30 秒。 */
+    public static final int WHISKEY_HEAL_INTERVAL_TICKS = 600;
+
+    /** 香槟: 每层每秒回 +1% 最大生命 (满 5 层每秒回 5%)。 */
+    public static final double CHAMPAGNE_HEAL_PCT_PER_LAYER = 0.01D;
+    /** 香槟周期: 20 tick = 1 秒。 */
+    public static final int CHAMPAGNE_HEAL_INTERVAL_TICKS = 20;
+
+    /** 朗姆: 每层 +6% 移速 (满 5 层 +30%); MOVEMENT_SPEED 乘算修饰。 */
+    public static final double RUM_MOVE_SPEED_PCT_PER_LAYER = 0.06D;
+
+    /** 龙舌兰: 每层 +3 近战攻击 (满 5 层 +15); ATTACK_DAMAGE 加算修饰 (枪走自己的伤害管线, 天然不吃)。 */
+    public static final double TEQUILA_ATTACK_PER_LAYER = 3.0D;
 
     // ---- 喝酒效果缩放 (强度 S = 年份 × 品质系数; "部分软上限"见设计文档第三节) ----
     // 软上限 = 软化强度: S 超过 knee 后只按 diminish 折算 (越往上越难推)。战斗类 (抗性/力量) 收紧, 其余放宽。

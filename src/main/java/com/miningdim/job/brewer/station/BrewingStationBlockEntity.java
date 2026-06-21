@@ -242,8 +242,13 @@ public final class BrewingStationBlockEntity extends BlockEntity implements Menu
         if (operator == null) {
             return; // 离线: 跳过经验 (酒仍产出, 见 finishBrew)。
         }
+        // 茅台闪耀永久特殊: 职业经验加成 (+10%/层, 满 5 层 +50%)。在 brewer 包内的发放点乘原始经验, 不改框架。
+        int maotaiLayers = com.miningdim.job.brewer.BrewBuffStore.get(operator.server.overworld())
+                .layers(operator.getUUID(), com.miningdim.job.brewer.WineType.MAOTAI);
+        long rawXp = Math.round(BREW_XP_RAW
+                * com.miningdim.job.brewer.BrewPermanentBuffs.maotaiXpMultiplier(maotaiLayers));
         // 原始酿酒经验 (经框架每日衰减软上限入账, 酿酒师不自折算)。
-        JobServices.jobService().grantXp(operator, JobId.BREWER, BREW_XP_RAW);
+        JobServices.jobService().grantXp(operator, JobId.BREWER, rawXp);
     }
 
     /** 每完成一轮酿造给 operator 的原始酿酒经验 (制造职业的产出经验; 框架统一衰减)。 */

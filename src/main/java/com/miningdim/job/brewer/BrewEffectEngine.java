@@ -118,7 +118,10 @@ public final class BrewEffectEngine {
         return new BrewEffectPlan(java.util.List.of(inst), 0.0F, 0, "message.miningdim.brewer.moonshine.bad");
     }
 
-    /** 服务端权威: 读 stack 的强度算方案并落到玩家。闪耀永久增益在阶段 5 于此追加分支。 */
+    /**
+     * 服务端权威: 读 stack 的强度算方案并落到玩家。闪耀酒一酒两用 —— 当场临时效果照旧, 另按年份加永久层并据新层
+     * 重挂该酒类的永久特殊 (阶段 5 接入)。非闪耀酒只走临时效果, 不加层。
+     */
     public static void applyOnDrink(ServerPlayer player, WineType type, ItemStack stack) {
         double strength = WineNbt.strength(stack);
         BrewEffectPlan plan = plan(type, strength, player.getRandom());
@@ -133,6 +136,50 @@ public final class BrewEffectEngine {
         }
         if (plan.messageKey() != null) {
             player.displayClientMessage(Component.translatable(plan.messageKey()), true);
+        }
+        // 闪耀永久增益 (阶段 5): 一酒两用, 当场临时已发, 此处再固化永久层。
+        WineQuality quality = WineNbt.readQuality(stack);
+        if (quality != null && quality.isBrilliant()) {
+            applyBrilliantLayer(player, type, WineNbt.readVintage(stack));
+        }
+    }
+
+    /** 喝闪耀酒固化永久层: 按年份加层 (封顶 5) 并据新层重挂该酒类永久特殊。月光满层另固化良性词条。 */
+    private static void applyBrilliantLayer(ServerPlayer player, WineType type, double vintage) {
+        if (!BrewerRuntime.isReady()) {
+            return; // 运行期未装配 (极端时序): 不固化, 临时效果已发不受影响。
+        }
+        BrewBuffStore store = BrewBuffStore.get(player.server.overworld());
+        int before = store.layers(player.getUUID(), type);
+        int newLayers = store.addLayersForVintage(player.getUUID(), type, vintage);
+        remountForType(player, store, type, newLayers);
+        if (newLayers > before) {
+            // 固化提示 (年份够才加层; 嫩闪耀酒不加层无提示)。动作栏: 酒名 + 当前层/满层。
+            player.displayClientMessage(Component.translatable("message.miningdim.brewer.permanent.layer",
+                    Component.translatable("item.miningdim." + type.itemRegistryName()),
+                    newLayers, BrewerConstants.MAX_LAYERS_PER_TYPE), true);
+        }
+    }
+
+    /** 据某酒类新层数重挂其永久特殊 (喝酒固化即时生效, 与登录重挂同口径)。 */
+    private static void remountForType(ServerPlayer player, BrewBuffStore store, WineType type, int newLayers) {
+        BrewPermanentBuffs buffs = BrewerRuntime.permanentBuffs();
+        switch (type) {
+            case GIN -> buffs.applyGin(player, newLayers, BrewPermanentBuffs.tarotMaxHealthBonus(player));
+            case RUM -> buffs.applyRumSpeed(player, newLayers);
+            case TEQUILA -> buffs.applyTequilaAttack(player, newLayers);
+            case BRANDY -> buffs.applyBrandyHaste(player, newLayers);
+            case MOONSHINE -> {
+                if (newLayers >= BrewerConstants.MAX_LAYERS_PER_TYPE && store.moonshinePerks(player.getUUID()).isEmpty()) {
+                    // 满层首次固化: 确定性抽 5 条不重复良性词条, 存进 store 以便登录重挂, 再施加。
+                    MoonshinePerk[] picked = MoonshinePerk.rollDistinct(player.getUUID(), BrewerConstants.MAX_LAYERS_PER_TYPE);
+                    store.setMoonshinePerks(player.getUUID(), java.util.List.of(picked));
+                    buffs.applyMoonshinePerks(player, java.util.List.of(picked));
+                }
+            }
+            // 伏特加 (减伤源运行期读层) / 茅台 (发经验时读层) / 威士忌 / 香槟 (周期 tick 读层): 无需即时挂修饰, 层已存。
+            case VODKA, MAOTAI, WHISKEY, CHAMPAGNE -> {
+            }
         }
     }
 }

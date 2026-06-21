@@ -3,6 +3,7 @@ package com.miningdim.job.agent.integration;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.agent.AgentBountySavedData;
 import com.miningdim.job.agent.AgentLevels;
+import com.miningdim.job.agent.AgentSealSeam;
 import com.miningdim.job.agent.SealCategory;
 import com.miningdim.job.agent.SealPlan;
 import com.miningdim.job.agent.SealRegistry;
@@ -103,6 +104,26 @@ public final class AgentSealHandler {
         AgentBountySavedData.get(agent.server.overworld()).markActiveAgent(agent.getUUID());
 
         return Result.success(apply.expiryTick(), category);
+    }
+
+    /**
+     * 封印申请的接缝级入口 (五章面板点已解密词条 -> C2S -> 经 {@code AgentSealSeam} 调用)。把 {@link #requestSeal}
+     * 的聚合 {@link Result} 翻译为 champions-free 的 {@link AgentSealSeam.SealOutcome} 供网络层回执玩家。绝不返
+     * NOT_BOUND (那由接缝未绑定路径产生, 不会进到本集成层)。
+     */
+    public static AgentSealSeam.SealOutcome requestSealOutcome(ServerPlayer agent, LivingEntity target, String affixId) {
+        Result result = requestSeal(agent, target, affixId);
+        if (result.ok()) {
+            return AgentSealSeam.SealOutcome.OK;
+        }
+        return switch (result.reason()) {
+            case NO_TARGET -> AgentSealSeam.SealOutcome.NO_TARGET;
+            case AFFIX_NOT_SEALABLE -> AgentSealSeam.SealOutcome.AFFIX_NOT_SEALABLE;
+            case CATEGORY_LOCKED -> AgentSealSeam.SealOutcome.CATEGORY_LOCKED;
+            case STAR_TOO_HIGH -> AgentSealSeam.SealOutcome.STAR_TOO_HIGH;
+            case ALL_SLOTS_OCCUPIED -> AgentSealSeam.SealOutcome.ALL_SLOTS_OCCUPIED;
+            case AFFIX_ALREADY_SEALED -> AgentSealSeam.SealOutcome.AFFIX_ALREADY_SEALED;
+        };
     }
 
     /** 在精英当前词条列表里按 affixId 找真 IAffix 并归类 (不可封 / 列表无此词条返 null)。 */

@@ -1,12 +1,18 @@
 package com.miningdim.job.agent;
 
 import com.miningdim.core.Subsystem;
+import com.miningdim.job.agent.client.AgentScanClient;
+import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.fml.ModList;
+import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Objects;
 
 /**
  * 特勤干员子系统入口 (implements core.Subsystem; SpecialAgent_Job_DesignSpec 十三章并入 JobFramework; 模块化铁律 3:
@@ -39,6 +45,13 @@ public final class AgentSystem implements Subsystem {
         // 生命周期清理 handler 不触 Champions, 无条件挂 (清纯逻辑层封印账本 + 经接缝清执行侧)。
         forgeBus.register(this);
 
+        // 战术扫描面板 MenuType 登记 (五章; 经共享 ModMenus.MENUS, 由 JobFrameworkSystem 统一接 modBus)。
+        // touch RegistryObject 强制 AgentRegistry 类加载, 使其 MenuType 登记被收集进 ModMenus.MENUS 的 pending map
+        // (范式同 BrewerSystem.touch)。无条件 (面板是 champions-free 的客户端容器, 不依赖 Champions 加载)。
+        touch(AgentRegistry.SCAN_MENU);
+        // 客户端 Screen 注册 (FMLClientSetupEvent + DistExecutor 隔离, 专用服务器永不触客户端类)。
+        modBus.addListener(this::onClientSetup);
+
         if (!ModList.get().isLoaded(CHAMPIONS_MODID)) {
             LOGGER.info("[agent] Champions not loaded; agent champion integration disabled (pure logic still active)");
             return;
@@ -48,6 +61,19 @@ public final class AgentSystem implements Subsystem {
         // 集成层入口隔离在独立 bootstrap 类: AgentSystem 不直接 import 任何 Champions 类, 守卫后才触达。
         com.miningdim.job.agent.integration.AgentIntegrationBootstrap.assemble(forgeBus);
         LOGGER.info("[agent] Champions loaded; agent integration assembled (detect + seal + enhanced reward + bounty + damage bonus)");
+    }
+
+    /**
+     * 客户端 setup (仅 Dist.CLIENT 接线): 注册战术扫描面板 Screen。经 DistExecutor.unsafeRunWhenOn + 双箭头方法调用
+     * 隔离 (专用服务器无客户端类, 范式同 {@code BrewerSystem.onClientSetup})。
+     */
+    private void onClientSetup(FMLClientSetupEvent event) {
+        event.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> AgentScanClient.registerScreens()));
+    }
+
+    /** 触发 RegistryObject 所在类的静态初始化 (使其 MenuType 登记被收集); 范式同 {@code BrewerSystem.touch}。 */
+    private static void touch(Object registryObject) {
+        Objects.requireNonNull(registryObject);
     }
 
     @Override

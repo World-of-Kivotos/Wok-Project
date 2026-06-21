@@ -892,11 +892,14 @@ public final class AgentGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void sealSeamShortCircuitsWhenUnbound(GameTestHelper helper) {
-        // dev (Champions 未加载) 接缝未绑定: 封印申请优雅短路返 false, 不触 Champions, 不抛。
+        // dev (Champions 未加载) 接缝未绑定: 封印申请优雅短路返 NOT_BOUND, 扫描快照返 null, 不触 Champions, 不抛。
         AgentSealSeam.unbind();
         helper.assertTrue(!AgentSealSeam.isBound(), "seam is unbound in dev (Champions not loaded)");
-        boolean sealed = AgentSealSeam.requestSeal(null, null, "miningdim:composite_armor");
-        helper.assertTrue(!sealed, "unbound seam request short-circuits to false (no Champions touch)");
+        AgentSealSeam.SealOutcome outcome = AgentSealSeam.requestSealResult(null, null, "miningdim:composite_armor");
+        helper.assertTrue(outcome == AgentSealSeam.SealOutcome.NOT_BOUND,
+                "unbound seam seal request short-circuits to NOT_BOUND (no Champions touch)");
+        helper.assertTrue(AgentSealSeam.buildScanSnapshot(null, null) == null,
+                "unbound seam scan snapshot short-circuits to null (no Champions touch)");
         // 服务端停止清理在未绑定时空操作, 不抛。
         AgentSealSeam.onServerStopping();
         helper.succeed();

@@ -40,7 +40,9 @@ public final class MarketSubsystem implements Subsystem {
         forgeBus.register(this);
         // action 注册表是进程级静态注册 (与门面就绪无关; 派发时引擎未就绪会经 MarketServices 自然抛, Gateway 兜底)。
         MarketActions.registerAll();
-        LOGGER.info("[miningdim] market subsystem registered (6 market.* actions; SQLite P2P trade channel)");
+        // V0 基准价 admin curate 动作 (OP 门控): admin.setBaseValue / admin.listItems。
+        MarketAdminActions.registerAll();
+        LOGGER.info("[miningdim] market subsystem registered (6 market.* + 2 admin.* actions; SQLite P2P trade channel)");
     }
 
     @SubscribeEvent

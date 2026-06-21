@@ -100,12 +100,14 @@ public final class MarketActions {
     };
 
     // ============================================================
-    // market.buy: {listingId} -> {ok,itemId,count,total,fee}
+    // market.buy: {listingId,count?} -> {ok,itemId,count,total,fee}  (count 缺省/0 = 买整单; >0 = 部分购买)
     // ============================================================
 
     static final WebUiAction BUY = (sender, payload) -> {
         long listingId = payload.get("listingId").getAsLong();
-        BuyResult r = MarketServices.marketEngine().buy(sender, listingId);
+        // 买入量: 缺省 0 = 买下整单剩余; >0 = 部分购买 (10 个里买 5)。
+        int count = optInt(payload, "count", 0);
+        BuyResult r = MarketServices.marketEngine().buy(sender, listingId, count);
 
         JsonObject result = new JsonObject();
         result.addProperty("ok", true);

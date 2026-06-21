@@ -12,7 +12,11 @@ import org.cef.handler.CefMessageRouterHandlerAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import net.minecraft.client.resources.language.I18n;
+
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.miningdim.network.C2SWebUiRequest;
@@ -81,11 +85,46 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
                 ? GSON.toJson(envelope.get("payload"))
                 : "{}";
 
+        // 客户端本地动作 (client.* 前缀): 不走服务端权威往返, 就地在客户端解析回调。
+        // 目前只有 client.i18n —— 把翻译键解析成当前语言显示名 (专用服务器不加载 lang, 故中文名必须客户端解析)。
+        if (action.startsWith("client.")) {
+            handleClientLocal(action, payloadJson, callback);
+            return true;
+        }
+
         long requestId = requestIdGen.incrementAndGet();
         pending.put(requestId, callback);
         // 客户端无需 canReceive 守卫 (C2S 走自身连接); 直接发到服务端。
         MiningNetwork.CHANNEL.sendToServer(new C2SWebUiRequest(requestId, action, payloadJson));
         return true;
+    }
+
+    /**
+     * 客户端本地动作 (无服务端往返)。client.i18n: {keys:[翻译键...]} -> {names:{键:当前语言显示名}}, 经 MC 客户端 I18n
+     * 解析 (专用服务器不加载 lang, 中文名只能客户端出)。在 CEF 线程同步回调 (与 onQuery 的 failure 同纪律)。
+     */
+    private void handleClientLocal(String action, String payloadJson, CefQueryCallback callback) {
+        if (!"client.i18n".equals(action)) {
+            callback.failure(-1, "unknown client-local action: " + action);
+            return;
+        }
+        try {
+            JsonObject payload = JsonParser.parseString(payloadJson).getAsJsonObject();
+            JsonArray keys = payload.has("keys") && payload.get("keys").isJsonArray()
+                    ? payload.getAsJsonArray("keys")
+                    : new JsonArray();
+            JsonObject names = new JsonObject();
+            for (JsonElement k : keys) {
+                String key = k.getAsString();
+                // I18n.get 取当前语言显示名; 缺翻译时原版回退键本身 (不抛, 前端再兜底)。
+                names.addProperty(key, I18n.get(key));
+            }
+            JsonObject result = new JsonObject();
+            result.add("names", names);
+            callback.success(GSON.toJson(result));
+        } catch (RuntimeException e) {
+            callback.failure(-1, "client.i18n failed: " + e.getMessage());
+        }
     }
 
     /** CEF 取消查询 (页面卸载/导航): 丢弃在途 callback, 不再回调, 防内存泄漏。 */

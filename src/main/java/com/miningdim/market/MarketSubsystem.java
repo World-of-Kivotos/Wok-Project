@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * 跳蚤市场子系统入口 (共享契约第 7 节; 模块化铁律 3)。纯服务端 (无 MCEF / 无 Dist 守卫需求): 在 register 内订阅
- * forge 生命周期事件接 SQLite 开关与登录结算, 并把 6 个 market.* action 注册进已落地的
+ * forge 生命周期事件接 SQLite 开关与登录结算, 并把 market.* / admin.* / player.* 三组 action 注册进已落地的
  * {@link com.miningdim.webui.server.WebUiServerDispatcher}。
  *
  * 生命周期 (契约第 2 节, 服务端单连接契合 SQLite 单写者):
@@ -42,7 +42,9 @@ public final class MarketSubsystem implements Subsystem {
         MarketActions.registerAll();
         // V0 基准价 admin curate 动作 (OP 门控): admin.setBaseValue / admin.listItems。
         MarketAdminActions.registerAll();
-        LOGGER.info("[miningdim] market subsystem registered (6 market.* + 2 admin.* actions; SQLite P2P trade channel)");
+        // 玩家自身数据动作 (顶栏余额 + 挂单选物): player.inventory / player.wallet —— 让真桥脱离前端 Mock。
+        PlayerWebUiActions.registerAll();
+        LOGGER.info("[miningdim] market subsystem registered (8 market.* + 2 admin.* + 2 player.* actions; SQLite P2P trade channel)");
     }
 
     @SubscribeEvent

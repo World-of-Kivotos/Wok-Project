@@ -159,7 +159,7 @@ public final class MarketGameTests {
 
             seller.getInventory().clearContent();
             seller.getInventory().setItem(0, new ItemStack(Items.IRON_INGOT, 5));
-            // 铁锭无内置基准价 V0 -> 挂单手续费走平率 round(0.05*500)=25; 先给卖家足额付挂单费。
+            // 铁锭无内置基准价 V0 -> 挂单手续费走平率 round(0.20*100*5)=100; 先给卖家足额付挂单费。
             EconomyServices.economyService().grant(seller, Currency.CREDIT, 1_000L);
             // 单价 100, count 5 -> total 500。
             long listingId = engine.place(seller, 0, 5, 100L, "CREDIT").listingId();
@@ -168,7 +168,7 @@ public final class MarketGameTests {
             EconomyServices.economyService().grant(buyer, Currency.CREDIT, 499L);
             buyer.getInventory().clearContent();
             long buyerBefore = ledger.balance(buyer.getUUID(), Currency.CREDIT);   // 499
-            long sellerBefore = ledger.balance(seller.getUUID(), Currency.CREDIT); // 1000 - 25(平率挂单费) = 975
+            long sellerBefore = ledger.balance(seller.getUUID(), Currency.CREDIT); // 1000 - 100(平率挂单费) = 900
 
             boolean threw = false;
             try {
@@ -329,8 +329,9 @@ public final class MarketGameTests {
 
             int cap = MarketConstants.COPPER_IRON_DAILY_P2P_CAP; // 512 (DRAFT)
             seller.getInventory().clearContent();
-            // 挂单手续费上单即收: 给卖家足额信用点 (铜锭平率费 + 后面钻石偏离费均需先付)。
-            EconomyServices.economyService().grant(seller, Currency.CREDIT, 200_000L);
+            // 挂单手续费上单即收: 给卖家足额信用点 (铜锭平率费 1024 + 后面 512 个钻石 @10 极端贱卖偏离费 ~207912 均需先付;
+            // 定稿 K=0.04 下该贱卖偏离费远超旧值, 故 funding 由 20w 提到 50w, 确保被拒因 cap 而非挂单费不足)。
+            EconomyServices.economyService().grant(seller, Currency.CREDIT, 500_000L);
 
             // 先挂满 cap 个铜锭 (恰达上限, 成功)。给一组 64 stack 摆满前若干槽, 简化为单槽 setItem cap 个 (mock 允许超 64 单槽计数,
             // shrink 精确扣 cap 个; place 只校验 stack.getCount() >= count, 与单槽最大堆叠无关, 内存测试可行)。
@@ -409,7 +410,7 @@ public final class MarketGameTests {
             helper.assertTrue(countItem(buyer, Items.DIAMOND) == 5,
                     "buyer receives the item even though the seller is offline");
 
-            // 卖家登录结算: 用同一 UUID 造 mock 玩家, settlePendingOnLogin 把 pending 累加 grant -> 余额 = proceeds 950。
+            // 卖家登录结算: 用同一 UUID 造 mock 玩家, settlePendingOnLogin 把 pending 累加 grant -> 余额 = proceeds = 全额 total 1000 (买入侧不收费)。
             ServerPlayer sellerOnLogin = makeMockPlayerWithUuid(helper, offlineSeller);
             engine.settlePendingOnLogin(sellerOnLogin);
             helper.assertTrue(ledger.balance(offlineSeller, Currency.CREDIT) == 1_000L,
@@ -503,29 +504,35 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void deviationFeeCalibrationMatchesIntent(GameTestHelper helper) {
-        // 平价 (VR==V0): ln(1)=0, 费率落到 FEE_RATE 地板 = round(0.05 * V0 * count) = 5000。
+        // 平价 (VR==V0): ln(1)=0, 费率落到 FEE_RATE 地板 = round(0.20 * V0 * count) = round(0.20*100000*1) = 20000。
         long parity = MarketFee.deviationFee(100_000L, 100_000L, 1);
-        helper.assertTrue(parity == 5_000L,
-                "at parity (VR==V0) the fee is the flat base-rate floor 0.05*100000 = 5000, got " + parity);
+        helper.assertTrue(parity == 20_000L,
+                "at parity (VR==V0) the fee is the flat base-rate floor 0.20*100000 = 20000, got " + parity);
 
-        // 贱卖到极端 (基准 10w 的物挂 1 块): 费 ≈ 物品自身价值 ~10w (用户意图); 容差吸收 K 取整。
+        // 贱卖到极端 (基准 10w 的物挂 1 块): 定稿 K=0.04 下偏离惩罚陡, 费 ≈ 5.5x 物品价值 (远超物品自身, 对敲必净亏)。
+        // round(100000*1*(0.20 + 0.04*ln(1/100000)^2)) = round(100000*5.501898...) = 550190。断言确切值 + "远超物品价值"。
         long firesale = MarketFee.deviationFee(100_000L, 1L, 1);
-        helper.assertTrue(firesale >= 98_000L && firesale <= 102_000L,
-                "firesale (V0=100000 listed at 1) fee approximates the item value ~100000, got " + firesale);
+        helper.assertTrue(firesale == 550_190L,
+                "firesale (V0=100000 listed at 1) fee = 0.04 deviation = 550190, got " + firesale);
+        helper.assertTrue(firesale > 100_000L,
+                "the extreme-deviation fee far exceeds the item's own value (launder is a net loss), got " + firesale);
 
         // 对称: 天价 (基准 1 挂 10w) 与贱卖同费 (用户决策: 对称惩罚)。
         long overprice = MarketFee.deviationFee(1L, 100_000L, 1);
         helper.assertTrue(overprice == firesale,
                 "deviation fee is symmetric: overprice equals firesale, got over=" + overprice + " fire=" + firesale);
 
-        // 小幅偏离 (2 倍) 便宜: 诚实还价不疼 (< 8% of the 1000 listed value)。
+        // 小幅偏离 (2 倍): round(1000*1*(0.20 + 0.04*ln(1000/500)^2)) = round(1000*0.219218...) = 219。
+        // 远低于极端偏离 (550190) 的千分之一 —— 诚实还价的代价比洗钱式极端偏离低三个数量级 (校准意图: 偏离越大越陡)。
         long mild = MarketFee.deviationFee(500L, 1_000L, 1);
-        helper.assertTrue(mild < 80L,
-                "a mild 2x deviation stays cheap for honest haggling, got " + mild);
+        helper.assertTrue(mild == 219L,
+                "a mild 2x deviation costs round(0.20+0.04*ln(2)^2)*1000 = 219, got " + mild);
+        helper.assertTrue(mild < firesale / 1_000L,
+                "a mild deviation stays below 1/1000 of the extreme-deviation penalty (orders of magnitude cheaper), got " + mild);
 
-        // 无锚兜底 = 平率费 round(0.05*unitPrice*count) = 50。
+        // 无锚兜底 = 平率费 round(0.20*unitPrice*count) = round(0.20*100*10) = 200。
         long flat = MarketFee.listingFee(java.util.OptionalLong.empty(), 100L, 10);
-        helper.assertTrue(flat == 50L, "no-anchor listing fee falls back to flat 0.05*total = 50, got " + flat);
+        helper.assertTrue(flat == 200L, "no-anchor listing fee falls back to flat 0.20*total = 200, got " + flat);
 
         helper.succeed();
     }

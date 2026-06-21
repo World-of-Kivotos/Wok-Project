@@ -31,7 +31,7 @@ import java.util.function.Function;
  *
  * 强断言:
  *  A. 覆盖优先级: 无覆盖钻石走预设 500 / 金锭 120 / 鹅卵石空; admin 覆盖钻石 100 后 resolve 取 100 (覆盖 > 预设);
- *     且覆盖改变挂单费 —— 钻石 V0 改 100 后按 100 挂 = 平价 -> 费落 5% 地板 (而非预设 500 下的偏离费)。
+ *     且覆盖改变挂单费 —— 钻石 V0 改 100 后按 100 挂 = 平价 -> 费落 20% 地板 (而非预设 500 下的偏离费)。
  *  B. OP 门控: 非 OP 调 admin.setBaseValue / admin.listItems 被拒 (isOp=false); op() 后 setBaseValue 放行并写入覆盖。
  */
 @GameTestHolder(MiningConstants.MODID)
@@ -70,7 +70,7 @@ public final class MarketAdminGameTests {
             helper.assertTrue(listedOverride != null && listedOverride == 100L,
                     "the override is recorded in base_values and surfaced via baseValueOverrides()");
 
-            // 覆盖改变挂单费: 钻石 V0 现为 100, 按 100 挂 = 平价(VR==V0) -> 费 = round(0.05*100*4) = 20 (5% 地板),
+            // 覆盖改变挂单费: 钻石 V0 现为 100, 按 100 挂 = 平价(VR==V0) -> 费 = round(0.20*100*4) = 80 (20% 地板),
             // 而非预设 500 下 VR=100 的偏离费 (更高)。
             ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             seller.getInventory().clearContent();
@@ -79,9 +79,9 @@ public final class MarketAdminGameTests {
             long fundedBefore = ledger.balance(seller.getUUID(), Currency.CREDIT);
 
             MarketEngine.PlaceResult placed = engine.place(seller, 0, 4, 100L, "CREDIT");
-            long expectedParityFee = Math.round(0.05D * 100L * 4); // 20 (平价 5% 地板)
+            long expectedParityFee = Math.round(0.20D * 100L * 4); // 80 (平价 20% 地板)
             helper.assertTrue(placed.listFee() == expectedParityFee,
-                    "with the override making VR==V0, the listing fee is the flat 5% parity floor (20), got " + placed.listFee());
+                    "with the override making VR==V0, the listing fee is the flat 20% parity floor (80), got " + placed.listFee());
             helper.assertTrue(ledger.balance(seller.getUUID(), Currency.CREDIT) == fundedBefore - expectedParityFee,
                     "seller is charged exactly the parity listing fee under the override");
             // 反证: 同样 VR=100 但用预设 V0=500 (无锚物品另算), 偏离费严格 > 平价费 (证明覆盖确实生效降了费)。

@@ -10,7 +10,7 @@ import java.util.OptionalLong;
  *
  * V0 分层解析 (用户设计): admin 后台手写覆盖 (commit 2 接 base_values 表) -&gt; 本代码预设 -&gt; 市场成交中位数 (commit 3,
  * 带钳制) -&gt; 无锚退平率费。本类只承载"开服第一天就该有、且操纵不动"的强锚: 高价矿龙头 (转引 {@link ShopPriceTable}
- * ×10 锚, 单一真值不复制字面量) 与农夫 mod 小麦基准。原版长尾与各 mod 物品暂无预设 -&gt; resolver 退平 5% (诚实兜底),
+ * ×10 锚, 单一真值不复制字面量) 与农夫 mod 小麦基准。原版长尾与各 mod 物品暂无预设 -&gt; resolver 退平 20% (诚实兜底),
  * 由 admin 逐个 curate 提升成强锚。
  *
  * 数值纪律: 高价矿 V0 = ShopPriceTable 的 ×10 收购锚 (钻 500 / 金锭 120 / 残骸 4500); 小麦 V0 = 1

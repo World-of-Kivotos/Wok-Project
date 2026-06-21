@@ -2,7 +2,7 @@ package com.miningdim.job.agent.integration;
 
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixPool;
-import com.miningdim.core.MiningConstants;
+import com.miningdim.champion.ChampionSystem;
 import com.miningdim.job.agent.SealCategory;
 import net.minecraft.resources.ResourceLocation;
 import top.theillusivec4.champions.api.AffixCategory;
@@ -61,7 +61,7 @@ final class AgentAffixClassifier {
     }
 
     /**
-     * 把真 IAffix 归类为特勤封印类别。非本工程词条 (命名空间非 miningdim) / 纯防御词条 (不施压, 封了无意义)
+     * 把真 IAffix 归类为特勤封印类别。非我方词条 (命名空间非 champions, 或 champions 下但非我方 35 词条) / 纯防御词条 (不施压, 封了无意义)
      * 返 null (= 不可封, 集成层据此跳过该词条不进封印候选)。
      *
      * @param affix 真 IAffix (来自 IChampion.getServer().getAffixes())
@@ -72,12 +72,14 @@ final class AgentAffixClassifier {
             return null;
         }
         ResourceLocation id = affix.getIdentifier();
-        if (id == null || !MiningConstants.MODID.equals(id.getNamespace())) {
-            return null; // 外来 mod 词条: 不归本工程封印体系。
+        // 我方 35 词条经 Champions 的 DeferredRegister 注册, 真 namespace = champions (非 miningdim); 故守卫判 champions,
+        // 再由下方 BY_PATH 把 Champions 自家词条 (molten/arctic 等, 不在我方 path 表) 过滤掉。
+        if (id == null || !ChampionSystem.CHAMPIONS_MODID.equals(id.getNamespace())) {
+            return null; // 外来命名空间词条: 不归本工程封印体系。
         }
         AffixDef def = BY_PATH.get(id.getPath());
         if (def == null) {
-            return null; // miningdim 命名空间下但非已知 AffixDef (异常注册): 不可封。
+            return null; // champions 命名空间下但非我方已知 AffixDef (Champions 自家词条 / 异常注册): 不可封。
         }
         // Champions 三分类过滤: 纯防御词条封了不减玩家压力, 不作封印目标。
         if (affix.getCategory() == AffixCategory.DEFENSE) {

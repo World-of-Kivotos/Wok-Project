@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:corrosive",
+  "type": "champions:corrosive",
   "category": "offense",
   "enable": true,
   "hasSub": false,

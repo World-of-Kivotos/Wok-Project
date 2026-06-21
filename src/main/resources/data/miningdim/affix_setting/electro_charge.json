@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:electro_charge",
+  "type": "champions:electro_charge",
   "category": "cc",
   "enable": true,
   "hasSub": false,

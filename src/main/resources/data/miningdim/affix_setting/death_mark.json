@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:death_mark",
+  "type": "champions:death_mark",
   "category": "cc",
   "enable": true,
   "hasSub": false,

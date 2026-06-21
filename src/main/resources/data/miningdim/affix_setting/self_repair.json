@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:self_repair",
+  "type": "champions:self_repair",
   "category": "cc",
   "enable": true,
   "hasSub": false,

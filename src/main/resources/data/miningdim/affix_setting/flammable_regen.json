@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:flammable_regen",
+  "type": "champions:flammable_regen",
   "category": "defence",
   "enable": true,
   "hasSub": false,

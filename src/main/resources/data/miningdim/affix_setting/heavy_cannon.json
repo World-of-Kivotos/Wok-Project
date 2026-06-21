@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:heavy_cannon",
+  "type": "champions:heavy_cannon",
   "category": "offense",
   "enable": true,
   "hasSub": false,

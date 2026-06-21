@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:tactical_blink",
+  "type": "champions:tactical_blink",
   "category": "offense",
   "enable": true,
   "hasSub": false,

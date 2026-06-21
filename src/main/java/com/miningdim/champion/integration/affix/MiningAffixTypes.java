@@ -33,7 +33,7 @@ public final class MiningAffixTypes {
     private MiningAffixTypes() {
     }
 
-    /** 注册名 = 词条枚举名小写 (与 affix_setting JSON 的 type 字段 miningdim:&lt;name&gt; 全限定匹配)。 */
+    /** 注册名 = 词条枚举名小写 (与 affix_setting JSON 的 type 字段 champions:&lt;name&gt; 全限定匹配)。 */
     private static final Map<AffixDef, RegistryObject<IAffix>> REGISTERED = new EnumMap<>(AffixDef.class);
 
     static {
@@ -49,9 +49,13 @@ public final class MiningAffixTypes {
         return def.name().toLowerCase(java.util.Locale.ROOT);
     }
 
-    /** 词条注册 ResourceLocation (miningdim:&lt;name&gt;); 供盖章时按 def 取真 IAffix。 */
+    /**
+     * 词条注册 ResourceLocation。namespace 恒为 champions: —— 词条经 Champions 的 {@code AffixRegistry.AFFIXES}
+     * (DeferredRegister, modid=champions) 注册, 真 id = champions:&lt;name&gt;; 与之不符则 affix_setting 绑定 /
+     * 特勤封印守卫 / HUD 显示全按错 id 查空 (= 35 词条整体失效, 历史 bug)。
+     */
     public static ResourceLocation registryId(AffixDef def) {
-        return new ResourceLocation(com.miningdim.core.MiningConstants.MODID, registryName(def));
+        return new ResourceLocation(com.miningdim.champion.ChampionSystem.CHAMPIONS_MODID, registryName(def));
     }
 
     /** 取某词条已注册的真 IAffix 实例 (盖章用); 注册未完成时 RegistryObject 抛, 自然冒泡 (不掩盖装配缺陷)。 */

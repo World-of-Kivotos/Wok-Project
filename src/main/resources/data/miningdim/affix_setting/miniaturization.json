@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:miniaturization",
+  "type": "champions:miniaturization",
   "category": "defence",
   "enable": true,
   "hasSub": false,

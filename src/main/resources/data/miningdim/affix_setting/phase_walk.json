@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:phase_walk",
+  "type": "champions:phase_walk",
   "category": "offense",
   "enable": true,
   "hasSub": false,

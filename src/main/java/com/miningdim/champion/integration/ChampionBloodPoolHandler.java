@@ -1,13 +1,27 @@
 package com.miningdim.champion.integration;
 
+import com.miningdim.champion.AffixDef;
+import com.miningdim.champion.AffixQuality;
+import com.miningdim.champion.ChampionAffixState;
+import com.miningdim.champion.ChampionDamageReduction;
 import com.miningdim.champion.ChampionRedlines;
+import com.miningdim.champion.CompositeArmorRampTracker;
+import com.miningdim.champion.StarRank;
 import com.miningdim.champion.bloodpool.BloodPool;
 import com.miningdim.champion.bloodpool.BloodPoolRegistry;
+import com.miningdim.champion.integration.affix.MiningAffix;
 import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.core.MiningConstants;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.DamageTypeTags;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageType;
+import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.event.TickEvent;
@@ -15,18 +29,27 @@ import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import top.theillusivec4.champions.api.IAffix;
+import top.theillusivec4.champions.api.IChampion;
+import top.theillusivec4.champions.common.capability.ChampionCapability;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
  * 6★+ 冠军自定义血池受击接线 (Champions 集成层; ChampionStarAffix spec 6.2 血池 + 红线 1 净减伤单点 + 9A.2 铁律)。
  *
- * 单点净减伤铁律 (9A.2): 严禁用 Champions 逐词条 onHurt 串行减伤 (多源相乘穿透 49%)。所有减伤源
- * (子弹抗性 + 复合 ramp + 偏斜 EV + 刚毅折算 + 缩小化体型折算) 在本 {@link LivingHurtEvent} 单点收集 rates 后
- * 经 {@link ChampionRedlines#clampNetKeepFactor} 一次性连乘钳制 (keep = max(∏(1-rᵢ), 0.51))。本任务交付血池
- * 拦死 + 渲染镜像 + 净减伤单点骨架; 各词条减伤源 rates 的逐源采集在 b 阶段按词条数值层接入 (此处先以血池为权威
- * 扣净伤 + 拦死, rates 数组当前为空连乘 = keep 1.0, 待词条减伤接入后填入)。
+ * 单点净减伤铁律 (9A.2): 严禁用 Champions 逐词条 onHurt 串行减伤 (多源相乘穿透 49%)。所有比例类减伤源
+ * (超高分子/重型子弹抗 + 复合 ramp + 偏斜 EV + 缩小化体型折算) 在本 {@link LivingHurtEvent} 单点收集 rates 后
+ * 经 {@link ChampionRedlines#clampNetKeepFactor} 一次性连乘钳制 (keep = max(∏(1-rᵢ), 0.51)); FLAT 类减伤
+ * (刚毅单次封顶 + 重型护甲近战/爆炸 <T 整次免疫) 是与入伤量耦合的非比例硬上限, 在连乘净伤后经
+ * {@link ChampionDamageReduction#applyFlatCaps} 再削顶 (单向变硬, 不与 49% 净减伤底冲突)。各源数值/分类折算
+ * 全转交纯逻辑 {@link ChampionDamageReduction} (子弹/近战分类 + 5 档数值表), 本 handler 只读 IChampion 词条池
+ * 装配计划 + 拦死 + 渲染镜像。复合装甲 ramp 跨受击状态由 {@link #compositeRamps} per-冠军维护。
  *
  * 事件优先级 (EventPriority.LOWEST): 易伤放大由全局 {@code VulnerabilityHurtHandler} 在默认优先级先乘
  * (撕裂词条经易伤系统放大对冠军的伤害), 本血池减伤聚合须在其后读已放大的 {@code event.getAmount()} 再做净减伤,
@@ -39,12 +62,19 @@ import java.util.UUID;
  * 每 tick 对在册血池实体统一按 {@link BloodPool#displayHealth()} 刷 (含回血同步与绕过本 handler 的伤害路径
  * 兜底), 保血条不滞后/不诈活。
  *
- * compileOnly 隔离: 本类只 import 本工程纯逻辑 + Forge/原版事件, 不 import top.theillusivec4.champions.* ——
- * 冠军判定经 {@link BloodPoolRegistry} (其成员由 ChampionPromoter 在 spawn 期经 IChampion 建池写入, 即"经
- * IChampion 守卫"的结果)。但本类仍属 integration 包 (仅 Champions 加载时由 ChampionSystem 挂 forgeBus), 因其
- * 与升格/IChampion 路径同生命周期, 集中隔离便于守卫。
+ * compileOnly 隔离: 本类 import top.theillusivec4.champions.* (受击时读 IChampion 词条池 + rank 取减伤词条品质),
+ * 属 integration 隔离包, 仅 Champions 加载时由 {@link ChampionIntegrationBootstrap} 挂 forgeBus (dev GameTest
+ * 不加载, 数值/分类折算的纯逻辑下沉到 {@link ChampionDamageReduction} / {@link CompositeArmorRampTracker} 真测)。
+ * 血池在册与否仍经 {@link BloodPoolRegistry} (其成员由 ChampionPromoter 在 spawn 期经 IChampion 建池写入)。
  */
 public final class ChampionBloodPoolHandler {
+
+    /**
+     * 复合装甲 per-冠军 ramp 受击计数器 (UUID -> tracker)。复合装甲 ramp 须跨多次受击维护 (每受击 +上限/5,
+     * 3s 无伤重置), 故每只持复合装甲的冠军一个 {@link CompositeArmorRampTracker}; 冠军死亡 ({@link #onLivingDeath})
+     * 摘除防泄漏。仅本血池 handler (6★+ 冠军) 维护, 与 ServerTickEvent 镜像同生命周期 (服务端单线程, 无需并发表)。
+     */
+    private final Map<UUID, CompositeArmorRampTracker> compositeRamps = new HashMap<>();
 
     /**
      * 6★+ 冠军受击: 经净减伤后从影子血池扣血, 拦死, 取消 vanilla 本次伤害 (影子血池为权威)。
@@ -53,20 +83,32 @@ public final class ChampionBloodPoolHandler {
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onLivingHurt(LivingHurtEvent event) {
         LivingEntity victim = event.getEntity();
-        BloodPool pool = BloodPoolRegistry.get(victim.getUUID());
-        if (pool == null) {
-            return; // 非 6★+ 血池冠军, vanilla 自理。
-        }
-
         float incoming = event.getAmount();
         if (incoming <= 0.0F) {
             return;
         }
 
-        // 净减伤单点连乘钳制 (红线 1): 当前减伤源 rates 为空 (词条减伤接入待 b 阶段), keep=1.0; 接入后此处
-        // 收集 bullet_resistance/复合ramp/偏斜EV/刚毅/缩小化 各 rate 一次性连乘, max(∏(1-rᵢ),0.51) 钳死 49%。
-        double keep = ChampionRedlines.clampNetKeepFactor();
+        // 净减伤单点连乘钳制 (红线 1 / 9.2): 读冠军词条池, 比例类减伤源 (超高分子/重型子弹抗 + 复合 ramp + 偏斜 EV +
+        // 缩小化体型折算) 收进 rates 一次性连乘 keep = max(∏(1-rᵢ),0.51) 钳死 49%; FLAT 类 (刚毅封顶 + 重型 <T 免疫)
+        // 在连乘净伤后再削顶 (单向变硬, 不与 49% 底冲突)。各源数值/分类折算见 ChampionDamageReduction (纯函数 GameTest)。
+        // 减伤词条对【所有星级】冠军生效 (非 6★+ 血池专属): buildReductionPlan 对非本工程冠军返 isChampion=false 早退。
+        ReductionPlan plan = buildReductionPlan(victim, event.getSource());
+        if (!plan.isChampion) {
+            return; // 非本工程冠军 (绝大多数受击): vanilla 自理, 不碰。
+        }
+        double[] rates = plan.rates.stream().mapToDouble(Double::doubleValue).toArray();
+        double keep = ChampionRedlines.clampNetKeepFactor(rates);
         double netDamage = incoming * keep;
+        netDamage = ChampionDamageReduction.applyFlatCaps(
+                netDamage, plan.fortitudeCap, plan.heavyThreshold, plan.meleeOrExplosion);
+
+        BloodPool pool = BloodPoolRegistry.get(victim.getUUID());
+        if (pool == null) {
+            // 1-5★ 冠军无影子血池: vanilla getHealth 为权威, 净减伤写回 event (不取消, vanilla 按钳后伤害扣血)。
+            // 减伤词条对低星冠军同样生效 —— 红线 1 单点连乘已钳 ≤49%, FLAT 削顶亦已应用。
+            event.setAmount((float) netDamage);
+            return;
+        }
 
         if (pool.wouldDieFrom(netDamage)) {
             // 影子血池致死 (6.2 #3 拦死单一判据): 扣到 0, 取消本次 vanilla 伤害, 先摘池再 kill。
@@ -101,12 +143,169 @@ public final class ChampionBloodPoolHandler {
     }
 
     /**
+     * 读冠军词条池, 把 6 个减伤词条按品质折算成净减伤计划 (9.2 单点收集): 比例源进 rates (连乘), FLAT 源 (刚毅封顶/
+     * 重型 <T 免疫) 出参另带。本方法是 integration 薄壳 —— 取 IChampion rank/affixes + DATA_KEY 品质 NBT (触
+     * Champions), 数值/分类折算全转交纯逻辑 {@link ChampionDamageReduction} (GameTest 测纯函数)。
+     *
+     * 非本工程盖章冠军 (无 star NBT, 如命令召) 仍可参与: rank 取 IChampion tier, 品质走 {@link ChampionAffixState}
+     * tier 兜底。仅 {@link MiningAffix} 实例 (instanceof + .def()) 的词条被解释 (第三方词条不碰)。
+     */
+    private ReductionPlan buildReductionPlan(LivingEntity victim, DamageSource source) {
+        ReductionPlan plan = new ReductionPlan();
+
+        IChampion champion = ChampionCapability.getCapability(victim).resolve().orElse(null);
+        if (champion == null || champion.getServer() == null) {
+            return plan; // 受击者非冠军 (不应到此 —— 在册血池即冠军, 防御性返回空计划)。
+        }
+        IChampion.Server server = champion.getServer();
+        Optional<top.theillusivec4.champions.common.rank.Rank> rankOpt = server.getRank();
+        if (rankOpt.isEmpty() || rankOpt.get().getTier() <= 0) {
+            return plan; // 无有效 rank: 无法定星级 -> 不折算 (净减伤为空连乘 keep 1.0)。
+        }
+        StarRank rank = resolveStarRank(server, rankOpt.get().getTier());
+        plan.isChampion = true; // 确认是有有效 rank 的本工程冠军 (onLivingHurt 对其施减伤; 即便无减伤词条也 keep=1.0 无副作用)。
+
+        CompoundTag affixQualityTag = affixQualityTagOf(server);
+
+        boolean bullet = isBulletDamage(source);
+        boolean meleeOrExplosion = isMeleeOrExplosionDamage(source);
+
+        for (IAffix affix : server.getAffixes()) {
+            if (!(affix instanceof MiningAffix mining)) {
+                continue; // 仅本工程词条 (持 AffixDef) 被解释; 第三方词条不碰。
+            }
+            collectAffixReduction(mining.def(), affixQualityTag, rank, bullet, meleeOrExplosion, victim, plan);
+        }
+        plan.meleeOrExplosion = meleeOrExplosion;
+        return plan;
+    }
+
+    /**
+     * 单条减伤词条折算 (按词条分派): 比例源 add 进 rates; FLAT 源写 plan.fortitudeCap/heavyThreshold。子弹专属源
+     * (超高分子/重型子弹抗/偏斜 EV) 仅子弹伤害纳入; 复合 ramp/缩小化对全伤害类型生效。
+     */
+    private void collectAffixReduction(AffixDef def, CompoundTag affixQualityTag, StarRank rank,
+                                       boolean bullet, boolean meleeOrExplosion, LivingEntity victim,
+                                       ReductionPlan plan) {
+        AffixQuality quality = ChampionAffixState.qualityOf(affixQualityTag, def, rank);
+        switch (def) {
+            case COMPOSITE_ARMOR: {
+                // ramp: per-冠军跨受击计数 (3s 无伤重置), 当前 ramp 率进 rates。
+                CompositeArmorRampTracker tracker =
+                        compositeRamps.computeIfAbsent(victim.getUUID(), id -> new CompositeArmorRampTracker());
+                int hits = tracker.onHit(victim.level().getGameTime());
+                addRate(plan, ChampionDamageReduction.compositeRampRate(quality, hits));
+                break;
+            }
+            case UHMWPE_ARMOR:
+                if (bullet) {
+                    addRate(plan, ChampionDamageReduction.uhmwpeBulletRate(quality));
+                }
+                break;
+            case HEAVY_ARMOR:
+                if (bullet) {
+                    addRate(plan, ChampionDamageReduction.heavyArmorBulletRate(quality));
+                }
+                // 近战/爆炸 <T 免疫阈值 (FLAT, 后置削顶); 取 max 防多重型词条 (实际不会, 防御性)。
+                if (meleeOrExplosion) {
+                    plan.heavyThreshold = Math.max(plan.heavyThreshold,
+                            ChampionDamageReduction.heavyArmorImmunityThreshold(quality));
+                }
+                break;
+            case DEFLECTOR_SHIELD:
+                if (bullet) {
+                    addRate(plan, ChampionDamageReduction.deflectorBulletEvRate(quality));
+                }
+                break;
+            case FORTITUDE_SHIELD:
+                // 单次封顶取最硬 (越低越硬); 多刚毅词条不会出现, min 取最严防御性。
+                plan.fortitudeCap = (plan.fortitudeCap <= 0.0D)
+                        ? ChampionDamageReduction.fortitudeSingleHitCap(quality)
+                        : Math.min(plan.fortitudeCap, ChampionDamageReduction.fortitudeSingleHitCap(quality));
+                break;
+            case MINIATURIZATION:
+                addRate(plan, ChampionDamageReduction.miniaturizationReductionRate(quality));
+                break;
+            default:
+                break; // 非减伤词条 (攻击/机动/技能): 不在本 handler 职责内。
+        }
+    }
+
+    /** 把非 0 减伤率收进 rates (0 率不入连乘, 省 clampNetKeepFactor 无谓乘 1)。 */
+    private static void addRate(ReductionPlan plan, double rate) {
+        if (rate > 0.0D) {
+            plan.rates.add(rate);
+        }
+    }
+
+    /**
+     * 取冠军星级 StarRank: 优先读本工程盖章的 star NBT (与 {@link ChampionPromoter#NBT_STAR} 一致); 缺失 (命令召
+     * 冠军) 则用 IChampion rank tier 兜底。tier 越界 (理论 1-10) 由 {@link StarRank#ofStar} 抛, 自然冒泡不掩盖。
+     */
+    private static StarRank resolveStarRank(IChampion.Server server, int tier) {
+        CompoundTag data = server.getData(ChampionPromoter.DATA_KEY);
+        int star = (data != null && data.contains(ChampionPromoter.NBT_STAR)) ? data.getInt(ChampionPromoter.NBT_STAR) : tier;
+        return StarRank.ofStar(star);
+    }
+
+    /** 取 DATA_KEY 主表下的 affix_quality 子表 (无 -> null, qualityOf 走 tier 兜底)。 */
+    private static CompoundTag affixQualityTagOf(IChampion.Server server) {
+        CompoundTag data = server.getData(ChampionPromoter.DATA_KEY);
+        if (data == null || !data.contains(ChampionAffixState.NBT_AFFIX_QUALITY)) {
+            return null;
+        }
+        return data.getCompound(ChampionAffixState.NBT_AFFIX_QUALITY);
+    }
+
+    /**
+     * 是否 TACZ 子弹伤害: 取 DamageSource 伤害类型的 ResourceKey location (namespace/path), 交纯逻辑
+     * {@link ChampionDamageReduction#isBulletDamage} 判 (tacz:bullet*)。typeHolder 未绑 ResourceKey (理论不该)
+     * 时归非子弹 (保守: 不误享子弹抗减伤)。
+     */
+    private static boolean isBulletDamage(DamageSource source) {
+        Optional<ResourceKey<DamageType>> key = source.typeHolder().unwrapKey();
+        if (key.isEmpty()) {
+            return false;
+        }
+        ResourceLocation id = key.get().location();
+        return ChampionDamageReduction.isBulletDamage(id.getNamespace(), id.getPath());
+    }
+
+    /**
+     * 是否近战或爆炸伤害 (重型 <T 免疫仅对此生效, spec 7.1 B 版): 爆炸读 vanilla IS_EXPLOSION 标签 (含 TACZ 爆炸
+     * 弹归类); 近战 = 怪/玩家近战攻击 (MOB_ATTACK/PLAYER_ATTACK), 不含弹射物/子弹 (避免远程误享整次免疫)。
+     */
+    private static boolean isMeleeOrExplosionDamage(DamageSource source) {
+        if (source.is(DamageTypeTags.IS_EXPLOSION)) {
+            return true;
+        }
+        return source.is(DamageTypes.MOB_ATTACK)
+                || source.is(DamageTypes.MOB_ATTACK_NO_AGGRO)
+                || source.is(DamageTypes.PLAYER_ATTACK);
+    }
+
+    /**
+     * 一次受击的净减伤计划: 比例源 rates (连乘进 clampNetKeepFactor) + FLAT 削顶量 (刚毅单次封顶 / 重型 <T 免疫
+     * 阈值) + 本次是否近战/爆炸 (重型免疫仅对此生效)。fortitudeCap/heavyThreshold &lt;=0 表示无该词条 (不削)。
+     */
+    private static final class ReductionPlan {
+        /** 受击者是否本工程冠军 (有有效 rank): false 表示非冠军, onLivingHurt 据此早退不碰 event。 */
+        boolean isChampion = false;
+        final List<Double> rates = new ArrayList<>();
+        double fortitudeCap = 0.0D;
+        double heavyThreshold = 0.0D;
+        boolean meleeOrExplosion = false;
+    }
+
+    /**
      * 冠军死亡: 回收影子血池 (无论真死路径如何, 死亡即清池防泄漏)。奖励结算由
      * {@link ChampionRewardHandler#onChampionDeath} 在另一 handler 处理 (职责分离: 本 handler 只管血池生命周期)。
      */
     @SubscribeEvent
     public void onLivingDeath(LivingDeathEvent event) {
-        BloodPoolRegistry.remove(event.getEntity().getUUID());
+        UUID id = event.getEntity().getUUID();
+        BloodPoolRegistry.remove(id);
+        compositeRamps.remove(id); // 复合装甲 ramp 状态随死亡摘除防泄漏 (与血池同生命周期)。
     }
 
     /**

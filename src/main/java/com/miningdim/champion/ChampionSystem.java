@@ -39,6 +39,10 @@ public final class ChampionSystem implements Subsystem {
         // 生命周期清理 handler 不触 Champions, 无条件挂 (清纯逻辑层注册表)。
         forgeBus.register(this);
 
+        // 效果聚合器注册表的反泄漏清理订阅者: 纯逻辑 (不触 Champions), 无条件挂。聚合器仅 Champions 加载后由
+        // Effects 阶段 handler 填充, 但清理订阅无害且与"纯逻辑常驻"一致 (dev 下表恒空, 清理是 no-op)。
+        forgeBus.register(new ChampionEffectRegistries.CleanupHandler());
+
         if (!ModList.get().isLoaded(CHAMPIONS_MODID)) {
             LOGGER.info("[champion] Champions not loaded; champion integration disabled (pure logic still active)");
             return;
@@ -46,8 +50,18 @@ public final class ChampionSystem implements Subsystem {
 
         // Champions 已加载: 装配集成层 (词条注册 + seam 升格绑定 + 血池/奖励 handler 挂 forgeBus)。
         // 集成层入口隔离在独立 bootstrap 类: ChampionSystem 不直接 import 任何 Champions 类, 守卫后才触达。
-        ChampionIntegrationBootstrap.assemble(forgeBus);
-        LOGGER.info("[champion] Champions loaded; champion integration assembled (35 affixes + blood pool + rewards)");
+        // 但 isLoaded 守卫只能确认 "有个叫 champions 的 mod", 无法区分原版 theillusivec4 Champions 与 API 不兼容的
+        // 三方分支 (如 Champions Unofficial 2.1.12.x: 注册同 modid 但缺/改了 top.theillusivec4.champions.api.* 的类)。
+        // 后者装配时抛 LinkageError(NoClassDefFoundError/NoSuchMethodError 等)。捕获该族错误并降级: 仅停用精英怪集成,
+        // 不让单个可选 mod 集成拖垮整 mod 的其余 7 职业。非 LinkageError(我方逻辑 bug)仍自然冒泡, 不掩盖。
+        try {
+            ChampionIntegrationBootstrap.assemble(forgeBus);
+            LOGGER.info("[champion] Champions loaded; champion integration assembled (35 affixes + blood pool + rewards)");
+        } catch (LinkageError incompatible) {
+            LOGGER.error("[champion] Champions (modid '{}') 已加载但 API 不兼容 (期望 theillusivec4 Champions ~2.1.10.x, "
+                    + "缺失/改名类: {})。精英怪集成已停用, 其余职业与纯逻辑不受影响。", CHAMPIONS_MODID,
+                    incompatible.getMessage(), incompatible);
+        }
     }
 
     @Override
@@ -60,6 +74,7 @@ public final class ChampionSystem implements Subsystem {
     public void onServerStopping(ServerStoppingEvent event) {
         BloodPoolRegistry.reset();
         ContributionTracker.reset();
+        ChampionEffectRegistries.reset();
         ChampionSpawnSeam.unbind();
     }
 }

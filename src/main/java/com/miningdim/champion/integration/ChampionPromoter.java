@@ -2,6 +2,7 @@ package com.miningdim.champion.integration;
 
 import com.miningdim.champion.AffixRoller;
 import com.miningdim.champion.AffixSelection;
+import com.miningdim.champion.ChampionAffixState;
 import com.miningdim.champion.ChampionSpawnPolicy;
 import com.miningdim.champion.ChampionSpawnSeam;
 import com.miningdim.champion.StarRank;
@@ -100,6 +101,15 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
         net.minecraft.nbt.CompoundTag data = champion.getServer().getData(DATA_KEY);
         data.putInt(NBT_STAR, star);
         data.putDouble(NBT_EFFECTIVE_HP, rank.baseEffectiveHp());
+
+        // 每条词条的品质 ordinal 存进 affix_quality 子表 (键 = AffixDef.name(), 值 = ordinal): 效果应用层经
+        // ChampionAffixState.qualityOf 取回品质再 def.valueFor 折算数值 (无品质子表的命令召冠军按 tier 兜底)。
+        net.minecraft.nbt.CompoundTag affixQuality = new net.minecraft.nbt.CompoundTag();
+        for (AffixSelection sel : selections) {
+            ChampionAffixState.writeQuality(affixQuality, sel);
+        }
+        data.put(ChampionAffixState.NBT_AFFIX_QUALITY, affixQuality);
+
         champion.getServer().setData(DATA_KEY, data);
 
         // 6★+ 破 1024: 建自定义影子血池 (基础有效血按星表; b 阶段巨大化加成在词条数值层折算)。

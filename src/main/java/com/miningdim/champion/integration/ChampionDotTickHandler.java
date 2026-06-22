@@ -2,7 +2,9 @@ package com.miningdim.champion.integration;
 
 import com.miningdim.champion.ChampionEffectRegistries;
 import com.miningdim.champion.aggregate.PlayerDotAccumulator;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -26,6 +28,9 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
  */
 public final class ChampionDotTickHandler {
 
+    /** DoT 期间燃烧火粒子节流: 每多少 tick 在中招玩家身上播一轮火 (cosmetic 显示层, 与扣血结算分离)。 */
+    private static final int DOT_PARTICLE_INTERVAL_TICKS = 3;
+
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) {
@@ -36,10 +41,17 @@ public final class ChampionDotTickHandler {
         }
         MinecraftServer server = event.getServer();
         long nowTick = server.overworld().getGameTime();
+        boolean emitParticles = server.getTickCount() % DOT_PARTICLE_INTERVAL_TICKS == 0;
 
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             if (!ChampionEffectRegistries.hasDot(player.getUUID())) {
                 continue;
+            }
+            // 持续燃烧火粒子 (cosmetic): DoT 在册期间在玩家身上播火, 让"纯 DoT"也看得见在烧 (不设真火、不二次伤害)。
+            if (emitParticles && player.level() instanceof ServerLevel serverLevel) {
+                serverLevel.sendParticles(ParticleTypes.FLAME,
+                        player.getX(), player.getY() + player.getBbHeight() * 0.5D, player.getZ(),
+                        3, player.getBbWidth() * 0.35D, player.getBbHeight() * 0.4D, player.getBbWidth() * 0.35D, 0.01D);
             }
             PlayerDotAccumulator acc = ChampionEffectRegistries.dotFor(player.getUUID());
             if (!acc.shouldFlush(nowTick)) {

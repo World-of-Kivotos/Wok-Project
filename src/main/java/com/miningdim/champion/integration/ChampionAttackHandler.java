@@ -13,7 +13,9 @@ import com.miningdim.champion.bloodpool.BloodPool;
 import com.miningdim.champion.bloodpool.BloodPoolRegistry;
 import com.miningdim.champion.integration.affix.MiningAffix;
 import com.miningdim.effect.ModJobEffects;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
@@ -172,6 +174,21 @@ public final class ChampionAttackHandler {
         boolean hasFrost = equipped.containsKey(AffixDef.FROST);
         if (!hasBurning && !hasFrost) {
             return;
+        }
+
+        // 命中即时火/雪粒子 (cosmetic 显示层, 与 DoT 扣血结算分离): 让被冠军点燃/冰冻在受击瞬间看得见。
+        if (victim.level() instanceof ServerLevel serverLevel) {
+            double cx = victim.getX();
+            double cy = victim.getY() + victim.getBbHeight() * 0.5D;
+            double cz = victim.getZ();
+            double sx = victim.getBbWidth() * 0.4D;
+            double sy = victim.getBbHeight() * 0.4D;
+            if (hasBurning) {
+                serverLevel.sendParticles(ParticleTypes.FLAME, cx, cy, cz, 8, sx, sy, sx, 0.02D);
+            }
+            if (hasFrost) {
+                serverLevel.sendParticles(ParticleTypes.SNOWFLAKE, cx, cy, cz, 8, sx, sy, sx, 0.02D);
+            }
         }
 
         boolean canRefresh = pair.gate.canRefreshDot(nowTick);

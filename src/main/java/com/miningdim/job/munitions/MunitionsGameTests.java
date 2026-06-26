@@ -522,6 +522,73 @@ public final class MunitionsGameTests {
         }
     }
 
+    // ============================================================
+    // BE 工费扣不动时保留时间戳, 余额补足后一次性补产整段离线窗口 (munitions-01 回归)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchSettlePreservesWindowWhenFeeFails(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService(5); // L5: 步枪直造 40/批。
+        IJobService prevJob = swapJob(job);
+        EconomyWalletData ledger = new EconomyWalletData();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            MunitionsBenchBlockEntity be = newBench(helper, player);
+            be.trySelectCaliber(MunitionsCaliber.RIFLE, player);
+            // 备料 2 批 (14 铜 / 32 火药) -> 跨整段窗口期望产 80 发 (料瓶颈, 时间/缓冲充裕)。
+            be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_COPPER, new ItemStack(Items.COPPER_INGOT, 14));
+            be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_GUNPOWDER, new ItemStack(Items.GUNPOWDER, 32));
+
+            // 把 lastSettleTick 回拨到远古, 使本次 settle 的 elapsed 远超需求 (整段离线窗口)。记下回拨后的旧时间戳。
+            backdateSettleTick(be, helper, MunitionsProduction.ticksPerRound(5) * 100_000L);
+            long settleTickBeforeShortBalance = readSettleTick(be);
+
+            // 第一次结算: 余额仅 10 CP, 不够 80 发的 120 CP 工费 -> 工费扣不动, 本批作废。
+            ledger.credit(player.getUUID(), Currency.CREDIT, 10L);
+            be.settleForOwner(player);
+
+            // munitions-01 核心断言: 工费扣不动时时间戳必须保持旧值 (本段 elapsed 窗口未作废, 留待下次再追);
+            // 缓冲为 0、料未扣、余额未动、未给经验。删掉 "扣费成功后才推进时间戳" 修复 -> 时间戳被提前推进到 now,
+            // 此断言 (== 旧值) 必挂。
+            helper.assertTrue(readSettleTick(be) == settleTickBeforeShortBalance,
+                    "fee charge failure must NOT advance lastSettleTick (offline window retained for retry), expected "
+                            + settleTickBeforeShortBalance + " got " + readSettleTick(be));
+            helper.assertTrue(be.bufferedRounds() == 0,
+                    "fee-failed settle buffers nothing, got " + be.bufferedRounds());
+            helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_COPPER).getCount() == 14,
+                    "fee-failed settle does NOT consume copper");
+            helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_GUNPOWDER).getCount() == 32,
+                    "fee-failed settle does NOT consume gunpowder");
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 10L,
+                    "balance untouched when fee charge fails");
+            helper.assertTrue(job.grantXpCalls == 0, "no xp granted when fee charge fails");
+
+            // 补足余额后第二次结算: 因时间戳被保留, elapsed 仍为整段离线窗口 -> 一次性补产跨整窗的期望 80 发
+            // (料瓶颈夹到 2 批), 工费 120 CP 扣成功 (1000+10 -> 890), 经验 80 一次性入主人。
+            ledger.credit(player.getUUID(), Currency.CREDIT, 1000L); // 余额 1010 CP, 够付 120。
+            be.settleForOwner(player);
+
+            helper.assertTrue(be.bufferedRounds() == 80,
+                    "after balance restored, the retained elapsed window is settled in one shot to 80 rounds, got "
+                            + be.bufferedRounds());
+            helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_COPPER).getCount() == 0,
+                    "catch-up settle now consumes all 14 copper (2 batches)");
+            helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_GUNPOWDER).getCount() == 0,
+                    "catch-up settle now consumes all 32 gunpowder (2 batches)");
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 890L,
+                    "work fee 120 CP charged once on the retained window (1010-120=890), got "
+                            + ledger.balance(player.getUUID(), Currency.CREDIT));
+            helper.assertTrue(job.grantXpCalls == 1, "xp granted exactly once on the successful catch-up settle");
+            helper.assertTrue(job.lastRawXp == 80L,
+                    "catch-up raw xp equals the full-window produced rounds (80), got " + job.lastRawXp);
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void benchSettleNoMaterialNoProduction(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -576,6 +643,14 @@ public final class MunitionsGameTests {
         // 确定性: 测试不依赖 BE 在测试体执行前是否恰好 tick 过一次)。
         tag.putBoolean("SettleInitialized", true);
         be.load(tag);
+    }
+
+    /**
+     * 经 NBT 往返读出 BE 当前 lastSettleTick (持久键 LastSettleTick)。GameTest 无 BE getter, 用 saveWithoutMetadata
+     * 取权威状态读时间戳, 验证 "扣费失败时时间戳是否被保留" (munitions-01)。
+     */
+    private static long readSettleTick(MunitionsBenchBlockEntity be) {
+        return be.saveWithoutMetadata().getLong("LastSettleTick");
     }
 
     /** 经 NBT 注入缓冲态 (已产某口径若干发未取), 测换口径冲突门 (BufferedRounds/BufferedCaliber 持久键)。 */

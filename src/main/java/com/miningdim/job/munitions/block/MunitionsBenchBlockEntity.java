@@ -291,20 +291,24 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         MunitionsProduction.Result result = MunitionsProduction.settle(
                 selectedCaliber, level0, 1, elapsed, bufferRemaining, copper, gunpowder);
 
-        // 推进时间戳: 无论是否产出都推进 (产出受料/缓冲夹断时, 不重复累积流逝; 缓冲满/无料时流逝作废符合 "缓冲即
-        // 离线产量上限" 语义 —— 缓冲满期间不囤积时间)。
-        lastSettleTick = now;
-
         if (!result.produced()) {
+            // 无产出 (缓冲满/无料/时间不足一整批): 推进时间戳作废本段流逝, 符合 "缓冲即离线产量上限" 语义 —— 缓冲满
+            // 期间不囤积时间。
+            lastSettleTick = now;
             setChanged();
             return;
         }
 
-        // 先查后扣工费 (九章 sink): 经济已注入且余额不足时不补产 (扣不动则本批作废, 料不扣, 缓冲不增)。
+        // 先查后扣工费 (九章 sink): 经济已注入且余额不足时不补产 (扣不动则本批作废, 料不扣, 缓冲不增)。时间戳此时
+        // 尚未推进, 故扣不动时 lastSettleTick 保持旧值, 本段 elapsed 离线窗口完整保留, 下次余额充足时一次性补产
+        // (munitions-01: 旧版在扣费前无条件推进时间戳, 余额不足时会永久作废这段产能窗口, 与 "下次再追" 注释矛盾)。
         if (!tryChargeWorkFee(owner, result.workFeeCredits())) {
             setChanged();
             return;
         }
+
+        // 工费扣成功, 本段流逝已兑现为产出: 推进时间戳 (产出受料/缓冲夹断时不重复累积已兑现的流逝)。
+        lastSettleTick = now;
 
         // 扣料 + 入缓冲。
         consume(SLOT_COPPER, result.copperConsumed());

@@ -7,8 +7,7 @@ import com.miningdim.champion.ChampionAttackValues;
 import com.miningdim.champion.ChampionEffectRegistries;
 import com.miningdim.champion.ChampionStrikeGate;
 import com.miningdim.champion.StarRank;
-import com.miningdim.champion.aggregate.PlayerControlAggregator;
-import com.miningdim.champion.aggregate.PlayerDotAccumulator;
+import com.miningdim.champion.aggregate.PlayerDotSources;
 import com.miningdim.champion.bloodpool.BloodPool;
 import com.miningdim.champion.bloodpool.BloodPoolRegistry;
 import com.miningdim.champion.integration.affix.MiningAffix;
@@ -17,7 +16,6 @@ import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.effect.MobEffectInstance;
-import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -44,10 +42,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * 施加哪些 (spec 7.2):
  *  - 即时伤害 (重炮 +伤害放大 / 嗜血低血 +伤害放大 / 穿甲无视护甲真伤): 经 {@link ChampionAttackValues#singleHitTotalPct}
  *    合并 + 红线 3 单击/穿甲合计钳制, 折成额外 HP 叠到 event 伤害 (单点, 不逐词条 setAmount)。
- *  - DoT (燃烧 / 寒霜冻伤): on-hit 刷层 (受 {@link ChampionStrikeGate} DoT 刷新内 CD ≥1s), 本秒名义伤害记入
- *    per-player {@link PlayerDotAccumulator}, 每秒由 {@link ChampionDotTickHandler} 经 DotAggregator 夹 ≤15% maxHP
- *    统一施加。本 handler 只刷层 + 记本秒名义量, 不在受击点直接扣 DoT 伤害 (DoT 单一权威在 tick handler)。
- *  - 减速 (寒霜): 进 per-player 控制聚合 (≤50% 总减速)。
+ *  - DoT (燃烧 / 寒霜冻伤): on-hit 只【刷层 + 续 3s 刷新窗】进 per-player {@link PlayerDotSources} (受
+ *    {@link ChampionStrikeGate} DoT 刷新内 CD ≥1s)。本秒及窗内每秒名义伤害补记 + ≤15% maxHP 聚合 + 寒霜减速持续
+ *    施加全部由 {@link ChampionDotTickHandler} 每秒读在册层数完成 (spec 7.2 持续 DoT: 命中后 3s 窗内每秒持续扣血,
+ *    不要求每秒新命中, 窗口过期自然停伤)。本 handler 不在受击点 record 名义伤害/扣 DoT 伤 (DoT 单一权威在 tick handler)。
+ *  - 减速 (寒霜): 不在受击点施加, 由 tick handler 按窗内活跃寒霜源每秒持续进 per-player 控制聚合 (≤50% 总减速)。
  *  - 易伤 (撕裂): 复用全局 {@link com.miningdim.effect.VulnerabilityEffect}, 按撕裂层折 amplifier 续期, 乘伤由
  *    {@code VulnerabilityHurtHandler} 单点结算 (严禁另挂第二个易伤)。
  *  - 护甲磨损 (强酸): 损玩家护甲耐久 (纯经济磨损, 不入伤害口径)。
@@ -121,7 +120,7 @@ public final class ChampionAttackHandler {
                 .computeIfAbsent(attacker.getUUID(), k -> new PairState());
 
         applyInstantDamage(event, equipped, starRank, attacker, victim, playerMaxHp);
-        applyDotsAndSlow(equipped, pair, attacker.getUUID(), nowTick, victim, playerMaxHp);
+        applyDotsAndSlow(equipped, pair, attacker.getUUID(), nowTick, victim);
         applyRend(equipped, pair, nowTick, victim);
         applyCorrosive(equipped, victim);
         applyChaosKnockback(equipped, pair, nowTick, attacker, victim);
@@ -164,12 +163,14 @@ public final class ChampionAttackHandler {
     }
 
     /**
-     * DoT (燃烧/寒霜冻伤) on-hit 刷层 + 记本秒名义伤害进 per-player 累加器 (≤15% 统一封顶由 tick handler 夹);
-     * 寒霜减速进 per-player 控制聚合 (≤50%)。DoT 刷层受同一 {@link ChampionStrikeGate} 内 CD ≥1s 约束 (双倍/四倍
-     * 分跳同帧不重复刷层)。
+     * DoT (燃烧/寒霜冻伤) on-hit 只【刷层 + 续 3s 刷新窗】进 per-player {@link PlayerDotSources} (受
+     * {@link ChampionStrikeGate} 内 CD ≥1s 约束, 双倍/四倍分跳同帧不重复刷层)。本秒及窗内每秒名义伤害补记 +
+     * 寒霜减速持续施加全部下放到 {@link ChampionDotTickHandler}: 命中后即便玩家风筝/冠军够不到, 只要仍在 3s 窗内
+     * tick handler 都按当前在册层数每秒扣血 (spec 7.2: 持续 DoT, 不要求每秒新命中), 窗口过期自然停伤。受击点不再
+     * 直接 record 名义伤害 (避免命中秒走受击点、非命中秒走 tick 的双路径; DoT 扣血单一权威收敛到 tick handler)。
      */
     private void applyDotsAndSlow(Map<AffixDef, AffixQuality> equipped, PairState pair, UUID attackerId, long nowTick,
-                                  Player victim, double playerMaxHp) {
+                                  Player victim) {
         boolean hasBurning = equipped.containsKey(AffixDef.BURNING);
         boolean hasFrost = equipped.containsKey(AffixDef.FROST);
         if (!hasBurning && !hasFrost) {
@@ -191,65 +192,17 @@ public final class ChampionAttackHandler {
             }
         }
 
-        boolean canRefresh = pair.gate.canRefreshDot(nowTick);
-        PlayerDotAccumulator dotAcc = ChampionEffectRegistries.dotFor(victim.getUUID());
-        boolean refreshedAny = false;
-
+        if (!pair.gate.canRefreshDot(nowTick)) {
+            return; // DoT 刷新内 CD 内 (双倍/四倍分跳同帧第二跳): 不刷层, 不续窗 (不破 ≤15% 聚合封顶)。
+        }
+        PlayerDotSources dotSources = ChampionEffectRegistries.dotSourcesFor(victim.getUUID());
         if (hasBurning) {
-            AffixQuality q = equipped.get(AffixDef.BURNING);
-            DotStacks ds = pair.dotStacks.computeIfAbsent(AffixDef.BURNING, k -> new DotStacks());
-            if (canRefresh) {
-                ds.bump(nowTick);
-                refreshedAny = true;
-            }
-            ds.decayIfStale(nowTick);
-            double hp = ChampionAttackValues.burningTickHp(q, ds.stacks, playerMaxHp);
-            if (hp > 0.0D) {
-                // 源标识 = (冠军→玩家, 燃烧): 同源同秒刷新累加, 跨秒由 tick handler flush。
-                dotAcc.record(dotSource(attackerId, AffixDef.BURNING), hp);
-            }
+            dotSources.refresh(attackerId, AffixDef.BURNING, equipped.get(AffixDef.BURNING), nowTick);
         }
-
         if (hasFrost) {
-            AffixQuality q = equipped.get(AffixDef.FROST);
-            DotStacks ds = pair.dotStacks.computeIfAbsent(AffixDef.FROST, k -> new DotStacks());
-            if (canRefresh) {
-                ds.bump(nowTick);
-                refreshedAny = true;
-            }
-            ds.decayIfStale(nowTick);
-            double hp = ChampionAttackValues.frostFreezeTickHp(q, ds.stacks, playerMaxHp);
-            if (hp > 0.0D) {
-                dotAcc.record(dotSource(attackerId, AffixDef.FROST), hp);
-            }
-            applyFrostSlow(q, ds.stacks, nowTick, victim);
+            dotSources.refresh(attackerId, AffixDef.FROST, equipped.get(AffixDef.FROST), nowTick);
         }
-
-        if (refreshedAny) {
-            pair.gate.markDotRefreshed(nowTick);
-        }
-    }
-
-    /**
-     * 寒霜减速: 按层折减速量 (自夹 ≤50%), 申请进 per-player 控制聚合 (7s 窗 ≤50% 受控 + ≥2s 自由窗), 实际施加
-     * 原版 MOVEMENT_SLOWDOWN 一段时长。控制聚合 admit 返回被夹后可施加 tick (超额作废返 0 = 不施)。
-     */
-    private void applyFrostSlow(AffixQuality frostQuality, int stacks, long nowTick, Player victim) {
-        double slowPct = ChampionAttackValues.frostSlowPct(frostQuality, stacks);
-        if (slowPct <= 0.0D) {
-            return;
-        }
-        PlayerControlAggregator control = ChampionEffectRegistries.controlFor(victim.getUUID());
-        long granted = control.admit(nowTick, RIDER_DURATION_TICKS);
-        if (granted <= 0L) {
-            return; // 控制额度耗尽 (7s 窗 ≤50%): 本次减速作废, 保留自由窗。
-        }
-        // 减速 amplifier: 原版 MOVEMENT_SLOWDOWN 每级 -15%, 按夹后减速量折最近不超档的级数 (floor)。
-        int amp = (int) Math.floor(slowPct / 0.15D) - 1;
-        if (amp < 0) {
-            amp = 0;
-        }
-        victim.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, (int) granted, amp, false, true));
+        pair.gate.markDotRefreshed(nowTick);
     }
 
     /**
@@ -342,16 +295,11 @@ public final class ChampionAttackHandler {
         return champion.getHealth() / max;
     }
 
-    /** DoT 源标识 (per-player 累加器去重键): (冠军 UUID, 词条) 复合串, 同源同秒累加 (区分多冠军同时上 DoT)。 */
-    private static String dotSource(UUID attackerId, AffixDef def) {
-        return attackerId + "/" + def.name();
-    }
-
-    /** per-(玩家→冠军) 攻击交互状态聚合: on-hit 内 CD/击飞闸 + 撕裂层 + 燃烧/寒霜层。 */
+    /** per-(玩家→冠军) 攻击交互状态聚合: on-hit 内 CD/击飞闸 + 撕裂层。燃烧/寒霜层数+刷新窗已上提到 per-player
+     * {@link PlayerDotSources} (tick handler 每秒读), 不再藏于本 per-pair 状态。 */
     private static final class PairState {
         private final ChampionStrikeGate gate = new ChampionStrikeGate();
         private final RendStacks rend = new RendStacks();
-        private final EnumMap<AffixDef, DotStacks> dotStacks = new EnumMap<>(AffixDef.class);
     }
 
     /** 撕裂层数 + 刷新窗: 3s 窗内续期叠层 (上限 = 易伤封顶 +100%, 由 amplifier 映射自然钳), 窗外重置。 */
@@ -365,26 +313,6 @@ public final class ChampionAttackHandler {
             }
             layers++;
             lastTick = nowTick;
-        }
-    }
-
-    /** 燃烧/寒霜层数 + 刷新窗: 3s 刷新窗内最大 5 层, 窗外衰减清零 (spec 7.2: 最大 5 层 3s 刷新)。 */
-    private static final class DotStacks {
-        private int stacks = 0;
-        private long lastTick = Long.MIN_VALUE;
-
-        void bump(long nowTick) {
-            decayIfStale(nowTick);
-            if (stacks < ChampionAttackValues.DOT_MAX_STACKS) {
-                stacks++;
-            }
-            lastTick = nowTick;
-        }
-
-        void decayIfStale(long nowTick) {
-            if (lastTick != Long.MIN_VALUE && nowTick - lastTick > RIDER_DURATION_TICKS) {
-                stacks = 0; // 刷新窗外: 层数清零。
-            }
         }
     }
 

@@ -1,12 +1,23 @@
 package com.miningdim.champion;
 
 import com.miningdim.champion.aggregate.DotAggregator;
+import com.miningdim.champion.aggregate.PlayerDotAccumulator;
+import com.miningdim.champion.aggregate.PlayerDotSources;
+import com.miningdim.champion.integration.ChampionDotTickHandler;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.effect.VulnerabilityEffect;
+import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Pose;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
+
+import java.util.UUID;
 
 /**
  * 冠军攻击类词条效果层纯逻辑 GameTest (ChampionStarAffix spec 7.2 战斗 + 红线 3/4/5 + 9A.2 单点铁律 TDD)。
@@ -15,6 +26,9 @@ import net.minecraftforge.gametest.PrefixGameTestTemplate;
  * 纯数值与红线钳制 (单击合并封顶 / DoT 名义量 + 聚合 ≤15% / 寒霜减速 ≤50% / 撕裂折易伤 amplifier / 嗜血低血激活 /
  * 强酸耐久 / on-hit 内 CD + 击飞限频 / 多击分跳)。所有断言为具体业务结果, 删被测核心逻辑必挂 (禁弱校验)。真服
  * (Champions 已加载) 验真词条触发由 {@code ChampionAttackHandler} 在受击事件单点施加。
+ *
+ * 持续 DoT + DoT 致死两用例 (champion-01) 引用 {@link ChampionDotTickHandler} 与 {@link PlayerDotSources} ——
+ * 二者均不 import 任何 top.theillusivec4.champions.*  (纯逻辑 + MC), 故引用不触 Champions 加载路径, 与上铁律不冲突。
  *
  * template = "empty", batch = "champion_attack"。
  */
@@ -205,6 +219,103 @@ public final class ChampionAttackGameTests {
         helper.assertTrue(!g2.canKnockback(60L), "knockback blocked inside landing-recovery window even past CD");
         helper.assertTrue(!g2.canKnockback(119L), "still blocked just before recovery window ends");
         helper.assertTrue(g2.canKnockback(120L), "allowed once landing-recovery window passes");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // champion-01 持续 DoT: 命中后 3s 刷新窗内每秒持续扣血 (不需新命中), 窗口过期停伤
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void burningDotDrainsEachSecondInWindowThenStops(GameTestHelper helper) {
+        double maxHp = 80.0D; // 公服初始血量。
+        UUID championId = UUID.randomUUID();
+        UUID victimId = UUID.randomUUID();
+        ChampionEffectRegistries.clearAll(victimId); // 隔离: 清任何残留, 本测试独占该 UUID。
+        try {
+            // 命中阶段: 在 tick 100 挂 3 层燃烧 (闪耀, 每层 0.04 maxHP/s)。3s 刷新窗末 = 100 + 60 = 160。
+            // 之后【不再有任何新命中】—— 仅靠 tick handler 每秒补记驱动持续扣血。
+            PlayerDotSources sources = ChampionEffectRegistries.dotSourcesFor(victimId);
+            for (int i = 0; i < 3; i++) {
+                sources.refresh(championId, AffixDef.BURNING, AffixQuality.LEGENDARY, 100L);
+            }
+            helper.assertTrue(sources.stacksOf(championId, AffixDef.BURNING) == 3,
+                    "one champion built 3 burning stacks at hit tick");
+
+            // 每层每秒 0.04 * 80 = 3.2 HP; 3 层 = 9.6 HP/s (< 15% maxHP = 12, 不撞顶)。
+            double expectedPerSecond = 0.04D * 3 * maxHp;
+            helper.assertTrue(Math.abs(expectedPerSecond - 9.6D) < EPS, "3-stack legendary burning nominal = 9.6 HP/s");
+
+            PlayerDotAccumulator acc = ChampionEffectRegistries.dotFor(victimId);
+            double cumulative = 0.0D;
+            // 推进多秒 (无新命中): 窗内每个 flush 边界 (120/140/160, 均 ≤ 窗末 160) 都持续扣 9.6, 证明"不需每秒新命中"。
+            long[] inWindowSeconds = {120L, 140L, 160L};
+            for (long tick : inWindowSeconds) {
+                // tick handler 每秒做的事: 先按当前在册层数补记本秒名义伤害, 再 flush 统一施加。
+                ChampionDotTickHandler.recordNominalForSecond(victimId, maxHp, tick);
+                double total = acc.flush(maxHp, tick).total();
+                helper.assertTrue(Math.abs(total - 9.6D) < EPS,
+                        "in-window second @tick " + tick + " drains 9.6 HP (continuous DoT, no new hit), got " + total);
+                cumulative += total;
+            }
+            // 累计 = 9.6 * 3 = 28.8 (层数 0.12 * 80 * 3 秒, 未撞 15% 顶)。删每秒补记则三次 flush 全 0 -> 此断言必挂。
+            helper.assertTrue(Math.abs(cumulative - 28.8D) < EPS,
+                    "3 in-window seconds cumulative drain = 28.8 HP, got " + cumulative);
+
+            // 窗口过期 (tick 180 > 窗末 160): prune 清源 -> 无活跃源 -> 本秒补记 0 -> flush 0 (持续 DoT 自然停伤)。
+            ChampionDotTickHandler.recordNominalForSecond(victimId, maxHp, 180L);
+            double afterExpiry = acc.flush(maxHp, 180L).total();
+            helper.assertTrue(afterExpiry == 0.0D, "after 3s window expires DoT stops (0 drain), got " + afterExpiry);
+            helper.assertTrue(sources.sourceCount() == 0, "expired burning source pruned out of the model");
+        } finally {
+            ChampionEffectRegistries.clearAll(victimId); // 反泄漏: 即便断言失败也清本测试静态注册表残留。
+        }
+        helper.succeed();
+    }
+
+    // ============================================================
+    // champion-01 DoT 致死: 持续 DoT 把低血玩家扣到致死时真触发原版死亡 (非 setHealth(0) 不死)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void lethalDotTriggersRealDeathWhileNonLethalJustDrains(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        // mock 玩家创造模式无敌帧会让 hurt 直接 return false; 关无敌保致死份能走入伤链 (战斗向受击玩家本就非无敌)。
+        player.getAbilities().invulnerable = false;
+
+        // 非致死份 (total < health): 走 setHealth 直接扣血, 不死、不进 DYING (规避 i-frame 吞 DoT + 易伤二次放大)。
+        player.setHealth(10.0F);
+        ChampionDotTickHandler.applyDotDamage(player, 3.0D);
+        helper.assertTrue(Math.abs(player.getHealth() - 7.0F) < 1e-4F,
+                "non-lethal DoT 3 on 10 HP -> setHealth to 7, got " + player.getHealth());
+        helper.assertFalse(player.getPose() == Pose.DYING, "non-lethal DoT does not put player in DYING pose");
+        helper.assertTrue(player.isAlive(), "non-lethal DoT leaves player alive");
+
+        // 致死份 (total >= health): setHealth(0) 只夹血量不触发 die() (dead=false, 无死亡序列/无 LivingDeathEvent/
+        // 无重生屏), 玩家卡在 0 血假死; 真死须走 hurt 触发 die()。关键判别用 LivingDeathEvent 是否 fire ——
+        // 删致死修复退回纯 setHealth(0) 则 die() 不触发、本事件不发, deathFired 恒 false, 断言必挂。
+        // (注: die() 在 1.20.1 不置 Pose.DYING, 故不能用 pose 判别真死。)
+        boolean[] deathFired = {false};
+        Object deathProbe = new Object() {
+            @SubscribeEvent
+            public void onLethalDotDeath(LivingDeathEvent event) {
+                if (event.getEntity() == player) {
+                    deathFired[0] = true;
+                }
+            }
+        };
+        MinecraftForge.EVENT_BUS.register(deathProbe);
+        try {
+            player.setHealth(5.0F);
+            ChampionDotTickHandler.applyDotDamage(player, 8.0D);
+        } finally {
+            MinecraftForge.EVENT_BUS.unregister(deathProbe);
+        }
+        helper.assertTrue(player.getHealth() <= 0.0F, "lethal DoT drops health to 0, got " + player.getHealth());
+        helper.assertTrue(deathFired[0],
+                "lethal DoT triggers real death (LivingDeathEvent fired by vanilla die(), not stuck at 0 HP via setHealth)");
+        helper.assertFalse(player.isAlive(), "lethal DoT makes player no longer alive (real death)");
+
         helper.succeed();
     }
 }

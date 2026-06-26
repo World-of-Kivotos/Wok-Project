@@ -2,6 +2,7 @@ package com.miningdim.champion;
 
 import com.miningdim.champion.aggregate.PlayerControlAggregator;
 import com.miningdim.champion.aggregate.PlayerDotAccumulator;
+import com.miningdim.champion.aggregate.PlayerDotSources;
 import com.miningdim.champion.aggregate.RetaliationAggregator;
 import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
@@ -43,6 +44,9 @@ public final class ChampionEffectRegistries {
     /** per-player DoT 秒窗缓冲 (受 DoT 玩家 UUID -> 累加器)。 */
     private static final ConcurrentHashMap<UUID, PlayerDotAccumulator> DOT = new ConcurrentHashMap<>();
 
+    /** per-player DoT 源层数+刷新窗权威 (受 DoT 玩家 UUID -> 在册 (冠军,词条) 源模型; tick handler 每秒据此补记)。 */
+    private static final ConcurrentHashMap<UUID, PlayerDotSources> DOT_SOURCES = new ConcurrentHashMap<>();
+
     /** per-player 控制聚合 (被控制玩家 UUID -> 聚合器)。 */
     private static final ConcurrentHashMap<UUID, PlayerControlAggregator> CONTROL = new ConcurrentHashMap<>();
 
@@ -58,6 +62,18 @@ public final class ChampionEffectRegistries {
     public static PlayerDotAccumulator dotFor(UUID playerId) {
         requireId(playerId);
         return DOT.computeIfAbsent(playerId, k -> new PlayerDotAccumulator());
+    }
+
+    /**
+     * 取/建某玩家的 DoT 源层数+刷新窗模型 (按需创建; 复用同一实例保跨秒层数与 3s 刷新窗状态)。受击 handler 命中
+     * 时 refresh 刷层续窗, tick handler 每秒遍历活跃源按当前层数补记本秒名义伤害。
+     *
+     * @param playerId 受 DoT 玩家 UUID
+     * @return 该玩家 DoT 源模型
+     */
+    public static PlayerDotSources dotSourcesFor(UUID playerId) {
+        requireId(playerId);
+        return DOT_SOURCES.computeIfAbsent(playerId, k -> new PlayerDotSources());
     }
 
     /**
@@ -87,14 +103,20 @@ public final class ChampionEffectRegistries {
         return RETALIATION.computeIfAbsent(attackerId, k -> new RetaliationAggregator(attackerMaxHp));
     }
 
-    /** 某玩家是否已有 DoT 缓冲 (诊断/测试用)。 */
+    /**
+     * 某玩家是否已有 DoT (秒窗缓冲 或 在册源)。tick handler 据此决定是否对该玩家 flush —— 须含源表: 玩家风筝/
+     * 冠军够不到的那秒无新命中 -> 累加器空, 但源模型仍在窗内, tick handler 须照常进入按层补记 (问题1 修复核心)。
+     */
     public static boolean hasDot(UUID playerId) {
-        return playerId != null && DOT.containsKey(playerId);
+        return playerId != null && (DOT.containsKey(playerId) || DOT_SOURCES.containsKey(playerId));
     }
 
-    /** 是否有任意在册 DoT 累加器 (DoT tick handler 早退守卫: 无 DoT 战斗时整 tick no-op, 省全玩家遍历)。 */
+    /**
+     * 是否有任意在册 DoT (累加器 或 源模型; DoT tick handler 早退守卫: 无 DoT 战斗时整 tick no-op, 省全玩家遍历)。
+     * 含源表同理 (无新命中秒也须 tick 持续扣血)。
+     */
     public static boolean hasAnyDot() {
-        return !DOT.isEmpty();
+        return !DOT.isEmpty() || !DOT_SOURCES.isEmpty();
     }
 
     /** 某玩家是否已有控制聚合器 (诊断/测试用)。 */
@@ -118,6 +140,7 @@ public final class ChampionEffectRegistries {
             return;
         }
         DOT.remove(playerId);
+        DOT_SOURCES.remove(playerId);
         CONTROL.remove(playerId);
         RETALIATION.remove(playerId);
     }
@@ -125,13 +148,14 @@ public final class ChampionEffectRegistries {
     /** 服务端停止清空全表, 防跨存档脏引用 (供 ServerStoppingEvent, 由 ChampionSystem 调)。 */
     public static void reset() {
         DOT.clear();
+        DOT_SOURCES.clear();
         CONTROL.clear();
         RETALIATION.clear();
     }
 
-    /** 三表在册实例总数 (诊断/测试用)。 */
+    /** 全表在册实例总数 (诊断/测试用)。 */
     public static int totalSize() {
-        return DOT.size() + CONTROL.size() + RETALIATION.size();
+        return DOT.size() + DOT_SOURCES.size() + CONTROL.size() + RETALIATION.size();
     }
 
     private static void requireId(UUID id) {

@@ -81,11 +81,23 @@ public final class TarotCombatState {
         int deathDelayTicks;
     }
 
+    /**
+     * 免疫窗 (太阳闪耀/世界闪耀/力量闪耀/恶魔闪耀的 IMMUNITY op): endTick 前对持窗玩家拒绝施加 effectIds 列出的
+     * MobEffect ({@link TarotCombatHandlers#onMobEffectApplicable}), 并在 immuneVulnerability=true 时跳过易伤放大
+     * ({@link com.miningdim.effect.VulnerabilityHurtHandler})。effectIds 为 MobEffect 注册名字符串集 (引擎已解析校验)。
+     */
+    private static final class Immunity {
+        long endTick;
+        java.util.Set<String> effectIds;
+        boolean immuneVulnerability;
+    }
+
     private static final Map<UUID, Map<WindowKind, Window>> WINDOWS = new ConcurrentHashMap<>();
     private static final Map<UUID, Contract> CONTRACTS = new ConcurrentHashMap<>();
     private static final Map<UUID, ReflectAccum> REFLECT_ACCUMS = new ConcurrentHashMap<>();
     private static final Map<UUID, Ledger> LEDGERS = new ConcurrentHashMap<>();
     private static final Map<UUID, Bond> BONDS = new ConcurrentHashMap<>();
+    private static final Map<UUID, Immunity> IMMUNITIES = new ConcurrentHashMap<>();
 
     private TarotCombatState() {
     }
@@ -158,6 +170,19 @@ public final class TarotCombatState {
         BONDS.put(self, b);
     }
 
+    /**
+     * 开一个免疫窗 (太阳/世界/力量/恶魔闪耀等的 IMMUNITY op): durationTicks 内免疫 effectIds 列出的 MobEffect,
+     * immuneVulnerability=true 时同时免易伤放大。effectIds 拷一份不可变集 (引擎传入已解析校验的注册名)。
+     */
+    public static void openImmunity(ServerPlayer player, int durationTicks,
+                                    java.util.Set<String> effectIds, boolean immuneVulnerability) {
+        Immunity im = new Immunity();
+        im.endTick = now(player) + durationTicks;
+        im.effectIds = java.util.Set.copyOf(effectIds);
+        im.immuneVulnerability = immuneVulnerability;
+        IMMUNITIES.put(player.getUUID(), im);
+    }
+
     private static void putWindow(ServerPlayer player, WindowKind kind, int durationTicks,
                                   double percent, double perHitCap) {
         Window w = new Window();
@@ -215,6 +240,20 @@ public final class TarotCombatState {
         }
         CONTRACTS.remove(playerId);
         return c.reviveHealth;
+    }
+
+    // ---- 免疫窗 (太阳/世界/力量/恶魔闪耀) ----
+
+    /** 该玩家当前是否对名为 effectId 的 MobEffect 免疫 (有未过期免疫窗且其 effectIds 含此名)。 */
+    public static boolean immuneToEffect(UUID playerId, String effectId, long now) {
+        Immunity im = IMMUNITIES.get(playerId);
+        return im != null && now < im.endTick && im.effectIds.contains(effectId);
+    }
+
+    /** 该玩家当前是否免疫易伤放大 (有未过期免疫窗且其 immuneVulnerability=true)。 */
+    public static boolean immuneToVulnerability(UUID playerId, long now) {
+        Immunity im = IMMUNITIES.get(playerId);
+        return im != null && now < im.endTick && im.immuneVulnerability;
     }
 
     // ---- 累计反击窗 (正义闪耀) ----
@@ -325,6 +364,7 @@ public final class TarotCombatState {
         CONTRACTS.remove(playerId);
         REFLECT_ACCUMS.remove(playerId);
         LEDGERS.remove(playerId);
+        IMMUNITIES.remove(playerId);
         clearBond(playerId);
     }
 
@@ -340,6 +380,7 @@ public final class TarotCombatState {
         WINDOWS.values().forEach(m -> m.values().removeIf(w -> now >= w.endTick));
         WINDOWS.entrySet().removeIf(e -> e.getValue().isEmpty());
         CONTRACTS.entrySet().removeIf(e -> now >= e.getValue().endTick);
+        IMMUNITIES.entrySet().removeIf(e -> now >= e.getValue().endTick);
         // 过期绑定双向解绑 (拷贝键集后再清, 避免遍历中改 map)。
         for (UUID id : java.util.List.copyOf(BONDS.keySet())) {
             Bond b = BONDS.get(id);
@@ -399,5 +440,13 @@ public final class TarotCombatState {
     static void openBondRaw(UUID a, UUID b, long endTick, double unbindDistance, int deathDelayTicks) {
         putBond(a, b, endTick, unbindDistance, deathDelayTicks);
         putBond(b, a, endTick, unbindDistance, deathDelayTicks);
+    }
+
+    static void openImmunityRaw(UUID playerId, long endTick, java.util.Set<String> effectIds, boolean immuneVulnerability) {
+        Immunity im = new Immunity();
+        im.endTick = endTick;
+        im.effectIds = java.util.Set.copyOf(effectIds);
+        im.immuneVulnerability = immuneVulnerability;
+        IMMUNITIES.put(playerId, im);
     }
 }

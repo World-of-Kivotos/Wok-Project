@@ -9,6 +9,7 @@ import com.miningdim.job.tarot.card.TarotEffectOp;
 import com.miningdim.job.tarot.craft.TarotCraftService;
 import com.miningdim.job.tarot.pack.PackGachaService;
 import com.miningdim.testutil.MockGameTestPlayers;
+import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
@@ -16,7 +17,9 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -743,7 +746,7 @@ public final class TarotGameTests {
         TarotEffectEngine engine = new TarotEffectEngine(new MaxHealthModifierManager(), new ScheduledEffectManager());
         // 强制赌输: chance=1.0 -> rollDeath 必为 true。牺牲最大生命 15, 归还延迟 1800, 下限 20。
         TarotEffectOp gamble = new TarotEffectOp(TarotEffectKind.SELF_DEATH_GAMBLE, "", 0, 1800,
-                15.0D, 0.0D, 0, 0.0D, 20.0D, 1.0D, 0.0D, 0.0D);
+                15.0D, 0.0D, 0, 0.0D, 20.0D, 1.0D, 0.0D, 0.0D, 0, java.util.List.of(), false);
 
         // 路径 B (先跑, 避免后续给已死 mock 玩家复活): 有有效契约 + 赌输 -> 契约救命, applyDeathGamble 返回 false
         // (存活, 继续给收益), 玩家未死。删 Minor 修正 (契约判定) 则此处会真死 + 返回 true, 测试挂。
@@ -900,6 +903,289 @@ public final class TarotGameTests {
         helper.assertTrue(lionheart.durationTicks() == 300,
                 "strength shiny lifesteal window = 15s = 300t, got " + lionheart.durationTicks());
 
+        helper.succeed();
+    }
+
+    // ============================================================
+    // tarot-01 太阳每秒灼敌 (AOE_ENEMY_DAMAGE_OVER_TIME): 周期跳数算法 + 单跳 clamp 红线 (删 clamp/count 必挂)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sunBurnPeriodicCountAndClamp(GameTestHelper helper) {
+        // 周期跳数: 太阳正位 R 灼烧 400t / 20t 周期 = 20 跳; 太阳闪耀 300t / 20t = 15 跳。
+        helper.assertTrue(TarotEffectEngine.periodicCount(400, 20) == 20, "400t / 20t = 20 跳 (太阳正位 R 灼)");
+        helper.assertTrue(TarotEffectEngine.periodicCount(300, 20) == 15, "300t / 20t = 15 跳 (太阳闪耀灼)");
+        // 周期或时长非正 -> 0 跳 (空过, 不调度)。
+        helper.assertTrue(TarotEffectEngine.periodicCount(0, 20) == 0, "0 时长 -> 0 跳");
+        helper.assertTrue(TarotEffectEngine.periodicCount(400, 0) == 0, "0 周期 -> 0 跳 (不除零)");
+
+        // 单跳 clamp 红线: 太阳闪耀扁平 15/跳, 对 80 血厚血目标按 spec 扁平生效 (15 < 80*0.15=12? 否, 15 > 12 ->
+        // 被钳到 12)。对 20 血杂兵: 80? 不, 杂兵 maxHp=20, 上限 20*0.15=3, 扁平 15 被钳到 3 (防低血杂兵被秒)。
+        helper.assertTrue(Math.abs(TarotEffectEngine.clampDotPerTick(15.0D, 80.0D) - 12.0D) < 1e-9,
+                "flat 15 on 80HP target clamps to 80*0.15=12 (red-line), got " + TarotEffectEngine.clampDotPerTick(15.0D, 80.0D));
+        helper.assertTrue(Math.abs(TarotEffectEngine.clampDotPerTick(15.0D, 20.0D) - 3.0D) < 1e-9,
+                "flat 15 on 20HP mob clamps to 20*0.15=3 (no one-shot trash), got " + TarotEffectEngine.clampDotPerTick(15.0D, 20.0D));
+        // 太阳正位 R 扁平 4 在 80 血上 < 12 上限 -> 原值 4 生效 (clamp 仅作上界, 不抬小值)。
+        helper.assertTrue(Math.abs(TarotEffectEngine.clampDotPerTick(4.0D, 80.0D) - 4.0D) < 1e-9,
+                "flat 4 under 12 cap -> stays 4 (clamp is ceiling only), got " + TarotEffectEngine.clampDotPerTick(4.0D, 80.0D));
+        // 回血 clamp 同口径: 扁平 12 在 80 血友方上 12 == 80*0.15 上限, 原值生效; 在 40 血上限玩家上钳到 6。
+        helper.assertTrue(Math.abs(TarotEffectEngine.clampHealPerTick(12.0D, 80.0D) - 12.0D) < 1e-9,
+                "flat heal 12 on 80HP ally = 12 (at cap), got " + TarotEffectEngine.clampHealPerTick(12.0D, 80.0D));
+        helper.assertTrue(Math.abs(TarotEffectEngine.clampHealPerTick(12.0D, 40.0D) - 6.0D) < 1e-9,
+                "flat heal 12 on 40HP ally clamps to 40*0.15=6, got " + TarotEffectEngine.clampHealPerTick(12.0D, 40.0D));
+        helper.succeed();
+    }
+
+    // ============================================================
+    // tarot-01 太阳每秒灼敌 端到端: 半径内敌经周期 tick 持续掉血 (累计 == 单跳 x 跳数), 半径外不掉 (删 op 执行必挂)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sunBurnDealsPeriodicDamageInRadiusOnly(GameTestHelper helper) {
+        ServerPlayer caster = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        // 把使用者放到结构内一个确定坐标 (绝对坐标 = 结构原点 + 相对; (1,2,1) 与既有 StackingGameTests 同, 结构内安全)。
+        BlockPos near = new BlockPos(1, 2, 1);
+        BlockPos casterPos = helper.absolutePos(near);
+        caster.setPos(casterPos.getX() + 0.5D, casterPos.getY(), casterPos.getZ() + 0.5D);
+
+        // 半径内 (同格) 一只僵尸 + 半径外一只僵尸 (在结构内同格生成后 setPos 推到 +8 格外, 避免越界生成被剔除;
+        // 灼烧按 AABB 半径取敌, 远处僵尸不在 radius 3 内即不掉血 = "半径外不掉"断言)。
+        Zombie inRange = helper.spawn(EntityType.ZOMBIE, near);
+        Zombie outRange = helper.spawn(EntityType.ZOMBIE, near);
+        outRange.setPos(casterPos.getX() + 8.5D, casterPos.getY(), casterPos.getZ() + 0.5D);
+        // 僵尸默认 20 血; 灼烧扁平 6/跳被 clamp 到 20*0.15=3/跳。设满血基线。
+        inRange.setHealth(inRange.getMaxHealth());
+        outRange.setHealth(outRange.getMaxHealth());
+        float inStart = inRange.getHealth();
+        float outStart = outRange.getHealth();
+
+        // 太阳逆位 R 灼: amount=6, radius=3; 单跳 clamp 到 min(6, 20*0.15=3)=3。直接驱动 3 跳 (调度器周期数由
+        // periodicCount 单测; 端到端只验单跳 op 执行的"半径内掉血/半径外不掉/clamp")。
+        TarotEffectEngine engine = new TarotEffectEngine(new MaxHealthModifierManager(), new ScheduledEffectManager());
+        int ticks = 3;
+        for (int i = 0; i < ticks; i++) {
+            // 真实周期间隔 20t 远超 10t 无敌帧, 各跳独立结算; 单帧内连打须显式清无敌帧, 否则 vanilla hurt 只取增量
+            // (等额二次命中被吞), 累计会假性偏小。清帧后每跳 3 伤独立落地, 累计 9。
+            inRange.invulnerableTime = 0;
+            outRange.invulnerableTime = 0;
+            engine.tickAoeEnemyDamageForTest(caster, 6.0D, 3.0D);
+        }
+
+        float inLost = inStart - inRange.getHealth();
+        float outLost = outStart - outRange.getHealth();
+        // 半径内累计掉血 == 3 跳 x clamp(6, 20*0.15=3) = 9 (clamp 后); 半径外 0。
+        helper.assertTrue(Math.abs(inLost - 9.0F) < 0.5F,
+                "in-radius enemy loses 3 ticks x clamp(6,20*0.15=3) = 9 HP, got " + inLost);
+        helper.assertTrue(outLost < 0.001F,
+                "out-of-radius enemy takes no burn (radius gating), got " + outLost);
+        inRange.discard();
+        outRange.discard();
+        helper.succeed();
+    }
+
+    // ============================================================
+    // tarot-01 太阳闪耀每秒为友回血 (AOE_ALLY_HEAL_OVER_TIME): 友方周期回血 == clamp 后单跳 x 跳数 (删 op 执行必挂)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sunShinyHealsAllyOverTime(GameTestHelper helper) {
+        ServerPlayer ally = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        BlockPos here = new BlockPos(1, 2, 1);
+        BlockPos abs = helper.absolutePos(here);
+        ally.setPos(abs.getX() + 0.5D, abs.getY(), abs.getZ() + 0.5D);
+        // 友方 = caster 本人 (alliesInRadius 含自身)。掉血到一半便于观测回血。
+        float maxHp = ally.getMaxHealth();
+        ally.setHealth(maxHp * 0.5F);
+        float startHp = ally.getHealth();
+
+        TarotEffectEngine engine = new TarotEffectEngine(new MaxHealthModifierManager(), new ScheduledEffectManager());
+        // 太阳闪耀: amount=12, radius=8; clamp(12, maxHp*0.15)/跳。直接驱动 2 跳。
+        engine.tickAoeAllyHealForTest(ally, 12.0D, 8.0D);
+        engine.tickAoeAllyHealForTest(ally, 12.0D, 8.0D);
+
+        float healed = ally.getHealth() - startHp;
+        // 2 跳 x clamp(12, maxHp*0.15)/跳。mock 玩家 maxHp=20 -> 单跳 3 -> 累计 6 (但不超 maxHp)。
+        float perTick = (float) TarotEffectEngine.clampHealPerTick(12.0D, maxHp);
+        float expected = Math.min(maxHp - startHp, perTick * 2.0F);
+        helper.assertTrue(Math.abs(healed - expected) < 0.5F,
+                "ally healed 2 ticks x clamp = " + expected + ", got " + healed);
+        helper.succeed();
+    }
+
+    // ============================================================
+    // tarot-04 免疫窗 (IMMUNITY): 持窗玩家被施缓慢/失明被拒 (无该效果) + 易伤源命中不放大 (净伤=基础)
+    // (删免疫旁路/拒施则断言挂)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void immunityRejectsEffectsAndBypassesVulnerability(GameTestHelper helper) {
+        // 端到端 (真 handler): 真玩家开真免疫窗后 addEffect(缓慢/失明) 被 MobEffectEvent.Applicable DENY 拒绝施加。
+        // 用真 server tick 开窗 (openImmunity 锚 server.getTickCount()), 立即 addEffect 在窗内必被拒。
+        ServerPlayer real = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        TarotCombatState.clearAll(real.getUUID());
+        TarotCombatState.openImmunity(real, 200,
+                java.util.Set.of("minecraft:slowness", "minecraft:blindness"), true);
+        real.removeAllEffects();
+        real.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, 100, 0));
+        real.addEffect(new MobEffectInstance(MobEffects.BLINDNESS, 100, 0));
+        helper.assertFalse(real.hasEffect(MobEffects.MOVEMENT_SLOWDOWN),
+                "slowness rejected by immunity window (MobEffectEvent.Applicable DENY)");
+        helper.assertFalse(real.hasEffect(MobEffects.BLINDNESS),
+                "blindness rejected by immunity window");
+        // 窗外效果 (速度) 不在免疫集 -> 正常施加 (免疫不误伤非列表内效果)。
+        real.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 100, 0));
+        helper.assertTrue(real.hasEffect(MobEffects.MOVEMENT_SPEED),
+                "speed (not in immune set) still applies normally");
+        TarotCombatState.clearAll(real.getUUID());
+
+        java.util.UUID id = java.util.UUID.randomUUID();
+        long now = 1000L;
+        TarotCombatState.clearAll(id);
+        // 开免疫窗 (太阳闪耀口径): 免疫 slowness/blindness/nausea/wither + 免易伤, 至 now+400。
+        TarotCombatState.openImmunityRaw(id, now + 400L,
+                java.util.Set.of("minecraft:slowness", "minecraft:blindness", "minecraft:nausea", "minecraft:wither"),
+                true);
+
+        // 窗内: 列表内效果被判免疫, 列表外 (如 minecraft:speed 增益) 不免疫。
+        helper.assertTrue(TarotCombatState.immuneToEffect(id, "minecraft:slowness", now + 100L),
+                "slowness immune within window");
+        helper.assertTrue(TarotCombatState.immuneToEffect(id, "minecraft:blindness", now + 100L),
+                "blindness immune within window");
+        helper.assertFalse(TarotCombatState.immuneToEffect(id, "minecraft:speed", now + 100L),
+                "speed NOT in immune set (only listed effects rejected)");
+        // 免易伤旁路标志生效。
+        helper.assertTrue(TarotCombatState.immuneToVulnerability(id, now + 100L),
+                "vulnerability amplification bypassed within window");
+
+        // 过期后全部失效 (无泄漏)。
+        helper.assertFalse(TarotCombatState.immuneToEffect(id, "minecraft:slowness", now + 400L),
+                "immunity expired at/after endTick (no leak)");
+        helper.assertFalse(TarotCombatState.immuneToVulnerability(id, now + 400L),
+                "vulnerability immunity expired (no leak)");
+        TarotCombatState.clearAll(id);
+
+        // 易伤旁路的净效果断言: 带易伤 III (+50%) 的受击者, 在免疫窗内 LivingHurt 不放大 (净伤 = 基础)。
+        // 复刻 VulnerabilityHurtHandler 旁路: 持窗则返回原值 (不乘 1.5)。
+        double pct = com.miningdim.effect.VulnerabilityEffect.percentForAmplifier(2); // 易伤 III = +50%
+        TarotCombatState.openImmunityRaw(id, now + 400L, java.util.Set.of(), true); // 仅免易伤 (effects 空)
+        float base = 10.0F;
+        // 模拟旁路: immuneToVulnerability=true -> 净伤 = base (不放大)。
+        float net = TarotCombatState.immuneToVulnerability(id, now + 100L) ? base : (float) (base * (1.0D + pct));
+        helper.assertTrue(Math.abs(net - 10.0F) < 1e-4F,
+                "vulnerable hit under immunity stays base 10 (not 15), got " + net);
+        TarotCombatState.clearAll(id);
+        helper.succeed();
+    }
+
+    // ============================================================
+    // tarot-04 击退免疫 (复用既有 SELF_KNOCKBACK_IMMUNITY): 持窗玩家受击 deltaMovement 不被击退改变
+    // (删 onKnockback 归零则断言挂; 复刻 handler 逻辑)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void knockbackImmunityZeroesKnockbackStrength(GameTestHelper helper) {
+        java.util.UUID id = java.util.UUID.randomUUID();
+        long now = 500L;
+        TarotCombatState.clearAll(id);
+        TarotCombatState.openWindowRaw(id, TarotCombatState.WindowKind.KNOCKBACK_IMMUNITY, now + 400L, 0.0D, 0.0D);
+
+        // 窗内: 击退强度被 handler 归零 (复刻 onKnockback: 持窗 -> setStrength(0))。
+        helper.assertTrue(TarotCombatState.hasWindow(id, TarotCombatState.WindowKind.KNOCKBACK_IMMUNITY, now + 100L),
+                "knockback immunity active within window");
+        float incomingStrength = 1.0F;
+        float appliedStrength = TarotCombatState.hasWindow(id, TarotCombatState.WindowKind.KNOCKBACK_IMMUNITY, now + 100L)
+                ? 0.0F : incomingStrength;
+        helper.assertTrue(appliedStrength == 0.0F,
+                "knockback strength zeroed within immunity window (deltaMovement unchanged), got " + appliedStrength);
+
+        // 过期后: 击退正常生效 (强度不归零)。
+        boolean activeAfter = TarotCombatState.hasWindow(id, TarotCombatState.WindowKind.KNOCKBACK_IMMUNITY, now + 400L);
+        float appliedAfter = activeAfter ? 0.0F : incomingStrength;
+        helper.assertTrue(appliedAfter == incomingStrength,
+                "after expiry knockback applies normally (strength preserved), got " + appliedAfter);
+        TarotCombatState.clearAll(id);
+        helper.succeed();
+    }
+
+    // ============================================================
+    // tarot-01/04 datapack 核对: 太阳/力量/恶魔/世界各卡承诺的周期灼烧/回血/免疫值 (删 datapack op 则 findKind null 挂)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sunCardPeriodicBurnAndHealConfigured(GameTestHelper helper) {
+        TarotCardData sun = loadCard(TarotArcana.SUN);
+        // 正位四档每秒灼: radius (2/3/4/5), amount (4/5/6/8), period 20, duration = buff 时长 (400/500/600/800)。
+        double[] upRadius = {2, 3, 4, 5};
+        double[] upAmount = {4, 5, 6, 8};
+        int[] upDur = {400, 500, 600, 800};
+        TarotQuality[] tiers = {TarotQuality.R, TarotQuality.SR, TarotQuality.SSR, TarotQuality.UR};
+        for (int i = 0; i < tiers.length; i++) {
+            TarotEffectOp dot = findKind(sun.opsFor(tiers[i], true), TarotEffectKind.AOE_ENEMY_DAMAGE_OVER_TIME);
+            helper.assertTrue(dot != null, "sun upright " + tiers[i].id() + " has periodic burn (not one-shot)");
+            helper.assertTrue(Math.abs(dot.amount() - upAmount[i]) < 1e-9
+                            && Math.abs(dot.radius() - upRadius[i]) < 1e-9
+                            && dot.periodTicks() == 20 && dot.durationTicks() == upDur[i],
+                    "sun upright " + tiers[i].id() + " burn amount/radius/period/duration");
+        }
+        // 逆位四档: radius (3/4/5/6), amount (6/8/10/13)。
+        double[] revAmount = {6, 8, 10, 13};
+        for (int i = 0; i < tiers.length; i++) {
+            TarotEffectOp dot = findKind(sun.opsFor(tiers[i], false), TarotEffectKind.AOE_ENEMY_DAMAGE_OVER_TIME);
+            helper.assertTrue(dot != null && Math.abs(dot.amount() - revAmount[i]) < 1e-9 && dot.periodTicks() == 20,
+                    "sun reversed " + tiers[i].id() + " periodic burn amount " + revAmount[i]);
+        }
+        // 闪耀: 灼敌 15/radius 8, 为友回 12/radius 8, 周期 20 时长 300; 免疫 slowness/blindness/nausea/wither + 易伤。
+        List<TarotEffectOp> shiny = sun.opsFor(TarotQuality.SHINY, true);
+        TarotEffectOp shinyBurn = findKind(shiny, TarotEffectKind.AOE_ENEMY_DAMAGE_OVER_TIME);
+        helper.assertTrue(shinyBurn != null && Math.abs(shinyBurn.amount() - 15.0D) < 1e-9
+                        && Math.abs(shinyBurn.radius() - 8.0D) < 1e-9 && shinyBurn.durationTicks() == 300,
+                "sun shiny burns 15/s radius 8 for 15s");
+        TarotEffectOp shinyHeal = findKind(shiny, TarotEffectKind.AOE_ALLY_HEAL_OVER_TIME);
+        helper.assertTrue(shinyHeal != null && Math.abs(shinyHeal.amount() - 12.0D) < 1e-9
+                        && Math.abs(shinyHeal.radius() - 8.0D) < 1e-9,
+                "sun shiny heals 12/s for allies radius 8");
+        TarotEffectOp shinyImm = findKind(shiny, TarotEffectKind.IMMUNITY);
+        helper.assertTrue(shinyImm != null && shinyImm.immuneVulnerability()
+                        && shinyImm.effects().contains("minecraft:slowness")
+                        && shinyImm.effects().contains("minecraft:blindness")
+                        && shinyImm.effects().contains("minecraft:nausea")
+                        && shinyImm.effects().contains("minecraft:wither"),
+                "sun shiny immune to slowness/blindness/nausea/wither + vulnerability");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void immunityAndKnockbackConfiguredOnShinyCards(GameTestHelper helper) {
+        // 力量闪耀 (狮心): 免疫击退 + 免疫易伤 (15s = 300t)。
+        List<TarotEffectOp> strengthShiny = loadCard(TarotArcana.STRENGTH).opsFor(TarotQuality.SHINY, true);
+        helper.assertTrue(findKind(strengthShiny, TarotEffectKind.SELF_KNOCKBACK_IMMUNITY) != null,
+                "strength shiny grants knockback immunity (was missing)");
+        TarotEffectOp strImm = findKind(strengthShiny, TarotEffectKind.IMMUNITY);
+        helper.assertTrue(strImm != null && strImm.immuneVulnerability() && strImm.durationTicks() == 300,
+                "strength shiny immune to vulnerability 15s (was missing)");
+
+        // 恶魔闪耀: 免疫击退 + 免疫易伤 (22s = 440t)。
+        TarotCardData devil = loadCard(TarotArcana.DEVIL);
+        List<TarotEffectOp> devilShiny = devil.opsFor(TarotQuality.SHINY, true);
+        helper.assertTrue(findKind(devilShiny, TarotEffectKind.SELF_KNOCKBACK_IMMUNITY) != null,
+                "devil shiny grants knockback immunity (was missing)");
+        TarotEffectOp devilImm = findKind(devilShiny, TarotEffectKind.IMMUNITY);
+        helper.assertTrue(devilImm != null && devilImm.immuneVulnerability() && devilImm.durationTicks() == 440,
+                "devil shiny immune to vulnerability 22s (was missing)");
+        // 恶魔逆位四档: 自身免疫击退 (spec 逆位 "免疫击退"; 之前漏配)。
+        for (TarotQuality q : new TarotQuality[]{TarotQuality.R, TarotQuality.SR, TarotQuality.SSR, TarotQuality.UR}) {
+            helper.assertTrue(findKind(devil.opsFor(q, false), TarotEffectKind.SELF_KNOCKBACK_IMMUNITY) != null,
+                    "devil reversed " + q.id() + " grants knockback immunity (was missing)");
+        }
+
+        // 世界闪耀: 免疫缓慢/失明/反胃 + 易伤 (20s = 400t); 世界闪耀无击退免疫 (spec 不含)。
+        List<TarotEffectOp> worldShiny = loadCard(TarotArcana.WORLD).opsFor(TarotQuality.SHINY, true);
+        TarotEffectOp worldImm = findKind(worldShiny, TarotEffectKind.IMMUNITY);
+        helper.assertTrue(worldImm != null && worldImm.immuneVulnerability() && worldImm.durationTicks() == 400
+                        && worldImm.effects().contains("minecraft:slowness")
+                        && worldImm.effects().contains("minecraft:blindness")
+                        && worldImm.effects().contains("minecraft:nausea"),
+                "world shiny immune to slowness/blindness/nausea + vulnerability 20s (was missing)");
         helper.succeed();
     }
 

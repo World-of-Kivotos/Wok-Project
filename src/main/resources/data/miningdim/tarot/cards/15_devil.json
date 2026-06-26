@@ -131,6 +131,10 @@
           "kind": "self_lifesteal",
           "percent": 0.50,
           "durationTicks": 400
+        },
+        {
+          "kind": "self_knockback_immunity",
+          "durationTicks": 400
         }
       ],
       [
@@ -157,6 +161,10 @@
         {
           "kind": "self_lifesteal",
           "percent": 0.50,
+          "durationTicks": 480
+        },
+        {
+          "kind": "self_knockback_immunity",
           "durationTicks": 480
         }
       ],
@@ -185,6 +193,10 @@
           "kind": "self_lifesteal",
           "percent": 0.50,
           "durationTicks": 560
+        },
+        {
+          "kind": "self_knockback_immunity",
+          "durationTicks": 560
         }
       ],
       [
@@ -212,6 +224,10 @@
           "kind": "self_lifesteal",
           "percent": 0.50,
           "durationTicks": 640
+        },
+        {
+          "kind": "self_knockback_immunity",
+          "durationTicks": 640
         }
       ]
     ]
@@ -236,6 +252,15 @@
         "durationTicks": 440,
         "capUp": 0,
         "floorDown": 20
+      },
+      {
+        "kind": "self_knockback_immunity",
+        "durationTicks": 440
+      },
+      {
+        "kind": "immunity",
+        "vulnerability": true,
+        "durationTicks": 440
       }
     ]
   }

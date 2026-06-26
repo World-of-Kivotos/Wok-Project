@@ -422,6 +422,16 @@
         "effect": "minecraft:night_vision",
         "amplifier": 0,
         "durationTicks": 400
+      },
+      {
+        "kind": "immunity",
+        "vulnerability": true,
+        "durationTicks": 400,
+        "effects": [
+          "minecraft:slowness",
+          "minecraft:blindness",
+          "minecraft:nausea"
+        ]
       }
     ]
   }

@@ -1,14 +1,19 @@
 package com.miningdim.job.tarot;
 
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.living.LivingKnockBackEvent;
+import net.minecraftforge.event.entity.living.MobEffectEvent;
+import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
@@ -43,6 +48,31 @@ public final class TarotCombatHandlers {
         if (TarotCombatState.hasWindow(player.getUUID(), TarotCombatState.WindowKind.KNOCKBACK_IMMUNITY,
                 server.getTickCount())) {
             event.setStrength(0.0F);
+        }
+    }
+
+    /**
+     * 免疫窗 (太阳/世界/力量/恶魔闪耀的 IMMUNITY op "免疫缓慢/失明/反胃/凋零..."): 对持窗玩家拒绝施加其免疫集内的
+     * MobEffect。{@code MobEffectEvent.Applicable} HasResult: DENY 阻止施加。按 effect 注册名比对窗口存的免疫集
+     * (引擎写入时已校验是真 effect)。易伤的免疫不在此处 (走 {@link com.miningdim.effect.VulnerabilityHurtHandler}
+     * 仲裁点跳过放大, 易伤本体仍可挂在身上作 HUD/被净化判定)。
+     */
+    @SubscribeEvent
+    public void onMobEffectApplicable(MobEffectEvent.Applicable event) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
+            return;
+        }
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return;
+        }
+        MobEffect effect = event.getEffectInstance().getEffect();
+        ResourceLocation key = BuiltInRegistries.MOB_EFFECT.getKey(effect);
+        if (key == null) {
+            return;
+        }
+        if (TarotCombatState.immuneToEffect(player.getUUID(), key.toString(), server.getTickCount())) {
+            event.setResult(Event.Result.DENY);
         }
     }
 

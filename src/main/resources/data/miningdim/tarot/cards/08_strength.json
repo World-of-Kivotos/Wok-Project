@@ -129,6 +129,15 @@
       {
         "kind": "self_absorption",
         "amount": 40
+      },
+      {
+        "kind": "self_knockback_immunity",
+        "durationTicks": 300
+      },
+      {
+        "kind": "immunity",
+        "vulnerability": true,
+        "durationTicks": 300
       }
     ]
   }

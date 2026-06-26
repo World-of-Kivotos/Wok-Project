@@ -1,7 +1,12 @@
 package com.miningdim.job.tarot.card;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import net.minecraft.util.GsonHelper;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 单条牌效原子操作 (TarotReader spec 第六章; 数据驱动的可执行单元)。从 datapack JSON 的一个对象解析。
@@ -34,7 +39,13 @@ public record TarotEffectOp(
         /** 百分比 0.0-1.0; 反伤比/吸血比 (SELF_REFLECT / SELF_LIFESTEAL) 用。 */
         double percent,
         /** 阈值 (绝对 HP); 斩杀准星目标的处决血线 (ENEMY_TARGET_DAMAGE) 用。 */
-        double threshold
+        double threshold,
+        /** 周期间隔 ticks; 仅 AOE_*_OVER_TIME 用 (与 durationTicks 总时长配合, 次数 = duration/period)。 */
+        int periodTicks,
+        /** 免疫的 MobEffect 注册名列表; 仅 IMMUNITY 用 (可空, 表示仅免疫易伤)。不可变。 */
+        List<String> effects,
+        /** 是否在易伤仲裁点免疫易伤放大; 仅 IMMUNITY 用。 */
+        boolean immuneVulnerability
 ) {
 
     /**
@@ -54,6 +65,9 @@ public record TarotEffectOp(
         double chance = 0.0D;
         double percent = 0.0D;
         double threshold = 0.0D;
+        int periodTicks = 0;
+        List<String> effects = List.of();
+        boolean immuneVulnerability = false;
 
         switch (kind) {
             case SELF_POTION:
@@ -175,11 +189,41 @@ public record TarotEffectOp(
                 amount = GsonHelper.getAsDouble(obj, "amount");
                 radius = GsonHelper.getAsDouble(obj, "radius");
                 break;
+            case AOE_ENEMY_DAMAGE_OVER_TIME:
+            case AOE_ALLY_HEAL_OVER_TIME:
+                // 太阳每秒灼敌 / 闪耀每秒为友回血: 扁平每跳值 amount + 半径 + 周期 + 总时长 (次数引擎按 duration/period 算)。
+                amount = GsonHelper.getAsDouble(obj, "amount");
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                periodTicks = GsonHelper.getAsInt(obj, "periodTicks");
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                break;
+            case IMMUNITY:
+                // 免疫窗: durationTicks + 免疫的 effect 列表 (可缺, 缺即仅免易伤) + 是否免易伤放大。
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                immuneVulnerability = GsonHelper.getAsBoolean(obj, "vulnerability");
+                effects = parseEffectList(obj);
+                break;
             default:
                 throw new IllegalArgumentException("Unhandled tarot effect kind in fromJson: " + kind);
         }
 
         return new TarotEffectOp(kind, effectId, amplifier, durationTicks, amount, radius, count,
-                capUp, floorDown, chance, percent, threshold);
+                capUp, floorDown, chance, percent, threshold, periodTicks, effects, immuneVulnerability);
+    }
+
+    /**
+     * 解析 IMMUNITY 的免疫 effect 列表 (JSON 数组字段 "effects", 每项为 MobEffect 注册名字符串)。字段缺失即返回空表
+     * (语义: 该免疫窗仅免易伤、不免任何 MobEffect; 非静默兜底缺陷, 而是 "免疫列表为空" 的合法配置)。返回不可变表。
+     */
+    private static List<String> parseEffectList(JsonObject obj) {
+        if (!obj.has("effects")) {
+            return List.of();
+        }
+        JsonArray arr = GsonHelper.getAsJsonArray(obj, "effects");
+        List<String> out = new ArrayList<>(arr.size());
+        for (JsonElement el : arr) {
+            out.add(GsonHelper.convertToString(el, "effect"));
+        }
+        return List.copyOf(out);
     }
 }

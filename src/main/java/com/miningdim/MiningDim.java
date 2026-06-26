@@ -160,9 +160,11 @@ public final class MiningDim {
         //     生命周期事件 (ServerStarting 开库建表 / ServerStopping 关库 / PlayerLoggedIn 结算离线待结) 在其
         //     register 内订阅 forgeBus, 对 register 顺序不敏感; 仅上述门面/派发器依赖约束此处列序。
         subsystems.add(new com.miningdim.market.MarketSubsystem());
-        // 27. Web UI 客户端外壳 (MCEF 浏览器/Screen/路由): register 内全部客户端逻辑用 DistExecutor.safeRunWhenOn
-        //     (Dist.CLIENT) 关进 client-only lambda, 故主类无条件加入列表即可 (服务端 GameTest 进程不 classload
-        //     MCEF, 不崩)。同样须在 NetworkSystem 之后, 依赖 CHANNEL 已注册。
+        // 27. Web UI 客户端外壳 (MCEF 浏览器/Screen/路由): register 内全部客户端逻辑用 DistExecutor.unsafeRunWhenOn
+        //     (Dist.CLIENT) + 双箭头 () -> () -> ... 关进 client-only lambda, 故主类无条件加入列表即可 (服务端 GameTest
+        //     进程不 classload MCEF, 不崩)。注意必须是 unsafeRunWhenOn 而非 safeRunWhenOn —— 后者触 SafeReferent
+        //     校验报 Unsafe Referent usage (详见 WebUiClientSubsystem javadoc), 照抄 safe 版会在 CONSTRUCT 期崩。
+        //     同样须在 NetworkSystem 之后, 依赖 CHANNEL 已注册。
         subsystems.add(new com.miningdim.client.webui.WebUiClientSubsystem());
     }
 }

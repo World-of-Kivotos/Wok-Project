@@ -18,20 +18,31 @@ import com.miningdim.job.JobProgress;
 import com.miningdim.job.JobServices;
 import com.miningdim.ore.OreType;
 import com.miningdim.testutil.MockGameTestPlayers;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.core.HolderSet;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.levelgen.PositionalRandomFactory;
+import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -264,6 +275,118 @@ public final class MinerGameTests {
         // 探矿半径阶梯 6 -> 16。
         helper.assertTrue(MinerSkills.oreScanRadius(3) == 6, "L3 ore scan radius = 6");
         helper.assertTrue(MinerSkills.oreScanRadius(10) == 16, "L10 ore scan radius = 16");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 探矿改扫真实世界 (C2 / economy-01 闭合 "探矿失效"): OreScanService.scanWorld 逐格读真实方块态, 经
+    // OreType.fromBlock 还原矿种, 只收球内确有命中的坐标。删世界扫描 (回到死体素表 cachedPlacement) -> 恒空返 -> 必挂。
+    //
+    // 用 DIAMOND-only 可探集合隔离矿种优先序 (避免测试世界里偶发铁/煤命中干扰), 直接验证 "世界读取 + fromBlock +
+    // 球半径几何" 三件核心: 球内放的 DIAMOND_ORE 全部命中; 球外的不返回; allowedOres 空 (L2) 时短路空返。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void oreScanReadsRealWorldBlocks(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockPos center = helper.absolutePos(new BlockPos(0, 1, 0));
+        int radius = 4;
+
+        // 球内放 3 颗钻石矿 (含深板岩变体, 验证 fromBlock 两变体都映射 DIAMOND), 全在半径内。
+        BlockPos in1 = center.offset(1, 0, 0);
+        BlockPos in2 = center.offset(0, 1, -1);
+        BlockPos in3 = center.offset(-1, 0, 1); // 用深板岩变体
+        level.setBlock(in1, Blocks.DIAMOND_ORE.defaultBlockState(), Block.UPDATE_ALL);
+        level.setBlock(in2, Blocks.DIAMOND_ORE.defaultBlockState(), Block.UPDATE_ALL);
+        level.setBlock(in3, Blocks.DEEPSLATE_DIAMOND_ORE.defaultBlockState(), Block.UPDATE_ALL);
+        // 球外放 1 颗 (欧氏距离 > radius): 必须不被收。dx=5 > 4 -> 5^2=25 > 16。
+        BlockPos out = center.offset(5, 0, 0);
+        level.setBlock(out, Blocks.DIAMOND_ORE.defaultBlockState(), Block.UPDATE_ALL);
+
+        Set<OreType> diamondOnly = EnumSet.of(OreType.DIAMOND);
+        List<BlockPos> hits = OreScanService.scanWorld(level, center, radius, diamondOnly);
+
+        // 球内 3 颗全部命中 (深板岩变体经 fromBlock 同映射 DIAMOND -> 也收到)。
+        helper.assertTrue(hits.contains(in1), "scanWorld returns in-sphere diamond at " + in1);
+        helper.assertTrue(hits.contains(in2), "scanWorld returns in-sphere diamond at " + in2);
+        helper.assertTrue(hits.contains(in3), "scanWorld returns in-sphere deepslate-diamond at " + in3 + " (fromBlock maps both variants)");
+        helper.assertTrue(hits.size() == 3, "exactly the 3 in-sphere diamonds are returned, got " + hits.size());
+        // 球外那颗不在结果里 (半径几何真生效, 非全图下发)。
+        helper.assertFalse(hits.contains(out), "out-of-sphere diamond at " + out + " is NOT returned (radius gate live)");
+
+        // fromBlock 反查正确性 (C2 与 C1 共用映射): 石质/深板岩两变体都还原 DIAMOND, 非矿方块还原 null。
+        helper.assertTrue(OreType.fromBlock(Blocks.DIAMOND_ORE) == OreType.DIAMOND, "fromBlock(DIAMOND_ORE) = DIAMOND");
+        helper.assertTrue(OreType.fromBlock(Blocks.DEEPSLATE_DIAMOND_ORE) == OreType.DIAMOND, "fromBlock(DEEPSLATE_DIAMOND_ORE) = DIAMOND");
+        helper.assertTrue(OreType.fromBlock(Blocks.STONE) == null, "fromBlock(STONE) = null (not an ore)");
+
+        // L2 玩家 (allowedOres 空) -> scanWorld 空集语义短路, 即便球内有矿也不下发 (探矿未解锁)。
+        Set<OreType> lockedL2 = OreScanService.allowedOres(2);
+        helper.assertTrue(lockedL2.isEmpty(), "L2 allowedOres empty (scan locked below L3)");
+        helper.assertTrue(OreScanService.scanWorld(level, center, radius, lockedL2).isEmpty(),
+                "L2 (empty allowed set) scans nothing even with diamonds present in the sphere");
+
+        // L6 可探集合含 DIAMOND (探矿里程碑): 用 L6 集合在同球扫到的钻石数 >= 上面 DIAMOND-only 的命中 (无遗漏)。
+        Set<OreType> l6 = OreScanService.allowedOres(6);
+        helper.assertTrue(l6.contains(OreType.DIAMOND), "L6 allowed set includes diamond");
+        List<BlockPos> l6Hits = OreScanService.scanWorld(level, center, radius, l6);
+        // 球内仅放了钻石 (无铁/煤), 故 L6 优先序最终落到 DIAMOND, 命中同样 3 颗。
+        helper.assertTrue(l6Hits.size() == 3 && l6Hits.contains(in1) && l6Hits.contains(in3),
+                "L6 scan over the same sphere still finds the 3 diamonds (single-ore preference falls through to diamond)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // C1: 残骸/绿宝石 ore feature 数据正确性 + 挂入 Hard (保持 Hard 无 copper/coal)。
+    // GameTest 内 force-load 矿洞 Hard 区块跑真实 feature 放置不可行 (概率性 + 跨维度), 故退而验数据正确性:
+    //   1. 两个新 placed_feature JSON 解析加载成功 (在 PLACED_FEATURE 注册表内; 解析失败则数据包加载报错, 注册表无此键);
+    //   2. OreType.fromBlock 能把残骸/绿宝石 (含深板岩变体) 还原成矿种 (探矿/铺矿共用映射);
+    //   3. mining_hard biome 的地下矿阶段 (UNDERGROUND_ORES) 引用了两个新 placed_feature, 且仍不含 copper/coal (Hard 无铜回归)。
+    // 删 mining_hard.json 的两行追加 -> 断言 3 必挂; 删 placed_feature JSON -> 断言 1 必挂 (注册表缺键); 删 fromBlock 残骸/绿宝石映射 -> 断言 2 必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void ancientDebrisAndEmeraldFeaturesWiredIntoHard(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+
+        // 1. 两个新 placed_feature 已被数据包加载 (JSON 解析成功的硬证据: 注册表含键)。
+        Registry<PlacedFeature> placed = level.registryAccess().registryOrThrow(Registries.PLACED_FEATURE);
+        ResourceLocation debrisPlaced = new ResourceLocation(MiningConstants.MODID, "ore_ancient_debris");
+        ResourceLocation emeraldPlaced = new ResourceLocation(MiningConstants.MODID, "ore_emerald");
+        helper.assertTrue(placed.containsKey(debrisPlaced),
+                "placed_feature miningdim:ore_ancient_debris loaded (configured+placed JSON parsed)");
+        helper.assertTrue(placed.containsKey(emeraldPlaced),
+                "placed_feature miningdim:ore_emerald loaded (configured+placed JSON parsed)");
+
+        // 2. fromBlock 还原残骸/绿宝石 (含深板岩变体), 取代死体素表 (探矿 + 铺矿共用)。
+        helper.assertTrue(OreType.fromBlock(Blocks.ANCIENT_DEBRIS) == OreType.ANCIENT_DEBRIS,
+                "fromBlock(ANCIENT_DEBRIS) = ANCIENT_DEBRIS");
+        helper.assertTrue(OreType.fromBlock(Blocks.EMERALD_ORE) == OreType.EMERALD,
+                "fromBlock(EMERALD_ORE) = EMERALD");
+        helper.assertTrue(OreType.fromBlock(Blocks.DEEPSLATE_EMERALD_ORE) == OreType.EMERALD,
+                "fromBlock(DEEPSLATE_EMERALD_ORE) = EMERALD (deepslate variant)");
+
+        // 3. mining_hard biome 的地下矿阶段引用两个新 feature, 且仍无 copper/coal (Hard 无铜回归)。
+        Biome hard = level.registryAccess().registryOrThrow(Registries.BIOME)
+                .getOrThrow(Difficulty.HARD.biomeKey());
+        Set<ResourceLocation> hardFeatureIds = new HashSet<>();
+        for (HolderSet<PlacedFeature> step : hard.getGenerationSettings().features()) {
+            for (Holder<PlacedFeature> holder : step) {
+                holder.unwrapKey().ifPresent(key -> hardFeatureIds.add(key.location()));
+            }
+        }
+        helper.assertTrue(hardFeatureIds.contains(debrisPlaced),
+                "mining_hard references miningdim:ore_ancient_debris in its generation features");
+        helper.assertTrue(hardFeatureIds.contains(emeraldPlaced),
+                "mining_hard references miningdim:ore_emerald in its generation features");
+        // Hard 无铜无煤回归 (保持设计: Hard 不出 copper/coal 这两个低价矿)。
+        helper.assertFalse(hardFeatureIds.contains(new ResourceLocation("minecraft", "ore_copper")),
+                "mining_hard must NOT contain copper ore feature (Hard no-copper)");
+        helper.assertFalse(hardFeatureIds.contains(new ResourceLocation("minecraft", "ore_copper_large")),
+                "mining_hard must NOT contain large copper ore feature");
+        helper.assertFalse(hardFeatureIds.contains(new ResourceLocation("minecraft", "ore_coal_upper")),
+                "mining_hard must NOT contain upper coal ore feature (Hard no-coal)");
+        helper.assertFalse(hardFeatureIds.contains(new ResourceLocation("minecraft", "ore_coal_lower")),
+                "mining_hard must NOT contain lower coal ore feature (Hard no-coal)");
         helper.succeed();
     }
 

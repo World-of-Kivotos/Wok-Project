@@ -1,6 +1,7 @@
 package com.miningdim.pressure;
 
 import com.miningdim.core.Subsystem;
+import com.miningdim.trap.TrapSystem;
 import net.minecraftforge.eventbus.api.IEventBus;
 
 /**
@@ -12,10 +13,11 @@ import net.minecraftforge.eventbus.api.IEventBus;
  *
  * 对外能力:
  *  - HUD: MobPressureSystem 内部经 MiningServices.network().sendDanger 下发 danger, 无需外部接线。
- *  - 陷阱 danger 门控 (9.6): 陷阱子系统以"推依赖"方式被注入读 danger 能力。本子系统不 import 陷阱包
- *    实现类; 当陷阱子系统提供稳定的公开注入入口后, 在本 register 内追加一行注入适配器 (从
- *    mobPressure.danger() 读玩家 danger) 完成接线。当前不预埋对其的引用, 避免对尚在变动的陷阱包产生
- *    编译期硬依赖 —— 信息缺口: 需要陷阱子系统的稳定 danger 注入门面与其 DangerSource 函数签名。
+ *  - 陷阱 danger 门控 (9.6): 陷阱子系统以"推依赖"方式被注入读 danger 能力。陷阱包已提供稳定注入入口
+ *    {@link TrapSystem#setDangerSource}, 故本 register 末尾把 "从 mobPressure.danger() 读玩家 danger" 的
+ *    适配器注入进去 (从 stub 的 (p,i)->0f 复活动态陷阱: 岩浆/坍塌/身后苦力怕三类 danger 门控陷阱)。
+ *    pressure 单向 import trap (推依赖), trap 不反向 import pressure, 不破坏 "陷阱包不知道压力包存在" 的隔离。
+ *    注入顺序前提: TrapSystem 在主类 List 中排在 PressureSystem 之前, 故 register 期 TrapSystem.get() 已就绪。
  *
  * 依赖的 core 服务: MobPressureSystem 在 tick 内经 MiningServices 取 IInstanceManager / IMiningConfig /
  * IMiningNetwork。这些服务由各自子系统在本系统之前注入 (主类 List 顺序保证), 故本 register 只订阅事件,
@@ -28,6 +30,12 @@ public final class PressureSystem implements Subsystem {
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
         forgeBus.register(mobPressure);
+        // 注入 danger 读取适配器: 复活动态陷阱 (C3)。陷阱引擎据此 danger 门控岩浆/坍塌/身后苦力怕,
+        // 不再恒读 stub 的 0f。无该玩家压力态 (未进矿洞 / 已离开) 时返回 0f, 与 stub 退化语义一致。
+        TrapSystem.get().setDangerSource((player, instanceId) -> {
+            PlayerMiningData data = mobPressure.danger().get(player.getUUID());
+            return data == null ? 0.0f : data.danger();
+        });
     }
 
     @Override

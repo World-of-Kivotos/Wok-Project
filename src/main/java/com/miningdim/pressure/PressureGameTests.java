@@ -3,9 +3,13 @@ package com.miningdim.pressure;
 import com.miningdim.core.Difficulty;
 import com.miningdim.core.IMiningConfig;
 import com.miningdim.testutil.MockGameTestPlayers;
+import com.miningdim.trap.TrapParams;
+import com.miningdim.trap.TrapSystem;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.eventbus.api.BusBuilder;
+import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -110,6 +114,61 @@ public final class PressureGameTests {
         helper.assertTrue(resisted.tWin() == 95,
                 "factor 0.6 off-region must decay round(8*0.6)=5 (100->95), got " + resisted.tWin());
 
+        helper.succeed();
+    }
+
+    // ============================================================
+    // C3: PressureSystem.register 注入 DangerSource -> 复活动态陷阱
+    // 回归锚点: 注入前 DynamicTrapEngine.dangerSource 恒 (p,i)->0f, danger 恒 0, 三类动态陷阱永不触发;
+    // 注入后陷阱引擎经注入源读到真实 danger。把玩家压力态推到 HARD 区满 danger (>= 岩浆阈值 0.70, 最高门),
+    // 断言 TrapSystem 注入源对该玩家返回值 = 该 danger (> 0 且 >= LAVA 阈值), 证明岩浆/坍塌/苦力怕三门都会过。
+    // 删 PressureSystem.register 末尾的 setDangerSource 注入 -> 引擎保留 0f stub -> injectedDangerOf 恒 0 -> 本测试必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = com.miningdim.core.MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void registerInjectsDangerSourceRevivingDynamicTraps(GameTestHelper helper) {
+        // 用全新 TrapSystem + PressureSystem 走真实 register 接线 (而非手搓 lambda), 测的是 register 这一行注入。
+        // 事件订阅挂一条临时丢弃总线 (不污染运行服真实 forge 总线; 本测试只读注入源, 不依赖 tick)。
+        IEventBus throwaway = BusBuilder.builder().build();
+        TrapSystem originalTrap = TrapSystem.get();
+        try {
+            TrapSystem trap = new TrapSystem();
+            trap.register(throwaway, throwaway); // 设 TrapSystem.instance = trap, dangerSource 仍是 0f stub
+            ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+
+            // 注入前: 引擎仍是恒 0f stub (此处经新 trap 直接验证 stub 起点)。
+            helper.assertTrue(trap.injectedDangerOf(player, 1L) == 0.0f,
+                    "before PressureSystem injection the trap engine reads the 0f stub (dynamic traps idle)");
+
+            PressureSystem pressure = new PressureSystem();
+            pressure.register(throwaway, throwaway); // register 末尾 setDangerSource: 接 mobPressure.danger()
+
+            // 把该玩家压力态推到 HARD 区满 danger: zone(HARD)=1.0 * wZone=1.0 -> clamp 到 dangerMax=1.0。
+            IMiningConfig config = new DangerTestConfig();
+            long instanceId = 1L;
+            PlayerMiningData data = pressure.mobPressure().danger().onEnter(player.getUUID(), instanceId, 0L);
+            float danger = pressure.mobPressure().danger()
+                    .evaluate(data, Difficulty.HARD, true, 0.0f, 1.0f, 100L, config);
+            helper.assertTrue(danger >= TrapParams.DANGER_THRESH_LAVA,
+                    "HARD-zone full danger must reach the highest (lava) gate; got " + danger);
+
+            // 注入后: 陷阱引擎门控所读的同一注入源对该玩家返回真实 danger (> 0 且 >= 岩浆阈值)。
+            float injected = trap.injectedDangerOf(player, instanceId);
+            helper.assertTrue(injected == danger,
+                    "injected DangerSource must return the player's live danger (" + danger + "), got " + injected);
+            helper.assertTrue(injected > 0.0f,
+                    "injected danger must be > 0 (regression guard: not the 0f stub)");
+            helper.assertTrue(injected >= TrapParams.DANGER_THRESH_LAVA,
+                    "injected danger clears the lava gate -> lava/collapse/creeper all gated open (traps revived)");
+
+            // 无压力态玩家 (未进矿洞 / 已离开): 注入源回退 0f, 与 stub 退化语义一致 (不臆造 danger)。
+            ServerPlayer noData = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            helper.assertTrue(trap.injectedDangerOf(noData, instanceId) == 0.0f,
+                    "player with no pressure state reads 0f (graceful degrade, not fabricated danger)");
+        } finally {
+            // 还原运行服的真实 TrapSystem 单例 (本测试 register 期把 instance 改成了临时 trap)。
+            originalTrap.register(throwaway, throwaway);
+        }
         helper.succeed();
     }
 

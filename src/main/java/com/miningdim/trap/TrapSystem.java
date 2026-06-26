@@ -83,6 +83,14 @@ public final class TrapSystem implements Subsystem {
         dynamicEngine.setDangerSource(source);
     }
 
+    /**
+     * 读当前注入的 danger 源对某玩家的取值 (动态陷阱门控所读的同一字段)。
+     * 供压力/陷阱接线回归测试断言注入生效 (注入前恒 0f stub, 注入后反映真实 danger)。
+     */
+    public float injectedDangerOf(net.minecraft.server.level.ServerPlayer player, long instanceId) {
+        return dynamicEngine.injectedDangerOf(player, instanceId);
+    }
+
     // ---- 静态陷阱表 (离线) ----
 
     /**

@@ -62,6 +62,14 @@ public final class DynamicTrapEngine {
     }
 
     /**
+     * 读当前注入的 danger 源对某玩家的取值 (与 evaluateInstance 内门控读同一字段)。
+     * 供陷阱/压力接线回归测试断言 "注入后 danger > 0" (反向防再退化成恒 0 stub)。
+     */
+    float injectedDangerOf(ServerPlayer player, long instanceId) {
+        return dangerSource.dangerOf(player, instanceId);
+    }
+
+    /**
      * 对单个活跃实例做一次动态陷阱评估 (调用方已确保: 该实例在矿山维度、有在线玩家、到了评估周期)。
      * 在 tick 线程执行, 内部世界写经 server.execute 提交。
      */

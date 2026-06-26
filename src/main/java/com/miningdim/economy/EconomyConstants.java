@@ -89,6 +89,22 @@ public final class EconomyConstants {
      *  消灭字符串字面量副本漂移 (此前农夫私有声明同值字面量)。 */
     public static final String GLOBAL_DAILY_CREDIT_FAUCET_KEY = "credit_faucet";
 
+    // ---- 8.5 青辉石 faucet 每人每日产出上限 (精英怪 PvE 唯一龙头) ----
+
+    /** 全服青辉石 faucet 计数键: 复用信用点 faucet 的 (playerId, key) 每日累计计数器范式 (UTC 翻日),
+     *  与 {@link #GLOBAL_DAILY_CREDIT_FAUCET_KEY} 同 namespace 机制但独立键 (青辉石与信用点不共享上限, 不互换)。
+     *  目前唯一入口是精英怪击杀 ({@link com.miningdim.champion.integration.ChampionRewardHandler}), 经
+     *  {@link EconomyService#grantAzureDaily} 累计入账并硬截断在 {@link #AZURE_DAILY_FAUCET_CAP}。 */
+    public static final String AZURE_DAILY_FAUCET_KEY = "azure_faucet";
+
+    /** 每人每日青辉石产出硬上限 (经济文档 8.5 战斗 faucet 并入每人每日上限; 当日累计超出后本批被截断, 不再入账)。
+     *
+     *  DRAFT 待标定: 经济文档 0.2 第 6 条 / 第 51 行明确把"青辉石日产"列为冷启动期无观测数据可校准的遗留待决量, 文档
+     *  未给具体数值。本值取保守初值 30 (按当前掉落表 6star=2 … 10star=10, 约 3-15 次合格精英击杀的青辉石量), 既给玩家
+     *  稳定积累空间又封住"刷精英 = 无限印青辉石"的龙头。与信用点主闸不同, 青辉石走硬截断 (非衰减): 青辉石量纲小且无
+     *  per-unit steering 需求, 超额直接不发更直观。ConfigSystem 暴露 champion.reward.* / economy.azure.* 后改读配置。 */
+    public static final long AZURE_DAILY_FAUCET_CAP = 30L;
+
     // ---- 18.4 AFK / 挂机检测 ----
 
     /** afk.noBreakTicks: 距上次有效挖掘超此 tick 判定无挖掘信号 (默认 2400 tick = 2 min)。 */

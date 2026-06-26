@@ -31,7 +31,9 @@ import java.util.function.Function;
  *  - AZURE 不可转移 (货币层无 P2P 入口, isTransferable 硬不变量);
  *  - NBT round-trip 边界 0 / Long.MAX_VALUE 防溢出 + grant 溢出抛 BALANCE_OVERFLOW;
  *  - setDirty 每次变更被调用;
- *  - tryChargeDaily 每日上限边界。
+ *  - tryChargeDaily 每日上限边界;
+ *  - grantAzureDaily / creditAzureDaily 青辉石每人每日产出硬上限 (超 cap 截断 / 撞顶 0 入账 / 跨 UTC 日重置;
+ *    经济文档 8.5 战斗 faucet 并入每人每日上限; economy-02)。
  *
  * 纯逻辑/SavedData 断言: 钱包与账本可在内存直接构造 (new), 不依赖世界写; 涉及 ServerPlayer 的门面方法
  * 用 MockGameTestPlayers.makeMockServerPlayerWithChannel(helper) 取真实 ServerPlayer。template = "empty"。
@@ -196,6 +198,93 @@ public final class EconomyGameTests {
         helper.assertTrue(ledger.tryChargeDaily(id, Currency.CREDIT, 100L, "pack", 100L, tomorrow),
                 "after UTC rollover the daily counter resets and a full-cap charge succeeds again");
         helper.assertTrue(ledger.balance(id, Currency.CREDIT) == 800L, "balance 900 - 100 = 800 next day");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // creditAzureDaily: 青辉石 faucet 每人每日产出硬上限 (经济文档 8.5 战斗 faucet 并入每人每日上限; economy-02)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void azureDailyFaucetCapTruncates(GameTestHelper helper) {
+        EconomyWalletData ledger = new EconomyWalletData();
+        UUID id = UUID.randomUUID();
+        String key = EconomyConstants.AZURE_DAILY_FAUCET_KEY; // "azure_faucet"
+        long cap = 30L; // 固定小 cap 做确定性断言 (不依赖常量当前值; 验"硬截断"语义本身)。
+        long today = 50_000L; // 固定 UTC 日戳 (epochDay)。
+
+        // 当日累计 0, 入账 18 (<= cap): 全额入账, 余额 18, 计数 18。
+        helper.assertTrue(ledger.creditAzureDaily(id, key, 18L, cap, today) == 18L,
+                "first azure grant 18 within cap 30 credits in full (18)");
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == 18L, "azure balance is 18 after first grant");
+
+        // 当日累计 18, 再入账 20 (18+20=38 > cap 30): 只发到刚好填满 cap 的 12 (30-18), 超出 8 被截断丢弃。
+        // 这是 economy-02 的核心: 删 creditAzureDaily 的 room 截断逻辑 (直接 credit amount) 则余额=38 测试必挂。
+        helper.assertTrue(ledger.creditAzureDaily(id, key, 20L, cap, today) == 12L,
+                "second azure grant truncates to remaining room: cap 30 - granted 18 = 12 (not full 20)");
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == 30L,
+                "azure balance clamps at the daily cap 30 (the over-cap 8 is dropped, not minted)");
+
+        // 当日已撞 cap, 再入账任意量: 0 入账, 余额不变 (撞顶后不再发)。
+        helper.assertTrue(ledger.creditAzureDaily(id, key, 100L, cap, today) == 0L,
+                "azure grant after the cap is hit credits nothing (hard truncation, not decay)");
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == 30L, "azure balance stays at cap 30 after over-cap grant");
+
+        // 跨 UTC 日重置: 翻日后当日计数清零, 又可领满 cap (余额累计到 30 + 30 = 60)。
+        long tomorrow = today + 1L;
+        helper.assertTrue(ledger.creditAzureDaily(id, key, 30L, cap, tomorrow) == 30L,
+                "after UTC rollover the azure daily counter resets and a full-cap grant succeeds again");
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == 60L,
+                "azure balance accrues 30 (day1 cap) + 30 (day2 cap) = 60 across the rollover");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void grantAzureDailyServiceRoutesThroughCap(GameTestHelper helper) {
+        // 门面层 grantAzureDaily (精英怪青辉石走此入口): 用真 cap 常量验"同一玩家当日连续领取超 cap 后实际入账被截断"。
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+        UUID id = player.getUUID();
+        long cap = EconomyConstants.AZURE_DAILY_FAUCET_CAP; // DRAFT 30
+
+        // 连续领取累计超 cap: 累加实际入账必恰等于 cap (超额被截断), 而非各笔之和。
+        long firstGrant = eco.grantAzureDaily(player, cap - 1L, cap); // 全额 cap-1。
+        helper.assertTrue(firstGrant == cap - 1L, "first service grant of cap-1 credits in full (cap-1)");
+        long secondGrant = eco.grantAzureDaily(player, 50L, cap);     // 只剩 1 的额度, 截断到 1。
+        helper.assertTrue(secondGrant == 1L, "second service grant truncates to the last 1 of remaining cap room");
+        long thirdGrant = eco.grantAzureDaily(player, 50L, cap);      // 已撞顶, 0。
+        helper.assertTrue(thirdGrant == 0L, "third service grant after cap is hit credits 0");
+
+        // 账本余额 = cap (绝不超过 cap, 哪怕拟领总量 = (cap-1)+50+50 远超 cap)。删 cap 逻辑则余额 = 99 测试必挂。
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == cap,
+                "azure balance is clamped exactly at the daily cap regardless of total requested (no per-day mint beyond cap)");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void azureDailyFaucetRejectsIllegalArgs(GameTestHelper helper) {
+        // 契约: amount<=0 / cap<=0 抛 ILLEGAL_AMOUNT 自然冒泡 (不静默返 0 掩盖非法入参)。
+        EconomyWalletData ledger = new EconomyWalletData();
+        UUID id = UUID.randomUUID();
+        String key = EconomyConstants.AZURE_DAILY_FAUCET_KEY;
+
+        boolean amountThrew = false;
+        try {
+            ledger.creditAzureDaily(id, key, 0L, 30L, 50_000L);
+        } catch (EconomyException e) {
+            amountThrew = e.reason() == EconomyException.Reason.ILLEGAL_AMOUNT;
+        }
+        helper.assertTrue(amountThrew, "azure grant of 0 throws ILLEGAL_AMOUNT (no silent no-op)");
+
+        boolean capThrew = false;
+        try {
+            ledger.creditAzureDaily(id, key, 5L, 0L, 50_000L);
+        } catch (EconomyException e) {
+            capThrew = e.reason() == EconomyException.Reason.ILLEGAL_AMOUNT;
+        }
+        helper.assertTrue(capThrew, "azure grant with cap 0 throws ILLEGAL_AMOUNT");
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == 0L, "no azure credited after rejected illegal grants");
         helper.succeed();
     }
 

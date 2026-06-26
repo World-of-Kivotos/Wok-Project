@@ -142,6 +142,9 @@ public final class MinerGameTests {
 
     // ============================================================
     // 矿脉抗性: 陷阱专属来源减伤封顶 35% + 非陷阱来源零减免
+    // 第七章降级路径 (miner-01 闭合): 专属源缺失时按环境陷阱伤类型集合识别 (落石/岩浆/着火/非玩家爆炸…),
+    // 矿洞内 L5+ 真实减伤; 战斗向来源 (近战/远程/玩家 TNT) 与非陷阱环境伤 (摔落) 仍零减免 (守不漂战斗力红线)。
+    // 删 isTrapSource 的环境伤识别 (回到恒 false) -> 减伤又失效 -> 本测试的减伤断言全挂。
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
@@ -151,11 +154,46 @@ public final class MinerGameTests {
         helper.assertTrue(approx(MinerSkills.trapDamageReduction(5), 0.10D), "L5 vein resist = 10%");
         helper.assertTrue(approx(MinerSkills.trapDamageReduction(10), 0.35D), "L10 vein resist = 35% cap");
         helper.assertTrue(MinerSkills.trapDamageReduction(10) <= 0.35D + EPS, "vein resist never exceeds 35%");
-        // 非陷阱来源零减免 (红线): isTrapSource 当前对所有真实来源返回 false -> reducedDamage 原样。
-        net.minecraft.world.damagesource.DamageSources sources =
-                helper.getLevel().damageSources();
-        float mobBlast = MinerSurvival.reducedDamage(10, sources.explosion(null, null), 20.0f);
-        helper.assertTrue(approx(mobBlast, 20.0f), "non-trap (creeper/explosion) damage reduced by 0% at L10");
+
+        ServerPlayer mock = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        net.minecraft.world.damagesource.DamageSources sources = helper.getLevel().damageSources();
+
+        // ---- 降级路径生效: 环境陷阱伤被识别为陷阱来源, L5+ 在矿洞内真实减伤 (miner-01 核心) ----
+        helper.assertTrue(MinerSurvival.isTrapSource(sources.lava()), "lava is a trap-equivalent source (fallback path)");
+        helper.assertTrue(MinerSurvival.isTrapSource(sources.fallingBlock(mock)),
+                "falling block (rockfall) is a trap-equivalent source");
+        helper.assertTrue(MinerSurvival.isTrapSource(sources.inFire()), "fire is a trap-equivalent source");
+        // explosion(null, null) -> DamageTypes.EXPLOSION (苦力怕/床/陷阱 TNT, 非玩家归因)。
+        helper.assertTrue(MinerSurvival.isTrapSource(sources.explosion(null, null)),
+                "non-player explosion (creeper/trap TNT) is a trap-equivalent source");
+
+        // L10 岩浆 20 伤 -> 减 35% -> 净 13 (减伤真生效, 非原样 20)。删降级识别则恒 20 必挂。
+        float lavaL10 = MinerSurvival.reducedDamage(10, sources.lava(), 20.0f);
+        helper.assertTrue(approx(lavaL10, 13.0f), "L10 lava 20 dmg reduced 35% -> 13 (vein resist now live)");
+        // L5 落石 20 伤 -> 减 10% -> 净 18 (解锁级边界)。
+        float rockL5 = MinerSurvival.reducedDamage(5, sources.fallingBlock(mock), 20.0f);
+        helper.assertTrue(approx(rockL5, 18.0f), "L5 falling-block 20 dmg reduced 10% -> 18");
+        // 二次同类伤 (反应窗承诺的净伤下降): 矿洞内 L10 玩家连续吃岩浆, 每笔都被减到 13 (净伤稳定下降, 非原样 20)。
+        float lavaSecondHit = MinerSurvival.reducedDamage(10, sources.lava(), 20.0f);
+        helper.assertTrue(approx(lavaSecondHit, 13.0f), "follow-up same-type trap hit also nets reduced 13 (sustained buffer)");
+
+        // ---- 等级门控红线: L4 未解锁陷阱伤也零减免 (即便是陷阱来源) ----
+        float lavaL4 = MinerSurvival.reducedDamage(4, sources.lava(), 20.0f);
+        helper.assertTrue(approx(lavaL4, 20.0f), "L4 (vein resist locked) lava reduced by 0% even though it is a trap source");
+
+        // ---- 不漂战斗力红线: 战斗/玩家 TNT/非陷阱环境伤 不被识别为陷阱来源 -> L10 也零减免 ----
+        // 玩家点燃的 TNT (explosion(player, player) -> PLAYER_EXPLOSION): 潜在 PvP, 不软化。
+        helper.assertFalse(MinerSurvival.isTrapSource(sources.explosion(mock, mock)),
+                "player-attributed explosion (TNT) is NOT a trap source (PvP attrition red line)");
+        float playerTnt = MinerSurvival.reducedDamage(10, sources.explosion(mock, mock), 20.0f);
+        helper.assertTrue(approx(playerTnt, 20.0f), "player TNT damage reduced by 0% at L10 (no combat softening)");
+        // 近战战斗伤: 不是陷阱来源, 零减免。
+        helper.assertFalse(MinerSurvival.isTrapSource(sources.mobAttack(mock)),
+                "mob melee attack is NOT a trap source (combat red line)");
+        float mobMelee = MinerSurvival.reducedDamage(10, sources.mobAttack(mock), 20.0f);
+        helper.assertTrue(approx(mobMelee, 20.0f), "mob melee damage reduced by 0% at L10");
+        // 摔落: 环境伤但非陷阱型 (不在降级集合), 零减免 (证明集合非"凡环境伤皆减")。
+        helper.assertFalse(MinerSurvival.isTrapSource(sources.fall()), "fall damage is NOT a trap source");
         float fallDmg = MinerSurvival.reducedDamage(10, sources.fall(), 12.0f);
         helper.assertTrue(approx(fallDmg, 12.0f), "non-trap (fall) damage reduced by 0% at L10");
         helper.succeed();
@@ -724,6 +762,11 @@ public final class MinerGameTests {
 
         @Override
         public long grantDaily(ServerPlayer player, long rawCredit, String faucetKey, long dailyCap) {
+            throw new UnsupportedOperationException("not exercised by miner wiring tests");
+        }
+
+        @Override
+        public long grantAzureDaily(ServerPlayer player, long amount, long dailyCap) {
             throw new UnsupportedOperationException("not exercised by miner wiring tests");
         }
     }

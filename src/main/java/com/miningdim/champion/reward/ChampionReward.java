@@ -22,7 +22,9 @@ public final class ChampionReward {
     /** 青辉石掉落起始星级 (config 默认 6★; 1-5★ 不掉青辉石)。 */
     public static final int AZURE_MIN_STAR = StarRank.CUSTOM_BLOOD_POOL_MIN_STAR;
 
-    /** 6★ 青辉石基础掉落量; 每高一星 +2 (6★=2 … 10★=10)。单设日产软上限由 b 阶段经济层另控。 */
+    /** 6★ 青辉石基础掉落量; 每高一星 +2 (6★=2 … 10★=10)。本表只给"单次击杀掉落量", 每人每日青辉石产出硬上限
+     *  并入经济层 {@code EconomyService.grantAzureDaily} (azure_faucet 键, 经济文档 8.5 战斗 faucet 必须并入每人
+     *  每日上限; 上限值见 {@code EconomyConstants.AZURE_DAILY_FAUCET_CAP})。 */
     public static final long AZURE_BASE_AT_MIN_STAR = 2L;
     public static final long AZURE_PER_STAR_ABOVE_MIN = 2L;
 
@@ -45,7 +47,8 @@ public final class ChampionReward {
     }
 
     /**
-     * 某星级青辉石掉落量 (6★+): base + (star-6) × perStar; &lt;6★ 返 0。单设日产软上限不在本层 (经济层控)。
+     * 某星级青辉石掉落量 (6★+): base + (star-6) × perStar; &lt;6★ 返 0。本法只算"单次击杀掉落量", 每人每日产出硬上限
+     * 由经济层 {@code EconomyService.grantAzureDaily} 截断 (azure_faucet 键; 本层不做日累计)。
      *
      * @param star 初始星级 (1-10)
      * @return 青辉石掉落量 (&lt;6★ = 0)

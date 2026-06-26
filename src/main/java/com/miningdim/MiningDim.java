@@ -142,6 +142,12 @@ public final class MiningDim {
         //     婚姻关系 SavedData (MarriageRegistry, 挂 overworld) + 玩家 capability 婚姻指针 (随 entry 唯一权威 cap)。
         //     典礼成本经 EconomyServices 门面事务性扣双方各半 (须经济门面已注入: 命令执行期取用, 对 register 顺序不敏感)。
         subsystems.add(new com.miningdim.marriage.MarriageSystem());
+        // 24d. 实体堆叠子系统 (阶段 1 合并 + 持久化): 范围内同种同状态实体合并为单实体 + 堆叠数随实体 NBT 落盘
+        //     (StackData 写 getPersistentData)。周期扫描 (scan_interval=100tick) 按区块本地配对 + require_moved
+        //     过滤, 全在服务端主线程 (NFR-3/5)。自持 StackingConfig SPEC 在 register 内 registerConfig 到 SERVER 级
+        //     (范式同 ChefSystem, 不碰中央 MiningServerConfig)。仅挂 ServerTickEvent/ServerStopping, 对 register
+        //     顺序不敏感, 列于社交簇后即可。被动产出 xN + 经验 xN 是 faucet 倍增器 (阶段 2 消费), 默认开但可经配置关闭。
+        subsystems.add(new com.miningdim.stacking.StackingSystem());
 
         // 25. Web UI 服务端派发 (服务端权威, 无 MCEF): 填充 WebUiServerDispatcher 动作注册表 (system.echo 等),
         //     经 MiningNetwork.CHANNEL 收 C2S 意图并下发 S2C 响应/事件。须排在 NetworkSystem (第 2) 之后,

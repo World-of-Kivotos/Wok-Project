@@ -70,6 +70,17 @@
         "type": "minecraft:condition",
         "if_true": {
           "type": "minecraft:biome",
+          "biome_is": [ "miningdim:mining_wall" ]
+        },
+        "then_run": {
+          "type": "minecraft:block",
+          "result_state": { "Name": "minecraft:bedrock" }
+        }
+      },
+      {
+        "type": "minecraft:condition",
+        "if_true": {
+          "type": "minecraft:biome",
           "biome_is": [ "miningdim:mining_hard" ]
         },
         "then_run": {

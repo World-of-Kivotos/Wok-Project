@@ -4,6 +4,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.dimension.DimensionType;
 
 /**
@@ -37,6 +38,14 @@ public final class MiningConstants {
     /** 自定义 BiomeSource 的注册 id, 必须与 dimension/mining.json 的 biome_source.type 一致 (4.4/5.3)。 */
     public static final ResourceLocation BIOME_SOURCE_ID =
             new ResourceLocation(MODID, "mining_biome_source");
+
+    /**
+     * 难度区域之外的"基岩墙"群系键 (data/miningdim/worldgen/biome/mining_wall.json)。三个难度盒子之间有
+     * REGION_GAP 间隔, 间隔与区域外整列归此群系; surface_rule 据 biome 把这些列填成纯基岩, 天然封死三难度,
+     * 且 carver 碰基岩即停 (D1 实心隔离的纯 datapack 实现, 不依赖自定义 ChunkGenerator)。
+     */
+    public static final ResourceKey<Biome> MINING_WALL_BIOME =
+            ResourceKey.create(Registries.BIOME, new ResourceLocation(MODID, "mining_wall"));
 
     // ---- region 网格几何 (设计文档 4.2, 建议初值 PENDING待校验) ----
 

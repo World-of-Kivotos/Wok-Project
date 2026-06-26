@@ -41,12 +41,14 @@ public final class MiningBiomeSource extends BiomeSource {
     private final Holder<Biome> easy;
     private final Holder<Biome> medium;
     private final Holder<Biome> hard;
+    private final Holder<Biome> wall;
 
     public MiningBiomeSource(HolderGetter<Biome> biomes) {
         // getOrThrow: biome 不存在即 datapack 缺失, 自然抛异常崩溃定位 (C9), 不掩盖。
         this.easy = biomes.getOrThrow(Difficulty.EASY.biomeKey());
         this.medium = biomes.getOrThrow(Difficulty.MEDIUM.biomeKey());
         this.hard = biomes.getOrThrow(Difficulty.HARD.biomeKey());
+        this.wall = biomes.getOrThrow(MiningConstants.MINING_WALL_BIOME);
     }
 
     @Override
@@ -56,14 +58,14 @@ public final class MiningBiomeSource extends BiomeSource {
 
     @Override
     protected Stream<Holder<Biome>> collectPossibleBiomes() {
-        // 7.8.4 / 6.4: possibleBiomes 必须含三区全集, 否则原版校验/spawn 预计算 Holder 解析报错。
-        return Stream.of(easy, medium, hard);
+        // 7.8.4 / 6.4: possibleBiomes 必须含全部会返回的 biome (三难度 + 基岩墙), 否则原版校验/spawn 预计算 Holder 解析报错。
+        return Stream.of(easy, medium, hard, wall);
     }
 
     /**
      * 按所在 region 难度返回 biome (R2: 难度=区域, 整列同一 biome)。入参 x/z 是 1/4 区块坐标, 经
-     * QuartPos.toBlock 还原方块 XZ 再查 region。region 外/未分配 (缓冲带等) 无难度可取, 归 hard biome
-     * 兜底 —— 这些列全实心不影响玩法, 仅需一个合法 holder (6.4 末)。y 不参与 (整列同难度)。
+     * QuartPos.toBlock 还原方块 XZ 再查 region。region 外 (缓冲带 + 网格外) 归 mining_wall 群系 —— 这些列
+     * 经 surface_rule 填成纯基岩, 把三个难度盒子封死 (D1)。y 不参与 (整列同 biome)。
      */
     @Override
     public Holder<Biome> getNoiseBiome(int x, int y, int z, Climate.Sampler sampler) {
@@ -74,7 +76,7 @@ public final class MiningBiomeSource extends BiomeSource {
      * 纯几何 region -> 难度 biome (R2: 难度由固定网格单元决定, 与运行时 InstanceManager 无关)。
      * 关键: 客户端也会调 getNoiseBiome 渲染群系, 故绝不能依赖服务端 InstanceManager (否则客户端 NPE 崩溃);
      * 三固定区域几何 (Difficulty.regionCellX + MiningConstants 网格常量) 客户端服务端完全一致, 安全。
-     * 三区外 (缓冲带等) 归 hard 兜底, 仅需一个合法 holder。
+     * 三区外 (缓冲带 + 网格外) 归 mining_wall 基岩墙群系: surface_rule 把这些列整列填基岩, 封死难度盒子。
      */
     private Holder<Biome> biomeForRegion(int blockX, int blockZ) {
         for (Difficulty d : Difficulty.values()) {
@@ -89,6 +91,6 @@ public final class MiningBiomeSource extends BiomeSource {
                 };
             }
         }
-        return hard;
+        return wall;
     }
 }

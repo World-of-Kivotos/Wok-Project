@@ -45,15 +45,17 @@ public final class FarmerCropBlock extends CropBlock {
     }
 
     /**
-     * 单次随机刻按概率推进一个成长阶段, 期望成熟时间命中下方耕地档位的目标间隔 (表B)。
+     * 单次随机刻按档位目标间隔推进成长, 期望成熟时间命中下方耕地档位的目标间隔 (表B)。
      *
-     * 推导: 原版随机刻在 randomTickSpeed=3 时, 每个作物方块平均约每 (4096/3) 游戏刻被随机刻一次。但
-     * randomTick 的调用本身已是 "被随机选中" 的事件, 故本法只需定义 "每次被随机刻时推进一阶的概率 p",
-     * 使 (期望需要的随机刻次数 / 阶段) × (平均随机刻间隔) × 阶段数 = 目标成熟 tick。
+     * 推导: 原版随机刻在 randomTickSpeed=N 时, 每个作物方块平均每 R = 4096/N 游戏刻被随机刻一次。本法把
+     * "命中目标成熟 tick" 化为一个守恒量: 每次被随机刻时推进的期望阶数 E = 1 / expectedRandomTicksPerStage,
+     * 其中 expectedRandomTicksPerStage = (每阶段期望 tick) / R, 每阶段期望 tick = growthIntervalTicks / maxAge。
+     * 代入可得 期望成熟 tick = maxAge × R × expectedRandomTicksPerStage = growthIntervalTicks (与档位线性, 表B 意图)。
      *
-     * 令 R = 平均随机刻间隔 (tick) = 4096 / randomTickSpeed; 每阶段期望 tick = growthIntervalTicks / maxAge;
-     * 每阶段期望随机刻次数 = 每阶段期望 tick / R; p = 1 / 该次数 (钳制到 (0,1])。
-     * 这样 "高级地肉眼更快" 直接由更小的 growthIntervalTicks 体现 (表B 设计意图)。
+     * 高档地 (6/5/4min) 的每阶段期望 tick 小于 R, 即 expectedRandomTicksPerStage < 1, 此时单次随机刻应推进
+     * 多于一阶 (E > 1)。旧实现把推进概率钳到 1.0 且每刻最多推进一阶, 令这三档全退化为 "每随机刻推进恰一阶" =
+     * maxAge × R ≈ 7.96min, 三档塌缩同值, 破坏表B 吞吐差异。修复: E >= 1 时取整数部分 + 小数部分作概率多推一阶,
+     * 使每刻期望推进阶数严格等于 E ({@link #expectedStagesPerRandomTick}); E < 1 时退化为单阶概率推进 (与旧 >=1 分支同义)。
      */
     @Override
     public void randomTick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
@@ -68,16 +70,49 @@ public final class FarmerCropBlock extends CropBlock {
         if (randomTickSpeed <= 0) {
             return; // 服务器关随机刻: 作物冻结 (与原版同语义)。
         }
-        double avgTicksBetweenRandomTicks = 4096.0D / randomTickSpeed;
-        double ticksPerStage = (double) tier.growthIntervalTicks() / getMaxAge();
-        double expectedRandomTicksPerStage = ticksPerStage / avgTicksBetweenRandomTicks;
-        double advanceChance = expectedRandomTicksPerStage <= 1.0D
-                ? 1.0D
-                : 1.0D / expectedRandomTicksPerStage;
-        if (random.nextDouble() < advanceChance) {
-            int next = getAge(state) + 1;
-            level.setBlock(pos, getStateForAge(Math.min(next, getMaxAge())), 2);
+        double stagesPerTick = expectedStagesPerRandomTick(tier, randomTickSpeed, getMaxAge());
+        int age = getAge(state);
+        int adv = sampleStageAdvance(stagesPerTick, random);
+        if (adv <= 0) {
+            return; // 本刻未推进 (E < 1 时按概率落空)。
         }
+        int next = Math.min(age + adv, getMaxAge());
+        // 单次 setBlock 推进到新阶 (与原版 randomTick 的成长通知同语义: flag 2 触发观察者/比较器更新)。
+        // 真正跨到成熟那阶时, 新状态即 maxAge, 后续破坏由 FarmerSystem.onCropHarvested 统一结算 (本类不发成熟事件)。
+        level.setBlock(pos, getStateForAge(next), 2);
+    }
+
+    /**
+     * 单次随机刻推进的期望成长阶数 E (表B 守恒量, 纯函数供 randomTick 与 GameTest 共用)。
+     *
+     * E = 1 / expectedRandomTicksPerStage, expectedRandomTicksPerStage = (growthIntervalTicks / maxAge) / (4096 / randomTickSpeed)。
+     * 期望成熟 tick = maxAge / E × (4096 / randomTickSpeed) = growthIntervalTicks, 故 E 越大成熟越快 (高档地 E > 1, 单刻推进多阶)。
+     *
+     * @param tier           下方耕地档位 (提供 growthIntervalTicks)
+     * @param randomTickSpeed 当前 randomTickSpeed gamerule (> 0)
+     * @param maxAge         作物最大成长阶 (= getMaxAge())
+     */
+    public static double expectedStagesPerRandomTick(FarmerTier tier, int randomTickSpeed, int maxAge) {
+        if (randomTickSpeed <= 0) {
+            throw new IllegalArgumentException("randomTickSpeed must be > 0, got " + randomTickSpeed);
+        }
+        if (maxAge <= 0) {
+            throw new IllegalArgumentException("maxAge must be > 0, got " + maxAge);
+        }
+        double avgTicksBetweenRandomTicks = 4096.0D / randomTickSpeed;
+        double ticksPerStage = (double) tier.growthIntervalTicks() / maxAge;
+        double expectedRandomTicksPerStage = ticksPerStage / avgTicksBetweenRandomTicks;
+        return 1.0D / expectedRandomTicksPerStage;
+    }
+
+    /**
+     * 把期望推进阶数 E (可为小数, 可 < 1 或 > 1) 采样成本刻实际推进的整数阶数, 使采样均值严格等于 E:
+     * 整数部分必推, 小数部分作概率多推一阶。E < 1 时整数部分为 0, 退化为按小数概率推进零或一阶。
+     */
+    public static int sampleStageAdvance(double expectedStagesPerRandomTick, RandomSource random) {
+        int whole = (int) expectedStagesPerRandomTick;
+        double frac = expectedStagesPerRandomTick - whole;
+        return random.nextDouble() < frac ? whole + 1 : whole;
     }
 
     /**

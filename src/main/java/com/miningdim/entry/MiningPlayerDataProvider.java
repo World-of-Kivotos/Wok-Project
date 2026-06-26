@@ -18,7 +18,8 @@ import org.jetbrains.annotations.Nullable;
 public final class MiningPlayerDataProvider implements ICapabilitySerializable<CompoundTag> {
 
     private final MiningPlayerData data = new MiningPlayerData();
-    private final LazyOptional<IMiningPlayerData> handle = LazyOptional.of(() -> data);
+    /** 指向 data 的能力句柄; invalidate 后【重建】(玩家跨维度 invalidateCaps 不销毁实体, 句柄须可重生)。 */
+    private LazyOptional<IMiningPlayerData> handle = LazyOptional.of(() -> data);
 
     @NotNull
     @Override
@@ -41,8 +42,14 @@ public final class MiningPlayerDataProvider implements ICapabilitySerializable<C
         return data;
     }
 
-    /** 实体卸载时让句柄失效 (AttachCapabilitiesEvent 注册的 invalidate 回调调用)。 */
+    /**
+     * Forge invalidateCaps 回调 (AttachCapabilitiesEvent 注册): 旧句柄失效后【重建】一个指向同一 data 的新句柄。
+     * 玩家跨维度时 Forge 会 invalidateCaps -> 本方法, 但玩家实体本身持续存在(非销毁); 若不重建, 换维度后
+     * getCapability 永远返回失效句柄 -> {@link MiningCapabilities#get} 永空 -> /mining leave 等读 cap 全失败
+     * (实测: 进矿洞后退不出)。实体真卸载时也走本方法重建, 但卸载后无人再取 cap, 新句柄随 provider 一起 GC, 无害。
+     */
     public void invalidate() {
         handle.invalidate();
+        handle = LazyOptional.of(() -> data);
     }
 }

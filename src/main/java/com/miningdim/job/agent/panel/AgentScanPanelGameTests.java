@@ -67,6 +67,35 @@ public final class AgentScanPanelGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void buildL3DoesNotLeakMechanicInFirstNWindow(GameTestHelper helper) {
+        // agent-03: 机制类词条若落在原始顺序前 N 位, L1-L3 也绝不解密其真名 (类别门控不被顺序击穿; 机制真名需 L5+)。
+        // 构造机制词条排在第 0 位 (前 N 窗口内), 后跟被动: L3 下机制仍加密 (脱敏空显示名), 被动正常解密。
+        List<AgentScanSnapshotBuilder.RawAffix> raws = List.of(
+                raw("m1", SealCategory.MECHANIC), raw("p1", SealCategory.PASSIVE), raw("p2", SealCategory.PASSIVE));
+
+        AgentScanSnapshot l3 = AgentScanSnapshotBuilder.build(7, 3, 3, raws);
+        AgentScanEntry mechanic = l3.entries().get(0); // 机制, 落第 0 位 (visibleAffixCount(3)=3 的前 N 窗口内)。
+        helper.assertFalse(mechanic.decrypted(),
+                "L3 must NOT decrypt a mechanic affix even when it sits in the first-N window (mechanic name needs L5+)");
+        helper.assertTrue(mechanic.displayKey().isEmpty(),
+                "the leaked-by-order mechanic affix hides its real display key at L3 (encrypted placeholder)");
+        // 同窗口内的被动词条照常解密 (门控只压机制, 不误伤被动): p1/p2 在前 N 位解密。
+        helper.assertTrue(l3.entries().get(1).decrypted(), "L3 still decrypts the passive p1 in the first-N window");
+        helper.assertTrue(l3.entries().get(2).decrypted(), "L3 still decrypts the passive p2 in the first-N window");
+        // 删类别门控 (回到 index<visibleCount 不分类别) 则第 0 位机制在 L3 提前泄漏, 上面 mechanic 断言必挂。
+
+        // L5+ 才解密机制真名: 同一机制词条在 L5 下解密 (含技能/机制全集)。
+        AgentScanSnapshot l5 = AgentScanSnapshotBuilder.build(7, 3, 5, raws);
+        helper.assertTrue(l5.entries().get(0).decrypted(), "L5 decrypts the mechanic affix (full set incl skill/mechanic)");
+        helper.assertTrue(!l5.entries().get(0).displayKey().isEmpty(), "decrypted mechanic affix carries its real display key at L5");
+
+        // L1/L2 同样不泄漏机制 (低于 L3 的前 N 窗口更小, 机制仍恒加密)。
+        AgentScanSnapshot l1 = AgentScanSnapshotBuilder.build(7, 1, 1, raws);
+        helper.assertFalse(l1.entries().get(0).decrypted(), "L1 does NOT decrypt the first-position mechanic affix either");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void buildL5DecryptsMechanicToo(GameTestHelper helper) {
         List<AgentScanSnapshotBuilder.RawAffix> raws = List.of(
                 raw("p1", SealCategory.PASSIVE), raw("m1", SealCategory.MECHANIC));

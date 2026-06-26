@@ -80,8 +80,10 @@ public final class AgentScanSnapshotBuilder {
     }
 
     /**
-     * 逐条解密裁决 (第四章探测词条列): 原始顺序前 N 条 (N=visibleCount, L1-L3) 总解密; 超出 N 或 L4+ (visibleCount
-     * 为哨兵) 时按类别 —— 被动需 L4+ (showsAllPassive), 机制需 L5+ (showsSkill)。
+     * 逐条解密裁决 (第四章探测词条列): 原始顺序前 N 条 (N=visibleCount, L1-L3) 解密, 但机制类真名恒需 L5+
+     * (showsSkill) —— 即便机制词条落在前 N 位, L1-L3 也不解密其真名 (脱敏占位), 否则机制类核弹技能的真名会因
+     * 原始顺序靠前而提前泄漏 (agent-03: 机制类应 L5+ 才解密)。超出 N 或 L4+ (visibleCount 为哨兵) 时按类别 ——
+     * 被动需 L4+ (showsAllPassive), 机制需 L5+ (showsSkill)。
      *
      * @param index           词条在原始顺序中的下标 (0-based)
      * @param category        词条类别
@@ -92,7 +94,11 @@ public final class AgentScanSnapshotBuilder {
     private static boolean isDecrypted(int index, SealCategory category, int visibleCount,
                                        boolean showsAllPassive, boolean showsSkill) {
         if (visibleCount != AgentScanTier.ALL_AFFIXES) {
-            // L1-L3: 仅前 visibleCount 条解密 (不分类别, 取原始顺序前 N)。
+            // L1-L3: 前 visibleCount 条解密, 但机制类真名恒需 L5+ (此区段 showsSkill 必为 false), 故机制类在前 N 位
+            // 仍加密 (类别门控不被原始顺序击穿)。
+            if (category == SealCategory.MECHANIC) {
+                return showsSkill;
+            }
             return index < visibleCount;
         }
         // L4+: 哨兵态, 按类别全解密。被动需 L4+; 机制需 L5+。

@@ -9,9 +9,11 @@ import com.miningdim.champion.reward.DamageContribution;
 import com.miningdim.core.MiningConstants;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.util.RandomSource;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -365,6 +367,118 @@ public final class ChampionEdgeGameTests {
             immutable = true;
         }
         helper.assertTrue(immutable, "pool views are unmodifiable (defensive against table mutation)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 哑词条排除: AffixRoller 只 roll 已有运行期 handler 的白名单词条 (champion-03 修复)
+    // ============================================================
+
+    /**
+     * 跨全部 10 星各 roll 多次, 断言 roll 出的【每一条】词条都在 {@link AffixRoller#IMPLEMENTED_AFFIXES} 白名单内
+     * (即不含任何被排除的哑词条轴)。断言具体到 AffixDef 身份 (contains 判定), 非永真 —— 删 rollPool 里的
+     * IMPLEMENTED_AFFIXES 过滤 (放开哑词条) 后, 高星机动/技能哑词条会被 roll 进来, contains 判定即挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void rollerOnlyProducesImplementedAffixes(GameTestHelper helper) {
+        boolean sawAnyAffix = false;
+        // 固定 seed 多次 roll 覆盖随机分支 (同一星掷多次取不同子集), 逐星推进保证高星 (机动/技能哑词条已解锁) 也覆盖。
+        for (int star = StarRank.MIN_STAR; star <= StarRank.MAX_STAR; star++) {
+            StarRank rank = StarRank.ofStar(star);
+            for (int seed = 0; seed < 40; seed++) {
+                RandomSource rng = RandomSource.create(0x9E3779B9L * star + seed);
+                List<AffixSelection> rolled = AffixRoller.roll(rank, rng);
+                for (AffixSelection sel : rolled) {
+                    sawAnyAffix = true;
+                    helper.assertTrue(
+                            AffixRoller.IMPLEMENTED_AFFIXES.contains(sel.affix()),
+                            "rolled affix " + sel.affix() + " (star " + star + ") must be in implemented whitelist "
+                                    + "(no dummy axes rolled)");
+                    // 强断言: roll 出的词条池必属生存/战斗 (机动/技能整池在 Stage1 被排除, 绝不应出现)。
+                    helper.assertTrue(
+                            sel.affix().pool() == AffixPool.SURVIVAL || sel.affix().pool() == AffixPool.COMBAT,
+                            "rolled affix " + sel.affix() + " must be from SURVIVAL/COMBAT pool only (mobility/skill "
+                                    + "pools are all dummy in Stage1)");
+                }
+            }
+        }
+        // 防"恒空 roll 假绿": 至少有一次 roll 真产出过词条 (3★+ 预算足以买下至少一条实现词条)。
+        helper.assertTrue(sawAnyAffix, "rolling across all stars must yield at least one affix (not vacuously empty)");
+        helper.succeed();
+    }
+
+    /**
+     * 反例护栏 (证明排除逻辑确有作用, 而非候选本就为空): 取若干典型哑词条, 断言它们【在高星已按 minStar/品质解锁】
+     * (故"放开排除"时必会进 rollPool 候选), 但【既不在白名单、也绝不会被 roll 出】。这把"放开哑词条则断言必挂"落成
+     * 可验证的具体反例 —— 若误把哑词条放进白名单或漏过滤, 下面任一断言即挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void dummyAxesUnlockedYetNeverRolled(GameTestHelper helper) {
+        StarRank topStar = StarRank.ofStar(StarRank.MAX_STAR);
+
+        // 典型哑词条 (各哑轴代表): 机动/技能/生存哑/战斗哑/缩小化无伙伴。
+        Set<AffixDef> dummySamples = EnumSet.of(
+                AffixDef.SPRINT,           // 机动池
+                AffixDef.DEATH_MARK,       // 技能池 (主动技能未实现)
+                AffixDef.THUNDER,          // 技能池 (周期 AOE 未实现)
+                AffixDef.GIGANTISM,        // 生存池哑 (无 HP 膨胀 handler)
+                AffixDef.THORNS,           // 生存池哑 (反震 handler 缺位)
+                AffixDef.DOUBLE_STRIKE,    // 战斗池哑 (分跳未施加)
+                AffixDef.CHAOS_STRIKE,     // 战斗池哑 (击飞不 push)
+                AffixDef.MINIATURIZATION); // 生存池: 减伤已实但无机动伙伴, 不可独立 roll
+
+        for (AffixDef dummy : dummySamples) {
+            // (1) 这些哑词条在 10★ 确已解锁 -> 若无白名单过滤, rollPool 候选会含它们 (证明过滤是唯一拦截点)。
+            helper.assertTrue(dummy.isUnlockedAt(topStar),
+                    dummy + " is unlocked at 10star (would enter candidate set if exclusion removed)");
+            // (2) 但它们不在实现白名单 -> 被 rollPool 三门槛的 IMPLEMENTED_AFFIXES.contains 拦下。
+            helper.assertTrue(!AffixRoller.IMPLEMENTED_AFFIXES.contains(dummy),
+                    dummy + " must NOT be in implemented whitelist (it is a dummy/unrollable axis)");
+        }
+
+        // (3) 大量 10★ roll 实测: 上述哑词条一次都不出现 (与 (1) 的"已解锁"对照, 坐实是过滤而非未解锁拦下)。
+        for (int seed = 0; seed < 200; seed++) {
+            RandomSource rng = RandomSource.create(1337L + seed);
+            for (AffixSelection sel : AffixRoller.roll(topStar, rng)) {
+                helper.assertTrue(!dummySamples.contains(sel.affix()),
+                        "dummy axis " + sel.affix() + " was rolled at 10star despite exclusion (filter broken)");
+            }
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 白名单内容硬断言: 恰含 12 条 (5 减伤 + 3 即时伤害 + 2 DoT + 1 易伤 + 1 磨损), 且关键实现词条在内、关键哑词条
+     * 不在内 (按 AffixDef 身份)。删任一白名单成员或误加哑词条, 本断言即挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void implementedWhitelistMembershipExact(GameTestHelper helper) {
+        Set<AffixDef> wl = AffixRoller.IMPLEMENTED_AFFIXES;
+        helper.assertTrue(wl.size() == 12, "implemented whitelist has exactly 12 entries, got " + wl.size());
+
+        // 实现词条必在内 (逐条身份)。
+        for (AffixDef impl : new AffixDef[]{
+                AffixDef.COMPOSITE_ARMOR, AffixDef.UHMWPE_ARMOR, AffixDef.HEAVY_ARMOR,
+                AffixDef.DEFLECTOR_SHIELD, AffixDef.FORTITUDE_SHIELD,
+                AffixDef.HEAVY_CANNON, AffixDef.BLOODLUST, AffixDef.ARMOR_PIERCING,
+                AffixDef.BURNING, AffixDef.FROST, AffixDef.REND, AffixDef.CORROSIVE}) {
+            helper.assertTrue(wl.contains(impl), impl + " (has runtime handler) must be whitelisted");
+        }
+
+        // 白名单全员只能来自生存/战斗池 (机动/技能整池排除)。
+        for (AffixDef d : wl) {
+            helper.assertTrue(d.pool() == AffixPool.SURVIVAL || d.pool() == AffixPool.COMBAT,
+                    d + " in whitelist must be SURVIVAL/COMBAT pool");
+        }
+
+        // 不可变: 防外部污染白名单 (与 AffixDef 四池视图同纪律)。
+        boolean immutable = false;
+        try {
+            wl.add(AffixDef.SPRINT);
+        } catch (UnsupportedOperationException expected) {
+            immutable = true;
+        }
+        helper.assertTrue(immutable, "implemented whitelist must be unmodifiable");
         helper.succeed();
     }
 

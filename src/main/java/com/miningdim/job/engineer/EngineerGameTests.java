@@ -1,15 +1,26 @@
 package com.miningdim.job.engineer;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.IJobService;
+import com.miningdim.job.JobId;
+import com.miningdim.job.JobProgress;
+import com.miningdim.job.JobServices;
+import com.miningdim.job.engineer.block.ProductionTableBlockEntity;
 import com.miningdim.job.engineer.effect.NanoEffects;
 import com.miningdim.job.engineer.effect.NanoReactor;
+import com.miningdim.job.engineer.menu.ProductionTableMenu;
+import com.miningdim.testutil.MockGameTestPlayers;
+import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -461,7 +472,175 @@ public final class EngineerGameTests {
         helper.succeed();
     }
 
+    // ============================================================
+    // engineer-01 回归: Shift 取产物板 (走基类 quickMoveStack) 必须结算生产经验 + 清 pending
+    // ============================================================
+    // 缺陷: 基类 AbstractMiningMenu.quickMoveStack 先 moveItemStackTo 把整栈移走, 再 slot.onTake(player, 残留栈);
+    // 整栈取走时残留为 EMPTY。旧 OutputSlot 把该残留当 taken 传给 onOutputTaken, 后者首行 taken.isEmpty() 即 return,
+    // 故最常用的 Shift 取板既不给经验也不清 pending, 经验永久丢失。修复改用 (取出前快照数量 - 残留数量) 作取走量与
+    // 非空判据。本用例走真菜单 quickMoveStack 端到端锁死该修复: 删掉 OutputSlot 的快照差值结算 / 把 onOutputTaken
+    // 改回信传入栈 count 必挂 (经验=0, grantXpCalls=0)。
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shiftTakeOutputSettlesProductionXp(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService();
+        IJobService prevJob = swapJob(job);
+        try {
+            ProductionTableBlockEntity be = newProductionTable(helper);
+            BlockPos abs = helper.absolutePos(new BlockPos(0, 1, 0));
+
+            // 板: 高级 (rawXp 默认 60) × 3, 品质 0, 生产者 = 取出者 (谁产谁得匹配)。
+            int plateCount = 3;
+            ItemStack plates = NanoProduction.makePlate(NanoTier.HIGH, plateCount, player.getUUID(), 0);
+            be.inventory().setStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT, plates);
+            helper.assertTrue(NanoNbt.isProductionXpPending(
+                            be.inventory().getStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT)),
+                    "freshly produced board sits xp-pending before take");
+
+            // 构造真菜单并走基类 Shift 路径 (quickMoveStack), 这是缺陷所在的最常用取板路径。
+            ProductionTableMenu menu = new ProductionTableMenu(0, player.getInventory(), abs);
+            int outputMenuSlot = ProductionTableBlockEntity.SLOT_OUTPUT; // 容器槽: 0=输入,1=输出 (玩家 36 槽在其后)。
+            ItemStack moved = menu.quickMoveStack(player, outputMenuSlot);
+
+            // 整栈 (3 板) Shift 进空的玩家背包: 输出槽清空, 移出物为 3 板。
+            helper.assertTrue(be.inventory().getStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT).isEmpty(),
+                    "whole stack shift-moved out: output slot now empty");
+            helper.assertTrue(moved.getCount() == plateCount,
+                    "quickMoveStack reports the full 3 plates moved, got " + moved.getCount());
+
+            // 核心: Shift 取板必须结算一次生产经验给生产者 (缺陷下 grantXpCalls==0)。
+            helper.assertTrue(job.grantXpCalls == 1,
+                    "shift-take settles production xp exactly once (was 0 before fix), got " + job.grantXpCalls);
+            helper.assertTrue(job.lastJob == JobId.ENGINEER, "xp credited to ENGINEER job");
+            // 原始经验 = floor(rawHigh * (1 + coef*0)) * 3 = 60 * 3 = 180 (按【实际取走量】3 计, 非残留 0)。
+            long expectedRaw = (long) Math.floor(NanoTier.HIGH.rawXp()
+                    * (1.0 + EngineerConfig.PRODUCTION_XP_QUALITY_COEF.get() * 0)) * plateCount;
+            helper.assertTrue(expectedRaw == 180L, "high plate ×3 raw xp anchor = 60*3 = 180, got " + expectedRaw);
+            helper.assertTrue(job.lastRawXp == expectedRaw,
+                    "shift-take grants raw xp scaled by ACTUAL taken count 3 (= " + expectedRaw + "), got "
+                            + job.lastRawXp);
+            helper.assertTrue(job.lastRawXp > 0L,
+                    "engineer effective raw xp strictly > 0 on shift-take (anti silent-loss)");
+
+            // pending 已清: 同一板再次结算 (模拟塞回再取) 不得重复发经验。直接驱动 BE 结算口径验证 pending 清零。
+            int callsBefore = job.grantXpCalls;
+            ItemStack reinserted = NanoProduction.makePlate(NanoTier.HIGH, 1, player.getUUID(), 0);
+            be.onOutputTaken(player, reinserted, 1); // 首取: 清 pending + 发经验 (calls+1)。
+            helper.assertFalse(NanoNbt.isProductionXpPending(reinserted),
+                    "onOutputTaken clears productionXpPending after settling (取走即清)");
+            helper.assertTrue(job.grantXpCalls == callsBefore + 1, "first settle of the reinserted plate grants once");
+            be.onOutputTaken(player, reinserted, 1); // 再取同一已清板: pending=false 短路, 不再发经验。
+            helper.assertTrue(job.grantXpCalls == callsBefore + 1,
+                    "re-taking an already-settled (pending cleared) plate grants no further xp (no re-grind)");
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
+    // ============================================================
+    // engineer-01 边界: 部分取板时按【实际取走量】而非【残留量】结算 (修复的结算口径锁死)
+    // ============================================================
+    // 残留非空时, 基类传给 onTake 的栈 count = 残留 (非取走量); 信传入 count 会把经验按残留误算。修复改用调用处
+    // 显式传入的真实取走量。此处直接驱动 BE 结算口径: 取出前 5 板、实际取走 2、残留 3, 经验必须按 2 (=120), 非 3 (=180)。
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void outputTakenSettlesByActualTakenCountNotResidual(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService();
+        IJobService prevJob = swapJob(job);
+        try {
+            ProductionTableBlockEntity be = newProductionTable(helper);
+
+            // 取出前板栈快照 5 板 (HIGH, 品质 0, 生产者 = 取出者), 本次实际取走 2 (残留 3 不在此结算)。
+            ItemStack boardSnapshot = NanoProduction.makePlate(NanoTier.HIGH, 5, player.getUUID(), 0);
+            be.onOutputTaken(player, boardSnapshot, 2);
+
+            // 经验按【实际取走量 2】: floor(rawHigh) * 2 = 60*2 = 120; 若回退信残留 (3) 则会是 180。
+            long expectedByTaken = (long) Math.floor(NanoTier.HIGH.rawXp()) * 2;
+            helper.assertTrue(expectedByTaken == 120L, "high ×2 raw anchor = 60*2 = 120");
+            helper.assertTrue(job.grantXpCalls == 1, "partial settle grants exactly once");
+            helper.assertTrue(job.lastJob == JobId.ENGINEER, "credited to ENGINEER");
+            helper.assertTrue(job.lastRawXp == expectedByTaken,
+                    "settled by ACTUAL taken count 2 (=120), not residual; got " + job.lastRawXp);
+            helper.assertFalse(NanoNbt.isProductionXpPending(boardSnapshot),
+                    "pending cleared after partial settle (取走即清)");
+
+            // takenCount <= 0 (本次实际未取走) 必须短路: 不发经验、不动状态。
+            ItemStack other = NanoProduction.makePlate(NanoTier.HIGH, 5, player.getUUID(), 0);
+            be.onOutputTaken(player, other, 0);
+            helper.assertTrue(job.grantXpCalls == 1, "takenCount 0 settles nothing (no phantom grant)");
+            helper.assertTrue(NanoNbt.isProductionXpPending(other),
+                    "takenCount 0 leaves pending untouched (no state change without a real take)");
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
     // ---- 测试辅助 ----
+
+    /** 在 helper 世界 (0,1,0) 放一个高级生产台 BE 并返回 (机器档 HIGH, 供 dataAccess.machineTier 解析)。 */
+    private static ProductionTableBlockEntity newProductionTable(GameTestHelper helper) {
+        BlockPos rel = new BlockPos(0, 1, 0);
+        helper.setBlock(rel, ModEngineerBlocks.table(NanoTier.HIGH).get());
+        BlockPos abs = helper.absolutePos(rel);
+        BlockEntity raw = helper.getLevel().getBlockEntity(abs);
+        if (!(raw instanceof ProductionTableBlockEntity be)) {
+            throw new IllegalStateException("production table BE not present at " + abs);
+        }
+        return be;
+    }
+
+    private static IJobService swapJob(IJobService fake) {
+        IJobService prev;
+        try {
+            prev = JobServices.jobService();
+        } catch (IllegalStateException notRegistered) {
+            prev = null;
+        }
+        JobServices.registerJobService(fake);
+        return prev;
+    }
+
+    private static void restoreJob(IJobService prev) {
+        if (prev != null) {
+            JobServices.registerJobService(prev);
+        } else {
+            JobServices.reset();
+        }
+    }
+
+    /** 记录 grantXp 调用的职业门面替身 (谁产谁得断言用); 等级给满档使 (此测试不读) 任何档解锁。 */
+    private static final class RecordingJobService implements IJobService {
+        int grantXpCalls = 0;
+        JobId lastJob = null;
+        long lastRawXp = Long.MIN_VALUE;
+
+        @Override
+        public int level(Player player, JobId job) {
+            return 10;
+        }
+
+        @Override
+        public long totalXp(Player player, JobId job) {
+            return 0L;
+        }
+
+        @Override
+        public long grantXp(Player player, JobId job, long rawXp) {
+            grantXpCalls++;
+            lastJob = job;
+            lastRawXp = rawXp;
+            return rawXp;
+        }
+
+        @Override
+        public JobProgress progress(Player player, JobId job) {
+            throw new UnsupportedOperationException("not exercised by engineer output-take tests");
+        }
+    }
 
     /** 固定返回指定 nextDouble 的 RandomSource (闪耀成功/失败分支确定化)。其它方法回退默认随机。 */
     private static RandomSource fixedRoll(double roll) {

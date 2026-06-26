@@ -520,6 +520,77 @@ public final class ChefGameTests {
     }
 
     // ============================================================
+    // 披甲护盾换维度/登出回收 absorption (平衡红线: 反泄漏不得只清窗口记录留永久护盾)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shieldReclaimedOnChangedDimension(GameTestHelper helper) {
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        UUID id = player.getUUID();
+        try {
+            player.setAbsorptionAmount(0.0F);
+            float maxHp = player.getMaxHealth();
+            int shieldPerMille = ChefConfig.shieldPerMille(ChefQuality.RADIANT); // 80 = 8% maxHP
+            float grantedShield = maxHp * (shieldPerMille / 1000.0F);
+            int windowSec = ChefConfig.SHIELD_WINDOW_SECONDS.get();
+
+            // 盖披甲: 立即授予 absorption, 窗口远未到期 (默认 120s 窗口)。
+            ChefWindowEffectState.stampShield(player, shieldPerMille, windowSec);
+            float baseline = player.getAbsorptionAmount();
+            helper.assertTrue(Math.abs(baseline - grantedShield) < 0.01F,
+                    "precondition: shield grants %maxHP absorption, expected " + grantedShield
+                            + " got " + baseline);
+
+            // 触发真实换维度事件处理器 (changeDimension 复用实体不重置 absorption): 窗口未到期, 但反泄漏
+            // 路径必须主动退还本窗口授予的护盾, 而非只删窗口记录 (后者会留永久护盾)。
+            var dimEvent = new net.minecraftforge.event.entity.player.PlayerEvent.PlayerChangedDimensionEvent(
+                    player, player.serverLevel().dimension(), player.serverLevel().dimension());
+            new ChefWindowEffectState().onChangedDimension(dimEvent);
+
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount()) < 0.01F,
+                    "shield absorption MUST be reclaimed to 0 on dimension change (granted " + grantedShield
+                            + " reclaimed), got " + player.getAbsorptionAmount());
+            helper.assertFalse(ChefWindowEffectState.active(id, ChefEffectType.SHIELD),
+                    "shield window removed after dimension-change reclaim");
+            // 删 reclaimOnline 的 absorption 退还 (退回只 STATE.remove) -> absorption 仍 = grantedShield, 上断言挂。
+        } finally {
+            ChefWindowEffectState.clearAll(id);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shieldReclaimOnLogoutKeepsForeignAbsorption(GameTestHelper helper) {
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        UUID id = player.getUUID();
+        try {
+            player.setAbsorptionAmount(0.0F);
+            int shieldPerMille = ChefConfig.shieldPerMille(ChefQuality.HIGH); // 40 = 4% maxHP
+            float grantedShield = player.getMaxHealth() * (shieldPerMille / 1000.0F);
+            int windowSec = ChefConfig.SHIELD_WINDOW_SECONDS.get();
+            ChefWindowEffectState.stampShield(player, shieldPerMille, windowSec);
+
+            // 叠一份外来 absorption (如金苹果): 登出回收只退本窗口授予的护盾, 外来部分保留 (不误扣)。
+            float foreign = 5.0F;
+            player.setAbsorptionAmount(player.getAbsorptionAmount() + foreign);
+
+            // 触发真实登出事件处理器: 玩家本 tick 仍在线, 应退还 grantedShield, 留下 foreign。
+            var logoutEvent = new net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent(player);
+            new ChefWindowEffectState().onLoggedOut(logoutEvent);
+
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount() - foreign) < 0.01F,
+                    "logout reclaim退还本窗口护盾(" + grantedShield + ")但保留外来 absorption " + foreign
+                            + ", got " + player.getAbsorptionAmount());
+            helper.assertFalse(ChefWindowEffectState.active(id, ChefEffectType.SHIELD),
+                    "shield window removed after logout reclaim");
+            // 删 reclaimOnline 的退还 -> absorption 仍 = grantedShield + foreign, foreign 断言挂。
+        } finally {
+            ChefWindowEffectState.clearAll(id);
+        }
+        helper.succeed();
+    }
+
+    // ============================================================
     // 倒胃中毒时长逐级 (spec 第十一章: 低 8s/中 6s/高 4s, 走 config 非硬编码)
     // ============================================================
 

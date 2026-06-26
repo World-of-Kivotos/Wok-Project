@@ -139,6 +139,32 @@ public final class ChefWindowEffectState {
         STATE.remove(playerId);
     }
 
+    /**
+     * 在线回收: 在清表前, 把该玩家所有披甲窗口已 {@link #stampShield} 授予的 absorption 退还
+     * (与 {@link #advancePlayerWindows} 过期分支同口径 setAbsorptionAmount(max(0, current - shieldGranted)))。
+     *
+     * 红线 (stampShield 注释自称要解决的): changeDimension 复用实体不重置 absorption, 登出实体下线后
+     * 该 absorption 也不回收。若仅 STATE.remove 删窗口记录, 已授予的护盾将永不回收 -> 永久护盾。故凡能拿到
+     * 在线 ServerPlayer 的清理路径 (登出/换维度), 必须先按各窗口 shieldGranted 累计退还, 再清表。
+     *
+     * @param player 待回收的在线玩家 (服务端)
+     */
+    public static void reclaimOnline(ServerPlayer player) {
+        Map<ChefEffectType, Window> windows = STATE.get(player.getUUID());
+        if (windows != null) {
+            float reclaim = 0.0F;
+            for (Map.Entry<ChefEffectType, Window> entry : windows.entrySet()) {
+                if (entry.getKey() == ChefEffectType.SHIELD && entry.getValue().shieldGranted > 0.0F) {
+                    reclaim += entry.getValue().shieldGranted;
+                }
+            }
+            if (reclaim > 0.0F) {
+                player.setAbsorptionAmount(Math.max(0.0F, player.getAbsorptionAmount() - reclaim));
+            }
+        }
+        STATE.remove(player.getUUID());
+    }
+
     // ---- 事件: 全局 tick 推进 + 反泄漏清理 (由 ChefSystem 注册到 forgeBus) ----
 
     /** 服务端 tick: 推进所有玩家窗口, 过期移除, 余韵周期摊还回血。 */
@@ -207,16 +233,27 @@ public final class ChefWindowEffectState {
 
     @SubscribeEvent
     public void onLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
-        clearAll(event.getEntity().getUUID());
+        // 玩家仍在线 (本 tick 下线前): 回收披甲 absorption 再清表, 否则护盾随实体下线永不回收。
+        if (event.getEntity() instanceof ServerPlayer player) {
+            reclaimOnline(player);
+        } else {
+            clearAll(event.getEntity().getUUID());
+        }
     }
 
     @SubscribeEvent
     public void onChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
-        clearAll(event.getEntity().getUUID());
+        // changeDimension 复用实体不重置 absorption: 必须主动回收本 mod 授予的护盾, 不能只删窗口记录。
+        if (event.getEntity() instanceof ServerPlayer player) {
+            reclaimOnline(player);
+        } else {
+            clearAll(event.getEntity().getUUID());
+        }
     }
 
     @SubscribeEvent
     public void onDeath(LivingDeathEvent event) {
+        // 死亡: 实体已重置, absorption 已归零, 纯清表即可 (无须回收)。
         if (event.getEntity() instanceof Player player) {
             clearAll(player.getUUID());
         }

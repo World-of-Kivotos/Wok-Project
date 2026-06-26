@@ -10,6 +10,11 @@
           "durationTicks": 360
         },
         {
+          "kind": "self_lifesteal",
+          "percent": 0.20,
+          "durationTicks": 360
+        },
+        {
           "kind": "self_potion",
           "effect": "minecraft:wither",
           "amplifier": 0,
@@ -27,6 +32,11 @@
           "kind": "self_potion",
           "effect": "minecraft:strength",
           "amplifier": 3,
+          "durationTicks": 440
+        },
+        {
+          "kind": "self_lifesteal",
+          "percent": 0.25,
           "durationTicks": 440
         },
         {
@@ -50,6 +60,11 @@
           "durationTicks": 520
         },
         {
+          "kind": "self_lifesteal",
+          "percent": 0.30,
+          "durationTicks": 520
+        },
+        {
           "kind": "self_potion",
           "effect": "minecraft:wither",
           "amplifier": 0,
@@ -67,6 +82,11 @@
           "kind": "self_potion",
           "effect": "minecraft:strength",
           "amplifier": 5,
+          "durationTicks": 600
+        },
+        {
+          "kind": "self_lifesteal",
+          "percent": 0.40,
           "durationTicks": 600
         },
         {
@@ -106,6 +126,11 @@
           "effect": "minecraft:strength",
           "amplifier": 3,
           "durationTicks": 400
+        },
+        {
+          "kind": "self_lifesteal",
+          "percent": 0.50,
+          "durationTicks": 400
         }
       ],
       [
@@ -127,6 +152,11 @@
           "kind": "self_potion",
           "effect": "minecraft:strength",
           "amplifier": 3,
+          "durationTicks": 480
+        },
+        {
+          "kind": "self_lifesteal",
+          "percent": 0.50,
           "durationTicks": 480
         }
       ],
@@ -150,6 +180,11 @@
           "effect": "minecraft:strength",
           "amplifier": 3,
           "durationTicks": 560
+        },
+        {
+          "kind": "self_lifesteal",
+          "percent": 0.50,
+          "durationTicks": 560
         }
       ],
       [
@@ -172,6 +207,11 @@
           "effect": "minecraft:strength",
           "amplifier": 3,
           "durationTicks": 640
+        },
+        {
+          "kind": "self_lifesteal",
+          "percent": 0.50,
+          "durationTicks": 640
         }
       ]
     ]
@@ -183,6 +223,11 @@
         "kind": "self_potion",
         "effect": "minecraft:strength",
         "amplifier": 5,
+        "durationTicks": 440
+      },
+      {
+        "kind": "self_lifesteal",
+        "percent": 0.60,
         "durationTicks": 440
       },
       {

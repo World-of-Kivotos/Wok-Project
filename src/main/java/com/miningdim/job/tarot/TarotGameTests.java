@@ -850,6 +850,59 @@ public final class TarotGameTests {
         helper.succeed();
     }
 
+    // ============================================================
+    // 恶魔/力量吸血漏配 (tarot-03): 引擎已支持 self_lifesteal, datapack 须按 spec 第六章配吸血%。
+    // 删掉 datapack 补的 self_lifesteal op -> findKind 返回 null -> 测试必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void devilAndStrengthLifestealConfigured(GameTestHelper helper) {
+        TarotCardData devil = loadCard(TarotArcana.DEVIL);
+
+        // 恶魔正位 R/SR/SSR/UR 吸血 20/25/30/40% (spec XV: 力量III/IV/V/VI + (20/25/30/40)% 吸血)。
+        double[] uprightPct = {0.20D, 0.25D, 0.30D, 0.40D};
+        int[] uprightDur = {360, 440, 520, 600};
+        TarotQuality[] tiers = {TarotQuality.R, TarotQuality.SR, TarotQuality.SSR, TarotQuality.UR};
+        for (int i = 0; i < tiers.length; i++) {
+            TarotEffectOp ls = findKind(devil.opsFor(tiers[i], true), TarotEffectKind.SELF_LIFESTEAL);
+            helper.assertTrue(ls != null,
+                    "devil upright " + tiers[i].id() + " must carry self_lifesteal (engine supports it; was unconfigured)");
+            helper.assertTrue(Math.abs(ls.percent() - uprightPct[i]) < 1e-9,
+                    "devil upright " + tiers[i].id() + " lifesteal % = " + uprightPct[i] + ", got " + ls.percent());
+            helper.assertTrue(ls.durationTicks() == uprightDur[i],
+                    "devil upright " + tiers[i].id() + " lifesteal window covers strength duration "
+                            + uprightDur[i] + ", got " + ls.durationTicks());
+        }
+
+        // 恶魔逆位四档自身吸血 50% (spec XV 逆位: 自身力量IV+50%吸血+免疫击退)。
+        for (TarotQuality q : tiers) {
+            TarotEffectOp ls = findKind(devil.opsFor(q, false), TarotEffectKind.SELF_LIFESTEAL);
+            helper.assertTrue(ls != null,
+                    "devil reversed " + q.id() + " must carry 50% self_lifesteal (was unconfigured)");
+            helper.assertTrue(Math.abs(ls.percent() - 0.50D) < 1e-9,
+                    "devil reversed " + q.id() + " lifesteal % = 0.50, got " + ls.percent());
+        }
+
+        // 恶魔闪耀吸血 60% / 22s=440t (spec XV 闪耀: 22秒 力量VI+60%吸血)。
+        TarotEffectOp devilShiny = findKind(devil.opsFor(TarotQuality.SHINY, true), TarotEffectKind.SELF_LIFESTEAL);
+        helper.assertTrue(devilShiny != null, "devil shiny must carry 60% self_lifesteal (was unconfigured)");
+        helper.assertTrue(Math.abs(devilShiny.percent() - 0.60D) < 1e-9,
+                "devil shiny lifesteal % = 0.60, got " + devilShiny.percent());
+        helper.assertTrue(devilShiny.durationTicks() == 440,
+                "devil shiny lifesteal window = 22s = 440t, got " + devilShiny.durationTicks());
+
+        // 力量闪耀狮心吸血 30% / 15s=300t (spec VIII 闪耀: 15秒狮心 力量V + 大量吸收 + 30%吸血)。
+        TarotCardData strength = loadCard(TarotArcana.STRENGTH);
+        TarotEffectOp lionheart = findKind(strength.opsFor(TarotQuality.SHINY, true), TarotEffectKind.SELF_LIFESTEAL);
+        helper.assertTrue(lionheart != null, "strength shiny (lionheart) must carry 30% self_lifesteal (was unconfigured)");
+        helper.assertTrue(Math.abs(lionheart.percent() - 0.30D) < 1e-9,
+                "strength shiny lifesteal % = 0.30, got " + lionheart.percent());
+        helper.assertTrue(lionheart.durationTicks() == 300,
+                "strength shiny lifesteal window = 15s = 300t, got " + lionheart.durationTicks());
+
+        helper.succeed();
+    }
+
     private static TarotEffectOp findKind(List<TarotEffectOp> ops, TarotEffectKind kind) {
         for (TarotEffectOp op : ops) {
             if (op.kind() == kind) {

@@ -63,13 +63,15 @@ public final class StackingGameTests {
             s.setColor(net.minecraft.world.item.DyeColor.WHITE);
             sheep.add(s);
         }
-        helper.assertTrue(countAlive(helper, EntityType.SHEEP, origin, 8.0) == 20, "20 sheep spawned before merge");
+        // 只数本测持有的 20 只引用的存活态 (不用世界半径计数, 免疫相邻 sheep 测试漂移来的羊污染计数)。
+        helper.assertTrue(sheep.stream().filter(net.minecraft.world.entity.Entity::isAlive).count() == 20,
+                "20 sheep spawned before merge");
 
         int discarded = StackMerge.mergeCandidates(new ArrayList<>(sheep));
         helper.assertTrue(discarded == 19, "19 sheep absorbed into one (20 -> 1)");
 
-        // 合并后该 EntityType 存活计数 == 1。
-        int alive = countAlive(helper, EntityType.SHEEP, origin, 8.0);
+        // 合并后本测 20 只里恰 1 只存活 (其余 19 被 discard)。
+        long alive = sheep.stream().filter(net.minecraft.world.entity.Entity::isAlive).count();
         helper.assertTrue(alive == 1, "exactly one sheep entity remains after merge, got " + alive);
 
         // 幸存者堆叠数 20 + 显示名含 "x20"。
@@ -552,18 +554,22 @@ public final class StackingGameTests {
         int parentBefore = StackData.getStackSize(parent);
 
         int cowsBefore = countAlive(helper, EntityType.COW, origin, 8.0);
+        // delta/排除法计数: GameTest 的 getEntities(origin, 半径) 是世界半径搜索, 可能扫到相邻测试区漂移来的实体,
+        // 故记录 breed 前已存在的幼崽集, 用 "前后差" 判定本次新产, 免疫泄漏 (绝对计数曾因 batch 布局变化误判)。
+        List<Cow> babiesBefore = helper.getEntities(EntityType.COW, origin, 8.0).stream()
+                .filter(Cow::isBaby).toList();
         boolean bred = StackBreed.breedOnce(level, parent);
         helper.assertTrue(bred, "breeding a stacked cow produces an offspring");
 
-        // 多一只牛实体存活 (幼崽是独立新实体, FR-4.2)。
+        // 多一只牛实体存活 (幼崽是独立新实体, FR-4.2)。delta 抵消任何 before 已存在的泄漏实体。
         int cowsAfter = countAlive(helper, EntityType.COW, origin, 8.0);
         helper.assertTrue(cowsAfter - cowsBefore == 1, "exactly one new cow (baby) spawned, delta = " + (cowsAfter - cowsBefore));
 
-        // 找到那只幼崽: isBaby + stack 1 (未并入母堆叠)。
-        List<Cow> babies = helper.getEntities(EntityType.COW, origin, 8.0).stream()
-                .filter(Cow::isBaby).toList();
-        helper.assertTrue(babies.size() == 1, "one baby cow present, got " + babies.size());
-        Cow baby = babies.get(0);
+        // 找到 breedOnce 本次新产的那只幼崽 (排除 before 已存在的): isBaby + stack 1 (未并入母堆叠)。
+        List<Cow> newBabies = helper.getEntities(EntityType.COW, origin, 8.0).stream()
+                .filter(Cow::isBaby).filter(b -> !babiesBefore.contains(b)).toList();
+        helper.assertTrue(newBabies.size() == 1, "exactly one NEW baby cow spawned by breedOnce, got " + newBabies.size());
+        Cow baby = newBabies.get(0);
         helper.assertTrue(baby.isBaby(), "offspring is a baby (age-isolated, FR-4.2)");
         helper.assertTrue(StackData.getStackSize(baby) == 1, "baby starts at stack 1 (not merged into adult stack)");
         helper.assertTrue(!StackData.hasStackData(baby), "baby carries no stack key yet (independent new entity)");
@@ -575,6 +581,41 @@ public final class StackingGameTests {
         // 年龄隔离硬验: 幼崽与成年母 StackMatchKey 不相等 (baby 维度不同), 故合并扫描永不把幼崽并进成年堆叠。
         helper.assertTrue(!StackMatchKey.of(baby).equals(StackMatchKey.of(parent)),
                 "baby and adult have different match keys (age isolation prevents merge)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // FR-4.1 受控繁殖冷却: feedBreed 仅 age==0 成年产 1 崽并置 age 冷却; 连喂复刷被挡; 不进 vanilla 恋爱态
+    // (setInLove -> setAge 修复: setInLove 会激活 BreedGoal 使邻近被喂动物互相繁殖刷额外崽)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void feedBreedRespectsAgeCooldownNoVanillaLove(GameTestHelper helper) {
+        StackingConfig.ensureLoadedForTest();
+        ServerLevel level = helper.getLevel();
+        BlockPos origin = new BlockPos(2, 2, 2);
+
+        Cow parent = helper.spawn(EntityType.COW, origin);
+        StackData.setStackSize(parent, 8);
+        List<Cow> babiesBefore = helper.getEntities(EntityType.COW, origin, 8.0).stream()
+                .filter(Cow::isBaby).toList();
+
+        // 第一次喂食: age==0 成年 -> 产 1 崽 + 置 6000t 繁殖冷却。
+        boolean first = StackBreed.feedBreed(level, parent);
+        helper.assertTrue(first, "first feed on a ready (age 0) adult breeds");
+        helper.assertTrue(parent.getAge() == 6000, "parent enters 6000t breed cooldown (age) after feed, got " + parent.getAge());
+        // 关键 (setInLove->setAge 修复): 用 age 冷却而非 setInLove, 故不进 vanilla 恋爱态 -> 无 BreedGoal -> 邻近被喂动物不会互相刷额外崽。
+        helper.assertFalse(parent.isInLove(), "fed parent is NOT in vanilla love mode (prevents extra vanilla breeding)");
+        long newAfterFirst = helper.getEntities(EntityType.COW, origin, 8.0).stream()
+                .filter(Cow::isBaby).filter(b -> !babiesBefore.contains(b)).count();
+        helper.assertTrue(newAfterFirst == 1, "first feed spawned exactly one new baby, got " + newAfterFirst);
+
+        // 第二次立即喂食: age!=0 (冷却中) -> 不接管, 不产第二崽 (连点防刷)。
+        boolean second = StackBreed.feedBreed(level, parent);
+        helper.assertFalse(second, "immediate second feed is blocked by breed cooldown (no spam re-breed)");
+        long newAfterSecond = helper.getEntities(EntityType.COW, origin, 8.0).stream()
+                .filter(Cow::isBaby).filter(b -> !babiesBefore.contains(b)).count();
+        helper.assertTrue(newAfterSecond == 1, "cooldown-blocked second feed adds no extra baby, still " + newAfterSecond);
         helper.succeed();
     }
 

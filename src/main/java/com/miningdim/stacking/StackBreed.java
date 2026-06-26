@@ -48,27 +48,39 @@ public final class StackBreed {
         if (!animal.isFood(held)) {
             return; // 非该动物的繁殖材料 -> 放行 (可能是挤奶/剪毛等其它交互, 由对应 handler 或原版处理)。
         }
-        // 仅成年且可再恋爱 (非已在恋爱冷却 / 非幼年) 才触发繁殖; 幼年被喂食是 "加速成长" 由原版处理, 不在此接管。
-        if (animal.isBaby() || !animal.canFallInLove()) {
-            return;
-        }
         if (!(animal.level() instanceof ServerLevel level)) {
             return;
         }
-
-        boolean bred = breedOnce(level, animal);
-        if (!bred) {
-            return; // 该动物 getBreedOffspring 返回 null (不可育) -> 不接管, 放行原版。
+        // 受控繁殖 (FR-4.1 每次投喂 1 对产 1 崽): feedBreed 内判 age==0 (成年且非繁殖冷却) 才产崽并置冷却。
+        // 幼年/冷却中/不可育 不接管 (放行: 幼年喂食 = 原版加速成长)。
+        if (!feedBreed(level, animal)) {
+            return;
         }
-        // 消耗 1 份材料 (创造模式不耗, 与原版 usePlayerItem 一致)。
+        // 消耗 1 份材料 (创造模式不耗, 与原版 usePlayerItem 一致)。仅繁殖成功才消耗。
         if (!player.getAbilities().instabuild) {
             held.shrink(1);
         }
-        // 设恋爱冷却 (FR-4.1 "每次投喂触发 1 对繁殖"): 置 inLove 冷却, 防同一 tick 连点刷崽突破 "每次投喂 1 崽"。
-        animal.setInLove(player);
-
         event.setCanceled(true);
         event.setCancellationResult(InteractionResult.SUCCESS);
+    }
+
+    /**
+     * 受控喂食繁殖 (FR-4.1): 仅 {@code age==0} 的成年 (非幼年 age&lt;0 / 非繁殖冷却 age&gt;0) 才产 1 崽并置 6000t 冷却。
+     * 关键: 用 {@link net.minecraft.world.entity.AgeableMob#setAge(int)} 正向冷却而非 {@code setInLove} —— setInLove
+     * 会激活 vanilla BreedGoal, 使邻近多只被喂的堆叠动物互相繁殖产【额外】幼崽 (破 FR-4.1 "每次投喂 1 崽" 受控语义);
+     * 正向 age 冷却只防连喂复刷, 既不触 vanilla AI 繁殖, 也使 age 每 tick 自然回 0 后可再繁殖 (与原版繁殖冷却同值)。
+     *
+     * @return true 已产崽并置冷却; false 幼年/冷却中/不可育 (调用方据此放行)
+     */
+    public static boolean feedBreed(ServerLevel level, Animal animal) {
+        if (animal.isBaby() || animal.getAge() != 0) {
+            return false; // 幼年(age<0) 或 繁殖冷却中(age>0): 不接管。
+        }
+        if (!breedOnce(level, animal)) {
+            return false; // getBreedOffspring 返回 null (不可育)。
+        }
+        animal.setAge(6000); // 繁殖冷却 (vanilla 同值): 6000t 后 age 自然回 0 才能再喂繁殖。
+        return true;
     }
 
     /**

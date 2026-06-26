@@ -13,6 +13,7 @@ import com.miningdim.job.JobId;
 import com.miningdim.job.JobProgress;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.munitions.block.MunitionsBenchBlockEntity;
+import com.miningdim.job.munitions.menu.MunitionsBenchMenu;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.BeforeBatch;
@@ -589,6 +590,64 @@ public final class MunitionsGameTests {
         }
     }
 
+    // ============================================================
+    // BE 输出槽 Shift 整栈取弹端到端回收缓冲 (munitions-output): 经 Menu.quickMoveStack 模拟 Shift 取整栈,
+    // 断言 bufferedRounds 按真实取走发数精确回收 (非据基类传入的移除后残留 EMPTY 栈结算)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchOutputShiftTakeRecyclesBuffer(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        // L5: 步枪解锁 (RIFLE 门 L3), 排除等级门干扰; settle 在无料时不产, 不污染本测的缓冲种子。
+        IJobService prevJob = swapJob(new FixedLevelJobService(5));
+        try {
+            // --- 用例 A: 整栈取走 == 缓冲发数 (取单栈上限 64 内的 48, 保整栈一次性移走) -> bufferedRounds 归零 + bufferedCaliber 清空 ---
+            MunitionsBenchBlockEntity beFull = newBench(helper, player);
+            MunitionsBenchMenu menuFull = openBenchMenu(beFull, player);
+
+            // 经 NBT 注入缓冲 48 发步枪 (权威发数, 单栈内取整栈); 输出槽物化为等量占位栈 (dev 无 TACZ, 不走真物化路径,
+            // 占位 ItemStack 模拟主人在线访问帧 refreshOutputStack 物化出的可视弹栈)。注: 缓冲若超单栈上限(64)需分多次取,
+            // 由用例 B 覆盖; 本例验单栈内整取的全额回收。
+            seedBuffer(beFull, MunitionsCaliber.RIFLE, 48);
+            beFull.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT,
+                    new ItemStack(Items.COPPER_INGOT, 48));
+            helper.assertTrue(beFull.bufferedRounds() == 48, "seeded buffer is 48 rounds before Shift-take");
+
+            // Shift 取整栈 (走 AbstractMiningMenu.quickMoveStack): 基类把整栈移入玩家背包后, 传给 OutputSlot.onTake
+            // 的是移除后残留 EMPTY 栈。修复前据此残留栈结算 -> onOutputTaken 首行 isEmpty 即 return, 缓冲永不回收。
+            ItemStack moved = menuFull.quickMoveStack(player, MunitionsBenchBlockEntity.SLOT_OUTPUT);
+
+            helper.assertTrue(moved.getCount() == 48,
+                    "Shift moved the entire 48-count output stack into player inventory, got " + moved.getCount());
+            helper.assertTrue(beFull.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
+                    "output slot is emptied after full Shift-take (no item duplication left behind)");
+            // munitions-output 核心断言: 取走整栈 48 发 -> bufferedRounds 精确回收到 0 (让出空间继续产)。
+            // 删 "据快照差值算真实取走量" 修复 (退回据基类传入的残留 EMPTY 栈) -> onOutputTaken 据 EMPTY 短路,
+            // bufferedRounds 仍为 48, 此断言 (==0) 必挂。
+            helper.assertTrue(beFull.bufferedRounds() == 0,
+                    "Shift-taking the full stack recycles all 48 buffered rounds to 0 (buffer freed), got "
+                            + beFull.bufferedRounds());
+
+            // --- 用例 B: 取走量 < 缓冲发数 (单栈 64 < 缓冲 100) -> 精确减 64, 余 36 (证非 "粗暴归零" 短路) ---
+            MunitionsBenchBlockEntity bePartial = newBench(helper, player);
+            MunitionsBenchMenu menuPartial = openBenchMenu(bePartial, player);
+            seedBuffer(bePartial, MunitionsCaliber.RIFLE, 100);
+            bePartial.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT,
+                    new ItemStack(Items.COPPER_INGOT, 64));
+
+            ItemStack movedPartial = menuPartial.quickMoveStack(player, MunitionsBenchBlockEntity.SLOT_OUTPUT);
+
+            helper.assertTrue(movedPartial.getCount() == 64,
+                    "Shift moved the 64-count visualized stack, got " + movedPartial.getCount());
+            // 真实取走量 64 从权威 100 发缓冲精确扣减 -> 余 36 (非 0; 证按真实取走量结算而非整批清零)。
+            helper.assertTrue(bePartial.bufferedRounds() == 36,
+                    "taking 64 of 100 buffered rounds leaves exactly 36, got " + bePartial.bufferedRounds());
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void benchSettleNoMaterialNoProduction(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -628,6 +687,14 @@ public final class MunitionsGameTests {
         }
         be.setOwner(owner.getUUID());
         return be;
+    }
+
+    /**
+     * 在 owner 上为给定军火台 BE 打开一个真 {@link MunitionsBenchMenu} (经其构造器从 level@pos 解析回该 BE),
+     * 供 quickMoveStack 端到端走基类 Shift 移物路径 (munitions-output 输出槽回收缓冲断言)。窗口 id 任意 (1)。
+     */
+    private static MunitionsBenchMenu openBenchMenu(MunitionsBenchBlockEntity be, ServerPlayer owner) {
+        return new MunitionsBenchMenu(1, owner.getInventory(), be.getBlockPos());
     }
 
     /**

@@ -381,6 +381,13 @@ public final class MinerSystem implements Subsystem {
         if (!isMiningDimension(player.level())) {
             return false;
         }
+        // 客户端安全: PlayerEvent.BreakSpeed 在客户端也触发 (客户端预测挖速/破坏动画), 而 instanceManager 是服务端
+        // 子系统、客户端从未注册 —— 客户端再调 regionAt 会抛 IllegalStateException 直接崩客户端 (即"矿洞维度挖一下就崩"
+        // 的真因; 主世界因 isMiningDimension 提前 return 才从没暴露)。客户端以"在矿洞维度"为准放行 (region 间 gap 是
+        // 基岩挖不动, 放宽无副作用, 且挖速加成须在客户端同样生效否则客户端慢速预测会拖住实际挖掘); 服务端走完整 region 判定。
+        if (player.level().isClientSide()) {
+            return true;
+        }
         return MiningServices.instanceManager().regionAt(player.getBlockX(), player.getBlockZ()) != null;
     }
 }

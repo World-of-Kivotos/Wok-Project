@@ -1,6 +1,7 @@
 package com.miningdim.registry;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.marriage.RingItem;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -43,6 +44,16 @@ public final class ModItems {
     public static final RegistryObject<Item> ENTRANCE_HARD_ITEM =
             ITEMS.register("entrance_hard",
                     () -> new BlockItem(ModBlocks.ENTRANCE_HARD.get(), new Item.Properties()));
+
+    // ---- 结婚系统戒指 (结婚系统 spec 第三章: 订婚/结婚两个独立 Item, NBT 盖章身份) ----
+
+    public static final RegistryObject<Item> ENGAGEMENT_RING =
+            ITEMS.register("engagement_ring",
+                    () -> new RingItem(new Item.Properties(), true));
+
+    public static final RegistryObject<Item> WEDDING_RING =
+            ITEMS.register("wedding_ring",
+                    () -> new RingItem(new Item.Properties(), false));
 
     public static void register(IEventBus modBus) {
         ITEMS.register(modBus);

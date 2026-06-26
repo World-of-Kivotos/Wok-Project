@@ -138,6 +138,10 @@ public final class MiningDim {
         //     保留在月相加成 (读原版 getMoonPhase, 零跨 mod 依赖)。等级/经验走共享职业框架 capability (JobId.BREWER), 故须在 JobFrameworkSystem 之后;
         //     事件订阅在其 register 内挂 forgeBus, 对 register 顺序不敏感, 列于职业簇末即可。
         subsystems.add(new com.miningdim.job.brewer.BrewerSystem());
+        // 24c. 结婚系统 (社交/便利/外观, 零战斗力): 戒指 + 典礼最小闭环 (/marriage propose/accept/wed) +
+        //     婚姻关系 SavedData (MarriageRegistry, 挂 overworld) + 玩家 capability 婚姻指针 (随 entry 唯一权威 cap)。
+        //     典礼成本经 EconomyServices 门面事务性扣双方各半 (须经济门面已注入: 命令执行期取用, 对 register 顺序不敏感)。
+        subsystems.add(new com.miningdim.marriage.MarriageSystem());
 
         // 25. Web UI 服务端派发 (服务端权威, 无 MCEF): 填充 WebUiServerDispatcher 动作注册表 (system.echo 等),
         //     经 MiningNetwork.CHANNEL 收 C2S 意图并下发 S2C 响应/事件。须排在 NetworkSystem (第 2) 之后,

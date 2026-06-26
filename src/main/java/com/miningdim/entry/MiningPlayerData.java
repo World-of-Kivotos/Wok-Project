@@ -34,6 +34,11 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
     private float danger = 0.0f;
     private long spawnFreezeUntil = 0L;
 
+    // 婚姻指针 (结婚系统 spec 第九章): 未婚 marriageId=NO_MARRIAGE / spouseUUID=null。权威关系数据在
+    // marriage.MarriageRegistry; 本两字段是玩家侧锚点 + 显名缓存, copyFrom 跨死亡/换维度保留 (婚姻不因死亡解除)。
+    private long marriageId = NO_MARRIAGE;
+    private java.util.UUID spouseUUID = null;
+
     /** 全职业进度 (第 2.3 节并入): EnumMap<JobId,JobProgress> 持有者, 按需懒建默认。 */
     private final JobData jobData = new JobData();
 
@@ -96,6 +101,26 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
     }
 
     @Override
+    public long marriageId() {
+        return marriageId;
+    }
+
+    @Override
+    public void setMarriageId(long marriageId) {
+        this.marriageId = marriageId;
+    }
+
+    @Override
+    public java.util.UUID spouseUUID() {
+        return spouseUUID;
+    }
+
+    @Override
+    public void setSpouseUUID(java.util.UUID spouse) {
+        this.spouseUUID = spouse;
+    }
+
+    @Override
     public void clearMiningState() {
         this.currentInstanceId = NO_INSTANCE;
         this.danger = 0.0f;
@@ -116,6 +141,9 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
         this.currentInstanceId = other.currentInstanceId;
         this.danger = other.danger;
         this.spawnFreezeUntil = other.spawnFreezeUntil;
+        // 婚姻指针跨死亡/换维度保留 (spec 第九章: 婚姻不因死亡解除)。
+        this.marriageId = other.marriageId;
+        this.spouseUUID = other.spouseUUID;
         this.jobData.copyFrom(other.jobData);
     }
 
@@ -128,6 +156,9 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
     private static final String K_CURRENT_INSTANCE = "currentInstanceId";
     private static final String K_DANGER = "danger";
     private static final String K_SPAWN_FREEZE = "spawnFreezeUntil";
+    /** 婚姻指针 (spec 第九章): marriageId 哨兵 NO_MARRIAGE / spouseUUID 仅在有配偶时写。 */
+    private static final String K_MARRIAGE_ID = "marriageId";
+    private static final String K_SPOUSE_UUID = "spouseUUID";
     /** 全职业进度子标签 (第 2.3 节并入): JobData 自身遍历 EnumMap 的 CompoundTag 挂此键。 */
     private static final String K_JOBS = "jobs";
 
@@ -141,6 +172,11 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
         tag.putLong(K_CURRENT_INSTANCE, currentInstanceId);
         tag.putFloat(K_DANGER, danger);
         tag.putLong(K_SPAWN_FREEZE, spawnFreezeUntil);
+        tag.putLong(K_MARRIAGE_ID, marriageId);
+        // spouseUUID 仅在有配偶时写键 (未婚不落键, 加载缺键即 null, 与 NO_MARRIAGE 一致)。
+        if (spouseUUID != null) {
+            tag.putUUID(K_SPOUSE_UUID, spouseUUID);
+        }
         tag.put(K_JOBS, jobData.serializeNBT());
         return tag;
     }
@@ -157,6 +193,9 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
         this.currentInstanceId = tag.contains(K_CURRENT_INSTANCE) ? tag.getLong(K_CURRENT_INSTANCE) : NO_INSTANCE;
         this.danger = tag.getFloat(K_DANGER);
         this.spawnFreezeUntil = tag.getLong(K_SPAWN_FREEZE);
+        // 缺键 (旧存档无婚姻指针) 回退未婚: marriageId=NO_MARRIAGE / spouseUUID=null (向后兼容)。
+        this.marriageId = tag.contains(K_MARRIAGE_ID) ? tag.getLong(K_MARRIAGE_ID) : NO_MARRIAGE;
+        this.spouseUUID = tag.hasUUID(K_SPOUSE_UUID) ? tag.getUUID(K_SPOUSE_UUID) : null;
         // 缺键 (旧存档无职业进度) 时 JobData.deserializeNBT 收空 tag, 各职业取用时懒建默认 (向后兼容)。
         this.jobData.deserializeNBT(tag.getCompound(K_JOBS));
     }

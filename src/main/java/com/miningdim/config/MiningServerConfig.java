@@ -89,6 +89,24 @@ public final class MiningServerConfig {
     public static final ForgeConfigSpec.ConfigValue<String> ENTRY_LABEL_MEDIUM;
     public static final ForgeConfigSpec.ConfigValue<String> ENTRY_LABEL_HARD;
 
+    // ---- 结婚系统 (marriage; 结婚系统 spec 第三章典礼成本 + 第十二章 PENDING 数值标定) ----
+    public static final ForgeConfigSpec.IntValue MARRIAGE_ENGAGEMENT_COST;
+    public static final ForgeConfigSpec.IntValue MARRIAGE_WEDDING_COST;
+    // 共享背包各级解锁所需婚龄 (实游戏天数; 第 i 项 = 第 i+1 级解锁阈值; 1 级永远开放故首项常为 0)。spec 第四章。
+    public static final ForgeConfigSpec.ConfigValue<List<? extends Integer>> MARRIAGE_BACKPACK_UNLOCK_DAYS;
+    // 共享背包各级暴露格数 (1..5 级; 容器恒 54 格, 等级只控可见子集; 升级不丢物, 降级隐藏不删)。spec 第四章。
+    public static final ForgeConfigSpec.ConfigValue<List<? extends Integer>> MARRIAGE_BACKPACK_SLOTS;
+    // 传送各级蓄力秒数 (1..5 级; 等级只缩短 T, 绝不取消双方不动+可打断)。spec 第五章。
+    public static final ForgeConfigSpec.ConfigValue<List<? extends Integer>> MARRIAGE_TELEPORT_CHARGE_SECONDS;
+    // 传送各级冷却秒数 (1..5 级)。spec 第五章。
+    public static final ForgeConfigSpec.ConfigValue<List<? extends Integer>> MARRIAGE_TELEPORT_COOLDOWN_SECONDS;
+    // 离婚成本 (信用点; 由发起方支付)。spec 第六章闸 2。
+    public static final ForgeConfigSpec.IntValue MARRIAGE_DIVORCE_COST;
+    // 再婚冷却基数 (实游戏天数; 实际冷却 = 基数 * (1 + divorceCount), 随离婚次数递增)。spec 第六章闸 1。
+    public static final ForgeConfigSpec.IntValue MARRIAGE_REMARRY_COOLDOWN_DAYS;
+    // 共享背包远程开界面的配偶距离上限 (格; 仅同维度生效, 超出或跨维度即 stillValid 失效自动关闭)。spec 第四章。
+    public static final ForgeConfigSpec.IntValue MARRIAGE_BACKPACK_OPEN_RANGE;
+
     // ---- 16.2.10 性能与生命周期 (perf) ----
     public static final ForgeConfigSpec.IntValue LOAD_RADIUS_CHUNKS;
     public static final ForgeConfigSpec.IntValue EMPTY_TTL_SECONDS;
@@ -227,6 +245,45 @@ public final class MiningServerConfig {
         ENTRY_LABEL_EASY = b.define("labelEasy", "Easy 矿洞 / 右键进入");
         ENTRY_LABEL_MEDIUM = b.define("labelMedium", "Medium 矿洞 / 右键进入");
         ENTRY_LABEL_HARD = b.define("labelHard", "Hard 矿洞 / 右键进入");
+        b.pop();
+
+        b.push("marriage");
+        b.comment("Marriage system (spec ch.3 ceremony cost / ch.12 PENDING tuning). Cost is in CREDIT, charged from each partner.");
+        MARRIAGE_ENGAGEMENT_COST = b.comment("Credit cost to buy an engagement ring (/marriage buyring)")
+                .defineInRange("engagementCost", 5000, 0, 10_000_000);
+        MARRIAGE_WEDDING_COST = b.comment("Total credit cost of a wedding ceremony; split in half, each partner pays half (anti alt-marriage)")
+                .defineInRange("weddingCost", 20000, 0, 10_000_000);
+        // 共享背包 (spec ch.4): 等级按婚龄阶梯解锁, 容量随级增; 容器恒 54 格, 等级只控暴露子集 (升级不丢物)。
+        MARRIAGE_BACKPACK_UNLOCK_DAYS = b.comment(
+                        "Married days required to unlock each shared-backpack level (i-th entry unlocks level i+1; level 1 = 0 days)")
+                .defineList("backpackUnlockDays",
+                        java.util.List.of(0, 3, 7, 14, 30),
+                        o -> o instanceof Integer i && i >= 0);
+        MARRIAGE_BACKPACK_SLOTS = b.comment(
+                        "Visible slot count exposed at each shared-backpack level 1..5 (container is always 54; level only gates the visible subset)")
+                .defineList("backpackSlots",
+                        java.util.List.of(9, 18, 27, 45, 54),
+                        o -> o instanceof Integer i && i >= 0 && i <= 54);
+        // 传送 (spec ch.5): 等级只缩短蓄力 T / CD, 绝不取消"双方不动 + 受伤/移动/潜行打断"。
+        MARRIAGE_TELEPORT_CHARGE_SECONDS = b.comment(
+                        "Channel time in seconds before teleport completes, per level 1..5 (higher level = shorter; never removes the both-still / interruptible rule)")
+                .defineList("teleportChargeSeconds",
+                        java.util.List.of(8, 7, 6, 5, 4),
+                        o -> o instanceof Integer i && i >= 1 && i <= 600);
+        MARRIAGE_TELEPORT_COOLDOWN_SECONDS = b.comment(
+                        "Cooldown in seconds after a successful teleport, per level 1..5")
+                .defineList("teleportCooldownSeconds",
+                        java.util.List.of(300, 240, 180, 120, 60),
+                        o -> o instanceof Integer i && i >= 0 && i <= 86400);
+        // 离婚 (spec ch.6): 成本 (发起方付) + 再婚冷却 (随离婚次数递增)。
+        MARRIAGE_DIVORCE_COST = b.comment("Credit cost to file a divorce, paid by the initiator")
+                .defineInRange("divorceCost", 10000, 0, 10_000_000);
+        MARRIAGE_REMARRY_COOLDOWN_DAYS = b.comment(
+                        "Base remarry cooldown in real days; actual cooldown = base * (1 + divorceCount), escalating with each divorce")
+                .defineInRange("remarryCooldownDays", 7, 0, 3650);
+        MARRIAGE_BACKPACK_OPEN_RANGE = b.comment(
+                        "Max distance in blocks (same dimension only) the spouse may be while a shared backpack stays open; out of range / cross-dimension auto-closes it")
+                .defineInRange("backpackOpenRangeBlocks", 64, 4, 512);
         b.pop();
 
         b.push("perf");

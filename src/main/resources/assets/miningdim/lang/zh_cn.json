@@ -346,5 +346,6 @@
   "message.miningdim.agent.seal.category_locked": "等级不足，无法封印此类词条。",
   "message.miningdim.agent.seal.star_too_high": "目标星级过高，超出你的可封星级。",
   "message.miningdim.agent.seal.slots_full": "封印槽已满。",
-  "message.miningdim.agent.seal.already_sealed": "该词条已被封印。"
+  "message.miningdim.agent.seal.already_sealed": "该词条已被封印。",
+  "message.miningdim.agent.seal.on_cooldown": "该类封印仍在冷却中。"
 }

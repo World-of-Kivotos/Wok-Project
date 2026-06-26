@@ -123,6 +123,7 @@ public final class AgentSealHandler {
             case STAR_TOO_HIGH -> AgentSealSeam.SealOutcome.STAR_TOO_HIGH;
             case ALL_SLOTS_OCCUPIED -> AgentSealSeam.SealOutcome.ALL_SLOTS_OCCUPIED;
             case AFFIX_ALREADY_SEALED -> AgentSealSeam.SealOutcome.AFFIX_ALREADY_SEALED;
+            case ON_COOLDOWN -> AgentSealSeam.SealOutcome.ON_COOLDOWN;
         };
     }
 
@@ -194,6 +195,7 @@ public final class AgentSealHandler {
         return switch (reason) {
             case ALL_SLOTS_OCCUPIED -> FailReason.ALL_SLOTS_OCCUPIED;
             case AFFIX_ALREADY_SEALED -> FailReason.AFFIX_ALREADY_SEALED;
+            case ON_COOLDOWN -> FailReason.ON_COOLDOWN;
         };
     }
 
@@ -222,6 +224,8 @@ public final class AgentSealHandler {
         /** 全部封印槽已被占 (防叠叠乐拒绝点)。 */
         ALL_SLOTS_OCCUPIED,
         /** 该词条已被封印中 (互斥, 不因第二人再封延长)。 */
-        AFFIX_ALREADY_SEALED
+        AFFIX_ALREADY_SEALED,
+        /** 该干员该词条类别仍在封印 CD 内 (六章封印 CD 强制点)。 */
+        ON_COOLDOWN
     }
 }

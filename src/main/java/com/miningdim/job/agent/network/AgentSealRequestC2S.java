@@ -82,6 +82,7 @@ public record AgentSealRequestC2S(int targetNetworkId, String affixId) {
             case STAR_TOO_HIGH -> "star_too_high";
             case ALL_SLOTS_OCCUPIED -> "slots_full";
             case AFFIX_ALREADY_SEALED -> "already_sealed";
+            case ON_COOLDOWN -> "on_cooldown";
         };
     }
 }

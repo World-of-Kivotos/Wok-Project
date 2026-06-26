@@ -346,5 +346,6 @@
   "message.miningdim.agent.seal.category_locked": "Level too low to seal this affix type.",
   "message.miningdim.agent.seal.star_too_high": "Target star exceeds your sealable star.",
   "message.miningdim.agent.seal.slots_full": "All seal slots are occupied.",
-  "message.miningdim.agent.seal.already_sealed": "That affix is already sealed."
+  "message.miningdim.agent.seal.already_sealed": "That affix is already sealed.",
+  "message.miningdim.agent.seal.on_cooldown": "That seal category is still on cooldown."
 }

@@ -44,7 +44,9 @@ public final class AgentSealSeam {
         /** 全部封印槽已被占。 */
         ALL_SLOTS_OCCUPIED,
         /** 该词条已被封印中 (互斥)。 */
-        AFFIX_ALREADY_SEALED
+        AFFIX_ALREADY_SEALED,
+        /** 该干员该词条类别仍在封印 CD 内 (六章封印 CD 强制点)。 */
+        ON_COOLDOWN
     }
 
     /** 封印申请回调 (integration 层 bind 真实现; 未绑定 = Champions 未加载)。 */

@@ -83,20 +83,23 @@ public final class PlayerDamageReduction {
         if (!(event.getEntity() instanceof Player player)) {
             return;
         }
-        double keep = 1.0D;
-        boolean any = false;
+        // 收集本次"生效"的减伤率 (源不适用返 0, 跳过); 脏值 (负/>1) 不在此静默吞或钳, 交 keepFactor 统一裁决,
+        // 与纯函数同口径 (combat-effect-01: live 路径此前 r<=0 静默 continue + Math.min(1,r) 静默钳, 与 keepFactor
+        // 的脏值拒收契约分叉 —— 脏减伤源被掩盖而非暴露)。
+        double[] rates = new double[SOURCES.size()];
+        int n = 0;
         for (ReductionSource source : SOURCES) {
             double r = source.rate(player, event.getSource());
-            if (r <= 0.0D) {
-                continue;
+            if (r == 0.0D) {
+                continue; // 源不适用 (scope 不符/未激活): 不计入, 不影响结算。
             }
-            keep *= (1.0D - Math.min(1.0D, r));
-            any = true;
+            rates[n++] = r;
         }
-        if (!any) {
-            return;
+        if (n == 0) {
+            return; // 无任何生效减伤源: 不改伤害。
         }
-        keep = Math.max(keep, CombatConstants.PLAYER_MIN_KEEP);
+        // keepFactor 对任一脏 rate (负/>1) 抛 IllegalArgumentException (不静默吞), 并完成连乘 + 全局帽钳制。
+        double keep = keepFactor(java.util.Arrays.copyOf(rates, n));
         event.setAmount((float) (event.getAmount() * keep));
     }
 }

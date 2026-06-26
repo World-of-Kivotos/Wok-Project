@@ -1,8 +1,10 @@
 package com.miningdim.combat;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -66,6 +68,79 @@ public final class PlayerDamageReductionGameTests {
         }
         helper.assertTrue(negative, "rate < 0 throws");
         helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void liveHurtRejectsDirtyRatesLikeKeepFactor(GameTestHelper helper) {
+        // combat-effect-01: live onLivingHurt 对脏减伤率 (负/>1) 必与纯函数 keepFactor 同口径 —— 拒收 (抛
+        // IllegalArgumentException), 不静默 continue/钳。隔离: 先清空注册表, 测后清空 (脏源绝不可残留, 否则真实
+        // 战斗每次受击都抛)。本批为纯逻辑测试, 不依赖任何已注册的真实减伤源 (真实源在各职业子系统自测覆盖)。
+        PlayerDamageReduction.unregisterAll();
+        try {
+            net.minecraft.world.entity.player.Player victim = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            net.minecraft.world.damagesource.DamageSource src = helper.getLevel().damageSources().generic();
+
+            // 注册一个返回 >1 脏率的源: 喂 live 路径必抛 (与 keepFactor(1.5) 抛同口径)。
+            PlayerDamageReduction.register(dirtySource(1.5D));
+            boolean liveTooHigh = false;
+            try {
+                new PlayerDamageReduction().onLivingHurt(
+                        new LivingHurtEvent(victim, src, 20.0f));
+            } catch (IllegalArgumentException e) {
+                liveTooHigh = true;
+            }
+            helper.assertTrue(liveTooHigh, "live onLivingHurt with rate > 1 throws (same reject contract as keepFactor)");
+            // 与纯函数同输入同结果: keepFactor(1.5) 也抛 (证明 live 与 pure 不再分叉)。
+            boolean pureTooHigh = false;
+            try {
+                PlayerDamageReduction.keepFactor(1.5D);
+            } catch (IllegalArgumentException e) {
+                pureTooHigh = true;
+            }
+            helper.assertTrue(pureTooHigh && liveTooHigh,
+                    "live and pure both reject rate > 1 (删 live 的脏值一致化 -> live 静默钳 1.0 不抛, 此处分叉必挂)");
+
+            // 负率同样拒收 (live 此前 r<=0 静默 continue 把负率当不适用吞掉)。
+            PlayerDamageReduction.unregisterAll();
+            PlayerDamageReduction.register(dirtySource(-0.3D));
+            boolean liveNeg = false;
+            try {
+                new PlayerDamageReduction().onLivingHurt(
+                        new LivingHurtEvent(victim, src, 20.0f));
+            } catch (IllegalArgumentException e) {
+                liveNeg = true;
+            }
+            helper.assertTrue(liveNeg,
+                    "live onLivingHurt with negative rate throws (was silently skipped as r<=0 before the fix)");
+
+            // 干净率仍正常结算: 0.5 源把 20 伤减到 10 (live 路径未因一致化破坏正常减伤)。
+            PlayerDamageReduction.unregisterAll();
+            PlayerDamageReduction.register(dirtySource(0.5D));
+            LivingHurtEvent clean = new LivingHurtEvent(victim, src, 20.0f);
+            new PlayerDamageReduction().onLivingHurt(clean);
+            helper.assertTrue(Math.abs(clean.getAmount() - 10.0f) < 1e-4F,
+                    "a clean 0.5 source still reduces 20 damage to 10 (live multiply + cap intact), got " + clean.getAmount());
+        } finally {
+            // 脏源绝不可残留 (否则真实战斗每次受击都抛); 清空还原空态。
+            PlayerDamageReduction.unregisterAll();
+        }
+        helper.succeed();
+    }
+
+    /** 测试用减伤源: 恒返回给定率 (可脏: 负/>1), 用以驱动 live 路径的脏值裁决。 */
+    private static PlayerDamageReduction.ReductionSource dirtySource(double rate) {
+        return new PlayerDamageReduction.ReductionSource() {
+            @Override
+            public String name() {
+                return "dirty_probe_" + rate;
+            }
+
+            @Override
+            public double rate(net.minecraft.world.entity.player.Player victim,
+                               net.minecraft.world.damagesource.DamageSource source) {
+                return rate;
+            }
+        };
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)

@@ -51,6 +51,19 @@ public final class MinerNetwork {
 
     /** 下发高亮包到指定玩家 (探矿/陷阱探测服务端权威查询后发)。 */
     public static void sendHighlight(ServerPlayer player, MinerHighlightS2C msg) {
+        if (!canReceive(player)) {
+            return;
+        }
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), msg);
+    }
+
+    /**
+     * S2C 发包健壮性守卫 (镜像 {@link com.miningdim.network.MiningNetwork} 的同名守卫): 仅向持有活动连接的玩家
+     * 下发定向包。向尚未连上 (握手未完成) 或正在断开 (channel 已关闭) 的连接发包, 在 Forge 网络栈深处会因 netty
+     * channel 为空/关闭而异常 —— 这不是业务错误, 故在出口处过滤为 no-op。connection 在玩家完成登录前可能为 null,
+     * 故先做空判防御极端时序 (断连玩家 connection 已置 null)。
+     */
+    private static boolean canReceive(ServerPlayer player) {
+        return player.connection != null && player.connection.isAcceptingMessages();
     }
 }

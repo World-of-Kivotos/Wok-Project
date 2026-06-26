@@ -16,6 +16,7 @@ import com.miningdim.job.IJobService;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobProgress;
 import com.miningdim.job.JobServices;
+import com.miningdim.job.miner.network.MinerHighlightS2C;
 import com.miningdim.ore.OreType;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
@@ -774,6 +775,56 @@ public final class MinerGameTests {
         } finally {
             restoreEconomy(prev);
         }
+    }
+
+    // ============================================================
+    // miner-02: sendHighlight 对无活动连接玩家 no-op (镜像 MiningNetwork.canReceive 守卫)。
+    // 无 channel 玩家 (connection==null, 未经 placeNewPlayer) 下发高亮: 守卫短路返回, 不触 CHANNEL.send。
+    // 删 canReceive 守卫则 PacketDistributor.PLAYER 直接 player.connection.send(...) 对 null 连接 NPE。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sendHighlightNoOpWithoutActiveChannel(GameTestHelper helper) {
+        // 不经 placeNewPlayer 直接造 ServerPlayer: connection 字段保持 null (= 尚未连上/已断连的极端时序)。
+        ServerPlayer noChannel = new ServerPlayer(
+                helper.getLevel().getServer(),
+                helper.getLevel(),
+                new com.mojang.authlib.GameProfile(UUID.randomUUID(), "no-channel-player")) {
+            @Override
+            public boolean isSpectator() {
+                return false;
+            }
+
+            @Override
+            public boolean isCreative() {
+                return true;
+            }
+        };
+        helper.assertTrue(noChannel.connection == null, "bare player has no active connection (null channel)");
+
+        // 守卫短路: 对无连接玩家发高亮不抛 (删守卫则 CHANNEL.send -> player.connection.send NPE)。
+        MinerHighlightS2C msg = new MinerHighlightS2C(MinerHighlightS2C.KIND_ORE, 100L,
+                java.util.List.of(new BlockPos(0, 1, 0)));
+        boolean threw = false;
+        try {
+            com.miningdim.job.miner.network.MinerNetwork.sendHighlight(noChannel, msg);
+        } catch (Throwable t) {
+            threw = true;
+        }
+        helper.assertFalse(threw, "sendHighlight to a player without an active channel must be a silent no-op (no NPE)");
+
+        // 反向锚: 有活动 channel 的 mock 玩家发同一包也不抛 (守卫放行 -> 写入 EmbeddedChannel 出站队列, mock 环境无害)。
+        ServerPlayer withChannel = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        helper.assertTrue(withChannel.connection != null && withChannel.connection.isAcceptingMessages(),
+                "mock player has an active accepting connection");
+        boolean threwLive = false;
+        try {
+            com.miningdim.job.miner.network.MinerNetwork.sendHighlight(withChannel, msg);
+        } catch (Throwable t) {
+            threwLive = true;
+        }
+        helper.assertFalse(threwLive, "sendHighlight to a connected player dispatches without error (guard passes)");
+        helper.succeed();
     }
 
     private static boolean approx(double a, double b) {

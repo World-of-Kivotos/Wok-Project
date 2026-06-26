@@ -12,6 +12,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
@@ -42,6 +43,10 @@ public final class MiningCommands {
                 // enter <difficulty> [reseed]
                 .then(Commands.literal("enter")
                         .then(Commands.argument("difficulty", StringArgumentType.word())
+                                // 难度补全: 三档 config 名直接来自 Difficulty 枚举, 不硬编码字符串 (新增难度即同步)。
+                                .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(
+                                        java.util.Arrays.stream(Difficulty.values()).map(Difficulty::configName),
+                                        builder))
                                 .executes(ctx -> enter(ctx, false))
                                 .then(Commands.literal("reseed")
                                         .executes(ctx -> enter(ctx, true)))))

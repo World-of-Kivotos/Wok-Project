@@ -4,7 +4,6 @@ import com.miningdim.champion.reward.ChampionReward;
 import com.miningdim.champion.reward.ContributionPool;
 import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.champion.reward.DamageContribution;
-import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyConstants;
 import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.JobId;
@@ -111,8 +110,12 @@ public final class AgentRewardHandler {
                         EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY,
                         EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER);
             }
+            // 6★+ 青辉石 PvE 掉落: 并入经济层每人每日产出硬上限 (grantAzureDaily, 与精英怪 ChampionRewardHandler 共享
+            // 同一 azure_faucet 键 -> 合并龙头: 每人每日青辉石总产出受统一上限, 防 agent/champion 双路绕过印钞)。
+            // 超当日 cap 部分被经济层截断丢弃, 返回值为实际入账量 (此处不二次用, 留作将来"撞上限提示"接线点)。
             if (dropsAzure && azurePoolDrop > 0L) {
-                EconomyServices.economyService().grant(player, Currency.AZURE, azurePoolDrop);
+                EconomyServices.economyService().grantAzureDaily(player, azurePoolDrop,
+                        EconomyConstants.AZURE_DAILY_FAUCET_CAP);
             }
         }
 
@@ -187,12 +190,14 @@ public final class AgentRewardHandler {
 
     /**
      * 周常悬赏发青辉石的统一出口 (10.5 + 7.2 + 缺口 A 周产软上限门控): 先经 {@link AgentBountySavedData#tryGrantWeeklyAzure}
-     * 按 ISO 周戳门控本周已产量, 撞顶则只发剩余额度 (软上限语义); 实发量 &gt;0 才 grant(AZURE)。b 阶段悬赏完成发奖
+     * 按 ISO 周戳门控本周已产量, 撞顶则只发剩余额度 (软上限语义); 周门控放行的 grantable 再经 {@code grantAzureDaily}
+     * 并入【与精英怪掉落共享的】每人每日青辉石产出硬上限 (azure_faucet 键, 日+周双轴): 周 cap 防本悬赏路单独超发, 日
+     * cap 防"周常悬赏 + 精英怪掉落"两路当日合计绕过日上限印钞。日 cap 截断后的实发量为最终入账量。b 阶段悬赏完成发奖
      * 调本法 (本任务交付门控接线 + 出口, 具体悬赏实例触发留 deferred)。
      *
      * @param player 完成周常悬赏的特勤玩家
      * @param amount 悬赏定义的青辉石奖励量 (BountyDefinition.azureReward)
-     * @return 本次经周产软上限门控后实发的青辉石量 (0 = 本周撞顶不发)
+     * @return 本次经周产软上限 + 每日产出硬上限双轴门控后实发的青辉石量 (0 = 本周或当日撞顶不发)
      */
     public static long grantWeeklyBountyAzure(ServerPlayer player, long amount) {
         if (amount <= 0L) {
@@ -205,7 +210,7 @@ public final class AgentRewardHandler {
         if (grantable <= 0L) {
             return 0L; // 本周青辉石已撞顶。
         }
-        EconomyServices.economyService().grant(player, Currency.AZURE, grantable);
-        return grantable;
+        return EconomyServices.economyService().grantAzureDaily(player, grantable,
+                EconomyConstants.AZURE_DAILY_FAUCET_CAP);
     }
 }

@@ -288,6 +288,41 @@ public final class EconomyGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void azureFaucetMergedAcrossAgentAndChampionPaths(GameTestHelper helper) {
+        // agent-azure 修复 (同精英怪 economy-02 同类): agent 路径青辉石产出 (贡献池精英死亡掉落 AgentRewardHandler 第 ~115
+        // 行 + 周常悬赏 grantWeeklyBountyAzure) 与精英怪 ChampionRewardHandler 共用【同一】门面 grantAzureDaily(...,
+        // AZURE_DAILY_FAUCET_CAP) -> 同一 azure_faucet 键。合并龙头语义: 两路当日产出累计受【同一】每人每日上限, 任一路
+        // 都无法单独绕过日 cap 印钞。本测试用门面 grantAzureDaily 模拟"先精英怪掉一笔, 再 agent 路掉一笔"打同一玩家同一日,
+        // 验两路合计被截断在单一 cap (而非各占一份 cap)。删 grantAzureDaily 的 cap 路由 (回退到旧的 grant(AZURE) 无日上限)
+        // 则两笔全额入账 = 2*cap-1, 测试必挂。
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+        UUID id = player.getUUID();
+        long cap = EconomyConstants.AZURE_DAILY_FAUCET_CAP; // DRAFT 30: 两路共享此单一日上限。
+
+        // 第一路 (精英怪 ChampionRewardHandler 掉落): 领满 cap-1, 全额入账。
+        long championDrop = eco.grantAzureDaily(player, cap - 1L, cap);
+        helper.assertTrue(championDrop == cap - 1L,
+                "champion-path azure drop of cap-1 credits in full (cap-1) on the shared azure_faucet key");
+
+        // 第二路 (agent 路径掉落 / 周常悬赏): 同一玩家同一日再领 cap-1, 但共享键当日只剩 1 的额度 -> 截断到 1
+        // (而非另开一份 cap)。这正是合并龙头的核心: agent 路不享独立的青辉石日额度。
+        long agentDrop = eco.grantAzureDaily(player, cap - 1L, cap);
+        helper.assertTrue(agentDrop == 1L,
+                "agent-path azure drop on the same day truncates to the last 1 of the SHARED cap (not a second full cap)");
+
+        // 第三笔任一路: 已撞共享顶, 0 入账。
+        long thirdDrop = eco.grantAzureDaily(player, 50L, cap);
+        helper.assertTrue(thirdDrop == 0L, "any third azure grant after the shared cap is hit credits 0");
+
+        // 余额 = cap (两路合计封顶, 绝不 = 2*(cap-1)): 删 cap 合并路由则余额 = 2*cap-1 = 59, 测试必挂。
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == cap,
+                "agent + champion azure for one player on one day is clamped at a single shared daily cap (not summed)");
+        helper.succeed();
+    }
+
     // ============================================================
     // settleOreSale 衰减结算 (经济文档 8.1 钻石 base=500 + 第十一章决策 1/3: 逐矿 0.97/1% 地板 -> 再并入主闸)
     // ============================================================

@@ -252,19 +252,23 @@ public final class EntryGateway {
         ServerLevel miningLevel = ChunkServices.ticketService().level();
         BlockPos spawn = resolveSpawn(miningLevel, inst);
 
-        // 主线程传送 (区块已 FULL 强加载, 不会掉虚空)。teleportTo(ServerLevel,x,y,z,yaw,pitch)。
-        player.teleportTo(miningLevel, spawn.getX() + 0.5, spawn.getY(), spawn.getZ() + 0.5,
-                player.getYRot(), player.getXRot());
-
-        // refCount++ 与 active 由 InstanceManager 统一维护 (12.6)。
-        MiningServices.instanceManager().onPlayerEnter(inst.instanceId(), player);
-
+        // 必须在传送【之前】取写 Capability: 跨维度 teleportTo 会令 Forge 在同 tick 内暂时失效玩家 capability 的
+        // LazyOptional (实测崩因: 传送后立刻 get() 返 empty -> orElseThrow 抛 IllegalStateException -> 逃逸 onServerTick
+        // 令主线程 tick 崩 -> 触发关服 -> 关服又卡死 60s 被 ServerHangWatchdog 判崩, 同时是僵尸进程根因)。
+        // 故 currentInstanceId/danger/spawnFreeze 在传送前写 (cap 此刻有效), 传送置于最后。
         IMiningPlayerData data = MiningCapabilities.get(player).orElseThrow(
                 () -> new IllegalStateException("player lost mining capability mid-enter: " + pe.playerId));
         data.setCurrentInstanceId(inst.instanceId());
         // 11.7 出生冻结 + danger 初始化 (entry 仅置初值, 第十章评估据此钳制)。
         data.setDanger(0.0f);
         data.setSpawnFreezeUntil(miningLevel.getGameTime() + SPAWN_FREEZE_TICKS);
+
+        // refCount++ 与 active 由 InstanceManager 统一维护 (12.6)。
+        MiningServices.instanceManager().onPlayerEnter(inst.instanceId(), player);
+
+        // 主线程跨维度传送置于最后 (区块已 FULL 强加载, 不会掉虚空); cap 已在传送前写好, 不受传送期失效影响。
+        player.teleportTo(miningLevel, spawn.getX() + 0.5, spawn.getY(), spawn.getZ() + 0.5,
+                player.getYRot(), player.getXRot());
 
         MiningServices.network().sendTeleportResult(player,
                 com.miningdim.core.IMiningNetwork.TeleportResult.SUCCESS, inst.instanceId(), -1, null);

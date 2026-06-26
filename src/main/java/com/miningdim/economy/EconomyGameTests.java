@@ -9,6 +9,8 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -714,6 +716,59 @@ public final class EconomyGameTests {
         double deepScrap = guard.buyPrice(HighValueOre.NETHERITE_SCRAP,
                 EconomyConstants.DAILY_SOFTCAP_NETHERITE_SCRAP + 1_000_000, ShopPriceTable.ORE_BASE_NETHERITE_SCRAP);
         helper.assertTrue(deepScrap == 45.0D, "netherite scrap deep-over per-ore unit clamps to 4500*0.01 = 45.0");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // economy-04: 取消的 BreakEvent 不发钱 (反洗钱: 取消的破坏仍走 settleOreSale = 凭空印钞)。
+    // shouldSkipBreak 守卫: 取消 -> true (onBlockBreak 短路, 不到 recordAndSettleBreak); 未取消 -> false (照常结算)。
+    // recordAndSettleBreak 是 onBlockBreak 唯一发钱出口: 直证它对钻石真入账 500, 故守卫是"取消即不入这 500"的闸。
+    // 删 shouldSkipBreak 的 isCanceled (恒返 false) 则取消的破坏也落入 recordAndSettleBreak 发钱, 下方断言必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void canceledBreakDoesNotPayOreSale(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+
+        // 构造真实钻石 BreakEvent (与 onBlockBreak 实际接收的同类型事件)。
+        BlockState diamond = Blocks.DIAMOND_ORE.defaultBlockState();
+        BlockEvent.BreakEvent normal = new BlockEvent.BreakEvent(
+                helper.getLevel(), helper.absolutePos(new net.minecraft.core.BlockPos(0, 1, 0)), diamond, player);
+        // 未取消: 守卫放行 (false), onBlockBreak 会继续到 recordAndSettleBreak。
+        helper.assertFalse(EconomySystem.shouldSkipBreak(normal),
+                "an un-canceled break is NOT skipped (settlement proceeds)");
+
+        // 取消同一事件: 守卫拦截 (true), onBlockBreak 在到达发钱出口前短路。删 isCanceled 守卫则此断言为 false 必挂。
+        normal.setCanceled(true);
+        helper.assertTrue(EconomySystem.shouldSkipBreak(normal),
+                "a canceled break IS skipped before any counting/settlement (anti-print guard)");
+
+        // 直证发钱出口真入账: recordAndSettleBreak 对一颗钻石经主闸真入钱包 500 (首档 x1.0)。这是被守卫拦在
+        // 取消事件之外的"那 500": 取消的破坏正因短路而拿不到它。
+        EconomySystem system = new EconomySystem();
+        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+        // 保存并还原启动期已绑定的真实门面 (GameTest 在已启动服务端跑, 直接 reset 会让后续依赖取门面时 ISE)。
+        IEconomyService prev = EconomyServices.isRegistered() ? EconomyServices.economyService() : null;
+        EconomyServices.registerEconomyService(eco);
+        try {
+            PlayerAbuseState state = new PlayerAbuseState();
+            long before = ledger.balance(player.getUUID(), Currency.CREDIT);
+            helper.assertTrue(before == 0L, "fresh wallet starts at 0 credit");
+
+            // 模拟 onBlockBreak 对【未取消】钻石破坏的结算路径 (守卫已放行后才到此): 真入账 500。
+            system.recordAndSettleBreak(player, Blocks.DIAMOND_ORE, state);
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 500L,
+                    "the settlement path the guard protects actually mints 500 for one diamond (so skipping it withholds real money)");
+            helper.assertTrue(state.dailyOreCount(HighValueOre.DIAMOND) == 1,
+                    "the un-canceled break also counts one diamond into the daily ore count");
+        } finally {
+            if (prev != null) {
+                EconomyServices.registerEconomyService(prev);
+            } else {
+                EconomyServices.reset();
+            }
+        }
         helper.succeed();
     }
 

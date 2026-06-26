@@ -90,6 +90,13 @@ public final class ChefConfig {
     public static final ForgeConfigSpec.IntValue ENDURANCE_SEC_EXTRAORDINARY;
     public static final ForgeConfigSpec.IntValue ENDURANCE_SEC_RADIANT;
 
+    // ---- 6.1 提神 (急速): 时长秒, 按品质逐级 (低/中/高/超凡/闪耀 = 90/150/240/360/600); 急速等级在 magnitude ----
+    public static final ForgeConfigSpec.IntValue REFRESH_SEC_LOW;
+    public static final ForgeConfigSpec.IntValue REFRESH_SEC_MEDIUM;
+    public static final ForgeConfigSpec.IntValue REFRESH_SEC_HIGH;
+    public static final ForgeConfigSpec.IntValue REFRESH_SEC_EXTRAORDINARY;
+    public static final ForgeConfigSpec.IntValue REFRESH_SEC_RADIANT;
+
     // ---- 11 夜照 (纯夜视): 时长秒 (60/120/240/480/900) ----
     public static final ForgeConfigSpec.IntValue NIGHT_SEC_LOW;
     public static final ForgeConfigSpec.IntValue NIGHT_SEC_MEDIUM;
@@ -207,6 +214,15 @@ public final class ChefConfig {
         ENDURANCE_SEC_RADIANT = b.defineInRange("secRadiant", 900, 1, 3600);
         b.pop();
 
+        b.push("refresh");
+        b.comment("6.1 refresh (haste) duration seconds per quality (low/medium/high/extraordinary/radiant = 90/150/240/360/600)");
+        REFRESH_SEC_LOW = b.defineInRange("low", 90, 1, 3600);
+        REFRESH_SEC_MEDIUM = b.defineInRange("medium", 150, 1, 3600);
+        REFRESH_SEC_HIGH = b.defineInRange("high", 240, 1, 3600);
+        REFRESH_SEC_EXTRAORDINARY = b.defineInRange("extraordinary", 360, 1, 3600);
+        REFRESH_SEC_RADIANT = b.defineInRange("radiant", 600, 1, 3600);
+        b.pop();
+
         b.push("night_sight");
         b.comment("11 pure night vision duration seconds (60/120/240/480/900)");
         NIGHT_SEC_LOW = b.defineInRange("low", 60, 1, 3600);
@@ -322,6 +338,11 @@ public final class ChefConfig {
 
     public static int enduranceSeconds(ChefQuality q) {
         return byTier(q, ENDURANCE_SEC_LOW, ENDURANCE_SEC_MEDIUM, ENDURANCE_SEC_HIGH, ENDURANCE_SEC_EXTRAORDINARY, ENDURANCE_SEC_RADIANT);
+    }
+
+    /** 提神急速时长 (秒, 按品质逐级 90/150/240/360/600; 急速等级另由 magnitude=tier+1 决定)。 */
+    public static int refreshSeconds(ChefQuality q) {
+        return byTier(q, REFRESH_SEC_LOW, REFRESH_SEC_MEDIUM, REFRESH_SEC_HIGH, REFRESH_SEC_EXTRAORDINARY, REFRESH_SEC_RADIANT);
     }
 
     public static int nightSeconds(ChefQuality q) {

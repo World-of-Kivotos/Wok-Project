@@ -628,6 +628,48 @@ public final class ChefGameTests {
     }
 
     // ============================================================
+    // chef-02: 提神 (REFRESH) 急速时长按品质逐级 (90/150/240/360/600s), 取代旧硬编码 240s
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void refreshHasteDurationPerQuality(GameTestHelper helper) {
+        // config 逐级时长精确 (低/中/高/超凡/闪耀)。
+        helper.assertTrue(ChefConfig.refreshSeconds(ChefQuality.LOW) == 90, "refresh LOW = 90s");
+        helper.assertTrue(ChefConfig.refreshSeconds(ChefQuality.MEDIUM) == 150, "refresh MEDIUM = 150s");
+        helper.assertTrue(ChefConfig.refreshSeconds(ChefQuality.HIGH) == 240, "refresh HIGH = 240s (was the hardcoded value)");
+        helper.assertTrue(ChefConfig.refreshSeconds(ChefQuality.EXTRAORDINARY) == 360, "refresh EXTRAORDINARY = 360s");
+        helper.assertTrue(ChefConfig.refreshSeconds(ChefQuality.RADIANT) == 600, "refresh RADIANT = 600s");
+
+        // 端到端: 吃带提神章的菜, DIG_SPEED 时长 = refreshSeconds*20 且分档不同。删品质分级查表 (退回硬编码 240s)
+        // 则非 HIGH 档 (LOW/MEDIUM/EXTRAORDINARY/RADIANT) 的时长断言全挂 (它们都不是 240s)。
+        assertRefresh(helper, ChefQuality.LOW, 90 * 20);
+        assertRefresh(helper, ChefQuality.MEDIUM, 150 * 20);
+        assertRefresh(helper, ChefQuality.HIGH, 240 * 20);
+        assertRefresh(helper, ChefQuality.EXTRAORDINARY, 360 * 20);
+        assertRefresh(helper, ChefQuality.RADIANT, 600 * 20);
+        helper.succeed();
+    }
+
+    private static void assertRefresh(GameTestHelper helper, ChefQuality quality, int expectedTicks) {
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        // 提神 magnitude = 急速等级 = tier+1 (与 ChefEffectMagnitude.snapshot 同口径); 时长按品质另查表。
+        int hasteLevel = quality.tier() + 1;
+        ItemStack bread = new ItemStack(Items.BREAD);
+        ChefQualityNbt.stamp(bread, quality,
+                List.of(new ChefEffectInstance(ChefEffectType.REFRESH, hasteLevel)));
+        new ChefConsumeHandler().onFinishEating(
+                new net.minecraftforge.event.entity.living.LivingEntityUseItemEvent.Finish(
+                        player, bread, 0, ItemStack.EMPTY));
+
+        MobEffectInstance haste = player.getEffect(MobEffects.DIG_SPEED);
+        helper.assertTrue(haste != null && haste.getDuration() == expectedTicks,
+                quality + " refresh DIG_SPEED duration must be " + expectedTicks + " ticks ("
+                        + (expectedTicks / 20) + "s), got " + (haste == null ? "null" : haste.getDuration()));
+        helper.assertTrue(haste.getAmplifier() == hasteLevel - 1,
+                quality + " refresh haste amplifier must be " + (hasteLevel - 1) + ", got " + haste.getAmplifier());
+    }
+
+    // ============================================================
     // 失败品 (SPOILED): 销毁菜肴 = 零回复, 须同时抵消饱食 AND 饱和 (Minor 回归)
     // ============================================================
 

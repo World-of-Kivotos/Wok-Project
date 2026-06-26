@@ -67,8 +67,9 @@ public final class MinerSystem implements Subsystem {
     public void register(IEventBus modBus, IEventBus forgeBus) {
         instance = this;
         forgeBus.register(this);
-        // 矿脉抗性 (陷阱专属来源减伤): 作为独立命名减伤源迁入玩家减伤单点结算 (减伤统一)。当前 isTrapSource 恒
-        // false -> 实际 0 减伤 (陷阱专属源未落地的红线安全降级); trap 暴露专属源后自动生效。捕获 this 取 region/等级。
+        // 矿脉抗性 (陷阱专属来源减伤): 作为独立命名减伤源迁入玩家减伤单点结算 (减伤统一)。isTrapSource 现按
+        // 第七章降级路径识别环境陷阱伤 (落石/岩浆/着火/非玩家爆炸等), 在矿洞内 + L5 解锁时真实减伤; trap 暴露
+        // 专属源后只需在 isTrapSource 收紧, 本接线不动。捕获 this 取 region/等级。
         com.miningdim.combat.PlayerDamageReduction.register(new com.miningdim.combat.PlayerDamageReduction.ReductionSource() {
             @Override
             public String name() {
@@ -297,14 +298,14 @@ public final class MinerSystem implements Subsystem {
      *  - 脱险读条受伤即打断 (读条 ~3s, 受伤/移动即打断, 长 CD = 不能当 PvP 逃跑后门): 委派
      *    {@link MinerActions#interruptEvacuateOnHurt} (内部判 evacuating, 不在读条则空转)。
      *  - 矿脉抗性 (L5 被动) 减伤: 仅当来源为 "陷阱专属来源" ({@link MinerSurvival#isTrapSource}) 时按矿工等级减伤,
-     *    event.setAmount 施加。守红线: 对怪/枪/玩家 TNT 等非陷阱来源零减免 (isTrapSource 返回 false 即原样, 不动伤害)。
+     *    event.setAmount 施加。守红线: 对怪/枪/玩家 TNT 等非陷阱来源 isTrapSource 返回 false -> 零减免, 不动伤害。
      *
      * 二者严格分离: 打断只取消读条不改伤害; 减伤只缩放陷阱专属来源的伤害, 不取消事件、不加战力。
      *
-     * 陷阱专属来源识别现状: trap 子系统动态陷阱用原版机制造伤 (落石 FALLING_BLOCK / 岩浆 / 苦力怕爆炸), 尚未暴露专属
-     * DamageSource, 故 {@link MinerSurvival#isTrapSource} 当前对所有来源返回 false, 减伤实际不生效 (红线安全降级:
-     * 宁可不减伤, 不可误把战斗伤当陷阱伤减)。本处接线已就绪: trap 暴露专属源并修正 isTrapSource 后减伤自动生效,
-     * 无需再改本接线 (见 notes 的 foundationGap)。
+     * 陷阱专属来源识别现状: trap 子系统专属 DamageSource 未落地, 动态陷阱借原版环境伤机制造伤; 故
+     * {@link MinerSurvival#isTrapSource} 按第七章降级路径识别环境陷阱伤类型集合 (落石/钟乳石/铁砧/岩浆/着火/
+     * 炽热地面/非玩家爆炸), 矿洞内 L5+ 减伤经上方 register 注册源真实生效。集合排除一切战斗来源与玩家 TNT
+     * (PLAYER_EXPLOSION), 守不漂战斗力红线。trap 暴露专属源后只在 isTrapSource 收紧, 本接线不动。
      */
     @SubscribeEvent
     public void onLivingHurt(LivingHurtEvent event) {

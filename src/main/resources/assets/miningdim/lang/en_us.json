@@ -380,6 +380,7 @@
   "message.miningdim.marriage.teleport.cancelled.sneak": "Teleport cancelled (someone sneaked).",
   "message.miningdim.marriage.teleport.cancelled.hurt": "Teleport cancelled (took damage).",
   "message.miningdim.marriage.teleport.cancelled.dimension": "Teleport cancelled (not in the same dimension).",
+  "message.miningdim.marriage.teleport.cancelled.no_longer_married": "Teleport cancelled (no longer married).",
   "message.miningdim.marriage.teleport.cancelled.offline": "Teleport cancelled (spouse went offline).",
   "message.miningdim.marriage.teleport.already": "You are already channeling a teleport.",
   "message.miningdim.marriage.teleport.cooldown": "Teleport is on cooldown; try again later.",

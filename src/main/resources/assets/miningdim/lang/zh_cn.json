@@ -380,6 +380,7 @@
   "message.miningdim.marriage.teleport.cancelled.sneak": "传送已取消（有人潜行了）。",
   "message.miningdim.marriage.teleport.cancelled.hurt": "传送已取消（受到了伤害）。",
   "message.miningdim.marriage.teleport.cancelled.dimension": "传送已取消（不在同一维度）。",
+  "message.miningdim.marriage.teleport.cancelled.no_longer_married": "传送已取消（婚姻关系已解除）。",
   "message.miningdim.marriage.teleport.cancelled.offline": "传送已取消（伴侣已离线）。",
   "message.miningdim.marriage.teleport.already": "你已经在传送蓄力中了。",
   "message.miningdim.marriage.teleport.cooldown": "传送冷却中，请稍后再试。",

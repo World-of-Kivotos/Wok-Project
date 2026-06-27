@@ -166,6 +166,12 @@ public final class MarriageTeleport {
                 it.remove();
                 continue;
             }
+            // 蓄力期间任一方离婚 (婚姻关系已解除): 取消, 防已离婚玩家仍被传送到前配偶 (每帧复验婚姻关系)。
+            if (!stillMarried(initiator, partner)) {
+                cancel(initiator, partner, "no_longer_married");
+                it.remove();
+                continue;
+            }
             // 潜行打断 (任一方潜行 = 拒绝/打断, spec 第五章)。
             if (initiator.isShiftKeyDown() || partner.isShiftKeyDown()) {
                 cancel(initiator, partner, "sneak");
@@ -287,5 +293,12 @@ public final class MarriageTeleport {
         }
         IMiningPlayerData data = MiningCapabilities.get(player).orElse(null);
         return data != null && data.currentInstanceId() != IMiningPlayerData.NO_INSTANCE;
+    }
+
+    /** 双方是否仍互为配偶: capability marriageId 相同且非 NO_MARRIAGE (蓄力期间任一方离婚后双方指针清空即不再相等)。 */
+    private static boolean stillMarried(ServerPlayer a, ServerPlayer b) {
+        long ma = MiningCapabilities.get(a).map(IMiningPlayerData::marriageId).orElse(IMiningPlayerData.NO_MARRIAGE);
+        long mb = MiningCapabilities.get(b).map(IMiningPlayerData::marriageId).orElse(IMiningPlayerData.NO_MARRIAGE);
+        return ma != IMiningPlayerData.NO_MARRIAGE && ma == mb;
     }
 }

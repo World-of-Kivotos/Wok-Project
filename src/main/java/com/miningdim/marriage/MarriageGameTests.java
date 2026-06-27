@@ -342,6 +342,40 @@ public final class MarriageGameTests {
         }
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void teleportChannelCancelsWhenMarriageDissolvedMidCharge(GameTestHelper helper) {
+        LedgerEconomy eco = new LedgerEconomy();
+        IEconomyService prev = swapEconomy(eco);
+        try {
+            ServerLevel overworld = helper.getLevel().getServer().overworld();
+            MarriedPair pair = makeMarriedPair(helper, overworld, eco);
+            MarriageTeleport teleport = new MarriageTeleport();
+
+            helper.assertTrue(teleport.tryStart(pair.initiator, overworld) == MarriageTeleport.StartResult.STARTED,
+                    "channel starts for a married pair");
+            helper.assertTrue(teleport.isChanneling(pair.initiator.getUUID()), "channel active right after start");
+
+            // 蓄力中离婚: 清双方 capability 婚姻指针 (等价 /marriage divorce 对 marriageId 的清除)。双方未移动/未潜行/未受伤,
+            // 仅婚姻解除 -> tick 必须取消 (否则已离婚玩家仍被传送到前配偶身边)。
+            clearMarriagePointer(pair.initiator);
+            clearMarriagePointer(pair.partner);
+            teleport.tick(overworld);
+            helper.assertTrue(!teleport.isChanneling(pair.initiator.getUUID()),
+                    "channel is cancelled when the marriage is dissolved mid-charge (no teleport to ex-spouse)");
+            helper.succeed();
+        } finally {
+            restoreEconomy(prev);
+        }
+    }
+
+    /** 清玩家 capability 婚姻指针 (等价离婚): marriageId=NO_MARRIAGE + spouseUUID=null。 */
+    private static void clearMarriagePointer(ServerPlayer player) {
+        MiningCapabilities.get(player).ifPresent(d -> {
+            d.setMarriageId(IMiningPlayerData.NO_MARRIAGE);
+            d.setSpouseUUID(null);
+        });
+    }
+
     // ============================================================
     // 6. 离婚后冷却内再婚被拒, 冷却过后放行
     // ============================================================

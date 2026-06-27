@@ -377,6 +377,16 @@ public final class DynamicTrapEngine {
         }
     }
 
+    /**
+     * 冷却放行判据 (公开静态纯函数, 供 GameTest 锁死回归): {@code lastTick == Long.MIN_VALUE} 表示"从未触发"直接放行;
+     * 否则比较经过时间是否到冷却。【关键】严禁写 {@code now - lastTick >= cooldown} 不带哨兵判: lastTick 为
+     * Long.MIN_VALUE 时 {@code now - Long.MIN_VALUE} 对任何现实正 gameTime 整数溢出成大负数 -> 恒 < 冷却 -> 首次
+     * 永不放行 -> 时间戳永停哨兵 -> 三类动态陷阱永久死锁 (红队确认: 本 session 注入 danger 复活陷阱后才暴露)。
+     */
+    public static boolean cooldownAllows(long lastTick, long now, long cooldownTicks) {
+        return lastTick == Long.MIN_VALUE || now - lastTick >= cooldownTicks;
+    }
+
     // ---- 实例级节流状态 ----
 
     private static final class InstanceThrottle {
@@ -385,7 +395,7 @@ public final class DynamicTrapEngine {
         private final Map<UUID, Long> lastCreeperByPlayer = new ConcurrentHashMap<>();
 
         boolean canTriggerLava(long now) {
-            return now - lastLavaTick >= TrapParams.LAVA_BURST_COOLDOWN_TICKS;
+            return cooldownAllows(lastLavaTick, now, TrapParams.LAVA_BURST_COOLDOWN_TICKS);
         }
 
         void markLava(long now) {
@@ -393,8 +403,8 @@ public final class DynamicTrapEngine {
         }
 
         boolean canTriggerCollapse(UUID player, long now) {
-            return now - lastCollapseByPlayer.getOrDefault(player, Long.MIN_VALUE)
-                    >= TrapParams.COLLAPSE_PER_PLAYER_COOLDOWN_TICKS;
+            return cooldownAllows(lastCollapseByPlayer.getOrDefault(player, Long.MIN_VALUE),
+                    now, TrapParams.COLLAPSE_PER_PLAYER_COOLDOWN_TICKS);
         }
 
         void markCollapse(UUID player, long now) {
@@ -402,8 +412,8 @@ public final class DynamicTrapEngine {
         }
 
         boolean canTriggerCreeper(UUID player, long now) {
-            return now - lastCreeperByPlayer.getOrDefault(player, Long.MIN_VALUE)
-                    >= TrapParams.MOB_BEHIND_COOLDOWN_TICKS;
+            return cooldownAllows(lastCreeperByPlayer.getOrDefault(player, Long.MIN_VALUE),
+                    now, TrapParams.MOB_BEHIND_COOLDOWN_TICKS);
         }
 
         void markCreeper(UUID player, long now) {

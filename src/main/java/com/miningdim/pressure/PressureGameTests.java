@@ -3,6 +3,7 @@ package com.miningdim.pressure;
 import com.miningdim.core.Difficulty;
 import com.miningdim.core.IMiningConfig;
 import com.miningdim.testutil.MockGameTestPlayers;
+import com.miningdim.trap.DynamicTrapEngine;
 import com.miningdim.trap.TrapParams;
 import com.miningdim.trap.TrapSystem;
 import net.minecraft.gametest.framework.GameTest;
@@ -159,7 +160,7 @@ public final class PressureGameTests {
             helper.assertTrue(injected > 0.0f,
                     "injected danger must be > 0 (regression guard: not the 0f stub)");
             helper.assertTrue(injected >= TrapParams.DANGER_THRESH_LAVA,
-                    "injected danger clears the lava gate -> lava/collapse/creeper all gated open (traps revived)");
+                    "injected danger clears the lava danger-threshold (danger-gate side; 节流闸另由 trapCooldownAllowsFirstTriggerNoOverflow 验)");
 
             // 无压力态玩家 (未进矿洞 / 已离开): 注入源回退 0f, 与 stub 退化语义一致 (不臆造 danger)。
             ServerPlayer noData = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -169,6 +170,28 @@ public final class PressureGameTests {
             // 还原运行服的真实 TrapSystem 单例 (本测试 register 期把 instance 改成了临时 trap)。
             originalTrap.register(throwaway, throwaway);
         }
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 红队回归: 动态陷阱节流冷却判据不得 now - Long.MIN_VALUE 溢出致首次永不放行 (注入 danger 复活陷阱后此溢出
+    // 使三类动态陷阱永久死锁; 用 cooldownAllows 的哨兵判修复)。
+    // ============================================================
+
+    @GameTest(templateNamespace = com.miningdim.core.MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void trapCooldownAllowsFirstTriggerNoOverflow(GameTestHelper helper) {
+        // 哨兵 Long.MIN_VALUE = "从未触发" 必放行: 若写 now - Long.MIN_VALUE 会整数溢出成大负数, 恒 < 冷却 -> 首次 false -> 陷阱永久死锁。
+        helper.assertTrue(DynamicTrapEngine.cooldownAllows(Long.MIN_VALUE, 24000L, 300L),
+                "sentinel (never triggered) first call must pass at gameTime 24000 (no overflow)");
+        helper.assertTrue(DynamicTrapEngine.cooldownAllows(Long.MIN_VALUE, 0L, 300L),
+                "sentinel passes even at gameTime 0");
+        helper.assertTrue(DynamicTrapEngine.cooldownAllows(Long.MIN_VALUE, 100_000_000L, 300L),
+                "sentinel passes at large gameTime (no overflow)");
+        // 已触发后冷却语义保持: 冷却未到不放行, 冷却到放行。
+        helper.assertFalse(DynamicTrapEngine.cooldownAllows(24000L, 24000L + 299L, 300L),
+                "within cooldown (299 < 300) must NOT pass");
+        helper.assertTrue(DynamicTrapEngine.cooldownAllows(24000L, 24000L + 300L, 300L),
+                "at cooldown boundary (300 >= 300) must pass");
         helper.succeed();
     }
 

@@ -6,10 +6,12 @@ import com.mojang.brigadier.context.CommandContext;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RegisterClientCommandsEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.DistExecutor;
+import net.minecraftforge.fml.ModList;
 
 /**
  * Web UI 客户端子系统 (模块化铁律 3; 加入主类 List, 但 register 内 client-only 逻辑全部经 DistExecutor 关进
@@ -31,8 +33,15 @@ public final class WebUiClientSubsystem implements Subsystem {
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
-        // 客户端初始化关进 client-only 内层 lambda: unsafe 变体(safe* 会触 SafeReferent 校验拒 dist 专属引用) + 双箭头(WebUiClient 仅客户端执行内层体时 classload)。
-        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> WebUiClient.initClient());
+        // MCEF 缺失优雅降级 (前置 mod 没装也不崩): ModList 守卫必须在【调用 initClient 之前】。WebUiClient.initClient 体
+        // 引用 org.cef.*(CefMessageRouter) 与 WebUiBridge(extends CefMessageRouterHandlerAdapter), JVM 首次调用即验证/
+        // 加载这些类, initClient 内部的 ModList 守卫为时已晚 (缺 MCEF -> NoClassDefFoundError 崩客户端, dev runClient 实测)。
+        // 本类不引用 org.cef, 故在此守卫安全; 装了 MCEF 才进 Dist.CLIENT 内层 lambda 初始化浏览器宿主。服务端 dist 本就
+        // 经 unsafeRunWhenOn(CLIENT) 跳过, 与本守卫叠加无副作用。
+        if (ModList.get().isLoaded("mcef")) {
+            // 客户端初始化关进 client-only 内层 lambda: unsafe 变体(safe* 会触 SafeReferent 校验拒 dist 专属引用) + 双箭头(WebUiClient 仅客户端执行内层体时 classload)。
+            DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> WebUiClient.initClient());
+        }
         // 客户端命令注册 (RegisterClientCommandsEvent 仅客户端逻辑端触发, 服务端不调本监听器体)。
         forgeBus.addListener(this::onRegisterClientCommands);
     }
@@ -43,6 +52,11 @@ public final class WebUiClientSubsystem implements Subsystem {
     }
 
     private int runDevCommand(CommandContext<CommandSourceStack> ctx) {
+        // 同 register: 缺 MCEF 不触 openDevScreen (引用 org.cef), 给提示而非崩。
+        if (!ModList.get().isLoaded("mcef")) {
+            ctx.getSource().sendFailure(Component.literal("[miningdim] Web UI unavailable: MCEF mod is not installed."));
+            return Command.SINGLE_SUCCESS;
+        }
         // 二次 Dist 兜底 (双箭头): 即便此监听器体在非预期端被触发, openDevScreen 也只在客户端 classload/执行。
         DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> WebUiClient.openDevScreen());
         return Command.SINGLE_SUCCESS;

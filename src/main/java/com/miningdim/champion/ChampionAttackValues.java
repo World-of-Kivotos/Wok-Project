@@ -99,9 +99,10 @@ public final class ChampionAttackValues {
      * valueFor (+15%..+60% 伤害); 否则返 0 (未激活)。低血判定按血池占比 (6★+ 影子血池 fraction / 1-5★ vanilla
      * getHealth/getMaxHealth 之比), 由 handler 取占比传入 (spec 6.2 #1: 低血阈值读血池, 非读 vanilla 作判定逻辑)。
      *
-     * 攻速放大 (spec 嗜血"+攻速+伤害") 不在本伤害折算口径内 —— 攻速属属性层修正, 由 handler 在激活时另施
-     * 瞬态 ATTACK_SPEED 修饰 (与伤害分离); 本法只给伤害放大系数, 喂给 {@link #singleHitTotalPct} 的 bloodlustAmp,
-     * 经普通单击上限钳制 (spec 嗜血: 伤害受单击上限)。
+     * 攻速放大 (spec 嗜血"+攻速+伤害") 不在本伤害折算口径内, 且【Stage 1 尚未实现】—— 攻速属属性层修正,
+     * 设计上须由 handler 在激活时另施瞬态 ATTACK_SPEED 属性修饰 (与伤害分离), 但全库暂无该 handler (Stage 2
+     * 待接线, 依赖 Champions 冠军实体真服环境)。本法只负责伤害放大系数, 喂给 {@link #singleHitTotalPct} 的
+     * bloodlustAmp, 经普通单击上限钳制 (spec 嗜血: 伤害受单击上限)。
      *
      * @param quality   嗜血品质
      * @param hpFraction 冠军当前血量占比 [0,1] (血池权威: 6★+ fraction / 1-5★ vanilla 比)

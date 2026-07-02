@@ -9,6 +9,7 @@ import com.miningdim.champion.reward.DamageContribution;
 import com.miningdim.core.MiningConstants;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.util.RandomSource;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -479,6 +480,176 @@ public final class ChampionEdgeGameTests {
             immutable = true;
         }
         helper.assertTrue(immutable, "implemented whitelist must be unmodifiable");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 非法入参/null 守卫: 参数校验缺口补强 (异常必须痛, 删守卫则不抛 -> 断言必挂)
+    // ============================================================
+
+    /**
+     * {@link PointBudget#allocate} 的 null 守卫 (PointBudget.java:44-49): rank/selections 为 null 各抛
+     * IllegalArgumentException (装配 bug 自然冒泡, 不静默返回空分配)。反例护栏: 合法空选择集不抛且各池剩余 =
+     * 满预算, 坐实抛的是 null 守卫而非普遍失败 (删任一 null 守卫则对应 assertThrowsIae 必挂)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void pointBudgetAllocateNullGuards(GameTestHelper helper) {
+        StarRank rank = StarRank.ofStar(5);
+        assertThrowsIae(helper, () -> PointBudget.allocate(null, List.of()),
+                "PointBudget.allocate null rank must throw IAE");
+        assertThrowsIae(helper, () -> PointBudget.allocate(rank, null),
+                "PointBudget.allocate null selections must throw IAE");
+
+        // 反例: 合法入参 (空选择) 不抛, 各池剩余 = 满预算 (证明守卫是定向的, 非全路径失败)。
+        PointBudget.Allocation ok = PointBudget.allocate(rank, List.of());
+        helper.assertTrue(ok.remaining(AffixPool.SURVIVAL) == rank.survivalBudget(),
+                "empty selections leaves full survival budget (guard is targeted, not blanket)");
+        helper.succeed();
+    }
+
+    /**
+     * {@link AffixRoller#roll} 的 null 守卫 (AffixRoller.java 头部): rank/rng 为 null 各抛
+     * IllegalArgumentException。反例护栏: 合法 rank+rng 组合不抛 (roll 正常返回 list), 坐实抛的是 null 守卫。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void affixRollerRollNullGuards(GameTestHelper helper) {
+        RandomSource rng = RandomSource.create(0L);
+        StarRank rank = StarRank.ofStar(5);
+        assertThrowsIae(helper, () -> AffixRoller.roll(null, rng),
+                "AffixRoller.roll null rank must throw IAE");
+        assertThrowsIae(helper, () -> AffixRoller.roll(rank, null),
+                "AffixRoller.roll null rng must throw IAE");
+
+        // 反例: 合法入参不抛 (返回可能为空但非 null 的选择列表)。
+        helper.assertTrue(AffixRoller.roll(rank, rng) != null,
+                "legal rank+rng returns a (possibly empty) non-null list, not a throw");
+        helper.succeed();
+    }
+
+    /**
+     * {@link ChampionAffixState} 四入口 (nbtKeyOf/writeQuality/qualityOf/defaultQualityFor) 的 null 参数各抛
+     * IllegalArgumentException。qualityOf 的子表参数允许 null (走 tier 兜底) —— 故用非 null 子表隔离 def/rank
+     * 守卫, 并以反例断言"null 子表合法且回退到 tier 默认", 坐实抛的是 def/rank 守卫而非子表守卫。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void affixStateNullGuards(GameTestHelper helper) {
+        CompoundTag tag = new CompoundTag();
+        StarRank rank = StarRank.ofStar(5);
+        AffixSelection sel = new AffixSelection(AffixDef.BURNING, AffixQuality.COMMON);
+
+        assertThrowsIae(helper, () -> ChampionAffixState.nbtKeyOf(null),
+                "nbtKeyOf null def must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAffixState.writeQuality(null, sel),
+                "writeQuality null tag must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAffixState.writeQuality(tag, null),
+                "writeQuality null selection must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAffixState.defaultQualityFor(null, rank),
+                "defaultQualityFor null def must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAffixState.defaultQualityFor(AffixDef.BURNING, null),
+                "defaultQualityFor null rank must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAffixState.qualityOf(tag, null, rank),
+                "qualityOf null def must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAffixState.qualityOf(tag, AffixDef.BURNING, null),
+                "qualityOf null rank must throw IAE");
+
+        // 反例: null 子表 (非 null def/rank) 不抛, 回退 tier 默认 (子表 null 属合法, 只 def/rank 被守卫)。
+        AffixQuality fallback = ChampionAffixState.qualityOf(null, AffixDef.BURNING, rank);
+        helper.assertTrue(fallback == ChampionAffixState.defaultQualityFor(AffixDef.BURNING, rank),
+                "null tag legally falls back to tier default (only def/rank are null-guarded)");
+        helper.succeed();
+    }
+
+    /**
+     * {@link ChampionAttackValues} 纯函数非法入参各抛 IllegalArgumentException (逐个真实签名):
+     *  - singleHitTotalPct: null rank / 负 baseHitPct / 负 piercingPct;
+     *  - bonusOverVanilla: totalPct&lt;0 / maxHp==0 / maxHp&lt;0;
+     *  - bloodlustDamageAmp: null quality / hpFraction&lt;0 / hpFraction&gt;1;
+     *  - corrosiveArmorDamage: null quality;
+     *  - frostSlowPct: null quality / stacks&lt;0 / stacks&gt;DOT_MAX_STACKS;
+     *  - burningTickHp/frostFreezeTickHp (经私有 dotTickHp): stacks 越界 / maxHp&lt;=0。
+     * 删任一 require* 守卫则对应输入不再抛 (要么正常返回, 要么抛 NPE/其它非 IAE), assertThrowsIae 必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void attackValuesIllegalArgs(GameTestHelper helper) {
+        StarRank rank = StarRank.ofStar(5);
+
+        assertThrowsIae(helper, () -> ChampionAttackValues.singleHitTotalPct(null, 0.1D, 0.0D, 0.0D, 0.0D),
+                "singleHitTotalPct null rank must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.singleHitTotalPct(rank, -0.1D, 0.0D, 0.0D, 0.0D),
+                "singleHitTotalPct negative baseHitPct must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.singleHitTotalPct(rank, 0.1D, 0.0D, 0.0D, -0.05D),
+                "singleHitTotalPct negative piercingPct must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAttackValues.bonusOverVanilla(-0.1D, 100.0D, 0.0D),
+                "bonusOverVanilla negative totalPct must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.bonusOverVanilla(0.1D, 0.0D, 0.0D),
+                "bonusOverVanilla zero maxHp must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.bonusOverVanilla(0.1D, -5.0D, 0.0D),
+                "bonusOverVanilla negative maxHp must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAttackValues.bloodlustDamageAmp(null, 0.2D),
+                "bloodlustDamageAmp null quality must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.bloodlustDamageAmp(AffixQuality.COMMON, -0.1D),
+                "bloodlustDamageAmp hpFraction < 0 must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.bloodlustDamageAmp(AffixQuality.COMMON, 1.5D),
+                "bloodlustDamageAmp hpFraction > 1 must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAttackValues.corrosiveArmorDamage(null),
+                "corrosiveArmorDamage null quality must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAttackValues.frostSlowPct(null, 3),
+                "frostSlowPct null quality must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.frostSlowPct(AffixQuality.COMMON, -1),
+                "frostSlowPct negative stacks must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.frostSlowPct(AffixQuality.COMMON,
+                        ChampionAttackValues.DOT_MAX_STACKS + 1),
+                "frostSlowPct stacks over DOT_MAX_STACKS must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAttackValues.burningTickHp(AffixQuality.COMMON,
+                        ChampionAttackValues.DOT_MAX_STACKS + 1, 100.0D),
+                "burningTickHp stacks over cap must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.burningTickHp(AffixQuality.COMMON, 2, 0.0D),
+                "burningTickHp zero maxHp must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.frostFreezeTickHp(AffixQuality.COMMON, -1, 100.0D),
+                "frostFreezeTickHp negative stacks must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.frostFreezeTickHp(AffixQuality.COMMON, 2, -10.0D),
+                "frostFreezeTickHp negative maxHp must throw IAE");
+        helper.succeed();
+    }
+
+    /**
+     * {@link ChampionStrikeGate} 参数契约:
+     *  - strikeJumps: 传入非多击 def (BURNING) 抛 IllegalArgumentException; 多击 def + null quality 抛 IAE;
+     *    契约反例 —— null def = 无多击返 1 跳 (不抛), 双倍返 2 跳 (坐实抛的是"非多击"守卫而非 def 普遍拒 null)。
+     *  - markKnockback: 预计落地 tick &lt; now 抛 IAE; 边界 landing == now 合法不抛 (仅 &lt; 才拒), 落账后
+     *    lastKnockbackTick 推进到 now。
+     * 注: 源码 jumps&lt;1 分支抛的是 IllegalStateException 且以真实 AffixDef 数值 (双倍=2/四倍=4) 不可达, 属防御性
+     * 断言, 无法在不臆造假 AffixDef 的前提下触发, 故此处只验其可达的真实 IAE 契约 (见 concerns)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void strikeGateIllegalArgs(GameTestHelper helper) {
+        assertThrowsIae(helper, () -> ChampionStrikeGate.strikeJumps(AffixDef.BURNING, AffixQuality.COMMON),
+                "strikeJumps non-multi-strike def must throw IAE");
+        assertThrowsIae(helper, () -> ChampionStrikeGate.strikeJumps(AffixDef.DOUBLE_STRIKE, null),
+                "strikeJumps multi-strike def + null quality must throw IAE");
+
+        // 契约反例: null def = 无多击 -> 1 跳; 双倍 -> 2 跳 (证明守卫拒的是"非多击 def", 非普遍拒 null def)。
+        helper.assertTrue(ChampionStrikeGate.strikeJumps(null, AffixQuality.COMMON) == 1,
+                "strikeJumps null def yields 1 jump (no multi-strike)");
+        helper.assertTrue(ChampionStrikeGate.strikeJumps(AffixDef.DOUBLE_STRIKE, AffixQuality.COMMON) == 2,
+                "double strike yields 2 jumps");
+
+        assertThrowsIae(helper, () -> new ChampionStrikeGate().markKnockback(100L, 50L),
+                "markKnockback landing (50) before now (100) must throw IAE");
+
+        // 边界: 落地 == now 合法 (源码只在 landing < now 抛), 落账后击飞窗起点推进到 now。
+        ChampionStrikeGate gate = new ChampionStrikeGate();
+        gate.markKnockback(100L, 100L);
+        helper.assertTrue(gate.lastKnockbackTick() == 100L,
+                "markKnockback landing == now is legal (boundary), knockback tick advanced to now");
         helper.succeed();
     }
 

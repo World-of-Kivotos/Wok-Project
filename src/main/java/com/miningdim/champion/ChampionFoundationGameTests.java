@@ -3,10 +3,14 @@ package com.miningdim.champion;
 import com.miningdim.champion.aggregate.PlayerControlAggregator;
 import com.miningdim.champion.aggregate.PlayerDotAccumulator;
 import com.miningdim.champion.aggregate.RetaliationAggregator;
+import com.miningdim.core.Difficulty;
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.engineer.testutil.FixedDoubleRandom;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Mob;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -235,6 +239,162 @@ public final class ChampionFoundationGameTests {
         PlayerDotAccumulator.FlushResult r = acc.flush(1_000.0D, 20L);
         helper.assertTrue(Math.abs(r.total()) < EPS, "empty flush total 0");
         helper.assertTrue(r.perSource().length == 0, "empty flush no per-source");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 生成策略: 升格概率硬值 + null 拒绝 (ChampionSpawnPolicy.promoteChance)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void spawnPolicyPromoteChanceValues(GameTestHelper helper) {
+        // 难度档升格率硬值 (spec 第十章 EASY 低星点缀 / HARD 世界 BOSS 量级; 改值/删表必挂)。
+        helper.assertTrue(Math.abs(ChampionSpawnPolicy.promoteChance(Difficulty.EASY) - 0.06D) < EPS,
+                "EASY promote chance = 6%");
+        helper.assertTrue(Math.abs(ChampionSpawnPolicy.promoteChance(Difficulty.MEDIUM) - 0.10D) < EPS,
+                "MEDIUM promote chance = 10%");
+        helper.assertTrue(Math.abs(ChampionSpawnPolicy.promoteChance(Difficulty.HARD) - 0.15D) < EPS,
+                "HARD promote chance = 15%");
+
+        // null 难度自然抛 IAE (不静默兜 0)。
+        boolean rejected = false;
+        try {
+            ChampionSpawnPolicy.promoteChance(null);
+        } catch (IllegalArgumentException expected) {
+            rejected = true;
+        }
+        helper.assertTrue(rejected, "promoteChance(null) rejected with IAE");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 生成策略: 确定性 rng 下的升格判定 (ChampionSpawnPolicy.shouldPromote)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void spawnPolicyShouldPromoteDeterministic(GameTestHelper helper) {
+        // rng < promoteChance 升格; == 边界 (严格 <) 不升格。EASY 阈值 6%。
+        helper.assertTrue(ChampionSpawnPolicy.shouldPromote(Difficulty.EASY, new FixedDoubleRandom(0.05D)),
+                "rng 0.05 < 6% -> promote");
+        helper.assertTrue(!ChampionSpawnPolicy.shouldPromote(Difficulty.EASY, new FixedDoubleRandom(0.06D)),
+                "rng == 6% -> no promote (strict <)");
+        helper.assertTrue(!ChampionSpawnPolicy.shouldPromote(Difficulty.EASY, new FixedDoubleRandom(0.07D)),
+                "rng 0.07 >= 6% -> no promote");
+
+        // HARD 阈值 15%: 0.14 升格, 0.15 边界不升格。
+        helper.assertTrue(ChampionSpawnPolicy.shouldPromote(Difficulty.HARD, new FixedDoubleRandom(0.14D)),
+                "rng 0.14 < 15% -> promote on HARD");
+        helper.assertTrue(!ChampionSpawnPolicy.shouldPromote(Difficulty.HARD, new FixedDoubleRandom(0.15D)),
+                "rng == 15% -> no promote on HARD");
+
+        // 难度敏感: 同一 rng 0.12 在 HARD (12%<15%) 升格, 在 EASY (12%>=6%) 不升格 (判定确用难度阈值)。
+        helper.assertTrue(ChampionSpawnPolicy.shouldPromote(Difficulty.HARD, new FixedDoubleRandom(0.12D)),
+                "rng 0.12 promotes on HARD");
+        helper.assertTrue(!ChampionSpawnPolicy.shouldPromote(Difficulty.EASY, new FixedDoubleRandom(0.12D)),
+                "rng 0.12 does not promote on EASY (per-difficulty threshold)");
+
+        // null rng 先于难度被拒 (rng 校验在前)。
+        boolean nullRng = false;
+        try {
+            ChampionSpawnPolicy.shouldPromote(Difficulty.EASY, null);
+        } catch (IllegalArgumentException expected) {
+            nullRng = true;
+        }
+        helper.assertTrue(nullRng, "shouldPromote null rng rejected with IAE");
+
+        // null 难度经 promoteChance 抛 IAE。
+        boolean nullDiff = false;
+        try {
+            ChampionSpawnPolicy.shouldPromote(null, new FixedDoubleRandom(0.01D));
+        } catch (IllegalArgumentException expected) {
+            nullDiff = true;
+        }
+        helper.assertTrue(nullDiff, "shouldPromote null difficulty rejected with IAE");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 装配接缝: 升格实现绑定/解绑状态机 + 短路守卫 (ChampionSpawnSeam)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void spawnSeamStateMachine(GameTestHelper helper) {
+        try {
+            ChampionSpawnSeam.unbind(); // 清任何前序静态污染。
+            helper.assertTrue(!ChampionSpawnSeam.isBound(), "seam unbound before any bind");
+
+            // bind(null) 拒绝且不污染为已接态。
+            boolean rejected = false;
+            try {
+                ChampionSpawnSeam.bind(null);
+            } catch (IllegalArgumentException expected) {
+                rejected = true;
+            }
+            helper.assertTrue(rejected, "bind(null) rejected with IAE");
+            helper.assertTrue(!ChampionSpawnSeam.isBound(), "rejected null bind leaves seam unbound");
+
+            Difficulty[] seenDifficulty = new Difficulty[1];
+            Mob[] seenMob = new Mob[1];
+            ChampionSpawnSeam.Promoter recorder = (mob, difficulty) -> {
+                seenMob[0] = mob;
+                seenDifficulty[0] = difficulty;
+            };
+            ChampionSpawnSeam.bind(recorder);
+            helper.assertTrue(ChampionSpawnSeam.isBound(), "isBound true after bind");
+
+            Mob pig = EntityType.PIG.create(helper.getLevel());
+            helper.assertTrue(pig != null, "vanilla pig constructed as promote target");
+
+            // 接线后 promote 把 mob + 难度透传给注入实现。
+            ChampionSpawnSeam.promote(pig, Difficulty.HARD);
+            helper.assertTrue(seenMob[0] == pig, "bound promoter received the mob");
+            helper.assertTrue(seenDifficulty[0] == Difficulty.HARD, "bound promoter received difficulty HARD");
+
+            // mob == null: 已接线但 mob 缺失 -> 短路, promoter 不得被调 (防 null 灌进实现)。
+            seenMob[0] = null;
+            seenDifficulty[0] = null;
+            ChampionSpawnSeam.promote(null, Difficulty.EASY);
+            helper.assertTrue(seenDifficulty[0] == null, "null mob short-circuits before promoter");
+
+            // unbind 清引用 -> 未接线 promote 短路不抛且 promoter 不再触发 (防跨存档脏引用)。
+            ChampionSpawnSeam.unbind();
+            helper.assertTrue(!ChampionSpawnSeam.isBound(), "isBound false after unbind");
+            seenDifficulty[0] = null;
+            ChampionSpawnSeam.promote(pig, Difficulty.HARD);
+            helper.assertTrue(seenDifficulty[0] == null, "unbound promote short-circuits, promoter not invoked");
+        } finally {
+            ChampionSpawnSeam.unbind();
+        }
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 品质配色: 5 档 displayColor 硬值 + 两两互异 (AffixQuality.displayColor, spec 9A.7)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void affixQualityDisplayColors(GameTestHelper helper) {
+        // 5 档品质配色 RGB 硬值 (普通=灰白 / 中级=绿 / 高级=蓝 / 超凡=紫 / 闪耀=金; 改色/删色必挂)。
+        helper.assertTrue(AffixQuality.COMMON.displayColor() == 0xC8C8C8, "COMMON = grey-white 0xC8C8C8");
+        helper.assertTrue(AffixQuality.UNCOMMON.displayColor() == 0x55C040, "UNCOMMON = green 0x55C040");
+        helper.assertTrue(AffixQuality.RARE.displayColor() == 0x3070E0, "RARE = blue 0x3070E0");
+        helper.assertTrue(AffixQuality.EPIC.displayColor() == 0x9B30E0, "EPIC = purple 0x9B30E0");
+        helper.assertTrue(AffixQuality.LEGENDARY.displayColor() == 0xE0B020, "LEGENDARY = gold 0xE0B020");
+
+        // 5 色两两互异 (品质梯度可视区分, 防两档撞色)。
+        int[] colors = {
+                AffixQuality.COMMON.displayColor(),
+                AffixQuality.UNCOMMON.displayColor(),
+                AffixQuality.RARE.displayColor(),
+                AffixQuality.EPIC.displayColor(),
+                AffixQuality.LEGENDARY.displayColor()
+        };
+        for (int i = 0; i < colors.length; i++) {
+            for (int j = i + 1; j < colors.length; j++) {
+                helper.assertTrue(colors[i] != colors[j],
+                        "quality colors distinct at " + i + "/" + j);
+            }
+        }
         helper.succeed();
     }
 }

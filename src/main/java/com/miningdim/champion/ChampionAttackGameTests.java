@@ -274,6 +274,46 @@ public final class ChampionAttackGameTests {
     }
 
     // ============================================================
+    // champion-01 DoT 视觉残留修复: 窗口过期 (源全空 + 无 pending) 即回收注册表条目, hasDot 归假 -> 火粒子停播
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void dotIdleReleaseFreesRegistryEntrySoParticlesStop(GameTestHelper helper) {
+        UUID championId = UUID.randomUUID();
+        UUID victimId = UUID.randomUUID();
+        ChampionEffectRegistries.clearAll(victimId); // 隔离: 清残留, 本测试独占该 UUID。
+        try {
+            // 命中挂燃烧源 -> hasDot 真 (tick handler 据此播火粒子)。
+            PlayerDotSources sources = ChampionEffectRegistries.dotSourcesFor(victimId);
+            sources.refresh(championId, AffixDef.BURNING, AffixQuality.COMMON, 100L);
+            helper.assertTrue(ChampionEffectRegistries.hasDot(victimId), "burning hit registers DoT (hasDot true)");
+
+            // 窗内仍活跃: releaseDotIfIdle 必须【不】回收 (源未过期, 火粒子应继续播)。
+            ChampionEffectRegistries.releaseDotIfIdle(victimId);
+            helper.assertTrue(ChampionEffectRegistries.hasDot(victimId),
+                    "in-window DoT is not released (still active, particles continue)");
+
+            // 窗口过期 (tick 161 > 窗末 160) prune 成空 -> releaseDotIfIdle 回收条目 -> hasDot 假 (火粒子停)。
+            // 删 releaseDotIfIdle 的两条 remove 则源过期后 Map 键残留、hasDot 恒真 -> 本断言必挂 (= 复现旧粒子残留 bug)。
+            sources.pruneExpired(100L + PlayerDotSources.DOT_WINDOW_TICKS + 1L);
+            helper.assertTrue(sources.isEmpty(), "expired burning source pruned out");
+            ChampionEffectRegistries.releaseDotIfIdle(victimId);
+            helper.assertFalse(ChampionEffectRegistries.hasDot(victimId),
+                    "after window expiry DoT registry entry freed (hasDot false) so flame particles stop");
+
+            // 安全护栏: 源空但累加器仍有本秒待 flush 名义伤害时不得回收 (防丢在飞 DoT)。
+            // 删 pending 护栏则此处会误回收 -> hasDot 假 -> 本断言必挂。
+            ChampionEffectRegistries.dotFor(victimId).record("pending-src", 4.0D);
+            ChampionEffectRegistries.releaseDotIfIdle(victimId);
+            helper.assertTrue(ChampionEffectRegistries.hasDot(victimId),
+                    "pending nominal damage keeps DoT entry (must not drop in-flight DoT)");
+        } finally {
+            ChampionEffectRegistries.clearAll(victimId); // 反泄漏: 断言失败也清静态注册表残留。
+        }
+        helper.succeed();
+    }
+
+    // ============================================================
     // champion-01 DoT 致死: 持续 DoT 把低血玩家扣到致死时真触发原版死亡 (非 setHealth(0) 不死)
     // ============================================================
 

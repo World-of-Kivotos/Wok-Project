@@ -145,6 +145,35 @@ public final class ChampionEffectRegistries {
         RETALIATION.remove(playerId);
     }
 
+    /**
+     * DoT 自然耗尽即时回收: 无活跃源且累加器无 pending 时释放该玩家 DoT 两条目 (源模型 + 秒窗缓冲), 使
+     * {@link #hasDot}/{@link #hasAnyDot} 归假 —— DoT tick handler 不再空转迭代该玩家、也不再对其空放火粒子。
+     * 修 bug: 旧实现源过期 {@link PlayerDotSources#pruneExpired} 只清对象内部条目、不删注册表 Map 键, 致
+     * {@code hasDot} 恒真、火粒子只 gate 在注册表存在上, 出现 "DoT 伤害已停但火粒子/条目永久常驻" 的视觉残留 +
+     * 慢泄漏 (仅登出/死亡 {@link #clearAll} 才清)。
+     *
+     * 仅当【源全空 && 累加器无本秒待 flush 名义伤害】时清 —— 有 pending 说明尚有在飞 DoT, 清了会丢伤害
+     * (下秒 flush 前不释放)。控制/反伤条目各有独立生命周期, 不在此清 (与 {@link #clearAll} 登出/死亡整清分工;
+     * 本法是 DoT 窗口自然过期的即时回收, 每 tick 由 DoT handler 调)。
+     *
+     * @param playerId 受 DoT 玩家 UUID (null 静默返回)
+     */
+    public static void releaseDotIfIdle(UUID playerId) {
+        if (playerId == null) {
+            return;
+        }
+        PlayerDotSources sources = DOT_SOURCES.get(playerId);
+        if (sources != null && !sources.isEmpty()) {
+            return; // 仍有活跃源, 不回收。
+        }
+        PlayerDotAccumulator acc = DOT.get(playerId);
+        if (acc != null && acc.pendingSourceCount() > 0) {
+            return; // 本秒尚有待 flush 的名义伤害, 不回收 (防丢在飞 DoT)。
+        }
+        DOT_SOURCES.remove(playerId);
+        DOT.remove(playerId);
+    }
+
     /** 服务端停止清空全表, 防跨存档脏引用 (供 ServerStoppingEvent, 由 ChampionSystem 调)。 */
     public static void reset() {
         DOT.clear();

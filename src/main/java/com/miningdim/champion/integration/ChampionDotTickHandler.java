@@ -2,12 +2,13 @@ package com.miningdim.champion.integration;
 
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixQuality;
+import com.miningdim.champion.ChampionAffixParticles;
 import com.miningdim.champion.ChampionAttackValues;
 import com.miningdim.champion.ChampionEffectRegistries;
 import com.miningdim.champion.aggregate.PlayerControlAggregator;
 import com.miningdim.champion.aggregate.PlayerDotAccumulator;
 import com.miningdim.champion.aggregate.PlayerDotSources;
-import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -44,7 +45,7 @@ import java.util.UUID;
  */
 public final class ChampionDotTickHandler {
 
-    /** DoT 期间燃烧火粒子节流: 每多少 tick 在中招玩家身上播一轮火 (cosmetic 显示层, 与扣血结算分离)。 */
+    /** DoT 粒子节流: 每多少 tick 在中招玩家身上播一轮签名粒子 (按活跃源类型: 燃烧火/寒霜雪; cosmetic, 与扣血分离)。 */
     private static final int DOT_PARTICLE_INTERVAL_TICKS = 3;
 
     /**
@@ -69,33 +70,66 @@ public final class ChampionDotTickHandler {
         boolean emitParticles = server.getTickCount() % DOT_PARTICLE_INTERVAL_TICKS == 0;
 
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            if (!ChampionEffectRegistries.hasDot(player.getUUID())) {
+            UUID playerId = player.getUUID();
+            if (!ChampionEffectRegistries.hasDot(playerId)) {
                 continue;
             }
-            // 持续燃烧火粒子 (cosmetic): DoT 在册期间在玩家身上播火, 让"纯 DoT"也看得见在烧 (不设真火、不二次伤害)。
-            if (emitParticles && player.level() instanceof ServerLevel serverLevel) {
-                serverLevel.sendParticles(ParticleTypes.FLAME,
-                        player.getX(), player.getY() + player.getBbHeight() * 0.5D, player.getZ(),
-                        3, player.getBbWidth() * 0.35D, player.getBbHeight() * 0.4D, player.getBbWidth() * 0.35D, 0.01D);
-            }
-            PlayerDotAccumulator acc = ChampionEffectRegistries.dotFor(player.getUUID());
-            if (!acc.shouldFlush(nowTick)) {
-                continue; // 未到 1s flush 边界。
-            }
-            double maxHp = player.getMaxHealth();
-            if (maxHp <= 0.0D) {
-                continue;
-            }
-            // 1s 边界: 先按当前在册源补记本秒名义伤害 (持续 DoT 核心) + 持续施加寒霜减速, 再 flush 统一扣血。
-            recordActiveSources(player, maxHp, nowTick);
+            // 每 tick 先清过期源 (窗口过期精确到 tick): 令火粒子/减速与"当前真活跃源"一致。修视觉残留 bug ——
+            // 旧实现火粒子只 gate 在 hasDot(注册表存在)上, 源 prune 成空后 Map 键残留致 hasDot 恒真, DoT 伤害已停
+            // 火粒子仍每 3tick 永久播; 现按活跃源快照决定播不播 + 播哪种。
+            PlayerDotSources sources = ChampionEffectRegistries.dotSourcesFor(playerId);
+            sources.pruneExpired(nowTick);
 
-            PlayerDotAccumulator.FlushResult result = acc.flush(maxHp, nowTick);
-            double total = result.total();
-            if (total <= 0.0D) {
-                continue;
+            // 持续 DoT 粒子 (cosmetic): 仅当前仍有活跃源才播, 且按源类型播 (燃烧火/寒霜雪); 无活跃源不播。
+            if (emitParticles && player.level() instanceof ServerLevel serverLevel) {
+                emitActiveDotParticles(serverLevel, player, sources.activeSources());
             }
-            applyDotDamage(player, total);
+
+            PlayerDotAccumulator acc = ChampionEffectRegistries.dotFor(playerId);
+            double maxHp = player.getMaxHealth();
+            // shouldFlush 有开窗副作用, 须每 tick 调 (短路左项恒求值); maxHp>0 才真结算本秒 DoT。
+            if (acc.shouldFlush(nowTick) && maxHp > 0.0D) {
+                // 1s 边界: 先按当前在册源补记本秒名义伤害 (持续 DoT 核心) + 持续施加寒霜减速, 再 flush 统一扣血。
+                recordActiveSources(player, maxHp, nowTick);
+                PlayerDotAccumulator.FlushResult result = acc.flush(maxHp, nowTick);
+                if (result.total() > 0.0D) {
+                    applyDotDamage(player, result.total());
+                }
+            }
+
+            // DoT 自然耗尽 (源全空 + 累加器无 pending): 即时回收注册表条目, 令 hasDot 归假, 下 tick 不再空转/空放粒子。
+            ChampionEffectRegistries.releaseDotIfIdle(playerId);
         }
+    }
+
+    /**
+     * 按当前活跃 DoT 源【类型】在中招玩家身上播签名粒子 (燃烧 -> 火 / 寒霜 -> 雪; 复用 {@link ChampionAffixParticles}
+     * 单一映射)。同类型只播一轮; 无活跃源不播 —— DoT 窗口过期 (prune) 后 activeSources 空即停粒子 (修 DoT 已停粒子残留)。
+     */
+    private void emitActiveDotParticles(ServerLevel level, ServerPlayer player,
+                                        List<PlayerDotSources.ActiveSource> active) {
+        boolean burning = false;
+        boolean frost = false;
+        for (PlayerDotSources.ActiveSource src : active) {
+            if (src.def() == AffixDef.BURNING) {
+                burning = true;
+            } else if (src.def() == AffixDef.FROST) {
+                frost = true;
+            }
+        }
+        if (burning) {
+            spawnDotParticle(level, player, ChampionAffixParticles.ambientParticle(AffixDef.BURNING));
+        }
+        if (frost) {
+            spawnDotParticle(level, player, ChampionAffixParticles.ambientParticle(AffixDef.FROST));
+        }
+    }
+
+    /** 在玩家包围盒中心附近随机偏移播几颗指定粒子 (纯服务端, vanilla 自动同步附近客户端)。 */
+    private void spawnDotParticle(ServerLevel level, ServerPlayer player, ParticleOptions particle) {
+        level.sendParticles(particle,
+                player.getX(), player.getY() + player.getBbHeight() * 0.5D, player.getZ(),
+                3, player.getBbWidth() * 0.35D, player.getBbHeight() * 0.4D, player.getBbWidth() * 0.35D, 0.01D);
     }
 
     /**

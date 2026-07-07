@@ -5,8 +5,6 @@ import com.miningdim.champion.ChampionBossBarText;
 import com.miningdim.champion.MiningChampionData;
 import com.miningdim.champion.MiningChampions;
 import com.miningdim.champion.StarRank;
-import com.miningdim.champion.bloodpool.BloodPool;
-import com.miningdim.champion.bloodpool.BloodPoolRegistry;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
@@ -37,10 +35,8 @@ import java.util.UUID;
  * (&lt;= {@value #VIEW_RANGE} 格) 即在屏幕顶部出 vanilla {@code ServerBossEvent} 血条, 标题显示 名字 + 星级 + 词条名 (中文),
  * 颜色/分段随星级 (见 {@link ChampionBossBarText})。BOSS 条是 vanilla 服务端机制 (addPlayer 即自动同步渲染), 故纯服务端、零客户端代码。
  *
- * 血量: 血池怪读影子血池 (唯一权威; vanilla 镜像在无 AttributeFix 环境被钳 1024, 不能当管式数学基数),
- * 无池怪 (1-5★ 且 ≤1024) 读 vanilla 即真值。BA 式多管渲染 (2026-07-07 用户定向): 满血 ≥2 管的怪, 条显当前管
- * 占比 + 逐管换色 (尾管恒红) + 标题尾缀 xN; 单管怪维持星级 signature 色整条渲染, 数学全在
- * {@link ChampionBossBarText} 纯逻辑层。
+ * 血量: 直接读 vanilla getHealth/getMaxHealth —— 6★+ 的影子血池由 {@link ChampionBloodPoolHandler} 每 tick 镜像进
+ * vanilla 血, 故此处一律 vanilla 血/最大血 即得正确分数, 无需另读血池。
  *
  * 数据源: 经 {@link MiningChampions#get} 读自研 {@link MiningChampionData} (星级 star + 词条→品质), 星级色取
  * {@link StarRank#barColorRgb}, 词条名取 {@link AffixDef#displayNameKey}; 不触任何 top.theillusivec4.champions.*
@@ -118,7 +114,7 @@ public final class ChampionBossBarHandler {
                 bar.setColor(view.barColor);
                 bar.setOverlay(ChampionBossBarText.overlayForTier(view.tier));
             }
-            bar.setProgress(view.progress);
+            bar.setProgress(ChampionBossBarText.progress(view.health, view.maxHealth));
             syncViewers(bar, view.viewers);
         }
     }
@@ -160,47 +156,28 @@ public final class ChampionBossBarHandler {
             affixNames.add(Component.translatable(def.displayNameKey()));
         }
         MutableComponent title = ChampionBossBarText.title(entity.getDisplayName(), tier, affixNames);
+        // 文字色 = 星级 signature 色; 条色取最近的离散 BossBarColor —— 与签名粒子统一显示色。
         int rgb = StarRank.ofStar(tier).barColorRgb();
-
-        // 真血基数 (管式数学): 血池怪读池 (唯一权威; vanilla 只是镜像, 无 AttributeFix 环境还被钳 1024),
-        // 无池怪 (1-5★ 且 ≤1024) vanilla 即真值。
-        BloodPool pool = BloodPoolRegistry.get(entity.getUUID());
-        double currentHp = pool != null ? pool.currentHp() : entity.getHealth();
-        double maxHp = pool != null ? pool.maxHp() : entity.getMaxHealth();
-
-        // BA 式多管 (2026-07-07 用户定向): 满血 ≥2 管走管式 (条显当前管占比 + 逐管换色 + 标题尾缀 xN),
-        // 单管怪维持原星级色整条渲染 (三色统一)。
-        double capacity = ChampionBossBarText.layerCapacityFor(tier);
-        boolean layered = ChampionBossBarText.layersLeft(maxHp, capacity) > 1;
-        float progress;
-        BossEvent.BossBarColor barColor;
-        if (layered) {
-            int layersLeft = Math.max(1, ChampionBossBarText.layersLeft(currentHp, capacity));
-            progress = ChampionBossBarText.layerProgress(currentHp, capacity);
-            barColor = ChampionBossBarText.layerColor(layersLeft);
-            title.append(Component.literal(ChampionBossBarText.layerSuffix(layersLeft)));
-        } else {
-            progress = ChampionBossBarText.progress(currentHp, maxHp);
-            barColor = ChampionBossBarText.nearestBossBarColor(rgb);
-        }
-        // 文字色 = 星级 signature 色 (管式下条色随管变, 星级辨识保留在标题/星星/粒子)。
         title = title.withStyle(Style.EMPTY.withColor(TextColor.fromRgb(rgb)));
-        return new View(title, tier, barColor, progress);
+        BossEvent.BossBarColor barColor = ChampionBossBarText.nearestBossBarColor(rgb);
+        return new View(title, tier, barColor, entity.getHealth(), entity.getMaxHealth());
     }
 
-    /** 一只精英怪本 tick 的展示快照: 标题 + 星级 + 条色 + 条进度 (管式或整条) + 观察玩家集。 */
+    /** 一只精英怪本 tick 的展示快照: 标题 + 星级 + 当前血/最大血 + 观察玩家集。 */
     private static final class View {
         final Component name;
         final int tier;
         final BossEvent.BossBarColor barColor;
-        final float progress;
+        final double health;
+        final double maxHealth;
         final Set<ServerPlayer> viewers = new HashSet<>();
 
-        View(Component name, int tier, BossEvent.BossBarColor barColor, float progress) {
+        View(Component name, int tier, BossEvent.BossBarColor barColor, double health, double maxHealth) {
             this.name = name;
             this.tier = tier;
             this.barColor = barColor;
-            this.progress = progress;
+            this.health = health;
+            this.maxHealth = maxHealth;
         }
     }
 }

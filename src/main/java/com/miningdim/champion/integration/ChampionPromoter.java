@@ -70,11 +70,6 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
     }
 
     private void promoteToChampion(Mob mob, Difficulty difficulty, RandomSource rng) {
-        MiningChampionData champ = MiningChampions.get(mob).orElse(null);
-        if (champ == null) {
-            return; // 无冠军 capability (非 Mob / 未挂载, 不应发生): 不升格。
-        }
-
         int star = ChampionSpawnPolicy.rollStar(difficulty, rng);
         StarRank rank = StarRank.ofStar(star);
 
@@ -85,13 +80,25 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
             affixMap.put(sel.affix(), sel.quality());
         }
 
-        // 有效血 (贡献池分母 + 血量基数): 星表基础有效血 (巨大化 +血量 ×(1+pct) 批2 接入)。
+        applyChampion(mob, star, affixMap);
+    }
+
+    /**
+     * 盖章一只 Mob 为指定星级 + 词条的冠军 (自然升格 + 命令召唤共用唯一入口): 写 capability (唯一权威) + 接管基础
+     * 血量。无冠军 capability (非 Mob) 静默返回。有效血按星表基础有效血 (巨大化 +血量 批2 接入)。
+     *
+     * @param mob     目标怪
+     * @param star    星级 (1-10)
+     * @param affixes 词条→品质映射 (拷入)
+     */
+    public static void applyChampion(Mob mob, int star, Map<AffixDef, AffixQuality> affixes) {
+        MiningChampionData champ = MiningChampions.get(mob).orElse(null);
+        if (champ == null) {
+            return; // 无冠军 capability (非 Mob / 未挂载): 不盖章。
+        }
+        StarRank rank = StarRank.ofStar(star);
         double effectiveHp = rank.baseEffectiveHp();
-
-        // 盖章 capability (唯一权威: 效果 handler 全经 MiningChampions.get 读)。
-        champ.promote(star, affixMap, effectiveHp);
-
-        // 接管基础血量 (取代 Champions growthFactor)。
+        champ.promote(star, affixes, effectiveHp);
         applyBaseHealth(mob, rank, effectiveHp);
     }
 
@@ -100,7 +107,7 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
      * 建 {@link BloodPool} 影子血池 (权威, 破千), vanilla MAX_HEALTH 钳到 1024 作渲染镜像天花板 ({@link
      * ChampionBloodPoolHandler} 每 tick 按 displayHealth 镜像), 满血。
      */
-    private void applyBaseHealth(Mob mob, StarRank rank, double effectiveHp) {
+    private static void applyBaseHealth(Mob mob, StarRank rank, double effectiveHp) {
         boolean useBloodPool = rank.usesCustomBloodPool() || effectiveHp > VANILLA_MAX_HEALTH;
         double vanillaTarget = useBloodPool ? VANILLA_MAX_HEALTH : effectiveHp;
 

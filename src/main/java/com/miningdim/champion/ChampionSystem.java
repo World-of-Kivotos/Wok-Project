@@ -12,6 +12,7 @@ import com.miningdim.champion.integration.ChampionSelfEffectHandler;
 import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.core.Subsystem;
 import net.minecraft.world.entity.Entity;
+import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -64,12 +65,20 @@ public final class ChampionSystem implements Subsystem {
         forgeBus.register(new ChampionParticleHandler());    // 词条签名环境粒子
         forgeBus.register(new ChampionSelfEffectHandler());  // 自身被动 (再生/易燃再生/反震反伤/高速移动)
 
+        // 调试命令 /mchampion summon (取代已移除的 Champions /champions summon; OP 真服按需召唤指定星级+词条冠军)。
+        forgeBus.addListener(this::onRegisterCommands);
+
         LOGGER.info("[champion] self-hosted champion system registered (capability + spawn promoter + effect handlers, no Champions dependency)");
     }
 
     @Override
     public String name() {
         return "ChampionSystem";
+    }
+
+    /** 注册 /mchampion 调试命令 (自研冠军按需召唤; 取代已移除的 Champions /champions summon)。 */
+    private void onRegisterCommands(RegisterCommandsEvent event) {
+        ChampionCommands.register(event.getDispatcher());
     }
 
     /** 服务端停止: 清纯逻辑层运行态 (血池/贡献账本/聚合器) + 解 seam 绑定, 防跨存档/跨重启脏引用。 */

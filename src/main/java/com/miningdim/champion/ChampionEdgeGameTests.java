@@ -9,9 +9,12 @@ import com.miningdim.champion.reward.DamageContribution;
 import com.miningdim.core.MiningConstants;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.util.RandomSource;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -365,6 +368,288 @@ public final class ChampionEdgeGameTests {
             immutable = true;
         }
         helper.assertTrue(immutable, "pool views are unmodifiable (defensive against table mutation)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 哑词条排除: AffixRoller 只 roll 已有运行期 handler 的白名单词条 (champion-03 修复)
+    // ============================================================
+
+    /**
+     * 跨全部 10 星各 roll 多次, 断言 roll 出的【每一条】词条都在 {@link AffixRoller#IMPLEMENTED_AFFIXES} 白名单内
+     * (即不含任何被排除的哑词条轴)。断言具体到 AffixDef 身份 (contains 判定), 非永真 —— 删 rollPool 里的
+     * IMPLEMENTED_AFFIXES 过滤 (放开哑词条) 后, 高星机动/技能哑词条会被 roll 进来, contains 判定即挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void rollerOnlyProducesImplementedAffixes(GameTestHelper helper) {
+        boolean sawAnyAffix = false;
+        // 固定 seed 多次 roll 覆盖随机分支 (同一星掷多次取不同子集), 逐星推进保证高星 (机动/技能哑词条已解锁) 也覆盖。
+        for (int star = StarRank.MIN_STAR; star <= StarRank.MAX_STAR; star++) {
+            StarRank rank = StarRank.ofStar(star);
+            for (int seed = 0; seed < 40; seed++) {
+                RandomSource rng = RandomSource.create(0x9E3779B9L * star + seed);
+                List<AffixSelection> rolled = AffixRoller.roll(rank, rng);
+                for (AffixSelection sel : rolled) {
+                    sawAnyAffix = true;
+                    helper.assertTrue(
+                            AffixRoller.IMPLEMENTED_AFFIXES.contains(sel.affix()),
+                            "rolled affix " + sel.affix() + " (star " + star + ") must be in implemented whitelist "
+                                    + "(no dummy axes rolled)");
+                    // 强断言: roll 出的词条池必属生存/战斗 (机动/技能整池在 Stage1 被排除, 绝不应出现)。
+                    helper.assertTrue(
+                            sel.affix().pool() == AffixPool.SURVIVAL || sel.affix().pool() == AffixPool.COMBAT,
+                            "rolled affix " + sel.affix() + " must be from SURVIVAL/COMBAT pool only (mobility/skill "
+                                    + "pools are all dummy in Stage1)");
+                }
+            }
+        }
+        // 防"恒空 roll 假绿": 至少有一次 roll 真产出过词条 (3★+ 预算足以买下至少一条实现词条)。
+        helper.assertTrue(sawAnyAffix, "rolling across all stars must yield at least one affix (not vacuously empty)");
+        helper.succeed();
+    }
+
+    /**
+     * 反例护栏 (证明排除逻辑确有作用, 而非候选本就为空): 取若干典型哑词条, 断言它们【在高星已按 minStar/品质解锁】
+     * (故"放开排除"时必会进 rollPool 候选), 但【既不在白名单、也绝不会被 roll 出】。这把"放开哑词条则断言必挂"落成
+     * 可验证的具体反例 —— 若误把哑词条放进白名单或漏过滤, 下面任一断言即挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void dummyAxesUnlockedYetNeverRolled(GameTestHelper helper) {
+        StarRank topStar = StarRank.ofStar(StarRank.MAX_STAR);
+
+        // 典型哑词条 (各哑轴代表): 机动/技能/生存哑/战斗哑/缩小化无伙伴。
+        Set<AffixDef> dummySamples = EnumSet.of(
+                AffixDef.SPRINT,           // 机动池
+                AffixDef.DEATH_MARK,       // 技能池 (主动技能未实现)
+                AffixDef.THUNDER,          // 技能池 (周期 AOE 未实现)
+                AffixDef.GIGANTISM,        // 生存池哑 (无 HP 膨胀 handler)
+                AffixDef.THORNS,           // 生存池哑 (反震 handler 缺位)
+                AffixDef.DOUBLE_STRIKE,    // 战斗池哑 (分跳未施加)
+                AffixDef.CHAOS_STRIKE,     // 战斗池哑 (击飞不 push)
+                AffixDef.MINIATURIZATION); // 生存池: 减伤已实但无机动伙伴, 不可独立 roll
+
+        for (AffixDef dummy : dummySamples) {
+            // (1) 这些哑词条在 10★ 确已解锁 -> 若无白名单过滤, rollPool 候选会含它们 (证明过滤是唯一拦截点)。
+            helper.assertTrue(dummy.isUnlockedAt(topStar),
+                    dummy + " is unlocked at 10star (would enter candidate set if exclusion removed)");
+            // (2) 但它们不在实现白名单 -> 被 rollPool 三门槛的 IMPLEMENTED_AFFIXES.contains 拦下。
+            helper.assertTrue(!AffixRoller.IMPLEMENTED_AFFIXES.contains(dummy),
+                    dummy + " must NOT be in implemented whitelist (it is a dummy/unrollable axis)");
+        }
+
+        // (3) 大量 10★ roll 实测: 上述哑词条一次都不出现 (与 (1) 的"已解锁"对照, 坐实是过滤而非未解锁拦下)。
+        for (int seed = 0; seed < 200; seed++) {
+            RandomSource rng = RandomSource.create(1337L + seed);
+            for (AffixSelection sel : AffixRoller.roll(topStar, rng)) {
+                helper.assertTrue(!dummySamples.contains(sel.affix()),
+                        "dummy axis " + sel.affix() + " was rolled at 10star despite exclusion (filter broken)");
+            }
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 白名单内容硬断言: 恰含 12 条 (5 减伤 + 3 即时伤害 + 2 DoT + 1 易伤 + 1 磨损), 且关键实现词条在内、关键哑词条
+     * 不在内 (按 AffixDef 身份)。删任一白名单成员或误加哑词条, 本断言即挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void implementedWhitelistMembershipExact(GameTestHelper helper) {
+        Set<AffixDef> wl = AffixRoller.IMPLEMENTED_AFFIXES;
+        helper.assertTrue(wl.size() == 12, "implemented whitelist has exactly 12 entries, got " + wl.size());
+
+        // 实现词条必在内 (逐条身份)。
+        for (AffixDef impl : new AffixDef[]{
+                AffixDef.COMPOSITE_ARMOR, AffixDef.UHMWPE_ARMOR, AffixDef.HEAVY_ARMOR,
+                AffixDef.DEFLECTOR_SHIELD, AffixDef.FORTITUDE_SHIELD,
+                AffixDef.HEAVY_CANNON, AffixDef.BLOODLUST, AffixDef.ARMOR_PIERCING,
+                AffixDef.BURNING, AffixDef.FROST, AffixDef.REND, AffixDef.CORROSIVE}) {
+            helper.assertTrue(wl.contains(impl), impl + " (has runtime handler) must be whitelisted");
+        }
+
+        // 白名单全员只能来自生存/战斗池 (机动/技能整池排除)。
+        for (AffixDef d : wl) {
+            helper.assertTrue(d.pool() == AffixPool.SURVIVAL || d.pool() == AffixPool.COMBAT,
+                    d + " in whitelist must be SURVIVAL/COMBAT pool");
+        }
+
+        // 不可变: 防外部污染白名单 (与 AffixDef 四池视图同纪律)。
+        boolean immutable = false;
+        try {
+            wl.add(AffixDef.SPRINT);
+        } catch (UnsupportedOperationException expected) {
+            immutable = true;
+        }
+        helper.assertTrue(immutable, "implemented whitelist must be unmodifiable");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 非法入参/null 守卫: 参数校验缺口补强 (异常必须痛, 删守卫则不抛 -> 断言必挂)
+    // ============================================================
+
+    /**
+     * {@link PointBudget#allocate} 的 null 守卫 (PointBudget.java:44-49): rank/selections 为 null 各抛
+     * IllegalArgumentException (装配 bug 自然冒泡, 不静默返回空分配)。反例护栏: 合法空选择集不抛且各池剩余 =
+     * 满预算, 坐实抛的是 null 守卫而非普遍失败 (删任一 null 守卫则对应 assertThrowsIae 必挂)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void pointBudgetAllocateNullGuards(GameTestHelper helper) {
+        StarRank rank = StarRank.ofStar(5);
+        assertThrowsIae(helper, () -> PointBudget.allocate(null, List.of()),
+                "PointBudget.allocate null rank must throw IAE");
+        assertThrowsIae(helper, () -> PointBudget.allocate(rank, null),
+                "PointBudget.allocate null selections must throw IAE");
+
+        // 反例: 合法入参 (空选择) 不抛, 各池剩余 = 满预算 (证明守卫是定向的, 非全路径失败)。
+        PointBudget.Allocation ok = PointBudget.allocate(rank, List.of());
+        helper.assertTrue(ok.remaining(AffixPool.SURVIVAL) == rank.survivalBudget(),
+                "empty selections leaves full survival budget (guard is targeted, not blanket)");
+        helper.succeed();
+    }
+
+    /**
+     * {@link AffixRoller#roll} 的 null 守卫 (AffixRoller.java 头部): rank/rng 为 null 各抛
+     * IllegalArgumentException。反例护栏: 合法 rank+rng 组合不抛 (roll 正常返回 list), 坐实抛的是 null 守卫。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void affixRollerRollNullGuards(GameTestHelper helper) {
+        RandomSource rng = RandomSource.create(0L);
+        StarRank rank = StarRank.ofStar(5);
+        assertThrowsIae(helper, () -> AffixRoller.roll(null, rng),
+                "AffixRoller.roll null rank must throw IAE");
+        assertThrowsIae(helper, () -> AffixRoller.roll(rank, null),
+                "AffixRoller.roll null rng must throw IAE");
+
+        // 反例: 合法入参不抛 (返回可能为空但非 null 的选择列表)。
+        helper.assertTrue(AffixRoller.roll(rank, rng) != null,
+                "legal rank+rng returns a (possibly empty) non-null list, not a throw");
+        helper.succeed();
+    }
+
+    /**
+     * {@link ChampionAffixState} 四入口 (nbtKeyOf/writeQuality/qualityOf/defaultQualityFor) 的 null 参数各抛
+     * IllegalArgumentException。qualityOf 的子表参数允许 null (走 tier 兜底) —— 故用非 null 子表隔离 def/rank
+     * 守卫, 并以反例断言"null 子表合法且回退到 tier 默认", 坐实抛的是 def/rank 守卫而非子表守卫。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void affixStateNullGuards(GameTestHelper helper) {
+        CompoundTag tag = new CompoundTag();
+        StarRank rank = StarRank.ofStar(5);
+        AffixSelection sel = new AffixSelection(AffixDef.BURNING, AffixQuality.COMMON);
+
+        assertThrowsIae(helper, () -> ChampionAffixState.nbtKeyOf(null),
+                "nbtKeyOf null def must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAffixState.writeQuality(null, sel),
+                "writeQuality null tag must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAffixState.writeQuality(tag, null),
+                "writeQuality null selection must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAffixState.defaultQualityFor(null, rank),
+                "defaultQualityFor null def must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAffixState.defaultQualityFor(AffixDef.BURNING, null),
+                "defaultQualityFor null rank must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAffixState.qualityOf(tag, null, rank),
+                "qualityOf null def must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAffixState.qualityOf(tag, AffixDef.BURNING, null),
+                "qualityOf null rank must throw IAE");
+
+        // 反例: null 子表 (非 null def/rank) 不抛, 回退 tier 默认 (子表 null 属合法, 只 def/rank 被守卫)。
+        AffixQuality fallback = ChampionAffixState.qualityOf(null, AffixDef.BURNING, rank);
+        helper.assertTrue(fallback == ChampionAffixState.defaultQualityFor(AffixDef.BURNING, rank),
+                "null tag legally falls back to tier default (only def/rank are null-guarded)");
+        helper.succeed();
+    }
+
+    /**
+     * {@link ChampionAttackValues} 纯函数非法入参各抛 IllegalArgumentException (逐个真实签名):
+     *  - singleHitTotalPct: null rank / 负 baseHitPct / 负 piercingPct;
+     *  - bonusOverVanilla: totalPct&lt;0 / maxHp==0 / maxHp&lt;0;
+     *  - bloodlustDamageAmp: null quality / hpFraction&lt;0 / hpFraction&gt;1;
+     *  - corrosiveArmorDamage: null quality;
+     *  - frostSlowPct: null quality / stacks&lt;0 / stacks&gt;DOT_MAX_STACKS;
+     *  - burningTickHp/frostFreezeTickHp (经私有 dotTickHp): stacks 越界 / maxHp&lt;=0。
+     * 删任一 require* 守卫则对应输入不再抛 (要么正常返回, 要么抛 NPE/其它非 IAE), assertThrowsIae 必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void attackValuesIllegalArgs(GameTestHelper helper) {
+        StarRank rank = StarRank.ofStar(5);
+
+        assertThrowsIae(helper, () -> ChampionAttackValues.singleHitTotalPct(null, 0.1D, 0.0D, 0.0D, 0.0D),
+                "singleHitTotalPct null rank must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.singleHitTotalPct(rank, -0.1D, 0.0D, 0.0D, 0.0D),
+                "singleHitTotalPct negative baseHitPct must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.singleHitTotalPct(rank, 0.1D, 0.0D, 0.0D, -0.05D),
+                "singleHitTotalPct negative piercingPct must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAttackValues.bonusOverVanilla(-0.1D, 100.0D, 0.0D),
+                "bonusOverVanilla negative totalPct must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.bonusOverVanilla(0.1D, 0.0D, 0.0D),
+                "bonusOverVanilla zero maxHp must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.bonusOverVanilla(0.1D, -5.0D, 0.0D),
+                "bonusOverVanilla negative maxHp must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAttackValues.bloodlustDamageAmp(null, 0.2D),
+                "bloodlustDamageAmp null quality must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.bloodlustDamageAmp(AffixQuality.COMMON, -0.1D),
+                "bloodlustDamageAmp hpFraction < 0 must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.bloodlustDamageAmp(AffixQuality.COMMON, 1.5D),
+                "bloodlustDamageAmp hpFraction > 1 must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAttackValues.corrosiveArmorDamage(null),
+                "corrosiveArmorDamage null quality must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAttackValues.frostSlowPct(null, 3),
+                "frostSlowPct null quality must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.frostSlowPct(AffixQuality.COMMON, -1),
+                "frostSlowPct negative stacks must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.frostSlowPct(AffixQuality.COMMON,
+                        ChampionAttackValues.DOT_MAX_STACKS + 1),
+                "frostSlowPct stacks over DOT_MAX_STACKS must throw IAE");
+
+        assertThrowsIae(helper, () -> ChampionAttackValues.burningTickHp(AffixQuality.COMMON,
+                        ChampionAttackValues.DOT_MAX_STACKS + 1, 100.0D),
+                "burningTickHp stacks over cap must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.burningTickHp(AffixQuality.COMMON, 2, 0.0D),
+                "burningTickHp zero maxHp must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.frostFreezeTickHp(AffixQuality.COMMON, -1, 100.0D),
+                "frostFreezeTickHp negative stacks must throw IAE");
+        assertThrowsIae(helper, () -> ChampionAttackValues.frostFreezeTickHp(AffixQuality.COMMON, 2, -10.0D),
+                "frostFreezeTickHp negative maxHp must throw IAE");
+        helper.succeed();
+    }
+
+    /**
+     * {@link ChampionStrikeGate} 参数契约:
+     *  - strikeJumps: 传入非多击 def (BURNING) 抛 IllegalArgumentException; 多击 def + null quality 抛 IAE;
+     *    契约反例 —— null def = 无多击返 1 跳 (不抛), 双倍返 2 跳 (坐实抛的是"非多击"守卫而非 def 普遍拒 null)。
+     *  - markKnockback: 预计落地 tick &lt; now 抛 IAE; 边界 landing == now 合法不抛 (仅 &lt; 才拒), 落账后
+     *    lastKnockbackTick 推进到 now。
+     * 注: 源码 jumps&lt;1 分支抛的是 IllegalStateException 且以真实 AffixDef 数值 (双倍=2/四倍=4) 不可达, 属防御性
+     * 断言, 无法在不臆造假 AffixDef 的前提下触发, 故此处只验其可达的真实 IAE 契约 (见 concerns)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void strikeGateIllegalArgs(GameTestHelper helper) {
+        assertThrowsIae(helper, () -> ChampionStrikeGate.strikeJumps(AffixDef.BURNING, AffixQuality.COMMON),
+                "strikeJumps non-multi-strike def must throw IAE");
+        assertThrowsIae(helper, () -> ChampionStrikeGate.strikeJumps(AffixDef.DOUBLE_STRIKE, null),
+                "strikeJumps multi-strike def + null quality must throw IAE");
+
+        // 契约反例: null def = 无多击 -> 1 跳; 双倍 -> 2 跳 (证明守卫拒的是"非多击 def", 非普遍拒 null def)。
+        helper.assertTrue(ChampionStrikeGate.strikeJumps(null, AffixQuality.COMMON) == 1,
+                "strikeJumps null def yields 1 jump (no multi-strike)");
+        helper.assertTrue(ChampionStrikeGate.strikeJumps(AffixDef.DOUBLE_STRIKE, AffixQuality.COMMON) == 2,
+                "double strike yields 2 jumps");
+
+        assertThrowsIae(helper, () -> new ChampionStrikeGate().markKnockback(100L, 50L),
+                "markKnockback landing (50) before now (100) must throw IAE");
+
+        // 边界: 落地 == now 合法 (源码只在 landing < now 抛), 落账后击飞窗起点推进到 now。
+        ChampionStrikeGate gate = new ChampionStrikeGate();
+        gate.markKnockback(100L, 100L);
+        helper.assertTrue(gate.lastKnockbackTick() == 100L,
+                "markKnockback landing == now is legal (boundary), knockback tick advanced to now");
         helper.succeed();
     }
 

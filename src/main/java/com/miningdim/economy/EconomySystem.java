@@ -135,6 +135,12 @@ public final class EconomySystem implements Subsystem {
 
     @SubscribeEvent
     public void onBlockBreak(BlockEvent.BreakEvent event) {
+        // economy-04: 被取消的破坏事件 (反作弊/保护插件/上游 handler 拦截) 不真正破坏方块, 故整条结算 (计数 + 解 AFK +
+        // 卖矿发钱) 都不得发生 —— 否则取消的破坏仍走 settleOreSale = 凭空印钞。守卫置于最顶, 与同库
+        // FarmerSystem.onCropHarvested 的 isCanceled 范式一致; 撤掉则取消的破坏照样计数发钱。
+        if (shouldSkipBreak(event)) {
+            return;
+        }
         if (!(event.getPlayer() instanceof ServerPlayer player)) {
             return;
         }
@@ -159,17 +165,31 @@ public final class EconomySystem implements Subsystem {
             state.setAfkFrozen(false);
         }
 
-        // 18.3: 高价矿计数 (AFK 冻结态不计, 由 recordMinedOre 内部判定)。
-        // 隐藏软上限 (经济文档 8.5 / Miner_Job_DesignSpec 第六章): 软上限"无形递减", 撞限后只在收购价 (settleOreSale)
-        // 衰减体现, 不向玩家发任何"已达软上限"红字提示 (无撞墙挫败); 故此处仅计数, 不再 notify。
-        Block block = event.getState().getBlock();
-        int countSoFar = abuseGuard.recordMinedOre(state, block);
+        recordAndSettleBreak(player, event.getState().getBlock(), state);
+    }
 
-        // 第十一章决策 3: 挖到高价矿真发钱 (修复"矿工挖矿零收入" Major —— 此前只 recordMinedOre 计数从不结算)。
-        // 防重口径: recordMinedOre 已把本块计入当日计数并返回计入后的累计 (含本块), 直接用作 settleOreSale 的 countSoFar,
-        // 一块只发一次。非高价矿 / AFK 冻结时 recordMinedOre 返回 -1, 自然短路不发钱 (计数与发钱共用同一 state 同一口径)。
-        // settleOreSale 内部经 grantDaily 并入全服统一衰减主闸 (与农夫卖菜共享天花板); 货币层未绑定时 EconomyServices
-        // 自然抛 IllegalStateException 由最外层 ErrorSystem 兜底 (不静默吞), 故此处仅在 isRegistered 时结算。
+    /**
+     * economy-04 反洗钱守卫 (单一来源, 便于 GameTest 直断言): 被取消的破坏事件不真正破坏方块, 返回 true 令
+     * {@link #onBlockBreak} 整条结算短路。撤掉此判定 (恒返 false) 则取消的破坏照样计数发钱 = 凭空印钞。
+     */
+    static boolean shouldSkipBreak(BlockEvent.BreakEvent event) {
+        return event.isCanceled();
+    }
+
+    /**
+     * 18.3 计数 + 第十一章决策 3 卖矿结算的单一出口 (从 {@link #onBlockBreak} 抽出, 便于 GameTest 直断言反洗钱口径:
+     * 取消的破坏经 {@link #shouldSkipBreak} 不到达此方法, 故此结算永不为取消的破坏发钱)。
+     *
+     * 隐藏软上限 (经济文档 8.5 / Miner_Job_DesignSpec 第六章): 软上限"无形递减", 撞限后只在收购价 (settleOreSale)
+     * 衰减体现, 不向玩家发任何"已达软上限"红字提示 (无撞墙挫败); 故此处仅计数, 不再 notify。
+     *
+     * 防重口径: recordMinedOre 已把本块计入当日计数并返回计入后的累计 (含本块), 直接用作 settleOreSale 的 countSoFar,
+     * 一块只发一次。非高价矿 / AFK 冻结时 recordMinedOre 返回 -1, 自然短路不发钱 (计数与发钱共用同一 state 同一口径)。
+     * settleOreSale 内部经 grantDaily 并入全服统一衰减主闸 (与农夫卖菜共享天花板); 货币层未绑定时 EconomyServices
+     * 自然抛 IllegalStateException 由最外层 ErrorSystem 兜底 (不静默吞), 故此处仅在 isRegistered 时结算。
+     */
+    void recordAndSettleBreak(ServerPlayer player, Block block, PlayerAbuseState state) {
+        int countSoFar = abuseGuard.recordMinedOre(state, block);
         if (countSoFar > 0) {
             EconomyConstants.HighValueOre ore = abuseGuard.classify(block);
             if (ore != null && EconomyServices.isRegistered()) {

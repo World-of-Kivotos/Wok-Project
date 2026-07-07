@@ -10,10 +10,12 @@ import com.miningdim.economy.EconomyWalletData;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.job.JobXpCurve;
 import com.miningdim.job.farmer.item.FarmerItems;
+import com.miningdim.job.farmer.block.FarmerCropBlock;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -217,6 +219,104 @@ public final class FarmerGameTests {
         // 单作物经验固定 2 (表B 主方案)。
         helper.assertTrue(FarmerConstants.SINGLE_CROP_XP == 2, "single crop xp fixed at 2 (table B main plan)");
         helper.succeed();
+    }
+
+    // ============================================================
+    // 档位化成长速率: 期望成熟 tick 命中表B 间隔 (farmer-01 多阶推进回归锚)
+    // ============================================================
+
+    /** 作物最大成长阶 (= 原版 CropBlock.getMaxAge() = 7; 表B 折算每阶段期望 tick 的分母)。 */
+    private static final int CROP_MAX_AGE = 7;
+
+    /** 默认 randomTickSpeed (原版 gamerule 默认 3; 表B 成长间隔即按此默认折算)。 */
+    private static final int DEFAULT_RANDOM_TICK_SPEED = 3;
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void growthRateHitsTableBInterval(GameTestHelper helper) {
+        // 守恒律: 期望成熟 tick = maxAge / E × (4096 / randomTickSpeed) 必须恰等于该档 growthIntervalTicks (表B)。
+        // 五档逐一核对 (低 12000 / 中 9600 / 高 7200 / 极品 6000 / 超凡 4800 tick)。
+        for (FarmerTier tier : FarmerTier.values()) {
+            double e = FarmerCropBlock.expectedStagesPerRandomTick(tier, DEFAULT_RANDOM_TICK_SPEED, CROP_MAX_AGE);
+            double maturityTicks = maturityTicksFromExpectedStages(e);
+            long target = tier.growthIntervalTicks();
+            // 偏差容差 1 tick (守恒律为精确恒等, 仅吸收 double 末位误差; 删多阶推进逻辑则塌缩到 ~9557 必越界)。
+            helper.assertTrue(Math.abs(maturityTicks - target) <= 1.0D,
+                    tier.id() + " expected maturity " + maturityTicks + " ticks must hit table B "
+                            + target + " ticks (within 1 tick)");
+        }
+
+        // 三高档 (6/5/4min) 的每刻期望推进阶数必须 > 1 (多阶推进区), 且彼此严格不同 ——
+        // 这正是旧"钳到 1.0 单阶推进"会塌缩掉的差异 (三档同退化为每刻恰一阶 -> 同 ~9557 tick)。
+        double eHigh = FarmerCropBlock.expectedStagesPerRandomTick(FarmerTier.HIGH, DEFAULT_RANDOM_TICK_SPEED, CROP_MAX_AGE);
+        double ePremium = FarmerCropBlock.expectedStagesPerRandomTick(FarmerTier.PREMIUM, DEFAULT_RANDOM_TICK_SPEED, CROP_MAX_AGE);
+        double eSupreme = FarmerCropBlock.expectedStagesPerRandomTick(FarmerTier.SUPREME, DEFAULT_RANDOM_TICK_SPEED, CROP_MAX_AGE);
+        helper.assertTrue(eHigh > 1.0D, "HIGH advances >1 stage per random tick (got " + eHigh + ")");
+        helper.assertTrue(ePremium > 1.0D, "PREMIUM advances >1 stage per random tick (got " + ePremium + ")");
+        helper.assertTrue(eSupreme > 1.0D, "SUPREME advances >1 stage per random tick (got " + eSupreme + ")");
+        // 严格单调递增且间距显著 (>0.2 阶/刻), 证明三档未塌缩成同值。
+        helper.assertTrue(ePremium - eHigh > 0.2D,
+                "PREMIUM stages/tick (" + ePremium + ") strictly exceeds HIGH (" + eHigh + ") by >0.2");
+        helper.assertTrue(eSupreme - ePremium > 0.2D,
+                "SUPREME stages/tick (" + eSupreme + ") strictly exceeds PREMIUM (" + ePremium + ") by >0.2");
+
+        // 对应成熟 tick 必须显著不同 (高 7200 / 极品 6000 / 超凡 4800, 两两差 >= 1000 tick), 不再塌缩同 ~7.96min。
+        double matHigh = maturityTicksFromExpectedStages(eHigh);
+        double matPremium = maturityTicksFromExpectedStages(ePremium);
+        double matSupreme = maturityTicksFromExpectedStages(eSupreme);
+        helper.assertTrue(matHigh - matPremium > 1000.0D,
+                "HIGH maturity " + matHigh + " strictly slower than PREMIUM " + matPremium + " by >1000 ticks");
+        helper.assertTrue(matPremium - matSupreme > 1000.0D,
+                "PREMIUM maturity " + matPremium + " strictly slower than SUPREME " + matSupreme + " by >1000 ticks");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void multiStageSamplerMeanEqualsExpectedStages(GameTestHelper helper) {
+        // 采样器实现 E 的证明 (drive randomTick 的真函数): 超凡 E ~ 1.99, 对 sampleStageAdvance 重复采样,
+        // 经验均值必须收敛到 E (容差 0.05)。旧"单刻最多推一阶"实现均值 <= 1.0, 距 1.99 远超容差 -> 此断言挂。
+        double eSupreme = FarmerCropBlock.expectedStagesPerRandomTick(FarmerTier.SUPREME, DEFAULT_RANDOM_TICK_SPEED, CROP_MAX_AGE);
+        RandomSource rng = RandomSource.create(0xFA12E501L);
+        int samples = 200_000;
+        long totalStages = 0L;
+        int sawTwoStages = 0; // 必须出现"单刻推进 2 阶"的事件 (整数部分 1 + 概率多推一阶), 证明确实多阶。
+        for (int i = 0; i < samples; i++) {
+            int adv = FarmerCropBlock.sampleStageAdvance(eSupreme, rng);
+            helper.assertTrue(adv >= 1 && adv <= 2,
+                    "SUPREME per-tick advance in {1,2} (E~1.99), got " + adv);
+            totalStages += adv;
+            if (adv == 2) {
+                sawTwoStages++;
+            }
+        }
+        double mean = (double) totalStages / samples;
+        helper.assertTrue(Math.abs(mean - eSupreme) < 0.05D,
+                "sampler empirical mean " + mean + " converges to E=" + eSupreme + " (within 0.05)");
+        helper.assertTrue(sawTwoStages > 0,
+                "SUPREME multi-stage path actually advances 2 stages in a single tick at least once");
+
+        // 低档 (E < 1) 退化为零或一阶, 均值仍收敛到该档 E (< 1)。
+        double eLow = FarmerCropBlock.expectedStagesPerRandomTick(FarmerTier.LOW, DEFAULT_RANDOM_TICK_SPEED, CROP_MAX_AGE);
+        helper.assertTrue(eLow < 1.0D, "LOW advances <1 stage per random tick (got " + eLow + ")");
+        RandomSource rngLow = RandomSource.create(0x10E12L);
+        long totalLow = 0L;
+        for (int i = 0; i < samples; i++) {
+            int adv = FarmerCropBlock.sampleStageAdvance(eLow, rngLow);
+            helper.assertTrue(adv == 0 || adv == 1, "LOW per-tick advance in {0,1} (E<1), got " + adv);
+            totalLow += adv;
+        }
+        double meanLow = (double) totalLow / samples;
+        helper.assertTrue(Math.abs(meanLow - eLow) < 0.05D,
+                "LOW sampler mean " + meanLow + " converges to E=" + eLow + " (within 0.05)");
+        helper.succeed();
+    }
+
+    /**
+     * 由每刻期望推进阶数 E 反推期望成熟 tick: maxAge 阶 / (E 阶/刻) × (4096/randomTickSpeed) tick/刻。
+     * 与 {@link FarmerCropBlock#expectedStagesPerRandomTick} 同源参数, 仅用于测试核对表B 间隔。
+     */
+    private static double maturityTicksFromExpectedStages(double expectedStagesPerRandomTick) {
+        double avgTicksBetweenRandomTicks = 4096.0D / DEFAULT_RANDOM_TICK_SPEED;
+        return CROP_MAX_AGE / expectedStagesPerRandomTick * avgTicksBetweenRandomTicks;
     }
 
     // ============================================================

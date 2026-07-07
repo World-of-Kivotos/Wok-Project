@@ -121,7 +121,7 @@
 
 ## 六、跳蚤市场后端（v1 已落地 2026-06-19，DRAFT 数值待标定）
 
-> 落地状态：`com.miningdim.market`（17 类）+ 6 个 `market.*` action + 252/252 GameTest 全绿（6 项真连 SQLite）。托管物品折叠进 listings 行的 `item_nbt` BLOB（v1 不单列 escrow 表）。手续费率 `FEE_RATE=0.05` / 铜铁日 cap `512` 为 DRAFT 待标定。崩溃原子性（charge 与 SQLite SOLD 间极小窗口）、30 天流水清理、偏离/反洗钱价格校验 deferred。
+> 落地状态：`com.miningdim.market`（17 类）+ 6 个 `market.*` action + 252/252 GameTest 全绿（6 项真连 SQLite）。托管物品折叠进 listings 行的 `item_nbt` BLOB（v1 不单列 escrow 表）。手续费已定稿为**挂单时收取**的 `FEE_RATE=0.20`（平价基础费率）+ 偏离费二次系数 `DEVIATION_K=0.04`（高税重摩擦市场，强反通胀/反洗钱；真源 `market.MarketConstants`/`market.MarketFee`，非早期 0.05 成交额比例）；铜铁日 P2P cap `COPPER_IRON_DAILY_P2P_CAP=512` 仍为 DRAFT 待标定。崩溃原子性（charge 与 SQLite SOLD 间极小窗口）、30 天流水清理、偏离/反洗钱价格校验 deferred。
 
 ### 6.1 表结构草案
 
@@ -132,8 +132,8 @@
 ### 6.2 撮合/成交不变量
 
 - 挂单：校验卖家持有 → 移入 escrow → 写 ACTIVE listing。失败自然冒泡，不吞。
-- 买入：校验买家资金（EconomyService）→ 单事务内 listing ACTIVE→SOLD + 扣买家/贷卖家（减手续费）+ escrow 出库交付买家（离线则进邮箱/暂存）→ COMMIT。任一步失败整事务回滚。
-- 手续费：成交额按比例进 sink（反通胀，口径对齐经济文档软上限哲学，DRAFT 待标定）。
+- 买入：校验买家资金（EconomyService）→ 单事务内 listing ACTIVE→SOLD + 扣买家/全额贷卖家 + escrow 出库交付买家（离线则进邮箱/暂存）→ COMMIT。任一步失败整事务回滚。
+- 手续费**在挂单时一次性收取并蒸发**（sink，非成交额比例）：`fee = round(max(V0,VR)*count*(FEE_RATE + DEVIATION_K*ln(VR/V0)^2))`（V0=可信基准价、VR=挂单价；诚实按基准价挂单退化为 0.20 平价费，偏离越大二次惩罚越重，兼作反洗钱）。买入端为纯转移、不再额外收费。真源 `market.MarketConstants`/`market.MarketFee`。
 - 铜/铁 P2P 单人 cap：定价台账第三章遗留的"铜 P2P 单人 cap"在此层落地（按买家/卖家日成交量门控）。
 
 ### 6.3 与货币层接线

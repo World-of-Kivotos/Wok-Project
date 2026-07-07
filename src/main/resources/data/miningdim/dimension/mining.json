@@ -2,7 +2,7 @@
   "type": "miningdim:mining",
   "generator": {
     "type": "minecraft:noise",
-    "settings": "minecraft:caves",
+    "settings": "miningdim:mining",
     "biome_source": {
       "type": "miningdim:mining_biome_source"
     }

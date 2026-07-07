@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:fortitude_shield",
+  "type": "champions:fortitude_shield",
   "category": "defence",
   "enable": true,
   "hasSub": false,

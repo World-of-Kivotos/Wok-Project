@@ -220,6 +220,45 @@ public final class EconomyWalletData extends SavedData {
         return payout;
     }
 
+    /**
+     * 青辉石 faucet 每人每日产出硬上限入账 (经济文档 8.5 战斗 faucet 并入每人每日上限; economy-02 修复)。
+     * 复用与信用点 faucet 同一 {@link #dailyFaucets} (playerId, faucetKey) 当日累计计数器 + UTC 翻日范式, 但语义是
+     * "硬截断"而非信用点侧的"逐档衰减": 当日经同一 (playerId, faucetKey) 累计入账已达 dailyCap 则本批一律不发, 未达则
+     * 只发到刚好填满 dailyCap 的部分 (超出 amount 被截断丢弃), 把当日累计推进到 min(prior+amount, dailyCap)。
+     *
+     * 为何硬截断而非信用点的衰减: 青辉石量纲小 (单次 2-10) 且无 per-unit steering 需求, "超额直接不发"比"逐档小数衰减"
+     * 对玩家更直观, 也无需 carry 跨笔累进 (整数量纲)。本法直接 {@link #credit} 落 AZURE 余额并标脏, 返回实际入账量。
+     *
+     * @param playerId   玩家 UUID
+     * @param faucetKey  青辉石 faucet 计数键 ({@link EconomyConstants#AZURE_DAILY_FAUCET_KEY})
+     * @param amount     本次拟入账的青辉石原始量 (&gt; 0)
+     * @param dailyCap   每人每日青辉石产出硬上限 (&gt; 0; 当日累计达此值后本批被截断)
+     * @param todayStamp 当前 UTC 日戳 (epochDay; 与 {@link AbuseGuard#currentPlayerDayStamp} 同口径)
+     * @return 本次实际入账的青辉石 (0 表示当日已撞上限; &gt;0 且 &lt; amount 表示被截断到上限)
+     */
+    public long creditAzureDaily(UUID playerId, String faucetKey, long amount, long dailyCap, long todayStamp) {
+        if (amount <= 0L) {
+            throw new EconomyException(EconomyException.Reason.ILLEGAL_AMOUNT,
+                    "azure daily faucet amount must be > 0, got " + amount);
+        }
+        if (dailyCap <= 0L) {
+            throw new EconomyException(EconomyException.Reason.ILLEGAL_AMOUNT,
+                    "azure daily faucet cap must be > 0, got " + dailyCap);
+        }
+        String key = playerId + "|" + faucetKey;
+        DailyCharge dc = dailyFaucets.get(key);
+        boolean newDay = dc == null || dc.dayStamp != todayStamp;
+        long grantedToday = newDay ? 0L : dc.amount;
+        long room = dailyCap - grantedToday;
+        if (room <= 0L) {
+            return 0L; // 当日已撞上限: 本批全截断, 不入账 (不标脏, 无状态变更)。
+        }
+        long credited = Math.min(amount, room);
+        dailyFaucets.put(key, new DailyCharge(grantedToday + credited, todayStamp));
+        credit(playerId, Currency.AZURE, credited); // credit 内部已 setDirty。
+        return credited;
+    }
+
     @Override
     public CompoundTag save(CompoundTag tag) {
         ListTag list = new ListTag();

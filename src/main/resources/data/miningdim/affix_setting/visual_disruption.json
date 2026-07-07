@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:visual_disruption",
+  "type": "champions:visual_disruption",
   "category": "cc",
   "enable": true,
   "hasSub": false,

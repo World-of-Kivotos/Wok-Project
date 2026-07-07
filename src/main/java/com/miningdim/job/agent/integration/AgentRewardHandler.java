@@ -4,7 +4,6 @@ import com.miningdim.champion.reward.ChampionReward;
 import com.miningdim.champion.reward.ContributionPool;
 import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.champion.reward.DamageContribution;
-import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyConstants;
 import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.JobId;
@@ -12,6 +11,8 @@ import com.miningdim.job.JobServices;
 import com.miningdim.job.agent.AgentClock;
 import com.miningdim.job.agent.AgentEnhancedReward;
 import com.miningdim.job.agent.AgentBountySavedData;
+import com.miningdim.job.agent.AgentKillXp;
+import com.miningdim.job.agent.AgentLevels;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -23,7 +24,6 @@ import top.theillusivec4.champions.api.IChampion;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -97,7 +97,6 @@ public final class AgentRewardHandler {
 
         boolean dropsAzure = ChampionReward.dropsAzure(star);
         long azurePoolDrop = ChampionReward.azureDrop(star);
-        Set<UUID> qualified = payout.keySet();
 
         // (A) 贡献池主结算 (与 ChampionRewardHandler 同口径: 信用点并入主闸 + 6★+ 青辉石; drain 已接管故由本 handler 发)。
         for (Map.Entry<UUID, Long> entry : payout.entrySet()) {
@@ -111,19 +110,31 @@ public final class AgentRewardHandler {
                         EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY,
                         EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER);
             }
+            // 6★+ 青辉石 PvE 掉落: 并入经济层每人每日产出硬上限 (grantAzureDaily, 与精英怪 ChampionRewardHandler 共享
+            // 同一 azure_faucet 键 -> 合并龙头: 每人每日青辉石总产出受统一上限, 防 agent/champion 双路绕过印钞)。
+            // 超当日 cap 部分被经济层截断丢弃, 返回值为实际入账量 (此处不二次用, 留作将来"撞上限提示"接线点)。
             if (dropsAzure && azurePoolDrop > 0L) {
-                EconomyServices.economyService().grant(player, Currency.AZURE, azurePoolDrop);
+                EconomyServices.economyService().grantAzureDaily(player, azurePoolDrop,
+                        EconomyConstants.AZURE_DAILY_FAUCET_CAP);
             }
         }
 
-        // (B) 特勤加强奖励叠加 (池外个人 faucet, 仅合格者; 按初始星级×等级倍率, 不产青辉石)。合格者集合即对该精英
-        // 造成有效伤害的玩家 (qualifiedKill 口径): 封印不计贡献 -> 封了没打的怪不在合格集 -> 自然不享加强奖励。
-        for (UUID playerId : qualified) {
-            ServerPlayer player = server.getPlayerList().getPlayer(playerId);
+        // (B) 特勤专属叠加 (仅合格者; 池外个人 faucet)。合格者集合即对该精英造成有效伤害的玩家 (qualifiedKill 口径):
+        // 封印不计贡献 -> 封了没打的怪不在合格集 -> 自然不享。两笔特勤福利:
+        //  - 加强奖励 (7.1): 按初始星级×等级倍率额外信用点, 并入信用点衰减主闸 (不产青辉石);
+        //  - 经验 faucet (8.1): 按 星级×60×贡献占比 给原始经验, 走经验软上限 (与信用点同口径反推占比, 不碰信用点闸)。
+        // fixedPoolRaw (= 该星固定信用点总池) 即占比反推分母 (payout = pool × 占比), 传给经验入账复用同一口径。
+        for (Map.Entry<UUID, Long> entry : payout.entrySet()) {
+            ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
             if (player == null) {
                 continue;
             }
+            // 入职标志门只查一次 SavedData: 两笔特勤福利同一资格门 (做过特勤工作才享)。
+            if (!AgentBountySavedData.get(player.server.overworld()).isActiveAgent(player.getUUID())) {
+                continue;
+            }
             grantAgentKillBonus(player, star);
+            grantAgentKillXp(player, star, entry.getValue(), fixedPoolRaw);
         }
     }
 
@@ -133,16 +144,12 @@ public final class AgentRewardHandler {
      *
      * 入职标志门 (修复福利泄漏 Major): 加强奖励是【特勤专属】额外奖励 (原有贡献池奖励已对所有合格击杀者照发, 见
      * (A) 主结算), 仅对【做过特勤工作】的玩家叠发。严禁用 AGENT 等级作门 —— 框架 IJobService.level 对任何玩家
-     * (含从未玩过特勤者) 恒返 1 级默认, 用等级判会把额外奖励泄漏给全服每个打死精英的玩家。故先查 SavedData 入职标志
-     * isActiveAgent, 非特勤直接 return (只吃池内原有奖励, 不吃额外)。
+     * (含从未玩过特勤者) 恒返 1 级默认, 用等级判会把额外奖励泄漏给全服每个打死精英的玩家。isActiveAgent 入职标志门
+     * 已在调用方 (B) 循环统一前置 (两笔特勤福利同一资格门, 只查一次 SavedData), 本法不重复门控。
      *
      * 设计哲学符合: 加强奖励是 PVE 经济 faucet, 走主闸衰减不破每日天花板; 只 CREDIT 不含青辉石 (青辉石仅周常悬赏出)。
      */
     private void grantAgentKillBonus(ServerPlayer player, int star) {
-        AgentBountySavedData data = AgentBountySavedData.get(player.server.overworld());
-        if (!data.isActiveAgent(player.getUUID())) {
-            return; // 从未做过特勤工作: 不发额外加强奖励 (池内原有奖励已照发, 此处只门额外)。
-        }
         int level = JobServices.jobService().level(player, JobId.AGENT);
         long bonusRaw = AgentEnhancedReward.extraCreditRaw(level, star);
         if (bonusRaw <= 0L) {
@@ -154,13 +161,43 @@ public final class AgentRewardHandler {
     }
 
     /**
+     * 给一名合格的特勤玩家发击杀经验 (8.1 经验 faucet): 按 {@code 初始星级 × 60 × 贡献占比} 得原始经验 raw, 经
+     * {@link AgentLevels#grantRawXp} -> IJobService.grantXp 并入职业框架经验软上限 (与信用点同口径反推占比, 但走
+     * 经验软上限而非信用点衰减主闸)。
+     *
+     * 贡献占比反推 (不重算): 信用点 payout = 该星固定信用点总池 (creditPoolRaw) × 该玩家有效伤害占比, 故占比 =
+     * payoutRaw / creditPoolRaw (与 (A) 主结算瓜分同一口径; 末名 round 余数吸收使其占比含整池兜底, 量级误差 &lt; 1
+     * 信用点, 对经验影响可忽略)。占比夹 [0,1] 防末名兜底浮点越界。
+     *
+     * 入职标志门已在调用方 (B) 循环统一前置, 本法不重复门控。
+     *
+     * @param player        合格的特勤玩家
+     * @param star          精英初始星级 (1-10)
+     * @param payoutRaw     该玩家本次信用点瓜分所得 raw (占比反推分子)
+     * @param creditPoolRaw 该星固定信用点总池 raw (占比反推分母; &gt;0)
+     */
+    private void grantAgentKillXp(ServerPlayer player, int star, long payoutRaw, long creditPoolRaw) {
+        double share = (double) payoutRaw / (double) creditPoolRaw;
+        if (share > 1.0D) {
+            share = 1.0D; // 末名吸收 round 余数可能令占比微越 1: 夹住 (killXpRaw 对 >1 会抛)。
+        }
+        long xpRaw = AgentKillXp.killXpRaw(star, share);
+        if (xpRaw <= 0L) {
+            return; // 占比折算后不足 1 经验: 不发 (低星 + 极小占比)。
+        }
+        AgentLevels.grantRawXp(player, xpRaw);
+    }
+
+    /**
      * 周常悬赏发青辉石的统一出口 (10.5 + 7.2 + 缺口 A 周产软上限门控): 先经 {@link AgentBountySavedData#tryGrantWeeklyAzure}
-     * 按 ISO 周戳门控本周已产量, 撞顶则只发剩余额度 (软上限语义); 实发量 &gt;0 才 grant(AZURE)。b 阶段悬赏完成发奖
+     * 按 ISO 周戳门控本周已产量, 撞顶则只发剩余额度 (软上限语义); 周门控放行的 grantable 再经 {@code grantAzureDaily}
+     * 并入【与精英怪掉落共享的】每人每日青辉石产出硬上限 (azure_faucet 键, 日+周双轴): 周 cap 防本悬赏路单独超发, 日
+     * cap 防"周常悬赏 + 精英怪掉落"两路当日合计绕过日上限印钞。日 cap 截断后的实发量为最终入账量。b 阶段悬赏完成发奖
      * 调本法 (本任务交付门控接线 + 出口, 具体悬赏实例触发留 deferred)。
      *
      * @param player 完成周常悬赏的特勤玩家
      * @param amount 悬赏定义的青辉石奖励量 (BountyDefinition.azureReward)
-     * @return 本次经周产软上限门控后实发的青辉石量 (0 = 本周撞顶不发)
+     * @return 本次经周产软上限 + 每日产出硬上限双轴门控后实发的青辉石量 (0 = 本周或当日撞顶不发)
      */
     public static long grantWeeklyBountyAzure(ServerPlayer player, long amount) {
         if (amount <= 0L) {
@@ -173,7 +210,7 @@ public final class AgentRewardHandler {
         if (grantable <= 0L) {
             return 0L; // 本周青辉石已撞顶。
         }
-        EconomyServices.economyService().grant(player, Currency.AZURE, grantable);
-        return grantable;
+        return EconomyServices.economyService().grantAzureDaily(player, grantable,
+                EconomyConstants.AZURE_DAILY_FAUCET_CAP);
     }
 }

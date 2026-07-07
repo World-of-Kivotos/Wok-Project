@@ -145,6 +145,22 @@ public final class EconomyService implements IEconomyService {
     }
 
     @Override
+    public long grantAzureDaily(ServerPlayer player, long amount, long dailyCap) {
+        if (amount <= 0L) {
+            throw new EconomyException(EconomyException.Reason.ILLEGAL_AMOUNT,
+                    "grantAzureDaily amount must be > 0, got " + amount);
+        }
+        if (dailyCap <= 0L) {
+            throw new EconomyException(EconomyException.Reason.ILLEGAL_AMOUNT,
+                    "grantAzureDaily dailyCap must be > 0, got " + dailyCap);
+        }
+        // 与信用点 faucet 共用同一 UTC epochDay 翻日时钟 (单一翻日口径); 硬截断逻辑落账本 (creditAzureDaily)。
+        long today = abuseGuard.currentPlayerDayStamp();
+        return ledger.creditAzureDaily(player.getUUID(), EconomyConstants.AZURE_DAILY_FAUCET_KEY,
+                amount, dailyCap, today);
+    }
+
+    @Override
     public boolean isAfkFrozen(ServerPlayer player) {
         // 只读冻结态, 不触发评估 (评估由经济子系统降频 tick 主导, 见 AbuseGuard.evaluateAfk)。
         return stateResolver.apply(player.getUUID()).afkFrozen();

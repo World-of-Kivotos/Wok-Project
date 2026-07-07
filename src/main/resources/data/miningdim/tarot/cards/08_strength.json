@@ -122,8 +122,22 @@
         "durationTicks": 300
       },
       {
+        "kind": "self_lifesteal",
+        "percent": 0.30,
+        "durationTicks": 300
+      },
+      {
         "kind": "self_absorption",
         "amount": 40
+      },
+      {
+        "kind": "self_knockback_immunity",
+        "durationTicks": 300
+      },
+      {
+        "kind": "immunity",
+        "vulnerability": true,
+        "durationTicks": 300
       }
     ]
   }

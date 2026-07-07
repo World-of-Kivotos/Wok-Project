@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:summon_support",
+  "type": "champions:summon_support",
   "category": "cc",
   "enable": true,
   "hasSub": false,

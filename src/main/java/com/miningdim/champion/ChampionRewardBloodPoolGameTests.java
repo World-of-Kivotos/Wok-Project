@@ -1,6 +1,7 @@
 package com.miningdim.champion;
 
 import com.miningdim.champion.bloodpool.BloodPool;
+import com.miningdim.champion.bloodpool.BloodPoolRegistry;
 import com.miningdim.champion.reward.ContributionPool;
 import com.miningdim.champion.reward.DamageContribution;
 import com.miningdim.core.MiningConstants;
@@ -391,6 +392,131 @@ public final class ChampionRewardBloodPoolGameTests {
         assertThrows(helper, () -> new DamageContribution(UUID.randomUUID(), 1.0D, -1L, true),
                 "negative firstHitTick must throw");
         assertThrows(helper, () -> new DamageContribution(null, 1.0D, 1L, true), "null playerId must throw");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 血池注册表 — install 同 UUID 覆盖 (第二次满血新池冲掉旧扣血脏血, 防重生残留)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void registryInstallSameUuidOverwrites(GameTestHelper helper) {
+        BloodPoolRegistry.reset();
+        UUID id = UUID.randomUUID();
+
+        // 首次建池后受击扣血: 1000 满 -> 打 400 -> 剩 600 (模拟前世残留脏血)。
+        BloodPool first = BloodPoolRegistry.install(id, 1_000.0D);
+        first.applyDamage(400.0D);
+        helper.assertTrue(Math.abs(first.currentHp() - 600.0D) < EPS, "first pool drained to 600 before re-spawn");
+
+        // 同 UUID 二次 install: 建满血新池覆盖旧池 (重生升格)。
+        BloodPool second = BloodPoolRegistry.install(id, 1_000.0D);
+        helper.assertTrue(BloodPoolRegistry.get(id) == second, "get returns the newly installed pool (same reference)");
+        helper.assertTrue(BloodPoolRegistry.get(id) != first, "old drained pool object no longer the registered pool");
+        helper.assertTrue(Math.abs(BloodPoolRegistry.get(id).currentHp() - 1_000.0D) < EPS,
+                "re-install yields FULL 1000 HP (stale drained 600 overwritten, no resurrection dirty blood)");
+        // 旧对象仍持自身扣血态但已脱表, 证明是两个不同实例而非原地复位。
+        helper.assertTrue(Math.abs(first.currentHp() - 600.0D) < EPS, "detached old pool keeps its own 600 state");
+        // 覆盖不增表: 同 UUID 仍占一格。
+        helper.assertTrue(BloodPoolRegistry.size() == 1, "same-UUID overwrite does not grow table (size stays 1)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 血池注册表 — reset 清空 (size/has/snapshot/get 全归零, 防跨存档脏引用)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void registryResetClearsAllPools(GameTestHelper helper) {
+        BloodPoolRegistry.reset();
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        UUID c = UUID.randomUUID();
+        BloodPoolRegistry.install(a, 1_000.0D);
+        BloodPoolRegistry.install(b, 2_000.0D);
+        BloodPoolRegistry.install(c, 3_000.0D);
+        helper.assertTrue(BloodPoolRegistry.size() == 3, "three pools installed before reset");
+        helper.assertTrue(BloodPoolRegistry.has(a) && BloodPoolRegistry.has(b) && BloodPoolRegistry.has(c),
+                "all three present before reset");
+
+        BloodPoolRegistry.reset();
+        helper.assertTrue(BloodPoolRegistry.size() == 0, "reset clears table -> size 0");
+        helper.assertTrue(!BloodPoolRegistry.has(a) && !BloodPoolRegistry.has(b) && !BloodPoolRegistry.has(c),
+                "no pool present after reset (cross-save dirty refs purged)");
+        helper.assertTrue(BloodPoolRegistry.snapshot().isEmpty(), "snapshot empty after reset");
+        helper.assertTrue(BloodPoolRegistry.get(a) == null, "get returns null after reset");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 血池注册表 — snapshot 只读独立副本 (后续 install 不进旧快照 + put 抛 UOE 不可变)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void registrySnapshotIsImmutableIndependentCopy(GameTestHelper helper) {
+        BloodPoolRegistry.reset();
+        UUID a = UUID.randomUUID();
+        BloodPoolRegistry.install(a, 1_000.0D);
+
+        Map<UUID, BloodPool> snap = BloodPoolRegistry.snapshot();
+        helper.assertTrue(snap.size() == 1, "snapshot has the single installed pool");
+        helper.assertTrue(snap.containsKey(a), "snapshot contains installed UUID");
+
+        // 取快照后再 install 新池: 旧快照是冻结副本, 不应见到 b (副本隔离)。
+        UUID b = UUID.randomUUID();
+        BloodPoolRegistry.install(b, 2_000.0D);
+        helper.assertTrue(snap.size() == 1, "earlier snapshot unaffected by later install (frozen independent copy)");
+        helper.assertTrue(!snap.containsKey(b), "later-installed pool absent from earlier snapshot");
+        // 活表确实增长, 证明 snapshot 不是活表别名。
+        helper.assertTrue(BloodPoolRegistry.size() == 2, "live registry grew to 2; snapshot stayed frozen at 1");
+
+        // 快照不可变: put 抛 UnsupportedOperationException。
+        boolean uoe = false;
+        try {
+            snap.put(UUID.randomUUID(), new BloodPool(500.0D));
+        } catch (UnsupportedOperationException expected) {
+            uoe = true;
+        }
+        helper.assertTrue(uoe, "snapshot.put throws UnsupportedOperationException (read-only view)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 血池注册表 — size 计数 + null 守卫 (install null/非正 maxHp 抛 IAE 且不污染表; get/has/remove(null) 返回 null/false)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void registrySizeAndNullGuards(GameTestHelper helper) {
+        BloodPoolRegistry.reset();
+        int n = 5;
+        UUID[] ids = new UUID[n];
+        for (int i = 0; i < n; i++) {
+            ids[i] = UUID.randomUUID();
+            BloodPoolRegistry.install(ids[i], 1_000.0D);
+        }
+        helper.assertTrue(BloodPoolRegistry.size() == n, "size reflects N=5 installed pools");
+
+        // install(null) 抛 IAE (显式守卫), 非正 maxHp 经 BloodPool 构造器自然冒泡 IAE。
+        assertThrows(helper, () -> BloodPoolRegistry.install(null, 1_000.0D), "install(null entityId) must throw IAE");
+        assertThrows(helper, () -> BloodPoolRegistry.install(UUID.randomUUID(), 0.0D),
+                "install maxHp 0 must throw IAE (bubbles from BloodPool ctor)");
+        assertThrows(helper, () -> BloodPoolRegistry.install(UUID.randomUUID(), -1.0D),
+                "install negative maxHp must throw IAE");
+        // 被拒的 install 未落表: size 仍为 N。
+        helper.assertTrue(BloodPoolRegistry.size() == n, "rejected installs left table size unchanged at 5");
+
+        // 读侧 null 守卫按真实契约: get(null)=null, has(null)=false, remove(null)=null (不抛)。
+        helper.assertTrue(BloodPoolRegistry.get(null) == null, "get(null) returns null (no throw)");
+        helper.assertTrue(!BloodPoolRegistry.has(null), "has(null) returns false");
+        helper.assertTrue(BloodPoolRegistry.remove(null) == null, "remove(null) returns null (no throw)");
+
+        // remove 存在项: 返回被移除的池且 size 递减、has 转 false。
+        BloodPool removed = BloodPoolRegistry.remove(ids[0]);
+        helper.assertTrue(removed != null, "remove of a present id returns the removed pool");
+        helper.assertTrue(BloodPoolRegistry.size() == n - 1, "remove decrements size to 4");
+        helper.assertTrue(!BloodPoolRegistry.has(ids[0]), "removed id no longer present");
+        // remove 不在表项返回 null。
+        helper.assertTrue(BloodPoolRegistry.remove(UUID.randomUUID()) == null, "remove of absent id returns null");
         helper.succeed();
     }
 

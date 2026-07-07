@@ -28,6 +28,9 @@ public interface IMiningPlayerData {
     /** 不在任何矿山实例的哨兵值 (12.5 currentInstanceId)。 */
     long NO_INSTANCE = -1L;
 
+    /** 未婚哨兵值 (结婚系统 spec 第九章 marriageId 指针; 同 NO_INSTANCE 范式)。 */
+    long NO_MARRIAGE = -1L;
+
     // ---- 进入前回退现场 (14.2 步骤 2 snapshotFallback; 撤离/重连按此送回) ----
 
     /** 进入矿山前所在维度 (12.5 prevDimension); 未设过为 overworld。 */
@@ -70,6 +73,26 @@ public interface IMiningPlayerData {
 
     /** /mining leave 或撤离时清空矿山相关运行态 (currentInstanceId=NO_INSTANCE, danger=0, spawnFreeze=0)。 */
     void clearMiningState();
+
+    // ---- 婚姻指针 (结婚系统 spec 第九章: 并入唯一权威 capability, 不新挂 capability; Clone 复制保留) ----
+
+    /**
+     * 当前婚姻关系 id 指针; 未婚为 {@link #NO_MARRIAGE} (spec 第九章)。权威关系数据落
+     * {@code com.miningdim.marriage.MarriageRegistry} (SavedData), 本指针只作玩家侧快速反查锚点。
+     * 典礼写入 / 离婚清 {@link #NO_MARRIAGE}; {@link com.miningdim.entry.MiningCapabilities#onPlayerClone}
+     * 跨死亡/换维度经 copyFrom 保留 (婚姻不因死亡解除)。
+     */
+    long marriageId();
+
+    void setMarriageId(long marriageId);
+
+    /**
+     * 配偶 UUID; 未婚为 null (spec 第九章)。与 {@link #marriageId()} 同步写: 典礼写双方互指, 离婚清 null。
+     * 仅作便利缓存 (戒指/HUD 显名免每次查 Registry); 权威成员仍以 MarriageRegistry 的 partnerA/B 为准。
+     */
+    java.util.UUID spouseUUID();
+
+    void setSpouseUUID(java.util.UUID spouse);
 
     // ---- 全职业进度 (第 2.3 节: 并入唯一权威 capability; 取代已删的 job.JobCapability) ----
 

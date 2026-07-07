@@ -409,26 +409,25 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         setMachineActive(active);
         playWeldSoundIfActive(now, active);
 
-        // 推进时间戳: 无论是否产出都推进 (产出受料/缓冲夹断时, 不重复累积流逝; 缓冲满/无料时流逝作废符合 "缓冲即
-        // 离线产量上限" 语义 —— 缓冲满期间不囤积时间)。
         if (!result.produced()) {
+            lastSettleTick = now;
             if (!canAccumulateProduction()) {
-                lastSettleTick = now;
                 nextWeldSoundTick = 0L;
             }
             setChanged();
             return;
         }
 
-        lastSettleTick = now;
-
-        // 先查后扣工费 (九章 sink): 经济已注入且余额不足时不补产 (扣不动则本批作废, 料不扣, 缓冲不增)。
+        // Charge before advancing lastSettleTick so a failed fee keeps the production window.
         if (!tryChargeWorkFee(owner, result.workFeeCredits())) {
             nextWeldSoundTick = 0L;
             setMachineActive(false);
             setChanged();
             return;
         }
+
+        // 工费扣成功, 本段流逝已兑现为产出: 推进时间戳 (产出受料/缓冲夹断时不重复累积已兑现的流逝)。
+        lastSettleTick = now;
 
         // 扣料 + 入缓冲。
         consume(SLOT_PRIMER, result.primerConsumed());
@@ -639,14 +638,16 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     }
 
     /**
-     * 玩家手取输出弹时结算 (谁产谁得已在产出帧入主人, 此处只回收缓冲计数 + 刷新展示)。取出 taken 发数从 bufferedRounds
-     * 扣减 (取走即出缓冲, 让出空间继续产)。由 {@link MunitionsBenchMenu} 输出槽 onTake 调。
+     * 玩家手取输出弹时结算 (谁产谁得已在产出帧入主人, 此处只回收缓冲计数 + 刷新展示)。takenCount 为本次实际取走发数,
+     * 从 bufferedRounds 扣减 (取走即出缓冲, 让出空间继续产)。由 {@link MunitionsBenchMenu} 输出槽 onTake 调,
+     * 取走量经输出栈快照差值算得 (取出前满栈数量 - 移除后残留数量), 而非基类传入的移除后残留栈 —— Shift 整栈取弹时
+     * 残留栈为 EMPTY, 据其 count 结算会令缓冲永不回收 (munitions-output)。
      */
-    public void onOutputTaken(ServerPlayer player, ItemStack taken) {
-        if (taken.isEmpty()) {
-            return;
+    public void onOutputTaken(ServerPlayer player, int takenCount) {
+        if (takenCount <= 0) {
+            return; // 本次未取走任何弹 (残留判据改用真实取走量, 不信传入栈的 count)。
         }
-        bufferedRounds = Math.max(0, bufferedRounds - taken.getCount());
+        bufferedRounds = Math.max(0, bufferedRounds - takenCount);
         if (bufferedRounds == 0) {
             bufferedCaliber = null;
         }

@@ -124,6 +124,22 @@ public interface IEconomyService {
     long grantDaily(ServerPlayer player, long rawCredit, String faucetKey, long dailyCap);
 
     /**
+     * 含每人每日产出硬上限的青辉石入账 (经济文档 8.5: 所有战斗 faucet —— 含精英怪贡献池 —— 必须并入每人每日上限,
+     * 否则刷精英 = 绕过上限的印钞口; economy-02 修复)。当前唯一青辉石龙头是精英怪击杀
+     * ({@link com.miningdim.champion.integration.ChampionRewardHandler})。
+     *
+     * 与信用点侧 {@link #grantDaily} 的差异: 信用点是"逐档衰减"(超额仍发但实发递减), 青辉石是"硬截断"(当日累计达 cap 后
+     * 本批不发, 未达则只发到刚好填满 cap)。青辉石量纲小且无 per-unit steering 需求, 硬截断更直观且无需小数 carry。
+     * 复用与信用点 faucet 同一 (playerId, faucetKey) 每日累计计数器 + UTC 翻日时钟 (单一翻日口径)。
+     *
+     * @param player   入账玩家 (服务端权威)
+     * @param amount   本次拟入账的青辉石原始量 (必须 &gt; 0; 非法金额抛 {@link EconomyException.Reason#ILLEGAL_AMOUNT})
+     * @param dailyCap 每人每日青辉石产出硬上限 (必须 &gt; 0; 当日累计达此值后本批被截断)
+     * @return 本次实际入账的青辉石 (0 表示当日已撞上限; &gt;0 且 &lt; amount 表示被截断到上限)
+     */
+    long grantAzureDaily(ServerPlayer player, long amount, long dailyCap);
+
+    /**
      * 玩家当前是否处于 AFK 经济冻结态 (经济文档 18.4 反挂机; Miner_Job_DesignSpec 第九章反挂机红线)。
      * 供矿工子系统在发放挖矿经验 / 产矿计数前前置拦截挂机玩家 (AFK 期间不计经验、不计产矿)。
      *

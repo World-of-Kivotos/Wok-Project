@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:heavy_armor",
+  "type": "champions:heavy_armor",
   "category": "defence",
   "enable": true,
   "hasSub": false,

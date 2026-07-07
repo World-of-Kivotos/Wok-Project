@@ -17,8 +17,9 @@ import net.minecraftforge.eventbus.api.IEventBus;
  *  1. 封印 handler ({@link AgentSealHandler}): 挂 forgeBus (到期恢复 tick + 死亡清理)。
  *  2. 加强奖励 + 悬赏结算 handler ({@link AgentRewardHandler}): 挂 forgeBus (HIGHEST 接管精英死亡结算)。
  *  3. 伤害加成 handler ({@link AgentDamageBonusHandler}): 挂 forgeBus (干员对精英少量放大)。
- *  4. 封印接缝 ({@link AgentSealSeam#bind}): 注入封印申请真实现 + 服务端停止清执行侧词条快照, 供 champions-free
- *     的 AgentSystem / b 阶段面板经接缝调用 (AgentSystem 不直接 import 任何 Champions 类)。
+ *  4. 封印 + 扫描接缝 ({@link AgentSealSeam#bind}): 注入封印申请真实现 ({@link AgentSealHandler#requestSealOutcome})
+ *     + 扫描快照构建真实现 ({@code AgentScanProbe.buildSnapshot}, 读真词条做分级解密) + 服务端停止清执行侧词条快照,
+ *     供 champions-free 的 AgentSystem / 五章面板网络层经接缝调用 (AgentSystem / 网络层不直接 import 任何 Champions 类)。
  */
 public final class AgentIntegrationBootstrap {
 
@@ -37,10 +38,12 @@ public final class AgentIntegrationBootstrap {
         forgeBus.register(new AgentRewardHandler());
         forgeBus.register(new AgentDamageBonusHandler());
 
-        // 封印接缝: 封印申请真实现 = AgentSealHandler.requestSeal (聚合校验/占槽/真改, 返 Result.ok());
-        // 服务端停止清理 = 清执行侧原词条快照 (纯逻辑账本 SealRegistry.reset 由 AgentSystem champions-free 侧清)。
+        // 封印 + 扫描接缝: 封印申请真实现 = AgentSealHandler.requestSealOutcome (聚合校验/占槽/真改, 返接缝级
+        // SealOutcome); 扫描快照构建 = AgentScanProbe.buildSnapshot (读真词条 + 分级解密); 服务端停止清理 = 清执行
+        // 侧原词条快照 (纯逻辑账本 SealRegistry.reset 由 AgentSystem champions-free 侧清)。
         AgentSealSeam.bind(
-                (agent, target, affixId) -> AgentSealHandler.requestSeal(agent, target, affixId).ok(),
+                AgentSealHandler::requestSealOutcome,
+                AgentScanProbe::buildSnapshot,
                 AgentSealExecutor::reset);
     }
 }

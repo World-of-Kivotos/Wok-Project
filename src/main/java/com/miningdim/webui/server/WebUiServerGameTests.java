@@ -22,9 +22,12 @@ import net.minecraftforge.gametest.PrefixGameTestTemplate;
  * 强断言 (删被测核心逻辑测试必挂, 禁 is-not-null 弱校验):
  *  - "system.echo" 处理器回送 player == mock 玩家名 / echo == payload.msg / serverTick 为数字且 == 服务器 tick;
  *  - 缺 "msg" 字段时处理器自然抛 (坏输入冒泡, 不静默填默认值);
- *  - 重复注册同名 action 抛 IllegalStateException (装配缺陷暴露)。
+ *  - 重复注册同名 action 抛 IllegalStateException (装配缺陷暴露);
+ *  - 同 sender 同 requestId 第二次派发被判重短路, handler 副作用只发生一次 (防重放红线 6)。
  *
- * 纯逻辑断言不依赖结构, 用 template = "empty"。
+ * 防重放测试 ({@link #duplicateRequestIdShortCircuitsSideEffectOnce}) 走真实 dispatchAndRespond 入口 (去重逻辑
+ * 所在的 Gateway), 经 mock 玩家的活动 EmbeddedChannel 回执发包无害落出站队列。其余纯逻辑断言不依赖结构,
+ * 用 template = "empty"。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -112,6 +115,64 @@ public final class WebUiServerGameTests {
     /** 自增 nonce: 给 duplicateActionRegistrationThrows 造唯一 action 名, 隔离进程级注册表的跨方法/重跑残留。 */
     private static final java.util.concurrent.atomic.AtomicInteger DUP_GUARD_NONCE =
             new java.util.concurrent.atomic.AtomicInteger();
+
+    /** 自增 nonce: 给去重测试造唯一 action 名, 隔离进程级注册表的跨方法/重跑残留 (同 DUP_GUARD_NONCE 理由)。 */
+    private static final java.util.concurrent.atomic.AtomicInteger DEDUP_NONCE =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    /**
+     * 防重放红线 (契约第八章红线 6 / 5.3): 同一 sender 同一 requestId 第二次派发一个有副作用的 action, 副作用只发生
+     * 一次 (第二次被 dispatcher 判重短路, 不触达 handler)。删 {@code dispatchAndRespond} 的 markRequestProcessed
+     * 判重 (或把"已见则放行"改回"无条件执行") 本测试必挂。
+     *
+     * 用真实派发入口 {@link WebUiServerDispatcher#dispatchAndRespond} (而非直接 handle), 因去重逻辑就在该 Gateway
+     * 入口; 副作用经 handler 内自增 AtomicInteger 观测 (改资金/库存副作用在 market.* 上, 此处用计数器等价代理:
+     * 二者都经同一 dispatch 入口, 判重在 handler 之前, 与具体副作用无关)。
+     *
+     * 三段断言覆盖 (1) 同 requestId 第二次短路 (2) 不同 requestId 仍放行 (证判重按 requestId 而非一刀切封)
+     * (3) clearPlayer 后旧 requestId 重新放行 (证登出清窗口真生效, 新会话从空窗口起)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void duplicateRequestIdShortCircuitsSideEffectOnce(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+
+        // 唯一 action 名 + 计数器: 进程级注册表跨方法持久, 每次跑造新名避免撞 putIfAbsent 重复守卫。
+        String action = "webui.test.dedup-" + DEDUP_NONCE.getAndIncrement();
+        java.util.concurrent.atomic.AtomicInteger sideEffectCount = new java.util.concurrent.atomic.AtomicInteger();
+        WebUiServerDispatcher.register(action, (sender, payload) -> {
+            sideEffectCount.incrementAndGet();
+            return "{}";
+        });
+
+        long requestId = 7_000_001L;
+
+        // 第一次: 放行, 副作用执行一次。
+        WebUiServerDispatcher.dispatchAndRespond(player, requestId, action, "{}");
+        helper.assertTrue(sideEffectCount.get() == 1,
+                "first dispatch of a fresh requestId must run the handler side effect exactly once, got "
+                        + sideEffectCount.get());
+
+        // 第二次同 requestId: 判重短路, 副作用不再发生 (仍为 1, 非 2)。删去重逻辑则这里变 2, 测试挂。
+        WebUiServerDispatcher.dispatchAndRespond(player, requestId, action, "{}");
+        helper.assertTrue(sideEffectCount.get() == 1,
+                "re-dispatching the SAME requestId must be short-circuited as duplicate (side effect stays 1), got "
+                        + sideEffectCount.get());
+
+        // 不同 requestId 同 action: 仍放行 (判重按 requestId, 非封该 action/玩家), 副作用累加到 2。
+        WebUiServerDispatcher.dispatchAndRespond(player, requestId + 1, action, "{}");
+        helper.assertTrue(sideEffectCount.get() == 2,
+                "a different requestId for the same action must still run (dedup keys on requestId), got "
+                        + sideEffectCount.get());
+
+        // 登出清窗口后, 原 requestId 不再被视为已处理 -> 重新放行 (新会话从空窗口起), 副作用累加到 3。
+        WebUiServerDispatcher.clearPlayer(player.getUUID());
+        WebUiServerDispatcher.dispatchAndRespond(player, requestId, action, "{}");
+        helper.assertTrue(sideEffectCount.get() == 3,
+                "after clearPlayer the previously-seen requestId is accepted again (window cleared), got "
+                        + sideEffectCount.get());
+
+        helper.succeed();
+    }
 
     /**
      * 幂等确保 "system.echo" 已注册并返回其处理器。进程级注册表跨测试方法持久, 故若已注册则直接 resolve,

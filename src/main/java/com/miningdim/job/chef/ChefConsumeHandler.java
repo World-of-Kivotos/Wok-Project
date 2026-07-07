@@ -29,7 +29,7 @@ import java.util.List;
  *  - 翻车负面 (夹生/烧焦/倒胃/多盐): 仅低/中/高 (盖章时 noFailure 档已不掷, 此处按 instance 直接结算)。
  *
  * 战斗向回血/护盾用 %最大血量 (服务器 80 血环境铁律); 严禁改最大生命值属性 (披甲走 absorption, 不改 maxHealth)。
- * 战斗向减伤/易伤经共享 ModEffects 仲裁, 本类不挂 LivingHurtEvent (凝脂减伤在 {@link ChefExplosionHandler})。
+ * 战斗向减伤/易伤经共享 ModEffects 仲裁, 本类不挂 LivingHurtEvent (凝脂减伤迁入玩家减伤单点结算, 见 {@link ChefGreaseReduction})。
  */
 public final class ChefConsumeHandler {
 
@@ -72,7 +72,7 @@ public final class ChefConsumeHandler {
             case AMPLIFY -> amplifyExistingBuffs(entity, stack, inst.magnitude());
             case NOURISH_HEAL -> applyHeal(entity, inst.magnitude());
             case PURIFY -> purifyDebuffs(entity, inst.magnitude());
-            case REFRESH -> applyRefresh(entity, inst.magnitude());
+            case REFRESH -> applyRefresh(entity, quality, inst.magnitude());
             case NIGHT_SIGHT -> entity.addEffect(new MobEffectInstance(
                     MobEffects.NIGHT_VISION, inst.magnitude() * 20, 0, false, true));
             case ENDURANCE -> stampWindow(entity, ChefEffectType.ENDURANCE, inst.magnitude(),
@@ -160,10 +160,12 @@ public final class ChefConsumeHandler {
 
     // ---- 提神: 清挖掘疲劳/缓慢 + 急速 ----
 
-    private void applyRefresh(LivingEntity entity, int hasteLevel) {
+    private void applyRefresh(LivingEntity entity, ChefQuality quality, int hasteLevel) {
         entity.removeEffect(MobEffects.DIG_SLOWDOWN);
         entity.removeEffect(MobEffects.MOVEMENT_SLOWDOWN);
-        entity.addEffect(new MobEffectInstance(MobEffects.DIG_SPEED, 240 * 20, hasteLevel - 1, false, true));
+        // chef-02: 急速时长按品质逐级 (90/150/240/360/600s), 取代旧硬编码 240s (与同文件夜照/耐饥等按品质分级一致)。
+        int seconds = ChefConfig.refreshSeconds(quality);
+        entity.addEffect(new MobEffectInstance(MobEffects.DIG_SPEED, seconds * 20, hasteLevel - 1, false, true));
     }
 
     // ---- 增香: 乘 "本菜自带 buff" 时长 (黑名单跳过金苹果/FID 战斗效果, 只乘时长不乘等级) ----

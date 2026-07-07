@@ -5,6 +5,9 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * 矿种枚举 (设计文档 8.2 权重表 + 8.5 矿脉尺寸表)。每个矿种携带:
  *  - 石质 / 深板岩质两套方块变体 (按落点 worldY 是否 < DEEPSLATE_Y_THRESHOLD 二选一, 与第四章分层一致);
@@ -69,6 +72,30 @@ public enum OreType {
      * PENDING 初值 0; region 高度重定时可调, 但调整属阶段2 数值校验范畴, 此处取文档给定 0。
      */
     public static final int DEEPSLATE_Y_THRESHOLD = 0;
+
+    /**
+     * 方块 -> 矿种反查表 (石质 + 深板岩两套变体均映射回同一 OreType)。供矿工探矿在真实世界扫块时把
+     * 命中的矿石方块还原为矿种 (OreScanService 改扫真实世界路径), 取代死体素表 cachedPlacement。
+     * ANCIENT_DEBRIS 两变体同方块, put 同键幂等。本表在枚举值全部构造完成后初始化 (static 块晚于枚举常量)。
+     */
+    private static final Map<Block, OreType> BY_BLOCK = buildBlockIndex();
+
+    private static Map<Block, OreType> buildBlockIndex() {
+        Map<Block, OreType> index = new HashMap<>();
+        for (OreType ore : values()) {
+            index.put(ore.stoneVariant, ore);
+            index.put(ore.deepslateVariant, ore);
+        }
+        return Map.copyOf(index);
+    }
+
+    /**
+     * 由矿石方块反查矿种; 非本 mod 关心的矿石方块返回 null (调用方据此跳过)。
+     * 石质与深板岩两变体均能命中 (如 IRON_ORE 与 DEEPSLATE_IRON_ORE 同映射 IRON)。
+     */
+    public static OreType fromBlock(Block block) {
+        return BY_BLOCK.get(block);
+    }
 
     private final Block stoneVariant;
     private final Block deepslateVariant;

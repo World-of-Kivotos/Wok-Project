@@ -1,6 +1,10 @@
 package com.miningdim.champion;
 
+import com.miningdim.champion.integration.ChampionAttackHandler;
 import com.miningdim.champion.integration.ChampionBloodPoolHandler;
+import com.miningdim.champion.integration.ChampionBossBarHandler;
+import com.miningdim.champion.integration.ChampionDotTickHandler;
+import com.miningdim.champion.integration.ChampionParticleHandler;
 import com.miningdim.champion.integration.ChampionPromoter;
 import com.miningdim.champion.integration.ChampionRewardHandler;
 import com.miningdim.champion.integration.affix.MiningAffixTypes;
@@ -37,8 +41,16 @@ final class ChampionIntegrationBootstrap {
         // 2. 升格 seam 绑定: 压力子系统 spawnMob 成功后经 ChampionSpawnSeam.promote 回调本 promoter 升格冠军。
         ChampionSpawnSeam.bind(new ChampionPromoter());
 
-        // 3. 血池受击 (改伤/拦死) + 奖励 (贡献累计/死亡结算) handler 挂 forgeBus。
+        // 3. 血池受击 (改伤/拦死) + 奖励 (贡献累计/死亡结算) + 自建 BOSS 血条显示 (名/星级/词条名) handler 挂 forgeBus。
         forgeBus.register(new ChampionBloodPoolHandler());
         forgeBus.register(new ChampionRewardHandler());
+        forgeBus.register(new ChampionBossBarHandler());
+
+        // 4. 攻击类词条效果 (即时伤合并/DoT 刷层/寒霜减速/撕裂易伤/强酸损甲/混沌限频) + DoT 秒结算 tick handler。
+        forgeBus.register(new ChampionAttackHandler());
+        forgeBus.register(new ChampionDotTickHandler());
+
+        // 5. 词条环境指示粒子 (服务端主动播每词条签名粒子, 显示层视觉反馈)。
+        forgeBus.register(new ChampionParticleHandler());
     }
 }

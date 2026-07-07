@@ -89,7 +89,8 @@ public final class AgentBountySavedData extends SavedData {
      * @param playerId        发青辉石的玩家 UUID
      * @param amount          本次拟发青辉石量 (必须 &gt; 0)
      * @param currentWeekStamp 当前 ISO 周戳 ({@link AgentClock#currentUtcWeekStamp})
-     * @return 本次实际可发的青辉石量 (0 = 本周已撞顶, 不发; &gt;0 = 实发量, 调用方据此 grant(AZURE))
+     * @return 本次周软上限放行的青辉石量 (0 = 本周已撞顶, 不发; &gt;0 = 周门控放行量, 调用方据此再经
+     *         grantAzureDaily 并入每人每日青辉石产出硬上限 — 日+周双轴)
      */
     public long tryGrantWeeklyAzure(UUID playerId, long amount, long currentWeekStamp) {
         if (amount <= 0L) {

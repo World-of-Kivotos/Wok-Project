@@ -97,6 +97,14 @@ public final class ProductionTableMenu extends AbstractMiningMenu {
     private static final class OutputSlot extends SlotItemHandler {
         private final ProductionTableBlockEntity be;
 
+        /**
+         * 取出前的板栈快照。基类 {@link AbstractMiningMenu#quickMoveStack} 与 vanilla {@code Slot.safeTake} 都在
+         * 移除板栈前先读 {@link #getItem()}, 故此处随每次读取刷新快照; 移除后 {@link #onTake} 据
+         * (快照数量 - 残留数量) 算本次实际取走量。修复 Shift 整栈取板时基类传入 onTake 的是残留 EMPTY 栈、
+         * 据其结算导致经验静默丢失 + pending 永不清的缺陷 (engineer-01)。
+         */
+        private ItemStack takeSnapshot = ItemStack.EMPTY;
+
         OutputSlot(ProductionTableBlockEntity be, int index, int x, int y) {
             super(be.inventory(), index, x, y);
             this.be = be;
@@ -108,11 +116,31 @@ public final class ProductionTableMenu extends AbstractMiningMenu {
         }
 
         @Override
+        public ItemStack getItem() {
+            ItemStack current = super.getItem();
+            // 仅在板栈"非缩减"读取时刷新快照 (首次/换物/新产出填充使数量增大); 不在移除后用残留小栈覆盖快照。
+            // 否则 vanilla Slot.tryRemove 在 remove() 之后还会再读一次 getItem() (判残留是否清空), 那次读取的
+            // 残留小栈会把取出前的满栈快照覆盖掉, 令 onTake 的 (快照数量 - 残留数量) 误算为 0, 漏结算。
+            if (!current.isEmpty()
+                    && (takeSnapshot.isEmpty()
+                        || !ItemStack.isSameItemSameTags(current, takeSnapshot)
+                        || current.getCount() > takeSnapshot.getCount())) {
+                this.takeSnapshot = current.copy();
+            }
+            return current;
+        }
+
+        @Override
         public void onTake(Player player, ItemStack stack) {
             if (player instanceof ServerPlayer serverPlayer) {
-                be.onOutputTaken(serverPlayer, stack);
+                // 实际取走量 = 取出前快照数量 - 移除后槽内残留数量。鼠标/Shift、整取/部分取四条路径统一口径:
+                // Shift 整栈取走时基类传入的 stack 是残留 EMPTY, 据其结算会漏算 (engineer-01), 故改用快照差值。
+                int takenCount = this.takeSnapshot.getCount() - super.getItem().getCount();
+                be.onOutputTaken(serverPlayer, this.takeSnapshot, takenCount);
             }
             super.onTake(player, stack);
+            // 取后把快照重置为槽内残留, 作为下一次取出的基线 (空槽则 EMPTY)。
+            this.takeSnapshot = super.getItem().copy();
         }
     }
 

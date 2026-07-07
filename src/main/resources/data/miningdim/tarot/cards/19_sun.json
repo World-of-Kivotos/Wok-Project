@@ -31,9 +31,11 @@
           "kind": "self_cleanse"
         },
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "aoe_enemy_damage_over_time",
           "amount": 4,
-          "radius": 2
+          "radius": 2,
+          "periodTicks": 20,
+          "durationTicks": 400
         }
       ],
       [
@@ -65,9 +67,11 @@
           "kind": "self_cleanse"
         },
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "aoe_enemy_damage_over_time",
           "amount": 5,
-          "radius": 3
+          "radius": 3,
+          "periodTicks": 20,
+          "durationTicks": 500
         }
       ],
       [
@@ -99,9 +103,11 @@
           "kind": "self_cleanse"
         },
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "aoe_enemy_damage_over_time",
           "amount": 6,
-          "radius": 4
+          "radius": 4,
+          "periodTicks": 20,
+          "durationTicks": 600
         }
       ],
       [
@@ -133,9 +139,11 @@
           "kind": "self_cleanse"
         },
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "aoe_enemy_damage_over_time",
           "amount": 8,
-          "radius": 5
+          "radius": 5,
+          "periodTicks": 20,
+          "durationTicks": 800
         }
       ]
     ]
@@ -160,9 +168,11 @@
           "amount": 25
         },
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "aoe_enemy_damage_over_time",
           "amount": 6,
-          "radius": 3
+          "radius": 3,
+          "periodTicks": 20,
+          "durationTicks": 400
         },
         {
           "kind": "self_true_damage",
@@ -187,9 +197,11 @@
           "amount": 30
         },
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "aoe_enemy_damage_over_time",
           "amount": 8,
-          "radius": 4
+          "radius": 4,
+          "periodTicks": 20,
+          "durationTicks": 500
         },
         {
           "kind": "self_true_damage",
@@ -214,9 +226,11 @@
           "amount": 35
         },
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "aoe_enemy_damage_over_time",
           "amount": 10,
-          "radius": 5
+          "radius": 5,
+          "periodTicks": 20,
+          "durationTicks": 600
         },
         {
           "kind": "self_true_damage",
@@ -241,9 +255,11 @@
           "amount": 45
         },
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "aoe_enemy_damage_over_time",
           "amount": 13,
-          "radius": 6
+          "radius": 6,
+          "periodTicks": 20,
+          "durationTicks": 800
         },
         {
           "kind": "self_true_damage",
@@ -273,6 +289,31 @@
       },
       {
         "kind": "self_cleanse"
+      },
+      {
+        "kind": "immunity",
+        "vulnerability": true,
+        "durationTicks": 300,
+        "effects": [
+          "minecraft:slowness",
+          "minecraft:blindness",
+          "minecraft:nausea",
+          "minecraft:wither"
+        ]
+      },
+      {
+        "kind": "aoe_enemy_damage_over_time",
+        "amount": 15,
+        "radius": 8,
+        "periodTicks": 20,
+        "durationTicks": 300
+      },
+      {
+        "kind": "aoe_ally_heal_over_time",
+        "amount": 12,
+        "radius": 8,
+        "periodTicks": 20,
+        "durationTicks": 300
       }
     ]
   }

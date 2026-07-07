@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:regen_tissue",
+  "type": "champions:regen_tissue",
   "category": "defence",
   "enable": true,
   "hasSub": false,

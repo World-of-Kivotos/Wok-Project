@@ -1,7 +1,9 @@
 package com.miningdim.market;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.miningdim.market.MarketEngine.BuyResult;
 import com.miningdim.market.MarketEngine.CancelResult;
@@ -12,10 +14,12 @@ import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.List;
+import java.util.OptionalLong;
 
 /**
- * 跳蚤市场 6 个 market.* WebUiAction (共享契约第 6 节)。每个 handler 拿服务端校验过的 sender (卖家/买家身份, 不信前端
- * uuid) 与解析后的 payload (JsonObject), 经 {@link MarketServices#marketEngine()} 调引擎, 构 resultJson 返回。
+ * 跳蚤市场 8 个 market.* WebUiAction (共享契约第 6 节 + 真桥脱 Mock 补充: baseValue/categories)。每个 handler 拿
+ * 服务端校验过的 sender (卖家/买家身份, 不信前端 uuid) 与解析后的 payload (JsonObject), 经
+ * {@link MarketServices#marketEngine()} 调引擎, 构 resultJson 返回。
  *
  * 异常纪律 (契约第 6 节 / CLAUDE.md C9): handler 内坏输入 (缺字段/类型错) 经 Gson 的 getAsX 自然抛, 引擎的越权/业务
  * 错误 (余额不足/挂单不存在/铜铁超 cap) 自然抛, 一律冒泡到 {@link WebUiServerDispatcher#dispatchAndRespond} 的 Gateway
@@ -27,6 +31,8 @@ import java.util.List;
 public final class MarketActions {
 
     private static final Gson GSON = new Gson();
+    /** 仅 market.baseValue 用: 保留 v0 的 JSON null (默认 Gson 丢 null 字段, 会违反 v0:number|null 契约)。 */
+    private static final Gson GSON_NULLS = new GsonBuilder().serializeNulls().create();
 
     /** 分页默认 (UI 友好默认, 非业务空值掩盖)。 */
     private static final int DEFAULT_PAGE = 0;
@@ -35,7 +41,7 @@ public final class MarketActions {
     private MarketActions() {
     }
 
-    /** 把 6 个 market.* action 注册进派发器 (由 MarketSubsystem.register 调用)。 */
+    /** 把 8 个 market.* action 注册进派发器 (由 MarketSubsystem.register 调用)。 */
     public static void registerAll() {
         WebUiServerDispatcher.register("market.list", LIST);
         WebUiServerDispatcher.register("market.place", PLACE);
@@ -43,6 +49,8 @@ public final class MarketActions {
         WebUiServerDispatcher.register("market.cancel", CANCEL);
         WebUiServerDispatcher.register("market.mine", MINE);
         WebUiServerDispatcher.register("market.history", HISTORY);
+        WebUiServerDispatcher.register("market.baseValue", BASE_VALUE);
+        WebUiServerDispatcher.register("market.categories", CATEGORIES);
     }
 
     // ============================================================
@@ -100,12 +108,14 @@ public final class MarketActions {
     };
 
     // ============================================================
-    // market.buy: {listingId} -> {ok,itemId,count,total,fee}
+    // market.buy: {listingId,count?} -> {ok,itemId,count,total,fee}  (count 缺省/0 = 买整单; >0 = 部分购买)
     // ============================================================
 
     static final WebUiAction BUY = (sender, payload) -> {
         long listingId = payload.get("listingId").getAsLong();
-        BuyResult r = MarketServices.marketEngine().buy(sender, listingId);
+        // 买入量: 缺省 0 = 买下整单剩余; >0 = 部分购买 (10 个里买 5)。
+        int count = optInt(payload, "count", 0);
+        BuyResult r = MarketServices.marketEngine().buy(sender, listingId, count);
 
         JsonObject result = new JsonObject();
         result.addProperty("ok", true);
@@ -176,6 +186,49 @@ public final class MarketActions {
         result.addProperty("page", page);
         return GSON.toJson(result);
     };
+
+    // ============================================================
+    // market.baseValue: {itemId} -> {itemId, v0:number|null, source:"override"/"preset"/"none"}
+    // ============================================================
+
+    /**
+     * 某物品当前生效基准价 V0 (挂单手续费预览用)。分层解析: admin 覆盖 &gt; 代码预设 &gt; 无锚。source 标注命中层
+     * (前端 BaseValueResp): override = admin curate 强锚; preset = 代码内置高价矿/小麦; none = 无锚 (挂单走平率)。
+     * 无锚时 v0 回 JSON null (前端按 null 走 flatFee 预览)。
+     */
+    static final WebUiAction BASE_VALUE = (sender, payload) -> {
+        // itemId 必填: 缺失自然抛冒泡 Gateway。
+        String itemId = payload.get("itemId").getAsString();
+
+        // 先判 admin 覆盖 (内存查表), 再判代码预设; 二者都无即无锚 —— 与 resolveBaseValue 同分层但额外回 source。
+        Long override = MarketServices.marketEngine().baseValueOverrides().get(itemId);
+        JsonObject result = new JsonObject();
+        result.addProperty("itemId", itemId);
+        if (override != null) {
+            result.addProperty("v0", override);
+            result.addProperty("source", "override");
+        } else {
+            OptionalLong preset = DefaultBaseValues.resolve(itemId);
+            if (preset.isPresent()) {
+                result.addProperty("v0", preset.getAsLong());
+                result.addProperty("source", "preset");
+            } else {
+                result.add("v0", JsonNull.INSTANCE);
+                result.addProperty("source", "none");
+            }
+        }
+        return GSON_NULLS.toJson(result);
+    };
+
+    // ============================================================
+    // market.categories: {} -> CategoryNode[]  (服务端按物品注册表构建, 下钻到叶子)
+    // ============================================================
+
+    /**
+     * 物品分类树 (前端左栏筛选)。服务端按物品注册表枚举全物品归类成树 (见 {@link MarketCategoryTree}), 顶层数组直接回
+     * (前端 call&lt;CategoryNode[]&gt; 直接 JSON.parse 拿数组, 不包外层对象)。叶子带 itemId, label 是翻译键 (客户端 i18n 解析)。
+     */
+    static final WebUiAction CATEGORIES = (sender, payload) -> GSON.toJson(MarketCategoryTree.build());
 
     // ============================================================
     // payload 取值 helper (可选字段缺省; 业务必填字段不走此路, 直接 get().getAsX 自然抛)

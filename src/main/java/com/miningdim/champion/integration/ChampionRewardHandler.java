@@ -4,7 +4,6 @@ import com.miningdim.champion.reward.ChampionReward;
 import com.miningdim.champion.reward.ContributionPool;
 import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.champion.reward.DamageContribution;
-import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyConstants;
 import com.miningdim.economy.EconomyServices;
 import net.minecraft.nbt.CompoundTag;
@@ -34,11 +33,14 @@ import java.util.UUID;
  *      6★+ 冠军的贡献全漏记。贡献口径是"玩家有效输出统计"(非扣血量), 故即使血池取消 vanilla 扣血也要记。
  *  (2) {@link LivingDeathEvent}: 冠军死亡时结算 —— drain 贡献 -> {@link ContributionPool#distribute} 盖章双门槛
  *      + 按有效伤害加权瓜分固定池 -> 逐合格玩家经 {@code EconomyServices.economyService().grantDaily} 并入
- *      credit_faucet 信用点衰减主闸 (60000 档, 不自开印钞口); 6★+ 另发青辉石 {@code grant(player, AZURE, n)}。
+ *      credit_faucet 信用点衰减主闸 (60000 档, 不自开印钞口); 6★+ 另发青辉石经
+ *      {@code grantAzureDaily(player, n, AZURE_DAILY_FAUCET_CAP)} 并入每人每日青辉石产出硬上限。
  *
- * 经济闸铁律 (spec 第十一章 + 经济文档 8.5): 贡献池战斗 faucet 必须并入每人每日信用点统一衰减主闸, 故信用点
- * 一律走 grantDaily(player, raw, GLOBAL_DAILY_CREDIT_FAUCET_KEY, GLOBAL_DAILY_CREDIT_FAUCET_TIER) (与矿工卖矿/
- * 农夫卖菜共享同一天花板); 青辉石走 grant(AZURE) 单设日产软上限 (经济层另控)。本类不自建 addCredit 印钞口。
+ * 经济闸铁律 (spec 第十一章 + 经济文档 8.5): 贡献池战斗 faucet 必须并入每人每日上限, 故信用点一律走
+ * grantDaily(player, raw, GLOBAL_DAILY_CREDIT_FAUCET_KEY, GLOBAL_DAILY_CREDIT_FAUCET_TIER) (与矿工卖矿/农夫卖菜
+ * 共享同一信用点衰减主闸天花板); 青辉石一律走 grantAzureDaily(player, n, AZURE_DAILY_FAUCET_CAP) 并入每人每日青辉石
+ * 产出硬上限 (azure_faucet 键, UTC 翻日; economy-02 修复, 此前直发 grant(AZURE) 无任何日上限是印钞口)。
+ * 本类不自建 addCredit / addAzure 印钞口。
  *
  * 冠军判定经真 IChampion (任务要求): 1-10★ 全星级冠军均发奖 (非仅 6★+ 血池冠军), 故须 IChampion capability
  * 判定 + 读盖章 NBT (star/effectiveHp)。普通怪无 capability 直接放行。
@@ -137,9 +139,12 @@ public final class ChampionRewardHandler {
                         EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY,
                         EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER);
             }
-            // 6★+ 青辉石 PvE 掉落 (单设日产软上限由经济层另控): 合格者每人入账。
+            // 6★+ 青辉石 PvE 掉落: 并入经济层每人每日产出硬上限 (grantAzureDaily, 经济文档 8.5 战斗 faucet 必须并入
+            // 每人每日上限; economy-02 修复)。超当日 cap 部分被经济层截断丢弃, 返回值为实际入账量 (此处不二次用, 留作
+            // 将来"撞上限提示"接线点)。
             if (dropsAzure && azureAmount > 0L) {
-                EconomyServices.economyService().grant(player, Currency.AZURE, azureAmount);
+                EconomyServices.economyService().grantAzureDaily(player, azureAmount,
+                        EconomyConstants.AZURE_DAILY_FAUCET_CAP);
             }
         }
     }

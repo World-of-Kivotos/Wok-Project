@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:composite_armor",
+  "type": "champions:composite_armor",
   "category": "defence",
   "enable": true,
   "hasSub": false,

@@ -76,7 +76,29 @@ public enum TarotEffectKind {
     /** 半径 radius 格内的友方玩家各加黄心 amount (星星闪耀/世界闪耀)。 */
     AOE_ALLY_ABSORPTION("aoe_ally_absorption"),
     /** 半径 radius 格内的友方玩家各瞬治 amount (恋人逆位/星星逆位)。 */
-    AOE_ALLY_HEAL("aoe_ally_heal");
+    AOE_ALLY_HEAL("aoe_ally_heal"),
+    /**
+     * 周期 AoE 敌方持续伤害 (太阳正位/逆位/闪耀 "每秒灼半径 N 格敌 X"): 每 periodTicks 对 owner 半径 radius 格内的
+     * 敌对生物各造成 amount 伤害, 持续 durationTicks (次数 = durationTicks / periodTicks)。amount 是 spec 的扁平每跳值,
+     * 引擎施加期对每个目标按其最大生命的 {@link com.miningdim.job.tarot.TarotEffectEngine} DoT 占比上限 clamp
+     * (防扁平值在低血杂兵上离谱, 红线参照精英怪 15%/s)。经 {@link com.miningdim.job.tarot.ScheduledEffectManager}
+     * 周期调度, 每跳按 owner 当前坐标重新取半径内敌; 登出/死亡/换维度清队列。
+     */
+    AOE_ENEMY_DAMAGE_OVER_TIME("aoe_enemy_damage_over_time"),
+    /**
+     * 周期 AoE 友方持续治疗 (太阳闪耀 "每秒为友回 X"): 每 periodTicks 对 owner 半径 radius 格内的友方玩家各瞬治
+     * amount, 持续 durationTicks (次数 = durationTicks / periodTicks)。amount 是 spec 的扁平每跳值, 引擎施加期按目标
+     * 最大生命的回血占比上限 clamp。周期调度同 {@link #AOE_ENEMY_DAMAGE_OVER_TIME}。
+     */
+    AOE_ALLY_HEAL_OVER_TIME("aoe_ally_heal_over_time"),
+    /**
+     * 免疫窗 (太阳闪耀/世界闪耀 "免疫缓慢/失明/反胃/易伤..."; 力量闪耀/恶魔闪耀 "免疫易伤"): durationTicks 内对持窗
+     * 玩家拒绝施加 effects 列出的 MobEffect ({@link com.miningdim.job.tarot.TarotCombatHandlers} 在
+     * {@code MobEffectEvent.Applicable} setResult(DENY)), 且 immuneVulnerability=true 时在易伤单点仲裁
+     * ({@link com.miningdim.effect.VulnerabilityHurtHandler}) 跳过对该玩家的易伤放大。窗口状态走
+     * {@link com.miningdim.job.tarot.TarotCombatState}, 登出/死亡/换维度清。effects 可空 (仅免易伤)。
+     */
+    IMMUNITY("immunity");
 
     private final String id;
 

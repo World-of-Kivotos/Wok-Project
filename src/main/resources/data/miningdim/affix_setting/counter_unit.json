@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:counter_unit",
+  "type": "champions:counter_unit",
   "category": "cc",
   "enable": true,
   "hasSub": false,

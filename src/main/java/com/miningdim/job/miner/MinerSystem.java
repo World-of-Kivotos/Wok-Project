@@ -67,6 +67,23 @@ public final class MinerSystem implements Subsystem {
     public void register(IEventBus modBus, IEventBus forgeBus) {
         instance = this;
         forgeBus.register(this);
+        // 矿脉抗性 (陷阱专属来源减伤): 作为独立命名减伤源迁入玩家减伤单点结算 (减伤统一)。isTrapSource 现按
+        // 第七章降级路径识别环境陷阱伤 (落石/岩浆/着火/非玩家爆炸等), 在矿洞内 + L5 解锁时真实减伤; trap 暴露
+        // 专属源后只需在 isTrapSource 收紧, 本接线不动。捕获 this 取 region/等级。
+        com.miningdim.combat.PlayerDamageReduction.register(new com.miningdim.combat.PlayerDamageReduction.ReductionSource() {
+            @Override
+            public String name() {
+                return "矿脉抗性";
+            }
+
+            @Override
+            public double rate(net.minecraft.world.entity.player.Player victim, net.minecraft.world.damagesource.DamageSource source) {
+                if (!inMiningRegion(victim) || !MinerSurvival.isTrapSource(source)) {
+                    return 0.0D;
+                }
+                return MinerSkills.trapDamageReduction(minerLevel(victim));
+            }
+        });
         // 网络包注册推迟到 FMLCommonSetupEvent.enqueueWork (线程安全窗口, 与 NetworkSystem 同纪律)。
         modBus.addListener((FMLCommonSetupEvent event) -> event.enqueueWork(MinerNetwork::register));
         LOGGER.info("[miningdim] miner subsystem registered (break speed / who-mines-gets-xp / chain / scan / convenience)");
@@ -281,14 +298,14 @@ public final class MinerSystem implements Subsystem {
      *  - 脱险读条受伤即打断 (读条 ~3s, 受伤/移动即打断, 长 CD = 不能当 PvP 逃跑后门): 委派
      *    {@link MinerActions#interruptEvacuateOnHurt} (内部判 evacuating, 不在读条则空转)。
      *  - 矿脉抗性 (L5 被动) 减伤: 仅当来源为 "陷阱专属来源" ({@link MinerSurvival#isTrapSource}) 时按矿工等级减伤,
-     *    event.setAmount 施加。守红线: 对怪/枪/玩家 TNT 等非陷阱来源零减免 (isTrapSource 返回 false 即原样, 不动伤害)。
+     *    event.setAmount 施加。守红线: 对怪/枪/玩家 TNT 等非陷阱来源 isTrapSource 返回 false -> 零减免, 不动伤害。
      *
      * 二者严格分离: 打断只取消读条不改伤害; 减伤只缩放陷阱专属来源的伤害, 不取消事件、不加战力。
      *
-     * 陷阱专属来源识别现状: trap 子系统动态陷阱用原版机制造伤 (落石 FALLING_BLOCK / 岩浆 / 苦力怕爆炸), 尚未暴露专属
-     * DamageSource, 故 {@link MinerSurvival#isTrapSource} 当前对所有来源返回 false, 减伤实际不生效 (红线安全降级:
-     * 宁可不减伤, 不可误把战斗伤当陷阱伤减)。本处接线已就绪: trap 暴露专属源并修正 isTrapSource 后减伤自动生效,
-     * 无需再改本接线 (见 notes 的 foundationGap)。
+     * 陷阱专属来源识别现状: trap 子系统专属 DamageSource 未落地, 动态陷阱借原版环境伤机制造伤; 故
+     * {@link MinerSurvival#isTrapSource} 按第七章降级路径识别环境陷阱伤类型集合 (落石/钟乳石/铁砧/岩浆/着火/
+     * 炽热地面/非玩家爆炸), 矿洞内 L5+ 减伤经上方 register 注册源真实生效。集合排除一切战斗来源与玩家 TNT
+     * (PLAYER_EXPLOSION), 守不漂战斗力红线。trap 暴露专属源后只在 isTrapSource 收紧, 本接线不动。
      */
     @SubscribeEvent
     public void onLivingHurt(LivingHurtEvent event) {
@@ -297,16 +314,7 @@ public final class MinerSystem implements Subsystem {
         }
         // interruptEvacuateOnHurt 内部已判 evacuating() (不在读条则空转), 此处直接委派 (单一入口, 不重复取态)。
         MinerActions.interruptEvacuateOnHurt(player);
-
-        // 矿脉抗性: 仅陷阱专属来源减伤 (非矿洞 region / 非陷阱来源零作用)。先判 region 再判来源, 避免对域外伤害空算。
-        if (!inMiningRegion(player) || !MinerSurvival.isTrapSource(event.getSource())) {
-            return;
-        }
-        int level = minerLevel(player);
-        float reduced = MinerSurvival.reducedDamage(level, event.getSource(), event.getAmount());
-        if (reduced < event.getAmount()) {
-            event.setAmount(reduced);
-        }
+        // 矿脉抗性减伤已迁至玩家减伤单点结算 (见 register 注册的"矿脉抗性"源); 本处只保留脱险读条打断, 不改伤害。
     }
 
     // ============================================================
@@ -373,6 +381,13 @@ public final class MinerSystem implements Subsystem {
     private boolean inMiningRegion(Player player) {
         if (!isMiningDimension(player.level())) {
             return false;
+        }
+        // 客户端安全: PlayerEvent.BreakSpeed 在客户端也触发 (客户端预测挖速/破坏动画), 而 instanceManager 是服务端
+        // 子系统、客户端从未注册 —— 客户端再调 regionAt 会抛 IllegalStateException 直接崩客户端 (即"矿洞维度挖一下就崩"
+        // 的真因; 主世界因 isMiningDimension 提前 return 才从没暴露)。客户端以"在矿洞维度"为准放行 (region 间 gap 是
+        // 基岩挖不动, 放宽无副作用, 且挖速加成须在客户端同样生效否则客户端慢速预测会拖住实际挖掘); 服务端走完整 region 判定。
+        if (player.level().isClientSide()) {
+            return true;
         }
         return MiningServices.instanceManager().regionAt(player.getBlockX(), player.getBlockZ()) != null;
     }

@@ -13,6 +13,7 @@ import com.miningdim.job.JobId;
 import com.miningdim.job.JobProgress;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.munitions.block.MunitionsBenchBlockEntity;
+import com.miningdim.job.munitions.menu.MunitionsBenchMenu;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.BeforeBatch;
@@ -518,6 +519,124 @@ public final class MunitionsGameTests {
         }
     }
 
+    // ============================================================
+    // BE 工费扣不动时保留时间戳, 余额补足后一次性补产整段离线窗口 (munitions-01 回归)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchSettlePreservesWindowWhenFeeFails(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService(5); // L5: 步枪直造 40/批。
+        IJobService prevJob = swapJob(job);
+        EconomyWalletData ledger = new EconomyWalletData();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            MunitionsBenchBlockEntity be = newBench(helper, player);
+            be.trySelectCaliber(MunitionsCaliber.RIFLE, player);
+            // 备料 2 批 (14 铜 / 32 火药) -> 跨整段窗口期望产 80 发 (料瓶颈, 时间/缓冲充裕)。
+            stockParts(be, 2);
+
+            // 把 lastSettleTick 回拨到远古, 使本次 settle 的 elapsed 远超需求 (整段离线窗口)。记下回拨后的旧时间戳。
+            backdateSettleTick(be, helper, MunitionsProduction.ticksPerRound(5) * 100_000L);
+            long settleTickBeforeShortBalance = readSettleTick(be);
+
+            // 第一次结算: 余额仅 10 CP, 不够 80 发的 120 CP 工费 -> 工费扣不动, 本批作废。
+            ledger.credit(player.getUUID(), Currency.CREDIT, 10L);
+            be.settleForOwner(player);
+
+            // munitions-01 核心断言: 工费扣不动时时间戳必须保持旧值 (本段 elapsed 窗口未作废, 留待下次再追);
+            // 缓冲为 0、料未扣、余额未动、未给经验。删掉 "扣费成功后才推进时间戳" 修复 -> 时间戳被提前推进到 now,
+            // 此断言 (== 旧值) 必挂。
+            helper.assertTrue(readSettleTick(be) == settleTickBeforeShortBalance,
+                    "fee charge failure must NOT advance lastSettleTick (offline window retained for retry), expected "
+                            + settleTickBeforeShortBalance + " got " + readSettleTick(be));
+            helper.assertTrue(be.bufferedRounds() == 0,
+                    "fee-failed settle buffers nothing, got " + be.bufferedRounds());
+            assertPartCounts(helper, be, 2);
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 10L,
+                    "balance untouched when fee charge fails");
+            helper.assertTrue(job.grantXpCalls == 0, "no xp granted when fee charge fails");
+
+            // 补足余额后第二次结算: 因时间戳被保留, elapsed 仍为整段离线窗口 -> 一次性补产跨整窗的期望 80 发
+            // (料瓶颈夹到 2 批), 工费 120 CP 扣成功 (1000+10 -> 890), 经验 80 一次性入主人。
+            ledger.credit(player.getUUID(), Currency.CREDIT, 1000L); // 余额 1010 CP, 够付 120。
+            be.settleForOwner(player);
+
+            helper.assertTrue(be.bufferedRounds() == 80,
+                    "after balance restored, the retained elapsed window is settled in one shot to 80 rounds, got "
+                            + be.bufferedRounds());
+            assertPartCounts(helper, be, 0);
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 890L,
+                    "work fee 120 CP charged once on the retained window (1010-120=890), got "
+                            + ledger.balance(player.getUUID(), Currency.CREDIT));
+            helper.assertTrue(job.grantXpCalls == 1, "xp granted exactly once on the successful catch-up settle");
+            helper.assertTrue(job.lastRawXp == 80L,
+                    "catch-up raw xp equals the full-window produced rounds (80), got " + job.lastRawXp);
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
+    }
+
+    // ============================================================
+    // BE 输出槽 Shift 整栈取弹端到端回收缓冲 (munitions-output): 经 Menu.quickMoveStack 模拟 Shift 取整栈,
+    // 断言 bufferedRounds 按真实取走发数精确回收 (非据基类传入的移除后残留 EMPTY 栈结算)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchOutputShiftTakeRecyclesBuffer(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        // L5: 步枪解锁 (RIFLE 门 L3), 排除等级门干扰; settle 在无料时不产, 不污染本测的缓冲种子。
+        IJobService prevJob = swapJob(new FixedLevelJobService(5));
+        try {
+            // --- 用例 A: 整栈取走 == 缓冲发数 (取单栈上限 64 内的 48, 保整栈一次性移走) -> bufferedRounds 归零 + bufferedCaliber 清空 ---
+            MunitionsBenchBlockEntity beFull = newBench(helper, player);
+            MunitionsBenchMenu menuFull = openBenchMenu(beFull, player);
+
+            // 经 NBT 注入缓冲 48 发步枪 (权威发数, 单栈内取整栈); 输出槽物化为等量占位栈 (dev 无 TACZ, 不走真物化路径,
+            // 占位 ItemStack 模拟主人在线访问帧 refreshOutputStack 物化出的可视弹栈)。注: 缓冲若超单栈上限(64)需分多次取,
+            // 由用例 B 覆盖; 本例验单栈内整取的全额回收。
+            seedBuffer(beFull, MunitionsCaliber.RIFLE, 48);
+            beFull.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT,
+                    new ItemStack(ModMunitionsItems.PRIMER.get(), 48));
+            helper.assertTrue(beFull.bufferedRounds() == 48, "seeded buffer is 48 rounds before Shift-take");
+
+            // Shift 取整栈 (走 AbstractMiningMenu.quickMoveStack): 基类把整栈移入玩家背包后, 传给 OutputSlot.onTake
+            // 的是移除后残留 EMPTY 栈。修复前据此残留栈结算 -> onOutputTaken 首行 isEmpty 即 return, 缓冲永不回收。
+            ItemStack moved = menuFull.quickMoveStack(player, MunitionsBenchBlockEntity.SLOT_OUTPUT);
+
+            helper.assertTrue(moved.getCount() == 48,
+                    "Shift moved the entire 48-count output stack into player inventory, got " + moved.getCount());
+            helper.assertTrue(beFull.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
+                    "output slot is emptied after full Shift-take (no item duplication left behind)");
+            // munitions-output 核心断言: 取走整栈 48 发 -> bufferedRounds 精确回收到 0 (让出空间继续产)。
+            // 删 "据快照差值算真实取走量" 修复 (退回据基类传入的残留 EMPTY 栈) -> onOutputTaken 据 EMPTY 短路,
+            // bufferedRounds 仍为 48, 此断言 (==0) 必挂。
+            helper.assertTrue(beFull.bufferedRounds() == 0,
+                    "Shift-taking the full stack recycles all 48 buffered rounds to 0 (buffer freed), got "
+                            + beFull.bufferedRounds());
+
+            // --- 用例 B: 取走量 < 缓冲发数 (单栈 64 < 缓冲 100) -> 精确减 64, 余 36 (证非 "粗暴归零" 短路) ---
+            MunitionsBenchBlockEntity bePartial = newBench(helper, player);
+            MunitionsBenchMenu menuPartial = openBenchMenu(bePartial, player);
+            seedBuffer(bePartial, MunitionsCaliber.RIFLE, 100);
+            bePartial.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT,
+                    new ItemStack(ModMunitionsItems.PRIMER.get(), 64));
+
+            ItemStack movedPartial = menuPartial.quickMoveStack(player, MunitionsBenchBlockEntity.SLOT_OUTPUT);
+
+            helper.assertTrue(movedPartial.getCount() == 64,
+                    "Shift moved the 64-count visualized stack, got " + movedPartial.getCount());
+            // 真实取走量 64 从权威 100 发缓冲精确扣减 -> 余 36 (非 0; 证按真实取走量结算而非整批清零)。
+            helper.assertTrue(bePartial.bufferedRounds() == 36,
+                    "taking 64 of 100 buffered rounds leaves exactly 36, got " + bePartial.bufferedRounds());
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void benchSettleNoMaterialNoProduction(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -565,6 +684,14 @@ public final class MunitionsGameTests {
     }
 
     /**
+     * 在 owner 上为给定军火台 BE 打开一个真 {@link MunitionsBenchMenu} (经其构造器从 level@pos 解析回该 BE),
+     * 供 quickMoveStack 端到端走基类 Shift 移物路径 (munitions-output 输出槽回收缓冲断言)。窗口 id 任意 (1)。
+     */
+    private static MunitionsBenchMenu openBenchMenu(MunitionsBenchBlockEntity be, ServerPlayer owner) {
+        return new MunitionsBenchMenu(1, owner.getInventory(), be.getBlockPos());
+    }
+
+    /**
      * 把 BE 的 lastSettleTick 经 NBT 注入回拨到 (当前 gameTime - ticksAgo), 使下一次 settleForOwner 的 elapsed
      * 恰为 ticksAgo。GameTest 世界主时钟不可在单测内直控, 故用 BlockEntity 持久化往返注入时间戳是唯一确定性手段:
      * saveWithoutMetadata() 取全状态 (含 owner/选中口径/料槽), 仅改 LastSettleTick 再 load 回, 其余状态原样保留。
@@ -599,6 +726,10 @@ public final class MunitionsGameTests {
                 "bullet head count expected " + expected);
         helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PROPELLANT).getCount() == expected,
                 "propellant count expected " + expected);
+    }
+
+    private static long readSettleTick(MunitionsBenchBlockEntity be) {
+        return be.saveWithoutMetadata().getLong("LastSettleTick");
     }
 
     /** 经 NBT 注入缓冲态 (已产某口径若干发未取), 测换口径冲突门 (BufferedRounds/BufferedCaliber 持久键)。 */

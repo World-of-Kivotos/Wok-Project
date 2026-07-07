@@ -106,6 +106,9 @@ public final class MiningDim {
         //     + 易伤单一全局仲裁 + IJobService 门面注入 + /job 命令 + 登录同步。须排在所有具体职业之前:
         //     各职业在事件回调内经 JobServices.jobService() 读等级/给经验, 框架须先注入门面。
         subsystems.add(new com.miningdim.job.JobFrameworkSystem());
+        // 16.5 战斗基建: 玩家受击减伤的单点乘法结算 (各职业把命名减伤源 register 进 PlayerDamageReduction 静态表)。
+        //      静态注册表对 register 顺序不敏感; 挂减伤源的职业 (厨师凝脂/矿工矿脉抗性/酿酒烈酒钝感) 在场即生效。
+        subsystems.add(new com.miningdim.combat.CombatSystem());
         // 17. 矿工职业: 挖速加成 / 谁挖谁得经验 / 连锁挖矿 / 矿物探测 / 便利技能 (依赖职业框架门面)。
         subsystems.add(new com.miningdim.job.miner.MinerSystem());
         // 18. 农夫职业: 分档耕地 + mod 小麦 + 收购闸门 (依赖职业框架门面)。
@@ -130,6 +133,21 @@ public final class MiningDim {
         //     的贡献池/盖章 NBT (经 IChampion 探测), 故须排在 ChampionSystem 之后 (handler 挂 forgeBus, 对 register
         //     顺序不敏感, 列尾即可)。等级/经验走共享职业框架 capability (JobId.AGENT), 故须在 JobFrameworkSystem 之后。
         subsystems.add(new com.miningdim.job.agent.AgentSystem());
+        // 24b. 酿酒师职业: 至少七天周期的制造职业 (酿酒台按等级 roll 品质酿基酒 + 酒窖箱陈酿年份 + 喝酒按
+        //     S=年份×品质系数 获增益 + 闪耀档永久一条命增益)。年份时钟用现实挂钟 (与经济 UTC 同源), 潮汐 Tide 味
+        //     保留在月相加成 (读原版 getMoonPhase, 零跨 mod 依赖)。等级/经验走共享职业框架 capability (JobId.BREWER), 故须在 JobFrameworkSystem 之后;
+        //     事件订阅在其 register 内挂 forgeBus, 对 register 顺序不敏感, 列于职业簇末即可。
+        subsystems.add(new com.miningdim.job.brewer.BrewerSystem());
+        // 24c. 结婚系统 (社交/便利/外观, 零战斗力): 戒指 + 典礼最小闭环 (/marriage propose/accept/wed) +
+        //     婚姻关系 SavedData (MarriageRegistry, 挂 overworld) + 玩家 capability 婚姻指针 (随 entry 唯一权威 cap)。
+        //     典礼成本经 EconomyServices 门面事务性扣双方各半 (须经济门面已注入: 命令执行期取用, 对 register 顺序不敏感)。
+        subsystems.add(new com.miningdim.marriage.MarriageSystem());
+        // 24d. 实体堆叠子系统 (阶段 1 合并 + 持久化): 范围内同种同状态实体合并为单实体 + 堆叠数随实体 NBT 落盘
+        //     (StackData 写 getPersistentData)。周期扫描 (scan_interval=100tick) 按区块本地配对 + require_moved
+        //     过滤, 全在服务端主线程 (NFR-3/5)。自持 StackingConfig SPEC 在 register 内 registerConfig 到 SERVER 级
+        //     (范式同 ChefSystem, 不碰中央 MiningServerConfig)。仅挂 ServerTickEvent/ServerStopping, 对 register
+        //     顺序不敏感, 列于社交簇后即可。被动产出 xN + 经验 xN 是 faucet 倍增器 (阶段 2 消费), 默认开但可经配置关闭。
+        subsystems.add(new com.miningdim.stacking.StackingSystem());
 
         // 25. Web UI 服务端派发 (服务端权威, 无 MCEF): 填充 WebUiServerDispatcher 动作注册表 (system.echo 等),
         //     经 MiningNetwork.CHANNEL 收 C2S 意图并下发 S2C 响应/事件。须排在 NetworkSystem (第 2) 之后,
@@ -142,9 +160,11 @@ public final class MiningDim {
         //     生命周期事件 (ServerStarting 开库建表 / ServerStopping 关库 / PlayerLoggedIn 结算离线待结) 在其
         //     register 内订阅 forgeBus, 对 register 顺序不敏感; 仅上述门面/派发器依赖约束此处列序。
         subsystems.add(new com.miningdim.market.MarketSubsystem());
-        // 27. Web UI 客户端外壳 (MCEF 浏览器/Screen/路由): register 内全部客户端逻辑用 DistExecutor.safeRunWhenOn
-        //     (Dist.CLIENT) 关进 client-only lambda, 故主类无条件加入列表即可 (服务端 GameTest 进程不 classload
-        //     MCEF, 不崩)。同样须在 NetworkSystem 之后, 依赖 CHANNEL 已注册。
+        // 27. Web UI 客户端外壳 (MCEF 浏览器/Screen/路由): register 内全部客户端逻辑用 DistExecutor.unsafeRunWhenOn
+        //     (Dist.CLIENT) + 双箭头 () -> () -> ... 关进 client-only lambda, 故主类无条件加入列表即可 (服务端 GameTest
+        //     进程不 classload MCEF, 不崩)。注意必须是 unsafeRunWhenOn 而非 safeRunWhenOn —— 后者触 SafeReferent
+        //     校验报 Unsafe Referent usage (详见 WebUiClientSubsystem javadoc), 照抄 safe 版会在 CONSTRUCT 期崩。
+        //     同样须在 NetworkSystem 之后, 依赖 CHANNEL 已注册。
         subsystems.add(new com.miningdim.client.webui.WebUiClientSubsystem());
     }
 }

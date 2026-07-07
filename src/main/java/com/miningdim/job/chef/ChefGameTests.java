@@ -520,6 +520,77 @@ public final class ChefGameTests {
     }
 
     // ============================================================
+    // 披甲护盾换维度/登出回收 absorption (平衡红线: 反泄漏不得只清窗口记录留永久护盾)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shieldReclaimedOnChangedDimension(GameTestHelper helper) {
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        UUID id = player.getUUID();
+        try {
+            player.setAbsorptionAmount(0.0F);
+            float maxHp = player.getMaxHealth();
+            int shieldPerMille = ChefConfig.shieldPerMille(ChefQuality.RADIANT); // 80 = 8% maxHP
+            float grantedShield = maxHp * (shieldPerMille / 1000.0F);
+            int windowSec = ChefConfig.SHIELD_WINDOW_SECONDS.get();
+
+            // 盖披甲: 立即授予 absorption, 窗口远未到期 (默认 120s 窗口)。
+            ChefWindowEffectState.stampShield(player, shieldPerMille, windowSec);
+            float baseline = player.getAbsorptionAmount();
+            helper.assertTrue(Math.abs(baseline - grantedShield) < 0.01F,
+                    "precondition: shield grants %maxHP absorption, expected " + grantedShield
+                            + " got " + baseline);
+
+            // 触发真实换维度事件处理器 (changeDimension 复用实体不重置 absorption): 窗口未到期, 但反泄漏
+            // 路径必须主动退还本窗口授予的护盾, 而非只删窗口记录 (后者会留永久护盾)。
+            var dimEvent = new net.minecraftforge.event.entity.player.PlayerEvent.PlayerChangedDimensionEvent(
+                    player, player.serverLevel().dimension(), player.serverLevel().dimension());
+            new ChefWindowEffectState().onChangedDimension(dimEvent);
+
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount()) < 0.01F,
+                    "shield absorption MUST be reclaimed to 0 on dimension change (granted " + grantedShield
+                            + " reclaimed), got " + player.getAbsorptionAmount());
+            helper.assertFalse(ChefWindowEffectState.active(id, ChefEffectType.SHIELD),
+                    "shield window removed after dimension-change reclaim");
+            // 删 reclaimOnline 的 absorption 退还 (退回只 STATE.remove) -> absorption 仍 = grantedShield, 上断言挂。
+        } finally {
+            ChefWindowEffectState.clearAll(id);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shieldReclaimOnLogoutKeepsForeignAbsorption(GameTestHelper helper) {
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        UUID id = player.getUUID();
+        try {
+            player.setAbsorptionAmount(0.0F);
+            int shieldPerMille = ChefConfig.shieldPerMille(ChefQuality.HIGH); // 40 = 4% maxHP
+            float grantedShield = player.getMaxHealth() * (shieldPerMille / 1000.0F);
+            int windowSec = ChefConfig.SHIELD_WINDOW_SECONDS.get();
+            ChefWindowEffectState.stampShield(player, shieldPerMille, windowSec);
+
+            // 叠一份外来 absorption (如金苹果): 登出回收只退本窗口授予的护盾, 外来部分保留 (不误扣)。
+            float foreign = 5.0F;
+            player.setAbsorptionAmount(player.getAbsorptionAmount() + foreign);
+
+            // 触发真实登出事件处理器: 玩家本 tick 仍在线, 应退还 grantedShield, 留下 foreign。
+            var logoutEvent = new net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent(player);
+            new ChefWindowEffectState().onLoggedOut(logoutEvent);
+
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount() - foreign) < 0.01F,
+                    "logout reclaim退还本窗口护盾(" + grantedShield + ")但保留外来 absorption " + foreign
+                            + ", got " + player.getAbsorptionAmount());
+            helper.assertFalse(ChefWindowEffectState.active(id, ChefEffectType.SHIELD),
+                    "shield window removed after logout reclaim");
+            // 删 reclaimOnline 的退还 -> absorption 仍 = grantedShield + foreign, foreign 断言挂。
+        } finally {
+            ChefWindowEffectState.clearAll(id);
+        }
+        helper.succeed();
+    }
+
+    // ============================================================
     // 倒胃中毒时长逐级 (spec 第十一章: 低 8s/中 6s/高 4s, 走 config 非硬编码)
     // ============================================================
 
@@ -554,6 +625,48 @@ public final class ChefGameTests {
         helper.assertTrue(poison.getAmplifier() == poisonLevel - 1,
                 quality + " nausea poison amplifier must be " + (poisonLevel - 1) + ", got "
                         + poison.getAmplifier());
+    }
+
+    // ============================================================
+    // chef-02: 提神 (REFRESH) 急速时长按品质逐级 (90/150/240/360/600s), 取代旧硬编码 240s
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void refreshHasteDurationPerQuality(GameTestHelper helper) {
+        // config 逐级时长精确 (低/中/高/超凡/闪耀)。
+        helper.assertTrue(ChefConfig.refreshSeconds(ChefQuality.LOW) == 90, "refresh LOW = 90s");
+        helper.assertTrue(ChefConfig.refreshSeconds(ChefQuality.MEDIUM) == 150, "refresh MEDIUM = 150s");
+        helper.assertTrue(ChefConfig.refreshSeconds(ChefQuality.HIGH) == 240, "refresh HIGH = 240s (was the hardcoded value)");
+        helper.assertTrue(ChefConfig.refreshSeconds(ChefQuality.EXTRAORDINARY) == 360, "refresh EXTRAORDINARY = 360s");
+        helper.assertTrue(ChefConfig.refreshSeconds(ChefQuality.RADIANT) == 600, "refresh RADIANT = 600s");
+
+        // 端到端: 吃带提神章的菜, DIG_SPEED 时长 = refreshSeconds*20 且分档不同。删品质分级查表 (退回硬编码 240s)
+        // 则非 HIGH 档 (LOW/MEDIUM/EXTRAORDINARY/RADIANT) 的时长断言全挂 (它们都不是 240s)。
+        assertRefresh(helper, ChefQuality.LOW, 90 * 20);
+        assertRefresh(helper, ChefQuality.MEDIUM, 150 * 20);
+        assertRefresh(helper, ChefQuality.HIGH, 240 * 20);
+        assertRefresh(helper, ChefQuality.EXTRAORDINARY, 360 * 20);
+        assertRefresh(helper, ChefQuality.RADIANT, 600 * 20);
+        helper.succeed();
+    }
+
+    private static void assertRefresh(GameTestHelper helper, ChefQuality quality, int expectedTicks) {
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        // 提神 magnitude = 急速等级 = tier+1 (与 ChefEffectMagnitude.snapshot 同口径); 时长按品质另查表。
+        int hasteLevel = quality.tier() + 1;
+        ItemStack bread = new ItemStack(Items.BREAD);
+        ChefQualityNbt.stamp(bread, quality,
+                List.of(new ChefEffectInstance(ChefEffectType.REFRESH, hasteLevel)));
+        new ChefConsumeHandler().onFinishEating(
+                new net.minecraftforge.event.entity.living.LivingEntityUseItemEvent.Finish(
+                        player, bread, 0, ItemStack.EMPTY));
+
+        MobEffectInstance haste = player.getEffect(MobEffects.DIG_SPEED);
+        helper.assertTrue(haste != null && haste.getDuration() == expectedTicks,
+                quality + " refresh DIG_SPEED duration must be " + expectedTicks + " ticks ("
+                        + (expectedTicks / 20) + "s), got " + (haste == null ? "null" : haste.getDuration()));
+        helper.assertTrue(haste.getAmplifier() == hasteLevel - 1,
+                quality + " refresh haste amplifier must be " + (hasteLevel - 1) + ", got " + haste.getAmplifier());
     }
 
     // ============================================================

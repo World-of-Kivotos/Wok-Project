@@ -1,7 +1,9 @@
 package com.miningdim.job.agent;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -28,6 +30,15 @@ public final class SealRegistry {
 
     /** championUUID -> 该精英当前活跃封印列表 (槽位)。 */
     private static final ConcurrentHashMap<UUID, List<ActiveSeal>> LEDGER = new ConcurrentHashMap<>();
+
+    /**
+     * ownerUUID -> (词条类别 -> 该干员该类别下次允许封印的 tick) CD 账本 (六章封印 CD 强制点)。
+     *
+     * CD 按【干员 × 词条类别】计 (非按精英): 一名干员封了任一精英的某类别词条后, 该类别整体进 CD, CD 内对【任何】
+     * 精英再封同类别词条均被拒 (防同一干员高频封印刷控场)。换类别不互相阻塞 (被动 CD 不挡机制封印)。CD 时长按申请
+     * 成功当下的 {@link AgentSkillTable#sealCooldownSeconds}(level, category) (与 {@link SealPlan} 同源)。
+     */
+    private static final ConcurrentHashMap<UUID, Map<SealCategory, Long>> COOLDOWNS = new ConcurrentHashMap<>();
 
     /**
      * 单个活跃封印 (一个槽位的占用): 谁封的 (ownerUUID) + 封了哪条词条 (affixId) + 类别 + 到期 tick。
@@ -84,7 +95,9 @@ public final class SealRegistry {
         /** 全部槽位已被占 (槽已占; 防叠叠乐核心拒绝点)。 */
         ALL_SLOTS_OCCUPIED,
         /** 该词条已被封印中 (互斥: 同一词条不重复封, 不因第二人再封而延长)。 */
-        AFFIX_ALREADY_SEALED
+        AFFIX_ALREADY_SEALED,
+        /** 该干员该词条类别仍在封印 CD 内 (六章封印 CD 强制点; CD 过后才放行)。 */
+        ON_COOLDOWN
     }
 
     /**
@@ -92,9 +105,11 @@ public final class SealRegistry {
      *
      * 不叠加裁决 (九章核心):
      *  1. 先清除该精英所有已到期封印 (释放槽位)。
-     *  2. 若该 affixId 已在活跃封印中 (任意人封的) -> 拒 (AFFIX_ALREADY_SEALED; 互斥, 不因第二人再封延长)。
-     *  3. 若活跃封印数 >= 槽容量 (sealSlots(level,star)) -> 拒 (ALL_SLOTS_OCCUPIED; 槽满)。
-     *  4. 否则占一槽, 记 ActiveSeal (owner + affixId + category + 到期 tick = now + 窗口)。
+     *  2. CD 门 (六章封印 CD 强制): 若申请者该词条类别仍在 CD 内 (nowTick < nextAllowedTick) -> 拒 (ON_COOLDOWN)。
+     *  3. 若该 affixId 已在活跃封印中 (任意人封的) -> 拒 (AFFIX_ALREADY_SEALED; 互斥, 不因第二人再封延长)。
+     *  4. 若活跃封印数 >= 槽容量 (sealSlots(level,star)) -> 拒 (ALL_SLOTS_OCCUPIED; 槽满)。
+     *  5. 否则占一槽, 记 ActiveSeal (owner + affixId + category + 到期 tick = now + 窗口), 并把该干员该类别写入 CD
+     *     (nextAllowedTick = now + CD秒 × 20; CD 时长与 {@link SealPlan} 同源 sealCooldownSeconds(level,category))。
      *
      * 槽容量取该精英的固定容量 (不因在场干员人数变化): sealSlots(agentLevel, star) (1 槽 / 8★+L9 = 2 槽)。
      *
@@ -105,7 +120,7 @@ public final class SealRegistry {
      * @param agentLevel 干员等级 (定槽容量 + 窗口时长)
      * @param star       精英初始星级 (定槽容量: 8★+ 2 槽)
      * @param nowTick    当前 gameTime
-     * @return 成功带到期 tick; 失败带原因 (槽已占 / 词条已封)
+     * @return 成功带到期 tick; 失败带原因 (词条已封 / 槽已占 / 封印 CD 内)
      */
     public static ApplyResult applySeal(UUID championId, UUID ownerUuid, String affixId,
                                         SealCategory category, int agentLevel, int star, long nowTick) {
@@ -117,24 +132,56 @@ public final class SealRegistry {
         // 1. 清到期封印 (释放槽)。
         slots.removeIf(s -> !s.isActive(nowTick));
 
-        // 2. 互斥: 同一词条已封中则拒 (不因第二人再封延长/叠加)。
+        // 2. 互斥: 同一词条已封中则拒 (不因第二人再封延长/叠加)。这是精英自身状态门, 先于申请者 CD 判 —— 词条已封是
+        //    "这条词条本来就压着"的客观事实 (与谁、是否在 CD 无关), 比申请者个人 CD 更具体, 故优先回此因。
         for (ActiveSeal s : slots) {
             if (s.affixId().equals(affixId)) {
                 return ApplyResult.fail(FailReason.AFFIX_ALREADY_SEALED);
             }
         }
 
-        // 3. 槽容量门 (精英固定容量, 不随在场人数变化)。
+        // 3. 槽容量门 (精英固定容量, 不随在场人数变化)。同为精英自身状态门, 先于申请者 CD。
         int capacity = AgentSkillTable.sealSlots(agentLevel, star);
         if (slots.size() >= capacity) {
             return ApplyResult.fail(FailReason.ALL_SLOTS_OCCUPIED);
         }
 
-        // 4. 占槽。窗口时长按申请者等级 + 类别 (取最强单份: 由申请者自身能力决定, 不叠加多人)。
-        int windowSeconds = AgentSkillTable.sealWindowSeconds(AgentSkillTable.clampLevel(agentLevel), category);
+        // 4. CD 门 (六章封印 CD 强制): 精英尚有空槽且该词条未封, 但申请者该类别仍在 CD 内 -> 拒 (占槽前先判, 不浪费槽)。
+        if (nowTick < nextAllowedTick(ownerUuid, category)) {
+            return ApplyResult.fail(FailReason.ON_COOLDOWN);
+        }
+
+        // 5. 占槽。窗口时长按申请者等级 + 类别 (取最强单份: 由申请者自身能力决定, 不叠加多人)。
+        int level = AgentSkillTable.clampLevel(agentLevel);
+        int windowSeconds = AgentSkillTable.sealWindowSeconds(level, category);
         long expiry = nowTick + (long) windowSeconds * 20L; // 秒 -> tick (原版 20 tick/s)。
         slots.add(new ActiveSeal(ownerUuid, affixId, category, expiry));
+
+        // 6. 占槽成功才写 CD (与 SealPlan 同源 sealCooldownSeconds): 该干员该类别下次允许封印 = now + CD秒 × 20。
+        int cooldownSeconds = AgentSkillTable.sealCooldownSeconds(level, category);
+        COOLDOWNS.computeIfAbsent(ownerUuid, id -> new EnumMap<>(SealCategory.class))
+                .put(category, nowTick + (long) cooldownSeconds * 20L);
         return ApplyResult.success(expiry);
+    }
+
+    /**
+     * 某干员某词条类别下次允许封印的 tick (六章封印 CD 查询; 测试/诊断/集成层回显剩余 CD 用)。无记录 (从未封过该
+     * 类别) 返 0 起点 —— 任何 nowTick &gt;= 0 均放行 (gameTime 不为负, 故 0 等价于"无 CD")。
+     *
+     * @param ownerUuid 干员 UUID
+     * @param category  词条类别
+     * @return 下次允许封印的 gameTime tick (0 = 无 CD 记录, 立即可封)
+     */
+    public static long nextAllowedTick(UUID ownerUuid, SealCategory category) {
+        if (ownerUuid == null || category == null) {
+            return 0L;
+        }
+        Map<SealCategory, Long> byCategory = COOLDOWNS.get(ownerUuid);
+        if (byCategory == null) {
+            return 0L;
+        }
+        Long next = byCategory.get(category);
+        return next == null ? 0L : next;
     }
 
     /**
@@ -216,9 +263,10 @@ public final class SealRegistry {
         }
     }
 
-    /** 服务端停止清空, 防跨存档脏引用 (范式对齐 ContributionTracker.reset)。 */
+    /** 服务端停止清空 (含封印态 + CD 账本), 防跨存档脏引用 (范式对齐 ContributionTracker.reset)。 */
     public static void reset() {
         LEDGER.clear();
+        COOLDOWNS.clear();
     }
 
     /** 当前账本中持封印态的精英数 (诊断/测试用)。 */

@@ -3,8 +3,10 @@ package com.miningdim.champion;
 import net.minecraft.util.RandomSource;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * spawn 期词条掷取纯逻辑 (ChampionStarAffix spec 第四章双层平衡 + 第八章互斥 + 第十四章实现拆分 1)。
@@ -22,6 +24,63 @@ import java.util.List;
  * 会因 &lt; minUsableQuality 抛; roller 在掷品质后先 clamp 到 max(随星档, 词条最低可用档) 规避, 不喂非法档。
  */
 public final class AffixRoller {
+
+    /**
+     * 当前已有运行期 handler 真生效的词条白名单 (排除哑词条; Stage1 落地范围)。spawn 期只 roll 本集合内的词条,
+     * 保证每个 roll 出的词条都真有效果 —— 不浪费点数预算去 roll 一个【数据齐全但运行期零消费】的哑词条
+     * (玩家看到词条名却无任何机制效果)。
+     *
+     * 入选标准 = 该 {@link AffixDef} 在 integration/aggregate 运行期被某个 handler 真实读取并落成可观测的战斗结果
+     * (改伤害 / 改净减伤 / 挂 DoT/易伤 / 损护甲耐久), 且【可被 spawn 期独立 roll 出】(不依赖未实现的哑词条作互斥前置),
+     * 逐条核实其消费方:
+     *  - 减伤 5 (生存池): COMPOSITE_ARMOR/UHMWPE_ARMOR/HEAVY_ARMOR/DEFLECTOR_SHIELD/FORTITUDE_SHIELD
+     *    —— {@link com.miningdim.champion.integration.ChampionBloodPoolHandler#collectAffixReduction} 按 def 分派进
+     *    {@link ChampionDamageReduction} 折算净减伤率 / FLAT 削顶, 受击单点 (LivingHurtEvent) 真扣影子血/改 amount。
+     *  - 即时伤害 3 (战斗池): HEAVY_CANNON/BLOODLUST/ARMOR_PIERCING —— {@code ChampionAttackHandler.applyInstantDamage}
+     *    经 {@link ChampionAttackValues#singleHitTotalPct} 合并放大/真伤, 叠到 event.getAmount()。
+     *  - DoT 2 (战斗池): BURNING/FROST —— {@code ChampionAttackHandler.applyDotsAndSlow} 刷层进 PlayerDotSources,
+     *    {@code ChampionDotTickHandler} 每秒 {@link ChampionAttackValues#burningTickHp}/frostFreezeTickHp 真扣血 (寒霜另施减速)。
+     *  - 易伤 1 (战斗池): REND —— {@code ChampionAttackHandler.applyRend} 折 amplifier 挂全局易伤效果真放大下次受击。
+     *  - 护甲磨损 1 (战斗池): CORROSIVE —— {@code ChampionAttackHandler.applyCorrosive} 损玩家护甲槽耐久。
+     *
+     * 故意排除的词条共 23 条 = 35 总 - 12 白名单 (数据/签名粒子/spawn 预算校验俱全, 但运行期【无任何 handler 读取其
+     * 效果】或【无法独立 roll】, 属 Stage2 未来工作: 自身属性变更 / 10 主动技能 / 自身位移传送 / 召唤 / 周期 AOE 等待
+     * 实现): 全部机动池 5 (SPRINT/OVERDRIVE/BLINK/TACTICAL_BLINK/PHASE_WALK)、全部技能池 10 (ELECTRO_CHARGE/THUNDER/
+     * LITTLE_BOY/DEATH_MARK/VISUAL_DISRUPTION/SELF_REPAIR/COUNTER_UNIT/CAESAR_SWAP/BLADE_WALTZ/SUMMON_SUPPORT)、生存池 5
+     * (REGEN_TISSUE/FLAMMABLE_REGEN/THORNS/GIGANTISM 哑 + MINIATURIZATION 无机动伙伴)、战斗池 3 (DOUBLE_STRIKE/
+     * QUADRUPLE_STRIKE/CHAOS_STRIKE)。其中:
+     *  - DOUBLE_STRIKE/QUADRUPLE_STRIKE: {@link ChampionStrikeGate#strikeJumps} 仅在 GameTest 调用, 任何 integration
+     *    handler 都【未】按跳数拆分施加 (近战伤害不因双倍/四倍而翻倍), 故运行期零可观测效果 -> 哑。
+     *  - CHAOS_STRIKE: {@code applyChaosKnockback} 仅落账限频闸, 明确【不】push (KnockbackSafetyGuard 未落地), 玩家
+     *    不被击飞, 故运行期零可观测效果 -> 哑。
+     *  - THORNS/COUNTER_UNIT/VISUAL_DISRUPTION 等: 反伤/控制聚合器 (RetaliationAggregator/PlayerControlAggregator)
+     *    虽是基建, 但【无 handler】按这些 def 申请反伤/控制 (仅 FROST 减速走控制聚合), 故这些 def 运行期零消费 -> 哑。
+     *  - MINIATURIZATION (生存池): 其体型折算净减伤 handler 已实 (ChampionBloodPoolHandler case MINIATURIZATION), 但
+     *    spec 第八章强制"缩小化须搭配 +1 机动" ({@link PointBudget} validateMutex 硬校验), 而全部机动词条当前是哑词条
+     *    被排除, 故缩小化在 Stage1【无合法机动伙伴可搭】, 单独 roll 必被 wouldRemainLegal 否决 -> 实际不可 roll。为避免
+     *    白名单挂一条永远 roll 不出的死项, 暂排除缩小化, 待机动池实现后与之一同移入 (其减伤折算届时即生效)。
+     *
+     * 白名单语义 (非黑名单): 新增词条若未在此显式登记, 默认【不】被 roll —— 防 Stage2 往 AffixDef 加新哑词条时静默
+     * 漏排, 逼实现 handler 后再把它移入本集合。{@link AffixDef#values()} 总集 - 本白名单 = 当前不可 roll 词条全集。
+     */
+    public static final Set<AffixDef> IMPLEMENTED_AFFIXES = Collections.unmodifiableSet(EnumSet.of(
+            // 生存池减伤 (ChampionBloodPoolHandler + ChampionDamageReduction); 缩小化暂排除 (强制机动伙伴未实现, 见类注释)
+            AffixDef.COMPOSITE_ARMOR,
+            AffixDef.UHMWPE_ARMOR,
+            AffixDef.HEAVY_ARMOR,
+            AffixDef.DEFLECTOR_SHIELD,
+            AffixDef.FORTITUDE_SHIELD,
+            // 战斗池即时伤害 (ChampionAttackHandler.applyInstantDamage)
+            AffixDef.HEAVY_CANNON,
+            AffixDef.BLOODLUST,
+            AffixDef.ARMOR_PIERCING,
+            // 战斗池 DoT (ChampionAttackHandler.applyDotsAndSlow + ChampionDotTickHandler)
+            AffixDef.BURNING,
+            AffixDef.FROST,
+            // 战斗池易伤 (ChampionAttackHandler.applyRend)
+            AffixDef.REND,
+            // 战斗池护甲磨损 (ChampionAttackHandler.applyCorrosive)
+            AffixDef.CORROSIVE));
 
     private AffixRoller() {
     }
@@ -57,7 +116,11 @@ public final class AffixRoller {
     private static void rollPool(StarRank rank, AffixPool pool, RandomSource rng, List<AffixSelection> chosen) {
         List<AffixDef> candidates = new ArrayList<>();
         for (AffixDef def : AffixDef.values()) {
-            if (def.pool() == pool && def.isUnlockedAt(rank)) {
+            // 候选三门槛: 属本池 + 该星解锁 (minStar/品质) + 已有运行期 handler (排除哑词条, 见 IMPLEMENTED_AFFIXES)。
+            // 哑词条被排除后, 机动池/技能池在任何星级候选恒空 (当前 0 条实现), rollPool 自然不为该池纳入任何词条 ——
+            // 候选空时下方贪心循环 tryOrder.isEmpty() 直接 return, 不抛不死循环 (该池剩余预算按 spec 转基础膨胀, 与
+            // 词条未排满时同一口径); 总词条/技能上限够也无所谓, 减少的只是无效哑词条占位。
+            if (def.pool() == pool && def.isUnlockedAt(rank) && IMPLEMENTED_AFFIXES.contains(def)) {
                 candidates.add(def);
             }
         }

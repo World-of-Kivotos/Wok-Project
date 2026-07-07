@@ -2,15 +2,19 @@ package com.miningdim.job.agent;
 
 import com.miningdim.champion.StarRank;
 import com.miningdim.champion.reward.ChampionReward;
+import com.miningdim.champion.reward.ContributionPool;
+import com.miningdim.champion.reward.DamageContribution;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.economy.AbuseGuard;
 import com.miningdim.economy.EconomyConstants;
+import com.miningdim.job.JobProgress;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -359,10 +363,12 @@ public final class AgentGameTests {
         int appliedCount = 0;
         int recoveredCount = 0;
         long t = 0L;
-        // L5 被动窗口 9s = 180 tick。连续 5 轮 封->到期->恢复。
+        // L5 被动窗口 9s = 180 tick, 被动 CD 26s = 520 tick (CD 长于窗口)。连续 5 轮 封->到期->恢复; 每轮须等过同一干员
+        // 同类别 CD 才能再封 (封印 CD 强制后, 同干员同类别不能 180 tick 一轮高频重封, 须隔 >=520 tick)。
+        long passiveCdTicks = (long) AgentSkillTable.sealCooldownSeconds(5, SealCategory.PASSIVE) * 20L; // 520
         for (int round = 0; round < 5; round++) {
             SealRegistry.ApplyResult r = SealRegistry.applySeal(champ, agent, "frost", SealCategory.PASSIVE, 5, 5, t);
-            helper.assertTrue(r.ok(), "round " + round + " seal applies on freed slot");
+            helper.assertTrue(r.ok(), "round " + round + " seal applies on freed slot past its own cooldown");
             appliedCount++;
             // 到期后 drain: 恰好取出 1 条供恢复, 槽释放。
             long afterExpiry = t + 9L * 20L; // 180 tick 后到期。
@@ -371,7 +377,8 @@ public final class AgentGameTests {
             recoveredCount++;
             helper.assertTrue(SealRegistry.activeSealCount(champ, afterExpiry) == 0,
                     "round " + round + " slot fully freed after recovery");
-            t = afterExpiry + 1L;
+            // 推进到本轮封印 CD 之后再开下一轮 (520 > 180, 已过窗口与 CD), 否则下一轮被 ON_COOLDOWN 拒。
+            t = t + passiveCdTicks + 1L;
         }
         // 净守恒: 封印次数 == 恢复次数 (无修饰泄漏, 无重复恢复)。
         helper.assertTrue(appliedCount == recoveredCount && appliedCount == 5,
@@ -892,11 +899,14 @@ public final class AgentGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void sealSeamShortCircuitsWhenUnbound(GameTestHelper helper) {
-        // dev (Champions 未加载) 接缝未绑定: 封印申请优雅短路返 false, 不触 Champions, 不抛。
+        // dev (Champions 未加载) 接缝未绑定: 封印申请优雅短路返 NOT_BOUND, 扫描快照返 null, 不触 Champions, 不抛。
         AgentSealSeam.unbind();
         helper.assertTrue(!AgentSealSeam.isBound(), "seam is unbound in dev (Champions not loaded)");
-        boolean sealed = AgentSealSeam.requestSeal(null, null, "miningdim:composite_armor");
-        helper.assertTrue(!sealed, "unbound seam request short-circuits to false (no Champions touch)");
+        AgentSealSeam.SealOutcome outcome = AgentSealSeam.requestSealResult(null, null, "champions:composite_armor");
+        helper.assertTrue(outcome == AgentSealSeam.SealOutcome.NOT_BOUND,
+                "unbound seam seal request short-circuits to NOT_BOUND (no Champions touch)");
+        helper.assertTrue(AgentSealSeam.buildScanSnapshot(null, null) == null,
+                "unbound seam scan snapshot short-circuits to null (no Champions touch)");
         // 服务端停止清理在未绑定时空操作, 不抛。
         AgentSealSeam.onServerStopping();
         helper.succeed();
@@ -1005,6 +1015,132 @@ public final class AgentGameTests {
             helper.assertTrue(AgentSkillTable.damageBonusFraction(lv) >= AgentSkillTable.damageBonusFraction(lv - 1),
                     "damage bonus is monotonically non-decreasing across levels at L" + lv);
         }
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 经验 faucet (8.1): 合格击杀 = 星级×60×贡献占比 给经验, 端到端 (贡献池 payout 反推占比 -> killXpRaw ->
+    // 喂职业经验软上限) 有效经验严格 >0。删 killXpRaw 公式 / 反推占比则有效经验归 0, 测试必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void killXpFaucetGrantsPositiveEffectiveXp(GameTestHelper helper) {
+        // killXpRaw 公式钉死 (8.1: star×60×占比): 满占比 (1.0) 下 = star×60。
+        helper.assertTrue(AgentKillXp.killXpRaw(5, 1.0D) == 300L, "5star full share: 5*60*1.0 = 300 raw xp");
+        helper.assertTrue(AgentKillXp.killXpRaw(10, 1.0D) == 600L, "10star full share: 10*60*1.0 = 600 raw xp");
+        // 半占比: 8star * 60 * 0.5 = 240 (round)。
+        helper.assertTrue(AgentKillXp.killXpRaw(8, 0.5D) == 240L, "8star half share: 8*60*0.5 = 240 raw xp");
+        // 每星基数 = 信用点每星基数 (600) 的 1/10 (同源同尺度, 防漂移)。
+        helper.assertTrue(AgentKillXp.XP_BASE_PER_STAR * 10L == ChampionReward.CREDIT_POOL_PER_STAR,
+                "xp per-star base (60) is exactly 1/10 of credit per-star base (600)");
+
+        // 端到端: 构造两名合格击杀者 (有效伤害 700/300), 6star 精英。经贡献池瓜分得信用点 payout, 再按集成层口径
+        // (share = payout/creditPoolRaw) 反推占比, 喂 killXpRaw 得经验 raw, 最后过职业经验软上限验有效经验 >0。
+        int star = 6;
+        double bossHp = 1_000.0D;
+        UUID p1 = UUID.randomUUID();
+        UUID p2 = UUID.randomUUID();
+        List<DamageContribution> contribs = List.of(
+                new DamageContribution(p1, 700.0D, 10L, true),
+                new DamageContribution(p2, 300.0D, 12L, true));
+        long creditPoolRaw = ChampionReward.creditPoolRaw(star); // 6*600 = 3600
+        Map<UUID, Long> payout = ContributionPool.distribute(contribs, bossHp, creditPoolRaw);
+        helper.assertTrue(payout.size() == 2, "both qualified killers share the credit pool");
+
+        // p1 占比 0.7: payout1 = round(3600*0.7) = 2520; 反推 share = 2520/3600 = 0.7; killXp = round(6*60*0.7) = 252。
+        long payout1 = payout.get(p1);
+        double share1 = (double) payout1 / (double) creditPoolRaw;
+        long xpRaw1 = AgentKillXp.killXpRaw(star, share1);
+        helper.assertTrue(payout1 == 2_520L, "p1 (70% damage) credit payout = round(3600*0.7) = 2520");
+        helper.assertTrue(xpRaw1 == 252L, "p1 kill xp = round(6*60*0.7) = 252 (star*60*reverse-derived share)");
+
+        // p2 占比 0.3 (末名吸收 round 余数): payout2 = 3600-2520 = 1080; share = 0.3; killXp = round(6*60*0.3) = 108。
+        long payout2 = payout.get(p2);
+        double share2 = (double) payout2 / (double) creditPoolRaw;
+        long xpRaw2 = AgentKillXp.killXpRaw(star, share2);
+        helper.assertTrue(payout2 == 1_080L, "p2 (30% damage, last-share remainder) credit payout = 1080");
+        helper.assertTrue(xpRaw2 == 108L, "p2 kill xp = round(6*60*0.3) = 108");
+
+        // 喂职业经验软上限 (与 AgentLevels.grantRawXp -> IJobService.grantXp 同一引擎): 首笔全额, 有效经验严格 >0。
+        // 这是 8.1 "经验 faucet 真正入账" 的端到端断言: 删 killXpRaw 公式 (返 0) 则 raw=0, 此处有效经验归 0 必挂。
+        JobProgress prog1 = new JobProgress();
+        long effective1 = prog1.grantXp(xpRaw1, 0L);
+        helper.assertTrue(effective1 == 252L, "p1 first-of-day kill xp credits in full (252 effective, >0)");
+        helper.assertTrue(prog1.xp() == 252L && effective1 > 0L, "AGENT effective xp strictly > 0 after a qualified kill");
+
+        JobProgress prog2 = new JobProgress();
+        long effective2 = prog2.grantXp(xpRaw2, 0L);
+        helper.assertTrue(effective2 == 108L && effective2 > 0L, "p2 also accrues strictly positive effective xp (108)");
+
+        // 高占比者比低占比者得更多经验 (按贡献占比线性, 与信用点同口径)。
+        helper.assertTrue(xpRaw1 > xpRaw2, "higher contribution share yields strictly more kill xp (70% > 30%)");
+        // 占比之和 = 1 (整池瓜分), 故两人经验和 = star*60 = 360 (满池经验, 无凭空增减)。
+        helper.assertTrue(xpRaw1 + xpRaw2 == 360L, "shares sum to the full pool: total kill xp = star*60 = 360");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 封印 CD 强制 (六章): 同干员同类别在 CD 内再封被 ON_COOLDOWN 拒, CD 过后放行。删 CD 账本 (nextAllowedTick
+    // 永返 0 / 占槽后不写 CD) 则第二次封印不再被拒, 测试必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sealCooldownRejectsRepeatWithinWindowThenAllows(GameTestHelper helper) {
+        SealRegistry.reset();
+        UUID agent = UUID.randomUUID();
+        // L5 被动: 窗口 9s=180tick, CD 26s=520tick (CD 长于窗口, 故"窗口已过但 CD 未过"是真实可达态)。
+        long passiveCdTicks = (long) AgentSkillTable.sealCooldownSeconds(5, SealCategory.PASSIVE) * 20L;
+        helper.assertTrue(passiveCdTicks == 520L, "L5 passive seal CD = 26s = 520 tick");
+
+        // t=0: 干员封 champA 的 frost -> 成功, 写 CD (agent/PASSIVE 下次允许 = 0+520 = 520)。
+        UUID champA = UUID.randomUUID();
+        long t0 = 0L;
+        SealRegistry.ApplyResult first = SealRegistry.applySeal(champA, agent, "frost", SealCategory.PASSIVE, 5, 5, t0);
+        helper.assertTrue(first.ok(), "first passive seal succeeds and starts the cooldown");
+        helper.assertTrue(SealRegistry.nextAllowedTick(agent, SealCategory.PASSIVE) == 520L,
+                "cooldown ledger records next-allowed = now + CD (0 + 520)");
+
+        // CD 内 (t=300, 已过 180tick 窗口但 < 520 CD): 同干员同类别封【另一只】精英 champB 的另一词条 -> ON_COOLDOWN。
+        // 关键: champB 是全新精英 (空槽, frost 也没被封), 仅 CD 一项挡住 —— 排除"槽满/词条已封"的混淆, 直证 CD 强制。
+        UUID champB = UUID.randomUUID();
+        long tWithinCd = 300L;
+        helper.assertTrue(SealRegistry.activeSealCount(champA, tWithinCd) == 0,
+                "champA's own seal already expired by t=300 (window 180 < 300), so this is purely a cooldown gate");
+        SealRegistry.ApplyResult blocked = SealRegistry.applySeal(champB, agent, "armor", SealCategory.PASSIVE, 5, 5, tWithinCd);
+        helper.assertTrue(!blocked.ok() && blocked.reason() == SealRegistry.FailReason.ON_COOLDOWN,
+                "same agent sealing the same category within CD is rejected ON_COOLDOWN (even on a fresh champion with free slot)");
+        helper.assertTrue(SealRegistry.activeSealCount(champB, tWithinCd) == 0,
+                "an ON_COOLDOWN rejection does NOT occupy the fresh champion's slot");
+
+        // 跨类别不互锁: 同干员在被动 CD 内封【机制】词条不受被动 CD 阻 (机制类需 L8+, 此处用 L8 干员 8star)。
+        // (新干员避免与上面 agent 的状态纠缠; 验 CD 按"干员×类别"分桶, 被动 CD 不挡机制。)
+        SealRegistry.reset();
+        UUID agent8 = UUID.randomUUID();
+        UUID champC = UUID.randomUUID();
+        SealRegistry.ApplyResult passive8 = SealRegistry.applySeal(champC, agent8, "frost", SealCategory.PASSIVE, 8, 8, 0L);
+        helper.assertTrue(passive8.ok(), "L8 agent seals a passive affix (starts passive-category CD)");
+        UUID champD = UUID.randomUUID();
+        SealRegistry.ApplyResult mech8 = SealRegistry.applySeal(champD, agent8, "deadly", SealCategory.MECHANIC, 8, 8, 5L);
+        helper.assertTrue(mech8.ok(),
+                "mechanic seal within the passive cooldown is NOT blocked (cooldown is per agent-per-category)");
+
+        // CD 过后放行: 回到原 L5 被动场景, t=520 (恰到 nextAllowed) 起同干员同类别可再封。
+        SealRegistry.reset();
+        UUID agent2 = UUID.randomUUID();
+        UUID champE = UUID.randomUUID();
+        SealRegistry.applySeal(champE, agent2, "frost", SealCategory.PASSIVE, 5, 5, 0L); // CD -> 520
+        UUID champF = UUID.randomUUID();
+        // t=519 仍在 CD 内 (519 < 520) -> 拒。
+        SealRegistry.ApplyResult stillCd = SealRegistry.applySeal(champF, agent2, "armor", SealCategory.PASSIVE, 5, 5, 519L);
+        helper.assertTrue(!stillCd.ok() && stillCd.reason() == SealRegistry.FailReason.ON_COOLDOWN,
+                "one tick before CD ends still rejected ON_COOLDOWN (519 < 520)");
+        // t=520 CD 到期 (nowTick == nextAllowed, 不再 < nextAllowed) -> 放行。
+        SealRegistry.ApplyResult afterCd = SealRegistry.applySeal(champF, agent2, "armor", SealCategory.PASSIVE, 5, 5, 520L);
+        helper.assertTrue(afterCd.ok(),
+                "exactly at the cooldown boundary (t=520) the same agent-category seal is allowed again");
+        helper.assertTrue(SealRegistry.nextAllowedTick(agent2, SealCategory.PASSIVE) == 1_040L,
+                "the new seal at t=520 re-arms the cooldown to 520 + 520 = 1040");
+        SealRegistry.reset();
         helper.succeed();
     }
 }

@@ -41,7 +41,9 @@
       "minecraft:ore_lapis_buried",
       "minecraft:ore_diamond",
       "minecraft:ore_diamond_large",
-      "minecraft:ore_diamond_buried"
+      "minecraft:ore_diamond_buried",
+      "miningdim:ore_ancient_debris",
+      "miningdim:ore_emerald"
     ],
     [],
     [],

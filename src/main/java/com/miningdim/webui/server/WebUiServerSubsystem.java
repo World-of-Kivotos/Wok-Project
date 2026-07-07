@@ -3,6 +3,8 @@ package com.miningdim.webui.server;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.miningdim.core.Subsystem;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 
 /**
@@ -20,6 +22,18 @@ public final class WebUiServerSubsystem implements Subsystem {
     public void register(IEventBus modBus, IEventBus forgeBus) {
         // 内置回声 action (契约第 6 节响应格式): 回送 {player, echo, serverTick}, 用于桥接通路联调与心跳验证。
         WebUiServerDispatcher.register("system.echo", WebUiServerSubsystem::handleEcho);
+        // 玩家登出清理其 requestId 防重放窗口 (派发器维护, 见红线 6); 防离线玩家窗口驻留内存泄漏。
+        // forgeBus 可能为 null (GameTest 纯逻辑路径只验 dispatcher 不订阅事件), 此时跳过订阅。
+        if (forgeBus != null) {
+            forgeBus.addListener(WebUiServerSubsystem::onPlayerLoggedOut);
+        }
+    }
+
+    /** 玩家登出 -> 清其 requestId 滑动窗口 (防重放窗口由 {@link WebUiServerDispatcher} 持有)。 */
+    private static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            WebUiServerDispatcher.clearPlayer(player.getUUID());
+        }
     }
 
     /**

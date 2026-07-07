@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:chaos_strike",
+  "type": "champions:chaos_strike",
   "category": "offense",
   "enable": true,
   "hasSub": false,

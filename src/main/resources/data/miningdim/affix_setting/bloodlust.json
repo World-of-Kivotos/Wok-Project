@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:bloodlust",
+  "type": "champions:bloodlust",
   "category": "offense",
   "enable": true,
   "hasSub": false,

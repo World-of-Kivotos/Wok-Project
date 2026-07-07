@@ -16,7 +16,8 @@ import java.util.function.Supplier;
  * 登录时 (PlayerLoggedInEvent) 与等级变化时由服务端下发, 客户端写入 {@link ClientJobState} 供 /job HUD 读取。
  *
  * 复用 MiningNetwork.CHANNEL (第七章统一 CHANNEL 纪律): discriminator id 由 {@link MiningNetwork#register}
- * 集中自增登记, 两端同序。本包携带固定 7 个 JobId 的 [level, xp]; 按 JobId.values() 顺序读写, 顺序即契约。
+ * 集中自增登记, 两端同序。本包携带全部 JobId 的 [level, xp] (随枚举增长, 现 8 个含 BREWER); 按 JobId.values()
+ * 顺序读写, 顺序即契约 (新职业一律尾部追加, 不重排)。
  *
  * N2 服务端权威: 客户端不自算升级, 仅渲染本包携带的服务端结果; 客户端类引用经 DistExecutor 隔离
  * (防专用服务器加载期触链)。

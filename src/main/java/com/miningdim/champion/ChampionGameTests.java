@@ -639,6 +639,130 @@ public final class ChampionGameTests {
         helper.succeed();
     }
 
+    // ============================================================
+    // 点数上限拒绝 (PointBudget.validateCounts) — 词条数/技能数超上限
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void pointBudgetCountCapsRejected(GameTestHelper helper) {
+        // (a) 词条数超总上限: 1star maxAffixes=1。装 2 条 (生存6/战斗8 各在池预算内, 无互斥, 无技能),
+        //     唯一违规是词条数 2 > 1 -> validateCounts 词条数分支拒。删该分支则全合法不抛, 本断言必挂。
+        StarRank s1 = StarRank.ofStar(1);
+        assertRejected(helper, s1, List.of(
+                new AffixSelection(AffixDef.REGEN_TISSUE, AffixQuality.COMMON),
+                new AffixSelection(AffixDef.BURNING, AffixQuality.COMMON)),
+                "2 affixes > 1star affix cap 1 must reject");
+
+        // (b) 技能数超技能上限: 8star maxSkills=3。装 4 条纯技能 (技能池 14+18+12+14=58 <= 180 预算内,
+        //     全 NONE 互斥, 词条数 4 <= 9 上限), 唯一违规是技能数 4 > 3 -> validateCounts 技能数分支拒。
+        //     删该分支则全合法不抛, 本断言必挂。
+        StarRank s8 = StarRank.ofStar(8);
+        assertRejected(helper, s8, List.of(
+                new AffixSelection(AffixDef.ELECTRO_CHARGE, AffixQuality.COMMON),
+                new AffixSelection(AffixDef.THUNDER, AffixQuality.COMMON),
+                new AffixSelection(AffixDef.VISUAL_DISRUPTION, AffixQuality.COMMON),
+                new AffixSelection(AffixDef.SELF_REPAIR, AffixQuality.COMMON)),
+                "4 skills > 8star skill cap 3 must reject");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 同族至多一互斥 (PointBudget.validateMutex) — SIZE / DEATH_MARK 族
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void pointBudgetSameFamilyMutexSizeAndDeathMark(GameTestHelper helper) {
+        // SIZE 族至多一: 巨大化 + 缩小化 (均 SIZE 族, 各在生存池预算内) 须拒。巨大化互斥全部机动、缩小化强制
+        // +1 机动, 故此组无机动词条时删掉 requireAtMostOne(SIZE) 仍会因缩小化缺机动另行抛 IAE ——
+        // 单看异常类型无法隔离本族规则, 故断言异常消息含 SIZE 族标签 "巨大化/缩小化": 删本族互斥后落到缩小化
+        // 缺机动分支, 消息不含该标签 -> 断言必挂 (delete-must-fail 隔离到 SIZE 同族校验)。
+        StarRank s5 = StarRank.ofStar(5);
+        assertRejectedBecause(helper, s5, List.of(
+                new AffixSelection(AffixDef.GIGANTISM, AffixQuality.COMMON),
+                new AffixSelection(AffixDef.MINIATURIZATION, AffixQuality.COMMON)),
+                "巨大化/缩小化", "gigantism + miniaturization (SIZE family) must reject as same-family");
+
+        // DEATH_MARK 族至多一: 命定之死(8star 超凡+) + 反击单元 (均 DEATH_MARK 族, 均技能, 技能池
+        // 120+12=132 <= 180, 技能数 2 <= 3), 唯一违规是同族计数 2 -> requireAtMostOne(DEATH_MARK) 拒。
+        // 两者别无其它跨族约束, 删该族互斥即全合法不抛, 类型断言足以 delete-must-fail 隔离。
+        StarRank s8 = StarRank.ofStar(8);
+        assertRejected(helper, s8, List.of(
+                new AffixSelection(AffixDef.DEATH_MARK, AffixQuality.EPIC),
+                new AffixSelection(AffixDef.COUNTER_UNIT, AffixQuality.COMMON)),
+                "death-mark + counter-unit (DEATH_MARK family) must reject");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 重型护甲单向跨族禁配 (PointBudget.validateMutex) — 互斥机动/偏斜/刚毅
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void pointBudgetHeavyArmorCrossFamilyBans(GameTestHelper helper) {
+        // 重型护甲最低高级(RARE)、最低 7star: 用 7star (生存池 165, 重型高级成本 ceil(26*2.5)=65)。
+        // 三条单向禁配各自唯一违规 (无同族计数/无预算超支), 删对应 if 即全合法不抛 -> 各断言 delete-must-fail。
+        StarRank s7 = StarRank.ofStar(7);
+
+        // 重型护甲 互斥全部机动 (SPRINT)。
+        assertRejected(helper, s7, List.of(
+                new AffixSelection(AffixDef.HEAVY_ARMOR, AffixQuality.RARE),
+                new AffixSelection(AffixDef.SPRINT, AffixQuality.COMMON)),
+                "heavy armor + any mobility (sprint) must reject");
+
+        // 重型护甲 互斥偏斜护盾。
+        assertRejected(helper, s7, List.of(
+                new AffixSelection(AffixDef.HEAVY_ARMOR, AffixQuality.RARE),
+                new AffixSelection(AffixDef.DEFLECTOR_SHIELD, AffixQuality.COMMON)),
+                "heavy armor + deflector shield must reject");
+
+        // 重型护甲 互斥刚毅护盾 (刚毅最低高级/最低 6star, 用 RARE)。
+        assertRejected(helper, s7, List.of(
+                new AffixSelection(AffixDef.HEAVY_ARMOR, AffixQuality.RARE),
+                new AffixSelection(AffixDef.FORTITUDE_SHIELD, AffixQuality.RARE)),
+                "heavy armor + fortitude shield must reject");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 星表全星级锁值 (StarRank) — spec 第五章逐星逐列, 改任一格必挂
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void starRankFullTableLock(GameTestHelper helper) {
+        // spec 第五章《每星主数据表》字面值 (index = star-1)。锁死四池预算 + 词条/技能上限 + 最高品质 +
+        // 基础有效HP + 基础单击%; 改 StarRank 任一格对应断言即挂 (防手抄魔数漂移)。
+        int[] surv = {10, 20, 35, 55, 80, 120, 165, 240, 330, 440};
+        int[] comb = {8, 14, 24, 36, 55, 80, 110, 160, 230, 310};
+        int[] mob = {0, 4, 8, 12, 20, 30, 45, 75, 115, 155};
+        int[] skill = {0, 0, 15, 25, 45, 70, 110, 180, 260, 360};
+        int[] affixCap = {1, 2, 3, 4, 5, 6, 7, 9, 11, 13};
+        int[] skillCap = {0, 0, 1, 1, 1, 2, 2, 3, 3, 4};
+        AffixQuality[] maxQ = {
+                AffixQuality.COMMON, AffixQuality.COMMON, AffixQuality.UNCOMMON, AffixQuality.UNCOMMON,
+                AffixQuality.RARE, AffixQuality.RARE, AffixQuality.EPIC, AffixQuality.EPIC,
+                AffixQuality.LEGENDARY, AffixQuality.LEGENDARY};
+        double[] effHp = {135.0D, 225.0D, 360.0D, 540.0D, 765.0D,
+                2_700.0D, 6_000.0D, 27_000.0D, 45_000.0D, 73_000.0D};
+        double[] hitPct = {0.04D, 0.05D, 0.06D, 0.08D, 0.10D, 0.12D, 0.14D, 0.16D, 0.18D, 0.20D};
+
+        for (int s = StarRank.MIN_STAR; s <= StarRank.MAX_STAR; s++) {
+            int i = s - 1;
+            StarRank r = StarRank.ofStar(s);
+            helper.assertTrue(r.survivalBudget() == surv[i], "star " + s + " survival budget must be " + surv[i]);
+            helper.assertTrue(r.combatBudget() == comb[i], "star " + s + " combat budget must be " + comb[i]);
+            helper.assertTrue(r.mobilityBudget() == mob[i], "star " + s + " mobility budget must be " + mob[i]);
+            helper.assertTrue(r.skillBudget() == skill[i], "star " + s + " skill budget must be " + skill[i]);
+            helper.assertTrue(r.maxAffixes() == affixCap[i], "star " + s + " affix cap must be " + affixCap[i]);
+            helper.assertTrue(r.maxSkills() == skillCap[i], "star " + s + " skill cap must be " + skillCap[i]);
+            helper.assertTrue(r.maxQuality() == maxQ[i], "star " + s + " max quality must be " + maxQ[i]);
+            helper.assertTrue(Math.abs(r.baseEffectiveHp() - effHp[i]) < EPS,
+                    "star " + s + " base effective HP must be " + effHp[i]);
+            helper.assertTrue(Math.abs(r.baseSingleHitPct() - hitPct[i]) < EPS,
+                    "star " + s + " base single-hit pct must be " + hitPct[i]);
+        }
+        helper.succeed();
+    }
+
     // ---- helpers ----
 
     private static void assertRejected(GameTestHelper helper, StarRank rank,
@@ -650,5 +774,22 @@ public final class ChampionGameTests {
             rejected = true;
         }
         helper.assertTrue(rejected, msg);
+    }
+
+    /**
+     * 断言装配被拒【且】拒绝原因消息含指定标签 needle。用于同族互斥无法靠异常类型隔离的场景 (SIZE 族:
+     * 巨大化/缩小化两成员各自另有跨族约束, 删同族校验仍会抛别的 IAE) —— 只有拒绝消息命中本族标签才算命中
+     * 被测规则; 落到别的分支 (消息不含 needle) 视为未拒, 断言挂 (delete-must-fail 隔离到目标校验)。
+     */
+    private static void assertRejectedBecause(GameTestHelper helper, StarRank rank,
+                                              List<AffixSelection> selections, String needle, String msg) {
+        boolean rejectedForReason = false;
+        try {
+            PointBudget.allocate(rank, selections);
+        } catch (IllegalArgumentException expected) {
+            String detail = expected.getMessage();
+            rejectedForReason = detail != null && detail.contains(needle);
+        }
+        helper.assertTrue(rejectedForReason, msg);
     }
 }

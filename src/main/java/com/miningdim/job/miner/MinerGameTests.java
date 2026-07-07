@@ -16,22 +16,34 @@ import com.miningdim.job.IJobService;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobProgress;
 import com.miningdim.job.JobServices;
+import com.miningdim.job.miner.network.MinerHighlightS2C;
 import com.miningdim.ore.OreType;
 import com.miningdim.testutil.MockGameTestPlayers;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.core.HolderSet;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.levelgen.PositionalRandomFactory;
+import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -142,6 +154,9 @@ public final class MinerGameTests {
 
     // ============================================================
     // 矿脉抗性: 陷阱专属来源减伤封顶 35% + 非陷阱来源零减免
+    // 第七章降级路径 (miner-01 闭合): 专属源缺失时按环境陷阱伤类型集合识别 (落石/岩浆/着火/非玩家爆炸…),
+    // 矿洞内 L5+ 真实减伤; 战斗向来源 (近战/远程/玩家 TNT) 与非陷阱环境伤 (摔落) 仍零减免 (守不漂战斗力红线)。
+    // 删 isTrapSource 的环境伤识别 (回到恒 false) -> 减伤又失效 -> 本测试的减伤断言全挂。
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
@@ -151,11 +166,46 @@ public final class MinerGameTests {
         helper.assertTrue(approx(MinerSkills.trapDamageReduction(5), 0.10D), "L5 vein resist = 10%");
         helper.assertTrue(approx(MinerSkills.trapDamageReduction(10), 0.35D), "L10 vein resist = 35% cap");
         helper.assertTrue(MinerSkills.trapDamageReduction(10) <= 0.35D + EPS, "vein resist never exceeds 35%");
-        // 非陷阱来源零减免 (红线): isTrapSource 当前对所有真实来源返回 false -> reducedDamage 原样。
-        net.minecraft.world.damagesource.DamageSources sources =
-                helper.getLevel().damageSources();
-        float mobBlast = MinerSurvival.reducedDamage(10, sources.explosion(null, null), 20.0f);
-        helper.assertTrue(approx(mobBlast, 20.0f), "non-trap (creeper/explosion) damage reduced by 0% at L10");
+
+        ServerPlayer mock = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        net.minecraft.world.damagesource.DamageSources sources = helper.getLevel().damageSources();
+
+        // ---- 降级路径生效: 环境陷阱伤被识别为陷阱来源, L5+ 在矿洞内真实减伤 (miner-01 核心) ----
+        helper.assertTrue(MinerSurvival.isTrapSource(sources.lava()), "lava is a trap-equivalent source (fallback path)");
+        helper.assertTrue(MinerSurvival.isTrapSource(sources.fallingBlock(mock)),
+                "falling block (rockfall) is a trap-equivalent source");
+        helper.assertTrue(MinerSurvival.isTrapSource(sources.inFire()), "fire is a trap-equivalent source");
+        // explosion(null, null) -> DamageTypes.EXPLOSION (苦力怕/床/陷阱 TNT, 非玩家归因)。
+        helper.assertTrue(MinerSurvival.isTrapSource(sources.explosion(null, null)),
+                "non-player explosion (creeper/trap TNT) is a trap-equivalent source");
+
+        // L10 岩浆 20 伤 -> 减 35% -> 净 13 (减伤真生效, 非原样 20)。删降级识别则恒 20 必挂。
+        float lavaL10 = MinerSurvival.reducedDamage(10, sources.lava(), 20.0f);
+        helper.assertTrue(approx(lavaL10, 13.0f), "L10 lava 20 dmg reduced 35% -> 13 (vein resist now live)");
+        // L5 落石 20 伤 -> 减 10% -> 净 18 (解锁级边界)。
+        float rockL5 = MinerSurvival.reducedDamage(5, sources.fallingBlock(mock), 20.0f);
+        helper.assertTrue(approx(rockL5, 18.0f), "L5 falling-block 20 dmg reduced 10% -> 18");
+        // 二次同类伤 (反应窗承诺的净伤下降): 矿洞内 L10 玩家连续吃岩浆, 每笔都被减到 13 (净伤稳定下降, 非原样 20)。
+        float lavaSecondHit = MinerSurvival.reducedDamage(10, sources.lava(), 20.0f);
+        helper.assertTrue(approx(lavaSecondHit, 13.0f), "follow-up same-type trap hit also nets reduced 13 (sustained buffer)");
+
+        // ---- 等级门控红线: L4 未解锁陷阱伤也零减免 (即便是陷阱来源) ----
+        float lavaL4 = MinerSurvival.reducedDamage(4, sources.lava(), 20.0f);
+        helper.assertTrue(approx(lavaL4, 20.0f), "L4 (vein resist locked) lava reduced by 0% even though it is a trap source");
+
+        // ---- 不漂战斗力红线: 战斗/玩家 TNT/非陷阱环境伤 不被识别为陷阱来源 -> L10 也零减免 ----
+        // 玩家点燃的 TNT (explosion(player, player) -> PLAYER_EXPLOSION): 潜在 PvP, 不软化。
+        helper.assertFalse(MinerSurvival.isTrapSource(sources.explosion(mock, mock)),
+                "player-attributed explosion (TNT) is NOT a trap source (PvP attrition red line)");
+        float playerTnt = MinerSurvival.reducedDamage(10, sources.explosion(mock, mock), 20.0f);
+        helper.assertTrue(approx(playerTnt, 20.0f), "player TNT damage reduced by 0% at L10 (no combat softening)");
+        // 近战战斗伤: 不是陷阱来源, 零减免。
+        helper.assertFalse(MinerSurvival.isTrapSource(sources.mobAttack(mock)),
+                "mob melee attack is NOT a trap source (combat red line)");
+        float mobMelee = MinerSurvival.reducedDamage(10, sources.mobAttack(mock), 20.0f);
+        helper.assertTrue(approx(mobMelee, 20.0f), "mob melee damage reduced by 0% at L10");
+        // 摔落: 环境伤但非陷阱型 (不在降级集合), 零减免 (证明集合非"凡环境伤皆减")。
+        helper.assertFalse(MinerSurvival.isTrapSource(sources.fall()), "fall damage is NOT a trap source");
         float fallDmg = MinerSurvival.reducedDamage(10, sources.fall(), 12.0f);
         helper.assertTrue(approx(fallDmg, 12.0f), "non-trap (fall) damage reduced by 0% at L10");
         helper.succeed();
@@ -226,6 +276,118 @@ public final class MinerGameTests {
         // 探矿半径阶梯 6 -> 16。
         helper.assertTrue(MinerSkills.oreScanRadius(3) == 6, "L3 ore scan radius = 6");
         helper.assertTrue(MinerSkills.oreScanRadius(10) == 16, "L10 ore scan radius = 16");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 探矿改扫真实世界 (C2 / economy-01 闭合 "探矿失效"): OreScanService.scanWorld 逐格读真实方块态, 经
+    // OreType.fromBlock 还原矿种, 只收球内确有命中的坐标。删世界扫描 (回到死体素表 cachedPlacement) -> 恒空返 -> 必挂。
+    //
+    // 用 DIAMOND-only 可探集合隔离矿种优先序 (避免测试世界里偶发铁/煤命中干扰), 直接验证 "世界读取 + fromBlock +
+    // 球半径几何" 三件核心: 球内放的 DIAMOND_ORE 全部命中; 球外的不返回; allowedOres 空 (L2) 时短路空返。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void oreScanReadsRealWorldBlocks(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockPos center = helper.absolutePos(new BlockPos(0, 1, 0));
+        int radius = 4;
+
+        // 球内放 3 颗钻石矿 (含深板岩变体, 验证 fromBlock 两变体都映射 DIAMOND), 全在半径内。
+        BlockPos in1 = center.offset(1, 0, 0);
+        BlockPos in2 = center.offset(0, 1, -1);
+        BlockPos in3 = center.offset(-1, 0, 1); // 用深板岩变体
+        level.setBlock(in1, Blocks.DIAMOND_ORE.defaultBlockState(), Block.UPDATE_ALL);
+        level.setBlock(in2, Blocks.DIAMOND_ORE.defaultBlockState(), Block.UPDATE_ALL);
+        level.setBlock(in3, Blocks.DEEPSLATE_DIAMOND_ORE.defaultBlockState(), Block.UPDATE_ALL);
+        // 球外放 1 颗 (欧氏距离 > radius): 必须不被收。dx=5 > 4 -> 5^2=25 > 16。
+        BlockPos out = center.offset(5, 0, 0);
+        level.setBlock(out, Blocks.DIAMOND_ORE.defaultBlockState(), Block.UPDATE_ALL);
+
+        Set<OreType> diamondOnly = EnumSet.of(OreType.DIAMOND);
+        List<BlockPos> hits = OreScanService.scanWorld(level, center, radius, diamondOnly);
+
+        // 球内 3 颗全部命中 (深板岩变体经 fromBlock 同映射 DIAMOND -> 也收到)。
+        helper.assertTrue(hits.contains(in1), "scanWorld returns in-sphere diamond at " + in1);
+        helper.assertTrue(hits.contains(in2), "scanWorld returns in-sphere diamond at " + in2);
+        helper.assertTrue(hits.contains(in3), "scanWorld returns in-sphere deepslate-diamond at " + in3 + " (fromBlock maps both variants)");
+        helper.assertTrue(hits.size() == 3, "exactly the 3 in-sphere diamonds are returned, got " + hits.size());
+        // 球外那颗不在结果里 (半径几何真生效, 非全图下发)。
+        helper.assertFalse(hits.contains(out), "out-of-sphere diamond at " + out + " is NOT returned (radius gate live)");
+
+        // fromBlock 反查正确性 (C2 与 C1 共用映射): 石质/深板岩两变体都还原 DIAMOND, 非矿方块还原 null。
+        helper.assertTrue(OreType.fromBlock(Blocks.DIAMOND_ORE) == OreType.DIAMOND, "fromBlock(DIAMOND_ORE) = DIAMOND");
+        helper.assertTrue(OreType.fromBlock(Blocks.DEEPSLATE_DIAMOND_ORE) == OreType.DIAMOND, "fromBlock(DEEPSLATE_DIAMOND_ORE) = DIAMOND");
+        helper.assertTrue(OreType.fromBlock(Blocks.STONE) == null, "fromBlock(STONE) = null (not an ore)");
+
+        // L2 玩家 (allowedOres 空) -> scanWorld 空集语义短路, 即便球内有矿也不下发 (探矿未解锁)。
+        Set<OreType> lockedL2 = OreScanService.allowedOres(2);
+        helper.assertTrue(lockedL2.isEmpty(), "L2 allowedOres empty (scan locked below L3)");
+        helper.assertTrue(OreScanService.scanWorld(level, center, radius, lockedL2).isEmpty(),
+                "L2 (empty allowed set) scans nothing even with diamonds present in the sphere");
+
+        // L6 可探集合含 DIAMOND (探矿里程碑): 用 L6 集合在同球扫到的钻石数 >= 上面 DIAMOND-only 的命中 (无遗漏)。
+        Set<OreType> l6 = OreScanService.allowedOres(6);
+        helper.assertTrue(l6.contains(OreType.DIAMOND), "L6 allowed set includes diamond");
+        List<BlockPos> l6Hits = OreScanService.scanWorld(level, center, radius, l6);
+        // 球内仅放了钻石 (无铁/煤), 故 L6 优先序最终落到 DIAMOND, 命中同样 3 颗。
+        helper.assertTrue(l6Hits.size() == 3 && l6Hits.contains(in1) && l6Hits.contains(in3),
+                "L6 scan over the same sphere still finds the 3 diamonds (single-ore preference falls through to diamond)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // C1: 残骸/绿宝石 ore feature 数据正确性 + 挂入 Hard (保持 Hard 无 copper/coal)。
+    // GameTest 内 force-load 矿洞 Hard 区块跑真实 feature 放置不可行 (概率性 + 跨维度), 故退而验数据正确性:
+    //   1. 两个新 placed_feature JSON 解析加载成功 (在 PLACED_FEATURE 注册表内; 解析失败则数据包加载报错, 注册表无此键);
+    //   2. OreType.fromBlock 能把残骸/绿宝石 (含深板岩变体) 还原成矿种 (探矿/铺矿共用映射);
+    //   3. mining_hard biome 的地下矿阶段 (UNDERGROUND_ORES) 引用了两个新 placed_feature, 且仍不含 copper/coal (Hard 无铜回归)。
+    // 删 mining_hard.json 的两行追加 -> 断言 3 必挂; 删 placed_feature JSON -> 断言 1 必挂 (注册表缺键); 删 fromBlock 残骸/绿宝石映射 -> 断言 2 必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void ancientDebrisAndEmeraldFeaturesWiredIntoHard(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+
+        // 1. 两个新 placed_feature 已被数据包加载 (JSON 解析成功的硬证据: 注册表含键)。
+        Registry<PlacedFeature> placed = level.registryAccess().registryOrThrow(Registries.PLACED_FEATURE);
+        ResourceLocation debrisPlaced = new ResourceLocation(MiningConstants.MODID, "ore_ancient_debris");
+        ResourceLocation emeraldPlaced = new ResourceLocation(MiningConstants.MODID, "ore_emerald");
+        helper.assertTrue(placed.containsKey(debrisPlaced),
+                "placed_feature miningdim:ore_ancient_debris loaded (configured+placed JSON parsed)");
+        helper.assertTrue(placed.containsKey(emeraldPlaced),
+                "placed_feature miningdim:ore_emerald loaded (configured+placed JSON parsed)");
+
+        // 2. fromBlock 还原残骸/绿宝石 (含深板岩变体), 取代死体素表 (探矿 + 铺矿共用)。
+        helper.assertTrue(OreType.fromBlock(Blocks.ANCIENT_DEBRIS) == OreType.ANCIENT_DEBRIS,
+                "fromBlock(ANCIENT_DEBRIS) = ANCIENT_DEBRIS");
+        helper.assertTrue(OreType.fromBlock(Blocks.EMERALD_ORE) == OreType.EMERALD,
+                "fromBlock(EMERALD_ORE) = EMERALD");
+        helper.assertTrue(OreType.fromBlock(Blocks.DEEPSLATE_EMERALD_ORE) == OreType.EMERALD,
+                "fromBlock(DEEPSLATE_EMERALD_ORE) = EMERALD (deepslate variant)");
+
+        // 3. mining_hard biome 的地下矿阶段引用两个新 feature, 且仍无 copper/coal (Hard 无铜回归)。
+        Biome hard = level.registryAccess().registryOrThrow(Registries.BIOME)
+                .getOrThrow(Difficulty.HARD.biomeKey());
+        Set<ResourceLocation> hardFeatureIds = new HashSet<>();
+        for (HolderSet<PlacedFeature> step : hard.getGenerationSettings().features()) {
+            for (Holder<PlacedFeature> holder : step) {
+                holder.unwrapKey().ifPresent(key -> hardFeatureIds.add(key.location()));
+            }
+        }
+        helper.assertTrue(hardFeatureIds.contains(debrisPlaced),
+                "mining_hard references miningdim:ore_ancient_debris in its generation features");
+        helper.assertTrue(hardFeatureIds.contains(emeraldPlaced),
+                "mining_hard references miningdim:ore_emerald in its generation features");
+        // Hard 无铜无煤回归 (保持设计: Hard 不出 copper/coal 这两个低价矿)。
+        helper.assertFalse(hardFeatureIds.contains(new ResourceLocation("minecraft", "ore_copper")),
+                "mining_hard must NOT contain copper ore feature (Hard no-copper)");
+        helper.assertFalse(hardFeatureIds.contains(new ResourceLocation("minecraft", "ore_copper_large")),
+                "mining_hard must NOT contain large copper ore feature");
+        helper.assertFalse(hardFeatureIds.contains(new ResourceLocation("minecraft", "ore_coal_upper")),
+                "mining_hard must NOT contain upper coal ore feature (Hard no-coal)");
+        helper.assertFalse(hardFeatureIds.contains(new ResourceLocation("minecraft", "ore_coal_lower")),
+                "mining_hard must NOT contain lower coal ore feature (Hard no-coal)");
         helper.succeed();
     }
 
@@ -615,6 +777,56 @@ public final class MinerGameTests {
         }
     }
 
+    // ============================================================
+    // miner-02: sendHighlight 对无活动连接玩家 no-op (镜像 MiningNetwork.canReceive 守卫)。
+    // 无 channel 玩家 (connection==null, 未经 placeNewPlayer) 下发高亮: 守卫短路返回, 不触 CHANNEL.send。
+    // 删 canReceive 守卫则 PacketDistributor.PLAYER 直接 player.connection.send(...) 对 null 连接 NPE。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sendHighlightNoOpWithoutActiveChannel(GameTestHelper helper) {
+        // 不经 placeNewPlayer 直接造 ServerPlayer: connection 字段保持 null (= 尚未连上/已断连的极端时序)。
+        ServerPlayer noChannel = new ServerPlayer(
+                helper.getLevel().getServer(),
+                helper.getLevel(),
+                new com.mojang.authlib.GameProfile(UUID.randomUUID(), "no-channel-player")) {
+            @Override
+            public boolean isSpectator() {
+                return false;
+            }
+
+            @Override
+            public boolean isCreative() {
+                return true;
+            }
+        };
+        helper.assertTrue(noChannel.connection == null, "bare player has no active connection (null channel)");
+
+        // 守卫短路: 对无连接玩家发高亮不抛 (删守卫则 CHANNEL.send -> player.connection.send NPE)。
+        MinerHighlightS2C msg = new MinerHighlightS2C(MinerHighlightS2C.KIND_ORE, 100L,
+                java.util.List.of(new BlockPos(0, 1, 0)));
+        boolean threw = false;
+        try {
+            com.miningdim.job.miner.network.MinerNetwork.sendHighlight(noChannel, msg);
+        } catch (Throwable t) {
+            threw = true;
+        }
+        helper.assertFalse(threw, "sendHighlight to a player without an active channel must be a silent no-op (no NPE)");
+
+        // 反向锚: 有活动 channel 的 mock 玩家发同一包也不抛 (守卫放行 -> 写入 EmbeddedChannel 出站队列, mock 环境无害)。
+        ServerPlayer withChannel = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        helper.assertTrue(withChannel.connection != null && withChannel.connection.isAcceptingMessages(),
+                "mock player has an active accepting connection");
+        boolean threwLive = false;
+        try {
+            com.miningdim.job.miner.network.MinerNetwork.sendHighlight(withChannel, msg);
+        } catch (Throwable t) {
+            threwLive = true;
+        }
+        helper.assertFalse(threwLive, "sendHighlight to a connected player dispatches without error (guard passes)");
+        helper.succeed();
+    }
+
     private static boolean approx(double a, double b) {
         return Math.abs(a - b) < 1.0e-6D;
     }
@@ -724,6 +936,11 @@ public final class MinerGameTests {
 
         @Override
         public long grantDaily(ServerPlayer player, long rawCredit, String faucetKey, long dailyCap) {
+            throw new UnsupportedOperationException("not exercised by miner wiring tests");
+        }
+
+        @Override
+        public long grantAzureDaily(ServerPlayer player, long amount, long dailyCap) {
             throw new UnsupportedOperationException("not exercised by miner wiring tests");
         }
     }

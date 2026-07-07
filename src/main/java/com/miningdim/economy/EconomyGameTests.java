@@ -9,6 +9,8 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -31,7 +33,9 @@ import java.util.function.Function;
  *  - AZURE 不可转移 (货币层无 P2P 入口, isTransferable 硬不变量);
  *  - NBT round-trip 边界 0 / Long.MAX_VALUE 防溢出 + grant 溢出抛 BALANCE_OVERFLOW;
  *  - setDirty 每次变更被调用;
- *  - tryChargeDaily 每日上限边界。
+ *  - tryChargeDaily 每日上限边界;
+ *  - grantAzureDaily / creditAzureDaily 青辉石每人每日产出硬上限 (超 cap 截断 / 撞顶 0 入账 / 跨 UTC 日重置;
+ *    经济文档 8.5 战斗 faucet 并入每人每日上限; economy-02)。
  *
  * 纯逻辑/SavedData 断言: 钱包与账本可在内存直接构造 (new), 不依赖世界写; 涉及 ServerPlayer 的门面方法
  * 用 MockGameTestPlayers.makeMockServerPlayerWithChannel(helper) 取真实 ServerPlayer。template = "empty"。
@@ -196,6 +200,128 @@ public final class EconomyGameTests {
         helper.assertTrue(ledger.tryChargeDaily(id, Currency.CREDIT, 100L, "pack", 100L, tomorrow),
                 "after UTC rollover the daily counter resets and a full-cap charge succeeds again");
         helper.assertTrue(ledger.balance(id, Currency.CREDIT) == 800L, "balance 900 - 100 = 800 next day");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // creditAzureDaily: 青辉石 faucet 每人每日产出硬上限 (经济文档 8.5 战斗 faucet 并入每人每日上限; economy-02)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void azureDailyFaucetCapTruncates(GameTestHelper helper) {
+        EconomyWalletData ledger = new EconomyWalletData();
+        UUID id = UUID.randomUUID();
+        String key = EconomyConstants.AZURE_DAILY_FAUCET_KEY; // "azure_faucet"
+        long cap = 30L; // 固定小 cap 做确定性断言 (不依赖常量当前值; 验"硬截断"语义本身)。
+        long today = 50_000L; // 固定 UTC 日戳 (epochDay)。
+
+        // 当日累计 0, 入账 18 (<= cap): 全额入账, 余额 18, 计数 18。
+        helper.assertTrue(ledger.creditAzureDaily(id, key, 18L, cap, today) == 18L,
+                "first azure grant 18 within cap 30 credits in full (18)");
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == 18L, "azure balance is 18 after first grant");
+
+        // 当日累计 18, 再入账 20 (18+20=38 > cap 30): 只发到刚好填满 cap 的 12 (30-18), 超出 8 被截断丢弃。
+        // 这是 economy-02 的核心: 删 creditAzureDaily 的 room 截断逻辑 (直接 credit amount) 则余额=38 测试必挂。
+        helper.assertTrue(ledger.creditAzureDaily(id, key, 20L, cap, today) == 12L,
+                "second azure grant truncates to remaining room: cap 30 - granted 18 = 12 (not full 20)");
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == 30L,
+                "azure balance clamps at the daily cap 30 (the over-cap 8 is dropped, not minted)");
+
+        // 当日已撞 cap, 再入账任意量: 0 入账, 余额不变 (撞顶后不再发)。
+        helper.assertTrue(ledger.creditAzureDaily(id, key, 100L, cap, today) == 0L,
+                "azure grant after the cap is hit credits nothing (hard truncation, not decay)");
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == 30L, "azure balance stays at cap 30 after over-cap grant");
+
+        // 跨 UTC 日重置: 翻日后当日计数清零, 又可领满 cap (余额累计到 30 + 30 = 60)。
+        long tomorrow = today + 1L;
+        helper.assertTrue(ledger.creditAzureDaily(id, key, 30L, cap, tomorrow) == 30L,
+                "after UTC rollover the azure daily counter resets and a full-cap grant succeeds again");
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == 60L,
+                "azure balance accrues 30 (day1 cap) + 30 (day2 cap) = 60 across the rollover");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void grantAzureDailyServiceRoutesThroughCap(GameTestHelper helper) {
+        // 门面层 grantAzureDaily (精英怪青辉石走此入口): 用真 cap 常量验"同一玩家当日连续领取超 cap 后实际入账被截断"。
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+        UUID id = player.getUUID();
+        long cap = EconomyConstants.AZURE_DAILY_FAUCET_CAP; // DRAFT 30
+
+        // 连续领取累计超 cap: 累加实际入账必恰等于 cap (超额被截断), 而非各笔之和。
+        long firstGrant = eco.grantAzureDaily(player, cap - 1L, cap); // 全额 cap-1。
+        helper.assertTrue(firstGrant == cap - 1L, "first service grant of cap-1 credits in full (cap-1)");
+        long secondGrant = eco.grantAzureDaily(player, 50L, cap);     // 只剩 1 的额度, 截断到 1。
+        helper.assertTrue(secondGrant == 1L, "second service grant truncates to the last 1 of remaining cap room");
+        long thirdGrant = eco.grantAzureDaily(player, 50L, cap);      // 已撞顶, 0。
+        helper.assertTrue(thirdGrant == 0L, "third service grant after cap is hit credits 0");
+
+        // 账本余额 = cap (绝不超过 cap, 哪怕拟领总量 = (cap-1)+50+50 远超 cap)。删 cap 逻辑则余额 = 99 测试必挂。
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == cap,
+                "azure balance is clamped exactly at the daily cap regardless of total requested (no per-day mint beyond cap)");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void azureDailyFaucetRejectsIllegalArgs(GameTestHelper helper) {
+        // 契约: amount<=0 / cap<=0 抛 ILLEGAL_AMOUNT 自然冒泡 (不静默返 0 掩盖非法入参)。
+        EconomyWalletData ledger = new EconomyWalletData();
+        UUID id = UUID.randomUUID();
+        String key = EconomyConstants.AZURE_DAILY_FAUCET_KEY;
+
+        boolean amountThrew = false;
+        try {
+            ledger.creditAzureDaily(id, key, 0L, 30L, 50_000L);
+        } catch (EconomyException e) {
+            amountThrew = e.reason() == EconomyException.Reason.ILLEGAL_AMOUNT;
+        }
+        helper.assertTrue(amountThrew, "azure grant of 0 throws ILLEGAL_AMOUNT (no silent no-op)");
+
+        boolean capThrew = false;
+        try {
+            ledger.creditAzureDaily(id, key, 5L, 0L, 50_000L);
+        } catch (EconomyException e) {
+            capThrew = e.reason() == EconomyException.Reason.ILLEGAL_AMOUNT;
+        }
+        helper.assertTrue(capThrew, "azure grant with cap 0 throws ILLEGAL_AMOUNT");
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == 0L, "no azure credited after rejected illegal grants");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void azureFaucetMergedAcrossAgentAndChampionPaths(GameTestHelper helper) {
+        // agent-azure 修复 (同精英怪 economy-02 同类): agent 路径青辉石产出 (贡献池精英死亡掉落 AgentRewardHandler 第 ~115
+        // 行 + 周常悬赏 grantWeeklyBountyAzure) 与精英怪 ChampionRewardHandler 共用【同一】门面 grantAzureDaily(...,
+        // AZURE_DAILY_FAUCET_CAP) -> 同一 azure_faucet 键。合并龙头语义: 两路当日产出累计受【同一】每人每日上限, 任一路
+        // 都无法单独绕过日 cap 印钞。本测试用门面 grantAzureDaily 模拟"先精英怪掉一笔, 再 agent 路掉一笔"打同一玩家同一日,
+        // 验两路合计被截断在单一 cap (而非各占一份 cap)。删 grantAzureDaily 的 cap 路由 (回退到旧的 grant(AZURE) 无日上限)
+        // 则两笔全额入账 = 2*cap-1, 测试必挂。
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+        UUID id = player.getUUID();
+        long cap = EconomyConstants.AZURE_DAILY_FAUCET_CAP; // DRAFT 30: 两路共享此单一日上限。
+
+        // 第一路 (精英怪 ChampionRewardHandler 掉落): 领满 cap-1, 全额入账。
+        long championDrop = eco.grantAzureDaily(player, cap - 1L, cap);
+        helper.assertTrue(championDrop == cap - 1L,
+                "champion-path azure drop of cap-1 credits in full (cap-1) on the shared azure_faucet key");
+
+        // 第二路 (agent 路径掉落 / 周常悬赏): 同一玩家同一日再领 cap-1, 但共享键当日只剩 1 的额度 -> 截断到 1
+        // (而非另开一份 cap)。这正是合并龙头的核心: agent 路不享独立的青辉石日额度。
+        long agentDrop = eco.grantAzureDaily(player, cap - 1L, cap);
+        helper.assertTrue(agentDrop == 1L,
+                "agent-path azure drop on the same day truncates to the last 1 of the SHARED cap (not a second full cap)");
+
+        // 第三笔任一路: 已撞共享顶, 0 入账。
+        long thirdDrop = eco.grantAzureDaily(player, 50L, cap);
+        helper.assertTrue(thirdDrop == 0L, "any third azure grant after the shared cap is hit credits 0");
+
+        // 余额 = cap (两路合计封顶, 绝不 = 2*(cap-1)): 删 cap 合并路由则余额 = 2*cap-1 = 59, 测试必挂。
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == cap,
+                "agent + champion azure for one player on one day is clamped at a single shared daily cap (not summed)");
         helper.succeed();
     }
 
@@ -590,6 +716,59 @@ public final class EconomyGameTests {
         double deepScrap = guard.buyPrice(HighValueOre.NETHERITE_SCRAP,
                 EconomyConstants.DAILY_SOFTCAP_NETHERITE_SCRAP + 1_000_000, ShopPriceTable.ORE_BASE_NETHERITE_SCRAP);
         helper.assertTrue(deepScrap == 45.0D, "netherite scrap deep-over per-ore unit clamps to 4500*0.01 = 45.0");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // economy-04: 取消的 BreakEvent 不发钱 (反洗钱: 取消的破坏仍走 settleOreSale = 凭空印钞)。
+    // shouldSkipBreak 守卫: 取消 -> true (onBlockBreak 短路, 不到 recordAndSettleBreak); 未取消 -> false (照常结算)。
+    // recordAndSettleBreak 是 onBlockBreak 唯一发钱出口: 直证它对钻石真入账 500, 故守卫是"取消即不入这 500"的闸。
+    // 删 shouldSkipBreak 的 isCanceled (恒返 false) 则取消的破坏也落入 recordAndSettleBreak 发钱, 下方断言必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void canceledBreakDoesNotPayOreSale(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+
+        // 构造真实钻石 BreakEvent (与 onBlockBreak 实际接收的同类型事件)。
+        BlockState diamond = Blocks.DIAMOND_ORE.defaultBlockState();
+        BlockEvent.BreakEvent normal = new BlockEvent.BreakEvent(
+                helper.getLevel(), helper.absolutePos(new net.minecraft.core.BlockPos(0, 1, 0)), diamond, player);
+        // 未取消: 守卫放行 (false), onBlockBreak 会继续到 recordAndSettleBreak。
+        helper.assertFalse(EconomySystem.shouldSkipBreak(normal),
+                "an un-canceled break is NOT skipped (settlement proceeds)");
+
+        // 取消同一事件: 守卫拦截 (true), onBlockBreak 在到达发钱出口前短路。删 isCanceled 守卫则此断言为 false 必挂。
+        normal.setCanceled(true);
+        helper.assertTrue(EconomySystem.shouldSkipBreak(normal),
+                "a canceled break IS skipped before any counting/settlement (anti-print guard)");
+
+        // 直证发钱出口真入账: recordAndSettleBreak 对一颗钻石经主闸真入钱包 500 (首档 x1.0)。这是被守卫拦在
+        // 取消事件之外的"那 500": 取消的破坏正因短路而拿不到它。
+        EconomySystem system = new EconomySystem();
+        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+        // 保存并还原启动期已绑定的真实门面 (GameTest 在已启动服务端跑, 直接 reset 会让后续依赖取门面时 ISE)。
+        IEconomyService prev = EconomyServices.isRegistered() ? EconomyServices.economyService() : null;
+        EconomyServices.registerEconomyService(eco);
+        try {
+            PlayerAbuseState state = new PlayerAbuseState();
+            long before = ledger.balance(player.getUUID(), Currency.CREDIT);
+            helper.assertTrue(before == 0L, "fresh wallet starts at 0 credit");
+
+            // 模拟 onBlockBreak 对【未取消】钻石破坏的结算路径 (守卫已放行后才到此): 真入账 500。
+            system.recordAndSettleBreak(player, Blocks.DIAMOND_ORE, state);
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 500L,
+                    "the settlement path the guard protects actually mints 500 for one diamond (so skipping it withholds real money)");
+            helper.assertTrue(state.dailyOreCount(HighValueOre.DIAMOND) == 1,
+                    "the un-canceled break also counts one diamond into the daily ore count");
+        } finally {
+            if (prev != null) {
+                EconomyServices.registerEconomyService(prev);
+            } else {
+                EconomyServices.reset();
+            }
+        }
         helper.succeed();
     }
 

@@ -77,6 +77,20 @@ public final class MiningNetwork implements IMiningNetwork {
         CHANNEL.registerMessage(nextId(), S2CWebUiEvent.class,
                 S2CWebUiEvent::encode, S2CWebUiEvent::decode, S2CWebUiEvent::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        // 特勤战术扫描面板 (SpecialAgent spec 五章: 复用本 CHANNEL, discriminator 集中自增登记)。追加在既有包之后,
+        // 两端同序, 不改动既有 id 分配。S2C 扫描快照下发 + C2S 封印申请回点两包。
+        CHANNEL.registerMessage(nextId(),
+                com.miningdim.job.agent.network.AgentScanSyncS2C.class,
+                com.miningdim.job.agent.network.AgentScanSyncS2C::encode,
+                com.miningdim.job.agent.network.AgentScanSyncS2C::decode,
+                com.miningdim.job.agent.network.AgentScanSyncS2C::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(nextId(),
+                com.miningdim.job.agent.network.AgentSealRequestC2S.class,
+                com.miningdim.job.agent.network.AgentSealRequestC2S::encode,
+                com.miningdim.job.agent.network.AgentSealRequestC2S::decode,
+                com.miningdim.job.agent.network.AgentSealRequestC2S::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
     }
 
     /**
@@ -84,6 +98,18 @@ public final class MiningNetwork implements IMiningNetwork {
      * 无需经 IMiningNetwork core 门面 (该门面为阶段0 定稿, 不含职业方法; 职业包直接用 CHANNEL 是第七章纪律)。
      */
     public static void sendJobSync(ServerPlayer player, JobSyncS2C msg) {
+        if (!canReceive(player)) {
+            return;
+        }
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), msg);
+    }
+
+    /**
+     * 下发特勤战术扫描快照到指定玩家 (SpecialAgent spec 五章: 扫描脉冲产出 / 面板打开 / 封印后刷新时调用)。
+     * 静态便捷入口 (镜像 {@link #sendJobSync}): 特勤子系统经此发包, 不经 IMiningNetwork core 门面 (该门面阶段0 定稿,
+     * 不含职业方法; 职业包直接用 CHANNEL 是第七章纪律)。镜像 canReceive 守卫。
+     */
+    public static void sendAgentScan(ServerPlayer player, com.miningdim.job.agent.network.AgentScanSyncS2C msg) {
         if (!canReceive(player)) {
             return;
         }

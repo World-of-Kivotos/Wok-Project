@@ -9,7 +9,10 @@ import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -32,6 +35,25 @@ public final class WebUiServerDispatcher {
 
     /** 复用单一 Gson 实例构造 resultJson (无定制配置需求, 线程安全可静态共享)。 */
     private static final Gson GSON = new Gson();
+
+    /**
+     * 每玩家保留的最近已处理 requestId 上限 (滑动窗口容量)。market.buy/place/cancel 这类改资金/库存的副作用
+     * action 都经本派发器, 一个 requestId 只能被处理一次 (契约第八章红线 6 / 5.3 防重放)。超窗后逐出最旧的
+     * requestId 以防单玩家内存无界增长; 客户端桥接层 requestId 是 AtomicLong 单调自增 (C2SWebUiRequest 第 16 行),
+     * 正常客户端永不复用旧 id, 故被逐出的旧 id 不会再被合法请求触达, 重放攻击需在同玩家其后再发满 256 个不同
+     * 请求才能把目标 id 挤出窗口, 攻击面被压到最近 256 请求内, 足覆盖任何真实双击/重复提交场景。
+     */
+    private static final int MAX_TRACKED_REQUEST_IDS_PER_PLAYER = 256;
+
+    /**
+     * 每玩家最近已处理的 requestId 滑动窗口 (防重复提交/重放, 契约第八章红线 6)。key = sender UUID,
+     * value = 有界 {@link LinkedHashSet} (按插入序, 超 {@link #MAX_TRACKED_REQUEST_IDS_PER_PLAYER} 逐出最旧)。
+     *
+     * 派发主路径在服务器主线程 (C2SWebUiRequest.handle 经 enqueueWork 切回主线程), 故同玩家两次 dispatch 无真实
+     * 并发; 但玩家登出清理 (PlayerLoggedOutEvent) 与登出竞态下的迟到包可能跨线程触达本表, 故 outer map 用
+     * ConcurrentHashMap, 对单个玩家窗口 (LinkedHashSet 非线程安全) 的读改在 synchronized(window) 内完成保证原子。
+     */
+    private static final Map<UUID, Set<Long>> PROCESSED_REQUEST_IDS = new ConcurrentHashMap<>();
 
     private WebUiServerDispatcher() {
     }
@@ -66,6 +88,14 @@ public final class WebUiServerDispatcher {
      * action handler) 一律让异常自然冒泡到此。
      */
     public static void dispatchAndRespond(ServerPlayer sender, long requestId, String action, String payloadJson) {
+        // 防重放/防重复提交 (契约第八章红线 6 / 5.3): 在执行任何 handler 副作用前先登记 requestId。命中已处理窗口即
+        // 短路回 success=false {"error":"duplicate_request"}, 不再触达 handler。登记前置 (而非业务成功后) 保证即便
+        // handler 中途抛异常, 同 requestId 的重试也无法二次执行其改资金/库存副作用 —— 重试必须换新 requestId。
+        if (!markRequestProcessed(sender.getUUID(), requestId)) {
+            MiningNetwork.sendWebUiResponse(sender,
+                    new S2CWebUiResponse(requestId, false, errorJson("duplicate_request")));
+            return;
+        }
         try {
             WebUiAction handler = ACTIONS.get(action);
             if (handler == null) {
@@ -89,6 +119,36 @@ public final class WebUiServerDispatcher {
      */
     public static WebUiAction resolve(String action) {
         return ACTIONS.get(action);
+    }
+
+    /**
+     * 登记一次 requestId 到该玩家的滑动窗口 (防重放核心)。首次见到返回 true (放行执行 handler); 已在窗口内返回
+     * false (重复请求, 调用方短路)。窗口满 {@link #MAX_TRACKED_REQUEST_IDS_PER_PLAYER} 时按插入序逐出最旧 id。
+     *
+     * 对单玩家窗口的 contains + add + 逐出在 synchronized(window) 内成原子, 防登出清理或登出竞态迟到包并发改坏
+     * LinkedHashSet 的内部结构。窗口对象本身经 computeIfAbsent 在 ConcurrentHashMap 上原子获取/创建。
+     */
+    private static boolean markRequestProcessed(UUID sender, long requestId) {
+        Set<Long> window = PROCESSED_REQUEST_IDS.computeIfAbsent(sender, k -> new LinkedHashSet<>());
+        synchronized (window) {
+            if (!window.add(requestId)) {
+                return false;
+            }
+            if (window.size() > MAX_TRACKED_REQUEST_IDS_PER_PLAYER) {
+                java.util.Iterator<Long> it = window.iterator();
+                it.next();
+                it.remove();
+            }
+            return true;
+        }
+    }
+
+    /**
+     * 清除某玩家的 requestId 滑动窗口 (玩家登出时由 {@link WebUiServerSubsystem} 挂的 PlayerLoggedOutEvent 调用)。
+     * 防止离线玩家的窗口长期驻留造成内存泄漏; 同一玩家重连后从空窗口开始 (新会话 requestId 仍单调自增, 不复用)。
+     */
+    public static void clearPlayer(UUID sender) {
+        PROCESSED_REQUEST_IDS.remove(sender);
     }
 
     /** 构造 {"error":"<message>"} 失败回执 (经 Gson 转义, 防 message 内引号破坏 JSON)。 */

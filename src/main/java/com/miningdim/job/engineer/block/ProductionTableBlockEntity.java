@@ -294,31 +294,40 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
 
     /**
      * 玩家手取输出板时结算生产经验 (7.4 / 9.3): 取出者 UUID == 板 producerUUID 且 productionXpPending,
-     * 给取出者工程师经验; 取走即清 pending (防塞回再取重复刷)。由 {@link ProductionTableMenu} 的输出槽 onTake 调。
+     * 按本次实际取走数量给取出者工程师经验; 结算即清 pending (防塞回再取重复刷)。
+     * 由 {@link ProductionTableMenu} 的输出槽 onTake 调。
+     *
+     * 不依赖传入 stack 自身的 count/empty: 基类 {@link com.miningdim.menu.AbstractMiningMenu#quickMoveStack}
+     * 在 Shift 整栈移走后传给 onTake 的是移动后的【残留栈】(整栈取走时为 EMPTY), 据其 count/empty 结算会漏算
+     * 最常用的 Shift 取板路径。故调用处 (OutputSlot) 显式传入【取出前的板栈快照 boardSnapshot】(承载 NBT) +
+     * 【本次实际取走量 takenCount】(取出前数量 - 残留数量), 此处仅据 takenCount 判非空与计经验, 与鼠标单取口径一致。
+     *
+     * @param boardSnapshot 取出前的板栈快照 (producer/pending/quality 经此读取与清除)
+     * @param takenCount    本次实际取走的板数 (>0 才结算)
      */
-    public void onOutputTaken(ServerPlayer player, ItemStack taken) {
-        if (taken.isEmpty()) {
-            return;
+    public void onOutputTaken(ServerPlayer player, ItemStack boardSnapshot, int takenCount) {
+        if (takenCount <= 0) {
+            return; // 本次未取走任何板 (残留判据改用真实取走量, 不信传入栈的 count)。
         }
-        if (!NanoNbt.isProductionXpPending(taken)) {
+        if (!NanoNbt.isProductionXpPending(boardSnapshot)) {
             return; // 已结算过 (塞回再取) 或非待结算板。
         }
-        boolean match = NanoNbt.producer(taken).map(p -> p.equals(player.getUUID())).orElse(false);
+        boolean match = NanoNbt.producer(boardSnapshot).map(p -> p.equals(player.getUUID())).orElse(false);
         if (match) {
             // 取出者即生产者: 按板档结算生产原始经验 (经框架衰减入账)。品质杠杆 (4.2/7.4): 品质越高该板
             // 携带的原始经验越高 (xpMult = 1 + coef*qualityHits), 与产量 +1、特效概率并列三条品质结算之一。
-            int qualityHits = NanoNbt.qualityHits(taken);
+            int qualityHits = NanoNbt.qualityHits(boardSnapshot);
             double xpMult = 1.0 + EngineerConfig.PRODUCTION_XP_QUALITY_COEF.get() * qualityHits;
             for (NanoTier tier : NanoTier.values()) {
-                if (taken.is(com.miningdim.job.engineer.ModEngineerItems.plate(tier).get())) {
-                    long raw = (long) Math.floor(tier.rawXp() * xpMult) * taken.getCount();
+                if (boardSnapshot.is(com.miningdim.job.engineer.ModEngineerItems.plate(tier).get())) {
+                    long raw = (long) Math.floor(tier.rawXp() * xpMult) * takenCount;
                     EngineerLevels.grantRawXp(player, raw);
                     break;
                 }
             }
         }
-        // 取走即清 (无论是否匹配, 防塞回刷)。
-        NanoNbt.clearProductionXpPending(taken);
+        // 结算即清 (无论是否匹配, 防塞回刷)。
+        NanoNbt.clearProductionXpPending(boardSnapshot);
     }
 
     // ---- tick (10.4 无玩家上下文; 只推进 QTE 游标) ----

@@ -1,5 +1,5 @@
 {
-  "type": "miningdim:rend",
+  "type": "champions:rend",
   "category": "offense",
   "enable": true,
   "hasSub": false,

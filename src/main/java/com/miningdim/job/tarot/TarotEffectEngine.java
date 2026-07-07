@@ -51,6 +51,19 @@ public final class TarotEffectEngine {
     /** 死神闪耀力量叠层的续期时长 (ticks); 15s, 与签名窗同量级。 */
     private static final int STRENGTH_STACK_DURATION = 300;
 
+    /**
+     * 周期 AoE DoT (太阳每秒灼敌) 单跳对每个目标的伤害上限 = 目标最大生命的此占比 (平衡红线: 参照精英怪 DoT 的
+     * 15% maxHP/s, 防 datapack 的扁平每跳值在低血杂兵上离谱; spec 给扁平值, 此处只钳上界不抬下界, 满血厚血目标
+     * 按 spec 扁平值生效)。
+     */
+    private static final double MAX_DOT_PCT_PER_TICK = 0.15D;
+
+    /**
+     * 周期 AoE 友方回血 (太阳闪耀每秒为友回血) 单跳对每个目标的治疗上限 = 目标最大生命的此占比 (与 DoT 同口径上界,
+     * 防扁平回血值在低血上限玩家身上离谱; 80 血公服按 spec 扁平 12/s 远低于此, clamp 仅作红线兜底)。
+     */
+    private static final double MAX_HEAL_PCT_PER_TICK = 0.15D;
+
     private final MaxHealthModifierManager maxHealth;
     private final ScheduledEffectManager scheduler;
 
@@ -111,6 +124,9 @@ public final class TarotEffectEngine {
             case AOE_ALLY_POTION -> aoeAllyPotion(level, caster, op);
             case AOE_ALLY_HEAL -> aoeAllyHeal(level, caster, op);
             case AOE_ALLY_ABSORPTION -> aoeAllyAbsorption(level, caster, op);
+            case AOE_ENEMY_DAMAGE_OVER_TIME -> scheduleAoeEnemyDamageOverTime(caster, op);
+            case AOE_ALLY_HEAL_OVER_TIME -> scheduleAoeAllyHealOverTime(caster, op);
+            case IMMUNITY -> applyImmunity(caster, op);
             default -> throw new IllegalStateException("Unhandled tarot effect kind: " + op.kind());
         }
     }
@@ -444,6 +460,125 @@ public final class TarotEffectEngine {
         for (Player ally : alliesInRadius(level, caster, op.radius())) {
             ally.setAbsorptionAmount(Math.max(ally.getAbsorptionAmount(), amount));
         }
+    }
+
+    // ---- 周期 AoE DoT / 友方回血 (太阳每秒灼敌 / 闪耀每秒为友回血) ----
+
+    /**
+     * 太阳每秒灼敌 (AOE_ENEMY_DAMAGE_OVER_TIME): 经调度器每 periodTicks 对 owner 当前半径内敌各 amount 伤害, 共
+     * durationTicks/periodTicks 跳。每跳按 owner 实时坐标重取敌 (周期内移动/新进入半径的敌也吃灼烧)。单跳每目标伤害
+     * 经 {@link #clampDotPerTick} 钳到目标最大生命的上限 (红线)。owner 离线/死亡由调度器按 UUID 自动跳过并取消队列。
+     */
+    private void scheduleAoeEnemyDamageOverTime(ServerPlayer caster, TarotEffectOp op) {
+        int period = op.periodTicks();
+        int count = periodicCount(op.durationTicks(), period);
+        if (count <= 0) {
+            return;
+        }
+        double amount = op.amount();
+        double radius = op.radius();
+        scheduler.schedule(caster, period, period, count, p -> tickAoeEnemyDamage(p, amount, radius));
+    }
+
+    /**
+     * 测试钩子 (同包可见): 直接驱动一跳灼敌 (绕过调度器的 server 时钟依赖, GameTest 单帧内无法推进 server tick)。
+     * 周期跳数由 {@link #periodicCount} 单测; 本钩子让 TDD 端到端断言"半径内累计掉血/半径外不掉/clamp 红线"。
+     */
+    void tickAoeEnemyDamageForTest(ServerPlayer caster, double amount, double radius) {
+        tickAoeEnemyDamage(caster, amount, radius);
+    }
+
+    /** 测试钩子 (同包可见): 直接驱动一跳为友回血 (绕过调度器 server 时钟依赖)。 */
+    void tickAoeAllyHealForTest(ServerPlayer caster, double amount, double radius) {
+        tickAoeAllyHeal(caster, amount, radius);
+    }
+
+    /** 单跳灼敌: 对 caster 当前半径内每个敌按 clamp 后伤害施加 (magic 源, 与一次性 aoeEnemyDamage 同口径)。 */
+    private void tickAoeEnemyDamage(ServerPlayer caster, double amount, double radius) {
+        if (!(caster.level() instanceof ServerLevel level)) {
+            return;
+        }
+        for (LivingEntity enemy : enemiesInRadius(level, caster, radius)) {
+            float dmg = (float) clampDotPerTick(amount, enemy.getMaxHealth());
+            if (dmg > 0.0F) {
+                enemy.hurt(level.damageSources().magic(), dmg);
+            }
+        }
+    }
+
+    /**
+     * 太阳闪耀每秒为友回血 (AOE_ALLY_HEAL_OVER_TIME): 经调度器每 periodTicks 对 owner 当前半径内友方各瞬治 amount,
+     * 共 durationTicks/periodTicks 跳。单跳每目标治疗经 {@link #clampHealPerTick} 钳到目标最大生命的上限。
+     */
+    private void scheduleAoeAllyHealOverTime(ServerPlayer caster, TarotEffectOp op) {
+        int period = op.periodTicks();
+        int count = periodicCount(op.durationTicks(), period);
+        if (count <= 0) {
+            return;
+        }
+        double amount = op.amount();
+        double radius = op.radius();
+        scheduler.schedule(caster, period, period, count, p -> tickAoeAllyHeal(p, amount, radius));
+    }
+
+    /** 单跳为友回血: 对 caster 当前半径内每个友方按 clamp 后治疗量 heal。 */
+    private void tickAoeAllyHeal(ServerPlayer caster, double amount, double radius) {
+        if (!(caster.level() instanceof ServerLevel level)) {
+            return;
+        }
+        for (Player ally : alliesInRadius(level, caster, radius)) {
+            float heal = (float) clampHealPerTick(amount, ally.getMaxHealth());
+            if (heal > 0.0F) {
+                ally.heal(heal);
+            }
+        }
+    }
+
+    /**
+     * 周期跳数 = 总时长 / 周期 (向下取整; 太阳 "20 秒每秒灼" = 400/20 = 20 跳)。周期或时长非正则返回 0 (无跳, 空过)。
+     * 抽出供 TDD 直接断言跳数计算 (周期 op 累计伤害 == 单跳 x 跳数)。
+     */
+    public static int periodicCount(int durationTicks, int periodTicks) {
+        if (periodTicks <= 0 || durationTicks <= 0) {
+            return 0;
+        }
+        return durationTicks / periodTicks;
+    }
+
+    /**
+     * DoT 单跳每目标伤害钳制: 取 min(spec 扁平值, 目标最大生命 x {@link #MAX_DOT_PCT_PER_TICK})。抽出供 TDD 断言
+     * 红线 (删 clamp 则扁平值在低血杂兵上击穿 15% 上限, 断言挂)。
+     */
+    public static double clampDotPerTick(double flatAmount, double targetMaxHealth) {
+        if (targetMaxHealth <= 0.0D) {
+            return 0.0D;
+        }
+        return Math.min(flatAmount, targetMaxHealth * MAX_DOT_PCT_PER_TICK);
+    }
+
+    /** 回血单跳每目标治疗钳制: 取 min(spec 扁平值, 目标最大生命 x {@link #MAX_HEAL_PCT_PER_TICK})。供 TDD 断言。 */
+    public static double clampHealPerTick(double flatAmount, double targetMaxHealth) {
+        if (targetMaxHealth <= 0.0D) {
+            return 0.0D;
+        }
+        return Math.min(flatAmount, targetMaxHealth * MAX_HEAL_PCT_PER_TICK);
+    }
+
+    // ---- 免疫窗 (太阳/世界/力量/恶魔闪耀的 IMMUNITY op) ----
+
+    /**
+     * 开免疫窗 (IMMUNITY): 把 op.effects() 的注册名解析校验后 (走 {@link #resolveEffect}, 未知名抛出冒泡, 与其它
+     * effect 引用同口径不静默) 存进 {@link TarotCombatState} 免疫窗, 拒绝施加期由 {@link TarotCombatHandlers} 读窗。
+     * 解析仅做校验 (确认 datapack 写的是真 effect), 窗口存注册名字符串 (handler 端按 effect 的注册名比对, 无须持
+     * MobEffect 实例)。
+     */
+    private void applyImmunity(ServerPlayer caster, TarotEffectOp op) {
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        for (String effectId : op.effects()) {
+            resolveEffect(effectId); // 校验: 未知 effect 名抛 IllegalArgumentException 冒泡 (C9 不静默)。
+            ids.add(effectId);
+        }
+        TarotCombatState.openImmunity(caster, op.durationTicks(), ids, op.immuneVulnerability());
     }
 
     // ---- helpers ----

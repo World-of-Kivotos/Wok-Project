@@ -22,7 +22,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -139,6 +138,10 @@ public final class MunitionsGameTests {
         // 真默认枪包弹药 path (data/tacz/index/ammo/<path>.json; 仅字符串, 不构造 ResourceLocation / 触 com.tacz.*)。
         helper.assertTrue("762x39".equals(MunitionsCaliber.RIFLE.defaultAmmoPath()),
                 "RIFLE default ammo path is 762x39, got " + MunitionsCaliber.RIFLE.defaultAmmoPath());
+        helper.assertTrue("556x45".equals(MunitionsCaliber.RIFLE_556.defaultAmmoPath()),
+                "RIFLE_556 default ammo path is 556x45, got " + MunitionsCaliber.RIFLE_556.defaultAmmoPath());
+        helper.assertTrue(MunitionsCaliber.RIFLE_556.category() == MunitionsCaliber.Category.RIFLE,
+                "RIFLE_556 appears under rifle ammo category");
         helper.assertTrue("40mm".equals(MunitionsCaliber.EXPLOSIVE.defaultAmmoPath()),
                 "EXPLOSIVE default ammo path is 40mm, got " + MunitionsCaliber.EXPLOSIVE.defaultAmmoPath());
         helper.assertTrue("9mm".equals(MunitionsCaliber.PISTOL.defaultAmmoPath()),
@@ -282,23 +285,24 @@ public final class MunitionsGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void settleClampedByMaterial(GameTestHelper helper) {
-        // 料瓶颈: 充裕时间 + 充裕缓冲, 但只够 2 批料 (14 铜 / 32 火药 @ 7铜+16火药每批)。
+        // 料瓶颈: 充裕时间 + 充裕缓冲, 但四件套只够 2 批。
         int level = 5; // 直造 40 发/批 (步枪)。
         int perBatch = MunitionsProduction.roundsPerBatch(MunitionsCaliber.RIFLE, level); // 40
         long bigElapsed = MunitionsProduction.ticksPerRound(level) * 100_000L; // 远超需求。
         int bigBuffer = 100_000;
-        int copper = 14;      // 2 批 (7/批)。
-        int gunpowder = 32;   // 2 批 (16/批)。
-
         MunitionsProduction.Result r = MunitionsProduction.settle(
-                MunitionsCaliber.RIFLE, level, 1, bigElapsed, bigBuffer, copper, gunpowder);
+                MunitionsCaliber.RIFLE, level, 1, bigElapsed, bigBuffer, 2, 2, 2, 2);
         helper.assertTrue(r.batchesConsumed() == 2, "material caps to exactly 2 batches, got " + r.batchesConsumed());
         helper.assertTrue(r.roundsProduced() == 2 * perBatch,
                 "rounds == batches × roundsPerBatch = 2*40 = 80, got " + r.roundsProduced());
-        helper.assertTrue(r.copperConsumed() == 2 * MunitionsConfig.RECIPE_COPPER_COST.get(),
-                "copper consumed = 2 batches × 7 = 14, got " + r.copperConsumed());
-        helper.assertTrue(r.gunpowderConsumed() == 2 * MunitionsConfig.RECIPE_GUNPOWDER_COST.get(),
-                "gunpowder consumed = 2 batches × 16 = 32, got " + r.gunpowderConsumed());
+        helper.assertTrue(r.primerConsumed() == 2 * MunitionsConfig.RECIPE_PRIMER_COST.get(),
+                "primer consumed = 2 batches, got " + r.primerConsumed());
+        helper.assertTrue(r.casingConsumed() == 2 * MunitionsConfig.RECIPE_CASING_COST.get(),
+                "casing consumed = 2 batches, got " + r.casingConsumed());
+        helper.assertTrue(r.bulletHeadConsumed() == 2 * MunitionsConfig.RECIPE_BULLET_HEAD_COST.get(),
+                "bullet head consumed = 2 batches, got " + r.bulletHeadConsumed());
+        helper.assertTrue(r.propellantConsumed() == 2 * MunitionsConfig.RECIPE_PROPELLANT_COST.get(),
+                "propellant consumed = 2 batches, got " + r.propellantConsumed());
         // 工费/经验与实产发数挂钩: 80 发 -> floor(80*1.5)=120 CP; 80 raw xp。
         helper.assertTrue(r.workFeeCredits() == MunitionsProduction.workFee(80),
                 "work fee tracks produced rounds (80 -> 120 CP)");
@@ -316,7 +320,7 @@ public final class MunitionsGameTests {
         int bufferRemaining = 100;
         long bigElapsed = MunitionsProduction.ticksPerRound(level) * 100_000L;
         MunitionsProduction.Result byBuffer = MunitionsProduction.settle(
-                MunitionsCaliber.RIFLE, level, 1, bigElapsed, bufferRemaining, 9999, 9999);
+                MunitionsCaliber.RIFLE, level, 1, bigElapsed, bufferRemaining, 9999, 9999, 9999, 9999);
         helper.assertTrue(byBuffer.batchesConsumed() == bufferRemaining / perBatch,
                 "buffer 100 / 40-per-batch floors to 2 batches, got " + byBuffer.batchesConsumed());
         helper.assertTrue(byBuffer.roundsProduced() == 2 * perBatch,
@@ -328,7 +332,7 @@ public final class MunitionsGameTests {
         // 时间瓶颈: 料/缓冲充裕, 但流逝只够 1 批的步枪当量时间 -> 1 批 (40 发)。
         long oneBatchTime = MunitionsProduction.ticksPerRound(level) * (long) perBatch; // 恰好 40 发时间。
         MunitionsProduction.Result byTime = MunitionsProduction.settle(
-                MunitionsCaliber.RIFLE, level, 1, oneBatchTime, 9999, 9999, 9999);
+                MunitionsCaliber.RIFLE, level, 1, oneBatchTime, 9999, 9999, 9999, 9999, 9999);
         helper.assertTrue(byTime.batchesConsumed() == 1,
                 "elapsed sufficient for exactly 1 batch yields 1 batch, got " + byTime.batchesConsumed());
         helper.assertTrue(byTime.roundsProduced() == perBatch, "time-clamped to 1 batch = 40 rounds");
@@ -340,20 +344,20 @@ public final class MunitionsGameTests {
         int level = 5;
         long bigElapsed = MunitionsProduction.ticksPerRound(level) * 100_000L;
         // 未选口径 (null) -> NONE。
-        helper.assertTrue(MunitionsProduction.settle(null, level, 1, bigElapsed, 9999, 9999, 9999)
+        helper.assertTrue(MunitionsProduction.settle(null, level, 1, bigElapsed, 9999, 9999, 9999, 9999, 9999)
                 == MunitionsProduction.Result.NONE, "null caliber forfeits (NONE)");
         // 缓冲已满 (剩 0) -> NONE。
-        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, bigElapsed, 0, 9999, 9999)
+        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, bigElapsed, 0, 9999, 9999, 9999, 9999)
                 .produced(), "buffer full (remaining 0) produces nothing");
-        // 料不足一批 (6 铜 < 7/批) -> NONE。
-        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, bigElapsed, 9999, 6, 9999)
-                .produced(), "copper below one batch (6<7) produces nothing (先查后扣, 不白产)");
+        // 料不足一批 -> NONE。
+        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, bigElapsed, 9999, 0, 9999, 9999, 9999)
+                .produced(), "missing primer produces nothing (先查后扣, 不白产)");
         // 0 流逝 -> NONE (未达时间不产)。
-        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, 0L, 9999, 9999, 9999)
+        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, 0L, 9999, 9999, 9999, 9999, 9999)
                 .produced(), "0 elapsed produces nothing");
         // 时间不足一整批 (1 发的时间, 但一批要 40 发) -> NONE (按整批走料)。
         long subBatchTime = MunitionsProduction.ticksPerRound(level) * 1L;
-        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, subBatchTime, 9999, 9999, 9999)
+        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, subBatchTime, 9999, 9999, 9999, 9999, 9999)
                 .produced(), "time for <1 full batch produces nothing (整批走料, 不产半批)");
         helper.succeed();
     }
@@ -452,9 +456,8 @@ public final class MunitionsGameTests {
             MunitionsBenchBlockEntity be = newBench(helper, player);
             helper.assertTrue(be.trySelectCaliber(MunitionsCaliber.RIFLE, player), "select RIFLE at L5");
 
-            // 备料 2 批 (14 铜 / 32 火药) -> 应产恰好 80 发 (料瓶颈, 时间/缓冲充裕)。
-            be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_COPPER, new ItemStack(Items.COPPER_INGOT, 14));
-            be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_GUNPOWDER, new ItemStack(Items.GUNPOWDER, 32));
+            // 备料 2 批四件套 -> 应产恰好 80 发 (料瓶颈, 时间/缓冲充裕)。
+            stockParts(be, 2);
 
             // 预存余额够付 80 发工费 (120 CP); 余额充足时先查后扣放行本批。
             ledger.credit(player.getUUID(), Currency.CREDIT, 1000L);
@@ -467,11 +470,8 @@ public final class MunitionsGameTests {
             // 实产 80 发入缓冲 (料瓶颈夹到 2 批)。
             helper.assertTrue(be.bufferedRounds() == 80,
                     "online owner catch-up produces exactly 80 rounds (2 batches of 40), got " + be.bufferedRounds());
-            // 真扣料: 铜 14->0, 火药 32->0 (整批走料)。
-            helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_COPPER).getCount() == 0,
-                    "all 14 copper consumed by 2 batches");
-            helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_GUNPOWDER).getCount() == 0,
-                    "all 32 gunpowder consumed by 2 batches");
+            // 真扣料: 四件套全部归零 (整批走料)。
+            assertPartCounts(helper, be, 0);
             // 工费销毁入账 (sink): 余额按发数扣 120 CP (1000 -> 880)。
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 880L,
                     "work fee sink destroys 120 CP for 80 rounds (1000-120=880), got "
@@ -498,8 +498,7 @@ public final class MunitionsGameTests {
         try {
             MunitionsBenchBlockEntity be = newBench(helper, player);
             be.trySelectCaliber(MunitionsCaliber.RIFLE, player);
-            be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_COPPER, new ItemStack(Items.COPPER_INGOT, 14));
-            be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_GUNPOWDER, new ItemStack(Items.GUNPOWDER, 32));
+            stockParts(be, 2);
             // 余额仅 10 CP, 不够 80 发的 120 CP 工费 -> 本批作废 (扣不动则料不扣、缓冲不增、经验不给)。
             ledger.credit(player.getUUID(), Currency.CREDIT, 10L);
 
@@ -508,10 +507,7 @@ public final class MunitionsGameTests {
 
             helper.assertTrue(be.bufferedRounds() == 0,
                     "insufficient balance forfeits the batch: no rounds buffered, got " + be.bufferedRounds());
-            helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_COPPER).getCount() == 14,
-                    "forfeited batch does NOT consume copper (先查后扣)");
-            helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_GUNPOWDER).getCount() == 32,
-                    "forfeited batch does NOT consume gunpowder");
+            assertPartCounts(helper, be, 2);
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 10L,
                     "balance untouched when charge fails (transaction-safe, no partial sink)");
             helper.assertTrue(job.grantXpCalls == 0, "no xp granted when batch forfeited (no production)");
@@ -552,8 +548,13 @@ public final class MunitionsGameTests {
 
     /** 在 helper 世界 (0,1,0) 放一个军火台 BE, 设主人为 player, 锚定首帧时间戳并返回。 */
     private static MunitionsBenchBlockEntity newBench(GameTestHelper helper, ServerPlayer owner) {
+        return newBench(helper, owner, ModMunitionsBlocks.MUNITIONS_BENCH_HIGH.get());
+    }
+
+    private static MunitionsBenchBlockEntity newBench(GameTestHelper helper, ServerPlayer owner,
+                                                      net.minecraft.world.level.block.Block block) {
         BlockPos rel = new BlockPos(0, 1, 0);
-        helper.setBlock(rel, com.miningdim.job.munitions.ModMunitionsBlocks.MUNITIONS_BENCH.get());
+        helper.setBlock(rel, block);
         BlockPos abs = helper.absolutePos(rel);
         net.minecraft.world.level.block.entity.BlockEntity raw = helper.getLevel().getBlockEntity(abs);
         if (!(raw instanceof MunitionsBenchBlockEntity be)) {
@@ -576,6 +577,28 @@ public final class MunitionsGameTests {
         // 确定性: 测试不依赖 BE 在测试体执行前是否恰好 tick 过一次)。
         tag.putBoolean("SettleInitialized", true);
         be.load(tag);
+    }
+
+    private static void stockParts(MunitionsBenchBlockEntity be, int count) {
+        be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER,
+                new ItemStack(ModMunitionsItems.PRIMER.get(), count));
+        be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_CASING,
+                new ItemStack(ModMunitionsItems.CASING.get(), count));
+        be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_BULLET_HEAD,
+                new ItemStack(ModMunitionsItems.BULLET_HEAD.get(), count));
+        be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_PROPELLANT,
+                new ItemStack(ModMunitionsItems.PROPELLANT.get(), count));
+    }
+
+    private static void assertPartCounts(GameTestHelper helper, MunitionsBenchBlockEntity be, int expected) {
+        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER).getCount() == expected,
+                "primer count expected " + expected);
+        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_CASING).getCount() == expected,
+                "casing count expected " + expected);
+        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_BULLET_HEAD).getCount() == expected,
+                "bullet head count expected " + expected);
+        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PROPELLANT).getCount() == expected,
+                "propellant count expected " + expected);
     }
 
     /** 经 NBT 注入缓冲态 (已产某口径若干发未取), 测换口径冲突门 (BufferedRounds/BufferedCaliber 持久键)。 */

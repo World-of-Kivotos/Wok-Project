@@ -1,0 +1,11 @@
+{
+  "munitions_bench_weld": {
+    "subtitle": "subtitles.miningdim.munitions_bench_weld",
+    "sounds": [
+      {
+        "name": "miningdim:block/munitions_bench_weld",
+        "stream": false
+      }
+    ]
+  }
+}

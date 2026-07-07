@@ -1,0 +1,13 @@
+{
+  "parent": "miningdim:block/munitions_bench_main",
+  "textures": {
+    "dark": "miningdim:block/munitions_bench_radiant_base",
+    "black": "miningdim:block/munitions_bench_radiant_black",
+    "metal": "miningdim:block/munitions_bench_radiant_metal",
+    "panel": "miningdim:block/munitions_bench_radiant_panel",
+    "glass": "miningdim:block/munitions_bench_radiant_glass",
+    "brass": "miningdim:block/munitions_bench_radiant_brass",
+    "hot": "miningdim:block/munitions_bench_radiant_hot",
+    "particle": "miningdim:block/munitions_bench_radiant_base"
+  }
+}

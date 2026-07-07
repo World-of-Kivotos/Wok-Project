@@ -3,6 +3,7 @@ package com.miningdim.job.munitions.menu;
 import com.miningdim.job.munitions.ModMunitionsBlocks;
 import com.miningdim.job.munitions.ModMunitionsMenus;
 import com.miningdim.job.munitions.MunitionsCaliber;
+import com.miningdim.job.munitions.block.MunitionsBenchBlock;
 import com.miningdim.job.munitions.block.MunitionsBenchBlockEntity;
 import com.miningdim.menu.AbstractMiningMenu;
 import com.miningdim.menu.MenuValidity;
@@ -32,9 +33,12 @@ import net.minecraftforge.items.SlotItemHandler;
  */
 public final class MunitionsBenchMenu extends AbstractMiningMenu {
 
-    private static final int CONTAINER_SLOTS = 4;
+    private static final int CONTAINER_SLOTS = 5;
 
     public static final int BUTTON_TOGGLE_LOCK = 200;
+    public static final int BUTTON_START_CRAFT = 210;
+    public static final int BUTTON_CANCEL_CRAFT = 211;
+    public static final int BUTTON_TOGGLE_CONTINUOUS = 212;
 
     private final MunitionsBenchBlockEntity blockEntity;
     private final ContainerData data;
@@ -51,12 +55,14 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
                 blockEntity.onAccess(serverPlayer);
             }
             addSlot(new SlotItemHandler(blockEntity.inventory(),
-                    MunitionsBenchBlockEntity.SLOT_COPPER, 26, 24));
+                    MunitionsBenchBlockEntity.SLOT_PRIMER, 296, 158));
             addSlot(new SlotItemHandler(blockEntity.inventory(),
-                    MunitionsBenchBlockEntity.SLOT_GUNPOWDER, 26, 47));
+                    MunitionsBenchBlockEntity.SLOT_CASING, 322, 158));
             addSlot(new SlotItemHandler(blockEntity.inventory(),
-                    MunitionsBenchBlockEntity.SLOT_PROPELLANT, 48, 35));
-            addSlot(new OutputSlot(blockEntity, MunitionsBenchBlockEntity.SLOT_OUTPUT, 116, 35));
+                    MunitionsBenchBlockEntity.SLOT_BULLET_HEAD, 296, 184));
+            addSlot(new SlotItemHandler(blockEntity.inventory(),
+                    MunitionsBenchBlockEntity.SLOT_PROPELLANT, 322, 184));
+            addSlot(new OutputSlot(blockEntity, MunitionsBenchBlockEntity.SLOT_OUTPUT, 316, 84));
             this.data = inv.player.level().isClientSide
                     ? new SimpleContainerData(MunitionsBenchBlockEntity.DATA_COUNT())
                     : blockEntity.dataAccess();
@@ -64,13 +70,13 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
             this.data = new SimpleContainerData(MunitionsBenchBlockEntity.DATA_COUNT());
         }
         addDataSlots(this.data);
-        addPlayerInventory(inv, 8, 84);
+        addPlayerInventory(inv, 100, 148);
     }
 
     /** 取 pos 处方块作 stillValid 校验目标; 非军火台时退回军火台方块占位 (块不匹配判 false 关闭界面)。 */
     private static net.minecraft.world.level.block.Block blockAt(Inventory inv, BlockPos pos) {
         net.minecraft.world.level.block.Block block = inv.player.level().getBlockState(pos).getBlock();
-        return ModMunitionsBlocks.MUNITIONS_BENCH.get() == block
+        return block instanceof MunitionsBenchBlock
                 ? block : ModMunitionsBlocks.MUNITIONS_BENCH.get();
     }
 
@@ -88,6 +94,15 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
                 return true;
             }
             return false;
+        }
+        if (id == BUTTON_START_CRAFT) {
+            return blockEntity.tryStartCraft(serverPlayer);
+        }
+        if (id == BUTTON_CANCEL_CRAFT) {
+            return blockEntity.cancelCraft(serverPlayer);
+        }
+        if (id == BUTTON_TOGGLE_CONTINUOUS) {
+            return blockEntity.toggleContinuousCrafting(serverPlayer);
         }
         return false;
     }
@@ -135,5 +150,25 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
 
     public boolean isRefineUnlocked() {
         return data.get(MunitionsBenchBlockEntity.DATA_REFINE_UNLOCKED) != 0;
+    }
+
+    public int productionProgressTicks() {
+        return data.get(MunitionsBenchBlockEntity.DATA_PRODUCTION_PROGRESS_TICKS);
+    }
+
+    public int productionRequiredTicks() {
+        return data.get(MunitionsBenchBlockEntity.DATA_PRODUCTION_REQUIRED_TICKS);
+    }
+
+    public int effectiveMunitionsLevel() {
+        return Math.max(1, Math.min(10, data.get(MunitionsBenchBlockEntity.DATA_EFFECTIVE_LEVEL)));
+    }
+
+    public boolean isCraftingActive() {
+        return data.get(MunitionsBenchBlockEntity.DATA_CRAFTING_ACTIVE) != 0;
+    }
+
+    public boolean isContinuousCrafting() {
+        return data.get(MunitionsBenchBlockEntity.DATA_CONTINUOUS_CRAFTING) != 0;
     }
 }

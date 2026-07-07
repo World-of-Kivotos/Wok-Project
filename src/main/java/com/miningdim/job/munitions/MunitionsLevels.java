@@ -105,7 +105,7 @@ public final class MunitionsLevels {
     public static MunitionsCaliber highestUnlockedCaliber(int level) {
         MunitionsCaliber best = MunitionsCaliber.PISTOL;
         for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
-            if (level >= caliber.unlockLevel()) {
+            if (level >= caliber.unlockLevel() && caliber.unlockLevel() > best.unlockLevel()) {
                 best = caliber;
             }
         }

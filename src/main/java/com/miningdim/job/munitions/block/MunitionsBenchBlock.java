@@ -1,54 +1,97 @@
 package com.miningdim.job.munitions.block;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.RandomSource;
+import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.RenderShape;
+import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.StateDefinition;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
+import net.minecraft.world.level.block.state.properties.DirectionProperty;
+import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraftforge.network.NetworkHooks;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.function.Supplier;
 
-/**
- * 军火台方块 (Munitions_Job_DesignSpec 五/十章)。被动产线方块: 右键开 GUI 塞料选口径, 时间戳追算被动产弹入缓冲。
- *
- * 交互 (仿工程师生产台上锁范式):
- *  - 普通右键: 开 GUI (NetworkHooks.openScreen, 仅服务端权威)。锁定时非主人 (OP 除外) 拒开。
- *  - 潜行右键空手: 切换锁 (仅主人)。actionbar 反馈。
- * setPlacedBy: 记录 ownerUUID (放置者; BE 存 owner)。台数上限校验在 {@code MunitionsSystem} 的 EntityPlaceEvent
- * 处理 (那里能取消放置 + 退还方块物品; 仿农夫 onFarmlandPlace), 本方块只负责开 GUI/上锁/ticker。
- *
- * 继承普通 Block + 实现 EntityBlock (而非 BaseEntityBlock), 与工程师生产台同范式: 军火台要正常渲染为可见模型
- * (RenderShape.MODEL), BaseEntityBlock 默认 INVISIBLE 不合用。
- *
- * ticker (五章被动产线): getTicker -> be.serverTick() 做时间戳追算 (只服务端; 不每 tick 遍历, 见 BlockEntity)。
- */
 public final class MunitionsBenchBlock extends Block implements EntityBlock {
 
-    private final Supplier<BlockEntityType<MunitionsBenchBlockEntity>> beType;
+    public static final DirectionProperty FACING = BlockStateProperties.HORIZONTAL_FACING;
+    public static final EnumProperty<Part> PART = EnumProperty.create("part", Part.class);
+    public static final BooleanProperty ACTIVE = BooleanProperty.create("active");
 
-    /**
-     * @param properties 方块属性
-     * @param beType     方块实体类型供给 (延迟取, 注册后才 .get(); 用于 ticker 类型适配)
-     */
+    private final Supplier<BlockEntityType<MunitionsBenchBlockEntity>> beType;
+    private final int unlockLevel;
+    private final int maxEffectiveLevel;
+
     public MunitionsBenchBlock(BlockBehaviour.Properties properties,
-                              Supplier<BlockEntityType<MunitionsBenchBlockEntity>> beType) {
+                              Supplier<BlockEntityType<MunitionsBenchBlockEntity>> beType,
+                              int unlockLevel,
+                              int maxEffectiveLevel) {
         super(properties);
         this.beType = beType;
+        this.unlockLevel = clampLevel(unlockLevel);
+        this.maxEffectiveLevel = Math.max(this.unlockLevel, clampLevel(maxEffectiveLevel));
+        registerDefaultState(stateDefinition.any()
+                .setValue(FACING, Direction.NORTH)
+                .setValue(PART, Part.MAIN)
+                .setValue(ACTIVE, false));
+    }
+
+    public int unlockLevel() {
+        return unlockLevel;
+    }
+
+    public int maxEffectiveLevel() {
+        return maxEffectiveLevel;
+    }
+
+    public int effectiveLevelFor(int playerLevel) {
+        return Math.min(clampLevel(playerLevel), maxEffectiveLevel);
+    }
+
+    private static int clampLevel(int level) {
+        return Math.max(1, Math.min(10, level));
+    }
+
+    public static boolean isMain(BlockState state) {
+        return state.hasProperty(PART) && state.getValue(PART) == Part.MAIN;
+    }
+
+    public static BlockPos mainPos(BlockPos pos, BlockState state) {
+        return isMain(state) ? pos : pos.relative(state.getValue(FACING));
+    }
+
+    public static BlockPos extensionPos(BlockPos mainPos, BlockState mainState) {
+        return mainPos.relative(mainState.getValue(FACING).getOpposite());
+    }
+
+    @Override
+    protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
+        builder.add(FACING, PART, ACTIVE);
     }
 
     @Override
@@ -56,13 +99,56 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
         return RenderShape.MODEL;
     }
 
+    @Nullable
+    @Override
+    public BlockState getStateForPlacement(BlockPlaceContext context) {
+        Direction facing = context.getHorizontalDirection().getOpposite();
+        BlockPos extensionPos = context.getClickedPos().relative(facing.getOpposite());
+        if (!context.getLevel().getBlockState(extensionPos).canBeReplaced(context)) {
+            return null;
+        }
+        return defaultBlockState()
+                .setValue(FACING, facing)
+                .setValue(PART, Part.MAIN)
+                .setValue(ACTIVE, false);
+    }
+
     @Override
     public void setPlacedBy(Level level, BlockPos pos, BlockState state, @Nullable LivingEntity placer, ItemStack stack) {
         super.setPlacedBy(level, pos, state, placer, stack);
+        if (!isMain(state)) {
+            return;
+        }
+
+        BlockPos extensionPos = extensionPos(pos, state);
+        BlockState extensionState = state.setValue(PART, Part.EXTENSION).setValue(ACTIVE, false);
+        level.setBlock(extensionPos, extensionState, Block.UPDATE_ALL);
+
         if (!level.isClientSide && placer instanceof Player player
                 && level.getBlockEntity(pos) instanceof MunitionsBenchBlockEntity be) {
             be.setOwner(player.getUUID());
         }
+    }
+
+    @Override
+    public void playerWillDestroy(Level level, BlockPos pos, BlockState state, Player player) {
+        BlockPos otherPos = isMain(state) ? extensionPos(pos, state) : mainPos(pos, state);
+        BlockState otherState = level.getBlockState(otherPos);
+        if (otherState.getBlock() == this && otherState.getValue(PART) != state.getValue(PART)) {
+            level.setBlock(otherPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+        }
+        super.playerWillDestroy(level, pos, state, player);
+    }
+
+    @Override
+    public BlockState updateShape(BlockState state, Direction direction, BlockState neighborState,
+                                  LevelAccessor level, BlockPos pos, BlockPos neighborPos) {
+        Direction linkDirection = isMain(state) ? state.getValue(FACING).getOpposite() : state.getValue(FACING);
+        if (direction == linkDirection
+                && (neighborState.getBlock() != this || neighborState.getValue(PART) == state.getValue(PART))) {
+            return Blocks.AIR.defaultBlockState();
+        }
+        return super.updateShape(state, direction, neighborState, level, pos, neighborPos);
     }
 
     @Override
@@ -71,12 +157,13 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
         if (level.isClientSide) {
             return InteractionResult.SUCCESS;
         }
+
+        BlockPos mainPos = mainPos(pos, state);
         if (!(player instanceof ServerPlayer serverPlayer)
-                || !(level.getBlockEntity(pos) instanceof MunitionsBenchBlockEntity be)) {
+                || !(level.getBlockEntity(mainPos) instanceof MunitionsBenchBlockEntity be)) {
             return InteractionResult.CONSUME;
         }
 
-        // 潜行 + 空手 = 切锁 (仅主人); 否则开 GUI。
         if (player.isShiftKeyDown() && player.getItemInHand(hand).isEmpty()) {
             if (be.isOwner(player)) {
                 boolean nowLocked = be.toggleLocked();
@@ -90,28 +177,62 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
             return InteractionResult.CONSUME;
         }
 
-        // 锁定时非主人 (且非 OP) 拒开 GUI。
         if (!be.canAccess(serverPlayer)) {
             serverPlayer.displayClientMessage(
                     Component.translatable("message.miningdim.munitions.locked_no_access"), true);
             return InteractionResult.CONSUME;
         }
 
-        NetworkHooks.openScreen(serverPlayer, be, buf -> buf.writeBlockPos(pos));
+        NetworkHooks.openScreen(serverPlayer, be, buf -> buf.writeBlockPos(mainPos));
         return InteractionResult.CONSUME;
+    }
+
+    @Override
+    public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {
+        if (!state.getValue(ACTIVE) || random.nextFloat() > 0.72F) {
+            return;
+        }
+        Direction facing = state.getValue(FACING);
+        Direction side = facing.getClockWise();
+        double forward = isMain(state) ? 0.18D : -0.18D;
+        double lateral = (random.nextDouble() - 0.5D) * 0.62D;
+        double x = pos.getX() + 0.5D + facing.getStepX() * forward + side.getStepX() * lateral;
+        double y = pos.getY() + 0.72D + random.nextDouble() * 0.28D;
+        double z = pos.getZ() + 0.5D + facing.getStepZ() * forward + side.getStepZ() * lateral;
+        double vx = side.getStepX() * (random.nextDouble() - 0.5D) * 0.06D;
+        double vy = 0.02D + random.nextDouble() * 0.045D;
+        double vz = side.getStepZ() * (random.nextDouble() - 0.5D) * 0.06D;
+
+        level.addParticle(ParticleTypes.ELECTRIC_SPARK, x, y, z, vx, vy, vz);
+        if (random.nextInt(5) == 0) {
+            level.addParticle(ParticleTypes.SMOKE, x, y + 0.05D, z, 0.0D, 0.015D, 0.0D);
+        }
+        if (random.nextInt(7) == 0) {
+            level.addParticle(ParticleTypes.FLAME, x, y, z, vx * 0.4D, vy * 0.4D, vz * 0.4D);
+        }
+    }
+
+    @Override
+    public BlockState rotate(BlockState state, Rotation rotation) {
+        return state.setValue(FACING, rotation.rotate(state.getValue(FACING)));
+    }
+
+    @Override
+    public BlockState mirror(BlockState state, Mirror mirror) {
+        return state.rotate(mirror.getRotation(state.getValue(FACING)));
     }
 
     @Nullable
     @Override
     public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
-        return new MunitionsBenchBlockEntity(pos, state);
+        return isMain(state) ? new MunitionsBenchBlockEntity(pos, state) : null;
     }
 
     @Nullable
     @Override
     public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state,
                                                                   BlockEntityType<T> type) {
-        if (level.isClientSide) {
+        if (level.isClientSide || !isMain(state)) {
             return null;
         }
         return createTickerHelper(type, beType.get(), (lvl, pos, st, be) -> be.serverTick());
@@ -122,5 +243,21 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
     private static <E extends BlockEntity, A extends BlockEntity> BlockEntityTicker<A> createTickerHelper(
             BlockEntityType<A> actual, BlockEntityType<E> expected, BlockEntityTicker<? super E> ticker) {
         return expected == actual ? (BlockEntityTicker<A>) ticker : null;
+    }
+
+    public enum Part implements StringRepresentable {
+        MAIN("main"),
+        EXTENSION("extension");
+
+        private final String name;
+
+        Part(String name) {
+            this.name = name;
+        }
+
+        @Override
+        public String getSerializedName() {
+            return name;
+        }
     }
 }

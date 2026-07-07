@@ -3,37 +3,26 @@ package com.miningdim.client.webui;
 import com.miningdim.core.Subsystem;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.context.CommandContext;
-
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RegisterClientCommandsEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.DistExecutor;
+import net.minecraftforge.fml.ModList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-/**
- * Web UI 客户端子系统 (模块化铁律 3; 加入主类 List, 但 register 内 client-only 逻辑全部经 DistExecutor 关进
- * Dist.CLIENT lambda)。
- *
- * Dist 隔离 (架构铁律 1, 决定 GameTest 不崩): 本类被主类无条件实例化并 register, 但:
- *   - 必须用【unsafeRunWhenOn + 双箭头】DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> WebUiClient.initClient()):
- *     (a) 双箭头把对 WebUiClient (引用 MCEF/Minecraft/Screen) 的解析推迟进【内层】lambda 体, 内层只在客户端执行时才 classload;
- *     (b) 必须用 unsafe 变体: safe* 变体会跑 Forge SafeReferent 校验, 扫到 lambda 引用了 dist 专属类即抛
- *         "Unsafe Referent usage found in safe referent method" —— 本就是要引用客户端专属类, 故由 unsafe 变体 + 双箭头
- *         自行担保 classload 安全。两个反例 (均曾崩 CONSTRUCT): 单箭头 () -> WebUiClient::initClient 急切 bootstrap
- *         (invalid dist DEDICATED_SERVER); safeRunWhenOn 触 SafeReferent 校验 (Unsafe Referent usage)。
- *   - 开发命令注册监听器订阅在 forgeBus 上, 但 RegisterClientCommandsEvent 本身只在客户端逻辑端触发;
- *     命令执行体内对 WebUiClient 的引用同样经双箭头 DistExecutor 二次兜底, 杜绝任何路径在服务端触链 MCEF。
- *
- * 本子系统不下发 S2C / 不写世界, 纯客户端宿主装配。
- */
+import java.lang.reflect.Method;
+
 public final class WebUiClientSubsystem implements Subsystem {
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/webui/client");
+    private static final String WEBUI_CLIENT_CLASS = "com.miningdim.client.webui.WebUiClient";
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
-        // 客户端初始化关进 client-only 内层 lambda: unsafe 变体(safe* 会触 SafeReferent 校验拒 dist 专属引用) + 双箭头(WebUiClient 仅客户端执行内层体时 classload)。
-        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> WebUiClient.initClient());
-        // 客户端命令注册 (RegisterClientCommandsEvent 仅客户端逻辑端触发, 服务端不调本监听器体)。
+        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> initClientIfAvailable());
         forgeBus.addListener(this::onRegisterClientCommands);
     }
 
@@ -43,8 +32,48 @@ public final class WebUiClientSubsystem implements Subsystem {
     }
 
     private int runDevCommand(CommandContext<CommandSourceStack> ctx) {
-        // 二次 Dist 兜底 (双箭头): 即便此监听器体在非预期端被触发, openDevScreen 也只在客户端 classload/执行。
-        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> WebUiClient.openDevScreen());
+        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> openDevScreenIfAvailable(ctx));
         return Command.SINGLE_SUCCESS;
+    }
+
+    private static void initClientIfAvailable() {
+        if (!isMcefRuntimeAvailable()) {
+            LOGGER.info("[miningdim] MCEF/JCEF not available; skipping WebUI client bootstrap");
+            return;
+        }
+        invokeWebUiClient("initClient");
+    }
+
+    private static void openDevScreenIfAvailable(CommandContext<CommandSourceStack> ctx) {
+        if (!isMcefRuntimeAvailable()) {
+            ctx.getSource().sendFailure(Component.literal("MCEF is not installed; WebUI dev screen is unavailable."));
+            return;
+        }
+        invokeWebUiClient("openDevScreen");
+    }
+
+    private static boolean isMcefRuntimeAvailable() {
+        return ModList.get().isLoaded("mcef")
+                && hasClass("com.cinemamod.mcef.MCEF")
+                && hasClass("org.cef.handler.CefMessageRouterHandler");
+    }
+
+    private static boolean hasClass(String className) {
+        try {
+            Class.forName(className, false, WebUiClientSubsystem.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError ex) {
+            return false;
+        }
+    }
+
+    private static void invokeWebUiClient(String methodName) {
+        try {
+            Class<?> clientClass = Class.forName(WEBUI_CLIENT_CLASS);
+            Method method = clientClass.getMethod(methodName);
+            method.invoke(null);
+        } catch (ReflectiveOperationException | LinkageError ex) {
+            LOGGER.warn("[miningdim] WebUI client call {} failed; WebUI disabled for this session", methodName, ex);
+        }
     }
 }

@@ -26,7 +26,10 @@ public final class ModMunitionsTab {
                     .title(Component.translatable("itemGroup.miningdim_munitions"))
                     .icon(() -> new ItemStack(ModMunitionsItems.MUNITIONS_BENCH_ITEM.get()))
                     .displayItems((params, output) -> {
-                        output.accept(ModMunitionsItems.MUNITIONS_BENCH_ITEM.get());
+                        ModMunitionsItems.ALL_BENCH_ITEMS.forEach(item -> output.accept(item.get()));
+                        output.accept(ModMunitionsItems.PRIMER.get());
+                        output.accept(ModMunitionsItems.CASING.get());
+                        output.accept(ModMunitionsItems.BULLET_HEAD.get());
                         output.accept(ModMunitionsItems.PROPELLANT.get());
                     })
                     .build());

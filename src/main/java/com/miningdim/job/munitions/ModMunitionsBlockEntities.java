@@ -26,7 +26,7 @@ public final class ModMunitionsBlockEntities {
     public static final RegistryObject<BlockEntityType<MunitionsBenchBlockEntity>> MUNITIONS_BENCH =
             BLOCK_ENTITIES.register("munitions_bench",
                     () -> BlockEntityType.Builder.of(MunitionsBenchBlockEntity::new,
-                            ModMunitionsBlocks.MUNITIONS_BENCH.get()).build(null));
+                            ModMunitionsBlocks.allBenchBlocks()).build(null));
 
     public static void register(IEventBus modBus) {
         BLOCK_ENTITIES.register(modBus);

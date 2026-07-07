@@ -22,31 +22,52 @@ import net.minecraftforge.common.ForgeConfigSpec;
 public enum MunitionsCaliber {
 
     /** 手枪/SMG: L1; 默认 9mm。商店 10 / 售 7.5; 步枪基准缩产 1.0。 */
-    PISTOL(0, 1, "9mm", Prices.PISTOL),
+    PISTOL(0, 1, "9mm", Prices.PISTOL, Category.PISTOL, "9MM"),
 
     /** 步枪 (762x39/556): L3; 默认 762x39 (TACZ DefaultAssets.DEFAULT_AMMO_ID)。商店 20 / 售 15; 缩产 1.0。 */
-    RIFLE(1, 3, "762x39", Prices.RIFLE),
+    RIFLE(1, 3, "762x39", Prices.RIFLE, Category.RIFLE, "7.62"),
 
     /** 霰弹 (12g, 每发 10 弹丸): L4; 默认 12g。商店 35 / 售 26; 缩产 0.6。 */
-    SHOTGUN(2, 4, "12g", Prices.SHOTGUN),
+    SHOTGUN(2, 4, "12g", Prices.SHOTGUN, Category.SHOTGUN, "12G"),
 
     /** 战斗步枪/机枪: L5; 默认 762x54。商店 30 / 售 22.5; 缩产 0.7。 */
-    BATTLE(3, 5, "762x54", Prices.BATTLE),
+    BATTLE(3, 5, "762x54", Prices.BATTLE, Category.RIFLE, "54R"),
 
     /** 狙击 (30_06/338): L6; 默认 338。商店 80 / 售 60; 缩产 0.4。 */
-    SNIPER(4, 6, "338", Prices.SNIPER),
+    SNIPER(4, 6, "338", Prices.SNIPER, Category.SNIPER, ".338"),
 
     /** 大口径手枪 (50ae): L7; 默认 50ae。商店 60 / 售 45; 缩产 0.5。 */
-    BIG_PISTOL(5, 7, "50ae", Prices.BIG_PISTOL),
+    BIG_PISTOL(5, 7, "50ae", Prices.BIG_PISTOL, Category.PISTOL, "50AE"),
 
     /** 反器材 (50bmg): L8; 默认 50bmg。商店 200 / 售 150; 缩产 0.25。 */
-    ANTI_MATERIEL(6, 8, "50bmg", Prices.ANTI_MATERIEL),
+    ANTI_MATERIEL(6, 8, "50bmg", Prices.ANTI_MATERIEL, Category.SNIPER, "BMG"),
 
     /** 爆炸 (40mm/rpg): L9; 默认 40mm。商店 400-800 / 售 300-600; 缩产 0.15。 */
-    EXPLOSIVE(7, 9, "40mm", Prices.EXPLOSIVE),
+    EXPLOSIVE(7, 9, "40mm", Prices.EXPLOSIVE, Category.EXPLOSIVE, "40M"),
 
     /** 特种弹: L10 毕业; 默认 68x51fury。价格 PENDING 11.2 暂沿用狙击档; 缩产 0.4。 */
-    SPECIAL(8, 10, "68x51fury", Prices.SPECIAL);
+    SPECIAL(8, 10, "68x51fury", Prices.SPECIAL, Category.RIFLE, "68X"),
+
+    /** 步枪弹: 5.56x45, TACZ 默认枪包 path 为 556x45。 */
+    RIFLE_556(9, 3, "556x45", Prices.RIFLE, Category.RIFLE, "5.56");
+
+    public enum Category {
+        PISTOL("手枪弹"),
+        RIFLE("步枪弹"),
+        SHOTGUN("霰弹"),
+        SNIPER("狙击弹"),
+        EXPLOSIVE("爆破弹");
+
+        private final String label;
+
+        Category(String label) {
+            this.label = label;
+        }
+
+        public String label() {
+            return label;
+        }
+    }
 
     /** 各口径价格档 config 三元组 (商店价/售价/缩产系数), 由枚举构造绑定, 避免散落 switch。 */
     private record Prices(ForgeConfigSpec.IntValue shop, ForgeConfigSpec.IntValue sell,
@@ -78,12 +99,17 @@ public enum MunitionsCaliber {
     private final int unlockLevel;
     private final String defaultAmmoPath;
     private final Prices prices;
+    private final Category category;
+    private final String shortLabel;
 
-    MunitionsCaliber(int index, int unlockLevel, String defaultAmmoPath, Prices prices) {
+    MunitionsCaliber(int index, int unlockLevel, String defaultAmmoPath, Prices prices,
+                     Category category, String shortLabel) {
         this.index = index;
         this.unlockLevel = unlockLevel;
         this.defaultAmmoPath = defaultAmmoPath;
         this.prices = prices;
+        this.category = category;
+        this.shortLabel = shortLabel;
     }
 
     /** 稳定序号 (clickMenuButton caliberIndex / NBT 持久化用)。 */
@@ -102,6 +128,14 @@ public enum MunitionsCaliber {
      */
     public String defaultAmmoPath() {
         return defaultAmmoPath;
+    }
+
+    public Category category() {
+        return category;
+    }
+
+    public String shortLabel() {
+        return shortLabel;
     }
 
     /** 该档商店价/发 (实时 config; 6.3, ×10 锚价)。 */
@@ -124,10 +158,11 @@ public enum MunitionsCaliber {
 
     /** 稳定序号还原档位 (NBT/网络越界回 PISTOL, 不掩盖业务但防数组越界崩溃; 与 NanoTier.byIndex 同范式)。 */
     public static MunitionsCaliber byIndex(int idx) {
-        MunitionsCaliber[] all = values();
-        if (idx < 0 || idx >= all.length) {
-            return PISTOL;
+        for (MunitionsCaliber caliber : values()) {
+            if (caliber.index == idx) {
+                return caliber;
+            }
         }
-        return all[idx];
+        return PISTOL;
     }
 }

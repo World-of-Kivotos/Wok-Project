@@ -10,14 +10,8 @@ import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
 
-/**
- * 军火商子系统自有方块 DeferredRegister (注册铁律: 各子系统在自己 package 持有自己的 DeferredRegister, 严禁改
- * 中央 registry.ModBlocks)。
- *
- * 单档军火台 (Munitions_Job_DesignSpec 五/十章): 与工程师六档生产台不同, 军火台只一种方块 —— 可造口径上限由
- * 军火商职业等级门控 (6.1 口径等级门, 不靠不同方块区分), 制造台拥有数由 {@link MunitionsSavedData} 按等级上限校验。
- * 故无需按档多方块。属性 copy 原版 SMITHING_TABLE (坚固木质台, 不需新 PNG; 模型 JSON 借 vanilla 纹理)。
- */
+import java.util.List;
+
 public final class ModMunitionsBlocks {
 
     private ModMunitionsBlocks() {
@@ -26,11 +20,33 @@ public final class ModMunitionsBlocks {
     public static final DeferredRegister<Block> BLOCKS =
             DeferredRegister.create(ForgeRegistries.BLOCKS, MiningConstants.MODID);
 
-    /** 军火台方块。注册名: munitions_bench。 */
-    public static final RegistryObject<Block> MUNITIONS_BENCH = BLOCKS.register("munitions_bench",
-            () -> new MunitionsBenchBlock(
-                    BlockBehaviour.Properties.copy(Blocks.SMITHING_TABLE).noOcclusion(),
-                    () -> ModMunitionsBlockEntities.MUNITIONS_BENCH.get()));
+    public static final RegistryObject<Block> MUNITIONS_BENCH = registerBench("munitions_bench", 1, 2);
+    public static final RegistryObject<Block> MUNITIONS_BENCH_MEDIUM = registerBench("munitions_bench_medium", 3, 4);
+    public static final RegistryObject<Block> MUNITIONS_BENCH_HIGH = registerBench("munitions_bench_high", 5, 6);
+    public static final RegistryObject<Block> MUNITIONS_BENCH_SUPERIOR = registerBench("munitions_bench_superior", 7, 8);
+    public static final RegistryObject<Block> MUNITIONS_BENCH_TRANSCENDENT = registerBench("munitions_bench_transcendent", 9, 9);
+    public static final RegistryObject<Block> MUNITIONS_BENCH_RADIANT = registerBench("munitions_bench_radiant", 10, 10);
+
+    public static final List<RegistryObject<Block>> ALL_BENCHES = List.of(
+            MUNITIONS_BENCH,
+            MUNITIONS_BENCH_MEDIUM,
+            MUNITIONS_BENCH_HIGH,
+            MUNITIONS_BENCH_SUPERIOR,
+            MUNITIONS_BENCH_TRANSCENDENT,
+            MUNITIONS_BENCH_RADIANT);
+
+    private static RegistryObject<Block> registerBench(String name, int unlockLevel, int maxEffectiveLevel) {
+        return BLOCKS.register(name,
+                () -> new MunitionsBenchBlock(
+                        BlockBehaviour.Properties.copy(Blocks.SMITHING_TABLE).noOcclusion(),
+                        () -> ModMunitionsBlockEntities.MUNITIONS_BENCH.get(),
+                        unlockLevel,
+                        maxEffectiveLevel));
+    }
+
+    public static Block[] allBenchBlocks() {
+        return ALL_BENCHES.stream().map(RegistryObject::get).toArray(Block[]::new);
+    }
 
     public static void register(IEventBus modBus) {
         BLOCKS.register(modBus);

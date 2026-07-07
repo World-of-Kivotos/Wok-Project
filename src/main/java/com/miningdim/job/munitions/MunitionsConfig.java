@@ -56,11 +56,11 @@ public final class MunitionsConfig {
     public static final ForgeConfigSpec.IntValue BUFFER_L9;
     public static final ForgeConfigSpec.IntValue BUFFER_L10;
 
-    // ---- 四章: 双推进剂配方 (步枪 762x39 基准, 铜:火药 ≈ 45:55) ----
-    /** 直造/提炼单批消耗铜锭数。 */
-    public static final ForgeConfigSpec.IntValue RECIPE_COPPER_COST;
-    /** 直造/提炼单批消耗火药数。 */
-    public static final ForgeConfigSpec.IntValue RECIPE_GUNPOWDER_COST;
+    // ---- 四章: 单批弹药零件配方 (底火 + 弹壳 + 弹头 + 发射药) ----
+    public static final ForgeConfigSpec.IntValue RECIPE_PRIMER_COST;
+    public static final ForgeConfigSpec.IntValue RECIPE_CASING_COST;
+    public static final ForgeConfigSpec.IntValue RECIPE_BULLET_HEAD_COST;
+    public static final ForgeConfigSpec.IntValue RECIPE_PROPELLANT_COST;
     /** 直造 (L1-5) 单批产出步枪弹基准发数。 */
     public static final ForgeConfigSpec.IntValue DIRECT_ROUNDS_PER_BATCH;
     /** 提炼 (L6+) 单批产出步枪弹基准发数 (翻倍, 利润质变线)。 */
@@ -164,11 +164,15 @@ public final class MunitionsConfig {
         b.pop();
 
         b.push("recipe");
-        b.comment("4. dual-propellant recipe (rifle 762x39 baseline, copper:powder ≈ 45:55).");
-        RECIPE_COPPER_COST = b.comment("Copper ingots consumed per production batch")
-                .defineInRange("copperCost", 7, 1, 64);
-        RECIPE_GUNPOWDER_COST = b.comment("Gunpowder consumed per production batch")
-                .defineInRange("gunpowderCost", 16, 1, 64);
+        b.comment("4. ammunition parts recipe: primer + casing + bullet head + propellant.");
+        RECIPE_PRIMER_COST = b.comment("Primers consumed per production batch")
+                .defineInRange("primerCost", 1, 1, 64);
+        RECIPE_CASING_COST = b.comment("Casings consumed per production batch")
+                .defineInRange("casingCost", 1, 1, 64);
+        RECIPE_BULLET_HEAD_COST = b.comment("Bullet heads consumed per production batch")
+                .defineInRange("bulletHeadCost", 1, 1, 64);
+        RECIPE_PROPELLANT_COST = b.comment("Propellant consumed per production batch")
+                .defineInRange("propellantCost", 1, 1, 64);
         DIRECT_ROUNDS_PER_BATCH = b.comment("Rounds per batch via direct crafting (L1-5, half yield)")
                 .defineInRange("directRoundsPerBatch", 40, 1, 100000);
         REFINED_ROUNDS_PER_BATCH = b.comment("Rounds per batch via refining into propellant (L6+, double yield, profit inflection)")

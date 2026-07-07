@@ -1,0 +1,12 @@
+{
+  "multipart": [
+    { "when": { "part": "main", "facing": "north" }, "apply": { "model": "miningdim:block/munitions_bench_superior_main" } },
+    { "when": { "part": "main", "facing": "east" }, "apply": { "model": "miningdim:block/munitions_bench_superior_main", "y": 90 } },
+    { "when": { "part": "main", "facing": "south" }, "apply": { "model": "miningdim:block/munitions_bench_superior_main", "y": 180 } },
+    { "when": { "part": "main", "facing": "west" }, "apply": { "model": "miningdim:block/munitions_bench_superior_main", "y": 270 } },
+    { "when": { "part": "extension", "facing": "north" }, "apply": { "model": "miningdim:block/munitions_bench_superior_extension" } },
+    { "when": { "part": "extension", "facing": "east" }, "apply": { "model": "miningdim:block/munitions_bench_superior_extension", "y": 90 } },
+    { "when": { "part": "extension", "facing": "south" }, "apply": { "model": "miningdim:block/munitions_bench_superior_extension", "y": 180 } },
+    { "when": { "part": "extension", "facing": "west" }, "apply": { "model": "miningdim:block/munitions_bench_superior_extension", "y": 270 } }
+  ]
+}

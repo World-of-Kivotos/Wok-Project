@@ -24,17 +24,20 @@ public final class MunitionsProduction {
      * 一次离线追算的产线结算结果 (BE 据此扣料、入缓冲、扣工费、给经验; 不可变)。
      *
      * @param roundsProduced 本次产出的弹药发数 (已按口径缩产 + 缓冲上限 + 可用料夹取; >=0)
-     * @param batchesConsumed 本次消耗的料批数 (每批 = copperCost 铜 + gunpowderCost 火药)
-     * @param copperConsumed  本次消耗铜锭总数 (= batchesConsumed × 单批铜耗)
-     * @param gunpowderConsumed 本次消耗火药总数 (= batchesConsumed × 单批火药耗)
+     * @param batchesConsumed 本次消耗的料批数
+     * @param primerConsumed 本次消耗底火总数
+     * @param casingConsumed 本次消耗弹壳总数
+     * @param bulletHeadConsumed 本次消耗弹头总数
+     * @param propellantConsumed 本次消耗发射药总数
      * @param workFeeCredits  本次产弹应扣的信用点工费 (聚合整数; 销毁 = sink)
      * @param rawXp           本次产弹应给的原始经验 (谁产谁得, 框架再过衰减/软上限)
      */
-    public record Result(int roundsProduced, int batchesConsumed, int copperConsumed,
-                         int gunpowderConsumed, long workFeeCredits, long rawXp) {
+    public record Result(int roundsProduced, int batchesConsumed, int primerConsumed,
+                         int casingConsumed, int bulletHeadConsumed, int propellantConsumed,
+                         long workFeeCredits, long rawXp) {
 
         /** 空结算 (无产出): 流逝不足 / 缓冲已满 / 无料。 */
-        public static final Result NONE = new Result(0, 0, 0, 0, 0L, 0L);
+        public static final Result NONE = new Result(0, 0, 0, 0, 0, 0, 0L, 0L);
 
         public boolean produced() {
             return roundsProduced > 0;
@@ -105,28 +108,37 @@ public final class MunitionsProduction {
      * @param tableCount       本次参与产能的制造台数 (>=1)
      * @param elapsedTicks     自上次结算流逝 tick (>=0)
      * @param bufferRemaining  缓冲剩余可入发数 (= 缓冲上限 - 已存; >=0)
-     * @param availableCopper  料槽可用铜锭数
-     * @param availableGunpowder 料槽可用火药数
+     * @param availablePrimer 料槽可用底火数
+     * @param availableCasing 料槽可用弹壳数
+     * @param availableBulletHead 料槽可用弹头数
+     * @param availablePropellant 料槽可用发射药数
      * @return 结算结果 (实产发数 / 料批 / 料耗 / 工费 / 经验); 任一前置不足返 {@link Result#NONE}
      */
     public static Result settle(MunitionsCaliber caliber, int level, int tableCount, long elapsedTicks,
-                                int bufferRemaining, int availableCopper, int availableGunpowder) {
+                                int bufferRemaining, int availablePrimer, int availableCasing,
+                                int availableBulletHead, int availablePropellant) {
         if (caliber == null || tableCount <= 0 || elapsedTicks <= 0 || bufferRemaining <= 0) {
             return Result.NONE;
         }
 
         int perBatchRounds = roundsPerBatch(caliber, level);
-        int copperPerBatch = MunitionsConfig.RECIPE_COPPER_COST.get();
-        int gunpowderPerBatch = MunitionsConfig.RECIPE_GUNPOWDER_COST.get();
+        int primerPerBatch = MunitionsConfig.RECIPE_PRIMER_COST.get();
+        int casingPerBatch = MunitionsConfig.RECIPE_CASING_COST.get();
+        int bulletHeadPerBatch = MunitionsConfig.RECIPE_BULLET_HEAD_COST.get();
+        int propellantPerBatch = MunitionsConfig.RECIPE_PROPELLANT_COST.get();
 
         // 门 1: 流逝时间允许的步枪当量发数, 再过口径缩产 (与单批口径实发数同口径)。
         long theoryRifleRounds = theoreticalRounds(elapsedTicks, tableCount, level);
         long theoryCaliberRounds = (long) Math.floor(theoryRifleRounds * caliber.yieldFactor());
 
         // 门 2: 缓冲剩余空间。门 3: 料能撑的最大批数 (铜/火药短板)。
-        int maxBatchesByCopper = availableCopper / copperPerBatch;
-        int maxBatchesByPowder = availableGunpowder / gunpowderPerBatch;
-        int maxBatchesByMaterial = Math.min(maxBatchesByCopper, maxBatchesByPowder);
+        int maxBatchesByPrimer = availablePrimer / primerPerBatch;
+        int maxBatchesByCasing = availableCasing / casingPerBatch;
+        int maxBatchesByBulletHead = availableBulletHead / bulletHeadPerBatch;
+        int maxBatchesByPropellant = availablePropellant / propellantPerBatch;
+        int maxBatchesByMaterial = Math.min(
+                Math.min(maxBatchesByPrimer, maxBatchesByCasing),
+                Math.min(maxBatchesByBulletHead, maxBatchesByPropellant));
         if (maxBatchesByMaterial <= 0) {
             return Result.NONE; // 料不足一批: 不产 (先查后扣, 杜绝白产)。
         }
@@ -141,12 +153,15 @@ public final class MunitionsProduction {
 
         int batchesInt = (int) Math.min(batches, Integer.MAX_VALUE);
         int rounds = batchesInt * perBatchRounds;
-        int copperConsumed = batchesInt * copperPerBatch;
-        int gunpowderConsumed = batchesInt * gunpowderPerBatch;
+        int primerConsumed = batchesInt * primerPerBatch;
+        int casingConsumed = batchesInt * casingPerBatch;
+        int bulletHeadConsumed = batchesInt * bulletHeadPerBatch;
+        int propellantConsumed = batchesInt * propellantPerBatch;
         long workFee = workFee(rounds);
         long rawXp = produceXp(rounds);
 
-        return new Result(rounds, batchesInt, copperConsumed, gunpowderConsumed, workFee, rawXp);
+        return new Result(rounds, batchesInt, primerConsumed, casingConsumed,
+                bulletHeadConsumed, propellantConsumed, workFee, rawXp);
     }
 
     /**

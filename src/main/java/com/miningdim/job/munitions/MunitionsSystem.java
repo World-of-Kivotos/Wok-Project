@@ -43,6 +43,7 @@ public final class MunitionsSystem implements Subsystem {
         ModMunitionsBlocks.register(modBus);
         ModMunitionsBlockEntities.register(modBus);
         ModMunitionsItems.register(modBus);
+        ModMunitionsSounds.register(modBus);
         ModMunitionsMenus.register(modBus);
         ModMunitionsTab.register(modBus);
 
@@ -74,7 +75,8 @@ public final class MunitionsSystem implements Subsystem {
         if (!(event.getEntity() instanceof ServerPlayer player)) {
             return;
         }
-        if (!(event.getPlacedBlock().getBlock() instanceof MunitionsBenchBlock)) {
+        if (!(event.getPlacedBlock().getBlock() instanceof MunitionsBenchBlock)
+                || !MunitionsBenchBlock.isMain(event.getPlacedBlock())) {
             return;
         }
         ServerLevel overworld = player.server.overworld();

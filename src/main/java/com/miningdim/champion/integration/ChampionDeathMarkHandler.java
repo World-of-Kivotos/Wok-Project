@@ -214,13 +214,14 @@ public final class ChampionDeathMarkHandler {
                 champion.getUUID(), nowTick, ChampionDeathMarkMath.WINDOW_TICKS)) {
             return;
         }
-        double threshold = ChampionDeathMarkMath.markThreshold(quality, candidate.sampledDamage());
+        double threshold = ChampionDeathMarkMath.markThreshold(
+                quality, candidate.sampledDamage(), candidate.activeSpanTicks());
         state.markedPlayer = candidate.playerId();
         state.markTick = nowTick;
         state.threshold = threshold;
         state.progress = 0.0D;
         state.lastDriveTick = nowTick; // 断档守卫基线: 标记起点即首次驱动 (防标记后立即脱离时 MIN_VALUE 绕过守卫)。
-        onMarkStart(champion, candidate.player(), candidate.sampledDamage(), threshold);
+        onMarkStart(champion, candidate.player(), candidate, threshold);
     }
 
     /**
@@ -230,7 +231,8 @@ public final class ChampionDeathMarkHandler {
     private Candidate selectCandidate(LivingEntity champion, DeathMarkState state, long nowTick) {
         Candidate best = null;
         for (Map.Entry<UUID, ChampionDeathMarkMath.RollingDamageSampler> entry : state.samplers.entrySet()) {
-            double sampled = entry.getValue().sampledDamage(nowTick);
+            ChampionDeathMarkMath.RollingDamageSampler sampler = entry.getValue();
+            double sampled = sampler.sampledDamage(nowTick);
             if (!ChampionDeathMarkMath.isEligibleCandidate(sampled)) {
                 continue; // 近 10s 对本怪零输出: 不可标记。
             }
@@ -239,7 +241,7 @@ public final class ChampionDeathMarkHandler {
                 continue; // 离线/死亡: 非合法候选。
             }
             if (best == null || sampled > best.sampledDamage()) {
-                best = new Candidate(entry.getKey(), player, sampled);
+                best = new Candidate(entry.getKey(), player, sampled, sampler.activeSpanTicks(nowTick));
             }
         }
         return best;
@@ -325,7 +327,7 @@ public final class ChampionDeathMarkHandler {
     }
 
     /** 标记瞬间表现: 高亮目标 8s + actionbar 预警 (窗口秒/阈值) + 全场施放音 (WITHER_SPAWN 0.5)。 */
-    private void onMarkStart(LivingEntity champion, ServerPlayer target, double sampledDamage, double threshold) {
+    private void onMarkStart(LivingEntity champion, ServerPlayer target, Candidate candidate, double threshold) {
         target.addEffect(new MobEffectInstance(MobEffects.GLOWING, (int) ChampionDeathMarkMath.WINDOW_TICKS));
         target.displayClientMessage(Component.literal(
                 "命定之死: " + ChampionDeathMarkMath.WINDOW_SECONDS + "s 内输出 "
@@ -334,10 +336,11 @@ public final class ChampionDeathMarkHandler {
             level.playSound(null, champion.getX(), champion.getY(), champion.getZ(),
                     SoundEvents.WITHER_SPAWN, SoundSource.HOSTILE, 0.5F, 1.0F);
         }
-        LOGGER.info("skill-deathmark champion={} MARK player={} sampledDps={} threshold={}",
+        LOGGER.info("skill-deathmark champion={} MARK player={} sampledDps={} spanTicks={} threshold={}",
                 championName(champion), target.getGameProfile().getName(),
-                String.format("%.1f", ChampionDeathMarkMath.sampledDps(sampledDamage)),
-                String.format("%.1f", threshold));
+                String.format("%.1f", ChampionDeathMarkMath.sampledDps(
+                        candidate.sampledDamage(), candidate.activeSpanTicks())),
+                candidate.activeSpanTicks(), String.format("%.1f", threshold));
     }
 
     /** 达标解除表现: 撤高亮 (防残留误导"仍被标记") + actionbar 解除提示 + 成功音 (PLAYER_LEVELUP)。 */
@@ -399,8 +402,8 @@ public final class ChampionDeathMarkHandler {
         return champion.getType().getDescriptionId();
     }
 
-    /** 一名合法候选: 玩家 UUID + 实体 + 采样窗内名义输出 (选最高者时的比较键)。 */
-    private record Candidate(UUID playerId, ServerPlayer player, double sampledDamage) {
+    /** 一名合法候选: 玩家 UUID + 实体 + 采样窗内名义输出 (选最高者时的比较键) + 开火跨度 (DPS 稀释修复分母)。 */
+    private record Candidate(UUID playerId, ServerPlayer player, double sampledDamage, long activeSpanTicks) {
     }
 
     /**

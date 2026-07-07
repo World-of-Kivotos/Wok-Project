@@ -50,10 +50,34 @@ public final class ChampionDeathMarkGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void sampledDpsDividesByTenSeconds(GameTestHelper helper) {
-        // 采样窗 10s: 总伤 1000 / 10 = 100 DPS。
-        helper.assertTrue(Math.abs(ChampionDeathMarkMath.sampledDps(1000.0D) - 100.0D) < EPS, "1000 采样 / 10s = 100 DPS");
-        helper.assertTrue(ChampionDeathMarkMath.sampledDps(0.0D) == 0.0D, "0 采样 = 0 DPS");
+    public static void sampledDpsUsesActiveFireSpan(GameTestHelper helper) {
+        // 稀释修复 (真服验收: 点射 1~2s 的 150+ DPS 被固定 10s 除数摊成 13.7, 阈值形同虚设): DPS 按开火跨度折算。
+        // 满跨度 (200tick=10s): 与旧口径等价, 1000/10 = 100 DPS。
+        helper.assertTrue(Math.abs(ChampionDeathMarkMath.sampledDps(1000.0D, 200L) - 100.0D) < EPS,
+                "满跨度 10s: 1000 -> 100 DPS (与旧口径等价)");
+        // 点射 1s (20tick): 跨度钳到 2s 下限, 156 / 2 = 78 DPS (旧口径 15.6 = 稀释十倍, 删跨度钳制必挂)。
+        helper.assertTrue(Math.abs(ChampionDeathMarkMath.sampledDps(156.0D, 20L) - 78.0D) < EPS,
+                "点射 1s: 156 -> 78 DPS (钳 2s 下限, 不再被 10s 摊薄)");
+        // 单发/空跨度 (0): 同钳 2s 下限。
+        helper.assertTrue(Math.abs(ChampionDeathMarkMath.sampledDps(140.0D, 0L) - 70.0D) < EPS,
+                "单发跨度 0: 140 -> 70 DPS (2s 下限)");
+        // 超窗跨度 (理论不出现, 过期已剔): 上钳 10s。
+        helper.assertTrue(Math.abs(ChampionDeathMarkMath.sampledDps(1000.0D, 400L) - 100.0D) < EPS,
+                "跨度上钳 10s");
+        helper.assertTrue(ChampionDeathMarkMath.sampledDps(0.0D, 200L) == 0.0D, "0 采样 = 0 DPS");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void samplerActiveSpanTracksFirstToLast(GameTestHelper helper) {
+        ChampionDeathMarkMath.RollingDamageSampler s = new ChampionDeathMarkMath.RollingDamageSampler();
+        helper.assertTrue(s.activeSpanTicks(0L) == 0L, "空账跨度 0");
+        s.record(0L, 100.0D, false);
+        helper.assertTrue(s.activeSpanTicks(10L) == 0L, "单条跨度 0 (由 2s 下钳兜底)");
+        s.record(50L, 200.0D, false);
+        helper.assertTrue(s.activeSpanTicks(199L) == 50L, "首末条目时距 = 50 tick");
+        // 首条 @0 过期 (t=200) 后跨度随窗收缩: 仅剩 @50 单条 -> 0。
+        helper.assertTrue(s.activeSpanTicks(200L) == 0L, "首条过期后跨度收缩");
         helper.succeed();
     }
 
@@ -77,12 +101,15 @@ public final class ChampionDeathMarkGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void thresholdFormulaWithCoefficient(GameTestHelper helper) {
-        // 阈值 = (采样总伤/10) × 8 × 1.6。采样 1000 -> DPS 100 -> 100 × 8 × 1.6 = 1280。
-        double t = ChampionDeathMarkMath.markThreshold(AffixQuality.EPIC, 1000.0D);
+        // 阈值 = (采样总伤/跨度秒) × 8 × 1.6。满跨度: 1000 over 10s -> DPS 100 -> 100 × 8 × 1.6 = 1280。
+        double t = ChampionDeathMarkMath.markThreshold(AffixQuality.EPIC, 1000.0D, 200L);
         helper.assertTrue(Math.abs(t - 1280.0D) < EPS, "阈值 = DPS100 × 8窗 × 1.6系数 = 1280");
-        // 闪耀系数同为 1.6: 采样 500 -> DPS 50 -> 50 × 8 × 1.6 = 640。
-        double leg = ChampionDeathMarkMath.markThreshold(AffixQuality.LEGENDARY, 500.0D);
+        // 闪耀系数同为 1.6: 500 over 10s -> DPS 50 -> 50 × 8 × 1.6 = 640。
+        double leg = ChampionDeathMarkMath.markThreshold(AffixQuality.LEGENDARY, 500.0D, 200L);
         helper.assertTrue(Math.abs(leg - 640.0D) < EPS, "闪耀 500采样 -> DPS50 × 8 × 1.6 = 640");
+        // 点射稀释修复: 156 over 20tick (钳 2s) -> DPS 78 -> 78 × 8 × 1.6 = 998.4 (旧口径仅 199.7, 白嫖口)。
+        double burst = ChampionDeathMarkMath.markThreshold(AffixQuality.EPIC, 156.0D, 20L);
+        helper.assertTrue(Math.abs(burst - 998.4D) < EPS, "点射按真实强度计阈值 = 998.4");
         // 系数确实取自词条表 (删 valueFor / 改 {0,0,0,1.6,1.6} 数组必挂)。
         helper.assertTrue(Math.abs(AffixDef.DEATH_MARK.valueFor(AffixQuality.EPIC) - 1.6D) < EPS, "命定系数(超凡) = 1.6");
         helper.assertTrue(Math.abs(AffixDef.DEATH_MARK.valueFor(AffixQuality.LEGENDARY) - 1.6D) < EPS, "命定系数(闪耀) = 1.6");
@@ -117,7 +144,7 @@ public final class ChampionDeathMarkGameTests {
         helper.assertTrue(Math.abs(ChampionDeathMarkMath.DAMAGE_DECAY_MULTIPLIER - 0.7D) < EPS, "衰减系数 = 0.7");
         // 口径回归钉死 (对抗审查 major): 进度按衰减前累计 -> 持续 1.6 倍采样强度恰达标; 若误按衰减后累计
         // (×0.7), 同等输出只积累 0.7×1.6=1.12 倍 DPS 分子 < 1.6 倍阈值 -> 反例断言必挂。
-        double threshold = ChampionDeathMarkMath.markThreshold(AffixQuality.EPIC, 1000.0D); // DPS100 -> 1280。
+        double threshold = ChampionDeathMarkMath.markThreshold(AffixQuality.EPIC, 1000.0D, 200L); // DPS100 -> 1280。
         double nominalAt16x = 100.0D * 1.6D * 8.0D;                                          // 1.6 倍强度 8s 名义 = 1280。
         helper.assertTrue(ChampionDeathMarkMath.thresholdReached(nominalAt16x, threshold),
                 "衰减前口径: 1.6 倍采样强度恰达标");

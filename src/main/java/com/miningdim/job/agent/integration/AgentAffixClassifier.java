@@ -2,7 +2,7 @@ package com.miningdim.job.agent.integration;
 
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixPool;
-import com.miningdim.champion.ChampionSystem;
+import com.miningdim.job.agent.AgentSystem;
 import com.miningdim.job.agent.SealCategory;
 import net.minecraft.resources.ResourceLocation;
 import top.theillusivec4.champions.api.AffixCategory;
@@ -74,7 +74,7 @@ final class AgentAffixClassifier {
         ResourceLocation id = affix.getIdentifier();
         // 我方 35 词条经 Champions 的 DeferredRegister 注册, 真 namespace = champions (非 miningdim); 故守卫判 champions,
         // 再由下方 BY_PATH 把 Champions 自家词条 (molten/arctic 等, 不在我方 path 表) 过滤掉。
-        if (id == null || !ChampionSystem.CHAMPIONS_MODID.equals(id.getNamespace())) {
+        if (id == null || !AgentSystem.CHAMPIONS_MODID.equals(id.getNamespace())) {
             return null; // 外来命名空间词条: 不归本工程封印体系。
         }
         AffixDef def = BY_PATH.get(id.getPath());

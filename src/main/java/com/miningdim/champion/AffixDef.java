@@ -253,6 +253,15 @@ public enum AffixDef {
         return skill;
     }
 
+    /**
+     * 词条显示名的语言键 (自研 boss 条/探测列表 Component.translatable 用; 取代 Champions IAffix.toLanguageKey)。
+     * 键 = {@code affix.champions.<枚举名小写>} —— 复用 assets/miningdim/lang 里已备好的 35 条中/英文词条名
+     * (键名含 "champions" 仅为历史翻译键, 由我方语言文件提供, 客户端解析不依赖 Champions mod 存在)。
+     */
+    public String displayNameKey() {
+        return "affix.champions." + name().toLowerCase(java.util.Locale.ROOT);
+    }
+
     /** 互斥标志。 */
     public MutexFlag mutexFlag() {
         return mutexFlag;

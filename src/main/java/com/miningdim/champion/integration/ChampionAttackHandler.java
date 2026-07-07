@@ -2,18 +2,17 @@ package com.miningdim.champion.integration;
 
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixQuality;
-import com.miningdim.champion.ChampionAffixState;
 import com.miningdim.champion.ChampionAttackValues;
 import com.miningdim.champion.ChampionEffectRegistries;
 import com.miningdim.champion.ChampionStrikeGate;
+import com.miningdim.champion.MiningChampionData;
+import com.miningdim.champion.MiningChampions;
 import com.miningdim.champion.StarRank;
 import com.miningdim.champion.aggregate.PlayerDotSources;
 import com.miningdim.champion.bloodpool.BloodPool;
 import com.miningdim.champion.bloodpool.BloodPoolRegistry;
-import com.miningdim.champion.integration.affix.MiningAffix;
 import com.miningdim.effect.ModJobEffects;
 import net.minecraft.core.particles.ParticleTypes;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -25,12 +24,7 @@ import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
-import top.theillusivec4.champions.api.IAffix;
-import top.theillusivec4.champions.api.IChampion;
-import top.theillusivec4.champions.common.capability.ChampionCapability;
-import top.theillusivec4.champions.common.rank.Rank;
 
-import java.util.EnumMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -58,10 +52,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code VulnerabilityHurtHandler} (默认) 之前把即时额外伤害叠入 event.getAmount(), 使后续减伤/易伤对完整冠军近战
  * 伤害结算 (先叠攻击词条额外伤 → 再易伤放大 → 再玩家减伤)。撕裂续期的是【下次】受击的易伤, 不放大本次。
  *
- * 单点铁律守卫: 本 handler 是冠军→玩家攻击的唯一施加点, 词条本体 {@link MiningAffix} 不重写任何战斗钩子 (见其
- * 类注释)。compileOnly 隔离: 本类 import top.theillusivec4.champions.* —— 属 integration 隔离包, 仅
- * {@code ModList.isLoaded("champions")} 守卫下由 {@code ChampionIntegrationBootstrap} 挂 forgeBus, dev GameTest 不
- * 触达 (纯数值/红线在 champion 包纯逻辑类 GameTest 验)。
+ * 单点铁律守卫: 本 handler 是冠军→玩家攻击的唯一施加点。冠军星级 + 词条→品质经自研
+ * {@link com.miningdim.champion.MiningChampions} capability 读, 不触任何 top.theillusivec4.champions.*。由
+ * {@code ChampionSystem#register} 无条件挂 forgeBus (自研后脱离 Champions 依赖, 不再 ModList 守卫, dev GameTest
+ * 可加载可验; 纯数值/红线仍在 champion 包纯逻辑类 GameTest 验)。
  */
 public final class ChampionAttackHandler {
 
@@ -92,29 +86,14 @@ public final class ChampionAttackHandler {
         if (!(event.getSource().getEntity() instanceof LivingEntity attacker)) {
             return; // 无直接生物攻击者 (环境/无主弹射物): 不施攻击词条。
         }
-        IChampion champion = ChampionCapability.getCapability(attacker).resolve().orElse(null);
-        if (champion == null || champion.getServer() == null) {
-            return; // 攻击者非冠军。
+        MiningChampionData champ = MiningChampions.get(attacker).orElse(null);
+        if (champ == null || !champ.isChampion()) {
+            return; // 攻击者非本工程盖章冠军。
         }
-        IChampion.Server server = champion.getServer();
-        Rank rank = server.getRank().orElse(null);
-        if (rank == null || rank.getTier() <= 0) {
-            return; // 无有效 rank。
-        }
-        // 星级 + 品质: 优先本工程盖章 NBT; 命令召唤冠军 (/champions summon 直接 setAffixes 未经我方 promoter, 无 NBT)
-        // 用 rank tier 兜底星级 + 空品质表 (qualityOf 据星走默认品质), 使命令召冠军的攻击词条同样可测可用 (与减伤/地基兜底一致)。
-        CompoundTag data = server.getData(ChampionPromoter.DATA_KEY);
-        int star = (data != null && data.contains(ChampionPromoter.NBT_STAR))
-                ? data.getInt(ChampionPromoter.NBT_STAR) : rank.getTier();
-        if (star < StarRank.MIN_STAR || star > StarRank.MAX_STAR) {
-            return; // 星级越界 (脏 NBT / 异常 tier): 不施, 不让脏星越红线。
-        }
+        // 自研 cap 恒有 star ∈ [1,10] + 词条→品质 (promote 期一次写全), 无需旧命令召唤"无 NBT 走 tier 兜底"分支。
+        int star = champ.star();
         StarRank starRank = StarRank.ofStar(star);
-        CompoundTag affixQuality = (data != null && data.contains(ChampionAffixState.NBT_AFFIX_QUALITY))
-                ? data.getCompound(ChampionAffixState.NBT_AFFIX_QUALITY) : new CompoundTag();
-
-        // 该冠军装配的本工程词条 (def -> quality)。
-        Map<AffixDef, AffixQuality> equipped = collectEquipped(server, affixQuality, starRank);
+        Map<AffixDef, AffixQuality> equipped = champ.affixes();
         if (equipped.isEmpty()) {
             return; // 无本工程攻击词条。
         }
@@ -268,21 +247,6 @@ public final class ChampionAttackHandler {
         long estimatedLanding = nowTick + ChampionStrikeGate.CHAOS_LANDING_RECOVERY_TICKS;
         pair.gate.markKnockback(nowTick, estimatedLanding);
         // KnockbackSafetyGuard 未落地: 不直接 push (sharedFileEditsNeeded)。闸已落账保限频不破红线 5。
-    }
-
-    /** 收集该冠军装配的本工程攻击/相关词条 (def -> 该词条品质); 非 MiningAffix 实例跳过。 */
-    private Map<AffixDef, AffixQuality> collectEquipped(IChampion.Server server, CompoundTag affixQuality,
-                                                        StarRank starRank) {
-        Map<AffixDef, AffixQuality> equipped = new EnumMap<>(AffixDef.class);
-        for (IAffix affix : server.getAffixes()) {
-            if (!(affix instanceof MiningAffix mining)) {
-                continue; // 非本工程词条 (Champions 内置或第三方): 不归本系统。
-            }
-            AffixDef def = mining.def();
-            AffixQuality quality = ChampionAffixState.qualityOf(affixQuality, def, starRank);
-            equipped.put(def, quality);
-        }
-        return equipped;
     }
 
     /**

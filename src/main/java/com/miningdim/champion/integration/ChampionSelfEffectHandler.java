@@ -2,15 +2,13 @@ package com.miningdim.champion.integration;
 
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixQuality;
-import com.miningdim.champion.ChampionAffixState;
 import com.miningdim.champion.ChampionEffectRegistries;
 import com.miningdim.champion.ChampionSelfBuffValues;
-import com.miningdim.champion.StarRank;
+import com.miningdim.champion.MiningChampionData;
+import com.miningdim.champion.MiningChampions;
 import com.miningdim.champion.aggregate.RetaliationAggregator;
 import com.miningdim.champion.bloodpool.BloodPool;
 import com.miningdim.champion.bloodpool.BloodPoolRegistry;
-import com.miningdim.champion.integration.affix.MiningAffix;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -24,10 +22,8 @@ import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
-import top.theillusivec4.champions.api.IAffix;
-import top.theillusivec4.champions.api.IChampion;
-import top.theillusivec4.champions.common.capability.ChampionCapability;
-import top.theillusivec4.champions.common.rank.Rank;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -55,11 +51,14 @@ import java.util.UUID;
  * 血池权威 (spec 6.2): 6★+ 冠军回血走影子血池 {@link BloodPool#heal} (vanilla 血条由 {@code ChampionBloodPoolHandler}
  * 每 tick 镜像同步); 1-5★ 无池冠军回 vanilla getHealth。再生组织 %maxHP 的基数亦按此分流 (血池 maxHp / vanilla maxHealth)。
  *
- * compileOnly 隔离: 本类 import top.theillusivec4.champions.* (受击/tick 读 IChampion 词条池), 属 integration 隔离包,
- * 仅 Champions 加载时由 {@link ChampionIntegrationBootstrap} 挂 forgeBus (dev GameTest 不加载; 数值/门槛纯逻辑下沉
- * {@link ChampionSelfBuffValues} 真测)。
+ * 自研 capability: 冠军星级 + 词条→品质经 {@link com.miningdim.champion.MiningChampions} 读, 不触任何
+ * top.theillusivec4.champions.*。由 {@code ChampionSystem#register} 无条件挂 forgeBus (脱离 Champions 依赖, dev
+ * GameTest 可加载; 数值/门槛纯逻辑下沉 {@link ChampionSelfBuffValues} 真测)。
  */
 public final class ChampionSelfEffectHandler {
+
+    /** 诊断日志: 批1 自身被动词条真服首验用 (每秒对每只自效果冠军打一行, 看扫描/词条/脱战/回血是否如预期)。 */
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/champion/selfbuff");
 
     /** 自效果扫描/回血结算周期 (tick): 1s 扫一次近玩家冠军, 施一整秒回血 + 维护移速 (与纯逻辑 HEAL_TICK_INTERVAL 对齐)。 */
     private static final int SCAN_INTERVAL_TICKS = (int) ChampionSelfBuffValues.HEAL_TICK_INTERVAL;
@@ -111,16 +110,12 @@ public final class ChampionSelfEffectHandler {
 
     /** 对一只实体 (若是本工程冠军) 施 tick 自效果: 移速维护 + 脱战/战斗回血。 */
     private void applySelfTick(LivingEntity entity, long nowTick) {
-        IChampion champion = ChampionCapability.getCapability(entity).resolve().orElse(null);
-        if (champion == null || champion.getServer() == null) {
-            return; // 非冠军。
+        MiningChampionData champ = MiningChampions.get(entity).orElse(null);
+        if (champ == null || !champ.isChampion()) {
+            return; // 非本工程冠军。
         }
-        IChampion.Server server = champion.getServer();
-        Rank rank = server.getRank().orElse(null);
-        if (rank == null || rank.getTier() <= 0) {
-            return;
-        }
-        Map<AffixDef, AffixQuality> equipped = collectSelfAffixes(server, rank.getTier());
+        int star = champ.star();
+        Map<AffixDef, AffixQuality> equipped = collectSelfAffixes(champ);
         if (equipped.isEmpty()) {
             return; // 无本工程自效果词条。
         }
@@ -133,15 +128,25 @@ public final class ChampionSelfEffectHandler {
 
         // 回血: 需 lastHurtTick 判脱战/停回窗 (无 state = 从未受伤 = Long.MIN_VALUE 视为脱战/可回)。
         long lastHurt = lastHurtTickOf(entity.getUUID());
+        boolean outOfCombat = ChampionSelfBuffValues.isOutOfCombat(nowTick, lastHurt);
+        boolean flammableReady = ChampionSelfBuffValues.flammableRegenReady(nowTick, lastHurt);
         double healPerSecond = 0.0D;
         AffixQuality regen = equipped.get(AffixDef.REGEN_TISSUE);
-        if (regen != null && ChampionSelfBuffValues.isOutOfCombat(nowTick, lastHurt)) {
+        if (regen != null && outOfCombat) {
             healPerSecond += ChampionSelfBuffValues.regenTissueHealPerSecond(regen, effectiveMaxHp(entity));
         }
         AffixQuality flammable = equipped.get(AffixDef.FLAMMABLE_REGEN);
-        if (flammable != null && ChampionSelfBuffValues.flammableRegenReady(nowTick, lastHurt)) {
+        if (flammable != null && flammableReady) {
             healPerSecond += ChampionSelfBuffValues.flammableRegenHealPerSecond(flammable);
         }
+
+        // 诊断 (真服首验): 每秒对每只自效果冠军打一行, 直观看扫描命中/装配词条/脱战门槛/回血量/血量变化 (定位"再生不回")。
+        LOGGER.info("selfbuff {} tier{} affix={} hp={}/{} sinceHurt={} ooc={} flammableReady={} heal/s={}",
+                entity.getType().getDescriptionId(), star, equipped.keySet(),
+                String.format("%.1f", entity.getHealth()), String.format("%.1f", entity.getMaxHealth()),
+                (lastHurt == Long.MIN_VALUE ? "never" : String.valueOf(nowTick - lastHurt)),
+                outOfCombat, flammableReady, String.format("%.2f", healPerSecond));
+
         if (healPerSecond > 0.0D) {
             applyHeal(entity, healPerSecond);
         }
@@ -154,16 +159,11 @@ public final class ChampionSelfEffectHandler {
     @SubscribeEvent(priority = EventPriority.HIGH)
     public void onChampionHurt(LivingHurtEvent event) {
         LivingEntity victim = event.getEntity();
-        IChampion champion = ChampionCapability.getCapability(victim).resolve().orElse(null);
-        if (champion == null || champion.getServer() == null) {
-            return; // 受击者非冠军。
+        MiningChampionData champ = MiningChampions.get(victim).orElse(null);
+        if (champ == null || !champ.isChampion()) {
+            return; // 受击者非本工程冠军。
         }
-        IChampion.Server server = champion.getServer();
-        Rank rank = server.getRank().orElse(null);
-        if (rank == null || rank.getTier() <= 0) {
-            return;
-        }
-        Map<AffixDef, AffixQuality> equipped = collectSelfAffixes(server, rank.getTier());
+        Map<AffixDef, AffixQuality> equipped = collectSelfAffixes(champ);
         if (equipped.isEmpty()) {
             return; // 无本工程自效果词条: 不维护状态 (防为第三方冠军泄漏 state)。
         }
@@ -211,27 +211,18 @@ public final class ChampionSelfEffectHandler {
     }
 
     /**
-     * 收集该冠军装配的本工程批1自效果词条 (def -> 品质; 无我方 NBT 的命令召冠军走 tier 兜底品质)。星级越界 (脏 NBT
-     * 或非我方 1-10★ rank tier 的第三方冠军) 返回空 map 优雅降级 —— 本 handler 每 tick 扫近玩家全部冠军, 不能因单只
-     * 越界冠军 StarRank.ofStar 抛断整轮 (与 ChampionAttackHandler 星级范围守卫同口径)。
+     * 收集该冠军装配的本工程批1自效果词条 (def -> 品质)。遍历自研 capability 的词条→品质映射, 只留本 handler 负责的
+     * 自效果词条 (SELF_AFFIXES); 其余词条 (减伤/攻击等) 走各自 handler。品质直接取 capability 存的值 (盖章期已定,
+     * 无需 NBT 兜底重算)。
      */
-    private static Map<AffixDef, AffixQuality> collectSelfAffixes(IChampion.Server server, int tier) {
-        int star = resolveStar(server, tier);
-        if (star < StarRank.MIN_STAR || star > StarRank.MAX_STAR) {
-            return Map.of(); // 星级越界: 不施自效果, 不抛。
-        }
-        StarRank rank = StarRank.ofStar(star);
-        CompoundTag affixQualityTag = affixQualityTagOf(server);
+    private static Map<AffixDef, AffixQuality> collectSelfAffixes(MiningChampionData champ) {
         Map<AffixDef, AffixQuality> equipped = new EnumMap<>(AffixDef.class);
-        for (IAffix affix : server.getAffixes()) {
-            if (!(affix instanceof MiningAffix mining)) {
-                continue; // 非本工程词条。
-            }
-            AffixDef def = mining.def();
+        for (Map.Entry<AffixDef, AffixQuality> entry : champ.affixes().entrySet()) {
+            AffixDef def = entry.getKey();
             if (!SELF_AFFIXES.contains(def)) {
                 continue; // 非批1自效果词条 (减伤/攻击等走各自 handler)。
             }
-            equipped.put(def, ChampionAffixState.qualityOf(affixQualityTag, def, rank));
+            equipped.put(def, entry.getValue());
         }
         return equipped;
     }
@@ -266,22 +257,6 @@ public final class ChampionSelfEffectHandler {
             return pool.maxHp();
         }
         return entity.getMaxHealth();
-    }
-
-    /** 取冠军星级整数: 优先本工程盖章 star NBT, 缺失 (命令召) 用 rank tier 兜底 (范围校验在 collectSelfAffixes)。 */
-    private static int resolveStar(IChampion.Server server, int tier) {
-        CompoundTag data = server.getData(ChampionPromoter.DATA_KEY);
-        return (data != null && data.contains(ChampionPromoter.NBT_STAR))
-                ? data.getInt(ChampionPromoter.NBT_STAR) : tier;
-    }
-
-    /** 取 DATA_KEY 主表下 affix_quality 子表 (无 -> null, qualityOf 走 tier 兜底)。 */
-    private static CompoundTag affixQualityTagOf(IChampion.Server server) {
-        CompoundTag data = server.getData(ChampionPromoter.DATA_KEY);
-        if (data == null || !data.contains(ChampionAffixState.NBT_AFFIX_QUALITY)) {
-            return null;
-        }
-        return data.getCompound(ChampionAffixState.NBT_AFFIX_QUALITY);
     }
 
     /** 某冠军上次受伤 tick (无 state = 从未受伤 = Long.MIN_VALUE)。 */

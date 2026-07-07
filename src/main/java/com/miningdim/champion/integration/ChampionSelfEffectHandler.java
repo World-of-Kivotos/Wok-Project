@@ -8,10 +8,12 @@ import com.miningdim.champion.ChampionEffectRegistries;
 import com.miningdim.champion.ChampionSelfBuffValues;
 import com.miningdim.champion.MiningChampionData;
 import com.miningdim.champion.MiningChampions;
+import com.miningdim.champion.OverdriveCycle;
 import com.miningdim.champion.aggregate.RetaliationAggregator;
 import com.miningdim.champion.bloodpool.BloodPool;
 import com.miningdim.champion.bloodpool.BloodPoolRegistry;
 import net.minecraft.core.Holder;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.damagesource.DamageSource;
@@ -19,6 +21,7 @@ import net.minecraft.world.damagesource.DamageType;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -40,11 +43,13 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * 冠军【自身被动词条】(Stage2 批1) 效果施加 (Champions 集成层; ChampionStarAffix spec 7.1 再生组织/易燃再生/反震 +
- * 7.3 高速移动)。四类自效果:
+ * 冠军【自身被动词条】(Stage2 批1+批2) 效果施加 (Champions 集成层; ChampionStarAffix spec 7.1 再生组织/易燃再生/
+ * 反震 + 7.3 高速移动/超速移动)。五类自效果:
  *  - 再生组织 REGEN_TISSUE: 脱战 (5s 无伤) 每秒回 %maxHP (惩罚脱离/翻盘)。
  *  - 易燃再生 FLAMMABLE_REGEN: 距上次受伤 ≥1.5s 每秒回 FLAT HP (受伤停回 off-switch)。
  *  - 高速移动 SPRINT: 挂 MOVEMENT_SPEED 瞬态 modifier (+移速%; 幂等按 UUID 只挂一次)。
+ *  - 超速移动 OVERDRIVE (批2): {@link OverdriveCycle} 力竭窗状态机 —— 有攻击目标时 加速4s(+25~85%) ->
+ *    力竭5s(-50%, 反击窗) -> 常态3s 循环, 相位换挡 modifier + 相位粒子; 与 SPRINT 同挂 (命令调试) 时超速优先。
  *  - 反震 THORNS: 被玩家击中时按攻击者 maxHP% 反伤打回攻击者 (内 CD ≥3s + 经 {@link RetaliationAggregator} 30%/s
  *    多源封顶); 击退/AOE-对周围/高亮前摇属后续批 (需 KnockbackSafetyGuard, 批1只做对攻击者反伤)。
  *
@@ -75,9 +80,13 @@ public final class ChampionSelfEffectHandler {
     /** 高速移动 MOVEMENT_SPEED modifier 固定 UUID (幂等挂载; 瞬态不入 NBT)。 */
     private static final UUID SPRINT_MODIFIER_UUID = UUID.fromString("d8b6a3f1-2c47-4e9a-b1d3-5a7c9e0f2b48");
 
-    /** 本工程批1自效果词条集 (仅这些被本 handler 施加; 其余词条走各自 handler / 未实现)。 */
+    /** 超速移动 MOVEMENT_SPEED modifier 固定 UUID (与高速分离: 相位换挡按值 remove+add, 瞬态不入 NBT)。 */
+    private static final UUID OVERDRIVE_MODIFIER_UUID = UUID.fromString("3f9c1b72-6e5d-4a08-9c4b-d217e8a05f63");
+
+    /** 本工程自效果词条集 (批1 四条 + 批2 超速; 仅这些被本 handler 施加; 其余词条走各自 handler / 未实现)。 */
     private static final Set<AffixDef> SELF_AFFIXES = Set.of(
-            AffixDef.REGEN_TISSUE, AffixDef.FLAMMABLE_REGEN, AffixDef.SPRINT, AffixDef.THORNS);
+            AffixDef.REGEN_TISSUE, AffixDef.FLAMMABLE_REGEN, AffixDef.SPRINT, AffixDef.THORNS,
+            AffixDef.OVERDRIVE);
 
     /** per-冠军自效果状态 (受击 tick / 反震 tick); 冠军死亡摘除防泄漏。 */
     private final Map<UUID, SelfState> stateByChampion = new HashMap<>();
@@ -126,9 +135,17 @@ public final class ChampionSelfEffectHandler {
             return; // 无本工程自效果词条。
         }
 
+        // 超速 (批2 力竭窗状态机): 有攻击目标时按锚点推相位换挡移速; 与高速 MOVE_SPEED 互斥, 命令调试双持时
+        // 超速优先 (跳过高速, 防两条移速 modifier 叠加破 spec 峰值)。
+        AffixQuality overdrive = equipped.get(AffixDef.OVERDRIVE);
+        OverdriveCycle.Phase odPhase = null;
+        if (overdrive != null) {
+            odPhase = applyOverdrive(entity, overdrive, nowTick);
+        }
+
         // 移速 (幂等): 有高速移动则确保 MOVEMENT_SPEED modifier 挂上。
         AffixQuality sprint = equipped.get(AffixDef.SPRINT);
-        if (sprint != null) {
+        if (sprint != null && overdrive == null) {
             ensureSprintModifier(entity, ChampionSelfBuffValues.sprintSpeedBonus(sprint));
         }
 
@@ -146,13 +163,14 @@ public final class ChampionSelfEffectHandler {
             healPerSecond += ChampionSelfBuffValues.flammableRegenHealPerSecond(flammable);
         }
 
-        // 诊断 (真服首验, 仅 10 格内有玩家的怪): 每秒对每只自效果冠军打一行, 看扫描命中/词条/脱战门槛/回血/血量变化。
+        // 诊断 (真服首验, 仅 10 格内有玩家的怪): 每秒对每只自效果冠军打一行, 看扫描命中/词条/脱战门槛/回血/超速相位。
         if (ChampionDiagnostics.shouldTrace(entity)) {
-            LOGGER.info("selfbuff {} tier{} affix={} hp={}/{} sinceHurt={} ooc={} flammableReady={} heal/s={}",
+            LOGGER.info("selfbuff {} tier{} affix={} hp={}/{} sinceHurt={} ooc={} flammableReady={} heal/s={} od={}",
                     entity.getType().getDescriptionId(), star, equipped.keySet(),
                     String.format("%.1f", entity.getHealth()), String.format("%.1f", entity.getMaxHealth()),
                     (lastHurt == Long.MIN_VALUE ? "never" : String.valueOf(nowTick - lastHurt)),
-                    outOfCombat, flammableReady, String.format("%.2f", healPerSecond));
+                    outOfCombat, flammableReady, String.format("%.2f", healPerSecond),
+                    (odPhase == null ? "-" : odPhase.name()));
         }
 
         if (healPerSecond > 0.0D) {
@@ -242,6 +260,71 @@ public final class ChampionSelfEffectHandler {
         return equipped;
     }
 
+    /**
+     * 超速力竭窗状态机 tick (批2): 维护战斗锚点 (获得存活攻击目标那刻起循环, 失去目标过 10s 宽限即清锚),
+     * 按 {@link OverdriveCycle#phaseAt} 推相位换挡 MOVEMENT_SPEED modifier (加速 +品质档 / 力竭 -50% / 常态摘除),
+     * 并按相位喷服务端粒子 (力竭窗是给玩家的反击窗口, 必须肉眼可辨; 原版可见原语, spec 9A.6)。
+     *
+     * @return 当前相位 (诊断日志用)
+     */
+    private OverdriveCycle.Phase applyOverdrive(LivingEntity entity, AffixQuality quality, long nowTick) {
+        SelfState state = stateByChampion.computeIfAbsent(entity.getUUID(), k -> new SelfState());
+
+        boolean hasTarget = entity instanceof Mob mob && mob.getTarget() != null && mob.getTarget().isAlive();
+        if (hasTarget) {
+            state.lastTargetSeenTick = nowTick;
+            if (state.overdriveAnchorTick == Long.MIN_VALUE) {
+                state.overdriveAnchorTick = nowTick; // 索敌那刻起循环 (加速开局 = 突进接敌)。
+            }
+        } else if (OverdriveCycle.targetGraceExpired(nowTick, state.lastTargetSeenTick)) {
+            state.overdriveAnchorTick = Long.MIN_VALUE; // 脱战超宽限: 清锚归常态 (重新索敌才重开循环)。
+        }
+
+        OverdriveCycle.Phase phase = state.overdriveAnchorTick == Long.MIN_VALUE
+                ? OverdriveCycle.Phase.NORMAL
+                : OverdriveCycle.phaseAt(nowTick - state.overdriveAnchorTick);
+        ensureOverdriveModifier(entity, OverdriveCycle.speedModifier(phase, quality));
+        emitOverdrivePhaseParticles(entity, phase);
+        return phase;
+    }
+
+    /**
+     * 相位换挡 MOVEMENT_SPEED modifier: 目标值与在挂值一致则不动 (幂等); 不一致先摘旧值, 目标非 0 再挂新值
+     * (AttributeModifier 不可变, 换值必须 remove+add; 常态 0 = 只摘不挂)。
+     */
+    private static void ensureOverdriveModifier(LivingEntity entity, double desired) {
+        AttributeInstance attr = entity.getAttribute(Attributes.MOVEMENT_SPEED);
+        if (attr == null) {
+            return;
+        }
+        AttributeModifier current = attr.getModifier(OVERDRIVE_MODIFIER_UUID);
+        if (current != null) {
+            if (current.getAmount() == desired) {
+                return; // 同相位重复扫描: 已是目标值。
+            }
+            attr.removeModifier(OVERDRIVE_MODIFIER_UUID);
+        }
+        if (desired != 0.0D) {
+            attr.addTransientModifier(new AttributeModifier(
+                    OVERDRIVE_MODIFIER_UUID, "champion_overdrive", desired,
+                    AttributeModifier.Operation.MULTIPLY_TOTAL));
+        }
+    }
+
+    /** 相位粒子 (1s 脉冲, 与扫描同频): 加速 = cloud 尾迹 (急速逼近预警), 力竭 = smoke 弥漫 (可辨的反击窗)。 */
+    private static void emitOverdrivePhaseParticles(LivingEntity entity, OverdriveCycle.Phase phase) {
+        if (!(entity.level() instanceof ServerLevel level)) {
+            return;
+        }
+        if (phase == OverdriveCycle.Phase.SURGE) {
+            level.sendParticles(ParticleTypes.CLOUD,
+                    entity.getX(), entity.getY() + 0.2D, entity.getZ(), 8, 0.3D, 0.1D, 0.3D, 0.02D);
+        } else if (phase == OverdriveCycle.Phase.EXHAUST) {
+            level.sendParticles(ParticleTypes.SMOKE,
+                    entity.getX(), entity.getY() + 0.6D, entity.getZ(), 10, 0.25D, 0.4D, 0.25D, 0.01D);
+        }
+    }
+
     /** 幂等挂 MOVEMENT_SPEED MULTIPLY_TOTAL modifier (已挂则跳过)。 */
     private static void ensureSprintModifier(LivingEntity entity, double bonus) {
         AttributeInstance attr = entity.getAttribute(Attributes.MOVEMENT_SPEED);
@@ -280,9 +363,14 @@ public final class ChampionSelfEffectHandler {
         return state == null ? Long.MIN_VALUE : state.lastHurtTick;
     }
 
-    /** per-冠军自效果状态: 上次受伤 tick (回血门槛) + 上次反震反伤 tick (内 CD)。 */
+    /**
+     * per-冠军自效果状态: 上次受伤 tick (回血门槛) + 上次反震反伤 tick (内 CD) + 超速循环锚点/最后见目标 tick
+     * (力竭窗状态机, MIN_VALUE = 未在循环/从未索敌)。
+     */
     private static final class SelfState {
         private long lastHurtTick = Long.MIN_VALUE;
         private long lastThornsTick = Long.MIN_VALUE;
+        private long overdriveAnchorTick = Long.MIN_VALUE;
+        private long lastTargetSeenTick = Long.MIN_VALUE;
     }
 }

@@ -47,10 +47,12 @@ public final class AffixRoller {
      * 在 spawn 盖章期真改有效血 (ChampionPromoter.applyChampion 消费, 巨大化 +30~180% / 缩小化 -25~58%), 缩小化
      * 另有体型折算净减伤 (ChampionBloodPoolHandler case MINIATURIZATION)。体型渲染/AABB 属批4 形态守卫, 本批只有
      * 血量分量。缩小化"强制 +1 机动"由 roll 期原子配对保证 ({@link #rollMiniaturizationPartner})。
+     *  - 力竭窗 1 (机动池; Stage2 批2): OVERDRIVE —— {@code ChampionSelfEffectHandler.applyOverdrive} 按
+     *    {@link OverdriveCycle} 三相 (加速4s/力竭5s/常态3s) 换挡 MOVEMENT_SPEED modifier + 相位粒子, 真服可观测。
      *
-     * 故意排除的词条共 17 条 = 35 总 - 18 白名单 (数据/签名粒子/spawn 预算校验俱全, 但运行期【无任何 handler 读取其
-     * 效果】, 属 Stage2 未来工作: 10 主动技能 / 自身位移传送 / 召唤 / 周期 AOE / 体型渲染 等待实现): 机动池 4
-     * (OVERDRIVE/BLINK/TACTICAL_BLINK/PHASE_WALK; 高速移动 SPRINT 已 Stage2 批1 落地移入白名单)、
+     * 故意排除的词条共 16 条 = 35 总 - 19 白名单 (数据/签名粒子/spawn 预算校验俱全, 但运行期【无任何 handler 读取其
+     * 效果】, 属 Stage2 未来工作: 10 主动技能 / 自身位移传送 / 召唤 / 周期 AOE / 体型渲染 等待实现): 机动池 3
+     * (BLINK/TACTICAL_BLINK/PHASE_WALK 传送家族; SPRINT 批1 / OVERDRIVE 批2 已移入白名单)、
      * 全部技能池 10 (ELECTRO_CHARGE/THUNDER/LITTLE_BOY/DEATH_MARK/VISUAL_DISRUPTION/SELF_REPAIR/COUNTER_UNIT/
      * CAESAR_SWAP/BLADE_WALTZ/SUMMON_SUPPORT)、战斗池 3 (DOUBLE_STRIKE/QUADRUPLE_STRIKE/CHAOS_STRIKE)。其中:
      *  - DOUBLE_STRIKE/QUADRUPLE_STRIKE: {@link ChampionStrikeGate#strikeJumps} 仅在 GameTest 调用, 任何 integration
@@ -90,7 +92,9 @@ public final class AffixRoller {
             AffixDef.SPRINT,
             // 生存池体型血量 (ChampionHpConversion.sizeMultiplier; Stage2 批2): 巨大化 +血 / 缩小化 -血+体型折算减伤
             AffixDef.GIGANTISM,
-            AffixDef.MINIATURIZATION));
+            AffixDef.MINIATURIZATION,
+            // 机动池力竭窗 (ChampionSelfEffectHandler + OverdriveCycle; Stage2 批2): 加速/力竭/常态三相循环
+            AffixDef.OVERDRIVE));
 
     private AffixRoller() {
     }

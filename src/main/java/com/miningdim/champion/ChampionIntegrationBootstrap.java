@@ -7,6 +7,7 @@ import com.miningdim.champion.integration.ChampionDotTickHandler;
 import com.miningdim.champion.integration.ChampionParticleHandler;
 import com.miningdim.champion.integration.ChampionPromoter;
 import com.miningdim.champion.integration.ChampionRewardHandler;
+import com.miningdim.champion.integration.ChampionSelfEffectHandler;
 import com.miningdim.champion.integration.affix.MiningAffixTypes;
 import net.minecraftforge.eventbus.api.IEventBus;
 
@@ -52,5 +53,8 @@ final class ChampionIntegrationBootstrap {
 
         // 5. 词条环境指示粒子 (服务端主动播每词条签名粒子, 显示层视觉反馈)。
         forgeBus.register(new ChampionParticleHandler());
+
+        // 6. 自身被动词条 (Stage2 批1): 脱战/战斗回血 + 高速移动移速 modifier + 反震反伤 (每秒扫近玩家冠军 + 受击点)。
+        forgeBus.register(new ChampionSelfEffectHandler());
     }
 }

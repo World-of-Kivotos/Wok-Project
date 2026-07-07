@@ -43,22 +43,23 @@ public final class AffixRoller {
      *  - 易伤 1 (战斗池): REND —— {@code ChampionAttackHandler.applyRend} 折 amplifier 挂全局易伤效果真放大下次受击。
      *  - 护甲磨损 1 (战斗池): CORROSIVE —— {@code ChampionAttackHandler.applyCorrosive} 损玩家护甲槽耐久。
      *
-     * 故意排除的词条共 23 条 = 35 总 - 12 白名单 (数据/签名粒子/spawn 预算校验俱全, 但运行期【无任何 handler 读取其
-     * 效果】或【无法独立 roll】, 属 Stage2 未来工作: 自身属性变更 / 10 主动技能 / 自身位移传送 / 召唤 / 周期 AOE 等待
-     * 实现): 全部机动池 5 (SPRINT/OVERDRIVE/BLINK/TACTICAL_BLINK/PHASE_WALK)、全部技能池 10 (ELECTRO_CHARGE/THUNDER/
-     * LITTLE_BOY/DEATH_MARK/VISUAL_DISRUPTION/SELF_REPAIR/COUNTER_UNIT/CAESAR_SWAP/BLADE_WALTZ/SUMMON_SUPPORT)、生存池 5
-     * (REGEN_TISSUE/FLAMMABLE_REGEN/THORNS/GIGANTISM 哑 + MINIATURIZATION 无机动伙伴)、战斗池 3 (DOUBLE_STRIKE/
-     * QUADRUPLE_STRIKE/CHAOS_STRIKE)。其中:
+     * 故意排除的词条共 19 条 = 35 总 - 16 白名单 (数据/签名粒子/spawn 预算校验俱全, 但运行期【无任何 handler 读取其
+     * 效果】或【无法独立 roll】, 属 Stage2 未来工作: 巨大化/缩小化体型 / 10 主动技能 / 自身位移传送 / 召唤 / 周期 AOE
+     * 等待实现): 机动池 4 (OVERDRIVE/BLINK/TACTICAL_BLINK/PHASE_WALK; 高速移动 SPRINT 已 Stage2 批1 落地移入白名单)、
+     * 全部技能池 10 (ELECTRO_CHARGE/THUNDER/LITTLE_BOY/DEATH_MARK/VISUAL_DISRUPTION/SELF_REPAIR/COUNTER_UNIT/
+     * CAESAR_SWAP/BLADE_WALTZ/SUMMON_SUPPORT)、生存池 2 (GIGANTISM 哑 + MINIATURIZATION; 再生组织/易燃再生/反震 已
+     * Stage2 批1 落地移入)、战斗池 3 (DOUBLE_STRIKE/QUADRUPLE_STRIKE/CHAOS_STRIKE)。其中:
      *  - DOUBLE_STRIKE/QUADRUPLE_STRIKE: {@link ChampionStrikeGate#strikeJumps} 仅在 GameTest 调用, 任何 integration
      *    handler 都【未】按跳数拆分施加 (近战伤害不因双倍/四倍而翻倍), 故运行期零可观测效果 -> 哑。
      *  - CHAOS_STRIKE: {@code applyChaosKnockback} 仅落账限频闸, 明确【不】push (KnockbackSafetyGuard 未落地), 玩家
      *    不被击飞, 故运行期零可观测效果 -> 哑。
-     *  - THORNS/COUNTER_UNIT/VISUAL_DISRUPTION 等: 反伤/控制聚合器 (RetaliationAggregator/PlayerControlAggregator)
-     *    虽是基建, 但【无 handler】按这些 def 申请反伤/控制 (仅 FROST 减速走控制聚合), 故这些 def 运行期零消费 -> 哑。
-     *  - MINIATURIZATION (生存池): 其体型折算净减伤 handler 已实 (ChampionBloodPoolHandler case MINIATURIZATION), 但
-     *    spec 第八章强制"缩小化须搭配 +1 机动" ({@link PointBudget} validateMutex 硬校验), 而全部机动词条当前是哑词条
-     *    被排除, 故缩小化在 Stage1【无合法机动伙伴可搭】, 单独 roll 必被 wouldRemainLegal 否决 -> 实际不可 roll。为避免
-     *    白名单挂一条永远 roll 不出的死项, 暂排除缩小化, 待机动池实现后与之一同移入 (其减伤折算届时即生效)。
+     *  - COUNTER_UNIT/VISUAL_DISRUPTION 等: 控制/反伤聚合器 (PlayerControlAggregator/RetaliationAggregator) 虽是基建,
+     *    但【无 handler】按这些 def 申请控制/反伤 (FROST 减速走控制聚合; THORNS 反伤已 Stage2 批1 接 RetaliationAggregator),
+     *    故这些 def 运行期零消费 -> 哑。
+     *  - MINIATURIZATION (生存池): 其体型折算净减伤 handler 已实 (ChampionBloodPoolHandler case MINIATURIZATION), 且
+     *    Stage2 批1 起有合法机动伙伴 (SPRINT 已移入白名单, 满足 spec 第八章"缩小化须搭配 +1 机动"的 {@link PointBudget}
+     *    硬校验)。但其【-血量惩罚】仍属 spawn 期血池模型改动 (批2 与巨大化 +血量一同接), 未接前移入白名单会 roll 出
+     *    "有体型减伤却无血量惩罚"的纯 buff 失衡怪, 故暂仍排除, 待批2 -血量惩罚落地后与巨大化一同移入。
      *
      * 白名单语义 (非黑名单): 新增词条若未在此显式登记, 默认【不】被 roll —— 防 Stage2 往 AffixDef 加新哑词条时静默
      * 漏排, 逼实现 handler 后再把它移入本集合。{@link AffixDef#values()} 总集 - 本白名单 = 当前不可 roll 词条全集。
@@ -80,7 +81,13 @@ public final class AffixRoller {
             // 战斗池易伤 (ChampionAttackHandler.applyRend)
             AffixDef.REND,
             // 战斗池护甲磨损 (ChampionAttackHandler.applyCorrosive)
-            AffixDef.CORROSIVE));
+            AffixDef.CORROSIVE,
+            // 生存池自身被动 (ChampionSelfEffectHandler; Stage2 批1): 脱战 %maxHP 回血 / 战斗 FLAT 回血 / 受击反震反伤
+            AffixDef.REGEN_TISSUE,
+            AffixDef.FLAMMABLE_REGEN,
+            AffixDef.THORNS,
+            // 机动池自身位移 (ChampionSelfEffectHandler; Stage2 批1): 移速加成瞬态 modifier
+            AffixDef.SPRINT));
 
     private AffixRoller() {
     }

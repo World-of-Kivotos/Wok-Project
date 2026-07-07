@@ -395,11 +395,11 @@ public final class ChampionEdgeGameTests {
                             AffixRoller.IMPLEMENTED_AFFIXES.contains(sel.affix()),
                             "rolled affix " + sel.affix() + " (star " + star + ") must be in implemented whitelist "
                                     + "(no dummy axes rolled)");
-                    // 强断言: roll 出的词条池必属生存/战斗 (机动/技能整池在 Stage1 被排除, 绝不应出现)。
+                    // 强断言: roll 出的词条不属技能池 (技能整池仍全哑未实现绝不应 roll 出; 机动池 SPRINT 已 Stage2
+                    // 批1 实现故允许)。
                     helper.assertTrue(
-                            sel.affix().pool() == AffixPool.SURVIVAL || sel.affix().pool() == AffixPool.COMBAT,
-                            "rolled affix " + sel.affix() + " must be from SURVIVAL/COMBAT pool only (mobility/skill "
-                                    + "pools are all dummy in Stage1)");
+                            sel.affix().pool() != AffixPool.SKILL,
+                            "rolled affix " + sel.affix() + " must not be from SKILL pool (all skills still dummy)");
                 }
             }
         }
@@ -417,16 +417,15 @@ public final class ChampionEdgeGameTests {
     public static void dummyAxesUnlockedYetNeverRolled(GameTestHelper helper) {
         StarRank topStar = StarRank.ofStar(StarRank.MAX_STAR);
 
-        // 典型哑词条 (各哑轴代表): 机动/技能/生存哑/战斗哑/缩小化无伙伴。
+        // 典型哑词条 (各哑轴代表): 机动哑/技能/生存哑/战斗哑/缩小化。SPRINT/THORNS 已 Stage2 批1 实现, 故不再列入。
         Set<AffixDef> dummySamples = EnumSet.of(
-                AffixDef.SPRINT,           // 机动池
+                AffixDef.OVERDRIVE,        // 机动池 (超速移动未实现; SPRINT 已批1 实现故换其为机动哑代表)
                 AffixDef.DEATH_MARK,       // 技能池 (主动技能未实现)
                 AffixDef.THUNDER,          // 技能池 (周期 AOE 未实现)
-                AffixDef.GIGANTISM,        // 生存池哑 (无 HP 膨胀 handler)
-                AffixDef.THORNS,           // 生存池哑 (反震 handler 缺位)
+                AffixDef.GIGANTISM,        // 生存池哑 (+HP/体型 spawn 模型批2 待接)
                 AffixDef.DOUBLE_STRIKE,    // 战斗池哑 (分跳未施加)
                 AffixDef.CHAOS_STRIKE,     // 战斗池哑 (击飞不 push)
-                AffixDef.MINIATURIZATION); // 生存池: 减伤已实但无机动伙伴, 不可独立 roll
+                AffixDef.MINIATURIZATION); // 生存池: 减伤已实但 -血量惩罚 spawn 未接 (批2), 暂不入白名单
 
         for (AffixDef dummy : dummySamples) {
             // (1) 这些哑词条在 10★ 确已解锁 -> 若无白名单过滤, rollPool 候选会含它们 (证明过滤是唯一拦截点)。
@@ -449,27 +448,28 @@ public final class ChampionEdgeGameTests {
     }
 
     /**
-     * 白名单内容硬断言: 恰含 12 条 (5 减伤 + 3 即时伤害 + 2 DoT + 1 易伤 + 1 磨损), 且关键实现词条在内、关键哑词条
-     * 不在内 (按 AffixDef 身份)。删任一白名单成员或误加哑词条, 本断言即挂。
+     * 白名单内容硬断言: 恰含 16 条 (Stage1 12: 5 减伤 + 3 即时伤害 + 2 DoT + 1 易伤 + 1 磨损; Stage2 批1 4: 再生组织/
+     * 易燃再生/反震/高速移动), 且关键实现词条在内 (按 AffixDef 身份)。删任一白名单成员或误加哑词条, 本断言即挂。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void implementedWhitelistMembershipExact(GameTestHelper helper) {
         Set<AffixDef> wl = AffixRoller.IMPLEMENTED_AFFIXES;
-        helper.assertTrue(wl.size() == 12, "implemented whitelist has exactly 12 entries, got " + wl.size());
+        helper.assertTrue(wl.size() == 16, "implemented whitelist has exactly 16 entries, got " + wl.size());
 
-        // 实现词条必在内 (逐条身份)。
+        // 实现词条必在内 (逐条身份; Stage1 12 + Stage2 批1 4)。
         for (AffixDef impl : new AffixDef[]{
                 AffixDef.COMPOSITE_ARMOR, AffixDef.UHMWPE_ARMOR, AffixDef.HEAVY_ARMOR,
                 AffixDef.DEFLECTOR_SHIELD, AffixDef.FORTITUDE_SHIELD,
                 AffixDef.HEAVY_CANNON, AffixDef.BLOODLUST, AffixDef.ARMOR_PIERCING,
-                AffixDef.BURNING, AffixDef.FROST, AffixDef.REND, AffixDef.CORROSIVE}) {
+                AffixDef.BURNING, AffixDef.FROST, AffixDef.REND, AffixDef.CORROSIVE,
+                AffixDef.REGEN_TISSUE, AffixDef.FLAMMABLE_REGEN, AffixDef.THORNS, AffixDef.SPRINT}) {
             helper.assertTrue(wl.contains(impl), impl + " (has runtime handler) must be whitelisted");
         }
 
-        // 白名单全员只能来自生存/战斗池 (机动/技能整池排除)。
+        // 白名单全员不属技能池 (技能整池仍全哑排除; 生存/战斗/机动池均可能有实现词条)。
         for (AffixDef d : wl) {
-            helper.assertTrue(d.pool() == AffixPool.SURVIVAL || d.pool() == AffixPool.COMBAT,
-                    d + " in whitelist must be SURVIVAL/COMBAT pool");
+            helper.assertTrue(d.pool() != AffixPool.SKILL,
+                    d + " in whitelist must not be SKILL pool (all skills still dummy)");
         }
 
         // 不可变: 防外部污染白名单 (与 AffixDef 四池视图同纪律)。

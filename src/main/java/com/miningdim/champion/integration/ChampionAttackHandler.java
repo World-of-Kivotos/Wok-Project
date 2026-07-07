@@ -15,6 +15,7 @@ import com.miningdim.effect.ModJobEffects;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -82,6 +83,11 @@ public final class ChampionAttackHandler {
     public void onLivingHurt(LivingHurtEvent event) {
         if (!(event.getEntity() instanceof Player victim)) {
             return; // 受击者非玩家: 攻击类词条只施于玩家。
+        }
+        // 反震反弹伤 (THORNS) 是冠军对攻击者的【反伤】(ChampionSelfEffectHandler 施加), 其 source.getEntity() 恰是
+        // 冠军, 会误判为"冠军攻击玩家"从而额外触发一套 on-hit 攻击词条 (燃烧/寒霜/穿甲…)。反伤非攻击, 直接放行。
+        if (event.getSource().is(DamageTypes.THORNS)) {
+            return;
         }
         if (!(event.getSource().getEntity() instanceof LivingEntity attacker)) {
             return; // 无直接生物攻击者 (环境/无主弹射物): 不施攻击词条。

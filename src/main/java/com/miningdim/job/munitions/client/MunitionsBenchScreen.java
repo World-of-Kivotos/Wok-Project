@@ -14,6 +14,7 @@ import net.minecraft.client.gui.components.PlayerFaceRenderer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
+import org.lwjgl.glfw.GLFW;
 
 import java.util.Locale;
 
@@ -121,9 +122,33 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
     private static final int[] STATUS_LAMP_BASE = {0xFFE05258, 0xFFE2A53F, 0xFF43BC6E};
     private static final int[] STATUS_LAMP_BRIGHT = {0xFFFF747D, 0xFFFFD569, 0xFF74F79F};
     private static final int[] STATUS_LAMP_GLOW = {0x44FF424C, 0x44FFC64D, 0x4455F091};
+    private static final int SEARCH_BUTTON_X = 314;
+    private static final int SEARCH_BUTTON_Y = 20;
+    private static final int SEARCH_BUTTON_W = 24;
+    private static final int SEARCH_BUTTON_H = 24;
+    private static final int SEARCH_PANEL_X = 205;
+    private static final int SEARCH_PANEL_Y = 45;
+    private static final int SEARCH_PANEL_W = 116;
+    private static final int SEARCH_PANEL_H = 87;
+    private static final int SEARCH_FIELD_X = SEARCH_PANEL_X + 7;
+    private static final int SEARCH_FIELD_Y = SEARCH_PANEL_Y + 8;
+    private static final int SEARCH_FIELD_W = SEARCH_PANEL_W - 14;
+    private static final int SEARCH_FIELD_H = 14;
+    private static final int SEARCH_RESULT_X = SEARCH_PANEL_X + 7;
+    private static final int SEARCH_RESULT_Y = SEARCH_PANEL_Y + 27;
+    private static final int SEARCH_RESULT_W = SEARCH_PANEL_W - 14;
+    private static final int SEARCH_RESULT_H = 11;
+    private static final int SEARCH_RESULT_GAP = 2;
+    private static final int SEARCH_MAX_RESULTS = 5;
+    private static final int SEARCH_QUERY_MAX = 18;
 
     private MunitionsCaliber.Category selectedCategory;
     private boolean confirmingCancel;
+    private boolean searchOpen;
+    private String searchQuery = "";
+    private int categoryScrollOffset;
+    private int caliberScrollOffset;
+    private int searchScrollOffset;
 
     public MunitionsBenchScreen(MunitionsBenchMenu menu, Inventory inv, Component title) {
         super(menu, inv, title, BG, W, H);
@@ -169,6 +194,7 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
         renderMaterialInputs(graphics, left, top);
         renderLockState(graphics, left, top);
         renderCraftControls(graphics, left, top);
+        renderSearchPanel(graphics, left, top);
     }
 
     private void renderRunningIndicators(GuiGraphics graphics, int left, int top) {
@@ -230,6 +256,8 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
         int selected = menu.selectedCaliberIndex();
         MunitionsCaliber selectedCaliber = MunitionsCaliber.byIndex(selected);
         MunitionsCaliber.Category category = visibleCategory(selectedCaliber);
+        categoryScrollOffset = clamp(categoryScrollOffset, 0, maxCategoryScroll());
+        caliberScrollOffset = clamp(caliberScrollOffset, 0, maxCaliberScroll(category));
 
         for (int row = 0; row < SELECTOR_ROWS; row++) {
             int y = top + CAL_BTN_Y + row * (CAL_BTN_H + CAL_BTN_Y_GAP);
@@ -238,17 +266,32 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
         }
 
         for (int row = 0; row < CATEGORY_ORDER.length; row++) {
-            MunitionsCaliber.Category option = CATEGORY_ORDER[row];
+            int optionIndex = row + categoryScrollOffset;
+            if (optionIndex >= CATEGORY_ORDER.length || row >= SELECTOR_ROWS) {
+                break;
+            }
+            MunitionsCaliber.Category option = CATEGORY_ORDER[optionIndex];
             int x = left + CATEGORY_BTN_X;
             int y = top + CAL_BTN_Y + row * (CAL_BTN_H + CAL_BTN_Y_GAP);
-            drawChoiceButton(graphics, x, y, option.label(), option == category,
-                    categoryHasUnlockedCaliber(level, option));
+            boolean enabled = categoryHasUnlockedCaliber(level, option);
+            boolean current = option == category;
+            drawChoiceButton(graphics, x, y, option.label(), current, enabled);
         }
+        drawTinyScrollbar(graphics, left + CATEGORY_BTN_X + CAL_BTN_W + 1, top + CAL_BTN_Y,
+                SELECTOR_ROWS * (CAL_BTN_H + CAL_BTN_Y_GAP) - CAL_BTN_Y_GAP,
+                categoryScrollOffset, CATEGORY_ORDER.length, SELECTOR_ROWS);
 
         int row = 0;
+        int skipped = 0;
         for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
-            if (caliber.category() != category || row >= SELECTOR_ROWS) {
+            if (caliber.category() != category) {
                 continue;
+            }
+            if (skipped++ < caliberScrollOffset) {
+                continue;
+            }
+            if (row >= SELECTOR_ROWS) {
+                break;
             }
             int x = left + SUBCALIBER_BTN_X;
             int y = top + CAL_BTN_Y + row * (CAL_BTN_H + CAL_BTN_Y_GAP);
@@ -256,6 +299,9 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
                     MunitionsLevels.isCaliberUnlocked(level, caliber));
             row++;
         }
+        drawTinyScrollbar(graphics, left + SUBCALIBER_BTN_X + CAL_BTN_W + 1, top + CAL_BTN_Y,
+                SELECTOR_ROWS * (CAL_BTN_H + CAL_BTN_Y_GAP) - CAL_BTN_Y_GAP,
+                caliberScrollOffset, caliberCount(category), SELECTOR_ROWS);
     }
 
     private void renderPlayerInfo(GuiGraphics graphics, int left, int top) {
@@ -409,6 +455,104 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
                 mx + CRAFT_MODE_BUTTON_W / 2.0F, my + 1.5F, continuous ? 0xFF80F0D0 : 0xFFD8DDE8, 0.58F);
     }
 
+    private void renderSearchPanel(GuiGraphics graphics, int left, int top) {
+        if (!searchOpen) {
+            return;
+        }
+        int panelX = left + SEARCH_PANEL_X;
+        int panelY = top + SEARCH_PANEL_Y;
+        graphics.fill(panelX + 3, panelY + 4,
+                panelX + SEARCH_PANEL_W + 3, panelY + SEARCH_PANEL_H + 4, 0xAA000000);
+        graphics.fill(panelX, panelY, panelX + SEARCH_PANEL_W, panelY + SEARCH_PANEL_H, 0xFF10131B);
+        graphics.fill(panelX + 1, panelY + 1,
+                panelX + SEARCH_PANEL_W - 1, panelY + SEARCH_PANEL_H - 1, 0xFF242735);
+        graphics.fill(panelX + 6, panelY + 5, panelX + SEARCH_PANEL_W - 6, panelY + 6, 0xFF586074);
+        graphics.fill(panelX + 6, panelY + SEARCH_PANEL_H - 5,
+                panelX + SEARCH_PANEL_W - 6, panelY + SEARCH_PANEL_H - 3, 0xFF31D2B4);
+
+        int buttonX = left + SEARCH_BUTTON_X;
+        int buttonY = top + SEARCH_BUTTON_Y;
+        graphics.fill(buttonX - 1, buttonY - 1, buttonX + SEARCH_BUTTON_W + 1, buttonY + SEARCH_BUTTON_H + 1,
+                0x552FD7C1);
+        graphics.fill(buttonX + 3, buttonY + SEARCH_BUTTON_H - 3,
+                buttonX + SEARCH_BUTTON_W - 3, buttonY + SEARCH_BUTTON_H - 2, 0xFF31D2B4);
+
+        int fieldX = left + SEARCH_FIELD_X;
+        int fieldY = top + SEARCH_FIELD_Y;
+        graphics.fill(fieldX, fieldY, fieldX + SEARCH_FIELD_W, fieldY + SEARCH_FIELD_H, 0xFF111722);
+        graphics.fill(fieldX + 1, fieldY + 1, fieldX + SEARCH_FIELD_W - 1, fieldY + SEARCH_FIELD_H - 1,
+                0xFF1B2030);
+        graphics.fill(fieldX + 4, fieldY + SEARCH_FIELD_H - 3,
+                fieldX + SEARCH_FIELD_W - 4, fieldY + SEARCH_FIELD_H - 2, 0xFF31D2B4);
+
+        if (searchQuery.isEmpty()) {
+            drawSmoothTextScaled(graphics, "SEARCH", fieldX + 6, fieldY + 3, 0xFF707787, 0.62F);
+        } else {
+            drawSearchQuery(graphics, searchQuery, fieldX + 6, fieldY + 3, SEARCH_FIELD_W - 12);
+        }
+
+        int level = menu.effectiveMunitionsLevel();
+        int totalResults = searchResultCount();
+        searchScrollOffset = clamp(searchScrollOffset, 0, Math.max(0, totalResults - SEARCH_MAX_RESULTS));
+        int resultCount = 0;
+        int skipped = 0;
+        for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
+            if (!matchesSearch(caliber, searchQuery)) {
+                continue;
+            }
+            if (skipped++ < searchScrollOffset) {
+                continue;
+            }
+            if (resultCount >= SEARCH_MAX_RESULTS) {
+                break;
+            }
+            renderSearchResult(graphics, left, top, caliber, resultCount, level);
+            resultCount++;
+        }
+        drawTinyScrollbar(graphics, left + SEARCH_PANEL_X + SEARCH_PANEL_W - 5, top + SEARCH_RESULT_Y,
+                SEARCH_MAX_RESULTS * (SEARCH_RESULT_H + SEARCH_RESULT_GAP) - SEARCH_RESULT_GAP,
+                searchScrollOffset, totalResults, SEARCH_MAX_RESULTS);
+        if (totalResults == 0) {
+            drawSmoothTextScaled(graphics, "NO MATCH", left + SEARCH_RESULT_X + 8,
+                    top + SEARCH_RESULT_Y + 6, 0xFF747B8A, 0.62F);
+        }
+    }
+
+    private void renderSearchResult(GuiGraphics graphics, int left, int top,
+                                    MunitionsCaliber caliber, int row, int level) {
+        int x = left + SEARCH_RESULT_X;
+        int y = top + SEARCH_RESULT_Y + row * (SEARCH_RESULT_H + SEARCH_RESULT_GAP);
+        boolean selected = caliber.index() == menu.selectedCaliberIndex();
+        boolean unlocked = MunitionsLevels.isCaliberUnlocked(level, caliber);
+        int frame = selected ? 0xFF735735 : 0xFF151821;
+        int fill = selected ? 0xFF3A3329 : unlocked ? 0xFF272B38 : 0xFF20222A;
+        int text = selected ? 0xFFFFDC8D : unlocked ? 0xFFDCE3EE : 0xFF737987;
+        graphics.fill(x, y, x + SEARCH_RESULT_W, y + SEARCH_RESULT_H, frame);
+        graphics.fill(x + 1, y + 1, x + SEARCH_RESULT_W - 1, y + SEARCH_RESULT_H - 1, fill);
+        graphics.fill(x + 4, y + SEARCH_RESULT_H - 2, x + SEARCH_RESULT_W - 4, y + SEARCH_RESULT_H - 1,
+                selected ? 0xFFC6974B : unlocked ? 0xFF31D2B4 : 0xFF4D5360);
+        drawSmoothTextScaled(graphics, displayCaliberLabel(caliber), x + 5, y + 2, text, 0.58F);
+        drawSmoothTextScaled(graphics, "L" + caliber.unlockLevel(), x + SEARCH_RESULT_W - 18, y + 2,
+                unlocked ? 0xFF7CE8CF : 0xFF777D8A, 0.55F);
+    }
+
+    private void drawSearchQuery(GuiGraphics graphics, String value, int x, int y, int maxWidth) {
+        float scale = 0.62F;
+        String visible = value;
+        while (!visible.isEmpty() && this.font.width(visible) * scale > maxWidth) {
+            visible = visible.substring(1);
+        }
+        graphics.pose().pushPose();
+        graphics.pose().translate(x, y, 0.0F);
+        graphics.pose().scale(scale, scale, 1.0F);
+        graphics.drawString(this.font, visible, 0, 0, 0xFFE8EDF5, false);
+        graphics.pose().popPose();
+        if ((System.currentTimeMillis() / 450L) % 2L == 0L) {
+            int cursorX = x + (int) (this.font.width(visible) * scale) + 2;
+            graphics.fill(cursorX, y, cursorX + 1, y + 8, 0xFF78FFE7);
+        }
+    }
+
     private void renderCancelCraftDialog(GuiGraphics graphics) {
         int left = (this.width - W) / 2;
         int top = (this.height - H) / 2;
@@ -461,6 +605,9 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
             }
             return true;
         }
+        if (handleSearchClick(mouseX, mouseY, button, leftPos, topPos, level)) {
+            return true;
+        }
         if (inRect(mouseX, mouseY, leftPos + CRAFT_BUTTON_X, topPos + CRAFT_BUTTON_Y,
                 CRAFT_BUTTON_W, CRAFT_BUTTON_H)) {
             if (menu.isCraftingActive()) {
@@ -475,20 +622,34 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
             sendButton(MunitionsBenchMenu.BUTTON_TOGGLE_CONTINUOUS);
             return true;
         }
-        for (int row = 0; row < CATEGORY_ORDER.length; row++) {
+        categoryScrollOffset = clamp(categoryScrollOffset, 0, maxCategoryScroll());
+        for (int row = 0; row < SELECTOR_ROWS; row++) {
+            int optionIndex = row + categoryScrollOffset;
+            if (optionIndex >= CATEGORY_ORDER.length) {
+                break;
+            }
             int x = leftPos + CATEGORY_BTN_X;
             int y = topPos + CAL_BTN_Y + row * (CAL_BTN_H + CAL_BTN_Y_GAP);
             if (inRect(mouseX, mouseY, x, y, CAL_BTN_W, CAL_BTN_H)) {
-                selectedCategory = CATEGORY_ORDER[row];
+                selectedCategory = CATEGORY_ORDER[optionIndex];
+                caliberScrollOffset = 0;
                 return true;
             }
         }
 
         MunitionsCaliber.Category category = visibleCategory(MunitionsCaliber.byIndex(menu.selectedCaliberIndex()));
+        caliberScrollOffset = clamp(caliberScrollOffset, 0, maxCaliberScroll(category));
         int row = 0;
+        int skipped = 0;
         for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
-            if (caliber.category() != category || row >= SELECTOR_ROWS) {
+            if (caliber.category() != category) {
                 continue;
+            }
+            if (skipped++ < caliberScrollOffset) {
+                continue;
+            }
+            if (row >= SELECTOR_ROWS) {
+                break;
             }
             int x = leftPos + SUBCALIBER_BTN_X;
             int y = topPos + CAL_BTN_Y + row * (CAL_BTN_H + CAL_BTN_Y_GAP);
@@ -502,6 +663,148 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
             row++;
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+        int left = (this.width - W) / 2;
+        int top = (this.height - H) / 2;
+        if (confirmingCancel) {
+            return true;
+        }
+        if (searchOpen && inRect(mouseX, mouseY, left + SEARCH_PANEL_X, top + SEARCH_PANEL_Y,
+                SEARCH_PANEL_W, SEARCH_PANEL_H)) {
+            searchScrollOffset = scrollOffset(searchScrollOffset, delta, maxSearchScroll());
+            return true;
+        }
+        int listY = top + CAL_BTN_Y;
+        int listH = SELECTOR_ROWS * (CAL_BTN_H + CAL_BTN_Y_GAP) - CAL_BTN_Y_GAP;
+        if (inRect(mouseX, mouseY, left + CATEGORY_BTN_X, listY, CAL_BTN_W, listH)) {
+            categoryScrollOffset = scrollOffset(categoryScrollOffset, delta, maxCategoryScroll());
+            return true;
+        }
+        MunitionsCaliber.Category category = visibleCategory(MunitionsCaliber.byIndex(menu.selectedCaliberIndex()));
+        if (inRect(mouseX, mouseY, left + SUBCALIBER_BTN_X, listY, CAL_BTN_W, listH)
+                || inRect(mouseX, mouseY, left + CATEGORY_BTN_X, listY,
+                SUBCALIBER_BTN_X + CAL_BTN_W - CATEGORY_BTN_X, listH)) {
+            caliberScrollOffset = scrollOffset(caliberScrollOffset, delta, maxCaliberScroll(category));
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, delta);
+    }
+
+    @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        if (searchOpen) {
+            if (!Character.isISOControl(codePoint) && !Character.isSurrogate(codePoint)
+                    && searchQuery.length() < SEARCH_QUERY_MAX) {
+                searchQuery += codePoint;
+                searchScrollOffset = 0;
+            }
+            return true;
+        }
+        return super.charTyped(codePoint, modifiers);
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (searchOpen) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                searchOpen = false;
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
+                if (!searchQuery.isEmpty()) {
+                    searchQuery = searchQuery.substring(0, searchQuery.length() - 1);
+                    searchScrollOffset = 0;
+                }
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_DELETE) {
+                searchQuery = "";
+                searchScrollOffset = 0;
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                MunitionsCaliber first = firstSearchResult(menu.effectiveMunitionsLevel());
+                if (first != null && MunitionsLevels.isCaliberUnlocked(menu.effectiveMunitionsLevel(), first)) {
+                    selectSearchResult(first);
+                }
+                return true;
+            }
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    private boolean handleSearchClick(double mouseX, double mouseY, int button, int left, int top, int level) {
+        if (button != 0) {
+            return false;
+        }
+        if (inRect(mouseX, mouseY, left + SEARCH_BUTTON_X, top + SEARCH_BUTTON_Y,
+                SEARCH_BUTTON_W, SEARCH_BUTTON_H)) {
+            searchOpen = !searchOpen;
+            searchScrollOffset = 0;
+            return true;
+        }
+        if (!searchOpen) {
+            return false;
+        }
+        MunitionsCaliber result = searchResultAt(mouseX, mouseY, left, top);
+        if (result != null) {
+            if (MunitionsLevels.isCaliberUnlocked(level, result)) {
+                selectSearchResult(result);
+            }
+            return true;
+        }
+        if (inRect(mouseX, mouseY, left + SEARCH_PANEL_X, top + SEARCH_PANEL_Y,
+                SEARCH_PANEL_W, SEARCH_PANEL_H)) {
+            return true;
+        }
+        searchOpen = false;
+        return true;
+    }
+
+    private MunitionsCaliber searchResultAt(double mouseX, double mouseY, int left, int top) {
+        int resultCount = 0;
+        int skipped = 0;
+        searchScrollOffset = clamp(searchScrollOffset, 0, maxSearchScroll());
+        for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
+            if (!matchesSearch(caliber, searchQuery)) {
+                continue;
+            }
+            if (skipped++ < searchScrollOffset) {
+                continue;
+            }
+            if (resultCount >= SEARCH_MAX_RESULTS) {
+                return null;
+            }
+            int x = left + SEARCH_RESULT_X;
+            int y = top + SEARCH_RESULT_Y + resultCount * (SEARCH_RESULT_H + SEARCH_RESULT_GAP);
+            if (inRect(mouseX, mouseY, x, y, SEARCH_RESULT_W, SEARCH_RESULT_H)) {
+                return caliber;
+            }
+            resultCount++;
+        }
+        return null;
+    }
+
+    private MunitionsCaliber firstSearchResult(int level) {
+        for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
+            if (matchesSearch(caliber, searchQuery) && MunitionsLevels.isCaliberUnlocked(level, caliber)) {
+                return caliber;
+            }
+        }
+        return null;
+    }
+
+    private void selectSearchResult(MunitionsCaliber caliber) {
+        selectedCategory = caliber.category();
+        ensureCategoryVisible(selectedCategory);
+        caliberScrollOffset = 0;
+        searchScrollOffset = 0;
+        sendButton(caliber.index());
+        searchOpen = false;
     }
 
     private void sendButton(int id) {
@@ -528,9 +831,76 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
         return false;
     }
 
+    private static int maxCategoryScroll() {
+        return Math.max(0, CATEGORY_ORDER.length - SELECTOR_ROWS);
+    }
+
+    private static int maxCaliberScroll(MunitionsCaliber.Category category) {
+        return Math.max(0, caliberCount(category) - SELECTOR_ROWS);
+    }
+
+    private int maxSearchScroll() {
+        return Math.max(0, searchResultCount() - SEARCH_MAX_RESULTS);
+    }
+
+    private static int caliberCount(MunitionsCaliber.Category category) {
+        int count = 0;
+        for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
+            if (caliber.category() == category) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private int searchResultCount() {
+        int count = 0;
+        for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
+            if (matchesSearch(caliber, searchQuery)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static int scrollOffset(int current, double delta, int max) {
+        int next = current + (delta > 0.0D ? -1 : 1);
+        return clamp(next, 0, max);
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private void ensureCategoryVisible(MunitionsCaliber.Category category) {
+        int index = categoryIndex(category);
+        if (index < 0) {
+            return;
+        }
+        if (index < categoryScrollOffset) {
+            categoryScrollOffset = index;
+        } else if (index >= categoryScrollOffset + SELECTOR_ROWS) {
+            categoryScrollOffset = index - SELECTOR_ROWS + 1;
+        }
+        categoryScrollOffset = clamp(categoryScrollOffset, 0, maxCategoryScroll());
+    }
+
+    private static int categoryIndex(MunitionsCaliber.Category category) {
+        for (int i = 0; i < CATEGORY_ORDER.length; i++) {
+            if (CATEGORY_ORDER[i] == category) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static int choiceTextColor(boolean selected, boolean enabled) {
+        return selected ? 0xFFEAD6A6 : enabled ? 0xFFD2D7E1 : 0xFF707582;
+    }
+
     private void drawChoiceButton(GuiGraphics graphics, int x, int y, String label, boolean selected, boolean enabled) {
         int fill = selected ? 0xFF37332B : enabled ? 0xF0282A34 : 0xF022232B;
-        int text = selected ? 0xFFEAD6A6 : enabled ? 0xFFD2D7E1 : 0xFF707582;
+        int text = choiceTextColor(selected, enabled);
         graphics.fill(x, y, x + CAL_BTN_W, y + CAL_BTN_H, selected ? 0xFF5C4730 : 0xFF151720);
         graphics.fill(x + 1, y + 1, x + CAL_BTN_W - 1, y + CAL_BTN_H - 1, fill);
         graphics.fill(x + 3, y + 2, x + CAL_BTN_W - 4, y + 3, selected ? 0x669B7A44 : 0x334A4F5C);
@@ -553,6 +923,18 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
         graphics.pose().scale(scale, scale, 1.0F);
         graphics.drawString(this.font, value, 0, 0, argb, false);
         graphics.pose().popPose();
+    }
+
+    private static void drawTinyScrollbar(GuiGraphics graphics, int x, int y, int h,
+                                          int offset, int total, int visible) {
+        if (total <= visible) {
+            return;
+        }
+        int max = Math.max(1, total - visible);
+        int thumbH = Math.max(8, h * visible / total);
+        int thumbY = y + (h - thumbH) * clamp(offset, 0, max) / max;
+        graphics.fill(x, y, x + 1, y + h, 0x664B5061);
+        graphics.fill(x, thumbY, x + 1, thumbY + thumbH, 0xFF31D2B4);
     }
 
     private void drawVanillaTextCenteredScaled(GuiGraphics graphics, String value, float centerX, float y,
@@ -594,6 +976,49 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
 
     private static String displayCaliberLabel(MunitionsCaliber caliber) {
         return caliber.shortLabel();
+    }
+
+    private static boolean matchesSearch(MunitionsCaliber caliber, String query) {
+        String trimmed = query.trim();
+        if (trimmed.isEmpty()) {
+            return true;
+        }
+        String target = searchText(caliber).toLowerCase(Locale.ROOT);
+        String direct = trimmed.toLowerCase(Locale.ROOT);
+        String compact = compactSearchText(trimmed);
+        return target.contains(direct) || compactSearchText(target).contains(compact);
+    }
+
+    private static String searchText(MunitionsCaliber caliber) {
+        return displayCaliberLabel(caliber) + " "
+                + caliber.defaultAmmoPath() + " "
+                + caliber.category().name() + " "
+                + caliber.category().label() + " "
+                + caliberSearchName(caliber);
+    }
+
+    private static String compactSearchText(String value) {
+        return value.toLowerCase(Locale.ROOT)
+                .replace(" ", "")
+                .replace("/", "")
+                .replace("_", "")
+                .replace("-", "")
+                .replace(".", "");
+    }
+
+    private static String caliberSearchName(MunitionsCaliber caliber) {
+        return switch (caliber) {
+            case PISTOL -> "9mm 手枪 冲锋枪 手枪弹 冲锋枪弹 pistol smg";
+            case RIFLE -> "762 762x39 7.62 步枪 步枪弹 rifle";
+            case SHOTGUN -> "12g 12ga 霰弹 散弹 霰弹枪 shotgun";
+            case BATTLE -> "762x54 7.62x54 54r 战斗步枪 机枪 机枪弹 battle mg machinegun";
+            case SNIPER -> "338 .338 狙击 狙击弹 sniper";
+            case BIG_PISTOL -> "50ae 50 ae 大口径手枪 magnum pistol";
+            case ANTI_MATERIEL -> "50bmg 50 bmg 反器材 反器材弹 anti materiel antimateriel";
+            case EXPLOSIVE -> "40mm 40 m 爆炸 榴弹 火箭弹 rpg explosive grenade";
+            case SPECIAL -> "68x51 68x51fury 特种 特种弹 special fury";
+            case RIFLE_556 -> "556 556x45 5.56 5.56x45 步枪 步枪弹 rifle";
+        };
     }
 
     private static void drawSmoothTextCentered(GuiGraphics graphics, String value, int centerX, int y, int argb) {

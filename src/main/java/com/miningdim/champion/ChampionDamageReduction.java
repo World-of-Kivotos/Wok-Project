@@ -19,7 +19,23 @@ public final class ChampionDamageReduction {
     private ChampionDamageReduction() {
     }
 
-    /** 复合装甲 ramp 分段数 (spec 7.1: 每受击 +上限/5, 5 次受击达上限)。 */
+    /**
+     * 伤害类别 (复合装甲同源适应的分桶维度, spec 7.1 复合装甲 v2): 装甲只适应【当前持续挨的那类】伤害, 换类别
+     * 即重置 —— 玩家的真实反制手段 (枪打久了换近战/丢雷)。分类由受击 handler 从 DamageSource 折算 (子弹 =
+     * tacz:bullet*; 爆炸 = IS_EXPLOSION 标签; 近战 = MOB/PLAYER_ATTACK; 其余归 OTHER), 本枚举纯逻辑供 tracker 分桶。
+     */
+    public enum DamageCategory {
+        /** TACZ 子弹 (tacz:bullet*)。 */
+        BULLET,
+        /** 近战 (MOB_ATTACK / MOB_ATTACK_NO_AGGRO / PLAYER_ATTACK)。 */
+        MELEE,
+        /** 爆炸 (IS_EXPLOSION 标签, 含 TACZ 爆炸弹/手雷)。 */
+        EXPLOSION,
+        /** 其它 (弹射物/魔法/环境等)。 */
+        OTHER
+    }
+
+    /** 复合装甲 ramp 分段数 (spec 7.1: 每受同类击 +上限/5, 5 次达上限)。 */
     public static final int COMPOSITE_RAMP_STEPS = 5;
 
     /** 复合装甲 ramp 无伤重置窗 (spec 7.1: 3s 无伤重置 -> 60 tick)。 */

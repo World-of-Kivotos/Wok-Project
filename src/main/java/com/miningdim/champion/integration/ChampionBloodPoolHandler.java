@@ -41,9 +41,9 @@ import java.util.UUID;
 /**
  * 6★+ 冠军自定义血池受击接线 (Champions 集成层; ChampionStarAffix spec 6.2 血池 + 红线 1 净减伤单点 + 9A.2 铁律)。
  *
- * 单点净减伤铁律 (9A.2): 严禁用 Champions 逐词条 onHurt 串行减伤 (多源相乘穿透 49%)。所有比例类减伤源
- * (超高分子/重型子弹抗 + 复合 ramp + 偏斜 EV + 缩小化体型折算) 在本 {@link LivingHurtEvent} 单点收集 rates 后
- * 经 {@link ChampionRedlines#clampNetKeepFactor} 一次性连乘钳制 (keep = max(∏(1-rᵢ), 0.51)); FLAT 类减伤
+ * 单点净减伤铁律 (9A.2): 严禁逐词条串行减伤 (多源相乘穿透 75% 帽)。所有比例类减伤源
+ * (超高分子/重型子弹抗 + 复合同源适应 ramp + 偏斜 EV + 缩小化体型折算) 在本 {@link LivingHurtEvent} 单点收集 rates 后
+ * 经 {@link ChampionRedlines#clampNetKeepFactor} 一次性连乘钳制 (keep = max(∏(1-rᵢ), 0.25)); FLAT 类减伤
  * (刚毅单次封顶 + 重型护甲近战/爆炸 <T 整次免疫) 是与入伤量耦合的非比例硬上限, 在连乘净伤后经
  * {@link ChampionDamageReduction#applyFlatCaps} 再削顶 (单向变硬, 不与 49% 净减伤底冲突)。各源数值/分类折算
  * 全转交纯逻辑 {@link ChampionDamageReduction} (子弹/近战分类 + 5 档数值表), 本 handler 只读自研冠军 capability
@@ -89,9 +89,9 @@ public final class ChampionBloodPoolHandler {
             return;
         }
 
-        // 净减伤单点连乘钳制 (红线 1 / 9.2): 读冠军词条池, 比例类减伤源 (超高分子/重型子弹抗 + 复合 ramp + 偏斜 EV +
-        // 缩小化体型折算) 收进 rates 一次性连乘 keep = max(∏(1-rᵢ),0.51) 钳死 49%; FLAT 类 (刚毅封顶 + 重型 <T 免疫)
-        // 在连乘净伤后再削顶 (单向变硬, 不与 49% 底冲突)。各源数值/分类折算见 ChampionDamageReduction (纯函数 GameTest)。
+        // 净减伤单点连乘钳制 (红线 1 / 9.2): 读冠军词条池, 比例类减伤源 (超高分子/重型子弹抗 + 复合同源适应 ramp +
+        // 偏斜 EV + 缩小化体型折算) 收进 rates 一次性连乘 keep = max(∏(1-rᵢ),0.25) 钳死 75%; FLAT 类 (刚毅封顶 +
+        // 重型 <T 免疫) 在连乘净伤后再削顶 (单向变硬, 不与 75% 底冲突)。各源数值/分类折算见 ChampionDamageReduction。
         // 减伤词条对【所有星级】冠军生效 (非 6★+ 血池专属): buildReductionPlan 对非本工程冠军返 isChampion=false 早退。
         ReductionPlan plan = buildReductionPlan(victim, event.getSource());
         if (!plan.isChampion) {
@@ -103,13 +103,13 @@ public final class ChampionBloodPoolHandler {
         netDamage = ChampionDamageReduction.applyFlatCaps(
                 netDamage, plan.fortitudeCap, plan.heavyThreshold, plan.meleeOrExplosion);
 
-        // 诊断 (真服首验, 仅 10 格内有玩家的怪): 每次冠军受击打一行, 直观看各减伤源折算率(含复合装甲当前ramp)/
-        // 连乘keep/净伤 (定位"减伤不生效")。
+        // 诊断 (真服首验, 仅 10 格内有玩家的怪): 每次冠军受击打一行, 直观看伤害类别/各减伤源折算率(含复合装甲
+        // 当前同源适应层折率)/连乘keep/净伤 (定位"减伤不生效"+验换类别重置)。
         if (ChampionDiagnostics.shouldTrace(victim)) {
-            LOGGER.info("champion-hit {} incoming={} rates={} keep={} net={} flat[fort={},heavyT={}] bullet={} melee={}",
-                    victim.getType().getDescriptionId(), String.format("%.2f", incoming), plan.rates,
+            LOGGER.info("champion-hit {} cat={} incoming={} rates={} keep={} net={} flat[fort={},heavyT={}]",
+                    victim.getType().getDescriptionId(), plan.category, String.format("%.2f", incoming), plan.rates,
                     String.format("%.3f", keep), String.format("%.2f", netDamage),
-                    plan.fortitudeCap, plan.heavyThreshold, isBulletDamage(event.getSource()), plan.meleeOrExplosion);
+                    plan.fortitudeCap, plan.heavyThreshold);
         }
 
         BloodPool pool = BloodPoolRegistry.get(victim.getUUID());
@@ -171,11 +171,13 @@ public final class ChampionBloodPoolHandler {
 
         boolean bullet = isBulletDamage(source);
         boolean meleeOrExplosion = isMeleeOrExplosionDamage(source);
+        ChampionDamageReduction.DamageCategory category = categorize(source, bullet);
 
         for (Map.Entry<AffixDef, AffixQuality> entry : champ.affixes().entrySet()) {
-            collectAffixReduction(entry.getKey(), entry.getValue(), bullet, meleeOrExplosion, victim, plan);
+            collectAffixReduction(entry.getKey(), entry.getValue(), bullet, meleeOrExplosion, category, victim, plan);
         }
         plan.meleeOrExplosion = meleeOrExplosion;
+        plan.category = category;
         return plan;
     }
 
@@ -184,14 +186,15 @@ public final class ChampionBloodPoolHandler {
      * (超高分子/重型子弹抗/偏斜 EV) 仅子弹伤害纳入; 复合 ramp/缩小化对全伤害类型生效。
      */
     private void collectAffixReduction(AffixDef def, AffixQuality quality,
-                                       boolean bullet, boolean meleeOrExplosion, LivingEntity victim,
+                                       boolean bullet, boolean meleeOrExplosion,
+                                       ChampionDamageReduction.DamageCategory category, LivingEntity victim,
                                        ReductionPlan plan) {
         switch (def) {
             case COMPOSITE_ARMOR: {
-                // ramp: per-冠军跨受击计数 (3s 无伤重置), 当前 ramp 率进 rates。
+                // 同源适应: per-冠军按伤害类别分桶爬升 (换类别双向清零 + 3s 无伤全重置), 当前类别层数折率进 rates。
                 CompositeArmorRampTracker tracker =
                         compositeRamps.computeIfAbsent(victim.getUUID(), id -> new CompositeArmorRampTracker());
-                int hits = tracker.onHit(victim.level().getGameTime());
+                int hits = tracker.onHit(category, victim.level().getGameTime());
                 addRate(plan, ChampionDamageReduction.compositeRampRate(quality, hits));
                 break;
             }
@@ -264,6 +267,25 @@ public final class ChampionBloodPoolHandler {
     }
 
     /**
+     * 伤害类别折算 (复合装甲同源适应分桶维度): 子弹 (tacz:bullet*) / 爆炸 (IS_EXPLOSION, 先于近战判防爆炸型近战误归) /
+     * 近战 (MOB/PLAYER_ATTACK) / 其余 OTHER。bullet 已由调用方算好传入 (免二次解析 type id)。
+     */
+    private static ChampionDamageReduction.DamageCategory categorize(DamageSource source, boolean bullet) {
+        if (bullet) {
+            return ChampionDamageReduction.DamageCategory.BULLET;
+        }
+        if (source.is(DamageTypeTags.IS_EXPLOSION)) {
+            return ChampionDamageReduction.DamageCategory.EXPLOSION;
+        }
+        if (source.is(DamageTypes.MOB_ATTACK)
+                || source.is(DamageTypes.MOB_ATTACK_NO_AGGRO)
+                || source.is(DamageTypes.PLAYER_ATTACK)) {
+            return ChampionDamageReduction.DamageCategory.MELEE;
+        }
+        return ChampionDamageReduction.DamageCategory.OTHER;
+    }
+
+    /**
      * 一次受击的净减伤计划: 比例源 rates (连乘进 clampNetKeepFactor) + FLAT 削顶量 (刚毅单次封顶 / 重型 <T 免疫
      * 阈值) + 本次是否近战/爆炸 (重型免疫仅对此生效)。fortitudeCap/heavyThreshold &lt;=0 表示无该词条 (不削)。
      */
@@ -274,6 +296,8 @@ public final class ChampionBloodPoolHandler {
         double fortitudeCap = 0.0D;
         double heavyThreshold = 0.0D;
         boolean meleeOrExplosion = false;
+        /** 本次伤害类别 (复合装甲同源适应分桶 + 诊断日志)。 */
+        ChampionDamageReduction.DamageCategory category = ChampionDamageReduction.DamageCategory.OTHER;
     }
 
     /**

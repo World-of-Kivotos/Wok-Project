@@ -12,7 +12,7 @@ import net.minecraftforge.gametest.PrefixGameTestTemplate;
  *
  * 全断言具体业务数值且含反例 (删被测折算/ramp/削顶/分类/连乘 clamp 对应 test 立挂): ramp 爬升与 3s 无伤重置、
  * 子弹专属源仅子弹纳入、刚毅 FLAT 封顶削顶、重型 <T 整次免疫 (仅近战/爆炸)、缩小化体型 ×0.5 折算、以及 spec 9.2
- * 头号红线: 8★/9★ 多减伤源连乘后 keep 不破 0.51 (净减伤 ≤49%)。严禁触 Champions 加载路径 (compileOnly 铁律) ——
+ * 头号红线: 8★/9★ 多减伤源连乘后 keep 不破 0.25 (净减伤 ≤75%)。严禁触 Champions 加载路径 (compileOnly 铁律) ——
  * 全测纯函数 {@link ChampionDamageReduction} / {@link CompositeArmorRampTracker} / {@link ChampionRedlines}, 不引用
  * top.theillusivec4.champions.*。template = "empty"。
  */
@@ -89,44 +89,54 @@ public final class ChampionAffixReductionGameTests {
     }
 
     // ============================================================
-    // 复合装甲 ramp: 爬升 (每受击 +上限/5) + 3s 无伤重置
+    // 复合装甲同源适应: 同类爬升 (每受同类击 +上限/5) + 换类别双向清零 + 3s 无伤全重置
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void compositeRampClimbsAndCaps(GameTestHelper helper) {
-        // EPIC 上限 0.22, step = 0.044。
+        // EPIC 上限 0.65, step = 0.13 (2026-07-07 用户定向加强: 档位 35/45/55/65/75%)。
         AffixQuality q = AffixQuality.EPIC;
         helper.assertTrue(ChampionDamageReduction.compositeRampRate(q, 0) == 0.0D, "ramp 0 hits = 0 rate");
-        helper.assertTrue(Math.abs(ChampionDamageReduction.compositeRampRate(q, 1) - 0.044D) < EPS,
-                "ramp 1 hit = cap/5 = 0.044");
-        helper.assertTrue(Math.abs(ChampionDamageReduction.compositeRampRate(q, 3) - 0.132D) < EPS,
-                "ramp 3 hits = 3*cap/5 = 0.132");
-        helper.assertTrue(Math.abs(ChampionDamageReduction.compositeRampRate(q, 5) - 0.22D) < EPS,
-                "ramp 5 hits = cap 0.22");
+        helper.assertTrue(Math.abs(ChampionDamageReduction.compositeRampRate(q, 1) - 0.13D) < EPS,
+                "ramp 1 hit = cap/5 = 0.13");
+        helper.assertTrue(Math.abs(ChampionDamageReduction.compositeRampRate(q, 3) - 0.39D) < EPS,
+                "ramp 3 hits = 3*cap/5 = 0.39");
+        helper.assertTrue(Math.abs(ChampionDamageReduction.compositeRampRate(q, 5) - 0.65D) < EPS,
+                "ramp 5 hits = cap 0.65");
         // 超过 5 次仍夹到上限 (不再叠加超过词条上限)。
-        helper.assertTrue(Math.abs(ChampionDamageReduction.compositeRampRate(q, 9) - 0.22D) < EPS,
+        helper.assertTrue(Math.abs(ChampionDamageReduction.compositeRampRate(q, 9) - 0.65D) < EPS,
                 "ramp >5 hits clamped to cap (no over-stack past affix ceiling)");
+        // 闪耀顶格 = 75% (净减伤帽同值, 单复合装甲即可打到帽)。
+        helper.assertTrue(Math.abs(ChampionDamageReduction.compositeRampRate(AffixQuality.LEGENDARY, 5) - 0.75D) < EPS,
+                "LEGENDARY full ramp = 0.75 cap");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void compositeRampResetsAfterThreeSeconds(GameTestHelper helper) {
-        CompositeArmorRampTracker t = new CompositeArmorRampTracker();
-        // tick 0,1,2: 连续受击爬到 3 次。
-        helper.assertTrue(t.onHit(0L) == 1, "first hit count 1");
-        helper.assertTrue(t.onHit(1L) == 2, "second hit (within window) count 2");
-        helper.assertTrue(t.onHit(2L) == 3, "third hit count 3");
-        // 夹到 5 上限: 再连击 (tick 内 <60 间隔)。
-        t.onHit(3L);
-        t.onHit(4L);
-        helper.assertTrue(t.onHit(5L) == 5, "ramp count clamps at 5 steps");
-        // tick 5+60 = 65: 距上次受击 (5) 恰 60 tick >= 3s 无伤 -> 重置, 本次重新 = 1。
-        helper.assertTrue(t.onHit(65L) == 1, "3s no-hit gap (>=60 tick) resets ramp to 1");
-        // 紧接受击 (tick 66 <60 间隔): 不重置, 爬到 2。
-        helper.assertTrue(t.onHit(66L) == 2, "hit right after reset climbs to 2 (no second reset)");
+    public static void compositeAdaptationPerCategoryAndResets(GameTestHelper helper) {
+        ChampionDamageReduction.DamageCategory bullet = ChampionDamageReduction.DamageCategory.BULLET;
+        ChampionDamageReduction.DamageCategory melee = ChampionDamageReduction.DamageCategory.MELEE;
 
-        // 反例: 删 reset 则 65 tick 应延续到 6+ (实际夹 5), 但首击后 reset 必回 1 —— 删 reset 此处必挂。
-        helper.assertTrue(t.hitCount() == 2, "tracker state reflects post-reset climb (=2)");
+        CompositeArmorRampTracker t = new CompositeArmorRampTracker();
+        // 同类连击爬升: 子弹 x3。
+        helper.assertTrue(t.onHit(bullet, 0L) == 1, "first bullet hit count 1");
+        helper.assertTrue(t.onHit(bullet, 1L) == 2, "second bullet hit count 2");
+        helper.assertTrue(t.onHit(bullet, 2L) == 3, "third bullet hit count 3");
+        // 夹到 5 上限。
+        t.onHit(bullet, 3L);
+        t.onHit(bullet, 4L);
+        helper.assertTrue(t.onHit(bullet, 5L) == 5, "bullet ramp clamps at 5 steps");
+
+        // 换类别 = 真重置 (同源适应核心): 近战首击从 1 层起 (玩家换武器吃满伤害数击)。
+        helper.assertTrue(t.onHit(melee, 6L) == 1, "switching to melee starts fresh at 1 (adaptation reset)");
+        // 且子弹桶已被清 (双向重置): 切回子弹同样从 1 重爬 —— 删跨桶清零则此处返 5+1=夹5, 必挂。
+        helper.assertTrue(t.stacksOf(bullet) == 0, "bullet bucket cleared by melee hit (bidirectional reset)");
+        helper.assertTrue(t.onHit(bullet, 7L) == 1, "switching back to bullet also restarts at 1");
+
+        // 3s 无伤全重置: tick 7+60=67 恰 60 tick >= 3s -> 重置, 本次重新 = 1; 紧接不重置爬到 2。
+        helper.assertTrue(t.onHit(bullet, 67L) == 1, "3s no-hit gap resets ramp to 1");
+        helper.assertTrue(t.onHit(bullet, 68L) == 2, "hit right after reset climbs to 2 (no second reset)");
+        helper.assertTrue(t.stacksOf(bullet) == 2, "tracker state reflects post-reset climb (=2)");
         helper.succeed();
     }
 
@@ -181,40 +191,44 @@ public final class ChampionAffixReductionGameTests {
     }
 
     // ============================================================
-    // spec 9.2 头号红线: 多减伤源连乘后 keep 不破 0.51 (净减伤 ≤49%)
+    // spec 9.2 头号红线: 多减伤源连乘后 keep 不破 0.25 (净减伤 ≤75%, 2026-07-07 随复合同源适应抬帽)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void multiSourceNetKeepNeverBreaksFloor(GameTestHelper helper) {
-        // 8★ 子弹: 超高分子 EPIC 0.30 + 复合 ramp 满 5 (EPIC 0.22)。裸连乘 keep = 0.7*0.78 = 0.546 (本就 >0.51,
-        // 但加偏斜会破), 验 clamp 兜底: 再叠偏斜 EPIC 0.25 -> 0.7*0.78*0.75 = 0.4095 < 0.51 -> 夹到 0.51。
+        // 8★ 子弹: 超高分子 EPIC 0.30 + 复合满 (EPIC 0.65) + 偏斜 EPIC 0.25。
+        // 裸连乘 keep = 0.7*0.35*0.75 = 0.18375 < 0.25 -> 夹到 0.25 (净减伤帽 75%)。
         double bulletRate8 = ChampionDamageReduction.uhmwpeBulletRate(AffixQuality.EPIC);          // 0.30
-        double rampFull8 = ChampionDamageReduction.compositeRampRate(AffixQuality.EPIC, 5);        // 0.22
+        double rampFull8 = ChampionDamageReduction.compositeRampRate(AffixQuality.EPIC, 5);        // 0.65
         double deflector8 = ChampionDamageReduction.deflectorBulletEvRate(AffixQuality.EPIC);      // 0.25
         double keep8 = ChampionRedlines.clampNetKeepFactor(bulletRate8, rampFull8, deflector8);
         helper.assertTrue(keep8 >= ChampionRedlines.MIN_KEEP_FACTOR - EPS,
-                "8star bullet (0.30+ramp0.22+deflector0.25) raw connet 0.41 clamped to floor 0.51");
-        helper.assertTrue(Math.abs(keep8 - 0.51D) < EPS, "clamped keep is exactly 0.51 (net reduction capped at 49%)");
+                "8star bullet (0.30+ramp0.65+deflector0.25) raw connet 0.184 clamped to floor 0.25");
+        helper.assertTrue(Math.abs(keep8 - 0.25D) < EPS, "clamped keep is exactly 0.25 (net reduction capped at 75%)");
 
-        // 9★ 子弹极端: 子弹抗 LEGENDARY 0.40 + 复合满 LEGENDARY 0.30 + 偏斜 LEGENDARY 0.35 + 缩小化 LEGENDARY 0.275。
-        // 裸连乘 0.6*0.7*0.65*0.725 = 0.198 << 0.51 -> 必夹 0.51 (绝无等效无敌)。
+        // 9★ 子弹极端: 重型子弹抗 LEGENDARY 0.49 + 复合满 LEGENDARY 0.75 + 偏斜 LEGENDARY 0.35 + 缩小化 LEGENDARY 0.275。
+        // 裸连乘 0.51*0.25*0.65*0.725 = 0.060 << 0.25 -> 必夹 0.25 (绝无等效无敌, 枪械 attrition 恒有效)。
         double keep9 = ChampionRedlines.clampNetKeepFactor(
                 ChampionDamageReduction.heavyArmorBulletRate(AffixQuality.LEGENDARY),       // 0.49 (重型子弹抗最高)
-                ChampionDamageReduction.compositeRampRate(AffixQuality.LEGENDARY, 5),       // 0.30
+                ChampionDamageReduction.compositeRampRate(AffixQuality.LEGENDARY, 5),       // 0.75
                 ChampionDamageReduction.deflectorBulletEvRate(AffixQuality.LEGENDARY),      // 0.35
                 ChampionDamageReduction.miniaturizationReductionRate(AffixQuality.LEGENDARY)); // 0.275
-        helper.assertTrue(Math.abs(keep9 - 0.51D) < EPS,
-                "9star four-source extreme connet clamps to floor 0.51 (net reduction never exceeds 49%)");
+        helper.assertTrue(Math.abs(keep9 - 0.25D) < EPS,
+                "9star four-source extreme connet clamps to floor 0.25 (net reduction never exceeds 75%)");
 
-        // 基准子弹最终伤害 >= 原始 x 0.51 (spec 9.2 TDD: 删 clamp 必挂 —— 删 clamp 则 keep9=0.198, 此断言挂)。
+        // 基准子弹最终伤害 >= 原始 x 0.25 (spec 9.2 TDD: 删 clamp 必挂 —— 删 clamp 则 keep9=0.060, 此断言挂)。
         double incoming = 1000.0D;
         double finalDamage = incoming * keep9;
-        helper.assertTrue(finalDamage >= incoming * 0.51D - EPS,
-                "baseline bullet final damage >= original x 0.51 (no over-reduction past redline 1)");
+        helper.assertTrue(finalDamage >= incoming * 0.25D - EPS,
+                "baseline bullet final damage >= original x 0.25 (no over-reduction past redline 1)");
 
-        // 单源不破底但接近: 单超高分子 LEGENDARY 0.40 -> keep 0.60 (单源 <0.49 不触底, clamp 不动)。
-        double keepSingle = ChampionRedlines.clampNetKeepFactor(0.40D);
-        helper.assertTrue(Math.abs(keepSingle - 0.60D) < EPS, "single 0.40 source keep 0.60 (below cap, clamp inert)");
+        // 单复合装甲满层 EPIC 0.65 -> keep 0.35 (>0.25 不触底, clamp 不动): 帽只兜多源极端, 不误压单源。
+        double keepSingleComposite = ChampionRedlines.clampNetKeepFactor(rampFull8);
+        helper.assertTrue(Math.abs(keepSingleComposite - 0.35D) < EPS,
+                "single composite EPIC full ramp keep 0.35 (below cap, clamp inert)");
+        // 单闪耀复合满层 0.75 恰到帽: keep = 0.25 (顶格但不越)。
+        double keepLegendary = ChampionRedlines.clampNetKeepFactor(0.75D);
+        helper.assertTrue(Math.abs(keepLegendary - 0.25D) < EPS, "single LEGENDARY 0.75 keep exactly at floor 0.25");
         helper.succeed();
     }
 

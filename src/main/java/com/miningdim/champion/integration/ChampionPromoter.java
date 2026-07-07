@@ -4,6 +4,7 @@ import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixQuality;
 import com.miningdim.champion.AffixRoller;
 import com.miningdim.champion.AffixSelection;
+import com.miningdim.champion.ChampionHpConversion;
 import com.miningdim.champion.ChampionSpawnPolicy;
 import com.miningdim.champion.ChampionSpawnSeam;
 import com.miningdim.champion.MiningChampionData;
@@ -85,7 +86,8 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
 
     /**
      * 盖章一只 Mob 为指定星级 + 词条的冠军 (自然升格 + 命令召唤共用唯一入口): 写 capability (唯一权威) + 接管基础
-     * 血量。无冠军 capability (非 Mob) 静默返回。有效血按星表基础有效血 (巨大化 +血量 批2 接入)。
+     * 血量。无冠军 capability (非 Mob) 静默返回。有效血经 {@link ChampionHpConversion} 点数换算 (批2): 星表基础血
+     * × 生存池剩余点曲线 × 体型乘数 (巨大化 +血 / 缩小化 -血), 堵"带减伤词条 = 白送有效血"。
      *
      * @param mob     目标怪
      * @param star    星级 (1-10)
@@ -97,12 +99,16 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
             return; // 无冠军 capability (非 Mob / 未挂载): 不盖章。
         }
         StarRank rank = StarRank.ofStar(star);
-        double effectiveHp = rank.baseEffectiveHp();
+        double effectiveHp = ChampionHpConversion.convertedEffectiveHp(rank, affixes);
         champ.promote(star, affixes, effectiveHp);
         applyBaseHealth(mob, rank, effectiveHp);
-        // 诊断 (真服首验): 每次盖章打一行 (低频不门控) —— 自然刷/命令召的冠军星级/词条/有效血/是否血池一目了然。
-        LOGGER.info("promoted {} star{} affixes={} effHp={} bloodPool={}",
-                mob.getType().getDescriptionId(), star, affixes.keySet(), effectiveHp,
+        // 诊断 (真服首验): 每次盖章打一行 (低频不门控) —— 自然刷/命令召的冠军星级/词条/有效血/换算三因子一目了然。
+        LOGGER.info("promoted {} star{} affixes={} effHp={} hpFrac={} sizeMult={} survSpent={} bloodPool={}",
+                mob.getType().getDescriptionId(), star, affixes.keySet(),
+                String.format("%.1f", effectiveHp),
+                String.format("%.3f", ChampionHpConversion.hpFraction(rank, affixes)),
+                String.format("%.2f", ChampionHpConversion.sizeMultiplier(affixes)),
+                ChampionHpConversion.survivalSpent(affixes),
                 rank.usesCustomBloodPool() || effectiveHp > VANILLA_MAX_HEALTH);
     }
 

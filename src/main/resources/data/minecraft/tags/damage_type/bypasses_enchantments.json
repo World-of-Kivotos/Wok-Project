@@ -1,6 +1,7 @@
 {
   "replace": false,
   "values": [
-    "miningdim:champion_thorns"
+    "miningdim:champion_thorns",
+    "miningdim:champion_execution"
   ]
 }

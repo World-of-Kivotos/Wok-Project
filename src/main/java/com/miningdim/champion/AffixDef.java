@@ -323,6 +323,24 @@ public enum AffixDef {
     }
 
     /**
+     * 上限品质向下取最近可用档: 从 upper 逐档下探, 返回首个主数值非 0 的品质。前导 0 档由 {@link #minUsableQuality}
+     * 保证不会探穿下界; 【中段 0 档】(自我修复 中级=0, spec "40/—/80/150/300" 的 "—" = 该档不存在) 由本法跳过 ——
+     * roll/命令品质兜底若落在 0 档会产出"花点无效果"的死词条 (批3 接入自我修复时踩到)。upper 低于最低可用档属
+     * 调用方 bug, 抛不掩盖 (调用方应先抬到 minUsableQuality)。
+     */
+    public AffixQuality usableQualityAtOrBelow(AffixQuality upper) {
+        if (upper == null) {
+            throw new IllegalArgumentException("upper must not be null");
+        }
+        for (int i = upper.ordinal(); i >= 0; i--) {
+            if (primaryValues[i] != 0.0D) {
+                return AffixQuality.values()[i];
+            }
+        }
+        throw new IllegalArgumentException("no usable quality at or below " + upper + " for " + name());
+    }
+
+    /**
      * 本词条可取的最低品质档 (前导 0 占位档不可取): 扫描主数值数组首个非 0 档作为最低可用品质。
      * 重型护甲/刚毅最低高级, 小男孩/命定最低超凡 —— 这些词条前导档填 0, 由本法反解最低可用品质。
      */

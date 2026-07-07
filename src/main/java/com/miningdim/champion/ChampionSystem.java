@@ -4,11 +4,16 @@ import com.miningdim.champion.bloodpool.BloodPoolRegistry;
 import com.miningdim.champion.integration.ChampionAttackHandler;
 import com.miningdim.champion.integration.ChampionBloodPoolHandler;
 import com.miningdim.champion.integration.ChampionBossBarHandler;
+import com.miningdim.champion.integration.ChampionCounterUnitHandler;
+import com.miningdim.champion.integration.ChampionDeathMarkHandler;
 import com.miningdim.champion.integration.ChampionDotTickHandler;
 import com.miningdim.champion.integration.ChampionParticleHandler;
 import com.miningdim.champion.integration.ChampionPromoter;
 import com.miningdim.champion.integration.ChampionRewardHandler;
 import com.miningdim.champion.integration.ChampionSelfEffectHandler;
+import com.miningdim.champion.integration.ChampionSelfRepairHandler;
+import com.miningdim.champion.integration.ChampionSummonHandler;
+import com.miningdim.champion.integration.ChampionVisualDisruptionHandler;
 import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.core.Subsystem;
 import net.minecraft.world.entity.Entity;
@@ -63,7 +68,13 @@ public final class ChampionSystem implements Subsystem {
         forgeBus.register(new ChampionAttackHandler());      // 攻击类 on-hit (即时伤/DoT刷层/易伤/损甲/混沌限频)
         forgeBus.register(new ChampionDotTickHandler());     // DoT 每秒结算 + 寒霜减速
         forgeBus.register(new ChampionParticleHandler());    // 词条签名环境粒子
-        forgeBus.register(new ChampionSelfEffectHandler());  // 自身被动 (再生/易燃再生/反震反伤/高速移动)
+        forgeBus.register(new ChampionSelfEffectHandler());  // 自身被动 (再生/易燃再生/反震反伤/高速移动/超速)
+        // 自足技能 (Stage2 批3): 各技能独立 handler, onServerUpdate 状态机 + 红线聚合器/跨冠军锁。
+        forgeBus.register(new ChampionVisualDisruptionHandler()); // 视觉干扰: 周期失明 (控制聚合闸)
+        forgeBus.register(new ChampionSelfRepairHandler());       // 自我修复: 低血定身读条回血 (近战打断)
+        forgeBus.register(new ChampionCounterUnitHandler());      // 反击单元: 锁定窗反伤 (三层封顶)
+        forgeBus.register(new ChampionSummonHandler());           // 支援召唤: 低星同型援军 (经济全排除)
+        forgeBus.register(new ChampionDeathMarkHandler());        // 命定之死: 动态 DPS 阈值标记/处决
 
         // 调试命令 /mchampion summon (取代已移除的 Champions /champions summon; OP 真服按需召唤指定星级+词条冠军)。
         forgeBus.addListener(this::onRegisterCommands);
@@ -81,12 +92,13 @@ public final class ChampionSystem implements Subsystem {
         ChampionCommands.register(event.getDispatcher());
     }
 
-    /** 服务端停止: 清纯逻辑层运行态 (血池/贡献账本/聚合器) + 解 seam 绑定, 防跨存档/跨重启脏引用。 */
+    /** 服务端停止: 清纯逻辑层运行态 (血池/贡献账本/聚合器/锁定登记) + 解 seam 绑定, 防跨存档/跨重启脏引用。 */
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         BloodPoolRegistry.reset();
         ContributionTracker.reset();
         ChampionEffectRegistries.reset();
+        ChampionTargetLocks.reset();
         ChampionSpawnSeam.unbind();
     }
 }

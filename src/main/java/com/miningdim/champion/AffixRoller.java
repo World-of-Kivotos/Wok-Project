@@ -49,12 +49,16 @@ public final class AffixRoller {
      * 血量分量。缩小化"强制 +1 机动"由 roll 期原子配对保证 ({@link #rollMiniaturizationPartner})。
      *  - 力竭窗 1 (机动池; Stage2 批2): OVERDRIVE —— {@code ChampionSelfEffectHandler.applyOverdrive} 按
      *    {@link OverdriveCycle} 三相 (加速4s/力竭5s/常态3s) 换挡 MOVEMENT_SPEED modifier + 相位粒子, 真服可观测。
+     *  - 自足技能 5 (技能池首开; Stage2 批3): VISUAL_DISRUPTION/SELF_REPAIR/COUNTER_UNIT/SUMMON_SUPPORT/
+     *    DEATH_MARK —— 各自独立 handler (ChampionVisualDisruptionHandler 等五个, ChampionSystem 注册) 的
+     *    onServerTick 状态机施加, 控制/反伤经 PlayerControlAggregator/RetaliationAggregator 红线聚合,
+     *    命定/反击跨冠军互斥经 {@link ChampionTargetLocks}。
      *
-     * 故意排除的词条共 16 条 = 35 总 - 19 白名单 (数据/签名粒子/spawn 预算校验俱全, 但运行期【无任何 handler 读取其
-     * 效果】, 属 Stage2 未来工作: 10 主动技能 / 自身位移传送 / 召唤 / 周期 AOE / 体型渲染 等待实现): 机动池 3
+     * 故意排除的词条共 11 条 = 35 总 - 24 白名单 (数据/签名粒子/spawn 预算校验俱全, 但运行期【无任何 handler 读取其
+     * 效果】, 属 Stage2 未来工作: 传送家族 / 周期 AOE / 体型渲染 等待实现): 机动池 3
      * (BLINK/TACTICAL_BLINK/PHASE_WALK 传送家族; SPRINT 批1 / OVERDRIVE 批2 已移入白名单)、
-     * 全部技能池 10 (ELECTRO_CHARGE/THUNDER/LITTLE_BOY/DEATH_MARK/VISUAL_DISRUPTION/SELF_REPAIR/COUNTER_UNIT/
-     * CAESAR_SWAP/BLADE_WALTZ/SUMMON_SUPPORT)、战斗池 3 (DOUBLE_STRIKE/QUADRUPLE_STRIKE/CHAOS_STRIKE)。其中:
+     * 技能池 5 (ELECTRO_CHARGE/THUNDER/LITTLE_BOY/CAESAR_SWAP/BLADE_WALTZ —— 位移/AOE 类待 KnockbackSafetyGuard
+     * 批4)、战斗池 3 (DOUBLE_STRIKE/QUADRUPLE_STRIKE/CHAOS_STRIKE)。其中:
      *  - DOUBLE_STRIKE/QUADRUPLE_STRIKE: {@link ChampionStrikeGate#strikeJumps} 仅在 GameTest 调用, 任何 integration
      *    handler 都【未】按跳数拆分施加 (近战伤害不因双倍/四倍而翻倍), 故运行期零可观测效果 -> 哑。
      *  - CHAOS_STRIKE: {@code applyChaosKnockback} 仅落账限频闸, 明确【不】push (KnockbackSafetyGuard 未落地), 玩家
@@ -94,7 +98,13 @@ public final class AffixRoller {
             AffixDef.GIGANTISM,
             AffixDef.MINIATURIZATION,
             // 机动池力竭窗 (ChampionSelfEffectHandler + OverdriveCycle; Stage2 批2): 加速/力竭/常态三相循环
-            AffixDef.OVERDRIVE));
+            AffixDef.OVERDRIVE,
+            // 技能池自足技能 (各自独立 handler; Stage2 批3): 失明/定身修复/反击窗/召唤/命定标记
+            AffixDef.VISUAL_DISRUPTION,
+            AffixDef.SELF_REPAIR,
+            AffixDef.COUNTER_UNIT,
+            AffixDef.SUMMON_SUPPORT,
+            AffixDef.DEATH_MARK));
 
     private AffixRoller() {
     }
@@ -131,7 +141,7 @@ public final class AffixRoller {
         List<AffixDef> candidates = new ArrayList<>();
         for (AffixDef def : AffixDef.values()) {
             // 候选三门槛: 属本池 + 该星解锁 (minStar/品质) + 已有运行期 handler (排除哑词条, 见 IMPLEMENTED_AFFIXES)。
-            // 哑词条被排除后, 机动池/技能池在任何星级候选恒空 (当前 0 条实现), rollPool 自然不为该池纳入任何词条 ——
+            // 哑词条被排除后某池候选可为空 (如低星技能池未解锁/传送家族全排除), rollPool 自然不为该池纳入词条 ——
             // 候选空时下方贪心循环 tryOrder.isEmpty() 直接 return, 不抛不死循环 (该池剩余预算按 spec 转基础膨胀, 与
             // 词条未排满时同一口径); 总词条/技能上限够也无所谓, 减少的只是无效哑词条占位。
             if (def.pool() == pool && def.isUnlockedAt(rank) && IMPLEMENTED_AFFIXES.contains(def)) {
@@ -207,7 +217,8 @@ public final class AffixRoller {
             return affix.minUsableQuality();
         }
         int idx = minIdx + rng.nextInt(maxIdx - minIdx + 1);
-        return AffixQuality.values()[idx];
+        // 中段 0 占位档 (自我修复 中级=0) 向下取最近可用档, 防 roll 出"花点无效果"的死词条 (批3)。
+        return affix.usableQualityAtOrBelow(AffixQuality.values()[idx]);
     }
 
     /** chosen 中是否已有机动池词条 (缩小化强制伙伴判定)。 */

@@ -395,11 +395,8 @@ public final class ChampionEdgeGameTests {
                             AffixRoller.IMPLEMENTED_AFFIXES.contains(sel.affix()),
                             "rolled affix " + sel.affix() + " (star " + star + ") must be in implemented whitelist "
                                     + "(no dummy axes rolled)");
-                    // 强断言: roll 出的词条不属技能池 (技能整池仍全哑未实现绝不应 roll 出; 机动池 SPRINT 已 Stage2
-                    // 批1 实现故允许)。
-                    helper.assertTrue(
-                            sel.affix().pool() != AffixPool.SKILL,
-                            "rolled affix " + sel.affix() + " must not be from SKILL pool (all skills still dummy)");
+                    // 批3 起技能池已开 (5 自足技能入白名单), "不 roll 技能"断言退役; 传送/AOE 类技能仍哑,
+                    // 由上方 contains 白名单判定拦住。
                 }
             }
         }
@@ -417,12 +414,12 @@ public final class ChampionEdgeGameTests {
     public static void dummyAxesUnlockedYetNeverRolled(GameTestHelper helper) {
         StarRank topStar = StarRank.ofStar(StarRank.MAX_STAR);
 
-        // 典型哑词条 (各哑轴代表): 机动传送/技能/战斗哑。SPRINT/THORNS 批1、巨大化/缩小化/超速 批2 已实现故不再
-        // 列入; 生存池 10 条批2 起全实现, 无生存哑代表。
+        // 典型哑词条 (各哑轴代表): 机动传送/技能位移AOE/战斗哑。SPRINT/THORNS 批1、巨大化/缩小化/超速 批2、
+        // 五自足技能 批3 已实现故不再列入; 剩余哑轴 = 传送家族/AOE 技能 (待批4 KnockbackSafetyGuard)/战斗分跳击飞。
         Set<AffixDef> dummySamples = EnumSet.of(
-                AffixDef.BLINK,            // 机动池 (传送家族未实现; 批2 后机动哑仅剩传送三条)
+                AffixDef.BLINK,            // 机动池 (传送家族未实现)
                 AffixDef.PHASE_WALK,       // 机动池 (灵体穿墙未实现)
-                AffixDef.DEATH_MARK,       // 技能池 (主动技能未实现)
+                AffixDef.CAESAR_SWAP,      // 技能池 (换位未实现, 传送家族)
                 AffixDef.THUNDER,          // 技能池 (周期 AOE 未实现)
                 AffixDef.DOUBLE_STRIKE,    // 战斗池哑 (分跳未施加)
                 AffixDef.CHAOS_STRIKE);    // 战斗池哑 (击飞不 push)
@@ -448,30 +445,34 @@ public final class ChampionEdgeGameTests {
     }
 
     /**
-     * 白名单内容硬断言: 恰含 19 条 (Stage1 12: 5 减伤 + 3 即时伤害 + 2 DoT + 1 易伤 + 1 磨损; Stage2 批1 4: 再生组织/
-     * 易燃再生/反震/高速移动; Stage2 批2 3: 巨大化/缩小化/超速移动), 且关键实现词条在内 (按 AffixDef 身份)。
-     * 删任一白名单成员或误加哑词条, 本断言即挂。
+     * 白名单内容硬断言: 恰含 24 条 (Stage1 12: 5 减伤 + 3 即时伤害 + 2 DoT + 1 易伤 + 1 磨损; Stage2 批1 4: 再生组织/
+     * 易燃再生/反震/高速移动; 批2 3: 巨大化/缩小化/超速移动; 批3 5: 视觉干扰/自我修复/反击单元/支援召唤/命定之死),
+     * 且关键实现词条在内 (按 AffixDef 身份)。删任一白名单成员或误加哑词条, 本断言即挂。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void implementedWhitelistMembershipExact(GameTestHelper helper) {
         Set<AffixDef> wl = AffixRoller.IMPLEMENTED_AFFIXES;
-        helper.assertTrue(wl.size() == 19, "implemented whitelist has exactly 19 entries, got " + wl.size());
+        helper.assertTrue(wl.size() == 24, "implemented whitelist has exactly 24 entries, got " + wl.size());
 
-        // 实现词条必在内 (逐条身份; Stage1 12 + Stage2 批1 4 + 批2 3)。
+        // 实现词条必在内 (逐条身份; Stage1 12 + Stage2 批1 4 + 批2 3 + 批3 5)。
         for (AffixDef impl : new AffixDef[]{
                 AffixDef.COMPOSITE_ARMOR, AffixDef.UHMWPE_ARMOR, AffixDef.HEAVY_ARMOR,
                 AffixDef.DEFLECTOR_SHIELD, AffixDef.FORTITUDE_SHIELD,
                 AffixDef.HEAVY_CANNON, AffixDef.BLOODLUST, AffixDef.ARMOR_PIERCING,
                 AffixDef.BURNING, AffixDef.FROST, AffixDef.REND, AffixDef.CORROSIVE,
                 AffixDef.REGEN_TISSUE, AffixDef.FLAMMABLE_REGEN, AffixDef.THORNS, AffixDef.SPRINT,
-                AffixDef.GIGANTISM, AffixDef.MINIATURIZATION, AffixDef.OVERDRIVE}) {
+                AffixDef.GIGANTISM, AffixDef.MINIATURIZATION, AffixDef.OVERDRIVE,
+                AffixDef.VISUAL_DISRUPTION, AffixDef.SELF_REPAIR, AffixDef.COUNTER_UNIT,
+                AffixDef.SUMMON_SUPPORT, AffixDef.DEATH_MARK}) {
             helper.assertTrue(wl.contains(impl), impl + " (has runtime handler) must be whitelisted");
         }
 
-        // 白名单全员不属技能池 (技能整池仍全哑排除; 生存/战斗/机动池均可能有实现词条)。
-        for (AffixDef d : wl) {
-            helper.assertTrue(d.pool() != AffixPool.SKILL,
-                    d + " in whitelist must not be SKILL pool (all skills still dummy)");
+        // 传送/AOE 类技能仍哑 (批4 待 KnockbackSafetyGuard), 不得在白名单。
+        for (AffixDef stillDummy : new AffixDef[]{
+                AffixDef.ELECTRO_CHARGE, AffixDef.THUNDER, AffixDef.LITTLE_BOY,
+                AffixDef.CAESAR_SWAP, AffixDef.BLADE_WALTZ}) {
+            helper.assertTrue(!wl.contains(stillDummy),
+                    stillDummy + " (teleport/AOE skill, no handler yet) must NOT be whitelisted");
         }
 
         // 不可变: 防外部污染白名单 (与 AffixDef 四池视图同纪律)。
@@ -482,6 +483,34 @@ public final class ChampionEdgeGameTests {
             immutable = true;
         }
         helper.assertTrue(immutable, "implemented whitelist must be unmodifiable");
+        helper.succeed();
+    }
+
+    /**
+     * 中段 0 占位档向下取档 (批3 自我修复坑): spec "40/—/80/150/300" 的中级 "—" = 该档不存在, roll/命令兜底落在
+     * 该档须下探回普通, 否则产出"花点无效果"的死词条。删 {@link AffixDef#usableQualityAtOrBelow} 的下探循环或
+     * {@code ChampionAffixState.defaultQualityFor} 的 snap 调用, 对应断言必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void midZeroQualityTierSnapsDown(GameTestHelper helper) {
+        // 自我修复: 上限=中级(值0) -> 下探普通(40); 上限=高级(80) 原样。
+        helper.assertTrue(AffixDef.SELF_REPAIR.usableQualityAtOrBelow(AffixQuality.UNCOMMON) == AffixQuality.COMMON,
+                "自我修复 中级=0 下探回 普通");
+        helper.assertTrue(AffixDef.SELF_REPAIR.usableQualityAtOrBelow(AffixQuality.RARE) == AffixQuality.RARE,
+                "自我修复 高级=80 原样返回");
+        // 前导 0 词条 (重型护甲最低高级): 上限=高级 原样; 上限低于最低可用档 = 调用方 bug 抛。
+        helper.assertTrue(AffixDef.HEAVY_ARMOR.usableQualityAtOrBelow(AffixQuality.RARE) == AffixQuality.RARE,
+                "重型护甲 高级 原样返回");
+        assertThrowsIae(helper, () -> AffixDef.HEAVY_ARMOR.usableQualityAtOrBelow(AffixQuality.UNCOMMON),
+                "上限低于最低可用档须抛 (前导 0 不可下探穿底)");
+        // 命令兜底走 snap: 4★ 顶格恰中级, 自我修复兜底须落普通而非死档。
+        helper.assertTrue(ChampionAffixState.defaultQualityFor(AffixDef.SELF_REPAIR, StarRank.ofStar(4))
+                        == AffixQuality.COMMON,
+                "4★ 命令兜底 自我修复 = 普通 (跳过中级死档)");
+        // 无 0 档词条不受影响: 燃烧 4★ 兜底仍中级。
+        helper.assertTrue(ChampionAffixState.defaultQualityFor(AffixDef.BURNING, StarRank.ofStar(4))
+                        == AffixQuality.UNCOMMON,
+                "无 0 档词条兜底不变 (燃烧 4★ = 中级)");
         helper.succeed();
     }
 

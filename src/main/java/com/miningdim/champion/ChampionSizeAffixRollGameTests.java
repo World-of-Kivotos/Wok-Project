@@ -37,8 +37,8 @@ public final class ChampionSizeAffixRollGameTests {
                 "缩小化已入 roll 白名单 (批2)");
         helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.contains(AffixDef.OVERDRIVE),
                 "超速移动已入 roll 白名单 (批2)");
-        helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.size() == 19,
-                "白名单 16 -> 19 (批2: 巨大化/缩小化/超速三条)");
+        helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.size() == 24,
+                "白名单 19 -> 24 (批3: 五自足技能; 总量断言防漏排/误删)");
         helper.succeed();
     }
 

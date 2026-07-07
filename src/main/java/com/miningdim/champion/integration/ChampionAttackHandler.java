@@ -3,6 +3,7 @@ package com.miningdim.champion.integration;
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixQuality;
 import com.miningdim.champion.ChampionAttackValues;
+import com.miningdim.champion.ChampionDiagnostics;
 import com.miningdim.champion.ChampionEffectRegistries;
 import com.miningdim.champion.ChampionStrikeGate;
 import com.miningdim.champion.MiningChampionData;
@@ -24,6 +25,8 @@ import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.UUID;
@@ -58,6 +61,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * 可加载可验; 纯数值/红线仍在 champion 包纯逻辑类 GameTest 验)。
  */
 public final class ChampionAttackHandler {
+
+    /** 诊断日志: 攻击链真服首验用 (每次冠军命中玩家打一行 入伤/出伤/DoT层数, 仅 10 格内有玩家的怪)。 */
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/champion/attack");
 
     /** 撕裂/DoT 效果挂载时长 (tick): DoT 3s 刷新窗 + 易伤续期窗均取 3s = 60tick (spec 7.2: 3s 刷新)。 */
     private static final int RIDER_DURATION_TICKS = 60;
@@ -104,11 +110,22 @@ public final class ChampionAttackHandler {
                 .computeIfAbsent(victim.getUUID(), k -> new ConcurrentHashMap<>())
                 .computeIfAbsent(attacker.getUUID(), k -> new PairState());
 
+        float amountIn = event.getAmount();
         applyInstantDamage(event, equipped, starRank, attacker, victim, playerMaxHp);
         applyDotsAndSlow(equipped, pair, attacker.getUUID(), nowTick, victim);
         applyRend(equipped, pair, nowTick, victim);
         applyCorrosive(equipped, victim);
         applyChaosKnockback(equipped, pair, nowTick, attacker, victim);
+
+        // 诊断 (真服首验, 仅 10 格内有玩家的怪): 每次冠军命中玩家打一行, 看词条/即时伤合并前后/DoT 当前层数。
+        if (ChampionDiagnostics.shouldTrace(attacker)) {
+            PlayerDotSources dots = ChampionEffectRegistries.dotSourcesFor(victim.getUUID());
+            LOGGER.info("champion-attack {} star{} affixes={} victim={} amountIn={} amountOut={} burnStacks={} frostStacks={}",
+                    attacker.getType().getDescriptionId(), star, equipped.keySet(), victim.getName().getString(),
+                    String.format("%.2f", amountIn), String.format("%.2f", event.getAmount()),
+                    dots.stacksOf(attacker.getUUID(), AffixDef.BURNING),
+                    dots.stacksOf(attacker.getUUID(), AffixDef.FROST));
+        }
     }
 
     /**

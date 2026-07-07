@@ -18,6 +18,8 @@ import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -41,6 +43,9 @@ import java.util.UUID;
  * (故 dev 亦可加载)。命令召唤 / 自然刷的精英怪都经同一自研 capability 检出, 两种来源一视同仁。
  */
 public final class ChampionBossBarHandler {
+
+    /** 诊断日志: BOSS 条真服首验用 (条创建/摘除各打一行, 低频不门控; 定位"为什么没血条")。 */
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/champion/bossbar");
 
     /** 扫描节流: 每多少 tick 重算"附近精英怪 + 观察玩家集" + 刷血量 (0.5s; 够顺滑且省全实体遍历)。 */
     private static final int SCAN_INTERVAL_TICKS = 10;
@@ -88,6 +93,8 @@ public final class ChampionBossBarHandler {
         bars.entrySet().removeIf(e -> {
             if (!live.containsKey(e.getKey())) {
                 e.getValue().removeAllPlayers();
+                // 诊断 (真服首验): 条摘除打一行 (死亡/离开全部玩家范围; 低频不门控)。
+                LOGGER.info("bossbar-remove {}", e.getKey());
                 return true;
             }
             return false;
@@ -100,6 +107,8 @@ public final class ChampionBossBarHandler {
             if (bar == null) {
                 bar = new ServerBossEvent(view.name, view.barColor, ChampionBossBarText.overlayForTier(view.tier));
                 bars.put(e.getKey(), bar);
+                // 诊断 (真服首验): 条创建打一行 星级/标题 (低频不门控; 没这行 = viewOf 没检出冠军)。
+                LOGGER.info("bossbar-create {} tier{} title={}", e.getKey(), view.tier, view.name.getString());
             } else {
                 bar.setName(view.name);
                 bar.setColor(view.barColor);

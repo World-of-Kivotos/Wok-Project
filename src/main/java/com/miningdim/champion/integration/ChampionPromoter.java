@@ -100,6 +100,10 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
         double effectiveHp = rank.baseEffectiveHp();
         champ.promote(star, affixes, effectiveHp);
         applyBaseHealth(mob, rank, effectiveHp);
+        // 诊断 (真服首验): 每次盖章打一行 (低频不门控) —— 自然刷/命令召的冠军星级/词条/有效血/是否血池一目了然。
+        LOGGER.info("promoted {} star{} affixes={} effHp={} bloodPool={}",
+                mob.getType().getDescriptionId(), star, affixes.keySet(), effectiveHp,
+                rank.usesCustomBloodPool() || effectiveHp > VANILLA_MAX_HEALTH);
     }
 
     /**

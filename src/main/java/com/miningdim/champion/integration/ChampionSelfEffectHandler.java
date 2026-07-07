@@ -2,6 +2,7 @@ package com.miningdim.champion.integration;
 
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixQuality;
+import com.miningdim.champion.ChampionDiagnostics;
 import com.miningdim.champion.ChampionEffectRegistries;
 import com.miningdim.champion.ChampionSelfBuffValues;
 import com.miningdim.champion.MiningChampionData;
@@ -140,12 +141,14 @@ public final class ChampionSelfEffectHandler {
             healPerSecond += ChampionSelfBuffValues.flammableRegenHealPerSecond(flammable);
         }
 
-        // 诊断 (真服首验): 每秒对每只自效果冠军打一行, 直观看扫描命中/装配词条/脱战门槛/回血量/血量变化 (定位"再生不回")。
-        LOGGER.info("selfbuff {} tier{} affix={} hp={}/{} sinceHurt={} ooc={} flammableReady={} heal/s={}",
-                entity.getType().getDescriptionId(), star, equipped.keySet(),
-                String.format("%.1f", entity.getHealth()), String.format("%.1f", entity.getMaxHealth()),
-                (lastHurt == Long.MIN_VALUE ? "never" : String.valueOf(nowTick - lastHurt)),
-                outOfCombat, flammableReady, String.format("%.2f", healPerSecond));
+        // 诊断 (真服首验, 仅 10 格内有玩家的怪): 每秒对每只自效果冠军打一行, 看扫描命中/词条/脱战门槛/回血/血量变化。
+        if (ChampionDiagnostics.shouldTrace(entity)) {
+            LOGGER.info("selfbuff {} tier{} affix={} hp={}/{} sinceHurt={} ooc={} flammableReady={} heal/s={}",
+                    entity.getType().getDescriptionId(), star, equipped.keySet(),
+                    String.format("%.1f", entity.getHealth()), String.format("%.1f", entity.getMaxHealth()),
+                    (lastHurt == Long.MIN_VALUE ? "never" : String.valueOf(nowTick - lastHurt)),
+                    outOfCombat, flammableReady, String.format("%.2f", healPerSecond));
+        }
 
         if (healPerSecond > 0.0D) {
             applyHeal(entity, healPerSecond);

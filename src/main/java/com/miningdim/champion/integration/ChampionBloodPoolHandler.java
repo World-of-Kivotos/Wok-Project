@@ -3,6 +3,7 @@ package com.miningdim.champion.integration;
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixQuality;
 import com.miningdim.champion.ChampionDamageReduction;
+import com.miningdim.champion.ChampionDiagnostics;
 import com.miningdim.champion.ChampionRedlines;
 import com.miningdim.champion.CompositeArmorRampTracker;
 import com.miningdim.champion.MiningChampionData;
@@ -27,6 +28,8 @@ import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -64,6 +67,9 @@ import java.util.UUID;
  */
 public final class ChampionBloodPoolHandler {
 
+    /** 诊断日志: 减伤链真服首验用 (每次冠军受击打一行 入伤/各源减伤率/keep/净伤, 定位"复合装甲不生效"类反馈)。 */
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/champion/reduction");
+
     /**
      * 复合装甲 per-冠军 ramp 受击计数器 (UUID -> tracker)。复合装甲 ramp 须跨多次受击维护 (每受击 +上限/5,
      * 3s 无伤重置), 故每只持复合装甲的冠军一个 {@link CompositeArmorRampTracker}; 冠军死亡 ({@link #onLivingDeath})
@@ -96,6 +102,15 @@ public final class ChampionBloodPoolHandler {
         double netDamage = incoming * keep;
         netDamage = ChampionDamageReduction.applyFlatCaps(
                 netDamage, plan.fortitudeCap, plan.heavyThreshold, plan.meleeOrExplosion);
+
+        // 诊断 (真服首验, 仅 10 格内有玩家的怪): 每次冠军受击打一行, 直观看各减伤源折算率(含复合装甲当前ramp)/
+        // 连乘keep/净伤 (定位"减伤不生效")。
+        if (ChampionDiagnostics.shouldTrace(victim)) {
+            LOGGER.info("champion-hit {} incoming={} rates={} keep={} net={} flat[fort={},heavyT={}] bullet={} melee={}",
+                    victim.getType().getDescriptionId(), String.format("%.2f", incoming), plan.rates,
+                    String.format("%.3f", keep), String.format("%.2f", netDamage),
+                    plan.fortitudeCap, plan.heavyThreshold, isBulletDamage(event.getSource()), plan.meleeOrExplosion);
+        }
 
         BloodPool pool = BloodPoolRegistry.get(victim.getUUID());
         if (pool == null) {

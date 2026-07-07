@@ -16,6 +16,8 @@ import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -45,6 +47,9 @@ import java.util.UUID;
  * {@link MiningChampionData#star()}/{@link MiningChampionData#effectiveHp()}。普通怪 capability star=0 直接放行。
  */
 public final class ChampionRewardHandler {
+
+    /** 诊断日志: 奖励结算真服首验用 (冠军死亡打一行 星级/固定池/合格人数/瓜分额; 死亡低频不门控)。 */
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/champion/reward");
 
     /**
      * 玩家对冠军造成有效伤害: 累加贡献 (championUUID -> playerUUID)。召唤物/非玩家来源不计。
@@ -105,6 +110,11 @@ public final class ChampionRewardHandler {
 
         long fixedPoolRaw = ChampionReward.creditPoolRaw(star);
         Map<UUID, Long> payout = ContributionPool.distribute(contributions, bossEffectiveHp, fixedPoolRaw);
+
+        // 诊断 (真服首验): 冠军死亡结算打一行 星级/有效血/固定池/贡献人数/合格瓜分额 (死亡低频不门控)。
+        LOGGER.info("champion-death {} star{} effHp={} pool={} contributors={} payout={}",
+                victim.getType().getDescriptionId(), star, bossEffectiveHp, fixedPoolRaw,
+                contributions.size(), payout.values());
 
         if (payout.isEmpty()) {
             return; // 无合格者: 整池不发 (防蹭枪/按人头复制)。

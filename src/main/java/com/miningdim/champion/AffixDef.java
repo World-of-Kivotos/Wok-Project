@@ -126,9 +126,12 @@ public enum AffixDef {
     SPRINT(AffixPool.MOBILITY, 6, 1, false,
             new double[]{0.10, 0.15, 0.22, 0.30, 0.40}, null, MutexFlag.MOVE_SPEED),
 
-    /** 超速移动: +移速 25/40/55/70/85% + 强化力竭窗; 互斥高速; 力竭窗硬减速 ≥50%。 */
+    /**
+     * 超速移动: 加速段 +移速 100/130/160/200/250% (2026-07-07 真服手感二调: 原 25~85% 僵尸冲刺仍慢于疾跑玩家,
+     * 追不上 = 力竭窗无意义; 现冲刺 2.0~3.5 倍速真突进) + 强化力竭窗; 互斥高速; 力竭窗硬减速 ≥50% 反制不变。
+     */
     OVERDRIVE(AffixPool.MOBILITY, 10, 3, false,
-            new double[]{0.25, 0.40, 0.55, 0.70, 0.85}, null, MutexFlag.MOVE_SPEED),
+            new double[]{1.00, 1.30, 1.60, 2.00, 2.50}, null, MutexFlag.MOVE_SPEED),
 
     /** 闪光: 瞬移到玩家旁 周期 9/8/7/5.5/4s; 到达前 0.5s 粒子预兆; 传送家族。数值数组 = 周期秒。 */
     BLINK(AffixPool.MOBILITY, 8, 2, false,

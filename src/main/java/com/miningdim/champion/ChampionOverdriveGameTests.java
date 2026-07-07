@@ -45,13 +45,13 @@ public final class ChampionOverdriveGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void speedModifierPerQualityExact(GameTestHelper helper) {
-        // 加速相 = 品质档 (spec 7.3: +25/40/55/70/85%)。
+        // 加速相 = 品质档 (2026-07-07 真服手感二调: +100/130/160/200/250%, 冲刺 2.0~3.5 倍速真突进)。
         helper.assertTrue(Math.abs(OverdriveCycle.speedModifier(OverdriveCycle.Phase.SURGE, AffixQuality.COMMON)
-                - 0.25D) < EPS, "加速 普通 = +25%");
+                - 1.00D) < EPS, "加速 普通 = +100%");
         helper.assertTrue(Math.abs(OverdriveCycle.speedModifier(OverdriveCycle.Phase.SURGE, AffixQuality.RARE)
-                - 0.55D) < EPS, "加速 高级 = +55%");
+                - 1.60D) < EPS, "加速 高级 = +160%");
         helper.assertTrue(Math.abs(OverdriveCycle.speedModifier(OverdriveCycle.Phase.SURGE, AffixQuality.LEGENDARY)
-                - 0.85D) < EPS, "加速 闪耀 = +85%");
+                - 2.50D) < EPS, "加速 闪耀 = +250%");
         // 力竭相 = 硬减速 -50%, 与品质无关 (红线下限)。
         helper.assertTrue(Math.abs(OverdriveCycle.speedModifier(OverdriveCycle.Phase.EXHAUST, AffixQuality.COMMON)
                 - (-0.50D)) < EPS, "力竭 普通 = -50%");

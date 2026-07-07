@@ -1,22 +1,26 @@
 package com.miningdim.champion;
 
 /**
- * 精英怪【自我修复单元】(SELF_REPAIR, spec 7.4 ★4 c14) 读条自愈状态机纯逻辑 (Stage2 技能批)。
+ * 精英怪【自我修复单元】(SELF_REPAIR, spec 7.4 ★4 c14) 读条自愈状态机纯逻辑 (Stage2 技能批; v2 2026-07-07 真服
+ * 验收用户二调)。
  *
- * 机制 (spec 7.4 + 用户 2026-07-07 拍板): 有效血占比 ≤50% 且 CD 就绪时进入读条修复, 读条 6s=120tick 内每秒
- * (20tick) 回一跳血, 期间由 handler 定身 + 抑制攻击 (给玩家的输出窗口); 读满进 CD, 近战命中打断进 CD;
- * 受任意伤害后 1.5s=30tick 内的回血跳作废 (读条不中断, 只停跳血)。CD=25s=500tick, 从读条结束/打断起算。
+ * 机制 v2: 有效血占比 ≤50% 且 CD 就绪时进入读条修复, 读条 6s=120tick 内每秒 (20tick) 无条件回一跳血, 期间由
+ * handler 真定身 (移速归零 + 停导航 + 抑制攻击) 且【读条期免伤 90%】({@link #CHANNEL_DAMAGE_KEEP}); 读满进 CD,
+ * 近战命中打断进 CD (唯一反制)。CD=25s=500tick, 从读条结束/打断起算。
+ *
+ * v1 的"受伤停跳 1.5s"已删 (用户裁定): 停跳与免伤 90% 互斥矛盾 —— 持续火力下停跳使读条永远零回血 (真服首验
+ * "无回血"根因), 免伤版语义 = 远程磨不动, 必须近身近战打断, 反制路径从"压制回血"改为"强拆读条"。
  *
  * 本类是【确定性状态机纯函数集】: 不 import 任何 net.minecraft 世界/实体类型, 只承载 tick 计时与三态迁移
- * (IDLE / CHANNELING / COOLDOWN), 供 GameTest 逐 tick 精确断言 (删触发阈值/读条时长/跳血对齐/停回窗/打断/CD 必挂)。
- * 实际定身 (getNavigation().stop + setDeltaMovement)、攻击抑制、回血施加 (血池 heal / vanilla heal)、发光/粒子/音效、
+ * (IDLE / CHANNELING / COOLDOWN), 供 GameTest 逐 tick 精确断言 (删触发阈值/读条时长/跳血对齐/免伤系数/打断/CD 必挂)。
+ * 实际定身 (移速修饰归零)、攻击抑制、免伤 (受击事件改量)、回血施加 (血池 heal / vanilla heal)、发光/粒子/音效、
  * 近战判别 (DamageTypes.MOB_ATTACK 系) 由 integration 层 {@code ChampionSelfRepairHandler} 负责 (真服验)。
  *
- * 回血分工 (与 {@link ChampionSelfBuffValues} 一致): 本类只算"本跳该回多少 / 是否被停回窗作废 / 是否读满",
- * 每跳回血量的数值 = handler 传入的 {@code healPerSecond}(= {@link AffixDef#SELF_REPAIR} 按品质档 40/0/80/150/300),
- * 一跳 20tick = 1s 故一跳即回一整秒名义量。中级档 0 的防御性早退在 {@link #tryStart} (healPerSecond ≤0 不启动)。
+ * 回血分工 (与 {@link ChampionSelfBuffValues} 一致): 本类只算"本跳该回多少 / 是否读满", 每跳回血量的数值 =
+ * handler 传入的 {@code healPerSecond}(= {@link AffixDef#SELF_REPAIR} 按品质档 40/0/80/150/300), 一跳 20tick = 1s
+ * 故一跳即回一整秒名义量。中级档 0 的防御性早退在 {@link #tryStart} (healPerSecond ≤0 不启动)。
  *
- * 可变状态: 三态 + 读条起点 tick + 读条结束 tick (CD 起算) + 上次受伤 tick (停回窗)。非线程安全 (单怪服务端 tick 串行)。
+ * 可变状态: 三态 + 读条起点 tick + 读条结束 tick (CD 起算)。非线程安全 (单怪服务端 tick 串行)。
  */
 public final class ChampionSelfRepairCycle {
 
@@ -32,8 +36,11 @@ public final class ChampionSelfRepairCycle {
     /** 回血跳周期 (tick): 读条内每 20tick=1s 一跳。 */
     public static final long HEAL_JUMP_INTERVAL = 20L;
 
-    /** 受伤停回窗 (tick): 距上次受伤 &lt;此值的回血跳作废 (spec 7.4 受任意伤害暂停 1.5s; 读条不中断只停跳血)。 */
-    public static final long HURT_PAUSE_TICKS = 30L;
+    /**
+     * 读条期入伤保留系数 (v2 用户拍板 免伤 90% -> keep 0.10)。红线 1 净减伤帽 75% 的例外: 时限 6s + 近战打断
+     * 硬反制 + 触发自带 25s CD, 非被动常驻减伤 (spec 7.4 批3 落地注记已登记该用户裁定)。
+     */
+    public static final double CHANNEL_DAMAGE_KEEP = 0.10D;
 
     /** 三态: 空闲 (可触发) / 读条中 (定身回血) / 冷却中 (读满或打断后, 到 CD 才回 IDLE)。 */
     public enum State {
@@ -43,20 +50,18 @@ public final class ChampionSelfRepairCycle {
     }
 
     /**
-     * 一 tick 读条推进结果: 本跳回血量 (0 = 非跳 tick 或被停回窗作废) + 是否被停回窗作废 (跳 tick 但距受伤 &lt;30tick)
-     * + 本 tick 是否读满 (读满同 tick 已迁 COOLDOWN)。读满 tick 与第 6 跳同 tick, 故 completed=true 时 heal 可 &gt;0。
+     * 一 tick 读条推进结果: 本跳回血量 (0 = 非跳 tick) + 本 tick 是否读满 (读满同 tick 已迁 COOLDOWN)。
+     * 读满 tick 与第 6 跳同 tick, 故 completed=true 时 heal 可 &gt;0。
      *
-     * @param heal      本 tick 应施加回血量 (&gt;=0)
-     * @param paused    本 tick 是跳 tick 但因近期受伤被作废 (供诊断"暂停"日志; 与 heal&gt;0 互斥)
-     * @param completed 本 tick 读满 (已迁 COOLDOWN, 供 handler 放读满特效)
+     * @param heal      本 tick 应施加回血量 (&gt;=0; v2 跳血无条件, 不再被受伤停跳)
+     * @param completed 本 tick 读满 (已迁 COOLDOWN, 供 handler 放读满特效 + 撤定身)
      */
-    public record ChannelTick(double heal, boolean paused, boolean completed) {
+    public record ChannelTick(double heal, boolean completed) {
     }
 
     private State state = State.IDLE;
     private long channelStartTick = Long.MIN_VALUE;
     private long channelEndTick = Long.MIN_VALUE;
-    private long lastHurtTick = Long.MIN_VALUE;
 
     /** 当前状态 (诊断/测试)。 */
     public State state() {
@@ -104,7 +109,7 @@ public final class ChampionSelfRepairCycle {
 
     /**
      * 推进读条一 tick (handler 仅对 {@link #isChanneling()} 的冠军每 tick 调一次)。据距读条起点 tick 数确定性推导:
-     *  - 跳 tick (elapsed 为 20 的正整数倍且 ≤120): 距上次受伤 &lt;30tick 则作废 (paused), 否则回 healPerSecond;
+     *  - 跳 tick (elapsed 为 20 的正整数倍且 ≤120): 无条件回 healPerSecond (v2 删受伤停跳, 见类注释);
      *  - elapsed ≥120: 读满, 迁 COOLDOWN 并以本 tick 为 CD 起点。elapsed==120 同 tick 兼是第 6 跳 (heal) 与读满 (completed)。
      *
      * @param nowTick       当前 gameTime tick (须 ≥读条起点; 早于起点属 handler bug, 抛不掩盖)
@@ -122,14 +127,8 @@ public final class ChampionSelfRepairCycle {
         }
 
         double heal = 0.0D;
-        boolean paused = false;
         if (elapsed > 0L && elapsed % HEAL_JUMP_INTERVAL == 0L && elapsed <= CHANNEL_TICKS) {
-            // 跳 tick: 近期受伤 (距上次受伤 <30tick) 作废本跳 (读条不中断, 只停跳血)。
-            if (lastHurtTick != Long.MIN_VALUE && nowTick - lastHurtTick < HURT_PAUSE_TICKS) {
-                paused = true;
-            } else {
-                heal = healPerSecond;
-            }
+            heal = healPerSecond; // v2: 跳血无条件 (远程压制由免伤 90% 抵御, 反制 = 近战打断)。
         }
 
         boolean completed = false;
@@ -138,15 +137,21 @@ public final class ChampionSelfRepairCycle {
             channelEndTick = nowTick;
             completed = true;
         }
-        return new ChannelTick(heal, paused, completed);
+        return new ChannelTick(heal, completed);
     }
 
     /**
-     * 记录受伤 tick (handler 对读条冠军受任意伤害时调): 供 {@link #advance} 停回窗作废本跳。非读条期调无副作用
-     * (仅刷时戳; 停回窗只在读条内的跳 tick 生效)。
+     * 读条期入伤折算 (v2 免伤 90%): 返回 amount × {@link #CHANNEL_DAMAGE_KEEP}。仅读条期由 handler 在受击事件
+     * 改量前调用; 纯函数供 GameTest 精确断言 (删免伤必挂)。
+     *
+     * @param amount 名义入伤 (须 &gt;=0 非 NaN)
+     * @return 免伤后入伤 (= 10%)
      */
-    public void recordHurt(long nowTick) {
-        this.lastHurtTick = nowTick;
+    public static double channelIncomingDamage(double amount) {
+        if (amount < 0.0D || Double.isNaN(amount)) {
+            throw new IllegalArgumentException("amount must be >= 0, got " + amount);
+        }
+        return amount * CHANNEL_DAMAGE_KEEP;
     }
 
     /**

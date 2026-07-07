@@ -130,45 +130,38 @@ public final class ChampionSelfRepairGameTests {
     }
 
     // ============================================================
-    // 受伤停回窗 (距上次受伤 <30tick 的跳作废, 恰界 30 仍回)
+    // v2 (2026-07-07 用户二调): 跳血无条件 + 读条期免伤 90% (停回窗已删)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void hurtPauseVoidsJumpBoundary(GameTestHelper helper) {
-        // 恰界 30tick: 受伤 @tick10, 跳 @tick40 -> 40-10=30 >= 30, 不作废, 回 80。
-        ChampionSelfRepairCycle heals = new ChampionSelfRepairCycle();
-        heals.tryStart(0L, 0.30D, 80.0D);
-        heals.recordHurt(10L);
-        ChampionSelfRepairCycle.ChannelTick at30 = heals.advance(40L, 80.0D);
-        helper.assertTrue(Math.abs(at30.heal() - 80.0D) < EPS, "距受伤恰 30tick -> 跳血生效 (回 80)");
-        helper.assertTrue(!at30.paused(), "距受伤恰 30tick -> 非暂停");
-
-        // 界内 29tick: 受伤 @tick11, 跳 @tick40 -> 40-11=29 <30, 作废, 回 0 且标记 paused。
-        ChampionSelfRepairCycle voided = new ChampionSelfRepairCycle();
-        voided.tryStart(0L, 0.30D, 80.0D);
-        voided.recordHurt(11L);
-        ChampionSelfRepairCycle.ChannelTick at29 = voided.advance(40L, 80.0D);
-        helper.assertTrue(at29.heal() == 0.0D, "距受伤 29tick -> 跳血作废 (回 0)");
-        helper.assertTrue(at29.paused(), "距受伤 29tick -> 标记 paused");
-
-        // 从未受伤: 跳血照回 (lastHurt=MIN_VALUE 不作废)。
-        ChampionSelfRepairCycle fresh = new ChampionSelfRepairCycle();
-        fresh.tryStart(0L, 0.30D, 80.0D);
-        helper.assertTrue(Math.abs(fresh.advance(20L, 80.0D).heal() - 80.0D) < EPS, "从未受伤 -> 跳血照回");
+    public static void healJumpsUnconditionalUnderFire(GameTestHelper helper) {
+        // v2 删受伤停跳: 持续火力下跳血照回 (v1 停跳使读条在压制下永远零回血, 真服首验"无回血"根因)。
+        // 删 advance 的无条件跳血 (恢复任何受伤门控) -> 本断言必挂。
+        ChampionSelfRepairCycle cycle = new ChampionSelfRepairCycle();
+        cycle.tryStart(0L, 0.30D, 80.0D);
+        helper.assertTrue(Math.abs(cycle.advance(20L, 80.0D).heal() - 80.0D) < EPS, "跳 @20 回 80 (无门控)");
+        helper.assertTrue(Math.abs(cycle.advance(40L, 80.0D).heal() - 80.0D) < EPS, "跳 @40 回 80 (无门控)");
+        helper.assertTrue(cycle.isChanneling(), "非近战伤害不中断读条 (打断只认近战, 在 interruptByMelee)");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void nonMeleeHurtDoesNotInterrupt(GameTestHelper helper) {
-        // 受伤只停跳血 (recordHurt), 读条不中断: 记伤后仍在读条, 停回窗过后照回。
-        ChampionSelfRepairCycle cycle = new ChampionSelfRepairCycle();
-        cycle.tryStart(0L, 0.30D, 80.0D);
-        cycle.recordHurt(35L); // 跳 @40 -> 40-35=5<30 作废
-        helper.assertTrue(cycle.isChanneling(), "受伤后仍读条中 (非近战不中断)");
-        helper.assertTrue(cycle.advance(40L, 80.0D).paused(), "受伤后 5tick 的跳作废");
-        // 停回窗 (30tick) 过后 (跳 @80, 距受伤 45tick) 恢复回血。
-        cycle.advance(60L, 80.0D);
-        helper.assertTrue(Math.abs(cycle.advance(80L, 80.0D).heal() - 80.0D) < EPS, "停回窗过后跳血恢复");
+    public static void channelDamageReductionExact(GameTestHelper helper) {
+        // 读条期免伤 90% (用户拍板): 入伤 ×0.10 逐位精确 (删 channelIncomingDamage 的乘算必挂)。
+        helper.assertTrue(Math.abs(ChampionSelfRepairCycle.CHANNEL_DAMAGE_KEEP - 0.10D) < EPS,
+                "读条期入伤保留系数 = 0.10 (免伤 90%)");
+        helper.assertTrue(Math.abs(ChampionSelfRepairCycle.channelIncomingDamage(100.0D) - 10.0D) < EPS,
+                "入伤 100 -> 10");
+        helper.assertTrue(Math.abs(ChampionSelfRepairCycle.channelIncomingDamage(7.8D) - 0.78D) < EPS,
+                "入伤 7.8 -> 0.78 (地板枪单发)");
+        helper.assertTrue(ChampionSelfRepairCycle.channelIncomingDamage(0.0D) == 0.0D, "0 入伤 -> 0");
+        boolean threw = false;
+        try {
+            ChampionSelfRepairCycle.channelIncomingDamage(-1.0D);
+        } catch (IllegalArgumentException expected) {
+            threw = true;
+        }
+        helper.assertTrue(threw, "负入伤抛 IllegalArgumentException");
         helper.succeed();
     }
 

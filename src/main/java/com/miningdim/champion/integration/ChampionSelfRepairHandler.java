@@ -21,6 +21,9 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.level.Level;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
@@ -36,17 +39,18 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 冠军【自我修复单元】(SELF_REPAIR, spec 7.4 ★4 c14) 读条自愈效果施加 (Champions 集成层; ChampionStarAffix spec 7.4 +
- * 9A.5/9A.6 表现层原语)。有效血 ≤50% 且 CD 就绪时进读条修复: 读条 6s 定身 + 抑制攻击 (给玩家的输出窗口), 每秒回一跳血,
- * 读满进 CD, 近战命中打断进 CD, 受任意伤害 1.5s 内的回血跳作废 (读条不中断只停跳血)。计时/三态迁移全下沉纯逻辑
- * {@link ChampionSelfRepairCycle} (dev GameTest 逐 tick 精确验), 本 handler 只做真服侧: 实体检出/定身/回血施加/发光粒子音效/
- * 近战判别。
+ * 冠军【自我修复单元】(SELF_REPAIR, spec 7.4 ★4 c14; v2 2026-07-07 真服验收用户二调) 读条自愈效果施加。
+ * 有效血 ≤50% 且 CD 就绪时进读条修复: 读条 6s 真定身 (移速归零修饰 + 停导航 + 清目标) + 免伤 90%
+ * ({@link ChampionSelfRepairCycle#CHANNEL_DAMAGE_KEEP}), 每秒无条件回一跳血, 读满进 CD; 近战命中打断进 CD =
+ * 唯一反制 (v1 的"受伤停跳 1.5s"已删: 与免伤互斥矛盾, 持续火力下技能永远零回血)。计时/三态迁移全下沉纯逻辑
+ * {@link ChampionSelfRepairCycle} (dev GameTest 逐 tick 精确验), 本 handler 只做真服侧: 实体检出/定身修饰/免伤改量/
+ * 回血施加/发光粒子音效/近战判别。
  *
  * 两个入口:
  *  - {@link #onServerTick} (END, 每 tick): 对 {@link #stateByChampion} 在册冠军, 读条中的每 tick 定身 + 推进跳血 (
  *    per-tick 精度 —— 定身/打断窗要求非 1s 节流可容忍); 非读条中的按当前有效血占比试起读条 (读设定后血量, 触发精确)。
  *    在册集由 {@link #onChampionHurt} 战斗入册维护 (冠军血量只降于受伤 -> 达触发阈值者必已受伤入册), 免全世界扫描。
- *  - {@link #onChampionHurt} (HIGH, 早于血池 LOWEST 取消): 冠军受任意伤害即入册 + 记时戳 (停回窗); 近战命中打断读条。
+ *  - {@link #onChampionHurt} (HIGH, 早于血池 LOWEST 取消): 冠军受任意伤害即入册; 读条期入伤 ×0.1; 近战命中打断读条。
  *
  * 血池权威 (spec 6.2): 6★+ 冠军回血/血占比走影子血池 {@link BloodPool} (照 {@code ChampionSelfEffectHandler} 范式),
  * 1-5★ 无池走 vanilla getHealth/getMaxHealth。
@@ -120,7 +124,7 @@ public final class ChampionSelfRepairHandler {
 
         if (cycle.isChanneling()) {
             st.lastTouchedTick = nowTick;
-            rootAndDisarm(entity); // 逐 tick 定身 + 抑制攻击 (输出窗口); 逐 tick 不打日志。
+            rootAndDisarm(entity); // 逐 tick 定身 + 抑制攻击 (输出窗口... v2 = 强拆窗口); 逐 tick 不打日志。
             ChampionSelfRepairCycle.ChannelTick tick = cycle.advance(nowTick, healPerSecond);
             if (tick.heal() > 0.0D) {
                 applyHeal(entity, tick.heal());
@@ -129,11 +133,9 @@ public final class ChampionSelfRepairHandler {
                     LOGGER.info("skill-repair heal {} +{}HP",
                             entity.getType().getDescriptionId(), String.format("%.1f", tick.heal()));
                 }
-            } else if (tick.paused() && ChampionDiagnostics.shouldTrace(entity)) {
-                LOGGER.info("skill-repair paused {} (recent hurt within {}tick)",
-                        entity.getType().getDescriptionId(), ChampionSelfRepairCycle.HURT_PAUSE_TICKS);
             }
             if (tick.completed()) {
+                unroot(entity); // 读满即撤定身移速修饰 (打断路径在 onChampionHurt 撤)。
                 playDoneEffects(entity);
                 LOGGER.info("skill-repair done {} heal/s={}",
                         entity.getType().getDescriptionId(), String.format("%.0f", healPerSecond));
@@ -154,8 +156,10 @@ public final class ChampionSelfRepairHandler {
     }
 
     /**
-     * 冠军受任意伤害: 入册 + 记时戳 (读条内 1.5s 停回窗) + 近战命中打断读条。HIGH 优先级: 早于血池 handler (LOWEST)
-     * 取消, 保被血池吞掉 vanilla 扣血的 6★+ 冠军也照记受伤 + 判打断 (受伤是否发生与净减伤/取消无关)。
+     * 冠军受任意伤害: 入册 + 读条期免伤 90% (v2 用户拍板) + 近战命中打断读条。HIGH 优先级: 早于血池 handler (LOWEST)
+     * 取消, 保被血池吞掉 vanilla 扣血的 6★+ 冠军也照判 (受伤是否发生与净减伤/取消无关); 免伤在此改量, 血池的
+     * 被动词条减伤在其后按已折量继续结算 (读条免伤是时限状态独立乘算, 非红线 1 单点内的被动源, 用户裁定登记于
+     * spec 7.4 批3 注记)。
      */
     @SubscribeEvent(priority = EventPriority.HIGH)
     public void onChampionHurt(LivingHurtEvent event) {
@@ -167,10 +171,18 @@ public final class ChampionSelfRepairHandler {
         ResourceKey<Level> dim = victim.level().dimension();
         RepairState st = stateByChampion.computeIfAbsent(victim.getUUID(), k -> new RepairState(dim, nowTick));
         st.lastTouchedTick = nowTick;
-        st.cycle.recordHurt(nowTick); // 受任意伤害: 记时戳 -> 读条内 30tick 停跳血 (读条不中断)。
+
+        if (st.cycle.isChanneling()) {
+            float amount = event.getAmount();
+            if (amount > 0.0F) {
+                // 读条期免伤 90% (远程磨不动, 逼近战强拆); 打断的那一击同样折量 (打断与否不看伤害量)。
+                event.setAmount((float) ChampionSelfRepairCycle.channelIncomingDamage(amount));
+            }
+        }
 
         // 近战命中 (仅 MOB_ATTACK/MOB_ATTACK_NO_AGGRO/PLAYER_ATTACK, 不含爆炸/远程) 打断读条进 CD。
         if (isMeleeDamage(event.getSource()) && st.cycle.interruptByMelee(nowTick)) {
+            unroot(victim); // 撤定身移速修饰 (恢复行动)。
             victim.removeEffect(MobEffects.GLOWING); // 打断即撤读条发光 (免残留误导"仍在修复")。
             playInterruptEffects(victim);
             LOGGER.info("skill-repair interrupt {} by melee", victim.getType().getDescriptionId());
@@ -209,19 +221,35 @@ public final class ChampionSelfRepairHandler {
         return found instanceof LivingEntity living ? living : null;
     }
 
+    /** 读条定身移速修饰固定 UUID (MULTIPLY_TOTAL -1.0 = 移速归零; 瞬态不入 NBT)。 */
+    private static final UUID ROOT_MODIFIER_UUID = UUID.fromString("7c2e9a41-5b3d-4f86-a0c7-e91d24b6f358");
+
     /**
-     * 读条定身 + 抑制攻击 (仅读条期每 tick): 停导航寻路 + 归零水平位移 (保留重力 y 分量) + 清攻击目标。
-     * 清目标即抑制攻击 (无目标则近战 goal 不 doHurtTarget 且不再寻路突进) —— 1.20.1 无公开"只禁攻击不丢目标"的 Mob API,
-     * 取最简可靠的清目标; 代价是丢仇恨, 读条结束由原生索敌目标 goal (HurtByTargetGoal/NearestAttackableTargetGoal) 重新
-     * 锁玩家 (刚被打的怪必即刻重仇恨), 见 keyDecisions。
+     * 读条定身 + 抑制攻击 (仅读条期每 tick)。v2 真服修正: v1 的"停导航 + 归零位移"每 tick 与 MoveControl 的前进
+     * 速度互搏, 观感只是减速不是定身 (真服首验反馈) —— 改挂 MOVEMENT_SPEED MULTIPLY_TOTAL -1.0 瞬态修饰
+     * (结果移速恒 0, AI 想走也走不动), 叠加停导航 + 清攻击目标。清目标即抑制攻击 —— 1.20.1 无公开"只禁攻击不丢
+     * 目标"的 Mob API, 取最简可靠的清目标; 代价是丢仇恨, 读条结束由原生索敌 goal 重新锁玩家。
      */
     private static void rootAndDisarm(LivingEntity entity) {
         if (!(entity instanceof Mob mob)) {
             return; // 冠军 capability 只挂 Mob, 恒可转型; 防御性早退。
         }
+        AttributeInstance attr = mob.getAttribute(Attributes.MOVEMENT_SPEED);
+        if (attr != null && attr.getModifier(ROOT_MODIFIER_UUID) == null) {
+            attr.addTransientModifier(new AttributeModifier(
+                    ROOT_MODIFIER_UUID, "champion_self_repair_root", -1.0D,
+                    AttributeModifier.Operation.MULTIPLY_TOTAL));
+        }
         mob.getNavigation().stop();
-        mob.setDeltaMovement(0.0D, mob.getDeltaMovement().y, 0.0D);
         mob.setTarget(null);
+    }
+
+    /** 撤读条定身移速修饰 (读满/近战打断时恢复行动; 实体死亡随销毁自然消失)。 */
+    private static void unroot(LivingEntity entity) {
+        AttributeInstance attr = entity.getAttribute(Attributes.MOVEMENT_SPEED);
+        if (attr != null) {
+            attr.removeModifier(ROOT_MODIFIER_UUID);
+        }
     }
 
     /** 读条开始表现 (spec 9A.6): 自身发光, 时长 = 读条全长 (读满同 tick 自然到期; 打断在 onChampionHurt 撤除)。 */

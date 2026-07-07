@@ -27,10 +27,12 @@ public final class MiningChampionData {
     private static final String NBT_STAR = "star";
     private static final String NBT_EFFECTIVE_HP = "effective_hp";
     private static final String NBT_AFFIXES = "affixes";
+    private static final String NBT_SUMMONED = "summoned_by_affix";
 
     private int star = NOT_CHAMPION;
     private final EnumMap<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
     private double effectiveHp = 0.0D;
+    private boolean summonedByAffix = false;
 
     /** 是否已被盖章为冠军 (star ∈ [1,10])。非冠军的默认 capability 恒 false。 */
     public boolean isChampion() {
@@ -63,6 +65,19 @@ public final class MiningChampionData {
     }
 
     /**
+     * 是否支援召唤词条召出的召唤物 (spec 7.4 支援 [红队] 经济闸: summonedByAffix=true 不参与货币/经验/掉落/
+     * 贡献结算, BOSS 血条亦不出条)。随 NBT 持久 —— 区块卸载重载后排除口径不丢。
+     */
+    public boolean isSummonedByAffix() {
+        return summonedByAffix;
+    }
+
+    /** 盖章为词条召唤物 (支援召唤 handler 在 promote 后调用; clear/重新 promote 会复位)。 */
+    public void markSummonedByAffix() {
+        this.summonedByAffix = true;
+    }
+
+    /**
      * spawn 期盖章 (promoter 调用): 设星级 + 词条→品质 + 有效血。覆盖旧态 (重生/重复盖章防残留)。
      *
      * @param star           星级 (须 ∈ [1,10])
@@ -83,6 +98,7 @@ public final class MiningChampionData {
         this.affixes.clear();
         this.affixes.putAll(newAffixes);
         this.effectiveHp = effectiveHp;
+        this.summonedByAffix = false; // 重新盖章即普通冠军; 召唤物身份由 markSummonedByAffix 在 promote 后补盖。
     }
 
     /** 清为非冠军态 (deserialize 前重置 / 显式清除)。 */
@@ -90,6 +106,7 @@ public final class MiningChampionData {
         this.star = NOT_CHAMPION;
         this.affixes.clear();
         this.effectiveHp = 0.0D;
+        this.summonedByAffix = false;
     }
 
     /**
@@ -103,6 +120,9 @@ public final class MiningChampionData {
         }
         tag.putInt(NBT_STAR, star);
         tag.putDouble(NBT_EFFECTIVE_HP, effectiveHp);
+        if (summonedByAffix) {
+            tag.putBoolean(NBT_SUMMONED, true); // 仅召唤物写键 (普通冠军不膨胀 NBT)。
+        }
         CompoundTag affixTag = new CompoundTag();
         for (Map.Entry<AffixDef, AffixQuality> e : affixes.entrySet()) {
             affixTag.putInt(e.getKey().name(), e.getValue().ordinal());
@@ -126,6 +146,7 @@ public final class MiningChampionData {
         }
         this.star = s;
         this.effectiveHp = tag.getDouble(NBT_EFFECTIVE_HP);
+        this.summonedByAffix = tag.getBoolean(NBT_SUMMONED);
         CompoundTag affixTag = tag.getCompound(NBT_AFFIXES);
         AffixQuality[] qualities = AffixQuality.values();
         for (String key : affixTag.getAllKeys()) {

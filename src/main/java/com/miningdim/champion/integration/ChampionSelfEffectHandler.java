@@ -88,8 +88,22 @@ public final class ChampionSelfEffectHandler {
             AffixDef.REGEN_TISSUE, AffixDef.FLAMMABLE_REGEN, AffixDef.SPRINT, AffixDef.THORNS,
             AffixDef.OVERDRIVE);
 
-    /** per-冠军自效果状态 (受击 tick / 反震 tick); 冠军死亡摘除防泄漏。 */
+    /**
+     * per-冠军自效果状态 (受击 tick / 反震 tick / 超速锚点); 冠军死亡摘除 + TTL 清扫双保险 —— 冠军未设
+     * persistenceRequired, 自然 despawn/区块卸载不发 LivingDeathEvent, 只靠死亡清理会泄漏 (对抗审查发现,
+     * 批2 超速无条件建状态扩大了该缺口)。TTL 见 {@link #sweepStaleStates}。
+     */
     private final Map<UUID, SelfState> stateByChampion = new HashMap<>();
+
+    /** 状态 TTL 清扫周期 (tick): 每 60s 扫一次 (低频, 表通常极小)。 */
+    private static final int STATE_SWEEP_INTERVAL_TICKS = 1200;
+
+    /**
+     * 状态条目 TTL (tick): 5min 未被触达 (未受击/未被扫描) 即回收。丢态语义安全: 回收后视为"从未受伤/未在循环",
+     * 而回血门槛窗仅 5s/1.5s、反震 CD 3s、超速锚点本就有 10s 脱战重置 —— 5min 未触达的冠军必然远离玩家,
+     * 回收不改变任何可观测行为, 只兜内存。
+     */
+    private static final long STATE_TTL_TICKS = 6000L;
 
     /**
      * 每秒扫近玩家冠军施回血 + 维护移速。按玩家 AABB 扫 + Champions capability 检出冠军 (命令召唤 + 自然刷一视同仁),
@@ -121,6 +135,18 @@ public final class ChampionSelfEffectHandler {
                 }
             }
         }
+
+        // TTL 清扫 (despawn/卸载不发死亡事件的泄漏兜底): 低频回收长期未触达的状态条目。
+        if (server.getTickCount() % STATE_SWEEP_INTERVAL_TICKS == 0) {
+            sweepStaleStates(nowTick);
+        }
+    }
+
+    /** 回收 TTL 内未被触达 (未受击/未被超速扫描) 的状态条目 (语义安全性见 {@link #STATE_TTL_TICKS})。 */
+    private void sweepStaleStates(long nowTick) {
+        // MIN_VALUE (理论不出现: 两处建条目点均即刻刷触达) 显式视为过期, 防减法溢出漏回收。
+        stateByChampion.values().removeIf(state -> state.lastTouchedTick == Long.MIN_VALUE
+                || nowTick - state.lastTouchedTick > STATE_TTL_TICKS);
     }
 
     /** 对一只实体 (若是本工程冠军) 施 tick 自效果: 移速维护 + 脱战/战斗回血。 */
@@ -197,6 +223,7 @@ public final class ChampionSelfEffectHandler {
         long nowTick = victim.level().getGameTime();
         SelfState state = stateByChampion.computeIfAbsent(victim.getUUID(), k -> new SelfState());
         state.lastHurtTick = nowTick;
+        state.lastTouchedTick = nowTick;
 
         AffixQuality thorns = equipped.get(AffixDef.THORNS);
         if (thorns != null) {
@@ -269,6 +296,7 @@ public final class ChampionSelfEffectHandler {
      */
     private OverdriveCycle.Phase applyOverdrive(LivingEntity entity, AffixQuality quality, long nowTick) {
         SelfState state = stateByChampion.computeIfAbsent(entity.getUUID(), k -> new SelfState());
+        state.lastTouchedTick = nowTick;
 
         boolean hasTarget = entity instanceof Mob mob && mob.getTarget() != null && mob.getTarget().isAlive();
         if (hasTarget) {
@@ -365,12 +393,13 @@ public final class ChampionSelfEffectHandler {
 
     /**
      * per-冠军自效果状态: 上次受伤 tick (回血门槛) + 上次反震反伤 tick (内 CD) + 超速循环锚点/最后见目标 tick
-     * (力竭窗状态机, MIN_VALUE = 未在循环/从未索敌)。
+     * (力竭窗状态机, MIN_VALUE = 未在循环/从未索敌) + 最后触达 tick (TTL 清扫依据, 建条目/受击/超速扫描时刷新)。
      */
     private static final class SelfState {
         private long lastHurtTick = Long.MIN_VALUE;
         private long lastThornsTick = Long.MIN_VALUE;
         private long overdriveAnchorTick = Long.MIN_VALUE;
         private long lastTargetSeenTick = Long.MIN_VALUE;
+        private long lastTouchedTick = Long.MIN_VALUE;
     }
 }

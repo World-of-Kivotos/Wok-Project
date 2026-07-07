@@ -133,8 +133,8 @@ public final class ChampionSelfBuffGameTests {
         helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.contains(AffixDef.FLAMMABLE_REGEN), "易燃再生 已移入白名单");
         helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.contains(AffixDef.THORNS), "反震 已移入白名单");
         helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.contains(AffixDef.SPRINT), "高速移动 已移入白名单");
-        // 巨大化仍属批2 (spawn 血池模型待接), 不应在白名单 (否则自然 roll 出无 +血量效果的空壳)。
-        helper.assertTrue(!AffixRoller.IMPLEMENTED_AFFIXES.contains(AffixDef.GIGANTISM), "巨大化 仍未实现不在白名单");
+        // 巨大化批2 已接 spawn 血池模型 (ChampionHpConversion.sizeMultiplier), 已移入白名单。
+        helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.contains(AffixDef.GIGANTISM), "巨大化 批2 已移入白名单");
         helper.succeed();
     }
 

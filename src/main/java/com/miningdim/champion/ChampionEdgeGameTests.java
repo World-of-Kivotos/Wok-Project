@@ -417,15 +417,15 @@ public final class ChampionEdgeGameTests {
     public static void dummyAxesUnlockedYetNeverRolled(GameTestHelper helper) {
         StarRank topStar = StarRank.ofStar(StarRank.MAX_STAR);
 
-        // 典型哑词条 (各哑轴代表): 机动哑/技能/生存哑/战斗哑/缩小化。SPRINT/THORNS 已 Stage2 批1 实现, 故不再列入。
+        // 典型哑词条 (各哑轴代表): 机动传送/技能/战斗哑。SPRINT/THORNS 批1、巨大化/缩小化/超速 批2 已实现故不再
+        // 列入; 生存池 10 条批2 起全实现, 无生存哑代表。
         Set<AffixDef> dummySamples = EnumSet.of(
-                AffixDef.OVERDRIVE,        // 机动池 (超速移动未实现; SPRINT 已批1 实现故换其为机动哑代表)
+                AffixDef.BLINK,            // 机动池 (传送家族未实现; 批2 后机动哑仅剩传送三条)
+                AffixDef.PHASE_WALK,       // 机动池 (灵体穿墙未实现)
                 AffixDef.DEATH_MARK,       // 技能池 (主动技能未实现)
                 AffixDef.THUNDER,          // 技能池 (周期 AOE 未实现)
-                AffixDef.GIGANTISM,        // 生存池哑 (+HP/体型 spawn 模型批2 待接)
                 AffixDef.DOUBLE_STRIKE,    // 战斗池哑 (分跳未施加)
-                AffixDef.CHAOS_STRIKE,     // 战斗池哑 (击飞不 push)
-                AffixDef.MINIATURIZATION); // 生存池: 减伤已实但 -血量惩罚 spawn 未接 (批2), 暂不入白名单
+                AffixDef.CHAOS_STRIKE);    // 战斗池哑 (击飞不 push)
 
         for (AffixDef dummy : dummySamples) {
             // (1) 这些哑词条在 10★ 确已解锁 -> 若无白名单过滤, rollPool 候选会含它们 (证明过滤是唯一拦截点)。
@@ -448,21 +448,23 @@ public final class ChampionEdgeGameTests {
     }
 
     /**
-     * 白名单内容硬断言: 恰含 16 条 (Stage1 12: 5 减伤 + 3 即时伤害 + 2 DoT + 1 易伤 + 1 磨损; Stage2 批1 4: 再生组织/
-     * 易燃再生/反震/高速移动), 且关键实现词条在内 (按 AffixDef 身份)。删任一白名单成员或误加哑词条, 本断言即挂。
+     * 白名单内容硬断言: 恰含 19 条 (Stage1 12: 5 减伤 + 3 即时伤害 + 2 DoT + 1 易伤 + 1 磨损; Stage2 批1 4: 再生组织/
+     * 易燃再生/反震/高速移动; Stage2 批2 3: 巨大化/缩小化/超速移动), 且关键实现词条在内 (按 AffixDef 身份)。
+     * 删任一白名单成员或误加哑词条, 本断言即挂。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void implementedWhitelistMembershipExact(GameTestHelper helper) {
         Set<AffixDef> wl = AffixRoller.IMPLEMENTED_AFFIXES;
-        helper.assertTrue(wl.size() == 16, "implemented whitelist has exactly 16 entries, got " + wl.size());
+        helper.assertTrue(wl.size() == 19, "implemented whitelist has exactly 19 entries, got " + wl.size());
 
-        // 实现词条必在内 (逐条身份; Stage1 12 + Stage2 批1 4)。
+        // 实现词条必在内 (逐条身份; Stage1 12 + Stage2 批1 4 + 批2 3)。
         for (AffixDef impl : new AffixDef[]{
                 AffixDef.COMPOSITE_ARMOR, AffixDef.UHMWPE_ARMOR, AffixDef.HEAVY_ARMOR,
                 AffixDef.DEFLECTOR_SHIELD, AffixDef.FORTITUDE_SHIELD,
                 AffixDef.HEAVY_CANNON, AffixDef.BLOODLUST, AffixDef.ARMOR_PIERCING,
                 AffixDef.BURNING, AffixDef.FROST, AffixDef.REND, AffixDef.CORROSIVE,
-                AffixDef.REGEN_TISSUE, AffixDef.FLAMMABLE_REGEN, AffixDef.THORNS, AffixDef.SPRINT}) {
+                AffixDef.REGEN_TISSUE, AffixDef.FLAMMABLE_REGEN, AffixDef.THORNS, AffixDef.SPRINT,
+                AffixDef.GIGANTISM, AffixDef.MINIATURIZATION, AffixDef.OVERDRIVE}) {
             helper.assertTrue(wl.contains(impl), impl + " (has runtime handler) must be whitelisted");
         }
 

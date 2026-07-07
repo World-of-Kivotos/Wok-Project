@@ -2,6 +2,7 @@ package com.miningdim.champion.integration;
 
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixQuality;
+import com.miningdim.champion.ChampionDamageTypes;
 import com.miningdim.champion.ChampionDiagnostics;
 import com.miningdim.champion.ChampionEffectRegistries;
 import com.miningdim.champion.ChampionSelfBuffValues;
@@ -10,7 +11,11 @@ import com.miningdim.champion.MiningChampions;
 import com.miningdim.champion.aggregate.RetaliationAggregator;
 import com.miningdim.champion.bloodpool.BloodPool;
 import com.miningdim.champion.bloodpool.BloodPoolRegistry;
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageType;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
@@ -203,7 +208,14 @@ public final class ChampionSelfEffectHandler {
         if (reflected <= 0.0D) {
             return; // 反伤秒窗/窗口额度耗尽: 本次不反弹 (红线 2)。
         }
-        attacker.hurt(victim.level().damageSources().thorns(victim), (float) reflected);
+        // 真伤 (2026-07-07 用户定向): 自定义 champion_thorns 类型 (bypasses_armor+enchantments), 名义 % 即实付 ——
+        // 原 vanilla thorns 类型被玩家护甲吃 ~80%, 惩罚名存实亡。ChampionAttackHandler 对本类型有跳过守卫。
+        // 1.20.1 DamageSources.source(...) 全部重载 private (javap 实测), 公开路径 = registry 取 Holder 后直接
+        // new DamageSource(holder, entity) (公开构造器, javap 实测)。
+        Holder<DamageType> thornsType = victim.level().registryAccess()
+                .registryOrThrow(Registries.DAMAGE_TYPE)
+                .getHolderOrThrow(ChampionDamageTypes.CHAMPION_THORNS);
+        attacker.hurt(new DamageSource(thornsType, victim), (float) reflected);
         state.lastThornsTick = nowTick;
     }
 

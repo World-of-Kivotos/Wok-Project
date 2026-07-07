@@ -388,5 +388,6 @@
   "message.miningdim.marriage.teleport.diff_dim": "You and your spouse are in different dimensions; cannot teleport.",
   "message.miningdim.marriage.teleport.mining_dim": "Your spouse is in the mining dimension; use /mining enter instead.",
   "message.miningdim.marriage.divorce.done": "The divorce is finalized; the marriage is dissolved.",
-  "message.miningdim.marriage.divorce.insufficient": "Not enough credits; a divorce costs %s."
+  "message.miningdim.marriage.divorce.insufficient": "Not enough credits; a divorce costs %s.",
+  "death.attack.miningdim.champion_thorns": "%1$s was shattered by %2$s's tremor guard"
 }

@@ -1,9 +1,14 @@
 package com.miningdim.champion;
 
 import com.miningdim.core.MiningConstants;
+import net.minecraft.core.Holder;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.damagesource.DamageType;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -90,6 +95,22 @@ public final class ChampionSelfBuffGameTests {
         // 易燃再生停回窗 30tick: 恰 30 -> 可回; 29 -> 停回。
         helper.assertTrue(ChampionSelfBuffValues.flammableRegenReady(200L, 170L), "距受伤 30tick = 可回");
         helper.assertTrue(!ChampionSelfBuffValues.flammableRegenReady(200L, 171L), "距受伤 29tick = 停回");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void championThornsDamageTypeIsTrueDamage(GameTestHelper helper) {
+        // 反震真伤口径 (2026-07-07 用户定向): champion_thorns 伤害类型须注册且入 bypasses_armor +
+        // bypasses_enchantments 标签 (删 damage_type JSON 或标签条目 -> 此测试必挂, 反伤退化回被护甲吃掉)。
+        Registry<DamageType> reg = helper.getLevel().registryAccess().registryOrThrow(Registries.DAMAGE_TYPE);
+        Holder<DamageType> holder = reg.getHolderOrThrow(ChampionDamageTypes.CHAMPION_THORNS);
+        helper.assertTrue(holder.is(DamageTypeTags.BYPASSES_ARMOR),
+                "champion_thorns must bypass armor (true damage; nominal % is what lands)");
+        helper.assertTrue(holder.is(DamageTypeTags.BYPASSES_ENCHANTMENTS),
+                "champion_thorns must bypass protection enchants");
+        // 保守边界: 不入 bypasses_invulnerability (仍受无敌帧管辖, 非无限穿透; spec 真伤保守铁律)。
+        helper.assertTrue(!holder.is(DamageTypeTags.BYPASSES_INVULNERABILITY),
+                "champion_thorns must NOT bypass invulnerability frames");
         helper.succeed();
     }
 

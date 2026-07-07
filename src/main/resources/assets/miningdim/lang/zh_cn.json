@@ -388,5 +388,6 @@
   "message.miningdim.marriage.teleport.diff_dim": "你和伴侣不在同一维度，无法传送。",
   "message.miningdim.marriage.teleport.mining_dim": "伴侣正在矿洞维度，请用 /mining enter 进入。",
   "message.miningdim.marriage.divorce.done": "离婚手续已办理，关系已解除。",
-  "message.miningdim.marriage.divorce.insufficient": "信用点不足，办理离婚需要 %s。"
+  "message.miningdim.marriage.divorce.insufficient": "信用点不足，办理离婚需要 %s。",
+  "death.attack.miningdim.champion_thorns": "%1$s 被 %2$s 的反震震杀了"
 }

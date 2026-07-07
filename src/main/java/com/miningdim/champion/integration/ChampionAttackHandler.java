@@ -3,6 +3,7 @@ package com.miningdim.champion.integration;
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixQuality;
 import com.miningdim.champion.ChampionAttackValues;
+import com.miningdim.champion.ChampionDamageTypes;
 import com.miningdim.champion.ChampionDiagnostics;
 import com.miningdim.champion.ChampionEffectRegistries;
 import com.miningdim.champion.ChampionStrikeGate;
@@ -84,9 +85,11 @@ public final class ChampionAttackHandler {
         if (!(event.getEntity() instanceof Player victim)) {
             return; // 受击者非玩家: 攻击类词条只施于玩家。
         }
-        // 反震反弹伤 (THORNS) 是冠军对攻击者的【反伤】(ChampionSelfEffectHandler 施加), 其 source.getEntity() 恰是
-        // 冠军, 会误判为"冠军攻击玩家"从而额外触发一套 on-hit 攻击词条 (燃烧/寒霜/穿甲…)。反伤非攻击, 直接放行。
-        if (event.getSource().is(DamageTypes.THORNS)) {
+        // 反震反弹伤 (vanilla thorns / 我方 champion_thorns 真伤) 是冠军对攻击者的【反伤】(ChampionSelfEffectHandler
+        // 施加), 其 source.getEntity() 恰是冠军, 会误判为"冠军攻击玩家"从而额外触发一套 on-hit 攻击词条 (燃烧/寒霜/
+        // 穿甲…)。反伤非攻击, 直接放行。
+        if (event.getSource().is(DamageTypes.THORNS)
+                || event.getSource().is(ChampionDamageTypes.CHAMPION_THORNS)) {
             return;
         }
         if (!(event.getSource().getEntity() instanceof LivingEntity attacker)) {

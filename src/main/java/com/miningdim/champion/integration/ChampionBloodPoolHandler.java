@@ -89,6 +89,13 @@ public final class ChampionBloodPoolHandler {
             return;
         }
 
+        // 管理员击杀/虚空 (bypasses_invulnerability 标签: /kill 的 generic_kill 与 out_of_world) 不进减伤/血池
+        // 管线: 刚毅单次封顶会把 /kill 的 Float.MAX_VALUE 削成 <=120/次 (9527 血带刚毅的 8★ 要 /kill 上百次,
+        // 真服验收反馈), 而该类伤害语义上无视一切 -> 直接放行 vanilla 全额扣血致死, 血池由 onLivingDeath 随死亡回收。
+        if (event.getSource().is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+            return;
+        }
+
         // 净减伤单点连乘钳制 (红线 1 / 9.2): 读冠军词条池, 比例类减伤源 (超高分子/重型子弹抗 + 复合同源适应 ramp +
         // 偏斜 EV + 缩小化体型折算) 收进 rates 一次性连乘 keep = max(∏(1-rᵢ),0.25) 钳死 75%; FLAT 类 (刚毅封顶 +
         // 重型 <T 免疫) 在连乘净伤后再削顶 (单向变硬, 不与 75% 底冲突)。各源数值/分类折算见 ChampionDamageReduction。

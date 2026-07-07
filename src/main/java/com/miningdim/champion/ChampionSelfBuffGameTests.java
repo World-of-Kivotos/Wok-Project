@@ -9,6 +9,7 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.damagesource.DamageType;
+import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -111,6 +112,20 @@ public final class ChampionSelfBuffGameTests {
         // 保守边界: 不入 bypasses_invulnerability (仍受无敌帧管辖, 非无限穿透; spec 真伤保守铁律)。
         helper.assertTrue(!holder.is(DamageTypeTags.BYPASSES_INVULNERABILITY),
                 "champion_thorns must NOT bypass invulnerability frames");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void adminKillTagPremiseForBypassGate(GameTestHelper helper) {
+        // /kill 旁路闸前提 (真服验收发现: 刚毅单次封顶把 /kill 的 Float.MAX_VALUE 削成 <=120/次, 带刚毅的 8★
+        // 要 /kill 上百次): ChampionBloodPoolHandler 对 bypasses_invulnerability 伤害整体绕过减伤/血池管线。
+        // 本测试钉死该闸的标签前提 —— /kill (generic_kill) 与虚空 (out_of_world) 必须在标签内, MC 版本漂移
+        // 挪走任一条目则闸失效, 此处必挂报警。
+        Registry<DamageType> reg = helper.getLevel().registryAccess().registryOrThrow(Registries.DAMAGE_TYPE);
+        helper.assertTrue(reg.getHolderOrThrow(DamageTypes.GENERIC_KILL).is(DamageTypeTags.BYPASSES_INVULNERABILITY),
+                "/kill 的 generic_kill 必须在 bypasses_invulnerability 标签内 (旁路闸前提)");
+        helper.assertTrue(reg.getHolderOrThrow(DamageTypes.FELL_OUT_OF_WORLD).is(DamageTypeTags.BYPASSES_INVULNERABILITY),
+                "虚空 out_of_world 必须在 bypasses_invulnerability 标签内 (世界BOSS 掉虚空不可折伤)");
         helper.succeed();
     }
 

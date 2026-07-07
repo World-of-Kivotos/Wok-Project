@@ -149,6 +149,9 @@ public final class ChampionBossBarHandler {
         if (champ == null || !champ.isChampion()) {
             return null;
         }
+        if (champ.isSummonedByAffix()) {
+            return null; // 支援召唤物 (spec 红线 8-c): 不出 BOSS 条 (6 只召唤物不刷屏顶部血条)。
+        }
         int tier = champ.star();
         List<Component> affixNames = new ArrayList<>();
         for (AffixDef def : champ.affixes().keySet()) {

@@ -68,6 +68,9 @@ public final class ChampionRewardHandler {
         if (champ == null || !champ.isChampion()) {
             return; // 受击者非本工程盖章的冠军 (star=0): 不计 (其它来源冠军不归本奖励池)。
         }
+        if (champ.isSummonedByAffix()) {
+            return; // 支援召唤物 (spec 红线 8-a 经济闸): 不记贡献不参与奖池 (打召唤物白刷贡献)。
+        }
 
         double effectiveDamage = event.getAmount();
         if (effectiveDamage <= 0.0D) {
@@ -92,6 +95,10 @@ public final class ChampionRewardHandler {
         MiningChampionData champ = MiningChampions.get(victim).orElse(null);
         if (champ == null || !champ.isChampion()) {
             ContributionTracker.discard(championId); // 防泄漏。
+            return;
+        }
+        if (champ.isSummonedByAffix()) {
+            ContributionTracker.discard(championId); // 支援召唤物 (spec 红线 8-a 经济闸): 整池不发。
             return;
         }
 

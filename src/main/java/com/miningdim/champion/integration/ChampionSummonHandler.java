@@ -4,6 +4,7 @@ import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixQuality;
 import com.miningdim.champion.AffixRoller;
 import com.miningdim.champion.AffixSelection;
+import com.miningdim.champion.ChampionDiagnostics;
 import com.miningdim.champion.ChampionSummonPlan;
 import com.miningdim.champion.MiningChampionData;
 import com.miningdim.champion.MiningChampions;
@@ -187,7 +188,8 @@ public final class ChampionSummonHandler {
             state.lastCastTick = nowTick;
             LOGGER.info("skill-summon cast owner={} ownerStar={} summonStar={} requested={} spawned={} aliveNow={}",
                     owner.getUUID(), champ.star(), summonStar, count, spawned, alive + spawned);
-        } else {
+        } else if (ChampionDiagnostics.shouldTrace(owner)) {
+            // 全位置失败会逐周期重试 (不消 CD), 封闭空间下 1 行/秒 —— 非低频事件, 须经诊断门控防刷屏 (对抗审查)。
             LOGGER.info("skill-summon cast-allfail owner={} ownerStar={} summonStar={} requested={} (no standable spot)",
                     owner.getUUID(), champ.star(), summonStar, count);
         }

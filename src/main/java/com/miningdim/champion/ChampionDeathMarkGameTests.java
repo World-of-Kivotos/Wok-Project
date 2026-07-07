@@ -112,9 +112,18 @@ public final class ChampionDeathMarkGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void decayAndSuppressionConsistency(GameTestHelper helper) {
-        // 标记期进度口径 = 名义 ×0.7: 100 -> 70。
-        helper.assertTrue(Math.abs(ChampionDeathMarkMath.decayedDamage(100.0D) - 70.0D) < EPS, "名义 100 ×0.7 = 70 (进度口径)");
+        // ×0.7 只作用于 BOSS 实际掉血 (迫使补刀); 进度口径 = 衰减【前】名义 (对抗审查修正)。
+        helper.assertTrue(Math.abs(ChampionDeathMarkMath.decayedDamage(100.0D) - 70.0D) < EPS, "名义 100 ×0.7 = 70 (BOSS 实际掉血)");
         helper.assertTrue(Math.abs(ChampionDeathMarkMath.DAMAGE_DECAY_MULTIPLIER - 0.7D) < EPS, "衰减系数 = 0.7");
+        // 口径回归钉死 (对抗审查 major): 进度按衰减前累计 -> 持续 1.6 倍采样强度恰达标; 若误按衰减后累计
+        // (×0.7), 同等输出只积累 0.7×1.6=1.12 倍 DPS 分子 < 1.6 倍阈值 -> 反例断言必挂。
+        double threshold = ChampionDeathMarkMath.markThreshold(AffixQuality.EPIC, 1000.0D); // DPS100 -> 1280。
+        double nominalAt16x = 100.0D * 1.6D * 8.0D;                                          // 1.6 倍强度 8s 名义 = 1280。
+        helper.assertTrue(ChampionDeathMarkMath.thresholdReached(nominalAt16x, threshold),
+                "衰减前口径: 1.6 倍采样强度恰达标");
+        helper.assertTrue(!ChampionDeathMarkMath.thresholdReached(
+                        ChampionDeathMarkMath.decayedDamage(nominalAt16x), threshold),
+                "反例: 若按衰减后口径累计, 1.6 倍强度不达标 (1280×0.7=896 < 1280)");
         // 暂停采样: 标记期该玩家的衰减入伤 (suppressed=true) 不入账, 采样不被污染。
         ChampionDeathMarkMath.RollingDamageSampler s = new ChampionDeathMarkMath.RollingDamageSampler();
         s.record(0L, 500.0D, false); // 标记前正常采样。

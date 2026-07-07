@@ -160,4 +160,40 @@ public final class ChampionSummonGameTests {
         }
         helper.succeed();
     }
+
+    // ============================================================
+    // summonedByAffix 经济闸标记 NBT 往返 (红线 8: 区块卸载重载后排除口径不得丢)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void summonedFlagSurvivesNbtRoundTrip(GameTestHelper helper) {
+        // 对抗审查 major: 该标记是 掉落/经验/贡献/血条 四处经济闸的唯一依据, 序列化丢失 = 召唤物跨区块重载后
+        // 重新参与结算 (spec 第十一章"经济印钞口"重开)。删 serializeNBT 的 NBT_SUMMONED 分支或 deserializeNBT
+        // 的读取, 本断言必挂。
+        MiningChampionData original = new MiningChampionData();
+        original.promote(2, java.util.Map.of(AffixDef.SPRINT, AffixQuality.COMMON), 225.0D);
+        helper.assertTrue(!original.isSummonedByAffix(), "promote 后默认非召唤物");
+        original.markSummonedByAffix();
+        helper.assertTrue(original.isSummonedByAffix(), "markSummonedByAffix 后为召唤物");
+
+        MiningChampionData restored = new MiningChampionData();
+        restored.deserializeNBT(original.serializeNBT());
+        helper.assertTrue(restored.isSummonedByAffix(), "NBT 往返后召唤物标记保留 (经济闸不失效)");
+        helper.assertTrue(restored.star() == 2 && restored.has(AffixDef.SPRINT),
+                "往返后星级/词条同存 (标记不挤掉其它字段)");
+
+        // 普通冠军往返: 不写键 (防全世界怪 NBT 膨胀), 读回恒 false。
+        MiningChampionData plain = new MiningChampionData();
+        plain.promote(3, java.util.Map.of(AffixDef.BURNING, AffixQuality.COMMON), 360.0D);
+        helper.assertTrue(!plain.serializeNBT().contains("summoned_by_affix"),
+                "普通冠军不写 summoned_by_affix 键");
+        MiningChampionData plainRestored = new MiningChampionData();
+        plainRestored.deserializeNBT(plain.serializeNBT());
+        helper.assertTrue(!plainRestored.isSummonedByAffix(), "普通冠军往返后仍非召唤物");
+
+        // 重新 promote 复位标记 (召唤物身份不跨盖章残留)。
+        original.promote(4, java.util.Map.of(AffixDef.BURNING, AffixQuality.COMMON), 540.0D);
+        helper.assertTrue(!original.isSummonedByAffix(), "重新 promote 复位召唤物标记");
+        helper.succeed();
+    }
 }

@@ -85,11 +85,12 @@ public final class ChampionAttackHandler {
         if (!(event.getEntity() instanceof Player victim)) {
             return; // 受击者非玩家: 攻击类词条只施于玩家。
         }
-        // 反震反弹伤 (vanilla thorns / 我方 champion_thorns 真伤) 是冠军对攻击者的【反伤】(ChampionSelfEffectHandler
-        // 施加), 其 source.getEntity() 恰是冠军, 会误判为"冠军攻击玩家"从而额外触发一套 on-hit 攻击词条 (燃烧/寒霜/
-        // 穿甲…)。反伤非攻击, 直接放行。
+        // 反震反弹伤 (vanilla thorns / 我方 champion_thorns 真伤) 与命定处决 (champion_execution) 的
+        // source.getEntity() 恰是冠军, 会误判为"冠军攻击玩家"从而额外触发一套 on-hit 攻击词条 (燃烧/寒霜/穿甲/
+        // 强酸损甲…)。反伤/处决是判决非攻击, 直接放行 (处决须是干净真伤: 不磨甲不挂 DoT, 留不死图腾一线也不被余毒咬死)。
         if (event.getSource().is(DamageTypes.THORNS)
-                || event.getSource().is(ChampionDamageTypes.CHAMPION_THORNS)) {
+                || event.getSource().is(ChampionDamageTypes.CHAMPION_THORNS)
+                || event.getSource().is(ChampionDamageTypes.CHAMPION_EXECUTION)) {
             return;
         }
         if (!(event.getSource().getEntity() instanceof LivingEntity attacker)) {

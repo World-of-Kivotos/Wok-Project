@@ -47,12 +47,13 @@ import java.util.UUID;
  *  - {@link #onServerTick} (END, 每 {@value #SCAN_INTERVAL_TICKS}tick=1s): 按玩家 AABB 扫近处冠军 (与
  *    {@code ChampionSelfEffectHandler} 同范式), 对持本词条的冠军推进标记生命周期 (就绪即标记 / 达标解除 / 窗耗尽
  *    处决 / 目标丢失解除) + 每秒刷 actionbar。就绪判定 = CD 过 + 有合法候选 (无独立周期表, 1s 扫描粒度)。
- *  - {@link #onMarkedPlayerHurtChampion} (NORMAL): 被标记玩家对本怪的入伤 ×0.7 衰减 (早于血池 LOWEST 净减伤,
- *    语义 = 名义入伤先衰减)。
- *  - {@link #onPlayerDamageChampion} (LOWEST + receiveCanceled): 喂滚动采样账 (DPS 阈值基数) + 累计标记期进度。
+ *  - {@link #onMarkedPlayerHurtChampion} (NORMAL): 被标记玩家对本怪的入伤先按【衰减前名义值】累计进度, 再
+ *    ×0.7 衰减 (早于血池 LOWEST 净减伤)。进度用衰减前口径 = 自证门槛恒 1.6× 采样可达 (对抗审查修正, 否则
+ *    叠乘成 2.29× 必死); ×0.7 只压低 BOSS 实际掉血 (迫使补刀语义)。
+ *  - {@link #onPlayerDamageChampion} (LOWEST + receiveCanceled): 喂滚动采样账 (DPS 阈值基数)。
  *    Forge 无 Bukkit 式 MONITOR, LOWEST 即事件链末端相位; 血池怪 (本词条恒 8★ 有血池) 会 cancel 事件, 故
  *    receiveCanceled; 血池只 cancel 不 setAmount, LOWEST 读到的 {@code event.getAmount()} 即名义入伤 (与贡献账
- *    同口径; 标记期该量已被 NORMAL 衰减 ×0.7)。
+ *    同口径)。
  *
  * 数值/阈值/采样/口径数学全下沉纯逻辑 {@link ChampionDeathMarkMath} (GameTest 真测); 跨冠军互斥 (命定/反击 一玩家
  * 一锁) 经 {@link ChampionTargetLocks}。冠军检出/词条品质经 {@link MiningChampions} 读自研 capability, 不触
@@ -68,6 +69,9 @@ public final class ChampionDeathMarkHandler {
 
     /** 扫描/就绪判定周期 (tick): 1s 扫一次近玩家冠军推进标记生命周期 (与 actionbar 每秒刷对齐)。 */
     private static final int SCAN_INTERVAL_TICKS = ChampionDeathMarkMath.TICKS_PER_SECOND;
+
+    /** 标记驱动断档放弃阈值 (tick): 两个扫描周期无驱动 = 目标已脱离扫描范围, 放弃标记防冻结延迟处决。 */
+    private static final long DRIVE_GAP_ABORT_TICKS = 2L * SCAN_INTERVAL_TICKS;
 
     /** 生命周期推进的玩家可见距离 (格; 与自身被动/血条同量级)。远离该范围的冠军不结算。 */
     private static final double VIEW_RANGE = 48.0D;
@@ -151,8 +155,20 @@ public final class ChampionDeathMarkHandler {
         }
     }
 
-    /** 推进活动标记: 目标丢失解除 / 达标解除 / 窗耗尽处决 / 进行中刷 actionbar。 */
+    /** 推进活动标记: 驱动断档放弃 / 目标丢失解除 / 达标解除 / 窗耗尽处决 / 进行中刷 actionbar。 */
     private void driveActiveMark(LivingEntity champion, DeathMarkState state, long nowTick) {
+        // 驱动断档守卫 (对抗审查 major): 标记只在"玩家 48 格内"的扫描 tick 被驱动, 目标跑出范围/区块卸载会把
+        // 生命周期冻结在原地 —— 若不设防, 数分钟后重新入场会撞上 windowExpired 直接满血处决且冻结期零预警。
+        // 断档 >2s (两个扫描周期) 即静默放弃本轮标记 (不处决不结算): 甩开 BOSS 是合法的风筝逃脱反制。
+        if (state.lastDriveTick != Long.MIN_VALUE
+                && nowTick - state.lastDriveTick > DRIVE_GAP_ABORT_TICKS) {
+            LOGGER.info("skill-deathmark champion={} outcome=abandoned_frozen player={} gap={}t",
+                    championName(champion), state.markedPlayer, nowTick - state.lastDriveTick);
+            endMark(champion, state, nowTick);
+            return;
+        }
+        state.lastDriveTick = nowTick;
+
         ServerPlayer marked = resolveServerPlayer(champion, state.markedPlayer);
         if (marked == null || !marked.isAlive()) {
             // 目标离线/死亡: 提前解除 (无处决, 无音效; 玩家已死无需再判)。
@@ -203,6 +219,7 @@ public final class ChampionDeathMarkHandler {
         state.markTick = nowTick;
         state.threshold = threshold;
         state.progress = 0.0D;
+        state.lastDriveTick = nowTick; // 断档守卫基线: 标记起点即首次驱动 (防标记后立即脱离时 MIN_VALUE 绕过守卫)。
         onMarkStart(champion, candidate.player(), candidate.sampledDamage(), threshold);
     }
 
@@ -229,8 +246,12 @@ public final class ChampionDeathMarkHandler {
     }
 
     /**
-     * 被标记玩家对本怪入伤 ×0.7 衰减 (spec 7.4 迫使补刀)。NORMAL 优先级: 早于血池 LOWEST 净减伤, 语义 =
-     * 名义入伤先衰减 (衰减后名义才是标记期进度口径, 与 {@link #onPlayerDamageChampion} LOWEST 读到的一致)。
+     * 被标记玩家对本怪入伤 ×0.7 衰减 (spec 7.4 迫使补刀)。NORMAL 优先级: 早于血池 LOWEST 净减伤。
+     *
+     * 进度口径修正 (对抗审查 major): 进度按【衰减前名义值】在此累计 —— 若按衰减后累计, 过关需持续打出
+     * 采样 DPS 的 1.6/0.7 ≈ 2.29 倍, 对采样期已近满输出的玩家不可达 = 必死无反制, 违背红线 3 例外前提。
+     * 衰减前口径下自证门槛回到 1.6 倍 (采样含换弹空窗, 爆发可超), ×0.7 仍作用于 BOSS 实际掉血 =
+     * "迫使队友补刀"语义成立 (被标记者对 BOSS 的净贡献被压低, 团队 DPS 缺口须他人补)。
      */
     @SubscribeEvent(priority = EventPriority.NORMAL)
     public void onMarkedPlayerHurtChampion(LivingHurtEvent event) {
@@ -248,6 +269,7 @@ public final class ChampionDeathMarkHandler {
         if (amount <= 0.0F) {
             return;
         }
+        state.progress += amount; // 衰减前名义值入进度 (与阈值的采样口径一致, 门槛 = 1.6x 可达)。
         event.setAmount((float) ChampionDeathMarkMath.decayedDamage(amount));
     }
 
@@ -285,10 +307,7 @@ public final class ChampionDeathMarkHandler {
         state.lastTouchedTick = nowTick;
 
         boolean markedNow = state.hasActiveMark() && attacker.getUUID().equals(state.markedPlayer);
-        if (markedNow) {
-            // 进度累计 (名义入伤, 此刻 amount 已被 NORMAL 衰减 ×0.7): 与阈值同口径。
-            state.progress += amount;
-        }
+        // 进度不在此累计 (已移至 NORMAL 衰减点按【衰减前名义值】累计, 口径修正见 onMarkedPlayerHurtChampion)。
         // 采样: 标记期该玩家的衰减入伤暂停采样 (防压低下次阈值); 其它玩家/标记前正常采样。
         state.sampler(attacker.getUUID()).record(nowTick, amount, markedNow);
     }
@@ -321,8 +340,9 @@ public final class ChampionDeathMarkHandler {
                 String.format("%.1f", threshold));
     }
 
-    /** 达标解除表现: actionbar 解除提示 + 成功音 (PLAYER_LEVELUP)。 */
+    /** 达标解除表现: 撤高亮 (防残留误导"仍被标记") + actionbar 解除提示 + 成功音 (PLAYER_LEVELUP)。 */
     private void onMarkCleared(LivingEntity champion, ServerPlayer target, DeathMarkState state) {
+        target.removeEffect(MobEffects.GLOWING);
         target.displayClientMessage(Component.literal("命定之死 已解除"), true);
         if (champion.level() instanceof ServerLevel level) {
             level.playSound(null, target.getX(), target.getY(), target.getZ(),
@@ -395,6 +415,7 @@ public final class ChampionDeathMarkHandler {
         private double progress = 0.0D;
         private long lastMarkEndTick = Long.MIN_VALUE;
         private long lastTouchedTick = Long.MIN_VALUE;
+        private long lastDriveTick = Long.MIN_VALUE;
 
         private boolean hasActiveMark() {
             return markedPlayer != null;
@@ -417,6 +438,7 @@ public final class ChampionDeathMarkHandler {
             markTick = Long.MIN_VALUE;
             threshold = 0.0D;
             progress = 0.0D;
+            lastDriveTick = Long.MIN_VALUE;
         }
     }
 }

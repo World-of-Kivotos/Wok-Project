@@ -268,25 +268,28 @@ public final class ChampionEdgeGameTests {
     }
 
     // ============================================================
-    // 控制聚合反例: 碎片化控制下无 2s 连续自由窗 (PlayerControlAggregator) — hasMinFreeWindow == false
+    // 控制聚合红线 5 落地: admit 拒绝"占比合规但抹掉最后 ≥2s 自由窗"的碎片化授予 (对抗审查修复)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void controlFragmentedHasNoFreeWindow(GameTestHelper helper) {
-        // 窗 [0,140), 受控上限 70 tick。把 70 tick 拆成三段塞出全部 < 40tick 的空隙:
-        // [10,40)=30 + [60,80)=20 + [100,120)=20 = 70 (恰满 cap); 空隙 [0,10) [40,60) [80,100) [120,140) 均 <=20 < 40。
+    public static void controlFragmentationDeniedToPreserveFreeWindow(GameTestHelper helper) {
+        // 窗 [0,140), 受控上限 70 tick。前两段合法; 第三段 [100,120) 占比仍合规 (70 = cap 恰满), 但会把窗内
+        // 全部空隙压到 <40tick (2s) —— admit 的自由窗复核须整笔作废回退 (曾是只有 GameTest 调的死代码, 两只
+        // 控制精英交替施控即可占比合规地永控; 删 admit 的复核或 hasMinFreeWindow 空隙扫描, 此断言必挂)。
         PlayerControlAggregator agg = new PlayerControlAggregator();
         helper.assertTrue(agg.admit(10L, 30L) == 30L, "first 30-tick control admitted");
         helper.assertTrue(agg.admit(60L, 20L) == 20L, "second 20-tick control admitted (50 busy total)");
-        helper.assertTrue(agg.admit(100L, 20L) == 20L, "third 20-tick control admitted (70 busy = cap)");
-        // 全部空隙 < 40 tick -> 无连续 2s 自由窗 (反例: 删 hasMinFreeWindow 的空隙扫描则恒 true, 此处必挂)。
-        helper.assertTrue(!agg.hasMinFreeWindow(0L),
-                "fragmented control leaves no >=2s (40-tick) continuous free window");
+        helper.assertTrue(agg.admit(100L, 20L) == 0L,
+                "third fragment denied: erases every >=2s free window despite busy cap not exceeded");
+        helper.assertTrue(agg.intervalCount() == 2, "denied fragment must not stay queued (rollback)");
+        helper.assertTrue(agg.hasMinFreeWindow(0L), "free window preserved after denial (red line 5 holds)");
 
-        // 进一步申请 (超 70 cap) 须被夹到 0 (额度耗尽)。
-        helper.assertTrue(agg.admit(130L, 20L) == 0L, "control budget exhausted at cap 70 -> 0 granted");
+        // 不抹自由窗的摆位仍可用满 70 tick 额度: [120,140) 恰留出 [80,120) 40tick 空隙。
+        helper.assertTrue(agg.admit(120L, 20L) == 20L, "gap-preserving placement admitted (70 busy = cap)");
+        // 额度耗尽后归 0。
+        helper.assertTrue(agg.admit(140L, 20L) == 0L, "control budget exhausted at cap 70 -> 0 granted");
 
-        // clampSlow 恰封顶: 0.50 原样 (= 上限, 非夹下); 0.50001 夹回 0.50。
+        // clampSlow 恰封顶: 0.50 原样 (= 上限, 非夹下); 0.6 夹回 0.50。
         helper.assertTrue(Math.abs(PlayerControlAggregator.clampSlow(0.50D) - 0.50D) < EPS, "0.50 slow at cap passes");
         helper.assertTrue(Math.abs(PlayerControlAggregator.clampSlow(0.6D) - 0.50D) < EPS, "0.60 slow clamps to 0.50");
         helper.assertTrue(PlayerControlAggregator.clampSlow(0.0D) == 0.0D, "0.0 slow passes through");

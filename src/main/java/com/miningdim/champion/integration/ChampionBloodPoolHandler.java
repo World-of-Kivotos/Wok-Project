@@ -312,13 +312,14 @@ public final class ChampionBloodPoolHandler {
     }
 
     /**
-     * 把影子血池映射回 vanilla getHealth 供原版血条渲染 (缺陷2 修复 a): 单一来源 = {@link BloodPool#displayHealth()}
-     * (已 clamp 到 [0,1024], 与影子血池占比一致), 不再用 fraction()×vanillaMax —— 后者在某伤害路径绕过本 handler
-     * 时会把破 1024 的有效血压回 vanilla 顶高血条致"诈活/低血诈活"。displayHealth>0 (池未死) 才写 vanilla 血,
-     * 池已死 (displayHealth==0) 由致死分支 kill() 路径处理, 此处不强写 0 避免与 kill 打架。
+     * 把影子血池映射回 vanilla getHealth 供原版血条渲染 (缺陷2 修复 a): 单一来源 = {@link BloodPool#displayHealth(double)}
+     * 按实体【实际属性上限】等比例映射 —— promoter 已把血池怪 vanilla 血量属性设到有效血真值, 测试服 AttributeFix
+     * (max_health 上限 1e6) 环境下 getMaxHealth() = 池 maxHp, Jade 悬浮血条直显真血; 无 AttributeFix 属性自钳 1024,
+     * 镜像自动退回保守比例 (与旧行为一致, 不诈活)。displayHealth>0 (池未死) 才写 vanilla 血, 池已死 (==0) 由致死
+     * 分支 kill() 路径处理, 此处不强写 0 避免与 kill 打架。
      */
     private static void mirrorToVanilla(LivingEntity victim, BloodPool pool) {
-        float mirrored = pool.displayHealth();
+        float mirrored = pool.displayHealth(victim.getMaxHealth());
         if (mirrored > 0.0F) {
             victim.setHealth(mirrored);
         }

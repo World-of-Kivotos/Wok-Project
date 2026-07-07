@@ -107,7 +107,7 @@ AKM/M4A1 是地板枪，实际枪械梯度远高于这俩（含狙击/反器材/
 原版 `generic.max_health` 钳制在 1024，而 6★ 起有效血量已破 1024。强制规范：
 
 1. **单一权威血量来源**：6★ 及以上一律以自定义 `double currentHp / maxHp` 为权威。所有扣血、回血、百分比血修正、低血阈值（嗜血/命定）、拦死，统一只读写该池。
-2. **vanilla 仅作渲染镜像**：每 tick `displayHealth = clamp(currentHp / maxHp × 1024, 0, 1024)` 同步。严禁业务逻辑读 vanilla `getHealth`/`max_health` 做判定。
+2. **vanilla 仅作渲染镜像**：每 tick `displayHealth = clamp(currentHp / maxHp × 实际属性上限, 0, 实际属性上限)` 同步。严禁业务逻辑读 vanilla `getHealth`/`max_health` 做判定。（2026-07-07 批2 修订：promoter 把血池怪 vanilla 血量属性设到有效血真值——测试服 AttributeFix 已把 max_health 上限抬到 1e6，属性真到位，Jade 等悬浮血条直显真血，恢复 Champions 时代观感；无 AttributeFix 环境属性自钳 1024，镜像按 `getMaxHealth()` 读回值等比映射自动降级。池仍是唯一战斗权威，此项纯显示层。）
 3. **拦死单一判据**：`currentHp - 本次伤害 ≤ 0` → 主动 `entity.kill()`。
 4. **回血池内 clamp**：`currentHp = min(currentHp + heal×dt, maxHp)`。
 5. **TDD 强校验**：`test_flat_heal_no_overflow`（73000 满血回血 10s 恒 73000）、`test_kill_precise_at_zero`（204400 池 currentHp=1 不死 / =0 必死）、`test_lowhp_threshold_uses_pool`（mock vanilla=1024 断言阈值仍按池 %）、`test_no_lockhealth`（删"池≤0 则 kill"逻辑后 `test_kill_precise_at_zero` 必挂）。

@@ -113,13 +113,15 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
     }
 
     /**
-     * 接管冠军基础血量。1-5★ (有效血 ≤765 &lt;1024): vanilla MAX_HEALTH 修饰到有效血, 满血。6★+ 或有效血破 1024:
-     * 建 {@link BloodPool} 影子血池 (权威, 破千), vanilla MAX_HEALTH 钳到 1024 作渲染镜像天花板 ({@link
-     * ChampionBloodPoolHandler} 每 tick 按 displayHealth 镜像), 满血。
+     * 接管冠军基础血量。vanilla MAX_HEALTH 一律修饰到有效血【真值】: 测试服装了 AttributeFix (max_health 上限抬到
+     * 1e6), 属性真到位 -> Jade 等悬浮血条直显真血 (恢复 Champions 时代 112375/112375 的观感); 无 AttributeFix
+     * (dev GameTest/纯原版) 属性自钳 1024, {@link ChampionBloodPoolHandler} 镜像按 getMaxHealth() 读回的实际上限
+     * 等比映射, 自动降级不诈活。6★+ 或有效血破 1024 另建 {@link BloodPool} 影子血池 —— 无论属性钳不钳, 池都是
+     * 唯一战斗权威 (spec 6.2), vanilla 恒为渲染镜像。
      */
     private static void applyBaseHealth(Mob mob, StarRank rank, double effectiveHp) {
         boolean useBloodPool = rank.usesCustomBloodPool() || effectiveHp > VANILLA_MAX_HEALTH;
-        double vanillaTarget = useBloodPool ? VANILLA_MAX_HEALTH : effectiveHp;
+        double vanillaTarget = effectiveHp;
 
         AttributeInstance maxHp = mob.getAttribute(Attributes.MAX_HEALTH);
         if (maxHp != null) {

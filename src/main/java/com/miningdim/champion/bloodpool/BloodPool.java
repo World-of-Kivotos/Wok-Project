@@ -121,18 +121,35 @@ public final class BloodPool {
     }
 
     /**
-     * vanilla 渲染镜像血量 (spec 6.2 #2): displayHealth = clamp(currentHp / maxHp × 1024, 0, 1024)。
-     * 每 tick 由 b 阶段同步给 vanilla getHealth/max_health 供原版血条/客户端渲染, 仅渲染不参与判定。
+     * vanilla 渲染镜像血量 (spec 6.2 #2), 按 1024 保守钳: displayHealth = clamp(currentHp / maxHp × 1024, 0, 1024)。
+     * 供无 AttributeFix 环境 (dev GameTest/纯原版属性上限) 使用; 真服镜像走 {@link #displayHealth(double)} 传实际
+     * 属性上限。仅渲染不参与判定。
      *
      * @return 渲染镜像血量 (float, ∈ [0, 1024])
      */
     public float displayHealth() {
-        double mirrored = fraction() * VANILLA_MAX_HEALTH_CLAMP;
+        return displayHealth(VANILLA_MAX_HEALTH_CLAMP);
+    }
+
+    /**
+     * vanilla 渲染镜像血量, 按【实际属性上限】等比例映射: clamp(fraction × vanillaMax, 0, vanillaMax)。
+     * 测试服装了 AttributeFix (max_health 上限抬到 1e6), promoter 把血池怪的 vanilla 血量属性设到有效血真值,
+     * 此时 vanillaMax = 池 maxHp -> 镜像 = 池 currentHp 原值, Jade 等悬浮血条直显真血 (如 27000/27000);
+     * 无 AttributeFix 时属性自钳 1024, 传入的 vanillaMax = 1024 自动退回保守镜像。仅渲染不参与判定。
+     *
+     * @param vanillaMax 实体当前 vanilla getMaxHealth() (属性钳后的实际上限; 须 &gt;0, 非正抛不掩盖)
+     * @return 渲染镜像血量 (float, ∈ [0, vanillaMax])
+     */
+    public float displayHealth(double vanillaMax) {
+        if (!(vanillaMax > 0.0D) || Double.isNaN(vanillaMax)) {
+            throw new IllegalArgumentException("vanillaMax must be > 0, got " + vanillaMax);
+        }
+        double mirrored = fraction() * vanillaMax;
         if (mirrored < 0.0D) {
             mirrored = 0.0D;
         }
-        if (mirrored > VANILLA_MAX_HEALTH_CLAMP) {
-            mirrored = VANILLA_MAX_HEALTH_CLAMP;
+        if (mirrored > vanillaMax) {
+            mirrored = vanillaMax;
         }
         return (float) mirrored;
     }

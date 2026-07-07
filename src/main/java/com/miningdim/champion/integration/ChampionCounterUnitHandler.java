@@ -246,16 +246,17 @@ public final class ChampionCounterUnitHandler {
             return; // 词条已被移除 (罕见): 不反。
         }
 
-        // 三层封顶 (顺序固定): 名义 -> 本源私有 20%/s -> 聚合器 30%/s 全局 + 40%/窗。
-        double nominal = ChampionCounterUnitWindow.nominalRetaliation(quality, event.getAmount());
+        // 三层封顶 (顺序固定): 名义 (含窗内递增, 2026-07-07 用户定向"越反越疼") -> 本源私有 20%/s ->
+        // 聚合器 30%/s 全局 + 40%/窗。
+        double nominal = state.privateCap.nominalForNextHit(quality, event.getAmount());
         double afterPrivate = state.privateCap.admit(nominal, nowTick);
         RetaliationAggregator agg = ChampionEffectRegistries.retaliationFor(attacker.getUUID(), attackerMaxHp);
         double reflected = agg.admit(afterPrivate, nowTick);
 
-        // 每笔反伤 = 逐击 (须诊断门控, 仅 10 格内有玩家的怪): 名义 -> 私窗剪后 -> 聚合器裁后。
+        // 每笔反伤 = 逐击 (须诊断门控, 仅 10 格内有玩家的怪): 第 n 笔 -> 名义(含递增) -> 私窗剪后 -> 聚合器裁后。
         if (ChampionDiagnostics.shouldTrace(victim)) {
-            LOGGER.info("skill-counter reflect champion={} attacker={} nominal={} afterPrivate={} afterAgg={}",
-                    victim.getUUID(), attacker.getGameProfile().getName(),
+            LOGGER.info("skill-counter reflect champion={} attacker={} hit#{} nominal={} afterPrivate={} afterAgg={}",
+                    victim.getUUID(), attacker.getGameProfile().getName(), state.privateCap.reflectedHits(),
                     String.format("%.2f", nominal), String.format("%.2f", afterPrivate),
                     String.format("%.2f", reflected));
         }

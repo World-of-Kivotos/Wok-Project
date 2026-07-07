@@ -152,6 +152,41 @@ public final class ChampionCounterUnitGameTests {
         helper.succeed();
     }
 
+    // ============================================================
+    // 窗内递增 "越反越疼" (2026-07-07 用户定向): 第 n 笔 ×(1+0.3×(n-1)) 封顶 3 倍, 逐窗重置
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void escalationMultiplierRampsAndCaps(GameTestHelper helper) {
+        helper.assertTrue(Math.abs(ChampionCounterUnitWindow.escalationMultiplier(1) - 1.0D) < EPS, "第 1 笔 ×1.0");
+        helper.assertTrue(Math.abs(ChampionCounterUnitWindow.escalationMultiplier(2) - 1.3D) < EPS, "第 2 笔 ×1.3");
+        helper.assertTrue(Math.abs(ChampionCounterUnitWindow.escalationMultiplier(5) - 2.2D) < EPS, "第 5 笔 ×2.2");
+        helper.assertTrue(Math.abs(ChampionCounterUnitWindow.escalationMultiplier(8) - 3.0D) < EPS,
+                "第 8 笔 1+0.3x7=3.1 封顶 3.0");
+        helper.assertTrue(Math.abs(ChampionCounterUnitWindow.escalationMultiplier(20) - 3.0D) < EPS, "封顶恒 3.0");
+        helper.assertTrue(throwsIae(() -> ChampionCounterUnitWindow.escalationMultiplier(0)),
+                "hitIndex <1 须抛 IAE");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void nominalForNextHitEscalatesPerWindow(GameTestHelper helper) {
+        // COMMON 反伤比 0.40, 每笔入伤 10: 第 1/2/3 笔名义 = 4.0/5.2/6.4 (删递增计数或倍率乘算必挂)。
+        ChampionCounterUnitWindow window = new ChampionCounterUnitWindow(80.0D);
+        helper.assertTrue(Math.abs(window.nominalForNextHit(AffixQuality.COMMON, 10.0D) - 4.0D) < EPS,
+                "第 1 笔 = 10 x 0.4 x 1.0 = 4.0");
+        helper.assertTrue(Math.abs(window.nominalForNextHit(AffixQuality.COMMON, 10.0D) - 5.2D) < EPS,
+                "第 2 笔 = 10 x 0.4 x 1.3 = 5.2");
+        helper.assertTrue(Math.abs(window.nominalForNextHit(AffixQuality.COMMON, 10.0D) - 6.4D) < EPS,
+                "第 3 笔 = 10 x 0.4 x 1.6 = 6.4");
+        helper.assertTrue(window.reflectedHits() == 3, "窗内计数 = 3");
+        // 逐窗重置: 新窗实例计数从零 (handler 每次开窗 new 实例)。
+        ChampionCounterUnitWindow fresh = new ChampionCounterUnitWindow(80.0D);
+        helper.assertTrue(Math.abs(fresh.nominalForNextHit(AffixQuality.COMMON, 10.0D) - 4.0D) < EPS,
+                "新窗第 1 笔回到 ×1.0");
+        helper.succeed();
+    }
+
     /** 断言某操作抛 IllegalArgumentException (异常必须痛, 不生吞)。 */
     private static boolean throwsIae(Runnable op) {
         try {

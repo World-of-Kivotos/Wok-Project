@@ -30,12 +30,19 @@ public final class ChampionCounterUnitWindow {
     /** 本源私有秒窗上限占比 (spec 红线 2 [红队]: 反击单元次级每秒 ≤20% attacker maxHP, 即 80 血玩家 16HP/s)。 */
     public static final double SOURCE_PER_SECOND_CAP_PCT = 0.20D;
 
+    /** 窗内递增步长 (2026-07-07 真服验收用户定向"越反越疼"): 第 n 笔名义反伤 ×(1 + 0.3×(n-1))。 */
+    public static final double ESCALATION_STEP = 0.30D;
+
+    /** 窗内递增封顶倍率: 名义放大至多 3 倍 (第 8 笔起满); 三层红线封顶仍在其后压轴, 递增只改名义不碰红线。 */
+    public static final double ESCALATION_MAX_MULTIPLIER = 3.0D;
+
     /** 秒窗滚动粒度 (tick): 20tick = 1s (与 RetaliationAggregator 同粒度)。 */
     private static final long TICKS_PER_SECOND = 20L;
 
     private final double perSecondCap;
     private long currentSecondStartTick = Long.MIN_VALUE;
     private double secondAccumulated = 0.0D;
+    private int reflectedHits = 0;
 
     /**
      * @param attackerMaxHp 被锁玩家开窗时的最大有效血量 (须 &gt;0; 本源私有秒窗上限 = 20% × 此值)
@@ -72,6 +79,39 @@ public final class ChampionCounterUnitWindow {
             throw new IllegalArgumentException("incomingDamage must be >= 0, got " + incomingDamage);
         }
         return AffixDef.COUNTER_UNIT.valueFor(quality) * incomingDamage;
+    }
+
+    /**
+     * 窗内第 n 笔反伤的递增倍率 (2026-07-07 用户定向"越反越疼"): 1 + {@link #ESCALATION_STEP}×(n-1), 封顶
+     * {@link #ESCALATION_MAX_MULTIPLIER}。递增只放大名义, 三层红线封顶 (20%/s 私窗 + 30%/s 全局 + 40%/窗)
+     * 仍在其后压轴 —— 高射速快速撞帽, 递增主要惩罚大额单发 (狙/重炮往反击窗里砸越砸越痛, 正确的反制方向)。
+     *
+     * @param hitIndex 窗内第几笔命中 (1-based, 须 &gt;=1)
+     * @return 名义放大倍率 (∈ [1.0, 3.0])
+     */
+    public static double escalationMultiplier(int hitIndex) {
+        if (hitIndex < 1) {
+            throw new IllegalArgumentException("hitIndex must be >= 1, got " + hitIndex);
+        }
+        return Math.min(1.0D + ESCALATION_STEP * (hitIndex - 1), ESCALATION_MAX_MULTIPLIER);
+    }
+
+    /**
+     * 窗内下一笔命中的名义反伤 (含递增计数, 每调一次窗内计数 +1): 反伤比 × 该笔入伤 × 递增倍率。
+     * 仍须过 {@link #admit} 私窗 + 聚合器两层夹断才是实际反弹。
+     *
+     * @param quality        反击单元品质
+     * @param incomingDamage 该笔名义入伤 (&gt;=0)
+     * @return 含递增的名义反伤
+     */
+    public double nominalForNextHit(AffixQuality quality, double incomingDamage) {
+        reflectedHits++;
+        return nominalRetaliation(quality, incomingDamage) * escalationMultiplier(reflectedHits);
+    }
+
+    /** 窗内已反伤笔数 (诊断/测试)。 */
+    public int reflectedHits() {
+        return reflectedHits;
     }
 
     /**

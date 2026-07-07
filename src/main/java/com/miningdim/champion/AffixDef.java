@@ -172,9 +172,13 @@ public enum AffixDef {
     DEATH_MARK(AffixPool.SKILL, 30, 8, true,
             new double[]{0.0, 0.0, 0.0, 1.6, 1.6}, null, MutexFlag.DEATH_MARK),
 
-    /** 视觉干扰: 周期失明 1s每12s (普通) … 2.5s每7s (闪耀仅★9+); 原版 Blindness; 并入控制聚合层。数值=失明时长秒。 */
+    /**
+     * 视觉干扰: 周期失明; 原版 Blindness; 并入控制聚合层。数值 = 失明时长秒, 全档 3s (2026-07-07 真服验收
+     * 用户二调: 原 1~2.5s 档体感太短; 品质差异保留在施放周期 12~7s 上)。3s=60tick 仍在红线5 额度内
+     * (7s窗受控帽 70tick, 最短周期 7s 下单源恒 ≤60/140)。
+     */
     VISUAL_DISRUPTION(AffixPool.SKILL, 12, 4, true,
-            new double[]{1.0, 1.5, 2.0, 2.25, 2.5}, null, MutexFlag.NONE),
+            new double[]{3.0, 3.0, 3.0, 3.0, 3.0}, null, MutexFlag.NONE),
 
     /** 自我修复单元: 定身修复 FLAT 40/—/80/150/300 HP/s; 受任意伤害暂停 1.5s; 近战击退打断; 血池权威。 */
     SELF_REPAIR(AffixPool.SKILL, 14, 4, true,

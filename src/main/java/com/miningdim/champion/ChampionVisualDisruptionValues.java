@@ -37,9 +37,10 @@ public final class ChampionVisualDisruptionValues {
     private static final long[] CYCLE_PERIOD_TICKS = {240L, 210L, 180L, 160L, 140L};
 
     /**
-     * 单次失明【名义】时长 (tick) = {@link AffixDef#VISUAL_DISRUPTION} 品质档秒 (1/1.5/2/2.25/2.5) × 20 =
-     * 20/30/40/45/50。名义时长须再经控制聚合器 {@link com.miningdim.champion.aggregate.PlayerControlAggregator#admit}
-     * 的 7s 窗 50% 上限夹断才是实际失明 tick (本类不夹, 单一权威在聚合器)。
+     * 单次失明【名义】时长 (tick) = {@link AffixDef#VISUAL_DISRUPTION} 品质档秒 × 20。2026-07-07 真服验收用户二调:
+     * 全档统一 3s = 60 tick (原 1~2.5s 体感太短; 品质差异保留在施放周期上)。名义时长须再经控制聚合器
+     * {@link com.miningdim.champion.aggregate.PlayerControlAggregator#admit} 的 7s 窗 50% 上限 + 自由窗复核夹断
+     * 才是实际失明 tick (本类不夹, 单一权威在聚合器)。
      *
      * @param quality 视觉干扰品质
      * @return 名义失明 tick (&gt;0)

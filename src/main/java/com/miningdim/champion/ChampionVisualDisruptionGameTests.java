@@ -25,21 +25,18 @@ public final class ChampionVisualDisruptionGameTests {
     private static final String BATCH = "champion_visual_disruption";
 
     // ============================================================
-    // 失明名义时长表 (品质秒 × 20 = tick; 5 档精确)
+    // 失明名义时长表 (2026-07-07 真服验收用户二调: 全档 3s = 60 tick, 品质差异保留在周期上)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void blindnessDurationPerQuality(GameTestHelper helper) {
-        helper.assertTrue(ChampionVisualDisruptionValues.blindnessDurationTicks(AffixQuality.COMMON) == 20L,
-                "视觉干扰 普通 = 1.0s = 20 tick");
-        helper.assertTrue(ChampionVisualDisruptionValues.blindnessDurationTicks(AffixQuality.UNCOMMON) == 30L,
-                "视觉干扰 中级 = 1.5s = 30 tick");
-        helper.assertTrue(ChampionVisualDisruptionValues.blindnessDurationTicks(AffixQuality.RARE) == 40L,
-                "视觉干扰 高级 = 2.0s = 40 tick");
-        helper.assertTrue(ChampionVisualDisruptionValues.blindnessDurationTicks(AffixQuality.EPIC) == 45L,
-                "视觉干扰 超凡 = 2.25s = 45 tick");
-        helper.assertTrue(ChampionVisualDisruptionValues.blindnessDurationTicks(AffixQuality.LEGENDARY) == 50L,
-                "视觉干扰 闪耀 = 2.5s = 50 tick");
+        for (AffixQuality q : AffixQuality.values()) {
+            helper.assertTrue(ChampionVisualDisruptionValues.blindnessDurationTicks(q) == 60L,
+                    "视觉干扰 " + q + " = 3.0s = 60 tick (用户二调全档统一)");
+        }
+        // 60 tick 仍在红线 5 额度内 (7s 窗受控帽 70 tick): 单次失明不可能独自超帽。
+        helper.assertTrue(60L < com.miningdim.champion.aggregate.PlayerControlAggregator.BUSY_TICK_CAP,
+                "3s 失明 < 7s 窗 50% 受控帽 70 tick");
         helper.succeed();
     }
 

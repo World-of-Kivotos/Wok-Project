@@ -85,38 +85,65 @@ public final class ChampionHpConversionGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void gigantismMultipliesConvertedBase(GameTestHelper helper) {
-        // 5★ 巨大化 RARE: 花 30/80 点 -> remFrac 0.625 -> frac = 0.35+0.65x0.625^1.5; 体型乘数 1.8 (RARE +80%)。
+    public static void gigantismMultipliesFullBaseWithoutConversionPenalty(GameTestHelper helper) {
+        // 5★ 巨大化 RARE: 体型词条点数豁免换血惩罚 (倒挂修复) -> frac 恒 1.0, 血 = 765 x 1.8 = 1377 (破 1024
+        // 走 effectiveHp>1024 血池分支)。账面花费仍 30 (占预算挤其它词条槽)。
         Map<AffixDef, AffixQuality> gig = Map.of(AffixDef.GIGANTISM, AffixQuality.RARE);
-        helper.assertTrue(ChampionHpConversion.survivalSpent(gig) == 30, "巨大化 RARE 花费 ceil(12x2.5)=30");
+        helper.assertTrue(ChampionHpConversion.survivalSpent(gig) == 30, "巨大化 RARE 账面花费 ceil(12x2.5)=30");
+        helper.assertTrue(Math.abs(ChampionHpConversion.hpFraction(StarRank.STAR_5, gig) - 1.0D) < EPS,
+                "体型词条豁免换血惩罚: 仅巨大化时 frac = 1.0");
         helper.assertTrue(Math.abs(ChampionHpConversion.sizeMultiplier(gig) - 1.8D) < EPS,
                 "巨大化 RARE 体型乘数 = 1.8");
-
-        double expectedFrac = 0.35D + 0.65D * Math.pow(50.0D / 80.0D, 1.5D);
         double hp = ChampionHpConversion.convertedEffectiveHp(StarRank.STAR_5, gig);
-        helper.assertTrue(Math.abs(hp - 765.0D * expectedFrac * 1.8D) < EPS,
-                "5★ 巨大化血 = 765 x frac x 1.8");
-        helper.assertTrue(hp > 924.0D && hp < 924.4D, "5★ 巨大化 RARE ~ 924.2 (换算后仍 <1024 无需血池)");
+        helper.assertTrue(Math.abs(hp - 1377.0D) < EPS, "5★ 巨大化 RARE = 765 x 1.8 = 1377 (破 1024 入血池)");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void miniaturizationCutsHpAndIgnoresMobilityCost(GameTestHelper helper) {
-        // 3★ 缩小化 COMMON + 强制机动伙伴 SPRINT COMMON: 生存花费只计缩小化 10 (SPRINT 占机动池不扣血);
-        // 体型乘数 0.75 (COMMON -25%)。
+    public static void gigantismNetPositiveAtUnlockStar(GameTestHelper helper) {
+        // 倒挂回归钉死 (对抗审查 major): 3★ 巨大化任一可取档换算后血必须 > 裸怪 360 —— 若体型点数重新计入
+        // 换血惩罚, COMMON 326/UNCOMMON 288 < 360 ("+血量词条"净减血), 本断言必挂。
+        double bare = ChampionHpConversion.convertedEffectiveHp(StarRank.STAR_3, Map.of());
+        double common = ChampionHpConversion.convertedEffectiveHp(
+                StarRank.STAR_3, Map.of(AffixDef.GIGANTISM, AffixQuality.COMMON));
+        double uncommon = ChampionHpConversion.convertedEffectiveHp(
+                StarRank.STAR_3, Map.of(AffixDef.GIGANTISM, AffixQuality.UNCOMMON));
+        helper.assertTrue(common > bare, "3★ 巨大化 COMMON 须净增血: " + common + " > " + bare);
+        helper.assertTrue(uncommon > common, "巨大化品质越高血越多 (不再倒挂): " + uncommon + " > " + common);
+        helper.assertTrue(Math.abs(common - 360.0D * 1.30D) < EPS, "3★ 巨大化 COMMON = 名义 +30% = 468");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void miniaturizationCutsExactlyNominalPenalty(GameTestHelper helper) {
+        // 3★ 缩小化 COMMON + 强制机动伙伴 SPRINT COMMON: 体型词条豁免换血惩罚 -> 恰为名义 -25% (不再叠罚);
+        // SPRINT 占机动池同样不扣血。账面花费仍计缩小化 10。
         Map<AffixDef, AffixQuality> mini = Map.of(
                 AffixDef.MINIATURIZATION, AffixQuality.COMMON,
                 AffixDef.SPRINT, AffixQuality.COMMON);
         helper.assertTrue(ChampionHpConversion.survivalSpent(mini) == 10,
-                "缩小化 COMMON 生存花费 = 10 (机动伙伴不计入)");
+                "缩小化 COMMON 账面花费 = 10 (机动伙伴不计入)");
+        helper.assertTrue(Math.abs(ChampionHpConversion.hpFraction(StarRank.STAR_3, mini) - 1.0D) < EPS,
+                "体型词条豁免换血惩罚: 仅缩小化+机动时 frac = 1.0");
         helper.assertTrue(Math.abs(ChampionHpConversion.sizeMultiplier(mini) - 0.75D) < EPS,
                 "缩小化 COMMON 体型乘数 = 0.75");
-
-        double expectedFrac = 0.35D + 0.65D * Math.pow(25.0D / 35.0D, 1.5D);
         double hp = ChampionHpConversion.convertedEffectiveHp(StarRank.STAR_3, mini);
-        helper.assertTrue(Math.abs(hp - 360.0D * expectedFrac * 0.75D) < EPS,
-                "3★ 缩小化血 = 360 x frac x 0.75");
-        helper.assertTrue(hp > 200.0D && hp < 201.0D, "3★ 缩小化 ~ 200.4 (快小怪低血)");
+        helper.assertTrue(Math.abs(hp - 270.0D) < EPS, "3★ 缩小化 = 360 x 0.75 = 270 (恰名义惩罚)");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sizeExemptionDoesNotLeakToReductionAffixes(GameTestHelper helper) {
+        // 豁免只对 SIZE 族: 巨大化+复合装甲混装时, 复合的点数照罚 (删 conversionSpent 的池/族过滤任一条件必挂)。
+        Map<AffixDef, AffixQuality> mixed = Map.of(
+                AffixDef.GIGANTISM, AffixQuality.RARE,
+                AffixDef.COMPOSITE_ARMOR, AffixQuality.RARE);
+        // 7★ 复合 RARE 花 20: frac = 0.35 + 0.65 x ((165-20)/165)^1.5 (巨大化 30 点不入)。
+        double expectedFrac = 0.35D + 0.65D * Math.pow(145.0D / 165.0D, 1.5D);
+        double frac = ChampionHpConversion.hpFraction(StarRank.STAR_7, mixed);
+        helper.assertTrue(Math.abs(frac - expectedFrac) < EPS,
+                "混装: 仅复合 20 点入惩罚, 巨大化 30 点豁免");
+        helper.assertTrue(frac < 1.0D, "复合点数照罚 (frac < 1)");
         helper.succeed();
     }
 

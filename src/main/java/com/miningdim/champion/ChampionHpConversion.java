@@ -33,8 +33,9 @@ public final class ChampionHpConversion {
     }
 
     /**
-     * 生存池词条总花费 (点数): 仅统计 {@link AffixPool#SURVIVAL} 词条, 按各自品质 {@link AffixDef#costAt} 求和。
-     * 巨大化/缩小化自身的点数一并计入 (它们是生存池词条, 先扣点再乘体型乘数)。
+     * 生存池词条总花费 (点数, 全额账面口径供诊断日志): 仅统计 {@link AffixPool#SURVIVAL} 词条, 按各自品质
+     * {@link AffixDef#costAt} 求和, 巨大化/缩小化一并计入。注意换血惩罚用的是豁免 SIZE 族的
+     * {@code conversionSpent} (见 {@link #hpFraction} 倒挂修复说明), 本法只是账面统计。
      *
      * @param affixes 词条→品质映射 (须非 null; 空映射花费 0)
      * @return 生存池总花费点数 (&gt;=0)
@@ -54,6 +55,12 @@ public final class ChampionHpConversion {
      * 基础血比例 [FLOOR, 1]: FLOOR + (1-FLOOR) × (剩余生存点占比)^GAMMA。无生存词条 = 1.0 (星表满额);
      * 花费超预算 (命令调试) 剩余钳 0 = FLOOR 保底。
      *
+     * 体型词条 (SIZE 互斥族: 巨大化/缩小化) 的点数【不】入本惩罚 (对抗审查发现的低星倒挂修复): 其血量效果已由
+     * {@link #sizeMultiplier} 完整表达, 再按点扣基础血是对同一效果双重计价 —— 3★ 巨大化 COMMON 会算出
+     * 360×0.696×1.3≈326 &lt; 裸怪 360, "+血量词条"净减血且品质越高越亏。豁免后巨大化恒为名义 +X% (spec 6.1
+     * "10★ 巨大化闪耀 ≈204,400" 的算术本身即按满额基数), 缩小化恰为名义 -X%。体型词条点数仍占
+     * {@link PointBudget} 预算 (挤压其它词条槽位), 只是不参与血量换算。
+     *
      * @param rank    星级 (生存池预算取自星表, 恒 &gt;0)
      * @param affixes 词条→品质映射
      * @return 基础血比例 (∈ [HP_FLOOR, 1])
@@ -62,9 +69,21 @@ public final class ChampionHpConversion {
         requireRank(rank);
         requireAffixes(affixes);
         int budget = rank.survivalBudget();
-        int remaining = Math.max(0, budget - survivalSpent(affixes));
+        int remaining = Math.max(0, budget - conversionSpent(affixes));
         double remFrac = (double) remaining / budget;
         return HP_FLOOR + (1.0D - HP_FLOOR) * Math.pow(remFrac, GAMMA);
+    }
+
+    /** 参与换血惩罚的生存池花费 = 生存池词条成本和, 豁免 SIZE 互斥族 (体型词条血量效果走 sizeMultiplier)。 */
+    private static int conversionSpent(Map<AffixDef, AffixQuality> affixes) {
+        int spent = 0;
+        for (Map.Entry<AffixDef, AffixQuality> entry : affixes.entrySet()) {
+            AffixDef def = entry.getKey();
+            if (def.pool() == AffixPool.SURVIVAL && def.mutexFlag() != AffixDef.MutexFlag.SIZE) {
+                spent += def.costAt(entry.getValue());
+            }
+        }
+        return spent;
     }
 
     /**

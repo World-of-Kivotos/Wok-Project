@@ -43,12 +43,16 @@ public final class AffixRoller {
      *  - 易伤 1 (战斗池): REND —— {@code ChampionAttackHandler.applyRend} 折 amplifier 挂全局易伤效果真放大下次受击。
      *  - 护甲磨损 1 (战斗池): CORROSIVE —— {@code ChampionAttackHandler.applyCorrosive} 损玩家护甲槽耐久。
      *
-     * 故意排除的词条共 19 条 = 35 总 - 16 白名单 (数据/签名粒子/spawn 预算校验俱全, 但运行期【无任何 handler 读取其
-     * 效果】或【无法独立 roll】, 属 Stage2 未来工作: 巨大化/缩小化体型 / 10 主动技能 / 自身位移传送 / 召唤 / 周期 AOE
-     * 等待实现): 机动池 4 (OVERDRIVE/BLINK/TACTICAL_BLINK/PHASE_WALK; 高速移动 SPRINT 已 Stage2 批1 落地移入白名单)、
+     * 体型血量 2 (生存池; Stage2 批2): GIGANTISM/MINIATURIZATION —— {@link ChampionHpConversion#sizeMultiplier}
+     * 在 spawn 盖章期真改有效血 (ChampionPromoter.applyChampion 消费, 巨大化 +30~180% / 缩小化 -25~58%), 缩小化
+     * 另有体型折算净减伤 (ChampionBloodPoolHandler case MINIATURIZATION)。体型渲染/AABB 属批4 形态守卫, 本批只有
+     * 血量分量。缩小化"强制 +1 机动"由 roll 期原子配对保证 ({@link #rollMiniaturizationPartner})。
+     *
+     * 故意排除的词条共 17 条 = 35 总 - 18 白名单 (数据/签名粒子/spawn 预算校验俱全, 但运行期【无任何 handler 读取其
+     * 效果】, 属 Stage2 未来工作: 10 主动技能 / 自身位移传送 / 召唤 / 周期 AOE / 体型渲染 等待实现): 机动池 4
+     * (OVERDRIVE/BLINK/TACTICAL_BLINK/PHASE_WALK; 高速移动 SPRINT 已 Stage2 批1 落地移入白名单)、
      * 全部技能池 10 (ELECTRO_CHARGE/THUNDER/LITTLE_BOY/DEATH_MARK/VISUAL_DISRUPTION/SELF_REPAIR/COUNTER_UNIT/
-     * CAESAR_SWAP/BLADE_WALTZ/SUMMON_SUPPORT)、生存池 2 (GIGANTISM 哑 + MINIATURIZATION; 再生组织/易燃再生/反震 已
-     * Stage2 批1 落地移入)、战斗池 3 (DOUBLE_STRIKE/QUADRUPLE_STRIKE/CHAOS_STRIKE)。其中:
+     * CAESAR_SWAP/BLADE_WALTZ/SUMMON_SUPPORT)、战斗池 3 (DOUBLE_STRIKE/QUADRUPLE_STRIKE/CHAOS_STRIKE)。其中:
      *  - DOUBLE_STRIKE/QUADRUPLE_STRIKE: {@link ChampionStrikeGate#strikeJumps} 仅在 GameTest 调用, 任何 integration
      *    handler 都【未】按跳数拆分施加 (近战伤害不因双倍/四倍而翻倍), 故运行期零可观测效果 -> 哑。
      *  - CHAOS_STRIKE: {@code applyChaosKnockback} 仅落账限频闸, 明确【不】push (KnockbackSafetyGuard 未落地), 玩家
@@ -56,16 +60,12 @@ public final class AffixRoller {
      *  - COUNTER_UNIT/VISUAL_DISRUPTION 等: 控制/反伤聚合器 (PlayerControlAggregator/RetaliationAggregator) 虽是基建,
      *    但【无 handler】按这些 def 申请控制/反伤 (FROST 减速走控制聚合; THORNS 反伤已 Stage2 批1 接 RetaliationAggregator),
      *    故这些 def 运行期零消费 -> 哑。
-     *  - MINIATURIZATION (生存池): 其体型折算净减伤 handler 已实 (ChampionBloodPoolHandler case MINIATURIZATION), 且
-     *    Stage2 批1 起有合法机动伙伴 (SPRINT 已移入白名单, 满足 spec 第八章"缩小化须搭配 +1 机动"的 {@link PointBudget}
-     *    硬校验)。但其【-血量惩罚】仍属 spawn 期血池模型改动 (批2 与巨大化 +血量一同接), 未接前移入白名单会 roll 出
-     *    "有体型减伤却无血量惩罚"的纯 buff 失衡怪, 故暂仍排除, 待批2 -血量惩罚落地后与巨大化一同移入。
      *
      * 白名单语义 (非黑名单): 新增词条若未在此显式登记, 默认【不】被 roll —— 防 Stage2 往 AffixDef 加新哑词条时静默
      * 漏排, 逼实现 handler 后再把它移入本集合。{@link AffixDef#values()} 总集 - 本白名单 = 当前不可 roll 词条全集。
      */
     public static final Set<AffixDef> IMPLEMENTED_AFFIXES = Collections.unmodifiableSet(EnumSet.of(
-            // 生存池减伤 (ChampionBloodPoolHandler + ChampionDamageReduction); 缩小化暂排除 (强制机动伙伴未实现, 见类注释)
+            // 生存池减伤 (ChampionBloodPoolHandler + ChampionDamageReduction)
             AffixDef.COMPOSITE_ARMOR,
             AffixDef.UHMWPE_ARMOR,
             AffixDef.HEAVY_ARMOR,
@@ -87,7 +87,10 @@ public final class AffixRoller {
             AffixDef.FLAMMABLE_REGEN,
             AffixDef.THORNS,
             // 机动池自身位移 (ChampionSelfEffectHandler; Stage2 批1): 移速加成瞬态 modifier
-            AffixDef.SPRINT));
+            AffixDef.SPRINT,
+            // 生存池体型血量 (ChampionHpConversion.sizeMultiplier; Stage2 批2): 巨大化 +血 / 缩小化 -血+体型折算减伤
+            AffixDef.GIGANTISM,
+            AffixDef.MINIATURIZATION));
 
     private AffixRoller() {
     }
@@ -158,6 +161,24 @@ public final class AffixRoller {
             AffixQuality quality = rollQuality(rank, pick, rng);
             AffixSelection sel = new AffixSelection(pick, quality);
 
+            // 缩小化强制 +1 机动 (spec 第八章): 生存池先于机动池 roll, 单独预检必因"无机动伙伴"被 PointBudget
+            // 拒绝 (若不配对则缩小化永远 roll 不出) -> 原子配对 [缩小化, 机动伙伴@最低档] 一起过预算/互斥。
+            if (pick == AffixDef.MINIATURIZATION && !containsMobility(chosen)) {
+                AffixSelection partner = rollMiniaturizationPartner(rank, rng, chosen, sel);
+                if (partner != null) {
+                    chosen.add(sel);
+                    chosen.add(partner);
+                    alreadyChosen.add(pick);
+                    alreadyChosen.add(partner.affix());
+                } else {
+                    // 无可行伙伴 (机动预算/词条上限装不下配对): 弃缩小化, 从候选剔除避免死循环。
+                    candidates.remove(pick);
+                    rounds = candidates.size();
+                    r = -1;
+                }
+                continue;
+            }
+
             if (wouldRemainLegal(rank, chosen, sel)) {
                 chosen.add(sel);
                 alreadyChosen.add(pick);
@@ -183,6 +204,41 @@ public final class AffixRoller {
         }
         int idx = minIdx + rng.nextInt(maxIdx - minIdx + 1);
         return AffixQuality.values()[idx];
+    }
+
+    /** chosen 中是否已有机动池词条 (缩小化强制伙伴判定)。 */
+    private static boolean containsMobility(List<AffixSelection> chosen) {
+        for (AffixSelection sel : chosen) {
+            if (sel.affix().pool() == AffixPool.MOBILITY) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 缩小化强制机动伙伴 (spec 第八章"强制 +1 机动 (仅最低档)"): 从已实现且该星解锁的机动词条随机取一条, 锁
+     * 最低可用档 (占机动池但不给缩小化怪白送高档位移), [缩小化, 伙伴] 与既有选择整体过 {@link #wouldRemainLegal}
+     * 才算可行; 全部候选都装不下 (机动预算/词条上限) 返 null, 调用方弃缩小化。
+     */
+    private static AffixSelection rollMiniaturizationPartner(StarRank rank, RandomSource rng,
+                                                             List<AffixSelection> chosen, AffixSelection mini) {
+        List<AffixDef> partners = new ArrayList<>();
+        for (AffixDef def : AffixDef.values()) {
+            if (def.pool() == AffixPool.MOBILITY && def.isUnlockedAt(rank) && IMPLEMENTED_AFFIXES.contains(def)) {
+                partners.add(def);
+            }
+        }
+        List<AffixSelection> withMini = new ArrayList<>(chosen);
+        withMini.add(mini);
+        while (!partners.isEmpty()) {
+            AffixDef pick = partners.remove(rng.nextInt(partners.size()));
+            AffixSelection partner = new AffixSelection(pick, pick.minUsableQuality());
+            if (wouldRemainLegal(rank, withMini, partner)) {
+                return partner;
+            }
+        }
+        return null;
     }
 
     /**

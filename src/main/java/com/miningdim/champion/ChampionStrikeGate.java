@@ -40,19 +40,19 @@ public final class ChampionStrikeGate {
 
     /**
      * 混沌击飞水平初速分量 (沿冠军->玩家水平单位向量; CLAMPED 时再按落点距离等比缩)。
-     * 2026-07-08 真服验收二调: 原裁定 0.4 与【原版近战击退本身】(knockback 落地 h0.4 + y=min(0.4,..)) 逐分量重合,
-     * 玩家每次挨打本就被顶起同样幅度 -> 混沌零感知 (日志 push 正常但手感与普通击退无异); 抬 0.8 才读得出"被抛飞"。
+     * 2026-07-08 真服两轮手感调: 原裁定 0.4 与【原版近战击退本身】(knockback 落地 h0.4 + y=min(0.4,..)) 逐分量
+     * 重合 -> 零感知; 二调 0.8 用户仍嫌少 ("最少加一倍"), 三调 1.5 (实飞约 10 格, 全星级全品质同值)。
      */
-    public static final double CHAOS_PUSH_HORIZONTAL = 0.8D;
+    public static final double CHAOS_PUSH_HORIZONTAL = 1.5D;
 
-    /** 混沌击飞竖直初速 (固定, 不随 CLAMPED 缩减 —— 保留抛起手感, 只缩水平推进)。二调 0.5 -> 0.75 (抛高约 2.5 格), 同上零感知修正。 */
-    public static final double CHAOS_PUSH_Y = 0.75D;
+    /** 混沌击飞竖直初速 (固定, 不随 CLAMPED 缩减 —— 保留抛起手感, 只缩水平推进)。三调 0.75 -> 1.0 (抛高约 5 格; 用户真服手感"最少加一倍")。 */
+    public static final double CHAOS_PUSH_Y = 1.0D;
 
-    /** 混沌击飞末端预测水平距离 (格): 玩家位置沿推方向外推此距离过落点安全守卫。二调 3.0 -> 4.0 随初速抬升同步。 */
-    public static final double CHAOS_PUSH_DISTANCE = 4.0D;
+    /** 混沌击飞末端预测水平距离 (格): 玩家位置沿推方向外推此距离过落点安全守卫。三调 4 -> 12 覆盖 h1.5 的真实落区 (预测短于实飞会漏检末端地形)。 */
+    public static final double CHAOS_PUSH_DISTANCE = 12.0D;
 
-    /** 混沌击飞入控制聚合的名义控制时长 (tick): 击飞属控制类, 经 7s 窗 50% 上限夹断。二调 12 -> 16 随滞空 (~0.9s) 对齐。 */
-    public static final long CHAOS_CONTROL_TICKS = 16L;
+    /** 混沌击飞入控制聚合的名义控制时长 (tick): 击飞属控制类, 经 7s 窗 50% 上限夹断。三调 16 -> 26 随滞空 (~1.3s) 对齐。 */
+    public static final long CHAOS_CONTROL_TICKS = 26L;
 
     /** 上次 DoT 刷新 tick (Long.MIN_VALUE = 从未刷新, 首次允许)。 */
     private long lastDotRefreshTick = Long.MIN_VALUE;

@@ -107,29 +107,30 @@ public final class ChampionMultiStrikeGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void chaosPushConstantsAndClampScale(GameTestHelper helper) {
-        // 用户裁定常量: 竖直 0.5 / 水平 0.4 / 末端 3 格 / 控制 12 tick。
-        helper.assertTrue(Math.abs(ChampionStrikeGate.CHAOS_PUSH_Y - 0.5D) < EPS, "chaos vertical impulse = 0.5");
-        helper.assertTrue(Math.abs(ChampionStrikeGate.CHAOS_PUSH_HORIZONTAL - 0.4D) < EPS, "chaos horizontal impulse = 0.4");
-        helper.assertTrue(Math.abs(ChampionStrikeGate.CHAOS_PUSH_DISTANCE - 3.0D) < EPS, "chaos predicted end distance = 3");
+        // 常量 (2026-07-08 真服二调: 原裁定 h0.4/y0.5 与原版近战击退 h0.4/y0.4 逐分量重合 = 零感知, 抬档区分):
+        // 竖直 0.75 / 水平 0.8 / 末端 4 格 / 控制 16 tick。
+        helper.assertTrue(Math.abs(ChampionStrikeGate.CHAOS_PUSH_Y - 0.75D) < EPS, "chaos vertical impulse = 0.75");
+        helper.assertTrue(Math.abs(ChampionStrikeGate.CHAOS_PUSH_HORIZONTAL - 0.8D) < EPS, "chaos horizontal impulse = 0.8");
+        helper.assertTrue(Math.abs(ChampionStrikeGate.CHAOS_PUSH_DISTANCE - 4.0D) < EPS, "chaos predicted end distance = 4");
         long controlTicks = ChampionStrikeGate.CHAOS_CONTROL_TICKS;
-        helper.assertTrue(controlTicks == 12L, "chaos control admit = 12 ticks, got " + controlTicks);
+        helper.assertTrue(controlTicks == 16L, "chaos control admit = 16 ticks, got " + controlTicks);
 
-        // CLAMPED 水平缩减比 = 夹后落点距离 / 满推 3.0, 夹 [0,1]: 满推=1.0 / 半推=0.5 / 零推=0 / 超推夹 1.0。
-        helper.assertTrue(Math.abs(ChampionStrikeGate.chaosClampedHorizontalScale(3.0D, 3.0D) - 1.0D) < EPS,
-                "clamped dist 3.0 / full 3.0 -> scale 1.0 (full)");
-        helper.assertTrue(Math.abs(ChampionStrikeGate.chaosClampedHorizontalScale(1.5D, 3.0D) - 0.5D) < EPS,
-                "clamped dist 1.5 / full 3.0 -> scale 0.5 (half)");
-        helper.assertTrue(Math.abs(ChampionStrikeGate.chaosClampedHorizontalScale(0.0D, 3.0D)) < EPS,
+        // CLAMPED 水平缩减比 = 夹后落点距离 / 满推 4.0, 夹 [0,1]: 满推=1.0 / 半推=0.5 / 零推=0 / 超推夹 1.0。
+        helper.assertTrue(Math.abs(ChampionStrikeGate.chaosClampedHorizontalScale(4.0D, 4.0D) - 1.0D) < EPS,
+                "clamped dist 4.0 / full 4.0 -> scale 1.0 (full)");
+        helper.assertTrue(Math.abs(ChampionStrikeGate.chaosClampedHorizontalScale(2.0D, 4.0D) - 0.5D) < EPS,
+                "clamped dist 2.0 / full 4.0 -> scale 0.5 (half)");
+        helper.assertTrue(Math.abs(ChampionStrikeGate.chaosClampedHorizontalScale(0.0D, 4.0D)) < EPS,
                 "clamped dist 0 -> scale 0 (no horizontal push)");
-        helper.assertTrue(Math.abs(ChampionStrikeGate.chaosClampedHorizontalScale(4.5D, 3.0D) - 1.0D) < EPS,
+        helper.assertTrue(Math.abs(ChampionStrikeGate.chaosClampedHorizontalScale(6.0D, 4.0D) - 1.0D) < EPS,
                 "clamped dist beyond full clamps scale to 1.0");
 
-        // 落地初速合成 (CLAMPED 半推, 沿纯 +X 方向): vx = dir(1) × 0.4 × 0.5 = 0.2; 竖直恒 0.5 不缩。
-        double scale = ChampionStrikeGate.chaosClampedHorizontalScale(1.5D, ChampionStrikeGate.CHAOS_PUSH_DISTANCE);
+        // 落地初速合成 (CLAMPED 半推, 沿纯 +X 方向): vx = dir(1) × 0.8 × 0.5 = 0.4; 竖直恒 0.75 不缩。
+        double scale = ChampionStrikeGate.chaosClampedHorizontalScale(2.0D, ChampionStrikeGate.CHAOS_PUSH_DISTANCE);
         double vx = 1.0D * ChampionStrikeGate.CHAOS_PUSH_HORIZONTAL * scale;
-        helper.assertTrue(Math.abs(vx - 0.2D) < EPS, "clamped half-push +X velocity = 1 x 0.4 x 0.5 = 0.2");
-        helper.assertTrue(Math.abs(ChampionStrikeGate.CHAOS_PUSH_Y - 0.5D) < EPS,
-                "vertical impulse unchanged by clamp (always 0.5)");
+        helper.assertTrue(Math.abs(vx - 0.4D) < EPS, "clamped half-push +X velocity = 1 x 0.8 x 0.5 = 0.4");
+        helper.assertTrue(Math.abs(ChampionStrikeGate.CHAOS_PUSH_Y - 0.75D) < EPS,
+                "vertical impulse unchanged by clamp (always 0.75)");
 
         // 脏几何量不静默掩盖: fullDistance <=0 / clampedDistance <0 抛 IAE。
         assertThrowsIae(helper, () -> ChampionStrikeGate.chaosClampedHorizontalScale(1.0D, 0.0D),

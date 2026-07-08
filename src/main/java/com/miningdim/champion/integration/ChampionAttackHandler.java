@@ -321,6 +321,7 @@ public final class ChampionAttackHandler {
         AffixQuality multiQuality;
         AffixQuality q4 = equipped.get(AffixDef.QUADRUPLE_STRIKE);
         AffixQuality q2 = equipped.get(AffixDef.DOUBLE_STRIKE);
+        boolean trace = ChampionDiagnostics.shouldTrace(attacker); // 真服 2026-07-08 分跳零效果排障: 逐早退口取证。
         if (q4 != null) {
             multiDef = AffixDef.QUADRUPLE_STRIKE; // 双持(理论不出现)时四倍优先, 保确定性。
             multiQuality = q4;
@@ -328,13 +329,22 @@ public final class ChampionAttackHandler {
             multiDef = AffixDef.DOUBLE_STRIKE;
             multiQuality = q2;
         } else {
+            if (trace) {
+                LOGGER.info("skill-strike skip=no-multi-def keys={} q2={} q4={}", equipped.keySet(), q2, q4);
+            }
             return; // 无多击词条。
         }
         if (!(victim instanceof ServerPlayer serverVictim)) {
+            if (trace) {
+                LOGGER.info("skill-strike skip=not-serverplayer victimClass={}", victim.getClass().getName());
+            }
             return; // 分跳是服务端权威 (余跳需 ServerPlayer 调度): 客户端侧不改 event。
         }
         float f = event.getAmount();
         if (f <= 0.0F) {
+            if (trace) {
+                LOGGER.info("skill-strike skip=non-positive f={}", f);
+            }
             return; // 本击无正伤 (被前序减伤清零/反射等): 不拆。
         }
         int jumps = ChampionStrikeGate.strikeJumps(multiDef, multiQuality);   // 2 / 4
@@ -351,6 +361,11 @@ public final class ChampionAttackHandler {
         for (int i = 1; i < jumps; i++) {
             long dueTick = schedulerNow + i * ChampionStrikeGate.STRIKE_JUMP_INTERVAL_TICKS;
             PENDING_ECHOES.addLast(new EchoJump(attacker, serverVictim, perJump, dueTick));
+        }
+        if (trace) {
+            LOGGER.info("skill-strike split def={} quality={} jumps={} f={} perJump={} queued={} due0={}",
+                    multiDef, multiQuality, jumps, String.format("%.2f", f), String.format("%.2f", perJump),
+                    jumps - 1, schedulerNow + ChampionStrikeGate.STRIKE_JUMP_INTERVAL_TICKS);
         }
     }
 
@@ -522,19 +537,34 @@ public final class ChampionAttackHandler {
     private static void executeEchoJump(EchoJump job) {
         LivingEntity champion = job.champion();
         ServerPlayer victim = job.victim();
+        boolean trace = ChampionDiagnostics.shouldTrace(champion); // 真服 2026-07-08 分跳排障: 回声跳执行/作废取证。
         if (!champion.isAlive() || !victim.isAlive()) {
+            if (trace) {
+                LOGGER.info("skill-strike echo-drop reason=dead champAlive={} victimAlive={}",
+                        champion.isAlive(), victim.isAlive());
+            }
             return; // 冠军或受害者已死/离场。
         }
         if (champion.level() != victim.level()) {
+            if (trace) {
+                LOGGER.info("skill-strike echo-drop reason=dimension");
+            }
             return; // 换维度/传走: 不同维度不补刀。
         }
         if (!ChampionStrikeGate.echoJumpInRange(champion.distanceToSqr(victim))) {
+            if (trace) {
+                LOGGER.info("skill-strike echo-drop reason=range distSq={}",
+                        String.format("%.1f", champion.distanceToSqr(victim)));
+            }
             return; // 脱战/跑出近战范围 (>6 格): 余跳作废。
         }
         victim.invulnerableTime = 0;
         ECHO_IN_PROGRESS.set(Boolean.TRUE);
         try {
-            victim.hurt(victim.damageSources().mobAttack(champion), job.perJumpDamage());
+            boolean landed = victim.hurt(victim.damageSources().mobAttack(champion), job.perJumpDamage());
+            if (trace) {
+                LOGGER.info("skill-strike echo landed={} perJump={}", landed, String.format("%.2f", job.perJumpDamage()));
+            }
         } finally {
             ECHO_IN_PROGRESS.set(Boolean.FALSE);
         }

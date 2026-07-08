@@ -1,6 +1,7 @@
 package com.miningdim.champion;
 
 import com.miningdim.champion.bloodpool.BloodPoolRegistry;
+import com.miningdim.champion.integration.AoeImmunityBuffer;
 import com.miningdim.champion.integration.ChampionAttackHandler;
 import com.miningdim.champion.integration.ChampionBloodPoolHandler;
 import com.miningdim.champion.integration.ChampionBossBarHandler;
@@ -14,6 +15,7 @@ import com.miningdim.champion.integration.ChampionSelfEffectHandler;
 import com.miningdim.champion.integration.ChampionSelfRepairHandler;
 import com.miningdim.champion.integration.ChampionSummonHandler;
 import com.miningdim.champion.integration.ChampionVisualDisruptionHandler;
+import com.miningdim.champion.integration.PlayerLandingProtection;
 import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.core.Subsystem;
 import net.minecraft.world.entity.Entity;
@@ -75,6 +77,9 @@ public final class ChampionSystem implements Subsystem {
         forgeBus.register(new ChampionCounterUnitHandler());      // 反击单元: 锁定窗反伤 (三层封顶)
         forgeBus.register(new ChampionSummonHandler());           // 支援召唤: 低星同型援军 (经济全排除)
         forgeBus.register(new ChampionDeathMarkHandler());        // 命定之死: 动态 DPS 阈值标记/处决
+        // 批4 波0 共享基建: 位移安全防线 (红线 3/6)。KnockbackSafetyGuard 是静态只读裁决无需注册。
+        forgeBus.register(new PlayerLandingProtection());         // 换位/瞬移后 2s 抗位移落地保护 (击退事件闸)
+        forgeBus.register(new AoeImmunityBuffer());               // 大额 AOE 命中后 2s 免疫缓冲 (防多源叠杀)
 
         // 调试命令 /mchampion summon (取代已移除的 Champions /champions summon; OP 真服按需召唤指定星级+词条冠军)。
         forgeBus.addListener(this::onRegisterCommands);
@@ -92,13 +97,16 @@ public final class ChampionSystem implements Subsystem {
         ChampionCommands.register(event.getDispatcher());
     }
 
-    /** 服务端停止: 清纯逻辑层运行态 (血池/贡献账本/聚合器/锁定登记) + 解 seam 绑定, 防跨存档/跨重启脏引用。 */
+    /** 服务端停止: 清纯逻辑层运行态 (血池/贡献账本/聚合器/锁定登记/落地保护与 AOE 缓冲账本) + 解 seam 绑定, 防跨存档/跨重启脏引用。 */
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         BloodPoolRegistry.reset();
         ContributionTracker.reset();
         ChampionEffectRegistries.reset();
         ChampionTargetLocks.reset();
+        // 批4 波0 两个静态到期账本: 换存档后 gameTime 从小值重计, 残留旧到期 tick 会被误判仍在窗内 (审查修复)。
+        PlayerLandingProtection.reset();
+        AoeImmunityBuffer.reset();
         ChampionSpawnSeam.unbind();
     }
 }

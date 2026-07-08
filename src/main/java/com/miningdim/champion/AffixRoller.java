@@ -121,6 +121,25 @@ public final class AffixRoller {
      * @return 合法词条选择列表 (可能为空, 如 1★ 预算极小; allocate 必过)
      */
     public static List<AffixSelection> roll(StarRank rank, RandomSource rng) {
+        // 旧签名默认体型合格: 委托带资格重载传 sizeEligible=true (无 SIZE 族剔除, 行为与历史完全一致)。自然刷主
+        // 入口 ChampionPromoter 已迁到带资格重载 (传实体白名单资格); 保留本签名供命令 roll 路径与既有测试沿用。
+        return roll(rank, rng, true);
+    }
+
+    /**
+     * 为某星级掷一组合法词条选择, 带体型词条实体资格上下文 (spec 9A.4 体型词条实体白名单硬校验)。
+     *
+     * sizeEligible=false (非白名单异形碰撞箱实体) 时, 候选池装配阶段剔除 SIZE 族 (巨大化/缩小化), 生存池点数
+     * 预算自然流向同池其它词条 (spec "非白名单实体 roll 到体型词条则改 roll 同池等成本词条")。SIZE 被剔除后
+     * 缩小化不再进 {@link #rollPool} 的候选, 其"强制 +1 机动"原子配对 ({@link #rollMiniaturizationPartner}) 天然
+     * 不触发, 无残留半配对。sizeEligible=true 时候选装配与旧签名完全一致 (不剔除任何 SIZE 族)。
+     *
+     * @param rank         星级
+     * @param rng          随机源 (服务端 level.random)
+     * @param sizeEligible 附身实体是否在体型词条白名单内 ({@link SizeAffixEligibility#isEligible}); false 剔除 SIZE 族
+     * @return 合法词条选择列表 (可能为空; allocate 必过)
+     */
+    public static List<AffixSelection> roll(StarRank rank, RandomSource rng, boolean sizeEligible) {
         if (rank == null) {
             throw new IllegalArgumentException("rank must not be null");
         }
@@ -131,20 +150,22 @@ public final class AffixRoller {
         List<AffixSelection> chosen = new ArrayList<>();
         // 逐池掷取: 池声明顺序 (生存优先保证基础生存, 再战斗, 再机动, 最后技能)。
         for (AffixPool pool : AffixPool.values()) {
-            rollPool(rank, pool, rng, chosen);
+            rollPool(rank, pool, rng, chosen, sizeEligible);
         }
         return chosen;
     }
 
-    /** 在某池预算内贪心追加词条到 chosen (受总词条上限/技能上限/互斥约束)。 */
-    private static void rollPool(StarRank rank, AffixPool pool, RandomSource rng, List<AffixSelection> chosen) {
+    /** 在某池预算内贪心追加词条到 chosen (受总词条上限/技能上限/互斥约束); sizeEligible=false 剔除 SIZE 族。 */
+    private static void rollPool(StarRank rank, AffixPool pool, RandomSource rng, List<AffixSelection> chosen,
+                                 boolean sizeEligible) {
         List<AffixDef> candidates = new ArrayList<>();
         for (AffixDef def : AffixDef.values()) {
-            // 候选三门槛: 属本池 + 该星解锁 (minStar/品质) + 已有运行期 handler (排除哑词条, 见 IMPLEMENTED_AFFIXES)。
-            // 哑词条被排除后某池候选可为空 (如低星技能池未解锁/传送家族全排除), rollPool 自然不为该池纳入词条 ——
-            // 候选空时下方贪心循环 tryOrder.isEmpty() 直接 return, 不抛不死循环 (该池剩余预算按 spec 转基础膨胀, 与
-            // 词条未排满时同一口径); 总词条/技能上限够也无所谓, 减少的只是无效哑词条占位。
-            if (def.pool() == pool && def.isUnlockedAt(rank) && IMPLEMENTED_AFFIXES.contains(def)) {
+            // 候选四门槛: 属本池 + 该星解锁 (minStar/品质) + 已有运行期 handler (排除哑词条, 见 IMPLEMENTED_AFFIXES)
+            // + 体型资格 (非白名单实体剔除 SIZE 族, spec 9A.4)。哑词条/SIZE 被排除后某池候选可为空 (如低星技能池
+            // 未解锁/异形实体生存池仅剩非体型词条), rollPool 自然不为该池纳入被排除词条 —— 候选空时下方贪心循环
+            // tryOrder.isEmpty() 直接 return, 不抛不死循环; SIZE 让出的生存点数按 spec 转同池其它词条/基础膨胀。
+            if (def.pool() == pool && def.isUnlockedAt(rank) && IMPLEMENTED_AFFIXES.contains(def)
+                    && (sizeEligible || def.mutexFlag() != AffixDef.MutexFlag.SIZE)) {
                 candidates.add(def);
             }
         }

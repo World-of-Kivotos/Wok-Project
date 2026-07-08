@@ -84,12 +84,22 @@ public final class ChampionCommands {
 
         Map<AffixDef, AffixQuality> affixMap;
         if (affixArg == null || affixArg.isBlank()) {
-            affixMap = rollAffixes(rank, level.getRandom());
+            // 自动掷取与自然生成同口径 (spec 9A.4 审查修复): 非白名单异形实体剔除 SIZE 族改抽同池,
+            // 不给末影龙/蜘蛛这类实体静默掷出体型词条 (显式指定路径才是调试特权, 见下分支)。
+            affixMap = rollAffixes(rank, level.getRandom(), SizeAffixEligibility.isEligible(id.toString()));
         } else {
             affixMap = parseAffixes(affixArg, rank, src);
             if (affixMap == null) {
                 mob.discard();
                 return 0; // 解析失败已 sendFailure。
+            }
+            // spec 9A.4: 体型词条仅白名单人形碰撞箱实体可 roll。命令显式路径可越白名单 (与越互斥/预算同属调试特权,
+            // 见类 javadoc), 但对非白名单实体回执提示 —— 自然生成时该体型词条会被 roller 剔除改抽同池等成本词条,
+            // 不会真附身异形; 命令强制附加仅供调试观察。
+            if (!SizeAffixEligibility.isEligible(id.toString()) && containsSizeAffix(affixMap)) {
+                src.sendSuccess(() -> Component.literal(
+                        "提示: " + id + " 非体型词条白名单实体 (spec 9A.4), 自然生成会改抽同池等成本词条; 命令已强制附加仅供调试"),
+                        false);
             }
         }
 
@@ -109,10 +119,10 @@ public final class ChampionCommands {
         return 1;
     }
 
-    /** 按星四池预算掷取词条 -> def→品质。 */
-    private static Map<AffixDef, AffixQuality> rollAffixes(StarRank rank, RandomSource rng) {
+    /** 按星四池预算掷取词条 -> def→品质 (sizeEligible=false 剔除 SIZE 族, 与自然生成同口径)。 */
+    private static Map<AffixDef, AffixQuality> rollAffixes(StarRank rank, RandomSource rng, boolean sizeEligible) {
         Map<AffixDef, AffixQuality> map = new EnumMap<>(AffixDef.class);
-        List<AffixSelection> rolled = AffixRoller.roll(rank, rng);
+        List<AffixSelection> rolled = AffixRoller.roll(rank, rng, sizeEligible);
         for (AffixSelection sel : rolled) {
             map.put(sel.affix(), sel.quality());
         }
@@ -138,6 +148,16 @@ public final class ChampionCommands {
             map.put(def, ChampionAffixState.defaultQualityFor(def, rank));
         }
         return map;
+    }
+
+    /** affixMap 是否含体型词条 (SIZE 族: 巨大化/缩小化), 供非白名单实体提示判定。 */
+    private static boolean containsSizeAffix(Map<AffixDef, AffixQuality> affixMap) {
+        for (AffixDef def : affixMap.keySet()) {
+            if (def.mutexFlag() == AffixDef.MutexFlag.SIZE) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 词条名 (枚举名, 大小写不敏感) -> AffixDef; 未知返 null。 */

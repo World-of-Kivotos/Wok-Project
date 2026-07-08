@@ -9,15 +9,18 @@ import com.miningdim.champion.ChampionSpawnPolicy;
 import com.miningdim.champion.ChampionSpawnSeam;
 import com.miningdim.champion.MiningChampionData;
 import com.miningdim.champion.MiningChampions;
+import com.miningdim.champion.SizeAffixEligibility;
 import com.miningdim.champion.StarRank;
 import com.miningdim.champion.bloodpool.BloodPool;
 import com.miningdim.champion.bloodpool.BloodPoolRegistry;
 import com.miningdim.core.Difficulty;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraftforge.registries.ForgeRegistries;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,8 +77,9 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
         int star = ChampionSpawnPolicy.rollStar(difficulty, rng);
         StarRank rank = StarRank.ofStar(star);
 
-        // 词条掷取 (纯逻辑) -> def→品质映射。
-        List<AffixSelection> selections = AffixRoller.roll(rank, rng);
+        // 词条掷取 (纯逻辑) -> def→品质映射。带体型资格上下文: 非白名单异形碰撞箱实体剔除 SIZE 族, 点数改抽同池
+        // (spec 9A.4), 避免蜘蛛/史莱姆等被巨大化/缩小化缩放出崩坏碰撞箱。
+        List<AffixSelection> selections = AffixRoller.roll(rank, rng, sizeEligibleOf(mob));
         Map<AffixDef, AffixQuality> affixMap = new EnumMap<>(AffixDef.class);
         for (AffixSelection sel : selections) {
             affixMap.put(sel.affix(), sel.quality());
@@ -103,13 +107,25 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
         champ.promote(star, affixes, effectiveHp);
         applyBaseHealth(mob, rank, effectiveHp);
         // 诊断 (真服首验): 每次盖章打一行 (低频不门控) —— 自然刷/命令召的冠军星级/词条/有效血/换算三因子一目了然。
-        LOGGER.info("promoted {} star{} affixes={} effHp={} hpFrac={} sizeMult={} survSpent={} bloodPool={}",
+        // sizeEligible 便于真服核对: 非白名单实体身上出现体型词条 = 命令强制附加 (自然刷不该出, 见 AffixRoller 剔除)。
+        LOGGER.info("promoted {} star{} affixes={} effHp={} hpFrac={} sizeMult={} survSpent={} bloodPool={} sizeEligible={}",
                 mob.getType().getDescriptionId(), star, affixes.keySet(),
                 String.format("%.1f", effectiveHp),
                 String.format("%.3f", ChampionHpConversion.hpFraction(rank, affixes)),
                 String.format("%.2f", ChampionHpConversion.sizeMultiplier(affixes)),
                 ChampionHpConversion.survivalSpent(affixes),
-                rank.usesCustomBloodPool() || effectiveHp > VANILLA_MAX_HEALTH);
+                rank.usesCustomBloodPool() || effectiveHp > VANILLA_MAX_HEALTH,
+                sizeEligibleOf(mob));
+    }
+
+    /**
+     * 取实体类型 id 判体型词条白名单资格 (spec 9A.4): 经 {@link ForgeRegistries#ENTITY_TYPES} 反查注册 id
+     * (形如 minecraft:zombie), 转 String 喂纯逻辑 {@link SizeAffixEligibility}。反查不到注册 id (理论上不发生,
+     * 实体已在世界内) 按不合格处理 (不给体型), 与 {@link SizeAffixEligibility#isEligible} 对 null 的兜底一致。
+     */
+    private static boolean sizeEligibleOf(Mob mob) {
+        ResourceLocation key = ForgeRegistries.ENTITY_TYPES.getKey(mob.getType());
+        return SizeAffixEligibility.isEligible(key == null ? null : key.toString());
     }
 
     /**

@@ -54,34 +54,43 @@ public final class StackingGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void ac1_twentyAdultSheepMergeToOne(GameTestHelper helper) {
         StackingConfig.ensureLoadedForTest();
-        BlockPos origin = new BlockPos(1, 2, 1);
+        // 显式钳本测前提 cap>=20 并恢复 (2026-07-08 排障): ForgeConfigSpec 的 set() 会写穿 run 世界的
+        // serverconfig 文件 —— ac7 的 set(16) 若在恢复前被中断 (JVM 被杀/崩), 16 会永久毒化持久 run 世界,
+        // 之后每次启动本测都载入 cap=16 (20 只吞 15) 稳定红。本测不再信任环境 cap, 与 ac7 同款 set/finally。
+        int prevMax = StackingConfig.MERGE_MAX_STACK_SIZE.get();
+        StackingConfig.MERGE_MAX_STACK_SIZE.set(64);
+        try {
+            BlockPos origin = new BlockPos(1, 2, 1);
 
-        List<Sheep> sheep = new ArrayList<>();
-        for (int i = 0; i < 20; i++) {
-            // 同一格生成 (水平 0 / 垂直 0 距离, 必在半径 5/3 内)。
-            Sheep s = helper.spawn(EntityType.SHEEP, origin);
-            s.setColor(net.minecraft.world.item.DyeColor.WHITE);
-            sheep.add(s);
+            List<Sheep> sheep = new ArrayList<>();
+            for (int i = 0; i < 20; i++) {
+                // 同一格生成 (水平 0 / 垂直 0 距离, 必在半径 5/3 内)。
+                Sheep s = helper.spawn(EntityType.SHEEP, origin);
+                s.setColor(net.minecraft.world.item.DyeColor.WHITE);
+                sheep.add(s);
+            }
+            // 只数本测持有的 20 只引用的存活态 (不用世界半径计数, 免疫相邻 sheep 测试漂移来的羊污染计数)。
+            helper.assertTrue(sheep.stream().filter(net.minecraft.world.entity.Entity::isAlive).count() == 20,
+                    "20 sheep spawned before merge");
+
+            int discarded = StackMerge.mergeCandidates(new ArrayList<>(sheep));
+            helper.assertTrue(discarded == 19, "19 sheep absorbed into one (20 -> 1)");
+
+            // 合并后本测 20 只里恰 1 只存活 (其余 19 被 discard)。
+            long alive = sheep.stream().filter(net.minecraft.world.entity.Entity::isAlive).count();
+            helper.assertTrue(alive == 1, "exactly one sheep entity remains after merge, got " + alive);
+
+            // 幸存者堆叠数 20 + 显示名含 "x20"。
+            Sheep survivor = sheep.stream().filter(net.minecraft.world.entity.Entity::isAlive).findFirst().orElseThrow();
+            helper.assertTrue(StackData.getStackSize(survivor) == 20, "survivor stack size 20");
+            helper.assertTrue(survivor.getCustomName() != null
+                            && survivor.getCustomName().getString().contains("x20"),
+                    "custom name contains x20, got " + (survivor.getCustomName() == null ? "<null>"
+                            : survivor.getCustomName().getString()));
+            helper.assertTrue(survivor.isCustomNameVisible(), "stack label is visible");
+        } finally {
+            StackingConfig.MERGE_MAX_STACK_SIZE.set(prevMax);
         }
-        // 只数本测持有的 20 只引用的存活态 (不用世界半径计数, 免疫相邻 sheep 测试漂移来的羊污染计数)。
-        helper.assertTrue(sheep.stream().filter(net.minecraft.world.entity.Entity::isAlive).count() == 20,
-                "20 sheep spawned before merge");
-
-        int discarded = StackMerge.mergeCandidates(new ArrayList<>(sheep));
-        helper.assertTrue(discarded == 19, "19 sheep absorbed into one (20 -> 1)");
-
-        // 合并后本测 20 只里恰 1 只存活 (其余 19 被 discard)。
-        long alive = sheep.stream().filter(net.minecraft.world.entity.Entity::isAlive).count();
-        helper.assertTrue(alive == 1, "exactly one sheep entity remains after merge, got " + alive);
-
-        // 幸存者堆叠数 20 + 显示名含 "x20"。
-        Sheep survivor = sheep.stream().filter(net.minecraft.world.entity.Entity::isAlive).findFirst().orElseThrow();
-        helper.assertTrue(StackData.getStackSize(survivor) == 20, "survivor stack size 20");
-        helper.assertTrue(survivor.getCustomName() != null
-                        && survivor.getCustomName().getString().contains("x20"),
-                "custom name contains x20, got " + (survivor.getCustomName() == null ? "<null>"
-                        : survivor.getCustomName().getString()));
-        helper.assertTrue(survivor.isCustomNameVisible(), "stack label is visible");
         helper.succeed();
     }
 

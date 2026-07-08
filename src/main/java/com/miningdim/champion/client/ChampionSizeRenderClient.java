@@ -61,12 +61,17 @@ public final class ChampionSizeRenderClient {
     public static void accept(int entityId, float scale) {
         SCALE_BY_ENTITY.put(entityId, scale);
         Minecraft mc = Minecraft.getInstance();
+        Entity entity = null;
         if (mc.level != null) {
-            Entity entity = mc.level.getEntity(entityId);
+            entity = mc.level.getEntity(entityId);
             if (entity != null) {
                 entity.refreshDimensions(); // 触发 onEntitySizeClient 读缓存缩碰撞箱 (即时生效)。
             }
         }
+        // 真服 2026-07-08 体型渲染排障: 客户端收包取证 (每冠军一次, 低频; 与服务端 broadcast/resend 对账)。
+        org.slf4j.LoggerFactory.getLogger("miningdim/champion/sizeclient")
+                .info("size-s2c accept id={} scale={} entityResolved={}", entityId,
+                        String.format("%.2f", scale), entity != null);
     }
 
     /** 缓存系数 (无缓存 = 1.0 = 不缩)。 */

@@ -187,6 +187,9 @@ public final class ChampionSizeHandler {
     private static void broadcastScale(Mob mob, float scale) {
         MiningNetwork.CHANNEL.send(PacketDistributor.TRACKING_ENTITY.with(() -> mob),
                 new ChampionSizeS2C(mob.getId(), scale));
+        // 真服 2026-07-08 体型渲染排障: 每冠军一次的低频取证, 对账客户端 accept 日志定 S2C 断点。
+        LOGGER.info("size-s2c broadcast entity={} id={} scale={}",
+                mob.getType().getDescriptionId(), mob.getId(), String.format("%.2f", scale));
     }
 
     /**
@@ -212,6 +215,10 @@ public final class ChampionSizeHandler {
         if (state != null) {
             MiningNetwork.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player),
                     new ChampionSizeS2C(mob.getId(), state.scale));
+            // 真服 2026-07-08 体型渲染排障: 补发取证 (每玩家每冠军一次, 低频)。
+            LOGGER.info("size-s2c resend entity={} id={} scale={} to={}",
+                    mob.getType().getDescriptionId(), mob.getId(),
+                    String.format("%.2f", state.scale), player.getName().getString());
         } else {
             mob.refreshDimensions(); // 触发 Size 事件计算 + TRACKING_ENTITY 广播 (本玩家已在追踪列表内)。
         }

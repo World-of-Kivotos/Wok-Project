@@ -117,12 +117,14 @@ public final class ChampionAttackHandler {
         if (!(event.getEntity() instanceof Player victim)) {
             return; // 受击者非玩家: 攻击类词条只施于玩家。
         }
-        // 反震反弹伤 (vanilla thorns / 我方 champion_thorns 真伤) 与命定处决 (champion_execution) 的
-        // source.getEntity() 恰是冠军, 会误判为"冠军攻击玩家"从而额外触发一套 on-hit 攻击词条 (燃烧/寒霜/穿甲/
-        // 强酸损甲…)。反伤/处决是判决非攻击, 直接放行 (处决须是干净真伤: 不磨甲不挂 DoT, 留不死图腾一线也不被余毒咬死)。
+        // 反震反弹伤 (vanilla thorns / 我方 champion_thorns 真伤)、命定处决 (champion_execution) 与技能 AOE
+        // (champion_skill_aoe, 批4 波2 电磁/天雷/小男孩) 的 source.getEntity() 恰是冠军, 会误判为"冠军攻击玩家"
+        // 从而额外触发一套 on-hit 攻击词条 (燃烧/寒霜/穿甲/强酸损甲…)。反伤/处决/AOE 是判决非近战攻击, 直接放行
+        // (判决须是干净伤害: 不磨甲不挂 DoT, AOE 更不得白送一轮近战 rider)。
         if (event.getSource().is(DamageTypes.THORNS)
                 || event.getSource().is(ChampionDamageTypes.CHAMPION_THORNS)
-                || event.getSource().is(ChampionDamageTypes.CHAMPION_EXECUTION)) {
+                || event.getSource().is(ChampionDamageTypes.CHAMPION_EXECUTION)
+                || event.getSource().is(ChampionDamageTypes.CHAMPION_SKILL_AOE)) {
             return;
         }
         if (!(event.getSource().getEntity() instanceof LivingEntity attacker)) {

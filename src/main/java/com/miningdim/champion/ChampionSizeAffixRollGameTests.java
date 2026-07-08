@@ -37,8 +37,8 @@ public final class ChampionSizeAffixRollGameTests {
                 "缩小化已入 roll 白名单 (批2)");
         helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.contains(AffixDef.OVERDRIVE),
                 "超速移动已入 roll 白名单 (批2)");
-        helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.size() == 29,
-                "白名单 24 -> 29 (批4 波1: 分跳x2/混沌/闪光/战术传送; 总量断言防漏排/误删)");
+        helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.size() == 35,
+                "白名单 29 -> 35 (批4 波2+3 收官: 电磁/天雷/小男孩/凯撒/利刃/灵体; 总量断言防漏排/误删)");
         helper.succeed();
     }
 

@@ -67,11 +67,13 @@ public enum AffixDef {
 
     /** 巨大化: +血量 30/50/80/120/180%; +体型 25/40/60/85/120%; 互斥全部机动 + 缩小化; 须同步提移速。 */
     GIGANTISM(AffixPool.SURVIVAL, 12, 3, false,
-            new double[]{0.30, 0.50, 0.80, 1.20, 1.80}, null, MutexFlag.SIZE),
+            new double[]{0.30, 0.50, 0.80, 1.20, 1.80},
+            new double[]{0.25, 0.40, 0.60, 0.85, 1.20}, MutexFlag.SIZE),
 
     /** 缩小化: -血量 25/32/40/48/58%; -体型 15/25/35/45/55%; 互斥巨大化; 强制 +1 机动 (仅最低档)。 */
     MINIATURIZATION(AffixPool.SURVIVAL, 10, 3, false,
-            new double[]{0.25, 0.32, 0.40, 0.48, 0.58}, null, MutexFlag.SIZE),
+            new double[]{0.25, 0.32, 0.40, 0.48, 0.58},
+            new double[]{0.15, 0.25, 0.35, 0.45, 0.55}, MutexFlag.SIZE),
 
     // ============================================================
     // 7.2 战斗 (10 条, 被动攻击修正)

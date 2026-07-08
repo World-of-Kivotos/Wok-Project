@@ -390,5 +390,6 @@
   "message.miningdim.marriage.divorce.done": "离婚手续已办理，关系已解除。",
   "message.miningdim.marriage.divorce.insufficient": "信用点不足，办理离婚需要 %s。",
   "death.attack.miningdim.champion_thorns": "%1$s 被 %2$s 的反震震杀了",
-  "death.attack.miningdim.champion_execution": "%1$s 未能挣脱命定之死"
+  "death.attack.miningdim.champion_execution": "%1$s 未能挣脱命定之死",
+  "death.attack.miningdim.champion_skill_aoe": "%1$s 被 %2$s 的技能轰击抹除了"
 }

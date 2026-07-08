@@ -14,8 +14,15 @@ import com.miningdim.champion.integration.ChampionRewardHandler;
 import com.miningdim.champion.integration.ChampionSelfEffectHandler;
 import com.miningdim.champion.integration.ChampionSelfRepairHandler;
 import com.miningdim.champion.integration.ChampionSummonHandler;
+import com.miningdim.champion.integration.ChampionBladeWaltzHandler;
 import com.miningdim.champion.integration.ChampionBlinkHandler;
+import com.miningdim.champion.integration.ChampionCaesarSwapHandler;
+import com.miningdim.champion.integration.ChampionElectroChargeHandler;
+import com.miningdim.champion.integration.ChampionLittleBoyHandler;
+import com.miningdim.champion.integration.ChampionPhaseWalkHandler;
+import com.miningdim.champion.integration.ChampionSizeHandler;
 import com.miningdim.champion.integration.ChampionTacticalBlinkHandler;
+import com.miningdim.champion.integration.ChampionThunderHandler;
 import com.miningdim.champion.integration.ChampionVisualDisruptionHandler;
 import com.miningdim.champion.integration.PlayerLandingProtection;
 import com.miningdim.champion.reward.ContributionTracker;
@@ -85,6 +92,15 @@ public final class ChampionSystem implements Subsystem {
         // 批4 波1 传送家族: 冠军自体瞬移 (落点过 KnockbackSafetyGuard 单点裁决; 分跳/混沌在 AttackHandler 内)。
         forgeBus.register(new ChampionBlinkHandler());            // 闪光: 抵近瞬移玩家旁 2-3 格 (0.5s 预兆可躲)
         forgeBus.register(new ChampionTacticalBlinkHandler());    // 战术传送: 脱离型远离 4-8 格 (周期/受击应激)
+        // 批4 波2 周期 AOE/换位/连段 (champion_skill_aoe 判决伤害 + 2s 免疫缓冲防叠杀)。
+        forgeBus.register(new ChampionElectroChargeHandler());    // 电磁蓄力: 2s 蓄力单点 AOE (落点锁定可躲)
+        forgeBus.register(new ChampionThunderHandler());          // 天雷: 多点分散落雷 (1.5s 粒子环预兆)
+        forgeBus.register(new ChampionLittleBoyHandler());        // 小男孩: 背水核弹 (蓄力 5s 可打断, 用后词条消失)
+        forgeBus.register(new ChampionCaesarSwapHandler());       // 凯撒换位: 1s 预兆双向守卫校验换位
+        forgeBus.register(new ChampionBladeWaltzHandler());       // 利刃华尔兹: 锁定 N 连突袭 (整套 60% 帽均分)
+        // 批4 波3 压轴: 体型渲染/AABB (S2C 同步) + 灵体穿墙 (回退链实体化)。
+        forgeBus.register(new ChampionSizeHandler());             // 体型: AABB 缩放 + 移速补偿 + 巨大化卡墙 blink
+        forgeBus.register(new ChampionPhaseWalkHandler());        // 灵体移动: noPhysics 漂移 + 四级回退链
 
         // 调试命令 /mchampion summon (取代已移除的 Champions /champions summon; OP 真服按需召唤指定星级+词条冠军)。
         forgeBus.addListener(this::onRegisterCommands);

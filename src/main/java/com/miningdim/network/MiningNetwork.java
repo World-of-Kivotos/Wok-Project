@@ -91,6 +91,14 @@ public final class MiningNetwork implements IMiningNetwork {
                 com.miningdim.job.agent.network.AgentSealRequestC2S::decode,
                 com.miningdim.job.agent.network.AgentSealRequestC2S::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        // 精英怪体型系数同步 (ChampionStarAffix spec 9A.3 #17 体型渲染: 复用本 CHANNEL, discriminator 集中自增登记)。
+        // 追加在既有包之后, 两端同序, 不改动既有 id 分配。冠军 capability 客户端不同步, 靠本 S2C 广播尺寸系数。
+        CHANNEL.registerMessage(nextId(),
+                com.miningdim.champion.network.ChampionSizeS2C.class,
+                com.miningdim.champion.network.ChampionSizeS2C::encode,
+                com.miningdim.champion.network.ChampionSizeS2C::decode,
+                com.miningdim.champion.network.ChampionSizeS2C::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 
     /**

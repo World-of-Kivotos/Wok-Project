@@ -409,55 +409,31 @@ public final class ChampionEdgeGameTests {
     }
 
     /**
-     * 反例护栏 (证明排除逻辑确有作用, 而非候选本就为空): 取若干典型哑词条, 断言它们【在高星已按 minStar/品质解锁】
-     * (故"放开排除"时必会进 rollPool 候选), 但【既不在白名单、也绝不会被 roll 出】。这把"放开哑词条则断言必挂"落成
-     * 可验证的具体反例 —— 若误把哑词条放进白名单或漏过滤, 下面任一断言即挂。
+     * 批4 收官终态守卫: 白名单 = AffixDef 全集 (35/35 全部词条有运行期 handler, 哑词条清零)。原"哑词条反例护栏"
+     * (断言哑词条永不被 roll) 随最后一条哑词条实现而完成历史使命, 改为钉死终态全集恒等 —— 未来往 AffixDef 加新
+     * 词条而未实现 handler 时, 本断言立即挂 (全集不等), 逼开发者要么实现要么显式改本守卫, 白名单语义仍在。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void dummyAxesUnlockedYetNeverRolled(GameTestHelper helper) {
-        StarRank topStar = StarRank.ofStar(StarRank.MAX_STAR);
-
-        // 典型哑词条 (各哑轴代表): 分跳/混沌/闪光/战术 批4 波1 已实现故不再列入; 剩余哑轴 = 灵体 (波3)/
-        // 周期 AOE 与换位连段 (波2)。
-        Set<AffixDef> dummySamples = EnumSet.of(
-                AffixDef.PHASE_WALK,       // 机动池 (灵体穿墙未实现, 波3 压轴)
-                AffixDef.CAESAR_SWAP,      // 技能池 (换位未实现, 波2)
-                AffixDef.THUNDER,          // 技能池 (周期 AOE 未实现, 波2)
-                AffixDef.LITTLE_BOY,       // 技能池 (核弹未实现, 波2)
-                AffixDef.BLADE_WALTZ);     // 技能池 (连段突袭未实现, 波2)
-
-        for (AffixDef dummy : dummySamples) {
-            // (1) 这些哑词条在 10★ 确已解锁 -> 若无白名单过滤, rollPool 候选会含它们 (证明过滤是唯一拦截点)。
-            helper.assertTrue(dummy.isUnlockedAt(topStar),
-                    dummy + " is unlocked at 10star (would enter candidate set if exclusion removed)");
-            // (2) 但它们不在实现白名单 -> 被 rollPool 三门槛的 IMPLEMENTED_AFFIXES.contains 拦下。
-            helper.assertTrue(!AffixRoller.IMPLEMENTED_AFFIXES.contains(dummy),
-                    dummy + " must NOT be in implemented whitelist (it is a dummy/unrollable axis)");
-        }
-
-        // (3) 大量 10★ roll 实测: 上述哑词条一次都不出现 (与 (1) 的"已解锁"对照, 坐实是过滤而非未解锁拦下)。
-        for (int seed = 0; seed < 200; seed++) {
-            RandomSource rng = RandomSource.create(1337L + seed);
-            for (AffixSelection sel : AffixRoller.roll(topStar, rng)) {
-                helper.assertTrue(!dummySamples.contains(sel.affix()),
-                        "dummy axis " + sel.affix() + " was rolled at 10star despite exclusion (filter broken)");
-            }
-        }
+    public static void whitelistCoversAllAffixes(GameTestHelper helper) {
+        helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.equals(EnumSet.allOf(AffixDef.class)),
+                "batch4 final state: whitelist must equal the full AffixDef set (35/35 implemented)");
+        helper.assertTrue(AffixDef.values().length == 35,
+                "AffixDef total must be 35 (new affix added? implement handler + update guards)");
         helper.succeed();
     }
 
     /**
-     * 白名单内容硬断言: 恰含 29 条 (Stage1 12: 5 减伤 + 3 即时伤害 + 2 DoT + 1 易伤 + 1 磨损; Stage2 批1 4: 再生组织/
+     * 白名单内容硬断言: 恰含 35 条 (Stage1 12: 5 减伤 + 3 即时伤害 + 2 DoT + 1 易伤 + 1 磨损; Stage2 批1 4: 再生组织/
      * 易燃再生/反震/高速移动; 批2 3: 巨大化/缩小化/超速移动; 批3 5: 视觉干扰/自我修复/反击单元/支援召唤/命定之死;
-     * 批4 波1 5: 双倍/四倍分跳/混沌击飞/闪光/战术传送), 且关键实现词条在内 (按 AffixDef 身份)。删任一白名单成员或
-     * 误加哑词条, 本断言即挂。
+     * 批4 波1 5: 双倍/四倍分跳/混沌击飞/闪光/战术传送; 批4 波2+3 6: 电磁/天雷/小男孩/凯撒/利刃/灵体), 且关键实现
+     * 词条在内 (按 AffixDef 身份)。删任一白名单成员, 本断言即挂。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void implementedWhitelistMembershipExact(GameTestHelper helper) {
         Set<AffixDef> wl = AffixRoller.IMPLEMENTED_AFFIXES;
-        helper.assertTrue(wl.size() == 29, "implemented whitelist has exactly 29 entries, got " + wl.size());
+        helper.assertTrue(wl.size() == 35, "implemented whitelist has exactly 35 entries, got " + wl.size());
 
-        // 实现词条必在内 (逐条身份; Stage1 12 + Stage2 批1 4 + 批2 3 + 批3 5 + 批4 波1 5)。
+        // 实现词条必在内 (逐条身份; Stage1 12 + Stage2 批1 4 + 批2 3 + 批3 5 + 批4 11)。
         for (AffixDef impl : new AffixDef[]{
                 AffixDef.COMPOSITE_ARMOR, AffixDef.UHMWPE_ARMOR, AffixDef.HEAVY_ARMOR,
                 AffixDef.DEFLECTOR_SHIELD, AffixDef.FORTITUDE_SHIELD,
@@ -468,16 +444,10 @@ public final class ChampionEdgeGameTests {
                 AffixDef.VISUAL_DISRUPTION, AffixDef.SELF_REPAIR, AffixDef.COUNTER_UNIT,
                 AffixDef.SUMMON_SUPPORT, AffixDef.DEATH_MARK,
                 AffixDef.DOUBLE_STRIKE, AffixDef.QUADRUPLE_STRIKE, AffixDef.CHAOS_STRIKE,
-                AffixDef.BLINK, AffixDef.TACTICAL_BLINK}) {
-            helper.assertTrue(wl.contains(impl), impl + " (has runtime handler) must be whitelisted");
-        }
-
-        // 周期 AOE/换位连段 (波2) 与灵体 (波3) 仍哑, 不得在白名单。
-        for (AffixDef stillDummy : new AffixDef[]{
+                AffixDef.BLINK, AffixDef.TACTICAL_BLINK,
                 AffixDef.ELECTRO_CHARGE, AffixDef.THUNDER, AffixDef.LITTLE_BOY,
                 AffixDef.CAESAR_SWAP, AffixDef.BLADE_WALTZ, AffixDef.PHASE_WALK}) {
-            helper.assertTrue(!wl.contains(stillDummy),
-                    stillDummy + " (wave2/wave3 pending, no handler yet) must NOT be whitelisted");
+            helper.assertTrue(wl.contains(impl), impl + " (has runtime handler) must be whitelisted");
         }
 
         // 不可变: 防外部污染白名单 (与 AffixDef 四池视图同纪律)。

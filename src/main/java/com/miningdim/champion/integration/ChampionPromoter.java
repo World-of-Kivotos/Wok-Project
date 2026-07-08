@@ -116,6 +116,11 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
                 ChampionHpConversion.survivalSpent(affixes),
                 rank.usesCustomBloodPool() || effectiveHp > VANILLA_MAX_HEALTH,
                 sizeEligibleOf(mob));
+
+        // 体型词条落地触发 (批4 波3): 盖章毕刷新碰撞箱, 令 ChampionSizeHandler 的 EntityEvent.Size 按刚写入的
+        // capability 体型系数缩放服务端 AABB + 首帧向 tracking 玩家广播尺寸 (客户端 capability 不同步, 靠 S2C 包)。
+        // 无体型词条的冠军该事件读出系数 1.0 早退, 不改任何行为。
+        mob.refreshDimensions();
     }
 
     /**

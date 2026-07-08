@@ -59,9 +59,10 @@ public final class AffixRoller {
      * CHAOS_STRIKE 经 {@code applyChaosKnockback} 真 push, 落点过守卫 + 控制聚合 + 落地保护) + 机动池传送 2
      * (BLINK/TACTICAL_BLINK 各自独立 handler 周期瞬移, 落点过守卫单点裁决)。
      *
-     * 故意排除的词条共 6 条 = 35 总 - 29 白名单 (数据/签名粒子/spawn 预算校验俱全, 但运行期【无任何 handler 读取其
-     * 效果】, 属批4 后续波次): 机动池 1 (PHASE_WALK 灵体移动, 波3 压轴)、技能池 5 (ELECTRO_CHARGE/THUNDER/
-     * LITTLE_BOY/CAESAR_SWAP/BLADE_WALTZ —— 周期 AOE/换位/连段, 波2)。
+     * 波2+波3 收官 (Stage2 批4 终态): 技能池周期 AOE/换位/连段 5 (ELECTRO_CHARGE/THUNDER/LITTLE_BOY 走
+     * champion_skill_aoe 判决伤害 + 2s 免疫缓冲; CAESAR_SWAP 双向守卫换位; BLADE_WALTZ 连段 60% 帽均分) +
+     * 机动池 PHASE_WALK (noPhysics 漂移 + 回退链实体化)。至此 35/35 全部词条有运行期 handler, 白名单 = 全集
+     * (本集合仍保留白名单语义: 未来新增词条默认不可 roll, 实现后显式登记)。
      *
      * 白名单语义 (非黑名单): 新增词条若未在此显式登记, 默认【不】被 roll —— 防 Stage2 往 AffixDef 加新哑词条时静默
      * 漏排, 逼实现 handler 后再把它移入本集合。{@link AffixDef#values()} 总集 - 本白名单 = 当前不可 roll 词条全集。
@@ -107,7 +108,15 @@ public final class AffixRoller {
             AffixDef.CHAOS_STRIKE,
             // 机动池传送家族 (ChampionBlinkHandler/ChampionTacticalBlinkHandler; Stage2 批4 波1): 抵近/脱离瞬移
             AffixDef.BLINK,
-            AffixDef.TACTICAL_BLINK));
+            AffixDef.TACTICAL_BLINK,
+            // 技能池周期 AOE/换位/连段 (各自独立 handler; Stage2 批4 波2): 判决伤害 + 免疫缓冲/守卫换位/连段帽
+            AffixDef.ELECTRO_CHARGE,
+            AffixDef.THUNDER,
+            AffixDef.LITTLE_BOY,
+            AffixDef.CAESAR_SWAP,
+            AffixDef.BLADE_WALTZ,
+            // 机动池灵体移动 (ChampionPhaseWalkHandler; Stage2 批4 波3 压轴): noPhysics 漂移 + 回退链实体化
+            AffixDef.PHASE_WALK));
 
     private AffixRoller() {
     }

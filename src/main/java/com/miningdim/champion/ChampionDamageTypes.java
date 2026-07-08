@@ -29,6 +29,16 @@ public final class ChampionDamageTypes {
     public static final ResourceKey<DamageType> CHAMPION_EXECUTION = ResourceKey.create(
             Registries.DAMAGE_TYPE, new ResourceLocation(MiningConstants.MODID, "champion_execution"));
 
+    /**
+     * 冠军技能 AOE 判决伤害 (批4 波2: 电磁蓄力/天雷/小男孩共用)。三条设计约束:
+     *  - 【不入】bypasses_armor: spec 红线 3 原文"伤害以 %maxHP 名义值下发、经玩家护甲减免后生效", 精装玩家天然吃得少;
+     *  - 判决非近战: {@code ChampionAttackHandler} 豁免本类型, AOE 命中不触发燃烧/寒霜/撕裂/损甲等 on-hit rider;
+     *  - 可被 2s 免疫缓冲拦截 ({@code AoeImmunityBuffer} 不豁免本类型): 首发照常结算并 grant 缓冲, 窗内第二发
+     *    大额 AOE 被掐 0 —— 红线 3 "叠杀由缓冲挡" 的本体。
+     */
+    public static final ResourceKey<DamageType> CHAMPION_SKILL_AOE = ResourceKey.create(
+            Registries.DAMAGE_TYPE, new ResourceLocation(MiningConstants.MODID, "champion_skill_aoe"));
+
     private ChampionDamageTypes() {
     }
 }

@@ -110,6 +110,21 @@ public final class MiningChampionData {
     }
 
     /**
+     * 摘除某词条 (一次性技能语义: 小男孩 LITTLE_BOY 起手即摘防重触发, spec 7.4 波2)。仅从词条→品质映射中移除该条,
+     * 星级/有效血/召唤物标记/其它词条一律不动; 未装配则 no-op。返回是否确有移除 (供调用方幂等自查/日志)。
+     *
+     * NBT 同步: 本类无实体引用不能主动落盘, 但 {@link #serializeNBT} 遍历 {@link #affixes} 生成词条子 tag, 移除后
+     * 下次存盘 (区块保存/卸载, 经 {@code MiningChampionProvider}) 自然不再写本条, {@link #deserializeNBT} 读回亦不含
+     * —— 摘除即随往返落地, 不残留 (GameTest 以 serialize->deserialize 往返断言此不变量)。
+     *
+     * @param def 待摘词条
+     * @return 移除前是否装配该词条 (true = 确有移除)
+     */
+    public boolean removeAffix(AffixDef def) {
+        return affixes.remove(def) != null;
+    }
+
+    /**
      * 序列化 NBT (随实体存盘, 冠军跨存档/区块卸载重载保留)。非冠军 (star=0) 返回空 tag —— 每只普通 Mob 都挂本
      * capability, 空写防全世界怪 NBT 膨胀。
      */

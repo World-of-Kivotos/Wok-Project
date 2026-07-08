@@ -390,5 +390,6 @@
   "message.miningdim.marriage.divorce.done": "The divorce is finalized; the marriage is dissolved.",
   "message.miningdim.marriage.divorce.insufficient": "Not enough credits; a divorce costs %s.",
   "death.attack.miningdim.champion_thorns": "%1$s was shattered by %2$s's tremor guard",
-  "death.attack.miningdim.champion_execution": "%1$s could not escape their appointed death"
+  "death.attack.miningdim.champion_execution": "%1$s could not escape their appointed death",
+  "death.attack.miningdim.champion_skill_aoe": "%1$s was erased by %2$s's skill barrage"
 }

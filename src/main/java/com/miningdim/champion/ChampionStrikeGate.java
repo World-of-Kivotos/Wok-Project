@@ -26,6 +26,30 @@ public final class ChampionStrikeGate {
     /** 混沌击飞落地后不可再击飞的恢复窗 (spec 7.2 混沌: 落地后 ≥1s = 20tick)。 */
     public static final long CHAOS_LANDING_RECOVERY_TICKS = 1L * TICKS_PER_SECOND;
 
+    /** 分跳(双倍/四倍)每跳间隔 (tick; 用户裁定 3 tick): 余跳按此间隔逐跳补 mob_attack。 */
+    public static final long STRIKE_JUMP_INTERVAL_TICKS = 3L;
+
+    /** 双倍打击每跳系数 (用户裁定 0.6; 2 跳净 1.2×完整单击)。 */
+    public static final double DOUBLE_STRIKE_JUMP_FACTOR = 0.6D;
+
+    /** 四倍痛处每跳系数 (用户裁定 0.35; 4 跳净 1.4×完整单击)。 */
+    public static final double QUADRUPLE_STRIKE_JUMP_FACTOR = 0.35D;
+
+    /** 回声跳资格半径 (格; 冠军与受害者欧氏距离 >此 则余跳作废, 防脱战/跑远后隔空补刀)。 */
+    public static final double ECHO_JUMP_MAX_RANGE = 6.0D;
+
+    /** 混沌击飞水平初速分量 (用户裁定 0.4; 沿冠军->玩家水平单位向量; CLAMPED 时再按落点距离等比缩)。 */
+    public static final double CHAOS_PUSH_HORIZONTAL = 0.4D;
+
+    /** 混沌击飞竖直初速 (用户裁定 0.5; 固定, 不随 CLAMPED 缩减 —— 保留抛起手感, 只缩水平推进)。 */
+    public static final double CHAOS_PUSH_Y = 0.5D;
+
+    /** 混沌击飞末端预测水平距离 (格; 用户裁定 3.0): 玩家位置沿推方向外推此距离过落点安全守卫。 */
+    public static final double CHAOS_PUSH_DISTANCE = 3.0D;
+
+    /** 混沌击飞入控制聚合的名义控制时长 (tick; 用户裁定 12): 击飞属控制类, 经 7s 窗 50% 上限夹断。 */
+    public static final long CHAOS_CONTROL_TICKS = 12L;
+
     /** 上次 DoT 刷新 tick (Long.MIN_VALUE = 从未刷新, 首次允许)。 */
     private long lastDotRefreshTick = Long.MIN_VALUE;
 
@@ -114,6 +138,66 @@ public final class ChampionStrikeGate {
             throw new IllegalStateException("multi-strike jumps must be >= 1, got " + jumps);
         }
         return jumps;
+    }
+
+    /**
+     * 分跳每跳系数 (spec 7.2; 用户裁定): 双倍 {@value #DOUBLE_STRIKE_JUMP_FACTOR} / 四倍
+     * {@value #QUADRUPLE_STRIKE_JUMP_FACTOR}。乘在冠军完整名义单击上得每跳伤害; 与 {@link #strikeJumps} 跳数配合
+     * 得净倍率 (见 {@link #strikeNetMultiplier})。非多击 def / null 抛 IllegalArgumentException (不掩盖误用)。
+     *
+     * @param multiStrikeDef DOUBLE_STRIKE / QUADRUPLE_STRIKE
+     * @return 每跳系数 (0-1)
+     */
+    public static double strikeJumpFactor(AffixDef multiStrikeDef) {
+        if (multiStrikeDef == AffixDef.DOUBLE_STRIKE) {
+            return DOUBLE_STRIKE_JUMP_FACTOR;
+        }
+        if (multiStrikeDef == AffixDef.QUADRUPLE_STRIKE) {
+            return QUADRUPLE_STRIKE_JUMP_FACTOR;
+        }
+        throw new IllegalArgumentException("not a multi-strike affix: " + multiStrikeDef);
+    }
+
+    /**
+     * 分跳净倍率 = 每跳系数 × 跳数 (spec 7.2; 双倍 0.6×2=1.2 / 四倍 0.35×4=1.4)。冠军完整单击拆 N 跳后合计伤害 =
+     * 完整单击 × 本倍率 (温和放大再摊到多跳, 不与重炮/嗜血二次叠乘)。
+     *
+     * @param multiStrikeDef DOUBLE_STRIKE / QUADRUPLE_STRIKE
+     * @param quality        品质 (跳数 5 档恒定, 仍按品质取档保接口一致)
+     * @return 净倍率 (双倍 1.2 / 四倍 1.4)
+     */
+    public static double strikeNetMultiplier(AffixDef multiStrikeDef, AffixQuality quality) {
+        return strikeJumpFactor(multiStrikeDef) * strikeJumps(multiStrikeDef, quality);
+    }
+
+    /**
+     * 回声跳(余跳)距离资格: 冠军与受害者欧氏距离平方 &le; {@link #ECHO_JUMP_MAX_RANGE}² 才补该跳 (脱战/跑远作废)。
+     * 传平方避免调用方开方 (与 {@code Entity#distanceToSqr} 对齐)。
+     *
+     * @param distanceSq 冠军->受害者距离平方
+     * @return 是否仍在近战补刀范围内
+     */
+    public static boolean echoJumpInRange(double distanceSq) {
+        return distanceSq <= ECHO_JUMP_MAX_RANGE * ECHO_JUMP_MAX_RANGE;
+    }
+
+    /**
+     * 混沌击飞 CLAMPED 落点的水平缩减比 (spec 9.3 守卫回退): 守卫把末端夹到中途安全格时, 水平初速按
+     * (实际落点距离 / 满推距离) 等比缩 (竖直初速不缩)。结果夹到 [0,1] (落点距离超满推按 1)。fullDistance ≤0 或
+     * clampedDistance &lt;0 抛 IllegalArgumentException (脏几何量不静默掩盖)。
+     *
+     * @param clampedDistance 玩家当前位置到守卫夹后落点的水平距离 (&ge;0)
+     * @param fullDistance    满推末端预测距离 ({@link #CHAOS_PUSH_DISTANCE}; &gt;0)
+     * @return 水平缩减比 ∈ [0,1]
+     */
+    public static double chaosClampedHorizontalScale(double clampedDistance, double fullDistance) {
+        if (fullDistance <= 0.0D) {
+            throw new IllegalArgumentException("fullDistance must be > 0, got " + fullDistance);
+        }
+        if (clampedDistance < 0.0D) {
+            throw new IllegalArgumentException("clampedDistance must be >= 0, got " + clampedDistance);
+        }
+        return Math.min(1.0D, clampedDistance / fullDistance);
     }
 
     /** 上次 DoT 刷新 tick (诊断/测试用; Long.MIN_VALUE = 从未)。 */

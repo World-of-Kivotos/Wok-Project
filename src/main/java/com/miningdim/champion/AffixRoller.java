@@ -54,18 +54,14 @@ public final class AffixRoller {
      *    onServerTick 状态机施加, 控制/反伤经 PlayerControlAggregator/RetaliationAggregator 红线聚合,
      *    命定/反击跨冠军互斥经 {@link ChampionTargetLocks}。
      *
-     * 故意排除的词条共 11 条 = 35 总 - 24 白名单 (数据/签名粒子/spawn 预算校验俱全, 但运行期【无任何 handler 读取其
-     * 效果】, 属 Stage2 未来工作: 传送家族 / 周期 AOE / 体型渲染 等待实现): 机动池 3
-     * (BLINK/TACTICAL_BLINK/PHASE_WALK 传送家族; SPRINT 批1 / OVERDRIVE 批2 已移入白名单)、
-     * 技能池 5 (ELECTRO_CHARGE/THUNDER/LITTLE_BOY/CAESAR_SWAP/BLADE_WALTZ —— 位移/AOE 类待 KnockbackSafetyGuard
-     * 批4)、战斗池 3 (DOUBLE_STRIKE/QUADRUPLE_STRIKE/CHAOS_STRIKE)。其中:
-     *  - DOUBLE_STRIKE/QUADRUPLE_STRIKE: {@link ChampionStrikeGate#strikeJumps} 仅在 GameTest 调用, 任何 integration
-     *    handler 都【未】按跳数拆分施加 (近战伤害不因双倍/四倍而翻倍), 故运行期零可观测效果 -> 哑。
-     *  - CHAOS_STRIKE: {@code applyChaosKnockback} 仅落账限频闸, 明确【不】push (KnockbackSafetyGuard 未落地), 玩家
-     *    不被击飞, 故运行期零可观测效果 -> 哑。
-     *  - COUNTER_UNIT/VISUAL_DISRUPTION 等: 控制/反伤聚合器 (PlayerControlAggregator/RetaliationAggregator) 虽是基建,
-     *    但【无 handler】按这些 def 申请控制/反伤 (FROST 减速走控制聚合; THORNS 反伤已 Stage2 批1 接 RetaliationAggregator),
-     *    故这些 def 运行期零消费 -> 哑。
+     * 波1 增补 (Stage2 批4; KnockbackSafetyGuard 已落地): 战斗池分跳/击飞 3 (DOUBLE_STRIKE/QUADRUPLE_STRIKE
+     * 经 {@code ChampionAttackHandler.applyStrikeSplit} 按 {@link ChampionStrikeGate} 每跳系数拆跳施加;
+     * CHAOS_STRIKE 经 {@code applyChaosKnockback} 真 push, 落点过守卫 + 控制聚合 + 落地保护) + 机动池传送 2
+     * (BLINK/TACTICAL_BLINK 各自独立 handler 周期瞬移, 落点过守卫单点裁决)。
+     *
+     * 故意排除的词条共 6 条 = 35 总 - 29 白名单 (数据/签名粒子/spawn 预算校验俱全, 但运行期【无任何 handler 读取其
+     * 效果】, 属批4 后续波次): 机动池 1 (PHASE_WALK 灵体移动, 波3 压轴)、技能池 5 (ELECTRO_CHARGE/THUNDER/
+     * LITTLE_BOY/CAESAR_SWAP/BLADE_WALTZ —— 周期 AOE/换位/连段, 波2)。
      *
      * 白名单语义 (非黑名单): 新增词条若未在此显式登记, 默认【不】被 roll —— 防 Stage2 往 AffixDef 加新哑词条时静默
      * 漏排, 逼实现 handler 后再把它移入本集合。{@link AffixDef#values()} 总集 - 本白名单 = 当前不可 roll 词条全集。
@@ -104,7 +100,14 @@ public final class AffixRoller {
             AffixDef.SELF_REPAIR,
             AffixDef.COUNTER_UNIT,
             AffixDef.SUMMON_SUPPORT,
-            AffixDef.DEATH_MARK));
+            AffixDef.DEATH_MARK,
+            // 战斗池分跳/击飞 (ChampionAttackHandler.applyStrikeSplit/applyChaosKnockback; Stage2 批4 波1)
+            AffixDef.DOUBLE_STRIKE,
+            AffixDef.QUADRUPLE_STRIKE,
+            AffixDef.CHAOS_STRIKE,
+            // 机动池传送家族 (ChampionBlinkHandler/ChampionTacticalBlinkHandler; Stage2 批4 波1): 抵近/脱离瞬移
+            AffixDef.BLINK,
+            AffixDef.TACTICAL_BLINK));
 
     private AffixRoller() {
     }

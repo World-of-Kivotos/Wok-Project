@@ -14,6 +14,8 @@ import com.miningdim.champion.integration.ChampionRewardHandler;
 import com.miningdim.champion.integration.ChampionSelfEffectHandler;
 import com.miningdim.champion.integration.ChampionSelfRepairHandler;
 import com.miningdim.champion.integration.ChampionSummonHandler;
+import com.miningdim.champion.integration.ChampionBlinkHandler;
+import com.miningdim.champion.integration.ChampionTacticalBlinkHandler;
 import com.miningdim.champion.integration.ChampionVisualDisruptionHandler;
 import com.miningdim.champion.integration.PlayerLandingProtection;
 import com.miningdim.champion.reward.ContributionTracker;
@@ -80,6 +82,9 @@ public final class ChampionSystem implements Subsystem {
         // 批4 波0 共享基建: 位移安全防线 (红线 3/6)。KnockbackSafetyGuard 是静态只读裁决无需注册。
         forgeBus.register(new PlayerLandingProtection());         // 换位/瞬移后 2s 抗位移落地保护 (击退事件闸)
         forgeBus.register(new AoeImmunityBuffer());               // 大额 AOE 命中后 2s 免疫缓冲 (防多源叠杀)
+        // 批4 波1 传送家族: 冠军自体瞬移 (落点过 KnockbackSafetyGuard 单点裁决; 分跳/混沌在 AttackHandler 内)。
+        forgeBus.register(new ChampionBlinkHandler());            // 闪光: 抵近瞬移玩家旁 2-3 格 (0.5s 预兆可躲)
+        forgeBus.register(new ChampionTacticalBlinkHandler());    // 战术传送: 脱离型远离 4-8 格 (周期/受击应激)
 
         // 调试命令 /mchampion summon (取代已移除的 Champions /champions summon; OP 真服按需召唤指定星级+词条冠军)。
         forgeBus.addListener(this::onRegisterCommands);
@@ -107,6 +112,8 @@ public final class ChampionSystem implements Subsystem {
         // 批4 波0 两个静态到期账本: 换存档后 gameTime 从小值重计, 残留旧到期 tick 会被误判仍在窗内 (审查修复)。
         PlayerLandingProtection.reset();
         AoeImmunityBuffer.reset();
+        // 批4 波1 回声跳静态队列: 持强实体引用, 不清则跨存档泄漏旧服务端实体。
+        ChampionAttackHandler.reset();
         ChampionSpawnSeam.unbind();
     }
 }

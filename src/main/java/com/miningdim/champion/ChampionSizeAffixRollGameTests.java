@@ -37,8 +37,8 @@ public final class ChampionSizeAffixRollGameTests {
                 "缩小化已入 roll 白名单 (批2)");
         helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.contains(AffixDef.OVERDRIVE),
                 "超速移动已入 roll 白名单 (批2)");
-        helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.size() == 24,
-                "白名单 19 -> 24 (批3: 五自足技能; 总量断言防漏排/误删)");
+        helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.size() == 29,
+                "白名单 24 -> 29 (批4 波1: 分跳x2/混沌/闪光/战术传送; 总量断言防漏排/误删)");
         helper.succeed();
     }
 
@@ -78,19 +78,21 @@ public final class ChampionSizeAffixRollGameTests {
                 if (!hasMini) {
                     continue;
                 }
-                boolean hasMobility = false;
+                // 批4 波1 起 BLINK/TACTICAL_BLINK (TELEPORT_FAMILY) 入白名单, 机动池可在强制伙伴之外再贪心
+                // 追加传送词条 (与 MOVE_SPEED 不同互斥族, 合法共存且档位随机) —— 故断言从"全部机动皆最低档"
+                // 放宽为"至少存在一条最低档机动" (= 强制伙伴; spec 只锁伙伴档位, 不禁额外自然机动)。
+                boolean hasLowestTierMobility = false;
                 for (AffixSelection sel : rolled) {
                     if (sel.affix().pool() != AffixPool.MOBILITY) {
                         continue;
                     }
-                    hasMobility = true;
-                    // 强制伙伴锁最低可用档 (spec "仅最低档"); 当前已实现机动全是移速词条且 MOVE_SPEED 互斥至多
-                    // 一条, 故缩小化 roll 里的机动词条必是配对产物 —— 未来实现 BLINK 等非配对机动后本断言须放宽。
-                    helper.assertTrue(sel.quality() == sel.affix().minUsableQuality(),
-                            "缩小化机动伙伴须最低档: " + sel + " (star " + star + " seed " + seed + ")");
+                    if (sel.quality() == sel.affix().minUsableQuality()) {
+                        hasLowestTierMobility = true;
+                        break;
+                    }
                 }
-                helper.assertTrue(hasMobility,
-                        "缩小化 roll 必含机动伙伴 (star " + star + " seed " + seed + ")");
+                helper.assertTrue(hasLowestTierMobility,
+                        "缩小化 roll 必含最低档机动伙伴 (star " + star + " seed " + seed + ")");
             }
         }
         helper.succeed();

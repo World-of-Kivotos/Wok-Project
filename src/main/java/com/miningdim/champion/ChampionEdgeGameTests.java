@@ -417,15 +417,14 @@ public final class ChampionEdgeGameTests {
     public static void dummyAxesUnlockedYetNeverRolled(GameTestHelper helper) {
         StarRank topStar = StarRank.ofStar(StarRank.MAX_STAR);
 
-        // 典型哑词条 (各哑轴代表): 机动传送/技能位移AOE/战斗哑。SPRINT/THORNS 批1、巨大化/缩小化/超速 批2、
-        // 五自足技能 批3 已实现故不再列入; 剩余哑轴 = 传送家族/AOE 技能 (待批4 KnockbackSafetyGuard)/战斗分跳击飞。
+        // 典型哑词条 (各哑轴代表): 分跳/混沌/闪光/战术 批4 波1 已实现故不再列入; 剩余哑轴 = 灵体 (波3)/
+        // 周期 AOE 与换位连段 (波2)。
         Set<AffixDef> dummySamples = EnumSet.of(
-                AffixDef.BLINK,            // 机动池 (传送家族未实现)
-                AffixDef.PHASE_WALK,       // 机动池 (灵体穿墙未实现)
-                AffixDef.CAESAR_SWAP,      // 技能池 (换位未实现, 传送家族)
-                AffixDef.THUNDER,          // 技能池 (周期 AOE 未实现)
-                AffixDef.DOUBLE_STRIKE,    // 战斗池哑 (分跳未施加)
-                AffixDef.CHAOS_STRIKE);    // 战斗池哑 (击飞不 push)
+                AffixDef.PHASE_WALK,       // 机动池 (灵体穿墙未实现, 波3 压轴)
+                AffixDef.CAESAR_SWAP,      // 技能池 (换位未实现, 波2)
+                AffixDef.THUNDER,          // 技能池 (周期 AOE 未实现, 波2)
+                AffixDef.LITTLE_BOY,       // 技能池 (核弹未实现, 波2)
+                AffixDef.BLADE_WALTZ);     // 技能池 (连段突袭未实现, 波2)
 
         for (AffixDef dummy : dummySamples) {
             // (1) 这些哑词条在 10★ 确已解锁 -> 若无白名单过滤, rollPool 候选会含它们 (证明过滤是唯一拦截点)。
@@ -448,16 +447,17 @@ public final class ChampionEdgeGameTests {
     }
 
     /**
-     * 白名单内容硬断言: 恰含 24 条 (Stage1 12: 5 减伤 + 3 即时伤害 + 2 DoT + 1 易伤 + 1 磨损; Stage2 批1 4: 再生组织/
-     * 易燃再生/反震/高速移动; 批2 3: 巨大化/缩小化/超速移动; 批3 5: 视觉干扰/自我修复/反击单元/支援召唤/命定之死),
-     * 且关键实现词条在内 (按 AffixDef 身份)。删任一白名单成员或误加哑词条, 本断言即挂。
+     * 白名单内容硬断言: 恰含 29 条 (Stage1 12: 5 减伤 + 3 即时伤害 + 2 DoT + 1 易伤 + 1 磨损; Stage2 批1 4: 再生组织/
+     * 易燃再生/反震/高速移动; 批2 3: 巨大化/缩小化/超速移动; 批3 5: 视觉干扰/自我修复/反击单元/支援召唤/命定之死;
+     * 批4 波1 5: 双倍/四倍分跳/混沌击飞/闪光/战术传送), 且关键实现词条在内 (按 AffixDef 身份)。删任一白名单成员或
+     * 误加哑词条, 本断言即挂。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void implementedWhitelistMembershipExact(GameTestHelper helper) {
         Set<AffixDef> wl = AffixRoller.IMPLEMENTED_AFFIXES;
-        helper.assertTrue(wl.size() == 24, "implemented whitelist has exactly 24 entries, got " + wl.size());
+        helper.assertTrue(wl.size() == 29, "implemented whitelist has exactly 29 entries, got " + wl.size());
 
-        // 实现词条必在内 (逐条身份; Stage1 12 + Stage2 批1 4 + 批2 3 + 批3 5)。
+        // 实现词条必在内 (逐条身份; Stage1 12 + Stage2 批1 4 + 批2 3 + 批3 5 + 批4 波1 5)。
         for (AffixDef impl : new AffixDef[]{
                 AffixDef.COMPOSITE_ARMOR, AffixDef.UHMWPE_ARMOR, AffixDef.HEAVY_ARMOR,
                 AffixDef.DEFLECTOR_SHIELD, AffixDef.FORTITUDE_SHIELD,
@@ -466,16 +466,18 @@ public final class ChampionEdgeGameTests {
                 AffixDef.REGEN_TISSUE, AffixDef.FLAMMABLE_REGEN, AffixDef.THORNS, AffixDef.SPRINT,
                 AffixDef.GIGANTISM, AffixDef.MINIATURIZATION, AffixDef.OVERDRIVE,
                 AffixDef.VISUAL_DISRUPTION, AffixDef.SELF_REPAIR, AffixDef.COUNTER_UNIT,
-                AffixDef.SUMMON_SUPPORT, AffixDef.DEATH_MARK}) {
+                AffixDef.SUMMON_SUPPORT, AffixDef.DEATH_MARK,
+                AffixDef.DOUBLE_STRIKE, AffixDef.QUADRUPLE_STRIKE, AffixDef.CHAOS_STRIKE,
+                AffixDef.BLINK, AffixDef.TACTICAL_BLINK}) {
             helper.assertTrue(wl.contains(impl), impl + " (has runtime handler) must be whitelisted");
         }
 
-        // 传送/AOE 类技能仍哑 (批4 待 KnockbackSafetyGuard), 不得在白名单。
+        // 周期 AOE/换位连段 (波2) 与灵体 (波3) 仍哑, 不得在白名单。
         for (AffixDef stillDummy : new AffixDef[]{
                 AffixDef.ELECTRO_CHARGE, AffixDef.THUNDER, AffixDef.LITTLE_BOY,
-                AffixDef.CAESAR_SWAP, AffixDef.BLADE_WALTZ}) {
+                AffixDef.CAESAR_SWAP, AffixDef.BLADE_WALTZ, AffixDef.PHASE_WALK}) {
             helper.assertTrue(!wl.contains(stillDummy),
-                    stillDummy + " (teleport/AOE skill, no handler yet) must NOT be whitelisted");
+                    stillDummy + " (wave2/wave3 pending, no handler yet) must NOT be whitelisted");
         }
 
         // 不可变: 防外部污染白名单 (与 AffixDef 四池视图同纪律)。

@@ -133,6 +133,31 @@ public final class ChampionSizeScaleGameTests {
         helper.succeed();
     }
 
+    /**
+     * 眼高随箱高等比不变量 (2026-07-10 真服验收修): vanilla 僵尸站立眼高写死 1.74 不看尺寸, Size 事件若用
+     * updateEyeHeight=true 重查会让巨人眼位停在胸口 (TACZ 爆头判定锚眼位随之错到胸口)。真实体端到端断言:
+     * 盖章巨大化后 眼高缩放比 == 箱高缩放比 (删 ChampionSizeHandler 的显式等比眼高必挂 —— 届时眼高比恒 1.0)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void eyeHeightScalesProportionallyWithBox(GameTestHelper helper) {
+        net.minecraft.world.entity.monster.Zombie zombie =
+                helper.spawn(net.minecraft.world.entity.EntityType.ZOMBIE, new net.minecraft.core.BlockPos(0, 1, 0));
+        float baseHeight = zombie.getBbHeight();
+        float baseEye = zombie.getEyeHeight();
+
+        java.util.Map<AffixDef, AffixQuality> affixes = new java.util.EnumMap<>(AffixDef.class);
+        affixes.put(AffixDef.GIGANTISM, AffixQuality.UNCOMMON);
+        com.miningdim.champion.integration.ChampionPromoter.applyChampion(zombie, 3, affixes);
+
+        float heightRatio = zombie.getBbHeight() / baseHeight;
+        float eyeRatio = zombie.getEyeHeight() / baseEye;
+        // 生成期守卫可降档, 但 COMMON 1.25 兜底恒 >1 (巨大化真的变大了才谈得上等比)。
+        helper.assertTrue(heightRatio > 1.01F, "gigantism must actually enlarge the box, ratio=" + heightRatio);
+        helper.assertTrue(Math.abs(heightRatio - eyeRatio) < 1e-3F,
+                "eye height must scale proportionally with box height: box=" + heightRatio + " eye=" + eyeRatio);
+        helper.succeed();
+    }
+
     /** 断言某段逻辑抛 IllegalArgumentException (GameTestHelper 无 assertThrows, 自封装)。 */
     private static boolean throwsIae(Runnable action) {
         try {

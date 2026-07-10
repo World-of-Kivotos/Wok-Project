@@ -135,7 +135,10 @@ public final class ChampionSizeRenderClient {
             return;
         }
         EntityDimensions base = event.getNewSize();
-        event.setNewSize(base.scale(scale), true); // updateEyeHeight=true: 眼位随体型同步缩放。
+        // 与服务端 ChampionSizeHandler 同口径 (2026-07-10): 显式等比缩眼高 —— updateEyeHeight=true 重查 vanilla
+        // 写死的站立眼高 (僵尸恒 1.74), 巨/小体型眼位错位, 两端必须一致防瞄准/爆头判定漂移。
+        event.setNewSize(base.scale(scale));
+        event.setNewEyeHeight(event.getOldEyeHeight() * scale);
     }
 
     /** 实体卸载/维度切换 (客户端侧): 摘缓存防泄漏 (entityId 会随重进世界复用, 不清会张冠李戴)。 */

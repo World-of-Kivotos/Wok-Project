@@ -147,7 +147,12 @@ public final class ChampionSizeHandler {
         } else {
             scale = state.scale;
         }
-        event.setNewSize(base.scale(scale), true); // updateEyeHeight=true: 眼位随体型同步。
+        // 眼高显式等比缩 (2026-07-10 真服验收修): updateEyeHeight=true 会按新尺寸【重查】实体的眼高函数, 而
+        // vanilla 僵尸等人形怪把站立眼高写死 1.74 不看尺寸 -> 巨人眼位停在胸口/小怪眼位飘头顶, TACZ 爆头判定
+        // (锚眼位) 随之错位。改单参 setNewSize (不动眼高) + 显式 oldEyeHeight x scale (old 恒为该姿态基准眼高,
+        // 事件每次以未缩基准发起, 等比缩幂等)。
+        event.setNewSize(base.scale(scale));
+        event.setNewEyeHeight(event.getOldEyeHeight() * scale);
     }
 
     /**

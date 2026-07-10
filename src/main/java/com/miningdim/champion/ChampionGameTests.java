@@ -730,8 +730,6 @@ public final class ChampionGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void starRankFullTableLock(GameTestHelper helper) {
-        // spec 第五章《每星主数据表》字面值 (index = star-1)。锁死四池预算 + 词条/技能上限 + 最高品质 +
-        // 基础有效HP + 基础单击%; 改 StarRank 任一格对应断言即挂 (防手抄魔数漂移)。
         int[] surv = {10, 20, 35, 55, 80, 120, 165, 240, 330, 440};
         int[] comb = {8, 14, 24, 36, 55, 80, 110, 160, 230, 310};
         int[] mob = {0, 4, 8, 12, 20, 30, 45, 75, 115, 155};

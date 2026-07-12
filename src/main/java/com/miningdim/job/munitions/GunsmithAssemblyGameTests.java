@@ -93,6 +93,10 @@ public final class GunsmithAssemblyGameTests {
             helper.assertTrue((part == GunsmithAssemblyBenchBlock.Part.MAIN)
                             == (found instanceof GunsmithAssemblyBenchBlockEntity),
                     "only main may own the block entity, checked " + part);
+            if (found instanceof GunsmithAssemblyBenchBlockEntity assemblyBe) {
+                helper.assertTrue(assemblyBe.getType() == ModMunitionsBlockEntities.GUNSMITH_ASSEMBLY_BENCH.get(),
+                        "main must use the registered assembly bench block entity type");
+            }
 
             int partDrops = Block.getDrops(state, helper.getLevel(), partAbsolute, found).stream()
                     .filter(drop -> drop.is(ModMunitionsItems.GUNSMITH_ASSEMBLY_BENCH_ITEM.get()))
@@ -156,6 +160,42 @@ public final class GunsmithAssemblyGameTests {
             helper.assertFalse(be.isAnimating(), "animation must be inactive after its exact end tick");
             helper.succeed();
         });
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 20)
+    public static void assemblyBenchUseHonorsGateAndResolvesSideToMain(GameTestHelper helper) {
+        Direction facing = Direction.EAST;
+        placeStructure(helper, facing);
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        BlockPos clickedRelative = GunsmithAssemblyBenchBlock.partPos(
+                MAIN_REL, facing, GunsmithAssemblyBenchBlock.Part.BACK_SIDE);
+        BlockPos clickedAbsolute = helper.absolutePos(clickedRelative);
+        BlockState clickedState = helper.getLevel().getBlockState(clickedAbsolute);
+        BlockHitResult hit = new BlockHitResult(
+                Vec3.atCenterOf(clickedAbsolute), Direction.UP, clickedAbsolute, false);
+        GunsmithAssemblyBenchBlockEntity be = requireMainBlockEntity(helper, helper.absolutePos(MAIN_REL));
+        boolean previousEnabled = MunitionsConfig.GUNSMITH_ENABLED.get();
+
+        try {
+            MunitionsConfig.GUNSMITH_ENABLED.set(false);
+            InteractionResult disabledResult = assemblyBlock().use(
+                    clickedState, helper.getLevel(), clickedAbsolute, player, InteractionHand.MAIN_HAND, hit);
+            helper.assertTrue(disabledResult == InteractionResult.CONSUME,
+                    "disabled assembly bench use must be handled on the server");
+            helper.assertFalse(be.isAnimating(), "disabled side-part use must not start assembly");
+            assertStructureActive(helper, facing, false);
+
+            MunitionsConfig.GUNSMITH_ENABLED.set(true);
+            InteractionResult enabledResult = assemblyBlock().use(
+                    clickedState, helper.getLevel(), clickedAbsolute, player, InteractionHand.MAIN_HAND, hit);
+            helper.assertTrue(enabledResult == InteractionResult.CONSUME,
+                    "enabled side-part use must be handled on the server");
+            helper.assertTrue(be.isAnimating(), "back-side use must resolve to and start the main block entity");
+            assertStructureActive(helper, facing, true);
+        } finally {
+            MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
+        }
+        helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)

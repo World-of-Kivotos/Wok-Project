@@ -73,13 +73,6 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity {
         return animationEndTick > level.getGameTime();
     }
 
-    public float animationTicks(float partialTick) {
-        if (level == null) {
-            return 0.0F;
-        }
-        return level.getGameTime() + partialTick;
-    }
-
     private void setActiveState(boolean active) {
         if (level == null) {
             return;

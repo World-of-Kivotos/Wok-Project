@@ -210,10 +210,10 @@ public final class GunsmithAssemblyBenchBlock extends Block implements EntityBlo
         Direction facing = state.getValue(FACING);
         Direction side = facing.getClockWise();
         Direction back = facing.getOpposite();
-        double sideOffset = 0.55D + random.nextDouble() * 0.9D;
-        double backOffset = 0.62D + random.nextDouble() * 0.72D;
+        double sideOffset = 0.5D + (random.nextDouble() - 0.5D) * 0.12D;
+        double backOffset = 0.5D + (random.nextDouble() - 0.5D) * 0.12D;
         double x = pos.getX() + 0.5D + side.getStepX() * sideOffset + back.getStepX() * backOffset;
-        double y = pos.getY() + 0.38D + random.nextDouble() * 0.18D;
+        double y = pos.getY() + 0.40D + random.nextDouble() * 0.06D;
         double z = pos.getZ() + 0.5D + side.getStepZ() * sideOffset + back.getStepZ() * backOffset;
         double vx = (random.nextDouble() - 0.5D) * 0.08D;
         double vy = 0.03D + random.nextDouble() * 0.06D;

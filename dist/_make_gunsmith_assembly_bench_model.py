@@ -100,15 +100,15 @@ add_box((24, 5.5, 21), (30, 6.5, 28), "brass", top="metal")
 add_box((24, 6.5, 21), (29, 9, 27), "metal", top="dark")
 
 # Parked arm silhouette used only by the inventory model.
-add_box((23, 8, 22), (28, 11, 27), "dark", top="metal", target=ITEM_ARM_BOXES)
-add_box((19, 10, 21), (24, 14, 26), "dark", top="metal", target=ITEM_ARM_BOXES)
-add_box((20, 11, 20.5), (22.5, 13, 26.5), "brass", top="metal", target=ITEM_ARM_BOXES)
-add_box((17, 5.5, 21), (21, 11.5, 25), "dark", top="metal", target=ITEM_ARM_BOXES)
-add_box((17.8, 6, 20.5), (19.8, 11, 25.5), "brass", top="metal", target=ITEM_ARM_BOXES)
-add_box((15.5, 4, 21.5), (19.5, 7, 25.5), "metal", top="dark", target=ITEM_ARM_BOXES)
-add_box((16.7, 3.2, 22.2), (18.3, 5, 24.8), "hot", top="hot", target=ITEM_ARM_BOXES)
-add_box((14.8, 3, 22), (16.2, 5, 23.5), "brass", top="hot", target=ITEM_ARM_BOXES)
-add_box((18.8, 3, 22), (20.2, 5, 23.5), "brass", top="hot", target=ITEM_ARM_BOXES)
+add_box((24, 8, 21.5), (29, 10, 26.5), "dark", top="metal", target=ITEM_ARM_BOXES)
+add_box((22, 9.5, 22), (24.5, 14.5, 24.5), "dark", top="metal", target=ITEM_ARM_BOXES)
+add_box((22.8, 10, 21.7), (23.7, 14, 24.8), "brass", top="metal", target=ITEM_ARM_BOXES)
+add_box((17, 12, 22.2), (22.5, 14.2, 24.3), "dark", top="metal", target=ITEM_ARM_BOXES)
+add_box((17.5, 12.5, 21.9), (22, 13.4, 24.6), "brass", top="metal", target=ITEM_ARM_BOXES)
+add_box((15.8, 10.5, 21.8), (18.8, 13, 24.8), "metal", top="dark", target=ITEM_ARM_BOXES)
+add_box((16.3, 8, 22.3), (18.3, 10.8, 24.3), "hot", top="hot", target=ITEM_ARM_BOXES)
+add_box((15.2, 7.8, 22.5), (16.2, 9.3, 23.5), "brass", top="hot", target=ITEM_ARM_BOXES)
+add_box((18.8, 7.8, 22.5), (19.8, 9.3, 23.5), "brass", top="hot", target=ITEM_ARM_BOXES)
 
 
 def element_from_box(box, start=None, end=None):
@@ -258,40 +258,57 @@ def draw_box(draw, box, yaw, viewport):
         draw.polygon(xy, fill=shade(COLORS[texture], light), outline=(9, 13, 17, 255))
 
 
+def eased_step(phase, start, end):
+    progress = max(0.0, min(1.0, (phase - start) / (end - start)))
+    return progress * progress * (3.0 - 2.0 * progress)
+
+
+def motion_window(phase, move_start, move_end, return_start, return_end):
+    return eased_step(phase, move_start, move_end) * (1.0 - eased_step(phase, return_start, return_end))
+
+
 def arm_points(frame_index, frame_count):
-    cycle = frame_index / frame_count * math.tau
-    sweep = math.sin(cycle * 0.55) * math.radians(17)
-    reach = math.sin(cycle)
-    yaw = math.radians(225) + sweep
-    direction = (math.cos(yaw), math.sin(yaw))
-    base = (24.5, 9.0, 24.0)
-    elbow_distance = 4.3 + reach * 0.5
-    elbow = (base[0] + direction[0] * elbow_distance, 14.1 + reach * 0.6,
-             base[2] + direction[1] * elbow_distance)
-    wrist_distance = 6.8 - reach * 0.7
-    wrist = (elbow[0] + direction[0] * wrist_distance, 8.4 - reach * 0.8,
-             elbow[2] + direction[1] * wrist_distance)
-    tool = (wrist[0] + direction[0] * 1.4, 5.9 + math.sin(cycle * 2.3) * 0.25,
-            wrist[2] + direction[1] * 1.4)
-    return base, elbow, wrist, tool
+    phase = frame_index / frame_count
+    turn = motion_window(phase, 0.04, 0.26, 0.72, 0.94)
+    reach = motion_window(phase, 0.12, 0.32, 0.68, 0.88)
+    weld = motion_window(phase, 0.40, 0.46, 0.58, 0.64)
+    upper_angle = -0.78 + (-0.9195 + 0.78) * reach
+    forearm_angle = 1.60 + (1.7825 - 1.60) * reach
+    yaw = -math.atan2(8.0, 10.5) * turn
+    base = (26.5, 9.0, 24.0)
+
+    elbow_x = 8.0 * math.sin(upper_angle)
+    elbow_model_y = -8.0 * math.cos(upper_angle)
+    wrist_x = elbow_x - 9.0 * math.sin(upper_angle + forearm_angle)
+    wrist_model_y = elbow_model_y + 9.0 * math.cos(upper_angle + forearm_angle)
+
+    def world_point(local_x, model_y):
+        return (base[0] + math.cos(yaw) * local_x,
+                base[1] - model_y,
+                base[2] - math.sin(yaw) * local_x)
+
+    elbow = world_point(elbow_x, elbow_model_y)
+    wrist = world_point(wrist_x, wrist_model_y)
+    tool = (wrist[0], wrist[1] - 1.5, wrist[2])
+    return base, elbow, wrist, tool, weld
 
 
 def draw_arm(draw, yaw, viewport, frame_index, frame_count, sparks):
-    base, elbow, wrist, tool = arm_points(frame_index, frame_count)
+    base, elbow, wrist, tool, weld = arm_points(frame_index, frame_count)
     projected = [project(point, yaw, viewport) for point in (base, elbow, wrist, tool)]
     xy = [(point[0], point[1]) for point in projected]
-    draw.line(xy[:2], fill=COLORS["dark"], width=14)
-    draw.line(xy[1:3], fill=COLORS["metal"], width=13)
-    draw.line(xy[2:4], fill=COLORS["brass"], width=9)
+    draw.line(xy[:2], fill=COLORS["dark"], width=9)
+    draw.line(xy[1:3], fill=COLORS["metal"], width=8)
+    draw.line(xy[2:4], fill=COLORS["brass"], width=5)
     for index, point in enumerate(xy[:3]):
-        radius = 9 if index == 1 else 7
+        radius = 6 if index == 1 else 5
         draw.ellipse((point[0] - radius, point[1] - radius, point[0] + radius, point[1] + radius),
                      fill=COLORS["brass"], outline=(10, 14, 18, 255), width=2)
     tx, ty = xy[3]
-    draw.rectangle((tx - 6, ty - 7, tx + 6, ty + 8), fill=COLORS["hot"], outline=(10, 14, 18, 255))
-    draw.line((tx - 10, ty + 8, tx - 3, ty + 2), fill=COLORS["brass"], width=4)
-    draw.line((tx + 10, ty + 8, tx + 3, ty + 2), fill=COLORS["brass"], width=4)
-    if sparks:
+    draw.rectangle((tx - 4, ty - 5, tx + 4, ty + 5), fill=COLORS["hot"], outline=(10, 14, 18, 255))
+    draw.line((tx - 7, ty + 5, tx - 2, ty + 1), fill=COLORS["brass"], width=3)
+    draw.line((tx + 7, ty + 5, tx + 2, ty + 1), fill=COLORS["brass"], width=3)
+    if sparks and weld > 0.5:
         for angle in range(0, 360, 60):
             radians = math.radians(angle + frame_index * 17)
             length = 5 + (frame_index + angle) % 6

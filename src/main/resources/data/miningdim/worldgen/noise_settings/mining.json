@@ -81,7 +81,7 @@
         "type": "minecraft:condition",
         "if_true": {
           "type": "minecraft:biome",
-          "biome_is": [ "miningdim:mining_hard" ]
+          "biome_is": [ "miningdim:mining_hard", "miningdim:mining_hard_dripstone", "miningdim:mining_hard_deepdark" ]
         },
         "then_run": {
           "type": "minecraft:block",
@@ -92,7 +92,7 @@
         "type": "minecraft:condition",
         "if_true": {
           "type": "minecraft:biome",
-          "biome_is": [ "miningdim:mining_medium" ]
+          "biome_is": [ "miningdim:mining_medium", "miningdim:mining_medium_lush", "miningdim:mining_medium_dripstone" ]
         },
         "then_run": {
           "type": "minecraft:condition",

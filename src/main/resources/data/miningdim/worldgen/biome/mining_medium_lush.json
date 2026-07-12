@@ -1,0 +1,87 @@
+{
+  "temperature": 0.5,
+  "downfall": 0.0,
+  "has_precipitation": false,
+  "effects": {
+    "fog_color": 12638463,
+    "water_color": 4159204,
+    "water_fog_color": 329011,
+    "sky_color": 8103167,
+    "mood_sound": {
+      "sound": "minecraft:ambient.cave",
+      "tick_delay": 6000,
+      "block_search_extent": 8,
+      "offset": 2.0
+    },
+    "music": {
+      "sound": "minecraft:music.overworld.lush_caves",
+      "min_delay": 12000,
+      "max_delay": 24000,
+      "replace_current_music": false
+    }
+  },
+  "spawners": {
+    "monster": [],
+    "creature": [],
+    "ambient": [],
+    "axolotls": [],
+    "underground_water_creature": [],
+    "water_creature": [],
+    "water_ambient": [],
+    "misc": []
+  },
+  "spawn_costs": {},
+  "carvers": {
+    "air": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
+  },
+  "features": [
+    [],
+    [],
+    [
+      "miningdim:amethyst_geode"
+    ],
+    [
+      "minecraft:monster_room",
+      "minecraft:monster_room_deep"
+    ],
+    [],
+    [],
+    [
+      "miningdim:medium_ore_coal",
+      "miningdim:medium_ore_copper",
+      "miningdim:medium_ore_iron",
+      "miningdim:medium_ore_lapis",
+      "miningdim:medium_ore_gold",
+      "miningdim:medium_ore_diamond",
+      "miningdim:medium_ore_dirt",
+      "miningdim:medium_ore_gravel",
+      "miningdim:medium_ore_granite",
+      "miningdim:medium_ore_diorite",
+      "miningdim:medium_ore_andesite",
+      "miningdim:trap_fake_ore",
+      "miningdim:trap_collapsing_tunnel",
+      "miningdim:trap_tnt_vein",
+      "miningdim:trap_lava_pocket"
+    ],
+    [],
+    [
+      "miningdim:mining_spring_water",
+      "miningdim:medium_spring_lava"
+    ],
+    [
+      "minecraft:glow_lichen",
+      "minecraft:lush_caves_ceiling_vegetation",
+      "minecraft:cave_vines",
+      "minecraft:lush_caves_clay",
+      "minecraft:lush_caves_vegetation",
+      "minecraft:rooted_azalea_tree",
+      "minecraft:spore_blossom",
+      "minecraft:classic_vines_cave_feature"
+    ],
+    []
+  ]
+}

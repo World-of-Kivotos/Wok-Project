@@ -451,5 +451,7 @@
   "tooltip.miningdim.gunsmith_press.preview_only": "Consumes materials and places the finished part in the center.",
   "tooltip.miningdim.gunsmith_press.start": "Consumes materials and places the finished part in the center.",
   "subtitles.miningdim.munitions_bench_weld": "Munitions bench welding",
-  "subtitles.miningdim.gunsmith_press_hydraulic": "Mechanical press hydraulics"
+  "subtitles.miningdim.gunsmith_press_hydraulic": "Mechanical press hydraulics",
+  "itemGroup.miningdim_gunsmith": "Gunsmith",
+  "message.miningdim.gunsmith.disabled": "The gunsmith press is not open yet (pending balance review)."
 }

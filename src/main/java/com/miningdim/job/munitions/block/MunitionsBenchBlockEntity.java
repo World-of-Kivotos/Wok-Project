@@ -157,8 +157,10 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
                 case DATA_BUFFER_CAP -> bufferCap();
                 case DATA_LOCKED -> locked ? 1 : 0;
                 case DATA_REFINE_UNLOCKED -> refineUnlockedForOwnerCache ? 1 : 0;
-                case DATA_PRODUCTION_PROGRESS_TICKS -> productionProgressTicks();
-                case DATA_PRODUCTION_REQUIRED_TICKS -> productionRequiredTicks();
+                // 以秒过线 (审查 M-9): vanilla ClientboundContainerSetDataPacket 的 value 是 int16, 默认配置
+                // L1 一批 = 57600 ticks 直发即符号回绕 (进度条恒空); 秒粒度上限 32767s=9.1h 足够, Menu 侧 x20 还原。
+                case DATA_PRODUCTION_PROGRESS_TICKS -> productionProgressTicks() / 20;
+                case DATA_PRODUCTION_REQUIRED_TICKS -> productionRequiredTicks() / 20;
                 case DATA_EFFECTIVE_LEVEL -> ownerLevelCache;
                 case DATA_CRAFTING_ACTIVE -> craftingActive ? 1 : 0;
                 case DATA_CONTINUOUS_CRAFTING -> continuousCrafting ? 1 : 0;

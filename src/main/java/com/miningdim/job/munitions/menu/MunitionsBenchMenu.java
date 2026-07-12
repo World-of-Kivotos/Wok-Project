@@ -219,11 +219,12 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
     }
 
     public int productionProgressTicks() {
-        return data.get(MunitionsBenchBlockEntity.DATA_PRODUCTION_PROGRESS_TICKS);
+        // 服务端按秒过线 (int16 规避, 见 BE dataAccess), 此处 x20 还原 ticks; 秒粒度对进度条视觉无感。
+        return data.get(MunitionsBenchBlockEntity.DATA_PRODUCTION_PROGRESS_TICKS) * 20;
     }
 
     public int productionRequiredTicks() {
-        return data.get(MunitionsBenchBlockEntity.DATA_PRODUCTION_REQUIRED_TICKS);
+        return data.get(MunitionsBenchBlockEntity.DATA_PRODUCTION_REQUIRED_TICKS) * 20;
     }
 
     public int effectiveMunitionsLevel() {

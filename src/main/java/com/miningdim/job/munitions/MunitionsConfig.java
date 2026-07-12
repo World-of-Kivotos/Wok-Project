@@ -68,6 +68,14 @@ public final class MunitionsConfig {
     /** 解锁提炼 (发射药翻倍) 的军火商等级 (六章 L6)。 */
     public static final ForgeConfigSpec.IntValue REFINE_UNLOCK_LEVEL;
 
+    // ---- 3A 章: 枪匠冲压子系统总开关 (WIP) ----
+    /**
+     * 枪匠冲压 (gunsmith press) 功能门 (审查 C-2/G-1~G-4): 子系统属 3A 章试作 —— 输入材料物品未注册、
+     * 生存获取链未落地、TACZ 加伤数值未过战力评审, 默认关闭。启用前置: 完善分支补齐材料校验/归属门控/
+     * 原子结算/破坏掉落/测试, 且加伤系数过经济与战力总表评审。
+     */
+    public static final ForgeConfigSpec.BooleanValue GUNSMITH_ENABLED;
+
     // ---- 九章: 工费 sink (1.5 CP/发, ×10 锚价整数化为 15/10 发) ----
     /** 每 10 发产弹扣的信用点工费 (整数化锚价; 实发 1.5/发 = 15/10 发, 销毁 = sink)。 */
     public static final ForgeConfigSpec.IntValue WORK_FEE_PER_TEN_ROUNDS;
@@ -176,6 +184,9 @@ public final class MunitionsConfig {
                 .defineInRange("bulletHeadCost", 1, 1, 64);
         RECIPE_PROPELLANT_COST = b.comment("Propellant consumed per production batch (1 propellant = 8 gunpowder)")
                 .defineInRange("propellantCost", 2, 1, 64);
+        GUNSMITH_ENABLED = b.comment("Enable the gunsmith press subsystem (WIP chapter 3A; keep false until"
+                        + " material items, survival chain, gating and damage coefficients pass review)")
+                .define("gunsmithEnabled", false);
         DIRECT_ROUNDS_PER_BATCH = b.comment("Rounds per batch via direct crafting (L1-5, half yield)")
                 .defineInRange("directRoundsPerBatch", 40, 1, 100000);
         REFINED_ROUNDS_PER_BATCH = b.comment("Rounds per batch via refining into propellant (L6+, double yield, profit inflection)")

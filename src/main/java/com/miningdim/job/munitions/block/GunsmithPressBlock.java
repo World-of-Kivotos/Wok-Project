@@ -1,8 +1,10 @@
 package com.miningdim.job.munitions.block;
 
+import com.miningdim.job.munitions.MunitionsConfig;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.InteractionHand;
@@ -64,6 +66,12 @@ public final class GunsmithPressBlock extends HorizontalDirectionalBlock impleme
                                  InteractionHand hand, BlockHitResult hit) {
         if (level.isClientSide) {
             return InteractionResult.SUCCESS;
+        }
+        // 功能门 (审查 C-2/G-1~G-4): 3A 章 WIP 子系统默认关闭, 材料校验/归属门控/加伤评审补齐前不开放交互。
+        if (!MunitionsConfig.GUNSMITH_ENABLED.get()) {
+            player.displayClientMessage(
+                    Component.translatable("message.miningdim.gunsmith.disabled"), true);
+            return InteractionResult.CONSUME;
         }
         if (player instanceof ServerPlayer serverPlayer
                 && level.getBlockEntity(pos) instanceof GunsmithPressBlockEntity be) {

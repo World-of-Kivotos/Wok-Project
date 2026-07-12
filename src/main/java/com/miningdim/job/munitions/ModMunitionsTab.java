@@ -44,6 +44,11 @@ public final class ModMunitionsTab {
                     .icon(() -> GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(),
                             GunsmithPlatform.AR, GunsmithPressPart.CORE, GunsmithPartQuality.LEGENDARY))
                     .displayItems((params, output) -> {
+                        // 功能门: 3A WIP 关闭时页签留空, 不发放任何 gunsmith 物品 (displayItems 在世界内构建,
+                        // SERVER config 此时已加载可读)。
+                        if (!MunitionsConfig.GUNSMITH_ENABLED.get()) {
+                            return;
+                        }
                         output.accept(ModMunitionsItems.GUNSMITH_PRESS_ITEM.get());
                         output.accept(ModMunitionsItems.M4_ASSEMBLY_TEMPLATE.get());
                         GunsmithPartItem.addCreativeStacks(output);

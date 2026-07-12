@@ -452,5 +452,6 @@
   "tooltip.miningdim.gunsmith_press.preview_only": "消耗材料，冲压完成后从中间取出成品。",
   "tooltip.miningdim.gunsmith_press.start": "消耗材料，冲压完成后从中间取出成品。",
   "subtitles.miningdim.munitions_bench_weld": "军火台电焊作业",
-  "subtitles.miningdim.gunsmith_press_hydraulic": "机械冲压机液压作业"
+  "subtitles.miningdim.gunsmith_press_hydraulic": "机械冲压机液压作业",
+  "message.miningdim.gunsmith.disabled": "枪匠冲压尚未开放 (等待数值与经济评审)。"
 }

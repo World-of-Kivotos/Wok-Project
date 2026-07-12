@@ -36,6 +36,12 @@ public final class M4AssemblyTemplateItem extends Item {
         if (!(player instanceof ServerPlayer serverPlayer)) {
             return InteractionResultHolder.pass(held);
         }
+        // 功能门 (审查 G-1): 组枪出口与冲压同关, 3A 章 WIP 全链默认关闭。
+        if (!com.miningdim.job.munitions.MunitionsConfig.GUNSMITH_ENABLED.get()) {
+            player.displayClientMessage(
+                    Component.translatable("message.miningdim.gunsmith.disabled"), true);
+            return InteractionResultHolder.consume(held);
+        }
 
         Inventory inventory = player.getInventory();
         EnumMap<GunsmithPressPart, Integer> slots = findRequiredPartSlots(inventory);

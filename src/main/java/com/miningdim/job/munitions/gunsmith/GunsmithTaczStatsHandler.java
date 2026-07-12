@@ -29,6 +29,11 @@ public final class GunsmithTaczStatsHandler {
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onAttachmentProperty(AttachmentPropertyEvent event) {
+        // 功能门 (审查 G-1): 事件体内查 config (SERVER config 于世界加载后可用, 注册期不可读);
+        // 关闭时存量枪械的旁挂系数一并失效, 加伤数值过评审前不生效。
+        if (!com.miningdim.job.munitions.MunitionsConfig.GUNSMITH_ENABLED.get()) {
+            return;
+        }
         ItemStack gun = event.getGunItem();
         GunsmithGunStats stats = GunsmithGunStats.from(gun);
         if (stats == null) {
@@ -47,6 +52,10 @@ public final class GunsmithTaczStatsHandler {
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onGunHurt(EntityHurtByGunEvent.Pre event) {
         if (event.getLogicalSide() != LogicalSide.SERVER) {
+            return;
+        }
+        // 同 onAttachmentProperty: 3A WIP 功能门, 关闭时加伤链整体不生效。
+        if (!com.miningdim.job.munitions.MunitionsConfig.GUNSMITH_ENABLED.get()) {
             return;
         }
         ItemStack gun = findGunsmithGun(event.getAttacker(), event.getGunId());

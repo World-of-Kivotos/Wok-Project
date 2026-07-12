@@ -668,7 +668,183 @@ public final class MunitionsGameTests {
         }
     }
 
+    // ============================================================
+    // 手动制作路径 (双模式; 审查 M-1/M-2/M-3/M-5 回归)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void manualCraftAtomicSettlement(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService(5); // L5: 步枪直造 40/批。
+        IJobService prevJob = swapJob(job);
+        EconomyWalletData ledger = new EconomyWalletData();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            MunitionsBenchBlockEntity be = newBench(helper, player);
+            helper.assertTrue(be.trySelectCaliber(MunitionsCaliber.RIFLE, player), "select RIFLE at L5");
+            stockParts(be, 1);
+            ledger.credit(player.getUUID(), Currency.CREDIT, 1000L);
+
+            // 开工帧只校验不扣料 (M-2): 开工成功后四件套仍原样在槽。
+            helper.assertTrue(be.tryStartCraft(player), "owner starts a manual craft");
+            assertPartCounts(helper, be, 1);
+
+            // 取消零损失 (M-2): 材料原样, 缓冲/余额分文不动。
+            helper.assertTrue(be.cancelCraft(player), "owner cancels the running craft");
+            assertPartCounts(helper, be, 1);
+            helper.assertTrue(be.bufferedRounds() == 0, "cancel leaves buffer untouched");
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 1000L,
+                    "cancel charges nothing");
+
+            // 完成帧原子结算: 重新开工, 回拨 craftingStartTick 使批已到期, settleForOwner 走手动完成分支
+            // -> 扣料 + 入缓冲 + 工费 + 经验一次落账 (删 finishActiveCraft 的 consume/charge 任一环此组断言必挂)。
+            helper.assertTrue(be.tryStartCraft(player), "restart the craft");
+            backdateCraftStart(be, helper);
+            be.settleForOwner(player);
+            helper.assertTrue(be.bufferedRounds() == 40,
+                    "finished manual batch buffers exactly 40 rounds, got " + be.bufferedRounds());
+            assertPartCounts(helper, be, 0);
+            long expectedBalance = 1000L - MunitionsProduction.workFee(40);
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == expectedBalance,
+                    "work fee for 40 rounds charged exactly once on completion, got "
+                            + ledger.balance(player.getUUID(), Currency.CREDIT));
+            helper.assertTrue(job.lastRawXp == 40L, "raw xp equals produced rounds (40)");
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void manualCraftForfeitsWithoutMaterialsButKeepsThem(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService(5);
+        IJobService prevJob = swapJob(job);
+        EconomyWalletData ledger = new EconomyWalletData();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            MunitionsBenchBlockEntity be = newBench(helper, player);
+            be.trySelectCaliber(MunitionsCaliber.RIFLE, player);
+            stockParts(be, 1);
+            // 余额不足 40 发工费 (60 CP): 完成帧扣费失败 -> 本批作废, 但材料分文不扣 ("扣不动则料不扣")。
+            ledger.credit(player.getUUID(), Currency.CREDIT, 10L);
+            helper.assertTrue(be.tryStartCraft(player), "start with insufficient balance (charge deferred)");
+            backdateCraftStart(be, helper);
+            be.settleForOwner(player);
+            helper.assertTrue(be.bufferedRounds() == 0, "failed fee forfeits the batch: nothing buffered");
+            assertPartCounts(helper, be, 1);
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 10L,
+                    "failed charge leaves balance untouched");
+            helper.assertFalse(be.saveWithoutMetadata().getBoolean("CraftingActive"),
+                    "failed batch stops the machine (no continuous spin)");
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void manualCraftOwnerOnly(GameTestHelper helper) {
+        ServerPlayer owner = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        ServerPlayer stranger = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService(5);
+        IJobService prevJob = swapJob(job);
+        EconomyWalletData ledger = new EconomyWalletData();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            MunitionsBenchBlockEntity be = newBench(helper, owner);
+            be.trySelectCaliber(MunitionsCaliber.RIFLE, owner);
+            stockParts(be, 1);
+            // 未上锁也不放行 (M-3): 开工/连续开关/取消全部限台主, 产量/工费/经验天然同源 owner。
+            helper.assertFalse(be.tryStartCraft(stranger), "stranger cannot start on an unlocked bench");
+            helper.assertFalse(be.toggleContinuousCrafting(stranger), "stranger cannot toggle continuous mode");
+            helper.assertTrue(be.tryStartCraft(owner), "owner starts");
+            helper.assertFalse(be.cancelCraft(stranger), "stranger cannot cancel the owner batch");
+            helper.assertTrue(be.cancelCraft(owner), "owner cancels");
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchTierClampsEffectiveLevel(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService(6); // L6: 狙击解锁线。
+        IJobService prevJob = swapJob(job);
+        EconomyWalletData ledger = new EconomyWalletData();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            // MEDIUM 台 maxEffectiveLevel=4: L6 玩家被钳到 L4, SNIPER (L6 门) 拒选; RIFLE (L3 门) 放行。
+            // 删 effectiveLevelFor 的 Math.min 钳制, SNIPER 断言必挂。
+            MunitionsBenchBlockEntity medium =
+                    newBench(helper, player, ModMunitionsBlocks.MUNITIONS_BENCH_MEDIUM.get());
+            helper.assertFalse(medium.trySelectCaliber(MunitionsCaliber.SNIPER, player),
+                    "medium bench clamps L6 owner to L4: sniper rejected");
+            helper.assertTrue(medium.trySelectCaliber(MunitionsCaliber.RIFLE, player),
+                    "rifle (L3 gate) still selectable under the clamp");
+            // 旧注册名恢复全档 (M-5 存量兼容): 同一 L6 玩家在旧台 SNIPER 放行 (回归降档必挂)。
+            MunitionsBenchBlockEntity legacy =
+                    newBench(helper, player, ModMunitionsBlocks.MUNITIONS_BENCH.get());
+            helper.assertTrue(legacy.trySelectCaliber(MunitionsCaliber.SNIPER, player),
+                    "legacy munitions_bench keeps full capability for existing benches");
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void quickMoveNeverMergesIntoOutputSlot(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService(5);
+        IJobService prevJob = swapJob(job);
+        try {
+            MunitionsBenchBlockEntity be = newBench(helper, player);
+            MunitionsBenchMenu menu = openBenchMenu(be, player);
+            // 构造 M-7 场景 (注入放在开 menu 之后, 防 onAccess 的输出刷新覆盖注入): 输出槽注入与玩家手中
+            // 同种的物品 (测试注入绕过 mayPlace), 料槽占满 -> vanilla moveItemStackTo 的合并分支若目标区间含
+            // 输出槽, 会把玩家的 8 个并进输出槽 (随后被 refreshOutputStack 覆盖销毁)。修复后目标区间止步
+            // 输出槽, 输出槽数量必须保持 8。
+            be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT,
+                    new ItemStack(ModMunitionsItems.PRIMER.get(), 8));
+            be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER,
+                    new ItemStack(ModMunitionsItems.PRIMER.get(), 64));
+            player.getInventory().setItem(0, new ItemStack(ModMunitionsItems.PRIMER.get(), 8));
+            int playerSlotIndex = -1;
+            for (int i = 5; i < menu.slots.size(); i++) {
+                if (menu.slots.get(i).getItem().is(ModMunitionsItems.PRIMER.get())) {
+                    playerSlotIndex = i;
+                    break;
+                }
+            }
+            helper.assertTrue(playerSlotIndex >= 0, "player primer stack visible in menu");
+            menu.quickMoveStack(player, playerSlotIndex);
+            helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT)
+                            .getCount() == 8,
+                    "shift-clicked primers must NOT merge into the output slot (kept 8), got "
+                            + be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT).getCount());
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
     // ---- 测试辅助 ----
+
+    /**
+     * 把开工中的批次 craftingStartTick 经 NBT 注入回拨到远古, 使下一次 settleForOwner 判定本批已到期
+     * (与 backdateSettleTick 同一确定性手段; 开工状态 CraftingActive/CraftingCaliber 随 NBT 往返原样保留)。
+     */
+    private static void backdateCraftStart(MunitionsBenchBlockEntity be, GameTestHelper helper) {
+        net.minecraft.nbt.CompoundTag tag = be.saveWithoutMetadata();
+        tag.putLong("CraftingStartTick", helper.getLevel().getGameTime() - 10_000_000L);
+        be.load(tag);
+    }
 
     /** 在 helper 世界 (0,1,0) 放一个军火台 BE, 设主人为 player, 锚定首帧时间戳并返回。 */
     private static MunitionsBenchBlockEntity newBench(GameTestHelper helper, ServerPlayer owner) {

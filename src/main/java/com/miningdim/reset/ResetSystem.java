@@ -125,8 +125,10 @@ public final class ResetSystem implements Subsystem, IResetService {
             return CompletableFuture.failedFuture(
                     new IllegalStateException("reset: instance " + instanceId + " does not exist"));
         }
-        // 13.2: 仅 READY/READY_FALLBACK 可重置; RESETTING/GENERATING/已回收均拒绝。
-        if (!inst.genState().isEnterable()) {
+        // 13.2: READY/READY_FALLBACK/FAILED 可重置; RESETTING/GENERATING/PENDING/已回收拒绝。
+        // FAILED 放行是关键恢复出口: 真服"卸载超时转 FAILED"后, 实例必须能被再次 /mining reset 自救,
+        // 否则砖死到重启 (2026-07-12 真服实测)。注意不改 isEnterable 本身 —— 它同时守 enter 路径, FAILED 仍不可进入。
+        if (!isResettable(inst.genState())) {
             return CompletableFuture.failedFuture(new IllegalStateException(
                     "reset: instance " + instanceId + " not in resettable state (" + inst.genState() + ")"));
         }
@@ -198,6 +200,15 @@ public final class ResetSystem implements Subsystem, IResetService {
         player.teleportTo(targetLevel, targetPos.getX() + 0.5, targetPos.getY(), targetPos.getZ() + 0.5,
                 player.getYRot(), player.getXRot());
         dataOpt.ifPresent(IMiningPlayerData::clearMiningState);
+    }
+
+    /**
+     * 13.2 可重置状态门: READY/READY_FALLBACK/FAILED 三态放行; RESETTING/GENERATING/PENDING/RECYCLED 拒绝。
+     * 独立于 {@link GenState#isEnterable()} —— 后者守玩家 enter 路径 (FAILED 不可进入), 本判定守运维 reset 路径
+     * (FAILED 必须可重置以自救)。抽为静态谓词以便 GameTest 精确锁死 (删 FAILED 分支对应用例必挂)。
+     */
+    static boolean isResettable(GenState state) {
+        return state == GenState.READY || state == GenState.READY_FALLBACK || state == GenState.FAILED;
     }
 
     /** NEW_SEED 自增重置代数; SAME_SEED 不改 (复用原 seed, 逐位相同), 返回当前代数 (13.5)。 */

@@ -124,6 +124,21 @@ public final class GenerationScheduler {
         }
     }
 
+    /**
+     * 从分帧队列移除指定实例尚未消费的残留区块强加载任务 (reset UNLOAD 断源调用), 返回清除数。主线程。
+     *
+     * tickChunkLoads 虽已有 isEnterable 守卫会丢弃 RESETTING 实例的残留任务, 但那是"消费到才丢";
+     * 开机预热期队列积压数百个任务时, 重置若不显式清队, AWAIT_UNLOAD 等待窗口内仍可能被逐 tick 消费触碰。
+     * 此处一次性断源, 令重置的卸载等待不与旧排队任务竞争。
+     */
+    public int cancelQueuedLoads(long instanceId) {
+        int before = chunkLoadQueue.size();
+        chunkLoadQueue.removeIf(task -> task.instanceId() == instanceId);
+        int cleared = before - chunkLoadQueue.size();
+        LOGGER.debug("[miningdim] cancelled {} queued chunk-load task(s) for instance {}", cleared, instanceId);
+        return cleared;
+    }
+
     /** 回收/离场空置时释放该 region 强加载票, 允许区块自然卸载 (主线程)。 */
     public void release(InstanceState instance) {
         ServerLevel level = server.getLevel(MiningConstants.MINING_LEVEL);

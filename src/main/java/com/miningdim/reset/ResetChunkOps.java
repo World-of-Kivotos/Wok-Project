@@ -27,6 +27,13 @@ interface ResetChunkOps {
     int clearTrapRegistry();
 
     /**
+     * UNLOAD: 从离线生成调度器的分帧强加载队列清除本实例尚未消费的残留区块任务, 返回清除数。
+     * 开机预热期队列积压数百任务, 若不断源, AWAIT_UNLOAD 等待窗口内它们仍可能被 tickChunkLoads 逐 tick
+     * 触碰而拖长卸载。经 core 门面 (IInstanceManager) 下达, 不 import instance 实现类。幂等 (队列无本实例任务返回 0)。
+     */
+    int cancelQueuedLoads();
+
+    /**
      * AWAIT_UNLOAD: region 的 16x16 个 chunk 是否已全部无任何 ChunkHolder (卸载完成)。
      * "无 holder"判据取 ChunkMap.updatingChunkMap (当前全部 holder 的权威超集), 而非 hasChunk/getChunkNow
      * (仅覆盖 FULL 级)。全部无 holder 才可安全删存档 —— 否则残留 holder 卸载时会把区块重新写回, 覆盖删除。

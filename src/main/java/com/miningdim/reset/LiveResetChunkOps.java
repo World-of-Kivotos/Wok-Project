@@ -2,6 +2,7 @@ package com.miningdim.reset;
 
 import com.miningdim.chunk.ChunkServices;
 import com.miningdim.core.MiningConstants;
+import com.miningdim.core.MiningServices;
 import com.miningdim.core.RegionBox;
 import com.miningdim.trap.TrapRegistry;
 import net.minecraft.core.BlockPos;
@@ -75,6 +76,12 @@ final class LiveResetChunkOps implements ResetChunkOps {
             }
         }
         return cleared;
+    }
+
+    @Override
+    public int cancelQueuedLoads() {
+        // 模块化铁律 2: 经 core 门面下达, 不 import GenerationScheduler; 门面转发到调度器清队。
+        return MiningServices.instanceManager().cancelQueuedChunkLoads(instanceId);
     }
 
     @Override

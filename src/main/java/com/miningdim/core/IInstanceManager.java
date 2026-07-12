@@ -48,6 +48,13 @@ public interface IInstanceManager {
     /** 释放/销毁指定实例的入口 (供 ResetService 回收或运维清理); 实现负责 region free 与 SavedData setDirty。主线程。 */
     void release(long instanceId);
 
+    /**
+     * 从离线生成调度器的分帧强加载队列移除指定实例尚未消费的残留区块任务, 返回清除数 (供 ResetService 在
+     * UNLOAD 断源, 避免卸载等待与旧排队任务竞争)。模块化铁律 2: reset 子系统经此门面调用, 不 import
+     * instance 实现类与 GenerationScheduler。主线程。
+     */
+    int cancelQueuedChunkLoads(long instanceId);
+
     /** 当前存活实例数 (含 GENERATING), 用于 globalCap 校验。 */
     int activeInstanceCount();
 

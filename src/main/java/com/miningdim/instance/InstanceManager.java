@@ -470,6 +470,11 @@ public final class InstanceManager implements IInstanceManager {
         pollQueue();
     }
 
+    @Override
+    public int cancelQueuedChunkLoads(long instanceId) {
+        return scheduler.cancelQueuedLoads(instanceId);
+    }
+
     // ---- 空实例 GC (12.6) ----
 
     /**

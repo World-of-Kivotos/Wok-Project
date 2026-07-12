@@ -96,6 +96,8 @@ CLAUDE.md/Codex.md — 工程协作规范
 
 绝对身份纯洁： 严禁在 Commit 信息中添加 Co-Authored-By: Claude 或任何 AI 署名。所有提交仅保留我个人的签名，保持提交历史干净纯粹。
 
+严禁直推 main： 所有改动一律走功能分支 + Pull Request 合并，严禁 git push 直达 main（私有仓库免费计划无服务端分支保护，仓库内置 .githooks/pre-push 为客户端拦截；每个新克隆必须先执行一次 git config core.hooksPath .githooks 使其生效）。严禁使用 --no-verify 绕过该 hook（仅限人类在事故修复时口头同步全员后使用）。
+
 六、八荣八耻
 以瞎猜接口为耻，以认真查询为荣。
 以模糊执行为耻，以寻求确认为荣。

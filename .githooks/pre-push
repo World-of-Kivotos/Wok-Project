@@ -1,0 +1,13 @@
+#!/bin/sh
+# 禁直推 main (客户端兜底): 私有仓库 + GitHub 免费组织计划无服务端分支保护,
+# 本 hook 在每个克隆上拦 push main; 合并一律走分支 + Pull Request。
+# 生效前提 (每个克隆配置一次): git config core.hooksPath .githooks
+# 紧急直推 (事故修复, 需口头同步全员): git push --no-verify
+while read -r local_ref local_sha remote_ref remote_sha; do
+    if [ "$remote_ref" = "refs/heads/main" ]; then
+        echo "[wok] 禁止直推 main: 请建分支并走 Pull Request 合并。" >&2
+        echo "[wok] 紧急绕过 (仅限事故修复): git push --no-verify" >&2
+        exit 1
+    fi
+done
+exit 0

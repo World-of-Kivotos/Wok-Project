@@ -3,7 +3,6 @@ package com.miningdim.instance;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
 import com.miningdim.core.Subsystem;
-import com.miningdim.worldgen.MiningVoxelLookup;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraftforge.event.TickEvent;
@@ -26,8 +25,8 @@ import org.slf4j.LoggerFactory;
  *   故本子系统不再注册玩家 Capability、不订阅玩家生命周期离开事件 —— 避免与 entry 重复 attach 能力、
  *   重复触发 onPlayerLeave (双重引用计数/双重传送)。本子系统只持有实例后端与服务端生命周期驱动。
  *
- * 注入顺序: ConfigSystem 须排在本子系统之前 (InstanceManager 构建时读 config); WorldgenSystem 须排在前
- * (本子系统在 ServerStartedEvent 把离线调度器的 voxelsOf 接进 worldgen 的 MiningVoxelLookup seam)。
+ * 注入顺序: ConfigSystem 须排在本子系统之前 (InstanceManager 构建时读 config)。原"WorldgenSystem 须排在前
+ * 以把 voxelsOf 接进 MiningVoxelLookup seam"的约束已随体素管线判废移除 (维度用 minecraft:noise, seam 无活消费者)。
  */
 public final class InstanceSystem implements Subsystem {
 
@@ -61,12 +60,9 @@ public final class InstanceSystem implements Subsystem {
         MiningServices.registerInstanceManager(manager);
         manager.rebuildFromStorage();
 
-        // worldgen 的 MiningChunkGenerator 经 MiningVoxelLookup.resolve(id) 查冻结体素落方块; 此处把离线
-        // 调度器的 voxelsOf 接进该 seam (单向依赖 worldgen seam, 无环, 满足铁律 2)。provider 设置前
-        // resolve 返回 null, ChunkGenerator 安全降级填实心墙, 不崩服。
-        InstanceManager bound = manager;
-        MiningVoxelLookup.setProvider(bound.scheduler()::voxelsOf);
-
+        // 原此处把离线调度器的 voxelsOf 接进 worldgen 的 MiningVoxelLookup seam, 供 MiningChunkGenerator 查体素落方块。
+        // 维度改用 minecraft:noise 生成 + 原版 ore feature 后 MiningChunkGenerator 从不被实例化, 该 seam 无活消费者,
+        // 故不再接线 (provider 未设 -> resolve 恒 null, 与原"未就绪填实心"同处置, 死路径不触达)。
         LOGGER.info("[miningdim] instance subsystem online");
     }
 

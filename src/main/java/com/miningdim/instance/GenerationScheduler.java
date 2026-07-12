@@ -5,7 +5,6 @@ import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
 import com.miningdim.core.RegionBox;
-import com.miningdim.core.VoxelOccupancy;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraftforge.common.world.ForgeChunkManager;
@@ -14,9 +13,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -24,16 +20,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 离线生成调度器 (设计文档 7.9 / D2 / D8)。职责:
- *   1. 持有一个与 MC chunk worker 隔离的固定 ExecutorService (poolSize = config.maxGenWorkers)。
- *   2. submit(): 把实例置 GENERATING, 调 IOfflineGenerator.generate 提交体素计算到工作线程;
- *      完成后经 server.execute 回主线程缓存体素并把 genState 置 READY (异常 -> FAILED + 兜底)。
- *   3. 维护"已就绪实例的强加载区块"分帧队列: 每 tick 限速 force-load 若干区块, 触发 MiningChunkGenerator
- *      按缓存体素落方块, 避免一次性加载整 region 卡主线程 (绝不主线程逐块 setBlock, 13 章 Critical)。
- *   4. 暴露 voxelsOf(instanceId): 供 worldgen 子系统的 ChunkGenerator 查表落方块 (阶段2 接线点)。
+ * 离线生成调度器 (设计文档 7.9)。原设计的自定义离线体素管线 (IOfflineGenerator -> voxelsOf ->
+ * MiningChunkGenerator 落方块) 已判废: 维度改用 minecraft:noise 生成 + 原版 ore feature, MiningChunkGenerator
+ * 从不被实例化, 故 submit 不再跑体素计算 (原"首次 enter 慢"根源)。当前职责收敛为:
+ *   1. submit(): 直接把实例置 READY 并通知终态回调 (兑现挂起的 allocate future)。
+ *   2. 维护 region 强加载区块的分帧队列: 每 tick 限速 force-load 若干区块, 触发原版噪声生成落地形,
+ *      避免一次性加载整 region 卡主线程 (绝不主线程逐块 setBlock, 13 章 Critical)。
  *
- * 线程纪律 (D8): generate 在工作线程纯计算; genState 写、force-load 写均经 server.execute 回主线程。
- * 体素缓存用 ConcurrentHashMap 是读侧防御 (ChunkGenerator 可能在区块 worker 线程读), 写仍主线程串行。
+ * 线程纪律 (D8): 全部方法均主线程调用 (由 InstanceManager 串行)。
  */
 public final class GenerationScheduler {
 
@@ -44,9 +38,6 @@ public final class GenerationScheduler {
 
     /** 工作线程池; 大小 = config.maxGenWorkers, 与 MC chunk worker 隔离 (7.9.2)。 */
     private final ExecutorService genPool;
-
-    /** instanceId -> 冻结体素视图。生成完成后写入, 重置/回收时移除。读侧可跨线程 (区块 worker)。 */
-    private final Map<Long, VoxelOccupancy> voxelCache = new ConcurrentHashMap<>();
 
     /**
      * 待分帧 force-load 的区块任务队列 (主线程独占, 故用非并发 ArrayDeque)。
@@ -84,51 +75,15 @@ public final class GenerationScheduler {
     }
 
     /**
-     * 为实例提交离线生成 (7.9.1 步骤 2-5)。前置: 实例已登记、genState == PENDING。
-     * 完成后回主线程: 缓存体素、入队 region 区块强加载、genState=READY; 异常 -> FAILED 并记日志,
-     * 兜底由上层 (ResetService/运维) 决定重试 —— 本调度器不静默吞异常 (C9)。
-     * 仅主线程调用 (由 InstanceManager 串行)。
+     * 为实例提交生成 (7.9.1)。前置: 实例已登记、genState == PENDING。同步在主线程完成: 置 READY、入队 region
+     * 区块分帧强加载 (触发原版噪声落地形)、通知终态回调兑现挂起的 allocate future。不再有工作线程异步窗口 ——
+     * 自定义体素管线已判废, 无 256x384x256 体素计算等待 (原"首次 enter 慢"根源)。仅主线程调用 (由 InstanceManager 串行)。
      */
     public void submit(InstanceState instance) {
-        instance.setGenState(GenState.GENERATING);
-
-        CompletableFuture<VoxelOccupancy> future = MiningServices.offlineGenerator()
-                .generate(instance.seed(), instance.difficulty(), instance.regionBox());
-
-        future.whenComplete((voxels, error) ->
-                server.execute(() -> onGenerationComplete(instance, voxels, error)));
-    }
-
-    /** 工作线程完成后的主线程收尾 (D8: genState/区块写必经主线程)。 */
-    private void onGenerationComplete(InstanceState instance, VoxelOccupancy voxels, Throwable error) {
-        long id = instance.instanceId();
-
-        // 实例可能在生成途中已被 GC 销毁 (玩家全退 + 回收); 此时不再缓存/加载, 直接丢弃结果。
-        if (instance.genState() == GenState.RECYCLED) {
-            LOGGER.info("[miningdim] instance {} recycled during generation; discarding result", id);
-            return;
-        }
-
-        if (error != null) {
-            instance.setGenState(GenState.FAILED);
-            LOGGER.error("[miningdim] offline generation FAILED for instance {} (difficulty {})",
-                    id, instance.difficulty(), error);
-            onTerminalState.accept(instance);
-            return;
-        }
-
-        if (voxels == null) {
-            // 离线生成器契约要求非异常即返回非 null; 出现 null 视为生成器违约, 不掩盖。
-            instance.setGenState(GenState.FAILED);
-            LOGGER.error("[miningdim] offline generator returned null voxels for instance {} without error", id);
-            onTerminalState.accept(instance);
-            return;
-        }
-
-        voxelCache.put(id, voxels);
         instance.setGenState(GenState.READY);
         enqueueRegionChunkLoads(instance);
-        LOGGER.info("[miningdim] instance {} generation READY ({} voxels)", id, voxels.width() * voxels.height() * voxels.depth());
+        LOGGER.info("[miningdim] instance {} READY (offline voxel generation retired; noise terrain)",
+                instance.instanceId());
         onTerminalState.accept(instance);
     }
 
@@ -148,8 +103,7 @@ public final class GenerationScheduler {
 
     /**
      * 维度 tick 末调用: 限速消费区块强加载队列 (主线程, 7.9 分帧)。每 tick 最多 MAX_CHUNK_LOADS_PER_TICK 个。
-     * force-load 触发区块生成 -> MiningChunkGenerator 读 voxelsOf 落方块。实例若已不再 READY (被重置/回收),
-     * 跳过其残留任务。
+     * force-load 触发区块生成 -> 原版噪声生成落地形。实例若已不再 READY (被重置/回收), 跳过其残留任务。
      */
     public void tickChunkLoads() {
         ServerLevel level = server.getLevel(MiningConstants.MINING_LEVEL);
@@ -170,14 +124,8 @@ public final class GenerationScheduler {
         }
     }
 
-    /** 取实例的冻结体素视图 (ChunkGenerator 查表落方块用; 阶段2 worldgen 接线点)。未就绪返回 null。 */
-    public VoxelOccupancy voxelsOf(long instanceId) {
-        return voxelCache.get(instanceId);
-    }
-
-    /** 重置/回收时清除体素缓存并释放该 region 强加载票 (主线程)。 */
+    /** 回收/离场空置时释放该 region 强加载票, 允许区块自然卸载 (主线程)。 */
     public void release(InstanceState instance) {
-        voxelCache.remove(instance.instanceId());
         ServerLevel level = server.getLevel(MiningConstants.MINING_LEVEL);
         if (level == null) {
             return;
@@ -206,7 +154,6 @@ public final class GenerationScheduler {
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
         }
-        voxelCache.clear();
         chunkLoadQueue.clear();
     }
 

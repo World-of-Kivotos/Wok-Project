@@ -541,11 +541,6 @@ public final class InstanceManager implements IInstanceManager {
         scheduler.tickChunkLoads();
     }
 
-    /** 取调度器 (worldgen 子系统阶段2 经此查 voxelsOf 落方块的接线点; 不暴露给业务侧)。 */
-    public GenerationScheduler scheduler() {
-        return scheduler;
-    }
-
     /** 服务端停止: 关闭线程池, 落盘最终态 (ServerStoppingEvent)。 */
     public void shutdown() {
         scheduler.shutdown();

@@ -7,5 +7,14 @@
         "stream": false
       }
     ]
+  },
+  "gunsmith_press_hydraulic": {
+    "subtitle": "subtitles.miningdim.gunsmith_press_hydraulic",
+    "sounds": [
+      {
+        "name": "miningdim:block/gunsmith_press_hydraulic",
+        "stream": false
+      }
+    ]
   }
 }

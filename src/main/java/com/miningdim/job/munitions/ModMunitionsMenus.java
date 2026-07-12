@@ -1,6 +1,7 @@
 package com.miningdim.job.munitions;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.munitions.menu.GunsmithPressMenu;
 import com.miningdim.job.munitions.menu.MunitionsBenchMenu;
 import com.miningdim.menu.ModMenus;
 import net.minecraft.world.inventory.MenuType;
@@ -24,6 +25,9 @@ public final class ModMunitionsMenus {
     public static final RegistryObject<MenuType<MunitionsBenchMenu>> MUNITIONS_BENCH =
             MENUS.register("munitions_bench",
                     () -> ModMenus.blockMenuType(MunitionsBenchMenu::new));
+    public static final RegistryObject<MenuType<GunsmithPressMenu>> GUNSMITH_PRESS =
+            MENUS.register("gunsmith_press",
+                    () -> ModMenus.blockMenuType(GunsmithPressMenu::new));
 
     public static void register(IEventBus modBus) {
         MENUS.register(modBus);

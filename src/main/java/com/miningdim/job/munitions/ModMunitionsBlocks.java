@@ -1,6 +1,7 @@
 package com.miningdim.job.munitions;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.munitions.block.GunsmithPressBlock;
 import com.miningdim.job.munitions.block.MunitionsBenchBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -26,6 +27,13 @@ public final class ModMunitionsBlocks {
     public static final RegistryObject<Block> MUNITIONS_BENCH_SUPERIOR = registerBench("munitions_bench_superior", 7, 8);
     public static final RegistryObject<Block> MUNITIONS_BENCH_TRANSCENDENT = registerBench("munitions_bench_transcendent", 9, 9);
     public static final RegistryObject<Block> MUNITIONS_BENCH_RADIANT = registerBench("munitions_bench_radiant", 10, 10);
+    public static final RegistryObject<Block> GUNSMITH_PRESS = BLOCKS.register("gunsmith_press",
+            () -> new GunsmithPressBlock(
+                    BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK)
+                            .strength(4.5F, 9.0F)
+                            .requiresCorrectToolForDrops()
+                            .noOcclusion(),
+                    () -> ModMunitionsBlockEntities.GUNSMITH_PRESS.get()));
 
     public static final List<RegistryObject<Block>> ALL_BENCHES = List.of(
             MUNITIONS_BENCH,

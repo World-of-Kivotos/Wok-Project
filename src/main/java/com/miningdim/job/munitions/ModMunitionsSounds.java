@@ -20,6 +20,10 @@ public final class ModMunitionsSounds {
             SOUND_EVENTS.register("munitions_bench_weld",
                     () -> SoundEvent.createVariableRangeEvent(
                             new ResourceLocation(MiningConstants.MODID, "munitions_bench_weld")));
+    public static final RegistryObject<SoundEvent> GUNSMITH_PRESS_HYDRAULIC =
+            SOUND_EVENTS.register("gunsmith_press_hydraulic",
+                    () -> SoundEvent.createVariableRangeEvent(
+                            new ResourceLocation(MiningConstants.MODID, "gunsmith_press_hydraulic")));
 
     public static void register(IEventBus modBus) {
         SOUND_EVENTS.register(modBus);

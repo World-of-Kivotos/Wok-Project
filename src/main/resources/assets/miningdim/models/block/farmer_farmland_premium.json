@@ -1,8 +1,7 @@
 {
-  "parent": "minecraft:block/cube_bottom_top",
+  "parent": "minecraft:block/template_farmland",
   "textures": {
-    "top": "minecraft:block/podzol_top",
-    "bottom": "minecraft:block/dirt",
-    "side": "minecraft:block/podzol_side"
+    "dirt": "miningdim:block/farmer_farmland_premium_side",
+    "top": "miningdim:block/farmer_farmland_premium_top"
   }
 }

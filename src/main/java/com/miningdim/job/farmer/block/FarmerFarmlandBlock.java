@@ -2,10 +2,16 @@ package com.miningdim.job.farmer.block;
 
 import com.miningdim.job.farmer.FarmerTier;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
+import net.minecraftforge.common.IPlantable;
+import net.minecraftforge.common.PlantType;
 
 /**
  * mod 耕地方块, 五档各一个实例 (低/中/高/极品/超凡), 档位在构造时绑定 (FarmingXP_Mod_DesignSpec 表B)。
@@ -24,6 +30,8 @@ import net.minecraft.world.level.block.state.BlockState;
  */
 public final class FarmerFarmlandBlock extends Block {
 
+    private static final VoxelShape SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 15.0D, 16.0D);
+
     private final FarmerTier tier;
 
     public FarmerFarmlandBlock(BlockBehaviour.Properties properties, FarmerTier tier) {
@@ -37,6 +45,17 @@ public final class FarmerFarmlandBlock extends Block {
     /** 本耕地档位 (作物成长速率/产量来源)。 */
     public FarmerTier tier() {
         return tier;
+    }
+
+    @Override
+    public boolean canSustainPlant(BlockState state, BlockGetter level, BlockPos pos,
+                                   Direction facing, IPlantable plantable) {
+        return facing == Direction.UP && plantable.getPlantType(level, pos.above()) == PlantType.CROP;
+    }
+
+    @Override
+    public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        return SHAPE;
     }
 
     /**

@@ -9,14 +9,22 @@ import com.miningdim.economy.EconomyServices;
 import com.miningdim.economy.EconomyWalletData;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.job.JobXpCurve;
-import com.miningdim.job.farmer.item.FarmerItems;
+import com.miningdim.job.farmer.block.FarmerBlocks;
 import com.miningdim.job.farmer.block.FarmerCropBlock;
+import com.miningdim.job.farmer.item.FarmerItems;
 import com.miningdim.testutil.MockGameTestPlayers;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraftforge.common.IPlantable;
+import net.minecraftforge.common.PlantType;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -102,6 +110,26 @@ public final class FarmerGameTests {
                         == FarmlandPlacementGuard.PlaceResult.ALLOW,
                 "L9 player can place SUPREME farmland");
         // 门控优先于上限: 即便已放 0 块, 档位未解锁仍先拒 (顺序: 档位 -> 上限)。
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void farmerFarmlandSustainsForgeCropPlants(GameTestHelper helper) {
+        BlockState state = FarmerBlocks.farmland(FarmerTier.LOW).get().defaultBlockState();
+        BlockPos pos = BlockPos.ZERO;
+
+        helper.assertTrue(state.canSustainPlant(helper.getLevel(), pos, Direction.UP,
+                        new TestPlantable(PlantType.CROP)),
+                "farmer farmland supports Forge CROP plants such as most Farmer's Delight seeds");
+        helper.assertFalse(state.canSustainPlant(helper.getLevel(), pos, Direction.UP,
+                        new TestPlantable(PlantType.WATER)),
+                "farmer farmland must not pretend to be water soil for special aquatic crops");
+        helper.assertFalse(state.canSustainPlant(helper.getLevel(), pos, Direction.UP,
+                        new TestPlantable(PlantType.DESERT)),
+                "farmer farmland must not pretend to be sand for cactus/desert plants");
+        helper.assertFalse(state.canSustainPlant(helper.getLevel(), pos, Direction.NORTH,
+                        new TestPlantable(PlantType.CROP)),
+                "farmer farmland only supports crops planted above it");
         helper.succeed();
     }
 
@@ -530,5 +558,17 @@ public final class FarmerGameTests {
     /** 高级地每小时收获次数 = 60min / 6min间隔 = 10 (表B; 仅吞吐校验用)。 */
     private static int harvestsPerHourHigh() {
         return 60 / FarmerTier.HIGH.growthIntervalMinutes();
+    }
+
+    private record TestPlantable(PlantType type) implements IPlantable {
+        @Override
+        public PlantType getPlantType(BlockGetter level, BlockPos pos) {
+            return type;
+        }
+
+        @Override
+        public BlockState getPlant(BlockGetter level, BlockPos pos) {
+            return Blocks.WHEAT.defaultBlockState();
+        }
     }
 }

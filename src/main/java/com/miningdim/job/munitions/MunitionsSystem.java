@@ -4,19 +4,26 @@ import com.miningdim.core.Subsystem;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.munitions.block.MunitionsBenchBlock;
+import com.miningdim.job.munitions.client.GunsmithPressScreen;
 import com.miningdim.job.munitions.client.MunitionsBenchScreen;
+import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
+import com.miningdim.job.munitions.gunsmith.GunsmithGunTooltip;
+import com.miningdim.job.munitions.gunsmith.GunsmithTaczResourceBootstrap;
+import com.miningdim.job.munitions.gunsmith.GunsmithTaczStatsHandler;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.event.level.BlockEvent;
+import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,6 +46,8 @@ public final class MunitionsSystem implements Subsystem {
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
+        GunsmithTaczResourceBootstrap.registerExportPack();
+
         // 自有 DeferredRegister (顺序: Block -> BlockEntity (依赖 Block) -> Item (依赖 Block) -> Menu -> Tab)。
         ModMunitionsBlocks.register(modBus);
         ModMunitionsBlockEntities.register(modBus);
@@ -53,12 +62,20 @@ public final class MunitionsSystem implements Subsystem {
 
         // forgeBus: 军火台放置上限门控 + 破坏回收计数。
         forgeBus.register(this);
+        modBus.addListener((FMLCommonSetupEvent event) ->
+                event.enqueueWork(() -> {
+                    if (MunitionsAmmoFactory.isTaczLoaded()) {
+                        GunsmithTaczStatsHandler.register(forgeBus);
+                    }
+                }));
 
         // 客户端 Screen 注册 (FMLClientSetupEvent.enqueueWork; 经 DistExecutor 隔离, 防专用服务器触链)。
         modBus.addListener((FMLClientSetupEvent event) ->
                 event.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
-                        () -> () -> MenuScreens.register(
-                                ModMunitionsMenus.MUNITIONS_BENCH.get(), MunitionsBenchScreen::new))));
+                        () -> () -> {
+                            MenuScreens.register(ModMunitionsMenus.MUNITIONS_BENCH.get(), MunitionsBenchScreen::new);
+                            MenuScreens.register(ModMunitionsMenus.GUNSMITH_PRESS.get(), GunsmithPressScreen::new);
+                        })));
 
         LOGGER.info("[miningdim] munitions subsystem registered (munitions bench + passive ammo production)");
     }
@@ -108,6 +125,15 @@ public final class MunitionsSystem implements Subsystem {
         }
         ServerLevel overworld = player.server.overworld();
         MunitionsSavedData.get(overworld).decrement(player.getUUID());
+    }
+
+    @SubscribeEvent
+    public void onItemTooltip(ItemTooltipEvent event) {
+        GunsmithGunStats stats = GunsmithGunStats.from(event.getItemStack());
+        if (stats == null) {
+            return;
+        }
+        GunsmithGunTooltip.append(event.getToolTip(), stats);
     }
 
     @Override

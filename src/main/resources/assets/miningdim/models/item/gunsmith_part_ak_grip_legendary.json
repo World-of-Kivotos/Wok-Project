@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "miningdim:item/gunsmith_part_ak_grip_legendary"
+  }
+}

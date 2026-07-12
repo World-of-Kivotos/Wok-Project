@@ -1,6 +1,10 @@
 package com.miningdim.job.munitions;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
+import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
+import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.CreativeModeTab;
@@ -31,6 +35,18 @@ public final class ModMunitionsTab {
                         output.accept(ModMunitionsItems.CASING.get());
                         output.accept(ModMunitionsItems.BULLET_HEAD.get());
                         output.accept(ModMunitionsItems.PROPELLANT.get());
+                    })
+                    .build());
+
+    public static final RegistryObject<CreativeModeTab> GUNSMITH_TAB = TABS.register("miningdim_gunsmith",
+            () -> CreativeModeTab.builder()
+                    .title(Component.translatable("itemGroup.miningdim_gunsmith"))
+                    .icon(() -> GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(),
+                            GunsmithPlatform.AR, GunsmithPressPart.CORE, GunsmithPartQuality.LEGENDARY))
+                    .displayItems((params, output) -> {
+                        output.accept(ModMunitionsItems.GUNSMITH_PRESS_ITEM.get());
+                        output.accept(ModMunitionsItems.M4_ASSEMBLY_TEMPLATE.get());
+                        GunsmithPartItem.addCreativeStacks(output);
                     })
                     .build());
 

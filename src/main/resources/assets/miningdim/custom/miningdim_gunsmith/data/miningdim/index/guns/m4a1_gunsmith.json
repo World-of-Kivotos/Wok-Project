@@ -1,0 +1,8 @@
+{
+  "name": "枪匠 M4A1",
+  "display": "tacz:m4a1_display",
+  "data": "miningdim:m4a1_gunsmith_data",
+  "type": "rifle",
+  "tooltip": "枪匠模板装配的 M4A1，实际战斗属性由零件 NBT 动态计算。",
+  "sort": 2
+}

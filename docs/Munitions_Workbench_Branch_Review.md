@@ -172,3 +172,92 @@ benchsettlechargesfeeandgrantsxp failed!
 - [ ] 分支上 UI 贴图/双格模型等资产保留
 
 分支的 UI 资产 (贴图/双格模型/自绘字体图集) 与四件套配方的经济方向本身有价值, 建议按上述清单返工后再提合并。
+
+---
+---
+
+# 增量审查 (2026-07-11): a2552da 枪匠冲压子系统
+
+- 审查对象: 提交 a2552da "feat: 同步枪匠冲压与职业资源更新" —— 全新 gunsmith 子系统 (~2178 行 Java / 23 文件 / 331 文件总计): 冲压台方块+BE+Menu+Screen, AR 部件 x 5 品质档, M4 组装模板, TACZ 属性挂接; 另触碰 farmer 耕地方块与测试。
+- 审查方法: 6 维度并行审查 (冲压台权威 / TACZ 集成 / 经济链路 / Screen / 数据模型注册 / 越界与测试), 每发现独立对抗验证; 全量 GameTest 实跑。
+- 结论: 冲压子系统属 **WIP 半成品** (冲压台无合成配方, 输入材料物品未注册, 生存不可达), 但代码已 live 且带 1 项 Critical + 5 项 Major, 上一轮 12 项 finding **全部未修**。整分支维持不可合并。
+
+## 零. 测试实证
+
+- 首跑 3 个 required 失败; 甄别后 `ac1_twentyadultsheepmergetoone` 为 run/ 目录残留配置中毒**假红** (main 侧 6374974 修的正是此问题, 分支缺该提交; 清 run/world+config 后复绿)。
+- 真实状态: 上一轮的 2 个 bench settle 红**依旧未修**; a2552da 自身零新增测试回归 —— 但也是因为 2045 行新子系统**零 GameTest 覆盖**。
+
+## 一. Critical
+
+### C-2. 冲压输入槽零物品身份校验 + 品质玩家直选: 垃圾物品压出 LEGENDARY 加伤部件
+
+- 位置: `GunsmithPressBlockEntity.hasRequiredMaterials/consumeRequiredMaterials` (229-260 行) / `isItemValid` (58-61 行) / `GunsmithPressMenu` 输入槽 (50-55 行, 裸 SlotItemHandler)
+- 三个输入槽 (GUN_PARTS/ALLOY/POLYMER) 只按 `getCount()` 判定与扣料, **完全不校验物品身份**; isItemValid 只拦输出槽; 名义材料 alloy/polymer/gun_parts 物品根本未注册。品质由玩家按钮直选 (`trySelectQuality` 无任何等级钳制, 可直选 LEGENDARY)。
+- 产物链路已 live: 部件 NBT 系数经 `GunsmithTaczStatsHandler.onGunHurt` 第 57 行 `setBaseAmount(base * damage系数)` 真实乘算枪伤 (LEGENDARY 1.36~1.50), 部件 stacksTo(64) 可自由转移。
+- 失败场景: 三槽塞足量鹅卵石 -> 选 AR + LEGENDARY -> 6 分钟产出合法顶级加伤部件, 集齐组装 1.5x 伤害 M4。无本印钞 + 战力叠叠乐, 双违 Economy_BalanceSheet 与职业哲学。
+- 可达性说明 (不改变定级): 冲压台本体无生存配方, 当前经创造/OP/loot 自掉落传播; 但 loot table 已存在, 方块一旦流入生存世界漏洞即全开。两名独立验证者一驳一确认, 采信确认方: WIP 状态不豁免已落库可达的经济+战力漏洞。
+- 修复方向: 输入槽绑定注册材料物品 (isItemValid + mayPlace 双闸) + 品质档按台主职业等级钳制。
+
+## 二. Major
+
+### G-1. TACZ 三轴乘算无全局帽, 违反 "战斗仅少量加成" 职业哲学
+
+- 位置: `GunsmithTaczStatsHandler.onGunHurt` (57/59 行) / `onAttachmentProperty` (40 行)
+- 伤害 x damage系数、爆头倍率 x headshot系数、射速 multiplyInteger(RPM x recoil系数) 三条乘子独立作用, LEGENDARY 单轴最高 1.50; 与 TACZ 原生配件加成、其他职业进攻加成之间**无单点结算总帽** (对照跨职业减伤已有的乘法非线性单点结算+全局帽, 进攻侧完全裸奔)。系数经 `M4AssemblyTemplateItem.stampGunData` 烙进枪 NBT 永久生效。
+- 修复方向: 进攻加成并入全局单点结算帽; 系数区间按职业哲学重标定 (少量加成, 非 +50%)。
+
+### G-2. 冲压结算非原子: 开工帧扣料, 产物延后 600~7200 tick, 无取消无退料 (上轮 M-2 同款)
+
+- 位置: `GunsmithPressBlockEntity.tryStartPreview` (153 行 consumeRequiredMaterials) / `startPressRun` (181-192) / `finishPressRun` (194-208)
+- 开工帧扣光三槽材料, 产物最长 6 分钟后才落; 窗口内无 cancel 按钮 (Menu 无此 id, BE 无此方法)、无退料回滚; 台子中途被破坏 -> 已扣料 + 未来产物双蒸发 (与 G-3 破坏无掉落叠加)。同款非原子模式第二次出现 (上轮 M-2 判 major 未修, 新代码重演), 违反 main 侧 munitions-01 "扣不动则料不扣" 契约。
+- 修复方向: 材料改完成帧与产物同帧结算 (先查后扣); 补 cancel 路径。
+
+### G-3. 冲压台零归属/零职业/零等级门控, 相对同胞军火台范式是子系统内回归
+
+- 位置: `GunsmithPressBlock.use` (63-73 行) / `GunsmithPressMenu.clickMenuButton` (76-95) / BE load/save (无 owner 字段)
+- 同一提交所在子系统的军火台有 setOwner + canAccess + effectiveOwnerLevel 三重范式, 冲压台连 owner 字段都不存: 任意玩家可开任意人放的台、直选 LEGENDARY 开工。与 C-2 叠加即零门槛量产 +50% 伤害部件产线。
+- 修复方向: 克隆军火台的 owner/锁/等级门范式。
+
+### G-4. 冲压台破坏无掉落回收: 4 个真实物品槽内容物静默删除
+
+- 位置: `GunsmithPressBlock` (全类 133 行无 onRemove/playerWillDestroy) / `loot_tables/blocks/gunsmith_press.json` (只掉方块本体)
+- BE 用真实 ItemStackHandler 装玩家放入的材料与产出部件, 破坏时不 dropContents, 全库也无兜底 (MunitionsSystem.onBenchBroken 的 instanceof 只匹配军火台)。破坏 = 槽内全部物品删除。注意: 上一轮旧军火台同款问题被驳回的理由是 "main 既有非分支引入", 冲压台是本提交**全新方块**, 该理由不适用, 为新引入的物品损失点。
+- 修复方向: 覆盖 onRemove 非创造 dropContents 四槽。
+
+### G-5. 2045 行新子系统零 GameTest 覆盖 (上轮 M-11 模式重演)
+
+- gunsmith 全包无一测试。最该覆盖的断点: 品质系数 roll 边界 (min/max 收敛)、冲压结算原子性 (中断/破坏路径)、材料身份校验 (C-2 回归测试)、M4 组装消耗与 NBT 往返、输出槽并发取件。
+
+## 三. Minor
+
+1. Screen 全部用户可见文本硬编码中文 literal (111/112/113/238-240/255/259-261/283/319/351/359-360/369 行), 375 行却混用 translatable, 同文件自相矛盾 —— 上轮 M-10 同款, 全 gunsmith UI 面积更大。
+2. 全部平衡系数 (materialMultiplier 1~10 / requiredTicks 600~7200 / 系数区间) 硬编码在 `GunsmithPartQuality` 枚举, 不进 MunitionsConfig, 真服调平衡必须发版。
+3. `GunsmithPressPart` 枚举缺 RECEIVER: 本提交新增的 AR/AK x 5 品质共 10 模型 + 10 贴图 receiver 资产成死资源, M4 实际 6 部件成枪。
+4. `en_us.json` 缺 `itemGroup.miningdim_gunsmith` 键, 英文客户端创造页签显示裸 key (zh_cn 有)。
+
+## 四. 对抗驳回项 (不计入, 供参考)
+
+1. "TACZ 改装台重建栈丢旁挂 NBT" —— TACZ 1.1.8 字节码级验证: 改装台不重建栈, 旁挂键 `MiningDimGunsmith` 不被触碰, 场景不可达。
+2. "产物无 sink 构成洗钱 faucet" —— 冲压是物料换物料转换器, 零货币产出, 不是 faucet (真问题在 C-2 的输入侧零校验)。
+3. "M4 按背包首槽取件忽略品质" —— 系数如实烙进枪, 价值转移非湮灭。
+4. "CustomModelData 按 ordinal 未来插档错位" —— 当前公式与静态覆盖表自洽, 纯假设场景。
+5. "quickMoveStack 含输出槽绕 mayPlace" —— 守卫链挡住, 与上轮军火台 M-7 不同, 冲压台此路不可达。
+6. "farmer 改动越界夹带" —— FarmerFarmlandBlock 系本分支自建文件 (258867e), a2552da 属分支内自我演进, 非夹带他人代码; 但混功能+跨职业资源于一个无 scope 提交仍违反原子提交纪律。
+
+## 五. 上轮 12 项回归核对
+
+a2552da 未触碰军火台/WebUI 代码, 上轮 C-1 与 M-1~M-11 **全部未修**: 2 个 GameTest 依旧红 (M-1 实证), 四件套 primer/casing/bullet_head/propellant 配方依旧零命中 (M-4, 冲压台产的是枪械部件不是弹药四件套, 两条获取链都断)。
+
+## 六. 合并前置清单 (增补)
+
+原 12 项全部保留, 新增:
+
+- [ ] C-2: 冲压输入槽材料身份校验 + 品质等级钳制
+- [ ] G-1: 进攻加成并入全局单点结算帽, 系数重标定
+- [ ] G-2: 冲压改原子结算 + cancel 路径
+- [ ] G-3: 冲压台 owner/职业/等级门控
+- [ ] G-4: 破坏 dropContents
+- [ ] G-5: gunsmith GameTest 补齐
+- [ ] 注册 alloy/polymer 等输入材料物品 + 冲压台/材料生存获取链 (WIP 补完)
+- [ ] receiver 资产接回枚举或移除死资源
+- [ ] 增量 minor: config 化平衡系数 / i18n / itemGroup 键

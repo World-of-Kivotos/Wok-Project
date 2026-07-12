@@ -296,11 +296,8 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
             return false;
         }
 
-        consume(SLOT_PRIMER, MunitionsConfig.RECIPE_PRIMER_COST.get());
-        consume(SLOT_CASING, MunitionsConfig.RECIPE_CASING_COST.get());
-        consume(SLOT_BULLET_HEAD, MunitionsConfig.RECIPE_BULLET_HEAD_COST.get());
-        consume(SLOT_PROPELLANT, MunitionsConfig.RECIPE_PROPELLANT_COST.get());
-
+        // 原子结算 (审查 M-2): 开工帧只校验不扣料, 材料留在槽内, 完成帧与工费同帧一次性结算
+        // ("扣不动则料不扣" 契约); 取消/中断因此天然零损失, 不需要退料路径。
         craftingActive = true;
         craftingCaliber = selectedCaliber;
         craftingOwnerLevel = level0;
@@ -445,18 +442,21 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         setChanged();
     }
 
+    /**
+     * 双模式互斥 (审查 M-1): 返回 true 表示本帧由手动制作接管 (开工中), false 表示空闲 —— 调用方
+     * {@link #settleForOwner} 据此放行被动挂机结算 (五章离线补产语义, benchSettle* GameTest 的契约)。
+     * 旧实现所有路径恒返 true, 把整段被动结算短路成死代码, 离线补产灭失且 2 个 required GameTest 红。
+     */
     private boolean settleManualCraft(ServerPlayer owner) {
         if (level == null) {
             return true;
         }
+        if (!craftingActive || craftingCaliber == null) {
+            return false;
+        }
         int level0 = effectiveOwnerLevel(MunitionsLevels.munitionsLevel(owner));
         this.ownerLevelCache = level0;
         this.refineUnlockedForOwnerCache = MunitionsLevels.isRefineUnlocked(level0);
-        if (!craftingActive || craftingCaliber == null) {
-            nextWeldSoundTick = 0L;
-            setMachineActive(false);
-            return true;
-        }
 
         long now = level.getGameTime();
         setMachineActive(true);
@@ -466,27 +466,42 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
             return true;
         }
 
-        finishActiveCraft(owner);
-        if (continuousCrafting) {
+        // 连续模式仅在本批成功落账后续批 (审查 M-2): 工费/材料失败即停机, 不空转不烧料 (作者语义: 没材料就停)。
+        if (finishActiveCraft(owner) && continuousCrafting) {
             tryStartCraft(owner);
         }
         setChanged();
         return true;
     }
 
-    private void finishActiveCraft(ServerPlayer owner) {
+    /**
+     * 完成帧原子结算 (审查 M-2): 查料 -> 查扣工费 -> 扣料 -> 产出, 任一环失败本批作废且材料分文不动
+     * (与被动路径 munitions-01 同一 "扣不动则料不扣" 纪律)。返回 false 时调用方不得连续续批。
+     */
+    private boolean finishActiveCraft(ServerPlayer owner) {
         if (craftingCaliber == null) {
             clearActiveCraft();
             setMachineActive(false);
-            return;
+            return false;
+        }
+        // 材料在制作期间留在槽内 (开工帧只校验), 完成帧复查: 中途被取走则本批作废, 零损失。
+        if (!hasBatchMaterials()) {
+            clearActiveCraft();
+            setMachineActive(false);
+            return false;
         }
         int rounds = MunitionsProduction.roundsPerBatch(craftingCaliber, craftingOwnerLevel);
         long workFee = MunitionsProduction.workFee(rounds);
         if (!tryChargeWorkFee(owner, workFee)) {
             clearActiveCraft();
             setMachineActive(false);
-            return;
+            return false;
         }
+
+        consume(SLOT_PRIMER, MunitionsConfig.RECIPE_PRIMER_COST.get());
+        consume(SLOT_CASING, MunitionsConfig.RECIPE_CASING_COST.get());
+        consume(SLOT_BULLET_HEAD, MunitionsConfig.RECIPE_BULLET_HEAD_COST.get());
+        consume(SLOT_PROPELLANT, MunitionsConfig.RECIPE_PROPELLANT_COST.get());
 
         bufferedRounds += rounds;
         bufferedCaliber = craftingCaliber;
@@ -494,6 +509,7 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         clearActiveCraft();
         refreshOutputStack();
         setMachineActive(false);
+        return true;
     }
 
     private void clearActiveCraft() {
@@ -501,6 +517,12 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         craftingCaliber = null;
         craftingStartTick = 0L;
         nextWeldSoundTick = 0L;
+        // 双模式衔接 (审查 M-1): 制作期间被动结算被短路, 若不推进时间戳, 回到空闲后被动路径会把
+        // 制作耗时当挂机流逝再结算一遍 (双重产出)。制作段的时间已兑现为手动批产物, 此处一并翻页。
+        if (level != null) {
+            lastSettleTick = level.getGameTime();
+            settleInitialized = true;
+        }
     }
 
     private void playWeldSoundIfActive(long now, boolean active) {

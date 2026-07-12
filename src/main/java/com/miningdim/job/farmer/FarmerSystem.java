@@ -149,6 +149,12 @@ public final class FarmerSystem implements Subsystem {
             ctx.getSource().sendFailure(Component.literal("Economy service is not available; nothing was sold."));
             return 0;
         }
+        if (result.belowMastery()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "You must reach farmer mastery level " + FarmerConstants.SELL_MIN_MASTERY_LEVEL
+                            + " to sell wheat; nothing was sold."));
+            return 0;
+        }
         if (result.soldCount() <= 0) {
             ctx.getSource().sendFailure(Component.literal("You have no mod wheat to sell."));
             return 0;

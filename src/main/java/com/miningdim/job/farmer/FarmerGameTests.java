@@ -9,6 +9,10 @@ import com.miningdim.economy.EconomyServices;
 import com.miningdim.economy.EconomyLedger;
 import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.economy.PlayerAbuseState;
+import com.miningdim.job.IJobService;
+import com.miningdim.job.JobId;
+import com.miningdim.job.JobProgress;
+import com.miningdim.job.JobServices;
 import com.miningdim.job.JobXpCurve;
 import com.miningdim.job.farmer.block.FarmerBlocks;
 import com.miningdim.job.farmer.block.FarmerCropBlock;
@@ -25,6 +29,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block;
@@ -36,6 +41,9 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.IPlantable;
 import net.minecraftforge.common.PlantType;
+import net.minecraftforge.common.util.BlockSnapshot;
+import net.minecraftforge.event.entity.player.BonemealEvent;
+import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -420,10 +428,12 @@ public final class FarmerGameTests {
                 "at softCap+1 price = floor(base * 0.97^1) = 970");
         helper.assertTrue(FarmerWheatBuyback.wheatBuyPrice(cap + 2, b) == (long) Math.floor(1000 * Math.pow(0.97D, 2)),
                 "at softCap+2 price = floor(base * 0.97^2)");
-        // 地板: 大量超出后价不低于 base * floorRatio (0.25)。
+        // 地板: 大量超出后价不低于 base * floorRatio (0.01, 已对齐 EconomyConstants.ECONOMY_PRICE_FLOOR_RATIO 单一真源)。
         long deepPrice = FarmerWheatBuyback.wheatBuyPrice(cap + 100000, b);
         helper.assertTrue(deepPrice == (long) Math.floor(1000 * FarmerConstants.WHEAT_PRICE_FLOOR_RATIO),
-                "deep over-cap price floors at base * 0.25 = 250");
+                "deep over-cap price floors at base * 0.01 = 10 (floor ratio now references the economy single source)");
+        helper.assertTrue(deepPrice == 10L,
+                "floor ratio aligned to 1%: floor(1000 * 0.01) = 10 (was 250 under the pre-migration 0.25 drift)");
         helper.succeed();
     }
 
@@ -629,6 +639,8 @@ public final class FarmerGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
         EconomyLedger ledger = registerFreshEconomy();
+        // 精通门前置 (新增): 卖家须达农夫 SELL_MIN_MASTERY_LEVEL(2)。换入固定 L2 职业门面替身 (mock 玩家无 capability, 真门面恒 L1)。
+        IJobService prevJob = swapJob(new FixedLevelJobService(FarmerConstants.SELL_MIN_MASTERY_LEVEL));
         try {
             // 给 100 株 mod 小麦 (远低于收购 softCap 2160, 故全价 base=1 -> 毛收 100)。
             int amount = 100;
@@ -666,6 +678,7 @@ public final class FarmerGameTests {
                     "wallet credit balance reflects the granted 100 via the economy locator");
             helper.succeed();
         } finally {
+            restoreJob(prevJob);
             EconomyServices.reset();
         }
     }
@@ -703,6 +716,8 @@ public final class FarmerGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
         EconomyLedger ledger = registerFreshEconomy();
+        // 精通门前置 (新增): 换入固定 L2 职业门面替身, 使卖家过农夫售卖门 (本测聚焦 faucet 共享, 非门控)。
+        IJobService prevJob = swapJob(new FixedLevelJobService(FarmerConstants.SELL_MIN_MASTERY_LEVEL));
         try {
             long tier = FarmerConstants.DAILY_CREDIT_FAUCET_CAP;            // 60000 (= 全服统一主闸档值)
             String sharedKey = FarmerConstants.WHEAT_SELL_FAUCET_KEY;       // credit_faucet
@@ -748,11 +763,248 @@ public final class FarmerGameTests {
                             + ledger.balance(player.getUUID(), Currency.CREDIT));
             helper.succeed();
         } finally {
+            restoreJob(prevJob);
             EconomyServices.reset();
         }
     }
 
+    // ============================================================
+    // 精通等级门 (反洗钱): 未达 SELL_MIN_MASTERY_LEVEL 的白板玩家不得套现 (economy-laundering-vulnerability 农夫实例)。
+    // 经济已注册且持有小麦时门控是唯一拦截: 删 sell() 里的 level 门则 belowMastery 变 false + 真扣真发, 本测必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sellBelowMasteryLevelIsRejected(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        player.getInventory().clearContent();
+        EconomyLedger ledger = registerFreshEconomy();
+        // 固定 L1 职业门面替身 = 白板农夫 (从没升过级), 应被精通门 (>=2) 拒绝。
+        IJobService prevJob = swapJob(new FixedLevelJobService(1));
+        try {
+            player.getInventory().add(new ItemStack(FarmerItems.FARMER_WHEAT.get(), 50));
+            long today = FarmerClock.currentUtcDayStamp();
+            FarmerSavedData data = FarmerSavedData.get(player.server.overworld());
+            int soldBefore = data.wheatSoldToday(player.getUUID(), today);
+
+            FarmerWheatSellService.SellResult result = FarmerWheatSellService.sell(player, 50);
+
+            // 精通不足 -> belowMastery 分派 (非 offline 非成功), 零副作用。
+            helper.assertTrue(result.belowMastery(),
+                    "L1 (below mastery 2) seller is rejected via the belowMastery gate");
+            helper.assertFalse(result.economyOffline(),
+                    "belowMastery is not conflated with offline (economy IS registered here)");
+            helper.assertTrue(result.soldCount() == 0 && result.creditsGranted() == 0L,
+                    "rejected sale removes nothing and grants nothing");
+            int kept = player.getInventory().clearOrCountMatchingItems(
+                    s -> s.is(FarmerItems.FARMER_WHEAT.get()), 0, new net.minecraft.world.SimpleContainer(0));
+            helper.assertTrue(kept == 50, "below-mastery rejection keeps all 50 wheat (no charge before the gate), got " + kept);
+            helper.assertTrue(data.wheatSoldToday(player.getUUID(), today) - soldBefore == 0,
+                    "below-mastery rejection does not advance the daily sold count");
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 0L,
+                    "below-mastery rejection grants no credits");
+
+            // 对照: 同一玩家换 L2 替身即可正常卖 (证明拦截确由精通门, 非其它原因)。
+            IJobService prevJob2 = swapJob(new FixedLevelJobService(FarmerConstants.SELL_MIN_MASTERY_LEVEL));
+            try {
+                FarmerWheatSellService.SellResult ok = FarmerWheatSellService.sell(player, 50);
+                helper.assertFalse(ok.belowMastery(), "L2 seller passes the mastery gate");
+                helper.assertTrue(ok.soldCount() == 50, "L2 seller sells all 50 wheat once mastery is met");
+            } finally {
+                restoreJob(prevJob2);
+            }
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+            EconomyServices.reset();
+        }
+    }
+
+    // ============================================================
+    // 事件订阅方法端到端 (审计: 4 个 @SubscribeEvent 方法本体此前无端到端触发, 仅测了它们委派的纯函数)。
+    // 用 MockGameTestPlayers 真玩家 + helper 世界真放方块 + 真构造 Forge 事件对象直调方法本体 (与 EconomyGameTests
+    // 构造 BlockEvent.BreakEvent 直调 recordAndSettleBreak 同范式)。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void onCropHarvestedSettlesXpForMatureModCrop(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        FixedLevelJobService job = new FixedLevelJobService(5); // 等级不影响收获结算; 仅用其 grantXp 捕获。
+        IJobService prevJob = swapJob(job);
+        try {
+            FarmerSystem sys = new FarmerSystem();
+            BlockPos farmlandRel = new BlockPos(0, 1, 0);
+            BlockPos cropRel = new BlockPos(0, 2, 0); // 其 below == farmlandRel。
+            BlockPos cropAbs = helper.absolutePos(cropRel);
+            FarmerCropBlock cropBlock = (FarmerCropBlock) FarmerBlocks.FARMER_CROP.get();
+            BlockState matureCrop = cropBlock.getStateForAge(cropBlock.getMaxAge());
+
+            // 成熟 mod 作物 + 下方 LOW mod 耕地 -> 结算 rawXp = SINGLE_CROP_XP(2) * LOW.yield(2) = 4, 一次, 记 FARMER。
+            helper.setBlock(farmlandRel, FarmerBlocks.farmland(FarmerTier.LOW).get());
+            helper.setBlock(cropRel, matureCrop);
+            sys.onCropHarvested(new BlockEvent.BreakEvent(helper.getLevel(), cropAbs, matureCrop, player));
+            helper.assertTrue(job.grantXpCalls == 1 && job.lastJob == JobId.FARMER && job.lastRawXp == 4L,
+                    "mature mod crop over LOW mod farmland settles rawXp 4 to FARMER once, got calls="
+                            + job.grantXpCalls + " job=" + job.lastJob + " raw=" + job.lastRawXp);
+
+            // 未成熟作物 (age 0) 破坏: 不结算 (第十章只认成熟态)。
+            job.reset();
+            sys.onCropHarvested(new BlockEvent.BreakEvent(
+                    helper.getLevel(), cropAbs, cropBlock.getStateForAge(0), player));
+            helper.assertTrue(job.grantXpCalls == 0, "immature mod crop break settles no xp");
+
+            // 成熟 mod 作物但下方原版泥土 (tierBelow null): 不结算 (反扩建, 原版耕地上 mod 作物不产经验)。
+            job.reset();
+            helper.setBlock(farmlandRel, Blocks.DIRT);
+            sys.onCropHarvested(new BlockEvent.BreakEvent(helper.getLevel(), cropAbs, matureCrop, player));
+            helper.assertTrue(job.grantXpCalls == 0, "mature crop over vanilla dirt settles no xp (anti-sprawl)");
+
+            // 非 mod 作物 (原版小麦) 破坏: 不结算 (只认 FarmerCropBlock)。
+            job.reset();
+            sys.onCropHarvested(new BlockEvent.BreakEvent(
+                    helper.getLevel(), cropAbs, Blocks.WHEAT.defaultBlockState(), player));
+            helper.assertTrue(job.grantXpCalls == 0, "non-mod crop break settles no xp");
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
+    /*
+     * 原分支此处有 onFarmlandBrokenRecyclesPlacementCount 一例, 未随本次挑取带入: 它测的
+     * FarmerSystem.onFarmlandBroken(BreakEvent) 与 FarmerSavedData.increment(UUID) 在 F025 之后都已不存在 ——
+     * 耕地配额改按 (维度, 坐标) 记归属, 回收权唯一收在 FarmerFarmlandBlock.onRemove -> releaseFarmland。
+     * 同一行为的覆盖已由本文件 F025 那一组 (claimFarmland/releaseFarmland/跨维度隔离/破坏者非放置者) 承接,
+     * 且判据严于旧例 (旧例只数总量, 新例锁归属人与坐标)。
+     */
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void onBonemealCanceledForModCropOnly(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        FarmerSystem sys = new FarmerSystem();
+        FarmerCropBlock cropBlock = (FarmerCropBlock) FarmerBlocks.FARMER_CROP.get();
+        BlockPos pos = helper.absolutePos(new BlockPos(0, 1, 0));
+
+        // mod 作物: 骨粉事件被取消 (反作弊第十章)。
+        BonemealEvent modEvent = new BonemealEvent(player, helper.getLevel(), pos,
+                cropBlock.defaultBlockState(), new ItemStack(net.minecraft.world.item.Items.BONE_MEAL));
+        sys.onBonemeal(modEvent);
+        helper.assertTrue(modEvent.isCanceled(), "bonemeal on mod crop is canceled (anti-cheat ch.10)");
+
+        // 原版小麦: 不取消 (守卫只认 FarmerCropBlock, 不干预原版作物)。
+        BonemealEvent vanillaEvent = new BonemealEvent(player, helper.getLevel(), pos,
+                Blocks.WHEAT.defaultBlockState(), new ItemStack(net.minecraft.world.item.Items.BONE_MEAL));
+        sys.onBonemeal(vanillaEvent);
+        helper.assertFalse(vanillaEvent.isCanceled(), "bonemeal on vanilla wheat is not canceled by the farmer guard");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void onFarmlandPlaceEnforcesTierGateAndCounts(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        FarmerSavedData data = FarmerSavedData.get(player.server.overworld());
+        int before = data.placedCount(player.getUUID());
+        BlockPos rel = new BlockPos(0, 1, 0);
+        BlockPos abs = helper.absolutePos(rel);
+
+        // L1 玩家放 HIGH 档 (解锁 L5): 档位未解锁 -> 事件取消 + 计数不变。
+        IJobService prevJob = swapJob(new FixedLevelJobService(1));
+        try {
+            helper.setBlock(rel, FarmerBlocks.farmland(FarmerTier.HIGH).get());
+            BlockEvent.EntityPlaceEvent locked = new BlockEvent.EntityPlaceEvent(
+                    BlockSnapshot.create(helper.getLevel().dimension(), helper.getLevel(), abs),
+                    Blocks.AIR.defaultBlockState(), player);
+            // 自证前置: 对 Player 实体, getPlacedBlock() 读 snapshot 当前方块 = 刚放的 HIGH mod 耕地。
+            helper.assertTrue(locked.getPlacedBlock().getBlock() instanceof FarmerFarmlandBlock,
+                    "precondition: EntityPlaceEvent.getPlacedBlock reads the live mod farmland for a player placer");
+            new FarmerSystem().onFarmlandPlace(locked);
+            helper.assertTrue(locked.isCanceled(), "L1 placing HIGH (unlocks at L5) is canceled by the tier gate");
+            helper.assertTrue(data.placedCount(player.getUUID()) - before == 0, "tier-locked place does not count");
+        } finally {
+            restoreJob(prevJob);
+        }
+
+        // L1 玩家放 LOW 档 (已解锁, 未到上限): 允许 + 计数 +1。
+        IJobService prevJob2 = swapJob(new FixedLevelJobService(1));
+        try {
+            helper.setBlock(rel, FarmerBlocks.farmland(FarmerTier.LOW).get());
+            BlockEvent.EntityPlaceEvent allowed = new BlockEvent.EntityPlaceEvent(
+                    BlockSnapshot.create(helper.getLevel().dimension(), helper.getLevel(), abs),
+                    Blocks.AIR.defaultBlockState(), player);
+            new FarmerSystem().onFarmlandPlace(allowed);
+            helper.assertFalse(allowed.isCanceled(), "L1 placing LOW (unlocked, under cap) is allowed");
+            helper.assertTrue(data.placedCount(player.getUUID()) - before == 1, "allowed place increments the count by 1");
+        } finally {
+            restoreJob(prevJob2);
+        }
+        helper.succeed();
+    }
+
     // ---- 测试辅助 (与 FarmerSystem.onCropHarvested 的原始经验公式同源) ----
+
+    /** 换入测试职业门面替身, 返回原门面 (未注册则 null); 与 finally 的 {@link #restoreJob} 配对。 */
+    private static IJobService swapJob(IJobService fake) {
+        IJobService prev;
+        try {
+            prev = JobServices.jobService();
+        } catch (IllegalStateException notRegistered) {
+            prev = null;
+        }
+        JobServices.registerJobService(fake);
+        return prev;
+    }
+
+    /** 还原 {@link #swapJob} 换出的门面 (原为 null 则 reset)。 */
+    private static void restoreJob(IJobService prev) {
+        if (prev != null) {
+            JobServices.registerJobService(prev);
+        } else {
+            JobServices.reset();
+        }
+    }
+
+    /**
+     * 测试用职业门面替身: {@link #level} 返回固定值 (精通门用), {@link #grantXp} 记录调用 (收获结算断言用);
+     * {@link #progress} 不被本文件测试触达。仿 MinerGameTests.RecordingJobService 范式。
+     */
+    private static final class FixedLevelJobService implements IJobService {
+        private final int level;
+        int grantXpCalls = 0;
+        JobId lastJob = null;
+        long lastRawXp = Long.MIN_VALUE;
+
+        FixedLevelJobService(int level) {
+            this.level = level;
+        }
+
+        void reset() {
+            grantXpCalls = 0;
+            lastJob = null;
+            lastRawXp = Long.MIN_VALUE;
+        }
+
+        @Override
+        public int level(Player player, JobId job) {
+            return level;
+        }
+
+        @Override
+        public long totalXp(Player player, JobId job) {
+            return 0L;
+        }
+
+        @Override
+        public long grantXp(Player player, JobId job, long rawXp) {
+            grantXpCalls++;
+            lastJob = job;
+            lastRawXp = rawXp;
+            return rawXp;
+        }
+
+        @Override
+        public JobProgress progress(Player player, JobId job) {
+            throw new UnsupportedOperationException("not exercised by farmer tests");
+        }
+    }
 
     /**
      * 新建一套内存经济门面 (账本 + AbuseGuard + 惰性 PlayerAbuseState 解析器) 注册进 {@link EconomyServices} 定位器,

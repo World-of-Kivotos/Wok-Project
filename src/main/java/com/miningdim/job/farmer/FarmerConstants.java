@@ -61,7 +61,8 @@ public final class FarmerConstants {
     // 数值 (basePrice / softCap) 在 spec 中标 PENDING (经济文档 8.6 待校准), 此处给经实现期推演的可用默认值:
     //   - basePrice = 1 信用点/株 (经济文档定位农夫为基础 faucet, 单价低、靠量; 待经济文档校准, 见 foundationGaps)
     //   - softCap   = 2160 株/日 (= 单块超凡地 24h 满产, 表1; 作为 "正常单块全天产出" 的不衰减额度基准)
-    // decayBase / floorRatio 与矿物收购同构 (0.97 / 0.25), 保证全服 faucet 衰减语言一致 (spec 第八节)。
+    // decayBase 与矿物收购同构 (0.97 字面量, 当前未漂移); floorRatio 直接转引 EconomyConstants.ECONOMY_PRICE_FLOOR_RATIO
+    // 单一真源 (当前 1%, 非独立副本), 保证全服 faucet 衰减语言一致 (spec 第八节 + 第十一章决策 1)。
 
     /** 小麦收购基础单价 (信用点/株, 未触软上限时)。PENDING 经济文档 8.6 校准 (见 foundationGaps)。 */
     public static final long WHEAT_BASE_PRICE = 1L;
@@ -72,8 +73,27 @@ public final class FarmerConstants {
     /** 收购价递减底数 (与矿物收购 economy 0.97 同构)。 */
     public static final double WHEAT_DECAY_BASE = 0.97D;
 
-    /** 收购价地板比例 (与矿物收购 economy 0.25 同构): 衰减不低于 basePrice 的 25%。 */
-    public static final double WHEAT_PRICE_FLOOR_RATIO = 0.25D;
+    /**
+     * 小麦收购价地板比例: 直接转引 {@link com.miningdim.economy.EconomyConstants#ECONOMY_PRICE_FLOOR_RATIO}
+     * (第十一章决策 1 已定 0.01 = 1%) 做单一真源, 不再独立持有字面量副本。此前本类私有 0.25 未随经济侧 0.25 -> 0.01
+     * 迁移而漂移, 令收购曲线地板 (25%) 与矿物/faucet 统一地板 (1%) 分家、自证注释矛盾 ("与矿物同构"却异值); 收敛为
+     * 引用后改一处即两侧同步 (同下方 WHEAT_SELL_FAUCET_KEY/DAILY_CREDIT_FAUCET_CAP 的引用纪律, 消灭漂移温床)。
+     */
+    public static final double WHEAT_PRICE_FLOOR_RATIO =
+            com.miningdim.economy.EconomyConstants.ECONOMY_PRICE_FLOOR_RATIO;
+
+    /**
+     * 出售 mod 小麦所需的最低农夫精通等级 (反洗钱身份门, 堵 economy-laundering-vulnerability 的农夫实例)。
+     *
+     * 本项目无 "当前激活职业" 概念 (每人对所有职业恒 level>=1, JobData EnumMap 懒建默认 L1/0xp; 用户裁决 "一个人
+     * 同时是所有职业, 靠精通等级区分"), 故用精通等级门做身份代理: level>=2 即 "确实练过农夫、升过至少一级", 排除
+     * 从没种过地、纯靠 /give 或跨账号交易/复制拿到小麦就直接套现的白板小号 (L1 默认态)。
+     *
+     * 诚实局限: 玩家真升到 2 级后仍可倒卖交易来的小麦, 非结构级杜绝 (结构级需把卖菜改成收获即时结算, 会废弃小麦可
+     * P2P 交易属性, 拆掉厨师原料链, 超出收尾范围); 这是不推翻 "小麦可交易给厨师" 设计前提下、用现有 level 门做的
+     * 最小加固。门槛数值集中此处, 日后要收紧只改这一处。
+     */
+    public static final int SELL_MIN_MASTERY_LEVEL = 2;
 
     /**
      * 卖菜信用点 faucet 的每日计数键 (第十一章决策 4: 引用全服唯一真源)。直接转引

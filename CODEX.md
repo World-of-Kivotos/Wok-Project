@@ -79,6 +79,24 @@ CLAUDE.md/Codex.md — 工程协作规范
 
 异常必须痛： 严禁在业务层用 ?? 0、|| "Unknown" 掩盖空值，严禁在业务函数内用 try/catch 生吞异常。错误必须自然冒泡，仅在最外层（Gateway/Controller）统一捕获。
 
+三 A、 Fallback 戒律（"异常必须痛"的针对性强化；违者视为编码违纪）
+
+你的历史代码有实测恶习：遇到边界就垫默认值、遇到依赖就包反射加 catch、遇到可疑数值就 Math.max 钳制——每一层"不会崩"的兜底都在把真实错误变成静默的数值污染，排查时零痛感。核心原则：**防御只放在信任边界（网络包入口 / NBT 与 JSON 反序列化 / 跨 mod 调用 / 玩家输入），边界内部的代码相互信任**。以下六条禁令全部有本仓库真实审查案例背书：
+
+1. 禁止不可达防御。 写 Math.max / Math.min / 三元钳制之前，必须先回答"上游谁能产生越界值"。上游已有硬保证（config defineInRange 的上下界、枚举常量、已 clamp 过的入参）时，钳制本身就是谎言——它向读者暗示越界可能发生，而它一旦真"生效"往往就是灾难。（案例：yieldFactor 外面套 Math.max(0.0001D, ...)，config 下界 0.01 保证它恒不可达；若真触发，除以 0.0001 等于产量放大一万倍的经济核弹。）
+
+2. 禁止钳制吞错。 对"理论上不该发生"的状态，先取证再收敛：log.warn/error 带足上下文（坐标 / 玩家 / 两侧数值）之后再钳，或直接抛。严禁裸 Math.max(0, a - b) 把负值静默归零。（案例：bufferedRounds = Math.max(0, buffered - taken) 把并发超扣 bug 的证据当场销毁，该 bug 因此存活了一整个审查周期才被抓到。）
+
+3. 禁止静默默认值。 NBT / JSON / Map 缺 key 时给默认值只允许两种情形：a) 旧存档兼容，且注释写明兼容的是哪个版本的旧档；b) 语义上"缺失即初始态"。除此之外缺 key 等于数据损坏，必须 log 或抛。严禁 contains(key) ? get : 1.0 这种"属性静默失效、玩家和运维都无感"的写法。（案例：枪械属性 NBT 缺 key 时默认 1.0——加成丢了不会有任何人知道。）
+
+4. 禁止用反射逃避编译期检查。 同 classpath 的自家类一律直接调用。反射只允许用于"目标类可能真的不存在"的跨 mod 边界（TACZ / MCEF 缺失守卫），且 catch 范围只许 ClassNotFoundException——严禁顺手捕 LinkageError / Throwable 把自家代码的真实故障也吞进一条 debug 日志。（案例：WebUiClientSubsystem 被重写成 Class.forName + catch LinkageError，方法改名后编译不报错、运行期只剩一条 warn，最终被整文件回退。）
+
+5. 禁止"安全返回"式死代码。 一个 boolean 分流函数所有路径返回同一个值，等于整个分流是谎言，下游必有一支死代码。写分流函数时必须能各举出一个返回 true 与返回 false 的真实场景，举不出就删掉这个函数。（案例：settleManualCraft 四条路径全部 return true，把 80 行离线补产结算短路成死代码，两个 required GameTest 红着进了提交。）
+
+6. 业务失败必须有出口。 扣费 / 扣料 / 校验失败，严禁只清内部状态然后静默返回——要么向玩家 displayClientMessage，要么 log，要么把失败返回给调用方处理。"什么都没发生"是最贵的失败模式。（案例：工费扣不动时 clearActiveCraft 静默吞掉整批，连续制作模式下循环烧料无人知晓。）
+
+量化红线： 一个业务方法里防御性代码（null 检查 / 钳制 / 默认值 / catch）超过业务逻辑行数的三分之一，即判定为设计问题——正确动作是前移校验到信任边界、信任上游契约、或让它崩，而不是继续往里垫。自查口径：写完一个方法后逐行自问"这行防御防的是谁"，答不出来的删掉。
+
 四、 数据库迁移纪律（Alembic）
 禁止手写迁移文件名与 revision ID： 任何新迁移必须通过 `alembic revision --autogenerate -m "描述"` 生成。`env.py` 中的 `process_revision_directives` 钩子会自动分配时间戳格式的 revision ID（如 `20260408_143025`），`alembic.ini` 中的 `file_template` 会生成形如 `20260408_143025_20260408_143025_add_xxx.py` 的文件名，杜绝人工编造 hex ID 导致的冲突。
 

@@ -261,3 +261,36 @@ a2552da 未触碰军火台/WebUI 代码, 上轮 C-1 与 M-1~M-11 **全部未修*
 - [ ] 注册 alloy/polymer 等输入材料物品 + 冲压台/材料生存获取链 (WIP 补完)
 - [ ] receiver 资产接回枚举或移除死资源
 - [ ] 增量 minor: config 化平衡系数 / i18n / itemGroup 键
+
+---
+---
+
+# 补充审查 (2026-07-11): 对 main 既有实测代码的侵入面清单
+
+审查准则: main 为实测基准, 分支对 main 既有文件的任何修改 (--diff-filter=MD, 共 31 文件) 均逐一过堂。munitions bench 全系列 + WebUiClientSubsystem 已在前两轮覆盖, 此处只列此前未细审的侵入点。
+
+## 一. 实质行为变更
+
+### F-1. FarmerFarmlandBlock 两处覆写: farmer 耕地行为被枪匠提交夹带修改 (minor 偏上)
+
+- `canSustainPlant` (47-51 行): main 版是裸 Block (默认拒绝 Forge IPlantable), 分支放宽为任意 `PlantType.CROP` 朝上可种。配套测试注释自曝动机 "such as most Farmer's Delight seeds" —— **服务器并未安装 Farmer's Delight**, 属预设兼容。当前 modpack 下实际影响: vanilla 种子从 "种不上" 变 "种得上"; farmer 生长加速在 FarmerCropBlock 自身, 外来作物不白嫖加速, 经济影响可控。
+- `getShape` 15/16 高 (53-56 行) + 五档模型换 template_farmland 与自制贴图 (10 张已确认存在): 对齐 vanilla farmland 观感。副作用: 顶面支撑判定 (isFaceSturdy) 从满格变非满, **存量世界中已放在 mod 耕地上的火把/压力板等将在邻居更新时弹出掉落** —— 一次性迁移扰动, 上线前应公告或写迁移说明。
+- 缓解: 配套新增 farmerFarmlandSustainsForgeCropPlants 测试 (CROP 准入/WATER/DESERT/侧面四断言, 质量合格), farmer 旧测试断言未动且全绿。
+- 问题实质: 行为变更本身方向合理, 但夹带在 "枪匠冲压" 提交里且 commit message 无一字提及 farmer。
+
+### F-2. MunitionsLevels.highestUnlockedCaliber 静默修正 (minor)
+
+- 105 行加 `&& caliber.unlockLevel() > best.unlockLevel()`: 消除对枚举声明顺序的隐含依赖, 系配合 RIFLE_556 插入枚举的防御性修正。方向正确, 但静默改 main 实测函数且无专项断言 (若插枚举时不带这行, main 版逻辑会返回错误口径 —— 说明枚举插入本身就动了 main 函数的输入域)。
+
+## 二. 合规扩展 (确认无风险)
+
+1. `MunitionsSystem`: gunsmith 挂接范式正确 —— GunsmithTaczStatsHandler 走 FMLCommonSetupEvent + isTaczLoaded 守卫延迟注册, Screen 注册经 DistExecutor 隔离; registerExportPack 虽在 register() 早期无条件调用, 但内部 ClassNotFoundException 守卫齐全 (GameTest 实跑不崩佐证)。
+2. `ModMunitionsTab`: munitions 页签补四件套展示 + 新 GUNSMITH_TAB, icon lambda 仅引自家类, classload 安全。
+3. lang 双文件: `message.miningdim.marriage.divorce.insufficient` 的 -/+ 为行尾逗号变化 (原文件末行后追加新 key), **婚姻 key 未丢, 虚惊**; `munitions_bench` 值 "军火台 -> 低级军火台" 是 M-5 存量降档的表现层, 非新问题。
+4. propellant/primer 物品贴图从 vanilla 借用换自制, 文件存在。
+5. `docs/Munitions_Job_DesignSpec.md` 补 3A 冲压 WIP 章节: 洗清增量审查中 "无设计文档背书" 的疑虑, 同时坐实 TACZ 三轴加伤 (G-1) 是**设计意图而非手滑** —— G-1 由此升格为需要设计层拍板的决策项: 系数区间 (传奇 1.36-1.50) 与 "战斗仅少量加成" 职业哲学的冲突要么改文档要么改数值。
+6. AGENT.md 删除与 main 4de6fc3 同步一致; FarmerGameTests 旧断言零改动。
+
+## 三. 结论
+
+对 main 既有代码的侵入共三类: 前两轮已立案的 (bench 全系列 + WebUI), 本轮新立案的 F-1/F-2, 其余为合规扩展。main 实测行为在 GameTest 可见范围内未被破坏 (farmer 全绿), 破坏面集中在测试覆盖不到的地方: 存量世界 (F-1 支撑弹出 / M-5 降档) 与运行期语义 (M-1 死代码)。

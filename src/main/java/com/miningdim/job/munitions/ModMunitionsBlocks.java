@@ -21,7 +21,9 @@ public final class ModMunitionsBlocks {
     public static final DeferredRegister<Block> BLOCKS =
             DeferredRegister.create(ForgeRegistries.BLOCKS, MiningConstants.MODID);
 
-    public static final RegistryObject<Block> MUNITIONS_BENCH = registerBench("munitions_bench", 1, 2);
+    // 存量兼容 (审查 M-5): 旧注册名 "munitions_bench" 是 main 时代唯一军火台 (口径只由职业等级门控),
+    // 区块按注册名持久化, 在役台若被降为低档会静默砍产能 —— 旧名保持全档能力 (1,10), 新档位一律用新注册名。
+    public static final RegistryObject<Block> MUNITIONS_BENCH = registerBench("munitions_bench", 1, 10);
     public static final RegistryObject<Block> MUNITIONS_BENCH_MEDIUM = registerBench("munitions_bench_medium", 3, 4);
     public static final RegistryObject<Block> MUNITIONS_BENCH_HIGH = registerBench("munitions_bench_high", 5, 6);
     public static final RegistryObject<Block> MUNITIONS_BENCH_SUPERIOR = registerBench("munitions_bench_superior", 7, 8);

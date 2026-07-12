@@ -277,7 +277,9 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
      * 时间戳比较)。
      */
     public boolean tryStartCraft(ServerPlayer player) {
-        if (level == null || !canAccess(player) || craftingActive || selectedCaliber == null) {
+        // 归属收敛 (审查 M-3): 开工限台主 —— 产量等级/工费/经验三者天然同源于 owner, 消除
+        // "点击者等级算产量、工费扣台主" 的跨账号等级门绕过面; 访客 (含未锁台) 只能看不能开。
+        if (level == null || !isOwner(player) || craftingActive || selectedCaliber == null) {
             return false;
         }
         int level0 = effectiveOwnerLevel(MunitionsLevels.munitionsLevel(player));
@@ -310,7 +312,8 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     }
 
     public boolean cancelCraft(ServerPlayer player) {
-        if (!canAccess(player) || !craftingActive) {
+        // 同 tryStartCraft: 取消限台主, 防路人作废台主批次 (materials 虽已零损失, 干预权仍收归 owner)。
+        if (!isOwner(player) || !craftingActive) {
             return false;
         }
         clearActiveCraft();
@@ -320,7 +323,7 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     }
 
     public boolean toggleContinuousCrafting(ServerPlayer player) {
-        if (!canAccess(player)) {
+        if (!isOwner(player)) {
             return false;
         }
         continuousCrafting = !continuousCrafting;

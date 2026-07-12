@@ -106,8 +106,9 @@ public final class EconomyService implements IEconomyService {
         // 靠巡查兜底"(反通胀北极星)。total > 0 即本块是
         // 高价矿且未被 AFK 冻结 (非高价矿 / 冻结返回 -1, 自然短路); 本批 producedCount 个产出物占据当日计数
         // [total-producedCount+1, total] 区间, 逐个按其边际 countSoFar 经 settleOreSale (内部 grantDaily) 入主闸,
-        // 与单块发钱口径完全一致 (一颗产出物发一次)。当前高价矿物理排除连锁 (MinerConstants.CHAIN_HARD_EXCLUDE),
-        // 故 total 恒 = -1 本路径不发钱; 此接线是契约层单一出口, 防将来连锁白名单含高价矿时漏发/绕过封顶。
+        // 与单块发钱口径完全一致 (一颗产出物发一次)。2026-07-12 连锁全放开后高价矿可被连带 (ChainMiningEngine 废除
+        // 枚举白名单 / 高价矿硬排除双表), 本路径已实际发钱: 高价矿连带产出经此单一契约出口逐颗入主闸, 与单块卖矿共享同一
+        // 衰减封顶, 吞吐再高也只是更快撞向渐近线 (反通胀北极星), 不能突破天花板。
         if (total > 0 && abuseGuard.classify(block) != null) {
             HighValueOre ore = abuseGuard.classify(block);
             double basePrice = ShopPriceTable.oreBasePrice(ore);

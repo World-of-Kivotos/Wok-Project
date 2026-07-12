@@ -7,7 +7,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -22,9 +24,10 @@ import java.util.UUID;
 /**
  * 连锁挖矿 BFS 引擎 (Miner_Job_DesignSpec 第四章, 反通胀第一道硬约束)。
  *
- * 硬白名单 (代码级, {@link MinerConstants#CHAIN_WHITELIST}): 仅石/深板岩/凝灰岩/花岗岩/煤/铁/铜 放行连带破坏;
- * 硬排除 ({@link MinerConstants#CHAIN_HARD_EXCLUDE}): 钻石/金/残骸/绿宝石物理排除, 连锁遇高价矿停在边界。
- * 既不在白名单也不在排除名单的方块 (如基岩/空气/液体) 同样不连锁 (默认拒绝, 只白名单内扩散)。
+ * 连锁判定 (单一谓词 {@link #chainable}, 用户 2026-07-12 裁决"矿洞维度内连锁全放开", 废除旧枚举白名单 + 高价矿硬排除
+ * 双表): 凡镐类可采 (MINEABLE_WITH_PICKAXE)、手持镐档位足够采出产物 (isCorrectToolForDrops)、可破坏、无 BlockEntity
+ * 的方块均可连锁, 时运照算; 高价矿 (钻/金/残骸/绿宝石) 用正确档位镐即可连带, 其收益经统一 faucet 封顶 (见
+ * {@link com.miningdim.economy.IEconomyService#recordMinedOreDrops})。扩散语义不变: 仍只在"与起始块同种方块"上扩散 (清矿脉)。
  *
  * 反通胀核心 (第十章第一条): 每块用 {@link ServerLevel#destroyBlock} 破坏前先用 {@link Block#getDrops}
  * (含时运) 算产出物个数, 逐块回放到 {@link OreCountSink} 走经济计数, 严禁 destroyBlock 静默绕过计数。
@@ -32,7 +35,7 @@ import java.util.UUID;
  *
  * 防重入: 引擎以 {@code reentrant} 标志拦截 destroyBlock 触发的二次 BreakEvent 引发的递归连锁。
  *
- * 隧道挖 (第四章 L9 3x3) 复用同白名单, 见 {@link #tunnelBreak}。
+ * 隧道挖 (第四章 L9 3x3) 复用同谓词, 见 {@link #tunnelBreak}。
  */
 public final class ChainMiningEngine {
 
@@ -74,7 +77,7 @@ public final class ChainMiningEngine {
 
     /**
      * 纯 plan: 从起始块 BFS 收集连锁候选坐标 (有序, 不含 origin), 不改世界、不触发陷阱、不消耗充能 —— 预览与
-     * {@link #chainBreak} 共用本函数作候选来源。含全部现行规则: 白名单/硬排除/同矿种扩散/充能上限。
+     * {@link #chainBreak} 共用本函数作候选来源。含全部现行规则: {@link #chainable} 单一判定/同矿种扩散/充能上限。
      *
      * 陷阱处置 (最高优先级防泄密不变量, 用户裁决):
      *  - 已揭示陷阱位: 跳过 (不入候选、不从其扩散) —— 玩家已探测掌握此情报, 与现行连锁"已揭示跳过"一致, 不泄密。
@@ -87,9 +90,11 @@ public final class ChainMiningEngine {
         if (budget <= 0) {
             return out;
         }
-        Block originBlock = level.getBlockState(origin).getBlock();
-        if (!isWhitelisted(originBlock)) {
-            return out; // 起始块非白名单 (如直接挖钻石): 不连锁。
+        ItemStack tool = player.getMainHandItem();
+        BlockState originState = level.getBlockState(origin);
+        Block originBlock = originState.getBlock();
+        if (!chainable(level, origin, originState, tool)) {
+            return out; // 起始块不可连锁 (手持非镐/档位不足/不可破坏/含 BlockEntity): 整链不启动。
         }
         TrapRegistry registry = TrapRegistry.get(level);
         UUID uuid = player.getUUID();
@@ -106,9 +111,10 @@ public final class ChainMiningEngine {
                     continue;
                 }
                 visited.add(next.immutable());
-                Block block = level.getBlockState(next).getBlock();
-                // 连锁只在 "与起始块同种且白名单" 上扩散 (清矿脉语义); 遇高价矿/异种停在边界不破坏。
-                if (block != originBlock || !isWhitelisted(block) || isHardExcluded(block)) {
+                BlockState state = level.getBlockState(next);
+                Block block = state.getBlock();
+                // 连锁只在 "与起始块同种且可连锁" 上扩散 (清矿脉语义); 遇异种或不可连锁 (含 BlockEntity) 停在边界不破坏。
+                if (block != originBlock || !chainable(level, next, state, tool)) {
                     continue;
                 }
                 // 已揭示陷阱: 跳过 (不入候选、不扩散); 未揭示陷阱不查注册表 (按普通矿石处理), 保证两世界 plan 恒等 (防泄密)。
@@ -130,7 +136,7 @@ public final class ChainMiningEngine {
      * 消费 {@link #plan} 的候选列表做实际破坏与陷阱交互 (与预览走同一 plan)。逐候选位:
      *  - 未揭示陷阱: {@link #handleChainTrap} 触发 (移除条目 + 吞块无掉落 + 反应窗口效果), 不计产出、不计入返回 broken;
      *  - 已揭示陷阱 (理论上 plan 已排除, 防御性): 跳过, 不破坏;
-     *  - 普通白名单块: {@link #breakOne} 破坏并经 sink 唯一物化产出, broken++。
+     *  - 普通可连锁块: {@link #breakOne} 破坏并经 sink 唯一物化产出, broken++。
      * 防重入标志置位期间 destroyBlock 触发的二次 BreakEvent 不再进入连锁。
      *
      * @return 实际破坏的块数 (未揭示陷阱触发不计入, 与现行陷阱语义一致)
@@ -142,10 +148,16 @@ public final class ChainMiningEngine {
         reentrant = true;
         try {
             int broken = 0;
+            ItemStack tool = player.getMainHandItem();
             for (BlockPos pos : planned) {
                 BlockState state = level.getBlockState(pos);
                 // 陷阱交互 (命中注册表): 已揭示跳过 / 未揭示触发, 两者都不进产出、不计入 broken。
                 if (handleChainTrap(player, level, pos, state) != TrapInteraction.NOT_TRAP) {
+                    continue;
+                }
+                // 防御性同判 (plan 与 execute 同口径 chainable): plan 后世界可能变化 (含新出现的 BlockEntity),
+                // 此处对每块独立复核, 只破坏仍可连锁的方块, 杜绝吞掉容器方块内容物。
+                if (!chainable(level, pos, state, tool)) {
                     continue;
                 }
                 if (breakOne(player, level, pos, state, sink)) {
@@ -159,8 +171,8 @@ public final class ChainMiningEngine {
     }
 
     /**
-     * 隧道挖 (L9): 沿玩家水平朝向掘进 {@link MinerConstants#TUNNEL_DEPTH} 段, 每段 3x3 横截面, 仅破坏白名单块。
-     * 不受充能池约束 (走 CD), 但同样逐块回放经济计数, 遇高价矿/非白名单块该格跳过 (停在边界)。
+     * 隧道挖 (L9): 沿玩家水平朝向掘进 {@link MinerConstants#TUNNEL_DEPTH} 段, 每段 3x3 横截面, 仅破坏可连锁块 ({@link #chainable})。
+     * 不受充能池约束 (走 CD), 但同样逐块回放经济计数, 遇不可连锁块 (非镐可采/档位不足/含 BlockEntity) 该格跳过 (停在边界)。
      *
      * @return 实际破坏块数
      */
@@ -172,6 +184,7 @@ public final class ChainMiningEngine {
         reentrant = true;
         try {
             int broken = 0;
+            ItemStack tool = player.getMainHandItem();
             Direction forward = toHorizontal(horizontalFacing);
             // 横截面两条正交基: 一条水平垂直于前进方向, 一条竖直。
             Direction side = forward.getClockWise();
@@ -181,9 +194,8 @@ public final class ChainMiningEngine {
                     for (int dy = -1; dy <= 1; dy++) {
                         BlockPos p = center.relative(side, dh).above(dy);
                         BlockState state = level.getBlockState(p);
-                        Block block = state.getBlock();
-                        if (!isWhitelisted(block) || isHardExcluded(block)) {
-                            continue; // 非白名单 / 高价矿: 跳过该格 (停在边界)。
+                        if (!chainable(level, p, state, tool)) {
+                            continue; // 不可连锁 (非镐可采/档位不足/不可破坏/含 BlockEntity): 跳过该格 (停在边界)。
                         }
                         // 伪装陷阱交互 (同连锁): 命中注册表 -> 已揭示跳过 / 未揭示触发, 两者都不计产出。
                         if (handleChainTrap(player, level, p, state) != TrapInteraction.NOT_TRAP) {
@@ -255,26 +267,26 @@ public final class ChainMiningEngine {
         return TrapInteraction.TRIGGERED;
     }
 
-    // ---- 白名单 / 排除 (纯函数, 可单测) ----
+    // ---- 连锁判定谓词 (纯函数, GameTest 直调) ----
 
-    /** 是否在硬白名单内 (可连锁的普通方块)。 */
-    public static boolean isWhitelisted(Block block) {
-        for (Block b : MinerConstants.CHAIN_WHITELIST) {
-            if (b == block) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** 是否在硬排除名单内 (高价矿 + 绿宝石, 连锁物理停在边界)。 */
-    public static boolean isHardExcluded(Block block) {
-        for (Block b : MinerConstants.CHAIN_HARD_EXCLUDE) {
-            if (b == block) {
-                return true;
-            }
-        }
-        return false;
+    /**
+     * 单一连锁判定 (替代旧 CHAIN_WHITELIST / CHAIN_HARD_EXCLUDE 双表, 用户 2026-07-12 裁决"矿洞维度内连锁全放开"):
+     * 一个方块能否作为连锁/隧道链的一环。四条全部满足才可连锁:
+     *  1. {@code state.is(BlockTags.MINEABLE_WITH_PICKAXE)} —— 镐类可采方块 (排除泥土/原木/树叶等非镐目标);
+     *  2. {@code tool.isCorrectToolForDrops(state)} —— 手持镐档位足够采出产物 (木镐连钻石无掉落故不连锁;
+     *     手持非镐对镐类方块此判定天然为 false, 整链不启动);
+     *  3. 方块可破坏 —— {@code state.getDestroySpeed(level, pos) >= 0}, 排除硬度 -1 的不可破坏块;
+     *  4. 该位无 BlockEntity —— {@code level.getBlockEntity(pos) == null}, 防连锁吞掉炉子/刷怪笼/生产台等容器内容物。
+     *
+     * 不可破坏块判定选型: 取 {@code getDestroySpeed(level,pos) < 0} 而非 {@code block == Blocks.BEDROCK} —— 前者覆盖
+     * 一切硬度 -1 的方块 (基岩/屏障/命令方块/结构方块), 后者只挡基岩会漏其余不可破坏块。getDestroySpeed 返回
+     * BlockStateBase 缓存的 destroySpeed 字段, 需 level+pos 上下文, 故谓词取二者入参 (与 BlockEntity 查询同一上下文来源)。
+     */
+    public static boolean chainable(Level level, BlockPos pos, BlockState state, ItemStack tool) {
+        return state.is(BlockTags.MINEABLE_WITH_PICKAXE)
+                && tool.isCorrectToolForDrops(state)
+                && state.getDestroySpeed(level, pos) >= 0.0F
+                && level.getBlockEntity(pos) == null;
     }
 
     // ---- 工具 ----

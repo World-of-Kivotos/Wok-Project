@@ -32,7 +32,9 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -57,7 +59,7 @@ import java.util.function.Function;
 /**
  * 矿工职业核心逻辑 GameTest (断言具体业务结果, 删被测核心逻辑测试必挂; 禁 is-not-null 弱校验; 含边界值)。
  *
- * 覆盖: 挖速封顶、省耐久封顶、时运封顶、难度门控边界、减 danger 满级封底、矿脉抗性陷阱专属、连锁白名单/硬排除、
+ * 覆盖: 挖速封顶、省耐久封顶、时运封顶、难度门控边界、减 danger 满级封底、矿脉抗性陷阱专属、连锁判定谓词 chainable、
  * 自动熔炼 1:1、探测可探矿种里程碑、陷阱探测致死门控; 以及复审缺陷闭合的回归断言 (删修复测试必挂):
  *  - 连锁/隧道经济计数回放按产出物个数 (方案 B) 经货币门面入账 (反通胀第一道硬约束, 非 debug-log/计数 0);
  *  - 时运额外掉落随连带产出进经济计数 (时运计入隐藏软上限, 非死代码);
@@ -216,29 +218,68 @@ public final class MinerGameTests {
     }
 
     // ============================================================
-    // 连锁白名单 / 硬排除
+    // 连锁判定谓词 chainable (全放开: 镐可采 + 手持镐档位足够 + 可破坏 + 无 BlockEntity; 废除旧枚举白名单/高价矿硬排除双表)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void chainWhitelistAndExclude(GameTestHelper helper) {
-        // 白名单: 石/深板岩/煤/铁/铜 放行。
-        helper.assertTrue(ChainMiningEngine.isWhitelisted(Blocks.STONE), "stone is chain-whitelisted");
-        helper.assertTrue(ChainMiningEngine.isWhitelisted(Blocks.DEEPSLATE), "deepslate is chain-whitelisted");
-        helper.assertTrue(ChainMiningEngine.isWhitelisted(Blocks.IRON_ORE), "iron ore is chain-whitelisted");
-        helper.assertTrue(ChainMiningEngine.isWhitelisted(Blocks.DEEPSLATE_COPPER_ORE), "deepslate copper whitelisted");
-        helper.assertTrue(ChainMiningEngine.isWhitelisted(Blocks.COAL_ORE), "coal ore is chain-whitelisted");
-        // 硬排除: 钻石/金/残骸/绿宝石 物理排除 (连锁停在边界)。
-        helper.assertTrue(ChainMiningEngine.isHardExcluded(Blocks.DIAMOND_ORE), "diamond is hard-excluded");
-        helper.assertTrue(ChainMiningEngine.isHardExcluded(Blocks.DEEPSLATE_DIAMOND_ORE), "deepslate diamond excluded");
-        helper.assertTrue(ChainMiningEngine.isHardExcluded(Blocks.GOLD_ORE), "gold is hard-excluded");
-        helper.assertTrue(ChainMiningEngine.isHardExcluded(Blocks.ANCIENT_DEBRIS), "ancient debris is hard-excluded");
-        helper.assertTrue(ChainMiningEngine.isHardExcluded(Blocks.EMERALD_ORE), "emerald is hard-excluded");
-        // 互斥: 高价矿不在白名单; 普通石不在排除名单。
-        helper.assertFalse(ChainMiningEngine.isWhitelisted(Blocks.DIAMOND_ORE), "diamond NOT in chain whitelist");
-        helper.assertFalse(ChainMiningEngine.isHardExcluded(Blocks.STONE), "stone NOT in hard-exclude");
-        // 默认拒绝: 既非白名单也非排除的方块 (如基岩) 不连锁。
-        helper.assertFalse(ChainMiningEngine.isWhitelisted(Blocks.BEDROCK), "bedrock not whitelisted (default deny)");
+    public static void chainablePredicate(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        ItemStack netherite = new ItemStack(Items.NETHERITE_PICKAXE);
+        ItemStack wood = new ItemStack(Items.WOODEN_PICKAXE);
+        ItemStack shovel = new ItemStack(Items.NETHERITE_SHOVEL);
+
+        // 基础方块: 任意镐 (含木镐) 可连锁 (旧白名单成员照旧放行)。
+        assertChainableAt(helper, level, new BlockPos(0, 1, 0), Blocks.STONE, wood, true, "stone chainable with a wooden pickaxe");
+        assertChainableAt(helper, level, new BlockPos(2, 1, 0), Blocks.DEEPSLATE, wood, true, "deepslate chainable with a wooden pickaxe");
+        assertChainableAt(helper, level, new BlockPos(4, 1, 0), Blocks.COAL_ORE, wood, true, "coal ore chainable with a wooden pickaxe");
+        assertChainableAt(helper, level, new BlockPos(6, 1, 0), Blocks.IRON_ORE, netherite, true, "iron ore chainable with a proper pickaxe");
+        assertChainableAt(helper, level, new BlockPos(8, 1, 0), Blocks.DEEPSLATE_COPPER_ORE, netherite, true, "deepslate copper chainable");
+
+        // (a) 高价矿用正确档位镐可连锁 (旧硬排除废除, 用户 2026-07-12 裁决): 深层金 / 钻 / 绿宝石。
+        assertChainableAt(helper, level, new BlockPos(0, 1, 2), Blocks.DEEPSLATE_DIAMOND_ORE, netherite, true, "deep diamond chainable with a netherite pickaxe (hard-exclude abolished)");
+        assertChainableAt(helper, level, new BlockPos(2, 1, 2), Blocks.DEEPSLATE_GOLD_ORE, netherite, true, "deep gold chainable with a netherite pickaxe");
+        assertChainableAt(helper, level, new BlockPos(4, 1, 2), Blocks.DEEPSLATE_EMERALD_ORE, netherite, true, "deep emerald chainable with a netherite pickaxe");
+
+        // (b) 木镐对钻石不启动链: isCorrectToolForDrops=false (档位不足无掉落, 不该连锁)。
+        assertChainableAt(helper, level, new BlockPos(6, 1, 2), Blocks.DIAMOND_ORE, wood, false, "diamond NOT chainable with a wooden pickaxe (wrong tier, no drops)");
+
+        // 手持非镐 (铲): 对镐类方块 isCorrectToolForDrops 天然 false -> 整链不启动。
+        assertChainableAt(helper, level, new BlockPos(8, 1, 2), Blocks.STONE, shovel, false, "stone NOT chainable with a shovel (non-pickaxe tool)");
+
+        // (c) 带 BlockEntity 的位置被跳过: furnace 镐可采 + 档位足够 (前三条全过), 唯 BlockEntity 一条不过 -> 排除 (防吞容器内容物)。
+        BlockPos furnaceAbs = helper.absolutePos(new BlockPos(0, 1, 4));
+        net.minecraft.world.level.block.state.BlockState furnace = Blocks.FURNACE.defaultBlockState();
+        level.setBlock(furnaceAbs, furnace, Block.UPDATE_ALL);
+        net.minecraft.world.level.block.state.BlockState placedFurnace = level.getBlockState(furnaceAbs);
+        helper.assertTrue(placedFurnace.is(BlockTags.MINEABLE_WITH_PICKAXE), "furnace IS pickaxe-mineable (chainable tag condition passes)");
+        helper.assertTrue(netherite.isCorrectToolForDrops(placedFurnace), "netherite pickaxe correctly tools furnace (chainable tool condition passes)");
+        helper.assertTrue(level.getBlockEntity(furnaceAbs) != null, "furnace is placed with a BlockEntity present");
+        helper.assertFalse(ChainMiningEngine.chainable(level, furnaceAbs, placedFurnace, netherite),
+                "furnace NOT chainable despite tag+tool passing: the BlockEntity guard alone excludes it (protects container contents)");
+
+        // (d) 基岩不可连: 硬度 -1 不可破坏 (可破坏条件不过)。
+        BlockPos bedrockAbs = helper.absolutePos(new BlockPos(2, 1, 4));
+        net.minecraft.world.level.block.state.BlockState bedrock = Blocks.BEDROCK.defaultBlockState();
+        level.setBlock(bedrockAbs, bedrock, Block.UPDATE_ALL);
+        net.minecraft.world.level.block.state.BlockState placedBedrock = level.getBlockState(bedrockAbs);
+        helper.assertTrue(placedBedrock.getDestroySpeed(level, bedrockAbs) < 0.0F, "bedrock is unbreakable (destroySpeed -1)");
+        helper.assertFalse(ChainMiningEngine.chainable(level, bedrockAbs, placedBedrock, netherite),
+                "bedrock NOT chainable (unbreakable block, destroySpeed < 0)");
+
         helper.succeed();
+    }
+
+    /** chainable 谓词断言小工具: 在 rel (转绝对坐标直写世界) 放 block, 用 tool 判定并与 expected 比对。 */
+    private static void assertChainableAt(GameTestHelper helper, ServerLevel level, BlockPos rel,
+                                          Block block, ItemStack tool, boolean expected, String msg) {
+        BlockPos abs = helper.absolutePos(rel);
+        level.setBlock(abs, block.defaultBlockState(), Block.UPDATE_ALL);
+        boolean actual = ChainMiningEngine.chainable(level, abs, level.getBlockState(abs), tool);
+        if (expected) {
+            helper.assertTrue(actual, msg);
+        } else {
+            helper.assertFalse(actual, msg);
+        }
     }
 
     // ============================================================
@@ -913,6 +954,8 @@ public final class MinerGameTests {
     public static void chainPlanExecuteConsistency(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        // 手持正确档位镐: 新 chainable 谓词要求 isCorrectToolForDrops, mock 玩家默认空手会使 coal 不可连锁 (整链不启动)。
+        player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.NETHERITE_PICKAXE));
         TrapRegistry reg = TrapRegistry.get(level);
 
         // coal 矿脉 (绝对坐标直写世界, 避开结构相对边界): origin + a + b + trap 相连成 2x2 一角; trap 是未揭示陷阱
@@ -960,6 +1003,8 @@ public final class MinerGameTests {
     public static void chainPlanDoesNotLeakUnrevealedTraps(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        // 手持正确档位镐: 新 chainable 谓词要求 isCorrectToolForDrops, mock 玩家默认空手会使 coal 不可连锁 (整链不启动)。
+        player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.NETHERITE_PICKAXE));
         TrapRegistry reg = TrapRegistry.get(level);
 
         // 折线 coal 矿脉 origin-mid-beyond (绝对坐标直写): beyond 仅经 mid 连通 (mid 是割点), 便于验证"已揭示 mid 后

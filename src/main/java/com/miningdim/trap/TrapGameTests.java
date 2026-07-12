@@ -15,9 +15,12 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageType;
 import net.minecraft.world.damagesource.DamageTypes;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.gametest.GameTestHolder;
@@ -189,6 +192,8 @@ public final class TrapGameTests {
     public static void chainSkipsRevealedTrapKeepingBlock(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        // 手持正确档位镐: 新 chainable 谓词要求 isCorrectToolForDrops, 空手会使 coal origin 不可连锁 (整链不启动)。
+        player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.NETHERITE_PICKAXE));
         TrapRegistry reg = TrapRegistry.get(level);
         ChainMiningEngine engine = new ChainMiningEngine();
 
@@ -218,6 +223,8 @@ public final class TrapGameTests {
     public static void chainTriggersUnrevealedTrapExcludingItFromOutput(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        // 手持正确档位镐: 新 chainable 谓词要求 isCorrectToolForDrops, 空手会使 coal origin 不可连锁 (整链不启动)。
+        player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.NETHERITE_PICKAXE));
         TrapRegistry reg = TrapRegistry.get(level);
         ChainMiningEngine engine = new ChainMiningEngine();
 

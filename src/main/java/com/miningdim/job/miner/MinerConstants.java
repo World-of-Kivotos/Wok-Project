@@ -1,8 +1,5 @@
 package com.miningdim.job.miner;
 
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-
 /**
  * 矿工职业全部成长曲线 / CD / 充能 / 时运 / danger 系数的唯一数值源 (Miner_Job_DesignSpec 第三-八章 + 契约 numbers)。
  *
@@ -168,30 +165,4 @@ public final class MinerConstants {
 
     public static final int MEDIUM_MIN_MINER_LEVEL = 4;
     public static final int HARD_MIN_MINER_LEVEL = 8;
-
-    // ============================================================
-    // 速挖类硬白名单 / 硬排除 (代码级, 物理排除高价矿)
-    // ============================================================
-
-    /**
-     * 连锁/隧道硬白名单 (Miner spec 第四章): 仅这些普通方块可连带破坏。
-     * 石/深板岩/凝灰岩/花岗岩 + 煤/铁/铜 (含深层变体)。其余 (尤其高价矿) 一律停在边界。
-     */
-    public static final Block[] CHAIN_WHITELIST = {
-            Blocks.STONE, Blocks.DEEPSLATE, Blocks.TUFF, Blocks.GRANITE,
-            Blocks.COAL_ORE, Blocks.DEEPSLATE_COAL_ORE,
-            Blocks.IRON_ORE, Blocks.DEEPSLATE_IRON_ORE,
-            Blocks.COPPER_ORE, Blocks.DEEPSLATE_COPPER_ORE
-    };
-
-    /**
-     * 连锁硬排除 (Miner spec 第四章): 高价矿 + 绿宝石, 物理排除使连锁停在其边界。
-     * 此名单与 CHAIN_WHITELIST 互斥; 既不在白名单也不在排除名单的方块同样不连锁 (默认拒绝)。
-     */
-    public static final Block[] CHAIN_HARD_EXCLUDE = {
-            Blocks.DIAMOND_ORE, Blocks.DEEPSLATE_DIAMOND_ORE,
-            Blocks.GOLD_ORE, Blocks.DEEPSLATE_GOLD_ORE, Blocks.NETHER_GOLD_ORE,
-            Blocks.ANCIENT_DEBRIS,
-            Blocks.EMERALD_ORE, Blocks.DEEPSLATE_EMERALD_ORE
-    };
 }

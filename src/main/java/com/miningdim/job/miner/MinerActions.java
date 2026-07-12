@@ -15,7 +15,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.List;
 import java.util.Optional;
@@ -89,7 +89,7 @@ public final class MinerActions {
      * 回一份候选坐标列表 (以列表长度为计数) 下发。客户端无权算连锁范围, 只按本包渲染轮廓与"连锁 N"。
      *
      * 校验 (任一不满足即不下发, 客户端预览槽随短 expire 天然自清): 连锁已解锁 + 正按住激活 (防未按住的伪造请求洗图) +
-     * 在矿洞 region 内 + 准星目标块本身可连锁 (whitelisted)。plan 对未揭示陷阱按其伪装的普通矿石处理 (最高优先级防泄密不变量),
+     * 在矿洞 region 内 + 准星目标块本身可连锁 ({@link ChainMiningEngine#chainable})。plan 对未揭示陷阱按其伪装的普通矿石处理 (最高优先级防泄密不变量),
      * 故预览计数/位置不泄漏任何陷阱位。budget 取当前充能, 预览范围与真连锁一致。
      */
     public static void handleChainPreview(ServerPlayer player, BlockPos target) {
@@ -103,9 +103,9 @@ public final class MinerActions {
         if (!(player.level() instanceof ServerLevel sl)) {
             return;
         }
-        Block targetBlock = sl.getBlockState(target).getBlock();
-        if (!ChainMiningEngine.isWhitelisted(targetBlock)) {
-            return; // 目标不可连锁 (非白名单): 不下发, 预览槽随 expire 自清。
+        BlockState targetState = sl.getBlockState(target);
+        if (!ChainMiningEngine.chainable(sl, target, targetState, player.getMainHandItem())) {
+            return; // 目标不可连锁 (非镐可采/档位不足/不可破坏/含 BlockEntity): 不下发, 预览槽随 expire 自清。
         }
         List<BlockPos> planned = ChainMiningEngine.plan(player, sl, target, state.currentCharge());
         long expire = now + MinerConstants.CHAIN_PREVIEW_EXPIRE_TICKS;

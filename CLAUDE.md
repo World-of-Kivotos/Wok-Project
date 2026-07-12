@@ -93,7 +93,9 @@ CLAUDE.md — 工程协作规范
 
 绝对身份纯洁： 严禁在 Commit 信息中添加 Co-Authored-By: Claude 或任何 AI 署名。所有提交仅保留我个人的签名，保持提交历史干净纯粹。
 
-严禁直推 main： 所有改动一律走功能分支 + Pull Request 合并，严禁 git push 直达 main（私有仓库免费计划无服务端分支保护，仓库内置 .githooks/pre-push 为客户端拦截；每个新克隆必须先执行一次 git config core.hooksPath .githooks 使其生效）。严禁使用 --no-verify 绕过该 hook（仅限人类在事故修复时口头同步全员后使用）。
+严禁直推 main： 所有改动一律走功能分支 + Pull Request 合并。GitHub 服务端 Ruleset 已强制：直推 / force-push / 删 main 一律被拒，PR 必须获得 1 个批准（作者不能自批，即必须对方审查）且全部评论线程 resolve 后才能手动合并；批准后再推新提交会作废旧批准。仓库另置 .githooks/pre-push 作本地提前拦截（新克隆执行一次 git config core.hooksPath .githooks 启用）。
+
+一个模块一个分支： 每个功能模块 / 修复主题独立开分支（feat/<模块>、fix/<主题>、docs/<主题>），严禁把多个模块塞进同一个分支同时开发（反面教材：军械台 + 枪匠冲压 + 农夫耕地混于一个分支，导致审查与合并互相拖累）。开发中发现相邻模块的问题：口头报告，或另开分支单独提 PR，严禁顺手夹带进当前分支。一个 PR 只承载一个模块的改动。
 
 六、ClaudeCode八荣八耻
 以瞎猜接口为耻，以认真查询为荣。

@@ -13,6 +13,7 @@ import com.miningdim.core.RegionBox;
 import com.miningdim.trap.StaticTrapKind;
 import com.miningdim.trap.TrapDebugPlacement;
 import com.miningdim.trap.TrapDisguise;
+import com.miningdim.trap.TrapRegistry;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -42,6 +43,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletionException;
 
@@ -64,6 +66,9 @@ public final class MiningCommands {
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/MiningCommands");
 
     private static final int PAGE_SIZE = 8;
+
+    /** oresurvey 默认半径 (17 章调参命令; 上限见 {@link OreSurvey#MAX_RADIUS})。 */
+    private static final int DEFAULT_SURVEY_RADIUS = 32;
 
     /** 由 CommandSystem 在 RegisterCommandsEvent 内调用一次。 */
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
@@ -100,6 +105,14 @@ public final class MiningCommands {
                 .requires(src -> MiningPermissions.has(src, MiningPermissions.LEVEL_ADMIN_QUERY))
                 .then(Commands.argument("instanceId", LongArgumentType.longArg(0))
                         .executes(MiningCommands::tp)));
+
+        // ---- 矿脉勘测 (管理查询 level 2, 与 list/tp 同档; worldgen 翻修 1.0.2 调参命令) ----
+        // /mining oresurvey [radius]: 以自身为心的立方体内统计矿方块数 + 分层小计 + 伪装陷阱数 (分 kind)。
+        root.then(Commands.literal("oresurvey")
+                .requires(src -> MiningPermissions.has(src, MiningPermissions.LEVEL_ADMIN_QUERY))
+                .executes(ctx -> oreSurvey(ctx, DEFAULT_SURVEY_RADIUS))
+                .then(Commands.argument("radius", IntegerArgumentType.integer(1, OreSurvey.MAX_RADIUS))
+                        .executes(ctx -> oreSurvey(ctx, IntegerArgumentType.getInteger(ctx, "radius")))));
 
         // ---- 管理操作 level 3 (17.2) ----
         root.then(Commands.literal("kick")
@@ -355,6 +368,61 @@ public final class MiningCommands {
         ctx.getSource().sendSuccess(
                 () -> Component.translatable("commands.miningdim.tp.success", instanceId), true);
         return Command.SINGLE_SUCCESS;
+    }
+
+    // ---- oresurvey (矿脉勘测, 调参) ----
+
+    /**
+     * 以玩家为心的立方体内勘测矿方块 + 分层小计 + 伪装陷阱数, 多行纯文本报表回执。服务端权威: 落点 = 玩家
+     * 当前方块坐标 (不接受客户端坐标)。radius 已由 Brigadier 参数类型钳制到 [1, {@link OreSurvey#MAX_RADIUS}]。
+     */
+    private static int oreSurvey(CommandContext<CommandSourceStack> ctx, int radius) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        ServerLevel level = player.serverLevel();
+        BlockPos center = player.blockPosition();
+
+        OreSurvey.Result result = OreSurvey.survey(level, center, radius);
+
+        // 陷阱身份只在矿洞维度的 TrapRegistry。其它维度不建 SavedData (避免落空文件), 陷阱计数留空表。
+        Map<StaticTrapKind, Integer> traps;
+        if (level.dimension().equals(MiningConstants.MINING_LEVEL)) {
+            TrapRegistry registry = TrapRegistry.get(level);
+            traps = OreSurvey.countTraps(registry.nearby(center, radius), center, radius);
+        } else {
+            traps = Map.of();
+        }
+
+        // 报表为技术性数值表格 (矿种/陷阱 kind 皆技术标识), 用 Component.literal 对齐输出, 不走 i18n key。
+        for (String line : formatReport(level, center, radius, result, traps)) {
+            ctx.getSource().sendSuccess(() -> Component.literal(line), false);
+        }
+        return result.total();
+    }
+
+    /** 勘测结果 -> 多行纯文本报表 (无 Emoji, 列对齐)。矿种全列 (0 也列), 分层按层底降序 (顶到底)。 */
+    private static List<String> formatReport(ServerLevel level, BlockPos c, int radius,
+                                             OreSurvey.Result r, Map<StaticTrapKind, Integer> traps) {
+        List<String> out = new ArrayList<>();
+        out.add(String.format("=== oresurvey  center (%d, %d, %d)  radius %d  dim %s ===",
+                c.getX(), c.getY(), c.getZ(), radius, level.dimension().location()));
+        out.add("[ore blocks] (stone + deepslate merged)");
+        for (OreSurvey.OreCategory cat : OreSurvey.OreCategory.values()) {
+            out.add(String.format("  %-16s %8d", cat.label(), r.ores().getOrDefault(cat, 0)));
+        }
+        out.add(String.format("  %-16s %8d", "TOTAL", r.total()));
+        out.add("[disguised traps] (TrapRegistry)");
+        for (StaticTrapKind kind : StaticTrapKind.values()) {
+            out.add(String.format("  %-16s %8d", kind.getSerializedName(), traps.getOrDefault(kind, 0)));
+        }
+        out.add(String.format("[layers per %d]", OreSurvey.LAYER_SIZE));
+        List<Integer> buckets = new ArrayList<>(r.layers().keySet());
+        buckets.sort(Comparator.reverseOrder());
+        for (int b : buckets) {
+            out.add(String.format("  y %6d..%-6d %8d", b, b + OreSurvey.LAYER_SIZE - 1, r.layers().get(b)));
+        }
+        out.add(String.format("[scan] loaded_chunks %d  sections scanned %d / skipped %d",
+                r.loadedChunks(), r.scannedSections(), r.skippedSections()));
+        return out;
     }
 
     // ---- kick ----

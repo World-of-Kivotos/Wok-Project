@@ -467,5 +467,8 @@
   "category.miningdim.munitions.rifle": "Rifle Ammo",
   "category.miningdim.munitions.shotgun": "Shotgun Shells",
   "category.miningdim.munitions.sniper": "Sniper Ammo",
-  "category.miningdim.munitions.explosive": "Explosive Ammo"
+  "category.miningdim.munitions.explosive": "Explosive Ammo",
+  "death.attack.miningdim.champion_thorns": "%1$s was shattered by %2$s's tremor guard",
+  "death.attack.miningdim.champion_execution": "%1$s could not escape their appointed death",
+  "death.attack.miningdim.champion_skill_aoe": "%1$s was erased by %2$s's skill barrage"
 }

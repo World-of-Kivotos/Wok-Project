@@ -176,6 +176,31 @@ public final class ChampionRewardBloodPoolGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void bloodPoolMirrorScalesToActualAttributeCap(GameTestHelper helper) {
+        // 真血镜像 (AttributeFix 环境): promoter 把 vanilla 血量属性设到池 maxHp 真值, 镜像按实际 getMaxHealth
+        // 等比映射 -> 半血 27000 池在 vanillaMax=27000 时显 13500 (Jade 直显真血), 在 1024 (无 AttributeFix
+        // 属性自钳) 时退回 512 保守镜像。删按上限缩放逻辑 (恒用 1024 常量) 则第一断言必挂。
+        BloodPool half = new BloodPool(27_000.0D, 13_500.0D);
+        helper.assertTrue(Math.abs(half.displayHealth(27_000.0D) - 13_500.0F) < 0.01F,
+                "vanillaMax=真值 27000: 半血镜像 = 13500 (真血直显)");
+        helper.assertTrue(Math.abs(half.displayHealth(1_024.0D) - 512.0F) < 0.01F,
+                "vanillaMax=1024 (属性自钳): 半血镜像退回 512");
+        // 镜像不越实际上限 (满血恰等于上限)。
+        BloodPool full = new BloodPool(27_000.0D);
+        helper.assertTrue(Math.abs(full.displayHealth(27_000.0D) - 27_000.0F) < 0.01F,
+                "满血镜像 = 实际上限 27000");
+        // 非正上限抛不掩盖 (调用方 bug)。
+        boolean thrown = false;
+        try {
+            half.displayHealth(0.0D);
+        } catch (IllegalArgumentException expected) {
+            thrown = true;
+        }
+        helper.assertTrue(thrown, "vanillaMax<=0 抛 IllegalArgumentException");
+        helper.succeed();
+    }
+
     // ============================================================
     // 盖章双门槛"取一": 仅过门槛二 (15% 团队人均) 也合格
     // ============================================================

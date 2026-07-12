@@ -1,12 +1,13 @@
 package com.miningdim.champion.integration;
 
+import com.miningdim.champion.MiningChampionData;
+import com.miningdim.champion.MiningChampions;
 import com.miningdim.champion.reward.ChampionReward;
 import com.miningdim.champion.reward.ContributionPool;
 import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.champion.reward.DamageContribution;
 import com.miningdim.economy.EconomyConstants;
 import com.miningdim.economy.EconomyServices;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -15,8 +16,8 @@ import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
-import top.theillusivec4.champions.api.IChampion;
-import top.theillusivec4.champions.common.capability.ChampionCapability;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -42,10 +43,13 @@ import java.util.UUID;
  * 产出硬上限 (azure_faucet 键, UTC 翻日; economy-02 修复, 此前直发 grant(AZURE) 无任何日上限是印钞口)。
  * 本类不自建 addCredit / addAzure 印钞口。
  *
- * 冠军判定经真 IChampion (任务要求): 1-10★ 全星级冠军均发奖 (非仅 6★+ 血池冠军), 故须 IChampion capability
- * 判定 + 读盖章 NBT (star/effectiveHp)。普通怪无 capability 直接放行。
+ * 冠军判定经自研 {@link MiningChampions} capability: 1-10★ 全星级冠军均发奖 (非仅 6★+ 血池冠军), 故读
+ * {@link MiningChampionData#star()}/{@link MiningChampionData#effectiveHp()}。普通怪 capability star=0 直接放行。
  */
 public final class ChampionRewardHandler {
+
+    /** 诊断日志: 奖励结算真服首验用 (冠军死亡打一行 星级/固定池/合格人数/瓜分额; 死亡低频不门控)。 */
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/champion/reward");
 
     /**
      * 玩家对冠军造成有效伤害: 累加贡献 (championUUID -> playerUUID)。召唤物/非玩家来源不计。
@@ -60,12 +64,12 @@ public final class ChampionRewardHandler {
         if (attacker == null) {
             return; // 非玩家来源 (含召唤物/环境): 不计贡献。
         }
-        IChampion champion = ChampionCapability.getCapability(victim).orElse(null);
-        if (champion == null || champion.getServer() == null) {
-            return; // 受击者非冠军: 不计。
+        MiningChampionData champ = MiningChampions.get(victim).orElse(null);
+        if (champ == null || !champ.isChampion()) {
+            return; // 受击者非本工程盖章的冠军 (star=0): 不计 (其它来源冠军不归本奖励池)。
         }
-        if (!isOurChampion(champion)) {
-            return; // 非本工程盖章的冠军 (无 star NBT): 不计 (其它来源冠军不归本奖励池)。
+        if (champ.isSummonedByAffix()) {
+            return; // 支援召唤物 (spec 红线 8-a 经济闸): 不记贡献不参与奖池 (打召唤物白刷贡献)。
         }
 
         double effectiveDamage = event.getAmount();
@@ -88,9 +92,13 @@ public final class ChampionRewardHandler {
             return; // 无人对其造成有效伤害 (或非本工程冠军): 无可结算。
         }
 
-        IChampion champion = ChampionCapability.getCapability(victim).orElse(null);
-        if (champion == null || champion.getServer() == null || !isOurChampion(champion)) {
+        MiningChampionData champ = MiningChampions.get(victim).orElse(null);
+        if (champ == null || !champ.isChampion()) {
             ContributionTracker.discard(championId); // 防泄漏。
+            return;
+        }
+        if (champ.isSummonedByAffix()) {
+            ContributionTracker.discard(championId); // 支援召唤物 (spec 红线 8-a 经济闸): 整池不发。
             return;
         }
 
@@ -100,13 +108,8 @@ public final class ChampionRewardHandler {
         }
         MinecraftServer server = serverLevel.getServer();
 
-        CompoundTag data = champion.getServer().getData(ChampionPromoter.DATA_KEY);
-        int star = data.getInt(ChampionPromoter.NBT_STAR);
-        double bossEffectiveHp = data.getDouble(ChampionPromoter.NBT_EFFECTIVE_HP);
-        if (star < 1 || bossEffectiveHp <= 0.0D) {
-            ContributionTracker.discard(championId);
-            return; // 盖章数据缺失 (异常): 不发, 不掩盖 (丢账本防脏发)。
-        }
+        int star = champ.star();
+        double bossEffectiveHp = champ.effectiveHp();
 
         // drain 贡献: online 现查 (玩家可能中途登出 = 离线没收)。
         List<DamageContribution> contributions = ContributionTracker.drain(championId,
@@ -114,6 +117,11 @@ public final class ChampionRewardHandler {
 
         long fixedPoolRaw = ChampionReward.creditPoolRaw(star);
         Map<UUID, Long> payout = ContributionPool.distribute(contributions, bossEffectiveHp, fixedPoolRaw);
+
+        // 诊断 (真服首验): 冠军死亡结算打一行 星级/有效血/固定池/贡献人数/合格瓜分额 (死亡低频不门控)。
+        LOGGER.info("champion-death {} star{} effHp={} pool={} contributors={} payout={}",
+                victim.getType().getDescriptionId(), star, bossEffectiveHp, fixedPoolRaw,
+                contributions.size(), payout.values());
 
         if (payout.isEmpty()) {
             return; // 无合格者: 整池不发 (防蹭枪/按人头复制)。
@@ -159,11 +167,5 @@ public final class ChampionRewardHandler {
             return player;
         }
         return null;
-    }
-
-    /** 是否本工程盖章的冠军 (有 miningdim_champion/star NBT)。 */
-    private static boolean isOurChampion(IChampion champion) {
-        CompoundTag data = champion.getServer().getData(ChampionPromoter.DATA_KEY);
-        return data != null && data.contains(ChampionPromoter.NBT_STAR);
     }
 }

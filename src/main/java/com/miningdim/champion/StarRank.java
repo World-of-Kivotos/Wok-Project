@@ -147,6 +147,25 @@ public enum StarRank {
         return 0.60D;
     }
 
+    /**
+     * 星级 BOSS 血条/名牌 signature 色 (RGB; 自研 boss 条取代 Champions rank.getDefaultColor)。低星暖粉→黄→橙→
+     * 青→紫, 高星红系团队/世界 BOSS + 金/紫收尾 (与旧 champions-ranks.toml defaultColor 一致, 视觉延续)。
+     */
+    public int barColorRgb() {
+        return switch (star) {
+            case 1 -> 0xFFC0CB;
+            case 2 -> 0xFFFF00;
+            case 3 -> 0xFF9900;
+            case 4 -> 0x66FFFF;
+            case 5 -> 0xCC33FF;
+            case 6 -> 0xFF5555;
+            case 7 -> 0xFF0000;
+            case 8 -> 0xAA0000;
+            case 9 -> 0xFFD700;
+            default -> 0xB030FF;
+        };
+    }
+
     /** 星级数值反查 StarRank (1-10); 越界抛 IllegalArgumentException (不掩盖, 异常自然冒泡)。 */
     public static StarRank ofStar(int star) {
         for (StarRank r : values()) {

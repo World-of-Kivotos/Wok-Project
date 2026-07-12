@@ -10,16 +10,33 @@ package com.miningdim.champion;
  * (子弹/近战/爆炸), 再据词条池调本类折算 rate / cap, dev GameTest 直接断言数值与分类 (不加载 Champions/TACZ)。
  *
  * 净减伤单点铁律 (9A.2): 比例类减伤源 (超高分子子弹抗 + 重型子弹抗 + 复合 ramp + 偏斜 EV + 缩小化体型折算) 全部
- * 折算成 rate 收进数组一次性连乘 keep = max(∏(1-rᵢ), 0.51); FLAT 类 (刚毅封顶 / 重型 <T 免疫) 不是固定 rate
- * (与入伤量耦合), 故在连乘 keep 算出净伤后再削顶 (spec 7.1 刚毅"折算或直接削顶"二选其一, 此处取削顶口径), 削顶
- * 只会让冠军更肉 (单向变硬), 不与 49% 净减伤底冲突 (底是对"比例源"的保护, FLAT 是额外硬上限)。
+ * 折算成 rate 收进数组一次性连乘 keep = max(∏(1-rᵢ), 0.25) (2026-07-07 随复合同源适应 49%->75% 抬帽, 数值真源
+ * {@link ChampionRedlines}); FLAT 类 (刚毅封顶 / 重型 <T 免疫) 不是固定 rate (与入伤量耦合), 故在连乘 keep 算出
+ * 净伤后再削顶 (spec 7.1 刚毅"折算或直接削顶"二选其一, 此处取削顶口径), 削顶只会让冠军更肉 (单向变硬), 不与 75%
+ * 净减伤帽冲突 (帽是对"比例源"的保护, FLAT 是额外硬上限)。
  */
 public final class ChampionDamageReduction {
 
     private ChampionDamageReduction() {
     }
 
-    /** 复合装甲 ramp 分段数 (spec 7.1: 每受击 +上限/5, 5 次受击达上限)。 */
+    /**
+     * 伤害类别 (复合装甲同源适应的分桶维度, spec 7.1 复合装甲 v2): 装甲只适应【当前持续挨的那类】伤害, 换类别
+     * 即重置 —— 玩家的真实反制手段 (枪打久了换近战/丢雷)。分类由受击 handler 从 DamageSource 折算 (子弹 =
+     * tacz:bullet*; 爆炸 = IS_EXPLOSION 标签; 近战 = MOB/PLAYER_ATTACK; 其余归 OTHER), 本枚举纯逻辑供 tracker 分桶。
+     */
+    public enum DamageCategory {
+        /** TACZ 子弹 (tacz:bullet*)。 */
+        BULLET,
+        /** 近战 (MOB_ATTACK / MOB_ATTACK_NO_AGGRO / PLAYER_ATTACK)。 */
+        MELEE,
+        /** 爆炸 (IS_EXPLOSION 标签, 含 TACZ 爆炸弹/手雷)。 */
+        EXPLOSION,
+        /** 其它 (弹射物/魔法/环境等)。 */
+        OTHER
+    }
+
+    /** 复合装甲 ramp 分段数 (spec 7.1: 每受同类击 +上限/5, 5 次达上限)。 */
     public static final int COMPOSITE_RAMP_STEPS = 5;
 
     /** 复合装甲 ramp 无伤重置窗 (spec 7.1: 3s 无伤重置 -> 60 tick)。 */
@@ -124,8 +141,8 @@ public final class ChampionDamageReduction {
 
     /**
      * 缩小化体型 -> 等效减伤率 (spec 7.1 / 9.2: -体型 15/25/35/45/55%, 按 ≈缩减 ×0.5 折算为有效减伤)。缩小化
-     * {@link AffixDef} 主数值数组装的是血量惩罚 (25/32/40/48/58%), 体型缩减是另一组语义不同的表, 未入 AffixDef
-     * 副数组, 故此处按 spec 体型表硬映射 (15/25/35/45/55%) ×0.5 折算。
+     * {@link AffixDef} 主数值数组装的是血量惩罚 (25/32/40/48/58%), 体型缩减是另一组语义不同的表, 现已并入
+     * {@link AffixDef} 副数值作唯一真源 (见 {@link #miniaturizationSizePct}), 折算率 = 体型缩减 ×0.5。
      *
      * @param quality 品质
      * @return 体型折算减伤率
@@ -140,7 +157,8 @@ public final class ChampionDamageReduction {
 
     /**
      * 缩小化体型缩减百分比 (spec 7.1 缩小化体型表: 15/25/35/45/55% 普通/中级/高级/超凡/闪耀)。缩小化主数值数组
-     * 装的是血量惩罚 (25/32/40/48/58%), 体型是另一组表; 二者按品质档对齐 (同 ordinal)。
+     * 装的是血量惩罚 (25/32/40/48/58%), 体型是另一组表, 现存于 {@link AffixDef#secondaryValueFor 缩小化副数值}
+     * 作唯一真源 (与 {@link ChampionSizeScale} 尺寸系数同源, 防双表漂移); 二者按品质档对齐 (同 ordinal)。
      *
      * @param quality 品质
      * @return 体型缩减百分比 (∈ [0.15, 0.55])
@@ -149,20 +167,8 @@ public final class ChampionDamageReduction {
         if (quality == null) {
             throw new IllegalArgumentException("quality must not be null");
         }
-        switch (quality) {
-            case COMMON:
-                return 0.15D;
-            case UNCOMMON:
-                return 0.25D;
-            case RARE:
-                return 0.35D;
-            case EPIC:
-                return 0.45D;
-            case LEGENDARY:
-                return 0.55D;
-            default:
-                throw new IllegalArgumentException("unknown quality: " + quality);
-        }
+        // 统一真源: 直接读 AffixDef 缩小化副数值 (原本类硬编码 15/25/35/45/55% 与之等值, 迁走防双表漂移复发)。
+        return AffixDef.MINIATURIZATION.secondaryValueFor(quality);
     }
 
     /**

@@ -200,19 +200,20 @@ public final class ChampionGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void netDamageReductionClamp(GameTestHelper helper) {
-        // 8star: 子弹抗性 0.30 + 复合 0.49 -> keep = 0.70*0.51 = 0.357 -> clamp 到 0.51。
+        // 帽 75% (keep 底 0.25, 2026-07-07 随复合同源适应抬帽)。8star: 0.30 + 0.49 -> keep = 0.70*0.51 = 0.357
+        // (> 0.25 不再触帽, 抬帽后此组合放行原值)。
         double keep8 = ChampionRedlines.clampNetKeepFactor(0.30D, 0.49D);
-        helper.assertTrue(Math.abs(keep8 - 0.51D) < EPS, "8star 0.30+0.49 keep clamps to 0.51");
+        helper.assertTrue(Math.abs(keep8 - 0.357D) < EPS, "8star 0.30+0.49 keep 0.357 (below 75% cap, not clamped)");
 
-        // 9star: 0.40 + 0.49 + 偏斜 EV 0.35 -> 0.60*0.51*0.65 = 0.1989 -> clamp 0.51。
+        // 9star: 0.40 + 0.49 + 偏斜 EV 0.35 -> 0.60*0.51*0.65 = 0.1989 < 0.25 -> clamp 0.25。
         double keep9 = ChampionRedlines.clampNetKeepFactor(0.40D, 0.49D, 0.35D);
-        helper.assertTrue(Math.abs(keep9 - 0.51D) < EPS, "9star three-source net reduction clamps to 0.51");
+        helper.assertTrue(Math.abs(keep9 - 0.25D) < EPS, "9star three-source net reduction clamps to 0.25");
 
-        // 最终伤害 = 原始 x keep >= 原始 x 0.51。
+        // 最终伤害 = 原始 x keep >= 原始 x 0.25 (删 clamp 则 keep9=0.199, 此断言挂)。
         double original = 1000.0D;
-        helper.assertTrue(original * keep9 >= original * 0.51D - EPS, "final damage >= original*0.51");
+        helper.assertTrue(original * keep9 >= original * 0.25D - EPS, "final damage >= original*0.25");
 
-        // 未撞顶情形不夹: 单源 0.20 -> keep = 0.80 (未到 0.51 上限保持原值)。
+        // 未撞顶情形不夹: 单源 0.20 -> keep = 0.80 (未到 0.25 底保持原值)。
         double keepLow = ChampionRedlines.clampNetKeepFactor(0.20D);
         helper.assertTrue(Math.abs(keepLow - 0.80D) < EPS, "single 0.20 reduction keeps 0.80 (not clamped)");
         helper.succeed();
@@ -729,8 +730,6 @@ public final class ChampionGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void starRankFullTableLock(GameTestHelper helper) {
-        // spec 第五章《每星主数据表》字面值 (index = star-1)。锁死四池预算 + 词条/技能上限 + 最高品质 +
-        // 基础有效HP + 基础单击%; 改 StarRank 任一格对应断言即挂 (防手抄魔数漂移)。
         int[] surv = {10, 20, 35, 55, 80, 120, 165, 240, 330, 440};
         int[] comb = {8, 14, 24, 36, 55, 80, 110, 160, 230, 310};
         int[] mob = {0, 4, 8, 12, 20, 30, 45, 75, 115, 155};

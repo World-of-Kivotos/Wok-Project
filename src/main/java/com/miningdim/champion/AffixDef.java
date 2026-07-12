@@ -22,9 +22,13 @@ public enum AffixDef {
     // 7.1 生存 (10 条, 被动防御)
     // ============================================================
 
-    /** 复合装甲: 减伤上限 8/12/16/22/30%; ramp 每受击 +上限/5, 3s 无伤重置; 并入净减伤 49% 钳制。 */
+    /**
+     * 复合装甲 (同源适应, 2026-07-07 用户定向加强): 减伤上限 35/45/55/65/75%; 按【伤害类别】(子弹/近战/爆炸/其它)
+     * 分桶各自 ramp, 每受同类击 +上限/5, 受其它类别伤害即清空全部他桶 (装甲适应当前威胁、忘掉旧威胁) ——
+     * 玩家换武器/丢雷 = 真重置 (原版 adaptable 式反制); 3s 无伤全重置。并入净减伤 75% 钳制。
+     */
     COMPOSITE_ARMOR(AffixPool.SURVIVAL, 8, 1, false,
-            new double[]{0.08, 0.12, 0.16, 0.22, 0.30}, null, MutexFlag.NONE),
+            new double[]{0.35, 0.45, 0.55, 0.65, 0.75}, null, MutexFlag.NONE),
 
     /** 超高分子聚乙烯护甲层: 子弹抗性 10/15/22/30/40%; 仅减 tacz:bullet_resistance; 并入净减伤钳制。 */
     UHMWPE_ARMOR(AffixPool.SURVIVAL, 7, 1, false,
@@ -63,11 +67,13 @@ public enum AffixDef {
 
     /** 巨大化: +血量 30/50/80/120/180%; +体型 25/40/60/85/120%; 互斥全部机动 + 缩小化; 须同步提移速。 */
     GIGANTISM(AffixPool.SURVIVAL, 12, 3, false,
-            new double[]{0.30, 0.50, 0.80, 1.20, 1.80}, null, MutexFlag.SIZE),
+            new double[]{0.30, 0.50, 0.80, 1.20, 1.80},
+            new double[]{0.25, 0.40, 0.60, 0.85, 1.20}, MutexFlag.SIZE),
 
     /** 缩小化: -血量 25/32/40/48/58%; -体型 15/25/35/45/55%; 互斥巨大化; 强制 +1 机动 (仅最低档)。 */
     MINIATURIZATION(AffixPool.SURVIVAL, 10, 3, false,
-            new double[]{0.25, 0.32, 0.40, 0.48, 0.58}, null, MutexFlag.SIZE),
+            new double[]{0.25, 0.32, 0.40, 0.48, 0.58},
+            new double[]{0.15, 0.25, 0.35, 0.45, 0.55}, MutexFlag.SIZE),
 
     // ============================================================
     // 7.2 战斗 (10 条, 被动攻击修正)
@@ -122,9 +128,12 @@ public enum AffixDef {
     SPRINT(AffixPool.MOBILITY, 6, 1, false,
             new double[]{0.10, 0.15, 0.22, 0.30, 0.40}, null, MutexFlag.MOVE_SPEED),
 
-    /** 超速移动: +移速 25/40/55/70/85% + 强化力竭窗; 互斥高速; 力竭窗硬减速 ≥50%。 */
+    /**
+     * 超速移动: 加速段 +移速 100/130/160/200/250% (2026-07-07 真服手感二调: 原 25~85% 僵尸冲刺仍慢于疾跑玩家,
+     * 追不上 = 力竭窗无意义; 现冲刺 2.0~3.5 倍速真突进) + 强化力竭窗; 互斥高速; 力竭窗硬减速 ≥50% 反制不变。
+     */
     OVERDRIVE(AffixPool.MOBILITY, 10, 3, false,
-            new double[]{0.25, 0.40, 0.55, 0.70, 0.85}, null, MutexFlag.MOVE_SPEED),
+            new double[]{1.00, 1.30, 1.60, 2.00, 2.50}, null, MutexFlag.MOVE_SPEED),
 
     /** 闪光: 瞬移到玩家旁 周期 9/8/7/5.5/4s; 到达前 0.5s 粒子预兆; 传送家族。数值数组 = 周期秒。 */
     BLINK(AffixPool.MOBILITY, 8, 2, false,
@@ -165,9 +174,13 @@ public enum AffixDef {
     DEATH_MARK(AffixPool.SKILL, 30, 8, true,
             new double[]{0.0, 0.0, 0.0, 1.6, 1.6}, null, MutexFlag.DEATH_MARK),
 
-    /** 视觉干扰: 周期失明 1s每12s (普通) … 2.5s每7s (闪耀仅★9+); 原版 Blindness; 并入控制聚合层。数值=失明时长秒。 */
+    /**
+     * 视觉干扰: 周期失明; 原版 Blindness; 并入控制聚合层。数值 = 失明时长秒, 全档 3s (2026-07-07 真服验收
+     * 用户二调: 原 1~2.5s 档体感太短; 品质差异保留在施放周期 12~7s 上)。3s=60tick 仍在红线5 额度内
+     * (7s窗受控帽 70tick, 最短周期 7s 下单源恒 ≤60/140)。
+     */
     VISUAL_DISRUPTION(AffixPool.SKILL, 12, 4, true,
-            new double[]{1.0, 1.5, 2.0, 2.25, 2.5}, null, MutexFlag.NONE),
+            new double[]{3.0, 3.0, 3.0, 3.0, 3.0}, null, MutexFlag.NONE),
 
     /** 自我修复单元: 定身修复 FLAT 40/—/80/150/300 HP/s; 受任意伤害暂停 1.5s; 近战击退打断; 血池权威。 */
     SELF_REPAIR(AffixPool.SKILL, 14, 4, true,
@@ -253,6 +266,15 @@ public enum AffixDef {
         return skill;
     }
 
+    /**
+     * 词条显示名的语言键 (自研 boss 条/探测列表 Component.translatable 用; 取代 Champions IAffix.toLanguageKey)。
+     * 键 = {@code affix.champions.<枚举名小写>} —— 复用 assets/miningdim/lang 里已备好的 35 条中/英文词条名
+     * (键名含 "champions" 仅为历史翻译键, 由我方语言文件提供, 客户端解析不依赖 Champions mod 存在)。
+     */
+    public String displayNameKey() {
+        return "affix.champions." + name().toLowerCase(java.util.Locale.ROOT);
+    }
+
     /** 互斥标志。 */
     public MutexFlag mutexFlag() {
         return mutexFlag;
@@ -304,6 +326,24 @@ public enum AffixDef {
         }
         // 部分词条最低品质 > 普通 (重型护甲/刚毅最低高级, 小男孩/命定最低超凡), 须该星最高品质覆盖其最低可用档。
         return rank.maxQuality().ordinal() >= minUsableQuality().ordinal();
+    }
+
+    /**
+     * 上限品质向下取最近可用档: 从 upper 逐档下探, 返回首个主数值非 0 的品质。前导 0 档由 {@link #minUsableQuality}
+     * 保证不会探穿下界; 【中段 0 档】(自我修复 中级=0, spec "40/—/80/150/300" 的 "—" = 该档不存在) 由本法跳过 ——
+     * roll/命令品质兜底若落在 0 档会产出"花点无效果"的死词条 (批3 接入自我修复时踩到)。upper 低于最低可用档属
+     * 调用方 bug, 抛不掩盖 (调用方应先抬到 minUsableQuality)。
+     */
+    public AffixQuality usableQualityAtOrBelow(AffixQuality upper) {
+        if (upper == null) {
+            throw new IllegalArgumentException("upper must not be null");
+        }
+        for (int i = upper.ordinal(); i >= 0; i--) {
+            if (primaryValues[i] != 0.0D) {
+                return AffixQuality.values()[i];
+            }
+        }
+        throw new IllegalArgumentException("no usable quality at or below " + upper + " for " + name());
     }
 
     /**

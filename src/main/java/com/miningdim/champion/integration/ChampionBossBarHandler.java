@@ -1,6 +1,10 @@
 package com.miningdim.champion.integration;
 
+import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.ChampionBossBarText;
+import com.miningdim.champion.MiningChampionData;
+import com.miningdim.champion.MiningChampions;
+import com.miningdim.champion.StarRank;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
@@ -14,10 +18,8 @@ import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
-import top.theillusivec4.champions.api.IAffix;
-import top.theillusivec4.champions.api.IChampion;
-import top.theillusivec4.champions.common.capability.ChampionCapability;
-import top.theillusivec4.champions.common.rank.Rank;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -36,11 +38,14 @@ import java.util.UUID;
  * 血量: 直接读 vanilla getHealth/getMaxHealth —— 6★+ 的影子血池由 {@link ChampionBloodPoolHandler} 每 tick 镜像进
  * vanilla 血, 故此处一律 vanilla 血/最大血 即得正确分数, 无需另读血池。
  *
- * compileOnly 隔离: 本类 import top.theillusivec4.champions.* (读 IChampion rank/affixes), 仅 {@link ChampionIntegrationBootstrap}
- * 在 ModList.isLoaded("champions") 守卫下挂上, dev (Champions 未加载) 永不注册。命令召唤 / 自然刷的精英怪都经 Champions
- * capability 检出, 两种来源一视同仁。
+ * 数据源: 经 {@link MiningChampions#get} 读自研 {@link MiningChampionData} (星级 star + 词条→品质), 星级色取
+ * {@link StarRank#barColorRgb}, 词条名取 {@link AffixDef#displayNameKey}; 不触任何 top.theillusivec4.champions.*
+ * (故 dev 亦可加载)。命令召唤 / 自然刷的精英怪都经同一自研 capability 检出, 两种来源一视同仁。
  */
 public final class ChampionBossBarHandler {
+
+    /** 诊断日志: BOSS 条真服首验用 (条创建/摘除各打一行, 低频不门控; 定位"为什么没血条")。 */
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/champion/bossbar");
 
     /** 扫描节流: 每多少 tick 重算"附近精英怪 + 观察玩家集" + 刷血量 (0.5s; 够顺滑且省全实体遍历)。 */
     private static final int SCAN_INTERVAL_TICKS = 10;
@@ -88,6 +93,8 @@ public final class ChampionBossBarHandler {
         bars.entrySet().removeIf(e -> {
             if (!live.containsKey(e.getKey())) {
                 e.getValue().removeAllPlayers();
+                // 诊断 (真服首验): 条摘除打一行 (死亡/离开全部玩家范围; 低频不门控)。
+                LOGGER.info("bossbar-remove {}", e.getKey());
                 return true;
             }
             return false;
@@ -100,6 +107,8 @@ public final class ChampionBossBarHandler {
             if (bar == null) {
                 bar = new ServerBossEvent(view.name, view.barColor, ChampionBossBarText.overlayForTier(view.tier));
                 bars.put(e.getKey(), bar);
+                // 诊断 (真服首验): 条创建打一行 星级/标题 (低频不门控; 没这行 = viewOf 没检出冠军)。
+                LOGGER.info("bossbar-create {} tier{} title={}", e.getKey(), view.tier, view.name.getString());
             } else {
                 bar.setName(view.name);
                 bar.setColor(view.barColor);
@@ -134,52 +143,27 @@ public final class ChampionBossBarHandler {
         }
     }
 
-    /** 实体若是精英怪 (有 Champions capability + rank tier&gt;0) 则返回其展示 View, 否则 null。 */
+    /** 实体若是精英怪 (自研 capability 已盖章, star&gt;=1) 则返回其展示 View, 否则 null。 */
     private static View viewOf(LivingEntity entity) {
-        IChampion champion = ChampionCapability.getCapability(entity).resolve().orElse(null);
-        if (champion == null) {
+        MiningChampionData champ = MiningChampions.get(entity).orElse(null);
+        if (champ == null || !champ.isChampion()) {
             return null;
         }
-        IChampion.Server server = champion.getServer();
-        if (server == null) {
-            return null;
+        if (champ.isSummonedByAffix()) {
+            return null; // 支援召唤物 (spec 红线 8-c): 不出 BOSS 条 (6 只召唤物不刷屏顶部血条)。
         }
-        Rank rank = server.getRank().orElse(null);
-        if (rank == null || rank.getTier() <= 0) {
-            return null;
-        }
-        int tier = rank.getTier();
+        int tier = champ.star();
         List<Component> affixNames = new ArrayList<>();
-        for (IAffix affix : server.getAffixes()) {
-            Component shown = affixNameOf(affix);
-            if (shown != null) {
-                affixNames.add(shown);
-            }
+        for (AffixDef def : champ.affixes().keySet()) {
+            // def 恒有效 (来自自研数据), displayNameKey 恒可渲染, 无需 try/catch 优雅退化。
+            affixNames.add(Component.translatable(def.displayNameKey()));
         }
         MutableComponent title = ChampionBossBarText.title(entity.getDisplayName(), tier, affixNames);
-        TextColor color = rank.getDefaultColor();
-        BossEvent.BossBarColor barColor;
-        if (color != null) {
-            // 文字色 = rank 色; 条色取最近的离散 BossBarColor —— 与 Champions 自带粒子(也是 rank 色)统一显示色。
-            title = title.withStyle(Style.EMPTY.withColor(color));
-            barColor = ChampionBossBarText.nearestBossBarColor(color.getValue());
-        } else {
-            barColor = ChampionBossBarText.colorForTier(tier);
-        }
+        // 文字色 = 星级 signature 色; 条色取最近的离散 BossBarColor —— 与签名粒子统一显示色。
+        int rgb = StarRank.ofStar(tier).barColorRgb();
+        title = title.withStyle(Style.EMPTY.withColor(TextColor.fromRgb(rgb)));
+        BossEvent.BossBarColor barColor = ChampionBossBarText.nearestBossBarColor(rgb);
         return new View(title, tier, barColor, entity.getHealth(), entity.getMaxHealth());
-    }
-
-    /**
-     * 词条显示名 (Component.translatable(toLanguageKey))。toLanguageKey 读 affixSetting.prefix, 设置未绑的词条
-     * (异常/第三方未绑) 会抛 —— 单条坏词条不应拖垮整条 BOSS 血条, 故 catch 跳过该词条 (LinkageError/RuntimeException
-     * 均视为不可显示)。非生吞业务异常: 这是显示层对可选第三方词条的优雅退化。
-     */
-    private static Component affixNameOf(IAffix affix) {
-        try {
-            return Component.translatable(affix.toLanguageKey());
-        } catch (RuntimeException | LinkageError badAffix) {
-            return null;
-        }
     }
 
     /** 一只精英怪本 tick 的展示快照: 标题 + 星级 + 当前血/最大血 + 观察玩家集。 */

@@ -1,12 +1,37 @@
 package com.miningdim.champion;
 
 import com.miningdim.champion.bloodpool.BloodPoolRegistry;
+import com.miningdim.champion.integration.AoeImmunityBuffer;
+import com.miningdim.champion.integration.ChampionAttackHandler;
+import com.miningdim.champion.integration.ChampionBloodPoolHandler;
+import com.miningdim.champion.integration.ChampionBossBarHandler;
+import com.miningdim.champion.integration.ChampionCounterUnitHandler;
+import com.miningdim.champion.integration.ChampionDeathMarkHandler;
+import com.miningdim.champion.integration.ChampionDotTickHandler;
+import com.miningdim.champion.integration.ChampionParticleHandler;
+import com.miningdim.champion.integration.ChampionPromoter;
+import com.miningdim.champion.integration.ChampionRewardHandler;
+import com.miningdim.champion.integration.ChampionSelfEffectHandler;
+import com.miningdim.champion.integration.ChampionSelfRepairHandler;
+import com.miningdim.champion.integration.ChampionSummonHandler;
+import com.miningdim.champion.integration.ChampionBladeWaltzHandler;
+import com.miningdim.champion.integration.ChampionBlinkHandler;
+import com.miningdim.champion.integration.ChampionCaesarSwapHandler;
+import com.miningdim.champion.integration.ChampionElectroChargeHandler;
+import com.miningdim.champion.integration.ChampionLittleBoyHandler;
+import com.miningdim.champion.integration.ChampionPhaseWalkHandler;
+import com.miningdim.champion.integration.ChampionSizeHandler;
+import com.miningdim.champion.integration.ChampionTacticalBlinkHandler;
+import com.miningdim.champion.integration.ChampionThunderHandler;
+import com.miningdim.champion.integration.ChampionVisualDisruptionHandler;
+import com.miningdim.champion.integration.PlayerLandingProtection;
 import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.core.Subsystem;
+import net.minecraft.world.entity.Entity;
+import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.ModList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,54 +39,73 @@ import org.slf4j.LoggerFactory;
  * 精英怪子系统入口 (implements core.Subsystem; ChampionStarAffix spec 第十四章实现拆分)。模块化铁律 3: 唯一入口,
  * 在 register 内完成本子系统的注册/订阅/接线; MiningDim 主类 List 列尾追加一行即装配。
  *
- * compileOnly 铁律 (核心): Champions 是 compileOnly, dev 运行期不加载。本入口类自身不 import 任何
- * top.theillusivec4.champions.* —— 所有触 Champions 的装配 (词条注册 / 升格 promoter / 血池+奖励 handler) 集中在
- * {@code com.miningdim.champion.integration} 隔离包, 仅在 {@link ModList#isLoaded(String)}("champions") 为真时
- * 经 {@link ChampionIntegrationBootstrap} 装配触达。Champions 未加载 (dev / 未装) 时整条 Champions 路径不被类加载
- * (防 NoClassDefFoundError), 纯逻辑层 (星表/血池数学/贡献池/红线/seam holder) 照常工作, GameTest 照跑。
+ * 自研 (2026-07-07 脱离 Champions mod 依赖): 精英怪不再基于第三方 Champions mod, 改为自研 —— "标记冠军 + 存星级/
+ * 词条"走我方 {@link MiningChampions} capability, 升格/血池/减伤/攻击/DoT/自身被动/血条/粒子/奖励全是本工程代码,
+ * 零 top.theillusivec4.champions.* 依赖。故本入口【无条件】注册 (不再 ModList.isLoaded("champions") 守卫), 且
+ * integration 层从"dev 不加载的 compileOnly mod、只能真服验"变为 dev GameTest 可加载可验。
  *
  * 接线点:
- *  - 词条注册: 仿内置 AffixTypes, 把本工程 35 词条追加到 Champions 持有的 AffixRegistry.AFFIXES (随其 RegisterEvent
- *    一并注册)。须在 mod 构造期触发 (早于 RegisterEvent), 故在 {@link #register} 内 (mod 构造) 守卫调用。
- *  - 升格 seam: 经 {@link ChampionSpawnSeam#bind} 注入 ChampionPromoter, 压力子系统 spawnMob 成功后回调升格。
- *  - 血池/奖励 handler: 挂 forgeBus (LivingHurtEvent 改伤+拦死 / LivingDeathEvent 拦死+奖励结算)。
- *  - 生命周期清理: ServerStoppingEvent 清血池/贡献账本/seam, 防跨存档脏引用。
+ *  - 冠军 capability: {@link MiningChampions} 同时挂 modBus (RegisterCapabilities) + forgeBus (AttachCapabilities 给 Mob)。
+ *  - 效果聚合器反泄漏清理: {@link ChampionEffectRegistries.CleanupHandler} 挂 forgeBus。
+ *  - 升格 seam: {@link ChampionSpawnSeam#bind} 注入 {@link ChampionPromoter}, 压力子系统 spawnMob 成功后回调。
+ *  - 效果 handler 全挂 forgeBus (血池减伤+拦死 / 攻击 on-hit / DoT 秒结算 / 自身被动 / 奖励 / BOSS 血条 / 词条粒子)。
+ *  - 生命周期清理: ServerStoppingEvent 清血池/贡献账本/聚合器/seam, 防跨存档脏引用。
  */
 public final class ChampionSystem implements Subsystem {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/champion");
 
-    /** Champions modid (ModList 守卫; 集成层装配前必查, 防 dev compileOnly 未加载触 NoClassDefFoundError)。 */
-    public static final String CHAMPIONS_MODID = "champions";
-
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
-        // 生命周期清理 handler 不触 Champions, 无条件挂 (清纯逻辑层注册表)。
-        forgeBus.register(this);
+        // 冠军 capability: 注册能力类型 (modBus) + 给每个 Mob 挂 Provider (forgeBus 泛型监听)。
+        // 混总线对象不可整体 register (与 entry.EntrySystem 同坑): RegisterCapabilitiesEvent 是 IModBusEvent 走 modBus,
+        // AttachCapabilitiesEvent<Entity> 是 forge 泛型事件走 forgeBus.addGenericListener; 整体 register 会在另一类事件抛
+        // IllegalArgumentException。故按方法各挂正确总线 + 泛型过滤 Entity。
+        MiningChampions champions = new MiningChampions();
+        modBus.addListener(champions::onRegisterCapabilities);
+        forgeBus.addGenericListener(Entity.class, champions::onAttachCapabilities);
 
-        // 效果聚合器注册表的反泄漏清理订阅者: 纯逻辑 (不触 Champions), 无条件挂。聚合器仅 Champions 加载后由
-        // Effects 阶段 handler 填充, 但清理订阅无害且与"纯逻辑常驻"一致 (dev 下表恒空, 清理是 no-op)。
+        // 生命周期清理 + 效果聚合器反泄漏清理订阅者。
+        forgeBus.register(this);
         forgeBus.register(new ChampionEffectRegistries.CleanupHandler());
 
-        if (!ModList.get().isLoaded(CHAMPIONS_MODID)) {
-            LOGGER.info("[champion] Champions not loaded; champion integration disabled (pure logic still active)");
-            return;
-        }
+        // 升格 seam: 压力子系统 spawnMob 成功后经 ChampionSpawnSeam.promote 回调本 promoter 升格 (自研, 无 Champions)。
+        ChampionSpawnSeam.bind(new ChampionPromoter());
 
-        // Champions 已加载: 装配集成层 (词条注册 + seam 升格绑定 + 血池/奖励 handler 挂 forgeBus)。
-        // 集成层入口隔离在独立 bootstrap 类: ChampionSystem 不直接 import 任何 Champions 类, 守卫后才触达。
-        // 但 isLoaded 守卫只能确认 "有个叫 champions 的 mod", 无法区分原版 theillusivec4 Champions 与 API 不兼容的
-        // 三方分支 (如 Champions Unofficial 2.1.12.x: 注册同 modid 但缺/改了 top.theillusivec4.champions.api.* 的类)。
-        // 后者装配时抛 LinkageError(NoClassDefFoundError/NoSuchMethodError 等)。捕获该族错误并降级: 仅停用精英怪集成,
-        // 不让单个可选 mod 集成拖垮整 mod 的其余 7 职业。非 LinkageError(我方逻辑 bug)仍自然冒泡, 不掩盖。
-        try {
-            ChampionIntegrationBootstrap.assemble(forgeBus);
-            LOGGER.info("[champion] Champions loaded; champion integration assembled (35 affixes + blood pool + rewards)");
-        } catch (LinkageError incompatible) {
-            LOGGER.error("[champion] Champions (modid '{}') 已加载但 API 不兼容 (期望 theillusivec4 Champions ~2.1.10.x, "
-                    + "缺失/改名类: {})。精英怪集成已停用, 其余职业与纯逻辑不受影响。", CHAMPIONS_MODID,
-                    incompatible.getMessage(), incompatible);
-        }
+        // 效果 handler 全挂 forgeBus (自研后无条件注册, 不再依赖 Champions 加载)。
+        forgeBus.register(new ChampionBloodPoolHandler());   // 净减伤单点 + 血池拦死 + 渲染镜像
+        forgeBus.register(new ChampionRewardHandler());      // 贡献池盖章双门槛 + 经济闸
+        forgeBus.register(new ChampionBossBarHandler());     // 自建 BOSS 血条 (名/星级/词条名)
+        forgeBus.register(new ChampionAttackHandler());      // 攻击类 on-hit (即时伤/DoT刷层/易伤/损甲/混沌限频)
+        forgeBus.register(new ChampionDotTickHandler());     // DoT 每秒结算 + 寒霜减速
+        forgeBus.register(new ChampionParticleHandler());    // 词条签名环境粒子
+        forgeBus.register(new ChampionSelfEffectHandler());  // 自身被动 (再生/易燃再生/反震反伤/高速移动/超速)
+        // 自足技能 (Stage2 批3): 各技能独立 handler, onServerUpdate 状态机 + 红线聚合器/跨冠军锁。
+        forgeBus.register(new ChampionVisualDisruptionHandler()); // 视觉干扰: 周期失明 (控制聚合闸)
+        forgeBus.register(new ChampionSelfRepairHandler());       // 自我修复: 低血定身读条回血 (近战打断)
+        forgeBus.register(new ChampionCounterUnitHandler());      // 反击单元: 锁定窗反伤 (三层封顶)
+        forgeBus.register(new ChampionSummonHandler());           // 支援召唤: 低星同型援军 (经济全排除)
+        forgeBus.register(new ChampionDeathMarkHandler());        // 命定之死: 动态 DPS 阈值标记/处决
+        // 批4 波0 共享基建: 位移安全防线 (红线 3/6)。KnockbackSafetyGuard 是静态只读裁决无需注册。
+        forgeBus.register(new PlayerLandingProtection());         // 换位/瞬移后 2s 抗位移落地保护 (击退事件闸)
+        forgeBus.register(new AoeImmunityBuffer());               // 大额 AOE 命中后 2s 免疫缓冲 (防多源叠杀)
+        // 批4 波1 传送家族: 冠军自体瞬移 (落点过 KnockbackSafetyGuard 单点裁决; 分跳/混沌在 AttackHandler 内)。
+        forgeBus.register(new ChampionBlinkHandler());            // 闪光: 抵近瞬移玩家旁 2-3 格 (0.5s 预兆可躲)
+        forgeBus.register(new ChampionTacticalBlinkHandler());    // 战术传送: 脱离型远离 4-8 格 (周期/受击应激)
+        // 批4 波2 周期 AOE/换位/连段 (champion_skill_aoe 判决伤害 + 2s 免疫缓冲防叠杀)。
+        forgeBus.register(new ChampionElectroChargeHandler());    // 电磁蓄力: 2s 蓄力单点 AOE (落点锁定可躲)
+        forgeBus.register(new ChampionThunderHandler());          // 天雷: 多点分散落雷 (1.5s 粒子环预兆)
+        forgeBus.register(new ChampionLittleBoyHandler());        // 小男孩: 背水核弹 (蓄力 5s 可打断, 用后词条消失)
+        forgeBus.register(new ChampionCaesarSwapHandler());       // 凯撒换位: 1s 预兆双向守卫校验换位
+        forgeBus.register(new ChampionBladeWaltzHandler());       // 利刃华尔兹: 锁定 N 连突袭 (整套 60% 帽均分)
+        // 批4 波3 压轴: 体型渲染/AABB (S2C 同步) + 灵体穿墙 (回退链实体化)。
+        forgeBus.register(new ChampionSizeHandler());             // 体型: AABB 缩放 + 移速补偿 + 巨大化卡墙 blink
+        forgeBus.register(new ChampionPhaseWalkHandler());        // 灵体移动: noPhysics 漂移 + 四级回退链
+
+        // 调试命令 /mchampion summon (取代已移除的 Champions /champions summon; OP 真服按需召唤指定星级+词条冠军)。
+        forgeBus.addListener(this::onRegisterCommands);
+
+        LOGGER.info("[champion] self-hosted champion system registered (capability + spawn promoter + effect handlers, no Champions dependency)");
     }
 
     @Override
@@ -69,12 +113,23 @@ public final class ChampionSystem implements Subsystem {
         return "ChampionSystem";
     }
 
-    /** 服务端停止: 清纯逻辑层运行态 (血池/贡献账本) + 解 seam 绑定, 防跨存档/跨重启脏引用。 */
+    /** 注册 /mchampion 调试命令 (自研冠军按需召唤; 取代已移除的 Champions /champions summon)。 */
+    private void onRegisterCommands(RegisterCommandsEvent event) {
+        ChampionCommands.register(event.getDispatcher());
+    }
+
+    /** 服务端停止: 清纯逻辑层运行态 (血池/贡献账本/聚合器/锁定登记/落地保护与 AOE 缓冲账本) + 解 seam 绑定, 防跨存档/跨重启脏引用。 */
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         BloodPoolRegistry.reset();
         ContributionTracker.reset();
         ChampionEffectRegistries.reset();
+        ChampionTargetLocks.reset();
+        // 批4 波0 两个静态到期账本: 换存档后 gameTime 从小值重计, 残留旧到期 tick 会被误判仍在窗内 (审查修复)。
+        PlayerLandingProtection.reset();
+        AoeImmunityBuffer.reset();
+        // 批4 波1 回声跳静态队列: 持强实体引用, 不清则跨存档泄漏旧服务端实体。
+        ChampionAttackHandler.reset();
         ChampionSpawnSeam.unbind();
     }
 }

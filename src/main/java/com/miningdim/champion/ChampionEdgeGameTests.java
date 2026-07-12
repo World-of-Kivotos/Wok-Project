@@ -268,25 +268,28 @@ public final class ChampionEdgeGameTests {
     }
 
     // ============================================================
-    // 控制聚合反例: 碎片化控制下无 2s 连续自由窗 (PlayerControlAggregator) — hasMinFreeWindow == false
+    // 控制聚合红线 5 落地: admit 拒绝"占比合规但抹掉最后 ≥2s 自由窗"的碎片化授予 (对抗审查修复)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void controlFragmentedHasNoFreeWindow(GameTestHelper helper) {
-        // 窗 [0,140), 受控上限 70 tick。把 70 tick 拆成三段塞出全部 < 40tick 的空隙:
-        // [10,40)=30 + [60,80)=20 + [100,120)=20 = 70 (恰满 cap); 空隙 [0,10) [40,60) [80,100) [120,140) 均 <=20 < 40。
+    public static void controlFragmentationDeniedToPreserveFreeWindow(GameTestHelper helper) {
+        // 窗 [0,140), 受控上限 70 tick。前两段合法; 第三段 [100,120) 占比仍合规 (70 = cap 恰满), 但会把窗内
+        // 全部空隙压到 <40tick (2s) —— admit 的自由窗复核须整笔作废回退 (曾是只有 GameTest 调的死代码, 两只
+        // 控制精英交替施控即可占比合规地永控; 删 admit 的复核或 hasMinFreeWindow 空隙扫描, 此断言必挂)。
         PlayerControlAggregator agg = new PlayerControlAggregator();
         helper.assertTrue(agg.admit(10L, 30L) == 30L, "first 30-tick control admitted");
         helper.assertTrue(agg.admit(60L, 20L) == 20L, "second 20-tick control admitted (50 busy total)");
-        helper.assertTrue(agg.admit(100L, 20L) == 20L, "third 20-tick control admitted (70 busy = cap)");
-        // 全部空隙 < 40 tick -> 无连续 2s 自由窗 (反例: 删 hasMinFreeWindow 的空隙扫描则恒 true, 此处必挂)。
-        helper.assertTrue(!agg.hasMinFreeWindow(0L),
-                "fragmented control leaves no >=2s (40-tick) continuous free window");
+        helper.assertTrue(agg.admit(100L, 20L) == 0L,
+                "third fragment denied: erases every >=2s free window despite busy cap not exceeded");
+        helper.assertTrue(agg.intervalCount() == 2, "denied fragment must not stay queued (rollback)");
+        helper.assertTrue(agg.hasMinFreeWindow(0L), "free window preserved after denial (red line 5 holds)");
 
-        // 进一步申请 (超 70 cap) 须被夹到 0 (额度耗尽)。
-        helper.assertTrue(agg.admit(130L, 20L) == 0L, "control budget exhausted at cap 70 -> 0 granted");
+        // 不抹自由窗的摆位仍可用满 70 tick 额度: [120,140) 恰留出 [80,120) 40tick 空隙。
+        helper.assertTrue(agg.admit(120L, 20L) == 20L, "gap-preserving placement admitted (70 busy = cap)");
+        // 额度耗尽后归 0。
+        helper.assertTrue(agg.admit(140L, 20L) == 0L, "control budget exhausted at cap 70 -> 0 granted");
 
-        // clampSlow 恰封顶: 0.50 原样 (= 上限, 非夹下); 0.50001 夹回 0.50。
+        // clampSlow 恰封顶: 0.50 原样 (= 上限, 非夹下); 0.6 夹回 0.50。
         helper.assertTrue(Math.abs(PlayerControlAggregator.clampSlow(0.50D) - 0.50D) < EPS, "0.50 slow at cap passes");
         helper.assertTrue(Math.abs(PlayerControlAggregator.clampSlow(0.6D) - 0.50D) < EPS, "0.60 slow clamps to 0.50");
         helper.assertTrue(PlayerControlAggregator.clampSlow(0.0D) == 0.0D, "0.0 slow passes through");
@@ -395,11 +398,8 @@ public final class ChampionEdgeGameTests {
                             AffixRoller.IMPLEMENTED_AFFIXES.contains(sel.affix()),
                             "rolled affix " + sel.affix() + " (star " + star + ") must be in implemented whitelist "
                                     + "(no dummy axes rolled)");
-                    // 强断言: roll 出的词条池必属生存/战斗 (机动/技能整池在 Stage1 被排除, 绝不应出现)。
-                    helper.assertTrue(
-                            sel.affix().pool() == AffixPool.SURVIVAL || sel.affix().pool() == AffixPool.COMBAT,
-                            "rolled affix " + sel.affix() + " must be from SURVIVAL/COMBAT pool only (mobility/skill "
-                                    + "pools are all dummy in Stage1)");
+                    // 批3 起技能池已开 (5 自足技能入白名单), "不 roll 技能"断言退役; 传送/AOE 类技能仍哑,
+                    // 由上方 contains 白名单判定拦住。
                 }
             }
         }
@@ -409,67 +409,45 @@ public final class ChampionEdgeGameTests {
     }
 
     /**
-     * 反例护栏 (证明排除逻辑确有作用, 而非候选本就为空): 取若干典型哑词条, 断言它们【在高星已按 minStar/品质解锁】
-     * (故"放开排除"时必会进 rollPool 候选), 但【既不在白名单、也绝不会被 roll 出】。这把"放开哑词条则断言必挂"落成
-     * 可验证的具体反例 —— 若误把哑词条放进白名单或漏过滤, 下面任一断言即挂。
+     * 批4 收官终态守卫: 白名单 = AffixDef 全集 (35/35 全部词条有运行期 handler, 哑词条清零)。原"哑词条反例护栏"
+     * (断言哑词条永不被 roll) 随最后一条哑词条实现而完成历史使命, 改为钉死终态全集恒等 —— 未来往 AffixDef 加新
+     * 词条而未实现 handler 时, 本断言立即挂 (全集不等), 逼开发者要么实现要么显式改本守卫, 白名单语义仍在。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void dummyAxesUnlockedYetNeverRolled(GameTestHelper helper) {
-        StarRank topStar = StarRank.ofStar(StarRank.MAX_STAR);
-
-        // 典型哑词条 (各哑轴代表): 机动/技能/生存哑/战斗哑/缩小化无伙伴。
-        Set<AffixDef> dummySamples = EnumSet.of(
-                AffixDef.SPRINT,           // 机动池
-                AffixDef.DEATH_MARK,       // 技能池 (主动技能未实现)
-                AffixDef.THUNDER,          // 技能池 (周期 AOE 未实现)
-                AffixDef.GIGANTISM,        // 生存池哑 (无 HP 膨胀 handler)
-                AffixDef.THORNS,           // 生存池哑 (反震 handler 缺位)
-                AffixDef.DOUBLE_STRIKE,    // 战斗池哑 (分跳未施加)
-                AffixDef.CHAOS_STRIKE,     // 战斗池哑 (击飞不 push)
-                AffixDef.MINIATURIZATION); // 生存池: 减伤已实但无机动伙伴, 不可独立 roll
-
-        for (AffixDef dummy : dummySamples) {
-            // (1) 这些哑词条在 10★ 确已解锁 -> 若无白名单过滤, rollPool 候选会含它们 (证明过滤是唯一拦截点)。
-            helper.assertTrue(dummy.isUnlockedAt(topStar),
-                    dummy + " is unlocked at 10star (would enter candidate set if exclusion removed)");
-            // (2) 但它们不在实现白名单 -> 被 rollPool 三门槛的 IMPLEMENTED_AFFIXES.contains 拦下。
-            helper.assertTrue(!AffixRoller.IMPLEMENTED_AFFIXES.contains(dummy),
-                    dummy + " must NOT be in implemented whitelist (it is a dummy/unrollable axis)");
-        }
-
-        // (3) 大量 10★ roll 实测: 上述哑词条一次都不出现 (与 (1) 的"已解锁"对照, 坐实是过滤而非未解锁拦下)。
-        for (int seed = 0; seed < 200; seed++) {
-            RandomSource rng = RandomSource.create(1337L + seed);
-            for (AffixSelection sel : AffixRoller.roll(topStar, rng)) {
-                helper.assertTrue(!dummySamples.contains(sel.affix()),
-                        "dummy axis " + sel.affix() + " was rolled at 10star despite exclusion (filter broken)");
-            }
-        }
+    public static void whitelistCoversAllAffixes(GameTestHelper helper) {
+        helper.assertTrue(AffixRoller.IMPLEMENTED_AFFIXES.equals(EnumSet.allOf(AffixDef.class)),
+                "batch4 final state: whitelist must equal the full AffixDef set (35/35 implemented)");
+        helper.assertTrue(AffixDef.values().length == 35,
+                "AffixDef total must be 35 (new affix added? implement handler + update guards)");
         helper.succeed();
     }
 
     /**
-     * 白名单内容硬断言: 恰含 12 条 (5 减伤 + 3 即时伤害 + 2 DoT + 1 易伤 + 1 磨损), 且关键实现词条在内、关键哑词条
-     * 不在内 (按 AffixDef 身份)。删任一白名单成员或误加哑词条, 本断言即挂。
+     * 白名单内容硬断言: 恰含 35 条 (Stage1 12: 5 减伤 + 3 即时伤害 + 2 DoT + 1 易伤 + 1 磨损; Stage2 批1 4: 再生组织/
+     * 易燃再生/反震/高速移动; 批2 3: 巨大化/缩小化/超速移动; 批3 5: 视觉干扰/自我修复/反击单元/支援召唤/命定之死;
+     * 批4 波1 5: 双倍/四倍分跳/混沌击飞/闪光/战术传送; 批4 波2+3 6: 电磁/天雷/小男孩/凯撒/利刃/灵体), 且关键实现
+     * 词条在内 (按 AffixDef 身份)。删任一白名单成员, 本断言即挂。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void implementedWhitelistMembershipExact(GameTestHelper helper) {
         Set<AffixDef> wl = AffixRoller.IMPLEMENTED_AFFIXES;
-        helper.assertTrue(wl.size() == 12, "implemented whitelist has exactly 12 entries, got " + wl.size());
+        helper.assertTrue(wl.size() == 35, "implemented whitelist has exactly 35 entries, got " + wl.size());
 
-        // 实现词条必在内 (逐条身份)。
+        // 实现词条必在内 (逐条身份; Stage1 12 + Stage2 批1 4 + 批2 3 + 批3 5 + 批4 11)。
         for (AffixDef impl : new AffixDef[]{
                 AffixDef.COMPOSITE_ARMOR, AffixDef.UHMWPE_ARMOR, AffixDef.HEAVY_ARMOR,
                 AffixDef.DEFLECTOR_SHIELD, AffixDef.FORTITUDE_SHIELD,
                 AffixDef.HEAVY_CANNON, AffixDef.BLOODLUST, AffixDef.ARMOR_PIERCING,
-                AffixDef.BURNING, AffixDef.FROST, AffixDef.REND, AffixDef.CORROSIVE}) {
+                AffixDef.BURNING, AffixDef.FROST, AffixDef.REND, AffixDef.CORROSIVE,
+                AffixDef.REGEN_TISSUE, AffixDef.FLAMMABLE_REGEN, AffixDef.THORNS, AffixDef.SPRINT,
+                AffixDef.GIGANTISM, AffixDef.MINIATURIZATION, AffixDef.OVERDRIVE,
+                AffixDef.VISUAL_DISRUPTION, AffixDef.SELF_REPAIR, AffixDef.COUNTER_UNIT,
+                AffixDef.SUMMON_SUPPORT, AffixDef.DEATH_MARK,
+                AffixDef.DOUBLE_STRIKE, AffixDef.QUADRUPLE_STRIKE, AffixDef.CHAOS_STRIKE,
+                AffixDef.BLINK, AffixDef.TACTICAL_BLINK,
+                AffixDef.ELECTRO_CHARGE, AffixDef.THUNDER, AffixDef.LITTLE_BOY,
+                AffixDef.CAESAR_SWAP, AffixDef.BLADE_WALTZ, AffixDef.PHASE_WALK}) {
             helper.assertTrue(wl.contains(impl), impl + " (has runtime handler) must be whitelisted");
-        }
-
-        // 白名单全员只能来自生存/战斗池 (机动/技能整池排除)。
-        for (AffixDef d : wl) {
-            helper.assertTrue(d.pool() == AffixPool.SURVIVAL || d.pool() == AffixPool.COMBAT,
-                    d + " in whitelist must be SURVIVAL/COMBAT pool");
         }
 
         // 不可变: 防外部污染白名单 (与 AffixDef 四池视图同纪律)。
@@ -480,6 +458,34 @@ public final class ChampionEdgeGameTests {
             immutable = true;
         }
         helper.assertTrue(immutable, "implemented whitelist must be unmodifiable");
+        helper.succeed();
+    }
+
+    /**
+     * 中段 0 占位档向下取档 (批3 自我修复坑): spec "40/—/80/150/300" 的中级 "—" = 该档不存在, roll/命令兜底落在
+     * 该档须下探回普通, 否则产出"花点无效果"的死词条。删 {@link AffixDef#usableQualityAtOrBelow} 的下探循环或
+     * {@code ChampionAffixState.defaultQualityFor} 的 snap 调用, 对应断言必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void midZeroQualityTierSnapsDown(GameTestHelper helper) {
+        // 自我修复: 上限=中级(值0) -> 下探普通(40); 上限=高级(80) 原样。
+        helper.assertTrue(AffixDef.SELF_REPAIR.usableQualityAtOrBelow(AffixQuality.UNCOMMON) == AffixQuality.COMMON,
+                "自我修复 中级=0 下探回 普通");
+        helper.assertTrue(AffixDef.SELF_REPAIR.usableQualityAtOrBelow(AffixQuality.RARE) == AffixQuality.RARE,
+                "自我修复 高级=80 原样返回");
+        // 前导 0 词条 (重型护甲最低高级): 上限=高级 原样; 上限低于最低可用档 = 调用方 bug 抛。
+        helper.assertTrue(AffixDef.HEAVY_ARMOR.usableQualityAtOrBelow(AffixQuality.RARE) == AffixQuality.RARE,
+                "重型护甲 高级 原样返回");
+        assertThrowsIae(helper, () -> AffixDef.HEAVY_ARMOR.usableQualityAtOrBelow(AffixQuality.UNCOMMON),
+                "上限低于最低可用档须抛 (前导 0 不可下探穿底)");
+        // 命令兜底走 snap: 4★ 顶格恰中级, 自我修复兜底须落普通而非死档。
+        helper.assertTrue(ChampionAffixState.defaultQualityFor(AffixDef.SELF_REPAIR, StarRank.ofStar(4))
+                        == AffixQuality.COMMON,
+                "4★ 命令兜底 自我修复 = 普通 (跳过中级死档)");
+        // 无 0 档词条不受影响: 燃烧 4★ 兜底仍中级。
+        helper.assertTrue(ChampionAffixState.defaultQualityFor(AffixDef.BURNING, StarRank.ofStar(4))
+                        == AffixQuality.UNCOMMON,
+                "无 0 档词条兜底不变 (燃烧 4★ = 中级)");
         helper.succeed();
     }
 

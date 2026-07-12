@@ -13,12 +13,16 @@ public final class ChampionRedlines {
     private ChampionRedlines() {
     }
 
-    // ---- 红线 1: 净减伤全局硬封顶 ≤49% ----
+    // ---- 红线 1: 净减伤全局硬封顶 ≤75% ----
 
-    /** 净减伤上限 (spec 红线 1): 单点求 keep = ∏(1-rᵢ) 后统一 keep = max(keep, 1-0.49)。绝无 100% 免伤。 */
-    public static final double NET_DAMAGE_REDUCTION_CAP = 0.49D;
+    /**
+     * 净减伤上限 (spec 红线 1; 2026-07-07 用户定向 49%→75%): 单点求 keep = ∏(1-rᵢ) 后统一 keep = max(keep, 1-0.75)。
+     * 抬帽前提 = 复合装甲改【同源适应】(按伤害类别分桶爬升, 换类别即重置), 玩家有真实反制手段 (换武器/丢雷) 而非
+     * 纯血海; 绝无 100% 免伤 (keep 恒 ≥0.25, 枪械 attrition 永远有效)。
+     */
+    public static final double NET_DAMAGE_REDUCTION_CAP = 0.75D;
 
-    /** 净减伤保底剩余系数 = 1 - {@link #NET_DAMAGE_REDUCTION_CAP} = 0.51 (最终伤害 ≥ 原始 ×0.51)。 */
+    /** 净减伤保底剩余系数 = 1 - {@link #NET_DAMAGE_REDUCTION_CAP} = 0.25 (最终伤害 ≥ 原始 ×0.25)。 */
     public static final double MIN_KEEP_FACTOR = 1.0D - NET_DAMAGE_REDUCTION_CAP;
 
     // ---- 红线 2: 反伤 (按攻击者 maxHP 的 %) ----
@@ -75,12 +79,12 @@ public final class ChampionRedlines {
     public static final int SUMMON_STAR_ABSOLUTE_CEIL = 4;
 
     /**
-     * 把净减伤参与项的剩余系数连乘后夹到红线 1 保底 (spec 红线 1 / 9.2): keep = max(∏(1-rᵢ), 0.51)。
-     * 单一受击拦截点调用; 删本钳制后净减伤多源相乘可穿透 49%。
+     * 把净减伤参与项的剩余系数连乘后夹到红线 1 保底 (spec 红线 1 / 9.2): keep = max(∏(1-rᵢ), 0.25)。
+     * 单一受击拦截点调用; 删本钳制后净减伤多源相乘可穿透 75%。
      *
-     * @param reductionRates 各减伤源的减伤率 rᵢ (0-1; bullet_resistance + 复合 ramp + 偏斜 EV + 刚毅折算 +
+     * @param reductionRates 各减伤源的减伤率 rᵢ (0-1; bullet_resistance + 复合同源适应 ramp + 偏斜 EV + 刚毅折算 +
      *                       缩小化体型折算)。任何 rᵢ &lt;0 或 &gt;1 抛 IllegalArgumentException (不掩盖脏值)。
-     * @return 夹断后的剩余系数 keep (∈ [0.51, 1.0]); 最终伤害 = 原始 × keep
+     * @return 夹断后的剩余系数 keep (∈ [0.25, 1.0]); 最终伤害 = 原始 × keep
      */
     public static double clampNetKeepFactor(double... reductionRates) {
         double keep = 1.0D;

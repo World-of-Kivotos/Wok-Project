@@ -43,28 +43,32 @@ public final class AffixRoller {
      *  - 易伤 1 (战斗池): REND —— {@code ChampionAttackHandler.applyRend} 折 amplifier 挂全局易伤效果真放大下次受击。
      *  - 护甲磨损 1 (战斗池): CORROSIVE —— {@code ChampionAttackHandler.applyCorrosive} 损玩家护甲槽耐久。
      *
-     * 故意排除的词条共 23 条 = 35 总 - 12 白名单 (数据/签名粒子/spawn 预算校验俱全, 但运行期【无任何 handler 读取其
-     * 效果】或【无法独立 roll】, 属 Stage2 未来工作: 自身属性变更 / 10 主动技能 / 自身位移传送 / 召唤 / 周期 AOE 等待
-     * 实现): 全部机动池 5 (SPRINT/OVERDRIVE/BLINK/TACTICAL_BLINK/PHASE_WALK)、全部技能池 10 (ELECTRO_CHARGE/THUNDER/
-     * LITTLE_BOY/DEATH_MARK/VISUAL_DISRUPTION/SELF_REPAIR/COUNTER_UNIT/CAESAR_SWAP/BLADE_WALTZ/SUMMON_SUPPORT)、生存池 5
-     * (REGEN_TISSUE/FLAMMABLE_REGEN/THORNS/GIGANTISM 哑 + MINIATURIZATION 无机动伙伴)、战斗池 3 (DOUBLE_STRIKE/
-     * QUADRUPLE_STRIKE/CHAOS_STRIKE)。其中:
-     *  - DOUBLE_STRIKE/QUADRUPLE_STRIKE: {@link ChampionStrikeGate#strikeJumps} 仅在 GameTest 调用, 任何 integration
-     *    handler 都【未】按跳数拆分施加 (近战伤害不因双倍/四倍而翻倍), 故运行期零可观测效果 -> 哑。
-     *  - CHAOS_STRIKE: {@code applyChaosKnockback} 仅落账限频闸, 明确【不】push (KnockbackSafetyGuard 未落地), 玩家
-     *    不被击飞, 故运行期零可观测效果 -> 哑。
-     *  - THORNS/COUNTER_UNIT/VISUAL_DISRUPTION 等: 反伤/控制聚合器 (RetaliationAggregator/PlayerControlAggregator)
-     *    虽是基建, 但【无 handler】按这些 def 申请反伤/控制 (仅 FROST 减速走控制聚合), 故这些 def 运行期零消费 -> 哑。
-     *  - MINIATURIZATION (生存池): 其体型折算净减伤 handler 已实 (ChampionBloodPoolHandler case MINIATURIZATION), 但
-     *    spec 第八章强制"缩小化须搭配 +1 机动" ({@link PointBudget} validateMutex 硬校验), 而全部机动词条当前是哑词条
-     *    被排除, 故缩小化在 Stage1【无合法机动伙伴可搭】, 单独 roll 必被 wouldRemainLegal 否决 -> 实际不可 roll。为避免
-     *    白名单挂一条永远 roll 不出的死项, 暂排除缩小化, 待机动池实现后与之一同移入 (其减伤折算届时即生效)。
+     * 体型血量 2 (生存池; Stage2 批2): GIGANTISM/MINIATURIZATION —— {@link ChampionHpConversion#sizeMultiplier}
+     * 在 spawn 盖章期真改有效血 (ChampionPromoter.applyChampion 消费, 巨大化 +30~180% / 缩小化 -25~58%), 缩小化
+     * 另有体型折算净减伤 (ChampionBloodPoolHandler case MINIATURIZATION)。体型渲染/AABB 属批4 形态守卫, 本批只有
+     * 血量分量。缩小化"强制 +1 机动"由 roll 期原子配对保证 ({@link #rollMiniaturizationPartner})。
+     *  - 力竭窗 1 (机动池; Stage2 批2): OVERDRIVE —— {@code ChampionSelfEffectHandler.applyOverdrive} 按
+     *    {@link OverdriveCycle} 三相 (加速4s/力竭5s/常态3s) 换挡 MOVEMENT_SPEED modifier + 相位粒子, 真服可观测。
+     *  - 自足技能 5 (技能池首开; Stage2 批3): VISUAL_DISRUPTION/SELF_REPAIR/COUNTER_UNIT/SUMMON_SUPPORT/
+     *    DEATH_MARK —— 各自独立 handler (ChampionVisualDisruptionHandler 等五个, ChampionSystem 注册) 的
+     *    onServerTick 状态机施加, 控制/反伤经 PlayerControlAggregator/RetaliationAggregator 红线聚合,
+     *    命定/反击跨冠军互斥经 {@link ChampionTargetLocks}。
+     *
+     * 波1 增补 (Stage2 批4; KnockbackSafetyGuard 已落地): 战斗池分跳/击飞 3 (DOUBLE_STRIKE/QUADRUPLE_STRIKE
+     * 经 {@code ChampionAttackHandler.applyStrikeSplit} 按 {@link ChampionStrikeGate} 每跳系数拆跳施加;
+     * CHAOS_STRIKE 经 {@code applyChaosKnockback} 真 push, 落点过守卫 + 控制聚合 + 落地保护) + 机动池传送 2
+     * (BLINK/TACTICAL_BLINK 各自独立 handler 周期瞬移, 落点过守卫单点裁决)。
+     *
+     * 波2+波3 收官 (Stage2 批4 终态): 技能池周期 AOE/换位/连段 5 (ELECTRO_CHARGE/THUNDER/LITTLE_BOY 走
+     * champion_skill_aoe 判决伤害 + 2s 免疫缓冲; CAESAR_SWAP 双向守卫换位; BLADE_WALTZ 连段 60% 帽均分) +
+     * 机动池 PHASE_WALK (noPhysics 漂移 + 回退链实体化)。至此 35/35 全部词条有运行期 handler, 白名单 = 全集
+     * (本集合仍保留白名单语义: 未来新增词条默认不可 roll, 实现后显式登记)。
      *
      * 白名单语义 (非黑名单): 新增词条若未在此显式登记, 默认【不】被 roll —— 防 Stage2 往 AffixDef 加新哑词条时静默
      * 漏排, 逼实现 handler 后再把它移入本集合。{@link AffixDef#values()} 总集 - 本白名单 = 当前不可 roll 词条全集。
      */
     public static final Set<AffixDef> IMPLEMENTED_AFFIXES = Collections.unmodifiableSet(EnumSet.of(
-            // 生存池减伤 (ChampionBloodPoolHandler + ChampionDamageReduction); 缩小化暂排除 (强制机动伙伴未实现, 见类注释)
+            // 生存池减伤 (ChampionBloodPoolHandler + ChampionDamageReduction)
             AffixDef.COMPOSITE_ARMOR,
             AffixDef.UHMWPE_ARMOR,
             AffixDef.HEAVY_ARMOR,
@@ -80,7 +84,39 @@ public final class AffixRoller {
             // 战斗池易伤 (ChampionAttackHandler.applyRend)
             AffixDef.REND,
             // 战斗池护甲磨损 (ChampionAttackHandler.applyCorrosive)
-            AffixDef.CORROSIVE));
+            AffixDef.CORROSIVE,
+            // 生存池自身被动 (ChampionSelfEffectHandler; Stage2 批1): 脱战 %maxHP 回血 / 战斗 FLAT 回血 / 受击反震反伤
+            AffixDef.REGEN_TISSUE,
+            AffixDef.FLAMMABLE_REGEN,
+            AffixDef.THORNS,
+            // 机动池自身位移 (ChampionSelfEffectHandler; Stage2 批1): 移速加成瞬态 modifier
+            AffixDef.SPRINT,
+            // 生存池体型血量 (ChampionHpConversion.sizeMultiplier; Stage2 批2): 巨大化 +血 / 缩小化 -血+体型折算减伤
+            AffixDef.GIGANTISM,
+            AffixDef.MINIATURIZATION,
+            // 机动池力竭窗 (ChampionSelfEffectHandler + OverdriveCycle; Stage2 批2): 加速/力竭/常态三相循环
+            AffixDef.OVERDRIVE,
+            // 技能池自足技能 (各自独立 handler; Stage2 批3): 失明/定身修复/反击窗/召唤/命定标记
+            AffixDef.VISUAL_DISRUPTION,
+            AffixDef.SELF_REPAIR,
+            AffixDef.COUNTER_UNIT,
+            AffixDef.SUMMON_SUPPORT,
+            AffixDef.DEATH_MARK,
+            // 战斗池分跳/击飞 (ChampionAttackHandler.applyStrikeSplit/applyChaosKnockback; Stage2 批4 波1)
+            AffixDef.DOUBLE_STRIKE,
+            AffixDef.QUADRUPLE_STRIKE,
+            AffixDef.CHAOS_STRIKE,
+            // 机动池传送家族 (ChampionBlinkHandler/ChampionTacticalBlinkHandler; Stage2 批4 波1): 抵近/脱离瞬移
+            AffixDef.BLINK,
+            AffixDef.TACTICAL_BLINK,
+            // 技能池周期 AOE/换位/连段 (各自独立 handler; Stage2 批4 波2): 判决伤害 + 免疫缓冲/守卫换位/连段帽
+            AffixDef.ELECTRO_CHARGE,
+            AffixDef.THUNDER,
+            AffixDef.LITTLE_BOY,
+            AffixDef.CAESAR_SWAP,
+            AffixDef.BLADE_WALTZ,
+            // 机动池灵体移动 (ChampionPhaseWalkHandler; Stage2 批4 波3 压轴): noPhysics 漂移 + 回退链实体化
+            AffixDef.PHASE_WALK));
 
     private AffixRoller() {
     }
@@ -97,6 +133,25 @@ public final class AffixRoller {
      * @return 合法词条选择列表 (可能为空, 如 1★ 预算极小; allocate 必过)
      */
     public static List<AffixSelection> roll(StarRank rank, RandomSource rng) {
+        // 旧签名默认体型合格: 委托带资格重载传 sizeEligible=true (无 SIZE 族剔除, 行为与历史完全一致)。自然刷主
+        // 入口 ChampionPromoter 已迁到带资格重载 (传实体白名单资格); 保留本签名供命令 roll 路径与既有测试沿用。
+        return roll(rank, rng, true);
+    }
+
+    /**
+     * 为某星级掷一组合法词条选择, 带体型词条实体资格上下文 (spec 9A.4 体型词条实体白名单硬校验)。
+     *
+     * sizeEligible=false (非白名单异形碰撞箱实体) 时, 候选池装配阶段剔除 SIZE 族 (巨大化/缩小化), 生存池点数
+     * 预算自然流向同池其它词条 (spec "非白名单实体 roll 到体型词条则改 roll 同池等成本词条")。SIZE 被剔除后
+     * 缩小化不再进 {@link #rollPool} 的候选, 其"强制 +1 机动"原子配对 ({@link #rollMiniaturizationPartner}) 天然
+     * 不触发, 无残留半配对。sizeEligible=true 时候选装配与旧签名完全一致 (不剔除任何 SIZE 族)。
+     *
+     * @param rank         星级
+     * @param rng          随机源 (服务端 level.random)
+     * @param sizeEligible 附身实体是否在体型词条白名单内 ({@link SizeAffixEligibility#isEligible}); false 剔除 SIZE 族
+     * @return 合法词条选择列表 (可能为空; allocate 必过)
+     */
+    public static List<AffixSelection> roll(StarRank rank, RandomSource rng, boolean sizeEligible) {
         if (rank == null) {
             throw new IllegalArgumentException("rank must not be null");
         }
@@ -107,20 +162,22 @@ public final class AffixRoller {
         List<AffixSelection> chosen = new ArrayList<>();
         // 逐池掷取: 池声明顺序 (生存优先保证基础生存, 再战斗, 再机动, 最后技能)。
         for (AffixPool pool : AffixPool.values()) {
-            rollPool(rank, pool, rng, chosen);
+            rollPool(rank, pool, rng, chosen, sizeEligible);
         }
         return chosen;
     }
 
-    /** 在某池预算内贪心追加词条到 chosen (受总词条上限/技能上限/互斥约束)。 */
-    private static void rollPool(StarRank rank, AffixPool pool, RandomSource rng, List<AffixSelection> chosen) {
+    /** 在某池预算内贪心追加词条到 chosen (受总词条上限/技能上限/互斥约束); sizeEligible=false 剔除 SIZE 族。 */
+    private static void rollPool(StarRank rank, AffixPool pool, RandomSource rng, List<AffixSelection> chosen,
+                                 boolean sizeEligible) {
         List<AffixDef> candidates = new ArrayList<>();
         for (AffixDef def : AffixDef.values()) {
-            // 候选三门槛: 属本池 + 该星解锁 (minStar/品质) + 已有运行期 handler (排除哑词条, 见 IMPLEMENTED_AFFIXES)。
-            // 哑词条被排除后, 机动池/技能池在任何星级候选恒空 (当前 0 条实现), rollPool 自然不为该池纳入任何词条 ——
-            // 候选空时下方贪心循环 tryOrder.isEmpty() 直接 return, 不抛不死循环 (该池剩余预算按 spec 转基础膨胀, 与
-            // 词条未排满时同一口径); 总词条/技能上限够也无所谓, 减少的只是无效哑词条占位。
-            if (def.pool() == pool && def.isUnlockedAt(rank) && IMPLEMENTED_AFFIXES.contains(def)) {
+            // 候选四门槛: 属本池 + 该星解锁 (minStar/品质) + 已有运行期 handler (排除哑词条, 见 IMPLEMENTED_AFFIXES)
+            // + 体型资格 (非白名单实体剔除 SIZE 族, spec 9A.4)。哑词条/SIZE 被排除后某池候选可为空 (如低星技能池
+            // 未解锁/异形实体生存池仅剩非体型词条), rollPool 自然不为该池纳入被排除词条 —— 候选空时下方贪心循环
+            // tryOrder.isEmpty() 直接 return, 不抛不死循环; SIZE 让出的生存点数按 spec 转同池其它词条/基础膨胀。
+            if (def.pool() == pool && def.isUnlockedAt(rank) && IMPLEMENTED_AFFIXES.contains(def)
+                    && (sizeEligible || def.mutexFlag() != AffixDef.MutexFlag.SIZE)) {
                 candidates.add(def);
             }
         }
@@ -151,6 +208,24 @@ public final class AffixRoller {
             AffixQuality quality = rollQuality(rank, pick, rng);
             AffixSelection sel = new AffixSelection(pick, quality);
 
+            // 缩小化强制 +1 机动 (spec 第八章): 生存池先于机动池 roll, 单独预检必因"无机动伙伴"被 PointBudget
+            // 拒绝 (若不配对则缩小化永远 roll 不出) -> 原子配对 [缩小化, 机动伙伴@最低档] 一起过预算/互斥。
+            if (pick == AffixDef.MINIATURIZATION && !containsMobility(chosen)) {
+                AffixSelection partner = rollMiniaturizationPartner(rank, rng, chosen, sel);
+                if (partner != null) {
+                    chosen.add(sel);
+                    chosen.add(partner);
+                    alreadyChosen.add(pick);
+                    alreadyChosen.add(partner.affix());
+                } else {
+                    // 无可行伙伴 (机动预算/词条上限装不下配对): 弃缩小化, 从候选剔除避免死循环。
+                    candidates.remove(pick);
+                    rounds = candidates.size();
+                    r = -1;
+                }
+                continue;
+            }
+
             if (wouldRemainLegal(rank, chosen, sel)) {
                 chosen.add(sel);
                 alreadyChosen.add(pick);
@@ -175,7 +250,43 @@ public final class AffixRoller {
             return affix.minUsableQuality();
         }
         int idx = minIdx + rng.nextInt(maxIdx - minIdx + 1);
-        return AffixQuality.values()[idx];
+        // 中段 0 占位档 (自我修复 中级=0) 向下取最近可用档, 防 roll 出"花点无效果"的死词条 (批3)。
+        return affix.usableQualityAtOrBelow(AffixQuality.values()[idx]);
+    }
+
+    /** chosen 中是否已有机动池词条 (缩小化强制伙伴判定)。 */
+    private static boolean containsMobility(List<AffixSelection> chosen) {
+        for (AffixSelection sel : chosen) {
+            if (sel.affix().pool() == AffixPool.MOBILITY) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 缩小化强制机动伙伴 (spec 第八章"强制 +1 机动 (仅最低档)"): 从已实现且该星解锁的机动词条随机取一条, 锁
+     * 最低可用档 (占机动池但不给缩小化怪白送高档位移), [缩小化, 伙伴] 与既有选择整体过 {@link #wouldRemainLegal}
+     * 才算可行; 全部候选都装不下 (机动预算/词条上限) 返 null, 调用方弃缩小化。
+     */
+    private static AffixSelection rollMiniaturizationPartner(StarRank rank, RandomSource rng,
+                                                             List<AffixSelection> chosen, AffixSelection mini) {
+        List<AffixDef> partners = new ArrayList<>();
+        for (AffixDef def : AffixDef.values()) {
+            if (def.pool() == AffixPool.MOBILITY && def.isUnlockedAt(rank) && IMPLEMENTED_AFFIXES.contains(def)) {
+                partners.add(def);
+            }
+        }
+        List<AffixSelection> withMini = new ArrayList<>(chosen);
+        withMini.add(mini);
+        while (!partners.isEmpty()) {
+            AffixDef pick = partners.remove(rng.nextInt(partners.size()));
+            AffixSelection partner = new AffixSelection(pick, pick.minUsableQuality());
+            if (wouldRemainLegal(rank, withMini, partner)) {
+                return partner;
+            }
+        }
+        return null;
     }
 
     /**

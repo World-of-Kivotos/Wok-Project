@@ -4,9 +4,9 @@ import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 
 /**
- * 精英怪词条 -> 签名环境粒子的映射 (显示层视觉反馈)。原版 Champions 自带词条经 {@code IAffix.onClientUpdate}
- * 客户端自绘粒子, 但我方词条是纯标记 (MiningAffix 不重写战斗钩子) 且设置 hasSub:false, 该客户端更新链对其不触发,
- * 故改由服务端 {@link com.miningdim.champion.integration.ChampionParticleHandler} 用 sendParticles 主动播。
+ * 精英怪词条 -> 签名环境粒子的映射 (显示层视觉反馈)。自研冠军系统无客户端词条渲染, 故由服务端
+ * {@link com.miningdim.champion.integration.ChampionParticleHandler} 每 tick 扫近玩家冠军, 按其装配词条经本映射取
+ * 签名粒子用 sendParticles 主动播 (vanilla 服务端粒子机制自动同步客户端, 纯服务端零客户端代码)。
  *
  * 本类是纯映射 (零世界/Champions 引用, GameTest 可断言 35 词条全有非空粒子 + 关键映射主题正确)。粒子全用
  * vanilla {@link ParticleTypes} 的 SimpleParticleType, 无需注册自定义粒子。

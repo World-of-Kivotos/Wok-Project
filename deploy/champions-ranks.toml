@@ -1,0 +1,115 @@
+# Champions 精英怪 10 星级 rank 配置 (miningdim ChampionStarAffix 系统前置)。
+#
+# 用途: 我方 1-10★ 星级词条系统要求 Champions 提供 tier 1-10 共 10 条 rank (spec 9.1)。缺 tier 的 rank ->
+# 该星级冠军 getRank() 回退 tier 0 -> 我方 BOSS 血条 handler / 自身被动 handler (再生/反震/高速) 均要求
+# rank.getTier() > 0, 故 tier 6-10 未配时: 命令召唤 6★+ 冠军【只出粒子, 无血条、无自身被动效果】(词条粒子 handler
+# 不查 rank 故仍播)。同理 6★+ 自定义血池只在自然刷 (promoter) 触发, 命令召无池走 vanilla HP (clamp 1024)。
+#
+# 部署 (改后须重启实例, 或 /reload 未必刷 Forge config -> 稳妥重启):
+#   - world/serverconfig/champions-ranks.toml (当前世界权威, 必改)
+#   - defaultconfigs/champions-ranks.toml     (新世界模板, 同步改)
+#
+# 字段: tier=星级 / numAffixes=Champions 原生随机词条数(与 StarRank.maxAffixes 对齐; 我方 promoter 自然刷会
+# 覆盖为四池预算 roll 的词条, 命令召按此) / defaultColor=名牌与 BOSS 条色(我方条色取最近 vanilla BossBarColor) /
+# weight=Champions 原生刷该星权重(6★+ 团队/世界 BOSS 走事件/矿洞难度, 原生权重压到极低防随机满地世界 BOSS) /
+# growthFactor=vanilla HP/伤害膨胀系数(6★+ 自然刷走血池覆盖; 命令召 clamp 1024)。
+#
+#List of ranks
+[[ranks]]
+	tier = 0
+	numAffixes = 0
+	defaultColor = "#FFFFFF"
+	weight = 9500
+	growthFactor = 1
+	effects = []
+	presetAffixes = []
+
+[[ranks]]
+	tier = 1
+	numAffixes = 1
+	defaultColor = "#FFC0CB"
+	weight = 300
+	growthFactor = 1
+	effects = []
+	presetAffixes = []
+
+[[ranks]]
+	tier = 2
+	numAffixes = 2
+	defaultColor = "#FFFF00"
+	weight = 200
+	growthFactor = 4
+	effects = []
+	presetAffixes = []
+
+[[ranks]]
+	tier = 3
+	numAffixes = 3
+	defaultColor = "#FF9900"
+	weight = 75
+	growthFactor = 7
+	effects = []
+	presetAffixes = []
+
+[[ranks]]
+	tier = 4
+	numAffixes = 4
+	defaultColor = "#66FFFF"
+	weight = 50
+	growthFactor = 10
+	effects = []
+	presetAffixes = []
+
+[[ranks]]
+	tier = 5
+	numAffixes = 5
+	defaultColor = "#CC33FF"
+	weight = 25
+	growthFactor = 16
+	effects = []
+	presetAffixes = []
+
+[[ranks]]
+	tier = 6
+	numAffixes = 6
+	defaultColor = "#FF5555"
+	weight = 8
+	growthFactor = 24
+	effects = []
+	presetAffixes = []
+
+[[ranks]]
+	tier = 7
+	numAffixes = 7
+	defaultColor = "#FF0000"
+	weight = 4
+	growthFactor = 32
+	effects = []
+	presetAffixes = []
+
+[[ranks]]
+	tier = 8
+	numAffixes = 9
+	defaultColor = "#AA0000"
+	weight = 2
+	growthFactor = 45
+	effects = []
+	presetAffixes = []
+
+[[ranks]]
+	tier = 9
+	numAffixes = 11
+	defaultColor = "#FFD700"
+	weight = 1
+	growthFactor = 60
+	effects = []
+	presetAffixes = []
+
+[[ranks]]
+	tier = 10
+	numAffixes = 13
+	defaultColor = "#B030FF"
+	weight = 1
+	growthFactor = 80
+	effects = []
+	presetAffixes = []

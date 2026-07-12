@@ -82,7 +82,8 @@ public final class ChampionAffixState {
         if (byTier.ordinal() < minUsable.ordinal()) {
             return minUsable;
         }
-        return byTier;
+        // 中段 0 占位档 (自我修复 中级=0) 向下取最近可用档: 4★ 顶格恰是中级时兜底不产死词条 (批3)。
+        return def.usableQualityAtOrBelow(byTier);
     }
 
     /**
@@ -113,7 +114,8 @@ public final class ChampionAffixState {
         if (clamped.ordinal() < minUsable.ordinal()) {
             return minUsable;
         }
-        return clamped;
+        // 中段 0 占位档同样向下取最近可用档 (防脏 NBT 指到"该档不存在"的死值)。
+        return def.usableQualityAtOrBelow(clamped);
     }
 
     /**

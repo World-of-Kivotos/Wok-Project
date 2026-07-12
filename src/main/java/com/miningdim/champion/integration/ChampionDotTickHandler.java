@@ -17,6 +17,8 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.UUID;
@@ -44,6 +46,9 @@ import java.util.UUID;
  * 包 (仅 Champions 加载时由 bootstrap 挂 forgeBus, 与攻击 handler 同生命周期; dev 下 DOT 表恒空, 本 tick no-op)。
  */
 public final class ChampionDotTickHandler {
+
+    /** 诊断日志: DoT 链真服首验用 (每秒对每个身上有 DoT 的玩家打一行 合计伤/活跃源层数; 打在测试者自己身上天然低频)。 */
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/champion/dot");
 
     /** DoT 粒子节流: 每多少 tick 在中招玩家身上播一轮签名粒子 (按活跃源类型: 燃烧火/寒霜雪; cosmetic, 与扣血分离)。 */
     private static final int DOT_PARTICLE_INTERVAL_TICKS = 3;
@@ -93,6 +98,11 @@ public final class ChampionDotTickHandler {
                 recordActiveSources(player, maxHp, nowTick);
                 PlayerDotAccumulator.FlushResult result = acc.flush(maxHp, nowTick);
                 if (result.total() > 0.0D) {
+                    // 诊断 (真服首验): 每秒对每个身上有 DoT 的玩家打一行 本秒合计伤/血量/活跃源层数 (≤15% 封顶后)。
+                    LOGGER.info("dot-tick {} total={} hp={}/{} sources={}",
+                            player.getName().getString(), String.format("%.2f", result.total()),
+                            String.format("%.1f", player.getHealth()), String.format("%.1f", maxHp),
+                            summarizeSources(sources.activeSources()));
                     applyDotDamage(player, result.total());
                 }
             }
@@ -241,5 +251,20 @@ public final class ChampionDotTickHandler {
     /** DoT 累加器源键 (冠军 UUID + 词条复合串): 同源同秒累加, 区分多冠军同时上同类 DoT。 */
     private static String dotSourceKey(PlayerDotSources.ActiveSource src) {
         return src.championId() + "/" + src.def().name();
+    }
+
+    /** 活跃 DoT 源摘要串 (诊断日志用): "BURNING x3,FROST x2" 形态 (词条 x 层数, 逗号分隔; 空源返 "-")。 */
+    private static String summarizeSources(List<PlayerDotSources.ActiveSource> active) {
+        if (active.isEmpty()) {
+            return "-";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (PlayerDotSources.ActiveSource src : active) {
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            sb.append(src.def().name()).append(" x").append(src.stacks());
+        }
+        return sb.toString();
     }
 }

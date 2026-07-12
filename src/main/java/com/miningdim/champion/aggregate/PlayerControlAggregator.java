@@ -57,7 +57,15 @@ public final class PlayerControlAggregator {
         long granted = Math.min(requestTicks, avail);
 
         if (granted > 0L) {
-            controlledIntervals.addLast(new long[]{startTick, startTick + granted});
+            long[] candidate = new long[]{startTick, startTick + granted};
+            controlledIntervals.addLast(candidate);
+            // 红线 5 "连续 ≥2s 自由窗"硬要求落地 (对抗审查发现 hasMinFreeWindow 曾是无人调用的死代码): 以新区间
+            // 末端锚定的 7s 窗复核, 授予后窗内不再存在 ≥2s 自由空隙则整笔作废回退 —— 两只控制精英交替施控可在
+            // 不超 50% 占比的前提下抹掉全部自由窗, 占比帽单独挡不住碎片化永控。红线宁可丢一次控制不可永控。
+            if (!hasMinFreeWindow(candidate[1] - WINDOW_TICKS)) {
+                controlledIntervals.removeLast();
+                return 0L;
+            }
         }
         return granted;
     }

@@ -33,6 +33,8 @@ import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemStackHandler;
 import net.minecraftforge.items.wrapper.RangedWrapper;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.UUID;
 
@@ -60,14 +62,16 @@ import java.util.UUID;
  */
 public final class MunitionsBenchBlockEntity extends BlockEntity implements MenuProvider {
 
-    /** 槽位: 0=铜, 1=火药, 2=发射药 (提炼中间品), 3=输出缓冲展示。 */
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/munitions/bench");
+
+    /** 槽位: 0=底火, 1=弹壳, 2=弹头, 3=发射药, 4=输出缓冲展示 (四件套见 MunitionsConfig recipe 组)。 */
     public static final int SLOT_PRIMER = 0;
     public static final int SLOT_CASING = 1;
     public static final int SLOT_BULLET_HEAD = 2;
     public static final int SLOT_PROPELLANT = 3;
     public static final int SLOT_OUTPUT = 4;
     private static final int SLOT_COUNT = 5;
-    /** 反漏斗只暴露料槽 [0,3) (铜/火药/发射药), 输出槽不暴露。 */
+    /** 反漏斗只暴露料槽 [0,4) (四件套), 输出槽不暴露。 */
     private static final int INPUT_SLOT_END = SLOT_OUTPUT;
 
     /** ContainerData 索引 (开 GUI 者实时同步; int-only)。 */
@@ -672,7 +676,14 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         if (takenCount <= 0) {
             return; // 本次未取走任何弹 (残留判据改用真实取走量, 不信传入栈的 count)。
         }
-        bufferedRounds = Math.max(0, bufferedRounds - takenCount);
+        // 超扣不静默钳零 (审查 minor: Math.max 吞错): 取走量按计量口径不应超过权威缓冲, 超了说明计量或并发
+        // 出了新 bug, 留取证日志再钳, 不给错误销毁证据。
+        if (takenCount > bufferedRounds) {
+            LOGGER.warn("[miningdim] munitions output over-take: taken={} > buffered={} at {} by {}",
+                    takenCount, bufferedRounds, worldPosition, player.getGameProfile().getName());
+            takenCount = bufferedRounds;
+        }
+        bufferedRounds -= takenCount;
         if (bufferedRounds == 0) {
             bufferedCaliber = null;
         }

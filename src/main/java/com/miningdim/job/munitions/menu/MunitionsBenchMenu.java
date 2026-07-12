@@ -14,6 +14,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.inventory.ContainerLevelAccess;
 import net.minecraft.world.inventory.SimpleContainerData;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.items.SlotItemHandler;
 
@@ -107,17 +108,65 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
         return false;
     }
 
-    /** 输出缓冲槽: 只取不放; 取出时回收缓冲计数 (谁产谁得经验已在产出帧入主人)。 */
+    /**
+     * Shift 移物覆写 (审查 M-7/M-8):
+     *  1. 玩家区 -> 容器区的目标区间排除输出槽 —— vanilla moveItemStackTo 的合并分支只判同物同 tag 不调
+     *     mayPlace, 玩家背包里的同种弹药会被并进输出槽, 随后 refreshOutputStack 按缓冲重物化把并入的弹覆盖销毁;
+     *  2. 输出槽 -> 玩家区的取弹量以移动前后槽内差值精确结算 —— moveItemStackTo 直改源栈不经 Slot.remove,
+     *     OutputSlot 的 remove 计量对 Shift 路径不可见。结算放在槽状态落定之后, refreshOutputStack 重物化
+     *     的剩余弹不会被本方法的清槽逻辑抹掉。
+     */
+    @Override
+    public ItemStack quickMoveStack(Player player, int index) {
+        Slot slot = this.slots.get(index);
+        if (slot == null || !slot.hasItem()) {
+            return ItemStack.EMPTY;
+        }
+        ItemStack stackInSlot = slot.getItem();
+        ItemStack moved = stackInSlot.copy();
+        int playerStart = CONTAINER_SLOTS;
+        int playerEnd = this.slots.size();
+        int takenFromOutput = 0;
+
+        if (index < playerStart) {
+            int before = stackInSlot.getCount();
+            if (!this.moveItemStackTo(stackInSlot, playerStart, playerEnd, true)) {
+                return ItemStack.EMPTY;
+            }
+            if (index == MunitionsBenchBlockEntity.SLOT_OUTPUT) {
+                takenFromOutput = before - stackInSlot.getCount();
+            }
+        } else {
+            if (!this.moveItemStackTo(stackInSlot, 0, MunitionsBenchBlockEntity.SLOT_OUTPUT, false)) {
+                return ItemStack.EMPTY;
+            }
+        }
+
+        if (stackInSlot.isEmpty()) {
+            slot.set(ItemStack.EMPTY);
+        } else {
+            slot.setChanged();
+        }
+        if (takenFromOutput > 0 && blockEntity != null && player instanceof ServerPlayer serverPlayer) {
+            blockEntity.onOutputTaken(serverPlayer, takenFromOutput);
+        }
+        if (stackInSlot.getCount() == moved.getCount()) {
+            return ItemStack.EMPTY;
+        }
+        slot.onTake(player, stackInSlot);
+        return moved;
+    }
+
+    /**
+     * 输出缓冲槽: 只取不放; 取出时回收缓冲计数 (谁产谁得经验已在产出帧入主人)。
+     * 取弹计量走 {@link #remove} 精确累计 (审查 M-8): remove 是鼠标路径 (safeTake/tryRemove) 物品离槽的唯一
+     * 入口, 整取/半取天然精确, 且每个 menu 实例独立计量 —— 替换旧的 getItem 快照机制 (vanilla 每 tick
+     * broadcastChanges 会虚调 getItem, 把第二名观看者的快照钉在历史最大值, 多人同开交错取弹时按旧快照差值
+     * 超额扣缓冲)。Shift 路径不经 remove, 由外层 quickMoveStack 差值结算, 此处消费 0 不双计。
+     */
     private static final class OutputSlot extends SlotItemHandler {
         private final MunitionsBenchBlockEntity be;
-
-        /**
-         * 取出前的输出栈快照。基类 {@link AbstractMiningMenu#quickMoveStack} 与 vanilla {@code Slot.safeTake} 都在
-         * 移除输出栈前先读 {@link #getItem()}, 故此处随每次读取刷新快照; 移除后 {@link #onTake} 据
-         * (快照数量 - 残留数量) 算本次实际取走量。修复 Shift 整栈取弹时基类传入 onTake 的是移除后残留 EMPTY 栈、
-         * 据其结算导致 bufferedRounds 缓冲计数永不回收的缺陷 (munitions-output, 同 engineer-01)。
-         */
-        private ItemStack takeSnapshot = ItemStack.EMPTY;
+        private int pendingTaken = 0;
 
         OutputSlot(MunitionsBenchBlockEntity be, int index, int x, int y) {
             super(be.inventory(), index, x, y);
@@ -130,31 +179,20 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
         }
 
         @Override
-        public ItemStack getItem() {
-            ItemStack current = super.getItem();
-            // 仅在输出栈 "非缩减" 读取时刷新快照 (首次/换弹/新产出填充使数量增大); 不在移除后用残留小栈覆盖快照。
-            // 否则 vanilla Slot.tryRemove 在 remove() 之后还会再读一次 getItem() (判残留是否清空), 那次读取的
-            // 残留小栈会把取出前的满栈快照覆盖掉, 令 onTake 的 (快照数量 - 残留数量) 误算为 0, 漏回收缓冲。
-            if (!current.isEmpty()
-                    && (takeSnapshot.isEmpty()
-                        || !ItemStack.isSameItemSameTags(current, takeSnapshot)
-                        || current.getCount() > takeSnapshot.getCount())) {
-                this.takeSnapshot = current.copy();
-            }
-            return current;
+        public ItemStack remove(int amount) {
+            ItemStack removed = super.remove(amount);
+            pendingTaken += removed.getCount();
+            return removed;
         }
 
         @Override
         public void onTake(Player player, ItemStack stack) {
-            if (player instanceof ServerPlayer serverPlayer) {
-                // 实际取走量 = 取出前快照数量 - 移除后槽内残留数量。鼠标/Shift、整取/部分取四条路径统一口径:
-                // Shift 整栈取走时基类传入的 stack 是残留 EMPTY, 据其结算会漏回收缓冲 (munitions-output), 故改用快照差值。
-                int takenCount = this.takeSnapshot.getCount() - super.getItem().getCount();
-                be.onOutputTaken(serverPlayer, takenCount);
+            int taken = pendingTaken;
+            pendingTaken = 0;
+            if (taken > 0 && player instanceof ServerPlayer serverPlayer) {
+                be.onOutputTaken(serverPlayer, taken);
             }
             super.onTake(player, stack);
-            // 取后把快照重置为槽内残留, 作为下一次取出的基线 (空槽则 EMPTY)。
-            this.takeSnapshot = super.getItem().copy();
         }
     }
 

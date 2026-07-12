@@ -52,20 +52,21 @@ public enum MunitionsCaliber {
     RIFLE_556(9, 3, "556x45", Prices.RIFLE, Category.RIFLE, "5.56");
 
     public enum Category {
-        PISTOL("手枪弹"),
-        RIFLE("步枪弹"),
-        SHOTGUN("霰弹"),
-        SNIPER("狙击弹"),
-        EXPLOSIVE("爆破弹");
+        PISTOL("pistol"),
+        RIFLE("rifle"),
+        SHOTGUN("shotgun"),
+        SNIPER("sniper"),
+        EXPLOSIVE("explosive");
 
-        private final String label;
+        private final String labelKey;
 
-        Category(String label) {
-            this.label = label;
+        Category(String id) {
+            this.labelKey = "category.miningdim.munitions." + id;
         }
 
-        public String label() {
-            return label;
+        /** 显示名 lang key (审查 M-10: 公共枚举只持 key, 渲染端 I18n.get, 不硬编码单语言文案)。 */
+        public String labelKey() {
+            return labelKey;
         }
     }
 

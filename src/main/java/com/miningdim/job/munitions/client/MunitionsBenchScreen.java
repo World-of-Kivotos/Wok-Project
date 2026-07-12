@@ -11,6 +11,7 @@ import com.miningdim.menu.AbstractMiningScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.PlayerFaceRenderer;
+import net.minecraft.client.resources.language.I18n;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
@@ -275,7 +276,7 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
             int y = top + CAL_BTN_Y + row * (CAL_BTN_H + CAL_BTN_Y_GAP);
             boolean enabled = categoryHasUnlockedCaliber(level, option);
             boolean current = option == category;
-            drawChoiceButton(graphics, x, y, option.label(), current, enabled);
+            drawChoiceButton(graphics, x, y, I18n.get(option.labelKey()), current, enabled);
         }
         drawTinyScrollbar(graphics, left + CATEGORY_BTN_X + CAL_BTN_W + 1, top + CAL_BTN_Y,
                 SELECTOR_ROWS * (CAL_BTN_H + CAL_BTN_Y_GAP) - CAL_BTN_Y_GAP,
@@ -326,7 +327,7 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
         }
         long shownXp = playerShownXp();
         long nextXp = playerNextLevelXp();
-        graphics.renderTooltip(this.font, Component.literal("经验: " + shownXp + "/" + nextXp), mouseX, mouseY);
+        graphics.renderTooltip(this.font, Component.translatable("gui.miningdim.munitions.xp_tooltip", shownXp, nextXp), mouseX, mouseY);
     }
 
     private static int playerXpProgressPixels() {
@@ -439,7 +440,7 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
         graphics.fill(x + 1, y + 1, x + CRAFT_BUTTON_W - 1, y + CRAFT_BUTTON_H - 1, fill);
         graphics.fill(x + 3, y + 2, x + CRAFT_BUTTON_W - 3, y + CRAFT_BUTTON_H - 3, inner);
         graphics.fill(x + 4, y + 2, x + CRAFT_BUTTON_W - 4, y + 3, active ? 0xFFB66B78 : 0xFF73F4D5);
-        drawVanillaTextCenteredScaled(graphics, active ? "取消" : "制作",
+        drawVanillaTextCenteredScaled(graphics, I18n.get(active ? "gui.miningdim.munitions.cancel" : "gui.miningdim.munitions.craft"),
                 x + CRAFT_BUTTON_W / 2.0F, y + 4.0F, 0xFFFFFFFF, 0.68F);
 
         int mx = left + CRAFT_MODE_BUTTON_X;
@@ -451,7 +452,7 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
                 continuous ? 0xFF2B4856 : 0xFF2A2D38);
         graphics.fill(mx + 3, my + CRAFT_MODE_BUTTON_H - 2, mx + CRAFT_MODE_BUTTON_W - 3, my + CRAFT_MODE_BUTTON_H - 1,
                 continuous ? 0xFF31D2B4 : 0xFF4B5061);
-        drawVanillaTextCenteredScaled(graphics, continuous ? "连续" : "单次",
+        drawVanillaTextCenteredScaled(graphics, I18n.get(continuous ? "gui.miningdim.munitions.mode_continuous" : "gui.miningdim.munitions.mode_single"),
                 mx + CRAFT_MODE_BUTTON_W / 2.0F, my + 1.5F, continuous ? 0xFF80F0D0 : 0xFFD8DDE8, 0.58F);
     }
 
@@ -566,15 +567,15 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
         graphics.fill(x + 8, y + 7, x + CANCEL_DIALOG_W - 8, y + 8, 0xFF596072);
         graphics.fill(x + 8, y + CANCEL_DIALOG_H - 6, x + CANCEL_DIALOG_W - 8, y + CANCEL_DIALOG_H - 4, 0xFF31D2B4);
 
-        drawVanillaTextCenteredScaled(graphics, "取消制作", x + CANCEL_DIALOG_W / 2.0F, y + 15.0F,
+        drawVanillaTextCenteredScaled(graphics, I18n.get("gui.miningdim.munitions.cancel_dialog_title"), x + CANCEL_DIALOG_W / 2.0F, y + 15.0F,
                 0xFFF2F5FA, 0.86F);
-        drawVanillaTextCenteredScaled(graphics, "已消耗材料不会返还", x + CANCEL_DIALOG_W / 2.0F, y + 31.0F,
+        drawVanillaTextCenteredScaled(graphics, I18n.get("gui.miningdim.munitions.cancel_dialog_hint"), x + CANCEL_DIALOG_W / 2.0F, y + 31.0F,
                 0xFFAEB5C5, 0.66F);
 
         drawDialogButton(graphics, left + CANCEL_CONFIRM_X, top + CANCEL_BUTTON_Y,
-                "确认取消", 0xFF65313B, 0xFF8B3A47, 0xFFFFD6DD);
+                I18n.get("gui.miningdim.munitions.cancel_confirm"), 0xFF65313B, 0xFF8B3A47, 0xFFFFD6DD);
         drawDialogButton(graphics, left + CANCEL_KEEP_X, top + CANCEL_BUTTON_Y,
-                "继续制作", 0xFF234B46, 0xFF2CBF9F, 0xFFE6FFF8);
+                I18n.get("gui.miningdim.munitions.cancel_keep"), 0xFF234B46, 0xFF2CBF9F, 0xFFE6FFF8);
     }
 
     private void drawDialogButton(GuiGraphics graphics, int x, int y, String label,
@@ -588,6 +589,15 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        // 取消确认对话框是模态: 任意键位都不得穿透到容器/按钮 (非左键直接吞掉, 左键走对话框命中判定)。
+        if (confirmingCancel && button != 0) {
+            return true;
+        }
+        // 自绘按钮只认左键 (审查 minor: 原版 AbstractWidget.isValidClickButton 同语义; 右/中/侧键放行给
+        // super, 防右键分堆等容器操作误触发开工/取消等真实服务端动作)。
+        if (button != 0) {
+            return super.mouseClicked(mouseX, mouseY, button);
+        }
         int leftPos = (this.width - W) / 2;
         int topPos = (this.height - H) / 2;
         int level = menu.effectiveMunitionsLevel();
@@ -993,7 +1003,7 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
         return displayCaliberLabel(caliber) + " "
                 + caliber.defaultAmmoPath() + " "
                 + caliber.category().name() + " "
-                + caliber.category().label() + " "
+                + I18n.get(caliber.category().labelKey()) + " "
                 + caliberSearchName(caliber);
     }
 
@@ -1019,11 +1029,6 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
             case SPECIAL -> "68x51 68x51fury 特种 特种弹 special fury";
             case RIFLE_556 -> "556 556x45 5.56 5.56x45 步枪 步枪弹 rifle";
         };
-    }
-
-    private static void drawSmoothTextCentered(GuiGraphics graphics, String value, int centerX, int y, int argb) {
-        int width = smoothTextWidth(value);
-        drawSmoothText(graphics, value, centerX - width / 2, y, argb);
     }
 
     private static void drawSmoothTextCenteredScaled(GuiGraphics graphics, String value, int centerX, int y,
@@ -1074,24 +1079,6 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
             }
         }
         return Math.max(0, width - 1);
-    }
-
-    private static String trimSmoothText(String value, int maxWidth) {
-        StringBuilder builder = new StringBuilder();
-        String text = value.toUpperCase(Locale.ROOT);
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            builder.append(SMOOTH_GLYPHS.indexOf(c) >= 0 ? c : '.');
-        }
-        String result = builder.toString();
-        if (smoothTextWidth(result) <= maxWidth) {
-            return result;
-        }
-        int limit = Math.max(0, maxWidth - smoothTextWidth("."));
-        while (smoothTextWidth(result) > limit && result.length() > 0) {
-            result = result.substring(0, result.length() - 1);
-        }
-        return result + ".";
     }
 
     private static void drawLockIcon(GuiGraphics graphics, int x, int y) {

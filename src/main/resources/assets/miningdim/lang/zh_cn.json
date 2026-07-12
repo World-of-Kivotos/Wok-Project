@@ -453,5 +453,19 @@
   "tooltip.miningdim.gunsmith_press.start": "消耗材料，冲压完成后从中间取出成品。",
   "subtitles.miningdim.munitions_bench_weld": "军火台电焊作业",
   "subtitles.miningdim.gunsmith_press_hydraulic": "机械冲压机液压作业",
-  "message.miningdim.gunsmith.disabled": "枪匠冲压尚未开放 (等待数值与经济评审)。"
+  "message.miningdim.gunsmith.disabled": "枪匠冲压尚未开放 (等待数值与经济评审)。",
+  "gui.miningdim.munitions.xp_tooltip": "经验: %s/%s",
+  "gui.miningdim.munitions.craft": "制作",
+  "gui.miningdim.munitions.cancel": "取消",
+  "gui.miningdim.munitions.mode_continuous": "连续",
+  "gui.miningdim.munitions.mode_single": "单次",
+  "gui.miningdim.munitions.cancel_dialog_title": "取消制作",
+  "gui.miningdim.munitions.cancel_dialog_hint": "材料仅在完成时消耗, 取消无损失。",
+  "gui.miningdim.munitions.cancel_confirm": "确认取消",
+  "gui.miningdim.munitions.cancel_keep": "继续制作",
+  "category.miningdim.munitions.pistol": "手枪弹",
+  "category.miningdim.munitions.rifle": "步枪弹",
+  "category.miningdim.munitions.shotgun": "霰弹",
+  "category.miningdim.munitions.sniper": "狙击弹",
+  "category.miningdim.munitions.explosive": "爆破弹"
 }

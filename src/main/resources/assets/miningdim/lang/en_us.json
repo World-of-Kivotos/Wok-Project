@@ -453,5 +453,19 @@
   "subtitles.miningdim.munitions_bench_weld": "Munitions bench welding",
   "subtitles.miningdim.gunsmith_press_hydraulic": "Mechanical press hydraulics",
   "itemGroup.miningdim_gunsmith": "Gunsmith",
-  "message.miningdim.gunsmith.disabled": "The gunsmith press is not open yet (pending balance review)."
+  "message.miningdim.gunsmith.disabled": "The gunsmith press is not open yet (pending balance review).",
+  "gui.miningdim.munitions.xp_tooltip": "XP: %s/%s",
+  "gui.miningdim.munitions.craft": "Craft",
+  "gui.miningdim.munitions.cancel": "Cancel",
+  "gui.miningdim.munitions.mode_continuous": "Continuous",
+  "gui.miningdim.munitions.mode_single": "Single",
+  "gui.miningdim.munitions.cancel_dialog_title": "Cancel crafting",
+  "gui.miningdim.munitions.cancel_dialog_hint": "Materials are only consumed on completion; cancelling loses nothing.",
+  "gui.miningdim.munitions.cancel_confirm": "Confirm",
+  "gui.miningdim.munitions.cancel_keep": "Keep crafting",
+  "category.miningdim.munitions.pistol": "Pistol Ammo",
+  "category.miningdim.munitions.rifle": "Rifle Ammo",
+  "category.miningdim.munitions.shotgun": "Shotgun Shells",
+  "category.miningdim.munitions.sniper": "Sniper Ammo",
+  "category.miningdim.munitions.explosive": "Explosive Ammo"
 }

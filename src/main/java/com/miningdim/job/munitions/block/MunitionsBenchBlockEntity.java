@@ -607,7 +607,9 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         }
         int ticksPerRound = MunitionsProduction.ticksPerRound(level);
         int perBatchRounds = MunitionsProduction.roundsPerBatch(caliber, level);
-        long rifleRoundsNeeded = (long) Math.ceil(perBatchRounds / Math.max(0.0001D, caliber.yieldFactor()));
+        // yieldFactor 由 config defineInRange 下界 0.01 保证 > 0 (单一真源), 不再垫不可达的 0.0001 兜底
+        // (那层 Math.max 若真触发会把所需时长放大万倍, 属掩错而非防御)。
+        long rifleRoundsNeeded = (long) Math.ceil(perBatchRounds / caliber.yieldFactor());
         long required = Math.max(1L, rifleRoundsNeeded) * (long) ticksPerRound;
         return (int) Math.min(Integer.MAX_VALUE, required);
     }

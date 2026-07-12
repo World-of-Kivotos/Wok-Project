@@ -18,6 +18,7 @@ import com.miningdim.job.munitions.block.MunitionsBenchBlockEntity;
 import com.miningdim.job.munitions.menu.MunitionsBenchMenu;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -27,6 +28,8 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.gametest.GameTestHolder;
@@ -675,6 +678,62 @@ public final class MunitionsGameTests {
             restoreJob(prevJob);
             restoreEconomy(prevEco);
         }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void doubleBlockBenchDropsExactlyOnce(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        MunitionsBenchBlock bench = (MunitionsBenchBlock) ModMunitionsBlocks.MUNITIONS_BENCH_HIGH.get();
+        BlockPos mainPos = helper.absolutePos(new BlockPos(0, 1, 0));
+        BlockState mainState = bench.defaultBlockState()
+                .setValue(MunitionsBenchBlock.FACING, Direction.NORTH)
+                .setValue(MunitionsBenchBlock.PART, MunitionsBenchBlock.Part.MAIN)
+                .setValue(MunitionsBenchBlock.ACTIVE, false);
+        BlockPos extensionPos = MunitionsBenchBlock.extensionPos(mainPos, mainState);
+
+        placeBenchPair(level, mainPos, extensionPos, mainState);
+        level.destroyBlock(extensionPos, true);
+        assertBenchRemoved(helper, level, mainPos, extensionPos, "extension-first destruction");
+        assertSingleBenchDrop(helper, level, mainPos, extensionPos, "extension-first destruction");
+        clearBenchDrops(level, mainPos, extensionPos);
+
+        placeBenchPair(level, mainPos, extensionPos, mainState);
+        level.destroyBlock(mainPos, true);
+        assertBenchRemoved(helper, level, mainPos, extensionPos, "main-first destruction");
+        assertSingleBenchDrop(helper, level, mainPos, extensionPos, "main-first destruction");
+        helper.succeed();
+    }
+
+    private static void placeBenchPair(ServerLevel level, BlockPos mainPos, BlockPos extensionPos,
+                                       BlockState mainState) {
+        level.setBlock(mainPos, mainState, Block.UPDATE_CLIENTS);
+        level.setBlock(extensionPos,
+                mainState.setValue(MunitionsBenchBlock.PART, MunitionsBenchBlock.Part.EXTENSION),
+                Block.UPDATE_CLIENTS);
+    }
+
+    private static void assertBenchRemoved(GameTestHelper helper, ServerLevel level, BlockPos mainPos,
+                                           BlockPos extensionPos, String path) {
+        helper.assertTrue(level.getBlockState(mainPos).isAir() && level.getBlockState(extensionPos).isAir(),
+                path + " must remove both bench blocks");
+    }
+
+    private static void assertSingleBenchDrop(GameTestHelper helper, ServerLevel level, BlockPos mainPos,
+                                              BlockPos extensionPos, String path) {
+        int count = benchDrops(level, mainPos, extensionPos).stream()
+                .mapToInt(entity -> entity.getItem().getCount())
+                .sum();
+        helper.assertTrue(count == 1, path + " must drop exactly one bench item, got " + count);
+    }
+
+    private static void clearBenchDrops(ServerLevel level, BlockPos mainPos, BlockPos extensionPos) {
+        benchDrops(level, mainPos, extensionPos).forEach(ItemEntity::discard);
+    }
+
+    private static List<ItemEntity> benchDrops(ServerLevel level, BlockPos mainPos, BlockPos extensionPos) {
+        AABB bounds = new AABB(mainPos, extensionPos.offset(1, 1, 1)).inflate(2.0D);
+        return level.getEntitiesOfClass(ItemEntity.class, bounds,
+                entity -> entity.getItem().is(ModMunitionsItems.MUNITIONS_BENCH_HIGH_ITEM.get()));
     }
 
     // ============================================================

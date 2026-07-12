@@ -1,7 +1,7 @@
 {
   "feature": "miningdim:ore_diamond_hard_large",
   "placement": [
-    { "type": "minecraft:rarity_filter", "chance": 6 },
+    { "type": "minecraft:rarity_filter", "chance": 9 },
     { "type": "minecraft:in_square" },
     { "type": "minecraft:height_range", "height": { "type": "minecraft:trapezoid", "min_inclusive": { "above_bottom": 8 }, "max_inclusive": { "above_bottom": 40 } } },
     { "type": "minecraft:biome" }

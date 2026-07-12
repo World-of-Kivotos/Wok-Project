@@ -20,18 +20,22 @@ public final class GunsmithGunFactory {
     private GunsmithGunFactory() {
     }
 
-    public static ItemStack materializeM4A1() {
+    public static ItemStack materialize(ItemStack blueprintStack) {
+        GunsmithBlueprint blueprint = GunsmithAssemblyRecipe.blueprint(blueprintStack);
+        ResourceLocation gunId = GunsmithAssemblyRecipe.assembledGunId(blueprintStack);
         if (!MunitionsAmmoFactory.isTaczLoaded()) {
             return ItemStack.EMPTY;
         }
-        return buildM4A1();
+        return build(gunId, blueprint);
     }
 
-    private static ItemStack buildM4A1() {
-        return GunItemBuilder.create()
-                .setId(M4A1_ID)
-                .setCount(1)
-                .putAttachment(AttachmentType.STOCK, M4_DEFAULT_STOCK)
-                .build();
+    private static ItemStack build(ResourceLocation gunId, GunsmithBlueprint blueprint) {
+        GunItemBuilder builder = GunItemBuilder.create()
+                .setId(gunId)
+                .setCount(1);
+        if (blueprint == GunsmithBlueprint.M4A1) {
+            builder.putAttachment(AttachmentType.STOCK, M4_DEFAULT_STOCK);
+        }
+        return builder.build();
     }
 }

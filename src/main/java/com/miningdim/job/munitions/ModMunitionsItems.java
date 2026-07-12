@@ -1,6 +1,7 @@
 package com.miningdim.job.munitions;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.munitions.gunsmith.GunsmithBlueprintItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
 import com.miningdim.job.munitions.gunsmith.M4AssemblyTemplateItem;
 import net.minecraft.world.item.BlockItem;
@@ -38,6 +39,8 @@ public final class ModMunitionsItems {
             () -> new BlockItem(ModMunitionsBlocks.GUNSMITH_ASSEMBLY_BENCH.get(), new Item.Properties()));
     public static final RegistryObject<Item> GUNSMITH_PART = ITEMS.register("gunsmith_part",
             () -> new GunsmithPartItem(new Item.Properties().stacksTo(64)));
+    public static final RegistryObject<Item> GUNSMITH_BLUEPRINT = ITEMS.register("gunsmith_blueprint",
+            () -> new GunsmithBlueprintItem(new Item.Properties().stacksTo(1)));
     public static final RegistryObject<Item> M4_ASSEMBLY_TEMPLATE = ITEMS.register("m4_assembly_template",
             () -> new M4AssemblyTemplateItem(new Item.Properties().stacksTo(1)));
 

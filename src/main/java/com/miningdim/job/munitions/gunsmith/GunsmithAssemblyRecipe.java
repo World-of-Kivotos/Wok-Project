@@ -2,6 +2,7 @@ package com.miningdim.job.munitions.gunsmith;
 
 import com.miningdim.job.munitions.ModMunitionsItems;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.EnumMap;
@@ -10,16 +11,41 @@ import java.util.Objects;
 
 public final class GunsmithAssemblyRecipe {
 
-    public static final GunsmithPlatform PLATFORM = GunsmithPlatform.AR;
-
-    private static final String TEMPLATE = "m4a1";
-
     private GunsmithAssemblyRecipe() {
     }
 
     public static boolean isBlueprint(ItemStack stack) {
         Objects.requireNonNull(stack, "stack");
-        return !stack.isEmpty() && stack.is(ModMunitionsItems.M4_ASSEMBLY_TEMPLATE.get());
+        if (stack.isEmpty()) {
+            return false;
+        }
+        if (stack.is(ModMunitionsItems.M4_ASSEMBLY_TEMPLATE.get())) {
+            return true;
+        }
+        if (!GunsmithBlueprintItem.isBlueprintItem(stack)) {
+            return false;
+        }
+        GunsmithBlueprintItem.requireBlueprint(stack);
+        return true;
+    }
+
+    public static GunsmithBlueprint blueprint(ItemStack stack) {
+        Objects.requireNonNull(stack, "stack");
+        if (stack.is(ModMunitionsItems.M4_ASSEMBLY_TEMPLATE.get())) {
+            return GunsmithBlueprint.M4A1;
+        }
+        if (!GunsmithBlueprintItem.isBlueprintItem(stack)) {
+            throw new IllegalArgumentException("Item stack is not a gunsmith blueprint");
+        }
+        return GunsmithBlueprintItem.requireBlueprint(stack);
+    }
+
+    public static ResourceLocation assembledGunId(ItemStack stack) {
+        Objects.requireNonNull(stack, "stack");
+        if (stack.is(ModMunitionsItems.M4_ASSEMBLY_TEMPLATE.get())) {
+            return GunsmithGunFactory.M4A1_ID;
+        }
+        return blueprint(stack).gunId();
     }
 
     public static boolean matchesPart(ItemStack stack, GunsmithPressPart part) {
@@ -29,46 +55,63 @@ public final class GunsmithAssemblyRecipe {
             return false;
         }
         GunsmithPartItem.PartData data = GunsmithPartItem.requirePartData(stack);
-        return data.platform() == PLATFORM && data.part() == part;
+        return data.part() == part;
     }
 
-    public static ItemStack assemble(ItemStack baseGun, Map<GunsmithPressPart, ItemStack> parts) {
+    public static boolean matchesPart(ItemStack stack, GunsmithPressPart part, GunsmithPlatform platform) {
+        Objects.requireNonNull(platform, "platform");
+        if (!matchesPart(stack, part)) {
+            return false;
+        }
+        return GunsmithPartItem.requirePartData(stack).platform() == platform;
+    }
+
+    public static ItemStack assemble(ItemStack baseGun, ItemStack blueprintStack,
+                                     Map<GunsmithPressPart, ItemStack> parts) {
         Objects.requireNonNull(baseGun, "baseGun");
+        Objects.requireNonNull(blueprintStack, "blueprintStack");
         if (baseGun.isEmpty()) {
             throw new IllegalArgumentException("Assembly base gun is empty");
         }
-        EnumMap<GunsmithPressPart, Double> coefficients = coefficients(parts, true);
+        GunsmithBlueprint blueprint = blueprint(blueprintStack);
+        EnumMap<GunsmithPressPart, Double> coefficients = coefficients(parts, blueprint.platform(), true);
         ItemStack result = baseGun.copy();
         CompoundTag root = new CompoundTag();
-        root.putString("template", TEMPLATE);
-        root.putString("platform", PLATFORM.id());
-        root.putString("gunId", GunsmithGunFactory.M4A1_ID.toString());
+        root.putString("template", blueprint.templateId());
+        root.putString("platform", blueprint.platform().id());
+        root.putString("gunId", assembledGunId(blueprintStack).toString());
         root.put(GunsmithGunStats.PARTS_KEY, partTags(parts));
         root.put(GunsmithGunStats.STATS_KEY, stats(coefficients));
         result.getOrCreateTag().put(GunsmithGunStats.ROOT_KEY, root);
         return result;
     }
 
-    public static Preview preview(Map<GunsmithPressPart, ItemStack> parts) {
-        EnumMap<GunsmithPressPart, Double> coefficients = coefficients(parts, false);
+    public static Preview preview(GunsmithBlueprint blueprint, Map<GunsmithPressPart, ItemStack> parts,
+                                  GunsmithBaseStats baseStats) {
+        Objects.requireNonNull(blueprint, "blueprint");
+        Objects.requireNonNull(baseStats, "baseStats");
+        EnumMap<GunsmithPressPart, Double> coefficients =
+                coefficients(parts, blueprint.platform(), false);
         double recoil = (coefficients.get(GunsmithPressPart.CORE)
                 + coefficients.get(GunsmithPressPart.STOCK)) / 2.0D;
         double spread = coefficients.get(GunsmithPressPart.HANDGUARD);
         double handling = coefficients.get(GunsmithPressPart.GRIP);
         double average = average(coefficients);
         return new Preview(
-                GunsmithGunStats.M4_BASE_DAMAGE * coefficients.get(GunsmithPressPart.BOLT),
-                GunsmithGunStats.M4_BASE_HEADSHOT * coefficients.get(GunsmithPressPart.BARREL),
-                GunsmithGunStats.effectiveRpm(recoil),
+                baseStats.damage() * coefficients.get(GunsmithPressPart.BOLT),
+                baseStats.headshot() * coefficients.get(GunsmithPressPart.BARREL),
+                GunsmithGunStats.effectiveRpm(baseStats.rpm(), recoil),
                 (1.0D / recoil - 1.0D) * 100.0D,
                 (1.0D / spread - 1.0D) * 100.0D,
-                GunsmithGunStats.effectiveAdsTime(handling),
+                GunsmithGunStats.effectiveAdsTime(baseStats.adsTime(), handling),
                 average);
     }
 
     private static EnumMap<GunsmithPressPart, Double> coefficients(Map<GunsmithPressPart, ItemStack> parts,
+                                                                     GunsmithPlatform platform,
                                                                      boolean requireComplete) {
         Objects.requireNonNull(parts, "parts");
+        Objects.requireNonNull(platform, "platform");
         if (parts.size() != GunsmithPressPart.values().length) {
             throw new IllegalArgumentException("Assembly parts must contain every gunsmith press part exactly once");
         }
@@ -86,8 +129,8 @@ public final class GunsmithAssemblyRecipe {
                 continue;
             }
             GunsmithPartItem.PartData data = GunsmithPartItem.requirePartData(stack);
-            if (data.platform() != PLATFORM) {
-                throw new IllegalArgumentException("Assembly part platform must be " + PLATFORM.id());
+            if (data.platform() != platform) {
+                throw new IllegalArgumentException("Assembly part platform must be " + platform.id());
             }
             if (data.part() != part) {
                 throw new IllegalArgumentException("Assembly slot " + part.id()

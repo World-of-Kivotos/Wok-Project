@@ -2,6 +2,7 @@ package com.miningdim.job.munitions.gunsmith;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.Objects;
@@ -11,10 +12,6 @@ public final class GunsmithGunStats {
     public static final String ROOT_KEY = "MiningDimGunsmith";
     public static final String PARTS_KEY = "Parts";
     public static final String STATS_KEY = "Stats";
-    public static final double M4_BASE_DAMAGE = 6.5D;
-    public static final double M4_BASE_HEADSHOT = 1.5D;
-    public static final int M4_BASE_RPM = 810;
-    public static final double M4_BASE_ADS_TIME = 0.16D;
 
     private final CompoundTag root;
     private final CompoundTag stats;
@@ -24,6 +21,7 @@ public final class GunsmithGunStats {
         this.stats = stats;
         requireString(root, "platform");
         requireString(root, "template");
+        gunId();
         value("damage");
         value("headshot");
         value("recoil");
@@ -56,6 +54,15 @@ public final class GunsmithGunStats {
         return root.getString("template");
     }
 
+    public ResourceLocation gunId() {
+        String encoded = requireString(root, "gunId");
+        ResourceLocation gunId = ResourceLocation.tryParse(encoded);
+        if (gunId == null) {
+            throw new IllegalArgumentException("Gunsmith root data has an invalid gunId: " + encoded);
+        }
+        return gunId;
+    }
+
     public double damage() {
         return value("damage");
     }
@@ -80,20 +87,20 @@ public final class GunsmithGunStats {
         return value("average");
     }
 
-    public double effectiveDamage() {
-        return M4_BASE_DAMAGE * damage();
+    public double effectiveDamage(GunsmithBaseStats baseStats) {
+        return Objects.requireNonNull(baseStats, "baseStats").damage() * damage();
     }
 
-    public double effectiveHeadshot() {
-        return M4_BASE_HEADSHOT * headshot();
+    public double effectiveHeadshot(GunsmithBaseStats baseStats) {
+        return Objects.requireNonNull(baseStats, "baseStats").headshot() * headshot();
     }
 
-    public int effectiveRpm() {
-        return effectiveRpm(recoil());
+    public int effectiveRpm(GunsmithBaseStats baseStats) {
+        return effectiveRpm(Objects.requireNonNull(baseStats, "baseStats").rpm(), recoil());
     }
 
-    public double effectiveAdsTime() {
-        return effectiveAdsTime(handling());
+    public double effectiveAdsTime(GunsmithBaseStats baseStats) {
+        return effectiveAdsTime(Objects.requireNonNull(baseStats, "baseStats").adsTime(), handling());
     }
 
     public double recoilChange() {
@@ -115,16 +122,22 @@ public final class GunsmithGunStats {
         return value;
     }
 
-    static int effectiveRpm(double coefficient) {
-        long rpm = Math.round(M4_BASE_RPM * coefficient);
+    static int effectiveRpm(int baseRpm, double coefficient) {
+        if (baseRpm <= 0) {
+            throw new IllegalArgumentException("Base RPM must be positive");
+        }
+        long rpm = Math.round(baseRpm * coefficient);
         if (rpm < 1L || rpm > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("Effective RPM is outside the integer range: " + rpm);
         }
         return (int) rpm;
     }
 
-    static double effectiveAdsTime(double coefficient) {
-        return M4_BASE_ADS_TIME * inverse(coefficient);
+    static double effectiveAdsTime(double baseAdsTime, double coefficient) {
+        if (!Double.isFinite(baseAdsTime) || baseAdsTime <= 0.0D) {
+            throw new IllegalArgumentException("Base ADS time must be positive and finite");
+        }
+        return baseAdsTime * inverse(coefficient);
     }
 
     private static double inverse(double coefficient) {

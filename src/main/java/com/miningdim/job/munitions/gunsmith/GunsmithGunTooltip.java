@@ -11,20 +11,20 @@ public final class GunsmithGunTooltip {
     private GunsmithGunTooltip() {
     }
 
-    public static void append(List<Component> tooltip, GunsmithGunStats stats) {
+    public static void append(List<Component> tooltip, GunsmithGunStats stats, GunsmithBaseStats baseStats) {
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.header")
                 .withStyle(ChatFormatting.GOLD));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.damage",
-                        literal(formatOne(GunsmithGunStats.M4_BASE_DAMAGE)),
-                        literal(formatOne(stats.effectiveDamage())))
+                        literal(formatOne(baseStats.damage())),
+                        literal(formatOne(stats.effectiveDamage(baseStats))))
                 .withStyle(valueStyle(stats.damage())));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.headshot",
-                        literal(formatTwo(GunsmithGunStats.M4_BASE_HEADSHOT)),
-                        literal(formatTwo(stats.effectiveHeadshot())))
+                        literal(formatTwo(baseStats.headshot())),
+                        literal(formatTwo(stats.effectiveHeadshot(baseStats))))
                 .withStyle(valueStyle(stats.headshot())));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.rpm",
-                        literal(Integer.toString(GunsmithGunStats.M4_BASE_RPM)),
-                        literal(Integer.toString(stats.effectiveRpm())))
+                        literal(Integer.toString(baseStats.rpm())),
+                        literal(Integer.toString(stats.effectiveRpm(baseStats))))
                 .withStyle(valueStyle(stats.recoil())));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.recoil",
                         literal(formatPercent(stats.recoilChange())))
@@ -33,8 +33,8 @@ public final class GunsmithGunTooltip {
                         literal(formatPercent(stats.spreadChange())))
                 .withStyle(changeStyle(stats.spreadChange())));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.handling",
-                        literal(formatSeconds(GunsmithGunStats.M4_BASE_ADS_TIME)),
-                        literal(formatSeconds(stats.effectiveAdsTime())))
+                        literal(formatSeconds(baseStats.adsTime())),
+                        literal(formatSeconds(stats.effectiveAdsTime(baseStats))))
                 .withStyle(valueStyle(stats.handling())));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.average",
                         literal(GunsmithPartItem.formatCoefficient(stats.average())))

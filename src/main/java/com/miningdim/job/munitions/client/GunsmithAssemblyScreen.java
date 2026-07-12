@@ -1,10 +1,12 @@
 package com.miningdim.job.munitions.client;
 
 import com.miningdim.job.munitions.gunsmith.GunsmithAssemblyRecipe;
-import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
+import com.miningdim.job.munitions.gunsmith.GunsmithBaseStats;
+import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
+import com.miningdim.job.munitions.gunsmith.GunsmithTaczBridge;
 import com.miningdim.job.munitions.menu.GunsmithAssemblyMenu;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -16,18 +18,16 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 public final class GunsmithAssemblyScreen extends AbstractContainerScreen<GunsmithAssemblyMenu> {
 
-    private static final ResourceLocation M4A1_PREVIEW =
-            new ResourceLocation("tacz", "textures/gun/hud/m4a1.png");
-
     private static final int W = 420;
     private static final int H = 240;
-    private static final int PREVIEW_X = 72;
+    private static final int PREVIEW_X = 74;
     private static final int PREVIEW_Y = 72;
-    private static final int PREVIEW_W = 210;
-    private static final int PREVIEW_H = 70;
+    private static final int PREVIEW_W = 192;
+    private static final int PREVIEW_H = 64;
     private static final int PREVIEW_TEX_W = 384;
     private static final int PREVIEW_TEX_H = 128;
     private static final int STATS_X = 305;
@@ -72,9 +72,26 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
         Map<GunsmithPressPart, ItemStack> partStacks = menu.partStacks();
         boolean hasBlueprint = GunsmithAssemblyRecipe.isBlueprint(menu.blueprint());
         if (hasBlueprint) {
-            graphics.blit(M4A1_PREVIEW, left + PREVIEW_X, top + PREVIEW_Y, PREVIEW_W, PREVIEW_H,
-                    0.0F, 0.0F, PREVIEW_TEX_W, PREVIEW_TEX_H, PREVIEW_TEX_W, PREVIEW_TEX_H);
-            renderStats(graphics, left, top, GunsmithAssemblyRecipe.preview(partStacks));
+            GunsmithBlueprint blueprint = GunsmithAssemblyRecipe.blueprint(menu.blueprint());
+            ResourceLocation previewGunId = GunsmithAssemblyRecipe.assembledGunId(menu.blueprint());
+            Optional<GunsmithBaseStats> baseStats = GunsmithTaczBridge.findBaseStats(previewGunId);
+            Optional<GunsmithTaczClientData> clientData = GunsmithTaczClientData.find(previewGunId);
+            if (baseStats.isPresent() && clientData.isPresent()) {
+                drawRightAlignedScaledText(graphics, clientData.get().gunName().getString(),
+                        left + W - 20, top + 19, 0xFFB9D7DE, 0.62F);
+                graphics.blit(clientData.get().hudTexture(), left + PREVIEW_X, top + PREVIEW_Y,
+                        PREVIEW_W, PREVIEW_H, 0.0F, 0.0F, PREVIEW_TEX_W, PREVIEW_TEX_H,
+                        PREVIEW_TEX_W, PREVIEW_TEX_H);
+                renderStats(graphics, left, top,
+                        GunsmithAssemblyRecipe.preview(blueprint, partStacks, baseStats.get()), baseStats.get());
+            } else {
+                drawRightAlignedScaledText(graphics, previewGunId.toString(),
+                        left + W - 20, top + 19, 0xFFE0525C, 0.62F);
+                graphics.drawCenteredString(this.font,
+                        Component.translatable("screen.miningdim.gunsmith_assembly.tacz_data_unavailable",
+                                previewGunId.toString()),
+                        left + 175, top + 93, 0xFFE0525C);
+            }
         } else {
             graphics.drawCenteredString(this.font,
                     Component.translatable("screen.miningdim.gunsmith_assembly.awaiting_blueprint"),
@@ -140,23 +157,24 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
-    private void renderStats(GuiGraphics graphics, int left, int top, GunsmithAssemblyRecipe.Preview preview) {
+    private void renderStats(GuiGraphics graphics, int left, int top, GunsmithAssemblyRecipe.Preview preview,
+                             GunsmithBaseStats baseStats) {
         int x = left + STATS_X + 6;
         int y = top + STATS_Y + 6;
         drawScaledText(graphics, Component.translatable("screen.miningdim.gunsmith_assembly.stats").getString(),
                 x, y, 0xFFB9D7DE, 0.68F);
         drawStat(graphics, x, y + 15, "screen.miningdim.gunsmith_assembly.stat.damage",
-                formatTwo(GunsmithGunStats.M4_BASE_DAMAGE) + " > " + formatTwo(preview.damage()));
+                formatTwo(baseStats.damage()) + " > " + formatTwo(preview.damage()));
         drawStat(graphics, x, y + 29, "screen.miningdim.gunsmith_assembly.stat.headshot",
-                formatTwo(GunsmithGunStats.M4_BASE_HEADSHOT) + " > " + formatTwo(preview.headshot()));
+                formatTwo(baseStats.headshot()) + " > " + formatTwo(preview.headshot()));
         drawStat(graphics, x, y + 43, "screen.miningdim.gunsmith_assembly.stat.fire_rate",
-                GunsmithGunStats.M4_BASE_RPM + " > " + preview.rpm());
+                baseStats.rpm() + " > " + preview.rpm());
         drawStat(graphics, x, y + 57, "screen.miningdim.gunsmith_assembly.stat.recoil",
                 formatSignedPercent(preview.recoilChange()));
         drawStat(graphics, x, y + 71, "screen.miningdim.gunsmith_assembly.stat.spread",
                 formatSignedPercent(preview.spreadChange()));
         drawStat(graphics, x, y + 85, "screen.miningdim.gunsmith_assembly.stat.ads",
-                formatSeconds(GunsmithGunStats.M4_BASE_ADS_TIME) + " > " + formatSeconds(preview.adsTime()));
+                formatSeconds(baseStats.adsTime()) + " > " + formatSeconds(preview.adsTime()));
         drawStat(graphics, x, y + 99, "screen.miningdim.gunsmith_assembly.stat.overall",
                 "x" + String.format(Locale.ROOT, "%.3f", preview.average()));
     }
@@ -167,14 +185,17 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
     }
 
     private void drawPartLabel(GuiGraphics graphics, int left, int top, GunsmithPressPart part) {
-        int x = left + partSlotX(part) - 2;
+        String label = Component.translatable(part.labelKey()).getString();
         int y = switch (part) {
             case BARREL, CORE, BOLT -> top + partSlotY(part) - 10;
-            case STOCK -> top + partSlotY(part) - 9;
-            case HANDGUARD, GRIP -> top + partSlotY(part) + 20;
+            case STOCK, HANDGUARD, GRIP -> top + partSlotY(part) - 9;
         };
-        drawScaledText(graphics, Component.translatable(part.labelKey()).getString(), x, y,
-                0xFFABB8BE, 0.52F);
+        if (part == GunsmithPressPart.HANDGUARD) {
+            drawRightAlignedScaledText(graphics, label, left + partSlotX(part) + 20, y,
+                    0xFFABB8BE, 0.52F);
+        } else {
+            drawScaledText(graphics, label, left + partSlotX(part) - 2, y, 0xFFABB8BE, 0.52F);
+        }
     }
 
     private static void drawPartConnections(GuiGraphics graphics, int left, int top) {
@@ -199,8 +220,8 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
             case CORE -> 130;
             case BARREL -> 72;
             case BOLT -> 240;
-            case HANDGUARD -> 92;
-            case GRIP -> 238;
+            case HANDGUARD -> 52;
+            case GRIP -> 278;
             case STOCK -> 278;
         };
     }
@@ -265,6 +286,11 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
         graphics.pose().scale(scale, scale, 1.0F);
         graphics.drawString(this.font, value, 0, 0, color, false);
         graphics.pose().popPose();
+    }
+
+    private void drawRightAlignedScaledText(GuiGraphics graphics, String value, float rightX, float y,
+                                            int color, float scale) {
+        drawScaledText(graphics, value, rightX - this.font.width(value) * scale, y, color, scale);
     }
 
     private static String formatTwo(double value) {

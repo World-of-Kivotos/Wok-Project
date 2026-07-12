@@ -4,6 +4,7 @@ import com.miningdim.job.munitions.ModMunitionsBlocks;
 import com.miningdim.job.munitions.ModMunitionsMenus;
 import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlockEntity;
 import com.miningdim.job.munitions.gunsmith.GunsmithAssemblyRecipe;
+import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.menu.AbstractMiningMenu;
 import com.miningdim.menu.MenuValidity;
@@ -107,9 +108,11 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
                 || !blockEntity.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty()) {
             return false;
         }
+        GunsmithBlueprint blueprint = GunsmithAssemblyRecipe.blueprint(blueprint());
         for (GunsmithPressPart part : GunsmithPressPart.values()) {
             if (!GunsmithAssemblyRecipe.matchesPart(
-                    blockEntity.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(part)), part)) {
+                    blockEntity.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(part)), part,
+                    blueprint.platform())) {
                 return false;
             }
         }
@@ -125,8 +128,8 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
             case CORE -> 130;
             case BARREL -> 72;
             case BOLT -> 240;
-            case HANDGUARD -> 92;
-            case GRIP -> 238;
+            case HANDGUARD -> 52;
+            case GRIP -> 278;
             case STOCK -> 278;
         };
     }

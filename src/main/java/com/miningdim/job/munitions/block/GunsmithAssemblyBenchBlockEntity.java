@@ -4,7 +4,9 @@ import com.miningdim.job.munitions.ModMunitionsBlockEntities;
 import com.miningdim.job.munitions.ModMunitionsSounds;
 import com.miningdim.job.munitions.MunitionsConfig;
 import com.miningdim.job.munitions.gunsmith.GunsmithAssemblyRecipe;
+import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunFactory;
+import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.job.munitions.menu.GunsmithAssemblyMenu;
 import net.minecraft.core.BlockPos;
@@ -29,6 +31,8 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Function;
 
 public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implements MenuProvider {
 
@@ -97,10 +101,19 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
     }
 
     public boolean tryStartAssembly(ServerPlayer player) {
-        return tryStartAssembly(player, GunsmithGunFactory.materializeM4A1(), ASSEMBLY_DURATION_TICKS);
+        return tryStartAssembly(player, GunsmithGunFactory::materialize, ASSEMBLY_DURATION_TICKS);
     }
 
     boolean tryStartAssembly(ServerPlayer player, ItemStack baseGun, int durationTicks) {
+        Objects.requireNonNull(baseGun, "baseGun");
+        return tryStartAssembly(player, blueprintStack -> baseGun, durationTicks);
+    }
+
+    private boolean tryStartAssembly(ServerPlayer player,
+                                     Function<ItemStack, ItemStack> gunFactory,
+                                     int durationTicks) {
+        Objects.requireNonNull(player, "player");
+        Objects.requireNonNull(gunFactory, "gunFactory");
         if (durationTicks <= 0) {
             throw new IllegalArgumentException("durationTicks must be positive");
         }
@@ -118,27 +131,33 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
                     Component.translatable("message.miningdim.gunsmith_assembly_bench.output_blocked"), true);
             return false;
         }
-        if (!GunsmithAssemblyRecipe.isBlueprint(inventory.getStackInSlot(SLOT_BLUEPRINT))) {
+        ItemStack blueprintStack = inventory.getStackInSlot(SLOT_BLUEPRINT);
+        if (!GunsmithAssemblyRecipe.isBlueprint(blueprintStack)) {
             player.displayClientMessage(
                     Component.translatable("message.miningdim.gunsmith_assembly_bench.missing_blueprint"), true);
             return false;
         }
+        GunsmithBlueprint blueprint = GunsmithAssemblyRecipe.blueprint(blueprintStack);
+        GunsmithPlatform platform = blueprint.platform();
 
         EnumMap<GunsmithPressPart, ItemStack> parts = snapshotParts();
         for (GunsmithPressPart part : GunsmithPressPart.values()) {
-            if (!GunsmithAssemblyRecipe.matchesPart(parts.get(part), part)) {
+            if (!GunsmithAssemblyRecipe.matchesPart(parts.get(part), part, platform)) {
                 player.displayClientMessage(Component.translatable(
                         "message.miningdim.gunsmith_assembly_bench.missing_part",
                         Component.translatable(part.labelKey())), true);
                 return false;
             }
         }
+        ItemStack baseGun = Objects.requireNonNull(gunFactory.apply(blueprintStack),
+                "gunFactory returned null for " + blueprint.gunId());
         if (baseGun.isEmpty()) {
-            player.displayClientMessage(Component.translatable("message.miningdim.m4_template.tacz_missing"), true);
+            player.displayClientMessage(
+                    Component.translatable("message.miningdim.gunsmith_blueprint.tacz_missing"), true);
             return false;
         }
 
-        ItemStack result = GunsmithAssemblyRecipe.assemble(baseGun, parts);
+        ItemStack result = GunsmithAssemblyRecipe.assemble(baseGun, blueprintStack, parts);
         for (GunsmithPressPart part : GunsmithPressPart.values()) {
             inventory.extractItem(slotForPart(part), 1, false);
         }

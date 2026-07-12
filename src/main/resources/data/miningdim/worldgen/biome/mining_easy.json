@@ -39,7 +39,9 @@
       "minecraft:ore_iron_upper",
       "minecraft:ore_iron_middle",
       "minecraft:ore_iron_small",
-      "minecraft:ore_copper"
+      "minecraft:ore_copper",
+      "miningdim:trap_fake_ore",
+      "miningdim:trap_collapsing_tunnel"
     ],
     [],
     [],

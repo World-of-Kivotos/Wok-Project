@@ -30,8 +30,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 矿工子系统入口 (Miner_Job_DesignSpec 第十一章; 模块化铁律 3)。集成阶段在 MiningDim.registerSubsystems()
- * 追加一行 {@code subsystems.add(new com.miningdim.job.miner.MinerSystem())} (本任务不接线, 见 foundationGaps)。
+ * 矿工子系统入口 (Miner_Job_DesignSpec 第十一章; 模块化铁律 3)。已在 {@code MiningDim.registerSubsystems()} 实装
+ * (经 modBus/forgeBus 自注册其全部事件订阅与专属网络包)。
  *
  * 持有: per-player {@link MinerChargeState} (UUID 键, 瞬态运行态, 死亡/登出/换维度清理), 连锁 BFS 引擎单例。
  *
@@ -48,7 +48,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * 跨子系统只经 core 门面 ({@link MiningServices}) / 职业框架门面 ({@link JobServices}) / 货币门面定位器
  * ({@link EconomyServices}); 不硬 import 对方实现类。经济当日矿物计数回放 (方案 B, 含时运额外) 与 AFK 冻结查询经
  * {@link EconomyServices#economyService()} 取 IEconomyService 完成; 难度门控读矿工等级 / danger 时间项注入 (pressure)
- * / 陷阱专属 DamageSource (trap) 仍属其它子系统的同步改动, 见 foundationGaps。
+ * 属其它子系统的同步接线。静态陷阱已由 trap 子系统落地 (TrapOreBlock + StaticTrapTrigger, 方案 C datapack 布点),
+ * 触发效果走 isTrapSource 认可的原版环境伤类型, 矿脉抗性自动覆盖; 专属 TrapDamageSource 为可选未来收紧点 (见 isTrapSource 注释)。
  */
 public final class MinerSystem implements Subsystem {
 

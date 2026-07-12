@@ -40,7 +40,11 @@
       "minecraft:ore_copper_large",
       "minecraft:ore_gold",
       "minecraft:ore_redstone",
-      "minecraft:ore_lapis"
+      "minecraft:ore_lapis",
+      "miningdim:trap_fake_ore",
+      "miningdim:trap_collapsing_tunnel",
+      "miningdim:trap_tnt_vein",
+      "miningdim:trap_lava_pocket"
     ],
     [],
     [],

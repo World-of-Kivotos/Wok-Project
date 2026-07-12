@@ -43,7 +43,11 @@
       "minecraft:ore_diamond_large",
       "minecraft:ore_diamond_buried",
       "miningdim:ore_ancient_debris",
-      "miningdim:ore_emerald"
+      "miningdim:ore_emerald",
+      "miningdim:trap_fake_ore",
+      "miningdim:trap_collapsing_tunnel",
+      "miningdim:trap_tnt_vein",
+      "miningdim:trap_lava_pocket"
     ],
     [],
     [],

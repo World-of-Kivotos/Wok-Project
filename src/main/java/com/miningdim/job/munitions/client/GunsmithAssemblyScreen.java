@@ -1,6 +1,5 @@
 package com.miningdim.job.munitions.client;
 
-import com.miningdim.core.MiningConstants;
 import com.miningdim.job.munitions.gunsmith.GunsmithAssemblyRecipe;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
@@ -21,16 +20,16 @@ import java.util.Map;
 public final class GunsmithAssemblyScreen extends AbstractContainerScreen<GunsmithAssemblyMenu> {
 
     private static final ResourceLocation M4A1_PREVIEW =
-            new ResourceLocation(MiningConstants.MODID, "textures/gui/gunsmith/m4a1_preview.png");
+            new ResourceLocation("tacz", "textures/gun/hud/m4a1.png");
 
     private static final int W = 420;
     private static final int H = 240;
     private static final int PREVIEW_X = 72;
-    private static final int PREVIEW_Y = 77;
+    private static final int PREVIEW_Y = 72;
     private static final int PREVIEW_W = 210;
-    private static final int PREVIEW_H = 59;
-    private static final int PREVIEW_TEX_W = 256;
-    private static final int PREVIEW_TEX_H = 72;
+    private static final int PREVIEW_H = 70;
+    private static final int PREVIEW_TEX_W = 384;
+    private static final int PREVIEW_TEX_H = 128;
     private static final int STATS_X = 305;
     private static final int STATS_Y = 45;
     private static final int STATS_W = 97;
@@ -216,20 +215,22 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
 
     private static int anchorX(GunsmithPressPart part) {
         return switch (part) {
-            case BARREL -> 91;
-            case HANDGUARD -> 145;
-            case CORE -> 166;
-            case BOLT -> 215;
-            case GRIP -> 226;
-            case STOCK -> 270;
+            case BARREL -> 102;
+            case HANDGUARD -> 148;
+            case CORE -> 188;
+            case BOLT -> 202;
+            case GRIP -> 202;
+            case STOCK -> 252;
         };
     }
 
     private static int anchorY(GunsmithPressPart part) {
         return switch (part) {
-            case CORE -> 91;
-            case GRIP -> 124;
-            case BARREL, HANDGUARD, BOLT, STOCK -> 105;
+            case BOLT -> 94;
+            case GRIP -> 126;
+            case BARREL -> 103;
+            case CORE, STOCK -> 105;
+            case HANDGUARD -> 107;
         };
     }
 

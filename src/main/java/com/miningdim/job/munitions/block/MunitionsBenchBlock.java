@@ -104,7 +104,8 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
     public BlockState getStateForPlacement(BlockPlaceContext context) {
         Direction facing = context.getHorizontalDirection().getOpposite();
         BlockPos extensionPos = context.getClickedPos().relative(facing.getOpposite());
-        if (!context.getLevel().getBlockState(extensionPos).canBeReplaced(context)) {
+        if (!context.getLevel().getBlockState(extensionPos).canBeReplaced(context)
+                || !context.getLevel().getWorldBorder().isWithinBounds(extensionPos)) {
             return null;
         }
         return defaultBlockState()
@@ -132,10 +133,19 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
 
     @Override
     public void playerWillDestroy(Level level, BlockPos pos, BlockState state, Player player) {
-        BlockPos otherPos = isMain(state) ? extensionPos(pos, state) : mainPos(pos, state);
-        BlockState otherState = level.getBlockState(otherPos);
-        if (otherState.getBlock() == this && otherState.getValue(PART) != state.getValue(PART)) {
-            level.setBlock(otherPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+        // 双掉落防线 (审查 C-1, 对齐 vanilla BedBlock): 掉落唯一来源是 main 半块 loot (part=main 条件); 生存挖任一半
+        // 不在此干预, 搭档半块由 updateShape 级联 destroyBlock 处理 —— 级联掉落同样被 loot 条件约束到恰好 1 个。
+        // 旧实现生存路径主动 setBlock(other, AIR) 有两个坑: 挖 extension 时 main (含 BE) 被 setBlock 抹掉不走 loot,
+        // 玩家挖台反而颗粒无收; 爆炸/凋灵同 tick 毁两半时各自 roll loot 可掉 2 个 (dupe)。
+        // 创造模式例外: 挖 extension 时先以 UPDATE_SUPPRESS_DROPS 清掉 main, 防级联 destroyBlock 凭空掉落。
+        if (!level.isClientSide && player.isCreative() && !isMain(state)) {
+            BlockPos mainPos = mainPos(pos, state);
+            BlockState mainState = level.getBlockState(mainPos);
+            if (mainState.getBlock() == this && isMain(mainState)) {
+                level.setBlock(mainPos, Blocks.AIR.defaultBlockState(),
+                        Block.UPDATE_ALL | Block.UPDATE_SUPPRESS_DROPS);
+                level.levelEvent(player, 2001, mainPos, Block.getId(mainState));
+            }
         }
         super.playerWillDestroy(level, pos, state, player);
     }

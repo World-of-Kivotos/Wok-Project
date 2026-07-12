@@ -11,6 +11,13 @@
       ],
       "conditions": [
         {
+          "condition": "minecraft:block_state_property",
+          "block": "miningdim:munitions_bench_transcendent",
+          "properties": {
+            "part": "main"
+          }
+        },
+        {
           "condition": "minecraft:survives_explosion"
         }
       ]

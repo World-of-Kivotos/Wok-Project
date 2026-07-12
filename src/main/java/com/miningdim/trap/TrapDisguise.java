@@ -6,6 +6,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -102,6 +103,14 @@ public final class TrapDisguise {
     /** 是否为本系统会布下的伪装矿石之一 (幽灵守卫: 注册表命中但方块不属此集合即幽灵条目)。 */
     public static boolean isDisguiseOre(BlockState state) {
         return DISGUISE_BLOCKS.contains(state.getBlock());
+    }
+
+    /**
+     * 全部伪装矿石方块 (石头 + 深板岩变体) 的只读集合。供调试命令 {@code /mining trap place} 枚举可选皮肤 (suggests)
+     * 与校验 skin 合法性 —— 与 {@link #isDisguiseOre} 共用同一唯一权威集合, 不另建平行清单。
+     */
+    public static Set<Block> disguiseBlocks() {
+        return Collections.unmodifiableSet(DISGUISE_BLOCKS);
     }
 
     /** 是否深板岩族 (自然深板岩 / 已转换的深板岩变体伪装矿石); 相邻采样判上下文用。 */

@@ -10,6 +10,9 @@ import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
 import com.miningdim.core.RegionBox;
+import com.miningdim.trap.StaticTrapKind;
+import com.miningdim.trap.TrapDebugPlacement;
+import com.miningdim.trap.TrapDisguise;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -21,10 +24,18 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.commands.arguments.ResourceLocationArgument;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -109,7 +120,91 @@ public final class MiningCommands {
                         .then(Commands.literal("confirm")
                                 .executes(MiningCommands::resetConfirm))));
 
+        // ---- 陷阱调试 (管理操作 level 3, 与 kick 同档; 17.2) ----
+        // /mining trap place <kind> [skin]: 在准星指向的方块放一颗静态陷阱 (联调触发/探测/连锁全链路)。
+        root.then(Commands.literal("trap")
+                .requires(src -> MiningPermissions.has(src, MiningPermissions.LEVEL_ADMIN_KICK))
+                .then(Commands.literal("place")
+                        .then(Commands.argument("kind", StringArgumentType.word())
+                                .suggests((ctx, sb) -> {
+                                    for (StaticTrapKind kind : StaticTrapKind.values()) {
+                                        sb.suggest(kind.getSerializedName());
+                                    }
+                                    return sb.buildFuture();
+                                })
+                                .executes(ctx -> trapPlace(ctx, false))
+                                .then(Commands.argument("skin", ResourceLocationArgument.id())
+                                        .suggests((ctx, sb) -> {
+                                            for (Block block : TrapDisguise.disguiseBlocks()) {
+                                                sb.suggest(BuiltInRegistries.BLOCK.getKey(block).toString());
+                                            }
+                                            return sb.buildFuture();
+                                        })
+                                        .executes(ctx -> trapPlace(ctx, true))))));
+
         dispatcher.register(root);
+    }
+
+    // ---- trap place (调试) ----
+
+    /**
+     * 在玩家准星指向的方块放一颗静态陷阱 (伪装矿石 + {@link com.miningdim.trap.TrapRegistry} 登记)。
+     * withSkin=false 时按落点所在难度区随机伪装皮肤; true 时用玩家指定的方块 id (须为合法伪装矿石)。
+     * 服务端权威: 落点由准星 raytrace 决定 (不接受客户端坐标), 世界写在命令主线程执行。
+     */
+    private static int trapPlace(CommandContext<CommandSourceStack> ctx, boolean withSkin) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        if (!player.level().dimension().equals(MiningConstants.MINING_LEVEL)) {
+            ctx.getSource().sendFailure(Component.translatable("commands.miningdim.trap.place.not_in_mine"));
+            return 0;
+        }
+        ServerLevel level = player.serverLevel();
+
+        String kindName = StringArgumentType.getString(ctx, "kind");
+        StaticTrapKind kind = StaticTrapKind.byName(kindName);
+        if (kind == null) {
+            ctx.getSource().sendFailure(Component.translatable("commands.miningdim.trap.place.bad_kind", kindName));
+            return 0;
+        }
+
+        // 落点: 玩家准星指向的方块 (射程 8, 忽略流体; 原版 Entity.pick 途径, hitFluids=false -> ClipContext.Fluid.NONE)。
+        HitResult hit = player.pick(8.0D, 1.0F, false);
+        if (hit.getType() != HitResult.Type.BLOCK) {
+            ctx.getSource().sendFailure(Component.translatable("commands.miningdim.trap.place.no_target"));
+            return 0;
+        }
+        BlockPos pos = ((BlockHitResult) hit).getBlockPos();
+
+        BlockState skin;
+        String skinLabel;
+        if (withSkin) {
+            ResourceLocation skinId = ResourceLocationArgument.getId(ctx, "skin");
+            skinLabel = skinId.toString();
+            skin = BuiltInRegistries.BLOCK.get(skinId).defaultBlockState();
+        } else {
+            // 缺省: 按落点所在难度区随机 (复用 pickSkin); 深板岩上下文用简化的 y 分层模型 (deepslateByModel)。
+            Difficulty difficulty = Difficulty.forBlock(pos.getX(), pos.getZ());
+            if (difficulty == null) {
+                ctx.getSource().sendFailure(Component.translatable("commands.miningdim.trap.place.no_difficulty"));
+                return 0;
+            }
+            boolean deepslate = TrapDisguise.deepslateByModel(difficulty, pos.getY());
+            skin = TrapDisguise.pickSkin(difficulty, deepslate, level.getRandom());
+            skinLabel = BuiltInRegistries.BLOCK.getKey(skin.getBlock()).toString();
+        }
+
+        // place 核心以 isDisguiseOre 为契约前置校验; 命令是入口层, 在此捕获非法 skin 转失败文案 (异常止步于入口层, 不冒泡成命令内部错)。
+        try {
+            TrapDebugPlacement.place(level, pos, kind, skin);
+        } catch (IllegalArgumentException badSkin) {
+            ctx.getSource().sendFailure(Component.translatable("commands.miningdim.trap.place.bad_skin", skinLabel));
+            return 0;
+        }
+
+        final String label = skinLabel;
+        ctx.getSource().sendSuccess(() -> Component.translatable("commands.miningdim.trap.place.success",
+                kind.getSerializedName(), label, pos.getX(), pos.getY(), pos.getZ()), true);
+        return Command.SINGLE_SUCCESS;
     }
 
     // ---- enter ----

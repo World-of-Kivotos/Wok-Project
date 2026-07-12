@@ -290,6 +290,42 @@ public final class TrapGameTests {
         helper.succeed();
     }
 
+    // ============================================================
+    // 调试落点 (/mining trap place 命令核心): place 写伪装矿石 + 登记陷阱身份; 非法 skin 被拒。
+    // 删 setBlock 或 registry.put -> 断言必挂; 删 isDisguiseOre 契约前置 -> 非法 skin 不再抛必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void trapDebugPlaceWritesSkinAndRegistersIdentity(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        TrapRegistry reg = TrapRegistry.get(level);
+        BlockPos rel = new BlockPos(3, 1, 0);
+        BlockPos pos = helper.absolutePos(rel);
+        BlockState skin = Blocks.DEEPSLATE_IRON_ORE.defaultBlockState(); // 合法伪装矿石 (铁的深板岩变体)。
+
+        BlockState placed = TrapDebugPlacement.place(level, pos, StaticTrapKind.TNT_VEIN, skin);
+        // 目标位方块态 == skin, 且注册表登记为该 kind (世界只存真伪装矿石, 陷阱身份进注册表)。
+        helper.assertTrue(placed == skin, "place returns the applied skin state");
+        helper.assertTrue(level.getBlockState(pos).is(Blocks.DEEPSLATE_IRON_ORE),
+                "target block state set to the skin ore (deepslate iron)");
+        helper.assertTrue(reg.get(pos) == StaticTrapKind.TNT_VEIN, "registry records the trap kind at the placed pos");
+
+        // 非法 skin (非伪装矿石族, 如石头) 被拒: place 抛 IllegalArgumentException, 不写世界不登记。
+        BlockPos rel2 = new BlockPos(4, 1, 0);
+        BlockPos pos2 = helper.absolutePos(rel2);
+        boolean threw = false;
+        try {
+            TrapDebugPlacement.place(level, pos2, StaticTrapKind.FAKE_ORE, Blocks.STONE.defaultBlockState());
+        } catch (IllegalArgumentException rejected) {
+            threw = true;
+        }
+        helper.assertTrue(threw, "place rejects a non-disguise-ore skin (stone) with IllegalArgumentException");
+        helper.assertTrue(reg.get(pos2) == null, "rejected skin leaves no registry entry at that pos");
+
+        reg.remove(pos); // 清理共享 SavedData。
+        helper.succeed();
+    }
+
     // ---- 测试辅助 ----
 
     /** 把 nearby 返回的 Entry 列表投影成坐标列表 (断言收集内容)。 */

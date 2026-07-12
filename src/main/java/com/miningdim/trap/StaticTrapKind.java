@@ -45,4 +45,14 @@ public enum StaticTrapKind implements StringRepresentable {
     public String getSerializedName() {
         return serializedName;
     }
+
+    /** 序列化名反查静态陷阱种类 (调试命令参数解析用); 未知名返回 null, 由调用方转失败文案 (不静默兜底默认种类)。 */
+    public static StaticTrapKind byName(String name) {
+        for (StaticTrapKind kind : values()) {
+            if (kind.serializedName.equals(name)) {
+                return kind;
+            }
+        }
+        return null;
+    }
 }

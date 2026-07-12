@@ -50,6 +50,7 @@ public final class ModMunitionsTab {
                             return;
                         }
                         output.accept(ModMunitionsItems.GUNSMITH_PRESS_ITEM.get());
+                        output.accept(ModMunitionsItems.GUNSMITH_ASSEMBLY_BENCH_ITEM.get());
                         output.accept(ModMunitionsItems.M4_ASSEMBLY_TEMPLATE.get());
                         GunsmithPartItem.addCreativeStacks(output);
                     })

@@ -34,6 +34,8 @@ public final class ModMunitionsItems {
             () -> new BlockItem(ModMunitionsBlocks.MUNITIONS_BENCH_RADIANT.get(), new Item.Properties()));
     public static final RegistryObject<Item> GUNSMITH_PRESS_ITEM = ITEMS.register("gunsmith_press",
             () -> new BlockItem(ModMunitionsBlocks.GUNSMITH_PRESS.get(), new Item.Properties()));
+    public static final RegistryObject<Item> GUNSMITH_ASSEMBLY_BENCH_ITEM = ITEMS.register("gunsmith_assembly_bench",
+            () -> new BlockItem(ModMunitionsBlocks.GUNSMITH_ASSEMBLY_BENCH.get(), new Item.Properties()));
     public static final RegistryObject<Item> GUNSMITH_PART = ITEMS.register("gunsmith_part",
             () -> new GunsmithPartItem(new Item.Properties().stacksTo(64)));
     public static final RegistryObject<Item> M4_ASSEMBLY_TEMPLATE = ITEMS.register("m4_assembly_template",

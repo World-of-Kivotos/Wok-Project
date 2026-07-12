@@ -164,15 +164,18 @@ public final class MunitionsConfig {
         b.pop();
 
         b.push("recipe");
-        b.comment("4. ammunition parts recipe: primer + casing + bullet head + propellant.");
-        RECIPE_PRIMER_COST = b.comment("Primers consumed per production batch")
+        // 四件套成本对齐设计文档四章 "7 铜 + 16 火药 -> 40 发" (审查 M-4): 合成表 底火=2铜/弹壳=3铜/弹头=2铜
+        // (每批各 1, 共 7 铜) + 发射药=8火药 (每批 2, 共 16 火药)。改配方或本组 cost 必须同步核对经济总表。
+        b.comment("4. ammunition parts recipe: primer + casing + bullet head + propellant."
+                + " Batch cost mirrors design spec 7 copper + 16 gunpowder -> 40 rounds.");
+        RECIPE_PRIMER_COST = b.comment("Primers consumed per production batch (1 primer = 2 copper)")
                 .defineInRange("primerCost", 1, 1, 64);
-        RECIPE_CASING_COST = b.comment("Casings consumed per production batch")
+        RECIPE_CASING_COST = b.comment("Casings consumed per production batch (1 casing = 3 copper)")
                 .defineInRange("casingCost", 1, 1, 64);
-        RECIPE_BULLET_HEAD_COST = b.comment("Bullet heads consumed per production batch")
+        RECIPE_BULLET_HEAD_COST = b.comment("Bullet heads consumed per production batch (1 head = 2 copper)")
                 .defineInRange("bulletHeadCost", 1, 1, 64);
-        RECIPE_PROPELLANT_COST = b.comment("Propellant consumed per production batch")
-                .defineInRange("propellantCost", 1, 1, 64);
+        RECIPE_PROPELLANT_COST = b.comment("Propellant consumed per production batch (1 propellant = 8 gunpowder)")
+                .defineInRange("propellantCost", 2, 1, 64);
         DIRECT_ROUNDS_PER_BATCH = b.comment("Rounds per batch via direct crafting (L1-5, half yield)")
                 .defineInRange("directRoundsPerBatch", 40, 1, 100000);
         REFINED_ROUNDS_PER_BATCH = b.comment("Rounds per batch via refining into propellant (L6+, double yield, profit inflection)")

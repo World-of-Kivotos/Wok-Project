@@ -291,8 +291,13 @@ public final class MunitionsGameTests {
         int perBatch = MunitionsProduction.roundsPerBatch(MunitionsCaliber.RIFLE, level); // 40
         long bigElapsed = MunitionsProduction.ticksPerRound(level) * 100_000L; // 远超需求。
         int bigBuffer = 100_000;
+        // 备料 = 2 批 x 各件单批 cost (对默认 cost 变更鲁棒, propellantCost 默认 2 -> 备 4)。
         MunitionsProduction.Result r = MunitionsProduction.settle(
-                MunitionsCaliber.RIFLE, level, 1, bigElapsed, bigBuffer, 2, 2, 2, 2);
+                MunitionsCaliber.RIFLE, level, 1, bigElapsed, bigBuffer,
+                2 * MunitionsConfig.RECIPE_PRIMER_COST.get(),
+                2 * MunitionsConfig.RECIPE_CASING_COST.get(),
+                2 * MunitionsConfig.RECIPE_BULLET_HEAD_COST.get(),
+                2 * MunitionsConfig.RECIPE_PROPELLANT_COST.get());
         helper.assertTrue(r.batchesConsumed() == 2, "material caps to exactly 2 batches, got " + r.batchesConsumed());
         helper.assertTrue(r.roundsProduced() == 2 * perBatch,
                 "rounds == batches × roundsPerBatch = 2*40 = 80, got " + r.roundsProduced());
@@ -706,26 +711,34 @@ public final class MunitionsGameTests {
         be.load(tag);
     }
 
-    private static void stockParts(MunitionsBenchBlockEntity be, int count) {
+    /** 备料 batches 批: 每槽塞 batches x 单批 cost (对 config 默认 cost 变更鲁棒, propellantCost 默认 2)。 */
+    private static void stockParts(MunitionsBenchBlockEntity be, int batches) {
         be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER,
-                new ItemStack(ModMunitionsItems.PRIMER.get(), count));
+                new ItemStack(ModMunitionsItems.PRIMER.get(), batches * MunitionsConfig.RECIPE_PRIMER_COST.get()));
         be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_CASING,
-                new ItemStack(ModMunitionsItems.CASING.get(), count));
+                new ItemStack(ModMunitionsItems.CASING.get(), batches * MunitionsConfig.RECIPE_CASING_COST.get()));
         be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_BULLET_HEAD,
-                new ItemStack(ModMunitionsItems.BULLET_HEAD.get(), count));
+                new ItemStack(ModMunitionsItems.BULLET_HEAD.get(),
+                        batches * MunitionsConfig.RECIPE_BULLET_HEAD_COST.get()));
         be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_PROPELLANT,
-                new ItemStack(ModMunitionsItems.PROPELLANT.get(), count));
+                new ItemStack(ModMunitionsItems.PROPELLANT.get(),
+                        batches * MunitionsConfig.RECIPE_PROPELLANT_COST.get()));
     }
 
-    private static void assertPartCounts(GameTestHelper helper, MunitionsBenchBlockEntity be, int expected) {
-        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER).getCount() == expected,
-                "primer count expected " + expected);
-        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_CASING).getCount() == expected,
-                "casing count expected " + expected);
-        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_BULLET_HEAD).getCount() == expected,
-                "bullet head count expected " + expected);
-        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PROPELLANT).getCount() == expected,
-                "propellant count expected " + expected);
+    /** 断言各槽剩余恰为 expectedBatches 批的备料量 (0 = 整批走料全消耗)。 */
+    private static void assertPartCounts(GameTestHelper helper, MunitionsBenchBlockEntity be, int expectedBatches) {
+        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER).getCount()
+                        == expectedBatches * MunitionsConfig.RECIPE_PRIMER_COST.get(),
+                "primer count expected " + expectedBatches + " batches");
+        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_CASING).getCount()
+                        == expectedBatches * MunitionsConfig.RECIPE_CASING_COST.get(),
+                "casing count expected " + expectedBatches + " batches");
+        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_BULLET_HEAD).getCount()
+                        == expectedBatches * MunitionsConfig.RECIPE_BULLET_HEAD_COST.get(),
+                "bullet head count expected " + expectedBatches + " batches");
+        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PROPELLANT).getCount()
+                        == expectedBatches * MunitionsConfig.RECIPE_PROPELLANT_COST.get(),
+                "propellant count expected " + expectedBatches + " batches");
     }
 
     private static long readSettleTick(MunitionsBenchBlockEntity be) {

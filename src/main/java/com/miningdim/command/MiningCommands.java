@@ -525,6 +525,8 @@ public final class MiningCommands {
                 () -> Component.translatable("commands.miningdim.reset.start", instanceId), true);
         // NEW_SEED: 命令触发的重置默认换图 (运维清场重排布局); SAME_SEED 留给确定性验收/自动化。
         CommandSourceStack source = ctx.getSource();
+        // 用户可见耗时: 从入队重置到 completion 兑现的墙钟 (含分帧推进), 即"重置慢不慢"的实测值。
+        long startMs = System.currentTimeMillis();
         reset.reset(instanceId, IResetService.ResetMode.NEW_SEED).whenComplete((ignored, error) ->
                 source.getServer().execute(() -> {
                     if (error != null) {
@@ -534,8 +536,9 @@ public final class MiningCommands {
                                 "commands.miningdim.reset.failed", instanceId, detail));
                         return;
                     }
+                    long elapsedMs = System.currentTimeMillis() - startMs;
                     source.sendSuccess(
-                            () -> Component.translatable("commands.miningdim.reset.done", instanceId), true);
+                            () -> Component.translatable("commands.miningdim.reset.done", instanceId, elapsedMs), true);
                 }));
         return Command.SINGLE_SUCCESS;
     }

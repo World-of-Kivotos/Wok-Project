@@ -73,7 +73,7 @@
   "commands.miningdim.no_dimension": "矿业维度尚未加载。",
   "commands.miningdim.notfound": "未知的矿洞实例：%s",
   "commands.miningdim.reset.start": "正在重置实例 #%s……",
-  "commands.miningdim.reset.done": "实例 #%s 已重置完成。",
+  "commands.miningdim.reset.done": "实例 #%s 已重置完成（耗时 %s ms）。",
   "commands.miningdim.reset.failed": "重置失败：%s",
   "commands.miningdim.reset.occupied": "实例 #%s 仍有玩家，请先撤离。",
   "commands.miningdim.reset.armed": "再次输入该命令以确认重置。",

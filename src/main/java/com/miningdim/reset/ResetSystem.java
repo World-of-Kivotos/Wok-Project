@@ -38,9 +38,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * 重置语义 (13.2-13.5):
  *  - reset(): 前置校验 genState 可重置 + (requireEmpty 时) 无玩家; 置 RESETTING, 入分帧 {@link ResetJob} 队列;
  *  - evacuate(): 强制撤离在场玩家回各自进入前坐标 (读 Capability, D5/14.6); 离线者标记待撤离;
- *  - NEW_SEED 用 resetGeneration 计数器派生新 seed (本子系统进程内跟踪, 因 core InstanceState 未持久化该计数)。
+ *  - resetGeneration 计数器仍进程内跟踪 (机制保留, 供未来掺哈希做布局变化); noise 维度下不再驱动体素/种子。
  *
- * 线程 (D8): reset/evacuate 的世界写在主线程 (经 server.execute 或 tick); 体素重算在工作线程 (ResetJob 内部)。
+ * 线程 (D8): reset/evacuate 的世界写、区块卸载与存档删除均在主线程分帧 (ResetJob 内部)。
  * 本子系统在 register 内把自身注入 MiningServices, 供命令/GC/入口层调用。
  */
 public final class ResetSystem implements Subsystem, IResetService {
@@ -138,8 +138,8 @@ public final class ResetSystem implements Subsystem, IResetService {
 
         inst.setGenState(GenState.RESETTING);
         int generation = nextResetGeneration(instanceId, mode);
-        long globalSeed = miningLevel.getSeed();
-        ResetJob job = new ResetJob(server, inst, mode, globalSeed, generation);
+        ResetChunkOps ops = new LiveResetChunkOps(miningLevel, instanceId, inst.regionBox());
+        ResetJob job = new ResetJob(inst, ops, mode, generation);
         activeJobs.add(job);
         LOGGER.info("[miningdim] enqueued reset for instance {} (mode={}, generation={})",
                 instanceId, mode, generation);

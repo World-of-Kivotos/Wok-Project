@@ -1,32 +1,38 @@
 package com.miningdim.trap;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.miner.ChainMiningEngine;
 import com.miningdim.job.miner.MinerSurvival;
 import com.miningdim.job.miner.TrapScanService;
 import com.miningdim.registry.ModBlocks;
+import com.miningdim.testutil.MockGameTestPlayers;
 import com.miningdim.trap.block.TrapOreBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageType;
 import net.minecraft.world.damagesource.DamageTypes;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
- * 静态陷阱 (方案 C) 核心契约 GameTest。锁死审计 Critical 的闭合: 静态陷阱现为真实世界方块 (TrapOreBlock),
- * 探测扫真实世界能命中并按等级分级, 触发效果一律走矿脉抗性可识别的原版环境伤类型 (故减伤自动覆盖静态陷阱)。
- *
- * 断言具体业务结果 (删被测逻辑必挂, 禁弱校验): 探测命中数与致死过滤 / 每种陷阱的伤害类型映射与其被 isTrapSource
- * 识别 / KIND<->TrapType 双射与致死分类。纯逻辑/真实 ServerLevel 直读, 不依赖外部 mod。
- * 真实 fuse/落地效果 (爆炸/岩浆/落石的世界写) 属 vanilla 机制, 需 runClient/真服观测, 不在 dev GameTest 断言范围。
+ * 静态陷阱协议级伪装契约 GameTest。用户裁决后世界里已无可被识破的 trap_ore —— 陷阱身份只存 {@link TrapRegistry},
+ * 触发/探测/连锁一律查注册表。断言具体业务结果 (删被测逻辑必挂, 禁弱校验): 注册表 CRUD + 序列化往返 + 分 chunk
+ * nearby / 触发取消并调度且幽灵条目守卫 / 探测按等级揭示且只揭示下发的 / 连锁对已揭示跳过对未揭示触发且不计产出 /
+ * damageTypeFor 与矿脉抗性联动。纯逻辑 + 真实 ServerLevel 直读, 不依赖外部 mod。真实爆炸/岩浆/落石世界写属 vanilla
+ * 机制, 需 runClient/真服观测, 不在 dev GameTest 断言范围。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -35,31 +41,207 @@ public final class TrapGameTests {
     private static final String EMPTY = "empty";
     private static final String BATCH = "trap";
 
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void scanWorldFindsTrapOreAndFiltersLethal(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        // 四种陷阱各放一格 (2 非致死: 假矿/崩塌; 2 致死: TNT/岩浆袋)。
-        setTrap(helper, new BlockPos(0, 1, 0), StaticTrapKind.FAKE_ORE);
-        setTrap(helper, new BlockPos(1, 1, 0), StaticTrapKind.COLLAPSING_TUNNEL);
-        setTrap(helper, new BlockPos(2, 1, 0), StaticTrapKind.TNT_VEIN);
-        setTrap(helper, new BlockPos(3, 1, 0), StaticTrapKind.LAVA_POCKET);
-        BlockPos center = helper.absolutePos(new BlockPos(1, 1, 0));
+    // ============================================================
+    // 注册表: CRUD + nearby (分 chunk / 多 chunk / 边界半径) + 序列化往返
+    // ============================================================
 
-        // L5-7 (lethalAllowed=false): 只下发 2 个非致死。
-        List<BlockPos> nonLethal = TrapScanService.scanWorld(level, center, 8, false);
-        helper.assertTrue(nonLethal.size() == 2,
-                "L5-7 scan finds only the 2 non-lethal traps (fake_ore + collapsing), got " + nonLethal.size());
-        // L8+ (lethalAllowed=true): 4 个全收。
-        List<BlockPos> all = TrapScanService.scanWorld(level, center, 8, true);
-        helper.assertTrue(all.size() == 4, "L8+ scan finds all 4 static traps, got " + all.size());
-        // 半径 0 -> 空 (与 scan 上游门控一致)。
-        helper.assertTrue(TrapScanService.scanWorld(level, center, 0, true).isEmpty(), "radius 0 yields no hits");
-        // 非陷阱方块 (石头) 不被误判为陷阱。
-        helper.setBlock(new BlockPos(5, 1, 0), net.minecraft.world.level.block.Blocks.STONE);
-        helper.assertTrue(TrapScanService.scanWorld(level, center, 8, true).size() == 4,
-                "plain stone is not counted as a trap (still 4)");
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void trapRegistryCrudNearbyAndSerializationRoundTrip(GameTestHelper helper) {
+        // 独立实例 (不碰 level 共享 SavedData), 纯逻辑断言。
+        TrapRegistry reg = new TrapRegistry();
+        // 同 chunk (0,0) 两格 + 相邻 chunk (0,1) 一格 + 远 chunk (0,4) 一格 (含负 y 打包)。
+        BlockPos a = new BlockPos(5, 20, 5);        // chunk (0,0)
+        BlockPos aSibling = new BlockPos(6, -30, 5); // chunk (0,0), 负 y
+        BlockPos b = new BlockPos(5, 20, 21);       // chunk (0,1)
+        BlockPos far = new BlockPos(5, 20, 69);     // chunk (0,4)
+        reg.put(a, StaticTrapKind.TNT_VEIN);
+        reg.put(aSibling, StaticTrapKind.COLLAPSING_TUNNEL);
+        reg.put(b, StaticTrapKind.FAKE_ORE);
+        reg.put(far, StaticTrapKind.LAVA_POCKET);
+
+        // get 命中/未命中。
+        helper.assertTrue(reg.get(a) == StaticTrapKind.TNT_VEIN, "get(a) == TNT_VEIN");
+        helper.assertTrue(reg.get(aSibling) == StaticTrapKind.COLLAPSING_TUNNEL, "get(aSibling) == COLLAPSING_TUNNEL");
+        helper.assertTrue(reg.get(b) == StaticTrapKind.FAKE_ORE, "get(b) == FAKE_ORE");
+        helper.assertTrue(reg.get(new BlockPos(999, 0, 999)) == null, "get(miss) == null");
+
+        // remove 只删该格, 同 chunk 兄弟存活。
+        reg.remove(a);
+        helper.assertTrue(reg.get(a) == null, "after remove(a) get(a) == null");
+        helper.assertTrue(reg.get(aSibling) == StaticTrapKind.COLLAPSING_TUNNEL, "same-chunk sibling survives remove(a)");
+
+        // nearby 多 chunk: 中心 (5,20,13) 半径 12 覆盖 chunk (0,0)+(0,1), 收 aSibling+b, 不收 far。
+        List<BlockPos> nearMulti = positions(reg.nearby(new BlockPos(5, 20, 13), 12));
+        helper.assertTrue(nearMulti.size() == 2, "nearby(r=12) spans 2 chunks -> 2 entries, got " + nearMulti.size());
+        helper.assertTrue(nearMulti.contains(aSibling) && nearMulti.contains(b), "nearby(r=12) has aSibling + b");
+        helper.assertFalse(nearMulti.contains(far), "nearby(r=12) excludes far chunk (0,4)");
+
+        // nearby 边界半径: 中心 (5,20,5) 半径 4 只落 chunk (0,0), 仅收 aSibling (a 已删)。
+        List<BlockPos> nearOne = positions(reg.nearby(new BlockPos(5, 20, 5), 4));
+        helper.assertTrue(nearOne.size() == 1 && nearOne.contains(aSibling),
+                "nearby(r=4) single chunk -> only aSibling, got " + nearOne.size());
+
+        // 序列化往返: save -> load 后陷阱身份逐条相等 (含负 y 打包 / 多 chunk)。
+        CompoundTag tag = reg.save(new CompoundTag());
+        TrapRegistry loaded = TrapRegistry.load(tag);
+        helper.assertTrue(loaded.get(aSibling) == StaticTrapKind.COLLAPSING_TUNNEL, "round-trip aSibling kind");
+        helper.assertTrue(loaded.get(b) == StaticTrapKind.FAKE_ORE, "round-trip b kind");
+        helper.assertTrue(loaded.get(far) == StaticTrapKind.LAVA_POCKET, "round-trip far kind (chunk 0,4)");
+        helper.assertTrue(loaded.get(a) == null, "round-trip: removed a stays absent");
         helper.succeed();
     }
+
+    // ============================================================
+    // 触发: 注册表命中 -> 取消 + 移除 + 调度; 幽灵条目守卫 -> 清条目, 不调度
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void trapTriggerCancelsRemovesAndSchedules(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        TrapRegistry reg = TrapRegistry.get(level);
+        // 各测试用自身结构区绝对坐标, 天然与其它测试隔离。
+        BlockPos hit = helper.absolutePos(new BlockPos(1, 1, 0));
+        BlockState coal = Blocks.COAL_ORE.defaultBlockState();
+        helper.setBlock(new BlockPos(1, 1, 0), Blocks.COAL_ORE);
+        reg.put(hit, StaticTrapKind.FAKE_ORE);
+
+        int before = TrapSystem.get().pendingDelayedTaskCount();
+        boolean triggered = StaticTrapTrigger.tryTriggerTrap(level, hit, coal);
+        helper.assertTrue(triggered, "registry hit on a disguise ore -> tryTriggerTrap returns true (caller cancels break)");
+        helper.assertTrue(reg.get(hit) == null, "triggered trap entry removed from registry");
+        helper.assertTrue(TrapSystem.get().pendingDelayedTaskCount() == before + 1,
+                "one reaction-window task scheduled on trigger");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void trapTriggerGhostGuardClearsEntryWithoutScheduling(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        TrapRegistry reg = TrapRegistry.get(level);
+        BlockPos ghost = helper.absolutePos(new BlockPos(2, 1, 0));
+        // 注册表还记着陷阱, 但该坐标方块是石头 (非伪装矿石族) -> 幽灵条目。
+        reg.put(ghost, StaticTrapKind.TNT_VEIN);
+        BlockState stone = Blocks.STONE.defaultBlockState();
+
+        int before = TrapSystem.get().pendingDelayedTaskCount();
+        boolean triggered = StaticTrapTrigger.tryTriggerTrap(level, ghost, stone);
+        helper.assertFalse(triggered, "ghost entry (block not ore-family) -> not triggered, break proceeds normally");
+        helper.assertTrue(reg.get(ghost) == null, "ghost entry removed by consistency guard");
+        helper.assertTrue(TrapSystem.get().pendingDelayedTaskCount() == before,
+                "ghost guard schedules no reaction-window task");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 探测: L5-7 只揭示非致死且只揭示下发的; L8+ 全揭示; 半径 0 空
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void trapScanFiltersLethalAndRevealsOnlyReturned(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        TrapRegistry reg = TrapRegistry.get(level);
+        BlockPos center = helper.absolutePos(new BlockPos(1, 1, 1));
+        // 2 非致死 (假矿/崩塌) + 2 致死 (TNT/岩浆袋); 探测只读注册表, 无需世界方块。
+        BlockPos fake = helper.absolutePos(new BlockPos(0, 1, 0));
+        BlockPos collapse = helper.absolutePos(new BlockPos(2, 1, 0));
+        BlockPos tnt = helper.absolutePos(new BlockPos(0, 1, 2));
+        BlockPos lava = helper.absolutePos(new BlockPos(2, 1, 2));
+        reg.put(fake, StaticTrapKind.FAKE_ORE);
+        reg.put(collapse, StaticTrapKind.COLLAPSING_TUNNEL);
+        reg.put(tnt, StaticTrapKind.TNT_VEIN);
+        reg.put(lava, StaticTrapKind.LAVA_POCKET);
+
+        // L5-7 (lethalAllowed=false): 只下发 2 非致死, 且只揭示这 2 个 (致死被过滤的不揭示)。
+        UUID low = UUID.randomUUID();
+        List<BlockPos> nonLethal = TrapScanService.scanWorld(level, center, 8, false, low);
+        helper.assertTrue(nonLethal.size() == 2, "L5-7 scan returns only 2 non-lethal, got " + nonLethal.size());
+        helper.assertTrue(reg.isRevealed(low, fake) && reg.isRevealed(low, collapse),
+                "L5-7 reveals the 2 returned non-lethal traps");
+        helper.assertFalse(reg.isRevealed(low, tnt) || reg.isRevealed(low, lava),
+                "L5-7 does NOT reveal lethal traps hidden by the filter");
+
+        // L8+ (lethalAllowed=true): 4 个全收全揭示。
+        UUID high = UUID.randomUUID();
+        List<BlockPos> all = TrapScanService.scanWorld(level, center, 8, true, high);
+        helper.assertTrue(all.size() == 4, "L8+ scan returns all 4 traps, got " + all.size());
+        helper.assertTrue(reg.isRevealed(high, fake) && reg.isRevealed(high, collapse)
+                        && reg.isRevealed(high, tnt) && reg.isRevealed(high, lava),
+                "L8+ reveals all 4 returned traps");
+
+        // 半径 0 -> 空 (与 scan 上游门控一致), 且不揭示。
+        UUID zero = UUID.randomUUID();
+        helper.assertTrue(TrapScanService.scanWorld(level, center, 0, true, zero).isEmpty(), "radius 0 yields no hits");
+        helper.assertFalse(reg.isRevealed(zero, fake), "radius 0 reveals nothing");
+
+        // 清理本测试写入的注册表条目 (共享 level SavedData)。
+        reg.remove(fake);
+        reg.remove(collapse);
+        reg.remove(tnt);
+        reg.remove(lava);
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 连锁: 已揭示位跳过 (方块保留, 不触发); 未揭示位触发 (移除+调度) 且不计产出
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void chainSkipsRevealedTrapKeepingBlock(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        TrapRegistry reg = TrapRegistry.get(level);
+        ChainMiningEngine engine = new ChainMiningEngine();
+
+        // coal_ore 矿脉: origin 与相邻的伪装陷阱; 陷阱已被该玩家探测揭示。
+        helper.setBlock(new BlockPos(0, 1, 0), Blocks.COAL_ORE);
+        helper.setBlock(new BlockPos(1, 1, 0), Blocks.COAL_ORE);
+        BlockPos origin = helper.absolutePos(new BlockPos(0, 1, 0));
+        BlockPos trap = helper.absolutePos(new BlockPos(1, 1, 0));
+        reg.put(trap, StaticTrapKind.FAKE_ORE);
+        reg.markRevealed(player.getUUID(), trap);
+
+        List<BlockPos> produced = new ArrayList<>();
+        int before = TrapSystem.get().pendingDelayedTaskCount();
+        int broken = engine.chainBreak(player, origin, level, 16, (pos, block, drops) -> produced.add(pos));
+
+        helper.assertTrue(broken == 0, "revealed trap is skipped, no chain break counted (broken=" + broken + ")");
+        helper.assertFalse(produced.contains(trap), "revealed trap not in chain output settlement");
+        helper.assertTrue(reg.get(trap) == StaticTrapKind.FAKE_ORE, "revealed trap entry preserved (not triggered)");
+        helper.assertBlockPresent(Blocks.COAL_ORE, new BlockPos(1, 1, 0)); // 方块保留原地。
+        helper.assertTrue(TrapSystem.get().pendingDelayedTaskCount() == before,
+                "revealed trap schedules no reaction-window task");
+        reg.remove(trap);
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void chainTriggersUnrevealedTrapExcludingItFromOutput(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        TrapRegistry reg = TrapRegistry.get(level);
+        ChainMiningEngine engine = new ChainMiningEngine();
+
+        helper.setBlock(new BlockPos(0, 1, 0), Blocks.COAL_ORE);
+        helper.setBlock(new BlockPos(1, 1, 0), Blocks.COAL_ORE);
+        BlockPos origin = helper.absolutePos(new BlockPos(0, 1, 0));
+        BlockPos trap = helper.absolutePos(new BlockPos(1, 1, 0));
+        reg.put(trap, StaticTrapKind.TNT_VEIN); // 未揭示 (未 markRevealed)。
+
+        List<BlockPos> produced = new ArrayList<>();
+        int before = TrapSystem.get().pendingDelayedTaskCount();
+        int broken = engine.chainBreak(player, origin, level, 16, (pos, block, drops) -> produced.add(pos));
+
+        helper.assertTrue(broken == 0, "triggered trap is not counted as a chain break (broken=" + broken + ")");
+        helper.assertFalse(produced.contains(trap), "triggered trap excluded from chain output settlement");
+        helper.assertTrue(reg.get(trap) == null, "unrevealed trap triggered -> entry removed");
+        helper.assertTrue(TrapSystem.get().pendingDelayedTaskCount() == before + 1,
+                "unrevealed trap trigger schedules one reaction-window task");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 回归: damageTypeFor 与矿脉抗性联动 + KIND<->TrapType 双射 (保持不变)
+    // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void trapEffectDamageTypesAreRecognizedByVeinResistance(GameTestHelper helper) {
@@ -100,7 +282,7 @@ public final class TrapGameTests {
         helper.assertFalse(StaticTrapKind.FAKE_ORE.trapType().lethal(), "FAKE_ORE is non-lethal");
         helper.assertFalse(StaticTrapKind.COLLAPSING_TUNNEL.trapType().lethal(), "COLLAPSING_TUNNEL is non-lethal");
 
-        // TrapOreBlock KIND 属性对每个 kind 可 setValue/getValue 往返 (布点/触发/探测据此读种类)。
+        // TrapOreBlock KIND 属性对每个 kind 可 setValue/getValue 往返 (布点时 datapack 据此, 转换前瞬时存在)。
         for (StaticTrapKind k : StaticTrapKind.values()) {
             BlockState st = ModBlocks.TRAP_ORE.get().defaultBlockState().setValue(TrapOreBlock.KIND, k);
             helper.assertTrue(st.getValue(TrapOreBlock.KIND) == k, "TrapOreBlock KIND round-trips for " + k);
@@ -110,10 +292,13 @@ public final class TrapGameTests {
 
     // ---- 测试辅助 ----
 
-    /** 在 helper 世界某相对坐标放一格指定种类的 trap_ore。 */
-    private static void setTrap(GameTestHelper helper, BlockPos rel, StaticTrapKind kind) {
-        BlockState state = ModBlocks.TRAP_ORE.get().defaultBlockState().setValue(TrapOreBlock.KIND, kind);
-        helper.setBlock(rel, state);
+    /** 把 nearby 返回的 Entry 列表投影成坐标列表 (断言收集内容)。 */
+    private static List<BlockPos> positions(List<TrapRegistry.Entry> entries) {
+        List<BlockPos> out = new ArrayList<>(entries.size());
+        for (TrapRegistry.Entry e : entries) {
+            out.add(e.pos());
+        }
+        return out;
     }
 
     /** 由 DamageType 键构造一个该类型的 DamageSource (供断言 isTrapSource 分类; 从伤害类型注册表取 Holder)。 */

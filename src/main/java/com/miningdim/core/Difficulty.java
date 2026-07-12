@@ -70,6 +70,24 @@ public enum Difficulty {
         return biomeKey;
     }
 
+    /**
+     * 纯几何: 世界方块 XZ 落在哪个难度固定区域 (R1/R2, 对齐 {@link MiningConstants} 网格常量)。三难度盒子之间的
+     * 缓冲带 / 网格外返回 null (基岩墙, 非任何难度)。不依赖运行期 InstanceManager, 客户端服务端一致 —— 是
+     * "方块坐标 -> 难度" 的单一几何权威 ({@link com.miningdim.worldgen.MiningBiomeSource} 群系解析与陷阱伪装难度池共用, 复用勿重写)。
+     */
+    public static Difficulty forBlock(int blockX, int blockZ) {
+        int originZ = MiningConstants.REGION_ORIGIN_Z
+                + MiningConstants.FIXED_REGION_CELL_Z * MiningConstants.REGION_STRIDE_Z;
+        for (Difficulty d : values()) {
+            int originX = MiningConstants.REGION_ORIGIN_X + d.regionCellX * MiningConstants.REGION_STRIDE_X;
+            if (blockX >= originX && blockX < originX + MiningConstants.REGION_SIZE_X
+                    && blockZ >= originZ && blockZ < originZ + MiningConstants.REGION_SIZE_Z) {
+                return d;
+            }
+        }
+        return null;
+    }
+
     /** byte 序号反查难度档; 非法序号自然抛 IllegalArgumentException (C9, 不掩盖)。 */
     public static Difficulty byId(int id) {
         for (Difficulty d : values()) {

@@ -54,9 +54,12 @@ public final class TrapSystem implements Subsystem {
         instance = this;
         // 动态陷阱挂 forge 总线 tick 事件 (9.8 挂载点)。
         forgeBus.register(this);
-        // 静态陷阱触发器 (方案 C): 挖到 TrapOreBlock 时按 KIND 分发效果, 反应窗口经本系统延迟队列落地。
+        // 静态陷阱触发器 (协议级伪装): 挖到坐标命中 TrapRegistry 时按 KIND 分发效果, 反应窗口经本系统延迟队列落地。
         forgeBus.register(new StaticTrapTrigger());
-        LOGGER.info("[miningdim] TrapSystem registered (static trap trigger + dynamic engine on LevelTickEvent)");
+        // 静态陷阱伪装落地器: 矿洞区块加载时把 datapack 布下的 trap_ore 就地换成真原版矿石, 陷阱身份只存 TrapRegistry
+        // (世界里不再有可被 F3/Jade/矿透识破的方块)。
+        forgeBus.register(new TrapDisguiseConverter());
+        LOGGER.info("[miningdim] TrapSystem registered (static trap trigger + disguise converter + dynamic engine on LevelTickEvent)");
     }
 
     @Override
@@ -109,6 +112,13 @@ public final class TrapSystem implements Subsystem {
     void scheduleDelayed(long dueTick, Runnable task) {
         synchronized (delayedTasks) {
             delayedTasks.add(new DelayedTask(dueTick, task));
+        }
+    }
+
+    /** 当前挂起的反应窗口延迟任务数 (GameTest 断言陷阱触发已入调度队列用; 非致死过滤/幽灵条目不入队则计数不变)。 */
+    int pendingDelayedTaskCount() {
+        synchronized (delayedTasks) {
+            return delayedTasks.size();
         }
     }
 

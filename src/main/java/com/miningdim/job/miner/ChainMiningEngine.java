@@ -1,5 +1,8 @@
 package com.miningdim.job.miner;
 
+import com.miningdim.trap.StaticTrapKind;
+import com.miningdim.trap.StaticTrapTrigger;
+import com.miningdim.trap.TrapRegistry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -106,6 +109,10 @@ public final class ChainMiningEngine {
                         if (!isWhitelisted(block) || isHardExcluded(block)) {
                             continue; // 非白名单 / 高价矿: 跳过该格 (停在边界)。
                         }
+                        // 伪装陷阱交互 (同连锁): 命中注册表 -> 已揭示跳过 / 未揭示触发, 两者都不计产出。
+                        if (handleChainTrap(player, level, p, state) != TrapInteraction.NOT_TRAP) {
+                            continue;
+                        }
                         if (breakOne(player, level, p, state, sink)) {
                             broken++;
                         }
@@ -142,6 +149,10 @@ public final class ChainMiningEngine {
                 if (block != originBlock || !isWhitelisted(block) || isHardExcluded(block)) {
                     continue;
                 }
+                // 伪装陷阱交互: 命中注册表 -> 已揭示跳过 (方块保留) / 未揭示触发, 两者都不计产出、不从此位继续扩散。
+                if (handleChainTrap(player, level, next.immutable(), state) != TrapInteraction.NOT_TRAP) {
+                    continue;
+                }
                 if (breakOne(player, level, next.immutable(), state, sink)) {
                     broken++;
                     frontier.add(next.immutable());
@@ -173,6 +184,39 @@ public final class ChainMiningEngine {
             sink.onChainDrop(pos, state.getBlock(), drops);
         }
         return removed;
+    }
+
+    // ---- 伪装陷阱连锁交互 (用户裁决规则) ----
+
+    /** 连锁触及某坐标时对伪装陷阱的处置。 */
+    enum TrapInteraction {
+        /** 非陷阱: 照常连锁破坏。 */
+        NOT_TRAP,
+        /** 命中且该玩家已揭示: 跳过, 方块保留原地, 连锁继续吃别的。 */
+        SKIP_REVEALED,
+        /** 命中且未揭示: 触发陷阱 (移除条目 + 吞块 + 反应窗口效果), 该位不进连锁产出结算。 */
+        TRIGGERED
+    }
+
+    /**
+     * 连锁/隧道回放用 destroyBlock 绕过 BreakEvent, 故必须在此显式接 {@link TrapRegistry} (否则连锁会当普通矿石吃掉
+     * 伪装陷阱、既不触发也无预警)。规则 (用户裁决): 命中注册表且该玩家已揭示 -> 跳过 (方块保留); 未揭示 -> 触发陷阱
+     * ({@link StaticTrapTrigger#detonate} 吞块无掉落 + 反应窗口效果) 且该位不进连锁产出结算 (调用方 continue 即不走
+     * breakOne, 无掉落/无经济计数; 连锁本就不逐块发经验)。命中即 continue, 连锁不从陷阱位继续扩散。
+     */
+    private static TrapInteraction handleChainTrap(ServerPlayer player, ServerLevel level, BlockPos pos, BlockState state) {
+        TrapRegistry registry = TrapRegistry.get(level);
+        StaticTrapKind kind = registry.get(pos);
+        if (kind == null) {
+            return TrapInteraction.NOT_TRAP;
+        }
+        if (registry.isRevealed(player.getUUID(), pos)) {
+            return TrapInteraction.SKIP_REVEALED; // 已探测揭示: 玩家已知, 连锁不替其踩雷。
+        }
+        // 未揭示: 连锁触发陷阱 (先移除条目再引爆, detonate 的 destroyBlock 不 post BreakEvent 故不递归回连锁)。
+        registry.remove(pos);
+        StaticTrapTrigger.detonate(level, pos, kind);
+        return TrapInteraction.TRIGGERED;
     }
 
     // ---- 白名单 / 排除 (纯函数, 可单测) ----

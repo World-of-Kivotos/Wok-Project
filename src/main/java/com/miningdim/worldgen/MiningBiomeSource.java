@@ -79,18 +79,14 @@ public final class MiningBiomeSource extends BiomeSource {
      * 三区外 (缓冲带 + 网格外) 归 mining_wall 基岩墙群系: surface_rule 把这些列整列填基岩, 封死难度盒子。
      */
     private Holder<Biome> biomeForRegion(int blockX, int blockZ) {
-        for (Difficulty d : Difficulty.values()) {
-            int originX = MiningConstants.REGION_ORIGIN_X + d.regionCellX() * MiningConstants.REGION_STRIDE_X;
-            int originZ = MiningConstants.REGION_ORIGIN_Z + MiningConstants.FIXED_REGION_CELL_Z * MiningConstants.REGION_STRIDE_Z;
-            if (blockX >= originX && blockX < originX + MiningConstants.REGION_SIZE_X
-                    && blockZ >= originZ && blockZ < originZ + MiningConstants.REGION_SIZE_Z) {
-                return switch (d) {
-                    case EASY -> easy;
-                    case MEDIUM -> medium;
-                    case HARD -> hard;
-                };
-            }
+        Difficulty d = Difficulty.forBlock(blockX, blockZ);
+        if (d == null) {
+            return wall; // 缓冲带 + 网格外: 基岩墙群系 (surface_rule 整列填基岩, 封死难度盒子)。
         }
-        return wall;
+        return switch (d) {
+            case EASY -> easy;
+            case MEDIUM -> medium;
+            case HARD -> hard;
+        };
     }
 }

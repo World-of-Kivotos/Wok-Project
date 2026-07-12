@@ -1,6 +1,8 @@
 package com.miningdim.job.farmer;
 
 import com.miningdim.economy.EconomyServices;
+import com.miningdim.job.JobId;
+import com.miningdim.job.JobServices;
 import com.miningdim.job.farmer.item.FarmerItems;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -37,12 +39,21 @@ public final class FarmerWheatSellService {
     private FarmerWheatSellService() {
     }
 
-    /** 卖菜结算结果。{@code economyOffline} 为 true 表示经济服务未注册, 本次未扣物品也未发币。 */
-    public record SellResult(int soldCount, long creditsGranted, boolean economyOffline) {
+    /**
+     * 卖菜结算结果。两种失败态互斥且不与正常结果混用 (业务失败必须有精确出口, 不静默合并):
+     *  - {@code economyOffline} 为 true: 经济服务未注册, 未扣物品也未发币;
+     *  - {@code belowMastery} 为 true: 卖家农夫精通等级未达 {@link FarmerConstants#SELL_MIN_MASTERY_LEVEL} (反洗钱身份门), 未扣未发。
+     */
+    public record SellResult(int soldCount, long creditsGranted, boolean economyOffline, boolean belowMastery) {
 
         /** 经济未注册: 不扣不发的空结果 (economyOffline=true)。 */
         public static SellResult offline() {
-            return new SellResult(0, 0L, true);
+            return new SellResult(0, 0L, true, false);
+        }
+
+        /** 精通等级不足 (未达农夫售卖门): 不扣不发的空结果 (belowMastery=true)。工厂名与访问器 belowMastery() 区分, 同 offline()/economyOffline() 风格。 */
+        public static SellResult masteryDenied() {
+            return new SellResult(0, 0L, false, true);
         }
     }
 
@@ -51,7 +62,8 @@ public final class FarmerWheatSellService {
      *
      * @param player          卖家 (服务端)
      * @param requestedAmount 请求卖出株数 (>=1)
-     * @return 实际卖出与发放结果; 经济未注册返回 {@link SellResult#offline()}; 库存无 mod 小麦返回 (0,0,false)
+     * @return 实际卖出与发放结果; 经济未注册返回 {@link SellResult#offline()}; 精通等级不足返回
+     *         {@link SellResult#masteryDenied()}; 库存无 mod 小麦返回 (0,0,false,false)
      */
     public static SellResult sell(ServerPlayer player, int requestedAmount) {
         if (requestedAmount < 1) {
@@ -61,10 +73,16 @@ public final class FarmerWheatSellService {
             // 经济子系统未注册: 不扣物品、不发币 (经济未就绪不阻塞核心循环, 与 chef tryChargeTableUse 未就绪放行同纪律)。
             return SellResult.offline();
         }
+        // 精通等级身份门 (反洗钱, FarmerConstants.SELL_MIN_MASTERY_LEVEL): 未达门槛的白板小号不得套现 /give 或
+        // 跨账号交易/复制来的小麦。加在 service 层 (非仅命令层) —— 未来 GUI/网络包直调 sell() 也过同一门, 防绕过。
+        // 置于扣料之前, 拒绝时零副作用 (不数库存不扣物品)。
+        if (JobServices.jobService().level(player, JobId.FARMER) < FarmerConstants.SELL_MIN_MASTERY_LEVEL) {
+            return SellResult.masteryDenied();
+        }
         int owned = countWheat(player);
         int toSell = Math.min(owned, requestedAmount);
         if (toSell <= 0) {
-            return new SellResult(0, 0L, false);
+            return new SellResult(0, 0L, false, false);
         }
 
         long today = FarmerClock.currentUtcDayStamp();
@@ -75,7 +93,7 @@ public final class FarmerWheatSellService {
         // 先扣物品 (实际移除数), 发币量严格锚定已离手小麦 (先扣后发, 杜绝得币未失麦/重复发)。
         int removed = chargeWheat(player, toSell);
         if (removed <= 0) {
-            return new SellResult(0, 0L, false);
+            return new SellResult(0, 0L, false, false);
         }
 
         // 本批毛收 = 收购曲线逐株求和 (跨 softCap 连续, 边际单价递减)。先记当日卖出株数 (收购曲线计数, 农夫私有持久)。
@@ -86,14 +104,14 @@ public final class FarmerWheatSellService {
         // grantDaily (其契约 rawCredit>0 否则抛 ILLEGAL_AMOUNT)。物品已扣 (锚定离手小麦), 本批发币 0 是收购曲线
         // 已衰减到无货币注入的正常结果 (非吞异常: gross<=0 是边际收益归零的预期, 非装配缺陷)。
         if (gross <= 0L) {
-            return new SellResult(removed, 0L, false);
+            return new SellResult(removed, 0L, false, false);
         }
 
         // 入账经全服每人每日统一信用点衰减主闸 (grantDaily 内部 0.6 衰减 / 60000 档 / 1% 地板, 第十一章决策 2/4,
         // 与矿工卖矿共享同一 faucetKey 命名空间 -> 同一天花板)。返回衰减后实发额。
         long credits = EconomyServices.economyService().grantDaily(
                 player, gross, FarmerConstants.WHEAT_SELL_FAUCET_KEY, FarmerConstants.DAILY_CREDIT_FAUCET_CAP);
-        return new SellResult(removed, credits, false);
+        return new SellResult(removed, credits, false, false);
     }
 
     /** 玩家库存中 mod 小麦总数。 */

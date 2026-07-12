@@ -3,6 +3,7 @@ package com.miningdim.job.munitions;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlock;
 import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlockEntity;
+import com.miningdim.job.munitions.menu.GunsmithAssemblyMenu;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -145,25 +146,7 @@ public final class GunsmithAssemblyGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 20)
-    public static void assemblyBenchAnimationPropagatesAndExpires(GameTestHelper helper) {
-        Direction facing = Direction.NORTH;
-        placeStructure(helper, facing);
-        GunsmithAssemblyBenchBlockEntity be = requireMainBlockEntity(helper, helper.absolutePos(MAIN_REL));
-
-        helper.assertTrue(be.startAssembly(6), "idle bench must start a six-tick calibration cycle");
-        helper.assertFalse(be.startAssembly(6), "active bench must reject a second calibration cycle");
-        assertStructureActive(helper, facing, true);
-
-        helper.runAfterDelay(4, () -> assertStructureActive(helper, facing, true));
-        helper.runAfterDelay(8, () -> {
-            assertStructureActive(helper, facing, false);
-            helper.assertFalse(be.isAnimating(), "animation must be inactive after its exact end tick");
-            helper.succeed();
-        });
-    }
-
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 20)
-    public static void assemblyBenchUseHonorsGateAndResolvesSideToMain(GameTestHelper helper) {
+    public static void assemblyBenchUseHonorsGateAndOpensMainMenuFromEveryPart(GameTestHelper helper) {
         Direction facing = Direction.EAST;
         placeStructure(helper, facing);
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -183,6 +166,8 @@ public final class GunsmithAssemblyGameTests {
             helper.assertTrue(disabledResult == InteractionResult.CONSUME,
                     "disabled assembly bench use must be handled on the server");
             helper.assertFalse(be.isAnimating(), "disabled side-part use must not start assembly");
+            helper.assertFalse(player.containerMenu instanceof GunsmithAssemblyMenu,
+                    "disabled side-part use must not open the assembly menu");
             assertStructureActive(helper, facing, false);
 
             MunitionsConfig.GUNSMITH_ENABLED.set(true);
@@ -190,8 +175,11 @@ public final class GunsmithAssemblyGameTests {
                     clickedState, helper.getLevel(), clickedAbsolute, player, InteractionHand.MAIN_HAND, hit);
             helper.assertTrue(enabledResult == InteractionResult.CONSUME,
                     "enabled side-part use must be handled on the server");
-            helper.assertTrue(be.isAnimating(), "back-side use must resolve to and start the main block entity");
-            assertStructureActive(helper, facing, true);
+            helper.assertTrue(player.containerMenu instanceof GunsmithAssemblyMenu,
+                    "back-side use must resolve to and open the main block entity menu");
+            helper.assertFalse(be.isAnimating(), "opening the menu must not start assembly before button confirmation");
+            assertStructureActive(helper, facing, false);
+            player.closeContainer();
         } finally {
             MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
         }

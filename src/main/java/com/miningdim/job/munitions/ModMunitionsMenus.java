@@ -1,6 +1,7 @@
 package com.miningdim.job.munitions;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.munitions.menu.GunsmithAssemblyMenu;
 import com.miningdim.job.munitions.menu.GunsmithPressMenu;
 import com.miningdim.job.munitions.menu.MunitionsBenchMenu;
 import com.miningdim.menu.ModMenus;
@@ -28,6 +29,9 @@ public final class ModMunitionsMenus {
     public static final RegistryObject<MenuType<GunsmithPressMenu>> GUNSMITH_PRESS =
             MENUS.register("gunsmith_press",
                     () -> ModMenus.blockMenuType(GunsmithPressMenu::new));
+    public static final RegistryObject<MenuType<GunsmithAssemblyMenu>> GUNSMITH_ASSEMBLY_BENCH =
+            MENUS.register("gunsmith_assembly_bench",
+                    () -> ModMenus.blockMenuType(GunsmithAssemblyMenu::new));
 
     public static void register(IEventBus modBus) {
         MENUS.register(modBus);

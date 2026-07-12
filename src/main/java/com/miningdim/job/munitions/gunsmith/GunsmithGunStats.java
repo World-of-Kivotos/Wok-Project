@@ -1,7 +1,10 @@
 package com.miningdim.job.munitions.gunsmith;
 
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.ItemStack;
+
+import java.util.Objects;
 
 public final class GunsmithGunStats {
 
@@ -19,16 +22,28 @@ public final class GunsmithGunStats {
     private GunsmithGunStats(CompoundTag root, CompoundTag stats) {
         this.root = root;
         this.stats = stats;
+        requireString(root, "platform");
+        requireString(root, "template");
+        value("damage");
+        value("headshot");
+        value("recoil");
+        value("spread");
+        value("handling");
+        value("average");
     }
 
     public static GunsmithGunStats from(ItemStack stack) {
+        Objects.requireNonNull(stack, "stack");
         CompoundTag tag = stack.getTag();
         if (tag == null || !tag.contains(ROOT_KEY)) {
             return null;
         }
+        if (!tag.contains(ROOT_KEY, Tag.TAG_COMPOUND)) {
+            throw new IllegalArgumentException("Gunsmith root data is not a compound");
+        }
         CompoundTag root = tag.getCompound(ROOT_KEY);
-        if (!root.contains(STATS_KEY)) {
-            return null;
+        if (!root.contains(STATS_KEY, Tag.TAG_COMPOUND)) {
+            throw new IllegalArgumentException("Gunsmith root data has no stats compound");
         }
         return new GunsmithGunStats(root, root.getCompound(STATS_KEY));
     }
@@ -74,11 +89,11 @@ public final class GunsmithGunStats {
     }
 
     public int effectiveRpm() {
-        return Math.max(1, (int) Math.round(M4_BASE_RPM * recoil()));
+        return effectiveRpm(recoil());
     }
 
     public double effectiveAdsTime() {
-        return M4_BASE_ADS_TIME * inverse(handling());
+        return effectiveAdsTime(handling());
     }
 
     public double recoilChange() {
@@ -90,10 +105,43 @@ public final class GunsmithGunStats {
     }
 
     private double value(String key) {
-        return stats.contains(key) ? stats.getDouble(key) : 1.0D;
+        if (!stats.contains(key, Tag.TAG_DOUBLE)) {
+            throw new IllegalArgumentException("Gunsmith stats has no double value for " + key);
+        }
+        double value = stats.getDouble(key);
+        if (!Double.isFinite(value) || value <= 0.0D) {
+            throw new IllegalArgumentException("Gunsmith stat must be positive and finite: " + key);
+        }
+        return value;
+    }
+
+    static int effectiveRpm(double coefficient) {
+        long rpm = Math.round(M4_BASE_RPM * coefficient);
+        if (rpm < 1L || rpm > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Effective RPM is outside the integer range: " + rpm);
+        }
+        return (int) rpm;
+    }
+
+    static double effectiveAdsTime(double coefficient) {
+        return M4_BASE_ADS_TIME * inverse(coefficient);
     }
 
     private static double inverse(double coefficient) {
-        return 1.0D / Math.max(0.1D, coefficient);
+        if (!Double.isFinite(coefficient) || coefficient <= 0.0D) {
+            throw new IllegalArgumentException("Coefficient must be positive and finite: " + coefficient);
+        }
+        return 1.0D / coefficient;
+    }
+
+    private static String requireString(CompoundTag tag, String key) {
+        if (!tag.contains(key, Tag.TAG_STRING)) {
+            throw new IllegalArgumentException("Gunsmith root data has no string value for " + key);
+        }
+        String value = tag.getString(key);
+        if (value.isEmpty()) {
+            throw new IllegalArgumentException("Gunsmith root data has an empty value for " + key);
+        }
+        return value;
     }
 }

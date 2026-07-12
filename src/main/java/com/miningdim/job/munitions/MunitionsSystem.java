@@ -4,6 +4,7 @@ import com.miningdim.core.Subsystem;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.munitions.block.MunitionsBenchBlock;
+import com.miningdim.job.munitions.client.GunsmithAssemblyScreen;
 import com.miningdim.job.munitions.client.GunsmithPressScreen;
 import com.miningdim.job.munitions.client.MunitionsBenchScreen;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
@@ -75,6 +76,7 @@ public final class MunitionsSystem implements Subsystem {
                         () -> () -> {
                             MenuScreens.register(ModMunitionsMenus.MUNITIONS_BENCH.get(), MunitionsBenchScreen::new);
                             MenuScreens.register(ModMunitionsMenus.GUNSMITH_PRESS.get(), GunsmithPressScreen::new);
+                            MenuScreens.register(ModMunitionsMenus.GUNSMITH_ASSEMBLY_BENCH.get(), GunsmithAssemblyScreen::new);
                         })));
 
         LOGGER.info("[miningdim] munitions subsystem registered (munitions bench + passive ammo production)");

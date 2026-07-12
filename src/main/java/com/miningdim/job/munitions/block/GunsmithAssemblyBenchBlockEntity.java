@@ -2,32 +2,165 @@ package com.miningdim.job.munitions.block;
 
 import com.miningdim.job.munitions.ModMunitionsBlockEntities;
 import com.miningdim.job.munitions.ModMunitionsSounds;
+import com.miningdim.job.munitions.MunitionsConfig;
+import com.miningdim.job.munitions.gunsmith.GunsmithAssemblyRecipe;
+import com.miningdim.job.munitions.gunsmith.GunsmithGunFactory;
+import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
+import com.miningdim.job.munitions.menu.GunsmithAssemblyMenu;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.MenuProvider;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
+import net.minecraftforge.items.ItemStackHandler;
+import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity {
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.List;
 
-    public static final int DEMO_DURATION_TICKS = 160;
+public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implements MenuProvider {
+
+    public static final int SLOT_BLUEPRINT = 0;
+    public static final int SLOT_PART_BASE = 1;
+    public static final int SLOT_OUTPUT = SLOT_PART_BASE + GunsmithPressPart.values().length;
+    public static final int SLOT_COUNT = SLOT_OUTPUT + 1;
+    public static final int ASSEMBLY_DURATION_TICKS = 160;
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/gunsmith-assembly");
     private static final int WELD_SOUND_INTERVAL_TICKS = 24;
+    private static final String K_INVENTORY = "Inventory";
+    private static final String K_PENDING_RESULT = "PendingResult";
     private static final String K_ANIMATION_END = "AnimationEndTick";
 
     private long animationEndTick;
     private long nextWeldSoundTick;
+    private ItemStack pendingResult = ItemStack.EMPTY;
+    private boolean pendingBlockedReported;
+
+    private final ItemStackHandler inventory = new ItemStackHandler(SLOT_COUNT) {
+        @Override
+        protected void onContentsChanged(int slot) {
+            if (slot == SLOT_OUTPUT) {
+                pendingBlockedReported = false;
+            }
+            setChanged();
+        }
+
+        @Override
+        public boolean isItemValid(int slot, ItemStack stack) {
+            if (slot == SLOT_BLUEPRINT) {
+                return GunsmithAssemblyRecipe.isBlueprint(stack);
+            }
+            if (slot >= SLOT_PART_BASE && slot < SLOT_OUTPUT) {
+                return GunsmithAssemblyRecipe.matchesPart(stack, partForSlot(slot));
+            }
+            return false;
+        }
+
+        @Override
+        public int getSlotLimit(int slot) {
+            return 1;
+        }
+    };
 
     public GunsmithAssemblyBenchBlockEntity(BlockPos pos, BlockState state) {
         super(ModMunitionsBlockEntities.GUNSMITH_ASSEMBLY_BENCH.get(), pos, state);
     }
 
-    public boolean startAssembly(int durationTicks) {
+    public static int slotForPart(GunsmithPressPart part) {
+        return SLOT_PART_BASE + part.index();
+    }
+
+    private static GunsmithPressPart partForSlot(int slot) {
+        int index = slot - SLOT_PART_BASE;
+        GunsmithPressPart[] parts = GunsmithPressPart.values();
+        if (index < 0 || index >= parts.length) {
+            throw new IllegalArgumentException("slot is not a gunsmith part slot: " + slot);
+        }
+        return parts[index];
+    }
+
+    public ItemStackHandler inventory() {
+        return inventory;
+    }
+
+    public boolean tryStartAssembly(ServerPlayer player) {
+        return tryStartAssembly(player, GunsmithGunFactory.materializeM4A1(), ASSEMBLY_DURATION_TICKS);
+    }
+
+    boolean tryStartAssembly(ServerPlayer player, ItemStack baseGun, int durationTicks) {
         if (durationTicks <= 0) {
             throw new IllegalArgumentException("durationTicks must be positive");
         }
-        if (level == null || level.isClientSide || isAnimating()) {
+        if (!MunitionsConfig.GUNSMITH_ENABLED.get()) {
+            player.displayClientMessage(Component.translatable("message.miningdim.gunsmith.disabled"), true);
             return false;
+        }
+        if (isAnimating() || !pendingResult.isEmpty()) {
+            player.displayClientMessage(
+                    Component.translatable("message.miningdim.gunsmith_assembly_bench.busy"), true);
+            return false;
+        }
+        if (!inventory.getStackInSlot(SLOT_OUTPUT).isEmpty()) {
+            player.displayClientMessage(
+                    Component.translatable("message.miningdim.gunsmith_assembly_bench.output_blocked"), true);
+            return false;
+        }
+        if (!GunsmithAssemblyRecipe.isBlueprint(inventory.getStackInSlot(SLOT_BLUEPRINT))) {
+            player.displayClientMessage(
+                    Component.translatable("message.miningdim.gunsmith_assembly_bench.missing_blueprint"), true);
+            return false;
+        }
+
+        EnumMap<GunsmithPressPart, ItemStack> parts = snapshotParts();
+        for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            if (!GunsmithAssemblyRecipe.matchesPart(parts.get(part), part)) {
+                player.displayClientMessage(Component.translatable(
+                        "message.miningdim.gunsmith_assembly_bench.missing_part",
+                        Component.translatable(part.labelKey())), true);
+                return false;
+            }
+        }
+        if (baseGun.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.miningdim.m4_template.tacz_missing"), true);
+            return false;
+        }
+
+        ItemStack result = GunsmithAssemblyRecipe.assemble(baseGun, parts);
+        for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            inventory.extractItem(slotForPart(part), 1, false);
+        }
+        pendingResult = result;
+        beginAnimation(durationTicks);
+        player.closeContainer();
+        player.displayClientMessage(
+                Component.translatable("message.miningdim.gunsmith_assembly_bench.started"), true);
+        return true;
+    }
+
+    private EnumMap<GunsmithPressPart, ItemStack> snapshotParts() {
+        EnumMap<GunsmithPressPart, ItemStack> parts = new EnumMap<>(GunsmithPressPart.class);
+        for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            parts.put(part, inventory.getStackInSlot(slotForPart(part)).copyWithCount(1));
+        }
+        return parts;
+    }
+
+    private void beginAnimation(int durationTicks) {
+        if (level == null || level.isClientSide) {
+            throw new IllegalStateException("assembly can only start on the logical server");
         }
         long now = level.getGameTime();
         animationEndTick = now + durationTicks;
@@ -35,7 +168,6 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity {
         setActiveState(true);
         playWeldSound();
         setChanged();
-        return true;
     }
 
     public void serverTick() {
@@ -46,13 +178,16 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity {
             if (getBlockState().getValue(GunsmithAssemblyBenchBlock.ACTIVE)) {
                 setActiveState(false);
             }
+            finishPendingResult();
             return;
         }
+
         long now = level.getGameTime();
         if (now >= animationEndTick) {
             animationEndTick = 0L;
             nextWeldSoundTick = 0L;
             setActiveState(false);
+            finishPendingResult();
             setChanged();
             return;
         }
@@ -61,6 +196,23 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity {
             playWeldSound();
             nextWeldSoundTick = now + WELD_SOUND_INTERVAL_TICKS;
         }
+    }
+
+    private void finishPendingResult() {
+        if (pendingResult.isEmpty()) {
+            return;
+        }
+        if (!inventory.getStackInSlot(SLOT_OUTPUT).isEmpty()) {
+            if (!pendingBlockedReported) {
+                LOGGER.error("Assembly output blocked at {} while a pending result exists", worldPosition);
+                pendingBlockedReported = true;
+            }
+            return;
+        }
+        inventory.setStackInSlot(SLOT_OUTPUT, pendingResult);
+        pendingResult = ItemStack.EMPTY;
+        pendingBlockedReported = false;
+        setChanged();
     }
 
     public boolean isAnimating() {
@@ -93,25 +245,56 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity {
                 SoundSource.BLOCKS, 0.34F, pitch);
     }
 
+    public List<ItemStack> dropContents() {
+        List<ItemStack> drops = new ArrayList<>();
+        for (int slot = 0; slot < inventory.getSlots(); slot++) {
+            ItemStack extracted = inventory.extractItem(slot, Integer.MAX_VALUE, false);
+            if (!extracted.isEmpty()) {
+                drops.add(extracted);
+            }
+        }
+        if (!pendingResult.isEmpty()) {
+            drops.add(pendingResult);
+            pendingResult = ItemStack.EMPTY;
+        }
+        setChanged();
+        return drops;
+    }
+
+    @Override
+    public Component getDisplayName() {
+        return Component.translatable("container.miningdim.gunsmith_assembly_bench");
+    }
+
+    @Nullable
+    @Override
+    public AbstractContainerMenu createMenu(int windowId, Inventory playerInventory, Player player) {
+        return new GunsmithAssemblyMenu(windowId, playerInventory, worldPosition);
+    }
+
     @Override
     protected void saveAdditional(CompoundTag tag) {
         super.saveAdditional(tag);
-        writeAnimationState(tag);
+        tag.put(K_INVENTORY, inventory.serializeNBT());
+        if (!pendingResult.isEmpty()) {
+            tag.put(K_PENDING_RESULT, pendingResult.save(new CompoundTag()));
+        }
+        tag.putLong(K_ANIMATION_END, animationEndTick);
     }
 
     @Override
     public void load(CompoundTag tag) {
         super.load(tag);
-        readAnimationState(tag);
-    }
-
-    private void writeAnimationState(CompoundTag tag) {
-        tag.putLong(K_ANIMATION_END, animationEndTick);
-    }
-
-    private void readAnimationState(CompoundTag tag) {
-        // Missing animation keys represent the initial idle state for pre-feature chunks.
+        // Missing inventory/pending keys are the initial state for benches placed before the assembly UI existed.
+        if (tag.contains(K_INVENTORY, Tag.TAG_COMPOUND)) {
+            inventory.deserializeNBT(tag.getCompound(K_INVENTORY));
+        }
+        pendingResult = tag.contains(K_PENDING_RESULT, Tag.TAG_COMPOUND)
+                ? ItemStack.of(tag.getCompound(K_PENDING_RESULT))
+                : ItemStack.EMPTY;
         animationEndTick = tag.getLong(K_ANIMATION_END);
+        nextWeldSoundTick = 0L;
+        pendingBlockedReported = false;
     }
 
     @Override
@@ -126,7 +309,6 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity {
     }
 
     private record DirectionBounds(int minX, int maxX, int minZ, int maxZ) {
-
         private static DirectionBounds from(BlockPos mainPos, net.minecraft.core.Direction facing) {
             int minX = mainPos.getX();
             int maxX = mainPos.getX();

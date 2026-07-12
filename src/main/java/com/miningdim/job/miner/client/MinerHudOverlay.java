@@ -55,6 +55,11 @@ public final class MinerHudOverlay {
     private static final int COLOR_LOCKED = 0xFF888888;
     private static final int COLOR_BAR_BG = 0xFF3A3A3A;
     private static final int COLOR_BAR_FILL = 0xFF44C851;
+    /** 连锁预览计数颜色 (青, 与 MinerHighlightRenderer 预览轮廓同色系)。 */
+    private static final int COLOR_PREVIEW = 0xFF4CD9FF;
+
+    /** "连锁 N" 计数相对屏幕中心 (准星) 的竖向偏移 (像素, 画在准星下方避开准星本身)。 */
+    private static final int CROSSHAIR_COUNT_Y_OFFSET = 10;
 
     @SubscribeEvent
     public static void onRegisterOverlays(RegisterGuiOverlaysEvent event) {
@@ -73,6 +78,10 @@ public final class MinerHudOverlay {
             MinerStatusClient.clear(); // 离开矿洞维度即丢快照, 防再入时新包到达前闪现旧数据。
             return;
         }
+        // 连锁预览计数 "连锁 N" 画在准星旁 (独立于左上状态面板; 仅按住连锁且服务端回了预览时有值)。
+        // 置于状态包空判之前: 预览槽由连锁预览 S2C 独立驱动, 不依赖状态 HUD 快照是否已到。
+        drawChainPreviewCount(mc, g, screenWidth, screenHeight);
+
         MinerStatusS2C s = MinerStatusClient.current();
         if (s == null) {
             return; // 尚未收到任何状态包 (刚进维度的极短窗口): 不画。
@@ -90,7 +99,8 @@ public final class MinerHudOverlay {
         Component oreLabel = Component.translatable("skill.miningdim.miner.ore_scan");
         Component trapLabel = Component.translatable("skill.miningdim.miner.trap_scan");
 
-        Component chainVal = s.chainOn() ? onLabel() : offLabel();
+        // 连锁行: 按住激活语义 -> 显示 激活/待机 (非 开/关); 充能 x/y 显示不动。
+        Component chainVal = s.chainOn() ? activeLabel() : standbyLabel();
         Component collectVal = s.autoCollectOn() ? onLabel() : offLabel();
         Component smeltVal = s.autoSmeltOn() ? onLabel() : offLabel();
         Component oreVal = cdValue(s.oreScanCdTicks());
@@ -175,5 +185,34 @@ public final class MinerHudOverlay {
 
     private static Component offLabel() {
         return Component.translatable("hud.miningdim.miner.off");
+    }
+
+    /** 连锁按住激活中。 */
+    private static Component activeLabel() {
+        return Component.translatable("hud.miningdim.miner.active");
+    }
+
+    /** 连锁待机 (未按住)。 */
+    private static Component standbyLabel() {
+        return Component.translatable("hud.miningdim.miner.standby");
+    }
+
+    /**
+     * 在准星旁画 "连锁 N" (N = 连锁预览候选数, 服务端权威跑 plan 后下发, 数据经 {@link MinerHighlightRenderer} 预览槽)。
+     * 仅按住连锁且服务端回了非空预览时显示; 无预览/已过期不画。水平居中于屏幕、置于准星下方。
+     */
+    private static void drawChainPreviewCount(Minecraft mc, GuiGraphics g, int screenWidth, int screenHeight) {
+        if (mc.level == null) {
+            return;
+        }
+        int count = MinerHighlightRenderer.activePreviewCount(mc.level.getGameTime());
+        if (count <= 0) {
+            return;
+        }
+        Font font = mc.font;
+        Component text = Component.translatable("hud.miningdim.miner.chain_preview", count);
+        int textX = (screenWidth - font.width(text)) / 2;
+        int textY = screenHeight / 2 + CROSSHAIR_COUNT_Y_OFFSET;
+        g.drawString(font, text, textX, textY, COLOR_PREVIEW);
     }
 }

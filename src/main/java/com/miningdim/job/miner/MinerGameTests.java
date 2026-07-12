@@ -20,6 +20,8 @@ import com.miningdim.job.miner.network.MinerHighlightS2C;
 import com.miningdim.job.miner.network.MinerStatusS2C;
 import com.miningdim.ore.OreType;
 import com.miningdim.testutil.MockGameTestPlayers;
+import com.miningdim.trap.StaticTrapKind;
+import com.miningdim.trap.TrapRegistry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
@@ -42,6 +44,7 @@ import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -510,13 +513,18 @@ public final class MinerGameTests {
         helper.assertTrue(MinerStatusS2C.cdRemainingTicks(state, MinerSkill.ORE_SCAN, 160L, true) == 0,
                 "at readyAt tick the scan reads ready (0)");
 
-        // capture 端到端: L2 (连锁解锁, 探矿未解锁 L3) -> 池 16, 矿探 locked -1; 翻连锁开后 chainOn。
-        state.flipToggle(MinerSkill.CHAIN);
+        // capture 端到端: L2 (连锁解锁, 探矿未解锁 L3) -> 池 16, 矿探 locked -1; 连锁位 = 按住激活中 (非持久开关)。
+        // 连锁改按住激活后, capture 的 CHAIN 位反映 chainHeldActive(now): 续期后激活, 松开/超时后待机。
+        state.setChainHeld(200L + MinerConstants.CHAIN_HOLD_GRACE_TICKS); // now=200 时 heldUntil=230 -> 激活。
         MinerStatusS2C snap = MinerStatusS2C.capture(state, 2, 200L);
         helper.assertTrue(snap.poolMax() == 16, "L2 capture poolMax = 16 (chain unlocked)");
-        helper.assertTrue(snap.chainOn(), "L2 capture reflects chain toggled ON");
+        helper.assertTrue(snap.chainOn(), "L2 capture reflects chain held-active (heldUntil >= now)");
         helper.assertTrue(snap.oreScanCdTicks() == MinerStatusS2C.CD_LOCKED,
                 "L2 capture ore scan locked (-1) since ore scan unlocks at L3");
+        // 松开 (clear) 后同一 now 的 capture 连锁位转 false (激活 -> 待机)。删 chainHeldActive 接线则 CHAIN 位恒错必挂。
+        state.clearChainHeld();
+        MinerStatusS2C released = MinerStatusS2C.capture(state, 2, 200L);
+        helper.assertFalse(released.chainOn(), "after release capture reflects chain standby (not held-active)");
         helper.succeed();
     }
 
@@ -863,6 +871,129 @@ public final class MinerGameTests {
             threwLive = true;
         }
         helper.assertFalse(threwLive, "sendHighlight to a connected player dispatches without error (guard passes)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 连锁"按住激活" hold 语义 (FTB Ultimine): heldUntilTick 续期 / 超时失效 / 松开立即失效 (纯逻辑)。
+    // 删 chainHeldActive / setChainHeld / clearChainHeld 任一 -> 激活判定错必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void chainHoldRenewExpireRelease(GameTestHelper helper) {
+        MinerChargeState state = new MinerChargeState();
+        // 从未按住: 不激活 (heldUntilTick = Long.MIN_VALUE)。
+        helper.assertFalse(state.chainHeldActive(100L), "never-held chain is not active");
+
+        // 收 hold=true (now=100): heldUntil = 100 + 30 = 130; [100,130] 激活, 131 失效 (无心跳续期)。
+        state.setChainHeld(100L + MinerConstants.CHAIN_HOLD_GRACE_TICKS);
+        helper.assertTrue(state.chainHeldActive(100L), "held-active at grant tick");
+        helper.assertTrue(state.chainHeldActive(130L), "held-active at exact grace boundary (heldUntil >= now)");
+        helper.assertFalse(state.chainHeldActive(131L), "expires one tick past the 30-tick grace without a heartbeat");
+
+        // 心跳续期 (now=125 再收 hold=true): heldUntil = 125+30 = 155; 原 131 已过期, 续期后 150 又激活。
+        state.setChainHeld(125L + MinerConstants.CHAIN_HOLD_GRACE_TICKS);
+        helper.assertTrue(state.chainHeldActive(150L), "heartbeat renewal extends the active window to 155");
+        helper.assertFalse(state.chainHeldActive(156L), "still expires one tick past the renewed grace");
+
+        // 松开 (clear): 立即失效, 即便远未到自然失效点 (heldUntil=230, now=205 本应激活)。
+        state.setChainHeld(200L + MinerConstants.CHAIN_HOLD_GRACE_TICKS);
+        helper.assertTrue(state.chainHeldActive(205L), "held-active before release");
+        state.clearChainHeld();
+        helper.assertFalse(state.chainHeldActive(205L), "release clears held immediately, before natural expiry");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // plan/execute 单一真源一致性: execute 消费 plan 的候选做破坏与陷阱交互; 实际产出集合 == plan 候选 减去(触发的)陷阱位。
+    // 删 execute 的陷阱交互 -> 陷阱被当普通矿产出必挂; 删 plan 把未揭示陷阱计入候选 -> plan.size 不含 trap 必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void chainPlanExecuteConsistency(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        TrapRegistry reg = TrapRegistry.get(level);
+
+        // coal 矿脉 (绝对坐标直写世界, 避开结构相对边界): origin + a + b + trap 相连成 2x2 一角; trap 是未揭示陷阱
+        // (身份只在注册表, 世界里是真 coal_ore)。origin-a-b 直邻, trap 邻 a 与 b (BFS 第二层)。
+        BlockPos origin = helper.absolutePos(new BlockPos(0, 1, 0));
+        BlockPos a = origin.east();     // 直邻 origin
+        BlockPos b = origin.south();    // 直邻 origin
+        BlockPos trap = a.south();      // = b.east(); 邻 a 与 b, BFS 第二层
+        net.minecraft.world.level.block.state.BlockState coal = Blocks.COAL_ORE.defaultBlockState();
+        level.setBlock(origin, coal, Block.UPDATE_ALL);
+        level.setBlock(a, coal, Block.UPDATE_ALL);
+        level.setBlock(b, coal, Block.UPDATE_ALL);
+        level.setBlock(trap, coal, Block.UPDATE_ALL);
+        reg.put(trap, StaticTrapKind.TNT_VEIN); // 未揭示。
+
+        // plan: 三个候选 (a,b 直邻 + trap 第二层; 未揭示 trap 按普通矿石计入), origin 不入。
+        List<BlockPos> planned = ChainMiningEngine.plan(player, level, origin, 16);
+        helper.assertTrue(planned.size() == 3,
+                "plan yields the 3 connected coal candidates incl. the disguised trap, got " + planned.size());
+        helper.assertTrue(planned.contains(a) && planned.contains(b) && planned.contains(trap),
+                "plan contains a, b and the (unrevealed) trap position");
+        helper.assertFalse(planned.contains(origin), "plan excludes the origin block");
+
+        // execute 消费同一 plan: 破坏普通 a/b (产出), 触发 trap (无产出, 移除条目), 返回 broken=2。
+        List<BlockPos> produced = new ArrayList<>();
+        ChainMiningEngine engine = new ChainMiningEngine();
+        int broken = engine.execute(player, level, planned, (pos, block, drops) -> produced.add(pos));
+        helper.assertTrue(broken == 2, "execute breaks exactly the 2 non-trap candidates, broken=" + broken);
+        helper.assertTrue(produced.size() == 2 && produced.contains(a) && produced.contains(b),
+                "produced set == plan candidates minus the trap position (a, b)");
+        helper.assertFalse(produced.contains(trap), "detonated trap produces nothing (excluded from output settlement)");
+        helper.assertTrue(reg.get(trap) == null, "unrevealed trap in the plan is triggered by execute -> entry removed");
+
+        reg.remove(trap); // 幂等清理共享 SavedData (触发已移除, 此处防御性)。
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 防泄密不变量 (最高优先级): "该位是未揭示陷阱" 与 "该位是同种普通矿" 两种世界, plan 输出逐位完全相同 —— 否则预览沦为
+    // 免费陷阱探测器, 击穿协议级伪装。已揭示后 plan 排除该位 (玩家已知情报, 允许截断)。
+    // 删 plan 对未揭示陷阱的"按普通矿石处理" (改成跳过/不扩散) -> 两世界 plan 不同必挂 (核心防泄密断言)。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void chainPlanDoesNotLeakUnrevealedTraps(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        TrapRegistry reg = TrapRegistry.get(level);
+
+        // 折线 coal 矿脉 origin-mid-beyond (绝对坐标直写): beyond 仅经 mid 连通 (mid 是割点), 便于验证"已揭示 mid 后
+        // beyond 也被截断"。origin 直邻 mid; beyond 邻 mid 但不邻 origin。
+        BlockPos origin = helper.absolutePos(new BlockPos(0, 1, 0));
+        BlockPos mid = origin.east();   // 直邻 origin
+        BlockPos beyond = mid.south();  // 邻 mid, 不邻 origin (仅经 mid 连通)
+        net.minecraft.world.level.block.state.BlockState coal = Blocks.COAL_ORE.defaultBlockState();
+        level.setBlock(origin, coal, Block.UPDATE_ALL);
+        level.setBlock(mid, coal, Block.UPDATE_ALL);
+        level.setBlock(beyond, coal, Block.UPDATE_ALL);
+
+        // 世界 B (mid 是普通 coal, 无注册表条目): 基线 plan = [mid, beyond]。
+        List<BlockPos> planNormal = ChainMiningEngine.plan(player, level, origin, 16);
+        helper.assertTrue(planNormal.size() == 2 && planNormal.contains(mid) && planNormal.contains(beyond),
+                "baseline (normal-ore) plan reaches mid + beyond, size 2, got " + planNormal);
+
+        // 世界 A (mid 是未揭示陷阱): plan 必须与世界 B 逐位完全相同 (list.equals), 否则预览泄漏 mid 是陷阱。
+        reg.put(mid, StaticTrapKind.TNT_VEIN); // 未揭示 (未 markRevealed)。
+        List<BlockPos> planUnrevealedTrap = ChainMiningEngine.plan(player, level, origin, 16);
+        helper.assertTrue(planUnrevealedTrap.equals(planNormal),
+                "UNREVEALED trap plan is identical to the normal-ore plan (no free trap detector): "
+                        + planUnrevealedTrap + " vs " + planNormal);
+
+        // 世界 C (mid 已揭示): plan 排除 mid, 且 beyond 因只经 mid 连通亦被截断 (玩家已知情报, 允许截断)。
+        reg.markRevealed(player.getUUID(), mid);
+        List<BlockPos> planRevealedTrap = ChainMiningEngine.plan(player, level, origin, 16);
+        helper.assertFalse(planRevealedTrap.contains(mid), "revealed trap is excluded from the plan");
+        helper.assertFalse(planRevealedTrap.contains(beyond), "block reachable only through a revealed trap is also excluded");
+        helper.assertTrue(planRevealedTrap.isEmpty(), "revealed trap acts as a barrier: nothing chains past it here");
+        helper.assertTrue(planRevealedTrap.size() < planUnrevealedTrap.size(),
+                "revealing the trap strictly shrinks the plan (proves unrevealed was treated as normal ore)");
+
+        reg.remove(mid); // 清理共享 SavedData。
         helper.succeed();
     }
 

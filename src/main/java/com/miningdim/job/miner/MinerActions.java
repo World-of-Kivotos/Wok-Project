@@ -4,6 +4,7 @@ import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningServices;
 import com.miningdim.entry.IMiningPlayerData;
 import com.miningdim.entry.MiningCapabilities;
+import com.miningdim.job.miner.network.MinerChainPreviewS2C;
 import com.miningdim.job.miner.network.MinerHighlightS2C;
 import com.miningdim.job.miner.network.MinerNetwork;
 import com.miningdim.job.miner.network.MinerStatusS2C;
@@ -14,6 +15,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 
 import java.util.List;
 import java.util.Optional;
@@ -47,10 +49,67 @@ public final class MinerActions {
             case TUNNEL -> tryTunnel(sys, player, state, level, now);
             case EVACUATE -> tryEvacuate(player, state, level, now);
             case DECOY -> tryDecoy(player, state, level, now);
-            case CHAIN -> toggleSimple(player, state, level, skill, MinerSkills.chainUnlocked(level));
+            case CHAIN -> {
+                // 连锁已改"按住激活" (走 MinerChainHoldC2S 心跳驱动 heldUntilTick, 见 handleChainHold), 不再是持久开关。
+                // 旧式 CHAIN 开关包 (老客户端 / 误发) 在此明确忽略: 不翻任何开关位, 不做兼容旧 toggle 语义 (二选一取忽略,
+                // 避免与新按住态并存产生两套连锁激活来源)。
+            }
             case AUTO_COLLECT -> toggleSimple(player, state, level, skill, MinerSkills.autoCollectUnlocked(level));
             case AUTO_SMELT -> toggleSimple(player, state, level, skill, MinerSkills.autoSmeltBaseUnlocked(level));
         }
+    }
+
+    // ---- 连锁"按住激活" + 服务端权威预览 (FTB Ultimine 式) ----
+
+    /**
+     * 连锁按住上报处理 (MinerChainHoldC2S 服务端 handler 委派, 主线程): held=true 把 heldUntilTick 续到
+     * now + {@link MinerConstants#CHAIN_HOLD_GRACE_TICKS} (客户端按住期间心跳周期性重发续期); held=false 立即失效。
+     * 仅当"按住激活"态发生翻转时立即补发一次 HUD 状态, 使连锁行"激活/待机"秒级反映 (心跳续期不翻转态则不重复推)。
+     *
+     * 不在此做等级解锁门控: BreakEvent 侧另有 {@link MinerSkills#chainUnlocked} 硬门 (未解锁存了按住态也不会真连锁),
+     * 于此静默丢弃反而使服务端与客户端按住态不一致; 故照存, 无副作用。
+     */
+    public static void handleChainHold(ServerPlayer player, boolean held) {
+        MinerSystem sys = MinerSystem.get();
+        MinerChargeState state = sys.stateOf(player);
+        long now = serverTick(player);
+        boolean wasActive = state.chainHeldActive(now);
+        if (held) {
+            state.setChainHeld(now + MinerConstants.CHAIN_HOLD_GRACE_TICKS);
+        } else {
+            state.clearChainHeld();
+        }
+        if (wasActive != state.chainHeldActive(now)) {
+            pushStatus(player, state, sys.minerLevel(player), now); // 激活态翻转即秒刷 HUD 连锁行 (激活/待机)。
+        }
+    }
+
+    /**
+     * 连锁预览请求处理 (MinerChainPreviewC2S 服务端 handler 委派, 主线程): 服务端权威校验后跑 {@link ChainMiningEngine#plan}
+     * 回一份候选坐标列表 (以列表长度为计数) 下发。客户端无权算连锁范围, 只按本包渲染轮廓与"连锁 N"。
+     *
+     * 校验 (任一不满足即不下发, 客户端预览槽随短 expire 天然自清): 连锁已解锁 + 正按住激活 (防未按住的伪造请求洗图) +
+     * 在矿洞 region 内 + 准星目标块本身可连锁 (whitelisted)。plan 对未揭示陷阱按其伪装的普通矿石处理 (最高优先级防泄密不变量),
+     * 故预览计数/位置不泄漏任何陷阱位。budget 取当前充能, 预览范围与真连锁一致。
+     */
+    public static void handleChainPreview(ServerPlayer player, BlockPos target) {
+        MinerSystem sys = MinerSystem.get();
+        MinerChargeState state = sys.stateOf(player);
+        int level = sys.minerLevel(player);
+        long now = serverTick(player);
+        if (!MinerSkills.chainUnlocked(level) || !state.chainHeldActive(now) || !inMiningRegion(player)) {
+            return;
+        }
+        if (!(player.level() instanceof ServerLevel sl)) {
+            return;
+        }
+        Block targetBlock = sl.getBlockState(target).getBlock();
+        if (!ChainMiningEngine.isWhitelisted(targetBlock)) {
+            return; // 目标不可连锁 (非白名单): 不下发, 预览槽随 expire 自清。
+        }
+        List<BlockPos> planned = ChainMiningEngine.plan(player, sl, target, state.currentCharge());
+        long expire = now + MinerConstants.CHAIN_PREVIEW_EXPIRE_TICKS;
+        MinerNetwork.sendChainPreview(player, new MinerChainPreviewS2C(expire, planned));
     }
 
     // ---- 探测类 ----

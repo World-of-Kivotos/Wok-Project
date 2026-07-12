@@ -198,8 +198,11 @@ public final class MinerSystem implements Subsystem {
         // 当前工具与扣前 damageValue, 同 tick 末 (onServerTick) 核对回补 (净零耐久损耗)。详见 MinerChargeState 字段注释。
         armDurabilitySave(player, minerLevel, state);
 
-        // 连锁挖矿 (开关开 + 已解锁 + 有充能): 起始块是本事件的块, 连带破坏受充能预算约束。
-        if (state.toggled(MinerSkill.CHAIN) && MinerSkills.chainUnlocked(minerLevel) && level instanceof ServerLevel sl) {
+        // 连锁挖矿 (按住激活 + 已解锁 + 有充能): 连锁改 FTB Ultimine 式按住键激活 —— 客户端按住期间心跳续期
+        // heldUntilTick, 此处以 chainHeldActive(now) 判定激活 (取代旧持久开关 toggled(CHAIN))。起始块是本事件的块,
+        // 连带破坏受充能预算约束。
+        if (MinerSkills.chainUnlocked(minerLevel) && level instanceof ServerLevel sl
+                && state.chainHeldActive(sl.getGameTime())) {
             int budget = state.currentCharge();
             if (budget > 0) {
                 boolean autoCollect = state.toggled(MinerSkill.AUTO_COLLECT) && MinerSkills.autoCollectUnlocked(minerLevel);

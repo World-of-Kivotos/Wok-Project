@@ -12,10 +12,12 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Queue;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * 连锁挖矿 BFS 引擎 (Miner_Job_DesignSpec 第四章, 反通胀第一道硬约束)。
@@ -56,27 +58,101 @@ public final class ChainMiningEngine {
     }
 
     /**
-     * 从起始块发起连锁 BFS (玩家手动破坏的同矿种相连普通方块)。
+     * 从起始块发起连锁 (玩家手动破坏的同矿种相连普通方块): 先 {@link #plan} 收候选, 再 {@link #execute} 回放破坏。
+     * 预览与实际连锁共用同一 {@link #plan} (单一真源, 保证预览数字与实际连锁永不撒谎)。
      *
-     * @param player    挖矿者 (用于工具 / 掉落上下文)
+     * @param player    挖矿者 (用于工具 / 掉落上下文 / 揭示态归属)
      * @param origin    起始块世界坐标 (玩家刚破坏的块; 不计入 budget, 由原始事件计数)
      * @param level     世界
      * @param budget    充能预算 (本次连锁最多额外破坏的块数)
      * @param sink      逐块产出回放 sink
-     * @return 实际连带破坏的块数 (<= budget)
+     * @return 实际连带破坏的块数 (触发的未揭示陷阱不计入, 与现行陷阱语义一致)
      */
     public int chainBreak(ServerPlayer player, BlockPos origin, ServerLevel level, int budget, OreCountSink sink) {
-        if (budget <= 0 || reentrant) {
-            return 0;
+        return execute(player, level, plan(player, level, origin, budget), sink);
+    }
+
+    /**
+     * 纯 plan: 从起始块 BFS 收集连锁候选坐标 (有序, 不含 origin), 不改世界、不触发陷阱、不消耗充能 —— 预览与
+     * {@link #chainBreak} 共用本函数作候选来源。含全部现行规则: 白名单/硬排除/同矿种扩散/充能上限。
+     *
+     * 陷阱处置 (最高优先级防泄密不变量, 用户裁决):
+     *  - 已揭示陷阱位: 跳过 (不入候选、不从其扩散) —— 玩家已探测掌握此情报, 与现行连锁"已揭示跳过"一致, 不泄密。
+     *  - 未揭示陷阱位: 与其伪装成的普通矿石完全同等对待 (照常入候选 + 从其继续扩散)。这一点是不可谈判的: 若跳过或不
+     *    扩散, "该位是未揭示陷阱"与"该位是同种普通矿"两种世界的 plan 就会不同, 预览沦为免费陷阱探测器, 击穿协议级伪装。
+     *    世界里陷阱位本就是真伪装矿石 (身份只在 {@link TrapRegistry}), 故这里对未揭示陷阱不查注册表、按世界方块处理即天然满足。
+     */
+    public static List<BlockPos> plan(ServerPlayer player, ServerLevel level, BlockPos origin, int budget) {
+        List<BlockPos> out = new ArrayList<>();
+        if (budget <= 0) {
+            return out;
         }
         Block originBlock = level.getBlockState(origin).getBlock();
         if (!isWhitelisted(originBlock)) {
-            return 0; // 起始块非白名单 (如直接挖钻石): 不连锁。
+            return out; // 起始块非白名单 (如直接挖钻石): 不连锁。
         }
+        TrapRegistry registry = TrapRegistry.get(level);
+        UUID uuid = player.getUUID();
+        Set<BlockPos> visited = new HashSet<>();
+        Queue<BlockPos> frontier = new ArrayDeque<>();
+        visited.add(origin.immutable());
+        frontier.add(origin.immutable());
 
+        while (!frontier.isEmpty() && out.size() < budget) {
+            BlockPos cur = frontier.poll();
+            for (Direction d : Direction.values()) {
+                BlockPos next = cur.relative(d);
+                if (visited.contains(next)) {
+                    continue;
+                }
+                visited.add(next.immutable());
+                Block block = level.getBlockState(next).getBlock();
+                // 连锁只在 "与起始块同种且白名单" 上扩散 (清矿脉语义); 遇高价矿/异种停在边界不破坏。
+                if (block != originBlock || !isWhitelisted(block) || isHardExcluded(block)) {
+                    continue;
+                }
+                // 已揭示陷阱: 跳过 (不入候选、不扩散); 未揭示陷阱不查注册表 (按普通矿石处理), 保证两世界 plan 恒等 (防泄密)。
+                if (registry.get(next) != null && registry.isRevealed(uuid, next)) {
+                    continue;
+                }
+                BlockPos nextImmutable = next.immutable();
+                out.add(nextImmutable);
+                frontier.add(nextImmutable);
+                if (out.size() >= budget) {
+                    break;
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 消费 {@link #plan} 的候选列表做实际破坏与陷阱交互 (与预览走同一 plan)。逐候选位:
+     *  - 未揭示陷阱: {@link #handleChainTrap} 触发 (移除条目 + 吞块无掉落 + 反应窗口效果), 不计产出、不计入返回 broken;
+     *  - 已揭示陷阱 (理论上 plan 已排除, 防御性): 跳过, 不破坏;
+     *  - 普通白名单块: {@link #breakOne} 破坏并经 sink 唯一物化产出, broken++。
+     * 防重入标志置位期间 destroyBlock 触发的二次 BreakEvent 不再进入连锁。
+     *
+     * @return 实际破坏的块数 (未揭示陷阱触发不计入, 与现行陷阱语义一致)
+     */
+    public int execute(ServerPlayer player, ServerLevel level, List<BlockPos> planned, OreCountSink sink) {
+        if (planned.isEmpty() || reentrant) {
+            return 0;
+        }
         reentrant = true;
         try {
-            return bfsBreak(player, level, origin, originBlock, budget, sink, neighbors6());
+            int broken = 0;
+            for (BlockPos pos : planned) {
+                BlockState state = level.getBlockState(pos);
+                // 陷阱交互 (命中注册表): 已揭示跳过 / 未揭示触发, 两者都不进产出、不计入 broken。
+                if (handleChainTrap(player, level, pos, state) != TrapInteraction.NOT_TRAP) {
+                    continue;
+                }
+                if (breakOne(player, level, pos, state, sink)) {
+                    broken++;
+                }
+            }
+            return broken;
         } finally {
             reentrant = false;
         }
@@ -123,46 +199,6 @@ public final class ChainMiningEngine {
         } finally {
             reentrant = false;
         }
-    }
-
-    // ---- BFS 内核 ----
-
-    private int bfsBreak(ServerPlayer player, ServerLevel level, BlockPos origin, Block originBlock,
-                         int budget, OreCountSink sink, Direction[] dirs) {
-        Set<BlockPos> visited = new HashSet<>();
-        Queue<BlockPos> frontier = new ArrayDeque<>();
-        visited.add(origin.immutable());
-        frontier.add(origin.immutable());
-
-        int broken = 0;
-        while (!frontier.isEmpty() && broken < budget) {
-            BlockPos cur = frontier.poll();
-            for (Direction d : dirs) {
-                BlockPos next = cur.relative(d);
-                if (visited.contains(next)) {
-                    continue;
-                }
-                visited.add(next.immutable());
-                BlockState state = level.getBlockState(next);
-                Block block = state.getBlock();
-                // 连锁只在 "与起始块同种且白名单" 上扩散 (清矿脉语义); 遇高价矿/异种停在边界不破坏。
-                if (block != originBlock || !isWhitelisted(block) || isHardExcluded(block)) {
-                    continue;
-                }
-                // 伪装陷阱交互: 命中注册表 -> 已揭示跳过 (方块保留) / 未揭示触发, 两者都不计产出、不从此位继续扩散。
-                if (handleChainTrap(player, level, next.immutable(), state) != TrapInteraction.NOT_TRAP) {
-                    continue;
-                }
-                if (breakOne(player, level, next.immutable(), state, sink)) {
-                    broken++;
-                    frontier.add(next.immutable());
-                    if (broken >= budget) {
-                        break;
-                    }
-                }
-            }
-        }
-        return broken;
     }
 
     /**
@@ -242,10 +278,6 @@ public final class ChainMiningEngine {
     }
 
     // ---- 工具 ----
-
-    private static Direction[] neighbors6() {
-        return Direction.values();
-    }
 
     private static Direction toHorizontal(Direction d) {
         return switch (d) {

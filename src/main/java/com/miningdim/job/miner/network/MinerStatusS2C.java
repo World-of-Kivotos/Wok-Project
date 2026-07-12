@@ -31,7 +31,7 @@ public record MinerStatusS2C(int charge, int poolMax, byte toggleBits, int oreSc
     /** CD 字段哨兵: 技能未解锁 (客户端显示 "未解锁", 区别于就绪的 0)。 */
     public static final int CD_LOCKED = -1;
 
-    /** toggleBits 位: 连锁挖矿开。 */
+    /** toggleBits 位: 连锁挖矿"当前按住激活中" (连锁已从持久开关改为按住激活, 本位反映 heldUntilTick 是否仍有效, 非开关态)。 */
     private static final int BIT_CHAIN = 0x1;
     /** toggleBits 位: 自动入包开。 */
     private static final int BIT_AUTO_COLLECT = 0x2;
@@ -46,7 +46,7 @@ public record MinerStatusS2C(int charge, int poolMax, byte toggleBits, int oreSc
         int charge = state.currentCharge();
         int poolMax = MinerSkills.chainChargePool(level);
         byte bits = packToggles(
-                state.toggled(MinerSkill.CHAIN),
+                state.chainHeldActive(now), // 连锁位 = 当前按住激活中 (非持久开关; heldUntilTick >= now)。
                 state.toggled(MinerSkill.AUTO_COLLECT),
                 state.toggled(MinerSkill.AUTO_SMELT));
         int oreCd = cdRemainingTicks(state, MinerSkill.ORE_SCAN, now, MinerSkills.oreScanUnlocked(level));

@@ -51,6 +51,15 @@ public final class MinerNetwork {
         CHANNEL.registerMessage(nextId(), MinerStatusS2C.class,
                 MinerStatusS2C::encode, MinerStatusS2C::decode, MinerStatusS2C::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(nextId(), MinerChainHoldC2S.class,
+                MinerChainHoldC2S::encode, MinerChainHoldC2S::decode, MinerChainHoldC2S::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(nextId(), MinerChainPreviewC2S.class,
+                MinerChainPreviewC2S::encode, MinerChainPreviewC2S::decode, MinerChainPreviewC2S::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(nextId(), MinerChainPreviewS2C.class,
+                MinerChainPreviewS2C::encode, MinerChainPreviewS2C::decode, MinerChainPreviewS2C::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 
     /** 下发高亮包到指定玩家 (探矿/陷阱探测服务端权威查询后发)。 */
@@ -63,6 +72,14 @@ public final class MinerNetwork {
 
     /** 下发状态 HUD 包到指定玩家 (瞬态态节流同步; 复用 highlight 的活动连接守卫)。 */
     public static void sendStatus(ServerPlayer player, MinerStatusS2C msg) {
+        if (!canReceive(player)) {
+            return;
+        }
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), msg);
+    }
+
+    /** 下发连锁预览包到指定玩家 (服务端权威跑 plan 后发; 复用同一活动连接守卫)。 */
+    public static void sendChainPreview(ServerPlayer player, MinerChainPreviewS2C msg) {
         if (!canReceive(player)) {
             return;
         }

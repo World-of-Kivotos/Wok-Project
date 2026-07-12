@@ -64,6 +64,24 @@ public final class MinerConstants {
     // 四、速挖类 (连锁 / 隧道, 慢充能 + 长 CD)
     // ============================================================
 
+    /**
+     * 连锁"按住激活"续期宽限 (tick): 收到 hold=true 心跳包后, 服务端把 heldUntilTick 续到 now + 本值。
+     * 必须 > {@link #CHAIN_HOLD_HEARTBEAT_TICKS} 心跳间隔, 使按住期间每次心跳都在过期前续上 (不闪断)。松开包立即置失效。
+     */
+    public static final int CHAIN_HOLD_GRACE_TICKS = 30;
+
+    /** 客户端按住连锁期间重发 hold=true 心跳的间隔 (tick): 20 tick 一次, 小于 {@link #CHAIN_HOLD_GRACE_TICKS} 保证续期不断。 */
+    public static final int CHAIN_HOLD_HEARTBEAT_TICKS = 20;
+
+    /** 客户端连锁预览请求的兜底节流间隔 (tick): 准星目标块未变时最多每 10 tick 也重发一次, 使预览随充能回充刷新。 */
+    public static final int CHAIN_PREVIEW_REQUEST_INTERVAL_TICKS = 10;
+
+    /**
+     * 连锁预览高亮存活时长 (tick): 服务端每次预览响应设 expire = now + 本值。按住期间客户端持续请求 (<=10 tick 一次)
+     * 不断刷新故常亮; 松开/目标失效后请求停止, 预览槽约 15 tick 内天然自清 (无需显式清空包)。
+     */
+    public static final int CHAIN_PREVIEW_EXPIRE_TICKS = 15;
+
     /** 连锁挖矿: 解锁 L2。充能池 16(L2) -> 48(L10) 块; 整池回满 ~5 分(L2) -> ~3.5 分(L10)。 */
     public static final int CHAIN_UNLOCK_LEVEL = 2;
     public static final int CHAIN_POOL_AT_UNLOCK = 16;

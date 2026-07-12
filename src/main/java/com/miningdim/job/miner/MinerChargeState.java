@@ -29,8 +29,16 @@ public final class MinerChargeState {
     /** 各主动技能下次就绪 tick (server game time)。未在表内 = 从未用过 = 立即可用。 */
     private final Map<MinerSkill, Long> cooldownReadyAt = new EnumMap<>(MinerSkill.class);
 
-    /** 偏好/主动开关位 (连锁/自动入包/自动熔炼/...)。未在表内 = 关。 */
+    /** 偏好/主动开关位 (自动入包/自动熔炼/...)。未在表内 = 关。连锁已改"按住激活"不再走本表 (见 {@link #chainHeldUntilTick})。 */
     private final Map<MinerSkill, Boolean> toggles = new EnumMap<>(MinerSkill.class);
+
+    /**
+     * 连锁"按住激活"的失效 tick (server game time)。FTB Ultimine 式: 连锁从持久开关改为按住键激活 —— 客户端按住期间
+     * 每 {@link MinerSkills} 心跳重发 hold=true, 服务端把本值续到 收包 tick + {@link MinerConstants#CHAIN_HOLD_GRACE_TICKS};
+     * 松开包立即置 {@link Long#MIN_VALUE} 失效。BreakEvent 判连锁激活即 {@code chainHeldUntilTick >= now} ({@link #chainHeldActive})。
+     * 瞬态, 随运行态在死亡/登出/换维度清理 (与 CD/充能同纪律), 故无需专门在这几处清零 —— 整个 state 被 remove。
+     */
+    private long chainHeldUntilTick = Long.MIN_VALUE;
 
     /** 进行中的脱险读条起算 tick (Long.MIN_VALUE = 未在读条)。 */
     private long evacuateChannelStartTick = Long.MIN_VALUE;
@@ -142,6 +150,28 @@ public final class MinerChargeState {
 
     public void setToggle(MinerSkill skill, boolean on) {
         toggles.put(skill, on);
+    }
+
+    // ---- 连锁"按住激活" (hold, 取代旧持久开关) ----
+
+    /** 续期连锁按住激活到 untilTick (收 hold=true 心跳时调; untilTick 通常为 now + 宽限)。 */
+    public void setChainHeld(long untilTick) {
+        this.chainHeldUntilTick = untilTick;
+    }
+
+    /** 立即失效连锁按住激活 (收 hold=false 松开包时调)。 */
+    public void clearChainHeld() {
+        this.chainHeldUntilTick = Long.MIN_VALUE;
+    }
+
+    /** 连锁按住是否仍激活: now 未越过续期失效点 (heldUntilTick >= now)。松开/超时/从未按住 -> false。 */
+    public boolean chainHeldActive(long now) {
+        return chainHeldUntilTick >= now;
+    }
+
+    /** 连锁按住激活的失效 tick (测试/诊断用; 从未按住为 {@link Long#MIN_VALUE})。 */
+    public long chainHeldUntilTick() {
+        return chainHeldUntilTick;
     }
 
     // ---- 脱险读条 ----

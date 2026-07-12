@@ -61,6 +61,7 @@ public final class ResetJobGameTests {
         final Set<Long> deletedChunks = new HashSet<>();
         int releaseCalls = 0;
         int clearTrapCalls = 0;
+        int cancelQueuedLoadsCalls = 0;
         int flushCalls = 0;
         int deleteCalls = 0;
         /** allChunksUnloaded 前若干次返回 false, 之后返回 true; Integer.MAX_VALUE 表示永不卸载 (超时用例)。 */
@@ -85,6 +86,13 @@ public final class ResetJobGameTests {
         }
 
         @Override
+        public int cancelQueuedLoads() {
+            cancelQueuedLoadsCalls++;
+            log.add("cancelQueued");
+            return 5; // 非零回值, 供上层日志; ResetJob 只做日志
+        }
+
+        @Override
         public boolean allChunksUnloaded() {
             return polls++ >= falsePollsBeforeUnloaded;
         }
@@ -103,12 +111,12 @@ public final class ResetJobGameTests {
         }
     }
 
-    /** tick 到终态 (返回 true) 或超守卫上限; 返回实际推进的 tick 数。 */
+    /** tick 到终态 (返回 true) 或超守卫上限; 返回实际推进的 tick 数。守卫 > AWAIT_UNLOAD 超时窗口 (1200) 才不误伤超时用例。 */
     private static int driveToEnd(GameTestHelper helper, ResetJob job) {
         int ticks = 0;
         while (!job.tick()) {
-            if (++ticks > 1000) {
-                helper.fail("reset job did not terminate within 1000 ticks");
+            if (++ticks > 2000) {
+                helper.fail("reset job did not terminate within 2000 ticks");
                 return ticks;
             }
         }
@@ -133,8 +141,9 @@ public final class ResetJobGameTests {
         helper.assertTrue(job.completion().isDone() && !job.completion().isCompletedExceptionally(),
                 "completion must complete normally on success");
 
-        // UNLOAD 阶段各调一次。
+        // UNLOAD 阶段各调一次 (AWAIT 仅一帧未卸载, 不触发 20-tick 重放, 故 releaseCalls 仍为 1)。
         helper.assertTrue(ops.releaseCalls == 1, "releaseTickets must be called exactly once (was " + ops.releaseCalls + ")");
+        helper.assertTrue(ops.cancelQueuedLoadsCalls == 1, "cancelQueuedLoads must be called exactly once in UNLOAD (was " + ops.cancelQueuedLoadsCalls + ")");
         helper.assertTrue(ops.clearTrapCalls == 1, "clearTrapRegistry must be called exactly once (was " + ops.clearTrapCalls + ")");
 
         // PURGE: 删除恰好 region 的 256 个 chunk, 坐标集合精确匹配 (删空 doPurge 循环 -> 此断言必挂)。
@@ -178,14 +187,77 @@ public final class ResetJobGameTests {
         helper.assertTrue(job.completion().isCompletedExceptionally(),
                 "completion must complete exceptionally on timeout");
 
-        // UNLOAD 仍发生 (释放票/清陷阱), 但 PURGE 一步不做: 无 flush、无 delete。
-        helper.assertTrue(ops.releaseCalls == 1, "releaseTickets still runs in UNLOAD before await");
+        // UNLOAD 仍发生 (释放票/断源清队/清陷阱), 但 PURGE 一步不做: 无 flush、无 delete。
+        // releaseTickets: 1 次 UNLOAD + AWAIT 期间每 20 tick 重放一次 (awaitTicks 20..1200 共 60 次) = 61。
+        // (删掉周期重放 -> releaseCalls 退回 1 -> 本断言必挂; 删超时上限回 300 -> 重放次数与 ticks 都变 -> 亦挂。)
+        helper.assertTrue(ops.releaseCalls == 61,
+                "releaseTickets = 1 (UNLOAD) + 60 periodic replays over the 1200-tick await window (was " + ops.releaseCalls + ")");
+        helper.assertTrue(ops.cancelQueuedLoadsCalls == 1, "cancelQueuedLoads still runs once in UNLOAD before await");
         helper.assertTrue(ops.clearTrapCalls == 1, "clearTrapRegistry still runs in UNLOAD before await");
         helper.assertTrue(ops.flushCalls == 0, "PURGE must not run on timeout (no flush)");
         helper.assertTrue(ops.deleteCalls == 0, "PURGE must not run on timeout (no deleteChunk)");
 
-        // 超时应在约 300 tick 卸载窗口 + UNLOAD 一帧后触发 (证明确有卸载等待而非立即失败)。
-        helper.assertTrue(ticks >= 300, "timeout must occur only after the ~300-tick await window, not immediately (ticks=" + ticks + ")");
+        // 超时应在 1200 tick 卸载窗口 + UNLOAD 一帧后触发 (证明确有卸载等待且窗口为 1200 而非旧 300)。
+        helper.assertTrue(ticks >= 1200, "timeout must occur only after the 1200-tick await window, not immediately (ticks=" + ticks + ")");
+
+        helper.succeed();
+    }
+
+    // ============================================================
+    // FAILED 恢复出口: 状态门放行 FAILED, 且曾 FAILED 的实例经重置回 READY
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void failedInstanceIsResettableAndRecoversToReady(GameTestHelper helper) {
+        // 可重置状态门: READY/READY_FALLBACK/FAILED 放行, 其余拒绝 (删 FAILED 分支 -> 首个断言必挂)。
+        helper.assertTrue(ResetSystem.isResettable(GenState.FAILED),
+                "FAILED must be resettable (real-server recovery exit; else bricked until restart)");
+        helper.assertTrue(ResetSystem.isResettable(GenState.READY), "READY must be resettable");
+        helper.assertTrue(ResetSystem.isResettable(GenState.READY_FALLBACK), "READY_FALLBACK must be resettable");
+        helper.assertFalse(ResetSystem.isResettable(GenState.RESETTING), "RESETTING must NOT be resettable (in progress)");
+        helper.assertFalse(ResetSystem.isResettable(GenState.GENERATING), "GENERATING must NOT be resettable");
+        helper.assertFalse(ResetSystem.isResettable(GenState.PENDING), "PENDING must NOT be resettable");
+        helper.assertFalse(ResetSystem.isResettable(GenState.RECYCLED), "RECYCLED must NOT be resettable (already freed)");
+
+        // 曾 FAILED 的实例: ResetSystem.reset 放行后置 RESETTING, 新 ResetJob 驱动 -> READY (自救成功)。
+        InstanceState failed = new InstanceState(2L, 42L, Difficulty.EASY, RegionBox.ofDefault(0, 0),
+                UUID.randomUUID(), true, 0L, GenState.FAILED);
+        failed.setGenState(GenState.RESETTING); // 与生产同序: 通过状态门后置 RESETTING 再入队 job
+        RecordingOps ops = new RecordingOps(1);
+        ResetJob job = new ResetJob(failed, ops, IResetService.ResetMode.NEW_SEED, 1);
+
+        driveToEnd(helper, job);
+
+        helper.assertTrue(failed.genState() == GenState.READY,
+                "previously-FAILED instance must recover to READY after reset (was " + failed.genState() + ")");
+        helper.assertTrue(job.completion().isDone() && !job.completion().isCompletedExceptionally(),
+                "recovery completion must complete normally");
+        helper.assertTrue(ops.deleteCalls == 256, "recovery reset must still purge all 256 region chunks (was " + ops.deleteCalls + ")");
+
+        helper.succeed();
+    }
+
+    // ============================================================
+    // AWAIT_UNLOAD 期间 releaseTickets 周期性重放 (对冲预热管线补票竞态)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void awaitUnloadReplaysReleaseTicketsPeriodically(GameTestHelper helper) {
+        InstanceState inst = newResettingInstance();
+        // 50 次 false 轮询后才卸载完: AWAIT 跑 awaitTicks 1..50, 期间 20/40 触发两次重放。
+        RecordingOps ops = new RecordingOps(50);
+        ResetJob job = new ResetJob(inst, ops, IResetService.ResetMode.NEW_SEED, 1);
+
+        driveToEnd(helper, job);
+
+        // releaseTickets = 1 (UNLOAD) + 2 (awaitTicks 20, 40 重放) = 3。
+        // (删掉 AWAIT 内的周期重放 -> releaseCalls 退回 1 -> 本断言必挂。)
+        helper.assertTrue(ops.releaseCalls == 3,
+                "releaseTickets = 1 (UNLOAD) + 2 replays at awaitTicks 20/40 (was " + ops.releaseCalls + ")");
+        // 卸载成功后仍走完整 PURGE -> READY, 证明重放不干扰正常收尾。
+        helper.assertTrue(inst.genState() == GenState.READY, "instance must reach READY after replay window (was " + inst.genState() + ")");
+        helper.assertTrue(ops.deleteCalls == 256, "PURGE must still delete all 256 chunks after replay window (was " + ops.deleteCalls + ")");
+        helper.assertTrue(ops.cancelQueuedLoadsCalls == 1, "cancelQueuedLoads must run exactly once in UNLOAD");
 
         helper.succeed();
     }

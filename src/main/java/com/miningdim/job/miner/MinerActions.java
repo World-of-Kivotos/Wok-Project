@@ -6,6 +6,7 @@ import com.miningdim.entry.IMiningPlayerData;
 import com.miningdim.entry.MiningCapabilities;
 import com.miningdim.job.miner.network.MinerHighlightS2C;
 import com.miningdim.job.miner.network.MinerNetwork;
+import com.miningdim.job.miner.network.MinerStatusS2C;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -68,6 +69,7 @@ public final class MinerActions {
         MinerNetwork.sendHighlight(player, new MinerHighlightS2C(MinerHighlightS2C.KIND_ORE, expire, hits));
         state.startCooldown(MinerSkill.ORE_SCAN, now, MinerSkills.oreScanCooldownTicks(level));
         player.sendSystemMessage(Component.translatable("message.miningdim.miner.ore_scan", hits.size()));
+        pushStatus(player, state, level, now); // 立即补发, HUD 秒显新 CD, 不等下一次节流。
     }
 
     private static void tryTrapScan(ServerPlayer player, MinerChargeState state, int level, long now) {
@@ -84,6 +86,7 @@ public final class MinerActions {
         MinerNetwork.sendHighlight(player, new MinerHighlightS2C(MinerHighlightS2C.KIND_TRAP, expire, hits));
         state.startCooldown(MinerSkill.TRAP_SCAN, now, MinerSkills.trapScanCooldownTicks(level));
         player.sendSystemMessage(Component.translatable("message.miningdim.miner.trap_scan", hits.size()));
+        pushStatus(player, state, level, now); // 立即补发, HUD 秒显新 CD, 不等下一次节流。
     }
 
     // ---- 速挖类: 隧道挖 ----
@@ -263,12 +266,21 @@ public final class MinerActions {
         player.sendSystemMessage(Component.translatable(
                 on ? "message.miningdim.miner.toggle_on" : "message.miningdim.miner.toggle_off",
                 Component.translatable("skill.miningdim.miner." + skill.name().toLowerCase())));
+        pushStatus(player, state, level, serverTick(player)); // 翻转开关后立即补发, HUD 秒显新开关态。
     }
 
     // ---- 工具 ----
 
     private static long serverTick(ServerPlayer player) {
         return player.serverLevel().getGameTime();
+    }
+
+    /**
+     * 立即补发一次状态 HUD 包 (开关翻转 / 探测 CD 起算后调用): 让客户端 overlay 秒级反映变化, 不必等
+     * {@link MinerSystem#onServerTick} 的下一次节流窗口。瞬态态本就权威, 只读同步不持久化。
+     */
+    private static void pushStatus(ServerPlayer player, MinerChargeState state, int level, long now) {
+        MinerNetwork.sendStatus(player, MinerStatusS2C.capture(state, level, now));
     }
 
     private static boolean inMiningRegion(ServerPlayer player) {

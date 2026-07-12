@@ -17,6 +17,7 @@ import com.miningdim.job.JobId;
 import com.miningdim.job.JobProgress;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.miner.network.MinerHighlightS2C;
+import com.miningdim.job.miner.network.MinerStatusS2C;
 import com.miningdim.ore.OreType;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
@@ -478,6 +479,44 @@ public final class MinerGameTests {
         int consumed2 = state.consumeCharge(20);
         helper.assertTrue(consumed2 == 6, "over-consume takes only remaining 6");
         helper.assertTrue(state.currentCharge() == 0, "charge depleted to 0");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 状态 HUD 同步包纯函数: 开关位打包/解包 + 探测 CD 剩余计算 (未解锁 -1 / 就绪 0 / 冷却剩余)
+    // 删打包位运算 -> 开关错位必挂; 删 -1 未解锁哨兵 -> locked 与 ready 混淆必挂; 删 (readyAt-now) -> 剩余错必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void hudStatusPacking(GameTestHelper helper) {
+        // 开关位打包/解包 round-trip: 连锁开 + 入包关 + 熔炼开。
+        byte bits = MinerStatusS2C.packToggles(true, false, true);
+        MinerStatusS2C p = new MinerStatusS2C(0, 0, bits, 0, 0);
+        helper.assertTrue(p.chainOn(), "chain bit set decodes ON");
+        helper.assertFalse(p.autoCollectOn(), "auto-collect bit clear decodes OFF");
+        helper.assertTrue(p.autoSmeltOn(), "auto-smelt bit set decodes ON");
+        helper.assertTrue(MinerStatusS2C.packToggles(false, false, false) == 0, "all-off packs to 0 byte");
+
+        // 探测 CD 剩余: 未解锁 -> CD_LOCKED (-1, 区别于就绪 0); 解锁未用 -> 0 就绪; 冷却中 -> readyAt-now。
+        MinerChargeState state = new MinerChargeState();
+        helper.assertTrue(
+                MinerStatusS2C.cdRemainingTicks(state, MinerSkill.ORE_SCAN, 100L, false) == MinerStatusS2C.CD_LOCKED,
+                "locked scan reports -1 (CD_LOCKED), distinct from ready 0");
+        helper.assertTrue(MinerStatusS2C.cdRemainingTicks(state, MinerSkill.ORE_SCAN, 100L, true) == 0,
+                "unlocked never-used scan reports 0 (ready)");
+        state.startCooldown(MinerSkill.ORE_SCAN, 100L, 60);
+        helper.assertTrue(MinerStatusS2C.cdRemainingTicks(state, MinerSkill.ORE_SCAN, 130L, true) == 30,
+                "unlocked scan on CD reports remaining 30 ticks (readyAt 160 - now 130)");
+        helper.assertTrue(MinerStatusS2C.cdRemainingTicks(state, MinerSkill.ORE_SCAN, 160L, true) == 0,
+                "at readyAt tick the scan reads ready (0)");
+
+        // capture 端到端: L2 (连锁解锁, 探矿未解锁 L3) -> 池 16, 矿探 locked -1; 翻连锁开后 chainOn。
+        state.flipToggle(MinerSkill.CHAIN);
+        MinerStatusS2C snap = MinerStatusS2C.capture(state, 2, 200L);
+        helper.assertTrue(snap.poolMax() == 16, "L2 capture poolMax = 16 (chain unlocked)");
+        helper.assertTrue(snap.chainOn(), "L2 capture reflects chain toggled ON");
+        helper.assertTrue(snap.oreScanCdTicks() == MinerStatusS2C.CD_LOCKED,
+                "L2 capture ore scan locked (-1) since ore scan unlocks at L3");
         helper.succeed();
     }
 

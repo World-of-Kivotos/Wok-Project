@@ -8,6 +8,7 @@ import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.miner.network.MinerNetwork;
+import com.miningdim.job.miner.network.MinerStatusS2C;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
@@ -332,6 +333,8 @@ public final class MinerSystem implements Subsystem {
             return;
         }
         long now = mining.getGameTime();
+        // HUD 状态节流推送: 同一 tick 对全体矿洞维度玩家统一发 (瞬态态本就权威, 只读同步不持久化)。
+        boolean pushHud = now % MinerConstants.HUD_STATUS_PUSH_INTERVAL_TICKS == 0;
         for (ServerPlayer player : mining.players()) {
             MinerChargeState state = stateOf(player);
             int level = minerLevel(player);
@@ -341,6 +344,9 @@ public final class MinerSystem implements Subsystem {
             // 故此处核对登记栈的 damageValue 是否上升并回补 (净零损耗); 详见 MinerChargeState 字段注释。
             if (state.hasArmedDurabilitySave()) {
                 state.consumeDurabilitySave(player.getMainHandItem());
+            }
+            if (pushHud) {
+                MinerNetwork.sendStatus(player, MinerStatusS2C.capture(state, level, now));
             }
         }
     }

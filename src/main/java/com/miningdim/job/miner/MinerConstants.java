@@ -23,6 +23,9 @@ public final class MinerConstants {
     /** 每秒 tick 数 (原版固定 20), 秒<->tick 换算。 */
     public static final int TICKS_PER_SECOND = 20;
 
+    /** 矿工状态 HUD 的服务端节流推送间隔 (tick): 每 0.5s 推一次瞬态态 (充能/开关/探测 CD) 到客户端 overlay。 */
+    public static final int HUD_STATUS_PUSH_INTERVAL_TICKS = 10;
+
     public static final int MIN_LEVEL = 1;
     public static final int MAX_LEVEL = 10;
 

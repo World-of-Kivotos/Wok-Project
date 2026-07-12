@@ -1,0 +1,9 @@
+{
+  "feature": "miningdim:ore_lapis",
+  "placement": [
+    { "type": "minecraft:count", "count": 4 },
+    { "type": "minecraft:in_square" },
+    { "type": "minecraft:height_range", "height": { "type": "minecraft:trapezoid", "min_inclusive": { "above_bottom": 40 }, "max_inclusive": { "above_bottom": 152 } } },
+    { "type": "minecraft:biome" }
+  ]
+}

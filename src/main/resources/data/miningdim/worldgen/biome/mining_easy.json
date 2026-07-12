@@ -34,18 +34,20 @@
     [],
     [],
     [
-      "minecraft:ore_coal_upper",
-      "minecraft:ore_coal_lower",
-      "minecraft:ore_iron_upper",
-      "minecraft:ore_iron_middle",
-      "minecraft:ore_iron_small",
-      "minecraft:ore_copper",
+      "miningdim:easy_ore_coal",
+      "miningdim:easy_ore_copper",
+      "miningdim:easy_ore_iron",
+      "miningdim:easy_ore_dirt",
+      "miningdim:easy_ore_gravel",
+      "miningdim:easy_ore_granite",
+      "miningdim:easy_ore_diorite",
+      "miningdim:easy_ore_andesite",
       "miningdim:trap_fake_ore",
       "miningdim:trap_collapsing_tunnel"
     ],
     [],
-    [],
-    [],
+    [ "miningdim:mining_spring_water" ],
+    [ "minecraft:glow_lichen" ],
     []
   ]
 }

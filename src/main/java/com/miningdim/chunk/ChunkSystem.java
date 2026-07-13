@@ -4,14 +4,17 @@ import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
 import com.miningdim.core.Subsystem;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.common.world.ForgeChunkManager;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,6 +46,49 @@ public final class ChunkSystem implements Subsystem {
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
         forgeBus.register(this);
+        // 世界加载时丢弃本 mod 全部持久化强加载孤儿票 (防旧存档迁移坑); 须在 FMLCommonSetupEvent 经 enqueueWork 注册。
+        modBus.addListener(this::onCommonSetup);
+    }
+
+    /**
+     * 注册强加载校验回调 (ForgeChunkManager.setForcedChunkLoadingCallback)。javadoc 明示此注册须在
+     * FMLCommonSetupEvent 经 ParallelDispatchEvent.enqueueWork 完成; 回调在世界加载 reinstatePersistentChunks
+     * 时被调用, 拿到本 mod 该维度的持久强加载票, 决定哪些作废。
+     */
+    private void onCommonSetup(FMLCommonSetupEvent event) {
+        event.enqueueWork(() -> ForgeChunkManager.setForcedChunkLoadingCallback(
+                MiningConstants.MODID, ChunkSystem::dropAllForcedChunkTickets));
+    }
+
+    /**
+     * 世界加载校验回调 (Forge LoadingValidationCallback.validateTickets): 丢弃本 mod 全部持久化强加载票, 令
+     * 开机票据归零。回调只对本 mod 该维度的票据生效 (Forge 按 modId 分组下发 TicketHelper), 本 mod 票据只会
+     * 出现在矿洞维度, 故不区分维度无条件全清 —— 取最简实现。
+     *
+     * 为什么全部丢弃是安全的: 本 mod 强加载票 (ChunkTicketManager 滑动窗口 / reset 期释放) 只在内存簿
+     * ChunkTicketManager.byInstance 里跟踪, 该内存簿重启即空 —— 从 ForcedChunksSavedData 恢复出的持久票没有
+     * 任何内存持有者, 全是无主孤儿 (更兼已部署的 1.0.6 存档里躺着最多 768 张判废预热票, 摘掉预热代码后无人释放)。
+     * 玩家进场所需的 spawn 周边加载由 EntryGateway 在传送前经 ChunkTicketManager 重新铺 (14.3), 不依赖持久票,
+     * 故开机把票据归零只清掉泄漏源, 不影响任何在用功能。
+     *
+     * CME: TicketHelper 内的 map 是 Forge 传入的本 mod 票据不可变快照, removeAllTickets 改的是底层 saveData 而非
+     * 该快照, 故遍历 keySet 同时 remove 无并发修改冲突。本 mod 只用 block 票 (owner = region 原点 BlockPos),
+     * entity 票一并防御性清空。
+     */
+    private static void dropAllForcedChunkTickets(ServerLevel level, ForgeChunkManager.TicketHelper ticketHelper) {
+        int blockOwners = ticketHelper.getBlockTickets().size();
+        int entityOwners = ticketHelper.getEntityTickets().size();
+        if (blockOwners == 0 && entityOwners == 0) {
+            return;
+        }
+        for (BlockPos owner : ticketHelper.getBlockTickets().keySet()) {
+            ticketHelper.removeAllTickets(owner);
+        }
+        for (UUID owner : ticketHelper.getEntityTickets().keySet()) {
+            ticketHelper.removeAllTickets(owner);
+        }
+        LOGGER.info("[miningdim] dropped orphan persistent forced-chunk tickets on load of {}: {} block owner(s), {} entity owner(s)",
+                level.dimension().location(), blockOwners, entityOwners);
     }
 
     /**

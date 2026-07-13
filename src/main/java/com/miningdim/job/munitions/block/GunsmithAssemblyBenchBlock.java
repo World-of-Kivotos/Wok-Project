@@ -159,13 +159,21 @@ public final class GunsmithAssemblyBenchBlock extends Block implements EntityBlo
 
     @Override
     public void playerWillDestroy(Level level, BlockPos pos, BlockState state, Player player) {
-        if (!level.isClientSide && player.isCreative() && !isMain(state)) {
+        // 破坏从属格时, 原本靠 updateShape 级联把 MAIN 变 AIR -> destroyBlock(drop=true), 该级联路径以空工具
+        // 掉落, 绕过 requiresCorrectToolForDrops (直接破坏 MAIN 却经 ServerPlayerGameMode 走工具门, 两条路径
+        // 不对称)。此处把从属格破坏改写成"以玩家工具破坏 MAIN": 先 UPDATE_SUPPRESS_DROPS 掐掉级联掉落,
+        // 再按 hasCorrectToolForDrops 手动为 MAIN 补一次掉落, 生存/创造两路径与直接破坏 MAIN 对称。(审查 m-1)
+        if (!level.isClientSide && !isMain(state)) {
             BlockPos mainPos = mainPos(pos, state);
             BlockState mainState = level.getBlockState(mainPos);
             if (mainState.getBlock() == this && isMain(mainState)) {
                 level.setBlock(mainPos, Blocks.AIR.defaultBlockState(),
                         Block.UPDATE_ALL | Block.UPDATE_SUPPRESS_DROPS);
                 level.levelEvent(player, 2001, mainPos, Block.getId(mainState));
+                if (!player.isCreative()
+                        && (!mainState.requiresCorrectToolForDrops() || player.hasCorrectToolForDrops(mainState))) {
+                    Block.dropResources(mainState, level, mainPos, null, player, player.getMainHandItem());
+                }
             }
         }
         super.playerWillDestroy(level, pos, state, player);

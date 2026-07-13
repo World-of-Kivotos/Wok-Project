@@ -18,13 +18,16 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.gametest.GameTestHolder;
@@ -239,6 +242,53 @@ public final class GunsmithAssemblyGameTests {
             }
         }
         helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void breakingSubordinatePartHonorsToolGateLikeMain(GameTestHelper helper) {
+        // 破坏从属格必须与直接破坏 MAIN 走同一工具门 (审查 m-1): 空手拆从属格不得掉台子 (旧 bug: 级联以空
+        // 工具 destroyBlock 掉落, 绕过 requiresCorrectToolForDrops); 正确镐拆从属格恰掉一个台子。
+        Direction facing = Direction.NORTH;
+        ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+
+        placeStructure(helper, facing);
+        player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+        breakSubordinate(helper, facing, GunsmithAssemblyBenchBlock.Part.SIDE, player);
+        assertStructureRemoved(helper, facing);
+        helper.assertTrue(countBenchDrops(helper) == 0,
+                "breaking a subordinate part with the wrong tool must not drop the assembly bench");
+
+        placeStructure(helper, facing);
+        player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.IRON_PICKAXE));
+        breakSubordinate(helper, facing, GunsmithAssemblyBenchBlock.Part.BACK_SIDE, player);
+        assertStructureRemoved(helper, facing);
+        helper.assertTrue(countBenchDrops(helper) == 1,
+                "breaking a subordinate part with a correct pickaxe must drop exactly one assembly bench");
+        helper.succeed();
+    }
+
+    private static void breakSubordinate(GameTestHelper helper, Direction facing,
+                                         GunsmithAssemblyBenchBlock.Part part, ServerPlayer player) {
+        BlockPos absolute = helper.absolutePos(GunsmithAssemblyBenchBlock.partPos(MAIN_REL, facing, part));
+        BlockState state = helper.getLevel().getBlockState(absolute);
+        assemblyBlock().playerWillDestroy(helper.getLevel(), absolute, state, player);
+    }
+
+    private static void assertStructureRemoved(GameTestHelper helper, Direction facing) {
+        for (GunsmithAssemblyBenchBlock.Part part : GunsmithAssemblyBenchBlock.Part.values()) {
+            BlockPos absolute = helper.absolutePos(GunsmithAssemblyBenchBlock.partPos(MAIN_REL, facing, part));
+            helper.assertTrue(helper.getLevel().getBlockState(absolute).isAir(),
+                    "breaking a subordinate part must tear down the whole structure, missing " + part);
+        }
+    }
+
+    private static int countBenchDrops(GameTestHelper helper) {
+        AABB area = new AABB(helper.absolutePos(MAIN_REL)).inflate(16.0D);
+        return helper.getLevel().getEntitiesOfClass(ItemEntity.class, area).stream()
+                .map(ItemEntity::getItem)
+                .filter(stack -> stack.is(ModMunitionsItems.GUNSMITH_ASSEMBLY_BENCH_ITEM.get()))
+                .mapToInt(ItemStack::getCount)
+                .sum();
     }
 
     private static GunsmithAssemblyBenchBlock assemblyBlock() {

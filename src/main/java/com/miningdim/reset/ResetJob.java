@@ -16,10 +16,10 @@ import java.util.concurrent.CompletionException;
  * 真正做物理区块再生成 —— 卸载 region 区块 + 删除其地形/实体存档, 令下次加载经 noise 从头重生成。
  *
  * 阶段:
- *   UNLOAD       : 释放 region 全部强加载票 (滑动窗口 + 生成期强制块) + 清生成调度器该实例的排队任务 (断源) +
+ *   UNLOAD       : 释放 region 全部强加载票 (entry 滑动窗口 ticket + 任何遗留的 region owner 强制块) +
  *                  清伪装陷阱注册表 (各一次)。
  *   AWAIT_UNLOAD : 逐 tick 轮询 region 16x16 个 chunk 是否全部无 holder; 每 {@link #TICKET_REPLAY_INTERVAL_TICKS}
- *                  幂等重放释放票 (对冲预热管线补票); 超 {@link #AWAIT_UNLOAD_TIMEOUT_TICKS} 仍未卸载完 -> FAILED
+ *                  幂等重放释放票 (对冲进场滑动窗口在卸载窗口内补票); 超 {@link #AWAIT_UNLOAD_TIMEOUT_TICKS} 仍未卸载完 -> FAILED
  *                  (不静默, 暴露"有票没释放/有人没撤离"的真实缺陷; FAILED 可再次 /mining reset 自救)。
  *   PURGE        : flush 挂起异步写 -> 对 region 每个 chunk 逐一删存档 (地形 + 实体) -> 再 flush 落盘。单 tick 完成。
  *   SETTLE       : 停留 {@link #MIN_SETTLE_TICKS} tick 让删除落定, 再翻 READY。
@@ -36,12 +36,13 @@ final class ResetJob {
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/reset");
 
     /**
-     * AWAIT_UNLOAD 上限 (tick); 60s。上限受开机预热生成管线积压影响 —— 开机时三固定实例各入队数百区块经原版
-     * 噪声生成管线分帧加载, 生成中的区块持 ChunkHolder, 旧 300 tick (15s) 不足以在预热高峰排干 (2026-07-12 真服实测
-     * MEDIUM/HARD 超时转 FAILED)。抬到 1200 tick 覆盖预热积压; 仍超时则确有票没释放/有人没撤离的真实缺陷, 转 FAILED。
+     * AWAIT_UNLOAD 上限 (tick); 60s。该上限沿用自开机预热期真服实测值 —— 整 region 开机预热虽已按方案 B 摘除,
+     * 但 region 区块在 reset 时仍可能被进场滑动窗口 ticket 或进行中的 minecraft:noise 懒生成持有 (持 ChunkHolder),
+     * 旧 300 tick (15s) 曾不足以排干 (2026-07-12 真服实测 MEDIUM/HARD 超时转 FAILED)。1200 tick 给一个宽裕的排干
+     * 上限; 仍超时则确有票没释放/有人没撤离的真实缺陷, 转 FAILED (可再 /mining reset 自救)。
      */
     private static final int AWAIT_UNLOAD_TIMEOUT_TICKS = 1200;
-    /** AWAIT_UNLOAD 期间幂等重放 releaseTickets 的周期 (tick); 对冲预热管线/滑动窗口任何来源的票据竞态。 */
+    /** AWAIT_UNLOAD 期间幂等重放 releaseTickets 的周期 (tick); 对冲进场滑动窗口在卸载窗口内为该 region 补票的竞态。 */
     private static final int TICKET_REPLAY_INTERVAL_TICKS = 20;
     /** PURGE 后最少停留 tick, 给删除落定一个最小窗口, 防止瞬间翻 READY。 */
     private static final int MIN_SETTLE_TICKS = 2;
@@ -99,7 +100,7 @@ final class ResetJob {
                                 + " failed to unload within " + AWAIT_UNLOAD_TIMEOUT_TICKS + " ticks"));
                         return true;
                     }
-                    // 每 TICKET_REPLAY_INTERVAL_TICKS 幂等重放释放票: 预热管线可能在 UNLOAD 后又为该 region 补票,
+                    // 每 TICKET_REPLAY_INTERVAL_TICKS 幂等重放释放票: 进场滑动窗口可能在 UNLOAD 后又为该 region 补票,
                     // 单次 releaseTickets 无法覆盖; 周期重放对冲此竞态 (releaseTickets 已幂等, 对未强制块无副作用)。
                     if (awaitTicks % TICKET_REPLAY_INTERVAL_TICKS == 0) {
                         ops.releaseTickets();
@@ -130,14 +131,12 @@ final class ResetJob {
         }
     }
 
-    /** UNLOAD: 释放强加载票 + 清生成调度器排队任务 (断源) + 清 region 伪装陷阱注册表 (各一次)。 */
+    /** UNLOAD: 释放强加载票 + 清 region 伪装陷阱注册表 (各一次)。 */
     private void doUnload() {
         ops.releaseTickets();
-        int cancelledLoads = ops.cancelQueuedLoads();
         int cleared = ops.clearTrapRegistry();
-        LOGGER.debug("[miningdim] reset UNLOAD instance {} (mode={}, gen={}); cancelled {} queued load(s), "
-                        + "cleared {} trap registry entries",
-                instance.instanceId(), mode, resetGeneration, cancelledLoads, cleared);
+        LOGGER.debug("[miningdim] reset UNLOAD instance {} (mode={}, gen={}); cleared {} trap registry entries",
+                instance.instanceId(), mode, resetGeneration, cleared);
     }
 
     /** PURGE: flush -> 逐 chunk 删地形+实体存档 -> 再 flush 落盘 (单 tick)。 */

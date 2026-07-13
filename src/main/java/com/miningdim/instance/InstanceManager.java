@@ -470,11 +470,6 @@ public final class InstanceManager implements IInstanceManager {
         pollQueue();
     }
 
-    @Override
-    public int cancelQueuedChunkLoads(long instanceId) {
-        return scheduler.cancelQueuedLoads(instanceId);
-    }
-
     // ---- 空实例 GC (12.6) ----
 
     /**
@@ -539,16 +534,8 @@ public final class InstanceManager implements IInstanceManager {
         LOGGER.info("[miningdim] destroyed instance {} (region freed, id not reused)", instanceId);
     }
 
-    // ---- tick 驱动入口 (InstanceSystem 调用) ----
-
-    /** 维度 tick 末: 分帧消费区块强加载队列 (7.9)。 */
-    public void tickGeneration() {
-        scheduler.tickChunkLoads();
-    }
-
-    /** 服务端停止: 关闭线程池, 落盘最终态 (ServerStoppingEvent)。 */
+    /** 服务端停止: 落盘最终态 (ServerStoppingEvent)。 */
     public void shutdown() {
-        scheduler.shutdown();
         savedData.setDirty();
     }
 

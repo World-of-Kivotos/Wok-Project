@@ -15,7 +15,8 @@ import org.slf4j.LoggerFactory;
 
 /**
  * 实例子系统入口 (模块化铁律 3)。本子系统是实例生命周期的"后端": InstanceManager (region 分配 / 引用计数 /
- * 排队背压 / 空实例 GC) + 持久层 SavedData + 离线生成调度 + 区块 force-load。InstanceManager 在
+ * 排队背压 / 空实例 GC) + 持久层 SavedData + 生成状态流转 (GenerationScheduler: submit 置 READY, 离场/销毁
+ * 释放强加载票; 整 region 开机预热已按方案 B 摘除, 地形转 minecraft:noise 懒生成)。InstanceManager 在
  * ServerStartedEvent 才构建 (依赖 server + 矿山 ServerLevel + config 服务), 构建后注入 MiningServices
  * 并从 SavedData 重建 + 孤儿清理 (12.8)。
  *
@@ -66,7 +67,7 @@ public final class InstanceSystem implements Subsystem {
         LOGGER.info("[miningdim] instance subsystem online");
     }
 
-    /** 维度 tick 末驱动: 分帧区块加载 + 周期 GC 扫描 (12.6/12.7, 仅矿山维度 END 阶段)。 */
+    /** 维度 tick 末驱动: 周期 GC 扫描 (12.6, 仅矿山维度 END 阶段)。 */
     @SubscribeEvent
     public void onLevelTick(TickEvent.LevelTickEvent event) {
         if (manager == null || event.phase != TickEvent.Phase.END) {
@@ -75,7 +76,6 @@ public final class InstanceSystem implements Subsystem {
         if (!(event.level instanceof ServerLevel level) || !level.dimension().equals(MiningConstants.MINING_LEVEL)) {
             return;
         }
-        manager.tickGeneration();
         // GC 扫描按 gcScanIntervalTicks 周期触发, 而非每 tick (12.6)。
         int scanInterval = Math.max(1, MiningServices.config().gcScanIntervalTicks());
         if (level.getServer().getTickCount() % scanInterval == 0) {

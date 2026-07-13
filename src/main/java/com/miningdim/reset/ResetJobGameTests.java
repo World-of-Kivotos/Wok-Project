@@ -61,7 +61,6 @@ public final class ResetJobGameTests {
         final Set<Long> deletedChunks = new HashSet<>();
         int releaseCalls = 0;
         int clearTrapCalls = 0;
-        int cancelQueuedLoadsCalls = 0;
         int flushCalls = 0;
         int deleteCalls = 0;
         /** allChunksUnloaded 前若干次返回 false, 之后返回 true; Integer.MAX_VALUE 表示永不卸载 (超时用例)。 */
@@ -83,13 +82,6 @@ public final class ResetJobGameTests {
             clearTrapCalls++;
             log.add("clearTrap");
             return 7; // 非零回值, 供上层日志/未来断言; 此处 ResetJob 只做日志
-        }
-
-        @Override
-        public int cancelQueuedLoads() {
-            cancelQueuedLoadsCalls++;
-            log.add("cancelQueued");
-            return 5; // 非零回值, 供上层日志; ResetJob 只做日志
         }
 
         @Override
@@ -143,7 +135,6 @@ public final class ResetJobGameTests {
 
         // UNLOAD 阶段各调一次 (AWAIT 仅一帧未卸载, 不触发 20-tick 重放, 故 releaseCalls 仍为 1)。
         helper.assertTrue(ops.releaseCalls == 1, "releaseTickets must be called exactly once (was " + ops.releaseCalls + ")");
-        helper.assertTrue(ops.cancelQueuedLoadsCalls == 1, "cancelQueuedLoads must be called exactly once in UNLOAD (was " + ops.cancelQueuedLoadsCalls + ")");
         helper.assertTrue(ops.clearTrapCalls == 1, "clearTrapRegistry must be called exactly once (was " + ops.clearTrapCalls + ")");
 
         // PURGE: 删除恰好 region 的 256 个 chunk, 坐标集合精确匹配 (删空 doPurge 循环 -> 此断言必挂)。
@@ -187,12 +178,11 @@ public final class ResetJobGameTests {
         helper.assertTrue(job.completion().isCompletedExceptionally(),
                 "completion must complete exceptionally on timeout");
 
-        // UNLOAD 仍发生 (释放票/断源清队/清陷阱), 但 PURGE 一步不做: 无 flush、无 delete。
+        // UNLOAD 仍发生 (释放票/清陷阱), 但 PURGE 一步不做: 无 flush、无 delete。
         // releaseTickets: 1 次 UNLOAD + AWAIT 期间每 20 tick 重放一次 (awaitTicks 20..1200 共 60 次) = 61。
         // (删掉周期重放 -> releaseCalls 退回 1 -> 本断言必挂; 删超时上限回 300 -> 重放次数与 ticks 都变 -> 亦挂。)
         helper.assertTrue(ops.releaseCalls == 61,
                 "releaseTickets = 1 (UNLOAD) + 60 periodic replays over the 1200-tick await window (was " + ops.releaseCalls + ")");
-        helper.assertTrue(ops.cancelQueuedLoadsCalls == 1, "cancelQueuedLoads still runs once in UNLOAD before await");
         helper.assertTrue(ops.clearTrapCalls == 1, "clearTrapRegistry still runs in UNLOAD before await");
         helper.assertTrue(ops.flushCalls == 0, "PURGE must not run on timeout (no flush)");
         helper.assertTrue(ops.deleteCalls == 0, "PURGE must not run on timeout (no deleteChunk)");
@@ -238,7 +228,7 @@ public final class ResetJobGameTests {
     }
 
     // ============================================================
-    // AWAIT_UNLOAD 期间 releaseTickets 周期性重放 (对冲预热管线补票竞态)
+    // AWAIT_UNLOAD 期间 releaseTickets 周期性重放 (对冲进场滑动窗口补票竞态)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
@@ -257,7 +247,6 @@ public final class ResetJobGameTests {
         // 卸载成功后仍走完整 PURGE -> READY, 证明重放不干扰正常收尾。
         helper.assertTrue(inst.genState() == GenState.READY, "instance must reach READY after replay window (was " + inst.genState() + ")");
         helper.assertTrue(ops.deleteCalls == 256, "PURGE must still delete all 256 chunks after replay window (was " + ops.deleteCalls + ")");
-        helper.assertTrue(ops.cancelQueuedLoadsCalls == 1, "cancelQueuedLoads must run exactly once in UNLOAD");
 
         helper.succeed();
     }

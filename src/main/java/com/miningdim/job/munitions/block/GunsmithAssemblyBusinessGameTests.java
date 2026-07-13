@@ -9,6 +9,7 @@ import com.miningdim.job.munitions.gunsmith.GunsmithBaseStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithAssemblyRecipe;
 import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
 import com.miningdim.job.munitions.gunsmith.GunsmithBlueprintItem;
+import com.miningdim.job.munitions.gunsmith.GunsmithFireModePolicy;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunFactory;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunTooltip;
@@ -237,11 +238,38 @@ public final class GunsmithAssemblyBusinessGameTests {
                     blueprint + " blueprint NBT must decode to the same catalog entry");
             helper.assertTrue(blueprint.requiredParts().size() == GunsmithPressPart.values().length,
                     blueprint + " must require all six current gunsmith press parts");
+            helper.assertTrue(GunsmithAssemblyRecipe.assembledGunId(stack).equals(blueprint.gunId()),
+                    blueprint + " must keep assembling the blueprint's original gun id");
         }
         helper.assertTrue(GunsmithBlueprint.values().length == 8,
                 "AK/M4 blueprint catalog must contain exactly eight guns");
         helper.assertTrue(arCount == 5, "catalog must contain five M4-family blueprints");
         helper.assertTrue(akCount == 3, "catalog must contain three AK-family blueprints");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void fireModePolicyRequiresCompleteOrderedBlueprintModes(GameTestHelper helper) {
+        helper.assertTrue(GunsmithFireModePolicy.preserveAndSelectFirst(
+                        List.of("auto", "semi"), List.of("auto", "semi")).equals("auto"),
+                "auto + semi must preserve auto as the initial fire mode");
+        helper.assertTrue(GunsmithFireModePolicy.preserveAndSelectFirst(
+                        List.of("burst", "semi"), List.of("burst", "semi")).equals("burst"),
+                "burst + semi must preserve burst as the initial fire mode");
+        helper.assertTrue(GunsmithFireModePolicy.preserveAndSelectFirst(
+                        List.of("semi", "burst"), List.of("semi", "burst")).equals("semi"),
+                "semi + burst must preserve semi as the initial fire mode");
+
+        assertFireModePolicyRejects(helper, List.of("auto", "semi"), List.of("auto"),
+                "a finished gun missing a blueprint fire mode must be rejected");
+        assertFireModePolicyRejects(helper, List.of("auto", "semi"), List.of("auto", "semi", "burst"),
+                "a finished gun adding a fire mode absent from the blueprint must be rejected");
+        assertFireModePolicyRejects(helper, List.of("semi", "burst"), List.of("burst", "semi"),
+                "a finished gun with reordered fire modes must be rejected");
+        assertFireModePolicyRejects(helper, List.of(), List.of("auto"),
+                "an empty source fire-mode list must be rejected");
+        assertFireModePolicyRejects(helper, List.of("auto"), List.of(),
+                "an empty finished fire-mode list must be rejected");
         helper.succeed();
     }
 
@@ -555,6 +583,17 @@ public final class GunsmithAssemblyBusinessGameTests {
         boolean threw = false;
         try {
             GunsmithGunStats.from(stack);
+        } catch (IllegalArgumentException expected) {
+            threw = true;
+        }
+        helper.assertTrue(threw, message);
+    }
+
+    private static void assertFireModePolicyRejects(GameTestHelper helper, List<String> sourceModes,
+                                                     List<String> finishedModes, String message) {
+        boolean threw = false;
+        try {
+            GunsmithFireModePolicy.preserveAndSelectFirst(sourceModes, finishedModes);
         } catch (IllegalArgumentException expected) {
             threw = true;
         }

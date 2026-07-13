@@ -457,7 +457,7 @@
   "message.miningdim.gunsmith_press.missing_materials": "Not enough materials to start stamping.",
   "message.miningdim.m4_template.use_assembly_bench": "Insert this blueprint into the firearm assembly bench.",
   "message.miningdim.gunsmith_blueprint.use_assembly_bench": "Insert this blueprint into the firearm assembly bench.",
-  "message.miningdim.gunsmith_blueprint.tacz_missing": "TaCZ is not loaded, so the blueprint gun cannot be created.",
+  "message.miningdim.gunsmith_blueprint.tacz_missing": "TaCZ is unavailable or the blueprint firearm data is incomplete.",
   "message.miningdim.gunsmith_assembly_bench.started": "The mechanical arm starts assembling the firearm.",
   "message.miningdim.gunsmith_assembly_bench.busy": "The mechanical arm is already assembling.",
   "message.miningdim.gunsmith_assembly_bench.output_blocked": "Take the finished firearm from the output slot first.",

@@ -458,7 +458,7 @@
   "message.miningdim.gunsmith_press.missing_materials": "材料不足，无法开始冲压。",
   "message.miningdim.m4_template.use_assembly_bench": "请将图纸放入枪械装配台。",
   "message.miningdim.gunsmith_blueprint.use_assembly_bench": "请将图纸放入枪械装配台。",
-  "message.miningdim.gunsmith_blueprint.tacz_missing": "当前未加载 TaCZ，无法生成图纸对应枪械。",
+  "message.miningdim.gunsmith_blueprint.tacz_missing": "TaCZ 未加载，或图纸枪械数据不完整，无法生成成品。",
   "message.miningdim.gunsmith_assembly_bench.started": "机械臂开始组装枪械。",
   "message.miningdim.gunsmith_assembly_bench.busy": "机械臂正在组装，请稍候。",
   "message.miningdim.gunsmith_assembly_bench.output_blocked": "请先取走成品槽中的枪械。",

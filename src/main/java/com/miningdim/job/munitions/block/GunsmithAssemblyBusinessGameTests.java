@@ -108,6 +108,42 @@ public final class GunsmithAssemblyBusinessGameTests {
         }
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 20)
+    public static void inProgressAssemblySurvivesSaveLoadRoundTripAndStillDelivers(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        fillCompleteRecipe(be, GunsmithBlueprint.M4A1);
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        boolean previousEnabled = MunitionsConfig.GUNSMITH_ENABLED.get();
+
+        try {
+            MunitionsConfig.GUNSMITH_ENABLED.set(true);
+            helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
+                    "complete recipe must start assembly");
+
+            // 动画进行中存盘再读回 (模拟区块卸载/服务器重启): pendingResult + animationEndTick 必须往返无损。(审查 TQ-3)
+            CompoundTag saved = be.saveWithoutMetadata();
+            helper.assertTrue(saved.contains("PendingResult", Tag.TAG_COMPOUND),
+                    "in-progress assembly must persist its pending result");
+            be.load(saved);
+            helper.assertTrue(be.isAnimating(), "reloaded assembly must still be animating");
+            helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
+                    "reloaded assembly must not deliver before the animation ends");
+
+            helper.runAfterDelay(8, () -> {
+                ItemStack output = be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT);
+                helper.assertTrue(output.is(Items.IRON_HOE),
+                        "assembly must still deliver the stamped gun after a save/load round trip");
+                GunsmithGunStats stats = GunsmithGunStats.from(output);
+                helper.assertTrue(stats != null, "delivered gun must carry gunsmith NBT after reload");
+                assertClose(helper, stats.damage(), 1.20D, "round-tripped damage coefficient");
+                helper.succeed();
+            });
+        } finally {
+            MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
+        }
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void incompleteAssemblyPreservesEveryInsertedItem(GameTestHelper helper) {
         placeStructure(helper, Direction.NORTH);

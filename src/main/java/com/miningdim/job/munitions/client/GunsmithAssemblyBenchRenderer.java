@@ -190,14 +190,4 @@ public final class GunsmithAssemblyBenchRenderer
         float progress = Mth.clamp((phase - start) / (end - start), 0.0F, 1.0F);
         return progress * progress * (3.0F - 2.0F * progress);
     }
-
-    @Override
-    public boolean shouldRenderOffScreen(GunsmithAssemblyBenchBlockEntity blockEntity) {
-        return true;
-    }
-
-    @Override
-    public int getViewDistance() {
-        return 96;
-    }
 }

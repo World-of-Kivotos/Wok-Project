@@ -55,6 +55,7 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
     private static final String K_HANDLER_SIZE = "Size";
     private static final String K_PENDING_RESULT = "PendingResult";
     private static final String K_ANIMATION_END = "AnimationEndTick";
+    private static final String K_WELD_SOUND = "NextWeldSoundTick";
 
     private long animationEndTick;
     private long nextWeldSoundTick;
@@ -321,6 +322,7 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
             tag.put(K_PENDING_RESULT, pendingResult.save(new CompoundTag()));
         }
         tag.putLong(K_ANIMATION_END, animationEndTick);
+        tag.putLong(K_WELD_SOUND, nextWeldSoundTick);
     }
 
     @Override
@@ -334,7 +336,8 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
                 ? ItemStack.of(tag.getCompound(K_PENDING_RESULT))
                 : ItemStack.EMPTY;
         animationEndTick = tag.getLong(K_ANIMATION_END);
-        nextWeldSoundTick = 0L;
+        // 保留焊接音节拍, 避免重载后首个 serverTick 因 nextWeldSoundTick=0 恒真而补播一声离拍焊接音。(审查 m-4)
+        nextWeldSoundTick = tag.getLong(K_WELD_SOUND);
         pendingBlockedReported = false;
     }
 

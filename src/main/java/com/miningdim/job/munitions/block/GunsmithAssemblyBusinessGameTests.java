@@ -217,11 +217,12 @@ public final class GunsmithAssemblyBusinessGameTests {
                             part, GunsmithPlatform.AR),
                     "migration must preserve rifle part " + part.id());
         }
-        for (GunsmithPressPart pistolOnlyPart : List.of(
-                GunsmithPressPart.SLIDE, GunsmithPressPart.TRIGGER, GunsmithPressPart.HAMMER)) {
+        for (GunsmithPressPart newerPart : List.of(
+                GunsmithPressPart.SLIDE, GunsmithPressPart.TRIGGER, GunsmithPressPart.HAMMER,
+                GunsmithPressPart.RECEIVER)) {
             helper.assertTrue(be.inventory().getStackInSlot(
-                            GunsmithAssemblyBenchBlockEntity.slotForPart(pistolOnlyPart)).isEmpty(),
-                    "migration must leave new pistol slot empty: " + pistolOnlyPart.id());
+                            GunsmithAssemblyBenchBlockEntity.slotForPart(newerPart)).isEmpty(),
+                    "rifle-only migration must leave newer part slot empty: " + newerPart.id());
         }
         helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT)
                         .is(Items.DIAMOND),
@@ -232,6 +233,68 @@ public final class GunsmithAssemblyBusinessGameTests {
         menu.broadcastChanges();
         helper.assertTrue(menu.getSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).getItem().is(Items.DIAMOND),
                 "the first menu synchronization after loading a blueprint must read every slot safely");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void preReceiverInventoryMigratesAndMenuSynchronizes(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+
+        ItemStackHandler legacyInventory = new ItemStackHandler(11);
+        legacyInventory.setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT,
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(),
+                        GunsmithBlueprint.M4A1));
+        for (int slot = 1; slot < 10; slot++) {
+            legacyInventory.setStackInSlot(slot, new ItemStack(Items.IRON_INGOT, slot));
+        }
+        legacyInventory.setStackInSlot(10, new ItemStack(Items.DIAMOND));
+
+        CompoundTag savedBench = new CompoundTag();
+        savedBench.put("Inventory", legacyInventory.serializeNBT());
+        be.load(savedBench);
+
+        helper.assertTrue(be.inventory().getSlots() == GunsmithAssemblyBenchBlockEntity.SLOT_COUNT,
+                "pre-receiver save must expand to the current fixed inventory size");
+        helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT)
+                        .is(ModMunitionsItems.GUNSMITH_BLUEPRINT.get()),
+                "pre-receiver migration must preserve the blueprint in slot zero");
+        for (int slot = 1; slot < 10; slot++) {
+            ItemStack migrated = be.inventory().getStackInSlot(slot);
+            helper.assertTrue(migrated.is(Items.IRON_INGOT) && migrated.getCount() == slot,
+                    "pre-receiver migration must preserve legacy slot " + slot);
+        }
+        helper.assertTrue(be.inventory().getStackInSlot(
+                        GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.RECEIVER)).isEmpty(),
+                "pre-receiver migration must leave the new receiver slot empty");
+        helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT)
+                        .is(Items.DIAMOND),
+                "pre-receiver migration must move legacy output slot 10 into the new output slot");
+
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        GunsmithAssemblyMenu menu = new GunsmithAssemblyMenu(1, player.getInventory(), be.getBlockPos());
+        menu.broadcastChanges();
+        helper.assertTrue(menu.getSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).getItem().is(Items.DIAMOND),
+                "the first menu synchronization after pre-receiver migration must read every slot safely");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void unknownAssemblyInventorySizeFailsLoudly(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        ItemStackHandler unknownInventory = new ItemStackHandler(9);
+        CompoundTag savedBench = new CompoundTag();
+        savedBench.put("Inventory", unknownInventory.serializeNBT());
+
+        boolean rejectedWithSize = false;
+        try {
+            be.load(savedBench);
+        } catch (IllegalStateException expected) {
+            rejectedWithSize = expected.getMessage().contains("inventory size 9");
+        }
+        helper.assertTrue(rejectedWithSize,
+                "an unknown assembly inventory size must fail with the rejected size in its message");
         helper.succeed();
     }
 

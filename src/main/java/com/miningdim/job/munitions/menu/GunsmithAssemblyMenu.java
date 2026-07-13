@@ -126,7 +126,7 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
         return blockEntity.isAnimating();
     }
 
-    private static int partSlotX(GunsmithPressPart part) {
+    public static int partSlotX(GunsmithPressPart part) {
         return switch (part) {
             case CORE -> 130;
             case BARREL -> 72;
@@ -134,14 +134,20 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
             case HANDGUARD -> 52;
             case GRIP -> 278;
             case STOCK -> 278;
+            case SLIDE -> 168;
+            case TRIGGER -> 166;
+            case HAMMER -> 248;
         };
     }
 
-    private static int partSlotY(GunsmithPressPart part) {
+    public static int partSlotY(GunsmithPressPart part) {
         return switch (part) {
             case CORE, BOLT, BARREL -> 50;
             case STOCK -> 94;
             case HANDGUARD, GRIP -> 130;
+            case SLIDE -> 46;
+            case TRIGGER -> 130;
+            case HAMMER -> 50;
         };
     }
 

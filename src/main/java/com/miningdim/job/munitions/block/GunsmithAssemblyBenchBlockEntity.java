@@ -110,12 +110,8 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
     public boolean isPartSlotVisible(GunsmithPressPart part) {
         Objects.requireNonNull(part, "part");
         ItemStack blueprintStack = inventory.getStackInSlot(SLOT_BLUEPRINT);
-        if (GunsmithAssemblyRecipe.isBlueprint(blueprintStack)) {
-            if (GunsmithAssemblyRecipe.blueprint(blueprintStack).requiredParts().contains(part)) {
-                return true;
-            }
-        }
-        return !inventory.getStackInSlot(slotForPart(part)).isEmpty();
+        return GunsmithAssemblyRecipe.isBlueprint(blueprintStack)
+                && GunsmithAssemblyRecipe.blueprint(blueprintStack).requiredParts().contains(part);
     }
 
     public boolean tryStartAssembly(ServerPlayer player) {

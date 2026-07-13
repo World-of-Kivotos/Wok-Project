@@ -105,7 +105,8 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
                 continue;
             }
             ItemStack stack = partStacks.get(part);
-            drawSlotFrame(graphics, left + partSlotX(part), top + partSlotY(part), qualityColor(stack));
+            drawSlotFrame(graphics, left + GunsmithAssemblyMenu.partSlotX(part),
+                    top + GunsmithAssemblyMenu.partSlotY(part), qualityColor(stack));
             drawPartLabel(graphics, left, top, part);
         }
         drawSlotFrame(graphics, left + OUTPUT_X, top + OUTPUT_Y, 0xFFA66CE0);
@@ -189,15 +190,19 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
 
     private void drawPartLabel(GuiGraphics graphics, int left, int top, GunsmithPressPart part) {
         String label = Component.translatable(part.labelKey()).getString();
+        int slotX = GunsmithAssemblyMenu.partSlotX(part);
+        int slotY = GunsmithAssemblyMenu.partSlotY(part);
         int y = switch (part) {
-            case BARREL, CORE, BOLT -> top + partSlotY(part) - 10;
-            case STOCK, HANDGUARD, GRIP -> top + partSlotY(part) - 9;
+            case BARREL, CORE, BOLT -> top + slotY - 10;
+            case STOCK, HANDGUARD, GRIP -> top + slotY - 9;
+            case SLIDE, HAMMER -> top + slotY - 10;
+            case TRIGGER -> top + slotY + 21;
         };
         if (part == GunsmithPressPart.HANDGUARD) {
-            drawRightAlignedScaledText(graphics, label, left + partSlotX(part) + 20, y,
+            drawRightAlignedScaledText(graphics, label, left + slotX + 20, y,
                     0xFFABB8BE, 0.52F);
         } else {
-            drawScaledText(graphics, label, left + partSlotX(part) - 2, y, 0xFFABB8BE, 0.52F);
+            drawScaledText(graphics, label, left + slotX - 2, y, 0xFFABB8BE, 0.52F);
         }
     }
 
@@ -207,8 +212,8 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
             if (!menu.isPartSlotVisible(part)) {
                 continue;
             }
-            int slotCenterX = left + partSlotX(part) + 9;
-            int slotCenterY = top + partSlotY(part) + 9;
+            int slotCenterX = left + GunsmithAssemblyMenu.partSlotX(part) + 9;
+            int slotCenterY = top + GunsmithAssemblyMenu.partSlotY(part) + 9;
             int anchorX = left + anchorX(part);
             int anchorY = top + anchorY(part);
             int color = 0x885BAFBA;
@@ -222,25 +227,6 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
         }
     }
 
-    private static int partSlotX(GunsmithPressPart part) {
-        return switch (part) {
-            case CORE -> 130;
-            case BARREL -> 72;
-            case BOLT -> 240;
-            case HANDGUARD -> 52;
-            case GRIP -> 278;
-            case STOCK -> 278;
-        };
-    }
-
-    private static int partSlotY(GunsmithPressPart part) {
-        return switch (part) {
-            case CORE, BARREL, BOLT -> 50;
-            case STOCK -> 94;
-            case HANDGUARD, GRIP -> 130;
-        };
-    }
-
     private static int anchorX(GunsmithPressPart part) {
         return switch (part) {
             case BARREL -> 102;
@@ -249,6 +235,9 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
             case BOLT -> 202;
             case GRIP -> 202;
             case STOCK -> 252;
+            case SLIDE -> 178;
+            case TRIGGER -> 190;
+            case HAMMER -> 238;
         };
     }
 
@@ -259,6 +248,9 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
             case BARREL -> 103;
             case CORE, STOCK -> 105;
             case HANDGUARD -> 107;
+            case SLIDE -> 91;
+            case TRIGGER -> 119;
+            case HAMMER -> 95;
         };
     }
 

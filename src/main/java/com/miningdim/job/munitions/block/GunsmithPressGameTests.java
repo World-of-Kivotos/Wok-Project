@@ -56,9 +56,9 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
                 new ItemStack(Items.IRON_INGOT, 64));
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
-                new ItemStack(Items.IRON_INGOT, 64));
+                new ItemStack(Items.COPPER_INGOT, 64));
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
-                new ItemStack(Items.IRON_INGOT, 64));
+                new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
 
         helper.assertTrue(press.tryStartPreview(player), "complete hammer materials must start the press");
@@ -104,9 +104,9 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
                 new ItemStack(Items.IRON_INGOT, 64));
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
-                new ItemStack(Items.IRON_INGOT, 64));
+                new ItemStack(Items.COPPER_INGOT, 64));
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
-                new ItemStack(Items.IRON_INGOT, 64));
+                new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
 
         helper.assertTrue(press.tryStartPreview(player), "complete receiver materials must start the press");
@@ -144,9 +144,9 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
                 new ItemStack(Items.IRON_INGOT, 64));
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
-                new ItemStack(Items.IRON_INGOT, 64));
+                new ItemStack(Items.COPPER_INGOT, 64));
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
-                new ItemStack(Items.IRON_INGOT, 64));
+                new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
 
         helper.assertTrue(press.tryStartPreview(player), "complete handguard materials must start the press");
@@ -194,9 +194,9 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
                 new ItemStack(Items.IRON_INGOT, 64));
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
-                new ItemStack(Items.IRON_INGOT, 64));
+                new ItemStack(Items.COPPER_INGOT, 64));
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
-                new ItemStack(Items.IRON_INGOT, 64));
+                new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
 
         helper.assertTrue(press.tryStartPreview(player), "complete receiver materials must start the press");
@@ -240,9 +240,9 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
                 new ItemStack(Items.IRON_INGOT, 64));
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
-                new ItemStack(Items.IRON_INGOT, 64));
+                new ItemStack(Items.COPPER_INGOT, 64));
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
-                new ItemStack(Items.IRON_INGOT, 64));
+                new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
 
         helper.assertTrue(press.tryStartPreview(player), "complete bipod materials must start the press");
@@ -352,6 +352,65 @@ public final class GunsmithPressGameTests {
         assertIllegalCombination(helper, GunsmithPlatform.PISTOL, GunsmithPressPart.CORE);
         assertIllegalCombination(helper, GunsmithPlatform.AR, GunsmithPressPart.SLIDE);
         assertIllegalCombination(helper, GunsmithPlatform.MACHINE_GUN, GunsmithPressPart.SLIDE);
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void pressRejectsWrongMaterialsAndGatesEachSlotByType(GameTestHelper helper) {
+        helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
+        GunsmithPressBlockEntity press = requirePress(helper);
+
+        // 三槽只认对应材料, 且互不串 (审查 PRESS-MAT-01)。
+        helper.assertFalse(press.inventory().isItemValid(
+                        GunsmithPressBlockEntity.SLOT_GUN_PARTS, new ItemStack(Items.COBBLESTONE)),
+                "gun-parts slot must reject cobblestone");
+        helper.assertFalse(press.inventory().isItemValid(
+                        GunsmithPressBlockEntity.SLOT_ALLOY, new ItemStack(Items.IRON_INGOT)),
+                "alloy slot must reject iron (its material is copper)");
+        helper.assertFalse(press.inventory().isItemValid(
+                        GunsmithPressBlockEntity.SLOT_POLYMER, new ItemStack(Items.COPPER_INGOT)),
+                "polymer slot must reject copper (its material is slime)");
+        helper.assertTrue(press.inventory().isItemValid(
+                        GunsmithPressBlockEntity.SLOT_ALLOY, new ItemStack(Items.COPPER_INGOT)),
+                "alloy slot must accept copper");
+        helper.assertTrue(press.inventory().isItemValid(
+                        GunsmithPressBlockEntity.SLOT_POLYMER, new ItemStack(Items.SLIME_BLOCK)),
+                "polymer slot must accept slime block");
+
+        int receiverRow = compactRow(GunsmithPlatform.BULLPUP, GunsmithPressPart.RECEIVER);
+        helper.assertTrue(press.trySelectPlatform(GunsmithPlatform.BULLPUP.index()),
+                "press must accept the bullpup platform");
+        helper.assertTrue(press.trySelectPart(receiverRow), "press must select the bullpup receiver");
+
+        // 圆石冒充三槽 (RECEIVER 需 6/6/5) 严禁开工, 且不得消耗。
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
+                new ItemStack(Items.COBBLESTONE, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
+                new ItemStack(Items.COBBLESTONE, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
+                new ItemStack(Items.COBBLESTONE, 64));
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        helper.assertFalse(press.tryStartPreview(player),
+                "cobblestone stuffed into every slot must not start a real gun-part press");
+        helper.assertFalse(press.isPressing(), "rejected press must stay idle");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 64,
+                "rejected press must not consume the fake gun-parts material");
+
+        // 换成正确材料 -> 正常开工并按 6/6/5 消耗。
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
+                new ItemStack(Items.IRON_INGOT, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
+                new ItemStack(Items.COPPER_INGOT, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
+                new ItemStack(Items.SLIME_BLOCK, 64));
+        helper.assertTrue(press.tryStartPreview(player),
+                "correct iron/copper/slime materials must start the receiver press");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
+                "receiver press must consume six iron gun parts");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 58,
+                "receiver press must consume six copper alloy");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 59,
+                "receiver press must consume five slime polymer");
         helper.succeed();
     }
 

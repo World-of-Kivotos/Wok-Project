@@ -17,7 +17,9 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerData;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -57,9 +59,20 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
 
         @Override
         public boolean isItemValid(int slot, ItemStack stack) {
-            return slot != SLOT_OUTPUT;
+            return slot != SLOT_OUTPUT && stack.is(requiredMaterial(slot));
         }
     };
+
+    // 三料槽各只认对应材料 (审查 PRESS-MAT-01): 否则任意廉价物 (圆石) 冒充零件/合金/板材冲出真枪械零件, 架空物料 sink。
+    // WIP 临时复用原版物品, 后续换专用材料时改此一处 + 同步 GunsmithPressGameTests。
+    static Item requiredMaterial(int slot) {
+        return switch (slot) {
+            case SLOT_GUN_PARTS -> Items.IRON_INGOT;
+            case SLOT_ALLOY -> Items.COPPER_INGOT;
+            case SLOT_POLYMER -> Items.SLIME_BLOCK;
+            default -> throw new IllegalArgumentException("slot is not a gunsmith press input slot: " + slot);
+        };
+    }
 
     private final ContainerData dataAccess = new ContainerData() {
         @Override
@@ -242,9 +255,17 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
     }
 
     private boolean hasRequiredMaterials() {
-        return inventory.getStackInSlot(SLOT_GUN_PARTS).getCount() >= requiredGunParts()
-                && inventory.getStackInSlot(SLOT_ALLOY).getCount() >= requiredAlloy()
-                && inventory.getStackInSlot(SLOT_POLYMER).getCount() >= requiredPolymer();
+        return hasMaterial(SLOT_GUN_PARTS, requiredGunParts())
+                && hasMaterial(SLOT_ALLOY, requiredAlloy())
+                && hasMaterial(SLOT_POLYMER, requiredPolymer());
+    }
+
+    private boolean hasMaterial(int slot, int amount) {
+        if (amount <= 0) {
+            return true;
+        }
+        ItemStack stack = inventory.getStackInSlot(slot);
+        return stack.is(requiredMaterial(slot)) && stack.getCount() >= amount;
     }
 
     private void consumeRequiredMaterials() {

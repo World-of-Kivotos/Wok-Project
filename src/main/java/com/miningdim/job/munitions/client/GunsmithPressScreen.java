@@ -146,9 +146,10 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
 
     private void renderPartButtons(GuiGraphics graphics, int left, int top, GunsmithPlatform platform) {
         GunsmithPressPart selected = menu.selectedPart();
-        for (GunsmithPressPart part : GunsmithPressPart.values()) {
+        int row = 0;
+        for (GunsmithPressPart part : platform.allowedParts()) {
             int x = left + PART_X;
-            int y = top + PART_Y + part.index() * (PART_H + PART_GAP);
+            int y = top + PART_Y + row * (PART_H + PART_GAP);
             boolean current = part == selected;
             boolean hover = inRect(this.minecraftMouseX(), this.minecraftMouseY(), x, y, PART_W, PART_H);
             int outer = current ? 0xFFB98C4D : hover ? 0xFF586172 : 0xFF333844;
@@ -160,6 +161,7 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
             }
             drawCenteredScaledText(graphics, platformPartName(platform, part), x + PART_W / 2.0F, y + 3.0F,
                     current ? 0xFFF3D7A2 : 0xFFD1D8E4, 0.72F);
+            row++;
         }
     }
 
@@ -351,15 +353,17 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
                     Component.literal(tr(menu.selectedPlatform().labelKey()) + " 平台"), mouseX, mouseY);
             return;
         }
-        for (GunsmithPressPart part : GunsmithPressPart.values()) {
+        int row = 0;
+        for (GunsmithPressPart part : menu.selectedPlatform().allowedParts()) {
             int x = left + PART_X;
-            int y = top + PART_Y + part.index() * (PART_H + PART_GAP);
+            int y = top + PART_Y + row * (PART_H + PART_GAP);
             if (inRect(mouseX, mouseY, x, y, PART_W, PART_H)) {
                 graphics.renderTooltip(this.font,
                         Component.literal(partQualityName(menu.selectedPlatform(), part, menu.selectedQuality())
                                 + " - " + tr(part.roleKey())), mouseX, mouseY);
                 return;
             }
+            row++;
         }
         for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
             int x = left + QUALITY_X + quality.index() * (QUALITY_W + QUALITY_GAP);
@@ -388,13 +392,15 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
                 sendButton(GunsmithPressMenu.BUTTON_PLATFORM_BASE + shiftedPlatformIndex(delta));
                 return true;
             }
-            for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            int row = 0;
+            for (GunsmithPressPart part : menu.selectedPlatform().allowedParts()) {
                 int x = left + PART_X;
-                int y = top + PART_Y + part.index() * (PART_H + PART_GAP);
+                int y = top + PART_Y + row * (PART_H + PART_GAP);
                 if (inRect(mouseX, mouseY, x, y, PART_W, PART_H)) {
-                    sendButton(part.index());
+                    sendButton(GunsmithPressMenu.BUTTON_PART_BASE + row);
                     return true;
                 }
+                row++;
             }
             for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
                 int x = left + QUALITY_X + quality.index() * (QUALITY_W + QUALITY_GAP);

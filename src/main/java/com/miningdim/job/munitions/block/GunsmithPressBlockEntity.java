@@ -115,17 +115,27 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
             return false;
         }
         this.selectedPlatform = GunsmithPlatform.byIndex(index);
+        normalizeSelectedPart();
         setChanged();
         return true;
     }
 
-    public boolean trySelectPart(int index) {
+    public boolean trySelectPart(int compactIndex) {
         if (isPressing()) {
             return false;
         }
-        this.selectedPart = GunsmithPressPart.byIndex(index);
-        setChanged();
-        return true;
+        int row = 0;
+        for (GunsmithPressPart part : selectedPlatform.allowedParts()) {
+            if (row++ == compactIndex) {
+                if (!selectedPlatform.allows(part)) {
+                    return false;
+                }
+                this.selectedPart = part;
+                setChanged();
+                return true;
+            }
+        }
+        return false;
     }
 
     public boolean trySelectQuality(int index) {
@@ -140,6 +150,10 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
     public boolean tryStartPreview(ServerPlayer player) {
         if (isPressing()) {
             player.displayClientMessage(Component.translatable("message.miningdim.gunsmith_press.busy"), true);
+            return false;
+        }
+        if (!selectedPlatform.allows(selectedPart)) {
+            player.displayClientMessage(Component.literal("当前平台不支持所选部件。"), true);
             return false;
         }
         if (!inventory.getStackInSlot(SLOT_OUTPUT).isEmpty()) {
@@ -320,7 +334,19 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
                 ? GunsmithPressPart.byId(tag.getString(K_PART)) : GunsmithPressPart.CORE;
         selectedQuality = tag.contains(K_QUALITY)
                 ? GunsmithPartQuality.byId(tag.getString(K_QUALITY)) : GunsmithPartQuality.COMMON;
+        normalizeSelectedPart();
         activeStartTick = tag.getLong(K_ACTIVE_START);
         activeUntilTick = tag.getLong(K_ACTIVE_UNTIL);
+    }
+
+    private void normalizeSelectedPart() {
+        if (selectedPlatform.allows(selectedPart)) {
+            return;
+        }
+        for (GunsmithPressPart part : selectedPlatform.allowedParts()) {
+            selectedPart = part;
+            return;
+        }
+        throw new IllegalStateException("Gunsmith platform has no supported parts: " + selectedPlatform.id());
     }
 }

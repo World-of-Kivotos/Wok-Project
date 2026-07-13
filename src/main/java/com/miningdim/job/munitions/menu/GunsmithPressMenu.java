@@ -25,6 +25,7 @@ public final class GunsmithPressMenu extends AbstractMiningMenu {
 
     private static final int CONTAINER_SLOTS = GunsmithPressBlockEntity.SLOT_COUNT;
 
+    public static final int BUTTON_PART_BASE = 0;
     public static final int BUTTON_QUALITY_BASE = 100;
     public static final int BUTTON_START_PREVIEW = 200;
     public static final int BUTTON_PLATFORM_BASE = 300;
@@ -81,8 +82,8 @@ public final class GunsmithPressMenu extends AbstractMiningMenu {
         if (platformIndex >= 0 && platformIndex < GunsmithPlatform.values().length) {
             return blockEntity.trySelectPlatform(platformIndex);
         }
-        if (id >= 0 && id < GunsmithPressPart.values().length) {
-            return blockEntity.trySelectPart(id);
+        if (id >= BUTTON_PART_BASE && id < BUTTON_QUALITY_BASE) {
+            return blockEntity.trySelectPart(id - BUTTON_PART_BASE);
         }
         int qualityIndex = id - BUTTON_QUALITY_BASE;
         if (qualityIndex >= 0 && qualityIndex < GunsmithPartQuality.values().length) {

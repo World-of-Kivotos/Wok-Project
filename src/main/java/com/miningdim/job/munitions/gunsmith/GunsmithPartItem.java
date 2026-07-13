@@ -72,9 +72,23 @@ public final class GunsmithPartItem extends Item {
         }
     }
 
+    @Nullable
+    private static PartData tryPartData(ItemStack stack) {
+        // 渲染线程 (getName/appendHoverText) 不能抛异常, 否则崩客户端; 服务端装配/冲压路径仍走
+        // requirePartData 硬校验。裸/损坏 NBT 仅 op /give 可造。(审查 GS-2)
+        try {
+            return requirePartData(stack);
+        } catch (IllegalArgumentException invalid) {
+            return null;
+        }
+    }
+
     @Override
     public Component getName(ItemStack stack) {
-        PartData data = requirePartData(stack);
+        PartData data = tryPartData(stack);
+        if (data == null) {
+            return super.getName(stack);
+        }
         MutableComponent name = Component.empty()
                 .append(Component.translatable(data.platform().labelKey()))
                 .append(Component.translatable(data.part().labelKey()))
@@ -86,7 +100,12 @@ public final class GunsmithPartItem extends Item {
     @Override
     public void appendHoverText(ItemStack stack, @Nullable Level level,
                                 List<Component> tooltip, TooltipFlag flag) {
-        PartData data = requirePartData(stack);
+        PartData data = tryPartData(stack);
+        if (data == null) {
+            tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.invalid")
+                    .withStyle(ChatFormatting.RED));
+            return;
+        }
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.platform",
                 Component.translatable(data.platform().labelKey())).withStyle(ChatFormatting.GRAY));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.part",
@@ -186,12 +205,7 @@ public final class GunsmithPartItem extends Item {
         if (!tag.contains(K_QUALITY, Tag.TAG_STRING)) {
             throw new IllegalArgumentException("Gunsmith part has no quality id");
         }
-        String id = tag.getString(K_QUALITY);
-        GunsmithPartQuality quality = GunsmithPartQuality.byId(id);
-        if (!quality.id().equals(id)) {
-            throw new IllegalArgumentException("Unknown gunsmith part quality: " + id);
-        }
-        return quality;
+        return GunsmithPartQuality.byId(tag.getString(K_QUALITY));
     }
 
     private static void requireCoefficient(double coefficient, GunsmithPartQuality quality) {

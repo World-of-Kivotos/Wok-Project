@@ -1,11 +1,13 @@
 # 千年工程师 职业 Mod — 设计规格文档
 
+> 关联更新：该职业的玩家可见名称调整为“铸甲师”，并新增独立护甲机制。护甲类型、受击公式、枪匠联动与插板护甲第一阶段以[铸甲师护甲机制设计规格](Armorer_Armor_System_DesignSpec.md)为准。本文继续负责既有纳米修复、生产台、等级和维修特效；第一阶段保留内部 `engineer` 标识以兼容旧存档。
+
 ## 文档元信息
 
-- 用途: 千年工程师职业实现阶段的唯一架构、数值与机制参考。所有常量以本文档为准, 不得凭记忆改写。
+- 用途: 既有纳米修复、生产台、职业等级与维修特效实现阶段的唯一架构、数值与机制参考。上述范围内的常量以本文档为准, 不得凭记忆改写。
 - 目标平台: Minecraft 1.20.1 + Forge 47.x + Java 17。所有 API 名称以此版本为准, 不得套用其他版本语法 (与 MiningDimension 规格第一章同源约束)。
 - 部署环境 (硬约束, 影响全部战斗向数值): 目标公服人均初始最大血量 80 (原版 20 的 4 倍); 装有 TACZ 枪械 mod, DPS 远高于原版, 全自动每秒多次命中、狙/霰弹单发可超 80 且常带穿甲, 击杀时间以秒计; 死亡不掉落。一切战斗向数值一律用 "最大血量百分比 / 拦截致死" 建模, 严禁套用原版 20 血常量。
-- 状态图例: DECIDED 已定稿 / PENDING 待拍板 / TODO 实现期补全。
+- 状态图例: DECIDED 已定稿 / PENDING 待拍板或实现期补全。
 - 数值状态: 等级曲线沿用农夫职业已交叉验证曲线; 每日衰减曲线与达标天数已实算验证 (见第八章)。
 - 阻塞项: 进入编码前须先解决第十二章列出的全部 PENDING。
 
@@ -123,7 +125,7 @@
 
 ### 5.3 可实现性
 
-直接改 `ItemStack.setDamageValue / getDamageValue` 对任意 `Damageable` 物品 (含模组护甲、无原版修复配方者) 均生效, 这是 "修一切" 的技术基础; Unbreakable NBT 物品的处理策略实现期定 (TODO)。
+直接改 `ItemStack.setDamageValue / getDamageValue` 对任意 `Damageable` 物品 (含模组护甲、无原版修复配方者) 均生效, 这是 "修一切" 的技术基础; Unbreakable NBT 物品的处理策略实现期定 (PENDING)。
 
 ---
 
@@ -151,7 +153,7 @@
 - 特效标记 (哪几件带何效果): 逐件存 ItemStack NBT。
 - 图腾共享 CD (`nanoReactorCdEndTick`): 人级, 存玩家 capability (见第十章)。
 - 护盾剩余次数 / 60s 计时 / 重塑·机能修复的 tick: 逐件存 ItemStack NBT, 由 `TickEvent.PlayerTickEvent` 遍历护甲槽读取。
-- 仅穿戴中的护甲参与 tick 类效果 (背包/箱子内不 tick), 实现期明确 (TODO)。
+- 仅穿戴中的护甲参与 tick 类效果 (背包/箱子内不 tick), 实现期明确 (PENDING)。
 
 ### 6.4 客户端表现 (DECIDED 第一批 / 第二批)
 
@@ -278,7 +280,7 @@
 
 ### 10.4 BE 无玩家上下文
 
-BlockEntity tick 内无玩家引用。读玩家等级的判定收敛到有玩家在场的交互帧 (Block.use 打开 GUI / 取物 / 选档), 由 ServerPlayer 经 entry capability 读取; 多人共用一台机器时 "谁的等级算数" 默认按主人 (`ownerUUID`), 主人离线策略 (暂停高档 / 按记录等级) 实现期拍板 (TODO)。
+BlockEntity tick 内无玩家引用。读玩家等级的判定收敛到有玩家在场的交互帧 (Block.use 打开 GUI / 取物 / 选档), 由 ServerPlayer 经 entry capability 读取; 多人共用一台机器时 "谁的等级算数" 默认按主人 (`ownerUUID`), 主人离线策略 (暂停高档 / 按记录等级) 实现期拍板 (PENDING)。
 
 ### 10.5 容器 GUI 基础设施 (从零搭)
 

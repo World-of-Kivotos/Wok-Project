@@ -280,6 +280,35 @@ public final class GunsmithAssemblyBusinessGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void preBipodInventoryMigrationPreservesSlotsAndMovesOutput(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+
+        ItemStackHandler legacyInventory = new ItemStackHandler(12);
+        for (int slot = 0; slot <= 10; slot++) {
+            legacyInventory.setStackInSlot(slot, new ItemStack(Items.IRON_INGOT, slot + 1));
+        }
+        legacyInventory.setStackInSlot(11, new ItemStack(Items.DIAMOND));
+        CompoundTag savedBench = new CompoundTag();
+        savedBench.put("Inventory", legacyInventory.serializeNBT());
+        be.load(savedBench);
+
+        helper.assertTrue(be.inventory().getSlots() == 13,
+                "pre-bipod save must expand from twelve to thirteen slots");
+        for (int slot = 0; slot <= 10; slot++) {
+            ItemStack migrated = be.inventory().getStackInSlot(slot);
+            helper.assertTrue(migrated.is(Items.IRON_INGOT) && migrated.getCount() == slot + 1,
+                    "pre-bipod migration must preserve legacy slot " + slot);
+        }
+        helper.assertTrue(be.inventory().getStackInSlot(
+                        GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.BIPOD)).isEmpty(),
+                "pre-bipod migration must leave the new bipod slot empty");
+        helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).is(Items.DIAMOND),
+                "pre-bipod migration must move legacy output slot eleven into the new output slot");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void unknownAssemblyInventorySizeFailsLoudly(GameTestHelper helper) {
         placeStructure(helper, Direction.NORTH);
         GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
@@ -392,6 +421,7 @@ public final class GunsmithAssemblyBusinessGameTests {
         int arCount = 0;
         int akCount = 0;
         int pistolCount = 0;
+        int machineGunCount = 0;
         for (GunsmithBlueprint blueprint : GunsmithBlueprint.values()) {
             if (blueprint.platform() == GunsmithPlatform.AR) {
                 arCount++;
@@ -399,6 +429,8 @@ public final class GunsmithAssemblyBusinessGameTests {
                 akCount++;
             } else if (blueprint.platform() == GunsmithPlatform.PISTOL) {
                 pistolCount++;
+            } else if (blueprint.platform() == GunsmithPlatform.MACHINE_GUN) {
+                machineGunCount++;
             }
             ItemStack stack = GunsmithBlueprintItem.createStack(
                     ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), blueprint);
@@ -417,6 +449,7 @@ public final class GunsmithAssemblyBusinessGameTests {
         helper.assertTrue(arCount == 5, "catalog must contain five M4-family blueprints");
         helper.assertTrue(akCount == 3, "catalog must contain three AK-family blueprints");
         helper.assertTrue(pistolCount == 1, "catalog must contain the M1911 pistol blueprint");
+        helper.assertTrue(machineGunCount == 0, "machine gun platform must not gain a fabricated blueprint");
         helper.assertTrue(GunsmithBlueprint.M1911.requiredParts().containsAll(List.of(
                         GunsmithPressPart.BARREL, GunsmithPressPart.SLIDE, GunsmithPressPart.GRIP,
                         GunsmithPressPart.TRIGGER, GunsmithPressPart.HAMMER)),

@@ -138,6 +138,7 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
             case TRIGGER -> 166;
             case HAMMER -> 248;
             case RECEIVER -> 242;
+            case BIPOD -> 174;
         };
     }
 
@@ -150,6 +151,7 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
             case TRIGGER -> 130;
             case HAMMER -> 50;
             case RECEIVER -> 94;
+            case BIPOD -> 130;
         };
     }
 

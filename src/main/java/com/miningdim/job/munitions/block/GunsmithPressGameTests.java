@@ -211,6 +211,51 @@ public final class GunsmithPressGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void machineGunPlatformOffersOrderedFivePartsAndStartsBipodProduction(GameTestHelper helper) {
+        helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
+        GunsmithPressBlockEntity press = requirePress(helper);
+
+        helper.assertTrue(press.trySelectPlatform(GunsmithPlatform.MACHINE_GUN.index()),
+                "press must accept the machine gun platform");
+        helper.assertTrue(press.selectedPart() == GunsmithPressPart.HANDGUARD,
+                "switching to machine gun must normalize to the first configured part");
+        helper.assertTrue(new java.util.ArrayList<>(GunsmithPlatform.MACHINE_GUN.supportedParts()).equals(java.util.List.of(
+                        GunsmithPressPart.HANDGUARD, GunsmithPressPart.BOLT, GunsmithPressPart.BARREL,
+                        GunsmithPressPart.STOCK, GunsmithPressPart.BIPOD)),
+                "machine gun parts must retain the configured compact-row order");
+        helper.assertFalse(GunsmithPlatform.MACHINE_GUN.supports(GunsmithPressPart.CORE),
+                "machine gun must not expose a core slot");
+        helper.assertFalse(GunsmithPlatform.MACHINE_GUN.supports(GunsmithPressPart.GRIP),
+                "machine gun must not expose a grip slot");
+        helper.assertFalse(GunsmithPlatform.MACHINE_GUN.supports(GunsmithPressPart.RECEIVER),
+                "machine gun must not expose a receiver slot");
+        assertIllegalCombination(helper, GunsmithPlatform.MACHINE_GUN, GunsmithPressPart.CORE);
+        assertIllegalCombination(helper, GunsmithPlatform.MACHINE_GUN, GunsmithPressPart.GRIP);
+        assertIllegalCombination(helper, GunsmithPlatform.MACHINE_GUN, GunsmithPressPart.RECEIVER);
+
+        helper.assertTrue(press.trySelectPart(compactRow(GunsmithPlatform.MACHINE_GUN, GunsmithPressPart.BIPOD)),
+                "press must select the machine gun bipod by compact row");
+        helper.assertTrue(press.selectedPart() == GunsmithPressPart.BIPOD,
+                "machine gun bipod compact row must resolve to bipod");
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
+                new ItemStack(Items.IRON_INGOT, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
+                new ItemStack(Items.IRON_INGOT, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
+                new ItemStack(Items.IRON_INGOT, 64));
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+
+        helper.assertTrue(press.tryStartPreview(player), "complete bipod materials must start the press");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 61,
+                "common bipod production must consume three generic gun parts");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 60,
+                "common bipod production must consume four alloy units");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 63,
+                "common bipod production must consume one polymer unit");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void platformPartModelDataCoversFiveQualitiesWithoutChangingRifleCodes(GameTestHelper helper) {
         Map<GunsmithPressPart, Integer> pistolBases = new EnumMap<>(GunsmithPressPart.class);
         pistolBases.put(GunsmithPressPart.BARREL, 211);
@@ -269,6 +314,19 @@ public final class GunsmithPressGameTests {
             }
         }
 
+        Map<GunsmithPressPart, Integer> machineGunBases = new EnumMap<>(GunsmithPressPart.class);
+        machineGunBases.put(GunsmithPressPart.BARREL, 611);
+        machineGunBases.put(GunsmithPressPart.BOLT, 621);
+        machineGunBases.put(GunsmithPressPart.HANDGUARD, 631);
+        machineGunBases.put(GunsmithPressPart.STOCK, 651);
+        machineGunBases.put(GunsmithPressPart.BIPOD, 701);
+        for (Map.Entry<GunsmithPressPart, Integer> entry : machineGunBases.entrySet()) {
+            for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
+                assertModelData(helper, GunsmithPlatform.MACHINE_GUN, entry.getKey(), quality,
+                        entry.getValue() + quality.index());
+            }
+        }
+
         helper.assertTrue(GunsmithPlatform.byIndex(0) == GunsmithPlatform.AR,
                 "AR platform index must remain zero");
         helper.assertTrue(GunsmithPlatform.byIndex(1) == GunsmithPlatform.AK,
@@ -283,12 +341,17 @@ public final class GunsmithPressGameTests {
                 "sniper platform index must be five");
         helper.assertTrue(GunsmithPlatform.byIndex(5) == GunsmithPlatform.SNIPER,
                 "sniper platform must decode from index five");
+        helper.assertTrue(GunsmithPlatform.MACHINE_GUN.index() == 6,
+                "machine gun platform index must be six");
+        helper.assertTrue(GunsmithPlatform.byIndex(6) == GunsmithPlatform.MACHINE_GUN,
+                "machine gun platform must decode from index six");
         assertModelData(helper, GunsmithPlatform.AR, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1);
         assertModelData(helper, GunsmithPlatform.AR, GunsmithPressPart.STOCK, GunsmithPartQuality.LEGENDARY, 55);
         assertModelData(helper, GunsmithPlatform.AK, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 101);
         assertModelData(helper, GunsmithPlatform.AK, GunsmithPressPart.STOCK, GunsmithPartQuality.LEGENDARY, 155);
         assertIllegalCombination(helper, GunsmithPlatform.PISTOL, GunsmithPressPart.CORE);
         assertIllegalCombination(helper, GunsmithPlatform.AR, GunsmithPressPart.SLIDE);
+        assertIllegalCombination(helper, GunsmithPlatform.MACHINE_GUN, GunsmithPressPart.SLIDE);
         helper.succeed();
     }
 

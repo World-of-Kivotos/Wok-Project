@@ -194,7 +194,7 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
         int slotY = GunsmithAssemblyMenu.partSlotY(part);
         int y = switch (part) {
             case BARREL, CORE, BOLT -> top + slotY - 10;
-            case STOCK, HANDGUARD, GRIP, TRIGGER -> top + slotY - 9;
+            case STOCK, HANDGUARD, GRIP, TRIGGER, BIPOD -> top + slotY - 9;
             case SLIDE, HAMMER, RECEIVER -> top + slotY - 10;
         };
         if (part == GunsmithPressPart.HANDGUARD) {
@@ -238,6 +238,7 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
             case TRIGGER -> 190;
             case HAMMER -> 238;
             case RECEIVER -> 224;
+            case BIPOD -> 176;
         };
     }
 
@@ -252,6 +253,7 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
             case TRIGGER -> 119;
             case HAMMER -> 95;
             case RECEIVER -> 104;
+            case BIPOD -> 126;
         };
     }
 

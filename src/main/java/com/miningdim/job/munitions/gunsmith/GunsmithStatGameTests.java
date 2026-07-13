@@ -99,6 +99,33 @@ public final class GunsmithStatGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void machineGunUsesBipodHandlingAndNeverResolvesRange(GameTestHelper helper) {
+        Function<GunsmithPressPart, Double> coefficients = part -> switch (part) {
+            case HANDGUARD -> 1.05D;
+            case BOLT -> 1.10D;
+            case BARREL -> 1.15D;
+            case STOCK -> 1.20D;
+            case BIPOD -> 1.25D;
+            default -> throw new IllegalArgumentException("unexpected machine gun part: " + part);
+        };
+
+        assertClose(helper, GunsmithStat.DAMAGE.coefficient(GunsmithPlatform.MACHINE_GUN, coefficients), 1.10D,
+                "machine gun damage must come from bolt");
+        assertClose(helper, GunsmithStat.HEADSHOT.coefficient(GunsmithPlatform.MACHINE_GUN, coefficients), 1.15D,
+                "machine gun headshot must come from barrel");
+        assertClose(helper, GunsmithStat.RECOIL.coefficient(GunsmithPlatform.MACHINE_GUN, coefficients), 1.20D,
+                "machine gun recoil must come from stock");
+        assertClose(helper, GunsmithStat.SPREAD.coefficient(GunsmithPlatform.MACHINE_GUN, coefficients), 1.05D,
+                "machine gun spread must come from handguard");
+        assertClose(helper, GunsmithStat.HANDLING.coefficient(GunsmithPlatform.MACHINE_GUN, coefficients), 1.25D,
+                "machine gun handling must come from bipod");
+        assertClose(helper, GunsmithStat.RANGE.coefficient(GunsmithPlatform.MACHINE_GUN,
+                        part -> { throw new IllegalStateException("machine gun range must not resolve a part"); }), 1.0D,
+                "machine gun range must remain fixed");
+        helper.succeed();
+    }
+
     private static void assertClose(GameTestHelper helper, double actual, double expected, String label) {
         helper.assertTrue(Math.abs(actual - expected) < 0.0000001D,
                 label + " expected " + expected + " but was " + actual);

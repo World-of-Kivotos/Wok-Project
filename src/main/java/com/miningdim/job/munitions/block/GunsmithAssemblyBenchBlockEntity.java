@@ -48,6 +48,8 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
     private static final int LEGACY_RIFLE_SLOT_COUNT = LEGACY_RIFLE_SLOT_OUTPUT + 1;
     private static final int LEGACY_PRE_RECEIVER_SLOT_OUTPUT = 10;
     private static final int LEGACY_PRE_RECEIVER_SLOT_COUNT = LEGACY_PRE_RECEIVER_SLOT_OUTPUT + 1;
+    private static final int LEGACY_PRE_BIPOD_SLOT_OUTPUT = 11;
+    private static final int LEGACY_PRE_BIPOD_SLOT_COUNT = LEGACY_PRE_BIPOD_SLOT_OUTPUT + 1;
     private static final int WELD_SOUND_INTERVAL_TICKS = 24;
     private static final String K_INVENTORY = "Inventory";
     private static final String K_HANDLER_SIZE = "Size";
@@ -346,6 +348,12 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
             inventory.deserializeNBT(serializedInventory);
             return;
         }
+        if (serializedSize == LEGACY_PRE_BIPOD_SLOT_COUNT) {
+            migratePreBipodInventory(serializedInventory);
+            LOGGER.info("Migrated pre-bipod gunsmith assembly inventory at {} from {} to {} slots",
+                    worldPosition, LEGACY_PRE_BIPOD_SLOT_COUNT, SLOT_COUNT);
+            return;
+        }
         if (serializedSize == LEGACY_PRE_RECEIVER_SLOT_COUNT) {
             migratePreReceiverInventory(serializedInventory);
             LOGGER.info("Migrated pre-receiver gunsmith assembly inventory at {} from {} to {} slots",
@@ -361,7 +369,21 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         }
         throw new IllegalStateException("Unsupported gunsmith assembly inventory size " + serializedSize
                 + " at " + worldPosition + "; expected " + SLOT_COUNT + ", legacy "
-                + LEGACY_PRE_RECEIVER_SLOT_COUNT + " or legacy " + LEGACY_RIFLE_SLOT_COUNT);
+                + LEGACY_PRE_BIPOD_SLOT_COUNT + ", legacy " + LEGACY_PRE_RECEIVER_SLOT_COUNT
+                + " or legacy " + LEGACY_RIFLE_SLOT_COUNT);
+    }
+
+    private void migratePreBipodInventory(CompoundTag serializedInventory) {
+        ItemStackHandler legacyInventory = new ItemStackHandler(LEGACY_PRE_BIPOD_SLOT_COUNT);
+        legacyInventory.deserializeNBT(serializedInventory);
+
+        ItemStackHandler migratedInventory = new ItemStackHandler(SLOT_COUNT);
+        for (int slot = SLOT_BLUEPRINT; slot < LEGACY_PRE_BIPOD_SLOT_OUTPUT; slot++) {
+            migratedInventory.setStackInSlot(slot, legacyInventory.getStackInSlot(slot).copy());
+        }
+        migratedInventory.setStackInSlot(SLOT_OUTPUT,
+                legacyInventory.getStackInSlot(LEGACY_PRE_BIPOD_SLOT_OUTPUT).copy());
+        inventory.deserializeNBT(migratedInventory.serializeNBT());
     }
 
     private void migratePreReceiverInventory(CompoundTag serializedInventory) {

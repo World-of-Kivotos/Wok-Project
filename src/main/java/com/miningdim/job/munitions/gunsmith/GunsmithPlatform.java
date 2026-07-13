@@ -40,7 +40,12 @@ public enum GunsmithPlatform {
             GunsmithPressPart.CORE,
             GunsmithPressPart.STOCK,
             GunsmithPressPart.BOLT,
-            GunsmithPressPart.BARREL));
+            GunsmithPressPart.BARREL)),
+    SNIPER("sniper", "gunsmith.platform.sniper", List.of(
+            GunsmithPressPart.RECEIVER,
+            GunsmithPressPart.STOCK,
+            GunsmithPressPart.BARREL,
+            GunsmithPressPart.HANDGUARD));
 
     private final String id;
     private final String labelKey;

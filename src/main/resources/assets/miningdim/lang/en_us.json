@@ -441,7 +441,7 @@
   "tooltip.miningdim.m4_template.line2": "Requires one AR gas system, barrel, bolt, handguard, grip, and stock.",
   "tooltip.miningdim.m4_template.line3": "The blueprint remains; all six parts are consumed when assembly starts.",
   "tooltip.miningdim.gunsmith_gun.summary": "Gunsmith  |  Average %s",
-  "tooltip.miningdim.gunsmith_gun.damage_headshot": "Damage %1$s > %2$s  |  Headshot %3$s > %4$s",
+  "tooltip.miningdim.gunsmith_gun.damage_headshot": "Damage %1$s > %2$s  |  Headshot Mult. %3$s > %4$s",
   "tooltip.miningdim.gunsmith_gun.range_recoil": "Range %1$s > %2$s  |  Recoil %3$s",
   "tooltip.miningdim.gunsmith_gun.spread_handling": "Spread %1$s  |  ADS %2$s > %3$s",
   "tooltip.miningdim.gunsmith_gun.components": "Installed Parts",

@@ -442,7 +442,7 @@
   "tooltip.miningdim.m4_template.line2": "需要 AR 导气、枪管、枪机、护木、握把、枪托各 1 个。",
   "tooltip.miningdim.m4_template.line3": "图纸保留，六个部件在组装开始时消耗。",
   "tooltip.miningdim.gunsmith_gun.summary": "枪匠装配  |  综合 %s",
-  "tooltip.miningdim.gunsmith_gun.damage_headshot": "伤害 %1$s > %2$s  |  爆头 %3$s > %4$s",
+  "tooltip.miningdim.gunsmith_gun.damage_headshot": "伤害 %1$s > %2$s  |  爆头倍率 %3$s > %4$s",
   "tooltip.miningdim.gunsmith_gun.range_recoil": "射程 %1$s > %2$s  |  后坐 %3$s",
   "tooltip.miningdim.gunsmith_gun.spread_handling": "散布 %1$s  |  开镜 %2$s > %3$s",
   "tooltip.miningdim.gunsmith_gun.components": "枪械组成",

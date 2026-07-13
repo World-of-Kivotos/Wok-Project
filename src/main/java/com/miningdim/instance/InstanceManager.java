@@ -88,7 +88,7 @@ public final class InstanceManager implements IInstanceManager {
         this.savedData = MiningSavedData.get(miningLevel);
         this.instances = savedData.instances();
         this.regionGrid = new RegionGrid();
-        this.scheduler = new GenerationScheduler(server, MiningServices.config().maxGenWorkers(), this::onInstanceTerminalState);
+        this.scheduler = new GenerationScheduler(server, this::onInstanceTerminalState);
     }
 
     // ---- 启动重建与孤儿清理 (12.8) ----

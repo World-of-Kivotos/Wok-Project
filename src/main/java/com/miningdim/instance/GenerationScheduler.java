@@ -13,11 +13,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 离线生成调度器 (设计文档 7.9)。原设计的自定义离线体素管线 (IOfflineGenerator -> voxelsOf ->
@@ -36,9 +31,6 @@ public final class GenerationScheduler {
     /** force-load owner key (ForgeChunkManager 按 modId + ownerBlockPos 归属强加载票)。 */
     private final MinecraftServer server;
 
-    /** 工作线程池; 大小 = config.maxGenWorkers, 与 MC chunk worker 隔离 (7.9.2)。 */
-    private final ExecutorService genPool;
-
     /**
      * 待分帧 force-load 的区块任务队列 (主线程独占, 故用非并发 ArrayDeque)。
      * 元素打包 (instanceId, chunkX, chunkZ) 为 long 不便, 故用小记录承载。
@@ -54,24 +46,10 @@ public final class GenerationScheduler {
      */
     private final java.util.function.Consumer<InstanceState> onTerminalState;
 
-    public GenerationScheduler(MinecraftServer server, int maxGenWorkers,
+    public GenerationScheduler(MinecraftServer server,
                                java.util.function.Consumer<InstanceState> onTerminalState) {
         this.server = server;
         this.onTerminalState = onTerminalState;
-        int pool = Math.max(1, maxGenWorkers);
-        this.genPool = Executors.newFixedThreadPool(pool, namedDaemonFactory());
-        LOGGER.info("[miningdim] GenerationScheduler started with {} worker thread(s)", pool);
-    }
-
-    private static ThreadFactory namedDaemonFactory() {
-        AtomicInteger seq = new AtomicInteger();
-        return r -> {
-            Thread t = new Thread(r, "miningdim-gen-" + seq.incrementAndGet());
-            t.setDaemon(true);
-            // 工作线程优先级略低于游戏主线程, 减少对 TPS 的争抢 (纯计算可后台慢慢跑)。
-            t.setPriority(Thread.NORM_PRIORITY - 1);
-            return t;
-        };
     }
 
     /**
@@ -159,16 +137,8 @@ public final class GenerationScheduler {
         }
     }
 
-    /** 服务端停止时优雅关闭线程池 (ServerStoppingEvent)。 */
+    /** 服务端停止时清空未消费的区块强加载队列 (ServerStoppingEvent)。 */
     public void shutdown() {
-        genPool.shutdownNow();
-        try {
-            if (!genPool.awaitTermination(5, TimeUnit.SECONDS)) {
-                LOGGER.warn("[miningdim] generation pool did not terminate within 5s");
-            }
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-        }
         chunkLoadQueue.clear();
     }
 

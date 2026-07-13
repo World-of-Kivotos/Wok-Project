@@ -45,6 +45,33 @@ public final class GunsmithStatGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void marksmanUsesFivePartsAndNeverResolvesHandling(GameTestHelper helper) {
+        Function<GunsmithPressPart, Double> coefficients = part -> switch (part) {
+            case HANDGUARD -> 1.05D;
+            case CORE -> 1.10D;
+            case STOCK -> 1.15D;
+            case BOLT -> 1.20D;
+            case BARREL -> 1.25D;
+            default -> throw new IllegalArgumentException("unexpected marksman part: " + part);
+        };
+
+        assertClose(helper, GunsmithStat.DAMAGE.coefficient(GunsmithPlatform.MARKSMAN, coefficients), 1.20D,
+                "marksman damage must come from bolt");
+        assertClose(helper, GunsmithStat.HEADSHOT.coefficient(GunsmithPlatform.MARKSMAN, coefficients), 1.25D,
+                "marksman headshot must come from barrel");
+        assertClose(helper, GunsmithStat.RANGE.coefficient(GunsmithPlatform.MARKSMAN, coefficients), 1.10D,
+                "marksman range must come from core");
+        assertClose(helper, GunsmithStat.RECOIL.coefficient(GunsmithPlatform.MARKSMAN, coefficients), 1.15D,
+                "marksman recoil must come from stock");
+        assertClose(helper, GunsmithStat.SPREAD.coefficient(GunsmithPlatform.MARKSMAN, coefficients), 1.05D,
+                "marksman spread must come from handguard");
+        assertClose(helper, GunsmithStat.HANDLING.coefficient(GunsmithPlatform.MARKSMAN,
+                        part -> { throw new IllegalStateException("marksman handling must not resolve a part"); }), 1.0D,
+                "marksman without a grip must use fixed handling");
+        helper.succeed();
+    }
+
     private static void assertClose(GameTestHelper helper, double actual, double expected, String label) {
         helper.assertTrue(Math.abs(actual - expected) < 0.0000001D,
                 label + " expected " + expected + " but was " + actual);

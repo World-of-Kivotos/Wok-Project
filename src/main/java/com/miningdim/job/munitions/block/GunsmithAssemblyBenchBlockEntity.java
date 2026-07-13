@@ -43,8 +43,12 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
     public static final int ASSEMBLY_DURATION_TICKS = 160;
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/gunsmith-assembly");
+    private static final int LEGACY_RIFLE_PART_COUNT = 6;
+    private static final int LEGACY_RIFLE_SLOT_OUTPUT = SLOT_PART_BASE + LEGACY_RIFLE_PART_COUNT;
+    private static final int LEGACY_RIFLE_SLOT_COUNT = LEGACY_RIFLE_SLOT_OUTPUT + 1;
     private static final int WELD_SOUND_INTERVAL_TICKS = 24;
     private static final String K_INVENTORY = "Inventory";
+    private static final String K_HANDLER_SIZE = "Size";
     private static final String K_PENDING_RESULT = "PendingResult";
     private static final String K_ANIMATION_END = "AnimationEndTick";
 
@@ -320,7 +324,7 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         super.load(tag);
         // Missing inventory/pending keys are the initial state for benches placed before the assembly UI existed.
         if (tag.contains(K_INVENTORY, Tag.TAG_COMPOUND)) {
-            inventory.deserializeNBT(tag.getCompound(K_INVENTORY));
+            loadInventory(tag.getCompound(K_INVENTORY));
         }
         pendingResult = tag.contains(K_PENDING_RESULT, Tag.TAG_COMPOUND)
                 ? ItemStack.of(tag.getCompound(K_PENDING_RESULT))
@@ -328,6 +332,41 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         animationEndTick = tag.getLong(K_ANIMATION_END);
         nextWeldSoundTick = 0L;
         pendingBlockedReported = false;
+    }
+
+    private void loadInventory(CompoundTag serializedInventory) {
+        if (!serializedInventory.contains(K_HANDLER_SIZE, Tag.TAG_INT)) {
+            throw new IllegalStateException("Gunsmith assembly inventory is missing its serialized size at "
+                    + worldPosition);
+        }
+        int serializedSize = serializedInventory.getInt(K_HANDLER_SIZE);
+        if (serializedSize == SLOT_COUNT) {
+            inventory.deserializeNBT(serializedInventory);
+            return;
+        }
+        // Saves from the rifle-only assembly bench used six part slots and stored output in slot 7.
+        if (serializedSize == LEGACY_RIFLE_SLOT_COUNT) {
+            migrateLegacyRifleInventory(serializedInventory);
+            LOGGER.info("Migrated rifle-only gunsmith assembly inventory at {} from {} to {} slots",
+                    worldPosition, LEGACY_RIFLE_SLOT_COUNT, SLOT_COUNT);
+            return;
+        }
+        throw new IllegalStateException("Unsupported gunsmith assembly inventory size " + serializedSize
+                + " at " + worldPosition + "; expected " + SLOT_COUNT + " or legacy "
+                + LEGACY_RIFLE_SLOT_COUNT);
+    }
+
+    private void migrateLegacyRifleInventory(CompoundTag serializedInventory) {
+        ItemStackHandler legacyInventory = new ItemStackHandler(LEGACY_RIFLE_SLOT_COUNT);
+        legacyInventory.deserializeNBT(serializedInventory);
+
+        ItemStackHandler migratedInventory = new ItemStackHandler(SLOT_COUNT);
+        for (int slot = SLOT_BLUEPRINT; slot < LEGACY_RIFLE_SLOT_OUTPUT; slot++) {
+            migratedInventory.setStackInSlot(slot, legacyInventory.getStackInSlot(slot).copy());
+        }
+        migratedInventory.setStackInSlot(SLOT_OUTPUT,
+                legacyInventory.getStackInSlot(LEGACY_RIFLE_SLOT_OUTPUT).copy());
+        inventory.deserializeNBT(migratedInventory.serializeNBT());
     }
 
     @Override

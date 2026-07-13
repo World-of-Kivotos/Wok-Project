@@ -18,6 +18,7 @@ import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.job.munitions.gunsmith.GunsmithTaczBridge;
+import com.miningdim.job.munitions.menu.GunsmithAssemblyMenu;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -32,6 +33,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
+import net.minecraftforge.items.ItemStackHandler;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -181,6 +183,55 @@ public final class GunsmithAssemblyBusinessGameTests {
                 "a hidden legacy part slot must remain removable through inventory recovery");
         helper.assertFalse(be.isPartSlotVisible(GunsmithPressPart.CORE),
                 "an emptied part slot must hide again without a blueprint");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void rifleOnlyInventoryMigratesBeforeBlueprintMenuSync(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+
+        int legacyOutputSlot = 7;
+        ItemStackHandler legacyInventory = new ItemStackHandler(8);
+        legacyInventory.setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT,
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(),
+                        GunsmithBlueprint.M4A1));
+        for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
+            legacyInventory.setStackInSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(part),
+                    part(GunsmithPlatform.AR, part, GunsmithPartQuality.COMMON, 1.00D));
+        }
+        legacyInventory.setStackInSlot(legacyOutputSlot, new ItemStack(Items.DIAMOND));
+
+        CompoundTag savedBench = new CompoundTag();
+        savedBench.put("Inventory", legacyInventory.serializeNBT());
+        be.load(savedBench);
+
+        helper.assertTrue(be.inventory().getSlots() == GunsmithAssemblyBenchBlockEntity.SLOT_COUNT,
+                "rifle-only save must expand to the current fixed inventory size");
+        helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT)
+                        .is(ModMunitionsItems.GUNSMITH_BLUEPRINT.get()),
+                "migration must preserve the blueprint");
+        for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
+            helper.assertTrue(GunsmithAssemblyRecipe.matchesPart(
+                            be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(part)),
+                            part, GunsmithPlatform.AR),
+                    "migration must preserve rifle part " + part.id());
+        }
+        for (GunsmithPressPart pistolOnlyPart : List.of(
+                GunsmithPressPart.SLIDE, GunsmithPressPart.TRIGGER, GunsmithPressPart.HAMMER)) {
+            helper.assertTrue(be.inventory().getStackInSlot(
+                            GunsmithAssemblyBenchBlockEntity.slotForPart(pistolOnlyPart)).isEmpty(),
+                    "migration must leave new pistol slot empty: " + pistolOnlyPart.id());
+        }
+        helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT)
+                        .is(Items.DIAMOND),
+                "migration must move legacy slot 7 into the current output slot");
+
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        GunsmithAssemblyMenu menu = new GunsmithAssemblyMenu(1, player.getInventory(), be.getBlockPos());
+        menu.broadcastChanges();
+        helper.assertTrue(menu.getSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).getItem().is(Items.DIAMOND),
+                "the first menu synchronization after loading a blueprint must read every slot safely");
         helper.succeed();
     }
 

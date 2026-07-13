@@ -334,6 +334,28 @@ public final class GunsmithAssemblyBusinessGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void v2GunRejectsGunIdAndStatsThatDoNotMatchBlueprintParts(GameTestHelper helper) {
+        ItemStack mismatchedGunId = assembledM4Gun();
+        CompoundTag mismatchedGunRoot = mismatchedGunId.getOrCreateTag()
+                .getCompound(GunsmithGunStats.ROOT_KEY);
+        mismatchedGunRoot.putString("gunId", GunsmithBlueprint.AK47.gunId().toString());
+        assertStatsRejected(helper, mismatchedGunId,
+                "a v2 M4 gun carrying the AK47 gun id must be rejected");
+
+        String[] statKeys = {"damage", "headshot", "range", "recoil", "spread", "handling", "average"};
+        for (String statKey : statKeys) {
+            ItemStack mismatchedStats = assembledM4Gun();
+            CompoundTag stats = mismatchedStats.getOrCreateTag()
+                    .getCompound(GunsmithGunStats.ROOT_KEY)
+                    .getCompound(GunsmithGunStats.STATS_KEY);
+            stats.putDouble(statKey, stats.getDouble(statKey) + 0.01D);
+            assertStatsRejected(helper, mismatchedStats,
+                    "a v2 gun with a " + statKey + " value inconsistent with its parts must be rejected");
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void missingTaczRejectsAssemblyWithoutConsumingInputs(GameTestHelper helper) {
         placeStructure(helper, Direction.NORTH);
         GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
@@ -443,6 +465,14 @@ public final class GunsmithAssemblyBusinessGameTests {
         parts.put(GunsmithPressPart.STOCK,
                 part(platform, GunsmithPressPart.STOCK, GunsmithPartQuality.IMPROVED, 1.08D));
         return parts;
+    }
+
+    private static ItemStack assembledM4Gun() {
+        return GunsmithAssemblyRecipe.assemble(
+                new ItemStack(Items.IRON_HOE),
+                GunsmithBlueprintItem.createStack(
+                        ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1),
+                previewParts(GunsmithPlatform.AR));
     }
 
     private static void setPart(GunsmithAssemblyBenchBlockEntity be, GunsmithPlatform platform,

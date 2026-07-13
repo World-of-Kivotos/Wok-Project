@@ -21,6 +21,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -29,6 +31,7 @@ import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.EnumMap;
+import java.util.List;
 
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -38,9 +41,9 @@ public final class GunsmithAssemblyBusinessGameTests {
     private static final String BATCH = "gunsmith_assembly";
     private static final BlockPos MAIN_REL = new BlockPos(1, 1, 1);
     private static final GunsmithBaseStats M4_BASE_STATS =
-            new GunsmithBaseStats(6.5D, 1.5D, 810, 0.16D);
+            new GunsmithBaseStats(6.5D, 1.5D, 48.0D, 0.16D);
     private static final GunsmithBaseStats AK47_BASE_STATS =
-            new GunsmithBaseStats(9.0D, 1.5D, 600, 0.20D);
+            new GunsmithBaseStats(9.0D, 1.5D, 52.0D, 0.20D);
 
     private GunsmithAssemblyBusinessGameTests() {
     }
@@ -78,7 +81,8 @@ public final class GunsmithAssemblyBusinessGameTests {
                 helper.assertTrue(stats != null, "finished gun must carry gunsmith NBT");
                 assertClose(helper, stats.damage(), 1.20D, "damage coefficient");
                 assertClose(helper, stats.headshot(), 1.10D, "headshot coefficient");
-                assertClose(helper, stats.recoil(), 1.06D, "recoil coefficient");
+                assertClose(helper, stats.range(), 1.04D, "range coefficient");
+                assertClose(helper, stats.recoil(), 1.08D, "recoil coefficient");
                 assertClose(helper, stats.spread(), 1.30D, "spread coefficient");
                 assertClose(helper, stats.handling(), 1.40D, "handling coefficient");
                 assertClose(helper, stats.average(), 7.12D / 6.0D, "average coefficient");
@@ -86,8 +90,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                         "M4 blueprint must stamp the original TaCZ M4A1 id");
                 assertClose(helper, stats.effectiveDamage(M4_BASE_STATS), 7.80D, "effective damage");
                 assertClose(helper, stats.effectiveHeadshot(M4_BASE_STATS), 1.65D, "effective headshot");
-                helper.assertTrue(stats.effectiveRpm(M4_BASE_STATS) == 859,
-                        "effective RPM must round to 859");
+                assertClose(helper, stats.effectiveRange(M4_BASE_STATS), 49.92D, "effective range");
                 assertClose(helper, stats.effectiveAdsTime(M4_BASE_STATS),
                         0.16D / 1.40D, "effective ADS time");
                 helper.succeed();
@@ -256,6 +259,81 @@ public final class GunsmithAssemblyBusinessGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void v1GunWithoutVersionMigratesRangeAndRecoilFromParts(GameTestHelper helper) {
+        ItemStack legacy = GunsmithAssemblyRecipe.assemble(
+                new ItemStack(Items.IRON_HOE),
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1),
+                previewParts(GunsmithPlatform.AR));
+        CompoundTag root = legacy.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY);
+        root.remove(GunsmithGunStats.VERSION_KEY);
+        CompoundTag legacyStats = root.getCompound(GunsmithGunStats.STATS_KEY);
+        legacyStats.remove("range");
+        legacyStats.putDouble("recoil", 1.06D);
+
+        GunsmithGunStats stats = GunsmithGunStats.from(legacy);
+        helper.assertTrue(stats != null, "legacy gunsmith NBT must remain readable");
+        assertClose(helper, stats.range(), 1.04D, "v1 range must come from core");
+        assertClose(helper, stats.recoil(), 1.08D, "v1 recoil must come from stock instead of the old average");
+        assertClose(helper, stats.effectiveRange(M4_BASE_STATS), 49.92D, "v1 effective range");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void v2GunRecordsOrderedImmutablePartSummaries(GameTestHelper helper) {
+        ItemStack output = GunsmithAssemblyRecipe.assemble(
+                new ItemStack(Items.IRON_HOE),
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1),
+                previewParts(GunsmithPlatform.AR));
+        CompoundTag root = output.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY);
+        helper.assertTrue(root.contains(GunsmithGunStats.VERSION_KEY, Tag.TAG_INT),
+                "new guns must write an integer format version");
+        helper.assertTrue(root.getInt(GunsmithGunStats.VERSION_KEY) == GunsmithGunStats.CURRENT_VERSION,
+                "new guns must write format version 2");
+        helper.assertTrue(root.getCompound(GunsmithGunStats.STATS_KEY).contains("range", Tag.TAG_DOUBLE),
+                "new guns must write range in Stats");
+
+        GunsmithGunStats stats = GunsmithGunStats.from(output);
+        helper.assertTrue(stats != null, "new guns must expose part summaries");
+        List<GunsmithGunStats.PartSummary> parts = stats.parts();
+        helper.assertTrue(parts.size() == GunsmithPressPart.values().length,
+                "the complete recipe must record every installed part");
+        assertPartSummary(helper, parts.get(0), GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1.04D);
+        assertPartSummary(helper, parts.get(1), GunsmithPressPart.BARREL, GunsmithPartQuality.IMPROVED, 1.10D);
+        assertPartSummary(helper, parts.get(2), GunsmithPressPart.BOLT, GunsmithPartQuality.MILSPEC, 1.20D);
+        assertPartSummary(helper, parts.get(3), GunsmithPressPart.HANDGUARD, GunsmithPartQuality.PRECISION, 1.30D);
+        assertPartSummary(helper, parts.get(4), GunsmithPressPart.GRIP, GunsmithPartQuality.LEGENDARY, 1.40D);
+        assertPartSummary(helper, parts.get(5), GunsmithPressPart.STOCK, GunsmithPartQuality.IMPROVED, 1.08D);
+        boolean immutable = false;
+        try {
+            parts.add(parts.get(0));
+        } catch (UnsupportedOperationException expected) {
+            immutable = true;
+        }
+        helper.assertTrue(immutable, "part summaries must be immutable");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void v2GunRejectsPartsThatDoNotMatchItsBlueprint(GameTestHelper helper) {
+        ItemStack missingPart = GunsmithAssemblyRecipe.assemble(
+                new ItemStack(Items.IRON_HOE),
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1),
+                previewParts(GunsmithPlatform.AR));
+        CompoundTag missingPartRoot = missingPart.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY);
+        missingPartRoot.getCompound(GunsmithGunStats.PARTS_KEY).remove(GunsmithPressPart.STOCK.id());
+        assertStatsRejected(helper, missingPart, "a v2 gun missing its stock must be rejected");
+
+        ItemStack unknownPart = GunsmithAssemblyRecipe.assemble(
+                new ItemStack(Items.IRON_HOE),
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1),
+                previewParts(GunsmithPlatform.AR));
+        CompoundTag unknownPartRoot = unknownPart.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY);
+        unknownPartRoot.getCompound(GunsmithGunStats.PARTS_KEY).put("unknown", new CompoundTag());
+        assertStatsRejected(helper, unknownPart, "a v2 gun with an unknown part must be rejected");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void missingTaczRejectsAssemblyWithoutConsumingInputs(GameTestHelper helper) {
         placeStructure(helper, Direction.NORTH);
         GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
@@ -299,10 +377,12 @@ public final class GunsmithAssemblyBusinessGameTests {
                 GunsmithAssemblyRecipe.preview(GunsmithBlueprint.AK47, akParts, AK47_BASE_STATS);
 
         assertClose(helper, m4.damage(), 7.80D, "M4 preview damage");
-        helper.assertTrue(m4.rpm() == 859, "M4 preview RPM must use the M4 base RPM");
+        assertClose(helper, m4.range(), 1.04D, "M4 preview range coefficient");
+        assertClose(helper, m4.effectiveRange(), 49.92D, "M4 preview effective range");
         assertClose(helper, m4.adsTime(), 0.16D / 1.40D, "M4 preview ADS");
         assertClose(helper, ak47.damage(), 10.80D, "AK47 preview damage");
-        helper.assertTrue(ak47.rpm() == 636, "AK47 preview RPM must use the AK47 base RPM");
+        assertClose(helper, ak47.range(), 1.04D, "AK47 preview range coefficient");
+        assertClose(helper, ak47.effectiveRange(), 54.08D, "AK47 preview effective range");
         assertClose(helper, ak47.adsTime(), 0.20D / 1.40D, "AK47 preview ADS");
         helper.succeed();
     }
@@ -410,5 +490,25 @@ public final class GunsmithAssemblyBusinessGameTests {
     private static void assertClose(GameTestHelper helper, double actual, double expected, String label) {
         helper.assertTrue(Math.abs(actual - expected) < 0.0000001D,
                 label + " expected " + expected + " but was " + actual);
+    }
+
+    private static void assertPartSummary(GameTestHelper helper, GunsmithGunStats.PartSummary actual,
+                                          GunsmithPressPart expectedPart, GunsmithPartQuality expectedQuality,
+                                          double expectedCoefficient) {
+        helper.assertTrue(actual.part() == expectedPart, "unexpected part summary order");
+        helper.assertTrue(actual.quality() == expectedQuality,
+                expectedPart + " must retain its quality");
+        assertClose(helper, actual.coefficient(), expectedCoefficient,
+                expectedPart + " must retain its coefficient");
+    }
+
+    private static void assertStatsRejected(GameTestHelper helper, ItemStack stack, String message) {
+        boolean threw = false;
+        try {
+            GunsmithGunStats.from(stack);
+        } catch (IllegalArgumentException expected) {
+            threw = true;
+        }
+        helper.assertTrue(threw, message);
     }
 }

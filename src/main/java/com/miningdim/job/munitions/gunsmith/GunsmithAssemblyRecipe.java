@@ -78,6 +78,7 @@ public final class GunsmithAssemblyRecipe {
         EnumMap<GunsmithPressPart, Double> coefficients = coefficients(parts, blueprint, true);
         ItemStack result = baseGun.copy();
         CompoundTag root = new CompoundTag();
+        root.putInt(GunsmithGunStats.VERSION_KEY, GunsmithGunStats.CURRENT_VERSION);
         root.putString("template", blueprint.templateId());
         root.putString("platform", blueprint.platform().id());
         root.putString("gunId", assembledGunId(blueprintStack).toString());
@@ -93,15 +94,16 @@ public final class GunsmithAssemblyRecipe {
         Objects.requireNonNull(baseStats, "baseStats");
         EnumMap<GunsmithPressPart, Double> coefficients =
                 coefficients(parts, blueprint, false);
-        double recoil = (coefficients.get(GunsmithPressPart.CORE)
-                + coefficients.get(GunsmithPressPart.STOCK)) / 2.0D;
+        double range = coefficients.get(GunsmithPressPart.CORE);
+        double recoil = coefficients.get(GunsmithPressPart.STOCK);
         double spread = coefficients.get(GunsmithPressPart.HANDGUARD);
         double handling = coefficients.get(GunsmithPressPart.GRIP);
         double average = average(coefficients);
         return new Preview(
                 baseStats.damage() * coefficients.get(GunsmithPressPart.BOLT),
                 baseStats.headshot() * coefficients.get(GunsmithPressPart.BARREL),
-                GunsmithGunStats.effectiveRpm(baseStats.rpm(), recoil),
+                range,
+                baseStats.effectiveRange() * range,
                 (1.0D / recoil - 1.0D) * 100.0D,
                 (1.0D / spread - 1.0D) * 100.0D,
                 GunsmithGunStats.effectiveAdsTime(baseStats.adsTime(), handling),
@@ -164,8 +166,8 @@ public final class GunsmithAssemblyRecipe {
         CompoundTag stats = new CompoundTag();
         stats.putDouble("damage", coefficients.get(GunsmithPressPart.BOLT));
         stats.putDouble("headshot", coefficients.get(GunsmithPressPart.BARREL));
-        stats.putDouble("recoil", (coefficients.get(GunsmithPressPart.CORE)
-                + coefficients.get(GunsmithPressPart.STOCK)) / 2.0D);
+        stats.putDouble("range", coefficients.get(GunsmithPressPart.CORE));
+        stats.putDouble("recoil", coefficients.get(GunsmithPressPart.STOCK));
         stats.putDouble("spread", coefficients.get(GunsmithPressPart.HANDGUARD));
         stats.putDouble("handling", coefficients.get(GunsmithPressPart.GRIP));
         stats.putDouble("average", average(coefficients));
@@ -180,12 +182,8 @@ public final class GunsmithAssemblyRecipe {
         return total / GunsmithPressPart.values().length;
     }
 
-    public record Preview(double damage, double headshot, int rpm, double recoilChange,
+    public record Preview(double damage, double headshot, double range, double effectiveRange, double recoilChange,
                           double spreadChange, double adsTime, double average) {
-
-        public double fireRate() {
-            return rpm;
-        }
 
         public double recoil() {
             return recoilChange;

@@ -1,13 +1,11 @@
 package com.miningdim.job.munitions.gunsmith;
 
-public record GunsmithBaseStats(double damage, double headshot, int rpm, double adsTime) {
+public record GunsmithBaseStats(double damage, double headshot, double effectiveRange, double adsTime) {
 
     public GunsmithBaseStats {
         requirePositiveFinite(damage, "damage");
         requirePositiveFinite(headshot, "headshot");
-        if (rpm <= 0) {
-            throw new IllegalArgumentException("rpm must be positive");
-        }
+        requirePositiveFinite(effectiveRange, "effectiveRange");
         requirePositiveFinite(adsTime, "adsTime");
     }
 

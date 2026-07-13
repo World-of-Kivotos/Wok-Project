@@ -22,10 +22,10 @@ public final class GunsmithGunTooltip {
                         literal(formatTwo(baseStats.headshot())),
                         literal(formatTwo(stats.effectiveHeadshot(baseStats))))
                 .withStyle(valueStyle(stats.headshot())));
-        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.rpm",
-                        literal(Integer.toString(baseStats.rpm())),
-                        literal(Integer.toString(stats.effectiveRpm(baseStats))))
-                .withStyle(valueStyle(stats.recoil())));
+        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.range",
+                        literal(formatRange(baseStats.effectiveRange())),
+                        literal(formatRange(stats.effectiveRange(baseStats))))
+                .withStyle(valueStyle(stats.range())));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.recoil",
                         literal(formatPercent(stats.recoilChange())))
                 .withStyle(changeStyle(stats.recoilChange())));
@@ -39,6 +39,15 @@ public final class GunsmithGunTooltip {
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.average",
                         literal(GunsmithPartItem.formatCoefficient(stats.average())))
                 .withStyle(valueStyle(stats.average())));
+        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.components")
+                .withStyle(ChatFormatting.GOLD));
+        for (GunsmithGunStats.PartSummary part : stats.parts()) {
+            tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.component",
+                            Component.translatable(part.part().labelKey()),
+                            Component.translatable(part.quality().labelKey()),
+                            literal(GunsmithPartItem.formatCoefficient(part.coefficient())))
+                    .withStyle(qualityStyle(part.quality())));
+        }
     }
 
     private static Component literal(String value) {
@@ -65,6 +74,16 @@ public final class GunsmithGunTooltip {
         return ChatFormatting.GRAY;
     }
 
+    private static ChatFormatting qualityStyle(GunsmithPartQuality quality) {
+        return switch (quality) {
+            case COMMON -> ChatFormatting.WHITE;
+            case IMPROVED -> ChatFormatting.GREEN;
+            case MILSPEC -> ChatFormatting.BLUE;
+            case PRECISION -> ChatFormatting.LIGHT_PURPLE;
+            case LEGENDARY -> ChatFormatting.RED;
+        };
+    }
+
     private static String formatOne(double value) {
         return String.format(Locale.ROOT, "%.1f", value);
     }
@@ -75,6 +94,10 @@ public final class GunsmithGunTooltip {
 
     private static String formatSeconds(double value) {
         return String.format(Locale.ROOT, "%.2fs", value);
+    }
+
+    private static String formatRange(double value) {
+        return String.format(Locale.ROOT, "%.1fm", value);
     }
 
     private static String formatPercent(double value) {

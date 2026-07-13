@@ -5,29 +5,42 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 public final class GunsmithGunStats {
 
     public static final String ROOT_KEY = "MiningDimGunsmith";
     public static final String PARTS_KEY = "Parts";
     public static final String STATS_KEY = "Stats";
+    public static final String VERSION_KEY = "version";
+    public static final int CURRENT_VERSION = 2;
 
     private final CompoundTag root;
     private final CompoundTag stats;
+    private final int version;
+    private final List<PartSummary> parts;
 
     private GunsmithGunStats(CompoundTag root, CompoundTag stats) {
         this.root = root;
         this.stats = stats;
-        requireString(root, "platform");
-        requireString(root, "template");
+        this.version = version(root);
+        String platform = requireString(root, "platform");
+        GunsmithBlueprint blueprint = requireBlueprint(requireString(root, "template"));
+        if (!blueprint.platform().id().equals(platform)) {
+            throw new IllegalArgumentException("Gunsmith platform does not match template: " + platform);
+        }
+        this.parts = readParts(root, blueprint.requiredParts());
         gunId();
         value("damage");
         value("headshot");
-        value("recoil");
         value("spread");
         value("handling");
         value("average");
+        range();
+        recoil();
     }
 
     public static GunsmithGunStats from(ItemStack stack) {
@@ -71,8 +84,12 @@ public final class GunsmithGunStats {
         return value("headshot");
     }
 
+    public double range() {
+        return version == 1 ? requiredPart(GunsmithPressPart.CORE).coefficient() : value("range");
+    }
+
     public double recoil() {
-        return value("recoil");
+        return version == 1 ? requiredPart(GunsmithPressPart.STOCK).coefficient() : value("recoil");
     }
 
     public double spread() {
@@ -87,6 +104,10 @@ public final class GunsmithGunStats {
         return value("average");
     }
 
+    public List<PartSummary> parts() {
+        return parts;
+    }
+
     public double effectiveDamage(GunsmithBaseStats baseStats) {
         return Objects.requireNonNull(baseStats, "baseStats").damage() * damage();
     }
@@ -95,8 +116,8 @@ public final class GunsmithGunStats {
         return Objects.requireNonNull(baseStats, "baseStats").headshot() * headshot();
     }
 
-    public int effectiveRpm(GunsmithBaseStats baseStats) {
-        return effectiveRpm(Objects.requireNonNull(baseStats, "baseStats").rpm(), recoil());
+    public double effectiveRange(GunsmithBaseStats baseStats) {
+        return Objects.requireNonNull(baseStats, "baseStats").effectiveRange() * range();
     }
 
     public double effectiveAdsTime(GunsmithBaseStats baseStats) {
@@ -122,17 +143,6 @@ public final class GunsmithGunStats {
         return value;
     }
 
-    static int effectiveRpm(int baseRpm, double coefficient) {
-        if (baseRpm <= 0) {
-            throw new IllegalArgumentException("Base RPM must be positive");
-        }
-        long rpm = Math.round(baseRpm * coefficient);
-        if (rpm < 1L || rpm > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("Effective RPM is outside the integer range: " + rpm);
-        }
-        return (int) rpm;
-    }
-
     static double effectiveAdsTime(double baseAdsTime, double coefficient) {
         if (!Double.isFinite(baseAdsTime) || baseAdsTime <= 0.0D) {
             throw new IllegalArgumentException("Base ADS time must be positive and finite");
@@ -156,5 +166,100 @@ public final class GunsmithGunStats {
             throw new IllegalArgumentException("Gunsmith root data has an empty value for " + key);
         }
         return value;
+    }
+
+    private static int version(CompoundTag root) {
+        if (!root.contains(VERSION_KEY)) {
+            // v1 assembled guns predate the version field; their saved Parts data is the migration source.
+            return 1;
+        }
+        if (!root.contains(VERSION_KEY, Tag.TAG_INT)) {
+            throw new IllegalArgumentException("Gunsmith root data has no integer version");
+        }
+        int version = root.getInt(VERSION_KEY);
+        if (version != CURRENT_VERSION) {
+            throw new IllegalArgumentException("Unsupported gunsmith data version: " + version);
+        }
+        return version;
+    }
+
+    private static List<PartSummary> readParts(CompoundTag root, Set<GunsmithPressPart> requiredParts) {
+        if (!root.contains(PARTS_KEY, Tag.TAG_COMPOUND)) {
+            throw new IllegalArgumentException("Gunsmith root data has no parts compound");
+        }
+        CompoundTag encodedParts = root.getCompound(PARTS_KEY);
+        for (String key : encodedParts.getAllKeys()) {
+            if (!isKnownPartId(key)) {
+                throw new IllegalArgumentException("Gunsmith parts contains an unknown part: " + key);
+            }
+        }
+        List<PartSummary> parts = new ArrayList<>();
+        for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            boolean encoded = encodedParts.contains(part.id());
+            if (requiredParts.contains(part) != encoded) {
+                throw new IllegalArgumentException(encoded
+                        ? "Gunsmith parts contains a part not required by the template: " + part.id()
+                        : "Gunsmith parts is missing a required part: " + part.id());
+            }
+            if (!encoded) {
+                continue;
+            }
+            if (!encodedParts.contains(part.id(), Tag.TAG_COMPOUND)) {
+                throw new IllegalArgumentException("Gunsmith part data is not a compound: " + part.id());
+            }
+            CompoundTag encodedPart = encodedParts.getCompound(part.id());
+            String qualityId = requireString(encodedPart, "quality");
+            GunsmithPartQuality quality = requireQuality(qualityId);
+            if (!encodedPart.contains("coefficient", Tag.TAG_DOUBLE)) {
+                throw new IllegalArgumentException("Gunsmith part has no double coefficient: " + part.id());
+            }
+            double coefficient = encodedPart.getDouble("coefficient");
+            if (!Double.isFinite(coefficient)
+                    || coefficient < quality.minCoefficient()
+                    || coefficient > quality.maxCoefficient()) {
+                throw new IllegalArgumentException("Gunsmith part coefficient is outside the quality range: " + part.id());
+            }
+            parts.add(new PartSummary(part, quality, coefficient));
+        }
+        return List.copyOf(parts);
+    }
+
+    private static boolean isKnownPartId(String id) {
+        for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            if (part.id().equals(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static GunsmithBlueprint requireBlueprint(String templateId) {
+        for (GunsmithBlueprint blueprint : GunsmithBlueprint.values()) {
+            if (blueprint.templateId().equals(templateId)) {
+                return blueprint;
+            }
+        }
+        throw new IllegalArgumentException("Unknown gunsmith template: " + templateId);
+    }
+
+    private static GunsmithPartQuality requireQuality(String qualityId) {
+        for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
+            if (quality.id().equals(qualityId)) {
+                return quality;
+            }
+        }
+        throw new IllegalArgumentException("Unknown gunsmith part quality: " + qualityId);
+    }
+
+    private PartSummary requiredPart(GunsmithPressPart part) {
+        for (PartSummary summary : parts) {
+            if (summary.part() == part) {
+                return summary;
+            }
+        }
+        throw new IllegalArgumentException("Gunsmith v1 data has no " + part.id() + " part summary");
+    }
+
+    public record PartSummary(GunsmithPressPart part, GunsmithPartQuality quality, double coefficient) {
     }
 }

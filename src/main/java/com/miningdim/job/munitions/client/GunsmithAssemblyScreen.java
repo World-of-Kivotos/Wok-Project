@@ -170,8 +170,8 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
                 formatTwo(baseStats.damage()) + " > " + formatTwo(preview.damage()));
         drawStat(graphics, x, y + 29, "screen.miningdim.gunsmith_assembly.stat.headshot",
                 formatTwo(baseStats.headshot()) + " > " + formatTwo(preview.headshot()));
-        drawStat(graphics, x, y + 43, "screen.miningdim.gunsmith_assembly.stat.fire_rate",
-                baseStats.rpm() + " > " + preview.rpm());
+        drawStat(graphics, x, y + 43, "screen.miningdim.gunsmith_assembly.stat.range",
+                formatRange(baseStats.effectiveRange()) + " > " + formatRange(preview.effectiveRange()));
         drawStat(graphics, x, y + 57, "screen.miningdim.gunsmith_assembly.stat.recoil",
                 formatSignedPercent(preview.recoilChange()));
         drawStat(graphics, x, y + 71, "screen.miningdim.gunsmith_assembly.stat.spread",
@@ -306,6 +306,10 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
 
     private static String formatSeconds(double value) {
         return String.format(Locale.ROOT, "%.3fs", value);
+    }
+
+    private static String formatRange(double value) {
+        return String.format(Locale.ROOT, "%.1fm", value);
     }
 
     private static String formatSignedPercent(double value) {

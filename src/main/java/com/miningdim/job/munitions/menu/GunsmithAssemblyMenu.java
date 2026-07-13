@@ -44,8 +44,7 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
         addSlot(new SlotItemHandler(blockEntity.inventory(), GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT,
                 SLOT_BLUEPRINT_X, SLOT_BLUEPRINT_Y));
         for (GunsmithPressPart part : GunsmithPressPart.values()) {
-            addSlot(new SlotItemHandler(blockEntity.inventory(), GunsmithAssemblyBenchBlockEntity.slotForPart(part),
-                    partSlotX(part), partSlotY(part)));
+            addSlot(new PartSlot(blockEntity, part, partSlotX(part), partSlotY(part)));
         }
         addSlot(new OutputSlot(blockEntity, GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT,
                 SLOT_OUTPUT_X, SLOT_OUTPUT_Y));
@@ -109,7 +108,7 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
             return false;
         }
         GunsmithBlueprint blueprint = GunsmithAssemblyRecipe.blueprint(blueprint());
-        for (GunsmithPressPart part : GunsmithPressPart.values()) {
+        for (GunsmithPressPart part : blueprint.requiredParts()) {
             if (!GunsmithAssemblyRecipe.matchesPart(
                     blockEntity.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(part)), part,
                     blueprint.platform())) {
@@ -117,6 +116,10 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
             }
         }
         return true;
+    }
+
+    public boolean isPartSlotVisible(GunsmithPressPart part) {
+        return blockEntity.isPartSlotVisible(part);
     }
 
     public boolean isAnimating() {
@@ -140,6 +143,28 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
             case STOCK -> 94;
             case HANDGUARD, GRIP -> 130;
         };
+    }
+
+    private static final class PartSlot extends SlotItemHandler {
+
+        private final GunsmithAssemblyBenchBlockEntity blockEntity;
+        private final GunsmithPressPart part;
+
+        PartSlot(GunsmithAssemblyBenchBlockEntity blockEntity, GunsmithPressPart part, int x, int y) {
+            super(blockEntity.inventory(), GunsmithAssemblyBenchBlockEntity.slotForPart(part), x, y);
+            this.blockEntity = blockEntity;
+            this.part = part;
+        }
+
+        @Override
+        public boolean isActive() {
+            return blockEntity.isPartSlotVisible(part);
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return isActive() && super.mayPlace(stack);
+        }
     }
 
     private static final class OutputSlot extends SlotItemHandler {

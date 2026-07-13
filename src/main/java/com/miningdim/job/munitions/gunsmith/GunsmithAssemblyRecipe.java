@@ -8,6 +8,7 @@ import net.minecraft.world.item.ItemStack;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 public final class GunsmithAssemblyRecipe {
 
@@ -74,13 +75,13 @@ public final class GunsmithAssemblyRecipe {
             throw new IllegalArgumentException("Assembly base gun is empty");
         }
         GunsmithBlueprint blueprint = blueprint(blueprintStack);
-        EnumMap<GunsmithPressPart, Double> coefficients = coefficients(parts, blueprint.platform(), true);
+        EnumMap<GunsmithPressPart, Double> coefficients = coefficients(parts, blueprint, true);
         ItemStack result = baseGun.copy();
         CompoundTag root = new CompoundTag();
         root.putString("template", blueprint.templateId());
         root.putString("platform", blueprint.platform().id());
         root.putString("gunId", assembledGunId(blueprintStack).toString());
-        root.put(GunsmithGunStats.PARTS_KEY, partTags(parts));
+        root.put(GunsmithGunStats.PARTS_KEY, partTags(parts, blueprint.requiredParts()));
         root.put(GunsmithGunStats.STATS_KEY, stats(coefficients));
         result.getOrCreateTag().put(GunsmithGunStats.ROOT_KEY, root);
         return result;
@@ -91,7 +92,7 @@ public final class GunsmithAssemblyRecipe {
         Objects.requireNonNull(blueprint, "blueprint");
         Objects.requireNonNull(baseStats, "baseStats");
         EnumMap<GunsmithPressPart, Double> coefficients =
-                coefficients(parts, blueprint.platform(), false);
+                coefficients(parts, blueprint, false);
         double recoil = (coefficients.get(GunsmithPressPart.CORE)
                 + coefficients.get(GunsmithPressPart.STOCK)) / 2.0D;
         double spread = coefficients.get(GunsmithPressPart.HANDGUARD);
@@ -108,15 +109,17 @@ public final class GunsmithAssemblyRecipe {
     }
 
     private static EnumMap<GunsmithPressPart, Double> coefficients(Map<GunsmithPressPart, ItemStack> parts,
-                                                                     GunsmithPlatform platform,
+                                                                     GunsmithBlueprint blueprint,
                                                                      boolean requireComplete) {
         Objects.requireNonNull(parts, "parts");
-        Objects.requireNonNull(platform, "platform");
-        if (parts.size() != GunsmithPressPart.values().length) {
-            throw new IllegalArgumentException("Assembly parts must contain every gunsmith press part exactly once");
-        }
+        Objects.requireNonNull(blueprint, "blueprint");
+        Set<GunsmithPressPart> requiredParts = blueprint.requiredParts();
         EnumMap<GunsmithPressPart, Double> coefficients = new EnumMap<>(GunsmithPressPart.class);
         for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            if (!requiredParts.contains(part)) {
+                coefficients.put(part, 1.0D);
+                continue;
+            }
             if (!parts.containsKey(part)) {
                 throw new IllegalArgumentException("Assembly parts is missing " + part.id());
             }
@@ -129,8 +132,8 @@ public final class GunsmithAssemblyRecipe {
                 continue;
             }
             GunsmithPartItem.PartData data = GunsmithPartItem.requirePartData(stack);
-            if (data.platform() != platform) {
-                throw new IllegalArgumentException("Assembly part platform must be " + platform.id());
+            if (data.platform() != blueprint.platform()) {
+                throw new IllegalArgumentException("Assembly part platform must be " + blueprint.platform().id());
             }
             if (data.part() != part) {
                 throw new IllegalArgumentException("Assembly slot " + part.id()
@@ -141,9 +144,13 @@ public final class GunsmithAssemblyRecipe {
         return coefficients;
     }
 
-    private static CompoundTag partTags(Map<GunsmithPressPart, ItemStack> parts) {
+    private static CompoundTag partTags(Map<GunsmithPressPart, ItemStack> parts,
+                                        Set<GunsmithPressPart> requiredParts) {
         CompoundTag result = new CompoundTag();
         for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            if (!requiredParts.contains(part)) {
+                continue;
+            }
             GunsmithPartItem.PartData data = GunsmithPartItem.requirePartData(parts.get(part));
             CompoundTag partTag = new CompoundTag();
             partTag.putString("quality", data.quality().id());

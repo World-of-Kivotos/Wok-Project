@@ -126,7 +126,7 @@ public final class GunsmithAssemblyBusinessGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void partSlotsRejectWrongPartAndAcceptEitherPlatform(GameTestHelper helper) {
+    public static void partSlotsRequireBlueprintAndMatchPartAndPlatform(GameTestHelper helper) {
         placeStructure(helper, Direction.NORTH);
         GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
         int coreSlot = GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.CORE);
@@ -137,16 +137,41 @@ public final class GunsmithAssemblyBusinessGameTests {
         ItemStack correct = part(GunsmithPlatform.AR, GunsmithPressPart.CORE,
                 GunsmithPartQuality.COMMON, 1.00D);
 
+        helper.assertFalse(be.isPartSlotVisible(GunsmithPressPart.CORE),
+                "an empty part slot must be hidden before a blueprint is selected");
+        helper.assertTrue(be.inventory().insertItem(coreSlot, correct, false).getCount() == 1,
+                "part slots must reject parts before a blueprint is selected");
+
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT,
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1));
+        helper.assertTrue(be.isPartSlotVisible(GunsmithPressPart.CORE),
+                "a required part slot must be visible after selecting a blueprint");
         helper.assertTrue(be.inventory().insertItem(coreSlot, wrongPart, false).getCount() == 1,
-                "core slot must reject an AR barrel");
-        helper.assertTrue(be.inventory().insertItem(coreSlot, wrongPlatform, false).isEmpty(),
-                "empty core slot must accept an AK core before a blueprint is selected");
-        helper.assertTrue(be.inventory().extractItem(coreSlot, 1, false).getCount() == 1,
-                "accepted AK core must be removable");
+                "core slot must reject an AR barrel after selecting an M4 blueprint");
+        helper.assertTrue(be.inventory().insertItem(coreSlot, wrongPlatform, false).getCount() == 1,
+                "M4 blueprint core slot must reject an AK core");
         helper.assertTrue(be.inventory().insertItem(coreSlot, correct, false).isEmpty(),
-                "core slot must accept the matching AR core");
+                "M4 blueprint core slot must accept the matching AR core");
         helper.assertTrue(be.inventory().getStackInSlot(coreSlot).getCount() == 1,
                 "accepted core must occupy exactly one slot item");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void occupiedLegacyPartSlotRemainsVisibleAndRemovable(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        int coreSlot = GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.CORE);
+        ItemStack legacyCore = part(GunsmithPlatform.AK, GunsmithPressPart.CORE,
+                GunsmithPartQuality.COMMON, 1.00D);
+
+        be.inventory().setStackInSlot(coreSlot, legacyCore);
+        helper.assertTrue(be.isPartSlotVisible(GunsmithPressPart.CORE),
+                "an occupied legacy part slot must remain visible without a blueprint");
+        helper.assertTrue(be.inventory().extractItem(coreSlot, 1, false).is(legacyCore.getItem()),
+                "an occupied legacy part slot must remain removable");
+        helper.assertFalse(be.isPartSlotVisible(GunsmithPressPart.CORE),
+                "an emptied part slot must hide again without a blueprint");
         helper.succeed();
     }
 
@@ -204,6 +229,8 @@ public final class GunsmithAssemblyBusinessGameTests {
                     ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), blueprint);
             helper.assertTrue(GunsmithBlueprintItem.requireBlueprint(stack) == blueprint,
                     blueprint + " blueprint NBT must decode to the same catalog entry");
+            helper.assertTrue(blueprint.requiredParts().size() == GunsmithPressPart.values().length,
+                    blueprint + " must require all six current gunsmith press parts");
         }
         helper.assertTrue(GunsmithBlueprint.values().length == 8,
                 "AK/M4 blueprint catalog must contain exactly eight guns");
@@ -290,6 +317,19 @@ public final class GunsmithAssemblyBusinessGameTests {
             threw = true;
         }
         helper.assertTrue(threw, "blueprint NBT without GunId must throw instead of becoming M4");
+
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT, corrupt);
+        boolean partValidationThrew = false;
+        try {
+            be.inventory().isItemValid(GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.CORE),
+                    part(GunsmithPlatform.AR, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1.00D));
+        } catch (IllegalArgumentException expected) {
+            partValidationThrew = true;
+        }
+        helper.assertTrue(partValidationThrew,
+                "a corrupt blueprint must fail part-slot validation instead of behaving like no blueprint");
         helper.succeed();
     }
 

@@ -68,7 +68,14 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
                 return GunsmithAssemblyRecipe.isBlueprint(stack);
             }
             if (slot >= SLOT_PART_BASE && slot < SLOT_OUTPUT) {
-                return GunsmithAssemblyRecipe.matchesPart(stack, partForSlot(slot));
+                ItemStack blueprintStack = getStackInSlot(SLOT_BLUEPRINT);
+                if (!GunsmithAssemblyRecipe.isBlueprint(blueprintStack)) {
+                    return false;
+                }
+                GunsmithBlueprint blueprint = GunsmithAssemblyRecipe.blueprint(blueprintStack);
+                GunsmithPressPart part = partForSlot(slot);
+                return blueprint.requiredParts().contains(part)
+                        && GunsmithAssemblyRecipe.matchesPart(stack, part, blueprint.platform());
             }
             return false;
         }
@@ -98,6 +105,17 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
 
     public ItemStackHandler inventory() {
         return inventory;
+    }
+
+    public boolean isPartSlotVisible(GunsmithPressPart part) {
+        Objects.requireNonNull(part, "part");
+        ItemStack blueprintStack = inventory.getStackInSlot(SLOT_BLUEPRINT);
+        if (GunsmithAssemblyRecipe.isBlueprint(blueprintStack)) {
+            if (GunsmithAssemblyRecipe.blueprint(blueprintStack).requiredParts().contains(part)) {
+                return true;
+            }
+        }
+        return !inventory.getStackInSlot(slotForPart(part)).isEmpty();
     }
 
     public boolean tryStartAssembly(ServerPlayer player) {
@@ -141,7 +159,7 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         GunsmithPlatform platform = blueprint.platform();
 
         EnumMap<GunsmithPressPart, ItemStack> parts = snapshotParts();
-        for (GunsmithPressPart part : GunsmithPressPart.values()) {
+        for (GunsmithPressPart part : blueprint.requiredParts()) {
             if (!GunsmithAssemblyRecipe.matchesPart(parts.get(part), part, platform)) {
                 player.displayClientMessage(Component.translatable(
                         "message.miningdim.gunsmith_assembly_bench.missing_part",
@@ -158,7 +176,7 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         }
 
         ItemStack result = GunsmithAssemblyRecipe.assemble(baseGun, blueprintStack, parts);
-        for (GunsmithPressPart part : GunsmithPressPart.values()) {
+        for (GunsmithPressPart part : blueprint.requiredParts()) {
             inventory.extractItem(slotForPart(part), 1, false);
         }
         pendingResult = result;

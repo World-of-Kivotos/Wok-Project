@@ -3,6 +3,12 @@ package com.miningdim.job.munitions;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlock;
 import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlockEntity;
+import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
+import com.miningdim.job.munitions.gunsmith.GunsmithBlueprintItem;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
+import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
+import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.job.munitions.menu.GunsmithAssemblyMenu;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
@@ -178,6 +184,34 @@ public final class GunsmithAssemblyGameTests {
             helper.assertTrue(player.containerMenu instanceof GunsmithAssemblyMenu,
                     "back-side use must resolve to and open the main block entity menu");
             helper.assertFalse(be.isAnimating(), "opening the menu must not start assembly before button confirmation");
+            GunsmithAssemblyMenu menu = (GunsmithAssemblyMenu) player.containerMenu;
+            int firstPlayerMenuSlot = GunsmithAssemblyBenchBlockEntity.SLOT_COUNT;
+            player.getInventory().setItem(9, GunsmithPartItem.createStack(
+                    ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AR,
+                    GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1.0D));
+            for (GunsmithPressPart part : GunsmithPressPart.values()) {
+                helper.assertFalse(menu.getSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isActive(),
+                        "empty part slot must stay inactive before a blueprint is inserted: " + part);
+            }
+            helper.assertTrue(menu.quickMoveStack(player, firstPlayerMenuSlot).isEmpty(),
+                    "shift-click must not move a part before a blueprint is inserted");
+            helper.assertTrue(player.getInventory().getItem(9).getCount() == 1,
+                    "rejected shift-click must preserve the player's part");
+            be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT,
+                    GunsmithBlueprintItem.createStack(
+                            ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1));
+            for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
+                helper.assertTrue(menu.getSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isActive(),
+                        "blueprint-required part slot must become active: " + part);
+            }
+            helper.assertTrue(menu.quickMoveStack(player, firstPlayerMenuSlot)
+                            .is(ModMunitionsItems.GUNSMITH_PART.get()),
+                    "shift-click must move a matching part after a blueprint is inserted");
+            helper.assertTrue(player.getInventory().getItem(9).isEmpty(),
+                    "accepted shift-click must empty the player's source slot");
+            helper.assertTrue(!be.inventory().getStackInSlot(
+                            GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.CORE)).isEmpty(),
+                    "accepted shift-click must place the core in its blueprint slot");
             assertStructureActive(helper, facing, false);
             player.closeContainer();
         } finally {

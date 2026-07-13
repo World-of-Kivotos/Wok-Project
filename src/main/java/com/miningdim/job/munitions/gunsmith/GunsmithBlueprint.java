@@ -3,9 +3,12 @@ package com.miningdim.job.munitions.gunsmith;
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -26,12 +29,22 @@ public enum GunsmithBlueprint {
     private final GunsmithPlatform platform;
     private final String templateId;
     private final String nameKey;
+    private final Set<GunsmithPressPart> requiredParts;
 
     GunsmithBlueprint(String templateId, GunsmithPlatform platform) {
+        this(templateId, platform, Set.of(GunsmithPressPart.values()));
+    }
+
+    GunsmithBlueprint(String templateId, GunsmithPlatform platform, Set<GunsmithPressPart> requiredParts) {
         this.gunId = new ResourceLocation("tacz", templateId);
         this.platform = platform;
         this.templateId = templateId;
         this.nameKey = "tacz.gun." + templateId + ".name";
+        Objects.requireNonNull(requiredParts, "requiredParts");
+        if (requiredParts.isEmpty()) {
+            throw new IllegalArgumentException("Gunsmith blueprint must require at least one part: " + templateId);
+        }
+        this.requiredParts = Collections.unmodifiableSet(EnumSet.copyOf(requiredParts));
     }
 
     public ResourceLocation gunId() {
@@ -48,6 +61,10 @@ public enum GunsmithBlueprint {
 
     public String nameKey() {
         return nameKey;
+    }
+
+    public Set<GunsmithPressPart> requiredParts() {
+        return requiredParts;
     }
 
     public static Optional<GunsmithBlueprint> find(ResourceLocation gunId) {

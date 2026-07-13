@@ -98,9 +98,12 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
                     left + 175, top + 93, 0xFF82919B);
         }
 
-        drawPartConnections(graphics, left, top);
+        drawPartConnections(graphics, left, top, menu);
         drawSlotFrame(graphics, left + 24, top + 94, 0xFF53636D);
         for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            if (!menu.isPartSlotVisible(part)) {
+                continue;
+            }
             ItemStack stack = partStacks.get(part);
             drawSlotFrame(graphics, left + partSlotX(part), top + partSlotY(part), qualityColor(stack));
             drawPartLabel(graphics, left, top, part);
@@ -198,8 +201,12 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
         }
     }
 
-    private static void drawPartConnections(GuiGraphics graphics, int left, int top) {
+    private static void drawPartConnections(GuiGraphics graphics, int left, int top,
+                                            GunsmithAssemblyMenu menu) {
         for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            if (!menu.isPartSlotVisible(part)) {
+                continue;
+            }
             int slotCenterX = left + partSlotX(part) + 9;
             int slotCenterY = top + partSlotY(part) + 9;
             int anchorX = left + anchorX(part);

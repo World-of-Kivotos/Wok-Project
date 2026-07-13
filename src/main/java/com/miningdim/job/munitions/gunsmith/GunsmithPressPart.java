@@ -6,7 +6,10 @@ public enum GunsmithPressPart {
     BOLT("bolt", "gunsmith.part.bolt", "gunsmith.role.bolt", "BOLT", 6, 5, 0),
     HANDGUARD("handguard", "gunsmith.part.handguard", "gunsmith.role.handguard", "HG", 3, 2, 4),
     GRIP("grip", "gunsmith.part.grip", "gunsmith.role.grip", "GRIP", 2, 1, 3),
-    STOCK("stock", "gunsmith.part.stock", "gunsmith.role.stock", "STOCK", 2, 2, 5);
+    STOCK("stock", "gunsmith.part.stock", "gunsmith.role.stock", "STOCK", 2, 2, 5),
+    SLIDE("slide", "gunsmith.part.slide", "gunsmith.role.slide", "SLIDE", 4, 6, 0),
+    TRIGGER("trigger", "gunsmith.part.trigger", "gunsmith.role.trigger", "TRIGGER", 2, 3, 1),
+    HAMMER("hammer", "gunsmith.part.hammer", "gunsmith.role.hammer", "HAMMER", 2, 4, 0);
 
     private final String id;
     private final String labelKey;
@@ -62,7 +65,7 @@ public enum GunsmithPressPart {
     public static GunsmithPressPart byIndex(int index) {
         GunsmithPressPart[] values = values();
         if (index < 0 || index >= values.length) {
-            return CORE;
+            throw new IllegalArgumentException("Unknown gunsmith press part index: " + index);
         }
         return values[index];
     }
@@ -73,6 +76,6 @@ public enum GunsmithPressPart {
                 return part;
             }
         }
-        return CORE;
+        throw new IllegalArgumentException("Unknown gunsmith press part: " + id);
     }
 }

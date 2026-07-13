@@ -21,6 +21,7 @@ public final class GunsmithGunStats {
     private final CompoundTag root;
     private final CompoundTag stats;
     private final int version;
+    private final GunsmithBlueprint blueprint;
     private final List<PartSummary> parts;
 
     private GunsmithGunStats(CompoundTag root, CompoundTag stats) {
@@ -28,7 +29,7 @@ public final class GunsmithGunStats {
         this.stats = stats;
         this.version = version(root);
         String platform = requireString(root, "platform");
-        GunsmithBlueprint blueprint = requireBlueprint(requireString(root, "template"));
+        this.blueprint = requireBlueprint(requireString(root, "template"));
         if (!blueprint.platform().id().equals(platform)) {
             throw new IllegalArgumentException("Gunsmith platform does not match template: " + platform);
         }
@@ -84,31 +85,31 @@ public final class GunsmithGunStats {
     }
 
     public double damage() {
-        return version == 1 ? value("damage") : coefficient(GunsmithPressPart.BOLT);
+        return version == 1 ? value("damage") : coefficient(GunsmithStat.DAMAGE);
     }
 
     public double headshot() {
-        return version == 1 ? value("headshot") : coefficient(GunsmithPressPart.BARREL);
+        return version == 1 ? value("headshot") : coefficient(GunsmithStat.HEADSHOT);
     }
 
     public double range() {
         return version == 1
                 ? requiredPart(GunsmithPressPart.CORE).coefficient()
-                : coefficient(GunsmithPressPart.CORE);
+                : coefficient(GunsmithStat.RANGE);
     }
 
     public double recoil() {
         return version == 1
                 ? requiredPart(GunsmithPressPart.STOCK).coefficient()
-                : coefficient(GunsmithPressPart.STOCK);
+                : coefficient(GunsmithStat.RECOIL);
     }
 
     public double spread() {
-        return version == 1 ? value("spread") : coefficient(GunsmithPressPart.HANDGUARD);
+        return version == 1 ? value("spread") : coefficient(GunsmithStat.SPREAD);
     }
 
     public double handling() {
-        return version == 1 ? value("handling") : coefficient(GunsmithPressPart.GRIP);
+        return version == 1 ? value("handling") : coefficient(GunsmithStat.HANDLING);
     }
 
     public double average() {
@@ -293,21 +294,16 @@ public final class GunsmithGunStats {
         }
     }
 
-    private double coefficient(GunsmithPressPart part) {
-        for (PartSummary summary : parts) {
-            if (summary.part() == part) {
-                return summary.coefficient();
-            }
-        }
-        return 1.0D;
+    private double coefficient(GunsmithStat stat) {
+        return stat.coefficient(blueprint.platform(), part -> requiredPart(part).coefficient());
     }
 
     private double averageCoefficient() {
         double total = 0.0D;
-        for (GunsmithPressPart part : GunsmithPressPart.values()) {
-            total += coefficient(part);
+        for (PartSummary part : parts) {
+            total += part.coefficient();
         }
-        return total / GunsmithPressPart.values().length;
+        return total / parts.size();
     }
 
     public record PartSummary(GunsmithPressPart part, GunsmithPartQuality quality, double coefficient) {

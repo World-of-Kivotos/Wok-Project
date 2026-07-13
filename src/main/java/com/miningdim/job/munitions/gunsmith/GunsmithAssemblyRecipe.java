@@ -83,7 +83,7 @@ public final class GunsmithAssemblyRecipe {
         root.putString("platform", blueprint.platform().id());
         root.putString("gunId", assembledGunId(blueprintStack).toString());
         root.put(GunsmithGunStats.PARTS_KEY, partTags(parts, blueprint.requiredParts()));
-        root.put(GunsmithGunStats.STATS_KEY, stats(coefficients));
+        root.put(GunsmithGunStats.STATS_KEY, stats(blueprint, coefficients));
         result.getOrCreateTag().put(GunsmithGunStats.ROOT_KEY, root);
         return result;
     }
@@ -94,14 +94,14 @@ public final class GunsmithAssemblyRecipe {
         Objects.requireNonNull(baseStats, "baseStats");
         EnumMap<GunsmithPressPart, Double> coefficients =
                 coefficients(parts, blueprint, false);
-        double range = coefficients.get(GunsmithPressPart.CORE);
-        double recoil = coefficients.get(GunsmithPressPart.STOCK);
-        double spread = coefficients.get(GunsmithPressPart.HANDGUARD);
-        double handling = coefficients.get(GunsmithPressPart.GRIP);
-        double average = average(coefficients);
+        double range = coefficient(blueprint, coefficients, GunsmithStat.RANGE);
+        double recoil = coefficient(blueprint, coefficients, GunsmithStat.RECOIL);
+        double spread = coefficient(blueprint, coefficients, GunsmithStat.SPREAD);
+        double handling = coefficient(blueprint, coefficients, GunsmithStat.HANDLING);
+        double average = average(coefficients, blueprint.requiredParts());
         return new Preview(
-                baseStats.damage() * coefficients.get(GunsmithPressPart.BOLT),
-                baseStats.headshot() * coefficients.get(GunsmithPressPart.BARREL),
+                baseStats.damage() * coefficient(blueprint, coefficients, GunsmithStat.DAMAGE),
+                baseStats.headshot() * coefficient(blueprint, coefficients, GunsmithStat.HEADSHOT),
                 range,
                 baseStats.effectiveRange() * range,
                 (1.0D / recoil - 1.0D) * 100.0D,
@@ -117,11 +117,7 @@ public final class GunsmithAssemblyRecipe {
         Objects.requireNonNull(blueprint, "blueprint");
         Set<GunsmithPressPart> requiredParts = blueprint.requiredParts();
         EnumMap<GunsmithPressPart, Double> coefficients = new EnumMap<>(GunsmithPressPart.class);
-        for (GunsmithPressPart part : GunsmithPressPart.values()) {
-            if (!requiredParts.contains(part)) {
-                coefficients.put(part, 1.0D);
-                continue;
-            }
+        for (GunsmithPressPart part : requiredParts) {
             if (!parts.containsKey(part)) {
                 throw new IllegalArgumentException("Assembly parts is missing " + part.id());
             }
@@ -162,24 +158,31 @@ public final class GunsmithAssemblyRecipe {
         return result;
     }
 
-    private static CompoundTag stats(EnumMap<GunsmithPressPart, Double> coefficients) {
+    private static CompoundTag stats(GunsmithBlueprint blueprint,
+                                     EnumMap<GunsmithPressPart, Double> coefficients) {
         CompoundTag stats = new CompoundTag();
-        stats.putDouble("damage", coefficients.get(GunsmithPressPart.BOLT));
-        stats.putDouble("headshot", coefficients.get(GunsmithPressPart.BARREL));
-        stats.putDouble("range", coefficients.get(GunsmithPressPart.CORE));
-        stats.putDouble("recoil", coefficients.get(GunsmithPressPart.STOCK));
-        stats.putDouble("spread", coefficients.get(GunsmithPressPart.HANDGUARD));
-        stats.putDouble("handling", coefficients.get(GunsmithPressPart.GRIP));
-        stats.putDouble("average", average(coefficients));
+        stats.putDouble("damage", coefficient(blueprint, coefficients, GunsmithStat.DAMAGE));
+        stats.putDouble("headshot", coefficient(blueprint, coefficients, GunsmithStat.HEADSHOT));
+        stats.putDouble("range", coefficient(blueprint, coefficients, GunsmithStat.RANGE));
+        stats.putDouble("recoil", coefficient(blueprint, coefficients, GunsmithStat.RECOIL));
+        stats.putDouble("spread", coefficient(blueprint, coefficients, GunsmithStat.SPREAD));
+        stats.putDouble("handling", coefficient(blueprint, coefficients, GunsmithStat.HANDLING));
+        stats.putDouble("average", average(coefficients, blueprint.requiredParts()));
         return stats;
     }
 
-    private static double average(EnumMap<GunsmithPressPart, Double> coefficients) {
+    private static double coefficient(GunsmithBlueprint blueprint, EnumMap<GunsmithPressPart, Double> coefficients,
+                                      GunsmithStat stat) {
+        return stat.coefficient(blueprint.platform(), coefficients::get);
+    }
+
+    private static double average(EnumMap<GunsmithPressPart, Double> coefficients,
+                                  Set<GunsmithPressPart> requiredParts) {
         double total = 0.0D;
-        for (GunsmithPressPart part : GunsmithPressPart.values()) {
-            total += coefficients.get(part);
+        for (GunsmithPressPart part : requiredParts) {
+            total += Objects.requireNonNull(coefficients.get(part), "coefficient for " + part.id());
         }
-        return total / GunsmithPressPart.values().length;
+        return total / requiredParts.size();
     }
 
     public record Preview(double damage, double headshot, double range, double effectiveRange, double recoilChange,

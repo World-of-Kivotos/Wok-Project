@@ -20,7 +20,8 @@ public enum GunsmithBlueprint {
     SPR15HB("spr15hb", GunsmithPlatform.AR),
     AK47("ak47", GunsmithPlatform.AK),
     RPK("rpk", GunsmithPlatform.AK),
-    TYPE_81("type_81", GunsmithPlatform.AK);
+    TYPE_81("type_81", GunsmithPlatform.AK),
+    M1911("m1911", GunsmithPlatform.PISTOL);
 
     private static final Map<ResourceLocation, GunsmithBlueprint> BY_GUN_ID = Arrays.stream(values())
             .collect(Collectors.toUnmodifiableMap(GunsmithBlueprint::gunId, Function.identity()));
@@ -32,7 +33,7 @@ public enum GunsmithBlueprint {
     private final Set<GunsmithPressPart> requiredParts;
 
     GunsmithBlueprint(String templateId, GunsmithPlatform platform) {
-        this(templateId, platform, Set.of(GunsmithPressPart.values()));
+        this(templateId, platform, platform.supportedParts());
     }
 
     GunsmithBlueprint(String templateId, GunsmithPlatform platform, Set<GunsmithPressPart> requiredParts) {
@@ -44,7 +45,11 @@ public enum GunsmithBlueprint {
         if (requiredParts.isEmpty()) {
             throw new IllegalArgumentException("Gunsmith blueprint must require at least one part: " + templateId);
         }
-        this.requiredParts = Collections.unmodifiableSet(EnumSet.copyOf(requiredParts));
+        EnumSet<GunsmithPressPart> orderedParts = EnumSet.copyOf(requiredParts);
+        if (!platform.supportedParts().containsAll(orderedParts)) {
+            throw new IllegalArgumentException("Gunsmith blueprint requires an illegal platform part: " + templateId);
+        }
+        this.requiredParts = Collections.unmodifiableSet(orderedParts);
     }
 
     public ResourceLocation gunId() {

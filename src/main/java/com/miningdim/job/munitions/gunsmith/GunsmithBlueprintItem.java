@@ -93,7 +93,8 @@ public final class GunsmithBlueprintItem extends Item {
                 .withStyle(ChatFormatting.GRAY));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_blueprint.gun_id",
                 Component.literal(blueprint.gunId().toString())).withStyle(ChatFormatting.AQUA));
-        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_blueprint.parts", platform)
+        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_blueprint.parts",
+                platform, blueprint.requiredParts().size())
                 .withStyle(ChatFormatting.GRAY));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_blueprint.use_assembly_bench")
                 .withStyle(ChatFormatting.DARK_GRAY));

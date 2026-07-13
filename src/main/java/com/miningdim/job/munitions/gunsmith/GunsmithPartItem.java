@@ -46,6 +46,10 @@ public final class GunsmithPartItem extends Item {
         Objects.requireNonNull(platform, "platform");
         Objects.requireNonNull(part, "part");
         Objects.requireNonNull(quality, "quality");
+        if (!platform.supports(part)) {
+            throw new IllegalArgumentException("Gunsmith platform " + platform.id()
+                    + " does not allow part " + part.id());
+        }
         double roundedCoefficient = roundCoefficient(coefficient);
         requireCoefficient(roundedCoefficient, quality);
         ItemStack stack = new ItemStack(item);
@@ -60,7 +64,7 @@ public final class GunsmithPartItem extends Item {
 
     public static void addCreativeStacks(CreativeModeTab.Output output) {
         for (GunsmithPlatform platform : GunsmithPlatform.values()) {
-            for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            for (GunsmithPressPart part : platform.supportedParts()) {
                 for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
                     output.accept(createStack(ModMunitionsItems.GUNSMITH_PART.get(), platform, part, quality));
                 }
@@ -136,6 +140,10 @@ public final class GunsmithPartItem extends Item {
         }
         GunsmithPlatform platform = platform(tag);
         GunsmithPressPart part = part(tag);
+        if (!platform.supports(part)) {
+            throw new IllegalArgumentException("Gunsmith platform " + platform.id()
+                    + " does not allow part " + part.id());
+        }
         GunsmithPartQuality quality = quality(tag);
         if (!tag.contains(K_COEFFICIENT, Tag.TAG_DOUBLE)) {
             throw new IllegalArgumentException("Gunsmith part has no double coefficient");
@@ -163,11 +171,7 @@ public final class GunsmithPartItem extends Item {
             throw new IllegalArgumentException("Gunsmith part has no platform id");
         }
         String id = tag.getString(K_PLATFORM);
-        GunsmithPlatform platform = GunsmithPlatform.byId(id);
-        if (!platform.id().equals(id)) {
-            throw new IllegalArgumentException("Unknown gunsmith platform: " + id);
-        }
-        return platform;
+        return GunsmithPlatform.byId(id);
     }
 
     private static GunsmithPressPart part(CompoundTag tag) {
@@ -175,11 +179,7 @@ public final class GunsmithPartItem extends Item {
             throw new IllegalArgumentException("Gunsmith part has no part id");
         }
         String id = tag.getString(K_PART);
-        GunsmithPressPart part = GunsmithPressPart.byId(id);
-        if (!part.id().equals(id)) {
-            throw new IllegalArgumentException("Unknown gunsmith press part: " + id);
-        }
-        return part;
+        return GunsmithPressPart.byId(id);
     }
 
     private static GunsmithPartQuality quality(CompoundTag tag) {

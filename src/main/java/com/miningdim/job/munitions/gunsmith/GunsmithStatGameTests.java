@@ -72,6 +72,33 @@ public final class GunsmithStatGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sniperUsesFourPartsAndNeverResolvesRangeOrHandling(GameTestHelper helper) {
+        Function<GunsmithPressPart, Double> coefficients = part -> switch (part) {
+            case RECEIVER -> 1.25D;
+            case STOCK -> 1.15D;
+            case BARREL -> 1.10D;
+            case HANDGUARD -> 1.30D;
+            default -> throw new IllegalArgumentException("unexpected sniper part: " + part);
+        };
+
+        assertClose(helper, GunsmithStat.DAMAGE.coefficient(GunsmithPlatform.SNIPER, coefficients), 1.25D,
+                "sniper damage must come from receiver");
+        assertClose(helper, GunsmithStat.HEADSHOT.coefficient(GunsmithPlatform.SNIPER, coefficients), 1.10D,
+                "sniper headshot must come from barrel");
+        assertClose(helper, GunsmithStat.RECOIL.coefficient(GunsmithPlatform.SNIPER, coefficients), 1.15D,
+                "sniper recoil must come from stock");
+        assertClose(helper, GunsmithStat.SPREAD.coefficient(GunsmithPlatform.SNIPER, coefficients), 1.30D,
+                "sniper spread must come from handguard");
+        assertClose(helper, GunsmithStat.RANGE.coefficient(GunsmithPlatform.SNIPER,
+                        part -> { throw new IllegalStateException("sniper range must not resolve a part"); }), 1.0D,
+                "sniper without a core must use fixed range");
+        assertClose(helper, GunsmithStat.HANDLING.coefficient(GunsmithPlatform.SNIPER,
+                        part -> { throw new IllegalStateException("sniper handling must not resolve a part"); }), 1.0D,
+                "sniper without a grip must use fixed handling");
+        helper.succeed();
+    }
+
     private static void assertClose(GameTestHelper helper, double actual, double expected, String label) {
         helper.assertTrue(Math.abs(actual - expected) < 0.0000001D,
                 label + " expected " + expected + " but was " + actual);

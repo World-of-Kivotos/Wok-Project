@@ -161,6 +161,56 @@ public final class GunsmithPressGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sniperPlatformOffersOrderedFourPartsAndStartsReceiverProduction(GameTestHelper helper) {
+        helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
+        GunsmithPressBlockEntity press = requirePress(helper);
+
+        helper.assertTrue(press.trySelectPlatform(GunsmithPlatform.SNIPER.index()),
+                "press must accept the sniper platform");
+        helper.assertTrue(GunsmithPlatform.SNIPER.supportedParts().size() == 4,
+                "sniper press selection must contain exactly four parts");
+        helper.assertTrue(new java.util.ArrayList<>(GunsmithPlatform.SNIPER.supportedParts()).equals(java.util.List.of(
+                        GunsmithPressPart.RECEIVER, GunsmithPressPart.STOCK, GunsmithPressPart.BARREL,
+                        GunsmithPressPart.HANDGUARD)),
+                "sniper parts must retain the configured compact-row order");
+        helper.assertFalse(GunsmithPlatform.SNIPER.supports(GunsmithPressPart.CORE),
+                "sniper must not expose a core slot");
+        helper.assertFalse(GunsmithPlatform.SNIPER.supports(GunsmithPressPart.GRIP),
+                "sniper must not expose a grip slot");
+        helper.assertFalse(GunsmithPlatform.SNIPER.supports(GunsmithPressPart.BOLT),
+                "sniper must not expose a bolt slot");
+        assertIllegalCombination(helper, GunsmithPlatform.SNIPER, GunsmithPressPart.CORE);
+        assertIllegalCombination(helper, GunsmithPlatform.SNIPER, GunsmithPressPart.GRIP);
+        assertIllegalCombination(helper, GunsmithPlatform.SNIPER, GunsmithPressPart.BOLT);
+
+        helper.assertTrue(press.selectedPart() == GunsmithPressPart.RECEIVER,
+                "first sniper compact row must resolve to receiver");
+        helper.assertTrue(press.trySelectPart(0), "press must select the first sniper compact row");
+        helper.assertTrue(press.selectedPart() == GunsmithPressPart.RECEIVER,
+                "first sniper compact row must select receiver");
+        helper.assertTrue(press.selectedQuality() == GunsmithPartQuality.COMMON,
+                "receiver production must start at common quality");
+
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
+                new ItemStack(Items.IRON_INGOT, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
+                new ItemStack(Items.IRON_INGOT, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
+                new ItemStack(Items.IRON_INGOT, 64));
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+
+        helper.assertTrue(press.tryStartPreview(player), "complete receiver materials must start the press");
+        helper.assertTrue(press.isPressing(), "sniper receiver production must put the press into its active state");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
+                "common receiver production must consume six generic gun parts");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 58,
+                "common receiver production must consume six alloy units");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 59,
+                "common receiver production must consume five polymer units");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void platformPartModelDataCoversFiveQualitiesWithoutChangingRifleCodes(GameTestHelper helper) {
         Map<GunsmithPressPart, Integer> pistolBases = new EnumMap<>(GunsmithPressPart.class);
         pistolBases.put(GunsmithPressPart.BARREL, 211);
@@ -207,6 +257,18 @@ public final class GunsmithPressGameTests {
             }
         }
 
+        Map<GunsmithPressPart, Integer> sniperBases = new EnumMap<>(GunsmithPressPart.class);
+        sniperBases.put(GunsmithPressPart.BARREL, 511);
+        sniperBases.put(GunsmithPressPart.HANDGUARD, 531);
+        sniperBases.put(GunsmithPressPart.STOCK, 551);
+        sniperBases.put(GunsmithPressPart.RECEIVER, 591);
+        for (Map.Entry<GunsmithPressPart, Integer> entry : sniperBases.entrySet()) {
+            for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
+                assertModelData(helper, GunsmithPlatform.SNIPER, entry.getKey(), quality,
+                        entry.getValue() + quality.index());
+            }
+        }
+
         helper.assertTrue(GunsmithPlatform.byIndex(0) == GunsmithPlatform.AR,
                 "AR platform index must remain zero");
         helper.assertTrue(GunsmithPlatform.byIndex(1) == GunsmithPlatform.AK,
@@ -217,6 +279,10 @@ public final class GunsmithPressGameTests {
                 "bullpup platform index must remain three");
         helper.assertTrue(GunsmithPlatform.byIndex(4) == GunsmithPlatform.MARKSMAN,
                 "marksman platform index must be four");
+        helper.assertTrue(GunsmithPlatform.SNIPER.index() == 5,
+                "sniper platform index must be five");
+        helper.assertTrue(GunsmithPlatform.byIndex(5) == GunsmithPlatform.SNIPER,
+                "sniper platform must decode from index five");
         assertModelData(helper, GunsmithPlatform.AR, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1);
         assertModelData(helper, GunsmithPlatform.AR, GunsmithPressPart.STOCK, GunsmithPartQuality.LEGENDARY, 55);
         assertModelData(helper, GunsmithPlatform.AK, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 101);

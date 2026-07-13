@@ -126,6 +126,39 @@ public final class GunsmithStatGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void statMultipliersPinMultiplyVersusInverseDirection(GameTestHelper helper) {
+        // 高 cap 关闭封顶, 只验方向 (审查 TQ-1): damage/headshot/range 直乘; ads/aim 走 inverse(handling);
+        // inaccuracy 走 inverse(spread); recoil 走 inverse(recoil)。方向写反则对应断言必挂。
+        GunsmithStatMultipliers m = GunsmithStatMultipliers.of(
+                1.40D, 1.30D, 1.20D, 1.25D, 1.10D, 1.50D, 10.0D);
+        assertClose(helper, m.damage(), 1.40D, "damage must apply directly");
+        assertClose(helper, m.headshot(), 1.30D, "uncapped headshot must apply directly");
+        assertClose(helper, m.effectiveRange(), 1.20D, "range must apply directly");
+        assertClose(helper, m.adsTime(), 1.0D / 1.25D, "ADS time must apply the inverse of handling");
+        assertClose(helper, m.inaccuracy(), 1.0D / 1.10D, "inaccuracy must apply the inverse of spread");
+        assertClose(helper, m.aimInaccuracy(), 1.0D / 1.25D, "aim inaccuracy must apply the inverse of handling");
+        assertClose(helper, m.recoil(), 1.0D / 1.50D, "recoil must apply the inverse of recoil");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void headshotEquivalentMultiplierIsCappedAgainstCompounding(GameTestHelper helper) {
+        // 双 LEGENDARY 1.5 x 1.5 = 2.25 的复利被 1.8 帽钳住: headshot 反解为 1.8/1.5 = 1.2, 躯干 damage 不动。(审查 TACZ-BAL-1)
+        GunsmithStatMultipliers capped = GunsmithStatMultipliers.of(
+                1.50D, 1.50D, 1.0D, 1.0D, 1.0D, 1.0D, 1.80D);
+        assertClose(helper, capped.damage(), 1.50D, "body damage must be untouched by the headshot cap");
+        assertClose(helper, capped.headshot(), 1.80D / 1.50D, "headshot must be reduced so damage x headshot equals the cap");
+        assertClose(helper, capped.damage() * capped.headshot(), 1.80D,
+                "compounded headshot-equivalent multiplier must equal the cap");
+
+        // 复利未越帽时 headshot 原样施加 (1.20 x 1.30 = 1.56 <= 1.80)。
+        GunsmithStatMultipliers underCap = GunsmithStatMultipliers.of(
+                1.20D, 1.30D, 1.0D, 1.0D, 1.0D, 1.0D, 1.80D);
+        assertClose(helper, underCap.headshot(), 1.30D, "headshot below the cap must apply directly");
+        helper.succeed();
+    }
+
     private static void assertClose(GameTestHelper helper, double actual, double expected, String label) {
         helper.assertTrue(Math.abs(actual - expected) < 0.0000001D,
                 label + " expected " + expected + " but was " + actual);

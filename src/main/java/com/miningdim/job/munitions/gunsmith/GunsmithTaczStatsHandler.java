@@ -62,12 +62,14 @@ public final class GunsmithTaczStatsHandler {
 
         AttachmentCacheProperty cache = Objects.requireNonNull(event.getCacheProperty(),
                 "TaCZ attachment property event has no cache");
-        multiplyDamage(cache, stats.damage());
-        multiplyFloat(cache, GunProperties.HEADSHOT_MULTIPLIER, stats.headshot());
-        multiplyFloat(cache, GunProperties.EFFECTIVE_RANGE, stats.range());
-        multiplyFloat(cache, GunProperties.ADS_TIME, inverse(stats.handling()));
-        multiplyInaccuracy(cache, GunProperties.INACCURACY, inverse(stats.spread()));
-        multiplyInaccuracy(cache, GunProperties.AIM_INACCURACY, inverse(stats.handling()));
+        GunsmithStatMultipliers multipliers =
+                GunsmithStatMultipliers.of(stats, MunitionsConfig.GUNSMITH_HEADSHOT_DAMAGE_CAP.get());
+        multiplyDamage(cache, multipliers.damage());
+        multiplyFloat(cache, GunProperties.HEADSHOT_MULTIPLIER, multipliers.headshot());
+        multiplyFloat(cache, GunProperties.EFFECTIVE_RANGE, multipliers.effectiveRange());
+        multiplyFloat(cache, GunProperties.ADS_TIME, multipliers.adsTime());
+        multiplyInaccuracy(cache, GunProperties.INACCURACY, multipliers.inaccuracy());
+        multiplyInaccuracy(cache, GunProperties.AIM_INACCURACY, multipliers.aimInaccuracy());
     }
 
     private static void multiplyFloat(AttachmentCacheProperty cache,
@@ -106,10 +108,6 @@ public final class GunsmithTaczStatsHandler {
                             "TaCZ inaccuracy cache has a null value") * multiplier));
         }
         cache.setCache(property, adjusted);
-    }
-
-    private static double inverse(double coefficient) {
-        return 1.0D / coefficient;
     }
 
     private static final class GunsmithRecoilModifier implements
@@ -174,7 +172,7 @@ public final class GunsmithTaczStatsHandler {
             if (stats == null) {
                 return 1.0D;
             }
-            return inverse(stats.recoil());
+            return GunsmithStatMultipliers.of(stats, MunitionsConfig.GUNSMITH_HEADSHOT_DAMAGE_CAP.get()).recoil();
         }
     }
 

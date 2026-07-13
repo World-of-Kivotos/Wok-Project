@@ -57,14 +57,6 @@ public enum GunsmithPlatform {
         return supportedParts.contains(Objects.requireNonNull(part, "part"));
     }
 
-    public Set<GunsmithPressPart> allowedParts() {
-        return supportedParts();
-    }
-
-    public boolean allows(GunsmithPressPart part) {
-        return supports(part);
-    }
-
     public static GunsmithPlatform byIndex(int index) {
         GunsmithPlatform[] values = values();
         if (index < 0 || index >= values.length) {

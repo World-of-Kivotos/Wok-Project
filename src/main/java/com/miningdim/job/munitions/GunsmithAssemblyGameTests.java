@@ -200,9 +200,11 @@ public final class GunsmithAssemblyGameTests {
             be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT,
                     GunsmithBlueprintItem.createStack(
                             ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1));
-            for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
-                helper.assertTrue(menu.getSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isActive(),
-                        "blueprint-required part slot must become active: " + part);
+            for (GunsmithPressPart part : GunsmithPressPart.values()) {
+                boolean required = GunsmithBlueprint.M4A1.requiredParts().contains(part);
+                helper.assertTrue(
+                        menu.getSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isActive() == required,
+                        "M4 blueprint must expose exactly its six required part slots: " + part);
             }
             helper.assertTrue(menu.quickMoveStack(player, firstPlayerMenuSlot)
                             .is(ModMunitionsItems.GUNSMITH_PART.get()),

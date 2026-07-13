@@ -48,6 +48,8 @@ public final class GunsmithAssemblyBusinessGameTests {
             new GunsmithBaseStats(6.5D, 1.5D, 48.0D, 0.16D);
     private static final GunsmithBaseStats AK47_BASE_STATS =
             new GunsmithBaseStats(9.0D, 1.5D, 52.0D, 0.20D);
+    private static final GunsmithBaseStats M1911_BASE_STATS =
+            new GunsmithBaseStats(11.0D, 1.5D, 19.0D, 0.08D);
 
     private GunsmithAssemblyBusinessGameTests() {
     }
@@ -121,7 +123,7 @@ public final class GunsmithAssemblyBusinessGameTests {
             helper.assertFalse(be.isAnimating(), "rejected assembly must not animate");
             helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
                     "rejected assembly must not create output");
-            for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
                 ItemStack stack = be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(part));
                 helper.assertTrue(part == GunsmithPressPart.GRIP ? stack.isEmpty() : !stack.isEmpty(),
                         "rejected assembly must preserve the exact input state for " + part);
@@ -165,7 +167,7 @@ public final class GunsmithAssemblyBusinessGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void occupiedLegacyPartSlotRemainsVisibleAndRemovable(GameTestHelper helper) {
+    public static void occupiedLegacyPartSlotStaysHiddenWithoutBlueprintAndRemovable(GameTestHelper helper) {
         placeStructure(helper, Direction.NORTH);
         GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
         int coreSlot = GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.CORE);
@@ -173,10 +175,10 @@ public final class GunsmithAssemblyBusinessGameTests {
                 GunsmithPartQuality.COMMON, 1.00D);
 
         be.inventory().setStackInSlot(coreSlot, legacyCore);
-        helper.assertTrue(be.isPartSlotVisible(GunsmithPressPart.CORE),
-                "an occupied legacy part slot must remain visible without a blueprint");
+        helper.assertFalse(be.isPartSlotVisible(GunsmithPressPart.CORE),
+                "a part slot must stay hidden until a blueprint is inserted");
         helper.assertTrue(be.inventory().extractItem(coreSlot, 1, false).is(legacyCore.getItem()),
-                "an occupied legacy part slot must remain removable");
+                "a hidden legacy part slot must remain removable through inventory recovery");
         helper.assertFalse(be.isPartSlotVisible(GunsmithPressPart.CORE),
                 "an emptied part slot must hide again without a blueprint");
         helper.succeed();
@@ -195,7 +197,7 @@ public final class GunsmithAssemblyBusinessGameTests {
             MunitionsConfig.GUNSMITH_ENABLED.set(true);
             helper.assertFalse(be.tryStartAssembly(player, new ItemStack(Items.DIAMOND_HOE), 4),
                     "AK blueprint must reject a complete AR part set");
-            for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            for (GunsmithPressPart part : GunsmithBlueprint.AK47.requiredParts()) {
                 helper.assertTrue(!be.inventory().getStackInSlot(
                                 GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
                         "rejected AK assembly must preserve " + part);
@@ -222,29 +224,89 @@ public final class GunsmithAssemblyBusinessGameTests {
         }
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 20)
+    public static void m1911AssemblyConsumesFivePartsAndMapsEveryPistolStat(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        fillCompleteRecipe(be, GunsmithBlueprint.M1911);
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        boolean previousEnabled = MunitionsConfig.GUNSMITH_ENABLED.get();
+
+        try {
+            MunitionsConfig.GUNSMITH_ENABLED.set(true);
+            for (GunsmithPressPart part : GunsmithPressPart.values()) {
+                helper.assertTrue(be.isPartSlotVisible(part) == GunsmithBlueprint.M1911.requiredParts().contains(part),
+                        "M1911 must expose exactly its five required slots: " + part);
+            }
+            helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.GOLDEN_HOE), 4),
+                    "complete M1911 recipe must start assembly");
+            for (GunsmithPressPart part : GunsmithBlueprint.M1911.requiredParts()) {
+                helper.assertTrue(be.inventory().getStackInSlot(
+                                GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
+                        part + " must be consumed by M1911 assembly");
+            }
+            helper.runAfterDelay(6, () -> {
+                ItemStack output = be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT);
+                helper.assertTrue(output.is(Items.GOLDEN_HOE), "M1911 assembly must deliver the supplied base item");
+                GunsmithGunStats stats = GunsmithGunStats.from(output);
+                helper.assertTrue(stats != null, "M1911 output must carry gunsmith NBT");
+                helper.assertTrue(stats.gunId().equals(GunsmithBlueprint.M1911.gunId()),
+                        "M1911 blueprint must stamp tacz:m1911");
+                helper.assertTrue(stats.parts().size() == 5, "M1911 must record exactly five installed parts");
+                assertClose(helper, stats.damage(), 1.20D, "M1911 hammer damage coefficient");
+                assertClose(helper, stats.headshot(), 1.10D, "M1911 barrel headshot coefficient");
+                assertClose(helper, stats.range(), 1.0D, "M1911 range must remain unchanged");
+                assertClose(helper, stats.recoil(), 1.08D, "M1911 slide recoil coefficient");
+                assertClose(helper, stats.spread(), 1.30D, "M1911 trigger spread coefficient");
+                assertClose(helper, stats.handling(), 1.40D, "M1911 grip handling coefficient");
+                assertClose(helper, stats.average(), 6.08D / 5.0D, "M1911 five-part average");
+                assertClose(helper, stats.effectiveDamage(M1911_BASE_STATS), 13.20D,
+                        "M1911 effective damage");
+                assertClose(helper, stats.effectiveRange(M1911_BASE_STATS), 19.0D,
+                        "M1911 effective range");
+                assertClose(helper, stats.effectiveAdsTime(M1911_BASE_STATS), 0.08D / 1.40D,
+                        "M1911 effective ADS time");
+                helper.succeed();
+            });
+        } finally {
+            MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
+        }
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void blueprintCatalogContainsFiveArAndThreeAkVariants(GameTestHelper helper) {
+    public static void blueprintCatalogKeepsRifleSixPartSetsAndAddsM1911FivePartSet(GameTestHelper helper) {
         int arCount = 0;
         int akCount = 0;
+        int pistolCount = 0;
         for (GunsmithBlueprint blueprint : GunsmithBlueprint.values()) {
             if (blueprint.platform() == GunsmithPlatform.AR) {
                 arCount++;
             } else if (blueprint.platform() == GunsmithPlatform.AK) {
                 akCount++;
+            } else if (blueprint.platform() == GunsmithPlatform.PISTOL) {
+                pistolCount++;
             }
             ItemStack stack = GunsmithBlueprintItem.createStack(
                     ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), blueprint);
             helper.assertTrue(GunsmithBlueprintItem.requireBlueprint(stack) == blueprint,
                     blueprint + " blueprint NBT must decode to the same catalog entry");
-            helper.assertTrue(blueprint.requiredParts().size() == GunsmithPressPart.values().length,
-                    blueprint + " must require all six current gunsmith press parts");
+            int expectedPartCount = blueprint.platform() == GunsmithPlatform.PISTOL ? 5 : 6;
+            helper.assertTrue(blueprint.requiredParts().size() == expectedPartCount,
+                    blueprint + " must require exactly " + expectedPartCount + " platform parts");
+            helper.assertTrue(blueprint.requiredParts().equals(blueprint.platform().supportedParts()),
+                    blueprint + " must use the platform's explicit supported part set");
             helper.assertTrue(GunsmithAssemblyRecipe.assembledGunId(stack).equals(blueprint.gunId()),
                     blueprint + " must keep assembling the blueprint's original gun id");
         }
-        helper.assertTrue(GunsmithBlueprint.values().length == 8,
-                "AK/M4 blueprint catalog must contain exactly eight guns");
+        helper.assertTrue(GunsmithBlueprint.values().length == 9,
+                "gunsmith blueprint catalog must contain eight rifles and M1911");
         helper.assertTrue(arCount == 5, "catalog must contain five M4-family blueprints");
         helper.assertTrue(akCount == 3, "catalog must contain three AK-family blueprints");
+        helper.assertTrue(pistolCount == 1, "catalog must contain the M1911 pistol blueprint");
+        helper.assertTrue(GunsmithBlueprint.M1911.requiredParts().containsAll(List.of(
+                        GunsmithPressPart.BARREL, GunsmithPressPart.SLIDE, GunsmithPressPart.GRIP,
+                        GunsmithPressPart.TRIGGER, GunsmithPressPart.HAMMER)),
+                "M1911 must require barrel, slide, grip, trigger, and hammer");
         helper.succeed();
     }
 
@@ -326,8 +388,8 @@ public final class GunsmithAssemblyBusinessGameTests {
         GunsmithGunStats stats = GunsmithGunStats.from(output);
         helper.assertTrue(stats != null, "new guns must expose part summaries");
         List<GunsmithGunStats.PartSummary> parts = stats.parts();
-        helper.assertTrue(parts.size() == GunsmithPressPart.values().length,
-                "the complete recipe must record every installed part");
+        helper.assertTrue(parts.size() == GunsmithBlueprint.M4A1.requiredParts().size(),
+                "the complete rifle recipe must record its six installed parts");
         assertPartSummary(helper, parts.get(0), GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1.04D);
         assertPartSummary(helper, parts.get(1), GunsmithPressPart.BARREL, GunsmithPartQuality.IMPROVED, 1.10D);
         assertPartSummary(helper, parts.get(2), GunsmithPressPart.BOLT, GunsmithPartQuality.MILSPEC, 1.20D);
@@ -422,7 +484,7 @@ public final class GunsmithAssemblyBusinessGameTests {
             helper.assertTrue(be.inventory().getStackInSlot(
                             GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT).is(ModMunitionsItems.GUNSMITH_BLUEPRINT.get()),
                     "rejected assembly must preserve the blueprint");
-            for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
                 helper.assertTrue(!be.inventory().getStackInSlot(
                                 GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
                         "rejected assembly must preserve " + part);
@@ -440,10 +502,13 @@ public final class GunsmithAssemblyBusinessGameTests {
     public static void previewUsesTheSelectedBlueprintBaseStats(GameTestHelper helper) {
         EnumMap<GunsmithPressPart, ItemStack> arParts = previewParts(GunsmithPlatform.AR);
         EnumMap<GunsmithPressPart, ItemStack> akParts = previewParts(GunsmithPlatform.AK);
+        EnumMap<GunsmithPressPart, ItemStack> pistolParts = previewParts(GunsmithPlatform.PISTOL);
         GunsmithAssemblyRecipe.Preview m4 =
                 GunsmithAssemblyRecipe.preview(GunsmithBlueprint.M4A1, arParts, M4_BASE_STATS);
         GunsmithAssemblyRecipe.Preview ak47 =
                 GunsmithAssemblyRecipe.preview(GunsmithBlueprint.AK47, akParts, AK47_BASE_STATS);
+        GunsmithAssemblyRecipe.Preview m1911 =
+                GunsmithAssemblyRecipe.preview(GunsmithBlueprint.M1911, pistolParts, M1911_BASE_STATS);
 
         assertClose(helper, m4.damage(), 7.80D, "M4 preview damage");
         assertClose(helper, m4.range(), 1.04D, "M4 preview range coefficient");
@@ -453,6 +518,16 @@ public final class GunsmithAssemblyBusinessGameTests {
         assertClose(helper, ak47.range(), 1.04D, "AK47 preview range coefficient");
         assertClose(helper, ak47.effectiveRange(), 54.08D, "AK47 preview effective range");
         assertClose(helper, ak47.adsTime(), 0.20D / 1.40D, "AK47 preview ADS");
+        assertClose(helper, m1911.damage(), 13.20D, "M1911 preview damage");
+        assertClose(helper, m1911.headshot(), 1.65D, "M1911 preview headshot");
+        assertClose(helper, m1911.range(), 1.0D, "M1911 preview range coefficient");
+        assertClose(helper, m1911.effectiveRange(), 19.0D, "M1911 preview effective range");
+        assertClose(helper, m1911.recoilChange(), (1.0D / 1.08D - 1.0D) * 100.0D,
+                "M1911 preview recoil");
+        assertClose(helper, m1911.spreadChange(), (1.0D / 1.30D - 1.0D) * 100.0D,
+                "M1911 preview spread");
+        assertClose(helper, m1911.adsTime(), 0.08D / 1.40D, "M1911 preview ADS");
+        assertClose(helper, m1911.average(), 6.08D / 5.0D, "M1911 preview five-part average");
         helper.succeed();
     }
 
@@ -489,6 +564,14 @@ public final class GunsmithAssemblyBusinessGameTests {
     }
 
     private static void fillParts(GunsmithAssemblyBenchBlockEntity be, GunsmithPlatform platform) {
+        if (platform == GunsmithPlatform.PISTOL) {
+            setPart(be, platform, GunsmithPressPart.BARREL, GunsmithPartQuality.IMPROVED, 1.10D);
+            setPart(be, platform, GunsmithPressPart.GRIP, GunsmithPartQuality.LEGENDARY, 1.40D);
+            setPart(be, platform, GunsmithPressPart.SLIDE, GunsmithPartQuality.IMPROVED, 1.08D);
+            setPart(be, platform, GunsmithPressPart.TRIGGER, GunsmithPartQuality.PRECISION, 1.30D);
+            setPart(be, platform, GunsmithPressPart.HAMMER, GunsmithPartQuality.MILSPEC, 1.20D);
+            return;
+        }
         setPart(be, platform, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1.04D);
         setPart(be, platform, GunsmithPressPart.BARREL, GunsmithPartQuality.IMPROVED, 1.10D);
         setPart(be, platform, GunsmithPressPart.BOLT, GunsmithPartQuality.MILSPEC, 1.20D);
@@ -499,6 +582,19 @@ public final class GunsmithAssemblyBusinessGameTests {
 
     private static EnumMap<GunsmithPressPart, ItemStack> previewParts(GunsmithPlatform platform) {
         EnumMap<GunsmithPressPart, ItemStack> parts = new EnumMap<>(GunsmithPressPart.class);
+        if (platform == GunsmithPlatform.PISTOL) {
+            parts.put(GunsmithPressPart.BARREL,
+                    part(platform, GunsmithPressPart.BARREL, GunsmithPartQuality.IMPROVED, 1.10D));
+            parts.put(GunsmithPressPart.GRIP,
+                    part(platform, GunsmithPressPart.GRIP, GunsmithPartQuality.LEGENDARY, 1.40D));
+            parts.put(GunsmithPressPart.SLIDE,
+                    part(platform, GunsmithPressPart.SLIDE, GunsmithPartQuality.IMPROVED, 1.08D));
+            parts.put(GunsmithPressPart.TRIGGER,
+                    part(platform, GunsmithPressPart.TRIGGER, GunsmithPartQuality.PRECISION, 1.30D));
+            parts.put(GunsmithPressPart.HAMMER,
+                    part(platform, GunsmithPressPart.HAMMER, GunsmithPartQuality.MILSPEC, 1.20D));
+            return parts;
+        }
         parts.put(GunsmithPressPart.CORE,
                 part(platform, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1.04D));
         parts.put(GunsmithPressPart.BARREL,

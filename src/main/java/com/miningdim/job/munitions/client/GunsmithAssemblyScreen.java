@@ -194,9 +194,8 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
         int slotY = GunsmithAssemblyMenu.partSlotY(part);
         int y = switch (part) {
             case BARREL, CORE, BOLT -> top + slotY - 10;
-            case STOCK, HANDGUARD, GRIP -> top + slotY - 9;
+            case STOCK, HANDGUARD, GRIP, TRIGGER -> top + slotY - 9;
             case SLIDE, HAMMER -> top + slotY - 10;
-            case TRIGGER -> top + slotY + 21;
         };
         if (part == GunsmithPressPart.HANDGUARD) {
             drawRightAlignedScaledText(graphics, label, left + slotX + 20, y,

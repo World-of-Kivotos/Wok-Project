@@ -125,9 +125,9 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
             return false;
         }
         int row = 0;
-        for (GunsmithPressPart part : selectedPlatform.allowedParts()) {
+        for (GunsmithPressPart part : selectedPlatform.supportedParts()) {
             if (row++ == compactIndex) {
-                if (!selectedPlatform.allows(part)) {
+                if (!selectedPlatform.supports(part)) {
                     return false;
                 }
                 this.selectedPart = part;
@@ -152,8 +152,9 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
             player.displayClientMessage(Component.translatable("message.miningdim.gunsmith_press.busy"), true);
             return false;
         }
-        if (!selectedPlatform.allows(selectedPart)) {
-            player.displayClientMessage(Component.literal("当前平台不支持所选部件。"), true);
+        if (!selectedPlatform.supports(selectedPart)) {
+            player.displayClientMessage(
+                    Component.translatable("message.miningdim.gunsmith_press.unsupported_part"), true);
             return false;
         }
         if (!inventory.getStackInSlot(SLOT_OUTPUT).isEmpty()) {
@@ -340,10 +341,10 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
     }
 
     private void normalizeSelectedPart() {
-        if (selectedPlatform.allows(selectedPart)) {
+        if (selectedPlatform.supports(selectedPart)) {
             return;
         }
-        for (GunsmithPressPart part : selectedPlatform.allowedParts()) {
+        for (GunsmithPressPart part : selectedPlatform.supportedParts()) {
             selectedPart = part;
             return;
         }

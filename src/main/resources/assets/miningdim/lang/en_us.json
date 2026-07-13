@@ -462,6 +462,7 @@
   "message.miningdim.gunsmith_press.busy": "Mechanical press is already working.",
   "message.miningdim.gunsmith_press.output_blocked": "Take the finished part from the center first.",
   "message.miningdim.gunsmith_press.missing_materials": "Not enough materials to start stamping.",
+  "message.miningdim.gunsmith_press.unsupported_part": "The selected part is not supported by this platform.",
   "message.miningdim.m4_template.use_assembly_bench": "Insert this blueprint into the firearm assembly bench.",
   "message.miningdim.gunsmith_blueprint.use_assembly_bench": "Insert this blueprint into the firearm assembly bench.",
   "message.miningdim.gunsmith_blueprint.tacz_missing": "TaCZ is unavailable or the blueprint firearm data is incomplete.",

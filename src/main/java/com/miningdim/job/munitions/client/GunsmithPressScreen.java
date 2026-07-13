@@ -147,7 +147,7 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
     private void renderPartButtons(GuiGraphics graphics, int left, int top, GunsmithPlatform platform) {
         GunsmithPressPart selected = menu.selectedPart();
         int row = 0;
-        for (GunsmithPressPart part : platform.allowedParts()) {
+        for (GunsmithPressPart part : platform.supportedParts()) {
             int x = left + PART_X;
             int y = top + PART_Y + row * (PART_H + PART_GAP);
             boolean current = part == selected;
@@ -354,7 +354,7 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
             return;
         }
         int row = 0;
-        for (GunsmithPressPart part : menu.selectedPlatform().allowedParts()) {
+        for (GunsmithPressPart part : menu.selectedPlatform().supportedParts()) {
             int x = left + PART_X;
             int y = top + PART_Y + row * (PART_H + PART_GAP);
             if (inRect(mouseX, mouseY, x, y, PART_W, PART_H)) {
@@ -393,7 +393,7 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
                 return true;
             }
             int row = 0;
-            for (GunsmithPressPart part : menu.selectedPlatform().allowedParts()) {
+            for (GunsmithPressPart part : menu.selectedPlatform().supportedParts()) {
                 int x = left + PART_X;
                 int y = top + PART_Y + row * (PART_H + PART_GAP);
                 if (inRect(mouseX, mouseY, x, y, PART_W, PART_H)) {

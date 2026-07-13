@@ -463,6 +463,7 @@
   "message.miningdim.gunsmith_press.busy": "机械冲压机正在工作。",
   "message.miningdim.gunsmith_press.output_blocked": "请先取走中间的成品。",
   "message.miningdim.gunsmith_press.missing_materials": "材料不足，无法开始冲压。",
+  "message.miningdim.gunsmith_press.unsupported_part": "当前平台不支持所选部件。",
   "message.miningdim.m4_template.use_assembly_bench": "请将图纸放入枪械装配台。",
   "message.miningdim.gunsmith_blueprint.use_assembly_bench": "请将图纸放入枪械装配台。",
   "message.miningdim.gunsmith_blueprint.tacz_missing": "TaCZ 未加载，或图纸枪械数据不完整，无法生成成品。",

@@ -14,7 +14,8 @@ enum GunsmithStat {
     double coefficient(GunsmithPlatform platform, Function<GunsmithPressPart, Double> resolver) {
         Objects.requireNonNull(platform, "platform");
         Objects.requireNonNull(resolver, "resolver");
-        if (this == RANGE && platform == GunsmithPlatform.PISTOL) {
+        if ((this == RANGE && platform == GunsmithPlatform.PISTOL)
+                || (this == RECOIL && platform == GunsmithPlatform.BULLPUP)) {
             return 1.0D;
         }
         return Objects.requireNonNull(resolver.apply(sourcePart(platform)), "gunsmith part coefficient");
@@ -22,7 +23,11 @@ enum GunsmithStat {
 
     private GunsmithPressPart sourcePart(GunsmithPlatform platform) {
         return switch (this) {
-            case DAMAGE -> platform == GunsmithPlatform.PISTOL ? GunsmithPressPart.HAMMER : GunsmithPressPart.BOLT;
+            case DAMAGE -> switch (platform) {
+                case PISTOL -> GunsmithPressPart.HAMMER;
+                case BULLPUP -> GunsmithPressPart.RECEIVER;
+                case AR, AK -> GunsmithPressPart.BOLT;
+            };
             case HEADSHOT -> GunsmithPressPart.BARREL;
             case RANGE -> GunsmithPressPart.CORE;
             case RECOIL -> platform == GunsmithPlatform.PISTOL ? GunsmithPressPart.SLIDE : GunsmithPressPart.STOCK;

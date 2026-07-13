@@ -9,7 +9,8 @@ public enum GunsmithPressPart {
     STOCK("stock", "gunsmith.part.stock", "gunsmith.role.stock", "STOCK", 2, 2, 5),
     SLIDE("slide", "gunsmith.part.slide", "gunsmith.role.slide", "SLIDE", 4, 6, 0),
     TRIGGER("trigger", "gunsmith.part.trigger", "gunsmith.role.trigger", "TRIGGER", 2, 3, 1),
-    HAMMER("hammer", "gunsmith.part.hammer", "gunsmith.role.hammer", "HAMMER", 2, 4, 0);
+    HAMMER("hammer", "gunsmith.part.hammer", "gunsmith.role.hammer", "HAMMER", 2, 4, 0),
+    RECEIVER("receiver", "gunsmith.part.receiver", "gunsmith.role.receiver", "RECEIVER", 6, 6, 5);
 
     private final String id;
     private final String labelKey;

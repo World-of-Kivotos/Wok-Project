@@ -25,7 +25,13 @@ public enum GunsmithPlatform {
             GunsmithPressPart.SLIDE,
             GunsmithPressPart.GRIP,
             GunsmithPressPart.TRIGGER,
-            GunsmithPressPart.HAMMER));
+            GunsmithPressPart.HAMMER)),
+    BULLPUP("bullpup", "gunsmith.platform.bullpup", EnumSet.of(
+            GunsmithPressPart.CORE,
+            GunsmithPressPart.BARREL,
+            GunsmithPressPart.HANDGUARD,
+            GunsmithPressPart.GRIP,
+            GunsmithPressPart.RECEIVER));
 
     private final String id;
     private final String labelKey;

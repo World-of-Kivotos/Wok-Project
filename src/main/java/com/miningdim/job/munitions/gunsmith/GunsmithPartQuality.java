@@ -66,7 +66,7 @@ public enum GunsmithPartQuality {
     public static GunsmithPartQuality byIndex(int index) {
         GunsmithPartQuality[] values = values();
         if (index < 0 || index >= values.length) {
-            return COMMON;
+            throw new IllegalArgumentException("Unknown gunsmith part quality index: " + index);
         }
         return values[index];
     }
@@ -77,6 +77,6 @@ public enum GunsmithPartQuality {
                 return quality;
             }
         }
-        return COMMON;
+        throw new IllegalArgumentException("Unknown gunsmith part quality: " + id);
     }
 }

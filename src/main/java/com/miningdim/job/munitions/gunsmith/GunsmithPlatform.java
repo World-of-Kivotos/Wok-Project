@@ -1,15 +1,66 @@
 package com.miningdim.job.munitions.gunsmith;
 
+import java.util.Collection;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+
 public enum GunsmithPlatform {
-    AR("ar", "gunsmith.platform.ar"),
-    AK("ak", "gunsmith.platform.ak");
+    AR("ar", "gunsmith.platform.ar", EnumSet.of(
+            GunsmithPressPart.CORE,
+            GunsmithPressPart.BARREL,
+            GunsmithPressPart.BOLT,
+            GunsmithPressPart.HANDGUARD,
+            GunsmithPressPart.GRIP,
+            GunsmithPressPart.STOCK)),
+    AK("ak", "gunsmith.platform.ak", EnumSet.of(
+            GunsmithPressPart.CORE,
+            GunsmithPressPart.BARREL,
+            GunsmithPressPart.BOLT,
+            GunsmithPressPart.HANDGUARD,
+            GunsmithPressPart.GRIP,
+            GunsmithPressPart.STOCK)),
+    PISTOL("pistol", "gunsmith.platform.pistol", EnumSet.of(
+            GunsmithPressPart.BARREL,
+            GunsmithPressPart.SLIDE,
+            GunsmithPressPart.GRIP,
+            GunsmithPressPart.TRIGGER,
+            GunsmithPressPart.HAMMER)),
+    BULLPUP("bullpup", "gunsmith.platform.bullpup", EnumSet.of(
+            GunsmithPressPart.CORE,
+            GunsmithPressPart.BARREL,
+            GunsmithPressPart.HANDGUARD,
+            GunsmithPressPart.GRIP,
+            GunsmithPressPart.RECEIVER)),
+    MARKSMAN("marksman", "gunsmith.platform.marksman", List.of(
+            GunsmithPressPart.HANDGUARD,
+            GunsmithPressPart.CORE,
+            GunsmithPressPart.STOCK,
+            GunsmithPressPart.BOLT,
+            GunsmithPressPart.BARREL)),
+    SNIPER("sniper", "gunsmith.platform.sniper", List.of(
+            GunsmithPressPart.RECEIVER,
+            GunsmithPressPart.STOCK,
+            GunsmithPressPart.BARREL,
+            GunsmithPressPart.HANDGUARD)),
+    MACHINE_GUN("machine_gun", "gunsmith.platform.machine_gun", List.of(
+            GunsmithPressPart.HANDGUARD,
+            GunsmithPressPart.BOLT,
+            GunsmithPressPart.BARREL,
+            GunsmithPressPart.STOCK,
+            GunsmithPressPart.BIPOD));
 
     private final String id;
     private final String labelKey;
+    private final Set<GunsmithPressPart> supportedParts;
 
-    GunsmithPlatform(String id, String labelKey) {
+    GunsmithPlatform(String id, String labelKey, Collection<GunsmithPressPart> supportedParts) {
         this.id = id;
         this.labelKey = labelKey;
+        this.supportedParts = Collections.unmodifiableSet(new LinkedHashSet<>(supportedParts));
     }
 
     public int index() {
@@ -24,10 +75,18 @@ public enum GunsmithPlatform {
         return labelKey;
     }
 
+    public Set<GunsmithPressPart> supportedParts() {
+        return supportedParts;
+    }
+
+    public boolean supports(GunsmithPressPart part) {
+        return supportedParts.contains(Objects.requireNonNull(part, "part"));
+    }
+
     public static GunsmithPlatform byIndex(int index) {
         GunsmithPlatform[] values = values();
         if (index < 0 || index >= values.length) {
-            return AR;
+            throw new IllegalArgumentException("Unknown gunsmith platform index: " + index);
         }
         return values[index];
     }
@@ -38,6 +97,6 @@ public enum GunsmithPlatform {
                 return platform;
             }
         }
-        return AR;
+        throw new IllegalArgumentException("Unknown gunsmith platform: " + id);
     }
 }

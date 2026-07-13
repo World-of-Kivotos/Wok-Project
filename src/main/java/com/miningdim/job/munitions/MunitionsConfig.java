@@ -76,6 +76,13 @@ public final class MunitionsConfig {
      */
     public static final ForgeConfigSpec.BooleanValue GUNSMITH_ENABLED;
 
+    /**
+     * 爆头等效伤害倍率总帽 (审查 TACZ-BAL-1): TACZ 爆头伤害 = 距离伤害 x 爆头倍率, 枪匠对二者各乘品质系数后,
+     * 爆头处复利最高 1.5 x 1.5 = 2.25。此帽把 damage x headshot 的复利钳住, 只压爆头不动躯干每-stat 帽。
+     * 默认取保守初值, 待真服对 80 血目标实测致死阈值后调定。
+     */
+    public static final ForgeConfigSpec.DoubleValue GUNSMITH_HEADSHOT_DAMAGE_CAP;
+
     // ---- 九章: 工费 sink (1.5 CP/发, ×10 锚价整数化为 15/10 发) ----
     /** 每 10 发产弹扣的信用点工费 (整数化锚价; 实发 1.5/发 = 15/10 发, 销毁 = sink)。 */
     public static final ForgeConfigSpec.IntValue WORK_FEE_PER_TEN_ROUNDS;
@@ -187,6 +194,10 @@ public final class MunitionsConfig {
         GUNSMITH_ENABLED = b.comment("Enable the gunsmith press subsystem (WIP chapter 3A; keep false until"
                         + " material items, survival chain, gating and damage coefficients pass review)")
                 .define("gunsmithEnabled", false);
+        GUNSMITH_HEADSHOT_DAMAGE_CAP = b.comment("Cap on the compounded headshot-equivalent damage multiplier"
+                        + " (damage coeff x headshot coeff). WIP conservative default pending live tuning against"
+                        + " the 80-HP server; 2.25 restores the uncapped legendary+legendary compound.")
+                .defineInRange("gunsmithHeadshotDamageCap", 1.8D, 1.0D, 2.25D);
         DIRECT_ROUNDS_PER_BATCH = b.comment("Rounds per batch via direct crafting (L1-5, half yield)")
                 .defineInRange("directRoundsPerBatch", 40, 1, 100000);
         REFINED_ROUNDS_PER_BATCH = b.comment("Rounds per batch via refining into propellant (L6+, double yield, profit inflection)")

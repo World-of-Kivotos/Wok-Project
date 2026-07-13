@@ -6,6 +6,8 @@
     "miningdim:production_table_high",
     "miningdim:production_table_superior",
     "miningdim:production_table_transcendent",
-    "miningdim:production_table_radiant"
+    "miningdim:production_table_radiant",
+    "miningdim:gunsmith_press",
+    "miningdim:gunsmith_assembly_bench"
   ]
 }

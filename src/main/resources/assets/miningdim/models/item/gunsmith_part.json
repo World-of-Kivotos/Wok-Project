@@ -423,6 +423,726 @@
         "custom_model_data": 165
       },
       "model": "miningdim:item/gunsmith_part_ak_receiver_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 211
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_barrel_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 212
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_barrel_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 213
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_barrel_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 214
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_barrel_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 215
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_barrel_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 241
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_grip_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 242
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_grip_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 243
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_grip_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 244
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_grip_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 245
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_grip_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 261
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_slide_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 262
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_slide_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 263
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_slide_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 264
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_slide_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 265
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_slide_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 271
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_trigger_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 272
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_trigger_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 273
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_trigger_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 274
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_trigger_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 275
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_trigger_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 281
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_hammer_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 282
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_hammer_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 283
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_hammer_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 284
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_hammer_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 285
+      },
+      "model": "miningdim:item/gunsmith_part_pistol_hammer_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 301
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_core_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 302
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_core_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 303
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_core_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 304
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_core_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 305
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_core_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 311
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_barrel_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 312
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_barrel_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 313
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_barrel_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 314
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_barrel_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 315
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_barrel_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 331
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_handguard_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 332
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_handguard_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 333
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_handguard_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 334
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_handguard_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 335
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_handguard_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 341
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_grip_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 342
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_grip_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 343
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_grip_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 344
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_grip_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 345
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_grip_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 391
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_receiver_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 392
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_receiver_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 393
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_receiver_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 394
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_receiver_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 395
+      },
+      "model": "miningdim:item/gunsmith_part_bullpup_receiver_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 401
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_core_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 402
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_core_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 403
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_core_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 404
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_core_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 405
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_core_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 411
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_barrel_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 412
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_barrel_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 413
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_barrel_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 414
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_barrel_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 415
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_barrel_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 421
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_bolt_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 422
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_bolt_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 423
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_bolt_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 424
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_bolt_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 425
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_bolt_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 431
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_handguard_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 432
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_handguard_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 433
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_handguard_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 434
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_handguard_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 435
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_handguard_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 451
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_stock_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 452
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_stock_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 453
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_stock_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 454
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_stock_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 455
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_stock_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 511
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_barrel_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 512
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_barrel_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 513
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_barrel_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 514
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_barrel_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 515
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_barrel_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 531
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_handguard_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 532
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_handguard_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 533
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_handguard_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 534
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_handguard_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 535
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_handguard_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 551
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_stock_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 552
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_stock_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 553
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_stock_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 554
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_stock_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 555
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_stock_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 591
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_receiver_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 592
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_receiver_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 593
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_receiver_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 594
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_receiver_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 595
+      },
+      "model": "miningdim:item/gunsmith_part_sniper_receiver_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 611
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_barrel_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 612
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_barrel_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 613
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_barrel_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 614
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_barrel_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 615
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_barrel_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 621
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_bolt_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 622
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_bolt_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 623
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_bolt_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 624
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_bolt_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 625
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_bolt_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 631
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_handguard_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 632
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_handguard_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 633
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_handguard_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 634
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_handguard_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 635
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_handguard_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 651
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_stock_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 652
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_stock_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 653
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_stock_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 654
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_stock_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 655
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_stock_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 701
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_bipod_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 702
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_bipod_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 703
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_bipod_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 704
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_bipod_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 705
+      },
+      "model": "miningdim:item/gunsmith_part_machine_gun_bipod_legendary"
     }
   ]
 }

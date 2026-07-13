@@ -1,6 +1,7 @@
 package com.miningdim.job.munitions;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlockEntity;
 import com.miningdim.job.munitions.block.GunsmithPressBlockEntity;
 import com.miningdim.job.munitions.block.MunitionsBenchBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
@@ -32,6 +33,10 @@ public final class ModMunitionsBlockEntities {
             BLOCK_ENTITIES.register("gunsmith_press",
                     () -> BlockEntityType.Builder.of(GunsmithPressBlockEntity::new,
                             ModMunitionsBlocks.GUNSMITH_PRESS.get()).build(null));
+    public static final RegistryObject<BlockEntityType<GunsmithAssemblyBenchBlockEntity>> GUNSMITH_ASSEMBLY_BENCH =
+            BLOCK_ENTITIES.register("gunsmith_assembly_bench",
+                    () -> BlockEntityType.Builder.of(GunsmithAssemblyBenchBlockEntity::new,
+                            ModMunitionsBlocks.GUNSMITH_ASSEMBLY_BENCH.get()).build(null));
 
     public static void register(IEventBus modBus) {
         BLOCK_ENTITIES.register(modBus);

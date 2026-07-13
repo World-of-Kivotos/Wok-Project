@@ -4,12 +4,16 @@ import com.miningdim.core.Subsystem;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.munitions.block.MunitionsBenchBlock;
+import com.miningdim.job.munitions.client.GunsmithAssemblyScreen;
 import com.miningdim.job.munitions.client.GunsmithPressScreen;
 import com.miningdim.job.munitions.client.MunitionsBenchScreen;
+import com.miningdim.job.munitions.gunsmith.GunsmithBaseStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunTooltip;
+import com.miningdim.job.munitions.gunsmith.GunsmithTaczBridge;
 import com.miningdim.job.munitions.gunsmith.GunsmithTaczResourceBootstrap;
 import com.miningdim.job.munitions.gunsmith.GunsmithTaczStatsHandler;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -26,6 +30,8 @@ import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Optional;
 
 /**
  * 军火商子系统入口 (Munitions_Job_DesignSpec 十章; 模块化铁律 3)。在 register 内完成自己的全部 DeferredRegister
@@ -75,6 +81,7 @@ public final class MunitionsSystem implements Subsystem {
                         () -> () -> {
                             MenuScreens.register(ModMunitionsMenus.MUNITIONS_BENCH.get(), MunitionsBenchScreen::new);
                             MenuScreens.register(ModMunitionsMenus.GUNSMITH_PRESS.get(), GunsmithPressScreen::new);
+                            MenuScreens.register(ModMunitionsMenus.GUNSMITH_ASSEMBLY_BENCH.get(), GunsmithAssemblyScreen::new);
                         })));
 
         LOGGER.info("[miningdim] munitions subsystem registered (munitions bench + passive ammo production)");
@@ -133,7 +140,14 @@ public final class MunitionsSystem implements Subsystem {
         if (stats == null) {
             return;
         }
-        GunsmithGunTooltip.append(event.getToolTip(), stats);
+        Optional<GunsmithBaseStats> baseStats = GunsmithTaczBridge.findBaseStats(stats.gunId());
+        if (baseStats.isEmpty()) {
+            event.getToolTip().add(Component.translatable(
+                    "tooltip.miningdim.gunsmith.tacz_data_unavailable", stats.gunId().toString())
+                    .withStyle(ChatFormatting.RED));
+            return;
+        }
+        GunsmithGunTooltip.append(event.getToolTip(), stats, baseStats.get());
     }
 
     @Override

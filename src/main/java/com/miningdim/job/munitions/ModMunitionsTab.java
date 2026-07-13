@@ -1,6 +1,8 @@
 package com.miningdim.job.munitions;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
+import com.miningdim.job.munitions.gunsmith.GunsmithBlueprintItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
@@ -50,7 +52,11 @@ public final class ModMunitionsTab {
                             return;
                         }
                         output.accept(ModMunitionsItems.GUNSMITH_PRESS_ITEM.get());
-                        output.accept(ModMunitionsItems.M4_ASSEMBLY_TEMPLATE.get());
+                        output.accept(ModMunitionsItems.GUNSMITH_ASSEMBLY_BENCH_ITEM.get());
+                        for (GunsmithBlueprint blueprint : GunsmithBlueprint.values()) {
+                            output.accept(GunsmithBlueprintItem.createStack(
+                                    ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), blueprint));
+                        }
                         GunsmithPartItem.addCreativeStacks(output);
                     })
                     .build());

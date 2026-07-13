@@ -44,6 +44,18 @@ public final class MockGameTestPlayers {
      * @return 已登记进 PlayerList 的 mock ServerPlayer
      */
     public static ServerPlayer makeMockServerPlayerWithChannel(GameTestHelper helper) {
+        return makeMockServerPlayerWithChannel(helper, true);
+    }
+
+    /**
+     * 与 {@link #makeMockServerPlayerWithChannel(GameTestHelper)} 相同, 但 {@code isCreative()=false},
+     * 用于需要走生存破坏/工具门路径的用例 (如枪匠组装台从属格破坏的工具门校验)。
+     */
+    public static ServerPlayer makeMockSurvivalServerPlayerWithChannel(GameTestHelper helper) {
+        return makeMockServerPlayerWithChannel(helper, false);
+    }
+
+    private static ServerPlayer makeMockServerPlayerWithChannel(GameTestHelper helper, boolean creative) {
         ServerLevel level = helper.getLevel();
         ServerPlayer serverPlayer = new ServerPlayer(
                 level.getServer(),
@@ -56,7 +68,7 @@ public final class MockGameTestPlayers {
 
             @Override
             public boolean isCreative() {
-                return true;
+                return creative;
             }
         };
 

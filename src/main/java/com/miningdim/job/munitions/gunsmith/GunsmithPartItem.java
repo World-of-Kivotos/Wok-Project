@@ -5,6 +5,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -14,6 +15,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 public final class GunsmithPartItem extends Item {
 
@@ -40,19 +42,29 @@ public final class GunsmithPartItem extends Item {
     public static ItemStack createStack(Item item, GunsmithPlatform platform,
                                         GunsmithPressPart part, GunsmithPartQuality quality,
                                         double coefficient) {
+        Objects.requireNonNull(item, "item");
+        Objects.requireNonNull(platform, "platform");
+        Objects.requireNonNull(part, "part");
+        Objects.requireNonNull(quality, "quality");
+        if (!platform.supports(part)) {
+            throw new IllegalArgumentException("Gunsmith platform " + platform.id()
+                    + " does not allow part " + part.id());
+        }
+        double roundedCoefficient = roundCoefficient(coefficient);
+        requireCoefficient(roundedCoefficient, quality);
         ItemStack stack = new ItemStack(item);
         CompoundTag tag = stack.getOrCreateTag();
         tag.putString(K_PLATFORM, platform.id());
         tag.putString(K_PART, part.id());
         tag.putString(K_QUALITY, quality.id());
-        tag.putDouble(K_COEFFICIENT, roundCoefficient(coefficient));
+        tag.putDouble(K_COEFFICIENT, roundedCoefficient);
         tag.putInt("CustomModelData", customModelData(platform, part, quality));
         return stack;
     }
 
     public static void addCreativeStacks(CreativeModeTab.Output output) {
         for (GunsmithPlatform platform : GunsmithPlatform.values()) {
-            for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            for (GunsmithPressPart part : platform.supportedParts()) {
                 for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
                     output.accept(createStack(ModMunitionsItems.GUNSMITH_PART.get(), platform, part, quality));
                 }
@@ -60,51 +72,57 @@ public final class GunsmithPartItem extends Item {
         }
     }
 
+    @Nullable
+    private static PartData tryPartData(ItemStack stack) {
+        // 渲染线程 (getName/appendHoverText) 不能抛异常, 否则崩客户端; 服务端装配/冲压路径仍走
+        // requirePartData 硬校验。裸/损坏 NBT 仅 op /give 可造。(审查 GS-2)
+        try {
+            return requirePartData(stack);
+        } catch (IllegalArgumentException invalid) {
+            return null;
+        }
+    }
+
     @Override
     public Component getName(ItemStack stack) {
-        CompoundTag tag = stack.getTag();
-        if (tag == null || !tag.contains(K_PLATFORM) || !tag.contains(K_PART) || !tag.contains(K_QUALITY)) {
+        PartData data = tryPartData(stack);
+        if (data == null) {
             return super.getName(stack);
         }
-        GunsmithPlatform platform = GunsmithPlatform.byId(tag.getString(K_PLATFORM));
-        GunsmithPressPart part = GunsmithPressPart.byId(tag.getString(K_PART));
-        GunsmithPartQuality quality = GunsmithPartQuality.byId(tag.getString(K_QUALITY));
         MutableComponent name = Component.empty()
-                .append(Component.translatable(platform.labelKey()))
-                .append(Component.translatable(part.labelKey()))
+                .append(Component.translatable(data.platform().labelKey()))
+                .append(Component.translatable(data.part().labelKey()))
                 .append(Component.literal(" "))
-                .append(Component.translatable(quality.labelKey()));
-        return name.withStyle(qualityStyle(quality));
+                .append(Component.translatable(data.quality().labelKey()));
+        return name.withStyle(qualityStyle(data.quality()));
     }
 
     @Override
     public void appendHoverText(ItemStack stack, @Nullable Level level,
                                 List<Component> tooltip, TooltipFlag flag) {
-        CompoundTag tag = stack.getTag();
-        if (tag == null) {
+        PartData data = tryPartData(stack);
+        if (data == null) {
+            tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.invalid")
+                    .withStyle(ChatFormatting.RED));
             return;
         }
-        GunsmithPlatform platform = GunsmithPlatform.byId(tag.getString(K_PLATFORM));
-        GunsmithPressPart part = GunsmithPressPart.byId(tag.getString(K_PART));
-        GunsmithPartQuality quality = GunsmithPartQuality.byId(tag.getString(K_QUALITY));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.platform",
-                Component.translatable(platform.labelKey())).withStyle(ChatFormatting.GRAY));
+                Component.translatable(data.platform().labelKey())).withStyle(ChatFormatting.GRAY));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.part",
-                Component.translatable(part.labelKey())).withStyle(ChatFormatting.GRAY));
+                Component.translatable(data.part().labelKey())).withStyle(ChatFormatting.GRAY));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.quality",
-                Component.translatable(quality.labelKey())).withStyle(qualityStyle(quality)));
+                Component.translatable(data.quality().labelKey())).withStyle(qualityStyle(data.quality())));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.coefficient",
-                Component.literal(formatCoefficient(coefficientOf(stack)))).withStyle(ChatFormatting.AQUA));
+                Component.literal(formatCoefficient(data.coefficient()))).withStyle(ChatFormatting.AQUA));
     }
 
     public static boolean isGunsmithPart(ItemStack stack) {
-        CompoundTag tag = stack.getTag();
-        return !stack.isEmpty()
-                && stack.is(ModMunitionsItems.GUNSMITH_PART.get())
-                && tag != null
-                && tag.contains(K_PLATFORM)
-                && tag.contains(K_PART)
-                && tag.contains(K_QUALITY);
+        Objects.requireNonNull(stack, "stack");
+        if (stack.isEmpty() || !stack.is(ModMunitionsItems.GUNSMITH_PART.get())) {
+            return false;
+        }
+        requirePartData(stack);
+        return true;
     }
 
     public static boolean matches(ItemStack stack, GunsmithPlatform platform, GunsmithPressPart part) {
@@ -112,28 +130,46 @@ public final class GunsmithPartItem extends Item {
     }
 
     public static GunsmithPlatform platformOf(ItemStack stack) {
-        CompoundTag tag = stack.getTag();
-        return tag == null ? GunsmithPlatform.AR : GunsmithPlatform.byId(tag.getString(K_PLATFORM));
+        return requirePartData(stack).platform();
     }
 
     public static GunsmithPressPart partOf(ItemStack stack) {
-        CompoundTag tag = stack.getTag();
-        return tag == null ? GunsmithPressPart.CORE : GunsmithPressPart.byId(tag.getString(K_PART));
+        return requirePartData(stack).part();
     }
 
     public static GunsmithPartQuality qualityOf(ItemStack stack) {
-        CompoundTag tag = stack.getTag();
-        return tag == null ? GunsmithPartQuality.COMMON : GunsmithPartQuality.byId(tag.getString(K_QUALITY));
+        return requirePartData(stack).quality();
     }
 
     public static double coefficientOf(ItemStack stack) {
-        CompoundTag tag = stack.getTag();
-        GunsmithPartQuality quality = qualityOf(stack);
-        if (tag == null || !tag.contains(K_COEFFICIENT)) {
-            return quality.midpointCoefficient();
+        return requirePartData(stack).coefficient();
+    }
+
+    public static PartData requirePartData(ItemStack stack) {
+        Objects.requireNonNull(stack, "stack");
+        if (stack.isEmpty()) {
+            throw new IllegalArgumentException("Gunsmith part stack is empty");
         }
-        double value = tag.getDouble(K_COEFFICIENT);
-        return Math.max(quality.minCoefficient(), Math.min(quality.maxCoefficient(), value));
+        if (!stack.is(ModMunitionsItems.GUNSMITH_PART.get())) {
+            throw new IllegalArgumentException("Stack is not a gunsmith part");
+        }
+        CompoundTag tag = stack.getTag();
+        if (tag == null) {
+            throw new IllegalArgumentException("Gunsmith part has no NBT data");
+        }
+        GunsmithPlatform platform = platform(tag);
+        GunsmithPressPart part = part(tag);
+        if (!platform.supports(part)) {
+            throw new IllegalArgumentException("Gunsmith platform " + platform.id()
+                    + " does not allow part " + part.id());
+        }
+        GunsmithPartQuality quality = quality(tag);
+        if (!tag.contains(K_COEFFICIENT, Tag.TAG_DOUBLE)) {
+            throw new IllegalArgumentException("Gunsmith part has no double coefficient");
+        }
+        double coefficient = tag.getDouble(K_COEFFICIENT);
+        requireCoefficient(coefficient, quality);
+        return new PartData(platform, part, quality, coefficient);
     }
 
     public static String formatCoefficient(double coefficient) {
@@ -149,6 +185,37 @@ public final class GunsmithPartItem extends Item {
         return Math.round(coefficient * 1000.0D) / 1000.0D;
     }
 
+    private static GunsmithPlatform platform(CompoundTag tag) {
+        if (!tag.contains(K_PLATFORM, Tag.TAG_STRING)) {
+            throw new IllegalArgumentException("Gunsmith part has no platform id");
+        }
+        String id = tag.getString(K_PLATFORM);
+        return GunsmithPlatform.byId(id);
+    }
+
+    private static GunsmithPressPart part(CompoundTag tag) {
+        if (!tag.contains(K_PART, Tag.TAG_STRING)) {
+            throw new IllegalArgumentException("Gunsmith part has no part id");
+        }
+        String id = tag.getString(K_PART);
+        return GunsmithPressPart.byId(id);
+    }
+
+    private static GunsmithPartQuality quality(CompoundTag tag) {
+        if (!tag.contains(K_QUALITY, Tag.TAG_STRING)) {
+            throw new IllegalArgumentException("Gunsmith part has no quality id");
+        }
+        return GunsmithPartQuality.byId(tag.getString(K_QUALITY));
+    }
+
+    private static void requireCoefficient(double coefficient, GunsmithPartQuality quality) {
+        if (!Double.isFinite(coefficient)
+                || coefficient < quality.minCoefficient()
+                || coefficient > quality.maxCoefficient()) {
+            throw new IllegalArgumentException("Gunsmith coefficient is outside the quality range: " + coefficient);
+        }
+    }
+
     private static ChatFormatting qualityStyle(GunsmithPartQuality quality) {
         return switch (quality) {
             case COMMON -> ChatFormatting.WHITE;
@@ -157,5 +224,9 @@ public final class GunsmithPartItem extends Item {
             case PRECISION -> ChatFormatting.LIGHT_PURPLE;
             case LEGENDARY -> ChatFormatting.RED;
         };
+    }
+
+    public record PartData(GunsmithPlatform platform, GunsmithPressPart part,
+                           GunsmithPartQuality quality, double coefficient) {
     }
 }

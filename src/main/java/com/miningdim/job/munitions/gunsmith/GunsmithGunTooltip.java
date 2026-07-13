@@ -2,6 +2,7 @@ package com.miningdim.job.munitions.gunsmith;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 
 import java.util.List;
 import java.util.Locale;
@@ -12,46 +13,56 @@ public final class GunsmithGunTooltip {
     }
 
     public static void append(List<Component> tooltip, GunsmithGunStats stats, GunsmithBaseStats baseStats) {
-        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.header")
+        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.summary",
+                        modifiedValue(GunsmithPartItem.formatCoefficient(stats.average()), stats.average()))
                 .withStyle(ChatFormatting.GOLD));
-        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.damage",
-                        literal(formatOne(baseStats.damage())),
-                        literal(formatOne(stats.effectiveDamage(baseStats))))
-                .withStyle(valueStyle(stats.damage())));
-        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.headshot",
-                        literal(formatTwo(baseStats.headshot())),
-                        literal(formatTwo(stats.effectiveHeadshot(baseStats))))
-                .withStyle(valueStyle(stats.headshot())));
-        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.range",
-                        literal(formatRange(baseStats.effectiveRange())),
-                        literal(formatRange(stats.effectiveRange(baseStats))))
-                .withStyle(valueStyle(stats.range())));
-        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.recoil",
-                        literal(formatPercent(stats.recoilChange())))
-                .withStyle(changeStyle(stats.recoilChange())));
-        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.spread",
-                        literal(formatPercent(stats.spreadChange())))
-                .withStyle(changeStyle(stats.spreadChange())));
-        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.handling",
-                        literal(formatSeconds(baseStats.adsTime())),
-                        literal(formatSeconds(stats.effectiveAdsTime(baseStats))))
-                .withStyle(valueStyle(stats.handling())));
-        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.average",
-                        literal(GunsmithPartItem.formatCoefficient(stats.average())))
-                .withStyle(valueStyle(stats.average())));
+        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.damage_headshot",
+                        baseValue(formatOne(baseStats.damage())),
+                        modifiedValue(formatOne(stats.effectiveDamage(baseStats)), stats.damage()),
+                        baseValue(formatTwo(baseStats.headshot())),
+                        modifiedValue(formatTwo(stats.effectiveHeadshot(baseStats)), stats.headshot()))
+                .withStyle(ChatFormatting.GRAY));
+        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.range_recoil",
+                        baseValue(formatRange(baseStats.effectiveRange())),
+                        modifiedValue(formatRange(stats.effectiveRange(baseStats)), stats.range()),
+                        changedValue(formatPercent(stats.recoilChange()), stats.recoilChange()))
+                .withStyle(ChatFormatting.GRAY));
+        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.spread_handling",
+                        changedValue(formatPercent(stats.spreadChange()), stats.spreadChange()),
+                        baseValue(formatSeconds(baseStats.adsTime())),
+                        modifiedValue(formatSeconds(stats.effectiveAdsTime(baseStats)), stats.handling()))
+                .withStyle(ChatFormatting.GRAY));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.components")
                 .withStyle(ChatFormatting.GOLD));
-        for (GunsmithGunStats.PartSummary part : stats.parts()) {
-            tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.component",
-                            Component.translatable(part.part().labelKey()),
-                            Component.translatable(part.quality().labelKey()),
-                            literal(GunsmithPartItem.formatCoefficient(part.coefficient())))
-                    .withStyle(qualityStyle(part.quality())));
+        List<GunsmithGunStats.PartSummary> parts = stats.parts();
+        for (int index = 0; index < parts.size(); index += 2) {
+            MutableComponent row = Component.empty().append(partComponent(parts.get(index)));
+            if (index + 1 < parts.size()) {
+                row.append(Component.literal("  |  ").withStyle(ChatFormatting.DARK_GRAY));
+                row.append(partComponent(parts.get(index + 1)));
+            }
+            tooltip.add(row);
         }
     }
 
-    private static Component literal(String value) {
-        return Component.literal(value);
+    private static Component partComponent(GunsmithGunStats.PartSummary part) {
+        return Component.translatable("tooltip.miningdim.gunsmith_gun.component",
+                        Component.translatable(part.part().labelKey()),
+                        Component.translatable(part.quality().labelKey()),
+                        Component.literal(GunsmithPartItem.formatCoefficient(part.coefficient())))
+                .withStyle(qualityStyle(part.quality()));
+    }
+
+    private static Component baseValue(String value) {
+        return Component.literal(value).withStyle(ChatFormatting.DARK_GRAY);
+    }
+
+    private static Component modifiedValue(String value, double coefficient) {
+        return Component.literal(value).withStyle(valueStyle(coefficient));
+    }
+
+    private static Component changedValue(String value, double change) {
+        return Component.literal(value).withStyle(changeStyle(change));
     }
 
     private static ChatFormatting valueStyle(double coefficient) {

@@ -11,6 +11,7 @@ import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
 import com.miningdim.job.munitions.gunsmith.GunsmithBlueprintItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunFactory;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
+import com.miningdim.job.munitions.gunsmith.GunsmithGunTooltip;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
@@ -23,6 +24,7 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -30,6 +32,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 
@@ -310,6 +313,22 @@ public final class GunsmithAssemblyBusinessGameTests {
             immutable = true;
         }
         helper.assertTrue(immutable, "part summaries must be immutable");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void finishedGunTooltipCompactsStatsAndPartsIntoEightRows(GameTestHelper helper) {
+        GunsmithGunStats stats = GunsmithGunStats.from(assembledM4Gun());
+        helper.assertTrue(stats != null, "assembled M4 must carry gunsmith stats");
+        List<Component> tooltip = new ArrayList<>();
+        GunsmithGunTooltip.append(tooltip, stats, M4_BASE_STATS);
+
+        helper.assertTrue(tooltip.size() == 8,
+                "complete six-part gun tooltip must use exactly eight rows instead of a long single column");
+        for (int row = 5; row < 8; row++) {
+            helper.assertTrue(tooltip.get(row).getSiblings().size() == 3,
+                    "each installed-parts row must contain two parts separated into columns");
+        }
         helper.succeed();
     }
 

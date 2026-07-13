@@ -1,7 +1,10 @@
 package com.miningdim.job.munitions.gunsmith;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
@@ -31,16 +34,22 @@ public enum GunsmithPlatform {
             GunsmithPressPart.BARREL,
             GunsmithPressPart.HANDGUARD,
             GunsmithPressPart.GRIP,
-            GunsmithPressPart.RECEIVER));
+            GunsmithPressPart.RECEIVER)),
+    MARKSMAN("marksman", "gunsmith.platform.marksman", List.of(
+            GunsmithPressPart.HANDGUARD,
+            GunsmithPressPart.CORE,
+            GunsmithPressPart.STOCK,
+            GunsmithPressPart.BOLT,
+            GunsmithPressPart.BARREL));
 
     private final String id;
     private final String labelKey;
     private final Set<GunsmithPressPart> supportedParts;
 
-    GunsmithPlatform(String id, String labelKey, Set<GunsmithPressPart> supportedParts) {
+    GunsmithPlatform(String id, String labelKey, Collection<GunsmithPressPart> supportedParts) {
         this.id = id;
         this.labelKey = labelKey;
-        this.supportedParts = Collections.unmodifiableSet(EnumSet.copyOf(supportedParts));
+        this.supportedParts = Collections.unmodifiableSet(new LinkedHashSet<>(supportedParts));
     }
 
     public int index() {

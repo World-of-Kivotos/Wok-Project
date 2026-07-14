@@ -7,7 +7,8 @@ import net.minecraft.world.item.ArmorMaterial;
 import net.minecraft.world.item.crafting.Ingredient;
 
 /**
- * 胸部装备壳。轻、中、重暂复用原版三种穿戴层和装备音；实际防护完全由 R/Q/G/T 结算，不提供原版护甲值。
+ * 胸部装备壳。轻、中、重明确复用原版三种人形胸甲层和装备音，不制作自定义穿戴/3D 模型；
+ * 实际防护完全由 R/Q/G/T 结算，不提供原版护甲值。
  */
 public enum PlateArmorEquipmentMaterial implements ArmorMaterial {
     LIGHT("leather", SoundEvents.ARMOR_EQUIP_LEATHER),

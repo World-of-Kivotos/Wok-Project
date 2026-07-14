@@ -29,7 +29,7 @@ public final class EnergyCableBlockEntity extends BlockEntity {
             if (manager == null) {
                 return 0;
             }
-            int capped = Math.min(maxReceive, tier().transferCapFePerTick());
+            int capped = Math.min(maxReceive, material().transientBufferCap());
             return manager.receiveIntoNetwork(worldPosition, capped, simulate);
         }
 
@@ -67,8 +67,8 @@ public final class EnergyCableBlockEntity extends BlockEntity {
         super(PowerRegistry.ENERGY_CABLE_BE.get(), pos, state);
     }
 
-    private CableTier tier() {
-        return getBlockState().getBlock() instanceof EnergyCableBlock cable ? cable.tier() : CableTier.BASIC;
+    private ConductorMaterial material() {
+        return getBlockState().getBlock() instanceof EnergyCableBlock cable ? cable.material() : ConductorMaterial.IRON;
     }
 
     @Nullable
@@ -76,12 +76,25 @@ public final class EnergyCableBlockEntity extends BlockEntity {
         return level instanceof ServerLevel serverLevel ? EnergyNetworkManager.get(serverLevel) : null;
     }
 
+    /** 本网网温 (°C), 供 Jade 服务端数据提供者读 (温度是服务端权威, 不可客户端直读)。 */
+    public double networkTemperatureC() {
+        EnergyNetworkManager manager = manager();
+        return manager == null ? com.miningdim.power.grid.CableThermics.AMBIENT_C
+                : manager.networkTemperatureAt(worldPosition);
+    }
+
+    /** 本网上一 settlement 负载率 (送达/额定), 供 Jade 显示。 */
+    public double networkLoadRatio() {
+        EnergyNetworkManager manager = manager();
+        return manager == null ? 0.0 : manager.networkLoadRatioAt(worldPosition);
+    }
+
     @Override
     public void onLoad() {
         super.onLoad();
         EnergyNetworkManager manager = manager();
         if (manager != null) {
-            manager.addCable(worldPosition, tier());
+            manager.addCable(worldPosition, material());
         }
     }
 

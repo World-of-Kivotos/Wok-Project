@@ -11,21 +11,21 @@ import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * 有线 FE 线缆方块 (五级各一, 由 {@link CableTier} 参数化)。实现 {@link EntityBlock} 挂线缆 BE,
+ * 有线 FE 线缆方块 (每级导体各一, 由 {@link ConductorMaterial} 参数化)。实现 {@link EntityBlock} 挂线缆 BE,
  * 但刻意不提供 ticker: 搬电由 {@link EnergyNetworkManager} 集中做 (线缆零 per-tick 成本)。
  * neighborChanged 时只标脏端点集, 让相邻机器/发电机的增减在下次 settlement 被重扫到, 不在此做任何遍历。
  */
 public final class EnergyCableBlock extends Block implements EntityBlock {
 
-    private final CableTier tier;
+    private final ConductorMaterial material;
 
-    public EnergyCableBlock(CableTier tier, Properties properties) {
+    public EnergyCableBlock(ConductorMaterial material, Properties properties) {
         super(properties);
-        this.tier = tier;
+        this.material = material;
     }
 
-    public CableTier tier() {
-        return tier;
+    public ConductorMaterial material() {
+        return material;
     }
 
     @Nullable

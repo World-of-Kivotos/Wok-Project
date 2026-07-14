@@ -1,10 +1,10 @@
 package com.miningdim.power;
 
 import com.miningdim.core.MiningConstants;
-import com.miningdim.power.cable.CableTier;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.CreativeModeTab;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.registries.DeferredRegister;
@@ -24,8 +24,8 @@ public final class PowerCreativeTab {
                         output.accept(PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get());
                         output.accept(PowerRegistry.MODERN_GENERATOR_ITEM.get());
                         output.accept(PowerRegistry.FUTURE_ENERGY_GENERATOR_ITEM.get());
-                        for (CableTier tier : CableTier.values()) {
-                            output.accept(PowerRegistry.CABLE_ITEMS.get(tier).get());
+                        for (RegistryObject<Item> cable : PowerRegistry.CABLE_ITEMS.values()) {
+                            output.accept(cable.get());
                         }
                     })
                     .build());

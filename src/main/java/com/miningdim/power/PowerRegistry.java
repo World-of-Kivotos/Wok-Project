@@ -1,7 +1,7 @@
 package com.miningdim.power;
 
 import com.miningdim.core.MiningConstants;
-import com.miningdim.power.cable.CableTier;
+import com.miningdim.power.cable.ConductorMaterial;
 import com.miningdim.power.cable.EnergyCableBlock;
 import com.miningdim.power.cable.EnergyCableBlockEntity;
 import net.minecraft.world.item.BlockItem;
@@ -17,6 +17,7 @@ import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
 
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 /** Block and item registrations owned by the power subsystem. */
@@ -41,15 +42,22 @@ public final class PowerRegistry {
     public static final RegistryObject<Item> FUTURE_ENERGY_GENERATOR_ITEM =
             registerBlockItem("future_energy_generator", FUTURE_ENERGY_GENERATOR);
 
-    // ---- 有线 FE 线缆 (五级, 逻辑在 com.miningdim.power.cable/grid) ----
+    // ---- 有线 FE 线缆 (导体材料数据驱动, 逻辑在 com.miningdim.power.cable/grid) ----
 
     public static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITIES =
             DeferredRegister.create(ForgeRegistries.BLOCK_ENTITY_TYPES, MiningConstants.MODID);
 
-    public static final Map<CableTier, RegistryObject<EnergyCableBlock>> CABLES = registerCables();
-    public static final Map<CableTier, RegistryObject<Item>> CABLE_ITEMS = registerCableItems();
+    /**
+     * P1 实际注册方块的导体材料白名单: 仅铁、铜 (原版金属可直接 raw 搓)。{@code ConductorMaterial} 其余 10 行
+     * 数据已就位, 待各自门槛 (新矿 / 提纯机 / 镀层 / 合成) 落地后逐级加入本表点亮, 见 ConductorMaterial 类注释。
+     */
+    private static final List<ConductorMaterial> P1_MATERIALS = List.of(
+            ConductorMaterial.IRON, ConductorMaterial.COPPER);
 
-    /** 五级线缆共用一个方块实体类型 (范式同入口三方块共用 ENTRANCE 类型)。 */
+    public static final Map<ConductorMaterial, RegistryObject<EnergyCableBlock>> CABLES = registerCables();
+    public static final Map<ConductorMaterial, RegistryObject<Item>> CABLE_ITEMS = registerCableItems();
+
+    /** 全部线缆级共用一个方块实体类型 (范式同入口三方块共用 ENTRANCE 类型)。 */
     public static final RegistryObject<BlockEntityType<EnergyCableBlockEntity>> ENERGY_CABLE_BE =
             BLOCK_ENTITIES.register("energy_cable",
                     () -> BlockEntityType.Builder.of(EnergyCableBlockEntity::new, cableBlocks()).build(null));
@@ -57,20 +65,20 @@ public final class PowerRegistry {
     private PowerRegistry() {
     }
 
-    private static Map<CableTier, RegistryObject<EnergyCableBlock>> registerCables() {
-        Map<CableTier, RegistryObject<EnergyCableBlock>> map = new EnumMap<>(CableTier.class);
-        for (CableTier tier : CableTier.values()) {
-            map.put(tier, BLOCKS.register(tier.blockId(), () -> new EnergyCableBlock(tier,
+    private static Map<ConductorMaterial, RegistryObject<EnergyCableBlock>> registerCables() {
+        Map<ConductorMaterial, RegistryObject<EnergyCableBlock>> map = new EnumMap<>(ConductorMaterial.class);
+        for (ConductorMaterial material : P1_MATERIALS) {
+            map.put(material, BLOCKS.register(material.blockId(), () -> new EnergyCableBlock(material,
                     BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK).noOcclusion())));
         }
         return map;
     }
 
-    private static Map<CableTier, RegistryObject<Item>> registerCableItems() {
-        Map<CableTier, RegistryObject<Item>> map = new EnumMap<>(CableTier.class);
-        for (CableTier tier : CableTier.values()) {
-            map.put(tier, ITEMS.register(tier.blockId(),
-                    () -> new BlockItem(CABLES.get(tier).get(), new Item.Properties())));
+    private static Map<ConductorMaterial, RegistryObject<Item>> registerCableItems() {
+        Map<ConductorMaterial, RegistryObject<Item>> map = new EnumMap<>(ConductorMaterial.class);
+        for (ConductorMaterial material : P1_MATERIALS) {
+            map.put(material, ITEMS.register(material.blockId(),
+                    () -> new BlockItem(CABLES.get(material).get(), new Item.Properties())));
         }
         return map;
     }

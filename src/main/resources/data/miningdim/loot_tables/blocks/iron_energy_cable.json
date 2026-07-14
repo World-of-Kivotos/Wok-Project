@@ -6,7 +6,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "miningdim:improved_energy_cable"
+          "name": "miningdim:iron_energy_cable"
         }
       ],
       "conditions": [
@@ -16,5 +16,5 @@
       ]
     }
   ],
-  "random_sequence": "miningdim:blocks/improved_energy_cable"
+  "random_sequence": "miningdim:blocks/iron_energy_cable"
 }

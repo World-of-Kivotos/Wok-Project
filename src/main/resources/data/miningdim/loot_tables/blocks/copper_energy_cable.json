@@ -6,7 +6,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "miningdim:ultimate_energy_cable"
+          "name": "miningdim:copper_energy_cable"
         }
       ],
       "conditions": [
@@ -16,5 +16,5 @@
       ]
     }
   ],
-  "random_sequence": "miningdim:blocks/ultimate_energy_cable"
+  "random_sequence": "miningdim:blocks/copper_energy_cable"
 }

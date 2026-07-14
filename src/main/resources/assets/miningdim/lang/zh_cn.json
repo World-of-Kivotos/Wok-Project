@@ -528,5 +528,10 @@
   "block.miningdim.future_energy_generator": "未来能源发电机",
   "item.miningdim.industrial_generator": "工业发电机",
   "item.miningdim.modern_generator": "现代发电机",
-  "item.miningdim.future_energy_generator": "未来能源发电机"
+  "item.miningdim.future_energy_generator": "未来能源发电机",
+  "block.miningdim.basic_energy_cable": "基础能量线缆",
+  "block.miningdim.improved_energy_cable": "强化能量线缆",
+  "block.miningdim.advanced_energy_cable": "进阶能量线缆",
+  "block.miningdim.elite_energy_cable": "精英能量线缆",
+  "block.miningdim.ultimate_energy_cable": "终极能量线缆"
 }

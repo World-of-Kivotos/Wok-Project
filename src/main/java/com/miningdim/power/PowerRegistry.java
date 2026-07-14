@@ -1,15 +1,23 @@
 package com.miningdim.power;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.power.cable.CableTier;
+import com.miningdim.power.cable.EnergyCableBlock;
+import com.miningdim.power.cable.EnergyCableBlockEntity;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.PushReaction;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
+
+import java.util.EnumMap;
+import java.util.Map;
 
 /** Block and item registrations owned by the power subsystem. */
 public final class PowerRegistry {
@@ -33,7 +41,42 @@ public final class PowerRegistry {
     public static final RegistryObject<Item> FUTURE_ENERGY_GENERATOR_ITEM =
             registerBlockItem("future_energy_generator", FUTURE_ENERGY_GENERATOR);
 
+    // ---- 有线 FE 线缆 (五级, 逻辑在 com.miningdim.power.cable/grid) ----
+
+    public static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITIES =
+            DeferredRegister.create(ForgeRegistries.BLOCK_ENTITY_TYPES, MiningConstants.MODID);
+
+    public static final Map<CableTier, RegistryObject<EnergyCableBlock>> CABLES = registerCables();
+    public static final Map<CableTier, RegistryObject<Item>> CABLE_ITEMS = registerCableItems();
+
+    /** 五级线缆共用一个方块实体类型 (范式同入口三方块共用 ENTRANCE 类型)。 */
+    public static final RegistryObject<BlockEntityType<EnergyCableBlockEntity>> ENERGY_CABLE_BE =
+            BLOCK_ENTITIES.register("energy_cable",
+                    () -> BlockEntityType.Builder.of(EnergyCableBlockEntity::new, cableBlocks()).build(null));
+
     private PowerRegistry() {
+    }
+
+    private static Map<CableTier, RegistryObject<EnergyCableBlock>> registerCables() {
+        Map<CableTier, RegistryObject<EnergyCableBlock>> map = new EnumMap<>(CableTier.class);
+        for (CableTier tier : CableTier.values()) {
+            map.put(tier, BLOCKS.register(tier.blockId(), () -> new EnergyCableBlock(tier,
+                    BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK).noOcclusion())));
+        }
+        return map;
+    }
+
+    private static Map<CableTier, RegistryObject<Item>> registerCableItems() {
+        Map<CableTier, RegistryObject<Item>> map = new EnumMap<>(CableTier.class);
+        for (CableTier tier : CableTier.values()) {
+            map.put(tier, ITEMS.register(tier.blockId(),
+                    () -> new BlockItem(CABLES.get(tier).get(), new Item.Properties())));
+        }
+        return map;
+    }
+
+    private static Block[] cableBlocks() {
+        return CABLES.values().stream().map(RegistryObject::get).toArray(Block[]::new);
     }
 
     private static RegistryObject<GeneratorMultiblockBlock> registerGenerator(String name) {
@@ -51,5 +94,6 @@ public final class PowerRegistry {
     public static void register(IEventBus modBus) {
         BLOCKS.register(modBus);
         ITEMS.register(modBus);
+        BLOCK_ENTITIES.register(modBus);
     }
 }

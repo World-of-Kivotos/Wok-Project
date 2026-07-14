@@ -528,5 +528,10 @@
   "block.miningdim.future_energy_generator": "Future Energy Generator",
   "item.miningdim.industrial_generator": "Industrial Generator",
   "item.miningdim.modern_generator": "Modern Generator",
-  "item.miningdim.future_energy_generator": "Future Energy Generator"
+  "item.miningdim.future_energy_generator": "Future Energy Generator",
+  "block.miningdim.basic_energy_cable": "Basic Energy Cable",
+  "block.miningdim.improved_energy_cable": "Improved Energy Cable",
+  "block.miningdim.advanced_energy_cable": "Advanced Energy Cable",
+  "block.miningdim.elite_energy_cable": "Elite Energy Cable",
+  "block.miningdim.ultimate_energy_cable": "Ultimate Energy Cable"
 }

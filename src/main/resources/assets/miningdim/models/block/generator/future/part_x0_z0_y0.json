@@ -17,8 +17,8 @@
     {
       "from": [
         0,
-        0,
-        0
+        0.01,
+        0.02
       ],
       "to": [
         16,
@@ -30,9 +30,6 @@
           "texture": "#frame_edge"
         },
         "south": {
-          "texture": "#frame_edge"
-        },
-        "east": {
           "texture": "#frame_edge"
         },
         "west": {
@@ -49,7 +46,7 @@
     {
       "from": [
         0,
-        0,
+        0.01,
         3
       ],
       "to": [
@@ -62,9 +59,6 @@
           "texture": "#frame"
         },
         "south": {
-          "texture": "#frame"
-        },
-        "east": {
           "texture": "#frame"
         },
         "west": {
@@ -96,9 +90,6 @@
         "south": {
           "texture": "#frame_edge"
         },
-        "east": {
-          "texture": "#frame_edge"
-        },
         "west": {
           "texture": "#frame_edge"
         },
@@ -113,13 +104,13 @@
     {
       "from": [
         2,
-        2,
+        2.02,
         1
       ],
       "to": [
         16,
         3,
-        4
+        3.99
       ],
       "faces": {
         "north": {
@@ -128,9 +119,6 @@
         "south": {
           "texture": "#armor_edge"
         },
-        "east": {
-          "texture": "#armor_edge"
-        },
         "west": {
           "texture": "#armor_edge"
         },
@@ -144,7 +132,7 @@
     },
     {
       "from": [
-        2,
+        2.01,
         3,
         3
       ],
@@ -166,9 +154,6 @@
         "west": {
           "texture": "#frame"
         },
-        "up": {
-          "texture": "#frame"
-        },
         "down": {
           "texture": "#frame"
         }
@@ -177,7 +162,7 @@
     {
       "from": [
         2,
-        2,
+        2.02,
         13
       ],
       "to": [
@@ -192,13 +177,7 @@
         "south": {
           "texture": "#frame_edge"
         },
-        "east": {
-          "texture": "#frame_edge"
-        },
         "west": {
-          "texture": "#frame_edge"
-        },
-        "up": {
           "texture": "#frame_edge"
         },
         "down": {
@@ -208,12 +187,12 @@
     },
     {
       "from": [
-        0,
-        2,
+        0.03,
+        2.01,
         1
       ],
       "to": [
-        2,
+        1.99,
         16,
         15
       ],
@@ -230,9 +209,6 @@
         "west": {
           "texture": "#frame_edge"
         },
-        "up": {
-          "texture": "#frame_edge"
-        },
         "down": {
           "texture": "#frame_edge"
         }
@@ -242,7 +218,7 @@
       "from": [
         0,
         2,
-        0
+        0.02
       ],
       "to": [
         2,
@@ -262,9 +238,6 @@
         "west": {
           "texture": "#frame_edge"
         },
-        "up": {
-          "texture": "#frame_edge"
-        },
         "down": {
           "texture": "#frame_edge"
         }
@@ -272,9 +245,9 @@
     },
     {
       "from": [
-        15,
-        2,
-        1
+        15.01,
+        2.01,
+        1.01
       ],
       "to": [
         16,
@@ -288,13 +261,7 @@
         "south": {
           "texture": "#frame_edge"
         },
-        "east": {
-          "texture": "#frame_edge"
-        },
         "west": {
-          "texture": "#frame_edge"
-        },
-        "up": {
           "texture": "#frame_edge"
         },
         "down": {
@@ -306,7 +273,7 @@
       "from": [
         15,
         2,
-        0
+        0.02
       ],
       "to": [
         16,
@@ -320,13 +287,7 @@
         "south": {
           "texture": "#frame_edge"
         },
-        "east": {
-          "texture": "#frame_edge"
-        },
         "west": {
-          "texture": "#frame_edge"
-        },
-        "up": {
           "texture": "#frame_edge"
         },
         "down": {
@@ -336,9 +297,9 @@
     },
     {
       "from": [
+        0.01,
         0,
-        0,
-        0
+        0.01
       ],
       "to": [
         3,
@@ -384,9 +345,6 @@
         "south": {
           "texture": "#frame_edge"
         },
-        "east": {
-          "texture": "#frame_edge"
-        },
         "west": {
           "texture": "#frame_edge"
         },
@@ -422,9 +380,6 @@
         "west": {
           "texture": "#armor"
         },
-        "up": {
-          "texture": "#armor"
-        },
         "down": {
           "texture": "#armor"
         }
@@ -454,9 +409,6 @@
         "west": {
           "texture": "#armor"
         },
-        "up": {
-          "texture": "#armor"
-        },
         "down": {
           "texture": "#armor"
         }
@@ -466,7 +418,7 @@
       "from": [
         3,
         3,
-        0
+        0.02
       ],
       "to": [
         15,
@@ -518,9 +470,6 @@
         "west": {
           "texture": "#frame_edge"
         },
-        "up": {
-          "texture": "#frame_edge"
-        },
         "down": {
           "texture": "#frame_edge"
         }
@@ -529,7 +478,7 @@
     {
       "from": [
         5,
-        6,
+        6.01,
         1.2
       ],
       "to": [
@@ -548,9 +497,6 @@
           "texture": "#armor"
         },
         "west": {
-          "texture": "#armor"
-        },
-        "up": {
           "texture": "#armor"
         },
         "down": {
@@ -580,9 +526,6 @@
           "texture": "#frame_edge"
         },
         "west": {
-          "texture": "#frame_edge"
-        },
-        "up": {
           "texture": "#frame_edge"
         },
         "down": {
@@ -713,9 +656,6 @@
         "west": {
           "texture": "#cyan_glow"
         },
-        "up": {
-          "texture": "#cyan_glow"
-        },
         "down": {
           "texture": "#cyan_glow"
         }
@@ -744,9 +684,6 @@
           "texture": "#control"
         },
         "west": {
-          "texture": "#control"
-        },
-        "up": {
           "texture": "#control"
         },
         "down": {
@@ -884,7 +821,7 @@
     },
     {
       "from": [
-        0,
+        0.02,
         6,
         4
       ],
@@ -906,9 +843,6 @@
         "west": {
           "texture": "#armor_edge"
         },
-        "up": {
-          "texture": "#armor_edge"
-        },
         "down": {
           "texture": "#armor_edge"
         }
@@ -916,7 +850,7 @@
     },
     {
       "from": [
-        0,
+        0.01,
         8,
         5.5
       ],
@@ -936,9 +870,6 @@
           "texture": "#control"
         },
         "west": {
-          "texture": "#control"
-        },
-        "up": {
           "texture": "#control"
         },
         "down": {
@@ -970,9 +901,6 @@
         "west": {
           "texture": "#cyan_glow"
         },
-        "up": {
-          "texture": "#cyan_glow"
-        },
         "down": {
           "texture": "#cyan_glow"
         }
@@ -992,12 +920,6 @@
       ],
       "faces": {
         "north": {
-          "texture": "#frame_edge"
-        },
-        "south": {
-          "texture": "#frame_edge"
-        },
-        "east": {
           "texture": "#frame_edge"
         },
         "west": {
@@ -1057,7 +979,7 @@
       "from": [
         10,
         2,
-        0
+        0.01
       ],
       "to": [
         14.5,

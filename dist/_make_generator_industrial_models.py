@@ -43,6 +43,8 @@ class Element:
     face_textures: dict[str, str] = field(default_factory=dict)
     rotation: dict[str, object] | None = None
     shade: bool = True
+    face_insets: dict[str, float] = field(default_factory=dict)
+    hidden_faces: set[str] = field(default_factory=set)
 
 
 PARTS: dict[tuple[int, int, int], list[Element]] = {key: [] for key in PART_KEYS}
@@ -428,14 +430,34 @@ def clean_number(value: float) -> int | float:
     return rounded
 
 
+def effective_bounds(element: Element) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    x0, y0, z0 = element.start
+    x1, y1, z1 = element.end
+    return (
+        (
+            x0 + element.face_insets.get("west", 0.0),
+            y0 + element.face_insets.get("down", 0.0),
+            z0 + element.face_insets.get("north", 0.0),
+        ),
+        (
+            x1 - element.face_insets.get("east", 0.0),
+            y1 - element.face_insets.get("up", 0.0),
+            z1 - element.face_insets.get("south", 0.0),
+        ),
+    )
+
+
 def element_json(element: Element) -> dict[str, object]:
     faces: dict[str, dict[str, object]] = {}
     for face in FACE_NAMES:
+        if face in element.hidden_faces:
+            continue
         texture = element.face_textures.get(face, element.texture)
         faces[face] = {"uv": [0, 0, 16, 16], "texture": f"#{texture}"}
+    start, end = effective_bounds(element)
     output: dict[str, object] = {
-        "from": [clean_number(value) for value in element.start],
-        "to": [clean_number(value) for value in element.end],
+        "from": [clean_number(value) for value in start],
+        "to": [clean_number(value) for value in end],
         "faces": faces,
     }
     if element.rotation is not None:
@@ -491,10 +513,10 @@ def make_texture(name: str) -> Image.Image:
     }
     if name in palettes:
         noisy_fill(image, palettes[name], sum(ord(char) for char in name))
-        draw.line((0, 0, 15, 0), fill=(130, 128, 119, 110))
-        draw.line((0, 15, 15, 15), fill=(8, 9, 9, 150))
-        draw.line((0, 0, 0, 15), fill=(112, 110, 103, 80))
-        draw.line((15, 0, 15, 15), fill=(7, 8, 8, 140))
+        draw.line((0, 0, 15, 0), fill=(130, 128, 119, 255))
+        draw.line((0, 15, 15, 15), fill=(8, 9, 9, 255))
+        draw.line((0, 0, 0, 15), fill=(112, 110, 103, 255))
+        draw.line((15, 0, 15, 15), fill=(7, 8, 8, 255))
     elif name == "vent_dark":
         image.paste((14, 15, 15, 255), (0, 0, 16, 16))
         for y in range(1, 16, 4):
@@ -555,8 +577,9 @@ def rotate_point(point: tuple[float, float, float], rotate: dict[str, object] | 
 
 
 def element_vertices(element: Element, offset: tuple[float, float, float]) -> list[tuple[float, float, float]]:
-    x0, y0, z0 = element.start
-    x1, y1, z1 = element.end
+    start, end = effective_bounds(element)
+    x0, y0, z0 = start
+    x1, y1, z1 = end
     raw = [
         (x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
         (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1),
@@ -586,6 +609,348 @@ def cross(left: tuple[float, float, float], right: tuple[float, float, float]) -
 def normalize(vector: tuple[float, float, float]) -> tuple[float, float, float]:
     length = math.sqrt(dot(vector, vector))
     return tuple(value / length for value in vector)
+
+
+FACE_VERTEX_INDICES = {
+    "north": (0, 3, 2, 1),
+    "south": (4, 5, 6, 7),
+    "west": (0, 4, 7, 3),
+    "east": (1, 2, 6, 5),
+    "up": (3, 7, 6, 2),
+    "down": (0, 1, 5, 4),
+}
+COPLANAR_TOLERANCE = 1e-7
+OVERLAP_AREA_TOLERANCE = 1e-7
+Z_FIGHT_LAYER_STEP = 0.01
+MAX_ELEMENT_FACE_INSET_TOTAL = 0.05
+
+
+@dataclass
+class FaceRecord:
+    part: tuple[int, int, int]
+    element_index: int
+    element: Element
+    face_name: str
+    vertices: tuple[tuple[float, float, float], ...]
+    normal: tuple[float, float, float]
+    area: float
+
+
+@dataclass
+class CoplanarOverlap:
+    first: FaceRecord
+    second: FaceRecord
+    area: float
+    same_direction: bool
+
+
+def polygon_signed_area(points: list[tuple[float, float]]) -> float:
+    return sum(
+        points[index][0] * points[(index + 1) % len(points)][1]
+        - points[(index + 1) % len(points)][0] * points[index][1]
+        for index in range(len(points))
+    ) / 2.0
+
+
+def polygon_area(points: list[tuple[float, float]]) -> float:
+    return abs(polygon_signed_area(points)) if len(points) >= 3 else 0.0
+
+
+def intersect_convex_polygons(
+    subject: list[tuple[float, float]],
+    clipper: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    output = list(subject)
+    orientation = 1.0 if polygon_signed_area(clipper) >= 0.0 else -1.0
+    for index, clip_start in enumerate(clipper):
+        clip_end = clipper[(index + 1) % len(clipper)]
+        input_points = output
+        output = []
+        if not input_points:
+            break
+
+        def side(point: tuple[float, float]) -> float:
+            return orientation * (
+                (clip_end[0] - clip_start[0]) * (point[1] - clip_start[1])
+                - (clip_end[1] - clip_start[1]) * (point[0] - clip_start[0])
+            )
+
+        def intersection(
+            first: tuple[float, float],
+            second: tuple[float, float],
+        ) -> tuple[float, float]:
+            first_side = side(first)
+            second_side = side(second)
+            denominator = first_side - second_side
+            if abs(denominator) <= COPLANAR_TOLERANCE:
+                return second
+            ratio = first_side / denominator
+            return (
+                first[0] + ratio * (second[0] - first[0]),
+                first[1] + ratio * (second[1] - first[1]),
+            )
+
+        previous = input_points[-1]
+        previous_inside = side(previous) >= -COPLANAR_TOLERANCE
+        for current in input_points:
+            current_inside = side(current) >= -COPLANAR_TOLERANCE
+            if current_inside:
+                if not previous_inside:
+                    output.append(intersection(previous, current))
+                output.append(current)
+            elif previous_inside:
+                output.append(intersection(previous, current))
+            previous = current
+            previous_inside = current_inside
+    return output
+
+
+def collect_face_records(
+    parts: dict[tuple[int, int, int], list[Element]],
+) -> list[FaceRecord]:
+    records: list[FaceRecord] = []
+    for part, elements in parts.items():
+        x_index, z_index, y_index = part
+        offset = (x_index * 16.0, y_index * 16.0, z_index * 16.0)
+        for element_index, element in enumerate(elements):
+            vertices = element_vertices(element, offset)
+            for face_name, indices in FACE_VERTEX_INDICES.items():
+                if face_name in element.hidden_faces:
+                    continue
+                face_vertices = tuple(vertices[index] for index in indices)
+                first_edge = subtract(face_vertices[1], face_vertices[0])
+                second_edge = subtract(face_vertices[2], face_vertices[0])
+                area_vector = cross(first_edge, second_edge)
+                records.append(
+                    FaceRecord(
+                        part=part,
+                        element_index=element_index,
+                        element=element,
+                        face_name=face_name,
+                        vertices=face_vertices,
+                        normal=normalize(area_vector),
+                        area=math.sqrt(dot(area_vector, area_vector)),
+                    )
+                )
+    return records
+
+
+def find_coplanar_overlaps(
+    parts: dict[tuple[int, int, int], list[Element]],
+) -> list[CoplanarOverlap]:
+    records = collect_face_records(parts)
+    overlaps: list[CoplanarOverlap] = []
+    for first_index, first in enumerate(records):
+        for second in records[first_index + 1:]:
+            if first.part == second.part and first.element_index == second.element_index:
+                continue
+            normal_dot = dot(first.normal, second.normal)
+            if abs(abs(normal_dot) - 1.0) > COPLANAR_TOLERANCE:
+                continue
+            if max(
+                abs(dot(first.normal, subtract(point, first.vertices[0])))
+                for point in second.vertices
+            ) > COPLANAR_TOLERANCE:
+                continue
+            horizontal = normalize(subtract(first.vertices[1], first.vertices[0]))
+            vertical = cross(first.normal, horizontal)
+            origin = first.vertices[0]
+
+            def project(vertices: tuple[tuple[float, float, float], ...]) -> list[tuple[float, float]]:
+                return [
+                    (
+                        dot(subtract(point, origin), horizontal),
+                        dot(subtract(point, origin), vertical),
+                    )
+                    for point in vertices
+                ]
+
+            overlap_area = polygon_area(
+                intersect_convex_polygons(project(first.vertices), project(second.vertices))
+            )
+            if overlap_area > OVERLAP_AREA_TOLERANCE:
+                overlaps.append(
+                    CoplanarOverlap(
+                        first=first,
+                        second=second,
+                        area=overlap_area,
+                        same_direction=normal_dot > 0.0,
+                    )
+                )
+    return overlaps
+
+
+def face_key(face: FaceRecord) -> tuple[tuple[int, int, int], int, str]:
+    return (face.part, face.element_index, face.face_name)
+
+
+def resolve_same_direction_coplanar_overlaps() -> dict[str, object]:
+    initial_overlaps = find_coplanar_overlaps(PARTS)
+    same_direction = [overlap for overlap in initial_overlaps if overlap.same_direction]
+    adjacency: dict[
+        tuple[tuple[int, int, int], int, str],
+        set[tuple[tuple[int, int, int], int, str]],
+    ] = {}
+    surface_areas: dict[tuple[tuple[int, int, int], int, str], float] = {}
+    unique_element_pairs: set[tuple[tuple[tuple[int, int, int], int], tuple[tuple[int, int, int], int]]] = set()
+    for overlap in same_direction:
+        first_key = face_key(overlap.first)
+        second_key = face_key(overlap.second)
+        adjacency.setdefault(first_key, set()).add(second_key)
+        adjacency.setdefault(second_key, set()).add(first_key)
+        surface_areas[first_key] = overlap.first.area
+        surface_areas[second_key] = overlap.second.area
+        element_pair = tuple(sorted(((overlap.first.part, overlap.first.element_index), (overlap.second.part, overlap.second.element_index))))
+        unique_element_pairs.add(element_pair)
+
+    # Small decorative faces retain the original silhouette plane. Larger support
+    # faces are assigned the first free 0.01-deep layer that does not conflict.
+    order = sorted(
+        adjacency,
+        key=lambda key: (surface_areas[key], -len(adjacency[key]), key),
+    )
+    layers: dict[tuple[tuple[int, int, int], int, str], int] = {}
+    for key in order:
+        occupied = {layers[neighbor] for neighbor in adjacency[key] if neighbor in layers}
+        layers[key] = next(layer for layer in range(6) if layer not in occupied)
+
+    for (part, element_index, face_name), layer in layers.items():
+        if layer:
+            PARTS[part][element_index].face_insets[face_name] = layer * Z_FIGHT_LAYER_STEP
+
+    per_element_totals: dict[tuple[tuple[int, int, int], int], float] = {}
+    for part, elements in PARTS.items():
+        for element_index, element in enumerate(elements):
+            total = sum(element.face_insets.values())
+            if total:
+                per_element_totals[(part, element_index)] = total
+            if total > MAX_ELEMENT_FACE_INSET_TOTAL + COPLANAR_TOLERANCE:
+                raise RuntimeError(
+                    f"{part}:{element.name} accumulated {total:.4f} face inset; "
+                    f"limit is {MAX_ELEMENT_FACE_INSET_TOTAL:.4f}"
+                )
+            start, end = effective_bounds(element)
+            if any(first >= second for first, second in zip(start, end)):
+                raise RuntimeError(f"{part}:{element.name} collapsed after face deconfliction")
+
+    remaining = [
+        overlap for overlap in find_coplanar_overlaps(PARTS)
+        if overlap.same_direction
+    ]
+    if remaining:
+        examples = ", ".join(
+            f"{item.first.part}:{item.first.element.name}:{item.first.face_name}/"
+            f"{item.second.part}:{item.second.element.name}:{item.second.face_name}"
+            for item in remaining[:8]
+        )
+        raise RuntimeError(
+            f"Face layering left {len(remaining)} same-direction coplanar overlaps: {examples}"
+        )
+    return {
+        "same_direction_before": len(same_direction),
+        "same_direction_after_layering": len(remaining),
+        "opposite_direction_before": sum(not overlap.same_direction for overlap in initial_overlaps),
+        "unique_element_pairs": len(unique_element_pairs),
+        "layered_faces": sum(layer > 0 for layer in layers.values()),
+        "affected_elements": len(per_element_totals),
+        "max_face_inset": max((layer * Z_FIGHT_LAYER_STEP for layer in layers.values()), default=0.0),
+        "max_element_face_inset_total": max(per_element_totals.values(), default=0.0),
+    }
+
+
+def rectangle_union_area(rectangles: list[tuple[float, float, float, float]]) -> float:
+    if not rectangles:
+        return 0.0
+    x_coordinates = sorted({coordinate for rectangle in rectangles for coordinate in rectangle[:2]})
+    area = 0.0
+    for left, right in zip(x_coordinates, x_coordinates[1:]):
+        if right - left <= COPLANAR_TOLERANCE:
+            continue
+        intervals = sorted(
+            (bottom, top)
+            for x0, x1, bottom, top in rectangles
+            if x0 < right - COPLANAR_TOLERANCE and x1 > left + COPLANAR_TOLERANCE
+        )
+        covered = 0.0
+        if intervals:
+            current_bottom, current_top = intervals[0]
+            for bottom, top in intervals[1:]:
+                if bottom <= current_top + COPLANAR_TOLERANCE:
+                    current_top = max(current_top, top)
+                else:
+                    covered += current_top - current_bottom
+                    current_bottom, current_top = bottom, top
+            covered += current_top - current_bottom
+        area += (right - left) * covered
+    return area
+
+
+def cull_complete_same_source_seam_faces() -> int:
+    records = collect_face_records(PARTS)
+    by_part_and_face: dict[tuple[tuple[int, int, int], str], list[FaceRecord]] = {}
+    for record in records:
+        by_part_and_face.setdefault((record.part, record.face_name), []).append(record)
+
+    hidden: set[tuple[tuple[int, int, int], int, str]] = set()
+    for record in records:
+        x_index, z_index, y_index = record.part
+        seam: tuple[tuple[int, int, int], str, int, tuple[int, int], float] | None = None
+        if record.face_name == "east" and x_index < 2:
+            seam = ((x_index + 1, z_index, y_index), "west", 0, (1, 2), (x_index + 1) * 16.0)
+        elif record.face_name == "west" and x_index > 0:
+            seam = ((x_index - 1, z_index, y_index), "east", 0, (1, 2), x_index * 16.0)
+        elif record.face_name == "south" and z_index < 1:
+            seam = ((x_index, z_index + 1, y_index), "north", 2, (0, 1), (z_index + 1) * 16.0)
+        elif record.face_name == "north" and z_index > 0:
+            seam = ((x_index, z_index - 1, y_index), "south", 2, (0, 1), z_index * 16.0)
+        elif record.face_name == "up" and y_index < 1:
+            seam = ((x_index, z_index, y_index + 1), "down", 1, (0, 2), (y_index + 1) * 16.0)
+        elif record.face_name == "down" and y_index > 0:
+            seam = ((x_index, z_index, y_index - 1), "up", 1, (0, 2), y_index * 16.0)
+        if seam is None:
+            continue
+        neighbor_part, opposite_face, plane_axis, projection_axes, plane = seam
+        if any(abs(point[plane_axis] - plane) > COPLANAR_TOLERANCE for point in record.vertices):
+            continue
+
+        projected = [(point[projection_axes[0]], point[projection_axes[1]]) for point in record.vertices]
+        target = (
+            min(point[0] for point in projected),
+            max(point[0] for point in projected),
+            min(point[1] for point in projected),
+            max(point[1] for point in projected),
+        )
+        target_area = (target[1] - target[0]) * (target[3] - target[2])
+        if abs(target_area - record.area) > OVERLAP_AREA_TOLERANCE:
+            continue
+
+        clipped_cover: list[tuple[float, float, float, float]] = []
+        for cover in by_part_and_face.get((neighbor_part, opposite_face), []):
+            if cover.element.name != record.element.name:
+                continue
+            if any(abs(point[plane_axis] - plane) > COPLANAR_TOLERANCE for point in cover.vertices):
+                continue
+            cover_projected = [(point[projection_axes[0]], point[projection_axes[1]]) for point in cover.vertices]
+            cover_rect = (
+                max(target[0], min(point[0] for point in cover_projected)),
+                min(target[1], max(point[0] for point in cover_projected)),
+                max(target[2], min(point[1] for point in cover_projected)),
+                min(target[3], max(point[1] for point in cover_projected)),
+            )
+            cover_bbox_area = (
+                (max(point[0] for point in cover_projected) - min(point[0] for point in cover_projected))
+                * (max(point[1] for point in cover_projected) - min(point[1] for point in cover_projected))
+            )
+            if abs(cover_bbox_area - cover.area) > OVERLAP_AREA_TOLERANCE:
+                continue
+            if cover_rect[1] - cover_rect[0] > COPLANAR_TOLERANCE and cover_rect[3] - cover_rect[2] > COPLANAR_TOLERANCE:
+                clipped_cover.append(cover_rect)
+        if rectangle_union_area(clipped_cover) >= target_area - OVERLAP_AREA_TOLERANCE:
+            hidden.add(face_key(record))
+
+    for part, element_index, face_name in hidden:
+        PARTS[part][element_index].hidden_faces.add(face_name)
+    return len(hidden)
 
 
 PREVIEW_COLORS = {
@@ -719,7 +1084,11 @@ def render_preview() -> None:
     canvas.save(PREVIEW_PATH, quality=95)
 
 
-def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict[str, object]:
+def validate_models(
+    model_paths: list[Path],
+    texture_paths: list[Path],
+    z_fighting_summary: dict[str, object],
+) -> dict[str, object]:
     errors: list[str] = []
     referenced_textures: set[str] = set()
     actual_bounds = [[math.inf, -math.inf] for _ in range(3)]
@@ -727,6 +1096,7 @@ def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict[
     rear_feature_counts = {feature: 0 for feature in ("depth_pipe", "maintenance", "power", "exhaust", "access", "roof")}
     part_elements: dict[str, int] = {}
     element_total = 0
+    serialized_parts: dict[tuple[int, int, int], list[Element]] = {key: [] for key in PART_KEYS}
 
     expected_model_names = {f"part_x{x}_z{z}_y{y}.json" for x, z, y in PART_KEYS}
     actual_model_names = {path.name for path in model_paths}
@@ -736,6 +1106,7 @@ def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict[
         errors.append(f"Expected 12 model parts, received {len(model_paths)}")
 
     for (x_index, z_index, y_index), path in zip(PART_KEYS, model_paths):
+        part = (x_index, z_index, y_index)
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
@@ -744,7 +1115,7 @@ def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict[
         if not payload.get("elements"):
             errors.append(f"{path.name}: no elements")
         texture_keys = set(payload.get("textures", {}))
-        for output_element in payload.get("elements", []):
+        for output_index, output_element in enumerate(payload.get("elements", [])):
             for coordinate_name in ("from", "to"):
                 coordinates = output_element[coordinate_name]
                 if any(value < 0 or value > 16 for value in coordinates):
@@ -765,6 +1136,22 @@ def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict[
                     errors.append(f"{path.name}: unresolved texture reference {reference}")
                 else:
                     referenced_textures.add(payload["textures"][reference[1:]])
+            source_name = (
+                PARTS[part][output_index].name
+                if output_index < len(PARTS[part])
+                else f"serialized_element_{output_index}"
+            )
+            serialized_parts[part].append(
+                Element(
+                    name=source_name,
+                    start=vec(output_element["from"]),
+                    end=vec(output_element["to"]),
+                    texture="base",
+                    rotation=output_element.get("rotation"),
+                    shade=output_element.get("shade", True),
+                    hidden_faces=set(FACE_NAMES) - set(output_element["faces"]),
+                )
+            )
 
         offset = (x_index * 16.0, y_index * 16.0, z_index * 16.0)
         elements = PARTS[(x_index, z_index, y_index)]
@@ -802,6 +1189,8 @@ def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict[
         with Image.open(path) as image:
             if image.size != (16, 16) or image.mode != "RGBA":
                 errors.append(f"{path.name}: expected 16x16 RGBA, received {image.size} {image.mode}")
+            elif image.getchannel("A").getextrema() != (255, 255):
+                errors.append(f"{path.name}: industrial solid-layer texture contains non-opaque pixels")
     if any("gunsmith" in path.read_text(encoding="utf-8").lower() for path in model_paths):
         errors.append("Generated model contains a gunsmith texture reference")
     expected_bounds = ((0.0, 48.0), (0.0, 32.0), (0.0, 32.0))
@@ -815,6 +1204,19 @@ def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict[
     for feature, count in rear_feature_counts.items():
         if count == 0:
             errors.append(f"Required rear-depth feature missing: {feature}")
+    serialized_overlaps = find_coplanar_overlaps(serialized_parts)
+    serialized_same_direction = [
+        overlap for overlap in serialized_overlaps if overlap.same_direction
+    ]
+    if serialized_same_direction:
+        examples = ", ".join(
+            f"{item.first.part}:{item.first.element.name}:{item.first.face_name}/"
+            f"{item.second.part}:{item.second.element.name}:{item.second.face_name}"
+            for item in serialized_same_direction[:8]
+        )
+        errors.append(
+            f"Generated JSON contains {len(serialized_same_direction)} same-direction coplanar overlaps: {examples}"
+        )
     if not PREVIEW_PATH.is_file():
         errors.append("Preview image was not created")
     else:
@@ -831,16 +1233,26 @@ def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict[
         "bounds": {"x": [0, 48], "y": [0, 32], "z": [0, 32]},
         "features": feature_counts,
         "rear_features": rear_feature_counts,
+        "z_fighting": {
+            **z_fighting_summary,
+            "same_direction_after_json": len(serialized_same_direction),
+            "opposite_direction_after_json": sum(
+                not overlap.same_direction for overlap in serialized_overlaps
+            ),
+        },
+        "all_texture_alpha": 255,
         "status": "PASS",
     }
 
 
 def main() -> None:
     build_geometry()
+    z_fighting_summary = resolve_same_direction_coplanar_overlaps()
+    z_fighting_summary["same_source_seam_faces_culled"] = cull_complete_same_source_seam_faces()
     model_paths = write_models()
     texture_paths = write_textures()
     render_preview()
-    summary = validate_models(model_paths, texture_paths)
+    summary = validate_models(model_paths, texture_paths, z_fighting_summary)
     print(json.dumps(summary, indent=2, ensure_ascii=False))
 
 

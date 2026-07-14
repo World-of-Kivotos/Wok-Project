@@ -45,6 +45,19 @@ PARTS: dict[tuple[int, int, int], list[dict]] = {
     for block_y in range(2)
 }
 
+FACE_VERTICES = {
+    "north": ((0, 3, 2, 1), 2, "from"),
+    "south": ((4, 5, 6, 7), 2, "to"),
+    "west": ((0, 4, 7, 3), 0, "from"),
+    "east": ((1, 2, 6, 5), 0, "to"),
+    "down": ((0, 1, 5, 4), 1, "from"),
+    "up": ((3, 7, 6, 2), 1, "to"),
+}
+COPLANAR_TOLERANCE = 0.000001
+OVERLAP_AREA_TOLERANCE = 0.000001
+SURFACE_LAYER_STEP = 0.01
+MAXIMUM_SURFACE_INSET = 0.05
+
 
 def clean_number(value: float) -> int | float:
     rounded = round(value, 4)
@@ -63,6 +76,7 @@ def add_local(
     material: str,
     rotation: dict | None = None,
     shade: bool = True,
+    source_name: str | None = None,
 ) -> None:
     if material not in TEXTURES:
         raise ValueError(f"Unknown material for {name}: {material}")
@@ -78,6 +92,7 @@ def add_local(
         "to": [clean_number(value) for value in end],
         "material": material,
         "shade": shade,
+        "source": source_name or name,
     }
     if rotation is not None:
         element["rotation"] = {
@@ -124,6 +139,7 @@ def add_global_box(
                     (x1 - block_x * 16, y1 - block_y * 16, z1 - block_z * 16),
                     material,
                     shade=shade,
+                    source_name=name,
                 )
 
 
@@ -492,6 +508,7 @@ def json_element(element: dict) -> dict:
     faces = {
         direction: {"texture": f"#{element['material']}", "uv": [0, 0, 16, 16]}
         for direction in ("north", "south", "east", "west", "up", "down")
+        if direction not in element.get("omit_faces", set())
     }
     result = {
         "name": element["name"],
@@ -545,10 +562,43 @@ def rotate_point(point: tuple[float, float, float], rotation: dict | None) -> tu
     return x + ox, y + oy, z + oz
 
 
-def element_vertices(block_x: int, block_z: int, block_y: int, element: dict) -> list[tuple[float, float, float]]:
+def subtract(
+    first: tuple[float, float, float],
+    second: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    return tuple(first[index] - second[index] for index in range(3))
+
+
+def dot(first: tuple[float, ...], second: tuple[float, ...]) -> float:
+    return sum(left * right for left, right in zip(first, second))
+
+
+def cross(
+    first: tuple[float, float, float],
+    second: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    return (
+        first[1] * second[2] - first[2] * second[1],
+        first[2] * second[0] - first[0] * second[2],
+        first[0] * second[1] - first[1] * second[0],
+    )
+
+
+def length(vector: tuple[float, ...]) -> float:
+    return math.sqrt(dot(vector, vector))
+
+
+def normalize(vector: tuple[float, float, float]) -> tuple[float, float, float]:
+    magnitude = length(vector)
+    if magnitude <= COPLANAR_TOLERANCE:
+        raise ValueError(f"Cannot normalize near-zero vector: {vector}")
+    return tuple(value / magnitude for value in vector)
+
+
+def local_element_vertices(element: dict) -> list[tuple[float, float, float]]:
     x0, y0, z0 = element["from"]
     x1, y1, z1 = element["to"]
-    local = [
+    vertices = [
         (x0, y0, z0),
         (x1, y0, z0),
         (x1, y1, z0),
@@ -558,7 +608,370 @@ def element_vertices(block_x: int, block_z: int, block_y: int, element: dict) ->
         (x1, y1, z1),
         (x0, y1, z1),
     ]
-    transformed = [rotate_point(point, element.get("rotation")) for point in local]
+    return [rotate_point(vertex, element.get("rotation")) for vertex in vertices]
+
+
+def face_descriptors(
+    part: tuple[int, int, int],
+    elements: list[dict],
+) -> list[dict]:
+    descriptors = []
+    for element_index, element in enumerate(elements):
+        vertices = local_element_vertices(element)
+        for face_name, (indices, axis, bound) in FACE_VERTICES.items():
+            if face_name in element.get("omit_faces", set()):
+                continue
+            polygon = [vertices[index] for index in indices]
+            first_edge = subtract(polygon[1], polygon[0])
+            second_edge = subtract(polygon[2], polygon[1])
+            normal = normalize(cross(first_edge, second_edge))
+            descriptors.append({
+                "id": (part, element_index, face_name),
+                "element": element,
+                "element_index": element_index,
+                "element_name": element["name"],
+                "face": face_name,
+                "axis": axis,
+                "bound": bound,
+                "polygon": polygon,
+                "normal": normal,
+                "area": length(cross(first_edge, second_edge)),
+            })
+    return descriptors
+
+
+def cross_2d(first: tuple[float, float], second: tuple[float, float]) -> float:
+    return first[0] * second[1] - first[1] * second[0]
+
+
+def subtract_2d(
+    first: tuple[float, float],
+    second: tuple[float, float],
+) -> tuple[float, float]:
+    return first[0] - second[0], first[1] - second[1]
+
+
+def signed_polygon_area(points: list[tuple[float, float]]) -> float:
+    return sum(
+        cross_2d(points[index], points[(index + 1) % len(points)])
+        for index in range(len(points))
+    ) / 2.0
+
+
+def line_intersection(
+    subject_start: tuple[float, float],
+    subject_end: tuple[float, float],
+    clip_start: tuple[float, float],
+    clip_end: tuple[float, float],
+) -> tuple[float, float]:
+    subject_delta = subtract_2d(subject_end, subject_start)
+    clip_delta = subtract_2d(clip_end, clip_start)
+    denominator = cross_2d(subject_delta, clip_delta)
+    if abs(denominator) <= COPLANAR_TOLERANCE:
+        return subject_end
+    amount = cross_2d(subtract_2d(clip_start, subject_start), clip_delta) / denominator
+    return (
+        subject_start[0] + subject_delta[0] * amount,
+        subject_start[1] + subject_delta[1] * amount,
+    )
+
+
+def convex_intersection_area(
+    subject_polygon: list[tuple[float, float]],
+    clip_polygon: list[tuple[float, float]],
+) -> float:
+    output = list(subject_polygon)
+    clip = list(clip_polygon)
+    if signed_polygon_area(clip) < 0:
+        clip.reverse()
+
+    for index, clip_start in enumerate(clip):
+        clip_end = clip[(index + 1) % len(clip)]
+        input_points = output
+        output = []
+        if not input_points:
+            break
+        subject_start = input_points[-1]
+        for subject_end in input_points:
+            end_inside = cross_2d(
+                subtract_2d(clip_end, clip_start),
+                subtract_2d(subject_end, clip_start),
+            ) >= -COPLANAR_TOLERANCE
+            start_inside = cross_2d(
+                subtract_2d(clip_end, clip_start),
+                subtract_2d(subject_start, clip_start),
+            ) >= -COPLANAR_TOLERANCE
+            if end_inside:
+                if not start_inside:
+                    output.append(line_intersection(subject_start, subject_end, clip_start, clip_end))
+                output.append(subject_end)
+            elif start_inside:
+                output.append(line_intersection(subject_start, subject_end, clip_start, clip_end))
+            subject_start = subject_end
+
+    return abs(signed_polygon_area(output)) if len(output) >= 3 else 0.0
+
+
+def coplanar_overlap_area(first: dict, second: dict) -> tuple[float, float]:
+    normal_alignment = dot(first["normal"], second["normal"])
+    if abs(abs(normal_alignment) - 1.0) > COPLANAR_TOLERANCE:
+        return 0.0, normal_alignment
+
+    plane_origin = first["polygon"][0]
+    plane_distance = dot(first["normal"], plane_origin)
+    if any(
+        abs(dot(first["normal"], vertex) - plane_distance) > COPLANAR_TOLERANCE
+        for vertex in second["polygon"]
+    ):
+        return 0.0, normal_alignment
+
+    basis_u = normalize(subtract(first["polygon"][1], plane_origin))
+    basis_v = cross(first["normal"], basis_u)
+
+    def project_polygon(polygon: list[tuple[float, float, float]]) -> list[tuple[float, float]]:
+        return [
+            (dot(subtract(vertex, plane_origin), basis_u), dot(subtract(vertex, plane_origin), basis_v))
+            for vertex in polygon
+        ]
+
+    area = convex_intersection_area(
+        project_polygon(first["polygon"]),
+        project_polygon(second["polygon"]),
+    )
+    return area, normal_alignment
+
+
+def find_coplanar_face_overlaps() -> list[dict]:
+    """Enumerate positive-area coplanar face overlaps inside each block part."""
+    overlaps = []
+    for part, elements in PARTS.items():
+        descriptors = face_descriptors(part, elements)
+        for first_index, first in enumerate(descriptors):
+            for second in descriptors[first_index + 1:]:
+                if first["element_index"] == second["element_index"]:
+                    continue
+                overlap_area, normal_alignment = coplanar_overlap_area(first, second)
+                if overlap_area <= OVERLAP_AREA_TOLERANCE:
+                    continue
+                overlaps.append({
+                    "part": part,
+                    "orientation": "same" if normal_alignment > 0 else "opposite",
+                    "area": overlap_area,
+                    "first": first,
+                    "second": second,
+                })
+    return overlaps
+
+
+def global_face_descriptors() -> list[dict]:
+    descriptors = []
+    for part, elements in PARTS.items():
+        offset = (part[0] * 16, part[2] * 16, part[1] * 16)
+        for descriptor in face_descriptors(part, elements):
+            descriptor["polygon"] = [
+                tuple(vertex[axis] + offset[axis] for axis in range(3))
+                for vertex in descriptor["polygon"]
+            ]
+            descriptors.append(descriptor)
+    return descriptors
+
+
+def find_cross_part_face_overlaps() -> list[dict]:
+    descriptors = global_face_descriptors()
+    overlaps = []
+    for first_index, first in enumerate(descriptors):
+        for second in descriptors[first_index + 1:]:
+            if first["id"][0] == second["id"][0]:
+                continue
+            overlap_area, normal_alignment = coplanar_overlap_area(first, second)
+            if overlap_area <= OVERLAP_AREA_TOLERANCE:
+                continue
+            overlaps.append({
+                "orientation": "same" if normal_alignment > 0 else "opposite",
+                "area": overlap_area,
+                "first": first,
+                "second": second,
+            })
+    return overlaps
+
+
+def cull_split_internal_seams() -> dict:
+    """Drop only fully matched opposite faces created by splitting one global box."""
+    initial_overlaps = find_cross_part_face_overlaps()
+    grouped_faces: dict[str, list[dict]] = {}
+    for face in global_face_descriptors():
+        grouped_faces.setdefault(face["element"]["source"], []).append(face)
+
+    culled_pairs = 0
+    culled_faces = set()
+    for faces in grouped_faces.values():
+        for first_index, first in enumerate(faces):
+            for second in faces[first_index + 1:]:
+                if first["id"][0] == second["id"][0]:
+                    continue
+                overlap_area, normal_alignment = coplanar_overlap_area(first, second)
+                if normal_alignment >= 0 or overlap_area <= OVERLAP_AREA_TOLERANCE:
+                    continue
+                first_fully_covered = abs(overlap_area - first["area"]) <= OVERLAP_AREA_TOLERANCE
+                second_fully_covered = abs(overlap_area - second["area"]) <= OVERLAP_AREA_TOLERANCE
+                if not first_fully_covered or not second_fully_covered:
+                    continue
+                first["element"].setdefault("omit_faces", set()).add(first["face"])
+                second["element"].setdefault("omit_faces", set()).add(second["face"])
+                culled_faces.update((first["id"], second["id"]))
+                culled_pairs += 1
+
+    remaining_overlaps = find_cross_part_face_overlaps()
+    initial_same = sum(overlap["orientation"] == "same" for overlap in initial_overlaps)
+    initial_opposite = sum(overlap["orientation"] == "opposite" for overlap in initial_overlaps)
+    remaining_same = sum(overlap["orientation"] == "same" for overlap in remaining_overlaps)
+    remaining_opposite = sum(overlap["orientation"] == "opposite" for overlap in remaining_overlaps)
+    if remaining_same:
+        raise RuntimeError(f"Cross-part same-direction faces remain after seam culling: {remaining_same}")
+    return {
+        "initial_same_direction": initial_same,
+        "initial_opposite_direction": initial_opposite,
+        "culled_safe_pairs": culled_pairs,
+        "culled_faces": len(culled_faces),
+        "remaining_same_direction": remaining_same,
+        "remaining_opposite_direction": remaining_opposite,
+    }
+
+
+def apply_surface_layers(conflicts: list[dict]) -> set[tuple]:
+    """Keep smaller detail faces forward and inset overlapping larger bases."""
+    faces = {}
+    adjacency: dict[tuple, set[tuple]] = {}
+    for conflict in conflicts:
+        first = conflict["first"]
+        second = conflict["second"]
+        faces[first["id"]] = first
+        faces[second["id"]] = second
+        adjacency.setdefault(first["id"], set()).add(second["id"])
+        adjacency.setdefault(second["id"], set()).add(first["id"])
+
+    layers = {}
+    ordered_faces = sorted(
+        faces.values(),
+        key=lambda face: (face["area"], face["element_name"], face["face"]),
+    )
+    for face in ordered_faces:
+        shallower_layers = [
+            layers[neighbor]
+            for neighbor in adjacency[face["id"]]
+            if neighbor in layers
+        ]
+        layer = max(shallower_layers) + 1 if shallower_layers else 0
+        inset = layer * SURFACE_LAYER_STEP
+        if inset > MAXIMUM_SURFACE_INSET + COPLANAR_TOLERANCE:
+            raise ValueError(
+                f"Surface layering for {face['element_name']}:{face['face']} "
+                f"requires {inset}, above {MAXIMUM_SURFACE_INSET}"
+            )
+        layers[face["id"]] = layer
+
+    unchecked = set(layers)
+    while unchecked:
+        start = unchecked.pop()
+        component = {start}
+        pending = [start]
+        while pending:
+            current = pending.pop()
+            for neighbor in adjacency[current]:
+                if neighbor not in component:
+                    component.add(neighbor)
+                    unchecked.discard(neighbor)
+                    pending.append(neighbor)
+        if not any(layers[face_id] == 0 for face_id in component):
+            raise ValueError("Coplanar surface component lost its original outer plane")
+
+    adjusted_faces = set()
+    for face_id, layer in layers.items():
+        if layer == 0:
+            continue
+        face = faces[face_id]
+        element = face["element"]
+        axis = face["axis"]
+        inset = layer * SURFACE_LAYER_STEP
+        if face["bound"] == "from":
+            element["from"][axis] = clean_number(element["from"][axis] + inset)
+        else:
+            element["to"][axis] = clean_number(element["to"][axis] - inset)
+        adjusted_faces.add(face_id)
+
+    for elements in PARTS.values():
+        for element in elements:
+            if any(element["from"][axis] >= element["to"][axis] for axis in range(3)):
+                raise ValueError(f"Surface layering collapsed element: {element['name']}")
+    return adjusted_faces
+
+
+def resolve_coplanar_face_overlaps() -> dict:
+    original_bounds = {
+        (part, index): (list(element["from"]), list(element["to"]))
+        for part, elements in PARTS.items()
+        for index, element in enumerate(elements)
+    }
+    initial_overlaps = find_coplanar_face_overlaps()
+    initial_same = [overlap for overlap in initial_overlaps if overlap["orientation"] == "same"]
+    initial_opposite = [overlap for overlap in initial_overlaps if overlap["orientation"] == "opposite"]
+
+    adjusted_faces = set()
+    remaining_overlaps = initial_overlaps
+    passes = 0
+    while passes < 4:
+        remaining_same = [
+            overlap for overlap in remaining_overlaps if overlap["orientation"] == "same"
+        ]
+        if not remaining_same:
+            break
+        adjusted_faces.update(apply_surface_layers(remaining_same))
+        passes += 1
+        remaining_overlaps = find_coplanar_face_overlaps()
+
+    remaining_same = [
+        overlap for overlap in remaining_overlaps if overlap["orientation"] == "same"
+    ]
+    if remaining_same:
+        first = remaining_same[0]
+        raise RuntimeError(
+            "Could not separate coplanar faces after four passes: "
+            f"{first['part']} {first['first']['element_name']}:{first['first']['face']} / "
+            f"{first['second']['element_name']}:{first['second']['face']}"
+        )
+
+    maximum_inset = 0.0
+    for part, elements in PARTS.items():
+        for index, element in enumerate(elements):
+            original_from, original_to = original_bounds[(part, index)]
+            maximum_inset = max(
+                maximum_inset,
+                *(abs(element["from"][axis] - original_from[axis]) for axis in range(3)),
+                *(abs(element["to"][axis] - original_to[axis]) for axis in range(3)),
+            )
+    if maximum_inset > MAXIMUM_SURFACE_INSET + COPLANAR_TOLERANCE:
+        raise ValueError(
+            f"Maximum surface inset {maximum_inset} exceeds {MAXIMUM_SURFACE_INSET}"
+        )
+
+    remaining_opposite = [
+        overlap for overlap in remaining_overlaps if overlap["orientation"] == "opposite"
+    ]
+    return {
+        "initial_same_direction": len(initial_same),
+        "initial_opposite_direction": len(initial_opposite),
+        "resolved_same_direction": len(initial_same) - len(remaining_same),
+        "remaining_same_direction": len(remaining_same),
+        "remaining_opposite_direction": len(remaining_opposite),
+        "adjusted_faces": len(adjusted_faces),
+        "passes": passes,
+        "surface_layer_step": SURFACE_LAYER_STEP,
+        "maximum_inset": clean_number(maximum_inset),
+    }
+
+
+def element_vertices(block_x: int, block_z: int, block_y: int, element: dict) -> list[tuple[float, float, float]]:
+    transformed = local_element_vertices(element)
     return [
         (x + block_x * 16, y + block_y * 16, z + block_z * 16)
         for x, y, z in transformed
@@ -706,7 +1119,11 @@ def render_preview() -> None:
     write_png(PREVIEW_PATH, width, height, canvas)
 
 
-def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict:
+def validate_models(
+    model_paths: list[Path],
+    texture_paths: list[Path],
+    coplanar_resolution: dict | None = None,
+) -> dict:
     errors = []
     if len(model_paths) != 12:
         errors.append(f"Expected 12 models, found {len(model_paths)}")
@@ -783,6 +1200,21 @@ def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict:
         if abs(minimum[axis] - expected_minimum[axis]) > 0.0001 or abs(maximum[axis] - expected_maximum[axis]) > 0.0001:
             errors.append(f"Assembly does not exactly fill expected bounds on axis {axis}: {minimum[axis]}..{maximum[axis]}")
 
+    remaining_overlaps = find_coplanar_face_overlaps()
+    remaining_same = [
+        overlap for overlap in remaining_overlaps if overlap["orientation"] == "same"
+    ]
+    remaining_opposite = [
+        overlap for overlap in remaining_overlaps if overlap["orientation"] == "opposite"
+    ]
+    if remaining_same:
+        first = remaining_same[0]
+        errors.append(
+            "Coplanar same-direction faces remain in "
+            f"{first['part']}: {first['first']['element_name']}:{first['first']['face']} / "
+            f"{first['second']['element_name']}:{first['second']['face']}"
+        )
+
     if errors:
         raise RuntimeError("\n".join(errors))
     return {
@@ -792,15 +1224,21 @@ def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict:
         "elements": element_count,
         "elements_by_part": elements_by_part,
         "bounds": {"min": [clean_number(value) for value in minimum], "max": [clean_number(value) for value in maximum]},
+        "coplanar_faces": coplanar_resolution or {
+            "remaining_same_direction": len(remaining_same),
+            "remaining_opposite_direction": len(remaining_opposite),
+        },
     }
 
 
 def main() -> None:
     build_geometry()
+    coplanar_resolution = resolve_coplanar_face_overlaps()
+    coplanar_resolution["cross_part_seams"] = cull_split_internal_seams()
     texture_paths = write_textures()
     model_paths = write_models()
     render_preview()
-    validation = validate_models(model_paths, texture_paths)
+    validation = validate_models(model_paths, texture_paths, coplanar_resolution)
     print(json.dumps({
         "models": [str(path.relative_to(ROOT)) for path in model_paths],
         "textures": [str(path.relative_to(ROOT)) for path in texture_paths],

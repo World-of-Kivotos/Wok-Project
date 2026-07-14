@@ -521,5 +521,12 @@
   "category.miningdim.munitions.explosive": "爆破弹",
   "death.attack.miningdim.champion_thorns": "%1$s 被 %2$s 的反震震杀了",
   "death.attack.miningdim.champion_execution": "%1$s 未能挣脱命定之死",
-  "death.attack.miningdim.champion_skill_aoe": "%1$s 被 %2$s 的技能轰击抹除了"
+  "death.attack.miningdim.champion_skill_aoe": "%1$s 被 %2$s 的技能轰击抹除了",
+  "itemGroup.miningdim_power": "能源系统",
+  "block.miningdim.industrial_generator": "工业发电机",
+  "block.miningdim.modern_generator": "现代发电机",
+  "block.miningdim.future_energy_generator": "未来能源发电机",
+  "item.miningdim.industrial_generator": "工业发电机",
+  "item.miningdim.modern_generator": "现代发电机",
+  "item.miningdim.future_energy_generator": "未来能源发电机"
 }

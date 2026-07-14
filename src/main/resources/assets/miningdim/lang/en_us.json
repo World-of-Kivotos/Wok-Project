@@ -521,5 +521,12 @@
   "category.miningdim.munitions.explosive": "Explosive Ammo",
   "death.attack.miningdim.champion_thorns": "%1$s was shattered by %2$s's tremor guard",
   "death.attack.miningdim.champion_execution": "%1$s could not escape their appointed death",
-  "death.attack.miningdim.champion_skill_aoe": "%1$s was erased by %2$s's skill barrage"
+  "death.attack.miningdim.champion_skill_aoe": "%1$s was erased by %2$s's skill barrage",
+  "itemGroup.miningdim_power": "Power Systems",
+  "block.miningdim.industrial_generator": "Industrial Generator",
+  "block.miningdim.modern_generator": "Modern Generator",
+  "block.miningdim.future_energy_generator": "Future Energy Generator",
+  "item.miningdim.industrial_generator": "Industrial Generator",
+  "item.miningdim.modern_generator": "Modern Generator",
+  "item.miningdim.future_energy_generator": "Future Energy Generator"
 }

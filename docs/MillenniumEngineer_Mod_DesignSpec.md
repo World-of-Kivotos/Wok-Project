@@ -1,6 +1,6 @@
-# 千年工程师 职业 Mod — 设计规格文档
+# 铸甲师（原千年工程师）职业 Mod — 既有生产与维修规格
 
-> 关联更新：该职业的玩家可见名称调整为“铸甲师”，并新增独立护甲机制。护甲类型、受击公式、枪匠联动与插板护甲第一阶段以[铸甲师护甲机制设计规格](Armorer_Armor_System_DesignSpec.md)为准。本文继续负责既有纳米修复、生产台、等级和维修特效；第一阶段保留内部 `engineer` 标识以兼容旧存档。
+> 关联更新：该职业的界面与创造页签名称已经调整为“铸甲师”，并已实装第一版插板护甲。护甲种类与类型语义、受击公式、枪匠联动、材质耐久及 54 件物品映射，以[铸甲师护甲系统设计与实装规格](Armorer_Armor_System_DesignSpec.md)为准。本文只继续负责既有纳米修复、生产台、等级和维修特效；命令参数与内部 `engineer` 标识暂时保留以兼容旧存档。
 
 ## 文档元信息
 
@@ -15,8 +15,8 @@
 
 ## 一、职业定位与设计目标 (DECIDED)
 
-1. 定位: 仿 FF14 生产职业。玩家无需专职, 可同时持有并体验全部职业; 工程师只是其一。
-2. 核心卖点: 在工程师工作台用 "纳米护甲板" 修复一切原本无法维修的护甲 (公服存在大量无原材料修复路径的模组护甲)。
+1. 定位: 仿 FF14 生产职业。玩家无需专职, 可同时持有并体验全部职业; 铸甲师只是其一。
+2. 核心卖点: 在铸甲师工作台用 "纳米护甲板" 修复一切原本无法维修的护甲 (公服存在大量无原材料修复路径的模组护甲)。
 3. 经济定位: 纳米修复 = 贵但万能。即使最低级护甲板, 一个铁锭也做不出 (成本高于铁砧+铁锭), 修复效果也不如铁砧; 唯一优势是 "能修一切"。纳米修复不与原版铁砧/原材料修复抢常规护甲的生意, 只补 "原版修不了" 的空缺。
 4. 特效定位: 修复护甲时掷出的 **一次性副产品**, 不是永久词条; 再次用纳米护甲板维修会丢弃全部旧特效。永久词条系统留给未来其他职业, 本职业不做永久词条。
 5. 等级范围: 1 - 10, L10 毕业。正常玩家约一个月毕业; 肝满党有上限地更快 (约 16 天, 见第八章)。
@@ -76,7 +76,7 @@
 | 门 | 规则 |
 | --- | --- |
 | 矿石档位 | 3.2 表, 低矿造不了高板 |
-| 工程师等级 | 等级未解锁该档则置灰 (解锁表见 7.2) |
+| 铸甲师等级 | 等级未解锁该档则置灰 (解锁表见 7.2) |
 | 生产台档位 | 机器档不够则置灰; 机器档同时决定生成耗时 |
 
 服务端权威: 客户端置灰仅为提示, 服务端在消耗矿石/产出前重新校验三道门 + 锁主人, 绝不信客户端选择 (C5)。选档走原版 `AbstractContainerMenu.clickMenuButton(tierIndex)`, 不新开网络包。
@@ -269,7 +269,7 @@
 
 ### 10.2 玩家职业数据 (关键裁决: 不新挂 capability)
 
-- 工程师等级数据 (`engineerLevel` / `engineerXp` / `dailyEngineerXp` + 翻日戳 / `nanoReactorCdEndTick`) 作为字段并入 `entry.MiningPlayerData` (`IMiningPlayerData` 接口扩方法), 复用其已有的 attach / `PlayerEvent.Clone` (reviveCaps/invalidateCaps) / serialize / copyFrom 全套管线。
+- 铸甲师等级数据 (`engineerLevel` / `engineerXp` / `dailyEngineerXp` + 翻日戳 / `nanoReactorCdEndTick`) 作为字段并入 `entry.MiningPlayerData` (`IMiningPlayerData` 接口扩方法), 复用其已有的 attach / `PlayerEvent.Clone` (reviveCaps/invalidateCaps) / serialize / copyFrom 全套管线。字段名保留 `engineer` 仅为存档兼容。
 - 严禁照搬农夫 spec 字面新建独立 capability + 新 `AttachCapabilitiesEvent<Entity>`: 工程已有 "双 capability 重复 attach -> 双重传送/双重引用计数" 既裁隐患 (entry 为唯一权威), 第三套 Provider 会放大隐患。
 - 多职业方向 (FF14 已确认 N >> 1): 玩家职业数据应朝 "一个 capability 持 `Map<JobId, JobProgress>`" 演进 (一次到位成多职业形状), 重的数据驱动框架 (等级曲线/每日衰减表) 可增量补。
 - `deserializeNBT` 对旧存档缺新键给默认值 (level=1, xp=0, cd=0); 扩 `IMiningPlayerData` 后多维 grep 找全实现/mock 补新方法。

@@ -981,6 +981,38 @@
     },
     {
       "from": [
+        0,
+        2,
+        14
+      ],
+      "to": [
+        16,
+        4,
+        16
+      ],
+      "faces": {
+        "north": {
+          "texture": "#frame_edge"
+        },
+        "south": {
+          "texture": "#frame_edge"
+        },
+        "east": {
+          "texture": "#frame_edge"
+        },
+        "west": {
+          "texture": "#frame_edge"
+        },
+        "up": {
+          "texture": "#frame_edge"
+        },
+        "down": {
+          "texture": "#frame_edge"
+        }
+      }
+    },
+    {
+      "from": [
         2,
         2,
         0

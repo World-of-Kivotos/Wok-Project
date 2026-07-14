@@ -9,8 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "src/main/resources/assets/miningdim"
 STYLES = ("industrial", "modern", "future")
 EXPECTED_MODELS = {
-    f"part_x{x}_y{y}.json"
+    f"part_x{x}_z{z}_y{y}.json"
     for x in range(3)
+    for z in range(2)
     for y in range(2)
 }
 
@@ -40,8 +41,9 @@ def verify_style(style: str) -> tuple[int, int]:
     for model_path in sorted(model_dir.glob("*.json")):
         stem = model_path.stem
         x = int(stem.split("_x", 1)[1].split("_", 1)[0])
+        z = int(stem.split("_z", 1)[1].split("_", 1)[0])
         y = int(stem.rsplit("_y", 1)[1])
-        occupied_slots.add((x, 0, y))
+        occupied_slots.add((x, z, y))
 
         model = json.loads(model_path.read_text(encoding="utf-8"))
         require(model.get("parent") == "minecraft:block/block",
@@ -88,9 +90,9 @@ def verify_style(style: str) -> tuple[int, int]:
                 require(texture_ref.startswith("#") and texture_ref[1:] in textures,
                         f"{model_path} element {index}: unresolved texture {texture_ref}")
 
-    require(occupied_slots == {(x, 0, y) for x in range(3) for y in range(2)},
-            f"{style}: layout is not exactly 3x1x2")
-    require(total_elements >= 60,
+    require(occupied_slots == {(x, z, y) for x in range(3) for z in range(2) for y in range(2)},
+            f"{style}: layout is not exactly 3x2x2")
+    require(total_elements >= 120,
             f"{style}: only {total_elements} elements; geometry is too simple for the approved preview")
     return total_elements, len(referenced_textures)
 
@@ -98,7 +100,7 @@ def verify_style(style: str) -> tuple[int, int]:
 def main() -> None:
     for style in STYLES:
         elements, textures = verify_style(style)
-        print(f"PASS {style}: 6 parts, {elements} elements, {textures} textures, layout 3x1x2")
+        print(f"PASS {style}: 12 parts, {elements} elements, {textures} textures, layout 3x2x2")
 
 
 if __name__ == "__main__":

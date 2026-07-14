@@ -39,15 +39,15 @@ def element(name, start, end, material, *, face_materials=None, shade=True, rota
 
 
 GLOBAL = []
-LOCAL = {(x, y): [] for x in range(3) for y in range(2)}
+LOCAL = {(x, z, y): [] for x in range(3) for z in range(2) for y in range(2)}
 
 
 def add(name, start, end, material, **kwargs):
     GLOBAL.append(element(name, start, end, material, **kwargs))
 
 
-def add_local(x, y, name, start, end, material, **kwargs):
-    LOCAL[(x, y)].append(element(name, start, end, material, **kwargs))
+def add_local(x, z, y, name, start, end, material, **kwargs):
+    LOCAL[(x, z, y)].append(element(name, start, end, material, **kwargs))
 
 
 def build_geometry():
@@ -146,42 +146,128 @@ def build_geometry():
     add("coupler cyan socket", (22, 29, 4.1), (26, 31.5, 5.05), "cyan_glow", shade=False)
     add("coupler cyan core", (23, 29.5, 3.7), (25, 31, 4.2), "cyan_core", shade=False)
 
+    # The second depth row is a true machinery bay, not a mirrored front facade.
+    # A continuous dark skeleton ties both rows together while keeping the three
+    # rear service zones readable from the south and east sides.
+    add("rear deck core", (0, 0, 16), (48, 2, 29), "frame")
+    add("rear deck edge", (0, 0, 29), (48, 3, 32), "frame_edge")
+    add("depth seam lower beam", (0, 2, 14), (48, 4, 18), "frame_edge")
+    add("rear crown crossbeam", (0, 26, 28.5), (48, 29, 32), "frame_edge")
+    for index, (x0, x1) in enumerate(((0, 2), (15, 17), (31, 33), (46, 48))):
+        add(f"rear depth frame post {index}", (x0, 2, 16), (x1, 28, 31), "frame_edge")
+        add(f"rear roof runner {index}", (x0, 27, 15), (x1, 30, 31), "frame_edge")
+    for index, (x0, x1) in enumerate(((0, 3), (14.5, 17.5), (30.5, 33.5), (45, 48))):
+        add(f"rear projecting foot {index}", (x0, 0, 27.5), (x1, 4, 32), "frame_edge")
+
+    # Rear-left service bay: closed machinery, a recessed maintenance hatch,
+    # and diagonal armor framing replace the front row's control interface.
+    add("rear left machinery shell", (2, 4, 17), (15, 24, 29.5), "frame")
+    add("rear left roof armor", (2, 24, 17), (15, 27, 29), "armor")
+    add("rear left roof inset", (4, 27, 19), (13, 29, 27), "armor_edge")
+    add("rear left west armor", (0, 6, 18), (1.2, 23, 29), "armor_edge")
+    add("rear left west service strip", (0, 9, 20), (0.45, 20, 27), "control")
+    add("maintenance hatch recess", (3, 6, 29), (14, 22, 31), "frame_edge")
+    add("maintenance hatch", (4, 7, 30.5), (13, 21, 32), "armor")
+    add("maintenance hatch inner", (5, 9, 31.35), (12, 19, 32), "control")
+    add("maintenance hatch top clamp", (4, 20, 30), (13, 23, 32), "armor_edge")
+    add("maintenance hatch bottom clamp", (4, 4, 30), (13, 7, 32), "armor_edge")
+    for index, y0 in enumerate((10, 13, 16)):
+        add(f"maintenance vent slot {index}", (6, y0, 31.65), (11, y0 + 0.8, 32), "vent")
+    add("maintenance status lamp", (4.5, 17, 31.7), (5.4, 19.2, 32), "cyan_glow", shade=False)
+
+    # Central rear energy chamber is a sealed containment shell. The restrained
+    # flow indicators and dorsal coupling base communicate stored energy without
+    # cloning the luminous front core.
+    add("energy bay rear shell", (17, 4, 17), (31, 24, 29.5), "frame")
+    add("energy bay left shutter", (17, 7, 19), (20, 22, 28), "armor_edge")
+    add("energy bay right shutter", (28, 7, 19), (31, 22, 28), "armor_edge")
+    add("energy bay roof armor", (17, 23, 17), (31, 27, 29), "armor")
+    add("energy bay lower cradle", (18, 3, 18), (30, 7, 29), "armor_edge")
+    add("energy bay inner casing", (20, 7, 19), (28, 22, 28), "control")
+    add("energy bay rear bulkhead", (18, 6, 28), (30, 23, 30.5), "frame_edge")
+    add("energy bay service plate", (20, 8, 30), (28, 20, 32), "armor_edge")
+    add("energy bay service inset", (21, 10, 31.35), (27, 18, 32), "control")
+    add("energy bay flow slit left", (21, 11, 31.7), (22, 17, 32), "cyan_glow", shade=False)
+    add("energy bay flow slit right", (26, 11, 31.7), (27, 17, 32), "cyan_glow", shade=False)
+    add("rear coupler foundation", (18, 26, 18), (30, 29, 30), "frame_edge")
+    add("rear coupler pedestal", (20, 28, 20), (28, 31, 28), "frame")
+    add("rear coupler left lock", (19, 28, 19), (21, 32, 29), "frame_edge")
+    add("rear coupler right lock", (27, 28, 19), (29, 32, 29), "frame_edge")
+    add("rear coupler bridge", (21, 30, 20), (27, 32, 28), "armor_edge")
+    add("dorsal energy conduit casing", (21.5, 27, 11), (26.5, 30, 22), "frame_edge")
+    add("dorsal energy conduit", (23, 28, 11.5), (25, 29, 22.5), "cyan_glow", shade=False)
+
+    # Rear-right thermal bay: horizontal south-facing fins, deep exhaust ducts,
+    # and longitudinal guide channels form a different rhythm from the front fins.
+    add("rear thermal shell", (33, 4, 17), (46, 24, 29), "frame")
+    add("rear thermal roof armor", (33, 24, 17), (46, 28, 29), "armor")
+    add("rear thermal lower cradle", (33, 3, 18), (46, 7, 29), "armor_edge")
+    add("rear thermal vent bed", (34, 5, 28.5), (46, 23, 31), "vent")
+    for index, y0 in enumerate((6, 8.5, 11, 13.5, 16, 18.5, 21)):
+        add(f"rear horizontal cooling fin {index}", (34.5, y0, 30), (45.5, y0 + 1.15, 32), "frame_edge")
+    add("rear thermal upper surround", (33, 22, 29), (47, 25, 32), "armor")
+    add("rear thermal lower surround", (33, 3, 29), (47, 6, 32), "armor_edge")
+    add("rear thermal left surround", (32.5, 6, 29), (35, 22, 32), "armor_edge")
+    add("rear thermal right surround", (45, 6, 29), (47.5, 22, 32), "armor")
+    add("east rear exhaust recess", (46, 7, 18), (48, 21, 29), "frame_edge")
+    add("east rear exhaust grille", (47.2, 9, 20), (48, 19, 27), "vent")
+    for index, z0 in enumerate((18.5, 22.5, 26.5)):
+        add(f"thermal guide casing {index}", (34, 17.5 + index, z0), (45, 20 + index, z0 + 1.8), "frame_edge")
+        add(f"thermal energy guide {index}", (35, 18.35 + index, z0 + 0.4), (44, 18.9 + index, z0 + 1.4), "cyan_glow", shade=False)
+
     # Rotated local plates provide real sloped geometry while staying inside each block.
-    add_local(0, 0, "control lower left brace", (2, 2, 0), (6.5, 3.6, 2), "armor_edge",
+    add_local(0, 0, 0, "control lower left brace", (2, 2, 0), (6.5, 3.6, 2), "armor_edge",
               rotation={"origin": [4.5, 4, 1], "axis": "z", "angle": -22.5, "rescale": False})
-    add_local(0, 0, "control lower right brace", (10, 2, 0), (14.5, 3.6, 2), "armor_edge",
+    add_local(0, 0, 0, "control lower right brace", (10, 2, 0), (14.5, 3.6, 2), "armor_edge",
               rotation={"origin": [12, 4, 1], "axis": "z", "angle": 22.5, "rescale": False})
-    add_local(1, 0, "core lower left chevron", (1.3, 1.2, 0), (6.2, 2.8, 2), "armor",
+    add_local(1, 0, 0, "core lower left chevron", (1.3, 1.2, 0), (6.2, 2.8, 2), "armor",
               rotation={"origin": [4, 3.7, 1], "axis": "z", "angle": -22.5, "rescale": False})
-    add_local(1, 0, "core lower right chevron", (9.8, 1.2, 0), (14.7, 2.8, 2), "armor",
+    add_local(1, 0, 0, "core lower right chevron", (9.8, 1.2, 0), (14.7, 2.8, 2), "armor",
               rotation={"origin": [12, 3.7, 1], "axis": "z", "angle": 22.5, "rescale": False})
-    add_local(1, 1, "core hood left bevel", (1.3, 4.4, 0), (6, 6.2, 2), "armor_edge",
+    add_local(1, 0, 1, "core hood left bevel", (1.3, 4.4, 0), (6, 6.2, 2), "armor_edge",
               rotation={"origin": [4, 5.2, 1], "axis": "z", "angle": 22.5, "rescale": False})
-    add_local(1, 1, "core hood right bevel", (10, 4.4, 0), (14.7, 6.2, 2), "armor_edge",
+    add_local(1, 0, 1, "core hood right bevel", (10, 4.4, 0), (14.7, 6.2, 2), "armor_edge",
               rotation={"origin": [12, 5.2, 1], "axis": "z", "angle": -22.5, "rescale": False})
-    add_local(2, 0, "radiator lower left brace", (1.2, 1.4, 0), (6, 3.1, 2), "armor_edge",
+    add_local(2, 0, 0, "radiator lower left brace", (1.2, 1.4, 0), (6, 3.1, 2), "armor_edge",
               rotation={"origin": [3.8, 4, 1], "axis": "z", "angle": -22.5, "rescale": False})
-    add_local(2, 0, "radiator lower right brace", (10, 1.4, 0), (14.8, 3.1, 2), "armor_edge",
+    add_local(2, 0, 0, "radiator lower right brace", (10, 1.4, 0), (14.8, 3.1, 2), "armor_edge",
               rotation={"origin": [12.2, 4, 1], "axis": "z", "angle": 22.5, "rescale": False})
-    add_local(2, 1, "radiator upper left brace", (1.2, 5, 0), (6, 6.7, 2), "armor",
+    add_local(2, 0, 1, "radiator upper left brace", (1.2, 5, 0), (6, 6.7, 2), "armor",
               rotation={"origin": [3.8, 6, 1], "axis": "z", "angle": 22.5, "rescale": False})
-    add_local(2, 1, "radiator upper right brace", (10, 5, 0), (14.8, 6.7, 2), "armor",
+    add_local(2, 0, 1, "radiator upper right brace", (10, 5, 0), (14.8, 6.7, 2), "armor",
               rotation={"origin": [12.2, 6, 1], "axis": "z", "angle": -22.5, "rescale": False})
+    add_local(0, 1, 0, "maintenance lower left brace", (2, 2, 14), (6.5, 3.6, 16), "armor_edge",
+              rotation={"origin": [4.5, 4, 15], "axis": "z", "angle": -22.5, "rescale": False})
+    add_local(0, 1, 0, "maintenance lower right brace", (9.5, 2, 14), (14, 3.6, 16), "armor_edge",
+              rotation={"origin": [11.5, 4, 15], "axis": "z", "angle": 22.5, "rescale": False})
+    add_local(0, 1, 1, "maintenance upper left clamp", (2, 4.5, 14), (6.5, 6.2, 16), "armor",
+              rotation={"origin": [4.5, 5.5, 15], "axis": "z", "angle": 22.5, "rescale": False})
+    add_local(0, 1, 1, "maintenance upper right clamp", (9.5, 4.5, 14), (14, 6.2, 16), "armor",
+              rotation={"origin": [11.5, 5.5, 15], "axis": "z", "angle": -22.5, "rescale": False})
+    add_local(1, 1, 0, "energy cradle left brace", (1.2, 1.4, 13.8), (6, 3.1, 16), "armor_edge",
+              rotation={"origin": [3.8, 4, 14.9], "axis": "z", "angle": -22.5, "rescale": False})
+    add_local(1, 1, 0, "energy cradle right brace", (10, 1.4, 13.8), (14.8, 3.1, 16), "armor_edge",
+              rotation={"origin": [12.2, 4, 14.9], "axis": "z", "angle": 22.5, "rescale": False})
+    add_local(2, 1, 1, "thermal upper left brace", (1.2, 5, 14), (6, 6.7, 16), "armor",
+              rotation={"origin": [3.8, 6, 15], "axis": "z", "angle": 22.5, "rescale": False})
+    add_local(2, 1, 1, "thermal upper right brace", (10, 5, 14), (14.8, 6.7, 16), "armor",
+              rotation={"origin": [12.2, 6, 15], "axis": "z", "angle": -22.5, "rescale": False})
 
 
 def split_geometry():
-    cells = {(x, y): [] for x in range(3) for y in range(2)}
+    cells = {(x, z, y): [] for x in range(3) for z in range(2) for y in range(2)}
     for source in GLOBAL:
         for part_x in range(3):
-            for part_y in range(2):
-                origin = (part_x * 16, part_y * 16, 0)
-                lower = [max(source["from"][i], origin[i]) for i in range(3)]
-                upper = [min(source["to"][i], origin[i] + 16) for i in range(3)]
-                if all(lower[i] < upper[i] for i in range(3)):
-                    piece = dict(source)
-                    piece["from"] = [lower[i] - origin[i] for i in range(3)]
-                    piece["to"] = [upper[i] - origin[i] for i in range(3)]
-                    cells[(part_x, part_y)].append(piece)
+            for part_z in range(2):
+                for part_y in range(2):
+                    origin = (part_x * 16, part_y * 16, part_z * 16)
+                    lower = [max(source["from"][i], origin[i]) for i in range(3)]
+                    upper = [min(source["to"][i], origin[i] + 16) for i in range(3)]
+                    if all(lower[i] < upper[i] for i in range(3)):
+                        piece = dict(source)
+                        piece["from"] = [lower[i] - origin[i] for i in range(3)]
+                        piece["to"] = [upper[i] - origin[i] for i in range(3)]
+                        cells[(part_x, part_z, part_y)].append(piece)
     for key, elements in LOCAL.items():
         cells[key].extend(elements)
     return cells
@@ -212,6 +298,8 @@ def model_element(source):
 
 def write_models(cells):
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    for old_path in MODEL_DIR.glob("part_x*_y*.json"):
+        old_path.unlink()
     texture_map = {
         material: f"miningdim:block/generator/future/{material}"
         for material in MATERIALS
@@ -219,16 +307,17 @@ def write_models(cells):
     texture_map["particle"] = "miningdim:block/generator/future/frame"
     paths = []
     for part_x in range(3):
-        for part_y in range(2):
-            payload = {
-                "parent": "minecraft:block/block",
-                "ambientocclusion": True,
-                "textures": texture_map,
-                "elements": [model_element(item) for item in cells[(part_x, part_y)]],
-            }
-            path = MODEL_DIR / f"part_x{part_x}_y{part_y}.json"
-            path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-            paths.append(path)
+        for part_z in range(2):
+            for part_y in range(2):
+                payload = {
+                    "parent": "minecraft:block/block",
+                    "ambientocclusion": True,
+                    "textures": texture_map,
+                    "elements": [model_element(item) for item in cells[(part_x, part_z, part_y)]],
+                }
+                path = MODEL_DIR / f"part_x{part_x}_z{part_z}_y{part_y}.json"
+                path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+                paths.append(path)
     return paths
 
 
@@ -434,13 +523,13 @@ def render_preview(cells):
         row = bytes(background) * width
         canvas[y * width * 4:(y + 1) * width * 4] = row
 
-    camera = (76, 61, -84)
-    target = (24, 13, 8)
+    camera = (80, 67, -94)
+    target = (24, 14, 16)
     forward = normalize(vector_sub(target, camera))
     right = normalize(cross(forward, (0, 1, 0)))
     camera_up = cross(right, forward)
-    scale = 15.0 * supersample
-    center_x, center_y = 600 * supersample, 365 * supersample
+    scale = 12.5 * supersample
+    center_x, center_y = 600 * supersample, 370 * supersample
 
     def project(point):
         relative = vector_sub(point, target)
@@ -450,7 +539,7 @@ def render_preview(cells):
             dot(vector_sub(point, camera), forward),
         )
 
-    ground = [project(point)[:2] for point in ((-2, 0, -2), (52, 0, -2), (52, 0, 19), (-2, 0, 19))]
+    ground = [project(point)[:2] for point in ((-2, 0, -2), (52, 0, -2), (52, 0, 35), (-2, 0, 35))]
     fill_polygon(canvas, width, height, ground, (38, 47, 55, 28))
 
     face_indices = {
@@ -465,8 +554,8 @@ def render_preview(cells):
     }
     light = normalize((-0.45, 0.9, -0.65))
     polygons = []
-    for (part_x, part_y), items in cells.items():
-        offset = (part_x * 16, part_y * 16, 0)
+    for (part_x, part_z, part_y), items in cells.items():
+        offset = (part_x * 16, part_y * 16, part_z * 16)
         for source in items:
             vertices = box_vertices(source, offset)
             for face, indices in face_indices.items():
@@ -512,9 +601,17 @@ def rotated_bounds(source):
 
 
 def validate(model_paths, texture_paths, cells):
-    expected_models = {f"part_x{x}_y{y}.json" for x in range(3) for y in range(2)}
+    expected_models = {
+        f"part_x{x}_z{z}_y{y}.json"
+        for x in range(3)
+        for z in range(2)
+        for y in range(2)
+    }
     if {path.name for path in model_paths} != expected_models:
-        raise AssertionError("The future generator must contain exactly six named model parts")
+        raise AssertionError("The future generator must contain exactly twelve named model parts")
+    actual_models = {path.name for path in MODEL_DIR.glob("part_x*.json")}
+    if actual_models != expected_models:
+        raise AssertionError(f"Stale or missing future model files: {sorted(actual_models ^ expected_models)}")
     texture_set = {path.resolve() for path in texture_paths}
     combined_min = [math.inf, math.inf, math.inf]
     combined_max = [-math.inf, -math.inf, -math.inf]
@@ -522,8 +619,9 @@ def validate(model_paths, texture_paths, cells):
     for path in model_paths:
         data = json.loads(path.read_text(encoding="utf-8"))
         part_x = int(path.stem.split("_x")[1].split("_")[0])
+        part_z = int(path.stem.split("_z")[1].split("_")[0])
         part_y = int(path.stem.split("_y")[1])
-        source_items = cells[(part_x, part_y)]
+        source_items = cells[(part_x, part_z, part_y)]
         if len(data["elements"]) != len(source_items):
             raise AssertionError(f"Generated element count mismatch in {path.name}")
         total_elements += len(source_items)
@@ -535,7 +633,7 @@ def validate(model_paths, texture_paths, cells):
             for axis in range(3):
                 if local_min[axis] < -1e-6 or local_max[axis] > 16 + 1e-6:
                     raise AssertionError(f"Rotated element escapes 0..16 in {path.name}: {source['name']}")
-                offset = (part_x * 16, part_y * 16, 0)[axis]
+                offset = (part_x * 16, part_y * 16, part_z * 16)[axis]
                 combined_min[axis] = min(combined_min[axis], local_min[axis] + offset)
                 combined_max[axis] = max(combined_max[axis], local_max[axis] + offset)
             for face in output["faces"].values():
@@ -548,7 +646,7 @@ def validate(model_paths, texture_paths, cells):
                 if texture_path not in texture_set or not texture_path.is_file():
                     raise AssertionError(f"Missing texture {texture_ref} referenced by {path.name}")
     expected_min = (0, 0, 0)
-    expected_max = (48, 32, 16)
+    expected_max = (48, 32, 32)
     if any(abs(combined_min[i] - expected_min[i]) > 1e-6 for i in range(3)):
         raise AssertionError(f"Combined minimum bounds are {combined_min}, expected {expected_min}")
     if any(abs(combined_max[i] - expected_max[i]) > 1e-6 for i in range(3)):
@@ -567,8 +665,12 @@ def main():
     total_elements = validate(model_paths, texture_paths, cells)
     print(f"Generated models: {len(model_paths)}")
     print(f"Generated textures: {len(texture_paths)}")
-    print(f"Geometry elements across six parts: {total_elements}")
-    print("Combined bounds: 48 x 16 x 32 (X x Z x Y)")
+    for part_x in range(3):
+        for part_z in range(2):
+            for part_y in range(2):
+                print(f"part_x{part_x}_z{part_z}_y{part_y}: {len(cells[(part_x, part_z, part_y)])} elements")
+    print(f"Geometry elements across twelve parts: {total_elements}")
+    print("Combined bounds: 48 x 32 x 32 (X x Z x Y)")
     print(f"Preview: {PREVIEW_PATH}")
     print("Validation: PASS")
 

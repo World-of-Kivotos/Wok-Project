@@ -29,7 +29,7 @@ TEXTURES = {
     "rivet": "miningdim:block/generator/industrial/rivet_steel",
 }
 
-PART_KEYS = [(x, y) for x in range(3) for y in range(2)]
+PART_KEYS = [(x, z, y) for x in range(3) for z in range(2) for y in range(2)]
 FACE_NAMES = ("north", "south", "east", "west", "up", "down")
 ALLOWED_ANGLES = {-45.0, -22.5, 0.0, 22.5, 45.0}
 
@@ -45,7 +45,7 @@ class Element:
     shade: bool = True
 
 
-PARTS: dict[tuple[int, int], list[Element]] = {key: [] for key in PART_KEYS}
+PARTS: dict[tuple[int, int, int], list[Element]] = {key: [] for key in PART_KEYS}
 
 
 def vec(values: Iterable[float]) -> tuple[float, float, float]:
@@ -60,7 +60,7 @@ def rotation(axis: str, angle: float, origin: Iterable[float]) -> dict[str, obje
 
 
 def add(
-    part: tuple[int, int],
+    part: tuple[int, int, int],
     name: str,
     start: Iterable[float],
     end: Iterable[float],
@@ -83,12 +83,12 @@ def add(
     )
 
 
-def rivet(part: tuple[int, int], name: str, x: float, y: float, z: float, size: float = 0.55) -> None:
+def rivet(part: tuple[int, int, int], name: str, x: float, y: float, z: float, size: float = 0.55) -> None:
     add(part, name, (x, y, z), (x + size, y + size, z + size), "rivet", shade=False)
 
 
 def rotated_brace(
-    part: tuple[int, int],
+    part: tuple[int, int, int],
     name: str,
     start: tuple[float, float, float],
     end: tuple[float, float, float],
@@ -99,7 +99,7 @@ def rotated_brace(
 
 
 def add_common_lower_frame(x_index: int) -> None:
-    part = (x_index, 0)
+    part = (x_index, 0, 0)
     add(part, "full_depth_base", (0, 0, 0), (16, 1.5, 16), "base")
     add(part, "front_lower_rail", (0, 1.5, 0), (16, 3.0, 2.0), "frame", face_textures={"up": "edge"})
     add(part, "rear_lower_rail", (0, 1.5, 14), (16, 3.0, 16), "frame", face_textures={"up": "edge"})
@@ -115,7 +115,7 @@ def add_common_lower_frame(x_index: int) -> None:
 
 
 def add_common_upper_frame(x_index: int) -> None:
-    part = (x_index, 1)
+    part = (x_index, 0, 1)
     add(part, "front_left_upper_post", (0, 0, 0), (1.3, 8.5, 2.2), "frame", face_textures={"east": "edge"})
     add(part, "front_right_upper_post", (14.7, 0, 0), (16, 8.5, 2.2), "frame", face_textures={"west": "edge"})
     add(part, "rear_left_upper_post", (0, 0, 13.8), (1.3, 8.5, 16), "frame")
@@ -126,7 +126,7 @@ def add_common_upper_frame(x_index: int) -> None:
 
 
 def build_left_access_section() -> None:
-    lower = (0, 0)
+    lower = (0, 0, 0)
     add(lower, "left_access_body", (2.1, 3, 2.3), (13.9, 13.4, 14.1), "dark", face_textures={"north": "panel", "up": "edge"})
     add(lower, "left_access_door", (3.2, 4.2, 1.75), (12.7, 10.6, 2.55), "panel")
     add(lower, "left_door_top_frame", (3.0, 10.5, 1.45), (13.0, 11.25, 2.75), "edge")
@@ -143,7 +143,7 @@ def build_left_access_section() -> None:
         for y in (4.4, 9.65):
             rivet(lower, "left_door_rivet", x, y, 1.1)
 
-    upper = (0, 1)
+    upper = (0, 0, 1)
     add(upper, "access_upper_plinth", (1.4, 0, 2.0), (14.5, 2.5, 15.0), "base", face_textures={"north": "edge", "up": "panel"})
     add(upper, "access_upper_core", (2.2, 2.2, 5.2), (13.9, 7.6, 14.3), "dark")
     slope = rotation("x", -22.5, (8.0, 5.7, 10.5))
@@ -164,7 +164,7 @@ def build_left_access_section() -> None:
 
 
 def build_center_power_section() -> None:
-    lower = (1, 0)
+    lower = (1, 0, 0)
     add(lower, "power_lower_body", (1.5, 3.0, 2.2), (14.5, 15.2, 14.2), "dark", face_textures={"north": "panel", "up": "edge"})
     add(lower, "power_service_recess", (2.3, 4.0, 1.55), (13.7, 10.5, 2.55), "exhaust")
     door_ranges = ((2.8, 6.0), (6.35, 9.65), (10.0, 13.2))
@@ -179,7 +179,7 @@ def build_center_power_section() -> None:
     for x in (1.5, 5.4, 10.0, 13.9):
         rivet(lower, "power_crossbeam_rivet", x, 12.8, 0.25, 0.6)
 
-    upper = (1, 1)
+    upper = (1, 0, 1)
     add(upper, "power_upper_body", (1.3, 0, 2.4), (14.7, 13.6, 15.0), "dark", face_textures={"north": "panel", "up": "panel"})
     add(upper, "power_louver_recess", (2.15, 1.8, 1.35), (13.85, 9.7, 3.0), "exhaust")
     add(upper, "power_louver_left_frame", (1.75, 1.3, 0.95), (3.0, 10.2, 3.4), "frame", face_textures={"north": "edge"})
@@ -206,7 +206,7 @@ def build_center_power_section() -> None:
 
 
 def build_right_control_section() -> None:
-    lower = (2, 0)
+    lower = (2, 0, 0)
     add(lower, "control_lower_body", (2.0, 3.0, 5.0), (14.0, 15.0, 14.3), "dark", face_textures={"north": "panel", "up": "edge"})
     add(lower, "control_door", (3.8, 3.8, 1.55), (12.1, 9.4, 2.55), "panel")
     add(lower, "control_door_top_frame", (3.4, 9.1, 1.15), (12.5, 10.0, 2.9), "edge")
@@ -235,7 +235,7 @@ def build_right_control_section() -> None:
         for y in (3.8, 8.75):
             rivet(lower, "control_door_rivet", x, y, 0.8)
 
-    upper = (2, 1)
+    upper = (2, 0, 1)
     add(upper, "control_top_platform", (1.3, 0, 2.0), (14.7, 3.2, 15.0), "base", face_textures={"north": "edge", "up": "panel"})
     add(upper, "control_platform_front_rail", (0, 2.0, 0), (16, 4.0, 2.3), "frame", face_textures={"up": "edge"})
     add(upper, "control_platform_warning", (10.1, 2.2, 0.1), (13.4, 3.8, 0.65), "frame", face_textures={"north": "warning", "up": "warning"}, shade=False)
@@ -264,13 +264,161 @@ def build_right_control_section() -> None:
         rivet(upper, "exhaust_rivet", x, y, z)
 
 
+def add_rear_lower_frame(x_index: int) -> None:
+    part = (x_index, 1, 0)
+    add(part, "rear_full_depth_base", (0, 0, 0), (16, 1.5, 16), "base")
+    add(part, "rear_join_crossbeam", (0, 1.5, 0), (16, 3.0, 1.8), "frame", face_textures={"up": "edge"})
+    add(part, "rear_end_crossbeam", (0, 1.5, 14.0), (16, 3.0, 16), "frame", face_textures={"up": "edge", "south": "edge"})
+    add(part, "rear_left_depth_rail", (0, 1.5, 1.8), (1.5, 3.0, 14.0), "frame", face_textures={"up": "edge"})
+    add(part, "rear_right_depth_rail", (14.5, 1.5, 1.8), (16, 3.0, 14.0), "frame", face_textures={"up": "edge"})
+    add(part, "rear_left_join_post", (0, 3.0, 0), (1.3, 16, 1.8), "frame", face_textures={"east": "edge"})
+    add(part, "rear_right_join_post", (14.7, 3.0, 0), (16, 16, 1.8), "frame", face_textures={"west": "edge"})
+    add(part, "rear_left_end_post", (0, 3.0, 14.0), (1.3, 16, 16), "frame", face_textures={"south": "edge"})
+    add(part, "rear_right_end_post", (14.7, 3.0, 14.0), (16, 16, 16), "frame", face_textures={"south": "edge"})
+    add(part, "rear_mid_chassis_tie", (1.3, 2.0, 7.2), (14.7, 3.4, 8.7), "edge")
+    for px in (0.25, 15.2):
+        rivet(part, "rear_base_rivet", px, 2.0, 15.2, 0.55)
+        rivet(part, "rear_post_rivet", px, 14.2, 15.2, 0.55)
+
+
+def add_rear_upper_frame(x_index: int) -> None:
+    part = (x_index, 1, 1)
+    add(part, "rear_left_join_upper_post", (0, 0, 0), (1.3, 8.5, 1.8), "frame", face_textures={"east": "edge"})
+    add(part, "rear_right_join_upper_post", (14.7, 0, 0), (16, 8.5, 1.8), "frame", face_textures={"west": "edge"})
+    add(part, "rear_left_end_upper_post", (0, 0, 14.0), (1.3, 13.8, 16), "frame", face_textures={"south": "edge"})
+    add(part, "rear_right_end_upper_post", (14.7, 0, 14.0), (16, 13.8, 16), "frame", face_textures={"south": "edge"})
+    add(part, "rear_left_roof_depth_rail", (0, 12.5, 1.8), (1.5, 14.4, 14.0), "frame", face_textures={"up": "edge"})
+    add(part, "rear_right_roof_depth_rail", (14.5, 12.5, 1.8), (16, 14.4, 14.0), "frame", face_textures={"up": "edge"})
+    add(part, "rear_end_crown_beam", (0, 12.5, 14.0), (16, 14.4, 16), "frame", face_textures={"up": "edge", "south": "edge"})
+    add(part, "rear_roof_mid_tie", (1.3, 12.8, 7.2), (14.7, 14.2, 8.7), "edge")
+    for px in (0.25, 15.2):
+        rivet(part, "rear_crown_rivet", px, 12.9, 15.15, 0.55)
+
+
+def build_rear_access_section() -> None:
+    lower = (0, 1, 0)
+    add(lower, "rear_access_engine_housing", (2.0, 3.0, 1.4), (14.0, 14.0, 14.3), "dark", face_textures={"south": "panel", "up": "edge"})
+    add(lower, "rear_access_service_recess", (3.0, 4.1, 13.8), (13.0, 11.6, 15.1), "exhaust")
+    add(lower, "rear_access_service_door", (3.7, 4.8, 14.7), (12.3, 10.9, 15.6), "panel")
+    add(lower, "rear_access_door_top_frame", (3.2, 10.6, 14.3), (12.8, 11.6, 15.8), "edge")
+    add(lower, "rear_access_door_bottom_frame", (3.2, 4.2, 14.3), (12.8, 5.2, 15.8), "edge")
+    add(lower, "rear_access_door_left_frame", (3.1, 5.0, 14.3), (4.1, 10.8, 15.8), "edge")
+    add(lower, "rear_access_door_right_frame", (11.9, 5.0, 14.3), (12.9, 10.8, 15.8), "edge")
+    add(lower, "rear_access_door_handle", (9.9, 6.3, 15.35), (10.8, 8.8, 15.85), "frame", face_textures={"south": "edge"})
+    add(lower, "rear_access_depth_pipe", (11.8, 5.0, 0.2), (13.8, 7.0, 14.7), "exhaust", face_textures={"east": "edge", "up": "edge"})
+    for z0 in (1.0, 7.0, 12.7):
+        add(lower, "rear_access_pipe_collar", (11.45, 4.65, z0), (14.15, 7.35, z0 + 0.8), "edge")
+    for x, y in ((3.45, 4.65), (12.05, 4.65), (3.45, 10.5), (12.05, 10.5)):
+        rivet(lower, "rear_access_door_rivet", x, y, 15.25)
+
+    upper = (0, 1, 1)
+    add(upper, "rear_access_upper_engine_shell", (2.0, 0, 1.2), (14.0, 10.8, 14.5), "dark", face_textures={"south": "panel", "up": "panel"})
+    add(upper, "rear_access_upper_roof", (2.8, 10.2, 1.8), (13.2, 12.2, 14.8), "panel", face_textures={"up": "edge"})
+    add(upper, "rear_access_louver_recess", (2.8, 2.0, 13.7), (13.2, 9.2, 15.25), "exhaust")
+    add(upper, "rear_access_louver_left_frame", (2.4, 1.6, 13.35), (3.5, 9.8, 15.7), "frame", face_textures={"south": "edge"})
+    add(upper, "rear_access_louver_right_frame", (12.5, 1.6, 13.35), (13.6, 9.8, 15.7), "frame", face_textures={"south": "edge"})
+    add(upper, "rear_access_louver_top_frame", (2.6, 8.9, 13.35), (13.4, 10.1, 15.7), "frame", face_textures={"south": "edge"})
+    add(upper, "rear_access_louver_bottom_frame", (2.6, 1.5, 13.35), (13.4, 2.7, 15.7), "frame", face_textures={"south": "edge"})
+    for index in range(4):
+        y0 = 2.9 + index * 1.35
+        add(upper, f"rear_access_louver_slat_{index}", (3.5, y0, 14.65), (12.5, y0 + 0.52, 15.75), "edge", face_textures={"south": "vent"}, shade=False)
+    add(upper, "rear_access_roof_spine", (6.8, 11.8, 1.0), (9.2, 13.2, 14.8), "frame", face_textures={"up": "edge"})
+    for x, y in ((2.9, 2.1), (12.55, 2.1), (2.9, 9.1), (12.55, 9.1)):
+        rivet(upper, "rear_access_louver_rivet", x, y, 15.25)
+
+
+def build_rear_power_section() -> None:
+    lower = (1, 1, 0)
+    add(lower, "rear_power_engine_bay_shell", (1.5, 3.0, 0.8), (14.5, 15.0, 14.3), "dark", face_textures={"south": "panel", "up": "edge"})
+    add(lower, "rear_power_crankcase", (2.3, 3.6, 1.0), (13.7, 8.4, 13.9), "base", face_textures={"east": "panel", "west": "panel"})
+    for x0 in (3.0, 11.0):
+        add(lower, "rear_power_depth_pipe", (x0, 8.0, 0.2), (x0 + 2.0, 10.0, 14.8), "exhaust", face_textures={"up": "edge"})
+        for z0 in (1.0, 7.1, 13.0):
+            add(lower, "rear_power_pipe_collar", (x0 - 0.3, 7.7, z0), (x0 + 2.3, 10.3, z0 + 0.8), "edge")
+    add(lower, "rear_power_service_recess", (3.0, 4.2, 13.8), (13.0, 12.4, 15.2), "exhaust")
+    add(lower, "rear_power_service_panel", (3.6, 4.8, 14.75), (12.4, 11.8, 15.65), "panel")
+    add(lower, "rear_power_panel_top_frame", (3.2, 11.5, 14.3), (12.8, 12.6, 15.8), "edge")
+    add(lower, "rear_power_panel_bottom_frame", (3.2, 4.3, 14.3), (12.8, 5.4, 15.8), "edge")
+    add(lower, "rear_power_panel_left_frame", (3.1, 5.0, 14.3), (4.2, 11.8, 15.8), "edge")
+    add(lower, "rear_power_panel_right_frame", (11.8, 5.0, 14.3), (12.9, 11.8, 15.8), "edge")
+    add(lower, "rear_power_warning_plate", (5.7, 2.1, 15.1), (10.3, 3.5, 15.75), "warning", shade=False)
+    for x, y in ((3.45, 4.75), (12.05, 4.75), (3.45, 11.45), (12.05, 11.45)):
+        rivet(lower, "rear_power_panel_rivet", x, y, 15.25)
+
+    upper = (1, 1, 1)
+    add(upper, "rear_power_cooling_shroud", (1.5, 0, 0.7), (14.5, 12.8, 14.5), "dark", face_textures={"south": "panel", "up": "panel"})
+    add(upper, "rear_power_radiator_recess", (2.2, 1.5, 13.65), (13.8, 10.5, 15.25), "exhaust")
+    add(upper, "rear_power_radiator_left_frame", (1.8, 1.1, 13.3), (3.0, 11.1, 15.7), "frame", face_textures={"south": "edge"})
+    add(upper, "rear_power_radiator_right_frame", (13.0, 1.1, 13.3), (14.2, 11.1, 15.7), "frame", face_textures={"south": "edge"})
+    add(upper, "rear_power_radiator_top_frame", (2.0, 10.2, 13.3), (14.0, 11.5, 15.7), "frame", face_textures={"south": "edge"})
+    add(upper, "rear_power_radiator_bottom_frame", (2.0, 1.0, 13.3), (14.0, 2.3, 15.7), "frame", face_textures={"south": "edge"})
+    for index in range(5):
+        y0 = 2.45 + index * 1.45
+        add(upper, f"rear_power_radiator_louver_{index}", (3.0, y0, 14.6), (13.0, y0 + 0.58, 15.75), "edge", face_textures={"south": "vent"}, shade=False)
+    for x in (6.3, 9.45):
+        add(upper, "rear_power_radiator_separator", (x, 2.0, 14.3), (x + 0.55, 10.4, 15.8), "frame")
+    add(upper, "rear_power_roof_cowl", (2.2, 11.0, 1.0), (13.8, 14.3, 14.8), "panel", face_textures={"up": "edge"})
+    add(upper, "rear_power_roof_left_rib", (2.0, 12.0, 1.2), (3.2, 14.7, 14.4), "frame", face_textures={"up": "edge"})
+    add(upper, "rear_power_roof_right_rib", (12.8, 12.0, 1.2), (14.0, 14.7, 14.4), "frame", face_textures={"up": "edge"})
+    for x, y in ((2.2, 1.6), (13.25, 1.6), (2.2, 10.4), (13.25, 10.4)):
+        rivet(upper, "rear_power_radiator_rivet", x, y, 15.25)
+
+
+def build_rear_exhaust_section() -> None:
+    lower = (2, 1, 0)
+    add(lower, "rear_exhaust_manifold_base", (1.5, 3.0, 0.6), (14.5, 7.0, 14.5), "dark", face_textures={"up": "edge", "south": "panel"})
+    for x0 in (3.0, 10.5):
+        add(lower, "rear_exhaust_depth_pipe", (x0, 6.5, 0.2), (x0 + 2.5, 9.0, 14.8), "exhaust", face_textures={"up": "edge"})
+        for z0 in (1.0, 7.0, 13.0):
+            add(lower, "rear_exhaust_pipe_collar", (x0 - 0.35, 6.15, z0), (x0 + 2.85, 9.35, z0 + 0.85), "edge")
+    add(lower, "rear_exhaust_maintenance_box", (2.0, 7.0, 10.8), (14.0, 14.2, 14.6), "dark", face_textures={"south": "panel", "up": "edge"})
+    add(lower, "rear_exhaust_maintenance_recess", (3.0, 8.0, 14.0), (13.0, 12.8, 15.25), "exhaust")
+    add(lower, "rear_exhaust_maintenance_door", (3.6, 8.5, 14.8), (12.4, 12.2, 15.65), "panel")
+    add(lower, "rear_exhaust_door_top_frame", (3.2, 11.9, 14.35), (12.8, 13.0, 15.8), "edge")
+    add(lower, "rear_exhaust_door_bottom_frame", (3.2, 7.9, 14.35), (12.8, 9.0, 15.8), "edge")
+    add(lower, "rear_exhaust_door_left_frame", (3.1, 8.5, 14.35), (4.2, 12.2, 15.8), "edge")
+    add(lower, "rear_exhaust_door_right_frame", (11.8, 8.5, 14.35), (12.9, 12.2, 15.8), "edge")
+    add(lower, "rear_exhaust_side_service_panel", (14.15, 4.2, 3.2), (15.55, 12.2, 12.8), "panel", face_textures={"east": "control"})
+    add(lower, "rear_exhaust_side_service_handle", (15.4, 6.4, 9.5), (15.9, 9.0, 10.4), "edge")
+    for x, y in ((3.45, 8.3), (12.05, 8.3), (3.45, 11.85), (12.05, 11.85)):
+        rivet(lower, "rear_exhaust_door_rivet", x, y, 15.25)
+
+    upper = (2, 1, 1)
+    add(upper, "rear_exhaust_upper_pedestal", (1.4, 0, 0.5), (14.6, 4.0, 14.8), "base", face_textures={"up": "edge", "south": "panel"})
+    for x0 in (3.0, 10.0):
+        add(upper, "rear_exhaust_riser", (x0, 3.8, 0.4), (x0 + 3.0, 12.8, 14.7), "exhaust", face_textures={"east": "dark", "west": "dark"})
+        for z0 in (1.0, 7.0, 13.0):
+            add(upper, "rear_exhaust_riser_collar", (x0 - 0.35, 5.5, z0), (x0 + 3.35, 8.0, z0 + 0.85), "edge")
+    add(upper, "rear_exhaust_riser_top_bridge", (2.5, 11.8, 1.0), (13.5, 14.2, 14.6), "frame", face_textures={"up": "edge"})
+    add(upper, "rear_exhaust_end_housing", (2.2, 4.2, 11.4), (13.8, 11.8, 14.8), "dark", face_textures={"south": "panel", "up": "edge"})
+    add(upper, "rear_exhaust_louver_recess", (3.0, 5.1, 14.1), (13.0, 10.8, 15.25), "exhaust")
+    add(upper, "rear_exhaust_louver_left_frame", (2.6, 4.7, 13.75), (3.7, 11.4, 15.7), "frame", face_textures={"south": "edge"})
+    add(upper, "rear_exhaust_louver_right_frame", (12.3, 4.7, 13.75), (13.4, 11.4, 15.7), "frame", face_textures={"south": "edge"})
+    add(upper, "rear_exhaust_louver_top_frame", (2.8, 10.5, 13.75), (13.2, 11.7, 15.7), "frame", face_textures={"south": "edge"})
+    add(upper, "rear_exhaust_louver_bottom_frame", (2.8, 4.6, 13.75), (13.2, 5.8, 15.7), "frame", face_textures={"south": "edge"})
+    for index in range(3):
+        y0 = 6.0 + index * 1.45
+        add(upper, f"rear_exhaust_louver_slat_{index}", (3.7, y0, 14.65), (12.3, y0 + 0.58, 15.75), "edge", face_textures={"south": "vent"}, shade=False)
+    add(upper, "rear_exhaust_side_duct_guard", (14.15, 4.0, 3.0), (15.55, 11.8, 12.8), "frame", face_textures={"east": "panel"})
+    add(upper, "rear_exhaust_side_warning", (15.35, 6.2, 5.0), (15.85, 8.1, 10.8), "warning", shade=False)
+    for x, y in ((2.9, 5.1), (12.55, 5.1), (2.9, 10.75), (12.55, 10.75)):
+        rivet(upper, "rear_exhaust_louver_rivet", x, y, 15.25)
+
+
 def build_geometry() -> None:
+    for elements in PARTS.values():
+        elements.clear()
     for x_index in range(3):
         add_common_lower_frame(x_index)
         add_common_upper_frame(x_index)
+        add_rear_lower_frame(x_index)
+        add_rear_upper_frame(x_index)
     build_left_access_section()
     build_center_power_section()
     build_right_control_section()
+    build_rear_access_section()
+    build_rear_power_section()
+    build_rear_exhaust_section()
 
 
 def clean_number(value: float) -> int | float:
@@ -304,14 +452,16 @@ def element_json(element: Element) -> dict[str, object]:
 
 def write_models() -> list[Path]:
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    for old_path in MODEL_DIR.glob("part_x*_y*.json"):
+        old_path.unlink()
     paths: list[Path] = []
-    for x_index, y_index in PART_KEYS:
-        path = MODEL_DIR / f"part_x{x_index}_y{y_index}.json"
+    for x_index, z_index, y_index in PART_KEYS:
+        path = MODEL_DIR / f"part_x{x_index}_z{z_index}_y{y_index}.json"
         payload = {
             "parent": "minecraft:block/block",
             "ambientocclusion": True,
             "textures": {**TEXTURES, "particle": TEXTURES["base"]},
-            "elements": [element_json(element) for element in PARTS[(x_index, y_index)]],
+            "elements": [element_json(element) for element in PARTS[(x_index, z_index, y_index)]],
         }
         path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         paths.append(path)
@@ -485,13 +635,13 @@ def render_preview() -> None:
         shade_value = round(233 - 28 * (y / height))
         draw.line((0, y, width, y), fill=(shade_value, shade_value, shade_value - 2, 255))
 
-    camera = (78.0, 55.0, -92.0)
-    target = (24.0, 14.0, 8.0)
+    camera = (94.0, 62.0, -108.0)
+    target = (24.0, 14.0, 16.0)
     forward = normalize(subtract(target, camera))
     screen_right = normalize(cross(forward, (0.0, 1.0, 0.0)))
     screen_up = normalize(cross(screen_right, forward))
-    zoom = 21.0 * scale
-    center_x, center_y = 750 * scale, 535 * scale
+    zoom = 16.6 * scale
+    center_x, center_y = 750 * scale, 548 * scale
 
     def project(point: tuple[float, float, float]) -> tuple[int, int]:
         relative = subtract(point, target)
@@ -500,10 +650,12 @@ def render_preview() -> None:
             round(center_y - dot(relative, screen_up) * zoom),
         )
 
-    floor_points = [(-4.0, -0.05, -4.0), (52.0, -0.05, -4.0), (52.0, -0.05, 20.0), (-4.0, -0.05, 20.0)]
+    floor_points = [(-4.0, -0.05, -4.0), (52.0, -0.05, -4.0), (52.0, -0.05, 36.0), (-4.0, -0.05, 36.0)]
     floor_polygon = [project(point) for point in floor_points]
     draw.polygon(floor_polygon, fill=(178, 180, 178, 110))
     draw.line(floor_polygon + [floor_polygon[0]], fill=(125, 127, 124, 90), width=2 * scale)
+    depth_seam = [project((-4.0, -0.04, 16.0)), project((52.0, -0.04, 16.0))]
+    draw.line(depth_seam, fill=(177, 133, 33, 125), width=2 * scale)
 
     faces = {
         "north": (0, 3, 2, 1),
@@ -515,8 +667,8 @@ def render_preview() -> None:
     }
     light = normalize((-0.35, 0.82, -0.55))
     render_faces: list[tuple[float, list[tuple[int, int]], str, float, str]] = []
-    for (x_index, y_index), elements in PARTS.items():
-        offset = (x_index * 16.0, y_index * 16.0, 0.0)
+    for (x_index, z_index, y_index), elements in PARTS.items():
+        offset = (x_index * 16.0, y_index * 16.0, z_index * 16.0)
         for element in elements:
             vertices = element_vertices(element, offset)
             for face_name, indices in faces.items():
@@ -548,7 +700,7 @@ def render_preview() -> None:
     except OSError:
         title_font = subtitle_font = label_font = ImageFont.load_default()
     draw.text((52 * scale, 40 * scale), "INDUSTRIAL GENERATOR", font=title_font, fill=(33, 35, 35, 255))
-    draw.text((55 * scale, 88 * scale), "3 x 1 x 2 MULTIBLOCK MODEL  |  NORTH-FACING ASSEMBLY", font=subtitle_font, fill=(75, 77, 75, 255))
+    draw.text((55 * scale, 88 * scale), "3 x 2 x 2 MULTIBLOCK MODEL  |  NORTH-FACING ASSEMBLY", font=subtitle_font, fill=(75, 77, 75, 255))
     labels = ((8.0, "ACCESS"), (24.0, "POWER CORE"), (40.0, "CONTROL / EXHAUST"))
     for x_position, label in labels:
         anchor = project((x_position, 0.0, -1.1))
@@ -556,6 +708,13 @@ def render_preview() -> None:
         label_width = text_box[2] - text_box[0]
         draw.rounded_rectangle((anchor[0] - label_width // 2 - 11 * scale, anchor[1] + 10 * scale, anchor[0] + label_width // 2 + 11 * scale, anchor[1] + 37 * scale), radius=5 * scale, fill=(26, 28, 28, 218))
         draw.text((anchor[0] - label_width // 2, anchor[1] + 13 * scale), label, font=label_font, fill=(219, 190, 107, 255))
+    depth_labels = ((8.0, "FRONT ROW"), (24.0, "REAR ROW"))
+    for z_position, label in depth_labels:
+        anchor = project((50.4, 0.0, z_position))
+        text_box = draw.textbbox((0, 0), label, font=label_font)
+        label_width = text_box[2] - text_box[0]
+        draw.rounded_rectangle((anchor[0] + 8 * scale, anchor[1] - 13 * scale, anchor[0] + label_width + 27 * scale, anchor[1] + 14 * scale), radius=5 * scale, fill=(26, 28, 28, 218))
+        draw.text((anchor[0] + 17 * scale, anchor[1] - 10 * scale), label, font=label_font, fill=(219, 190, 107, 255))
     canvas = canvas.resize((1500, 960), Image.Resampling.LANCZOS).convert("RGB")
     canvas.save(PREVIEW_PATH, quality=95)
 
@@ -565,9 +724,18 @@ def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict[
     referenced_textures: set[str] = set()
     actual_bounds = [[math.inf, -math.inf] for _ in range(3)]
     feature_counts = {feature: 0 for feature in ("frame", "sloped", "louver", "control", "exhaust", "rivet", "warning")}
+    rear_feature_counts = {feature: 0 for feature in ("depth_pipe", "maintenance", "power", "exhaust", "access", "roof")}
+    part_elements: dict[str, int] = {}
     element_total = 0
 
-    for (x_index, y_index), path in zip(PART_KEYS, model_paths):
+    expected_model_names = {f"part_x{x}_z{z}_y{y}.json" for x, z, y in PART_KEYS}
+    actual_model_names = {path.name for path in model_paths}
+    if actual_model_names != expected_model_names:
+        errors.append(f"Model filenames {sorted(actual_model_names)}, expected {sorted(expected_model_names)}")
+    if len(model_paths) != 12:
+        errors.append(f"Expected 12 model parts, received {len(model_paths)}")
+
+    for (x_index, z_index, y_index), path in zip(PART_KEYS, model_paths):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
@@ -598,18 +766,26 @@ def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict[
                 else:
                     referenced_textures.add(payload["textures"][reference[1:]])
 
-        offset = (x_index * 16.0, y_index * 16.0, 0.0)
-        for element in PARTS[(x_index, y_index)]:
+        offset = (x_index * 16.0, y_index * 16.0, z_index * 16.0)
+        elements = PARTS[(x_index, z_index, y_index)]
+        part_elements[path.stem] = len(elements)
+        for element in elements:
             element_total += 1
             lowered_name = element.name.lower()
             for feature in feature_counts:
                 if feature in lowered_name or (feature == "warning" and "warning" in element.face_textures.values()):
                     feature_counts[feature] += 1
+            for feature in rear_feature_counts:
+                if lowered_name.startswith("rear_") and feature in lowered_name:
+                    rear_feature_counts[feature] += 1
+            for point in element_vertices(element, (0.0, 0.0, 0.0)):
+                if any(value < -1e-6 or value > 16 + 1e-6 for value in point):
+                    errors.append(f"{path.name}: rotated geometry exceeds local 0..16 bounds at {point}")
             for point in element_vertices(element, offset):
                 for axis in range(3):
                     actual_bounds[axis][0] = min(actual_bounds[axis][0], point[axis])
                     actual_bounds[axis][1] = max(actual_bounds[axis][1], point[axis])
-                    limits = ((0, 48), (0, 32), (0, 16))[axis]
+                    limits = ((0, 48), (0, 32), (0, 32))[axis]
                     if point[axis] < limits[0] - 1e-6 or point[axis] > limits[1] + 1e-6:
                         errors.append(f"{path.name}: rotated geometry exceeds assembly bounds at {point}")
 
@@ -628,7 +804,7 @@ def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict[
                 errors.append(f"{path.name}: expected 16x16 RGBA, received {image.size} {image.mode}")
     if any("gunsmith" in path.read_text(encoding="utf-8").lower() for path in model_paths):
         errors.append("Generated model contains a gunsmith texture reference")
-    expected_bounds = ((0.0, 48.0), (0.0, 32.0), (0.0, 16.0))
+    expected_bounds = ((0.0, 48.0), (0.0, 32.0), (0.0, 32.0))
     for axis, expected in enumerate(expected_bounds):
         actual = tuple(round(value, 5) for value in actual_bounds[axis])
         if actual != expected:
@@ -636,16 +812,25 @@ def validate_models(model_paths: list[Path], texture_paths: list[Path]) -> dict[
     for feature, count in feature_counts.items():
         if count == 0:
             errors.append(f"Required visual feature missing: {feature}")
+    for feature, count in rear_feature_counts.items():
+        if count == 0:
+            errors.append(f"Required rear-depth feature missing: {feature}")
     if not PREVIEW_PATH.is_file():
         errors.append("Preview image was not created")
+    else:
+        with Image.open(PREVIEW_PATH) as preview:
+            if preview.size != (1500, 960):
+                errors.append(f"Preview expected 1500x960, received {preview.size}")
     if errors:
         raise RuntimeError("Industrial generator validation failed:\n- " + "\n- ".join(dict.fromkeys(errors)))
     return {
         "models": len(model_paths),
         "textures": len(texture_paths),
         "elements": element_total,
-        "bounds": {"x": [0, 48], "y": [0, 32], "z": [0, 16]},
+        "part_elements": part_elements,
+        "bounds": {"x": [0, 48], "y": [0, 32], "z": [0, 32]},
         "features": feature_counts,
+        "rear_features": rear_feature_counts,
         "status": "PASS",
     }
 

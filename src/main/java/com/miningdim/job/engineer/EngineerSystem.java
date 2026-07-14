@@ -6,11 +6,14 @@ import com.miningdim.job.engineer.effect.NanoAnvilGuard;
 import com.miningdim.job.engineer.effect.NanoEffectTicker;
 import com.miningdim.job.engineer.effect.NanoReactorHandler;
 import com.miningdim.job.engineer.effect.NanoShieldHandler;
+import com.miningdim.job.engineer.armor.PlateArmorDamageHandler;
+import com.miningdim.job.engineer.armor.PlateArmorEquipmentHandler;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import org.slf4j.Logger;
@@ -51,6 +54,12 @@ public final class EngineerSystem implements Subsystem {
         forgeBus.register(new NanoShieldHandler());
         forgeBus.register(new NanoReactorHandler());
         forgeBus.register(new NanoAnvilGuard());
+        forgeBus.register(new PlateArmorDamageHandler());
+        forgeBus.register(new PlateArmorEquipmentHandler());
+
+        if (ModList.get().isLoaded("tacz")) {
+            com.miningdim.job.engineer.armor.integration.PlateArmorTaczIntegrationBootstrap.assemble(forgeBus);
+        }
 
         // 客户端 Screen 注册 (FMLClientSetupEvent.enqueueWork; 经 DistExecutor 隔离, 防专用服务器触链)。
         modBus.addListener((FMLClientSetupEvent event) ->
@@ -58,7 +67,7 @@ public final class EngineerSystem implements Subsystem {
                         () -> () -> MenuScreens.register(
                                 ModEngineerMenus.PRODUCTION_TABLE.get(), ProductionTableScreen::new))));
 
-        LOGGER.info("[miningdim] millennium engineer subsystem registered (6 plates + 6 tables + effects + QTE)");
+        LOGGER.info("[miningdim] armorer subsystem registered (54 plate armors + 6 repair plates + 6 tables + effects + QTE)");
     }
 
     @Override

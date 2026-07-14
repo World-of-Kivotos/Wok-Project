@@ -1,6 +1,7 @@
 package com.miningdim.job.engineer;
 
 import com.electronwill.nightconfig.core.CommentedConfig;
+import com.miningdim.job.engineer.armor.PlateArmorConfig;
 import net.minecraftforge.common.ForgeConfigSpec;
 
 /**
@@ -18,6 +19,9 @@ import net.minecraftforge.common.ForgeConfigSpec;
 public final class EngineerConfig {
 
     public static final ForgeConfigSpec SPEC;
+
+    /** 新插板护甲的 R/Q/G/T 与机动矩阵；仍写入同一 miningdim-engineer.toml。 */
+    public static final PlateArmorConfig PLATE_ARMOR;
 
     // ---- 3.2 矿石绑档生产配方 (单板矿耗为定值) ----
     public static final ForgeConfigSpec.IntValue LOW_IRON_COST;
@@ -232,6 +236,8 @@ public final class EngineerConfig {
         RADIANT_FAIL_REFUND = b.comment("Netherite ingots refunded on a failed radiant attempt (debris)")
                 .defineInRange("failRefund", 1, 0, 64);
         b.pop();
+
+        PLATE_ARMOR = PlateArmorConfig.define(b);
 
         SPEC = b.build();
     }

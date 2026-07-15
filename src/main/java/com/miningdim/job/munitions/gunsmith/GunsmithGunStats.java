@@ -16,7 +16,7 @@ public final class GunsmithGunStats {
     public static final String PARTS_KEY = "Parts";
     public static final String STATS_KEY = "Stats";
     public static final String VERSION_KEY = "version";
-    public static final int CURRENT_VERSION = 2;
+    public static final int CURRENT_VERSION = 3;
 
     private final CompoundTag root;
     private final CompoundTag stats;
@@ -33,12 +33,12 @@ public final class GunsmithGunStats {
         if (!blueprint.platform().id().equals(platform)) {
             throw new IllegalArgumentException("Gunsmith platform does not match template: " + platform);
         }
-        this.parts = readParts(root, blueprint.requiredParts());
+        this.parts = readParts(root, blueprint, version);
         ResourceLocation encodedGunId = gunId();
         if (!matchesBlueprintGunId(blueprint, encodedGunId)) {
             throw new IllegalArgumentException("Gunsmith gun id does not match template: " + encodedGunId);
         }
-        if (version == CURRENT_VERSION) {
+        if (version >= 2) {
             validateCurrentStats();
         } else {
             value("damage");
@@ -137,7 +137,19 @@ public final class GunsmithGunStats {
     }
 
     public double recoilChange() {
-        return inverse(recoil()) - 1.0D;
+        return verticalRecoilMultiplier() - 1.0D;
+    }
+
+    public double fireRateMultiplier() {
+        return version >= 3 ? value("fireRate") : 1.0D;
+    }
+
+    public double verticalRecoilMultiplier() {
+        return version >= 3 ? value("verticalRecoil") : inverse(recoil());
+    }
+
+    public double horizontalRecoilMultiplier() {
+        return inverse(recoil());
     }
 
     public double spreadChange() {
@@ -160,6 +172,13 @@ public final class GunsmithGunStats {
             throw new IllegalArgumentException("Base ADS time must be positive and finite");
         }
         return baseAdsTime * inverse(coefficient);
+    }
+
+    static double combineVerticalRecoil(double recoilCoefficient, double variantMultiplier) {
+        if (!Double.isFinite(variantMultiplier) || variantMultiplier <= 0.0D) {
+            throw new IllegalArgumentException("Variant recoil multiplier must be positive and finite");
+        }
+        return inverse(recoilCoefficient) * variantMultiplier;
     }
 
     private static double inverse(double coefficient) {
@@ -189,13 +208,14 @@ public final class GunsmithGunStats {
             throw new IllegalArgumentException("Gunsmith root data has no integer version");
         }
         int version = root.getInt(VERSION_KEY);
-        if (version != CURRENT_VERSION) {
+        if (version != 2 && version != CURRENT_VERSION) {
             throw new IllegalArgumentException("Unsupported gunsmith data version: " + version);
         }
         return version;
     }
 
-    private static List<PartSummary> readParts(CompoundTag root, Set<GunsmithPressPart> requiredParts) {
+    private static List<PartSummary> readParts(CompoundTag root, GunsmithBlueprint blueprint, int version) {
+        Set<GunsmithPressPart> requiredParts = blueprint.requiredParts();
         if (!root.contains(PARTS_KEY, Tag.TAG_COMPOUND)) {
             throw new IllegalArgumentException("Gunsmith root data has no parts compound");
         }
@@ -220,6 +240,13 @@ public final class GunsmithGunStats {
                 throw new IllegalArgumentException("Gunsmith part data is not a compound: " + part.id());
             }
             CompoundTag encodedPart = encodedParts.getCompound(part.id());
+            GunsmithPartVariant variant = version >= 3
+                    ? requireVariant(requireString(encodedPart, "variant"))
+                    : GunsmithPartVariant.BASIC;
+            if (!variant.supports(blueprint.platform(), part)) {
+                throw new IllegalArgumentException("Gunsmith part variant is incompatible with its slot: "
+                        + variant.id() + " for " + blueprint.platform().id() + "/" + part.id());
+            }
             String qualityId = requireString(encodedPart, "quality");
             GunsmithPartQuality quality = requireQuality(qualityId);
             if (!encodedPart.contains("coefficient", Tag.TAG_DOUBLE)) {
@@ -231,7 +258,7 @@ public final class GunsmithGunStats {
                     || coefficient > quality.maxCoefficient()) {
                 throw new IllegalArgumentException("Gunsmith part coefficient is outside the quality range: " + part.id());
             }
-            parts.add(new PartSummary(part, quality, coefficient));
+            parts.add(new PartSummary(part, variant, quality, coefficient));
         }
         return List.copyOf(parts);
     }
@@ -268,6 +295,10 @@ public final class GunsmithGunStats {
         throw new IllegalArgumentException("Unknown gunsmith part quality: " + qualityId);
     }
 
+    private static GunsmithPartVariant requireVariant(String variantId) {
+        return GunsmithPartVariant.byId(variantId);
+    }
+
     private PartSummary requiredPart(GunsmithPressPart part) {
         for (PartSummary summary : parts) {
             if (summary.part() == part) {
@@ -285,6 +316,10 @@ public final class GunsmithGunStats {
         validateCurrentStat("spread", spread());
         validateCurrentStat("handling", handling());
         validateCurrentStat("average", average());
+        if (version >= 3) {
+            validateCurrentStat("fireRate", derivedFireRateMultiplier());
+            validateCurrentStat("verticalRecoil", derivedVerticalRecoilMultiplier());
+        }
     }
 
     private void validateCurrentStat(String key, double expected) {
@@ -295,7 +330,26 @@ public final class GunsmithGunStats {
     }
 
     private double coefficient(GunsmithStat stat) {
-        return stat.coefficient(blueprint.platform(), part -> requiredPart(part).coefficient());
+        return stat.coefficient(blueprint.platform(), part -> {
+            PartSummary summary = requiredPart(part);
+            return summary.variant().coefficientForStat(stat, summary.coefficient());
+        });
+    }
+
+    private double derivedFireRateMultiplier() {
+        double multiplier = 1.0D;
+        for (PartSummary part : parts) {
+            multiplier *= part.variant().fireRateMultiplier(part.coefficient());
+        }
+        return multiplier;
+    }
+
+    private double derivedVerticalRecoilMultiplier() {
+        double variantMultiplier = 1.0D;
+        for (PartSummary part : parts) {
+            variantMultiplier *= part.variant().verticalRecoilMultiplier(part.coefficient());
+        }
+        return combineVerticalRecoil(recoil(), variantMultiplier);
     }
 
     private double averageCoefficient() {
@@ -306,6 +360,7 @@ public final class GunsmithGunStats {
         return total / parts.size();
     }
 
-    public record PartSummary(GunsmithPressPart part, GunsmithPartQuality quality, double coefficient) {
+    public record PartSummary(GunsmithPressPart part, GunsmithPartVariant variant,
+                              GunsmithPartQuality quality, double coefficient) {
     }
 }

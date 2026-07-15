@@ -169,17 +169,19 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
                 x, y, 0xFFB9D7DE, 0.68F);
         drawStat(graphics, x, y + 15, "screen.miningdim.gunsmith_assembly.stat.damage",
                 formatTwo(baseStats.damage()) + " > " + formatTwo(preview.damage()));
-        drawStat(graphics, x, y + 29, "screen.miningdim.gunsmith_assembly.stat.headshot",
+        drawStat(graphics, x, y + 28, "screen.miningdim.gunsmith_assembly.stat.headshot",
                 formatTwo(baseStats.headshot()) + " > " + formatTwo(preview.headshot()));
-        drawStat(graphics, x, y + 43, "screen.miningdim.gunsmith_assembly.stat.range",
+        drawStat(graphics, x, y + 41, "screen.miningdim.gunsmith_assembly.stat.range",
                 formatRange(baseStats.effectiveRange()) + " > " + formatRange(preview.effectiveRange()));
-        drawStat(graphics, x, y + 57, "screen.miningdim.gunsmith_assembly.stat.recoil",
+        drawStat(graphics, x, y + 54, "screen.miningdim.gunsmith_assembly.stat.semi_auto_fire_rate",
+                formatSignedPercent(preview.fireRateChange()));
+        drawStat(graphics, x, y + 67, "screen.miningdim.gunsmith_assembly.stat.vertical_recoil",
                 formatSignedPercent(preview.recoilChange()));
-        drawStat(graphics, x, y + 71, "screen.miningdim.gunsmith_assembly.stat.spread",
+        drawStat(graphics, x, y + 80, "screen.miningdim.gunsmith_assembly.stat.spread",
                 formatSignedPercent(preview.spreadChange()));
-        drawStat(graphics, x, y + 85, "screen.miningdim.gunsmith_assembly.stat.ads",
+        drawStat(graphics, x, y + 93, "screen.miningdim.gunsmith_assembly.stat.ads",
                 formatSeconds(baseStats.adsTime()) + " > " + formatSeconds(preview.adsTime()));
-        drawStat(graphics, x, y + 99, "screen.miningdim.gunsmith_assembly.stat.overall",
+        drawStat(graphics, x, y + 106, "screen.miningdim.gunsmith_assembly.stat.overall",
                 "x" + String.format(Locale.ROOT, "%.3f", preview.average()));
     }
 

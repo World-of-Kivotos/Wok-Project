@@ -15,6 +15,7 @@ import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunTooltip;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartVariant;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.job.munitions.gunsmith.GunsmithTaczBridge;
@@ -91,6 +92,12 @@ public final class GunsmithAssemblyBusinessGameTests {
                 assertClose(helper, stats.headshot(), 1.10D, "headshot coefficient");
                 assertClose(helper, stats.range(), 1.04D, "range coefficient");
                 assertClose(helper, stats.recoil(), 1.08D, "recoil coefficient");
+                assertClose(helper, stats.fireRateMultiplier(), 1.0D,
+                        "basic components must not change fire rate");
+                assertClose(helper, stats.verticalRecoilMultiplier(), 1.0D / 1.08D,
+                        "basic stock must control vertical recoil");
+                assertClose(helper, stats.horizontalRecoilMultiplier(), 1.0D / 1.08D,
+                        "basic stock must control horizontal recoil equally");
                 assertClose(helper, stats.spread(), 1.30D, "spread coefficient");
                 assertClose(helper, stats.handling(), 1.40D, "handling coefficient");
                 assertClose(helper, stats.average(), 7.12D / 6.0D, "average coefficient");
@@ -555,7 +562,37 @@ public final class GunsmithAssemblyBusinessGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void v2GunRecordsOrderedImmutablePartSummaries(GameTestHelper helper) {
+    public static void v2GunMigratesPartsToBasicAndPreservesDerivedAttributes(GameTestHelper helper) {
+        ItemStack legacy = assembledM4Gun();
+        CompoundTag root = legacy.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY);
+        root.putInt(GunsmithGunStats.VERSION_KEY, 2);
+        CompoundTag encodedParts = root.getCompound(GunsmithGunStats.PARTS_KEY);
+        for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
+            encodedParts.getCompound(part.id()).remove("variant");
+        }
+        CompoundTag encodedStats = root.getCompound(GunsmithGunStats.STATS_KEY);
+        encodedStats.remove("fireRate");
+        encodedStats.remove("verticalRecoil");
+
+        GunsmithGunStats stats = GunsmithGunStats.from(legacy);
+        helper.assertTrue(stats != null, "v2 gunsmith data must remain readable");
+        for (GunsmithGunStats.PartSummary part : stats.parts()) {
+            helper.assertTrue(part.variant() == GunsmithPartVariant.BASIC,
+                    "every v2 part must migrate logically to the basic variant: " + part.part());
+        }
+        assertClose(helper, stats.range(), 1.04D,
+                "v2 basic core must retain its original range coefficient");
+        assertClose(helper, stats.fireRateMultiplier(), 1.0D,
+                "v2 guns must retain neutral fire rate");
+        assertClose(helper, stats.verticalRecoilMultiplier(), 1.0D / 1.08D,
+                "v2 stock must retain its vertical recoil control");
+        assertClose(helper, stats.horizontalRecoilMultiplier(), 1.0D / 1.08D,
+                "v2 stock must retain its horizontal recoil control");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void v3GunRecordsOrderedImmutableVariantPartSummaries(GameTestHelper helper) {
         ItemStack output = GunsmithAssemblyRecipe.assemble(
                 new ItemStack(Items.IRON_HOE),
                 GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1),
@@ -564,21 +601,35 @@ public final class GunsmithAssemblyBusinessGameTests {
         helper.assertTrue(root.contains(GunsmithGunStats.VERSION_KEY, Tag.TAG_INT),
                 "new guns must write an integer format version");
         helper.assertTrue(root.getInt(GunsmithGunStats.VERSION_KEY) == GunsmithGunStats.CURRENT_VERSION,
-                "new guns must write format version 2");
+                "new guns must write format version 3");
         helper.assertTrue(root.getCompound(GunsmithGunStats.STATS_KEY).contains("range", Tag.TAG_DOUBLE),
                 "new guns must write range in Stats");
+        helper.assertTrue(root.getCompound(GunsmithGunStats.STATS_KEY).contains("fireRate", Tag.TAG_DOUBLE),
+                "new guns must write fire-rate multiplier in Stats");
+        helper.assertTrue(root.getCompound(GunsmithGunStats.STATS_KEY).contains("verticalRecoil", Tag.TAG_DOUBLE),
+                "new guns must write vertical-recoil multiplier in Stats");
+        helper.assertTrue(root.getCompound(GunsmithGunStats.PARTS_KEY)
+                        .getCompound(GunsmithPressPart.CORE.id()).getString("variant")
+                        .equals(GunsmithPartVariant.BASIC.id()),
+                "new basic components must write an explicit variant id");
 
         GunsmithGunStats stats = GunsmithGunStats.from(output);
         helper.assertTrue(stats != null, "new guns must expose part summaries");
         List<GunsmithGunStats.PartSummary> parts = stats.parts();
         helper.assertTrue(parts.size() == GunsmithBlueprint.M4A1.requiredParts().size(),
                 "the complete rifle recipe must record its six installed parts");
-        assertPartSummary(helper, parts.get(0), GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1.04D);
-        assertPartSummary(helper, parts.get(1), GunsmithPressPart.BARREL, GunsmithPartQuality.IMPROVED, 1.10D);
-        assertPartSummary(helper, parts.get(2), GunsmithPressPart.BOLT, GunsmithPartQuality.MILSPEC, 1.20D);
-        assertPartSummary(helper, parts.get(3), GunsmithPressPart.HANDGUARD, GunsmithPartQuality.PRECISION, 1.30D);
-        assertPartSummary(helper, parts.get(4), GunsmithPressPart.GRIP, GunsmithPartQuality.LEGENDARY, 1.40D);
-        assertPartSummary(helper, parts.get(5), GunsmithPressPart.STOCK, GunsmithPartQuality.IMPROVED, 1.08D);
+        assertPartSummary(helper, parts.get(0), GunsmithPressPart.CORE, GunsmithPartVariant.BASIC,
+                GunsmithPartQuality.COMMON, 1.04D);
+        assertPartSummary(helper, parts.get(1), GunsmithPressPart.BARREL, GunsmithPartVariant.BASIC,
+                GunsmithPartQuality.IMPROVED, 1.10D);
+        assertPartSummary(helper, parts.get(2), GunsmithPressPart.BOLT, GunsmithPartVariant.BASIC,
+                GunsmithPartQuality.MILSPEC, 1.20D);
+        assertPartSummary(helper, parts.get(3), GunsmithPressPart.HANDGUARD, GunsmithPartVariant.BASIC,
+                GunsmithPartQuality.PRECISION, 1.30D);
+        assertPartSummary(helper, parts.get(4), GunsmithPressPart.GRIP, GunsmithPartVariant.BASIC,
+                GunsmithPartQuality.LEGENDARY, 1.40D);
+        assertPartSummary(helper, parts.get(5), GunsmithPressPart.STOCK, GunsmithPartVariant.BASIC,
+                GunsmithPartQuality.IMPROVED, 1.08D);
         boolean immutable = false;
         try {
             parts.add(parts.get(0));
@@ -590,15 +641,109 @@ public final class GunsmithAssemblyBusinessGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void finishedGunTooltipCompactsStatsAndPartsIntoEightRows(GameTestHelper helper) {
+    public static void v3GehennaCorePersistsSpecialEffectsWithoutBasicRangeBonus(GameTestHelper helper) {
+        GunsmithPartVariant variant = GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS;
+        double coefficient = 1.23D;
+        double expectedFireRate = variant.fireRateMultiplier(coefficient);
+        double expectedVerticalPenalty = variant.verticalRecoilMultiplier(coefficient);
+        EnumMap<GunsmithPressPart, ItemStack> parts = previewParts(GunsmithPlatform.AR);
+        parts.put(GunsmithPressPart.CORE, part(
+                GunsmithPlatform.AR, GunsmithPressPart.CORE,
+                variant, GunsmithPartQuality.PRECISION, coefficient));
+
+        ItemStack output = GunsmithAssemblyRecipe.assemble(
+                new ItemStack(Items.IRON_HOE),
+                GunsmithBlueprintItem.createStack(
+                        ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1),
+                parts);
+        CompoundTag root = output.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY);
+        CompoundTag coreTag = root.getCompound(GunsmithGunStats.PARTS_KEY)
+                .getCompound(GunsmithPressPart.CORE.id());
+        helper.assertTrue(root.getInt(GunsmithGunStats.VERSION_KEY) == 3,
+                "Gehenna assemblies must use gunsmith format version 3");
+        helper.assertTrue(coreTag.getString("variant").equals(
+                        variant.id()),
+                "assembled core summary must persist the Gehenna variant id");
+        CompoundTag encodedStats = root.getCompound(GunsmithGunStats.STATS_KEY);
+        assertClose(helper, encodedStats.getDouble("fireRate"), expectedFireRate,
+                "v3 NBT must persist the midpoint +12.5% fire-rate multiplier");
+        assertClose(helper, encodedStats.getDouble("verticalRecoil"), expectedVerticalPenalty / 1.08D,
+                "v3 NBT must persist stock control combined with midpoint +20% vertical recoil");
+
+        GunsmithGunStats stats = GunsmithGunStats.from(output);
+        helper.assertTrue(stats != null, "Gehenna assembly must decode as valid gunsmith stats");
+        assertPartSummary(helper, stats.parts().get(0), GunsmithPressPart.CORE,
+                variant, GunsmithPartQuality.PRECISION, coefficient);
+        assertClose(helper, stats.range(), 1.0D,
+                "special gas core must not inherit the basic core range coefficient");
+        assertClose(helper, stats.fireRateMultiplier(), expectedFireRate,
+                "midpoint Gehenna gas must increase fire rate by 12.5%");
+        assertClose(helper, stats.verticalRecoilMultiplier(), expectedVerticalPenalty / 1.08D,
+                "vertical recoil must combine the basic stock and Gehenna penalty");
+        assertClose(helper, stats.horizontalRecoilMultiplier(), 1.0D / 1.08D,
+                "horizontal recoil must retain stock control without the Gehenna penalty");
+
+        GunsmithAssemblyRecipe.Preview preview =
+                GunsmithAssemblyRecipe.preview(GunsmithBlueprint.M4A1, parts, M4_BASE_STATS);
+        assertClose(helper, preview.range(), 1.0D,
+                "Gehenna preview must show neutral range");
+        assertClose(helper, preview.effectiveRange(), M4_BASE_STATS.effectiveRange(),
+                "Gehenna preview must preserve base effective range");
+        assertClose(helper, preview.fireRateChange(), (expectedFireRate - 1.0D) * 100.0D,
+                "Gehenna preview must show midpoint +12.5% fire rate");
+        assertClose(helper, preview.recoilChange(),
+                (expectedVerticalPenalty / 1.08D - 1.0D) * 100.0D,
+                "Gehenna preview recoil row must report the combined vertical change");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void v3VerticalRecoilEncodingMatchesDerivedValueAtOneUlpBoundary(GameTestHelper helper) {
+        double coreCoefficient = 0.961D;
+        double stockCoefficient = 0.963D;
+        GunsmithPartVariant variant = GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS;
+        EnumMap<GunsmithPressPart, ItemStack> parts = previewParts(GunsmithPlatform.AR);
+        parts.put(GunsmithPressPart.CORE, part(
+                GunsmithPlatform.AR, GunsmithPressPart.CORE, variant,
+                GunsmithPartQuality.COMMON, coreCoefficient));
+        parts.put(GunsmithPressPart.STOCK, part(
+                GunsmithPlatform.AR, GunsmithPressPart.STOCK, GunsmithPartVariant.BASIC,
+                GunsmithPartQuality.COMMON, stockCoefficient));
+
+        ItemStack output = GunsmithAssemblyRecipe.assemble(
+                new ItemStack(Items.IRON_HOE),
+                GunsmithBlueprintItem.createStack(
+                        ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1),
+                parts);
+        CompoundTag encodedStats = output.getOrCreateTag()
+                .getCompound(GunsmithGunStats.ROOT_KEY)
+                .getCompound(GunsmithGunStats.STATS_KEY);
+        double encodedVerticalRecoil = encodedStats.getDouble("verticalRecoil");
+        double expectedVerticalRecoil = (1.0D / stockCoefficient)
+                * variant.verticalRecoilMultiplier(coreCoefficient);
+
+        assertExactlyEqual(helper, encodedVerticalRecoil, expectedVerticalRecoil,
+                "encoded vertical recoil must use the shared inverse-then-multiply order");
+        GunsmithGunStats stats = GunsmithGunStats.from(output);
+        helper.assertTrue(stats != null,
+                "a valid one-ULP boundary assembly must not be rejected as corrupted");
+        assertExactlyEqual(helper, stats.verticalRecoilMultiplier(), encodedVerticalRecoil,
+                "decoded vertical recoil must match the encoded value bit-for-bit");
+        assertClose(helper, stats.horizontalRecoilMultiplier(), 1.0D / stockCoefficient,
+                "the one-ULP regression must not add the gas penalty to horizontal recoil");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void finishedGunTooltipCompactsStatsAndPartsIntoNineRows(GameTestHelper helper) {
         GunsmithGunStats stats = GunsmithGunStats.from(assembledM4Gun());
         helper.assertTrue(stats != null, "assembled M4 must carry gunsmith stats");
         List<Component> tooltip = new ArrayList<>();
         GunsmithGunTooltip.append(tooltip, stats, M4_BASE_STATS);
 
-        helper.assertTrue(tooltip.size() == 8,
-                "complete six-part gun tooltip must use exactly eight rows instead of a long single column");
-        for (int row = 5; row < 8; row++) {
+        helper.assertTrue(tooltip.size() == 9,
+                "complete six-part gun tooltip must include fire rate in exactly nine compact rows");
+        for (int row = 6; row < 9; row++) {
             helper.assertTrue(tooltip.get(row).getSiblings().size() == 3,
                     "each installed-parts row must contain two parts separated into columns");
         }
@@ -606,14 +751,14 @@ public final class GunsmithAssemblyBusinessGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void v2GunRejectsPartsThatDoNotMatchItsBlueprint(GameTestHelper helper) {
+    public static void v3GunRejectsPartsAndVariantsThatDoNotMatchItsBlueprint(GameTestHelper helper) {
         ItemStack missingPart = GunsmithAssemblyRecipe.assemble(
                 new ItemStack(Items.IRON_HOE),
                 GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1),
                 previewParts(GunsmithPlatform.AR));
         CompoundTag missingPartRoot = missingPart.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY);
         missingPartRoot.getCompound(GunsmithGunStats.PARTS_KEY).remove(GunsmithPressPart.STOCK.id());
-        assertStatsRejected(helper, missingPart, "a v2 gun missing its stock must be rejected");
+        assertStatsRejected(helper, missingPart, "a v3 gun missing its stock must be rejected");
 
         ItemStack unknownPart = GunsmithAssemblyRecipe.assemble(
                 new ItemStack(Items.IRON_HOE),
@@ -621,20 +766,38 @@ public final class GunsmithAssemblyBusinessGameTests {
                 previewParts(GunsmithPlatform.AR));
         CompoundTag unknownPartRoot = unknownPart.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY);
         unknownPartRoot.getCompound(GunsmithGunStats.PARTS_KEY).put("unknown", new CompoundTag());
-        assertStatsRejected(helper, unknownPart, "a v2 gun with an unknown part must be rejected");
+        assertStatsRejected(helper, unknownPart, "a v3 gun with an unknown part must be rejected");
+
+        ItemStack missingVariant = assembledM4Gun();
+        CompoundTag missingVariantRoot = missingVariant.getOrCreateTag()
+                .getCompound(GunsmithGunStats.ROOT_KEY);
+        missingVariantRoot.getCompound(GunsmithGunStats.PARTS_KEY)
+                .getCompound(GunsmithPressPart.CORE.id()).remove("variant");
+        assertStatsRejected(helper, missingVariant,
+                "a v3 gun whose core has no explicit variant must be rejected");
+
+        ItemStack incompatibleVariant = assembledM4Gun();
+        CompoundTag incompatibleVariantRoot = incompatibleVariant.getOrCreateTag()
+                .getCompound(GunsmithGunStats.ROOT_KEY);
+        incompatibleVariantRoot.getCompound(GunsmithGunStats.PARTS_KEY)
+                .getCompound(GunsmithPressPart.STOCK.id())
+                .putString("variant", GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS.id());
+        assertStatsRejected(helper, incompatibleVariant,
+                "a v3 gun must reject Gehenna gas encoded into the stock slot");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void v2GunRejectsGunIdAndStatsThatDoNotMatchBlueprintParts(GameTestHelper helper) {
+    public static void v3GunRejectsGunIdAndStatsThatDoNotMatchBlueprintParts(GameTestHelper helper) {
         ItemStack mismatchedGunId = assembledM4Gun();
         CompoundTag mismatchedGunRoot = mismatchedGunId.getOrCreateTag()
                 .getCompound(GunsmithGunStats.ROOT_KEY);
         mismatchedGunRoot.putString("gunId", GunsmithBlueprint.AK47.gunId().toString());
         assertStatsRejected(helper, mismatchedGunId,
-                "a v2 M4 gun carrying the AK47 gun id must be rejected");
+                "a v3 M4 gun carrying the AK47 gun id must be rejected");
 
-        String[] statKeys = {"damage", "headshot", "range", "recoil", "spread", "handling", "average"};
+        String[] statKeys = {"damage", "headshot", "range", "recoil", "spread", "handling", "average",
+                "fireRate", "verticalRecoil"};
         for (String statKey : statKeys) {
             ItemStack mismatchedStats = assembledM4Gun();
             CompoundTag stats = mismatchedStats.getOrCreateTag()
@@ -642,7 +805,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                     .getCompound(GunsmithGunStats.STATS_KEY);
             stats.putDouble(statKey, stats.getDouble(statKey) + 0.01D);
             assertStatsRejected(helper, mismatchedStats,
-                    "a v2 gun with a " + statKey + " value inconsistent with its parts must be rejected");
+                    "a v3 gun with a " + statKey + " value inconsistent with its parts must be rejected");
         }
         helper.succeed();
     }
@@ -810,8 +973,14 @@ public final class GunsmithAssemblyBusinessGameTests {
 
     private static ItemStack part(GunsmithPlatform platform, GunsmithPressPart part,
                                   GunsmithPartQuality quality, double coefficient) {
+        return part(platform, part, GunsmithPartVariant.BASIC, quality, coefficient);
+    }
+
+    private static ItemStack part(GunsmithPlatform platform, GunsmithPressPart part,
+                                  GunsmithPartVariant variant,
+                                  GunsmithPartQuality quality, double coefficient) {
         return GunsmithPartItem.createStack(
-                ModMunitionsItems.GUNSMITH_PART.get(), platform, part, quality, coefficient);
+                ModMunitionsItems.GUNSMITH_PART.get(), platform, part, variant, quality, coefficient);
     }
 
     private static void placeStructure(GameTestHelper helper, Direction facing) {
@@ -848,10 +1017,20 @@ public final class GunsmithAssemblyBusinessGameTests {
                 label + " expected " + expected + " but was " + actual);
     }
 
+    private static void assertExactlyEqual(GameTestHelper helper, double actual, double expected, String label) {
+        helper.assertTrue(Double.doubleToLongBits(actual) == Double.doubleToLongBits(expected),
+                label + " expected " + expected + " (bits " + Long.toHexString(Double.doubleToLongBits(expected))
+                        + ") but was " + actual + " (bits "
+                        + Long.toHexString(Double.doubleToLongBits(actual)) + ")");
+    }
+
     private static void assertPartSummary(GameTestHelper helper, GunsmithGunStats.PartSummary actual,
-                                          GunsmithPressPart expectedPart, GunsmithPartQuality expectedQuality,
+                                          GunsmithPressPart expectedPart, GunsmithPartVariant expectedVariant,
+                                          GunsmithPartQuality expectedQuality,
                                           double expectedCoefficient) {
         helper.assertTrue(actual.part() == expectedPart, "unexpected part summary order");
+        helper.assertTrue(actual.variant() == expectedVariant,
+                expectedPart + " must retain its variant");
         helper.assertTrue(actual.quality() == expectedQuality,
                 expectedPart + " must retain its quality");
         assertClose(helper, actual.coefficient(), expectedCoefficient,

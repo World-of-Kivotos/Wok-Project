@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "miningdim:item/gunsmith_part_ar_core_gehenna_high_speed_gas_common"
+  }
+}

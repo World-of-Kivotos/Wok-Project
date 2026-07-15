@@ -5,7 +5,6 @@ import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelLayerLocation;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
-import net.minecraft.client.model.geom.builders.CubeDeformation;
 import net.minecraft.client.model.geom.builders.CubeListBuilder;
 import net.minecraft.client.model.geom.builders.LayerDefinition;
 import net.minecraft.client.model.geom.builders.MeshDefinition;
@@ -13,13 +12,11 @@ import net.minecraft.client.model.geom.builders.PartDefinition;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.LivingEntity;
 
-/** Slim native block-model silhouette for the BNTI Kirasa-N vest. */
+/** Soft sleeveless BNTI Kirasa-N vest with a visible open-front neck guard. */
 public final class KirasaNArmorModel extends HumanoidModel<LivingEntity> {
 
     public static final ModelLayerLocation LAYER = new ModelLayerLocation(
             new ResourceLocation(MiningConstants.MODID, "plate_armor_kirasa_n_green"), "main");
-
-    private static final CubeDeformation SLIM_CARRIER = new CubeDeformation(0.18F);
 
     public KirasaNArmorModel(ModelPart root) {
         super(root);
@@ -42,29 +39,54 @@ public final class KirasaNArmorModel extends HumanoidModel<LivingEntity> {
 
     private static CubeListBuilder createBody() {
         return CubeListBuilder.create()
+                // Separate front and rear soft panels create a narrow shoulder line,
+                // wider middle and broad lower vest instead of a rectangular shell.
                 .texOffs(0, 0)
-                .addBox(-4.0F, 0.0F, -2.0F, 8.0F, 12.0F, 4.0F, SLIM_CARRIER)
-                .texOffs(26, 0)
-                .addBox(-3.85F, 0.70F, -2.62F, 7.70F, 10.80F, 0.38F)
-                .texOffs(44, 0)
-                .addBox(-3.85F, 0.70F, 2.24F, 7.70F, 10.80F, 0.38F)
-                .texOffs(62, 0)
-                .addBox(-4.38F, 0.70F, -2.05F, 0.40F, 10.0F, 4.10F)
-                .texOffs(73, 0)
-                .addBox(3.98F, 0.70F, -2.05F, 0.40F, 10.0F, 4.10F)
-                .texOffs(0, 18)
-                .addBox(-2.90F, -0.80F, -3.0F, 5.80F, 1.45F, 0.50F)
-                .texOffs(14, 18)
-                .addBox(-2.90F, -0.80F, 2.50F, 5.80F, 1.45F, 0.50F)
-                .texOffs(28, 18)
-                .addBox(-3.40F, -0.75F, -2.60F, 0.50F, 1.50F, 5.20F)
-                .texOffs(41, 18)
-                .addBox(2.90F, -0.75F, -2.60F, 0.50F, 1.50F, 5.20F)
-                .texOffs(54, 18)
-                .addBox(-0.15F, 1.40F, -2.86F, 0.28F, 8.90F, 0.14F)
-                .texOffs(58, 18)
-                .addBox(-0.20F, 1.25F, -2.98F, 3.80F, 2.0F, 0.22F)
-                .texOffs(68, 18)
-                .addBox(-4.05F, 10.90F, -2.86F, 8.10F, 0.55F, 0.22F);
+                .addBox(-3.25F, 0.55F, -2.26F, 6.50F, 3.25F, 0.32F)
+                .texOffs(16, 0)
+                .addBox(-3.25F, 0.55F, 1.94F, 6.50F, 3.25F, 0.32F)
+                .texOffs(32, 0)
+                .addBox(-3.65F, 3.80F, -2.28F, 7.30F, 4.0F, 0.34F)
+                .texOffs(50, 0)
+                .addBox(-3.65F, 3.80F, 1.94F, 7.30F, 4.0F, 0.34F)
+                .texOffs(68, 0)
+                .addBox(-3.90F, 7.80F, -2.30F, 7.80F, 3.75F, 0.36F)
+                .texOffs(87, 0)
+                .addBox(-3.90F, 7.80F, 1.94F, 7.80F, 3.75F, 0.36F)
+                .texOffs(0, 16)
+                .addBox(-4.16F, 3.80F, -1.94F, 0.51F, 7.75F, 3.88F)
+                .texOffs(10, 16)
+                .addBox(3.65F, 3.80F, -1.94F, 0.51F, 7.75F, 3.88F)
+
+                // Five panels form a low open-front collar outside the vanilla
+                // head silhouette. The 0.96-wide opening keeps it visibly soft.
+                .texOffs(22, 16)
+                .addBox(-4.48F, -0.82F, -4.48F, 4.0F, 1.30F, 0.36F)
+                .texOffs(32, 16)
+                .addBox(0.48F, -0.82F, -4.48F, 4.0F, 1.30F, 0.36F)
+                .texOffs(42, 16)
+                .addBox(-4.48F, -0.82F, 4.12F, 8.96F, 1.30F, 0.36F)
+                .texOffs(63, 16)
+                .addBox(-4.48F, -0.78F, -4.12F, 0.36F, 1.28F, 8.24F)
+                .texOffs(81, 16)
+                .addBox(4.12F, -0.78F, -4.12F, 0.36F, 1.28F, 8.24F)
+
+                // Four inset yokes join the neck guard to the narrow upper vest
+                // without adding any geometry to the arm bones.
+                .texOffs(0, 30)
+                .addBox(-3.25F, 0.32F, -4.16F, 2.77F, 0.23F, 2.22F)
+                .texOffs(12, 30)
+                .addBox(0.48F, 0.32F, -4.16F, 2.77F, 0.23F, 2.22F)
+                .texOffs(24, 30)
+                .addBox(-3.25F, 0.32F, 1.94F, 2.77F, 0.23F, 2.22F)
+                .texOffs(36, 30)
+                .addBox(0.48F, 0.32F, 1.94F, 2.77F, 0.23F, 2.22F)
+
+                // The closure and chest flap overlap the front surface by 0.02,
+                // avoiding the floating detail seen on the first pass.
+                .texOffs(50, 30)
+                .addBox(-0.10F, 1.0F, -2.42F, 0.20F, 9.70F, 0.18F)
+                .texOffs(54, 30)
+                .addBox(-0.02F, 1.20F, -2.45F, 3.22F, 2.10F, 0.21F);
     }
 }

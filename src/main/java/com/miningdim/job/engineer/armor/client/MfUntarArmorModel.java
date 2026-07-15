@@ -20,7 +20,6 @@ public final class MfUntarArmorModel extends HumanoidModel<LivingEntity> {
             new ResourceLocation(MiningConstants.MODID, "plate_armor_mf_untar"), "main");
 
     private static final CubeDeformation SOFT_ARMOR_DEFORMATION = new CubeDeformation(0.30F);
-    private static final CubeDeformation SHOULDER_DEFORMATION = new CubeDeformation(0.20F);
 
     public MfUntarArmorModel(ModelPart root) {
         super(root);
@@ -36,8 +35,8 @@ public final class MfUntarArmorModel extends HumanoidModel<LivingEntity> {
         root.addOrReplaceChild("left_leg", CubeListBuilder.create(), PartPose.offset(1.9F, 12.0F, 0.0F));
 
         root.addOrReplaceChild("body", createBody(), PartPose.ZERO);
-        root.addOrReplaceChild("right_arm", createRightShoulder(), PartPose.offset(-5.0F, 2.0F, 0.0F));
-        root.addOrReplaceChild("left_arm", createLeftShoulder(), PartPose.offset(5.0F, 2.0F, 0.0F));
+        root.addOrReplaceChild("right_arm", CubeListBuilder.create(), PartPose.offset(-5.0F, 2.0F, 0.0F));
+        root.addOrReplaceChild("left_arm", CubeListBuilder.create(), PartPose.offset(5.0F, 2.0F, 0.0F));
 
         return LayerDefinition.create(mesh, 128, 128);
     }
@@ -69,7 +68,11 @@ public final class MfUntarArmorModel extends HumanoidModel<LivingEntity> {
                 .texOffs(38, 20)
                 .addBox(-3.80F, 11.45F, -2.86F, 7.60F, 0.90F, 0.30F)
                 .texOffs(38, 20)
-                .addBox(-3.80F, 11.45F, 2.56F, 7.60F, 0.90F, 0.30F);
+                .addBox(-3.80F, 11.45F, 2.56F, 7.60F, 0.90F, 0.30F)
+                .texOffs(65, 20)
+                .addBox(-3.62F, -0.25F, -2.46F, 1.55F, 0.45F, 4.92F)
+                .texOffs(65, 20)
+                .addBox(2.07F, -0.25F, -2.46F, 1.55F, 0.45F, 4.92F);
 
         for (int row = 0; row < 6; row++) {
             body.texOffs(22, 20).addBox(
@@ -87,21 +90,5 @@ public final class MfUntarArmorModel extends HumanoidModel<LivingEntity> {
             body.texOffs(55, 20).addBox(4.78F, y, -2.10F, 0.12F, 0.28F, 4.20F);
         }
         return body;
-    }
-
-    private static CubeListBuilder createRightShoulder() {
-        return CubeListBuilder.create()
-                .texOffs(65, 20)
-                .addBox(-2.70F, -2.00F, -2.00F, 3.35F, 3.10F, 4.00F, SHOULDER_DEFORMATION)
-                .texOffs(81, 20)
-                .addBox(-2.85F, -2.34F, -2.46F, 4.25F, 0.24F, 4.92F);
-    }
-
-    private static CubeListBuilder createLeftShoulder() {
-        return CubeListBuilder.create()
-                .texOffs(65, 20)
-                .addBox(-0.65F, -2.00F, -2.00F, 3.35F, 3.10F, 4.00F, SHOULDER_DEFORMATION)
-                .texOffs(81, 20)
-                .addBox(-1.40F, -2.34F, -2.46F, 4.25F, 0.24F, 4.92F);
     }
 }

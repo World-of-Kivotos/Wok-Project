@@ -4,7 +4,7 @@ import com.miningdim.job.engineer.EngineerConfig;
 import com.miningdim.job.engineer.armor.PlateArmorEquipmentMaterial;
 import com.miningdim.job.engineer.armor.PlateArmorStats;
 import com.miningdim.job.engineer.armor.PlateArmorVariant;
-import com.miningdim.job.engineer.armor.client.ThorIntegratedArmorClient;
+import com.miningdim.job.engineer.armor.client.PlateArmorClient;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
@@ -26,8 +26,8 @@ import java.util.function.Consumer;
 /** 54 个外观共用的可穿戴插板胸甲；等级、类型与材料由注册时绑定的 variant 决定，玩家 NBT 不可伪造。 */
 public final class PlateArmorItem extends ArmorItem {
 
-    private static final String THOR_INTEGRATED_TEXTURE =
-            "miningdim:textures/models/armor/plate_armor_thor_integrated_layer_1.png";
+    private static final String MODEL_TEXTURE_PREFIX =
+            "miningdim:textures/models/armor/plate_armor_";
 
     private final PlateArmorVariant variant;
 
@@ -43,16 +43,22 @@ public final class PlateArmorItem extends ArmorItem {
 
     @Override
     public void initializeClient(Consumer<IClientItemExtensions> consumer) {
-        consumer.accept(ThorIntegratedArmorClient.forItem(this));
+        consumer.accept(PlateArmorClient.forItem(this));
     }
 
     @Override
     @Nullable
     public String getArmorTexture(ItemStack stack, Entity entity, EquipmentSlot slot, String type) {
-        if (variant == PlateArmorVariant.THOR_INTEGRATED && slot == EquipmentSlot.CHEST) {
-            return THOR_INTEGRATED_TEXTURE;
+        if (slot != EquipmentSlot.CHEST) {
+            return null;
         }
-        return null;
+        return switch (variant) {
+            case JAYPC_OLIVE, JAYPC_BLACK, PACA,
+                    MBSS, TV115, B6B23_1_DIGITAL_FLORA, B6B5_16,
+                    KIRASA_N_GREEN, MF_UNTAR, KORA_KULON, KORA_KULON_DIGITAL,
+                    THOR_INTEGRATED -> MODEL_TEXTURE_PREFIX + variant.id() + "_layer_1.png";
+            default -> null;
+        };
     }
 
     @Override

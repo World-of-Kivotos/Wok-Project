@@ -6,15 +6,15 @@ import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
-/** 在客户端模型烘焙阶段注册 THOR 的原生人形模型层。 */
+/** 在客户端模型烘焙阶段注册已完成的插板护甲模型层。 */
 @Mod.EventBusSubscriber(modid = MiningConstants.MODID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.MOD)
-public final class ThorIntegratedArmorClientRegistration {
+public final class PlateArmorClientRegistration {
 
-    private ThorIntegratedArmorClientRegistration() {
+    private PlateArmorClientRegistration() {
     }
 
     @SubscribeEvent
     public static void registerLayers(EntityRenderersEvent.RegisterLayerDefinitions event) {
-        event.registerLayerDefinition(ThorIntegratedArmorModel.LAYER, ThorIntegratedArmorModel::createLayer);
+        PlateArmorModelDefinition.registerLayers(event);
     }
 }

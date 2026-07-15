@@ -144,14 +144,23 @@ public final class PlateArmorItem extends ArmorItem {
     }
 
     private static String percent(double value) {
-        return String.format(Locale.ROOT, "%.0f%%", value * 100.0D);
+        return decimal(value * 100.0D) + "%";
     }
 
     private static String signedPercent(double value) {
-        return String.format(Locale.ROOT, "%+.0f%%", value * 100.0D);
+        double percentage = value * 100.0D;
+        return (percentage >= 0.0D ? "+" : "") + decimal(percentage) + "%";
     }
 
     private static String decimal(double value) {
-        return String.format(Locale.ROOT, "%.0f", value);
+        String formatted = String.format(Locale.ROOT, "%.2f", value);
+        int end = formatted.length();
+        while (end > 0 && formatted.charAt(end - 1) == '0') {
+            end--;
+        }
+        if (end > 0 && formatted.charAt(end - 1) == '.') {
+            end--;
+        }
+        return formatted.substring(0, end);
     }
 }

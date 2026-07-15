@@ -43,7 +43,7 @@ public final class ThorIntegratedArmorModel extends HumanoidModel<LivingEntity> 
     }
 
     private static CubeListBuilder createBody() {
-        return CubeListBuilder.create()
+        CubeListBuilder body = CubeListBuilder.create()
                 .texOffs(0, 0)
                 .addBox(-4.0F, 0.0F, -2.0F, 8.0F, 12.0F, 4.0F, CARRIER_DEFORMATION)
                 .texOffs(26, 0)
@@ -54,18 +54,22 @@ public final class ThorIntegratedArmorModel extends HumanoidModel<LivingEntity> 
                 .addBox(-4.86F, 3.00F, -2.34F, 0.50F, 7.80F, 4.68F)
                 .texOffs(75, 0)
                 .addBox(4.36F, 3.00F, -2.34F, 0.50F, 7.80F, 4.68F)
-                .texOffs(0, 18)
-                .addBox(-4.30F, -2.45F, -4.70F, 8.60F, 3.35F, 0.62F)
+                .texOffs(0, 72)
+                .addBox(-4.30F, -1.15F, -4.70F, 1.55F, 2.01F, 0.62F)
+                .texOffs(8, 72)
+                .addBox(-2.75F, -0.55F, -4.70F, 5.50F, 1.37F, 0.62F)
+                .texOffs(24, 72)
+                .addBox(2.75F, -1.15F, -4.70F, 1.55F, 2.01F, 0.62F)
                 .texOffs(20, 18)
-                .addBox(-4.30F, -2.45F, 4.08F, 8.60F, 3.35F, 0.62F)
+                .addBox(-4.30F, -1.35F, 4.08F, 8.60F, 2.23F, 0.62F)
                 .texOffs(40, 18)
-                .addBox(-4.70F, -2.30F, -4.16F, 0.62F, 3.20F, 8.32F)
+                .addBox(-4.70F, -1.20F, -4.16F, 0.62F, 2.10F, 8.32F)
                 .texOffs(58, 18)
-                .addBox(4.08F, -2.30F, -4.16F, 0.62F, 3.20F, 8.32F)
+                .addBox(4.08F, -1.20F, -4.16F, 0.62F, 2.10F, 8.32F)
                 .texOffs(76, 18)
-                .addBox(-3.65F, -0.25F, -3.22F, 1.20F, 4.25F, 0.48F)
+                .addBox(-3.61F, -0.25F, -3.22F, 1.20F, 4.25F, 0.48F)
                 .texOffs(81, 18)
-                .addBox(2.45F, -0.25F, -3.22F, 1.20F, 4.25F, 0.48F)
+                .addBox(2.41F, -0.25F, -3.22F, 1.20F, 4.25F, 0.48F)
                 .texOffs(86, 18)
                 .addBox(-3.65F, -0.25F, 2.74F, 1.20F, 4.25F, 0.48F)
                 .texOffs(91, 18)
@@ -79,7 +83,28 @@ public final class ThorIntegratedArmorModel extends HumanoidModel<LivingEntity> 
                 .texOffs(50, 30)
                 .addBox(-5.25F, 5.10F, -1.55F, 0.72F, 4.20F, 3.10F)
                 .texOffs(59, 30)
-                .addBox(4.53F, 5.10F, -1.55F, 0.72F, 4.20F, 3.10F);
+                .addBox(4.53F, 5.10F, -1.55F, 0.72F, 4.20F, 3.10F)
+                .texOffs(8, 80)
+                .addBox(-3.10F, 2.35F, -3.12F, 6.20F, 0.26F, 0.12F)
+                .texOffs(8, 80)
+                .addBox(-3.10F, 3.10F, -3.12F, 6.20F, 0.26F, 0.12F)
+                .texOffs(24, 80)
+                .addBox(-1.15F, 1.45F, -3.18F, 0.70F, 0.75F, 0.18F)
+                .texOffs(24, 80)
+                .addBox(0.45F, 1.45F, -3.18F, 0.70F, 0.75F, 0.18F);
+
+        for (int row = 0; row < 5; row++) {
+            for (int column = 0; column < 4; column++) {
+                body.texOffs(0, 80).addBox(
+                        -3.075F + column * 1.65F,
+                        4.04F + row * 1.15F,
+                        -3.12F,
+                        1.20F,
+                        0.24F,
+                        0.12F);
+            }
+        }
+        return body;
     }
 
     private static CubeListBuilder createRightShoulder() {

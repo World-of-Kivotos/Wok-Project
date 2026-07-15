@@ -49,7 +49,7 @@ public final class PlateArmorConfig {
     private final ForgeConfigSpec.DoubleValue lightMovement;
     private final ForgeConfigSpec.DoubleValue mediumMovement;
     private final ForgeConfigSpec.DoubleValue heavyMovement;
-    private final Map<PlateArmorConstructionMaterial, ForgeConfigSpec.IntValue> materialDurability =
+    private final Map<PlateArmorConstructionMaterial, MaterialProfile> materialProfiles =
             new EnumMap<>(PlateArmorConstructionMaterial.class);
 
     private PlateArmorConfig(ForgeConfigSpec.Builder builder) {
@@ -73,11 +73,27 @@ public final class PlateArmorConfig {
                 .defineInRange("heavy", -0.04D, -0.95D, 10.0D);
         builder.pop();
 
-        builder.push("materialDurability");
-        builder.comment("Maximum durability by construction material. Material does not change R/Q/G/T.");
+        builder.push("materialProfiles");
+        builder.comment("Version 2 material profiles. Legacy materialDurability values are intentionally not reused.",
+                "Leak multipliers below 1 improve protection; values above 1 increase unblocked damage.");
         for (PlateArmorConstructionMaterial material : PlateArmorConstructionMaterial.values()) {
-            materialDurability.put(material, builder.defineInRange(
-                    material.id(), material.defaultDurability(), 1, 100000));
+            builder.push(material.id());
+            materialProfiles.put(material, new MaterialProfile(
+                    builder.comment("Maximum durability for this construction material.")
+                            .defineInRange("durability", material.defaultDurability(), 1, 100000),
+                    builder.comment("Multiplier for the damage not blocked by R.")
+                            .defineInRange("ballisticLeak", material.defaultBallisticLeakMultiplier(), 0.75D, 1.25D),
+                    builder.comment("Multiplier for the damage not blocked by Q; a base Q of zero stays zero.")
+                            .defineInRange("armorPiercingLeak", material.defaultArmorPiercingLeakMultiplier(),
+                                    0.75D, 1.25D),
+                    builder.comment("Multiplier for the damage not blocked by G.")
+                            .defineInRange("generalLeak", material.defaultGeneralLeakMultiplier(), 0.75D, 1.25D),
+                    builder.comment("Multiplier applied to T.")
+                            .defineInRange("pressureCapacity", material.defaultPressureCapacityMultiplier(),
+                                    0.75D, 1.25D),
+                    builder.comment("Non-negative material movement penalty; 0.03 = -3%, MULTIPLY_TOTAL.")
+                            .defineInRange("movementPenalty", material.defaultMovementPenalty(), 0.0D, 0.04D)));
+            builder.pop();
         }
         builder.pop();
         builder.pop();
@@ -112,11 +128,35 @@ public final class PlateArmorConfig {
     }
 
     public int maxDurability(PlateArmorConstructionMaterial material) {
-        ForgeConfigSpec.IntValue value = materialDurability.get(material);
-        if (value == null) {
+        return profile(material).durability().get();
+    }
+
+    public double ballisticLeakMultiplier(PlateArmorConstructionMaterial material) {
+        return profile(material).ballisticLeak().get();
+    }
+
+    public double armorPiercingLeakMultiplier(PlateArmorConstructionMaterial material) {
+        return profile(material).armorPiercingLeak().get();
+    }
+
+    public double generalLeakMultiplier(PlateArmorConstructionMaterial material) {
+        return profile(material).generalLeak().get();
+    }
+
+    public double pressureCapacityMultiplier(PlateArmorConstructionMaterial material) {
+        return profile(material).pressureCapacity().get();
+    }
+
+    public double movementPenalty(PlateArmorConstructionMaterial material) {
+        return profile(material).movementPenalty().get();
+    }
+
+    private MaterialProfile profile(PlateArmorConstructionMaterial material) {
+        MaterialProfile values = materialProfiles.get(material);
+        if (values == null) {
             throw new IllegalArgumentException("unregistered plate armor material: " + material);
         }
-        return value.get();
+        return values;
     }
 
     private static double matrixValue(String name,
@@ -147,5 +187,13 @@ public final class PlateArmorConfig {
         return value instanceof Number number
                 && Double.isFinite(number.doubleValue())
                 && number.doubleValue() >= 0.0D;
+    }
+
+    private record MaterialProfile(ForgeConfigSpec.IntValue durability,
+                                   ForgeConfigSpec.DoubleValue ballisticLeak,
+                                   ForgeConfigSpec.DoubleValue armorPiercingLeak,
+                                   ForgeConfigSpec.DoubleValue generalLeak,
+                                   ForgeConfigSpec.DoubleValue pressureCapacity,
+                                   ForgeConfigSpec.DoubleValue movementPenalty) {
     }
 }

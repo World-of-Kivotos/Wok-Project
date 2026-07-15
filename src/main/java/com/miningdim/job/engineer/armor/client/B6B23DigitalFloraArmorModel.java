@@ -20,7 +20,6 @@ public final class B6B23DigitalFloraArmorModel extends HumanoidModel<LivingEntit
             new ResourceLocation(MiningConstants.MODID, "plate_armor_6b23_1_digital_flora"), "main");
 
     private static final CubeDeformation CARRIER = new CubeDeformation(0.30F);
-    private static final CubeDeformation PADDED_ARM = new CubeDeformation(0.38F);
 
     public B6B23DigitalFloraArmorModel(ModelPart root) {
         super(root);
@@ -35,8 +34,8 @@ public final class B6B23DigitalFloraArmorModel extends HumanoidModel<LivingEntit
         root.addOrReplaceChild("right_leg", CubeListBuilder.create(), PartPose.offset(-1.9F, 12.0F, 0.0F));
         root.addOrReplaceChild("left_leg", CubeListBuilder.create(), PartPose.offset(1.9F, 12.0F, 0.0F));
         root.addOrReplaceChild("body", createBody(), PartPose.ZERO);
-        root.addOrReplaceChild("right_arm", createRightArm(), PartPose.offset(-5.0F, 2.0F, 0.0F));
-        root.addOrReplaceChild("left_arm", createLeftArm(), PartPose.offset(5.0F, 2.0F, 0.0F));
+        root.addOrReplaceChild("right_arm", CubeListBuilder.create(), PartPose.offset(-5.0F, 2.0F, 0.0F));
+        root.addOrReplaceChild("left_arm", CubeListBuilder.create(), PartPose.offset(5.0F, 2.0F, 0.0F));
 
         return LayerDefinition.create(mesh, 128, 128);
     }
@@ -61,10 +60,6 @@ public final class B6B23DigitalFloraArmorModel extends HumanoidModel<LivingEntit
                 .addBox(-4.05F, -0.65F, -3.25F, 0.65F, 2.30F, 6.50F)
                 .texOffs(48, 20)
                 .addBox(3.40F, -0.65F, -3.25F, 0.65F, 2.30F, 6.50F)
-                .texOffs(64, 20)
-                .addBox(-5.10F, -0.55F, -2.10F, 2.30F, 1.0F, 4.20F)
-                .texOffs(79, 20)
-                .addBox(2.80F, -0.55F, -2.10F, 2.30F, 1.0F, 4.20F)
                 .texOffs(0, 34)
                 .addBox(-3.90F, 8.90F, -3.18F, 7.80F, 2.50F, 0.55F)
                 .texOffs(18, 34)
@@ -73,23 +68,4 @@ public final class B6B23DigitalFloraArmorModel extends HumanoidModel<LivingEntit
                 .addBox(-4.10F, 8.65F, -3.26F, 8.20F, 0.55F, 0.25F);
     }
 
-    private static CubeListBuilder createRightArm() {
-        return CubeListBuilder.create()
-                .texOffs(0, 48)
-                .addBox(-3.05F, -2.0F, -2.05F, 4.10F, 5.40F, 4.10F, PADDED_ARM)
-                .texOffs(36, 48)
-                .addBox(-3.55F, -1.80F, -2.92F, 5.0F, 4.70F, 0.45F)
-                .texOffs(60, 48)
-                .addBox(-3.72F, -1.75F, -2.50F, 0.50F, 4.60F, 5.0F);
-    }
-
-    private static CubeListBuilder createLeftArm() {
-        return CubeListBuilder.create()
-                .texOffs(18, 48)
-                .addBox(-1.05F, -2.0F, -2.05F, 4.10F, 5.40F, 4.10F, PADDED_ARM)
-                .texOffs(48, 48)
-                .addBox(-1.45F, -1.80F, -2.92F, 5.0F, 4.70F, 0.45F)
-                .texOffs(72, 48)
-                .addBox(3.22F, -1.75F, -2.50F, 0.50F, 4.60F, 5.0F);
-    }
 }

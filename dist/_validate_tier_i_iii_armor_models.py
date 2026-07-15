@@ -16,10 +16,10 @@ MODELS = {
     "PacaArmorModel.java": ("plate_armor_paca", 10),
     "MbssArmorModel.java": ("plate_armor_mbss", 10),
     "Tv115ArmorModel.java": ("plate_armor_tv115", 10),
-    "B6B23DigitalFloraArmorModel.java": ("plate_armor_6b23_1_digital_flora", 10),
-    "B6B5ArmorModel.java": ("plate_armor_6b5_16", 10),
-    "KirasaNArmorModel.java": ("plate_armor_kirasa_n_green", 8),
-    "MfUntarArmorModel.java": ("plate_armor_mf_untar", 10),
+    "B6B23DigitalFloraArmorModel.java": ("plate_armor_6b23_1_digital_flora", 12),
+    "B6B5ArmorModel.java": ("plate_armor_6b5_16", 17),
+    "KirasaNArmorModel.java": ("plate_armor_kirasa_n_green", 19),
+    "MfUntarArmorModel.java": ("plate_armor_mf_untar", 18),
     "KoraKulonArmorModel.java": ("plate_armor_kora_kulon", 10),
 }
 
@@ -53,6 +53,23 @@ TEXTURE_NAMES = (
 
 REQUIRED_BONES = ("head", "hat", "body", "right_arm", "left_arm", "right_leg", "left_leg")
 
+SLEEVELESS_MODELS = (
+    "B6B23DigitalFloraArmorModel.java",
+    "B6B5ArmorModel.java",
+    "KirasaNArmorModel.java",
+    "MfUntarArmorModel.java",
+)
+
+LITERAL_BOX = re.compile(
+    r"\.addBox\(\s*"
+    r"(-?\d+(?:\.\d+)?F?)\s*,\s*"
+    r"(-?\d+(?:\.\d+)?F?)\s*,\s*"
+    r"(-?\d+(?:\.\d+)?F?)\s*,\s*"
+    r"(-?\d+(?:\.\d+)?F?)\s*,\s*"
+    r"(-?\d+(?:\.\d+)?F?)\s*,\s*"
+    r"(-?\d+(?:\.\d+)?F?)"
+)
+
 
 def require(condition: bool, message: str) -> None:
     if not condition:
@@ -78,6 +95,95 @@ def validate_models() -> None:
         require(static_cuboids >= minimum_static_cuboids,
                 f"too few static cuboid definitions in {filename}: {static_cuboids}")
         print(f"MODEL {filename}: layer={layer}, static_addBox={static_cuboids}")
+
+
+def literal_boxes(source: str) -> list[tuple[float, float, float, float, float, float]]:
+    return [
+        tuple(float(value.removesuffix("F")) for value in match.groups())
+        for match in LITERAL_BOX.finditer(source)
+    ]
+
+
+def validate_user_corrections() -> None:
+    for filename in SLEEVELESS_MODELS:
+        source = (CLIENT / filename).read_text(encoding="utf-8")
+        for bone in ("right_arm", "left_arm"):
+            require(
+                re.search(
+                    rf'addOrReplaceChild\("{bone}",\s*CubeListBuilder\.create\(\),',
+                    source,
+                )
+                is not None,
+                f"{filename} must keep {bone} empty",
+            )
+        require("createRightShoulder" not in source, f"shoulder helper remains: {filename}")
+        require("createLeftShoulder" not in source, f"shoulder helper remains: {filename}")
+        require("createRightArm" not in source, f"arm armor helper remains: {filename}")
+        require("createLeftArm" not in source, f"arm armor helper remains: {filename}")
+
+    for filename in ("B6B23DigitalFloraArmorModel.java", "B6B5ArmorModel.java"):
+        source = (CLIENT / filename).read_text(encoding="utf-8")
+        shoulder_caps = []
+        for box in literal_boxes(source):
+            x, y, _z, width, height, depth = box
+            reaches_arm = x < -4.15 or x + width > 4.15
+            crosses_shoulder_line = y < 1.0 and y + height > -0.75
+            wraps_shoulder = depth >= 4.0 and height >= 0.50
+            if reaches_arm and crosses_shoulder_line and wraps_shoulder:
+                shoulder_caps.append(box)
+        require(not shoulder_caps, f"body-mounted shoulder caps remain in {filename}: {shoulder_caps}")
+
+    kirasa = (CLIENT / "KirasaNArmorModel.java").read_text(encoding="utf-8")
+    kirasa_boxes = literal_boxes(kirasa)
+    collar_panels = [
+        box
+        for box in kirasa_boxes
+        if box[1] <= -0.70
+        and box[4] >= 1.20
+        and (
+            box[0] <= -4.0
+            or box[0] + box[3] >= 4.0
+            or box[2] <= -4.0
+            or box[2] + box[5] >= 4.0
+        )
+    ]
+    require(len(collar_panels) == 5, "Kirasa-N needs exactly five visible outer stand-collar panels")
+
+    front_panels = sorted(
+        (
+            box
+            for box in kirasa_boxes
+            if box[2] < -1.90 and box[3] >= 6.0 and box[4] >= 3.0 and box[5] <= 0.50
+        ),
+        key=lambda box: box[1],
+    )
+    rear_panels = sorted(
+        (
+            box
+            for box in kirasa_boxes
+            if box[2] >= 1.90 and box[3] >= 6.0 and box[4] >= 3.0 and box[5] <= 0.50
+        ),
+        key=lambda box: box[1],
+    )
+    for label, panels in (("front", front_panels), ("rear", rear_panels)):
+        require(len(panels) == 3, f"Kirasa-N needs three tapered {label} soft panels")
+        widths = [panel[3] for panel in panels]
+        require(widths[0] < widths[1] < widths[2], f"Kirasa-N {label} panels must widen downward")
+
+    upper_side_caps = [
+        box
+        for box in kirasa_boxes
+        if box[1] >= 0.50
+        and box[1] < 3.50
+        and box[4] >= 0.50
+        and box[5] >= 3.0
+        and (box[0] < -4.15 or box[0] + box[3] > 4.15)
+    ]
+    require(not upper_side_caps, f"Kirasa-N upper armholes are blocked: {upper_side_caps}")
+    print(
+        "CORRECTIONS sleeveless=4, b6_body_shoulder_caps=0, "
+        f"kirasa_stand_collar_panels={len(collar_panels)}, kirasa_taper=3x2"
+    )
 
 
 def validate_routing() -> None:
@@ -122,6 +228,7 @@ def validate_textures() -> None:
 
 def main() -> None:
     validate_models()
+    validate_user_corrections()
     validate_routing()
     validate_textures()
     print("PASS tier I-III armor model validation")

@@ -253,28 +253,36 @@ MBSS_CUBES = {
     "admin": CubeUV(0, 20, 5.10, 1.25, 0.16),
     "webbing": CubeUV(12, 20, 6.20, 0.22, 0.12),
     "buckle": CubeUV(28, 20, 0.60, 0.75, 0.14),
-    "pouch": CubeUV(0, 28, 2.00, 4.80, 0.34),
-    "lid": CubeUV(6, 28, 2.00, 1.00, 0.18),
+    "pouch_left": CubeUV(0, 28, 2.00, 4.80, 0.34),
+    "lid_left": CubeUV(6, 28, 2.00, 1.00, 0.18),
     "side_pouch": CubeUV(12, 28, 0.30, 3.40, 3.10),
     "belt": CubeUV(20, 28, 7.50, 1.00, 0.28),
     "shoulder_top": CubeUV(38, 28, 3.10, 0.36, 4.92),
+    "pouch_center": CubeUV(60, 28, 2.00, 4.80, 0.34),
+    "lid_center": CubeUV(66, 28, 2.00, 1.00, 0.18),
+    "pouch_right": CubeUV(72, 28, 2.00, 4.80, 0.34),
+    "lid_right": CubeUV(78, 28, 2.00, 1.00, 0.18),
 }
 
 MBSS_MATERIALS = {
-    "carrier": ((76, 75, 52, 255), "nylon"),
-    "front_panel": ((98, 92, 63, 255), "nylon"),
-    "rear_panel": ((83, 82, 56, 255), "nylon"),
-    "side_panel": ((84, 81, 55, 255), "webbing"),
-    "front_strap": ((117, 106, 72, 255), "webbing"),
-    "rear_strap": ((105, 97, 65, 255), "webbing"),
-    "admin": ((72, 71, 49, 255), "velcro"),
-    "webbing": ((109, 99, 67, 255), "webbing"),
-    "buckle": ((57, 60, 54, 255), "metal"),
-    "pouch": ((104, 96, 65, 255), "nylon"),
-    "lid": ((115, 104, 70, 255), "webbing"),
-    "side_pouch": ((91, 87, 59, 255), "nylon"),
-    "belt": ((81, 78, 53, 255), "webbing"),
-    "shoulder_top": ((108, 99, 67, 255), "nylon"),
+    "carrier": ((57, 59, 42, 255), "nylon"),
+    "front_panel": ((84, 81, 58, 255), "nylon"),
+    "rear_panel": ((47, 42, 32, 255), "nylon"),
+    "side_panel": ((65, 63, 44, 255), "webbing"),
+    "front_strap": ((132, 121, 94, 255), "webbing"),
+    "rear_strap": ((120, 108, 79, 255), "webbing"),
+    "admin": ((23, 26, 20, 255), "velcro"),
+    "webbing": ((94, 86, 61, 255), "webbing"),
+    "buckle": ((43, 46, 44, 255), "metal"),
+    "pouch_left": ((132, 121, 94, 255), "nylon"),
+    "lid_left": ((145, 132, 101, 255), "webbing"),
+    "pouch_center": ((120, 108, 79, 255), "nylon"),
+    "lid_center": ((132, 121, 94, 255), "webbing"),
+    "pouch_right": ((84, 81, 58, 255), "nylon"),
+    "lid_right": ((94, 86, 61, 255), "webbing"),
+    "side_pouch": ((76, 71, 49, 255), "nylon"),
+    "belt": ((57, 59, 42, 255), "webbing"),
+    "shoulder_top": ((120, 108, 79, 255), "nylon"),
 }
 
 TV115_CUBES = {
@@ -321,8 +329,7 @@ MF_UNTAR_CUBES = {
     "molle": CubeUV(22, 20, 6.90, 0.24, 0.14),
     "hem": CubeUV(38, 20, 7.60, 0.90, 0.30),
     "side_band": CubeUV(55, 20, 0.12, 0.28, 4.20),
-    "shoulder_core": CubeUV(65, 20, 3.35, 3.10, 4.00),
-    "shoulder_top": CubeUV(81, 20, 4.25, 0.24, 4.92),
+    "shoulder_bridge": CubeUV(65, 20, 1.55, 0.45, 4.92),
 }
 
 MF_UNTAR_MATERIALS = {
@@ -337,8 +344,7 @@ MF_UNTAR_MATERIALS = {
     "molle": ((34, 78, 105, 255), "webbing"),
     "hem": ((42, 116, 156, 255), "webbing"),
     "side_band": ((32, 74, 99, 255), "webbing"),
-    "shoulder_core": ((55, 141, 184, 255), "soft"),
-    "shoulder_top": ((69, 157, 197, 255), "webbing"),
+    "shoulder_bridge": ((63, 148, 190, 255), "webbing"),
 }
 
 SPECS = (
@@ -360,8 +366,12 @@ SPECS = (
             ("admin", "north", "badge"),
             ("webbing", "north", "webbing"),
             ("buckle", "north", "buckle"),
-            ("pouch", "north", "pouch"),
-            ("lid", "north", "pouch"),
+            ("pouch_left", "north", "pouch"),
+            ("lid_left", "north", "pouch"),
+            ("pouch_center", "north", "pouch"),
+            ("lid_center", "north", "pouch"),
+            ("pouch_right", "north", "pouch"),
+            ("lid_right", "north", "pouch"),
             ("side_pouch", "west", "pouch"),
             ("side_pouch", "east", "pouch"),
             ("belt", "north", "webbing"),
@@ -374,8 +384,6 @@ SPECS = (
             "rear_strap": 2,
             "webbing": 2,
             "buckle": 2,
-            "pouch": 3,
-            "lid": 3,
             "side_pouch": 2,
             "belt": 2,
             "shoulder_top": 2,
@@ -439,8 +447,7 @@ SPECS = (
             ("hem", "south", "webbing"),
             ("side_band", "west", "webbing"),
             ("side_band", "east", "webbing"),
-            ("shoulder_core", "north", "panel"),
-            ("shoulder_top", "up", "panel"),
+            ("shoulder_bridge", "up", "panel"),
         ),
         instance_counts={
             "side_panel": 2,
@@ -449,8 +456,7 @@ SPECS = (
             "molle": 6,
             "hem": 2,
             "side_band": 4,
-            "shoulder_core": 2,
-            "shoulder_top": 2,
+            "shoulder_bridge": 2,
         },
     ),
 )
@@ -518,7 +524,7 @@ def write_texture(spec: ModelSpec) -> None:
 
 
 def main() -> None:
-    expected_counts = {"MBSS": 26, "TV-115": 31, "MF-UNTAR": 27}
+    expected_counts = {"MBSS": 26, "TV-115": 31, "MF-UNTAR": 25}
     for spec in SPECS:
         actual_count = runtime_cube_count(spec)
         if actual_count != expected_counts[spec.name]:

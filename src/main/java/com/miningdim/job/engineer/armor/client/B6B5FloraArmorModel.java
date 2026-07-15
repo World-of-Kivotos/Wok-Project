@@ -12,7 +12,7 @@ import net.minecraft.client.model.geom.builders.PartDefinition;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.LivingEntity;
 
-/** 6B5-15 Zh-86 Uley flora vest with four front pouches and no arm armor. */
+/** 6B5-15 Zh-86 Uley flora vest with a high ring collar, four lidded pouches and a long skirt. */
 public final class B6B5FloraArmorModel extends HumanoidModel<LivingEntity> {
 
     public static final ModelLayerLocation LAYER = new ModelLayerLocation(
@@ -39,60 +39,112 @@ public final class B6B5FloraArmorModel extends HumanoidModel<LivingEntity> {
 
     private static CubeListBuilder createBody() {
         return CubeListBuilder.create()
+                // Soft vest shell, widened below the chest.
                 .texOffs(0, 0)
-                .addBox(-3.30F, 0.55F, -2.30F, 6.60F, 3.00F, 0.36F)
+                .addBox(-3.30F, 0.55F, -2.32F, 6.60F, 3.00F, 0.40F)
                 .texOffs(15, 0)
-                .addBox(-3.30F, 0.55F, 1.94F, 6.60F, 3.00F, 0.36F)
+                .addBox(-3.30F, 0.55F, 1.92F, 6.60F, 3.00F, 0.40F)
                 .texOffs(30, 0)
-                .addBox(-3.75F, 3.52F, -2.32F, 7.50F, 4.03F, 0.40F)
+                .addBox(-3.75F, 3.52F, -2.38F, 7.50F, 4.03F, 0.44F)
                 .texOffs(47, 0)
-                .addBox(-3.75F, 3.52F, 1.92F, 7.50F, 4.03F, 0.40F)
+                .addBox(-3.75F, 3.52F, 1.94F, 7.50F, 4.03F, 0.44F)
                 .texOffs(64, 0)
-                .addBox(-3.95F, 7.52F, -2.35F, 7.90F, 4.23F, 0.42F)
+                .addBox(-3.95F, 7.52F, -2.44F, 7.90F, 4.23F, 0.47F)
                 .texOffs(82, 0)
-                .addBox(-3.95F, 7.52F, 1.93F, 7.90F, 4.23F, 0.42F)
+                .addBox(-3.95F, 7.52F, 1.97F, 7.90F, 4.23F, 0.47F)
                 .texOffs(100, 0)
-                .addBox(-4.35F, 3.58F, -1.94F, 0.63F, 8.14F, 3.88F)
+                .addBox(-3.98F, 3.58F, -1.94F, 0.46F, 8.14F, 3.88F)
                 .texOffs(110, 0)
-                .addBox(3.72F, 3.58F, -1.94F, 0.63F, 8.14F, 3.88F)
+                .addBox(3.52F, 3.58F, -1.94F, 0.46F, 8.14F, 3.88F)
 
-                // The reference has a padded ring collar and top tabs, but no deltoid pads.
-                .texOffs(0, 13)
-                .addBox(-4.40F, -1.00F, -4.50F, 3.80F, 1.60F, 0.42F)
-                .texOffs(10, 13)
-                .addBox(0.60F, -1.00F, -4.50F, 3.80F, 1.60F, 0.42F)
-                .texOffs(20, 13)
-                .addBox(-4.40F, -1.00F, 4.08F, 8.80F, 1.60F, 0.42F)
-                .texOffs(40, 13)
-                .addBox(-4.50F, -0.95F, -4.13F, 0.42F, 1.52F, 8.26F)
-                .texOffs(58, 13)
-                .addBox(4.08F, -0.95F, -4.13F, 0.42F, 1.52F, 8.26F)
-                .texOffs(76, 13)
-                .addBox(-3.28F, 0.35F, -4.13F, 2.70F, 0.28F, 2.21F)
-                .texOffs(87, 13)
-                .addBox(0.58F, 0.35F, -4.13F, 2.70F, 0.28F, 2.21F)
-                .texOffs(98, 13)
-                .addBox(-3.28F, 0.35F, 1.92F, 2.70F, 0.28F, 2.21F)
-                .texOffs(109, 13)
-                .addBox(0.58F, 0.35F, 1.92F, 2.70F, 0.28F, 2.21F)
+                // The tall five-piece ring collar is raised clear of the neutral-pose arms.
+                .texOffs(0, 14)
+                .addBox(-4.40F, -1.95F, -4.52F, 3.80F, 1.90F, 0.44F)
+                .texOffs(10, 14)
+                .addBox(0.60F, -1.95F, -4.52F, 3.80F, 1.90F, 0.44F)
+                .texOffs(20, 14)
+                .addBox(-4.40F, -1.88F, 4.08F, 8.80F, 1.78F, 0.44F)
+                .texOffs(40, 14)
+                .addBox(-4.52F, -1.80F, -4.13F, 0.44F, 1.63F, 8.26F)
+                .texOffs(59, 14)
+                .addBox(4.08F, -1.80F, -4.13F, 0.44F, 1.63F, 8.26F)
 
-                .texOffs(0, 24)
-                .addBox(-3.00F, 0.65F, -2.56F, 0.70F, 4.60F, 0.28F)
-                .texOffs(3, 24)
-                .addBox(2.30F, 0.65F, -2.56F, 0.70F, 4.60F, 0.28F)
-                .texOffs(6, 24)
-                .addBox(-3.60F, 5.00F, -3.07F, 1.55F, 4.40F, 0.78F)
-                .texOffs(12, 24)
-                .addBox(-1.85F, 5.00F, -3.07F, 1.55F, 4.40F, 0.78F)
-                .texOffs(18, 24)
-                .addBox(0.30F, 5.00F, -3.07F, 1.55F, 4.40F, 0.78F)
-                .texOffs(24, 24)
-                .addBox(2.05F, 5.00F, -3.07F, 1.55F, 4.40F, 0.78F)
+                // Four thick yokes tie the collar into front and rear plates without arm-mounted caps.
+                .texOffs(78, 14)
+                .addBox(-3.35F, -0.20F, -4.13F, 2.80F, 0.85F, 2.21F)
+                .texOffs(90, 14)
+                .addBox(0.55F, -0.20F, -4.13F, 2.80F, 0.85F, 2.21F)
+                .texOffs(102, 14)
+                .addBox(-3.35F, -0.20F, 1.92F, 2.80F, 0.85F, 2.21F)
+                .texOffs(114, 14)
+                .addBox(0.55F, -0.20F, 1.92F, 2.80F, 0.85F, 2.21F)
 
-                // Stepped front-only hem mirrors the rounded lower panel in the source.
-                .texOffs(30, 24)
-                .addBox(-3.10F, 11.45F, -2.56F, 6.20F, 3.00F, 0.30F)
-                .texOffs(44, 24)
-                .addBox(-1.75F, 14.25F, -2.50F, 3.50F, 1.20F, 0.25F);
+                // Long shoulder-front straps terminate behind the pouch row.
+                .texOffs(0, 25)
+                .addBox(-3.00F, 0.65F, -2.62F, 0.72F, 4.65F, 0.32F)
+                .texOffs(4, 25)
+                .addBox(2.28F, 0.65F, -2.62F, 0.72F, 4.65F, 0.32F)
+
+                // Four separate magazine/utility pouch bodies span the front and side waist.
+                .texOffs(8, 25)
+                .addBox(-3.88F, 4.90F, -3.20F, 1.65F, 4.65F, 0.92F)
+                .texOffs(15, 25)
+                .addBox(-2.00F, 4.90F, -3.20F, 1.65F, 4.65F, 0.92F)
+                .texOffs(22, 25)
+                .addBox(0.35F, 4.90F, -3.20F, 1.65F, 4.65F, 0.92F)
+                .texOffs(29, 25)
+                .addBox(2.23F, 4.90F, -3.20F, 1.65F, 4.65F, 0.92F)
+
+                // A broad long apron plus narrowed tip reproduce the rounded Zh-86 lower edge.
+                .texOffs(36, 25)
+                .addBox(-3.25F, 9.35F, -2.70F, 6.50F, 5.10F, 0.40F)
+                .texOffs(51, 25)
+                .addBox(-2.00F, 14.35F, -2.66F, 4.00F, 1.30F, 0.34F)
+
+                // Independent overhanging lids keep all four pouches from reading as flat blocks.
+                .texOffs(61, 25)
+                .addBox(-3.84F, 4.75F, -3.35F, 1.57F, 0.85F, 1.06F)
+                .texOffs(68, 25)
+                .addBox(-1.96F, 4.75F, -3.35F, 1.57F, 0.85F, 1.06F)
+                .texOffs(75, 25)
+                .addBox(0.39F, 4.75F, -3.35F, 1.57F, 0.85F, 1.06F)
+                .texOffs(82, 25)
+                .addBox(2.27F, 4.75F, -3.35F, 1.57F, 0.85F, 1.06F)
+
+                // Side skirts end before the leg pivots while preserving the continuous lower surround.
+                .texOffs(89, 25)
+                .addBox(-3.90F, 8.80F, -2.20F, 0.50F, 3.05F, 4.40F)
+                .texOffs(100, 25)
+                .addBox(3.40F, 8.80F, -2.20F, 0.50F, 3.05F, 4.40F)
+
+                // Raised chest, waist and centre seams add a visible padded-panel hierarchy.
+                .texOffs(111, 25)
+                .addBox(-2.94F, 3.20F, -2.58F, 5.88F, 0.24F, 0.26F)
+                .texOffs(0, 34)
+                .addBox(-3.60F, 7.35F, -2.64F, 7.20F, 0.28F, 0.28F)
+                .texOffs(16, 34)
+                .addBox(-0.12F, 0.90F, -2.64F, 0.24F, 3.00F, 0.26F)
+
+                // Narrow pull straps are offset again from the four pouch lids.
+                .texOffs(18, 34)
+                .addBox(-3.15F, 5.08F, -3.48F, 0.20F, 2.20F, 0.16F)
+                .texOffs(20, 34)
+                .addBox(-1.27F, 5.08F, -3.48F, 0.20F, 2.20F, 0.16F)
+                .texOffs(22, 34)
+                .addBox(1.07F, 5.08F, -3.48F, 0.20F, 2.20F, 0.16F)
+                .texOffs(24, 34)
+                .addBox(2.95F, 5.08F, -3.48F, 0.20F, 2.20F, 0.16F)
+
+                // A second outer lip makes the high collar read as a padded ring from every angle.
+                .texOffs(26, 34)
+                .addBox(-4.38F, -2.18F, -4.56F, 3.80F, 0.22F, 0.52F)
+                .texOffs(36, 34)
+                .addBox(0.58F, -2.18F, -4.56F, 3.80F, 0.22F, 0.52F)
+                .texOffs(46, 34)
+                .addBox(-4.38F, -2.10F, 4.04F, 8.76F, 0.22F, 0.52F)
+                .texOffs(66, 34)
+                .addBox(-4.54F, -2.02F, -4.16F, 0.52F, 0.22F, 8.32F)
+                .texOffs(85, 34)
+                .addBox(4.02F, -2.02F, -4.16F, 0.52F, 0.22F, 8.32F);
     }
 }

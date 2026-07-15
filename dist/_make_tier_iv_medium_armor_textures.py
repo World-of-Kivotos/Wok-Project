@@ -70,26 +70,28 @@ def c(name: str, w: float, h: float, d: float, material: str) -> Cube:
 
 RAW_MODELS: dict[str, tuple[Cube, ...]] = {
     "b6b13": (
-        c("front_yoke", 6.8, 2.8, .38, "fabric"),
-        c("front_plate", 7.5, 6.8, .48, "plate"),
-        c("front_lower", 7.7, 2.0, .42, "plate"),
-        c("rear_yoke", 6.8, 2.8, .38, "fabric"),
-        c("rear_plate", 7.5, 8.6, .44, "plate"),
-        c("left_side", .44, 8.4, 4.1, "side"),
-        c("right_side", .44, 8.4, 4.1, "side"),
-        c("front_collar_left", 3.8, 1.65, .42, "collar"),
-        c("front_collar_right", 3.8, 1.65, .42, "collar"),
-        c("rear_collar", 8.4, 1.65, .42, "collar"),
-        c("left_collar", .42, 1.65, 8.1, "collar"),
-        c("right_collar", .42, 1.65, 8.1, "collar"),
-        c("groin", 5.0, 3.2, .40, "lower"),
-        c("front_flap", 3.4, 1.3, .22, "webbing"),
-        c("right_shoulder", 4.0, .45, 4.2, "shoulder"),
-        c("left_shoulder", 4.0, .45, 4.2, "shoulder"),
-        c("front_collar_root_left", 1.65, 1.8, .50, "fabric"),
-        c("front_collar_root_right", 1.65, 1.8, .50, "fabric"),
-        c("rear_collar_root_left", 1.65, 1.8, .50, "fabric"),
-        c("rear_collar_root_right", 1.65, 1.8, .50, "fabric"),
+        c("right_shoulder_top", 4.10, .65, 4.30, "shoulder"),
+        c("right_shoulder_outer", .55, 1.30, 4.20, "shoulder"),
+        c("left_shoulder_top", 4.10, .65, 4.30, "shoulder"),
+        c("left_shoulder_outer", .55, 1.30, 4.20, "shoulder"),
+        c("front_yoke", 6.80, 2.80, .36, "fabric"),
+        c("front_plate", 7.50, 6.80, .50, "plate"),
+        c("front_lower", 7.70, 2.00, .40, "lower"),
+        c("rear_yoke", 6.80, 2.80, .40, "fabric"),
+        c("rear_plate", 7.50, 8.60, .50, "plate"),
+        c("left_side", .44, 8.40, 4.10, "side"),
+        c("right_side", .44, 8.40, 4.10, "side"),
+        c("front_collar_left", 3.80, 1.65, .42, "collar"),
+        c("front_collar_right", 3.80, 1.65, .42, "collar"),
+        c("rear_collar", 8.40, 1.65, .42, "collar"),
+        c("left_collar", .42, 1.65, 8.10, "collar"),
+        c("right_collar", .42, 1.65, 8.10, "collar"),
+        c("long_apron", 5.00, 3.20, .40, "lower"),
+        c("front_flap", 3.40, 1.30, .22, "webbing"),
+        c("front_collar_root_left", 1.65, 1.80, .50, "fabric"),
+        c("front_collar_root_right", 1.65, 1.80, .50, "fabric"),
+        c("rear_collar_root_left", 1.65, 1.80, .50, "fabric"),
+        c("rear_collar_root_right", 1.65, 1.80, .50, "fabric"),
     ),
     "b6b3": (
         c("front_upper", 6.8, 3.7, .40, "fabric"),
@@ -113,64 +115,99 @@ RAW_MODELS: dict[str, tuple[Cube, ...]] = {
         c("side_belt", .28, 2.0, 3.9, "strap"),
     ),
     "ana": (
-        c("front_plate", 6.9, 6.0, .42, "plate"),
-        c("rear_plate", 6.9, 6.0, .42, "plate"),
-        c("left_side", .40, 6.3, 4.0, "side"),
-        c("right_side", .40, 6.3, 4.0, "side"),
-        c("left_bridge", 1.1, 1.0, 4.8, "strap"),
-        c("right_bridge", 1.1, 1.0, 4.8, "strap"),
-        c("upper_webbing", 6.6, .28, .16, "webbing"),
-        c("waist_front", 7.8, 3.8, .45, "belt"),
-        c("waist_rear", 7.8, 3.8, .45, "belt"),
-        c("medical", 1.7, 4.4, .80, "pouch"),
-        c("small_pouch", 1.35, 2.3, .68, "pouch"),
-        c("mag_left", 1.65, 4.2, .75, "mag"),
-        c("mag_mid", 1.65, 4.2, .75, "mag"),
-        c("mag_right", 1.65, 4.2, .75, "mag"),
-        c("radio", 1.05, 4.6, .65, "dark"),
-        c("antenna", .16, 5.0, .16, "dark"),
-        c("tool", .45, 3.1, .20, "accent"),
+        c("front_plate", 6.96, 6.45, .48, "plate"),
+        c("rear_plate", 6.96, 6.45, .48, "plate"),
+        c("left_side", .56, 6.70, 4.16, "side"),
+        c("right_side", .56, 6.70, 4.16, "side"),
+        c("left_bridge", 1.37, 1.25, 5.08, "strap"),
+        c("right_bridge", 1.37, 1.25, 5.08, "strap"),
+        c("upper_webbing", 6.56, .32, .28, "webbing"),
+        c("waist_front", 8.24, 3.40, .63, "belt"),
+        c("waist_rear", 8.16, 3.30, .63, "belt"),
+        c("left_side_pouch", 2.45, 4.70, 1.48, "pouch"),
+        c("right_side_pouch", 1.55, 4.40, 1.20, "pouch"),
+        c("mag_left", 1.35, 4.25, 1.04, "mag"),
+        c("mag_right", 1.35, 4.10, 1.00, "mag"),
+        c("small_pouch_upper", .90, 1.85, 1.10, "pouch"),
+        c("radio", 1.08, 4.70, .76, "dark"),
+        c("antenna", .18, 4.55, .20, "dark"),
+        c("shoulder_hardware", .50, 3.20, .36, "strap"),
+        c("left_pouch_lid", 2.68, 1.15, 1.68, "pouch"),
+        c("left_pouch_stitch", 2.10, 2.90, .24, "webbing"),
+        c("right_pouch_lid", 1.71, 1.10, 1.40, "pouch"),
+        c("right_pouch_stitch", 1.30, 2.55, .22, "webbing"),
+        c("mag_left_lip", 1.45, 1.05, 1.24, "mag"),
+        c("mag_right_lip", 1.45, 1.02, 1.20, "mag"),
+        c("chest_molle", 6.35, .30, .30, "webbing"),
+        c("small_pouch_lower", .90, 2.00, 1.12, "pouch"),
+        c("small_pouch_upper_lid", .96, .55, 1.25, "pouch"),
+        c("small_pouch_lower_lid", .96, .55, 1.27, "pouch"),
     ),
     "a18": (
-        c("front_plate", 6.8, 6.2, .45, "plate"),
-        c("rear_plate", 6.8, 6.2, .45, "plate"),
-        c("left_side", .42, 6.2, 4.0, "side"),
-        c("right_side", .42, 6.2, 4.0, "side"),
-        c("left_bridge", 1.15, 1.0, 4.8, "strap"),
-        c("right_bridge", 1.15, 1.0, 4.8, "strap"),
-        c("front_belt", 7.8, 2.5, .50, "belt"),
-        c("rear_belt", 7.8, 2.5, .50, "belt"),
-        c("left_pouch", 2.1, 4.5, .85, "pouch"),
-        c("right_pouch", 2.1, 4.5, .85, "pouch"),
-        c("mag_left", 1.8, 3.8, .75, "dark"),
-        c("mag_right", 1.8, 3.8, .75, "dark"),
-        c("utility", 1.1, 4.4, .70, "utility"),
-        c("radio", .95, 4.7, .65, "dark"),
-        c("webbing", 6.4, .25, .16, "webbing"),
-        c("buckle", .8, 1.0, .22, "metal"),
+        c("front_plate", 7.10, 6.60, .52, "plate"),
+        c("rear_plate", 7.10, 6.60, .50, "plate"),
+        c("left_side", .48, 6.55, 4.16, "side"),
+        c("right_side", .48, 6.55, 4.16, "side"),
+        c("left_bridge", 1.54, 1.45, 5.12, "strap"),
+        c("right_bridge", 1.54, 1.45, 5.12, "strap"),
+        c("front_belt", 8.36, 3.30, .64, "belt"),
+        c("rear_belt", 8.24, 3.20, .62, "belt"),
+        c("left_side_bag", 2.82, 4.70, 1.60, "pouch"),
+        c("right_side_bag", 2.87, 4.20, 1.48, "pouch"),
+        c("mag_left", 1.77, 4.35, 1.20, "dark"),
+        c("mag_right", 1.83, 4.10, 1.15, "dark"),
+        c("utility", 1.24, 4.40, 1.04, "utility"),
+        c("radio", 1.00, 5.00, .76, "dark"),
+        c("chest_webbing", 6.64, .32, .26, "webbing"),
+        c("center_buckle", .88, 1.30, 1.30, "metal"),
+        c("left_bag_lid", 3.05, 1.14, 1.80, "pouch"),
+        c("left_bag_stitch", 2.44, 2.85, .25, "webbing"),
+        c("right_bag_lid", 3.09, 1.10, 1.68, "pouch"),
+        c("right_bag_stitch", 2.48, 2.53, .24, "webbing"),
+        c("mag_left_lip", 1.98, 1.20, 1.42, "dark"),
+        c("mag_right_lip", 2.04, 1.07, 1.37, "dark"),
+        c("tool_channel", .30, 3.80, .97, "utility"),
+        c("tool_lid", .44, .80, 1.11, "utility"),
+        c("left_shoulder_hardware", .63, 1.35, .41, "metal"),
+        c("right_shoulder_hardware", .75, 1.37, .39, "metal"),
+        c("molle_upper", 6.50, .30, .28, "webbing"),
+        c("molle_lower", 6.30, .28, .30, "webbing"),
+        c("waist_seam", 8.00, .28, .22, "webbing"),
     ),
     "avs": (
-        c("front_plate", 6.9, 6.3, .45, "plate"),
-        c("rear_plate", 6.9, 6.3, .45, "plate"),
-        c("left_side", .42, 6.4, 4.0, "side"),
-        c("right_side", .42, 6.4, 4.0, "side"),
-        c("left_bridge", 1.2, 1.1, 4.8, "strap"),
-        c("right_bridge", 1.2, 1.1, 4.8, "strap"),
-        c("front_belt", 7.8, 2.4, .50, "belt"),
-        c("rear_belt", 7.8, 2.4, .50, "belt"),
-        c("left_pouch", 1.7, 4.3, .85, "pouch"),
-        c("right_pouch", 1.5, 4.1, .75, "pouch"),
-        c("mag_left", 1.55, 4.2, .72, "mag"),
-        c("mag_mid", 1.55, 4.2, .72, "mag"),
-        c("mag_right", 1.55, 4.2, .72, "mag"),
-        c("radio", .85, 4.9, .60, "dark"),
-        c("groin", 5.4, 5.8, .42, "groin"),
-        c("molle_1", 4.6, .28, .18, "webbing"),
-        c("molle_2", 4.6, .28, .18, "webbing"),
-        c("molle_3", 4.6, .28, .18, "webbing"),
-        c("molle_4", 4.6, .28, .18, "webbing"),
-        c("chest_webbing_1", 6.5, .28, .16, "webbing"),
-        c("chest_webbing_2", 6.5, .28, .16, "webbing"),
+        c("front_plate", 6.90, 6.30, .45, "plate"),
+        c("rear_plate", 6.90, 6.30, .45, "plate"),
+        c("left_side", .44, 6.30, 4.04, "side"),
+        c("right_side", .44, 6.30, 4.04, "side"),
+        c("left_bridge", 1.30, 1.30, 4.90, "strap"),
+        c("right_bridge", 1.30, 1.30, 4.90, "strap"),
+        c("front_belt", 7.80, 2.65, .59, "belt"),
+        c("rear_belt", 7.80, 2.65, .59, "belt"),
+        c("left_zip_pack", 1.90, 5.00, 1.10, "pouch"),
+        c("right_zip_pack", 1.90, 5.00, 1.10, "pouch"),
+        c("mag_left", 1.40, 4.65, 1.08, "mag"),
+        c("mag_mid", 1.40, 4.65, 1.08, "mag"),
+        c("mag_right", 1.40, 4.65, 1.08, "mag"),
+        c("radio", .88, 4.85, .72, "dark"),
+        c("apron_upper", 5.40, 2.05, .36, "groin"),
+        c("apron_molle_1", 4.60, .28, .18, "webbing"),
+        c("apron_molle_2", 4.60, .28, .18, "webbing"),
+        c("apron_molle_3", 4.60, .28, .18, "webbing"),
+        c("apron_molle_4", 4.60, .28, .18, "webbing"),
+        c("chest_webbing_1", 6.50, .28, .16, "webbing"),
+        c("chest_webbing_2", 6.50, .28, .16, "webbing"),
+        c("left_pack_lid", 1.86, .85, 1.22, "webbing"),
+        c("right_pack_lid", 1.86, .85, 1.22, "webbing"),
+        c("left_zipper", .18, 3.82, .18, "dark"),
+        c("right_zipper", .18, 3.82, .18, "dark"),
+        c("mag_left_lip", 1.36, .55, 1.22, "webbing"),
+        c("mag_mid_lip", 1.36, .55, 1.22, "webbing"),
+        c("mag_right_lip", 1.36, .55, 1.22, "webbing"),
+        c("apron_middle", 4.40, 2.05, .35, "groin"),
+        c("apron_tip", 3.40, 2.00, .34, "groin"),
+        c("apron_middle_molle_1", 3.70, .28, .18, "webbing"),
+        c("apron_middle_molle_2", 3.70, .28, .18, "webbing"),
+        c("apron_tip_molle", 2.70, .28, .18, "webbing"),
     ),
     "thor": (
         c("front_upper", 6.6, 4.0, .34, "upper"),
@@ -188,36 +225,62 @@ RAW_MODELS: dict[str, tuple[Cube, ...]] = {
         c("chest_patch", 2.2, .7, .16, "patch"),
     ),
     "stich": (
-        c("front_plate", 6.8, 6.1, .45, "plate"),
-        c("rear_plate", 6.8, 6.1, .45, "plate"),
-        c("left_side", .40, 6.4, 4.0, "side"),
-        c("right_side", .40, 6.4, 4.0, "side"),
-        c("left_bridge", 1.2, 1.05, 4.8, "strap"),
-        c("right_bridge", 1.2, 1.05, 4.8, "strap"),
-        c("front_belt", 7.8, 2.5, .48, "belt"),
-        c("rear_belt", 7.8, 2.5, .48, "belt"),
-        c("mag_left", 1.8, 4.1, .72, "mag"),
-        c("mag_right", 1.8, 4.1, .72, "mag"),
-        c("medical", 1.55, 4.4, .80, "pouch"),
-        c("radio", 1.0, 4.8, .65, "dark"),
-        c("antenna", .16, 5.0, .16, "dark"),
-        c("drop_pouch", 4.8, 3.8, .75, "pouch"),
-        c("molle", 6.2, .30, .16, "webbing"),
+        c("front_plate", 6.80, 6.10, .45, "plate"),
+        c("rear_plate", 6.80, 6.10, .45, "plate"),
+        c("left_side", .44, 6.35, 4.04, "side"),
+        c("right_side", .44, 6.35, 4.04, "side"),
+        c("left_bridge", 1.30, 1.28, 4.88, "strap"),
+        c("right_bridge", 1.30, 1.28, 4.88, "strap"),
+        c("front_belt", 7.80, 2.70, .59, "belt"),
+        c("rear_belt", 7.80, 2.70, .59, "belt"),
+        c("mag_left", 1.75, 4.25, 1.05, "mag"),
+        c("mag_right", 1.75, 4.25, 1.05, "mag"),
+        c("left_medical_pouch", 1.85, 4.90, 1.02, "pouch"),
+        c("right_radio_pouch", 1.23, 5.25, .92, "pouch"),
+        c("antenna", .16, 4.50, .16, "dark"),
+        c("drop_pouch", 5.10, 3.85, .88, "pouch"),
+        c("upper_molle", 6.20, .30, .24, "webbing"),
+        c("mag_left_lip", 1.69, .58, 1.20, "webbing"),
+        c("mag_right_lip", 1.69, .58, 1.20, "webbing"),
+        c("left_pouch_lid", 1.81, .85, 1.15, "webbing"),
+        c("right_pouch_lid", 1.19, .75, 1.07, "webbing"),
+        c("drop_pouch_lid", 4.96, .90, 1.24, "webbing"),
+        c("molle_middle", 6.20, .30, .25, "webbing"),
+        c("molle_lower", 6.20, .30, .27, "webbing"),
+        c("left_pouch_face", 1.35, 2.60, .16, "pouch"),
+        c("right_pouch_face", .95, 2.40, .16, "pouch"),
+        c("drop_pouch_face", 3.20, 1.80, .16, "pouch"),
     ),
     "tv110": (
-        c("front_plate", 6.8, 6.2, .45, "plate"),
-        c("rear_plate", 6.8, 6.2, .45, "plate"),
-        c("left_side", .42, 6.2, 4.0, "side"),
-        c("right_side", .42, 6.2, 4.0, "side"),
-        c("left_bridge", 1.25, 1.05, 4.8, "strap"),
-        c("right_bridge", 1.25, 1.05, 4.8, "strap"),
-        c("front_belt", 7.8, 2.1, .45, "belt"),
-        c("rear_belt", 7.8, 2.1, .45, "belt"),
-        c("left_pouch", 2.0, 4.1, .78, "pouch"),
-        c("mid_pouch", 2.0, 4.1, .78, "pouch"),
-        c("right_pouch", 1.4, 4.3, .70, "pouch"),
-        c("radio", .8, 4.7, .62, "dark"),
-        c("upper_molle", 6.3, .30, .16, "webbing"),
+        c("front_plate", 6.80, 6.20, .45, "plate"),
+        c("rear_plate", 6.80, 6.20, .45, "plate"),
+        c("left_side", .44, 6.30, 4.04, "side"),
+        c("right_side", .44, 6.30, 4.04, "side"),
+        c("left_bridge", 1.35, 1.28, 4.88, "strap"),
+        c("right_bridge", 1.35, 1.28, 4.88, "strap"),
+        c("front_belt", 7.80, 2.55, .59, "belt"),
+        c("rear_belt", 7.80, 2.55, .59, "belt"),
+        c("left_square_pouch", 2.10, 4.95, 1.18, "pouch"),
+        c("mag_left", 1.70, 4.70, 1.08, "mag"),
+        c("mag_right", 1.70, 4.70, 1.08, "mag"),
+        c("right_radio_pouch", 1.63, 5.55, .99, "dark"),
+        c("upper_molle", 6.30, .30, .24, "webbing"),
+        c("left_pouch_lid", 2.04, .95, 1.34, "webbing"),
+        c("mag_left_lip", 1.64, .62, 1.23, "webbing"),
+        c("mag_right_lip", 1.64, .62, 1.23, "webbing"),
+        c("radio_lid", 1.57, .88, 1.14, "dark"),
+        c("antenna", .16, 4.55, .16, "dark"),
+        c("molle_row_2", 6.30, .30, .26, "webbing"),
+        c("molle_row_3", 6.30, .30, .28, "webbing"),
+        c("molle_row_4", 6.30, .30, .29, "webbing"),
+        c("upper_face", 5.60, 1.40, .20, "plate"),
+        c("left_zipper_outer", .18, 3.20, .16, "dark"),
+        c("left_zipper_inner", .18, 3.20, .16, "dark"),
+        c("radio_face", 1.04, 2.75, .16, "dark"),
+        c("left_shoulder_tab", 1.02, .50, .25, "strap"),
+        c("right_shoulder_tab", 1.02, .50, .25, "strap"),
+        c("center_seam", .24, 4.00, .40, "webbing"),
+        c("waist_seam", 6.90, .24, .18, "webbing"),
     ),
 }
 
@@ -261,13 +324,13 @@ THEMES = {
     "plate_armor_avs_ranger_green_layer_1.png": ("avs", {
         "plate": (68, 78, 54, 255), "side": (51, 61, 44, 255),
         "strap": (73, 83, 58, 255), "belt": (60, 70, 48, 255),
-        "pouch": (64, 76, 52, 255), "mag": (73, 78, 72, 255),
+        "pouch": (64, 76, 52, 255), "mag": (52, 59, 52, 255),
         "dark": (31, 37, 34, 255), "groin": (65, 75, 51, 255),
         "webbing": (79, 87, 59, 255)}, set()),
     "plate_armor_avs_multicam_layer_1.png": ("avs", {
         "plate": (122, 114, 76, 255), "side": (92, 88, 62, 255),
         "strap": (132, 121, 83, 255), "belt": (108, 99, 67, 255),
-        "pouch": (119, 110, 73, 255), "mag": (72, 76, 70, 255),
+        "pouch": (119, 110, 73, 255), "mag": (57, 62, 57, 255),
         "dark": (31, 35, 32, 255), "groin": (120, 110, 75, 255),
         "webbing": (115, 105, 71, 255)}, {"plate", "side", "strap", "belt", "pouch", "groin", "webbing"}),
     "plate_armor_thor_concealable_layer_1.png": ("thor", {
@@ -276,20 +339,25 @@ THEMES = {
         "waist": (25, 29, 29, 255), "pad": (35, 38, 38, 255),
         "patch": (24, 26, 26, 255)}, set()),
     "plate_armor_stich_profi_v2_black_layer_1.png": ("stich", {
-        "plate": (31, 34, 34, 255), "side": (22, 26, 26, 255),
-        "strap": (36, 39, 39, 255), "belt": (27, 30, 30, 255),
-        "mag": (43, 38, 41, 255), "pouch": (31, 34, 34, 255),
-        "dark": (17, 20, 20, 255), "webbing": (45, 48, 47, 255)}, set()),
+        "plate": (43, 47, 47, 255), "side": (29, 34, 34, 255),
+        "strap": (50, 54, 54, 255), "belt": (38, 42, 42, 255),
+        "mag": (57, 50, 54, 255), "pouch": (46, 49, 48, 255),
+        "dark": (22, 26, 26, 255), "webbing": (61, 65, 63, 255)}, set()),
     "plate_armor_tv110_coyote_layer_1.png": ("tv110", {
         "plate": (107, 104, 79, 255), "side": (77, 81, 64, 255),
         "strap": (116, 111, 83, 255), "belt": (85, 83, 64, 255),
-        "pouch": (116, 109, 78, 255), "dark": (43, 46, 40, 255),
+        "pouch": (116, 109, 78, 255), "mag": (78, 74, 57, 255), "dark": (43, 46, 40, 255),
         "webbing": (96, 92, 70, 255)}, set()),
 }
 
 
 def shade(color: RGBA, delta: int) -> RGBA:
     return tuple(max(0, min(255, value + delta)) for value in color[:3]) + (255,)
+
+
+def tint(color: RGBA, red: int, green: int, blue: int) -> RGBA:
+    offsets = (red, green, blue)
+    return tuple(max(0, min(255, value + offsets[index])) for index, value in enumerate(color[:3])) + (255,)
 
 
 def stable_seed(value: str) -> int:
@@ -301,14 +369,27 @@ def bounds(face: Face) -> tuple[int, int, int, int]:
 
 
 def pixel(base: RGBA, x: int, y: int, seed: int, camouflage: bool) -> RGBA:
-    fine = ((x * 73 + y * 151 + seed * 37 + (x + 7) * (y + 11) * 9) & 255) % 5 - 2
+    fine = ((x * 73 + y * 151 + seed * 37 + (x + 7) * (y + 11) * 9) & 255) % 7 - 3
     if camouflage:
-        cx, cy = x // 3, y // 3
-        value = (cx * 29 + cy * 43 + seed * 17 + (cx ^ cy) * 11) % 19
-        camo = -22 if value in (0, 1, 2) else 18 if value in (3, 4) else -9 if value in (5, 6) else 0
-        return shade(base, fine + camo)
-    weave = 3 if (x + 2 * y + seed) % 19 == 0 else -3 if (2 * x + y + seed) % 23 == 0 else 0
-    return shade(base, fine + weave)
+        warped_x = x + ((y * 5 + seed) % 7) - 3
+        warped_y = y + ((x * 3 + seed * 2) % 5) - 2
+        cell_x, cell_y = warped_x // 4, warped_y // 3
+        value = (cell_x * 29 + cell_y * 43 + seed * 17 + (cell_x ^ cell_y) * 11) % 29
+        if value in (0, 1, 2, 3):
+            color = tint(base, -30, -23, -13)
+        elif value in (4, 5, 6):
+            color = tint(base, 24, 18, 5)
+        elif value in (7, 8, 9):
+            color = tint(base, -16, 3, -12)
+        elif value in (10, 11):
+            color = tint(base, 10, -7, -15)
+        else:
+            color = base
+        fiber = 3 if (x + 2 * y + seed) % 11 == 0 else -2 if (2 * x + y + seed) % 13 == 0 else 0
+        return shade(color, fine + fiber)
+    warp = 4 if (x + seed) % 9 == 0 else -3 if (y + seed) % 11 == 0 else 0
+    diagonal = 2 if (x + y + seed) % 17 == 0 else -2 if (x - y + seed) % 19 == 0 else 0
+    return shade(base, fine + warp + diagonal)
 
 
 def paint(image: Image.Image, face: Face, base: RGBA, seed: int, camouflage: bool) -> tuple[int, int, int, int]:
@@ -329,17 +410,37 @@ def detail(image: Image.Image, region: tuple[int, int, int, int], base: RGBA, ki
         draw.line((x0, y1 - 1, x1 - 1, y1 - 1), fill=shade(base, -10))
         draw.line((x0, y0, x0, y1 - 1), fill=shade(base, 4))
         draw.line((x1 - 1, y0, x1 - 1, y1 - 1), fill=shade(base, -7))
-    if kind in {"plate", "pouch", "belt", "groin", "flap"} and w >= 4 and h >= 4:
+    if kind in {"plate", "side", "pouch", "belt", "groin", "flap", "mag", "utility", "collar", "shoulder"} and w >= 4 and h >= 4:
         for x in range(x0 + 1, x1 - 1, 3):
             draw.point((x, y0 + 1), fill=shade(base, 12))
             draw.point((x, y1 - 2), fill=shade(base, -13))
+        for y in range(y0 + 2, y1 - 2, 3):
+            draw.point((x0 + 1, y), fill=shade(base, 9))
+            draw.point((x1 - 2, y), fill=shade(base, -10))
+    if kind in {"plate", "side", "belt", "groin"} and w >= 6 and h >= 5:
+        seam_y = y0 + max(2, h // 2)
+        draw.line((x0 + 2, seam_y, x1 - 3, seam_y), fill=shade(base, -8))
+        if h >= 8:
+            draw.line((x0 + 2, min(y1 - 2, seam_y + 2), x1 - 3, min(y1 - 2, seam_y + 2)), fill=shade(base, 5))
     if kind in {"webbing", "strap"} and h >= 3:
         for y in range(y0 + 1, y1 - 1, 2):
             draw.line((x0 + 1, y, max(x0 + 1, x1 - 2), y), fill=shade(base, -8))
-    if kind in {"pouch", "mag"} and h >= 4:
-        draw.line((x0, min(y0 + 2, y1 - 1), x1 - 1, min(y0 + 2, y1 - 1)), fill=shade(base, -12))
+            for x in range(x0 + 3, x1 - 1, 4):
+                draw.point((x, y), fill=shade(base, 7))
+    if kind in {"pouch", "mag", "utility"} and h >= 4:
+        if w >= 3:
+            draw.line((x0, y0, x0, y1 - 1), fill=shade(base, -18))
+            draw.line((x1 - 1, y0, x1 - 1, y1 - 1), fill=shade(base, -20))
+            draw.line((x0, y1 - 1, x1 - 1, y1 - 1), fill=shade(base, -17))
+        flap_y = min(y0 + max(2, h // 4), y1 - 2)
+        draw.line((x0, flap_y, x1 - 1, flap_y), fill=shade(base, -14))
         if w >= 4:
             draw.line((x0 + 1, y0 + 1, x1 - 2, y1 - 2), fill=shade(base, -6))
+            draw.line((x1 - 2, y0 + 1, x0 + 1, y1 - 2), fill=shade(base, 5))
+        if w >= 6:
+            center = x0 + w // 2
+            draw.line((center, flap_y + 1, center, y1 - 2), fill=shade(base, -9))
+            draw.rectangle((center - 1, flap_y, min(x1 - 2, center + 1), min(y1 - 2, flap_y + 2)), outline=shade(base, 10))
 
 
 def net_bounds(cube: Cube) -> Face:

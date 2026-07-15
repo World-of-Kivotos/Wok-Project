@@ -12,7 +12,7 @@ import net.minecraft.client.model.geom.builders.PartDefinition;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.LivingEntity;
 
-/** 6B23-2 mountain-flora soft armor with a high collar and long front skirt. */
+/** 6B23-2 mountain-flora soft armor with a layered shell, high collar and long protective skirt. */
 public final class B6B23MountainFloraArmorModel extends HumanoidModel<LivingEntity> {
 
     public static final ModelLayerLocation LAYER = new ModelLayerLocation(
@@ -39,52 +39,84 @@ public final class B6B23MountainFloraArmorModel extends HumanoidModel<LivingEnti
 
     private static CubeListBuilder createBody() {
         return CubeListBuilder.create()
-                // Narrow padded shoulders widen into the soft vest body.
+                // Three stepped soft-armor courses reproduce the rounded shell.
                 .texOffs(0, 0)
-                .addBox(-3.25F, 0.50F, -2.35F, 6.50F, 3.20F, 0.40F)
+                .addBox(-3.25F, 0.50F, -2.36F, 6.50F, 3.20F, 0.42F)
                 .texOffs(15, 0)
-                .addBox(-3.25F, 0.50F, 1.95F, 6.50F, 3.20F, 0.40F)
+                .addBox(-3.25F, 0.50F, 1.94F, 6.50F, 3.20F, 0.42F)
                 .texOffs(30, 0)
-                .addBox(-3.75F, 3.67F, -2.38F, 7.50F, 4.03F, 0.42F)
+                .addBox(-3.75F, 3.65F, -2.40F, 7.50F, 4.05F, 0.47F)
                 .texOffs(47, 0)
-                .addBox(-3.75F, 3.67F, 1.96F, 7.50F, 4.03F, 0.42F)
+                .addBox(-3.75F, 3.65F, 1.93F, 7.50F, 4.05F, 0.47F)
                 .texOffs(64, 0)
-                .addBox(-4.00F, 7.67F, -2.42F, 8.00F, 4.03F, 0.45F)
+                .addBox(-4.00F, 7.65F, -2.44F, 8.00F, 4.10F, 0.48F)
                 .texOffs(82, 0)
-                .addBox(-4.00F, 7.67F, 1.97F, 8.00F, 4.03F, 0.45F)
+                .addBox(-4.00F, 7.65F, 1.96F, 8.00F, 4.10F, 0.48F)
                 .texOffs(100, 0)
-                .addBox(-4.35F, 3.73F, -1.98F, 0.63F, 7.92F, 3.96F)
+                .addBox(-3.98F, 3.72F, -1.98F, 0.46F, 8.10F, 3.96F)
                 .texOffs(110, 0)
-                .addBox(3.72F, 3.73F, -1.98F, 0.63F, 7.92F, 3.96F)
+                .addBox(3.52F, 3.72F, -1.98F, 0.46F, 8.10F, 3.96F)
 
-                // Five outer panels keep the padded collar visible around the head.
-                .texOffs(0, 13)
-                .addBox(-4.35F, -0.90F, -4.45F, 3.75F, 1.55F, 0.42F)
-                .texOffs(10, 13)
-                .addBox(0.60F, -0.90F, -4.45F, 3.75F, 1.55F, 0.42F)
-                .texOffs(20, 13)
-                .addBox(-4.35F, -0.90F, 4.03F, 8.70F, 1.55F, 0.42F)
-                .texOffs(40, 13)
-                .addBox(-4.45F, -0.85F, -4.08F, 0.42F, 1.47F, 8.16F)
-                .texOffs(58, 13)
-                .addBox(4.03F, -0.85F, -4.08F, 0.42F, 1.47F, 8.16F)
+                // A tall five-piece collar surrounds the neck; staggered y faces prevent shimmer.
+                .texOffs(0, 14)
+                .addBox(-4.35F, -1.75F, -4.48F, 3.75F, 1.80F, 0.44F)
+                .texOffs(10, 14)
+                .addBox(0.60F, -1.75F, -4.48F, 3.75F, 1.80F, 0.44F)
+                .texOffs(20, 14)
+                .addBox(-4.35F, -1.68F, 4.04F, 8.70F, 1.68F, 0.44F)
+                .texOffs(40, 14)
+                .addBox(-4.47F, -1.61F, -4.06F, 0.44F, 1.56F, 8.12F)
+                .texOffs(59, 14)
+                .addBox(4.03F, -1.61F, -4.06F, 0.44F, 1.56F, 8.12F)
 
-                // Body-mounted shoulder yokes, not arm-mounted protective caps.
-                .texOffs(76, 13)
-                .addBox(-3.40F, 0.35F, -4.08F, 2.82F, 0.25F, 2.15F)
-                .texOffs(87, 13)
-                .addBox(0.58F, 0.35F, -4.08F, 2.82F, 0.25F, 2.15F)
-                .texOffs(98, 13)
-                .addBox(-3.40F, 0.35F, 1.93F, 2.82F, 0.25F, 2.15F)
-                .texOffs(109, 13)
-                .addBox(0.58F, 0.35F, 1.93F, 2.82F, 0.25F, 2.15F)
+                // Thick top yokes bridge the collar into both faces of the vest.
+                .texOffs(78, 14)
+                .addBox(-3.55F, -0.12F, -4.08F, 3.00F, 0.90F, 2.16F)
+                .texOffs(90, 14)
+                .addBox(0.55F, -0.12F, -4.08F, 3.00F, 0.90F, 2.16F)
+                .texOffs(102, 14)
+                .addBox(-3.55F, -0.12F, 1.92F, 3.00F, 0.90F, 2.16F)
+                .texOffs(114, 14)
+                .addBox(0.55F, -0.12F, 1.92F, 3.00F, 0.90F, 2.16F)
 
-                // The broad fold and stepped apron reproduce the long front hem.
-                .texOffs(0, 24)
-                .addBox(-3.90F, 7.65F, -2.65F, 7.80F, 4.00F, 0.26F)
-                .texOffs(18, 24)
-                .addBox(-3.10F, 11.60F, -2.58F, 6.20F, 3.60F, 0.35F)
-                .texOffs(33, 24)
-                .addBox(-3.80F, 6.90F, -2.60F, 7.60F, 0.40F, 0.24F);
+                // Broad front fold, overlapping long apron and an independently raised waist seam.
+                .texOffs(0, 25)
+                .addBox(-3.90F, 7.55F, -2.70F, 7.80F, 4.25F, 0.34F)
+                .texOffs(18, 25)
+                .addBox(-3.10F, 11.60F, -2.67F, 6.20F, 3.80F, 0.36F)
+                .texOffs(33, 25)
+                .addBox(-3.70F, 6.90F, -2.70F, 7.40F, 0.38F, 0.29F)
+
+                // Separate face layers make the padded upper and middle panels visibly three-dimensional.
+                .texOffs(50, 25)
+                .addBox(-3.05F, 0.72F, -2.58F, 6.10F, 2.70F, 0.25F)
+                .texOffs(64, 25)
+                .addBox(-3.50F, 3.85F, -2.64F, 7.00F, 3.50F, 0.28F)
+
+                // Raised stitched seams are offset from the panel faces instead of sharing them.
+                .texOffs(80, 25)
+                .addBox(-2.90F, 2.00F, -2.72F, 5.80F, 0.22F, 0.18F)
+                .texOffs(93, 25)
+                .addBox(-3.25F, 5.25F, -2.78F, 6.50F, 0.22F, 0.18F)
+                .texOffs(108, 25)
+                .addBox(-3.45F, 9.00F, -2.86F, 6.90F, 0.24F, 0.20F)
+                .texOffs(124, 25)
+                .addBox(-3.64F, 4.00F, -2.76F, 0.24F, 7.40F, 0.20F)
+                .texOffs(126, 25)
+                .addBox(3.40F, 4.00F, -2.76F, 0.24F, 7.40F, 0.20F)
+
+                // Short side guards stop above the leg pivots; only the front apron hangs lower.
+                .texOffs(0, 34)
+                .addBox(-3.94F, 9.40F, -2.18F, 0.50F, 2.45F, 4.36F)
+                .texOffs(11, 34)
+                .addBox(3.44F, 9.40F, -2.18F, 0.50F, 2.45F, 4.36F)
+                .texOffs(22, 34)
+                .addBox(-2.95F, 14.60F, -2.82F, 5.90F, 0.26F, 0.18F)
+
+                // Two vertical shoulder-top tabs reproduce the layered cap seams in the reference.
+                .texOffs(36, 34)
+                .addBox(-3.20F, 0.25F, -2.64F, 1.10F, 1.60F, 0.28F)
+                .texOffs(40, 34)
+                .addBox(2.10F, 0.25F, -2.64F, 1.10F, 1.60F, 0.28F);
     }
 }

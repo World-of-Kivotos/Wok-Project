@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from math import ceil, floor
 from pathlib import Path
+import re
 
 from PIL import Image, ImageDraw
 
@@ -64,53 +65,83 @@ def cube_faces(cube: CubeUV) -> dict[str, Face]:
 
 MODELS: dict[str, tuple[CubeUV, ...]] = {
     "b6b23_mountain": (
-        CubeUV("front_upper", 0, 0, 6.50, 3.20, 0.40, "mountain"),
-        CubeUV("rear_upper", 15, 0, 6.50, 3.20, 0.40, "mountain"),
-        CubeUV("front_middle", 30, 0, 7.50, 4.03, 0.42, "mountain"),
-        CubeUV("rear_middle", 47, 0, 7.50, 4.03, 0.42, "mountain"),
-        CubeUV("front_lower", 64, 0, 8.00, 4.03, 0.45, "mountain"),
-        CubeUV("rear_lower", 82, 0, 8.00, 4.03, 0.45, "mountain"),
-        CubeUV("left_side", 100, 0, 0.63, 7.92, 3.96, "dark_side"),
-        CubeUV("right_side", 110, 0, 0.63, 7.92, 3.96, "dark_side"),
-        CubeUV("front_collar_left", 0, 13, 3.75, 1.55, 0.42, "collar"),
-        CubeUV("front_collar_right", 10, 13, 3.75, 1.55, 0.42, "collar"),
-        CubeUV("rear_collar", 20, 13, 8.70, 1.55, 0.42, "collar"),
-        CubeUV("left_collar", 40, 13, 0.42, 1.47, 8.16, "collar"),
-        CubeUV("right_collar", 58, 13, 0.42, 1.47, 8.16, "collar"),
-        CubeUV("front_yoke_left", 76, 13, 2.82, 0.25, 2.15, "webbing"),
-        CubeUV("front_yoke_right", 87, 13, 2.82, 0.25, 2.15, "webbing"),
-        CubeUV("rear_yoke_left", 98, 13, 2.82, 0.25, 2.15, "webbing"),
-        CubeUV("rear_yoke_right", 109, 13, 2.82, 0.25, 2.15, "webbing"),
-        CubeUV("front_fold", 0, 24, 7.80, 4.00, 0.26, "mountain"),
-        CubeUV("front_apron", 18, 24, 6.20, 3.60, 0.35, "mountain"),
-        CubeUV("waist_seam", 33, 24, 7.60, 0.40, 0.24, "webbing"),
+        CubeUV("front_upper", 0, 0, 6.50, 3.20, 0.42, "mountain"),
+        CubeUV("rear_upper", 15, 0, 6.50, 3.20, 0.42, "mountain"),
+        CubeUV("front_middle", 30, 0, 7.50, 4.05, 0.47, "mountain"),
+        CubeUV("rear_middle", 47, 0, 7.50, 4.05, 0.47, "mountain"),
+        CubeUV("front_lower", 64, 0, 8.00, 4.10, 0.48, "mountain"),
+        CubeUV("rear_lower", 82, 0, 8.00, 4.10, 0.48, "mountain"),
+        CubeUV("left_side", 100, 0, 0.46, 8.10, 3.96, "dark_side"),
+        CubeUV("right_side", 110, 0, 0.46, 8.10, 3.96, "dark_side"),
+        CubeUV("front_collar_left", 0, 14, 3.75, 1.80, 0.44, "collar"),
+        CubeUV("front_collar_right", 10, 14, 3.75, 1.80, 0.44, "collar"),
+        CubeUV("rear_collar", 20, 14, 8.70, 1.68, 0.44, "collar"),
+        CubeUV("left_collar", 40, 14, 0.44, 1.56, 8.12, "collar"),
+        CubeUV("right_collar", 59, 14, 0.44, 1.56, 8.12, "collar"),
+        CubeUV("front_yoke_left", 78, 14, 3.00, 0.90, 2.16, "webbing"),
+        CubeUV("front_yoke_right", 90, 14, 3.00, 0.90, 2.16, "webbing"),
+        CubeUV("rear_yoke_left", 102, 14, 3.00, 0.90, 2.16, "webbing"),
+        CubeUV("rear_yoke_right", 114, 14, 3.00, 0.90, 2.16, "webbing"),
+        CubeUV("front_fold", 0, 25, 7.80, 4.25, 0.34, "mountain"),
+        CubeUV("front_apron", 18, 25, 6.20, 3.80, 0.36, "mountain"),
+        CubeUV("waist_seam", 33, 25, 7.40, 0.38, 0.29, "webbing"),
+        CubeUV("upper_face_layer", 50, 25, 6.10, 2.70, 0.25, "mountain"),
+        CubeUV("middle_face_layer", 64, 25, 7.00, 3.50, 0.28, "mountain"),
+        CubeUV("upper_seam", 80, 25, 5.80, 0.22, 0.18, "webbing"),
+        CubeUV("middle_seam", 93, 25, 6.50, 0.22, 0.18, "webbing"),
+        CubeUV("lower_seam", 108, 25, 6.90, 0.24, 0.20, "webbing"),
+        CubeUV("left_vertical_seam", 124, 25, 0.24, 7.40, 0.20, "webbing"),
+        CubeUV("right_vertical_seam", 126, 25, 0.24, 7.40, 0.20, "webbing"),
+        CubeUV("left_side_guard", 0, 34, 0.50, 2.45, 4.36, "dark_side"),
+        CubeUV("right_side_guard", 11, 34, 0.50, 2.45, 4.36, "dark_side"),
+        CubeUV("apron_tip", 22, 34, 5.90, 0.26, 0.18, "mountain"),
+        CubeUV("left_shoulder_tab", 36, 34, 1.10, 1.60, 0.28, "webbing"),
+        CubeUV("right_shoulder_tab", 40, 34, 1.10, 1.60, 0.28, "webbing"),
     ),
     "b6b5_flora": (
-        CubeUV("front_upper", 0, 0, 6.60, 3.00, 0.36, "flora"),
-        CubeUV("rear_upper", 15, 0, 6.60, 3.00, 0.36, "flora"),
-        CubeUV("front_middle", 30, 0, 7.50, 4.03, 0.40, "flora"),
-        CubeUV("rear_middle", 47, 0, 7.50, 4.03, 0.40, "flora"),
-        CubeUV("front_lower", 64, 0, 7.90, 4.23, 0.42, "flora"),
-        CubeUV("rear_lower", 82, 0, 7.90, 4.23, 0.42, "flora"),
-        CubeUV("left_side", 100, 0, 0.63, 8.14, 3.88, "flora_side"),
-        CubeUV("right_side", 110, 0, 0.63, 8.14, 3.88, "flora_side"),
-        CubeUV("front_collar_left", 0, 13, 3.80, 1.60, 0.42, "flora_collar"),
-        CubeUV("front_collar_right", 10, 13, 3.80, 1.60, 0.42, "flora_collar"),
-        CubeUV("rear_collar", 20, 13, 8.80, 1.60, 0.42, "flora_collar"),
-        CubeUV("left_collar", 40, 13, 0.42, 1.52, 8.26, "flora_collar"),
-        CubeUV("right_collar", 58, 13, 0.42, 1.52, 8.26, "flora_collar"),
-        CubeUV("front_yoke_left", 76, 13, 2.70, 0.28, 2.21, "webbing"),
-        CubeUV("front_yoke_right", 87, 13, 2.70, 0.28, 2.21, "webbing"),
-        CubeUV("rear_yoke_left", 98, 13, 2.70, 0.28, 2.21, "webbing"),
-        CubeUV("rear_yoke_right", 109, 13, 2.70, 0.28, 2.21, "webbing"),
-        CubeUV("left_strap", 0, 24, 0.70, 4.60, 0.28, "webbing"),
-        CubeUV("right_strap", 3, 24, 0.70, 4.60, 0.28, "webbing"),
-        CubeUV("pouch_far_left", 6, 24, 1.55, 4.40, 0.78, "pouch"),
-        CubeUV("pouch_left", 12, 24, 1.55, 4.40, 0.78, "pouch"),
-        CubeUV("pouch_right", 18, 24, 1.55, 4.40, 0.78, "pouch"),
-        CubeUV("pouch_far_right", 24, 24, 1.55, 4.40, 0.78, "pouch"),
-        CubeUV("front_extension", 30, 24, 6.20, 3.00, 0.30, "flora"),
-        CubeUV("front_tip", 44, 24, 3.50, 1.20, 0.25, "flora"),
+        CubeUV("front_upper", 0, 0, 6.60, 3.00, 0.40, "flora"),
+        CubeUV("rear_upper", 15, 0, 6.60, 3.00, 0.40, "flora"),
+        CubeUV("front_middle", 30, 0, 7.50, 4.03, 0.44, "flora"),
+        CubeUV("rear_middle", 47, 0, 7.50, 4.03, 0.44, "flora"),
+        CubeUV("front_lower", 64, 0, 7.90, 4.23, 0.47, "flora"),
+        CubeUV("rear_lower", 82, 0, 7.90, 4.23, 0.47, "flora"),
+        CubeUV("left_side", 100, 0, 0.46, 8.14, 3.88, "flora_side"),
+        CubeUV("right_side", 110, 0, 0.46, 8.14, 3.88, "flora_side"),
+        CubeUV("front_collar_left", 0, 14, 3.80, 1.90, 0.44, "flora_collar"),
+        CubeUV("front_collar_right", 10, 14, 3.80, 1.90, 0.44, "flora_collar"),
+        CubeUV("rear_collar", 20, 14, 8.80, 1.78, 0.44, "flora_collar"),
+        CubeUV("left_collar", 40, 14, 0.44, 1.63, 8.26, "flora_collar"),
+        CubeUV("right_collar", 59, 14, 0.44, 1.63, 8.26, "flora_collar"),
+        CubeUV("front_yoke_left", 78, 14, 2.80, 0.85, 2.21, "webbing"),
+        CubeUV("front_yoke_right", 90, 14, 2.80, 0.85, 2.21, "webbing"),
+        CubeUV("rear_yoke_left", 102, 14, 2.80, 0.85, 2.21, "webbing"),
+        CubeUV("rear_yoke_right", 114, 14, 2.80, 0.85, 2.21, "webbing"),
+        CubeUV("left_strap", 0, 25, 0.72, 4.65, 0.32, "webbing"),
+        CubeUV("right_strap", 4, 25, 0.72, 4.65, 0.32, "webbing"),
+        CubeUV("pouch_far_left", 8, 25, 1.65, 4.65, 0.92, "pouch"),
+        CubeUV("pouch_left", 15, 25, 1.65, 4.65, 0.92, "pouch"),
+        CubeUV("pouch_right", 22, 25, 1.65, 4.65, 0.92, "pouch"),
+        CubeUV("pouch_far_right", 29, 25, 1.65, 4.65, 0.92, "pouch"),
+        CubeUV("front_extension", 36, 25, 6.50, 5.10, 0.40, "flora"),
+        CubeUV("front_tip", 51, 25, 4.00, 1.30, 0.34, "flora"),
+        CubeUV("pouch_far_left_lid", 61, 25, 1.57, 0.85, 1.06, "pouch"),
+        CubeUV("pouch_left_lid", 68, 25, 1.57, 0.85, 1.06, "pouch"),
+        CubeUV("pouch_right_lid", 75, 25, 1.57, 0.85, 1.06, "pouch"),
+        CubeUV("pouch_far_right_lid", 82, 25, 1.57, 0.85, 1.06, "pouch"),
+        CubeUV("left_side_skirt", 89, 25, 0.50, 3.05, 4.40, "flora_side"),
+        CubeUV("right_side_skirt", 100, 25, 0.50, 3.05, 4.40, "flora_side"),
+        CubeUV("chest_seam", 111, 25, 5.88, 0.24, 0.26, "webbing"),
+        CubeUV("waist_seam", 0, 34, 7.20, 0.28, 0.28, "webbing"),
+        CubeUV("center_seam", 16, 34, 0.24, 3.00, 0.26, "webbing"),
+        CubeUV("pouch_far_left_pull", 18, 34, 0.20, 2.20, 0.16, "webbing"),
+        CubeUV("pouch_left_pull", 20, 34, 0.20, 2.20, 0.16, "webbing"),
+        CubeUV("pouch_right_pull", 22, 34, 0.20, 2.20, 0.16, "webbing"),
+        CubeUV("pouch_far_right_pull", 24, 34, 0.20, 2.20, 0.16, "webbing"),
+        CubeUV("front_collar_outer_left", 26, 34, 3.80, 0.22, 0.52, "flora_collar"),
+        CubeUV("front_collar_outer_right", 36, 34, 3.80, 0.22, 0.52, "flora_collar"),
+        CubeUV("rear_collar_outer", 46, 34, 8.76, 0.22, 0.52, "flora_collar"),
+        CubeUV("left_collar_outer", 66, 34, 0.52, 0.22, 8.32, "flora_collar"),
+        CubeUV("right_collar_outer", 85, 34, 0.52, 0.22, 8.32, "flora_collar"),
     ),
     "osprey_assault": (
         CubeUV("front_upper", 0, 0, 6.80, 3.00, 0.50, "multicam"),
@@ -176,6 +207,18 @@ DETAILS: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("front_fold", "north", "fold"),
         ("front_apron", "north", "stitched"),
         ("waist_seam", "north", "webbing"),
+        ("upper_face_layer", "north", "soft_panel"),
+        ("middle_face_layer", "north", "soft_panel"),
+        ("upper_seam", "north", "webbing"),
+        ("middle_seam", "north", "webbing"),
+        ("lower_seam", "north", "webbing"),
+        ("left_vertical_seam", "north", "webbing"),
+        ("right_vertical_seam", "north", "webbing"),
+        ("left_side_guard", "west", "channels"),
+        ("right_side_guard", "east", "channels"),
+        ("apron_tip", "north", "fold"),
+        ("left_shoulder_tab", "north", "strap"),
+        ("right_shoulder_tab", "north", "strap"),
     ),
     "b6b5_flora": (
         ("front_upper", "north", "stitched"),
@@ -203,6 +246,24 @@ DETAILS: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("pouch_far_right", "north", "pouch"),
         ("front_extension", "north", "stitched"),
         ("front_tip", "north", "fold"),
+        ("pouch_far_left_lid", "north", "pouch"),
+        ("pouch_left_lid", "north", "pouch"),
+        ("pouch_right_lid", "north", "pouch"),
+        ("pouch_far_right_lid", "north", "pouch"),
+        ("left_side_skirt", "west", "channels"),
+        ("right_side_skirt", "east", "channels"),
+        ("chest_seam", "north", "webbing"),
+        ("waist_seam", "north", "webbing"),
+        ("center_seam", "north", "webbing"),
+        ("pouch_far_left_pull", "north", "strap"),
+        ("pouch_left_pull", "north", "strap"),
+        ("pouch_right_pull", "north", "strap"),
+        ("pouch_far_right_pull", "north", "strap"),
+        ("front_collar_outer_left", "north", "collar"),
+        ("front_collar_outer_right", "north", "collar"),
+        ("rear_collar_outer", "south", "collar"),
+        ("left_collar_outer", "west", "collar"),
+        ("right_collar_outer", "east", "collar"),
     ),
     "osprey_assault": (
         ("front_upper", "north", "molle"),
@@ -249,21 +310,23 @@ DETAILS: dict[str, tuple[tuple[str, str, str], ...]] = {
 THEMES = {
     "plate_armor_6b23_2_mountain_flora_layer_1.png": {
         "model": "b6b23_mountain",
-        "background": ((43, 50, 41, 255),),
+        "background": ((31, 39, 31, 255),),
         "palette": {
             "mountain": (
-                (194, 191, 130, 255),
-                (179, 169, 114, 255),
-                (160, 130, 84, 255),
-                (127, 112, 75, 255),
-                (113, 97, 64, 255),
+                (112, 119, 84, 255),
+                (132, 136, 98, 255),
+                (119, 107, 74, 255),
+                (100, 92, 64, 255),
+                (82, 91, 60, 255),
+                (60, 69, 48, 255),
             ),
-            "dark_side": ((30, 34, 27, 255), (43, 50, 41, 255), (59, 60, 46, 255)),
-            "collar": ((134, 131, 89, 255), (171, 147, 98, 255), (113, 97, 64, 255)),
-            "webbing": ((81, 84, 63, 255), (113, 97, 64, 255)),
+            "dark_side": ((26, 32, 27, 255), (38, 47, 37, 255), (55, 61, 45, 255)),
+            "collar": ((73, 85, 62, 255), (102, 105, 73, 255), (59, 68, 50, 255)),
+            "webbing": ((51, 61, 44, 255), (73, 79, 54, 255), (91, 86, 59, 255)),
+            "pouch": ((67, 75, 52, 255), (96, 92, 62, 255), (49, 58, 42, 255)),
         },
-        "edge": (62, 58, 41, 255),
-        "stitch": (213, 211, 147, 255),
+        "edge": (43, 44, 34, 255),
+        "stitch": (164, 167, 124, 255),
     },
     "plate_armor_6b5_15_flora_layer_1.png": {
         "model": "b6b5_flora",
@@ -310,7 +373,13 @@ THEMES = {
 }
 
 
-EXPECTED_CUBES = {"b6b23_mountain": 20, "b6b5_flora": 25, "osprey_assault": 37}
+EXPECTED_CUBES = {"b6b23_mountain": 32, "b6b5_flora": 43, "osprey_assault": 37}
+
+JAVA_MODELS = {
+    "b6b23_mountain": "B6B23MountainFloraArmorModel.java",
+    "b6b5_flora": "B6B5FloraArmorModel.java",
+    "osprey_assault": "OspreyMk4AAssaultArmorModel.java",
+}
 
 
 def stable_seed(value: str) -> int:
@@ -331,22 +400,29 @@ def pixel_bounds(face: Face) -> tuple[int, int, int, int]:
 
 
 def pattern_pixel(colors: tuple[RGBA, ...], x: int, y: int, seed: int) -> RGBA:
-    # Warped 3x2 clusters produce broad, irregular camouflage rather than a digital grid.
-    warped_x = x + ((y * 7 + seed * 3) % 5) - 2
-    warped_y = y + ((x * 5 + seed) % 3) - 1
-    cell_x = warped_x // 3
-    cell_y = warped_y // 2
+    # Two warped scales keep the camouflage organic while retaining visible fabric grain.
+    warped_x = x + ((y * 7 + seed * 3) % 7) - 3
+    warped_y = y + ((x * 5 + seed) % 5) - 2
+    cell_x = warped_x // 4
+    cell_y = warped_y // 3
+    broad_x = (x + ((y + seed) % 9) - 4) // 9
+    broad_y = (y + ((x + seed) % 7) - 3) // 7
     cluster = (
         cell_x * 37
         + cell_y * 53
         + (cell_x // 2) * (cell_y // 2) * 11
         + (cell_x ^ cell_y) * 17
+        + broad_x * 23
+        + broad_y * 31
         + seed
     )
-    color = colors[cluster % len(colors)]
-    weave = ((x * 71 + y * 149 + seed * 31 + (x + 3) * (y + 11) * 7) & 0xFF) % 5 - 2
-    if (x + 2 * y + seed) % 29 == 0:
+    palette_index = (cluster + (broad_x ^ broad_y) * 3) % len(colors)
+    color = colors[palette_index]
+    weave = ((x * 71 + y * 149 + seed * 31 + (x + 3) * (y + 11) * 7) & 0xFF) % 7 - 3
+    if (x + 2 * y + seed) % 13 == 0:
         weave += 3
+    elif (2 * x + y + seed) % 17 == 0:
+        weave -= 2
     return shade(color, weave)
 
 
@@ -402,7 +478,10 @@ def detail_face(
     if kind in {"stitched", "soft_panel", "collar", "fold", "shoulder"}:
         stitch_border(draw, bounds, stitch, edge)
     if kind == "soft_panel" and width >= 6 and height >= 5:
-        draw.line((x0 + 2, y0 + height // 2, x1 - 3, y0 + height // 2), fill=shade(base, -7))
+        middle = y0 + height // 2
+        draw.line((x0 + 2, middle, x1 - 3, middle), fill=shade(base, -9))
+        if height >= 8:
+            draw.line((x0 + 2, min(y1 - 2, middle + 2), x1 - 3, min(y1 - 2, middle + 2)), fill=shade(base, 6))
     elif kind == "channels" and width >= 4 and height >= 5:
         for x in range(x0 + 2, x1 - 1, 3):
             draw.line((x, y0 + 1, x, y1 - 2), fill=shade(base, -8))
@@ -411,11 +490,13 @@ def detail_face(
         if width >= 4:
             draw.line((x1 - 2, y0 + 1, x0 + 1, y1 - 2), fill=shade(base, 5))
     elif kind == "pouch" and width >= 3 and height >= 4:
-        flap_y = min(y0 + 2, y1 - 2)
+        flap_y = min(y0 + max(2, height // 4), y1 - 2)
         draw.line((x0, flap_y, x1 - 1, flap_y), fill=edge)
         stitch_border(draw, bounds, stitch, edge)
         if width >= 5:
             draw.line((x0 + width // 2, flap_y + 1, x0 + width // 2, y1 - 2), fill=shade(base, -7))
+            draw.line((x0 + 1, flap_y + 1, x1 - 2, y1 - 2), fill=shade(base, -5))
+            draw.line((x1 - 2, flap_y + 1, x0 + 1, y1 - 2), fill=shade(base, 5))
     elif kind == "magazine" and width >= 2 and height >= 4:
         draw.line((x0, min(y0 + 2, y1 - 1), x1 - 1, min(y0 + 2, y1 - 1)), fill=edge)
         if width >= 3:
@@ -428,6 +509,9 @@ def detail_face(
                 draw.point((x, y), fill=shade(base, 5))
     elif kind == "collar" and width >= 5:
         draw.line((x0 + width // 2, y0 + 1, x0 + width // 2, y1 - 2), fill=shade(base, -7))
+        if height >= 5:
+            for y in range(y0 + 2, y1 - 1, 2):
+                draw.line((x0 + 2, y, x1 - 3, y), fill=shade(base, -5))
     elif kind == "fold" and width >= 4 and height >= 3:
         draw.line((x0 + 1, y0 + height // 2, x1 - 2, y0 + height // 2), fill=shade(base, -7))
     elif kind == "shoulder" and width >= 5 and height >= 4:
@@ -475,6 +559,26 @@ def validate_models() -> None:
                 raise RuntimeError(f"Invalid detail face: {model_name}.{cube_name}.{direction}")
 
 
+def validate_java_uvs() -> None:
+    source_root = ROOT / "src/main/java/com/miningdim/job/engineer/armor/client"
+    pattern = re.compile(
+        r"texOffs\((\d+),\s*(\d+)\)\s*\.addBox\("
+        r"[^,]+,[^,]+,[^,]+,\s*([0-9.]+)F,\s*([0-9.]+)F,\s*([0-9.]+)F\)"
+    )
+    for model_name, filename in JAVA_MODELS.items():
+        source = (source_root / filename).read_text(encoding="utf-8")
+        actual = [
+            (int(u), int(v), float(width), float(height), float(depth))
+            for u, v, width, height, depth in pattern.findall(source)
+        ]
+        expected = [
+            (int(cube.u), int(cube.v), cube.width, cube.height, cube.depth)
+            for cube in MODELS[model_name]
+        ]
+        if sorted(actual) != sorted(expected):
+            raise RuntimeError(f"Java UV/cuboid mismatch: {model_name}: {actual} != {expected}")
+
+
 def build_texture(filename: str) -> Image.Image:
     theme = THEMES[filename]
     model_name = theme["model"]
@@ -509,6 +613,7 @@ def build_texture(filename: str) -> Image.Image:
 
 def main() -> None:
     validate_models()
+    validate_java_uvs()
     TEXTURE_ROOT.mkdir(parents=True, exist_ok=True)
     for filename in THEMES:
         image = build_texture(filename)

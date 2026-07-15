@@ -1143,6 +1143,36 @@
         "custom_model_data": 705
       },
       "model": "miningdim:item/gunsmith_part_machine_gun_bipod_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 1000001
+      },
+      "model": "miningdim:item/gunsmith_part_ar_core_gehenna_high_speed_gas_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 1000002
+      },
+      "model": "miningdim:item/gunsmith_part_ar_core_gehenna_high_speed_gas_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 1000003
+      },
+      "model": "miningdim:item/gunsmith_part_ar_core_gehenna_high_speed_gas_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 1000004
+      },
+      "model": "miningdim:item/gunsmith_part_ar_core_gehenna_high_speed_gas_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 1000005
+      },
+      "model": "miningdim:item/gunsmith_part_ar_core_gehenna_high_speed_gas_legendary"
     }
   ]
 }

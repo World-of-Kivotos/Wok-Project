@@ -5,6 +5,7 @@ import com.miningdim.job.munitions.ModMunitionsItems;
 import com.miningdim.job.munitions.ModMunitionsSounds;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartVariant;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.job.munitions.menu.GunsmithPressMenu;
@@ -38,15 +39,17 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
     public static final int DATA_SELECTED_PLATFORM = 0;
     public static final int DATA_SELECTED_PART = 1;
     public static final int DATA_SELECTED_QUALITY = 2;
-    public static final int DATA_PROGRESS_TICKS = 3;
-    public static final int DATA_REQUIRED_TICKS = 4;
-    public static final int DATA_ACTIVE = 5;
-    public static final int DATA_COUNT = 6;
+    public static final int DATA_SELECTED_VARIANT = 3;
+    public static final int DATA_PROGRESS_TICKS = 4;
+    public static final int DATA_REQUIRED_TICKS = 5;
+    public static final int DATA_ACTIVE = 6;
+    public static final int DATA_COUNT = 7;
     private static final int HYDRAULIC_SOUND_INTERVAL = 34;
 
     private GunsmithPlatform selectedPlatform = GunsmithPlatform.AR;
     private GunsmithPressPart selectedPart = GunsmithPressPart.CORE;
     private GunsmithPartQuality selectedQuality = GunsmithPartQuality.COMMON;
+    private GunsmithPartVariant selectedVariant = GunsmithPartVariant.BASIC;
     private long activeStartTick;
     private long activeUntilTick;
     private long nextHydraulicSoundTick;
@@ -81,6 +84,7 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
                 case DATA_SELECTED_PLATFORM -> selectedPlatform.index();
                 case DATA_SELECTED_PART -> selectedPart.index();
                 case DATA_SELECTED_QUALITY -> selectedQuality.index();
+                case DATA_SELECTED_VARIANT -> selectedVariant.index();
                 case DATA_PROGRESS_TICKS -> productionProgressTicks();
                 case DATA_REQUIRED_TICKS -> productionRequiredTicks();
                 case DATA_ACTIVE -> isPressing() ? 1 : 0;
@@ -123,12 +127,17 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
         return selectedQuality;
     }
 
+    public GunsmithPartVariant selectedVariant() {
+        return selectedVariant;
+    }
+
     public boolean trySelectPlatform(int index) {
         if (isPressing()) {
             return false;
         }
         this.selectedPlatform = GunsmithPlatform.byIndex(index);
         normalizeSelectedPart();
+        normalizeSelectedVariant();
         setChanged();
         return true;
     }
@@ -144,6 +153,7 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
                     return false;
                 }
                 this.selectedPart = part;
+                normalizeSelectedVariant();
                 setChanged();
                 return true;
             }
@@ -156,6 +166,19 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
             return false;
         }
         this.selectedQuality = GunsmithPartQuality.byIndex(index);
+        setChanged();
+        return true;
+    }
+
+    public boolean trySelectVariant(int index) {
+        if (isPressing()) {
+            return false;
+        }
+        GunsmithPartVariant variant = GunsmithPartVariant.byIndex(index);
+        if (!variant.supports(selectedPlatform, selectedPart)) {
+            return false;
+        }
+        this.selectedVariant = variant;
         setChanged();
         return true;
     }
@@ -225,7 +248,8 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
         }
         if (inventory.getStackInSlot(SLOT_OUTPUT).isEmpty()) {
             inventory.setStackInSlot(SLOT_OUTPUT, GunsmithPartItem.createRolledStack(
-                    ModMunitionsItems.GUNSMITH_PART.get(), selectedPlatform, selectedPart, selectedQuality,
+                    ModMunitionsItems.GUNSMITH_PART.get(), selectedPlatform, selectedPart, selectedVariant,
+                    selectedQuality,
                     level.random));
         }
         activeStartTick = 0L;
@@ -330,6 +354,7 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
     private static final String K_PLATFORM = "SelectedPlatform";
     private static final String K_PART = "SelectedPart";
     private static final String K_QUALITY = "SelectedQuality";
+    private static final String K_VARIANT = "SelectedVariant";
     private static final String K_ACTIVE_START = "ActiveStartTick";
     private static final String K_ACTIVE_UNTIL = "ActiveUntilTick";
 
@@ -340,6 +365,7 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
         tag.putString(K_PLATFORM, selectedPlatform.id());
         tag.putString(K_PART, selectedPart.id());
         tag.putString(K_QUALITY, selectedQuality.id());
+        tag.putString(K_VARIANT, selectedVariant.id());
         tag.putLong(K_ACTIVE_START, activeStartTick);
         tag.putLong(K_ACTIVE_UNTIL, activeUntilTick);
     }
@@ -356,7 +382,10 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
                 ? GunsmithPressPart.byId(tag.getString(K_PART)) : GunsmithPressPart.CORE;
         selectedQuality = tag.contains(K_QUALITY)
                 ? GunsmithPartQuality.byId(tag.getString(K_QUALITY)) : GunsmithPartQuality.COMMON;
+        selectedVariant = tag.contains(K_VARIANT)
+                ? GunsmithPartVariant.byId(tag.getString(K_VARIANT)) : GunsmithPartVariant.BASIC;
         normalizeSelectedPart();
+        normalizeSelectedVariant();
         activeStartTick = tag.getLong(K_ACTIVE_START);
         activeUntilTick = tag.getLong(K_ACTIVE_UNTIL);
     }
@@ -370,5 +399,12 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
             return;
         }
         throw new IllegalStateException("Gunsmith platform has no supported parts: " + selectedPlatform.id());
+    }
+
+    private void normalizeSelectedVariant() {
+        if (selectedVariant.supports(selectedPlatform, selectedPart)) {
+            return;
+        }
+        selectedVariant = GunsmithPartVariant.availableFor(selectedPlatform, selectedPart).get(0);
     }
 }

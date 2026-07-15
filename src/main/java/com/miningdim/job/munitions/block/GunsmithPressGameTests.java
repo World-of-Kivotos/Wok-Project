@@ -5,12 +5,15 @@ import com.miningdim.job.munitions.ModMunitionsBlocks;
 import com.miningdim.job.munitions.ModMunitionsItems;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartVariant;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -18,6 +21,7 @@ import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 @GameTestHolder(MiningConstants.MODID)
@@ -256,6 +260,127 @@ public final class GunsmithPressGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void arCoreOffersGehennaVariantAndRejectsOtherSlots(GameTestHelper helper) {
+        List<GunsmithPartVariant> variants =
+                GunsmithPartVariant.availableFor(GunsmithPlatform.AR, GunsmithPressPart.CORE);
+        helper.assertTrue(variants.equals(List.of(
+                        GunsmithPartVariant.BASIC, GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS)),
+                "AR core must expose basic gas first and Gehenna high-speed gas second");
+        helper.assertTrue(GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS.supports(
+                        GunsmithPlatform.AR, GunsmithPressPart.CORE),
+                "Gehenna high-speed gas must support the AR core slot");
+        helper.assertFalse(GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS.supports(
+                        GunsmithPlatform.AK, GunsmithPressPart.CORE),
+                "Gehenna high-speed gas must reject the AK core slot");
+        helper.assertFalse(GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS.supports(
+                        GunsmithPlatform.AR, GunsmithPressPart.BARREL),
+                "Gehenna high-speed gas must reject non-core AR slots");
+
+        ItemStack valid = GunsmithPartItem.createStack(
+                ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AR, GunsmithPressPart.CORE,
+                GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS, GunsmithPartQuality.COMMON, 0.96D);
+        helper.assertTrue(GunsmithPartItem.matches(valid, GunsmithPlatform.AR, GunsmithPressPart.CORE,
+                        GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS),
+                "a valid Gehenna AR core must decode with its special variant");
+        assertIllegalVariantCombination(helper, GunsmithPlatform.AK, GunsmithPressPart.CORE,
+                GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS);
+        assertIllegalVariantCombination(helper, GunsmithPlatform.AR, GunsmithPressPart.BARREL,
+                GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS);
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void partDataReadsLegacyAsBasicAndWritesExplicitVersionedVariant(GameTestHelper helper) {
+        ItemStack legacy = GunsmithPartItem.createStack(
+                ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AR, GunsmithPressPart.CORE,
+                GunsmithPartVariant.BASIC, GunsmithPartQuality.COMMON, 1.00D);
+        CompoundTag legacyTag = legacy.getOrCreateTag();
+        legacyTag.remove("GunsmithPartDataVersion");
+        legacyTag.remove("GunsmithVariant");
+
+        GunsmithPartItem.PartData legacyData = GunsmithPartItem.requirePartData(legacy);
+        helper.assertTrue(legacyData.variant() == GunsmithPartVariant.BASIC,
+                "an unversioned part without a variant must migrate logically to basic");
+        helper.assertFalse(legacyTag.contains("GunsmithPartDataVersion"),
+                "reading a legacy part must not mutate it with a data version");
+        helper.assertFalse(legacyTag.contains("GunsmithVariant"),
+                "reading a legacy part must not mutate it with a variant");
+
+        ItemStack current = GunsmithPartItem.createStack(
+                ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AR, GunsmithPressPart.CORE,
+                GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS, GunsmithPartQuality.LEGENDARY, 1.50D);
+        CompoundTag currentTag = current.getOrCreateTag();
+        helper.assertTrue(currentTag.contains("GunsmithPartDataVersion", Tag.TAG_INT),
+                "new parts must write an integer data version");
+        helper.assertTrue(currentTag.getInt("GunsmithPartDataVersion") == 2,
+                "new parts must write the current data version 2");
+        helper.assertTrue(currentTag.contains("GunsmithVariant", Tag.TAG_STRING),
+                "new parts must write an explicit string variant");
+        helper.assertTrue(currentTag.getString("GunsmithVariant").equals(
+                        GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS.id()),
+                "new special parts must persist the Gehenna variant id");
+        helper.assertTrue(GunsmithPartItem.requirePartData(current).variant()
+                        == GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS,
+                "new special parts must decode their explicit variant");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 20)
+    public static void pressPersistsAndProducesSelectedGehennaVariant(GameTestHelper helper) {
+        helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
+        GunsmithPressBlockEntity press = requirePress(helper);
+
+        helper.assertTrue(press.trySelectVariant(GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS.index()),
+                "AR core press selection must accept Gehenna high-speed gas");
+        helper.assertTrue(press.selectedVariant() == GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS,
+                "press must retain the selected special variant");
+        CompoundTag saved = new CompoundTag();
+        press.saveAdditional(saved);
+        helper.assertTrue(saved.getString("SelectedVariant").equals(
+                        GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS.id()),
+                "press save data must persist the selected special variant");
+
+        helper.assertTrue(press.trySelectPlatform(GunsmithPlatform.AK.index()),
+                "press must allow switching away from AR before the load round trip");
+        helper.assertTrue(press.selectedVariant() == GunsmithPartVariant.BASIC,
+                "switching to an incompatible platform must normalize the variant to basic");
+        press.load(saved);
+        helper.assertTrue(press.selectedPlatform() == GunsmithPlatform.AR,
+                "press load must restore the selected AR platform");
+        helper.assertTrue(press.selectedPart() == GunsmithPressPart.CORE,
+                "press load must restore the selected core slot");
+        helper.assertTrue(press.selectedVariant() == GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS,
+                "press load must restore the selected Gehenna variant");
+
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
+                new ItemStack(Items.IRON_INGOT, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
+                new ItemStack(Items.COPPER_INGOT, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
+                new ItemStack(Items.SLIME_BLOCK, 64));
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        helper.assertTrue(press.tryStartPreview(player),
+                "complete materials must start Gehenna component production");
+
+        CompoundTag inProgress = new CompoundTag();
+        press.saveAdditional(inProgress);
+        inProgress.putLong("ActiveUntilTick", Math.max(1L, helper.getLevel().getGameTime()));
+        press.load(inProgress);
+        helper.runAfterDelay(2, () -> {
+            ItemStack output = press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_OUTPUT);
+            helper.assertFalse(output.isEmpty(), "completed press run must create an output component");
+            GunsmithPartItem.PartData outputData = GunsmithPartItem.requirePartData(output);
+            helper.assertTrue(outputData.platform() == GunsmithPlatform.AR,
+                    "pressed Gehenna component must retain the AR platform");
+            helper.assertTrue(outputData.part() == GunsmithPressPart.CORE,
+                    "pressed Gehenna component must retain the core slot");
+            helper.assertTrue(outputData.variant() == GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS,
+                    "pressed output must retain the selected Gehenna variant");
+            helper.succeed();
+        });
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void platformPartModelDataCoversFiveQualitiesWithoutChangingRifleCodes(GameTestHelper helper) {
         Map<GunsmithPressPart, Integer> pistolBases = new EnumMap<>(GunsmithPressPart.class);
         pistolBases.put(GunsmithPressPart.BARREL, 211);
@@ -347,6 +472,10 @@ public final class GunsmithPressGameTests {
                 "machine gun platform must decode from index six");
         assertModelData(helper, GunsmithPlatform.AR, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1);
         assertModelData(helper, GunsmithPlatform.AR, GunsmithPressPart.STOCK, GunsmithPartQuality.LEGENDARY, 55);
+        assertModelData(helper, GunsmithPlatform.AR, GunsmithPressPart.CORE,
+                GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS, GunsmithPartQuality.COMMON, 1_000_001);
+        assertModelData(helper, GunsmithPlatform.AR, GunsmithPressPart.CORE,
+                GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS, GunsmithPartQuality.LEGENDARY, 1_000_005);
         assertModelData(helper, GunsmithPlatform.AK, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 101);
         assertModelData(helper, GunsmithPlatform.AK, GunsmithPressPart.STOCK, GunsmithPartQuality.LEGENDARY, 155);
         assertIllegalCombination(helper, GunsmithPlatform.PISTOL, GunsmithPressPart.CORE);
@@ -435,10 +564,17 @@ public final class GunsmithPressGameTests {
 
     private static void assertModelData(GameTestHelper helper, GunsmithPlatform platform,
                                         GunsmithPressPart part, GunsmithPartQuality quality, int expected) {
+        assertModelData(helper, platform, part, GunsmithPartVariant.BASIC, quality, expected);
+    }
+
+    private static void assertModelData(GameTestHelper helper, GunsmithPlatform platform,
+                                        GunsmithPressPart part, GunsmithPartVariant variant,
+                                        GunsmithPartQuality quality, int expected) {
         ItemStack stack = GunsmithPartItem.createStack(
-                ModMunitionsItems.GUNSMITH_PART.get(), platform, part, quality);
+                ModMunitionsItems.GUNSMITH_PART.get(), platform, part, variant, quality);
         helper.assertTrue(stack.getOrCreateTag().getInt("CustomModelData") == expected,
-                platform + " " + part + " " + quality + " model code must remain " + expected);
+                platform + " " + part + " " + variant + " " + quality
+                        + " model code must remain " + expected);
     }
 
     private static void assertIllegalCombination(GameTestHelper helper, GunsmithPlatform platform,
@@ -451,5 +587,18 @@ public final class GunsmithPressGameTests {
             threw = true;
         }
         helper.assertTrue(threw, platform + " must reject unsupported part " + part);
+    }
+
+    private static void assertIllegalVariantCombination(GameTestHelper helper, GunsmithPlatform platform,
+                                                        GunsmithPressPart part,
+                                                        GunsmithPartVariant variant) {
+        boolean threw = false;
+        try {
+            GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(), platform, part,
+                    variant, GunsmithPartQuality.COMMON);
+        } catch (IllegalArgumentException expected) {
+            threw = true;
+        }
+        helper.assertTrue(threw, variant + " must reject " + platform + "/" + part);
     }
 }

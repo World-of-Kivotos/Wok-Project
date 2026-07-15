@@ -139,12 +139,12 @@ public final class GunsmithStatGameTests {
                 "minimum global quality coefficient must not increase vertical recoil");
         assertClose(helper, variant.fireRateMultiplier(midpoint), 1.125D,
                 "midpoint global quality coefficient must increase fire rate by 12.5%");
-        assertClose(helper, variant.verticalRecoilMultiplier(midpoint), 1.20D,
-                "midpoint global quality coefficient must increase vertical recoil by 20%");
+        assertClose(helper, variant.verticalRecoilMultiplier(midpoint), 1.50D,
+                "midpoint global quality coefficient must increase vertical recoil by 50%");
         assertClose(helper, variant.fireRateMultiplier(maximum), 1.25D,
                 "maximum global quality coefficient must cap fire rate at +25%");
-        assertClose(helper, variant.verticalRecoilMultiplier(maximum), 1.40D,
-                "maximum global quality coefficient must cap vertical recoil at +40%");
+        assertClose(helper, variant.verticalRecoilMultiplier(maximum), 2.00D,
+                "maximum global quality coefficient must cap vertical recoil at +100%");
         helper.succeed();
     }
 

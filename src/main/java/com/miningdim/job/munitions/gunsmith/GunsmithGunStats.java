@@ -16,7 +16,7 @@ public final class GunsmithGunStats {
     public static final String PARTS_KEY = "Parts";
     public static final String STATS_KEY = "Stats";
     public static final String VERSION_KEY = "version";
-    public static final int CURRENT_VERSION = 3;
+    public static final int CURRENT_VERSION = 4;
 
     private final CompoundTag root;
     private final CompoundTag stats;
@@ -145,7 +145,14 @@ public final class GunsmithGunStats {
     }
 
     public double verticalRecoilMultiplier() {
-        return version >= 3 ? value("verticalRecoil") : inverse(recoil());
+        if (version >= 4) {
+            return value("verticalRecoil");
+        }
+        if (version == 3) {
+            // v3 cached Gehenna's original +40% curve. Validate that cache, then apply the current balance curve.
+            return derivedVerticalRecoilMultiplier();
+        }
+        return inverse(recoil());
     }
 
     public double horizontalRecoilMultiplier() {
@@ -208,7 +215,7 @@ public final class GunsmithGunStats {
             throw new IllegalArgumentException("Gunsmith root data has no integer version");
         }
         int version = root.getInt(VERSION_KEY);
-        if (version != 2 && version != CURRENT_VERSION) {
+        if (version < 2 || version > CURRENT_VERSION) {
             throw new IllegalArgumentException("Unsupported gunsmith data version: " + version);
         }
         return version;
@@ -318,7 +325,9 @@ public final class GunsmithGunStats {
         validateCurrentStat("average", average());
         if (version >= 3) {
             validateCurrentStat("fireRate", derivedFireRateMultiplier());
-            validateCurrentStat("verticalRecoil", derivedVerticalRecoilMultiplier());
+            validateCurrentStat("verticalRecoil", version == 3
+                    ? derivedLegacyV3VerticalRecoilMultiplier()
+                    : derivedVerticalRecoilMultiplier());
         }
     }
 
@@ -348,6 +357,14 @@ public final class GunsmithGunStats {
         double variantMultiplier = 1.0D;
         for (PartSummary part : parts) {
             variantMultiplier *= part.variant().verticalRecoilMultiplier(part.coefficient());
+        }
+        return combineVerticalRecoil(recoil(), variantMultiplier);
+    }
+
+    private double derivedLegacyV3VerticalRecoilMultiplier() {
+        double variantMultiplier = 1.0D;
+        for (PartSummary part : parts) {
+            variantMultiplier *= part.variant().legacyV3VerticalRecoilMultiplier(part.coefficient());
         }
         return combineVerticalRecoil(recoil(), variantMultiplier);
     }

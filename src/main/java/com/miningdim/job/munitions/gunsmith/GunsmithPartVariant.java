@@ -7,8 +7,9 @@ import java.util.Objects;
 public enum GunsmithPartVariant {
     BASIC("basic", "gunsmith.variant.basic", "gunsmith.variant.basic.description", 0.0D, 0.0D),
     GEHENNA_HIGH_SPEED_GAS("gehenna_high_speed_gas", "gunsmith.variant.gehenna_high_speed_gas",
-            "gunsmith.variant.gehenna_high_speed_gas.description", 0.25D, 0.40D);
+            "gunsmith.variant.gehenna_high_speed_gas.description", 0.25D, 1.00D);
 
+    private static final double LEGACY_V3_GEHENNA_MAX_VERTICAL_RECOIL_BONUS = 0.40D;
     private static final double GLOBAL_MIN_COEFFICIENT = GunsmithPartQuality.COMMON.minCoefficient();
     private static final double GLOBAL_MAX_COEFFICIENT = GunsmithPartQuality.LEGENDARY.maxCoefficient();
 
@@ -66,6 +67,14 @@ public enum GunsmithPartVariant {
 
     public double verticalRecoilMultiplier(double coefficient) {
         return 1.0D + qualityProgress(coefficient) * maxVerticalRecoilBonus;
+    }
+
+    double legacyV3VerticalRecoilMultiplier(double coefficient) {
+        return switch (this) {
+            case BASIC -> 1.0D;
+            case GEHENNA_HIGH_SPEED_GAS -> 1.0D
+                    + qualityProgress(coefficient) * LEGACY_V3_GEHENNA_MAX_VERTICAL_RECOIL_BONUS;
+        };
     }
 
     private static double qualityProgress(double coefficient) {

@@ -12,7 +12,7 @@ public enum PlateArmorVariant {
     MBSS("mbss", PlateArmorTier.III, PlateArmorWeight.LIGHT, PlateArmorConstructionMaterial.UHMWPE),
     TV115("tv115", PlateArmorTier.III, PlateArmorWeight.LIGHT, PlateArmorConstructionMaterial.UHMWPE),
     B6B23_1_DIGITAL_FLORA("6b23_1_digital_flora", PlateArmorTier.III, PlateArmorWeight.MEDIUM, PlateArmorConstructionMaterial.ARMOR_STEEL),
-    B6B5_16("6b5_16", PlateArmorTier.III, PlateArmorWeight.MEDIUM, PlateArmorConstructionMaterial.TITANIUM_ARAMID),
+    B6B5_16("6b5_16", PlateArmorTier.III, PlateArmorWeight.MEDIUM, PlateArmorConstructionMaterial.COMBINED),
     KIRASA_N_GREEN("kirasa_n_green", PlateArmorTier.III, PlateArmorWeight.MEDIUM, PlateArmorConstructionMaterial.COMBINED),
     MF_UNTAR("mf_untar", PlateArmorTier.III, PlateArmorWeight.MEDIUM, PlateArmorConstructionMaterial.ALUMINUM),
     KORA_KULON("kora_kulon", PlateArmorTier.III, PlateArmorWeight.MEDIUM, PlateArmorConstructionMaterial.ARMOR_STEEL),
@@ -34,7 +34,7 @@ public enum PlateArmorVariant {
     STICH_PROFI_V2_BLACK("stich_profi_v2_black", PlateArmorTier.IV, PlateArmorWeight.MEDIUM, PlateArmorConstructionMaterial.ARMOR_STEEL),
     TV110_COYOTE("tv110_coyote", PlateArmorTier.IV, PlateArmorWeight.MEDIUM, PlateArmorConstructionMaterial.ARMOR_STEEL),
     B6B23_2_MOUNTAIN_FLORA("6b23_2_mountain_flora", PlateArmorTier.IV, PlateArmorWeight.HEAVY, PlateArmorConstructionMaterial.ARMOR_STEEL),
-    B6B5_15_FLORA("6b5_15_flora", PlateArmorTier.IV, PlateArmorWeight.HEAVY, PlateArmorConstructionMaterial.CERAMIC_ARAMID),
+    B6B5_15_FLORA("6b5_15_flora", PlateArmorTier.IV, PlateArmorWeight.HEAVY, PlateArmorConstructionMaterial.COMBINED),
     OSPREY_MK4A_ASSAULT("osprey_mk4a_assault", PlateArmorTier.IV, PlateArmorWeight.HEAVY, PlateArmorConstructionMaterial.ALUMINUM),
 
     TACTEC_RANGER_GREEN("tactec_ranger_green", PlateArmorTier.V, PlateArmorWeight.LIGHT, PlateArmorConstructionMaterial.UHMWPE),

@@ -169,17 +169,58 @@ public final class PlateArmorGameTests {
         }
         helper.assertTrue(PlateArmorVariant.HEXGRID.material() == PlateArmorConstructionMaterial.UHMWPE,
                 "Hexgrid main plate material is UHMWPE");
-        helper.assertTrue(PlateArmorVariant.B6B5_16.material() == PlateArmorConstructionMaterial.TITANIUM_ARAMID,
-                "6B5-16 keeps titanium/aramid dual material");
+        helper.assertTrue(PlateArmorVariant.B6B5_16.material() == PlateArmorConstructionMaterial.COMBINED,
+                "6B5-16 merged into combined material");
+        helper.assertTrue(PlateArmorVariant.B6B5_15_FLORA.material() == PlateArmorConstructionMaterial.COMBINED,
+                "6B5-15 merged into combined material");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void materialDurabilitiesMatchCompressedTarkovScale(GameTestHelper helper) {
-        int[] expected = {640, 860, 510, 630, 610, 550, 580, 540, 480};
+    public static void materialProfilesAndMappingsMatchApprovedDesign(GameTestHelper helper) {
+        helper.assertTrue(PlateArmorConstructionMaterial.values().length == 7, "exactly seven merged materials");
+
+        Map<PlateArmorConstructionMaterial, Integer> expectedDurability = new EnumMap<>(
+                PlateArmorConstructionMaterial.class);
+        expectedDurability.put(PlateArmorConstructionMaterial.UHMWPE, 850);
+        expectedDurability.put(PlateArmorConstructionMaterial.ARAMID, 900);
+        expectedDurability.put(PlateArmorConstructionMaterial.ARMOR_STEEL, 760);
+        expectedDurability.put(PlateArmorConstructionMaterial.COMBINED, 610);
+        expectedDurability.put(PlateArmorConstructionMaterial.ALUMINUM, 580);
+        expectedDurability.put(PlateArmorConstructionMaterial.TITANIUM, 700);
+        expectedDurability.put(PlateArmorConstructionMaterial.CERAMIC, 420);
+
+        Map<PlateArmorConstructionMaterial, double[]> expectedModifiers = new EnumMap<>(
+                PlateArmorConstructionMaterial.class);
+        expectedModifiers.put(PlateArmorConstructionMaterial.UHMWPE,
+                new double[]{.88D, 1.08D, .94D, 1.08D, 0.0D});
+        expectedModifiers.put(PlateArmorConstructionMaterial.ARAMID,
+                new double[]{.94D, 1.18D, 1.00D, .90D, 0.0D});
+        expectedModifiers.put(PlateArmorConstructionMaterial.ARMOR_STEEL,
+                new double[]{.88D, .88D, .88D, 1.15D, .03D});
+        expectedModifiers.put(PlateArmorConstructionMaterial.COMBINED,
+                new double[]{.94D, .94D, .94D, 1.08D, .01D});
+        expectedModifiers.put(PlateArmorConstructionMaterial.ALUMINUM,
+                new double[]{.98D, 1.00D, .98D, 1.00D, .015D});
+        expectedModifiers.put(PlateArmorConstructionMaterial.TITANIUM,
+                new double[]{.90D, .98D, .94D, 1.08D, .005D});
+        expectedModifiers.put(PlateArmorConstructionMaterial.CERAMIC,
+                new double[]{.94D, .88D, 1.00D, 1.15D, .005D});
+
         for (PlateArmorConstructionMaterial material : PlateArmorConstructionMaterial.values()) {
-            helper.assertTrue(EngineerConfig.PLATE_ARMOR.maxDurability(material) == expected[material.ordinal()],
+            helper.assertTrue(EngineerConfig.PLATE_ARMOR.maxDurability(material) == expectedDurability.get(material),
                     "durability mismatch for " + material);
+            double[] expected = expectedModifiers.get(material);
+            helper.assertTrue(close(EngineerConfig.PLATE_ARMOR.ballisticLeakMultiplier(material), expected[0]),
+                    "ballistic leak mismatch for " + material);
+            helper.assertTrue(close(EngineerConfig.PLATE_ARMOR.armorPiercingLeakMultiplier(material), expected[1]),
+                    "armor-piercing leak mismatch for " + material);
+            helper.assertTrue(close(EngineerConfig.PLATE_ARMOR.generalLeakMultiplier(material), expected[2]),
+                    "general leak mismatch for " + material);
+            helper.assertTrue(close(EngineerConfig.PLATE_ARMOR.pressureCapacityMultiplier(material), expected[3]),
+                    "pressure multiplier mismatch for " + material);
+            helper.assertTrue(close(EngineerConfig.PLATE_ARMOR.movementPenalty(material), expected[4]),
+                    "movement penalty mismatch for " + material);
         }
 
         Map<PlateArmorConstructionMaterial, Set<String>> expectedIds = new EnumMap<>(PlateArmorConstructionMaterial.class);
@@ -191,16 +232,15 @@ public final class PlateArmorGameTests {
         expectedIds.put(PlateArmorConstructionMaterial.ARMOR_STEEL, Set.of(
                 "6b23_1_digital_flora", "kora_kulon", "kora_kulon_digital", "6b13_flora", "ana_m1_olive",
                 "stich_profi_v2_black", "tv110_coyote", "6b23_2_mountain_flora", "korund_vm_black", "slick"));
-        expectedIds.put(PlateArmorConstructionMaterial.TITANIUM_ARAMID, Set.of("6b5_16"));
         expectedIds.put(PlateArmorConstructionMaterial.COMBINED, Set.of(
-                "kirasa_n_green", "a18_skanda_multicam", "avs_ranger_green", "avs_multicam", "thor_concealable",
-                "tt_mkiii_coyote", "osprey_mk4a_protection", "thor_integrated"));
+                "6b5_16", "kirasa_n_green", "a18_skanda_multicam", "avs_ranger_green", "avs_multicam",
+                "thor_concealable", "6b5_15_flora", "tt_mkiii_coyote", "osprey_mk4a_protection",
+                "thor_integrated"));
         expectedIds.put(PlateArmorConstructionMaterial.ALUMINUM, Set.of(
                 "mf_untar", "strandhogg_ranger_green", "strandhogg_black_multicam", "osprey_mk4a_assault"));
         expectedIds.put(PlateArmorConstructionMaterial.TITANIUM, Set.of(
                 "rbav_af_ranger_green", "6b3tm_01m_khaki", "iotv_gen4_high_mobility",
                 "iotv_gen4_full_protection", "iotv_gen4_assault"));
-        expectedIds.put(PlateArmorConstructionMaterial.CERAMIC_ARAMID, Set.of("6b5_15_flora"));
         expectedIds.put(PlateArmorConstructionMaterial.CERAMIC, Set.of(
                 "gladiator_s_light_multicam", "6b45_general", "6b45_medic", "gzhel_k", "gladiator_s_gray",
                 "gladiator_s_viking", "defender_2_spot_camo", "defender_2", "gladiator_s_deathless",
@@ -218,13 +258,93 @@ public final class PlateArmorGameTests {
                     "Tarkov material mapping mismatch for " + material);
         }
 
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void materialProfilesResolveIntoFinalPlayerStats(GameTestHelper helper) {
         PlateArmorStats uhmwpe = PlateArmorStats.resolve(PlateArmorVariant.TACTEC_RANGER_GREEN);
+        helper.assertTrue(close(uhmwpe.ballisticProtection(), .912D), "V light UHMWPE R is 91.2%");
+        helper.assertTrue(close(uhmwpe.armorPiercingBuffer(), .19D), "V light UHMWPE Q is 19%");
+        helper.assertTrue(close(uhmwpe.generalProtection(), .7932D), "V light UHMWPE G is 79.32%");
+        helper.assertTrue(close(uhmwpe.pressureCapacity(), 90.72D), "V light UHMWPE T is 90.72");
+        helper.assertTrue(close(uhmwpe.movementModifier(), .03D), "V light UHMWPE movement is +3%");
+
         PlateArmorStats ceramic = PlateArmorStats.resolve(PlateArmorVariant.GLADIATOR_S_LIGHT_MULTICAM);
-        helper.assertTrue(uhmwpe.equals(ceramic),
-                "same V/light type keeps identical R/Q/G/T/mobility across different materials");
-        helper.assertTrue(EngineerConfig.PLATE_ARMOR.maxDurability(PlateArmorVariant.TACTEC_RANGER_GREEN.material())
-                        != EngineerConfig.PLATE_ARMOR.maxDurability(PlateArmorVariant.GLADIATOR_S_LIGHT_MULTICAM.material()),
-                "different materials change durability only");
+        helper.assertTrue(close(ceramic.ballisticProtection(), .906D), "V light ceramic R is 90.6%");
+        helper.assertTrue(close(ceramic.armorPiercingBuffer(), .34D), "V light ceramic Q is 34%");
+        helper.assertTrue(close(ceramic.generalProtection(), .78D), "V light ceramic G is 78%");
+        helper.assertTrue(close(ceramic.pressureCapacity(), 96.6D), "V light ceramic T is 96.6");
+        helper.assertTrue(close(ceramic.movementModifier(), .025D), "V light ceramic movement is +2.5%");
+
+        PlateArmorStats aramid = PlateArmorStats.resolve(PlateArmorVariant.PACA);
+        helper.assertTrue(close(aramid.armorPiercingBuffer(), 0.0D),
+                "a zero base Q remains zero even when aramid leak exceeds one");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void defaultMaterialBalanceNeverReversesOverallTierOrder(GameTestHelper helper) {
+        double[] expectedMin = {.37662282D, .42866400D, .52319380D, .58632966D, .70630993D, .78109033D};
+        double[] expectedMax = {.37662282D, .42866400D, .57443821D, .68064056D, .75710956D, .81098156D};
+        double previousMaximum = Double.NEGATIVE_INFINITY;
+
+        for (PlateArmorTier tier : PlateArmorTier.values()) {
+            double minimum = Double.POSITIVE_INFINITY;
+            double maximum = Double.NEGATIVE_INFINITY;
+            int count = 0;
+            for (PlateArmorVariant variant : PlateArmorVariant.values()) {
+                if (variant.tier() != tier) {
+                    continue;
+                }
+                PlateArmorStats stats = PlateArmorStats.resolve(variant);
+                helper.assertTrue(stats.ballisticProtection() >= 0.0D && stats.ballisticProtection() < 1.0D,
+                        variant + " final R stays a valid rate");
+                helper.assertTrue(stats.armorPiercingBuffer() >= 0.0D && stats.armorPiercingBuffer() < 1.0D,
+                        variant + " final Q stays a valid rate");
+                helper.assertTrue(stats.generalProtection() >= 0.0D && stats.generalProtection() < 1.0D,
+                        variant + " final G stays a valid rate");
+                helper.assertTrue(stats.pressureCapacity() >= 0.0D, variant + " final T is non-negative");
+                double score = overallBalanceScore(variant, stats);
+                minimum = Math.min(minimum, score);
+                maximum = Math.max(maximum, score);
+                count++;
+            }
+            helper.assertTrue(count > 0, "each tier has at least one implemented armor");
+            helper.assertTrue(close(minimum, expectedMin[tier.ordinal()]), "minimum score mismatch at " + tier);
+            helper.assertTrue(close(maximum, expectedMax[tier.ordinal()]), "maximum score mismatch at " + tier);
+            helper.assertTrue(minimum > previousMaximum, tier + " weakest armor stays above the prior tier maximum");
+            previousMaximum = maximum;
+        }
+
+        for (PlateArmorVariant lowerVariant : PlateArmorVariant.values()) {
+            PlateArmorStats lowerStats = PlateArmorStats.resolve(lowerVariant);
+            int lowerDurability = EngineerConfig.PLATE_ARMOR.maxDurability(lowerVariant.material());
+            for (PlateArmorVariant higherVariant : PlateArmorVariant.values()) {
+                if (lowerVariant.tier().ordinal() >= higherVariant.tier().ordinal()) {
+                    continue;
+                }
+                PlateArmorStats higherStats = PlateArmorStats.resolve(higherVariant);
+                int higherDurability = EngineerConfig.PLATE_ARMOR.maxDurability(higherVariant.material());
+                boolean lowerDominates = lowerStats.ballisticProtection() >= higherStats.ballisticProtection()
+                        && lowerStats.armorPiercingBuffer() >= higherStats.armorPiercingBuffer()
+                        && lowerStats.generalProtection() >= higherStats.generalProtection()
+                        && lowerStats.pressureCapacity() >= higherStats.pressureCapacity()
+                        && lowerDurability >= higherDurability
+                        && lowerStats.movementModifier() >= higherStats.movementModifier();
+                helper.assertTrue(!lowerDominates,
+                        lowerVariant + " must not dominate higher-tier " + higherVariant + " in all six dimensions");
+            }
+        }
+
+        PlateArmorVariant lowerVariant = PlateArmorVariant.B6B23_2_MOUNTAIN_FLORA;
+        PlateArmorVariant higherVariant = PlateArmorVariant.TACTEC_RANGER_GREEN;
+        PlateArmorStats lower = PlateArmorStats.resolve(lowerVariant);
+        PlateArmorStats higher = PlateArmorStats.resolve(higherVariant);
+        helper.assertTrue(lower.armorPiercingBuffer() > higher.armorPiercingBuffer(),
+                "an individual lower-tier attribute may cross the next tier");
+        helper.assertTrue(overallBalanceScore(lowerVariant, lower) < overallBalanceScore(higherVariant, higher),
+                "the same lower-tier armor remains weaker overall");
         helper.succeed();
     }
 
@@ -299,12 +419,12 @@ public final class PlateArmorGameTests {
     public static void liveGeneralHitUsesGTAndWearsOnce(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         ItemStack armor = new ItemStack(ModEngineerItems.plateArmor(PlateArmorVariant.B6B23_1_DIGITAL_FLORA).get());
-        player.setItemSlot(EquipmentSlot.CHEST, armor); // III medium: G=.68, T=48
+        player.setItemSlot(EquipmentSlot.CHEST, armor); // III medium steel: G=.7184, T=55.2
 
         LivingHurtEvent event = new LivingHurtEvent(player,
                 helper.getLevel().damageSources().playerAttack(player), 20.0F);
         new PlateArmorDamageHandler().onLivingHurt(event);
-        helper.assertTrue(close(event.getAmount(), 6.4D), "III medium G/T turns 20 into 6.4");
+        helper.assertTrue(close(event.getAmount(), 5.632D), "III medium steel G/T turns 20 into 5.632");
         helper.assertTrue(armor.getDamageValue() == 5, "20 incoming damage wears floor(20/4)=5 exactly once");
         helper.succeed();
     }
@@ -372,5 +492,19 @@ public final class PlateArmorGameTests {
 
     private static boolean close(double actual, double expected) {
         return Math.abs(actual - expected) < EPS;
+    }
+
+    /** 只用于默认值跨级回归；不是游戏内隐藏属性，也不参与实际伤害结算。 */
+    private static double overallBalanceScore(PlateArmorVariant variant, PlateArmorStats stats) {
+        double highPressureCoverage = stats.generalProtection()
+                * Math.min(stats.pressureCapacity() / 100.0D, 1.0D);
+        double protection = .35D * stats.ballisticProtection()
+                + .25D * stats.armorPiercingBuffer()
+                + .20D * stats.generalProtection()
+                + .20D * highPressureCoverage;
+        double durability = Math.min(
+                EngineerConfig.PLATE_ARMOR.maxDurability(variant.material()) / 900.0D, 1.0D);
+        double mobility = (stats.movementModifier() + .07D) / .10D;
+        return .85D * protection + .08D * durability + .07D * mobility;
     }
 }

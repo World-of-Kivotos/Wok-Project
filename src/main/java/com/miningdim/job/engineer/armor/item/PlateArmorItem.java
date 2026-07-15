@@ -4,8 +4,10 @@ import com.miningdim.job.engineer.EngineerConfig;
 import com.miningdim.job.engineer.armor.PlateArmorEquipmentMaterial;
 import com.miningdim.job.engineer.armor.PlateArmorStats;
 import com.miningdim.job.engineer.armor.PlateArmorVariant;
+import com.miningdim.job.engineer.armor.client.ThorIntegratedArmorClient;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -14,6 +16,8 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.client.extensions.common.IClientItemExtensions;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Locale;
@@ -21,6 +25,9 @@ import java.util.function.Consumer;
 
 /** 54 个外观共用的可穿戴插板胸甲；等级、类型与材料由注册时绑定的 variant 决定，玩家 NBT 不可伪造。 */
 public final class PlateArmorItem extends ArmorItem {
+
+    private static final String THOR_INTEGRATED_TEXTURE =
+            "miningdim:textures/models/armor/plate_armor_thor_integrated_layer_1.png";
 
     private final PlateArmorVariant variant;
 
@@ -32,6 +39,20 @@ public final class PlateArmorItem extends ArmorItem {
 
     public PlateArmorVariant variant() {
         return variant;
+    }
+
+    @Override
+    public void initializeClient(Consumer<IClientItemExtensions> consumer) {
+        consumer.accept(ThorIntegratedArmorClient.forItem(this));
+    }
+
+    @Override
+    @Nullable
+    public String getArmorTexture(ItemStack stack, Entity entity, EquipmentSlot slot, String type) {
+        if (variant == PlateArmorVariant.THOR_INTEGRATED && slot == EquipmentSlot.CHEST) {
+            return THOR_INTEGRATED_TEXTURE;
+        }
+        return null;
     }
 
     @Override

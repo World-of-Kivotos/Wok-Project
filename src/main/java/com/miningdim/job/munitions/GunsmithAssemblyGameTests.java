@@ -250,19 +250,20 @@ public final class GunsmithAssemblyGameTests {
         // 工具 destroyBlock 掉落, 绕过 requiresCorrectToolForDrops); 正确镐拆从属格恰掉一个台子。
         Direction facing = Direction.NORTH;
         ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+        int baselineDrops = countBenchDrops(helper);
 
         placeStructure(helper, facing);
         player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
         breakSubordinate(helper, facing, GunsmithAssemblyBenchBlock.Part.SIDE, player);
         assertStructureRemoved(helper, facing);
-        helper.assertTrue(countBenchDrops(helper) == 0,
+        helper.assertTrue(countBenchDrops(helper) == baselineDrops,
                 "breaking a subordinate part with the wrong tool must not drop the assembly bench");
 
         placeStructure(helper, facing);
         player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.IRON_PICKAXE));
         breakSubordinate(helper, facing, GunsmithAssemblyBenchBlock.Part.BACK_SIDE, player);
         assertStructureRemoved(helper, facing);
-        helper.assertTrue(countBenchDrops(helper) == 1,
+        helper.assertTrue(countBenchDrops(helper) == baselineDrops + 1,
                 "breaking a subordinate part with a correct pickaxe must drop exactly one assembly bench");
         helper.succeed();
     }
@@ -283,7 +284,9 @@ public final class GunsmithAssemblyGameTests {
     }
 
     private static int countBenchDrops(GameTestHelper helper) {
-        AABB area = new AABB(helper.absolutePos(MAIN_REL)).inflate(16.0D);
+        // Keep the entity query inside this test cell. A 16-block radius overlaps neighboring
+        // tests in the same batch and can count their assembly-bench drops.
+        AABB area = new AABB(helper.absolutePos(MAIN_REL)).inflate(2.0D);
         return helper.getLevel().getEntitiesOfClass(ItemEntity.class, area).stream()
                 .map(ItemEntity::getItem)
                 .filter(stack -> stack.is(ModMunitionsItems.GUNSMITH_ASSEMBLY_BENCH_ITEM.get()))

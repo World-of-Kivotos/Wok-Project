@@ -56,6 +56,13 @@ public final class PlateArmorItem extends ArmorItem {
             case JAYPC_OLIVE, JAYPC_BLACK, PACA,
                     MBSS, TV115, B6B23_1_DIGITAL_FLORA, B6B5_16,
                     KIRASA_N_GREEN, MF_UNTAR, KORA_KULON, KORA_KULON_DIGITAL,
+                    MMAC_RANGER_GREEN, RBAV_AF_RANGER_GREEN,
+                    STRANDHOGG_RANGER_GREEN, STRANDHOGG_BLACK_MULTICAM,
+                    TROOPER_TFO_MULTICAM, BANSHEE_ATACS_AU,
+                    B6B13_FLORA, B6B3TM_01M_KHAKI, ANA_M1_OLIVE,
+                    A18_SKANDA_MULTICAM, AVS_RANGER_GREEN, AVS_MULTICAM,
+                    THOR_CONCEALABLE, STICH_PROFI_V2_BLACK, TV110_COYOTE,
+                    B6B23_2_MOUNTAIN_FLORA, B6B5_15_FLORA, OSPREY_MK4A_ASSAULT,
                     THOR_INTEGRATED -> MODEL_TEXTURE_PREFIX + variant.id() + "_layer_1.png";
             default -> null;
         };

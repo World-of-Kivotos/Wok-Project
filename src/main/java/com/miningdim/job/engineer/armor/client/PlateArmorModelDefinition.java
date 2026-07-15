@@ -23,6 +23,26 @@ enum PlateArmorModelDefinition {
     KIRASA_N(KirasaNArmorModel.LAYER, KirasaNArmorModel::new, KirasaNArmorModel::createLayer),
     MF_UNTAR(MfUntarArmorModel.LAYER, MfUntarArmorModel::new, MfUntarArmorModel::createLayer),
     KORA_KULON(KoraKulonArmorModel.LAYER, KoraKulonArmorModel::new, KoraKulonArmorModel::createLayer),
+    MMAC(MmacArmorModel.LAYER, MmacArmorModel::new, MmacArmorModel::createLayer),
+    RBAV_AF(RbavAfArmorModel.LAYER, RbavAfArmorModel::new, RbavAfArmorModel::createLayer),
+    STRANDHOGG(StrandhoggArmorModel.LAYER, StrandhoggArmorModel::new, StrandhoggArmorModel::createLayer),
+    TROOPER_TFO(TrooperTfoArmorModel.LAYER, TrooperTfoArmorModel::new, TrooperTfoArmorModel::createLayer),
+    BANSHEE(BansheeArmorModel.LAYER, BansheeArmorModel::new, BansheeArmorModel::createLayer),
+    B6B13(B6B13ArmorModel.LAYER, B6B13ArmorModel::new, B6B13ArmorModel::createLayer),
+    B6B3TM_01M(B6B3Tm01MArmorModel.LAYER, B6B3Tm01MArmorModel::new, B6B3Tm01MArmorModel::createLayer),
+    ANA_M1(AnaM1ArmorModel.LAYER, AnaM1ArmorModel::new, AnaM1ArmorModel::createLayer),
+    A18_SKANDA(A18SkandaArmorModel.LAYER, A18SkandaArmorModel::new, A18SkandaArmorModel::createLayer),
+    AVS(AvsArmorModel.LAYER, AvsArmorModel::new, AvsArmorModel::createLayer),
+    THOR_CONCEALABLE(ThorConcealableArmorModel.LAYER,
+            ThorConcealableArmorModel::new, ThorConcealableArmorModel::createLayer),
+    STICH_PROFI_V2(StichProfiV2ArmorModel.LAYER,
+            StichProfiV2ArmorModel::new, StichProfiV2ArmorModel::createLayer),
+    TV110(Tv110ArmorModel.LAYER, Tv110ArmorModel::new, Tv110ArmorModel::createLayer),
+    B6B23_MOUNTAIN_FLORA(B6B23MountainFloraArmorModel.LAYER,
+            B6B23MountainFloraArmorModel::new, B6B23MountainFloraArmorModel::createLayer),
+    B6B5_FLORA(B6B5FloraArmorModel.LAYER, B6B5FloraArmorModel::new, B6B5FloraArmorModel::createLayer),
+    OSPREY_MK4A_ASSAULT(OspreyMk4AAssaultArmorModel.LAYER,
+            OspreyMk4AAssaultArmorModel::new, OspreyMk4AAssaultArmorModel::createLayer),
     THOR_INTEGRATED(ThorIntegratedArmorModel.LAYER,
             ThorIntegratedArmorModel::new, ThorIntegratedArmorModel::createLayer);
 
@@ -63,6 +83,22 @@ enum PlateArmorModelDefinition {
             case KIRASA_N_GREEN -> KIRASA_N;
             case MF_UNTAR -> MF_UNTAR;
             case KORA_KULON, KORA_KULON_DIGITAL -> KORA_KULON;
+            case MMAC_RANGER_GREEN -> MMAC;
+            case RBAV_AF_RANGER_GREEN -> RBAV_AF;
+            case STRANDHOGG_RANGER_GREEN, STRANDHOGG_BLACK_MULTICAM -> STRANDHOGG;
+            case TROOPER_TFO_MULTICAM -> TROOPER_TFO;
+            case BANSHEE_ATACS_AU -> BANSHEE;
+            case B6B13_FLORA -> B6B13;
+            case B6B3TM_01M_KHAKI -> B6B3TM_01M;
+            case ANA_M1_OLIVE -> ANA_M1;
+            case A18_SKANDA_MULTICAM -> A18_SKANDA;
+            case AVS_RANGER_GREEN, AVS_MULTICAM -> AVS;
+            case THOR_CONCEALABLE -> THOR_CONCEALABLE;
+            case STICH_PROFI_V2_BLACK -> STICH_PROFI_V2;
+            case TV110_COYOTE -> TV110;
+            case B6B23_2_MOUNTAIN_FLORA -> B6B23_MOUNTAIN_FLORA;
+            case B6B5_15_FLORA -> B6B5_FLORA;
+            case OSPREY_MK4A_ASSAULT -> OSPREY_MK4A_ASSAULT;
             case THOR_INTEGRATED -> THOR_INTEGRATED;
             default -> null;
         };

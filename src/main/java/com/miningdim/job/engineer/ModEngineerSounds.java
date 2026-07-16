@@ -18,6 +18,8 @@ public final class ModEngineerSounds {
             register("plasma_shield_overheat");
     public static final RegistryObject<SoundEvent> PLASMA_SHIELD_STEAM_VENT =
             register("plasma_shield_steam_vent");
+    public static final RegistryObject<SoundEvent> PLASMA_SHIELD_HIT =
+            register("plasma_shield_hit");
 
     private ModEngineerSounds() {
     }

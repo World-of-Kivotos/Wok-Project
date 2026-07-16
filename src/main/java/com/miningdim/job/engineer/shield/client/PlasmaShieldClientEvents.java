@@ -17,6 +17,8 @@ public final class PlasmaShieldClientEvents {
 
     @SubscribeEvent
     public static void registerGuiOverlays(RegisterGuiOverlaysEvent event) {
+        event.registerAbove(VanillaGuiOverlay.VIGNETTE.id(),
+                "plasma_shield_hit", PlasmaShieldHitOverlay.INSTANCE);
         event.registerAbove(VanillaGuiOverlay.PLAYER_HEALTH.id(),
                 "plasma_shield", PlasmaShieldHudOverlay.INSTANCE);
     }

@@ -49,6 +49,14 @@
     "subtitle": "subtitles.miningdim.case_reveal",
     "sounds": [{ "name": "miningdim:ui/case/reveal_gold", "stream": false }]
   },
+  "plasma_shield_hit": {
+    "subtitle": "subtitles.miningdim.plasma_shield_hit",
+    "sounds": [
+      { "name": "miningdim:item/plasma_shield/hit_01", "stream": false },
+      { "name": "miningdim:item/plasma_shield/hit_02", "stream": false },
+      { "name": "miningdim:item/plasma_shield/hit_03", "stream": false }
+    ]
+  },
   "plasma_shield_overheat": {
     "subtitle": "subtitles.miningdim.plasma_shield_overheat",
     "sounds": [{ "name": "miningdim:item/plasma_shield/overheat", "stream": false }]

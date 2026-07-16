@@ -7,7 +7,9 @@ import com.miningdim.job.engineer.shield.PlasmaShieldHandler;
 import com.miningdim.job.engineer.shield.PlasmaShieldState;
 import com.miningdim.job.engineer.shield.PlasmaShieldSoundCadence;
 import com.miningdim.job.engineer.shield.PlasmaShieldType;
+import com.miningdim.job.engineer.shield.PlasmaShieldVisualProfile;
 import com.miningdim.job.engineer.shield.item.PlasmaShieldItem;
+import com.miningdim.job.engineer.shield.network.PlasmaShieldHitS2C;
 import com.miningdim.job.engineer.shield.network.PlasmaShieldSyncS2C;
 import com.miningdim.testutil.MockGameTestPlayers;
 import io.netty.buffer.Unpooled;
@@ -17,10 +19,12 @@ import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.game.ClientboundSoundPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
@@ -36,8 +40,14 @@ import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 import net.minecraftforge.registries.ForgeRegistries;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -290,6 +300,117 @@ public final class PlasmaShieldGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void hitS2cCodecPreservesTypeStrengthAndOverload(GameTestHelper helper) {
+        int entityId = 42;
+        for (PlasmaShieldType type : PlasmaShieldType.values()) {
+            PlasmaShieldHitS2C message = PlasmaShieldHitS2C.forHit(
+                    entityId, type, 3.0D, type == PlasmaShieldType.HEAVY_ION);
+            FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
+            try {
+                PlasmaShieldHitS2C.encode(message, buffer);
+                PlasmaShieldHitS2C decoded = PlasmaShieldHitS2C.decode(buffer);
+                helper.assertTrue(decoded.equals(message),
+                        type + " hit feedback must round-trip exactly");
+            } finally {
+                buffer.release();
+            }
+        }
+
+        PlasmaShieldHitS2C invalid = new PlasmaShieldHitS2C(
+                -1, "forged_unknown_type", Float.NaN, true);
+        helper.assertTrue(invalid.sanitized().equals(PlasmaShieldHitS2C.inactive()),
+                "invalid entity, type, or strength must disable hit feedback at the network boundary");
+        PlasmaShieldHitS2C oversized = new PlasmaShieldHitS2C(
+                entityId, PlasmaShieldType.LIGHT.id(), 5.0F, false).sanitized();
+        helper.assertTrue(Float.compare(oversized.strength(), 1.0F) == 0,
+                "network strength above one must clamp before reaching client rendering");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void visualProfileKeepsThreeReadableColoursAndBoundedPulse(GameTestHelper helper) {
+        Set<Integer> primaryColours = new HashSet<>();
+        Set<Integer> highlightColours = new HashSet<>();
+        for (PlasmaShieldType type : PlasmaShieldType.values()) {
+            PlasmaShieldVisualProfile.Style style = PlasmaShieldVisualProfile.style(type);
+            primaryColours.add(style.primaryRgb());
+            highlightColours.add(style.highlightRgb());
+        }
+        helper.assertTrue(primaryColours.size() == PlasmaShieldType.values().length,
+                "each shield chassis must have a distinct primary hit colour");
+        helper.assertTrue(highlightColours.size() == PlasmaShieldType.values().length,
+                "each shield chassis must have a distinct highlight colour");
+
+        float weak = PlasmaShieldVisualProfile.strengthForAbsorbedDamage(0.25D);
+        float strong = PlasmaShieldVisualProfile.strengthForAbsorbedDamage(12.0D);
+        helper.assertTrue(weak >= PlasmaShieldVisualProfile.MIN_VISIBLE_STRENGTH && weak < strong,
+                "small absorbed hits must remain visible but weaker than full-strength hits");
+        helper.assertTrue(Float.compare(strong, 1.0F) == 0,
+                "twelve absorbed damage must reach full visual strength");
+        helper.assertTrue(PlasmaShieldVisualProfile.OVERLOAD_DURATION_TICKS
+                        > PlasmaShieldVisualProfile.HIT_DURATION_TICKS,
+                "overload collapse must outlast an ordinary hit flash");
+        helper.assertTrue(PlasmaShieldVisualProfile.alpha(0.5F, strong, false)
+                        > PlasmaShieldVisualProfile.alpha(8.0F, strong, false),
+                "hit flash must decay after its immediate attack");
+        helper.assertTrue(PlasmaShieldVisualProfile.alpha(
+                        PlasmaShieldVisualProfile.HIT_DURATION_TICKS, strong, false) == 0.0F,
+                "ordinary hit flash must be fully gone at its declared lifetime");
+        helper.assertTrue(PlasmaShieldVisualProfile.scale(1.0F, strong, true) > 0.0F,
+                "overload pulse must have a positive render scale while active");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void hitTextureIsTransparentTintableRgba(GameTestHelper helper) {
+        String path = "/assets/miningdim/textures/entity/plasma_shield_hit.png";
+        try (InputStream input = PlasmaShieldGameTests.class.getResourceAsStream(path)) {
+            if (input == null) {
+                throw new IllegalStateException("shield hit texture missing from classpath: " + path);
+            }
+            BufferedImage image = ImageIO.read(input);
+            helper.assertTrue(image != null && image.getWidth() == 256 && image.getHeight() == 256,
+                    "shield hit texture must decode as 256 by 256 pixels");
+            helper.assertTrue(image.getColorModel().hasAlpha(),
+                    "shield hit texture must retain an alpha channel");
+            int[] corners = {
+                    image.getRGB(0, 0),
+                    image.getRGB(image.getWidth() - 1, 0),
+                    image.getRGB(0, image.getHeight() - 1),
+                    image.getRGB(image.getWidth() - 1, image.getHeight() - 1)
+            };
+            for (int corner : corners) {
+                helper.assertTrue((corner >>> 24) == 0,
+                        "all shield hit texture corners must be fully transparent");
+            }
+            int visiblePixels = 0;
+            int opaqueBlackPixels = 0;
+            for (int y = 0; y < image.getHeight(); y++) {
+                for (int x = 0; x < image.getWidth(); x++) {
+                    int argb = image.getRGB(x, y);
+                    int alpha = argb >>> 24;
+                    if (alpha > 0) {
+                        visiblePixels++;
+                        int red = argb >> 16 & 0xFF;
+                        int green = argb >> 8 & 0xFF;
+                        int blue = argb & 0xFF;
+                        if (alpha == 255 && red < 16 && green < 16 && blue < 16) {
+                            opaqueBlackPixels++;
+                        }
+                    }
+                }
+            }
+            helper.assertTrue(visiblePixels > 5_000,
+                    "shield hit texture must contain a readable honeycomb silhouette");
+            helper.assertTrue(opaqueBlackPixels == 0,
+                    "shield hit texture must not contain an opaque black backdrop");
+        } catch (IOException exception) {
+            throw new IllegalStateException("failed reading shield hit texture: " + path, exception);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void heavyMovementModifierIsIdempotentAndNeverLeaks(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.setItemSlot(EquipmentSlot.CHEST, shieldStack(PlasmaShieldType.HEAVY_ION));
@@ -371,6 +492,8 @@ public final class PlasmaShieldGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void bypassInvulnerabilityDamageLeavesInitializedShieldUntouched(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
+        drainFeedbackPackets(channel);
         PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.LIGHT);
         ItemStack shield = shieldStack(PlasmaShieldType.LIGHT);
         PlasmaShieldState.initialize(shield, stats);
@@ -391,6 +514,9 @@ public final class PlasmaShieldGameTests {
                 "bypassing damage amount must pass through completely unchanged");
         helper.assertTrue(after.equals(before),
                 "bypassing damage must not mutate shield, heat, overheat, recharge delay, or cooling delay");
+        FeedbackPackets feedback = drainFeedbackPackets(channel);
+        helper.assertTrue(feedback.sounds().isEmpty() && feedback.hits().isEmpty(),
+                "bypassing damage must not emit plasma-shield sound or visual feedback");
         helper.succeed();
     }
 
@@ -498,12 +624,19 @@ public final class PlasmaShieldGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void plasmaShieldSoundsAreRegistered(GameTestHelper helper) {
+        helper.assertTrue(ModEngineerSounds.PLASMA_SHIELD_HIT.getId().equals(
+                        new ResourceLocation(MiningConstants.MODID, "plasma_shield_hit")),
+                "hit sound registry id mismatch");
         helper.assertTrue(ModEngineerSounds.PLASMA_SHIELD_OVERHEAT.getId().equals(
                         new ResourceLocation(MiningConstants.MODID, "plasma_shield_overheat")),
                 "overheat sound registry id mismatch");
         helper.assertTrue(ModEngineerSounds.PLASMA_SHIELD_STEAM_VENT.getId().equals(
                         new ResourceLocation(MiningConstants.MODID, "plasma_shield_steam_vent")),
                 "steam-vent sound registry id mismatch");
+        helper.assertTrue(ForgeRegistries.SOUND_EVENTS.getValue(
+                        ModEngineerSounds.PLASMA_SHIELD_HIT.getId())
+                        == ModEngineerSounds.PLASMA_SHIELD_HIT.get(),
+                "hit sound must be present in Forge's registry");
         helper.assertTrue(ForgeRegistries.SOUND_EVENTS.getValue(
                         ModEngineerSounds.PLASMA_SHIELD_OVERHEAT.getId())
                         == ModEngineerSounds.PLASMA_SHIELD_OVERHEAT.get(),
@@ -516,37 +649,154 @@ public final class PlasmaShieldGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void steamVentCadencePacesCoolingAndTracksStackIdentity(GameTestHelper helper) {
+    public static void hitCadenceCoalescesSegmentsAndResetsAtLifecycleBoundaries(GameTestHelper helper) {
         PlasmaShieldSoundCadence cadence = new PlasmaShieldSoundCadence();
         UUID playerId = UUID.randomUUID();
         ItemStack firstShield = new ItemStack(Items.STICK);
 
-        helper.assertTrue(cadence.shouldPlayVent(playerId, firstShield, 100L),
-                "the first real cooling settlement must vent immediately");
-        helper.assertTrue(!cadence.shouldPlayVent(playerId, firstShield, 100L),
-                "a second cooling settlement in the same tick must not replay steam");
-        cadence.onOverheated(playerId, firstShield, 105L);
-        helper.assertTrue(!cadence.shouldPlayVent(playerId, firstShield,
-                        100L + PlasmaShieldSoundCadence.VENT_INTERVAL_TICKS - 1L),
-                "overheat must not bypass the existing global steam interval");
-        helper.assertTrue(cadence.shouldPlayVent(playerId, firstShield,
-                        100L + PlasmaShieldSoundCadence.VENT_INTERVAL_TICKS),
-                "continuous cooling may vent again exactly when the pacing window expires");
-
-        cadence.onOverheated(playerId, firstShield, 300L);
-        helper.assertTrue(!cadence.shouldPlayVent(playerId, firstShield,
-                        300L + PlasmaShieldSoundCadence.OVERHEAT_TO_FIRST_VENT_TICKS - 1L),
-                "the overheat warning must finish before emergency venting starts");
-        helper.assertTrue(cadence.shouldPlayVent(playerId, firstShield,
-                        300L + PlasmaShieldSoundCadence.OVERHEAT_TO_FIRST_VENT_TICKS),
-                "emergency vent must start after the warning-to-steam delay");
+        helper.assertTrue(cadence.shouldEmitHit(playerId, firstShield, 100L),
+                "the first absorbed hit must emit feedback immediately");
+        helper.assertTrue(!cadence.shouldEmitHit(playerId, firstShield, 100L),
+                "same-tick segmented damage must be coalesced");
+        helper.assertTrue(!cadence.shouldEmitHit(playerId, firstShield, 101L),
+                "feedback must remain paced until the two-tick boundary");
+        helper.assertTrue(cadence.shouldEmitHit(playerId, firstShield, 102L),
+                "the exact pacing boundary must permit the next response");
 
         ItemStack replacementShield = new ItemStack(Items.BLAZE_ROD);
-        helper.assertTrue(cadence.shouldPlayVent(playerId, replacementShield, 313L),
-                "a replacement live stack must never inherit the previous unit's cadence");
+        helper.assertTrue(cadence.shouldEmitHit(playerId, replacementShield, 102L),
+                "replacement equipment must not inherit the previous shield's hit schedule");
+        helper.assertTrue(cadence.shouldEmitHit(playerId, replacementShield, 90L),
+                "world-time rollback must restart the hit schedule without suppressing feedback");
         cadence.clear(playerId);
-        helper.assertTrue(cadence.shouldPlayVent(playerId, replacementShield, 314L),
-                "lifecycle cleanup must permit the next real cooling phase to vent");
+        helper.assertTrue(cadence.shouldEmitHit(playerId, replacementShield, 91L),
+                "lifecycle cleanup must permit the next absorbed hit immediately");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void steamVentCadenceRequiresOverheatAndPacesEmergencyCooling(GameTestHelper helper) {
+        PlasmaShieldSoundCadence cadence = new PlasmaShieldSoundCadence();
+        UUID playerId = UUID.randomUUID();
+        ItemStack firstShield = new ItemStack(Items.STICK);
+
+        helper.assertTrue(!cadence.shouldPlayVent(playerId, firstShield, 100L),
+                "ordinary cooling must never start the full emergency steam sound");
+        cadence.onOverheated(playerId, firstShield, 105L);
+        helper.assertTrue(!cadence.shouldPlayVent(playerId, firstShield,
+                        105L + PlasmaShieldSoundCadence.OVERHEAT_TO_FIRST_VENT_TICKS - 1L),
+                "overheat warning must finish before the first pressure release");
+        helper.assertTrue(cadence.shouldPlayVent(playerId, firstShield,
+                        105L + PlasmaShieldSoundCadence.OVERHEAT_TO_FIRST_VENT_TICKS),
+                "emergency vent must start at the exact warning-to-steam boundary");
+        helper.assertTrue(!cadence.shouldPlayVent(playerId, firstShield,
+                        105L + PlasmaShieldSoundCadence.OVERHEAT_TO_FIRST_VENT_TICKS
+                                + PlasmaShieldSoundCadence.VENT_INTERVAL_TICKS - 1L),
+                "continuous emergency cooling must not repeat steam before its interval");
+        helper.assertTrue(cadence.shouldPlayVent(playerId, firstShield,
+                        105L + PlasmaShieldSoundCadence.OVERHEAT_TO_FIRST_VENT_TICKS
+                                + PlasmaShieldSoundCadence.VENT_INTERVAL_TICKS),
+                "continuous emergency cooling may vent again at the exact interval boundary");
+
+        ItemStack replacementShield = new ItemStack(Items.BLAZE_ROD);
+        helper.assertTrue(!cadence.shouldPlayVent(playerId, replacementShield, 313L),
+                "replacement equipment must require its own overheat transition before venting");
+        cadence.onOverheated(playerId, replacementShield, 313L);
+        helper.assertTrue(cadence.shouldPlayVent(playerId, replacementShield,
+                        313L + PlasmaShieldSoundCadence.OVERHEAT_TO_FIRST_VENT_TICKS),
+                "replacement equipment may vent after its own warning delay");
+        cadence.clear(playerId);
+        helper.assertTrue(!cadence.shouldPlayVent(playerId, replacementShield, 400L),
+                "lifecycle cleanup must remove the emergency vent schedule");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void absorbedHitEmitsTypedSoundAndTrackingFeedback(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
+        drainFeedbackPackets(channel);
+
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.LIGHT);
+        ItemStack shield = shieldStack(PlasmaShieldType.LIGHT);
+        PlasmaShieldState.write(shield, new PlasmaShieldState(3.0D, 0.0D, false, 0, 0));
+        player.setItemSlot(EquipmentSlot.CHEST, shield);
+        LivingHurtEvent hit = new LivingHurtEvent(
+                player, helper.getLevel().damageSources().generic(), 10.0F);
+        new PlasmaShieldHandler().onLivingHurt(hit);
+
+        FeedbackPackets feedback = drainFeedbackPackets(channel);
+        helper.assertTrue(feedback.sounds().size() == 1
+                        && feedback.sounds().get(0) == ModEngineerSounds.PLASMA_SHIELD_HIT.get(),
+                "an ordinary absorbed hit must emit exactly the plasma-shield hit sound");
+        helper.assertTrue(feedback.hits().size() == 1,
+                "an ordinary absorbed hit must emit exactly one tracking visual packet");
+        PlasmaShieldHitS2C packet = feedback.hits().get(0);
+        helper.assertTrue(packet.entityId() == player.getId()
+                        && packet.typeId().equals(PlasmaShieldType.LIGHT.id())
+                        && !packet.overloaded(),
+                "tracking feedback must identify the hit player and equipped shield type");
+        helper.assertTrue(close(packet.strength(),
+                        PlasmaShieldVisualProfile.strengthForAbsorbedDamage(3.0D)),
+                "feedback strength must use actual absorbed damage rather than incoming damage");
+        helper.assertTrue(close(hit.getAmount(), 7.0D)
+                        && close(PlasmaShieldState.read(shield, stats).shield(), 0.0D),
+                "partial absorption must still preserve the underlying damage and energy result");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void inactiveShieldEmitsNoHitFeedback(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
+        drainFeedbackPackets(channel);
+
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.NANO);
+        ItemStack shield = shieldStack(PlasmaShieldType.NANO);
+        PlasmaShieldState.write(shield, new PlasmaShieldState(
+                stats.capacity(), stats.maxHeat(), true, 0, 0));
+        player.setItemSlot(EquipmentSlot.CHEST, shield);
+        LivingHurtEvent hit = new LivingHurtEvent(
+                player, helper.getLevel().damageSources().generic(), 8.0F);
+        new PlasmaShieldHandler().onLivingHurt(hit);
+
+        FeedbackPackets feedback = drainFeedbackPackets(channel);
+        helper.assertTrue(feedback.sounds().isEmpty() && feedback.hits().isEmpty(),
+                "an already-overheated shield must not emit hit sound or visual feedback");
+        helper.assertTrue(close(hit.getAmount(), 8.0D),
+                "an inactive shield must let incoming damage pass through unchanged");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void ordinaryCoolingDoesNotPlayEmergencySteam(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
+        drainFeedbackPackets(channel);
+
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.NANO);
+        ItemStack shield = shieldStack(PlasmaShieldType.NANO);
+        PlasmaShieldState.write(shield, new PlasmaShieldState(
+                stats.capacity() - 1.0D, 20.0D, false, 0, 0));
+        player.setItemSlot(EquipmentSlot.CHEST, shield);
+        PlasmaShieldHandler handler = new PlasmaShieldHandler();
+        ServerLevel level = helper.getLevel();
+        ServerLevelData levelData = (ServerLevelData) level.getLevelData();
+        long originalGameTime = level.getGameTime();
+
+        try {
+            handler.onPlayerTick(new TickEvent.PlayerTickEvent(TickEvent.Phase.END, player));
+            levelData.setGameTime(originalGameTime + EngineerConfig.PLASMA_SHIELD.stateTickInterval());
+            handler.onPlayerTick(new TickEvent.PlayerTickEvent(TickEvent.Phase.END, player));
+
+            FeedbackPackets feedback = drainFeedbackPackets(channel);
+            helper.assertTrue(feedback.sounds().isEmpty(),
+                    "ordinary non-overheated cooling must not play the full emergency steam sound");
+            helper.assertTrue(PlasmaShieldState.read(shield, stats).heat() < 20.0D,
+                    "the negative sound assertion must still exercise a real cooling settlement");
+        } finally {
+            levelData.setGameTime(originalGameTime);
+        }
         helper.succeed();
     }
 
@@ -554,7 +804,7 @@ public final class PlasmaShieldGameTests {
     public static void overheatEdgeEmitsExactlyOnePositionalSound(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
-        drainSoundPackets(channel);
+        drainFeedbackPackets(channel);
 
         PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.LIGHT);
         ItemStack shield = shieldStack(PlasmaShieldType.LIGHT);
@@ -568,14 +818,20 @@ public final class PlasmaShieldGameTests {
         handler.onLivingHurt(boundaryHit);
         helper.assertTrue(PlasmaShieldState.read(shield, stats).overheated(),
                 "boundary hit must enter overheat before the sound assertion");
-        helper.assertTrue(drainSoundPackets(channel) == 1,
-                "false-to-true overheat edge must emit exactly one positional sound packet");
+        FeedbackPackets boundaryFeedback = drainFeedbackPackets(channel);
+        helper.assertTrue(boundaryFeedback.sounds().size() == 1
+                        && boundaryFeedback.sounds().get(0) == ModEngineerSounds.PLASMA_SHIELD_OVERHEAT.get(),
+                "false-to-true overheat edge must emit only the dedicated shutdown sound");
+        helper.assertTrue(boundaryFeedback.hits().size() == 1
+                        && boundaryFeedback.hits().get(0).overloaded(),
+                "the overheat-causing hit must still emit one overload visual packet");
 
         LivingHurtEvent repeatedHit = new LivingHurtEvent(
                 player, helper.getLevel().damageSources().generic(), 10.0F);
         handler.onLivingHurt(repeatedHit);
-        helper.assertTrue(drainSoundPackets(channel) == 0,
-                "additional damage while already overheated must not replay the warning");
+        FeedbackPackets repeatedFeedback = drainFeedbackPackets(channel);
+        helper.assertTrue(repeatedFeedback.sounds().isEmpty() && repeatedFeedback.hits().isEmpty(),
+                "additional damage while already overheated must not replay sound or hit visuals");
         helper.succeed();
     }
 
@@ -628,15 +884,31 @@ public final class PlasmaShieldGameTests {
         return Math.abs(actual - expected) < EPS;
     }
 
-    private static int drainSoundPackets(EmbeddedChannel channel) {
-        int soundPackets = 0;
+    private static FeedbackPackets drainFeedbackPackets(EmbeddedChannel channel) {
+        ResourceLocation shieldChannel = new ResourceLocation(MiningConstants.MODID, "plasma_shield");
+        List<SoundEvent> sounds = new ArrayList<>();
+        List<PlasmaShieldHitS2C> hits = new ArrayList<>();
         Object message;
         while ((message = channel.readOutbound()) != null) {
-            if (message instanceof ClientboundSoundPacket) {
-                soundPackets++;
+            if (message instanceof ClientboundSoundPacket soundPacket) {
+                sounds.add(soundPacket.getSound().value());
+            } else if (message instanceof ClientboundCustomPayloadPacket payload
+                    && payload.getIdentifier().equals(shieldChannel)) {
+                FriendlyByteBuf copy = new FriendlyByteBuf(payload.getData().copy());
+                try {
+                    int discriminator = copy.readUnsignedByte();
+                    if (discriminator == 1) {
+                        hits.add(PlasmaShieldHitS2C.decode(copy));
+                    }
+                } finally {
+                    copy.release();
+                }
             }
             ReferenceCountUtil.release(message);
         }
-        return soundPackets;
+        return new FeedbackPackets(List.copyOf(sounds), List.copyOf(hits));
+    }
+
+    private record FeedbackPackets(List<SoundEvent> sounds, List<PlasmaShieldHitS2C> hits) {
     }
 }

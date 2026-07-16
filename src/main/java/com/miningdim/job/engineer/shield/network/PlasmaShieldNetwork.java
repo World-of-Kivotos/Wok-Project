@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Dedicated plasma-shield channel; it cannot disturb the discriminator ordering of the main channel. */
 public final class PlasmaShieldNetwork {
 
-    private static final String PROTOCOL_VERSION = "1";
+    private static final String PROTOCOL_VERSION = "2";
     private static final AtomicBoolean REGISTERED = new AtomicBoolean(false);
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
@@ -35,6 +35,11 @@ public final class PlasmaShieldNetwork {
                 PlasmaShieldSyncS2C::decode,
                 PlasmaShieldSyncS2C::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(1, PlasmaShieldHitS2C.class,
+                PlasmaShieldHitS2C::encode,
+                PlasmaShieldHitS2C::decode,
+                PlasmaShieldHitS2C::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 
     public static boolean send(ServerPlayer player, PlasmaShieldSyncS2C message) {
@@ -42,6 +47,16 @@ public final class PlasmaShieldNetwork {
             return false;
         }
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), message);
+        return true;
+    }
+
+    public static boolean sendHit(ServerPlayer player, PlasmaShieldHitS2C message) {
+        if (!message.active()
+                || player.connection == null
+                || !player.connection.isAcceptingMessages()) {
+            return false;
+        }
+        CHANNEL.send(PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player), message);
         return true;
     }
 }

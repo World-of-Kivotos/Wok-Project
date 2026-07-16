@@ -4,6 +4,8 @@ import com.miningdim.core.MiningConstants;
 import com.miningdim.job.engineer.armor.PlateArmorVariant;
 import com.miningdim.job.engineer.armor.item.PlateArmorItem;
 import com.miningdim.job.engineer.item.NanoArmorPlateItem;
+import com.miningdim.job.engineer.shield.PlasmaShieldType;
+import com.miningdim.job.engineer.shield.item.PlasmaShieldItem;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -43,6 +45,10 @@ public final class ModEngineerItems {
     private static final Map<PlateArmorVariant, RegistryObject<Item>> PLATE_ARMORS =
             new EnumMap<>(PlateArmorVariant.class);
 
+    /** Three plasma-shield chassis; the item registry identity is the trusted type. */
+    private static final Map<PlasmaShieldType, RegistryObject<Item>> PLASMA_SHIELDS =
+            new EnumMap<>(PlasmaShieldType.class);
+
     static {
         for (NanoTier tier : NanoTier.values()) {
             final NanoTier t = tier;
@@ -54,6 +60,10 @@ public final class ModEngineerItems {
         }
         for (PlateArmorVariant variant : PlateArmorVariant.values()) {
             PLATE_ARMORS.put(variant, ITEMS.register(variant.itemId(), () -> new PlateArmorItem(variant)));
+        }
+        for (PlasmaShieldType type : PlasmaShieldType.values()) {
+            PLASMA_SHIELDS.put(type,
+                    ITEMS.register(type.itemId(), () -> new PlasmaShieldItem(type)));
         }
     }
 
@@ -69,6 +79,10 @@ public final class ModEngineerItems {
 
     public static RegistryObject<Item> plateArmor(PlateArmorVariant variant) {
         return PLATE_ARMORS.get(variant);
+    }
+
+    public static RegistryObject<Item> plasmaShield(PlasmaShieldType type) {
+        return PLASMA_SHIELDS.get(type);
     }
 
     public static void register(IEventBus modBus) {

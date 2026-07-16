@@ -2,6 +2,7 @@ package com.miningdim.job.engineer;
 
 import com.electronwill.nightconfig.core.CommentedConfig;
 import com.miningdim.job.engineer.armor.PlateArmorConfig;
+import com.miningdim.job.engineer.shield.PlasmaShieldConfig;
 import net.minecraftforge.common.ForgeConfigSpec;
 
 /**
@@ -22,6 +23,9 @@ public final class EngineerConfig {
 
     /** 新插板护甲的 R/Q/G/T 与机动矩阵；仍写入同一 miningdim-engineer.toml。 */
     public static final PlateArmorConfig PLATE_ARMOR;
+
+    /** Plasma shield capacities, heat curves, recharge rates and heavy-ion mobility. */
+    public static final PlasmaShieldConfig PLASMA_SHIELD;
 
     // ---- 3.2 矿石绑档生产配方 (单板矿耗为定值) ----
     public static final ForgeConfigSpec.IntValue LOW_IRON_COST;
@@ -238,6 +242,7 @@ public final class EngineerConfig {
         b.pop();
 
         PLATE_ARMOR = PlateArmorConfig.define(b);
+        PLASMA_SHIELD = PlasmaShieldConfig.define(b);
 
         SPEC = b.build();
     }

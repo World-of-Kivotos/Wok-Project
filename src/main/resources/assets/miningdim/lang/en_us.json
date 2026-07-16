@@ -646,5 +646,21 @@
   "subtitles.miningdim.case_reveal": "Case reward revealed",
   "message.miningdim.economy.not_ready": "The economy system is not ready yet.",
   "message.miningdim.economy.grant_failed": "Grant failed (%s); balances were unchanged.",
-  "message.miningdim.economy.grant_done": "Granted %2$s credits and %3$s Azure to %1$s; new balance: %4$s credits / %5$s Azure."
+  "message.miningdim.economy.grant_done": "Granted %2$s credits and %3$s Azure to %1$s; new balance: %4$s credits / %5$s Azure.",
+  "item.miningdim.plasma_shield_nano": "Nano Shield",
+  "item.miningdim.plasma_shield_light": "Light Plasma Shield",
+  "item.miningdim.plasma_shield_heavy_ion": "Heavy Ion Shield",
+  "type.miningdim.plasma_shield.nano": "Nano Shield",
+  "type.miningdim.plasma_shield.light": "Light Shield",
+  "type.miningdim.plasma_shield.heavy_ion": "Heavy Ion Shield",
+  "tooltip.miningdim.plasma_shield.type": "Chassis: %s",
+  "tooltip.miningdim.plasma_shield.energy": "Shield: %1$s / %2$s",
+  "tooltip.miningdim.plasma_shield.heat": "Heat: %1$s / %2$s",
+  "tooltip.miningdim.plasma_shield.heat_per_damage": "Heat per absorbed damage: %s",
+  "tooltip.miningdim.plasma_shield.cooling": "Cooling: %s / second",
+  "tooltip.miningdim.plasma_shield.recharge": "Recharge: %1$s / second (%2$s-second hit delay)",
+  "tooltip.miningdim.plasma_shield.movement": "Movement speed: %s",
+  "tooltip.miningdim.plasma_shield.shutdown": "Shield overheated; it will restart after cooling",
+  "message.miningdim.engineer.repair.plasma_shield_incompatible": "Plasma shields cannot be repaired with nano armor plates",
+  "hud.miningdim.plasma_shield.shutdown": "OFFLINE"
 }

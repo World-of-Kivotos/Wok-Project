@@ -12,7 +12,7 @@ import net.minecraft.client.model.geom.builders.PartDefinition;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.LivingEntity;
 
-/** 6B45 general-purpose armored rig with a thick collar, medical pack and paired flap pouches. */
+/** 6B45 general-purpose armored rig with a medium collar, medical pack and paired flap pouches. */
 public final class B6B45GeneralArmorModel extends HumanoidModel<LivingEntity> {
 
     public static final ModelLayerLocation LAYER = new ModelLayerLocation(
@@ -64,27 +64,27 @@ public final class B6B45GeneralArmorModel extends HumanoidModel<LivingEntity> {
                 .texOffs(100, 0)
                 .addBox(3.48F, 3.35F, -2.05F, 0.45F, 8.20F, 4.10F)
 
-                // Five thick pieces reproduce the unmistakable high padded ring collar.
+                // Five thick pieces reproduce the padded ring without rising into the wearer's head.
                 .texOffs(0, 22)
-                .addBox(-4.30F, -2.33F, -4.53F, 3.75F, 2.28F, 0.48F)
+                .addBox(-4.30F, -1.55F, -4.53F, 3.75F, 1.55F, 0.48F)
                 .texOffs(0, 22)
-                .addBox(0.55F, -2.33F, -4.53F, 3.75F, 2.28F, 0.48F)
+                .addBox(0.55F, -1.55F, -4.53F, 3.75F, 1.55F, 0.48F)
                 .texOffs(25, 22)
-                .addBox(-4.30F, -2.30F, 4.05F, 8.60F, 2.23F, 0.48F)
+                .addBox(-4.30F, -1.52F, 4.05F, 8.60F, 1.52F, 0.48F)
                 .texOffs(50, 22)
-                .addBox(-4.53F, -2.40F, -4.13F, 0.48F, 2.33F, 8.26F)
+                .addBox(-4.53F, -1.62F, -4.13F, 0.48F, 1.62F, 8.26F)
                 .texOffs(50, 22)
-                .addBox(4.05F, -2.40F, -4.13F, 0.48F, 2.33F, 8.26F)
+                .addBox(4.05F, -1.62F, -4.13F, 0.48F, 1.62F, 8.26F)
 
-                // Four broad roots join the raised collar to the torso without entering the arm volume.
+                // Four broad roots join the lowered collar to the torso without entering the arm volume.
                 .texOffs(100, 88)
-                .addBox(-3.35F, -0.18F, -4.13F, 2.70F, 0.88F, 2.22F)
+                .addBox(-3.35F, -0.08F, -4.13F, 2.70F, 0.78F, 2.22F)
                 .texOffs(100, 88)
-                .addBox(0.65F, -0.18F, -4.13F, 2.70F, 0.88F, 2.22F)
+                .addBox(0.65F, -0.08F, -4.13F, 2.70F, 0.78F, 2.22F)
                 .texOffs(100, 88)
-                .addBox(-3.35F, -0.18F, 1.95F, 2.70F, 0.88F, 2.18F)
+                .addBox(-3.35F, -0.08F, 1.95F, 2.70F, 0.78F, 2.18F)
                 .texOffs(100, 88)
-                .addBox(0.65F, -0.18F, 1.95F, 2.70F, 0.88F, 2.18F)
+                .addBox(0.65F, -0.08F, 1.95F, 2.70F, 0.78F, 2.18F)
 
                 // A large left-centre medical pack dominates the general-purpose loadout.
                 .texOffs(75, 22)

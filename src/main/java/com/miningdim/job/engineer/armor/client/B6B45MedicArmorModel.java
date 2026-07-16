@@ -12,7 +12,7 @@ import net.minecraft.client.model.geom.builders.PartDefinition;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.LivingEntity;
 
-/** 6B45 medical carrier with its high collar and asymmetric field-medical loadout. */
+/** 6B45 medical carrier with its padded collar and asymmetric field-medical loadout. */
 public final class B6B45MedicArmorModel extends HumanoidModel<LivingEntity> {
 
     public static final ModelLayerLocation LAYER = new ModelLayerLocation(
@@ -34,16 +34,16 @@ public final class B6B45MedicArmorModel extends HumanoidModel<LivingEntity> {
                 .texOffs(108, 0).addBox(-3.98F, 2.60F, -2.00F, 0.42F, 8.50F, 4.00F)
                 .texOffs(118, 0).addBox(3.56F, 2.60F, -2.00F, 0.42F, 8.50F, 4.00F)
 
-                // A five-piece, two-block-thick collar reproduces the tall padded ring.
-                .texOffs(0, 14).addBox(-4.10F, -1.25F, -4.30F, 3.80F, 2.15F, 0.58F)
-                .texOffs(10, 14).addBox(0.30F, -1.25F, -4.30F, 3.80F, 2.15F, 0.58F)
-                .texOffs(20, 14).addBox(-4.10F, -1.25F, 3.72F, 8.20F, 2.15F, 0.58F)
-                .texOffs(39, 14).addBox(-3.98F, -1.20F, -3.72F, 0.50F, 2.10F, 7.44F)
-                .texOffs(56, 14).addBox(3.48F, -1.20F, -3.72F, 0.50F, 2.10F, 7.44F)
-                .texOffs(73, 14).addBox(-3.45F, -0.15F, -2.82F, 3.20F, 1.20F, 0.32F)
-                .texOffs(82, 14).addBox(0.25F, -0.15F, -2.82F, 3.20F, 1.20F, 0.32F)
-                .texOffs(91, 14).addBox(-3.45F, -0.15F, 2.50F, 3.20F, 1.20F, 0.32F)
-                .texOffs(100, 14).addBox(0.25F, -0.15F, 2.50F, 3.20F, 1.20F, 0.32F)
+                // A five-piece collar keeps the reference ring while clearing the wearer's head.
+                .texOffs(0, 14).addBox(-4.10F, -0.85F, -4.30F, 3.80F, 1.75F, 0.58F)
+                .texOffs(10, 14).addBox(0.30F, -0.85F, -4.30F, 3.80F, 1.75F, 0.58F)
+                .texOffs(20, 14).addBox(-4.10F, -0.85F, 3.72F, 8.20F, 1.75F, 0.58F)
+                .texOffs(39, 14).addBox(-3.98F, -0.82F, -3.72F, 0.50F, 1.72F, 7.44F)
+                .texOffs(56, 14).addBox(3.48F, -0.82F, -3.72F, 0.50F, 1.72F, 7.44F)
+                .texOffs(73, 14).addBox(-3.45F, 0.05F, -2.82F, 3.20F, 1.00F, 0.32F)
+                .texOffs(82, 14).addBox(0.25F, 0.05F, -2.82F, 3.20F, 1.00F, 0.32F)
+                .texOffs(91, 14).addBox(-3.45F, 0.05F, 2.50F, 3.20F, 1.00F, 0.32F)
+                .texOffs(100, 14).addBox(0.25F, 0.05F, 2.50F, 3.20F, 1.00F, 0.32F)
 
                 .texOffs(109, 14).addBox(-3.90F, 9.85F, -2.88F, 7.80F, 1.10F, 0.30F)
                 .texOffs(0, 25).addBox(-3.90F, 9.85F, 2.58F, 7.80F, 1.10F, 0.30F)

@@ -55,6 +55,29 @@ VARIANTS = (
     "OSPREY_MK4A_ASSAULT",
 )
 
+TIER_V_VARIANTS = (
+    "TACTEC_RANGER_GREEN",
+    "CPC_MOD1_ATACS_FG",
+    "FCPC_V5",
+    "GLADIATOR_S_LIGHT_MULTICAM",
+    "HEXATAC_HPC_BLACK_MULTICAM",
+    "B6B45_GENERAL",
+    "B6B45_MEDIC",
+    "GZHEL_K",
+    "GLADIATOR_S_GRAY",
+    "GLADIATOR_S_VIKING",
+    "TT_MKIII_COYOTE",
+    "OSPREY_MK4A_PROTECTION",
+    "DEFENDER_2_SPOT_CAMO",
+    "DEFENDER_2",
+    "GLADIATOR_S_DEATHLESS",
+    "REDUT_M",
+    "IOTV_GEN4_HIGH_MOBILITY",
+    "IOTV_GEN4_FULL_PROTECTION",
+    "IOTV_GEN4_ASSAULT",
+    "KORUND_VM_BLACK",
+)
+
 TEXTURE_NAMES = (
     "plate_armor_jaypc_olive_layer_1.png",
     "plate_armor_jaypc_black_layer_1.png",
@@ -208,7 +231,7 @@ def validate_routing() -> None:
     definition = (CLIENT / "PlateArmorModelDefinition.java").read_text(encoding="utf-8")
     item = (ROOT / "src/main/java/com/miningdim/job/engineer/armor/item/PlateArmorItem.java").read_text(
         encoding="utf-8")
-    expected = set(VARIANTS + ("THOR_INTEGRATED",))
+    expected = set(VARIANTS + TIER_V_VARIANTS + ("THOR_INTEGRATED",))
     for source, label in ((definition, "model"), (item, "texture")):
         switch = re.search(r"return switch \(variant\) \{(.*?)\n\s*default -> null;", source, re.DOTALL)
         require(switch is not None, f"missing {label} routing switch")
@@ -224,7 +247,10 @@ def validate_routing() -> None:
             "obsolete THOR-only registration remains")
     require((CLIENT / "PlateArmorClient.java").is_file(), "missing shared armor client")
     require((CLIENT / "PlateArmorClientRegistration.java").is_file(), "missing shared layer registration")
-    print(f"ROUTING exact_variants={len(VARIANTS)}, thor_preserved=true")
+    print(
+        f"ROUTING legacy_variants={len(VARIANTS)}, "
+        f"tier_v_variants={len(TIER_V_VARIANTS)}, thor_preserved=true"
+    )
 
 
 def validate_textures() -> None:

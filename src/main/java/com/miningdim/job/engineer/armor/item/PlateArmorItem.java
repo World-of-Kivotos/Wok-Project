@@ -63,6 +63,14 @@ public final class PlateArmorItem extends ArmorItem {
                     A18_SKANDA_MULTICAM, AVS_RANGER_GREEN, AVS_MULTICAM,
                     THOR_CONCEALABLE, STICH_PROFI_V2_BLACK, TV110_COYOTE,
                     B6B23_2_MOUNTAIN_FLORA, B6B5_15_FLORA, OSPREY_MK4A_ASSAULT,
+                    TACTEC_RANGER_GREEN, CPC_MOD1_ATACS_FG, FCPC_V5,
+                    GLADIATOR_S_LIGHT_MULTICAM, HEXATAC_HPC_BLACK_MULTICAM,
+                    B6B45_GENERAL, B6B45_MEDIC, GZHEL_K,
+                    GLADIATOR_S_GRAY, GLADIATOR_S_VIKING, TT_MKIII_COYOTE,
+                    OSPREY_MK4A_PROTECTION, DEFENDER_2_SPOT_CAMO, DEFENDER_2,
+                    GLADIATOR_S_DEATHLESS, REDUT_M,
+                    IOTV_GEN4_HIGH_MOBILITY, IOTV_GEN4_FULL_PROTECTION,
+                    IOTV_GEN4_ASSAULT, KORUND_VM_BLACK,
                     THOR_INTEGRATED -> MODEL_TEXTURE_PREFIX + variant.id() + "_layer_1.png";
             default -> null;
         };

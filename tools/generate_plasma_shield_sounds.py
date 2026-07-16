@@ -1,4 +1,4 @@
-"""Generate the two original plasma-shield sound assets deterministically.
+"""Generate five original plasma-shield sound assets deterministically.
 
 No samples or third-party audio are used. Every waveform is synthesized from
 tones and seeded noise, written to temporary PCM, then encoded as OGG/Vorbis.
@@ -70,81 +70,121 @@ def _normalize(signal: list[float], peak: float) -> list[float]:
     return [value * scale for value in signal]
 
 
-def _overheat() -> list[float]:
-    rng = random.Random(0x504C5348)
-    duration = 1.16
+def _saturate(signal: list[float], drive: float) -> list[float]:
+    normalized = _normalize(signal, 1.0)
+    ceiling = math.tanh(drive)
+    return [math.tanh(drive * value) / ceiling for value in normalized]
+
+
+def _shield_hit(seed: int, duration: float, variation: float) -> list[float]:
+    rng = random.Random(seed)
     count = int(duration * SAMPLE_RATE)
     times = [index / SAMPLE_RATE for index in range(count)]
 
-    carrier_frequency = [130.0 + 850.0 * math.exp(-4.0 * t) for t in times]
-    carrier = _phase_tone(carrier_frequency)
-    harmonic = _phase_tone([frequency * 2.01 for frequency in carrier_frequency], 0.4)
+    arc_noise = _high_pass([rng.gauss(0.0, 1.0) for _ in range(count)], 13)
+    low_frequency = [88.0 + variation * 7.0 - 34.0 * min(1.0, t / 0.09) for t in times]
+    low_impact = _phase_tone(low_frequency, variation)
+    shell_frequency = [
+        650.0 + (1500.0 + variation * 130.0 - 650.0) * math.exp(-18.0 * t)
+        for t in times
+    ]
+    shell = _phase_tone(shell_frequency, 0.3 + variation)
+
+    crystal_bands = (
+        (0.018, 2410.0 + variation * 70.0, 20.0, 0.2),
+        (0.031, 4130.0 - variation * 90.0, 25.0, 1.1),
+        (0.047, 6830.0 + variation * 110.0, 31.0, 2.0),
+    )
+    signal: list[float] = []
     for index, t in enumerate(times):
-        carrier[index] = (carrier[index] + 0.32 * harmonic[index]) * math.exp(-2.6 * t)
+        arc = arc_noise[index] * math.exp(-92.0 * t)
+        thump = low_impact[index] * math.exp(-20.0 * t)
+        shell_ring = shell[index] * math.exp(-17.0 * t)
+        crystal = 0.0
+        for delay, frequency, decay, phase in crystal_bands:
+            if t >= delay:
+                local = t - delay
+                crystal += math.sin(2.0 * math.pi * frequency * local + phase) * math.exp(-decay * local)
+        flicker = 0.0
+        for delay in (0.125 + variation * 0.004, 0.178 - variation * 0.003):
+            if t >= delay:
+                local = t - delay
+                flicker += (math.sin(2.0 * math.pi * (3100.0 - 5200.0 * local) * local)
+                            * math.exp(-58.0 * local))
+        signal.append(0.46 * arc + 0.58 * thump + 0.34 * shell_ring
+                      + 0.22 * crystal + 0.10 * flicker)
+    return _normalize(_fade(_saturate(signal, 2.0), 1.0, 24.0), 0.76)
 
-    warning = [0.0] * count
-    for start in (0.055, 0.275):
-        begin = int(start * SAMPLE_RATE)
-        length = int(0.145 * SAMPLE_RATE)
-        frequencies = [860.0 + (440.0 - 860.0) * index / max(1, length - 1)
-                       for index in range(length)]
-        sweep = _phase_tone(frequencies)
-        for index, sample in enumerate(sweep):
-            envelope = math.sin(math.pi * index / max(1, length - 1)) ** 0.7
-            warning[begin + index] += math.tanh(2.6 * sample) * envelope
 
-    breaker = [0.0] * count
-    begin = int(0.435 * SAMPLE_RATE)
-    length = int(0.24 * SAMPLE_RATE)
-    crackle = _high_pass([rng.gauss(0.0, 1.0) for _ in range(length)], 35)
-    for index in range(length):
-        t = index / SAMPLE_RATE
-        thump = math.sin(2.0 * math.pi * 74.0 * t) * math.exp(-15.0 * t)
-        breaker[begin + index] = 0.52 * crackle[index] * math.exp(-34.0 * t) + 0.9 * thump
+def _overheat() -> list[float]:
+    rng = random.Random(0x504C5348)
+    duration = 0.86
+    count = int(duration * SAMPLE_RATE)
+    times = [index / SAMPLE_RATE for index in range(count)]
 
-    tail = [0.0] * count
-    begin = int(0.50 * SAMPLE_RATE)
-    length = count - begin
-    frequencies = [220.0 + (55.0 - 220.0) * index / max(1, length - 1)
-                   for index in range(length)]
-    tail_tone = _phase_tone(frequencies)
-    for index, sample in enumerate(tail_tone):
-        tail[begin + index] = sample * math.exp(-4.5 * index / max(1, length - 1))
+    breaker_noise = _high_pass([rng.gauss(0.0, 1.0) for _ in range(count)], 11)
+    shutdown_frequency = [90.0 + 1010.0 * math.exp(-8.0 * max(0.0, t - 0.035)) for t in times]
+    shutdown = _phase_tone(shutdown_frequency, 0.5)
+    cavity_frequency = [132.0 - 54.0 * min(1.0, t / duration) for t in times]
+    cavity = _phase_tone(cavity_frequency, 1.2)
 
-    texture = _high_pass([rng.gauss(0.0, 1.0) for _ in range(count)], 19)
-    signal = [0.48 * carrier[index]
-              + 0.42 * warning[index]
-              + 0.72 * breaker[index]
-              + 0.32 * tail[index]
-              + 0.035 * texture[index] * math.exp(-6.5 * times[index])
-              for index in range(count)]
-    return _normalize(_fade(signal, 4.0, 45.0), 0.89)
+    signal: list[float] = []
+    for index, t in enumerate(times):
+        breaker = breaker_noise[index] * math.exp(-58.0 * t)
+        thump = math.sin(2.0 * math.pi * (68.0 - 18.0 * min(1.0, t / 0.07)) * t)
+        thump *= math.exp(-18.0 * t)
+        crystal = 0.0
+        for delay, frequency, decay in ((0.006, 1920.0, 20.0),
+                                        (0.012, 3680.0, 24.0),
+                                        (0.019, 7240.0, 31.0)):
+            if t >= delay:
+                local = t - delay
+                crystal += math.sin(2.0 * math.pi * frequency * local) * math.exp(-decay * local)
+        power_down = shutdown[index] * math.exp(-3.9 * max(0.0, t - 0.035)) if t >= 0.035 else 0.0
+        glitch = 0.0
+        for delay in (0.19, 0.29, 0.39):
+            if delay <= t < delay + 0.045:
+                local = t - delay
+                gate = 1.0 if int(local * 420.0) % 2 == 0 else -0.55
+                glitch += (gate * math.sin(2.0 * math.pi * (980.0 - 720.0 * local) * local)
+                           * math.exp(-27.0 * local))
+        metal_tail = cavity[index] * math.exp(-5.0 * max(0.0, t - 0.40)) if t >= 0.40 else 0.0
+        signal.append(0.58 * breaker + 0.74 * thump + 0.26 * crystal
+                      + 0.42 * power_down + 0.15 * glitch + 0.18 * metal_tail)
+    return _normalize(_fade(_saturate(signal, 2.7), 0.5, 48.0), 0.68)
 
 
 def _steam_vent() -> list[float]:
     rng = random.Random(0x53544541)
-    duration = 1.08
+    duration = 1.42
     count = int(duration * SAMPLE_RATE)
     times = [index / SAMPLE_RATE for index in range(count)]
 
     noise = [rng.gauss(0.0, 1.0) for _ in range(count)]
-    steam = _low_pass(_high_pass(noise, 63), 5)
-    for index, t in enumerate(times):
-        attack = min(1.0, t / 0.012)
-        release = 1.0 if t < 0.50 else math.exp(-5.4 * (t - 0.50))
-        pressure = 0.88 + 0.12 * math.sin(2.0 * math.pi * 6.3 * t)
-        pressure += 0.055 * math.sin(2.0 * math.pi * 17.1 * t + 0.7)
-        steam[index] *= attack * release * pressure
+    bright_steam = _low_pass(_high_pass(noise, 47), 4)
+    dark_steam = _low_pass(_high_pass(noise, 173), 12)
+    valve_noise = _high_pass([rng.gauss(0.0, 1.0) for _ in range(count)], 19)
+    hull_frequency = [310.0 - 125.0 * min(1.0, t / 0.85) for t in times]
+    hull = _phase_tone(hull_frequency, 0.8)
 
-    valve = _high_pass([rng.gauss(0.0, 1.0) for _ in range(count)], 29)
-    frequencies = [92.0 + (60.0 - 92.0) * index / max(1, count - 1)
-                   for index in range(count)]
-    reservoir = _phase_tone(frequencies)
-    signal = [0.76 * steam[index]
-              + 0.44 * valve[index] * math.exp(-46.0 * times[index])
-              + 0.10 * reservoir[index] * math.exp(-5.0 * times[index])
-              for index in range(count)]
-    return _normalize(_fade(signal, 2.0, 60.0), 0.71)
+    signal: list[float] = []
+    for index, t in enumerate(times):
+        open_valve = valve_noise[index] * math.exp(-86.0 * t)
+        open_valve += math.sin(2.0 * math.pi * 1240.0 * t) * math.exp(-72.0 * t)
+        attack = min(1.0, max(0.0, (t - 0.012) / 0.018))
+        release = 1.0 if t < 0.34 else math.exp(-2.55 * (t - 0.34))
+        bright_mix = max(0.0, 1.0 - t / 0.78)
+        pressure = 0.91 + 0.09 * math.sin(2.0 * math.pi * 7.1 * t)
+        steam = (bright_steam[index] * bright_mix
+                 + dark_steam[index] * (1.0 - bright_mix)) * attack * release * pressure
+        resonance = hull[index] * attack * math.exp(-3.5 * t)
+        close_valve = 0.0
+        if t >= 1.12:
+            local = t - 1.12
+            close_valve = valve_noise[index] * math.exp(-52.0 * local)
+            close_valve += math.sin(2.0 * math.pi * 720.0 * local) * math.exp(-38.0 * local)
+        signal.append(0.42 * open_valve + 0.70 * steam + 0.14 * resonance + 0.20 * close_valve)
+    return _normalize(_fade(_saturate(signal, 1.45), 0.5, 75.0), 0.68)
 
 
 def _write_pcm(path: Path, signal: list[float]) -> None:
@@ -175,6 +215,9 @@ def main() -> None:
 
     OUTPUT.mkdir(parents=True, exist_ok=True)
     sounds = {
+        "hit_01.ogg": _shield_hit(0x48495431, 0.24, -0.45),
+        "hit_02.ogg": _shield_hit(0x48495432, 0.27, 0.0),
+        "hit_03.ogg": _shield_hit(0x48495433, 0.31, 0.55),
         "overheat.ogg": _overheat(),
         "steam_vent.ogg": _steam_vent(),
     }

@@ -5,6 +5,7 @@ import com.miningdim.job.engineer.EngineerConfig;
 import com.miningdim.job.engineer.ModEngineerSounds;
 import com.miningdim.job.engineer.shield.item.PlasmaShieldItem;
 import com.miningdim.job.engineer.shield.network.PlasmaShieldNetwork;
+import com.miningdim.job.engineer.shield.network.PlasmaShieldHitS2C;
 import com.miningdim.job.engineer.shield.network.PlasmaShieldSyncS2C;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
@@ -67,7 +68,21 @@ public final class PlasmaShieldHandler {
         PlasmaShieldState.write(stack, result.state());
         event.setAmount((float) result.remainingDamage());
 
-        if (!before.overheated() && result.state().overheated()) {
+        boolean justOverheated = !before.overheated() && result.state().overheated();
+        if (result.absorbedDamage() > 0.0D) {
+            boolean cadenceAllowsHit = soundCadence.shouldEmitHit(
+                    player.getUUID(), stack, player.level().getGameTime());
+            if (cadenceAllowsHit || justOverheated) {
+                PlasmaShieldHitS2C feedback = PlasmaShieldHitS2C.forHit(
+                        player.getId(), item.shieldType(), result.absorbedDamage(), justOverheated);
+                PlasmaShieldNetwork.sendHit(player, feedback);
+                if (!justOverheated) {
+                    playHitSound(player, item.shieldType(), feedback.strength());
+                }
+            }
+        }
+
+        if (justOverheated) {
             soundCadence.onOverheated(player.getUUID(), stack, player.level().getGameTime());
             playOverheatSound(player, item.shieldType());
         }
@@ -180,14 +195,14 @@ public final class PlasmaShieldHandler {
         if (previous == null || previous.stack() != stack || now < previous.gameTime()) {
             soundCadence.clear(playerId);
             settlementAnchors.put(playerId, new SettlementAnchor(stack, now));
-            return new Settlement(before, false, false);
+            return new Settlement(before, false, false, false);
         }
 
         long elapsed = now - previous.gameTime();
         if (elapsed <= 0L
                 || (requireConfiguredInterval
                 && elapsed < EngineerConfig.PLASMA_SHIELD.stateTickInterval())) {
-            return new Settlement(before, false, false);
+            return new Settlement(before, false, false, false);
         }
 
         int elapsedTicks = (int) Math.min(elapsed, Integer.MAX_VALUE);
@@ -196,7 +211,11 @@ public final class PlasmaShieldHandler {
             PlasmaShieldState.write(stack, after);
         }
         settlementAnchors.put(playerId, new SettlementAnchor(stack, now));
-        return new Settlement(after, true, after.heat() < before.heat() - HEAT_EPSILON);
+        return new Settlement(
+                after,
+                true,
+                after.heat() < before.heat() - HEAT_EPSILON,
+                before.overheated());
     }
 
     private void maybePlaySteamVent(ServerPlayer player,
@@ -204,9 +223,20 @@ public final class PlasmaShieldHandler {
                                     PlasmaShieldType type,
                                     Settlement settlement) {
         if (settlement.cooled()
+                && settlement.emergencyCooling()
                 && soundCadence.shouldPlayVent(player.getUUID(), stack, player.level().getGameTime())) {
             playSteamVentSound(player, type);
         }
+    }
+
+    private static void playHitSound(ServerPlayer player, PlasmaShieldType type, float strength) {
+        player.level().playSound(
+                null,
+                player.getX(), player.getY() + 1.0D, player.getZ(),
+                ModEngineerSounds.PLASMA_SHIELD_HIT.get(),
+                SoundSource.PLAYERS,
+                0.52F + 0.24F * strength,
+                chassisPitch(type) * (0.97F + 0.05F * strength));
     }
 
     private static void playOverheatSound(ServerPlayer player, PlasmaShieldType type) {
@@ -215,7 +245,7 @@ public final class PlasmaShieldHandler {
                 player.getX(), player.getY() + 1.0D, player.getZ(),
                 ModEngineerSounds.PLASMA_SHIELD_OVERHEAT.get(),
                 SoundSource.PLAYERS,
-                0.85F,
+                0.92F,
                 chassisPitch(type));
     }
 
@@ -225,15 +255,15 @@ public final class PlasmaShieldHandler {
                 player.getX(), player.getY() + 1.0D, player.getZ(),
                 ModEngineerSounds.PLASMA_SHIELD_STEAM_VENT.get(),
                 SoundSource.PLAYERS,
-                0.68F,
+                0.62F,
                 chassisPitch(type));
     }
 
     private static float chassisPitch(PlasmaShieldType type) {
         return switch (type) {
-            case NANO -> 1.14F;
+            case NANO -> 1.06F;
             case LIGHT -> 1.0F;
-            case HEAVY_ION -> 0.84F;
+            case HEAVY_ION -> 0.94F;
         };
     }
 
@@ -323,6 +353,9 @@ public final class PlasmaShieldHandler {
     private record SettlementAnchor(ItemStack stack, long gameTime) {
     }
 
-    private record Settlement(PlasmaShieldState state, boolean advanced, boolean cooled) {
+    private record Settlement(PlasmaShieldState state,
+                              boolean advanced,
+                              boolean cooled,
+                              boolean emergencyCooling) {
     }
 }

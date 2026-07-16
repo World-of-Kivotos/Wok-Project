@@ -663,6 +663,7 @@
   "tooltip.miningdim.plasma_shield.shutdown": "护盾过热停摆，散热后自动重启",
   "message.miningdim.engineer.repair.plasma_shield_incompatible": "电浆护盾不能使用纳米护甲板维修",
   "hud.miningdim.plasma_shield.shutdown": "停摆",
+  "subtitles.miningdim.plasma_shield_hit": "电浆护盾吸收冲击",
   "subtitles.miningdim.plasma_shield_overheat": "电浆护盾过热停摆",
   "subtitles.miningdim.plasma_shield_steam_vent": "电浆护盾释放蒸汽"
 }

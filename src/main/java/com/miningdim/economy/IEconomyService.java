@@ -4,6 +4,8 @@ import com.miningdim.economy.EconomyConstants.HighValueOre;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
 
+import java.util.UUID;
+
 /**
  * 货币门面接口 (JobFramework_Shared_Foundation_DesignSpec 第三章 DECIDED 接口 + 经济文档 0.3/1.1/8.1)。
  *
@@ -46,6 +48,30 @@ public interface IEconomyService {
     boolean tryCharge(ServerPlayer player, Currency currency, long amount);
 
     /**
+     * 以 operationId 幂等地一次扣除信用点与青辉石。首次成功返 CHARGED；余额不足返 NONE 且两币均不动；重放
+     * 返回已持久化状态且不再次扣款。同一 operationId 不得换玩家或金额复用。
+     */
+    default EconomyOperationStatus tryChargeBundle(ServerPlayer player, UUID operationId,
+                                                    long creditAmount, long azureAmount) {
+        throw new UnsupportedOperationException("This economy service does not support persistent bundle charges");
+    }
+
+    /** 按玩家 UUID 查询双币扣款状态，供玩家离线或服务启动时恢复 Saga。 */
+    default EconomyOperationStatus operationStatus(UUID playerId, UUID operationId) {
+        throw new UnsupportedOperationException("This economy service does not support persistent bundle charges");
+    }
+
+    /** 幂等地把 CHARGED 标为 COMPLETED；不存在返 NONE，已退款返 REFUNDED。 */
+    default EconomyOperationStatus completeBundle(UUID playerId, UUID operationId) {
+        throw new UnsupportedOperationException("This economy service does not support persistent bundle charges");
+    }
+
+    /** 幂等地把 CHARGED 的两币退回并标为 REFUNDED；不存在返 NONE，已完成返 COMPLETED。 */
+    default EconomyOperationStatus refundBundle(UUID playerId, UUID operationId) {
+        throw new UnsupportedOperationException("This economy service does not support persistent bundle charges");
+    }
+
+    /**
      * 系统入账 (faucet: 任务/刷怪/卖矿卖菜 / 职业产出的货币奖励)。
      *
      * 溢出契约 (经济文档 7.3 M0 货币总量统计防脏数据击穿): faucet 是最大货币注入口, long 累加无上界
@@ -57,6 +83,14 @@ public interface IEconomyService {
      * @param amount 入账量 (必须 &gt; 0; 非法金额抛 {@link EconomyException.Reason#ILLEGAL_AMOUNT})
      */
     void grant(ServerPlayer player, Currency currency, long amount);
+
+    /**
+     * 原子发放信用点与青辉石。两种金额都必须为正；任一余额可能溢出时两币均不入账。
+     * 该入口供系统补偿和受权限保护的管理命令使用，不是玩家间转账接口，也不计入日常 faucet 衰减。
+     */
+    default void grantBundle(ServerPlayer player, long creditAmount, long azureAmount) {
+        throw new UnsupportedOperationException("This economy service does not support atomic bundle grants");
+    }
 
     /**
      * 含每日限购计数器的事务扣费 (框架 spec 第三章): 当日经同一 dailyKey 累计扣费未超 dailyCap 且余额足才扣。

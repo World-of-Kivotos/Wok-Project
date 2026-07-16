@@ -301,15 +301,22 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
         double fireRateMax = (variant.fireRateMultiplier(quality.maxCoefficient()) - 1.0D) * 100.0D;
         double verticalRecoilMin = (variant.verticalRecoilMultiplier(quality.minCoefficient()) - 1.0D) * 100.0D;
         double verticalRecoilMax = (variant.verticalRecoilMultiplier(quality.maxCoefficient()) - 1.0D) * 100.0D;
+        double inaccuracyMin = (variant.inaccuracyMultiplier(quality.minCoefficient()) - 1.0D) * 100.0D;
+        double inaccuracyMax = (variant.inaccuracyMultiplier(quality.maxCoefficient()) - 1.0D) * 100.0D;
         drawFittedText(graphics,
                 Component.translatable("screen.miningdim.gunsmith_press.effect.semi_auto_fire_rate",
                         formatSignedPercentRange(fireRateMin, fireRateMax)).getString(),
-                x + 59, y + 34, DETAIL_W - 65, fireRateMax > 0.0D ? 0xFF62E6C8 : 0xFFAEB8C8,
+                x + 59, y + 31, DETAIL_W - 65, fireRateMax > 0.0D ? 0xFF62E6C8 : 0xFFAEB8C8,
                 0.62F, 0.46F);
         drawFittedText(graphics,
                 Component.translatable("screen.miningdim.gunsmith_press.effect.vertical_recoil",
                         formatSignedPercentRange(verticalRecoilMin, verticalRecoilMax)).getString(),
-                x + 59, y + 47, DETAIL_W - 65, verticalRecoilMax > 0.0D ? 0xFFFF6B68 : 0xFFAEB8C8,
+                x + 59, y + 41, DETAIL_W - 65, verticalRecoilMax > 0.0D ? 0xFFFF6B68 : 0xFFAEB8C8,
+                0.62F, 0.46F);
+        drawFittedText(graphics,
+                Component.translatable("screen.miningdim.gunsmith_press.effect.spread",
+                        formatSignedPercentRange(inaccuracyMin, inaccuracyMax)).getString(),
+                x + 59, y + 51, DETAIL_W - 65, inaccuracyMax > 0.0D ? 0xFFFF6B68 : 0xFFAEB8C8,
                 0.62F, 0.46F);
     }
 

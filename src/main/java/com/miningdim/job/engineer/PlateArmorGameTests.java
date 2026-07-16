@@ -77,12 +77,12 @@ public final class PlateArmorGameTests {
                 helper.assertTrue(expectedQ[index] < expectedR[index], "Q must remain below R at " + tier + "/" + weight);
             }
         }
-        helper.assertTrue(close(EngineerConfig.PLATE_ARMOR.movementModifier(PlateArmorWeight.LIGHT), .03),
-                "light movement +3%");
+        helper.assertTrue(close(EngineerConfig.PLATE_ARMOR.movementModifier(PlateArmorWeight.LIGHT), .10),
+                "light movement +10%");
         helper.assertTrue(close(EngineerConfig.PLATE_ARMOR.movementModifier(PlateArmorWeight.MEDIUM), 0),
                 "medium movement 0%");
-        helper.assertTrue(close(EngineerConfig.PLATE_ARMOR.movementModifier(PlateArmorWeight.HEAVY), -.04),
-                "heavy movement -4%");
+        helper.assertTrue(close(EngineerConfig.PLATE_ARMOR.movementModifier(PlateArmorWeight.HEAVY), -.12),
+                "heavy movement -12%");
         helper.succeed();
     }
 
@@ -268,14 +268,14 @@ public final class PlateArmorGameTests {
         helper.assertTrue(close(uhmwpe.armorPiercingBuffer(), .19D), "V light UHMWPE Q is 19%");
         helper.assertTrue(close(uhmwpe.generalProtection(), .7932D), "V light UHMWPE G is 79.32%");
         helper.assertTrue(close(uhmwpe.pressureCapacity(), 90.72D), "V light UHMWPE T is 90.72");
-        helper.assertTrue(close(uhmwpe.movementModifier(), .03D), "V light UHMWPE movement is +3%");
+        helper.assertTrue(close(uhmwpe.movementModifier(), .10D), "V light UHMWPE movement is +10%");
 
         PlateArmorStats ceramic = PlateArmorStats.resolve(PlateArmorVariant.GLADIATOR_S_LIGHT_MULTICAM);
         helper.assertTrue(close(ceramic.ballisticProtection(), .906D), "V light ceramic R is 90.6%");
         helper.assertTrue(close(ceramic.armorPiercingBuffer(), .34D), "V light ceramic Q is 34%");
         helper.assertTrue(close(ceramic.generalProtection(), .78D), "V light ceramic G is 78%");
         helper.assertTrue(close(ceramic.pressureCapacity(), 96.6D), "V light ceramic T is 96.6");
-        helper.assertTrue(close(ceramic.movementModifier(), .025D), "V light ceramic movement is +2.5%");
+        helper.assertTrue(close(ceramic.movementModifier(), .095D), "V light ceramic movement is +9.5%");
 
         PlateArmorStats aramid = PlateArmorStats.resolve(PlateArmorVariant.PACA);
         helper.assertTrue(close(aramid.armorPiercingBuffer(), 0.0D),
@@ -285,8 +285,8 @@ public final class PlateArmorGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void defaultMaterialBalanceNeverReversesOverallTierOrder(GameTestHelper helper) {
-        double[] expectedMin = {.37662282D, .42866400D, .52319380D, .58632966D, .70630993D, .78109033D};
-        double[] expectedMax = {.37662282D, .42866400D, .57443821D, .68064056D, .75710956D, .81098156D};
+        double[] expectedMin = {.37662282D, .42866400D, .52249380D, .59262966D, .70840993D, .77059033D};
+        double[] expectedMax = {.37662282D, .42866400D, .58003821D, .68064056D, .75710956D, .81127956D};
         double previousMaximum = Double.NEGATIVE_INFINITY;
 
         for (PlateArmorTier tier : PlateArmorTier.values()) {
@@ -397,9 +397,9 @@ public final class PlateArmorGameTests {
                 "active plate replaces diamond helmet armor instead of stacking");
         AttributeModifier movement = player.getAttribute(Attributes.MOVEMENT_SPEED)
                 .getModifier(PlateArmorEquipmentHandler.MOVEMENT_ID);
-        helper.assertTrue(movement != null && close(movement.getAmount(), .03D)
+        helper.assertTrue(movement != null && close(movement.getAmount(), .10D)
                         && movement.getOperation() == AttributeModifier.Operation.MULTIPLY_TOTAL,
-                "light plate has one +3% MULTIPLY_TOTAL movement modifier");
+                "light plate has one +10% MULTIPLY_TOTAL movement modifier");
 
         player.setItemSlot(EquipmentSlot.CHEST, ItemStack.EMPTY);
         PlateArmorEquipmentHandler.synchronize(player);
@@ -504,7 +504,7 @@ public final class PlateArmorGameTests {
                 + .20D * highPressureCoverage;
         double durability = Math.min(
                 EngineerConfig.PLATE_ARMOR.maxDurability(variant.material()) / 900.0D, 1.0D);
-        double mobility = (stats.movementModifier() + .07D) / .10D;
+        double mobility = (stats.movementModifier() + .15D) / .25D;
         return .85D * protection + .08D * durability + .07D * mobility;
     }
 }

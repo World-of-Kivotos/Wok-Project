@@ -5,11 +5,12 @@ import java.util.List;
 import java.util.Objects;
 
 public enum GunsmithPartVariant {
-    BASIC("basic", "gunsmith.variant.basic", "gunsmith.variant.basic.description", 0.0D, 0.0D),
+    BASIC("basic", "gunsmith.variant.basic", "gunsmith.variant.basic.description", 0.0D, 0.0D, 0.0D),
     GEHENNA_HIGH_SPEED_GAS("gehenna_high_speed_gas", "gunsmith.variant.gehenna_high_speed_gas",
-            "gunsmith.variant.gehenna_high_speed_gas.description", 0.25D, 1.00D);
+            "gunsmith.variant.gehenna_high_speed_gas.description", 0.25D, 3.00D, 0.30D);
 
     private static final double LEGACY_V3_GEHENNA_MAX_VERTICAL_RECOIL_BONUS = 0.40D;
+    private static final double LEGACY_V4_GEHENNA_MAX_VERTICAL_RECOIL_BONUS = 1.00D;
     private static final double GLOBAL_MIN_COEFFICIENT = GunsmithPartQuality.COMMON.minCoefficient();
     private static final double GLOBAL_MAX_COEFFICIENT = GunsmithPartQuality.LEGENDARY.maxCoefficient();
 
@@ -18,14 +19,17 @@ public enum GunsmithPartVariant {
     private final String descriptionKey;
     private final double maxFireRateBonus;
     private final double maxVerticalRecoilBonus;
+    private final double inaccuracyPenalty;
 
     GunsmithPartVariant(String id, String labelKey, String descriptionKey,
-                        double maxFireRateBonus, double maxVerticalRecoilBonus) {
+                        double maxFireRateBonus, double maxVerticalRecoilBonus,
+                        double inaccuracyPenalty) {
         this.id = id;
         this.labelKey = labelKey;
         this.descriptionKey = descriptionKey;
         this.maxFireRateBonus = maxFireRateBonus;
         this.maxVerticalRecoilBonus = maxVerticalRecoilBonus;
+        this.inaccuracyPenalty = inaccuracyPenalty;
     }
 
     public int index() {
@@ -53,12 +57,7 @@ public enum GunsmithPartVariant {
     }
 
     public double fireRateMultiplier(double coefficient) {
-        if (!Double.isFinite(coefficient)
-                || coefficient < GLOBAL_MIN_COEFFICIENT
-                || coefficient > GLOBAL_MAX_COEFFICIENT) {
-            throw new IllegalArgumentException("Gunsmith variant coefficient is outside the global quality range: "
-                    + coefficient);
-        }
+        validateCoefficient(coefficient);
         if (maxFireRateBonus == 0.0D) {
             return 1.0D;
         }
@@ -69,6 +68,11 @@ public enum GunsmithPartVariant {
         return 1.0D + qualityProgress(coefficient) * maxVerticalRecoilBonus;
     }
 
+    public double inaccuracyMultiplier(double coefficient) {
+        validateCoefficient(coefficient);
+        return 1.0D + inaccuracyPenalty;
+    }
+
     double legacyV3VerticalRecoilMultiplier(double coefficient) {
         return switch (this) {
             case BASIC -> 1.0D;
@@ -77,15 +81,27 @@ public enum GunsmithPartVariant {
         };
     }
 
+    double legacyV4VerticalRecoilMultiplier(double coefficient) {
+        return switch (this) {
+            case BASIC -> 1.0D;
+            case GEHENNA_HIGH_SPEED_GAS -> 1.0D
+                    + qualityProgress(coefficient) * LEGACY_V4_GEHENNA_MAX_VERTICAL_RECOIL_BONUS;
+        };
+    }
+
     private static double qualityProgress(double coefficient) {
+        validateCoefficient(coefficient);
+        return (coefficient - GLOBAL_MIN_COEFFICIENT)
+                / (GLOBAL_MAX_COEFFICIENT - GLOBAL_MIN_COEFFICIENT);
+    }
+
+    private static void validateCoefficient(double coefficient) {
         if (!Double.isFinite(coefficient)
                 || coefficient < GLOBAL_MIN_COEFFICIENT
                 || coefficient > GLOBAL_MAX_COEFFICIENT) {
             throw new IllegalArgumentException("Gunsmith variant coefficient is outside the global quality range: "
                     + coefficient);
         }
-        return (coefficient - GLOBAL_MIN_COEFFICIENT)
-                / (GLOBAL_MAX_COEFFICIENT - GLOBAL_MIN_COEFFICIENT);
     }
 
     public double coefficientForStat(GunsmithStat stat, double coefficient) {

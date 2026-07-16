@@ -518,7 +518,7 @@
   "gunsmith.variant.basic": "Standard Component",
   "gunsmith.variant.basic.description": "The standard service component for this slot.",
   "gunsmith.variant.gehenna_high_speed_gas": "Gehenna High-Speed Gas System",
-  "gunsmith.variant.gehenna_high_speed_gas.description": "An advanced high-speed gas system developed by Gehenna's Pandemonium Society. It accelerates the firearm's operating cycle to raise its rate of fire, but the excessive cycle speed overwhelms the buffer system and sharply increases vertical recoil during sustained fire.",
+  "gunsmith.variant.gehenna_high_speed_gas.description": "An advanced high-speed gas system developed by Gehenna's Pandemonium Society. It accelerates the firearm's operating cycle to raise its rate of fire, but the excessive cycle speed overwhelms the buffer system, sharply increasing vertical recoil, widening shot dispersion, and reducing accuracy during sustained fire.",
   "gunsmith.role.core": "Effective range",
   "gunsmith.role.barrel": "Headshot multiplier",
   "gunsmith.role.bolt": "Final damage multiplier",
@@ -542,6 +542,7 @@
   "tooltip.miningdim.gunsmith_part.coefficient": "Roll coefficient: %s",
   "tooltip.miningdim.gunsmith_part.fire_rate": "Semi/auto fire rate: %s",
   "tooltip.miningdim.gunsmith_part.vertical_recoil": "Vertical recoil: %s",
+  "tooltip.miningdim.gunsmith_part.spread": "Spread: %s",
   "tooltip.miningdim.gunsmith_part.invalid": "Invalid gunsmith part (corrupt data)",
   "tooltip.miningdim.gunsmith_blueprint.platform": "Platform: %s",
   "tooltip.miningdim.gunsmith_blueprint.gun_id": "GunId: %s",
@@ -601,6 +602,7 @@
   "screen.miningdim.gunsmith_press.compatibility": "%1$s / %2$s component",
   "screen.miningdim.gunsmith_press.effect.semi_auto_fire_rate": "Semi/auto fire rate %s",
   "screen.miningdim.gunsmith_press.effect.vertical_recoil": "Vertical recoil %s",
+  "screen.miningdim.gunsmith_press.effect.spread": "Spread %s",
   "screen.miningdim.gunsmith_press.materials": "Materials / Output",
   "screen.miningdim.gunsmith_press.output": "Output",
   "screen.miningdim.gunsmith_press.start": "Start Press",
@@ -637,5 +639,12 @@
   "category.miningdim.munitions.explosive": "Explosive Ammo",
   "death.attack.miningdim.champion_thorns": "%1$s was shattered by %2$s's tremor guard",
   "death.attack.miningdim.champion_execution": "%1$s could not escape their appointed death",
-  "death.attack.miningdim.champion_skill_aoe": "%1$s was erased by %2$s's skill barrage"
+  "death.attack.miningdim.champion_skill_aoe": "%1$s was erased by %2$s's skill barrage",
+  "subtitles.miningdim.case_unlock": "Case lock releases",
+  "subtitles.miningdim.case_open": "Case mechanism opens",
+  "subtitles.miningdim.case_tick": "Case reel ticks",
+  "subtitles.miningdim.case_reveal": "Case reward revealed",
+  "message.miningdim.economy.not_ready": "The economy system is not ready yet.",
+  "message.miningdim.economy.grant_failed": "Grant failed (%s); balances were unchanged.",
+  "message.miningdim.economy.grant_done": "Granted %2$s credits and %3$s Azure to %1$s; new balance: %4$s credits / %5$s Azure."
 }

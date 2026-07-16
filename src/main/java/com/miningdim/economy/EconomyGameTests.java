@@ -30,6 +30,8 @@ import java.util.function.Function;
  *  - faucetCreditAfterDecay 主闸曲线 (累计 0 系数 1 / 60000 ×0.6 / 120000 ×0.36 / 极深夹 1% 地板),
  *    几何主项前 10 档 = 149093 (≈14.9 万正常落点), 深档 1% 地板留极薄线性尾巴 (不收敛、无数学硬顶), 拆分不变性 (一笔 2*tier == 两笔各 tier);
  *  - 先校验后扣杜绝双花 (序列双扣只第一次成功 —— 主线程不变量, 见 doubleDebit 注释);
+ *  - operationId 双币原子扣款、持久幂等重放、完成/退款 Saga 状态与 NBT round-trip;
+ *  - OP 管理入口所用双币发放同时入账，任一币种溢出时两币均不变;
  *  - AZURE 不可转移 (货币层无 P2P 入口, isTransferable 硬不变量);
  *  - NBT round-trip 边界 0 / Long.MAX_VALUE 防溢出 + grant 溢出抛 BALANCE_OVERFLOW;
  *  - setDirty 每次变更被调用;
@@ -81,6 +83,49 @@ public final class EconomyGameTests {
         helper.assertTrue(first, "first full debit succeeds");
         helper.assertTrue(!second, "second full debit on now-empty wallet must fail (no double spend)");
         helper.assertTrue(w.balance(Currency.CREDIT) == 0L, "balance debited exactly once");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void dualCurrencyWalletMutationIsAtomic(GameTestHelper helper) {
+        PlayerWallet wallet = new PlayerWallet();
+        wallet.credit(Currency.CREDIT, 100L);
+        wallet.credit(Currency.AZURE, 10L);
+
+        helper.assertTrue(!wallet.tryDebitBundle(101L, 5L),
+                "bundle fails when CREDIT is short");
+        helper.assertTrue(wallet.balance(Currency.CREDIT) == 100L
+                        && wallet.balance(Currency.AZURE) == 10L,
+                "CREDIT shortage leaves both currencies untouched");
+
+        helper.assertTrue(!wallet.tryDebitBundle(50L, 11L),
+                "bundle fails when AZURE is short");
+        helper.assertTrue(wallet.balance(Currency.CREDIT) == 100L
+                        && wallet.balance(Currency.AZURE) == 10L,
+                "AZURE shortage leaves both currencies untouched");
+
+        helper.assertTrue(wallet.tryDebitBundle(80L, 4L),
+                "bundle succeeds only after both balances pass preflight");
+        helper.assertTrue(wallet.balance(Currency.CREDIT) == 20L
+                        && wallet.balance(Currency.AZURE) == 6L,
+                "successful bundle deducts CREDIT and AZURE exactly once");
+
+        wallet.creditBundle(80L, 4L);
+        helper.assertTrue(wallet.balance(Currency.CREDIT) == 100L
+                        && wallet.balance(Currency.AZURE) == 10L,
+                "atomic bundle refund restores both original balances");
+
+        wallet.credit(Currency.CREDIT, Long.MAX_VALUE - 100L);
+        boolean overflow = false;
+        try {
+            wallet.creditBundle(1L, 1L);
+        } catch (EconomyException e) {
+            overflow = e.reason() == EconomyException.Reason.BALANCE_OVERFLOW;
+        }
+        helper.assertTrue(overflow, "bundle refund rejects overflow before changing either currency");
+        helper.assertTrue(wallet.balance(Currency.CREDIT) == Long.MAX_VALUE
+                        && wallet.balance(Currency.AZURE) == 10L,
+                "failed bundle refund leaves both balances unchanged");
         helper.succeed();
     }
 
@@ -171,6 +216,54 @@ public final class EconomyGameTests {
         helper.assertTrue(!ledger.isDirty(), "failed debit must NOT mark dirty (no state change)");
 
         helper.assertTrue(ledger.balance(id, Currency.CREDIT) == 60L, "balance 100 - 40 = 60 after the two debits");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void bundleChargeIsIdempotentAndConflictSafe(GameTestHelper helper) {
+        EconomyWalletData ledger = new EconomyWalletData();
+        UUID playerId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        ledger.credit(playerId, Currency.CREDIT, 1_000L);
+        ledger.credit(playerId, Currency.AZURE, 50L);
+
+        ledger.setDirty(false);
+        EconomyOperationStatus first = ledger.tryChargeBundle(playerId, operationId, 200L, 10L);
+        helper.assertTrue(first == EconomyOperationStatus.CHARGED,
+                "first sufficient bundle charge records CHARGED");
+        helper.assertTrue(ledger.balance(playerId, Currency.CREDIT) == 800L
+                        && ledger.balance(playerId, Currency.AZURE) == 40L,
+                "first charge deducts both configured costs once");
+        helper.assertTrue(ledger.isDirty(), "first financial side effect marks SavedData dirty");
+
+        ledger.setDirty(false);
+        EconomyOperationStatus replay = ledger.tryChargeBundle(playerId, operationId, 200L, 10L);
+        helper.assertTrue(replay == EconomyOperationStatus.CHARGED,
+                "same operationId replay returns its persisted successful state");
+        helper.assertTrue(ledger.balance(playerId, Currency.CREDIT) == 800L
+                        && ledger.balance(playerId, Currency.AZURE) == 40L,
+                "same operationId replay does not deduct either currency again");
+        helper.assertTrue(!ledger.isDirty(), "read-only replay does not dirty SavedData");
+
+        boolean conflict = false;
+        try {
+            ledger.tryChargeBundle(playerId, operationId, 201L, 10L);
+        } catch (EconomyException e) {
+            conflict = e.reason() == EconomyException.Reason.OPERATION_CONFLICT;
+        }
+        helper.assertTrue(conflict, "reusing operationId with a different amount is rejected as a conflict");
+
+        UUID insufficientId = UUID.randomUUID();
+        ledger.setDirty(false);
+        EconomyOperationStatus insufficient = ledger.tryChargeBundle(playerId, insufficientId, 801L, 1L);
+        helper.assertTrue(insufficient == EconomyOperationStatus.NONE,
+                "insufficient first attempt returns NONE and creates no operation");
+        helper.assertTrue(ledger.operationStatus(playerId, insufficientId) == EconomyOperationStatus.NONE,
+                "insufficient attempt is not persisted as a successful operation");
+        helper.assertTrue(ledger.balance(playerId, Currency.CREDIT) == 800L
+                        && ledger.balance(playerId, Currency.AZURE) == 40L,
+                "insufficient bundle leaves both currencies untouched");
+        helper.assertTrue(!ledger.isDirty(), "insufficient no-op does not dirty SavedData");
         helper.succeed();
     }
 
@@ -427,6 +520,37 @@ public final class EconomyGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void serviceBundleGrantIsAtomic(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+
+        helper.assertTrue(!ledger.isDirty(), "fresh ledger starts clean before the admin bundle grant");
+        eco.grantBundle(player, 50_000L, 10L);
+        helper.assertTrue(eco.creditBalance(player) == 50_000L,
+                "bundle grant credits the requested 50000 CREDIT");
+        helper.assertTrue(eco.heartstoneBalance(player) == 10L,
+                "bundle grant credits the requested 10 AZURE");
+        helper.assertTrue(ledger.isDirty(), "successful bundle grant marks SavedData dirty exactly as a persisted mutation");
+
+        ledger.credit(player.getUUID(), Currency.CREDIT, Long.MAX_VALUE - 50_000L);
+        ledger.setDirty(false);
+        boolean overflow = false;
+        try {
+            eco.grantBundle(player, 1L, 1L);
+        } catch (EconomyException exception) {
+            overflow = exception.reason() == EconomyException.Reason.BALANCE_OVERFLOW;
+        }
+        helper.assertTrue(overflow, "bundle grant rejects either-currency overflow");
+        helper.assertTrue(eco.creditBalance(player) == Long.MAX_VALUE,
+                "failed bundle grant leaves CREDIT unchanged at MAX_VALUE");
+        helper.assertTrue(eco.heartstoneBalance(player) == 10L,
+                "failed bundle grant leaves AZURE unchanged instead of partially crediting it");
+        helper.assertTrue(!ledger.isDirty(), "rejected bundle grant does not mark a no-op as dirty");
+        helper.succeed();
+    }
+
     // ============================================================
     // AZURE 不可转移 (货币层无 P2P 入口; 反洗钱硬不变量, 经济文档 0.3-46/1.2)
     // ============================================================
@@ -476,6 +600,70 @@ public final class EconomyGameTests {
                 "persisted daily counter continues from 33: a further 67 reaches cap 100");
         helper.assertTrue(!reloaded.tryChargeDaily(b, Currency.CREDIT, 1L, "pack", 100L, today),
                 "the persisted daily counter is now at cap; a further 1 is rejected");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void bundleSagaLifecycleRoundTripsAndSupportsOfflineRecovery(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        UUID playerId = player.getUUID();
+        UUID completedId = UUID.randomUUID();
+        UUID refundableId = UUID.randomUUID();
+
+        EconomyWalletData ledger = new EconomyWalletData();
+        ledger.credit(playerId, Currency.CREDIT, 1_000L);
+        ledger.credit(playerId, Currency.AZURE, 100L);
+        IEconomyService economy = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+
+        helper.assertTrue(economy.tryChargeBundle(player, completedId, 100L, 10L)
+                        == EconomyOperationStatus.CHARGED,
+                "service facade creates first CHARGED operation");
+        helper.assertTrue(economy.completeBundle(playerId, completedId) == EconomyOperationStatus.COMPLETED,
+                "UUID-level recovery API commits CHARGED to COMPLETED");
+        helper.assertTrue(economy.completeBundle(playerId, completedId) == EconomyOperationStatus.COMPLETED,
+                "complete replay is idempotent");
+
+        helper.assertTrue(economy.tryChargeBundle(player, refundableId, 200L, 20L)
+                        == EconomyOperationStatus.CHARGED,
+                "second operation remains CHARGED for crash-recovery simulation");
+        helper.assertTrue(ledger.balance(playerId, Currency.CREDIT) == 700L
+                        && ledger.balance(playerId, Currency.AZURE) == 70L,
+                "two operations have deducted their costs before persistence");
+
+        EconomyWalletData reloaded = EconomyWalletData.load(ledger.save(new CompoundTag()));
+        IEconomyService recovered = new EconomyService(reloaded, new AbuseGuard(), newStateResolver());
+        helper.assertTrue(recovered.operationStatus(playerId, completedId) == EconomyOperationStatus.COMPLETED,
+                "COMPLETED state survives NBT round-trip");
+        helper.assertTrue(recovered.operationStatus(playerId, refundableId) == EconomyOperationStatus.CHARGED,
+                "in-flight CHARGED state survives NBT round-trip for startup recovery");
+
+        helper.assertTrue(recovered.tryChargeBundle(player, refundableId, 200L, 20L)
+                        == EconomyOperationStatus.CHARGED,
+                "replayed in-flight operation returns CHARGED after restart");
+        helper.assertTrue(reloaded.balance(playerId, Currency.CREDIT) == 700L
+                        && reloaded.balance(playerId, Currency.AZURE) == 70L,
+                "post-restart replay does not charge twice");
+
+        helper.assertTrue(recovered.refundBundle(playerId, refundableId) == EconomyOperationStatus.REFUNDED,
+                "offline UUID recovery atomically refunds an in-flight charge");
+        helper.assertTrue(reloaded.balance(playerId, Currency.CREDIT) == 900L
+                        && reloaded.balance(playerId, Currency.AZURE) == 90L,
+                "refund restores exactly the second operation while retaining completed cost");
+        helper.assertTrue(recovered.refundBundle(playerId, refundableId) == EconomyOperationStatus.REFUNDED,
+                "refund replay returns REFUNDED without a second credit");
+        helper.assertTrue(reloaded.balance(playerId, Currency.CREDIT) == 900L
+                        && reloaded.balance(playerId, Currency.AZURE) == 90L,
+                "refund replay cannot mint either currency");
+        helper.assertTrue(recovered.completeBundle(playerId, refundableId) == EconomyOperationStatus.REFUNDED,
+                "a REFUNDED terminal operation cannot move back to COMPLETED");
+        helper.assertTrue(recovered.refundBundle(playerId, completedId) == EconomyOperationStatus.COMPLETED,
+                "a COMPLETED terminal operation cannot be refunded");
+
+        EconomyWalletData terminalReload = EconomyWalletData.load(reloaded.save(new CompoundTag()));
+        helper.assertTrue(terminalReload.operationStatus(playerId, completedId) == EconomyOperationStatus.COMPLETED,
+                "COMPLETED terminal state remains persistent");
+        helper.assertTrue(terminalReload.operationStatus(playerId, refundableId) == EconomyOperationStatus.REFUNDED,
+                "REFUNDED terminal state remains persistent");
         helper.succeed();
     }
 

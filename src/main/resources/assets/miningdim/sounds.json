@@ -16,5 +16,37 @@
         "stream": false
       }
     ]
+  },
+  "case_unlock": {
+    "subtitle": "subtitles.miningdim.case_unlock",
+    "sounds": [{ "name": "miningdim:ui/case/unlock", "stream": false }]
+  },
+  "case_open": {
+    "subtitle": "subtitles.miningdim.case_open",
+    "sounds": [{ "name": "miningdim:ui/case/open", "stream": false }]
+  },
+  "case_tick": {
+    "subtitle": "subtitles.miningdim.case_tick",
+    "sounds": [{ "name": "miningdim:ui/case/tick", "stream": false }]
+  },
+  "case_reveal_blue": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_blue", "stream": false }]
+  },
+  "case_reveal_purple": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_purple", "stream": false }]
+  },
+  "case_reveal_pink": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_pink", "stream": false }]
+  },
+  "case_reveal_red": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_red", "stream": false }]
+  },
+  "case_reveal_gold": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_gold", "stream": false }]
   }
 }

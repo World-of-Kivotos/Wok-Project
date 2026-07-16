@@ -173,8 +173,9 @@ try {
     }
     Draw-Fit $graphics '格赫娜高速导气' 153 63 123 $c.Quality 9 6
     Draw-Fit $graphics 'AR / 导气组件' 153 78 123 $c.Muted 7 6
-    Draw-Fit $graphics '半/全自动射速 +18.5%~+25.0%' 153 92 123 $c.CyanBright 7 5
-    Draw-Fit $graphics '上跳后坐力 +74.1%~+100.0%' 153 105 123 $c.Red 7 5
+    Draw-Fit $graphics '半/全自动射速 +18.5%~+25.0%' 153 88 123 $c.CyanBright 6 5
+    Draw-Fit $graphics '上跳后坐力 +222.2%~+300.0%' 153 98 123 $c.Red 6 5
+    Draw-Fit $graphics '散布 +30.0%' 222 108 54 $c.Red 6 5
 
     $qualities = @(
         @('普通', [Drawing.Color]::FromArgb(255, 233, 238, 247)),

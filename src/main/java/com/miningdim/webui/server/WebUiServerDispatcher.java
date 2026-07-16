@@ -23,8 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * 用 ConcurrentHashMap 容忍多子系统注册期写入与网络线程读取的可见性 (注册期一次性写, 运行期只读)。
  *
  * 异常纪律 (CLAUDE.md C9 / 契约第 6 节): {@link #dispatchAndRespond} 是最外层 Gateway 边界, 是本子系统
- * 唯一允许 try-catch 的位置。action handler 内坏输入/业务错误自然抛出, 在此统一捕获 -> 回执 success=false +
- * {"error":"..."} 并记日志; 不重抛打断网络线程。handler 内部严禁吞异常。
+ * 唯一允许 try-catch 的位置。action handler 内异常自然抛出, 在此统一捕获 -> 回执 success=false。预期业务拒绝
+ * 用 {@link WebUiBusinessException} 返回稳定 errorCode 且不打印堆栈；其余异常保留 WARN 现场。handler 内部严禁吞异常。
  */
 public final class WebUiServerDispatcher {
 
@@ -104,6 +104,12 @@ public final class WebUiServerDispatcher {
             JsonObject payload = JsonParser.parseString(payloadJson).getAsJsonObject();
             String resultJson = handler.handle(sender, payload);
             MiningNetwork.sendWebUiResponse(sender, new S2CWebUiResponse(requestId, true, resultJson));
+        } catch (WebUiBusinessException e) {
+            // Expected player-facing rejection: stable machine code, explicit retry policy, no WARN stack-log DoS.
+            LOGGER.debug("Web UI action '{}' rejected for player {} (requestId={}, errorCode={}): {}",
+                    action, sender.getName().getString(), requestId, e.errorCode(), e.getMessage());
+            MiningNetwork.sendWebUiResponse(sender,
+                    new S2CWebUiResponse(requestId, false, businessErrorJson(e)));
         } catch (Exception e) {
             // Gateway 兜底: 业务错误转为客户端可解析的失败回执, 并记日志保留现场; 不重抛打断网络线程。
             LOGGER.warn("Web UI action '{}' failed for player {} (requestId={})",
@@ -155,6 +161,14 @@ public final class WebUiServerDispatcher {
     private static String errorJson(String message) {
         JsonObject obj = new JsonObject();
         obj.addProperty("error", message == null ? "unknown error" : message);
+        return GSON.toJson(obj);
+    }
+
+    static String businessErrorJson(WebUiBusinessException error) {
+        JsonObject obj = new JsonObject();
+        obj.addProperty("error", error.getMessage());
+        obj.addProperty("errorCode", error.errorCode());
+        obj.addProperty("retrySameOpeningId", error.retrySameOpeningId());
         return GSON.toJson(obj);
     }
 }

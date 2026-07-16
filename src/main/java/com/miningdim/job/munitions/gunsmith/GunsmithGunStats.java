@@ -16,7 +16,7 @@ public final class GunsmithGunStats {
     public static final String PARTS_KEY = "Parts";
     public static final String STATS_KEY = "Stats";
     public static final String VERSION_KEY = "version";
-    public static final int CURRENT_VERSION = 4;
+    public static final int CURRENT_VERSION = 5;
 
     private final CompoundTag root;
     private final CompoundTag stats;
@@ -145,11 +145,11 @@ public final class GunsmithGunStats {
     }
 
     public double verticalRecoilMultiplier() {
-        if (version >= 4) {
+        if (version >= 5) {
             return value("verticalRecoil");
         }
-        if (version == 3) {
-            // v3 cached Gehenna's original +40% curve. Validate that cache, then apply the current balance curve.
+        if (version >= 3) {
+            // v3/v4 caches are validated against their historical recoil curves before current balance is derived.
             return derivedVerticalRecoilMultiplier();
         }
         return inverse(recoil());
@@ -159,8 +159,12 @@ public final class GunsmithGunStats {
         return inverse(recoil());
     }
 
+    public double inaccuracyMultiplier() {
+        return version >= 5 ? value("inaccuracy") : derivedInaccuracyMultiplier();
+    }
+
     public double spreadChange() {
-        return inverse(spread()) - 1.0D;
+        return inaccuracyMultiplier() - 1.0D;
     }
 
     private double value(String key) {
@@ -186,6 +190,13 @@ public final class GunsmithGunStats {
             throw new IllegalArgumentException("Variant recoil multiplier must be positive and finite");
         }
         return inverse(recoilCoefficient) * variantMultiplier;
+    }
+
+    static double combineInaccuracy(double spreadCoefficient, double variantMultiplier) {
+        if (!Double.isFinite(variantMultiplier) || variantMultiplier <= 0.0D) {
+            throw new IllegalArgumentException("Variant inaccuracy multiplier must be positive and finite");
+        }
+        return inverse(spreadCoefficient) * variantMultiplier;
     }
 
     private static double inverse(double coefficient) {
@@ -325,9 +336,14 @@ public final class GunsmithGunStats {
         validateCurrentStat("average", average());
         if (version >= 3) {
             validateCurrentStat("fireRate", derivedFireRateMultiplier());
-            validateCurrentStat("verticalRecoil", version == 3
-                    ? derivedLegacyV3VerticalRecoilMultiplier()
-                    : derivedVerticalRecoilMultiplier());
+            validateCurrentStat("verticalRecoil", switch (version) {
+                case 3 -> derivedLegacyV3VerticalRecoilMultiplier();
+                case 4 -> derivedLegacyV4VerticalRecoilMultiplier();
+                default -> derivedVerticalRecoilMultiplier();
+            });
+        }
+        if (version >= 5) {
+            validateCurrentStat("inaccuracy", derivedInaccuracyMultiplier());
         }
     }
 
@@ -361,10 +377,26 @@ public final class GunsmithGunStats {
         return combineVerticalRecoil(recoil(), variantMultiplier);
     }
 
+    private double derivedInaccuracyMultiplier() {
+        double variantMultiplier = 1.0D;
+        for (PartSummary part : parts) {
+            variantMultiplier *= part.variant().inaccuracyMultiplier(part.coefficient());
+        }
+        return combineInaccuracy(spread(), variantMultiplier);
+    }
+
     private double derivedLegacyV3VerticalRecoilMultiplier() {
         double variantMultiplier = 1.0D;
         for (PartSummary part : parts) {
             variantMultiplier *= part.variant().legacyV3VerticalRecoilMultiplier(part.coefficient());
+        }
+        return combineVerticalRecoil(recoil(), variantMultiplier);
+    }
+
+    private double derivedLegacyV4VerticalRecoilMultiplier() {
+        double variantMultiplier = 1.0D;
+        for (PartSummary part : parts) {
+            variantMultiplier *= part.variant().legacyV4VerticalRecoilMultiplier(part.coefficient());
         }
         return combineVerticalRecoil(recoil(), variantMultiplier);
     }

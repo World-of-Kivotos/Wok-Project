@@ -101,6 +101,8 @@ public final class GunsmithAssemblyRecipe {
         double fireRateMultiplier = fireRateMultiplier(resolvedParts, blueprint.requiredParts());
         double verticalRecoilMultiplier = GunsmithGunStats.combineVerticalRecoil(
                 recoil, verticalRecoilMultiplier(resolvedParts, blueprint.requiredParts()));
+        double inaccuracyMultiplier = GunsmithGunStats.combineInaccuracy(
+                spread, inaccuracyMultiplier(resolvedParts, blueprint.requiredParts()));
         double average = average(resolvedParts, blueprint.requiredParts());
         return new Preview(
                 baseStats.damage() * coefficient(blueprint, resolvedParts, GunsmithStat.DAMAGE),
@@ -109,7 +111,7 @@ public final class GunsmithAssemblyRecipe {
                 baseStats.effectiveRange() * range,
                 (fireRateMultiplier - 1.0D) * 100.0D,
                 (verticalRecoilMultiplier - 1.0D) * 100.0D,
-                (1.0D / spread - 1.0D) * 100.0D,
+                (inaccuracyMultiplier - 1.0D) * 100.0D,
                 GunsmithGunStats.effectiveAdsTime(baseStats.adsTime(), handling),
                 average);
     }
@@ -168,16 +170,19 @@ public final class GunsmithAssemblyRecipe {
                                      EnumMap<GunsmithPressPart, ResolvedPart> resolvedParts) {
         CompoundTag stats = new CompoundTag();
         double recoil = coefficient(blueprint, resolvedParts, GunsmithStat.RECOIL);
+        double spread = coefficient(blueprint, resolvedParts, GunsmithStat.SPREAD);
         stats.putDouble("damage", coefficient(blueprint, resolvedParts, GunsmithStat.DAMAGE));
         stats.putDouble("headshot", coefficient(blueprint, resolvedParts, GunsmithStat.HEADSHOT));
         stats.putDouble("range", coefficient(blueprint, resolvedParts, GunsmithStat.RANGE));
         stats.putDouble("recoil", recoil);
-        stats.putDouble("spread", coefficient(blueprint, resolvedParts, GunsmithStat.SPREAD));
+        stats.putDouble("spread", spread);
         stats.putDouble("handling", coefficient(blueprint, resolvedParts, GunsmithStat.HANDLING));
         stats.putDouble("average", average(resolvedParts, blueprint.requiredParts()));
         stats.putDouble("fireRate", fireRateMultiplier(resolvedParts, blueprint.requiredParts()));
         stats.putDouble("verticalRecoil", GunsmithGunStats.combineVerticalRecoil(
                 recoil, verticalRecoilMultiplier(resolvedParts, blueprint.requiredParts())));
+        stats.putDouble("inaccuracy", GunsmithGunStats.combineInaccuracy(
+                spread, inaccuracyMultiplier(resolvedParts, blueprint.requiredParts())));
         return stats;
     }
 
@@ -209,6 +214,17 @@ public final class GunsmithAssemblyRecipe {
             ResolvedPart resolved = Objects.requireNonNull(resolvedParts.get(part),
                     "resolved part " + part.id());
             multiplier *= resolved.variant().verticalRecoilMultiplier(resolved.coefficient());
+        }
+        return multiplier;
+    }
+
+    private static double inaccuracyMultiplier(EnumMap<GunsmithPressPart, ResolvedPart> resolvedParts,
+                                                Set<GunsmithPressPart> requiredParts) {
+        double multiplier = 1.0D;
+        for (GunsmithPressPart part : requiredParts) {
+            ResolvedPart resolved = Objects.requireNonNull(resolvedParts.get(part),
+                    "resolved part " + part.id());
+            multiplier *= resolved.variant().inaccuracyMultiplier(resolved.coefficient());
         }
         return multiplier;
     }

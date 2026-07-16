@@ -46,6 +46,7 @@ public final class EngineerSystem implements Subsystem {
         ModEngineerItems.register(modBus);
         ModEngineerMenus.register(modBus);
         ModEngineerTab.register(modBus);
+        ModEngineerSounds.register(modBus);
 
         // SERVER 配置 spec (10.3 C6: 全部平衡数值进 ForgeConfigSpec)。
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER,

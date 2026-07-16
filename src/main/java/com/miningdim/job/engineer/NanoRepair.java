@@ -2,6 +2,7 @@ package com.miningdim.job.engineer;
 
 import com.miningdim.job.engineer.item.NanoArmorPlateItem;
 import com.miningdim.job.engineer.armor.item.PlateArmorItem;
+import com.miningdim.job.engineer.shield.item.PlasmaShieldItem;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.ItemStack;
@@ -44,6 +45,9 @@ public final class NanoRepair {
     public static Result repair(ItemStack armor, ItemStack plate, ServerPlayer player, RandomSource random) {
         if (!(plate.getItem() instanceof NanoArmorPlateItem plateItem)) {
             return Result.fail("message.miningdim.engineer.repair.not_plate");
+        }
+        if (armor.getItem() instanceof PlasmaShieldItem) {
+            return Result.fail("message.miningdim.engineer.repair.plasma_shield_incompatible");
         }
         if (armor.isEmpty() || !armor.isDamageableItem()) {
             return Result.fail("message.miningdim.engineer.repair.not_damageable");

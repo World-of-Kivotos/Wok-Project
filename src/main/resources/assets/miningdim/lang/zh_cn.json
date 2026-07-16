@@ -646,5 +646,21 @@
   "subtitles.miningdim.case_reveal": "开箱奖励揭晓",
   "message.miningdim.economy.not_ready": "经济系统尚未就绪。",
   "message.miningdim.economy.grant_failed": "发放失败（%s），余额未改变。",
-  "message.miningdim.economy.grant_done": "已向 %1$s 发放 %2$s 信用点和 %3$s 青辉石；当前余额：%4$s 信用点 / %5$s 青辉石。"
+  "message.miningdim.economy.grant_done": "已向 %1$s 发放 %2$s 信用点和 %3$s 青辉石；当前余额：%4$s 信用点 / %5$s 青辉石。",
+  "item.miningdim.plasma_shield_nano": "纳米护盾",
+  "item.miningdim.plasma_shield_light": "轻型电浆护盾",
+  "item.miningdim.plasma_shield_heavy_ion": "重型离子盾",
+  "type.miningdim.plasma_shield.nano": "纳米护盾",
+  "type.miningdim.plasma_shield.light": "轻型护盾",
+  "type.miningdim.plasma_shield.heavy_ion": "重型离子盾",
+  "tooltip.miningdim.plasma_shield.type": "构型：%s",
+  "tooltip.miningdim.plasma_shield.energy": "护盾值：%1$s / %2$s",
+  "tooltip.miningdim.plasma_shield.heat": "过热值：%1$s / %2$s",
+  "tooltip.miningdim.plasma_shield.heat_per_damage": "每吸收 1 点伤害积热：%s",
+  "tooltip.miningdim.plasma_shield.cooling": "散热速度：%s / 秒",
+  "tooltip.miningdim.plasma_shield.recharge": "充能速度：%1$s / 秒（受击后延迟 %2$s 秒）",
+  "tooltip.miningdim.plasma_shield.movement": "移动速度：%s",
+  "tooltip.miningdim.plasma_shield.shutdown": "护盾过热停摆，散热后自动重启",
+  "message.miningdim.engineer.repair.plasma_shield_incompatible": "电浆护盾不能使用纳米护甲板维修",
+  "hud.miningdim.plasma_shield.shutdown": "停摆"
 }

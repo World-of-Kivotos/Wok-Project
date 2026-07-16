@@ -2,6 +2,7 @@ package com.miningdim.job.engineer;
 
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.engineer.armor.PlateArmorVariant;
+import com.miningdim.job.engineer.shield.PlasmaShieldType;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.CreativeModeTab;
@@ -34,6 +35,9 @@ public final class ModEngineerTab {
                         }
                         for (NanoTier tier : NanoTier.values()) {
                             output.accept(ModEngineerItems.tableItem(tier).get());
+                        }
+                        for (PlasmaShieldType type : PlasmaShieldType.values()) {
+                            output.accept(ModEngineerItems.plasmaShield(type).get());
                         }
                         for (PlateArmorVariant variant : PlateArmorVariant.values()) {
                             output.accept(ModEngineerItems.plateArmor(variant).get());

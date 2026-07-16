@@ -8,6 +8,8 @@ import com.miningdim.job.engineer.effect.NanoReactorHandler;
 import com.miningdim.job.engineer.effect.NanoShieldHandler;
 import com.miningdim.job.engineer.armor.PlateArmorDamageHandler;
 import com.miningdim.job.engineer.armor.PlateArmorEquipmentHandler;
+import com.miningdim.job.engineer.shield.PlasmaShieldHandler;
+import com.miningdim.job.engineer.shield.network.PlasmaShieldNetwork;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -16,6 +18,7 @@ import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,6 +59,10 @@ public final class EngineerSystem implements Subsystem {
         forgeBus.register(new NanoAnvilGuard());
         forgeBus.register(new PlateArmorDamageHandler());
         forgeBus.register(new PlateArmorEquipmentHandler());
+        forgeBus.register(new PlasmaShieldHandler());
+
+        // Dedicated packet channel keeps the main channel discriminator sequence untouched.
+        modBus.addListener((FMLCommonSetupEvent event) -> event.enqueueWork(PlasmaShieldNetwork::register));
 
         if (ModList.get().isLoaded("tacz")) {
             com.miningdim.job.engineer.armor.integration.PlateArmorTaczIntegrationBootstrap.assemble(forgeBus);
@@ -67,7 +74,7 @@ public final class EngineerSystem implements Subsystem {
                         () -> () -> MenuScreens.register(
                                 ModEngineerMenus.PRODUCTION_TABLE.get(), ProductionTableScreen::new))));
 
-        LOGGER.info("[miningdim] armorer subsystem registered (54 plate armors + 6 repair plates + 6 tables + effects + QTE)");
+        LOGGER.info("[miningdim] armorer subsystem registered (54 plate armors + 3 plasma shields + 6 repair plates + 6 tables + effects + QTE)");
     }
 
     @Override

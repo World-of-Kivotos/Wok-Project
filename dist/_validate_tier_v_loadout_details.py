@@ -590,7 +590,7 @@ def validate_hexatac(model: Model) -> Box:
 
 
 def validate_b6b45_general(model: Model) -> Box:
-    require_collar(model, 2.0, 5, -2.25)
+    require_collar(model, 1.50, 5, -1.50)
     require_shoulders(model, 2, 2.1, 1.0)
     medical = boxes_matching(
         model,
@@ -673,7 +673,7 @@ def validate_b6b45_general(model: Model) -> Box:
 
 
 def validate_b6b45_medic(model: Model) -> Box:
-    require_collar(model, 1.9, 5, -1.15)
+    require_collar(model, 1.70, 5, -0.80)
     require_shoulders(model, 2, 2.1, 1.25)
     broad_general = boxes_matching(
         model,
@@ -1340,7 +1340,7 @@ def validate_iotv_full_protection(model: Model) -> Box:
 
 def validate_iotv_assault(model: Model) -> Box:
     validate_iotv_common(model)
-    shoulder = require_shoulders(model, 4, 3.5, 2.4)
+    shoulder = require_shoulders(model, 4, 3.5, 3.6)
     outer_heights = [
         box.height
         for bone in ("right_arm", "left_arm")
@@ -1348,9 +1348,18 @@ def validate_iotv_assault(model: Model) -> Box:
         if box.width <= 0.75 and box.depth >= 4.0
     ]
     require(
-        outer_heights and max(outer_heights) <= 2.6,
-        f"{model.name}: Assault variant must retain short four-piece shoulder sleeves",
+        outer_heights and 3.7 <= max(outer_heights) <= 3.9,
+        f"{model.name}: Assault variant must retain its reference-length four-piece sleeves",
     )
+    for bone in ("right_arm", "left_arm"):
+        sleeve_faces = [
+            box
+            for box in model.bones[bone]
+            if box.depth <= 0.45
+            and box.width >= 3.7
+            and 3.4 <= box.height <= 3.6
+        ]
+        require_count(model, sleeve_faces, 2, f"{bone} long front/rear sleeve faces")
     require(
         not groin_protection_candidates(model),
         f"{model.name}: Assault variant has neither groin apron nor hip plates",

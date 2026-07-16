@@ -12,7 +12,7 @@ import net.minecraft.client.model.geom.builders.PartDefinition;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.LivingEntity;
 
-/** IOTV Gen4 assault configuration with short articulated shoulders and no groin or hip panels. */
+/** IOTV Gen4 assault configuration with mid-length articulated sleeves and no groin or hip panels. */
 public final class IotvGen4AssaultArmorModel extends HumanoidModel<LivingEntity> {
 
     public static final ModelLayerLocation LAYER = new ModelLayerLocation(
@@ -73,15 +73,15 @@ public final class IotvGen4AssaultArmorModel extends HumanoidModel<LivingEntity>
         root.addOrReplaceChild("body", body(), PartPose.ZERO);
         root.addOrReplaceChild("right_arm", CubeListBuilder.create()
                         .texOffs(70, 31).addBox(-2.55F, -2.35F, -2.15F, 3.60F, 0.45F, 4.30F)
-                        .texOffs(87, 31).addBox(-2.65F, -1.92F, -2.00F, 0.40F, 2.50F, 4.00F)
-                        .texOffs(97, 31).addBox(-3.15F, -1.90F, -2.50F, 3.85F, 2.20F, 0.38F)
-                        .texOffs(107, 31).addBox(-3.15F, -1.90F, 2.12F, 3.85F, 2.20F, 0.38F),
+                        .texOffs(87, 31).addBox(-2.65F, -1.92F, -2.00F, 0.40F, 3.80F, 4.00F)
+                        .texOffs(97, 31).addBox(-3.15F, -1.90F, -2.50F, 3.85F, 3.50F, 0.38F)
+                        .texOffs(107, 31).addBox(-3.15F, -1.90F, 2.12F, 3.85F, 3.50F, 0.38F),
                 PartPose.offset(-5.0F, 2.0F, 0.0F));
         root.addOrReplaceChild("left_arm", CubeListBuilder.create()
                         .texOffs(0, 39).addBox(-1.05F, -2.35F, -2.15F, 3.60F, 0.45F, 4.30F)
-                        .texOffs(17, 39).addBox(2.25F, -1.92F, -2.00F, 0.40F, 2.50F, 4.00F)
-                        .texOffs(27, 39).addBox(-0.70F, -1.90F, -2.50F, 3.85F, 2.20F, 0.38F)
-                        .texOffs(37, 39).addBox(-0.70F, -1.90F, 2.12F, 3.85F, 2.20F, 0.38F),
+                        .texOffs(17, 39).addBox(2.25F, -1.92F, -2.00F, 0.40F, 3.80F, 4.00F)
+                        .texOffs(27, 39).addBox(-0.70F, -1.90F, -2.50F, 3.85F, 3.50F, 0.38F)
+                        .texOffs(37, 39).addBox(-0.70F, -1.90F, 2.12F, 3.85F, 3.50F, 0.38F),
                 PartPose.offset(5.0F, 2.0F, 0.0F));
         root.addOrReplaceChild("right_leg", CubeListBuilder.create(), PartPose.offset(-1.9F, 12.0F, 0.0F));
         root.addOrReplaceChild("left_leg", CubeListBuilder.create(), PartPose.offset(1.9F, 12.0F, 0.0F));

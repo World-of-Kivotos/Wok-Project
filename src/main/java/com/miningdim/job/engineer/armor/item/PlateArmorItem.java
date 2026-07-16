@@ -71,6 +71,7 @@ public final class PlateArmorItem extends ArmorItem {
                     GLADIATOR_S_DEATHLESS, REDUT_M,
                     IOTV_GEN4_HIGH_MOBILITY, IOTV_GEN4_FULL_PROTECTION,
                     IOTV_GEN4_ASSAULT, KORUND_VM_BLACK,
+                    HEXGRID, SLICK, STICH_DEFENSE_MOD2, B6B43_ZABRALO_SH,
                     THOR_INTEGRATED -> MODEL_TEXTURE_PREFIX + variant.id() + "_layer_1.png";
             default -> null;
         };

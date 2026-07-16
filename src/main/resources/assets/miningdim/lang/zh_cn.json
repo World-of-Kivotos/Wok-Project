@@ -519,7 +519,7 @@
   "gunsmith.variant.basic": "基础组件",
   "gunsmith.variant.basic.description": "该槽位的标准制式组件。",
   "gunsmith.variant.gehenna_high_speed_gas": "格赫娜高速导气",
-  "gunsmith.variant.gehenna_high_speed_gas.description": "由格赫娜万魔殿研发的新型高速导气组件。它通过提升导气效率加快枪机循环，从而显著提高枪械射速；但过快的循环超出了缓冲机构的控制范围，令连续射击时的上跳后坐力大幅增加。",
+  "gunsmith.variant.gehenna_high_speed_gas.description": "由格赫娜万魔殿研发的新型高速导气组件。它通过提升导气效率加快枪机循环，从而显著提高枪械射速；但过快的循环超出了缓冲机构的控制范围，不仅令连续射击时的上跳后坐力大幅增加，也会扩大弹道散布、降低射击精度。",
   "gunsmith.role.core": "影响有效射程",
   "gunsmith.role.barrel": "影响爆头倍率",
   "gunsmith.role.bolt": "影响最终伤害",
@@ -543,6 +543,7 @@
   "tooltip.miningdim.gunsmith_part.coefficient": "浮动系数：%s",
   "tooltip.miningdim.gunsmith_part.fire_rate": "半/全自动射速：%s",
   "tooltip.miningdim.gunsmith_part.vertical_recoil": "上跳后坐力：%s",
+  "tooltip.miningdim.gunsmith_part.spread": "散布：%s",
   "tooltip.miningdim.gunsmith_part.invalid": "无效枪匠部件（数据损坏）",
   "tooltip.miningdim.gunsmith_blueprint.platform": "平台：%s",
   "tooltip.miningdim.gunsmith_blueprint.gun_id": "GunId：%s",
@@ -602,6 +603,7 @@
   "screen.miningdim.gunsmith_press.compatibility": "%1$s / %2$s组件",
   "screen.miningdim.gunsmith_press.effect.semi_auto_fire_rate": "半/全自动射速 %s",
   "screen.miningdim.gunsmith_press.effect.vertical_recoil": "上跳后坐力 %s",
+  "screen.miningdim.gunsmith_press.effect.spread": "散布 %s",
   "screen.miningdim.gunsmith_press.materials": "材料 / 成品",
   "screen.miningdim.gunsmith_press.output": "成品",
   "screen.miningdim.gunsmith_press.start": "开始冲压",
@@ -637,5 +639,12 @@
   "category.miningdim.munitions.explosive": "爆破弹",
   "death.attack.miningdim.champion_thorns": "%1$s 被 %2$s 的反震震杀了",
   "death.attack.miningdim.champion_execution": "%1$s 未能挣脱命定之死",
-  "death.attack.miningdim.champion_skill_aoe": "%1$s 被 %2$s 的技能轰击抹除了"
+  "death.attack.miningdim.champion_skill_aoe": "%1$s 被 %2$s 的技能轰击抹除了",
+  "subtitles.miningdim.case_unlock": "开箱锁扣弹开",
+  "subtitles.miningdim.case_open": "开箱机构启动",
+  "subtitles.miningdim.case_tick": "开箱滚轮转动",
+  "subtitles.miningdim.case_reveal": "开箱奖励揭晓",
+  "message.miningdim.economy.not_ready": "经济系统尚未就绪。",
+  "message.miningdim.economy.grant_failed": "发放失败（%s），余额未改变。",
+  "message.miningdim.economy.grant_done": "已向 %1$s 发放 %2$s 信用点和 %3$s 青辉石；当前余额：%4$s 信用点 / %5$s 青辉石。"
 }

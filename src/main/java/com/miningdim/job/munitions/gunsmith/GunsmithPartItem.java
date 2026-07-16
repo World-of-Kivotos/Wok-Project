@@ -162,6 +162,10 @@ public final class GunsmithPartItem extends Item {
                     Component.literal(formatPercentChange(
                             data.variant().verticalRecoilMultiplier(data.coefficient()) - 1.0D)))
                     .withStyle(ChatFormatting.RED));
+            tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.spread",
+                    Component.literal(formatPercentChange(
+                            data.variant().inaccuracyMultiplier(data.coefficient()) - 1.0D)))
+                    .withStyle(ChatFormatting.RED));
         }
     }
 

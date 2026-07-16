@@ -64,8 +64,34 @@ public final class EconomyService implements IEconomyService {
     }
 
     @Override
+    public EconomyOperationStatus tryChargeBundle(ServerPlayer player, UUID operationId,
+                                                   long creditAmount, long azureAmount) {
+        return ledger.tryChargeBundle(player.getUUID(), operationId, creditAmount, azureAmount);
+    }
+
+    @Override
+    public EconomyOperationStatus operationStatus(UUID playerId, UUID operationId) {
+        return ledger.operationStatus(playerId, operationId);
+    }
+
+    @Override
+    public EconomyOperationStatus completeBundle(UUID playerId, UUID operationId) {
+        return ledger.completeBundle(playerId, operationId);
+    }
+
+    @Override
+    public EconomyOperationStatus refundBundle(UUID playerId, UUID operationId) {
+        return ledger.refundBundle(playerId, operationId);
+    }
+
+    @Override
     public void grant(ServerPlayer player, Currency currency, long amount) {
         ledger.credit(player.getUUID(), currency, amount);
+    }
+
+    @Override
+    public void grantBundle(ServerPlayer player, long creditAmount, long azureAmount) {
+        ledger.creditBundle(player.getUUID(), creditAmount, azureAmount);
     }
 
     @Override

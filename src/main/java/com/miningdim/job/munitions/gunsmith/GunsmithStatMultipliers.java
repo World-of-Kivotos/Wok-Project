@@ -19,7 +19,7 @@ public record GunsmithStatMultipliers(double damage, double headshot, double eff
     public static GunsmithStatMultipliers of(GunsmithGunStats stats, double headshotDamageCap) {
         Objects.requireNonNull(stats, "stats");
         return ofResolved(stats.damage(), stats.headshot(), stats.range(), stats.handling(),
-                stats.spread(), stats.verticalRecoilMultiplier(), stats.horizontalRecoilMultiplier(),
+                stats.inaccuracyMultiplier(), stats.verticalRecoilMultiplier(), stats.horizontalRecoilMultiplier(),
                 stats.fireRateMultiplier(), headshotDamageCap);
     }
 
@@ -27,7 +27,8 @@ public record GunsmithStatMultipliers(double damage, double headshot, double eff
                                              double handling, double spread, double recoil,
                                              double headshotDamageCap) {
         requirePositive(recoil, "recoil");
-        return ofResolved(damage, headshot, range, handling, spread,
+        requirePositive(spread, "spread");
+        return ofResolved(damage, headshot, range, handling, inverse(spread),
                 inverse(recoil), inverse(recoil), 1.0D, headshotDamageCap);
     }
 
@@ -43,14 +44,14 @@ public record GunsmithStatMultipliers(double damage, double headshot, double eff
     }
 
     private static GunsmithStatMultipliers ofResolved(double damage, double headshot, double range,
-                                                       double handling, double spread,
+                                                       double handling, double inaccuracy,
                                                        double verticalRecoil, double horizontalRecoil,
                                                        double fireRate, double headshotDamageCap) {
         requirePositive(damage, "damage");
         requirePositive(headshot, "headshot");
         requirePositive(range, "range");
         requirePositive(handling, "handling");
-        requirePositive(spread, "spread");
+        requirePositive(inaccuracy, "inaccuracy");
         requirePositive(verticalRecoil, "verticalRecoil");
         requirePositive(horizontalRecoil, "horizontalRecoil");
         requirePositive(fireRate, "fireRate");
@@ -59,7 +60,7 @@ public record GunsmithStatMultipliers(double damage, double headshot, double eff
                 ? headshotDamageCap / damage
                 : headshot;
         return new GunsmithStatMultipliers(damage, cappedHeadshot, range,
-                inverse(handling), inverse(spread), inverse(handling),
+                inverse(handling), inaccuracy, inverse(handling),
                 verticalRecoil, horizontalRecoil, fireRate);
     }
 

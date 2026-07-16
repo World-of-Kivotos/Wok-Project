@@ -2,12 +2,14 @@ package com.miningdim.job.engineer.shield;
 
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.engineer.EngineerConfig;
+import com.miningdim.job.engineer.ModEngineerSounds;
 import com.miningdim.job.engineer.shield.item.PlasmaShieldItem;
 import com.miningdim.job.engineer.shield.network.PlasmaShieldNetwork;
 import com.miningdim.job.engineer.shield.network.PlasmaShieldSyncS2C;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.damagesource.DamageType;
@@ -38,9 +40,11 @@ public final class PlasmaShieldHandler {
             new ResourceLocation(MiningConstants.MODID, "bypasses_plasma_shield"));
 
     private static final int SYNC_HEARTBEAT_TICKS = 40;
+    private static final double HEAT_EPSILON = 1.0E-7D;
 
     private final Map<UUID, SentSnapshot> sentSnapshots = new HashMap<>();
     private final Map<UUID, SettlementAnchor> settlementAnchors = new HashMap<>();
+    private final PlasmaShieldSoundCadence soundCadence = new PlasmaShieldSoundCadence();
 
     @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = false)
     public void onLivingHurt(LivingHurtEvent event) {
@@ -56,10 +60,17 @@ public final class PlasmaShieldHandler {
             return;
         }
         PlasmaShieldConfig.Stats stats = EngineerConfig.PLASMA_SHIELD.stats(item.shieldType());
-        PlasmaShieldState before = settleToNow(player, stack, stats, false).state();
+        Settlement settlement = settleToNow(player, stack, stats, false);
+        maybePlaySteamVent(player, stack, item.shieldType(), settlement);
+        PlasmaShieldState before = settlement.state();
         PlasmaShieldState.HitResult result = PlasmaShieldState.absorb(before, stats, event.getAmount());
         PlasmaShieldState.write(stack, result.state());
         event.setAmount((float) result.remainingDamage());
+
+        if (!before.overheated() && result.state().overheated()) {
+            soundCadence.onOverheated(player.getUUID(), stack, player.level().getGameTime());
+            playOverheatSound(player, item.shieldType());
+        }
 
         // Heat-state transitions must be visible immediately; ordinary high-rate hits are coalesced on the 5-tick loop.
         if (before.overheated() != result.state().overheated()) {
@@ -82,11 +93,13 @@ public final class PlasmaShieldHandler {
             PlasmaShieldConfig.Stats stats = EngineerConfig.PLASMA_SHIELD.stats(item.shieldType());
             Settlement settlement = settleToNow(player, stack, stats, true);
             if (settlement.advanced()) {
+                maybePlaySteamVent(player, stack, item.shieldType(), settlement);
                 sendSnapshot(player, false);
             }
             return;
         }
         settlementAnchors.remove(player.getUUID());
+        soundCadence.clear(player.getUUID());
     }
 
     @SubscribeEvent
@@ -102,6 +115,7 @@ public final class PlasmaShieldHandler {
         if (anchor != null && anchor.stack() == current) {
             return;
         }
+        soundCadence.clear(player.getUUID());
         synchronizeMovement(player);
         resetSettlementAnchor(player);
         sendSnapshot(player, true);
@@ -110,6 +124,7 @@ public final class PlasmaShieldHandler {
     @SubscribeEvent
     public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            soundCadence.clear(player.getUUID());
             synchronizeMovement(player);
             resetSettlementAnchor(player);
             sendSnapshot(player, true);
@@ -119,6 +134,7 @@ public final class PlasmaShieldHandler {
     @SubscribeEvent
     public void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            soundCadence.clear(player.getUUID());
             resetSettlementAnchor(player);
             sendSnapshot(player, true);
         }
@@ -127,6 +143,7 @@ public final class PlasmaShieldHandler {
     @SubscribeEvent
     public void onPlayerRespawn(PlayerEvent.PlayerRespawnEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            soundCadence.clear(player.getUUID());
             synchronizeMovement(player);
             resetSettlementAnchor(player);
             sendSnapshot(player, true);
@@ -137,6 +154,7 @@ public final class PlasmaShieldHandler {
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         sentSnapshots.remove(event.getEntity().getUUID());
         settlementAnchors.remove(event.getEntity().getUUID());
+        soundCadence.clear(event.getEntity().getUUID());
         removeMovement(event.getEntity());
     }
 
@@ -144,6 +162,7 @@ public final class PlasmaShieldHandler {
     public void onServerStopping(ServerStoppingEvent event) {
         sentSnapshots.clear();
         settlementAnchors.clear();
+        soundCadence.clearAll();
     }
 
     /**
@@ -159,15 +178,16 @@ public final class PlasmaShieldHandler {
         long now = player.level().getGameTime();
         SettlementAnchor previous = settlementAnchors.get(playerId);
         if (previous == null || previous.stack() != stack || now < previous.gameTime()) {
+            soundCadence.clear(playerId);
             settlementAnchors.put(playerId, new SettlementAnchor(stack, now));
-            return new Settlement(before, false);
+            return new Settlement(before, false, false);
         }
 
         long elapsed = now - previous.gameTime();
         if (elapsed <= 0L
                 || (requireConfiguredInterval
                 && elapsed < EngineerConfig.PLASMA_SHIELD.stateTickInterval())) {
-            return new Settlement(before, false);
+            return new Settlement(before, false, false);
         }
 
         int elapsedTicks = (int) Math.min(elapsed, Integer.MAX_VALUE);
@@ -176,7 +196,45 @@ public final class PlasmaShieldHandler {
             PlasmaShieldState.write(stack, after);
         }
         settlementAnchors.put(playerId, new SettlementAnchor(stack, now));
-        return new Settlement(after, true);
+        return new Settlement(after, true, after.heat() < before.heat() - HEAT_EPSILON);
+    }
+
+    private void maybePlaySteamVent(ServerPlayer player,
+                                    ItemStack stack,
+                                    PlasmaShieldType type,
+                                    Settlement settlement) {
+        if (settlement.cooled()
+                && soundCadence.shouldPlayVent(player.getUUID(), stack, player.level().getGameTime())) {
+            playSteamVentSound(player, type);
+        }
+    }
+
+    private static void playOverheatSound(ServerPlayer player, PlasmaShieldType type) {
+        player.level().playSound(
+                null,
+                player.getX(), player.getY() + 1.0D, player.getZ(),
+                ModEngineerSounds.PLASMA_SHIELD_OVERHEAT.get(),
+                SoundSource.PLAYERS,
+                0.85F,
+                chassisPitch(type));
+    }
+
+    private static void playSteamVentSound(ServerPlayer player, PlasmaShieldType type) {
+        player.level().playSound(
+                null,
+                player.getX(), player.getY() + 1.0D, player.getZ(),
+                ModEngineerSounds.PLASMA_SHIELD_STEAM_VENT.get(),
+                SoundSource.PLAYERS,
+                0.68F,
+                chassisPitch(type));
+    }
+
+    private static float chassisPitch(PlasmaShieldType type) {
+        return switch (type) {
+            case NANO -> 1.14F;
+            case LIGHT -> 1.0F;
+            case HEAVY_ION -> 0.84F;
+        };
     }
 
     private void resetSettlementAnchor(ServerPlayer player) {
@@ -265,6 +323,6 @@ public final class PlasmaShieldHandler {
     private record SettlementAnchor(ItemStack stack, long gameTime) {
     }
 
-    private record Settlement(PlasmaShieldState state, boolean advanced) {
+    private record Settlement(PlasmaShieldState state, boolean advanced, boolean cooled) {
     }
 }

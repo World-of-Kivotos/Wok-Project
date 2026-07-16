@@ -662,5 +662,7 @@
   "tooltip.miningdim.plasma_shield.movement": "Movement speed: %s",
   "tooltip.miningdim.plasma_shield.shutdown": "Shield overheated; it will restart after cooling",
   "message.miningdim.engineer.repair.plasma_shield_incompatible": "Plasma shields cannot be repaired with nano armor plates",
-  "hud.miningdim.plasma_shield.shutdown": "OFFLINE"
+  "hud.miningdim.plasma_shield.shutdown": "OFFLINE",
+  "subtitles.miningdim.plasma_shield_overheat": "Plasma shield overheats",
+  "subtitles.miningdim.plasma_shield_steam_vent": "Plasma shield vents steam"
 }

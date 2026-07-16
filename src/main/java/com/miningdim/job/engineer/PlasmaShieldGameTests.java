@@ -5,15 +5,20 @@ import com.miningdim.job.engineer.effect.NanoShieldHandler;
 import com.miningdim.job.engineer.shield.PlasmaShieldConfig;
 import com.miningdim.job.engineer.shield.PlasmaShieldHandler;
 import com.miningdim.job.engineer.shield.PlasmaShieldState;
+import com.miningdim.job.engineer.shield.PlasmaShieldSoundCadence;
 import com.miningdim.job.engineer.shield.PlasmaShieldType;
 import com.miningdim.job.engineer.shield.item.PlasmaShieldItem;
 import com.miningdim.job.engineer.shield.network.PlasmaShieldSyncS2C;
 import com.miningdim.testutil.MockGameTestPlayers;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.util.ReferenceCountUtil;
 import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.protocol.game.ClientboundSoundPacket;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.DamageTypeTags;
@@ -34,6 +39,7 @@ import net.minecraftforge.registries.ForgeRegistries;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 
 /** Deterministic regression coverage for the plasma-shield state machine and its integration boundaries. */
 @GameTestHolder(MiningConstants.MODID)
@@ -490,6 +496,89 @@ public final class PlasmaShieldGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void plasmaShieldSoundsAreRegistered(GameTestHelper helper) {
+        helper.assertTrue(ModEngineerSounds.PLASMA_SHIELD_OVERHEAT.getId().equals(
+                        new ResourceLocation(MiningConstants.MODID, "plasma_shield_overheat")),
+                "overheat sound registry id mismatch");
+        helper.assertTrue(ModEngineerSounds.PLASMA_SHIELD_STEAM_VENT.getId().equals(
+                        new ResourceLocation(MiningConstants.MODID, "plasma_shield_steam_vent")),
+                "steam-vent sound registry id mismatch");
+        helper.assertTrue(ForgeRegistries.SOUND_EVENTS.getValue(
+                        ModEngineerSounds.PLASMA_SHIELD_OVERHEAT.getId())
+                        == ModEngineerSounds.PLASMA_SHIELD_OVERHEAT.get(),
+                "overheat sound must be present in Forge's registry");
+        helper.assertTrue(ForgeRegistries.SOUND_EVENTS.getValue(
+                        ModEngineerSounds.PLASMA_SHIELD_STEAM_VENT.getId())
+                        == ModEngineerSounds.PLASMA_SHIELD_STEAM_VENT.get(),
+                "steam-vent sound must be present in Forge's registry");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void steamVentCadencePacesCoolingAndTracksStackIdentity(GameTestHelper helper) {
+        PlasmaShieldSoundCadence cadence = new PlasmaShieldSoundCadence();
+        UUID playerId = UUID.randomUUID();
+        ItemStack firstShield = new ItemStack(Items.STICK);
+
+        helper.assertTrue(cadence.shouldPlayVent(playerId, firstShield, 100L),
+                "the first real cooling settlement must vent immediately");
+        helper.assertTrue(!cadence.shouldPlayVent(playerId, firstShield, 100L),
+                "a second cooling settlement in the same tick must not replay steam");
+        cadence.onOverheated(playerId, firstShield, 105L);
+        helper.assertTrue(!cadence.shouldPlayVent(playerId, firstShield,
+                        100L + PlasmaShieldSoundCadence.VENT_INTERVAL_TICKS - 1L),
+                "overheat must not bypass the existing global steam interval");
+        helper.assertTrue(cadence.shouldPlayVent(playerId, firstShield,
+                        100L + PlasmaShieldSoundCadence.VENT_INTERVAL_TICKS),
+                "continuous cooling may vent again exactly when the pacing window expires");
+
+        cadence.onOverheated(playerId, firstShield, 300L);
+        helper.assertTrue(!cadence.shouldPlayVent(playerId, firstShield,
+                        300L + PlasmaShieldSoundCadence.OVERHEAT_TO_FIRST_VENT_TICKS - 1L),
+                "the overheat warning must finish before emergency venting starts");
+        helper.assertTrue(cadence.shouldPlayVent(playerId, firstShield,
+                        300L + PlasmaShieldSoundCadence.OVERHEAT_TO_FIRST_VENT_TICKS),
+                "emergency vent must start after the warning-to-steam delay");
+
+        ItemStack replacementShield = new ItemStack(Items.BLAZE_ROD);
+        helper.assertTrue(cadence.shouldPlayVent(playerId, replacementShield, 313L),
+                "a replacement live stack must never inherit the previous unit's cadence");
+        cadence.clear(playerId);
+        helper.assertTrue(cadence.shouldPlayVent(playerId, replacementShield, 314L),
+                "lifecycle cleanup must permit the next real cooling phase to vent");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void overheatEdgeEmitsExactlyOnePositionalSound(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
+        drainSoundPackets(channel);
+
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.LIGHT);
+        ItemStack shield = shieldStack(PlasmaShieldType.LIGHT);
+        PlasmaShieldState.write(shield, new PlasmaShieldState(
+                stats.capacity(), stats.maxHeat() - 1.0D, false, 0, 0));
+        player.setItemSlot(EquipmentSlot.CHEST, shield);
+        PlasmaShieldHandler handler = new PlasmaShieldHandler();
+
+        LivingHurtEvent boundaryHit = new LivingHurtEvent(
+                player, helper.getLevel().damageSources().generic(), 10.0F);
+        handler.onLivingHurt(boundaryHit);
+        helper.assertTrue(PlasmaShieldState.read(shield, stats).overheated(),
+                "boundary hit must enter overheat before the sound assertion");
+        helper.assertTrue(drainSoundPackets(channel) == 1,
+                "false-to-true overheat edge must emit exactly one positional sound packet");
+
+        LivingHurtEvent repeatedHit = new LivingHurtEvent(
+                player, helper.getLevel().damageSources().generic(), 10.0F);
+        handler.onLivingHurt(repeatedHit);
+        helper.assertTrue(drainSoundPackets(channel) == 0,
+                "additional damage while already overheated must not replay the warning");
+        helper.succeed();
+    }
+
     private static PlasmaShieldConfig.Stats stats(PlasmaShieldType type) {
         return EngineerConfig.PLASMA_SHIELD.stats(type);
     }
@@ -537,5 +626,17 @@ public final class PlasmaShieldGameTests {
 
     private static boolean close(double actual, double expected) {
         return Math.abs(actual - expected) < EPS;
+    }
+
+    private static int drainSoundPackets(EmbeddedChannel channel) {
+        int soundPackets = 0;
+        Object message;
+        while ((message = channel.readOutbound()) != null) {
+            if (message instanceof ClientboundSoundPacket) {
+                soundPackets++;
+            }
+            ReferenceCountUtil.release(message);
+        }
+        return soundPackets;
     }
 }

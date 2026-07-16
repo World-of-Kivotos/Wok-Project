@@ -75,6 +75,14 @@ enum PlateArmorModelDefinition {
             IotvGen4AssaultArmorModel::new, IotvGen4AssaultArmorModel::createLayer),
     KORUND_VM(KorundVmArmorModel.LAYER,
             KorundVmArmorModel::new, KorundVmArmorModel::createLayer),
+    HEXGRID(HexgridArmorModel.LAYER,
+            HexgridArmorModel::new, HexgridArmorModel::createLayer),
+    SLICK(SlickArmorModel.LAYER,
+            SlickArmorModel::new, SlickArmorModel::createLayer),
+    STICH_DEFENSE_MOD2(StichDefenseMod2ArmorModel.LAYER,
+            StichDefenseMod2ArmorModel::new, StichDefenseMod2ArmorModel::createLayer),
+    B6B43_ZABRALO_SH(B6B43ZabraloShArmorModel.LAYER,
+            B6B43ZabraloShArmorModel::new, B6B43ZabraloShArmorModel::createLayer),
     THOR_INTEGRATED(ThorIntegratedArmorModel.LAYER,
             ThorIntegratedArmorModel::new, ThorIntegratedArmorModel::createLayer);
 
@@ -150,6 +158,10 @@ enum PlateArmorModelDefinition {
             case IOTV_GEN4_FULL_PROTECTION -> IOTV_GEN4_FULL_PROTECTION;
             case IOTV_GEN4_ASSAULT -> IOTV_GEN4_ASSAULT;
             case KORUND_VM_BLACK -> KORUND_VM;
+            case HEXGRID -> HEXGRID;
+            case SLICK -> SLICK;
+            case STICH_DEFENSE_MOD2 -> STICH_DEFENSE_MOD2;
+            case B6B43_ZABRALO_SH -> B6B43_ZABRALO_SH;
             case THOR_INTEGRATED -> THOR_INTEGRATED;
             default -> null;
         };

@@ -78,6 +78,14 @@ TIER_V_VARIANTS = (
     "KORUND_VM_BLACK",
 )
 
+TIER_VI_VARIANTS = (
+    "HEXGRID",
+    "SLICK",
+    "STICH_DEFENSE_MOD2",
+    "B6B43_ZABRALO_SH",
+    "THOR_INTEGRATED",
+)
+
 TEXTURE_NAMES = (
     "plate_armor_jaypc_olive_layer_1.png",
     "plate_armor_jaypc_black_layer_1.png",
@@ -231,7 +239,7 @@ def validate_routing() -> None:
     definition = (CLIENT / "PlateArmorModelDefinition.java").read_text(encoding="utf-8")
     item = (ROOT / "src/main/java/com/miningdim/job/engineer/armor/item/PlateArmorItem.java").read_text(
         encoding="utf-8")
-    expected = set(VARIANTS + TIER_V_VARIANTS + ("THOR_INTEGRATED",))
+    expected = set(VARIANTS + TIER_V_VARIANTS + TIER_VI_VARIANTS)
     for source, label in ((definition, "model"), (item, "texture")):
         switch = re.search(r"return switch \(variant\) \{(.*?)\n\s*default -> null;", source, re.DOTALL)
         require(switch is not None, f"missing {label} routing switch")
@@ -249,7 +257,8 @@ def validate_routing() -> None:
     require((CLIENT / "PlateArmorClientRegistration.java").is_file(), "missing shared layer registration")
     print(
         f"ROUTING legacy_variants={len(VARIANTS)}, "
-        f"tier_v_variants={len(TIER_V_VARIANTS)}, thor_preserved=true"
+        f"tier_v_variants={len(TIER_V_VARIANTS)}, "
+        f"tier_vi_variants={len(TIER_VI_VARIANTS)}, thor_preserved=true"
     )
 
 

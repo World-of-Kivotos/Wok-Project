@@ -60,9 +60,9 @@ public final class PlasmaShieldHandler {
         if (!(stack.getItem() instanceof PlasmaShieldItem item)) {
             return;
         }
-        PlasmaShieldConfig.Stats stats = EngineerConfig.PLASMA_SHIELD.stats(item.shieldType());
+        PlasmaShieldConfig.Stats stats = EngineerConfig.PLASMA_SHIELD.stats(item.shieldVariant());
         Settlement settlement = settleToNow(player, stack, stats, false);
-        maybePlaySteamVent(player, stack, item.shieldType(), settlement);
+        maybePlaySteamVent(player, stack, item.shieldVariant(), settlement);
         PlasmaShieldState before = settlement.state();
         PlasmaShieldState.HitResult result = PlasmaShieldState.absorb(before, stats, event.getAmount());
         PlasmaShieldState.write(stack, result.state());
@@ -74,17 +74,17 @@ public final class PlasmaShieldHandler {
                     player.getUUID(), stack, player.level().getGameTime());
             if (cadenceAllowsHit || justOverheated) {
                 PlasmaShieldHitS2C feedback = PlasmaShieldHitS2C.forHit(
-                        player.getId(), item.shieldType(), result.absorbedDamage(), justOverheated);
+                        player.getId(), item.shieldVariant(), result.absorbedDamage(), justOverheated);
                 PlasmaShieldNetwork.sendHit(player, feedback);
                 if (!justOverheated) {
-                    playHitSound(player, item.shieldType(), feedback.strength());
+                    playHitSound(player, item.shieldVariant(), feedback.strength());
                 }
             }
         }
 
         if (justOverheated) {
             soundCadence.onOverheated(player.getUUID(), stack, player.level().getGameTime());
-            playOverheatSound(player, item.shieldType());
+            playOverheatSound(player, item.shieldVariant());
         }
 
         // Heat-state transitions must be visible immediately; ordinary high-rate hits are coalesced on the 5-tick loop.
@@ -105,10 +105,10 @@ public final class PlasmaShieldHandler {
 
         ItemStack stack = player.getItemBySlot(EquipmentSlot.CHEST);
         if (stack.getItem() instanceof PlasmaShieldItem item) {
-            PlasmaShieldConfig.Stats stats = EngineerConfig.PLASMA_SHIELD.stats(item.shieldType());
+            PlasmaShieldConfig.Stats stats = EngineerConfig.PLASMA_SHIELD.stats(item.shieldVariant());
             Settlement settlement = settleToNow(player, stack, stats, true);
             if (settlement.advanced()) {
-                maybePlaySteamVent(player, stack, item.shieldType(), settlement);
+                maybePlaySteamVent(player, stack, item.shieldVariant(), settlement);
                 sendSnapshot(player, false);
             }
             return;
@@ -220,50 +220,50 @@ public final class PlasmaShieldHandler {
 
     private void maybePlaySteamVent(ServerPlayer player,
                                     ItemStack stack,
-                                    PlasmaShieldType type,
+                                    PlasmaShieldVariant variant,
                                     Settlement settlement) {
         if (settlement.cooled()
                 && settlement.emergencyCooling()
                 && soundCadence.shouldPlayVent(player.getUUID(), stack, player.level().getGameTime())) {
-            playSteamVentSound(player, type);
+            playSteamVentSound(player, variant);
         }
     }
 
-    private static void playHitSound(ServerPlayer player, PlasmaShieldType type, float strength) {
+    private static void playHitSound(ServerPlayer player, PlasmaShieldVariant variant, float strength) {
         player.level().playSound(
                 null,
                 player.getX(), player.getY() + 1.0D, player.getZ(),
                 ModEngineerSounds.PLASMA_SHIELD_HIT.get(),
                 SoundSource.PLAYERS,
                 0.52F + 0.24F * strength,
-                chassisPitch(type) * (0.97F + 0.05F * strength));
+                chassisPitch(variant) * (0.97F + 0.05F * strength));
     }
 
-    private static void playOverheatSound(ServerPlayer player, PlasmaShieldType type) {
+    private static void playOverheatSound(ServerPlayer player, PlasmaShieldVariant variant) {
         player.level().playSound(
                 null,
                 player.getX(), player.getY() + 1.0D, player.getZ(),
                 ModEngineerSounds.PLASMA_SHIELD_OVERHEAT.get(),
                 SoundSource.PLAYERS,
                 0.92F,
-                chassisPitch(type));
+                chassisPitch(variant));
     }
 
-    private static void playSteamVentSound(ServerPlayer player, PlasmaShieldType type) {
+    private static void playSteamVentSound(ServerPlayer player, PlasmaShieldVariant variant) {
         player.level().playSound(
                 null,
                 player.getX(), player.getY() + 1.0D, player.getZ(),
                 ModEngineerSounds.PLASMA_SHIELD_STEAM_VENT.get(),
                 SoundSource.PLAYERS,
                 0.62F,
-                chassisPitch(type));
+                chassisPitch(variant));
     }
 
-    private static float chassisPitch(PlasmaShieldType type) {
-        return switch (type) {
+    private static float chassisPitch(PlasmaShieldVariant variant) {
+        return switch (variant.series()) {
             case NANO -> 1.06F;
-            case LIGHT -> 1.0F;
-            case HEAVY_ION -> 0.94F;
+            case STANDARD -> 1.0F;
+            case QUANTUM -> 0.94F;
         };
     }
 
@@ -276,12 +276,12 @@ public final class PlasmaShieldHandler {
         }
     }
 
-    /** Idempotently applies only the heavy-ion movement penalty and removes all stale variants. */
+    /** Idempotently applies the configured quantum-series movement penalty and removes stale variants. */
     public static void synchronizeMovement(Player player) {
         PlasmaShieldItem item = PlasmaShieldItem.equippedBy(player);
         double amount = item == null
                 ? 0.0D
-                : EngineerConfig.PLASMA_SHIELD.stats(item.shieldType()).movementModifier();
+                : EngineerConfig.PLASMA_SHIELD.stats(item.shieldVariant()).movementModifier();
         AttributeInstance movement = player.getAttribute(Attributes.MOVEMENT_SPEED);
         if (movement == null) {
             return;
@@ -334,11 +334,11 @@ public final class PlasmaShieldHandler {
         if (!(stack.getItem() instanceof PlasmaShieldItem item)) {
             return PlasmaShieldSyncS2C.inactive();
         }
-        PlasmaShieldConfig.Stats stats = EngineerConfig.PLASMA_SHIELD.stats(item.shieldType());
+        PlasmaShieldConfig.Stats stats = EngineerConfig.PLASMA_SHIELD.stats(item.shieldVariant());
         PlasmaShieldState state = PlasmaShieldState.read(stack, stats);
         return new PlasmaShieldSyncS2C(
                 true,
-                item.shieldType().id(),
+                item.shieldVariant().id(),
                 (float) state.shield(),
                 (float) stats.capacity(),
                 (float) state.heat(),

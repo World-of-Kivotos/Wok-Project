@@ -1,6 +1,6 @@
 package com.miningdim.job.engineer.shield.client;
 
-import com.miningdim.job.engineer.shield.PlasmaShieldType;
+import com.miningdim.job.engineer.shield.PlasmaShieldVariant;
 import com.miningdim.job.engineer.shield.PlasmaShieldVisualProfile;
 import net.minecraft.client.Minecraft;
 
@@ -18,18 +18,18 @@ public final class ClientPlasmaShieldHitEffects {
     private ClientPlasmaShieldHitEffects() {
     }
 
-    public static void accept(int entityId, String typeId, float strength, boolean overloaded) {
+    public static void accept(int entityId, String variantId, float strength, boolean overloaded) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level == null) {
             return;
         }
-        PlasmaShieldType type = PlasmaShieldType.fromId(typeId).orElseThrow();
+        PlasmaShieldVariant variant = PlasmaShieldVariant.fromId(variantId).orElseThrow();
         ActiveEffect previous = ACTIVE.get(entityId);
         float mergedStrength = previous == null
                 ? strength
                 : Math.max(strength, previous.strength() * 0.75F);
         ACTIVE.put(entityId, new ActiveEffect(
-                type, mergedStrength, overloaded, minecraft.level.getGameTime()));
+                variant, mergedStrength, overloaded, minecraft.level.getGameTime()));
     }
 
     public static List<Frame> frames(float partialTick) {
@@ -50,7 +50,7 @@ public final class ClientPlasmaShieldHitEffects {
                 continue;
             }
             frames.add(new Frame(
-                    entry.getKey(), effect.type(), effect.strength(), effect.overloaded(), age));
+                    entry.getKey(), effect.variant(), effect.strength(), effect.overloaded(), age));
         }
         return frames;
     }
@@ -72,14 +72,14 @@ public final class ClientPlasmaShieldHitEffects {
         ACTIVE.clear();
     }
 
-    private record ActiveEffect(PlasmaShieldType type,
+    private record ActiveEffect(PlasmaShieldVariant variant,
                                 float strength,
                                 boolean overloaded,
                                 long startTick) {
     }
 
     public record Frame(int entityId,
-                        PlasmaShieldType type,
+                        PlasmaShieldVariant variant,
                         float strength,
                         boolean overloaded,
                         float ageTicks) {

@@ -9,8 +9,8 @@ import net.minecraft.world.item.crafting.Ingredient;
 /** Zero-vanilla-defense carrier material; all protection comes from shield energy. */
 public enum PlasmaShieldEquipmentMaterial implements ArmorMaterial {
     NANO("plasma_shield_nano", SoundEvents.ARMOR_EQUIP_CHAIN),
-    LIGHT("plasma_shield_light", SoundEvents.ARMOR_EQUIP_IRON),
-    HEAVY_ION("plasma_shield_heavy_ion", SoundEvents.ARMOR_EQUIP_NETHERITE);
+    STANDARD("plasma_shield_standard", SoundEvents.ARMOR_EQUIP_IRON),
+    QUANTUM("plasma_shield_quantum", SoundEvents.ARMOR_EQUIP_NETHERITE);
 
     private final String name;
     private final SoundEvent equipSound;
@@ -20,11 +20,11 @@ public enum PlasmaShieldEquipmentMaterial implements ArmorMaterial {
         this.equipSound = equipSound;
     }
 
-    public static PlasmaShieldEquipmentMaterial forType(PlasmaShieldType type) {
-        return switch (type) {
+    public static PlasmaShieldEquipmentMaterial forSeries(PlasmaShieldSeries series) {
+        return switch (series) {
             case NANO -> NANO;
-            case LIGHT -> LIGHT;
-            case HEAVY_ION -> HEAVY_ION;
+            case STANDARD -> STANDARD;
+            case QUANTUM -> QUANTUM;
         };
     }
 

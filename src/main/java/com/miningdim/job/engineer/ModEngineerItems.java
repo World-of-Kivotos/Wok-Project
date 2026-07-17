@@ -5,6 +5,7 @@ import com.miningdim.job.engineer.armor.PlateArmorVariant;
 import com.miningdim.job.engineer.armor.item.PlateArmorItem;
 import com.miningdim.job.engineer.item.NanoArmorPlateItem;
 import com.miningdim.job.engineer.shield.PlasmaShieldType;
+import com.miningdim.job.engineer.shield.PlasmaShieldVariant;
 import com.miningdim.job.engineer.shield.item.PlasmaShieldItem;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
@@ -45,8 +46,12 @@ public final class ModEngineerItems {
     private static final Map<PlateArmorVariant, RegistryObject<Item>> PLATE_ARMORS =
             new EnumMap<>(PlateArmorVariant.class);
 
-    /** Three plasma-shield chassis; the item registry identity is the trusted type. */
-    private static final Map<PlasmaShieldType, RegistryObject<Item>> PLASMA_SHIELDS =
+    /** Eighteen formal family/grade shields; registry identity is the trusted variant. */
+    private static final Map<PlasmaShieldVariant, RegistryObject<Item>> PLASMA_SHIELDS =
+            new EnumMap<>(PlasmaShieldVariant.class);
+
+    /** Hidden compatibility items keep existing worlds, commands and datapacks from losing old IDs. */
+    private static final Map<PlasmaShieldType, RegistryObject<Item>> LEGACY_PLASMA_SHIELDS =
             new EnumMap<>(PlasmaShieldType.class);
 
     static {
@@ -61,9 +66,13 @@ public final class ModEngineerItems {
         for (PlateArmorVariant variant : PlateArmorVariant.values()) {
             PLATE_ARMORS.put(variant, ITEMS.register(variant.itemId(), () -> new PlateArmorItem(variant)));
         }
-        for (PlasmaShieldType type : PlasmaShieldType.values()) {
-            PLASMA_SHIELDS.put(type,
-                    ITEMS.register(type.itemId(), () -> new PlasmaShieldItem(type)));
+        for (PlasmaShieldVariant variant : PlasmaShieldVariant.values()) {
+            PLASMA_SHIELDS.put(variant,
+                    ITEMS.register(variant.itemId(), () -> new PlasmaShieldItem(variant)));
+        }
+        for (PlasmaShieldType legacyType : PlasmaShieldType.values()) {
+            LEGACY_PLASMA_SHIELDS.put(legacyType,
+                    ITEMS.register(legacyType.itemId(), () -> new PlasmaShieldItem(legacyType.variant())));
         }
     }
 
@@ -81,8 +90,12 @@ public final class ModEngineerItems {
         return PLATE_ARMORS.get(variant);
     }
 
-    public static RegistryObject<Item> plasmaShield(PlasmaShieldType type) {
-        return PLASMA_SHIELDS.get(type);
+    public static RegistryObject<Item> plasmaShield(PlasmaShieldVariant variant) {
+        return PLASMA_SHIELDS.get(variant);
+    }
+
+    public static RegistryObject<Item> legacyPlasmaShield(PlasmaShieldType legacyType) {
+        return LEGACY_PLASMA_SHIELDS.get(legacyType);
     }
 
     public static void register(IEventBus modBus) {

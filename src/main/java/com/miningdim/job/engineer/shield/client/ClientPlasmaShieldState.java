@@ -1,5 +1,9 @@
 package com.miningdim.job.engineer.shield.client;
 
+import com.miningdim.job.engineer.shield.PlasmaShieldVariant;
+
+import java.util.Optional;
+
 /**
  * Client-only, server-authoritative plasma-shield HUD state.
  *
@@ -9,10 +13,6 @@ package com.miningdim.job.engineer.shield.client;
  */
 public final class ClientPlasmaShieldState {
 
-    public static final String TYPE_NANO = "nano";
-    public static final String TYPE_LIGHT = "light";
-    public static final String TYPE_HEAVY_ION = "heavy_ion";
-
     private static final int MAX_RECHARGE_DELAY_TICKS = 20 * 60 * 60;
     private static volatile Snapshot current = Snapshot.empty();
 
@@ -21,14 +21,16 @@ public final class ClientPlasmaShieldState {
 
     /** Replaces the complete HUD state received from the authoritative server. */
     public static void update(boolean active,
-                              String typeId,
+                              String variantId,
                               float shield,
                               float maxShield,
                               float heat,
                               float maxHeat,
                               boolean overheated,
                               int rechargeDelayTicks) {
-        current = new Snapshot(active, typeId, shield, maxShield, heat, maxHeat,
+        Optional<PlasmaShieldVariant> variant = PlasmaShieldVariant.fromId(variantId);
+        current = new Snapshot(active && variant.isPresent(),
+                variant.orElse(PlasmaShieldVariant.NANO_I), shield, maxShield, heat, maxHeat,
                 overheated, rechargeDelayTicks);
     }
 
@@ -40,10 +42,6 @@ public final class ClientPlasmaShieldState {
     /** Returns one coherent immutable snapshot for the current render frame. */
     public static Snapshot snapshot() {
         return current;
-    }
-
-    private static boolean validType(String typeId) {
-        return TYPE_NANO.equals(typeId) || TYPE_LIGHT.equals(typeId) || TYPE_HEAVY_ION.equals(typeId);
     }
 
     private static float cleanCapacity(float value) {
@@ -59,7 +57,7 @@ public final class ClientPlasmaShieldState {
 
     /** Immutable values consumed by {@link PlasmaShieldHudOverlay}. */
     public record Snapshot(boolean active,
-                           String typeId,
+                           PlasmaShieldVariant variant,
                            float shield,
                            float maxShield,
                            float heat,
@@ -70,16 +68,16 @@ public final class ClientPlasmaShieldState {
         /**
          * Canonical sanitisation boundary.  Invalid packet floats can never reach percentage or
          * pixel calculations: non-finite/negative values become zero and live values are clamped
-         * to their declared capacities.  An invalid type or capacity disables the snapshot.
+         * to their declared capacities.  An invalid variant is rejected before construction and
+         * an invalid capacity disables the snapshot.
          */
         public Snapshot {
-            boolean validType = ClientPlasmaShieldState.validType(typeId);
             maxShield = cleanCapacity(maxShield);
             maxHeat = cleanCapacity(maxHeat);
-            active = active && validType && maxShield > 0.0F && maxHeat > 0.0F;
+            active = active && maxShield > 0.0F && maxHeat > 0.0F;
 
             if (!active) {
-                typeId = TYPE_NANO;
+                variant = PlasmaShieldVariant.NANO_I;
                 shield = 0.0F;
                 maxShield = 0.0F;
                 heat = 0.0F;
@@ -95,7 +93,7 @@ public final class ClientPlasmaShieldState {
         }
 
         private static Snapshot empty() {
-            return new Snapshot(false, TYPE_NANO, 0.0F, 0.0F,
+            return new Snapshot(false, PlasmaShieldVariant.NANO_I, 0.0F, 0.0F,
                     0.0F, 0.0F, false, 0);
         }
     }

@@ -4,9 +4,12 @@ import com.miningdim.core.MiningConstants;
 import com.miningdim.job.engineer.effect.NanoShieldHandler;
 import com.miningdim.job.engineer.shield.PlasmaShieldConfig;
 import com.miningdim.job.engineer.shield.PlasmaShieldHandler;
+import com.miningdim.job.engineer.shield.PlasmaShieldSeries;
 import com.miningdim.job.engineer.shield.PlasmaShieldState;
 import com.miningdim.job.engineer.shield.PlasmaShieldSoundCadence;
+import com.miningdim.job.engineer.shield.PlasmaShieldTier;
 import com.miningdim.job.engineer.shield.PlasmaShieldType;
+import com.miningdim.job.engineer.shield.PlasmaShieldVariant;
 import com.miningdim.job.engineer.shield.PlasmaShieldVisualProfile;
 import com.miningdim.job.engineer.shield.item.PlasmaShieldItem;
 import com.miningdim.job.engineer.shield.network.PlasmaShieldHitS2C;
@@ -44,6 +47,7 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -69,48 +73,64 @@ public final class PlasmaShieldGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void threeRegisteredItemsKeepTrustedTypeIdentity(GameTestHelper helper) {
+    public static void eighteenRegisteredItemsKeepTrustedVariantIdentityAndLegacyAliases(GameTestHelper helper) {
         Set<Item> distinctItems = new HashSet<>();
-        for (PlasmaShieldType type : PlasmaShieldType.values()) {
-            Item registered = ModEngineerItems.plasmaShield(type).get();
+        for (PlasmaShieldVariant variant : PlasmaShieldVariant.values()) {
+            Item registered = ModEngineerItems.plasmaShield(variant).get();
             helper.assertTrue(registered instanceof PlasmaShieldItem,
-                    type.itemId() + " must register as PlasmaShieldItem");
+                    variant.itemId() + " must register as PlasmaShieldItem");
             PlasmaShieldItem shield = (PlasmaShieldItem) registered;
-            helper.assertTrue(shield.shieldType() == type,
-                    type.itemId() + " must retain its registry-authoritative chassis type");
+            helper.assertTrue(shield.shieldVariant() == variant,
+                    variant.itemId() + " must retain its registry-authoritative family and grade");
             helper.assertTrue(ForgeRegistries.ITEMS.getKey(registered) != null
-                            && type.itemId().equals(ForgeRegistries.ITEMS.getKey(registered).getPath()),
-                    type.itemId() + " registry path mismatch");
-            helper.assertTrue(distinctItems.add(registered), type.itemId() + " must be a distinct item");
+                            && variant.itemId().equals(ForgeRegistries.ITEMS.getKey(registered).getPath()),
+                    variant.itemId() + " registry path mismatch");
+            helper.assertTrue(distinctItems.add(registered), variant.itemId() + " must be a distinct item");
         }
-        helper.assertTrue(distinctItems.size() == PlasmaShieldType.values().length,
-                "exactly three distinct plasma-shield items must be registered");
+        helper.assertTrue(distinctItems.size() == 18,
+                "exactly eighteen distinct formal plasma-shield items must be registered");
+
+        for (PlasmaShieldType legacyType : PlasmaShieldType.values()) {
+            Item registered = ModEngineerItems.legacyPlasmaShield(legacyType).get();
+            helper.assertTrue(registered instanceof PlasmaShieldItem,
+                    legacyType.itemId() + " compatibility alias must remain a PlasmaShieldItem");
+            PlasmaShieldItem shield = (PlasmaShieldItem) registered;
+            helper.assertTrue(shield.shieldVariant() == legacyType.variant(),
+                    legacyType.itemId() + " compatibility alias must bind to its tier-I variant");
+            helper.assertTrue(ForgeRegistries.ITEMS.getKey(registered) != null
+                            && legacyType.itemId().equals(ForgeRegistries.ITEMS.getKey(registered).getPath()),
+                    legacyType.itemId() + " compatibility registry path mismatch");
+            helper.assertTrue(distinctItems.add(registered),
+                    legacyType.itemId() + " compatibility alias must not replace a formal variant item");
+        }
+        helper.assertTrue(distinctItems.size() == 21,
+                "eighteen formal items and three hidden compatibility aliases must all stay distinct");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void newStacksStartFullAndInitializeVersionedState(GameTestHelper helper) {
-        for (PlasmaShieldType type : PlasmaShieldType.values()) {
-            PlasmaShieldConfig.Stats stats = stats(type);
-            ItemStack stack = shieldStack(type);
+        for (PlasmaShieldVariant variant : PlasmaShieldVariant.values()) {
+            PlasmaShieldConfig.Stats stats = stats(variant);
+            ItemStack stack = shieldStack(variant);
             helper.assertTrue(stack.getTagElement(PlasmaShieldState.ROOT_KEY) == null,
-                    type + " fresh stack must not need eager NBT");
+                    variant + " fresh stack must not need eager NBT");
 
             PlasmaShieldState read = PlasmaShieldState.read(stack, stats);
             assertState(helper, read, stats.capacity(), 0.0D, false,
-                    type + " fresh read");
+                    variant + " fresh read");
             PlasmaShieldState initialized = PlasmaShieldState.initialize(stack, stats);
             assertState(helper, initialized, stats.capacity(), 0.0D, false,
-                    type + " initialized state");
+                    variant + " initialized state");
             helper.assertTrue(stack.getTagElement(PlasmaShieldState.ROOT_KEY) != null,
-                    type + " initialize must persist the versioned shield root");
+                    variant + " initialize must persist the versioned shield root");
         }
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void fullAbsorptionConsumesEnergyAndGeneratesHeat(GameTestHelper helper) {
-        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.NANO);
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldVariant.NANO_I);
         PlasmaShieldState.HitResult result = PlasmaShieldState.absorb(
                 PlasmaShieldState.full(stats), stats, 20.0D);
 
@@ -128,7 +148,7 @@ public final class PlasmaShieldGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void depletedEnergyPartiallyAbsorbsAndPassesRemainder(GameTestHelper helper) {
-        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.LIGHT);
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldVariant.STANDARD_I);
         PlasmaShieldState input = new PlasmaShieldState(3.0D, 0.0D, false, 0, 0);
         PlasmaShieldState.HitResult result = PlasmaShieldState.absorb(input, stats, 10.0D);
 
@@ -142,7 +162,7 @@ public final class PlasmaShieldGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void thermalBudgetPartiallyAbsorbsBoundaryHitAndShutsDown(GameTestHelper helper) {
-        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.LIGHT);
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldVariant.STANDARD_I);
         double startingHeat = stats.maxHeat() - 1.0D;
         double thermalAllowance = 1.0D / stats.heatPerDamage();
         PlasmaShieldState input = new PlasmaShieldState(
@@ -161,7 +181,7 @@ public final class PlasmaShieldGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void combinedAndSegmentedDamageHaveEquivalentSettlement(GameTestHelper helper) {
-        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.LIGHT);
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldVariant.STANDARD_I);
         PlasmaShieldState initial = PlasmaShieldState.full(stats);
         PlasmaShieldState.HitResult combined = PlasmaShieldState.absorb(initial, stats, 100.0D);
 
@@ -188,7 +208,7 @@ public final class PlasmaShieldGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void overheatBlocksAbsorptionCoolsImmediatelyAndRestartsAtThirty(GameTestHelper helper) {
-        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.NANO);
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldVariant.NANO_I);
         PlasmaShieldState hot = new PlasmaShieldState(
                 stats.capacity(), stats.maxHeat(), true, 0, 200);
         PlasmaShieldState.HitResult blocked = PlasmaShieldState.absorb(hot, stats, 12.0D);
@@ -213,37 +233,74 @@ public final class PlasmaShieldGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void chassisBalanceOrderingMatchesLightMediumHeavyRoles(GameTestHelper helper) {
-        PlasmaShieldConfig.Stats nano = stats(PlasmaShieldType.NANO);
-        PlasmaShieldConfig.Stats light = stats(PlasmaShieldType.LIGHT);
-        PlasmaShieldConfig.Stats heavy = stats(PlasmaShieldType.HEAVY_ION);
+    public static void allVariantsKeepApprovedDefaultsAndTierOrdering(GameTestHelper helper) {
+        for (PlasmaShieldVariant variant : PlasmaShieldVariant.values()) {
+            PlasmaShieldConfig.Stats actual = stats(variant);
+            BalanceDefaults expected = expectedDefaults(variant);
+            helper.assertTrue(close(actual.capacity(), expected.capacity())
+                            && close(actual.heatPerDamage(), expected.heatPerDamage())
+                            && close(actual.coolingPerSecond(), expected.coolingPerSecond())
+                            && close(actual.rechargePerSecond(), expected.rechargePerSecond())
+                            && actual.rechargeDelayTicks() == expected.rechargeDelayTicks()
+                            && close(actual.movementModifier(), expected.movementModifier()),
+                    variant + " configured balance must match the approved default table");
+            helper.assertTrue(close(actual.maxHeat(), 100.0D)
+                            && close(actual.restartHeat(), 30.0D)
+                            && actual.heatCoolDelayTicks() == 20,
+                    variant + " must retain the shared heat and cooling-delay contract");
+        }
 
-        helper.assertTrue(nano.capacity() < light.capacity() && light.capacity() < heavy.capacity(),
-                "energy capacity must order nano < light < heavy ion");
-        helper.assertTrue(nano.heatPerDamage() < heavy.heatPerDamage()
-                        && heavy.heatPerDamage() < light.heatPerDamage(),
-                "nano must accumulate heat slowest and light fastest");
-        helper.assertTrue(heavy.coolingPerSecond() < light.coolingPerSecond()
-                        && light.coolingPerSecond() < nano.coolingPerSecond(),
-                "heavy must cool slowest and nano fastest");
-        helper.assertTrue(heavy.rechargePerSecond() < light.rechargePerSecond()
-                        && light.rechargePerSecond() < nano.rechargePerSecond(),
-                "heavy must recharge slowest and nano fastest");
-        helper.assertTrue(close(nano.movementModifier(), 0.0D)
-                        && close(light.movementModifier(), 0.0D)
-                        && heavy.movementModifier() < 0.0D,
-                "only heavy ion may impose a movement penalty");
-        helper.assertTrue(close(nano.restartHeat(), 30.0D)
-                        && close(light.restartHeat(), 30.0D)
-                        && close(heavy.restartHeat(), 30.0D),
-                "all chassis must retain the approved 30-heat restart hysteresis");
+        for (PlasmaShieldSeries series : PlasmaShieldSeries.values()) {
+            PlasmaShieldConfig.Stats previous = null;
+            for (PlasmaShieldTier tier : PlasmaShieldTier.values()) {
+                PlasmaShieldConfig.Stats current = stats(PlasmaShieldVariant.of(series, tier));
+                if (previous != null) {
+                    helper.assertTrue(current.capacity() > previous.capacity(),
+                            series + " capacity must increase at every grade");
+                    helper.assertTrue(current.heatPerDamage() < previous.heatPerDamage(),
+                            series + " heat generation must decrease at every grade");
+                    helper.assertTrue(current.coolingPerSecond() > previous.coolingPerSecond(),
+                            series + " cooling must increase at every grade");
+                    helper.assertTrue(current.rechargePerSecond() > previous.rechargePerSecond(),
+                            series + " recharge must increase at every grade");
+                    helper.assertTrue(current.rechargeDelayTicks() < previous.rechargeDelayTicks(),
+                            series + " recharge delay must decrease at every grade");
+                    if (series == PlasmaShieldSeries.QUANTUM) {
+                        helper.assertTrue(current.movementModifier() > previous.movementModifier(),
+                                "quantum movement penalty must ease at every grade");
+                    }
+                }
+                previous = current;
+            }
+        }
+
+        for (PlasmaShieldTier tier : PlasmaShieldTier.values()) {
+            PlasmaShieldConfig.Stats nano = stats(PlasmaShieldVariant.of(PlasmaShieldSeries.NANO, tier));
+            PlasmaShieldConfig.Stats standard = stats(PlasmaShieldVariant.of(PlasmaShieldSeries.STANDARD, tier));
+            PlasmaShieldConfig.Stats quantum = stats(PlasmaShieldVariant.of(PlasmaShieldSeries.QUANTUM, tier));
+            helper.assertTrue(nano.capacity() < standard.capacity() && standard.capacity() < quantum.capacity(),
+                    tier + " capacity must order nano < standard < quantum");
+            helper.assertTrue(nano.heatPerDamage() < quantum.heatPerDamage()
+                            && quantum.heatPerDamage() < standard.heatPerDamage(),
+                    tier + " heat generation must order nano < quantum < standard");
+            helper.assertTrue(quantum.coolingPerSecond() < standard.coolingPerSecond()
+                            && standard.coolingPerSecond() < nano.coolingPerSecond(),
+                    tier + " cooling must order quantum < standard < nano");
+            helper.assertTrue(quantum.rechargePerSecond() < standard.rechargePerSecond()
+                            && standard.rechargePerSecond() < nano.rechargePerSecond(),
+                    tier + " recharge must order quantum < standard < nano");
+            helper.assertTrue(close(nano.movementModifier(), 0.0D)
+                            && close(standard.movementModifier(), 0.0D)
+                            && quantum.movementModifier() < 0.0D,
+                    tier + " movement penalty must remain quantum-only");
+        }
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void nbtRoundTripSanitizesCorruptionAndConfigShrink(GameTestHelper helper) {
         ItemStack stack = new ItemStack(Items.STICK);
-        PlasmaShieldConfig.Stats originalStats = stats(PlasmaShieldType.NANO);
+        PlasmaShieldConfig.Stats originalStats = stats(PlasmaShieldVariant.NANO_I);
         PlasmaShieldState original = new PlasmaShieldState(17.25D, 42.5D, false, 37, 11);
         PlasmaShieldState.write(stack, original);
         PlasmaShieldState roundTrip = PlasmaShieldState.read(stack, originalStats);
@@ -270,24 +327,27 @@ public final class PlasmaShieldGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void s2cCodecRoundTripsAndRejectsInvalidTypes(GameTestHelper helper) {
-        PlasmaShieldSyncS2C message = new PlasmaShieldSyncS2C(
-                true, PlasmaShieldType.HEAVY_ION.id(), 90.5F, 140.0F,
-                73.25F, 100.0F, false, 21);
-        FriendlyByteBuf validBuffer = new FriendlyByteBuf(Unpooled.buffer());
-        try {
-            PlasmaShieldSyncS2C.encode(message, validBuffer);
-            PlasmaShieldSyncS2C decoded = PlasmaShieldSyncS2C.decode(validBuffer);
-            helper.assertTrue(decoded.equals(message), "valid S2C snapshot must round-trip exactly");
-        } finally {
-            validBuffer.release();
+    public static void s2cCodecRoundTripsAllVariantsAndRejectsInvalidIds(GameTestHelper helper) {
+        for (PlasmaShieldVariant variant : PlasmaShieldVariant.values()) {
+            PlasmaShieldSyncS2C message = new PlasmaShieldSyncS2C(
+                    true, variant.id(), 90.5F, 140.0F,
+                    73.25F, 100.0F, variant.tier() == PlasmaShieldTier.VI, 21);
+            FriendlyByteBuf validBuffer = new FriendlyByteBuf(Unpooled.buffer());
+            try {
+                PlasmaShieldSyncS2C.encode(message, validBuffer);
+                PlasmaShieldSyncS2C decoded = PlasmaShieldSyncS2C.decode(validBuffer);
+                helper.assertTrue(decoded.equals(message),
+                        variant + " S2C snapshot must round-trip exactly");
+            } finally {
+                validBuffer.release();
+            }
         }
 
         PlasmaShieldSyncS2C invalid = new PlasmaShieldSyncS2C(
                 true, "forged_unknown_type", Float.NaN, -4.0F,
                 Float.POSITIVE_INFINITY, 0.0F, true, -20);
         helper.assertTrue(invalid.sanitized().equals(PlasmaShieldSyncS2C.inactive()),
-                "unknown type must sanitize to inactive before reaching client state");
+                "unknown variant must sanitize to inactive before reaching client state");
         FriendlyByteBuf invalidBuffer = new FriendlyByteBuf(Unpooled.buffer());
         try {
             PlasmaShieldSyncS2C.encode(invalid, invalidBuffer);
@@ -300,17 +360,17 @@ public final class PlasmaShieldGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void hitS2cCodecPreservesTypeStrengthAndOverload(GameTestHelper helper) {
+    public static void hitS2cCodecPreservesAllVariantStrengthsAndOverload(GameTestHelper helper) {
         int entityId = 42;
-        for (PlasmaShieldType type : PlasmaShieldType.values()) {
+        for (PlasmaShieldVariant variant : PlasmaShieldVariant.values()) {
             PlasmaShieldHitS2C message = PlasmaShieldHitS2C.forHit(
-                    entityId, type, 3.0D, type == PlasmaShieldType.HEAVY_ION);
+                    entityId, variant, 3.0D, variant.tier() == PlasmaShieldTier.VI);
             FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
             try {
                 PlasmaShieldHitS2C.encode(message, buffer);
                 PlasmaShieldHitS2C decoded = PlasmaShieldHitS2C.decode(buffer);
                 helper.assertTrue(decoded.equals(message),
-                        type + " hit feedback must round-trip exactly");
+                        variant + " hit feedback must round-trip exactly");
             } finally {
                 buffer.release();
             }
@@ -319,27 +379,33 @@ public final class PlasmaShieldGameTests {
         PlasmaShieldHitS2C invalid = new PlasmaShieldHitS2C(
                 -1, "forged_unknown_type", Float.NaN, true);
         helper.assertTrue(invalid.sanitized().equals(PlasmaShieldHitS2C.inactive()),
-                "invalid entity, type, or strength must disable hit feedback at the network boundary");
+                "invalid entity, variant, or strength must disable hit feedback at the network boundary");
         PlasmaShieldHitS2C oversized = new PlasmaShieldHitS2C(
-                entityId, PlasmaShieldType.LIGHT.id(), 5.0F, false).sanitized();
+                entityId, PlasmaShieldVariant.STANDARD_I.id(), 5.0F, false).sanitized();
         helper.assertTrue(Float.compare(oversized.strength(), 1.0F) == 0,
                 "network strength above one must clamp before reaching client rendering");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void visualProfileKeepsThreeReadableColoursAndBoundedPulse(GameTestHelper helper) {
+    public static void visualProfileKeepsSixGradeColoursAndBoundedPulse(GameTestHelper helper) {
         Set<Integer> primaryColours = new HashSet<>();
         Set<Integer> highlightColours = new HashSet<>();
-        for (PlasmaShieldType type : PlasmaShieldType.values()) {
-            PlasmaShieldVisualProfile.Style style = PlasmaShieldVisualProfile.style(type);
+        for (PlasmaShieldTier tier : PlasmaShieldTier.values()) {
+            PlasmaShieldVisualProfile.Style style = PlasmaShieldVisualProfile.style(
+                    PlasmaShieldVariant.of(PlasmaShieldSeries.NANO, tier));
             primaryColours.add(style.primaryRgb());
             highlightColours.add(style.highlightRgb());
+            for (PlasmaShieldSeries series : PlasmaShieldSeries.values()) {
+                helper.assertTrue(PlasmaShieldVisualProfile.style(
+                                PlasmaShieldVariant.of(series, tier)).equals(style),
+                        tier + " hit colour must be shared by all three shield families");
+            }
         }
-        helper.assertTrue(primaryColours.size() == PlasmaShieldType.values().length,
-                "each shield chassis must have a distinct primary hit colour");
-        helper.assertTrue(highlightColours.size() == PlasmaShieldType.values().length,
-                "each shield chassis must have a distinct highlight colour");
+        helper.assertTrue(primaryColours.size() == PlasmaShieldTier.values().length,
+                "each of the six shield grades must have a distinct primary hit colour");
+        helper.assertTrue(highlightColours.size() == PlasmaShieldTier.values().length,
+                "each of the six shield grades must have a distinct highlight colour");
 
         float weak = PlasmaShieldVisualProfile.strengthForAbsorbedDamage(0.25D);
         float strong = PlasmaShieldVisualProfile.strengthForAbsorbedDamage(12.0D);
@@ -411,26 +477,84 @@ public final class PlasmaShieldGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void heavyMovementModifierIsIdempotentAndNeverLeaks(GameTestHelper helper) {
-        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        player.setItemSlot(EquipmentSlot.CHEST, shieldStack(PlasmaShieldType.HEAVY_ION));
-        for (int i = 0; i < 5; i++) {
-            PlasmaShieldHandler.synchronizeMovement(player);
+    public static void allVariantItemModelsAndTexturesArePresentAndTransparent(GameTestHelper helper) {
+        for (PlasmaShieldVariant variant : PlasmaShieldVariant.values()) {
+            String texturePath = "/assets/miningdim/textures/item/" + variant.itemId() + ".png";
+            try (InputStream textureInput = PlasmaShieldGameTests.class.getResourceAsStream(texturePath)) {
+                if (textureInput == null) {
+                    throw new IllegalStateException("shield item texture missing from classpath: " + texturePath);
+                }
+                BufferedImage image = ImageIO.read(textureInput);
+                helper.assertTrue(image != null && image.getWidth() == 64 && image.getHeight() == 64,
+                        variant + " item texture must decode as 64 by 64 pixels");
+                helper.assertTrue(image.getColorModel().hasAlpha()
+                                && image.getColorModel().getNumComponents() == 4,
+                        variant + " item texture must remain RGBA");
+                int[] corners = {
+                        image.getRGB(0, 0),
+                        image.getRGB(image.getWidth() - 1, 0),
+                        image.getRGB(0, image.getHeight() - 1),
+                        image.getRGB(image.getWidth() - 1, image.getHeight() - 1)
+                };
+                for (int corner : corners) {
+                    helper.assertTrue((corner >>> 24) == 0,
+                            variant + " item texture corners must be fully transparent");
+                }
+                int visiblePixels = 0;
+                for (int y = 0; y < image.getHeight(); y++) {
+                    for (int x = 0; x < image.getWidth(); x++) {
+                        if ((image.getRGB(x, y) >>> 24) > 0) {
+                            visiblePixels++;
+                        }
+                    }
+                }
+                helper.assertTrue(visiblePixels > 0 && visiblePixels < image.getWidth() * image.getHeight(),
+                        variant + " item texture must contain visible art without an opaque full-frame backdrop");
+            } catch (IOException exception) {
+                throw new IllegalStateException("failed reading shield item texture: " + texturePath, exception);
+            }
+
+            String modelPath = "/assets/miningdim/models/item/" + variant.itemId() + ".json";
+            try (InputStream modelInput = PlasmaShieldGameTests.class.getResourceAsStream(modelPath)) {
+                if (modelInput == null) {
+                    throw new IllegalStateException("shield item model missing from classpath: " + modelPath);
+                }
+                String modelJson = new String(modelInput.readAllBytes(), StandardCharsets.UTF_8);
+                helper.assertTrue(modelJson.contains("minecraft:item/generated")
+                                && modelJson.contains("miningdim:item/" + variant.itemId()),
+                        variant + " item model must bind the generated parent to its own texture");
+            } catch (IOException exception) {
+                throw new IllegalStateException("failed reading shield item model: " + modelPath, exception);
+            }
         }
-        AttributeModifier heavy = player.getAttribute(Attributes.MOVEMENT_SPEED)
-                .getModifier(PlasmaShieldHandler.MOVEMENT_ID);
-        helper.assertTrue(heavy != null
-                        && close(heavy.getAmount(), stats(PlasmaShieldType.HEAVY_ION).movementModifier())
-                        && heavy.getOperation() == AttributeModifier.Operation.MULTIPLY_TOTAL,
-                "repeated heavy sync must retain exactly one approved movement modifier");
+        helper.succeed();
+    }
 
-        player.setItemSlot(EquipmentSlot.CHEST, shieldStack(PlasmaShieldType.LIGHT));
-        PlasmaShieldHandler.synchronizeMovement(player);
-        helper.assertTrue(player.getAttribute(Attributes.MOVEMENT_SPEED)
-                        .getModifier(PlasmaShieldHandler.MOVEMENT_ID) == null,
-                "switching to light shield must remove the heavy modifier");
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void allQuantumMovementModifiersAreIdempotentAndNeverLeak(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        for (PlasmaShieldTier tier : PlasmaShieldTier.values()) {
+            PlasmaShieldVariant quantum = PlasmaShieldVariant.of(PlasmaShieldSeries.QUANTUM, tier);
+            player.setItemSlot(EquipmentSlot.CHEST, shieldStack(quantum));
+            for (int i = 0; i < 5; i++) {
+                PlasmaShieldHandler.synchronizeMovement(player);
+            }
+            AttributeModifier modifier = player.getAttribute(Attributes.MOVEMENT_SPEED)
+                    .getModifier(PlasmaShieldHandler.MOVEMENT_ID);
+            helper.assertTrue(modifier != null
+                            && close(modifier.getAmount(), stats(quantum).movementModifier())
+                            && modifier.getOperation() == AttributeModifier.Operation.MULTIPLY_TOTAL,
+                    quantum + " repeated sync must retain exactly its approved movement modifier");
 
-        player.setItemSlot(EquipmentSlot.CHEST, shieldStack(PlasmaShieldType.HEAVY_ION));
+            PlasmaShieldVariant standard = PlasmaShieldVariant.of(PlasmaShieldSeries.STANDARD, tier);
+            player.setItemSlot(EquipmentSlot.CHEST, shieldStack(standard));
+            PlasmaShieldHandler.synchronizeMovement(player);
+            helper.assertTrue(player.getAttribute(Attributes.MOVEMENT_SPEED)
+                            .getModifier(PlasmaShieldHandler.MOVEMENT_ID) == null,
+                    "switching from " + quantum + " to " + standard + " must remove the quantum modifier");
+        }
+
+        player.setItemSlot(EquipmentSlot.CHEST, shieldStack(PlasmaShieldVariant.QUANTUM_VI));
         PlasmaShieldHandler.synchronizeMovement(player);
         player.setItemSlot(EquipmentSlot.CHEST, ItemStack.EMPTY);
         PlasmaShieldHandler.synchronizeMovement(player);
@@ -449,7 +573,7 @@ public final class PlasmaShieldGameTests {
         NanoNbt.setShieldWindowTick(helmet, 20);
         player.setItemSlot(EquipmentSlot.HEAD, helmet);
 
-        ItemStack plasma = shieldStack(PlasmaShieldType.NANO);
+        ItemStack plasma = shieldStack(PlasmaShieldVariant.NANO_I);
         player.setItemSlot(EquipmentSlot.CHEST, plasma);
         LivingHurtEvent withPlasma = new LivingHurtEvent(player,
                 helper.getLevel().damageSources().playerAttack(player), 20.0F);
@@ -460,8 +584,8 @@ public final class PlasmaShieldGameTests {
         new PlasmaShieldHandler().onLivingHurt(withPlasma);
         helper.assertTrue(close(withPlasma.getAmount(), 0.0D),
                 "the equipped plasma shield remains the sole active absorber");
-        PlasmaShieldState plasmaState = PlasmaShieldState.read(plasma, stats(PlasmaShieldType.NANO));
-        helper.assertTrue(close(plasmaState.shield(), stats(PlasmaShieldType.NANO).capacity() - 20.0D),
+        PlasmaShieldState plasmaState = PlasmaShieldState.read(plasma, stats(PlasmaShieldVariant.NANO_I));
+        helper.assertTrue(close(plasmaState.shield(), stats(PlasmaShieldVariant.NANO_I).capacity() - 20.0D),
                 "plasma absorber must spend energy exactly once");
 
         player.setItemSlot(EquipmentSlot.CHEST, ItemStack.EMPTY);
@@ -476,7 +600,7 @@ public final class PlasmaShieldGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void nanoRepairRejectsPlasmaShield(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        ItemStack shield = shieldStack(PlasmaShieldType.HEAVY_ION);
+        ItemStack shield = shieldStack(PlasmaShieldVariant.QUANTUM_I);
         ItemStack repairPlate = new ItemStack(ModEngineerItems.plate(NanoTier.HIGH).get());
 
         NanoRepair.Result result = NanoRepair.repair(shield, repairPlate, player,
@@ -494,8 +618,8 @@ public final class PlasmaShieldGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
         drainFeedbackPackets(channel);
-        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.LIGHT);
-        ItemStack shield = shieldStack(PlasmaShieldType.LIGHT);
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldVariant.STANDARD_I);
+        ItemStack shield = shieldStack(PlasmaShieldVariant.STANDARD_I);
         PlasmaShieldState.initialize(shield, stats);
         PlasmaShieldState before = new PlasmaShieldState(17.25D, 44.5D, false, 37, 19);
         PlasmaShieldState.write(shield, before);
@@ -522,7 +646,7 @@ public final class PlasmaShieldGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void batchedTickMatchesPerTickAcrossDelaysAndOverheatRestart(GameTestHelper helper) {
-        PlasmaShieldConfig.Stats nano = stats(PlasmaShieldType.NANO);
+        PlasmaShieldConfig.Stats nano = stats(PlasmaShieldVariant.NANO_I);
         PlasmaShieldState delayed = new PlasmaShieldState(10.0D, 10.0D, false, 2, 2);
         PlasmaShieldState delayedBatch = PlasmaShieldState.tick(delayed, nano, 5);
         PlasmaShieldState delayedSteps = tickOneAtATime(delayed, nano, 5);
@@ -558,8 +682,8 @@ public final class PlasmaShieldGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void boundaryHitDoesNotSpendFreshDelaysInSameTick(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.LIGHT);
-        ItemStack shield = shieldStack(PlasmaShieldType.LIGHT);
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldVariant.STANDARD_I);
+        ItemStack shield = shieldStack(PlasmaShieldVariant.STANDARD_I);
         player.setItemSlot(EquipmentSlot.CHEST, shield);
 
         PlasmaShieldHandler handler = new PlasmaShieldHandler();
@@ -587,8 +711,8 @@ public final class PlasmaShieldGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void shieldNbtEquipmentEventDoesNotResetSettlementClock(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.NANO);
-        ItemStack shield = shieldStack(PlasmaShieldType.NANO);
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldVariant.NANO_I);
+        ItemStack shield = shieldStack(PlasmaShieldVariant.NANO_I);
         ItemStack previousTickCopy = shield.copy();
         player.setItemSlot(EquipmentSlot.CHEST, shield);
         PlasmaShieldHandler handler = new PlasmaShieldHandler();
@@ -717,8 +841,8 @@ public final class PlasmaShieldGameTests {
         EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
         drainFeedbackPackets(channel);
 
-        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.LIGHT);
-        ItemStack shield = shieldStack(PlasmaShieldType.LIGHT);
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldVariant.STANDARD_I);
+        ItemStack shield = shieldStack(PlasmaShieldVariant.STANDARD_I);
         PlasmaShieldState.write(shield, new PlasmaShieldState(3.0D, 0.0D, false, 0, 0));
         player.setItemSlot(EquipmentSlot.CHEST, shield);
         LivingHurtEvent hit = new LivingHurtEvent(
@@ -733,9 +857,9 @@ public final class PlasmaShieldGameTests {
                 "an ordinary absorbed hit must emit exactly one tracking visual packet");
         PlasmaShieldHitS2C packet = feedback.hits().get(0);
         helper.assertTrue(packet.entityId() == player.getId()
-                        && packet.typeId().equals(PlasmaShieldType.LIGHT.id())
+                        && packet.variantId().equals(PlasmaShieldVariant.STANDARD_I.id())
                         && !packet.overloaded(),
-                "tracking feedback must identify the hit player and equipped shield type");
+                "tracking feedback must identify the hit player and equipped shield variant");
         helper.assertTrue(close(packet.strength(),
                         PlasmaShieldVisualProfile.strengthForAbsorbedDamage(3.0D)),
                 "feedback strength must use actual absorbed damage rather than incoming damage");
@@ -751,8 +875,8 @@ public final class PlasmaShieldGameTests {
         EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
         drainFeedbackPackets(channel);
 
-        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.NANO);
-        ItemStack shield = shieldStack(PlasmaShieldType.NANO);
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldVariant.NANO_I);
+        ItemStack shield = shieldStack(PlasmaShieldVariant.NANO_I);
         PlasmaShieldState.write(shield, new PlasmaShieldState(
                 stats.capacity(), stats.maxHeat(), true, 0, 0));
         player.setItemSlot(EquipmentSlot.CHEST, shield);
@@ -774,8 +898,8 @@ public final class PlasmaShieldGameTests {
         EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
         drainFeedbackPackets(channel);
 
-        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.NANO);
-        ItemStack shield = shieldStack(PlasmaShieldType.NANO);
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldVariant.NANO_I);
+        ItemStack shield = shieldStack(PlasmaShieldVariant.NANO_I);
         PlasmaShieldState.write(shield, new PlasmaShieldState(
                 stats.capacity() - 1.0D, 20.0D, false, 0, 0));
         player.setItemSlot(EquipmentSlot.CHEST, shield);
@@ -806,8 +930,8 @@ public final class PlasmaShieldGameTests {
         EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
         drainFeedbackPackets(channel);
 
-        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldType.LIGHT);
-        ItemStack shield = shieldStack(PlasmaShieldType.LIGHT);
+        PlasmaShieldConfig.Stats stats = stats(PlasmaShieldVariant.STANDARD_I);
+        ItemStack shield = shieldStack(PlasmaShieldVariant.STANDARD_I);
         PlasmaShieldState.write(shield, new PlasmaShieldState(
                 stats.capacity(), stats.maxHeat() - 1.0D, false, 0, 0));
         player.setItemSlot(EquipmentSlot.CHEST, shield);
@@ -835,12 +959,37 @@ public final class PlasmaShieldGameTests {
         helper.succeed();
     }
 
-    private static PlasmaShieldConfig.Stats stats(PlasmaShieldType type) {
-        return EngineerConfig.PLASMA_SHIELD.stats(type);
+    private static PlasmaShieldConfig.Stats stats(PlasmaShieldVariant variant) {
+        return EngineerConfig.PLASMA_SHIELD.stats(variant);
     }
 
-    private static ItemStack shieldStack(PlasmaShieldType type) {
-        return new ItemStack(ModEngineerItems.plasmaShield(type).get());
+    private static ItemStack shieldStack(PlasmaShieldVariant variant) {
+        return new ItemStack(ModEngineerItems.plasmaShield(variant).get());
+    }
+
+    private static BalanceDefaults expectedDefaults(PlasmaShieldVariant variant) {
+        return switch (variant) {
+            case NANO_I -> new BalanceDefaults(36.0D, 0.65D, 20.0D, 8.0D, 60, 0.0D);
+            case NANO_II -> new BalanceDefaults(42.0D, 0.62D, 22.0D, 9.0D, 57, 0.0D);
+            case NANO_III -> new BalanceDefaults(48.0D, 0.59D, 24.0D, 10.0D, 54, 0.0D);
+            case NANO_IV -> new BalanceDefaults(55.0D, 0.56D, 26.0D, 11.0D, 51, 0.0D);
+            case NANO_V -> new BalanceDefaults(63.0D, 0.53D, 28.0D, 12.0D, 48, 0.0D);
+            case NANO_VI -> new BalanceDefaults(72.0D, 0.50D, 30.0D, 13.0D, 45, 0.0D);
+
+            case STANDARD_I -> new BalanceDefaults(60.0D, 1.70D, 14.0D, 7.0D, 80, 0.0D);
+            case STANDARD_II -> new BalanceDefaults(69.0D, 1.64D, 15.2D, 7.8D, 77, 0.0D);
+            case STANDARD_III -> new BalanceDefaults(79.0D, 1.58D, 16.4D, 8.6D, 74, 0.0D);
+            case STANDARD_IV -> new BalanceDefaults(91.0D, 1.52D, 17.6D, 9.4D, 71, 0.0D);
+            case STANDARD_V -> new BalanceDefaults(105.0D, 1.46D, 18.8D, 10.2D, 68, 0.0D);
+            case STANDARD_VI -> new BalanceDefaults(120.0D, 1.40D, 20.0D, 11.0D, 65, 0.0D);
+
+            case QUANTUM_I -> new BalanceDefaults(140.0D, 1.00D, 5.0D, 5.0D, 120, -0.12D);
+            case QUANTUM_II -> new BalanceDefaults(161.0D, 0.96D, 5.6D, 5.7D, 116, -0.114D);
+            case QUANTUM_III -> new BalanceDefaults(185.0D, 0.92D, 6.2D, 6.4D, 112, -0.108D);
+            case QUANTUM_IV -> new BalanceDefaults(213.0D, 0.88D, 6.8D, 7.1D, 108, -0.102D);
+            case QUANTUM_V -> new BalanceDefaults(245.0D, 0.84D, 7.4D, 7.8D, 104, -0.096D);
+            case QUANTUM_VI -> new BalanceDefaults(280.0D, 0.80D, 8.0D, 8.5D, 100, -0.09D);
+        };
     }
 
     private static PlasmaShieldConfig.Stats customStats(double capacity,
@@ -910,5 +1059,13 @@ public final class PlasmaShieldGameTests {
     }
 
     private record FeedbackPackets(List<SoundEvent> sounds, List<PlasmaShieldHitS2C> hits) {
+    }
+
+    private record BalanceDefaults(double capacity,
+                                   double heatPerDamage,
+                                   double coolingPerSecond,
+                                   double rechargePerSecond,
+                                   int rechargeDelayTicks,
+                                   double movementModifier) {
     }
 }

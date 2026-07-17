@@ -1,6 +1,8 @@
 package com.miningdim.job.engineer.shield.client;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.engineer.shield.PlasmaShieldVariant;
+import com.miningdim.job.engineer.shield.PlasmaShieldVisualProfile;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -8,6 +10,9 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.client.gui.overlay.ForgeGui;
 import net.minecraftforge.client.gui.overlay.IGuiOverlay;
+
+import java.util.EnumMap;
+import java.util.Map;
 
 /** Compact plasma-shield charge and heat display placed immediately above the player health row. */
 public final class PlasmaShieldHudOverlay {
@@ -22,9 +27,8 @@ public final class PlasmaShieldHudOverlay {
     private static final int HEAT_BAR_HEIGHT = 4;
     private static final int BAR_INNER_WIDTH = BAR_WIDTH - 2;
 
-    private static final ResourceLocation NANO_TEXTURE = texture("plasma_shield_nano");
-    private static final ResourceLocation LIGHT_TEXTURE = texture("plasma_shield_light");
-    private static final ResourceLocation HEAVY_ION_TEXTURE = texture("plasma_shield_heavy_ion");
+    private static final Map<PlasmaShieldVariant, ResourceLocation> VARIANT_TEXTURES =
+            createVariantTextures();
 
     private PlasmaShieldHudOverlay() {
     }
@@ -52,7 +56,7 @@ public final class PlasmaShieldHudOverlay {
         int top = screenHeight - gui.leftHeight - (HUD_HEIGHT - MAIN_BAR_HEIGHT);
         gui.leftHeight += HUD_HEIGHT + 1;
 
-        graphics.blit(textureFor(state.typeId()), left, top, ICON_SIZE, ICON_SIZE,
+        graphics.blit(textureFor(state.variant()), left, top, ICON_SIZE, ICON_SIZE,
                 0.0F, 0.0F, 64, 64, 64, 64);
 
         int barLeft = left + HUD_WIDTH - BAR_WIDTH;
@@ -79,8 +83,9 @@ public final class PlasmaShieldHudOverlay {
             return;
         }
 
-        int colour = state.overheated() ? 0xFF777D84 : shieldColour(state.typeId());
-        int highlight = state.overheated() ? 0xFFAEB3B8 : shieldHighlight(state.typeId());
+        PlasmaShieldVisualProfile.Style style = PlasmaShieldVisualProfile.style(state.variant());
+        int colour = state.overheated() ? 0xFF777D84 : 0xFF000000 | style.primaryRgb();
+        int highlight = state.overheated() ? 0xFFAEB3B8 : 0xFF000000 | style.highlightRgb();
         graphics.fill(x + 1, y + 1, x + 1 + filled, y + MAIN_BAR_HEIGHT - 1, colour);
         graphics.fill(x + 1, y + 1, x + 1 + filled, y + 2, highlight);
     }
@@ -137,31 +142,17 @@ public final class PlasmaShieldHudOverlay {
         return Math.max(0.0F, Math.min(1.0F, value / maximum));
     }
 
-    private static int shieldColour(String typeId) {
-        return switch (typeId) {
-            case ClientPlasmaShieldState.TYPE_LIGHT -> 0xFF298DDE;
-            case ClientPlasmaShieldState.TYPE_HEAVY_ION -> 0xFFB348D2;
-            default -> 0xFF26C9D8;
-        };
+    private static ResourceLocation textureFor(PlasmaShieldVariant variant) {
+        return VARIANT_TEXTURES.get(variant);
     }
 
-    private static int shieldHighlight(String typeId) {
-        return switch (typeId) {
-            case ClientPlasmaShieldState.TYPE_LIGHT -> 0xFF81CBFF;
-            case ClientPlasmaShieldState.TYPE_HEAVY_ION -> 0xFFE59CFF;
-            default -> 0xFF93F8FF;
-        };
-    }
-
-    private static ResourceLocation textureFor(String typeId) {
-        return switch (typeId) {
-            case ClientPlasmaShieldState.TYPE_LIGHT -> LIGHT_TEXTURE;
-            case ClientPlasmaShieldState.TYPE_HEAVY_ION -> HEAVY_ION_TEXTURE;
-            default -> NANO_TEXTURE;
-        };
-    }
-
-    private static ResourceLocation texture(String name) {
-        return new ResourceLocation(MiningConstants.MODID, "textures/item/" + name + ".png");
+    private static Map<PlasmaShieldVariant, ResourceLocation> createVariantTextures() {
+        Map<PlasmaShieldVariant, ResourceLocation> textures =
+                new EnumMap<>(PlasmaShieldVariant.class);
+        for (PlasmaShieldVariant variant : PlasmaShieldVariant.values()) {
+            textures.put(variant, new ResourceLocation(
+                    MiningConstants.MODID, "textures/item/" + variant.itemId() + ".png"));
+        }
+        return Map.copyOf(textures);
     }
 }

@@ -4,7 +4,7 @@ import com.miningdim.job.engineer.EngineerConfig;
 import com.miningdim.job.engineer.shield.PlasmaShieldConfig;
 import com.miningdim.job.engineer.shield.PlasmaShieldEquipmentMaterial;
 import com.miningdim.job.engineer.shield.PlasmaShieldState;
-import com.miningdim.job.engineer.shield.PlasmaShieldType;
+import com.miningdim.job.engineer.shield.PlasmaShieldVariant;
 import com.miningdim.job.engineer.shield.client.PlasmaShieldClientArmor;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
@@ -24,19 +24,19 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
 
-/** Wearable chest-slot energy shield. Its chassis type is fixed by the registered item. */
+/** Wearable chest-slot energy shield. Its family and grade are fixed by the registered item. */
 public final class PlasmaShieldItem extends ArmorItem {
 
-    private final PlasmaShieldType shieldType;
+    private final PlasmaShieldVariant shieldVariant;
 
-    public PlasmaShieldItem(PlasmaShieldType shieldType) {
-        super(PlasmaShieldEquipmentMaterial.forType(shieldType), Type.CHESTPLATE,
+    public PlasmaShieldItem(PlasmaShieldVariant shieldVariant) {
+        super(PlasmaShieldEquipmentMaterial.forSeries(shieldVariant.series()), Type.CHESTPLATE,
                 new Item.Properties().stacksTo(1).durability(1));
-        this.shieldType = shieldType;
+        this.shieldVariant = shieldVariant;
     }
 
-    public PlasmaShieldType shieldType() {
-        return shieldType;
+    public PlasmaShieldVariant shieldVariant() {
+        return shieldVariant;
     }
 
     public static PlasmaShieldItem equippedBy(Player player) {
@@ -52,7 +52,7 @@ public final class PlasmaShieldItem extends ArmorItem {
     @Override
     @Nullable
     public String getArmorTexture(ItemStack stack, Entity entity, EquipmentSlot slot, String type) {
-        return "miningdim:textures/item/plasma_shield_" + shieldType.id() + ".png";
+        return "miningdim:textures/item/" + shieldVariant.itemId() + ".png";
     }
 
     /** Energy shields do not consume vanilla armor durability. */
@@ -65,11 +65,14 @@ public final class PlasmaShieldItem extends ArmorItem {
     @Override
     public void appendHoverText(ItemStack stack, Level level, List<Component> tooltip, TooltipFlag flag) {
         super.appendHoverText(stack, level, tooltip, flag);
-        PlasmaShieldConfig.Stats stats = EngineerConfig.PLASMA_SHIELD.stats(shieldType);
+        PlasmaShieldConfig.Stats stats = EngineerConfig.PLASMA_SHIELD.stats(shieldVariant);
         PlasmaShieldState state = PlasmaShieldState.read(stack, stats);
         tooltip.add(Component.translatable("tooltip.miningdim.plasma_shield.type",
-                        Component.translatable(shieldType.translationKey()))
+                        Component.translatable(shieldVariant.series().translationKey()))
                 .withStyle(ChatFormatting.AQUA));
+        tooltip.add(Component.translatable("tooltip.miningdim.plasma_shield.tier",
+                        Component.translatable(shieldVariant.tier().translationKey()))
+                .withStyle(ChatFormatting.GRAY));
         tooltip.add(Component.translatable("tooltip.miningdim.plasma_shield.energy",
                         decimal(state.shield()), decimal(stats.capacity()))
                 .withStyle(ChatFormatting.BLUE));

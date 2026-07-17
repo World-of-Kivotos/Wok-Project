@@ -1,6 +1,6 @@
 package com.miningdim.job.engineer.shield.network;
 
-import com.miningdim.job.engineer.shield.PlasmaShieldType;
+import com.miningdim.job.engineer.shield.PlasmaShieldVariant;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.DistExecutor;
@@ -10,7 +10,7 @@ import java.util.function.Supplier;
 
 /** Complete server-authoritative HUD snapshot. */
 public record PlasmaShieldSyncS2C(boolean active,
-                                  String typeId,
+                                  String variantId,
                                   float shield,
                                   float maxShield,
                                   float heat,
@@ -25,7 +25,7 @@ public record PlasmaShieldSyncS2C(boolean active,
     public static void encode(PlasmaShieldSyncS2C message, FriendlyByteBuf buffer) {
         PlasmaShieldSyncS2C safe = message.sanitized();
         buffer.writeBoolean(safe.active);
-        buffer.writeUtf(safe.typeId, 32);
+        buffer.writeUtf(safe.variantId, 32);
         buffer.writeFloat(safe.shield);
         buffer.writeFloat(safe.maxShield);
         buffer.writeFloat(safe.heat);
@@ -53,7 +53,7 @@ public record PlasmaShieldSyncS2C(boolean active,
         context.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
                 () -> () -> com.miningdim.job.engineer.shield.client.ClientPlasmaShieldState.update(
                         safe.active,
-                        safe.typeId,
+                        safe.variantId,
                         safe.shield,
                         safe.maxShield,
                         safe.heat,
@@ -64,14 +64,14 @@ public record PlasmaShieldSyncS2C(boolean active,
     }
 
     public PlasmaShieldSyncS2C sanitized() {
-        if (!active || PlasmaShieldType.fromId(typeId).isEmpty()) {
+        if (!active || PlasmaShieldVariant.fromId(variantId).isEmpty()) {
             return inactive();
         }
         float safeMaxShield = positiveFinite(maxShield, 1.0F);
         float safeMaxHeat = positiveFinite(maxHeat, 1.0F);
         return new PlasmaShieldSyncS2C(
                 true,
-                PlasmaShieldType.fromId(typeId).orElseThrow().id(),
+                PlasmaShieldVariant.fromId(variantId).orElseThrow().id(),
                 clampFinite(shield, 0.0F, safeMaxShield, 0.0F),
                 safeMaxShield,
                 clampFinite(heat, 0.0F, safeMaxHeat, 0.0F),

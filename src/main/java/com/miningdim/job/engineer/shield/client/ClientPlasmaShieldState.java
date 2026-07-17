@@ -24,13 +24,16 @@ public final class ClientPlasmaShieldState {
                               String variantId,
                               float shield,
                               float maxShield,
+                              float totalEnergy,
+                              float maxTotalEnergy,
                               float heat,
                               float maxHeat,
                               boolean overheated,
                               int rechargeDelayTicks) {
         Optional<PlasmaShieldVariant> variant = PlasmaShieldVariant.fromId(variantId);
         current = new Snapshot(active && variant.isPresent(),
-                variant.orElse(PlasmaShieldVariant.NANO_I), shield, maxShield, heat, maxHeat,
+                variant.orElse(PlasmaShieldVariant.NANO_I), shield, maxShield,
+                totalEnergy, maxTotalEnergy, heat, maxHeat,
                 overheated, rechargeDelayTicks);
     }
 
@@ -60,6 +63,8 @@ public final class ClientPlasmaShieldState {
                            PlasmaShieldVariant variant,
                            float shield,
                            float maxShield,
+                           float totalEnergy,
+                           float maxTotalEnergy,
                            float heat,
                            float maxHeat,
                            boolean overheated,
@@ -73,19 +78,24 @@ public final class ClientPlasmaShieldState {
          */
         public Snapshot {
             maxShield = cleanCapacity(maxShield);
+            maxTotalEnergy = cleanCapacity(maxTotalEnergy);
             maxHeat = cleanCapacity(maxHeat);
-            active = active && maxShield > 0.0F && maxHeat > 0.0F;
+            active = active && maxShield > 0.0F
+                    && maxTotalEnergy >= maxShield && maxHeat > 0.0F;
 
             if (!active) {
                 variant = PlasmaShieldVariant.NANO_I;
                 shield = 0.0F;
                 maxShield = 0.0F;
+                totalEnergy = 0.0F;
+                maxTotalEnergy = 0.0F;
                 heat = 0.0F;
                 maxHeat = 0.0F;
                 overheated = false;
                 rechargeDelayTicks = 0;
             } else {
-                shield = cleanAndClamp(shield, maxShield);
+                totalEnergy = cleanAndClamp(totalEnergy, maxTotalEnergy);
+                shield = Math.min(cleanAndClamp(shield, maxShield), totalEnergy);
                 heat = cleanAndClamp(heat, maxHeat);
                 rechargeDelayTicks = Math.min(Math.max(0, rechargeDelayTicks),
                         MAX_RECHARGE_DELAY_TICKS);
@@ -93,7 +103,8 @@ public final class ClientPlasmaShieldState {
         }
 
         private static Snapshot empty() {
-            return new Snapshot(false, PlasmaShieldVariant.NANO_I, 0.0F, 0.0F,
+            return new Snapshot(false, PlasmaShieldVariant.NANO_I,
+                    0.0F, 0.0F, 0.0F, 0.0F,
                     0.0F, 0.0F, false, 0);
         }
     }

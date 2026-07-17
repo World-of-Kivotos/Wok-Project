@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Dedicated plasma-shield channel; it cannot disturb the discriminator ordering of the main channel. */
 public final class PlasmaShieldNetwork {
 
-    private static final String PROTOCOL_VERSION = "3";
+    private static final String PROTOCOL_VERSION = "4";
     private static final AtomicBoolean REGISTERED = new AtomicBoolean(false);
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(

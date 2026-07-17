@@ -26,9 +26,15 @@ public final class PlasmaShieldConfig {
         heatCoolDelayTicks = builder.comment("Cooling delay after a non-overheated shield is hit. Overheated shields emergency-cool immediately.")
                 .defineInRange("heatCoolDelayTicks", 20, 0, 1200);
 
+        builder.push("balanceV4");
+        builder.comment("Version 4 values enlarge the active shield layer without increasing total battery storage.",
+                "These values retain finite batteries and distinct overheat/recovery roles.",
+                "They are intentionally isolated from earlier shield balance paths so existing V3 capacity values do not override the new defaults.",
+                "One absorbed damage always consumes exactly one shield energy; no reduction factor is applied.");
         for (PlasmaShieldVariant variant : PlasmaShieldVariant.values()) {
             defineVariant(builder, variant, defaults(variant));
         }
+        builder.pop();
         builder.pop();
     }
 
@@ -39,12 +45,14 @@ public final class PlasmaShieldConfig {
     private void defineVariant(ForgeConfigSpec.Builder builder,
                                PlasmaShieldVariant variant,
                                Defaults defaults) {
-        builder.push(variant.configId());
-        builder.comment("Balance for " + variant.itemId()
-                + ". Tier-I paths keep the former nano/light/heavy_ion keys for save compatibility.");
+        builder.push(variant.id());
+        builder.comment("Balance for " + variant.itemId() + ".");
         Values configured = new Values(
-                builder.comment("Maximum stored shield energy (also the extra-health capacity).")
+                builder.comment("Maximum raw damage absorbed at one energy per damage before heat limits apply.")
                         .defineInRange("capacity", defaults.capacity(), 1.0D, 100000.0D),
+                builder.comment("Total remaining battery, including energy currently allocated to the shield layer.")
+                        .defineInRange("maxTotalEnergy", defaults.maxTotalEnergy(),
+                                defaults.capacity(), 1000000.0D),
                 builder.comment("Heat generated per absorbed damage point.")
                         .defineInRange("heatPerDamage", defaults.heatPerDamage(), 0.001D, 1000.0D),
                 builder.comment("Heat removed per second after the cooling delay.")
@@ -67,6 +75,7 @@ public final class PlasmaShieldConfig {
         double heatMaximum = maxHeat.get();
         return new Stats(
                 configured.capacity().get(),
+                Math.max(configured.capacity().get(), configured.maxTotalEnergy().get()),
                 heatMaximum,
                 Math.min(heatMaximum, restartHeat.get()),
                 configured.heatPerDamage().get(),
@@ -77,7 +86,7 @@ public final class PlasmaShieldConfig {
                 configured.movementModifier().get());
     }
 
-    /** Existing callers and hidden legacy items resolve to the unchanged tier-I defaults. */
+    /** Existing callers and hidden legacy items resolve to their corresponding tier-I variant. */
     public Stats stats(PlasmaShieldType legacyType) {
         return stats(legacyType.variant());
     }
@@ -87,6 +96,7 @@ public final class PlasmaShieldConfig {
     }
 
     public record Stats(double capacity,
+                        double maxTotalEnergy,
                         double maxHeat,
                         double restartHeat,
                         double heatPerDamage,
@@ -99,30 +109,31 @@ public final class PlasmaShieldConfig {
 
     private static Defaults defaults(PlasmaShieldVariant variant) {
         return switch (variant) {
-            case NANO_I -> new Defaults(36.0D, 0.65D, 20.0D, 8.0D, 60, 0.0D);
-            case NANO_II -> new Defaults(42.0D, 0.62D, 22.0D, 9.0D, 57, 0.0D);
-            case NANO_III -> new Defaults(48.0D, 0.59D, 24.0D, 10.0D, 54, 0.0D);
-            case NANO_IV -> new Defaults(55.0D, 0.56D, 26.0D, 11.0D, 51, 0.0D);
-            case NANO_V -> new Defaults(63.0D, 0.53D, 28.0D, 12.0D, 48, 0.0D);
-            case NANO_VI -> new Defaults(72.0D, 0.50D, 30.0D, 13.0D, 45, 0.0D);
+            case NANO_I -> new Defaults(30.0D, 60.0D, 0.50D, 30.0D, 18.0D, 90, 0.0D);
+            case NANO_II -> new Defaults(45.0D, 84.0D, 0.44D, 34.0D, 22.0D, 88, 0.0D);
+            case NANO_III -> new Defaults(65.0D, 114.0D, 0.39D, 38.0D, 26.0D, 86, 0.0D);
+            case NANO_IV -> new Defaults(90.0D, 150.0D, 0.34D, 42.0D, 30.0D, 84, 0.0D);
+            case NANO_V -> new Defaults(120.0D, 192.0D, 0.30D, 46.0D, 34.0D, 82, 0.0D);
+            case NANO_VI -> new Defaults(155.0D, 240.0D, 0.26D, 50.0D, 38.0D, 80, 0.0D);
 
-            case STANDARD_I -> new Defaults(60.0D, 1.70D, 14.0D, 7.0D, 80, 0.0D);
-            case STANDARD_II -> new Defaults(69.0D, 1.64D, 15.2D, 7.8D, 77, 0.0D);
-            case STANDARD_III -> new Defaults(79.0D, 1.58D, 16.4D, 8.6D, 74, 0.0D);
-            case STANDARD_IV -> new Defaults(91.0D, 1.52D, 17.6D, 9.4D, 71, 0.0D);
-            case STANDARD_V -> new Defaults(105.0D, 1.46D, 18.8D, 10.2D, 68, 0.0D);
-            case STANDARD_VI -> new Defaults(120.0D, 1.40D, 20.0D, 11.0D, 65, 0.0D);
+            case STANDARD_I -> new Defaults(45.0D, 112.0D, 2.20D, 10.0D, 7.0D, 110, 0.0D);
+            case STANDARD_II -> new Defaults(70.0D, 160.0D, 2.00D, 11.0D, 8.0D, 108, 0.0D);
+            case STANDARD_III -> new Defaults(100.0D, 216.0D, 1.80D, 12.0D, 9.0D, 106, 0.0D);
+            case STANDARD_IV -> new Defaults(140.0D, 280.0D, 1.60D, 13.0D, 10.0D, 104, 0.0D);
+            case STANDARD_V -> new Defaults(190.0D, 360.0D, 1.40D, 14.0D, 11.0D, 102, 0.0D);
+            case STANDARD_VI -> new Defaults(250.0D, 448.0D, 1.20D, 15.0D, 12.0D, 100, 0.0D);
 
-            case QUANTUM_I -> new Defaults(140.0D, 1.00D, 5.0D, 5.0D, 120, -0.12D);
-            case QUANTUM_II -> new Defaults(161.0D, 0.96D, 5.6D, 5.7D, 116, -0.114D);
-            case QUANTUM_III -> new Defaults(185.0D, 0.92D, 6.2D, 6.4D, 112, -0.108D);
-            case QUANTUM_IV -> new Defaults(213.0D, 0.88D, 6.8D, 7.1D, 108, -0.102D);
-            case QUANTUM_V -> new Defaults(245.0D, 0.84D, 7.4D, 7.8D, 104, -0.096D);
-            case QUANTUM_VI -> new Defaults(280.0D, 0.80D, 8.0D, 8.5D, 100, -0.09D);
+            case QUANTUM_I -> new Defaults(65.0D, 240.0D, 0.65D, 5.0D, 3.0D, 130, -0.12D);
+            case QUANTUM_II -> new Defaults(100.0D, 336.0D, 0.58D, 5.6D, 3.5D, 128, -0.114D);
+            case QUANTUM_III -> new Defaults(150.0D, 444.0D, 0.52D, 6.2D, 4.0D, 126, -0.108D);
+            case QUANTUM_IV -> new Defaults(215.0D, 576.0D, 0.46D, 6.8D, 4.5D, 124, -0.102D);
+            case QUANTUM_V -> new Defaults(300.0D, 732.0D, 0.41D, 7.4D, 5.0D, 122, -0.096D);
+            case QUANTUM_VI -> new Defaults(400.0D, 912.0D, 0.36D, 8.0D, 5.5D, 120, -0.09D);
         };
     }
 
     private record Defaults(double capacity,
+                            double maxTotalEnergy,
                             double heatPerDamage,
                             double coolingPerSecond,
                             double rechargePerSecond,
@@ -131,6 +142,7 @@ public final class PlasmaShieldConfig {
     }
 
     private record Values(ForgeConfigSpec.DoubleValue capacity,
+                          ForgeConfigSpec.DoubleValue maxTotalEnergy,
                           ForgeConfigSpec.DoubleValue heatPerDamage,
                           ForgeConfigSpec.DoubleValue coolingPerSecond,
                           ForgeConfigSpec.DoubleValue rechargePerSecond,

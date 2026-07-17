@@ -19,12 +19,13 @@ public final class PlasmaShieldHudOverlay {
 
     public static final IGuiOverlay INSTANCE = PlasmaShieldHudOverlay::render;
 
-    private static final int HUD_WIDTH = 81;
-    private static final int HUD_HEIGHT = 14;
+    private static final int HUD_WIDTH = 111;
+    private static final int HUD_HEIGHT = 19;
     private static final int ICON_SIZE = 14;
-    private static final int BAR_WIDTH = 66;
+    private static final int BAR_WIDTH = 96;
     private static final int MAIN_BAR_HEIGHT = 9;
     private static final int HEAT_BAR_HEIGHT = 4;
+    private static final int BATTERY_BAR_HEIGHT = 4;
     private static final int BAR_INNER_WIDTH = BAR_WIDTH - 2;
 
     private static final Map<PlasmaShieldVariant, ResourceLocation> VARIANT_TEXTURES =
@@ -61,14 +62,31 @@ public final class PlasmaShieldHudOverlay {
 
         int barLeft = left + HUD_WIDTH - BAR_WIDTH;
         float shieldRatio = ratio(state.shield(), state.maxShield());
+        float totalEnergyRatio = ratio(state.totalEnergy(), state.maxTotalEnergy());
         float heatRatio = ratio(state.heat(), state.maxHeat());
         int shieldPixels = filledPixels(shieldRatio);
+        int totalEnergyPixels = filledPixels(totalEnergyRatio);
         int heatPixels = filledPixels(heatRatio);
 
         drawHeatBar(graphics, minecraft, state, barLeft, top, heatRatio, heatPixels);
         int shieldTop = top + HEAT_BAR_HEIGHT + 1;
         drawShieldBar(graphics, state, barLeft, shieldTop, shieldPixels);
+        drawBatteryBar(graphics, barLeft,
+                shieldTop + MAIN_BAR_HEIGHT + 1, totalEnergyPixels);
         drawStatusText(graphics, minecraft.font, state, barLeft, shieldTop);
+    }
+
+    private static void drawBatteryBar(GuiGraphics graphics,
+                                       int x,
+                                       int y,
+                                       int filled) {
+        graphics.fill(x, y, x + BAR_WIDTH, y + BATTERY_BAR_HEIGHT, 0xE6000000);
+        graphics.fill(x + 1, y + 1, x + BAR_WIDTH - 1, y + BATTERY_BAR_HEIGHT - 1,
+                0xFF102126);
+        if (filled > 0) {
+            graphics.fill(x + 1, y + 1, x + 1 + filled, y + BATTERY_BAR_HEIGHT - 1,
+                    0xFF23AFC1);
+        }
     }
 
     private static void drawShieldBar(GuiGraphics graphics,
@@ -122,8 +140,11 @@ public final class PlasmaShieldHudOverlay {
                                        int barLeft,
                                        int top) {
         Component text = state.overheated()
-                ? Component.translatable("hud.miningdim.plasma_shield.shutdown")
-                : Component.literal(Math.round(state.shield()) + "/" + Math.round(state.maxShield()));
+                ? Component.translatable("hud.miningdim.plasma_shield.shutdown_energy",
+                        Math.round(state.totalEnergy()), Math.round(state.maxTotalEnergy()))
+                : Component.translatable("hud.miningdim.plasma_shield.values",
+                        Math.round(state.shield()), Math.round(state.maxShield()),
+                        Math.round(state.totalEnergy()), Math.round(state.maxTotalEnergy()));
         int textX = barLeft + Math.max(1, (BAR_WIDTH - font.width(text)) / 2);
         graphics.drawString(font, text, textX, top, 0xFFFFFFFF, false);
     }

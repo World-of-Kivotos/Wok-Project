@@ -13,13 +13,16 @@ public record PlasmaShieldSyncS2C(boolean active,
                                   String variantId,
                                   float shield,
                                   float maxShield,
+                                  float totalEnergy,
+                                  float maxTotalEnergy,
                                   float heat,
                                   float maxHeat,
                                   boolean overheated,
                                   int rechargeDelayTicks) {
 
     public static PlasmaShieldSyncS2C inactive() {
-        return new PlasmaShieldSyncS2C(false, "", 0.0F, 1.0F, 0.0F, 1.0F, false, 0);
+        return new PlasmaShieldSyncS2C(
+                false, "", 0.0F, 1.0F, 0.0F, 1.0F, 0.0F, 1.0F, false, 0);
     }
 
     public static void encode(PlasmaShieldSyncS2C message, FriendlyByteBuf buffer) {
@@ -28,6 +31,8 @@ public record PlasmaShieldSyncS2C(boolean active,
         buffer.writeUtf(safe.variantId, 32);
         buffer.writeFloat(safe.shield);
         buffer.writeFloat(safe.maxShield);
+        buffer.writeFloat(safe.totalEnergy);
+        buffer.writeFloat(safe.maxTotalEnergy);
         buffer.writeFloat(safe.heat);
         buffer.writeFloat(safe.maxHeat);
         buffer.writeBoolean(safe.overheated);
@@ -38,6 +43,8 @@ public record PlasmaShieldSyncS2C(boolean active,
         return new PlasmaShieldSyncS2C(
                 buffer.readBoolean(),
                 buffer.readUtf(32),
+                buffer.readFloat(),
+                buffer.readFloat(),
                 buffer.readFloat(),
                 buffer.readFloat(),
                 buffer.readFloat(),
@@ -56,6 +63,8 @@ public record PlasmaShieldSyncS2C(boolean active,
                         safe.variantId,
                         safe.shield,
                         safe.maxShield,
+                        safe.totalEnergy,
+                        safe.maxTotalEnergy,
                         safe.heat,
                         safe.maxHeat,
                         safe.overheated,
@@ -68,12 +77,19 @@ public record PlasmaShieldSyncS2C(boolean active,
             return inactive();
         }
         float safeMaxShield = positiveFinite(maxShield, 1.0F);
+        float safeMaxTotalEnergy = positiveFinite(maxTotalEnergy, safeMaxShield);
+        safeMaxTotalEnergy = Math.max(safeMaxShield, safeMaxTotalEnergy);
         float safeMaxHeat = positiveFinite(maxHeat, 1.0F);
+        float safeTotalEnergy = clampFinite(totalEnergy, 0.0F, safeMaxTotalEnergy, 0.0F);
+        float safeShield = Math.min(
+                clampFinite(shield, 0.0F, safeMaxShield, 0.0F), safeTotalEnergy);
         return new PlasmaShieldSyncS2C(
                 true,
                 PlasmaShieldVariant.fromId(variantId).orElseThrow().id(),
-                clampFinite(shield, 0.0F, safeMaxShield, 0.0F),
+                safeShield,
                 safeMaxShield,
+                safeTotalEnergy,
+                safeMaxTotalEnergy,
                 clampFinite(heat, 0.0F, safeMaxHeat, 0.0F),
                 safeMaxHeat,
                 overheated,

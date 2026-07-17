@@ -73,9 +73,12 @@ public final class PlasmaShieldItem extends ArmorItem {
         tooltip.add(Component.translatable("tooltip.miningdim.plasma_shield.tier",
                         Component.translatable(shieldVariant.tier().translationKey()))
                 .withStyle(ChatFormatting.GRAY));
-        tooltip.add(Component.translatable("tooltip.miningdim.plasma_shield.energy",
+        tooltip.add(Component.translatable("tooltip.miningdim.plasma_shield.shield",
                         decimal(state.shield()), decimal(stats.capacity()))
                 .withStyle(ChatFormatting.BLUE));
+        tooltip.add(Component.translatable("tooltip.miningdim.plasma_shield.total_energy",
+                        decimal(state.totalEnergy()), decimal(stats.maxTotalEnergy()))
+                .withStyle(ChatFormatting.DARK_AQUA));
         tooltip.add(Component.translatable("tooltip.miningdim.plasma_shield.heat",
                         decimal(state.heat()), decimal(stats.maxHeat()))
                 .withStyle(state.overheated() ? ChatFormatting.RED : ChatFormatting.GOLD));
@@ -87,6 +90,8 @@ public final class PlasmaShieldItem extends ArmorItem {
                 .withStyle(ChatFormatting.DARK_GRAY));
         tooltip.add(Component.translatable("tooltip.miningdim.plasma_shield.recharge",
                         decimal(stats.rechargePerSecond()), decimal(stats.rechargeDelayTicks() / 20.0D))
+                .withStyle(ChatFormatting.DARK_GRAY));
+        tooltip.add(Component.translatable("tooltip.miningdim.plasma_shield.recharge_source")
                 .withStyle(ChatFormatting.DARK_GRAY));
         if (stats.movementModifier() != 0.0D) {
             tooltip.add(Component.translatable("tooltip.miningdim.plasma_shield.movement",

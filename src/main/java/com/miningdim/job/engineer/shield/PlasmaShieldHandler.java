@@ -235,7 +235,7 @@ public final class PlasmaShieldHandler {
                 player.getX(), player.getY() + 1.0D, player.getZ(),
                 ModEngineerSounds.PLASMA_SHIELD_HIT.get(),
                 SoundSource.PLAYERS,
-                0.52F + 0.24F * strength,
+                0.70F + 0.30F * strength,
                 chassisPitch(variant) * (0.97F + 0.05F * strength));
     }
 
@@ -245,7 +245,7 @@ public final class PlasmaShieldHandler {
                 player.getX(), player.getY() + 1.0D, player.getZ(),
                 ModEngineerSounds.PLASMA_SHIELD_OVERHEAT.get(),
                 SoundSource.PLAYERS,
-                0.92F,
+                1.10F,
                 chassisPitch(variant));
     }
 
@@ -255,7 +255,7 @@ public final class PlasmaShieldHandler {
                 player.getX(), player.getY() + 1.0D, player.getZ(),
                 ModEngineerSounds.PLASMA_SHIELD_STEAM_VENT.get(),
                 SoundSource.PLAYERS,
-                0.62F,
+                0.90F,
                 chassisPitch(variant));
     }
 
@@ -341,6 +341,8 @@ public final class PlasmaShieldHandler {
                 item.shieldVariant().id(),
                 (float) state.shield(),
                 (float) stats.capacity(),
+                (float) state.totalEnergy(),
+                (float) stats.maxTotalEnergy(),
                 (float) state.heat(),
                 (float) stats.maxHeat(),
                 state.overheated(),

@@ -75,7 +75,7 @@ public final class EngineerSystem implements Subsystem {
                         () -> () -> MenuScreens.register(
                                 ModEngineerMenus.PRODUCTION_TABLE.get(), ProductionTableScreen::new))));
 
-        LOGGER.info("[miningdim] armorer subsystem registered (54 plate armors + 3 plasma shields + 6 repair plates + 6 tables + effects + QTE)");
+        LOGGER.info("[miningdim] armorer subsystem registered (54 plate armors + 18 plasma shields + 3 legacy shield aliases + 6 repair plates + 6 tables + effects + QTE)");
     }
 
     @Override

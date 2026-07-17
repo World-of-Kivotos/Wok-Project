@@ -48,11 +48,14 @@ public final class PlasmaShieldVisualProfile {
         return (0.90F + 0.10F * expansion) * (0.96F + 0.08F * strength) * overloadScale;
     }
 
-    public static Style style(PlasmaShieldType type) {
-        return switch (type) {
-            case NANO -> new Style(0x26C9D8, 0x93F8FF);
-            case LIGHT -> new Style(0x298DDE, 0x81CBFF);
-            case HEAVY_ION -> new Style(0xB348D2, 0xE59CFF);
+    public static Style style(PlasmaShieldVariant variant) {
+        return switch (variant.tier()) {
+            case I -> new Style(0xD8E8EE, 0xFFFFFF);
+            case II -> new Style(0x298DDE, 0x81CBFF);
+            case III -> new Style(0x35B85E, 0xA2FFB8);
+            case IV -> new Style(0xB348D2, 0xE59CFF);
+            case V -> new Style(0xD9A928, 0xFFE68A);
+            case VI -> new Style(0xD93B35, 0xFF8B7A);
         };
     }
 

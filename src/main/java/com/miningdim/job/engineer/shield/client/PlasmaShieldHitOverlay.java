@@ -37,7 +37,7 @@ public final class PlasmaShieldHitOverlay {
             return;
         }
 
-        PlasmaShieldVisualProfile.Style style = PlasmaShieldVisualProfile.style(frame.type());
+        PlasmaShieldVisualProfile.Style style = PlasmaShieldVisualProfile.style(frame.variant());
         int rgb = style.highlightRgb();
         float alpha = frame.alpha() * 0.28F;
         int size = Math.round(Math.min(screenWidth, screenHeight) * 1.12F * frame.scale());

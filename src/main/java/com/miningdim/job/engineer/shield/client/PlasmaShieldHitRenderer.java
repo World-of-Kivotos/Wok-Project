@@ -64,7 +64,7 @@ public final class PlasmaShieldHitRenderer {
             Vec3 position = entity.getPosition(event.getPartialTick());
             double centerY = position.y + entity.getBbHeight() * 0.5D;
             float diameter = Math.max(2.2F, entity.getBbHeight() + 0.5F) * frame.scale();
-            PlasmaShieldVisualProfile.Style style = PlasmaShieldVisualProfile.style(frame.type());
+            PlasmaShieldVisualProfile.Style style = PlasmaShieldVisualProfile.style(frame.variant());
 
             pose.pushPose();
             pose.translate(

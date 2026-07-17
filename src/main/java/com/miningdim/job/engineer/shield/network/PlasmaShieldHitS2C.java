@@ -1,6 +1,6 @@
 package com.miningdim.job.engineer.shield.network;
 
-import com.miningdim.job.engineer.shield.PlasmaShieldType;
+import com.miningdim.job.engineer.shield.PlasmaShieldVariant;
 import com.miningdim.job.engineer.shield.PlasmaShieldVisualProfile;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraftforge.api.distmarker.Dist;
@@ -11,7 +11,7 @@ import java.util.function.Supplier;
 
 /** Server-authoritative transient feedback for damage actually absorbed by a plasma shield. */
 public record PlasmaShieldHitS2C(int entityId,
-                                String typeId,
+                                String variantId,
                                 float strength,
                                 boolean overloaded) {
 
@@ -20,7 +20,7 @@ public record PlasmaShieldHitS2C(int entityId,
     }
 
     public static PlasmaShieldHitS2C forHit(int entityId,
-                                           PlasmaShieldType type,
+                                           PlasmaShieldVariant variant,
                                            double absorbedDamage,
                                            boolean overloaded) {
         if (entityId < 0) {
@@ -28,7 +28,7 @@ public record PlasmaShieldHitS2C(int entityId,
         }
         return new PlasmaShieldHitS2C(
                 entityId,
-                type.id(),
+                variant.id(),
                 PlasmaShieldVisualProfile.strengthForAbsorbedDamage(absorbedDamage),
                 overloaded);
     }
@@ -36,7 +36,7 @@ public record PlasmaShieldHitS2C(int entityId,
     public static void encode(PlasmaShieldHitS2C message, FriendlyByteBuf buffer) {
         PlasmaShieldHitS2C safe = message.sanitized();
         buffer.writeVarInt(safe.entityId);
-        buffer.writeUtf(safe.typeId, 32);
+        buffer.writeUtf(safe.variantId, 32);
         buffer.writeFloat(safe.strength);
         buffer.writeBoolean(safe.overloaded);
     }
@@ -56,25 +56,25 @@ public record PlasmaShieldHitS2C(int entityId,
         if (safe.active()) {
             context.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
                     () -> () -> com.miningdim.job.engineer.shield.client.ClientPlasmaShieldHitEffects.accept(
-                            safe.entityId, safe.typeId, safe.strength, safe.overloaded)));
+                            safe.entityId, safe.variantId, safe.strength, safe.overloaded)));
         }
         context.setPacketHandled(true);
     }
 
     public boolean active() {
-        return entityId >= 0 && !typeId.isEmpty() && strength > 0.0F;
+        return entityId >= 0 && !variantId.isEmpty() && strength > 0.0F;
     }
 
     public PlasmaShieldHitS2C sanitized() {
         if (entityId < 0
-                || PlasmaShieldType.fromId(typeId).isEmpty()
+                || PlasmaShieldVariant.fromId(variantId).isEmpty()
                 || !Float.isFinite(strength)
                 || strength <= 0.0F) {
             return inactive();
         }
         return new PlasmaShieldHitS2C(
                 entityId,
-                PlasmaShieldType.fromId(typeId).orElseThrow().id(),
+                PlasmaShieldVariant.fromId(variantId).orElseThrow().id(),
                 Math.min(1.0F, strength),
                 overloaded);
     }

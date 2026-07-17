@@ -3,28 +3,30 @@ package com.miningdim.job.engineer.shield;
 import java.util.Locale;
 import java.util.Optional;
 
-/** The three plasma-shield chassis. The equipped item, not NBT, is the type authority. */
+/** Legacy item identities retained so old worlds and commands keep resolving after the 18-variant expansion. */
 public enum PlasmaShieldType {
-    NANO("nano"),
-    LIGHT("light"),
-    HEAVY_ION("heavy_ion");
+    NANO("nano", PlasmaShieldVariant.NANO_I),
+    LIGHT("light", PlasmaShieldVariant.STANDARD_I),
+    HEAVY_ION("heavy_ion", PlasmaShieldVariant.QUANTUM_I);
 
     private final String id;
+    private final PlasmaShieldVariant variant;
 
-    PlasmaShieldType(String id) {
+    PlasmaShieldType(String id, PlasmaShieldVariant variant) {
         this.id = id;
+        this.variant = variant;
     }
 
     public String id() {
         return id;
     }
 
-    public String translationKey() {
-        return "type.miningdim.plasma_shield." + id;
-    }
-
     public String itemId() {
         return "plasma_shield_" + id;
+    }
+
+    public PlasmaShieldVariant variant() {
+        return variant;
     }
 
     public static Optional<PlasmaShieldType> fromId(String id) {

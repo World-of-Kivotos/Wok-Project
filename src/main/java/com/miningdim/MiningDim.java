@@ -113,7 +113,7 @@ public final class MiningDim {
         subsystems.add(new com.miningdim.job.miner.MinerSystem());
         // 18. 农夫职业: 分档耕地 + mod 小麦 + 收购闸门 (依赖职业框架门面)。
         subsystems.add(new com.miningdim.job.farmer.FarmerSystem());
-        // 19. 千年工程师职业: 六档纳米护甲板 + 生产台 GUI/校准 QTE + 修复曲线 (依赖职业框架门面)。
+        // 19. 铸甲师职业: 六档纳米护甲板 + 生产台 GUI/校准 QTE + 修复曲线 (依赖职业框架门面)。
         subsystems.add(new com.miningdim.job.engineer.EngineerSystem());
         // 20. 塔罗师职业: 塔罗牌 datapack 牌效 + 卡包 gacha + 合成台 (依赖职业框架门面)。
         subsystems.add(new com.miningdim.job.tarot.TarotSystem());

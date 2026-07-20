@@ -10,6 +10,8 @@ import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.living.LivingAttackEvent;
+import net.minecraftforge.event.entity.living.LivingHealEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.living.LivingKnockBackEvent;
 import net.minecraftforge.event.entity.living.MobEffectEvent;
@@ -123,6 +125,50 @@ public final class TarotCombatHandlers {
         if (TarotCombatState.hasReflectAccum(victim.getUUID(), now)
                 && event.getSource().getEntity() instanceof LivingEntity src && src != victim) {
             TarotCombatState.recordReflectAccum(victim.getUUID(), src.getUUID(), event.getAmount(), now);
+        }
+
+        TarotCombatState.DamageShareSnapshot share = TarotCombatState.damageShare(victim.getUUID(), now);
+        if (share != null && share.percent() > 0.0D && event.getAmount() > 0.0F) {
+            java.util.List<ServerPlayer> recipients = share.members().stream()
+                    .filter(id -> !id.equals(victim.getUUID()))
+                    .map(server.getPlayerList()::getPlayer)
+                    .filter(java.util.Objects::nonNull)
+                    .filter(Player::isAlive)
+                    .toList();
+            if (!recipients.isEmpty()) {
+                float distributed = (float) (event.getAmount() * share.percent());
+                event.setAmount(Math.max(0.0F, event.getAmount() - distributed));
+                float each = distributed / recipients.size();
+                for (ServerPlayer recipient : recipients) {
+                    recipient.setHealth(Math.max(0.0F, recipient.getHealth() - each));
+                }
+            }
+        }
+    }
+
+    /** 隐士闪耀期间不可攻击；覆盖近战、弹射物及标准枪械伤害源。 */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onLivingAttack(LivingAttackEvent event) {
+        if (!(event.getSource().getEntity() instanceof ServerPlayer attacker)) {
+            return;
+        }
+        MinecraftServer server = attacker.getServer();
+        if (server != null && TarotCombatState.restricted(attacker.getUUID(),
+                TarotCombatState.Restriction.ATTACK_LOCK, server.getTickCount())) {
+            event.setCanceled(true);
+        }
+    }
+
+    /** 星星逆位力竭期间拒绝全部治疗。 */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onLivingHeal(LivingHealEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
+            return;
+        }
+        MinecraftServer server = player.getServer();
+        if (server != null && TarotCombatState.restricted(player.getUUID(),
+                TarotCombatState.Restriction.HEALING_BLOCK, server.getTickCount())) {
+            event.setAmount(0.0F);
         }
     }
 

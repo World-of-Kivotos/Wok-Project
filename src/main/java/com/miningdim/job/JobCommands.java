@@ -66,7 +66,7 @@ public final class JobCommands {
             JobProgress p = data.jobProgress(job);
             ctx.getSource().sendSuccess(() -> Component.translatable(
                     "message.miningdim.job.list_line",
-                    job.id(), p.level(), p.xp(), p.dailyRemaining()), false);
+                    job.displayName(), p.level(), p.xp(), p.dailyRemaining()), false);
         }
         return JobId.values().length;
     }
@@ -87,7 +87,7 @@ public final class JobCommands {
         JobProgress shown = p;
         ctx.getSource().sendSuccess(() -> Component.translatable(
                 "message.miningdim.job.info_line",
-                job.id(), shown.level(), shown.xp(),
+                job.displayName(), shown.level(), shown.xp(),
                 JobXpCurve.cumulativeXpForLevel(Math.min(shown.level() + 1, JobXpCurve.MAX_LEVEL)),
                 shown.dailyXp()), false);
         return 1;
@@ -126,7 +126,7 @@ public final class JobCommands {
         system.syncTo(target); // 改级后立即同步客户端镜像。
         ctx.getSource().sendSuccess(() -> Component.translatable(
                 "message.miningdim.job.set_done",
-                target.getGameProfile().getName(), job.id(), level), true);
+                target.getGameProfile().getName(), job.displayName(), level), true);
         return 1;
     }
 }

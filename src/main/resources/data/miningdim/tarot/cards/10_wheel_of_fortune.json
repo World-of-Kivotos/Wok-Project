@@ -4,34 +4,38 @@
     "tiers": [
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:regeneration",
-          "amplifier": 1,
-          "durationTicks": 300
+          "kind": "self_random_buff",
+          "durationTicks": 300,
+          "strongChance": 0.30,
+          "absorptionLow": 20,
+          "absorptionHigh": 20
         }
       ],
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:regeneration",
-          "amplifier": 1,
-          "durationTicks": 360
+          "kind": "self_random_buff",
+          "durationTicks": 360,
+          "strongChance": 0.45,
+          "absorptionLow": 25,
+          "absorptionHigh": 25
         }
       ],
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:resistance",
-          "amplifier": 1,
-          "durationTicks": 440
+          "kind": "self_random_buff",
+          "durationTicks": 440,
+          "strongChance": 0.60,
+          "absorptionLow": 30,
+          "absorptionHigh": 30
         }
       ],
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:strength",
-          "amplifier": 1,
-          "durationTicks": 520
+          "kind": "self_random_buff",
+          "durationTicks": 520,
+          "strongChance": 0.75,
+          "absorptionLow": 40,
+          "absorptionHigh": 40
         }
       ]
     ]
@@ -40,8 +44,10 @@
     "tiers": [
       [
         {
-          "kind": "self_heal",
-          "amount": 45
+          "kind": "self_fortune_gamble",
+          "healChance": 0.5,
+          "heal": 45,
+          "selfDamage": 45
         },
         {
           "kind": "self_potion",
@@ -58,8 +64,10 @@
       ],
       [
         {
-          "kind": "self_heal",
-          "amount": 55
+          "kind": "self_fortune_gamble",
+          "healChance": 0.5,
+          "heal": 55,
+          "selfDamage": 40
         },
         {
           "kind": "self_potion",
@@ -76,8 +84,10 @@
       ],
       [
         {
-          "kind": "self_heal",
-          "amount": 65
+          "kind": "self_fortune_gamble",
+          "healChance": 0.5,
+          "heal": 65,
+          "selfDamage": 32
         },
         {
           "kind": "self_potion",
@@ -94,8 +104,10 @@
       ],
       [
         {
-          "kind": "self_heal",
-          "amount": 80
+          "kind": "self_fortune_gamble",
+          "healChance": 0.5,
+          "heal": 80,
+          "selfDamage": 24
         },
         {
           "kind": "self_potion",
@@ -115,6 +127,10 @@
   "shiny": {
     "cooldownTicks": 14400,
     "ops": [
+      {
+        "kind": "self_refresh_beneficial",
+        "durationTicks": 1200
+      },
       {
         "kind": "self_potion",
         "effect": "minecraft:strength",

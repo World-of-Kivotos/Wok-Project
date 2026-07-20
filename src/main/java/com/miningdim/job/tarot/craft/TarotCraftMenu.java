@@ -13,7 +13,9 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.inventory.ContainerLevelAccess;
+import net.minecraft.world.inventory.SimpleContainerData;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemStackHandler;
@@ -31,9 +33,17 @@ public final class TarotCraftMenu extends AbstractMiningMenu {
     /** 合成按钮 id (clickMenuButton 的 buttonId)。 */
     public static final int BUTTON_CRAFT = 0;
 
+    private static final int DATA_LAST_OUTCOME = 0;
+    private static final int DATA_OUTCOME_SEQUENCE = 1;
+    private static final int DATA_REVEAL_CARD = 2;
+    private static final int DATA_COUNT = 3;
+    private static final int NO_OUTCOME = 0;
+    private static final int NO_REVEAL_CARD = 0;
+
     private final ContainerLevelAccess access;
     private final BlockPos pos;
     private final ItemStackHandler inputHandler;
+    private final ContainerData outcomeData;
 
     public TarotCraftMenu(int windowId, Inventory playerInv, BlockPos pos) {
         super(TarotRegistry.CRAFT_MENU.get(), windowId, TarotCraftBlockEntity.INPUT_SLOTS,
@@ -42,12 +52,75 @@ public final class TarotCraftMenu extends AbstractMiningMenu {
         this.pos = pos;
         this.access = ContainerLevelAccess.create(playerInv.player.level(), pos);
         this.inputHandler = resolveInputHandler(playerInv, pos);
+        this.outcomeData = new SimpleContainerData(DATA_COUNT);
+        addDataSlots(outcomeData);
 
-        // 两输入槽 (横排), 只接受卡牌。
-        addSlot(new CardSlot(inputHandler, 0, 44, 35));
-        addSlot(new CardSlot(inputHandler, 1, 80, 35));
-        // 玩家背包 (脚手架统一铺 36 槽)。
-        addPlayerInventory(playerInv, 8, 84);
+        // Two inputs flank the central astrolabe. Coordinates match tarot_craft.png exactly.
+        addSlot(new CardSlot(inputHandler, 0, 32, 51));
+        addSlot(new CardSlot(inputHandler, 1, 168, 51));
+        // Player inventory: 9x3 at y=142 and hotbar at y=200.
+        addPlayerInventory(playerInv, 28, 142);
+    }
+
+    /** Safe client-side quality preview. Empty means missing, malformed, mismatched, or Shiny input. */
+    public java.util.Optional<TarotQuality> previewInputQuality() {
+        ItemStack a = getSlot(0).getItem();
+        ItemStack b = getSlot(1).getItem();
+        if (a.isEmpty() || b.isEmpty()
+                || !(a.getItem() instanceof TarotCardItem)
+                || !(b.getItem() instanceof TarotCardItem)) {
+            return java.util.Optional.empty();
+        }
+        try {
+            TarotQuality qa = TarotCardItem.quality(a);
+            TarotQuality qb = TarotCardItem.quality(b);
+            if (qa != qb || qa == TarotQuality.SHINY || qa.next() == null) {
+                return java.util.Optional.empty();
+            }
+            return java.util.Optional.of(qa);
+        } catch (RuntimeException malformedCard) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    /** Whether at least one of the two visual input slots currently contains a stack. */
+    public boolean hasAnyInput() {
+        return getSlot(0).hasItem() || getSlot(1).hasItem();
+    }
+
+    /** Sequence used by the client to trigger exactly one animation per completed craft. */
+    public int outcomeSequence() {
+        return outcomeData.get(DATA_OUTCOME_SEQUENCE);
+    }
+
+    /** Most recent server-authoritative craft result, or empty before the first completed craft. */
+    public java.util.Optional<TarotCraftService.Result> lastOutcome() {
+        int encoded = outcomeData.get(DATA_LAST_OUTCOME);
+        TarotCraftService.Result[] results = TarotCraftService.Result.values();
+        if (encoded <= NO_OUTCOME || encoded > results.length) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(results[encoded - 1]);
+    }
+
+    /**
+     * Snapshot of the successful product used only by the client-side reveal animation. The real
+     * product is still granted immediately and authoritatively on the server.
+     */
+    public java.util.Optional<RevealCard> lastRevealCard() {
+        int encoded = outcomeData.get(DATA_REVEAL_CARD);
+        if (encoded == NO_REVEAL_CARD) {
+            return java.util.Optional.empty();
+        }
+        int cardId = (encoded & 0x1F) - 1;
+        int qualityOrdinal = ((encoded >>> 5) & 0x07) - 1;
+        boolean upright = (encoded & (1 << 8)) != 0;
+        if (cardId < 0 || cardId >= com.miningdim.job.tarot.TarotArcana.COUNT
+                || qualityOrdinal < 0 || qualityOrdinal >= TarotQuality.values().length) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(new RevealCard(
+                cardId, TarotQuality.byOrdinal(qualityOrdinal), upright));
     }
 
     /** 服务端取真实 BE 的 handler; 客户端 (无 BE 或非同步态) 用临时空 handler 镜像 (槽内容随同步包刷新)。 */
@@ -99,8 +172,31 @@ public final class TarotCraftMenu extends AbstractMiningMenu {
         TarotCraftService.CraftOutcome outcome =
                 TarotRuntime.craft().resolve(player, a, b, level.getRandom());
 
+        int revealCard = encodeRevealCard(outcome.product());
         applyOutcome(player, level, outcome);
+        publishOutcome(outcome.result(), revealCard);
         return true;
+    }
+
+    /** Publishes the result after all authoritative inventory mutations have completed. */
+    private void publishOutcome(TarotCraftService.Result result, int revealCard) {
+        outcomeData.set(DATA_LAST_OUTCOME, result.ordinal() + 1);
+        outcomeData.set(DATA_REVEAL_CARD, revealCard);
+        outcomeData.set(DATA_OUTCOME_SEQUENCE, outcomeData.get(DATA_OUTCOME_SEQUENCE) + 1);
+    }
+
+    private static int encodeRevealCard(ItemStack product) {
+        if (product.isEmpty() || !(product.getItem() instanceof TarotCardItem)) {
+            return NO_REVEAL_CARD;
+        }
+        try {
+            int cardId = TarotCardItem.cardId(product);
+            int qualityOrdinal = TarotCardItem.quality(product).ordinal();
+            int uprightFlag = TarotCardItem.upright(product) ? (1 << 8) : 0;
+            return (cardId + 1) | ((qualityOrdinal + 1) << 5) | uprightFlag;
+        } catch (RuntimeException malformedProduct) {
+            return NO_REVEAL_CARD;
+        }
     }
 
     /** 按四结果消耗输入并发放产物/碎片 (spec 第八章: 破碎耗 1、大破碎耗 2、成功/逆转耗 2 出 1)。 */
@@ -123,8 +219,6 @@ public final class TarotCraftMenu extends AbstractMiningMenu {
             }
             default -> throw new IllegalStateException("unhandled craft result: " + outcome.result());
         }
-        player.displayClientMessage(Component.translatable(
-                "message.miningdim.tarot.craft.result." + outcome.result().name().toLowerCase()), true);
     }
 
     private static void giveOrDrop(ServerPlayer player, ItemStack stack) {
@@ -159,5 +253,9 @@ public final class TarotCraftMenu extends AbstractMiningMenu {
         public int getMaxStackSize() {
             return 1;
         }
+    }
+
+    /** Compact client-safe identity for the post-animation card reveal. */
+    public record RevealCard(int cardId, TarotQuality quality, boolean upright) {
     }
 }

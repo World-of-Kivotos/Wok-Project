@@ -47,10 +47,10 @@ public final class ShinyPackSelectMenu extends AbstractMiningMenu {
         if (!(player instanceof ServerPlayer serverPlayer)) {
             return false;
         }
-        // 扣费与消耗包推迟到此刻 (spec 修正: 玩家 ESC 不选则零损失)。原子: 扣青辉石 + 消耗 1 包都成功才发牌。
-        if (!TarotPackItem.chargeAndConsumeShiny(serverPlayer)) {
+        // The pack was paid for or dropped when acquired; selection only consumes the owned item.
+        if (!TarotPackItem.consumeShiny(serverPlayer)) {
             serverPlayer.displayClientMessage(
-                    Component.translatable("message.miningdim.tarot.pack.cannot_afford"), true);
+                    Component.translatable("message.miningdim.tarot.pack.unavailable"), true);
             serverPlayer.closeContainer();
             return false;
         }

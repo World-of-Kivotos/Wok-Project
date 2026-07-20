@@ -18,6 +18,10 @@ import net.minecraft.world.item.ItemStack;
  */
 public final class TarotCraftService {
 
+    /** Exact server-configured outcome distribution used by both the roll and the client preview. */
+    public record CraftChances(double success, double reverse, double shatter, double bigShatter) {
+    }
+
     /** 四结果 (spec 第八章表)。 */
     public enum Result {
         SUCCESS, REVERSE, SHATTER, BIG_SHATTER
@@ -79,9 +83,10 @@ public final class TarotCraftService {
      * TDD 概率断言共用 (测试用此路径不触 JobServices, 避免把未接线异常计成 success 污染统计; Minor 修正)。
      */
     public Result decide(TarotQuality from, RandomSource rng) {
-        double success = successChance(from);
-        double reverse = reverseChance(from);
-        double shatter = shatterChance(from);
+        CraftChances chances = chances(from);
+        double success = chances.success();
+        double reverse = chances.reverse();
+        double shatter = chances.shatter();
         double roll = rng.nextDouble();
         if (roll < success) {
             return Result.SUCCESS;
@@ -93,6 +98,15 @@ public final class TarotCraftService {
             return Result.SHATTER;
         }
         return Result.BIG_SHATTER;
+    }
+
+    /** Returns the complete four-way probability table for one source quality. */
+    public static CraftChances chances(TarotQuality from) {
+        double success = successChance(from);
+        double reverse = reverseChance(from);
+        double shatter = shatterChance(from);
+        double bigShatter = Math.max(0.0D, 1.0D - success - reverse - shatter);
+        return new CraftChances(success, reverse, shatter, bigShatter);
     }
 
     /** 产出一份塔罗碎片堆 (破碎/大破碎返还)。 */

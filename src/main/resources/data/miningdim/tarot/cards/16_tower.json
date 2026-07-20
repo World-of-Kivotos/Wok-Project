@@ -4,54 +4,42 @@
     "tiers": [
       [
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "target_tower_strike",
           "amount": 40,
-          "radius": 3
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:resistance",
-          "amplifier": 1,
-          "durationTicks": 80
+          "radius": 3,
+          "force": 1.4,
+          "mode": "push",
+          "casterResistanceTicks": 80
         }
       ],
       [
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "target_tower_strike",
           "amount": 55,
-          "radius": 4
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:resistance",
-          "amplifier": 1,
-          "durationTicks": 100
+          "radius": 4,
+          "force": 1.4,
+          "mode": "push",
+          "casterResistanceTicks": 100
         }
       ],
       [
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "target_tower_strike",
           "amount": 70,
-          "radius": 5
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:resistance",
-          "amplifier": 1,
-          "durationTicks": 120
+          "radius": 5,
+          "force": 1.4,
+          "mode": "push",
+          "casterResistanceTicks": 120
         }
       ],
       [
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "target_tower_strike",
           "amount": 90,
-          "radius": 6
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:resistance",
-          "amplifier": 1,
-          "durationTicks": 160
+          "radius": 6,
+          "force": 1.4,
+          "mode": "push",
+          "casterResistanceTicks": 160
         }
       ]
     ]
@@ -64,16 +52,12 @@
           "amount": 40
         },
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "target_tower_strike",
           "amount": 60,
-          "radius": 4
-        },
-        {
-          "kind": "aoe_enemy_potion",
-          "effect": "minecraft:blindness",
-          "amplifier": 0,
-          "durationTicks": 40,
-          "radius": 4
+          "radius": 4,
+          "force": 1.2,
+          "mode": "pull",
+          "blindnessTicks": 40
         }
       ],
       [
@@ -82,16 +66,12 @@
           "amount": 32
         },
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "target_tower_strike",
           "amount": 80,
-          "radius": 5
-        },
-        {
-          "kind": "aoe_enemy_potion",
-          "effect": "minecraft:blindness",
-          "amplifier": 0,
-          "durationTicks": 60,
-          "radius": 5
+          "radius": 5,
+          "force": 1.2,
+          "mode": "pull",
+          "blindnessTicks": 60
         }
       ],
       [
@@ -100,16 +80,12 @@
           "amount": 24
         },
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "target_tower_strike",
           "amount": 100,
-          "radius": 6
-        },
-        {
-          "kind": "aoe_enemy_potion",
-          "effect": "minecraft:blindness",
-          "amplifier": 0,
-          "durationTicks": 80,
-          "radius": 6
+          "radius": 6,
+          "force": 1.2,
+          "mode": "pull",
+          "blindnessTicks": 80
         }
       ],
       [
@@ -118,16 +94,12 @@
           "amount": 14
         },
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "target_tower_strike",
           "amount": 130,
-          "radius": 8
-        },
-        {
-          "kind": "aoe_enemy_potion",
-          "effect": "minecraft:blindness",
-          "amplifier": 0,
-          "durationTicks": 100,
-          "radius": 8
+          "radius": 8,
+          "force": 1.2,
+          "mode": "pull",
+          "blindnessTicks": 100
         }
       ]
     ]
@@ -136,16 +108,13 @@
     "cooldownTicks": 7200,
     "ops": [
       {
-        "kind": "aoe_enemy_damage",
+        "kind": "target_tower_strike",
         "amount": 150,
-        "radius": 10
-      },
-      {
-        "kind": "aoe_enemy_potion",
-        "effect": "minecraft:blindness",
-        "amplifier": 0,
-        "durationTicks": 100,
-        "radius": 10
+        "radius": 10,
+        "force": 1.8,
+        "mode": "push",
+        "blindnessTicks": 100,
+        "clearBuffs": true
       }
     ]
   }

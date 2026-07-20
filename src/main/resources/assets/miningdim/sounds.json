@@ -16,5 +16,45 @@
         "stream": false
       }
     ]
+  },
+  "tarot_cast_start": {
+    "subtitle": "subtitles.miningdim.tarot_cast_start",
+    "sounds": [{ "name": "miningdim:job/tarot/cast_sequence", "stream": false }]
+  },
+  "tarot_craft_success": {
+    "subtitle": "subtitles.miningdim.tarot_craft_result",
+    "sounds": [{ "name": "miningdim:job/tarot/craft_success", "stream": false }]
+  },
+  "tarot_craft_great_success": {
+    "subtitle": "subtitles.miningdim.tarot_craft_result",
+    "sounds": [{ "name": "miningdim:job/tarot/craft_great_success", "stream": false }]
+  },
+  "tarot_craft_reverse": {
+    "subtitle": "subtitles.miningdim.tarot_craft_result",
+    "sounds": [{ "name": "miningdim:job/tarot/craft_reverse", "stream": false }]
+  },
+  "tarot_craft_shatter": {
+    "subtitle": "subtitles.miningdim.tarot_craft_result",
+    "sounds": [{ "name": "miningdim:job/tarot/craft_shatter", "stream": false }]
+  },
+  "tarot_craft_big_shatter": {
+    "subtitle": "subtitles.miningdim.tarot_craft_result",
+    "sounds": [{ "name": "miningdim:job/tarot/craft_big_shatter", "stream": false }]
+  },
+  "plasma_shield_hit": {
+    "subtitle": "subtitles.miningdim.plasma_shield_hit",
+    "sounds": [
+      { "name": "miningdim:item/plasma_shield/hit_01", "stream": false },
+      { "name": "miningdim:item/plasma_shield/hit_02", "stream": false },
+      { "name": "miningdim:item/plasma_shield/hit_03", "stream": false }
+    ]
+  },
+  "plasma_shield_overheat": {
+    "subtitle": "subtitles.miningdim.plasma_shield_overheat",
+    "sounds": [{ "name": "miningdim:item/plasma_shield/overheat", "stream": false }]
+  },
+  "plasma_shield_steam_vent": {
+    "subtitle": "subtitles.miningdim.plasma_shield_steam_vent",
+    "sounds": [{ "name": "miningdim:item/plasma_shield/steam_vent", "stream": false }]
   }
 }

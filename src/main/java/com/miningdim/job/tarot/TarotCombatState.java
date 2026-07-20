@@ -2,6 +2,8 @@ package com.miningdim.job.tarot;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.phys.AABB;
 
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -24,6 +26,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * 反泄漏清理由 {@link TarotSystem} 的登出/死亡/换维度事件调 {@link #clearAll(UUID)}; 事件读取由 {@link TarotCombatHandlers}.
  */
 public final class TarotCombatState {
+
+    public enum Restriction {
+        ATTACK_LOCK,
+        HEALING_BLOCK,
+        UNTARGETABLE
+    }
 
     /** 窗口类机制的种类 (一玩家每种至多一个激活窗口; 同种刷新覆盖)。 */
     public enum WindowKind {
@@ -92,12 +100,23 @@ public final class TarotCombatState {
         boolean immuneVulnerability;
     }
 
+    private static final class DamageShare {
+        long endTick;
+        double percent;
+        java.util.Set<UUID> members;
+    }
+
+    public record DamageShareSnapshot(double percent, java.util.Set<UUID> members) {
+    }
+
     private static final Map<UUID, Map<WindowKind, Window>> WINDOWS = new ConcurrentHashMap<>();
     private static final Map<UUID, Contract> CONTRACTS = new ConcurrentHashMap<>();
     private static final Map<UUID, ReflectAccum> REFLECT_ACCUMS = new ConcurrentHashMap<>();
     private static final Map<UUID, Ledger> LEDGERS = new ConcurrentHashMap<>();
     private static final Map<UUID, Bond> BONDS = new ConcurrentHashMap<>();
     private static final Map<UUID, Immunity> IMMUNITIES = new ConcurrentHashMap<>();
+    private static final Map<UUID, Map<Restriction, Long>> RESTRICTIONS = new ConcurrentHashMap<>();
+    private static final Map<UUID, DamageShare> DAMAGE_SHARES = new ConcurrentHashMap<>();
 
     private TarotCombatState() {
     }
@@ -183,6 +202,30 @@ public final class TarotCombatState {
         IMMUNITIES.put(player.getUUID(), im);
     }
 
+    public static void openRestriction(ServerPlayer player, Restriction restriction, int durationTicks) {
+        RESTRICTIONS.computeIfAbsent(player.getUUID(), ignored -> new EnumMap<>(Restriction.class))
+                .put(restriction, now(player) + durationTicks);
+    }
+
+    public static void openHermitRestrictions(ServerPlayer player, int durationTicks) {
+        openRestriction(player, Restriction.ATTACK_LOCK, durationTicks);
+        openRestriction(player, Restriction.UNTARGETABLE, durationTicks);
+    }
+
+    public static void openDamageShare(ServerPlayer owner, java.util.Set<UUID> members,
+                                       int durationTicks, double percent) {
+        if (members.isEmpty()) {
+            return;
+        }
+        DamageShare share = new DamageShare();
+        share.endTick = now(owner) + durationTicks;
+        share.percent = percent;
+        share.members = java.util.Set.copyOf(members);
+        for (UUID member : share.members) {
+            DAMAGE_SHARES.put(member, share);
+        }
+    }
+
     private static void putWindow(ServerPlayer player, WindowKind kind, int durationTicks,
                                   double percent, double perHitCap) {
         Window w = new Window();
@@ -254,6 +297,23 @@ public final class TarotCombatState {
     public static boolean immuneToVulnerability(UUID playerId, long now) {
         Immunity im = IMMUNITIES.get(playerId);
         return im != null && now < im.endTick && im.immuneVulnerability;
+    }
+
+    public static boolean restricted(UUID playerId, Restriction restriction, long now) {
+        Map<Restriction, Long> restrictions = RESTRICTIONS.get(playerId);
+        if (restrictions == null) {
+            return false;
+        }
+        Long end = restrictions.get(restriction);
+        return end != null && now < end;
+    }
+
+    public static DamageShareSnapshot damageShare(UUID playerId, long now) {
+        DamageShare share = DAMAGE_SHARES.get(playerId);
+        if (share == null || now >= share.endTick) {
+            return null;
+        }
+        return new DamageShareSnapshot(share.percent, share.members);
     }
 
     // ---- 累计反击窗 (正义闪耀) ----
@@ -365,7 +425,18 @@ public final class TarotCombatState {
         REFLECT_ACCUMS.remove(playerId);
         LEDGERS.remove(playerId);
         IMMUNITIES.remove(playerId);
+        RESTRICTIONS.remove(playerId);
+        clearDamageShare(playerId);
         clearBond(playerId);
+    }
+
+    private static void clearDamageShare(UUID playerId) {
+        DamageShare share = DAMAGE_SHARES.remove(playerId);
+        if (share != null) {
+            for (UUID member : share.members) {
+                DAMAGE_SHARES.remove(member, share);
+            }
+        }
     }
 
     /**
@@ -381,11 +452,33 @@ public final class TarotCombatState {
         WINDOWS.entrySet().removeIf(e -> e.getValue().isEmpty());
         CONTRACTS.entrySet().removeIf(e -> now >= e.getValue().endTick);
         IMMUNITIES.entrySet().removeIf(e -> now >= e.getValue().endTick);
+        RESTRICTIONS.values().forEach(m -> m.entrySet().removeIf(e -> now >= e.getValue()));
+        RESTRICTIONS.entrySet().removeIf(e -> e.getValue().isEmpty());
+        DAMAGE_SHARES.entrySet().removeIf(e -> now >= e.getValue().endTick);
+        clearMobTargets(server, now);
         // 过期绑定双向解绑 (拷贝键集后再清, 避免遍历中改 map)。
         for (UUID id : java.util.List.copyOf(BONDS.keySet())) {
             Bond b = BONDS.get(id);
             if (b != null && now >= b.endTick) {
                 clearBond(id);
+            }
+        }
+    }
+
+    private static void clearMobTargets(MinecraftServer server, long now) {
+        for (Map.Entry<UUID, Map<Restriction, Long>> entry : RESTRICTIONS.entrySet()) {
+            Long end = entry.getValue().get(Restriction.UNTARGETABLE);
+            if (end == null || now >= end) {
+                continue;
+            }
+            ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
+            if (player == null) {
+                continue;
+            }
+            AABB area = player.getBoundingBox().inflate(64.0D);
+            for (Mob mob : player.serverLevel().getEntitiesOfClass(Mob.class, area,
+                    candidate -> candidate.getTarget() == player)) {
+                mob.setTarget(null);
             }
         }
     }

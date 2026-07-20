@@ -4,7 +4,11 @@ import com.miningdim.core.Subsystem;
 import com.miningdim.job.tarot.card.TarotCardLoader;
 import com.miningdim.job.tarot.client.TarotClientSetup;
 import com.miningdim.job.tarot.craft.TarotCraftService;
+import com.miningdim.job.tarot.network.TarotNetwork;
 import com.miningdim.job.tarot.pack.PackGachaService;
+import com.miningdim.job.tarot.pack.PackKind;
+import com.miningdim.job.tarot.pack.TarotPackDropHandler;
+import com.miningdim.job.tarot.pack.TarotPackService;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.CommandSourceStack;
@@ -21,6 +25,7 @@ import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,6 +47,7 @@ public final class TarotSystem implements Subsystem {
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/tarot");
 
     private final TarotCooldownManager cooldown = new TarotCooldownManager();
+    private final TarotCastManager castManager = new TarotCastManager();
     private final ScheduledEffectManager scheduler = new ScheduledEffectManager();
     private final MaxHealthModifierManager maxHealth = new MaxHealthModifierManager();
     private final TarotCardLoader cardLoader = new TarotCardLoader();
@@ -54,12 +60,14 @@ public final class TarotSystem implements Subsystem {
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
         // 运行期服务装配 (本包静态访问点; use 入口经此取用)。
-        TarotRuntime.init(cooldown, scheduler, maxHealth, cardLoader, effectEngine, gacha, craft);
+        TarotRuntime.init(cooldown, castManager, scheduler, maxHealth, cardLoader, effectEngine, gacha, craft);
 
         // DeferredRegister 自注册 (modBus); MenuType 经 ModMenus 由 JobFramework 统一接 modBus,
         // 但本子系统的 RegistryObject 在 TarotRegistry 静态初始化时已登记进 ModMenus.MENUS, 故此处只接 Item/Block/BE。
         TarotRegistry.register(modBus);
         TarotCreativeTab.register(modBus);
+        TarotSounds.register(modBus);
+        modBus.addListener((FMLCommonSetupEvent event) -> event.enqueueWork(TarotNetwork::register));
 
         // 独立 SERVER 配置段 (自带 spec, 不污染中央 MiningServerConfig)。
         net.minecraftforge.fml.ModLoadingContext.get().registerConfig(
@@ -70,10 +78,11 @@ public final class TarotSystem implements Subsystem {
         forgeBus.register(this);
         // 战斗窗口事件 (LivingHurt/LivingKnockBack/LivingDeath 读 TarotCombatState 窗口快照)。
         forgeBus.register(combatHandlers);
+        forgeBus.register(new TarotPackDropHandler());
 
         // 客户端 setup 仅在客户端接线 (专用服务器不触客户端类链)。
         if (TarotClientSetup.isClient()) {
-            TarotClientSetup.register(modBus);
+            TarotClientSetup.register(modBus, forgeBus);
         }
 
         LOGGER.info("[miningdim] tarot subsystem registered (cards + packs + craft + effects + datapack loader)");
@@ -101,7 +110,43 @@ public final class TarotSystem implements Subsystem {
                                 .then(Commands.argument("upright",
                                                 com.mojang.brigadier.arguments.BoolArgumentType.bool())
                                         .executes(ctx -> cmdExchange(ctx,
-                                                com.mojang.brigadier.arguments.BoolArgumentType.getBool(ctx, "upright")))))));
+                                                com.mojang.brigadier.arguments.BoolArgumentType.getBool(ctx, "upright"))))))
+                .then(Commands.literal("pack")
+                        .then(Commands.literal("buy")
+                                .then(packPurchaseNode("common", PackKind.COMMON))
+                                .then(packPurchaseNode("advanced", PackKind.ADVANCED))
+                                .then(packPurchaseNode("shiny", PackKind.SHINY)))));
+    }
+
+    private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> packPurchaseNode(
+            String literal, PackKind kind) {
+        return Commands.literal(literal)
+                .executes(ctx -> cmdBuyPack(ctx, kind, 1))
+                .then(Commands.argument("count",
+                                com.mojang.brigadier.arguments.IntegerArgumentType.integer(1, 64))
+                        .executes(ctx -> cmdBuyPack(ctx, kind,
+                                com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "count"))));
+    }
+
+    private static int cmdBuyPack(CommandContext<CommandSourceStack> ctx, PackKind kind, int count)
+            throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        TarotPackService.PurchaseResult result = TarotPackService.buy(player, kind, count);
+        Component packName = Component.translatable("item.miningdim.tarot_pack_" + kind.id());
+        if (result.status() == TarotPackService.PurchaseStatus.DAILY_LIMIT) {
+            ctx.getSource().sendFailure(Component.translatable(
+                    "message.miningdim.tarot.pack.daily_limit", result.remainingToday()));
+            return 0;
+        }
+        if (result.status() == TarotPackService.PurchaseStatus.NOT_ENOUGH_CURRENCY) {
+            ctx.getSource().sendFailure(Component.translatable(
+                    "message.miningdim.tarot.pack.insufficient", result.totalPrice()));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.translatable(
+                "message.miningdim.tarot.pack.purchased",
+                result.count(), packName, result.totalPrice(), result.remainingToday()), false);
+        return result.count();
     }
 
     private int cmdConsent(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
@@ -134,6 +179,7 @@ public final class TarotSystem implements Subsystem {
             return;
         }
         MinecraftServer server = event.getServer();
+        castManager.tick(server);
         scheduler.tick(server);
         TarotCombatState.tick(server);
         TarotConsentRegistry.tick(server);
@@ -182,6 +228,7 @@ public final class TarotSystem implements Subsystem {
         if (event.getEntity() instanceof ServerPlayer player) {
             // 真死: 清最大生命修饰 (防重生后残留) + 调度队列 + 战斗窗口 (spec: 死亡清队列防泄漏)。
             maxHealth.remove(player);
+            castManager.cancel(player.getUUID());
             scheduler.cancelFor(player.getUUID());
             TarotCombatState.clearAll(player.getUUID());
         }
@@ -194,6 +241,7 @@ public final class TarotSystem implements Subsystem {
             // 调度队列保留 (换维度玩家仍在线, 周期治疗等可继续; 仅 maxHealth attribute 修饰需清, 因换维度
             // 会重建属性实例, 不清会残留旧修饰)。战斗窗口同样清 (跨维度战斗上下文失效)。
             maxHealth.remove(player);
+            castManager.cancel(player.getUUID());
             TarotCombatState.clearAll(player.getUUID());
         }
     }
@@ -210,14 +258,15 @@ public final class TarotSystem implements Subsystem {
     public void onServerStopping(ServerStoppingEvent event) {
         // 清运行期态防跨存档脏引用 (与 MiningServices.reset / JobServices.reset 同纪律)。
         // 经济门面引用由 economy 子系统经 EconomyServices.reset 自清 (本职业不再持悬空 seam)。
+        castManager.clear();
         TarotRuntime.reset();
     }
 
     private void cleanup(ServerPlayer player) {
         maxHealth.remove(player);
+        castManager.cancel(player.getUUID());
         scheduler.cancelFor(player.getUUID());
         cooldown.clear(player.getUUID());
-        gacha.clear(player.getUUID());
         TarotCombatState.clearAll(player.getUUID());
         TarotConsentRegistry.clear(player.getUUID());
     }

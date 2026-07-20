@@ -1,5 +1,7 @@
 package com.miningdim.job;
 
+import net.minecraft.network.chat.Component;
+
 /**
  * 职业身份权威枚举 (JobFramework_Shared_Foundation_DesignSpec 第 2.1 节, 经 design_mindmap.md 共享地基节
  * 与 SpecialAgent/Munitions 两份新 spec 收编为 7 个)。作为 {@link JobData} 内 EnumMap 的 key。
@@ -41,12 +43,26 @@ public enum JobId {
     }
 
     /**
+     * 玩家可见职业名。稳定 id 仍用于 NBT 和网络同步，避免旧存档中的 engineer 进度丢失。
+     */
+    public Component displayName() {
+        return Component.translatable("job.miningdim." + id);
+    }
+
+    /**
      * 按小写 id 反查 JobId; 未知 id 返回 null (调用方据此短路或在边界报错, 不静默掩盖)。
      * 命令解析 (/job info &lt;job&gt;) 与 datapack 键映射用。
      */
     public static JobId byId(String id) {
+        if (id == null) {
+            return null;
+        }
+        // “铸甲师”是玩家可见的新名称；保留 engineer 作为旧存档和旧命令兼容 ID。
+        if ("armorer".equalsIgnoreCase(id) || "铸甲师".equals(id)) {
+            return ENGINEER;
+        }
         for (JobId job : values()) {
-            if (job.id.equals(id)) {
+            if (job.id.equalsIgnoreCase(id)) {
                 return job;
             }
         }

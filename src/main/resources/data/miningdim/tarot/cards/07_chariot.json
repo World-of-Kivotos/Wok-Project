@@ -4,6 +4,12 @@
     "tiers": [
       [
         {
+          "kind": "self_dash",
+          "distance": 8,
+          "radius": 1.5,
+          "force": 1.2
+        },
+        {
           "kind": "self_potion",
           "effect": "minecraft:speed",
           "amplifier": 0,
@@ -17,6 +23,12 @@
         }
       ],
       [
+        {
+          "kind": "self_dash",
+          "distance": 8,
+          "radius": 1.5,
+          "force": 1.2
+        },
         {
           "kind": "self_potion",
           "effect": "minecraft:speed",
@@ -32,6 +44,12 @@
       ],
       [
         {
+          "kind": "self_dash",
+          "distance": 8,
+          "radius": 1.5,
+          "force": 1.2
+        },
+        {
           "kind": "self_potion",
           "effect": "minecraft:speed",
           "amplifier": 2,
@@ -45,6 +63,12 @@
         }
       ],
       [
+        {
+          "kind": "self_dash",
+          "distance": 8,
+          "radius": 1.5,
+          "force": 1.2
+        },
         {
           "kind": "self_potion",
           "effect": "minecraft:speed",
@@ -172,10 +196,25 @@
     "cooldownTicks": 6000,
     "ops": [
       {
+        "kind": "self_dash",
+        "distance": 20,
+        "radius": 2,
+        "force": 1.8
+      },
+      {
         "kind": "self_potion",
         "effect": "minecraft:speed",
         "amplifier": 2,
         "durationTicks": 200
+      },
+      {
+        "kind": "immunity",
+        "durationTicks": 200,
+        "effects": [
+          "minecraft:slowness",
+          "minecraft:levitation"
+        ],
+        "vulnerability": false
       }
     ]
   }

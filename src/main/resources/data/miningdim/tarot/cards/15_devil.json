@@ -21,10 +21,11 @@
           "durationTicks": 360
         },
         {
-          "kind": "self_potion",
+          "kind": "self_delayed_potion",
           "effect": "miningdim:vulnerability",
           "amplifier": 1,
-          "durationTicks": 160
+          "durationTicks": 160,
+          "delayTicks": 360
         }
       ],
       [
@@ -46,10 +47,11 @@
           "durationTicks": 440
         },
         {
-          "kind": "self_potion",
+          "kind": "self_delayed_potion",
           "effect": "miningdim:vulnerability",
           "amplifier": 1,
-          "durationTicks": 140
+          "durationTicks": 140,
+          "delayTicks": 440
         }
       ],
       [
@@ -71,10 +73,11 @@
           "durationTicks": 520
         },
         {
-          "kind": "self_potion",
+          "kind": "self_delayed_potion",
           "effect": "miningdim:vulnerability",
           "amplifier": 1,
-          "durationTicks": 120
+          "durationTicks": 120,
+          "delayTicks": 520
         }
       ],
       [
@@ -96,10 +99,11 @@
           "durationTicks": 600
         },
         {
-          "kind": "self_potion",
+          "kind": "self_delayed_potion",
           "effect": "miningdim:vulnerability",
           "amplifier": 1,
-          "durationTicks": 100
+          "durationTicks": 100,
+          "delayTicks": 600
         }
       ]
     ]
@@ -135,6 +139,12 @@
         {
           "kind": "self_knockback_immunity",
           "durationTicks": 400
+        },
+        {
+          "kind": "self_periodic_true_damage",
+          "amount": 8,
+          "periodTicks": 100,
+          "durationTicks": 400
         }
       ],
       [
@@ -165,6 +175,12 @@
         },
         {
           "kind": "self_knockback_immunity",
+          "durationTicks": 480
+        },
+        {
+          "kind": "self_periodic_true_damage",
+          "amount": 8,
+          "periodTicks": 100,
           "durationTicks": 480
         }
       ],
@@ -197,6 +213,12 @@
         {
           "kind": "self_knockback_immunity",
           "durationTicks": 560
+        },
+        {
+          "kind": "self_periodic_true_damage",
+          "amount": 8,
+          "periodTicks": 100,
+          "durationTicks": 560
         }
       ],
       [
@@ -228,6 +250,12 @@
         {
           "kind": "self_knockback_immunity",
           "durationTicks": 640
+        },
+        {
+          "kind": "self_periodic_true_damage",
+          "amount": 8,
+          "periodTicks": 100,
+          "durationTicks": 640
         }
       ]
     ]
@@ -235,6 +263,18 @@
   "shiny": {
     "cooldownTicks": 10800,
     "ops": [
+      {
+        "kind": "aoe_enemy_pull",
+        "radius": 10,
+        "distance": 1.5
+      },
+      {
+        "kind": "aoe_enemy_potion",
+        "effect": "minecraft:slowness",
+        "amplifier": 2,
+        "durationTicks": 440,
+        "radius": 10
+      },
       {
         "kind": "self_potion",
         "effect": "minecraft:strength",

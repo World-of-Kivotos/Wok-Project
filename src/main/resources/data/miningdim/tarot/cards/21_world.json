@@ -186,16 +186,18 @@
           "floorDown": 40
         },
         {
-          "kind": "self_potion",
+          "kind": "self_delayed_potion",
           "effect": "miningdim:vulnerability",
           "amplifier": 1,
-          "durationTicks": 200
+          "durationTicks": 200,
+          "delayTicks": 500
         },
         {
-          "kind": "self_potion",
+          "kind": "self_delayed_potion",
           "effect": "minecraft:slowness",
           "amplifier": 1,
-          "durationTicks": 200
+          "durationTicks": 200,
+          "delayTicks": 500
         }
       ],
       [
@@ -242,16 +244,18 @@
           "floorDown": 40
         },
         {
-          "kind": "self_potion",
+          "kind": "self_delayed_potion",
           "effect": "miningdim:vulnerability",
           "amplifier": 1,
-          "durationTicks": 160
+          "durationTicks": 160,
+          "delayTicks": 600
         },
         {
-          "kind": "self_potion",
+          "kind": "self_delayed_potion",
           "effect": "minecraft:slowness",
           "amplifier": 1,
-          "durationTicks": 160
+          "durationTicks": 160,
+          "delayTicks": 600
         }
       ],
       [
@@ -298,16 +302,18 @@
           "floorDown": 40
         },
         {
-          "kind": "self_potion",
+          "kind": "self_delayed_potion",
           "effect": "miningdim:vulnerability",
           "amplifier": 1,
-          "durationTicks": 120
+          "durationTicks": 120,
+          "delayTicks": 800
         },
         {
-          "kind": "self_potion",
+          "kind": "self_delayed_potion",
           "effect": "minecraft:slowness",
           "amplifier": 1,
-          "durationTicks": 120
+          "durationTicks": 120,
+          "delayTicks": 800
         }
       ],
       [
@@ -354,16 +360,18 @@
           "floorDown": 40
         },
         {
-          "kind": "self_potion",
+          "kind": "self_delayed_potion",
           "effect": "miningdim:vulnerability",
           "amplifier": 1,
-          "durationTicks": 80
+          "durationTicks": 80,
+          "delayTicks": 1000
         },
         {
-          "kind": "self_potion",
+          "kind": "self_delayed_potion",
           "effect": "minecraft:slowness",
           "amplifier": 1,
-          "durationTicks": 80
+          "durationTicks": 80,
+          "delayTicks": 1000
         }
       ]
     ]
@@ -415,7 +423,7 @@
         "kind": "self_periodic_absorption",
         "amount": 25,
         "periodTicks": 100,
-        "count": 108
+        "count": 4
       },
       {
         "kind": "self_potion",

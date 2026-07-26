@@ -1,5 +1,7 @@
 package com.miningdim.job.engineer.effect;
 
+import com.miningdim.job.engineer.armor.item.PlateArmorItem;
+import com.miningdim.job.engineer.shield.item.PlasmaShieldItem;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
@@ -27,6 +29,10 @@ public final class NanoShieldHandler {
     @SubscribeEvent
     public void onLivingHurt(LivingHurtEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) {
+            return;
+        }
+        // 新插板是一套独立护甲原理；穿戴时禁用其他槽位遗留的纳米全免窗，避免未经平衡的双系统叠加。
+        if (PlateArmorItem.equippedBy(player) != null || PlasmaShieldItem.equippedBy(player) != null) {
             return;
         }
         // 一路: 已在免疫窗内 -> 立即免疫 (热路径只读 windowTick 单 int, 不解析特效集合)。

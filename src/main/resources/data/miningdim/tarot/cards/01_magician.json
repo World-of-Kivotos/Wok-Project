@@ -100,10 +100,8 @@
     "cooldownTicks": 900,
     "ops": [
       {
-        "kind": "self_potion",
-        "effect": "minecraft:speed",
-        "amplifier": 14,
-        "durationTicks": 40
+        "kind": "self_blink",
+        "distance": 20
       }
     ]
   }

@@ -1,12 +1,1770 @@
 {
-  "parent": "minecraft:item/generated",
+  "parent": "miningdim:item/tarot_card_thin",
+  "render_type": "forge:item_unlit",
   "textures": {
-    "layer0": "miningdim:item/tarot/border_r"
+    "layer0": "miningdim:item/tarot/00",
+    "layer1": "miningdim:item/tarot/border_r"
   },
   "overrides": [
-    { "predicate": { "miningdim:tarot_quality": 0.1 }, "model": "miningdim:item/tarot_card_sr" },
-    { "predicate": { "miningdim:tarot_quality": 0.2 }, "model": "miningdim:item/tarot_card_ssr" },
-    { "predicate": { "miningdim:tarot_quality": 0.3 }, "model": "miningdim:item/tarot_card_ur" },
-    { "predicate": { "miningdim:tarot_quality": 0.4 }, "model": "miningdim:item/tarot_card_shiny" }
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.01,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_00_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.01,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_00_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.01,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_00_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.01,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_00_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.01,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_00_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.01,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_00_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.01,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_00_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.01,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_00_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.01,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_00_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.01,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_00_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.02,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_01_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.02,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_01_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.02,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_01_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.02,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_01_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.02,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_01_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.02,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_01_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.02,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_01_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.02,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_01_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.02,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_01_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.02,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_01_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.03,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_02_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.03,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_02_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.03,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_02_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.03,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_02_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.03,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_02_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.03,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_02_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.03,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_02_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.03,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_02_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.03,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_02_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.03,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_02_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.04,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_03_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.04,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_03_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.04,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_03_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.04,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_03_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.04,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_03_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.04,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_03_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.04,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_03_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.04,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_03_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.04,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_03_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.04,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_03_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.05,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_04_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.05,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_04_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.05,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_04_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.05,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_04_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.05,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_04_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.05,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_04_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.05,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_04_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.05,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_04_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.05,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_04_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.05,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_04_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.06,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_05_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.06,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_05_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.06,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_05_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.06,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_05_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.06,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_05_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.06,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_05_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.06,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_05_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.06,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_05_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.06,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_05_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.06,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_05_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.07,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_06_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.07,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_06_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.07,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_06_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.07,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_06_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.07,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_06_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.07,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_06_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.07,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_06_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.07,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_06_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.07,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_06_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.07,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_06_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.08,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_07_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.08,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_07_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.08,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_07_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.08,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_07_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.08,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_07_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.08,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_07_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.08,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_07_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.08,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_07_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.08,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_07_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.08,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_07_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.09,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_08_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.09,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_08_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.09,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_08_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.09,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_08_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.09,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_08_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.09,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_08_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.09,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_08_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.09,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_08_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.09,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_08_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.09,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_08_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.1,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_09_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.1,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_09_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.1,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_09_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.1,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_09_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.1,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_09_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.1,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_09_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.1,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_09_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.1,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_09_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.1,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_09_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.1,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_09_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.11,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_10_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.11,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_10_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.11,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_10_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.11,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_10_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.11,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_10_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.11,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_10_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.11,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_10_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.11,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_10_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.11,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_10_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.11,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_10_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.12,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_11_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.12,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_11_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.12,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_11_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.12,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_11_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.12,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_11_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.12,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_11_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.12,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_11_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.12,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_11_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.12,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_11_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.12,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_11_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.13,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_12_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.13,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_12_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.13,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_12_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.13,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_12_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.13,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_12_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.13,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_12_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.13,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_12_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.13,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_12_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.13,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_12_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.13,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_12_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.14,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_13_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.14,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_13_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.14,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_13_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.14,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_13_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.14,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_13_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.14,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_13_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.14,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_13_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.14,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_13_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.14,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_13_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.14,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_13_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.15,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_14_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.15,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_14_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.15,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_14_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.15,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_14_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.15,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_14_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.15,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_14_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.15,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_14_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.15,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_14_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.15,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_14_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.15,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_14_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.16,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_15_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.16,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_15_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.16,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_15_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.16,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_15_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.16,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_15_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.16,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_15_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.16,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_15_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.16,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_15_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.16,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_15_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.16,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_15_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.17,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_16_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.17,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_16_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.17,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_16_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.17,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_16_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.17,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_16_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.17,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_16_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.17,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_16_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.17,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_16_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.17,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_16_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.17,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_16_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.18,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_17_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.18,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_17_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.18,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_17_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.18,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_17_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.18,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_17_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.18,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_17_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.18,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_17_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.18,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_17_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.18,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_17_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.18,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_17_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.19,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_18_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.19,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_18_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.19,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_18_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.19,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_18_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.19,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_18_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.19,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_18_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.19,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_18_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.19,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_18_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.19,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_18_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.19,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_18_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.2,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_19_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.2,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_19_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.2,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_19_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.2,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_19_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.2,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_19_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.2,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_19_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.2,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_19_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.2,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_19_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.2,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_19_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.2,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_19_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.21,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_20_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.21,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_20_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.21,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_20_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.21,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_20_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.21,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_20_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.21,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_20_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.21,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_20_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.21,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_20_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.21,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_20_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.21,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_20_shiny_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.22,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_21_r"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.22,
+        "miningdim:tarot_quality": 0.1,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_21_r_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.22,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_21_sr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.22,
+        "miningdim:tarot_quality": 0.2,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_21_sr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.22,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_21_ssr"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.22,
+        "miningdim:tarot_quality": 0.3,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_21_ssr_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.22,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_21_ur"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.22,
+        "miningdim:tarot_quality": 0.4,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_21_ur_reversed"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.22,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.1
+      },
+      "model": "miningdim:item/tarot_card_21_shiny"
+    },
+    {
+      "predicate": {
+        "miningdim:tarot_card": 0.22,
+        "miningdim:tarot_quality": 0.5,
+        "miningdim:tarot_orientation": 0.2
+      },
+      "model": "miningdim:item/tarot_card_21_shiny_reversed"
+    }
   ]
 }

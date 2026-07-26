@@ -1,8 +1,11 @@
 package com.miningdim.job.tarot.pack;
 
 import com.miningdim.job.tarot.TarotArcana;
+import com.miningdim.job.tarot.TarotCardItem;
 import com.miningdim.job.tarot.TarotRegistry;
 import com.miningdim.job.tarot.TarotRuntime;
+import com.miningdim.job.tarot.network.TarotNetwork;
+import com.miningdim.job.tarot.network.TarotPackRevealS2C;
 import com.miningdim.menu.AbstractMiningMenu;
 import com.miningdim.menu.MenuValidity;
 import net.minecraft.network.FriendlyByteBuf;
@@ -47,10 +50,10 @@ public final class ShinyPackSelectMenu extends AbstractMiningMenu {
         if (!(player instanceof ServerPlayer serverPlayer)) {
             return false;
         }
-        // 扣费与消耗包推迟到此刻 (spec 修正: 玩家 ESC 不选则零损失)。原子: 扣青辉石 + 消耗 1 包都成功才发牌。
-        if (!TarotPackItem.chargeAndConsumeShiny(serverPlayer)) {
+        // The pack was paid for or dropped when acquired; selection only consumes the owned item.
+        if (!TarotPackItem.consumeShiny(serverPlayer)) {
             serverPlayer.displayClientMessage(
-                    Component.translatable("message.miningdim.tarot.pack.cannot_afford"), true);
+                    Component.translatable("message.miningdim.tarot.pack.unavailable"), true);
             serverPlayer.closeContainer();
             return false;
         }
@@ -60,6 +63,13 @@ public final class ShinyPackSelectMenu extends AbstractMiningMenu {
         ItemHandlerHelper.giveItemToPlayer(serverPlayer, card);
         consumed = true;
         serverPlayer.closeContainer();
+        TarotNetwork.sendPackReveal(serverPlayer, new TarotPackRevealS2C(
+                PackKind.SHINY,
+                java.util.List.of(new TarotPackRevealS2C.RevealedCard(
+                        TarotCardItem.cardId(card),
+                        TarotCardItem.quality(card),
+                        TarotCardItem.upright(card))),
+                1, 0, 0));
         return true;
     }
 

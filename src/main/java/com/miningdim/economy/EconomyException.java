@@ -23,6 +23,8 @@ public final class EconomyException extends RuntimeException {
         CURRENCY_NOT_TRANSFERABLE,
         /** 金额为负或非法 (扣费/入账/转账金额必须 > 0)。 */
         ILLEGAL_AMOUNT,
+        /** 同一幂等 operationId 被另一玩家或不同金额复用。 */
+        OPERATION_CONFLICT,
         /** 入账会导致余额溢出 long 上界 (防 7.3 M0 统计被脏数据击穿)。 */
         BALANCE_OVERFLOW
     }

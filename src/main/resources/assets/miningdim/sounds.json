@@ -16,5 +16,141 @@
         "stream": false
       }
     ]
+  },
+  "case_unlock": {
+    "subtitle": "subtitles.miningdim.case_unlock",
+    "sounds": [{ "name": "miningdim:ui/case/unlock", "stream": false }]
+  },
+  "case_open": {
+    "subtitle": "subtitles.miningdim.case_open",
+    "sounds": [{ "name": "miningdim:ui/case/open", "stream": false }]
+  },
+  "case_tick": {
+    "subtitle": "subtitles.miningdim.case_tick",
+    "sounds": [{ "name": "miningdim:ui/case/tick", "stream": false }]
+  },
+  "case_reveal_blue": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_blue", "stream": false }]
+  },
+  "case_reveal_purple": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_purple", "stream": false }]
+  },
+  "case_reveal_pink": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_pink", "stream": false }]
+  },
+  "case_reveal_red": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_red", "stream": false }]
+  },
+  "case_reveal_gold": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_gold", "stream": false }]
+  },
+  "tarot_cast_start": {
+    "subtitle": "subtitles.miningdim.tarot_cast_start",
+    "sounds": [{ "name": "miningdim:job/tarot/cast_sequence", "stream": false }]
+  },
+  "tarot_cast_reveal_r": {
+    "subtitle": "subtitles.miningdim.tarot_cast_reveal",
+    "sounds": [{ "name": "miningdim:job/tarot/cast_reveal_r", "stream": false }]
+  },
+  "tarot_cast_reveal_sr": {
+    "subtitle": "subtitles.miningdim.tarot_cast_reveal",
+    "sounds": [{ "name": "miningdim:job/tarot/cast_reveal_sr", "stream": false }]
+  },
+  "tarot_cast_reveal_ssr": {
+    "subtitle": "subtitles.miningdim.tarot_cast_reveal",
+    "sounds": [{ "name": "miningdim:job/tarot/cast_reveal_ssr", "stream": false }]
+  },
+  "tarot_cast_reveal_ur": {
+    "subtitle": "subtitles.miningdim.tarot_cast_reveal",
+    "sounds": [{ "name": "miningdim:job/tarot/cast_reveal_ur", "stream": false }]
+  },
+  "tarot_cast_reveal_shiny": {
+    "subtitle": "subtitles.miningdim.tarot_cast_reveal",
+    "sounds": [{ "name": "miningdim:job/tarot/cast_reveal_shiny", "stream": false }]
+  },
+  "tarot_cast_resolve_upright": {
+    "subtitle": "subtitles.miningdim.tarot_cast_resolve",
+    "sounds": [{ "name": "miningdim:job/tarot/cast_resolve_upright", "stream": false }]
+  },
+  "tarot_cast_resolve_reversed": {
+    "subtitle": "subtitles.miningdim.tarot_cast_resolve",
+    "sounds": [{ "name": "miningdim:job/tarot/cast_resolve_reversed", "stream": false }]
+  },
+  "tarot_craft_charge": {
+    "subtitle": "subtitles.miningdim.tarot_craft_charge",
+    "sounds": [{ "name": "miningdim:job/tarot/craft_charge", "stream": false }]
+  },
+  "tarot_craft_success": {
+    "subtitle": "subtitles.miningdim.tarot_craft_result",
+    "sounds": [{ "name": "miningdim:job/tarot/craft_success", "stream": false }]
+  },
+  "tarot_craft_great_success": {
+    "subtitle": "subtitles.miningdim.tarot_craft_result",
+    "sounds": [{ "name": "miningdim:job/tarot/craft_great_success", "stream": false }]
+  },
+  "tarot_craft_reverse": {
+    "subtitle": "subtitles.miningdim.tarot_craft_result",
+    "sounds": [{ "name": "miningdim:job/tarot/craft_reverse", "stream": false }]
+  },
+  "tarot_craft_shatter": {
+    "subtitle": "subtitles.miningdim.tarot_craft_result",
+    "sounds": [{ "name": "miningdim:job/tarot/craft_shatter", "stream": false }]
+  },
+  "tarot_craft_big_shatter": {
+    "subtitle": "subtitles.miningdim.tarot_craft_result",
+    "sounds": [{ "name": "miningdim:job/tarot/craft_big_shatter", "stream": false }]
+  },
+  "tarot_pack_scan": {
+    "subtitle": "subtitles.miningdim.tarot_pack_scan",
+    "sounds": [{ "name": "miningdim:job/tarot/pack_scan", "stream": false }]
+  },
+  "tarot_pack_open": {
+    "subtitle": "subtitles.miningdim.tarot_pack_open",
+    "sounds": [{ "name": "miningdim:job/tarot/pack_open", "stream": false }]
+  },
+  "tarot_pack_reveal_r": {
+    "subtitle": "subtitles.miningdim.tarot_pack_reveal",
+    "sounds": [{ "name": "miningdim:job/tarot/pack_reveal_r", "stream": false }]
+  },
+  "tarot_pack_reveal_sr": {
+    "subtitle": "subtitles.miningdim.tarot_pack_reveal",
+    "sounds": [{ "name": "miningdim:job/tarot/pack_reveal_sr", "stream": false }]
+  },
+  "tarot_pack_reveal_ssr": {
+    "subtitle": "subtitles.miningdim.tarot_pack_reveal",
+    "sounds": [{ "name": "miningdim:job/tarot/pack_reveal_ssr", "stream": false }]
+  },
+  "tarot_pack_reveal_ur": {
+    "subtitle": "subtitles.miningdim.tarot_pack_reveal",
+    "sounds": [{ "name": "miningdim:job/tarot/pack_reveal_ur", "stream": false }]
+  },
+  "tarot_pack_reveal_shiny": {
+    "subtitle": "subtitles.miningdim.tarot_pack_reveal",
+    "sounds": [{ "name": "miningdim:job/tarot/pack_reveal_shiny", "stream": false }]
+  },
+  "tarot_pack_complete": {
+    "subtitle": "subtitles.miningdim.tarot_pack_complete",
+    "sounds": [{ "name": "miningdim:job/tarot/pack_complete", "stream": false }]
+  },
+  "plasma_shield_hit": {
+    "subtitle": "subtitles.miningdim.plasma_shield_hit",
+    "sounds": [
+      { "name": "miningdim:item/plasma_shield/hit_01", "stream": false },
+      { "name": "miningdim:item/plasma_shield/hit_02", "stream": false },
+      { "name": "miningdim:item/plasma_shield/hit_03", "stream": false }
+    ]
+  },
+  "plasma_shield_overheat": {
+    "subtitle": "subtitles.miningdim.plasma_shield_overheat",
+    "sounds": [{ "name": "miningdim:item/plasma_shield/overheat", "stream": false }]
+  },
+  "plasma_shield_steam_vent": {
+    "subtitle": "subtitles.miningdim.plasma_shield_steam_vent",
+    "sounds": [{ "name": "miningdim:item/plasma_shield/steam_vent", "stream": false }]
   }
 }

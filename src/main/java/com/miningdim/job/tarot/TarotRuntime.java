@@ -19,6 +19,7 @@ public final class TarotRuntime {
     }
 
     private static TarotCooldownManager cooldown;
+    private static TarotCastManager castManager;
     private static ScheduledEffectManager scheduler;
     private static MaxHealthModifierManager maxHealth;
     private static TarotCardLoader cardLoader;
@@ -27,6 +28,7 @@ public final class TarotRuntime {
     private static TarotCraftService craft;
 
     static void init(TarotCooldownManager cooldown,
+                     TarotCastManager castManager,
                      ScheduledEffectManager scheduler,
                      MaxHealthModifierManager maxHealth,
                      TarotCardLoader cardLoader,
@@ -34,6 +36,7 @@ public final class TarotRuntime {
                      PackGachaService gacha,
                      TarotCraftService craft) {
         TarotRuntime.cooldown = cooldown;
+        TarotRuntime.castManager = castManager;
         TarotRuntime.scheduler = scheduler;
         TarotRuntime.maxHealth = maxHealth;
         TarotRuntime.cardLoader = cardLoader;
@@ -44,6 +47,10 @@ public final class TarotRuntime {
 
     static void reset() {
         cooldown = null;
+        if (castManager != null) {
+            castManager.clear();
+        }
+        castManager = null;
         scheduler = null;
         maxHealth = null;
         cardLoader = null;
@@ -54,6 +61,10 @@ public final class TarotRuntime {
 
     public static TarotCooldownManager cooldown() {
         return require(cooldown, "TarotCooldownManager");
+    }
+
+    public static TarotCastManager castManager() {
+        return require(castManager, "TarotCastManager");
     }
 
     public static ScheduledEffectManager scheduler() {

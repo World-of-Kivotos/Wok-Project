@@ -1,0 +1,102 @@
+package com.miningdim.caseopening;
+
+import com.miningdim.caseopening.store.CaseDaoSqlite;
+import com.miningdim.caseopening.store.CaseDb;
+import com.miningdim.core.Subsystem;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStartingEvent;
+import net.minecraftforge.event.server.ServerStoppingEvent;
+import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.ModList;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/** Owns case config, SQLite lifecycle, WebUI actions, Saga login recovery and held-gun ownership enforcement. */
+public final class CaseOpeningSystem implements Subsystem {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/caseopening");
+
+    private CaseDaoSqlite dao;
+
+    @Override
+    public void register(IEventBus modBus, IEventBus forgeBus) {
+        CaseSounds.register(modBus);
+        CaseTaczResourceBootstrap.registerExportPack();
+        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER,
+                CaseOpeningConfig.SPEC, "miningdim-case-opening.toml");
+        CaseWebUiActions.registerAll();
+        forgeBus.register(this);
+        modBus.addListener((FMLCommonSetupEvent event) -> event.enqueueWork(() -> {
+            if (ModList.get().isLoaded("tacz")) {
+                CaseTaczEventHooks.register(forgeBus);
+            }
+        }));
+        LOGGER.info("[miningdim] case opening subsystem registered (17 skins, case.* actions, SQLite Saga)");
+    }
+
+    @SubscribeEvent
+    public void onServerStarting(ServerStartingEvent event) {
+        this.dao = CaseDb.open(event.getServer());
+        CaseOpeningService service = new CaseOpeningService(
+                this.dao,
+                new EconomyCaseOperations(),
+                new CaseRoller(),
+                CaseOpeningConfig.ENABLED::get,
+                () -> ModList.get().isLoaded("tacz"),
+                CaseTaczResourceBootstrap::isRegistered,
+                CaseOpeningConfig.CREDIT_COST::get,
+                CaseOpeningConfig.AZURE_COST::get,
+                CaseOpeningConfig::weights,
+                CaseOpeningConfig.OPEN_COOLDOWN_TICKS::get);
+        // Fail startup on invalid probability totals instead of discovering a bad table after charging a player.
+        service.weights();
+        CaseServices.register(service);
+        LOGGER.info("[miningdim] case ledger bound ({} CREDIT + {} AZURE per open)",
+                service.creditCost(), service.azureCost());
+    }
+
+    @SubscribeEvent
+    public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player) || !CaseServices.isRegistered()) {
+            return;
+        }
+        try {
+            int recovered = CaseServices.service().recoverFor(player);
+            if (recovered > 0) {
+                LOGGER.info("[miningdim] recovered {} interrupted case opening(s) for {}",
+                        recovered, player.getGameProfile().getName());
+            }
+            CaseServices.service().enforceMainHand(player);
+        } catch (RuntimeException exception) {
+            // Login is a lifecycle recovery boundary: retain the durable Saga for the next retry and preserve the stack trace.
+            LOGGER.error("[miningdim] failed to recover case openings for {}",
+                    player.getGameProfile().getName(), exception);
+        }
+    }
+
+    @SubscribeEvent
+    public void onPlayerTick(TickEvent.PlayerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END
+                || !(event.player instanceof ServerPlayer player)
+                || !CaseServices.isRegistered()
+                || player.tickCount % CaseOpeningConfig.ENFORCE_INTERVAL_TICKS.get() != 0) {
+            return;
+        }
+        CaseServices.service().enforceMainHand(player);
+    }
+
+    @SubscribeEvent
+    public void onServerStopping(ServerStoppingEvent event) {
+        CaseServices.reset();
+        if (this.dao != null) {
+            this.dao.close();
+            this.dao = null;
+        }
+    }
+}

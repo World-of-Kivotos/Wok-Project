@@ -10,7 +10,9 @@
           "durationTicks": 400
         },
         {
-          "kind": "self_cleanse"
+          "kind": "self_periodic_cleanse",
+          "count": 2,
+          "periodTicks": 100
         }
       ],
       [
@@ -21,7 +23,9 @@
           "durationTicks": 520
         },
         {
-          "kind": "self_cleanse"
+          "kind": "self_periodic_cleanse",
+          "count": 3,
+          "periodTicks": 100
         }
       ],
       [
@@ -32,7 +36,9 @@
           "durationTicks": 640
         },
         {
-          "kind": "self_cleanse"
+          "kind": "self_periodic_cleanse",
+          "count": 4,
+          "periodTicks": 100
         }
       ],
       [
@@ -43,7 +49,9 @@
           "durationTicks": 800
         },
         {
-          "kind": "self_cleanse"
+          "kind": "self_periodic_cleanse",
+          "count": 5,
+          "periodTicks": 100
         }
       ]
     ]
@@ -71,6 +79,13 @@
           "effect": "minecraft:nausea",
           "amplifier": 0,
           "durationTicks": 120
+        },
+        {
+          "kind": "aoe_ally_balance_health",
+          "radius": 10,
+          "amount": 6,
+          "periodTicks": 40,
+          "durationTicks": 360
         }
       ],
       [
@@ -94,6 +109,13 @@
           "effect": "minecraft:nausea",
           "amplifier": 0,
           "durationTicks": 160
+        },
+        {
+          "kind": "aoe_ally_balance_health",
+          "radius": 10,
+          "amount": 6,
+          "periodTicks": 40,
+          "durationTicks": 440
         }
       ],
       [
@@ -117,6 +139,13 @@
           "effect": "minecraft:nausea",
           "amplifier": 0,
           "durationTicks": 200
+        },
+        {
+          "kind": "aoe_ally_balance_health",
+          "radius": 10,
+          "amount": 6,
+          "periodTicks": 40,
+          "durationTicks": 520
         }
       ],
       [
@@ -140,6 +169,13 @@
           "effect": "minecraft:nausea",
           "amplifier": 0,
           "durationTicks": 240
+        },
+        {
+          "kind": "aoe_ally_balance_health",
+          "radius": 10,
+          "amount": 6,
+          "periodTicks": 40,
+          "durationTicks": 600
         }
       ]
     ]
@@ -155,7 +191,23 @@
         "radius": 10
       },
       {
-        "kind": "self_cleanse"
+        "kind": "aoe_ally_cleanse_limited",
+        "radius": 10,
+        "count": -1
+      },
+      {
+        "kind": "aoe_ally_damage_share",
+        "radius": 10,
+        "percent": 0.10,
+        "durationTicks": 360
+      },
+      {
+        "kind": "immunity",
+        "durationTicks": 400,
+        "effects": [
+          "minecraft:slowness"
+        ],
+        "vulnerability": false
       }
     ]
   }

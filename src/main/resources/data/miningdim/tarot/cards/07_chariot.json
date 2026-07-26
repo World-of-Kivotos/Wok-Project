@@ -4,6 +4,12 @@
     "tiers": [
       [
         {
+          "kind": "self_dash",
+          "distance": 8,
+          "radius": 1.5,
+          "force": 1.2
+        },
+        {
           "kind": "self_potion",
           "effect": "minecraft:speed",
           "amplifier": 0,
@@ -17,6 +23,12 @@
         }
       ],
       [
+        {
+          "kind": "self_dash",
+          "distance": 8,
+          "radius": 1.5,
+          "force": 1.2
+        },
         {
           "kind": "self_potion",
           "effect": "minecraft:speed",
@@ -32,6 +44,12 @@
       ],
       [
         {
+          "kind": "self_dash",
+          "distance": 8,
+          "radius": 1.5,
+          "force": 1.2
+        },
+        {
           "kind": "self_potion",
           "effect": "minecraft:speed",
           "amplifier": 2,
@@ -45,6 +63,12 @@
         }
       ],
       [
+        {
+          "kind": "self_dash",
+          "distance": 8,
+          "radius": 1.5,
+          "force": 1.2
+        },
         {
           "kind": "self_potion",
           "effect": "minecraft:speed",
@@ -64,106 +88,42 @@
     "tiers": [
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:slowness",
-          "amplifier": 3,
-          "durationTicks": 600
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:blindness",
-          "amplifier": 0,
-          "durationTicks": 600
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:night_vision",
-          "amplifier": 0,
-          "durationTicks": 600
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:resistance",
-          "amplifier": 2,
-          "durationTicks": 100
+          "kind": "self_uncontrolled_dash",
+          "distance": 12,
+          "radius": 1.25,
+          "force": 1.4,
+          "damage": 25,
+          "collisionSelfDamage": 20
         }
       ],
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:slowness",
-          "amplifier": 2,
-          "durationTicks": 500
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:blindness",
-          "amplifier": 0,
-          "durationTicks": 500
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:night_vision",
-          "amplifier": 0,
-          "durationTicks": 500
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:resistance",
-          "amplifier": 2,
-          "durationTicks": 120
+          "kind": "self_uncontrolled_dash",
+          "distance": 14,
+          "radius": 1.25,
+          "force": 1.6,
+          "damage": 32,
+          "collisionSelfDamage": 16
         }
       ],
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:slowness",
-          "amplifier": 1,
-          "durationTicks": 400
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:blindness",
-          "amplifier": 0,
-          "durationTicks": 400
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:night_vision",
-          "amplifier": 0,
-          "durationTicks": 400
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:resistance",
-          "amplifier": 2,
-          "durationTicks": 140
+          "kind": "self_uncontrolled_dash",
+          "distance": 16,
+          "radius": 1.25,
+          "force": 1.8,
+          "damage": 40,
+          "collisionSelfDamage": 12
         }
       ],
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:slowness",
-          "amplifier": 0,
-          "durationTicks": 300
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:blindness",
-          "amplifier": 0,
-          "durationTicks": 300
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:night_vision",
-          "amplifier": 0,
-          "durationTicks": 300
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:resistance",
-          "amplifier": 2,
-          "durationTicks": 200
+          "kind": "self_uncontrolled_dash",
+          "distance": 20,
+          "radius": 1.25,
+          "force": 2.1,
+          "damage": 50,
+          "collisionSelfDamage": 8
         }
       ]
     ]
@@ -172,10 +132,25 @@
     "cooldownTicks": 6000,
     "ops": [
       {
+        "kind": "self_dash",
+        "distance": 20,
+        "radius": 2,
+        "force": 1.8
+      },
+      {
         "kind": "self_potion",
         "effect": "minecraft:speed",
         "amplifier": 2,
         "durationTicks": 200
+      },
+      {
+        "kind": "immunity",
+        "durationTicks": 200,
+        "effects": [
+          "minecraft:slowness",
+          "minecraft:levitation"
+        ],
+        "vulnerability": false
       }
     ]
   }

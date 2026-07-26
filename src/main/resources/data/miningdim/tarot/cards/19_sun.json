@@ -28,7 +28,14 @@
           "durationTicks": 400
         },
         {
-          "kind": "self_cleanse"
+          "kind": "self_cleanse_effects",
+          "effects": [
+            "minecraft:slowness",
+            "minecraft:blindness",
+            "minecraft:nausea",
+            "minecraft:levitation",
+            "minecraft:mining_fatigue"
+          ]
         },
         {
           "kind": "aoe_enemy_damage_over_time",
@@ -64,7 +71,14 @@
           "durationTicks": 500
         },
         {
-          "kind": "self_cleanse"
+          "kind": "self_cleanse_effects",
+          "effects": [
+            "minecraft:slowness",
+            "minecraft:blindness",
+            "minecraft:nausea",
+            "minecraft:levitation",
+            "minecraft:mining_fatigue"
+          ]
         },
         {
           "kind": "aoe_enemy_damage_over_time",
@@ -100,7 +114,14 @@
           "durationTicks": 600
         },
         {
-          "kind": "self_cleanse"
+          "kind": "self_cleanse_effects",
+          "effects": [
+            "minecraft:slowness",
+            "minecraft:blindness",
+            "minecraft:nausea",
+            "minecraft:levitation",
+            "minecraft:mining_fatigue"
+          ]
         },
         {
           "kind": "aoe_enemy_damage_over_time",
@@ -136,7 +157,14 @@
           "durationTicks": 800
         },
         {
-          "kind": "self_cleanse"
+          "kind": "self_cleanse_effects",
+          "effects": [
+            "minecraft:slowness",
+            "minecraft:blindness",
+            "minecraft:nausea",
+            "minecraft:levitation",
+            "minecraft:mining_fatigue"
+          ]
         },
         {
           "kind": "aoe_enemy_damage_over_time",
@@ -175,8 +203,10 @@
           "durationTicks": 400
         },
         {
-          "kind": "self_true_damage",
-          "amount": 36
+          "kind": "self_periodic_true_damage",
+          "amount": 1.8,
+          "periodTicks": 20,
+          "durationTicks": 400
         }
       ],
       [
@@ -204,8 +234,10 @@
           "durationTicks": 500
         },
         {
-          "kind": "self_true_damage",
-          "amount": 28
+          "kind": "self_periodic_true_damage",
+          "amount": 1.12,
+          "periodTicks": 20,
+          "durationTicks": 500
         }
       ],
       [
@@ -233,8 +265,10 @@
           "durationTicks": 600
         },
         {
-          "kind": "self_true_damage",
-          "amount": 20
+          "kind": "self_periodic_true_damage",
+          "amount": 0.6667,
+          "periodTicks": 20,
+          "durationTicks": 600
         }
       ],
       [
@@ -262,8 +296,10 @@
           "durationTicks": 800
         },
         {
-          "kind": "self_true_damage",
-          "amount": 12
+          "kind": "self_periodic_true_damage",
+          "amount": 0.3,
+          "periodTicks": 20,
+          "durationTicks": 800
         }
       ]
     ]
@@ -311,6 +347,12 @@
       {
         "kind": "aoe_ally_heal_over_time",
         "amount": 12,
+        "radius": 8,
+        "periodTicks": 20,
+        "durationTicks": 300
+      },
+      {
+        "kind": "aoe_ally_periodic_cleanse",
         "radius": 8,
         "periodTicks": 20,
         "durationTicks": 300

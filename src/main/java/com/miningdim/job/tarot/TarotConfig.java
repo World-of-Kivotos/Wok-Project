@@ -17,6 +17,13 @@ public final class TarotConfig {
 
     public static final ForgeConfigSpec SPEC;
 
+    // ---- 本地测试解锁 ----
+    /**
+     * 仅供测试环境使用。开启后用牌跳过 owner/等级/CD 三道闸门, 且不消耗卡牌、不结算经验；卡包购买免费且不计日限。
+     * 正式环境默认 false, 避免测试便利改变生产平衡。
+     */
+    public static final ForgeConfigSpec.BooleanValue TEST_MODE;
+
     // ---- 用牌冷却 (spec 9.5) ----
     /** 全局 GCD (ticks); 1.5s = 30 ticks。 */
     public static final ForgeConfigSpec.IntValue GCD_TICKS;
@@ -57,6 +64,10 @@ public final class TarotConfig {
     public static final ForgeConfigSpec.IntValue DUPLICATE_SHARD_REFUND;
     /** 碎片兑换指定牌所需碎片数 (spec 第七/十三章 6: 攒够换指定牌, 给非洲玩家确定性毕业线)。 */
     public static final ForgeConfigSpec.IntValue SHARD_EXCHANGE_COST;
+    /** Minimum champion star eligible for a rare shiny-pack drop. */
+    public static final ForgeConfigSpec.IntValue SHINY_PACK_DROP_MIN_STAR;
+    /** Drop chance per eligible star step (min star uses 1x, each higher star adds another 1x). */
+    public static final ForgeConfigSpec.DoubleValue SHINY_PACK_DROP_CHANCE_PER_STAR;
 
     // ---- 合成四结果概率 (spec 第八章表; 进 config) ----
     // R->SR
@@ -77,6 +88,11 @@ public final class TarotConfig {
 
     static {
         ForgeConfigSpec.Builder b = new ForgeConfigSpec.Builder();
+
+        b.push("testing");
+        TEST_MODE = b.comment("Testing only: bypass card gates/consumption/XP; tarot pack purchases are free and ignore the daily purchase limit")
+                .define("testMode", false);
+        b.pop();
 
         b.push("cooldown");
         GCD_TICKS = b.comment("Global cooldown between any two card plays, in ticks (spec 9.5: 1.5s = 30)")
@@ -124,6 +140,10 @@ public final class TarotConfig {
                 .defineInRange("duplicateShardRefund", 1, 0, 64);
         SHARD_EXCHANGE_COST = b.comment("Tarot shards required to exchange for a chosen card (spec 7/13.6: deterministic graduation line)")
                 .defineInRange("shardExchangeCost", 40, 1, 100000);
+        SHINY_PACK_DROP_MIN_STAR = b.comment("Minimum champion star that can rarely award a shiny tarot pack")
+                .defineInRange("shinyPackDropMinStar", 6, 1, 10);
+        SHINY_PACK_DROP_CHANCE_PER_STAR = b.comment("Shiny-pack drop chance per eligible champion star step; 6-star=1x, 10-star=5x with default min=6")
+                .defineInRange("shinyPackDropChancePerStar", 0.005D, 0.0D, 1.0D);
         b.pop();
 
         // 合成四结果: 大破碎概率 = 1 - 成功 - 逆转 - 破碎 (派生, 不单列, 保证四率和恒为 1)。

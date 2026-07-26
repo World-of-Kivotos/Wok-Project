@@ -2,7 +2,14 @@ package com.miningdim.job.tarot;
 
 import com.miningdim.job.tarot.card.TarotCardData;
 import com.miningdim.job.tarot.card.TarotEffectOp;
+import com.miningdim.job.miner.OreScanService;
+import com.miningdim.job.miner.network.MinerHighlightS2C;
+import com.miningdim.job.miner.network.MinerNetwork;
+import com.miningdim.ore.OreType;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -12,13 +19,22 @@ import net.minecraft.world.effect.MobEffectCategory;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LightningBolt;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -102,6 +118,26 @@ public final class TarotEffectEngine {
             case SELF_ABSORPTION -> addAbsorption(caster, (float) op.amount());
             case SELF_MAX_HEALTH -> applyMaxHealth(caster, op);
             case SELF_CLEANSE -> cleanse(caster);
+            case SELF_CLEANSE_MAX_HEALTH -> cleanseAndGainMaxHealth(caster, op);
+            case SELF_BLINK -> blink(level, caster, op.amount());
+            case SELF_DASH -> dash(level, caster, op);
+            case SELF_PREMONITION_SCAN -> premonitionScan(level, caster, op);
+            case SELF_UNCONTROLLED_DASH -> uncontrolledDash(level, caster, op);
+            case SELF_WILD_OVERDRIVE -> wildOverdrive(level, caster, op);
+            case SELF_RANDOM_BUFF -> applyRandomBuff(caster, op);
+            case SELF_FORTUNE_GAMBLE -> applyFortuneGamble(caster, op);
+            case SELF_REFRESH_BENEFICIAL -> refreshBeneficial(caster, op.durationTicks());
+            case SELF_DELAYED_POTION -> scheduleDelayedPotion(caster, op);
+            case SELF_PERIODIC_TRUE_DAMAGE -> schedulePeriodicTrueDamage(caster, op);
+            case SELF_CLEANSE_LIMITED -> cleanseLimited(caster, op.count());
+            case SELF_PERIODIC_CLEANSE -> schedulePeriodicCleanse(caster, op);
+            case SELF_CLEANSE_EFFECTS -> cleanseEffects(caster, op.effects());
+            case SELF_HEALING_BLOCK -> TarotCombatState.openRestriction(caster,
+                    TarotCombatState.Restriction.HEALING_BLOCK, op.durationTicks());
+            case SELF_HERMIT_SHINY -> applyHermitShiny(level, caster, op);
+            case SELF_UNTARGETABLE -> TarotCombatState.openRestriction(caster,
+                    TarotCombatState.Restriction.UNTARGETABLE, op.durationTicks());
+            case CLEAR_NORMAL_TAROT_COOLDOWNS -> TarotRuntime.cooldown().clearAllCards(caster.getUUID());
             case SELF_DEATH_CONTRACT ->
                     TarotCombatState.openDeathContract(caster, op.durationTicks(), op.amount());
             case SELF_KNOCKBACK_IMMUNITY ->
@@ -117,12 +153,23 @@ public final class TarotEffectEngine {
             case SHINY_BIND_SHARE_LIFE -> bindShareLife(level, caster, op);
             case ENEMY_TARGET_DAMAGE -> targetDamage(level, caster, op);
             case ENEMY_TARGET_AVERAGE_HEALTH -> targetAverageHealth(level, caster, op);
+            case ENEMY_TARGET_POTION -> targetPotion(level, caster, op);
+            case TARGET_TOWER_STRIKE -> towerStrike(level, caster, op);
             case AOE_ENEMY_RANDOM_DAMAGE -> aoeEnemyRandomDamage(level, caster, op);
             case AOE_ENEMY_POTION -> aoeEnemyPotion(level, caster, op);
             case AOE_ENEMY_DAMAGE -> aoeEnemyDamage(level, caster, op);
+            case AOE_ENEMY_PULL -> aoeEnemyPull(level, caster, op);
+            case AOE_ENEMY_RANDOM_TELEPORT -> aoeEnemyRandomTeleport(level, caster, op);
+            case AOE_ENEMY_MISSING_HEALTH_DAMAGE -> aoeEnemyMissingHealthDamage(level, caster, op);
             case AOE_EXECUTE_BELOW_PCT -> aoeExecuteBelowPct(level, caster, op);
             case AOE_ALLY_POTION -> aoeAllyPotion(level, caster, op);
             case AOE_ALLY_HEAL -> aoeAllyHeal(level, caster, op);
+            case AOE_ALLY_CLEANSE_LIMITED -> aoeAllyCleanseLimited(level, caster, op);
+            case AOE_ALLY_PERIODIC_CLEANSE -> scheduleAoeAllyPeriodicCleanse(caster, op);
+            case AOE_ALLY_BALANCE_HEALTH -> scheduleAoeAllyBalance(caster, op);
+            case AOE_ALLY_DAMAGE_SHARE -> openAoeDamageShare(level, caster, op);
+            case AOE_ALLY_EMERGENCY_HEAL -> aoeAllyEmergencyHeal(level, caster, op);
+            case AOE_ALLY_LOW_HEALTH_HEAL -> aoeAllyLowHealthHeal(level, caster, op);
             case AOE_ALLY_ABSORPTION -> aoeAllyAbsorption(level, caster, op);
             case AOE_ENEMY_DAMAGE_OVER_TIME -> scheduleAoeEnemyDamageOverTime(caster, op);
             case AOE_ALLY_HEAL_OVER_TIME -> scheduleAoeAllyHealOverTime(caster, op);
@@ -240,6 +287,323 @@ public final class TarotEffectEngine {
     }
 
     /**
+     * 教皇正/逆/闪耀: 以施放瞬间实际存在的负面效果数量结算最大生命收益, 随后清除这些负面。
+     * amount 是每个负面的收益, capUp 是整次施放总上限; 没有负面时不产生最大生命修饰。
+     */
+    private void cleanseAndGainMaxHealth(ServerPlayer caster, TarotEffectOp op) {
+        int harmfulCount = (int) caster.getActiveEffects().stream()
+                .filter(instance -> instance.getEffect().getCategory() == MobEffectCategory.HARMFUL)
+                .count();
+        cleanse(caster);
+        if (harmfulCount == 0) {
+            return;
+        }
+        double gain = Math.min(op.amount() * harmfulCount, op.capUp());
+        applyMaxHealthDelta(caster, gain, op.capUp(), 0.0D, op.durationTicks());
+    }
+
+    /**
+     * 魔术师闪耀: 普通使用沿水平视线向前, 潜行使用向后瞬移。方块射线先限制不可穿墙的最远距离,
+     * 再从远到近寻找无碰撞落点; 20 格内没有安全落点则保持原位。
+     */
+    private void blink(ServerLevel level, ServerPlayer caster, double distance) {
+        Vec3 look = caster.getViewVector(1.0F);
+        Vec3 horizontal = new Vec3(look.x, 0.0D, look.z);
+        if (horizontal.lengthSqr() < 1.0E-8D) {
+            return;
+        }
+        Vec3 direction = horizontal.normalize();
+        if (caster.isShiftKeyDown()) {
+            direction = direction.scale(-1.0D);
+        }
+
+        Vec3 eyeStart = caster.getEyePosition();
+        Vec3 eyeEnd = eyeStart.add(direction.scale(distance));
+        BlockHitResult blockHit = level.clip(new ClipContext(
+                eyeStart, eyeEnd, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, caster));
+        double allowed = distance;
+        if (blockHit.getType() != HitResult.Type.MISS) {
+            allowed = Math.max(0.0D, blockHit.getLocation().distanceTo(eyeStart) - 0.5D);
+        }
+
+        Vec3 origin = caster.position();
+        for (double step = allowed; step >= 0.5D; step -= 0.5D) {
+            Vec3 target = origin.add(direction.scale(step));
+            AABB targetBox = caster.getBoundingBox().move(target.subtract(origin));
+            if (level.noCollision(caster, targetBox)) {
+                caster.teleportTo(target.x, target.y, target.z);
+                return;
+            }
+        }
+    }
+
+    private void dash(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        Vec3 origin = caster.position();
+        Vec3 look = caster.getViewVector(1.0F);
+        Vec3 horizontal = new Vec3(look.x, 0.0D, look.z);
+        if (horizontal.lengthSqr() < 1.0E-8D) {
+            return;
+        }
+        Vec3 direction = horizontal.normalize();
+        Vec3 eyeStart = caster.getEyePosition();
+        Vec3 eyeEnd = eyeStart.add(direction.scale(op.amount()));
+        BlockHitResult blockHit = level.clip(new ClipContext(
+                eyeStart, eyeEnd, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, caster));
+        double allowed = op.amount();
+        if (blockHit.getType() != HitResult.Type.MISS) {
+            allowed = Math.max(0.0D, blockHit.getLocation().distanceTo(eyeStart) - 0.5D);
+        }
+        for (double step = allowed; step >= 0.5D; step -= 0.5D) {
+            Vec3 target = origin.add(direction.scale(step));
+            AABB targetBox = caster.getBoundingBox().move(target.subtract(origin));
+            if (level.noCollision(caster, targetBox)) {
+                caster.teleportTo(target.x, target.y, target.z);
+                break;
+            }
+        }
+        Vec3 end = caster.position();
+        AABB path = new AABB(origin, end).inflate(Math.max(1.0D, op.radius()));
+        for (LivingEntity enemy : level.getEntitiesOfClass(LivingEntity.class, path,
+                e -> e.isAlive() && isEnemy(caster, e))) {
+            enemy.push(direction.x * op.capUp(), 0.35D, direction.z * op.capUp());
+            enemy.hurtMarked = true;
+        }
+        level.sendParticles(ParticleTypes.CLOUD, end.x, end.y + 0.5D, end.z,
+                18, 0.45D, 0.25D, 0.45D, 0.04D);
+    }
+
+    /** 女祭司：扫描并标记敌方，持续在行动栏显示标记目标生命；正位另开一次首击减伤窗，逆位向目标施加易伤。 */
+    private void premonitionScan(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        List<LivingEntity> targets = enemiesInRadius(level, caster, op.radius());
+        MobEffect vulnerability = op.amplifier() >= 0
+                ? resolveEffect("miningdim:vulnerability") : null;
+        List<UUID> marked = new ArrayList<>(targets.size());
+        for (LivingEntity target : targets) {
+            marked.add(target.getUUID());
+            target.addEffect(new MobEffectInstance(MobEffects.GLOWING, op.durationTicks(), 0));
+            if (vulnerability != null) {
+                target.addEffect(new MobEffectInstance(vulnerability, op.durationTicks(), op.amplifier()));
+            }
+        }
+        if (op.percent() > 0.0D) {
+            TarotCombatState.openPremonition(caster, op.durationTicks(), op.percent());
+        }
+        caster.displayClientMessage(Component.translatable(
+                "message.miningdim.tarot.premonition.scan", targets.size(), (int) op.radius()), true);
+        showPremonitionHealth(caster, marked);
+        int updates = Math.max(0, op.durationTicks() / 20);
+        if (updates > 0 && !marked.isEmpty()) {
+            scheduler.schedule(caster, 20, 20, updates,
+                    player -> showPremonitionHealth(player, marked));
+        }
+        level.sendParticles(ParticleTypes.ENCHANT, caster.getX(), caster.getEyeY(), caster.getZ(),
+                30, Math.min(2.0D, op.radius() * 0.08D), 0.6D,
+                Math.min(2.0D, op.radius() * 0.08D), 0.05D);
+    }
+
+    private void showPremonitionHealth(ServerPlayer caster, List<UUID> marked) {
+        LivingEntity nearest = null;
+        double nearestDistance = Double.MAX_VALUE;
+        for (UUID id : marked) {
+            net.minecraft.world.entity.Entity entity = caster.serverLevel().getEntity(id);
+            if (!(entity instanceof LivingEntity living) || !living.isAlive()) {
+                continue;
+            }
+            double distance = living.distanceToSqr(caster);
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearest = living;
+            }
+        }
+        if (nearest != null) {
+            caster.displayClientMessage(Component.translatable(
+                    "message.miningdim.tarot.premonition.health", nearest.getDisplayName(),
+                    Math.round(nearest.getHealth() * 10.0F) / 10.0F,
+                    Math.round(nearest.getMaxHealth() * 10.0F) / 10.0F), true);
+        }
+    }
+
+    /** 战车逆位：视线方向强制冲锋；路径内敌方受伤并被撞飞，射线命中墙体时按品质承受真实自伤。 */
+    private void uncontrolledDash(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        Vec3 origin = caster.position();
+        Vec3 look = caster.getViewVector(1.0F);
+        Vec3 horizontal = new Vec3(look.x, 0.0D, look.z);
+        if (horizontal.lengthSqr() < 1.0E-8D) {
+            return;
+        }
+        Vec3 direction = horizontal.normalize();
+        Vec3 eyeStart = caster.getEyePosition();
+        BlockHitResult blockHit = level.clip(new ClipContext(
+                eyeStart, eyeStart.add(direction.scale(op.amount())),
+                ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, caster));
+        boolean collided = blockHit.getType() != HitResult.Type.MISS;
+        double allowed = collided
+                ? Math.max(0.0D, blockHit.getLocation().distanceTo(eyeStart) - 0.5D)
+                : op.amount();
+        for (double step = allowed; step >= 0.5D; step -= 0.5D) {
+            Vec3 target = origin.add(direction.scale(step));
+            AABB targetBox = caster.getBoundingBox().move(target.subtract(origin));
+            if (level.noCollision(caster, targetBox)) {
+                caster.teleportTo(target.x, target.y, target.z);
+                break;
+            }
+        }
+        Vec3 end = caster.position();
+        AABB path = new AABB(origin, end).inflate(Math.max(1.0D, op.radius()));
+        for (LivingEntity enemy : level.getEntitiesOfClass(LivingEntity.class, path,
+                entity -> entity.isAlive() && isEnemy(caster, entity))) {
+            enemy.hurt(level.damageSources().playerAttack(caster), (float) op.threshold());
+            enemy.push(direction.x * op.capUp(), 0.4D, direction.z * op.capUp());
+            enemy.hurtMarked = true;
+        }
+        int pathParticles = Math.max(12, (int) Math.ceil(origin.distanceTo(end) * 3.0D));
+        level.sendParticles(ParticleTypes.CRIT, end.x, end.y + 0.8D, end.z,
+                pathParticles, 0.65D, 0.45D, 0.65D, 0.12D);
+        if (collided && op.floorDown() > 0.0D) {
+            dealTrueDamage(caster, op.floorDown());
+            caster.displayClientMessage(Component.translatable(
+                    "message.miningdim.tarot.chariot.collision", numberForMessage(op.floorDown())), true);
+            level.sendParticles(ParticleTypes.EXPLOSION, end.x, end.y + 0.8D, end.z,
+                    2, 0.3D, 0.3D, 0.3D, 0.0D);
+        }
+    }
+
+    /** 力量逆位：基础力量+动态吸血+击退免疫；低于阈值时短周期刷新更高力量，离开低血后自动退回基础档。 */
+    private void wildOverdrive(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        caster.addEffect(new MobEffectInstance(MobEffects.DAMAGE_BOOST,
+                op.durationTicks(), op.amplifier()));
+        TarotCombatState.openWildOverdrive(caster, op.durationTicks(), op.percent(),
+                op.threshold(), op.amount());
+        applyWildOverdrivePulse(level, caster, op);
+        int pulses = Math.max(0, op.durationTicks() / 10);
+        if (pulses > 0) {
+            scheduler.schedule(caster, 10, 10, pulses,
+                    player -> applyWildOverdrivePulse(player.serverLevel(), player, op));
+        }
+    }
+
+    private void applyWildOverdrivePulse(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        double healthRatio = caster.getMaxHealth() <= 0.0F
+                ? 1.0D : caster.getHealth() / caster.getMaxHealth();
+        if (healthRatio <= op.threshold()) {
+            caster.addEffect(new MobEffectInstance(MobEffects.DAMAGE_BOOST,
+                    15, op.amplifier() + op.count()));
+            level.sendParticles(ParticleTypes.DAMAGE_INDICATOR,
+                    caster.getX(), caster.getY() + 1.0D, caster.getZ(),
+                    5, 0.35D, 0.6D, 0.35D, 0.04D);
+        } else {
+            level.sendParticles(ParticleTypes.ENCHANTED_HIT,
+                    caster.getX(), caster.getY() + 1.0D, caster.getZ(),
+                    2, 0.25D, 0.45D, 0.25D, 0.02D);
+        }
+    }
+
+    private static String numberForMessage(double value) {
+        return value == Math.rint(value) ? Long.toString(Math.round(value)) : Double.toString(value);
+    }
+
+    private void applyRandomBuff(ServerPlayer caster, TarotEffectOp op) {
+        boolean strong = caster.getRandom().nextDouble() < op.chance();
+        int pick = caster.getRandom().nextInt(6);
+        int weakAmp = 0;
+        int strongAmp = 1;
+        switch (pick) {
+            case 0 -> caster.addEffect(new MobEffectInstance(MobEffects.DAMAGE_BOOST,
+                    op.durationTicks(), strong ? strongAmp : weakAmp));
+            case 1 -> caster.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED,
+                    op.durationTicks(), strong ? strongAmp : weakAmp));
+            case 2 -> caster.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE,
+                    op.durationTicks(), strong ? 1 : 0));
+            case 3 -> caster.addEffect(new MobEffectInstance(MobEffects.REGENERATION,
+                    op.durationTicks(), strong ? strongAmp : weakAmp));
+            case 4 -> {
+                caster.addEffect(new MobEffectInstance(MobEffects.JUMP, op.durationTicks(), strong ? 2 : 1));
+                caster.addEffect(new MobEffectInstance(MobEffects.NIGHT_VISION, op.durationTicks(), 0));
+            }
+            case 5 -> addAbsorption(caster, (float) (strong ? op.capUp() : op.amount()));
+            default -> throw new IllegalStateException("unreachable fortune pool index " + pick);
+        }
+    }
+
+    private void applyFortuneGamble(ServerPlayer caster, TarotEffectOp op) {
+        if (caster.getRandom().nextDouble() < op.chance()) {
+            caster.heal((float) op.amount());
+        } else {
+            dealTrueDamage(caster, op.threshold());
+        }
+    }
+
+    private void refreshBeneficial(ServerPlayer caster, int durationTicks) {
+        List<MobEffectInstance> beneficial = caster.getActiveEffects().stream()
+                .filter(instance -> instance.getEffect().getCategory() == MobEffectCategory.BENEFICIAL)
+                .toList();
+        for (MobEffectInstance current : beneficial) {
+            MobEffect effect = current.getEffect();
+            int maxAmp = effect == MobEffects.DAMAGE_RESISTANCE
+                    ? RESISTANCE_MAX_AMPLIFIER
+                    : Math.max(current.getAmplifier(), 4);
+            caster.removeEffect(effect);
+            caster.addEffect(new MobEffectInstance(effect, durationTicks, maxAmp));
+        }
+    }
+
+    private void scheduleDelayedPotion(ServerPlayer caster, TarotEffectOp op) {
+        scheduler.scheduleOnce(caster, op.periodTicks(), player -> applySelfPotion(player, op));
+    }
+
+    private void schedulePeriodicTrueDamage(ServerPlayer caster, TarotEffectOp op) {
+        int count = periodicCount(op.durationTicks(), op.periodTicks());
+        if (count > 0) {
+            scheduler.schedule(caster, op.periodTicks(), op.periodTicks(), count,
+                    player -> dealTrueDamage(player, op.amount()));
+        }
+    }
+
+    private int cleanseLimited(LivingEntity target, int limit) {
+        List<MobEffect> harmful = target.getActiveEffects().stream()
+                .filter(instance -> instance.getEffect().getCategory() == MobEffectCategory.HARMFUL)
+                .map(MobEffectInstance::getEffect)
+                .limit(limit < 0 ? Long.MAX_VALUE : limit)
+                .toList();
+        harmful.forEach(target::removeEffect);
+        return harmful.size();
+    }
+
+    private void schedulePeriodicCleanse(ServerPlayer caster, TarotEffectOp op) {
+        scheduler.schedule(caster, op.periodTicks(), op.periodTicks(), op.count(),
+                player -> cleanseLimited(player, 1));
+    }
+
+    private void cleanseEffects(LivingEntity target, List<String> effectIds) {
+        for (String effectId : effectIds) {
+            target.removeEffect(resolveEffect(effectId));
+        }
+    }
+
+    private void applyHermitShiny(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        TarotCombatState.openHermitRestrictions(caster, op.durationTicks());
+        for (Player player : alliesInRadius(level, caster, op.radius())) {
+            if (player != caster) {
+                player.addEffect(new MobEffectInstance(MobEffects.GLOWING, op.durationTicks(), 0));
+            }
+        }
+        List<BlockPos> ores = new ArrayList<>();
+        for (OreType ore : OreType.values()) {
+            ores.addAll(OreScanService.scanWorld(level, caster.blockPosition(), (int) op.radius(), EnumSet.of(ore)));
+            if (ores.size() >= 256) {
+                break;
+            }
+        }
+        if (ores.size() > 256) {
+            ores = new ArrayList<>(ores.subList(0, 256));
+        }
+        MinecraftServer server = caster.getServer();
+        long expireTick = (server == null ? level.getGameTime() : server.getTickCount()) + op.durationTicks();
+        MinerNetwork.sendHighlight(caster, new MinerHighlightS2C(
+                MinerHighlightS2C.KIND_ORE, expireTick, List.copyOf(ores)));
+    }
+
+    /**
      * 累计反击窗 (正义闪耀结算尾): 开窗 durationTicks 内逐攻击者累计伤害 (handler 记账), 排一个窗口结束的结算
      * 任务: 对 radius 格内仍在场的每个攻击者各回击其累计伤害的 percent (单次封顶 capUp; spec 40% 封顶 60)。
      */
@@ -323,6 +687,50 @@ public final class TarotEffectEngine {
         float dmg = (float) op.amount();
         for (LivingEntity enemy : enemiesInRadius(level, caster, op.radius())) {
             enemy.hurt(level.damageSources().magic(), dmg);
+        }
+    }
+
+    private void aoeEnemyPull(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        Vec3 look = caster.getViewVector(1.0F);
+        Vec3 horizontal = new Vec3(look.x, 0.0D, look.z);
+        Vec3 front = caster.position().add(horizontal.lengthSqr() < 1.0E-8D
+                ? Vec3.ZERO : horizontal.normalize().scale(1.8D));
+        for (LivingEntity enemy : enemiesInRadius(level, caster, op.radius())) {
+            Vec3 toward = front.subtract(enemy.position());
+            if (toward.lengthSqr() > 1.0E-6D) {
+                Vec3 velocity = toward.normalize().scale(op.amount());
+                enemy.push(velocity.x, 0.25D, velocity.z);
+                enemy.hurtMarked = true;
+            }
+        }
+    }
+
+    private void aoeEnemyRandomTeleport(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        for (LivingEntity enemy : enemiesInRadius(level, caster, op.radius())) {
+            randomTeleport(level, enemy, op.amount(), op.capUp());
+        }
+    }
+
+    private void randomTeleport(ServerLevel level, LivingEntity entity, double minDistance, double maxDistance) {
+        Vec3 origin = entity.position();
+        for (int attempt = 0; attempt < 12; attempt++) {
+            double angle = entity.getRandom().nextDouble() * Math.PI * 2.0D;
+            double distance = minDistance + entity.getRandom().nextDouble() * (maxDistance - minDistance);
+            Vec3 target = origin.add(Math.cos(angle) * distance, 0.0D, Math.sin(angle) * distance);
+            AABB moved = entity.getBoundingBox().move(target.subtract(origin));
+            if (level.noCollision(entity, moved)) {
+                entity.teleportTo(target.x, target.y, target.z);
+                level.sendParticles(ParticleTypes.PORTAL, target.x, target.y + 0.7D, target.z,
+                        20, 0.35D, 0.5D, 0.35D, 0.04D);
+                return;
+            }
+        }
+    }
+
+    private void aoeEnemyMissingHealthDamage(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        for (LivingEntity enemy : enemiesInRadius(level, caster, op.radius())) {
+            double missing = Math.max(0.0D, enemy.getMaxHealth() - enemy.getHealth());
+            enemy.hurt(level.damageSources().magic(), (float) (op.amount() + missing * op.percent()));
         }
     }
 
@@ -426,6 +834,54 @@ public final class TarotEffectEngine {
         target.setHealth(clampToward(enemyHp, mean, cap));
     }
 
+    private void targetPotion(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        LivingEntity target = crosshairEnemy(level, caster, op.radius());
+        if (target == null) {
+            return;
+        }
+        MobEffect effect = resolveEffect(op.effectId());
+        target.addEffect(new MobEffectInstance(effect, op.durationTicks(),
+                clampAmplifierForEffect(effect, op.amplifier())));
+    }
+
+    private void towerStrike(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        Vec3 center = crosshairPoint(level, caster, 32.0D);
+        LightningBolt lightning = EntityType.LIGHTNING_BOLT.create(level);
+        if (lightning != null) {
+            lightning.moveTo(center.x, center.y, center.z);
+            lightning.setVisualOnly(true);
+            level.addFreshEntity(lightning);
+        }
+        List<LivingEntity> targets = enemiesAroundPoint(level, caster, center, op.radius());
+        for (LivingEntity enemy : targets) {
+            enemy.hurt(level.damageSources().lightningBolt(), (float) op.amount());
+            if (op.periodTicks() > 0) {
+                enemy.addEffect(new MobEffectInstance(MobEffects.BLINDNESS, op.periodTicks(), 0));
+            }
+            if (op.immuneVulnerability()) {
+                enemy.setAbsorptionAmount(0.0F);
+                enemy.getActiveEffects().stream()
+                        .filter(instance -> instance.getEffect().getCategory() == MobEffectCategory.BENEFICIAL)
+                        .map(MobEffectInstance::getEffect)
+                        .toList()
+                        .forEach(enemy::removeEffect);
+            }
+            Vec3 delta = enemy.position().subtract(center);
+            if (delta.lengthSqr() > 1.0E-6D && op.capUp() > 0.0D) {
+                Vec3 force = delta.normalize().scale(op.capUp());
+                if ("pull".equals(op.effectId())) {
+                    force = force.scale(-1.0D);
+                }
+                enemy.push(force.x, 0.28D, force.z);
+                enemy.hurtMarked = true;
+            }
+        }
+        if (!targets.isEmpty() && op.durationTicks() > 0) {
+            caster.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE,
+                    op.durationTicks(), 1));
+        }
+    }
+
     /** 把 from 朝 target 移动, 单步最多 maxDelta (单次最多 ±maxDelta 的均值化钳制)。 */
     private static float clampToward(float from, float target, float maxDelta) {
         float delta = target - from;
@@ -452,6 +908,83 @@ public final class TarotEffectEngine {
         float heal = (float) op.amount();
         for (Player ally : alliesInRadius(level, caster, op.radius())) {
             ally.heal(heal);
+        }
+    }
+
+    private void aoeAllyCleanseLimited(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        for (Player ally : alliesInRadius(level, caster, op.radius())) {
+            cleanseLimited(ally, op.count());
+        }
+    }
+
+    private void scheduleAoeAllyPeriodicCleanse(ServerPlayer caster, TarotEffectOp op) {
+        int count = periodicCount(op.durationTicks(), op.periodTicks());
+        if (count > 0) {
+            scheduler.schedule(caster, op.periodTicks(), op.periodTicks(), count,
+                    player -> tickAoeAllyCleanse(player, op.radius()));
+        }
+    }
+
+    private void tickAoeAllyCleanse(ServerPlayer caster, double radius) {
+        if (!(caster.level() instanceof ServerLevel level)) {
+            return;
+        }
+        for (Player ally : alliesInRadius(level, caster, radius)) {
+            cleanseLimited(ally, 1);
+        }
+    }
+
+    private void scheduleAoeAllyBalance(ServerPlayer caster, TarotEffectOp op) {
+        int count = periodicCount(op.durationTicks(), op.periodTicks());
+        if (count > 0) {
+            scheduler.schedule(caster, op.periodTicks(), op.periodTicks(), count,
+                    player -> tickAoeAllyBalance(player, op.radius(), op.amount()));
+        }
+    }
+
+    private void tickAoeAllyBalance(ServerPlayer caster, double radius, double amount) {
+        if (!(caster.level() instanceof ServerLevel level)) {
+            return;
+        }
+        List<Player> allies = alliesInRadius(level, caster, radius);
+        if (allies.size() < 2) {
+            return;
+        }
+        Player high = allies.stream().max(java.util.Comparator.comparingDouble(Player::getHealth)).orElse(null);
+        Player low = allies.stream().min(java.util.Comparator.comparingDouble(Player::getHealth)).orElse(null);
+        if (high == null || low == null || high == low || high.getHealth() <= low.getHealth()) {
+            return;
+        }
+        float transfer = (float) Math.min(amount, Math.max(0.0F, high.getHealth() - 1.0F));
+        transfer = Math.min(transfer, low.getMaxHealth() - low.getHealth());
+        if (transfer > 0.0F) {
+            high.setHealth(high.getHealth() - transfer);
+            low.heal(transfer);
+        }
+    }
+
+    private void openAoeDamageShare(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        Set<UUID> members = new HashSet<>();
+        for (Player ally : alliesInRadius(level, caster, op.radius())) {
+            members.add(ally.getUUID());
+        }
+        TarotCombatState.openDamageShare(caster, members, op.durationTicks(), op.percent());
+    }
+
+    private void aoeAllyEmergencyHeal(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        for (Player ally : alliesInRadius(level, caster, op.radius())) {
+            if (ally.getMaxHealth() > 0.0F && ally.getHealth() / ally.getMaxHealth() < op.percent()) {
+                ally.setHealth(ally.getMaxHealth());
+                addAbsorption(ally, (float) op.amount());
+            }
+        }
+    }
+
+    private void aoeAllyLowHealthHeal(ServerLevel level, ServerPlayer caster, TarotEffectOp op) {
+        for (Player ally : alliesInRadius(level, caster, op.radius())) {
+            if (ally.getMaxHealth() > 0.0F && ally.getHealth() / ally.getMaxHealth() < op.percent()) {
+                ally.heal((float) op.amount());
+            }
         }
     }
 
@@ -613,11 +1146,17 @@ public final class TarotEffectEngine {
     private static LivingEntity crosshairEnemy(ServerLevel level, ServerPlayer caster, double reach) {
         Vec3 eye = caster.getEyePosition();
         Vec3 end = eye.add(caster.getViewVector(1.0F).scale(reach));
+        BlockHitResult blockHit = level.clip(new ClipContext(
+                eye, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, caster));
         AABB searchBox = caster.getBoundingBox().expandTowards(caster.getViewVector(1.0F).scale(reach)).inflate(1.0D);
         EntityHitResult hit = ProjectileUtil.getEntityHitResult(
                 level, caster, eye, end, searchBox,
                 e -> e instanceof LivingEntity living && isEnemy(caster, living));
         if (hit == null || !(hit.getEntity() instanceof LivingEntity target)) {
+            return null;
+        }
+        if (blockHit.getType() != HitResult.Type.MISS
+                && blockHit.getLocation().distanceToSqr(eye) < hit.getLocation().distanceToSqr(eye)) {
             return null;
         }
         return target;
@@ -645,6 +1184,26 @@ public final class TarotEffectEngine {
             return null;
         }
         return target;
+    }
+
+    private static Vec3 crosshairPoint(ServerLevel level, ServerPlayer caster, double reach) {
+        LivingEntity entity = crosshairEnemy(level, caster, reach);
+        if (entity != null) {
+            return entity.position();
+        }
+        Vec3 eye = caster.getEyePosition();
+        Vec3 end = eye.add(caster.getViewVector(1.0F).scale(reach));
+        BlockHitResult hit = level.clip(new ClipContext(
+                eye, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, caster));
+        return hit.getType() == HitResult.Type.MISS ? end : hit.getLocation();
+    }
+
+    private static List<LivingEntity> enemiesAroundPoint(ServerLevel level, ServerPlayer caster,
+                                                          Vec3 center, double radius) {
+        AABB box = new AABB(center, center).inflate(radius);
+        return level.getEntitiesOfClass(LivingEntity.class, box,
+                entity -> entity.isAlive() && entity.position().distanceTo(center) <= radius
+                        && isEnemy(caster, entity));
     }
 
     private static MobEffect resolveEffect(String effectId) {

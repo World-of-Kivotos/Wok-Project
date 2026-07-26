@@ -91,7 +91,7 @@ public final class JobFrameworkSystem implements Subsystem {
         Map<JobId, long[]> levels = new EnumMap<>(JobId.class);
         for (JobId job : JobId.values()) {
             JobProgress p = mpd.jobProgress(job);
-            levels.put(job, new long[]{p.level(), p.xp()});
+            levels.put(job, new long[]{p.level(), p.xp(job)});
         }
         MiningNetwork.sendJobSync(player, new JobSyncS2C(levels));
     }

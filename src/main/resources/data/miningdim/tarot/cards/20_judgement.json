@@ -15,6 +15,12 @@
         },
         {
           "kind": "self_cleanse"
+        },
+        {
+          "kind": "immunity",
+          "durationTicks": 160,
+          "effects": ["minecraft:wither", "minecraft:poison"],
+          "vulnerability": false
         }
       ],
       [
@@ -30,6 +36,12 @@
         },
         {
           "kind": "self_cleanse"
+        },
+        {
+          "kind": "immunity",
+          "durationTicks": 200,
+          "effects": ["minecraft:wither", "minecraft:poison"],
+          "vulnerability": false
         }
       ],
       [
@@ -45,6 +57,12 @@
         },
         {
           "kind": "self_cleanse"
+        },
+        {
+          "kind": "immunity",
+          "durationTicks": 240,
+          "effects": ["minecraft:wither", "minecraft:poison"],
+          "vulnerability": false
         }
       ],
       [
@@ -60,6 +78,12 @@
         },
         {
           "kind": "self_cleanse"
+        },
+        {
+          "kind": "immunity",
+          "durationTicks": 300,
+          "effects": ["minecraft:wither", "minecraft:poison"],
+          "vulnerability": false
         }
       ]
     ]
@@ -68,8 +92,9 @@
     "tiers": [
       [
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "aoe_enemy_missing_health_damage",
           "amount": 30,
+          "percent": 0.15,
           "radius": 4
         },
         {
@@ -86,8 +111,9 @@
       ],
       [
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "aoe_enemy_missing_health_damage",
           "amount": 40,
+          "percent": 0.20,
           "radius": 6
         },
         {
@@ -104,8 +130,9 @@
       ],
       [
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "aoe_enemy_missing_health_damage",
           "amount": 50,
+          "percent": 0.25,
           "radius": 8
         },
         {
@@ -122,8 +149,9 @@
       ],
       [
         {
-          "kind": "aoe_enemy_damage",
+          "kind": "aoe_enemy_missing_health_damage",
           "amount": 65,
+          "percent": 0.30,
           "radius": 10
         },
         {
@@ -144,13 +172,15 @@
     "cooldownTicks": 12000,
     "ops": [
       {
-        "kind": "aoe_ally_absorption",
-        "amount": 25,
-        "radius": 15
+        "kind": "aoe_ally_emergency_heal",
+        "radius": 15,
+        "thresholdPercent": 0.25,
+        "absorption": 25
       },
       {
-        "kind": "aoe_enemy_damage",
+        "kind": "aoe_enemy_missing_health_damage",
         "amount": 80,
+        "percent": 0.30,
         "radius": 15
       },
       {
@@ -158,6 +188,13 @@
         "effect": "minecraft:glowing",
         "amplifier": 0,
         "durationTicks": 120,
+        "radius": 15
+      },
+      {
+        "kind": "aoe_enemy_potion",
+        "effect": "minecraft:slowness",
+        "amplifier": 2,
+        "durationTicks": 60,
         "radius": 15
       }
     ]

@@ -1,0 +1,7 @@
+{
+  "parent": "miningdim:item/tarot_card_thin",
+  "render_type": "forge:item_unlit",
+  "textures": {
+    "layer0": "miningdim:item/tarot/card_back"
+  }
+}

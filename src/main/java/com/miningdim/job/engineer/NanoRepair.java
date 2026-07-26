@@ -1,6 +1,8 @@
 package com.miningdim.job.engineer;
 
 import com.miningdim.job.engineer.item.NanoArmorPlateItem;
+import com.miningdim.job.engineer.armor.item.PlateArmorItem;
+import com.miningdim.job.engineer.shield.item.PlasmaShieldItem;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.ItemStack;
@@ -44,6 +46,9 @@ public final class NanoRepair {
         if (!(plate.getItem() instanceof NanoArmorPlateItem plateItem)) {
             return Result.fail("message.miningdim.engineer.repair.not_plate");
         }
+        if (armor.getItem() instanceof PlasmaShieldItem) {
+            return Result.fail("message.miningdim.engineer.repair.plasma_shield_incompatible");
+        }
         if (armor.isEmpty() || !armor.isDamageableItem()) {
             return Result.fail("message.miningdim.engineer.repair.not_damageable");
         }
@@ -71,7 +76,12 @@ public final class NanoRepair {
         // 特效结算 (6.1): 闪耀必清旧 + 必出; 高级板起按概率掷 (掷前清旧, 一次性副产品语义)。
         // 品质杠杆 (4.2/6.1): 从板 NBT 读回生产时记录的品质命中数, 品质越高掷出特效概率越高 (chance = base +
         // coef*qualityHits)。闪耀必出不读品质。
-        applyEffectsOnRepair(armor, tier, NanoNbt.qualityHits(plate), random);
+        if (armor.getItem() instanceof PlateArmorItem) {
+            // 插板允许沿用纳米板维修经济，但不得继承旧纳米护盾/图腾等全免特效，避免两套护甲原理叠加。
+            NanoNbt.clearEffects(armor);
+        } else {
+            applyEffectsOnRepair(armor, tier, NanoNbt.qualityHits(plate), random);
+        }
 
         // 修复经验 (7.4): producerUUID == 修复者才给 (用自己板 +50%); 不匹配无经验。
         long xpGranted = settleRepairXp(plate, tier, player);

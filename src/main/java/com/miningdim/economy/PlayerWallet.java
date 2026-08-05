@@ -73,6 +73,25 @@ public final class PlayerWallet {
         setBalance(currency, next);
     }
 
+    /**
+     * 管理员覆写余额 (运营调账 / 联调测试专用)。语义是"把余额直接设为 value", 不是增量。
+     *
+     * 与业务通道的边界: {@link #credit} / {@link #tryDebit} 受衰减主闸、每日计数、先校验后扣等约束, 是玩家行为
+     * 驱动的资金变更; 本法刻意绕开全部这些约束, 只供 OP 命令层调用 (业务代码严禁调用, 否则等于开一个不受主闸
+     * 约束的印钞口)。之所以另开方法而不把 private setBalance 直接放开: 私有版本无非负校验 (内部调用方已保证),
+     * 直接放开会让外部传负值破坏本类"余额非负"不变量。
+     *
+     * @param value 目标余额 (必须 &gt;= 0; 允许 0 用于清零)
+     * @throws EconomyException Reason {@link EconomyException.Reason#ILLEGAL_AMOUNT} 若 value &lt; 0
+     */
+    public void overwriteBalance(Currency currency, long value) {
+        if (value < 0L) {
+            throw new EconomyException(EconomyException.Reason.ILLEGAL_AMOUNT,
+                    "overwrite balance must be >= 0, got " + value);
+        }
+        setBalance(currency, value);
+    }
+
     private void setBalance(Currency currency, long value) {
         switch (currency) {
             case CREDIT -> credit = value;

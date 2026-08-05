@@ -125,6 +125,18 @@ public final class EconomyWalletData extends SavedData {
     }
 
     /**
+     * 管理员覆写某玩家某货币余额 (运营调账; 委派 {@link PlayerWallet#overwriteBalance} 后标脏)。
+     *
+     * 刻意不动 {@link #dailyCharges} / {@link #dailyFaucets} 任何计数: 调账不是玩家 faucet 行为, 若推进当日累计
+     * 则 OP 给玩家补偿会连带压低其当日正常收益的衰减档位 (补 10 万等于罚掉一整天的挖矿收入), 口径错误。
+     * 同理调账也不消耗每日扣费额度。
+     */
+    public void setBalance(UUID playerId, Currency currency, long value) {
+        wallet(playerId).overwriteBalance(currency, value);
+        setDirty();
+    }
+
+    /**
      * 含每日上限的事务扣费: 当日经同一 (playerId, dailyKey) 累计扣费 + 本次 &lt;= dailyCap 且余额足才扣。
      * UTC 翻日先清零该计数 (与经验软上限共用 epochDay 口径)。
      *

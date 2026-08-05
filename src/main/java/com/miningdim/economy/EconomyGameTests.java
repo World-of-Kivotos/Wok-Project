@@ -3,6 +3,9 @@ package com.miningdim.economy;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.economy.EconomyConstants.HighValueOre;
 import com.miningdim.testutil.MockGameTestPlayers;
+import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.tree.CommandNode;
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
@@ -769,6 +772,130 @@ public final class EconomyGameTests {
                 EconomyServices.reset();
             }
         }
+        helper.succeed();
+    }
+
+    // ============================================================
+    // OP 调账通道 (/economy set): 覆写语义 + 非负校验 + 不污染 faucet 计数 + 命令接线
+    // ============================================================
+
+    /**
+     * 调账是"覆写"而非"累加", 且能清零。撤掉 {@link PlayerWallet#overwriteBalance} 的直接设值 (改成 credit 累加)
+     * 则第二段断言 12345 会变成 22345 必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void adminSetBalanceOverwrites(GameTestHelper helper) {
+        EconomyWalletData ledger = new EconomyWalletData();
+        UUID id = UUID.randomUUID();
+
+        ledger.setBalance(id, Currency.CREDIT, 10000L);
+        helper.assertTrue(ledger.balance(id, Currency.CREDIT) == 10000L,
+                "admin set writes the exact value onto an empty wallet");
+
+        // 覆写语义: 再设 12345 是"变成 12345", 不是"加 12345"。
+        ledger.setBalance(id, Currency.CREDIT, 12345L);
+        helper.assertTrue(ledger.balance(id, Currency.CREDIT) == 12345L,
+                "admin set overwrites (12345), it does not accumulate (would be 22345)");
+
+        // 清零可用 (联调时需要把余额打回 0 复测扣款路径)。
+        ledger.setBalance(id, Currency.CREDIT, 0L);
+        helper.assertTrue(ledger.balance(id, Currency.CREDIT) == 0L,
+                "admin set to 0 clears the balance");
+
+        // 双货币互不串: 设 AZURE 不动 CREDIT。
+        ledger.setBalance(id, Currency.AZURE, 64L);
+        helper.assertTrue(ledger.balance(id, Currency.AZURE) == 64L, "azure set independently");
+        helper.assertTrue(ledger.balance(id, Currency.CREDIT) == 0L,
+                "setting azure must not touch credit (separate balances)");
+
+        helper.succeed();
+    }
+
+    /** 负余额破坏 PlayerWallet 非负不变量, 必须抛 ILLEGAL_AMOUNT 而非静默写入 (删非负校验则本用例挂)。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void adminSetBalanceRejectsNegative(GameTestHelper helper) {
+        PlayerWallet w = new PlayerWallet();
+        w.credit(Currency.CREDIT, 500L);
+
+        boolean threw = false;
+        try {
+            w.overwriteBalance(Currency.CREDIT, -1L);
+        } catch (EconomyException e) {
+            threw = e.reason() == EconomyException.Reason.ILLEGAL_AMOUNT;
+        }
+        helper.assertTrue(threw, "overwriting to a negative balance must throw ILLEGAL_AMOUNT");
+        helper.assertTrue(w.balance(Currency.CREDIT) == 500L,
+                "a rejected overwrite must leave the balance untouched");
+
+        // 0 是合法边界 (清零), 不得连带被拒。
+        w.overwriteBalance(Currency.CREDIT, 0L);
+        helper.assertTrue(w.balance(Currency.CREDIT) == 0L, "overwriting to 0 is legal (clear)");
+
+        helper.succeed();
+    }
+
+    /**
+     * 调账不得推进当日 faucet 累计: 否则 OP 给玩家补 10 万等于把他当日衰减档位推进一整档 (正常挖矿收益被连带
+     * 罚掉)。断言 setBalance 后首次 recordFaucetGrant 返回的 n0 仍为 0 —— 若 setBalance 里误加了 faucet 计数,
+     * n0 会变成被设的金额, 本断言必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void adminSetBalanceDoesNotAdvanceFaucetCounter(GameTestHelper helper) {
+        EconomyWalletData ledger = new EconomyWalletData();
+        UUID id = UUID.randomUUID();
+        long today = 20000L;
+
+        ledger.setBalance(id, Currency.CREDIT, 100000L);
+
+        long n0 = ledger.recordFaucetGrant(id, EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY, 1L, today);
+        helper.assertTrue(n0 == 0L,
+                "admin set must not count as faucet income (daily faucet accrual stays 0, so the player's decay tier is untouched)");
+
+        // 每日扣费额度同理不被调账消耗: 设值后仍可扣满 cap。
+        helper.assertTrue(ledger.tryChargeDaily(id, Currency.CREDIT, 500L, "test_sink", 500L, today),
+                "admin set must not consume the daily charge allowance either");
+
+        helper.succeed();
+    }
+
+    /**
+     * /economy set 全链路真接线 (target -> currency -> amount 且末端可执行)。这条断言的存在是因为审计发现
+     * 全库命令层零测试: 删掉 {@link EconomySystem#onRegisterCommands} 的注册调用后, 命令在真服上消失而
+     * 其余测试全绿。本用例读的是真实服务端 dispatcher, 故注册一旦断线即挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void economySetCommandRegistered(GameTestHelper helper) {
+        CommandDispatcher<CommandSourceStack> dispatcher =
+                helper.getLevel().getServer().getCommands().getDispatcher();
+
+        CommandNode<CommandSourceStack> root = dispatcher.getRoot().getChild("economy");
+        helper.assertTrue(root != null, "/economy root must be registered on the live server dispatcher");
+
+        CommandNode<CommandSourceStack> set = root.getChild("set");
+        helper.assertTrue(set != null, "/economy set subcommand must exist");
+
+        CommandNode<CommandSourceStack> target = set.getChild("target");
+        helper.assertTrue(target != null, "/economy set <target> argument must exist");
+
+        CommandNode<CommandSourceStack> currency = target.getChild("currency");
+        helper.assertTrue(currency != null, "/economy set <target> <currency> argument must exist");
+
+        CommandNode<CommandSourceStack> amount = currency.getChild("amount");
+        helper.assertTrue(amount != null, "/economy set <target> <currency> <amount> argument must exist");
+        helper.assertTrue(amount.getCommand() != null,
+                "the amount node must be executable (otherwise the command parses but does nothing)");
+
+        helper.succeed();
+    }
+
+    /** 货币名解析大小写不敏感且拒绝未知名 (未知名返 null 走 sendFailure, 不抛异常刷栈)。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void currencyNameParsing(GameTestHelper helper) {
+        helper.assertTrue(EconomyCommands.parseCurrency("credit") == Currency.CREDIT, "lowercase credit parses");
+        helper.assertTrue(EconomyCommands.parseCurrency("CREDIT") == Currency.CREDIT, "uppercase CREDIT parses");
+        helper.assertTrue(EconomyCommands.parseCurrency("Azure") == Currency.AZURE, "mixed-case Azure parses");
+        helper.assertTrue(EconomyCommands.parseCurrency("gold") == null, "unknown currency name returns null");
+        helper.assertTrue(EconomyCommands.parseCurrency("") == null, "empty currency name returns null");
         helper.succeed();
     }
 

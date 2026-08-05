@@ -14,6 +14,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingDropsEvent;
@@ -93,6 +94,12 @@ public final class EconomySystem implements Subsystem {
     public void onServerStopping(ServerStoppingEvent event) {
         // 清门面引用防跨存档/跨重启脏引用 (与 MiningServices.reset / JobServices.reset 同纪律)。
         EconomyServices.reset();
+    }
+
+    @SubscribeEvent
+    public void onRegisterCommands(RegisterCommandsEvent event) {
+        // /economy OP 调账根 (模块化铁律 3: 子系统自注册自己的命令树)。
+        EconomyCommands.register(event.getDispatcher());
     }
 
     // ============================================================

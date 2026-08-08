@@ -28,6 +28,9 @@ public final class NanoCalibration {
     private int progress;
     /** 累计命中绿区次数 (品质条; 越高产量/特效/经验越好)。 */
     private int qualityHits;
+    private int elapsedTicks;
+    private int requiredTicks;
+    private boolean clickedThisSweep;
     /** 本轮生产是否进行中 (选档后置 true, 取出/换档后由 BE 重置)。 */
     private boolean active;
 
@@ -51,6 +54,14 @@ public final class NanoCalibration {
         return qualityHits;
     }
 
+    public int elapsedTicks() {
+        return elapsedTicks;
+    }
+
+    public int requiredTicks() {
+        return requiredTicks;
+    }
+
     /** 当前游标是否落在绿区内 (命中判定核心; 服务端权威)。 */
     public boolean cursorInGreen() {
         int w = EngineerConfig.CALIBRATION_GREEN_WIDTH.get();
@@ -59,9 +70,16 @@ public final class NanoCalibration {
 
     /** 开始一轮生产: 重置进度/品质/游标, 随机首个绿区落点。 */
     public void begin(RandomSource random) {
+        begin(random, 0);
+    }
+
+    public void begin(RandomSource random, int requiredTicks) {
         this.active = true;
         this.progress = 0;
         this.qualityHits = 0;
+        this.elapsedTicks = 0;
+        this.requiredTicks = Math.max(0, requiredTicks);
+        this.clickedThisSweep = false;
         this.cursor = 0;
         this.direction = 1;
         randomizeGreen(random);
@@ -72,6 +90,9 @@ public final class NanoCalibration {
         this.active = false;
         this.progress = 0;
         this.qualityHits = 0;
+        this.elapsedTicks = 0;
+        this.requiredTicks = 0;
+        this.clickedThisSweep = false;
         this.cursor = 0;
         this.direction = 1;
     }
@@ -84,16 +105,19 @@ public final class NanoCalibration {
         if (!active) {
             return;
         }
+        elapsedTicks++;
         int width = EngineerConfig.CALIBRATION_BAR_WIDTH.get();
         int speed = EngineerConfig.CALIBRATION_CURSOR_SPEED.get();
         cursor += direction * speed;
         if (cursor <= 0) {
             cursor = 0;
             direction = 1;
+            clickedThisSweep = false;
             randomizeGreen(random);
         } else if (cursor >= width - 1) {
             cursor = width - 1;
             direction = -1;
+            clickedThisSweep = false;
             randomizeGreen(random);
         }
     }
@@ -105,16 +129,20 @@ public final class NanoCalibration {
      * @return 本次点击后是否已完成一次生产 (progress >= goal)
      */
     public boolean onClick() {
-        if (!active) {
+        if (!active || clickedThisSweep) {
             return false;
         }
-        if (cursorInGreen()) {
-            progress += EngineerConfig.CALIBRATION_HIT_PROGRESS.get();
-            qualityHits++;
-        } else {
-            progress += EngineerConfig.CALIBRATION_MISS_PROGRESS.get();
+        clickedThisSweep = true;
+        if (progress < EngineerConfig.CALIBRATION_PROGRESS_GOAL.get()) {
+            if (cursorInGreen()) {
+                progress += EngineerConfig.CALIBRATION_HIT_PROGRESS.get();
+                qualityHits++;
+            } else {
+                progress += EngineerConfig.CALIBRATION_MISS_PROGRESS.get();
+            }
         }
-        return progress >= EngineerConfig.CALIBRATION_PROGRESS_GOAL.get();
+        return progress >= EngineerConfig.CALIBRATION_PROGRESS_GOAL.get()
+                && elapsedTicks >= requiredTicks;
     }
 
     /** 绿区随机落点 (留出绿区宽度避免越界)。 */
@@ -133,6 +161,9 @@ public final class NanoCalibration {
     private static final String K_PROGRESS = "Progress";
     private static final String K_QUALITY = "Quality";
     private static final String K_ACTIVE = "Active";
+    private static final String K_ELAPSED = "ElapsedTicks";
+    private static final String K_REQUIRED = "RequiredTicks";
+    private static final String K_CLICKED_SWEEP = "ClickedThisSweep";
 
     public CompoundTag serializeNBT() {
         CompoundTag tag = new CompoundTag();
@@ -142,6 +173,9 @@ public final class NanoCalibration {
         tag.putInt(K_PROGRESS, progress);
         tag.putInt(K_QUALITY, qualityHits);
         tag.putBoolean(K_ACTIVE, active);
+        tag.putInt(K_ELAPSED, elapsedTicks);
+        tag.putInt(K_REQUIRED, requiredTicks);
+        tag.putBoolean(K_CLICKED_SWEEP, clickedThisSweep);
         return tag;
     }
 
@@ -152,5 +186,8 @@ public final class NanoCalibration {
         this.progress = tag.getInt(K_PROGRESS);
         this.qualityHits = tag.getInt(K_QUALITY);
         this.active = tag.getBoolean(K_ACTIVE);
+        this.elapsedTicks = tag.getInt(K_ELAPSED);
+        this.requiredTicks = tag.getInt(K_REQUIRED);
+        this.clickedThisSweep = tag.getBoolean(K_CLICKED_SWEEP);
     }
 }

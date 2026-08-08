@@ -1,8 +1,12 @@
 {
-  "parent": "minecraft:block/cube_bottom_top",
+  "parent": "minecraft:block/cube",
   "textures": {
-    "top": "minecraft:block/iron_block",
-    "bottom": "minecraft:block/smithing_table_bottom",
-    "side": "minecraft:block/smithing_table_side"
+    "particle": "miningdim:block/production_table_low_side",
+    "down": "miningdim:block/production_table_low_side",
+    "up": "miningdim:block/production_table_low_top",
+    "north": "miningdim:block/production_table_low_front",
+    "south": "miningdim:block/production_table_low_side",
+    "west": "miningdim:block/production_table_low_side",
+    "east": "miningdim:block/production_table_low_side"
   }
 }

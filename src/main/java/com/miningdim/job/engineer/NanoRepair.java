@@ -3,8 +3,10 @@ package com.miningdim.job.engineer;
 import com.miningdim.job.engineer.item.NanoArmorPlateItem;
 import com.miningdim.job.engineer.armor.item.PlateArmorItem;
 import com.miningdim.job.engineer.shield.item.PlasmaShieldItem;
+import com.miningdim.job.engineer.effect.NanoAnvilGuard;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.EnumSet;
@@ -46,8 +48,8 @@ public final class NanoRepair {
         if (!(plate.getItem() instanceof NanoArmorPlateItem plateItem)) {
             return Result.fail("message.miningdim.engineer.repair.not_plate");
         }
-        if (armor.getItem() instanceof PlasmaShieldItem) {
-            return Result.fail("message.miningdim.engineer.repair.plasma_shield_incompatible");
+        if (isShieldType(armor)) {
+            return Result.fail("message.miningdim.engineer.repair.shield_incompatible");
         }
         if (armor.isEmpty() || !armor.isDamageableItem()) {
             return Result.fail("message.miningdim.engineer.repair.not_damageable");
@@ -59,8 +61,9 @@ public final class NanoRepair {
 
         NanoTier tier = plateItem.tier();
         int before = armor.getDamageValue();
-        if (before <= 0 && !tier.isRadiant()) {
-            // 已满耐久且非闪耀 (闪耀还要清旧/换特效, 满耐久仍有意义): 无需修复, 不空耗板。
+        if (before <= 0 && !supportsRadiantReroll(armor, tier)) {
+            // 满耐久时仅允许对能承载旧纳米特效的普通护甲重掷。插板会清除旧特效且不会获得新特效，
+            // 工具上的护甲特效也永远不会生效；两者都必须拒绝，避免空耗闪耀维修套件。
             return Result.fail("message.miningdim.engineer.repair.already_full");
         }
 
@@ -79,8 +82,11 @@ public final class NanoRepair {
         if (armor.getItem() instanceof PlateArmorItem) {
             // 插板允许沿用纳米板维修经济，但不得继承旧纳米护盾/图腾等全免特效，避免两套护甲原理叠加。
             NanoNbt.clearEffects(armor);
-        } else {
+        } else if (armor.getItem() instanceof ArmorItem) {
             applyEffectsOnRepair(armor, tier, NanoNbt.qualityHits(plate), random);
+        } else {
+            // 套件可以维修任意 Damageable，但护甲特效只对穿戴栏生效；工具和武器不得携带无效特效 NBT。
+            NanoNbt.clearEffects(armor);
         }
 
         // 修复经验 (7.4): producerUUID == 修复者才给 (用自己板 +50%); 不匹配无经验。
@@ -90,7 +96,7 @@ public final class NanoRepair {
     }
 
     /** 5.1 修复量: 低/中/高 固定值; 极品/超凡 按最大耐久百分比; 闪耀由调用方特判 100% (此处返回满量)。 */
-    static int repairAmount(NanoTier tier, int maxDamage) {
+    public static int repairAmount(NanoTier tier, int maxDamage) {
         if (tier.isRadiant()) {
             return maxDamage;
         }
@@ -108,6 +114,13 @@ public final class NanoRepair {
         };
     }
 
+    /** 闪耀套件在满耐久时仅有“重掷旧纳米特效”这一种有效用途。 */
+    public static boolean supportsRadiantReroll(ItemStack target, NanoTier tier) {
+        return tier.isRadiant()
+                && target.getItem() instanceof ArmorItem
+                && !(target.getItem() instanceof PlateArmorItem);
+    }
+
     /**
      * 特效掷出/清空 (6.1)。闪耀: 清旧 + 必出一个新特效。高级板起: 按 (base + coef*品质) 概率掷, 掷前清旧
      * (一次性副产品语义)。低/中级板: 无特效, 但仍清旧 (它们不掷, 不清会留下上一次的特效, 与 "再次纳米修复
@@ -120,6 +133,7 @@ public final class NanoRepair {
         }
         if (tier.isRadiant()) {
             NanoNbt.writeEffects(armor, EnumSet.of(rollEffect(random)));
+            NanoAnvilGuard.stripMendingFromNanoEffectArmor(armor);
             return;
         }
         double chance = EngineerConfig.EFFECT_ROLL_BASE_CHANCE.get()
@@ -127,7 +141,14 @@ public final class NanoRepair {
         chance = Math.max(0.0, Math.min(1.0, chance));
         if (random.nextDouble() < chance) {
             NanoNbt.writeEffects(armor, EnumSet.of(rollEffect(random)));
+            NanoAnvilGuard.stripMendingFromNanoEffectArmor(armor);
         }
+    }
+
+    /** 等离子盾以及带纳米护盾特效的护甲都属于充能护盾，不能使用维修套件。 */
+    public static boolean isShieldType(ItemStack stack) {
+        return stack.getItem() instanceof PlasmaShieldItem
+                || NanoNbt.hasEffect(stack, NanoEffect.SHIELD);
     }
 
     /** 等概率随机选一个特效 (四选一; 6.2)。 */

@@ -735,8 +735,8 @@ public final class PlasmaShieldGameTests {
         NanoRepair.Result result = NanoRepair.repair(shield, repairPlate, player,
                 new com.miningdim.job.engineer.testutil.FixedDoubleRandom(0.0D));
         helper.assertTrue(!result.success()
-                        && "message.miningdim.engineer.repair.plasma_shield_incompatible".equals(result.failKey()),
-                "nano repair must reject plasma shields with the dedicated incompatibility result");
+                        && "message.miningdim.engineer.repair.shield_incompatible".equals(result.failKey()),
+                "nano repair must reject plasma shields with the generic shield incompatibility result");
         helper.assertTrue(shield.getDamageValue() == 0,
                 "rejected nano repair must not mutate the plasma shield item");
         helper.succeed();

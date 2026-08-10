@@ -23,7 +23,10 @@ public final class PlateArmorDamageHandler {
 
     @SubscribeEvent(priority = EventPriority.LOW)
     public void onLivingHurt(LivingHurtEvent event) {
-        if (event.getAmount() <= 0.0F || !(event.getEntity() instanceof Player player)) {
+        // isFinite 显式判: NaN 与任何值比较都为 false, 单靠 amount <= 0 会放行非有限伤害, 随后被插板
+        // 公式算成一个成功减伤结果并写回事件, 等于佩戴者免疫且掩盖上游数据错误。
+        if (!Float.isFinite(event.getAmount()) || event.getAmount() <= 0.0F
+                || !(event.getEntity() instanceof Player player)) {
             return;
         }
         ItemStack armorStack = player.getItemBySlot(EquipmentSlot.CHEST);

@@ -49,7 +49,11 @@ public final class PlasmaShieldHandler {
 
     @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = false)
     public void onLivingHurt(LivingHurtEvent event) {
+        // isFinite 必须显式判: NaN 与所有值比较均为 false, 单靠 amount <= 0 拦不住。放行后护盾会把
+        // NaN 当成一次成功吸收并最终 setAmount(0), 使佩戴者完全免疫异常伤害, 还掩盖了上游的数据错误。
+        // 非有限伤害一律不经护盾, 原样交回原版链路暴露问题。
         if (!(event.getEntity() instanceof ServerPlayer player)
+                || !Float.isFinite(event.getAmount())
                 || event.getAmount() <= 0.0F
                 || event.getSource().is(DamageTypeTags.BYPASSES_INVULNERABILITY)
                 || event.getSource().is(BYPASSES_PLASMA_SHIELD)) {

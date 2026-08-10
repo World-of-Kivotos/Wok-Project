@@ -159,6 +159,37 @@ public final class PlateArmorConfig {
         return values;
     }
 
+    /**
+     * 在配置加载/重载时一次性校验四个矩阵, 使非法配置在启动期就暴露。
+     *
+     * ForgeConfigSpec.defineList 的 Predicate 只校验单个元素, 长度写成 17 或 19 同样能通过。若不在此处
+     * 拦下, 首个错误只会在玩家穿戴插板触发 PlayerTickEvent 时由 {@link #matrixValue} 抛出, 那是在服务端
+     * tick 里崩, 而不是启动时给服主一条明确的配置错误。
+     */
+    public void validateMatrices() {
+        matrixSize("ballisticProtectionR", ballisticProtection);
+        matrixSize("armorPiercingBufferQ", armorPiercingBuffer);
+        matrixSize("generalProtectionG", generalProtection);
+        matrixSize("pressureCapacityT", pressureCapacity);
+    }
+
+    private static void matrixSize(String name,
+                                   ForgeConfigSpec.ConfigValue<List<? extends Double>> configured) {
+        int expected = PlateArmorTier.values().length * PlateArmorWeight.values().length;
+        List<?> values = configured.get();
+        if (values.size() != expected) {
+            throw new IllegalStateException("plateArmor." + name + " must contain exactly " + expected
+                    + " values, got " + values.size());
+        }
+        for (int i = 0; i < values.size(); i++) {
+            Object value = values.get(i);
+            if (!(value instanceof Number number) || !Double.isFinite(number.doubleValue())) {
+                throw new IllegalStateException(
+                        "plateArmor." + name + " contains a non-finite number at index " + i);
+            }
+        }
+    }
+
     private static double matrixValue(String name,
                                       ForgeConfigSpec.ConfigValue<List<? extends Double>> configured,
                                       PlateArmorTier tier,

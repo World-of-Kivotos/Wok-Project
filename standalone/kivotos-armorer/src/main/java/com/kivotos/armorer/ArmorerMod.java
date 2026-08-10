@@ -10,6 +10,7 @@ import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.event.config.ModConfigEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import org.slf4j.Logger;
@@ -36,6 +37,9 @@ public final class ArmorerMod {
         forgeBus.register(new PlateArmorEquipmentHandler());
         forgeBus.register(new PlasmaShieldHandler());
         modBus.addListener(this::commonSetup);
+        // 配置载入与重载后立刻校验插板矩阵, 让长度写错的配置在此处失败, 而不是等玩家穿戴时崩服务端 tick。
+        modBus.addListener(this::onConfigLoad);
+        modBus.addListener(this::onConfigReload);
 
         if (ModList.get().isLoaded("tacz")) {
             com.kivotos.armorer.armor.integration.PlateArmorTaczIntegrationBootstrap.assemble(forgeBus);
@@ -46,5 +50,20 @@ public final class ArmorerMod {
 
     private void commonSetup(FMLCommonSetupEvent event) {
         event.enqueueWork(PlasmaShieldNetwork::register);
+    }
+
+    private void onConfigLoad(ModConfigEvent.Loading event) {
+        validateOwnConfig(event.getConfig());
+    }
+
+    private void onConfigReload(ModConfigEvent.Reloading event) {
+        validateOwnConfig(event.getConfig());
+    }
+
+    /** 只校验本模组自己的 SERVER 配置; 同总线上其它模组的配置事件一律放行。 */
+    private void validateOwnConfig(ModConfig config) {
+        if (config.getSpec() == ArmorerConfig.SPEC) {
+            ArmorerConfig.PLATE_ARMOR.validateMatrices();
+        }
     }
 }

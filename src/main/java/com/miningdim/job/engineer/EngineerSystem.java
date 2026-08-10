@@ -17,6 +17,7 @@ import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.event.config.ModConfigEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import org.slf4j.Logger;
@@ -51,6 +52,10 @@ public final class EngineerSystem implements Subsystem {
         // SERVER 配置 spec (10.3 C6: 全部平衡数值进 ForgeConfigSpec)。
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER,
                 EngineerConfig.SPEC, "miningdim-engineer.toml");
+        // 载入与重载后立刻校验插板矩阵长度: defineList 的 Predicate 只管单个元素, 长度写错要到玩家穿戴时
+        // 才由 PlayerTickEvent 抛出并打断服务端 tick。只认本 spec, 同总线其它模组的配置事件放行。
+        modBus.addListener((ModConfigEvent.Loading event) -> validateOwnConfig(event.getConfig()));
+        modBus.addListener((ModConfigEvent.Reloading event) -> validateOwnConfig(event.getConfig()));
 
         // 特效事件订阅 (forgeBus): PlayerTick (重塑/机能修复/护盾) / LivingHurt (护盾免疫窗) /
         // LivingDeath (图腾拦截致死) / AnvilUpdate (禁纳米特效甲铁砧修复)。
@@ -76,6 +81,13 @@ public final class EngineerSystem implements Subsystem {
                                 ModEngineerMenus.PRODUCTION_TABLE.get(), ProductionTableScreen::new))));
 
         LOGGER.info("[miningdim] armorer subsystem registered (54 plate armors + 18 plasma shields + 3 legacy shield aliases + 6 repair plates + 6 tables + effects + QTE)");
+    }
+
+    /** 只校验本子系统自己的 SERVER spec; 同总线上其它模组/子系统的配置事件一律放行。 */
+    private static void validateOwnConfig(ModConfig config) {
+        if (config.getSpec() == EngineerConfig.SPEC) {
+            EngineerConfig.PLATE_ARMOR.validateMatrices();
+        }
     }
 
     @Override

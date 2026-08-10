@@ -233,9 +233,10 @@ public final class CaseOpeningService {
         }
         if (row.status() == CaseOpeningStatus.COMMITTED) {
             SkinAssetRow existing = requireAsset(row.assetId());
-            CaseEconomyOperations.State moneyState = economy.state(row.ownerId(), row.openingId());
-            if (moneyState == CaseEconomyOperations.State.NONE
-                    && !economy.charge(player, row.openingId(), row.creditCost(), row.azureCost())) {
+            // 无条件 charge, 不以 state 短路。charge 对同域同玩家同金额的既有记录本就幂等 (返回已持久化
+            // 状态且不重复扣款), 而元组不符时会抛 OPERATION_CONFLICT。先查 state 再决定是否扣款, 等于把
+            // 账本的全元组校验挡在门外: 只要账本里存在该玩家任意一条记录, 扣款就被整段跳过。
+            if (!economy.charge(player, row.openingId(), row.creditCost(), row.azureCost())) {
                 throw new IllegalStateException("已提交皮肤的货币账本需要恢复，但当前余额不足: " + row.openingId());
             }
             CaseEconomyOperations.State finalized = economy.complete(row.ownerId(), row.openingId());
@@ -251,12 +252,11 @@ public final class CaseOpeningService {
             dao.markRefunded(row.openingId(), System.currentTimeMillis());
             throw new WebUiBusinessException("OPENING_REFUNDED", "该开箱事务已退款，请使用新的 openingId", false);
         }
-        if (moneyState == CaseEconomyOperations.State.NONE) {
-            if (!economy.charge(player, row.openingId(), row.creditCost(), row.azureCost())) {
-                dao.markRefunded(row.openingId(), System.currentTimeMillis());
-                throw new IllegalStateException("余额不足：需要 " + row.creditCost()
-                        + " CREDIT 与 " + row.azureCost() + " AZURE");
-            }
+        // 同上: 除已退款这一终态外一律无条件 charge, 由账本的全元组校验做闸门, 而不是先查 state 再决定。
+        if (!economy.charge(player, row.openingId(), row.creditCost(), row.azureCost())) {
+            dao.markRefunded(row.openingId(), System.currentTimeMillis());
+            throw new IllegalStateException("余额不足：需要 " + row.creditCost()
+                    + " CREDIT 与 " + row.azureCost() + " AZURE");
         }
 
         try {

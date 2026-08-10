@@ -228,7 +228,7 @@ public final class EconomyGameTests {
         ledger.credit(playerId, Currency.AZURE, 50L);
 
         ledger.setDirty(false);
-        EconomyOperationStatus first = ledger.tryChargeBundle(playerId, operationId, 200L, 10L);
+        EconomyOperationStatus first = ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, playerId, operationId, 200L, 10L);
         helper.assertTrue(first == EconomyOperationStatus.CHARGED,
                 "first sufficient bundle charge records CHARGED");
         helper.assertTrue(ledger.balance(playerId, Currency.CREDIT) == 800L
@@ -237,7 +237,7 @@ public final class EconomyGameTests {
         helper.assertTrue(ledger.isDirty(), "first financial side effect marks SavedData dirty");
 
         ledger.setDirty(false);
-        EconomyOperationStatus replay = ledger.tryChargeBundle(playerId, operationId, 200L, 10L);
+        EconomyOperationStatus replay = ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, playerId, operationId, 200L, 10L);
         helper.assertTrue(replay == EconomyOperationStatus.CHARGED,
                 "same operationId replay returns its persisted successful state");
         helper.assertTrue(ledger.balance(playerId, Currency.CREDIT) == 800L
@@ -247,7 +247,7 @@ public final class EconomyGameTests {
 
         boolean conflict = false;
         try {
-            ledger.tryChargeBundle(playerId, operationId, 201L, 10L);
+            ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, playerId, operationId, 201L, 10L);
         } catch (EconomyException e) {
             conflict = e.reason() == EconomyException.Reason.OPERATION_CONFLICT;
         }
@@ -255,10 +255,10 @@ public final class EconomyGameTests {
 
         UUID insufficientId = UUID.randomUUID();
         ledger.setDirty(false);
-        EconomyOperationStatus insufficient = ledger.tryChargeBundle(playerId, insufficientId, 801L, 1L);
+        EconomyOperationStatus insufficient = ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, playerId, insufficientId, 801L, 1L);
         helper.assertTrue(insufficient == EconomyOperationStatus.NONE,
                 "insufficient first attempt returns NONE and creates no operation");
-        helper.assertTrue(ledger.operationStatus(playerId, insufficientId) == EconomyOperationStatus.NONE,
+        helper.assertTrue(ledger.operationStatus(EconomyOperationDomain.CASE_OPENING, playerId, insufficientId) == EconomyOperationStatus.NONE,
                 "insufficient attempt is not persisted as a successful operation");
         helper.assertTrue(ledger.balance(playerId, Currency.CREDIT) == 800L
                         && ledger.balance(playerId, Currency.AZURE) == 40L,
@@ -615,15 +615,15 @@ public final class EconomyGameTests {
         ledger.credit(playerId, Currency.AZURE, 100L);
         IEconomyService economy = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
 
-        helper.assertTrue(economy.tryChargeBundle(player, completedId, 100L, 10L)
+        helper.assertTrue(economy.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, completedId, 100L, 10L)
                         == EconomyOperationStatus.CHARGED,
                 "service facade creates first CHARGED operation");
-        helper.assertTrue(economy.completeBundle(playerId, completedId) == EconomyOperationStatus.COMPLETED,
+        helper.assertTrue(economy.completeBundle(EconomyOperationDomain.CASE_OPENING, playerId, completedId) == EconomyOperationStatus.COMPLETED,
                 "UUID-level recovery API commits CHARGED to COMPLETED");
-        helper.assertTrue(economy.completeBundle(playerId, completedId) == EconomyOperationStatus.COMPLETED,
+        helper.assertTrue(economy.completeBundle(EconomyOperationDomain.CASE_OPENING, playerId, completedId) == EconomyOperationStatus.COMPLETED,
                 "complete replay is idempotent");
 
-        helper.assertTrue(economy.tryChargeBundle(player, refundableId, 200L, 20L)
+        helper.assertTrue(economy.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, refundableId, 200L, 20L)
                         == EconomyOperationStatus.CHARGED,
                 "second operation remains CHARGED for crash-recovery simulation");
         helper.assertTrue(ledger.balance(playerId, Currency.CREDIT) == 700L
@@ -632,37 +632,37 @@ public final class EconomyGameTests {
 
         EconomyWalletData reloaded = EconomyWalletData.load(ledger.save(new CompoundTag()));
         IEconomyService recovered = new EconomyService(reloaded, new AbuseGuard(), newStateResolver());
-        helper.assertTrue(recovered.operationStatus(playerId, completedId) == EconomyOperationStatus.COMPLETED,
+        helper.assertTrue(recovered.operationStatus(EconomyOperationDomain.CASE_OPENING, playerId, completedId) == EconomyOperationStatus.COMPLETED,
                 "COMPLETED state survives NBT round-trip");
-        helper.assertTrue(recovered.operationStatus(playerId, refundableId) == EconomyOperationStatus.CHARGED,
+        helper.assertTrue(recovered.operationStatus(EconomyOperationDomain.CASE_OPENING, playerId, refundableId) == EconomyOperationStatus.CHARGED,
                 "in-flight CHARGED state survives NBT round-trip for startup recovery");
 
-        helper.assertTrue(recovered.tryChargeBundle(player, refundableId, 200L, 20L)
+        helper.assertTrue(recovered.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, refundableId, 200L, 20L)
                         == EconomyOperationStatus.CHARGED,
                 "replayed in-flight operation returns CHARGED after restart");
         helper.assertTrue(reloaded.balance(playerId, Currency.CREDIT) == 700L
                         && reloaded.balance(playerId, Currency.AZURE) == 70L,
                 "post-restart replay does not charge twice");
 
-        helper.assertTrue(recovered.refundBundle(playerId, refundableId) == EconomyOperationStatus.REFUNDED,
+        helper.assertTrue(recovered.refundBundle(EconomyOperationDomain.CASE_OPENING, playerId, refundableId) == EconomyOperationStatus.REFUNDED,
                 "offline UUID recovery atomically refunds an in-flight charge");
         helper.assertTrue(reloaded.balance(playerId, Currency.CREDIT) == 900L
                         && reloaded.balance(playerId, Currency.AZURE) == 90L,
                 "refund restores exactly the second operation while retaining completed cost");
-        helper.assertTrue(recovered.refundBundle(playerId, refundableId) == EconomyOperationStatus.REFUNDED,
+        helper.assertTrue(recovered.refundBundle(EconomyOperationDomain.CASE_OPENING, playerId, refundableId) == EconomyOperationStatus.REFUNDED,
                 "refund replay returns REFUNDED without a second credit");
         helper.assertTrue(reloaded.balance(playerId, Currency.CREDIT) == 900L
                         && reloaded.balance(playerId, Currency.AZURE) == 90L,
                 "refund replay cannot mint either currency");
-        helper.assertTrue(recovered.completeBundle(playerId, refundableId) == EconomyOperationStatus.REFUNDED,
+        helper.assertTrue(recovered.completeBundle(EconomyOperationDomain.CASE_OPENING, playerId, refundableId) == EconomyOperationStatus.REFUNDED,
                 "a REFUNDED terminal operation cannot move back to COMPLETED");
-        helper.assertTrue(recovered.refundBundle(playerId, completedId) == EconomyOperationStatus.COMPLETED,
+        helper.assertTrue(recovered.refundBundle(EconomyOperationDomain.CASE_OPENING, playerId, completedId) == EconomyOperationStatus.COMPLETED,
                 "a COMPLETED terminal operation cannot be refunded");
 
         EconomyWalletData terminalReload = EconomyWalletData.load(reloaded.save(new CompoundTag()));
-        helper.assertTrue(terminalReload.operationStatus(playerId, completedId) == EconomyOperationStatus.COMPLETED,
+        helper.assertTrue(terminalReload.operationStatus(EconomyOperationDomain.CASE_OPENING, playerId, completedId) == EconomyOperationStatus.COMPLETED,
                 "COMPLETED terminal state remains persistent");
-        helper.assertTrue(terminalReload.operationStatus(playerId, refundableId) == EconomyOperationStatus.REFUNDED,
+        helper.assertTrue(terminalReload.operationStatus(EconomyOperationDomain.CASE_OPENING, playerId, refundableId) == EconomyOperationStatus.REFUNDED,
                 "REFUNDED terminal state remains persistent");
         helper.succeed();
     }

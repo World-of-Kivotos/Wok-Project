@@ -38,6 +38,7 @@ public final class EconomyWalletData extends SavedData {
     private static final String K_CREDIT_AMOUNT = "creditAmount";
     private static final String K_AZURE_AMOUNT = "azureAmount";
     private static final String K_OPERATION_STATUS = "status";
+    private static final String K_OPERATION_DOMAIN = "domain";
 
     private static final String K_DAILY = "dailyCharges";
     private static final String K_DAILY_KEY = "key";
@@ -90,10 +91,12 @@ public final class EconomyWalletData extends SavedData {
     }
 
     /** 一笔可恢复的双币扣款；operationId 在全服账本内唯一。 */
-    private record BundleChargeOperation(UUID operationId, UUID playerId, long creditAmount, long azureAmount,
+    private record BundleChargeOperation(UUID operationId, EconomyOperationDomain domain, UUID playerId,
+                                         long creditAmount, long azureAmount,
                                          EconomyOperationStatus status) {
         private BundleChargeOperation {
             Objects.requireNonNull(operationId, "operationId");
+            Objects.requireNonNull(domain, "domain");
             Objects.requireNonNull(playerId, "playerId");
             Objects.requireNonNull(status, "status");
             requireBundleAmounts(creditAmount, azureAmount);
@@ -103,13 +106,24 @@ public final class EconomyWalletData extends SavedData {
         }
 
         BundleChargeOperation withStatus(EconomyOperationStatus nextStatus) {
-            return new BundleChargeOperation(operationId, playerId, creditAmount, azureAmount, nextStatus);
+            return new BundleChargeOperation(operationId, domain, playerId, creditAmount, azureAmount, nextStatus);
         }
 
-        boolean matches(UUID expectedPlayerId, long expectedCredit, long expectedAzure) {
-            return playerId.equals(expectedPlayerId)
+        /**
+         * 幂等判定必须比对完整元组。只比 playerId 会让不同业务共用同一 operationId 时互相串号 ——
+         * 一笔业务的"已付款事实"被另一笔业务当成自己的付款凭据, 从而跳过扣款。
+         */
+        boolean matches(EconomyOperationDomain expectedDomain, UUID expectedPlayerId,
+                        long expectedCredit, long expectedAzure) {
+            return domain == expectedDomain
+                    && playerId.equals(expectedPlayerId)
                     && creditAmount == expectedCredit
                     && azureAmount == expectedAzure;
+        }
+
+        /** 状态查询与推进只认域与归属; 金额比对留给 charge, 以便金额不符时抛冲突而非静默放行。 */
+        boolean belongsTo(EconomyOperationDomain expectedDomain, UUID expectedPlayerId) {
+            return domain == expectedDomain && playerId.equals(expectedPlayerId);
         }
     }
 
@@ -160,15 +174,16 @@ public final class EconomyWalletData extends SavedData {
      * 返回 NONE，既不改变余额也不记录操作。同一 operationId 重放时返回已持久化状态，不再次扣款。若重放时玩家
      * 或金额不同，抛 OPERATION_CONFLICT，防止幂等键被挪用。</p>
      */
-    public EconomyOperationStatus tryChargeBundle(UUID playerId, UUID operationId,
+    public EconomyOperationStatus tryChargeBundle(EconomyOperationDomain domain, UUID playerId, UUID operationId,
                                                     long creditAmount, long azureAmount) {
+        Objects.requireNonNull(domain, "domain");
         Objects.requireNonNull(playerId, "playerId");
         Objects.requireNonNull(operationId, "operationId");
         requireBundleAmounts(creditAmount, azureAmount);
 
         BundleChargeOperation existing = bundleOperations.get(operationId);
         if (existing != null) {
-            if (!existing.matches(playerId, creditAmount, azureAmount)) {
+            if (!existing.matches(domain, playerId, creditAmount, azureAmount)) {
                 throw operationConflict(operationId);
             }
             return existing.status();
@@ -179,18 +194,19 @@ public final class EconomyWalletData extends SavedData {
             return EconomyOperationStatus.NONE;
         }
 
-        bundleOperations.put(operationId, new BundleChargeOperation(operationId, playerId,
+        bundleOperations.put(operationId, new BundleChargeOperation(operationId, domain, playerId,
                 creditAmount, azureAmount, EconomyOperationStatus.CHARGED));
         setDirty();
         return EconomyOperationStatus.CHARGED;
     }
 
     /** 查询某玩家 operationId 的持久状态；不存在或不属于该玩家返回 NONE。 */
-    public EconomyOperationStatus operationStatus(UUID playerId, UUID operationId) {
+    public EconomyOperationStatus operationStatus(EconomyOperationDomain domain, UUID playerId, UUID operationId) {
+        Objects.requireNonNull(domain, "domain");
         Objects.requireNonNull(playerId, "playerId");
         Objects.requireNonNull(operationId, "operationId");
         BundleChargeOperation operation = bundleOperations.get(operationId);
-        return operation != null && operation.playerId().equals(playerId)
+        return operation != null && operation.belongsTo(domain, playerId)
                 ? operation.status()
                 : EconomyOperationStatus.NONE;
     }
@@ -198,11 +214,12 @@ public final class EconomyWalletData extends SavedData {
     /**
      * 把 CHARGED 幂等推进为 COMPLETED。已完成重放仍返 COMPLETED；REFUNDED 不可反向完成，原样返 REFUNDED。
      */
-    public EconomyOperationStatus completeBundle(UUID playerId, UUID operationId) {
+    public EconomyOperationStatus completeBundle(EconomyOperationDomain domain, UUID playerId, UUID operationId) {
+        Objects.requireNonNull(domain, "domain");
         Objects.requireNonNull(playerId, "playerId");
         Objects.requireNonNull(operationId, "operationId");
         BundleChargeOperation operation = bundleOperations.get(operationId);
-        if (operation == null || !operation.playerId().equals(playerId)) {
+        if (operation == null || !operation.belongsTo(domain, playerId)) {
             return EconomyOperationStatus.NONE;
         }
         if (operation.status() == EconomyOperationStatus.CHARGED) {
@@ -217,11 +234,12 @@ public final class EconomyWalletData extends SavedData {
      * 把 CHARGED 幂等退款并推进为 REFUNDED。退款由 {@link PlayerWallet#creditBundle} 同时恢复两币；若任一余额
      * 溢出则两币和操作状态均保持不变。COMPLETED 不可退款，原样返 COMPLETED。
      */
-    public EconomyOperationStatus refundBundle(UUID playerId, UUID operationId) {
+    public EconomyOperationStatus refundBundle(EconomyOperationDomain domain, UUID playerId, UUID operationId) {
+        Objects.requireNonNull(domain, "domain");
         Objects.requireNonNull(playerId, "playerId");
         Objects.requireNonNull(operationId, "operationId");
         BundleChargeOperation operation = bundleOperations.get(operationId);
-        if (operation == null || !operation.playerId().equals(playerId)) {
+        if (operation == null || !operation.belongsTo(domain, playerId)) {
             return EconomyOperationStatus.NONE;
         }
         if (operation.status() != EconomyOperationStatus.CHARGED) {
@@ -399,6 +417,7 @@ public final class EconomyWalletData extends SavedData {
         for (BundleChargeOperation operation : bundleOperations.values()) {
             CompoundTag entry = new CompoundTag();
             entry.putUUID(K_OPERATION_ID, operation.operationId());
+            entry.putString(K_OPERATION_DOMAIN, operation.domain().id());
             entry.putUUID(K_PLAYER_ID, operation.playerId());
             entry.putLong(K_CREDIT_AMOUNT, operation.creditAmount());
             entry.putLong(K_AZURE_AMOUNT, operation.azureAmount());
@@ -446,8 +465,17 @@ public final class EconomyWalletData extends SavedData {
                 throw new IllegalArgumentException("Malformed persisted bundle operation UUIDs");
             }
             UUID operationId = entry.getUUID(K_OPERATION_ID);
+            // 域是必填项, 不设缺省回退: 该机制随开箱系统一同首次落地, 存档中不存在无域的历史记录。
+            // 若真读到缺域条目, 说明存档被外部改写或来自不兼容版本, 必须让它冒泡而不是猜一个域 ——
+            // 猜错会让该条记录变成任意业务都能复用的免费付款凭据。
+            String domainId = entry.getString(K_OPERATION_DOMAIN);
+            if (domainId.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Persisted bundle operation is missing its domain: " + operationId);
+            }
             BundleChargeOperation operation = new BundleChargeOperation(
                     operationId,
+                    EconomyOperationDomain.valueOf(domainId),
                     entry.getUUID(K_PLAYER_ID),
                     entry.getLong(K_CREDIT_AMOUNT),
                     entry.getLong(K_AZURE_AMOUNT),

@@ -64,24 +64,24 @@ public final class EconomyService implements IEconomyService {
     }
 
     @Override
-    public EconomyOperationStatus tryChargeBundle(ServerPlayer player, UUID operationId,
-                                                   long creditAmount, long azureAmount) {
-        return ledger.tryChargeBundle(player.getUUID(), operationId, creditAmount, azureAmount);
+    public EconomyOperationStatus tryChargeBundle(EconomyOperationDomain domain, ServerPlayer player,
+                                                   UUID operationId, long creditAmount, long azureAmount) {
+        return ledger.tryChargeBundle(domain, player.getUUID(), operationId, creditAmount, azureAmount);
     }
 
     @Override
-    public EconomyOperationStatus operationStatus(UUID playerId, UUID operationId) {
-        return ledger.operationStatus(playerId, operationId);
+    public EconomyOperationStatus operationStatus(EconomyOperationDomain domain, UUID playerId, UUID operationId) {
+        return ledger.operationStatus(domain, playerId, operationId);
     }
 
     @Override
-    public EconomyOperationStatus completeBundle(UUID playerId, UUID operationId) {
-        return ledger.completeBundle(playerId, operationId);
+    public EconomyOperationStatus completeBundle(EconomyOperationDomain domain, UUID playerId, UUID operationId) {
+        return ledger.completeBundle(domain, playerId, operationId);
     }
 
     @Override
-    public EconomyOperationStatus refundBundle(UUID playerId, UUID operationId) {
-        return ledger.refundBundle(playerId, operationId);
+    public EconomyOperationStatus refundBundle(EconomyOperationDomain domain, UUID playerId, UUID operationId) {
+        return ledger.refundBundle(domain, playerId, operationId);
     }
 
     @Override

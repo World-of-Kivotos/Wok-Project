@@ -9,6 +9,7 @@ import com.miningdim.caseopening.store.SkinAssetRow;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.economy.AbuseGuard;
 import com.miningdim.economy.Currency;
+import com.miningdim.economy.EconomyOperationDomain;
 import com.miningdim.economy.EconomyOperationStatus;
 import com.miningdim.economy.EconomyService;
 import com.miningdim.economy.EconomyServices;
@@ -156,6 +157,56 @@ public final class CaseOpeningGameTests {
         helper.succeed();
     }
 
+    /**
+     * 账本里已存在该玩家一条金额不同的操作记录, 而 SQLite 侧没有对应开箱行时, 必须真扣款或失败,
+     * 绝不能把那条记录当成本次开箱的付款凭据。
+     *
+     * 这正是"客户端提交的 openingId 被当作全局幂等键"的利用形态: 玩家知道自己全部历史 operationId,
+     * 只要账本有记录而开箱库没有对应行 (运维单独回滚过 miningdim_cases.db, 或有第二个业务也在写 bundle
+     * 操作), 复用该 ID 即可白拿。修复前 resume 先查 state 再决定是否扣款, state 非 NONE 就整段跳过扣款;
+     * 修复后无条件调 charge, 由账本的全元组校验做闸门。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void openingRejectsLedgerOperationBelongingToAnotherCharge(GameTestHelper helper) {
+        EconomyWalletData ledger = new EconomyWalletData();
+        IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+        IEconomyService previous = swapEconomy(fake);
+        CaseDaoSqlite dao = CaseDb.openInMemory();
+        try {
+            ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            fake.grant(player, Currency.CREDIT, 100_000L);
+            fake.grant(player, Currency.AZURE, 20L);
+            UUID hijackedId = UUID.randomUUID();
+
+            // 预置一笔金额与开箱价不同的已结清操作, 且不在 SQLite 留任何开箱行。
+            helper.assertTrue(fake.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player,
+                    hijackedId, 1_000L, 1L) == EconomyOperationStatus.CHARGED,
+                    "预置操作应成功扣款并记为 CHARGED");
+            helper.assertTrue(fake.completeBundle(EconomyOperationDomain.CASE_OPENING, player.getUUID(),
+                    hijackedId) == EconomyOperationStatus.COMPLETED, "预置操作应推进为 COMPLETED");
+            long creditAfterSetup = ledger.balance(player.getUUID(), Currency.CREDIT);
+            long azureAfterSetup = ledger.balance(player.getUUID(), Currency.AZURE);
+
+            boolean rejected = false;
+            try {
+                service(dao).open(player, hijackedId, CaseCatalog.CASE_ID);
+            } catch (RuntimeException expected) {
+                rejected = true;
+            }
+
+            helper.assertTrue(rejected, "复用他笔操作的 UUID 开箱必须失败, 不得静默放行");
+            helper.assertTrue(dao.ownedAssets(player.getUUID()).isEmpty(),
+                    "被拒绝的开箱不得产出任何皮肤资产");
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == creditAfterSetup
+                            && ledger.balance(player.getUUID(), Currency.AZURE) == azureAfterSetup,
+                    "被拒绝的开箱不得改动任何一种货币余额");
+        } finally {
+            dao.close();
+            restoreEconomy(previous);
+        }
+        helper.succeed();
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void openingChargesBothCurrenciesExactlyOnce(GameTestHelper helper) {
         EconomyWalletData ledger = new EconomyWalletData();
@@ -174,7 +225,7 @@ public final class CaseOpeningGameTests {
                     "one opening destroys exactly 50000 CREDIT");
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.AZURE) == 10L,
                     "one opening destroys exactly 10 AZURE");
-            helper.assertTrue(fake.operationStatus(player.getUUID(), openingId) == EconomyOperationStatus.COMPLETED,
+            helper.assertTrue(fake.operationStatus(EconomyOperationDomain.CASE_OPENING, player.getUUID(), openingId) == EconomyOperationStatus.COMPLETED,
                     "currency operation reaches durable COMPLETED state after SQL ownership commit");
 
             CaseOpeningService.OpenResult replay = service.open(player, openingId, CaseCatalog.CASE_ID);
@@ -216,7 +267,7 @@ public final class CaseOpeningGameTests {
                     "failed bundle debit leaves CREDIT untouched");
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.AZURE) == 10L,
                     "failed bundle debit leaves AZURE untouched");
-            helper.assertTrue(fake.operationStatus(player.getUUID(), openingId) == EconomyOperationStatus.NONE,
+            helper.assertTrue(fake.operationStatus(EconomyOperationDomain.CASE_OPENING, player.getUUID(), openingId) == EconomyOperationStatus.NONE,
                     "insufficient bundle creates no charged economy operation");
             helper.assertTrue(dao.findOpening(openingId) == null,
                     "balance preflight rejects before reserving or writing any opening row");
@@ -264,7 +315,7 @@ public final class CaseOpeningGameTests {
             helper.assertTrue(rejected, "opening fails fast when TaCZ did not accept the embedded gunpack");
             helper.assertTrue(dao.findOpening(openingId) == null,
                     "TaCZ preflight fails before writing a reservation");
-            helper.assertTrue(fake.operationStatus(player.getUUID(), openingId) == EconomyOperationStatus.NONE,
+            helper.assertTrue(fake.operationStatus(EconomyOperationDomain.CASE_OPENING, player.getUUID(), openingId) == EconomyOperationStatus.NONE,
                     "TaCZ preflight fails before creating an economy operation");
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 100_000L
                             && ledger.balance(player.getUUID(), Currency.AZURE) == 20L,
@@ -281,7 +332,7 @@ public final class CaseOpeningGameTests {
             helper.assertTrue(!missingMod.enabled() && missingModRejected,
                     "ModList absence independently disables state and rejects opening");
             helper.assertTrue(dao.findOpening(missingModId) == null
-                            && fake.operationStatus(player.getUUID(), missingModId) == EconomyOperationStatus.NONE,
+                            && fake.operationStatus(EconomyOperationDomain.CASE_OPENING, player.getUUID(), missingModId) == EconomyOperationStatus.NONE,
                     "missing TaCZ mod also fails before reservation and debit");
         } finally {
             dao.close();
@@ -313,7 +364,7 @@ public final class CaseOpeningGameTests {
             helper.assertTrue(rejected, "a second new opening in the cooldown window is rejected");
             helper.assertTrue(dao.findOpening(rejectedId) == null,
                     "rate limiting happens before reserve/pre-roll SQL writes");
-            helper.assertTrue(fake.operationStatus(player.getUUID(), rejectedId) == EconomyOperationStatus.NONE,
+            helper.assertTrue(fake.operationStatus(EconomyOperationDomain.CASE_OPENING, player.getUUID(), rejectedId) == EconomyOperationStatus.NONE,
                     "rate limiting creates no economy operation");
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 100_000L
                             && ledger.balance(player.getUUID(), Currency.AZURE) == 20L,
@@ -339,7 +390,7 @@ public final class CaseOpeningGameTests {
             CaseOpeningRow reserved = row(openingId, player.getUUID(), UUID.randomUUID(),
                     1_700_000_000_000L, CaseOpeningStatus.RESERVED);
             dao.reserve(reserved);
-            helper.assertTrue(fake.tryChargeBundle(player, openingId, 50_000L, 10L)
+            helper.assertTrue(fake.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, openingId, 50_000L, 10L)
                             == EconomyOperationStatus.CHARGED,
                     "test fixture simulates a crash after durable dual debit but before SQL phase update");
 
@@ -349,7 +400,7 @@ public final class CaseOpeningGameTests {
                     "recovery completes the SQL opening and ownership transaction");
             helper.assertTrue(dao.ownedAssets(player.getUUID()).size() == 1,
                     "recovery grants exactly one skin asset");
-            helper.assertTrue(fake.operationStatus(player.getUUID(), openingId) == EconomyOperationStatus.COMPLETED,
+            helper.assertTrue(fake.operationStatus(EconomyOperationDomain.CASE_OPENING, player.getUUID(), openingId) == EconomyOperationStatus.COMPLETED,
                     "recovery finalizes the persistent economy operation");
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 50_000L
                             && ledger.balance(player.getUUID(), Currency.AZURE) == 10L,
@@ -374,7 +425,7 @@ public final class CaseOpeningGameTests {
             UUID openingId = UUID.randomUUID();
             long now = 1_700_000_000_000L;
             dao.reserve(row(openingId, player.getUUID(), UUID.randomUUID(), now, CaseOpeningStatus.RESERVED));
-            helper.assertTrue(fake.tryChargeBundle(player, openingId, 50_000L, 10L)
+            helper.assertTrue(fake.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, openingId, 50_000L, 10L)
                             == EconomyOperationStatus.CHARGED,
                     "fixture persists the debit before the crash window");
             helper.assertTrue(dao.markRefunded(openingId, now + 1),
@@ -383,7 +434,7 @@ public final class CaseOpeningGameTests {
             CaseOpeningService service = service(dao);
             int recovered = service.recoverFor(player);
             helper.assertTrue(recovered == 1, "login recovery completes one missing SavedData refund");
-            helper.assertTrue(fake.operationStatus(player.getUUID(), openingId) == EconomyOperationStatus.REFUNDED,
+            helper.assertTrue(fake.operationStatus(EconomyOperationDomain.CASE_OPENING, player.getUUID(), openingId) == EconomyOperationStatus.REFUNDED,
                     "the debit operation reaches idempotent REFUNDED state");
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 100_000L
                             && ledger.balance(player.getUUID(), Currency.AZURE) == 20L,
@@ -415,14 +466,14 @@ public final class CaseOpeningGameTests {
             UUID conflictedId = UUID.randomUUID();
             dao.reserve(row(conflictedId, player.getUUID(), UUID.randomUUID(), now,
                     CaseOpeningStatus.RESERVED));
-            fake.tryChargeBundle(player, conflictedId, 50_000L, 10L);
-            fake.completeBundle(player.getUUID(), conflictedId);
+            fake.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, conflictedId, 50_000L, 10L);
+            fake.completeBundle(EconomyOperationDomain.CASE_OPENING, player.getUUID(), conflictedId);
             dao.markRefunded(conflictedId, now + 1);
 
             UUID refundableId = UUID.randomUUID();
             dao.reserve(row(refundableId, player.getUUID(), UUID.randomUUID(), now + 2,
                     CaseOpeningStatus.RESERVED));
-            fake.tryChargeBundle(player, refundableId, 50_000L, 10L);
+            fake.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, refundableId, 50_000L, 10L);
             dao.markRefunded(refundableId, now + 3);
 
             boolean isolated = false;
@@ -432,10 +483,10 @@ public final class CaseOpeningGameTests {
                 isolated = true;
             }
             helper.assertTrue(isolated, "SQL REFUNDED plus economy COMPLETED is reported as an invariant conflict");
-            helper.assertTrue(fake.operationStatus(player.getUUID(), conflictedId)
+            helper.assertTrue(fake.operationStatus(EconomyOperationDomain.CASE_OPENING, player.getUUID(), conflictedId)
                             == EconomyOperationStatus.COMPLETED,
                     "the conflicted completed operation is isolated rather than refunded");
-            helper.assertTrue(fake.operationStatus(player.getUUID(), refundableId)
+            helper.assertTrue(fake.operationStatus(EconomyOperationDomain.CASE_OPENING, player.getUUID(), refundableId)
                             == EconomyOperationStatus.REFUNDED,
                     "a later valid REFUNDED row still recovers despite the earlier conflict");
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 150_000L
@@ -465,12 +516,12 @@ public final class CaseOpeningGameTests {
             helper.assertTrue(dao.markDebited(openingId, reserved.createdAt() + 1),
                     "fixture advances SQL to DEBITED");
             dao.commitOpening(openingId, asset(reserved), reserved.createdAt() + 2);
-            helper.assertTrue(fake.operationStatus(player.getUUID(), openingId) == EconomyOperationStatus.NONE,
+            helper.assertTrue(fake.operationStatus(EconomyOperationDomain.CASE_OPENING, player.getUUID(), openingId) == EconomyOperationStatus.NONE,
                     "fixture simulates SQLite COMMITTED while the dirty SavedData debit was lost in a hard crash");
 
             int recovered = service(dao).recoverFor(player);
             helper.assertTrue(recovered == 1, "login recovery detects the unsettled committed asset");
-            helper.assertTrue(fake.operationStatus(player.getUUID(), openingId) == EconomyOperationStatus.COMPLETED,
+            helper.assertTrue(fake.operationStatus(EconomyOperationDomain.CASE_OPENING, player.getUUID(), openingId) == EconomyOperationStatus.COMPLETED,
                     "recovery recreates and completes the missing durable economy operation");
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 50_000L
                             && ledger.balance(player.getUUID(), Currency.AZURE) == 10L,

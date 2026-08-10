@@ -1,6 +1,7 @@
 package com.miningdim.job.engineer.effect;
 
 import com.miningdim.job.engineer.NanoNbt;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
@@ -31,8 +32,11 @@ public final class NanoAnvilGuard {
      */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onXpPickup(PlayerXpEvent.PickupXp event) {
-        for (ItemStack armor : event.getEntity().getArmorSlots()) {
-            stripMendingFromNanoEffectArmor(armor);
+        // 必须覆盖全部 EquipmentSlot 而非仅护甲槽: MENDING 注册时传入的就是 EquipmentSlot.values(),
+        // 原版经验修补会连主手与副手一起纳入候选。只扫护甲槽时, 玩家把带经验修补的纳米特效甲拿在手上
+        // 拾取经验即可免费回耐久, 直接绕过维修套件的纳米经济。
+        for (EquipmentSlot slot : EquipmentSlot.values()) {
+            stripMendingFromNanoEffectArmor(event.getEntity().getItemBySlot(slot));
         }
     }
 

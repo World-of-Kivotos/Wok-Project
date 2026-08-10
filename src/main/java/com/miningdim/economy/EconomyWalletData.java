@@ -8,6 +8,7 @@ import net.minecraft.world.level.saveddata.SavedData;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -31,6 +32,13 @@ public final class EconomyWalletData extends SavedData {
     private static final String K_UUID = "uuid";
     private static final String K_WALLET = "wallet";
 
+    private static final String K_BUNDLE_OPERATIONS = "bundleOperations";
+    private static final String K_OPERATION_ID = "operationId";
+    private static final String K_PLAYER_ID = "playerId";
+    private static final String K_CREDIT_AMOUNT = "creditAmount";
+    private static final String K_AZURE_AMOUNT = "azureAmount";
+    private static final String K_OPERATION_STATUS = "status";
+
     private static final String K_DAILY = "dailyCharges";
     private static final String K_DAILY_KEY = "key";
     private static final String K_DAILY_AMOUNT = "amount";
@@ -41,6 +49,9 @@ public final class EconomyWalletData extends SavedData {
 
     /** 玩家 UUID -> 钱包。无记录的玩家视为余额 0 (新玩家)。 */
     private final Map<UUID, PlayerWallet> wallets = new HashMap<>();
+
+    /** operationId -> 已产生资金副作用的双币扣款。NONE/余额不足不会入表。 */
+    private final Map<UUID, BundleChargeOperation> bundleOperations = new HashMap<>();
 
     private static final String K_FAUCET = "dailyFaucets";
 
@@ -75,6 +86,30 @@ public final class EconomyWalletData extends SavedData {
             this.amount = amount;
             this.dayStamp = dayStamp;
             this.creditCarry = creditCarry;
+        }
+    }
+
+    /** 一笔可恢复的双币扣款；operationId 在全服账本内唯一。 */
+    private record BundleChargeOperation(UUID operationId, UUID playerId, long creditAmount, long azureAmount,
+                                         EconomyOperationStatus status) {
+        private BundleChargeOperation {
+            Objects.requireNonNull(operationId, "operationId");
+            Objects.requireNonNull(playerId, "playerId");
+            Objects.requireNonNull(status, "status");
+            requireBundleAmounts(creditAmount, azureAmount);
+            if (status == EconomyOperationStatus.NONE) {
+                throw new IllegalArgumentException("NONE must not be persisted as a bundle operation");
+            }
+        }
+
+        BundleChargeOperation withStatus(EconomyOperationStatus nextStatus) {
+            return new BundleChargeOperation(operationId, playerId, creditAmount, azureAmount, nextStatus);
+        }
+
+        boolean matches(UUID expectedPlayerId, long expectedCredit, long expectedAzure) {
+            return playerId.equals(expectedPlayerId)
+                    && creditAmount == expectedCredit
+                    && azureAmount == expectedAzure;
         }
     }
 
@@ -118,9 +153,99 @@ public final class EconomyWalletData extends SavedData {
         return ok;
     }
 
+    /**
+     * 以 operationId 幂等地原子扣除信用点与青辉石。
+     *
+     * <p>首次余额足时先由 {@link PlayerWallet#tryDebitBundle} 同时扣两币，再写 CHARGED 操作并标脏；任一余额不足
+     * 返回 NONE，既不改变余额也不记录操作。同一 operationId 重放时返回已持久化状态，不再次扣款。若重放时玩家
+     * 或金额不同，抛 OPERATION_CONFLICT，防止幂等键被挪用。</p>
+     */
+    public EconomyOperationStatus tryChargeBundle(UUID playerId, UUID operationId,
+                                                    long creditAmount, long azureAmount) {
+        Objects.requireNonNull(playerId, "playerId");
+        Objects.requireNonNull(operationId, "operationId");
+        requireBundleAmounts(creditAmount, azureAmount);
+
+        BundleChargeOperation existing = bundleOperations.get(operationId);
+        if (existing != null) {
+            if (!existing.matches(playerId, creditAmount, azureAmount)) {
+                throw operationConflict(operationId);
+            }
+            return existing.status();
+        }
+
+        PlayerWallet playerWallet = wallets.get(playerId);
+        if (playerWallet == null || !playerWallet.tryDebitBundle(creditAmount, azureAmount)) {
+            return EconomyOperationStatus.NONE;
+        }
+
+        bundleOperations.put(operationId, new BundleChargeOperation(operationId, playerId,
+                creditAmount, azureAmount, EconomyOperationStatus.CHARGED));
+        setDirty();
+        return EconomyOperationStatus.CHARGED;
+    }
+
+    /** 查询某玩家 operationId 的持久状态；不存在或不属于该玩家返回 NONE。 */
+    public EconomyOperationStatus operationStatus(UUID playerId, UUID operationId) {
+        Objects.requireNonNull(playerId, "playerId");
+        Objects.requireNonNull(operationId, "operationId");
+        BundleChargeOperation operation = bundleOperations.get(operationId);
+        return operation != null && operation.playerId().equals(playerId)
+                ? operation.status()
+                : EconomyOperationStatus.NONE;
+    }
+
+    /**
+     * 把 CHARGED 幂等推进为 COMPLETED。已完成重放仍返 COMPLETED；REFUNDED 不可反向完成，原样返 REFUNDED。
+     */
+    public EconomyOperationStatus completeBundle(UUID playerId, UUID operationId) {
+        Objects.requireNonNull(playerId, "playerId");
+        Objects.requireNonNull(operationId, "operationId");
+        BundleChargeOperation operation = bundleOperations.get(operationId);
+        if (operation == null || !operation.playerId().equals(playerId)) {
+            return EconomyOperationStatus.NONE;
+        }
+        if (operation.status() == EconomyOperationStatus.CHARGED) {
+            bundleOperations.put(operationId, operation.withStatus(EconomyOperationStatus.COMPLETED));
+            setDirty();
+            return EconomyOperationStatus.COMPLETED;
+        }
+        return operation.status();
+    }
+
+    /**
+     * 把 CHARGED 幂等退款并推进为 REFUNDED。退款由 {@link PlayerWallet#creditBundle} 同时恢复两币；若任一余额
+     * 溢出则两币和操作状态均保持不变。COMPLETED 不可退款，原样返 COMPLETED。
+     */
+    public EconomyOperationStatus refundBundle(UUID playerId, UUID operationId) {
+        Objects.requireNonNull(playerId, "playerId");
+        Objects.requireNonNull(operationId, "operationId");
+        BundleChargeOperation operation = bundleOperations.get(operationId);
+        if (operation == null || !operation.playerId().equals(playerId)) {
+            return EconomyOperationStatus.NONE;
+        }
+        if (operation.status() != EconomyOperationStatus.CHARGED) {
+            return operation.status();
+        }
+
+        wallet(playerId).creditBundle(operation.creditAmount(), operation.azureAmount());
+        bundleOperations.put(operationId, operation.withStatus(EconomyOperationStatus.REFUNDED));
+        setDirty();
+        return EconomyOperationStatus.REFUNDED;
+    }
+
     /** 入账 (faucet): 委派 {@link PlayerWallet#credit} (溢出抛 BALANCE_OVERFLOW 冒泡), 标脏。 */
     public void credit(UUID playerId, Currency currency, long amount) {
         wallet(playerId).credit(currency, amount);
+        setDirty();
+    }
+
+    /**
+     * 原子双币入账：两种余额先同时完成正数与溢出校验，再一起写入并标脏。任一校验失败时两种余额均不变。
+     * 本入口供系统补偿和 OP 管理命令使用，不提供玩家间转账能力。
+     */
+    public void creditBundle(UUID playerId, long creditAmount, long azureAmount) {
+        wallet(playerId).creditBundle(creditAmount, azureAmount);
         setDirty();
     }
 
@@ -270,6 +395,18 @@ public final class EconomyWalletData extends SavedData {
         }
         tag.put(K_WALLETS, list);
 
+        ListTag operations = new ListTag();
+        for (BundleChargeOperation operation : bundleOperations.values()) {
+            CompoundTag entry = new CompoundTag();
+            entry.putUUID(K_OPERATION_ID, operation.operationId());
+            entry.putUUID(K_PLAYER_ID, operation.playerId());
+            entry.putLong(K_CREDIT_AMOUNT, operation.creditAmount());
+            entry.putLong(K_AZURE_AMOUNT, operation.azureAmount());
+            entry.putString(K_OPERATION_STATUS, operation.status().name());
+            operations.add(entry);
+        }
+        tag.put(K_BUNDLE_OPERATIONS, operations);
+
         ListTag daily = new ListTag();
         for (Map.Entry<String, DailyCharge> e : dailyCharges.entrySet()) {
             CompoundTag entry = new CompoundTag();
@@ -302,6 +439,24 @@ public final class EconomyWalletData extends SavedData {
                 data.wallets.put(entry.getUUID(K_UUID), PlayerWallet.load(entry.getCompound(K_WALLET)));
             }
         }
+        ListTag operations = tag.getList(K_BUNDLE_OPERATIONS, Tag.TAG_COMPOUND);
+        for (int i = 0; i < operations.size(); i++) {
+            CompoundTag entry = operations.getCompound(i);
+            if (!entry.hasUUID(K_OPERATION_ID) || !entry.hasUUID(K_PLAYER_ID)) {
+                throw new IllegalArgumentException("Malformed persisted bundle operation UUIDs");
+            }
+            UUID operationId = entry.getUUID(K_OPERATION_ID);
+            BundleChargeOperation operation = new BundleChargeOperation(
+                    operationId,
+                    entry.getUUID(K_PLAYER_ID),
+                    entry.getLong(K_CREDIT_AMOUNT),
+                    entry.getLong(K_AZURE_AMOUNT),
+                    EconomyOperationStatus.valueOf(entry.getString(K_OPERATION_STATUS)));
+            BundleChargeOperation duplicate = data.bundleOperations.putIfAbsent(operationId, operation);
+            if (duplicate != null) {
+                throw new IllegalArgumentException("Duplicate persisted bundle operation " + operationId);
+            }
+        }
         ListTag daily = tag.getList(K_DAILY, Tag.TAG_COMPOUND);
         for (int i = 0; i < daily.size(); i++) {
             CompoundTag entry = daily.getCompound(i);
@@ -317,5 +472,17 @@ public final class EconomyWalletData extends SavedData {
                             entry.getDouble(K_FAUCET_CARRY)));
         }
         return data;
+    }
+
+    private static void requireBundleAmounts(long creditAmount, long azureAmount) {
+        if (creditAmount <= 0L || azureAmount <= 0L) {
+            throw new EconomyException(EconomyException.Reason.ILLEGAL_AMOUNT,
+                    "bundle amounts must both be > 0, got " + creditAmount + " CREDIT / " + azureAmount + " AZURE");
+        }
+    }
+
+    private static EconomyException operationConflict(UUID operationId) {
+        return new EconomyException(EconomyException.Reason.OPERATION_CONFLICT,
+                "operationId " + operationId + " was reused with a different player or amount");
     }
 }

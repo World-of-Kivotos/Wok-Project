@@ -14,29 +14,54 @@ import java.util.Objects;
  */
 public record GunsmithStatMultipliers(double damage, double headshot, double effectiveRange,
                                       double adsTime, double inaccuracy, double aimInaccuracy,
-                                      double recoil) {
+                                      double verticalRecoil, double horizontalRecoil, double fireRate) {
 
     public static GunsmithStatMultipliers of(GunsmithGunStats stats, double headshotDamageCap) {
         Objects.requireNonNull(stats, "stats");
-        return of(stats.damage(), stats.headshot(), stats.range(), stats.handling(),
-                stats.spread(), stats.recoil(), headshotDamageCap);
+        return ofResolved(stats.damage(), stats.headshot(), stats.range(), stats.handling(),
+                stats.inaccuracyMultiplier(), stats.verticalRecoilMultiplier(), stats.horizontalRecoilMultiplier(),
+                stats.fireRateMultiplier(), headshotDamageCap);
     }
 
     public static GunsmithStatMultipliers of(double damage, double headshot, double range,
                                              double handling, double spread, double recoil,
                                              double headshotDamageCap) {
+        requirePositive(recoil, "recoil");
+        requirePositive(spread, "spread");
+        return ofResolved(damage, headshot, range, handling, inverse(spread),
+                inverse(recoil), inverse(recoil), 1.0D, headshotDamageCap);
+    }
+
+    public double recoil() {
+        return verticalRecoil;
+    }
+
+    public int roundsPerMinute(int baseRoundsPerMinute) {
+        if (baseRoundsPerMinute <= 0) {
+            throw new IllegalArgumentException("Base rounds per minute must be positive: " + baseRoundsPerMinute);
+        }
+        return Math.toIntExact(Math.round(baseRoundsPerMinute * fireRate));
+    }
+
+    private static GunsmithStatMultipliers ofResolved(double damage, double headshot, double range,
+                                                       double handling, double inaccuracy,
+                                                       double verticalRecoil, double horizontalRecoil,
+                                                       double fireRate, double headshotDamageCap) {
         requirePositive(damage, "damage");
         requirePositive(headshot, "headshot");
         requirePositive(range, "range");
         requirePositive(handling, "handling");
-        requirePositive(spread, "spread");
-        requirePositive(recoil, "recoil");
+        requirePositive(inaccuracy, "inaccuracy");
+        requirePositive(verticalRecoil, "verticalRecoil");
+        requirePositive(horizontalRecoil, "horizontalRecoil");
+        requirePositive(fireRate, "fireRate");
         requirePositive(headshotDamageCap, "headshotDamageCap");
         double cappedHeadshot = damage * headshot > headshotDamageCap
                 ? headshotDamageCap / damage
                 : headshot;
         return new GunsmithStatMultipliers(damage, cappedHeadshot, range,
-                inverse(handling), inverse(spread), inverse(handling), inverse(recoil));
+                inverse(handling), inaccuracy, inverse(handling),
+                verticalRecoil, horizontalRecoil, fireRate);
     }
 
     private static double inverse(double coefficient) {

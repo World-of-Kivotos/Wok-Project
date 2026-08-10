@@ -16,5 +16,53 @@
         "stream": false
       }
     ]
+  },
+  "case_unlock": {
+    "subtitle": "subtitles.miningdim.case_unlock",
+    "sounds": [{ "name": "miningdim:ui/case/unlock", "stream": false }]
+  },
+  "case_open": {
+    "subtitle": "subtitles.miningdim.case_open",
+    "sounds": [{ "name": "miningdim:ui/case/open", "stream": false }]
+  },
+  "case_tick": {
+    "subtitle": "subtitles.miningdim.case_tick",
+    "sounds": [{ "name": "miningdim:ui/case/tick", "stream": false }]
+  },
+  "case_reveal_blue": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_blue", "stream": false }]
+  },
+  "case_reveal_purple": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_purple", "stream": false }]
+  },
+  "case_reveal_pink": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_pink", "stream": false }]
+  },
+  "case_reveal_red": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_red", "stream": false }]
+  },
+  "case_reveal_gold": {
+    "subtitle": "subtitles.miningdim.case_reveal",
+    "sounds": [{ "name": "miningdim:ui/case/reveal_gold", "stream": false }]
+  },
+  "plasma_shield_hit": {
+    "subtitle": "subtitles.miningdim.plasma_shield_hit",
+    "sounds": [
+      { "name": "miningdim:item/plasma_shield/hit_01", "stream": false },
+      { "name": "miningdim:item/plasma_shield/hit_02", "stream": false },
+      { "name": "miningdim:item/plasma_shield/hit_03", "stream": false }
+    ]
+  },
+  "plasma_shield_overheat": {
+    "subtitle": "subtitles.miningdim.plasma_shield_overheat",
+    "sounds": [{ "name": "miningdim:item/plasma_shield/overheat", "stream": false }]
+  },
+  "plasma_shield_steam_vent": {
+    "subtitle": "subtitles.miningdim.plasma_shield_steam_vent",
+    "sounds": [{ "name": "miningdim:item/plasma_shield/steam_vent", "stream": false }]
   }
 }

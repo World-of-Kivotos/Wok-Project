@@ -1,6 +1,10 @@
 package com.miningdim.client.webui;
 
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import javax.annotation.Nullable;
@@ -12,6 +16,7 @@ import org.cef.handler.CefMessageRouterHandlerAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.language.I18n;
 
 import com.google.gson.Gson;
@@ -19,6 +24,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.miningdim.caseopening.CaseSounds;
 import com.miningdim.network.C2SWebUiRequest;
 import com.miningdim.network.MiningNetwork;
 
@@ -41,19 +47,39 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/webui");
 
     private static final Gson GSON = new Gson();
+    private static final long CALLBACK_TIMEOUT_SECONDS = 30L;
+    private static final Set<String> CASE_SOUND_CUES = Set.of(
+            "unlock", "open", "tick", "reveal_blue", "reveal_purple", "reveal_pink",
+            "reveal_red", "reveal_gold");
+    private static final ScheduledExecutorService CALLBACK_TIMEOUTS =
+            Executors.newSingleThreadScheduledExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "miningdim-webui-callback-timeout");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     // requestId 自增源: 客户端进程内唯一, 跨 C2S/S2C 关联; 对 JS 不可见。
     private final AtomicLong requestIdGen = new AtomicLong(0L);
 
     // 在途请求: requestId -> JS 回调。CefQueryCallback 可异步持有, 待 S2C 回来再调 success/failure。
-    private final ConcurrentHashMap<Long, CefQueryCallback> pending = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, PendingQuery> pending = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Long> requestIdByCefQueryId = new ConcurrentHashMap<>();
 
     // 当前活动浏览器 (onEvent 注入 JS 用); 由 WebUiClient 在打开界面时 setBrowser, 关闭时置空。
     @Nullable
     private volatile WebBrowser browser;
+    @Nullable
+    private volatile String allowedPageUrl;
 
     public void setBrowser(@Nullable WebBrowser browser) {
         this.browser = browser;
+    }
+
+    public void setAllowedPage(String pageDataUri) {
+        if (!pageDataUri.startsWith("data:text/html")) {
+            throw new IllegalArgumentException("WebUI page must be an in-mod HTML data URI");
+        }
+        this.allowedPageUrl = pageDataUri;
     }
 
     /**
@@ -66,6 +92,12 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
     @Override
     public boolean onQuery(CefBrowser cefBrowser, CefFrame frame, long queryId,
                            String request, boolean persistent, CefQueryCallback callback) {
+        String allowed = allowedPageUrl;
+        if (allowed == null || cefBrowser == null || frame == null || !frame.isMain()
+                || !allowed.equals(cefBrowser.getURL())) {
+            callback.failure(-3, "WebUI query rejected: untrusted page or subframe");
+            return true;
+        }
         JsonObject envelope;
         try {
             envelope = JsonParser.parseString(request).getAsJsonObject();
@@ -93,9 +125,17 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
         }
 
         long requestId = requestIdGen.incrementAndGet();
-        pending.put(requestId, callback);
-        // 客户端无需 canReceive 守卫 (C2S 走自身连接); 直接发到服务端。
-        MiningNetwork.CHANNEL.sendToServer(new C2SWebUiRequest(requestId, action, payloadJson));
+        pending.put(requestId, new PendingQuery(queryId, callback));
+        requestIdByCefQueryId.put(queryId, requestId);
+        CALLBACK_TIMEOUTS.schedule(() -> Minecraft.getInstance().execute(() -> expireRequest(requestId)),
+                CALLBACK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        try {
+            // 客户端无需 canReceive 守卫 (C2S 走自身连接); 直接发到服务端。
+            MiningNetwork.CHANNEL.sendToServer(new C2SWebUiRequest(requestId, action, payloadJson));
+        } catch (RuntimeException sendError) {
+            removePending(requestId);
+            callback.failure(-1, "failed to send request: " + sendError.getMessage());
+        }
         return true;
     }
 
@@ -104,6 +144,10 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
      * 解析 (专用服务器不加载 lang, 中文名只能客户端出)。在 CEF 线程同步回调 (与 onQuery 的 failure 同纪律)。
      */
     private void handleClientLocal(String action, String payloadJson, CefQueryCallback callback) {
+        if ("client.playCaseSound".equals(action)) {
+            handleCaseSound(payloadJson, callback);
+            return;
+        }
         if (!"client.i18n".equals(action)) {
             callback.failure(-1, "unknown client-local action: " + action);
             return;
@@ -127,11 +171,28 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
         }
     }
 
+    private void handleCaseSound(String payloadJson, CefQueryCallback callback) {
+        try {
+            JsonObject payload = JsonParser.parseString(payloadJson).getAsJsonObject();
+            String cue = payload.get("cue").getAsString();
+            if (!CASE_SOUND_CUES.contains(cue)) {
+                callback.failure(-1, "unknown case sound cue: " + cue);
+                return;
+            }
+            Minecraft.getInstance().execute(() -> CaseSounds.playClient(cue));
+            callback.success("{\"played\":true}");
+        } catch (RuntimeException e) {
+            callback.failure(-1, "client.playCaseSound failed: " + e.getMessage());
+        }
+    }
+
     /** CEF 取消查询 (页面卸载/导航): 丢弃在途 callback, 不再回调, 防内存泄漏。 */
     @Override
     public void onQueryCanceled(CefBrowser cefBrowser, CefFrame frame, long queryId) {
-        // queryId 是 CEF 侧 id, 与本桥 requestId 不同维度; CEF 内部已作废该 callback, 这里无需按 requestId 清理。
-        // 在途 requestId 若对应的页面被销毁, 其 callback 调用会被 CEF 安全忽略, 故无须主动遍历清。
+        Long requestId = requestIdByCefQueryId.remove(queryId);
+        if (requestId != null) {
+            pending.remove(requestId);
+        }
     }
 
     /**
@@ -139,17 +200,41 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
      * 找不到 requestId (重复响应 / 已取消) 时静默忽略, 不抛 (网络层重放不应崩客户端)。
      */
     public void onResponse(long requestId, boolean success, String resultJson) {
-        CefQueryCallback callback = pending.remove(requestId);
-        if (callback == null) {
+        PendingQuery query = removePending(requestId);
+        if (query == null) {
             LOGGER.debug("收到无对应在途请求的响应, requestId={} (可能已取消)", requestId);
             return;
         }
         if (success) {
-            callback.success(resultJson);
+            query.callback().success(resultJson);
         } else {
             // 失败码用 0 占位 (业务错误细节在 resultJson 的 error 字段, 经 JS onFailure 第二参获取)。
-            callback.failure(0, resultJson);
+            query.callback().failure(0, resultJson);
         }
+    }
+
+    /** 页面退出后丢弃全部在途 CEF callback, 并停止仍在播放的开箱 UI 音效。 */
+    public void onScreenClosed() {
+        allowedPageUrl = null;
+        pending.clear();
+        requestIdByCefQueryId.clear();
+        CaseSounds.stopClient();
+    }
+
+    private void expireRequest(long requestId) {
+        PendingQuery query = removePending(requestId);
+        if (query != null) {
+            query.callback().failure(-2, "request timed out");
+        }
+    }
+
+    @Nullable
+    private PendingQuery removePending(long requestId) {
+        PendingQuery query = pending.remove(requestId);
+        if (query != null) {
+            requestIdByCefQueryId.remove(query.cefQueryId(), requestId);
+        }
+        return query;
     }
 
     /**
@@ -173,5 +258,8 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
         String script = "if (typeof window.miningdimOnEvent === 'function') {"
                 + " window.miningdimOnEvent(" + nameLiteral + ", " + dataLiteral + "); }";
         b.executeJavaScript(script);
+    }
+
+    private record PendingQuery(long cefQueryId, CefQueryCallback callback) {
     }
 }

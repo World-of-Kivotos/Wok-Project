@@ -112,6 +112,23 @@ public final class WebUiServerGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void businessErrorHasStableCodeAndRetryPolicy(GameTestHelper helper) {
+        WebUiBusinessException error = new WebUiBusinessException(
+                "RATE_LIMITED", "开箱请求过快，请稍后再试", false);
+        JsonObject result = JsonParser.parseString(
+                WebUiServerDispatcher.businessErrorJson(error)).getAsJsonObject();
+        helper.assertTrue(result.get("errorCode").getAsString().equals("RATE_LIMITED"),
+                "expected business rejection includes its stable errorCode");
+        helper.assertTrue(!result.get("retrySameOpeningId").getAsBoolean(),
+                "expected business rejection includes an explicit opening-id retry policy");
+        helper.assertTrue(result.get("error").getAsString().contains("稍后再试"),
+                "expected business rejection retains a player-facing message");
+        helper.assertTrue(error.getStackTrace().length == 0,
+                "attacker-driven business rejections allocate no stack trace");
+        helper.succeed();
+    }
+
     /** 自增 nonce: 给 duplicateActionRegistrationThrows 造唯一 action 名, 隔离进程级注册表的跨方法/重跑残留。 */
     private static final java.util.concurrent.atomic.AtomicInteger DUP_GUARD_NONCE =
             new java.util.concurrent.atomic.AtomicInteger();

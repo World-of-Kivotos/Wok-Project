@@ -27,6 +27,10 @@ public final class GunsmithGunTooltip {
                         modifiedValue(formatRange(stats.effectiveRange(baseStats)), stats.range()),
                         changedValue(formatPercent(stats.recoilChange()), stats.recoilChange()))
                 .withStyle(ChatFormatting.GRAY));
+        double fireRateChange = stats.fireRateMultiplier() - 1.0D;
+        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.fire_rate",
+                        increasedValue(formatPercent(fireRateChange), fireRateChange))
+                .withStyle(ChatFormatting.GRAY));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.spread_handling",
                         changedValue(formatPercent(stats.spreadChange()), stats.spreadChange()),
                         baseValue(formatSeconds(baseStats.adsTime())),
@@ -47,7 +51,8 @@ public final class GunsmithGunTooltip {
 
     private static Component partComponent(GunsmithGunStats.PartSummary part) {
         return Component.translatable("tooltip.miningdim.gunsmith_gun.component",
-                        Component.translatable(part.part().labelKey()),
+                        Component.translatable(part.variant() == GunsmithPartVariant.BASIC
+                                ? part.part().labelKey() : part.variant().labelKey()),
                         Component.translatable(part.quality().labelKey()),
                         Component.literal(GunsmithPartItem.formatCoefficient(part.coefficient())))
                 .withStyle(qualityStyle(part.quality()));
@@ -65,6 +70,10 @@ public final class GunsmithGunTooltip {
         return Component.literal(value).withStyle(changeStyle(change));
     }
 
+    private static Component increasedValue(String value, double change) {
+        return Component.literal(value).withStyle(increaseStyle(change));
+    }
+
     private static ChatFormatting valueStyle(double coefficient) {
         if (coefficient > 1.0005D) {
             return ChatFormatting.GREEN;
@@ -80,6 +89,16 @@ public final class GunsmithGunTooltip {
             return ChatFormatting.GREEN;
         }
         if (change > 0.0005D) {
+            return ChatFormatting.RED;
+        }
+        return ChatFormatting.GRAY;
+    }
+
+    private static ChatFormatting increaseStyle(double change) {
+        if (change > 0.0005D) {
+            return ChatFormatting.GREEN;
+        }
+        if (change < -0.0005D) {
             return ChatFormatting.RED;
         }
         return ChatFormatting.GRAY;
@@ -112,6 +131,6 @@ public final class GunsmithGunTooltip {
     }
 
     private static String formatPercent(double value) {
-        return String.format(Locale.ROOT, "%+.0f%%", value * 100.0D);
+        return String.format(Locale.ROOT, "%+.1f%%", value * 100.0D);
     }
 }

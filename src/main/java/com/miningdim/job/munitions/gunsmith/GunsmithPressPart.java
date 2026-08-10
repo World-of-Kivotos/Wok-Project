@@ -44,6 +44,10 @@ public enum GunsmithPressPart {
         return labelKey;
     }
 
+    public String slotKey() {
+        return "gunsmith.slot." + id;
+    }
+
     public String roleKey() {
         return roleKey;
     }

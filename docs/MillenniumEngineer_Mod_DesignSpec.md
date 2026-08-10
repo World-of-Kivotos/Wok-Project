@@ -1,11 +1,13 @@
-# 千年工程师 职业 Mod — 设计规格文档
+# 铸甲师（原千年工程师）职业 Mod — 既有生产与维修规格
+
+> 关联更新：该职业的界面与创造页签名称已经调整为“铸甲师”，并已实装第一版插板护甲。护甲种类与类型语义、受击公式、枪匠联动、材质耐久及 54 件物品映射，以[铸甲师护甲系统设计与实装规格](Armorer_Armor_System_DesignSpec.md)为准。本文只继续负责既有纳米修复、生产台、等级和维修特效；命令参数与内部 `engineer` 标识暂时保留以兼容旧存档。
 
 ## 文档元信息
 
-- 用途: 千年工程师职业实现阶段的唯一架构、数值与机制参考。所有常量以本文档为准, 不得凭记忆改写。
+- 用途: 既有纳米修复、生产台、职业等级与维修特效实现阶段的唯一架构、数值与机制参考。上述范围内的常量以本文档为准, 不得凭记忆改写。
 - 目标平台: Minecraft 1.20.1 + Forge 47.x + Java 17。所有 API 名称以此版本为准, 不得套用其他版本语法 (与 MiningDimension 规格第一章同源约束)。
 - 部署环境 (硬约束, 影响全部战斗向数值): 目标公服人均初始最大血量 80 (原版 20 的 4 倍); 装有 TACZ 枪械 mod, DPS 远高于原版, 全自动每秒多次命中、狙/霰弹单发可超 80 且常带穿甲, 击杀时间以秒计; 死亡不掉落。一切战斗向数值一律用 "最大血量百分比 / 拦截致死" 建模, 严禁套用原版 20 血常量。
-- 状态图例: DECIDED 已定稿 / PENDING 待拍板 / TODO 实现期补全。
+- 状态图例: DECIDED 已定稿 / PENDING 待拍板或实现期补全。
 - 数值状态: 等级曲线沿用农夫职业已交叉验证曲线; 每日衰减曲线与达标天数已实算验证 (见第八章)。
 - 阻塞项: 进入编码前须先解决第十二章列出的全部 PENDING。
 
@@ -13,8 +15,8 @@
 
 ## 一、职业定位与设计目标 (DECIDED)
 
-1. 定位: 仿 FF14 生产职业。玩家无需专职, 可同时持有并体验全部职业; 工程师只是其一。
-2. 核心卖点: 在工程师工作台用 "纳米护甲板" 修复一切原本无法维修的护甲 (公服存在大量无原材料修复路径的模组护甲)。
+1. 定位: 仿 FF14 生产职业。玩家无需专职, 可同时持有并体验全部职业; 铸甲师只是其一。
+2. 核心卖点: 在铸甲师工作台用 "纳米护甲板" 修复一切原本无法维修的护甲 (公服存在大量无原材料修复路径的模组护甲)。
 3. 经济定位: 纳米修复 = 贵但万能。即使最低级护甲板, 一个铁锭也做不出 (成本高于铁砧+铁锭), 修复效果也不如铁砧; 唯一优势是 "能修一切"。纳米修复不与原版铁砧/原材料修复抢常规护甲的生意, 只补 "原版修不了" 的空缺。
 4. 特效定位: 修复护甲时掷出的 **一次性副产品**, 不是永久词条; 再次用纳米护甲板维修会丢弃全部旧特效。永久词条系统留给未来其他职业, 本职业不做永久词条。
 5. 等级范围: 1 - 10, L10 毕业。正常玩家约一个月毕业; 肝满党有上限地更快 (约 16 天, 见第八章)。
@@ -74,7 +76,7 @@
 | 门 | 规则 |
 | --- | --- |
 | 矿石档位 | 3.2 表, 低矿造不了高板 |
-| 工程师等级 | 等级未解锁该档则置灰 (解锁表见 7.2) |
+| 铸甲师等级 | 等级未解锁该档则置灰 (解锁表见 7.2) |
 | 生产台档位 | 机器档不够则置灰; 机器档同时决定生成耗时 |
 
 服务端权威: 客户端置灰仅为提示, 服务端在消耗矿石/产出前重新校验三道门 + 锁主人, 绝不信客户端选择 (C5)。选档走原版 `AbstractContainerMenu.clickMenuButton(tierIndex)`, 不新开网络包。
@@ -123,7 +125,7 @@
 
 ### 5.3 可实现性
 
-直接改 `ItemStack.setDamageValue / getDamageValue` 对任意 `Damageable` 物品 (含模组护甲、无原版修复配方者) 均生效, 这是 "修一切" 的技术基础; Unbreakable NBT 物品的处理策略实现期定 (TODO)。
+直接改 `ItemStack.setDamageValue / getDamageValue` 对任意 `Damageable` 物品 (含模组护甲、无原版修复配方者) 均生效, 这是 "修一切" 的技术基础; Unbreakable NBT 物品的处理策略实现期定 (PENDING)。
 
 ---
 
@@ -151,7 +153,7 @@
 - 特效标记 (哪几件带何效果): 逐件存 ItemStack NBT。
 - 图腾共享 CD (`nanoReactorCdEndTick`): 人级, 存玩家 capability (见第十章)。
 - 护盾剩余次数 / 60s 计时 / 重塑·机能修复的 tick: 逐件存 ItemStack NBT, 由 `TickEvent.PlayerTickEvent` 遍历护甲槽读取。
-- 仅穿戴中的护甲参与 tick 类效果 (背包/箱子内不 tick), 实现期明确 (TODO)。
+- 仅穿戴中的护甲参与 tick 类效果 (背包/箱子内不 tick), 实现期明确 (PENDING)。
 
 ### 6.4 客户端表现 (DECIDED 第一批 / 第二批)
 
@@ -267,7 +269,7 @@
 
 ### 10.2 玩家职业数据 (关键裁决: 不新挂 capability)
 
-- 工程师等级数据 (`engineerLevel` / `engineerXp` / `dailyEngineerXp` + 翻日戳 / `nanoReactorCdEndTick`) 作为字段并入 `entry.MiningPlayerData` (`IMiningPlayerData` 接口扩方法), 复用其已有的 attach / `PlayerEvent.Clone` (reviveCaps/invalidateCaps) / serialize / copyFrom 全套管线。
+- 铸甲师等级数据 (`engineerLevel` / `engineerXp` / `dailyEngineerXp` + 翻日戳 / `nanoReactorCdEndTick`) 作为字段并入 `entry.MiningPlayerData` (`IMiningPlayerData` 接口扩方法), 复用其已有的 attach / `PlayerEvent.Clone` (reviveCaps/invalidateCaps) / serialize / copyFrom 全套管线。字段名保留 `engineer` 仅为存档兼容。
 - 严禁照搬农夫 spec 字面新建独立 capability + 新 `AttachCapabilitiesEvent<Entity>`: 工程已有 "双 capability 重复 attach -> 双重传送/双重引用计数" 既裁隐患 (entry 为唯一权威), 第三套 Provider 会放大隐患。
 - 多职业方向 (FF14 已确认 N >> 1): 玩家职业数据应朝 "一个 capability 持 `Map<JobId, JobProgress>`" 演进 (一次到位成多职业形状), 重的数据驱动框架 (等级曲线/每日衰减表) 可增量补。
 - `deserializeNBT` 对旧存档缺新键给默认值 (level=1, xp=0, cd=0); 扩 `IMiningPlayerData` 后多维 grep 找全实现/mock 补新方法。
@@ -278,7 +280,7 @@
 
 ### 10.4 BE 无玩家上下文
 
-BlockEntity tick 内无玩家引用。读玩家等级的判定收敛到有玩家在场的交互帧 (Block.use 打开 GUI / 取物 / 选档), 由 ServerPlayer 经 entry capability 读取; 多人共用一台机器时 "谁的等级算数" 默认按主人 (`ownerUUID`), 主人离线策略 (暂停高档 / 按记录等级) 实现期拍板 (TODO)。
+BlockEntity tick 内无玩家引用。读玩家等级的判定收敛到有玩家在场的交互帧 (Block.use 打开 GUI / 取物 / 选档), 由 ServerPlayer 经 entry capability 读取; 多人共用一台机器时 "谁的等级算数" 默认按主人 (`ownerUUID`), 主人离线策略 (暂停高档 / 按记录等级) 实现期拍板 (PENDING)。
 
 ### 10.5 容器 GUI 基础设施 (从零搭)
 

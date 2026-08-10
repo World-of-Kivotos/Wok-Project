@@ -15,6 +15,7 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingDropsEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -72,6 +73,11 @@ public final class EconomySystem implements Subsystem {
     // ============================================================
     // 货币层接线 (服务端启停: 建账本 + 注入门面 / 清引用)
     // ============================================================
+
+    @SubscribeEvent
+    public void onRegisterCommands(RegisterCommandsEvent event) {
+        EconomyCommands.register(event.getDispatcher());
+    }
 
     @SubscribeEvent
     public void onServerStarted(ServerStartedEvent event) {

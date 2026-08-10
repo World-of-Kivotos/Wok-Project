@@ -49,6 +49,8 @@ public final class WebUiClientSubsystem implements Subsystem {
     private void onRegisterClientCommands(RegisterClientCommandsEvent event) {
         event.getDispatcher().register(
                 Commands.literal("miningdim-webui-dev").executes(this::runDevCommand));
+        event.getDispatcher().register(
+                Commands.literal("wokcase").executes(this::runCaseCommand));
     }
 
     private int runDevCommand(CommandContext<CommandSourceStack> ctx) {
@@ -59,6 +61,15 @@ public final class WebUiClientSubsystem implements Subsystem {
         }
         // 二次 Dist 兜底 (双箭头): 即便此监听器体在非预期端被触发, openDevScreen 也只在客户端 classload/执行。
         DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> WebUiClient.openDevScreen());
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private int runCaseCommand(CommandContext<CommandSourceStack> ctx) {
+        if (!ModList.get().isLoaded("mcef")) {
+            ctx.getSource().sendFailure(Component.literal("[WOK] 无法打开武器箱: 客户端未安装 MCEF。"));
+            return Command.SINGLE_SUCCESS;
+        }
+        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> WebUiClient.openCaseScreen());
         return Command.SINGLE_SUCCESS;
     }
 }

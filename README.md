@@ -113,3 +113,15 @@ Minecraft 1.20.1 + MinecraftForge 47.x + Java 17 的矿山副本维度 mod。单
 - 世界写操作（setBlock/传送/刷怪/重置）必须在服务端主线程（`server.execute` 或 ServerTickEvent）；纯计算（体素生成/BFS）在独立工作线程。
 
 完整规格见 `docs/MiningDimension_Mod_DesignSpec.md`。
+
+## 许可
+
+Copyright (c) 2026 ShinoyukiMiyako / World of Kivotos，保留一切权利。
+
+本仓库是**专有软件，不是开源项目**。源码公开可见不构成任何许可授予：未经著作权人书面授权，
+禁止复制、克隆、修改、再分发、逆向、再实现，以及用于 AI 训练或语料检索。完整条款见
+[LICENSE](LICENSE)，其中另有两项明示的有限例外——玩家安装并运行官方 jar 连入官方服务器，
+以及授权协作者为向本仓库贡献而进行的本地开发。
+
+本项目依赖或内嵌的第三方组件不在上述许可范围内，各自受其原始许可约束，清单见
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。

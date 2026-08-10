@@ -62,6 +62,19 @@ public final class PlasmaShieldItem extends ArmorItem {
         return 0;
     }
 
+    /**
+     * 禁止原版合成台的 RepairItemRecipe 参与本物品。
+     *
+     * 本物品带 durability(1) 因而满足原版"可修复"判定 (RepairItemRecipe.matches 经
+     * ItemStack.isRepairable 委托到本方法); 而该配方产出的是不含护盾标签的新物品,
+     * {@link PlasmaShieldState#read} 会把缺失标签视为满电。两者相加使玩家可以把两件耗尽的
+     * 护盾合成为一件满电护盾, 凭空绕过有限电池设计。
+     */
+    @Override
+    public boolean isRepairable(ItemStack stack) {
+        return false;
+    }
+
     @Override
     public void appendHoverText(ItemStack stack, Level level, List<Component> tooltip, TooltipFlag flag) {
         super.appendHoverText(stack, level, tooltip, flag);

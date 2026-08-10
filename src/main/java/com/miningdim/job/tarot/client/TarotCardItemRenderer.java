@@ -15,12 +15,21 @@ import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * True two-sided thin tarot card: NBT-selected art and quality frame on the
  * front, neutral card back on the reverse.
  */
 public final class TarotCardItemRenderer extends BlockEntityWithoutLevelRenderer {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/tarot");
+    /** 已报告过的坏牌异常签名; 防每帧刷屏, 同一种故障只打一次堆栈。 */
+    private static final Set<String> REPORTED_FAULTS = ConcurrentHashMap.newKeySet();
 
     private static final ResourceLocation CARD_BACK = texture("card_back");
     private static final float BACK_Z = 0.46875F;
@@ -30,6 +39,13 @@ public final class TarotCardItemRenderer extends BlockEntityWithoutLevelRenderer
     public TarotCardItemRenderer() {
         super(Minecraft.getInstance().getBlockEntityRenderDispatcher(),
                 Minecraft.getInstance().getEntityModels());
+    }
+
+    private static void reportOnce(RuntimeException fault) {
+        String signature = fault.getClass().getName() + ":" + fault.getMessage();
+        if (REPORTED_FAULTS.add(signature)) {
+            LOGGER.warn("塔罗牌 NBT 无法解析, 本次改用默认卡面渲染; 该签名只报告一次", fault);
+        }
     }
 
     @Override
@@ -48,6 +64,10 @@ public final class TarotCardItemRenderer extends BlockEntityWithoutLevelRenderer
             face = texture(id + orientation);
             frame = texture("border_" + quality.id() + orientation);
         } catch (RuntimeException malformedCard) {
+            // 渲染层必须兜底 (一张坏牌不能拖垮整个物品渲染), 但绝不能静默: 非法 NBT、协议错误与真实缺陷
+            // 过去都被伪装成一张普通卡面, 问题物品可以长期留存且日志里查不到任何线索。
+            // renderByItem 每帧都会调用, 故按异常签名去重, 同一种故障只报一次完整堆栈。
+            reportOnce(malformedCard);
             face = texture("00");
             frame = texture("border_r");
         }

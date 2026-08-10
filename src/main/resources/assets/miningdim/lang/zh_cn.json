@@ -720,7 +720,7 @@
   "gui.miningdim.tarot.craft.result.2": "破碎：消耗第一张牌，返还一枚碎片",
   "gui.miningdim.tarot.craft.result.3": "大破碎：消耗两张牌，返还两枚碎片",
   "tooltip.miningdim.tarot.invalid_data": "卡牌数据损坏，无法读取牌效",
-  "tooltip.miningdim.tarot.effect.title": "✦ 卡牌效果",
+  "tooltip.miningdim.tarot.effect.title": "卡牌效果",
   "tooltip.miningdim.tarot.effect.unavailable": "牌效数据正在同步，请稍后重新悬停查看",
   "tooltip.miningdim.tarot.effect.all": "全部",
   "tooltip.miningdim.tarot.effect.none": "无指定状态",

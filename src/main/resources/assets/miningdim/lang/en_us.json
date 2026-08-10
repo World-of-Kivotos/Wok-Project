@@ -720,7 +720,7 @@
   "gui.miningdim.tarot.craft.result.2": "Shatter: consume the first card and refund one shard",
   "gui.miningdim.tarot.craft.result.3": "Big shatter: consume both cards and refund two shards",
   "tooltip.miningdim.tarot.invalid_data": "Damaged card data; effect cannot be read",
-  "tooltip.miningdim.tarot.effect.title": "✦ Card Effect",
+  "tooltip.miningdim.tarot.effect.title": "Card Effect",
   "tooltip.miningdim.tarot.effect.unavailable": "Effect data is syncing; hover the card again shortly",
   "tooltip.miningdim.tarot.effect.all": "all",
   "tooltip.miningdim.tarot.effect.none": "no listed statuses",

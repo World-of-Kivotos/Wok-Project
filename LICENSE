@@ -1,0 +1,463 @@
+World of Kivotos — Wok-Project (Mining Dimension System / miningdim)
+专有软件许可协议 (Proprietary Software License Agreement)
+
+Copyright (c) 2026 ShinoyukiMiyako / World of Kivotos
+保留一切权利 — All Rights Reserved.
+
+SPDX-License-Identifier: LicenseRef-WOK-Proprietary
+
+本文件包含简体中文与英文两个版本。两者如有歧义或冲突，一律以简体中文版本为准，
+英文版本仅供参考，不具独立法律效力。
+
+
+================================================================================
+第一部分  简体中文版本（具约束力的正式文本）
+================================================================================
+
+第一条 定义
+
+1.1 "著作权人"：指 ShinoyukiMiyako（自然人，权利归属主体）与 World of Kivotos
+    （项目运营主体），合称或分称。
+
+1.2 "本软件"：指本代码仓库（Wok-Project）所包含的全部内容，包括但不限于源代码、
+    构建脚本、配置文件、数据包（datapack）、模型与贴图等美术资源、音频资源、
+    设计文档、代码注释、提交历史，以及由上述内容编译、生成或派生的一切产物。
+
+1.3 "官方构建产物"：指由著作权人正式对外发布的 miningdim 模组 jar 文件，
+    以及著作权人明确指定的其他官方分发形态。
+
+1.4 "官方服务器"：指由著作权人运营，或经著作权人书面授权运营的 Minecraft 服务器。
+
+1.5 "最终用户"：指为在官方服务器游玩之目的而安装并运行官方构建产物的自然人玩家。
+
+1.6 "授权协作者"：指经著作权人以书面形式明确授予本仓库写入权限或贡献资格的自然人。
+
+1.7 "书面授权"：指由著作权人签署的纸质文件，或由著作权人官方账号（含 GitHub 组织
+    账号、官方公告渠道）明确发出的电子形式授权。口头许可、社群闲谈、未获回复的
+    申请，均不构成书面授权。
+
+
+第二条 权利保留
+
+2.1 本软件是专有软件（proprietary software），不是开源软件，亦不属于任何公共领域、
+    自由软件或开放源代码许可范畴。著作权人保留本软件的全部著作权及其他一切知识产权。
+
+2.2 凡未在本协议第四条、第五条中以明示文字授予的权利，一律由著作权人保留。任何
+    默示许可（implied license）、禁反言许可（license by estoppel）、权利用尽或类似
+    法律原则，在适用法律允许的最大范围内均被排除适用。
+
+2.3 本软件在 GitHub 或任何代码托管平台上的可访问性——包括源码可被浏览、平台提供
+    fork/clone/download 按钮、被搜索引擎或代码索引服务收录——均不构成任何形式的
+    许可授予，亦不构成著作权人对第三条所列行为的默许。上述平台功能的存在，不改变
+    本协议对使用者的约束力。
+
+2.4 仅为在平台上正常浏览本软件所必然发生、且由平台技术实现自动完成的最小限度临时
+    复制，不视为违反本协议；该例外严格限于浏览行为本身，不延及本地留存、克隆、
+    镜像或再现。
+
+
+第三条 禁止行为
+
+除本协议第四条、第五条明示允许的范围外，任何人不得实施、协助他人实施、或为他人实施
+提供便利条件的行为，包括但不限于：
+
+  (1) 复制、下载、克隆（clone）、fork、镜像、归档或以任何其他方式再现本软件的
+      全部或任何部分；
+  (2) 修改、翻译、改编、重构、二次创作，或基于本软件制作衍生作品；
+  (3) 分发、发行、公开传播、公开展示、出借、出租、销售、转售、再许可，或以其他
+      任何方式向第三方提供本软件的全部或任何部分；
+  (4) 上传或收录至 CurseForge、Modrinth、MCBBS 等任何第三方模组分发平台、整合包
+      （modpack）、资源站、网盘、镜像站或公开代码托管仓库；
+  (5) 反编译、反汇编、逆向工程官方构建产物，或以任何方式提取、还原、推导本软件的
+      源代码、算法、数值表、平衡参数、经济模型与数据结构；
+  (6) 参照本软件的实现方式、数值设计、系统结构或交互设计，在其他项目中进行再实现、
+      功能复刻或移植（包括移植至其他 Minecraft 版本、其他模组加载器或其他游戏）；
+  (7) 将本软件的任何部分（含源代码、注释、文档、美术资源与构建产物）用于训练、
+      微调、蒸馏或评测任何机器学习模型或人工智能系统，或将其纳入任何检索增强生成
+      （RAG）语料库、向量索引、代码搜索索引或公开数据集；
+  (8) 用于任何商业目的，包括但不限于收费服务器、付费整合包、付费代运营、订阅制
+      托管服务，以及任何以本软件为卖点或组成部分的营利活动；
+  (9) 移除、遮蔽、篡改或使人无法察觉本软件中的著作权声明、许可声明、作者署名、
+      版本标识或水印；
+ (10) 规避、破解或协助规避本软件中的授权校验、服务器绑定、防作弊机制或任何其他
+      技术保护措施。
+
+
+第四条 最终用户有限许可（仅适用于官方构建产物）
+
+4.1 著作权人在此向最终用户授予一项非独占、不可转让、不可再许可、可随时撤销、
+    无地域限制的有限许可，允许其：
+      (a) 将官方构建产物安装至其本人自有的 Minecraft 客户端 mods 目录；
+      (b) 为连入官方服务器进行正常游戏之目的运行官方构建产物；
+      (c) 为实现上述 (a)(b) 目的而必然发生的技术性复制，包括客户端自动下载、
+          内存加载、磁盘缓存与运行期解压。
+
+4.2 本条许可的边界：本条不授予修改、再分发、脱离官方服务器独立运营、提取美术或
+    数据资源、二次打包进整合包，或将官方构建产物用于任何非官方服务器的权利。
+    第三条所列各项禁止行为，在本条许可存续期间继续对最终用户适用。
+
+4.3 本条许可自最终用户在官方服务器的游玩资格终止（含封禁、退服、服务器关停）时
+    自动终止；著作权人亦可随时以公告方式整体或个别撤销本条许可，无需说明理由，
+    亦不因此承担任何补偿责任。许可终止后，最终用户应立即删除其持有的全部副本。
+
+
+第五条 授权协作者例外与贡献归属
+
+5.1 授权协作者可在为本项目作出贡献所必需的范围内，克隆本仓库、在本地构建与运行、
+    修改代码，并向本仓库提交 Pull Request。
+
+5.2 前款许可严格限于向本仓库贡献之目的，不得用于任何其他用途；该许可随协作者的
+    贡献资格终止而自动终止。终止后，协作者应删除其持有的全部本地副本、构建产物
+    与派生物，不得留存或另作他用。
+
+5.3 贡献归属：任何人向本仓库提交的贡献，一经合并或以任何形式被采纳，即视为该贡献者
+    向著作权人无偿授予一项全球范围、永久、不可撤销、可转授权、独占的许可，允许
+    著作权人以任何方式使用、复制、修改、分发、再许可与商业化该贡献。在适用法律
+    允许的范围内，贡献者放弃就该贡献主张署名权以外的著作人身权。贡献者应保证其
+    贡献系本人原创、未侵犯任何第三方的知识产权，且未受制于任何与本协议冲突的
+    第三方许可（包括但不限于 GPL 系列传染性许可）。
+
+
+第六条 第三方组件
+
+6.1 本协议仅适用于著作权人自有的内容。本软件所依赖、引用或与之交互的第三方材料
+    （包括 Minecraft 平台、MinecraftForge、第三方模组的 API、以及随构建产物内嵌
+    分发的第三方库）不属于本协议的授权标的，各自受其原始许可条款约束。第三方组件
+    清单与其许可信息见本仓库根目录的 THIRD-PARTY-NOTICES.md。
+
+6.2 在第三方许可条款与本协议存在冲突的范围内，就该第三方材料本身而言，以其原始
+    许可条款为准；本协议不试图、也不应被解释为限制或变更任何第三方许可依法赋予
+    使用者的权利。
+
+
+第七条 与 Mojang / Microsoft 的关系
+
+7.1 本软件是 Minecraft 的非官方第三方模组，与 Mojang Studios、Microsoft Corporation
+    及其任何关联方均无隶属、赞助、认可或背书关系。Minecraft 是 Mojang Studios 的商标。
+
+7.2 使用本软件不免除使用者遵守 Minecraft 最终用户许可协议（Minecraft EULA）及
+    Mojang 相关品牌与商业化准则的义务。
+
+
+第八条 免责声明
+
+本软件按"现状"（AS IS）与"现有可用状态"（AS AVAILABLE）提供，不附带任何明示或默示的
+担保，包括但不限于对适销性、特定用途适用性、不侵权、准确性、无错误运行或不中断运行的
+担保。著作权人不保证本软件能够满足使用者的特定需求，亦不承诺提供任何维护、更新或
+技术支持。
+
+
+第九条 责任限制
+
+在适用法律允许的最大范围内，著作权人对因使用或无法使用本软件而产生的任何直接、间接、
+偶然、特殊、惩罚性或后果性损害概不负责，包括但不限于存档损坏、数据丢失、账号损失、
+服务器停摆、业务中断与利润损失，无论该等损害基于合同、侵权（含过失）或其他任何法律
+理论，亦无论著作权人是否已被告知此类损害发生的可能性。
+
+
+第十条 违约、终止与救济
+
+10.1 任何违反本协议的行为，将导致违约方依本协议获得的全部许可自违约行为发生之时起
+     自动终止，无需著作权人另行通知。
+
+10.2 许可终止后，违约方应立即停止一切使用行为，并销毁其持有或控制的本软件全部副本、
+     衍生物与构建产物。
+
+10.3 违约方应承担因其违约行为给著作权人造成的全部损失，包括著作权人为制止侵权、
+     取证与维权所支出的合理费用（含律师费、公证费与诉讼费）。
+
+10.4 鉴于本软件的源代码、数值设计与经济模型一经泄露即难以通过金钱赔偿恢复原状，
+     著作权人有权就违约行为申请禁令、行为保全等临时性或永久性救济措施，无需就
+     损害难以弥补另行举证。
+
+10.5 著作权人保留就侵权行为追究民事、行政与刑事法律责任的全部权利。著作权人未行使
+     或迟延行使本协议项下任何权利，不构成对该权利的放弃；单次或部分行使不排斥
+     其后继续行使该权利或其他权利。
+
+
+第十一条 可分割性与完整协议
+
+11.1 本协议任一条款被有管辖权的机构认定为无效、违法或不可执行的，不影响其余条款的
+     效力；该条款应在最小必要范围内被调整为有效且最接近各方原意的表述，其余条款
+     继续完全有效。
+
+11.2 本协议构成著作权人与使用者之间就本软件达成的完整协议，取代此前一切口头或书面
+     的沟通、承诺与陈述。对本协议的任何修改、补充或豁免，非经著作权人书面作出
+     不生效力。
+
+
+第十二条 适用法律与争议解决
+
+12.1 本协议的订立、效力、解释、履行与争议解决，适用中华人民共和国法律（为本条之目的，
+     不包括香港特别行政区、澳门特别行政区及台湾地区的法律）。
+
+12.2 因本协议引起的或与本协议有关的任何争议，双方应首先友好协商解决；协商不成的，
+     任何一方均可向著作权人住所地有管辖权的人民法院提起诉讼。
+
+
+第十三条 授权咨询
+
+如需取得超出本协议范围的授权——包括但不限于商业授权、二次开发授权、整合包收录授权、
+移植授权、源码审阅授权——必须事先取得著作权人的书面授权。请通过
+https://github.com/World-of-Kivotos 的公开渠道提出申请。在取得书面授权之前，
+一切超出本协议范围的使用行为均构成侵权。
+
+
+================================================================================
+PART II  English Version (Reference Translation Only)
+================================================================================
+
+In the event of any discrepancy or conflict between this English translation and
+the Simplified Chinese version above, the Simplified Chinese version prevails.
+
+Article 1. Definitions
+
+1.1 "Licensor" means ShinoyukiMiyako (the natural person in whom the rights vest)
+    and World of Kivotos (the operating entity), jointly or severally.
+
+1.2 "the Software" means the entire contents of this repository (Wok-Project),
+    including without limitation source code, build scripts, configuration files,
+    datapacks, art assets such as models and textures, audio assets, design
+    documents, code comments, commit history, and everything compiled, generated
+    or derived therefrom.
+
+1.3 "Official Build" means the miningdim mod jar officially released by the
+    Licensor, and any other distribution form expressly designated as official
+    by the Licensor.
+
+1.4 "Official Server" means a Minecraft server operated by the Licensor, or
+    operated under the Licensor's written authorization.
+
+1.5 "End User" means a natural person player who installs and runs an Official
+    Build for the purpose of playing on an Official Server.
+
+1.6 "Authorized Collaborator" means a natural person expressly granted write
+    access or contributor status to this repository by the Licensor in writing.
+
+1.7 "Written Authorization" means a document signed by the Licensor, or an
+    electronic authorization expressly issued from the Licensor's official
+    accounts (including the GitHub organization account and official announcement
+    channels). Oral permission, community chatter, and unanswered requests do not
+    constitute Written Authorization.
+
+Article 2. Reservation of Rights
+
+2.1 The Software is proprietary software. It is not open source, not free
+    software, and not in the public domain. The Licensor retains all copyright
+    and all other intellectual property rights in the Software.
+
+2.2 All rights not expressly granted in Articles 4 and 5 are reserved by the
+    Licensor. To the maximum extent permitted by applicable law, no implied
+    license, license by estoppel, exhaustion of rights, or similar doctrine
+    shall apply.
+
+2.3 The accessibility of the Software on GitHub or any code hosting platform --
+    including that the source may be viewed, that the platform offers
+    fork/clone/download controls, or that it is indexed by search engines or
+    code indexing services -- does not constitute any grant of license, nor any
+    acquiescence by the Licensor to the acts listed in Article 3. The existence
+    of such platform features does not diminish the binding effect of this
+    Agreement.
+
+2.4 The minimal, transitory copying automatically performed by the platform's
+    own technology solely in the course of ordinary in-browser viewing of the
+    Software shall not be deemed a breach. This exception is strictly limited to
+    the act of viewing and does not extend to local retention, cloning,
+    mirroring, or any other reproduction.
+
+Article 3. Prohibited Acts
+
+Except as expressly permitted by Articles 4 and 5, no person may perform, assist
+another in performing, or facilitate another's performance of, any of the
+following, including without limitation:
+
+  (1) copying, downloading, cloning, forking, mirroring, archiving, or otherwise
+      reproducing all or any part of the Software;
+  (2) modifying, translating, adapting, refactoring, or creating derivative
+      works based on the Software;
+  (3) distributing, publishing, publicly transmitting, publicly displaying,
+      lending, renting, selling, reselling, sublicensing, or otherwise making
+      all or any part of the Software available to any third party;
+  (4) uploading to or listing on CurseForge, Modrinth, MCBBS, or any other
+      third-party mod distribution platform, modpack, resource site, cloud
+      drive, mirror, or public code hosting repository;
+  (5) decompiling, disassembling, or reverse engineering an Official Build, or
+      by any means extracting, recovering, or deducing the Software's source
+      code, algorithms, numeric tables, balance parameters, economic model, or
+      data structures;
+  (6) reimplementing, cloning the functionality of, or porting the Software --
+      including porting to other Minecraft versions, other mod loaders, or other
+      games -- by reference to its implementation, numeric design, system
+      architecture, or interaction design;
+  (7) using any part of the Software (including source code, comments,
+      documentation, art assets, and Official Builds) to train, fine-tune,
+      distill, or evaluate any machine learning model or artificial intelligence
+      system, or including it in any retrieval-augmented generation (RAG) corpus,
+      vector index, code search index, or public dataset;
+  (8) using the Software for any commercial purpose, including without
+      limitation paid servers, paid modpacks, paid server management, subscription
+      hosting services, and any for-profit activity in which the Software is a
+      selling point or component;
+  (9) removing, obscuring, altering, or rendering imperceptible any copyright
+      notice, license notice, authorship attribution, version identifier, or
+      watermark in the Software;
+ (10) circumventing, cracking, or assisting in circumventing any license check,
+      server binding, anti-cheat mechanism, or other technical protection
+      measure in the Software.
+
+Article 4. Limited End User License (Official Builds Only)
+
+4.1 The Licensor hereby grants End Users a non-exclusive, non-transferable,
+    non-sublicensable, revocable-at-will, worldwide limited license to:
+      (a) install an Official Build into the mods directory of a Minecraft
+          client they personally own;
+      (b) run the Official Build for the purpose of ordinary gameplay while
+          connected to an Official Server;
+      (c) make the technical copies necessarily incidental to (a) and (b),
+          including automatic client-side download, loading into memory,
+          on-disk caching, and runtime extraction.
+
+4.2 Scope limits: this Article grants no right to modify, redistribute, operate
+    independently of an Official Server, extract art or data assets, repackage
+    into a modpack, or run an Official Build on any unofficial server. The
+    prohibitions in Article 3 continue to apply to End Users throughout the term
+    of this license.
+
+4.3 This license terminates automatically when the End User's eligibility to play
+    on an Official Server ends (including by ban, departure, or server shutdown).
+    The Licensor may also revoke this license, in whole or as to any individual,
+    at any time by public notice, without stating a reason and without incurring
+    any obligation to compensate. Upon termination, the End User shall
+    immediately delete all copies in their possession.
+
+Article 5. Authorized Collaborator Exception and Contribution Assignment
+
+5.1 An Authorized Collaborator may, to the extent necessary to contribute to this
+    project, clone this repository, build and run it locally, modify the code,
+    and submit Pull Requests to this repository.
+
+5.2 The foregoing license is strictly limited to the purpose of contributing to
+    this repository and may not be used for any other purpose. It terminates
+    automatically when the collaborator's contributor status ends. Upon
+    termination, the collaborator shall delete all local copies, build outputs,
+    and derivatives in their possession and shall neither retain nor repurpose
+    them.
+
+5.3 Contribution assignment: any contribution submitted to this repository, once
+    merged or otherwise accepted in any form, shall be deemed to grant the
+    Licensor a worldwide, perpetual, irrevocable, sublicensable, exclusive, and
+    royalty-free license to use, reproduce, modify, distribute, sublicense, and
+    commercialize that contribution in any manner. To the extent permitted by
+    applicable law, the contributor waives all moral rights in the contribution
+    other than the right of attribution. The contributor warrants that the
+    contribution is their own original work, infringes no third party's
+    intellectual property rights, and is not subject to any third-party license
+    conflicting with this Agreement (including without limitation copyleft
+    licenses of the GPL family).
+
+Article 6. Third-Party Components
+
+6.1 This Agreement applies only to content owned by the Licensor. Third-party
+    materials on which the Software depends, which it references, or with which
+    it interoperates -- including the Minecraft platform, MinecraftForge,
+    third-party mod APIs, and third-party libraries embedded in and distributed
+    with Official Builds -- are not licensed under this Agreement and remain
+    governed by their own original license terms. A list of third-party
+    components and their licenses is provided in THIRD-PARTY-NOTICES.md at the
+    root of this repository.
+
+6.2 To the extent a third-party license conflicts with this Agreement, the
+    third-party license governs with respect to that third-party material.
+    Nothing in this Agreement is intended, or shall be construed, to restrict or
+    alter any right that a third-party license lawfully confers on its users.
+
+Article 7. Relationship to Mojang / Microsoft
+
+7.1 The Software is an unofficial third-party mod for Minecraft. It is not
+    affiliated with, sponsored by, approved by, or endorsed by Mojang Studios,
+    Microsoft Corporation, or any of their affiliates. Minecraft is a trademark
+    of Mojang Studios.
+
+7.2 Use of the Software does not relieve any user of the obligation to comply
+    with the Minecraft End User License Agreement (Minecraft EULA) and Mojang's
+    applicable brand and commercial usage guidelines.
+
+Article 8. Disclaimer of Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, ACCURACY,
+ERROR-FREE OPERATION, AND UNINTERRUPTED OPERATION. The Licensor does not warrant
+that the Software will meet any user's particular requirements and undertakes no
+obligation to provide maintenance, updates, or technical support.
+
+Article 9. Limitation of Liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSOR SHALL NOT BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, PUNITIVE, OR CONSEQUENTIAL
+DAMAGES ARISING OUT OF THE USE OF OR INABILITY TO USE THE SOFTWARE, INCLUDING BUT
+NOT LIMITED TO SAVE FILE CORRUPTION, DATA LOSS, ACCOUNT LOSS, SERVER DOWNTIME,
+BUSINESS INTERRUPTION, AND LOST PROFITS, WHETHER BASED IN CONTRACT, TORT
+(INCLUDING NEGLIGENCE), OR ANY OTHER LEGAL THEORY, AND WHETHER OR NOT THE
+LICENSOR HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+Article 10. Breach, Termination, and Remedies
+
+10.1 Any breach of this Agreement automatically terminates all licenses granted
+     to the breaching party hereunder, effective as of the moment of breach and
+     without notice from the Licensor.
+
+10.2 Upon termination, the breaching party shall immediately cease all use and
+     destroy all copies, derivatives, and build outputs of the Software in their
+     possession or control.
+
+10.3 The breaching party shall bear all losses caused to the Licensor by the
+     breach, including the reasonable costs incurred by the Licensor in stopping
+     the infringement, gathering evidence, and enforcing its rights (including
+     attorneys' fees, notarization fees, and litigation costs).
+
+10.4 Because the Software's source code, numeric design, and economic model
+     cannot be restored by monetary compensation once disclosed, the Licensor is
+     entitled to seek injunctive relief and other interim or permanent remedies
+     in respect of a breach, without the need to separately prove that the harm
+     is irreparable.
+
+10.5 The Licensor reserves all rights to pursue civil, administrative, and
+     criminal liability for infringement. No failure or delay by the Licensor in
+     exercising any right hereunder shall operate as a waiver of that right, and
+     no single or partial exercise shall preclude any further exercise of that
+     or any other right.
+
+Article 11. Severability and Entire Agreement
+
+11.1 If any provision of this Agreement is held invalid, unlawful, or
+     unenforceable by a competent authority, the remaining provisions remain in
+     full force; the affected provision shall be modified to the minimum extent
+     necessary to be valid while remaining as close as possible to the original
+     intent.
+
+11.2 This Agreement constitutes the entire agreement between the Licensor and
+     the user with respect to the Software, superseding all prior oral or
+     written communications, promises, and representations. No modification,
+     supplement, or waiver is effective unless made in writing by the Licensor.
+
+Article 12. Governing Law and Dispute Resolution
+
+12.1 This Agreement, and its formation, validity, interpretation, performance,
+     and any dispute arising from it, are governed by the laws of the People's
+     Republic of China (for the purposes of this Article, excluding the laws of
+     the Hong Kong SAR, the Macao SAR, and the Taiwan region).
+
+12.2 Any dispute arising out of or in connection with this Agreement shall first
+     be resolved through friendly negotiation. Failing that, either party may
+     bring an action before the competent People's Court at the Licensor's
+     domicile.
+
+Article 13. Licensing Inquiries
+
+Any use beyond the scope of this Agreement -- including without limitation
+commercial licensing, derivative development licensing, modpack inclusion,
+porting, and source code review -- requires prior Written Authorization from the
+Licensor. Requests may be submitted through the public channels at
+https://github.com/World-of-Kivotos. Absent Written Authorization, any use
+beyond the scope of this Agreement constitutes infringement.

@@ -276,9 +276,9 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
         ore.shrink(result.oreConsumed());
         inventory.setStackInSlot(SLOT_INPUT, ore.isEmpty() ? ItemStack.EMPTY : ore);
 
-        // 闪耀失败碎片返还: 优先退到输入槽 (空槽新建 / 同为下界合金碎片则叠加); 槽被异物占用时改为掉落。
+        // 闪耀失败碎片返还: 优先退到输入槽 (空槽新建 / 同为下界合金碎片则叠加); 槽被异物占用时退给操作者。
         if (result.scrapRefund() > 0) {
-            refundScrap(result.scrapRefund());
+            refundScrap(result.scrapRefund(), player);
         }
         if (result.platesProduced() > 0) {
             ItemStack plates = NanoProduction.makePlate(tier, result.platesProduced(), player.getUUID(), qualityHits);
@@ -286,7 +286,7 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
         }
     }
 
-    private void refundScrap(int amount) {
+    private void refundScrap(int amount, ServerPlayer operator) {
         ItemStack input = inventory.getStackInSlot(SLOT_INPUT);
         if (input.isEmpty()) {
             inventory.setStackInSlot(SLOT_INPUT, NanoProduction.makeRadiantFailureRefund(amount));
@@ -297,16 +297,12 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
             inventory.setStackInSlot(SLOT_INPUT, input);
             return;
         }
-        // 输入槽被别的物占用 (选档门已确保闪耀必为下界合金锭, 此为完成帧与输入变动间的时序边界): 不静默吞下界
-        // 合金碎片, 改为掉落到方块上方, 让玩家可拾回 (下界合金高代价, 宁可显形也不丢失)。
-        if (level != null && !level.isClientSide) {
-            net.minecraft.world.entity.item.ItemEntity drop = new net.minecraft.world.entity.item.ItemEntity(
-                    level,
-                    worldPosition.getX() + 0.5,
-                    worldPosition.getY() + 1.0,
-                    worldPosition.getZ() + 0.5,
-                    NanoProduction.makeRadiantFailureRefund(amount));
-            level.addFreshEntity(drop);
+        // 输入槽被别的物占用。这不是罕见时序边界: 闪耀档每轮只消耗 tier.oreCost() 个下界合金锭, 玩家批量
+        // 投料时扣减后槽内仍是【下界合金锭】而非碎片, 必然走到此处。故返还必须归属操作者本人 —— 掉落到
+        // 方块旁会脱离容器权限, 让旁人直接捡走高价值的下界合金碎片。
+        ItemStack refund = NanoProduction.makeRadiantFailureRefund(amount);
+        if (!operator.getInventory().add(refund)) {
+            operator.drop(refund, false);
         }
     }
 

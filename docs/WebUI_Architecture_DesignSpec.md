@@ -63,7 +63,7 @@
 - **Critical 远程执行面**：`S2CFullSyncPacket.executeJs` 允许服务端在客户端浏览器跑任意 JS；手写 JS 转义只覆 5 种字符（`</script>`/U+2028/U+2029 可破注入）= 展示玩家输入时的 XSS 面。
 - **Major 三套并行传输 + 三个重叠 S2C 包 + 三条事件下行**，大量死代码与重复关联 id 体系（同步无 id / UUID / `req_` 字符串，互不通）。
 - **Major 中文 IME 不可用**、渲染线程 vs 主线程贴图竞态（`browser` 非 volatile）、右键中键映射反、满屏吞异常、Dist 隔离不一致（部分 S2C 包服务端误收会 `NoClassDefFoundError`）、`NetworkRegistry.newSimpleChannel` 已废弃。
-- **清理项**：`mods.toml` / build.gradle 带 ⚠️/✅/✓ emoji，并入时一律不抄（本工程硬禁 emoji）。
+- **清理项**：`mods.toml` / build.gradle 带警告标、对勾一类 emoji 字符，并入时一律不抄（本工程硬禁 emoji）。
 
 ---
 

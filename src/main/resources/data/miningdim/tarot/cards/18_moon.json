@@ -317,9 +317,26 @@
         "radius": 12
       },
       {
+        "kind": "aoe_enemy_potion",
+        "effect": "minecraft:nausea",
+        "amplifier": 0,
+        "durationTicks": 100,
+        "radius": 12
+      },
+      {
+        "kind": "aoe_enemy_random_teleport",
+        "radius": 12,
+        "minDistance": 3,
+        "maxDistance": 6
+      },
+      {
         "kind": "self_potion",
         "effect": "minecraft:invisibility",
         "amplifier": 0,
+        "durationTicks": 160
+      },
+      {
+        "kind": "self_untargetable",
         "durationTicks": 160
       }
     ]

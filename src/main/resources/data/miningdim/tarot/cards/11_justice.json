@@ -75,18 +75,18 @@
           "durationTicks": 120
         },
         {
-          "kind": "aoe_enemy_potion",
+          "kind": "enemy_target_potion",
           "effect": "minecraft:glowing",
           "amplifier": 0,
           "durationTicks": 120,
-          "radius": 4
+          "reach": 30
         },
         {
-          "kind": "aoe_enemy_potion",
+          "kind": "enemy_target_potion",
           "effect": "minecraft:slowness",
           "amplifier": 1,
           "durationTicks": 80,
-          "radius": 4
+          "reach": 30
         }
       ],
       [
@@ -102,18 +102,18 @@
           "durationTicks": 160
         },
         {
-          "kind": "aoe_enemy_potion",
+          "kind": "enemy_target_potion",
           "effect": "minecraft:glowing",
           "amplifier": 0,
           "durationTicks": 160,
-          "radius": 4
+          "reach": 30
         },
         {
-          "kind": "aoe_enemy_potion",
+          "kind": "enemy_target_potion",
           "effect": "minecraft:slowness",
           "amplifier": 1,
           "durationTicks": 100,
-          "radius": 4
+          "reach": 30
         }
       ],
       [
@@ -129,18 +129,18 @@
           "durationTicks": 200
         },
         {
-          "kind": "aoe_enemy_potion",
+          "kind": "enemy_target_potion",
           "effect": "minecraft:glowing",
           "amplifier": 0,
           "durationTicks": 200,
-          "radius": 4
+          "reach": 30
         },
         {
-          "kind": "aoe_enemy_potion",
+          "kind": "enemy_target_potion",
           "effect": "minecraft:slowness",
           "amplifier": 1,
           "durationTicks": 120,
-          "radius": 4
+          "reach": 30
         }
       ],
       [
@@ -156,18 +156,18 @@
           "durationTicks": 240
         },
         {
-          "kind": "aoe_enemy_potion",
+          "kind": "enemy_target_potion",
           "effect": "minecraft:glowing",
           "amplifier": 0,
           "durationTicks": 240,
-          "radius": 4
+          "reach": 30
         },
         {
-          "kind": "aoe_enemy_potion",
+          "kind": "enemy_target_potion",
           "effect": "minecraft:slowness",
           "amplifier": 1,
           "durationTicks": 160,
-          "radius": 4
+          "reach": 30
         }
       ]
     ]

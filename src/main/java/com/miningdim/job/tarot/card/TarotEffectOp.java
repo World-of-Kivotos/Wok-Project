@@ -112,6 +112,65 @@ public record TarotEffectOp(
             case SELF_CLEANSE:
                 // 无额外字段。
                 break;
+            case SELF_CLEANSE_MAX_HEALTH:
+                amount = GsonHelper.getAsDouble(obj, "amountPerEffect");
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                capUp = GsonHelper.getAsDouble(obj, "capUp");
+                break;
+            case SELF_BLINK:
+                amount = GsonHelper.getAsDouble(obj, "distance");
+                break;
+            case SELF_DASH:
+                amount = GsonHelper.getAsDouble(obj, "distance");
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                capUp = GsonHelper.getAsDouble(obj, "force");
+                break;
+            case SELF_RANDOM_BUFF:
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                chance = GsonHelper.getAsDouble(obj, "strongChance");
+                amount = GsonHelper.getAsDouble(obj, "absorptionLow");
+                capUp = GsonHelper.getAsDouble(obj, "absorptionHigh");
+                break;
+            case SELF_FORTUNE_GAMBLE:
+                chance = GsonHelper.getAsDouble(obj, "healChance");
+                amount = GsonHelper.getAsDouble(obj, "heal");
+                threshold = GsonHelper.getAsDouble(obj, "selfDamage");
+                break;
+            case SELF_REFRESH_BENEFICIAL:
+            case SELF_HEALING_BLOCK:
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                break;
+            case SELF_DELAYED_POTION:
+                effectId = GsonHelper.getAsString(obj, "effect");
+                amplifier = GsonHelper.getAsInt(obj, "amplifier");
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                periodTicks = GsonHelper.getAsInt(obj, "delayTicks");
+                break;
+            case SELF_PERIODIC_TRUE_DAMAGE:
+                amount = GsonHelper.getAsDouble(obj, "amount");
+                periodTicks = GsonHelper.getAsInt(obj, "periodTicks");
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                break;
+            case SELF_CLEANSE_LIMITED:
+                count = GsonHelper.getAsInt(obj, "count");
+                break;
+            case SELF_PERIODIC_CLEANSE:
+                count = GsonHelper.getAsInt(obj, "count");
+                periodTicks = GsonHelper.getAsInt(obj, "periodTicks");
+                break;
+            case SELF_CLEANSE_EFFECTS:
+                effects = parseEffectList(obj);
+                break;
+            case SELF_HERMIT_SHINY:
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                break;
+            case SELF_UNTARGETABLE:
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                break;
+            case CLEAR_NORMAL_TAROT_COOLDOWNS:
+                // 无额外字段。
+                break;
             case SELF_DEATH_GAMBLE:
                 // 以命相赌 (倒吊人逆位): chance 概率当场死亡; 成功则牺牲最大生命 amount, durationTicks 后归还。
                 chance = GsonHelper.getAsDouble(obj, "chance");
@@ -178,6 +237,21 @@ public record TarotEffectOp(
                 radius = GsonHelper.getAsDouble(obj, "radius");
                 capUp = GsonHelper.getAsDouble(obj, "capUp");
                 break;
+            case ENEMY_TARGET_POTION:
+                effectId = GsonHelper.getAsString(obj, "effect");
+                amplifier = GsonHelper.getAsInt(obj, "amplifier");
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                radius = GsonHelper.getAsDouble(obj, "reach");
+                break;
+            case TARGET_TOWER_STRIKE:
+                amount = GsonHelper.getAsDouble(obj, "amount");
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                capUp = GsonHelper.getAsDouble(obj, "force");
+                effectId = GsonHelper.getAsString(obj, "mode");
+                durationTicks = GsonHelper.getAsInt(obj, "casterResistanceTicks", 0);
+                periodTicks = GsonHelper.getAsInt(obj, "blindnessTicks", 0);
+                immuneVulnerability = GsonHelper.getAsBoolean(obj, "clearBuffs", false);
+                break;
             case AOE_ENEMY_RANDOM_DAMAGE:
                 // 随机 1 敌 (恋人逆位): 半径内随机抽 1 敌 amount 伤害, 无敌则自身双倍真伤。
                 amount = GsonHelper.getAsDouble(obj, "amount");
@@ -188,6 +262,46 @@ public record TarotEffectOp(
             case AOE_ALLY_ABSORPTION:
                 amount = GsonHelper.getAsDouble(obj, "amount");
                 radius = GsonHelper.getAsDouble(obj, "radius");
+                break;
+            case AOE_ENEMY_PULL:
+                amount = GsonHelper.getAsDouble(obj, "distance");
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                break;
+            case AOE_ENEMY_RANDOM_TELEPORT:
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                amount = GsonHelper.getAsDouble(obj, "minDistance");
+                capUp = GsonHelper.getAsDouble(obj, "maxDistance");
+                break;
+            case AOE_ENEMY_MISSING_HEALTH_DAMAGE:
+                amount = GsonHelper.getAsDouble(obj, "amount");
+                percent = GsonHelper.getAsDouble(obj, "percent");
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                break;
+            case AOE_ALLY_CLEANSE_LIMITED:
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                count = GsonHelper.getAsInt(obj, "count");
+                break;
+            case AOE_ALLY_PERIODIC_CLEANSE:
+            case AOE_ALLY_BALANCE_HEALTH:
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                amount = GsonHelper.getAsDouble(obj, "amount", 0.0D);
+                periodTicks = GsonHelper.getAsInt(obj, "periodTicks");
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                break;
+            case AOE_ALLY_DAMAGE_SHARE:
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                percent = GsonHelper.getAsDouble(obj, "percent");
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                break;
+            case AOE_ALLY_EMERGENCY_HEAL:
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                percent = GsonHelper.getAsDouble(obj, "thresholdPercent");
+                amount = GsonHelper.getAsDouble(obj, "absorption");
+                break;
+            case AOE_ALLY_LOW_HEALTH_HEAL:
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                percent = GsonHelper.getAsDouble(obj, "thresholdPercent");
+                amount = GsonHelper.getAsDouble(obj, "amount");
                 break;
             case AOE_ENEMY_DAMAGE_OVER_TIME:
             case AOE_ALLY_HEAL_OVER_TIME:

@@ -1,0 +1,34 @@
+modLoader = "javafml"
+loaderVersion = "[47,)"
+license = "All Rights Reserved"
+
+[[mods]]
+modId = "kivotos_armorer"
+version = "${file.jarVersion}"
+displayName = "Kivotos Armorer"
+authors = "World of Kivotos"
+description = '''
+Standalone wearable armor collection extracted from the World of Kivotos armorer profession.
+Includes 54 plate armors and 18 tiered plasma shields; contains no production tables or profession framework.
+'''
+
+[[dependencies.kivotos_armorer]]
+modId = "forge"
+mandatory = true
+versionRange = "[47,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.kivotos_armorer]]
+modId = "minecraft"
+mandatory = true
+versionRange = "[1.20.1,1.20.2)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.kivotos_armorer]]
+modId = "tacz"
+mandatory = false
+versionRange = "[1.1.8,)"
+ordering = "AFTER"
+side = "BOTH"

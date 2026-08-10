@@ -10,12 +10,9 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * 服务端开包 RNG (TarotReader spec 第七章, 服务端权威)。
@@ -29,7 +26,7 @@ import java.util.UUID;
  * 已持则改发 {@link TarotConfig#DUPLICATE_SHARD_REFUND} 张碎片而非重复牌。攒够碎片经 {@code /tarot exchange <id>}
  * (见 {@link com.miningdim.job.tarot.TarotSystem}) 确定性兑换指定牌 —— 给非洲玩家毕业线。
  *
- * pity 计数内存态 (UUID -> 连续未出 SSR 的高级包数); 登出清理。注: 跨重启不持久 (见 notes; 需持久化时挂 SavedData)。
+ * pity 计数写入 {@link TarotPackSavedData}, 因而跨登出与服务端重启保留。
  * 派生包不产出物品 ItemStack 本身的 "包" —— 直接返回额外卡牌的 OpenResult.derivedPacks 计数, 由 use 层再开。
  */
 public final class PackGachaService {
@@ -40,8 +37,6 @@ public final class PackGachaService {
      */
     public record OpenResult(List<ItemStack> cards, int shardRefund, int derivedPacks) {
     }
-
-    private final Map<UUID, Integer> advancedNoSsrStreak = new HashMap<>();
 
     /**
      * 开一个普通包: 1 张 R, 随机 cardId + 随机正逆 (spec 第七章)。重复牌 (已持同 cardId) 改转碎片。
@@ -76,8 +71,8 @@ public final class PackGachaService {
                     "advanced pack derived expectation must be < 1 (geometric convergence); got drawCount="
                             + draws + " * derivedChance=" + derivedChance + " = " + (draws * derivedChance));
         }
-        UUID id = player.getUUID();
-        int streak = advancedNoSsrStreak.getOrDefault(id, 0);
+        TarotPackSavedData savedData = TarotPackSavedData.get(player.getServer().overworld());
+        int streak = savedData.advancedNoSsrStreak(player.getUUID());
 
         List<ItemStack> out = new ArrayList<>(draws);
         Set<Integer> grantedThisPack = new HashSet<>();
@@ -95,7 +90,7 @@ public final class PackGachaService {
             // 故 pity 不会因转碎片而失效 (pity 是 "本包必出 SSR 品质" 的承诺, 与具体 cardId 是否重复无关)。
             shards += grantOrRefund(player, randomCardId(rng), q, rng.nextBoolean(), out, grantedThisPack);
         }
-        advancedNoSsrStreak.put(id, gotSsr ? 0 : streak + 1);
+        savedData.setAdvancedNoSsrStreak(player.getUUID(), gotSsr ? 0 : streak + 1);
 
         // 派生包: 每张产出独立判定一次派生 (期望 = draws * derivedChance, 已在入口断言 < 1 收敛)。
         int derived = 0;
@@ -119,11 +114,6 @@ public final class PackGachaService {
         }
         // 闪耀包是玩家显式自选 (青辉石高价), 不走重复转碎片 (自选即想要该牌, 转碎片反损玩家利益): 直接给 SSR。
         return makeCard(player, cardId, TarotQuality.SSR, rng.nextBoolean());
-    }
-
-    /** 登出清 pity 内存态 (跨会话不持久; 见 notes)。 */
-    public void clear(UUID player) {
-        advancedNoSsrStreak.remove(player);
     }
 
     /**

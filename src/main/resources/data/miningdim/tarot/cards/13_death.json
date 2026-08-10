@@ -10,11 +10,11 @@
           "radius": 5
         },
         {
-          "kind": "aoe_enemy_potion",
+          "kind": "enemy_target_potion",
           "effect": "minecraft:wither",
           "amplifier": 1,
           "durationTicks": 80,
-          "radius": 5
+          "reach": 5
         }
       ],
       [
@@ -25,11 +25,11 @@
           "radius": 5
         },
         {
-          "kind": "aoe_enemy_potion",
+          "kind": "enemy_target_potion",
           "effect": "minecraft:wither",
           "amplifier": 1,
           "durationTicks": 100,
-          "radius": 5
+          "reach": 5
         }
       ],
       [
@@ -40,11 +40,11 @@
           "radius": 5
         },
         {
-          "kind": "aoe_enemy_potion",
+          "kind": "enemy_target_potion",
           "effect": "minecraft:wither",
           "amplifier": 1,
           "durationTicks": 120,
-          "radius": 5
+          "reach": 5
         }
       ],
       [
@@ -55,11 +55,11 @@
           "radius": 5
         },
         {
-          "kind": "aoe_enemy_potion",
+          "kind": "enemy_target_potion",
           "effect": "minecraft:wither",
           "amplifier": 1,
           "durationTicks": 160,
-          "radius": 5
+          "reach": 5
         }
       ]
     ]

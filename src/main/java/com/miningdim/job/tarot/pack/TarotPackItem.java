@@ -1,10 +1,9 @@
 package com.miningdim.job.tarot.pack;
 
-import com.miningdim.economy.Currency;
-import com.miningdim.economy.EconomyServices;
-import com.miningdim.economy.IEconomyService;
 import com.miningdim.job.tarot.TarotConfig;
+import com.miningdim.job.tarot.TarotRegistry;
 import com.miningdim.job.tarot.TarotRuntime;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
@@ -16,21 +15,13 @@ import net.minecraft.world.level.Level;
 import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.network.NetworkHooks;
 
-/**
- * 卡包物品 (TarotReader spec 第七章)。右键 {@link #use} 服务端权威开包 (if !level.isClientSide), 客户端只回
- * success 触发挥手动画。开包前经 {@link IEconomyService} 扣费 (普通/高级=信用点, 闪耀=青辉石), 每日限购并入
- * UTC 翻日体系 (tryChargeDaily)。开出的牌经 {@link ItemHandlerHelper#giveItemToPlayer} 给物, 一律盖 ownerUUID。
- *
- * 闪耀包不直接给牌, 开出后打开自选 GUI ({@link ShinyPackSelectMenu}) 让玩家选一张 SSR (spec 第七章)。
- *
- * 货币扣费经 {@link EconomyServices#economyService()} 定位器 (项目既定服务定位器范式; 原 TarotEconomyHooks
- * 静态 bind seam 无任何 bind 调用方, 已移除悬空 seam): 未注入即开包是装配缺陷, 在此 use 边界自然抛
- * IllegalStateException 暴露 (异常纪律: 不静默掩盖)。
- */
+import java.util.ArrayDeque;
+import java.util.UUID;
+
+/** A purchased or dropped pack. Currency is charged when the pack is acquired, never when it is opened. */
 public final class TarotPackItem extends Item {
 
-    /** 每日限购计数键 (并入 economy UTC 翻日; spec 第十章)。 */
-    private static final String DAILY_KEY_PACK = "tarot_pack";
+    private static final String K_OWNER = "OwnerUUID";
 
     private final PackKind kind;
 
@@ -43,6 +34,25 @@ public final class TarotPackItem extends Item {
         return kind;
     }
 
+    public static ItemStack create(PackKind kind, UUID owner) {
+        if (owner == null) {
+            throw new IllegalArgumentException("tarot pack owner must not be null");
+        }
+        Item item = switch (kind) {
+            case COMMON -> TarotRegistry.PACK_COMMON.get();
+            case ADVANCED -> TarotRegistry.PACK_ADVANCED.get();
+            case SHINY -> TarotRegistry.PACK_SHINY.get();
+        };
+        ItemStack stack = new ItemStack(item);
+        stack.getOrCreateTag().putUUID(K_OWNER, owner);
+        return stack;
+    }
+
+    public static UUID owner(ItemStack stack) {
+        CompoundTag tag = stack.getTag();
+        return tag != null && tag.hasUUID(K_OWNER) ? tag.getUUID(K_OWNER) : null;
+    }
+
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
@@ -52,60 +62,73 @@ public final class TarotPackItem extends Item {
         if (!(player instanceof ServerPlayer serverPlayer)) {
             return InteractionResultHolder.pass(stack);
         }
+        if (!bindOrValidate(stack, serverPlayer)) {
+            serverPlayer.displayClientMessage(
+                    Component.translatable("message.miningdim.tarot.pack.not_owner"), true);
+            return InteractionResultHolder.fail(stack);
+        }
 
-        // 闪耀包: 扣费与消耗都推迟到选牌成功那一刻 (在 ShinyPackSelectMenu.clickMenuButton)。仅打开自选 GUI;
-        // 玩家 ESC 不选则青辉石与包都不损失 (修复 sink 无对价: 关界面=零损失)。
         if (kind == PackKind.SHINY) {
-            // 远程 menu (IForgeMenuType) 必须用带 buf writer 的 openScreen; 本 menu 无附加字段, 写空 buf。
             NetworkHooks.openScreen(serverPlayer, new ShinyPackSelectMenu.Provider(), buf -> { });
             return InteractionResultHolder.success(stack);
         }
 
-        // 普通/高级: 信用点扣费 (含每日限购) -> 开包 -> 消耗 1 包 (原子: 扣费失败不开包不消耗)。
-        if (!chargeCreditPack(serverPlayer)) {
-            serverPlayer.displayClientMessage(
-                    Component.translatable("message.miningdim.tarot.pack.cannot_afford"), true);
-            return InteractionResultHolder.fail(stack);
-        }
-        openCreditPack(serverPlayer);
+        OpenSummary summary = kind == PackKind.COMMON
+                ? openCommon(serverPlayer)
+                : openAdvancedChain(serverPlayer);
         stack.shrink(1);
+        serverPlayer.displayClientMessage(Component.translatable(
+                "message.miningdim.tarot.pack.opened",
+                summary.cards, summary.shards, summary.derived), true);
         return InteractionResultHolder.consume(stack);
     }
 
-    /** 普通/高级扣信用点 (含每日限购; spec 第十章)。闪耀包不走此路 (青辉石, 选牌时扣)。 */
-    private boolean chargeCreditPack(ServerPlayer player) {
-        IEconomyService eco = EconomyServices.economyService();
-        return switch (kind) {
-            case COMMON -> eco.tryChargeDaily(player, Currency.CREDIT, TarotConfig.PRICE_COMMON_PACK.get(),
-                    DAILY_KEY_PACK, dailyPackCap());
-            case ADVANCED -> eco.tryChargeDaily(player, Currency.CREDIT, TarotConfig.PRICE_ADVANCED_PACK.get(),
-                    DAILY_KEY_PACK, dailyPackCap());
-            case SHINY -> throw new IllegalStateException("shiny pack must charge AZURE at selection, not here");
-        };
+    private static OpenSummary openCommon(ServerPlayer player) {
+        PackGachaService.OpenResult result = TarotRuntime.gacha().openCommon(player, player.getRandom());
+        giveResult(player, result);
+        return new OpenSummary(result.cards().size(), result.shardRefund(), 0);
     }
 
-    private static long dailyPackCap() {
-        return TarotConfig.DAILY_PACK_LIMIT.get();
-    }
-
-    /** 服务端开普通/高级包 (RNG 权威)。重复牌转出的碎片一并给物 (spec 第七章)。 */
-    private void openCreditPack(ServerPlayer player) {
+    /** Opens every generated advanced pack until the geometric chain ends or the daily safety cap is reached. */
+    private static OpenSummary openAdvancedChain(ServerPlayer player) {
         PackGachaService gacha = TarotRuntime.gacha();
-        switch (kind) {
-            case COMMON -> giveResult(player, gacha.openCommon(player, player.getRandom()));
-            case ADVANCED -> {
-                PackGachaService.OpenResult result = gacha.openAdvanced(player, player.getRandom());
-                giveResult(player, result);
-                // 派生包: 就地再开等量高级包 (期望 E<1 收敛; spec 第七章), 并入本次产物。
-                for (int i = 0; i < result.derivedPacks(); i++) {
-                    giveResult(player, gacha.openAdvanced(player, player.getRandom()));
-                }
-            }
-            default -> throw new IllegalStateException("openCreditPack called for non-credit pack: " + kind);
+        PackGachaService.OpenResult root = gacha.openAdvanced(player, player.getRandom());
+        giveResult(player, root);
+
+        int cards = root.cards().size();
+        int shards = root.shardRefund();
+        int derivedOpened = 0;
+        ArrayDeque<Integer> pending = new ArrayDeque<>();
+        for (int i = 0; i < root.derivedPacks(); i++) {
+            pending.addLast(1);
         }
+
+        TarotPackSavedData data = TarotPackSavedData.get(player.getServer().overworld());
+        int cap = TarotConfig.DAILY_PACK_LIMIT.get();
+        long today = TarotPackClock.currentUtcDayStamp();
+        boolean capped = false;
+        while (!pending.isEmpty()) {
+            pending.removeFirst();
+            if (!data.tryRecordDerived(player.getUUID(), cap, today)) {
+                capped = true;
+                break;
+            }
+            PackGachaService.OpenResult derived = gacha.openAdvanced(player, player.getRandom());
+            giveResult(player, derived);
+            cards += derived.cards().size();
+            shards += derived.shardRefund();
+            derivedOpened++;
+            for (int i = 0; i < derived.derivedPacks(); i++) {
+                pending.addLast(1);
+            }
+        }
+        if (capped) {
+            player.displayClientMessage(
+                    Component.translatable("message.miningdim.tarot.pack.derived_limit"), true);
+        }
+        return new OpenSummary(cards, shards, derivedOpened);
     }
 
-    /** 给一次开包结果: 真牌逐张给物, 重复牌转出的碎片合并成一堆给物 (spec 第七章重复转碎片)。 */
     private static void giveResult(ServerPlayer player, PackGachaService.OpenResult result) {
         for (ItemStack card : result.cards()) {
             ItemHandlerHelper.giveItemToPlayer(player, card);
@@ -116,41 +139,46 @@ public final class TarotPackItem extends Item {
         }
     }
 
-    /**
-     * 闪耀包选牌成功后扣青辉石并消耗 1 个闪耀包 (在 {@link ShinyPackSelectMenu#clickMenuButton} 调用)。
-     * 原子: 先校验持有闪耀包 -> 扣青辉石 -> 都成功才消耗一个包。任一不过返回 false 且无副作用 (扣费失败不消耗包)。
-     *
-     * @return true 已扣费并消耗 1 包 (可发牌); false 无包或余额不足 (无副作用)
-     */
-    public static boolean chargeAndConsumeShiny(ServerPlayer player) {
+    /** Consumes one owned shiny pack after the server accepts a GUI selection. */
+    public static boolean consumeShiny(ServerPlayer player) {
         ItemStack pack = findShinyPack(player);
         if (pack == null) {
-            return false; // 无闪耀包 (界面残留/被丢弃): 不发牌。
-        }
-        IEconomyService eco = EconomyServices.economyService();
-        if (!eco.tryCharge(player, Currency.AZURE, TarotConfig.PRICE_SHINY_PACK_AZURE.get())) {
-            return false; // 青辉石不足: 不扣不消耗。
+            return false;
         }
         pack.shrink(1);
         return true;
     }
 
-    /** 在玩家背包 (含副手) 找一个闪耀包堆; 无则 null。 */
     private static ItemStack findShinyPack(ServerPlayer player) {
-        for (ItemStack s : player.getInventory().items) {
-            if (isShinyPack(s)) {
-                return s;
+        for (ItemStack stack : player.getInventory().items) {
+            if (isUsableShinyPack(stack, player)) {
+                return stack;
             }
         }
-        for (ItemStack s : player.getInventory().offhand) {
-            if (isShinyPack(s)) {
-                return s;
+        for (ItemStack stack : player.getInventory().offhand) {
+            if (isUsableShinyPack(stack, player)) {
+                return stack;
             }
         }
         return null;
     }
 
-    private static boolean isShinyPack(ItemStack stack) {
-        return !stack.isEmpty() && stack.getItem() instanceof TarotPackItem pack && pack.kind == PackKind.SHINY;
+    private static boolean isUsableShinyPack(ItemStack stack, ServerPlayer player) {
+        return !stack.isEmpty()
+                && stack.getItem() instanceof TarotPackItem pack
+                && pack.kind == PackKind.SHINY
+                && bindOrValidate(stack, player);
+    }
+
+    private static boolean bindOrValidate(ItemStack stack, ServerPlayer player) {
+        UUID owner = owner(stack);
+        if (owner == null) {
+            stack.getOrCreateTag().putUUID(K_OWNER, player.getUUID());
+            return true;
+        }
+        return owner.equals(player.getUUID());
+    }
+
+    private record OpenSummary(int cards, int shards, int derived) {
     }
 }

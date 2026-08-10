@@ -80,6 +80,6 @@ public final class EngineerSystem implements Subsystem {
 
     @Override
     public String name() {
-        return "EngineerSystem";
+        return "ArmorerSystem";
     }
 }

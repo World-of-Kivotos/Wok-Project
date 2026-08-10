@@ -60,7 +60,9 @@ public final class PlateArmorDamageClassifier {
     }
 
     private static Kind classifyTacz(ResourceLocation id) {
-        if (id == null || !TACZ_NAMESPACE.equals(id.getNamespace())) {
+        // 不判 id == null: 两个调用点分别已过 id != null 与 new ResourceLocation(...), 该分支不可达。
+        // 命名空间校验保留 —— public 的 classifyTacz(String, String) 可传入任意命名空间。
+        if (!TACZ_NAMESPACE.equals(id.getNamespace())) {
             return Kind.EXCLUDED;
         }
         return switch (id.getPath()) {

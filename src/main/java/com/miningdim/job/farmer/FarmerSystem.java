@@ -31,6 +31,7 @@ import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.player.BonemealEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.level.BlockEvent;
+import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -152,7 +153,10 @@ public final class FarmerSystem implements Subsystem {
      *
      * 经验与作物掉落解耦 (第二章): 本法只算经验, 不动掉落 (loot table 照常掉小麦), 故软上限只削经验不削小麦。
      */
-    @SubscribeEvent
+    // LOWEST: 必须排在所有可能取消 BreakEvent 的监听器 (领地/保护类) 之后再结算。挂 NORMAL 时
+    // isCanceled() 只看得见 HIGHEST/HIGH 阶段的取消, 被 LOW/LOWEST 取消的破坏仍会先发出经验,
+    // 玩家可对同一株受保护作物反复破坏刷经验。
+    @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onCropHarvested(BlockEvent.BreakEvent event) {
         if (event.isCanceled()) {
             return;
@@ -188,9 +192,19 @@ public final class FarmerSystem implements Subsystem {
         }
     }
 
-    /** Takes over Farmer's Delight tomato right-click harvesting before its native 1-2 drop path. */
-    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    /**
+     * Takes over Farmer's Delight tomato right-click harvesting before its native 1-2 drop path.
+     *
+     * LOWEST 而非 HIGHEST: 采摘会掉落物品、重置作物年龄并发放经验, 这些副作用必须排在领地与保护类
+     * 监听器判定之后。挂 HIGHEST 时本处最先执行, 保护监听器随后才取消事件, 副作用已经落地, 玩家可
+     * 收获无权区域的作物。原版方块 use() 在全部 RightClickBlock 监听器之后才调用, 因此降到 LOWEST
+     * 仍然抢在 Farmer's Delight 原生掉落路径之前。
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onCropPicked(PlayerInteractEvent.RightClickBlock event) {
+        if (event.isCanceled() || event.getUseBlock() == Event.Result.DENY) {
+            return; // 已被保护类监听器拒绝: 不得产出作物、经验与音效。
+        }
         if (event.getHand() != InteractionHand.MAIN_HAND
                 || !(event.getEntity() instanceof ServerPlayer player)
                 || !(event.getLevel() instanceof ServerLevel level)) {

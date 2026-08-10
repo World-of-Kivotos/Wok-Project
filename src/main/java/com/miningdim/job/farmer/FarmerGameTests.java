@@ -806,4 +806,118 @@ public final class FarmerGameTests {
             return Blocks.WHEAT.defaultBlockState();
         }
     }
+
+    // ============================================================
+    // 收获增产的触发者校验 (FarmerHarvestLootModifier)
+    //
+    // 刻意使用原版小麦而非 Farmer's Delight 作物: 上方那批 FD 兼容用例在依赖缺席时走 helper.succeed(),
+    // 在 dev GameTest 环境里是不执行的假绿; 而原版小麦同样登记在 FarmerHarvests.PRODUCE_BY_CROP 中,
+    // 受同一个全局掉落修改器影响, 因此下列用例在任何环境下都真实执行。
+    // ============================================================
+
+    /** 成熟原版小麦的基准产出恒为 1 个小麦 (种子数随机, 不参与断言)。 */
+    private static final int VANILLA_WHEAT_BASE = 1;
+
+    private static BlockPos prepareSupremeWheat(GameTestHelper helper) {
+        BlockPos relativeSoil = new BlockPos(1, 1, 1);
+        helper.setBlock(relativeSoil, FarmerBlocks.farmland(FarmerTier.SUPREME).get().defaultBlockState());
+        BlockPos relativeCrop = relativeSoil.above();
+        helper.setBlock(relativeCrop, matureVanillaWheat());
+        return relativeCrop;
+    }
+
+    private static BlockState matureVanillaWheat() {
+        return Blocks.WHEAT.defaultBlockState()
+                .setValue(net.minecraft.world.level.block.CropBlock.AGE, 7);
+    }
+
+    private static int wheatCount(List<ItemStack> loot) {
+        int total = 0;
+        for (ItemStack stack : loot) {
+            if (stack.is(net.minecraft.world.item.Items.WHEAT)) {
+                total += stack.getCount();
+            }
+        }
+        return total;
+    }
+
+    private static void setFarmerLevel(ServerPlayer player, int level) {
+        com.miningdim.entry.MiningCapabilities.get(player)
+                .orElseThrow(() -> new IllegalStateException("mock 玩家未挂载 capability, 无法摆放职业等级"))
+                .jobProgress(com.miningdim.job.JobId.FARMER)
+                .setLevel(level);
+    }
+
+    /** 无实体来源 (活塞推毁/爆炸/自动化通用 API) 不得增产。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void vanillaCropYieldRejectsSourceWithoutEntity(GameTestHelper helper) {
+        BlockPos relativeCrop = prepareSupremeWheat(helper);
+        // 4 参重载不写入 THIS_ENTITY, 等价于活塞与爆炸走的掉落路径。
+        List<ItemStack> loot = Block.getDrops(matureVanillaWheat(), helper.getLevel(),
+                helper.absolutePos(relativeCrop), null);
+        helper.assertTrue(wheatCount(loot) == VANILLA_WHEAT_BASE,
+                "无实体来源必须零增产, 期望 " + VANILLA_WHEAT_BASE + " 实得 " + wheatCount(loot));
+        helper.succeed();
+    }
+
+    /** FakePlayer 驱动的自动化收割不得增产 (它是 ServerPlayer 子类且实体类型同为 minecraft:player)。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void vanillaCropYieldRejectsFakePlayer(GameTestHelper helper) {
+        BlockPos relativeCrop = prepareSupremeWheat(helper);
+        net.minecraftforge.common.util.FakePlayer fake = new net.minecraftforge.common.util.FakePlayer(
+                helper.getLevel(),
+                new com.mojang.authlib.GameProfile(UUID.randomUUID(), "test-fake-harvester"));
+        setFarmerLevel(fake, JobXpCurve.MAX_LEVEL);
+        List<ItemStack> loot = Block.getDrops(matureVanillaWheat(), helper.getLevel(),
+                helper.absolutePos(relativeCrop), null, fake, ItemStack.EMPTY);
+        helper.assertTrue(wheatCount(loot) == VANILLA_WHEAT_BASE,
+                "FakePlayer 必须零增产 (即使等级已满), 期望 " + VANILLA_WHEAT_BASE
+                        + " 实得 " + wheatCount(loot));
+        helper.succeed();
+    }
+
+    /** 等级未解锁该耕地档位的玩家不得享受其倍率。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void vanillaCropYieldRequiresTierUnlock(GameTestHelper helper) {
+        BlockPos relativeCrop = prepareSupremeWheat(helper);
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setFarmerLevel(player, FarmerTier.SUPREME.unlockLevel() - 1);
+        List<ItemStack> loot = Block.getDrops(matureVanillaWheat(), helper.getLevel(),
+                helper.absolutePos(relativeCrop), null, player, ItemStack.EMPTY);
+        helper.assertTrue(wheatCount(loot) == VANILLA_WHEAT_BASE,
+                "等级不足 SUPREME 解锁线时必须零增产, 期望 " + VANILLA_WHEAT_BASE
+                        + " 实得 " + wheatCount(loot));
+        helper.succeed();
+    }
+
+    /** 等级达标的农夫本人收割时, 倍率必须照常生效 (防止修复过度杀伤合法收益)。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void vanillaCropYieldAppliesForUnlockedFarmer(GameTestHelper helper) {
+        BlockPos relativeCrop = prepareSupremeWheat(helper);
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setFarmerLevel(player, FarmerTier.SUPREME.unlockLevel());
+        List<ItemStack> loot = Block.getDrops(matureVanillaWheat(), helper.getLevel(),
+                helper.absolutePos(relativeCrop), null, player, ItemStack.EMPTY);
+        int expected = VANILLA_WHEAT_BASE * FarmerTier.SUPREME.yieldPerHarvest();
+        helper.assertTrue(wheatCount(loot) == expected,
+                "等级达标农夫应得 SUPREME 全额倍率, 期望 " + expected + " 实得 " + wheatCount(loot));
+        helper.succeed();
+    }
+
+    /** 低等级玩家在已解锁的低档耕地上仍应拿到该档倍率, 等级门只挡越级。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void vanillaCropYieldStillAppliesOnUnlockedLowTier(GameTestHelper helper) {
+        BlockPos relativeSoil = new BlockPos(1, 1, 1);
+        helper.setBlock(relativeSoil, FarmerBlocks.farmland(FarmerTier.LOW).get().defaultBlockState());
+        BlockPos relativeCrop = relativeSoil.above();
+        helper.setBlock(relativeCrop, matureVanillaWheat());
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setFarmerLevel(player, JobXpCurve.MIN_LEVEL);
+        List<ItemStack> loot = Block.getDrops(matureVanillaWheat(), helper.getLevel(),
+                helper.absolutePos(relativeCrop), null, player, ItemStack.EMPTY);
+        int expected = VANILLA_WHEAT_BASE * FarmerTier.LOW.yieldPerHarvest();
+        helper.assertTrue(wheatCount(loot) == expected,
+                "LOW 档对 1 级玩家已解锁, 应得其倍率, 期望 " + expected + " 实得 " + wheatCount(loot));
+        helper.succeed();
+    }
 }

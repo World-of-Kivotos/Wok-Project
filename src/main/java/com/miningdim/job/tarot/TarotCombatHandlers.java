@@ -1,6 +1,7 @@
 package com.miningdim.job.tarot;
 
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -47,8 +48,9 @@ public final class TarotCombatHandlers {
         if (server == null) {
             return;
         }
-        if (TarotCombatState.hasWindow(player.getUUID(), TarotCombatState.WindowKind.KNOCKBACK_IMMUNITY,
-                server.getTickCount())) {
+        long now = server.getTickCount();
+        if (TarotCombatState.hasWindow(player.getUUID(), TarotCombatState.WindowKind.KNOCKBACK_IMMUNITY, now)
+                || TarotCombatState.hasWildOverdrive(player.getUUID(), now)) {
             event.setStrength(0.0F);
         }
     }
@@ -97,6 +99,16 @@ public final class TarotCombatHandlers {
         if (TarotCombatState.hasWindow(victim.getUUID(), TarotCombatState.WindowKind.INVULNERABLE, now)) {
             event.setAmount(0.0F);
             return;
+        }
+
+        // 女祭司正位预知：仅首次实际受击消费窗口，按品质减伤后继续进入记账/反伤/分摊流程。
+        if (event.getAmount() > 0.0F) {
+            double reduction = TarotCombatState.consumePremonitionReduction(victim.getUUID(), now);
+            if (reduction > 0.0D) {
+                event.setAmount((float) Math.max(0.0D, event.getAmount() * (1.0D - reduction)));
+                victim.displayClientMessage(Component.translatable(
+                        "message.miningdim.tarot.premonition.block", Math.round(reduction * 100.0D)), true);
+            }
         }
 
         // 延迟记账冻死窗 (倒吊人闪耀): 本次伤害挂账; 若会致命则把伤害削到 "留 1 滴血" (冻结不死), 否则照常承伤。
@@ -186,7 +198,11 @@ public final class TarotCombatHandlers {
         if (server == null) {
             return;
         }
-        double pct = TarotCombatState.lifestealPercent(attacker.getUUID(), server.getTickCount());
+        long now = server.getTickCount();
+        double healthRatio = attacker.getMaxHealth() <= 0.0F
+                ? 1.0D : attacker.getHealth() / attacker.getMaxHealth();
+        double pct = Math.max(TarotCombatState.lifestealPercent(attacker.getUUID(), now),
+                TarotCombatState.wildOverdriveLifestealPercent(attacker.getUUID(), now, healthRatio));
         if (pct > 0.0D) {
             attacker.heal((float) (event.getAmount() * pct));
         }

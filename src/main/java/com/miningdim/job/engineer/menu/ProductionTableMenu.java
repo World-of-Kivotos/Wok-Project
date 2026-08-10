@@ -48,8 +48,8 @@ public final class ProductionTableMenu extends AbstractMiningMenu {
 
         if (blockEntity != null) {
             addSlot(new SlotItemHandler(blockEntity.inventory(),
-                    ProductionTableBlockEntity.SLOT_INPUT, 44, 35));
-            addSlot(new OutputSlot(blockEntity, ProductionTableBlockEntity.SLOT_OUTPUT, 116, 35));
+                    ProductionTableBlockEntity.SLOT_INPUT, 60, 79));
+            addSlot(new OutputSlot(blockEntity, ProductionTableBlockEntity.SLOT_OUTPUT, 180, 79));
             // 服务端: BE 实时 dataAccess (set 为 no-op, get 读 BE 字段); 客户端: SimpleContainerData 接 setData。
             this.data = inv.player.level().isClientSide
                     ? new SimpleContainerData(ProductionTableBlockEntity.DATA_COUNT())
@@ -59,7 +59,7 @@ public final class ProductionTableMenu extends AbstractMiningMenu {
             this.data = new SimpleContainerData(ProductionTableBlockEntity.DATA_COUNT());
         }
         addDataSlots(this.data);
-        addPlayerInventory(inv, 8, 84);
+        addPlayerInventory(inv, 48, 164);
     }
 
     /** 取 pos 处方块作 stillValid 校验目标; 非生产台时退回低档块占位 (块不匹配将判 false 关闭界面)。 */
@@ -93,6 +93,16 @@ public final class ProductionTableMenu extends AbstractMiningMenu {
         return false;
     }
 
+    @Override
+    public boolean stillValid(Player player) {
+        if (!super.stillValid(player)) {
+            return false;
+        }
+        return !(player instanceof ServerPlayer serverPlayer)
+                || blockEntity == null
+                || blockEntity.canAccess(serverPlayer);
+    }
+
     /** 输出板槽: 只取不放; 取出时结算生产经验 (7.4)。 */
     private static final class OutputSlot extends SlotItemHandler {
         private final ProductionTableBlockEntity be;
@@ -113,6 +123,11 @@ public final class ProductionTableMenu extends AbstractMiningMenu {
         @Override
         public boolean mayPlace(ItemStack stack) {
             return false;
+        }
+
+        @Override
+        public boolean mayPickup(Player player) {
+            return !(player instanceof ServerPlayer serverPlayer) || be.canTakeOutput(serverPlayer);
         }
 
         @Override
@@ -154,6 +169,10 @@ public final class ProductionTableMenu extends AbstractMiningMenu {
         return data.get(ProductionTableBlockEntity.DATA_PROGRESS);
     }
 
+    public int quality() {
+        return data.get(ProductionTableBlockEntity.DATA_QUALITY);
+    }
+
     public int cursor() {
         return data.get(ProductionTableBlockEntity.DATA_CURSOR);
     }
@@ -168,5 +187,13 @@ public final class ProductionTableMenu extends AbstractMiningMenu {
 
     public int selectedTierIndex() {
         return data.get(ProductionTableBlockEntity.DATA_SELECTED_TIER);
+    }
+
+    public int elapsedTicks() {
+        return data.get(ProductionTableBlockEntity.DATA_ELAPSED_TICKS);
+    }
+
+    public int requiredTicks() {
+        return data.get(ProductionTableBlockEntity.DATA_REQUIRED_TICKS);
     }
 }

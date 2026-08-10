@@ -38,7 +38,8 @@ public final class TarotCombatState {
         KNOCKBACK_IMMUNITY,
         LIFESTEAL,
         REFLECT,
-        INVULNERABLE
+        INVULNERABLE,
+        PREMONITION
     }
 
     /** 一个窗口: 结束 tick + 数值快照 (吸血/反伤百分比基点 + 反伤单次封顶)。 */
@@ -106,6 +107,14 @@ public final class TarotCombatState {
         java.util.Set<UUID> members;
     }
 
+    /** 力量逆位野性过载：持续时间内提供动态吸血与击退免疫，低血时增加吸血。 */
+    private static final class WildOverdrive {
+        long endTick;
+        double lifesteal;
+        double lowHealthThreshold;
+        double lowHealthBonusLifesteal;
+    }
+
     public record DamageShareSnapshot(double percent, java.util.Set<UUID> members) {
     }
 
@@ -117,6 +126,7 @@ public final class TarotCombatState {
     private static final Map<UUID, Immunity> IMMUNITIES = new ConcurrentHashMap<>();
     private static final Map<UUID, Map<Restriction, Long>> RESTRICTIONS = new ConcurrentHashMap<>();
     private static final Map<UUID, DamageShare> DAMAGE_SHARES = new ConcurrentHashMap<>();
+    private static final Map<UUID, WildOverdrive> WILD_OVERDRIVES = new ConcurrentHashMap<>();
 
     private TarotCombatState() {
     }
@@ -141,6 +151,22 @@ public final class TarotCombatState {
     /** 开一个无敌窗 (愚者闪耀): durationTicks 内对使用者伤害归零。 */
     public static void openInvulnerable(ServerPlayer player, int durationTicks) {
         putWindow(player, WindowKind.INVULNERABLE, durationTicks, 0.0D, 0.0D);
+    }
+
+    /** 女祭司正位预知：窗口内首次实际受击按 percent 减伤，触发后立即消费。 */
+    public static void openPremonition(ServerPlayer player, int durationTicks, double percent) {
+        putWindow(player, WindowKind.PREMONITION, durationTicks, percent, 0.0D);
+    }
+
+    /** 力量逆位野性过载：percent 均为 0-1。 */
+    public static void openWildOverdrive(ServerPlayer player, int durationTicks, double lifesteal,
+                                         double lowHealthThreshold, double lowHealthBonusLifesteal) {
+        WildOverdrive overdrive = new WildOverdrive();
+        overdrive.endTick = now(player) + durationTicks;
+        overdrive.lifesteal = lifesteal;
+        overdrive.lowHealthThreshold = lowHealthThreshold;
+        overdrive.lowHealthBonusLifesteal = lowHealthBonusLifesteal;
+        WILD_OVERDRIVES.put(player.getUUID(), overdrive);
     }
 
     /** 开一个复活契约 (死神逆位): durationTicks 内拦截 1 次致死, 复活回 reviveHealth 血 (一次性)。 */
@@ -262,6 +288,38 @@ public final class TarotCombatState {
     public static double lifestealPercent(UUID playerId, long now) {
         Window w = windowIfActive(playerId, WindowKind.LIFESTEAL, now);
         return w == null ? 0.0D : w.percent;
+    }
+
+    /** 消费一次女祭司预知首击减伤；无有效窗口返回 0。 */
+    public static double consumePremonitionReduction(UUID playerId, long now) {
+        Map<WindowKind, Window> windows = WINDOWS.get(playerId);
+        if (windows == null) {
+            return 0.0D;
+        }
+        Window premonition = windows.get(WindowKind.PREMONITION);
+        if (premonition == null || now >= premonition.endTick) {
+            return 0.0D;
+        }
+        windows.remove(WindowKind.PREMONITION);
+        if (windows.isEmpty()) {
+            WINDOWS.remove(playerId, windows);
+        }
+        return premonition.percent;
+    }
+
+    /** 野性过载当前吸血比例；生命比例低于阈值时叠加额外吸血。 */
+    public static double wildOverdriveLifestealPercent(UUID playerId, long now, double healthRatio) {
+        WildOverdrive overdrive = WILD_OVERDRIVES.get(playerId);
+        if (overdrive == null || now >= overdrive.endTick) {
+            return 0.0D;
+        }
+        return overdrive.lifesteal
+                + (healthRatio <= overdrive.lowHealthThreshold ? overdrive.lowHealthBonusLifesteal : 0.0D);
+    }
+
+    public static boolean hasWildOverdrive(UUID playerId, long now) {
+        WildOverdrive overdrive = WILD_OVERDRIVES.get(playerId);
+        return overdrive != null && now < overdrive.endTick;
     }
 
     private static Window windowIfActive(UUID playerId, WindowKind kind, long now) {
@@ -426,6 +484,7 @@ public final class TarotCombatState {
         LEDGERS.remove(playerId);
         IMMUNITIES.remove(playerId);
         RESTRICTIONS.remove(playerId);
+        WILD_OVERDRIVES.remove(playerId);
         clearDamageShare(playerId);
         clearBond(playerId);
     }
@@ -455,6 +514,7 @@ public final class TarotCombatState {
         RESTRICTIONS.values().forEach(m -> m.entrySet().removeIf(e -> now >= e.getValue()));
         RESTRICTIONS.entrySet().removeIf(e -> e.getValue().isEmpty());
         DAMAGE_SHARES.entrySet().removeIf(e -> now >= e.getValue().endTick);
+        WILD_OVERDRIVES.entrySet().removeIf(e -> now >= e.getValue().endTick);
         clearMobTargets(server, now);
         // 过期绑定双向解绑 (拷贝键集后再清, 避免遍历中改 map)。
         for (UUID id : java.util.List.copyOf(BONDS.keySet())) {
@@ -504,6 +564,16 @@ public final class TarotCombatState {
         w.percent = percent;
         w.perHitCap = perHitCap;
         WINDOWS.computeIfAbsent(playerId, k -> new EnumMap<>(WindowKind.class)).put(kind, w);
+    }
+
+    static void openWildOverdriveRaw(UUID playerId, long endTick, double lifesteal,
+                                     double lowHealthThreshold, double lowHealthBonusLifesteal) {
+        WildOverdrive overdrive = new WildOverdrive();
+        overdrive.endTick = endTick;
+        overdrive.lifesteal = lifesteal;
+        overdrive.lowHealthThreshold = lowHealthThreshold;
+        overdrive.lowHealthBonusLifesteal = lowHealthBonusLifesteal;
+        WILD_OVERDRIVES.put(playerId, overdrive);
     }
 
     static void openContractRaw(UUID playerId, long endTick, double reviveHealth) {

@@ -29,7 +29,7 @@ public final class JobServiceImpl implements IJobService {
     @Override
     public long totalXp(Player player, JobId job) {
         Optional<IMiningPlayerData> data = MiningCapabilities.get(player);
-        return data.map(d -> d.jobProgress(job).xp()).orElse(0L);
+        return data.map(d -> d.jobProgress(job).xp(job)).orElse(0L);
     }
 
     @Override
@@ -39,7 +39,7 @@ public final class JobServiceImpl implements IJobService {
         if (data.isEmpty()) {
             return 0L; // 未挂载能力 (极端时序/非玩家实体): 无处入账, 返回 0 让调用方短路。
         }
-        return data.get().jobProgress(job).grantXp(rawXp, currentUtcDayStamp());
+        return data.get().jobProgress(job).grantXp(job, rawXp, currentUtcDayStamp());
     }
 
     @Override

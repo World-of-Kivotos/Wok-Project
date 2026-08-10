@@ -487,6 +487,14 @@ public final class PlateArmorGameTests {
                 "existing nano repair plate repairs new plate armor");
         helper.assertTrue(NanoNbt.effects(armor).isEmpty(),
                 "new plate armor never receives old shield/totem/regen effects");
+
+        ItemStack fullPlateArmor = new ItemStack(ModEngineerItems.plateArmor(PlateArmorVariant.HEXGRID).get());
+        ItemStack radiantKit = new ItemStack(ModEngineerItems.plate(NanoTier.RADIANT).get());
+        NanoRepair.Result fullResult = NanoRepair.repair(fullPlateArmor, radiantKit, player,
+                new com.miningdim.job.engineer.testutil.FixedDoubleRandom(0.0D));
+        helper.assertTrue(!fullResult.success()
+                        && "message.miningdim.engineer.repair.already_full".equals(fullResult.failKey()),
+                "a radiant kit cannot be consumed on full plate armor because plate armor rejects legacy effects");
         helper.succeed();
     }
 

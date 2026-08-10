@@ -62,7 +62,9 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
     public static final int DATA_LOCKED = 4;
     public static final int DATA_MACHINE_TIER = 5;
     public static final int DATA_SELECTED_TIER = 6;
-    private static final int DATA_COUNT = 7;
+    public static final int DATA_ELAPSED_TICKS = 7;
+    public static final int DATA_REQUIRED_TICKS = 8;
+    private static final int DATA_COUNT = 9;
 
     /** ContainerData 槽数 (Menu 客户端侧建同尺寸 SimpleContainerData 用)。 */
     public static int DATA_COUNT() {
@@ -77,6 +79,9 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
     @Nullable
     private NanoTier selectedTier;
 
+    @Nullable
+    private UUID operatorUUID;
+
     private final NanoCalibration calibration = new NanoCalibration();
 
     private final ItemStackHandler inventory = new ItemStackHandler(SLOT_COUNT) {
@@ -87,6 +92,7 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
             if (slot == SLOT_INPUT && calibration.isActive()) {
                 calibration.reset();
                 selectedTier = null;
+                operatorUUID = null;
             }
         }
 
@@ -112,6 +118,8 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
                 case DATA_LOCKED -> locked ? 1 : 0;
                 case DATA_MACHINE_TIER -> machineTier().index();
                 case DATA_SELECTED_TIER -> selectedTier == null ? -1 : selectedTier.index();
+                case DATA_ELAPSED_TICKS -> calibration.elapsedTicks();
+                case DATA_REQUIRED_TICKS -> calibration.requiredTicks();
                 default -> 0;
             };
         }
@@ -181,6 +189,10 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
         return isOwner(player) || player.hasPermissions(2);
     }
 
+    public boolean canTakeOutput(ServerPlayer player) {
+        return isOwner(player) || player.hasPermissions(2);
+    }
+
     // ---- 选档 (服务端权威重校三道门; 4.1) ----
 
     /**
@@ -190,7 +202,7 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
      * @return 选档是否被接受
      */
     public boolean trySelectTier(NanoTier target, ServerPlayer player) {
-        if (!canAccess(player)) {
+        if (!canAccess(player) || !canTakeOutput(player)) {
             return false; // 锁定且非主人/OP: 拒绝。
         }
         // 门一: 矿石档。输入矿种允许的最高档 >= target。
@@ -216,8 +228,9 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
         }
 
         this.selectedTier = target;
+        this.operatorUUID = player.getUUID();
         if (level != null) {
-            calibration.begin(level.getRandom());
+            calibration.begin(level.getRandom(), machineTier().produceTicks());
         }
         setChanged();
         return true;
@@ -225,7 +238,8 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
 
     /** 处理一次校准点击 (Menu.clickMenuButton 委派; 服务端判窗口内才算命中)。完成则结算产物。 */
     public void onCalibrationClick(ServerPlayer player) {
-        if (selectedTier == null || !calibration.isActive() || !canAccess(player)) {
+        if (selectedTier == null || !calibration.isActive() || !canAccess(player)
+                || operatorUUID == null || !operatorUUID.equals(player.getUUID())) {
             return;
         }
         boolean done = calibration.onClick();
@@ -235,14 +249,19 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
         setChanged();
     }
 
-    /** 校准完成: 重校矿石足量后扣矿、产板 (盖生产者章)、退残骸, 重置 QTE。 */
+    /** 校准完成: 完整重校后扣矿、产板 (盖生产者章)、退下界合金碎片, 重置 QTE。 */
     private void finishProduction(ServerPlayer player) {
         NanoTier tier = selectedTier;
         ItemStack ore = inventory.getStackInSlot(SLOT_INPUT);
-        // 完成帧重校矿石足量 (中途换矿已被 onContentsChanged 中断, 此为双保险)。
-        if (tier == null || ore.getCount() < tier.oreCost()) {
-            calibration.reset();
-            selectedTier = null;
+        // 完成帧重新校验所有服务端门槛和锁/操作者状态。
+        if (tier == null || !canAccess(player) || !canTakeOutput(player)
+                || operatorUUID == null || !operatorUUID.equals(player.getUUID())
+                || !tier.allowedByOre(NanoTier.maxTierForOre(ore))
+                || !EngineerLevels.isTierUnlocked(EngineerLevels.engineerLevel(player), tier)
+                || tier.index() > machineTier().index()
+                || ore.getCount() < tier.oreCost()
+                || !inventory.getStackInSlot(SLOT_OUTPUT).isEmpty()) {
+            resetProduction();
             return;
         }
         // 本轮品质命中数: reset 前快照, 写入板供取出结算经验 + 修甲掷特效还原品质 (4.2/7.4 品质杠杆)。
@@ -252,15 +271,14 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
 
         // 先收尾本轮校准, 再改输入槽 —— 否则 setStackInSlot 触发的 onContentsChanged 会因 calibration 仍 active
         // 而再次 reset (无害但混淆); 先 reset 使 onContentsChanged 走 "已结束" 短路。
-        calibration.reset();
-        selectedTier = null;
+        resetProduction();
 
         ore.shrink(result.oreConsumed());
         inventory.setStackInSlot(SLOT_INPUT, ore.isEmpty() ? ItemStack.EMPTY : ore);
 
-        // 闪耀失败残骸返还: 优先退到输入槽 (空槽新建 / 同为下界合金锭则叠加); 槽被异物占用的时序边界改掉落不静默吞。
-        if (result.debrisRefund() > 0) {
-            refundDebris(result.debrisRefund());
+        // 闪耀失败碎片返还: 优先退到输入槽 (空槽新建 / 同为下界合金碎片则叠加); 槽被异物占用时改为掉落。
+        if (result.scrapRefund() > 0) {
+            refundScrap(result.scrapRefund());
         }
         if (result.platesProduced() > 0) {
             ItemStack plates = NanoProduction.makePlate(tier, result.platesProduced(), player.getUUID(), qualityHits);
@@ -268,28 +286,34 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
         }
     }
 
-    private void refundDebris(int amount) {
+    private void refundScrap(int amount) {
         ItemStack input = inventory.getStackInSlot(SLOT_INPUT);
         if (input.isEmpty()) {
-            inventory.setStackInSlot(SLOT_INPUT, new ItemStack(Items.NETHERITE_INGOT, amount));
+            inventory.setStackInSlot(SLOT_INPUT, NanoProduction.makeRadiantFailureRefund(amount));
             return;
         }
-        if (input.is(Items.NETHERITE_INGOT)) {
+        if (input.is(Items.NETHERITE_SCRAP)) {
             input.grow(amount);
             inventory.setStackInSlot(SLOT_INPUT, input);
             return;
         }
         // 输入槽被别的物占用 (选档门已确保闪耀必为下界合金锭, 此为完成帧与输入变动间的时序边界): 不静默吞下界
-        // 合金残骸, 改为掉落到方块上方, 让玩家可拾回 (下界合金高代价, 宁可显形也不丢失)。
+        // 合金碎片, 改为掉落到方块上方, 让玩家可拾回 (下界合金高代价, 宁可显形也不丢失)。
         if (level != null && !level.isClientSide) {
             net.minecraft.world.entity.item.ItemEntity drop = new net.minecraft.world.entity.item.ItemEntity(
                     level,
                     worldPosition.getX() + 0.5,
                     worldPosition.getY() + 1.0,
                     worldPosition.getZ() + 0.5,
-                    new ItemStack(Items.NETHERITE_INGOT, amount));
+                    NanoProduction.makeRadiantFailureRefund(amount));
             level.addFreshEntity(drop);
         }
+    }
+
+    private void resetProduction() {
+        calibration.reset();
+        selectedTier = null;
+        operatorUUID = null;
     }
 
     /**
@@ -306,7 +330,7 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
      * @param takenCount    本次实际取走的板数 (>0 才结算)
      */
     public void onOutputTaken(ServerPlayer player, ItemStack boardSnapshot, int takenCount) {
-        if (takenCount <= 0) {
+        if (!canTakeOutput(player) || takenCount <= 0) {
             return; // 本次未取走任何板 (残留判据改用真实取走量, 不信传入栈的 count)。
         }
         if (!NanoNbt.isProductionXpPending(boardSnapshot)) {
@@ -374,6 +398,7 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
     private static final String K_INV = "Inv";
     private static final String K_SELECTED = "SelectedTier";
     private static final String K_CALIBRATION = "Calibration";
+    private static final String K_OPERATOR = "Operator";
 
     @Override
     protected void saveAdditional(CompoundTag tag) {
@@ -385,6 +410,9 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
         tag.put(K_INV, inventory.serializeNBT());
         tag.putInt(K_SELECTED, selectedTier == null ? -1 : selectedTier.index());
         tag.put(K_CALIBRATION, calibration.serializeNBT());
+        if (operatorUUID != null) {
+            tag.putUUID(K_OPERATOR, operatorUUID);
+        }
     }
 
     @Override
@@ -400,5 +428,6 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
         if (tag.contains(K_CALIBRATION)) {
             calibration.deserializeNBT(tag.getCompound(K_CALIBRATION));
         }
+        operatorUUID = tag.hasUUID(K_OPERATOR) ? tag.getUUID(K_OPERATOR) : null;
     }
 }

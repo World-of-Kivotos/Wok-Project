@@ -57,7 +57,7 @@ public final class JobData {
         for (JobId job : JobId.values()) {
             if (tag.contains(job.id())) {
                 JobProgress jp = new JobProgress();
-                jp.deserializeNBT(tag.getCompound(job.id()));
+                jp.deserializeNBT(tag.getCompound(job.id()), job);
                 progress.put(job, jp);
             }
         }

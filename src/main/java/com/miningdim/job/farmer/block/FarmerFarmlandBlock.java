@@ -3,6 +3,7 @@ package com.miningdim.job.farmer.block;
 import com.miningdim.job.farmer.FarmerTier;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block;
@@ -12,6 +13,7 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraftforge.common.IPlantable;
 import net.minecraftforge.common.PlantType;
+import net.minecraftforge.registries.ForgeRegistries;
 
 /**
  * mod 耕地方块, 五档各一个实例 (低/中/高/极品/超凡), 档位在构造时绑定 (FarmingXP_Mod_DesignSpec 表B)。
@@ -31,6 +33,8 @@ import net.minecraftforge.common.PlantType;
 public final class FarmerFarmlandBlock extends Block {
 
     private static final VoxelShape SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 15.0D, 16.0D);
+    private static final ResourceLocation FARMERS_DELIGHT_RICE =
+            new ResourceLocation("farmersdelight", "rice");
 
     private final FarmerTier tier;
 
@@ -50,7 +54,14 @@ public final class FarmerFarmlandBlock extends Block {
     @Override
     public boolean canSustainPlant(BlockState state, BlockGetter level, BlockPos pos,
                                    Direction facing, IPlantable plantable) {
-        return facing == Direction.UP && plantable.getPlantType(level, pos.above()) == PlantType.CROP;
+        if (facing != Direction.UP) {
+            return false;
+        }
+        if (plantable.getPlantType(level, pos.above()) == PlantType.CROP) {
+            return true;
+        }
+        return plantable instanceof Block plantBlock
+                && FARMERS_DELIGHT_RICE.equals(ForgeRegistries.BLOCKS.getKey(plantBlock));
     }
 
     @Override

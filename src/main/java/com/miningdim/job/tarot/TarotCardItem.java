@@ -1,6 +1,7 @@
 package com.miningdim.job.tarot;
 
 import com.miningdim.job.tarot.card.TarotCardData;
+import com.miningdim.job.tarot.client.TarotCardClient;
 import net.minecraft.ChatFormatting;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -18,10 +19,12 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.inventory.tooltip.TooltipComponent;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.client.extensions.common.IClientItemExtensions;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * 单一塔罗卡牌 Item (TarotReader spec 第三章: 不做 220 个独立 Item)。NBT 三键 + 绑定:
@@ -45,6 +48,11 @@ public final class TarotCardItem extends Item {
 
     public TarotCardItem(Properties properties) {
         super(properties.stacksTo(1));
+    }
+
+    @Override
+    public void initializeClient(Consumer<IClientItemExtensions> consumer) {
+        consumer.accept(TarotCardClient.extension());
     }
 
     /** 构造一张盖好三键 + ownerUUID 的牌 (开包/合成产出唯一入口; spec 第七/八/十章)。 */

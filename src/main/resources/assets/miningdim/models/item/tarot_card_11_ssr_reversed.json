@@ -1,5 +1,5 @@
 {
-  "parent": "minecraft:item/generated",
+  "parent": "miningdim:item/tarot_card_thin",
   "render_type": "forge:item_unlit",
   "textures": {
     "layer0": "miningdim:item/tarot/11_reversed",

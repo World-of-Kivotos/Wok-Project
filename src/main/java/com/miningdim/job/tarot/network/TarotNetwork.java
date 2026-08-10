@@ -31,6 +31,9 @@ public final class TarotNetwork {
         CHANNEL.registerMessage(nextId++, TarotCastVisualS2C.class,
                 TarotCastVisualS2C::encode, TarotCastVisualS2C::decode, TarotCastVisualS2C::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(nextId++, TarotPackRevealS2C.class,
+                TarotPackRevealS2C::encode, TarotPackRevealS2C::decode, TarotPackRevealS2C::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 
     /** 向施法者周围 64 格玩家同步一次演出起点; 后续逐帧粒子全部由各客户端本地生成。 */
@@ -40,6 +43,13 @@ public final class TarotNetwork {
                     && viewer.connection != null && viewer.connection.isAcceptingMessages()) {
                 CHANNEL.send(PacketDistributor.PLAYER.with(() -> viewer), message);
             }
+        }
+    }
+
+    /** Sends a private pack-opening presentation to the player who owns the result. */
+    public static void sendPackReveal(ServerPlayer player, TarotPackRevealS2C message) {
+        if (player.connection != null && player.connection.isAcceptingMessages()) {
+            CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), message);
         }
     }
 }

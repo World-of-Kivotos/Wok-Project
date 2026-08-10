@@ -36,6 +36,12 @@ public enum TarotEffectKind {
     SELF_BLINK("self_blink"),
     /** 战车: 沿视线冲锋 distance 格并把沿途敌人按 force 击退。 */
     SELF_DASH("self_dash"),
+    /** 女祭司: 预知扫描敌人、显示生命；正位额外提供一次首击减伤，逆位改为向目标施加易伤。 */
+    SELF_PREMONITION_SCAN("self_premonition_scan"),
+    /** 战车逆位: 强制向前失控冲锋，沿途伤敌并击退；撞墙时承受真实自伤。 */
+    SELF_UNCONTROLLED_DASH("self_uncontrolled_dash"),
+    /** 力量逆位: 野性过载，获得动态力量、吸血与击退免疫，低生命时收益进一步提高。 */
+    SELF_WILD_OVERDRIVE("self_wild_overdrive"),
     /** 命运之轮正位: 从定稿增益池随机一项, chance 决定强档。 */
     SELF_RANDOM_BUFF("self_random_buff"),
     /** 命运之轮逆位: chance 概率治疗, 否则真实自伤。 */

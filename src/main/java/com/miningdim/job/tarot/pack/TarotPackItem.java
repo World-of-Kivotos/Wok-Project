@@ -1,8 +1,11 @@
 package com.miningdim.job.tarot.pack;
 
 import com.miningdim.job.tarot.TarotConfig;
+import com.miningdim.job.tarot.TarotCardItem;
 import com.miningdim.job.tarot.TarotRegistry;
 import com.miningdim.job.tarot.TarotRuntime;
+import com.miningdim.job.tarot.network.TarotNetwork;
+import com.miningdim.job.tarot.network.TarotPackRevealS2C;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -16,6 +19,8 @@ import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.network.NetworkHooks;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /** A purchased or dropped pack. Currency is charged when the pack is acquired, never when it is opened. */
@@ -77,16 +82,21 @@ public final class TarotPackItem extends Item {
                 ? openCommon(serverPlayer)
                 : openAdvancedChain(serverPlayer);
         stack.shrink(1);
+        TarotNetwork.sendPackReveal(serverPlayer, new TarotPackRevealS2C(
+                kind, summary.visualCards, summary.totalCards,
+                summary.shards, summary.derived));
         serverPlayer.displayClientMessage(Component.translatable(
                 "message.miningdim.tarot.pack.opened",
-                summary.cards, summary.shards, summary.derived), true);
+                summary.totalCards, summary.shards, summary.derived), true);
         return InteractionResultHolder.consume(stack);
     }
 
     private static OpenSummary openCommon(ServerPlayer player) {
         PackGachaService.OpenResult result = TarotRuntime.gacha().openCommon(player, player.getRandom());
         giveResult(player, result);
-        return new OpenSummary(result.cards().size(), result.shardRefund(), 0);
+        List<TarotPackRevealS2C.RevealedCard> visualCards = new ArrayList<>();
+        appendVisualCards(visualCards, result.cards());
+        return new OpenSummary(visualCards, result.cards().size(), result.shardRefund(), 0);
     }
 
     /** Opens every generated advanced pack until the geometric chain ends or the daily safety cap is reached. */
@@ -95,7 +105,9 @@ public final class TarotPackItem extends Item {
         PackGachaService.OpenResult root = gacha.openAdvanced(player, player.getRandom());
         giveResult(player, root);
 
-        int cards = root.cards().size();
+        List<TarotPackRevealS2C.RevealedCard> visualCards = new ArrayList<>();
+        appendVisualCards(visualCards, root.cards());
+        int totalCards = root.cards().size();
         int shards = root.shardRefund();
         int derivedOpened = 0;
         ArrayDeque<Integer> pending = new ArrayDeque<>();
@@ -115,7 +127,8 @@ public final class TarotPackItem extends Item {
             }
             PackGachaService.OpenResult derived = gacha.openAdvanced(player, player.getRandom());
             giveResult(player, derived);
-            cards += derived.cards().size();
+            appendVisualCards(visualCards, derived.cards());
+            totalCards += derived.cards().size();
             shards += derived.shardRefund();
             derivedOpened++;
             for (int i = 0; i < derived.derivedPacks(); i++) {
@@ -126,7 +139,20 @@ public final class TarotPackItem extends Item {
             player.displayClientMessage(
                     Component.translatable("message.miningdim.tarot.pack.derived_limit"), true);
         }
-        return new OpenSummary(cards, shards, derivedOpened);
+        return new OpenSummary(visualCards, totalCards, shards, derivedOpened);
+    }
+
+    private static void appendVisualCards(List<TarotPackRevealS2C.RevealedCard> target,
+                                          List<ItemStack> cards) {
+        for (ItemStack card : cards) {
+            if (target.size() >= TarotPackRevealS2C.MAX_VISUAL_CARDS) {
+                return;
+            }
+            target.add(new TarotPackRevealS2C.RevealedCard(
+                    TarotCardItem.cardId(card),
+                    TarotCardItem.quality(card),
+                    TarotCardItem.upright(card)));
+        }
     }
 
     private static void giveResult(ServerPlayer player, PackGachaService.OpenResult result) {
@@ -179,6 +205,7 @@ public final class TarotPackItem extends Item {
         return owner.equals(player.getUUID());
     }
 
-    private record OpenSummary(int cards, int shards, int derived) {
+    private record OpenSummary(List<TarotPackRevealS2C.RevealedCard> visualCards,
+                               int totalCards, int shards, int derived) {
     }
 }

@@ -14,7 +14,6 @@ import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
-import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
@@ -127,10 +126,17 @@ public final class ClientTarotVisuals {
                     TarotSounds.CAST_START.get(), SoundSource.PLAYERS, 0.85F, 1.0F, false);
             return;
         }
-        if (cast.age() == RESOLVE_TICKS) {
-            float pitch = 0.88F + cast.quality().ordinal() * 0.055F;
+        if (cast.age() == ORBIT_TICKS) {
             level.playLocalSound(caster.getX(), caster.getY() + caster.getBbHeight() + 0.8D, caster.getZ(),
-                    SoundEvents.AMETHYST_BLOCK_CHIME, SoundSource.PLAYERS, 0.9F, pitch, false);
+                    TarotSounds.castReveal(cast.quality()), SoundSource.PLAYERS, 0.9F, 1.0F, false);
+            return;
+        }
+        if (cast.age() == RESOLVE_TICKS) {
+            level.playLocalSound(caster.getX(), caster.getY() + caster.getBbHeight() + 0.8D, caster.getZ(),
+                    (cast.upright()
+                            ? TarotSounds.CAST_RESOLVE_UPRIGHT
+                            : TarotSounds.CAST_RESOLVE_REVERSED).get(),
+                    SoundSource.PLAYERS, 0.92F, 1.0F, false);
         }
     }
 

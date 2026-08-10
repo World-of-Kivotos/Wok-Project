@@ -1,5 +1,5 @@
 {
-  "parent": "minecraft:item/generated",
+  "parent": "miningdim:item/tarot_card_thin",
   "textures": {
     "layer0": "miningdim:item/tarot/border_ur"
   }

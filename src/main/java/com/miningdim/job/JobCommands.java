@@ -66,7 +66,7 @@ public final class JobCommands {
             JobProgress p = data.jobProgress(job);
             ctx.getSource().sendSuccess(() -> Component.translatable(
                     "message.miningdim.job.list_line",
-                    job.displayName(), p.level(), p.xp(), p.dailyRemaining()), false);
+                    job.displayName(), p.level(), p.xp(job), p.dailyRemaining(job)), false);
         }
         return JobId.values().length;
     }
@@ -87,9 +87,9 @@ public final class JobCommands {
         JobProgress shown = p;
         ctx.getSource().sendSuccess(() -> Component.translatable(
                 "message.miningdim.job.info_line",
-                job.displayName(), shown.level(), shown.xp(),
+                job.displayName(), shown.level(), shown.xp(job),
                 JobXpCurve.cumulativeXpForLevel(Math.min(shown.level() + 1, JobXpCurve.MAX_LEVEL)),
-                shown.dailyXp()), false);
+                shown.dailyXp(job)), false);
         return 1;
     }
 

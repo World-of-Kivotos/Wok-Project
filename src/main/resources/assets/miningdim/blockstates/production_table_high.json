@@ -1,5 +1,8 @@
 {
   "variants": {
-    "": { "model": "miningdim:block/production_table_high" }
+    "facing=north": { "model": "miningdim:block/production_table_high" },
+    "facing=east": { "model": "miningdim:block/production_table_high", "y": 90, "uvlock": true },
+    "facing=south": { "model": "miningdim:block/production_table_high", "y": 180, "uvlock": true },
+    "facing=west": { "model": "miningdim:block/production_table_high", "y": 270, "uvlock": true }
   }
 }

@@ -55,6 +55,14 @@ public final class TarotEffectTooltipFormatter {
             case SELF_CLEANSE_MAX_HEALTH -> tr(op, amount, cap, seconds);
             case SELF_BLINK -> tr(op, amount);
             case SELF_DASH -> tr(op, amount, radius, cap);
+            case SELF_PREMONITION_SCAN -> op.amplifier() < 0
+                    ? Component.translatable("tooltip.miningdim.tarot.effect.op.self_premonition_scan.guard",
+                    radius, seconds, percent)
+                    : Component.translatable("tooltip.miningdim.tarot.effect.op.self_premonition_scan.forbidden",
+                    radius, seconds, op.amplifier() + 1);
+            case SELF_UNCONTROLLED_DASH -> tr(op, amount, number(op.threshold()), cap, number(op.floorDown()));
+            case SELF_WILD_OVERDRIVE -> tr(op, seconds, op.amplifier() + 1, percent,
+                    percent(op.threshold()), op.count(), percent(op.amount()));
             case SELF_RANDOM_BUFF -> tr(op, seconds, chance, amount, cap);
             case SELF_FORTUNE_GAMBLE -> tr(op, chance, amount, number(op.threshold()));
             case SELF_REFRESH_BENEFICIAL, SELF_HEALING_BLOCK, SELF_HERMIT_SHINY,

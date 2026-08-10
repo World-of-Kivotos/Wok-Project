@@ -125,6 +125,29 @@ public record TarotEffectOp(
                 radius = GsonHelper.getAsDouble(obj, "radius");
                 capUp = GsonHelper.getAsDouble(obj, "force");
                 break;
+            case SELF_PREMONITION_SCAN:
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                percent = GsonHelper.getAsDouble(obj, "firstHitReduction");
+                amplifier = GsonHelper.getAsInt(obj, "vulnerabilityAmplifier");
+                break;
+            case SELF_UNCONTROLLED_DASH:
+                // 复用通用字段承载专用参数：amount=距离、capUp=击退、threshold=路径伤害、floorDown=撞墙自伤。
+                amount = GsonHelper.getAsDouble(obj, "distance");
+                radius = GsonHelper.getAsDouble(obj, "radius");
+                capUp = GsonHelper.getAsDouble(obj, "force");
+                threshold = GsonHelper.getAsDouble(obj, "damage");
+                floorDown = GsonHelper.getAsDouble(obj, "collisionSelfDamage");
+                break;
+            case SELF_WILD_OVERDRIVE:
+                // percent=基础吸血、amount=低血额外吸血、threshold=低血阈值、count=低血额外力量等级。
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                amplifier = GsonHelper.getAsInt(obj, "strengthAmplifier");
+                percent = GsonHelper.getAsDouble(obj, "lifesteal");
+                threshold = GsonHelper.getAsDouble(obj, "lowHealthThreshold");
+                amount = GsonHelper.getAsDouble(obj, "lowHealthBonusLifesteal");
+                count = GsonHelper.getAsInt(obj, "lowHealthStrengthBonus");
+                break;
             case SELF_RANDOM_BUFF:
                 durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
                 chance = GsonHelper.getAsDouble(obj, "strongChance");

@@ -1,8 +1,11 @@
 package com.miningdim.job.tarot.pack;
 
 import com.miningdim.job.tarot.TarotArcana;
+import com.miningdim.job.tarot.TarotCardItem;
 import com.miningdim.job.tarot.TarotRegistry;
 import com.miningdim.job.tarot.TarotRuntime;
+import com.miningdim.job.tarot.network.TarotNetwork;
+import com.miningdim.job.tarot.network.TarotPackRevealS2C;
 import com.miningdim.menu.AbstractMiningMenu;
 import com.miningdim.menu.MenuValidity;
 import net.minecraft.network.FriendlyByteBuf;
@@ -60,6 +63,13 @@ public final class ShinyPackSelectMenu extends AbstractMiningMenu {
         ItemHandlerHelper.giveItemToPlayer(serverPlayer, card);
         consumed = true;
         serverPlayer.closeContainer();
+        TarotNetwork.sendPackReveal(serverPlayer, new TarotPackRevealS2C(
+                PackKind.SHINY,
+                java.util.List.of(new TarotPackRevealS2C.RevealedCard(
+                        TarotCardItem.cardId(card),
+                        TarotCardItem.quality(card),
+                        TarotCardItem.upright(card))),
+                1, 0, 0));
         return true;
     }
 

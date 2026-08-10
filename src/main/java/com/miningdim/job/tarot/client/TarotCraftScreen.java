@@ -24,6 +24,8 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
             new ResourceLocation(MiningConstants.MODID, "textures/gui/container/tarot_craft.png");
     private static final ResourceLocation GLYPHS =
             new ResourceLocation(MiningConstants.MODID, "textures/gui/container/tarot_craft_glyphs.png");
+    private static final ResourceLocation CARD_BACK =
+            new ResourceLocation(MiningConstants.MODID, "textures/gui/tarot/cards/card_back.png");
 
     private static final int W = 218;
     private static final int H = 222;
@@ -142,7 +144,7 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
                     ^ ((long) this.menu.containerId << 32)
                     ^ Integer.toUnsignedLong(sequence);
             revealSoundPlayed = false;
-            playUiSound(TarotSounds.CAST_START.get());
+            playUiSound(TarotSounds.CRAFT_CHARGE.get());
         });
     }
 
@@ -180,7 +182,14 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
                 && (activeResultEffect == TarotCraftService.Result.SUCCESS
                 || activeResultEffect == TarotCraftService.Result.REVERSE)) {
             float scale = (0.45F + 0.55F * easeOutBack(enter)) * pulse;
-            renderRevealedCard(graphics, centerX, centerY, scale, alpha, activeRevealCard);
+            float turn = smoothstep(0.0F, 14.0F, revealAge);
+            float faceWidth = Math.max(0.04F, Math.abs(Mth.cos(turn * Mth.PI)));
+            if (turn < 0.5F) {
+                renderCardBack(graphics, centerX, centerY, scale, faceWidth);
+            } else {
+                renderRevealedCard(graphics, centerX, centerY, scale, alpha,
+                        faceWidth, activeRevealCard);
+            }
             if (isGreatSuccess()) {
                 graphics.drawCenteredString(this.font,
                         Component.translatable("gui.miningdim.tarot.craft.great_success"),
@@ -208,7 +217,8 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
     }
 
     private void renderRevealedCard(GuiGraphics graphics, int centerX, int centerY,
-                                    float scale, float alpha, TarotCraftMenu.RevealCard card) {
+                                    float scale, float alpha, float horizontalScale,
+                                    TarotCraftMenu.RevealCard card) {
         String id = card.cardId() < 10 ? "0" + card.cardId() : Integer.toString(card.cardId());
         ResourceLocation texture = new ResourceLocation(MiningConstants.MODID,
                 "textures/gui/tarot/cards/" + id + ".png");
@@ -216,7 +226,7 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
 
         graphics.pose().pushPose();
         graphics.pose().translate(centerX, centerY, 1.0F);
-        graphics.pose().scale(scale, scale, 1.0F);
+        graphics.pose().scale(scale * horizontalScale, scale, 1.0F);
         graphics.fill(-CARD_WIDTH / 2 - 3, -CARD_HEIGHT / 2 - 3,
                 CARD_WIDTH / 2 + 3, CARD_HEIGHT / 2 + 3, withAlpha(0xFF071124, alpha));
         graphics.fill(-CARD_WIDTH / 2 - 2, -CARD_HEIGHT / 2 - 2,
@@ -225,6 +235,18 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
             graphics.pose().mulPose(Axis.ZP.rotationDegrees(180.0F));
         }
         graphics.blit(texture, -CARD_WIDTH / 2, -CARD_HEIGHT / 2,
+                CARD_WIDTH, CARD_HEIGHT, 0.0F, 0.0F,
+                CARD_TEXTURE_WIDTH, CARD_TEXTURE_HEIGHT,
+                CARD_TEXTURE_WIDTH, CARD_TEXTURE_HEIGHT);
+        graphics.pose().popPose();
+    }
+
+    private void renderCardBack(GuiGraphics graphics, int centerX, int centerY,
+                                float scale, float horizontalScale) {
+        graphics.pose().pushPose();
+        graphics.pose().translate(centerX, centerY, 1.0F);
+        graphics.pose().scale(scale * horizontalScale, scale, 1.0F);
+        graphics.blit(CARD_BACK, -CARD_WIDTH / 2, -CARD_HEIGHT / 2,
                 CARD_WIDTH, CARD_HEIGHT, 0.0F, 0.0F,
                 CARD_TEXTURE_WIDTH, CARD_TEXTURE_HEIGHT,
                 CARD_TEXTURE_WIDTH, CARD_TEXTURE_HEIGHT);
@@ -350,11 +372,11 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
 
     private static int qualityColor(TarotQuality quality) {
         return switch (quality) {
-            case R -> 0xFFE0E8F0;
-            case SR -> 0xFF4CE2FF;
-            case SSR -> 0xFFCB6EFF;
-            case UR -> 0xFFFFAE34;
-            case SHINY -> 0xFFFFF484;
+            case R -> 0xFFF0F7FF;
+            case SR -> 0xFF347EFF;
+            case SSR -> 0xFFA64FFF;
+            case UR -> 0xFFFF69B8;
+            case SHINY -> 0xFFFF313E;
         };
     }
 

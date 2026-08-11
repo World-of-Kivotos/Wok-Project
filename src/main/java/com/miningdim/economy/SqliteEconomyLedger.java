@@ -11,6 +11,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * {@link EconomyLedger} 的 SQLite 实现, 建在全服唯一连接上。
@@ -49,6 +50,11 @@ public final class SqliteEconomyLedger implements EconomyLedger {
         Connection conn = MiningDb.openInMemory();
         MiningSchema.apply(conn);
         return new SqliteEconomyLedger(conn);
+    }
+
+    @Override
+    public <T> T inTransaction(Supplier<T> body) {
+        return StoreTx.call(conn, body);
     }
 
     // ---- 余额 ----

@@ -1,6 +1,7 @@
 package com.miningdim.economy;
 
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * 全服双货币账本的持久化契约。
@@ -15,6 +16,17 @@ import java.util.UUID;
  * 线程: 仅服务端主线程调用。
  */
 public interface EconomyLedger {
+
+    /**
+     * 把 body 内的全部账本写入合并进单个事务并返回其结果; 已在事务中则并入外层, 提交权仍归最外层。
+     *
+     * 两个用途, 缺一不可:
+     * 1) 正确性 —— 一次 faucet 入账要改三样东西 (当日原始累计、小数余量、余额), 三者分别提交时崩在中间
+     *    会出现"衰减档位推进了钱却没发"; 合并后它们同生共死。
+     * 2) 写放大 —— 连锁挖矿一次结算数十个产出物, 每个都改同一行钱包。逐笔提交会把同一页反复追加进 WAL,
+     *    合并后只追加一次。
+     */
+    <T> T inTransaction(Supplier<T> body);
 
     /** 某玩家某货币余额; 无记录返 0。 */
     long balance(UUID playerId, Currency currency);

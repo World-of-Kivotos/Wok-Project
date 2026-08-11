@@ -590,6 +590,82 @@ public final class EconomyGameTests {
     }
 
     // ============================================================
+    // faucet 入账的事务边界 (三步同生共死 + 连锁批量与逐笔等价)
+    // ============================================================
+
+    /**
+     * 入账落账失败时, 当日原始累计必须一并回滚。
+     *
+     * 这三步 (推进原始累计 -> 推进小数余量 -> 落账) 若各自提交, 落账失败就会留下"衰减档位已经推进、钱却
+     * 没发"的玩家: 他当天余下的 faucet 全部按更深的档位打折, 而且没有任何记录能说明少了多少。
+     * 这里用余额已达 Long.MAX_VALUE 触发真实的入账溢出, 不靠任何桩。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void faucetGrantRollsBackCounterWhenCreditFails(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+        UUID id = player.getUUID();
+        String faucet = EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY;
+        long tier = EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER;
+        long today = new AbuseGuard().currentPlayerDayStamp();
+
+        ledger.credit(id, Currency.CREDIT, Long.MAX_VALUE);
+
+        boolean overflow = false;
+        try {
+            eco.grantDaily(player, 100L, faucet, tier);
+        } catch (EconomyException e) {
+            overflow = e.reason() == EconomyException.Reason.BALANCE_OVERFLOW;
+        }
+        helper.assertTrue(overflow, "余额已满时 faucet 入账必须抛 BALANCE_OVERFLOW");
+        helper.assertTrue(ledger.balance(id, Currency.CREDIT) == Long.MAX_VALUE,
+                "失败的入账不得改动余额");
+        // 计数器若已推进, 这里返回的就是 100 而不是 0 —— 那正是"档位白涨"的形态。
+        helper.assertTrue(ledger.recordFaucetGrant(id, faucet, 1L, today) == 0L,
+                "落账失败必须连同当日原始累计一起回滚, 当日累计仍应是 0");
+        helper.succeed();
+    }
+
+    /**
+     * 连锁批量结算与逐块结算必须得出完全相同的余额与计数。
+     * 合并事务是为了少写 WAL 与保证这一批的原子性, 绝不允许顺带改变业务结果。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void batchedChainSettlementMatchesPerDropSettlement(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        UUID id = player.getUUID();
+        int drops = 5;
+
+        Map<UUID, PlayerAbuseState> batchStates = new HashMap<>();
+        batchStates.put(id, new PlayerAbuseState());
+        EconomyLedger batched = SqliteEconomyLedger.openInMemory();
+        EconomyService batchedEco = new EconomyService(batched, new AbuseGuard(), batchStates::get);
+        int counted = batchedEco.recordMinedOreDrops(player, Blocks.DIAMOND_ORE, drops);
+        helper.assertTrue(counted == drops, "5 个钻石产出物应计入当日 5 个, 实为 " + counted);
+
+        EconomyLedger perDrop = SqliteEconomyLedger.openInMemory();
+        EconomyService perDropEco = new EconomyService(perDrop, new AbuseGuard(), newStateResolver());
+        for (int n = 1; n <= drops; n++) {
+            perDropEco.settleOreSale(player, HighValueOre.DIAMOND, n, ShopPriceTable.ORE_BASE_DIAMOND);
+        }
+
+        long batchedBalance = batched.balance(id, Currency.CREDIT);
+        helper.assertTrue(batchedBalance > 0L, "批量结算必须真的入账 (否则本用例退化成两边都是 0 的空断言)");
+        helper.assertTrue(batchedBalance == perDrop.balance(id, Currency.CREDIT),
+                "批量与逐笔结算的余额必须完全相同: 批量 " + batchedBalance
+                        + ", 逐笔 " + perDrop.balance(id, Currency.CREDIT));
+
+        String faucet = EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY;
+        long today = new AbuseGuard().currentPlayerDayStamp();
+        long batchedRaw = batched.recordFaucetGrant(id, faucet, 1L, today);
+        long perDropRaw = perDrop.recordFaucetGrant(id, faucet, 1L, today);
+        helper.assertTrue(batchedRaw == perDropRaw && batchedRaw > 0L,
+                "批量与逐笔推进的当日原始累计必须完全相同: 批量 " + batchedRaw + ", 逐笔 " + perDropRaw);
+        helper.succeed();
+    }
+
+    // ============================================================
     // 旧存档 SavedData 一次性迁入 SQLite
     // ============================================================
 

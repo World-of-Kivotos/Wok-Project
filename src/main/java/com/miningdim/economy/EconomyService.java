@@ -140,9 +140,15 @@ public final class EconomyService implements IEconomyService {
             HighValueOre ore = abuseGuard.classify(block);
             double basePrice = ShopPriceTable.oreBasePrice(ore);
             int firstCount = total - producedCount + 1;
-            for (int n = firstCount; n <= total; n++) {
-                settleOreSale(player, ore, n, basePrice);
-            }
+            // 一次挖掘事件的全部产出物结算合并成单个事务: 连锁一次可达数十个产出物, 每个都改同一行钱包与
+            // 同一条 faucet 计数, 逐笔提交会把同一页反复追加进 WAL; 合并后既只追加一次, 也让这一批结算
+            // 要么整体生效要么整体不生效, 不会出现"发了一半"的挖掘。
+            ledger.inTransaction(() -> {
+                for (int n = firstCount; n <= total; n++) {
+                    settleOreSale(player, ore, n, basePrice);
+                }
+                return null;
+            });
         }
         return total;
     }
@@ -157,19 +163,23 @@ public final class EconomyService implements IEconomyService {
             throw new EconomyException(EconomyException.Reason.ILLEGAL_AMOUNT,
                     "grantDaily dailyCap must be > 0, got " + dailyCap);
         }
-        // 取本次入账前当日累计原始信用点 n0 (并把本次 rawCredit 累加进 faucet 计数器, UTC 翻日清零)。
         long today = abuseGuard.currentPlayerDayStamp();
-        long before = ledger.recordFaucetGrant(player.getUUID(), faucetKey, rawCredit, today);
-        // 按全服每人每日统一衰减主闸逐档积分算精确实发额 (第十一章决策 2: 0.6 衰减 / 60000 档 / 1% 地板; 几何主项前 10 档
-        // ≈ 14.9 万为正常落点, 深档 1% 地板留极薄线性尾巴, 不收敛、靠巡查兜底)。
-        // 取精确 double 而非 floor 版: 把小数交账本 carry 跨笔累进 (creditFaucetWithCarry), 修复深档小额逐笔 floor 归零。
-        double exact = abuseGuard.faucetCreditAfterDecayExact(before, rawCredit, dailyCap);
-        long effective = ledger.creditFaucetWithCarry(player.getUUID(), faucetKey, exact, today);
-        if (effective > 0L) {
-            // faucet 是最大货币注入口, grant 内部 Math.addExact 防溢出击穿 M0 (经济文档 7.3)。
-            ledger.credit(player.getUUID(), Currency.CREDIT, effective);
-        }
-        return effective;
+        // 三步必须同生共死: 推进当日原始累计 (决定衰减档位)、推进小数余量、落账。分别提交时崩在中间会留下
+        // "档位推进了、钱没发"的玩家 —— 那是不可自愈的额度损失, 且没有任何记录能说明少了多少。
+        return ledger.inTransaction(() -> {
+            // 取本次入账前当日累计原始信用点 n0 (并把本次 rawCredit 累加进 faucet 计数器, UTC 翻日清零)。
+            long before = ledger.recordFaucetGrant(player.getUUID(), faucetKey, rawCredit, today);
+            // 按全服每人每日统一衰减主闸逐档积分算精确实发额 (第十一章决策 2: 0.6 衰减 / 60000 档 / 1% 地板; 几何主项前 10 档
+            // ≈ 14.9 万为正常落点, 深档 1% 地板留极薄线性尾巴, 不收敛、靠巡查兜底)。
+            // 取精确 double 而非 floor 版: 把小数交账本 carry 跨笔累进 (creditFaucetWithCarry), 修复深档小额逐笔 floor 归零。
+            double exact = abuseGuard.faucetCreditAfterDecayExact(before, rawCredit, dailyCap);
+            long effective = ledger.creditFaucetWithCarry(player.getUUID(), faucetKey, exact, today);
+            if (effective > 0L) {
+                // faucet 是最大货币注入口, grant 内部 Math.addExact 防溢出击穿 M0 (经济文档 7.3)。
+                ledger.credit(player.getUUID(), Currency.CREDIT, effective);
+            }
+            return effective;
+        });
     }
 
     @Override

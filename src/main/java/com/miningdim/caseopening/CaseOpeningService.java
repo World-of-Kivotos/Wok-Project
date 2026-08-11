@@ -9,6 +9,8 @@ import com.miningdim.caseopening.store.SkinAssetRow;
 import com.miningdim.webui.server.WebUiBusinessException;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -24,6 +26,8 @@ import java.util.function.Supplier;
 
 /** Server-authoritative orchestrator for pre-roll, dual-currency Saga, durable ownership and TaCZ application. */
 public final class CaseOpeningService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/caseopening");
 
     public record Wallet(long credit, long azure) {
     }
@@ -104,6 +108,11 @@ public final class CaseOpeningService {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(openingId, "openingId");
         CaseCatalog.requireCase(caseId);
+
+        // 先对账再放行新开箱。recoveryAuditedPlayers 此前只是个备忘录: open 从不查它, 于是挂着未结清资产的
+        // 玩家可以无限开新箱, 每一箱都在扩大不一致面。recoverFor 自身幂等 (已对账即刻返回), 失败会抛出,
+        // 正好把这个玩家挡在门外直到人工或下次恢复把账理清。
+        recoverFor(player);
 
         CaseOpeningRow row = dao.findOpening(openingId);
         boolean replayed = row != null;
@@ -327,7 +336,7 @@ public final class CaseOpeningService {
         throw failure;
     }
 
-    /** Reconciles the crash window where SQL reached REFUNDED before the SavedData refund was saved. */
+    /** Reconciles the crash window where SQL reached REFUNDED before the economy refund was committed. */
     private boolean reconcileRefunded(CaseOpeningRow row) {
         CaseEconomyOperations.State state = economy.state(row.ownerId(), row.openingId());
         if (state == CaseEconomyOperations.State.DEBITED) {
@@ -340,8 +349,87 @@ public final class CaseOpeningService {
         if (state == CaseEconomyOperations.State.NONE || state == CaseEconomyOperations.State.REFUNDED) {
             return false;
         }
-        throw new IllegalStateException("SQL 已退款但货币账本已完成，事务已隔离: "
-                + row.openingId() + " -> " + state);
+        // SQL 说已退款、账本说已完成: 两边互相矛盾且都不可信, 自动选一边都可能凭空造钱或吞钱。
+        // 落成隔离终态并告警, 而不是抛异常 —— 靠抛异常表达"已隔离"会让该玩家每次登录都抛, 且抛出点之后的
+        // 后续恢复与 enforceMainHand 被整段跳过, 一行坏数据就瘫掉这个玩家的整条恢复链路。
+        dao.markQuarantined(row.openingId(), System.currentTimeMillis());
+        LOGGER.error("[miningdim] 开箱事务已隔离, 需人工核对: opening={} owner={} 账本状态={}",
+                row.openingId(), row.ownerId(), state);
+        return false;
+    }
+
+    /**
+     * 启动期全量对账 (跨玩家)。
+     *
+     * 登录驱动的恢复捞不到从此不再上线的玩家: 他们的 RESERVED/DEBITED 行会永久悬挂。本方法在服务端启动时
+     * 把全服待对账行过一遍, 只做不需要玩家在场的处置 —— 钱已扣的退款、已提交但账本停在已扣款的推进终态、
+     * 钱从未动的作废。唯一留给登录的是"资产已发但账本查无此笔"的补扣款, 那一步需要真实玩家对象。
+     *
+     * @return 实际处置的行数
+     */
+    public synchronized int reconcileAtStartup() {
+        int handled = 0;
+        for (CaseOpeningRow row : dao.allRecoverableOpenings()) {
+            CaseEconomyOperations.State state = economy.state(row.ownerId(), row.openingId());
+            switch (row.status()) {
+                case REFUNDED -> {
+                    if (reconcileRefunded(row)) {
+                        handled++;
+                    }
+                }
+                case RESERVED, DEBITED -> handled += reconcileUnfinished(row, state);
+                case COMMITTED -> handled += reconcileCommitted(row, state);
+                default -> {
+                    // QUARANTINED 不会出现在待对账集合里; 此分支只是让枚举扩展时编译期暴露遗漏。
+                }
+            }
+        }
+        return handled;
+    }
+
+    /** RESERVED/DEBITED: 资产从未发出, 因此只需要让钱回到玩家手里并作废这一行。 */
+    private int reconcileUnfinished(CaseOpeningRow row, CaseEconomyOperations.State state) {
+        if (state == CaseEconomyOperations.State.DEBITED) {
+            if (economy.refund(row.ownerId(), row.openingId()) != CaseEconomyOperations.State.REFUNDED) {
+                dao.markQuarantined(row.openingId(), System.currentTimeMillis());
+                LOGGER.error("[miningdim] 未完成开箱退款失败, 已隔离: opening={} owner={}",
+                        row.openingId(), row.ownerId());
+                return 0;
+            }
+            dao.markRefunded(row.openingId(), System.currentTimeMillis());
+            return 1;
+        }
+        if (state == CaseEconomyOperations.State.NONE) {
+            // 钱一分没动 (单事务下崩溃只会停在这里), 直接作废该行, 玩家用新 openingId 重开即可。
+            dao.markRefunded(row.openingId(), System.currentTimeMillis());
+            return 1;
+        }
+        // COMPLETED / REFUNDED 与"未完成"互相矛盾: 无法自动判定, 隔离。
+        dao.markQuarantined(row.openingId(), System.currentTimeMillis());
+        LOGGER.error("[miningdim] 未完成开箱的账本状态自相矛盾, 已隔离: opening={} owner={} 账本状态={}",
+                row.openingId(), row.ownerId(), state);
+        return 0;
+    }
+
+    /** COMMITTED: 资产已发。钱已扣就只差推进终态; 账本查无此笔则必须补扣款, 那一步要玩家在场, 留给登录。 */
+    private int reconcileCommitted(CaseOpeningRow row, CaseEconomyOperations.State state) {
+        if (state == CaseEconomyOperations.State.DEBITED) {
+            if (economy.complete(row.ownerId(), row.openingId()) != CaseEconomyOperations.State.COMPLETED) {
+                dao.markQuarantined(row.openingId(), System.currentTimeMillis());
+                LOGGER.error("[miningdim] 已提交开箱无法推进终态, 已隔离: opening={} owner={}",
+                        row.openingId(), row.ownerId());
+                return 0;
+            }
+            return 1;
+        }
+        if (state == CaseEconomyOperations.State.REFUNDED) {
+            dao.markQuarantined(row.openingId(), System.currentTimeMillis());
+            LOGGER.error("[miningdim] 已提交开箱的账本却是已退款, 已隔离: opening={} owner={}",
+                    row.openingId(), row.ownerId());
+            return 0;
+        }
+        // COMPLETED 无需处置; NONE 需要补扣款, 由登录恢复处理 (ownedAssets 已把它挡在可用资产之外)。
+        return 0;
     }
 
     private void enforceNewOpenRateLimit(ServerPlayer player) {

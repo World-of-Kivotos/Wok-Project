@@ -665,6 +665,42 @@ public final class EconomyGameTests {
         helper.succeed();
     }
 
+    /**
+     * 终态操作回收只能动终态。
+     *
+     * CHARGED 是在途的付款事实: 玩家的钱已经扣了、资产还没发。删掉它, 那笔钱就凭空消失且无从追溯 ——
+     * 后续恢复既查不到该补发资产, 也查不到该退款。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void pruneRemovesOnlyTerminalOperations(GameTestHelper helper) {
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        UUID player = UUID.randomUUID();
+        ledger.credit(player, Currency.CREDIT, 10_000L);
+        ledger.credit(player, Currency.AZURE, 100L);
+
+        UUID completedId = UUID.randomUUID();
+        UUID refundedId = UUID.randomUUID();
+        UUID inFlightId = UUID.randomUUID();
+        ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, completedId, 100L, 1L);
+        ledger.completeBundle(EconomyOperationDomain.CASE_OPENING, player, completedId);
+        ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, refundedId, 100L, 1L);
+        ledger.refundBundle(EconomyOperationDomain.CASE_OPENING, player, refundedId);
+        ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, inFlightId, 100L, 1L);
+
+        // 截止时刻取 long 上界: 所有终态记录都落在回收范围内, 只有 CHARGED 靠状态而非时间幸存。
+        int pruned = ledger.pruneTerminalOperations(Long.MAX_VALUE);
+        helper.assertTrue(pruned == 2, "只应回收 COMPLETED 与 REFUNDED 两条, 实为 " + pruned);
+        helper.assertTrue(ledger.operationStatus(EconomyOperationDomain.CASE_OPENING, player, completedId)
+                        == EconomyOperationStatus.NONE
+                        && ledger.operationStatus(EconomyOperationDomain.CASE_OPENING, player, refundedId)
+                        == EconomyOperationStatus.NONE,
+                "终态记录回收后应查不到");
+        helper.assertTrue(ledger.operationStatus(EconomyOperationDomain.CASE_OPENING, player, inFlightId)
+                        == EconomyOperationStatus.CHARGED,
+                "在途的 CHARGED 必须幸存, 否则这笔已扣的钱再也追不回来");
+        helper.succeed();
+    }
+
     // ============================================================
     // 旧存档 SavedData 一次性迁入 SQLite
     // ============================================================

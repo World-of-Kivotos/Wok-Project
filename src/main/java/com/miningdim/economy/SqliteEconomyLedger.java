@@ -185,6 +185,17 @@ public final class SqliteEconomyLedger implements EconomyLedger {
         });
     }
 
+    @Override
+    public int pruneTerminalOperations(long createdBefore) {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "DELETE FROM bundle_operations WHERE status IN ('COMPLETED','REFUNDED') AND created_at < ?")) {
+            ps.setLong(1, createdBefore);
+            return ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new MiningStoreException("回收终态双币操作失败", e);
+        }
+    }
+
     // ---- 每日计数 ----
 
     @Override

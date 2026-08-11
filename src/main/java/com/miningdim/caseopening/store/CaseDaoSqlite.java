@@ -157,6 +157,35 @@ public final class CaseDaoSqlite implements CaseDao {
     }
 
     @Override
+    public List<CaseOpeningRow> allRecoverableOpenings() {
+        String sql = "SELECT * FROM case_openings "
+                + "WHERE status IN ('RESERVED','DEBITED','COMMITTED','REFUNDED') "
+                + "ORDER BY created_at ASC";
+        List<CaseOpeningRow> rows = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet result = statement.executeQuery()) {
+            while (result.next()) {
+                rows.add(opening(result));
+            }
+            return rows;
+        } catch (SQLException exception) {
+            throw new CaseStoreException("failed to list recoverable case openings", exception);
+        }
+    }
+
+    @Override
+    public boolean markQuarantined(UUID openingId, long updatedAt) {
+        String sql = "UPDATE case_openings SET status='QUARANTINED',updated_at=? WHERE opening_id=?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, updatedAt);
+            statement.setString(2, openingId.toString());
+            return statement.executeUpdate() > 0;
+        } catch (SQLException exception) {
+            throw new CaseStoreException("failed to quarantine case opening " + openingId, exception);
+        }
+    }
+
+    @Override
     public SkinAssetRow findAsset(UUID assetId) {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT * FROM skin_assets WHERE asset_id=?")) {

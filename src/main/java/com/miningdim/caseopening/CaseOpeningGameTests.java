@@ -477,13 +477,12 @@ public final class CaseOpeningGameTests {
             fake.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, refundableId, 50_000L, 10L);
             dao.markRefunded(refundableId, now + 3);
 
-            boolean isolated = false;
-            try {
-                service(dao).recoverFor(player);
-            } catch (IllegalStateException expected) {
-                isolated = true;
-            }
-            helper.assertTrue(isolated, "SQL REFUNDED plus economy COMPLETED is reported as an invariant conflict");
+            // 隔离必须落成一个状态而不是靠抛异常表达: 抛出会让该玩家每次登录都抛, 且抛出点之后的后续恢复
+            // 与 enforceMainHand 被整段跳过 —— 一行坏数据瘫掉整条恢复链路。
+            service(dao).recoverFor(player);
+            helper.assertTrue(dao.findOpening(conflictedId).status() == CaseOpeningStatus.QUARANTINED,
+                    "SQL REFUNDED 叠加账本 COMPLETED 必须落成隔离终态, 实为 "
+                            + dao.findOpening(conflictedId).status());
             helper.assertTrue(fake.operationStatus(EconomyOperationDomain.CASE_OPENING, player.getUUID(), conflictedId)
                             == EconomyOperationStatus.COMPLETED,
                     "the conflicted completed operation is isolated rather than refunded");
@@ -627,6 +626,101 @@ public final class CaseOpeningGameTests {
                 return delegate.refund(playerId, operationId);
             }
         };
+    }
+
+    /**
+     * 启动期对账必须能处置从此不再上线的玩家。
+     *
+     * 登录驱动的恢复捞不到这些人, 他们的未完成开箱行会永久悬挂。本用例刻意【不构造任何 ServerPlayer】,
+     * 全程只用 UUID —— 这正是"玩家不在场也能对账"的证明。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void startupReconciliationHandlesOfflineOwners(GameTestHelper helper) {
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService previous = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
+        CaseDaoSqlite dao = CaseDb.on(ledger.connection());
+        try {
+            UUID offlineOwner = UUID.randomUUID();
+            long now = 1_700_000_000_000L;
+            ledger.credit(offlineOwner, Currency.CREDIT, 200_000L);
+            ledger.credit(offlineOwner, Currency.AZURE, 40L);
+
+            // 甲: 钱已扣但开箱没走完 —— 对账应退款并作废该行。
+            UUID chargedId = UUID.randomUUID();
+            dao.reserve(row(chargedId, offlineOwner, UUID.randomUUID(), now, CaseOpeningStatus.RESERVED));
+            helper.assertTrue(ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, offlineOwner,
+                    chargedId, 50_000L, 10L) == EconomyOperationStatus.CHARGED, "预置扣款应成功");
+
+            // 乙: 钱一分没动的悬挂行 (单事务下崩溃只会停在这里) —— 对账应直接作废。
+            UUID untouchedId = UUID.randomUUID();
+            dao.reserve(row(untouchedId, offlineOwner, UUID.randomUUID(), now + 1, CaseOpeningStatus.RESERVED));
+
+            long creditBefore = ledger.balance(offlineOwner, Currency.CREDIT);
+            int handled = service(dao).reconcileAtStartup();
+
+            helper.assertTrue(handled == 2, "两行都应被处置, 实为 " + handled);
+            helper.assertTrue(ledger.balance(offlineOwner, Currency.CREDIT) == creditBefore + 50_000L
+                            && ledger.balance(offlineOwner, Currency.AZURE) == 40L,
+                    "已扣款的悬挂行必须把两种货币都退回离线玩家");
+            helper.assertTrue(dao.findOpening(chargedId).status() == CaseOpeningStatus.REFUNDED
+                            && dao.findOpening(untouchedId).status() == CaseOpeningStatus.REFUNDED,
+                    "两行都应落成 REFUNDED 终态, 不再悬挂");
+            helper.assertTrue(dao.ownedAssets(offlineOwner).isEmpty(), "对账不得凭空产出资产");
+            helper.succeed();
+        } finally {
+            CaseDb.close(dao);
+            restoreEconomy(previous);
+        }
+    }
+
+    /**
+     * 恢复没通过的玩家不得开新箱。
+     *
+     * recoveryAuditedPlayers 此前只是个备忘录 —— open 从不查它, 于是挂着未结清资产的玩家可以无限开新箱,
+     * 每一箱都在扩大不一致面。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void unreconciledPlayerCannotOpenNewCase(GameTestHelper helper) {
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+        IEconomyService previous = swapEconomy(fake);
+        CaseDaoSqlite dao = CaseDb.on(ledger.connection());
+        try {
+            ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            long now = 1_700_000_000_000L;
+            // 余额刻意给到足够连开数箱: 这样"被拒"只可能来自恢复闸门, 而不是余额不足这类无关原因。
+            fake.grant(player, Currency.CREDIT, 200_000L);
+            fake.grant(player, Currency.AZURE, 40L);
+
+            // 已发出皮肤、账本却停在已退款: 补扣款拿到的是终态 REFUNDED, 无论余额多少都无法自愈。
+            UUID strandedId = UUID.randomUUID();
+            CaseOpeningRow stranded = dao.reserve(row(strandedId, player.getUUID(), UUID.randomUUID(), now,
+                    CaseOpeningStatus.RESERVED));
+            dao.markDebited(strandedId, now + 1);
+            dao.commitOpening(strandedId, asset(stranded), now + 2);
+            fake.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, strandedId, 50_000L, 10L);
+            fake.refundBundle(EconomyOperationDomain.CASE_OPENING, player.getUUID(), strandedId);
+
+            long creditBefore = ledger.balance(player.getUUID(), Currency.CREDIT);
+            long azureBefore = ledger.balance(player.getUUID(), Currency.AZURE);
+
+            boolean blocked = false;
+            try {
+                service(dao).open(player, UUID.randomUUID(), CaseCatalog.CASE_ID);
+            } catch (RuntimeException expected) {
+                blocked = true;
+            }
+            helper.assertTrue(blocked, "恢复未通过的玩家开新箱必须被拒, 哪怕余额充足");
+            helper.assertTrue(dao.recoverableOpenings(player.getUUID()).size() == 1,
+                    "被拒时不得留下新的开箱行, 实为 " + dao.recoverableOpenings(player.getUUID()).size());
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == creditBefore
+                            && ledger.balance(player.getUUID(), Currency.AZURE) == azureBefore,
+                    "被拒的开箱不得改动余额");
+            helper.succeed();
+        } finally {
+            CaseDb.close(dao);
+            restoreEconomy(previous);
+        }
     }
 
     private static CaseOpeningService service(CaseDaoSqlite dao) {

@@ -28,6 +28,14 @@ public interface EconomyLedger {
      */
     <T> T inTransaction(Supplier<T> body);
 
+    /**
+     * 回收创建时间早于 createdBefore 的【终态】双币操作记录, 返回删除条数。
+     *
+     * 终态记录只用于幂等重放, 而重放窗口是有限的; 不回收就会随开箱次数无限累积。
+     * CHARGED 永不回收 —— 那是在途的付款事实, 删掉等于让玩家的钱凭空消失且无从追溯。
+     */
+    int pruneTerminalOperations(long createdBefore);
+
     /** 某玩家某货币余额; 无记录返 0。 */
     long balance(UUID playerId, Currency currency);
 

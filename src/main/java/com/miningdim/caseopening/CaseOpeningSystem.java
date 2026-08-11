@@ -7,9 +7,11 @@ import com.miningdim.store.MiningStore;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.event.server.ServerStartingEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.ModLoadingContext;
@@ -61,6 +63,24 @@ public final class CaseOpeningSystem implements Subsystem {
         CaseServices.register(service);
         LOGGER.info("[miningdim] case ledger bound ({} CREDIT + {} AZURE per open)",
                 service.creditCost(), service.azureCost());
+    }
+
+    /**
+     * 启动期全量对账。
+     *
+     * 登录驱动的恢复捞不到从此不再上线的玩家 —— 他们的未完成开箱行会永久悬挂。挂 ServerStarted 而非
+     * ServerStarting 是因为货币门面要到 EconomySystem 的 ServerStarted 才注入; 用 LOW 优先级显式表达
+     * "晚于经济子系统", 而不是依赖子系统注册顺序这种隐式约定。
+     */
+    @SubscribeEvent(priority = EventPriority.LOW)
+    public void onServerStarted(ServerStartedEvent event) {
+        if (!CaseServices.isRegistered()) {
+            return;
+        }
+        int handled = CaseServices.service().reconcileAtStartup();
+        if (handled > 0) {
+            LOGGER.info("[miningdim] 启动期对账处置了 {} 条未完成的开箱事务", handled);
+        }
     }
 
     @SubscribeEvent

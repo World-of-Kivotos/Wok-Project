@@ -18,6 +18,12 @@ public interface CaseDao {
 
     List<CaseOpeningRow> recoverableOpenings(UUID ownerId);
 
+    /** 全服待对账的开箱行 (跨玩家, 供启动期对账捞出从不再上线的玩家)。 */
+    List<CaseOpeningRow> allRecoverableOpenings();
+
+    /** 把一行落成隔离终态; 返回是否真的改动了行。 */
+    boolean markQuarantined(UUID openingId, long updatedAt);
+
     SkinAssetRow findAsset(UUID assetId);
 
     SkinAssetRow findOwnedAsset(UUID ownerId, UUID assetId);

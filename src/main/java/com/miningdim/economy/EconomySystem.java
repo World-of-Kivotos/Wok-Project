@@ -60,6 +60,9 @@ public final class EconomySystem implements Subsystem {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/economy");
 
+    /** 终态双币操作的保留期: 30 天。跨这个跨度的重放不可能来自同一次客户端交互。 */
+    private static final long TERMINAL_OPERATION_RETENTION_MILLIS = 30L * 24L * 60L * 60L * 1000L;
+
     private final AbuseGuard abuseGuard = new AbuseGuard();
 
     /** 玩家级反滥用态 (UUID -> state)。登入建、登出留 (供重连/Clone), 无世界存档时仅内存。 */
@@ -98,6 +101,13 @@ public final class EconomySystem implements Subsystem {
         EconomyLedger ledger = new SqliteEconomyLedger(MiningStore.connection());
         // 态表唯一所有者仍是本子系统; 门面经 playerState 取同一 PlayerAbuseState (recordMinedOreDrops 计数 / isAfkFrozen 读冻结态)。
         EconomyServices.registerEconomyService(new EconomyService(ledger, abuseGuard, this::playerState));
+        // 终态双币操作只用于有限窗口内的幂等重放, 不回收会随开箱次数无限累积。CHARGED 永不回收 ——
+        // 那是在途的付款事实, 删掉等于让玩家的钱凭空消失且无从追溯。
+        int pruned = ledger.pruneTerminalOperations(
+                System.currentTimeMillis() - TERMINAL_OPERATION_RETENTION_MILLIS);
+        if (pruned > 0) {
+            LOGGER.info("[miningdim] economy: 回收了 {} 条已终结的双币操作记录", pruned);
+        }
         LOGGER.info("[miningdim] economy: wallet ledger bound, IEconomyService registered (faucet/sink/settleOreSale live)");
     }
 

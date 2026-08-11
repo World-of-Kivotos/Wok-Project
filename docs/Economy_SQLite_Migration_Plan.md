@@ -362,6 +362,16 @@ COMMIT
    dev 环境不存在 `miningdim_market.db`。上线前应在测试服 (见 test-server-access) 用一份真实存档演练一次:
    确认导入行数一致、旧文件保留、二次启动跳过。
 
+7. **一条疑似不稳定的既有用例 (待查, 与本迁移无关)**: 施工期间 `munitions` 批次的
+   `inprogressAssemblySurvivesSaveLoadRoundTripAndStillDelivers` 出现过一次失败 ("complete recipe must
+   start assembly"), 同一份代码立即复跑通过, 且该用例与本次改动无任何代码关联。没有把它当作已排除 ——
+   它可能是既有的时序敏感用例, 值得单独查一次, 不要在下次偶发时误判成新引入的回归。
+
+8. **两条测试的分工 (别把其中一条当成另一条的替代)**: `economyConservationHoldsAcrossCrashAndRecovery`
+   锁的是**端到端最终一致性** —— 单独移除开箱事务边界并不会让它挂, 因为启动期对账把那次不一致修好了,
+   守恒仍然成立, 这正是对账该有的行为。**原子性本身**由 `failedFinalizeRollsBackChargeAndAsset` 锁定。
+   守恒律的敏感性另用"双币扣款少扣一半"验证过, 报出精确的失衡数额。删任何一条都会留下盲区。
+
 ## 七 与本计划相关的既有事实索引 (避免重复求证)
 
 | 事实 | 证据 |

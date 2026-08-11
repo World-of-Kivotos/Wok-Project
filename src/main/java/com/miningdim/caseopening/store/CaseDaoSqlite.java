@@ -6,7 +6,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -20,47 +19,12 @@ public final class CaseDaoSqlite implements CaseDao {
         this.connection = connection;
     }
 
-    @Override
-    public void initSchema() {
-        String openings = "CREATE TABLE IF NOT EXISTS case_openings ("
-                + "opening_id TEXT PRIMARY KEY, "
-                + "owner_uuid TEXT NOT NULL, "
-                + "case_id TEXT NOT NULL, "
-                + "credit_cost INTEGER NOT NULL, "
-                + "azure_cost INTEGER NOT NULL, "
-                + "status TEXT NOT NULL, "
-                + "asset_id TEXT NOT NULL UNIQUE, "
-                + "skin_id TEXT NOT NULL, "
-                + "rarity TEXT NOT NULL, "
-                + "gun_id TEXT NOT NULL, "
-                + "display_id TEXT NOT NULL, "
-                + "reel_json TEXT NOT NULL, "
-                + "stop_index INTEGER NOT NULL, "
-                + "created_at INTEGER NOT NULL, "
-                + "updated_at INTEGER NOT NULL)";
-        String assets = "CREATE TABLE IF NOT EXISTS skin_assets ("
-                + "asset_id TEXT PRIMARY KEY, "
-                + "owner_uuid TEXT NOT NULL, "
-                + "skin_id TEXT NOT NULL, "
-                + "rarity TEXT NOT NULL, "
-                + "gun_id TEXT NOT NULL, "
-                + "display_id TEXT NOT NULL, "
-                + "source_opening_id TEXT NOT NULL UNIQUE, "
-                + "acquired_at INTEGER NOT NULL, "
-                + "trade_locked_until INTEGER NOT NULL, "
-                + "FOREIGN KEY(source_opening_id) REFERENCES case_openings(opening_id))";
-        try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate(openings);
-            statement.executeUpdate(assets);
-            statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_case_openings_owner_status "
-                    + "ON case_openings(owner_uuid,status)");
-            statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_skin_assets_owner "
-                    + "ON skin_assets(owner_uuid)");
-            statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_skin_assets_owner_skin "
-                    + "ON skin_assets(owner_uuid,skin_id)");
-        } catch (SQLException exception) {
-            throw new CaseStoreException("failed to initialize case ledger schema", exception);
-        }
+    /**
+     * 暴露底层连接给同包 {@link CaseDb} 做 GameTest 内存库的关闭。
+     * 包级可见, 不进 {@link CaseDao} 接口 —— 业务层只经接口操作, 不直接碰连接。
+     */
+    Connection connection() {
+        return connection;
     }
 
     @Override
@@ -228,15 +192,6 @@ public final class CaseDaoSqlite implements CaseDao {
             return rows;
         } catch (SQLException exception) {
             throw new CaseStoreException("failed to list owned skin assets for " + ownerId, exception);
-        }
-    }
-
-    @Override
-    public void close() {
-        try {
-            connection.close();
-        } catch (SQLException exception) {
-            throw new CaseStoreException("failed to close case ledger", exception);
         }
     }
 

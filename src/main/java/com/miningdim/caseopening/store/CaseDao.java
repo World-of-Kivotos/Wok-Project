@@ -4,9 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 /** SQLite contract for durable openings and non-item skin ownership. */
-public interface CaseDao extends AutoCloseable {
-
-    void initSchema();
+public interface CaseDao {
 
     CaseOpeningRow reserve(CaseOpeningRow proposed);
 
@@ -25,7 +23,4 @@ public interface CaseDao extends AutoCloseable {
     SkinAssetRow findOwnedAsset(UUID ownerId, UUID assetId);
 
     List<SkinAssetRow> ownedAssets(UUID ownerId);
-
-    @Override
-    void close();
 }

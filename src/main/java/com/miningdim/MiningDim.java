@@ -69,6 +69,9 @@ public final class MiningDim {
      * 子系统装配点 (模块化铁律 3): 增删功能 = 改此方法。顺序约束见类注释。
      */
     private void registerSubsystems() {
+        // 0. 统一 SQLite 存储 (市场 / 开箱 / 后续的钱包与账本共用同一条连接与同一个事务边界)。
+        //    它在 ServerAboutToStartEvent 开库, 严格早于其余子系统的 ServerStartingEvent, 故与本列表顺序无关。
+        subsystems.add(new com.miningdim.store.MiningStoreSubsystem());
         // 1. 配置最先注入 (其他子系统在服务端启动逻辑里读 config; InstanceManager 构建期读 config)。
         subsystems.add(new com.miningdim.config.ConfigSystem());
         // 2. 网络门面 (构造期注入, 供命令/进入流程在运行期下发包)。

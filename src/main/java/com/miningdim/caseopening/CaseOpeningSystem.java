@@ -3,6 +3,7 @@ package com.miningdim.caseopening;
 import com.miningdim.caseopening.store.CaseDaoSqlite;
 import com.miningdim.caseopening.store.CaseDb;
 import com.miningdim.core.Subsystem;
+import com.miningdim.store.MiningStore;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -42,7 +43,8 @@ public final class CaseOpeningSystem implements Subsystem {
 
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
-        this.dao = CaseDb.open(event.getServer());
+        // 开箱表已并入统一库 miningdim.db; 连接由存储子系统在 ServerAboutToStart 开好并完成 schema 迁移。
+        this.dao = CaseDb.on(MiningStore.connection());
         CaseOpeningService service = new CaseOpeningService(
                 this.dao,
                 new EconomyCaseOperations(),
@@ -93,10 +95,8 @@ public final class CaseOpeningSystem implements Subsystem {
 
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
+        // 连接是全服共享的, 由存储子系统在 ServerStopped 关闭; 此处只丢引用。
         CaseServices.reset();
-        if (this.dao != null) {
-            this.dao.close();
-            this.dao = null;
-        }
+        this.dao = null;
     }
 }

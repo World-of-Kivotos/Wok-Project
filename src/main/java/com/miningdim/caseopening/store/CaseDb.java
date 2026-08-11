@@ -1,45 +1,41 @@
 package com.miningdim.caseopening.store;
 
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.world.level.storage.LevelResource;
+import com.miningdim.store.MiningDb;
+import com.miningdim.store.MiningSchema;
 
-import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.SQLException;
-import java.sql.Statement;
 
-/** Opens the case ledger beside the world save; production and GameTest share the same schema. */
+/**
+ * 开箱账本 DAO 的构造入口。
+ *
+ * 合库后开箱表并入统一库 {@code miningdim.db}, 本类不再拥有连接与建表 (见 {@link MiningSchema})。
+ * 开箱的"扣钱 + 发皮肤"要成为单个事务, 钱与皮肤就必须在同一个库、同一条连接上。
+ */
 public final class CaseDb {
-
-    public static final String DB_FILE_NAME = "miningdim_cases.db";
 
     private CaseDb() {
     }
 
-    public static CaseDaoSqlite open(MinecraftServer server) {
-        Path path = server.getWorldPath(LevelResource.ROOT).resolve(DB_FILE_NAME);
-        return connect("jdbc:sqlite:" + path.toString().replace('\\', '/'));
+    /** 在统一库连接上构造 DAO (服务端正式路径; 连接的开关不归本类)。 */
+    public static CaseDaoSqlite on(Connection connection) {
+        return new CaseDaoSqlite(connection);
     }
 
+    /** GameTest 专用: 开一条独立的内存统一库并建好全部表。 */
     public static CaseDaoSqlite openInMemory() {
-        return connect("jdbc:sqlite::memory:");
+        Connection connection = MiningDb.openInMemory();
+        MiningSchema.apply(connection);
+        return new CaseDaoSqlite(connection);
     }
 
-    private static CaseDaoSqlite connect(String url) {
-        try {
-            Class.forName("org.sqlite.JDBC");
-            Connection connection = DriverManager.getConnection(url);
-            try (Statement statement = connection.createStatement()) {
-                statement.execute("PRAGMA journal_mode=WAL");
-                statement.execute("PRAGMA foreign_keys=ON");
-                statement.execute("PRAGMA busy_timeout=5000");
-            }
-            CaseDaoSqlite dao = new CaseDaoSqlite(connection);
-            dao.initSchema();
-            return dao;
-        } catch (ClassNotFoundException | SQLException exception) {
-            throw new CaseStoreException("failed to open case ledger " + url, exception);
+    /**
+     * GameTest 专用: 关掉 {@link #openInMemory()} 造出来的连接。
+     * 严禁在服务端路径调用 —— 那条连接是全服共享的, 由存储子系统在停服时统一关闭。
+     */
+    public static void close(CaseDaoSqlite dao) {
+        if (dao == null) {
+            return;
         }
+        MiningDb.close(dao.connection());
     }
 }

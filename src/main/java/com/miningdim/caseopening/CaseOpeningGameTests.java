@@ -152,7 +152,7 @@ public final class CaseOpeningGameTests {
             helper.assertTrue(dao.findOpening(openingId).status() == CaseOpeningStatus.COMMITTED,
                     "opening reaches durable COMMITTED state");
         } finally {
-            dao.close();
+            CaseDb.close(dao);
         }
         helper.succeed();
     }
@@ -201,7 +201,7 @@ public final class CaseOpeningGameTests {
                             && ledger.balance(player.getUUID(), Currency.AZURE) == azureAfterSetup,
                     "被拒绝的开箱不得改动任何一种货币余额");
         } finally {
-            dao.close();
+            CaseDb.close(dao);
             restoreEconomy(previous);
         }
         helper.succeed();
@@ -238,7 +238,7 @@ public final class CaseOpeningGameTests {
             helper.assertTrue(dao.ownedAssets(player.getUUID()).size() == 1,
                     "replay leaves exactly one owned asset");
         } finally {
-            dao.close();
+            CaseDb.close(dao);
             restoreEconomy(previous);
         }
         helper.succeed();
@@ -286,7 +286,7 @@ public final class CaseOpeningGameTests {
             helper.assertTrue(dao.findOpening(throttledId) == null,
                     "rate-limited insufficient request still performs no SQL write");
         } finally {
-            dao.close();
+            CaseDb.close(dao);
             restoreEconomy(previous);
         }
         helper.succeed();
@@ -335,7 +335,7 @@ public final class CaseOpeningGameTests {
                             && fake.operationStatus(EconomyOperationDomain.CASE_OPENING, player.getUUID(), missingModId) == EconomyOperationStatus.NONE,
                     "missing TaCZ mod also fails before reservation and debit");
         } finally {
-            dao.close();
+            CaseDb.close(dao);
             restoreEconomy(previous);
         }
         helper.succeed();
@@ -370,7 +370,7 @@ public final class CaseOpeningGameTests {
                             && ledger.balance(player.getUUID(), Currency.AZURE) == 20L,
                     "rate-limited request performs no second debit");
         } finally {
-            dao.close();
+            CaseDb.close(dao);
             restoreEconomy(previous);
         }
         helper.succeed();
@@ -406,7 +406,7 @@ public final class CaseOpeningGameTests {
                             && ledger.balance(player.getUUID(), Currency.AZURE) == 10L,
                     "recovery never charges the already-debited operation twice");
         } finally {
-            dao.close();
+            CaseDb.close(dao);
             restoreEconomy(previous);
         }
         helper.succeed();
@@ -445,7 +445,7 @@ public final class CaseOpeningGameTests {
                             && ledger.balance(player.getUUID(), Currency.AZURE) == 20L,
                     "idempotent replay leaves restored balances unchanged");
         } finally {
-            dao.close();
+            CaseDb.close(dao);
             restoreEconomy(previous);
         }
         helper.succeed();
@@ -493,7 +493,7 @@ public final class CaseOpeningGameTests {
                             && ledger.balance(player.getUUID(), Currency.AZURE) == 30L,
                     "only the valid row is refunded; the completed conflict stays charged");
         } finally {
-            dao.close();
+            CaseDb.close(dao);
             restoreEconomy(previous);
         }
         helper.succeed();
@@ -529,7 +529,7 @@ public final class CaseOpeningGameTests {
             helper.assertTrue(service(dao).ownedAssets(player).size() == 1,
                     "asset becomes visible only after its recreated economy operation is settled");
         } finally {
-            dao.close();
+            CaseDb.close(dao);
             restoreEconomy(previous);
         }
         helper.succeed();

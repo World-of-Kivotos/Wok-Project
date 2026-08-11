@@ -17,7 +17,9 @@ import com.miningdim.economy.EconomyLedger;
 import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.PlayerAbuseState;
+import com.miningdim.store.MiningDb;
 import com.miningdim.testutil.MockGameTestPlayers;
+import com.miningdim.testutil.TempStoreDb;
 import com.miningdim.webui.server.WebUiBusinessException;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -720,6 +722,83 @@ public final class CaseOpeningGameTests {
         } finally {
             CaseDb.close(dao);
             restoreEconomy(previous);
+        }
+    }
+
+    /**
+     * 崩溃并恢复之后, 钱与资产必须满足守恒律。
+     *
+     * 断言的是守恒关系而不是各项分别相等: 分项断言只要写错一个期望值就会互相掩盖, 而
+     * 「初始余额 == 当前余额 + 已结清资产数 x 单价」这一条同时锁死了两侧 —— 少发资产、多扣钱、少扣钱、
+     * 凭空发资产, 四种偏差里任何一种都会让它失衡。
+     *
+     * 崩溃是真的: 用文件库、真的关掉连接再重开。内存库测不出这件事, 它的 journal_mode 实为 memory。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void economyConservationHoldsAcrossCrashAndRecovery(GameTestHelper helper) {
+        final long creditCost = 50_000L;
+        final long azureCost = 10L;
+        final long initialCredit = 500_000L;
+        final long initialAzure = 100L;
+
+        java.nio.file.Path dir = TempStoreDb.createTempDir();
+        java.nio.file.Path dbPath = dir.resolve("cases.db");
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+
+        java.sql.Connection first = TempStoreDb.openUnified(dbPath);
+        SqliteEconomyLedger ledger = new SqliteEconomyLedger(first);
+        IEconomyService previous = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
+        try {
+            CaseDaoSqlite dao = CaseDb.on(first);
+            ledger.credit(player.getUUID(), Currency.CREDIT, initialCredit);
+            ledger.credit(player.getUUID(), Currency.AZURE, initialAzure);
+
+            service(dao).open(player, UUID.randomUUID(), CaseCatalog.CASE_ID);
+            service(dao).open(player, UUID.randomUUID(), CaseCatalog.CASE_ID);
+
+            // 第三箱在事务的最后一步失败, 紧接着连接被拔掉 —— 这就是一次真实的硬崩溃现场。
+            CaseOpeningService failing = new CaseOpeningService(dao,
+                    failingFinalize(new EconomyCaseOperations()), new CaseRoller(bound -> 0),
+                    () -> true, () -> true, () -> true,
+                    () -> creditCost, () -> azureCost, () -> CaseWeights.DEFAULT, () -> 20);
+            boolean crashed = false;
+            try {
+                failing.open(player, UUID.randomUUID(), CaseCatalog.CASE_ID);
+            } catch (RuntimeException expected) {
+                crashed = true;
+            }
+            helper.assertTrue(crashed, "注入的终态失败必须让第三箱失败");
+            MiningDb.close(first);
+
+            java.sql.Connection second = TempStoreDb.openUnified(dbPath);
+            SqliteEconomyLedger reopened = new SqliteEconomyLedger(second);
+            swapEconomy(new EconomyService(reopened, new AbuseGuard(), newStateResolver()));
+            try {
+                CaseDaoSqlite reopenedDao = CaseDb.on(second);
+                CaseOpeningService recovered = service(reopenedDao);
+                recovered.reconcileAtStartup();
+                recovered.recoverFor(player);
+
+                long settled = recovered.ownedAssets(player).size();
+                helper.assertTrue(settled == 2,
+                        "两箱成功、一箱回滚, 重开后应恰好持有 2 件已结清资产, 实为 " + settled);
+
+                long credit = reopened.balance(player.getUUID(), Currency.CREDIT);
+                long azure = reopened.balance(player.getUUID(), Currency.AZURE);
+                helper.assertTrue(initialCredit == credit + settled * creditCost,
+                        "CREDIT 守恒被打破: 初始 " + initialCredit + " != 当前 " + credit
+                                + " + " + settled + " x " + creditCost);
+                helper.assertTrue(initialAzure == azure + settled * azureCost,
+                        "AZURE 守恒被打破: 初始 " + initialAzure + " != 当前 " + azure
+                                + " + " + settled + " x " + azureCost);
+            } finally {
+                MiningDb.close(second);
+            }
+            helper.succeed();
+        } finally {
+            MiningDb.close(first);
+            restoreEconomy(previous);
+            TempStoreDb.deleteQuietly(dir);
         }
     }
 

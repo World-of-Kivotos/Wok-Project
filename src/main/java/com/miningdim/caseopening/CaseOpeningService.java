@@ -233,18 +233,21 @@ public final class CaseOpeningService {
         }
         if (row.status() == CaseOpeningStatus.COMMITTED) {
             SkinAssetRow existing = requireAsset(row.assetId());
-            // 无条件 charge, 不以 state 短路。charge 对同域同玩家同金额的既有记录本就幂等 (返回已持久化
-            // 状态且不重复扣款), 而元组不符时会抛 OPERATION_CONFLICT。先查 state 再决定是否扣款, 等于把
-            // 账本的全元组校验挡在门外: 只要账本里存在该玩家任意一条记录, 扣款就被整段跳过。
-            if (!economy.charge(player, row.openingId(), row.creditCost(), row.azureCost())) {
-                throw new IllegalStateException("已提交皮肤的货币账本需要恢复，但当前余额不足: " + row.openingId());
-            }
-            CaseEconomyOperations.State finalized = economy.complete(row.ownerId(), row.openingId());
-            if (finalized != CaseEconomyOperations.State.COMPLETED) {
-                throw new IllegalStateException("开箱账本已提交但货币操作不是 COMPLETED: "
-                        + row.openingId() + " -> " + finalized);
-            }
-            return existing;
+            // 补扣款与推进终态同事务: 扣了钱却没推进到 COMPLETED, 这条记录下次登录还会再被补扣一次。
+            return economy.inTransaction(() -> {
+                // 无条件 charge, 不以 state 短路。charge 对同域同玩家同金额的既有记录本就幂等 (返回已持久化
+                // 状态且不重复扣款), 而元组不符时会抛 OPERATION_CONFLICT。先查 state 再决定是否扣款, 等于把
+                // 账本的全元组校验挡在门外: 只要账本里存在该玩家任意一条记录, 扣款就被整段跳过。
+                if (!economy.charge(player, row.openingId(), row.creditCost(), row.azureCost())) {
+                    throw new IllegalStateException("已提交皮肤的货币账本需要恢复，但当前余额不足: " + row.openingId());
+                }
+                CaseEconomyOperations.State finalized = economy.complete(row.ownerId(), row.openingId());
+                if (finalized != CaseEconomyOperations.State.COMPLETED) {
+                    throw new IllegalStateException("开箱账本已提交但货币操作不是 COMPLETED: "
+                            + row.openingId() + " -> " + finalized);
+                }
+                return existing;
+            });
         }
 
         CaseEconomyOperations.State moneyState = economy.state(row.ownerId(), row.openingId());
@@ -252,28 +255,45 @@ public final class CaseOpeningService {
             dao.markRefunded(row.openingId(), System.currentTimeMillis());
             throw new WebUiBusinessException("OPENING_REFUNDED", "该开箱事务已退款，请使用新的 openingId", false);
         }
-        // 同上: 除已退款这一终态外一律无条件 charge, 由账本的全元组校验做闸门, 而不是先查 state 再决定。
-        if (!economy.charge(player, row.openingId(), row.creditCost(), row.azureCost())) {
+
+        // 扣钱与发资产落在同一个事务里。钱与开箱库合库后这才成为可能, 而这正是规格要求的"扣钥匙 + 扣箱子 +
+        // 发皮肤 必须是单个原子事务"。崩溃在提交前两边都回滚, 提交后两边都在, 白嫖窗口从结构上消失。
+        try {
+            return economy.inTransaction(() -> {
+                // 除已退款这一终态外一律无条件 charge, 由账本的全元组校验做闸门, 而不是先查 state 再决定。
+                if (!economy.charge(player, row.openingId(), row.creditCost(), row.azureCost())) {
+                    // 余额不足是正常拒绝而非故障: 抛出让事务回滚 (此路径本就没产生任何副作用), 由外层把
+                    // 开箱行标记为 REFUNDED —— 该标记必须在事务【之外】, 否则会被这次回滚一并撤销。
+                    throw new InsufficientFunds();
+                }
+                if (!dao.markDebited(row.openingId(), System.currentTimeMillis())) {
+                    throw new IllegalStateException("无法推进开箱事务到 DEBITED: " + row.openingId());
+                }
+                SkinAssetRow asset = new SkinAssetRow(
+                        row.assetId(), row.ownerId(), row.skinId(), row.rarity(), row.gunId(), row.displayId(),
+                        row.openingId(), row.createdAt(), 0L);
+                SkinAssetRow committed = dao.commitOpening(row.openingId(), asset, System.currentTimeMillis());
+                CaseEconomyOperations.State finalState = economy.complete(row.ownerId(), row.openingId());
+                if (finalState != CaseEconomyOperations.State.COMPLETED) {
+                    throw new IllegalStateException("货币操作无法完成: " + row.openingId() + " -> " + finalState);
+                }
+                return committed;
+            });
+        } catch (InsufficientFunds insufficient) {
             dao.markRefunded(row.openingId(), System.currentTimeMillis());
             throw new IllegalStateException("余额不足：需要 " + row.creditCost()
                     + " CREDIT 与 " + row.azureCost() + " AZURE");
-        }
-
-        try {
-            if (!dao.markDebited(row.openingId(), System.currentTimeMillis())) {
-                throw new IllegalStateException("无法推进开箱事务到 DEBITED: " + row.openingId());
-            }
-            SkinAssetRow asset = new SkinAssetRow(
-                    row.assetId(), row.ownerId(), row.skinId(), row.rarity(), row.gunId(), row.displayId(),
-                    row.openingId(), row.createdAt(), 0L);
-            SkinAssetRow committed = dao.commitOpening(row.openingId(), asset, System.currentTimeMillis());
-            CaseEconomyOperations.State finalState = economy.complete(row.ownerId(), row.openingId());
-            if (finalState != CaseEconomyOperations.State.COMPLETED) {
-                throw new IllegalStateException("货币操作无法完成: " + row.openingId() + " -> " + finalState);
-            }
-            return committed;
         } catch (RuntimeException failure) {
+            // 事务已回滚, 正常情况下钱与资产都没动、行仍是 RESERVED。仍走对账是为了覆盖提交结果未知的
+            // 那一类失败 (连接在 commit 期间断开), 此时只能重新读库确认, 不能凭猜测退款。
             return reconcileFailure(row, failure);
+        }
+    }
+
+    /** 余额不足的内部信号: 只用于把事务从内层拉回外层做补偿标记, 不外泄。 */
+    private static final class InsufficientFunds extends RuntimeException {
+        InsufficientFunds() {
+            super(null, null, false, false);
         }
     }
 

@@ -536,6 +536,99 @@ public final class CaseOpeningGameTests {
         helper.succeed();
     }
 
+    /**
+     * 开箱事务的最后一步 (推进货币操作到终态) 失败时, 扣款与皮肤归属必须一并回滚。
+     *
+     * 这是"扣钥匙 + 扣箱子 + 发皮肤 单个原子事务"的反向验证。此前四步各走 autocommit, 落到这里失败就会
+     * 留下"钱扣了、皮肤也发了、但账本停在 CHARGED"的记录, 只能靠登录恢复去猜该补扣还是该退款。
+     * 注入点在事务内的最后一步, 被测的是回滚本身, 不是被 mock 掉的业务逻辑。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void failedFinalizeRollsBackChargeAndAsset(GameTestHelper helper) {
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+        IEconomyService previous = swapEconomy(fake);
+        CaseDaoSqlite dao = CaseDb.on(ledger.connection());
+        try {
+            ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            fake.grant(player, Currency.CREDIT, 100_000L);
+            fake.grant(player, Currency.AZURE, 20L);
+            long creditBefore = ledger.balance(player.getUUID(), Currency.CREDIT);
+            long azureBefore = ledger.balance(player.getUUID(), Currency.AZURE);
+
+            CaseEconomyOperations real = new EconomyCaseOperations();
+            CaseOpeningService service = new CaseOpeningService(dao, failingFinalize(real),
+                    new CaseRoller(bound -> 0), () -> true, () -> true, () -> true,
+                    () -> 50_000L, () -> 10L, () -> CaseWeights.DEFAULT, () -> 20);
+
+            UUID openingId = UUID.randomUUID();
+            boolean failed = false;
+            try {
+                service.open(player, openingId, CaseCatalog.CASE_ID);
+            } catch (RuntimeException expected) {
+                failed = true;
+            }
+            helper.assertTrue(failed, "终态推进失败必须让整次开箱失败");
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == creditBefore
+                            && ledger.balance(player.getUUID(), Currency.AZURE) == azureBefore,
+                    "回滚后两种货币都必须原封不动, 实为 "
+                            + ledger.balance(player.getUUID(), Currency.CREDIT) + "/"
+                            + ledger.balance(player.getUUID(), Currency.AZURE));
+            helper.assertTrue(dao.ownedAssets(player.getUUID()).isEmpty(),
+                    "回滚后不得留下任何皮肤资产");
+            helper.assertTrue(real.state(player.getUUID(), openingId) == CaseEconomyOperations.State.NONE,
+                    "回滚后账本里不得留下这笔操作");
+            CaseOpeningRow after = dao.findOpening(openingId);
+            helper.assertTrue(after != null && after.status() == CaseOpeningStatus.RESERVED,
+                    "回滚后开箱行应停在 RESERVED 等待重试, 实为 "
+                            + (after == null ? "无记录" : after.status().name()));
+            helper.succeed();
+        } finally {
+            CaseDb.close(dao);
+            restoreEconomy(previous);
+        }
+    }
+
+    /** 把真实适配器包一层, 只让最后的终态推进抛出; 其余原样委派。 */
+    private static CaseEconomyOperations failingFinalize(CaseEconomyOperations delegate) {
+        return new CaseEconomyOperations() {
+            @Override
+            public <T> T inTransaction(java.util.function.Supplier<T> body) {
+                return delegate.inTransaction(body);
+            }
+
+            @Override
+            public long creditBalance(ServerPlayer player) {
+                return delegate.creditBalance(player);
+            }
+
+            @Override
+            public long azureBalance(ServerPlayer player) {
+                return delegate.azureBalance(player);
+            }
+
+            @Override
+            public boolean charge(ServerPlayer player, UUID operationId, long creditCost, long azureCost) {
+                return delegate.charge(player, operationId, creditCost, azureCost);
+            }
+
+            @Override
+            public State state(UUID playerId, UUID operationId) {
+                return delegate.state(playerId, operationId);
+            }
+
+            @Override
+            public State complete(UUID playerId, UUID operationId) {
+                throw new IllegalStateException("注入的终态推进失败: " + operationId);
+            }
+
+            @Override
+            public State refund(UUID playerId, UUID operationId) {
+                return delegate.refund(playerId, operationId);
+            }
+        };
+    }
+
     private static CaseOpeningService service(CaseDaoSqlite dao) {
         return service(dao, true, true);
     }

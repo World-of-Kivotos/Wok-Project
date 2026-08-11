@@ -100,8 +100,42 @@ public final class MiningSchema {
             "CREATE INDEX idx_skin_assets_owner ON skin_assets(owner_uuid)",
             "CREATE INDEX idx_skin_assets_owner_skin ON skin_assets(owner_uuid,skin_id)");
 
+    /**
+     * 版本 2: 钱包、双币幂等操作账本与每日计数从 Minecraft SavedData 迁入本库。
+     *
+     * SavedData 最长 5 分钟才落一次盘 (MinecraftServer.tickServer 每 6000 tick 触发 saveEverything), 而 SQLite
+     * 提交即落盘。钱留在 SavedData、资产在 SQLite 时, 崩溃后恒定是"资产在、钱回滚了", 且该窗口套在所有经济
+     * 写入上。把钱搬进同一个库是让 BEGIN/COMMIT 真正覆盖"扣钱 + 发资产"的前提。
+     *
+     * bundle_operations 补了原 SavedData 结构没有的 created_at: 原结构无时间戳, 既无法做终态回收也无法审计定位。
+     * daily_counters 把原来的 "玩家UUID|计数键" 拼接串拆成两列, 计数种类 (扣费 / faucet) 由 kind 区分 ——
+     * 原实现是两张各自独立的 map, 合成一张表后主键 (玩家, 键, 种类) 直接表达了这个三元唯一性。
+     */
+    private static final List<String> V2 = List.of(
+            "CREATE TABLE wallets ("
+                    + "player_id TEXT PRIMARY KEY, "
+                    + "credit INTEGER NOT NULL DEFAULT 0, "
+                    + "azure INTEGER NOT NULL DEFAULT 0)",
+            "CREATE TABLE bundle_operations ("
+                    + "operation_id TEXT PRIMARY KEY, "
+                    + "domain TEXT NOT NULL, "
+                    + "player_id TEXT NOT NULL, "
+                    + "credit_amount INTEGER NOT NULL, "
+                    + "azure_amount INTEGER NOT NULL, "
+                    + "status TEXT NOT NULL, "
+                    + "created_at INTEGER NOT NULL)",
+            "CREATE INDEX idx_bundle_ops_player ON bundle_operations(player_id, domain)",
+            "CREATE TABLE daily_counters ("
+                    + "player_id TEXT NOT NULL, "
+                    + "counter_key TEXT NOT NULL, "
+                    + "kind TEXT NOT NULL, "
+                    + "amount INTEGER NOT NULL, "
+                    + "day_stamp INTEGER NOT NULL, "
+                    + "credit_carry REAL NOT NULL DEFAULT 0, "
+                    + "PRIMARY KEY (player_id, counter_key, kind))");
+
     /** 全部迁移, 下标 + 1 即其版本号。 */
-    static final List<List<String>> MIGRATIONS = List.of(V1);
+    static final List<List<String>> MIGRATIONS = List.of(V1, V2);
 
     /** 把连接上的库推进到本版代码支持的最新结构。 */
     public static void apply(Connection conn) {

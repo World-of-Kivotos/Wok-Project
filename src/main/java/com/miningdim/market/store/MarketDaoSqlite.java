@@ -1,5 +1,7 @@
 package com.miningdim.market.store;
 
+import com.miningdim.store.StoreTx;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -257,17 +259,10 @@ public final class MarketDaoSqlite implements MarketDao {
     @Override
     public List<long[]> drainPendingPayout(UUID seller) {
         // 取+删原子 (契约第 4 节): 先 SELECT 出全部待结金额, 再 DELETE 该卖家全部行, 同一事务提交。
-        // 资源/事务边界 (契约第 0 节允许 try-catch): 异常 rollback 后重抛, 不吞; finally 恢复 autoCommit。
+        // 事务经 StoreTx: 连接现在是全服共享的, 若调用方已开着事务, 本方法必须并入而不是提前 commit 掉外层。
         final String selectSql = "SELECT amount FROM pending_payout WHERE seller_uuid = ?";
         final String deleteSql = "DELETE FROM pending_payout WHERE seller_uuid = ?";
-        boolean priorAutoCommit;
-        try {
-            priorAutoCommit = conn.getAutoCommit();
-        } catch (SQLException e) {
-            throw new MarketStoreException("drainPendingPayout: read autoCommit failed", e);
-        }
-        try {
-            conn.setAutoCommit(false);
+        return StoreTx.call(conn, () -> {
             List<long[]> out = new ArrayList<>();
             try (PreparedStatement sel = conn.prepareStatement(selectSql)) {
                 sel.setString(1, seller.toString());
@@ -276,19 +271,15 @@ public final class MarketDaoSqlite implements MarketDao {
                         out.add(new long[]{rs.getLong(1)});
                     }
                 }
+                try (PreparedStatement del = conn.prepareStatement(deleteSql)) {
+                    del.setString(1, seller.toString());
+                    del.executeUpdate();
+                }
+            } catch (SQLException e) {
+                throw new MarketStoreException("drainPendingPayout failed", e);
             }
-            try (PreparedStatement del = conn.prepareStatement(deleteSql)) {
-                del.setString(1, seller.toString());
-                del.executeUpdate();
-            }
-            conn.commit();
             return out;
-        } catch (SQLException e) {
-            rollbackQuietly();
-            throw new MarketStoreException("drainPendingPayout failed", e);
-        } finally {
-            restoreAutoCommit(priorAutoCommit);
-        }
+        });
     }
 
     // ---- base_values (V0 admin 覆盖) ----
@@ -402,20 +393,4 @@ public final class MarketDaoSqlite implements MarketDao {
         }
     }
 
-    private void rollbackQuietly() {
-        try {
-            conn.rollback();
-        } catch (SQLException e) {
-            // rollback 自身失败: 连同原异常一并暴露给调用方 (重抛原异常时附此为 suppressed 不便, 此处单独包装上抛)。
-            throw new MarketStoreException("drainPendingPayout rollback failed", e);
-        }
-    }
-
-    private void restoreAutoCommit(boolean priorAutoCommit) {
-        try {
-            conn.setAutoCommit(priorAutoCommit);
-        } catch (SQLException e) {
-            throw new MarketStoreException("drainPendingPayout: restore autoCommit failed", e);
-        }
-    }
 }

@@ -6,7 +6,8 @@ import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyConstants;
 import com.miningdim.economy.EconomyService;
 import com.miningdim.economy.EconomyServices;
-import com.miningdim.economy.EconomyWalletData;
+import com.miningdim.economy.EconomyLedger;
+import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.job.JobXpCurve;
 import com.miningdim.job.farmer.block.FarmerBlocks;
@@ -616,7 +617,7 @@ public final class FarmerGameTests {
     public static void sellGrantsCreditsAndDecrementsInventory(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
-        EconomyWalletData ledger = registerFreshEconomy();
+        EconomyLedger ledger = registerFreshEconomy();
         try {
             // 给 100 株 mod 小麦 (远低于收购 softCap 2160, 故全价 base=1 -> 毛收 100)。
             int amount = 100;
@@ -690,7 +691,7 @@ public final class FarmerGameTests {
         // 证明它读的是共享 (player,key) 累计计数器而非农夫私有上限, 且系数是主闸的 0.6 几何衰减 (非逐矿 0.97)。
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
-        EconomyWalletData ledger = registerFreshEconomy();
+        EconomyLedger ledger = registerFreshEconomy();
         try {
             long tier = FarmerConstants.DAILY_CREDIT_FAUCET_CAP;            // 60000 (= 全服统一主闸档值)
             String sharedKey = FarmerConstants.WHEAT_SELL_FAUCET_KEY;       // credit_faucet
@@ -746,8 +747,8 @@ public final class FarmerGameTests {
      * 新建一套内存经济门面 (账本 + AbuseGuard + 惰性 PlayerAbuseState 解析器) 注册进 {@link EconomyServices} 定位器,
      * 供卖菜端到端测试经定位器真发币。返回账本以便断言余额。调用方 finally 务必 {@link EconomyServices#reset()}。
      */
-    private static EconomyWalletData registerFreshEconomy() {
-        EconomyWalletData ledger = new EconomyWalletData();
+    private static EconomyLedger registerFreshEconomy() {
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         Map<UUID, PlayerAbuseState> states = new HashMap<>();
         Function<UUID, PlayerAbuseState> resolver = id -> states.computeIfAbsent(id, k -> new PlayerAbuseState());
         EconomyServices.reset();

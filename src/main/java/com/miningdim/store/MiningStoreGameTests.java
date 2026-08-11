@@ -1,12 +1,12 @@
 package com.miningdim.store;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.testutil.TempStoreDb;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -110,7 +110,7 @@ public final class MiningStoreGameTests {
     /** WAL 下已提交的数据必须真的落进文件: 关闭连接重开后仍在。 */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void committedRowsSurviveConnectionReopen(GameTestHelper helper) {
-        Path dir = createTempDir();
+        Path dir = TempStoreDb.createTempDir();
         Path dbPath = dir.resolve("reopen.db");
         try {
             Connection first = MiningDb.openAt(dbPath);
@@ -134,7 +134,7 @@ public final class MiningStoreGameTests {
                 MiningDb.close(second);
             }
         } finally {
-            deleteQuietly(dir);
+            TempStoreDb.deleteQuietly(dir);
         }
         helper.succeed();
     }
@@ -145,10 +145,12 @@ public final class MiningStoreGameTests {
         Connection conn = MiningDb.openInMemory();
         try {
             MiningSchema.apply(conn);
-            helper.assertTrue(SchemaMigrator.userVersion(conn) == 1,
-                    "统一 schema 应用后 user_version 必须是 1, 实为 " + SchemaMigrator.userVersion(conn));
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == MiningSchema.MIGRATIONS.size(),
+                    "统一 schema 应用后 user_version 必须等于迁移数量 " + MiningSchema.MIGRATIONS.size()
+                            + ", 实为 " + SchemaMigrator.userVersion(conn));
             for (String table : List.of("meta", "listings", "transactions", "pending_payout",
-                    "base_values", "case_openings", "skin_assets")) {
+                    "base_values", "case_openings", "skin_assets",
+                    "wallets", "bundle_operations", "daily_counters")) {
                 helper.assertTrue(SchemaMigrator.tableExists(conn, table), "统一库缺表: " + table);
             }
         } finally {
@@ -162,7 +164,7 @@ public final class MiningStoreGameTests {
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void legacyDatabasesAreImportedRowForRow(GameTestHelper helper) {
-        Path dir = createTempDir();
+        Path dir = TempStoreDb.createTempDir();
         try {
             writeLegacyMarketDb(dir.resolve(LegacyStoreImport.LEGACY_MARKET_DB_FILE));
             writeLegacyCaseDb(dir.resolve(LegacyStoreImport.LEGACY_CASE_DB_FILE));
@@ -197,7 +199,7 @@ public final class MiningStoreGameTests {
                 MiningDb.close(conn);
             }
         } finally {
-            deleteQuietly(dir);
+            TempStoreDb.deleteQuietly(dir);
         }
         helper.succeed();
     }
@@ -205,7 +207,7 @@ public final class MiningStoreGameTests {
     /** 第二次启动必须靠标记跳过, 否则每次开服都把旧库再灌一遍, 挂单成倍增长。 */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void secondImportIsSkippedByMarker(GameTestHelper helper) {
-        Path dir = createTempDir();
+        Path dir = TempStoreDb.createTempDir();
         try {
             writeLegacyMarketDb(dir.resolve(LegacyStoreImport.LEGACY_MARKET_DB_FILE));
 
@@ -224,7 +226,7 @@ public final class MiningStoreGameTests {
                 MiningDb.close(conn);
             }
         } finally {
-            deleteQuietly(dir);
+            TempStoreDb.deleteQuietly(dir);
         }
         helper.succeed();
     }
@@ -232,7 +234,7 @@ public final class MiningStoreGameTests {
     /** 统一库已有业务行却又冒出个无标记的旧库文件: 无法判定是否重复, 必须拒绝启动而不是猜。 */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void importRefusesWhenTargetAlreadyHasRows(GameTestHelper helper) {
-        Path dir = createTempDir();
+        Path dir = TempStoreDb.createTempDir();
         try {
             writeLegacyMarketDb(dir.resolve(LegacyStoreImport.LEGACY_MARKET_DB_FILE));
 
@@ -258,7 +260,7 @@ public final class MiningStoreGameTests {
                 MiningDb.close(conn);
             }
         } finally {
-            deleteQuietly(dir);
+            TempStoreDb.deleteQuietly(dir);
         }
         helper.succeed();
     }
@@ -269,7 +271,7 @@ public final class MiningStoreGameTests {
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void importedIdsDoNotCollideWithNewInserts(GameTestHelper helper) {
-        Path dir = createTempDir();
+        Path dir = TempStoreDb.createTempDir();
         try {
             writeLegacyMarketDb(dir.resolve(LegacyStoreImport.LEGACY_MARKET_DB_FILE));
 
@@ -289,7 +291,7 @@ public final class MiningStoreGameTests {
                 MiningDb.close(conn);
             }
         } finally {
-            deleteQuietly(dir);
+            TempStoreDb.deleteQuietly(dir);
         }
         helper.succeed();
     }
@@ -364,14 +366,6 @@ public final class MiningStoreGameTests {
         }
     }
 
-    private static Path createTempDir() {
-        try {
-            return Files.createTempDirectory("miningdim-store-test");
-        } catch (Exception e) {
-            throw new MiningStoreException("无法创建临时目录", e);
-        }
-    }
-
     private static void exec(Connection conn, String sql) {
         try (Statement st = conn.createStatement()) {
             st.execute(sql);
@@ -410,17 +404,4 @@ public final class MiningStoreGameTests {
         }
     }
 
-    private static void deleteQuietly(Path dir) {
-        try (var paths = Files.walk(dir)) {
-            paths.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
-                try {
-                    Files.deleteIfExists(p);
-                } catch (Exception ignored) {
-                    // 临时目录清理失败不影响断言结果; WAL 附属文件可能仍被占用。
-                }
-            });
-        } catch (Exception ignored) {
-            // 同上。
-        }
-    }
 }

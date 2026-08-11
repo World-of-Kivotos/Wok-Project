@@ -13,7 +13,8 @@ import com.miningdim.economy.EconomyOperationDomain;
 import com.miningdim.economy.EconomyOperationStatus;
 import com.miningdim.economy.EconomyService;
 import com.miningdim.economy.EconomyServices;
-import com.miningdim.economy.EconomyWalletData;
+import com.miningdim.economy.EconomyLedger;
+import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.testutil.MockGameTestPlayers;
@@ -168,7 +169,7 @@ public final class CaseOpeningGameTests {
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void openingRejectsLedgerOperationBelongingToAnotherCharge(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
         CaseDaoSqlite dao = CaseDb.openInMemory();
@@ -209,7 +210,7 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void openingChargesBothCurrenciesExactlyOnce(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
         CaseDaoSqlite dao = CaseDb.openInMemory();
@@ -246,7 +247,7 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void insufficientEitherCurrencyLeavesBothUntouched(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
         CaseDaoSqlite dao = CaseDb.openInMemory();
@@ -294,7 +295,7 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void unavailableTaczGunpackRejectsBeforeAnyDebitOrReservation(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
         CaseDaoSqlite dao = CaseDb.openInMemory();
@@ -343,7 +344,7 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void newOpeningIsRateLimitedBeforeReservation(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
         CaseDaoSqlite dao = CaseDb.openInMemory();
@@ -378,7 +379,7 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void loginRecoveryCompletesChargedReservation(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
         CaseDaoSqlite dao = CaseDb.openInMemory();
@@ -414,7 +415,7 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void loginRecoveryFinishesRefundLostAtHardCrash(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
         CaseDaoSqlite dao = CaseDb.openInMemory();
@@ -453,7 +454,7 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void completedRefundConflictIsIsolatedWhileLaterRowsRecover(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
         CaseDaoSqlite dao = CaseDb.openInMemory();
@@ -501,7 +502,7 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void recoveryRechargesCommittedAssetWhenSavedDataDebitVanished(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
         CaseDaoSqlite dao = CaseDb.openInMemory();

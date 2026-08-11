@@ -6,7 +6,8 @@ import com.miningdim.economy.AbuseGuard;
 import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyService;
 import com.miningdim.economy.EconomyServices;
-import com.miningdim.economy.EconomyWalletData;
+import com.miningdim.economy.EconomyLedger;
+import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.market.store.MarketDaoSqlite;
@@ -47,7 +48,7 @@ public final class MarketAdminGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void baseValueOverridePrecedenceAndFee(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
         MarketDaoSqlite dao = MarketDb.openInMemory();
         try {

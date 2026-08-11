@@ -27,6 +27,21 @@ public final class PlayerWallet {
     public PlayerWallet() {
     }
 
+    /**
+     * 以已有余额构造 (供 {@link SqliteEconomyLedger} 把表行读成钱包再交由本类做金额运算)。
+     * 余额非负是全局不变量, 负值只可能来自被外部改写的库, 必须当场暴露而不是带着负余额继续算账。
+     */
+    public static PlayerWallet of(long credit, long azure) {
+        if (credit < 0L || azure < 0L) {
+            throw new EconomyException(EconomyException.Reason.ILLEGAL_AMOUNT,
+                    "wallet balances must be >= 0, got " + credit + " CREDIT / " + azure + " AZURE");
+        }
+        PlayerWallet wallet = new PlayerWallet();
+        wallet.credit = credit;
+        wallet.azure = azure;
+        return wallet;
+    }
+
     /** 某货币当前余额。 */
     public long balance(Currency currency) {
         return switch (currency) {

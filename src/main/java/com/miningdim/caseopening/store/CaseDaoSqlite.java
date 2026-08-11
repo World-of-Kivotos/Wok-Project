@@ -1,6 +1,7 @@
 package com.miningdim.caseopening.store;
 
 import com.miningdim.caseopening.CaseRarity;
+import com.miningdim.store.StoreTx;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -71,9 +72,9 @@ public final class CaseDaoSqlite implements CaseDao {
 
     @Override
     public SkinAssetRow commitOpening(UUID openingId, SkinAssetRow asset, long updatedAt) {
-        boolean previousAutoCommit = autoCommit();
-        try {
-            connection.setAutoCommit(false);
+        // 事务经 StoreTx: 连接现在是全服共享的, 若调用方已开着事务 (扣钱与发资产同事务), 本方法必须并入
+        // 而不是提前 commit 掉外层 —— 那会把"钱已扣、资产未发"这个中间态直接落盘。
+        return StoreTx.call(connection, () -> {
             CaseOpeningRow opening = findOpening(openingId);
             if (opening == null) {
                 throw new CaseStoreException("cannot commit missing case opening " + openingId);
@@ -83,32 +84,36 @@ public final class CaseDaoSqlite implements CaseDao {
                 if (existing == null) {
                     throw new CaseStoreException("committed opening has no asset " + openingId);
                 }
-                connection.commit();
                 return existing;
             }
             if (opening.status() != CaseOpeningStatus.DEBITED) {
                 throw new CaseStoreException("cannot commit opening " + openingId + " from " + opening.status());
             }
-            insertAsset(asset);
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "UPDATE case_openings SET status='COMMITTED',updated_at=? "
-                            + "WHERE opening_id=? AND status='DEBITED'")) {
-                statement.setLong(1, updatedAt);
-                statement.setString(2, openingId.toString());
-                if (statement.executeUpdate() != 1) {
-                    throw new CaseStoreException("case opening changed while committing " + openingId);
-                }
-            }
-            connection.commit();
+            insertAssetChecked(asset);
+            markCommitted(openingId, updatedAt);
             return asset;
-        } catch (SQLException | RuntimeException exception) {
-            rollbackQuietly();
-            if (exception instanceof CaseStoreException storeException) {
-                throw storeException;
+        });
+    }
+
+    private void markCommitted(UUID openingId, long updatedAt) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE case_openings SET status='COMMITTED',updated_at=? "
+                        + "WHERE opening_id=? AND status='DEBITED'")) {
+            statement.setLong(1, updatedAt);
+            statement.setString(2, openingId.toString());
+            if (statement.executeUpdate() != 1) {
+                throw new CaseStoreException("case opening changed while committing " + openingId);
             }
+        } catch (SQLException exception) {
             throw new CaseStoreException("failed to commit case opening " + openingId, exception);
-        } finally {
-            restoreAutoCommit(previousAutoCommit);
+        }
+    }
+
+    private void insertAssetChecked(SkinAssetRow asset) {
+        try {
+            insertAsset(asset);
+        } catch (SQLException exception) {
+            throw new CaseStoreException("failed to insert skin asset " + asset.assetId(), exception);
         }
     }
 
@@ -281,27 +286,4 @@ public final class CaseDaoSqlite implements CaseDao {
                 result.getLong("trade_locked_until"));
     }
 
-    private boolean autoCommit() {
-        try {
-            return connection.getAutoCommit();
-        } catch (SQLException exception) {
-            throw new CaseStoreException("failed to read case ledger transaction state", exception);
-        }
-    }
-
-    private void rollbackQuietly() {
-        try {
-            connection.rollback();
-        } catch (SQLException ignored) {
-            // The original failure remains the useful exception at this boundary.
-        }
-    }
-
-    private void restoreAutoCommit(boolean autoCommit) {
-        try {
-            connection.setAutoCommit(autoCommit);
-        } catch (SQLException exception) {
-            throw new CaseStoreException("failed to restore case ledger transaction state", exception);
-        }
-    }
 }

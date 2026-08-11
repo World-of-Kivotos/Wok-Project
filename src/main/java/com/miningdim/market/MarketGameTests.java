@@ -5,7 +5,8 @@ import com.miningdim.economy.AbuseGuard;
 import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyService;
 import com.miningdim.economy.EconomyServices;
-import com.miningdim.economy.EconomyWalletData;
+import com.miningdim.economy.EconomyLedger;
+import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.market.store.MarketDaoSqlite;
@@ -33,7 +34,7 @@ import java.util.function.Function;
  * 跳蚤市场交易引擎核心逻辑 GameTest (共享契约第 8 节)。服务端纯逻辑, 用内存 SQLite (jdbc:sqlite::memory:, 经
  * {@link MarketDb#openInMemory}) 走与生产同一 DDL; 不 classload 任何 client.webui/MCEF (GameTest 是服务端进程)。
  *
- * 货币侧用真实 {@link EconomyService} 背靠内存 {@link EconomyWalletData} 账本 (余额是真账本, 可精确断言总量守恒),
+ * 货币侧用真实 {@link EconomyService} 背靠内存 {@link com.miningdim.economy.SqliteEconomyLedger} 账本 (余额是真账本, 可精确断言总量守恒),
  * 经 {@link EconomyServices} 定位器 swap/restore (仿 MinerGameTests: GameTest 在已启动服务端跑, 真实门面可能已注入,
  * 测后还原)。强断言 (删被测核心逻辑测试必挂, 禁 is-not-null 弱校验):
  *  1. 挂单->买入 happy path: 挂单时向卖家收偏离费 listFee 蒸发 (sink, 上单即收), 买入时买家 -total / 卖家 +全额 total (买入不再收费),
@@ -59,7 +60,7 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void placeThenBuyConservesFeeAsSink(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
         MarketDaoSqlite dao = MarketDb.openInMemory();
         try {
@@ -148,7 +149,7 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void buyWithInsufficientFundsLeavesEverythingUntouched(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
         MarketDaoSqlite dao = MarketDb.openInMemory();
         try {
@@ -209,7 +210,7 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void azurePricedListingIsRejected(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
         MarketDaoSqlite dao = MarketDb.openInMemory();
         try {
@@ -257,7 +258,7 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void cancelRefundsItemAndMarksCancelled(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
         MarketDaoSqlite dao = MarketDb.openInMemory();
         try {
@@ -319,7 +320,7 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void copperIronDailyCapRejectsOverflow(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
         MarketDaoSqlite dao = MarketDb.openInMemory();
         try {
@@ -376,7 +377,7 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void offlineSellerPayoutIsDeferredAndSettledOnLogin(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
         MarketDaoSqlite dao = MarketDb.openInMemory();
         try {
@@ -434,7 +435,7 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void partialBuySplitsListingAndConservesTotals(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
         MarketDaoSqlite dao = MarketDb.openInMemory();
         try {

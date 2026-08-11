@@ -8,34 +8,36 @@ import java.util.UUID;
 import java.util.function.Function;
 
 /**
- * 货币门面实现 (经济文档第九章 + 框架 spec 第三章)。所有玩家货币读写经 {@link EconomyWalletData}
- * (UUID 键 SavedData, 服务端权威), 衰减/翻日复用 {@link AbuseGuard} 的纯函数与 UTC 时钟 (单一真值, 不另起一套)。
+ * 货币门面实现 (经济文档第九章 + 框架 spec 第三章)。所有玩家货币读写经 {@link EconomyLedger}
+ * (UUID 键, 服务端权威, 落统一 SQLite), 衰减/翻日复用 {@link AbuseGuard} 的纯函数与 UTC 时钟
+ * (单一真值, 不另起一套)。
  *
- * 由 {@link EconomySystem} 在 ServerStartedEvent 取矿山维度 ServerLevel 建账本后构造, 注入
+ * 由 {@link EconomySystem} 在 ServerStartedEvent 在统一库连接上建账本后构造, 注入
  * {@link EconomyServices} 定位器 (job 包定位器范式; 不碰 core.MiningServices, 见类注释)。
  *
  * 异常纪律: 非法金额/入账溢出由 {@link PlayerWallet} 抛 {@link EconomyException} 自然冒泡, 本类不生吞;
- * 余额不足由 {@link #tryCharge} 返 false (事务安全)。
+ * 余额不足由 {@link #tryCharge} 返 false (事务安全)。数据库故障同样自然冒泡, 严禁降级到内存副本 ——
+ * 留一个可写的第二份账本等于让"钱与资产不一致"重新出现。
  *
- * 线程: 全部服务端主线程调用 (职业事件回调 / 命令 / 网络 handler 均主线程)。账本 SavedData 同主线程访问。
+ * 线程: 全部服务端主线程调用 (职业事件回调 / 命令 / 网络 handler 均主线程)。账本同主线程单连接访问。
  */
 public final class EconomyService implements IEconomyService {
 
-    private final EconomyWalletData ledger;
+    private final EconomyLedger ledger;
     private final AbuseGuard abuseGuard;
     private final Function<UUID, PlayerAbuseState> stateResolver;
 
     /**
-     * @param ledger        全服账本 (矿山维度 SavedData, 由 EconomySystem 在服务端启动期取得)
+     * @param ledger        全服账本 (统一 SQLite, 由 EconomySystem 在服务端启动期建在共享连接上)
      * @param abuseGuard    复用经济子系统已有的衰减纯函数 + UTC 翻日时钟 (不重复实现 0.97/0.25 与翻日口径)
      * @param stateResolver 以玩家 UUID 取 {@link PlayerAbuseState} (由 {@link EconomySystem} 提供唯一所有的态表入口;
      *                      供 {@link #recordMinedOreDrops} 计入当日矿物计数与 {@link #isAfkFrozen} 读冻结态, 与
      *                      {@link EconomySystem#onBlockBreak} 共用同一态实例, 不另起一套玩家态)
      */
-    public EconomyService(EconomyWalletData ledger, AbuseGuard abuseGuard,
+    public EconomyService(EconomyLedger ledger, AbuseGuard abuseGuard,
                           Function<UUID, PlayerAbuseState> stateResolver) {
         if (ledger == null) {
-            throw new IllegalArgumentException("EconomyWalletData ledger must not be null");
+            throw new IllegalArgumentException("EconomyLedger must not be null");
         }
         if (abuseGuard == null) {
             throw new IllegalArgumentException("AbuseGuard must not be null");

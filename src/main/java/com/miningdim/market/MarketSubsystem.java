@@ -1,6 +1,7 @@
 package com.miningdim.market;
 
 import com.miningdim.core.Subsystem;
+import com.miningdim.economy.EconomyServices;
 import com.miningdim.market.store.MarketDaoSqlite;
 import com.miningdim.market.store.MarketDb;
 import com.miningdim.store.MiningStore;
@@ -72,8 +73,9 @@ public final class MarketSubsystem implements Subsystem {
         if (!(event.getEntity() instanceof ServerPlayer player)) {
             return;
         }
-        // 引擎未就绪 (维度缺失等导致未注入) 时不结算 (取用方自然抛会打断登录链路, 故先判 isRegistered)。
-        if (!MarketServices.isRegistered()) {
+        // 引擎或货币门面未就绪 (维度缺失等导致未注入) 时不结算 —— 取用方自然抛会打断整条登录链路, 故先判。
+        // 结算现在是"取删待结款 + 入账"的单个事务, 一进门就要货币门面, 因此这里必须连它一起判。
+        if (!MarketServices.isRegistered() || !EconomyServices.isRegistered()) {
             return;
         }
         MarketServices.marketEngine().settlePendingOnLogin(player);

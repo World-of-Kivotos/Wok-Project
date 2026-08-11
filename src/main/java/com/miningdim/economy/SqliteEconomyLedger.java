@@ -52,6 +52,17 @@ public final class SqliteEconomyLedger implements EconomyLedger {
         return new SqliteEconomyLedger(conn);
     }
 
+    /**
+     * 本账本所在的连接。
+     *
+     * 存在的唯一理由是让 GameTest 把市场与开箱的 DAO 建在同一条连接上, 复现生产环境"钱与资产同库同事务"
+     * 的真实条件 —— 各开各的内存库时, 事务只覆盖钱那一半, 原子性断言就成了自欺欺人。
+     * 生产路径一律经 {@link com.miningdim.store.MiningStore#connection()} 取连接, 不要用这个口子。
+     */
+    public Connection connection() {
+        return conn;
+    }
+
     @Override
     public <T> T inTransaction(Supplier<T> body) {
         return StoreTx.call(conn, body);

@@ -175,53 +175,49 @@ public final class MarketEngine {
             throw new IllegalStateException("背包空间不足 (listingId=" + listingId + ")");
         }
 
-        // 扣款 (sink 安全扣费): 余额不足返 false 即抛, 此时未扣 (tryCharge 事务安全, 无双花)。
+        // 买家扣款、挂单状态、流水、卖家收款四件事必须同生共死。合库后钱包与市场表同库同连接, 因此可以
+        // 真正裹进一个事务: 崩溃只会落在"整笔没发生"或"整笔发生"上, 不会再出现"钱扣了单没成"或"单成了
+        // 卖家没收到钱"。此前它们各自走 autocommit, 靠单线程顺序执行近似原子, 中途异常只能靠反向 grant 补偿。
         IEconomyService economy = EconomyServices.economyService();
-        if (!economy.tryCharge(buyer, Currency.CREDIT, total)) {
-            throw new IllegalStateException("余额不足 (需 " + total + ", listingId=" + listingId + ")");
-        }
+        economy.inTransaction(() -> {
+            // 扣款 (sink 安全扣费): 余额不足返 false 即抛, 事务回滚, 什么都没发生。
+            if (!economy.tryCharge(buyer, Currency.CREDIT, total)) {
+                throw new IllegalStateException("余额不足 (需 " + total + ", listingId=" + listingId + ")");
+            }
+            // 买下整单 -> markSold; 部分买入 -> 拆分托管 (余量 = 整单 - 买入, 同步更新 count 与 item_nbt 的 count, 留 ACTIVE)。
+            // 条件 UPDATE WHERE status=ACTIVE 返 false = 已非 ACTIVE (并发被抢, 单线程下防御) -> 抛, 事务回滚连扣款一并撤销。
+            boolean committed;
+            if (buyCount == row.count()) {
+                committed = dao.markSold(listingId);
+            } else {
+                ItemStack remaining = escrow.copy();
+                remaining.setCount(row.count() - buyCount);
+                committed = dao.reduceListing(listingId, row.count() - buyCount, serializeStack(remaining));
+            }
+            if (!committed) {
+                throw new IllegalStateException("挂单不存在或已售 (并发被抢, listingId=" + listingId + ")");
+            }
+            dao.insertTxn(listingId, buyer.getUUID(), row.sellerUuid(), row.itemId(),
+                    buyCount, row.unitPrice(), total, 0L, System.currentTimeMillis());
+            // 卖家结算: 在线即时 grant 全额 total; 离线落 pending_payout 待登录结算 (契约第 5 节)。
+            // 手续费已在挂单时收过 (sink), 此处卖家实收 total。
+            ServerPlayer onlineSeller = server.getPlayerList().getPlayer(row.sellerUuid());
+            if (onlineSeller != null) {
+                economy.grant(onlineSeller, Currency.CREDIT, total);
+            } else {
+                dao.insertPendingPayout(row.sellerUuid(), total,
+                        MarketConstants.CURRENCY_CREDIT, System.currentTimeMillis());
+            }
+            return null;
+        });
 
-        // 成交 markSold + insertTxn (契约第 4/5 节)。作者 A 的 MarketDao 刻意不暴露 Connection (接口注释:
-        // "业务层 (B) 只经接口操作, 不直接碰连接"), 故 B 无法在引擎里驱动同一 Connection 的 setAutoCommit/commit/rollback;
-        // 二者各自走 SQLite autocommit 原子提交 (契约第 4 节 "DAO 单方法内部各自原子")。MC 服务端逻辑单线程 + 单连接单写者,
-        // 二者顺序执行间无并发, 行为与显式事务等价: markSold 先做 (条件 UPDATE WHERE status=ACTIVE), 返 false = 挂单已非
-        // ACTIVE -> 退款 + 抛, 此时未写 txn 行 (无脏流水); markSold 成功后再写 txn 行。
-        // 偏离说明 (见 notes 报告): 真正跨方法显式事务需 A 提供原子 DAO 方法 (如 markSoldAndRecordTxn) 或暴露事务边界;
-        // 当前 markSold 成功后 insertTxn 抛 (单线程下 SQL 异常极罕见) 的极小窗口会留 SOLD 行无对应 txn —— 契约第 5 节
-        // "崩溃恢复 deferred" 已接受此 v1 窗口。此处不 try-catch insertTxn (让存储异常自然冒泡到 Gateway, 不吞)。
-        // 买下整单 -> markSold; 部分买入 -> 拆分托管 (余量 = 整单 - 买入, 同步更新 count 与 item_nbt 的 count, 留 ACTIVE)。
-        // 条件 UPDATE WHERE status=ACTIVE 返 false = 已非 ACTIVE (并发被抢, 单线程下防御) -> 退款 + 抛, 不写脏流水。
-        boolean committed;
-        if (buyCount == row.count()) {
-            committed = dao.markSold(listingId);
-        } else {
-            ItemStack remaining = escrow.copy();
-            remaining.setCount(row.count() - buyCount);
-            committed = dao.reduceListing(listingId, row.count() - buyCount, serializeStack(remaining));
-        }
-        if (!committed) {
-            // 已扣款但挂单非 ACTIVE (并发被抢, MC 单线程下防御性): 全额退款再抛 —— 钱不蒸发, 物品未交付。
-            economy.grant(buyer, Currency.CREDIT, total);
-            throw new IllegalStateException("挂单不存在或已售 (并发被抢, 已退款, listingId=" + listingId + ")");
-        }
-        dao.insertTxn(listingId, buyer.getUUID(), row.sellerUuid(), row.itemId(),
-                buyCount, row.unitPrice(), total, 0L, System.currentTimeMillis());
-
-        // 交付买走的部分进买家库存 (容量已预检, 此处必成功; add 返回剩余应为空)。
+        // 交付放在提交之后: 背包是第三个存储 (玩家 NBT), 无法并入本事务。放在提交前意味着事务一旦回滚, 物品
+        // 已经白给; 放在提交后, 最坏情况是"钱货两清但物品没进包"这一已知缺口 (需邮箱式领取才能真正闭合)。
+        // 容量已在扣款前预检, 此处必成功; add 返回剩余应为空。
         boolean added = buyer.getInventory().add(delivered);
         if (!added || !delivered.isEmpty()) {
             // 预检与实际插入不一致是引擎不变量被破坏 (canInsert 漏算): 落地不丢失, 但暴露为状态错。
             buyer.drop(delivered, false);
-        }
-
-        // 卖家结算: 在线即时 grant 全额 total; 离线落 pending_payout 待登录结算 (契约第 5 节)。手续费已在挂单时收过 (sink),
-        // 此处卖家实收 total。崩溃原子性: charge 在 markSold 前的极小窗口 v1 接受 (崩溃恢复 deferred)。
-        ServerPlayer onlineSeller = server.getPlayerList().getPlayer(row.sellerUuid());
-        if (onlineSeller != null) {
-            economy.grant(onlineSeller, Currency.CREDIT, total);
-        } else {
-            dao.insertPendingPayout(row.sellerUuid(), total,
-                    MarketConstants.CURRENCY_CREDIT, System.currentTimeMillis());
         }
 
         return new BuyResult(row.itemId(), buyCount, total, 0L);
@@ -271,21 +267,28 @@ public final class MarketEngine {
 
     /**
      * 卖家登录结算 (契约第 5 节)。把该卖家离线期所有待结 pending_payout 累加为一笔 grant (CREDIT)。
-     * drainPendingPayout 用事务保证取与删原子 (契约第 4 节, A 实现), 故本法取空即落账, 不重复发放。
+     *
+     * 取删与入账必须同事务。此前 drainPendingPayout 自己提交了 SELECT + DELETE, 之后才 grant ——
+     * 崩溃落在两步之间, 卖家的离线收入就【永久消失且记录全无】(行已物理删除, 无从追溯少了多少)。
+     * 这比开箱白嫖更不可挽回, 因为白嫖至少还留着资产行。
      */
     public void settlePendingOnLogin(ServerPlayer seller) {
-        List<long[]> pending = dao.drainPendingPayout(seller.getUUID());
-        if (pending.isEmpty()) {
-            return;
-        }
-        long sum = 0L;
-        for (long[] entry : pending) {
-            // entry[0] = amount (契约第 4 节 drainPendingPayout 返回 [amount])。累加防溢出。
-            sum = Math.addExact(sum, entry[0]);
-        }
-        if (sum > 0L) {
-            EconomyServices.economyService().grant(seller, Currency.CREDIT, sum);
-        }
+        IEconomyService economy = EconomyServices.economyService();
+        economy.inTransaction(() -> {
+            List<long[]> pending = dao.drainPendingPayout(seller.getUUID());
+            if (pending.isEmpty()) {
+                return null;
+            }
+            long sum = 0L;
+            for (long[] entry : pending) {
+                // entry[0] = amount (契约第 4 节 drainPendingPayout 返回 [amount])。累加防溢出。
+                sum = Math.addExact(sum, entry[0]);
+            }
+            if (sum > 0L) {
+                economy.grant(seller, Currency.CREDIT, sum);
+            }
+            return null;
+        });
     }
 
     // ============================================================

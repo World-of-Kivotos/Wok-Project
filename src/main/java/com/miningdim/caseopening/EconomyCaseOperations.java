@@ -7,6 +7,7 @@ import com.miningdim.economy.IEconomyService;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /** Production adapter; keeps the case module coupled only to the public economy facade. */
 public final class EconomyCaseOperations implements CaseEconomyOperations {
@@ -19,6 +20,11 @@ public final class EconomyCaseOperations implements CaseEconomyOperations {
 
     private IEconomyService economy() {
         return EconomyServices.economyService();
+    }
+
+    @Override
+    public <T> T inTransaction(Supplier<T> body) {
+        return economy().inTransaction(body);
     }
 
     @Override

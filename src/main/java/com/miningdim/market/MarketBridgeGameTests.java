@@ -53,7 +53,7 @@ public final class MarketBridgeGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void playerWalletReadsLedgerBalances(GameTestHelper helper) {
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);

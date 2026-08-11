@@ -48,9 +48,9 @@ public final class MarketAdminGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void baseValueOverridePrecedenceAndFee(GameTestHelper helper) {
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
-        MarketDaoSqlite dao = MarketDb.openInMemory();
+        MarketDaoSqlite dao = MarketDb.on(ledger.connection());
         try {
             MarketEngine engine = new MarketEngine(dao, helper.getLevel().getServer());
 

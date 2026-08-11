@@ -5,6 +5,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
 
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * 货币门面接口 (JobFramework_Shared_Foundation_DesignSpec 第三章 DECIDED 接口 + 经济文档 0.3/1.1/8.1)。
@@ -31,6 +32,18 @@ import java.util.UUID;
  * {@link EconomyException} 自然冒泡 (业务层不生吞, 见框架 spec 第三章)。
  */
 public interface IEconomyService {
+
+    /**
+     * 把 body 内的全部经济写入合并进单个事务并返回其结果; 已在事务中则并入外层。
+     *
+     * 这是"扣钱 + 发资产"能落在同一个提交里的唯一入口: 市场与开箱的资产表已与钱包同库同连接, 只要调用方
+     * 把两侧写入裹进本方法, 崩溃就只会落在"两边都没发生"或"两边都发生"上。
+     *
+     * 默认实现直接执行 body: 无持久层的测试替身没有事务可言, 强行要求它们实现只会产出空壳。
+     */
+    default <T> T inTransaction(Supplier<T> body) {
+        return body.get();
+    }
 
     /** 某玩家信用点余额 (服务端权威)。 */
     long creditBalance(ServerPlayer player);

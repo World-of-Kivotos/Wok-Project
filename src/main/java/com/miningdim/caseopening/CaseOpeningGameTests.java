@@ -169,10 +169,10 @@ public final class CaseOpeningGameTests {
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void openingRejectsLedgerOperationBelongingToAnotherCharge(GameTestHelper helper) {
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
-        CaseDaoSqlite dao = CaseDb.openInMemory();
+        CaseDaoSqlite dao = CaseDb.on(ledger.connection());
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             fake.grant(player, Currency.CREDIT, 100_000L);
@@ -210,10 +210,10 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void openingChargesBothCurrenciesExactlyOnce(GameTestHelper helper) {
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
-        CaseDaoSqlite dao = CaseDb.openInMemory();
+        CaseDaoSqlite dao = CaseDb.on(ledger.connection());
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             fake.grant(player, Currency.CREDIT, 100_000L);
@@ -247,10 +247,10 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void insufficientEitherCurrencyLeavesBothUntouched(GameTestHelper helper) {
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
-        CaseDaoSqlite dao = CaseDb.openInMemory();
+        CaseDaoSqlite dao = CaseDb.on(ledger.connection());
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             fake.grant(player, Currency.CREDIT, 49_999L);
@@ -295,10 +295,10 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void unavailableTaczGunpackRejectsBeforeAnyDebitOrReservation(GameTestHelper helper) {
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
-        CaseDaoSqlite dao = CaseDb.openInMemory();
+        CaseDaoSqlite dao = CaseDb.on(ledger.connection());
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             fake.grant(player, Currency.CREDIT, 100_000L);
@@ -344,10 +344,10 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void newOpeningIsRateLimitedBeforeReservation(GameTestHelper helper) {
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
-        CaseDaoSqlite dao = CaseDb.openInMemory();
+        CaseDaoSqlite dao = CaseDb.on(ledger.connection());
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             fake.grant(player, Currency.CREDIT, 150_000L);
@@ -379,10 +379,10 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void loginRecoveryCompletesChargedReservation(GameTestHelper helper) {
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
-        CaseDaoSqlite dao = CaseDb.openInMemory();
+        CaseDaoSqlite dao = CaseDb.on(ledger.connection());
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             fake.grant(player, Currency.CREDIT, 100_000L);
@@ -415,10 +415,10 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void loginRecoveryFinishesRefundLostAtHardCrash(GameTestHelper helper) {
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
-        CaseDaoSqlite dao = CaseDb.openInMemory();
+        CaseDaoSqlite dao = CaseDb.on(ledger.connection());
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             fake.grant(player, Currency.CREDIT, 100_000L);
@@ -454,10 +454,10 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void completedRefundConflictIsIsolatedWhileLaterRowsRecover(GameTestHelper helper) {
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
-        CaseDaoSqlite dao = CaseDb.openInMemory();
+        CaseDaoSqlite dao = CaseDb.on(ledger.connection());
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             fake.grant(player, Currency.CREDIT, 200_000L);
@@ -502,10 +502,10 @@ public final class CaseOpeningGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void recoveryRechargesCommittedAssetWhenSavedDataDebitVanished(GameTestHelper helper) {
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         IEconomyService previous = swapEconomy(fake);
-        CaseDaoSqlite dao = CaseDb.openInMemory();
+        CaseDaoSqlite dao = CaseDb.on(ledger.connection());
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             fake.grant(player, Currency.CREDIT, 100_000L);

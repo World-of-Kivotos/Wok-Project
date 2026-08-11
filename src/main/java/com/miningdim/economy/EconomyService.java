@@ -6,6 +6,7 @@ import net.minecraft.world.level.block.Block;
 
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * 货币门面实现 (经济文档第九章 + 框架 spec 第三章)。所有玩家货币读写经 {@link EconomyLedger}
@@ -48,6 +49,11 @@ public final class EconomyService implements IEconomyService {
         this.ledger = ledger;
         this.abuseGuard = abuseGuard;
         this.stateResolver = stateResolver;
+    }
+
+    @Override
+    public <T> T inTransaction(Supplier<T> body) {
+        return ledger.inTransaction(body);
     }
 
     @Override

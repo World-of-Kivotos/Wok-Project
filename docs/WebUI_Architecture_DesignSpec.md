@@ -25,6 +25,7 @@
 
 2. **前端按美术资源走，不打包进 jar = 只走远端 `devServerUrl` 模式**。React 构建产物托管在远端站点，MCEF 直接加载远端 URL。更新 UI = 重部署网站，mod 一行不动（用户要的"后期更新简单"由此成立）。
    - 推论：旧作的 `EmbeddedWebServer`（JDK HttpServer，只为 serve jar 内 `/assets/.../web` 而存在）**整个丢弃**，连带消除其 localhost 端口 + `CORS:*` 攻击面。jar 内只剩 bridge 地基 + 一个指向远端的 config 值。
+   - **本条约束的是产物分发方式，不约束源码仓库位置。** 前端源码落本仓库 monorepo 与本条并行不悖，且分发方式本身可切换——展开见第十章。
 
 3. **服务端权威重写**：旧作的入站数据面（JS→Java）全是客户端本地回假数据、服务端往返链路是断的死代码（见第三章）。跳蚤市场必须新写一条干净的"客户端只发意图 → 服务端 SQLite 事务校验 → 回执"链路。服务端是交易状态的唯一写入方。
 
@@ -62,7 +63,7 @@
 - **Critical 远程执行面**：`S2CFullSyncPacket.executeJs` 允许服务端在客户端浏览器跑任意 JS；手写 JS 转义只覆 5 种字符（`</script>`/U+2028/U+2029 可破注入）= 展示玩家输入时的 XSS 面。
 - **Major 三套并行传输 + 三个重叠 S2C 包 + 三条事件下行**，大量死代码与重复关联 id 体系（同步无 id / UUID / `req_` 字符串，互不通）。
 - **Major 中文 IME 不可用**、渲染线程 vs 主线程贴图竞态（`browser` 非 volatile）、右键中键映射反、满屏吞异常、Dist 隔离不一致（部分 S2C 包服务端误收会 `NoClassDefFoundError`）、`NetworkRegistry.newSimpleChannel` 已废弃。
-- **清理项**：`mods.toml` / build.gradle 带 ⚠️/✅/✓ emoji，并入时一律不抄（本工程硬禁 emoji）。
+- **清理项**：`mods.toml` / build.gradle 带警告标、对勾一类 emoji 字符，并入时一律不抄（本工程硬禁 emoji）。
 
 ---
 
@@ -168,7 +169,78 @@ MC 原生 `EditBox` 浮在 WebUiScreen 上接收键盘（含中文 IME，因为�
 
 ---
 
-## 十、落地顺序
+## 十、前端源码落点与分发方式（DECIDED 2026-08-10）
+
+### 10.1 两件正交的事
+
+第二章第 2 条易被误读成"前端不能进本仓库"。必须分清两件正交的事：
+
+- **源码仓库位置**：前端源码放本仓库（monorepo）还是独立仓库。
+- **产物分发方式**：构建产物怎么送到 MCEF 面前。
+
+第二章第 2 条只管后者，对前者零约束。
+
+### 10.2 源码落点 = 本仓库 monorepo（DECIDED）
+
+前端源码落**本仓库根目录 `webui/`**，与 Java 源码同仓、同 PR。
+
+理由（针对本项目具体形态，非泛泛的"方便"）：
+
+- **bridge 契约不漂**：action 名与 payload 结构定义在 Java 侧（`PlayerWebUiActions` / `MarketActions` / `MarketAdminActions`），前端在异仓时改一边忘一边是必然，且**运行期才炸**。同仓同 PR 覆盖前后端，这类错配从根上消失。
+- MCEF 场景下前端与 mod 是强绑定的一体，不是可各自独立演进的两个产品。
+- 版本对齐：mod 与 UI 落在同一 commit，回滚与对照直接。
+
+落地约束（已核实）：
+
+- 放仓库根 `webui/`，**不得放进 `src/`**。build.gradle 现有 sourceSets 配置仅 `source sourceSets.main` 与 `srcDir 'src/generated/resources'`，不扫顶层新目录，Gradle 不会碰它。
+- `.gitignore` 须补 `node_modules/` 与前端构建输出目录（当前二者均未忽略）。
+- 代价：克隆本仓库者多一套 Node 工具链。
+
+### 10.3 分发方式 = 维持远端托管（DECIDED，可切换）
+
+当前维持第二章第 2 条：产物远端托管，`devServerUrl` 指向远端站点。三条候选路线：
+
+| 路线 | 更新 UI 的代价 | 版本对齐 | 备注 |
+|---|---|---|---|
+| A 远端站点托管（当前） | 重部署站点，MC 服务端不动 | 弱：站点与服务端 mod 各自部署，可能错配 | 依赖外部站点可用性 |
+| B 服务端 mod 内嵌静态 serve | 更新服务端 mod + 重启服务端，玩家客户端不动 | **强：页面与服务端业务同 jar，物理上不可能错配** | 需开一个只吐静态文件的端口 |
+| C 随客户端 mod 本地加载 | 重发客户端 mod，玩家须更新 | 强 | 已否决，见 10.4 |
+
+**关键认知：A 与 B 不是架构分叉，只是一个 config 值的差异。** mod 侧无论哪条都是 `MCEF.createBrowser(url, ...)` 加载一个 `http(s)://` 地址，`WebBrowser` 一行不改；唯一实际差异是要不要在 mod 里带一个 serve 静态资源的类。故本决策切换成本极低，可随时重选。
+
+选 A 的当前理由：像素 UI 首步验证尚未跑通，对 MCEF 实际表现与 UI 迭代频率均无手感；B 的唯一实质代价（更新 UI 须重启 MC 服务端、玩家掉线）值不值，取决于迭代频率，现在没有判断依据。
+
+### 10.4 路线 B 的安全面界定（重要）
+
+第八章第 5 条"无 localhost 端口"针对的是**客户端**起 HTTP 服务的形态（旧作 `EmbeddedWebServer`），**不能直接套用来否决服务端静态托管**。若日后启用 B，须相应扩写 8.5 而非无声违反它。
+
+B 的实际攻击面（逐条界定）：
+
+- **数据面零 HTTP 请求**：JS 侧唯一入口是 cefQuery，经 `C2SWebUiRequest` 走 Forge 网络包、服务端权威（见 5.1 / 5.2）。因此 B 的 HTTP server 只是静态文件出口——无 API、不接受任何业务输入。
+- **未授权访问不构成风险**：页面 HTML/JS/CSS 本就要发给每个玩家，非机密。前提是构建产物**不得嵌入任何密钥或服务端配置**。
+- **路径穿越可设计消除**：从 jar 内 classpath 读资源（`getResourceAsStream`），而非拼文件系统路径。
+- **DoS 仍在**，但 25565 本就公网可达，增设一个只吐静态文件的端口属增量而非质变。
+- **HTTPS**：`http://` 为非安全上下文，部分浏览器 API 受限。本项目数据不走 fetch 故当前无碍，但启用 B 时应评估是否配证书。
+
+### 10.5 首次加载延迟与预加载（DECIDED）
+
+曾考虑随客户端 mod 本地加载（路线 C）以消除首次访问延迟。**否决**——预加载 + 缓存已覆盖该诉求，成本低一个量级：
+
+- 现状 `WebUiClient` 为懒创建 + 实例复用：仅首次打开慢，其后复用同一 browser。
+- 优化 = 把 `create` 提前到玩家进世界后后台执行，打开时直接 `setScreen` 显示已加载实例。
+- 叠加 Chromium 静态资源缓存；像素 UI 资产为 KB 量级（见 [[pixel-ui-design-decision]]），本身加载即快。
+
+### 10.6 页面版本与 action 契约对齐（DRAFT，新立案）
+
+路线 A 下存在一个当前无机制覆盖的坑：服务端升级了 action 契约，玩家浏览器却缓存着旧页面，会调用已不存在的 action，且**运行期才暴露**。
+
+现有行为：未知 action 由服务端回 failure，`WebUiBridge` 不崩溃，但对玩家表现为功能静默失效——无法自我诊断。
+
+建议方向（DRAFT）：页面加载后经桥上报自身构建版本，服务端比对，不兼容时下发明确提示，而非放任 action 逐个静默失败。路线 B 天然免疫此问题。
+
+---
+
+## 十一、落地顺序
 
 1. **bridge 地基**：抢救 MCEF 宿主三件套（MiracleBrowser/WebUiScreen/InputHandler）+ 客户端 BridgeRouter（cefQuery）+ MiningNetwork 三包 + 一个 "hello world" UI，跑通**一次真服务端往返**（证明权威链路通、requestId 关联对、Dist 隔离不崩 GameTest）。
 2. **跳蚤市场**（旗舰）：market 子系统 + SQLite + 撮合/托管/手续费/留存 + 对应 React 页面（订单簿/搜索/挂单/买入）+ EditBox 中文输入。
@@ -176,10 +248,12 @@ MC 原生 `EditBox` 浮在 WebUiScreen 上接收键盘（含中文 IME，因为�
 
 ---
 
-## 十一、遗留验证项（PENDING，真服/实现期验）
+## 十二、遗留验证项（PENDING，真服/实现期验）
 
 - ~~MCEF 2.1.6 是否暴露 CEF message router（`cefQuery`）API~~：已 javap 核实暴露，见第 5.2（RESOLVED 2026-06-19）。
 - MCEF dev 环境首启下 Chromium native（`MCEF.scheduleForInit`）行为：纯客户端，服务端 GameTest 不触；客户端 runClient 真测。
 - 远端 https 页面 + `bridge://`/cefQuery 的 CORS/混合内容实际表现：真客户端验。
 - 手续费率、铜/铁 P2P 单人 cap 具体数值：标定（DRAFT）。
 - 离线成交交付（邮箱/暂存）落点：设计（DRAFT）。
+- 页面构建版本与 action 契约的对齐机制：设计（DRAFT，见 10.6）。
+- 分发方式是否由 A 切换至 B（服务端内嵌静态 serve）：待像素 UI 首步验证跑通、UI 迭代频率明朗后重选（见 10.3；切换成本为一个 config 值 + 一个静态 serve 类）。

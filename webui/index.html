@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WOK</title>
+    <style>
+      /*
+        像素基线的最早生效点。样式表本体 (src/styles/index.css) 才是真源, 这里重复这两条是因为
+        它在 JS/CSS 落地前就要生效 —— 缺了它首帧会先以平滑插值与抗锯齿字体渲染一次, 在像素资产上
+        这一帧的糊是肉眼可见的。image-rendering 是继承属性, 挂 html 即覆盖整棵树。
+      */
+      html {
+        image-rendering: pixelated;
+        -webkit-font-smoothing: none;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      window.miningdimOnEvent 刻意不在此处预置: 事件入口由 React 侧 (src/bridge/events.ts) 在挂载时注册,
+      避免出现"html 里一个壳、React 里一个真实现"的双份分发路径。Java 侧注入时用 typeof 守卫,
+      挂载完成前到达的事件静默丢弃 —— 服务端当前零业务调用方, 该窗口无实际影响。
+    -->
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

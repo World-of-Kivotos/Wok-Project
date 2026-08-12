@@ -4,34 +4,38 @@
     "tiers": [
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:night_vision",
-          "amplifier": 0,
-          "durationTicks": 7200
+          "kind": "self_premonition_scan",
+          "radius": 24,
+          "durationTicks": 240,
+          "firstHitReduction": 0.20,
+          "vulnerabilityAmplifier": -1
         }
       ],
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:night_vision",
-          "amplifier": 0,
-          "durationTicks": 7200
+          "kind": "self_premonition_scan",
+          "radius": 32,
+          "durationTicks": 320,
+          "firstHitReduction": 0.25,
+          "vulnerabilityAmplifier": -1
         }
       ],
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:night_vision",
-          "amplifier": 0,
-          "durationTicks": 7200
+          "kind": "self_premonition_scan",
+          "radius": 40,
+          "durationTicks": 400,
+          "firstHitReduction": 0.30,
+          "vulnerabilityAmplifier": -1
         }
       ],
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:night_vision",
-          "amplifier": 0,
-          "durationTicks": 7200
+          "kind": "self_premonition_scan",
+          "radius": 48,
+          "durationTicks": 500,
+          "firstHitReduction": 0.35,
+          "vulnerabilityAmplifier": -1
         }
       ]
     ]
@@ -40,58 +44,62 @@
     "tiers": [
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:night_vision",
-          "amplifier": 0,
-          "durationTicks": 24000
+          "kind": "self_premonition_scan",
+          "radius": 20,
+          "durationTicks": 160,
+          "firstHitReduction": 0.0,
+          "vulnerabilityAmplifier": 0
         },
         {
           "kind": "self_potion",
-          "effect": "minecraft:slowness",
+          "effect": "minecraft:darkness",
           "amplifier": 0,
-          "durationTicks": 7200
+          "durationTicks": 80
         }
       ],
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:night_vision",
-          "amplifier": 0,
-          "durationTicks": 24000
+          "kind": "self_premonition_scan",
+          "radius": 28,
+          "durationTicks": 200,
+          "firstHitReduction": 0.0,
+          "vulnerabilityAmplifier": 0
         },
         {
           "kind": "self_potion",
-          "effect": "minecraft:slowness",
+          "effect": "minecraft:darkness",
           "amplifier": 0,
-          "durationTicks": 6000
+          "durationTicks": 80
         }
       ],
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:night_vision",
-          "amplifier": 0,
-          "durationTicks": 24000
+          "kind": "self_premonition_scan",
+          "radius": 36,
+          "durationTicks": 240,
+          "firstHitReduction": 0.0,
+          "vulnerabilityAmplifier": 1
         },
         {
           "kind": "self_potion",
-          "effect": "minecraft:slowness",
+          "effect": "minecraft:darkness",
           "amplifier": 0,
-          "durationTicks": 3600
+          "durationTicks": 60
         }
       ],
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:night_vision",
-          "amplifier": 0,
-          "durationTicks": 24000
+          "kind": "self_premonition_scan",
+          "radius": 44,
+          "durationTicks": 300,
+          "firstHitReduction": 0.0,
+          "vulnerabilityAmplifier": 2
         },
         {
           "kind": "self_potion",
-          "effect": "minecraft:slowness",
+          "effect": "minecraft:darkness",
           "amplifier": 0,
-          "durationTicks": 1200
+          "durationTicks": 40
         }
       ]
     ]
@@ -100,10 +108,7 @@
     "cooldownTicks": 1728000,
     "ops": [
       {
-        "kind": "self_potion",
-        "effect": "minecraft:night_vision",
-        "amplifier": 0,
-        "durationTicks": 1200
+        "kind": "clear_normal_tarot_cooldowns"
       }
     ]
   }

@@ -56,7 +56,8 @@ public final class FarmerItems {
 
     private static RegistryObject<Item> registerFarmlandItem(FarmerTier tier) {
         return ITEMS.register("farmer_farmland_" + tier.id(),
-                () -> new BlockItem(FarmerBlocks.farmland(tier).get(), new Item.Properties()));
+                () -> new FarmerFarmlandItem(
+                        FarmerBlocks.farmland(tier).get(), new Item.Properties(), tier));
     }
 
     /** 取某档耕地的 BlockItem RegistryObject。 */

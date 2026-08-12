@@ -56,58 +56,70 @@
     "tiers": [
       [
         {
+          "kind": "self_wild_overdrive",
+          "durationTicks": 400,
+          "strengthAmplifier": 2,
+          "lifesteal": 0.25,
+          "lowHealthThreshold": 0.50,
+          "lowHealthBonusLifesteal": 0.15,
+          "lowHealthStrengthBonus": 1
+        },
+        {
           "kind": "self_potion",
-          "effect": "minecraft:haste",
+          "effect": "miningdim:vulnerability",
           "amplifier": 1,
-          "durationTicks": 600
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:nausea",
-          "amplifier": 0,
-          "durationTicks": 600
-        }
-      ],
-      [
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:haste",
-          "amplifier": 2,
-          "durationTicks": 800
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:nausea",
-          "amplifier": 0,
-          "durationTicks": 500
-        }
-      ],
-      [
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:haste",
-          "amplifier": 3,
-          "durationTicks": 1000
-        },
-        {
-          "kind": "self_potion",
-          "effect": "minecraft:nausea",
-          "amplifier": 0,
           "durationTicks": 400
         }
       ],
       [
         {
-          "kind": "self_potion",
-          "effect": "minecraft:haste",
-          "amplifier": 4,
-          "durationTicks": 1200
+          "kind": "self_wild_overdrive",
+          "durationTicks": 500,
+          "strengthAmplifier": 3,
+          "lifesteal": 0.35,
+          "lowHealthThreshold": 0.50,
+          "lowHealthBonusLifesteal": 0.15,
+          "lowHealthStrengthBonus": 1
         },
         {
           "kind": "self_potion",
-          "effect": "minecraft:nausea",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 1,
+          "durationTicks": 500
+        }
+      ],
+      [
+        {
+          "kind": "self_wild_overdrive",
+          "durationTicks": 600,
+          "strengthAmplifier": 4,
+          "lifesteal": 0.45,
+          "lowHealthThreshold": 0.50,
+          "lowHealthBonusLifesteal": 0.15,
+          "lowHealthStrengthBonus": 1
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
           "amplifier": 0,
-          "durationTicks": 300
+          "durationTicks": 600
+        }
+      ],
+      [
+        {
+          "kind": "self_wild_overdrive",
+          "durationTicks": 700,
+          "strengthAmplifier": 5,
+          "lifesteal": 0.55,
+          "lowHealthThreshold": 0.50,
+          "lowHealthBonusLifesteal": 0.15,
+          "lowHealthStrengthBonus": 1
+        },
+        {
+          "kind": "self_potion",
+          "effect": "miningdim:vulnerability",
+          "amplifier": 0,
+          "durationTicks": 700
         }
       ]
     ]

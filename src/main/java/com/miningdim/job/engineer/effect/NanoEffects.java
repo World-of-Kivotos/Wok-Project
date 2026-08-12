@@ -107,11 +107,24 @@ public final class NanoEffects {
             NanoNbt.setShieldWindowTick(armor, Math.max(0, window - interval));
             inWindow = true;
         }
-        if (NanoNbt.shieldCharges(armor) > 0) {
+        int maxCharges = EngineerConfig.SHIELD_MAX_CHARGES.get();
+        int charges = Math.min(maxCharges, Math.max(0, NanoNbt.shieldCharges(armor)));
+        if (charges >= maxCharges) {
+            NanoNbt.setShieldRegenTick(armor, 0);
+        } else {
             int regen = NanoNbt.shieldRegenTick(armor);
-            if (regen > 0) {
-                NanoNbt.setShieldRegenTick(armor, Math.max(0, regen - interval));
+            if (regen <= 0) {
+                regen = EngineerConfig.SHIELD_REGEN_INTERVAL_TICKS.get();
             }
+            regen -= interval;
+            if (regen <= 0) {
+                charges++;
+                NanoNbt.setShieldCharges(armor, charges);
+                regen = charges < maxCharges
+                        ? EngineerConfig.SHIELD_REGEN_INTERVAL_TICKS.get()
+                        : 0;
+            }
+            NanoNbt.setShieldRegenTick(armor, Math.max(0, regen));
         }
         return inWindow;
     }
@@ -129,12 +142,16 @@ public final class NanoEffects {
      */
     public static boolean tryReactiveShield(ItemStack armor) {
         int charges = NanoNbt.shieldCharges(armor);
-        if (charges <= 0 || NanoNbt.shieldRegenTick(armor) > 0) {
+        if (charges <= 0) {
             return false;
         }
         NanoNbt.setShieldWindowTick(armor, EngineerConfig.SHIELD_IMMUNITY_TICKS.get());
-        NanoNbt.setShieldCharges(armor, charges - 1);
-        NanoNbt.setShieldRegenTick(armor, EngineerConfig.SHIELD_REGEN_INTERVAL_TICKS.get());
+        int remaining = charges - 1;
+        NanoNbt.setShieldCharges(armor, remaining);
+        if (remaining < EngineerConfig.SHIELD_MAX_CHARGES.get()
+                && NanoNbt.shieldRegenTick(armor) <= 0) {
+            NanoNbt.setShieldRegenTick(armor, EngineerConfig.SHIELD_REGEN_INTERVAL_TICKS.get());
+        }
         return true;
     }
 }

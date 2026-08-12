@@ -1,5 +1,8 @@
 {
   "variants": {
-    "": { "model": "miningdim:block/production_table_transcendent" }
+    "facing=north": { "model": "miningdim:block/production_table_transcendent" },
+    "facing=east": { "model": "miningdim:block/production_table_transcendent", "y": 90, "uvlock": true },
+    "facing=south": { "model": "miningdim:block/production_table_transcendent", "y": 180, "uvlock": true },
+    "facing=west": { "model": "miningdim:block/production_table_transcendent", "y": 270, "uvlock": true }
   }
 }

@@ -127,6 +127,34 @@ public final class GunsmithStatGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void gehennaQualityCurvePinsFireRateVerticalRecoilAndFixedInaccuracy(GameTestHelper helper) {
+        GunsmithPartVariant variant = GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS;
+        double minimum = GunsmithPartQuality.COMMON.minCoefficient();
+        double midpoint = (minimum + GunsmithPartQuality.LEGENDARY.maxCoefficient()) / 2.0D;
+        double maximum = GunsmithPartQuality.LEGENDARY.maxCoefficient();
+
+        assertClose(helper, variant.fireRateMultiplier(minimum), 1.0D,
+                "minimum global quality coefficient must not increase fire rate");
+        assertClose(helper, variant.verticalRecoilMultiplier(minimum), 1.0D,
+                "minimum global quality coefficient must not increase vertical recoil");
+        assertClose(helper, variant.inaccuracyMultiplier(minimum), 1.30D,
+                "minimum global quality coefficient must retain the fixed +30% inaccuracy penalty");
+        assertClose(helper, variant.fireRateMultiplier(midpoint), 1.125D,
+                "midpoint global quality coefficient must increase fire rate by 12.5%");
+        assertClose(helper, variant.verticalRecoilMultiplier(midpoint), 2.50D,
+                "midpoint global quality coefficient must increase vertical recoil by 150%");
+        assertClose(helper, variant.inaccuracyMultiplier(midpoint), 1.30D,
+                "midpoint global quality coefficient must retain the fixed +30% inaccuracy penalty");
+        assertClose(helper, variant.fireRateMultiplier(maximum), 1.25D,
+                "maximum global quality coefficient must cap fire rate at +25%");
+        assertClose(helper, variant.verticalRecoilMultiplier(maximum), 4.00D,
+                "maximum global quality coefficient must cap vertical recoil at +300%");
+        assertClose(helper, variant.inaccuracyMultiplier(maximum), 1.30D,
+                "maximum global quality coefficient must retain the fixed +30% inaccuracy penalty");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void statMultipliersPinMultiplyVersusInverseDirection(GameTestHelper helper) {
         // 高 cap 关闭封顶, 只验方向 (审查 TQ-1): damage/headshot/range 直乘; ads/aim 走 inverse(handling);
         // inaccuracy 走 inverse(spread); recoil 走 inverse(recoil)。方向写反则对应断言必挂。
@@ -139,6 +167,25 @@ public final class GunsmithStatGameTests {
         assertClose(helper, m.inaccuracy(), 1.0D / 1.10D, "inaccuracy must apply the inverse of spread");
         assertClose(helper, m.aimInaccuracy(), 1.0D / 1.25D, "aim inaccuracy must apply the inverse of handling");
         assertClose(helper, m.recoil(), 1.0D / 1.50D, "recoil must apply the inverse of recoil");
+        assertClose(helper, m.verticalRecoil(), 1.0D / 1.50D,
+                "legacy recoil coefficient must affect vertical recoil");
+        assertClose(helper, m.horizontalRecoil(), 1.0D / 1.50D,
+                "legacy recoil coefficient must affect horizontal recoil equally");
+        assertClose(helper, m.fireRate(), 1.0D,
+                "basic components must leave fire rate unchanged");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void roundsPerMinuteUsesTaCzCompatibleRounding(GameTestHelper helper) {
+        GunsmithStatMultipliers multipliers = new GunsmithStatMultipliers(
+                1.0D, 1.0D, 1.0D, 1.0D, 1.0D, 1.0D,
+                1.0D, 1.0D, 1.25D);
+
+        helper.assertTrue(multipliers.roundsPerMinute(943) == 1179,
+                "943 RPM at +25% must round 1178.75 to 1179");
+        helper.assertTrue(multipliers.roundsPerMinute(750) == 938,
+                "750 RPM at +25% must round the half value up to 938");
         helper.succeed();
     }
 

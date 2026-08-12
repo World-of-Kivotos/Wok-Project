@@ -9,7 +9,8 @@ import com.miningdim.economy.AbuseGuard;
 import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyService;
 import com.miningdim.economy.EconomyServices;
-import com.miningdim.economy.EconomyWalletData;
+import com.miningdim.economy.EconomyLedger;
+import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.market.store.MarketDaoSqlite;
@@ -52,7 +53,7 @@ public final class MarketBridgeGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void playerWalletReadsLedgerBalances(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);

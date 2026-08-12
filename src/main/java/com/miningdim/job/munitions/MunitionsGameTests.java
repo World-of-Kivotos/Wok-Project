@@ -5,7 +5,8 @@ import com.miningdim.economy.AbuseGuard;
 import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyService;
 import com.miningdim.economy.EconomyServices;
-import com.miningdim.economy.EconomyWalletData;
+import com.miningdim.economy.EconomyLedger;
+import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.job.IJobService;
@@ -456,7 +457,7 @@ public final class MunitionsGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         RecordingJobService job = new RecordingJobService(5); // L5: 步枪直造 40/批。
         IJobService prevJob = swapJob(job);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
             MunitionsBenchBlockEntity be = newBench(helper, player);
@@ -499,7 +500,7 @@ public final class MunitionsGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         RecordingJobService job = new RecordingJobService(5);
         IJobService prevJob = swapJob(job);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
             MunitionsBenchBlockEntity be = newBench(helper, player);
@@ -533,7 +534,7 @@ public final class MunitionsGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         RecordingJobService job = new RecordingJobService(5); // L5: 步枪直造 40/批。
         IJobService prevJob = swapJob(job);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
             MunitionsBenchBlockEntity be = newBench(helper, player);
@@ -647,7 +648,7 @@ public final class MunitionsGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         RecordingJobService job = new RecordingJobService(5);
         IJobService prevJob = swapJob(job);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
             MunitionsBenchBlockEntity be = newBench(helper, player);
@@ -677,7 +678,7 @@ public final class MunitionsGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         RecordingJobService job = new RecordingJobService(5); // L5: 步枪直造 40/批。
         IJobService prevJob = swapJob(job);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
             MunitionsBenchBlockEntity be = newBench(helper, player);
@@ -721,7 +722,7 @@ public final class MunitionsGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         RecordingJobService job = new RecordingJobService(5);
         IJobService prevJob = swapJob(job);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
             MunitionsBenchBlockEntity be = newBench(helper, player);
@@ -751,7 +752,7 @@ public final class MunitionsGameTests {
         ServerPlayer stranger = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         RecordingJobService job = new RecordingJobService(5);
         IJobService prevJob = swapJob(job);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
             MunitionsBenchBlockEntity be = newBench(helper, owner);
@@ -775,7 +776,7 @@ public final class MunitionsGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         RecordingJobService job = new RecordingJobService(6); // L6: 狙击解锁线。
         IJobService prevJob = swapJob(job);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
             // MEDIUM 台 maxEffectiveLevel=4: L6 玩家被钳到 L4, SNIPER (L6 门) 拒选; RIFLE (L3 门) 放行。
@@ -963,7 +964,7 @@ public final class MunitionsGameTests {
     }
 
     /** 真 EconomyService (内存账本 + AbuseGuard + 惰性玩家态解析器); tryCharge 走真 sink 语义。 */
-    private static IEconomyService freshEconomy(EconomyWalletData ledger) {
+    private static IEconomyService freshEconomy(EconomyLedger ledger) {
         Map<UUID, PlayerAbuseState> states = new HashMap<>();
         Function<UUID, PlayerAbuseState> resolver = id -> states.computeIfAbsent(id, k -> new PlayerAbuseState());
         return new EconomyService(ledger, new AbuseGuard(), resolver);

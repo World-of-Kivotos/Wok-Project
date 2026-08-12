@@ -1,8 +1,12 @@
 {
-  "parent": "minecraft:block/cube_bottom_top",
+  "parent": "minecraft:block/cube",
   "textures": {
-    "top": "minecraft:block/netherite_block",
-    "bottom": "minecraft:block/smithing_table_bottom",
-    "side": "minecraft:block/smithing_table_front"
+    "particle": "miningdim:block/production_table_transcendent_side",
+    "down": "miningdim:block/production_table_transcendent_side",
+    "up": "miningdim:block/production_table_transcendent_top",
+    "north": "miningdim:block/production_table_transcendent_front",
+    "south": "miningdim:block/production_table_transcendent_side",
+    "west": "miningdim:block/production_table_transcendent_side",
+    "east": "miningdim:block/production_table_transcendent_side"
   }
 }

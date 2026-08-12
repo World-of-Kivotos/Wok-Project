@@ -213,9 +213,12 @@
 - MC 版本号。
 - 影响: 等级数据存储 API、方块状态、事件钩子差异较大。
 
-### B. 玩家数据持久化 (PENDING)
-- 方案一: mod 自带 capability/attachment 落盘(单服自包含)。
-- 方案二: 接现有 PostgreSQL(便于跨服与后台看板,契合现有平台,但需定义同步边界)。
+### B. 玩家数据持久化 (已定: 方案一)
+- 方案一(已采用): mod 自带 capability/attachment 落盘(单服自包含)。职业进度落在 entry 的玩家 capability 上,
+  见 MiningCapabilities 与 JobProgress。
+- 方案二(作废): 早期设想接 PostgreSQL。本项目从未引入 PG —— 需要关系型存储的部分走的是随 mod 内嵌的 SQLite
+  (jarJar 内嵌 org.xerial:sqlite-jdbc, 单库 miningdim.db 落世界存档目录), 现已收编跳蚤市场、开箱、钱包、
+  双币幂等账本与每日计数。跨服与后台看板若日后要做, 应基于该 SQLite 另议导出/同步边界, 不要按 PG 设计。
 
 ### C. 上限触发反馈与时区 (PENDING)
 - 触顶后是"经验显示为 0 灰字提示"还是"actionbar 提示进入衰减档"。

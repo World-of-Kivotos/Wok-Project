@@ -6,36 +6,39 @@ import net.minecraft.world.level.block.Block;
 
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
- * 货币门面实现 (经济文档第九章 + 框架 spec 第三章)。所有玩家货币读写经 {@link EconomyWalletData}
- * (UUID 键 SavedData, 服务端权威), 衰减/翻日复用 {@link AbuseGuard} 的纯函数与 UTC 时钟 (单一真值, 不另起一套)。
+ * 货币门面实现 (经济文档第九章 + 框架 spec 第三章)。所有玩家货币读写经 {@link EconomyLedger}
+ * (UUID 键, 服务端权威, 落统一 SQLite), 衰减/翻日复用 {@link AbuseGuard} 的纯函数与 UTC 时钟
+ * (单一真值, 不另起一套)。
  *
- * 由 {@link EconomySystem} 在 ServerStartedEvent 取矿山维度 ServerLevel 建账本后构造, 注入
+ * 由 {@link EconomySystem} 在 ServerStartedEvent 在统一库连接上建账本后构造, 注入
  * {@link EconomyServices} 定位器 (job 包定位器范式; 不碰 core.MiningServices, 见类注释)。
  *
  * 异常纪律: 非法金额/入账溢出由 {@link PlayerWallet} 抛 {@link EconomyException} 自然冒泡, 本类不生吞;
- * 余额不足由 {@link #tryCharge} 返 false (事务安全)。
+ * 余额不足由 {@link #tryCharge} 返 false (事务安全)。数据库故障同样自然冒泡, 严禁降级到内存副本 ——
+ * 留一个可写的第二份账本等于让"钱与资产不一致"重新出现。
  *
- * 线程: 全部服务端主线程调用 (职业事件回调 / 命令 / 网络 handler 均主线程)。账本 SavedData 同主线程访问。
+ * 线程: 全部服务端主线程调用 (职业事件回调 / 命令 / 网络 handler 均主线程)。账本同主线程单连接访问。
  */
 public final class EconomyService implements IEconomyService {
 
-    private final EconomyWalletData ledger;
+    private final EconomyLedger ledger;
     private final AbuseGuard abuseGuard;
     private final Function<UUID, PlayerAbuseState> stateResolver;
 
     /**
-     * @param ledger        全服账本 (矿山维度 SavedData, 由 EconomySystem 在服务端启动期取得)
+     * @param ledger        全服账本 (统一 SQLite, 由 EconomySystem 在服务端启动期建在共享连接上)
      * @param abuseGuard    复用经济子系统已有的衰减纯函数 + UTC 翻日时钟 (不重复实现 0.97/0.25 与翻日口径)
      * @param stateResolver 以玩家 UUID 取 {@link PlayerAbuseState} (由 {@link EconomySystem} 提供唯一所有的态表入口;
      *                      供 {@link #recordMinedOreDrops} 计入当日矿物计数与 {@link #isAfkFrozen} 读冻结态, 与
      *                      {@link EconomySystem#onBlockBreak} 共用同一态实例, 不另起一套玩家态)
      */
-    public EconomyService(EconomyWalletData ledger, AbuseGuard abuseGuard,
+    public EconomyService(EconomyLedger ledger, AbuseGuard abuseGuard,
                           Function<UUID, PlayerAbuseState> stateResolver) {
         if (ledger == null) {
-            throw new IllegalArgumentException("EconomyWalletData ledger must not be null");
+            throw new IllegalArgumentException("EconomyLedger must not be null");
         }
         if (abuseGuard == null) {
             throw new IllegalArgumentException("AbuseGuard must not be null");
@@ -46,6 +49,11 @@ public final class EconomyService implements IEconomyService {
         this.ledger = ledger;
         this.abuseGuard = abuseGuard;
         this.stateResolver = stateResolver;
+    }
+
+    @Override
+    public <T> T inTransaction(Supplier<T> body) {
+        return ledger.inTransaction(body);
     }
 
     @Override
@@ -64,8 +72,34 @@ public final class EconomyService implements IEconomyService {
     }
 
     @Override
+    public EconomyOperationStatus tryChargeBundle(EconomyOperationDomain domain, ServerPlayer player,
+                                                   UUID operationId, long creditAmount, long azureAmount) {
+        return ledger.tryChargeBundle(domain, player.getUUID(), operationId, creditAmount, azureAmount);
+    }
+
+    @Override
+    public EconomyOperationStatus operationStatus(EconomyOperationDomain domain, UUID playerId, UUID operationId) {
+        return ledger.operationStatus(domain, playerId, operationId);
+    }
+
+    @Override
+    public EconomyOperationStatus completeBundle(EconomyOperationDomain domain, UUID playerId, UUID operationId) {
+        return ledger.completeBundle(domain, playerId, operationId);
+    }
+
+    @Override
+    public EconomyOperationStatus refundBundle(EconomyOperationDomain domain, UUID playerId, UUID operationId) {
+        return ledger.refundBundle(domain, playerId, operationId);
+    }
+
+    @Override
     public void grant(ServerPlayer player, Currency currency, long amount) {
         ledger.credit(player.getUUID(), currency, amount);
+    }
+
+    @Override
+    public void grantBundle(ServerPlayer player, long creditAmount, long azureAmount) {
+        ledger.creditBundle(player.getUUID(), creditAmount, azureAmount);
     }
 
     @Override
@@ -112,9 +146,15 @@ public final class EconomyService implements IEconomyService {
             HighValueOre ore = abuseGuard.classify(block);
             double basePrice = ShopPriceTable.oreBasePrice(ore);
             int firstCount = total - producedCount + 1;
-            for (int n = firstCount; n <= total; n++) {
-                settleOreSale(player, ore, n, basePrice);
-            }
+            // 一次挖掘事件的全部产出物结算合并成单个事务: 连锁一次可达数十个产出物, 每个都改同一行钱包与
+            // 同一条 faucet 计数, 逐笔提交会把同一页反复追加进 WAL; 合并后既只追加一次, 也让这一批结算
+            // 要么整体生效要么整体不生效, 不会出现"发了一半"的挖掘。
+            ledger.inTransaction(() -> {
+                for (int n = firstCount; n <= total; n++) {
+                    settleOreSale(player, ore, n, basePrice);
+                }
+                return null;
+            });
         }
         return total;
     }
@@ -129,19 +169,23 @@ public final class EconomyService implements IEconomyService {
             throw new EconomyException(EconomyException.Reason.ILLEGAL_AMOUNT,
                     "grantDaily dailyCap must be > 0, got " + dailyCap);
         }
-        // 取本次入账前当日累计原始信用点 n0 (并把本次 rawCredit 累加进 faucet 计数器, UTC 翻日清零)。
         long today = abuseGuard.currentPlayerDayStamp();
-        long before = ledger.recordFaucetGrant(player.getUUID(), faucetKey, rawCredit, today);
-        // 按全服每人每日统一衰减主闸逐档积分算精确实发额 (第十一章决策 2: 0.6 衰减 / 60000 档 / 1% 地板; 几何主项前 10 档
-        // ≈ 14.9 万为正常落点, 深档 1% 地板留极薄线性尾巴, 不收敛、靠巡查兜底)。
-        // 取精确 double 而非 floor 版: 把小数交账本 carry 跨笔累进 (creditFaucetWithCarry), 修复深档小额逐笔 floor 归零。
-        double exact = abuseGuard.faucetCreditAfterDecayExact(before, rawCredit, dailyCap);
-        long effective = ledger.creditFaucetWithCarry(player.getUUID(), faucetKey, exact, today);
-        if (effective > 0L) {
-            // faucet 是最大货币注入口, grant 内部 Math.addExact 防溢出击穿 M0 (经济文档 7.3)。
-            ledger.credit(player.getUUID(), Currency.CREDIT, effective);
-        }
-        return effective;
+        // 三步必须同生共死: 推进当日原始累计 (决定衰减档位)、推进小数余量、落账。分别提交时崩在中间会留下
+        // "档位推进了、钱没发"的玩家 —— 那是不可自愈的额度损失, 且没有任何记录能说明少了多少。
+        return ledger.inTransaction(() -> {
+            // 取本次入账前当日累计原始信用点 n0 (并把本次 rawCredit 累加进 faucet 计数器, UTC 翻日清零)。
+            long before = ledger.recordFaucetGrant(player.getUUID(), faucetKey, rawCredit, today);
+            // 按全服每人每日统一衰减主闸逐档积分算精确实发额 (第十一章决策 2: 0.6 衰减 / 60000 档 / 1% 地板; 几何主项前 10 档
+            // ≈ 14.9 万为正常落点, 深档 1% 地板留极薄线性尾巴, 不收敛、靠巡查兜底)。
+            // 取精确 double 而非 floor 版: 把小数交账本 carry 跨笔累进 (creditFaucetWithCarry), 修复深档小额逐笔 floor 归零。
+            double exact = abuseGuard.faucetCreditAfterDecayExact(before, rawCredit, dailyCap);
+            long effective = ledger.creditFaucetWithCarry(player.getUUID(), faucetKey, exact, today);
+            if (effective > 0L) {
+                // faucet 是最大货币注入口, grant 内部 Math.addExact 防溢出击穿 M0 (经济文档 7.3)。
+                ledger.credit(player.getUUID(), Currency.CREDIT, effective);
+            }
+            return effective;
+        });
     }
 
     @Override

@@ -1,6 +1,7 @@
 package com.miningdim.job.tarot;
 
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -10,6 +11,8 @@ import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.living.LivingAttackEvent;
+import net.minecraftforge.event.entity.living.LivingHealEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.living.LivingKnockBackEvent;
 import net.minecraftforge.event.entity.living.MobEffectEvent;
@@ -45,8 +48,9 @@ public final class TarotCombatHandlers {
         if (server == null) {
             return;
         }
-        if (TarotCombatState.hasWindow(player.getUUID(), TarotCombatState.WindowKind.KNOCKBACK_IMMUNITY,
-                server.getTickCount())) {
+        long now = server.getTickCount();
+        if (TarotCombatState.hasWindow(player.getUUID(), TarotCombatState.WindowKind.KNOCKBACK_IMMUNITY, now)
+                || TarotCombatState.hasWildOverdrive(player.getUUID(), now)) {
             event.setStrength(0.0F);
         }
     }
@@ -97,6 +101,16 @@ public final class TarotCombatHandlers {
             return;
         }
 
+        // 女祭司正位预知：仅首次实际受击消费窗口，按品质减伤后继续进入记账/反伤/分摊流程。
+        if (event.getAmount() > 0.0F) {
+            double reduction = TarotCombatState.consumePremonitionReduction(victim.getUUID(), now);
+            if (reduction > 0.0D) {
+                event.setAmount((float) Math.max(0.0D, event.getAmount() * (1.0D - reduction)));
+                victim.displayClientMessage(Component.translatable(
+                        "message.miningdim.tarot.premonition.block", Math.round(reduction * 100.0D)), true);
+            }
+        }
+
         // 延迟记账冻死窗 (倒吊人闪耀): 本次伤害挂账; 若会致命则把伤害削到 "留 1 滴血" (冻结不死), 否则照常承伤。
         // 挂起账本在窗口结束按 50% 结算 (TarotEffectEngine.settleLedger)。spec "致命伤冻结不死"。
         if (TarotCombatState.hasLedger(victim.getUUID(), now)) {
@@ -124,6 +138,50 @@ public final class TarotCombatHandlers {
                 && event.getSource().getEntity() instanceof LivingEntity src && src != victim) {
             TarotCombatState.recordReflectAccum(victim.getUUID(), src.getUUID(), event.getAmount(), now);
         }
+
+        TarotCombatState.DamageShareSnapshot share = TarotCombatState.damageShare(victim.getUUID(), now);
+        if (share != null && share.percent() > 0.0D && event.getAmount() > 0.0F) {
+            java.util.List<ServerPlayer> recipients = share.members().stream()
+                    .filter(id -> !id.equals(victim.getUUID()))
+                    .map(server.getPlayerList()::getPlayer)
+                    .filter(java.util.Objects::nonNull)
+                    .filter(Player::isAlive)
+                    .toList();
+            if (!recipients.isEmpty()) {
+                float distributed = (float) (event.getAmount() * share.percent());
+                event.setAmount(Math.max(0.0F, event.getAmount() - distributed));
+                float each = distributed / recipients.size();
+                for (ServerPlayer recipient : recipients) {
+                    recipient.setHealth(Math.max(0.0F, recipient.getHealth() - each));
+                }
+            }
+        }
+    }
+
+    /** 隐士闪耀期间不可攻击；覆盖近战、弹射物及标准枪械伤害源。 */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onLivingAttack(LivingAttackEvent event) {
+        if (!(event.getSource().getEntity() instanceof ServerPlayer attacker)) {
+            return;
+        }
+        MinecraftServer server = attacker.getServer();
+        if (server != null && TarotCombatState.restricted(attacker.getUUID(),
+                TarotCombatState.Restriction.ATTACK_LOCK, server.getTickCount())) {
+            event.setCanceled(true);
+        }
+    }
+
+    /** 星星逆位力竭期间拒绝全部治疗。 */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onLivingHeal(LivingHealEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
+            return;
+        }
+        MinecraftServer server = player.getServer();
+        if (server != null && TarotCombatState.restricted(player.getUUID(),
+                TarotCombatState.Restriction.HEALING_BLOCK, server.getTickCount())) {
+            event.setAmount(0.0F);
+        }
     }
 
     /** 出伤侧: 吸血窗 (倒吊人逆位/恶魔) —— 使用者对敌造成伤害后, 回血 percent。 */
@@ -140,7 +198,11 @@ public final class TarotCombatHandlers {
         if (server == null) {
             return;
         }
-        double pct = TarotCombatState.lifestealPercent(attacker.getUUID(), server.getTickCount());
+        long now = server.getTickCount();
+        double healthRatio = attacker.getMaxHealth() <= 0.0F
+                ? 1.0D : attacker.getHealth() / attacker.getMaxHealth();
+        double pct = Math.max(TarotCombatState.lifestealPercent(attacker.getUUID(), now),
+                TarotCombatState.wildOverdriveLifestealPercent(attacker.getUUID(), now, healthRatio));
         if (pct > 0.0D) {
             attacker.heal((float) (event.getAmount() * pct));
         }

@@ -4,6 +4,9 @@ import com.miningdim.economy.EconomyConstants.HighValueOre;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
 
+import java.util.UUID;
+import java.util.function.Supplier;
+
 /**
  * 货币门面接口 (JobFramework_Shared_Foundation_DesignSpec 第三章 DECIDED 接口 + 经济文档 0.3/1.1/8.1)。
  *
@@ -30,6 +33,18 @@ import net.minecraft.world.level.block.Block;
  */
 public interface IEconomyService {
 
+    /**
+     * 把 body 内的全部经济写入合并进单个事务并返回其结果; 已在事务中则并入外层。
+     *
+     * 这是"扣钱 + 发资产"能落在同一个提交里的唯一入口: 市场与开箱的资产表已与钱包同库同连接, 只要调用方
+     * 把两侧写入裹进本方法, 崩溃就只会落在"两边都没发生"或"两边都发生"上。
+     *
+     * 默认实现直接执行 body: 无持久层的测试替身没有事务可言, 强行要求它们实现只会产出空壳。
+     */
+    default <T> T inTransaction(Supplier<T> body) {
+        return body.get();
+    }
+
     /** 某玩家信用点余额 (服务端权威)。 */
     long creditBalance(ServerPlayer player);
 
@@ -46,6 +61,33 @@ public interface IEconomyService {
     boolean tryCharge(ServerPlayer player, Currency currency, long amount);
 
     /**
+     * 以 (domain, operationId) 幂等地一次扣除信用点与青辉石。首次成功返 CHARGED；余额不足返 NONE 且两币均
+     * 不动；重放返回已持久化状态且不再次扣款。同一 operationId 不得换业务域、玩家或金额复用。
+     *
+     * domain 必传：operationId 由业务侧提供（开箱的甚至由客户端提交），只按 (玩家, operationId) 幂等会让
+     * 不同业务互相串号 —— 一笔业务的已付款事实被另一笔当作自己的付款凭据，从而跳过扣款。
+     */
+    default EconomyOperationStatus tryChargeBundle(EconomyOperationDomain domain, ServerPlayer player,
+                                                    UUID operationId, long creditAmount, long azureAmount) {
+        throw new UnsupportedOperationException("This economy service does not support persistent bundle charges");
+    }
+
+    /** 按业务域与玩家 UUID 查询双币扣款状态，供玩家离线或服务启动时恢复 Saga。 */
+    default EconomyOperationStatus operationStatus(EconomyOperationDomain domain, UUID playerId, UUID operationId) {
+        throw new UnsupportedOperationException("This economy service does not support persistent bundle charges");
+    }
+
+    /** 幂等地把 CHARGED 标为 COMPLETED；不存在或不属于该域返 NONE，已退款返 REFUNDED。 */
+    default EconomyOperationStatus completeBundle(EconomyOperationDomain domain, UUID playerId, UUID operationId) {
+        throw new UnsupportedOperationException("This economy service does not support persistent bundle charges");
+    }
+
+    /** 幂等地把 CHARGED 的两币退回并标为 REFUNDED；不存在或不属于该域返 NONE，已完成返 COMPLETED。 */
+    default EconomyOperationStatus refundBundle(EconomyOperationDomain domain, UUID playerId, UUID operationId) {
+        throw new UnsupportedOperationException("This economy service does not support persistent bundle charges");
+    }
+
+    /**
      * 系统入账 (faucet: 任务/刷怪/卖矿卖菜 / 职业产出的货币奖励)。
      *
      * 溢出契约 (经济文档 7.3 M0 货币总量统计防脏数据击穿): faucet 是最大货币注入口, long 累加无上界
@@ -57,6 +99,14 @@ public interface IEconomyService {
      * @param amount 入账量 (必须 &gt; 0; 非法金额抛 {@link EconomyException.Reason#ILLEGAL_AMOUNT})
      */
     void grant(ServerPlayer player, Currency currency, long amount);
+
+    /**
+     * 原子发放信用点与青辉石。两种金额都必须为正；任一余额可能溢出时两币均不入账。
+     * 该入口供系统补偿和受权限保护的管理命令使用，不是玩家间转账接口，也不计入日常 faucet 衰减。
+     */
+    default void grantBundle(ServerPlayer player, long creditAmount, long azureAmount) {
+        throw new UnsupportedOperationException("This economy service does not support atomic bundle grants");
+    }
 
     /**
      * 含每日限购计数器的事务扣费 (框架 spec 第三章): 当日经同一 dailyKey 累计扣费未超 dailyCap 且余额足才扣。

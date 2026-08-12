@@ -38,9 +38,17 @@ public final class JobProgress {
         return (long) Math.floor(xp);
     }
 
+    public long xp(JobId job) {
+        return job == JobId.FARMER ? Math.round(xp) : xp();
+    }
+
     /** 当日已结算有效经验整数读出 (内部 double 精确累计, 读出 floor)。 */
     public long dailyXp() {
         return (long) Math.floor(dailyXp);
+    }
+
+    public long dailyXp(JobId job) {
+        return job == JobId.FARMER ? Math.round(dailyXp) : dailyXp();
     }
 
     public long dayStamp() {
@@ -67,6 +75,16 @@ public final class JobProgress {
      * @return 本次实际折算入账的有效经验 (>=0); 满级后仍累加 xp 但 level 封顶 10
      */
     public long grantXp(long rawXp, long todayStamp) {
+        prepareGrant(rawXp, todayStamp);
+        return grantXpInternal(null, JobXpCurve.applyDailyDecayExact(dailyXp, rawXp));
+    }
+
+    public long grantXp(JobId job, long rawXp, long todayStamp) {
+        prepareGrant(rawXp, todayStamp);
+        return grantXpInternal(job, JobXpPolicies.applyDailyDecayExact(job, dailyXp, rawXp));
+    }
+
+    private void prepareGrant(long rawXp, long todayStamp) {
         if (rawXp < 0L) {
             throw new IllegalArgumentException("rawXp must be >= 0, got " + rawXp);
         }
@@ -74,14 +92,17 @@ public final class JobProgress {
             dayStamp = todayStamp;
             dailyXp = 0.0D;
         }
+    }
+
+    private long grantXpInternal(JobId job, double effective) {
         // 精确 double 折算 (拆分不变 + 小额进位): 以当日已累计有效经验为衰减指针, 累进当日与累计两份 double。
-        long xpFloorBefore = (long) Math.floor(xp);
-        double effective = JobXpCurve.applyDailyDecayExact(dailyXp, rawXp);
+        long displayedXpBefore = job == null ? xp() : xp(job);
         dailyXp += effective;
         xp += effective;
-        this.level = JobXpCurve.levelForTotalXp((long) Math.floor(xp));
+        long displayedXp = job == null ? xp() : xp(job);
+        this.level = JobXpCurve.levelForTotalXp(displayedXp);
         // 返回本次实际入账的 "整数有效经验" 增量 (按累计 floor 前后差额, 与显示口径一致)。
-        return (long) Math.floor(xp) - xpFloorBefore;
+        return displayedXp - displayedXpBefore;
     }
 
     /** OP /job set 直接设级: 把 xp 设为达到该级所需累计经验并同步 level (不经衰减, 管理用; 清整数到整级)。 */
@@ -99,6 +120,10 @@ public final class JobProgress {
      */
     public long dailyRemaining() {
         return Math.max(0L, JobXpCurve.DAILY_SOFTCAP - dailyXp());
+    }
+
+    public long dailyRemaining(JobId job) {
+        return Math.max(0L, JobXpPolicies.dailySoftCap(job) - dailyXp(job));
     }
 
     /** 全字段拷入本对象 (PlayerEvent.Clone 复制: 死亡重生/换维度均保留全部职业进度)。 */
@@ -130,6 +155,10 @@ public final class JobProgress {
     }
 
     public void deserializeNBT(CompoundTag tag) {
+        deserializeNBT(tag, null);
+    }
+
+    public void deserializeNBT(CompoundTag tag, JobId job) {
         // 缺键给默认: 旧存档/新职业 key 首次出现时 level=1/xp=0 (框架 spec 第 2.2 节)。
         // getDouble 用 TAG_ANY_NUMERIC 读, 对旧版本以 long 存的 xp/dailyXp 数值兼容 (LongTag.getAsDouble)。
         this.level = tag.contains(K_LEVEL) ? tag.getInt(K_LEVEL) : JobXpCurve.MIN_LEVEL;
@@ -138,6 +167,7 @@ public final class JobProgress {
         this.dayStamp = tag.contains(K_DAY_STAMP) ? tag.getLong(K_DAY_STAMP) : Long.MIN_VALUE;
         this.nanoReactorCdEndTick = tag.contains(K_NANO_REACTOR_CD) ? tag.getLong(K_NANO_REACTOR_CD) : 0L;
         // 防御: level 与 xp 不一致 (手改存档) 时以 xp 为准重算, 保证 level 永远 = 曲线派生值。
-        this.level = JobXpCurve.levelForTotalXp((long) Math.floor(this.xp));
+        this.level = JobXpCurve.levelForTotalXp(
+                job == JobId.FARMER ? Math.round(this.xp) : (long) Math.floor(this.xp));
     }
 }

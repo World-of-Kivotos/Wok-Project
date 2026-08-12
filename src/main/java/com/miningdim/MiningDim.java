@@ -69,6 +69,9 @@ public final class MiningDim {
      * 子系统装配点 (模块化铁律 3): 增删功能 = 改此方法。顺序约束见类注释。
      */
     private void registerSubsystems() {
+        // 0. 统一 SQLite 存储 (市场 / 开箱 / 后续的钱包与账本共用同一条连接与同一个事务边界)。
+        //    它在 ServerAboutToStartEvent 开库, 严格早于其余子系统的 ServerStartingEvent, 故与本列表顺序无关。
+        subsystems.add(new com.miningdim.store.MiningStoreSubsystem());
         // 1. 配置最先注入 (其他子系统在服务端启动逻辑里读 config; InstanceManager 构建期读 config)。
         subsystems.add(new com.miningdim.config.ConfigSystem());
         // 2. 网络门面 (构造期注入, 供命令/进入流程在运行期下发包)。
@@ -113,7 +116,7 @@ public final class MiningDim {
         subsystems.add(new com.miningdim.job.miner.MinerSystem());
         // 18. 农夫职业: 分档耕地 + mod 小麦 + 收购闸门 (依赖职业框架门面)。
         subsystems.add(new com.miningdim.job.farmer.FarmerSystem());
-        // 19. 千年工程师职业: 六档纳米护甲板 + 生产台 GUI/校准 QTE + 修复曲线 (依赖职业框架门面)。
+        // 19. 铸甲师职业: 六档纳米护甲板 + 生产台 GUI/校准 QTE + 修复曲线 (依赖职业框架门面)。
         subsystems.add(new com.miningdim.job.engineer.EngineerSystem());
         // 20. 塔罗师职业: 塔罗牌 datapack 牌效 + 卡包 gacha + 合成台 (依赖职业框架门面)。
         subsystems.add(new com.miningdim.job.tarot.TarotSystem());
@@ -153,6 +156,9 @@ public final class MiningDim {
         //     经 MiningNetwork.CHANNEL 收 C2S 意图并下发 S2C 响应/事件。须排在 NetworkSystem (第 2) 之后,
         //     依赖其 CHANNEL 已注册三包 (构造期注入即满足)。服务端安全, 不 classload 任何 MCEF。
         subsystems.add(new com.miningdim.webui.server.WebUiServerSubsystem());
+        // 25b. CS2 式开箱服务端: 双货币幂等扣款 + SQLite Saga/皮肤归属 + case.* WebUI action + TaCZ 主手授权。
+        //      须排在 EconomySystem 与 WebUiServerSubsystem 之后, 运行期只经两者公开门面协作。
+        subsystems.add(new com.miningdim.caseopening.CaseOpeningSystem());
         // 26. 跳蚤市场服务端 (服务端权威 P2P 交易通道, 纯服务端无 MCEF): SQLite 托管挂单/流水/离线待结 +
         //     成交手续费 sink + 铜铁日 cap + 6 个 market.* action 注册进派发器。须排在经济子系统 (第 11) 之后
         //     —— 买卖结算回调 EconomyServices 的 tryCharge/grant 原子接口, 经济门面须先注入; 须排在网络 (第 2) +

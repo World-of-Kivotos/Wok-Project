@@ -6,7 +6,8 @@ import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyConstants;
 import com.miningdim.economy.EconomyService;
 import com.miningdim.economy.EconomyServices;
-import com.miningdim.economy.EconomyWalletData;
+import com.miningdim.economy.EconomyLedger;
+import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.job.JobXpCurve;
 import com.miningdim.job.farmer.block.FarmerBlocks;
@@ -17,18 +18,29 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.IPlantable;
 import net.minecraftforge.common.PlantType;
+import net.minecraftforge.fml.ModList;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
+import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
@@ -53,6 +65,199 @@ public final class FarmerGameTests {
 
     private static final String EMPTY = "empty";
     private static final String BATCH = "farmer";
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void farmersDelightTomatoRightClickUsesSupremeYield(GameTestHelper helper) {
+        if (!ModList.get().isLoaded("farmersdelight")) {
+            helper.succeed();
+            return;
+        }
+
+        Block tomatoBlock = ForgeRegistries.BLOCKS.getValue(
+                new ResourceLocation("farmersdelight", "tomatoes"));
+        helper.assertTrue(tomatoBlock instanceof net.minecraft.world.level.block.CropBlock,
+                "Farmer's Delight tomato crop must be registered");
+        net.minecraft.world.level.block.CropBlock crop =
+                (net.minecraft.world.level.block.CropBlock) tomatoBlock;
+        BlockPos relativeSoil = new BlockPos(1, 1, 1);
+        BlockPos relativeCrop = relativeSoil.above();
+        helper.setBlock(relativeSoil,
+                FarmerBlocks.farmland(FarmerTier.SUPREME).get().defaultBlockState());
+        helper.setBlock(relativeCrop, crop.getStateForAge(crop.getMaxAge()));
+
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        BlockPos cropPos = helper.absolutePos(relativeCrop);
+        BlockHitResult hit = new BlockHitResult(
+                Vec3.atCenterOf(cropPos), Direction.UP, cropPos, false);
+        player.gameMode.useItemOn(player, helper.getLevel(), ItemStack.EMPTY,
+                InteractionHand.MAIN_HAND, hit);
+
+        net.minecraft.world.item.Item tomato = ForgeRegistries.ITEMS.getValue(
+                new ResourceLocation("farmersdelight", "tomato"));
+        int count = helper.getLevel().getEntitiesOfClass(
+                        ItemEntity.class, new AABB(cropPos).inflate(3.0D)).stream()
+                .map(ItemEntity::getItem)
+                .filter(stack -> stack.is(tomato))
+                .mapToInt(ItemStack::getCount)
+                .sum();
+        helper.assertTrue(count >= 6 && count <= 12,
+                "SUPREME right-click tomato harvest must drop 6 or 12, got " + count);
+        helper.assertTrue(crop.getAge(helper.getLevel().getBlockState(cropPos)) == 0,
+                "right-click tomato harvest must reset the crop to age 0");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void farmersDelightHangingTomatoRightClickUsesSupremeYield(GameTestHelper helper) {
+        if (!ModList.get().isLoaded("farmersdelight")) {
+            helper.succeed();
+            return;
+        }
+
+        BlockState cropState = matureFarmersDelightCrop("tomatoes_on_rope");
+        net.minecraft.world.level.block.CropBlock crop =
+                (net.minecraft.world.level.block.CropBlock) cropState.getBlock();
+        BlockPos relativeSoil = new BlockPos(1, 1, 1);
+        BlockPos relativeCrop = relativeSoil.above();
+        helper.setBlock(relativeSoil,
+                FarmerBlocks.farmland(FarmerTier.SUPREME).get().defaultBlockState());
+        helper.setBlock(relativeCrop, cropState);
+
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        BlockPos cropPos = helper.absolutePos(relativeCrop);
+        BlockHitResult hit = new BlockHitResult(
+                Vec3.atCenterOf(cropPos), Direction.UP, cropPos, false);
+        player.gameMode.useItemOn(player, helper.getLevel(), ItemStack.EMPTY,
+                InteractionHand.MAIN_HAND, hit);
+
+        net.minecraft.world.item.Item tomato = ForgeRegistries.ITEMS.getValue(
+                new ResourceLocation("farmersdelight", "tomato"));
+        int count = helper.getLevel().getEntitiesOfClass(
+                        ItemEntity.class, new AABB(cropPos).inflate(3.0D)).stream()
+                .map(ItemEntity::getItem)
+                .filter(stack -> stack.is(tomato))
+                .mapToInt(ItemStack::getCount)
+                .sum();
+        helper.assertTrue(count == 6 || count == 12,
+                "SUPREME right-click hanging tomato harvest must drop 6 or 12, got " + count);
+        helper.assertTrue(crop.getAge(helper.getLevel().getBlockState(cropPos)) == 0,
+                "right-click hanging tomato harvest must reset the crop to age 0");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void farmersDelightAllCropsCanUseFarmerFarmland(GameTestHelper helper) {
+        if (!ModList.get().isLoaded("farmersdelight")) {
+            helper.succeed();
+            return;
+        }
+
+        BlockState farmland = FarmerBlocks.farmland(FarmerTier.SUPREME).get().defaultBlockState();
+        BlockPos soilPos = helper.absolutePos(new BlockPos(1, 1, 1));
+        for (String cropId : List.of("cabbages", "onions", "tomatoes", "rice")) {
+            Block crop = requireFarmersDelightBlock(cropId);
+            helper.assertTrue(crop instanceof IPlantable,
+                    "Farmer's Delight crop must be plantable: " + cropId);
+            helper.assertTrue(farmland.canSustainPlant(helper.getLevel(), soilPos, Direction.UP,
+                            (IPlantable) crop),
+                    "farmer farmland must sustain Farmer's Delight crop: " + cropId);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void farmersDelightAllMatureCropsUseSupremeYield(GameTestHelper helper) {
+        if (!ModList.get().isLoaded("farmersdelight")) {
+            helper.succeed();
+            return;
+        }
+
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        BlockPos relativeSoil = new BlockPos(1, 1, 1);
+        BlockPos relativeCrop = relativeSoil.above();
+        helper.setBlock(relativeSoil,
+                FarmerBlocks.farmland(FarmerTier.SUPREME).get().defaultBlockState());
+
+        BlockState cabbage = matureFarmersDelightCrop("cabbages");
+        helper.setBlock(relativeCrop, cabbage);
+        List<ItemStack> cabbageLoot = cropDrops(helper, player, relativeCrop, cabbage);
+        helper.assertTrue(itemCount(cabbageLoot, "cabbage") == 6,
+                "SUPREME cabbage produce must be 1 x 6");
+        int cabbageSeedCount = itemCount(cabbageLoot, "cabbage_seeds");
+        helper.assertTrue(cabbageSeedCount >= 1 && cabbageSeedCount <= 4,
+                "cabbage seeds must remain in Farmer's Delight's native 1-4 range, got "
+                        + cabbageSeedCount);
+
+        BlockState onion = matureFarmersDelightCrop("onions");
+        helper.setBlock(relativeCrop, onion);
+        int onionCount = itemCount(cropDrops(helper, player, relativeCrop, onion), "onion");
+        helper.assertTrue(onionCount >= 6 && onionCount % 6 == 0,
+                "SUPREME onion produce must be a whole native yield times 6, got " + onionCount);
+
+        BlockState tomato = matureFarmersDelightCrop("tomatoes");
+        helper.setBlock(relativeCrop, tomato);
+        List<ItemStack> tomatoLoot = cropDrops(helper, player, relativeCrop, tomato);
+        int tomatoCount = itemCount(tomatoLoot, "tomato");
+        helper.assertTrue(tomatoCount == 6 || tomatoCount == 12,
+                "SUPREME tomato produce must be 6 or 12, got " + tomatoCount);
+        helper.assertTrue(itemCount(tomatoLoot, "tomato_seeds") <= 1,
+                "tomato seeds must not be multiplied");
+        helper.assertTrue(itemCount(tomatoLoot, "rotten_tomato") <= 1,
+                "rare rotten tomato byproduct must not be multiplied");
+
+        BlockState hangingTomato = matureFarmersDelightCrop("tomatoes_on_rope");
+        helper.setBlock(relativeCrop, hangingTomato);
+        int hangingTomatoCount = itemCount(
+                cropDrops(helper, player, relativeCrop, hangingTomato), "tomato");
+        helper.assertTrue(hangingTomatoCount == 6 || hangingTomatoCount == 12,
+                "SUPREME hanging tomato produce must be 6 or 12, got " + hangingTomatoCount);
+
+        BlockState rice = requireFarmersDelightBlock("rice").defaultBlockState();
+        BooleanProperty supporting = rice.getProperties().stream()
+                .filter(BooleanProperty.class::isInstance)
+                .map(BooleanProperty.class::cast)
+                .filter(property -> property.getName().equals("supporting"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Farmer's Delight rice is missing supporting property"));
+        rice = rice.setValue(supporting, true);
+        // Replacing tomatoes_on_rope makes Farmer's Delight restore its rope in onRemove.
+        // Clear that restored rope before building the independent mature-rice fixture.
+        helper.setBlock(relativeCrop, Blocks.AIR);
+        BlockState ricePanicles = matureFarmersDelightCrop("rice_panicles");
+        helper.setBlock(relativeCrop, rice);
+        BlockPos relativePanicles = relativeCrop.above();
+        helper.setBlock(relativePanicles, ricePanicles);
+        helper.assertTrue(FarmerHarvests.isSupportedMatureCrop(ricePanicles),
+                "mature rice panicles must be recognized as supported produce");
+        BlockPos absolutePanicles = helper.absolutePos(relativePanicles);
+        FarmerTier riceTier = FarmerHarvests.tierFor(
+                helper.getLevel(), absolutePanicles, ricePanicles);
+        ResourceLocation belowRiceId = ForgeRegistries.BLOCKS.getKey(
+                helper.getLevel().getBlockState(absolutePanicles.below()).getBlock());
+        helper.assertTrue(riceTier == FarmerTier.SUPREME,
+                "rice panicles must trace through the lower rice block to SUPREME farmland; below="
+                        + belowRiceId + ", tier=" + riceTier);
+        List<ItemStack> riceLoot = cropDrops(helper, player, relativePanicles, ricePanicles);
+        int ricePanicleCount = itemCount(riceLoot, "rice_panicle");
+        helper.assertTrue(ricePanicleCount == 6,
+                "SUPREME rice panicle produce must be 1 x 6, got " + ricePanicleCount);
+        helper.assertTrue(itemCount(riceLoot, "rice") == 0,
+                "rice seed/grain is not added when harvesting without a knife");
+
+        net.minecraft.world.item.Item ironKnife = ForgeRegistries.ITEMS.getValue(
+                new ResourceLocation("farmersdelight", "iron_knife"));
+        helper.assertTrue(ironKnife != null,
+                "Farmer's Delight iron knife must be registered for knife-harvest coverage");
+        List<ItemStack> knifeRiceLoot = Block.getDrops(
+                ricePanicles, helper.getLevel(), absolutePanicles,
+                null, player, new ItemStack(ironKnife));
+        helper.assertTrue(itemCount(knifeRiceLoot, "rice") == 6,
+                "SUPREME knife-harvested rice must be 1 x 6");
+        helper.assertTrue(itemCount(knifeRiceLoot, "rice_panicle") == 0,
+                "knife-harvested rice must replace the panicle output, not duplicate it");
+        helper.succeed();
+    }
 
     // ============================================================
     // 放置上限 + 档位门控 (表A 方块上限 / 表B 解锁等级)
@@ -412,7 +617,7 @@ public final class FarmerGameTests {
     public static void sellGrantsCreditsAndDecrementsInventory(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
-        EconomyWalletData ledger = registerFreshEconomy();
+        EconomyLedger ledger = registerFreshEconomy();
         try {
             // 给 100 株 mod 小麦 (远低于收购 softCap 2160, 故全价 base=1 -> 毛收 100)。
             int amount = 100;
@@ -486,7 +691,7 @@ public final class FarmerGameTests {
         // 证明它读的是共享 (player,key) 累计计数器而非农夫私有上限, 且系数是主闸的 0.6 几何衰减 (非逐矿 0.97)。
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
-        EconomyWalletData ledger = registerFreshEconomy();
+        EconomyLedger ledger = registerFreshEconomy();
         try {
             long tier = FarmerConstants.DAILY_CREDIT_FAUCET_CAP;            // 60000 (= 全服统一主闸档值)
             String sharedKey = FarmerConstants.WHEAT_SELL_FAUCET_KEY;       // credit_faucet
@@ -542,13 +747,44 @@ public final class FarmerGameTests {
      * 新建一套内存经济门面 (账本 + AbuseGuard + 惰性 PlayerAbuseState 解析器) 注册进 {@link EconomyServices} 定位器,
      * 供卖菜端到端测试经定位器真发币。返回账本以便断言余额。调用方 finally 务必 {@link EconomyServices#reset()}。
      */
-    private static EconomyWalletData registerFreshEconomy() {
-        EconomyWalletData ledger = new EconomyWalletData();
+    private static EconomyLedger registerFreshEconomy() {
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         Map<UUID, PlayerAbuseState> states = new HashMap<>();
         Function<UUID, PlayerAbuseState> resolver = id -> states.computeIfAbsent(id, k -> new PlayerAbuseState());
         EconomyServices.reset();
         EconomyServices.registerEconomyService(new EconomyService(ledger, new AbuseGuard(), resolver));
         return ledger;
+    }
+
+    private static Block requireFarmersDelightBlock(String path) {
+        Block block = ForgeRegistries.BLOCKS.getValue(new ResourceLocation("farmersdelight", path));
+        if (block == null || block == Blocks.AIR) {
+            throw new IllegalStateException("Missing Farmer's Delight block: " + path);
+        }
+        return block;
+    }
+
+    private static BlockState matureFarmersDelightCrop(String path) {
+        Block block = requireFarmersDelightBlock(path);
+        if (!(block instanceof net.minecraft.world.level.block.CropBlock crop)) {
+            throw new IllegalStateException("Farmer's Delight block is not a CropBlock: " + path);
+        }
+        return crop.getStateForAge(crop.getMaxAge());
+    }
+
+    private static List<ItemStack> cropDrops(GameTestHelper helper, ServerPlayer player,
+                                              BlockPos relativePos, BlockState state) {
+        return Block.getDrops(state, helper.getLevel(), helper.absolutePos(relativePos),
+                null, player, ItemStack.EMPTY);
+    }
+
+    private static int itemCount(List<ItemStack> loot, String farmersDelightItemPath) {
+        net.minecraft.world.item.Item item = ForgeRegistries.ITEMS.getValue(
+                new ResourceLocation("farmersdelight", farmersDelightItemPath));
+        return loot.stream()
+                .filter(stack -> stack.is(item))
+                .mapToInt(ItemStack::getCount)
+                .sum();
     }
 
     private static long rawXpForTier(FarmerTier tier) {
@@ -570,5 +806,119 @@ public final class FarmerGameTests {
         public BlockState getPlant(BlockGetter level, BlockPos pos) {
             return Blocks.WHEAT.defaultBlockState();
         }
+    }
+
+    // ============================================================
+    // 收获增产的触发者校验 (FarmerHarvestLootModifier)
+    //
+    // 刻意使用原版小麦而非 Farmer's Delight 作物: 上方那批 FD 兼容用例在依赖缺席时走 helper.succeed(),
+    // 在 dev GameTest 环境里是不执行的假绿; 而原版小麦同样登记在 FarmerHarvests.PRODUCE_BY_CROP 中,
+    // 受同一个全局掉落修改器影响, 因此下列用例在任何环境下都真实执行。
+    // ============================================================
+
+    /** 成熟原版小麦的基准产出恒为 1 个小麦 (种子数随机, 不参与断言)。 */
+    private static final int VANILLA_WHEAT_BASE = 1;
+
+    private static BlockPos prepareSupremeWheat(GameTestHelper helper) {
+        BlockPos relativeSoil = new BlockPos(1, 1, 1);
+        helper.setBlock(relativeSoil, FarmerBlocks.farmland(FarmerTier.SUPREME).get().defaultBlockState());
+        BlockPos relativeCrop = relativeSoil.above();
+        helper.setBlock(relativeCrop, matureVanillaWheat());
+        return relativeCrop;
+    }
+
+    private static BlockState matureVanillaWheat() {
+        return Blocks.WHEAT.defaultBlockState()
+                .setValue(net.minecraft.world.level.block.CropBlock.AGE, 7);
+    }
+
+    private static int wheatCount(List<ItemStack> loot) {
+        int total = 0;
+        for (ItemStack stack : loot) {
+            if (stack.is(net.minecraft.world.item.Items.WHEAT)) {
+                total += stack.getCount();
+            }
+        }
+        return total;
+    }
+
+    private static void setFarmerLevel(ServerPlayer player, int level) {
+        com.miningdim.entry.MiningCapabilities.get(player)
+                .orElseThrow(() -> new IllegalStateException("mock 玩家未挂载 capability, 无法摆放职业等级"))
+                .jobProgress(com.miningdim.job.JobId.FARMER)
+                .setLevel(level);
+    }
+
+    /** 无实体来源 (活塞推毁/爆炸/自动化通用 API) 不得增产。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void vanillaCropYieldRejectsSourceWithoutEntity(GameTestHelper helper) {
+        BlockPos relativeCrop = prepareSupremeWheat(helper);
+        // 4 参重载不写入 THIS_ENTITY, 等价于活塞与爆炸走的掉落路径。
+        List<ItemStack> loot = Block.getDrops(matureVanillaWheat(), helper.getLevel(),
+                helper.absolutePos(relativeCrop), null);
+        helper.assertTrue(wheatCount(loot) == VANILLA_WHEAT_BASE,
+                "无实体来源必须零增产, 期望 " + VANILLA_WHEAT_BASE + " 实得 " + wheatCount(loot));
+        helper.succeed();
+    }
+
+    /** FakePlayer 驱动的自动化收割不得增产 (它是 ServerPlayer 子类且实体类型同为 minecraft:player)。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void vanillaCropYieldRejectsFakePlayer(GameTestHelper helper) {
+        BlockPos relativeCrop = prepareSupremeWheat(helper);
+        net.minecraftforge.common.util.FakePlayer fake = new net.minecraftforge.common.util.FakePlayer(
+                helper.getLevel(),
+                new com.mojang.authlib.GameProfile(UUID.randomUUID(), "test-fake-harvester"));
+        setFarmerLevel(fake, JobXpCurve.MAX_LEVEL);
+        List<ItemStack> loot = Block.getDrops(matureVanillaWheat(), helper.getLevel(),
+                helper.absolutePos(relativeCrop), null, fake, ItemStack.EMPTY);
+        helper.assertTrue(wheatCount(loot) == VANILLA_WHEAT_BASE,
+                "FakePlayer 必须零增产 (即使等级已满), 期望 " + VANILLA_WHEAT_BASE
+                        + " 实得 " + wheatCount(loot));
+        helper.succeed();
+    }
+
+    /** 等级未解锁该耕地档位的玩家不得享受其倍率。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void vanillaCropYieldRequiresTierUnlock(GameTestHelper helper) {
+        BlockPos relativeCrop = prepareSupremeWheat(helper);
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setFarmerLevel(player, FarmerTier.SUPREME.unlockLevel() - 1);
+        List<ItemStack> loot = Block.getDrops(matureVanillaWheat(), helper.getLevel(),
+                helper.absolutePos(relativeCrop), null, player, ItemStack.EMPTY);
+        helper.assertTrue(wheatCount(loot) == VANILLA_WHEAT_BASE,
+                "等级不足 SUPREME 解锁线时必须零增产, 期望 " + VANILLA_WHEAT_BASE
+                        + " 实得 " + wheatCount(loot));
+        helper.succeed();
+    }
+
+    /** 等级达标的农夫本人收割时, 倍率必须照常生效 (防止修复过度杀伤合法收益)。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void vanillaCropYieldAppliesForUnlockedFarmer(GameTestHelper helper) {
+        BlockPos relativeCrop = prepareSupremeWheat(helper);
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setFarmerLevel(player, FarmerTier.SUPREME.unlockLevel());
+        List<ItemStack> loot = Block.getDrops(matureVanillaWheat(), helper.getLevel(),
+                helper.absolutePos(relativeCrop), null, player, ItemStack.EMPTY);
+        int expected = VANILLA_WHEAT_BASE * FarmerTier.SUPREME.yieldPerHarvest();
+        helper.assertTrue(wheatCount(loot) == expected,
+                "等级达标农夫应得 SUPREME 全额倍率, 期望 " + expected + " 实得 " + wheatCount(loot));
+        helper.succeed();
+    }
+
+    /** 低等级玩家在已解锁的低档耕地上仍应拿到该档倍率, 等级门只挡越级。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void vanillaCropYieldStillAppliesOnUnlockedLowTier(GameTestHelper helper) {
+        BlockPos relativeSoil = new BlockPos(1, 1, 1);
+        helper.setBlock(relativeSoil, FarmerBlocks.farmland(FarmerTier.LOW).get().defaultBlockState());
+        BlockPos relativeCrop = relativeSoil.above();
+        helper.setBlock(relativeCrop, matureVanillaWheat());
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setFarmerLevel(player, JobXpCurve.MIN_LEVEL);
+        List<ItemStack> loot = Block.getDrops(matureVanillaWheat(), helper.getLevel(),
+                helper.absolutePos(relativeCrop), null, player, ItemStack.EMPTY);
+        int expected = VANILLA_WHEAT_BASE * FarmerTier.LOW.yieldPerHarvest();
+        helper.assertTrue(wheatCount(loot) == expected,
+                "LOW 档对 1 级玩家已解锁, 应得其倍率, 期望 " + expected + " 实得 " + wheatCount(loot));
+        helper.succeed();
     }
 }

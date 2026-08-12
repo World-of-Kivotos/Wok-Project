@@ -1,6 +1,8 @@
 package com.miningdim.job.tarot;
 
 import com.miningdim.job.tarot.card.TarotCardData;
+import com.miningdim.job.tarot.network.TarotCastVisualS2C;
+import com.miningdim.job.tarot.network.TarotNetwork;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -35,16 +37,17 @@ public final class TarotPlayHandler {
         int cardId = TarotCardItem.cardId(stack);
         TarotQuality quality = TarotCardItem.quality(stack);
         boolean upright = TarotCardItem.upright(stack);
+        boolean testMode = TarotConfig.TEST_MODE.get();
 
         // 闸门 1: ownerUUID 校验 (spec 第十章)。
         UUID owner = TarotCardItem.owner(stack);
-        if (owner == null || !owner.equals(player.getUUID())) {
+        if (!testMode && (owner == null || !owner.equals(player.getUUID()))) {
             player.displayClientMessage(Component.translatable("message.miningdim.tarot.not_owner"), true);
             return false;
         }
 
         // 闸门 2: 等级门控 (spec 9.4)。
-        if (!TarotLeveling.canUseQuality(player, quality)) {
+        if (!testMode && !TarotLeveling.canUseQuality(player, quality)) {
             player.displayClientMessage(
                     Component.translatable("message.miningdim.tarot.level_gated", quality.requiredLevel()), true);
             return false;
@@ -55,15 +58,33 @@ public final class TarotPlayHandler {
         int cardCd = cooldownTicksFor(quality, data);
         int gcd = TarotConfig.GCD_TICKS.get();
         boolean shiny = quality == TarotQuality.SHINY;
-        if (!TarotRuntime.cooldown().tryUse(player, cardId, cardCd, gcd, shiny)) {
+        if (TarotRuntime.castManager().isCasting(player.getUUID())) {
+            player.displayClientMessage(Component.translatable("message.miningdim.tarot.casting"), true);
+            return false;
+        }
+        if (!testMode && !TarotRuntime.cooldown().tryUse(player, cardId, cardCd, gcd, shiny)) {
             player.displayClientMessage(Component.translatable("message.miningdim.tarot.on_cooldown"), true);
             return false;
         }
 
-        // 全过: 应用效果 -> 消耗 -> 经验 (谁打谁得)。
-        TarotRuntime.effectEngine().applyCard(level, player, data, quality, upright);
-        stack.shrink(1);
-        TarotLeveling.grantPlayXp(player, quality);
+        // 全过: 先提交卡牌和冷却并播放演出, 到揭牌之后再由服务端结算效果与经验。
+        boolean queued = TarotRuntime.castManager().begin(player, TarotCastTiming.EFFECT_RESOLVE_TICKS,
+                resolvingPlayer -> {
+                    TarotRuntime.effectEngine().applyCard(resolvingPlayer.serverLevel(), resolvingPlayer,
+                            data, quality, upright);
+                    if (!testMode) {
+                        TarotLeveling.grantPlayXp(resolvingPlayer, quality);
+                    }
+                });
+        if (!queued) {
+            player.displayClientMessage(Component.translatable("message.miningdim.tarot.casting"), true);
+            return false;
+        }
+
+        TarotNetwork.sendCastVisual(player, new TarotCastVisualS2C(player.getId(), cardId, quality, upright));
+        if (!testMode) {
+            stack.shrink(1);
+        }
         return true;
     }
 

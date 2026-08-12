@@ -1,8 +1,228 @@
 {
-  "parent": "minecraft:block/cube_bottom_top",
+  "credit": "Blue Archive-inspired celestial synthesis table, based on docs/assets/tarot/tarot_craft_table_concept.png",
+  "ambientocclusion": false,
+  "render_type": "minecraft:cutout",
   "textures": {
-    "top": "minecraft:block/enchanting_table_top",
-    "bottom": "minecraft:block/obsidian",
-    "side": "minecraft:block/lapis_block"
-  }
+    "particle": "miningdim:block/tarot_craft_base",
+    "base": "miningdim:block/tarot_craft_base",
+    "white": "miningdim:block/tarot_craft_white",
+    "gold": "miningdim:block/tarot_craft_gold",
+    "cyan": "miningdim:block/tarot_craft_cyan",
+    "top": "miningdim:block/tarot_craft_top",
+    "card": "miningdim:block/tarot_craft_card_slot",
+    "ring": "miningdim:block/tarot_craft_ring"
+  },
+  "display": {
+    "gui": {
+      "rotation": [30, 225, 0],
+      "translation": [0, -2.5, 0],
+      "scale": [0.58, 0.58, 0.58]
+    },
+    "ground": {
+      "translation": [0, 2, 0],
+      "scale": [0.32, 0.32, 0.32]
+    },
+    "fixed": {
+      "rotation": [0, 180, 0],
+      "translation": [0, -1, -2],
+      "scale": [0.48, 0.48, 0.48]
+    },
+    "firstperson_righthand": {
+      "rotation": [0, 45, 0],
+      "translation": [0, 1, 0],
+      "scale": [0.36, 0.36, 0.36]
+    },
+    "thirdperson_righthand": {
+      "rotation": [75, 45, 0],
+      "translation": [0, 2, 0],
+      "scale": [0.30, 0.30, 0.30]
+    }
+  },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 2, 16],
+      "faces": {
+        "down": { "texture": "#base" },
+        "up": { "texture": "#gold" },
+        "north": { "texture": "#base" },
+        "south": { "texture": "#base" },
+        "west": { "texture": "#base" },
+        "east": { "texture": "#base" }
+      }
+    },
+    {
+      "from": [1, 2, 1],
+      "to": [15, 9, 15],
+      "faces": {
+        "north": { "texture": "#base" },
+        "south": { "texture": "#base" },
+        "west": { "texture": "#base" },
+        "east": { "texture": "#base" }
+      }
+    },
+    {
+      "from": [0.5, 9, 0.5],
+      "to": [15.5, 12, 15.5],
+      "faces": {
+        "up": { "texture": "#top" },
+        "north": { "texture": "#white" },
+        "south": { "texture": "#white" },
+        "west": { "texture": "#white" },
+        "east": { "texture": "#white" }
+      }
+    },
+    {
+      "from": [0, 2, 0],
+      "to": [2, 12.25, 2],
+      "faces": {
+        "up": { "texture": "#gold" },
+        "north": { "texture": "#white" },
+        "south": { "texture": "#white" },
+        "west": { "texture": "#white" },
+        "east": { "texture": "#white" }
+      }
+    },
+    {
+      "from": [14, 2, 0],
+      "to": [16, 12.25, 2],
+      "faces": {
+        "up": { "texture": "#gold" },
+        "north": { "texture": "#white" },
+        "south": { "texture": "#white" },
+        "west": { "texture": "#white" },
+        "east": { "texture": "#white" }
+      }
+    },
+    {
+      "from": [0, 2, 14],
+      "to": [2, 12.25, 16],
+      "faces": {
+        "up": { "texture": "#gold" },
+        "north": { "texture": "#white" },
+        "south": { "texture": "#white" },
+        "west": { "texture": "#white" },
+        "east": { "texture": "#white" }
+      }
+    },
+    {
+      "from": [14, 2, 14],
+      "to": [16, 12.25, 16],
+      "faces": {
+        "up": { "texture": "#gold" },
+        "north": { "texture": "#white" },
+        "south": { "texture": "#white" },
+        "west": { "texture": "#white" },
+        "east": { "texture": "#white" }
+      }
+    },
+    {
+      "from": [2, 10.5, 0],
+      "to": [14, 12.5, 1.5],
+      "faces": {
+        "up": { "texture": "#white" },
+        "north": { "texture": "#white" },
+        "south": { "texture": "#gold" }
+      }
+    },
+    {
+      "from": [2, 10.5, 14.5],
+      "to": [14, 12.5, 16],
+      "faces": {
+        "up": { "texture": "#white" },
+        "north": { "texture": "#gold" },
+        "south": { "texture": "#white" }
+      }
+    },
+    {
+      "from": [0, 10.5, 2],
+      "to": [1.5, 12.5, 14],
+      "faces": {
+        "up": { "texture": "#white" },
+        "west": { "texture": "#white" },
+        "east": { "texture": "#gold" }
+      }
+    },
+    {
+      "from": [14.5, 10.5, 2],
+      "to": [16, 12.5, 14],
+      "faces": {
+        "up": { "texture": "#white" },
+        "west": { "texture": "#gold" },
+        "east": { "texture": "#white" }
+      }
+    },
+    {
+      "from": [2.25, 12, 3],
+      "to": [5.75, 12.6, 13],
+      "faces": {
+        "up": { "texture": "#card", "uv": [0, 0, 16, 16] },
+        "north": { "texture": "#gold" },
+        "south": { "texture": "#gold" },
+        "west": { "texture": "#gold" },
+        "east": { "texture": "#gold" }
+      }
+    },
+    {
+      "from": [10.25, 12, 3],
+      "to": [13.75, 12.6, 13],
+      "faces": {
+        "up": { "texture": "#card", "uv": [0, 0, 16, 16] },
+        "north": { "texture": "#gold" },
+        "south": { "texture": "#gold" },
+        "west": { "texture": "#gold" },
+        "east": { "texture": "#gold" }
+      }
+    },
+    {
+      "from": [5.85, 12, 5.85],
+      "to": [10.15, 12.7, 10.15],
+      "faces": {
+        "up": { "texture": "#ring", "uv": [0, 0, 16, 16] },
+        "north": { "texture": "#gold" },
+        "south": { "texture": "#gold" },
+        "west": { "texture": "#gold" },
+        "east": { "texture": "#gold" }
+      }
+    },
+    {
+      "from": [7.25, 12.6, 7.25],
+      "to": [8.75, 13.8, 8.75],
+      "faces": {
+        "up": { "texture": "#cyan" },
+        "north": { "texture": "#cyan" },
+        "south": { "texture": "#cyan" },
+        "west": { "texture": "#cyan" },
+        "east": { "texture": "#cyan" }
+      }
+    },
+    {
+      "from": [7.5, 12.7, 7.5],
+      "to": [8.5, 17, 8.5],
+      "faces": {
+        "north": { "texture": "#gold" },
+        "south": { "texture": "#gold" },
+        "west": { "texture": "#gold" },
+        "east": { "texture": "#gold" }
+      }
+    },
+    {
+      "shade": false,
+      "from": [7.75, 13.5, 1],
+      "to": [8.25, 23.5, 15],
+      "faces": {
+        "west": { "texture": "#ring", "uv": [0, 0, 16, 16] },
+        "east": { "texture": "#ring", "uv": [16, 0, 0, 16] }
+      }
+    },
+    {
+      "shade": false,
+      "from": [1, 13.5, 7.75],
+      "to": [15, 23.5, 8.25],
+      "faces": {
+        "north": { "texture": "#ring", "uv": [16, 0, 0, 16] },
+        "south": { "texture": "#ring", "uv": [0, 0, 16, 16] }
+      }
+    }
+  ]
 }

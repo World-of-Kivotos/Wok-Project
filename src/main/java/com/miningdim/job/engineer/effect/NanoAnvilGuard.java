@@ -1,9 +1,18 @@
 package com.miningdim.job.engineer.effect;
 
 import com.miningdim.job.engineer.NanoNbt;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.AnvilUpdateEvent;
+import net.minecraftforge.event.entity.player.PlayerXpEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * 禁用经验修补 / 铁砧修复对纳米特效甲的耐久越界 (MillenniumEngineer_Mod_DesignSpec 5.2 / 12.1)。
@@ -16,6 +25,32 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
  * 全服禁用经验修补, 改本 handler 判定即可 (见 notes 报告 12.1 仍 PENDING)。
  */
 public final class NanoAnvilGuard {
+
+    /**
+     * 旧存档或指令生成物可能同时带纳米特效与经验修补。在经验球进入原版修补逻辑前移除该附魔，
+     * 保证经验完整进入玩家经验条，同时不影响普通装备。
+     */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onXpPickup(PlayerXpEvent.PickupXp event) {
+        // 必须覆盖全部 EquipmentSlot 而非仅护甲槽: MENDING 注册时传入的就是 EquipmentSlot.values(),
+        // 原版经验修补会连主手与副手一起纳入候选。只扫护甲槽时, 玩家把带经验修补的纳米特效甲拿在手上
+        // 拾取经验即可免费回耐久, 直接绕过维修套件的纳米经济。
+        for (EquipmentSlot slot : EquipmentSlot.values()) {
+            stripMendingFromNanoEffectArmor(event.getEntity().getItemBySlot(slot));
+        }
+    }
+
+    public static boolean stripMendingFromNanoEffectArmor(ItemStack stack) {
+        if (NanoNbt.effects(stack).isEmpty()) {
+            return false;
+        }
+        Map<Enchantment, Integer> enchantments = new HashMap<>(EnchantmentHelper.getEnchantments(stack));
+        if (enchantments.remove(Enchantments.MENDING) == null) {
+            return false;
+        }
+        EnchantmentHelper.setEnchantments(enchantments, stack);
+        return true;
+    }
 
     @SubscribeEvent
     public void onAnvilUpdate(AnvilUpdateEvent event) {

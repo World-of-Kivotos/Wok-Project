@@ -1,5 +1,7 @@
 package com.miningdim.market.store;
 
+import com.miningdim.store.StoreTx;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -38,70 +40,6 @@ public final class MarketDaoSqlite implements MarketDao {
      */
     Connection connection() {
         return conn;
-    }
-
-    // ---- DDL ----
-
-    @Override
-    public void initSchema() {
-        // 契约第 3 节: 托管物品折叠进 listings 行 (v1 不单列 escrow 表); item_nbt 为 BLOB; 全 IF NOT EXISTS 幂等。
-        final String ddlListings =
-                "CREATE TABLE IF NOT EXISTS listings ("
-                        + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                        + "seller_uuid TEXT NOT NULL, "
-                        + "seller_name TEXT NOT NULL, "
-                        + "item_id TEXT NOT NULL, "
-                        + "item_nbt BLOB NOT NULL, "
-                        + "count INTEGER NOT NULL, "
-                        + "unit_price INTEGER NOT NULL, "
-                        + "currency TEXT NOT NULL, "
-                        + "created_at INTEGER NOT NULL, "
-                        + "status TEXT NOT NULL)";
-        final String ddlTransactions =
-                "CREATE TABLE IF NOT EXISTS transactions ("
-                        + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                        + "listing_id INTEGER NOT NULL, "
-                        + "buyer_uuid TEXT NOT NULL, "
-                        + "seller_uuid TEXT NOT NULL, "
-                        + "item_id TEXT NOT NULL, "
-                        + "count INTEGER NOT NULL, "
-                        + "unit_price INTEGER NOT NULL, "
-                        + "total INTEGER NOT NULL, "
-                        + "fee INTEGER NOT NULL, "
-                        + "created_at INTEGER NOT NULL)";
-        final String ddlPendingPayout =
-                "CREATE TABLE IF NOT EXISTS pending_payout ("
-                        + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                        + "seller_uuid TEXT NOT NULL, "
-                        + "amount INTEGER NOT NULL, "
-                        + "currency TEXT NOT NULL, "
-                        + "created_at INTEGER NOT NULL)";
-        // 基准价值 V0 admin 覆盖 (偏离费锚最高优先层); item_id 主键, INSERT OR REPLACE 幂等。
-        final String ddlBaseValues =
-                "CREATE TABLE IF NOT EXISTS base_values ("
-                        + "item_id TEXT PRIMARY KEY, "
-                        + "v0 INTEGER NOT NULL, "
-                        + "updated_by TEXT, "
-                        + "updated_at INTEGER NOT NULL)";
-        // 索引 (契约第 3 节): listings(status,item_id) 主浏览路径; listings(seller_uuid) 我的挂单;
-        // transactions(buyer_uuid)/(seller_uuid) 双向历史。
-        final String[] indices = {
-                "CREATE INDEX IF NOT EXISTS idx_listings_status_item ON listings(status, item_id)",
-                "CREATE INDEX IF NOT EXISTS idx_listings_seller ON listings(seller_uuid)",
-                "CREATE INDEX IF NOT EXISTS idx_txn_buyer ON transactions(buyer_uuid)",
-                "CREATE INDEX IF NOT EXISTS idx_txn_seller ON transactions(seller_uuid)"
-        };
-        try (Statement st = conn.createStatement()) {
-            st.executeUpdate(ddlListings);
-            st.executeUpdate(ddlTransactions);
-            st.executeUpdate(ddlPendingPayout);
-            st.executeUpdate(ddlBaseValues);
-            for (String idx : indices) {
-                st.executeUpdate(idx);
-            }
-        } catch (SQLException e) {
-            throw new MarketStoreException("initSchema failed", e);
-        }
     }
 
     // ---- listings ----
@@ -321,17 +259,10 @@ public final class MarketDaoSqlite implements MarketDao {
     @Override
     public List<long[]> drainPendingPayout(UUID seller) {
         // 取+删原子 (契约第 4 节): 先 SELECT 出全部待结金额, 再 DELETE 该卖家全部行, 同一事务提交。
-        // 资源/事务边界 (契约第 0 节允许 try-catch): 异常 rollback 后重抛, 不吞; finally 恢复 autoCommit。
+        // 事务经 StoreTx: 连接现在是全服共享的, 若调用方已开着事务, 本方法必须并入而不是提前 commit 掉外层。
         final String selectSql = "SELECT amount FROM pending_payout WHERE seller_uuid = ?";
         final String deleteSql = "DELETE FROM pending_payout WHERE seller_uuid = ?";
-        boolean priorAutoCommit;
-        try {
-            priorAutoCommit = conn.getAutoCommit();
-        } catch (SQLException e) {
-            throw new MarketStoreException("drainPendingPayout: read autoCommit failed", e);
-        }
-        try {
-            conn.setAutoCommit(false);
+        return StoreTx.call(conn, () -> {
             List<long[]> out = new ArrayList<>();
             try (PreparedStatement sel = conn.prepareStatement(selectSql)) {
                 sel.setString(1, seller.toString());
@@ -340,19 +271,15 @@ public final class MarketDaoSqlite implements MarketDao {
                         out.add(new long[]{rs.getLong(1)});
                     }
                 }
+                try (PreparedStatement del = conn.prepareStatement(deleteSql)) {
+                    del.setString(1, seller.toString());
+                    del.executeUpdate();
+                }
+            } catch (SQLException e) {
+                throw new MarketStoreException("drainPendingPayout failed", e);
             }
-            try (PreparedStatement del = conn.prepareStatement(deleteSql)) {
-                del.setString(1, seller.toString());
-                del.executeUpdate();
-            }
-            conn.commit();
             return out;
-        } catch (SQLException e) {
-            rollbackQuietly();
-            throw new MarketStoreException("drainPendingPayout failed", e);
-        } finally {
-            restoreAutoCommit(priorAutoCommit);
-        }
+        });
     }
 
     // ---- base_values (V0 admin 覆盖) ----
@@ -466,20 +393,4 @@ public final class MarketDaoSqlite implements MarketDao {
         }
     }
 
-    private void rollbackQuietly() {
-        try {
-            conn.rollback();
-        } catch (SQLException e) {
-            // rollback 自身失败: 连同原异常一并暴露给调用方 (重抛原异常时附此为 suppressed 不便, 此处单独包装上抛)。
-            throw new MarketStoreException("drainPendingPayout rollback failed", e);
-        }
-    }
-
-    private void restoreAutoCommit(boolean priorAutoCommit) {
-        try {
-            conn.setAutoCommit(priorAutoCommit);
-        } catch (SQLException e) {
-            throw new MarketStoreException("drainPendingPayout: restore autoCommit failed", e);
-        }
-    }
 }

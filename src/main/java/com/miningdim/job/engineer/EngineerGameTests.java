@@ -5,12 +5,15 @@ import com.miningdim.job.IJobService;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobProgress;
 import com.miningdim.job.JobServices;
+import com.miningdim.job.engineer.block.ProductionTableBlock;
 import com.miningdim.job.engineer.block.ProductionTableBlockEntity;
 import com.miningdim.job.engineer.effect.NanoEffects;
+import com.miningdim.job.engineer.effect.NanoAnvilGuard;
 import com.miningdim.job.engineer.effect.NanoReactor;
 import com.miningdim.job.engineer.menu.ProductionTableMenu;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -20,6 +23,9 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -63,6 +69,18 @@ public final class EngineerGameTests {
         // 等级门: L1 玩家不能解锁 MEDIUM (需 L3)。
         helper.assertFalse(EngineerLevels.isTierUnlocked(1, NanoTier.MEDIUM), "L1 cannot unlock MEDIUM");
         helper.assertTrue(EngineerLevels.isTierUnlocked(5, NanoTier.LOW), "L5 still allows LOW (降级)");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void productionTablesHaveHorizontalFacing(GameTestHelper helper) {
+        for (NanoTier tier : NanoTier.values()) {
+            BlockState state = ModEngineerBlocks.table(tier).get().defaultBlockState();
+            helper.assertTrue(state.hasProperty(ProductionTableBlock.FACING),
+                    tier + " production table has a horizontal facing property");
+            helper.assertTrue(state.getValue(ProductionTableBlock.FACING) == Direction.NORTH,
+                    tier + " production table defaults to north-facing");
+        }
         helper.succeed();
     }
 
@@ -110,11 +128,14 @@ public final class EngineerGameTests {
         // 用确定性: 直接断言成功分支 (种子使 nextDouble<0.5) 产 >=1 板。
         NanoProduction.Result radiant = NanoProduction.resolve(NanoTier.RADIANT, 0, fixedRoll(0.0));
         helper.assertTrue(radiant.platesProduced() == 1, "radiant success (roll 0.0 < 0.5) yields 1 plate");
-        helper.assertTrue(radiant.debrisRefund() == 0, "radiant success has no debris");
+        helper.assertTrue(radiant.scrapRefund() == 0, "radiant success has no scrap refund");
         NanoProduction.Result radiantFail = NanoProduction.resolve(NanoTier.RADIANT, 0, fixedRoll(0.99));
         helper.assertTrue(radiantFail.platesProduced() == 0, "radiant fail (roll 0.99 >= 0.5) yields 0 plates");
-        helper.assertTrue(radiantFail.debrisRefund() == EngineerConfig.RADIANT_FAIL_REFUND.get(),
-                "radiant fail refunds debris");
+        helper.assertTrue(radiantFail.scrapRefund() == EngineerConfig.RADIANT_FAIL_REFUND.get(),
+                "radiant failure refunds netherite scrap");
+        helper.assertTrue(NanoProduction.makeRadiantFailureRefund(radiantFail.scrapRefund())
+                        .is(Items.NETHERITE_SCRAP),
+                "radiant failure refund item is netherite scrap, not a netherite ingot");
         helper.succeed();
     }
 
@@ -208,7 +229,7 @@ public final class EngineerGameTests {
     public static void calibrationQte(GameTestHelper helper) {
         NanoCalibration cal = new NanoCalibration();
         RandomSource rng = RandomSource.create(42L);
-        cal.begin(rng);
+        cal.begin(rng, 20);
         helper.assertTrue(cal.isActive(), "begin activates calibration");
         helper.assertTrue(cal.progress() == 0, "fresh progress 0");
 
@@ -231,6 +252,14 @@ public final class EngineerGameTests {
         helper.assertTrue(cal.qualityHits() == q0 + 1, "hit increments quality");
         helper.assertTrue(cal.progress() == prog0 + EngineerConfig.CALIBRATION_HIT_PROGRESS.get(),
                 "hit advances progress by hitProgress");
+        int progressAfterAcceptedClick = cal.progress();
+        int qualityAfterAcceptedClick = cal.qualityHits();
+        cal.onClick();
+        helper.assertTrue(cal.progress() == progressAfterAcceptedClick
+                        && cal.qualityHits() == qualityAfterAcceptedClick,
+                "a second click in the same scanner sweep is ignored");
+        helper.assertTrue(cal.requiredTicks() == 20 && cal.elapsedTicks() > 0,
+                "configured production duration is snapshotted and elapsed on server ticks");
         helper.succeed();
     }
 
@@ -363,6 +392,51 @@ public final class EngineerGameTests {
     }
 
     // ============================================================
+    // 维修套件目标决策: 另一只手精确指定、非法目标回退、按损耗比例选择
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void repairKitTargetSelectionIsExplicitAndRatioBased(GameTestHelper helper) {
+        ItemStack heldTool = new ItemStack(Items.DIAMOND_PICKAXE);
+        heldTool.setDamageValue(1);
+
+        ItemStack nearlyBrokenHelmet = new ItemStack(Items.IRON_HELMET);
+        nearlyBrokenHelmet.setDamageValue(120);
+        ItemStack higherRawDamageChestplate = new ItemStack(Items.NETHERITE_CHESTPLATE);
+        higherRawDamageChestplate.setDamageValue(200);
+        java.util.List<ItemStack> worn = java.util.List.of(
+                ItemStack.EMPTY, ItemStack.EMPTY, higherRawDamageChestplate, nearlyBrokenHelmet);
+
+        ItemStack explicitlyPicked = com.miningdim.job.engineer.item.NanoArmorPlateItem
+                .chooseRepairTarget(heldTool, worn, NanoTier.LOW);
+        helper.assertTrue(explicitlyPicked == heldTool,
+                "the item held opposite the repair kit has priority over worn armor");
+
+        ItemStack automaticallyPicked = com.miningdim.job.engineer.item.NanoArmorPlateItem
+                .chooseRepairTarget(ItemStack.EMPTY, worn, NanoTier.LOW);
+        helper.assertTrue(automaticallyPicked == nearlyBrokenHelmet,
+                "automatic selection uses damage ratio, not the largest raw damage value");
+
+        ItemStack unbreakableTool = new ItemStack(Items.DIAMOND_PICKAXE);
+        unbreakableTool.setDamageValue(100);
+        unbreakableTool.getOrCreateTag().putBoolean("Unbreakable", true);
+        ItemStack fallbackPicked = com.miningdim.job.engineer.item.NanoArmorPlateItem
+                .chooseRepairTarget(unbreakableTool, worn, NanoTier.LOW);
+        helper.assertTrue(fallbackPicked == nearlyBrokenHelmet,
+                "an unbreakable held item is skipped instead of blocking a valid worn target");
+
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        ItemStack highKit = new ItemStack(ModEngineerItems.plate(NanoTier.HIGH).get());
+        heldTool.setDamageValue(100);
+        NanoRepair.Result toolRepair = NanoRepair.repair(heldTool, highKit, player, fixedRoll(0.0D));
+        helper.assertTrue(toolRepair.success() && heldTool.getDamageValue() == 0,
+                "a high-tier kit still repairs a damageable tool");
+        helper.assertTrue(NanoNbt.effects(heldTool).isEmpty(),
+                "repairing a tool never writes armor-only nano effect NBT");
+        helper.succeed();
+    }
+
+    // ============================================================
     // 图腾人级共享 CD 单一权威时钟 (6.2 / line 152: 人级跨维度)
     // 回归: CD 截止 tick 与就绪检查必须用同一全服权威时钟 (主世界), 否则跨维度时钟漂移导致就绪误判。
     // 此处锁死纯逻辑不变量: 同一权威 now 下 set 的 cdEnd, 用同一权威 now 检查时序自洽。
@@ -442,33 +516,53 @@ public final class EngineerGameTests {
         NanoNbt.writeEffects(armor, java.util.EnumSet.of(NanoEffect.SHIELD));
         helper.assertTrue(NanoNbt.shieldCharges(armor) == maxCharges, "fresh shield has max charges");
 
-        // 时钟推进满一个完整再生间隔: 充能 armed (regenTick 归 0), 但既不开窗也不耗充能 (反应式核心)。
-        int ticksToArm = (regenInterval + interval - 1) / interval; // 向上取整周期数。
-        for (int i = 0; i < ticksToArm; i++) {
-            boolean inWindow = NanoEffects.advanceShieldTimers(armor, interval);
-            helper.assertFalse(inWindow, "ticker never opens an immunity window on its own (no auto-window)");
+        // 新护盾立即可用；逐次耗尽时物品和特效仍保留。
+        for (int i = 0; i < maxCharges; i++) {
+            helper.assertTrue(NanoEffects.tryReactiveShield(armor),
+                    "each stored charge can open an immunity window");
+            NanoNbt.setShieldWindowTick(armor, 0);
         }
-        helper.assertTrue(NanoNbt.shieldCharges(armor) == maxCharges,
-                "after a full regen interval with no hit, charges are NOT auto-consumed (5 = 5 saves)");
-        helper.assertTrue(NanoNbt.shieldRegenTick(armor) == 0, "regen counted down to 0 (armed)");
-        helper.assertFalse(NanoEffects.shieldWindowActive(armor),
-                "armed but no active window until actually hit");
+        helper.assertTrue(NanoNbt.shieldCharges(armor) == 0, "all shield energy can be depleted to zero");
+        helper.assertTrue(NanoNbt.hasEffect(armor, NanoEffect.SHIELD),
+                "zero energy never removes the shield effect or armor");
+        helper.assertFalse(NanoEffects.tryReactiveShield(armor), "zero-energy shield is temporarily inactive");
 
-        // 受击触发: 消耗一次充能, 开免疫窗, 重置再生倒计时。
-        boolean opened = NanoEffects.tryReactiveShield(armor);
-        helper.assertTrue(opened, "reactive shield opens window on hit when armed");
-        helper.assertTrue(NanoNbt.shieldCharges(armor) == maxCharges - 1, "one charge consumed on the triggering hit");
-        helper.assertTrue(NanoNbt.shieldWindowTick(armor) == EngineerConfig.SHIELD_IMMUNITY_TICKS.get(),
-                "immunity window set to configured ticks");
-        helper.assertTrue(NanoNbt.shieldRegenTick(armor) == regenInterval, "regen timer reset to full interval");
-        helper.assertTrue(NanoEffects.shieldWindowActive(armor), "window active after trigger");
+        // 一个完整充电周期后恢复一格，可再次触发。
+        int ticksToRecharge = (regenInterval + interval - 1) / interval;
+        for (int i = 0; i < ticksToRecharge; i++) {
+            NanoEffects.advanceShieldTimers(armor, interval);
+        }
+        helper.assertTrue(NanoNbt.shieldCharges(armor) == 1,
+                "a depleted shield recharges one energy after the configured interval");
+        helper.assertTrue(NanoEffects.tryReactiveShield(armor),
+                "recharged shield becomes usable again without repair");
+        helper.succeed();
+    }
 
-        // 窗口期内再受击不再额外耗充能 (一路免疫即返回); 充能未 armed 时受击不触发。
-        boolean retriggerWhileOnCooldown = NanoEffects.tryReactiveShield(armor);
-        helper.assertFalse(retriggerWhileOnCooldown,
-                "with regen on cooldown, a hit does NOT consume another charge (no per-hit drain)");
-        helper.assertTrue(NanoNbt.shieldCharges(armor) == maxCharges - 1,
-                "charge count unchanged while regen is on cooldown");
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shieldArmorRejectsRepairAndNanoArmorRejectsMending(GameTestHelper helper) {
+        ItemStack shieldArmor = new ItemStack(Items.NETHERITE_CHESTPLATE);
+        shieldArmor.setDamageValue(100);
+        NanoNbt.writeEffects(shieldArmor, java.util.EnumSet.of(NanoEffect.SHIELD));
+        helper.assertTrue(NanoRepair.isShieldType(shieldArmor), "nano shield effect marks armor as shield type");
+        helper.assertFalse(com.miningdim.job.engineer.item.NanoArmorPlateItem.eligibleAsTarget(
+                        shieldArmor, NanoTier.RADIANT),
+                "repair kit target selection rejects every shield-type armor");
+
+        ItemStack nanoArmor = new ItemStack(Items.NETHERITE_CHESTPLATE);
+        NanoNbt.writeEffects(nanoArmor, java.util.EnumSet.of(NanoEffect.VITALITY));
+        nanoArmor.enchant(Enchantments.MENDING, 1);
+        helper.assertTrue(NanoAnvilGuard.stripMendingFromNanoEffectArmor(nanoArmor),
+                "legacy nano-effect armor has Mending removed");
+        helper.assertTrue(EnchantmentHelper.getItemEnchantmentLevel(Enchantments.MENDING, nanoArmor) == 0,
+                "Mending remains disabled on nano-effect armor");
+
+        ItemStack ordinaryArmor = new ItemStack(Items.DIAMOND_CHESTPLATE);
+        ordinaryArmor.enchant(Enchantments.MENDING, 1);
+        helper.assertFalse(NanoAnvilGuard.stripMendingFromNanoEffectArmor(ordinaryArmor),
+                "ordinary armor is outside the Mending restriction");
+        helper.assertTrue(EnchantmentHelper.getItemEnchantmentLevel(Enchantments.MENDING, ordinaryArmor) == 1,
+                "ordinary armor keeps Mending");
         helper.succeed();
     }
 
@@ -488,6 +582,7 @@ public final class EngineerGameTests {
         IJobService prevJob = swapJob(job);
         try {
             ProductionTableBlockEntity be = newProductionTable(helper);
+            be.setOwner(player.getUUID());
             BlockPos abs = helper.absolutePos(new BlockPos(0, 1, 0));
 
             // 板: 高级 (rawXp 默认 60) × 3, 品质 0, 生产者 = 取出者 (谁产谁得匹配)。
@@ -552,6 +647,7 @@ public final class EngineerGameTests {
         IJobService prevJob = swapJob(job);
         try {
             ProductionTableBlockEntity be = newProductionTable(helper);
+            be.setOwner(player.getUUID());
 
             // 取出前板栈快照 5 板 (HIGH, 品质 0, 生产者 = 取出者), 本次实际取走 2 (残留 3 不在此结算)。
             ItemStack boardSnapshot = NanoProduction.makePlate(NanoTier.HIGH, 5, player.getUUID(), 0);

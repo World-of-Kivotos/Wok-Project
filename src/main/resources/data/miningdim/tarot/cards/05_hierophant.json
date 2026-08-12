@@ -4,50 +4,34 @@
     "tiers": [
       [
         {
-          "kind": "self_cleanse"
-        },
-        {
-          "kind": "self_max_health",
-          "amount": 40,
+          "kind": "self_cleanse_max_health",
+          "amountPerEffect": 5,
           "durationTicks": 2400,
-          "capUp": 40,
-          "floorDown": 0
+          "capUp": 40
         }
       ],
       [
         {
-          "kind": "self_cleanse"
-        },
-        {
-          "kind": "self_max_health",
-          "amount": 40,
+          "kind": "self_cleanse_max_health",
+          "amountPerEffect": 7,
           "durationTicks": 2400,
-          "capUp": 40,
-          "floorDown": 0
+          "capUp": 40
         }
       ],
       [
         {
-          "kind": "self_cleanse"
-        },
-        {
-          "kind": "self_max_health",
-          "amount": 40,
+          "kind": "self_cleanse_max_health",
+          "amountPerEffect": 9,
           "durationTicks": 2400,
-          "capUp": 40,
-          "floorDown": 0
+          "capUp": 40
         }
       ],
       [
         {
-          "kind": "self_cleanse"
-        },
-        {
-          "kind": "self_max_health",
-          "amount": 40,
+          "kind": "self_cleanse_max_health",
+          "amountPerEffect": 10,
           "durationTicks": 2400,
-          "capUp": 40,
-          "floorDown": 0
+          "capUp": 40
         }
       ]
     ]
@@ -56,14 +40,10 @@
     "tiers": [
       [
         {
-          "kind": "self_cleanse"
-        },
-        {
-          "kind": "self_max_health",
-          "amount": 60,
+          "kind": "self_cleanse_max_health",
+          "amountPerEffect": 5,
           "durationTicks": 4800,
-          "capUp": 60,
-          "floorDown": 0
+          "capUp": 60
         },
         {
           "kind": "self_potion",
@@ -74,14 +54,10 @@
       ],
       [
         {
-          "kind": "self_cleanse"
-        },
-        {
-          "kind": "self_max_health",
-          "amount": 60,
+          "kind": "self_cleanse_max_health",
+          "amountPerEffect": 5,
           "durationTicks": 4800,
-          "capUp": 60,
-          "floorDown": 0
+          "capUp": 60
         },
         {
           "kind": "self_potion",
@@ -92,14 +68,10 @@
       ],
       [
         {
-          "kind": "self_cleanse"
-        },
-        {
-          "kind": "self_max_health",
-          "amount": 60,
+          "kind": "self_cleanse_max_health",
+          "amountPerEffect": 10,
           "durationTicks": 4800,
-          "capUp": 60,
-          "floorDown": 0
+          "capUp": 60
         },
         {
           "kind": "self_potion",
@@ -110,14 +82,10 @@
       ],
       [
         {
-          "kind": "self_cleanse"
-        },
-        {
-          "kind": "self_max_health",
-          "amount": 60,
+          "kind": "self_cleanse_max_health",
+          "amountPerEffect": 15,
           "durationTicks": 4800,
-          "capUp": 60,
-          "floorDown": 0
+          "capUp": 60
         },
         {
           "kind": "self_potion",
@@ -132,14 +100,10 @@
     "cooldownTicks": 10800,
     "ops": [
       {
-        "kind": "self_cleanse"
-      },
-      {
-        "kind": "self_max_health",
-        "amount": 120,
+        "kind": "self_cleanse_max_health",
+        "amountPerEffect": 20,
         "durationTicks": 2400,
-        "capUp": 120,
-        "floorDown": 0
+        "capUp": 120
       }
     ]
   }

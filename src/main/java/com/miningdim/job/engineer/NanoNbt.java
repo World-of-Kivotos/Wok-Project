@@ -119,7 +119,7 @@ public final class NanoNbt {
         tag.put(K_EFFECTS, list);
         if (effects.contains(NanoEffect.SHIELD)) {
             tag.putInt(K_SHIELD_CHARGES, EngineerConfig.SHIELD_MAX_CHARGES.get());
-            tag.putInt(K_SHIELD_REGEN, EngineerConfig.SHIELD_REGEN_INTERVAL_TICKS.get());
+            tag.putInt(K_SHIELD_REGEN, 0);
             tag.putInt(K_SHIELD_WINDOW, 0);
         }
     }

@@ -67,6 +67,7 @@ public final class GunsmithTaczStatsHandler {
         multiplyDamage(cache, multipliers.damage());
         multiplyFloat(cache, GunProperties.HEADSHOT_MULTIPLIER, multipliers.headshot());
         multiplyFloat(cache, GunProperties.EFFECTIVE_RANGE, multipliers.effectiveRange());
+        multiplyRoundsPerMinute(cache, multipliers);
         multiplyFloat(cache, GunProperties.ADS_TIME, multipliers.adsTime());
         multiplyInaccuracy(cache, GunProperties.INACCURACY, multipliers.inaccuracy());
         multiplyInaccuracy(cache, GunProperties.AIM_INACCURACY, multipliers.aimInaccuracy());
@@ -94,6 +95,13 @@ public final class GunsmithTaczStatsHandler {
                     (float) (damagePair.getDamage() * multiplier)));
         }
         cache.setCache(GunProperties.DAMAGE, adjusted);
+    }
+
+    private static void multiplyRoundsPerMinute(AttachmentCacheProperty cache,
+                                                GunsmithStatMultipliers multipliers) {
+        Integer value = Objects.requireNonNull(cache.getCache(GunProperties.ROUNDS_PER_MINUTE),
+                "TaCZ attachment cache has no value for " + GunProperties.ROUNDS_PER_MINUTE.name());
+        cache.setCache(GunProperties.ROUNDS_PER_MINUTE, multipliers.roundsPerMinute(value));
     }
 
     private static void multiplyInaccuracy(AttachmentCacheProperty cache,
@@ -140,7 +148,8 @@ public final class GunsmithTaczStatsHandler {
             CacheValue<ParameterizedCachePair<Float, Float>> initialized = delegate.initCache(gun, gunData);
             ParameterizedCachePair<Float, Float> value = Objects.requireNonNull(initialized.getValue(),
                     "TaCZ recoil modifier initialized an empty cache");
-            return new GunsmithRecoilCacheValue(value, recoilMultiplier(gun));
+            RecoilMultipliers multipliers = recoilMultipliers(gun);
+            return new GunsmithRecoilCacheValue(value, multipliers.vertical(), multipliers.horizontal());
         }
 
         @Override
@@ -148,8 +157,8 @@ public final class GunsmithTaczStatsHandler {
                          CacheValue<ParameterizedCachePair<Float, Float>> cacheValue) {
             GunsmithRecoilCacheValue gunsmithCache = (GunsmithRecoilCacheValue) cacheValue;
             List<Pair<Modifier, Modifier>> combined = new ArrayList<>(attachmentModifiers);
-            combined.add(Pair.of(new ScalingModifier(gunsmithCache.multiplier()),
-                    new ScalingModifier(gunsmithCache.multiplier())));
+            combined.add(Pair.of(new ScalingModifier(gunsmithCache.verticalMultiplier()),
+                    new ScalingModifier(gunsmithCache.horizontalMultiplier())));
             delegate.eval(combined, cacheValue);
         }
 
@@ -164,31 +173,43 @@ public final class GunsmithTaczStatsHandler {
             return delegate.getDiagramsDataSize();
         }
 
-        private static double recoilMultiplier(ItemStack gun) {
+        private static RecoilMultipliers recoilMultipliers(ItemStack gun) {
             if (!MunitionsConfig.GUNSMITH_ENABLED.get()) {
-                return 1.0D;
+                return new RecoilMultipliers(1.0D, 1.0D);
             }
             GunsmithGunStats stats = GunsmithGunStats.from(gun);
             if (stats == null) {
-                return 1.0D;
+                return new RecoilMultipliers(1.0D, 1.0D);
             }
-            return GunsmithStatMultipliers.of(stats, MunitionsConfig.GUNSMITH_HEADSHOT_DAMAGE_CAP.get()).recoil();
+            GunsmithStatMultipliers multipliers =
+                    GunsmithStatMultipliers.of(stats, MunitionsConfig.GUNSMITH_HEADSHOT_DAMAGE_CAP.get());
+            return new RecoilMultipliers(multipliers.verticalRecoil(), multipliers.horizontalRecoil());
         }
     }
 
     private static final class GunsmithRecoilCacheValue
             extends CacheValue<ParameterizedCachePair<Float, Float>> {
 
-        private final double multiplier;
+        private final double verticalMultiplier;
+        private final double horizontalMultiplier;
 
-        private GunsmithRecoilCacheValue(ParameterizedCachePair<Float, Float> value, double multiplier) {
+        private GunsmithRecoilCacheValue(ParameterizedCachePair<Float, Float> value,
+                                         double verticalMultiplier, double horizontalMultiplier) {
             super(value);
-            this.multiplier = multiplier;
+            this.verticalMultiplier = verticalMultiplier;
+            this.horizontalMultiplier = horizontalMultiplier;
         }
 
-        private double multiplier() {
-            return multiplier;
+        private double verticalMultiplier() {
+            return verticalMultiplier;
         }
+
+        private double horizontalMultiplier() {
+            return horizontalMultiplier;
+        }
+    }
+
+    private record RecoilMultipliers(double vertical, double horizontal) {
     }
 
     private static final class ScalingModifier extends Modifier {

@@ -1,21 +1,30 @@
 package com.miningdim.job.tarot;
 
 import com.miningdim.job.tarot.card.TarotCardData;
+import com.miningdim.job.tarot.client.TarotCardClient;
 import net.minecraft.ChatFormatting;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.StringTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResultHolder;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.inventory.tooltip.TooltipComponent;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.client.extensions.common.IClientItemExtensions;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * 单一塔罗卡牌 Item (TarotReader spec 第三章: 不做 220 个独立 Item)。NBT 三键 + 绑定:
@@ -33,9 +42,17 @@ public final class TarotCardItem extends Item {
     private static final String K_QUALITY = "Quality";
     private static final String K_ORIENTATION = "Upright";
     private static final String K_OWNER = "OwnerUUID";
+    private static final String K_EFFECT_TOOLTIP = "EffectTooltip";
+    private static final String K_EFFECT_TOOLTIP_VERSION = "EffectTooltipVersion";
+    private static final int EFFECT_TOOLTIP_VERSION = 1;
 
     public TarotCardItem(Properties properties) {
         super(properties.stacksTo(1));
+    }
+
+    @Override
+    public void initializeClient(Consumer<IClientItemExtensions> consumer) {
+        consumer.accept(TarotCardClient.extension());
     }
 
     /** 构造一张盖好三键 + ownerUUID 的牌 (开包/合成产出唯一入口; spec 第七/八/十章)。 */
@@ -52,6 +69,7 @@ public final class TarotCardItem extends Item {
         tag.putInt(K_QUALITY, quality.ordinal());
         tag.putBoolean(K_ORIENTATION, upright);
         tag.putUUID(K_OWNER, owner);
+        refreshEffectTooltip(stack);
         return stack;
     }
 
@@ -107,14 +125,36 @@ public final class TarotCardItem extends Item {
     }
 
     @Override
+    public Optional<TooltipComponent> getTooltipImage(ItemStack stack) {
+        CompoundTag tag = stack.getTag();
+        if (!hasCardIdentity(tag)) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new TarotCardTooltip(cardId(stack), quality(stack), upright(stack)));
+        } catch (RuntimeException malformedCard) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
     public void appendHoverText(ItemStack stack, Level level, List<Component> tooltip, TooltipFlag flag) {
         CompoundTag tag = stack.getTag();
-        if (tag == null || !tag.contains(K_CARD_ID)) {
+        if (!hasCardIdentity(tag)) {
             return;
         }
-        TarotArcana arcana = TarotArcana.byId(tag.getInt(K_CARD_ID));
-        TarotQuality quality = TarotQuality.byOrdinal(tag.getInt(K_QUALITY));
-        boolean upright = tag.getBoolean(K_ORIENTATION);
+        TarotArcana arcana;
+        TarotQuality quality;
+        boolean upright;
+        try {
+            arcana = TarotArcana.byId(tag.getInt(K_CARD_ID));
+            quality = TarotQuality.byOrdinal(tag.getInt(K_QUALITY));
+            upright = tag.getBoolean(K_ORIENTATION);
+        } catch (RuntimeException malformedCard) {
+            tooltip.add(Component.translatable("tooltip.miningdim.tarot.invalid_data")
+                    .withStyle(ChatFormatting.RED));
+            return;
+        }
 
         tooltip.add(Component.translatable("tooltip.miningdim.tarot.arcana." + arcana.id())
                 .withStyle(ChatFormatting.GOLD));
@@ -124,9 +164,97 @@ public final class TarotCardItem extends Item {
                         ? "tooltip.miningdim.tarot.orientation.upright"
                         : "tooltip.miningdim.tarot.orientation.reversed")
                 .withStyle(ChatFormatting.GRAY));
-        tooltip.add(Component.translatable("tooltip.miningdim.tarot.effect." + arcana.id()
-                        + (quality == TarotQuality.SHINY ? ".shiny" : (upright ? ".upright" : ".reversed")))
-                .withStyle(ChatFormatting.DARK_GRAY));
+
+        tooltip.add(Component.empty());
+        tooltip.add(Component.translatable("tooltip.miningdim.tarot.effect.title")
+                .withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD));
+        List<Component> effectLines = cachedEffectTooltip(tag);
+        if (effectLines.isEmpty()) {
+            // 单机/内置服务器可直接读取已重载的数据；专用服务器会在创建物品或背包 tick 时把同一结果写入 NBT。
+            effectLines = liveEffectTooltip(arcana, quality, upright);
+        }
+        if (effectLines.isEmpty()) {
+            tooltip.add(Component.translatable("tooltip.miningdim.tarot.effect.unavailable")
+                    .withStyle(ChatFormatting.DARK_GRAY));
+        } else {
+            for (Component line : effectLines) {
+                tooltip.add(line.copy().withStyle(ChatFormatting.GRAY));
+            }
+        }
+    }
+
+    @Override
+    public void inventoryTick(ItemStack stack, Level level, Entity entity, int slotId, boolean isSelected) {
+        super.inventoryTick(stack, level, entity, slotId, isSelected);
+        if (!level.isClientSide
+                && (!hasCurrentEffectTooltip(stack.getTag()) || cachedEffectTooltip(stack.getTag()).isEmpty())) {
+            // 兼容更新前已经存在的卡牌：第一次进入玩家背包后补写真实牌效，随后由原版物品同步送到客户端。
+            refreshEffectTooltip(stack);
+        }
+    }
+
+    private static boolean hasCardIdentity(CompoundTag tag) {
+        return tag != null
+                && tag.contains(K_CARD_ID, Tag.TAG_INT)
+                && tag.contains(K_QUALITY, Tag.TAG_INT)
+                && tag.contains(K_ORIENTATION, Tag.TAG_BYTE);
+    }
+
+    private static boolean hasCurrentEffectTooltip(CompoundTag tag) {
+        return hasCardIdentity(tag)
+                && tag.getInt(K_EFFECT_TOOLTIP_VERSION) == EFFECT_TOOLTIP_VERSION
+                && tag.contains(K_EFFECT_TOOLTIP, Tag.TAG_LIST);
+    }
+
+    private static void refreshEffectTooltip(ItemStack stack) {
+        CompoundTag tag = stack.getTag();
+        if (!hasCardIdentity(tag)) {
+            return;
+        }
+        try {
+            TarotArcana arcana = TarotArcana.byId(tag.getInt(K_CARD_ID));
+            TarotQuality quality = TarotQuality.byOrdinal(tag.getInt(K_QUALITY));
+            List<Component> lines = TarotEffectTooltipFormatter.format(
+                    TarotRuntime.cardLoader().get(arcana), quality, tag.getBoolean(K_ORIENTATION));
+            if (lines.isEmpty()) {
+                return;
+            }
+            ListTag encoded = new ListTag();
+            for (Component line : lines) {
+                encoded.add(StringTag.valueOf(Component.Serializer.toJson(line)));
+            }
+            tag.put(K_EFFECT_TOOLTIP, encoded);
+            tag.putInt(K_EFFECT_TOOLTIP_VERSION, EFFECT_TOOLTIP_VERSION);
+        } catch (RuntimeException dataNotReadyOrMalformed) {
+            // 物品可能在客户端视觉预览或资源重载完成前被构造；缺数据只让说明暂不可用，不能让 tooltip/渲染崩溃。
+        }
+    }
+
+    private static List<Component> cachedEffectTooltip(CompoundTag tag) {
+        if (!hasCurrentEffectTooltip(tag)) {
+            return List.of();
+        }
+        ListTag encoded = tag.getList(K_EFFECT_TOOLTIP, Tag.TAG_STRING);
+        List<Component> lines = new java.util.ArrayList<>(encoded.size());
+        for (int i = 0; i < encoded.size(); i++) {
+            try {
+                Component line = Component.Serializer.fromJson(encoded.getString(i));
+                if (line != null) {
+                    lines.add(line);
+                }
+            } catch (RuntimeException malformedCache) {
+                return List.of();
+            }
+        }
+        return List.copyOf(lines);
+    }
+
+    private static List<Component> liveEffectTooltip(TarotArcana arcana, TarotQuality quality, boolean upright) {
+        try {
+            return TarotEffectTooltipFormatter.format(TarotRuntime.cardLoader().get(arcana), quality, upright);
+        } catch (RuntimeException dataNotReadyOrMalformed) {
+            return List.of();
+        }
     }
 
     private static ChatFormatting qualityColor(TarotQuality quality) {

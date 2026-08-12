@@ -2,22 +2,28 @@ package com.miningdim.job.engineer.block;
 
 import com.miningdim.job.engineer.NanoTier;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.EntityBlock;
+import net.minecraft.world.level.block.HorizontalDirectionalBlock;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraftforge.network.NetworkHooks;
 import org.jetbrains.annotations.Nullable;
@@ -36,7 +42,7 @@ import java.util.function.Supplier;
  * 继承普通 Block + 实现 EntityBlock (而非 BaseEntityBlock), 与 EntranceBlock 同范式: 生产台要正常渲染为可见
  * 模型 (RenderShape.MODEL), BaseEntityBlock 默认 INVISIBLE 不合用。
  */
-public final class ProductionTableBlock extends Block implements EntityBlock {
+public final class ProductionTableBlock extends HorizontalDirectionalBlock implements EntityBlock {
 
     private final NanoTier machineTier;
     private final Supplier<BlockEntityType<ProductionTableBlockEntity>> beType;
@@ -49,12 +55,24 @@ public final class ProductionTableBlock extends Block implements EntityBlock {
     public ProductionTableBlock(BlockBehaviour.Properties properties, NanoTier machineTier,
                                 Supplier<BlockEntityType<ProductionTableBlockEntity>> beType) {
         super(properties);
+        registerDefaultState(stateDefinition.any().setValue(FACING, Direction.NORTH));
         this.machineTier = machineTier;
         this.beType = beType;
     }
 
     public NanoTier machineTier() {
         return machineTier;
+    }
+
+    @Nullable
+    @Override
+    public BlockState getStateForPlacement(BlockPlaceContext context) {
+        return defaultBlockState().setValue(FACING, context.getHorizontalDirection().getOpposite());
+    }
+
+    @Override
+    protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
+        builder.add(FACING);
     }
 
     @Override
@@ -86,6 +104,11 @@ public final class ProductionTableBlock extends Block implements EntityBlock {
         if (player.isShiftKeyDown() && player.getItemInHand(hand).isEmpty()) {
             if (be.isOwner(player)) {
                 boolean nowLocked = be.toggleLocked();
+                if (level instanceof ServerLevel serverLevel) {
+                    serverLevel.sendParticles(nowLocked ? ParticleTypes.ELECTRIC_SPARK : ParticleTypes.HAPPY_VILLAGER,
+                            pos.getX() + 0.5D, pos.getY() + 1.05D, pos.getZ() + 0.5D,
+                            12, 0.35D, 0.12D, 0.35D, 0.02D);
+                }
                 serverPlayer.displayClientMessage(Component.translatable(nowLocked
                         ? "message.miningdim.engineer.locked"
                         : "message.miningdim.engineer.unlocked"), true);

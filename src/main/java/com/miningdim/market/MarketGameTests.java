@@ -5,7 +5,8 @@ import com.miningdim.economy.AbuseGuard;
 import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyService;
 import com.miningdim.economy.EconomyServices;
-import com.miningdim.economy.EconomyWalletData;
+import com.miningdim.economy.EconomyLedger;
+import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.market.store.MarketDaoSqlite;
@@ -33,7 +34,7 @@ import java.util.function.Function;
  * 跳蚤市场交易引擎核心逻辑 GameTest (共享契约第 8 节)。服务端纯逻辑, 用内存 SQLite (jdbc:sqlite::memory:, 经
  * {@link MarketDb#openInMemory}) 走与生产同一 DDL; 不 classload 任何 client.webui/MCEF (GameTest 是服务端进程)。
  *
- * 货币侧用真实 {@link EconomyService} 背靠内存 {@link EconomyWalletData} 账本 (余额是真账本, 可精确断言总量守恒),
+ * 货币侧用真实 {@link EconomyService} 背靠内存 {@link com.miningdim.economy.SqliteEconomyLedger} 账本 (余额是真账本, 可精确断言总量守恒),
  * 经 {@link EconomyServices} 定位器 swap/restore (仿 MinerGameTests: GameTest 在已启动服务端跑, 真实门面可能已注入,
  * 测后还原)。强断言 (删被测核心逻辑测试必挂, 禁 is-not-null 弱校验):
  *  1. 挂单->买入 happy path: 挂单时向卖家收偏离费 listFee 蒸发 (sink, 上单即收), 买入时买家 -total / 卖家 +全额 total (买入不再收费),
@@ -59,9 +60,9 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void placeThenBuyConservesFeeAsSink(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
-        MarketDaoSqlite dao = MarketDb.openInMemory();
+        MarketDaoSqlite dao = MarketDb.on(ledger.connection());
         try {
             // MarketDb.openInMemory 内部已 initSchema (建表 + 索引), 此处不重复建表。
             ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -148,9 +149,9 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void buyWithInsufficientFundsLeavesEverythingUntouched(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
-        MarketDaoSqlite dao = MarketDb.openInMemory();
+        MarketDaoSqlite dao = MarketDb.on(ledger.connection());
         try {
             // MarketDb.openInMemory 内部已 initSchema; 不重复建表。
             ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -209,9 +210,9 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void azurePricedListingIsRejected(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
-        MarketDaoSqlite dao = MarketDb.openInMemory();
+        MarketDaoSqlite dao = MarketDb.on(ledger.connection());
         try {
             // MarketDb.openInMemory 内部已 initSchema; 不重复建表。
             ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -257,9 +258,9 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void cancelRefundsItemAndMarksCancelled(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
-        MarketDaoSqlite dao = MarketDb.openInMemory();
+        MarketDaoSqlite dao = MarketDb.on(ledger.connection());
         try {
             // MarketDb.openInMemory 内部已 initSchema; 不重复建表。
             ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -319,9 +320,9 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void copperIronDailyCapRejectsOverflow(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
-        MarketDaoSqlite dao = MarketDb.openInMemory();
+        MarketDaoSqlite dao = MarketDb.on(ledger.connection());
         try {
             // MarketDb.openInMemory 内部已 initSchema; 不重复建表。
             ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -376,9 +377,9 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void offlineSellerPayoutIsDeferredAndSettledOnLogin(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
-        MarketDaoSqlite dao = MarketDb.openInMemory();
+        MarketDaoSqlite dao = MarketDb.on(ledger.connection());
         try {
             // MarketDb.openInMemory 内部已 initSchema; 不重复建表。
             ServerPlayer buyer = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -434,9 +435,9 @@ public final class MarketGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void partialBuySplitsListingAndConservesTotals(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
-        MarketDaoSqlite dao = MarketDb.openInMemory();
+        MarketDaoSqlite dao = MarketDb.on(ledger.connection());
         try {
             ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             ServerPlayer buyer = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -495,6 +496,114 @@ public final class MarketGameTests {
         } finally {
             MarketDb.close(dao);
             restoreEconomy(prev);
+        }
+    }
+
+    // ============================================================
+    // 6.5 成交与离线结算的事务原子性 (钱与市场表已同库同连接)
+    // ============================================================
+
+    /**
+     * 成交过程中卖家入账失败时, 买家扣款、挂单状态与流水必须一并回滚。
+     *
+     * 卖家余额已达 Long.MAX_VALUE 是真实可达的入账失败路径 (不靠桩)。此前扣款、markSold、insertTxn、卖家
+     * 入账各走 autocommit, 卖家入账抛出时前三步已经落盘 —— 买家钱没了、挂单显示已售、物品也没交付。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void failedSellerPayoutRollsBackTheWholeBuy(GameTestHelper helper) {
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
+        MarketDaoSqlite dao = MarketDb.on(ledger.connection());
+        try {
+            ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            ServerPlayer buyer = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            MarketEngine engine = new MarketEngine(dao, helper.getLevel().getServer());
+
+            seller.getInventory().clearContent();
+            seller.getInventory().setItem(0, new ItemStack(Items.IRON_INGOT, 4));
+            EconomyServices.economyService().grant(seller, Currency.CREDIT, 10_000L);
+            long listingId = engine.place(seller, 0, 4, 50L, "CREDIT").listingId();
+
+            EconomyServices.economyService().grant(buyer, Currency.CREDIT, 1_000L);
+            buyer.getInventory().clearContent();
+            long buyerBefore = ledger.balance(buyer.getUUID(), Currency.CREDIT);
+
+            // 把卖家余额顶到 long 上界: 成交时的卖家入账必然溢出。
+            ledger.credit(seller.getUUID(), Currency.CREDIT,
+                    Long.MAX_VALUE - ledger.balance(seller.getUUID(), Currency.CREDIT));
+
+            boolean failed = false;
+            try {
+                engine.buy(buyer, listingId, 4);
+            } catch (RuntimeException expected) {
+                failed = true;
+            }
+            helper.assertTrue(failed, "卖家入账溢出必须让整笔成交失败");
+            helper.assertTrue(ledger.balance(buyer.getUUID(), Currency.CREDIT) == buyerBefore,
+                    "回滚后买家余额必须原封不动, 实为 " + ledger.balance(buyer.getUUID(), Currency.CREDIT)
+                            + " (应为 " + buyerBefore + ")");
+            helper.assertTrue("ACTIVE".equals(dao.findListing(listingId).status()),
+                    "回滚后挂单必须仍是 ACTIVE, 不能显示已售");
+            helper.assertTrue(countItem(buyer, Items.IRON_INGOT) == 0,
+                    "失败的成交不得交付任何物品");
+            helper.assertTrue(rowCount(ledger, "SELECT COUNT(*) FROM transactions WHERE listing_id="
+                    + listingId) == 0L, "回滚后不得留下脏流水行");
+            helper.succeed();
+        } finally {
+            MarketDb.close(dao);
+            restoreEconomy(prev);
+        }
+    }
+
+    /**
+     * 登录结算入账失败时, 待结款行必须还在。
+     *
+     * 这是"先物理删除再发钱"的直接回归测试: 修复前 drainPendingPayout 自己提交了 SELECT + DELETE, 之后才
+     * grant, 崩在两步之间卖家的离线收入永久消失且无从追溯。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void failedLoginSettlementKeepsPendingPayout(GameTestHelper helper) {
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
+        MarketDaoSqlite dao = MarketDb.on(ledger.connection());
+        try {
+            MarketEngine engine = new MarketEngine(dao, helper.getLevel().getServer());
+            UUID sellerId = UUID.randomUUID();
+            dao.insertPendingPayout(sellerId, 777L, MarketConstants.CURRENCY_CREDIT, System.currentTimeMillis());
+
+            ServerPlayer seller = makeMockPlayerWithUuid(helper, sellerId);
+            // 余额顶到 long 上界: 结算入账必然溢出。
+            ledger.credit(sellerId, Currency.CREDIT, Long.MAX_VALUE);
+
+            boolean failed = false;
+            try {
+                engine.settlePendingOnLogin(seller);
+            } catch (RuntimeException expected) {
+                failed = true;
+            }
+            helper.assertTrue(failed, "结算入账溢出必须抛出而不是静默吞掉");
+            helper.assertTrue(rowCount(ledger, "SELECT COUNT(*) FROM pending_payout WHERE seller_uuid='"
+                            + sellerId + "'") == 1L,
+                    "入账失败时待结款行必须原样保留, 否则这笔钱永久消失且无从追溯");
+            helper.assertTrue(ledger.balance(sellerId, Currency.CREDIT) == Long.MAX_VALUE,
+                    "失败的结算不得改动余额");
+            helper.succeed();
+        } finally {
+            MarketDb.close(dao);
+            restoreEconomy(prev);
+        }
+    }
+
+    /** 直接查库计数 (市场 DAO 不暴露这些只读统计, 测试自己查)。 */
+    private static long rowCount(SqliteEconomyLedger ledger, String sql) {
+        try (java.sql.Statement st = ledger.connection().createStatement();
+             java.sql.ResultSet rs = st.executeQuery(sql)) {
+            if (!rs.next()) {
+                throw new IllegalStateException("计数查询无结果: " + sql);
+            }
+            return rs.getLong(1);
+        } catch (java.sql.SQLException e) {
+            throw new IllegalStateException("计数查询失败: " + sql, e);
         }
     }
 

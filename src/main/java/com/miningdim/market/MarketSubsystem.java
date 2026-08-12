@@ -1,8 +1,10 @@
 package com.miningdim.market;
 
 import com.miningdim.core.Subsystem;
+import com.miningdim.economy.EconomyServices;
 import com.miningdim.market.store.MarketDaoSqlite;
 import com.miningdim.market.store.MarketDb;
+import com.miningdim.store.MiningStore;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -18,10 +20,11 @@ import org.slf4j.LoggerFactory;
  * forge 生命周期事件接 SQLite 开关与登录结算, 并把 market.* / admin.* / player.* 三组 action 注册进已落地的
  * {@link com.miningdim.webui.server.WebUiServerDispatcher}。
  *
- * 生命周期 (契约第 2 节, 服务端单连接契合 SQLite 单写者):
- *  - {@link ServerStartingEvent}: 经 A 的 {@link MarketDb#open} 开世界存档目录下的 miningdim_market.db 连接 (WAL +
- *    foreign_keys) + initSchema 建表, 构 {@link MarketEngine}, 经 {@link MarketServices} 注入门面。
- *  - {@link ServerStoppingEvent}: 关连接 + {@link MarketServices#reset} 清引用防跨存档脏引用。
+ * 生命周期 (服务端单连接契合 SQLite 单写者):
+ *  - {@link ServerStartingEvent}: 在统一库连接 ({@link MiningStore}, 已于 ServerAboutToStart 开好并完成 schema
+ *    迁移) 上构 DAO 与 {@link MarketEngine}, 经 {@link MarketServices} 注入门面。
+ *  - {@link ServerStoppingEvent}: {@link MarketServices#reset} 清引用防跨存档脏引用; 连接【不在此关闭】,
+ *    它是全服共享的, 归存储子系统在 ServerStopped 统一释放。
  *  - {@link PlayerEvent.PlayerLoggedInEvent}: {@link MarketEngine#settlePendingOnLogin} 结清离线期 pending_payout。
  *
  * 跨子系统协作只经货币门面定位器 ({@link com.miningdim.economy.EconomyServices}, 由引擎内部取用) 与 webui 派发器,
@@ -31,7 +34,7 @@ public final class MarketSubsystem implements Subsystem {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/market");
 
-    /** 本子系统持有的 SQLite DAO (服务端单连接, 启动期建、停止期关; 门面引用由 MarketServices 单一持有, 此处仅留关连接句柄)。 */
+    /** 本子系统建在统一连接上的 DAO; 连接的开关不归本子系统。 */
     private MarketDaoSqlite dao;
 
     @Override
@@ -50,22 +53,19 @@ public final class MarketSubsystem implements Subsystem {
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
         MinecraftServer server = event.getServer();
-        // 经 A 的 MarketDb 开世界存档目录下的 miningdim_market.db (契约第 2 节: getWorldPath(ROOT)/miningdim_market.db,
-        // WAL + foreign_keys), MarketDb.open 内部已 initSchema 建表; 失败自然冒泡 (启动期硬错, 不静默 fallback 掩盖)。
-        this.dao = MarketDb.open(server);
+        // 市场表已并入统一库 miningdim.db (建表归 MiningSchema 的版本化迁移)。取连接失败自然冒泡
+        // (启动期硬错, 不静默 fallback 掩盖)。
+        this.dao = MarketDb.on(MiningStore.connection());
         MarketServices.registerMarketEngine(new MarketEngine(this.dao, server));
         LOGGER.info("[miningdim] market: SQLite ledger bound, MarketEngine registered (place/buy/cancel/settle live)");
     }
 
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
-        // 先清门面引用 (运行期取用方随即在 MarketServices 自然抛, 暴露已下线), 再关连接 (释放 SQLite 文件锁)。
-        // 连接关闭经 A 的静态 MarketDb.close(dao) 编排 (契约第 2 节: 连接由 MarketDb open/close 管, 幂等)。
+        // 清门面引用 (运行期取用方随即在 MarketServices 自然抛, 暴露已下线) 并丢弃 DAO。
+        // 连接是全服共享的, 由存储子系统在 ServerStopped 关闭 —— 在此关掉会连带打断开箱与后续的经济写入。
         MarketServices.reset();
-        if (this.dao != null) {
-            MarketDb.close(this.dao);
-            this.dao = null;
-        }
+        this.dao = null;
     }
 
     @SubscribeEvent
@@ -73,8 +73,9 @@ public final class MarketSubsystem implements Subsystem {
         if (!(event.getEntity() instanceof ServerPlayer player)) {
             return;
         }
-        // 引擎未就绪 (维度缺失等导致未注入) 时不结算 (取用方自然抛会打断登录链路, 故先判 isRegistered)。
-        if (!MarketServices.isRegistered()) {
+        // 引擎或货币门面未就绪 (维度缺失等导致未注入) 时不结算 —— 取用方自然抛会打断整条登录链路, 故先判。
+        // 结算现在是"取删待结款 + 入账"的单个事务, 一进门就要货币门面, 因此这里必须连它一起判。
+        if (!MarketServices.isRegistered() || !EconomyServices.isRegistered()) {
             return;
         }
         MarketServices.marketEngine().settlePendingOnLogin(player);

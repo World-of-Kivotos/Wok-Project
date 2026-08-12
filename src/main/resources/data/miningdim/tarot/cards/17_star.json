@@ -14,7 +14,8 @@
           "durationTicks": 400
         },
         {
-          "kind": "self_cleanse"
+          "kind": "self_cleanse_limited",
+          "count": 1
         }
       ],
       [
@@ -29,7 +30,8 @@
           "durationTicks": 500
         },
         {
-          "kind": "self_cleanse"
+          "kind": "self_cleanse_limited",
+          "count": 2
         }
       ],
       [
@@ -44,7 +46,8 @@
           "durationTicks": 600
         },
         {
-          "kind": "self_cleanse"
+          "kind": "self_cleanse_limited",
+          "count": 3
         }
       ],
       [
@@ -59,7 +62,8 @@
           "durationTicks": 800
         },
         {
-          "kind": "self_cleanse"
+          "kind": "self_cleanse_limited",
+          "count": -1
         }
       ]
     ]
@@ -80,6 +84,11 @@
           "radius": 4
         },
         {
+          "kind": "aoe_ally_cleanse_limited",
+          "radius": 4,
+          "count": 1
+        },
+        {
           "kind": "self_potion",
           "effect": "miningdim:vulnerability",
           "amplifier": 0,
@@ -89,6 +98,10 @@
           "kind": "self_potion",
           "effect": "minecraft:slowness",
           "amplifier": 1,
+          "durationTicks": 400
+        },
+        {
+          "kind": "self_healing_block",
           "durationTicks": 400
         }
       ],
@@ -106,6 +119,11 @@
           "radius": 6
         },
         {
+          "kind": "aoe_ally_cleanse_limited",
+          "radius": 6,
+          "count": 2
+        },
+        {
           "kind": "self_potion",
           "effect": "miningdim:vulnerability",
           "amplifier": 0,
@@ -115,6 +133,10 @@
           "kind": "self_potion",
           "effect": "minecraft:slowness",
           "amplifier": 1,
+          "durationTicks": 320
+        },
+        {
+          "kind": "self_healing_block",
           "durationTicks": 320
         }
       ],
@@ -132,6 +154,11 @@
           "radius": 8
         },
         {
+          "kind": "aoe_ally_cleanse_limited",
+          "radius": 8,
+          "count": 3
+        },
+        {
           "kind": "self_potion",
           "effect": "miningdim:vulnerability",
           "amplifier": 0,
@@ -141,6 +168,10 @@
           "kind": "self_potion",
           "effect": "minecraft:slowness",
           "amplifier": 1,
+          "durationTicks": 240
+        },
+        {
+          "kind": "self_healing_block",
           "durationTicks": 240
         }
       ],
@@ -158,6 +189,11 @@
           "radius": 10
         },
         {
+          "kind": "aoe_ally_cleanse_limited",
+          "radius": 10,
+          "count": -1
+        },
+        {
           "kind": "self_potion",
           "effect": "miningdim:vulnerability",
           "amplifier": 0,
@@ -167,6 +203,10 @@
           "kind": "self_potion",
           "effect": "minecraft:slowness",
           "amplifier": 1,
+          "durationTicks": 160
+        },
+        {
+          "kind": "self_healing_block",
           "durationTicks": 160
         }
       ]
@@ -186,6 +226,26 @@
         "amplifier": 2,
         "durationTicks": 900,
         "radius": 12
+      },
+      {
+        "kind": "aoe_ally_potion",
+        "effect": "minecraft:night_vision",
+        "amplifier": 0,
+        "durationTicks": 500,
+        "radius": 12
+      },
+      {
+        "kind": "aoe_ally_potion",
+        "effect": "minecraft:glowing",
+        "amplifier": 0,
+        "durationTicks": 500,
+        "radius": 12
+      },
+      {
+        "kind": "aoe_ally_low_health_heal",
+        "radius": 12,
+        "thresholdPercent": 0.25,
+        "amount": 50
       }
     ]
   }

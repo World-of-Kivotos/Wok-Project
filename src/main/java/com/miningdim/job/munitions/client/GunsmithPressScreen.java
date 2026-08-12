@@ -6,6 +6,7 @@ import com.miningdim.job.JobId;
 import com.miningdim.job.JobXpCurve;
 import com.miningdim.job.munitions.block.GunsmithPressBlockEntity;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartVariant;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.job.munitions.menu.GunsmithPressMenu;
@@ -17,12 +18,15 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 
+import java.util.List;
+import java.util.Locale;
+
 public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPressMenu> {
 
     private static final ResourceLocation BG =
             new ResourceLocation(MiningConstants.MODID, "textures/gui/container/gunsmith_press.png");
     private static final int PART_ICON_TEX = 64;
-    private static final int PART_ICON_SIZE = 22;
+    private static final int DETAIL_ICON_SIZE = 40;
 
     private static final int W = 360;
     private static final int H = 240;
@@ -53,27 +57,47 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
     private static final int PART_H = 14;
     private static final int PART_GAP = 4;
 
+    private static final int VARIANT_POPUP_OFFSET_X = 4;
+    private static final int VARIANT_POPUP_W = 136;
+    private static final int VARIANT_POPUP_PADDING = 3;
+    private static final int VARIANT_POPUP_ITEM_H = 18;
+    private static final int VARIANT_POPUP_GAP = 1;
+    private static final float VARIANT_POPUP_Z = 300.0F;
+
     private static final int QUALITY_X = 103;
     private static final int QUALITY_Y = 124;
     private static final int QUALITY_W = 32;
     private static final int QUALITY_H = 13;
     private static final int QUALITY_GAP = 4;
 
-    private static final int START_X = 27;
-    private static final int START_Y = 204;
-    private static final int START_W = 53;
-    private static final int START_H = 30;
+    private static final int DETAIL_X = 94;
+    private static final int DETAIL_Y = 58;
+    private static final int DETAIL_W = 188;
+    private static final int DETAIL_H = 63;
 
-    private static final int PREVIEW_X = 103;
-    private static final int PREVIEW_Y = 66;
-    private static final int PREVIEW_W = 168;
-    private static final int PREVIEW_H = 48;
-    private static final int OUTPUT_SLOT_X = 178;
-    private static final int OUTPUT_SLOT_Y = 92;
+    private static final int START_X = 292;
+    private static final int START_Y = 146;
+    private static final int START_W = 54;
+    private static final int START_H = 24;
+
+    private static final int MATERIAL_PANEL_X = 287;
+    private static final int MATERIAL_PANEL_Y = 58;
+    private static final int MATERIAL_PANEL_W = 63;
+    private static final int MATERIAL_PANEL_H = 84;
+    private static final int SLOT_GUN_PARTS_X = 294;
+    private static final int SLOT_ALLOY_X = 320;
+    private static final int SLOT_POLYMER_X = 294;
+    private static final int SLOT_OUTPUT_X = 320;
+    private static final int SLOT_TOP_Y = 84;
+    private static final int SLOT_BOTTOM_Y = 110;
     private static final int TIME_PANEL_X = 292;
     private static final int TIME_PANEL_Y = 184;
     private static final int TIME_PANEL_W = 54;
     private static final int TIME_PANEL_H = 36;
+
+    private GunsmithPlatform variantMenuPlatform;
+    private GunsmithPressPart variantMenuPart;
+    private GunsmithPlatform pendingPlatform;
 
     public GunsmithPressScreen(GunsmithPressMenu menu, Inventory inv, Component title) {
         super(menu, inv, title, BG, W, H);
@@ -97,7 +121,13 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        refreshPendingPlatform();
         super.render(graphics, mouseX, mouseY, partialTick);
+        if (menu.isPressing()
+                || (variantMenuPlatform != null && variantMenuPlatform != menu.selectedPlatform())) {
+            closeVariantMenu();
+        }
+        renderVariantPopup(graphics, (this.width - W) / 2, (this.height - H) / 2, mouseX, mouseY);
         renderHoverTooltip(graphics, mouseX, mouseY);
         renderMunitionsXpTooltip(graphics, mouseX, mouseY);
     }
@@ -105,162 +135,266 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
     private void renderDynamic(GuiGraphics graphics, int left, int top, int mouseX, int mouseY) {
         GunsmithPlatform platform = menu.selectedPlatform();
         GunsmithPressPart part = menu.selectedPart();
+        GunsmithPartVariant variant = menu.selectedVariant();
         GunsmithPartQuality quality = menu.selectedQuality();
-        int pulse = (int) ((System.currentTimeMillis() / 180L) % 6L);
 
-        drawScaledText(graphics, "机械冲压机", left + 98, top + 20, 0xFFE9EDF7, 1.65F);
-        drawScaledText(graphics, "枪匠零件冲压线", left + 99, top + 43, 0xFF8E98AA, 0.82F);
-        drawScaledText(graphics, "材料 / 工时", left + 292, top + 62, 0xFFDDE4F1, 0.86F);
+        drawScaledText(graphics, tr("block.miningdim.gunsmith_press"),
+                left + 98, top + 20, 0xFFE9EDF7, 1.65F);
+        drawScaledText(graphics, tr("screen.miningdim.gunsmith_press.subtitle"),
+                left + 99, top + 43, 0xFF8E98AA, 0.82F);
 
         renderPlayerInfo(graphics, left, top);
-        renderPlatformButtons(graphics, left, top);
-        renderPartButtons(graphics, left, top, platform);
-        renderPartPreview(graphics, left, top, platform, part, quality, pulse,
-                menu.isPressing(), menu.getSlot(GunsmithPressBlockEntity.SLOT_OUTPUT).hasItem());
-        renderQualityButtons(graphics, left, top);
-        renderCostSummary(graphics, left, top, part, quality);
+        renderPlatformButtons(graphics, left, top, mouseX, mouseY);
+        renderPartButtons(graphics, left, top, platform, mouseX, mouseY);
+        renderCurrentComponentSummary(graphics, left, top, part, variant);
+        renderComponentDetail(graphics, left, top, platform, part, variant, quality);
+        renderQualityButtons(graphics, left, top, mouseX, mouseY);
+        renderMaterialPanel(graphics, left, top);
         renderStartButton(graphics, left, top, mouseX, mouseY);
-        renderSlotHints(graphics, left, top);
         renderTimePanel(graphics, left, top);
     }
 
-    private void renderPlatformButtons(GuiGraphics graphics, int left, int top) {
+    private void renderPlatformButtons(GuiGraphics graphics, int left, int top, int mouseX, int mouseY) {
         GunsmithPlatform selected = menu.selectedPlatform();
         int x = left + PLATFORM_X;
         int y = top + PLATFORM_Y;
-        boolean hover = inRect(this.minecraftMouseX(), this.minecraftMouseY(), x, y, PLATFORM_W, PLATFORM_H);
-        int edge = hover ? 0xFF62E6C8 : 0xFF333844;
+        boolean locked = selectionLocked();
+        boolean hover = !locked && inRect(mouseX, mouseY, x, y, PLATFORM_W, PLATFORM_H);
+        int edge = locked ? 0xFF292E38 : hover ? 0xFF62E6C8 : 0xFF333844;
         graphics.fill(x, y, x + PLATFORM_W, y + PLATFORM_H, edge);
-        graphics.fill(x + 1, y + 1, x + PLATFORM_W - 1, y + PLATFORM_H - 1, 0xFF202631);
+        graphics.fill(x + 1, y + 1, x + PLATFORM_W - 1, y + PLATFORM_H - 1,
+                locked ? 0xFF191D25 : 0xFF202631);
         graphics.fill(x + PLATFORM_ARROW_W, y + 1, x + PLATFORM_ARROW_W + 1, y + PLATFORM_H - 1, 0xFF343B49);
         graphics.fill(x + PLATFORM_W - PLATFORM_ARROW_W - 1, y + 1, x + PLATFORM_W - PLATFORM_ARROW_W, y + PLATFORM_H - 1,
                 0xFF343B49);
         drawCenteredScaledText(graphics, "<", x + PLATFORM_ARROW_W / 2.0F, y + 3.0F,
-                0xFFB8C0CE, 0.62F);
+                locked ? 0xFF5E6571 : 0xFFB8C0CE, 0.62F);
         drawCenteredScaledText(graphics, ">", x + PLATFORM_W - PLATFORM_ARROW_W / 2.0F, y + 3.0F,
-                0xFFB8C0CE, 0.62F);
+                locked ? 0xFF5E6571 : 0xFFB8C0CE, 0.62F);
         drawFittedCenteredText(graphics, tr(selected.labelKey()),
                 x + PLATFORM_W / 2.0F, y + 3.0F, PLATFORM_W - PLATFORM_ARROW_W * 2 - 2,
-                0xFFBFFBEF, 0.68F, 0.48F);
+                locked ? 0xFF737B87 : 0xFFBFFBEF, 0.68F, 0.48F);
     }
 
-    private void renderPartButtons(GuiGraphics graphics, int left, int top, GunsmithPlatform platform) {
+    private void renderPartButtons(GuiGraphics graphics, int left, int top, GunsmithPlatform platform,
+                                   int mouseX, int mouseY) {
         GunsmithPressPart selected = menu.selectedPart();
+        boolean locked = selectionLocked();
         int row = 0;
         for (GunsmithPressPart part : platform.supportedParts()) {
             int x = left + PART_X;
             int y = top + PART_Y + row * (PART_H + PART_GAP);
             boolean current = part == selected;
-            boolean hover = inRect(this.minecraftMouseX(), this.minecraftMouseY(), x, y, PART_W, PART_H);
-            int outer = current ? 0xFFB98C4D : hover ? 0xFF586172 : 0xFF333844;
-            int inner = current ? 0xFF3A3128 : 0xFF232631;
+            boolean hasVariants = GunsmithPartVariant.availableFor(platform, part).size() > 1;
+            boolean popupOwner = isVariantMenuOpenFor(platform, part);
+            boolean hover = !locked && inRect(mouseX, mouseY, x, y, PART_W, PART_H);
+            int outer = locked ? 0xFF292E38 : popupOwner ? 0xFF35D2A4
+                    : current ? 0xFFB98C4D : hover ? 0xFF586172 : 0xFF333844;
+            int inner = locked ? 0xFF191D25 : popupOwner ? 0xFF163C38
+                    : current ? 0xFF3A3128 : 0xFF232631;
             graphics.fill(x, y, x + PART_W, y + PART_H, outer);
             graphics.fill(x + 1, y + 1, x + PART_W - 1, y + PART_H - 1, inner);
-            if (current) {
+            if (current && !locked && !popupOwner) {
                 graphics.fill(x + 2, y + PART_H - 2, x + PART_W - 2, y + PART_H - 1, 0xFFD9A854);
             }
-            drawCenteredScaledText(graphics, platformPartName(platform, part), x + PART_W / 2.0F, y + 3.0F,
-                    current ? 0xFFF3D7A2 : 0xFFD1D8E4, 0.72F);
+            float labelCenter = x + PART_W / 2.0F - (hasVariants ? 3.0F : 0.0F);
+            drawFittedCenteredText(graphics, tr(part.slotKey()), labelCenter, y + 3.0F,
+                    PART_W - (hasVariants ? 13 : 4), locked ? 0xFF737B87
+                            : popupOwner ? 0xFFC8FFF3 : current ? 0xFFF3D7A2 : 0xFFD1D8E4,
+                    0.72F, 0.48F);
+            if (hasVariants) {
+                drawCenteredScaledText(graphics, popupOwner ? "<" : ">", x + PART_W - 6.0F, y + 3.0F,
+                        locked ? 0xFF5E6571 : popupOwner ? 0xFF8FFFF0 : 0xFF62E6C8, 0.62F);
+            }
             row++;
         }
     }
 
-    private void renderPartPreview(GuiGraphics graphics, int left, int top,
-                                   GunsmithPlatform platform, GunsmithPressPart part,
-                                   GunsmithPartQuality quality, int pulse,
-                                   boolean active, boolean hasOutput) {
-        int x = left + PREVIEW_X;
-        int y = top + PREVIEW_Y;
-        int slotX = left + OUTPUT_SLOT_X;
-        int slotY = top + OUTPUT_SLOT_Y;
-        int ramDrop = active ? 3 + pulse / 2 : 0;
-
-        graphics.fill(x + 6, y + 39, x + PREVIEW_W - 6, y + 43, 0xDD0B0E15);
-        graphics.fill(x + 14, y + 2, x + PREVIEW_W - 14, y + 5, 0xFF697384);
-        graphics.fill(x + 17, y + 5, x + PREVIEW_W - 17, y + 7, active ? 0xFF4EF4D9 : 0xFF2E8D83);
-        graphics.fill(x + 22, y + 6, x + 28, y + 35, 0xFF343B47);
-        graphics.fill(x + PREVIEW_W - 28, y + 6, x + PREVIEW_W - 22, y + 35, 0xFF343B47);
-        graphics.fill(x + 20, y + 34, x + PREVIEW_W - 20, y + 37, 0xFF222733);
-
-        graphics.fill(x + 61, y + 8, x + 85, y + 13, 0xFF767F8C);
-        graphics.fill(x + 67, y + 13, x + 79, y + 20 + ramDrop, 0xFF4F5865);
-        graphics.fill(x + 53, y + 20 + ramDrop, x + 93, y + 27 + ramDrop, 0xFF8A94A1);
-        graphics.fill(x + 59, y + 27 + ramDrop, x + 87, y + 31 + ramDrop, 0xFF3B424D);
-        graphics.fill(x + 55, y + 21 + ramDrop, x + 91, y + 22 + ramDrop, 0xFFB4BCC8);
-
-        graphics.fill(slotX - 10, slotY + 18, slotX + 28, slotY + 22, 0xFF141821);
-        graphics.fill(slotX - 6, slotY + 14, slotX + 24, slotY + 18, 0xFF2B303B);
-        graphics.fill(slotX - 8, slotY + 14, slotX - 4, slotY + 18, 0xFFB9853A);
-        graphics.fill(slotX + 20, slotY + 14, slotX + 24, slotY + 18, 0xFFB9853A);
-        graphics.fill(slotX - 1, slotY - 1, slotX + 19, slotY + 19, 0xFF485062);
-        graphics.fill(slotX + 1, slotY + 1, slotX + 17, slotY + 17, 0xFF151923);
-        graphics.fill(slotX + 3, slotY + 3, slotX + 15, slotY + 4, 0xFF313947);
-
-        if (!active && !hasOutput) {
-            drawPartIcon(graphics, slotX - 2, slotY - 3, platform, part, quality);
-        }
-        if (active) {
-            int sparkX = slotX + 9;
-            int sparkY = slotY + 18;
-            for (int i = 0; i < 6; i++) {
-                int sx = sparkX - 18 + ((pulse * 7 + i * 11) % 36);
-                int sy = sparkY - 4 + ((pulse + i * 3) % 9);
-                int color = (i & 1) == 0 ? 0xFFFFC45C : 0xFFFF7447;
-                graphics.fill(sx, sy, sx + 2, sy + 1, color);
-                graphics.fill(sx + 1, sy + 1, sx + 2, sy + 3, 0xAAFFD87A);
-            }
-        }
+    private void renderCurrentComponentSummary(GuiGraphics graphics, int left, int top,
+                                               GunsmithPressPart part, GunsmithPartVariant variant) {
+        int x = left + 25;
+        int y = top + 198;
+        graphics.fill(x, y, x + 57, y + 32, 0xFF333844);
+        graphics.fill(x + 2, y + 2, x + 55, y + 30, 0xFF20232E);
+        drawCenteredScaledText(graphics, tr("screen.miningdim.gunsmith_press.current_component"),
+                x + 28.5F, y + 5.0F, 0xFF8E98AA, 0.52F);
+        drawFittedCenteredText(graphics, variantMenuLabel(part, variant),
+                x + 28.5F, y + 17.0F, 49, 0xFFC8FFF3, 0.62F, 0.38F);
     }
 
-    private void renderQualityButtons(GuiGraphics graphics, int left, int top) {
+    private void renderVariantPopup(GuiGraphics graphics, int left, int top, int mouseX, int mouseY) {
+        if (!isVariantMenuOpen() || menu.isPressing()) {
+            return;
+        }
+        List<GunsmithPartVariant> variants = openVariants();
+        if (variants.size() <= 1) {
+            closeVariantMenu();
+            return;
+        }
+        int row = partRow(variantMenuPlatform, variantMenuPart);
+        if (row < 0) {
+            closeVariantMenu();
+            return;
+        }
+        int x = variantPopupX(left);
+        int y = variantPopupY(top);
+        int height = variantPopupHeight(variants.size());
+        boolean authoritative = variantMenuOwnerIsAuthoritative();
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0F, 0.0F, VARIANT_POPUP_Z);
+        graphics.fill(x + 3, y + 4, x + VARIANT_POPUP_W + 3, y + height + 4, 0x99000000);
+        graphics.fill(x, y, x + VARIANT_POPUP_W, y + height, 0xFF687781);
+        graphics.fill(x + 1, y + 1, x + VARIANT_POPUP_W - 1, y + height - 1, 0xFF0B1016);
+
+        for (int index = 0; index < variants.size(); index++) {
+            GunsmithPartVariant variant = variants.get(index);
+            int itemX = x + VARIANT_POPUP_PADDING;
+            int itemY = y + VARIANT_POPUP_PADDING
+                    + index * (VARIANT_POPUP_ITEM_H + VARIANT_POPUP_GAP);
+            boolean current = authoritative && variant == menu.selectedVariant();
+            boolean hover = inRect(mouseX, mouseY, itemX, itemY,
+                    VARIANT_POPUP_W - VARIANT_POPUP_PADDING * 2, VARIANT_POPUP_ITEM_H);
+            int outer = !authoritative ? 0xFF292E38
+                    : current ? 0xFF35D2A4 : hover ? 0xFFB98C4D : 0xFF35414D;
+            int inner = !authoritative ? 0xFF191D25
+                    : current ? 0xFF163C38 : hover ? 0xFF3A3128 : 0xFF171E26;
+            graphics.fill(itemX, itemY, x + VARIANT_POPUP_W - VARIANT_POPUP_PADDING,
+                    itemY + VARIANT_POPUP_ITEM_H, outer);
+            graphics.fill(itemX + 1, itemY + 1, x + VARIANT_POPUP_W - VARIANT_POPUP_PADDING - 1,
+                    itemY + VARIANT_POPUP_ITEM_H - 1, inner);
+            if (current) {
+                graphics.fill(itemX + 2, itemY + 2, itemX + 4,
+                        itemY + VARIANT_POPUP_ITEM_H - 2, 0xFF83EAD2);
+            }
+            drawFittedText(graphics, variantMenuLabel(variantMenuPart, variant), itemX + 7, itemY + 5,
+                    VARIANT_POPUP_W - VARIANT_POPUP_PADDING * 2 - 12,
+                    !authoritative ? 0xFF737B87
+                            : current ? 0xFFC8FFF3 : hover ? 0xFFF3D7A2 : 0xFFD1D8E4,
+                    0.68F, 0.46F);
+        }
+        graphics.pose().popPose();
+    }
+
+    private void renderComponentDetail(GuiGraphics graphics, int left, int top,
+                                       GunsmithPlatform platform, GunsmithPressPart part,
+                                       GunsmithPartVariant variant, GunsmithPartQuality quality) {
+        int x = left + DETAIL_X;
+        int y = top + DETAIL_Y;
+        int qualityColor = qualityOutlineColor(quality);
+        graphics.fill(x + 2, y + 3, x + DETAIL_W + 2, y + DETAIL_H + 3, 0x77000000);
+        graphics.fill(x, y, x + DETAIL_W, y + DETAIL_H, 0xFF42505D);
+        graphics.fill(x + 1, y + 1, x + DETAIL_W - 1, y + DETAIL_H - 1, 0xFF111820);
+        graphics.fill(x + 1, y + 1, x + 4, y + DETAIL_H - 1, qualityColor);
+        graphics.fill(x + 7, y + 7, x + 53, y + 53, 0xFF26313B);
+        graphics.fill(x + 9, y + 9, x + 51, y + 51, 0xFF080D12);
+        drawPartIcon(graphics, x + 10, y + 10, DETAIL_ICON_SIZE, platform, part, variant, quality);
+
+        String name = variantDisplayName(platform, part, variant);
+        drawFittedText(graphics, name, x + 59, y + 6, DETAIL_W - 65,
+                qualityColor, 0.82F, 0.48F);
+        drawFittedText(graphics,
+                Component.translatable("screen.miningdim.gunsmith_press.compatibility",
+                        Component.translatable(platform.labelKey()), Component.translatable(part.slotKey())).getString(),
+                x + 59, y + 20, DETAIL_W - 65, 0xFF8E9CAA, 0.58F, 0.42F);
+
+        double fireRateMin = (variant.fireRateMultiplier(quality.minCoefficient()) - 1.0D) * 100.0D;
+        double fireRateMax = (variant.fireRateMultiplier(quality.maxCoefficient()) - 1.0D) * 100.0D;
+        double verticalRecoilMin = (variant.verticalRecoilMultiplier(quality.minCoefficient()) - 1.0D) * 100.0D;
+        double verticalRecoilMax = (variant.verticalRecoilMultiplier(quality.maxCoefficient()) - 1.0D) * 100.0D;
+        double inaccuracyMin = (variant.inaccuracyMultiplier(quality.minCoefficient()) - 1.0D) * 100.0D;
+        double inaccuracyMax = (variant.inaccuracyMultiplier(quality.maxCoefficient()) - 1.0D) * 100.0D;
+        drawFittedText(graphics,
+                Component.translatable("screen.miningdim.gunsmith_press.effect.semi_auto_fire_rate",
+                        formatSignedPercentRange(fireRateMin, fireRateMax)).getString(),
+                x + 59, y + 31, DETAIL_W - 65, fireRateMax > 0.0D ? 0xFF62E6C8 : 0xFFAEB8C8,
+                0.62F, 0.46F);
+        drawFittedText(graphics,
+                Component.translatable("screen.miningdim.gunsmith_press.effect.vertical_recoil",
+                        formatSignedPercentRange(verticalRecoilMin, verticalRecoilMax)).getString(),
+                x + 59, y + 41, DETAIL_W - 65, verticalRecoilMax > 0.0D ? 0xFFFF6B68 : 0xFFAEB8C8,
+                0.62F, 0.46F);
+        drawFittedText(graphics,
+                Component.translatable("screen.miningdim.gunsmith_press.effect.spread",
+                        formatSignedPercentRange(inaccuracyMin, inaccuracyMax)).getString(),
+                x + 59, y + 51, DETAIL_W - 65, inaccuracyMax > 0.0D ? 0xFFFF6B68 : 0xFFAEB8C8,
+                0.62F, 0.46F);
+    }
+
+    private void renderQualityButtons(GuiGraphics graphics, int left, int top, int mouseX, int mouseY) {
         GunsmithPartQuality selected = menu.selectedQuality();
+        boolean locked = selectionLocked();
         for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
             int x = left + QUALITY_X + quality.index() * (QUALITY_W + QUALITY_GAP);
             int y = top + QUALITY_Y;
             boolean current = quality == selected;
+            boolean hover = !locked && inRect(mouseX, mouseY, x, y, QUALITY_W, QUALITY_H);
             int qualityColor = qualityOutlineColor(quality);
-            int fill = current ? 0xFF252A34 : 0xFF222631;
-            int edge = current ? qualityColor : withAlpha(qualityColor, 0x80);
+            int fill = locked ? 0xFF191D25 : current ? 0xFF252A34 : hover ? 0xFF2A303C : 0xFF222631;
+            int edge = locked ? 0xFF292E38 : current ? qualityColor : withAlpha(qualityColor, 0x80);
             graphics.fill(x, y, x + QUALITY_W, y + QUALITY_H, edge);
             graphics.fill(x + 1, y + 1, x + QUALITY_W - 1, y + QUALITY_H - 1, fill);
-            if (current) {
+            if (current && !locked) {
                 graphics.fill(x + 2, y + QUALITY_H - 2, x + QUALITY_W - 2, y + QUALITY_H - 1, qualityColor);
             }
             drawCenteredScaledText(graphics, tr(quality.labelKey()), x + QUALITY_W / 2.0F, y + 3.0F,
-                    current ? qualityColor : 0xFFB8C0CE, 0.64F);
+                    locked ? 0xFF737B87 : current ? qualityColor : 0xFFB8C0CE, 0.64F);
         }
     }
 
-    private void renderCostSummary(GuiGraphics graphics, int left, int top,
-                                   GunsmithPressPart part, GunsmithPartQuality quality) {
-        int mult = quality.materialMultiplier();
-        int parts = part.partsCost() * mult;
-        int alloy = part.alloyCost() * mult;
-        int polymer = part.polymerCost() * mult;
-        drawScaledText(graphics, "零件 x" + parts, left + 103, top + 142, 0xFFC5CDD9, 0.68F);
-        drawScaledText(graphics, "合金 x" + alloy, left + 154, top + 142, 0xFFC5CDD9, 0.68F);
-        drawScaledText(graphics, "板材 x" + polymer, left + 203, top + 142, 0xFFC5CDD9, 0.68F);
-        drawScaledText(graphics, formatTicks(quality.requiredTicks()), left + 251, top + 142,
-                0xFF83EAD2, 0.68F);
+    private void renderMaterialPanel(GuiGraphics graphics, int left, int top) {
+        int x = left + MATERIAL_PANEL_X;
+        int y = top + MATERIAL_PANEL_Y;
+        graphics.fill(x, y, x + MATERIAL_PANEL_W, y + MATERIAL_PANEL_H, 0xFF42505D);
+        graphics.fill(x + 1, y + 1, x + MATERIAL_PANEL_W - 1, y + MATERIAL_PANEL_H - 1, 0xFF111820);
+        drawCenteredScaledText(graphics, tr("screen.miningdim.gunsmith_press.materials"),
+                x + MATERIAL_PANEL_W / 2.0F, y + 4.0F, 0xFFDDE4F1, 0.58F);
+
+        renderInputSlotStatus(graphics, left, top, SLOT_GUN_PARTS_X, SLOT_TOP_Y,
+                GunsmithPressBlockEntity.SLOT_GUN_PARTS, menu.requiredGunParts(), top + 73);
+        renderInputSlotStatus(graphics, left, top, SLOT_ALLOY_X, SLOT_TOP_Y,
+                GunsmithPressBlockEntity.SLOT_ALLOY, menu.requiredAlloy(), top + 73);
+        renderInputSlotStatus(graphics, left, top, SLOT_POLYMER_X, SLOT_BOTTOM_Y,
+                GunsmithPressBlockEntity.SLOT_POLYMER, menu.requiredPolymer(), top + 132);
+        renderOutputSlotStatus(graphics, left, top);
+    }
+
+    private void renderInputSlotStatus(GuiGraphics graphics, int left, int top, int slotX, int slotY,
+                                       int slotIndex, int required, int statusY) {
+        int present = menu.inputCount(slotIndex);
+        boolean enough = present >= required;
+        int border = enough ? 0xFF35D2A4 : 0xFFE0525C;
+        drawSlotFrame(graphics, left + slotX, top + slotY, border);
+        drawCenteredScaledText(graphics, present + "/" + required,
+                left + slotX + 9.0F, statusY, enough ? 0xFF83EAD2 : 0xFFFF7774, 0.52F);
+    }
+
+    private void renderOutputSlotStatus(GuiGraphics graphics, int left, int top) {
+        boolean hasOutput = menu.getSlot(GunsmithPressBlockEntity.SLOT_OUTPUT).hasItem();
+        drawSlotFrame(graphics, left + SLOT_OUTPUT_X, top + SLOT_BOTTOM_Y,
+                hasOutput ? 0xFFC56CFF : 0xFF556071);
+        drawCenteredScaledText(graphics, tr("screen.miningdim.gunsmith_press.output"),
+                left + SLOT_OUTPUT_X + 9.0F, top + 132.0F,
+                hasOutput ? 0xFFD9A5FF : 0xFF7F8795, 0.48F);
     }
 
     private void renderStartButton(GuiGraphics graphics, int left, int top, int mouseX, int mouseY) {
         int x = left + START_X;
         int y = top + START_Y;
-        boolean hover = inRect(mouseX, mouseY, x, y, START_W, START_H);
-        int outer = hover ? 0xFF35E2C2 : 0xFF2EC7AA;
-        int inner = hover ? 0xFF185E55 : 0xFF144C46;
+        boolean active = menu.isPressing();
+        boolean ready = !isPlatformSyncPending() && menu.canStart();
+        boolean hover = ready && inRect(mouseX, mouseY, x, y, START_W, START_H);
+        int outer = active ? 0xFFB9853A : ready ? (hover ? 0xFF62E6C8 : 0xFF35D2A4) : 0xFF454D5A;
+        int inner = active ? 0xFF473623 : ready ? (hover ? 0xFF185E55 : 0xFF144C46) : 0xFF222731;
         graphics.fill(x, y, x + START_W, y + START_H, outer);
         graphics.fill(x + 1, y + 1, x + START_W - 1, y + START_H - 1, inner);
-        graphics.fill(x + 3, y + 3, x + START_W - 3, y + 4, hover ? 0xFF83F7DE : 0xFF55DCC2);
-        graphics.fill(x + 3, y + START_H - 4, x + START_W - 3, y + START_H - 3, 0xFFFFC866);
-        drawCenteredScaledText(graphics, "开始冲压", x + START_W / 2.0F, y + 11.0F, 0xFFEAFBF7, 0.68F);
-    }
-
-    private void renderSlotHints(GuiGraphics graphics, int left, int top) {
-        drawCenteredScaledText(graphics, "零件", left + 303.0F, top + 79.0F, 0xFF7F8795, 0.55F);
-        drawCenteredScaledText(graphics, "合金", left + 329.0F, top + 79.0F, 0xFF7F8795, 0.55F);
-        drawCenteredScaledText(graphics, "板材", left + 303.0F, top + 105.0F, 0xFF7F8795, 0.55F);
+        graphics.fill(x + 3, y + 3, x + START_W - 3, y + 4,
+                active ? 0xFFFFC866 : ready ? (hover ? 0xFF9FFFF0 : 0xFF55DCC2) : 0xFF59616D);
+        graphics.fill(x + 3, y + START_H - 4, x + START_W - 3, y + START_H - 3,
+                active ? 0xFFFFA54F : ready ? 0xFFFFC866 : 0xFF343A45);
+        drawFittedCenteredText(graphics,
+                tr(active ? "screen.miningdim.gunsmith_press.pressing" : "screen.miningdim.gunsmith_press.start"),
+                x + START_W / 2.0F, y + 8.0F, START_W - 6,
+                active ? 0xFFFFE4B5 : ready ? 0xFFEAFBF7 : 0xFF858E9B, 0.68F, 0.48F);
     }
 
     private void renderTimePanel(GuiGraphics graphics, int left, int top) {
@@ -282,7 +416,10 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
         graphics.fill(x + 5, y + TIME_PANEL_H - 8, x + 5 + fill, y + TIME_PANEL_H - 7,
                 menu.isPressing() ? 0xFF78F4D1 : 0xFF657086);
 
-        drawCenteredScaledText(graphics, menu.isPressing() ? "剩余时间" : "制作时间",
+        drawCenteredScaledText(graphics,
+                tr(menu.isPressing()
+                        ? "screen.miningdim.gunsmith_press.remaining_time"
+                        : "screen.miningdim.gunsmith_press.craft_time"),
                 x + TIME_PANEL_W / 2.0F, y + 8.0F, 0xFFAEB8C8, 0.55F);
         drawCenteredScaledText(graphics, formatTicks(shownTicks),
                 x + TIME_PANEL_W / 2.0F, y + 19.0F, menu.isPressing() ? 0xFF83EAD2 : 0xFFE6ECF5, 0.82F);
@@ -318,14 +455,18 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
             return;
         }
         graphics.renderTooltip(this.font,
-                Component.literal("经验: " + playerShownXp() + "/" + playerNextLevelXp()), mouseX, mouseY);
+                Component.translatable("gui.miningdim.munitions.xp_tooltip",
+                        playerShownXp(), playerNextLevelXp()), mouseX, mouseY);
     }
 
-    private void drawPartIcon(GuiGraphics graphics, int x, int y, GunsmithPlatform platform,
-                              GunsmithPressPart part, GunsmithPartQuality quality) {
+    private void drawPartIcon(GuiGraphics graphics, int x, int y, int size,
+                              GunsmithPlatform platform, GunsmithPressPart part,
+                              GunsmithPartVariant variant, GunsmithPartQuality quality) {
+        String variantSuffix = variant == GunsmithPartVariant.BASIC ? "" : "_" + variant.id();
         ResourceLocation texture = new ResourceLocation(MiningConstants.MODID,
-                "textures/item/gunsmith_part_" + platform.id() + "_" + part.id() + "_" + quality.id() + ".png");
-        graphics.blit(texture, x, y, PART_ICON_SIZE, PART_ICON_SIZE,
+                "textures/item/gunsmith_part_" + platform.id() + "_" + part.id()
+                        + variantSuffix + "_" + quality.id() + ".png");
+        graphics.blit(texture, x, y, size, size,
                 0.0F, 0.0F, PART_ICON_TEX, PART_ICON_TEX, PART_ICON_TEX, PART_ICON_TEX);
     }
 
@@ -346,11 +487,15 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
     private void renderHoverTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
         int left = (this.width - W) / 2;
         int top = (this.height - H) / 2;
+        if (renderVariantPopupTooltip(graphics, mouseX, mouseY, left, top)) {
+            return;
+        }
         int platformX = left + PLATFORM_X;
         int platformY = top + PLATFORM_Y;
         if (inRect(mouseX, mouseY, platformX, platformY, PLATFORM_W, PLATFORM_H)) {
             graphics.renderTooltip(this.font,
-                    Component.literal(tr(menu.selectedPlatform().labelKey()) + " 平台"), mouseX, mouseY);
+                    Component.translatable("screen.miningdim.gunsmith_press.platform_tooltip",
+                            Component.translatable(menu.selectedPlatform().labelKey())), mouseX, mouseY);
             return;
         }
         int row = 0;
@@ -359,8 +504,9 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
             int y = top + PART_Y + row * (PART_H + PART_GAP);
             if (inRect(mouseX, mouseY, x, y, PART_W, PART_H)) {
                 graphics.renderTooltip(this.font,
-                        Component.literal(partQualityName(menu.selectedPlatform(), part, menu.selectedQuality())
-                                + " - " + tr(part.roleKey())), mouseX, mouseY);
+                        Component.translatable("screen.miningdim.gunsmith_press.slot_tooltip",
+                                Component.translatable(part.slotKey()), Component.translatable(part.roleKey())),
+                        mouseX, mouseY);
                 return;
             }
             row++;
@@ -369,53 +515,209 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
             int x = left + QUALITY_X + quality.index() * (QUALITY_W + QUALITY_GAP);
             int y = top + QUALITY_Y;
             if (inRect(mouseX, mouseY, x, y, QUALITY_W, QUALITY_H)) {
-                graphics.renderTooltip(this.font,
-                        Component.literal(partQualityName(menu.selectedPlatform(), menu.selectedPart(), quality)), mouseX, mouseY);
+                renderWrappedTooltip(graphics,
+                        Component.translatable("screen.miningdim.gunsmith_press.quality_tooltip",
+                                Component.literal(variantDisplayName(menu.selectedPlatform(), menu.selectedPart(),
+                                        menu.selectedVariant())), Component.translatable(quality.labelKey())),
+                        mouseX, mouseY);
                 return;
             }
         }
-        if (inRect(mouseX, mouseY, left + START_X, top + START_Y, START_W, START_H)) {
-            graphics.renderTooltip(this.font,
-                    Component.translatable("tooltip.miningdim.gunsmith_press.start"), mouseX, mouseY);
+        if (inRect(mouseX, mouseY, left + DETAIL_X, top + DETAIL_Y, DETAIL_W, DETAIL_H)) {
+            renderWrappedTooltip(graphics,
+                    Component.translatable(menu.selectedVariant().descriptionKey()), mouseX, mouseY);
+            return;
         }
+        if (renderMaterialTooltip(graphics, mouseX, mouseY, left, top)) {
+            return;
+        }
+        if (inRect(mouseX, mouseY, left + START_X, top + START_Y, START_W, START_H)) {
+            String key;
+            if (isPlatformSyncPending()) {
+                key = "screen.miningdim.gunsmith_press.syncing_selection";
+            } else if (menu.isPressing()) {
+                key = "message.miningdim.gunsmith_press.busy";
+            } else if (menu.getSlot(GunsmithPressBlockEntity.SLOT_OUTPUT).hasItem()) {
+                key = "message.miningdim.gunsmith_press.output_blocked";
+            } else if (menu.canStart()) {
+                key = "tooltip.miningdim.gunsmith_press.start";
+            } else {
+                key = "message.miningdim.gunsmith_press.missing_materials";
+            }
+            graphics.renderTooltip(this.font, Component.translatable(key), mouseX, mouseY);
+        }
+    }
+
+    private boolean renderVariantPopupTooltip(GuiGraphics graphics, int mouseX, int mouseY,
+                                              int left, int top) {
+        if (!isVariantMenuOpen() || menu.isPressing()) {
+            return false;
+        }
+        List<GunsmithPartVariant> variants = openVariants();
+        int x = variantPopupX(left);
+        int y = variantPopupY(top);
+        for (int index = 0; index < variants.size(); index++) {
+            int itemX = x + VARIANT_POPUP_PADDING;
+            int itemY = y + VARIANT_POPUP_PADDING
+                    + index * (VARIANT_POPUP_ITEM_H + VARIANT_POPUP_GAP);
+            if (inRect(mouseX, mouseY, itemX, itemY,
+                    VARIANT_POPUP_W - VARIANT_POPUP_PADDING * 2, VARIANT_POPUP_ITEM_H)) {
+                renderWrappedTooltip(graphics,
+                        Component.translatable(variants.get(index).descriptionKey()), mouseX, mouseY);
+                return true;
+            }
+        }
+        return inRect(mouseX, mouseY, x, y, VARIANT_POPUP_W, variantPopupHeight(variants.size()));
+    }
+
+    private boolean renderMaterialTooltip(GuiGraphics graphics, int mouseX, int mouseY, int left, int top) {
+        if (renderInputMaterialTooltip(graphics, mouseX, mouseY, left, top,
+                SLOT_GUN_PARTS_X, SLOT_TOP_Y, GunsmithPressBlockEntity.SLOT_GUN_PARTS,
+                menu.requiredGunParts(), "screen.miningdim.gunsmith_press.material.gun_parts")) {
+            return true;
+        }
+        if (renderInputMaterialTooltip(graphics, mouseX, mouseY, left, top,
+                SLOT_ALLOY_X, SLOT_TOP_Y, GunsmithPressBlockEntity.SLOT_ALLOY,
+                menu.requiredAlloy(), "screen.miningdim.gunsmith_press.material.alloy")) {
+            return true;
+        }
+        if (renderInputMaterialTooltip(graphics, mouseX, mouseY, left, top,
+                SLOT_POLYMER_X, SLOT_BOTTOM_Y, GunsmithPressBlockEntity.SLOT_POLYMER,
+                menu.requiredPolymer(), "screen.miningdim.gunsmith_press.material.polymer")) {
+            return true;
+        }
+        if (inRect(mouseX, mouseY, left + SLOT_OUTPUT_X - 2, top + SLOT_BOTTOM_Y - 2, 22, 22)) {
+            graphics.renderTooltip(this.font,
+                    Component.translatable("screen.miningdim.gunsmith_press.output"), mouseX, mouseY);
+            return true;
+        }
+        return false;
+    }
+
+    private boolean renderInputMaterialTooltip(GuiGraphics graphics, int mouseX, int mouseY,
+                                               int left, int top, int slotX, int slotY,
+                                               int slotIndex, int required, String materialKey) {
+        if (!inRect(mouseX, mouseY, left + slotX - 2, top + slotY - 2, 22, 22)) {
+            return false;
+        }
+        graphics.renderTooltip(this.font,
+                Component.translatable("screen.miningdim.gunsmith_press.material_status",
+                        Component.translatable(materialKey), menu.inputCount(slotIndex), required),
+                mouseX, mouseY);
+        return true;
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == 0) {
-            int left = (this.width - W) / 2;
-            int top = (this.height - H) / 2;
-            int platformX = left + PLATFORM_X;
-            int platformY = top + PLATFORM_Y;
-            if (inRect(mouseX, mouseY, platformX, platformY, PLATFORM_W, PLATFORM_H)) {
-                int delta = mouseX < platformX + PLATFORM_ARROW_W ? -1 : 1;
-                sendButton(GunsmithPressMenu.BUTTON_PLATFORM_BASE + shiftedPlatformIndex(delta));
+        refreshPendingPlatform();
+        int left = (this.width - W) / 2;
+        int top = (this.height - H) / 2;
+        if (button != 0) {
+            boolean overPopup = isMouseOverVariantPopup(mouseX, mouseY, left, top);
+            closeVariantMenu();
+            if (overPopup) {
                 return true;
             }
-            int row = 0;
-            for (GunsmithPressPart part : menu.selectedPlatform().supportedParts()) {
-                int x = left + PART_X;
-                int y = top + PART_Y + row * (PART_H + PART_GAP);
-                if (inRect(mouseX, mouseY, x, y, PART_W, PART_H)) {
-                    sendButton(GunsmithPressMenu.BUTTON_PART_BASE + row);
-                    return true;
+            return super.mouseClicked(mouseX, mouseY, button);
+        }
+        if (menu.isPressing()) {
+            closeVariantMenu();
+            return super.mouseClicked(mouseX, mouseY, button);
+        }
+        if (isPlatformSyncPending()) {
+            closeVariantMenu();
+            return super.mouseClicked(mouseX, mouseY, button);
+        }
+        if (clickVariantPopup(mouseX, mouseY, left, top)) {
+            return true;
+        }
+
+        int platformX = left + PLATFORM_X;
+        int platformY = top + PLATFORM_Y;
+        if (inRect(mouseX, mouseY, platformX, platformY, PLATFORM_ARROW_W, PLATFORM_H)) {
+            closeVariantMenu();
+            requestPlatform(shiftedPlatformIndex(-1));
+            return true;
+        }
+        if (inRect(mouseX, mouseY, platformX + PLATFORM_W - PLATFORM_ARROW_W,
+                platformY, PLATFORM_ARROW_W, PLATFORM_H)) {
+            closeVariantMenu();
+            requestPlatform(shiftedPlatformIndex(1));
+            return true;
+        }
+
+        int row = 0;
+        GunsmithPlatform platform = menu.selectedPlatform();
+        for (GunsmithPressPart part : platform.supportedParts()) {
+            int x = left + PART_X;
+            int y = top + PART_Y + row * (PART_H + PART_GAP);
+            if (inRect(mouseX, mouseY, x, y, PART_W, PART_H)) {
+                boolean wasOpen = isVariantMenuOpenFor(platform, part);
+                List<GunsmithPartVariant> variants = GunsmithPartVariant.availableFor(platform, part);
+                sendButton(GunsmithPressMenu.BUTTON_PART_BASE + row);
+                if (variants.size() > 1 && !wasOpen) {
+                    openVariantMenu(platform, part);
+                } else {
+                    closeVariantMenu();
                 }
-                row++;
+                return true;
             }
-            for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
-                int x = left + QUALITY_X + quality.index() * (QUALITY_W + QUALITY_GAP);
-                int y = top + QUALITY_Y;
-                if (inRect(mouseX, mouseY, x, y, QUALITY_W, QUALITY_H)) {
-                    sendButton(GunsmithPressMenu.BUTTON_QUALITY_BASE + quality.index());
-                    return true;
-                }
-            }
-            if (inRect(mouseX, mouseY, left + START_X, top + START_Y, START_W, START_H)) {
-                sendButton(GunsmithPressMenu.BUTTON_START_PREVIEW);
+            row++;
+        }
+
+        closeVariantMenu();
+        for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
+            int x = left + QUALITY_X + quality.index() * (QUALITY_W + QUALITY_GAP);
+            int y = top + QUALITY_Y;
+            if (inRect(mouseX, mouseY, x, y, QUALITY_W, QUALITY_H)) {
+                sendButton(GunsmithPressMenu.BUTTON_QUALITY_BASE + quality.index());
                 return true;
             }
         }
+        if (menu.canStart()
+                && inRect(mouseX, mouseY, left + START_X, top + START_Y, START_W, START_H)) {
+            sendButton(GunsmithPressMenu.BUTTON_START_PREVIEW);
+            return true;
+        }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private boolean clickVariantPopup(double mouseX, double mouseY, int left, int top) {
+        if (!isVariantMenuOpen()) {
+            return false;
+        }
+        List<GunsmithPartVariant> variants = openVariants();
+        int x = variantPopupX(left);
+        int y = variantPopupY(top);
+        boolean authoritative = variantMenuOwnerIsAuthoritative();
+        for (int index = 0; index < variants.size(); index++) {
+            int itemX = x + VARIANT_POPUP_PADDING;
+            int itemY = y + VARIANT_POPUP_PADDING
+                    + index * (VARIANT_POPUP_ITEM_H + VARIANT_POPUP_GAP);
+            if (inRect(mouseX, mouseY, itemX, itemY,
+                    VARIANT_POPUP_W - VARIANT_POPUP_PADDING * 2, VARIANT_POPUP_ITEM_H)) {
+                if (authoritative) {
+                    sendButton(GunsmithPressMenu.BUTTON_VARIANT_BASE + variants.get(index).index());
+                    closeVariantMenu();
+                }
+                return true;
+            }
+        }
+        return inRect(mouseX, mouseY, x, y, VARIANT_POPUP_W, variantPopupHeight(variants.size()));
+    }
+
+    private boolean isMouseOverVariantPopup(double mouseX, double mouseY, int left, int top) {
+        if (!isVariantMenuOpen() || menu.isPressing()) {
+            return false;
+        }
+        List<GunsmithPartVariant> variants = openVariants();
+        return inRect(mouseX, mouseY, variantPopupX(left), variantPopupY(top),
+                VARIANT_POPUP_W, variantPopupHeight(variants.size()));
+    }
+
+    private void requestPlatform(int platformIndex) {
+        pendingPlatform = GunsmithPlatform.byIndex(platformIndex);
+        sendButton(GunsmithPressMenu.BUTTON_PLATFORM_BASE + platformIndex);
     }
 
     private void sendButton(int id) {
@@ -425,26 +727,99 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
         }
     }
 
-    private double minecraftMouseX() {
-        Minecraft mc = Minecraft.getInstance();
-        return mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
-    }
-
-    private double minecraftMouseY() {
-        Minecraft mc = Minecraft.getInstance();
-        return mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight();
-    }
-
     private String tr(String key) {
         return Component.translatable(key).getString();
     }
 
-    private String platformPartName(GunsmithPlatform platform, GunsmithPressPart part) {
-        return tr(platform.labelKey()) + tr(part.labelKey());
+    private void renderWrappedTooltip(GuiGraphics graphics, Component text, int mouseX, int mouseY) {
+        graphics.renderTooltip(this.font, this.font.split(text, 220), mouseX, mouseY);
     }
 
-    private String partQualityName(GunsmithPlatform platform, GunsmithPressPart part, GunsmithPartQuality quality) {
-        return platformPartName(platform, part) + " " + tr(quality.labelKey());
+    private boolean isVariantMenuOpen() {
+        return variantMenuPlatform != null && variantMenuPart != null;
+    }
+
+    private boolean isPlatformSyncPending() {
+        return pendingPlatform != null && menu.selectedPlatform() != pendingPlatform;
+    }
+
+    private boolean selectionLocked() {
+        return menu.isPressing() || isPlatformSyncPending();
+    }
+
+    private void refreshPendingPlatform() {
+        if (pendingPlatform == null) {
+            return;
+        }
+        if (menu.isPressing() || menu.selectedPlatform() == pendingPlatform) {
+            pendingPlatform = null;
+        }
+    }
+
+    private boolean isVariantMenuOpenFor(GunsmithPlatform platform, GunsmithPressPart part) {
+        return variantMenuPlatform == platform && variantMenuPart == part;
+    }
+
+    private boolean variantMenuOwnerIsAuthoritative() {
+        return isVariantMenuOpen() && !menu.isPressing()
+                && menu.selectedPlatform() == variantMenuPlatform
+                && menu.selectedPart() == variantMenuPart;
+    }
+
+    private void openVariantMenu(GunsmithPlatform platform, GunsmithPressPart part) {
+        variantMenuPlatform = platform;
+        variantMenuPart = part;
+    }
+
+    private void closeVariantMenu() {
+        variantMenuPlatform = null;
+        variantMenuPart = null;
+    }
+
+    private List<GunsmithPartVariant> openVariants() {
+        return GunsmithPartVariant.availableFor(variantMenuPlatform, variantMenuPart);
+    }
+
+    private static int partRow(GunsmithPlatform platform, GunsmithPressPart target) {
+        int row = 0;
+        for (GunsmithPressPart part : platform.supportedParts()) {
+            if (part == target) {
+                return row;
+            }
+            row++;
+        }
+        return -1;
+    }
+
+    private int variantPopupX(int left) {
+        return left + PART_X + PART_W + VARIANT_POPUP_OFFSET_X;
+    }
+
+    private int variantPopupY(int top) {
+        int rawY = top + PART_Y + partRow(variantMenuPlatform, variantMenuPart) * (PART_H + PART_GAP);
+        int popupHeight = variantPopupHeight(openVariants().size());
+        int maximumY = top + H - popupHeight - 8;
+        return Math.max(top + 8, Math.min(rawY, maximumY));
+    }
+
+    private static int variantPopupHeight(int variantCount) {
+        return VARIANT_POPUP_PADDING * 2 + variantCount * VARIANT_POPUP_ITEM_H
+                + (variantCount - 1) * VARIANT_POPUP_GAP;
+    }
+
+    private String variantMenuLabel(GunsmithPressPart part, GunsmithPartVariant variant) {
+        if (variant == GunsmithPartVariant.BASIC) {
+            return tr(part.labelKey());
+        }
+        return tr(variant.labelKey());
+    }
+
+    private String variantDisplayName(GunsmithPlatform platform, GunsmithPressPart part,
+                                      GunsmithPartVariant variant) {
+        if (variant == GunsmithPartVariant.BASIC) {
+            return tr(platform.labelKey()) + tr(part.labelKey());
+        }
+        return tr(variant.labelKey());
     }
 
     private int shiftedPlatformIndex(int delta) {
@@ -474,6 +849,18 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
         int width = Math.max(1, this.font.width(value));
         float scale = Math.min(preferredScale, Math.max(minScale, maxWidth / (float) width));
         drawCenteredScaledText(graphics, value, centerX, y, argb, scale);
+    }
+
+    private void drawFittedText(GuiGraphics graphics, String value, float x, float y,
+                                int maxWidth, int argb, float preferredScale, float minScale) {
+        int width = Math.max(1, this.font.width(value));
+        float scale = Math.min(preferredScale, Math.max(minScale, maxWidth / (float) width));
+        drawScaledText(graphics, value, x, y, argb, scale);
+    }
+
+    private static void drawSlotFrame(GuiGraphics graphics, int x, int y, int border) {
+        graphics.fill(x - 2, y - 2, x + 20, y + 20, border);
+        graphics.fill(x - 1, y - 1, x + 19, y + 19, 0xFF080C10);
     }
 
     private static int playerXpProgressPixels() {
@@ -509,6 +896,17 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
         int minutes = seconds / 60;
         int remainSeconds = seconds % 60;
         return minutes + ":" + (remainSeconds < 10 ? "0" : "") + remainSeconds;
+    }
+
+    private static String formatSignedPercent(double percentage) {
+        return String.format(Locale.ROOT, "%+.1f%%", percentage);
+    }
+
+    private static String formatSignedPercentRange(double minimum, double maximum) {
+        if (Math.abs(maximum - minimum) < 0.0005D) {
+            return formatSignedPercent(minimum);
+        }
+        return formatSignedPercent(minimum) + "~" + formatSignedPercent(maximum);
     }
 
     private static boolean inRect(double mx, double my, int x, int y, int w, int h) {

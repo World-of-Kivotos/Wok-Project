@@ -31,13 +31,18 @@ public final class WebUiScreen extends Screen {
     private final WebBrowser browser;
 
     private final WebUiInput input = new WebUiInput();
+    private boolean cleanedUp;
 
     // 帧缓冲实际像素尺寸 (考虑系统 DPI / GUI scale 的真实渲染分辨率); CEF 离屏渲染按此尺寸, 避免模糊。
     private int pixelWidth;
     private int pixelHeight;
 
     public WebUiScreen(@Nullable WebBrowser browser) {
-        super(Component.literal("MiningDim WebUI"));
+        this(browser, Component.literal("MiningDim WebUI"));
+    }
+
+    public WebUiScreen(@Nullable WebBrowser browser, Component title) {
+        super(title);
         this.browser = browser;
     }
 
@@ -188,12 +193,27 @@ public final class WebUiScreen extends Screen {
 
     @Override
     public void onClose() {
+        cleanup();
+        super.onClose();
+    }
+
+    @Override
+    public void removed() {
+        cleanup();
+        super.removed();
+    }
+
+    private void cleanup() {
+        if (cleanedUp) {
+            return;
+        }
+        cleanedUp = true;
         if (browser != null) {
             // 失焦并清修饰键, 防卡键; 不在此 close 浏览器 (浏览器由 WebUiClient 持有复用, 仅隐藏界面)。
             browser.setFocus(false);
             input.reset();
         }
-        super.onClose();
+        WebUiClient.onScreenClosed();
     }
 
     @Override

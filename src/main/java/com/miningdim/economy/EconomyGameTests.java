@@ -2,10 +2,16 @@ package com.miningdim.economy;
 
 import com.miningdim.core.MiningConstants;
 import com.miningdim.economy.EconomyConstants.HighValueOre;
+import com.miningdim.store.MiningDb;
+import com.miningdim.store.MiningSchema;
+import com.miningdim.store.MiningStoreException;
+import com.miningdim.store.StoreMeta;
 import com.miningdim.testutil.MockGameTestPlayers;
+import com.miningdim.testutil.TempStoreDb;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -14,6 +20,8 @@ import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.nio.file.Path;
+import java.sql.Connection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -30,14 +38,17 @@ import java.util.function.Function;
  *  - faucetCreditAfterDecay 主闸曲线 (累计 0 系数 1 / 60000 ×0.6 / 120000 ×0.36 / 极深夹 1% 地板),
  *    几何主项前 10 档 = 149093 (≈14.9 万正常落点), 深档 1% 地板留极薄线性尾巴 (不收敛、无数学硬顶), 拆分不变性 (一笔 2*tier == 两笔各 tier);
  *  - 先校验后扣杜绝双花 (序列双扣只第一次成功 —— 主线程不变量, 见 doubleDebit 注释);
+ *  - operationId 双币原子扣款、持久幂等重放、完成/退款 Saga 状态在关闭连接重开后仍在;
+ *  - OP 管理入口所用双币发放同时入账，任一币种溢出时两币均不变;
  *  - AZURE 不可转移 (货币层无 P2P 入口, isTransferable 硬不变量);
  *  - NBT round-trip 边界 0 / Long.MAX_VALUE 防溢出 + grant 溢出抛 BALANCE_OVERFLOW;
- *  - setDirty 每次变更被调用;
+ *  - 已提交的余额与账本状态在关闭连接重开后仍在 (提交即落盘, 不再靠脏标记);
  *  - tryChargeDaily 每日上限边界;
  *  - grantAzureDaily / creditAzureDaily 青辉石每人每日产出硬上限 (超 cap 截断 / 撞顶 0 入账 / 跨 UTC 日重置;
  *    经济文档 8.5 战斗 faucet 并入每人每日上限; economy-02)。
  *
- * 纯逻辑/SavedData 断言: 钱包与账本可在内存直接构造 (new), 不依赖世界写; 涉及 ServerPlayer 的门面方法
+ * 纯逻辑断言用内存统一库 (SqliteEconomyLedger.openInMemory), 不依赖世界写; 凡断言"确实落盘"的用例
+ * 必须改用 TempStoreDb 的真实文件库并真的关连接重开 —— 内存库的 journal_mode 实为 memory, 测不出落盘。涉及 ServerPlayer 的门面方法
  * 用 MockGameTestPlayers.makeMockServerPlayerWithChannel(helper) 取真实 ServerPlayer。template = "empty"。
  */
 @GameTestHolder(MiningConstants.MODID)
@@ -81,6 +92,49 @@ public final class EconomyGameTests {
         helper.assertTrue(first, "first full debit succeeds");
         helper.assertTrue(!second, "second full debit on now-empty wallet must fail (no double spend)");
         helper.assertTrue(w.balance(Currency.CREDIT) == 0L, "balance debited exactly once");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void dualCurrencyWalletMutationIsAtomic(GameTestHelper helper) {
+        PlayerWallet wallet = new PlayerWallet();
+        wallet.credit(Currency.CREDIT, 100L);
+        wallet.credit(Currency.AZURE, 10L);
+
+        helper.assertTrue(!wallet.tryDebitBundle(101L, 5L),
+                "bundle fails when CREDIT is short");
+        helper.assertTrue(wallet.balance(Currency.CREDIT) == 100L
+                        && wallet.balance(Currency.AZURE) == 10L,
+                "CREDIT shortage leaves both currencies untouched");
+
+        helper.assertTrue(!wallet.tryDebitBundle(50L, 11L),
+                "bundle fails when AZURE is short");
+        helper.assertTrue(wallet.balance(Currency.CREDIT) == 100L
+                        && wallet.balance(Currency.AZURE) == 10L,
+                "AZURE shortage leaves both currencies untouched");
+
+        helper.assertTrue(wallet.tryDebitBundle(80L, 4L),
+                "bundle succeeds only after both balances pass preflight");
+        helper.assertTrue(wallet.balance(Currency.CREDIT) == 20L
+                        && wallet.balance(Currency.AZURE) == 6L,
+                "successful bundle deducts CREDIT and AZURE exactly once");
+
+        wallet.creditBundle(80L, 4L);
+        helper.assertTrue(wallet.balance(Currency.CREDIT) == 100L
+                        && wallet.balance(Currency.AZURE) == 10L,
+                "atomic bundle refund restores both original balances");
+
+        wallet.credit(Currency.CREDIT, Long.MAX_VALUE - 100L);
+        boolean overflow = false;
+        try {
+            wallet.creditBundle(1L, 1L);
+        } catch (EconomyException e) {
+            overflow = e.reason() == EconomyException.Reason.BALANCE_OVERFLOW;
+        }
+        helper.assertTrue(overflow, "bundle refund rejects overflow before changing either currency");
+        helper.assertTrue(wallet.balance(Currency.CREDIT) == Long.MAX_VALUE
+                        && wallet.balance(Currency.AZURE) == 10L,
+                "failed bundle refund leaves both balances unchanged");
         helper.succeed();
     }
 
@@ -148,35 +202,94 @@ public final class EconomyGameTests {
     }
 
     // ============================================================
-    // EconomyWalletData: setDirty 副作用 + tryChargeDaily 上限边界
+    // 账本落盘语义 + tryChargeDaily 上限边界
     // ============================================================
 
+    /**
+     * 账本迁进 SQLite 后, "钱写没写下去"不再由脏标记表达, 而是由提交即落盘表达。
+     * 因此这里必须用真实文件库并真的关掉连接重开 —— 这是唯一能证明余额确实落到磁盘的做法,
+     * 内存库的 journal_mode 实为 memory, 换不出任何落盘信息。
+     */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void ledgerSetsDirtyOnEveryChange(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
-        UUID id = UUID.randomUUID();
+    public static void committedBalancesSurviveReopen(GameTestHelper helper) {
+        Path dir = TempStoreDb.createTempDir();
+        try {
+            Path dbPath = dir.resolve("economy.db");
+            UUID id = UUID.randomUUID();
 
-        // 初始未脏。
-        helper.assertTrue(!ledger.isDirty(), "fresh ledger is not dirty");
-        ledger.credit(id, Currency.CREDIT, 100L);
-        helper.assertTrue(ledger.isDirty(), "credit must mark ledger dirty");
+            Connection first = TempStoreDb.openUnified(dbPath);
+            try {
+                EconomyLedger ledger = new SqliteEconomyLedger(first);
+                ledger.credit(id, Currency.CREDIT, 100L);
+                helper.assertTrue(ledger.tryDebit(id, Currency.CREDIT, 40L), "debit succeeds");
+                helper.assertTrue(!ledger.tryDebit(id, Currency.CREDIT, 9_999L), "over-balance debit fails");
+                helper.assertTrue(ledger.balance(id, Currency.CREDIT) == 60L,
+                        "balance 100 - 40 = 60 after the two debits");
+            } finally {
+                MiningDb.close(first);
+            }
 
-        ledger.setDirty(false);
-        helper.assertTrue(ledger.tryDebit(id, Currency.CREDIT, 40L), "debit succeeds");
-        helper.assertTrue(ledger.isDirty(), "successful debit must mark ledger dirty");
+            Connection second = TempStoreDb.openUnified(dbPath);
+            try {
+                EconomyLedger reopened = new SqliteEconomyLedger(second);
+                helper.assertTrue(reopened.balance(id, Currency.CREDIT) == 60L,
+                        "已提交的余额必须在关闭连接重开后仍是 60 (失败的那笔扣款不得留下任何痕迹)");
+                helper.assertTrue(reopened.balance(id, Currency.AZURE) == 0L,
+                        "从未入账过的货币重开后仍是 0");
+            } finally {
+                MiningDb.close(second);
+            }
+        } finally {
+            TempStoreDb.deleteQuietly(dir);
+        }
+        helper.succeed();
+    }
 
-        // 失败扣费不应标脏 (无状态变更)。
-        ledger.setDirty(false);
-        helper.assertTrue(!ledger.tryDebit(id, Currency.CREDIT, 9_999L), "over-balance debit fails");
-        helper.assertTrue(!ledger.isDirty(), "failed debit must NOT mark dirty (no state change)");
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void bundleChargeIsIdempotentAndConflictSafe(GameTestHelper helper) {
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        UUID playerId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        ledger.credit(playerId, Currency.CREDIT, 1_000L);
+        ledger.credit(playerId, Currency.AZURE, 50L);
 
-        helper.assertTrue(ledger.balance(id, Currency.CREDIT) == 60L, "balance 100 - 40 = 60 after the two debits");
+        EconomyOperationStatus first = ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, playerId, operationId, 200L, 10L);
+        helper.assertTrue(first == EconomyOperationStatus.CHARGED,
+                "first sufficient bundle charge records CHARGED");
+        helper.assertTrue(ledger.balance(playerId, Currency.CREDIT) == 800L
+                        && ledger.balance(playerId, Currency.AZURE) == 40L,
+                "first charge deducts both configured costs once");
+
+        EconomyOperationStatus replay = ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, playerId, operationId, 200L, 10L);
+        helper.assertTrue(replay == EconomyOperationStatus.CHARGED,
+                "same operationId replay returns its persisted successful state");
+        helper.assertTrue(ledger.balance(playerId, Currency.CREDIT) == 800L
+                        && ledger.balance(playerId, Currency.AZURE) == 40L,
+                "same operationId replay does not deduct either currency again");
+
+        boolean conflict = false;
+        try {
+            ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, playerId, operationId, 201L, 10L);
+        } catch (EconomyException e) {
+            conflict = e.reason() == EconomyException.Reason.OPERATION_CONFLICT;
+        }
+        helper.assertTrue(conflict, "reusing operationId with a different amount is rejected as a conflict");
+
+        UUID insufficientId = UUID.randomUUID();
+        EconomyOperationStatus insufficient = ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, playerId, insufficientId, 801L, 1L);
+        helper.assertTrue(insufficient == EconomyOperationStatus.NONE,
+                "insufficient first attempt returns NONE and creates no operation");
+        helper.assertTrue(ledger.operationStatus(EconomyOperationDomain.CASE_OPENING, playerId, insufficientId) == EconomyOperationStatus.NONE,
+                "insufficient attempt is not persisted as a successful operation");
+        helper.assertTrue(ledger.balance(playerId, Currency.CREDIT) == 800L
+                        && ledger.balance(playerId, Currency.AZURE) == 40L,
+                "insufficient bundle leaves both currencies untouched");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void tryChargeDailyCapBoundary(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         UUID id = UUID.randomUUID();
         ledger.credit(id, Currency.CREDIT, 1_000L);
         long today = 20_000L; // 固定 UTC 日戳 (epochDay) 做确定性测试。
@@ -209,7 +322,7 @@ public final class EconomyGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void azureDailyFaucetCapTruncates(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         UUID id = UUID.randomUUID();
         String key = EconomyConstants.AZURE_DAILY_FAUCET_KEY; // "azure_faucet"
         long cap = 30L; // 固定小 cap 做确定性断言 (不依赖常量当前值; 验"硬截断"语义本身)。
@@ -245,7 +358,7 @@ public final class EconomyGameTests {
     public static void grantAzureDailyServiceRoutesThroughCap(GameTestHelper helper) {
         // 门面层 grantAzureDaily (精英怪青辉石走此入口): 用真 cap 常量验"同一玩家当日连续领取超 cap 后实际入账被截断"。
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         UUID id = player.getUUID();
         long cap = EconomyConstants.AZURE_DAILY_FAUCET_CAP; // DRAFT 30
@@ -267,7 +380,7 @@ public final class EconomyGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void azureDailyFaucetRejectsIllegalArgs(GameTestHelper helper) {
         // 契约: amount<=0 / cap<=0 抛 ILLEGAL_AMOUNT 自然冒泡 (不静默返 0 掩盖非法入参)。
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         UUID id = UUID.randomUUID();
         String key = EconomyConstants.AZURE_DAILY_FAUCET_KEY;
 
@@ -299,7 +412,7 @@ public final class EconomyGameTests {
         // 验两路合计被截断在单一 cap (而非各占一份 cap)。删 grantAzureDaily 的 cap 路由 (回退到旧的 grant(AZURE) 无日上限)
         // 则两笔全额入账 = 2*cap-1, 测试必挂。
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         UUID id = player.getUUID();
         long cap = EconomyConstants.AZURE_DAILY_FAUCET_CAP; // DRAFT 30: 两路共享此单一日上限。
@@ -332,7 +445,7 @@ public final class EconomyGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void settleOreSaleDecay(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
 
         double base = ShopPriceTable.ORE_BASE_DIAMOND; // 8.1 ×10 锚: 500
@@ -373,7 +486,7 @@ public final class EconomyGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void settleOreSaleRoutesThroughMainFaucet(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
 
         UUID id = player.getUUID();
@@ -406,7 +519,7 @@ public final class EconomyGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void serviceGrantOverflowBubbles(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
 
         eco.grant(player, Currency.CREDIT, Long.MAX_VALUE);
@@ -424,6 +537,35 @@ public final class EconomyGameTests {
         helper.assertTrue(eco.tryCharge(player, Currency.CREDIT, Long.MAX_VALUE), "charge full balance succeeds");
         helper.assertTrue(eco.creditBalance(player) == 0L, "balance 0 after full charge");
         helper.assertTrue(!eco.tryCharge(player, Currency.CREDIT, 1L), "charge on empty wallet fails");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void serviceBundleGrantIsAtomic(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+
+        helper.assertTrue(eco.creditBalance(player) == 0L && eco.heartstoneBalance(player) == 0L,
+                "fresh ledger starts at zero on both currencies before the admin bundle grant");
+        eco.grantBundle(player, 50_000L, 10L);
+        helper.assertTrue(eco.creditBalance(player) == 50_000L,
+                "bundle grant credits the requested 50000 CREDIT");
+        helper.assertTrue(eco.heartstoneBalance(player) == 10L,
+                "bundle grant credits the requested 10 AZURE");
+
+        ledger.credit(player.getUUID(), Currency.CREDIT, Long.MAX_VALUE - 50_000L);
+        boolean overflow = false;
+        try {
+            eco.grantBundle(player, 1L, 1L);
+        } catch (EconomyException exception) {
+            overflow = exception.reason() == EconomyException.Reason.BALANCE_OVERFLOW;
+        }
+        helper.assertTrue(overflow, "bundle grant rejects either-currency overflow");
+        helper.assertTrue(eco.creditBalance(player) == Long.MAX_VALUE,
+                "failed bundle grant leaves CREDIT unchanged at MAX_VALUE");
+        helper.assertTrue(eco.heartstoneBalance(player) == 10L,
+                "failed bundle grant leaves AZURE unchanged instead of partially crediting it");
         helper.succeed();
     }
 
@@ -448,34 +590,409 @@ public final class EconomyGameTests {
     }
 
     // ============================================================
-    // EconomyWalletData NBT round-trip (含每日计数与多钱包)
+    // faucet 入账的事务边界 (三步同生共死 + 连锁批量与逐笔等价)
+    // ============================================================
+
+    /**
+     * 入账落账失败时, 当日原始累计必须一并回滚。
+     *
+     * 这三步 (推进原始累计 -> 推进小数余量 -> 落账) 若各自提交, 落账失败就会留下"衰减档位已经推进、钱却
+     * 没发"的玩家: 他当天余下的 faucet 全部按更深的档位打折, 而且没有任何记录能说明少了多少。
+     * 这里用余额已达 Long.MAX_VALUE 触发真实的入账溢出, 不靠任何桩。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void faucetGrantRollsBackCounterWhenCreditFails(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+        UUID id = player.getUUID();
+        String faucet = EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY;
+        long tier = EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER;
+        long today = new AbuseGuard().currentPlayerDayStamp();
+
+        ledger.credit(id, Currency.CREDIT, Long.MAX_VALUE);
+
+        boolean overflow = false;
+        try {
+            eco.grantDaily(player, 100L, faucet, tier);
+        } catch (EconomyException e) {
+            overflow = e.reason() == EconomyException.Reason.BALANCE_OVERFLOW;
+        }
+        helper.assertTrue(overflow, "余额已满时 faucet 入账必须抛 BALANCE_OVERFLOW");
+        helper.assertTrue(ledger.balance(id, Currency.CREDIT) == Long.MAX_VALUE,
+                "失败的入账不得改动余额");
+        // 计数器若已推进, 这里返回的就是 100 而不是 0 —— 那正是"档位白涨"的形态。
+        helper.assertTrue(ledger.recordFaucetGrant(id, faucet, 1L, today) == 0L,
+                "落账失败必须连同当日原始累计一起回滚, 当日累计仍应是 0");
+        helper.succeed();
+    }
+
+    /**
+     * 连锁批量结算与逐块结算必须得出完全相同的余额与计数。
+     * 合并事务是为了少写 WAL 与保证这一批的原子性, 绝不允许顺带改变业务结果。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void batchedChainSettlementMatchesPerDropSettlement(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        UUID id = player.getUUID();
+        int drops = 5;
+
+        Map<UUID, PlayerAbuseState> batchStates = new HashMap<>();
+        batchStates.put(id, new PlayerAbuseState());
+        EconomyLedger batched = SqliteEconomyLedger.openInMemory();
+        EconomyService batchedEco = new EconomyService(batched, new AbuseGuard(), batchStates::get);
+        int counted = batchedEco.recordMinedOreDrops(player, Blocks.DIAMOND_ORE, drops);
+        helper.assertTrue(counted == drops, "5 个钻石产出物应计入当日 5 个, 实为 " + counted);
+
+        EconomyLedger perDrop = SqliteEconomyLedger.openInMemory();
+        EconomyService perDropEco = new EconomyService(perDrop, new AbuseGuard(), newStateResolver());
+        for (int n = 1; n <= drops; n++) {
+            perDropEco.settleOreSale(player, HighValueOre.DIAMOND, n, ShopPriceTable.ORE_BASE_DIAMOND);
+        }
+
+        long batchedBalance = batched.balance(id, Currency.CREDIT);
+        helper.assertTrue(batchedBalance > 0L, "批量结算必须真的入账 (否则本用例退化成两边都是 0 的空断言)");
+        helper.assertTrue(batchedBalance == perDrop.balance(id, Currency.CREDIT),
+                "批量与逐笔结算的余额必须完全相同: 批量 " + batchedBalance
+                        + ", 逐笔 " + perDrop.balance(id, Currency.CREDIT));
+
+        String faucet = EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY;
+        long today = new AbuseGuard().currentPlayerDayStamp();
+        long batchedRaw = batched.recordFaucetGrant(id, faucet, 1L, today);
+        long perDropRaw = perDrop.recordFaucetGrant(id, faucet, 1L, today);
+        helper.assertTrue(batchedRaw == perDropRaw && batchedRaw > 0L,
+                "批量与逐笔推进的当日原始累计必须完全相同: 批量 " + batchedRaw + ", 逐笔 " + perDropRaw);
+        helper.succeed();
+    }
+
+    /**
+     * 终态操作回收只能动终态。
+     *
+     * CHARGED 是在途的付款事实: 玩家的钱已经扣了、资产还没发。删掉它, 那笔钱就凭空消失且无从追溯 ——
+     * 后续恢复既查不到该补发资产, 也查不到该退款。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void pruneRemovesOnlyTerminalOperations(GameTestHelper helper) {
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        UUID player = UUID.randomUUID();
+        ledger.credit(player, Currency.CREDIT, 10_000L);
+        ledger.credit(player, Currency.AZURE, 100L);
+
+        UUID completedId = UUID.randomUUID();
+        UUID refundedId = UUID.randomUUID();
+        UUID inFlightId = UUID.randomUUID();
+        ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, completedId, 100L, 1L);
+        ledger.completeBundle(EconomyOperationDomain.CASE_OPENING, player, completedId);
+        ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, refundedId, 100L, 1L);
+        ledger.refundBundle(EconomyOperationDomain.CASE_OPENING, player, refundedId);
+        ledger.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, inFlightId, 100L, 1L);
+
+        // 截止时刻取 long 上界: 所有终态记录都落在回收范围内, 只有 CHARGED 靠状态而非时间幸存。
+        int pruned = ledger.pruneTerminalOperations(Long.MAX_VALUE);
+        helper.assertTrue(pruned == 2, "只应回收 COMPLETED 与 REFUNDED 两条, 实为 " + pruned);
+        helper.assertTrue(ledger.operationStatus(EconomyOperationDomain.CASE_OPENING, player, completedId)
+                        == EconomyOperationStatus.NONE
+                        && ledger.operationStatus(EconomyOperationDomain.CASE_OPENING, player, refundedId)
+                        == EconomyOperationStatus.NONE,
+                "终态记录回收后应查不到");
+        helper.assertTrue(ledger.operationStatus(EconomyOperationDomain.CASE_OPENING, player, inFlightId)
+                        == EconomyOperationStatus.CHARGED,
+                "在途的 CHARGED 必须幸存, 否则这笔已扣的钱再也追不回来");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 旧存档 SavedData 一次性迁入 SQLite
+    // ============================================================
+
+    /**
+     * 迁移必须逐项搬全: 两种余额、双币操作状态、扣费侧当日累计、faucet 侧当日累计与小数余量。
+     * 少搬任何一项都是真金白银或额度凭空变动, 因此这里断言的是迁移后账本的【行为】, 而不是行数。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void legacySavedDataMigratesExactly(GameTestHelper helper) {
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        long today = 20_000L;
+
+        EconomyWalletData legacy = EconomyWalletData.load(legacyTag(a, b, operationId, today));
+        Connection conn = MiningDb.openInMemory();
+        try {
+            MiningSchema.apply(conn);
+            EconomyLedgerBootstrap.migrateIfNeeded(conn, legacy, 1_723_000_000_000L);
+            EconomyLedger ledger = new SqliteEconomyLedger(conn);
+
+            helper.assertTrue(ledger.balance(a, Currency.CREDIT) == 1_234L
+                            && ledger.balance(a, Currency.AZURE) == 56L,
+                    "玩家 A 的两种余额必须逐分不差地搬过来");
+            helper.assertTrue(ledger.balance(b, Currency.CREDIT) == 300L, "玩家 B 的余额必须搬过来");
+            helper.assertTrue(ledger.operationStatus(EconomyOperationDomain.CASE_OPENING, a, operationId)
+                            == EconomyOperationStatus.CHARGED,
+                    "在途的 CHARGED 操作必须搬过来, 否则崩溃恢复会漏掉这笔已扣款");
+
+            // 扣费侧当日累计已是 33: 再扣 67 恰达上限 100, 又扣 1 必须被拒。累计没搬过来的话 67+1 都会通过。
+            helper.assertTrue(ledger.tryChargeDaily(b, Currency.CREDIT, 67L, "pack", 100L, today),
+                    "迁移后的当日扣费累计从 33 续算: 再扣 67 恰达上限 100");
+            helper.assertTrue(!ledger.tryChargeDaily(b, Currency.CREDIT, 1L, "pack", 100L, today),
+                    "当日已达上限, 再扣 1 必须被拒");
+
+            // faucet 侧: 原始累计 100 与小数余量 0.5 都必须在。
+            helper.assertTrue(ledger.recordFaucetGrant(b, "credit_faucet", 10L, today) == 100L,
+                    "迁移后的 faucet 原始累计必须是 100 (决定衰减档位)");
+            helper.assertTrue(ledger.creditFaucetWithCarry(b, "credit_faucet", 0.5D, today) == 1L,
+                    "迁移过来的 0.5 余量与本次 0.5 凑满 1 才落账, 余量没搬过来则本次只会落 0");
+
+            helper.assertTrue("1723000000000".equals(
+                            StoreMeta.get(conn, EconomyLedgerBootstrap.META_WALLETS_IMPORTED)),
+                    "迁移标记必须写入且带时间戳");
+        } finally {
+            MiningDb.close(conn);
+        }
+        helper.succeed();
+    }
+
+    /** 第二次启动必须靠标记跳过; 否则每次开服都把旧存档余额再灌一遍。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void secondMigrationIsSkippedByMarker(GameTestHelper helper) {
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        EconomyWalletData legacy = EconomyWalletData.load(legacyTag(a, b, UUID.randomUUID(), 20_000L));
+        Connection conn = MiningDb.openInMemory();
+        try {
+            MiningSchema.apply(conn);
+            EconomyLedgerBootstrap.migrateIfNeeded(conn, legacy, 1_723_000_000_000L);
+            EconomyLedger ledger = new SqliteEconomyLedger(conn);
+            ledger.credit(a, Currency.CREDIT, 1_000L);
+
+            EconomyLedgerBootstrap.migrateIfNeeded(conn, legacy, 1_723_000_099_999L);
+            helper.assertTrue(ledger.balance(a, Currency.CREDIT) == 2_234L,
+                    "第二次迁移必须整体跳过: 余额应是迁移的 1234 加上后来入账的 1000, 实为 "
+                            + ledger.balance(a, Currency.CREDIT));
+            helper.assertTrue("1723000000000".equals(
+                            StoreMeta.get(conn, EconomyLedgerBootstrap.META_WALLETS_IMPORTED)),
+                    "标记时间戳必须停在首次迁移");
+        } finally {
+            MiningDb.close(conn);
+        }
+        helper.succeed();
+    }
+
+    /** SQLite 侧已经在记账而旧存档还有数据且无标记: 两份账本都可能是权威, 只能拒绝启动。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void migrationRefusesWhenLedgerAlreadyHasRows(GameTestHelper helper) {
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        EconomyWalletData legacy = EconomyWalletData.load(legacyTag(a, b, UUID.randomUUID(), 20_000L));
+        Connection conn = MiningDb.openInMemory();
+        try {
+            MiningSchema.apply(conn);
+            EconomyLedger ledger = new SqliteEconomyLedger(conn);
+            ledger.credit(a, Currency.CREDIT, 777L);
+
+            boolean refused = false;
+            try {
+                EconomyLedgerBootstrap.migrateIfNeeded(conn, legacy, 1_723_000_000_000L);
+            } catch (MiningStoreException expected) {
+                refused = true;
+            }
+            helper.assertTrue(refused, "统一库已有钱包行且旧存档未迁移时必须拒绝启动");
+            helper.assertTrue(ledger.balance(a, Currency.CREDIT) == 777L,
+                    "被拒绝时不得写入任何旧存档余额, 实为 " + ledger.balance(a, Currency.CREDIT));
+            helper.assertTrue(StoreMeta.get(conn, EconomyLedgerBootstrap.META_WALLETS_IMPORTED) == null,
+                    "被拒绝时不得留下迁移标记");
+        } finally {
+            MiningDb.close(conn);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 造一份合库之前格式的 SavedData 标签。
+     * 键名与结构在此独立重写而不复用生产常量: 旧存档格式是已经发生的历史, 必须被测试原样钉住 ——
+     * 若将来有人改了读取端的键名而没做迁移, 这里才会失败。
+     */
+    private static CompoundTag legacyTag(UUID a, UUID b, UUID operationId, long today) {
+        CompoundTag tag = new CompoundTag();
+
+        ListTag wallets = new ListTag();
+        wallets.add(legacyWallet(a, 1_234L, 56L));
+        wallets.add(legacyWallet(b, 300L, 0L));
+        tag.put("wallets", wallets);
+
+        ListTag operations = new ListTag();
+        CompoundTag operation = new CompoundTag();
+        operation.putUUID("operationId", operationId);
+        operation.putString("domain", EconomyOperationDomain.CASE_OPENING.id());
+        operation.putUUID("playerId", a);
+        operation.putLong("creditAmount", 100L);
+        operation.putLong("azureAmount", 10L);
+        operation.putString("status", EconomyOperationStatus.CHARGED.name());
+        operations.add(operation);
+        tag.put("bundleOperations", operations);
+
+        ListTag charges = new ListTag();
+        CompoundTag charge = new CompoundTag();
+        charge.putString("key", b + "|pack");
+        charge.putLong("amount", 33L);
+        charge.putLong("dayStamp", today);
+        charges.add(charge);
+        tag.put("dailyCharges", charges);
+
+        ListTag faucets = new ListTag();
+        CompoundTag faucet = new CompoundTag();
+        faucet.putString("key", b + "|credit_faucet");
+        faucet.putLong("amount", 100L);
+        faucet.putLong("dayStamp", today);
+        faucet.putDouble("creditCarry", 0.5D);
+        faucets.add(faucet);
+        tag.put("dailyFaucets", faucets);
+        return tag;
+    }
+
+    private static CompoundTag legacyWallet(UUID playerId, long credit, long azure) {
+        CompoundTag entry = new CompoundTag();
+        entry.putUUID("uuid", playerId);
+        CompoundTag wallet = new CompoundTag();
+        wallet.putLong("credit", credit);
+        wallet.putLong("azure", azure);
+        entry.put("wallet", wallet);
+        return entry;
+    }
+
+    // ============================================================
+    // 账本重开一致性 (多钱包 + 每日计数; 用真实文件库真的关连接重开)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void ledgerNbtRoundTrip(GameTestHelper helper) {
-        EconomyWalletData ledger = new EconomyWalletData();
-        UUID a = UUID.randomUUID();
-        UUID b = UUID.randomUUID();
-        ledger.credit(a, Currency.CREDIT, Long.MAX_VALUE);
-        ledger.credit(a, Currency.AZURE, 7L);
-        ledger.credit(b, Currency.CREDIT, 0L + 333L);
-        long today = 20_000L;
-        ledger.tryChargeDaily(b, Currency.CREDIT, 33L, "pack", 100L, today);
+    public static void ledgerStateSurvivesReopen(GameTestHelper helper) {
+        Path dir = TempStoreDb.createTempDir();
+        try {
+            Path dbPath = dir.resolve("ledger.db");
+            UUID a = UUID.randomUUID();
+            UUID b = UUID.randomUUID();
+            long today = 20_000L;
 
-        CompoundTag tag = ledger.save(new CompoundTag());
-        EconomyWalletData reloaded = EconomyWalletData.load(tag);
+            Connection first = TempStoreDb.openUnified(dbPath);
+            try {
+                EconomyLedger ledger = new SqliteEconomyLedger(first);
+                ledger.credit(a, Currency.CREDIT, Long.MAX_VALUE);
+                ledger.credit(a, Currency.AZURE, 7L);
+                ledger.credit(b, Currency.CREDIT, 333L);
+                ledger.tryChargeDaily(b, Currency.CREDIT, 33L, "pack", 100L, today);
+            } finally {
+                MiningDb.close(first);
+            }
 
-        helper.assertTrue(reloaded.balance(a, Currency.CREDIT) == Long.MAX_VALUE,
-                "wallet A CREDIT MAX_VALUE round-trips exactly through the ledger");
-        helper.assertTrue(reloaded.balance(a, Currency.AZURE) == 7L, "wallet A AZURE round-trips to 7");
-        helper.assertTrue(reloaded.balance(b, Currency.CREDIT) == 300L,
-                "wallet B CREDIT round-trips to 333 - 33 = 300 (daily charge persisted as a debit)");
+            Connection second = TempStoreDb.openUnified(dbPath);
+            try {
+                EconomyLedger reloaded = new SqliteEconomyLedger(second);
+                helper.assertTrue(reloaded.balance(a, Currency.CREDIT) == Long.MAX_VALUE,
+                        "wallet A CREDIT MAX_VALUE 重开后精确还原 (long 边界不丢精度)");
+                helper.assertTrue(reloaded.balance(a, Currency.AZURE) == 7L, "wallet A AZURE 重开后仍是 7");
+                helper.assertTrue(reloaded.balance(b, Currency.CREDIT) == 300L,
+                        "wallet B CREDIT 重开后是 333 - 33 = 300 (每日扣费确实落了盘)");
 
-        // 每日计数也持久化: 同日再扣到上限边界, 累计仍以已持久化的 33 起算 (33 + 67 = 100 恰达上限成功)。
-        helper.assertTrue(reloaded.tryChargeDaily(b, Currency.CREDIT, 67L, "pack", 100L, today),
-                "persisted daily counter continues from 33: a further 67 reaches cap 100");
-        helper.assertTrue(!reloaded.tryChargeDaily(b, Currency.CREDIT, 1L, "pack", 100L, today),
-                "the persisted daily counter is now at cap; a further 1 is rejected");
+                // 每日计数也持久化: 同日再扣到上限边界, 累计仍以已持久化的 33 起算 (33 + 67 = 100 恰达上限成功)。
+                helper.assertTrue(reloaded.tryChargeDaily(b, Currency.CREDIT, 67L, "pack", 100L, today),
+                        "persisted daily counter continues from 33: a further 67 reaches cap 100");
+                helper.assertTrue(!reloaded.tryChargeDaily(b, Currency.CREDIT, 1L, "pack", 100L, today),
+                        "the persisted daily counter is now at cap; a further 1 is rejected");
+            } finally {
+                MiningDb.close(second);
+            }
+        } finally {
+            TempStoreDb.deleteQuietly(dir);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void bundleSagaLifecycleSurvivesRestartAndSupportsOfflineRecovery(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        UUID playerId = player.getUUID();
+        UUID completedId = UUID.randomUUID();
+        UUID refundableId = UUID.randomUUID();
+
+        Path dir = TempStoreDb.createTempDir();
+        try {
+            Path dbPath = dir.resolve("saga.db");
+
+            Connection before = TempStoreDb.openUnified(dbPath);
+            try {
+                EconomyLedger ledger = new SqliteEconomyLedger(before);
+                ledger.credit(playerId, Currency.CREDIT, 1_000L);
+                ledger.credit(playerId, Currency.AZURE, 100L);
+                IEconomyService economy = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+
+                helper.assertTrue(economy.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, completedId, 100L, 10L)
+                                == EconomyOperationStatus.CHARGED,
+                        "service facade creates first CHARGED operation");
+                helper.assertTrue(economy.completeBundle(EconomyOperationDomain.CASE_OPENING, playerId, completedId) == EconomyOperationStatus.COMPLETED,
+                        "UUID-level recovery API commits CHARGED to COMPLETED");
+                helper.assertTrue(economy.completeBundle(EconomyOperationDomain.CASE_OPENING, playerId, completedId) == EconomyOperationStatus.COMPLETED,
+                        "complete replay is idempotent");
+
+                helper.assertTrue(economy.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, refundableId, 200L, 20L)
+                                == EconomyOperationStatus.CHARGED,
+                        "second operation remains CHARGED for crash-recovery simulation");
+                helper.assertTrue(ledger.balance(playerId, Currency.CREDIT) == 700L
+                                && ledger.balance(playerId, Currency.AZURE) == 70L,
+                        "two operations have deducted their costs before the restart");
+            } finally {
+                MiningDb.close(before);
+            }
+
+            // 关连接重开 = 一次真实的服务端重启: 之后读到的一切都必须来自磁盘。
+            Connection after = TempStoreDb.openUnified(dbPath);
+            try {
+                EconomyLedger reloaded = new SqliteEconomyLedger(after);
+                IEconomyService recovered = new EconomyService(reloaded, new AbuseGuard(), newStateResolver());
+                helper.assertTrue(recovered.operationStatus(EconomyOperationDomain.CASE_OPENING, playerId, completedId) == EconomyOperationStatus.COMPLETED,
+                        "COMPLETED state survives the restart");
+                helper.assertTrue(recovered.operationStatus(EconomyOperationDomain.CASE_OPENING, playerId, refundableId) == EconomyOperationStatus.CHARGED,
+                        "in-flight CHARGED state survives the restart for startup recovery");
+
+                helper.assertTrue(recovered.tryChargeBundle(EconomyOperationDomain.CASE_OPENING, player, refundableId, 200L, 20L)
+                                == EconomyOperationStatus.CHARGED,
+                        "replayed in-flight operation returns CHARGED after restart");
+                helper.assertTrue(reloaded.balance(playerId, Currency.CREDIT) == 700L
+                                && reloaded.balance(playerId, Currency.AZURE) == 70L,
+                        "post-restart replay does not charge twice");
+
+                helper.assertTrue(recovered.refundBundle(EconomyOperationDomain.CASE_OPENING, playerId, refundableId) == EconomyOperationStatus.REFUNDED,
+                        "offline UUID recovery atomically refunds an in-flight charge");
+                helper.assertTrue(reloaded.balance(playerId, Currency.CREDIT) == 900L
+                                && reloaded.balance(playerId, Currency.AZURE) == 90L,
+                        "refund restores exactly the second operation while retaining completed cost");
+                helper.assertTrue(recovered.refundBundle(EconomyOperationDomain.CASE_OPENING, playerId, refundableId) == EconomyOperationStatus.REFUNDED,
+                        "refund replay returns REFUNDED without a second credit");
+                helper.assertTrue(reloaded.balance(playerId, Currency.CREDIT) == 900L
+                                && reloaded.balance(playerId, Currency.AZURE) == 90L,
+                        "refund replay cannot mint either currency");
+                helper.assertTrue(recovered.completeBundle(EconomyOperationDomain.CASE_OPENING, playerId, refundableId) == EconomyOperationStatus.REFUNDED,
+                        "a REFUNDED terminal operation cannot move back to COMPLETED");
+                helper.assertTrue(recovered.refundBundle(EconomyOperationDomain.CASE_OPENING, playerId, completedId) == EconomyOperationStatus.COMPLETED,
+                        "a COMPLETED terminal operation cannot be refunded");
+            } finally {
+                MiningDb.close(after);
+            }
+
+            Connection terminal = TempStoreDb.openUnified(dbPath);
+            try {
+                EconomyLedger terminalReload = new SqliteEconomyLedger(terminal);
+                helper.assertTrue(terminalReload.operationStatus(EconomyOperationDomain.CASE_OPENING, playerId, completedId) == EconomyOperationStatus.COMPLETED,
+                        "COMPLETED terminal state remains persistent");
+                helper.assertTrue(terminalReload.operationStatus(EconomyOperationDomain.CASE_OPENING, playerId, refundableId) == EconomyOperationStatus.REFUNDED,
+                        "REFUNDED terminal state remains persistent");
+                helper.assertTrue(terminalReload.balance(playerId, Currency.CREDIT) == 900L,
+                        "退款后的余额同样落了盘, 重开仍是 900");
+            } finally {
+                MiningDb.close(terminal);
+            }
+        } finally {
+            TempStoreDb.deleteQuietly(dir);
+        }
         helper.succeed();
     }
 
@@ -487,7 +1004,7 @@ public final class EconomyGameTests {
     public static void recordMinedOreDropsCountsByDrops(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         Map<UUID, PlayerAbuseState> states = new HashMap<>();
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), states::get);
         // 解析器需对未知 UUID 建态 (与 EconomySystem.playerState 同纪律), 否则 isAfkFrozen/记数取不到态。
         states.put(player.getUUID(), new PlayerAbuseState());
@@ -529,7 +1046,7 @@ public final class EconomyGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         Map<UUID, PlayerAbuseState> states = new HashMap<>();
         states.put(player.getUUID(), new PlayerAbuseState());
-        EconomyService eco = new EconomyService(new EconomyWalletData(), new AbuseGuard(), states::get);
+        EconomyService eco = new EconomyService(SqliteEconomyLedger.openInMemory(), new AbuseGuard(), states::get);
 
         helper.assertTrue(!eco.isAfkFrozen(player), "a fresh player is not AFK-frozen");
         states.get(player.getUUID()).setAfkFrozen(true);
@@ -546,7 +1063,7 @@ public final class EconomyGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void grantDailyFaucetSoftCapDecay(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
 
         // 用本测试自带的小档 cap=1000 验证逐档几何衰减 (主闸真实档 60000 在 faucetCreditAfterDecay 专测覆盖)。
@@ -581,7 +1098,7 @@ public final class EconomyGameTests {
     public static void grantDailySharedAcrossFaucetKeys(GameTestHelper helper) {
         // 第十一章决策 3/4: 矿工卖矿与农夫卖菜传同一 faucetKey 即共享同一每人每日信用点衰减主闸 (而非各自私有上限)。
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
 
         long cap = 500L;
@@ -746,7 +1263,7 @@ public final class EconomyGameTests {
         // 直证发钱出口真入账: recordAndSettleBreak 对一颗钻石经主闸真入钱包 500 (首档 x1.0)。这是被守卫拦在
         // 取消事件之外的"那 500": 取消的破坏正因短路而拿不到它。
         EconomySystem system = new EconomySystem();
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
         // 保存并还原启动期已绑定的真实门面 (GameTest 在已启动服务端跑, 直接 reset 会让后续依赖取门面时 ISE)。
         IEconomyService prev = EconomyServices.isRegistered() ? EconomyServices.economyService() : null;

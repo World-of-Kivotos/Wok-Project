@@ -1,0 +1,22 @@
+{
+  "plasma_shield_hit": {
+    "subtitle": "subtitles.kivotos_armorer.plasma_shield_hit",
+    "sounds": [
+      { "name": "kivotos_armorer:item/plasma_shield/hit_01", "stream": false },
+      { "name": "kivotos_armorer:item/plasma_shield/hit_02", "stream": false },
+      { "name": "kivotos_armorer:item/plasma_shield/hit_03", "stream": false }
+    ]
+  },
+  "plasma_shield_overheat": {
+    "subtitle": "subtitles.kivotos_armorer.plasma_shield_overheat",
+    "sounds": [
+      { "name": "kivotos_armorer:item/plasma_shield/overheat", "stream": false }
+    ]
+  },
+  "plasma_shield_steam_vent": {
+    "subtitle": "subtitles.kivotos_armorer.plasma_shield_steam_vent",
+    "sounds": [
+      { "name": "kivotos_armorer:item/plasma_shield/steam_vent", "stream": false }
+    ]
+  }
+}

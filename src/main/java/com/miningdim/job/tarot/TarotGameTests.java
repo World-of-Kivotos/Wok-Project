@@ -8,10 +8,12 @@ import com.miningdim.job.tarot.card.TarotEffectKind;
 import com.miningdim.job.tarot.card.TarotEffectOp;
 import com.miningdim.job.tarot.craft.TarotCraftService;
 import com.miningdim.job.tarot.pack.PackGachaService;
+import com.miningdim.job.tarot.pack.TarotPackSavedData;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
@@ -24,10 +26,13 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 塔罗师业务断言 GameTest (TarotReader spec 第十二章测试断言)。断言具体数额/状态/副作用, 删被测核心逻辑测试必挂。
@@ -66,6 +71,277 @@ public final class TarotGameTests {
             scanCaps(helper, arcana, data.opsFor(TarotQuality.SHINY, true));
         }
         helper.assertTrue(scanned == TarotArcana.COUNT * 4, "scanned all 22 cards x 4 tiers");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void allQualityAndOrientationVariantsAreComplete(GameTestHelper helper) {
+        int effectVariants = 0;
+        for (TarotArcana arcana : TarotArcana.values()) {
+            TarotCardData data = loadCard(arcana);
+            for (TarotQuality quality : new TarotQuality[]{
+                    TarotQuality.R, TarotQuality.SR, TarotQuality.SSR, TarotQuality.UR}) {
+                helper.assertFalse(data.opsFor(quality, true).isEmpty(),
+                        arcana.id() + " " + quality.id() + " upright must have an effect");
+                helper.assertFalse(data.opsFor(quality, false).isEmpty(),
+                        arcana.id() + " " + quality.id() + " reversed must have an effect");
+                effectVariants += 2;
+            }
+            helper.assertFalse(data.opsFor(TarotQuality.SHINY, true).isEmpty(),
+                    arcana.id() + " shiny must have an effect");
+            effectVariants++;
+        }
+        helper.assertTrue(effectVariants == 198,
+                "22 cards x (4 qualities x 2 orientations + shiny) = 198 effect variants");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void allQualityAndOrientationModelsAreComplete(GameTestHelper helper) {
+        JsonObject root = loadJsonResource("/assets/miningdim/models/item/tarot_card.json");
+        helper.assertTrue("miningdim:item/tarot_card_thin".equals(root.get("parent").getAsString()),
+                "all tarot-card overrides must inherit the thin card display model");
+        JsonObject thinModel = loadJsonResource("/assets/miningdim/models/item/tarot_card_thin.json");
+        helper.assertTrue("builtin/entity".equals(thinModel.get("parent").getAsString()),
+                "tarot cards must use the custom-renderer builtin model for true front/back faces");
+        JsonObject thinDisplay = thinModel.getAsJsonObject("display");
+        JsonObject guiDisplay = thinDisplay.getAsJsonObject("gui");
+        var guiRotation = guiDisplay.getAsJsonArray("rotation");
+        var guiScale = guiDisplay.getAsJsonArray("scale");
+        helper.assertTrue(guiRotation.get(0).getAsDouble() == 0.0D
+                        && guiRotation.get(1).getAsDouble() == 0.0D
+                        && guiRotation.get(2).getAsDouble() == 0.0D
+                        && guiScale.get(0).getAsDouble() == 1.0D
+                        && guiScale.get(1).getAsDouble() == 1.0D,
+                "inventory icon must retain the full, front-facing tarot artwork");
+        for (String context : new String[]{"gui", "ground", "fixed",
+                "firstperson_righthand", "thirdperson_righthand"}) {
+            var scale = thinDisplay.getAsJsonObject(context).getAsJsonArray("scale");
+            helper.assertTrue(scale.get(2).getAsDouble() < scale.get(0).getAsDouble() * 0.2D,
+                    "tarot card must remain visibly thinner on the Z axis in " + context);
+        }
+        var overrides = root.getAsJsonArray("overrides");
+        helper.assertTrue(overrides.size() == 220,
+                "22 cards x 5 qualities x 2 orientations = 220 model overrides");
+
+        int uprightOverrides = 0;
+        int reversedOverrides = 0;
+        for (var element : overrides) {
+            double orientation = element.getAsJsonObject().getAsJsonObject("predicate")
+                    .get("miningdim:tarot_orientation").getAsDouble();
+            if (Math.abs(orientation - 0.1D) < 1.0E-6D) {
+                uprightOverrides++;
+            } else if (Math.abs(orientation - 0.2D) < 1.0E-6D) {
+                reversedOverrides++;
+            }
+        }
+        helper.assertTrue(uprightOverrides == 110 && reversedOverrides == 110,
+                "model index must contain 110 upright and 110 reversed variants");
+
+        BufferedImage guiCardBack = loadImageResource(
+                "/assets/miningdim/textures/gui/tarot/cards/card_back.png");
+        BufferedImage itemCardBack = loadImageResource(
+                "/assets/miningdim/textures/item/tarot/card_back.png");
+        helper.assertTrue(guiCardBack.getWidth() == 184 && guiCardBack.getHeight() == 326,
+                "tarot GUI card back must match the full-card preview dimensions");
+        helper.assertTrue(itemCardBack.getWidth() == 256 && itemCardBack.getHeight() == 256
+                        && itemCardBack.getColorModel().hasAlpha(),
+                "tarot item card back must be a transparent 256x256 atlas");
+        helper.assertTrue(resourceExists("/assets/miningdim/models/item/tarot_card_back.json"),
+                "missing reusable tarot card-back item model");
+
+        String[] qualities = {"r", "sr", "ssr", "ur", "shiny"};
+        for (int cardId = 0; cardId < TarotArcana.COUNT; cardId++) {
+            String id = String.format("%02d", cardId);
+            helper.assertTrue(resourceExists("/assets/miningdim/textures/item/tarot/" + id + "_reversed.png"),
+                    "missing reversed texture for card " + id);
+            for (String quality : qualities) {
+                helper.assertTrue(resourceExists("/assets/miningdim/models/item/tarot_card_"
+                                + id + "_" + quality + ".json"),
+                        "missing upright model " + id + " " + quality);
+                helper.assertTrue(resourceExists("/assets/miningdim/models/item/tarot_card_"
+                                + id + "_" + quality + "_reversed.json"),
+                        "missing reversed model " + id + " " + quality);
+            }
+        }
+        for (String quality : qualities) {
+            BufferedImage border = loadImageResource(
+                    "/assets/miningdim/textures/item/tarot/border_" + quality + ".png");
+            BufferedImage reversed = loadImageResource(
+                    "/assets/miningdim/textures/item/tarot/border_" + quality + "_reversed.png");
+            helper.assertTrue(border.getWidth() == 256 && border.getHeight() == 256
+                            && reversed.getWidth() == 256 && reversed.getHeight() == 256,
+                    quality + " quality borders must remain 256x256 item overlays");
+            helper.assertTrue(((border.getRGB(0, 0) >>> 24) & 0xFF) == 0,
+                    quality + " quality border must keep transparent inventory corners");
+            int visiblePixels = 0;
+            int vividPixels = 0;
+            int faceObstructionPixels = 0;
+            boolean reversedMatches = true;
+            for (int y = 0; y < 256; y++) {
+                for (int x = 0; x < 256; x++) {
+                    int pixel = border.getRGB(x, y);
+                    int alpha = (pixel >>> 24) & 0xFF;
+                    if (alpha >= 64) {
+                        visiblePixels++;
+                    }
+                    int red = (pixel >>> 16) & 0xFF;
+                    int green = (pixel >>> 8) & 0xFF;
+                    int blue = pixel & 0xFF;
+                    if (alpha >= 160 && Math.max(red, Math.max(green, blue))
+                            - Math.min(red, Math.min(green, blue)) >= 60) {
+                        vividPixels++;
+                    }
+                    if (x >= 61 && x <= 194 && y >= 8 && y <= 247 && alpha != 0) {
+                        faceObstructionPixels++;
+                    }
+                    reversedMatches &= pixel == reversed.getRGB(x, 255 - y);
+                }
+            }
+            helper.assertTrue(visiblePixels >= 4_000
+                            && ("r".equals(quality) || vividPixels >= 1_000),
+                    quality + " quality border must remain readable and color-distinct at inventory scale");
+            helper.assertTrue(faceObstructionPixels == 0,
+                    quality + " quality border must keep the shared card-face aperture transparent");
+            helper.assertTrue(reversedMatches,
+                    quality + " reversed quality border must be the exact vertical counterpart");
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void synthesisTableVisualResourcesAreComplete(GameTestHelper helper) {
+        JsonObject model = loadJsonResource("/assets/miningdim/models/block/tarot_craft_table.json");
+        helper.assertTrue("minecraft:cutout".equals(model.get("render_type").getAsString()),
+                "synthesis table must use cutout rendering for the suspended astrolabe");
+        helper.assertTrue(model.getAsJsonArray("elements").size() == 18,
+                "synthesis table model must retain all 18 structural elements");
+
+        String[] textures = {"base", "white", "gold", "cyan", "top", "card_slot", "ring"};
+        for (String texture : textures) {
+            helper.assertTrue(resourceExists("/assets/miningdim/textures/block/tarot_craft_"
+                            + texture + ".png"),
+                    "missing synthesis table texture " + texture);
+        }
+
+        BufferedImage gui = loadImageResource(
+                "/assets/miningdim/textures/gui/container/tarot_craft.png");
+        BufferedImage glyphs = loadImageResource(
+                "/assets/miningdim/textures/gui/container/tarot_craft_glyphs.png");
+        helper.assertTrue(gui.getWidth() == 256 && gui.getHeight() == 256,
+                "synthesis GUI texture must be a 256x256 atlas");
+        helper.assertTrue(glyphs.getWidth() == 64 && glyphs.getHeight() == 64,
+                "animated astrolabe glyph atlas must be 64x64");
+
+        BufferedImage shard = loadImageResource(
+                "/assets/miningdim/textures/item/tarot_shard.png");
+        helper.assertTrue(shard.getWidth() == 256 && shard.getHeight() == 256,
+                "tarot shard inventory icon must be a 256x256 square");
+        helper.assertTrue(shard.getColorModel().hasAlpha()
+                        && ((shard.getRGB(0, 0) >>> 24) & 0xFF) == 0,
+                "tarot shard icon must retain transparent inventory corners");
+
+        JsonObject sounds = loadJsonResource("/assets/miningdim/sounds.json");
+        String[] craftResultSounds = {
+                "tarot_craft_charge", "tarot_craft_success", "tarot_craft_great_success", "tarot_craft_reverse",
+                "tarot_craft_shatter", "tarot_craft_big_shatter"
+        };
+        for (String sound : craftResultSounds) {
+            helper.assertTrue(sounds.has(sound),
+                    "missing distinct tarot synthesis result sound " + sound);
+        }
+        String[] revealSoundFiles = {
+                "success", "great_success", "reverse", "shatter", "big_shatter"
+        };
+        for (String result : revealSoundFiles) {
+            helper.assertTrue(resourceExists(
+                            "/assets/miningdim/sounds/job/tarot/craft_" + result + ".ogg"),
+                    "missing tarot synthesis reveal audio asset " + result);
+        }
+
+        String[] stagedSoundEvents = {
+                "tarot_cast_reveal_r", "tarot_cast_reveal_sr", "tarot_cast_reveal_ssr",
+                "tarot_cast_reveal_ur", "tarot_cast_reveal_shiny",
+                "tarot_cast_resolve_upright", "tarot_cast_resolve_reversed",
+                "tarot_pack_scan", "tarot_pack_open", "tarot_pack_reveal_r",
+                "tarot_pack_reveal_sr", "tarot_pack_reveal_ssr", "tarot_pack_reveal_ur",
+                "tarot_pack_reveal_shiny", "tarot_pack_complete"
+        };
+        for (String sound : stagedSoundEvents) {
+            helper.assertTrue(sounds.has(sound), "missing staged tarot sound event " + sound);
+            helper.assertTrue(resourceExists("/assets/miningdim/sounds/job/tarot/"
+                            + sound.substring("tarot_".length()) + ".ogg"),
+                    "missing staged tarot audio asset " + sound);
+        }
+        helper.assertTrue(resourceExists("/assets/miningdim/sounds/job/tarot/craft_charge.ogg"),
+                "missing distinct tarot synthesis charge audio asset");
+
+        JsonObject zh = loadJsonResource("/assets/miningdim/lang/zh_cn.json");
+        JsonObject en = loadJsonResource("/assets/miningdim/lang/en_us.json");
+        helper.assertTrue(zh.has("gui.miningdim.tarot.craft.great_success")
+                        && en.has("gui.miningdim.tarot.craft.great_success"),
+                "great success presentation must be localized in both languages");
+        String[] subtitleKeys = {
+                "subtitles.miningdim.tarot_cast_reveal",
+                "subtitles.miningdim.tarot_cast_resolve",
+                "subtitles.miningdim.tarot_craft_charge",
+                "subtitles.miningdim.tarot_pack_scan",
+                "subtitles.miningdim.tarot_pack_open",
+                "subtitles.miningdim.tarot_pack_reveal",
+                "subtitles.miningdim.tarot_pack_complete"
+        };
+        for (String key : subtitleKeys) {
+            helper.assertTrue(zh.has(key) && en.has(key),
+                    "staged tarot sound subtitle must be localized: " + key);
+        }
+
+        for (TarotQuality quality : new TarotQuality[]{
+                TarotQuality.R, TarotQuality.SR, TarotQuality.SSR, TarotQuality.UR}) {
+            TarotCraftService.CraftChances chances = TarotCraftService.chances(quality);
+            double total = chances.success() + chances.reverse()
+                    + chances.shatter() + chances.bigShatter();
+            helper.assertTrue(Math.abs(total - 1.0D) < 1.0E-9D,
+                    quality.id() + " synthesis preview odds must sum to 100%");
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void allTarotEffectTooltipsAreComplete(GameTestHelper helper) {
+        JsonObject zh = loadJsonResource("/assets/miningdim/lang/zh_cn.json");
+        JsonObject en = loadJsonResource("/assets/miningdim/lang/en_us.json");
+        for (TarotEffectKind kind : TarotEffectKind.values()) {
+            String key = "tooltip.miningdim.tarot.effect.op." + kind.id();
+            helper.assertTrue(zh.has(key), "missing zh_cn tooltip translation for " + kind.id());
+            helper.assertTrue(en.has(key), "missing en_us tooltip translation for " + kind.id());
+        }
+
+        int variants = 0;
+        for (TarotArcana arcana : TarotArcana.values()) {
+            TarotCardData data = loadCard(arcana);
+            for (TarotQuality quality : new TarotQuality[]{
+                    TarotQuality.R, TarotQuality.SR, TarotQuality.SSR, TarotQuality.UR}) {
+                for (boolean upright : new boolean[]{true, false}) {
+                    List<TarotEffectOp> ops = data.opsFor(quality, upright);
+                    List<net.minecraft.network.chat.Component> lines =
+                            TarotEffectTooltipFormatter.format(data, quality, upright);
+                    helper.assertTrue(lines.size() == ops.size(),
+                            arcana.id() + " " + quality.id() + " tooltip must describe every operation");
+                    for (var line : lines) {
+                        helper.assertTrue(!net.minecraft.network.chat.Component.Serializer.toJson(line).isBlank(),
+                                "tooltip component must serialize for item NBT sync");
+                    }
+                    variants++;
+                }
+            }
+            List<TarotEffectOp> shinyOps = data.opsFor(TarotQuality.SHINY, true);
+            List<net.minecraft.network.chat.Component> shinyLines =
+                    TarotEffectTooltipFormatter.format(data, TarotQuality.SHINY, true);
+            helper.assertTrue(shinyLines.size() == shinyOps.size(),
+                    arcana.id() + " shiny tooltip must describe every operation");
+            variants++;
+        }
+        helper.assertTrue(variants == 198, "all 198 effect variants must have tooltip coverage");
         helper.succeed();
     }
 
@@ -114,6 +390,62 @@ public final class TarotGameTests {
             threwTiers = true;
         }
         helper.assertTrue(threwTiers, "tiers != 4 must throw (R/SR/SSR/UR required)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 第一批文档牌效: 魔术师闪耀 / 女祭司闪耀 / 教皇按净化数量加最大生命
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void firstArcanaSignatureEffectsMatchSpec(GameTestHelper helper) {
+        TarotCardData magician = loadCard(TarotArcana.MAGICIAN);
+        List<TarotEffectOp> magicianShiny = magician.opsFor(TarotQuality.SHINY, true);
+        helper.assertTrue(magicianShiny.size() == 1,
+                "Magician shiny must contain exactly the blink operation");
+        TarotEffectOp blink = magicianShiny.get(0);
+        helper.assertTrue(blink.kind() == TarotEffectKind.SELF_BLINK,
+                "Magician shiny must use real blink, not a potion placeholder");
+        helper.assertTrue(Math.abs(blink.amount() - 20.0D) < 0.001D,
+                "Magician shiny blink distance must be 20 blocks");
+
+        TarotCardData priestess = loadCard(TarotArcana.HIGH_PRIESTESS);
+        List<TarotEffectOp> priestessShiny = priestess.opsFor(TarotQuality.SHINY, true);
+        helper.assertTrue(priestessShiny.size() == 1
+                        && priestessShiny.get(0).kind() == TarotEffectKind.CLEAR_NORMAL_TAROT_COOLDOWNS,
+                "High Priestess shiny must clear non-shiny tarot cooldowns");
+
+        TarotCardData hierophant = loadCard(TarotArcana.HIEROPHANT);
+        double[] uprightPerEffect = {5.0D, 7.0D, 9.0D, 10.0D};
+        TarotQuality[] tiers = {TarotQuality.R, TarotQuality.SR, TarotQuality.SSR, TarotQuality.UR};
+        for (int i = 0; i < tiers.length; i++) {
+            TarotEffectOp op = findKind(hierophant.opsFor(tiers[i], true),
+                    TarotEffectKind.SELF_CLEANSE_MAX_HEALTH);
+            helper.assertTrue(op != null, "Hierophant upright tier must use cleanse-count max-health operation");
+            helper.assertTrue(Math.abs(op.amount() - uprightPerEffect[i]) < 0.001D,
+                    "Hierophant upright per-effect gain must match spec tier " + tiers[i]);
+            helper.assertTrue(Math.abs(op.capUp() - 40.0D) < 0.001D,
+                    "Hierophant upright total max-health gain must cap at 40");
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void hierophantCountsCleansedEffectsBeforeGrantingHealth(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        MaxHealthModifierManager maxHealth = new MaxHealthModifierManager();
+        TarotEffectEngine engine = new TarotEffectEngine(maxHealth, new ScheduledEffectManager());
+        double base = player.getAttribute(Attributes.MAX_HEALTH).getValue();
+
+        player.addEffect(new MobEffectInstance(MobEffects.POISON, 200, 0));
+        player.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, 200, 0));
+        engine.applyCard(helper.getLevel(), player, loadCard(TarotArcana.HIEROPHANT), TarotQuality.R, true);
+
+        helper.assertFalse(player.hasEffect(MobEffects.POISON), "Hierophant must cleanse poison");
+        helper.assertFalse(player.hasEffect(MobEffects.MOVEMENT_SLOWDOWN), "Hierophant must cleanse slowness");
+        double after = player.getAttribute(Attributes.MAX_HEALTH).getValue();
+        helper.assertTrue(Math.abs(after - (base + 10.0D)) < 0.001D,
+                "R Hierophant with two cleansed debuffs must grant exactly 2 x 5 max health");
         helper.succeed();
     }
 
@@ -194,6 +526,37 @@ public final class TarotGameTests {
             threw = true;
         }
         helper.assertTrue(threw, "drawCount*derivedChance >= 1 must throw (geometric divergence guard)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 卡包账本: 每日获取数与 SSR 保底跨 NBT 往返保留, UTC 翻日只重置日计数、不重置保底
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void packCountersPersistAndRollOver(GameTestHelper helper) {
+        TarotPackSavedData data = new TarotPackSavedData();
+        UUID playerId = UUID.randomUUID();
+        long day = 20_000L;
+
+        data.setAdvancedNoSsrStreak(playerId, 7);
+        data.recordAcquired(playerId, 19, 20, day);
+        helper.assertTrue(data.canAcquire(playerId, 1, 20, day), "the twentieth pack remains available");
+        helper.assertFalse(data.canAcquire(playerId, 2, 20, day), "daily limit rejects an oversized batch atomically");
+
+        CompoundTag saved = data.save(new CompoundTag());
+        TarotPackSavedData reloaded = TarotPackSavedData.load(saved);
+        helper.assertTrue(reloaded.advancedNoSsrStreak(playerId) == 7,
+                "advanced-pack pity survives save/load");
+        helper.assertTrue(reloaded.acquiredToday(playerId, day) == 19,
+                "daily acquisition count survives save/load");
+
+        helper.assertTrue(reloaded.acquiredToday(playerId, day + 1) == 0,
+                "UTC rollover presents a fresh daily count");
+        helper.assertTrue(reloaded.canAcquire(playerId, 20, 20, day + 1),
+                "the full daily allowance is available after rollover");
+        helper.assertTrue(reloaded.advancedNoSsrStreak(playerId) == 7,
+                "UTC rollover must not erase SSR pity");
         helper.succeed();
     }
 
@@ -357,6 +720,30 @@ public final class TarotGameTests {
         helper.assertTrue(sched.pendingCountFor(player.getUUID()) == 0,
                 "cancelFor clears the player's queue (logout/death no longer fires)");
         helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 20)
+    public static void cardCastResolvesOnlyAfterPresentationDelay(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        TarotCastManager casts = new TarotCastManager();
+        int[] resolutions = {0};
+
+        helper.assertTrue(casts.begin(player, 6, p -> resolutions[0]++),
+                "first card presentation must enter the cast queue");
+        helper.assertFalse(casts.begin(player, 6, p -> resolutions[0]++),
+                "a second card must not start while the first presentation is active");
+        casts.tick(helper.getLevel().getServer());
+        helper.assertTrue(resolutions[0] == 0,
+                "gameplay effect must not resolve on the presentation's first tick");
+
+        helper.runAfterDelay(7, () -> {
+            casts.tick(helper.getLevel().getServer());
+            helper.assertTrue(resolutions[0] == 1,
+                    "gameplay effect resolves once after the presentation delay");
+            helper.assertTrue(casts.pendingCount() == 0,
+                    "resolved presentation leaves no pending cast behind");
+            helper.succeed();
+        });
     }
 
     // ============================================================
@@ -1112,6 +1499,86 @@ public final class TarotGameTests {
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void redesignedPriestessChariotAndStrengthEffectsAreConfigured(GameTestHelper helper) {
+        TarotQuality[] tiers = {TarotQuality.R, TarotQuality.SR, TarotQuality.SSR, TarotQuality.UR};
+
+        TarotCardData priestess = loadCard(TarotArcana.HIGH_PRIESTESS);
+        double[] guardRadius = {24, 32, 40, 48};
+        int[] guardDuration = {240, 320, 400, 500};
+        double[] guardReduction = {0.20D, 0.25D, 0.30D, 0.35D};
+        int[] forbiddenAmp = {0, 0, 1, 2};
+        for (int i = 0; i < tiers.length; i++) {
+            TarotEffectOp guard = findKind(priestess.opsFor(tiers[i], true),
+                    TarotEffectKind.SELF_PREMONITION_SCAN);
+            helper.assertTrue(guard != null && guard.radius() == guardRadius[i]
+                            && guard.durationTicks() == guardDuration[i]
+                            && Math.abs(guard.percent() - guardReduction[i]) < 1.0E-9D
+                            && guard.amplifier() == -1,
+                    "high priestess upright " + tiers[i].id() + " premonition values");
+            TarotEffectOp forbidden = findKind(priestess.opsFor(tiers[i], false),
+                    TarotEffectKind.SELF_PREMONITION_SCAN);
+            helper.assertTrue(forbidden != null && forbidden.percent() == 0.0D
+                            && forbidden.amplifier() == forbiddenAmp[i],
+                    "high priestess reversed " + tiers[i].id() + " forbidden sight values");
+        }
+
+        TarotCardData chariot = loadCard(TarotArcana.CHARIOT);
+        double[] chargeDistance = {12, 14, 16, 20};
+        double[] chargeDamage = {25, 32, 40, 50};
+        double[] collisionDamage = {20, 16, 12, 8};
+        for (int i = 0; i < tiers.length; i++) {
+            TarotEffectOp charge = findKind(chariot.opsFor(tiers[i], false),
+                    TarotEffectKind.SELF_UNCONTROLLED_DASH);
+            helper.assertTrue(charge != null && charge.amount() == chargeDistance[i]
+                            && charge.threshold() == chargeDamage[i]
+                            && charge.floorDown() == collisionDamage[i],
+                    "chariot reversed " + tiers[i].id() + " uncontrolled charge values");
+        }
+
+        TarotCardData strength = loadCard(TarotArcana.STRENGTH);
+        int[] overdriveDuration = {400, 500, 600, 700};
+        double[] overdriveLifesteal = {0.25D, 0.35D, 0.45D, 0.55D};
+        for (int i = 0; i < tiers.length; i++) {
+            TarotEffectOp overdrive = findKind(strength.opsFor(tiers[i], false),
+                    TarotEffectKind.SELF_WILD_OVERDRIVE);
+            helper.assertTrue(overdrive != null && overdrive.durationTicks() == overdriveDuration[i]
+                            && overdrive.amplifier() == i + 2
+                            && Math.abs(overdrive.percent() - overdriveLifesteal[i]) < 1.0E-9D
+                            && overdrive.threshold() == 0.50D && overdrive.amount() == 0.15D
+                            && overdrive.count() == 1,
+                    "strength reversed " + tiers[i].id() + " wild overdrive values");
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void premonitionAndWildOverdriveCombatWindowsBehave(GameTestHelper helper) {
+        UUID id = UUID.randomUUID();
+        TarotCombatState.clearAll(id);
+
+        TarotCombatState.openWindowRaw(id, TarotCombatState.WindowKind.PREMONITION,
+                200L, 0.30D, 0.0D);
+        helper.assertTrue(Math.abs(TarotCombatState.consumePremonitionReduction(id, 100L) - 0.30D) < 1.0E-9D,
+                "premonition first hit consumes configured reduction");
+        helper.assertTrue(TarotCombatState.consumePremonitionReduction(id, 101L) == 0.0D,
+                "premonition can only trigger once");
+
+        TarotCombatState.openWildOverdriveRaw(id, 300L, 0.35D, 0.50D, 0.15D);
+        helper.assertTrue(TarotCombatState.hasWildOverdrive(id, 200L),
+                "wild overdrive grants a live combat window");
+        helper.assertTrue(Math.abs(TarotCombatState.wildOverdriveLifestealPercent(id, 200L, 0.75D) - 0.35D)
+                        < 1.0E-9D,
+                "wild overdrive uses base lifesteal above half health");
+        helper.assertTrue(Math.abs(TarotCombatState.wildOverdriveLifestealPercent(id, 200L, 0.50D) - 0.50D)
+                        < 1.0E-9D,
+                "wild overdrive gains bonus lifesteal at half health");
+        helper.assertFalse(TarotCombatState.hasWildOverdrive(id, 300L),
+                "wild overdrive expires at end tick");
+        TarotCombatState.clearAll(id);
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void sunCardPeriodicBurnAndHealConfigured(GameTestHelper helper) {
         TarotCardData sun = loadCard(TarotArcana.SUN);
         // 正位四档每秒灼: radius (2/3/4/5), amount (4/5/6/8), period 20, duration = buff 时长 (400/500/600/800)。
@@ -1189,6 +1656,87 @@ public final class TarotGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void advancedArcanaMechanicsMatchSpec(GameTestHelper helper) {
+        TarotEffectOp chariotDash = findKind(loadCard(TarotArcana.CHARIOT)
+                .opsFor(TarotQuality.R, true), TarotEffectKind.SELF_DASH);
+        helper.assertTrue(chariotDash != null && chariotDash.amount() == 8.0D,
+                "chariot upright performs a real forward dash");
+
+        helper.assertTrue(findKind(loadCard(TarotArcana.HERMIT)
+                        .opsFor(TarotQuality.SHINY, true), TarotEffectKind.SELF_HERMIT_SHINY) != null,
+                "hermit shiny opens attack-lock/untargetable/highlight window");
+
+        TarotCardData wheel = loadCard(TarotArcana.WHEEL_OF_FORTUNE);
+        helper.assertTrue(findKind(wheel.opsFor(TarotQuality.R, true), TarotEffectKind.SELF_RANDOM_BUFF) != null,
+                "wheel upright rolls its buff pool");
+        helper.assertTrue(findKind(wheel.opsFor(TarotQuality.R, false), TarotEffectKind.SELF_FORTUNE_GAMBLE) != null,
+                "wheel reversed rolls heal versus self-damage");
+        helper.assertTrue(findKind(wheel.opsFor(TarotQuality.SHINY, true), TarotEffectKind.SELF_REFRESH_BENEFICIAL) != null,
+                "wheel shiny refreshes existing beneficial effects");
+
+        helper.assertTrue(findKind(loadCard(TarotArcana.JUSTICE)
+                        .opsFor(TarotQuality.R, false), TarotEffectKind.ENEMY_TARGET_POTION) != null,
+                "justice reversed marks only its crosshair target");
+        helper.assertTrue(findKind(loadCard(TarotArcana.DEATH)
+                        .opsFor(TarotQuality.R, true), TarotEffectKind.ENEMY_TARGET_POTION) != null,
+                "death upright applies wither only to its execution target");
+
+        TarotCardData temperance = loadCard(TarotArcana.TEMPERANCE);
+        helper.assertTrue(findKind(temperance.opsFor(TarotQuality.R, true), TarotEffectKind.SELF_PERIODIC_CLEANSE) != null,
+                "temperance upright cleanses periodically");
+        helper.assertTrue(findKind(temperance.opsFor(TarotQuality.R, false), TarotEffectKind.AOE_ALLY_BALANCE_HEALTH) != null,
+                "temperance reversed creates the health-balance link");
+        helper.assertTrue(findKind(temperance.opsFor(TarotQuality.SHINY, true), TarotEffectKind.AOE_ALLY_DAMAGE_SHARE) != null,
+                "temperance shiny creates the party damage-share group");
+
+        TarotCardData devil = loadCard(TarotArcana.DEVIL);
+        helper.assertTrue(findKind(devil.opsFor(TarotQuality.R, true), TarotEffectKind.SELF_DELAYED_POTION) != null,
+                "devil upright pays vulnerability after its power window");
+        helper.assertTrue(findKind(devil.opsFor(TarotQuality.R, false), TarotEffectKind.SELF_PERIODIC_TRUE_DAMAGE) != null,
+                "devil reversed pays true damage every five seconds");
+        helper.assertTrue(findKind(devil.opsFor(TarotQuality.SHINY, true), TarotEffectKind.AOE_ENEMY_PULL) != null,
+                "devil shiny pulls enemies to the caster");
+
+        helper.assertTrue(findKind(loadCard(TarotArcana.TOWER)
+                        .opsFor(TarotQuality.SHINY, true), TarotEffectKind.TARGET_TOWER_STRIKE) != null,
+                "tower uses the crosshair lightning-column strike");
+
+        TarotCardData star = loadCard(TarotArcana.STAR);
+        helper.assertTrue(findKind(star.opsFor(TarotQuality.R, false), TarotEffectKind.SELF_HEALING_BLOCK) != null,
+                "star reversed enforces exhaustion healing block");
+        helper.assertTrue(findKind(star.opsFor(TarotQuality.SHINY, true), TarotEffectKind.AOE_ALLY_LOW_HEALTH_HEAL) != null,
+                "star shiny gives extra healing only to critical allies");
+
+        List<TarotEffectOp> moonShiny = loadCard(TarotArcana.MOON).opsFor(TarotQuality.SHINY, true);
+        helper.assertTrue(findKind(moonShiny, TarotEffectKind.AOE_ENEMY_RANDOM_TELEPORT) != null
+                        && findKind(moonShiny, TarotEffectKind.SELF_UNTARGETABLE) != null,
+                "moon shiny displaces enemies and prevents mob targeting");
+
+        TarotCardData sun = loadCard(TarotArcana.SUN);
+        helper.assertTrue(findKind(sun.opsFor(TarotQuality.R, true), TarotEffectKind.SELF_CLEANSE_EFFECTS) != null,
+                "sun upright only clears movement/visual negatives");
+        helper.assertTrue(findKind(sun.opsFor(TarotQuality.SHINY, true), TarotEffectKind.AOE_ALLY_PERIODIC_CLEANSE) != null,
+                "sun shiny cleanses allies once per second");
+
+        TarotCardData judgement = loadCard(TarotArcana.JUDGEMENT);
+        helper.assertTrue(findKind(judgement.opsFor(TarotQuality.R, true), TarotEffectKind.IMMUNITY) != null,
+                "judgement upright grants poison/wither immunity");
+        helper.assertTrue(findKind(judgement.opsFor(TarotQuality.R, false), TarotEffectKind.AOE_ENEMY_MISSING_HEALTH_DAMAGE) != null,
+                "judgement reversed scales with missing health");
+        helper.assertTrue(findKind(judgement.opsFor(TarotQuality.SHINY, true), TarotEffectKind.AOE_ALLY_EMERGENCY_HEAL) != null,
+                "judgement shiny performs critical-party emergency healing");
+
+        TarotCardData world = loadCard(TarotArcana.WORLD);
+        helper.assertTrue(findKind(world.opsFor(TarotQuality.R, false), TarotEffectKind.SELF_DELAYED_POTION) != null,
+                "world reversed applies burden after the main buff expires");
+        TarotEffectOp worldAbsorption = findKind(world.opsFor(TarotQuality.SHINY, true),
+                TarotEffectKind.SELF_PERIODIC_ABSORPTION);
+        helper.assertTrue(worldAbsorption != null && worldAbsorption.count() == 4,
+                "world shiny replenishes absorption four times across twenty seconds");
+        helper.succeed();
+    }
+
     private static TarotEffectOp findKind(List<TarotEffectOp> ops, TarotEffectKind kind) {
         for (TarotEffectOp op : ops) {
             if (op.kind() == kind) {
@@ -1213,6 +1761,40 @@ public final class TarotGameTests {
             return TarotCardData.fromJson(root);
         } catch (java.io.IOException e) {
             throw new IllegalStateException("failed reading tarot card resource: " + path, e);
+        }
+    }
+
+    private static JsonObject loadJsonResource(String path) {
+        try (InputStream in = TarotGameTests.class.getResourceAsStream(path)) {
+            if (in == null) {
+                throw new IllegalStateException("JSON resource not found on classpath: " + path);
+            }
+            return JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("failed reading JSON resource: " + path, e);
+        }
+    }
+
+    private static boolean resourceExists(String path) {
+        try (InputStream in = TarotGameTests.class.getResourceAsStream(path)) {
+            return in != null;
+        } catch (java.io.IOException e) {
+            return false;
+        }
+    }
+
+    private static BufferedImage loadImageResource(String path) {
+        try (InputStream in = TarotGameTests.class.getResourceAsStream(path)) {
+            if (in == null) {
+                throw new IllegalStateException("image resource not found on classpath: " + path);
+            }
+            BufferedImage image = ImageIO.read(in);
+            if (image == null) {
+                throw new IllegalStateException("failed decoding image resource: " + path);
+            }
+            return image;
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("failed reading image resource: " + path, e);
         }
     }
 }

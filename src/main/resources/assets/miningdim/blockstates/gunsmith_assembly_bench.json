@@ -61,63 +61,63 @@
       "y": 270
     },
     "active=true,facing=north,part=main": {
-      "model": "miningdim:block/gunsmith_assembly_bench_main"
+      "model": "miningdim:block/gunsmith_assembly_bench_main_active"
     },
     "active=true,facing=north,part=side": {
-      "model": "miningdim:block/gunsmith_assembly_bench_side"
+      "model": "miningdim:block/gunsmith_assembly_bench_side_active"
     },
     "active=true,facing=north,part=back": {
-      "model": "miningdim:block/gunsmith_assembly_bench_back"
+      "model": "miningdim:block/gunsmith_assembly_bench_back_active"
     },
     "active=true,facing=north,part=back_side": {
-      "model": "miningdim:block/gunsmith_assembly_bench_back_side"
+      "model": "miningdim:block/gunsmith_assembly_bench_back_side_active"
     },
     "active=true,facing=east,part=main": {
-      "model": "miningdim:block/gunsmith_assembly_bench_main",
+      "model": "miningdim:block/gunsmith_assembly_bench_main_active",
       "y": 90
     },
     "active=true,facing=east,part=side": {
-      "model": "miningdim:block/gunsmith_assembly_bench_side",
+      "model": "miningdim:block/gunsmith_assembly_bench_side_active",
       "y": 90
     },
     "active=true,facing=east,part=back": {
-      "model": "miningdim:block/gunsmith_assembly_bench_back",
+      "model": "miningdim:block/gunsmith_assembly_bench_back_active",
       "y": 90
     },
     "active=true,facing=east,part=back_side": {
-      "model": "miningdim:block/gunsmith_assembly_bench_back_side",
+      "model": "miningdim:block/gunsmith_assembly_bench_back_side_active",
       "y": 90
     },
     "active=true,facing=south,part=main": {
-      "model": "miningdim:block/gunsmith_assembly_bench_main",
+      "model": "miningdim:block/gunsmith_assembly_bench_main_active",
       "y": 180
     },
     "active=true,facing=south,part=side": {
-      "model": "miningdim:block/gunsmith_assembly_bench_side",
+      "model": "miningdim:block/gunsmith_assembly_bench_side_active",
       "y": 180
     },
     "active=true,facing=south,part=back": {
-      "model": "miningdim:block/gunsmith_assembly_bench_back",
+      "model": "miningdim:block/gunsmith_assembly_bench_back_active",
       "y": 180
     },
     "active=true,facing=south,part=back_side": {
-      "model": "miningdim:block/gunsmith_assembly_bench_back_side",
+      "model": "miningdim:block/gunsmith_assembly_bench_back_side_active",
       "y": 180
     },
     "active=true,facing=west,part=main": {
-      "model": "miningdim:block/gunsmith_assembly_bench_main",
+      "model": "miningdim:block/gunsmith_assembly_bench_main_active",
       "y": 270
     },
     "active=true,facing=west,part=side": {
-      "model": "miningdim:block/gunsmith_assembly_bench_side",
+      "model": "miningdim:block/gunsmith_assembly_bench_side_active",
       "y": 270
     },
     "active=true,facing=west,part=back": {
-      "model": "miningdim:block/gunsmith_assembly_bench_back",
+      "model": "miningdim:block/gunsmith_assembly_bench_back_active",
       "y": 270
     },
     "active=true,facing=west,part=back_side": {
-      "model": "miningdim:block/gunsmith_assembly_bench_back_side",
+      "model": "miningdim:block/gunsmith_assembly_bench_back_side_active",
       "y": 270
     }
   }

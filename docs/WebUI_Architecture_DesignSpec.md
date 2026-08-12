@@ -121,7 +121,7 @@
 
 ## 六、跳蚤市场后端（v1 已落地 2026-06-19，DRAFT 数值待标定）
 
-> 落地状态：`com.miningdim.market`（17 类）+ 6 个 `market.*` action + 252/252 GameTest 全绿（6 项真连 SQLite）。托管物品折叠进 listings 行的 `item_nbt` BLOB（v1 不单列 escrow 表）。手续费已定稿为**挂单时收取**的 `FEE_RATE=0.20`（平价基础费率）+ 偏离费二次系数 `DEVIATION_K=0.04`（高税重摩擦市场，强反通胀/反洗钱；真源 `market.MarketConstants`/`market.MarketFee`，非早期 0.05 成交额比例）；铜铁日 P2P cap `COPPER_IRON_DAILY_P2P_CAP=512` 仍为 DRAFT 待标定。崩溃原子性（charge 与 SQLite SOLD 间极小窗口）、30 天流水清理、偏离/反洗钱价格校验 deferred。
+> 落地状态：`com.miningdim.market`（17 类）+ 6 个 `market.*` action + 252/252 GameTest 全绿（6 项真连 SQLite）。托管物品折叠进 listings 行的 `item_nbt` BLOB（v1 不单列 escrow 表）。手续费已定稿为**挂单时收取**的 `FEE_RATE=0.20`（平价基础费率）+ 偏离费二次系数 `DEVIATION_K=0.04`（高税重摩擦市场，强反通胀/反洗钱；真源 `market.MarketConstants`/`market.MarketFee`，非早期 0.05 成交额比例）；铜铁日 P2P cap `COPPER_IRON_DAILY_P2P_CAP=512` 仍为 DRAFT 待标定。崩溃原子性**已于 2026-08-12 闭合**：钱包与市场表并入统一库 `miningdim.db`，买家扣款 / 挂单状态 / 流水 / 卖家收款收进单个事务（`IEconomyService.inTransaction`）。此前该窗口被描述为「极小」并不准确 —— 钱当时在 SavedData，最长 5 分钟才落一次盘（`MinecraftServer.tickServer` 每 6000 tick 触发 `saveEverything`），而 SQLite 提交即落盘。仍未闭合的是**物品交付**：背包是无法并入事务的第三个存储，交付放在提交之后，最坏情况是「钱货两清但物品没进包」，需邮箱式领取才能真正闭合。30 天流水清理、偏离/反洗钱价格校验 deferred。
 
 ### 6.1 表结构草案
 
@@ -132,7 +132,7 @@
 ### 6.2 撮合/成交不变量
 
 - 挂单：校验卖家持有 → 移入 escrow → 写 ACTIVE listing。失败自然冒泡，不吞。
-- 买入：校验买家资金（EconomyService）→ 单事务内 listing ACTIVE→SOLD + 扣买家/全额贷卖家 + escrow 出库交付买家（离线则进邮箱/暂存）→ COMMIT。任一步失败整事务回滚。
+- 买入：校验买家资金（EconomyService）→ 单事务内 listing ACTIVE→SOLD + 扣买家 + 卖家收款（在线即时入账／离线落 `pending_payout`）→ COMMIT → 提交后再交付物品。任一步失败整事务回滚。**交付刻意在事务之外**：玩家背包是第三个存储，放在提交前意味着回滚即白送；放在提交后，剩下的缺口是「钱货两清但物品没进包」，那要靠邮箱式领取而非事务来闭合。
 - 手续费**在挂单时一次性收取并蒸发**（sink，非成交额比例）：`fee = round(max(V0,VR)*count*(FEE_RATE + DEVIATION_K*ln(VR/V0)^2))`（V0=可信基准价、VR=挂单价；诚实按基准价挂单退化为 0.20 平价费，偏离越大二次惩罚越重，兼作反洗钱）。买入端为纯转移、不再额外收费。真源 `market.MarketConstants`/`market.MarketFee`。
 - 铜/铁 P2P 单人 cap：定价台账第三章遗留的"铜 P2P 单人 cap"在此层落地（按买家/卖家日成交量门控）。
 

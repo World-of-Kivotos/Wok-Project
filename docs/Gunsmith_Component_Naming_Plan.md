@@ -1,8 +1,9 @@
 # 枪匠组件命名计划
 
-> 状态：基础组件命名已落实，后续扩展要求待实施。本文件不等同于新增配件功能的实现计划。
+> 状态：基础组件命名已落实；独立 `variant` 维度已由“格赫娜高速导气”首次落地。本文件仍不等同于其他新增配件的功能计划。
 > 关联规格：[军火商职业设计规格](Munitions_Job_DesignSpec.md) 第 3A 节。
 > 平衡边界：[枪匠组件平衡与后续扩展路线](Gunsmith_Component_Balance_Roadmap.md)。
+> 首个特殊组件：[格赫娜高速导气组件规格](Gunsmith_Gehenna_High_Speed_Gas.md)。
 
 ---
 

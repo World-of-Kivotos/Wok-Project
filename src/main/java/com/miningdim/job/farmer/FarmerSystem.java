@@ -13,15 +13,29 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.player.BonemealEvent;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.level.BlockEvent;
+import net.minecraftforge.eventbus.api.Event;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.registries.ForgeRegistries;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,8 +65,9 @@ public final class FarmerSystem implements Subsystem {
         FarmerBlocks.register(modBus);
         FarmerItems.register(modBus);
         FarmerCreativeTab.register(modBus);
+        FarmerLootModifiers.register(modBus);
         forgeBus.register(this);
-        LOGGER.info("[miningdim] farmer job subsystem registered (5 farmland tiers + mod wheat + harvest xp + placement cap + /farmer sell)");
+        LOGGER.info("[miningdim] farmer job subsystem registered (5 farmland tiers + crop yield + Farmer's Delight + harvest xp + placement cap + /farmer sell)");
     }
 
     // ============================================================
@@ -70,9 +85,37 @@ public final class FarmerSystem implements Subsystem {
     public void onRegisterCommands(RegisterCommandsEvent event) {
         event.getDispatcher().register(
                 Commands.literal("farmer")
+                        .then(Commands.literal("crops")
+                                .executes(this::cropTableCommand))
                         .then(Commands.literal("sell")
                                 .then(Commands.argument("amount", IntegerArgumentType.integer(1))
                                         .executes(this::sellCommand))));
+    }
+
+    private int cropTableCommand(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        int farmerLevel = JobServices.jobService().level(player, JobId.FARMER);
+        ctx.getSource().sendSuccess(() -> Component.translatable("message.miningdim.farmer.crop_table_header")
+                .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
+        ctx.getSource().sendSuccess(() -> Component.translatable("message.miningdim.farmer.crop_table_columns")
+                .withStyle(ChatFormatting.GRAY), false);
+        for (FarmerCropTable.Row row : FarmerCropTable.rows()) {
+            Component tierName = FarmerBlocks.farmland(row.tier()).get().getName();
+            Component unlock = row.tier().isUnlockedAt(farmerLevel)
+                    ? Component.translatable("message.miningdim.farmer.crop_table_unlocked")
+                    : Component.translatable("message.miningdim.farmer.crop_table_locked", row.unlockLevel());
+            ctx.getSource().sendSuccess(() -> Component.translatable(
+                            "message.miningdim.farmer.crop_table_row",
+                            tierName, unlock, row.growthMinutes(), row.yieldMultiplier(),
+                            FarmerCropTable.amount(row.farmerWheatPerHour()), row.farmerWheatPerSixHours())
+                    .withStyle(row.tier().isUnlockedAt(farmerLevel)
+                            ? ChatFormatting.GREEN : ChatFormatting.DARK_GRAY), false);
+        }
+        ctx.getSource().sendSuccess(() -> Component.translatable("message.miningdim.farmer.crop_table_compat")
+                .withStyle(ChatFormatting.AQUA), false);
+        ctx.getSource().sendSuccess(() -> Component.translatable("message.miningdim.farmer.crop_table_note")
+                .withStyle(ChatFormatting.GRAY), false);
+        return FarmerTier.values().length;
     }
 
     /**
@@ -110,7 +153,10 @@ public final class FarmerSystem implements Subsystem {
      *
      * 经验与作物掉落解耦 (第二章): 本法只算经验, 不动掉落 (loot table 照常掉小麦), 故软上限只削经验不削小麦。
      */
-    @SubscribeEvent
+    // LOWEST: 必须排在所有可能取消 BreakEvent 的监听器 (领地/保护类) 之后再结算。挂 NORMAL 时
+    // isCanceled() 只看得见 HIGHEST/HIGH 阶段的取消, 被 LOW/LOWEST 取消的破坏仍会先发出经验,
+    // 玩家可对同一株受保护作物反复破坏刷经验。
+    @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onCropHarvested(BlockEvent.BreakEvent event) {
         if (event.isCanceled()) {
             return;
@@ -119,16 +165,17 @@ public final class FarmerSystem implements Subsystem {
             return; // 仅服务端玩家破坏结算 (假玩家/客户端不结算)。
         }
         BlockState state = event.getState();
-        if (!(state.getBlock() instanceof FarmerCropBlock crop)) {
-            return; // 非 mod 作物 (含耕地破坏走 onFarmlandBroken): 不结算经验。
-        }
-        if (!crop.isMaxAge(state)) {
-            return; // 未成熟破坏: 经验结算 = 0 (第十章: 只认成熟态破坏掉落)。
+        boolean nativeCrop = state.getBlock() instanceof FarmerCropBlock crop && crop.isMaxAge(state);
+        boolean compatibleCrop = FarmerHarvests.isSupportedMatureCrop(state);
+        if (!nativeCrop && !compatibleCrop) {
+            return;
         }
         if (!(event.getLevel() instanceof ServerLevel level)) {
             return;
         }
-        FarmerTier tier = FarmerCropBlock.tierBelow(player.level(), event.getPos());
+        FarmerTier tier = nativeCrop
+                ? FarmerCropBlock.tierBelow(player.level(), event.getPos())
+                : FarmerHarvests.tierFor(player.level(), event.getPos(), state);
         if (tier == null) {
             return; // 下方不是 mod 耕地 (原版耕地上的 mod 作物不产经验, 反扩建): 经验 = 0。
         }
@@ -140,8 +187,73 @@ public final class FarmerSystem implements Subsystem {
 
         // 小麦掉落由本处单一权威发放 (loot table 只补种种子, 不掉小麦), 株数 = 该档产量, 与经验/经济计数严格一致
         // (第七章: 小麦产量纯由方块上限 × 单块速率 × 产量决定, 不受经验软上限削减)。
-        net.minecraft.world.level.block.Block.popResource(level, event.getPos(),
-                new net.minecraft.world.item.ItemStack(FarmerItems.FARMER_WHEAT.get(), yield));
+        if (nativeCrop) {
+            Block.popResource(level, event.getPos(), new ItemStack(FarmerItems.FARMER_WHEAT.get(), yield));
+        }
+    }
+
+    /**
+     * Takes over Farmer's Delight tomato right-click harvesting before its native 1-2 drop path.
+     *
+     * LOWEST 而非 HIGHEST: 采摘会掉落物品、重置作物年龄并发放经验, 这些副作用必须排在领地与保护类
+     * 监听器判定之后。挂 HIGHEST 时本处最先执行, 保护监听器随后才取消事件, 副作用已经落地, 玩家可
+     * 收获无权区域的作物。原版方块 use() 在全部 RightClickBlock 监听器之后才调用, 因此降到 LOWEST
+     * 仍然抢在 Farmer's Delight 原生掉落路径之前。
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public void onCropPicked(PlayerInteractEvent.RightClickBlock event) {
+        if (event.isCanceled() || event.getUseBlock() == Event.Result.DENY) {
+            return; // 已被保护类监听器拒绝: 不得产出作物、经验与音效。
+        }
+        if (event.getHand() != InteractionHand.MAIN_HAND
+                || !(event.getEntity() instanceof ServerPlayer player)
+                || !(event.getLevel() instanceof ServerLevel level)) {
+            return;
+        }
+        BlockState state = level.getBlockState(event.getPos());
+        if (!FarmerHarvests.isPickableFarmersDelightTomato(state)) {
+            return;
+        }
+        FarmerTier tier = FarmerHarvests.tierFor(level, event.getPos(), state);
+        if (tier == null) {
+            return;
+        }
+
+        int nativeCount = 1 + level.random.nextInt(2);
+        Block.popResource(level, event.getPos(),
+                new ItemStack(requiredItem("farmersdelight", "tomato"),
+                        nativeCount * tier.yieldPerHarvest()));
+        if (level.random.nextFloat() < 0.05F) {
+            Block.popResource(level, event.getPos(),
+                    new ItemStack(requiredItem("farmersdelight", "rotten_tomato")));
+        }
+        level.playSound(null, event.getPos(),
+                requiredSound("farmersdelight", "block.tomatoes.pick_tomatoes"),
+                SoundSource.BLOCKS, 1.0F, 0.8F + level.random.nextFloat() * 0.4F);
+        level.setBlock(event.getPos(), state.setValue(BlockStateProperties.AGE_3, 0), 2);
+
+        JobServices.jobService().grantXp(player, JobId.FARMER,
+                (long) FarmerConstants.SINGLE_CROP_XP * tier.yieldPerHarvest());
+        event.setCanceled(true);
+        event.setCancellationResult(InteractionResult.SUCCESS);
+    }
+
+    private static Item requiredItem(String namespace, String path) {
+        ResourceLocation id = new ResourceLocation(namespace, path);
+        Item item = ForgeRegistries.ITEMS.getValue(id);
+        if (item == null) {
+            throw new IllegalStateException("Required compatible crop item is not registered: " + id);
+        }
+        return item;
+    }
+
+    private static SoundEvent requiredSound(String namespace, String path) {
+        ResourceLocation id = new ResourceLocation(namespace, path);
+        SoundEvent sound = ForgeRegistries.SOUND_EVENTS.getValue(id);
+        if (sound == null) {
+            throw new IllegalStateException("Required compatible crop sound is not registered: " + id);
+        }
+        return sound;
     }
 
     // ============================================================
@@ -218,7 +330,11 @@ public final class FarmerSystem implements Subsystem {
      */
     @SubscribeEvent
     public void onBonemeal(BonemealEvent event) {
-        if (event.getBlock().getBlock() instanceof FarmerCropBlock) {
+        BlockState state = event.getBlock();
+        boolean nativeFarmerCrop = state.getBlock() instanceof FarmerCropBlock;
+        boolean compatibleCropOnFarmerSoil = FarmerHarvests.isSupportedCrop(state)
+                && FarmerHarvests.tierFor(event.getLevel(), event.getPos(), state) != null;
+        if (nativeFarmerCrop || compatibleCropOnFarmerSoil) {
             event.setCanceled(true);
         }
     }

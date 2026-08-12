@@ -15,24 +15,26 @@ PREVIEW_PATH = ROOT / "dist/gunsmith-assembly-bench-preview.png"
 ANIMATION_PATH = ROOT / "dist/gunsmith-assembly-bench-animation-preview.gif"
 
 TEXTURES = {
-    "base": "miningdim:block/gunsmith_press_base",
-    "metal": "miningdim:block/gunsmith_press_metal",
-    "dark": "miningdim:block/gunsmith_press_dark",
-    "brass": "miningdim:block/gunsmith_press_brass",
-    "panel": "miningdim:block/gunsmith_press_panel",
-    "warning": "miningdim:block/gunsmith_press_warning",
-    "hot": "miningdim:block/gunsmith_press_hot",
-    "particle": "miningdim:block/gunsmith_press_base",
+    "frame": "miningdim:block/gunsmith_assembly_frame",
+    "steel": "miningdim:block/gunsmith_assembly_steel",
+    "dark": "miningdim:block/gunsmith_assembly_dark",
+    "workmat": "miningdim:block/gunsmith_assembly_workmat",
+    "brass": "miningdim:block/gunsmith_assembly_brass",
+    "panel": "miningdim:block/gunsmith_assembly_panel",
+    "warning": "miningdim:block/gunsmith_assembly_warning",
+    "hot": "miningdim:block/gunsmith_assembly_hot",
+    "particle": "miningdim:block/gunsmith_assembly_frame",
 }
 
 COLORS = {
-    "base": (45, 53, 62, 255),
-    "metal": (91, 105, 116, 255),
-    "dark": (25, 30, 36, 255),
-    "brass": (205, 151, 54, 255),
-    "panel": (32, 177, 163, 255),
-    "warning": (246, 181, 55, 255),
-    "hot": (239, 82, 37, 255),
+    "frame": (43, 51, 58, 255),
+    "steel": (105, 122, 132, 255),
+    "dark": (22, 27, 32, 255),
+    "workmat": (25, 125, 123, 255),
+    "brass": (191, 137, 43, 255),
+    "panel": (35, 207, 194, 255),
+    "warning": (234, 170, 42, 255),
+    "hot": (246, 91, 28, 255),
 }
 
 PART_BOUNDS = {
@@ -43,6 +45,7 @@ PART_BOUNDS = {
 }
 
 STATIC_BOXES = []
+ACTIVE_BOXES = []
 ITEM_ARM_BOXES = []
 
 
@@ -58,57 +61,70 @@ def add_box(start, end, texture, *, top=None, front=None, down="dark", target=No
     (STATIC_BOXES if target is None else target).append(box)
 
 
-# Two-block work bed and recessed guide rails.
-add_box((0, 0, 2), (32, 1.5, 30), "base", top="metal")
-add_box((1, 1.5, 3), (31, 3, 29), "base", top="metal")
-add_box((2, 2.75, 1), (30, 4, 3), "warning")
-add_box((3, 3, 4), (29, 4, 27), "metal", top="panel")
-add_box((4, 4, 5), (28, 4.75, 26), "dark", top="panel")
-add_box((4, 4.75, 8), (28, 5.25, 9), "dark", top="metal")
-add_box((4, 4.75, 22), (28, 5.25, 23), "dark", top="metal")
-add_box((7, 5, 9), (8.5, 6, 22), "brass", top="metal")
-add_box((23.5, 5, 9), (25, 6, 22), "brass", top="metal")
+# Heavy plinth, lower cabinets and a full-width cold-steel countertop.
+add_box((0.5, 0, 1), (31.5, 1, 30.5), "dark", top="frame")
+add_box((1, 1, 1.5), (9.5, 7.25, 28), "frame", top="steel")
+add_box((22.5, 1, 1.5), (31, 7.25, 28), "frame", top="steel")
+add_box((9.5, 1, 18), (22.5, 7.25, 28), "frame", top="steel")
+add_box((0, 7.25, 0.5), (32, 8.5, 30.5), "frame", top="steel")
+add_box((1, 8.5, 1.5), (31, 8.85, 29.5), "steel", top="workmat")
+add_box((4, 8.85, 4), (28, 9.1, 26), "dark", top="workmat")
+add_box((9.5, 7.55, 0.15), (22.5, 8.2, 0.55), "warning", front="warning", top="steel")
 
-# Long rifle-shaped calibration workpiece.
-add_box((4, 5.25, 14.5), (12.5, 5.85, 15.5), "dark", top="metal")
-add_box((2.75, 5.1, 14.2), (4.5, 6, 15.8), "dark", top="metal")
-add_box((12, 5, 13.5), (20.75, 6.1, 16.5), "dark", top="metal")
-add_box((12.5, 6.1, 14), (20, 6.4, 16), "brass")
-add_box((16, 4.25, 16), (18, 5.25, 18), "dark", top="metal")
-add_box((20.5, 5, 12.5), (27.25, 6, 17.5), "dark", top="metal")
-add_box((27, 4.9, 12.2), (28.5, 6.15, 17.8), "dark", top="metal")
+# Front tool drawers, recessed labels and brass pulls.
+for x0, x1 in ((1.4, 9.1), (22.9, 30.6)):
+    for y0, y1 in ((1.55, 3.1), (3.35, 5.05), (5.3, 6.9)):
+        add_box((x0, y0, 0.85), (x1, y1, 1.55), "dark", front="steel", top="frame")
+        add_box(((x0 + x1) / 2 - 1.5, y1 - 0.45, 0.55),
+                ((x0 + x1) / 2 + 1.5, y1 - 0.15, 0.95), "brass")
+add_box((11, 4.8, 17.55), (21, 6.7, 18.15), "dark", front="steel", top="frame")
+add_box((14.3, 6.25, 17.3), (17.7, 6.55, 17.7), "brass")
 
-# Open 3D-printer frame, kept sparse so the work bed remains visible.
-for x0, z0 in ((1, 2), (29, 2), (1, 27), (29, 27)):
-    add_box((x0, 3, z0), (x0 + 2, 15, z0 + 2), "metal", front="dark", top="metal")
-add_box((1, 14, 2), (31, 16, 4), "metal", front="dark", top="metal")
-add_box((1, 14, 27), (31, 16, 29), "metal", top="metal")
-add_box((1, 14, 4), (3, 16, 27), "metal", top="metal")
-add_box((29, 14, 4), (31, 16, 27), "metal", top="metal")
-add_box((3, 11.5, 15), (29, 13, 17), "dark", top="metal")
-add_box((9, 14.5, 0.75), (23, 15.35, 1.75), "panel", front="panel", top="metal")
+# Central gunsmith fixture: T-slot rails, receiver cradle and adjustable jaws.
+add_box((3, 9.1, 12.6), (29, 9.55, 13.6), "steel", top="brass")
+add_box((3, 9.1, 18.4), (29, 9.55, 19.4), "steel", top="brass")
+add_box((5, 9.1, 14), (27, 9.4, 18), "dark", top="steel")
+add_box((8, 9.4, 14.2), (10, 10.2, 17.8), "frame", top="brass")
+add_box((22, 9.4, 14.2), (24, 10.2, 17.8), "frame", top="brass")
+add_box((12, 9.4, 13.8), (20, 10.0, 18.2), "dark", top="steel")
+add_box((13, 10.0, 14.6), (19, 10.35, 17.4), "brass", top="steel")
+add_box((15, 10.35, 14.2), (17, 11.25, 17.8), "frame", top="dark")
+add_box((6.5, 9.45, 15.4), (12.5, 10.05, 16.6), "dark", top="steel")
+add_box((19.5, 9.45, 15.1), (26.5, 10.1, 16.9), "dark", top="steel")
 
-# Front control pod.
-add_box((1, 6, 0), (9, 11, 3), "dark", front="panel", top="metal")
-add_box((2, 7.25, 0), (7.5, 9.5, 0.5), "panel", front="panel", top="panel")
-add_box((2.25, 6.25, 0), (3.5, 7, 0.55), "hot", front="hot", top="hot")
-add_box((4.25, 6.25, 0), (5.5, 7, 0.55), "brass", front="brass", top="brass")
+# Rear open gantry with a tool rail and protected task light.
+add_box((1, 8.5, 26), (3.25, 16, 29), "frame", front="dark", top="steel")
+add_box((28.75, 8.5, 26), (31, 16, 29), "frame", front="dark", top="steel")
+add_box((1, 14, 25.75), (31, 16, 29), "frame", front="dark", top="steel")
+add_box((3.25, 11.5, 27), (28.75, 12.3, 28.2), "dark", front="steel", top="brass")
+add_box((8, 13.35, 25.45), (24, 14.0, 26.15), "dark", front="panel", top="steel")
+for x0 in (5, 11, 17):
+    add_box((x0, 10.4, 27.2), (x0 + 2.8, 11.4, 28.0), "steel", front="dark", top="brass")
 
-# Rear mechanical-arm pedestal. Moving parts are rendered by the BER.
-add_box((23, 4, 20), (31, 5.5, 29), "dark", top="metal")
-add_box((24, 5.5, 21), (30, 6.5, 28), "brass", top="metal")
-add_box((24, 6.5, 21), (29, 9, 27), "metal", top="dark")
+# Right-hand side console and guarded status controls.
+add_box((28.5, 9.0, 4.5), (31.55, 13.2, 12.5), "dark", top="steel")
+add_box((31.55, 9.7, 5.5), (32, 12.4, 11.4), "panel", top="panel")
+add_box((31.6, 9.1, 6.2), (32, 9.55, 7.1), "brass", top="brass")
+add_box((31.6, 9.1, 8.1), (32, 9.55, 9.0), "warning", top="warning")
+
+# The renderer's shoulder remains anchored at global (26.5, 9, 24).
+add_box((23.5, 8.5, 21), (29.5, 8.8, 27), "dark", top="steel")
+add_box((24, 8.8, 21.5), (29, 9.0, 26.5), "brass", top="steel")
+
+# Active-only work lights and heated clamp inserts.
+add_box((8.5, 13.4, 25.25), (23.5, 14.05, 25.55), "hot", front="panel", top="hot", target=ACTIVE_BOXES)
+add_box((8.35, 10.15, 14.4), (9.65, 10.45, 17.6), "hot", top="hot", target=ACTIVE_BOXES)
+add_box((22.35, 10.15, 14.4), (23.65, 10.45, 17.6), "hot", top="hot", target=ACTIVE_BOXES)
+add_box((31.6, 11.55, 6.2), (32, 12.1, 10.8), "hot", top="panel", target=ACTIVE_BOXES)
 
 # Parked arm silhouette used only by the inventory model.
-add_box((24, 8, 21.5), (29, 10, 26.5), "dark", top="metal", target=ITEM_ARM_BOXES)
-add_box((22, 9.5, 22), (24.5, 14.5, 24.5), "dark", top="metal", target=ITEM_ARM_BOXES)
-add_box((22.8, 10, 21.7), (23.7, 14, 24.8), "brass", top="metal", target=ITEM_ARM_BOXES)
-add_box((17, 12, 22.2), (22.5, 14.2, 24.3), "dark", top="metal", target=ITEM_ARM_BOXES)
-add_box((17.5, 12.5, 21.9), (22, 13.4, 24.6), "brass", top="metal", target=ITEM_ARM_BOXES)
-add_box((15.8, 10.5, 21.8), (18.8, 13, 24.8), "metal", top="dark", target=ITEM_ARM_BOXES)
-add_box((16.3, 8, 22.3), (18.3, 10.8, 24.3), "hot", top="hot", target=ITEM_ARM_BOXES)
-add_box((15.2, 7.8, 22.5), (16.2, 9.3, 23.5), "brass", top="hot", target=ITEM_ARM_BOXES)
-add_box((18.8, 7.8, 22.5), (19.8, 9.3, 23.5), "brass", top="hot", target=ITEM_ARM_BOXES)
+add_box((24, 8.6, 21.5), (29, 9.8, 26.5), "dark", top="steel", target=ITEM_ARM_BOXES)
+add_box((22, 9.4, 22), (24.5, 14.4, 24.5), "dark", top="steel", target=ITEM_ARM_BOXES)
+add_box((22.8, 9.9, 21.7), (23.7, 13.9, 24.8), "brass", top="steel", target=ITEM_ARM_BOXES)
+add_box((17, 11.9, 22.2), (22.5, 14.1, 24.3), "dark", top="steel", target=ITEM_ARM_BOXES)
+add_box((17.5, 12.4, 21.9), (22, 13.3, 24.6), "brass", top="steel", target=ITEM_ARM_BOXES)
+add_box((15.8, 10.4, 21.8), (18.8, 12.9, 24.8), "steel", top="dark", target=ITEM_ARM_BOXES)
+add_box((16.3, 9.6, 22.3), (18.3, 10.7, 24.3), "hot", top="hot", target=ITEM_ARM_BOXES)
 
 
 def element_from_box(box, start=None, end=None):
@@ -129,10 +145,11 @@ def element_from_box(box, start=None, end=None):
     }
 
 
-def clip_boxes_for_part(part):
+def clip_boxes_for_part(part, active=False):
     min_x, max_x, min_z, max_z = PART_BOUNDS[part]
     elements = []
-    for box in STATIC_BOXES:
+    boxes = STATIC_BOXES + (ACTIVE_BOXES if active else [])
+    for box in boxes:
         x0 = max(box["from"][0], min_x)
         x1 = min(box["to"][0], max_x)
         z0 = max(box["from"][2], min_z)
@@ -145,12 +162,12 @@ def clip_boxes_for_part(part):
     return elements
 
 
-def block_model(part):
+def block_model(part, active=False):
     return {
         "parent": "minecraft:block/block",
         "ambientocclusion": True,
         "textures": TEXTURES,
-        "elements": clip_boxes_for_part(part),
+        "elements": clip_boxes_for_part(part, active),
     }
 
 
@@ -187,7 +204,8 @@ def blockstate():
     for active in (False, True):
         for facing, rotation in rotations.items():
             for part in PART_BOUNDS:
-                value = {"model": f"miningdim:block/gunsmith_assembly_bench_{part}"}
+                suffix = "_active" if active else ""
+                value = {"model": f"miningdim:block/gunsmith_assembly_bench_{part}{suffix}"}
                 if rotation is not None:
                     value["y"] = rotation
                 variants[f"active={str(active).lower()},facing={facing},part={part}"] = value
@@ -199,13 +217,101 @@ def write_json(path, payload):
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def shifted(color, amount):
+    return tuple(max(0, min(255, channel + amount)) for channel in color) + (255,)
+
+
+def make_block_textures():
+    texture_dir = ASSET_ROOT / "textures/block"
+    texture_dir.mkdir(parents=True, exist_ok=True)
+
+    def base_image(color, spread=5):
+        image = Image.new("RGBA", (16, 16), color + (255,))
+        pixels = image.load()
+        for y in range(16):
+            for x in range(16):
+                amount = ((x * 11 + y * 7 + x * y * 3) % (spread * 2 + 1)) - spread
+                pixels[x, y] = shifted(color, amount)
+        return image
+
+    frame = base_image((43, 51, 58), 4)
+    draw = ImageDraw.Draw(frame)
+    draw.rectangle((0, 0, 15, 15), outline=(18, 23, 28, 255))
+    draw.line((1, 1, 14, 1), fill=(72, 82, 90, 255))
+    draw.point([(2, 3), (13, 3), (2, 12), (13, 12)], fill=(132, 144, 150, 255))
+    draw.point([(3, 4), (12, 4), (3, 13), (12, 13)], fill=(14, 18, 22, 255))
+    frame.save(texture_dir / "gunsmith_assembly_frame.png")
+
+    steel = base_image((101, 119, 130), 8)
+    draw = ImageDraw.Draw(steel)
+    for y in (2, 6, 11, 14):
+        draw.line((1, y, 14, y), fill=(132, 150, 158, 255))
+    draw.line((0, 15, 15, 15), fill=(43, 53, 61, 255))
+    draw.point([(3, 5), (9, 9), (13, 3), (6, 13)], fill=(67, 81, 91, 255))
+    steel.save(texture_dir / "gunsmith_assembly_steel.png")
+
+    dark = base_image((22, 27, 32), 3)
+    draw = ImageDraw.Draw(dark)
+    for offset in range(-12, 17, 6):
+        draw.line((offset, 15, offset + 15, 0), fill=(34, 41, 47, 255))
+    draw.rectangle((0, 0, 15, 15), outline=(10, 13, 16, 255))
+    dark.save(texture_dir / "gunsmith_assembly_dark.png")
+
+    workmat = base_image((20, 112, 111), 4)
+    draw = ImageDraw.Draw(workmat)
+    draw.rectangle((0, 0, 15, 15), outline=(8, 45, 48, 255))
+    for value in (4, 8, 12):
+        draw.line((value, 1, value, 14), fill=(25, 132, 129, 255))
+        draw.line((1, value, 14, value), fill=(25, 132, 129, 255))
+    draw.point([(2, 2), (13, 2), (2, 13), (13, 13)], fill=(73, 197, 184, 255))
+    workmat.save(texture_dir / "gunsmith_assembly_workmat.png")
+
+    brass = base_image((181, 127, 37), 9)
+    draw = ImageDraw.Draw(brass)
+    draw.line((0, 2, 15, 2), fill=(244, 190, 72, 255))
+    draw.line((0, 12, 15, 12), fill=(102, 69, 21, 255))
+    for x in (3, 10):
+        draw.line((x, 3, x + 3, 11), fill=(204, 148, 45, 255))
+    brass.save(texture_dir / "gunsmith_assembly_brass.png")
+
+    panel = Image.new("RGBA", (16, 16), (9, 24, 29, 255))
+    draw = ImageDraw.Draw(panel)
+    draw.rectangle((0, 0, 15, 15), outline=(34, 74, 78, 255))
+    draw.rectangle((2, 2, 13, 10), fill=(12, 60, 63, 255), outline=(37, 208, 194, 255))
+    draw.line((3, 4, 11, 4), fill=(88, 240, 218, 255))
+    draw.line((3, 6, 8, 6), fill=(30, 164, 158, 255))
+    draw.line((3, 8, 12, 8), fill=(24, 114, 113, 255))
+    draw.rectangle((3, 12, 5, 13), fill=(233, 169, 43, 255))
+    draw.rectangle((7, 12, 12, 13), fill=(31, 130, 127, 255))
+    panel.save(texture_dir / "gunsmith_assembly_panel.png")
+
+    warning = Image.new("RGBA", (16, 16), (228, 164, 38, 255))
+    pixels = warning.load()
+    for y in range(16):
+        for x in range(16):
+            if ((x + y) // 4) % 2 == 0:
+                pixels[x, y] = (24, 28, 31, 255)
+    draw = ImageDraw.Draw(warning)
+    draw.rectangle((0, 0, 15, 15), outline=(12, 15, 17, 255))
+    warning.save(texture_dir / "gunsmith_assembly_warning.png")
+
+    hot = Image.new("RGBA", (16, 16), (45, 25, 20, 255))
+    draw = ImageDraw.Draw(hot)
+    draw.rectangle((0, 0, 15, 15), outline=(83, 34, 20, 255))
+    draw.rectangle((2, 5, 13, 10), fill=(151, 46, 18, 255))
+    draw.line((3, 6, 12, 6), fill=(255, 177, 54, 255), width=2)
+    draw.line((4, 9, 11, 9), fill=(244, 75, 20, 255), width=2)
+    draw.point([(2, 2), (13, 2), (2, 13), (13, 13)], fill=(255, 111, 26, 255))
+    hot.save(texture_dir / "gunsmith_assembly_hot.png")
+
+
 def make_arm_texture():
     source_dir = ASSET_ROOT / "textures/block"
     sources = [
-        source_dir / "gunsmith_press_dark.png",
-        source_dir / "gunsmith_press_brass.png",
-        source_dir / "gunsmith_press_metal.png",
-        source_dir / "gunsmith_press_hot.png",
+        source_dir / "gunsmith_assembly_dark.png",
+        source_dir / "gunsmith_assembly_brass.png",
+        source_dir / "gunsmith_assembly_steel.png",
+        source_dir / "gunsmith_assembly_hot.png",
     ]
     image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     for index, source in enumerate(sources):
@@ -297,15 +403,15 @@ def draw_arm(draw, yaw, viewport, frame_index, frame_count, sparks):
     base, elbow, wrist, tool, weld = arm_points(frame_index, frame_count)
     projected = [project(point, yaw, viewport) for point in (base, elbow, wrist, tool)]
     xy = [(point[0], point[1]) for point in projected]
-    draw.line(xy[:2], fill=COLORS["dark"], width=9)
-    draw.line(xy[1:3], fill=COLORS["metal"], width=8)
-    draw.line(xy[2:4], fill=COLORS["brass"], width=5)
+    draw.line(xy[:2], fill=COLORS["dark"], width=13)
+    draw.line(xy[1:3], fill=COLORS["steel"], width=11)
+    draw.line(xy[2:4], fill=COLORS["brass"], width=7)
     for index, point in enumerate(xy[:3]):
-        radius = 6 if index == 1 else 5
+        radius = 8 if index == 1 else 7
         draw.ellipse((point[0] - radius, point[1] - radius, point[0] + radius, point[1] + radius),
                      fill=COLORS["brass"], outline=(10, 14, 18, 255), width=2)
     tx, ty = xy[3]
-    draw.rectangle((tx - 4, ty - 5, tx + 4, ty + 5), fill=COLORS["hot"], outline=(10, 14, 18, 255))
+    draw.rectangle((tx - 5, ty - 6, tx + 5, ty + 6), fill=COLORS["hot"], outline=(10, 14, 18, 255))
     draw.line((tx - 7, ty + 5, tx - 2, ty + 1), fill=COLORS["brass"], width=3)
     draw.line((tx + 7, ty + 5, tx + 2, ty + 1), fill=COLORS["brass"], width=3)
     if sparks and weld > 0.5:
@@ -325,11 +431,12 @@ def draw_background(image):
             draw.rectangle((x, y, x + tile, y + tile), fill=color)
 
 
-def render_view(image, viewport, yaw, frame_index, frame_count, sparks=False):
+def render_view(image, viewport, yaw, frame_index, frame_count, *, active=False, sparks=False):
     draw = ImageDraw.Draw(image)
     left, top, right, bottom = viewport
     draw.ellipse((left + 35, bottom - 70, right - 35, bottom - 25), fill=(4, 6, 8, 185))
-    ordered = sorted(STATIC_BOXES, key=lambda box: project((
+    boxes = STATIC_BOXES + (ACTIVE_BOXES if active else [])
+    ordered = sorted(boxes, key=lambda box: project((
         (box["from"][0] + box["to"][0]) / 2,
         (box["from"][1] + box["to"][1]) / 2,
         (box["from"][2] + box["to"][2]) / 2,
@@ -343,7 +450,7 @@ def render_previews():
     preview = Image.new("RGBA", (960, 720), (20, 24, 29, 255))
     draw_background(preview)
     render_view(preview, (25, 30, 475, 680), -35, 0, 32)
-    render_view(preview, (485, 30, 935, 680), 145, 0, 32)
+    render_view(preview, (485, 30, 935, 680), 145, 16, 32, active=True, sparks=True)
     ImageDraw.Draw(preview).line((480, 55, 480, 650), fill=(76, 88, 99, 255), width=2)
     preview.save(PREVIEW_PATH)
 
@@ -353,7 +460,7 @@ def render_previews():
         frame = Image.new("RGBA", (900, 680), (20, 24, 29, 255))
         draw_background(frame)
         render_view(frame, (25, 20, 875, 650), -35, frame_index, frame_count,
-                    sparks=frame_index % 5 != 4)
+                    active=True, sparks=frame_index % 5 != 4)
         frames.append(frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=192))
     frames[0].save(ANIMATION_PATH, save_all=True, append_images=frames[1:],
                    duration=85, loop=0, disposal=2, optimize=False)
@@ -362,8 +469,10 @@ def render_previews():
 def main():
     for part in PART_BOUNDS:
         write_json(MODEL_ROOT / f"gunsmith_assembly_bench_{part}.json", block_model(part))
+        write_json(MODEL_ROOT / f"gunsmith_assembly_bench_{part}_active.json", block_model(part, True))
     write_json(ITEM_MODEL_PATH, item_model())
     write_json(BLOCKSTATE_PATH, blockstate())
+    make_block_textures()
     make_arm_texture()
     render_previews()
 

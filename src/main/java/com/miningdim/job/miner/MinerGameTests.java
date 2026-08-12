@@ -7,7 +7,8 @@ import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyConstants;
 import com.miningdim.economy.EconomyService;
 import com.miningdim.economy.EconomyServices;
-import com.miningdim.economy.EconomyWalletData;
+import com.miningdim.economy.EconomyLedger;
+import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.economy.ShopPriceTable;
@@ -659,14 +660,14 @@ public final class MinerGameTests {
     // 卖矿真发钱 (第十一章决策 3, 闭合"矿工挖矿零收入" Major): EconomySystem.onBlockBreak 接线后挖一颗高价矿
     // 经 settleOreSale 真入钱包 (此前只 recordMinedOre 计数从不结算 = 零收入); 首档满额, 撞档后主闸 0.6 衰减。
     //
-    // 用真实 EconomyService + EconomyWalletData + AbuseGuard (onBlockBreak 与连锁回放都经此实现 settleOreSale),
+    // 用真实 EconomyService + SqliteEconomyLedger + AbuseGuard (onBlockBreak 与连锁回放都经此实现 settleOreSale),
     // 走 settleOreSale 这一条 onBlockBreak 实际调用的发钱路径并断言钱包余额真增长 (删 grantDaily 入账则余额恒 0 必挂)。
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void oreSaleCreditsPlayerThroughMainFaucet(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newAbuseStateResolver());
 
         // 钻石锚价 500 (经济文档 8.1 ×10 锚); 首颗 (n=1 <= 软上限 64) 逐矿毛值 = 500 全额, 主闸首档 (累计毛收入 0) 系数 1.0。
@@ -703,7 +704,7 @@ public final class MinerGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void oreSaleDecaysAfterMainFaucetBandCollision(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), newAbuseStateResolver());
 
         long tier = EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER; // 60000 每档毛收入
@@ -741,7 +742,7 @@ public final class MinerGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         Map<UUID, PlayerAbuseState> states = new HashMap<>();
         states.put(player.getUUID(), new PlayerAbuseState());
-        EconomyWalletData ledger = new EconomyWalletData();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         // 注入真实门面到定位器, 使 MinerSystem.replayEconomyOreCount 经 EconomyServices 取到它 (端到端连锁发钱接线)。
         EconomyService eco = new EconomyService(ledger, new AbuseGuard(), states::get);
         IEconomyService prev = swapEconomy(eco);

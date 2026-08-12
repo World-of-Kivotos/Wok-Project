@@ -7,6 +7,7 @@ import com.miningdim.core.MiningServices;
 import com.miningdim.core.Subsystem;
 import com.miningdim.error.MiningErrors;
 import com.miningdim.error.MiningMessages;
+import com.miningdim.store.MiningStore;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -15,6 +16,7 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingDropsEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -46,8 +48,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * 属未交付压力子系统的职责, 本子系统只在 {@link AbuseGuard} 算出裁决值并存 {@link PlayerAbuseState},
  * 待压力子系统经其门面消费; 此处不 import 其实现类 (铁律 2)。
  *
- * 货币层接线 (经济文档第九章 + 框架 spec 第三章): 在 {@link ServerStartedEvent} 取矿山维度 ServerLevel 建
- * {@link EconomyWalletData} 账本、构造 {@link EconomyService}、注入 {@link EconomyServices} 定位器
+ * 货币层接线 (经济文档第九章 + 框架 spec 第三章): 在 {@link ServerStartedEvent} 把旧存档
+ * {@link EconomyWalletData} 一次性搬进统一 SQLite、在共享连接上建 {@link SqliteEconomyLedger} 账本、
+ * 构造 {@link EconomyService}、注入 {@link EconomyServices} 定位器
  * (job 包定位器范式; 不碰 core.MiningServices, 见 EconomyServices 注释)。{@link ServerStoppingEvent} 时
  * 经 {@link EconomyServices#reset} 清引用防跨存档脏引用。第十八章闸门本身在 core 无对应门面接口, 仍只做事件接线。
  *
@@ -56,6 +59,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class EconomySystem implements Subsystem {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/economy");
+
+    /** 终态双币操作的保留期: 30 天。跨这个跨度的重放不可能来自同一次客户端交互。 */
+    private static final long TERMINAL_OPERATION_RETENTION_MILLIS = 30L * 24L * 60L * 60L * 1000L;
 
     private final AbuseGuard abuseGuard = new AbuseGuard();
 
@@ -74,6 +80,11 @@ public final class EconomySystem implements Subsystem {
     // ============================================================
 
     @SubscribeEvent
+    public void onRegisterCommands(RegisterCommandsEvent event) {
+        EconomyCommands.register(event.getDispatcher());
+    }
+
+    @SubscribeEvent
     public void onServerStarted(ServerStartedEvent event) {
         ServerLevel mining = event.getServer().getLevel(MiningConstants.MINING_LEVEL);
         if (mining == null) {
@@ -82,10 +93,21 @@ public final class EconomySystem implements Subsystem {
             LOGGER.error("[miningdim] economy: mining dimension absent at server start, wallet ledger not bound");
             return;
         }
+        // 旧存档里的余额只在这里被读一次: 把 SavedData 账本搬进统一 SQLite 并打标记, 之后 .dat 只读留作回滚保险。
+        // 迁移失败自然冒泡 —— 钱对不上时宁可起不来, 也不能带着说不清的余额开服。
+        EconomyLedgerBootstrap.migrateIfNeeded(MiningStore.connection(),
+                EconomyWalletData.get(mining), System.currentTimeMillis());
         // 门面引用由 EconomyServices 定位器持有 (单一所有者); 本子系统不另存字段, 避免与定位器重复持有。
-        EconomyWalletData ledger = EconomyWalletData.get(mining);
+        EconomyLedger ledger = new SqliteEconomyLedger(MiningStore.connection());
         // 态表唯一所有者仍是本子系统; 门面经 playerState 取同一 PlayerAbuseState (recordMinedOreDrops 计数 / isAfkFrozen 读冻结态)。
         EconomyServices.registerEconomyService(new EconomyService(ledger, abuseGuard, this::playerState));
+        // 终态双币操作只用于有限窗口内的幂等重放, 不回收会随开箱次数无限累积。CHARGED 永不回收 ——
+        // 那是在途的付款事实, 删掉等于让玩家的钱凭空消失且无从追溯。
+        int pruned = ledger.pruneTerminalOperations(
+                System.currentTimeMillis() - TERMINAL_OPERATION_RETENTION_MILLIS);
+        if (pruned > 0) {
+            LOGGER.info("[miningdim] economy: 回收了 {} 条已终结的双币操作记录", pruned);
+        }
         LOGGER.info("[miningdim] economy: wallet ledger bound, IEconomyService registered (faucet/sink/settleOreSale live)");
     }
 

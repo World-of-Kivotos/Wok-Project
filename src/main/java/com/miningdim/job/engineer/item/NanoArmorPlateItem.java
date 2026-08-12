@@ -3,8 +3,10 @@ package com.miningdim.job.engineer.item;
 import com.miningdim.job.engineer.NanoNbt;
 import com.miningdim.job.engineer.NanoRepair;
 import com.miningdim.job.engineer.NanoTier;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.stats.Stats;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.entity.player.Player;
@@ -18,12 +20,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * 纳米护甲板物品 (MillenniumEngineer_Mod_DesignSpec 3.1)。六档各一个实例, 档位构造时绑定 (与 EntranceBlock
+ * 纳米维修套件物品 (MillenniumEngineer_Mod_DesignSpec 3.1)。保留 nano_plate 注册 ID 兼容旧存档；六档各一个实例,
+ * 档位构造时绑定 (与 EntranceBlock
  * 按难度绑定同范式)。承载 NBT (经 {@link NanoNbt}): producerUUID (经验归属) + productionXpPending (取走即清)。
  *
- * 修复入口 (5.3): 手持护甲板右键 -> 修复 "最破损的穿戴中护甲" (无穿戴破损时改修副手 Damageable 物品),
- * 成功消耗一块板。经 {@link NanoRepair} 改 setDamageValue (修一切), 结算修复经验 (板 producerUUID 匹配 +50%),
- * 掷/清特效。集中式选目标 (最破损) 避免从零搭一套修复 GUI, 同时满足 "修任意 Damageable" (含模组护甲)。
+ * 修复入口 (5.3): 一手持套件、一手持待修物品可精确指定目标；未指定时修复“损耗比例最高的穿戴中护甲”。
+ * 成功消耗一个套件。经 {@link NanoRepair} 改 setDamageValue (修一切), 结算修复经验 (producerUUID 匹配 +50%),
+ * 掷/清特效。集中式选目标避免从零搭一套修复 GUI, 同时满足 "修任意 Damageable" (含模组护甲)。
  */
 public final class NanoArmorPlateItem extends Item {
 
@@ -60,65 +63,114 @@ public final class NanoArmorPlateItem extends Item {
         }
 
         plate.shrink(1);
+        serverPlayer.awardStat(Stats.ITEM_USED.get(this));
         serverPlayer.containerMenu.broadcastChanges();
-        serverPlayer.displayClientMessage(Component.translatable(
-                "message.miningdim.engineer.repair.done", result.durabilityRestored()), true);
+        if (result.durabilityRestored() > 0) {
+            serverPlayer.displayClientMessage(Component.translatable(
+                    "message.miningdim.engineer.repair.done", target.getHoverName(), result.durabilityRestored()), true);
+        } else {
+            serverPlayer.displayClientMessage(Component.translatable(
+                    "message.miningdim.engineer.repair.rerolled", target.getHoverName()), true);
+        }
         return InteractionResultHolder.success(plate);
     }
 
     /**
-     * 选修复目标: 优先穿戴中最破损 (damageValue 最大) 的护甲; 其次副手若为 Damageable 且可修 (避免与持板手冲突)。
-     * 全无可修则返回 null。选目标的档位口径委派给纯函数 {@link #selectWornTarget} / {@link #eligibleAsTarget}。
+     * 选修复目标: 优先另一只手明确指定的 Damageable 物品；没有合法指定目标时，再选穿戴中损耗比例最高的护甲。
+     * 全无可修则返回 null。选目标口径委派给纯函数 {@link #chooseRepairTarget}。
      */
     private static ItemStack pickRepairTarget(ServerPlayer player, InteractionHand usedHand, NanoTier plateTier) {
-        ItemStack best = selectWornTarget(player.getInventory().armor, plateTier);
-        if (best != null) {
-            return best;
-        }
-        // 无 (可修) 护甲: 试副手 (持板手是主手时) / 主手 (持板手是副手时) 的 Damageable 物品。
         InteractionHand other = usedHand == InteractionHand.MAIN_HAND
                 ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
         ItemStack otherStack = player.getItemInHand(other);
-        return eligibleAsTarget(otherStack, plateTier) ? otherStack : null;
+        return chooseRepairTarget(otherStack, player.getInventory().armor, plateTier);
+    }
+
+    /** 纯函数目标决策：另一只手用于精确指定，穿戴甲作为便捷兜底。 */
+    public static ItemStack chooseRepairTarget(ItemStack explicitlyHeld, Iterable<ItemStack> wornArmor,
+                                               NanoTier plateTier) {
+        if (eligibleAsTarget(explicitlyHeld, plateTier)) {
+            return explicitlyHeld;
+        }
+        return selectWornTarget(wornArmor, plateTier);
     }
 
     /**
-     * 从一组穿戴甲中选修复目标 (纯函数, 供 GameTest 直接断言, 无 ServerPlayer 依赖)。普通档选最破损一件; 闪耀板
-     * 即便满耐久 (damage=0) 也可选作目标 —— spec 6.1/5.1 line 117: 闪耀 = 100% + 清旧特效 + 必出新特效, 作用于
-     * "任意" 护甲, 与 {@link NanoRepair} line 57 对闪耀放行满甲 ({@code before<=0 && !isRadiant()} 才拒) 的口径对齐。
-     *
-     * 闪耀的 bestDamage 起点取 -1 (使 damage=0 也能命中 {@code > bestDamage}), 普通档保持 0 (满甲无修复意义不选)。
-     * 全无合格目标返回 null (调用方据此报 no_target, 不空耗板)。
+     * 从一组穿戴甲中选修复目标 (纯函数, 供 GameTest 直接断言, 无 ServerPlayer 依赖)。按已损耐久比例选择，
+     * 避免高耐久物品仅凭绝对损耗值抢走低耐久但濒临损坏物品的维修。闪耀板
+     * 可对能承载旧纳米特效的满耐久普通护甲重掷特效；插板和工具满耐久时没有有效收益，不会被选中。
+     * 全无合格目标返回 null (调用方据此报 no_target, 不空耗套件)。
      */
     public static ItemStack selectWornTarget(Iterable<ItemStack> wornArmor, NanoTier plateTier) {
         ItemStack best = null;
-        int bestDamage = plateTier.isRadiant() ? -1 : 0;
         for (ItemStack armor : wornArmor) {
-            if (!armor.isEmpty() && armor.isDamageableItem() && armor.getDamageValue() > bestDamage) {
+            if (!eligibleAsTarget(armor, plateTier)) {
+                continue;
+            }
+            if (best == null || isMoreDamaged(armor, best)) {
                 best = armor;
-                bestDamage = armor.getDamageValue();
             }
         }
         return best;
     }
 
-    /** 单件 Damageable 物品是否可作修复目标 (闪耀允许满耐久换特效; 普通档要求实际破损)。 */
+    /** 单件 Damageable 物品是否可作修复目标；与 NanoRepair 的拒绝边界保持一致，避免非法物品阻塞兜底目标。 */
     public static boolean eligibleAsTarget(ItemStack stack, NanoTier plateTier) {
-        if (stack.isEmpty() || !stack.isDamageableItem()) {
+        if (stack.isEmpty() || !stack.isDamageableItem() || NanoRepair.isShieldType(stack)) {
             return false;
         }
-        int floor = plateTier.isRadiant() ? -1 : 0;
-        return stack.getDamageValue() > floor;
+        if (stack.getTag() != null && stack.getTag().getBoolean("Unbreakable")) {
+            return false;
+        }
+        return stack.getDamageValue() > 0 || NanoRepair.supportsRadiantReroll(stack, plateTier);
+    }
+
+    private static boolean isMoreDamaged(ItemStack candidate, ItemStack current) {
+        long candidateRatio = (long) candidate.getDamageValue() * current.getMaxDamage();
+        long currentRatio = (long) current.getDamageValue() * candidate.getMaxDamage();
+        if (candidateRatio != currentRatio) {
+            return candidateRatio > currentRatio;
+        }
+        return candidate.getDamageValue() > current.getDamageValue();
     }
 
     @Override
     public void appendHoverText(ItemStack stack, Level level, List<Component> tooltip, TooltipFlag flag) {
         super.appendHoverText(stack, level, tooltip, flag);
         tooltip.add(Component.translatable("tooltip.miningdim.nano_plate.tier",
-                Component.translatable("tier.miningdim.nano." + tier.name().toLowerCase())));
+                        Component.translatable("tier.miningdim.nano." + tier.name().toLowerCase()))
+                .withStyle(ChatFormatting.GRAY));
+        if (tier.isRadiant()) {
+            tooltip.add(Component.translatable("tooltip.miningdim.nano_plate.repair_full")
+                    .withStyle(ChatFormatting.AQUA));
+        } else if (tier.isPercentRepair()) {
+            int percent = (int) Math.round((tier == NanoTier.SUPERIOR
+                    ? com.miningdim.job.engineer.EngineerConfig.REPAIR_PERCENT_SUPERIOR.get()
+                    : com.miningdim.job.engineer.EngineerConfig.REPAIR_PERCENT_TRANSCENDENT.get()) * 100.0D);
+            tooltip.add(Component.translatable("tooltip.miningdim.nano_plate.repair_percent", percent)
+                    .withStyle(ChatFormatting.AQUA));
+        } else {
+            tooltip.add(Component.translatable("tooltip.miningdim.nano_plate.repair_fixed",
+                            NanoRepair.repairAmount(tier, 1))
+                    .withStyle(ChatFormatting.AQUA));
+        }
+        tooltip.add(Component.translatable(tier.canRollEffect()
+                        ? (tier.isRadiant()
+                                ? "tooltip.miningdim.nano_plate.effect_guaranteed"
+                                : "tooltip.miningdim.nano_plate.effect_possible")
+                        : "tooltip.miningdim.nano_plate.effect_none")
+                .withStyle(ChatFormatting.DARK_GRAY));
+        tooltip.add(Component.empty());
+        tooltip.add(Component.translatable("tooltip.miningdim.nano_plate.use_explicit")
+                .withStyle(ChatFormatting.YELLOW));
+        tooltip.add(Component.translatable("tooltip.miningdim.nano_plate.use_worn")
+                .withStyle(ChatFormatting.DARK_GRAY));
+        tooltip.add(Component.translatable("tooltip.miningdim.nano_plate.plasma_incompatible")
+                .withStyle(ChatFormatting.DARK_RED));
         Optional<UUID> producer = NanoNbt.producer(stack);
         if (producer.isPresent()) {
-            tooltip.add(Component.translatable("tooltip.miningdim.nano_plate.stamped"));
+            tooltip.add(Component.translatable("tooltip.miningdim.nano_plate.stamped")
+                    .withStyle(ChatFormatting.GRAY));
         }
     }
 }

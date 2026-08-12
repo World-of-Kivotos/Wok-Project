@@ -18,9 +18,6 @@ import java.util.UUID;
  */
 public interface MarketDao {
 
-    /** 建表 + 索引 (契约第 3 节 DDL, IF NOT EXISTS, 幂等)。 */
-    void initSchema();
-
     /**
      * 插入一条 ACTIVE 挂单, 返回自增主键 listing id。
      * nbt = 托管 ItemStack 的 NBT 字节; currency 由 B 校验为 CREDIT 后传入; createdAt = epoch millis。

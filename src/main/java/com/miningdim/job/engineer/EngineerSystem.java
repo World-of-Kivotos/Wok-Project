@@ -6,13 +6,20 @@ import com.miningdim.job.engineer.effect.NanoAnvilGuard;
 import com.miningdim.job.engineer.effect.NanoEffectTicker;
 import com.miningdim.job.engineer.effect.NanoReactorHandler;
 import com.miningdim.job.engineer.effect.NanoShieldHandler;
+import com.miningdim.job.engineer.armor.PlateArmorDamageHandler;
+import com.miningdim.job.engineer.armor.PlateArmorEquipmentHandler;
+import com.miningdim.job.engineer.shield.PlasmaShieldHandler;
+import com.miningdim.job.engineer.shield.network.PlasmaShieldNetwork;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.event.config.ModConfigEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,10 +47,15 @@ public final class EngineerSystem implements Subsystem {
         ModEngineerItems.register(modBus);
         ModEngineerMenus.register(modBus);
         ModEngineerTab.register(modBus);
+        ModEngineerSounds.register(modBus);
 
         // SERVER 配置 spec (10.3 C6: 全部平衡数值进 ForgeConfigSpec)。
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER,
                 EngineerConfig.SPEC, "miningdim-engineer.toml");
+        // 载入与重载后立刻校验插板矩阵长度: defineList 的 Predicate 只管单个元素, 长度写错要到玩家穿戴时
+        // 才由 PlayerTickEvent 抛出并打断服务端 tick。只认本 spec, 同总线其它模组的配置事件放行。
+        modBus.addListener((ModConfigEvent.Loading event) -> validateOwnConfig(event.getConfig()));
+        modBus.addListener((ModConfigEvent.Reloading event) -> validateOwnConfig(event.getConfig()));
 
         // 特效事件订阅 (forgeBus): PlayerTick (重塑/机能修复/护盾) / LivingHurt (护盾免疫窗) /
         // LivingDeath (图腾拦截致死) / AnvilUpdate (禁纳米特效甲铁砧修复)。
@@ -51,6 +63,16 @@ public final class EngineerSystem implements Subsystem {
         forgeBus.register(new NanoShieldHandler());
         forgeBus.register(new NanoReactorHandler());
         forgeBus.register(new NanoAnvilGuard());
+        forgeBus.register(new PlateArmorDamageHandler());
+        forgeBus.register(new PlateArmorEquipmentHandler());
+        forgeBus.register(new PlasmaShieldHandler());
+
+        // Dedicated packet channel keeps the main channel discriminator sequence untouched.
+        modBus.addListener((FMLCommonSetupEvent event) -> event.enqueueWork(PlasmaShieldNetwork::register));
+
+        if (ModList.get().isLoaded("tacz")) {
+            com.miningdim.job.engineer.armor.integration.PlateArmorTaczIntegrationBootstrap.assemble(forgeBus);
+        }
 
         // 客户端 Screen 注册 (FMLClientSetupEvent.enqueueWork; 经 DistExecutor 隔离, 防专用服务器触链)。
         modBus.addListener((FMLClientSetupEvent event) ->
@@ -58,11 +80,18 @@ public final class EngineerSystem implements Subsystem {
                         () -> () -> MenuScreens.register(
                                 ModEngineerMenus.PRODUCTION_TABLE.get(), ProductionTableScreen::new))));
 
-        LOGGER.info("[miningdim] millennium engineer subsystem registered (6 plates + 6 tables + effects + QTE)");
+        LOGGER.info("[miningdim] armorer subsystem registered (54 plate armors + 18 plasma shields + 3 legacy shield aliases + 6 repair plates + 6 tables + effects + QTE)");
+    }
+
+    /** 只校验本子系统自己的 SERVER spec; 同总线上其它模组/子系统的配置事件一律放行。 */
+    private static void validateOwnConfig(ModConfig config) {
+        if (config.getSpec() == EngineerConfig.SPEC) {
+            EngineerConfig.PLATE_ARMOR.validateMatrices();
+        }
     }
 
     @Override
     public String name() {
-        return "EngineerSystem";
+        return "ArmorerSystem";
     }
 }

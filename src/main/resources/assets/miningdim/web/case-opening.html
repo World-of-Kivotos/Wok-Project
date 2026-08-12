@@ -1,0 +1,1854 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>WOK 武器箱</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-deep: #080b12;
+      --bg-panel: rgba(17, 22, 34, 0.94);
+      --line: rgba(180, 194, 221, 0.16);
+      --text: #f2f5fa;
+      --muted: #8993a8;
+      --accent: #d9a632;
+      --accent-light: #f5d36c;
+      --danger: #ed6666;
+      --success: #6fd5a4;
+      --blue: #4b69ff;
+      --purple: #8847ff;
+      --pink: #d32ce6;
+      --red: #eb4b4b;
+      --gold: #e4ae39;
+      font-family: "Microsoft YaHei", "Noto Sans SC", "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg-deep);
+      color: var(--text);
+      user-select: none;
+    }
+
+    button {
+      font: inherit;
+    }
+
+    .app {
+      position: relative;
+      display: grid;
+      grid-template-rows: 74px minmax(0, 1fr) 34px;
+      width: 100%;
+      height: 100%;
+      background:
+        radial-gradient(circle at 50% 18%, rgba(82, 101, 138, 0.21), transparent 38%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.018) 25%, transparent 25%) 0 0 / 34px 34px,
+        linear-gradient(315deg, rgba(255, 255, 255, 0.012) 25%, transparent 25%) 0 0 / 34px 34px,
+        #080b12;
+    }
+
+    .app::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(90deg, rgba(0, 0, 0, 0.54), transparent 15%, transparent 85%, rgba(0, 0, 0, 0.54));
+    }
+
+    .topbar {
+      position: relative;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 0 32px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(7, 10, 16, 0.88);
+      backdrop-filter: blur(14px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      position: relative;
+      width: 38px;
+      height: 38px;
+      border: 1px solid rgba(245, 211, 108, 0.72);
+      transform: rotate(45deg);
+      background: linear-gradient(135deg, rgba(245, 211, 108, 0.28), rgba(217, 166, 50, 0.05));
+      box-shadow: 0 0 24px rgba(217, 166, 50, 0.18);
+    }
+
+    .brand-mark::after {
+      content: "W";
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: var(--accent-light);
+      font-family: Georgia, serif;
+      font-size: 20px;
+      font-weight: 700;
+      transform: rotate(-45deg);
+    }
+
+    .brand-copy {
+      min-width: 0;
+    }
+
+    .eyebrow {
+      color: var(--accent-light);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.26em;
+      text-transform: uppercase;
+    }
+
+    .brand h1 {
+      margin: 3px 0 0;
+      overflow: hidden;
+      font-family: Georgia, "Microsoft YaHei", serif;
+      font-size: 22px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .wallet {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .wallet-item {
+      display: grid;
+      grid-template-columns: 12px auto;
+      grid-template-rows: auto auto;
+      column-gap: 9px;
+      min-width: 130px;
+      padding: 9px 14px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.026);
+    }
+
+    .wallet-gem {
+      grid-row: 1 / 3;
+      align-self: center;
+      width: 10px;
+      height: 10px;
+      transform: rotate(45deg);
+      background: #dfb74e;
+      box-shadow: 0 0 12px rgba(223, 183, 78, 0.48);
+    }
+
+    .wallet-item.azure .wallet-gem {
+      background: #57b9e8;
+      box-shadow: 0 0 12px rgba(87, 185, 232, 0.48);
+    }
+
+    .wallet-label {
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+    }
+
+    .wallet-value {
+      margin-top: 1px;
+      font-family: Consolas, monospace;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .workspace {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      grid-template-columns: minmax(160px, 220px) minmax(0, 1fr) minmax(170px, 230px);
+      gap: 18px;
+      min-height: 0;
+      padding: 18px 24px 14px;
+    }
+
+    .side-panel,
+    .case-stage {
+      min-height: 0;
+      border: 1px solid var(--line);
+      background: var(--bg-panel);
+      box-shadow: 0 22px 48px rgba(0, 0, 0, 0.25);
+    }
+
+    .side-panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-title {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 45px;
+      padding: 0 15px;
+      border-bottom: 1px solid var(--line);
+      color: #cbd2df;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.13em;
+    }
+
+    .panel-title span:last-child {
+      color: var(--muted);
+      font-family: Consolas, monospace;
+      font-size: 10px;
+      font-weight: 400;
+      letter-spacing: 0;
+    }
+
+    .odds-list,
+    .owned-list {
+      min-height: 0;
+      margin: 0;
+      padding: 12px;
+      overflow: auto;
+      scrollbar-color: #364057 transparent;
+      scrollbar-width: thin;
+    }
+
+    .odds-row {
+      display: grid;
+      grid-template-columns: 8px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 6px;
+      padding: 10px 9px;
+      border: 1px solid transparent;
+      background: rgba(255, 255, 255, 0.022);
+      font-size: 11px;
+    }
+
+    .rarity-dot {
+      width: 7px;
+      height: 24px;
+      background: var(--rarity-color, var(--blue));
+      box-shadow: 0 0 14px color-mix(in srgb, var(--rarity-color, var(--blue)) 55%, transparent);
+    }
+
+    .odds-name {
+      color: #c5ccda;
+    }
+
+    .odds-value {
+      color: #f0f3f8;
+      font-family: Consolas, monospace;
+      font-weight: 700;
+    }
+
+    .owned-list {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      list-style: none;
+    }
+
+    .owned-item {
+      position: relative;
+      min-height: 58px;
+      padding: 10px 10px 9px 14px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.022);
+      cursor: pointer;
+      outline: none;
+      transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+    }
+
+    .owned-item:hover,
+    .owned-item:focus-visible {
+      border-color: color-mix(in srgb, var(--rarity-color, var(--blue)) 58%, white 12%);
+      background: color-mix(in srgb, var(--rarity-color, var(--blue)) 10%, rgba(255, 255, 255, 0.028));
+    }
+
+    .owned-item.selected {
+      border-color: color-mix(in srgb, var(--rarity-color, var(--blue)) 78%, white 16%);
+      background: color-mix(in srgb, var(--rarity-color, var(--blue)) 15%, rgba(255, 255, 255, 0.035));
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rarity-color, var(--blue)) 28%, transparent);
+    }
+
+    .owned-item::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: var(--rarity-color, var(--blue));
+    }
+
+    .owned-name,
+    .owned-gun {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .owned-name {
+      color: #e6eaf1;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .owned-gun {
+      margin-top: 6px;
+      color: var(--muted);
+      font-family: Consolas, monospace;
+      font-size: 9px;
+    }
+
+    .owned-list-note {
+      padding: 8px 5px 2px;
+      color: var(--muted);
+      font-size: 9px;
+      line-height: 1.5;
+      text-align: center;
+    }
+
+    .empty-copy {
+      padding: 24px 12px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.7;
+      text-align: center;
+    }
+
+    .case-stage {
+      position: relative;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      overflow: hidden;
+    }
+
+    .stage-main {
+      position: relative;
+      display: grid;
+      min-height: 0;
+      place-items: center;
+      overflow: hidden;
+      background:
+        linear-gradient(90deg, transparent 49.9%, rgba(255, 255, 255, 0.025) 50%, transparent 50.1%),
+        radial-gradient(circle at 50% 55%, rgba(217, 166, 50, 0.09), transparent 35%);
+    }
+
+    .stage-main::before,
+    .stage-main::after {
+      content: "";
+      position: absolute;
+      width: 220px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(217, 166, 50, 0.58), transparent);
+    }
+
+    .stage-main::before {
+      top: 17%;
+    }
+
+    .stage-main::after {
+      bottom: 17%;
+    }
+
+    .idle-view {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: min(580px, 90%);
+      text-align: center;
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+
+    .case-object {
+      position: relative;
+      width: clamp(230px, 31vw, 360px);
+      height: clamp(135px, 18vw, 210px);
+      margin-bottom: 22px;
+      filter: drop-shadow(0 28px 35px rgba(0, 0, 0, 0.55));
+      perspective: 700px;
+    }
+
+    .case-lid,
+    .case-body {
+      position: absolute;
+      left: 5%;
+      width: 90%;
+      border: 2px solid #806426;
+      background:
+        repeating-linear-gradient(90deg, transparent 0 34px, rgba(255, 255, 255, 0.035) 34px 36px),
+        linear-gradient(145deg, #74601f, #3f371b 58%, #2b2819);
+    }
+
+    .case-lid {
+      top: 2%;
+      height: 34%;
+      border-bottom-color: #2a2718;
+      transform: rotateX(-9deg);
+      transform-origin: bottom;
+      box-shadow: inset 0 9px 0 rgba(255, 255, 255, 0.045);
+    }
+
+    .case-body {
+      bottom: 3%;
+      height: 64%;
+      clip-path: polygon(3% 0, 97% 0, 100% 100%, 0 100%);
+      box-shadow: inset 0 -15px 0 rgba(0, 0, 0, 0.16), inset 0 9px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .case-lock {
+      position: absolute;
+      z-index: 3;
+      left: 50%;
+      bottom: 41%;
+      width: 34px;
+      height: 31px;
+      border: 2px solid #b79336;
+      transform: translateX(-50%);
+      background: linear-gradient(#5d4c1d, #282419);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.42);
+    }
+
+    .case-lock::before {
+      content: "";
+      position: absolute;
+      top: -15px;
+      left: 7px;
+      width: 16px;
+      height: 15px;
+      border: 3px solid #b79336;
+      border-bottom: 0;
+      border-radius: 10px 10px 0 0;
+    }
+
+    .case-stencil {
+      position: absolute;
+      z-index: 3;
+      left: 50%;
+      bottom: 16%;
+      color: rgba(233, 217, 157, 0.72);
+      font-family: Impact, sans-serif;
+      font-size: clamp(16px, 2vw, 25px);
+      letter-spacing: 0.17em;
+      transform: translateX(-50%);
+      white-space: nowrap;
+    }
+
+    .case-name {
+      margin: 0;
+      font-family: Georgia, "Microsoft YaHei", serif;
+      font-size: clamp(23px, 2.4vw, 34px);
+      font-weight: 500;
+      letter-spacing: 0.08em;
+    }
+
+    .case-subtitle {
+      max-width: 500px;
+      margin: 8px 0 19px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .cost-line {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      margin-bottom: 12px;
+      color: #d9deea;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .cost-chip {
+      padding: 5px 9px;
+      border: 1px solid rgba(217, 166, 50, 0.32);
+      background: rgba(217, 166, 50, 0.075);
+    }
+
+    .cost-chip.azure {
+      border-color: rgba(87, 185, 232, 0.34);
+      background: rgba(87, 185, 232, 0.075);
+    }
+
+    .primary-button,
+    .secondary-button {
+      min-width: 218px;
+      min-height: 46px;
+      padding: 0 24px;
+      border: 1px solid transparent;
+      color: #111318;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      cursor: pointer;
+      transition: filter 120ms ease, transform 120ms ease, opacity 120ms ease;
+    }
+
+    .primary-button {
+      border-color: #f2cf68;
+      background: linear-gradient(180deg, #f1ca5b, #c89425);
+      box-shadow: 0 8px 24px rgba(217, 166, 50, 0.19);
+    }
+
+    .secondary-button {
+      border-color: rgba(255, 255, 255, 0.2);
+      color: #e9edf5;
+      background: rgba(255, 255, 255, 0.055);
+    }
+
+    .primary-button:hover:not(:disabled),
+    .secondary-button:hover:not(:disabled) {
+      filter: brightness(1.13);
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      filter: grayscale(0.55);
+      opacity: 0.43;
+    }
+
+    .reel-view {
+      position: absolute;
+      z-index: 4;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      visibility: hidden;
+      overflow: hidden;
+      opacity: 0;
+      background: linear-gradient(180deg, rgba(4, 6, 10, 0.93), rgba(12, 15, 23, 0.97));
+      transition: opacity 180ms ease;
+    }
+
+    .reel-view::before,
+    .reel-view::after {
+      content: "";
+      position: absolute;
+      z-index: 6;
+      top: 0;
+      bottom: 0;
+      width: 19%;
+      pointer-events: none;
+    }
+
+    .reel-view::before {
+      left: 0;
+      background: linear-gradient(90deg, #080b12 10%, transparent);
+    }
+
+    .reel-view::after {
+      right: 0;
+      background: linear-gradient(-90deg, #080b12 10%, transparent);
+    }
+
+    .center-marker {
+      position: absolute;
+      z-index: 8;
+      top: 7%;
+      bottom: 7%;
+      left: 50%;
+      width: 2px;
+      transform: translateX(-1px);
+      background: linear-gradient(transparent, #f2cf68 12%, #f2cf68 88%, transparent);
+      box-shadow: 0 0 18px rgba(242, 207, 104, 0.68);
+      pointer-events: none;
+    }
+
+    .center-marker::before,
+    .center-marker::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      width: 0;
+      height: 0;
+      transform: translateX(-50%);
+      border-right: 8px solid transparent;
+      border-left: 8px solid transparent;
+    }
+
+    .center-marker::before {
+      top: -1px;
+      border-top: 10px solid #f2cf68;
+    }
+
+    .center-marker::after {
+      bottom: -1px;
+      border-bottom: 10px solid #f2cf68;
+    }
+
+    .reel-track {
+      display: flex;
+      flex: 0 0 auto;
+      gap: 12px;
+      padding: 0;
+      will-change: transform;
+      transform: translate3d(0, 0, 0);
+    }
+
+    .reel-card {
+      --rarity-color: var(--blue);
+      position: relative;
+      flex: 0 0 clamp(150px, 15vw, 188px);
+      height: clamp(205px, 28vh, 265px);
+      overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--rarity-color) 68%, #cbd3df 32%);
+      background:
+        linear-gradient(160deg, color-mix(in srgb, var(--rarity-color) 16%, transparent), transparent 53%),
+        linear-gradient(180deg, #1a1f2a, #0f1219);
+      box-shadow: inset 0 -5px 0 var(--rarity-color), 0 16px 28px rgba(0, 0, 0, 0.28);
+      transition: filter 200ms ease, transform 200ms ease;
+    }
+
+    .reel-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: 0.25;
+      background: repeating-linear-gradient(135deg, transparent 0 14px, rgba(255, 255, 255, 0.025) 14px 15px);
+    }
+
+    .reel-card.winner {
+      z-index: 3;
+      filter: brightness(1.24);
+      transform: translateY(-4px);
+      box-shadow: inset 0 -6px 0 var(--rarity-color), 0 0 28px color-mix(in srgb, var(--rarity-color) 42%, transparent);
+    }
+
+    .weapon-art {
+      position: relative;
+      display: grid;
+      height: 60%;
+      place-items: center;
+      color: color-mix(in srgb, var(--rarity-color) 38%, #e7eaf0 62%);
+    }
+
+    .weapon-art svg {
+      width: 82%;
+      max-height: 105px;
+      opacity: 0.88;
+      filter: drop-shadow(0 7px 8px rgba(0, 0, 0, 0.54));
+    }
+
+    .card-copy {
+      position: relative;
+      z-index: 2;
+      padding: 9px 12px 12px;
+    }
+
+    .card-rarity {
+      color: var(--rarity-color);
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.13em;
+    }
+
+    .card-name,
+    .card-gun {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .card-name {
+      margin-top: 5px;
+      color: #f0f2f7;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .card-gun {
+      margin-top: 5px;
+      color: var(--muted);
+      font-family: Consolas, monospace;
+      font-size: 9px;
+    }
+
+    .app[data-phase="requesting"] .idle-view {
+      opacity: 0.48;
+      transform: scale(0.985);
+    }
+
+    .app[data-phase="rolling"] .idle-view,
+    .app[data-phase="revealed"] .idle-view {
+      visibility: hidden;
+      opacity: 0;
+    }
+
+    .app[data-phase="rolling"] .reel-view,
+    .app[data-phase="revealed"] .reel-view {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    .pool-strip {
+      position: relative;
+      z-index: 4;
+      min-height: 92px;
+      padding: 10px 12px 12px;
+      border-top: 1px solid var(--line);
+      background: rgba(7, 10, 16, 0.9);
+    }
+
+    .pool-heading {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 9px;
+      letter-spacing: 0.13em;
+    }
+
+    .pool-items {
+      display: flex;
+      gap: 6px;
+      overflow: hidden;
+    }
+
+    .pool-item {
+      --rarity-color: var(--blue);
+      flex: 1 1 0;
+      min-width: 52px;
+      height: 42px;
+      padding: 7px 6px;
+      overflow: hidden;
+      border-bottom: 3px solid var(--rarity-color);
+      background: color-mix(in srgb, var(--rarity-color) 10%, rgba(255, 255, 255, 0.025));
+      color: #aeb7c8;
+      font-size: 8px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .loading-layer {
+      position: absolute;
+      z-index: 20;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: rgba(6, 8, 13, 0.93);
+      transition: opacity 180ms ease, visibility 180ms ease;
+    }
+
+    .app:not([data-phase="loading"]) .loading-layer {
+      visibility: hidden;
+      opacity: 0;
+    }
+
+    .loader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      color: #abb4c5;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+    }
+
+    .loader-ring {
+      width: 42px;
+      height: 42px;
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-top-color: var(--accent-light);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .result-layer {
+      position: absolute;
+      z-index: 14;
+      inset: 0;
+      display: grid;
+      visibility: hidden;
+      place-items: center;
+      padding: 24px;
+      opacity: 0;
+      background: rgba(4, 6, 10, 0.74);
+      backdrop-filter: blur(7px);
+      transition: opacity 240ms ease, visibility 240ms ease;
+    }
+
+    .result-layer.visible {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    .result-card {
+      --rarity-color: var(--blue);
+      position: relative;
+      width: min(500px, 84vw);
+      padding: 34px 38px 30px;
+      overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--rarity-color) 72%, white 28%);
+      background:
+        radial-gradient(circle at 50% 16%, color-mix(in srgb, var(--rarity-color) 20%, transparent), transparent 48%),
+        #10141d;
+      box-shadow: 0 0 70px color-mix(in srgb, var(--rarity-color) 18%, transparent), 0 28px 70px rgba(0, 0, 0, 0.62);
+      text-align: center;
+    }
+
+    .result-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      height: 4px;
+      background: var(--rarity-color);
+      box-shadow: 0 0 22px var(--rarity-color);
+    }
+
+    .result-kicker {
+      color: var(--rarity-color);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.26em;
+    }
+
+    .result-weapon {
+      display: grid;
+      height: 130px;
+      margin: 8px 0;
+      place-items: center;
+      color: color-mix(in srgb, var(--rarity-color) 43%, #f5f5f5 57%);
+    }
+
+    .result-weapon svg {
+      width: min(330px, 80%);
+      filter: drop-shadow(0 15px 15px rgba(0, 0, 0, 0.54));
+    }
+
+    .result-name {
+      margin: 0;
+      font-family: Georgia, "Microsoft YaHei", serif;
+      font-size: clamp(25px, 3vw, 38px);
+      font-weight: 500;
+    }
+
+    .result-gun {
+      margin: 9px 0 24px;
+      color: var(--muted);
+      font-family: Consolas, monospace;
+      font-size: 11px;
+    }
+
+    .result-actions {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .result-actions button {
+      min-width: 150px;
+    }
+
+    .statusbar {
+      position: relative;
+      z-index: 6;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 25px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(6, 8, 13, 0.94);
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .status-message[data-tone="error"] {
+      color: var(--danger);
+    }
+
+    .status-message[data-tone="success"] {
+      color: var(--success);
+    }
+
+    .status-hint {
+      white-space: nowrap;
+    }
+
+    [data-rarity="blue"] { --rarity-color: var(--blue); }
+    [data-rarity="purple"] { --rarity-color: var(--purple); }
+    [data-rarity="pink"] { --rarity-color: var(--pink); }
+    [data-rarity="red"] { --rarity-color: var(--red); }
+    [data-rarity="gold"] { --rarity-color: var(--gold); }
+
+    @media (max-width: 1020px) {
+      .workspace {
+        grid-template-columns: 165px minmax(0, 1fr) 175px;
+        gap: 10px;
+        padding-right: 12px;
+        padding-left: 12px;
+      }
+
+      .wallet-item {
+        min-width: 112px;
+      }
+
+      .result-actions {
+        flex-direction: column;
+      }
+    }
+
+    @media (max-height: 680px) {
+      .app {
+        grid-template-rows: 62px minmax(0, 1fr) 30px;
+      }
+
+      .workspace {
+        padding-top: 10px;
+        padding-bottom: 8px;
+      }
+
+      .case-object {
+        width: 230px;
+        height: 135px;
+        margin-bottom: 8px;
+      }
+
+      .case-subtitle {
+        margin-top: 4px;
+        margin-bottom: 8px;
+      }
+
+      .cost-line {
+        margin-bottom: 8px;
+      }
+
+      .pool-strip {
+        min-height: 75px;
+        padding-top: 7px;
+      }
+
+      .pool-item {
+        height: 35px;
+      }
+    }
+
+    @media (max-height: 520px) {
+      .app {
+        grid-template-rows: 52px minmax(0, 1fr) 25px;
+      }
+
+      .topbar {
+        padding: 0 18px;
+      }
+
+      .brand-mark {
+        width: 29px;
+        height: 29px;
+      }
+
+      .brand-mark::after {
+        font-size: 16px;
+      }
+
+      .brand h1 {
+        font-size: 17px;
+      }
+
+      .eyebrow,
+      .wallet-label {
+        font-size: 8px;
+      }
+
+      .wallet-item {
+        min-width: 96px;
+        padding: 5px 9px;
+      }
+
+      .wallet-value {
+        font-size: 12px;
+      }
+
+      .workspace {
+        gap: 8px;
+        padding: 5px 10px 4px;
+      }
+
+      .panel-title {
+        min-height: 31px;
+        padding: 0 9px;
+        font-size: 9px;
+      }
+
+      .odds-list,
+      .owned-list {
+        padding: 6px;
+      }
+
+      .odds-row {
+        margin-bottom: 3px;
+        padding: 5px;
+        font-size: 9px;
+      }
+
+      .owned-item {
+        min-height: 43px;
+        padding: 6px 7px 5px 11px;
+      }
+
+      .owned-gun {
+        margin-top: 3px;
+      }
+
+      .case-object {
+        width: 150px;
+        height: 88px;
+        margin-bottom: 2px;
+      }
+
+      .case-stencil {
+        font-size: 11px;
+      }
+
+      .case-name {
+        font-size: 18px;
+      }
+
+      .case-subtitle {
+        display: none;
+      }
+
+      .cost-line {
+        gap: 5px;
+        margin: 4px 0 5px;
+        font-size: 9px;
+      }
+
+      .cost-chip {
+        padding: 2px 6px;
+      }
+
+      .primary-button,
+      .secondary-button {
+        min-width: 180px;
+        min-height: 34px;
+        padding: 0 16px;
+        font-size: 10px;
+      }
+
+      .pool-strip {
+        min-height: 48px;
+        padding: 3px 7px 5px;
+      }
+
+      .pool-heading {
+        margin-bottom: 3px;
+        font-size: 7px;
+      }
+
+      .pool-item {
+        height: 25px;
+        padding: 4px;
+        font-size: 7px;
+      }
+
+      .statusbar {
+        padding: 0 12px;
+        font-size: 8px;
+      }
+
+      .reel-card {
+        height: 190px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app" class="app" data-phase="loading">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div class="brand-copy">
+          <div class="eyebrow">World of Kivotos</div>
+          <h1 id="headerCaseName">武器箱仓库</h1>
+        </div>
+      </div>
+      <div class="wallet" aria-label="玩家钱包">
+        <div class="wallet-item">
+          <span class="wallet-gem" aria-hidden="true"></span>
+          <span class="wallet-label">信用点</span>
+          <span id="creditBalance" class="wallet-value">--</span>
+        </div>
+        <div class="wallet-item azure">
+          <span class="wallet-gem" aria-hidden="true"></span>
+          <span class="wallet-label">青辉石</span>
+          <span id="azureBalance" class="wallet-value">--</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="side-panel" aria-label="公示概率">
+        <div class="panel-title"><span>公示概率</span><span>公开随机</span></div>
+        <div id="oddsList" class="odds-list"></div>
+      </aside>
+
+      <section class="case-stage" aria-label="武器箱开启区域">
+        <div class="stage-main">
+          <div class="idle-view">
+            <div class="case-object" aria-hidden="true">
+              <div class="case-lid"></div>
+              <div class="case-body"></div>
+              <div class="case-lock"></div>
+              <div class="case-stencil">WOK ARSENAL</div>
+            </div>
+            <h2 id="caseName" class="case-name">正在读取武器箱</h2>
+            <p class="case-subtitle">每次开启由服务端完成随机、扣费与资产入库。动画只展示已经确定的结果。</p>
+            <div class="cost-line">
+              <span id="creditCost" class="cost-chip">-- 信用点</span>
+              <span>+</span>
+              <span id="azureCost" class="cost-chip azure">-- 青辉石</span>
+            </div>
+            <button id="openButton" class="primary-button" type="button" disabled>开启武器箱</button>
+          </div>
+
+          <div id="reelView" class="reel-view" aria-hidden="true">
+            <div class="center-marker" aria-hidden="true"></div>
+            <div id="reelTrack" class="reel-track"></div>
+          </div>
+
+          <div id="resultLayer" class="result-layer" aria-hidden="true">
+            <article id="resultCard" class="result-card" data-rarity="blue">
+              <div id="resultRarity" class="result-kicker">军规级</div>
+              <div id="resultWeapon" class="result-weapon"></div>
+              <h2 id="resultName" class="result-name">--</h2>
+              <div id="resultGun" class="result-gun">--</div>
+              <div class="result-actions">
+                <button id="applyButton" class="primary-button" type="button">应用到主手枪械</button>
+                <button id="againButton" class="secondary-button" type="button">返回武器箱</button>
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <div class="pool-strip">
+          <div class="pool-heading"><span>本箱内容</span><span id="poolCount">0 款外观</span></div>
+          <div id="poolItems" class="pool-items"></div>
+        </div>
+      </section>
+
+      <aside class="side-panel" aria-label="已拥有外观">
+        <div class="panel-title"><span>我的外观</span><span id="ownedCount">0</span></div>
+        <ul id="ownedList" class="owned-list"></ul>
+      </aside>
+    </main>
+
+    <footer class="statusbar">
+      <span id="statusMessage" class="status-message" data-tone="normal">正在连接服务器权威开箱服务</span>
+      <span class="status-hint">ESC 关闭界面</span>
+    </footer>
+
+    <div class="loading-layer" aria-hidden="true">
+      <div class="loader">
+        <div class="loader-ring"></div>
+        <span>正在同步武器箱数据</span>
+      </div>
+    </div>
+  </div>
+
+  <template id="weaponTemplate">
+    <svg viewBox="0 0 360 130" role="presentation" aria-hidden="true">
+      <path fill="currentColor" d="M18 54h119l18-16h82l13 9h57l15 10-8 13h-64l-14 9h-46l-13 12h-45l11-29H86l-14 16H45l8-16H18z"></path>
+      <path fill="currentColor" opacity="0.72" d="M145 78h31l-4 45h-29l7-23-16-4zM243 75h32l14 42h-28z"></path>
+      <rect x="309" y="59" width="39" height="8" rx="2" fill="currentColor" opacity="0.82"></rect>
+      <rect x="181" y="27" width="50" height="8" rx="2" fill="currentColor" opacity="0.7"></rect>
+    </svg>
+  </template>
+
+  <script>
+    "use strict";
+
+    const OPENING_DURATION_MS = 7000;
+    const CARD_GAP = 12;
+    const BRIDGE_TIMEOUT_MS = 20000;
+    const RARITY_ORDER = ["blue", "purple", "pink", "red", "gold"];
+    const RARITY_META = {
+      blue: { label: "军规级", sound: "reveal_blue" },
+      purple: { label: "受限级", sound: "reveal_purple" },
+      pink: { label: "保密级", sound: "reveal_pink" },
+      red: { label: "隐秘级", sound: "reveal_red" },
+      gold: { label: "特殊物品", sound: "reveal_gold" }
+    };
+
+    const app = document.getElementById("app");
+    const headerCaseName = document.getElementById("headerCaseName");
+    const caseName = document.getElementById("caseName");
+    const creditBalance = document.getElementById("creditBalance");
+    const azureBalance = document.getElementById("azureBalance");
+    const creditCost = document.getElementById("creditCost");
+    const azureCost = document.getElementById("azureCost");
+    const oddsList = document.getElementById("oddsList");
+    const ownedList = document.getElementById("ownedList");
+    const ownedCount = document.getElementById("ownedCount");
+    const poolItems = document.getElementById("poolItems");
+    const poolCount = document.getElementById("poolCount");
+    const openButton = document.getElementById("openButton");
+    const reelView = document.getElementById("reelView");
+    const reelTrack = document.getElementById("reelTrack");
+    const resultLayer = document.getElementById("resultLayer");
+    const resultCard = document.getElementById("resultCard");
+    const resultRarity = document.getElementById("resultRarity");
+    const resultWeapon = document.getElementById("resultWeapon");
+    const resultName = document.getElementById("resultName");
+    const resultGun = document.getElementById("resultGun");
+    const applyButton = document.getElementById("applyButton");
+    const againButton = document.getElementById("againButton");
+    const statusMessage = document.getElementById("statusMessage");
+    const weaponTemplate = document.getElementById("weaponTemplate");
+
+    let caseState = null;
+    let currentResult = null;
+    let pendingOpeningId = null;
+    let selectedOwnedAssetId = null;
+    let animationFrame = 0;
+    let winnerIndex = -1;
+
+    function setPhase(phase) {
+      app.dataset.phase = phase;
+    }
+
+    function setStatus(message, tone = "normal") {
+      statusMessage.textContent = message;
+      statusMessage.dataset.tone = tone;
+    }
+
+    function formatNumber(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? new Intl.NumberFormat("zh-CN").format(number) : "--";
+    }
+
+    function normalizeRarity(raw) {
+      const value = String(raw || "blue").toLowerCase();
+      if (value.includes("gold") || value.includes("special") || value.includes("knife")) return "gold";
+      if (value.includes("red") || value.includes("covert")) return "red";
+      if (value.includes("pink") || value.includes("classified")) return "pink";
+      if (value.includes("purple") || value.includes("restricted")) return "purple";
+      return "blue";
+    }
+
+    function rarityMeta(raw) {
+      return RARITY_META[normalizeRarity(raw)];
+    }
+
+    function parseBridgeResult(raw) {
+      if (raw === undefined || raw === null || raw === "") return {};
+      if (typeof raw === "object") return raw;
+      return JSON.parse(raw);
+    }
+
+    function bridgeErrorDetails(raw, fallback) {
+      if (!raw) return { message: fallback, errorCode: "", retrySameOpeningId: undefined };
+      let parsed = raw;
+      if (typeof raw === "string") {
+        try {
+          parsed = JSON.parse(raw);
+        } catch (ignored) {
+        }
+      }
+      if (parsed && typeof parsed === "object") {
+        const message = parsed.error || parsed.message || fallback;
+        const errorCode = parsed.errorCode || parsed.code || "";
+        return {
+          message: String(message),
+          errorCode: String(errorCode),
+          retrySameOpeningId: typeof parsed.retrySameOpeningId === "boolean"
+            ? parsed.retrySameOpeningId
+            : undefined
+        };
+      }
+      return { message: String(parsed), errorCode: "", retrySameOpeningId: undefined };
+    }
+
+    function invoke(action, payload = {}, timeoutMs = BRIDGE_TIMEOUT_MS) {
+      return new Promise((resolve, reject) => {
+        if (typeof window.miningdimQuery !== "function") {
+          reject(new Error("客户端 WebUI 桥尚未就绪"));
+          return;
+        }
+
+        let settled = false;
+        const timer = window.setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          const error = new Error("服务器响应超时");
+          error.code = "TIMEOUT";
+          error.errorCode = "TIMEOUT";
+          error.retrySameOpeningId = true;
+          reject(error);
+        }, timeoutMs);
+
+        window.miningdimQuery({
+          request: JSON.stringify({ action, payload }),
+          onSuccess(raw) {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timer);
+            try {
+              resolve(parseBridgeResult(raw));
+            } catch (error) {
+              const parseError = new Error("服务器返回了无法解析的数据");
+              parseError.code = "UNKNOWN_OUTCOME";
+              parseError.errorCode = "UNKNOWN_OUTCOME";
+              parseError.retrySameOpeningId = true;
+              reject(parseError);
+            }
+          },
+          onFailure(code, raw) {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timer);
+            const details = bridgeErrorDetails(raw, "请求失败");
+            const error = new Error(details.message);
+            error.code = details.errorCode || code;
+            error.errorCode = details.errorCode;
+            error.bridgeCode = code;
+            if (typeof details.retrySameOpeningId === "boolean") {
+              error.retrySameOpeningId = details.retrySameOpeningId;
+            }
+            reject(error);
+          }
+        });
+      });
+    }
+
+    const TERMINAL_OPEN_ERROR_CODES = new Set([
+      "INSUFFICIENT_FUNDS",
+      "INSUFFICIENT_BALANCE",
+      "CASE_DISABLED",
+      "SYSTEM_DISABLED",
+      "OPENING_DISABLED",
+      "RATE_LIMITED",
+      "TOO_MANY_REQUESTS",
+      "INVALID_REQUEST",
+      "BAD_REQUEST",
+      "VALIDATION_FAILED",
+      "INVALID_ARGUMENT",
+      "INVALID_OPENING_ID",
+      "INVALID_CASE",
+      "CASE_NOT_FOUND",
+      "OPENING_ID_CONFLICT",
+      "OPENING_REFUNDED",
+      "REFUNDED"
+    ]);
+
+    const UNKNOWN_OUTCOME_ERROR_CODES = new Set([
+      "TIMEOUT",
+      "REQUEST_TIMEOUT",
+      "GATEWAY_TIMEOUT",
+      "UNKNOWN_OUTCOME",
+      "AMBIGUOUS_RESULT",
+      "CONNECTION_LOST",
+      "CONNECTION_CLOSED"
+    ]);
+
+    function normalizeErrorCode(value) {
+      return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+    }
+
+    function shouldRetrySameOpening(error) {
+      if (typeof error?.retrySameOpeningId === "boolean") return error.retrySameOpeningId;
+
+      const codes = [error?.errorCode, error?.code, error?.bridgeCode]
+        .map(normalizeErrorCode)
+        .filter(Boolean);
+      if (codes.some(code => TERMINAL_OPEN_ERROR_CODES.has(code))) return false;
+      if (codes.some(code => UNKNOWN_OUTCOME_ERROR_CODES.has(code))) return true;
+
+      const message = String(error?.message || "");
+      const terminalPatterns = [
+        /余额不足|信用点不足|青辉石不足|insufficient\s+(?:funds?|balance|credits?)/i,
+        /(?:开箱系统|武器箱).*(?:关闭|禁用|停用|未开放|不可用)|case(?:\s+opening)?\s+(?:is\s+)?(?:disabled|closed|not enabled|unavailable)/i,
+        /限频|频率限制|过于频繁|太频繁|请稍后再试|rate[\s_-]*limit|too many requests|cooldown/i,
+        /(?:无效|非法|缺少|不能为空).*(?:请求|参数|opening\s*id|流水号|case\s*id|武器箱)|(?:请求|参数|opening\s*id|流水号|case\s*id).*(?:无效|非法|缺少|不能为空)|invalid\s+(?:uuid|string|request|argument|parameter|opening\s*id|case)|malformed\s+(?:request|uuid|opening\s*id)|bad request|missing\s+(?:required|action|opening\s*id|case\s*id)/i,
+        /unknown or retired case|opening\s*id already belongs|事务已退款|opening.*refunded|use (?:a )?new opening\s*id/i
+      ];
+      if (terminalPatterns.some(pattern => pattern.test(message))) return false;
+
+      // 未知错误无法证明服务端没有完成扣款与入库；默认复用流水号避免重复开箱。
+      return true;
+    }
+
+    function playCaseSound(cue) {
+      invoke("client.playCaseSound", { cue }, 4000).catch(() => {});
+    }
+
+    function cloneWeaponArt() {
+      return weaponTemplate.content.cloneNode(true);
+    }
+
+    function makeRarityElement(tagName, className, rarity) {
+      const element = document.createElement(tagName);
+      element.className = className;
+      element.dataset.rarity = normalizeRarity(rarity);
+      return element;
+    }
+
+    function renderOdds(weights) {
+      oddsList.replaceChildren();
+      const rows = Array.isArray(weights) ? weights.slice() : [];
+      rows.sort((a, b) => RARITY_ORDER.indexOf(normalizeRarity(a.rarity)) - RARITY_ORDER.indexOf(normalizeRarity(b.rarity)));
+      const total = rows.reduce((sum, row) => sum + Number(row.weight || 0), 0);
+
+      for (const row of rows) {
+        const rarity = normalizeRarity(row.rarity);
+        const wrapper = makeRarityElement("div", "odds-row", rarity);
+        const dot = document.createElement("span");
+        dot.className = "rarity-dot";
+        const name = document.createElement("span");
+        name.className = "odds-name";
+        name.textContent = RARITY_META[rarity].label;
+        const value = document.createElement("span");
+        value.className = "odds-value";
+        const percent = total > 0 ? Number(row.weight || 0) / total * 100 : 0;
+        value.textContent = `${percent.toFixed(2)}%`;
+        wrapper.append(dot, name, value);
+        oddsList.append(wrapper);
+      }
+
+      if (rows.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "empty-copy";
+        empty.textContent = "概率数据暂不可用";
+        oddsList.append(empty);
+      }
+    }
+
+    function renderPool(skins) {
+      poolItems.replaceChildren();
+      const entries = Array.isArray(skins) ? skins : [];
+      poolCount.textContent = `${entries.length} 款外观`;
+      const visible = entries.slice(0, 12);
+
+      for (const skin of visible) {
+        const item = makeRarityElement("div", "pool-item", skin.rarity);
+        item.title = String(skin.displayName || skin.skinId || "未知外观");
+        item.textContent = String(skin.displayName || skin.skinId || "未知外观");
+        poolItems.append(item);
+      }
+
+      if (visible.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "empty-copy";
+        empty.textContent = "箱内外观池为空";
+        poolItems.append(empty);
+      }
+    }
+
+    function normalizeOwnedTotal(ownedTotal, loadedCount) {
+      const total = Number(ownedTotal);
+      if (!Number.isFinite(total) || total < 0) return loadedCount;
+      return Math.max(Math.trunc(total), loadedCount);
+    }
+
+    function updateOwnedSelection(assetId) {
+      selectedOwnedAssetId = assetId ? String(assetId) : null;
+      for (const item of ownedList.querySelectorAll(".owned-item")) {
+        const selected = Boolean(selectedOwnedAssetId) && item.dataset.assetId === selectedOwnedAssetId;
+        item.classList.toggle("selected", selected);
+        item.setAttribute("aria-pressed", String(selected));
+      }
+    }
+
+    function selectOwnedAsset(asset) {
+      if (!asset || (app.dataset.phase !== "idle" && app.dataset.phase !== "revealed")) return;
+      winnerIndex = -1;
+      setPhase("revealed");
+      updateOwnedSelection(asset.assetId);
+      showResult(asset, {
+        playSound: false,
+        status: `已选择历史资产 ${String(asset.displayName || asset.skinId || "未知外观")}`
+      });
+      updateOpenButton();
+    }
+
+    function renderOwned(owned, ownedTotal) {
+      ownedList.replaceChildren();
+      const entries = Array.isArray(owned) ? owned.slice() : [];
+      entries.sort((a, b) => Number(b.acquiredAt || 0) - Number(a.acquiredAt || 0));
+      const total = normalizeOwnedTotal(ownedTotal, entries.length);
+      const visible = entries.slice(0, 60);
+      ownedCount.textContent = formatNumber(total);
+
+      for (const asset of visible) {
+        const item = makeRarityElement("li", "owned-item", asset.rarity);
+        const assetId = String(asset.assetId || "");
+        item.dataset.assetId = assetId;
+        item.tabIndex = 0;
+        item.setAttribute("role", "button");
+        item.setAttribute("aria-pressed", String(Boolean(assetId) && assetId === selectedOwnedAssetId));
+        item.setAttribute("aria-label", `选择 ${String(asset.displayName || asset.skinId || "未知外观")} 并查看应用选项`);
+        item.classList.toggle("selected", Boolean(assetId) && assetId === selectedOwnedAssetId);
+        const name = document.createElement("div");
+        name.className = "owned-name";
+        name.textContent = String(asset.displayName || asset.skinId || "未知外观");
+        const gun = document.createElement("div");
+        gun.className = "owned-gun";
+        gun.textContent = String(asset.gunId || "未知枪械");
+        item.append(name, gun);
+        item.addEventListener("click", () => selectOwnedAsset(asset));
+        item.addEventListener("keydown", event => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          selectOwnedAsset(asset);
+        });
+        ownedList.append(item);
+      }
+
+      if (entries.length === 0) {
+        const empty = document.createElement("li");
+        empty.className = "empty-copy";
+        empty.textContent = "尚未拥有本系统外观。开启武器箱后，资产会立即记录在服务器。";
+        ownedList.append(empty);
+      } else if (total > visible.length) {
+        const note = document.createElement("li");
+        note.className = "owned-list-note";
+        note.textContent = `仅显示最近 ${visible.length} 件，共 ${formatNumber(total)} 件`;
+        ownedList.append(note);
+      }
+    }
+
+    function updateWallet(wallet) {
+      const value = wallet || {};
+      creditBalance.textContent = formatNumber(value.credit);
+      azureBalance.textContent = formatNumber(value.azure);
+      if (caseState) caseState.wallet = { credit: Number(value.credit || 0), azure: Number(value.azure || 0) };
+      updateOpenButton();
+    }
+
+    function updateOpenButton() {
+      if (!caseState) {
+        openButton.disabled = true;
+        return;
+      }
+      const wallet = caseState.wallet || {};
+      const affordable = Number(wallet.credit || 0) >= Number(caseState.creditCost || 0)
+        && Number(wallet.azure || 0) >= Number(caseState.azureCost || 0);
+      const busy = app.dataset.phase === "requesting" || app.dataset.phase === "rolling";
+      openButton.disabled = !caseState.enabled || !affordable || busy;
+      if (busy) {
+        openButton.textContent = app.dataset.phase === "requesting" ? "服务器处理中" : "正在开启";
+      } else if (!caseState.enabled) {
+        openButton.textContent = "武器箱未开放";
+      } else if (!affordable) {
+        openButton.textContent = "余额不足";
+      } else if (pendingOpeningId) {
+        openButton.textContent = "重试本次开箱";
+      } else {
+        openButton.textContent = "开启武器箱";
+      }
+    }
+
+    function renderState(state) {
+      caseState = state;
+      const displayName = String(state.displayName || "WOK 武器箱");
+      headerCaseName.textContent = displayName;
+      caseName.textContent = displayName;
+      creditCost.textContent = `${formatNumber(state.creditCost)} 信用点`;
+      azureCost.textContent = `${formatNumber(state.azureCost)} 青辉石`;
+      renderOdds(state.weights);
+      renderPool(state.skins);
+      renderOwned(state.owned, state.ownedTotal);
+      updateWallet(state.wallet);
+      setPhase("idle");
+      updateOpenButton();
+      setStatus(state.enabled ? "服务端权威随机已就绪，掉率公开且无保底" : "当前武器箱未开放", state.enabled ? "normal" : "error");
+    }
+
+    function createReelCard(entry) {
+      const rarity = normalizeRarity(entry.rarity);
+      const card = makeRarityElement("article", "reel-card", rarity);
+      const art = document.createElement("div");
+      art.className = "weapon-art";
+      art.append(cloneWeaponArt());
+      const copy = document.createElement("div");
+      copy.className = "card-copy";
+      const rarityLabel = document.createElement("div");
+      rarityLabel.className = "card-rarity";
+      rarityLabel.textContent = RARITY_META[rarity].label;
+      const name = document.createElement("div");
+      name.className = "card-name";
+      name.textContent = String(entry.displayName || entry.skinId || "未知外观");
+      const gun = document.createElement("div");
+      gun.className = "card-gun";
+      gun.textContent = String(entry.gunId || "未知枪械");
+      copy.append(rarityLabel, name, gun);
+      card.append(art, copy);
+      return card;
+    }
+
+    function deterministicJitter(openingId, cardWidth) {
+      let hash = 2166136261;
+      const source = String(openingId || "wok");
+      for (let index = 0; index < source.length; index += 1) {
+        hash ^= source.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+      }
+      const normalized = ((hash >>> 0) % 10000) / 9999;
+      return (normalized - 0.5) * cardWidth * 0.42;
+    }
+
+    function easeOutQuart(value) {
+      return 1 - Math.pow(1 - value, 4);
+    }
+
+    function waitForLayout() {
+      return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }
+
+    async function animateOpening(response) {
+      const reel = Array.isArray(response.reel) ? response.reel : [];
+      if (reel.length === 0) throw new Error("服务器未返回开箱滚动序列");
+      const stopIndex = Number(response.stopIndex);
+      if (!Number.isInteger(stopIndex) || stopIndex < 0 || stopIndex >= reel.length) {
+        throw new Error("服务器返回了无效的中奖停点");
+      }
+
+      reelTrack.replaceChildren(...reel.map(createReelCard));
+      winnerIndex = stopIndex;
+      setPhase("rolling");
+      updateOpenButton();
+      setStatus("结果已经入库，正在播放开箱序列");
+      await waitForLayout();
+
+      const firstCard = reelTrack.firstElementChild;
+      if (!firstCard) throw new Error("开箱滚动序列无法渲染");
+      const cardWidth = firstCard.getBoundingClientRect().width;
+      const step = cardWidth + CARD_GAP;
+      const viewportCenter = reelView.clientWidth / 2;
+      const startX = viewportCenter - cardWidth / 2;
+      const jitter = deterministicJitter(response.openingId, cardWidth);
+      const endX = viewportCenter - (stopIndex * step + cardWidth / 2) + jitter;
+      reelTrack.style.transform = `translate3d(${startX}px,0,0)`;
+
+      playCaseSound("open");
+      const startedAt = performance.now();
+      let lastCenteredIndex = 0;
+
+      await new Promise(resolve => {
+        const frame = now => {
+          const elapsed = Math.min(OPENING_DURATION_MS, now - startedAt);
+          const progress = elapsed / OPENING_DURATION_MS;
+          const eased = easeOutQuart(progress);
+          const x = startX + (endX - startX) * eased;
+          reelTrack.style.transform = `translate3d(${x}px,0,0)`;
+
+          const centeredIndex = Math.max(0, Math.min(reel.length - 1,
+            Math.round((viewportCenter - x - cardWidth / 2) / step)));
+          if (centeredIndex !== lastCenteredIndex) {
+            lastCenteredIndex = centeredIndex;
+            playCaseSound("tick");
+          }
+
+          if (progress < 1) {
+            animationFrame = requestAnimationFrame(frame);
+          } else {
+            animationFrame = 0;
+            resolve();
+          }
+        };
+        animationFrame = requestAnimationFrame(frame);
+      });
+
+      const winner = reelTrack.children[stopIndex];
+      if (winner) winner.classList.add("winner");
+      setPhase("revealed");
+      showResult(response.result);
+    }
+
+    function showResult(result, options = {}) {
+      currentResult = result;
+      updateOwnedSelection(result.assetId);
+      const rarity = normalizeRarity(result.rarity);
+      resultCard.dataset.rarity = rarity;
+      resultRarity.textContent = RARITY_META[rarity].label;
+      resultName.textContent = String(result.displayName || result.skinId || "未知外观");
+      resultGun.textContent = String(result.gunId || "未知枪械");
+      resultWeapon.replaceChildren(cloneWeaponArt());
+      applyButton.disabled = !result.assetId;
+      applyButton.textContent = result.assetId ? "应用到主手枪械" : "资产编号不可用";
+      resultLayer.classList.add("visible");
+      resultLayer.setAttribute("aria-hidden", "false");
+      if (options.playSound !== false) playCaseSound(RARITY_META[rarity].sound);
+      setStatus(options.status || `已获得 ${resultName.textContent}`, options.tone || "success");
+    }
+
+    async function openCase() {
+      if (!caseState || openButton.disabled) return;
+      setPhase("requesting");
+      updateOpenButton();
+      setStatus("正在由服务端校验余额并完成随机");
+      playCaseSound("unlock");
+
+      if (!pendingOpeningId) pendingOpeningId = createUuid();
+      const request = { openingId: pendingOpeningId };
+      if (caseState.caseId) request.caseId = caseState.caseId;
+
+      let response;
+      try {
+        response = await invoke("case.open", request);
+      } catch (error) {
+        setPhase("idle");
+        const retrySameOpeningId = shouldRetrySameOpening(error);
+        if (!retrySameOpeningId) pendingOpeningId = null;
+        setStatus(retrySameOpeningId
+          ? `${error.message}。结果尚未确认，再次点击会使用同一流水号安全重试。`
+          : `${error.message}。本次流水号已结束，后续开箱将使用新的流水号。`, "error");
+        updateOpenButton();
+        return;
+      }
+
+      if (!response || !response.result) {
+        setPhase("idle");
+        setStatus("服务器已响应，但缺少中奖资产数据。结果尚未确认，再次点击会使用同一流水号安全重试。", "error");
+        updateOpenButton();
+        return;
+      }
+      pendingOpeningId = null;
+
+      updateWallet(response.wallet);
+      const existingOwned = Array.isArray(caseState.owned) ? caseState.owned : [];
+      const alreadyOwned = existingOwned.some(asset => asset.assetId === response.result.assetId);
+      const previousOwnedTotal = normalizeOwnedTotal(caseState.ownedTotal, existingOwned.length);
+      if (!alreadyOwned) {
+        existingOwned.unshift(response.result);
+        caseState.owned = existingOwned;
+      }
+      const responseOwnedTotal = Number(response.ownedTotal);
+      caseState.ownedTotal = Number.isFinite(responseOwnedTotal) && responseOwnedTotal >= 0
+        ? Math.trunc(responseOwnedTotal)
+        : previousOwnedTotal + (!alreadyOwned ? 1 : 0);
+      renderOwned(existingOwned, caseState.ownedTotal);
+
+      try {
+        await animateOpening(response);
+      } catch (error) {
+        setPhase("revealed");
+        showResult(response.result);
+        setStatus(`资产已经入库，但动画未完整播放：${error.message}`, "error");
+      }
+      updateOpenButton();
+    }
+
+    async function applyCurrentResult() {
+      if (!currentResult || !currentResult.assetId || applyButton.disabled) return;
+      applyButton.disabled = true;
+      applyButton.textContent = "正在应用";
+      setStatus("正在校验主手 TACZ 枪械");
+      try {
+        await invoke("case.apply", { assetId: currentResult.assetId });
+        applyButton.textContent = "已应用到主手枪械";
+        setStatus("皮肤已由服务端应用到主手枪械", "success");
+      } catch (error) {
+        applyButton.disabled = false;
+        applyButton.textContent = "重试应用";
+        setStatus(`应用失败：${error.message}`, "error");
+      }
+    }
+
+    async function returnToCase() {
+      resultLayer.classList.remove("visible");
+      resultLayer.setAttribute("aria-hidden", "true");
+      currentResult = null;
+      winnerIndex = -1;
+      reelTrack.replaceChildren();
+      reelTrack.style.transform = "translate3d(0,0,0)";
+      setPhase("loading");
+      try {
+        const state = await invoke("case.state", {});
+        renderState(state);
+      } catch (error) {
+        setPhase("idle");
+        setStatus(`刷新失败：${error.message}`, "error");
+        updateOpenButton();
+      }
+    }
+
+    function createUuid() {
+      if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID();
+      const bytes = new Uint8Array(16);
+      if (window.crypto && typeof window.crypto.getRandomValues === "function") {
+        window.crypto.getRandomValues(bytes);
+      } else {
+        for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+      }
+      bytes[6] = (bytes[6] & 15) | 64;
+      bytes[8] = (bytes[8] & 63) | 128;
+      const hex = Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("");
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    }
+
+    async function waitForBridge() {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        if (typeof window.miningdimQuery === "function") return;
+        await new Promise(resolve => window.setTimeout(resolve, 100));
+      }
+      throw new Error("MCEF 消息桥未完成初始化");
+    }
+
+    async function boot() {
+      try {
+        await waitForBridge();
+        const state = await invoke("case.state", {});
+        renderState(state);
+      } catch (error) {
+        setPhase("idle");
+        setStatus(`无法载入武器箱：${error.message}`, "error");
+        caseName.textContent = "武器箱服务不可用";
+        openButton.disabled = true;
+      }
+    }
+
+    window.miningdimOnEvent = function(name) {
+      if (name === "case:update" && app.dataset.phase === "idle") returnToCase();
+    };
+
+    window.addEventListener("pagehide", () => {
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+      animationFrame = 0;
+    });
+
+    window.addEventListener("resize", () => {
+      if (app.dataset.phase !== "revealed" || winnerIndex < 0) return;
+      const winner = reelTrack.children[winnerIndex];
+      if (!winner) return;
+      const cardWidth = winner.getBoundingClientRect().width;
+      const x = reelView.clientWidth / 2 - (winnerIndex * (cardWidth + CARD_GAP) + cardWidth / 2);
+      reelTrack.style.transform = `translate3d(${x}px,0,0)`;
+    });
+
+    openButton.addEventListener("click", openCase);
+    applyButton.addEventListener("click", applyCurrentResult);
+    againButton.addEventListener("click", returnToCase);
+    boot();
+  </script>
+</body>
+</html>

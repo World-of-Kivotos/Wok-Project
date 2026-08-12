@@ -1,12 +1,14 @@
 package com.miningdim.job.engineer;
 
 import com.electronwill.nightconfig.core.CommentedConfig;
+import com.miningdim.job.engineer.armor.PlateArmorConfig;
+import com.miningdim.job.engineer.shield.PlasmaShieldConfig;
 import net.minecraftforge.common.ForgeConfigSpec;
 
 /**
  * 千年工程师 SERVER 级配置 spec 持有者 (MillenniumEngineer_Mod_DesignSpec 10.3 C6 硬约束: 全部平衡数值进
  * ForgeConfigSpec, 业务类内硬编码字面量即缺陷)。所有矿石绑档消耗 / 生成耗时 / 修复曲线 / 单板原始经验 / 特效
- * 阈值与系数 / 图腾 CD 与复活百分比 / 护盾免疫窗与次数 / 机能修复递减 / 闪耀概率与残骸 的唯一数据源。
+ * 阈值与系数 / 图腾 CD 与复活百分比 / 护盾免疫窗与次数 / 机能修复递减 / 闪耀概率与碎片返还 的唯一数据源。
  *
  * 本任务铁律: 不修改中央 config.MiningServerConfig (那是别的子系统拥有的文件)。故工程师自带一份独立 SERVER spec
  * (文件 miningdim-engineer.toml), 由 {@link EngineerSystem#register} 经 ModLoadingContext.registerConfig 注册。
@@ -18,6 +20,12 @@ import net.minecraftforge.common.ForgeConfigSpec;
 public final class EngineerConfig {
 
     public static final ForgeConfigSpec SPEC;
+
+    /** 新插板护甲的 R/Q/G/T 与机动矩阵；仍写入同一 miningdim-engineer.toml。 */
+    public static final PlateArmorConfig PLATE_ARMOR;
+
+    /** Plasma shield capacities, heat curves, recharge rates and quantum-series mobility. */
+    public static final PlasmaShieldConfig PLASMA_SHIELD;
 
     // ---- 3.2 矿石绑档生产配方 (单板矿耗为定值) ----
     public static final ForgeConfigSpec.IntValue LOW_IRON_COST;
@@ -113,10 +121,10 @@ public final class EngineerConfig {
     public static final ForgeConfigSpec.DoubleValue EFFECT_ROLL_BASE_CHANCE;
     public static final ForgeConfigSpec.DoubleValue EFFECT_ROLL_QUALITY_COEF;
 
-    // ---- 3.2 闪耀板概率产出 + 残骸返还 (PENDING 12.4 给可配初值) ----
-    /** 闪耀板单次产出 1 板的概率 (失败返还残骸)。 */
+    // ---- 3.2 闪耀板概率产出 + 下界合金碎片返还 ----
+    /** 闪耀板单次产出 1 板的概率 (失败返还下界合金碎片)。 */
     public static final ForgeConfigSpec.DoubleValue RADIANT_SUCCESS_CHANCE;
-    /** 闪耀失败时返还的下界合金锭残骸数 (0=不返还)。 */
+    /** 闪耀失败时返还的下界合金碎片数 (0=不返还)。 */
     public static final ForgeConfigSpec.IntValue RADIANT_FAIL_REFUND;
 
     static {
@@ -229,9 +237,12 @@ public final class EngineerConfig {
         b.push("radiant");
         b.comment("3.2 radiant plate probabilistic output (PENDING 12.4: tuneable initial values).");
         RADIANT_SUCCESS_CHANCE = b.defineInRange("successChance", 0.50, 0.0, 1.0);
-        RADIANT_FAIL_REFUND = b.comment("Netherite ingots refunded on a failed radiant attempt (debris)")
+        RADIANT_FAIL_REFUND = b.comment("Netherite scraps refunded on a failed radiant attempt")
                 .defineInRange("failRefund", 1, 0, 64);
         b.pop();
+
+        PLATE_ARMOR = PlateArmorConfig.define(b);
+        PLASMA_SHIELD = PlasmaShieldConfig.define(b);
 
         SPEC = b.build();
     }

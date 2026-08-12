@@ -261,13 +261,13 @@ PixelLoading / PixelEmpty / PixelError / PixelConfirmDanger
 
 严格分批，前一批不通过不进下一批 —— 与 PixelUI 规格第十一章"第 1 步未通过则不进入第 2 步"同纪律。
 
-**批 0 · 解阻塞（Java 侧，不外包）** —— 甲类决策已全部拍板，本批可直接开工
-1. A15 前端加载入口：新增 `devServerUrl` 配置项（ForgeConfigSpec 客户端侧），`WebUiClient` 由硬编码 `data:` URI 改为加载该 URL；按 J4 只持一个 URL、`WebBrowser` 全程复用单例。
-2. J3 键位入口：注册 `KeyMapping`（`RegisterKeyMappingsEvent`），按下即打开 `WebUiScreen`。保留 `/miningdim-webui-dev` 作调试后路。
-3. A3 契约握手：`WebUiServerDispatcher` 加自省接口，新增 `system.handshake` 回 `{serverVersion, actions:[]}`。
-4. A12 补字段：`market.list` / `player.inventory` 响应补 `descriptionId`，让前端能经 `client.i18n` 解中文名。
-5. `.gitignore` 补 `webui/node_modules/` 与前端构建产物（规格 10.2 明列的落地约束）。
-6. 事件名常量表：按 J2 建受控常量类，本批只建表不发事件。
+**批 0 · 解阻塞（Java 侧，不外包）** —— 2026-08-12 已完成，见分支 `feat/webui-host-entry`，699/699 GameTest 全绿
+1. [x] A15 前端加载入口：新增客户端配置 `webui.url`（校验必须 http/https 绝对地址）；`WebUiClient` 拆 `openWebUi`（正式前端）/ `openDevScreen`（内置调试页），按 J4 共用单例 `WebBrowser`，仅当目标 URL 变化才 `loadURL` 导航。
+2. [x] J3 键位入口：新增 `WebUiKeyMappings`，默认 G。保留 `/miningdim-webui-dev` 作调试后路。
+3. [x] A3 契约握手：`WebUiServerDispatcher.registeredActions()` 自省 + `system.handshake` 回 `{modVersion, actions[]}`。
+4. [x] A12 补字段：`market.list` / `market.mine` / `player.inventory` 响应补 `descriptionId`；顺带把 list 与 mine 逐字重复的挂单 JSON 构造收敛为单点。
+5. [x] `.gitignore` 补 `webui/node_modules/` 与 `webui/dist/`。
+6. [ ] ~~事件名常量表~~ —— **本批不做，移入批 3**。建一个当前无任何发送方的常量类属空壳代码（YAGNI），受控常量的约束在第一个真实发送方落地时一并建立才有意义。
 
 **批 1 · 像素单点验证**（PixelUI 规格第十一章第 1 步）
 出 1 张 9-slice 资产 + `PixelFrame`，用同一份资产同时渲染行内小按钮与全屏平板，真客户端验 `devicePixelRatio` x GUI Scale 叠加是否破坏像素对齐。**此步不通过，后面全部作废。**

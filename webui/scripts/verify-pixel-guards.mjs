@@ -37,6 +37,20 @@ const BANNED_DEPENDENCIES = [
  */
 const BANNED_CLASS_PREFIXES = ['blur', 'backdrop-blur', 'drop-shadow', 'sepia', 'hue-rotate']
 
+/*
+ * Tailwind 任意值语法 (`shadow-[0_0_8px_red]`) 与任意属性语法 (`[image-rendering:auto]`)。
+ *
+ * corePlugins 与 theme 覆盖只能删掉**档位**, 删不掉任意值这条旁路: 实测当前配置照样能生成
+ * `box-shadow: 0 0 8px red` (红线 2)、`border-radius: 3px` (红线 1)、`height: 3.5px` (红线 4)、
+ * `image-rendering: auto` (红线 6) —— 四条红线各被穿透一次, 且全都不报错。
+ *
+ * eslint 的 tailwindcss/no-arbitrary-value 确实拦得住, 但 package.json 的 build 脚本是
+ * `verify-pixel-guards && tsc --noEmit && vite build`, 根本不跑 eslint。本脚本存在的全部理由就是
+ * "lint 可以被跳过而构建不能", 所以这条必须在这里也有一份。
+ */
+const ARBITRARY_VALUE = /-\[[^\]]+\]$/
+const ARBITRARY_PROPERTY = /^\[[^\]]+\]$/
+
 /** className 属性值的三种写法: "..." / {'...'} / {`...`}。 */
 const CLASS_ATTRIBUTE = /className\s*=\s*(?:"([^"]*)"|\{\s*'([^']*)'\s*\}|\{\s*`([^`]*)`\s*\})/g
 
@@ -123,6 +137,24 @@ function checkSources() {
   }
 }
 
+/**
+ * 去掉变体前缀 (hover: / md: / group-hover: 等), 只留工具类本体。
+ *
+ * 必须按方括号深度切, 不能简单取最后一个冒号之后的部分: 任意属性类 `[image-rendering:auto]` 自身就带冒号,
+ * 按"最后一个冒号"切会得到 `auto]`, 于是这条最危险的旁路 (能直接写出任意 CSS 声明) 恰好从检查里漏掉。
+ */
+function stripVariants(token) {
+  let depth = 0
+  let lastSeparator = -1
+  for (let index = 0; index < token.length; index += 1) {
+    const char = token[index]
+    if (char === '[') depth += 1
+    else if (char === ']') depth -= 1
+    else if (char === ':' && depth === 0) lastSeparator = index
+  }
+  return token.slice(lastSeparator + 1)
+}
+
 function checkClassNames(text, shown) {
   for (const match of text.matchAll(CLASS_ATTRIBUTE)) {
     const value = match[1] ?? match[2] ?? match[3]
@@ -130,14 +162,22 @@ function checkClassNames(text, shown) {
       continue
     }
     for (const token of value.split(/\s+/)) {
-      // 去掉变体前缀 (hover: / md: / group-hover: 等), 只看工具类本体。
-      const utility = token.slice(token.lastIndexOf(':') + 1)
+      const utility = stripVariants(token)
       const banned = BANNED_CLASS_PREFIXES.find(
         (prefix) => utility === prefix || utility.startsWith(`${prefix}-`),
       )
       if (banned !== undefined) {
         violations.push(
           `${shown} 出现被禁用的工具类 "${token}": ${banned}-* 已由 corePlugins 关闭, 写了也生成不出 CSS`,
+        )
+      }
+      if (ARBITRARY_PROPERTY.test(utility)) {
+        violations.push(
+          `${shown} 出现 Tailwind 任意属性类 "${token}": 它能直接写出 image-rendering:auto 一类的属性, 绕过全部红线`,
+        )
+      } else if (ARBITRARY_VALUE.test(utility)) {
+        violations.push(
+          `${shown} 出现 Tailwind 任意值类 "${token}": 任意值绕过 --px 派生链与 theme 覆盖 (半像素/圆角/模糊阴影由此进来), 需要新档位请改 tailwind.config.ts`,
         )
       }
     }

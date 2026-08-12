@@ -65,13 +65,30 @@ export default {
         // 只引用族名, 真实字体文件由 @font-face 单点绑定 (规格第九章 PENDING, 候选未核实前不绑)。
         pixel: 'var(--font-pixel)',
       },
+      /*
+       * 语义色板一律指向 CSS 变量而非字面色值: 亮暗双主题靠 :root / :root.light 换变量实现,
+       * 只要工具类里没有硬色值, 换主题就不需要任何 dark: 变体 —— 那套变体会让每个组件多背一份颜色分支。
+       * 变量表与各档取值的理由见 src/styles/index.css。
+       *
+       * 刻意不映射 --color-tone-*: 它们是喂给 9-slice overlay 混合的基色, 不是能直接刷在文字/边框上的颜色
+       * (中心块最终色 = 基色被灰度抬亮之后的值)。开成工具类等于邀请人拿它当普通背景色用, 必然对不上。
+       */
       colors: {
         bg: 'var(--color-bg)',
         surface: 'var(--color-surface)',
+        raised: 'var(--color-raised)',
         fg: 'var(--color-fg)',
         muted: 'var(--color-muted)',
+        'on-accent': 'var(--color-on-accent)',
+        border: 'var(--color-border)',
+        'border-strong': 'var(--color-border-strong)',
         accent: 'var(--color-accent)',
+        'accent-hover': 'var(--color-accent-hover)',
+        'accent-active': 'var(--color-accent-active)',
+        success: 'var(--color-success)',
+        warning: 'var(--color-warning)',
         danger: 'var(--color-danger)',
+        info: 'var(--color-info)',
         shadow: 'var(--color-shadow)',
       },
     },

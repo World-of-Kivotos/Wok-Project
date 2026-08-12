@@ -213,28 +213,57 @@ function resolveItemTexture(itemId: string): Promise<string | null> {
   return task
 }
 
-/** 图标边长, 单位是像素格 (--px 的整数倍)。16 格 = 16x16 源图按 --px 整数倍放大, 是默认档。 */
-export type ItemIconSize = 8 | 16 | 24 | 32
+/**
+ * 放大倍率 k: 图标边长 = 16 个源像素 x k, 即 16k 个逻辑像素格。
+ *
+ * 与 PixelIcon 的 PixelIconScale 共用同一套档位词汇 (conventions.md 第二节 2.1): 两者渲染的都是
+ * 16x16 源图, 各造一套档位的直接后果是同一排里的物品图标与功能图标像素密度对不上, 一眼可见。
+ * 类型不从 PixelIcon import 而是各自声明: 二者的资产管线与降级路径完全无关, 为一个三元 union
+ * 建立跨文件依赖, 换来的是改动一处波及另一处; 但**取值必须同步**, 改档位时两个文件一起改。
+ *
+ * 只能按 16 的整数倍取格数。早先那档"8 格"是 0.5 倍源图密度 —— --px 为偶数时侥幸落回整数 CSS 像素,
+ * 而 --px 的真实取值要到真客户端标定 (规格第十二章仍是 PENDING), 一旦是奇数就成了 0.5 x 奇数的半像素,
+ * 症状是边缘糊一圈半透明像素且不报错 (硬红线第 4 条), 故该档删除。
+ */
+export type ItemIconScale = 1 | 2 | 3
 
-/** Tailwind 扫源码文本生成类, 拼接出来的类名不会被生成, 故各档必须是完整字面量。 */
-const SIZE_CLASS: Record<ItemIconSize, string> = {
-  8: 'block h-8 w-8',
-  16: 'block h-16 w-16',
-  24: 'block h-24 w-24',
-  32: 'block h-32 w-32',
+/** Tailwind 扫源码文本生成类, 拼接出来的类名不会被生成, 故各档必须是完整字面量 (16k 格)。 */
+const SCALE_CLASS: Record<ItemIconScale, string> = {
+  1: 'block h-16 w-16',
+  2: 'block h-32 w-32',
+  3: 'block h-48 w-48',
 }
 
 /*
- * 第三层占位块。棋盘格取自 MC 的 missing texture 观感, 但用中性色板而非原版品红 ——
+ * 第三层占位块的棋盘格。取自 MC missing texture 的观感, 但用中性色板而非原版品红 ——
  * J1 未定之前所有第三方 mod 物品都会落在这里, 满屏品红会把"待接线"读成"报错"。
  * 用硬停 conic 渐变而不是位图: 零资产、边界是轴对齐硬边, 不引入任何抗锯齿弧线。
- * 尺寸走 calc(var(--px) * n), 与全局唯一长度变量对齐, 不出现裸像素字面量。
+ *
+ * 两支色都取**结构类** token (面板底 + 分隔线), 而不是原先的 --color-muted: 那是前景文字的次级色,
+ * 拿它当填充块会让"没图的物品"比有图的物品更抢眼, 也违反了语义 token 各司其职的前提。
+ * --color-tone-* 更不能用 —— 它是喂给 9-slice overlay 混合的基色, 直接刷出来对不上任何最终色。
  */
-const PLACEHOLDER_STYLE: CSSProperties = {
-  backgroundImage:
-    'repeating-conic-gradient(var(--color-muted) 0% 25%, var(--color-surface) 0% 50%)',
-  backgroundSize: 'calc(var(--px) * 8) calc(var(--px) * 8)',
-  imageRendering: 'pixelated',
+const CHECKER_IMAGE =
+  'repeating-conic-gradient(var(--color-border) 0% 25%, var(--color-surface) 0% 50%)'
+
+/**
+ * 格子边长固定为 8 个源像素见方 (与原版 missing texture 的 2x2 分块同构), 故须随 scale 同倍放大:
+ * 写死成常数会让档位越大格子越密, 占位块在不同尺寸下看着像两种东西。
+ * 长度走 calc(var(--px) * n), 与全局唯一长度变量对齐, 不出现裸像素字面量。
+ */
+function checkerStyle(tileCells: number): CSSProperties {
+  const tile = `calc(var(--px) * ${String(tileCells)})`
+  return {
+    backgroundImage: CHECKER_IMAGE,
+    backgroundSize: `${tile} ${tile}`,
+    imageRendering: 'pixelated',
+  }
+}
+
+const PLACEHOLDER_STYLE: Record<ItemIconScale, CSSProperties> = {
+  1: checkerStyle(8),
+  2: checkerStyle(16),
+  3: checkerStyle(24),
 }
 
 /** 全局 html 规则已设 pixelated 且该属性可继承; 此处再显式写一次, 使本组件挂到任何容器下都不依赖外部继承。 */
@@ -245,9 +274,15 @@ const IMAGE_STYLE: CSSProperties = {
 export interface ItemIconProps {
   /** 形如 "minecraft:diamond" / "miningdim:casing"; 省略 namespace 时按原版处理。 */
   itemId: string
-  /** 无障碍名。显示名请由调用方经 useItemNames 解出后传入, 本组件不代发 i18n 请求。 */
-  alt?: string
-  size?: ItemIconSize
+  /**
+   * 无障碍名。显示名请由调用方经 useItemNames 解出后传入, 本组件不代发 i18n 请求。
+   * 缺省回退为 itemId 本身: 图标脱离文字时仍需要一个可读且唯一的名字, 而空名字会让读屏直接跳过该元素。
+   *
+   * 叫 label 而不是 alt, 是因为组件库内无障碍名 prop 统一为 label (conventions.md 第九节第 8 条) ——
+   * 与 PixelIcon.label 对齐, 免得同一屏上两种图标的同一件事有两个名字。
+   */
+  label?: string
+  scale?: ItemIconScale
 }
 
 interface ResolvedTexture {
@@ -255,7 +290,7 @@ interface ResolvedTexture {
   readonly url: string | null
 }
 
-export function ItemIcon({ itemId, alt, size = 16 }: ItemIconProps): ReactElement {
+export function ItemIcon({ itemId, label, scale = 1 }: ItemIconProps): ReactElement {
   const [resolved, setResolved] = useState<ResolvedTexture>(() => ({
     itemId,
     url: readCachedTexture(itemId),
@@ -284,18 +319,25 @@ export function ItemIcon({ itemId, alt, size = 16 }: ItemIconProps): ReactElemen
 
   // effect 尚未跑完的那一帧 resolved 仍指向旧 itemId, 此时直接读缓存, 避免错帧。
   const textureUrl = resolved.itemId === itemId ? resolved.url : readCachedTexture(itemId)
-  const label = alt === undefined ? itemId : alt
+  const accessibleName = label === undefined ? itemId : label
 
   if (textureUrl === null) {
-    return <div className={SIZE_CLASS[size]} style={PLACEHOLDER_STYLE} role="img" aria-label={label} />
+    return (
+      <div
+        className={SCALE_CLASS[scale]}
+        style={PLACEHOLDER_STYLE[scale]}
+        role="img"
+        aria-label={accessibleName}
+      />
+    )
   }
 
   return (
     <img
-      className={SIZE_CLASS[size]}
+      className={SCALE_CLASS[scale]}
       style={IMAGE_STYLE}
       src={textureUrl}
-      alt={label}
+      alt={accessibleName}
       onError={() => {
         // 探测通过但正式加载失败 (缓存被逐出后镜像站抽风): 把该 id 钉成占位块, 不让破图留在界面上。
         textureUrlCache.set(itemId, null)

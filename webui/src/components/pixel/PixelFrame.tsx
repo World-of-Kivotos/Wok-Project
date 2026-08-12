@@ -18,6 +18,24 @@ import frameWindowUrl from '../../../public/ui/frame-window.png'
 export type PixelFrameVariant = 'window' | 'panel' | 'inset'
 
 /**
+ * 语义色档。与 variant 正交: variant 决定形状与明暗关系 (外凸/平面/内凹, 必须分别出图),
+ * tone 决定这套明暗被染成什么颜色 (只换 CSS 变量, 不增发资产) —— 3 张图 x 6 档 = 18 种框体。
+ *
+ * 上色链路本身在 src/styles/index.css 的 [data-pixel-tone]::after 一段, 选型与降级见同目录 README.md。
+ */
+export type PixelFrameTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info'
+
+/** 全部语义档。验证页与调色页按这份清单穷举, 加档只改这一处。 */
+export const PIXEL_FRAME_TONES: readonly PixelFrameTone[] = [
+  'neutral',
+  'accent',
+  'success',
+  'warning',
+  'danger',
+  'info',
+]
+
+/**
  * 边角放大倍率。只开放整数档: 非整数倍会让边角位图落在半像素上, 而症状是"边缘糊一圈半透明像素"
  * 而非报错, 极易蒙混过关。上限取 4 是因为 24x24 的资产在 4 倍下边框已达 32 CSS px, 再大即便
  * 像素对齐正确, 观感上也是边框吃掉内容区。
@@ -43,11 +61,11 @@ export interface PixelFrameAsset {
  * 还是在下边), 换色表达不出来; 而状态 (normal/hover/pressed) 与语义 (普通/强调/危险) 优先靠
  * CSS 变量换色, 不增发资产 (规格第六章与第七章的压缩原则)。
  *
- * 但要说清现状: 上一段的"换色"在本组件里**尚未接线**。border-image 是直接把位图画上去的,
- * 没有 mask/tint 环节, 因此这三张灰度图当前就以自身灰度显形, --color-* 一个都影响不到它们
- * (fill 中心块还会盖住元素自己的 background-color)。规格第六章的单色蒙版路径 (background-color +
- * mask) 只适用于图标那类单通道形状, 套不到需要保留斜面明暗的边框上; 9-slice 的上色要另走
- * mask-border 或分层合成, 属未决方案。在它落地前, 换色只对边框以外的部分成立。
+ * 上一段的"换色"已接线, 走的是分层合成: 本组件只负责把资产 URL 与语义档下发成 --pixel-frame-src /
+ * data-pixel-tone, 真正的染色层是样式表里一层与框体等大的伪元素 (index.css 的 [data-pixel-tone]::after),
+ * 用 overlay 混合把颜色叠回灰度图上。纯蒙版路径 (mask-border / mask-image) 在这里走不通 ——
+ * 三张资产的 alpha 只有 0/255 两个值, 斜面明暗全记在灰度通道里, 取 alpha 只会得到一块四角挖空的纯色板。
+ * 选型推导、六色实测与降级表现见同目录 README.md 与 #/color-check 页。
  *
  * slice 逐张登记而非取全局默认值: 它必须与每张图的实际边框像素宽相等, 给一个"看起来能用"的全局
  * 默认值等于埋一个错位来源。三张资产当前统一按 24x24 / slice 8 出图 (16x16 配 slice 8 时中心块
@@ -66,18 +84,32 @@ export const PIXEL_FRAME_ASSETS: Record<PixelFrameVariant, PixelFrameAsset> = {
   inset: { src: frameInsetUrl, file: 'public/ui/frame-inset.png', slice: 8, size: 24 },
 }
 
-/** CSSProperties 不含自定义属性, 但 9-slice 的两个参数必须以 CSS 变量下发 (见 borderWidth 的派生链)。 */
+/**
+ * CSSProperties 不含自定义属性, 但 9-slice 的参数与上色链路的输入都必须以 CSS 变量下发:
+ * 前者见 borderWidth 的派生链, 后者见 index.css 里那层伪元素 —— 伪元素取不到 React props,
+ * 资产 URL 与语义色只能经变量过桥。
+ */
 interface PixelFrameStyle extends CSSProperties {
   '--pixel-slice': string
-  '--pixel-scale'?: string
+  /** undefined = 不写行内声明, 回落到 :root 的继承值。exactOptionalPropertyTypes 下必须显式带上 undefined。 */
+  '--pixel-scale': string | undefined
+  '--pixel-frame-src': string
+  '--pixel-tone': string
 }
 
 /**
- * 本组件独占的 CSS 属性: 它们要么承载 9-slice 与资产的成对关系, 要么就是规格第二章那几条硬红线本身。
- * 从对外 style 类型里剔除, 使"用行内样式绕过红线"在编译期就写不出来 —— 光靠把它们排在展开之后只挡住
- * 手滑, 挡不住有人认真地去覆盖它。需要不同边框粗细请走 scale prop, 需要不同资产请加 variant。
+ * 本组件独占的 CSS 属性: 它们要么承载 9-slice 与资产的成对关系, 要么承载上色链路, 要么就是规格第二章
+ * 那几条硬红线本身。从对外 style 类型里剔除, 使"用行内样式绕过红线"在编译期就写不出来 —— 光靠把它们
+ * 排在展开之后只挡住手滑, 挡不住有人认真地去覆盖它。需要不同边框粗细请走 scale prop, 需要不同资产请加
+ * variant, 需要不同颜色请走 tone prop。
+ *
+ * isolation 与 mixBlendMode 一并剔除: 前者被覆盖成 auto 会让染色层掉到框体背景之后 (上色静默失效),
+ * 后者被覆盖会让染色层变成一块盖住框体的纯色板。两者都不报错, 只是画面废掉。
+ * position 刻意**不**剔除 —— 它是留给绝对定位调用方的逃生口, 见 index.css 里 [data-pixel-tone] 一段。
  */
 type ProtectedFrameStyleKey =
+  | 'isolation'
+  | 'mixBlendMode'
   | 'borderStyle'
   | 'borderColor'
   | 'borderWidth'
@@ -97,6 +129,11 @@ export interface PixelFrameProps {
    * 于是嵌套框默认与父框同倍率, 需要不同倍率的子框显式给值。
    */
   scale?: PixelFrameScale
+  /**
+   * 语义色档, 缺省 neutral。与 scale 不同, tone 不继承: 每个框各自决定颜色,
+   * 否则一个 danger 弹窗里的所有子面板都会跟着变红。
+   */
+  tone?: PixelFrameTone
   className?: string
   /** 布局类行内样式 (宽高/定位/背景...)。9-slice 与红线相关的属性已被排除, 见 ProtectedFrameStyleKey。 */
   style?: Omit<CSSProperties, ProtectedFrameStyleKey>
@@ -107,6 +144,7 @@ export interface PixelFrameProps {
 export function PixelFrame({
   variant,
   scale,
+  tone = 'neutral',
   className,
   style,
   children,
@@ -124,7 +162,33 @@ export function PixelFrame({
     ...style,
 
     '--pixel-slice': String(asset.slice),
-    ...(scale === undefined ? {} : { '--pixel-scale': String(scale) }),
+
+    /*
+     * 无条件写这一键 (缺省给 undefined 让 React 把行内声明整个删掉, 从而回落到 :root 的继承值)。
+     * 早先是 `scale === undefined ? {} : {...}` 的条件展开, 于是 scale 缺省时这条键根本不出现 ——
+     * 调用方只要用一个 `CSSProperties & { '--pixel-scale': string }` 的**变量**传 style 就能把 1.5
+     * 之类的非整数倍率灌进来 (自定义属性不在 CSSProperties 的键里, Omit 拦不住; 而 TS 的多余属性检查
+     * 只对对象字面量生效, 走变量一律放行)。非整数倍率的症状是边缘糊一圈半透明像素而非报错 (硬红线第 4 条),
+     * 属于典型的"看不出来的破线", 故这里补上运行期那道门。
+     */
+    '--pixel-scale': scale === undefined ? undefined : String(scale),
+
+    /*
+     * 资产 URL 与语义色的过桥变量。染色层是伪元素, 拿不到 props, 只能从这里读;
+     * 而 border-image-source 也改读同一个变量, 使"框体画的是哪张图"与"蒙版挖的是哪张图"物理上无法分叉 ——
+     * 两者只要差一张图, 角孔就会挖在错误的位置, 且不报错。
+     */
+    '--pixel-frame-src': `url("${asset.src}")`,
+    '--pixel-tone': `var(--color-tone-${tone})`,
+
+    /*
+     * 与 index.css 的 [data-pixel-tone] 规则同值, 在这里再写一次的理由与上面的 --pixel-scale 相同:
+     * isolation 虽已列入 ProtectedFrameStyleKey, 但 Omit 只挡对象字面量, 一个 CSSProperties 类型的
+     * 变量里带着 isolation: 'auto' 照样能传进来, 且行内样式压得过样式表。一旦被压成 auto, 染色层
+     * (负 z-index 的伪元素) 会掉到父级背景之后被不透明的 border-image 完全盖住 —— 表现是"上色毫无效果",
+     * 不报错。类型层与运行期两道门必须都在, 这里补的是缺的那道。
+     */
+    isolation: 'isolate',
 
     // 边框区域必须先被撑开, border-image 才有地方绘制; 透明色保证资产未加载时不留一圈实色边。
     borderStyle: 'solid',
@@ -137,7 +201,7 @@ export function PixelFrame({
      */
     borderWidth: 'calc(var(--pixel-slice) * var(--pixel-scale) * 1px)',
 
-    borderImageSource: `url("${asset.src}")`,
+    borderImageSource: 'var(--pixel-frame-src)',
 
     // fill 不可省略: 省了中心块会被丢弃, 控件变成空心框 (背景直接透出), 规格 4.2 第 2 条。
     borderImageSlice: `${String(asset.slice)} fill`,
@@ -158,8 +222,13 @@ export function PixelFrame({
     borderRadius: 0,
   }
 
+  /*
+   * data-pixel-tone 既是染色层的挂载选择器, 也是排障时的可读标记 (DevTools 里一眼看出这框是哪一档)。
+   * 不用 class 挂载是因为 eslint 的 tailwindcss/no-custom-classname 会把自造类名判成错 ——
+   * 那条规则是让"打错的工具类"显形的主力, 不该为一个组件在白名单上开口子。
+   */
   return (
-    <div ref={ref} className={className} style={frameStyle}>
+    <div ref={ref} className={className} style={frameStyle} data-pixel-tone={tone}>
       {children}
     </div>
   )

@@ -1,9 +1,11 @@
 /*
- * 像素 UI 基线样式表。真源: docs/PixelUI_DesignSystem_DesignSpec.md 第二章(硬红线) / 第五章(度量) / 第九章(字体)。
+ * 像素 UI 基线样式表。真源: docs/PixelUI_DesignSystem_DesignSpec.md 第二章(硬红线) / 第五章(度量) /
+ * 第六章(灰度上色) / 第九章(字体)。
  *
- * 本文件承担两件事:
+ * 本文件承担三件事:
  *   1. 声明全库唯一的基准长度变量 --px, 以及由资产属性决定的字体/9-slice 变量;
- *   2. 用 @layer base 把四条最容易漏的红线 (圆角 / 字体平滑 / 合成字重 / 位图插值) 压成全局默认值,
+ *   2. 声明全库唯一的色彩 token 表 (中性三层 + 两级边框 + 语义色 + 9-slice 上色锚点), 双主题;
+ *   3. 用 @layer base 把四条最容易漏的红线 (圆角 / 字体平滑 / 合成字重 / 位图插值) 压成全局默认值,
  *      使违反它们需要主动覆盖, 而覆盖动作会在 diff 里显形。
  *
  * 刻意不禁用 Tailwind preflight: 它的 box-sizing:border-box 与 border-width:0 重置正是 9-slice 的地基。
@@ -49,15 +51,113 @@
    * 于是自然回退到 ui-monospace, 界面能跑但明确不像素化, 使缺口在视觉上可见而不被掩盖。
    */
   --font-pixel: PixelEN, PixelCN, ui-monospace, monospace;
+}
 
-  /* 语义色板。状态 (normal/hover/pressed/disabled) 与语义 (普通/强调/危险) 优先靠这几个变量换色表达, 不增发资产。 */
-  --color-bg: #10121a;
-  --color-surface: #1e2230;
-  --color-fg: #e8e8f0;
-  --color-muted: #8a90a6;
-  --color-accent: #4fc3f7;
-  --color-danger: #e05a4c;
+/*
+ * 色彩 token —— 暗色档 (默认)。
+ *
+ * 为什么暗色写在无类的 :root 上、亮色才靠 .light 覆盖: 首屏在 initTheme() 落地前只有样式表生效,
+ * 谁被写成默认谁就不会闪。游戏内 HUD 的常态是暗色, 故默认档给暗色, 亮色作为显式覆盖档。
+ * :root.dark 与之等价, 是为让 <html class="dark"> 这种显式写法同样成立 (theme.ts 两个类都显式设)。
+ *
+ * 色相统一压在灰紫 (hue 230-245) 上, 而不是 demo 那套纯中性灰: 纯中性灰是网页调性,
+ * 原版 MC GUI 的石灰面板本身带一点冷紫, 与游戏画面叠在一起才不会显得像贴了一张网页。
+ */
+:root,
+:root.dark {
+  color-scheme: dark;
+
+  /* 中性三层: 页面底 -> 面板底 -> 抬起层 (悬停行 / 次级面板)。三层必须互相可辨, 否则层级只能靠边框撑。 */
+  --color-bg: #12131b;
+  --color-surface: #1c1e2a;
+  --color-raised: #262937;
+
+  /* 前景两级 + 强调面上的反色前景 (accent 填充块上的字, 直接用 --color-fg 会糊)。 */
+  --color-fg: #e8e9f2;
+  --color-muted: #a6abc0;
+  --color-on-accent: #14121e;
+
+  /*
+   * 两级边框强度: border 是常规分隔线 (表格行 / 面板内分区), border-strong 是需要咬住视线的轮廓
+   * (选中项 / 输入框聚焦)。只给一级会逼着人拿 accent 当边框用, 那会把强调色稀释成噪声。
+   */
+  --color-border: #363a4d;
+  --color-border-strong: #565c78;
+
+  /* 强调色三态。hover/active 单列成 token 而不是让组件自己调明度: 像素风没有渐变过渡, 状态差必须是离散色。 */
+  --color-accent: #8f7ae6;
+  --color-accent-hover: #a690f0;
+  --color-accent-active: #7a63d4;
+
+  /* 语义四色。危险色沿用原值色相, 其余三色补齐 —— 只有 danger 一个语义色时, 提示与警告只能靠文案表达。 */
+  --color-success: #5fbf74;
+  --color-warning: #e0a63c;
+  --color-danger: #e0605a;
+  --color-info: #56a8e0;
+
+  /* 硬阴影专用色 (Tailwind 的 shadow-hard 档)。它是投影而非描边, 必须比 --color-border 更沉。 */
   --color-shadow: #05060a;
+
+  /*
+   * 9-slice 上色锚点 (规格第六章)。这一组不是"框体的颜色", 而是喂给 overlay 混合的**基色**:
+   * 灰度资产在 overlay 下把 0.5 灰当支点, 亮于支点的像素向白提、暗于支点的像素向黑压,
+   * 于是同一张灰度图在不同基色下得到同一套明暗关系的不同颜色 (推导与实测见 components/pixel/README.md)。
+   *
+   * 因此这几个值看起来比最终框体暗得多是正常的: window 资产中心块灰度 160 会把基色抬到
+   * base*0.745+0.255, 亦即中心块永远比基色亮。改这一组前务必先看 #/color-check 的预测色对照。
+   */
+  --color-tone-neutral: #23273f;
+  --color-tone-accent: #2f1f6e;
+  --color-tone-success: #123a1c;
+  --color-tone-warning: #4a3308;
+  --color-tone-danger: #4a1418;
+  --color-tone-info: #10365c;
+}
+
+/*
+ * 色彩 token —— 亮色档。
+ *
+ * 亮色不是暗色的机械反相: 面板 (被 overlay 抬亮后约 #c6c8d2) 刻意压在页面底色之下,
+ * 这正是原版 MC 的关系 —— 石灰色面板浮在更亮的底上, 靠外圈黑描边而不是靠亮度差站住。
+ */
+:root.light {
+  color-scheme: light;
+
+  /* 中性三层 */
+  --color-bg: #eceef4;
+  --color-surface: #dcdfe9;
+  --color-raised: #f4f5fa;
+
+  /* 前景两级 + 反色前景 */
+  --color-fg: #1a1b24;
+  --color-muted: #565b70;
+  --color-on-accent: #f4f2fd;
+
+  /* 两级边框强度 */
+  --color-border: #a9adbe;
+  --color-border-strong: #6f7488;
+
+  /* 强调色三态。亮底上的紫必须压暗才咬得住, 与暗色档不是同一支色。 */
+  --color-accent: #6b4fd0;
+  --color-accent-hover: #7d63dd;
+  --color-accent-active: #593eb4;
+
+  /* 语义四色。同样整体压暗一档: 暗色档那几支亮色放到亮底上会糊成一团。 */
+  --color-success: #2f8f45;
+  --color-warning: #a06a12;
+  --color-danger: #c23a30;
+  --color-info: #2073b0;
+
+  /* 亮色档的硬阴影不用纯黑: 纯黑硬块在亮底上过重, 取一支深灰紫留住投影关系。 */
+  --color-shadow: #545872;
+
+  /* 9-slice 上色锚点。亮色档整体贴近白, 才能被 overlay 抬到石灰面板那个明度。 */
+  --color-tone-neutral: #b2b5c3;
+  --color-tone-accent: #a898e8;
+  --color-tone-success: #8fc79a;
+  --color-tone-warning: #dcc07a;
+  --color-tone-danger: #d99a98;
+  --color-tone-info: #97b8dc;
 }
 
 @layer base {
@@ -75,13 +175,141 @@
     /* image-rendering 是继承属性: 挂在根上一次, 整棵树的位图 (含背景图与 border-image) 都不做平滑插值。 */
     image-rendering: pixelated;
 
-    /* 点阵字体开抗锯齿平滑会直接失去像素观感。 */
+    /*
+     * 点阵字体开抗锯齿平滑会直接失去像素观感。
+     *
+     * 但这一条**不构成红线 5 的机械保证**, 别把它当已关闭的开关看:
+     * -webkit-font-smoothing 是 WebKit 私有属性, 公开文档一致的说法是它只在 macOS 的字体栈上生效,
+     * Windows 下的 Blink 走系统 ClearType 配置, 不读这个值 —— 而本项目唯一的渲染目标是 Windows 上的
+     * MCEF/Chromium。写在这里的意义只剩两条: 在 macOS 开发机上确有效果, 以及让"我们要的是无平滑"这件事
+     * 在样式表里有据可查。
+     *
+     * 红线 5 真正的保证只能来自字体本身 —— 带位图 strike 的点阵字体按整数档渲染时不经灰度抗锯齿。
+     * 而字体至今未绑 (见上方 --font-pixel: 授权与实测均未过), 于是这条红线当前处于 PENDING:
+     * 必须在真客户端对文字做像素取样复核, 严禁因为这行 CSS 在就认为它已经关掉了。
+     */
     -webkit-font-smoothing: none;
 
     /* 浏览器对缺字重的点阵字体做合成粗体/斜体, 等价于对位图做几何形变, 与硬红线同一性质, 一并封死。 */
     font-synthesis: none;
     font-family: var(--font-pixel);
     color: var(--color-fg);
+    background-color: var(--color-bg);
+  }
+}
+
+/*
+ * === 灰度上色链路 (规格第六章的落地实现) ===
+ *
+ * 要解决的事: border-image 把灰度资产原样画上去, CSS 没有任何属性能给它上色, 于是"少量灰度图 x N 个
+ * 颜色变量 = 整套 UI"这条压缩原则在框体上不成立。这里用一层与框体等大的伪元素 + overlay 混合把颜色叠回去。
+ *
+ * 为什么不是纯蒙版 (mask-border / mask-image): 三张资产的 alpha 通道实测只有 0 和 255 两个值
+ * (仅四角各 1 像素为 0, 其余 572 像素全 255, 由 node 解码 PNG 实测), 斜面明暗全部记在**灰度通道**里。
+ * alpha 蒙版只取 alpha, 上色结果会是一块四角挖空的纯色板 —— 颜色有了, 斜面全丢, 层级维度直接作废。
+ *
+ * 为什么伪元素而不是包一层 div: 包一层会把 className/ref/padding 的归属拆成两个节点, 调用方与
+ * PixelCheckPage 的量测都要跟着改; 伪元素不进 DOM, 上层组件与既有验证页一行不用动。
+ *
+ * z-index: -1 是关键: 它让色层落在"元素自身背景与 border-image 之上、子节点之下", 于是混合的底色恰好
+ * 只有那张灰度图, 而框内文字不会被一起染色。父级 isolation: isolate 把混合组封在框内 (缺了它,
+ * 负 z-index 的色层会掉到父级背景之后, 被不透明的 border-image 完全盖住, 表现为"上色毫无效果")。
+ *
+ * 降级表现 (MCEF 内嵌 Chromium 的特性支持仍是 PENDING, 规格第十二章):
+ *   - 引擎不认 mix-blend-mode: @supports 整块不生成, 框体退回今天的灰度原样, 布局与边框完全不受影响;
+ *   - 引擎不认两套 mask-border (含 -webkit- 前缀): 色层四角不被挖空, 每个角多出 slice*scale 见方
+ *     的一块实色 (--px:2 / scale:2 下是 2x2 CSS 像素), 其余部分正常上色;
+ *   - 引擎认 mix-blend-mode 但不真做混合 (未见于任何 Chromium): 色层会盖住框体成为一块纯色板,
+ *     这是唯一"看着就废了"的降级, 用 #/color-check 页第一屏并排的染色/未染色框一眼可判。
+ */
+[data-pixel-tone] {
+  /*
+   * 色层的包含块与混合组由这两条撑起。position 刻意不设保护 (未列入 ProtectedFrameStyleKey):
+   * 需要绝对定位的框请传 style={{ position: 'absolute' }} —— 行内样式压得过本规则,
+   * 而 absolute/fixed 同样能当包含块, 上色链路照常成立。
+   */
+  position: relative;
+  isolation: isolate;
+}
+
+@supports (mix-blend-mode: overlay) {
+  [data-pixel-tone]::after {
+    content: '';
+    position: absolute;
+
+    /*
+     * 负外扩到 border box: 绝对定位的偏移基准是 padding box, 而灰度资产画在 border 区,
+     * 不外扩就只染中心块。这里的 -1px 与 PixelFrame 的 border-width 是同一条 slice x scale 派生链
+     * (stylelint 裸长度例外 3/3), 两者必须同步, 否则色层与框体错位。
+     */
+    inset: calc(var(--pixel-slice) * var(--pixel-scale) * -1px);
+    z-index: -1;
+    background-color: var(--pixel-tone);
+    mix-blend-mode: overlay;
+
+    /*
+     * 只为把四角那 4 个透明像素同样从色层里挖掉, 保住阶梯硬边的角。用 alpha 蒙版在这里是对的 ——
+     * 这一步要的正是"轮廓", 明暗由下面那张灰度图负责。
+     *
+     * 无前缀与 -webkit- 前缀两套全写: Chromium 至今只稳定实现了 -webkit-mask-box-image 那套,
+     * 无前缀的 mask-border 是否可用随版本而变, 而 MCEF 的 Chromium 版本未核实。两套都写, 谁被解析谁生效,
+     * 都不被解析则退化成"角不挖空"(见上方降级表现第 2 条)。实际生效的是哪一套, 由 #/color-check 读出。
+     *
+     * mask-border-width 必须显式给: 它的 auto 取的是资产原始 slice 像素数 (8px), 而框体边框宽是
+     * slice x scale; 不给就会在 scale>1 时角孔偏小并整体错位。
+     */
+    mask-border-source: var(--pixel-frame-src);
+    mask-border-slice: var(--pixel-slice) fill;
+
+    /* stylelint-disable-next-line declaration-property-value-disallowed-list -- 裸长度例外 3/3: 9-slice 的 slice x scale 派生链 */
+    mask-border-width: calc(var(--pixel-slice) * var(--pixel-scale) * 1px);
+    mask-border-repeat: round;
+    -webkit-mask-box-image-source: var(--pixel-frame-src);
+    -webkit-mask-box-image-slice: var(--pixel-slice) fill;
+
+    /* stylelint-disable-next-line declaration-property-value-disallowed-list -- 同上, 例外 3/3 的前缀孪生 */
+    -webkit-mask-box-image-width: calc(var(--pixel-slice) * var(--pixel-scale) * 1px);
+    -webkit-mask-box-image-repeat: round;
+  }
+}
+
+/*
+ * 像素化滚动条。
+ *
+ * 这不是装饰: Chromium 的原生滚动条是一根圆角抗锯齿矢量控件, 是整套界面里唯一会破像素线的东西,
+ * 而 PixelScrollArea 的自绘纪律只覆盖它包住的容器, 管不到 overflow 落在别处的滚动。渲染目标单一
+ * (只跑 MCEF 内嵌 Chromium), 故直接用 -webkit-scrollbar 伪元素改造, 不需要考虑其它引擎。
+ *
+ * 尺寸全部走 --px 派生, 与 spacing scale 同一把尺; 圆角显式置 0 是为让红线在这里也可被机械检出。
+ */
+@layer base {
+  ::-webkit-scrollbar {
+    /* stylelint-disable-next-line declaration-property-value-disallowed-list -- 裸长度例外: 滚动条尺寸走 --px 派生链 */
+    width: calc(var(--px) * 4);
+
+    /* stylelint-disable-next-line declaration-property-value-disallowed-list -- 同上 */
+    height: calc(var(--px) * 4);
+  }
+
+  ::-webkit-scrollbar-track {
+    background-color: var(--color-bg);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--color-border-strong);
+    border-radius: 0;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-accent);
+  }
+
+  /* 两端箭头按钮是原生绘制的三角矢量, 无法像素化, 直接去掉。 */
+  ::-webkit-scrollbar-button {
+    display: none;
+  }
+
+  ::-webkit-scrollbar-corner {
     background-color: var(--color-bg);
   }
 }

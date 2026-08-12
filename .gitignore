@@ -28,6 +28,14 @@ src/generated/
 webui/node_modules/
 webui/dist/
 
+# AI 助手提示词 (各人本地一份, 不入库; 人类可读的协作规范见 分支协作.md)
+CLAUDE.md
+CODEX.md
+AGENTS.md
+GEMINI.md
+.cursorrules
+.github/copilot-instructions.md
+
 # 系统
 *.log
 .DS_Store

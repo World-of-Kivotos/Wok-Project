@@ -192,6 +192,47 @@ public final class WebUiServerGameTests {
     }
 
     /**
+     * 契约握手 (架构文档 10.6): 回送 modVersion 与全部已注册 action 名, 且清单按字典序。
+     *
+     * 强断言三项, 各自对应一处可被删掉的核心逻辑:
+     *  - modVersion 取自 mod 容器元数据且非兜底值 —— 删版本查询即退化为 "unknown", 挂;
+     *  - 清单含 system.echo 与 system.handshake —— 删 registeredActions 的遍历即空数组, 挂;
+     *  - 清单严格升序 —— 删 registeredActions 里的排序即挂 (底层 ConcurrentHashMap 的 keySet 无序,
+     *    而前端要靠这份清单直接比对, 顺序不稳就得自行归一化)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void handshakeReportsVersionAndSortedActionList(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        // 复用 echo 的幂等注册路径: 两个 system.* action 由同一次 register 一并登记。
+        ensureEchoRegistered(helper);
+
+        WebUiServerDispatcher.WebUiAction handshake = WebUiServerDispatcher.resolve("system.handshake");
+        helper.assertTrue(handshake != null,
+                "system.handshake must be registered by WebUiServerSubsystem.register");
+
+        JsonObject result = JsonParser.parseString(handshake.handle(player, new JsonObject())).getAsJsonObject();
+
+        String version = result.get("modVersion").getAsString();
+        helper.assertTrue(!version.isEmpty() && !"unknown".equals(version),
+                "handshake must report the real mod version from the mod container, got '" + version + "'");
+
+        java.util.List<String> names = new java.util.ArrayList<>();
+        for (com.google.gson.JsonElement e : result.getAsJsonArray("actions")) {
+            names.add(e.getAsString());
+        }
+        helper.assertTrue(names.contains("system.echo") && names.contains("system.handshake"),
+                "handshake action list must contain the built-in system.* actions, got " + names);
+
+        for (int i = 1; i < names.size(); i++) {
+            helper.assertTrue(names.get(i - 1).compareTo(names.get(i)) < 0,
+                    "handshake action list must be strictly ascending; '" + names.get(i - 1)
+                            + "' precedes '" + names.get(i) + "'");
+        }
+
+        helper.succeed();
+    }
+
+    /**
      * 幂等确保 "system.echo" 已注册并返回其处理器。进程级注册表跨测试方法持久, 故若已注册则直接 resolve,
      * 否则走真实 {@link WebUiServerSubsystem#register} 注册路径 (首次调用即覆盖真实注册逻辑, 删 handleEcho 必挂),
      * 避免重复注册触发 dispatcher 的 putIfAbsent 重复守卫。

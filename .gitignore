@@ -24,6 +24,10 @@ src/generated/
 # Claude Code 本地工具配置 (launch.json 等, 每人本地, 不入库)
 .claude/
 
+# 前端 (webui/ monorepo, 见 WebUI_Architecture_DesignSpec 10.2)
+webui/node_modules/
+webui/dist/
+
 # 系统
 *.log
 .DS_Store

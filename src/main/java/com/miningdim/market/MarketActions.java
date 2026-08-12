@@ -11,7 +11,10 @@ import com.miningdim.market.MarketEngine.PlaceResult;
 import com.miningdim.market.store.ListingRow;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.Item;
+import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.List;
 import java.util.OptionalLong;
@@ -68,16 +71,7 @@ public final class MarketActions {
 
         JsonArray listings = new JsonArray();
         for (ListingRow r : rows) {
-            JsonObject o = new JsonObject();
-            o.addProperty("id", r.id());
-            o.addProperty("sellerName", r.sellerName());
-            o.addProperty("itemId", r.itemId());
-            o.addProperty("count", r.count());
-            o.addProperty("unitPrice", r.unitPrice());
-            // total = unitPrice * count (买入将付的总价, 前端直接展示, 不暴露 fee 计算)。
-            o.addProperty("total", r.unitPrice() * (long) r.count());
-            o.addProperty("createdAt", r.createdAt());
-            listings.add(o);
+            listings.add(listingJson(r));
         }
         JsonObject result = new JsonObject();
         result.add("listings", listings);
@@ -152,20 +146,34 @@ public final class MarketActions {
 
         JsonArray listings = new JsonArray();
         for (ListingRow r : rows) {
-            JsonObject o = new JsonObject();
-            o.addProperty("id", r.id());
-            o.addProperty("sellerName", r.sellerName());
-            o.addProperty("itemId", r.itemId());
-            o.addProperty("count", r.count());
-            o.addProperty("unitPrice", r.unitPrice());
-            o.addProperty("total", r.unitPrice() * (long) r.count());
-            o.addProperty("createdAt", r.createdAt());
-            listings.add(o);
+            listings.add(listingJson(r));
         }
         JsonObject result = new JsonObject();
         result.add("listings", listings);
         return GSON.toJson(result);
     };
+
+    /**
+     * 一条挂单的 JSON 形状 (market.list 与 market.mine 共用, 二者契约本就同形, 此前是逐字重复的两份)。
+     *
+     * descriptionId 是翻译键: 前端拿它经 client.i18n 走客户端 I18n 解中文名 —— 专用服务端不加载 lang,
+     * 而 itemId 推不出翻译键 (物品是 item.&lt;ns&gt;.&lt;path&gt;、方块是 block.&lt;ns&gt;.&lt;path&gt;)。
+     * 物品已从注册表移除时 (卸载 mod 后的历史挂单) 回退为 itemId 本身, 与 MarketCategoryTree 的 label 同纪律。
+     */
+    private static JsonObject listingJson(ListingRow r) {
+        JsonObject o = new JsonObject();
+        o.addProperty("id", r.id());
+        o.addProperty("sellerName", r.sellerName());
+        o.addProperty("itemId", r.itemId());
+        Item item = ForgeRegistries.ITEMS.getValue(new ResourceLocation(r.itemId()));
+        o.addProperty("descriptionId", item == null ? r.itemId() : item.getDescriptionId());
+        o.addProperty("count", r.count());
+        o.addProperty("unitPrice", r.unitPrice());
+        // total = unitPrice * count (买入将付的总价, 前端直接展示, 不暴露 fee 计算)。
+        o.addProperty("total", r.unitPrice() * (long) r.count());
+        o.addProperty("createdAt", r.createdAt());
+        return o;
+    }
 
     // ============================================================
     // market.history: {page?} -> {transactions:[{listingId,itemId,count,unitPrice,total,fee,role:"buy"/"sell",createdAt}]}

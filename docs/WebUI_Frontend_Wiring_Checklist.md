@@ -261,17 +261,22 @@ PixelLoading / PixelEmpty / PixelError / PixelConfirmDanger
 
 严格分批，前一批不通过不进下一批 —— 与 PixelUI 规格第十一章"第 1 步未通过则不进入第 2 步"同纪律。
 
-**批 0 · 解阻塞（Java 侧，不外包）**
-A15 前端加载入口（devServerUrl config + openUrl(route)）-> A3 契约握手 -> A11 首个事件推送生产方 -> A12/A13 中文名与图标来源定案 -> `.gitignore` 补 `webui/node_modules/` 与构建产物。
+**批 0 · 解阻塞（Java 侧，不外包）** —— 甲类决策已全部拍板，本批可直接开工
+1. A15 前端加载入口：新增 `devServerUrl` 配置项（ForgeConfigSpec 客户端侧），`WebUiClient` 由硬编码 `data:` URI 改为加载该 URL；按 J4 只持一个 URL、`WebBrowser` 全程复用单例。
+2. J3 键位入口：注册 `KeyMapping`（`RegisterKeyMappingsEvent`），按下即打开 `WebUiScreen`。保留 `/miningdim-webui-dev` 作调试后路。
+3. A3 契约握手：`WebUiServerDispatcher` 加自省接口，新增 `system.handshake` 回 `{serverVersion, actions:[]}`。
+4. A12 补字段：`market.list` / `player.inventory` 响应补 `descriptionId`，让前端能经 `client.i18n` 解中文名。
+5. `.gitignore` 补 `webui/node_modules/` 与前端构建产物（规格 10.2 明列的落地约束）。
+6. 事件名常量表：按 J2 建受控常量类，本批只建表不发事件。
 
 **批 1 · 像素单点验证**（PixelUI 规格第十一章第 1 步）
 出 1 张 9-slice 资产 + `PixelFrame`，用同一份资产同时渲染行内小按钮与全屏平板，真客户端验 `devicePixelRatio` x GUI Scale 叠加是否破坏像素对齐。**此步不通过，后面全部作废。**
 
 **批 2 · 市场闭环**（唯一后端就绪的模块，验证全链路）
-组件库 L0/L1 + 市场四视图。同步补 B1 total / B6 history / B9 feePreview / B10 p2pCap / A14 中文输入。
+组件库 L0/L1 + 市场四视图，按 J2 全用轮询。同步补 B1 total / B6 history / B9 feePreview / B10 p2pCap / A14 中文输入，并在收尾前定 J1。
 
 **批 3 · 职业总览 + 个人档案**
-A5 聚合 action + C1 job.progress。C4 的同步时机缺口决定这里是轮询还是推送。
+A5 聚合 action + C1 job.progress。按 J2 在此批补 `S2CWebUiEvent` 的首个生产调用方（成交/求婚/击杀结算三类）。
 
 **批 4 · 各职业子页 + 婚姻 + 矿洞**
 约 30 个薄封装 action 铺开，是 Codex 主战场。
@@ -298,16 +303,17 @@ A5 聚合 action + C1 job.progress。C4 的同步时机缺口决定这里是轮�
 
 ## 七、遗留决策项（需拍板才能继续）
 
-### 甲类 · 卡住批 0，不定就无法开工
+### 甲类 · 曾卡批 0（2026-08-12 已全部拍板，DECIDED）
 
-| # | 决策 | 选项 | 建议 |
+| # | 决策 | 结论 | 落地含义 |
 |---|---|---|---|
-| J1 | **第三方 mod 的物品图标怎么取**（A13） | (a) **新增客户端本地 action `client.itemIcon`**：与 `client.i18n` 完全同构，从玩家客户端已加载的 `ResourceManager` 读 PNG 字节转 base64 data URI 回页面；(b) 切分发路线 B，服务端内嵌静态 serve 出 `/v1/item-icon`；(c) 构建期从 `libs/` 下的 mod jar 抽图打进前端产物；(d) 第三方 mod 物品一律像素占位块 | (a)。玩家客户端本来就加载了全部 mod 的资源包，取图与取中文名是同一件事的两面 —— `client.i18n` 已经证明这条路通。它同时消除对第三方镜像站的外部依赖（原版贴图也能走同一条路），自动覆盖未来新增的任何 mod，且不必改分发决策。**注意本条只关乎第三方 mod**：本 mod 自己的 303 张贴图同 monorepo 构建期 copy 即可，与本决策无关 |
-| J2 | **实时性策略**（C4/A11） | (a) 后端补节流推送，`S2CWebUiEvent` 开第一个生产调用方；(b) 前端统一定时轮询；(c) 混合：成交/求婚/结算走推送，进度条走轮询 | (c)。纯轮询在 MCEF 里对 8 职业进度 + 钱包 + 市场同时开会很难看；纯推送要改 `grantXp` 主路径（撞 C4 的同步时机缺口），风险大。混合可以让批 2 先用轮询跑通，推送随批 3 补 |
-| J3 | **平板 hub 入场载体**（A17） | (a) 物品（可掉落/可被抢）；(b) 键位绑定（人人有，无成本）；(c) 两者都要 | (b) 先行。物品形态要额外处理掉落/死亡/复制，而 hub 是纯只读入口不该有获取门槛；日后想加"平板物品"作为沉浸感道具再叠 |
-| J4 | **前端加载 URL 的形态**（A15） | (a) 单一 URL + 前端路由（hash route）；(b) 每个面板一个 URL，Java 侧 `openUrl(route)` 直接切 | (a)。单例 browser 复用（10.5 已定的预加载策略）与多 URL 冲突，切页面会丢已加载实例 |
+| J2 | **实时性策略**（C4/A11） | **DECIDED = 混合**：成交/求婚/击杀结算走 `S2CWebUiEvent` 推送，进度条类走前端轮询 | 批 2 市场闭环可全用轮询先跑通；`S2CWebUiEvent` 的首个生产调用方随批 3 补，不必现在动 `grantXp` 主路径（规避 C4 同步时机缺口的改造风险）。事件名须集中登记为受控常量（架构文档 5.1 第 6 条），不允许各子系统自由拼字符串 |
+| J3 | **平板 hub 入场载体**（A17） | **DECIDED = 键位绑定** | 注册一个 `KeyMapping`（客户端侧，`RegisterKeyMappingsEvent`），按下即 `setScreen(WebUiScreen)`。不做平板物品，因而无掉落/死亡/复制处理面；日后要加沉浸感道具再叠，不影响本决策 |
+| J4 | **前端加载 URL 形态**（A15） | **DECIDED = 单 URL + 前端 hash 路由** | Java 侧只持有一个 `devServerUrl`，`WebBrowser` 只 `create()` 一次并全程复用（与 10.5 预加载策略一致）。切面板不经 Java，由前端路由自理；Java 侧若需定向打开某面板，走 `client.navigate` 事件带 route 参数，而非 `loadURL` 重载页面 |
+| J1 | **第三方 mod 的物品图标怎么取**（A13） | **推迟到批 2 收尾前**（已不卡批 0） | 候选：(a) 新增客户端本地 action `client.itemIcon`，与 `client.i18n` 同构，从客户端 `ResourceManager` 读 PNG 转 base64；(b) 切分发路线 B 出 `/v1/item-icon`；(c) 构建期从 `libs/` 抽图；(d) 一律像素占位块。倾向 (a)：客户端本就加载全部 mod 资源，取图与取中文名是同一件事的两面，且顺带甩掉对第三方镜像站的依赖、自动覆盖未来新 mod。**本条只关乎第三方 mod** —— 本 mod 自己的 303 张贴图同 monorepo 构建期 copy 即可 |
 
-> J1 的紧迫性说明：经 2026-08-12 复核，它**已不再卡批 0**。本 mod 自己的贴图同仓 copy、原版贴图走既有回退链，二者合计已覆盖批 2 市场闭环的绝大多数标的；第三方 mod 物品可先落像素占位块。故 J1 可推迟到批 2 收尾前定，但推荐的 (a) 方案需先做一次实现期验证：`Minecraft.getInstance().getResourceManager().getResource(...)` 在 1.20.1 返回 `Optional<Resource>`，读 PNG 字节本身直接；难点在 itemId -> 贴图路径的解析（要走模型 parent 链，等价于把 `mcAssets.ts` 的逻辑搬到 Java 客户端侧），标 PENDING。
+> J1 的降级依据：本 mod 自己的贴图同仓 copy、原版贴图走既有回退链，二者合计已覆盖批 2 市场闭环的绝大多数标的，第三方 mod 物品可先落像素占位块。
+> (a) 方案需一次实现期验证：`Minecraft.getInstance().getResourceManager().getResource(...)` 在 1.20.1 返回 `Optional<Resource>`，读 PNG 字节本身直接；难点在 itemId -> 贴图路径解析（要走模型 parent 链，等价于把 `mcAssets.ts` 的逻辑搬到 Java 客户端侧）。标 PENDING。
 
 ### 乙类 · 卡住批 2 之后，晚定会返工
 

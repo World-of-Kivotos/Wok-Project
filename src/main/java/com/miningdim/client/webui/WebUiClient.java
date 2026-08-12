@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.cinemamod.mcef.MCEF;
+import com.miningdim.config.MiningClientConfig;
 
 import net.minecraft.client.Minecraft;
 import net.minecraftforge.fml.ModList;
@@ -40,6 +41,9 @@ public final class WebUiClient {
     private static final WebUiBridge BRIDGE = new WebUiBridge();
     @Nullable
     private static volatile WebBrowser browser;
+    // 单例浏览器当前已加载的页面 URL: 供 openScreen 在 forceReload=false 时判断能否跳过重载 (决策 J4)。
+    @Nullable
+    private static volatile String loadedUrl;
     // 路由是否已注册 (MCEF init 回调成功后置真); 避免重复注册。
     private static volatile boolean routerRegistered = false;
 
@@ -84,7 +88,18 @@ public final class WebUiClient {
      * 浏览器创建后绑定到桥 (供 onEvent 注入), 再以 WebUiScreen 打开。
      */
     public static void openDevScreen() {
-        openScreen(devPageDataUri(), "WebUI");
+        openScreen(devPageDataUri(), "WebUI", true);
+    }
+
+    /**
+     * 打开正式前端 (键位入口与后续平板 hub 的唯一路径)。加载 {@link MiningClientConfig#WEBUI_URL} 配置的单一 URL;
+     * 面板路由由页面自身的 hash router 承担 (决策 J4), Java 侧不按面板换 URL。
+     *
+     * 与 jar 内置页的关键差异是 {@code forceReload=false}: 内置页是一次性展示 (开箱动画每次都该从头播), 而正式
+     * 前端是常驻 SPA —— 每次按键都重载会丢掉已加载的应用状态并把路由弹回首页, 正是架构文档 10.5 要消除的开销。
+     */
+    public static void openWebUi() {
+        openScreen(MiningClientConfig.WEBUI_URL.get(), "WOK", false);
     }
 
     /** 打开 jar 内置的武器箱页面。页面仍走统一 cefQuery 桥, 仅展示与动画在客户端执行。 */
@@ -97,32 +112,41 @@ public final class WebUiClient {
             hint(Minecraft.getInstance(), "[WOK] 武器箱界面资源损坏, 请检查客户端模组。");
             return;
         }
-        openScreen(page, "WOK Case");
+        openScreen(page, "WOK Case", true);
     }
 
-    private static void openScreen(String pageDataUri, String title) {
+    /**
+     * 打开宿主界面并确保浏览器停在目标页。
+     *
+     * @param forceReload 复用已有浏览器时是否无条件重载。jar 内置页传 true (每次打开都该是全新一遍);
+     *                    常驻 SPA 传 false —— 目标页与已加载页相同时跳过 loadURL, 保住应用状态与 Chromium 缓存。
+     *                    跳过重载不影响安全: 上面的 setAllowedPage 已按本次目标页重新登记, onQuery 仍逐次精确匹配。
+     */
+    private static void openScreen(String pageUrl, String title, boolean forceReload) {
         Minecraft mc = Minecraft.getInstance();
         if (!ModList.get().isLoaded("mcef") || !MCEF.isInitialized()) {
             hint(mc, "[MiningDim] WebUI 不可用: 未安装或未初始化 MCEF。");
             return;
         }
 
-        // cefQuery 能触发扣费等权威动作, 因此桥只接受宿主本次明确加载的完整 data URI。
-        BRIDGE.setAllowedPage(pageDataUri);
+        // cefQuery 能触发扣费等权威动作, 因此桥只接受宿主本次明确加载的完整页面 URL。
+        BRIDGE.setAllowedPage(pageUrl);
         WebBrowser b = browser;
         if (b == null) {
             b = new WebBrowser(false);
             int w = mc.getWindow().getWidth();
             int h = mc.getWindow().getHeight();
-            boolean ok = b.create(pageDataUri, w, h);
+            boolean ok = b.create(pageUrl, w, h);
             if (!ok) {
                 hint(mc, "[MiningDim] WebUI 浏览器创建失败 (MCEF 未就绪)。");
                 return;
             }
             browser = b;
             BRIDGE.setBrowser(b);
-        } else {
-            b.loadURL(pageDataUri);
+            loadedUrl = pageUrl;
+        } else if (forceReload || !pageUrl.equals(loadedUrl)) {
+            b.loadURL(pageUrl);
+            loadedUrl = pageUrl;
         }
         mc.setScreen(new WebUiScreen(b, net.minecraft.network.chat.Component.literal(title)));
     }

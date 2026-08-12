@@ -122,6 +122,8 @@
   "affix.champions.caesar_swap": "Caesar Swap",
   "affix.champions.blade_waltz": "Blade Waltz",
   "affix.champions.summon_support": "Summon Support",
+  "category.miningdim.ui": "MiningDim Interface",
+  "key.miningdim.ui.open": "Open Tablet Hub",
   "category.miningdim.miner": "Miner",
   "key.miningdim.miner.ore_scan": "Ore Scan",
   "key.miningdim.miner.trap_scan": "Trap Scan",

@@ -122,6 +122,8 @@
   "affix.champions.caesar_swap": "凯撒实验型转换器",
   "affix.champions.blade_waltz": "利刃华尔兹",
   "affix.champions.summon_support": "支援",
+  "category.miningdim.ui": "矿洞界面",
+  "key.miningdim.ui.open": "打开平板",
   "category.miningdim.miner": "矿工",
   "key.miningdim.miner.ore_scan": "矿物探测",
   "key.miningdim.miner.trap_scan": "陷阱探测",

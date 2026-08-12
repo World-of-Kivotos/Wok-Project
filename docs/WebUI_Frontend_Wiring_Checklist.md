@@ -25,7 +25,7 @@
 **两条最致命的**（不解决前端连跑都跑不起来，与业务面板无关）：
 
 1. `S2CWebUiEvent` 全库**零业务调用方** —— 推送面是空管道，架构文档 5.1 第 6 条要的市场实时联动完全没有发送端。
-2. **模组物品图标没有任何取图路径** —— 塔罗 22 + 枪匠 190 + 佳酿 9 + 纳米 6 共 217 张模组图标在香草 CDN 上不存在，规格 181 行写的 `/v1/item-icon` 端点零代码，且当前分发路线 A 根本没有 HTTP 出口。（中文名不在此列，见 A12：`client.i18n` 已能解，只差响应里补 `descriptionId` 字段。）
+2. **物品图标的取图路径未定** —— 旧前端只会 fetch 第三方原版贴图镜像站 `assets.mcasset.cloud`，那上面只有 Minecraft 原版资源。本 mod 自己的 246 张 item + 57 张 block 贴图虽在本仓库内（同 monorepo，构建期 copy 即可），**第三方 mod（TACZ 枪械、Champions、farmersdelight 等）的贴图既不在本仓库也不在该镜像站**，而市场分类树枚举的是 `ForgeRegistries.ITEMS` 全量。详见 A13/J1。
 
 ---
 
@@ -110,7 +110,7 @@ PixelLoading / PixelEmpty / PixelError / PixelConfirmDanger
 | A10 | 错误码中文化 | BACKEND | `WebUiServerDispatcher:107-113` | 现在回给前端的是 Java 异常原文（中英混杂，部分是内部描述），不可直接展示给玩家。需约定 `errorCode` + 参数由前端本地化 |
 | A11 | 服务端主动推送 | BACKEND | `MiningNetwork:142 sendWebUiEvent`（**全库零业务调用方**） | 事件面是空管道。无推送则一切靠轮询 |
 | A12 | 物品中文名 | WRAP | `MarketActions:60`/`PlayerWebUiActions:47` 只回 itemId | **不是来源问题**：`client.i18n` 走客户端 `I18n.get()`，玩家客户端已加载全部模组 lang，中文名本就能解。缺的是 `market.list`/`player.inventory` 响应里没有 `descriptionId`（翻译键），前端从 itemId 推不出（物品是 `item.ns.x`、方块是 `block.ns.x`）。`admin.listItems` 已在回该字段，照抄即可 |
-| A13 | 模组物品图标端点 | NONE | `PixelUI 规格:181` 写的 `/v1/item-icon` 零代码 | 香草走 CDN 已实现回退链；模组 217 张图标无任何取图路径，且路线 A 无 HTTP 出口 |
+| A13 | 物品图标取图路径 | 分三段，见 J1 | `PixelUI 规格:181` 写的 `/v1/item-icon` 零代码 | (1) 原版物品：旧前端已实现四级回退链打第三方镜像站 `assets.mcasset.cloud`，可用但引入外部服务依赖；(2) **本 mod 自己的 246 item + 57 block 贴图：就在本仓库 `src/main/resources/assets/miningdim/textures/` 下，前端同 monorepo，构建期 copy 即可，非阻塞**；(3) 第三方 mod（TACZ/Champions/farmersdelight）贴图：既不在本仓库也不在镜像站，是唯一真缺口 |
 | A14 | 中文输入 EditBox 叠加 | BLOCKED | `WebUiScreen:24-26,178`（自标 step2 接口位） | 受影响：市场搜索框、admin 物品过滤框、按玩家名找人（求婚/调账）。纯数字框不受影响，可先放行数字面板 |
 | A15 | 前端加载入口 | BLOCKED | `WebUiClient:95` 硬编码 `data:` URI 开发页 | **无 devServerUrl config、无 openUrl(route)**，前端页面目前根本没有被加载的途径。0 号阻塞项 |
 | A16 | 玩家名/UUID 解析与在线状态 | BACKEND | 全库零 `GameProfileCache` 用法 | 求婚选人、OP 调账选目标、看配偶在线、成交历史显示对手名都要。`sellerName` 是挂单瞬间快照，会随改名过期 |
@@ -302,10 +302,12 @@ A5 聚合 action + C1 job.progress。C4 的同步时机缺口决定这里是轮�
 
 | # | 决策 | 选项 | 建议 |
 |---|---|---|---|
-| J1 | **模组图标取图路径**（A13） | (a) 切分发路线 B，mod 内嵌静态 serve 顺带出 `/v1/item-icon`；(b) 构建期从 jar 抽 217 张图打进前端产物；(c) 只做香草，模组物品一律像素占位块 | (a)。架构文档 10.3 已明写 A 切 B 只是"一个 config 值 + 一个静态 serve 类"，10.4 已预先界定其安全面；且顺带解掉 10.6 的版本错配问题（B 天然免疫）。(b) 的代价是每加一件物品要重新构建前端 |
+| J1 | **第三方 mod 的物品图标怎么取**（A13） | (a) **新增客户端本地 action `client.itemIcon`**：与 `client.i18n` 完全同构，从玩家客户端已加载的 `ResourceManager` 读 PNG 字节转 base64 data URI 回页面；(b) 切分发路线 B，服务端内嵌静态 serve 出 `/v1/item-icon`；(c) 构建期从 `libs/` 下的 mod jar 抽图打进前端产物；(d) 第三方 mod 物品一律像素占位块 | (a)。玩家客户端本来就加载了全部 mod 的资源包，取图与取中文名是同一件事的两面 —— `client.i18n` 已经证明这条路通。它同时消除对第三方镜像站的外部依赖（原版贴图也能走同一条路），自动覆盖未来新增的任何 mod，且不必改分发决策。**注意本条只关乎第三方 mod**：本 mod 自己的 303 张贴图同 monorepo 构建期 copy 即可，与本决策无关 |
 | J2 | **实时性策略**（C4/A11） | (a) 后端补节流推送，`S2CWebUiEvent` 开第一个生产调用方；(b) 前端统一定时轮询；(c) 混合：成交/求婚/结算走推送，进度条走轮询 | (c)。纯轮询在 MCEF 里对 8 职业进度 + 钱包 + 市场同时开会很难看；纯推送要改 `grantXp` 主路径（撞 C4 的同步时机缺口），风险大。混合可以让批 2 先用轮询跑通，推送随批 3 补 |
 | J3 | **平板 hub 入场载体**（A17） | (a) 物品（可掉落/可被抢）；(b) 键位绑定（人人有，无成本）；(c) 两者都要 | (b) 先行。物品形态要额外处理掉落/死亡/复制，而 hub 是纯只读入口不该有获取门槛；日后想加"平板物品"作为沉浸感道具再叠 |
 | J4 | **前端加载 URL 的形态**（A15） | (a) 单一 URL + 前端路由（hash route）；(b) 每个面板一个 URL，Java 侧 `openUrl(route)` 直接切 | (a)。单例 browser 复用（10.5 已定的预加载策略）与多 URL 冲突，切页面会丢已加载实例 |
+
+> J1 的紧迫性说明：经 2026-08-12 复核，它**已不再卡批 0**。本 mod 自己的贴图同仓 copy、原版贴图走既有回退链，二者合计已覆盖批 2 市场闭环的绝大多数标的；第三方 mod 物品可先落像素占位块。故 J1 可推迟到批 2 收尾前定，但推荐的 (a) 方案需先做一次实现期验证：`Minecraft.getInstance().getResourceManager().getResource(...)` 在 1.20.1 返回 `Optional<Resource>`，读 PNG 字节本身直接；难点在 itemId -> 贴图路径的解析（要走模型 parent 链，等价于把 `mcAssets.ts` 的逻辑搬到 Java 客户端侧），标 PENDING。
 
 ### 乙类 · 卡住批 2 之后，晚定会返工
 

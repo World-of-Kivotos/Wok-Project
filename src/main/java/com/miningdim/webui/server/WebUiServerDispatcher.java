@@ -9,7 +9,10 @@ import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -125,6 +128,18 @@ public final class WebUiServerDispatcher {
      */
     public static WebUiAction resolve(String action) {
         return ACTIONS.get(action);
+    }
+
+    /**
+     * 全部已注册 action 名 (字典序)。供 system.handshake 下发给页面做契约比对 —— 远端托管路线下浏览器可能缓存
+     * 旧构建, 调用已删除的 action 只会逐个静默失败 (架构文档 10.6), 页面拿到本清单即可在启动时一次性自检。
+     *
+     * 排序保证同一 action 集合的输出稳定, 让前端能直接比对而不必自行归一化。
+     */
+    public static List<String> registeredActions() {
+        List<String> names = new ArrayList<>(ACTIONS.keySet());
+        Collections.sort(names);
+        return names;
     }
 
     /**

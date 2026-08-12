@@ -55,6 +55,9 @@ public final class PlayerWebUiActions {
             JsonObject o = new JsonObject();
             o.addProperty("slot", slot);
             o.addProperty("itemId", MarketEngine.itemIdOf(stack));
+            // 翻译键: 前端拿它经 client.i18n 走客户端 I18n 解出中文名 (专用服务端不加载 lang, 且 itemId 推不出
+            // 翻译键 —— 物品是 item.<ns>.<path>、方块是 block.<ns>.<path>)。与 admin.listItems 同字段名。
+            o.addProperty("descriptionId", stack.getDescriptionId());
             o.addProperty("count", stack.getCount());
             // nbt 摘要: 仅自定义命名物品附 displayName (改名携 NBT, 是有意义的 nbt 摘要), 让前端区分同 id 的不同实例。
             if (stack.hasCustomHoverName()) {

@@ -100,6 +100,13 @@ public final class MarketBridgeGameTests {
                 "slot 0 reports the diamond stack (itemId + count=5)");
         helper.assertTrue(diamond != null && !diamond.has("displayName"),
                 "a plain (un-renamed) item omits displayName (client resolves name via i18n)");
+        // 翻译键必须随行下发: 前端只有 itemId 推不出它 (物品 item.<ns>.<path> / 方块 block.<ns>.<path>),
+        // 没有它 client.i18n 就无从解出中文名。删 descriptionId 字段本断言必挂。
+        helper.assertTrue(diamond != null && diamond.has("descriptionId")
+                        && "item.minecraft.diamond".equals(diamond.get("descriptionId").getAsString()),
+                "slot 0 carries the translation key for client-side i18n, got "
+                        + (diamond == null || !diamond.has("descriptionId")
+                            ? "<missing>" : diamond.get("descriptionId").getAsString()));
 
         JsonObject iron = findBySlot(items, 3);
         helper.assertTrue(iron != null

@@ -1,11 +1,14 @@
 package com.miningdim.webui.server;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.miningdim.core.MiningConstants;
 import com.miningdim.core.Subsystem;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.fml.ModList;
 
 /**
  * Web UI 服务端子系统 (Web UI bridge 契约第 7 节)。服务端安全: 不触碰任何 MCEF / 浏览器 / 客户端渲染类,
@@ -22,6 +25,9 @@ public final class WebUiServerSubsystem implements Subsystem {
     public void register(IEventBus modBus, IEventBus forgeBus) {
         // 内置回声 action (契约第 6 节响应格式): 回送 {player, echo, serverTick}, 用于桥接通路联调与心跳验证。
         WebUiServerDispatcher.register("system.echo", WebUiServerSubsystem::handleEcho);
+        // 契约握手 (架构文档 10.6): 页面启动时比对自身预期的 action 集与服务端实际注册集, 把"远端缓存旧页面
+        // 调已删 action"从逐个静默失败变成一次性明确报错。
+        WebUiServerDispatcher.register("system.handshake", WebUiServerSubsystem::handleHandshake);
         // 玩家登出清理其 requestId 防重放窗口 (派发器维护, 见红线 6); 防离线玩家窗口驻留内存泄漏。
         // forgeBus 可能为 null (GameTest 纯逻辑路径只验 dispatcher 不订阅事件), 此时跳过订阅。
         if (forgeBus != null) {
@@ -47,6 +53,27 @@ public final class WebUiServerSubsystem implements Subsystem {
         result.addProperty("player", sender.getName().getString());
         result.addProperty("echo", echo);
         result.addProperty("serverTick", sender.server.getTickCount());
+        return GSON.toJson(result);
+    }
+
+    /**
+     * "system.handshake" 处理器: resultJson = {"modVersion":&lt;版本&gt;,"actions":[&lt;全部已注册 action 名, 字典序&gt;]}。
+     *
+     * 页面启动时调一次, 与自身构建期记录的 action 集比对: 缺失项即"页面比服务端新"(或服务端少装了子系统),
+     * 多出项即"页面是旧缓存"。二者都在启动时一次性暴露, 而不是等玩家点到某个面板才静默失效 (架构文档 10.6)。
+     *
+     * 不吃 payload: 握手是纯查询, 无入参。版本取自 mod 容器元数据, 与 gradle.properties 的 mod_version 同源。
+     */
+    private static String handleHandshake(net.minecraft.server.level.ServerPlayer sender, JsonObject payload) {
+        JsonObject result = new JsonObject();
+        result.addProperty("modVersion", ModList.get().getModContainerById(MiningConstants.MODID)
+                .map(c -> c.getModInfo().getVersion().toString())
+                .orElse("unknown"));
+        JsonArray actions = new JsonArray();
+        for (String name : WebUiServerDispatcher.registeredActions()) {
+            actions.add(name);
+        }
+        result.add("actions", actions);
         return GSON.toJson(result);
     }
 }

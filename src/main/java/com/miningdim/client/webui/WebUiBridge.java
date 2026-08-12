@@ -75,11 +75,25 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
         this.browser = browser;
     }
 
-    public void setAllowedPage(String pageDataUri) {
-        if (!pageDataUri.startsWith("data:text/html")) {
-            throw new IllegalArgumentException("WebUI page must be an in-mod HTML data URI");
+    /**
+     * 登记宿主本次明确加载的页面 URL, 只有它能调 cefQuery (由 {@link #onQuery} 做精确匹配)。
+     *
+     * 允许两类来源:
+     *  - {@code data:text/html} —— jar 内置页 (开箱等含扣费动作的页面走这条, 保持最强保证不变);
+     *  - {@code http://} / {@code https://} —— 远端托管的前端 (架构文档第二章第 2 条的路线 A / 第十章的路线 B)。
+     *
+     * 放宽的只是"页面从哪来", **没有放宽"哪个页面可信"** —— onQuery 仍要求发起方是顶层帧且其 URL 精确等于本值。
+     * 挡住子帧/iframe/导航后页面的是那道精确匹配, 与 scheme 无关, 对 http 页面同样成立。信任判定点在宿主
+     * {@link WebUiClient}: 它只会加载 jar 内置页或运维配置的前端地址, 二者之外的 URL 永远不会传到这里。
+     */
+    public void setAllowedPage(String pageUrl) {
+        if (!pageUrl.startsWith("data:text/html")
+                && !pageUrl.startsWith("http://")
+                && !pageUrl.startsWith("https://")) {
+            throw new IllegalArgumentException(
+                    "WebUI page must be an in-mod HTML data URI or an http(s) front-end URL");
         }
-        this.allowedPageUrl = pageDataUri;
+        this.allowedPageUrl = pageUrl;
     }
 
     /**

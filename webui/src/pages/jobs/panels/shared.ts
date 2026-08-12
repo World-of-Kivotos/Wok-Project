@@ -3,11 +3,20 @@ import { nowMs } from '../../../mock'
 import type { PlannedStatUnit } from '../../../mock'
 
 /**
- * 战斗/特殊职业四个面板 (塔罗/特勤/军火商/工程师) 共用的极小工具集。
+ * 八个职业面板共用的极小工具集, 以及它们必须逐字照抄的排版骨架约定。
  *
- * 抽出来的理由只有一条: 冷却倒计时的展示口径 (取整方式/"已就绪"文案) 与 PlannedStatLine 数值单位的
- * 格式化规则若在四个文件里各写一遍, 四个面板会长出四种数字观感, 与本设计系统"同一屏用同一套语言"的
+ * 工具集抽出来的理由只有一条: 冷却倒计时的展示口径 (取整方式/"已就绪"文案) 与 PlannedStatLine 数值单位的
+ * 格式化规则若在各个文件里各写一遍, 面板就会长出好几种数字观感, 与本设计系统"同一屏用同一套语言"的
  * 前提冲突。这里只沉淀纯展示逻辑, 不碰任何业务规则或世界状态写入 —— 那些仍归各自面板处理。
+ *
+ * 排版骨架 (八个面板是玩家来回切换的兄弟页, 任一处分区结构/字号/间距不一致都会立刻显形):
+ *   - 根容器恒为 <div className="flex flex-col gap-4">;
+ *   - 首个分区恒为 <Panel title="{职业名}">, 内含 grid grid-cols-3 gap-4 的 <Stat>, 第一格恒为"职业等级";
+ *     契约缺口说明紧跟在 Stat 网格下方, 用 <p className="text-muted-foreground text-xs">;
+ *   - 其余每个分区一律 <Panel title="...">, 分区内纵向排布统一 flex flex-col gap-3;
+ *   - 分区内的小标题用 <h3 className="font-medium text-foreground text-sm">, 不自造第三级标题;
+ *   - 未达成的等级门用 <Surface tone="warning">, 写操作回执用 <FeedbackAlert>;
+ *   - 页名由 TabletShell 按 ROUTE_TITLES 统一渲染, 面板内不再画一遍页名。
  */
 
 /** 高频倒计时展示 (扫描 CD / 牌冷却 / 悬赏过期) 需要的活体时钟; 默认每秒刷新一次。 */

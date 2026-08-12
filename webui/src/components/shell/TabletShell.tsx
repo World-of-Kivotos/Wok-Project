@@ -1,46 +1,51 @@
+import {
+  BookOpenIcon,
+  BriefcaseIcon,
+  GiftIcon,
+  HeartIcon,
+  HomeIcon,
+  type LucideIcon,
+  PickaxeIcon,
+  SettingsIcon,
+  ShieldCheckIcon,
+  ShoppingCartIcon,
+  StoreIcon,
+  XIcon,
+} from 'lucide-react'
 import type { ReactElement, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { isMockActive } from '../../lib/bridge'
-import { mutateWorld, primeRealDomainMirror, useMockAction, useMockWorld } from '../../mock'
+import { Button, Currency, LoadingBlock, Tag, Toggle } from '@/components/kit'
+import { isMockActive } from '@/lib/bridge'
+import { mutateWorld, primeRealDomainMirror, useMockAction, useMockWorld } from '@/mock'
 import {
   ROUTE_ADMIN,
   ROUTE_CASE,
   ROUTE_CODEX,
-  ROUTE_COLOR_CHECK,
   ROUTE_COMPONENTS,
   ROUTE_HOME,
   ROUTE_JOBS,
   ROUTE_MARKET,
   ROUTE_MARRIAGE,
   ROUTE_MINING,
-  ROUTE_PIXEL_CHECK,
   ROUTE_SETTINGS,
   ROUTE_SHOP,
   ROUTE_TITLES,
   useNavigate,
   useRouteMatch,
-} from '../../router'
-import type { PixelFrameTone, PixelTab } from '../pixel'
-import {
-  PixelBadge,
-  PixelButton,
-  PixelCheckbox,
-  PixelCurrency,
-  PixelFrame,
-  PixelLoading,
-  PixelTabs,
-} from '../pixel'
+} from '@/router'
+import type { Tone } from '@/components/kit'
 
 /**
  * 平板 hub 外壳。真源: 接线清单第一章信息架构 + 记忆项 unified-ui-entry-plan。
  *
  * 存在的理由是入口纪律: 全部功能面板经这一个平板进入, 不给每个功能接 ad-hoc 独立入口
- * (那条路走下去就是"八个职业八个键位", 而键位与物品都还没有 —— 清单第四章把"平板 hub 本身"
- * 列为零后端的 10 块之一)。外壳因此是唯一持有导航、身份与余额的地方, 面板只管自己那块内容。
+ * (那条路走下去就是"八个职业八个键位", 而键位与物品都还没有)。外壳因此是唯一持有导航、身份与
+ * 余额的地方, 面板只管自己那块内容。
  *
- * 层级关系用两档 9-slice 资产表达而不是靠边框颜色: 外壳本体是 window(外凸, 高光在上),
- * 内容区是 panel(平面板), 两者的斜面方向不同, 于是"内容嵌在平板里"这件事在灰度层面就成立,
- * 不依赖调用方额外加分隔线 (规格第七章的层级维度必须出图, 见 PixelFrame 文件头)。
+ * 导航从上一版的横排页签改成左侧栏。不是审美偏好, 是横排装不下: 十个入口排成一行, 加上图标后
+ * 整条导航约 900 CSS px, 而外壳还要在同一行塞玩家名/双货币/在线人数/TPS。上一版为此把每个入口
+ * 压成两字短名 (跳蚤市场 -> 市场) 且一个图标都不给, 仍然逼近极限。竖排之后宽度是常量, 加第 11 个
+ * 入口不会挤掉任何东西。
  *
  * 数据一律走 mock 层的 callMock 而不是直接读 store: player.profile 是接线清单 A5 专为首屏设计的聚合
  * (不做这条, 顶栏要串行 6+ 次 MCEF 往返), 它回来的 wallet 已经把 planned 域的收支叠加层算进去了 ——
@@ -52,47 +57,29 @@ const EMPTY_PAYLOAD: Record<string, never> = {}
 
 interface ShellNavEntry {
   readonly id: string
-  /** 页签上的短名。 */
   readonly label: string
   readonly route: string
-  /** 真为 OP 专属: 非 OP 时整个页签不渲染 (而不是渲染成禁用态)。 */
+  readonly icon: LucideIcon
+  /** 真为 OP 专属: 非 OP 时整个入口不渲染 (而不是渲染成禁用态)。 */
   readonly opOnly: boolean
 }
 
-/**
- * 一级导航。顺序照接线清单第一章的信息架构树, 不按字母序 —— 首页与市场是高频入口, 必须在最左。
- *
- * 页签用两字短名而不是"跳蚤市场""管理后台"这类全名: 十个页签排成一行, 全名下整条导航栏约 1500 CSS px,
- * 在 1280 宽的客户端会被挤出可视区; 而 PixelTabs 是 inline-flex 不折行, 溢出的表现是"最后几个页签点不到"。
- * 全名没有丢, 它在内容区表头 (ROUTE_TITLES), 那里一屏只出现一条, 不占横向预算。
- *
- * 刻意一个图标都不给: PIXEL_ICON_NAMES 里没有首页/矿洞/图鉴/开箱/职业的对应图标, 只给市场(bag)、
- * 婚姻(heart)、设置(settings) 三个会让十个页签里三个带图标七个不带, 高度与视觉重心全不一致。
- * 补齐这五张 16x16 图标是美术侧的事 (tools/gen-icons.mjs 的名单与 PixelIcon 双向校验), 补齐后在这里
- * 统一加 icon 字段即可。
- */
+/** 一级导航。顺序照接线清单第一章的信息架构树, 不按字母序 —— 首页与市场是高频入口, 必须在最上。 */
 const SHELL_NAV_ENTRIES: readonly ShellNavEntry[] = [
-  { id: 'home', label: '首页', route: ROUTE_HOME, opOnly: false },
-  { id: 'market', label: '市场', route: ROUTE_MARKET, opOnly: false },
-  { id: 'shop', label: '商店', route: ROUTE_SHOP, opOnly: false },
-  { id: 'jobs', label: '职业', route: ROUTE_JOBS, opOnly: false },
-  { id: 'mining', label: '矿洞', route: ROUTE_MINING, opOnly: false },
-  { id: 'codex', label: '图鉴', route: ROUTE_CODEX, opOnly: false },
-  { id: 'marriage', label: '婚姻', route: ROUTE_MARRIAGE, opOnly: false },
-  { id: 'case', label: '开箱', route: ROUTE_CASE, opOnly: false },
-  { id: 'settings', label: '设置', route: ROUTE_SETTINGS, opOnly: false },
-  { id: 'admin', label: '管理', route: ROUTE_ADMIN, opOnly: true },
-]
-
-/** 验证页入口。它们不是玩家功能, 故不进一级导航, 只在假数据模式下从页脚进入。 */
-const SHELL_DEV_ROUTES: readonly { readonly route: string; readonly label: string }[] = [
-  { route: ROUTE_PIXEL_CHECK, label: ROUTE_TITLES[ROUTE_PIXEL_CHECK] },
-  { route: ROUTE_COLOR_CHECK, label: ROUTE_TITLES[ROUTE_COLOR_CHECK] },
-  { route: ROUTE_COMPONENTS, label: ROUTE_TITLES[ROUTE_COMPONENTS] },
+  { icon: HomeIcon, id: 'home', label: '首页', opOnly: false, route: ROUTE_HOME },
+  { icon: StoreIcon, id: 'market', label: '跳蚤市场', opOnly: false, route: ROUTE_MARKET },
+  { icon: ShoppingCartIcon, id: 'shop', label: '系统商店', opOnly: false, route: ROUTE_SHOP },
+  { icon: BriefcaseIcon, id: 'jobs', label: '职业', opOnly: false, route: ROUTE_JOBS },
+  { icon: PickaxeIcon, id: 'mining', label: '矿洞', opOnly: false, route: ROUTE_MINING },
+  { icon: BookOpenIcon, id: 'codex', label: '图鉴', opOnly: false, route: ROUTE_CODEX },
+  { icon: HeartIcon, id: 'marriage', label: '婚姻', opOnly: false, route: ROUTE_MARRIAGE },
+  { icon: GiftIcon, id: 'case', label: '开箱', opOnly: false, route: ROUTE_CASE },
+  { icon: SettingsIcon, id: 'settings', label: '设置', opOnly: false, route: ROUTE_SETTINGS },
+  { icon: ShieldCheckIcon, id: 'admin', label: '管理后台', opOnly: true, route: ROUTE_ADMIN },
 ]
 
 /**
- * 页签高亮判定: 子路由 (如 /market/sell) 必须点亮它所属的一级页签, 否则从浏览页点进挂单页时整条导航
+ * 入口高亮判定: 子路由 (如 /market/sell) 必须点亮它所属的一级入口, 否则从浏览页点进挂单页时整条导航
  * 会失去当前位置。首页是唯一必须精确匹配的一条 —— 它的 route 是 "/", 前缀判定会把所有路径都算成首页。
  */
 function isNavActive(entry: ShellNavEntry, path: string): boolean {
@@ -106,7 +93,7 @@ function isNavActive(entry: ShellNavEntry, path: string): boolean {
  * TPS 档位。19.5 与 15 这两个坎取自服务端常识而非本项目实测: 20 是满刻, 掉到 15 以下方块交互已明显粘手。
  * 这里只决定徽标颜色, 不参与任何业务判定。
  */
-function tpsTone(tps: number): PixelFrameTone {
+function tpsTone(tps: number): Tone {
   if (tps >= 19.5) {
     return 'success'
   }
@@ -167,130 +154,154 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
 
   const isOp = profile.status === 'ready' && profile.data.isOp
   const visibleEntries = SHELL_NAV_ENTRIES.filter((entry) => !entry.opOnly || isOp)
-  const tabs: readonly PixelTab[] = visibleEntries.map((entry) => ({ id: entry.id, label: entry.label }))
-  // 验证页 (#/pixel-check 等) 不属于任何一级页签, 此时整条导航无高亮项 —— 空串不会命中任何 id。
-  const activeEntry = visibleEntries.find((entry) => isNavActive(entry, match.path))
   const title = match.pattern === null ? '未知路由' : ROUTE_TITLES[match.pattern]
 
-  const handleTabChange = (id: string): void => {
-    const entry = visibleEntries.find((candidate) => candidate.id === id)
-    if (entry === undefined) {
-      return
-    }
-    navigate(entry.route)
-  }
-
   return (
-    <PixelFrame variant="window" className="flex flex-1 flex-col gap-4 p-4">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4">
-        <div className="flex items-center gap-4">
-          <span className="text-2x text-fg">WORLD OF KIVOTOS</span>
-          {profile.status === 'ready' ? (
-            <span className="text-1x text-muted">{profile.data.playerName}</span>
-          ) : null}
-          {isOp ? <PixelBadge tone="accent">OP</PixelBadge> : null}
+    <div className="flex h-full min-h-0 overflow-hidden rounded-xl border bg-card shadow-lg/5">
+      {/* ==================== 左侧导航栏 ==================== */}
+      <nav
+        aria-label="平板主导航"
+        className="flex w-44 shrink-0 flex-col gap-1 border-r bg-sidebar p-2"
+      >
+        <div className="flex flex-col gap-0.5 px-2 py-3">
+          <span className="font-medium text-foreground text-sm tracking-wide">WORLD OF KIVOTOS</span>
+          <div className="flex items-center gap-1.5">
+            {profile.status === 'ready' ? (
+              <span className="truncate text-muted-foreground text-xs">{profile.data.playerName}</span>
+            ) : null}
+            {isOp ? (
+              <Tag size="sm" tone="brand">
+                OP
+              </Tag>
+            ) : null}
+          </div>
         </div>
 
-        <div className="flex items-center gap-6">
-          {profile.status === 'loading' ? <PixelLoading size="sm" label="读取钱包" /> : null}
-          {profile.status === 'error' ? (
-            <span className="text-1x text-danger">钱包读取失败: {profile.error.message}</span>
-          ) : null}
-          {profile.status === 'ready' ? (
-            <>
-              <PixelCurrency amount={profile.data.wallet.credit} currency="credit" size="sm" />
-              <PixelCurrency amount={profile.data.wallet.azure} currency="azure" size="sm" />
-            </>
-          ) : null}
-        </div>
-
-        <div className="flex items-center gap-4">
-          {server.status === 'ready' ? (
-            <>
-              <span className="text-1x text-muted">
-                在线 {String(server.data.online)}/{String(server.data.maxPlayers)}
-              </span>
-              <PixelBadge tone={tpsTone(server.data.tps)}>TPS {server.data.tps.toFixed(1)}</PixelBadge>
-            </>
-          ) : null}
-          {server.status === 'error' ? (
-            <PixelBadge tone="danger">服务器状态不可用</PixelBadge>
-          ) : null}
-          {mirrorError === null ? null : (
-            <PixelBadge tone="danger">数据预热失败: {mirrorError.message}</PixelBadge>
-          )}
-
-          {/*
-            OP 视图开关只在假数据模式下存在 (isMockActive 在生产构建里恒为 false, 见 lib/bridge)。
-            它改的是 mock 世界里的身份位, 好让"管理页签有/无"两种形态都能在设计评审里当场切换;
-            真服的 OP 判定在服务端, 前端没有也不该有这个开关。
-            勾选态直接读世界 (点下去即时翻转), 而页签的显隐跟着 player.profile 的回执走 ——
-            两者之间那一次往返延迟正是接线后的真实手感, 不该用本地状态抹掉。
-          */}
-          {isMockActive() ? (
-            <PixelCheckbox
-              checked={world.player.isOp}
-              label="OP 视图"
-              size="sm"
-              onChange={(next) => {
-                mutateWorld((draft) => {
-                  draft.player.isOp = next
-                })
-              }}
-            />
-          ) : null}
-
-          <PixelButton
-            icon="close"
-            label={onClose === undefined ? '关闭平板 (宿主未接线)' : '关闭平板'}
-            size="sm"
-            disabled={onClose === undefined}
-            onClick={() => {
-              onClose?.()
-            }}
-          />
-        </div>
-      </header>
-
-      <PixelTabs
-        tabs={tabs}
-        activeId={activeEntry === undefined ? '' : activeEntry.id}
-        onChange={handleTabChange}
-      />
-
-      <PixelFrame variant="panel" className="flex min-h-0 flex-1 flex-col gap-4 p-4">
-        <h1 className="text-2x text-fg">{title}</h1>
-        {/*
-          内容区自己承接滚动: 根节点是 h-screen + overflow-hidden (见 App.tsx, 目的是不让文档级滚动
-          拉出原生圆角滚动条), 若这里不给滚动容器, 超长页面会被直接裁掉而不是可滚。
-          min-h-0 是必须的 —— flex 子项默认 min-height:auto, 不归零则 flex-1 撑不下去, overflow 永不触发。
-          滚动条外观由 index.css 的 ::-webkit-scrollbar 像素化。
-        */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div>
-      </PixelFrame>
-
-      {/*
-        三个验证页刻意不占一级页签 (它们是给设计与前端看的, 不是玩家功能), 但也必须有入口:
-        路由只读不写 location.hash, 玩家/评审没法靠改地址栏跳过去, 而 hash 只在整页加载时被读一次。
-        故在假数据模式下补这一排; isMockActive 在生产构建里恒为 false, 装进游戏后整条不存在。
-      */}
-      {isMockActive() ? (
-        <footer className="flex flex-wrap items-center gap-4 border-t border-border pt-4">
-          <span className="text-1x text-muted">验证页 (仅假数据模式)</span>
-          {SHELL_DEV_ROUTES.map((entry) => (
-            <PixelButton
-              key={entry.route}
-              size="sm"
-              tone={match.path === entry.route ? 'accent' : 'neutral'}
+        {visibleEntries.map((entry) => {
+          const active = isNavActive(entry, match.path)
+          const Icon = entry.icon
+          return (
+            <button
+              aria-current={active ? 'page' : undefined}
+              className={`flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                active
+                  ? 'bg-brand-muted font-medium text-foreground'
+                  : 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground'
+              }`}
+              key={entry.id}
               onClick={() => {
                 navigate(entry.route)
               }}
+              type="button"
             >
-              {entry.label}
-            </PixelButton>
-          ))}
-        </footer>
-      ) : null}
-    </PixelFrame>
+              <Icon aria-hidden="true" className={`size-4 shrink-0 ${active ? 'text-brand' : ''}`} />
+              <span className="truncate">{entry.label}</span>
+            </button>
+          )
+        })}
+
+        {/*
+          组件预览页不属于玩家功能, 故不占一级入口, 只在假数据模式下从侧栏底部进入。
+          路由只读不写 location.hash (见 router.ts 的偏离说明), 玩家没法靠改地址栏跳过去,
+          而 hash 只在整页加载时被读一次 —— 缺了这个入口它就是打不开的。
+          isMockActive 在生产构建里恒为 false, 装进游戏后整条不存在。
+        */}
+        {isMockActive() ? (
+          <button
+            className={`mt-auto rounded-md px-2.5 py-2 text-left text-xs transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+              match.path === ROUTE_COMPONENTS
+                ? 'bg-sidebar-accent text-foreground'
+                : 'text-muted-foreground hover:bg-sidebar-accent'
+            }`}
+            onClick={() => {
+              navigate(ROUTE_COMPONENTS)
+            }}
+            type="button"
+          >
+            {ROUTE_TITLES[ROUTE_COMPONENTS]}
+          </button>
+        ) : null}
+      </nav>
+
+      {/* ==================== 右侧内容区 ==================== */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-2.5">
+          <h1 className="truncate font-medium text-base text-foreground">{title}</h1>
+
+          <div className="flex items-center gap-4">
+            {profile.status === 'loading' ? <LoadingBlock label="读取钱包" size="sm" /> : null}
+            {profile.status === 'error' ? (
+              <span className="text-destructive text-xs">钱包读取失败: {profile.error.message}</span>
+            ) : null}
+            {profile.status === 'ready' ? (
+              <>
+                <Currency amount={profile.data.wallet.credit} currency="credit" size="sm" />
+                <Currency amount={profile.data.wallet.azure} currency="azure" size="sm" />
+              </>
+            ) : null}
+
+            {server.status === 'ready' ? (
+              <>
+                <span className="text-muted-foreground text-xs tabular-nums">
+                  在线 {String(server.data.online)}/{String(server.data.maxPlayers)}
+                </span>
+                <Tag size="sm" tone={tpsTone(server.data.tps)}>
+                  TPS {server.data.tps.toFixed(1)}
+                </Tag>
+              </>
+            ) : null}
+            {server.status === 'error' ? (
+              <Tag size="sm" tone="danger">
+                服务器状态不可用
+              </Tag>
+            ) : null}
+            {mirrorError === null ? null : (
+              <Tag size="sm" tone="danger">
+                数据预热失败: {mirrorError.message}
+              </Tag>
+            )}
+
+            {/*
+              OP 视图开关只在假数据模式下存在 (isMockActive 在生产构建里恒为 false, 见 lib/bridge)。
+              它改的是 mock 世界里的身份位, 好让"管理入口有/无"两种形态都能在设计评审里当场切换;
+              真服的 OP 判定在服务端, 前端没有也不该有这个开关。
+              勾选态直接读世界 (点下去即时翻转), 而入口的显隐跟着 player.profile 的回执走 ——
+              两者之间那一次往返延迟正是接线后的真实手感, 不该用本地状态抹掉。
+            */}
+            {isMockActive() ? (
+              <Toggle
+                checked={world.player.isOp}
+                label="OP 视图"
+                onChange={(next) => {
+                  mutateWorld((draft) => {
+                    draft.player.isOp = next
+                  })
+                }}
+                size="sm"
+              />
+            ) : null}
+
+            <Button
+              aria-label={onClose === undefined ? '关闭平板 (宿主未接线)' : '关闭平板'}
+              disabled={onClose === undefined}
+              onClick={() => {
+                onClose?.()
+              }}
+              size="icon-sm"
+              variant="ghost"
+            >
+              <XIcon />
+            </Button>
+          </div>
+        </header>
+
+        {/*
+          内容区自己承接滚动: 根节点是 h-screen + overflow-hidden (见 App.tsx), 若这里不给滚动容器,
+          超长页面会被直接裁掉而不是可滚。
+          min-h-0 是必须的 —— flex 子项默认 min-height:auto, 不归零则 flex-1 撑不下去, overflow 永不触发。
+        */}
+        <main className="min-h-0 flex-1 overflow-y-auto p-4">{children}</main>
+      </div>
+    </div>
   )
 }

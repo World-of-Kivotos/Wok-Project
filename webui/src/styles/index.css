@@ -1,315 +1,416 @@
+@import 'tailwindcss';
+
 /*
- * 像素 UI 基线样式表。真源: docs/PixelUI_DesignSystem_DesignSpec.md 第二章(硬红线) / 第五章(度量) /
- * 第六章(灰度上色) / 第九章(字体)。
+ * 设计令牌层。风格: 经典白到黑中性灰阶 + 单一可调强调色。
  *
- * 本文件承担三件事:
- *   1. 声明全库唯一的基准长度变量 --px, 以及由资产属性决定的字体/9-slice 变量;
- *   2. 声明全库唯一的色彩 token 表 (中性三层 + 两级边框 + 语义色 + 9-slice 上色锚点), 双主题;
- *   3. 用 @layer base 把四条最容易漏的红线 (圆角 / 字体平滑 / 合成字重 / 位图插值) 压成全局默认值,
- *      使违反它们需要主动覆盖, 而覆盖动作会在 diff 里显形。
+ * 三条设计约束, 后续改色前先读:
  *
- * 刻意不禁用 Tailwind preflight: 它的 box-sizing:border-box 与 border-width:0 重置正是 9-slice 的地基。
+ * 1. 中性色一律零彩度 (oklch 的 C 位恒为 0)。带一点色相的"灰"在与游戏 3D 画面叠加时会和场景光染色
+ *    互相干扰, 表现为同一个面板在草原和洞穴里看着不是一个颜色。纯中性灰没有这个问题。
+ *
+ * 2. 强调色只开放**色相 --brand-h 与彩度 --brand-c 两个自由度, 亮度 L 锁死在各档常量上**。
+ *    设置页的取色器因此不可能调出"强调面上的字看不清"的组合 —— 对比度由锁死的 L 保证,
+ *    而不是靠用户自觉。--brand-c 可以拧到 0, 那就是纯灰阶, 整套界面依然成立。
+ *
+ * 3. --primary 是近白 (暗色档) / 近黑 (亮色档) 而非强调色。主按钮走高对比中性色是"经典白到黑"的
+ *    核心表达; 强调色只出现在焦点环、当前导航项、进度条填充、选中行这些**小面积**位置,
+ *    合起来才是"少量强调色"。需要强调色实心按钮时用 <Button variant="brand">, 别去改 primary。
  */
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@custom-variant dark (&:is(.dark *));
 
-:root {
-  /*
-   * 一个逻辑像素格的实际屏幕尺寸, 必须是整数 px。这是全库唯一允许出现的长度字面量,
-   * 其余尺寸一律 calc(var(--px) * n) 派生, 改这一处即整套 UI 同步缩放。
-   *
-   * 当前值是占位: 真实取值须在批 1 单点验证时于真客户端标定 (devicePixelRatio 与 MC GUI Scale 叠加后
-   * 是否为整数决定它, 见规格第十二章 / 接线清单决策 7)。运行期由 assertPixelGrid() 守整数。
-   * 刻意不用 @property 加类型约束: initial-value 会成为第二处长度字面量, 与"唯一字面量"冲突。
-   */
-  /* stylelint-disable-next-line declaration-property-value-disallowed-list -- 裸长度例外 1/3: --px 自身的定义 */
-  --px: 2px;
+@theme inline {
+  /* Coss UI 组件直接引用的语义色, 由下方 :root / .light 的裸变量供给。 */
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning: var(--warning);
+  --color-success-foreground: var(--success-foreground);
+  --color-success: var(--success);
+  --color-info-foreground: var(--info-foreground);
+  --color-info: var(--info);
+  --color-destructive-foreground: var(--destructive-foreground);
 
-  /*
-   * 9-slice 边角放大倍率 (无单位整数)。PixelFrame 的 border-width 由
-   * calc(var(--pixel-slice) * var(--pixel-scale) * 1px) 派生; 非整数会破坏像素对齐。
-   * 默认与 --px 的 px 数联动, 同样在批 1 标定时一并确认。
-   *
-   * --pixel-slice 刻意不在此处声明: 它必须与每张资产的实际边框像素宽精确相等, 由 PixelFrame
-   * 从资产元数据 (PixelFrame.tsx 的 PIXEL_FRAME_ASSETS: { src, file, slice, size }) 读入并按
-   * variant 设置, 三档层级各持有独立值。
-   * 在这里给全局默认值等于给了一个"看起来能用但和资产对不上"的错位来源。
-   */
-  --pixel-scale: 2;
-
-  /*
-   * 点阵字体的原生设计像素高 (无单位)。字号档位 = --font-cell * 档位 * --px。
-   * 取 12 是因为已知候选 Zpix 为 12px 档、Fusion Pixel 有 8/10/12 三档 —— 候选均未经本项目核实,
-   * 故此值是变量而非常量: 换字体只改这一个数, 三档字号自动重算。
-   */
-  --font-cell: 12;
+  /* shadcn/Coss 基础语义色。CLI 只装了上面几个扩展色, 这一组是本项目补齐的。 */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 
   /*
-   * 字体栈只出现族名, 不绑具体字体文件。授权/字重覆盖/实际渲染效果核实通过前, 刻意不写 @font-face ——
-   * 于是自然回退到 ui-monospace, 界面能跑但明确不像素化, 使缺口在视觉上可见而不被掩盖。
+   * 强调色。与 --accent 是两回事, 别混:
+   *   --accent  = shadcn 语义里的"悬停/次选中面", 是一层浅灰, 始终中性;
+   *   --brand   = 本项目的可调强调色, 用户能改的就是它。
    */
-  --font-pixel: PixelEN, PixelCN, ui-monospace, monospace;
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-muted: var(--brand-muted);
+  --color-brand-hover: var(--brand-hover);
+
+  /* 侧栏令牌: Coss 的 sidebar.tsx 自带一套独立命名, 缺了它整个侧栏没有背景。 */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* 圆角档位统一从 --radius 派生: 改一处即整套圆角同步, 不必逐个组件改类名。 */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+
+  /*
+   * 字体栈只用系统字体, 刻意不引 Web Font。渲染目标是 MCEF 内嵌 Chromium, 页面由局域网内的
+   * 服务端 serve; 外链字体 CDN 在国内网络与离线服上都会先卡住整屏文字再回退, 不值这个风险。
+   * 中文档位靠 Windows 自带的微软雅黑, 其余系统按栈顺序回退。
+   */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC',
+    'Hiragino Sans GB', sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', 'JetBrains Mono', Consolas, monospace;
+
+  --animate-skeleton: skeleton 2s -1s infinite linear;
+  --animate-caret-blink: 1s ease-out infinite caret-blink;
+  --animate-toast-success-odd: toast-success-odd 0.32s cubic-bezier(0.5, 1, 0.89, 1);
+  --animate-toast-success-even: toast-success-even 0.32s cubic-bezier(0.5, 1, 0.89, 1);
+  --animate-toast-error-odd: toast-error-odd 0.28s cubic-bezier(0.5, 1, 0.89, 1);
+  --animate-toast-error-even: toast-error-even 0.28s cubic-bezier(0.5, 1, 0.89, 1);
+
+  @keyframes skeleton {
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  @keyframes caret-blink {
+    0%,
+    70%,
+    to {
+      opacity: 1;
+    }
+
+    20%,
+    50% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes toast-success-odd {
+    0% {
+      scale: 1;
+    }
+
+    30% {
+      scale: 1.025;
+    }
+
+    60% {
+      scale: 0.99;
+    }
+
+    100% {
+      scale: 1;
+    }
+  }
+
+  @keyframes toast-error-odd {
+    0% {
+      translate: 0 0;
+    }
+
+    25% {
+      translate: -3px 0;
+    }
+
+    50% {
+      translate: 3px 0;
+    }
+
+    75% {
+      translate: -3px 0;
+    }
+
+    100% {
+      translate: 0 0;
+    }
+  }
+
+  @keyframes toast-success-even {
+    0% {
+      scale: 1;
+    }
+
+    30% {
+      scale: 1.025;
+    }
+
+    60% {
+      scale: 0.99;
+    }
+
+    100% {
+      scale: 1;
+    }
+  }
+
+  @keyframes toast-error-even {
+    0% {
+      translate: 0 0;
+    }
+
+    25% {
+      translate: -3px 0;
+    }
+
+    50% {
+      translate: 3px 0;
+    }
+
+    75% {
+      translate: -3px 0;
+    }
+
+    100% {
+      translate: 0 0;
+    }
+  }
 }
 
 /*
- * 色彩 token —— 暗色档 (默认)。
+ * 暗色档 —— 同时挂在无类的 :root 与 .dark 上。
  *
- * 为什么暗色写在无类的 :root 上、亮色才靠 .light 覆盖: 首屏在 initTheme() 落地前只有样式表生效,
- * 谁被写成默认谁就不会闪。游戏内 HUD 的常态是暗色, 故默认档给暗色, 亮色作为显式覆盖档。
- * :root.dark 与之等价, 是为让 <html class="dark"> 这种显式写法同样成立 (theme.ts 两个类都显式设)。
- *
- * 色相统一压在灰紫 (hue 230-245) 上, 而不是 demo 那套纯中性灰: 纯中性灰是网页调性,
- * 原版 MC GUI 的石灰面板本身带一点冷紫, 与游戏画面叠在一起才不会显得像贴了一张网页。
+ * 无类那份不是冗余: initTheme() 在 React 渲染前给 <html> 加类, 但样式表比脚本先生效, 中间那一帧
+ * 根元素还没有类。默认档写在 :root 上, 这一帧就是暗色而不是白闪。
  */
 :root,
-:root.dark {
+.dark {
   color-scheme: dark;
 
-  /* 中性三层: 页面底 -> 面板底 -> 抬起层 (悬停行 / 次级面板)。三层必须互相可辨, 否则层级只能靠边框撑。 */
-  --color-bg: #12131b;
-  --color-surface: #1c1e2a;
-  --color-raised: #262937;
-
-  /* 前景两级 + 强调面上的反色前景 (accent 填充块上的字, 直接用 --color-fg 会糊)。 */
-  --color-fg: #e8e9f2;
-  --color-muted: #a6abc0;
-  --color-on-accent: #14121e;
+  --radius: 0.625rem;
 
   /*
-   * 两级边框强度: border 是常规分隔线 (表格行 / 面板内分区), border-strong 是需要咬住视线的轮廓
-   * (选中项 / 输入框聚焦)。只给一级会逼着人拿 accent 当边框用, 那会把强调色稀释成噪声。
+   * 强调色的两个自由度。设置页的取色器只写这两个变量 (见 lib/brand.ts), 亮度是各档写死的常量。
+   * --brand-c 拧到 0 得到纯中性灰强调, 界面退化为完全无彩色, 这是允许且经过设计的终点。
    */
-  --color-border: #363a4d;
-  --color-border-strong: #565c78;
+  --brand-h: 250;
+  --brand-c: 0.15;
 
-  /* 强调色三态。hover/active 单列成 token 而不是让组件自己调明度: 像素风没有渐变过渡, 状态差必须是离散色。 */
-  --color-accent: #8f7ae6;
-  --color-accent-hover: #a690f0;
-  --color-accent-active: #7a63d4;
+  --brand: oklch(0.64 var(--brand-c) var(--brand-h));
+  --brand-hover: oklch(0.7 var(--brand-c) var(--brand-h));
+  --brand-foreground: oklch(0.16 0 0);
 
-  /* 语义四色。危险色沿用原值色相, 其余三色补齐 —— 只有 danger 一个语义色时, 提示与警告只能靠文案表达。 */
-  --color-success: #5fbf74;
-  --color-warning: #e0a63c;
-  --color-danger: #e0605a;
-  --color-info: #56a8e0;
+  /* 强调色的低透明度铺底 (选中行 / 当前导航项底色)。走 alpha 而非另调一支色, 才能压在任意灰阶层上。 */
+  --brand-muted: oklch(0.64 var(--brand-c) var(--brand-h) / 18%);
 
-  /* 硬阴影专用色 (Tailwind 的 shadow-hard 档)。它是投影而非描边, 必须比 --color-border 更沉。 */
-  --color-shadow: #05060a;
+  /* 中性灰阶: 页面底 -> 卡片 -> 浮层, 三层必须互相可辨, 否则层级只能靠边框撑。 */
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.975 0 0);
+  --card: oklch(0.185 0 0);
+  --card-foreground: oklch(0.975 0 0);
+  --popover: oklch(0.215 0 0);
+  --popover-foreground: oklch(0.975 0 0);
+
+  /* 主按钮 = 近白实心。这是"经典白到黑"的主要承载面。 */
+  --primary: oklch(0.975 0 0);
+  --primary-foreground: oklch(0.17 0 0);
+
+  --secondary: oklch(0.275 0 0);
+  --secondary-foreground: oklch(0.975 0 0);
+
+  --muted: oklch(0.24 0 0);
+  --muted-foreground: oklch(0.705 0 0);
+
+  /* shadcn 语义的 accent = 悬停面, 恒为中性灰; 可调强调色是上面的 --brand。 */
+  --accent: oklch(0.285 0 0);
+  --accent-foreground: oklch(0.975 0 0);
+
+  --border: oklch(0.32 0 0);
+  --input: oklch(0.32 0 0);
+  --ring: var(--brand);
 
   /*
-   * 9-slice 上色锚点 (规格第六章)。这一组不是"框体的颜色", 而是喂给 overlay 混合的**基色**:
-   * 灰度资产在 overlay 下把 0.5 灰当支点, 亮于支点的像素向白提、暗于支点的像素向黑压,
-   * 于是同一张灰度图在不同基色下得到同一套明暗关系的不同颜色 (推导与实测见 components/pixel/README.md)。
-   *
-   * 因此这几个值看起来比最终框体暗得多是正常的: window 资产中心块灰度 160 会把基色抬到
-   * base*0.745+0.255, 亦即中心块永远比基色亮。改这一组前务必先看 #/color-check 的预测色对照。
+   * 语义四色。彩度刻意压在 0.13-0.17, 比常见 UI 库低一档 —— 底色是纯中性灰, 高彩度语义色贴上去
+   * 会跳成整屏最抢眼的东西, 而它们表达的只是状态, 不该压过强调色。
    */
-  --color-tone-neutral: #23273f;
-  --color-tone-accent: #2f1f6e;
-  --color-tone-success: #123a1c;
-  --color-tone-warning: #4a3308;
-  --color-tone-danger: #4a1418;
-  --color-tone-info: #10365c;
+  --destructive: oklch(0.58 0.17 25);
+  --destructive-foreground: oklch(0.74 0.15 25);
+  --success: oklch(0.62 0.13 152);
+  --success-foreground: oklch(0.76 0.13 152);
+  --warning: oklch(0.72 0.14 78);
+  --warning-foreground: oklch(0.82 0.13 78);
+  --info: oklch(0.63 0.13 240);
+  --info-foreground: oklch(0.76 0.12 240);
+
+  --sidebar: oklch(0.175 0 0);
+  --sidebar-foreground: oklch(0.975 0 0);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--brand-foreground);
+  --sidebar-accent: oklch(0.26 0 0);
+  --sidebar-accent-foreground: oklch(0.975 0 0);
+  --sidebar-border: oklch(0.3 0 0);
+  --sidebar-ring: var(--brand);
 }
 
 /*
- * 色彩 token —— 亮色档。
- *
- * 亮色不是暗色的机械反相: 面板 (被 overlay 抬亮后约 #c6c8d2) 刻意压在页面底色之下,
- * 这正是原版 MC 的关系 —— 石灰色面板浮在更亮的底上, 靠外圈黑描边而不是靠亮度差站住。
+ * 亮色档。不是暗色的机械反相: --primary 翻成近黑实心 (亮底上的经典 CTA), 强调色亮度整体压低一档,
+ * 否则暗色档那支 L=0.64 的强调色放到白底上会糊掉。
  */
-:root.light {
+.light {
   color-scheme: light;
 
-  /* 中性三层 */
-  --color-bg: #eceef4;
-  --color-surface: #dcdfe9;
-  --color-raised: #f4f5fa;
+  --brand: oklch(0.55 var(--brand-c) var(--brand-h));
+  --brand-hover: oklch(0.49 var(--brand-c) var(--brand-h));
+  --brand-foreground: oklch(0.99 0 0);
+  --brand-muted: oklch(0.55 var(--brand-c) var(--brand-h) / 14%);
 
-  /* 前景两级 + 反色前景 */
-  --color-fg: #1a1b24;
-  --color-muted: #565b70;
-  --color-on-accent: #f4f2fd;
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.16 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.16 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.16 0 0);
 
-  /* 两级边框强度 */
-  --color-border: #a9adbe;
-  --color-border-strong: #6f7488;
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
 
-  /* 强调色三态。亮底上的紫必须压暗才咬得住, 与暗色档不是同一支色。 */
-  --color-accent: #6b4fd0;
-  --color-accent-hover: #7d63dd;
-  --color-accent-active: #593eb4;
+  --secondary: oklch(0.945 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
 
-  /* 语义四色。同样整体压暗一档: 暗色档那几支亮色放到亮底上会糊成一团。 */
-  --color-success: #2f8f45;
-  --color-warning: #a06a12;
-  --color-danger: #c23a30;
-  --color-info: #2073b0;
+  --muted: oklch(0.955 0 0);
+  --muted-foreground: oklch(0.475 0 0);
 
-  /* 亮色档的硬阴影不用纯黑: 纯黑硬块在亮底上过重, 取一支深灰紫留住投影关系。 */
-  --color-shadow: #545872;
+  --accent: oklch(0.94 0 0);
+  --accent-foreground: oklch(0.205 0 0);
 
-  /* 9-slice 上色锚点。亮色档整体贴近白, 才能被 overlay 抬到石灰面板那个明度。 */
-  --color-tone-neutral: #b2b5c3;
-  --color-tone-accent: #a898e8;
-  --color-tone-success: #8fc79a;
-  --color-tone-warning: #dcc07a;
-  --color-tone-danger: #d99a98;
-  --color-tone-info: #97b8dc;
+  --border: oklch(0.9 0 0);
+  --input: oklch(0.9 0 0);
+  --ring: var(--brand);
+
+  --destructive: oklch(0.53 0.19 25);
+  --destructive-foreground: oklch(0.46 0.19 25);
+  --success: oklch(0.53 0.13 152);
+  --success-foreground: oklch(0.45 0.13 152);
+  --warning: oklch(0.62 0.14 70);
+  --warning-foreground: oklch(0.52 0.13 70);
+  --info: oklch(0.53 0.14 245);
+  --info-foreground: oklch(0.45 0.14 245);
+
+  --sidebar: oklch(0.97 0 0);
+  --sidebar-foreground: oklch(0.16 0 0);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--brand-foreground);
+  --sidebar-accent: oklch(0.93 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.885 0 0);
+  --sidebar-ring: var(--brand);
 }
 
 @layer base {
-  /*
-   * 第二层圆角防线。第一层是 Tailwind 的 borderRadius 只剩 none 档, 但那只管工具类;
-   * 这里压住运行期注入的第三方样式与浏览器默认外观 (按钮/输入框自带圆角)。
-   */
-  *,
-  *::before,
-  *::after {
-    border-radius: 0;
+  * {
+    border-color: var(--border);
+    outline-color: color-mix(in oklab, var(--ring) 50%, transparent);
   }
 
   html {
-    /* image-rendering 是继承属性: 挂在根上一次, 整棵树的位图 (含背景图与 border-image) 都不做平滑插值。 */
-    image-rendering: pixelated;
-
-    /*
-     * 点阵字体开抗锯齿平滑会直接失去像素观感。
-     *
-     * 但这一条**不构成红线 5 的机械保证**, 别把它当已关闭的开关看:
-     * -webkit-font-smoothing 是 WebKit 私有属性, 公开文档一致的说法是它只在 macOS 的字体栈上生效,
-     * Windows 下的 Blink 走系统 ClearType 配置, 不读这个值 —— 而本项目唯一的渲染目标是 Windows 上的
-     * MCEF/Chromium。写在这里的意义只剩两条: 在 macOS 开发机上确有效果, 以及让"我们要的是无平滑"这件事
-     * 在样式表里有据可查。
-     *
-     * 红线 5 真正的保证只能来自字体本身 —— 带位图 strike 的点阵字体按整数档渲染时不经灰度抗锯齿。
-     * 而字体至今未绑 (见上方 --font-pixel: 授权与实测均未过), 于是这条红线当前处于 PENDING:
-     * 必须在真客户端对文字做像素取样复核, 严禁因为这行 CSS 在就认为它已经关掉了。
-     */
-    -webkit-font-smoothing: none;
-
-    /* 浏览器对缺字重的点阵字体做合成粗体/斜体, 等价于对位图做几何形变, 与硬红线同一性质, 一并封死。 */
-    font-synthesis: none;
-    font-family: var(--font-pixel);
-    color: var(--color-fg);
-    background-color: var(--color-bg);
+    font-family: var(--font-sans);
+    color: var(--foreground);
+    background-color: var(--background);
   }
-}
 
-/*
- * === 灰度上色链路 (规格第六章的落地实现) ===
- *
- * 要解决的事: border-image 把灰度资产原样画上去, CSS 没有任何属性能给它上色, 于是"少量灰度图 x N 个
- * 颜色变量 = 整套 UI"这条压缩原则在框体上不成立。这里用一层与框体等大的伪元素 + overlay 混合把颜色叠回去。
- *
- * 为什么不是纯蒙版 (mask-border / mask-image): 三张资产的 alpha 通道实测只有 0 和 255 两个值
- * (仅四角各 1 像素为 0, 其余 572 像素全 255, 由 node 解码 PNG 实测), 斜面明暗全部记在**灰度通道**里。
- * alpha 蒙版只取 alpha, 上色结果会是一块四角挖空的纯色板 —— 颜色有了, 斜面全丢, 层级维度直接作废。
- *
- * 为什么伪元素而不是包一层 div: 包一层会把 className/ref/padding 的归属拆成两个节点, 调用方与
- * PixelCheckPage 的量测都要跟着改; 伪元素不进 DOM, 上层组件与既有验证页一行不用动。
- *
- * z-index: -1 是关键: 它让色层落在"元素自身背景与 border-image 之上、子节点之下", 于是混合的底色恰好
- * 只有那张灰度图, 而框内文字不会被一起染色。父级 isolation: isolate 把混合组封在框内 (缺了它,
- * 负 z-index 的色层会掉到父级背景之后, 被不透明的 border-image 完全盖住, 表现为"上色毫无效果")。
- *
- * 降级表现 (MCEF 内嵌 Chromium 的特性支持仍是 PENDING, 规格第十二章):
- *   - 引擎不认 mix-blend-mode: @supports 整块不生成, 框体退回今天的灰度原样, 布局与边框完全不受影响;
- *   - 引擎不认两套 mask-border (含 -webkit- 前缀): 色层四角不被挖空, 每个角多出 slice*scale 见方
- *     的一块实色 (--px:2 / scale:2 下是 2x2 CSS 像素), 其余部分正常上色;
- *   - 引擎认 mix-blend-mode 但不真做混合 (未见于任何 Chromium): 色层会盖住框体成为一块纯色板,
- *     这是唯一"看着就废了"的降级, 用 #/color-check 页第一屏并排的染色/未染色框一眼可判。
- */
-[data-pixel-tone] {
   /*
-   * 色层的包含块与混合组由这两条撑起。position 刻意不设保护 (未列入 ProtectedFrameStyleKey):
-   * 需要绝对定位的框请传 style={{ position: 'absolute' }} —— 行内样式压得过本规则,
-   * 而 absolute/fixed 同样能当包含块, 上色链路照常成立。
+   * MC 物品贴图是 16x16 位图, 放大到 32/48px 必须关插值, 否则糊成一团。
+   * 只挂在 ItemIcon 用的这一类元素上, 不像素化整棵树 —— 界面本体现在是矢量圆角风。
    */
-  position: relative;
-  isolation: isolate;
-}
-
-@supports (mix-blend-mode: overlay) {
-  [data-pixel-tone]::after {
-    content: '';
-    position: absolute;
-
-    /*
-     * 负外扩到 border box: 绝对定位的偏移基准是 padding box, 而灰度资产画在 border 区,
-     * 不外扩就只染中心块。这里的 -1px 与 PixelFrame 的 border-width 是同一条 slice x scale 派生链
-     * (stylelint 裸长度例外 3/3), 两者必须同步, 否则色层与框体错位。
-     */
-    inset: calc(var(--pixel-slice) * var(--pixel-scale) * -1px);
-    z-index: -1;
-    background-color: var(--pixel-tone);
-    mix-blend-mode: overlay;
-
-    /*
-     * 只为把四角那 4 个透明像素同样从色层里挖掉, 保住阶梯硬边的角。用 alpha 蒙版在这里是对的 ——
-     * 这一步要的正是"轮廓", 明暗由下面那张灰度图负责。
-     *
-     * 无前缀与 -webkit- 前缀两套全写: Chromium 至今只稳定实现了 -webkit-mask-box-image 那套,
-     * 无前缀的 mask-border 是否可用随版本而变, 而 MCEF 的 Chromium 版本未核实。两套都写, 谁被解析谁生效,
-     * 都不被解析则退化成"角不挖空"(见上方降级表现第 2 条)。实际生效的是哪一套, 由 #/color-check 读出。
-     *
-     * mask-border-width 必须显式给: 它的 auto 取的是资产原始 slice 像素数 (8px), 而框体边框宽是
-     * slice x scale; 不给就会在 scale>1 时角孔偏小并整体错位。
-     */
-    mask-border-source: var(--pixel-frame-src);
-    mask-border-slice: var(--pixel-slice) fill;
-
-    /* stylelint-disable-next-line declaration-property-value-disallowed-list -- 裸长度例外 3/3: 9-slice 的 slice x scale 派生链 */
-    mask-border-width: calc(var(--pixel-slice) * var(--pixel-scale) * 1px);
-    mask-border-repeat: round;
-    -webkit-mask-box-image-source: var(--pixel-frame-src);
-    -webkit-mask-box-image-slice: var(--pixel-slice) fill;
-
-    /* stylelint-disable-next-line declaration-property-value-disallowed-list -- 同上, 例外 3/3 的前缀孪生 */
-    -webkit-mask-box-image-width: calc(var(--pixel-slice) * var(--pixel-scale) * 1px);
-    -webkit-mask-box-image-repeat: round;
+  [data-bitmap] {
+    image-rendering: pixelated;
   }
-}
 
-/*
- * 像素化滚动条。
- *
- * 这不是装饰: Chromium 的原生滚动条是一根圆角抗锯齿矢量控件, 是整套界面里唯一会破像素线的东西,
- * 而 PixelScrollArea 的自绘纪律只覆盖它包住的容器, 管不到 overflow 落在别处的滚动。渲染目标单一
- * (只跑 MCEF 内嵌 Chromium), 故直接用 -webkit-scrollbar 伪元素改造, 不需要考虑其它引擎。
- *
- * 尺寸全部走 --px 派生, 与 spacing scale 同一把尺; 圆角显式置 0 是为让红线在这里也可被机械检出。
- */
-@layer base {
+  /*
+   * 强调色取色器的渐变滑块 (设置页专用)。
+   *
+   * 为什么不用组件库的 Slider: 取色器的轨道本身就是信息 —— 用户要看着色相带选颜色, 而不是拖一根
+   * 灰条看别处的预览块变色。组件库的轨道底色写死在组件内部, 往里塞渐变要靠层层 arbitrary variant
+   * 命中它的内部 data-slot, 那种选择器一旦上游改动就静默失效 (表现是"轨道变回灰条"而不是报错)。
+   * 原生 range + 行内 background 是这一处唯一能保证渐变真出现的写法。
+   */
+  .gradient-slider {
+    width: 100%;
+    height: 1.5rem;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .gradient-slider::-webkit-slider-runnable-track {
+    height: 0.75rem;
+    background-image: var(--track-image);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+
+  .gradient-slider::-webkit-slider-thumb {
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-top: -0.25rem;
+    appearance: none;
+    background: var(--background);
+    border: 2px solid var(--foreground);
+    border-radius: 999px;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 40%);
+  }
+
+  .gradient-slider:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /*
+   * 自绘滚动条。原生滚动条在暗色档下是一根亮灰粗条, 在中性灰界面里是最抢眼的东西。
+   * 渲染目标单一 (只跑 MCEF 内嵌 Chromium), 故直接用 -webkit- 伪元素改造。
+   */
   ::-webkit-scrollbar {
-    /* stylelint-disable-next-line declaration-property-value-disallowed-list -- 裸长度例外: 滚动条尺寸走 --px 派生链 */
-    width: calc(var(--px) * 4);
-
-    /* stylelint-disable-next-line declaration-property-value-disallowed-list -- 同上 */
-    height: calc(var(--px) * 4);
+    width: 10px;
+    height: 10px;
   }
 
   ::-webkit-scrollbar-track {
-    background-color: var(--color-bg);
+    background: transparent;
   }
 
   ::-webkit-scrollbar-thumb {
-    background-color: var(--color-border-strong);
-    border-radius: 0;
+    background-color: var(--border);
+    background-clip: content-box;
+    border: 2px solid transparent;
+    border-radius: 999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: var(--color-accent);
+    background-color: var(--muted-foreground);
   }
 
-  /* 两端箭头按钮是原生绘制的三角矢量, 无法像素化, 直接去掉。 */
+  /* 两端箭头按钮是原生绘制的, 与自绘滑块风格对不上, 直接去掉。 */
   ::-webkit-scrollbar-button {
     display: none;
   }
 
   ::-webkit-scrollbar-corner {
-    background-color: var(--color-bg);
+    background: transparent;
   }
 }

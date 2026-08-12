@@ -1,17 +1,20 @@
 import type { ReactElement } from 'react'
 import { useEffect, useState } from 'react'
 import {
+  Button,
+  DataTable,
+  Dropdown,
+  EmptyBlock,
+  ErrorBlock,
+  FeedbackAlert,
   ItemIcon,
-  PixelBadge,
-  PixelButton,
-  PixelEmpty,
-  PixelError,
-  PixelFrame,
-  PixelLoading,
-  PixelProgress,
-  PixelSelect,
-  PixelTable,
-} from '../../../components/pixel'
+  LoadingBlock,
+  Meter,
+  Panel,
+  Stat,
+  Surface,
+  Tag,
+} from '@/components/kit'
 import { useItemNames } from '../../../lib/i18n'
 import { callMock, useMockAction } from '../../../mock'
 import type { PlannedDailyOreLine, PlannedMinerScanResult } from '../../../mock'
@@ -48,15 +51,18 @@ function DailyOreRow({ ore, name }: { ore: PlannedDailyOreLine; name: string }):
     <div className="flex items-center gap-3">
       <ItemIcon itemId={ore.itemId} label={name} />
       <div className="flex flex-1 flex-col gap-1">
-        <div className="flex items-center justify-between text-1x">
-          <span className="text-fg">{name}</span>
-          <span className={decayed ? 'text-warning' : 'text-muted'}>系数 {ore.decayFactor}</span>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-foreground">{name}</span>
+          <span className={decayed ? 'text-warning' : 'text-muted-foreground'}>
+            系数 {ore.decayFactor}
+          </span>
         </div>
-        <PixelProgress
-          value={ore.minedToday}
+        <Meter
+          label="今日产出"
           max={ore.softCap}
-          tone={decayed ? 'warning' : 'accent'}
-          label={`${String(ore.minedToday)}/${String(ore.softCap)}`}
+          tone={decayed ? 'warning' : 'brand'}
+          value={ore.minedToday}
+          valueText={`${String(ore.minedToday)} / ${String(ore.softCap)}`}
         />
       </div>
     </div>
@@ -67,20 +73,20 @@ function ScanResultView({ result, now }: { result: PlannedMinerScanResult; now: 
   const expired = now >= result.expiresAt
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-1x text-muted">
+      <span className="text-muted-foreground text-xs">
         {expired ? '本次脉冲已熄灭' : `脉冲还剩 ${formatCountdown(result.expiresAt, now)} 熄灭`} · 命中{' '}
         {result.hits.length} 处
       </span>
       {expired ? null : (
-        <PixelTable
+        <DataTable
           columns={[
-            { key: 'x', header: 'X', render: (row) => String(row.x) },
-            { key: 'y', header: 'Y', render: (row) => String(row.y) },
-            { key: 'z', header: 'Z', render: (row) => String(row.z) },
+            { header: 'X', key: 'x', numeric: true, render: (row) => String(row.x) },
+            { header: 'Y', key: 'y', numeric: true, render: (row) => String(row.y) },
+            { header: 'Z', key: 'z', numeric: true, render: (row) => String(row.z) },
           ]}
-          rows={result.hits}
-          rowKey={(row) => `${String(row.x)}_${String(row.y)}_${String(row.z)}`}
           emptyHint="本次脉冲未命中矿脉"
+          rowKey={(row) => `${String(row.x)}_${String(row.y)}_${String(row.z)}`}
+          rows={result.hits}
         />
       )}
     </div>
@@ -110,10 +116,10 @@ export function MinerPanel(): ReactElement {
   }, [dailyOres, selectedOreId])
 
   if (query.status === 'loading') {
-    return <PixelLoading label="正在读取矿工档案" />
+    return <LoadingBlock label="正在读取矿工档案" />
   }
   if (query.status === 'error') {
-    return <PixelError message={query.error.message} onRetry={query.reload} />
+    return <ErrorBlock message={query.error.message} onRetry={query.reload} />
   }
 
   const data = query.data
@@ -141,112 +147,114 @@ export function MinerPanel(): ReactElement {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <PixelFrame variant="panel" className="flex flex-wrap items-center justify-between gap-4 p-4">
-        <span className="text-2x text-fg">矿工 Lv.{data.level}</span>
-        <span className="text-1x text-muted">连锁开关无对应写 action, 仅只读展示当前状态</span>
-      </PixelFrame>
+    <div className="flex flex-col gap-4">
+      <Panel title="矿工">
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-3 gap-4">
+            <Stat label="职业等级" value={`Lv.${String(data.level)}`} />
+            <Stat label="探测半径" value={`${String(data.scanRadius)} 格`} />
+          </div>
+          <p className="text-muted-foreground text-xs">连锁开关无对应写 action, 仅只读展示当前状态</p>
+        </div>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">被动数值</h2>
+      <Panel title="被动数值">
         {data.passives.length === 0 ? (
-          <PixelEmpty title="暂无被动加成" />
+          <EmptyBlock title="暂无被动加成" />
         ) : (
-          <PixelTable
+          <DataTable
             columns={[
-              { key: 'label', header: '属性', render: (row) => row.label },
+              { header: '属性', key: 'label', render: (row) => row.label },
               {
-                key: 'value',
                 header: '数值',
+                key: 'value',
+                numeric: true,
                 render: (row) => formatStatValue(row.value, row.unit),
                 sortValue: (row) => row.value,
               },
             ]}
-            rows={data.passives}
             rowKey={(row) => row.key}
+            rows={data.passives}
           />
         )}
-      </section>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">连锁充能</h2>
-        <PixelFrame variant="panel" className="flex items-center gap-4 p-4">
-          <PixelProgress
-            value={data.charge}
-            max={data.chargeMax}
-            tone="accent"
-            label={`${String(data.charge)}/${String(data.chargeMax)}`}
+      <Panel title="连锁充能">
+        <div className="flex items-center gap-4">
+          <Meter
             className="flex-1"
+            label="充能"
+            max={data.chargeMax}
+            tone="brand"
+            value={data.charge}
+            valueText={`${String(data.charge)} / ${String(data.chargeMax)}`}
           />
-          <PixelBadge tone={data.chainEnabled ? 'success' : 'neutral'}>
+          <Tag tone={data.chainEnabled ? 'success' : 'neutral'}>
             {data.chainEnabled ? '连锁已开启' : '连锁已关闭'}
-          </PixelBadge>
-        </PixelFrame>
-      </section>
+          </Tag>
+        </div>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">探测脉冲</h2>
-        <PixelFrame variant="panel" className="flex flex-col gap-4 p-4">
+      <Panel title="探测脉冲">
+        <div className="flex flex-col gap-3">
           {levelGated ? (
-            <PixelBadge tone="warning">
-              探测需要矿工 {data.scanUnlockLevel} 级 (当前 {data.level} 级)
-            </PixelBadge>
+            <Surface tone="warning">
+              <p className="text-foreground text-sm">
+                探测需要矿工 {data.scanUnlockLevel} 级 (当前 {data.level} 级)
+              </p>
+            </Surface>
           ) : (
             <>
-              <div className="flex flex-wrap items-center gap-4">
-                <PixelSelect
-                  value={selectedOreId ?? ''}
-                  options={dailyOres.map((ore) => ({
-                    value: ore.itemId,
-                    label: oreNames[ore.descriptionId] ?? ore.descriptionId,
-                  }))}
+              <div className="flex flex-wrap items-center gap-3">
+                <Dropdown
+                  disabled={dailyOres.length === 0}
                   onChange={(next) => {
                     setSelectedOreId(next)
                   }}
-                  disabled={dailyOres.length === 0}
+                  options={dailyOres.map((ore) => ({
+                    label: oreNames[ore.descriptionId] ?? ore.descriptionId,
+                    value: ore.itemId,
+                  }))}
+                  value={selectedOreId ?? ''}
                 />
-                <PixelButton
-                  tone="accent"
-                  loading={scanning}
+                <Button
                   disabled={!scanReady || selectedOreId === null}
+                  loading={scanning}
                   onClick={() => {
                     void handleScan()
                   }}
+                  variant="brand"
                 >
                   发起探测脉冲
-                </PixelButton>
-                <span className="text-1x text-muted">
-                  半径 {data.scanRadius} 格 ·{' '}
-                  {scanReady ? '就绪, 可立即探测' : `冷却中, 剩余 ${formatCountdown(effectiveScanReadyAt, now)}`}
+                </Button>
+                <span className="text-muted-foreground text-sm">
+                  {scanReady
+                    ? '就绪, 可立即探测'
+                    : `冷却中, 剩余 ${formatCountdown(effectiveScanReadyAt, now)}`}
                 </span>
               </div>
-              {scanError === null ? null : (
-                <p role="alert" className="text-1x text-danger">
-                  {scanError.message}
-                </p>
-              )}
+              {scanError === null ? null : <FeedbackAlert message={scanError.message} tone="danger" />}
               {scanResult === null ? (
-                <PixelEmpty title="尚未进行有效的探测" hint="点击上方按钮发起一次探测脉冲, 结果会在此列出" />
+                <EmptyBlock hint="点击上方按钮发起一次探测脉冲, 结果会在此列出" title="尚未进行有效的探测" />
               ) : (
-                <ScanResultView result={scanResult} now={now} />
+                <ScanResultView now={now} result={scanResult} />
               )}
             </>
           )}
-        </PixelFrame>
-      </section>
+        </div>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">当日矿物软上限进度</h2>
+      <Panel title="当日矿物软上限进度">
         {dailyOres.length === 0 ? (
-          <PixelEmpty title="今日暂无产出记录" />
+          <EmptyBlock title="今日暂无产出记录" />
         ) : (
           <div className="flex flex-col gap-3">
             {dailyOres.map((ore) => (
-              <DailyOreRow key={ore.itemId} ore={ore} name={oreNames[ore.descriptionId] ?? ore.descriptionId} />
+              <DailyOreRow key={ore.itemId} name={oreNames[ore.descriptionId] ?? ore.descriptionId} ore={ore} />
             ))}
           </div>
         )}
-      </section>
+      </Panel>
     </div>
   )
 }

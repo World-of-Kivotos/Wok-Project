@@ -1,16 +1,18 @@
 import type { ReactElement } from 'react'
 import { useState } from 'react'
 import {
+  EmptyBlock,
+  ErrorBlock,
   ItemIcon,
-  PixelBadge,
-  PixelEmpty,
-  PixelError,
-  PixelFrame,
-  PixelInput,
-  PixelLoading,
-  PixelProgress,
-  PixelSlot,
-} from '../../../components/pixel'
+  ItemSlot,
+  LoadingBlock,
+  Meter,
+  Panel,
+  Stat,
+  Surface,
+  Tag,
+  TextInput,
+} from '@/components/kit'
 import { useMockAction } from '../../../mock'
 import { useItemNames } from '../../../lib/i18n'
 
@@ -29,7 +31,7 @@ import { useItemNames } from '../../../lib/i18n'
  * 支撑的全部操作面。
  *
  * 图纸名称含中文 (如"M4A1 图纸"), 但筛选框只按 blueprintId/gunId 做子串匹配 —— 两者都是英文/数字
- * 资源定位符, 不依赖当前 BLOCKED 的宿主中文输入通道 (接线清单 A14), 因此用普通 PixelInput 而非
+ * 资源定位符, 不依赖当前 BLOCKED 的宿主中文输入通道 (接线清单 A14), 因此用普通 TextInput 而非
  * onRequestEdit 占位, 符合九-10 "数字与英文输入必须不依赖宿主能力可用"。
  */
 
@@ -53,10 +55,10 @@ export function MunitionsPanel(): ReactElement {
   const partNames = useItemNames(partDescriptionIds)
 
   if (stationQuery.status === 'loading') {
-    return <PixelLoading label="正在读取军械台状态" />
+    return <LoadingBlock label="正在读取军械台状态" />
   }
   if (stationQuery.status === 'error') {
-    return <PixelError message={stationQuery.error.message} onRetry={stationQuery.reload} />
+    return <ErrorBlock message={stationQuery.error.message} onRetry={stationQuery.reload} />
   }
 
   const stationData = stationQuery.data
@@ -71,125 +73,131 @@ export function MunitionsPanel(): ReactElement {
   const selectedBlueprint = foundSelectedBlueprint === undefined ? null : foundSelectedBlueprint
 
   return (
-    <div className="flex flex-col gap-6">
-      <PixelFrame variant="panel" className="p-4">
-        <span className="text-2x text-fg">军火商 Lv.{stationData.level}</span>
-      </PixelFrame>
+    <div className="flex flex-col gap-4">
+      <Panel title="军火商">
+        <div className="grid grid-cols-3 gap-4">
+          <Stat label="职业等级" value={`Lv.${String(stationData.level)}`} />
+        </div>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">生产状态</h2>
+      <Panel title="生产状态">
         <div className="flex flex-col gap-3">
           {stationData.stations.map((station) => (
-            <PixelFrame key={station.stationId} variant="panel" className="flex flex-col gap-2 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <span className="text-1x text-fg">{station.displayName}</span>
-                <div className="flex items-center gap-3">
-                  {station.pos === null ? (
-                    <PixelBadge tone="warning">尚未建造</PixelBadge>
-                  ) : (
-                    <>
-                      <span className="text-1x text-muted">
-                        坐标 ({station.pos.x}, {station.pos.y}, {station.pos.z})
-                      </span>
-                      <PixelBadge tone={stationToneBadge(station.running)}>
-                        {station.running ? '运行中' : '空闲'}
-                      </PixelBadge>
-                    </>
-                  )}
+            <Surface key={station.stationId}>
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="font-medium text-foreground text-sm">{station.displayName}</h3>
+                  <div className="flex items-center gap-3">
+                    {station.pos === null ? (
+                      <Tag tone="warning">尚未建造</Tag>
+                    ) : (
+                      <>
+                        <span className="text-muted-foreground text-xs">
+                          坐标 ({station.pos.x}, {station.pos.y}, {station.pos.z})
+                        </span>
+                        <Tag tone={stationToneBadge(station.running)}>
+                          {station.running ? '运行中' : '空闲'}
+                        </Tag>
+                      </>
+                    )}
+                  </div>
                 </div>
+                {station.pos === null ? null : (
+                  <div className="flex items-center gap-4">
+                    <Meter
+                      className="flex-1"
+                      label="加工进度"
+                      max={station.maxProgress}
+                      tone={station.running ? 'brand' : 'neutral'}
+                      value={station.progress}
+                      valueText={`${String(station.progress)} / ${String(station.maxProgress)}`}
+                    />
+                    {station.outputItemId === null ? (
+                      <span className="text-muted-foreground text-xs">当前无产出</span>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <ItemIcon itemId={station.outputItemId} label={station.outputItemId} />
+                        <span className="text-muted-foreground text-xs">{station.outputItemId}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              {station.pos === null ? null : (
-                <div className="flex items-center gap-4">
-                  <PixelProgress
-                    value={station.progress}
-                    max={station.maxProgress}
-                    tone={station.running ? 'accent' : 'neutral'}
-                    className="flex-1"
-                    label={`${String(station.progress)} / ${String(station.maxProgress)}`}
-                  />
-                  {station.outputItemId === null ? (
-                    <span className="text-1x text-muted">当前无产出</span>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <ItemIcon itemId={station.outputItemId} label={station.outputItemId} />
-                      <span className="text-1x text-muted">{station.outputItemId}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </PixelFrame>
+            </Surface>
           ))}
         </div>
-      </section>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">图纸百科</h2>
-        <div className="flex flex-col gap-1">
-          <PixelInput
-            value={filterText}
-            onChange={setFilterText}
-            placeholder="按图纸/枪械 ID 筛选 (英文/数字)"
-            size="sm"
-          />
-          <span className="text-1x text-muted">图纸名含中文, 当前宿主中文输入通道未接线, 检索仅支持英文/数字 ID</span>
-        </div>
-
-        {blueprintQuery.status === 'loading' ? <PixelLoading label="正在读取图纸百科" /> : null}
-        {blueprintQuery.status === 'error' ? (
-          <PixelError message={blueprintQuery.error.message} onRetry={blueprintQuery.reload} />
-        ) : null}
-        {blueprintQuery.status === 'ready' && filteredBlueprints.length === 0 ? (
-          <PixelEmpty title="没有匹配的图纸" hint="换一个关键词试试" />
-        ) : null}
-
-        {blueprintQuery.status === 'ready' && filteredBlueprints.length > 0 ? (
-          <div className="flex flex-col gap-2">
-            {filteredBlueprints.map((blueprint) => {
-              const selected = blueprint.blueprintId === selectedBlueprintId
-              return (
-                <button
-                  key={blueprint.blueprintId}
-                  type="button"
-                  onClick={() => {
-                    setSelectedBlueprintId(selected ? null : blueprint.blueprintId)
-                  }}
-                  className={`block w-full border-2 p-1 text-left outline-none ${
-                    selected ? 'border-accent' : 'border-transparent'
-                  } focus-visible:border-border-strong`}
-                >
-                  <PixelFrame variant="panel" className="flex items-center justify-between gap-4 p-3">
-                    <div className="flex flex-col">
-                      <span className="text-1x text-fg">{blueprint.displayName}</span>
-                      <span className="text-1x text-muted">{blueprint.gunId}</span>
-                    </div>
-                    <span className="text-1x text-muted">{blueprint.requiredParts.length} 种部件</span>
-                  </PixelFrame>
-                </button>
-              )
-            })}
+      <Panel title="图纸百科">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <TextInput
+              onChange={setFilterText}
+              placeholder="按图纸/枪械 ID 筛选 (英文/数字)"
+              size="sm"
+              value={filterText}
+            />
+            <span className="text-muted-foreground text-xs">
+              图纸名含中文, 当前宿主中文输入通道未接线, 检索仅支持英文/数字 ID
+            </span>
           </div>
-        ) : null}
 
-        {selectedBlueprint === null ? null : (
-          <PixelFrame variant="panel" className="flex flex-col gap-3 p-4">
-            <span className="text-1x text-fg">{selectedBlueprint.displayName} 所需部件</span>
-            <div className="flex flex-wrap gap-3">
-              {selectedBlueprint.requiredParts.map((part) => {
-                const resolvedName = partNames[part.descriptionId]
+          {blueprintQuery.status === 'loading' ? <LoadingBlock label="正在读取图纸百科" /> : null}
+          {blueprintQuery.status === 'error' ? (
+            <ErrorBlock message={blueprintQuery.error.message} onRetry={blueprintQuery.reload} />
+          ) : null}
+          {blueprintQuery.status === 'ready' && filteredBlueprints.length === 0 ? (
+            <EmptyBlock hint="换一个关键词试试" title="没有匹配的图纸" />
+          ) : null}
+
+          {blueprintQuery.status === 'ready' && filteredBlueprints.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {filteredBlueprints.map((blueprint) => {
+                const selected = blueprint.blueprintId === selectedBlueprintId
                 return (
-                  <PixelSlot
-                    key={part.itemId}
-                    itemId={part.itemId}
-                    count={part.count}
-                    label={resolvedName === undefined ? part.descriptionId : resolvedName}
-                    scale={2}
-                  />
+                  <button
+                    className={`flex w-full items-center justify-between gap-4 rounded-lg border p-3 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                      selected ? 'border-brand bg-brand/12' : 'border-border bg-muted/40 hover:bg-accent'
+                    }`}
+                    key={blueprint.blueprintId}
+                    onClick={() => {
+                      setSelectedBlueprintId(selected ? null : blueprint.blueprintId)
+                    }}
+                    type="button"
+                  >
+                    <span className="flex flex-col">
+                      <span className="font-medium text-foreground text-sm">{blueprint.displayName}</span>
+                      <span className="text-muted-foreground text-xs">{blueprint.gunId}</span>
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      {blueprint.requiredParts.length} 种部件
+                    </span>
+                  </button>
                 )
               })}
             </div>
-          </PixelFrame>
-        )}
-      </section>
+          ) : null}
+        </div>
+      </Panel>
+
+      {selectedBlueprint === null ? null : (
+        <Panel title={`${selectedBlueprint.displayName} 所需部件`}>
+          <div className="flex flex-wrap gap-3">
+            {selectedBlueprint.requiredParts.map((part) => {
+              const resolvedName = partNames[part.descriptionId]
+              return (
+                <ItemSlot
+                  count={part.count}
+                  itemId={part.itemId}
+                  key={part.itemId}
+                  label={resolvedName === undefined ? part.descriptionId : resolvedName}
+                  scale={2}
+                />
+              )
+            })}
+          </div>
+        </Panel>
+      )}
     </div>
   )
 }

@@ -1,19 +1,21 @@
 import type { ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  Button,
+  Currency,
+  DataTable,
+  Dropdown,
+  EmptyBlock,
+  ErrorBlock,
+  FeedbackAlert,
   ItemIcon,
-  PixelBadge,
-  PixelButton,
-  PixelCurrency,
-  PixelEmpty,
-  PixelError,
-  PixelFrame,
-  PixelLoading,
-  PixelProgress,
-  PixelSelect,
-  PixelStepper,
-  PixelTable,
-} from '../../../components/pixel'
+  LoadingBlock,
+  Meter,
+  NumberInput,
+  Panel,
+  Stat,
+  Surface,
+} from '@/components/kit'
 import { useItemNames } from '../../../lib/i18n'
 import type { PlayerInventoryItem } from '../../../lib/types'
 import { callMock, refreshWalletAndInventory, useMockAction, useMockWorld } from '../../../mock'
@@ -90,10 +92,10 @@ export function FarmerPanel(): ReactElement {
   const selectedStack = sellableStacks.find((stack) => stack.slot === selectedSlot)
 
   if (query.status === 'loading') {
-    return <PixelLoading label="正在读取农夫档案" />
+    return <LoadingBlock label="正在读取农夫档案" />
   }
   if (query.status === 'error') {
-    return <PixelError message={query.error.message} onRetry={query.reload} />
+    return <ErrorBlock message={query.error.message} onRetry={query.reload} />
   }
 
   const data = query.data
@@ -118,106 +120,107 @@ export function FarmerPanel(): ReactElement {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <PixelFrame variant="panel" className="p-4">
-        <span className="text-2x text-fg">农夫 Lv.{data.level}</span>
-      </PixelFrame>
+    <div className="flex flex-col gap-4">
+      <Panel title="农夫">
+        <div className="grid grid-cols-3 gap-4">
+          <Stat label="职业等级" value={`Lv.${String(data.level)}`} />
+        </div>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">卖菜</h2>
-        <PixelFrame variant="panel" className="flex flex-col gap-4 p-4">
+      <Panel title="卖菜">
+        <div className="flex flex-col gap-3">
           {inventoryError === null ? null : (
-            <div className="flex items-center gap-3">
-              <p role="alert" className="text-1x text-danger">
-                背包读取失败: {inventoryError.message}
-              </p>
-              <PixelButton size="sm" onClick={loadInventory}>
-                重试
-              </PixelButton>
-            </div>
+            <FeedbackAlert
+              action={
+                <Button onClick={loadInventory} size="sm" variant="outline">
+                  重试
+                </Button>
+              }
+              message={`背包读取失败: ${inventoryError.message}`}
+              tone="danger"
+            />
           )}
           {levelGated ? (
-            <PixelBadge tone="warning">
-              卖菜需要农夫 {data.sellUnlockLevel} 级 (当前 {data.level} 级)
-            </PixelBadge>
+            <Surface tone="warning">
+              <p className="text-foreground text-sm">
+                卖菜需要农夫 {data.sellUnlockLevel} 级 (当前 {data.level} 级)
+              </p>
+            </Surface>
           ) : /*
                读取失败也满足 inventory === null, 早先这一支只判 null, 于是失败时上面那条错误横幅与
                这里的"正在读取背包"同时挂着, 而加载态永远不会结束 —— 界面同时声称"出错了"和"还在读",
                玩家不知道该等还是该点重试。失败时把加载态让出去, 只留错误与重试。
              */
           world.mirror.inventory === null ? (
-            inventoryError === null ? <PixelLoading label="正在读取背包" size="sm" /> : null
+            inventoryError === null ? <LoadingBlock label="正在读取背包" size="sm" /> : null
           ) : sellableStacks.length === 0 ? (
-            <PixelEmpty title="背包里没有可出售的作物" hint="收购站只收本职业当前挂牌的作物" />
+            <EmptyBlock hint="收购站只收本职业当前挂牌的作物" title="背包里没有可出售的作物" />
           ) : (
             <>
-              <div className="flex flex-wrap items-center gap-4">
-                <PixelSelect
-                  value={selectedSlot === null ? '' : String(selectedSlot)}
-                  options={sellableStacks.map((stack) => ({
-                    value: String(stack.slot),
-                    label: `${names[stack.descriptionId] ?? stack.descriptionId} x${String(stack.count)} (槽位 ${String(stack.slot)})`,
-                  }))}
+              <div className="flex flex-wrap items-center gap-3">
+                <Dropdown
                   onChange={(next) => {
                     setSelectedSlot(Number(next))
                     setCount(1)
                   }}
+                  options={sellableStacks.map((stack) => ({
+                    label: `${names[stack.descriptionId] ?? stack.descriptionId} x${String(stack.count)} (槽位 ${String(stack.slot)})`,
+                    value: String(stack.slot),
+                  }))}
+                  value={selectedSlot === null ? '' : String(selectedSlot)}
                 />
-                <PixelStepper
-                  value={count}
-                  onChange={setCount}
-                  min={1}
+                <NumberInput
+                  disabled={selectedStack === undefined}
                   max={selectedStack === undefined ? 1 : selectedStack.count}
-                  disabled={selectedStack === undefined}
+                  min={1}
+                  onChange={setCount}
+                  value={count}
                 />
-                <PixelButton
-                  tone="accent"
-                  loading={selling}
+                <Button
                   disabled={selectedStack === undefined}
+                  loading={selling}
                   onClick={() => {
                     void handleSell()
                   }}
+                  variant="brand"
                 >
                   出售
-                </PixelButton>
+                </Button>
               </div>
-              {sellError === null ? null : (
-                <p role="alert" className="text-1x text-danger">
-                  {sellError.message}
-                </p>
-              )}
+              {sellError === null ? null : <FeedbackAlert message={sellError.message} tone="danger" />}
               {sellResult === null ? null : (
-                <p className="flex flex-wrap items-center gap-1 text-1x text-success">
-                  已售出 {sellResult.count} 件, 获得
-                  <PixelCurrency amount={sellResult.credited} currency="credit" size="sm" />, 新单价
-                  <PixelCurrency amount={sellResult.unitPriceAfter} currency="credit" size="sm" />
-                </p>
+                <Surface tone="success">
+                  <p className="flex flex-wrap items-center gap-1 text-foreground text-sm">
+                    已售出 {sellResult.count} 件, 获得
+                    <Currency amount={sellResult.credited} currency="credit" size="sm" />, 新单价
+                    <Currency amount={sellResult.unitPriceAfter} currency="credit" size="sm" />
+                  </p>
+                </Surface>
               )}
             </>
           )}
-        </PixelFrame>
-      </section>
+        </div>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">今日已售</h2>
-        <PixelProgress
-          value={data.soldToday}
+      <Panel title="今日已售">
+        <Meter
+          label="出售件数"
           max={data.dailySoldCap}
-          tone={data.soldToday >= data.dailySoldCap ? 'warning' : 'accent'}
-          label={`${String(data.soldToday)}/${String(data.dailySoldCap)}`}
+          tone={data.soldToday >= data.dailySoldCap ? 'warning' : 'brand'}
+          value={data.soldToday}
+          valueText={`${String(data.soldToday)} / ${String(data.dailySoldCap)}`}
         />
-      </section>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">收购曲线预览</h2>
+      <Panel title="收购曲线预览">
         {crops.length === 0 ? (
-          <PixelEmpty title="暂无作物收购数据" />
+          <EmptyBlock title="暂无作物收购数据" />
         ) : (
-          <PixelTable
+          <DataTable
             columns={[
               {
-                key: 'item',
                 header: '作物',
+                key: 'item',
                 render: (row) => (
                   <span className="flex items-center gap-2">
                     <ItemIcon itemId={row.itemId} label={names[row.descriptionId] ?? row.descriptionId} />
@@ -226,46 +229,49 @@ export function FarmerPanel(): ReactElement {
                 ),
               },
               {
-                key: 'unitPrice',
                 header: '当前单价',
-                render: (row) => <PixelCurrency amount={row.unitPrice} currency="credit" size="sm" />,
+                key: 'unitPrice',
+                numeric: true,
+                render: (row) => <Currency amount={row.unitPrice} currency="credit" size="sm" />,
                 sortValue: (row) => row.unitPrice,
               },
               {
-                key: 'basePrice',
                 header: '基准价',
-                render: (row) => <PixelCurrency amount={row.basePrice} currency="credit" size="sm" />,
+                key: 'basePrice',
+                numeric: true,
+                render: (row) => <Currency amount={row.basePrice} currency="credit" size="sm" />,
                 sortValue: (row) => row.basePrice,
               },
               {
-                key: 'soldToday',
                 header: '今日已售',
+                key: 'soldToday',
+                numeric: true,
                 render: (row) => String(row.soldToday),
                 sortValue: (row) => row.soldToday,
               },
             ]}
-            rows={crops}
             rowKey={(row) => row.itemId}
+            rows={crops}
           />
         )}
-      </section>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">耕地五档</h2>
-        <PixelTable
+      <Panel title="耕地五档">
+        <DataTable
           columns={[
-            { key: 'label', header: '档位', render: (row) => row.label },
+            { header: '档位', key: 'label', render: (row) => row.label },
             {
-              key: 'value',
               header: '收购加成',
+              key: 'value',
+              numeric: true,
               render: (row) => formatStatValue(row.value, row.unit),
               sortValue: (row) => row.value,
             },
           ]}
-          rows={data.farmlandTiers}
           rowKey={(row) => row.key}
+          rows={data.farmlandTiers}
         />
-      </section>
+      </Panel>
     </div>
   )
 }

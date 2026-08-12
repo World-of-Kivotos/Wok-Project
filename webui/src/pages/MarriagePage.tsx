@@ -1,21 +1,24 @@
+import { CheckIcon, CoinsIcon, HeartIcon, UsersIcon, XIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
 import { useEffect, useState } from 'react'
 import {
+  Button,
+  ConfirmDangerDialog,
+  Dropdown,
+  EmptyBlock,
+  ErrorBlock,
+  FeedbackAlert,
+  formatAmount,
   ItemIcon,
-  PixelBadge,
-  PixelButton,
-  PixelConfirmDanger,
-  PixelCurrency,
-  PixelEmpty,
-  PixelError,
-  PixelFrame,
-  PixelInput,
-  PixelLoading,
-  PixelProgress,
-  PixelSelect,
-  PixelSlotGrid,
-} from '../components/pixel'
-import type { PixelFrameTone, PixelSelectOption, PixelSlotGridEntry } from '../components/pixel'
+  ItemSlotGrid,
+  LoadingBlock,
+  Meter,
+  Panel,
+  Stat,
+  Tag,
+  TextInput,
+} from '@/components/kit'
+import type { DropdownOption, FeedbackTone, ItemSlotGridEntry, Tone } from '@/components/kit'
 import { useItemNames } from '../lib/i18n'
 import type { PlayerInventoryItem } from '../lib/types'
 import { callMock, useMockAction, useMockWorld } from '../mock'
@@ -44,14 +47,14 @@ const STATUS_LABEL: Record<PlannedMarriageStatus, string> = {
   cooldown: '再婚冷却中',
 }
 
-const STATUS_TONE: Record<PlannedMarriageStatus, PixelFrameTone> = {
+const STATUS_TONE: Record<PlannedMarriageStatus, Tone> = {
   single: 'neutral',
   engaged: 'info',
   married: 'success',
   cooldown: 'warning',
 }
 
-type Banner = { tone: PixelFrameTone; message: string } | null
+type Banner = { tone: FeedbackTone; message: string } | null
 
 type TeleportPhase = 'idle' | 'channeling' | 'cooldown'
 
@@ -88,18 +91,18 @@ function resolveSharedItemName(item: PlayerInventoryItem, names: Record<string, 
   return translated === undefined ? item.descriptionId : translated
 }
 
+/** 格子在网格里的身份就是它的下标, 故这里按 slot 号逐位填充, 空位留空对象而不是跳过。 */
 function buildSharedSlots(
   items: readonly PlayerInventoryItem[],
   totalSlots: number,
   names: Record<string, string>,
-): PixelSlotGridEntry[] {
+): ItemSlotGridEntry[] {
   return Array.from({ length: totalSlots }, (_unused, index) => {
     const item = items.find((entry) => entry.slot === index)
     if (item === undefined) {
-      return { slot: index }
+      return {}
     }
     return {
-      slot: index,
       itemId: item.itemId,
       count: item.count,
       label: resolveSharedItemName(item, names),
@@ -247,22 +250,22 @@ export function MarriagePage(): ReactElement {
 
   if (stateQuery.status === 'loading') {
     return (
-      <div className="flex flex-col gap-4 p-4">
-        <PixelLoading label="正在加载婚姻状态" size="lg" />
+      <div className="flex flex-col gap-4">
+        <LoadingBlock label="正在加载婚姻状态" size="lg" />
       </div>
     )
   }
 
   if (stateQuery.status === 'error') {
     return (
-      <div className="flex flex-col gap-4 p-4">
-        <PixelError message={stateQuery.error.message} onRetry={stateQuery.reload} />
+      <div className="flex flex-col gap-4">
+        <ErrorBlock message={stateQuery.error.message} onRetry={stateQuery.reload} />
       </div>
     )
   }
 
   const data = stateQuery.data
-  const proposeOptions: PixelSelectOption[] = otherPlayers.map((candidate) => ({
+  const proposeOptions: DropdownOption<string>[] = otherPlayers.map((candidate) => ({
     value: candidate.name,
     label: `${candidate.name}${candidate.online ? ' (在线)' : ' (离线)'}`,
   }))
@@ -292,278 +295,299 @@ export function MarriagePage(): ReactElement {
   }
 
   return (
-    <div className="flex flex-col gap-4 p-4">
+    <div className="flex flex-col gap-4">
       {banner === null ? null : (
-        <PixelFrame variant="panel" tone={banner.tone} className="w-full">
-          <div className="flex items-center justify-between gap-4 p-3">
-            <p className="text-1x text-fg">{banner.message}</p>
-            <PixelButton size="sm" tone="neutral" icon="close" label="关闭" onClick={() => { setBanner(null) }} />
-          </div>
-        </PixelFrame>
+        <FeedbackAlert
+          message={banner.message}
+          onDismiss={() => {
+            setBanner(null)
+          }}
+          tone={banner.tone}
+        />
       )}
 
       {/* 状态摘要 */}
-      <PixelFrame variant="panel" className="w-full">
-        <div className="flex flex-col gap-3 p-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <PixelBadge tone={STATUS_TONE[data.status]} size="md">
-              {STATUS_LABEL[data.status]}
-            </PixelBadge>
-            {data.status === 'married' || data.status === 'cooldown' ? (
-              <span className="text-1x text-muted">离婚次数: {data.divorceCount}</span>
-            ) : null}
-          </div>
-
+      <Panel actions={<Tag tone={STATUS_TONE[data.status]}>{STATUS_LABEL[data.status]}</Tag>} title="婚姻状态">
+        <div className="flex flex-col gap-3">
           {data.status === 'married' && data.spouseName !== null ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-1x text-fg">
-                配偶: {data.spouseName} ({data.spouseOnline ? '在线' : '离线'})
-              </span>
-              <span className="text-1x text-muted">婚龄: {data.marriageDays} 天</span>
-            </div>
+            <>
+              <Stat
+                label="配偶"
+                layout="inline"
+                value={`${data.spouseName} (${data.spouseOnline ? '在线' : '离线'})`}
+              />
+              <Stat label="婚龄" layout="inline" value={`${String(data.marriageDays)} 天`} />
+            </>
+          ) : null}
+
+          {data.status === 'married' || data.status === 'cooldown' ? (
+            <Stat label="离婚次数" layout="inline" value={data.divorceCount} />
           ) : null}
 
           {data.status === 'cooldown' ? (
-            <p className="text-1x text-warning">
+            <p className="text-warning text-sm">
               再婚冷却中, 还需 {formatDuration(data.remarryCooldownUntil - nowTick)}
             </p>
           ) : null}
 
           <div className="flex flex-wrap items-center gap-2">
             {data.ringOwned ? (
-              <PixelBadge tone="success">已持有婚戒</PixelBadge>
+              <Tag tone="success">已持有婚戒</Tag>
             ) : (
-              <PixelButton
-                tone="accent"
-                icon="coin-credit"
-                loading={busyAction === 'ring'}
+              <Button
                 disabled={busyAction !== null}
-                onClick={() => { void handleBuyRing() }}
+                loading={busyAction === 'ring'}
+                onClick={() => {
+                  void handleBuyRing()
+                }}
+                variant="brand"
               >
-                购买婚戒 (<PixelCurrency amount={data.ringPriceCredit} currency="credit" size="sm" />)
-              </PixelButton>
+                <CoinsIcon />
+                购买婚戒 ({formatAmount(data.ringPriceCredit)} 信用点)
+              </Button>
             )}
           </div>
 
           {data.milestones.length === 0 ? null : (
             <div className="flex flex-wrap gap-2">
               {data.milestones.map((milestone) => (
-                <PixelBadge key={milestone.milestoneId} tone={milestone.achievedAt === null ? 'neutral' : 'success'}>
+                <Tag key={milestone.milestoneId} tone={milestone.achievedAt === null ? 'neutral' : 'success'}>
                   {milestone.label}
-                </PixelBadge>
+                </Tag>
               ))}
             </div>
           )}
         </div>
-      </PixelFrame>
+      </Panel>
 
       {/* 求婚 (仅单身可发起) */}
       {data.status === 'single' ? (
-        <PixelFrame variant="panel" className="w-full">
-          <div className="flex flex-col gap-3 p-4">
-            <h2 className="text-1x text-fg">求婚</h2>
+        <Panel title="求婚">
+          <div className="flex flex-col gap-3">
             {data.outgoingProposal !== null ? (
-              <p className="text-1x text-info">
+              <p className="text-info text-sm">
                 已向 {data.outgoingProposal.playerName} 求婚, 剩余 {formatDuration(data.outgoingProposal.expiresAt - nowTick)} 后过期
               </p>
             ) : proposeOptions.length === 0 ? (
-              <PixelEmpty title="暂无可求婚对象" hint="mock 世界里没有其他玩家数据" />
+              <EmptyBlock
+                hint="mock 世界里没有其他玩家数据"
+                icon={<UsersIcon aria-hidden="true" />}
+                title="暂无可求婚对象"
+              />
             ) : (
               <>
-                {data.ringOwned ? null : <p className="text-1x text-warning">需先购买婚戒才能求婚</p>}
+                {data.ringOwned ? null : <p className="text-warning text-sm">需先购买婚戒才能求婚</p>}
                 <div className="flex flex-wrap items-center gap-2">
-                  <PixelSelect
-                    value={proposeTarget}
-                    options={proposeOptions}
+                  <Dropdown
+                    disabled={!data.ringOwned || busyAction !== null}
                     onChange={setProposeTarget}
-                    disabled={!data.ringOwned || busyAction !== null}
+                    options={proposeOptions}
+                    value={proposeTarget}
                   />
-                  <PixelButton
-                    tone="accent"
-                    icon="heart"
-                    loading={busyAction === 'propose'}
+                  <Button
                     disabled={!data.ringOwned || busyAction !== null}
-                    onClick={() => { void handlePropose() }}
+                    loading={busyAction === 'propose'}
+                    onClick={() => {
+                      void handlePropose()
+                    }}
+                    variant="brand"
                   >
+                    <HeartIcon />
                     求婚
-                  </PixelButton>
+                  </Button>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <PixelInput
-                    value=""
+                  <TextInput
                     onChange={() => {
                       // onRequestEdit 模式下本回调不会被触发 (输入框为只读), 保留仅为满足受控 props。
                     }}
-                    placeholder="搜索玩家 (暂不可输入中文)"
                     onRequestEdit={() => {
                       setBanner({
                         tone: 'info',
                         message: '宿主中文输入尚未接入 (接线清单 A14), 请改用上方下拉列表选择求婚对象',
                       })
                     }}
+                    placeholder="搜索玩家 (暂不可输入中文)"
+                    value=""
                   />
-                  <p className="text-1x text-muted">
+                  <p className="text-muted-foreground text-xs">
                     玩家名含中文, 当前无法通过界面直接输入; 上方下拉列表已列出全部已知玩家。
                   </p>
                 </div>
               </>
             )}
           </div>
-        </PixelFrame>
+        </Panel>
       ) : null}
 
       {/* 收到的求婚 */}
       {data.incomingProposals.length === 0 ? null : (
-        <PixelFrame variant="panel" className="w-full">
-          <div className="flex flex-col gap-3 p-4">
-            <h2 className="text-1x text-fg">收到的求婚</h2>
+        <Panel title="收到的求婚">
+          <div className="flex flex-col gap-3">
             {data.incomingProposals.map((proposal) => (
-              <div key={proposal.proposalId} className="flex flex-wrap items-center justify-between gap-3">
-                <span className="text-1x text-fg">
+              <div className="flex flex-wrap items-center justify-between gap-3" key={proposal.proposalId}>
+                <span className="text-foreground text-sm">
                   {proposal.playerName} · 剩余 {formatDuration(proposal.expiresAt - nowTick)}
                 </span>
                 {data.status === 'single' ? (
                   <div className="flex gap-2">
-                    <PixelButton
-                      size="sm"
-                      tone="success"
-                      icon="check"
-                      loading={busyAction === `respond:${proposal.proposalId}`}
+                    <Button
                       disabled={busyAction !== null}
-                      onClick={() => { void handleRespond(proposal, true) }}
+                      loading={busyAction === `respond:${proposal.proposalId}`}
+                      onClick={() => {
+                        void handleRespond(proposal, true)
+                      }}
+                      size="sm"
+                      variant="brand"
                     >
+                      <CheckIcon />
                       接受
-                    </PixelButton>
-                    <PixelButton
-                      size="sm"
-                      tone="danger"
-                      icon="cross"
-                      loading={busyAction === `respond:${proposal.proposalId}`}
+                    </Button>
+                    <Button
                       disabled={busyAction !== null}
-                      onClick={() => { void handleRespond(proposal, false) }}
+                      loading={busyAction === `respond:${proposal.proposalId}`}
+                      onClick={() => {
+                        void handleRespond(proposal, false)
+                      }}
+                      size="sm"
+                      variant="destructive"
                     >
+                      <XIcon />
                       拒绝
-                    </PixelButton>
+                    </Button>
                   </div>
                 ) : (
-                  <span className="text-1x text-muted">当前状态无法处理</span>
+                  <span className="text-muted-foreground text-sm">当前状态无法处理</span>
                 )}
               </div>
             ))}
           </div>
-        </PixelFrame>
+        </Panel>
       )}
 
       {/* 典礼 */}
       {data.status === 'engaged' ? (
-        <PixelFrame variant="panel" className="w-full">
-          <div className="flex items-center justify-between gap-4 p-4">
-            <div>
-              <h2 className="text-1x text-fg">婚礼典礼</h2>
-              <p className="text-1x text-muted">已与 {spouseLabel} 订婚, 可举行典礼正式结为夫妻</p>
-            </div>
-            <PixelButton
-              tone="accent"
-              icon="heart"
-              loading={busyAction === 'wed'}
+        <Panel
+          actions={
+            <Button
               disabled={busyAction !== null}
-              onClick={() => { void handleWed() }}
+              loading={busyAction === 'wed'}
+              onClick={() => {
+                void handleWed()
+              }}
+              variant="brand"
             >
+              <HeartIcon />
               举行典礼
-            </PixelButton>
-          </div>
-        </PixelFrame>
+            </Button>
+          }
+          title="婚礼典礼"
+        >
+          <p className="text-muted-foreground text-sm">已与 {spouseLabel} 订婚, 可举行典礼正式结为夫妻</p>
+        </Panel>
       ) : null}
 
       {/* 离婚 + 传送 + 共享背包 (仅已婚可用) */}
       {data.status === 'married' ? (
         <>
-          <PixelFrame variant="panel" className="w-full">
-            <div className="flex items-center justify-between gap-4 p-4">
-              <h2 className="text-1x text-fg">离婚</h2>
-              <PixelButton tone="danger" onClick={() => { setDivorceConfirmOpen(true) }}>
+          <Panel title="离婚">
+            <div>
+              <Button
+                onClick={() => {
+                  setDivorceConfirmOpen(true)
+                }}
+                variant="destructive"
+              >
                 申请离婚
-              </PixelButton>
+              </Button>
             </div>
-          </PixelFrame>
+          </Panel>
 
-          <PixelFrame variant="panel" className="w-full">
-            <div className="flex flex-col gap-3 p-4">
-              <h2 className="text-1x text-fg">传送至配偶</h2>
-              <p className="text-1x text-muted">
+          <Panel title="传送至配偶">
+            <div className="flex flex-col gap-3">
+              <p className="text-muted-foreground text-sm">
                 本区块尚无对应契约 (planned.ts 无 marriage.teleport), 以下蓄力/冷却为纯前端本地模拟,
                 不产生任何服务端或 mock 世界状态变更。
               </p>
               {teleportPhase === 'idle' ? (
                 <div className="flex items-center gap-2">
-                  <PixelButton tone="accent" disabled={!canTeleport} onClick={handleStartTeleport}>
+                  <Button disabled={!canTeleport} onClick={handleStartTeleport} variant="brand">
                     传送至配偶
-                  </PixelButton>
-                  {canTeleport ? null : <span className="text-1x text-muted">配偶当前不在线</span>}
+                  </Button>
+                  {canTeleport ? null : <span className="text-muted-foreground text-sm">配偶当前不在线</span>}
                 </div>
               ) : teleportPhase === 'channeling' ? (
                 <div className="flex flex-col gap-2">
-                  <PixelProgress value={teleportChannelElapsed} max={TELEPORT_CHANNEL_MS} tone="accent" label="蓄力中" />
-                  <PixelButton tone="danger" size="sm" onClick={() => { setTeleportPhase('idle') }}>
-                    取消
-                  </PixelButton>
+                  <Meter label="蓄力中" max={TELEPORT_CHANNEL_MS} tone="brand" value={teleportChannelElapsed} />
+                  <div>
+                    <Button
+                      onClick={() => {
+                        setTeleportPhase('idle')
+                      }}
+                      size="sm"
+                      variant="destructive"
+                    >
+                      取消
+                    </Button>
+                  </div>
                 </div>
               ) : (
-                <PixelProgress
-                  value={teleportCooldownElapsed}
+                <Meter
+                  label={`冷却中, 还需 ${String(Math.ceil(teleportCooldownRemaining / 1000))} 秒`}
                   max={TELEPORT_COOLDOWN_MS}
                   tone="warning"
-                  label={`冷却中, 还需 ${String(Math.ceil(teleportCooldownRemaining / 1000))} 秒`}
+                  value={teleportCooldownElapsed}
                 />
               )}
             </div>
-          </PixelFrame>
+          </Panel>
 
-          <PixelFrame variant="panel" className="w-full">
-            <div className="flex flex-col gap-3 p-4">
-              <h2 className="text-1x text-fg">
-                共享背包 (等级 {data.sharedInvLevel}, {data.sharedInvSlots} 格)
-              </h2>
-              <p className="text-1x text-muted">只读快照; 取放物品请在游戏内使用共享背包容器界面。</p>
-              {sharedQuery.status === 'loading' ? (
-                <PixelLoading label="正在加载共享背包" />
-              ) : sharedQuery.status === 'error' ? (
-                <PixelError message={sharedQuery.error.message} />
-              ) : (
-                <div className="flex flex-col gap-3">
-                  <PixelSlotGrid
-                    slots={sharedSlots}
-                    columns={sharedQuery.data.slots}
-                    {...(selectedSharedSlot === undefined ? {} : { selectedSlot: selectedSharedSlot })}
-                    onSelect={setSelectedSharedSlot}
-                    label="共享背包"
-                  />
-                  {selectedSharedItem === undefined ? (
-                    <p className="text-1x text-muted">点击一个格子查看物品详情</p>
-                  ) : (
-                    <div className="flex items-center gap-3">
-                      <ItemIcon itemId={selectedSharedItem.itemId} scale={2} />
-                      <div className="flex flex-col">
-                        <span className="text-1x text-fg">{resolveSharedItemName(selectedSharedItem, sharedNames)}</span>
-                        <span className="text-1x text-muted">数量: {selectedSharedItem.count}</span>
-                      </div>
+          <Panel
+            description="只读快照; 取放物品请在游戏内使用共享背包容器界面。"
+            title={`共享背包 (等级 ${String(data.sharedInvLevel)}, ${String(data.sharedInvSlots)} 格)`}
+          >
+            {sharedQuery.status === 'loading' ? (
+              <LoadingBlock label="正在加载共享背包" />
+            ) : sharedQuery.status === 'error' ? (
+              <ErrorBlock message={sharedQuery.error.message} />
+            ) : (
+              <div className="flex flex-col gap-3">
+                <ItemSlotGrid
+                  columns={sharedQuery.data.slots}
+                  label="共享背包"
+                  onSelect={setSelectedSharedSlot}
+                  selectedSlot={selectedSharedSlot}
+                  slots={sharedSlots}
+                />
+                {selectedSharedItem === undefined ? (
+                  <p className="text-muted-foreground text-sm">点击一个格子查看物品详情</p>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <ItemIcon itemId={selectedSharedItem.itemId} scale={2} />
+                    <div className="flex flex-col">
+                      <span className="text-foreground text-sm">
+                        {resolveSharedItemName(selectedSharedItem, sharedNames)}
+                      </span>
+                      <span className="text-muted-foreground text-xs">数量: {selectedSharedItem.count}</span>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </PixelFrame>
+                  </div>
+                )}
+              </div>
+            )}
+          </Panel>
         </>
       ) : null}
 
-      <PixelConfirmDanger
-        open={divorceConfirmOpen}
-        title="确认离婚"
-        message={`离婚后进入再婚冷却, 与 ${spouseLabel} 的婚姻关系将立即解除, 此操作不可撤销。`}
+      <ConfirmDangerDialog
         confirmLabel="确认离婚"
         loading={busyAction === 'divorce'}
-        onConfirm={() => { void handleDivorceConfirm() }}
-        onCancel={() => { setDivorceConfirmOpen(false) }}
+        message={`离婚后进入再婚冷却, 与 ${spouseLabel} 的婚姻关系将立即解除, 此操作不可撤销。`}
+        onConfirm={() => {
+          void handleDivorceConfirm()
+        }}
+        onOpenChange={setDivorceConfirmOpen}
+        open={divorceConfirmOpen}
+        title="确认离婚"
       />
     </div>
   )

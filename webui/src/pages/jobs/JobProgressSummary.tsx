@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { PixelBadge, PixelProgress } from '../../components/pixel'
+import { Meter, Tag } from '@/components/kit'
 import type { PlannedJobProgressEntry } from '../../mock'
 
 /**
@@ -13,19 +13,18 @@ export function isGraduated(entry: PlannedJobProgressEntry): boolean {
 }
 
 export function JobLevelBadge({ entry }: { entry: PlannedJobProgressEntry }): ReactElement {
-  return (
-    <PixelBadge tone={isGraduated(entry) ? 'success' : 'accent'}>{`Lv.${String(entry.level)}`}</PixelBadge>
-  )
+  return <Tag tone={isGraduated(entry) ? 'success' : 'brand'}>{`Lv.${String(entry.level)}`}</Tag>
 }
 
 export function JobExpProgress({ entry }: { entry: PlannedJobProgressEntry }): ReactElement {
   const graduated = isGraduated(entry)
   return (
-    <PixelProgress
-      value={graduated ? 1 : entry.levelXp}
+    <Meter
+      label={graduated ? '已毕业 (满级)' : '经验'}
       max={graduated ? 1 : entry.nextLevelXp}
-      tone={graduated ? 'success' : 'accent'}
-      label={graduated ? '已毕业 (满级)' : `经验 ${String(entry.levelXp)}/${String(entry.nextLevelXp)}`}
+      tone={graduated ? 'success' : 'brand'}
+      value={graduated ? 1 : entry.levelXp}
+      valueText={graduated ? '满级' : `${String(entry.levelXp)} / ${String(entry.nextLevelXp)}`}
     />
   )
 }

@@ -1,14 +1,16 @@
 import type { ReactElement } from 'react'
 import {
+  DataTable,
+  EmptyBlock,
+  ErrorBlock,
   ItemIcon,
-  PixelBadge,
-  PixelEmpty,
-  PixelError,
-  PixelFrame,
-  PixelLoading,
-  PixelProgress,
-  PixelTable,
-} from '../../../components/pixel'
+  LoadingBlock,
+  Meter,
+  Panel,
+  Stat,
+  Surface,
+  Tag,
+} from '@/components/kit'
 import { useItemNames } from '../../../lib/i18n'
 import { useMockAction } from '../../../mock'
 import type { PlannedBrewEntry } from '../../../mock'
@@ -30,31 +32,34 @@ const EMPTY_PAYLOAD: Record<string, never> = {}
 
 function BrewRow({ brew }: { brew: PlannedBrewEntry }): ReactElement {
   return (
-    <PixelFrame variant="panel" className="flex flex-col gap-2 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-1x text-fg">{brew.displayName}</span>
-        <span className="text-1x text-muted">
-          {brew.permanentStacks}/{brew.maxStacks}
-        </span>
+    <Surface>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="font-medium text-foreground text-sm">{brew.displayName}</h3>
+          <span className="text-muted-foreground text-xs tabular-nums">
+            {brew.permanentStacks}/{brew.maxStacks}
+          </span>
+        </div>
+        <Meter
+          bare
+          max={brew.maxStacks}
+          tone={brew.permanentStacks >= brew.maxStacks ? 'success' : 'brand'}
+          value={brew.permanentStacks}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground text-xs">月光词条:</span>
+          {brew.moonshineAffixes.length === 0 ? (
+            <span className="text-muted-foreground text-xs">无</span>
+          ) : (
+            brew.moonshineAffixes.map((affix) => (
+              <Tag key={affix} size="sm" tone="info">
+                {affix}
+              </Tag>
+            ))
+          )}
+        </div>
       </div>
-      <PixelProgress
-        value={brew.permanentStacks}
-        max={brew.maxStacks}
-        tone={brew.permanentStacks >= brew.maxStacks ? 'success' : 'accent'}
-      />
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-1x text-muted">月光词条:</span>
-        {brew.moonshineAffixes.length === 0 ? (
-          <span className="text-1x text-muted">无</span>
-        ) : (
-          brew.moonshineAffixes.map((affix) => (
-            <PixelBadge key={affix} tone="info">
-              {affix}
-            </PixelBadge>
-          ))
-        )}
-      </div>
-    </PixelFrame>
+    </Surface>
   )
 }
 
@@ -67,67 +72,71 @@ export function BrewerPanel(): ReactElement {
   const names = useItemNames(recipeInputIds)
 
   if (query.status === 'loading') {
-    return <PixelLoading label="正在读取酿酒师档案" />
+    return <LoadingBlock label="正在读取酿酒师档案" />
   }
   if (query.status === 'error') {
-    return <PixelError message={query.error.message} onRetry={query.reload} />
+    return <ErrorBlock message={query.error.message} onRetry={query.reload} />
   }
 
   const data = query.data
 
   return (
-    <div className="flex flex-col gap-6">
-      <PixelFrame variant="panel" className="p-4">
-        <span className="text-2x text-fg">酿酒师 Lv.{data.level}</span>
-      </PixelFrame>
+    <div className="flex flex-col gap-4">
+      <Panel title="酿酒师">
+        <div className="grid grid-cols-3 gap-4">
+          <Stat label="职业等级" value={`Lv.${String(data.level)}`} />
+        </div>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">永久层数与月光词条</h2>
+      <Panel title="永久层数与月光词条">
         {data.brews.length === 0 ? (
-          <PixelEmpty title="暂无酿酒记录" />
+          <EmptyBlock title="暂无酿酒记录" />
         ) : (
           <div className="flex flex-col gap-3">
             {data.brews.map((brew) => (
-              <BrewRow key={brew.brewId} brew={brew} />
+              <BrewRow brew={brew} key={brew.brewId} />
             ))}
           </div>
         )}
-      </section>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">配方表</h2>
+      <Panel title="配方表">
         {data.recipes.length === 0 ? (
-          <PixelEmpty title="暂无配方数据" />
+          <EmptyBlock title="暂无配方数据" />
         ) : (
-          <PixelTable
+          <DataTable
             columns={[
-              { key: 'name', header: '配方', render: (row) => row.displayName },
+              { header: '配方', key: 'name', render: (row) => row.displayName },
               {
-                key: 'inputs',
                 header: '原料',
+                key: 'inputs',
                 render: (row) => (
                   <span className="flex flex-wrap items-center gap-2">
                     {row.inputs.map((input) => (
-                      <span key={input.itemId} className="flex items-center gap-1">
-                        <ItemIcon itemId={input.itemId} label={names[input.descriptionId] ?? input.descriptionId} />
-                        <span className="text-1x text-muted">x{input.count}</span>
+                      <span className="flex items-center gap-1" key={input.itemId}>
+                        <ItemIcon
+                          itemId={input.itemId}
+                          label={names[input.descriptionId] ?? input.descriptionId}
+                        />
+                        <span className="text-muted-foreground text-xs">x{input.count}</span>
                       </span>
                     ))}
                   </span>
                 ),
               },
               {
-                key: 'agingDays',
                 header: '陈酿天数',
-                render: (row) => `${row.agingDays} 天`,
+                key: 'agingDays',
+                numeric: true,
+                render: (row) => `${String(row.agingDays)} 天`,
                 sortValue: (row) => row.agingDays,
               },
             ]}
-            rows={data.recipes}
             rowKey={(row) => row.recipeId}
+            rows={data.recipes}
           />
         )}
-      </section>
+      </Panel>
     </div>
   )
 }

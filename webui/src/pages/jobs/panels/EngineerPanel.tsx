@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
 import { useState } from 'react'
-import type { PixelTab } from '../../../components/pixel'
-import { PixelBadge, PixelError, PixelFrame, PixelLoading, PixelTable, PixelTabs } from '../../../components/pixel'
+import type { TabItem } from '@/components/kit'
+import { DataTable, ErrorBlock, LoadingBlock, Panel, Stat, TabBar, Tag } from '@/components/kit'
 import { useMockAction } from '../../../mock'
 import { formatStatValue } from './shared'
 
@@ -25,7 +25,7 @@ const EMPTY_PAYLOAD: Record<string, never> = {}
 
 type EngineerTabId = 'tiers' | 'armor'
 
-const ENGINEER_TABS: readonly PixelTab[] = [
+const ENGINEER_TABS: readonly TabItem[] = [
   { id: 'tiers', label: '纳米板档位' },
   { id: 'armor', label: '护甲特效' },
 ]
@@ -40,72 +40,82 @@ export function EngineerPanel(): ReactElement {
   const [expandedEffectId, setExpandedEffectId] = useState<string | null>(null)
 
   if (query.status === 'loading') {
-    return <PixelLoading label="正在读取铸甲师档案" />
+    return <LoadingBlock label="正在读取铸甲师档案" />
   }
   if (query.status === 'error') {
-    return <PixelError message={query.error.message} onRetry={query.reload} />
+    return <ErrorBlock message={query.error.message} onRetry={query.reload} />
   }
 
   const data = query.data
 
   return (
-    <div className="flex flex-col gap-6">
-      <PixelFrame variant="panel" className="flex flex-wrap items-center justify-between gap-4 p-4">
-        <span className="text-2x text-fg">铸甲师 Lv.{data.level}</span>
-        <span className="text-1x text-muted">反应堆冷却字段缺失: 契约 (planned.ts) 未包含 nanoReactorCdEndTick</span>
-      </PixelFrame>
+    <div className="flex flex-col gap-4">
+      <Panel title="铸甲师">
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-3 gap-4">
+            <Stat label="职业等级" value={`Lv.${String(data.level)}`} />
+          </div>
+          <p className="text-muted-foreground text-xs">
+            反应堆冷却字段缺失: 契约 (planned.ts) 未包含 nanoReactorCdEndTick
+          </p>
+        </div>
+      </Panel>
 
-      <PixelTabs
-        tabs={ENGINEER_TABS}
+      <TabBar
         activeId={activeTab}
         onChange={(id) => {
           if (isEngineerTabId(id)) {
             setActiveTab(id)
           }
         }}
+        tabs={ENGINEER_TABS}
+        variant="underline"
       />
 
       {activeTab === 'tiers' ? (
-        <PixelTable
-          columns={[
-            { key: 'label', header: '档位', render: (row) => row.label },
-            {
-              key: 'value',
-              header: '数值',
-              render: (row) => formatStatValue(row.value, row.unit),
-              sortValue: (row) => row.value,
-            },
-          ]}
-          rows={data.tiers}
-          rowKey={(row) => row.key}
-          emptyHint="尚无纳米板档位数据"
-        />
+        <Panel title="纳米板档位">
+          <DataTable
+            columns={[
+              { header: '档位', key: 'label', render: (row) => row.label },
+              {
+                header: '数值',
+                key: 'value',
+                numeric: true,
+                render: (row) => formatStatValue(row.value, row.unit),
+                sortValue: (row) => row.value,
+              },
+            ]}
+            emptyHint="尚无纳米板档位数据"
+            rowKey={(row) => row.key}
+            rows={data.tiers}
+          />
+        </Panel>
       ) : (
-        <div className="flex flex-col gap-2">
-          {data.armorEffects.map((effect) => {
-            const expanded = effect.effectId === expandedEffectId
-            return (
-              <button
-                key={effect.effectId}
-                type="button"
-                onClick={() => {
-                  setExpandedEffectId(expanded ? null : effect.effectId)
-                }}
-                className="block w-full border-2 border-transparent text-left outline-none focus-visible:border-border-strong"
-              >
-                <PixelFrame variant="panel" className="flex flex-col gap-2 p-4">
+        <Panel title="护甲特效">
+          <div className="flex flex-col gap-2">
+            {data.armorEffects.map((effect) => {
+              const expanded = effect.effectId === expandedEffectId
+              return (
+                <button
+                  className="flex w-full flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3 text-left transition-colors outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+                  key={effect.effectId}
+                  onClick={() => {
+                    setExpandedEffectId(expanded ? null : effect.effectId)
+                  }}
+                  type="button"
+                >
                   <div className="flex items-center justify-between gap-4">
-                    <span className="text-1x text-fg">{effect.displayName}</span>
-                    <PixelBadge tone={effect.unlocked ? 'success' : 'neutral'}>
+                    <h3 className="font-medium text-foreground text-sm">{effect.displayName}</h3>
+                    <Tag tone={effect.unlocked ? 'success' : 'neutral'}>
                       {effect.unlocked ? '已解锁' : '未解锁'}
-                    </PixelBadge>
+                    </Tag>
                   </div>
-                  {expanded ? <p className="text-1x text-muted">{effect.description}</p> : null}
-                </PixelFrame>
-              </button>
-            )
-          })}
-        </div>
+                  {expanded ? <p className="text-muted-foreground text-sm">{effect.description}</p> : null}
+                </button>
+              )
+            })}
+          </div>
+        </Panel>
       )}
     </div>
   )

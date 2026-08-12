@@ -1,34 +1,25 @@
-import { join } from 'node:path'
 import js from '@eslint/js'
 import react from 'eslint-plugin-react'
 import reactHooks from 'eslint-plugin-react-hooks'
-import tailwindcss from 'eslint-plugin-tailwindcss'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 /*
- * 矢量图标禁令 (规格第二章硬红线第 3 条) 需要两条规则同时开:
- *   - no-restricted-imports 封住整包引入与任何 .svg 模块导入;
- *   - react/forbid-elements 封住手写内联 <svg>。
- * 只封 import 不封内联元素会漏 —— 图标库被禁后最容易的绕路就是直接粘一段 svg path。
- * 第三道是 scripts/verify-pixel-guards.mjs (构建期扫依赖与源码), 保证 lint 被跳过时仍拦得住。
+ * 像素时代那份配置里的三组规则已整体撤除, 记录理由以免有人照着 git 历史加回来:
+ *   - 矢量图标库禁令 (no-restricted-imports + react/forbid-elements 封 <svg>): 现在功能图标的
+ *     唯一来源就是 lucide-react, 禁令与实现直接冲突;
+ *   - tailwindcss/no-custom-classname 与 no-arbitrary-value: 插件只支持 Tailwind v3, 本工程已升 v4;
+ *     且 Coss UI 的组件源码大量使用任意值 (before:rounded-[calc(var(--radius-lg)-1px)] 一类),
+ *     这些是组件库自己的实现细节, 不该被本项目的 lint 判违规。
+ *
+ * src/components/ui/ 是 Coss UI 的 copy-paste 产物, 单列一段放宽规则 —— 那份代码由上游维护,
+ * 用本项目的严格档去改它, 下次更新组件时改动会被整体覆盖回去。
  */
-const BANNED_ICON_PACKAGES = [
-  'lucide-react',
-  'lucide-react/*',
-  'react-icons',
-  'react-icons/*',
-  '@heroicons/react',
-  '@heroicons/react/*',
-  'react-feather',
-  'feather-icons',
-  '@phosphor-icons/react',
-  'phosphor-react',
-  '@fortawesome/*',
-]
 
 export default tseslint.config(
-  { ignores: ['dist/**'] },
+  // _pixel-archive 是封存区, 不在 tsconfig 的 include 里 (typed lint 会因此报"文件不属于任何项目"),
+  // 也不参与构建。它的代码按 Tailwind v3 那套写, 用现在的规则去查只会得到一堆无意义的报错。
+  { ignores: ['dist/**', '_pixel-archive/**'] },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [js.configs.recommended, ...tseslint.configs.recommendedTypeChecked],
@@ -41,50 +32,36 @@ export default tseslint.config(
     },
     settings: {
       react: { version: 'detect' },
-      // 插件默认找 tailwind.config.js, 本工程用 .ts; 且必须给绝对路径 ——
-      // 插件按配置文件所在目录解析 tailwindcss 包, 相对路径会让它从 "." 解析并抛 Could not resolve tailwindcss。
-      tailwindcss: { config: join(import.meta.dirname, 'tailwind.config.ts') },
     },
     plugins: {
       react,
       'react-hooks': reactHooks,
-      tailwindcss,
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: BANNED_ICON_PACKAGES,
-              message:
-                'stroke-based 矢量图标库与像素资产互斥 (PixelUI 规格第二章硬红线第 3 条); 图标一律走 PixelIcon 的 PNG 蒙版管线。',
-            },
-            {
-              group: ['*.svg', '*.svg?*'],
-              message: 'SVG 是矢量资产, 放大不会产生阶梯硬边; 图标资产一律 16x16 PNG (规格第八章)。',
-            },
-          ],
-        },
-      ],
-      'react/forbid-elements': [
-        'error',
-        {
-          forbid: [
-            {
-              element: 'svg',
-              message: '禁止手写内联 SVG 图标; 走 PixelIcon 的 PNG 蒙版管线 (规格第八章)。',
-            },
-          ],
-        },
-      ],
-      // 任意值绕过整条 --px 派生链, 是半像素混进来的主要通道。
-      'tailwindcss/no-arbitrary-value': 'error',
-      // 让被删掉的默认类 (rounded-lg / blur-sm / text-sm) 从"静默失效"变成"报错"。
-      // 缺了这条, 前面所有 theme 覆盖只是让类名不产出样式, 人看不见。
-      'tailwindcss/no-custom-classname': 'error',
-      'tailwindcss/no-contradicting-classname': 'error',
+    },
+  },
+  {
+    // 上游组件源码: 保留类型检查, 关掉那些"写法风格"类规则。
+    files: ['src/components/ui/**/*.{ts,tsx}', 'src/hooks/**/*.ts', 'src/lib/utils.ts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-empty-object-type': 'off',
+      '@typescript-eslint/no-unnecessary-type-assertion': 'off',
+      '@typescript-eslint/no-floating-promises': 'off',
+      '@typescript-eslint/no-misused-promises': 'off',
+      'react-hooks/refs': 'off',
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/purity': 'off',
+      'react-hooks/immutability': 'off',
+      'react-hooks/preserve-manual-memoization': 'off',
+      'react-hooks/static-components': 'off',
+      'react-hooks/incompatible-library': 'off',
     },
   },
   {

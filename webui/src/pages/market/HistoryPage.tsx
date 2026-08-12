@@ -1,16 +1,19 @@
+import { ClockIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
 import { useState } from 'react'
-import type { PixelTableColumn } from '../../components/pixel'
+import type { DataTableColumn } from '@/components/kit'
 import {
+  Button,
+  Currency,
+  DataTable,
+  EmptyBlock,
+  ErrorBlock,
+  FeedbackAlert,
   ItemIcon,
-  PixelBadge,
-  PixelButton,
-  PixelCurrency,
-  PixelEmpty,
-  PixelError,
-  PixelLoading,
-  PixelTable,
-} from '../../components/pixel'
+  LoadingBlock,
+  Panel,
+  Tag,
+} from '@/components/kit'
 import { useItemNames } from '../../lib/i18n'
 import { useMockAction } from '../../mock'
 import type { PlannedMarketTransaction } from '../../mock'
@@ -56,13 +59,11 @@ export function HistoryPage(): ReactElement {
   const totalPages =
     plannedQuery.status === 'ready' ? Math.max(1, Math.ceil(plannedQuery.data.total / PLANNED_PAGE_SIZE)) : 1
 
-  const columns: readonly PixelTableColumn<PlannedMarketTransaction>[] = [
+  const columns: readonly DataTableColumn<PlannedMarketTransaction>[] = [
     {
       key: 'role',
       header: '方向',
-      render: (row) => (
-        <PixelBadge tone={row.role === 'buyer' ? 'info' : 'success'}>{ROLE_LABEL[row.role]}</PixelBadge>
-      ),
+      render: (row) => <Tag tone={row.role === 'buyer' ? 'info' : 'success'}>{ROLE_LABEL[row.role]}</Tag>,
       sortValue: (row) => ROLE_LABEL[row.role],
     },
     {
@@ -73,29 +74,38 @@ export function HistoryPage(): ReactElement {
         return (
           <div className="flex items-center gap-2">
             <ItemIcon itemId={row.itemId} label={label} scale={1} />
-            <span className="text-1x text-fg">{label}</span>
+            <span className="text-foreground text-sm">{label}</span>
           </div>
         )
       },
       sortValue: (row) => names[row.descriptionId] ?? row.descriptionId,
     },
-    { key: 'count', header: '数量', render: (row) => String(row.count), sortValue: (row) => row.count },
+    {
+      key: 'count',
+      header: '数量',
+      numeric: true,
+      render: (row) => String(row.count),
+      sortValue: (row) => row.count,
+    },
     {
       key: 'unitPrice',
       header: '单价',
-      render: (row) => <PixelCurrency amount={row.unitPrice} currency="credit" size="sm" />,
+      numeric: true,
+      render: (row) => <Currency amount={row.unitPrice} currency="credit" size="sm" />,
       sortValue: (row) => row.unitPrice,
     },
     {
       key: 'total',
       header: '总价',
-      render: (row) => <PixelCurrency amount={row.total} currency="credit" size="sm" />,
+      numeric: true,
+      render: (row) => <Currency amount={row.total} currency="credit" size="sm" />,
       sortValue: (row) => row.total,
     },
     {
       key: 'fee',
       header: '手续费',
-      render: (row) => <PixelCurrency amount={row.fee} currency="credit" size="sm" />,
+      numeric: true,
+      render: (row) => <Currency amount={row.fee} currency="credit" size="sm" />,
       sortValue: (row) => row.fee,
     },
     {
@@ -103,7 +113,13 @@ export function HistoryPage(): ReactElement {
       header: '对手方',
       // null 是"系统回收/无对手方"的合法值, 不是名字没加载出来 —— 两者不能用同一句"—"含糊带过。
       render: (row) => (
-        <span className={row.counterpartyName === null ? 'text-1x text-muted' : 'text-1x text-fg'}>
+        <span
+          className={
+            row.counterpartyName === null
+              ? 'text-muted-foreground text-sm'
+              : 'text-foreground text-sm'
+          }
+        >
           {row.counterpartyName ?? '系统 (无对手方)'}
         </span>
       ),
@@ -112,70 +128,73 @@ export function HistoryPage(): ReactElement {
     {
       key: 'at',
       header: '成交时间',
-      render: (row) => <span className="text-1x text-muted">{formatTimestamp(row.at)}</span>,
+      render: (row) => <span className="text-muted-foreground text-sm">{formatTimestamp(row.at)}</span>,
       sortValue: (row) => row.at,
     },
   ]
 
   return (
-    <div className="flex flex-col gap-6">
-      <PixelBadge tone="warning" className="w-full justify-start">
-        后端 market.history 当前恒返回空数组 (MarketDao 无按玩家查流水的方法), 下方"预览数据"表使用前端假定契约
-        market.transactions (接线清单 B6) 演示日后形态, 与真实成交记录无关。
-      </PixelBadge>
+    <div className="flex flex-col gap-4">
+      <FeedbackAlert
+        message='后端 market.history 当前恒返回空数组 (MarketDao 无按玩家查流水的方法), 下方"预览数据"表使用前端假定契约 market.transactions (接线清单 B6) 演示日后形态, 与真实成交记录无关。'
+        tone="warning"
+      />
 
-      <section className="flex flex-col gap-2">
-        <h2 className="text-1x text-fg">真实数据 (market.history)</h2>
-        {realQuery.status === 'loading' ? <PixelLoading size="sm" label="正在查询" /> : null}
+      <Panel title="真实数据 (market.history)">
+        {realQuery.status === 'loading' ? <LoadingBlock label="正在查询" size="sm" /> : null}
         {realQuery.status === 'error' ? (
-          <PixelError message={`查询失败: ${realQuery.error.message}`} onRetry={realQuery.reload} />
+          <ErrorBlock message={`查询失败: ${realQuery.error.message}`} onRetry={realQuery.reload} />
         ) : null}
         {realQuery.status === 'ready' ? (
-          <PixelEmpty title="暂无成交记录" hint="服务端流水查询尚未实现, 这不是你的账号没有交易" icon="clock" />
+          <EmptyBlock
+            hint="服务端流水查询尚未实现, 这不是你的账号没有交易"
+            icon={<ClockIcon aria-hidden="true" />}
+            title="暂无成交记录"
+          />
         ) : null}
-      </section>
+      </Panel>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-1x text-fg">预览数据 (market.transactions, 假定契约)</h2>
-
-        {plannedQuery.status === 'loading' ? <PixelLoading label="正在读取演示数据" /> : null}
+      <Panel title="预览数据 (market.transactions, 假定契约)">
+        {plannedQuery.status === 'loading' ? <LoadingBlock label="正在读取演示数据" /> : null}
         {plannedQuery.status === 'error' ? (
-          <PixelError message={`读取失败: ${plannedQuery.error.message}`} onRetry={plannedQuery.reload} />
+          <ErrorBlock message={`读取失败: ${plannedQuery.error.message}`} onRetry={plannedQuery.reload} />
         ) : null}
 
         {plannedQuery.status === 'ready' && transactions.length === 0 ? (
-          <PixelEmpty title="暂无演示流水" icon="clock" />
+          <EmptyBlock icon={<ClockIcon aria-hidden="true" />} title="暂无演示流水" />
         ) : null}
 
         {plannedQuery.status === 'ready' && transactions.length > 0 ? (
-          <>
-            <PixelTable columns={columns} rows={transactions} rowKey={(row) => String(row.txnId)} className="h-96" />
-            <div className="flex items-center justify-center gap-4">
-              <PixelButton
-                size="sm"
+          <div className="flex flex-col gap-3">
+            <DataTable columns={columns} rowKey={(row) => String(row.txnId)} rows={transactions} />
+            <div className="flex items-center justify-center gap-3">
+              <Button
                 disabled={plannedPage <= 0}
                 onClick={() => {
                   setPlannedPage((page) => Math.max(0, page - 1))
                 }}
+                size="sm"
+                variant="outline"
               >
                 上一页
-              </PixelButton>
-              <span className="text-1x text-muted">
+              </Button>
+              <span className="text-muted-foreground text-sm">
                 第 {plannedPage + 1} / {totalPages} 页
               </span>
-              <PixelButton
-                size="sm"
+              <Button
                 disabled={plannedPage >= totalPages - 1}
                 onClick={() => {
                   setPlannedPage((page) => Math.min(totalPages - 1, page + 1))
                 }}
+                size="sm"
+                variant="outline"
               >
                 下一页
-              </PixelButton>
+              </Button>
             </div>
-          </>
+          </div>
         ) : null}
-      </section>
+      </Panel>
     </div>
   )
 }

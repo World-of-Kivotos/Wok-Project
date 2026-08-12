@@ -44,8 +44,6 @@ export const ROUTE_MARRIAGE = '/marriage'
 export const ROUTE_CASE = '/case'
 export const ROUTE_SETTINGS = '/settings'
 export const ROUTE_ADMIN = '/admin'
-export const ROUTE_PIXEL_CHECK = '/pixel-check'
-export const ROUTE_COLOR_CHECK = '/color-check'
 export const ROUTE_COMPONENTS = '/components'
 
 /**
@@ -70,8 +68,6 @@ export const ROUTE_PATTERNS = [
   ROUTE_CASE,
   ROUTE_SETTINGS,
   ROUTE_ADMIN,
-  ROUTE_PIXEL_CHECK,
-  ROUTE_COLOR_CHECK,
   ROUTE_COMPONENTS,
   ROUTE_JOB_DETAIL,
 ] as const
@@ -100,9 +96,7 @@ export const ROUTE_TITLES: Record<RoutePattern, string> = {
   [ROUTE_CASE]: '开箱',
   [ROUTE_SETTINGS]: '设置',
   [ROUTE_ADMIN]: '管理后台',
-  [ROUTE_PIXEL_CHECK]: '像素单点验证',
-  [ROUTE_COLOR_CHECK]: '配色对照',
-  [ROUTE_COMPONENTS]: '组件预览',
+  [ROUTE_COMPONENTS]: '组件与配色预览',
 }
 
 /** 单职业详情的路径。参数拼接收在这里, 面板不许自己拼 `/jobs/` 前缀 —— 那样改路由要全库搜字符串。 */

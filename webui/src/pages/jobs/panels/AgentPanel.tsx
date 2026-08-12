@@ -1,6 +1,18 @@
 import type { ReactElement } from 'react'
 import { useState } from 'react'
-import { PixelBadge, PixelButton, PixelCurrency, PixelEmpty, PixelError, PixelFrame, PixelLoading, PixelProgress } from '../../../components/pixel'
+import {
+  Button,
+  Currency,
+  EmptyBlock,
+  ErrorBlock,
+  FeedbackAlert,
+  LoadingBlock,
+  Meter,
+  Panel,
+  Stat,
+  Surface,
+  Tag,
+} from '@/components/kit'
 import { callMock, useMockAction } from '../../../mock'
 import type { PlannedAgentScanResult, PlannedChampionAffix } from '../../../mock'
 import { formatCountdown, toError, useLiveNow } from './shared'
@@ -56,10 +68,10 @@ export function AgentPanel(): ReactElement {
   const [sealFeedback, setSealFeedback] = useState<Record<string, SealFeedback>>({})
 
   if (stateQuery.status === 'loading') {
-    return <PixelLoading label="正在读取特勤档案" />
+    return <LoadingBlock label="正在读取特勤档案" />
   }
   if (stateQuery.status === 'error') {
-    return <PixelError message={stateQuery.error.message} onRetry={stateQuery.reload} />
+    return <ErrorBlock message={stateQuery.error.message} onRetry={stateQuery.reload} />
   }
 
   const data = stateQuery.data
@@ -115,122 +127,132 @@ export function AgentPanel(): ReactElement {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <PixelFrame variant="panel" className="flex flex-wrap items-center justify-between gap-4 p-4">
-        <div className="flex items-center gap-6">
-          <span className="text-2x text-fg">特勤干员 Lv.{data.level}</span>
-          <span className="text-1x text-muted">探测半径 {data.scanRadius} 格</span>
+    <div className="flex flex-col gap-4">
+      <Panel title="特勤干员">
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-3 gap-4">
+            <Stat label="职业等级" value={`Lv.${String(data.level)}`} />
+            <Stat label="探测半径" value={`${String(data.scanRadius)} 格`} />
+          </div>
+          <p className="text-muted-foreground text-xs">
+            五支线等级数值缺失: 契约 (planned.ts) 只给单一 level 字段
+          </p>
         </div>
-        <span className="text-1x text-muted">五支线等级数值缺失: 契约 (planned.ts) 只给单一 level 字段</span>
-      </PixelFrame>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">战术扫描</h2>
-        <PixelFrame variant="panel" className="flex flex-col gap-4 p-4">
-          <div className="flex flex-wrap items-center gap-4">
-            <PixelButton
-              tone="accent"
-              loading={scanning}
+      <Panel title="战术扫描">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
               disabled={!scanReady}
+              loading={scanning}
               onClick={() => {
                 void handleScan()
               }}
+              variant="brand"
             >
               发起探测脉冲
-            </PixelButton>
-            <span className="text-1x text-muted">
+            </Button>
+            <span className="text-muted-foreground text-sm">
               {scanReady ? '就绪, 可立即扫描' : `冷却中, 剩余 ${formatCountdown(data.scanReadyAt, now)}`}
             </span>
           </div>
-          {scanError === null ? null : (
-            <p role="alert" className="text-1x text-danger">
-              {scanError.message}
-            </p>
-          )}
+          {scanError === null ? null : <FeedbackAlert message={scanError.message} tone="danger" />}
 
           {activeScan === null ? (
-            <PixelEmpty title="尚未进行有效的战术扫描" hint="点击上方按钮发起一次探测脉冲, 结果会在此列出" />
+            <EmptyBlock hint="点击上方按钮发起一次探测脉冲, 结果会在此列出" title="尚未进行有效的战术扫描" />
           ) : activeScan.seals.length === 0 ? (
-            <PixelEmpty title="本轮扫描没有发现可封印目标" hint="探测范围内暂无带词条的精英怪" />
+            <EmptyBlock hint="探测范围内暂无带词条的精英怪" title="本轮扫描没有发现可封印目标" />
           ) : (
             <div className="flex flex-col gap-3">
-              <span className="text-1x text-muted">本轮快照将于 {formatCountdown(activeScan.expiresAt, now)} 后失效</span>
+              <span className="text-muted-foreground text-xs">
+                本轮快照将于 {formatCountdown(activeScan.expiresAt, now)} 后失效
+              </span>
               {activeScan.seals.map((seal) => (
-                <PixelFrame key={seal.targetNetworkId} variant="inset" className="flex flex-col gap-2 p-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-1x text-fg">{seal.entityLabel}</span>
-                    <PixelBadge tone="warning">{seal.star} 星</PixelBadge>
-                    <span className="text-1x text-muted">
-                      坐标 ({seal.pos.x}, {seal.pos.y}, {seal.pos.z})
-                    </span>
-                  </div>
-                  {seal.affixIds.length === 0 ? (
-                    <span className="text-1x text-muted">词条已全部封印</span>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {seal.affixIds.map((affixId) => {
-                        const key = `${String(seal.targetNetworkId)}:${affixId}`
-                        const feedback = sealFeedback[key]
-                        return (
-                          <div key={key} className="flex items-center gap-2">
-                            <PixelButton
-                              size="sm"
-                              loading={sealingKey === key}
-                              onClick={() => {
-                                void handleSeal(seal.targetNetworkId, affixId)
-                              }}
-                            >
-                              封印 {affixLabel(affixMap, affixId)}
-                            </PixelButton>
-                            {feedback === undefined ? null : (
-                              <span className={`text-1x ${feedback.ok ? 'text-success' : 'text-danger'}`}>
-                                {feedback.message}
-                              </span>
-                            )}
-                          </div>
-                        )
-                      })}
+                <Surface key={seal.targetNetworkId}>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h3 className="font-medium text-foreground text-sm">{seal.entityLabel}</h3>
+                      <Tag tone="warning">{seal.star} 星</Tag>
+                      <span className="text-muted-foreground text-xs">
+                        坐标 ({seal.pos.x}, {seal.pos.y}, {seal.pos.z})
+                      </span>
                     </div>
-                  )}
-                </PixelFrame>
+                    {seal.affixIds.length === 0 ? (
+                      <span className="text-muted-foreground text-xs">词条已全部封印</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {seal.affixIds.map((affixId) => {
+                          const key = `${String(seal.targetNetworkId)}:${affixId}`
+                          const feedback = sealFeedback[key]
+                          return (
+                            <div className="flex items-center gap-2" key={key}>
+                              <Button
+                                loading={sealingKey === key}
+                                onClick={() => {
+                                  void handleSeal(seal.targetNetworkId, affixId)
+                                }}
+                                size="sm"
+                                variant="outline"
+                              >
+                                封印 {affixLabel(affixMap, affixId)}
+                              </Button>
+                              {feedback === undefined ? null : (
+                                <span
+                                  className={`text-xs ${feedback.ok ? 'text-success' : 'text-destructive'}`}
+                                >
+                                  {feedback.message}
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </Surface>
               ))}
             </div>
           )}
-        </PixelFrame>
-      </section>
+        </div>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">悬赏板</h2>
+      <Panel title="悬赏板">
         {data.bounties.length === 0 ? (
-          <PixelEmpty title="当前没有可用悬赏" />
+          <EmptyBlock title="当前没有可用悬赏" />
         ) : (
           <div className="flex flex-col gap-3">
             {data.bounties.map((bounty) => (
-              <PixelFrame key={bounty.bountyId} variant="panel" className="flex flex-col gap-2 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <span className="text-1x text-fg">{bounty.title}</span>
-                  <div className="flex items-center gap-3">
-                    <PixelCurrency amount={bounty.rewardCredit} currency="credit" size="sm" />
-                    {bounty.claimable ? (
-                      <PixelBadge tone="success">可领取 (暂无领取接口)</PixelBadge>
-                    ) : (
-                      <span className="text-1x text-muted">
-                        {bounty.expiresAt > now ? `剩余 ${formatCountdown(bounty.expiresAt, now)}` : '已过期'}
-                      </span>
-                    )}
+              <Surface key={bounty.bountyId}>
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h3 className="font-medium text-foreground text-sm">{bounty.title}</h3>
+                    <div className="flex items-center gap-3">
+                      <Currency amount={bounty.rewardCredit} currency="credit" size="sm" />
+                      {bounty.claimable ? (
+                        <Tag tone="success">可领取 (暂无领取接口)</Tag>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">
+                          {bounty.expiresAt > now
+                            ? `剩余 ${formatCountdown(bounty.expiresAt, now)}`
+                            : '已过期'}
+                        </span>
+                      )}
+                    </div>
                   </div>
+                  <Meter
+                    label="进度"
+                    max={bounty.goal}
+                    tone={bounty.claimable ? 'success' : 'brand'}
+                    value={bounty.progress}
+                    valueText={`${String(bounty.progress)} / ${String(bounty.goal)}`}
+                  />
                 </div>
-                <PixelProgress
-                  value={bounty.progress}
-                  max={bounty.goal}
-                  tone={bounty.claimable ? 'success' : 'accent'}
-                  label={`${String(bounty.progress)} / ${String(bounty.goal)}`}
-                />
-              </PixelFrame>
+              </Surface>
             ))}
           </div>
         )}
-      </section>
+      </Panel>
     </div>
   )
 }

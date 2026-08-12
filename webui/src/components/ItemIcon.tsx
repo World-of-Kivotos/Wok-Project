@@ -227,11 +227,18 @@ function resolveItemTexture(itemId: string): Promise<string | null> {
  */
 export type ItemIconScale = 1 | 2 | 3
 
-/** Tailwind 扫源码文本生成类, 拼接出来的类名不会被生成, 故各档必须是完整字面量 (16k 格)。 */
+/**
+ * 三档实际边长: 32 / 48 / 64 CSS px。
+ *
+ * 全是 16 的整数倍 —— 源贴图是 16x16, 非整数倍放大即便开了 pixelated 也会出现宽窄不一的像素列
+ * (2.5 倍下有一半像素占 2 格、一半占 3 格), 在 MC 物品图标这种低分辨率资产上一眼可见。
+ *
+ * Tailwind 扫源码文本生成类, 拼接出来的类名不会被生成, 故各档必须是完整字面量。
+ */
 const SCALE_CLASS: Record<ItemIconScale, string> = {
-  1: 'block h-16 w-16',
-  2: 'block h-32 w-32',
-  3: 'block h-48 w-48',
+  1: 'block size-8',
+  2: 'block size-12',
+  3: 'block size-16',
 }
 
 /*
@@ -239,20 +246,17 @@ const SCALE_CLASS: Record<ItemIconScale, string> = {
  * J1 未定之前所有第三方 mod 物品都会落在这里, 满屏品红会把"待接线"读成"报错"。
  * 用硬停 conic 渐变而不是位图: 零资产、边界是轴对齐硬边, 不引入任何抗锯齿弧线。
  *
- * 两支色都取**结构类** token (面板底 + 分隔线), 而不是原先的 --color-muted: 那是前景文字的次级色,
+ * 两支色都取**结构类** token (分隔线 + 次级面), 而不是 --muted-foreground: 那是前景文字的次级色,
  * 拿它当填充块会让"没图的物品"比有图的物品更抢眼, 也违反了语义 token 各司其职的前提。
- * --color-tone-* 更不能用 —— 它是喂给 9-slice overlay 混合的基色, 直接刷出来对不上任何最终色。
  */
-const CHECKER_IMAGE =
-  'repeating-conic-gradient(var(--color-border) 0% 25%, var(--color-surface) 0% 50%)'
+const CHECKER_IMAGE = 'repeating-conic-gradient(var(--border) 0% 25%, var(--muted) 0% 50%)'
 
 /**
- * 格子边长固定为 8 个源像素见方 (与原版 missing texture 的 2x2 分块同构), 故须随 scale 同倍放大:
+ * 格子边长恒为图标边长的四分之一 (即 4x4 棋盘), 故须随 scale 同倍放大:
  * 写死成常数会让档位越大格子越密, 占位块在不同尺寸下看着像两种东西。
- * 长度走 calc(var(--px) * n), 与全局唯一长度变量对齐, 不出现裸像素字面量。
  */
-function checkerStyle(tileCells: number): CSSProperties {
-  const tile = `calc(var(--px) * ${String(tileCells)})`
+function checkerStyle(tilePx: number): CSSProperties {
+  const tile = `${String(tilePx)}px`
   return {
     backgroundImage: CHECKER_IMAGE,
     backgroundSize: `${tile} ${tile}`,
@@ -262,8 +266,8 @@ function checkerStyle(tileCells: number): CSSProperties {
 
 const PLACEHOLDER_STYLE: Record<ItemIconScale, CSSProperties> = {
   1: checkerStyle(8),
-  2: checkerStyle(16),
-  3: checkerStyle(24),
+  2: checkerStyle(12),
+  3: checkerStyle(16),
 }
 
 /** 全局 html 规则已设 pixelated 且该属性可继承; 此处再显式写一次, 使本组件挂到任何容器下都不依赖外部继承。 */

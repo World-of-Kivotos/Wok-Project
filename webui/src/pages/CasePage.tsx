@@ -1,24 +1,35 @@
-import type { ReactElement, ReactNode } from 'react'
+import { LockIcon, PackageIcon, RefreshCwIcon } from 'lucide-react'
+import type { ReactElement } from 'react'
 import { useState } from 'react'
-import type { PixelFrameTone, PixelTab, PixelTableColumn } from '../components/pixel'
 import {
+  Button,
+  Currency,
+  DataTable,
+  type DataTableColumn,
+  EmptyBlock,
+  ErrorBlock,
+  FeedbackAlert,
+  type FeedbackTone,
+  Hint,
   ItemIcon,
-  PixelBadge,
-  PixelButton,
-  PixelCurrency,
-  PixelEmpty,
-  PixelError,
-  PixelFrame,
-  PixelLoading,
-  PixelModal,
-  PixelProgress,
-  PixelScrollArea,
-  PixelSlot,
-  PixelTable,
-  PixelTabs,
-  PixelToast,
-  PixelTooltip,
-} from '../components/pixel'
+  ItemSlot,
+  LoadingBlock,
+  Panel,
+  Stat,
+  Surface,
+  TabBar,
+  type TabItem,
+  Tag,
+  type Tone,
+  TONE_FILL_CLASS,
+} from '@/components/kit'
+import {
+  Dialog,
+  DialogDescription,
+  DialogHeader,
+  DialogPopup,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { WebUiCallError } from '../lib/bridge'
 import type {
   CaseCatalogSkin,
@@ -40,9 +51,8 @@ import { callMock, useMockAction } from '../mock'
  * 它与本页不是新旧替代, 而是**同一套服务端权威的两个外壳**: 三条 action 与皮肤资产、钱包全部共用同一份
  * 服务端数据, 本页一行业务规则都不另写。差别只有两处:
  *   1. 外壳: 那份是"独占全屏的开箱页", 本页是平板 hub 的一个面板, 与市场/职业等共用导航、钱包与返回路径;
- *   2. 视觉体系: 那份用圆角/模糊/渐变与逐帧减速滚动; 本页受 PixelUI 六条硬红线约束, 圆角与模糊在工程上
- *      就写不出来, 滚动动效也不自绘 —— conventions.md 七-3 把"全库唯一允许实现动效的地方"钉死在
- *      PixelLoading, 开箱滚动条属于缺失控件 (已在交付说明里报出), 不在面板层私造。
+ *   2. 视觉体系: 那份自绘了一套深色拟真皮与逐帧减速滚动; 本页走平板统一的中性灰阶体系, 且滚动动效仍不自绘
+ *      —— 落点是服务端下发的权威值, 前端另抽一格演一遍是最容易与回执对不上的做法。
  * 两个外壳并存不会重复扣费: `openingId` 在服务端是幂等键, 同 id 复播回同一结果并置 `replayed=true`。
  *
  * === 契约依赖 ===
@@ -74,13 +84,14 @@ const RARITY_LABEL: Record<CaseRarity, string> = {
 }
 
 /**
- * 稀有度 -> tone。tone 只有六个语义档且没有洋红档, 故 pink 与 purple 同落 accent ——
- * 两者的区分交给文字标签与掉率数字, 不靠颜色。硬造第七档要动 index.css, conventions 十一节禁止。
+ * 稀有度 -> tone。tone 只有六个语义档且没有洋红档, 故 pink 与 purple 同落 brand ——
+ * 两者的区分交给文字标签与掉率数字, 不靠颜色。为一个稀有度硬造第七档要同时动 index.css 与
+ * kit/tokens.ts, 不开这个口子。
  */
-const RARITY_TONE: Record<CaseRarity, PixelFrameTone> = {
+const RARITY_TONE: Record<CaseRarity, Tone> = {
   blue: 'info',
-  purple: 'accent',
-  pink: 'accent',
+  purple: 'brand',
+  pink: 'brand',
   red: 'danger',
   gold: 'warning',
 }
@@ -99,7 +110,7 @@ const CONTRACT_WEIGHT_TOTAL = 100_000
 type RarityFilter = CaseRarity | 'all'
 
 interface PanelToast {
-  tone: PixelFrameTone
+  tone: FeedbackTone
   message: string
 }
 
@@ -139,19 +150,19 @@ function describeFailure(error: unknown): FailureView {
 function FailurePanel({ failure }: { failure: FailureView }): ReactElement {
   return (
     <div role="alert">
-      <PixelFrame variant="inset" tone="danger" className="flex flex-col gap-2 p-3">
-        <p className="text-1x text-danger">{failure.message}</p>
-        <p className="text-1x text-muted">
+      <Surface className="flex flex-col gap-1" tone="danger">
+        <p className="text-destructive text-sm">{failure.message}</p>
+        <p className="text-muted-foreground text-xs">
           {failure.code === null
             ? '通用异常路径 (无 errorCode), 服务端未给稳定机器码'
             : `errorCode = ${failure.code}`}
         </p>
         {failure.retrySameOpeningId ? (
-          <p className="text-1x text-warning">
+          <p className="text-warning text-xs">
             服务端标记为可原样重试: 扣费已发生, 必须沿用同一 openingId, 换新 id 会再扣一次
           </p>
         ) : null}
-      </PixelFrame>
+      </Surface>
     </div>
   )
 }
@@ -206,33 +217,8 @@ function affordableOpens(state: CaseStateResult): number | null {
   )
 }
 
-function Section({
-  title,
-  hint,
-  actions,
-  children,
-}: {
-  title: string
-  hint?: string
-  actions?: ReactNode
-  children: ReactNode
-}): ReactElement {
-  return (
-    <PixelFrame variant="panel" className="flex flex-col gap-4 p-4">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h2 className="text-2x text-fg">{title}</h2>
-          {hint === undefined ? null : <p className="text-1x text-muted">{hint}</p>}
-        </div>
-        {actions}
-      </header>
-      {children}
-    </PixelFrame>
-  )
-}
-
 function RarityChip({ rarity }: { rarity: CaseRarity }): ReactElement {
-  return <PixelBadge tone={RARITY_TONE[rarity]}>{RARITY_LABEL[rarity]}</PixelBadge>
+  return <Tag tone={RARITY_TONE[rarity]}>{RARITY_LABEL[rarity]}</Tag>
 }
 
 /** 掉率公示。表 + 分段条并存: 表给可核对的原始整数, 条给"gold 那一格窄到几乎看不见"这个直觉。 */
@@ -240,56 +226,44 @@ function OddsPanel({ weights }: { weights: readonly CaseRarityWeight[] }): React
   const total = weights.reduce((sum, entry) => sum + entry.weight, 0)
   const contractHolds = total === CONTRACT_WEIGHT_TOTAL
 
+  const columns: readonly DataTableColumn<CaseRarityWeight>[] = [
+    { header: '稀有度', key: 'rarity', render: (row) => <RarityChip rarity={row.rarity} /> },
+    { header: '权重 (整数)', key: 'weight', numeric: true, render: (row) => String(row.weight) },
+    { header: '掉率', key: 'odds', numeric: true, render: (row) => formatOdds(row.weight, total) },
+  ]
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-4">
-        <span className="text-1x text-muted">权重总和</span>
-        <PixelBadge tone={contractHolds ? 'success' : 'danger'}>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-muted-foreground text-sm">权重总和</span>
+        <Tag tone={contractHolds ? 'success' : 'danger'}>
           {`${String(total)} / ${String(CONTRACT_WEIGHT_TOTAL)}`}
-        </PixelBadge>
-        <span className="text-1x text-muted">
+        </Tag>
+        <span className="text-muted-foreground text-xs">
           {contractHolds
             ? '与 CaseWeights 契约恒等式一致'
             : '与契约恒等式不符: 权重表已破裂, 下方百分比按实际总和折算, 不代表服务端真实掉率'}
         </span>
       </div>
 
-      <PixelProgress
-        value={total}
-        max={total <= 0 ? 1 : total}
-        label="五档权重构成 (按声明序 blue -> gold)"
-        segments={weights.map((entry) => ({
-          amount: entry.weight,
-          tone: RARITY_TONE[entry.rarity],
-        }))}
-      />
-
-      <table className="w-full border-collapse text-1x">
-        <thead>
-          <tr>
-            <th scope="col" className="border-b border-border px-2 py-1 text-left text-muted">
-              稀有度
-            </th>
-            <th scope="col" className="border-b border-border px-2 py-1 text-left text-muted">
-              权重 (整数)
-            </th>
-            <th scope="col" className="border-b border-border px-2 py-1 text-left text-muted">
-              掉率
-            </th>
-          </tr>
-        </thead>
-        <tbody>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-muted-foreground text-xs">
+          {'五档权重构成 (按声明序 blue -> gold)'}
+        </span>
+        <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
           {weights.map((entry) => (
-            <tr key={entry.rarity}>
-              <td className="px-2 py-1">
-                <RarityChip rarity={entry.rarity} />
-              </td>
-              <td className="px-2 py-1 text-fg">{String(entry.weight)}</td>
-              <td className="px-2 py-1 text-fg">{formatOdds(entry.weight, total)}</td>
-            </tr>
+            <div
+              className={TONE_FILL_CLASS[RARITY_TONE[entry.rarity]]}
+              key={entry.rarity}
+              style={{
+                width: total <= 0 ? '0%' : `${String((entry.weight / total) * 100)}%`,
+              }}
+            />
           ))}
-        </tbody>
-      </table>
+        </div>
+      </div>
+
+      <DataTable columns={columns} rowKey={(row) => row.rarity} rows={weights} />
     </div>
   )
 }
@@ -297,38 +271,41 @@ function OddsPanel({ weights }: { weights: readonly CaseRarityWeight[] }): React
 /**
  * 服务端下发的 reel。
  *
- * 刻意不做减速滚动: 动效在本设计系统里只有 PixelLoading 一个合法出口 (conventions 七-3), 而
- * transition/animate 类工具在 lint 层就被封。因此这里把 `stopIndex` 这个**服务端权威落点**直接标出来,
- * 并把该格高亮 —— 它本来就是"动画必须停在哪一格"的真源, 前端自己抽一格演一遍是最容易与回执对不上的做法。
+ * 刻意不做减速滚动: `stopIndex` 是服务端权威落点, 前端自己抽一格再演一遍是最容易与回执对不上的做法。
+ * 因此这里把落点直接标出来并把该格高亮, 让"动画该停在哪一格"这件事以数据而不是演出的形式呈现。
  */
 function ReelStrip({ open }: { open: CaseOpenResult }): ReactElement {
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-1x text-muted">
+      <p className="text-muted-foreground text-xs">
         {`服务端权威落点 stopIndex = ${String(open.stopIndex)} (共 ${String(open.reel.length)} 格)`}
       </p>
-      <PixelScrollArea orientation="horizontal" label="开箱滚动条" className="w-full">
-        <div className="flex gap-1 p-2">
+      <div aria-label="开箱滚动条" className="w-full overflow-x-auto">
+        <div className="flex gap-2 pb-2">
           {open.reel.map((entry, index) => (
             <div
-              key={`${String(index)}-${entry.skinId}`}
               className="flex flex-col items-center gap-1"
+              key={`${String(index)}-${entry.skinId}`}
             >
-              <PixelSlot
+              <ItemSlot
                 itemId={entry.gunId}
                 label={entry.displayName}
-                selected={index === open.stopIndex}
                 scale={1}
+                selected={index === open.stopIndex}
               />
               <span
-                className={index === open.stopIndex ? 'text-1x text-accent' : 'text-1x text-muted'}
+                className={
+                  index === open.stopIndex
+                    ? 'font-medium text-brand text-xs'
+                    : 'text-muted-foreground text-xs'
+                }
               >
                 {index === open.stopIndex ? '落点' : String(index)}
               </span>
             </div>
           ))}
         </div>
-      </PixelScrollArea>
+      </div>
     </div>
   )
 }
@@ -336,46 +313,41 @@ function ReelStrip({ open }: { open: CaseOpenResult }): ReactElement {
 /** 箱内皮肤目录。ownedCount 直接决定这格上贴不贴数字, 于是"开出来一把"在目录上立刻可见。 */
 function CatalogGrid({ skins }: { skins: readonly CaseCatalogSkin[] }): ReactElement {
   return (
-    <div className="flex flex-wrap gap-4">
+    <div className="flex flex-wrap gap-3">
       {RARITY_ORDER.map((rarity) => {
         const group = skins.filter((skin) => skin.rarity === rarity)
         if (group.length === 0) {
           return null
         }
         return (
-          <PixelFrame
-            key={rarity}
-            variant="inset"
-            tone={RARITY_TONE[rarity]}
-            className="flex flex-col gap-2 p-3"
-          >
+          <Surface className="flex flex-col gap-2" key={rarity} tone={RARITY_TONE[rarity]}>
             <div className="flex items-center gap-2">
               <RarityChip rarity={rarity} />
-              <span className="text-1x text-muted">{`${String(group.length)} 款`}</span>
+              <span className="text-muted-foreground text-xs">{`${String(group.length)} 款`}</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {group.map((skin) => (
-                <PixelTooltip
-                  key={skin.skinId}
+                <Hint
                   content={`${skin.displayName} · ${skin.gunId} · 已持有 ${String(skin.ownedCount)}`}
+                  key={skin.skinId}
                 >
-                  <PixelSlot
+                  <ItemSlot
                     itemId={skin.gunId}
                     label={skin.displayName}
                     {...(skin.ownedCount > 0 ? { count: skin.ownedCount } : {})}
                     scale={2}
                   />
-                </PixelTooltip>
+                </Hint>
               ))}
             </div>
-          </PixelFrame>
+          </Surface>
         )
       })}
     </div>
   )
 }
 
-const OWNED_COLUMNS: readonly PixelTableColumn<CaseOwnedAsset>[] = [
+const OWNED_COLUMNS: readonly DataTableColumn<CaseOwnedAsset>[] = [
   {
     key: 'skin',
     header: '皮肤',
@@ -383,7 +355,7 @@ const OWNED_COLUMNS: readonly PixelTableColumn<CaseOwnedAsset>[] = [
     render: (row) => (
       <span className="flex items-center gap-2">
         <ItemIcon itemId={row.gunId} label={row.displayName} />
-        <span className="text-fg">{row.displayName}</span>
+        <span className="text-foreground">{row.displayName}</span>
       </span>
     ),
   },
@@ -397,13 +369,13 @@ const OWNED_COLUMNS: readonly PixelTableColumn<CaseOwnedAsset>[] = [
     key: 'gun',
     header: '枪械',
     sortValue: (row) => row.gunId,
-    render: (row) => <span className="text-muted">{row.gunId}</span>,
+    render: (row) => <span className="text-muted-foreground">{row.gunId}</span>,
   },
   {
     key: 'acquired',
     header: '获得时间',
     sortValue: (row) => row.acquiredAt,
-    render: (row) => <span className="text-muted">{formatMoment(row.acquiredAt)}</span>,
+    render: (row) => <span className="text-muted-foreground">{formatMoment(row.acquiredAt)}</span>,
   },
   {
     key: 'lock',
@@ -411,7 +383,7 @@ const OWNED_COLUMNS: readonly PixelTableColumn<CaseOwnedAsset>[] = [
     sortValue: (row) => row.tradeLockedUntil,
     render: (row) =>
       row.tradeLockedUntil === 0 ? (
-        <span className="text-muted">无锁</span>
+        <span className="text-muted-foreground">无锁</span>
       ) : (
         <span className="text-warning">{formatMoment(row.tradeLockedUntil)}</span>
       ),
@@ -511,21 +483,21 @@ export function CasePage(): ReactElement {
 
   const toastNode =
     toast === null ? null : (
-      <PixelToast
-        tone={toast.tone}
+      <FeedbackAlert
         message={toast.message}
         onDismiss={() => {
           setToast(null)
         }}
+        tone={toast.tone}
       />
     )
 
   if (snapshot === null && stateQuery.status === 'loading') {
     return (
       <section className="flex flex-col gap-4">
-        <PixelFrame variant="window" className="flex flex-col items-center gap-4 p-8">
-          <PixelLoading label="正在读取武器箱状态" size="lg" />
-        </PixelFrame>
+        <Panel>
+          <LoadingBlock label="正在读取武器箱状态" size="lg" />
+        </Panel>
       </section>
     )
   }
@@ -534,7 +506,7 @@ export function CasePage(): ReactElement {
   if (snapshot === null && stateQuery.status === 'error') {
     return (
       <section className="flex flex-col gap-4">
-        <PixelError
+        <ErrorBlock
           message={stateQuery.error.message}
           code={
             stateQuery.error instanceof WebUiCallError
@@ -557,10 +529,10 @@ export function CasePage(): ReactElement {
   if (!state.enabled) {
     return (
       <section className="flex flex-col gap-4">
-        <PixelEmpty
+        <EmptyBlock
           title="开箱当前不可用"
           hint="enabled = 配置开关 AND tacz 已加载 AND 资源包已注册, 三者任一为假即关闭"
-          icon="lock"
+          icon={<LockIcon aria-hidden="true" />}
         />
       </section>
     )
@@ -578,7 +550,7 @@ export function CasePage(): ReactElement {
       ? undefined
       : ownedShown.find((asset) => asset.assetId === selectedAssetId)
 
-  const filterTabs: readonly PixelTab[] = [
+  const filterTabs: readonly TabItem[] = [
     { id: 'all', label: `全部 (${String(ownedShown.length)})` },
     ...RARITY_ORDER.map((rarity) => ({
       id: rarity,
@@ -590,222 +562,244 @@ export function CasePage(): ReactElement {
 
   return (
     <section className="flex flex-col gap-4">
-      <PixelFrame variant="window" className="flex flex-col gap-4 p-4">
-        <header className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex flex-col gap-1">
-            <h1 className="text-3x text-fg">{state.displayName}</h1>
-            <p className="text-1x text-muted">
-              {`caseId = ${state.caseId} · 平板内版本 (jar 内置整页 case-opening.html 共用同一套服务端权威)`}
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            {stateQuery.status === 'loading' ? <PixelLoading label="刷新中" size="sm" /> : null}
-            <PixelButton
-              tone="neutral"
-              icon="refresh"
+      <Panel
+        actions={
+          <>
+            {stateQuery.status === 'loading' ? <LoadingBlock label="刷新中" size="sm" /> : null}
+            <Button
+              aria-label="重新拉取武器箱状态"
               loading={stateQuery.status === 'loading'}
               onClick={stateQuery.reload}
-              label="重新拉取武器箱状态"
+              size="sm"
+              variant="outline"
             >
+              <RefreshCwIcon />
               重新拉取
-            </PixelButton>
-          </div>
-        </header>
+            </Button>
+          </>
+        }
+        description={`caseId = ${state.caseId} · 平板内版本 (jar 内置整页 case-opening.html 共用同一套服务端权威)`}
+        title={state.displayName}
+      >
+        <div className="flex flex-col gap-4">
+          {stateQuery.status === 'error' ? (
+            <FeedbackAlert
+              message={`重查 case.state 失败: ${stateQuery.error.message} (下方数据是上一次成功的快照, 可能已过期)`}
+              tone="danger"
+              action={
+                <Button onClick={stateQuery.reload} size="sm" variant="destructive-outline">
+                  重试
+                </Button>
+              }
+            />
+          ) : null}
 
-        {stateQuery.status === 'error' ? (
-          <PixelFrame variant="inset" tone="danger" className="flex flex-wrap items-center gap-4 p-3">
-            <p className="text-1x text-danger">
-              {`重查 case.state 失败: ${stateQuery.error.message} (下方数据是上一次成功的快照, 可能已过期)`}
-            </p>
-            <PixelButton tone="danger" onClick={stateQuery.reload}>
-              重试
-            </PixelButton>
-          </PixelFrame>
-        ) : null}
-
-        <div className="flex flex-wrap items-center gap-8">
-          <div className="flex flex-col gap-1">
-            <span className="text-1x text-muted">单次开箱扣费 (双币同时扣, 缺一即拒)</span>
-            <span className="flex items-center gap-4">
-              <PixelCurrency amount={state.creditCost} currency="credit" />
-              <PixelCurrency amount={state.azureCost} currency="azure" />
-            </span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-1x text-muted">我的余额</span>
-            <span className="flex items-center gap-4">
-              <PixelCurrency amount={state.wallet.credit} currency="credit" />
-              <PixelCurrency amount={state.wallet.azure} currency="azure" />
-            </span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-1x text-muted">还能开</span>
-            <PixelBadge tone={affordable ? 'success' : 'danger'}>
-              {openable === null ? '单价非法 (契约破裂)' : `${String(openable)} 次`}
-            </PixelBadge>
-          </div>
-          <PixelTooltip
-            content={
-              affordable
-                ? '开箱是不可撤销的双币扣费, 服务端以 openingId 幂等'
-                : '服务端在扣费前同时校验两种货币, 任一不足即 INSUFFICIENT_FUNDS'
-            }
-          >
-            <PixelButton
-              tone="accent"
-              size="lg"
-              disabled={!affordable}
-              loading={opening}
-              onClick={() => {
-                void runOpen()
-              }}
+          <div className="flex flex-wrap items-end gap-6">
+            <Stat
+              label="单次开箱扣费 (双币同时扣, 缺一即拒)"
+              value={
+                <span className="flex items-center gap-3">
+                  <Currency amount={state.creditCost} currency="credit" />
+                  <Currency amount={state.azureCost} currency="azure" />
+                </span>
+              }
+            />
+            <Stat
+              label="我的余额"
+              value={
+                <span className="flex items-center gap-3">
+                  <Currency amount={state.wallet.credit} currency="credit" />
+                  <Currency amount={state.wallet.azure} currency="azure" />
+                </span>
+              }
+            />
+            <Stat
+              label="还能开"
+              value={
+                <Tag tone={affordable ? 'success' : 'danger'}>
+                  {openable === null ? '单价非法 (契约破裂)' : `${String(openable)} 次`}
+                </Tag>
+              }
+            />
+            <Hint
+              content={
+                affordable
+                  ? '开箱是不可撤销的双币扣费, 服务端以 openingId 幂等'
+                  : '服务端在扣费前同时校验两种货币, 任一不足即 INSUFFICIENT_FUNDS'
+              }
             >
-              {/* 只有"上一次失败且服务端允许原样重试"才换文案: 请求进行中 retryOpeningId 也非空, 那时换字会让人以为已经失败过一次。 */}
-              {failure !== null && retryOpeningId !== null ? '用同一 openingId 重试' : '开箱'}
-            </PixelButton>
-          </PixelTooltip>
+              <Button
+                disabled={!affordable}
+                loading={opening}
+                onClick={() => {
+                  void runOpen()
+                }}
+                size="lg"
+                variant="brand"
+              >
+                {/* 只有"上一次失败且服务端允许原样重试"才换文案: 请求进行中 retryOpeningId 也非空, 那时换字会让人以为已经失败过一次。 */}
+                {failure !== null && retryOpeningId !== null ? '用同一 openingId 重试' : '开箱'}
+              </Button>
+            </Hint>
+          </div>
+
+          {failure === null ? null : <FailurePanel failure={failure} />}
         </div>
+      </Panel>
 
-        {failure === null ? null : <FailurePanel failure={failure} />}
-      </PixelFrame>
-
-      <Section
+      <Panel
+        description="权重是服务端下发的整数数组, 百分比由前端按总和折算; 总和与契约恒等式的比对结果同屏给出"
         title="掉率公示"
-        hint="权重是服务端下发的整数数组, 百分比由前端按总和折算; 总和与契约恒等式的比对结果同屏给出"
       >
         <OddsPanel weights={state.weights} />
-      </Section>
+      </Panel>
 
-      <Section title="箱内皮肤" hint={`共 ${String(state.skins.length)} 款, 格上的数字是我已持有的数量`}>
+      <Panel
+        description={`共 ${String(state.skins.length)} 款, 格上的数字是我已持有的数量`}
+        title="箱内皮肤"
+      >
         <CatalogGrid skins={state.skins} />
-      </Section>
+      </Panel>
 
       {lastOpen === null ? null : (
-        <Section
-          title="本次开箱回执"
-          hint="reel 与落点均由服务端下发; 本页不自绘滚动动效, 直接标出权威落点"
+        <Panel
           actions={
-            <PixelButton
-              tone="neutral"
+            <Button
               onClick={() => {
                 setResultOpen(true)
               }}
+              size="sm"
+              variant="outline"
             >
               重看结果
-            </PixelButton>
+            </Button>
           }
+          description="reel 与落点均由服务端下发; 本页不自绘滚动动效, 直接标出权威落点"
+          title="本次开箱回执"
         >
           <ReelStrip open={lastOpen} />
-        </Section>
+        </Panel>
       )}
 
-      <Section
-        title="我的皮肤资产"
-        hint={
+      <Panel
+        description={
           state.ownedTotal > ownedShown.length
             ? `服务端只回前 ${String(ownedShown.length)} 条 (OWNED_RESPONSE_LIMIT), 真实总数 ${String(state.ownedTotal)}`
             : `共 ${String(state.ownedTotal)} 件`
         }
+        title="我的皮肤资产"
       >
-        <PixelTabs
-          tabs={filterTabs}
-          activeId={rarityFilter}
-          level="secondary"
-          onChange={(id) => {
-            // id 来自本页自己构造的 tabs, 只可能是 'all' 或五档之一; 收窄靠查表而不是断言。
-            const matched = RARITY_ORDER.find((rarity) => rarity === id)
-            setRarityFilter(matched ?? 'all')
-          }}
-        />
-
-        {filteredOwned.length === 0 ? (
-          <PixelEmpty
-            title="该稀有度下还没有皮肤"
-            hint={
-              ownedShown.length === 0
-                ? '开一次箱子就会出现在这里'
-                : '换一个稀有度页签, 或继续开箱'
-            }
-            icon="bag"
-          />
-        ) : (
-          <PixelTable
-            columns={OWNED_COLUMNS}
-            rows={filteredOwned}
-            rowKey={(row) => row.assetId}
-            className="h-96"
-            {...(selectedAssetId === null ? {} : { selectedRowKey: selectedAssetId })}
-            onRowClick={(row) => {
-              setSelectedAssetId(row.assetId)
+        <div className="flex flex-col gap-3">
+          <TabBar
+            activeId={rarityFilter}
+            onChange={(id) => {
+              // id 来自本页自己构造的 tabs, 只可能是 'all' 或五档之一; 收窄靠查表而不是断言。
+              const matched = RARITY_ORDER.find((rarity) => rarity === id)
+              setRarityFilter(matched ?? 'all')
             }}
+            tabs={filterTabs}
+            variant="underline"
           />
-        )}
 
-        {selectedAsset === undefined ? null : (
-          <PixelFrame variant="inset" className="flex flex-wrap items-center gap-4 p-3">
-            <ItemIcon itemId={selectedAsset.gunId} label={selectedAsset.displayName} scale={2} />
-            <div className="flex flex-col gap-1">
-              <span className="text-1x text-fg">{selectedAsset.displayName}</span>
-              <span className="text-1x text-muted">{`assetId ${selectedAsset.assetId}`}</span>
-              <span className="text-1x text-muted">{`displayId ${selectedAsset.displayId}`}</span>
-            </div>
-            {appliedAssetId === selectedAsset.assetId ? (
-              <PixelBadge tone="success">本次会话已应用</PixelBadge>
-            ) : null}
-            <PixelButton
-              tone="accent"
-              loading={applying}
-              onClick={() => {
-                void runApply(selectedAsset.assetId)
-              }}
-            >
-              应用到手持枪械
-            </PixelButton>
-          </PixelFrame>
-        )}
-      </Section>
-
-      <PixelModal
-        open={resultOpen && lastOpen !== null}
-        title="开箱结果"
-        size="lg"
-        onClose={() => {
-          setResultOpen(false)
-        }}
-      >
-        {lastOpen === null ? null : (
-          <div className="flex flex-col items-center gap-4 p-4">
-            <RarityChip rarity={lastOpen.result.rarity} />
-            <ItemIcon
-              itemId={lastOpen.result.gunId}
-              label={lastOpen.result.displayName}
-              scale={3}
+          {filteredOwned.length === 0 ? (
+            <EmptyBlock
+              title="该稀有度下还没有皮肤"
+              hint={
+                ownedShown.length === 0
+                  ? '开一次箱子就会出现在这里'
+                  : '换一个稀有度页签, 或继续开箱'
+              }
+              icon={<PackageIcon aria-hidden="true" />}
             />
-            <p className="text-2x text-fg">{lastOpen.result.displayName}</p>
-            <p className="text-1x text-muted">{`${lastOpen.result.gunId} · ${lastOpen.result.skinId}`}</p>
-            <p className="text-1x text-muted">
-              {lastOpen.result.tradeLockedUntil === 0
-                ? '交易锁: 无 (服务端当前恒为 0, 7 天 trade hold 尚未实现)'
-                : `交易锁至 ${formatMoment(lastOpen.result.tradeLockedUntil)}`}
-            </p>
-            <div className="flex items-center gap-4">
-              <PixelCurrency amount={lastOpen.wallet.credit} currency="credit" />
-              <PixelCurrency amount={lastOpen.wallet.azure} currency="azure" />
+          ) : (
+            <div className="max-h-96 overflow-y-auto">
+              <DataTable
+                columns={OWNED_COLUMNS}
+                rows={filteredOwned}
+                rowKey={(row) => row.assetId}
+                {...(selectedAssetId === null ? {} : { selectedRowKey: selectedAssetId })}
+                onRowClick={(row) => {
+                  setSelectedAssetId(row.assetId)
+                }}
+              />
             </div>
-            <PixelButton
-              tone="accent"
-              loading={applying}
-              onClick={() => {
-                void runApply(lastOpen.result.assetId)
-              }}
-            >
-              立即应用
-            </PixelButton>
-            {/* 浮层开着时 failure 只可能来自本浮层里的这次 apply —— 开箱按钮在遮罩之后, 点不到。 */}
-            {failure === null ? null : <FailurePanel failure={failure} />}
-          </div>
-        )}
-      </PixelModal>
+          )}
+
+          {selectedAsset === undefined ? null : (
+            <Surface className="flex flex-wrap items-center gap-4">
+              <ItemIcon itemId={selectedAsset.gunId} label={selectedAsset.displayName} scale={2} />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-foreground text-sm">{selectedAsset.displayName}</span>
+                <span className="text-muted-foreground text-xs">{`assetId ${selectedAsset.assetId}`}</span>
+                <span className="text-muted-foreground text-xs">{`displayId ${selectedAsset.displayId}`}</span>
+              </div>
+              {appliedAssetId === selectedAsset.assetId ? (
+                <Tag tone="success">本次会话已应用</Tag>
+              ) : null}
+              <Button
+                loading={applying}
+                onClick={() => {
+                  void runApply(selectedAsset.assetId)
+                }}
+                variant="brand"
+              >
+                应用到手持枪械
+              </Button>
+            </Surface>
+          )}
+        </div>
+      </Panel>
+
+      <Dialog
+        onOpenChange={(next) => {
+          if (!next) {
+            setResultOpen(false)
+          }
+        }}
+        open={resultOpen && lastOpen !== null}
+      >
+        <DialogPopup className="max-w-2xl">
+          {lastOpen === null ? null : (
+            <>
+              <DialogHeader>
+                <DialogTitle>开箱结果</DialogTitle>
+                <DialogDescription>{`${lastOpen.result.gunId} · ${lastOpen.result.skinId}`}</DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-col items-center gap-3 px-6 pb-6">
+                <RarityChip rarity={lastOpen.result.rarity} />
+                <ItemIcon
+                  itemId={lastOpen.result.gunId}
+                  label={lastOpen.result.displayName}
+                  scale={3}
+                />
+                <p className="font-medium text-base text-foreground">
+                  {lastOpen.result.displayName}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {lastOpen.result.tradeLockedUntil === 0
+                    ? '交易锁: 无 (服务端当前恒为 0, 7 天 trade hold 尚未实现)'
+                    : `交易锁至 ${formatMoment(lastOpen.result.tradeLockedUntil)}`}
+                </p>
+                <div className="flex items-center gap-4">
+                  <Currency amount={lastOpen.wallet.credit} currency="credit" />
+                  <Currency amount={lastOpen.wallet.azure} currency="azure" />
+                </div>
+                <Button
+                  loading={applying}
+                  onClick={() => {
+                    void runApply(lastOpen.result.assetId)
+                  }}
+                  variant="brand"
+                >
+                  立即应用
+                </Button>
+                {/* 浮层开着时 failure 只可能来自本浮层里的这次 apply —— 开箱按钮在遮罩之后, 点不到。 */}
+                {failure === null ? null : <FailurePanel failure={failure} />}
+              </div>
+            </>
+          )}
+        </DialogPopup>
+      </Dialog>
 
       {toastNode}
     </section>

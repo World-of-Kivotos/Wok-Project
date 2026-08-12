@@ -1,16 +1,17 @@
 import type { ReactElement } from 'react'
 import { useState } from 'react'
-import type { PixelTableColumn } from '../../components/pixel'
+import type { DataTableColumn } from '@/components/kit'
 import {
+  Button,
+  ConfirmDangerDialog,
+  Currency,
+  DataTable,
+  EmptyBlock,
+  ErrorBlock,
   ItemIcon,
-  PixelButton,
-  PixelConfirmDanger,
-  PixelCurrency,
-  PixelEmpty,
-  PixelError,
-  PixelLoading,
-  PixelTable,
-} from '../../components/pixel'
+  LoadingBlock,
+  Panel,
+} from '@/components/kit'
 import { useItemNames } from '../../lib/i18n'
 import type { MarketListing } from '../../lib/types'
 import { callMock, useMockAction } from '../../mock'
@@ -76,7 +77,7 @@ export function MyListingsPage(): ReactElement {
       })
   }
 
-  const columns: readonly PixelTableColumn<MarketListing>[] = [
+  const columns: readonly DataTableColumn<MarketListing>[] = [
     {
       key: 'item',
       header: '物品',
@@ -85,93 +86,103 @@ export function MyListingsPage(): ReactElement {
         return (
           <div className="flex items-center gap-2">
             <ItemIcon itemId={row.itemId} label={label} scale={1} />
-            <span className="text-1x text-fg">{label}</span>
+            <span className="text-foreground text-sm">{label}</span>
           </div>
         )
       },
       sortValue: (row) => names[row.descriptionId] ?? row.descriptionId,
     },
-    { key: 'count', header: '数量', render: (row) => String(row.count), sortValue: (row) => row.count },
+    {
+      key: 'count',
+      header: '数量',
+      numeric: true,
+      render: (row) => String(row.count),
+      sortValue: (row) => row.count,
+    },
     {
       key: 'unitPrice',
       header: '单价',
-      render: (row) => <PixelCurrency amount={row.unitPrice} currency="credit" size="sm" />,
+      numeric: true,
+      render: (row) => <Currency amount={row.unitPrice} currency="credit" size="sm" />,
       sortValue: (row) => row.unitPrice,
     },
     {
       key: 'total',
       header: '总价',
-      render: (row) => <PixelCurrency amount={row.total} currency="credit" size="sm" />,
+      numeric: true,
+      render: (row) => <Currency amount={row.total} currency="credit" size="sm" />,
       sortValue: (row) => row.total,
     },
     {
       key: 'createdAt',
       header: '挂出时间',
-      render: (row) => <span className="text-1x text-muted">{formatAge(row.createdAt)}</span>,
+      render: (row) => <span className="text-muted-foreground text-sm">{formatAge(row.createdAt)}</span>,
       sortValue: (row) => row.createdAt,
     },
     {
       key: 'action',
       header: '操作',
       render: (row) => (
-        <PixelButton
-          tone="danger"
-          size="sm"
+        <Button
           onClick={() => {
             setCancelTarget(row)
           }}
+          size="sm"
+          variant="destructive"
         >
           撤单
-        </PixelButton>
+        </Button>
       ),
     },
   ]
 
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="text-1x text-fg">我的挂单 (ACTIVE)</h2>
-
       {cancelError === null ? null : (
-        <PixelError
+        <ErrorBlock
           message={`撤单失败: ${cancelError.message}`}
           {...(cancelTarget === null ? {} : { onRetry: handleConfirmCancel })}
         />
       )}
 
-      {listingsQuery.status === 'loading' ? <PixelLoading label="正在读取我的挂单" /> : null}
+      {listingsQuery.status === 'loading' ? <LoadingBlock label="正在读取我的挂单" /> : null}
 
       {listingsQuery.status === 'error' ? (
-        <PixelError message={`挂单读取失败: ${listingsQuery.error.message}`} onRetry={reload} />
+        <ErrorBlock message={`挂单读取失败: ${listingsQuery.error.message}`} onRetry={reload} />
       ) : null}
 
       {listingsQuery.status === 'ready' && listings.length === 0 ? (
-        <PixelEmpty title="暂无在售挂单" hint="去仓库页把要出售的物品挂上跳蚤市场" icon="bag" />
+        <EmptyBlock hint="去仓库页把要出售的物品挂上跳蚤市场" title="暂无在售挂单" />
       ) : null}
 
       {listingsQuery.status === 'ready' && listings.length > 0 ? (
-        <PixelTable
-          columns={columns}
-          rows={listings}
-          rowKey={(row) => String(row.id)}
-          className="h-96"
-          emptyHint="暂无在售挂单"
-        />
+        <Panel padded={false} title="在售挂单 (ACTIVE)">
+          <DataTable
+            columns={columns}
+            emptyHint="暂无在售挂单"
+            rowKey={(row) => String(row.id)}
+            rows={listings}
+          />
+        </Panel>
       ) : null}
 
-      <PixelConfirmDanger
-        open={cancelTarget !== null}
-        title="撤下该挂单?"
+      <ConfirmDangerDialog
+        confirmLabel="确认撤单"
+        loading={cancelling}
         message={
           cancelTarget === null
             ? ''
             : `撤下后 ${names[cancelTarget.descriptionId] ?? cancelTarget.descriptionId} x${cancelTarget.count} 将退回背包, 已收取的挂单手续费不予退还。`
         }
-        confirmLabel="确认撤单"
-        loading={cancelling}
         onConfirm={handleConfirmCancel}
-        onCancel={() => {
-          setCancelTarget(null)
+        onOpenChange={(next) => {
+          // 对话框只在"被关掉"时清目标; 打开由 setCancelTarget 单向驱动, 这里不反向写回。
+          if (!next) {
+            setCancelTarget(null)
+          }
         }}
+        open={cancelTarget !== null}
+        title="撤下该挂单?"
       />
     </div>
   )

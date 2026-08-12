@@ -1,25 +1,38 @@
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  RefreshCwIcon,
+  SearchIcon,
+} from 'lucide-react'
 import type { ReactElement, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import type { PixelFrameTone, PixelSelectOption, PixelTableColumn } from '../../components/pixel'
+import type { DataTableColumn, DropdownOption, FeedbackTone, Tone } from '@/components/kit'
 import {
+  Button,
+  Currency,
+  DataTable,
+  Dropdown,
+  EmptyBlock,
+  ErrorBlock,
+  FeedbackAlert,
+  Hint,
   ItemIcon,
-  PixelBadge,
-  PixelButton,
-  PixelCurrency,
-  PixelEmpty,
-  PixelError,
-  PixelFrame,
-  PixelIcon,
-  PixelInput,
-  PixelLoading,
-  PixelModal,
-  PixelScrollArea,
-  PixelSelect,
-  PixelStepper,
-  PixelTable,
-  PixelToast,
-  PixelTooltip,
-} from '../../components/pixel'
+  LoadingBlock,
+  NumberInput,
+  Panel,
+  Surface,
+  Tag,
+  TextInput,
+} from '@/components/kit'
+import {
+  Dialog,
+  DialogFooter,
+  DialogHeader,
+  DialogPopup,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useItemNames } from '../../lib/i18n'
 import type {
   CategoryNode,
@@ -52,7 +65,7 @@ import { callMock, getWorld, refreshWalletAndInventory, useMockAction, useMockWo
  *                          自己再拼一遍等于把账目规则复制成两份, 必然与顶栏的数字漂移
  *
  * 受阻项 (不是本页能解的, 只能在 UI 上如实标出):
- *   A14 中文输入 BLOCKED   搜索框走 PixelInput 的 onRequestEdit 接口位, 当前点击只喊话不接收输入
+ *   A14 中文输入 BLOCKED   搜索框走 TextInput 的 onRequestEdit 接口位, 当前点击只喊话不接收输入
  *   A10 错误码中文化未做   购买失败展示的是服务端异常原文, 本页不做任何猜测式翻译
  *   A16 玩家名解析未做     sellerName 是挂单瞬间的快照, 卖家改名后会过期, 本页不去二次解析
  *
@@ -80,7 +93,7 @@ const EMPTY_PAYLOAD: Record<string, never> = {}
 /**
  * 每页条数。
  *
- * 取 5 有两层考虑: 平板内容区一屏能完整看到的行数在这个量级 (text-1x 行高 32 CSS px + 单元格内边距);
+ * 取 5 有两层考虑: 平板内容区一屏能完整看到的行数在这个量级;
  * 另外它恰好等于 bridge.mock 种子里的挂单总数, 于是"满页 -> 点下一页 -> 空页"这条由 B1 缺陷决定的
  * 路径在 dev 下必然被走到, 而不是等上线才被玩家发现。
  */
@@ -92,13 +105,13 @@ const PAGE_SIZE = 5
  */
 const MARKET_SORTS: readonly MarketSort[] = ['newest', 'price_asc', 'price_desc']
 
-const SORT_OPTIONS: readonly PixelSelectOption[] = [
+const SORT_OPTIONS: readonly DropdownOption<MarketSort>[] = [
   { value: 'newest', label: '最新上架' },
   { value: 'price_asc', label: '单价升序' },
   { value: 'price_desc', label: '单价降序' },
 ]
 
-/** PixelSelect 的 onChange 只给字符串; 在这里收窄回白名单, 越界即抛而不是悄悄落回 newest。 */
+/** 下拉给回的值只是个字符串; 在这里收窄回白名单, 越界即抛而不是悄悄落回 newest。 */
 function toMarketSort(value: string): MarketSort {
   const matched = MARKET_SORTS.find((candidate) => candidate === value)
   if (matched === undefined) {
@@ -157,7 +170,7 @@ function collectLeafLabels(nodes: readonly CategoryNode[]): string[] {
 
 interface ToastEntry {
   readonly id: number
-  readonly tone: PixelFrameTone
+  readonly tone: FeedbackTone
   readonly message: string
 }
 
@@ -196,9 +209,13 @@ function CategoryRow(props: CategoryRowProps): ReactElement {
           onClick={() => {
             onToggle(node.id)
           }}
-          className={`flex w-full items-center gap-2 text-1x text-fg outline-none hover:bg-raised focus-visible:bg-raised ${indentClass(depth)}`}
+          className={`flex w-full items-center gap-2 rounded-md py-1 text-foreground text-sm outline-none hover:bg-accent focus-visible:bg-accent ${indentClass(depth)}`}
         >
-          <PixelIcon name={open ? 'arrow-down' : 'arrow-right'} scale={1} />
+          {open ? (
+            <ChevronDownIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+          )}
           <span className="min-w-0 truncate">{node.label}</span>
         </button>
         {open ? (
@@ -233,8 +250,8 @@ function CategoryRow(props: CategoryRowProps): ReactElement {
           // 服务端回来的树结构混在一起, 分不清哪些是真数据。
           onSelect(active ? null : node.itemId)
         }}
-        className={`flex w-full items-center gap-2 text-1x outline-none hover:bg-raised focus-visible:bg-raised ${indentClass(depth)} ${
-          active ? 'text-accent' : 'text-fg'
+        className={`flex w-full items-center gap-2 rounded-md py-1 text-sm outline-none hover:bg-accent focus-visible:bg-accent ${indentClass(depth)} ${
+          active ? 'font-medium text-brand' : 'text-foreground'
         }`}
       >
         <ItemIcon itemId={node.itemId} label={name} scale={1} />
@@ -300,8 +317,8 @@ interface DialogRowProps {
 function DialogRow({ label, value }: DialogRowProps): ReactElement {
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-1x text-muted">{label}</span>
-      <span className="min-w-0 truncate text-1x text-fg">{value}</span>
+      <span className="text-muted-foreground text-sm">{label}</span>
+      <span className="min-w-0 truncate text-foreground text-sm">{value}</span>
     </div>
   )
 }
@@ -318,27 +335,29 @@ interface BaseValueLineProps {
 function BaseValueLine({ result, unitPrice }: BaseValueLineProps): ReactElement {
   if (result.v0 === null) {
     return (
-      <p className="text-1x text-muted">该物品无基准价 (source={result.source}), 无从判断挂价高低。</p>
+      <p className="text-muted-foreground text-sm">
+        该物品无基准价 (source={result.source}), 无从判断挂价高低。
+      </p>
     )
   }
   if (result.v0 <= 0) {
     // 基准价为 0 或负数是服务端不该产生的状态; 如实显示原值并跳过百分比, 不用 0 去做除数。
     return (
-      <p className="text-1x text-warning">
+      <p className="text-sm text-warning">
         基准价异常: {String(result.v0)} (source={result.source})
       </p>
     )
   }
   const premium = Math.round(((unitPrice - result.v0) / result.v0) * 100)
-  const tone: PixelFrameTone = premium > 0 ? 'warning' : premium < 0 ? 'success' : 'neutral'
+  const tone: Tone = premium > 0 ? 'warning' : premium < 0 ? 'success' : 'neutral'
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <span className="text-1x text-muted">
+      <span className="text-muted-foreground text-sm">
         基准价 {String(result.v0)} ({result.source})
       </span>
-      <PixelBadge tone={tone} size="sm">
+      <Tag size="sm" tone={tone}>
         {premium >= 0 ? `高 ${String(premium)}%` : `低 ${String(-premium)}%`}
-      </PixelBadge>
+      </Tag>
     </div>
   )
 }
@@ -402,129 +421,135 @@ function BuyDialog({ listing, itemName, ownedCount, onClose, onBought }: BuyDial
   }
 
   return (
-    <PixelModal open title="购买确认" size="lg" onClose={onClose}>
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-2">
-          <ItemIcon itemId={listing.itemId} label={itemName} scale={1} />
-          <span className="min-w-0 truncate text-1x text-fg">{itemName}</span>
-        </div>
+    <Dialog
+      onOpenChange={(nextOpen) => {
+        // 提交中不许关: 请求仍在飞, 关掉会让玩家以为自己取消了这笔买入。
+        if (!nextOpen && !submitting) {
+          onClose()
+        }
+      }}
+      open
+    >
+      <DialogPopup>
+        <DialogHeader className="pb-3">
+          <DialogTitle>购买确认</DialogTitle>
+        </DialogHeader>
 
-        <DialogRow label="卖家" value={listing.sellerName} />
-        <DialogRow label="剩余" value={String(listing.count)} />
-        <DialogRow label="上架" value={formatAge(Date.now() - listing.createdAt)} />
-        <DialogRow
-          label="单价"
-          value={<PixelCurrency amount={listing.unitPrice} currency="credit" size="sm" className="break-all" />}
-        />
-        <DialogRow
-          label="背包持有"
-          value={ownedCount === null ? '未知 (镜像未就绪)' : String(ownedCount)}
-        />
-
-        {/*
-          scale={1}: 对话框 lg 档宽 128 个像素格, 而 9-slice 边框宽走 slice x --pixel-scale 这条独立派生链,
-          继承 :root 的 2 会让步进器 (两个按钮 + 数值井, 每个都带一圈边框) 整体挤出内容盒。
-          按 conventions 二-2.2 "行内控件一律传 scale={1}", 在这一格里把倍率降到 1, 同一行的控件因此同倍率。
-        */}
-        <PixelFrame variant="inset" scale={1} className="flex flex-col gap-2 p-3">
-          <span className="text-1x text-muted">购买数量 (支持部分购买)</span>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <PixelStepper value={count} onChange={setCount} min={1} max={listing.count} size="sm" />
-            <PixelButton
-              size="sm"
-              disabled={count >= listing.count}
-              onClick={() => {
-                setCount(listing.count)
-              }}
-            >
-              全部
-            </PixelButton>
+        <div className="flex flex-col gap-3 px-6 pb-4">
+          <div className="flex items-center gap-2">
+            <ItemIcon itemId={listing.itemId} label={itemName} scale={1} />
+            <span className="min-w-0 truncate text-foreground text-sm">{itemName}</span>
           </div>
-        </PixelFrame>
 
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-1x text-muted">总价</span>
-          {totalIsSafe ? (
-            <PixelCurrency amount={total} currency="credit" size="sm" className="break-all" />
-          ) : (
-            <PixelBadge tone="danger" size="sm">
-              超出 2^53
-            </PixelBadge>
+          <DialogRow label="卖家" value={listing.sellerName} />
+          <DialogRow label="剩余" value={String(listing.count)} />
+          <DialogRow label="上架" value={formatAge(Date.now() - listing.createdAt)} />
+          <DialogRow
+            label="单价"
+            value={
+              <Currency amount={listing.unitPrice} className="break-all" currency="credit" size="sm" />
+            }
+          />
+          <DialogRow
+            label="背包持有"
+            value={ownedCount === null ? '未知 (镜像未就绪)' : String(ownedCount)}
+          />
+
+          <Surface>
+            <div className="flex flex-col gap-2">
+              <span className="text-muted-foreground text-sm">购买数量 (支持部分购买)</span>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <NumberInput max={listing.count} min={1} onChange={setCount} size="sm" value={count} />
+                <Button
+                  disabled={count >= listing.count}
+                  onClick={() => {
+                    setCount(listing.count)
+                  }}
+                  size="sm"
+                  variant="outline"
+                >
+                  全部
+                </Button>
+              </div>
+            </div>
+          </Surface>
+
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground text-sm">总价</span>
+            {totalIsSafe ? (
+              <Currency amount={total} className="break-all" currency="credit" size="sm" />
+            ) : (
+              <Tag size="sm" tone="danger">
+                超出 2^53
+              </Tag>
+            )}
+          </div>
+          {totalIsSafe ? null : (
+            <p className="text-destructive text-sm">
+              单价 x 数量 已越过 JSON number 的安全整数上限 (契约层标注的 Java long 精度风险),
+              这里显示的总价不可信, 以服务端回执为准。
+            </p>
+          )}
+
+          {baseValue.status === 'loading' ? <LoadingBlock label="读取基准价" size="sm" /> : null}
+          {baseValue.status === 'error' ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-destructive text-sm">
+                基准价读取失败: {baseValue.error.message}
+              </span>
+              <Button onClick={baseValue.reload} size="sm" variant="outline">
+                重试
+              </Button>
+            </div>
+          ) : null}
+          {baseValue.status === 'ready' ? (
+            <BaseValueLine result={baseValue.data} unitPrice={listing.unitPrice} />
+          ) : null}
+
+          {tradable.status === 'loading' ? <LoadingBlock label="校验可交易性" size="sm" /> : null}
+          {tradable.status === 'error' ? (
+            // market.tradable 本身还没接线 (B12), 它查不到不该反过来挡住真契约已经支持的买入。
+            <p className="text-sm text-warning">可交易性未知 (B12 未接线): {tradable.error.message}</p>
+          ) : null}
+          {blockedByTradable && tradable.status === 'ready' ? (
+            <Surface tone="danger">
+              <p className="text-foreground text-sm">不可交易: {tradableReason(tradable.data)}</p>
+            </Surface>
+          ) : null}
+
+          {profile.status === 'loading' ? <LoadingBlock label="读取余额" size="sm" /> : null}
+          {profile.status === 'error' ? (
+            <p className="text-destructive text-sm">余额读取失败: {profile.error.message}</p>
+          ) : null}
+          {shortfall !== null && shortfall > 0 ? (
+            // 不禁用确认: 余额裁决在服务端, 前端预检只是提前告知; 拦下来反而会掩盖服务端真实的拒绝路径。
+            <p className="text-sm text-warning">
+              预估还差 {String(shortfall)} 信用点, 提交后大概率被服务端拒绝。
+            </p>
+          ) : null}
+
+          {submitError === null ? null : (
+            <FeedbackAlert message={submitError} title="购买未生效" tone="danger" />
           )}
         </div>
-        {totalIsSafe ? null : (
-          <p className="text-1x text-danger">
-            单价 x 数量 已越过 JSON number 的安全整数上限 (契约层标注的 Java long 精度风险),
-            这里显示的总价不可信, 以服务端回执为准。
-          </p>
-        )}
 
-        {baseValue.status === 'loading' ? <PixelLoading size="sm" label="读取基准价" /> : null}
-        {baseValue.status === 'error' ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-1x text-danger">基准价读取失败: {baseValue.error.message}</span>
-            <PixelButton size="sm" onClick={baseValue.reload}>
-              重试
-            </PixelButton>
-          </div>
-        ) : null}
-        {baseValue.status === 'ready' ? (
-          <BaseValueLine result={baseValue.data} unitPrice={listing.unitPrice} />
-        ) : null}
-
-        {tradable.status === 'loading' ? <PixelLoading size="sm" label="校验可交易性" /> : null}
-        {tradable.status === 'error' ? (
-          // market.tradable 本身还没接线 (B12), 它查不到不该反过来挡住真契约已经支持的买入。
-          <p className="text-1x text-warning">可交易性未知 (B12 未接线): {tradable.error.message}</p>
-        ) : null}
-        {blockedByTradable && tradable.status === 'ready' ? (
-          <PixelFrame variant="panel" tone="danger" scale={1} className="p-3">
-            <p className="text-1x text-fg">不可交易: {tradableReason(tradable.data)}</p>
-          </PixelFrame>
-        ) : null}
-
-        {profile.status === 'loading' ? <PixelLoading size="sm" label="读取余额" /> : null}
-        {profile.status === 'error' ? (
-          <p className="text-1x text-danger">余额读取失败: {profile.error.message}</p>
-        ) : null}
-        {shortfall !== null && shortfall > 0 ? (
-          // 不禁用确认: 余额裁决在服务端, 前端预检只是提前告知; 拦下来反而会掩盖服务端真实的拒绝路径。
-          <p className="text-1x text-warning">
-            预估还差 {String(shortfall)} 信用点, 提交后大概率被服务端拒绝。
-          </p>
-        ) : null}
-
-        {submitError === null ? null : (
-          <PixelFrame variant="panel" tone="danger" scale={1} className="p-3">
-            <p role="alert" className="text-1x text-fg">
-              {submitError}
-            </p>
-          </PixelFrame>
-        )}
-
-        {/*
-          按钮竖排而不是并排: PixelModal 最宽的 lg 档是 w-128 (128 个像素格), 扣掉 window 框的
-          slice x --pixel-scale 边框与 p-4 内边距后, 内容盒只剩约 104 格 —— 两个 md 档按钮并排就超了。
-          这是组件库缺一档更宽 modal 的问题, 不在本页绕 (className 覆盖不了 WIDTH_CLASS, 也违反 conventions 一-1.1)。
-        */}
-        <div className="flex flex-col gap-2">
-          <PixelButton
-            tone="accent"
-            size="sm"
-            loading={submitting}
+        <DialogFooter>
+          <Button disabled={submitting} onClick={onClose} variant="outline">
+            取消
+          </Button>
+          <Button
             disabled={blockedByTradable}
+            loading={submitting}
             onClick={() => {
               void handleConfirm()
             }}
+            variant="brand"
           >
             确认购买
-          </PixelButton>
-          <PixelButton size="sm" disabled={submitting} onClick={onClose}>
-            取消
-          </PixelButton>
-        </div>
-      </div>
-    </PixelModal>
+          </Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
   )
 }
 
@@ -575,7 +600,7 @@ export function BrowsePage(): ReactElement {
     })
   }, [])
 
-  const pushToast = (tone: PixelFrameTone, message: string): void => {
+  const pushToast = (tone: FeedbackTone, message: string): void => {
     toastIdRef.current += 1
     const entry: ToastEntry = { id: toastIdRef.current, tone, message }
     setToasts((current) => [...current, entry])
@@ -616,56 +641,60 @@ export function BrowsePage(): ReactElement {
   const now = Date.now()
 
   /*
-   * 列一律不给 sortValue (PixelTable 的表头排序因此关闭)。排序权在服务端: 表头排序只能重排当前这一页,
+   * 列一律不给 sortValue (DataTable 的表头排序因此关闭)。排序权在服务端: 表头排序只能重排当前这一页,
    * 与 sort 参数并存时, 玩家看到的顺序取决于两者谁最后生效 —— 那是个查不出来的现象。
    */
-  const columns: readonly PixelTableColumn<MarketListing>[] = [
+  const columns: readonly DataTableColumn<MarketListing>[] = [
     {
       key: 'item',
       header: '物品',
       render: (row) => (
         <span className="flex items-center gap-2">
           <ItemIcon itemId={row.itemId} label={displayName(names, row.descriptionId)} scale={1} />
-          <span className="text-1x text-fg">{displayName(names, row.descriptionId)}</span>
+          <span className="text-foreground text-sm">{displayName(names, row.descriptionId)}</span>
         </span>
       ),
     },
     {
       key: 'count',
       header: '数量',
-      render: (row) => <span className="text-1x text-fg">{String(row.count)}</span>,
+      numeric: true,
+      render: (row) => <span className="text-foreground text-sm">{String(row.count)}</span>,
     },
     {
       key: 'unitPrice',
       header: '单价',
+      numeric: true,
       // break-all: 种子里那条 unitPrice = 2^53-1 的挂单是 21 个字符的连续数字, 不许它把整张表撑出容器。
       render: (row) => (
-        <PixelCurrency amount={row.unitPrice} currency="credit" size="sm" className="break-all" />
+        <Currency amount={row.unitPrice} className="break-all" currency="credit" size="sm" />
       ),
     },
     {
       key: 'seller',
       header: '卖家',
-      render: (row) => <span className="text-1x text-muted">{row.sellerName}</span>,
+      render: (row) => <span className="text-muted-foreground text-sm">{row.sellerName}</span>,
     },
     {
       key: 'age',
       header: '上架',
-      render: (row) => <span className="text-1x text-muted">{formatAge(now - row.createdAt)}</span>,
+      render: (row) => (
+        <span className="text-muted-foreground text-sm">{formatAge(now - row.createdAt)}</span>
+      ),
     },
     {
       key: 'action',
       header: '操作',
       render: (row) => (
-        <PixelButton
-          tone="accent"
-          size="sm"
+        <Button
           onClick={() => {
             setSelected(row)
           }}
+          size="sm"
+          variant="brand"
         >
           购买
-        </PixelButton>
+        </Button>
       ),
     },
   ]
@@ -693,141 +722,146 @@ export function BrowsePage(): ReactElement {
 
   return (
     <section className="flex flex-col gap-4">
-      <PixelFrame variant="panel" className="flex flex-wrap items-center gap-4 p-3">
-        <PixelInput
-          value={localFilter}
-          onChange={setLocalFilter}
-          onRequestEdit={(current) => {
-            /*
-             * A14 (MC EditBox 叠加) 未实现: 接口位在这里接好了, 宿主日后把玩家输入经 onChange 回填即可,
-             * 本页一行不用改。现在只能如实喊一声, 不做浏览器端假输入 —— MCEF 里键盘根本到不了 CEF。
-             */
-            pushToast(
-              'warning',
-              current === ''
-                ? '宿主中文输入叠加尚未接线 (接线清单 A14), 搜索词暂时无法输入'
-                : `宿主中文输入叠加尚未接线 (A14), 无法编辑当前搜索词: ${current}`,
-            )
-          }}
-          placeholder="搜索本页 (物品名/卖家)"
-          size="sm"
-          className="w-128"
-        />
-        <PixelTooltip
-          content={
-            <span>
-              文本输入需要 MC 原生 EditBox 浮层接管键盘 (接线清单 A14, BLOCKED)。在它接线之前,
-              这个框只能由宿主回填, 且只做当前页的本地过滤 —— 服务端 market.list 的 query 只匹配 itemId, 不匹配中文名。
-            </span>
-          }
-        >
-          <PixelBadge tone="warning" size="sm">
-            当前不可输入中文
-          </PixelBadge>
-        </PixelTooltip>
-        {keyword === '' ? null : (
-          <PixelButton
-            size="sm"
-            onClick={() => {
-              setLocalFilter('')
+      <Panel>
+        <div className="flex flex-wrap items-center gap-2">
+          <TextInput
+            className="w-64"
+            onChange={setLocalFilter}
+            onRequestEdit={(current) => {
+              /*
+               * A14 (MC EditBox 叠加) 未实现: 接口位在这里接好了, 宿主日后把玩家输入经 onChange 回填即可,
+               * 本页一行不用改。现在只能如实喊一声, 不做浏览器端假输入 —— MCEF 里键盘根本到不了 CEF。
+               */
+              pushToast(
+                'warning',
+                current === ''
+                  ? '宿主中文输入叠加尚未接线 (接线清单 A14), 搜索词暂时无法输入'
+                  : `宿主中文输入叠加尚未接线 (A14), 无法编辑当前搜索词: ${current}`,
+              )
             }}
-          >
-            清除搜索
-          </PixelButton>
-        )}
-
-        <PixelSelect
-          value={sort}
-          options={SORT_OPTIONS}
-          size="sm"
-          className="w-128"
-          onChange={(next) => {
-            setSort(toMarketSort(next))
-            setPage(0)
-          }}
-        />
-
-        {categoryItemId === null ? null : (
-          <>
-            <PixelBadge tone="accent" size="sm">
-              分类过滤 {categoryItemId}
-            </PixelBadge>
-            <PixelButton
-              size="sm"
-              onClick={() => {
-                handleSelectCategory(null)
-              }}
-            >
-              清除分类
-            </PixelButton>
-          </>
-        )}
-
-        {p2pCap.status === 'ready' ? (
-          <PixelTooltip
+            placeholder="搜索本页 (物品名/卖家)"
+            size="sm"
+            value={localFilter}
+          />
+          <Hint
             content={
               <span>
-                每日 P2P 成交额度 (接线清单 B10, market.p2pCap 尚未接线, 数值来自 mock 世界)。
-                买入是否计入额度由服务端记账, mock 不写回, 别照这个数字推断服务端行为。
+                文本输入需要 MC 原生 EditBox 浮层接管键盘 (接线清单 A14, BLOCKED)。在它接线之前,
+                这个框只能由宿主回填, 且只做当前页的本地过滤 —— 服务端 market.list 的 query 只匹配 itemId, 不匹配中文名。
               </span>
             }
           >
-            <PixelBadge tone={p2pCap.data.remaining > 0 ? 'info' : 'danger'} size="sm">
-              P2P 额度 {String(p2pCap.data.usedToday)}/{String(p2pCap.data.capPerDay)}
-            </PixelBadge>
-          </PixelTooltip>
-        ) : null}
-        {p2pCap.status === 'error' ? (
-          <PixelBadge tone="danger" size="sm">
-            P2P 额度不可用
-          </PixelBadge>
-        ) : null}
+            <Tag size="sm" tone="warning">
+              当前不可输入中文
+            </Tag>
+          </Hint>
+          {keyword === '' ? null : (
+            <Button
+              onClick={() => {
+                setLocalFilter('')
+              }}
+              size="sm"
+              variant="outline"
+            >
+              清除搜索
+            </Button>
+          )}
 
-        <PixelButton icon="refresh" size="sm" onClick={handleRefresh}>
-          刷新
-        </PixelButton>
-      </PixelFrame>
+          <Dropdown
+            className="w-40"
+            onChange={(next) => {
+              setSort(toMarketSort(next))
+              setPage(0)
+            }}
+            options={SORT_OPTIONS}
+            size="sm"
+            value={sort}
+          />
+
+          {categoryItemId === null ? null : (
+            <>
+              <Tag size="sm" tone="brand">
+                分类过滤 {categoryItemId}
+              </Tag>
+              <Button
+                onClick={() => {
+                  handleSelectCategory(null)
+                }}
+                size="sm"
+                variant="outline"
+              >
+                清除分类
+              </Button>
+            </>
+          )}
+
+          {p2pCap.status === 'ready' ? (
+            <Hint
+              content={
+                <span>
+                  每日 P2P 成交额度 (接线清单 B10, market.p2pCap 尚未接线, 数值来自 mock 世界)。
+                  买入是否计入额度由服务端记账, mock 不写回, 别照这个数字推断服务端行为。
+                </span>
+              }
+            >
+              <Tag size="sm" tone={p2pCap.data.remaining > 0 ? 'info' : 'danger'}>
+                P2P 额度 {String(p2pCap.data.usedToday)}/{String(p2pCap.data.capPerDay)}
+              </Tag>
+            </Hint>
+          ) : null}
+          {p2pCap.status === 'error' ? (
+            <Tag size="sm" tone="danger">
+              P2P 额度不可用
+            </Tag>
+          ) : null}
+
+          <Button onClick={handleRefresh} size="sm" variant="outline">
+            <RefreshCwIcon />
+            刷新
+          </Button>
+        </div>
+      </Panel>
 
       <div className="flex gap-4">
-        <aside className="flex w-128 shrink-0 flex-col gap-2">
-          <h2 className="text-1x text-muted">分类 (只有具体物品可作过滤条件)</h2>
-          {categories.status === 'loading' ? <PixelLoading size="sm" label="读取分类树" /> : null}
-          {categories.status === 'error' ? (
-            <PixelError
-              message={`分类树读取失败: ${categories.error.message}`}
-              onRetry={categories.reload}
-            />
-          ) : null}
-          {categories.status === 'ready' ? (
-            categories.data.length === 0 ? (
-              <PixelEmpty title="没有分类" hint="market.categories 回了空数组" icon="filter" />
-            ) : (
-              <PixelScrollArea className="h-128" label="市场分类树">
-                <CategoryTree
-                  nodes={categories.data}
-                  selectedItemId={categoryItemId}
-                  onSelect={handleSelectCategory}
-                />
-              </PixelScrollArea>
-            )
-          ) : null}
+        <aside className="w-56 shrink-0">
+          <Panel description="只有具体物品可作过滤条件" title="分类">
+            {categories.status === 'loading' ? <LoadingBlock label="读取分类树" size="sm" /> : null}
+            {categories.status === 'error' ? (
+              <ErrorBlock
+                message={`分类树读取失败: ${categories.error.message}`}
+                onRetry={categories.reload}
+              />
+            ) : null}
+            {categories.status === 'ready' ? (
+              categories.data.length === 0 ? (
+                <EmptyBlock hint="market.categories 回了空数组" title="没有分类" />
+              ) : (
+                <div aria-label="市场分类树" className="max-h-96 overflow-y-auto">
+                  <CategoryTree
+                    nodes={categories.data}
+                    selectedItemId={categoryItemId}
+                    onSelect={handleSelectCategory}
+                  />
+                </div>
+              )
+            ) : null}
+          </Panel>
         </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
           {listQuery.status === 'loading' ? (
-            <PixelFrame variant="panel" className="flex items-center justify-center p-8">
-              <PixelLoading label="正在读取挂单" />
-            </PixelFrame>
+            <Panel>
+              <LoadingBlock label="正在读取挂单" />
+            </Panel>
           ) : null}
           {listQuery.status === 'error' ? (
-            <PixelError
+            <ErrorBlock
               message={`挂单列表读取失败: ${listQuery.error.message}`}
               onRetry={listQuery.reload}
             />
           ) : null}
           {listQuery.status === 'ready' && rows.length === 0 ? (
-            <PixelEmpty
-              title={page === 0 ? '这里还没有挂单' : '本页是空的'}
+            <EmptyBlock
               hint={
                 page === 0
                   ? keyword === ''
@@ -835,44 +869,49 @@ export function BrowsePage(): ReactElement {
                     : `当前页没有匹配 "${localFilter.trim()}" 的挂单 (搜索只过滤当前页)`
                   : 'market.list 不返回 total, 上一页拿满即被判定为"可能还有下一页"; 翻过来是空的说明恰好翻到头了'
               }
-              icon="search"
+              icon={<SearchIcon aria-hidden="true" />}
+              title={page === 0 ? '这里还没有挂单' : '本页是空的'}
             />
           ) : null}
           {listQuery.status === 'ready' && rows.length > 0 ? (
-            <PixelTable
-              columns={columns}
-              rows={rows}
-              rowKey={(row) => String(row.id)}
-              {...(selected === null ? {} : { selectedRowKey: String(selected.id) })}
-            />
+            <Panel padded={false}>
+              <DataTable
+                columns={columns}
+                rowKey={(row) => String(row.id)}
+                rows={rows}
+                {...(selected === null ? {} : { selectedRowKey: String(selected.id) })}
+              />
+            </Panel>
           ) : null}
 
-          <div className="flex flex-wrap items-center gap-4">
-            <PixelButton
-              icon="arrow-left"
-              size="sm"
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
               disabled={page === 0}
               onClick={() => {
                 setPage((current) => Math.max(0, current - 1))
               }}
+              size="sm"
+              variant="outline"
             >
+              <ArrowLeftIcon />
               上一页
-            </PixelButton>
-            <span className="text-1x text-muted">
+            </Button>
+            <span className="text-muted-foreground text-sm">
               第 {String(page + 1)} 页 · 本页 {String(pageListings.length)} 条
               {keyword === '' ? '' : ` (过滤后 ${String(rows.length)} 条)`}
             </span>
-            <PixelButton
-              icon="arrow-right"
-              size="sm"
+            <Button
               disabled={!hasNextPage}
               onClick={() => {
                 setPage((current) => current + 1)
               }}
+              size="sm"
+              variant="outline"
             >
               下一页
-            </PixelButton>
-            <PixelTooltip
+              <ArrowRightIcon />
+            </Button>
+            <Hint
               content={
                 <span>
                   market.list 的回执只有 listings/page/pageSize, 没有 total (接线清单 B1), 前端算不出总页数,
@@ -880,25 +919,27 @@ export function BrowsePage(): ReactElement {
                 </span>
               }
             >
-              <PixelBadge tone="info" size="sm">
+              <Tag size="sm" tone="info">
                 为什么没有页码
-              </PixelBadge>
-            </PixelTooltip>
+              </Tag>
+            </Hint>
           </div>
         </div>
       </div>
 
-      {/* Toast 的挂载点由消费页面决定 (PixelToast 本身不抢视口); z-40 压在 PixelModal 的 z-50 之下,
+      {/* 回执条的挂载点由消费页面决定 (它本身不抢视口); z-40 压在对话框的 z-50 之下,
           购买失败的回执因此留在对话框内部, 不会被浮到对话框上面去。 */}
-      <div className="fixed bottom-4 right-4 z-40 flex flex-col gap-2">
+      <div className="fixed right-4 bottom-4 z-40 flex w-96 flex-col gap-2">
+        {/* entry.id 当 key: 每条各自挂载, FeedbackAlert 的 4 秒倒计时因此各算各的。 */}
         {toasts.map((entry) => (
-          <PixelToast
+          <FeedbackAlert
+            className="bg-popover shadow-lg/5"
             key={entry.id}
-            tone={entry.tone}
             message={entry.message}
             onDismiss={() => {
               dismissToast(entry.id)
             }}
+            tone={entry.tone}
           />
         ))}
       </div>

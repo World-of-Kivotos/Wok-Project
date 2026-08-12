@@ -1,22 +1,24 @@
+import { FilterIcon, InfoIcon, LockIcon, RefreshCwIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactElement, ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { PixelFrameTone, PixelSelectOption } from '../components/pixel'
+import type { DropdownOption, FeedbackTone, Tone } from '@/components/kit'
 import {
+  Button,
+  Currency,
+  Dropdown,
+  EmptyBlock,
+  ErrorBlock,
+  FeedbackAlert,
+  Hint,
   ItemIcon,
-  PixelBadge,
-  PixelButton,
-  PixelCurrency,
-  PixelEmpty,
-  PixelError,
-  PixelFrame,
-  PixelIcon,
-  PixelInput,
-  PixelLoading,
-  PixelProgress,
-  PixelSelect,
-  PixelToast,
-  PixelTooltip,
-} from '../components/pixel'
+  LoadingBlock,
+  Meter,
+  Panel,
+  Stat,
+  Surface,
+  Tag,
+  TextInput,
+} from '@/components/kit'
 import { WebUiCallError, isMockActive } from '../lib/bridge'
 import type {
   MockActionQuery,
@@ -109,7 +111,7 @@ function errorCodeOf(error: Error): string | null {
   return `${error.action} / code ${String(error.code)}`
 }
 
-/** 整数千分位。经验值与人数不是货币, 不能借 PixelCurrency 渲染 (那会给它挂上一个币种图标)。 */
+/** 整数千分位。经验值与人数不是货币, 不能借 Currency 渲染 (那会给它挂上一个币种图标)。 */
 function formatInteger(value: number): string {
   return value.toLocaleString('zh-CN')
 }
@@ -137,7 +139,7 @@ function formatClock(epochMs: number): string {
  * faucet 衰减档的颜色。1 = 满额入账, 低于 1 即已过软上限按比例打折 (D3 玩家最想看的那个数),
  * 0.5 以下按危险色 —— 那一档继续刷同一个 faucet 的收益已经不划算, 该换个赚钱路子。
  */
-function decayTone(decayFactor: number): PixelFrameTone {
+function decayTone(decayFactor: number): Tone {
   if (decayFactor >= 1) {
     return 'success'
   }
@@ -148,7 +150,7 @@ function decayTone(decayFactor: number): PixelFrameTone {
 }
 
 /** 矿洞 danger 是 0..1 的实时值 (F6)。三档只决定颜色, 不参与任何业务判定。 */
-function dangerTone(danger: number): PixelFrameTone {
+function dangerTone(danger: number): Tone {
   if (danger < 0.3) {
     return 'success'
   }
@@ -160,7 +162,7 @@ function dangerTone(danger: number): PixelFrameTone {
 
 interface MarriageStatusStyle {
   readonly label: string
-  readonly tone: PixelFrameTone
+  readonly tone: Tone
 }
 
 /** 写成 Record<union, T>: 婚姻状态加一档 (planned E1 的 PlannedMarriageStatus) 时 tsc 直接报缺键。 */
@@ -174,7 +176,7 @@ const MARRIAGE_STATUS_STYLE: Record<PlannedMarriageStatus, MarriageStatusStyle> 
 /** 快捷入口的可见范围。'locked' 一档存在的理由是让"我为什么进不去"可被单独筛出来看。 */
 type PanelScope = 'all' | 'open' | 'locked'
 
-const PANEL_SCOPE_OPTIONS: readonly PixelSelectOption[] = [
+const PANEL_SCOPE_OPTIONS: readonly DropdownOption<PanelScope>[] = [
   { value: 'all', label: '全部面板' },
   { value: 'open', label: '仅可进入' },
   { value: 'locked', label: '仅已锁定' },
@@ -216,7 +218,7 @@ function panelAvailability(panel: PlannedHubPanel): PanelAvailability {
 }
 
 // ============================================================
-// 页面内的通用小件 (都是既有像素控件的组合, 不是新控件)
+// 页面内的通用小件 (都是既有 kit 控件的组合, 不是新控件)
 // ============================================================
 
 /**
@@ -252,12 +254,12 @@ interface QueryGateProps<T> {
  */
 function QueryGate<T>({ query, loadingLabel, children }: QueryGateProps<T>): ReactElement {
   if (query.status === 'loading') {
-    return <PixelLoading label={loadingLabel} size="sm" />
+    return <LoadingBlock label={loadingLabel} size="sm" />
   }
   if (query.status === 'error') {
     const code = errorCodeOf(query.error)
     return (
-      <PixelError
+      <ErrorBlock
         message={query.error.message}
         onRetry={query.reload}
         {...(code === null ? {} : { code })}
@@ -267,44 +269,24 @@ function QueryGate<T>({ query, loadingLabel, children }: QueryGateProps<T>): Rea
   return <>{children(query.data)}</>
 }
 
-interface SectionCardProps {
-  title: string
-  /** 标题右侧的操作位 (刷新按钮、筛选器)。 */
-  actions?: ReactNode
-  children: ReactNode
-}
-
-/** 分区卡片。就是 PixelFrame panel + 一条标题行, 页面里出现六次, 抽出来只为不把同一段 JSX 抄六遍。 */
-function SectionCard({ title, actions, children }: SectionCardProps): ReactElement {
-  return (
-    <PixelFrame variant="panel" className="flex flex-col gap-4 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-2">
-        <h2 className="text-2x text-fg">{title}</h2>
-        {actions === undefined ? null : <div className="flex flex-wrap items-center gap-4">{actions}</div>}
-      </div>
-      {children}
-    </PixelFrame>
-  )
-}
-
 interface CapBarProps {
   label: string
   value: number
-  /** 上限。非正数一律不画条 —— PixelProgress 明确不为 max<=0 兜底, 画出来是 NaN 宽度的空槽。 */
+  /** 上限。非正数一律不画条 —— Meter 明确不为 max<=0 兜底, 画出来是 NaN 宽度的空槽。 */
   max: number
-  tone: PixelFrameTone
+  tone: Tone
 }
 
 /** 带上限的进度条 + 缺上限时的诚实回退。 */
 function CapBar({ label, value, max, tone }: CapBarProps): ReactElement {
   if (max <= 0) {
     return (
-      <p className="text-1x text-muted">
+      <p className="text-muted-foreground text-sm">
         {label}: {formatInteger(value)} (未给出上限, 无法画进度)
       </p>
     )
   }
-  return <PixelProgress value={value} max={max} tone={tone} size="sm" label={label} />
+  return <Meter value={value} max={max} tone={tone} size="sm" label={label} />
 }
 
 // ============================================================
@@ -321,25 +303,23 @@ function WalletSection({ profile, today, now }: WalletSectionProps): ReactElemen
   const netCredit = today.totalCreditIn - today.totalCreditOut
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-start gap-8">
-        <div className="flex flex-col gap-1">
-          <span className="text-1x text-muted">信用点余额</span>
-          <PixelCurrency amount={profile.wallet.credit} currency="credit" size="lg" />
-          <span className="text-1x text-muted">今日入账 {formatInteger(profile.todayCreditIn)}</span>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-1x text-muted">青辉石余额</span>
-          <PixelCurrency amount={profile.wallet.azure} currency="azure" size="lg" />
-          <span className="text-1x text-muted">今日入账 {formatInteger(profile.todayAzureIn)}</span>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-1x text-muted">今日净流入 (进 - 出)</span>
-          <PixelCurrency amount={netCredit} currency="credit" size="lg" />
-          <span className="text-1x text-muted">
-            距翻日 {formatRemaining(today.resetsAt - now)}
-          </span>
-        </div>
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-3 gap-4">
+        <Stat
+          label="信用点余额"
+          value={<Currency amount={profile.wallet.credit} currency="credit" size="lg" />}
+          hint={`今日入账 ${formatInteger(profile.todayCreditIn)}`}
+        />
+        <Stat
+          label="青辉石余额"
+          value={<Currency amount={profile.wallet.azure} currency="azure" size="lg" />}
+          hint={`今日入账 ${formatInteger(profile.todayAzureIn)}`}
+        />
+        <Stat
+          label="今日净流入 (进 - 出)"
+          value={<Currency amount={netCredit} currency="credit" size="lg" signed />}
+          hint={`距翻日 ${formatRemaining(today.resetsAt - now)}`}
+        />
       </div>
 
       {/*
@@ -355,20 +335,24 @@ function WalletSection({ profile, today, now }: WalletSectionProps): ReactElemen
       />
 
       <div className="flex flex-col gap-3">
-        <h3 className="text-1x text-fg">信用点 faucet 当日额度</h3>
+        <h3 className="font-medium text-sm text-foreground">信用点 faucet 当日额度</h3>
         {today.faucets.length === 0 ? (
-          <PixelEmpty title="今日没有任何 faucet 记录" hint="打一次矿或卖一次菜后这里会出现进度" icon="info" />
+          <EmptyBlock
+            title="今日没有任何 faucet 记录"
+            hint="打一次矿或卖一次菜后这里会出现进度"
+            icon={<InfoIcon aria-hidden="true" />}
+          />
         ) : (
           today.faucets.map((faucet) => (
-            <div key={faucet.faucetKey} className="flex flex-col gap-1">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <span className="text-1x text-fg">{faucet.label}</span>
-                <div className="flex items-center gap-4">
-                  <PixelCurrency amount={faucet.earnedToday} currency="credit" size="sm" showIcon={false} />
-                  <span className="text-1x text-muted">/ {formatInteger(faucet.softCap)}</span>
-                  <PixelBadge tone={decayTone(faucet.decayFactor)}>
+            <div key={faucet.faucetKey} className="flex flex-col gap-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm text-foreground">{faucet.label}</span>
+                <div className="flex items-center gap-2">
+                  <Currency amount={faucet.earnedToday} currency="credit" size="sm" showIcon={false} />
+                  <span className="text-muted-foreground text-xs">/ {formatInteger(faucet.softCap)}</span>
+                  <Tag size="sm" tone={decayTone(faucet.decayFactor)}>
                     {faucet.decayFactor >= 1 ? '满额入账' : `衰减 x${String(faucet.decayFactor)}`}
-                  </PixelBadge>
+                  </Tag>
                 </div>
               </div>
               <CapBar
@@ -383,16 +367,18 @@ function WalletSection({ profile, today, now }: WalletSectionProps): ReactElemen
       </div>
 
       <div className="flex flex-col gap-2">
-        <h3 className="text-1x text-fg">今日支出 (sink)</h3>
+        <h3 className="font-medium text-sm text-foreground">今日支出 (sink)</h3>
         {today.sinks.length === 0 ? (
-          <p className="text-1x text-muted">今日还没有任何支出记录。</p>
+          <p className="text-muted-foreground text-sm">今日还没有任何支出记录。</p>
         ) : (
-          <div className="flex flex-wrap gap-6">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
             {today.sinks.map((sink) => (
-              <div key={sink.sinkKey} className="flex items-center gap-2">
-                <span className="text-1x text-muted">{sink.label}</span>
-                <PixelCurrency amount={sink.spentToday} currency="credit" size="sm" showIcon={false} />
-              </div>
+              <Stat
+                key={sink.sinkKey}
+                label={sink.label}
+                layout="inline"
+                value={<Currency amount={sink.spentToday} currency="credit" size="sm" showIcon={false} />}
+              />
             ))}
           </div>
         )}
@@ -412,10 +398,16 @@ interface JobsSectionProps {
 
 function JobsSection({ jobs, onOpen }: JobsSectionProps): ReactElement {
   if (jobs.length === 0) {
-    return <PixelEmpty title="没有拿到任何职业进度" hint="player.profile 回执里的 jobs 是空数组" icon="warning" />
+    return (
+      <EmptyBlock
+        title="没有拿到任何职业进度"
+        hint="player.profile 回执里的 jobs 是空数组"
+        icon={<TriangleAlertIcon aria-hidden="true" />}
+      />
+    )
   }
   return (
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
       {jobs.map((job) => (
         <JobRow key={job.jobId} job={job} onOpen={onOpen} />
       ))}
@@ -434,32 +426,43 @@ function JobRow({ job, onOpen }: JobRowProps): ReactElement {
   const dailyTotal = job.dailyXp + job.dailyRemaining
 
   return (
-    <PixelFrame variant="inset" className="flex flex-col gap-2 p-3">
+    <Surface className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-1x text-fg">{job.displayName}</span>
-          <PixelBadge tone={maxed ? 'success' : 'neutral'}>Lv.{String(job.level)}</PixelBadge>
-          {maxed ? <PixelBadge tone="success">满级</PixelBadge> : null}
-          {job.dailyRemaining === 0 ? <PixelBadge tone="warning">今日额度已满</PixelBadge> : null}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="font-medium text-sm text-foreground">{job.displayName}</span>
+          <Tag size="sm" tone={maxed ? 'success' : 'neutral'}>
+            Lv.{String(job.level)}
+          </Tag>
+          {maxed ? (
+            <Tag size="sm" tone="success">
+              满级
+            </Tag>
+          ) : null}
+          {job.dailyRemaining === 0 ? (
+            <Tag size="sm" tone="warning">
+              今日额度已满
+            </Tag>
+          ) : null}
         </div>
-        <PixelButton
-          size="sm"
+        <Button
+          size="xs"
+          variant="outline"
           onClick={() => {
             onOpen(job.jobId)
           }}
         >
           详情
-        </PixelButton>
+        </Button>
       </div>
 
       {maxed ? (
         // 满级没有"下一级所需", 拿 0 当分母画出来的是一条 NaN 宽度的空槽; 直接换成一句结论。
-        <p className="text-1x text-success">已满级 · 累计经验 {formatInteger(job.totalXp)}</p>
+        <p className="text-sm text-success">已满级 · 累计经验 {formatInteger(job.totalXp)}</p>
       ) : (
-        <PixelProgress
+        <Meter
           value={job.levelXp}
           max={job.nextLevelXp}
-          tone="accent"
+          tone="brand"
           size="sm"
           label={`本级经验 ${formatInteger(job.levelXp)} / ${formatInteger(job.nextLevelXp)}`}
         />
@@ -471,7 +474,7 @@ function JobRow({ job, onOpen }: JobRowProps): ReactElement {
         max={dailyTotal}
         tone={job.dailyRemaining === 0 ? 'warning' : 'info'}
       />
-    </PixelFrame>
+    </Surface>
   )
 }
 
@@ -501,7 +504,7 @@ function MiningSection({
   busy,
   now,
 }: MiningSectionProps): ReactElement {
-  const options: readonly PixelSelectOption[] = instances.map((instance) => ({
+  const options: readonly DropdownOption<PlannedDifficulty>[] = instances.map((instance) => ({
     value: instance.difficulty,
     label: `${instance.displayName} (需矿工 ${String(instance.requiredMinerLevel)} 级)`,
   }))
@@ -511,17 +514,18 @@ function MiningSection({
 
   if (!myStatus.inside) {
     return (
-      <div className="flex flex-col gap-4">
-        <PixelEmpty
+      <div className="flex flex-col gap-3">
+        <EmptyBlock
           title="当前不在任何矿洞内"
           hint="全服每个难度只有一个常驻实例 (R1 模型), 进入即与其他玩家共处同一份地形"
-          icon="info"
+          icon={<InfoIcon aria-hidden="true" />}
         />
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2">
           {options.length === 0 ? (
-            <p className="text-1x text-muted">没有拿到任何矿洞实例, 无法选择难度。</p>
+            <p className="text-muted-foreground text-sm">没有拿到任何矿洞实例, 无法选择难度。</p>
           ) : (
-            <PixelSelect
+            <Dropdown
+              className="w-60"
               value={difficulty}
               options={options}
               size="sm"
@@ -532,40 +536,40 @@ function MiningSection({
               }}
             />
           )}
-          <PixelButton tone="accent" size="sm" loading={busy} disabled={options.length === 0} onClick={onEnter}>
+          <Button variant="brand" size="sm" loading={busy} disabled={options.length === 0} onClick={onEnter}>
             进入矿洞
-          </PixelButton>
+          </Button>
         </div>
         {/*
           等级门只提示不代拒: 服务端的 EntryGateway.requestEnter 才是权威 (F3 记着那三条不一致的进入
           路径), 前端把按钮灰掉等于在客户端复制一份门槛规则, 两边一旦漂移就是"看着能进点了没反应"。
         */}
         {selected !== undefined && myStatus.minerLevel < selected.requiredMinerLevel ? (
-          <p className="text-1x text-warning">
-            当前矿工 {String(myStatus.minerLevel)} 级, 该难度要求 {String(selected.requiredMinerLevel)} 级;
-            仍可发起请求, 由服务端裁决。
-          </p>
+          <Surface tone="warning">
+            <p className="text-sm text-foreground">
+              当前矿工 {String(myStatus.minerLevel)} 级, 该难度要求 {String(selected.requiredMinerLevel)} 级;
+              仍可发起请求, 由服务端裁决。
+            </p>
+          </Surface>
         ) : null}
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-4">
-        <PixelBadge tone="info">
-          {current === undefined ? String(myStatus.difficulty) : current.displayName}
-        </PixelBadge>
-        <span className="text-1x text-muted">
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Tag tone="info">{current === undefined ? String(myStatus.difficulty) : current.displayName}</Tag>
+        <span className="text-muted-foreground text-sm">
           区块 ({String(myStatus.regionX)}, {String(myStatus.regionZ)})
         </span>
-        <span className="text-1x text-muted">矿工 {String(myStatus.minerLevel)} 级</span>
+        <span className="text-muted-foreground text-sm">矿工 {String(myStatus.minerLevel)} 级</span>
         {freezeRemaining > 0 ? (
-          <PixelBadge tone="success">新手保护 {formatRemaining(freezeRemaining)}</PixelBadge>
+          <Tag tone="success">新手保护 {formatRemaining(freezeRemaining)}</Tag>
         ) : null}
       </div>
 
-      <PixelProgress
+      <Meter
         value={myStatus.danger}
         max={1}
         tone={dangerTone(myStatus.danger)}
@@ -574,15 +578,15 @@ function MiningSection({
       />
 
       {current === undefined ? null : (
-        <p className="text-1x text-muted">
+        <p className="text-muted-foreground text-xs">
           同区玩家 {String(current.playersInside)} 人 · 下次自动重置 {formatRemaining(current.nextResetAt - now)}后
         </p>
       )}
 
-      <div className="flex flex-wrap items-center gap-4">
-        <PixelButton tone="danger" size="sm" loading={busy} onClick={onLeave}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="destructive" size="sm" loading={busy} onClick={onLeave}>
           离开矿洞
-        </PixelButton>
+        </Button>
       </div>
     </div>
   )
@@ -606,54 +610,66 @@ function MarriageSection({ marriage, summary, onOpenMarriage, now }: MarriageSec
   const cooldownRemaining = marriage.remarryCooldownUntil - now
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-4">
-        <PixelBadge tone={style.tone}>{style.label}</PixelBadge>
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Tag tone={style.tone}>{style.label}</Tag>
         {marriage.spouseName === null ? (
-          <span className="text-1x text-muted">尚无配偶</span>
+          <span className="text-muted-foreground text-sm">尚无配偶</span>
         ) : (
           <>
-            <span className="text-1x text-fg">{marriage.spouseName}</span>
-            <PixelBadge tone={marriage.spouseOnline ? 'success' : 'neutral'}>
+            <span className="text-sm text-foreground">{marriage.spouseName}</span>
+            <Tag size="sm" tone={marriage.spouseOnline ? 'success' : 'neutral'}>
               {marriage.spouseOnline ? '在线' : '离线'}
-            </PixelBadge>
-            <span className="text-1x text-muted">相伴 {String(marriage.marriageDays)} 天</span>
+            </Tag>
+            <span className="text-muted-foreground text-sm">相伴 {String(marriage.marriageDays)} 天</span>
           </>
         )}
         {marriage.incomingProposals.length === 0 ? null : (
-          <PixelBadge tone="warning">
-            {String(marriage.incomingProposals.length)} 份求婚待答复
-          </PixelBadge>
+          <Tag tone="warning">{String(marriage.incomingProposals.length)} 份求婚待答复</Tag>
         )}
       </div>
 
-      {summary === '' ? null : <p className="text-1x text-fg">{summary}</p>}
+      {summary === '' ? null : <p className="text-sm text-foreground">{summary}</p>}
 
-      <div className="flex flex-wrap gap-6">
-        <span className="text-1x text-muted">
-          共享背包 Lv.{String(marriage.sharedInvLevel)} · {String(marriage.sharedInvSlots)} 格
-        </span>
-        <span className="text-1x text-muted">离婚 {String(marriage.divorceCount)} 次</span>
-        <span className="text-1x text-muted">
-          里程碑 {String(achieved)} / {String(marriage.milestones.length)}
-        </span>
-        <span className="text-1x text-muted">
-          婚戒 {marriage.ringOwned ? '已持有' : `未持有 (${formatInteger(marriage.ringPriceCredit)} 信用点)`}
-        </span>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+        <Stat
+          label="共享背包"
+          layout="inline"
+          value={`Lv.${String(marriage.sharedInvLevel)} · ${String(marriage.sharedInvSlots)} 格`}
+        />
+        <Stat label="离婚次数" layout="inline" value={`${String(marriage.divorceCount)} 次`} />
+        <Stat
+          label="里程碑"
+          layout="inline"
+          value={`${String(achieved)} / ${String(marriage.milestones.length)}`}
+        />
+        <Stat
+          label="婚戒"
+          layout="inline"
+          value={
+            marriage.ringOwned ? '已持有' : `未持有 (${formatInteger(marriage.ringPriceCredit)} 信用点)`
+          }
+        />
       </div>
 
       {cooldownRemaining > 0 ? (
-        <p className="text-1x text-warning">再婚冷却剩余 {formatRemaining(cooldownRemaining)}</p>
+        <Surface tone="warning">
+          <p className="text-sm text-foreground">再婚冷却剩余 {formatRemaining(cooldownRemaining)}</p>
+        </Surface>
       ) : null}
 
       {/*
         首页只做摘要: 求婚/应答/结婚/离婚全部是有金钱与状态后果的写操作, 它们的确认流程属于婚姻面板。
         这里给一个出口而不是把按钮搬过来 —— 首页放危险操作等于把误触成本抬到最高。
       */}
-      <div className="flex flex-wrap items-center gap-4">
-        <PixelButton size="sm" tone={marriage.incomingProposals.length > 0 ? 'accent' : 'neutral'} onClick={onOpenMarriage}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          variant={marriage.incomingProposals.length > 0 ? 'brand' : 'outline'}
+          onClick={onOpenMarriage}
+        >
           进入婚姻面板
-        </PixelButton>
+        </Button>
       </div>
     </div>
   )
@@ -696,9 +712,10 @@ function PanelsSection({
   })
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-4">
-        <PixelSelect
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Dropdown
+          className="w-40"
           value={scope}
           options={PANEL_SCOPE_OPTIONS}
           size="sm"
@@ -708,22 +725,24 @@ function PanelsSection({
             }
           }}
         />
-        <PixelInput
+        <TextInput
+          className="w-48"
           value={keyword}
           size="sm"
           placeholder="按名称筛选"
           onChange={onKeywordChange}
           onRequestEdit={onRequestKeywordEdit}
         />
-        <PixelButton
+        <Button
           size="sm"
+          variant="outline"
           disabled={keyword === ''}
           onClick={() => {
             onKeywordChange('')
           }}
         >
           清空
-        </PixelButton>
+        </Button>
       </div>
 
       {/*
@@ -731,14 +750,20 @@ function PanelsSection({
         而那层叠加尚未实现 —— 点击只会向宿主报一次"请开输入框", 回填通道接通前它拿不到任何值。
         照实说明, 不做成一个看起来能打字的框。
       */}
-      <p className="text-1x text-warning">
-        中文输入未接线 (清单 A14): 宿主 EditBox 叠加未实现, 点击输入框只会向宿主发起一次请求, 回填后本框才会生效。
-      </p>
+      <Surface tone="warning">
+        <p className="text-xs text-foreground">
+          中文输入未接线 (清单 A14): 宿主 EditBox 叠加未实现, 点击输入框只会向宿主发起一次请求, 回填后本框才会生效。
+        </p>
+      </Surface>
 
       {visible.length === 0 ? (
-        <PixelEmpty title="没有符合条件的面板" hint="换一个筛选范围, 或清空关键字" icon="filter" />
+        <EmptyBlock
+          title="没有符合条件的面板"
+          hint="换一个筛选范围, 或清空关键字"
+          icon={<FilterIcon aria-hidden="true" />}
+        />
       ) : (
-        <div className="flex flex-wrap gap-4">
+        <div className="flex flex-wrap gap-2">
           {visible.map((panel) => (
             <PanelTile
               key={panel.panelId}
@@ -763,43 +788,32 @@ function PanelTile({ panel, current, onOpen }: PanelTileProps): ReactElement {
   const availability = panelAvailability(panel)
 
   const tile = (
-    <PixelButton
-      tone={current ? 'accent' : 'neutral'}
+    <Button
+      className="h-auto w-24 flex-col gap-1.5 px-2 py-3"
+      variant={current ? 'brand' : 'outline'}
       size="sm"
       disabled={!availability.usable || current}
       onClick={() => {
         onOpen(panel.route)
       }}
     >
-      <span className="flex flex-col items-center gap-2">
-        <ItemIcon itemId={panel.iconItemId} label={panel.label} scale={2} />
-        <span className="flex items-center gap-1 text-1x">
-          {availability.usable ? null : <PixelIcon name="lock" scale={1} />}
-          {panel.label}
-        </span>
+      <ItemIcon itemId={panel.iconItemId} label={panel.label} scale={2} />
+      <span className="flex items-center gap-1 text-xs">
+        {availability.usable ? null : <LockIcon aria-hidden="true" className="size-3" />}
+        {panel.label}
       </span>
-    </PixelButton>
+    </Button>
   )
 
   if (availability.reason === null) {
-    return current ? (
-      <PixelTooltip content="你正在这个面板上" placement="top">
-        {tile}
-      </PixelTooltip>
-    ) : (
-      tile
-    )
+    return current ? <Hint content="你正在这个面板上">{tile}</Hint> : tile
   }
 
   /*
-   * 禁用按钮本身不响应 hover/focus, 所以锁定原因必须挂在包在外面的 PixelTooltip 上 ——
-   * 它自带一个可聚焦的 span, 键盘用户也能读到原因 (九-1/九-9: 原生 title 属性被禁)。
+   * 禁用按钮本身不响应 hover/focus, 所以锁定原因必须挂在包在外面的 Hint 上 ——
+   * 它把触发元素包进一条独立的 span, 悬停区域不受按钮禁用态影响 (九-1/九-9: 原生 title 属性被禁)。
    */
-  return (
-    <PixelTooltip content={availability.reason} placement="top">
-      {tile}
-    </PixelTooltip>
-  )
+  return <Hint content={availability.reason}>{tile}</Hint>
 }
 
 // ============================================================
@@ -842,27 +856,28 @@ function BridgeErrorProbe({ onUnexpectedSuccess }: BridgeErrorProbeProps): React
   }, [onUnexpectedSuccess])
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-4">
-        <span className="text-1x text-muted">
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-muted-foreground text-sm">
           错误通道自检 (仅假数据模式): 向 player.itemDetail 请求一个不存在的槽位, 走完整失败链路。
         </span>
-        <PixelButton size="sm" tone="warning" loading={busy} onClick={run}>
+        <Button size="sm" variant="destructive-outline" loading={busy} onClick={run}>
           触发一次真实失败
-        </PixelButton>
+        </Button>
         {error === null ? null : (
-          <PixelButton
+          <Button
             size="sm"
+            variant="ghost"
             onClick={() => {
               setError(null)
             }}
           >
             收起
-          </PixelButton>
+          </Button>
         )}
       </div>
       {error === null ? null : (
-        <PixelError message={error.message} onRetry={run} {...(code === null ? {} : { code })} />
+        <ErrorBlock message={error.message} onRetry={run} {...(code === null ? {} : { code })} />
       )}
     </div>
   )
@@ -874,7 +889,7 @@ function BridgeErrorProbe({ onUnexpectedSuccess }: BridgeErrorProbeProps): React
 
 interface ToastEntry {
   readonly id: number
-  readonly tone: PixelFrameTone
+  readonly tone: FeedbackTone
   readonly message: string
 }
 
@@ -898,7 +913,7 @@ export function HomePage(): ReactElement {
   const [toasts, setToasts] = useState<readonly ToastEntry[]>([])
   const toastSeq = useRef(0)
 
-  const pushToast = useCallback((tone: PixelFrameTone, message: string): void => {
+  const pushToast = useCallback((tone: FeedbackTone, message: string): void => {
     toastSeq.current += 1
     const entry: ToastEntry = { id: toastSeq.current, tone, message }
     setToasts((previous) => [...previous, entry])
@@ -1024,77 +1039,100 @@ export function HomePage(): ReactElement {
   )
 
   return (
-    <section className="flex flex-col gap-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-4">
-          {profile.status === 'ready' ? (
-            <>
-              <span className="text-2x text-fg">{profile.data.playerName}</span>
-              {profile.data.isOp ? <PixelBadge tone="accent">OP</PixelBadge> : null}
-            </>
-          ) : (
-            <span className="text-2x text-muted">档案读取中</span>
-          )}
-          {economyStatus.status === 'ready' ? (
-            <PixelBadge tone={economyStatus.data.afkFrozen ? 'danger' : 'success'}>
-              {economyStatus.data.afkFrozen
-                ? `挂机冻结中 (静止 ${String(economyStatus.data.idleSeconds)} 秒, faucet 不入账)`
-                : `活跃 (静止 ${String(economyStatus.data.idleSeconds)} / ${String(economyStatus.data.freezeThresholdSeconds)} 秒)`}
-            </PixelBadge>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap items-center gap-4">
-          <span className="text-1x text-muted">{mirrorLabel}</span>
-          {anyLoading ? <PixelLoading size="sm" label="同步中" /> : null}
-          <PixelButton icon="refresh" size="sm" onClick={reloadAll}>
-            全部重载
-          </PixelButton>
-        </div>
-      </header>
-
+    <section className="flex flex-col gap-4">
       {toasts.length === 0 ? null : (
-        <div className="flex flex-wrap gap-4">
+        <div className="flex flex-col gap-2">
+          {/*
+            entry.id 当 key: 每条回执因此各自挂载一次, FeedbackAlert 的 4 秒倒计时也就各算各的。
+            用下标当 key 的话, 关掉第一条会让后面每条都"继承"前一条的计时器状态。
+          */}
           {toasts.map((entry) => (
-            <PixelToast
+            <FeedbackAlert
               key={entry.id}
-              tone={entry.tone}
               message={entry.message}
               onDismiss={() => {
                 dismissToast(entry.id)
               }}
+              tone={entry.tone}
             />
           ))}
         </div>
       )}
 
-      <SectionCard title="今日收支与额度">
-        <QueryGate query={profile} loadingLabel="读取个人档案">
-          {(profileData) => (
-            <QueryGate query={today} loadingLabel="读取今日收支">
-              {(todayData) => <WalletSection profile={profileData} today={todayData} now={now} />}
-            </QueryGate>
-          )}
-        </QueryGate>
-      </SectionCard>
+      <div className="grid grid-cols-3 gap-4">
+        <Panel
+          title="个人档案"
+          actions={
+            <Button size="sm" variant="outline" onClick={reloadAll}>
+              <RefreshCwIcon />
+              全部重载
+            </Button>
+          }
+        >
+          <div className="flex flex-1 flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {profile.status === 'ready' ? (
+                <>
+                  <span className="font-medium text-base text-foreground">{profile.data.playerName}</span>
+                  {profile.data.isOp ? <Tag tone="brand">OP</Tag> : null}
+                </>
+              ) : (
+                <span className="text-base text-muted-foreground">档案读取中</span>
+              )}
+            </div>
 
-      <SectionCard title="八职业进度 (被动恒生效, 无需转职)">
+            {economyStatus.status === 'ready' ? (
+              <Surface tone={economyStatus.data.afkFrozen ? 'danger' : 'success'}>
+                <div className="flex flex-col gap-1">
+                  <Tag size="sm" tone={economyStatus.data.afkFrozen ? 'danger' : 'success'}>
+                    {economyStatus.data.afkFrozen ? '挂机冻结中' : '活跃'}
+                  </Tag>
+                  <span className="text-muted-foreground text-xs">
+                    {economyStatus.data.afkFrozen
+                      ? `静止 ${String(economyStatus.data.idleSeconds)} 秒, faucet 不入账`
+                      : `静止 ${String(economyStatus.data.idleSeconds)} / ${String(economyStatus.data.freezeThresholdSeconds)} 秒`}
+                  </span>
+                </div>
+              </Surface>
+            ) : null}
+
+            <div className="mt-auto flex flex-col gap-1">
+              <span className="text-muted-foreground text-xs">{mirrorLabel}</span>
+              {anyLoading ? <LoadingBlock label="同步中" size="sm" /> : null}
+            </div>
+          </div>
+        </Panel>
+
+        <Panel className="col-span-2" title="今日收支与额度">
+          <QueryGate query={profile} loadingLabel="读取个人档案">
+            {(profileData) => (
+              <QueryGate query={today} loadingLabel="读取今日收支">
+                {(todayData) => <WalletSection profile={profileData} today={todayData} now={now} />}
+              </QueryGate>
+            )}
+          </QueryGate>
+        </Panel>
+      </div>
+
+      <Panel title="八职业进度 (被动恒生效, 无需转职)">
         <QueryGate query={profile} loadingLabel="读取职业进度">
           {(profileData) => <JobsSection jobs={profileData.jobs} onOpen={openJob} />}
         </QueryGate>
-      </SectionCard>
+      </Panel>
 
-      <div className="grid grid-cols-2 gap-6">
-        <SectionCard
+      <div className="grid grid-cols-2 gap-4">
+        <Panel
           title="当前所在矿洞"
           actions={
-            <PixelButton
+            <Button
               size="sm"
+              variant="outline"
               onClick={() => {
                 navigate(ROUTE_MINING)
               }}
             >
               矿洞面板
-            </PixelButton>
+            </Button>
           }
         >
           <QueryGate query={miningStatus} loadingLabel="读取矿洞状态">
@@ -1115,9 +1153,9 @@ export function HomePage(): ReactElement {
               </QueryGate>
             )}
           </QueryGate>
-        </SectionCard>
+        </Panel>
 
-        <SectionCard title="婚姻状态">
+        <Panel title="婚姻状态">
           <QueryGate query={marriage} loadingLabel="读取婚姻状态">
             {(marriageData) => (
               <MarriageSection
@@ -1130,10 +1168,10 @@ export function HomePage(): ReactElement {
               />
             )}
           </QueryGate>
-        </SectionCard>
+        </Panel>
       </div>
 
-      <SectionCard title="快捷入口">
+      <Panel title="快捷入口">
         <QueryGate query={hubPanels} loadingLabel="读取面板注册表">
           {(panelsData) => (
             <PanelsSection
@@ -1150,12 +1188,12 @@ export function HomePage(): ReactElement {
             />
           )}
         </QueryGate>
-      </SectionCard>
+      </Panel>
 
       {isMockActive() ? (
-        <SectionCard title="接线自检">
+        <Panel title="接线自检">
           <BridgeErrorProbe onUnexpectedSuccess={probeUnexpectedSuccess} />
-        </SectionCard>
+        </Panel>
       ) : null}
     </section>
   )

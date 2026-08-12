@@ -1,19 +1,19 @@
 import type { ReactElement } from 'react'
 import { useEffect, useId, useState } from 'react'
-import type { PixelFrameTone, PixelSlotGridEntry } from '../../components/pixel'
+import type { ItemSlotGridEntry, Tone } from '@/components/kit'
 import {
+  Button,
+  Currency,
+  EmptyBlock,
+  ErrorBlock,
   ItemIcon,
-  PixelBadge,
-  PixelButton,
-  PixelCurrency,
-  PixelEmpty,
-  PixelError,
-  PixelFrame,
-  PixelLoading,
-  PixelScrollArea,
-  PixelSlotGrid,
-  PixelStepper,
-} from '../../components/pixel'
+  ItemSlotGrid,
+  LoadingBlock,
+  NumberInput,
+  Panel,
+  Surface,
+  Tag,
+} from '@/components/kit'
 import { useItemNames } from '../../lib/i18n'
 import type { PlayerInventoryItem } from '../../lib/types'
 import { callMock, refreshWalletAndInventory, useMockAction, useMockWorld } from '../../mock'
@@ -71,7 +71,7 @@ function estimateListingFee(v0: number | null, unitPrice: number, count: number)
 }
 
 /** 费率越高染色越重, 让"偏离基准价越远费越高"这件事不必读数字就能一眼看出。 */
-function feeRateTone(rate: number): PixelFrameTone {
+function feeRateTone(rate: number): Tone {
   if (rate <= FEE_RATE + 0.02) {
     return 'success'
   }
@@ -99,11 +99,22 @@ function describeNonTradable(reason: string | null, reasonCode: string | null): 
   return reasonCode === null ? '服务端未给出拒绝理由' : `理由码 ${reasonCode}`
 }
 
-/** 稠密 36 槽表: 空槽也要有记录, PixelSlotGrid 靠数组下标 (而非 slot 号) 排布几何位置。 */
+/**
+ * 稠密 36 槽表的一格。
+ *
+ * ItemSlotGrid 只认数组下标 (它的 onSelect 给的就是下标), 而挂单要提交的是背包槽位号,
+ * 故格子自带 slot 字段: 稠密排布下两者数值相等, 但把这层对应关系写出来, 日后网格若改成
+ * 非稠密 (如按分类分组) 也不会静默把下标当槽位号提交上去。
+ */
+interface DenseSlot extends ItemSlotGridEntry {
+  slot: number
+}
+
+/** 稠密 36 槽表: 空槽也要有记录, ItemSlotGrid 靠数组下标 (而非 slot 号) 排布几何位置。 */
 function buildDenseSlots(
   items: readonly PlayerInventoryItem[] | null,
   names: Record<string, string>,
-): PixelSlotGridEntry[] {
+): DenseSlot[] {
   const bySlot = new Map<number, PlayerInventoryItem>()
   if (items !== null) {
     for (const item of items) {
@@ -249,13 +260,11 @@ export function SellPage(): ReactElement {
       : (selectedStack.displayName ?? names[selectedStack.descriptionId] ?? selectedStack.descriptionId)
 
   return (
-    <div className="grid grid-cols-2 gap-8">
-      <section className="flex flex-col gap-4">
-        <h2 className="text-1x text-fg">选择要出售的物品</h2>
-
+    <div className="grid grid-cols-2 gap-4">
+      <Panel title="选择要出售的物品">
         {inventoryItems === null ? (
           inventoryFetch.status === 'error' && inventoryFetch.error !== null ? (
-            <PixelError
+            <ErrorBlock
               message={`背包读取失败: ${inventoryFetch.error.message}`}
               onRetry={() => {
                 setInventoryFetch({ status: 'loading', error: null })
@@ -269,35 +278,31 @@ export function SellPage(): ReactElement {
               }}
             />
           ) : (
-            <PixelLoading label="正在读取背包" />
+            <LoadingBlock label="正在读取背包" />
           )
         ) : inventoryItems.length === 0 ? (
-          <PixelEmpty title="背包为空" hint="仓库里没有可挂单的物品" icon="bag" />
+          <EmptyBlock hint="仓库里没有可挂单的物品" title="背包为空" />
         ) : (
-          <PixelScrollArea className="h-80" label="背包">
-            <PixelSlotGrid
-              slots={denseSlots}
-              columns={INVENTORY_COLUMNS}
-              label="背包"
-              onSelect={handleSelectSlot}
-              {...(selectedSlot === null ? {} : { selectedSlot })}
-            />
-          </PixelScrollArea>
+          <ItemSlotGrid
+            columns={INVENTORY_COLUMNS}
+            label="背包"
+            onSelect={handleSelectSlot}
+            slots={denseSlots}
+            {...(selectedSlot === null ? {} : { selectedSlot })}
+          />
         )}
-      </section>
+      </Panel>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-1x text-fg">数量 · 单价 · 手续费预览</h2>
-
+      <Panel title="数量 · 单价 · 手续费预览">
         {selectedStack === null ? (
-          <PixelEmpty title="尚未选择物品" hint="点击左侧背包格开始挂单" icon="coin-credit" />
+          <EmptyBlock hint="点击左侧背包格开始挂单" title="尚未选择物品" />
         ) : (
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-4">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
               <ItemIcon itemId={selectedStack.itemId} label={selectedItemLabel} scale={2} />
               <div className="flex flex-col">
-                <span className="text-1x text-fg">{selectedItemLabel}</span>
-                <span className="text-1x text-muted">
+                <span className="text-foreground text-sm">{selectedItemLabel}</span>
+                <span className="text-muted-foreground text-xs">
                   持有 {selectedStack.count} 件 · 槽位 {selectedStack.slot}
                 </span>
               </div>
@@ -308,16 +313,16 @@ export function SellPage(): ReactElement {
               而提交按钮那时是可点的 —— 玩家既不知道还在查, 也不知道查失败了。
             */}
             {tradableQuery.status === 'loading' ? (
-              <PixelLoading size="sm" label="正在校验该物品是否可挂单" />
+              <LoadingBlock label="正在校验该物品是否可挂单" size="sm" />
             ) : null}
             {tradableQuery.status === 'error' ? (
-              <PixelError
+              <ErrorBlock
                 message={`可交易性校验失败, 挂单已锁定: ${tradableQuery.error.message}`}
                 onRetry={tradableQuery.reload}
               />
             ) : null}
             {notTradable && tradableQuery.status === 'ready' ? (
-              <PixelError
+              <ErrorBlock
                 message={`该物品不可挂单出售: ${describeNonTradable(tradableQuery.data.reason, tradableQuery.data.reasonCode)}`}
               />
             ) : null}
@@ -326,87 +331,95 @@ export function SellPage(): ReactElement {
               两组步进器的按钮无障碍名都是"减少"/"增加", 读屏用户离开可见排版后无从分辨改的是哪个字段。
               包一层 role="group" 并把已有的可见标题接成组名, 于是焦点进组时先播报"挂单数量"再播报按钮名。
             */}
-            <div className="flex flex-col gap-2" role="group" aria-labelledby={countLabelId}>
-              <span id={countLabelId} className="text-1x text-muted">
+            <div aria-labelledby={countLabelId} className="flex flex-col gap-2" role="group">
+              <span className="text-muted-foreground text-sm" id={countLabelId}>
                 数量 (最多 {selectedStack.count})
               </span>
-              <PixelStepper
-                value={count}
-                onChange={setCount}
-                min={1}
-                max={selectedStack.count}
+              <NumberInput
                 disabled={inputsDisabled}
+                max={selectedStack.count}
+                min={1}
+                onChange={setCount}
+                value={count}
               />
             </div>
 
-            <div className="flex flex-col gap-2" role="group" aria-labelledby={priceLabelId}>
-              <span id={priceLabelId} className="text-1x text-muted">
+            <div aria-labelledby={priceLabelId} className="flex flex-col gap-2" role="group">
+              <span className="text-muted-foreground text-sm" id={priceLabelId}>
                 单价 (信用点 / 件)
               </span>
-              <PixelStepper
-                value={unitPrice}
-                onChange={handlePriceChange}
-                min={1}
-                max={MAX_UNIT_PRICE}
+              <NumberInput
                 disabled={inputsDisabled}
+                max={MAX_UNIT_PRICE}
+                min={1}
+                onChange={handlePriceChange}
+                value={unitPrice}
               />
             </div>
 
-            <PixelFrame variant="inset" className="flex flex-col gap-2 p-4">
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-1x text-muted">基准价 V0</span>
-                {baseValueQuery.status === 'loading' ? <PixelLoading size="sm" /> : null}
-                {baseValueQuery.status === 'error' ? (
-                  <span className="text-1x text-danger">读取失败: {baseValueQuery.error.message}</span>
-                ) : null}
-                {baseValueQuery.status === 'ready' ? (
-                  baseValueQuery.data.v0 === null ? (
-                    <span className="text-1x text-muted">无锚 (按 {(FEE_RATE * 100).toFixed(0)}% 平率计费)</span>
-                  ) : (
-                    <PixelCurrency amount={baseValueQuery.data.v0} currency="credit" size="sm" />
-                  )
-                ) : null}
-              </div>
-
-              {/*
-                手续费预览只在基准价 ready 时给。非 ready 时明说"算不出", 而不是退回平率算一个数出来 ——
-                那个数看着完全正常, 却和 market.place 的真实 listFee 无关。
-              */}
-              {selectedStack !== null && baseValueQuery.status !== 'ready' ? (
-                <span className="text-1x text-muted">
-                  基准价未就绪, 手续费预览暂不可用; 最终以 market.place 回执的 listFee 为准
-                </span>
-              ) : null}
-
-              {feeEstimate === null ? null : (
-                <>
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="text-1x text-muted">预计手续费 (上单即收, 撤单不退)</span>
-                    <PixelCurrency amount={feeEstimate.fee} currency="credit" size="sm" />
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="text-1x text-muted">费率</span>
-                    <PixelBadge tone={feeRateTone(feeEstimate.rate)}>
-                      {(feeEstimate.rate * 100).toFixed(1)}%
-                    </PixelBadge>
-                  </div>
-                  {feeEstimate.ratioToAnchor === null ? null : (
-                    <span className="text-1x text-muted">
-                      挂价是基准价的 {feeEstimate.ratioToAnchor.toFixed(2)} 倍 —— 偏离基准价越远, 费率上涨越快
+            <Surface>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground text-sm">基准价 V0</span>
+                  {baseValueQuery.status === 'loading' ? <LoadingBlock size="sm" /> : null}
+                  {baseValueQuery.status === 'error' ? (
+                    <span className="text-destructive text-sm">
+                      读取失败: {baseValueQuery.error.message}
                     </span>
-                  )}
-                </>
-              )}
-            </PixelFrame>
+                  ) : null}
+                  {baseValueQuery.status === 'ready' ? (
+                    baseValueQuery.data.v0 === null ? (
+                      <span className="text-muted-foreground text-sm">
+                        无锚 (按 {(FEE_RATE * 100).toFixed(0)}% 平率计费)
+                      </span>
+                    ) : (
+                      <Currency amount={baseValueQuery.data.v0} currency="credit" size="sm" />
+                    )
+                  ) : null}
+                </div>
 
-            <PixelButton
-              tone="accent"
-              loading={submitState.status === 'submitting'}
-              disabled={submitDisabled}
-              onClick={handleSubmit}
-            >
-              提交挂单
-            </PixelButton>
+                {/*
+                  手续费预览只在基准价 ready 时给。非 ready 时明说"算不出", 而不是退回平率算一个数出来 ——
+                  那个数看着完全正常, 却和 market.place 的真实 listFee 无关。
+                */}
+                {selectedStack !== null && baseValueQuery.status !== 'ready' ? (
+                  <span className="text-muted-foreground text-sm">
+                    基准价未就绪, 手续费预览暂不可用; 最终以 market.place 回执的 listFee 为准
+                  </span>
+                ) : null}
+
+                {feeEstimate === null ? null : (
+                  <>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground text-sm">预计手续费 (上单即收, 撤单不退)</span>
+                      <Currency amount={feeEstimate.fee} currency="credit" size="sm" />
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground text-sm">费率</span>
+                      <Tag tone={feeRateTone(feeEstimate.rate)}>
+                        {(feeEstimate.rate * 100).toFixed(1)}%
+                      </Tag>
+                    </div>
+                    {feeEstimate.ratioToAnchor === null ? null : (
+                      <span className="text-muted-foreground text-xs">
+                        挂价是基准价的 {feeEstimate.ratioToAnchor.toFixed(2)} 倍 —— 偏离基准价越远, 费率上涨越快
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+            </Surface>
+
+            <div>
+              <Button
+                disabled={submitDisabled}
+                loading={submitState.status === 'submitting'}
+                onClick={handleSubmit}
+                variant="brand"
+              >
+                提交挂单
+              </Button>
+            </div>
           </div>
         )}
 
@@ -415,15 +428,17 @@ export function SellPage(): ReactElement {
           回执若留在依赖 selectedStack 的分支里就随之一起消失 —— listingId 与真实 listFee 永远看不到。
         */}
         {submitState.status === 'success' ? (
-          <PixelBadge tone="success">
-            挂单成功 (#{submitState.listingId}), 已扣手续费{' '}
-            <PixelCurrency amount={submitState.listFee} currency="credit" size="sm" />
-          </PixelBadge>
+          <Surface className="mt-3" tone="success">
+            <p className="flex flex-wrap items-center gap-1 text-foreground text-sm">
+              挂单成功 (#{submitState.listingId}), 已扣手续费
+              <Currency amount={submitState.listFee} currency="credit" size="sm" />
+            </p>
+          </Surface>
         ) : null}
         {submitState.status === 'error' ? (
-          <PixelError message={submitState.error.message} onRetry={handleSubmit} />
+          <ErrorBlock className="mt-3" message={submitState.error.message} onRetry={handleSubmit} />
         ) : null}
-      </section>
+      </Panel>
     </div>
   )
 }

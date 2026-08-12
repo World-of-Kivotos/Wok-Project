@@ -2,6 +2,7 @@ import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync } from 'no
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 
@@ -57,9 +58,17 @@ function modTexturesPlugin(): Plugin {
           next()
           return
         }
-        // /mc/ 挂载点专供贴图, 任何不解析的请求都必须真回 404 —— 绝不能 next() 落进 vite 的 SPA
-        // fallback。fallback 会回 200 + index.html, 而 ItemIcon 的回退链正是靠 404 逐级下探,
-        // 拿到 200 就以为命中了, 表现为图标位置卡在半途或渲染出损坏图。
+        /*
+         * /mc/ 挂载点专供贴图, 任何不解析的请求都真回 404, 绝不 next() 落进 vite 的 SPA fallback。
+         *
+         * 这不是 ItemIcon 的正确性前提 —— 它的三层回退靠 `new Image()` 的 onerror 触发, 而 index.html
+         * 当图片解码同样会 onerror, 链条照样往下走 (构建产物由 vite preview / 静态托管服务时就是 200,
+         * 实测过)。
+         *
+         * 真正的理由是排障: fallback 会让每一次取图失败都在 Network 面板里显示成 200 + 一份 HTML,
+         * 于是"贴图路径写错了"与"贴图确实不存在"看起来完全一样, 而且是绿色的。开发期把这件事说实话,
+         * 比多兜一层更值钱。
+         */
         const notFound = (): void => {
           res.statusCode = 404
           res.end()
@@ -108,7 +117,12 @@ export default defineConfig({
   // 相对基址: 产物可能被托管在站点子路径 (分发路线 A), 也可能由服务端 mod 从 jar 内 serve (路线 B),
   // 两种落点的挂载前缀不同, 绝对 /assets 路径会在子路径下 404。
   base: './',
-  plugins: [react(), modTexturesPlugin()],
+  plugins: [react(), tailwindcss(), modTexturesPlugin()],
+  // `@/` 指向 src/。Coss UI / shadcn 的 copy-paste 组件源码内部一律按此别名互相引用,
+  // 不设别名的话每次拉组件都要手改一遍 import, 且下次更新组件时改动会被覆盖回去。
+  resolve: {
+    alias: { '@': resolve(here, 'src') },
+  },
   server: {
     port: 5173,
     // 端口被占时直接失败而非顺延: Java 侧 webui.url 是精确匹配的授权源 (WebUiBridge.setAllowedPage),

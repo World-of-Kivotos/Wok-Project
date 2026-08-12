@@ -6,13 +6,12 @@
     <title>WOK</title>
     <style>
       /*
-        像素基线的最早生效点。样式表本体 (src/styles/index.css) 才是真源, 这里重复这两条是因为
-        它在 JS/CSS 落地前就要生效 —— 缺了它首帧会先以平滑插值与抗锯齿字体渲染一次, 在像素资产上
-        这一帧的糊是肉眼可见的。image-rendering 是继承属性, 挂 html 即覆盖整棵树。
+        首帧底色。样式表本体 (src/styles/index.css) 才是真源, 这里重复一次是因为它在 CSS 落地前
+        就要生效 —— 缺了它, 界面在暗色档下会先白闪一帧, 叠在游戏画面上格外刺眼。
+        取值必须与 index.css 里 :root 的 --background 一致。
       */
       html {
-        image-rendering: pixelated;
-        -webkit-font-smoothing: none;
+        background-color: oklch(0.145 0 0);
       }
     </style>
   </head>

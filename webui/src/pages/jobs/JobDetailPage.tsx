@@ -1,5 +1,6 @@
+import { StarIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
-import { PixelEmpty } from '../../components/pixel'
+import { EmptyBlock } from '@/components/kit'
 import type { PlannedJobId } from '../../mock'
 import { useMockWorld } from '../../mock'
 import { useRouteParams } from '../../router'
@@ -23,7 +24,7 @@ import { TarotPanel } from './panels/TarotPanel'
  * 本文件只做 jobId -> 面板组件的分发, 具体实现落在 panels/ 子目录 (一职业一文件)。这样拆分是刻意的:
  * 8 个职业面板由不同批次交付, 若都直接写死在本文件的一段大分支里, 任意两个批次同时收工都会在这一个
  * 文件上打架; 拆成"各自认领 panels/ 下自己的文件 + 在 IMPLEMENTED_PANELS 里追加一行"之后, 冲突面
- * 缩小到追加的那一行, 与 components/pixel/index.ts 的 barrel 追加纪律同一思路。
+ * 缩小到追加的那一行, 与 components/kit/index.ts 的 barrel 追加纪律同一思路。
  *
  * 战斗/特殊职业四家 (塔罗/特勤/军火商/工程师) 与生产职业四家 (矿工/农夫/厨师/酿酒师) 均已落地
  * (各自的假定契约与接线清单行号见对应 panels/ 文件头), 8 个 case 全部认领完毕。
@@ -61,24 +62,34 @@ export function JobDetailPage(): ReactElement {
   const world = useMockWorld()
 
   if (jobId === undefined) {
-    return <PixelEmpty title="单职业详情" hint="路径里缺少职业 id" icon="warning" />
+    return (
+      <EmptyBlock hint="路径里缺少职业 id" icon={<TriangleAlertIcon aria-hidden="true" />} title="单职业详情" />
+    )
   }
   if (!isPlannedJobId(jobId)) {
-    return <PixelEmpty title="单职业详情" hint={`未知职业 id: ${jobId}`} icon="warning" />
+    return (
+      <EmptyBlock
+        hint={`未知职业 id: ${jobId}`}
+        icon={<TriangleAlertIcon aria-hidden="true" />}
+        title="单职业详情"
+      />
+    )
   }
 
-  const Panel = IMPLEMENTED_PANELS[jobId]
-  if (Panel !== undefined) {
-    return <Panel />
+  // 叫 JobPanel 而不是 Panel: kit 导出了一个同名的容器组件 (@/components/kit 的 Panel),
+  // 本文件恰好没导入它所以不冲突, 但同一个标识符在别处是另一个东西, 是纯粹的阅读陷阱。
+  const JobPanel = IMPLEMENTED_PANELS[jobId]
+  if (JobPanel !== undefined) {
+    return <JobPanel />
   }
 
   const progress = world.jobs.progress.find((entry) => entry.jobId === jobId)
   const displayName = progress === undefined ? jobId : progress.displayName
   return (
-    <PixelEmpty
-      title={`单职业详情 · ${displayName}`}
+    <EmptyBlock
       hint="该职业面板由生产职业批次交付, 当前仅占位"
-      icon="star"
+      icon={<StarIcon aria-hidden="true" />}
+      title={`单职业详情 · ${displayName}`}
     />
   )
 }

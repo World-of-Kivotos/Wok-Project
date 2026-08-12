@@ -1,16 +1,18 @@
+import { CheckIcon, LockIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
 import { useEffect, useState } from 'react'
 import {
-  PixelBadge,
-  PixelButton,
-  PixelEmpty,
-  PixelError,
-  PixelFrame,
-  PixelIcon,
-  PixelLoading,
-  PixelProgress,
-} from '../components/pixel'
-import type { PixelFrameTone } from '../components/pixel'
+  Button,
+  EmptyBlock,
+  ErrorBlock,
+  FeedbackAlert,
+  LoadingBlock,
+  Meter,
+  Panel,
+  Stat,
+  Tag,
+} from '@/components/kit'
+import type { Tone } from '@/components/kit'
 import { callMock } from '../mock/handlers'
 import type { PlannedDifficulty, PlannedMiningInstance } from '../mock/planned'
 import { useMockAction } from '../mock/useMockWorld'
@@ -40,7 +42,7 @@ import { useMockAction } from '../mock/useMockWorld'
  * mock 按 "上次重置时刻 + 固定周期" 推算 nextResetAt, 与清单建议的退而求其次方案同构。
  *
  * 中文输入: 本页全部交互都是按钮点击与只读展示, 不含任何自由文本输入控件, 不涉及
- * PixelInput 的 onRequestEdit 接口位。
+ * TextInput 的 onRequestEdit 接口位。
  */
 
 const DIFFICULTY_TAG: Record<PlannedDifficulty, string> = {
@@ -51,7 +53,7 @@ const DIFFICULTY_TAG: Record<PlannedDifficulty, string> = {
 
 type ActionFeedback = { tone: 'success' | 'danger'; message: string }
 
-function dangerTone(danger: number): PixelFrameTone {
+function dangerTone(danger: number): Tone {
   if (danger < 0.3) {
     return 'success'
   }
@@ -96,46 +98,53 @@ function MiningInstanceCard({
   onLeave,
 }: MiningInstanceCardProps): ReactElement {
   const locked = minerLevel === null || minerLevel < instance.requiredMinerLevel
-  const cardTone: PixelFrameTone = locked ? 'neutral' : dangerTone(instance.danger)
 
   return (
-    <PixelFrame variant="panel" tone={cardTone} className="flex flex-col gap-3 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-2x text-fg">{instance.displayName}</h2>
-        <PixelBadge tone={locked ? 'neutral' : 'accent'}>{DIFFICULTY_TAG[instance.difficulty]}</PixelBadge>
+    <Panel
+      actions={<Tag tone={locked ? 'neutral' : 'brand'}>{DIFFICULTY_TAG[instance.difficulty]}</Tag>}
+      title={instance.displayName}
+    >
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2 text-sm">
+          {locked ? (
+            <LockIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+          ) : (
+            <CheckIcon aria-hidden="true" className="size-4 shrink-0 text-success" />
+          )}
+          <span className={locked ? 'text-muted-foreground' : 'text-foreground'}>
+            {locked
+              ? `需要矿工 ${String(instance.requiredMinerLevel)} 级 (${
+                  minerLevel === null ? '等级读取中' : `当前 ${String(minerLevel)} 级`
+                })`
+              : `已解锁 (需矿工 ${String(instance.requiredMinerLevel)} 级)`}
+          </span>
+        </div>
+
+        <Meter
+          label="危险度"
+          max={100}
+          tone={dangerTone(instance.danger)}
+          value={instance.danger * 100}
+          valueText={`${String(Math.round(instance.danger * 100))}%`}
+        />
+
+        <div className="flex flex-col gap-1">
+          <Stat label="当前在线" layout="inline" value={`${String(instance.playersInside)} 人`} />
+          <Stat label="下次重置" layout="inline" value={formatCountdown(instance.nextResetAt, nowValue)} />
+          <p className="text-muted-foreground text-xs">全服共享实例, 非私有副本</p>
+        </div>
+
+        {insideHere ? (
+          <Button loading={leaving} onClick={onLeave} variant="destructive">
+            离开矿洞
+          </Button>
+        ) : (
+          <Button disabled={locked} loading={entering} onClick={onEnter} variant="brand">
+            进入矿洞
+          </Button>
+        )}
       </div>
-
-      <div className="flex items-center gap-2 text-1x">
-        <PixelIcon name={locked ? 'lock' : 'check'} scale={1} className={locked ? 'text-muted' : 'text-success'} />
-        <span className={locked ? 'text-muted' : 'text-fg'}>
-          {locked
-            ? `需要矿工 ${String(instance.requiredMinerLevel)} 级 (${
-                minerLevel === null ? '等级读取中' : `当前 ${String(minerLevel)} 级`
-              })`
-            : `已解锁 (需矿工 ${String(instance.requiredMinerLevel)} 级)`}
-        </span>
-      </div>
-
-      <PixelProgress
-        value={instance.danger * 100}
-        max={100}
-        tone={dangerTone(instance.danger)}
-        label={`危险度 ${String(Math.round(instance.danger * 100))}%`}
-      />
-
-      <p className="text-1x text-muted">当前在线 {instance.playersInside} 人 (全服共享实例, 非私有副本)</p>
-      <p className="text-1x text-muted">下次重置: {formatCountdown(instance.nextResetAt, nowValue)}</p>
-
-      {insideHere ? (
-        <PixelButton tone="danger" loading={leaving} onClick={onLeave}>
-          离开矿洞
-        </PixelButton>
-      ) : (
-        <PixelButton tone="accent" disabled={locked} loading={entering} onClick={onEnter}>
-          进入矿洞
-        </PixelButton>
-      )}
-    </PixelFrame>
+    </Panel>
   )
 }
 
@@ -192,34 +201,36 @@ export function MiningPage(): ReactElement {
   const insideDifficulty = status.status === 'ready' && status.data.inside ? status.data.difficulty : null
 
   return (
-    <section className="flex flex-col gap-6">
+    <section className="flex flex-col gap-4">
       {/* 页名由 TabletShell 的 h1 统一渲染, 页面内不再重复 —— 重复两遍且里层更大, 打开必现, 读起来像渲染 bug。 */}
       <header className="flex flex-col gap-2">
-        <p className="text-1x text-muted">
+        <p className="text-muted-foreground text-sm">
           全服共 3 个常驻共享矿洞实例, 每难度各一个 —— 不是你的私有副本; 卡片上的在线人数是与你
           共享同一空间的全服玩家数, 不是"我的副本进度"。
         </p>
         {jobs.status === 'error' ? (
-          <PixelFrame variant="panel" tone="warning" className="p-2">
-            <p className="text-1x text-fg">矿工等级读取失败, 等级门暂按锁定处理: {jobs.error.message}</p>
-          </PixelFrame>
+          <FeedbackAlert
+            message={jobs.error.message}
+            title="矿工等级读取失败, 等级门暂按锁定处理"
+            tone="warning"
+          />
         ) : null}
       </header>
 
-      {feedback === null ? null : (
-        <PixelFrame variant="panel" tone={feedback.tone} className="p-3">
-          <p className="text-1x text-fg">{feedback.message}</p>
-        </PixelFrame>
-      )}
+      {feedback === null ? null : <FeedbackAlert message={feedback.message} tone={feedback.tone} />}
 
       {overview.status === 'loading' ? (
-        <PixelFrame variant="panel" className="p-8">
-          <PixelLoading label="正在读取矿洞总览" size="lg" />
-        </PixelFrame>
+        <Panel>
+          <LoadingBlock label="正在读取矿洞总览" size="lg" />
+        </Panel>
       ) : overview.status === 'error' ? (
-        <PixelError message={overview.error.message} onRetry={overview.reload} />
+        <ErrorBlock message={overview.error.message} onRetry={overview.reload} />
       ) : overview.data.instances.length === 0 ? (
-        <PixelEmpty title="暂无矿洞实例" hint="矿洞维度当前不可用" icon="warning" />
+        <EmptyBlock
+          hint="矿洞维度当前不可用"
+          icon={<TriangleAlertIcon aria-hidden="true" />}
+          title="暂无矿洞实例"
+        />
       ) : (
         <div className="grid grid-cols-3 gap-4">
           {overview.data.instances.map((instance) => (
@@ -242,36 +253,38 @@ export function MiningPage(): ReactElement {
         </div>
       )}
 
-      <PixelFrame variant="panel" className="flex flex-col gap-3 p-4">
-        <h2 className="text-2x text-fg">我的矿洞状态</h2>
+      <Panel title="我的矿洞状态">
         {status.status === 'loading' ? (
-          <PixelLoading label="正在读取我的状态" />
+          <LoadingBlock label="正在读取我的状态" />
         ) : status.status === 'error' ? (
-          <PixelError message={status.error.message} onRetry={status.reload} />
+          <ErrorBlock message={status.error.message} onRetry={status.reload} />
         ) : !status.data.inside ? (
-          <p className="text-1x text-muted">当前不在任何矿洞实例中。</p>
+          <p className="text-muted-foreground text-sm">当前不在任何矿洞实例中。</p>
         ) : status.data.difficulty === null ? (
-          <p className="text-1x text-danger">数据异常: inside 为真但 difficulty 缺失, 请刷新重试。</p>
+          <p className="text-destructive text-sm">数据异常: inside 为真但 difficulty 缺失, 请刷新重试。</p>
         ) : (
-          <div className="flex flex-col gap-2">
-            <p className="text-1x text-fg">
+          <div className="flex flex-col gap-3">
+            <p className="text-foreground text-sm">
               当前位于 {DIFFICULTY_TAG[status.data.difficulty]} 难度, 区域坐标 ({status.data.regionX},{' '}
               {status.data.regionZ})
             </p>
-            <PixelProgress
-              value={status.data.danger * 100}
+            <Meter
+              label="实时危险度"
               max={100}
               tone={dangerTone(status.data.danger)}
-              label={`实时危险度 ${String(Math.round(status.data.danger * 100))}%`}
+              value={status.data.danger * 100}
+              valueText={`${String(Math.round(status.data.danger * 100))}%`}
             />
             {status.data.spawnFreezeUntil > nowValue ? (
-              <PixelBadge tone="info">
-                新手保护中, 剩余 {formatCountdown(status.data.spawnFreezeUntil, nowValue)}
-              </PixelBadge>
+              <div>
+                <Tag tone="info">
+                  新手保护中, 剩余 {formatCountdown(status.data.spawnFreezeUntil, nowValue)}
+                </Tag>
+              </div>
             ) : null}
           </div>
         )}
-      </PixelFrame>
+      </Panel>
     </section>
   )
 }

@@ -1,17 +1,20 @@
 import type { ReactElement } from 'react'
 import { useState } from 'react'
-import type { PixelFrameTone, PixelSelectOption } from '../../../components/pixel'
+import type { DropdownOption, Tone } from '@/components/kit'
 import {
-  PixelBadge,
-  PixelButton,
-  PixelCurrency,
-  PixelEmpty,
-  PixelError,
-  PixelFrame,
-  PixelLoading,
-  PixelSelect,
-  PixelStepper,
-} from '../../../components/pixel'
+  Button,
+  Currency,
+  Dropdown,
+  EmptyBlock,
+  ErrorBlock,
+  FeedbackAlert,
+  LoadingBlock,
+  NumberInput,
+  Panel,
+  Stat,
+  Surface,
+  Tag,
+} from '@/components/kit'
 import { callMock, useMockAction } from '../../../mock'
 import type { PlannedBuyPackResult, PlannedTarotCard, PlannedTarotQuality } from '../../../mock'
 import { formatCountdown, toError, useLiveNow } from './shared'
@@ -30,7 +33,7 @@ import { formatCountdown, toError, useLiveNow } from './shared'
  *
  * 贴图直接引用 mod 资源 (src/main/resources/assets/miningdim/textures/item/tarot/), 不经 ItemIcon:
  * ItemIcon 的取图链只处理 "item/<单段id>.png" 这种单层路径, 而塔罗贴图落在 item/tarot/ 子目录下且
- * 卡面/品质边框是两张图叠加渲染, 均不满足 ItemIcon 的假设, 故本文件按 PixelFrame 同款 vite 挂载点
+ * 卡面/品质边框是两张图叠加渲染, 均不满足 ItemIcon 的假设, 故本文件按 ItemIcon 同款 vite 挂载点
  * (vite.config.ts 的 /mc/ 前缀) 自行拼 URL。22 张牌到 00-21 序号的映射按国际通用大阿卡纳顺序
  * (愚者..世界) 靠牌名匹配, 不依赖 mock 的 cardId 具体格式 —— 后端真实契约的 cardId 大概率不是
  * "tarot_00" 这种写法, 牌名顺序则是文化常量, 更适合作为映射锚点。
@@ -69,7 +72,7 @@ const MAJOR_ARCANA_ORDER: readonly string[] = [
 interface QualityMeta {
   readonly label: string
   readonly borderFile: string
-  readonly tone: PixelFrameTone
+  readonly tone: Tone
 }
 
 /** 品质 -> (R/SR/SSR/UR/闪耀 短标签, 边框资产文件名, 徽标语义色)。边框文件名逐字取自实际资产目录。 */
@@ -81,7 +84,7 @@ const QUALITY_META: Record<PlannedTarotQuality, QualityMeta> = {
   legendary: { label: '闪耀', borderFile: 'border_shiny.png', tone: 'danger' },
 }
 
-const QUALITY_FILTER_OPTIONS: readonly PixelSelectOption[] = [
+const QUALITY_FILTER_OPTIONS: readonly DropdownOption<'all' | PlannedTarotQuality>[] = [
   { value: 'all', label: '全部品质' },
   { value: 'common', label: 'R 普通' },
   { value: 'uncommon', label: 'SR 罕见' },
@@ -170,10 +173,10 @@ export function TarotPanel(): ReactElement {
   const [lastDraw, setLastDraw] = useState<PlannedBuyPackResult | null>(null)
 
   if (query.status === 'loading') {
-    return <PixelLoading label="正在读取塔罗牌组" />
+    return <LoadingBlock label="正在读取塔罗牌组" />
   }
   if (query.status === 'error') {
-    return <PixelError message={query.error.message} onRetry={query.reload} />
+    return <ErrorBlock message={query.error.message} onRetry={query.reload} />
   }
 
   const data = query.data
@@ -201,91 +204,86 @@ export function TarotPanel(): ReactElement {
   const selectedCard = foundSelectedCard === undefined ? null : foundSelectedCard
 
   return (
-    <div className="flex flex-col gap-6">
-      <PixelFrame variant="panel" className="flex flex-wrap items-center justify-between gap-4 p-4">
-        <div className="flex items-center gap-6">
-          <span className="text-2x text-fg">塔罗师 Lv.{data.level}</span>
-          <span className="text-1x text-fg">碎片 {data.fragments}</span>
+    <div className="flex flex-col gap-4">
+      <Panel title="塔罗师">
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-3 gap-4">
+            <Stat label="职业等级" value={`Lv.${String(data.level)}`} />
+            <Stat label="碎片" value={String(data.fragments)} />
+          </div>
+          <p className="text-muted-foreground text-xs">
+            碎片兑换与卡组编入暂无对应服务端接口 (接线清单 C14), 本页仅作只读展示
+          </p>
         </div>
-        <span className="text-1x text-muted">
-          碎片兑换与卡组编入暂无对应服务端接口 (接线清单 C14), 本页仅作只读展示
-        </span>
-      </PixelFrame>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">卡包</h2>
-        <PixelFrame variant="panel" className="flex flex-col gap-4 p-4">
+      <Panel title="卡包">
+        <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-end gap-4">
             <div className="flex flex-col gap-1">
-              <span className="text-1x text-muted">购买数量 (今日剩余 {remainingToday} 包)</span>
-              <PixelStepper
-                value={Math.min(packCount, stepperMax)}
-                onChange={setPackCount}
-                min={1}
-                max={stepperMax}
+              <span className="text-muted-foreground text-xs">购买数量 (今日剩余 {remainingToday} 包)</span>
+              <NumberInput
                 disabled={purchasing || remainingToday <= 0}
+                max={stepperMax}
+                min={1}
+                onChange={setPackCount}
+                value={Math.min(packCount, stepperMax)}
               />
             </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-1x text-muted">预计花费</span>
-              <PixelCurrency amount={previewCost} currency="credit" />
-            </div>
-            <PixelButton
-              tone="accent"
-              loading={purchasing}
+            <Stat label="预计花费" value={<Currency amount={previewCost} currency="credit" />} />
+            <Button
               disabled={remainingToday <= 0}
+              loading={purchasing}
               onClick={() => {
                 void handleBuyPack()
               }}
+              variant="brand"
             >
               购买卡包
-            </PixelButton>
+            </Button>
           </div>
-          {purchaseError === null ? null : (
-            <p role="alert" className="text-1x text-danger">
-              {purchaseError.message}
-            </p>
-          )}
+          {purchaseError === null ? null : <FeedbackAlert message={purchaseError.message} tone="danger" />}
 
           {lastDraw === null ? (
-            <PixelEmpty title="尚未开出卡包" hint="购买后本轮开出的牌会显示在这里" />
+            <EmptyBlock hint="购买后本轮开出的牌会显示在这里" title="尚未开出卡包" />
           ) : (
-            <div className="flex flex-col gap-2">
-              <p className="text-1x text-muted">
-                本次花费 <PixelCurrency amount={lastDraw.spentCredit} currency="credit" showIcon={false} /> ·
-                重复转碎片 {lastDraw.fragmentsGained}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {lastDraw.drawn.map((draw, index) => (
-                  <PixelBadge
-                    key={`${draw.cardId}-${String(index)}`}
-                    tone={draw.duplicate ? 'neutral' : QUALITY_META[draw.quality].tone}
-                  >
-                    {draw.displayName} · {QUALITY_META[draw.quality].label}
-                    {draw.duplicate ? ' (重复)' : ' (新增)'}
-                  </PixelBadge>
-                ))}
+            <Surface>
+              <div className="flex flex-col gap-2">
+                <p className="flex flex-wrap items-center gap-1 text-muted-foreground text-xs">
+                  本次花费 <Currency amount={lastDraw.spentCredit} currency="credit" showIcon={false} size="sm" />{' '}
+                  · 重复转碎片 {lastDraw.fragmentsGained}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {lastDraw.drawn.map((draw, index) => (
+                    <Tag
+                      key={`${draw.cardId}-${String(index)}`}
+                      tone={draw.duplicate ? 'neutral' : QUALITY_META[draw.quality].tone}
+                    >
+                      {draw.displayName} · {QUALITY_META[draw.quality].label}
+                      {draw.duplicate ? ' (重复)' : ' (新增)'}
+                    </Tag>
+                  ))}
+                </div>
               </div>
-            </div>
+            </Surface>
           )}
-        </PixelFrame>
-      </section>
-
-      <section className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <h2 className="text-2x text-fg">牌组 (22 张大阿卡纳)</h2>
-          <PixelSelect
-            value={filter}
-            options={QUALITY_FILTER_OPTIONS}
-            onChange={(next) => {
-              setFilter(next as 'all' | PlannedTarotQuality)
-            }}
-            size="sm"
-          />
         </div>
+      </Panel>
 
+      <Panel
+        actions={
+          <Dropdown
+            className="w-32"
+            onChange={setFilter}
+            options={QUALITY_FILTER_OPTIONS}
+            size="sm"
+            value={filter}
+          />
+        }
+        title="牌组 (22 张大阿卡纳)"
+      >
         {filteredDeck.length === 0 ? (
-          <PixelEmpty title="没有符合筛选条件的牌" hint="换一个品质档位试试" />
+          <EmptyBlock hint="换一个品质档位试试" title="没有符合筛选条件的牌" />
         ) : (
           <div className="flex flex-wrap gap-3">
             {filteredDeck.map((card) => {
@@ -293,55 +291,59 @@ export function TarotPanel(): ReactElement {
               const selected = card.cardId === selectedCardId
               return (
                 <button
+                  className={`flex flex-col items-center gap-1 rounded-lg border p-2 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    selected ? 'border-brand bg-brand/12' : 'border-transparent hover:bg-accent'
+                  }`}
                   key={card.cardId}
-                  type="button"
                   onClick={() => {
                     setSelectedCardId(selected ? null : card.cardId)
                   }}
-                  className={`flex flex-col items-center gap-1 border-2 p-1 outline-none ${
-                    selected ? 'border-accent' : 'border-transparent'
-                  } focus-visible:border-border-strong`}
+                  type="button"
                 >
-                  <TarotCardArt card={card} scale={2} label={card.displayName} />
+                  <TarotCardArt card={card} label={card.displayName} scale={2} />
                   <div className="flex items-center gap-1">
-                    {card.owned > 1 ? <PixelBadge size="sm">x{card.owned}</PixelBadge> : null}
+                    {card.owned > 1 ? <Tag size="sm">x{card.owned}</Tag> : null}
                     {card.equipped ? (
-                      <PixelBadge size="sm" tone="accent">
+                      <Tag size="sm" tone="brand">
                         已装备
-                      </PixelBadge>
+                      </Tag>
                     ) : null}
                     {cooldownActive ? (
-                      <PixelBadge size="sm" tone="warning">
+                      <Tag size="sm" tone="warning">
                         {formatCountdown(card.cooldownUntil, now)}
-                      </PixelBadge>
+                      </Tag>
                     ) : null}
                   </div>
-                  <span className="text-1x text-muted">{card.displayName}</span>
+                  <span className="text-muted-foreground text-xs">{card.displayName}</span>
                 </button>
               )
             })}
           </div>
         )}
-      </section>
+      </Panel>
 
       {selectedCard === null ? null : (
-        <PixelFrame variant="panel" className="flex items-center gap-4 p-4">
-          <TarotCardArt card={selectedCard} scale={3} label={selectedCard.displayName} />
-          <div className="flex flex-col gap-1">
-            <span className="text-2x text-fg">{selectedCard.displayName}</span>
-            <PixelBadge tone={QUALITY_META[selectedCard.quality].tone}>
-              {QUALITY_META[selectedCard.quality].label}
-            </PixelBadge>
-            <span className="text-1x text-muted">
-              持有 {selectedCard.owned} 张 · {selectedCard.equipped ? '已编入卡组 (只读)' : '未编入卡组'}
-            </span>
-            <span className="text-1x text-muted">
-              {selectedCard.cooldownUntil > now
-                ? `冷却中, 剩余 ${formatCountdown(selectedCard.cooldownUntil, now)}`
-                : '当前无冷却'}
-            </span>
+        <Panel title="牌面详情">
+          <div className="flex items-center gap-4">
+            <TarotCardArt card={selectedCard} label={selectedCard.displayName} scale={3} />
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <h3 className="font-medium text-base text-foreground">{selectedCard.displayName}</h3>
+                <Tag tone={QUALITY_META[selectedCard.quality].tone}>
+                  {QUALITY_META[selectedCard.quality].label}
+                </Tag>
+              </div>
+              <span className="text-muted-foreground text-sm">
+                持有 {selectedCard.owned} 张 · {selectedCard.equipped ? '已编入卡组 (只读)' : '未编入卡组'}
+              </span>
+              <span className="text-muted-foreground text-sm">
+                {selectedCard.cooldownUntil > now
+                  ? `冷却中, 剩余 ${formatCountdown(selectedCard.cooldownUntil, now)}`
+                  : '当前无冷却'}
+              </span>
+            </div>
           </div>
-        </PixelFrame>
+        </Panel>
       )}
     </div>
   )

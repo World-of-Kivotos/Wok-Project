@@ -1,6 +1,16 @@
 import type { ReactElement } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { PixelBadge, PixelButton, PixelCurrency, PixelEmpty, PixelError, PixelLoading, PixelSlot } from '../../components/pixel'
+import {
+  Button,
+  Currency,
+  EmptyBlock,
+  ErrorBlock,
+  FeedbackAlert,
+  ItemSlot,
+  LoadingBlock,
+  Panel,
+  Surface,
+} from '@/components/kit'
 import { useItemNames } from '../../lib/i18n'
 import { getWorld, mutateWorld, useMockAction } from '../../mock'
 
@@ -85,67 +95,69 @@ export function InboxPage(): ReactElement {
   const hasAnything = payoutQuery.status === 'ready' && (payoutQuery.data.credit > 0 || items.length > 0)
 
   return (
-    <div className="flex flex-col gap-6">
-      <PixelBadge tone="warning" className="w-full justify-start">
-        收件箱背后的 market.pendingPayout 是前端假定契约 (接线清单 B11), 服务端尚未实现对应查询;
-        "领取"按钮当前只在浏览器内存里模拟发放, 装进游戏后由服务端统一改写。
-      </PixelBadge>
+    <div className="flex flex-col gap-4">
+      <FeedbackAlert
+        message='收件箱背后的 market.pendingPayout 是前端假定契约 (接线清单 B11), 服务端尚未实现对应查询; "领取"按钮当前只在浏览器内存里模拟发放, 装进游戏后由服务端统一改写。'
+        tone="warning"
+      />
 
-      {payoutQuery.status === 'loading' ? <PixelLoading label="正在查询待领取内容" /> : null}
+      {payoutQuery.status === 'loading' ? <LoadingBlock label="正在查询待领取内容" /> : null}
 
       {payoutQuery.status === 'error' ? (
-        <PixelError message={`查询失败: ${payoutQuery.error.message}`} onRetry={reload} />
+        <ErrorBlock message={`查询失败: ${payoutQuery.error.message}`} onRetry={reload} />
       ) : null}
 
       {payoutQuery.status === 'ready' && !hasAnything ? (
-        <PixelEmpty title="收件箱是空的" hint="离线成交的货款与退回物品会出现在这里" icon="info" />
+        <EmptyBlock hint="离线成交的货款与退回物品会出现在这里" title="收件箱是空的" />
       ) : null}
 
       {payoutQuery.status === 'ready' && hasAnything ? (
-        <div className="flex flex-col gap-6">
-          <section className="flex flex-col gap-2">
-            <h2 className="text-1x text-fg">待领取货款</h2>
+        <div className="flex flex-col gap-4">
+          <Panel title="待领取货款">
             {payoutQuery.data.credit > 0 ? (
-              <PixelCurrency amount={payoutQuery.data.credit} currency="credit" size="lg" />
+              <Currency amount={payoutQuery.data.credit} currency="credit" size="lg" />
             ) : (
-              <span className="text-1x text-muted">暂无待领取货款</span>
+              <span className="text-muted-foreground text-sm">暂无待领取货款</span>
             )}
-          </section>
+          </Panel>
 
-          <section className="flex flex-col gap-2">
-            <h2 className="text-1x text-fg">待领取物品</h2>
+          <Panel title="待领取物品">
             {items.length === 0 ? (
-              <span className="text-1x text-muted">暂无待退回物品</span>
+              <span className="text-muted-foreground text-sm">暂无待退回物品</span>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {items.map((item, index) => (
-                  <PixelSlot
-                    key={`${item.itemId}-${String(index)}`}
-                    itemId={item.itemId}
+                  <ItemSlot
                     count={item.count}
+                    itemId={item.itemId}
+                    key={`${item.itemId}-${String(index)}`}
                     label={names[item.descriptionId] ?? item.descriptionId}
                   />
                 ))}
               </div>
             )}
-          </section>
+          </Panel>
 
-          <PixelButton
-            tone="accent"
-            loading={claimState.status === 'claiming'}
-            disabled={claimState.status === 'claiming'}
-            onClick={handleClaim}
-          >
-            全部领取
-          </PixelButton>
+          <div>
+            <Button
+              disabled={claimState.status === 'claiming'}
+              loading={claimState.status === 'claiming'}
+              onClick={handleClaim}
+              variant="brand"
+            >
+              全部领取
+            </Button>
+          </div>
         </div>
       ) : null}
 
       {claimState.status === 'claimed' ? (
-        <PixelBadge tone="success">
-          已领取 <PixelCurrency amount={claimState.creditClaimed} currency="credit" size="sm" /> 货款
-          (退回物品当前 mock 架构无法写回背包, 详见文件头"已知偏差")
-        </PixelBadge>
+        <Surface tone="success">
+          <p className="flex flex-wrap items-center gap-1 text-foreground text-sm">
+            已领取 <Currency amount={claimState.creditClaimed} currency="credit" size="sm" /> 货款
+            (退回物品当前 mock 架构无法写回背包, 详见文件头"已知偏差")
+          </p>
+        </Surface>
       ) : null}
     </div>
   )

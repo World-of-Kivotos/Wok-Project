@@ -1,18 +1,28 @@
+import { SearchIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
 import { useState } from 'react'
 import {
-  PixelBadge,
-  PixelButton,
-  PixelEmpty,
-  PixelError,
-  PixelFrame,
-  PixelLoading,
-  PixelModal,
-  PixelProgress,
-  PixelTable,
-  PixelTabs,
-} from '../components/pixel'
-import type { PixelFrameTone, PixelTab, PixelTableColumn } from '../components/pixel'
+  Button,
+  DataTable,
+  type DataTableColumn,
+  EmptyBlock,
+  ErrorBlock,
+  LoadingBlock,
+  Meter,
+  Panel,
+  Surface,
+  TabBar,
+  type TabItem,
+  Tag,
+  type Tone,
+} from '@/components/kit'
+import {
+  Dialog,
+  DialogDescription,
+  DialogHeader,
+  DialogPopup,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { callMock } from '../mock/handlers'
 import type {
   PlannedAffixPool,
@@ -36,18 +46,18 @@ import { useMockAction } from '../mock/useMockWorld'
  * 明确不做的部分: 清单 G 组还列了 G3 (参团贡献实时进度)/G4 (击杀奖励结算)/G5 (DoT 层数汇总)/
  * G6 (减伤汇总快照) 四项, 状态全是 BACKEND (服务端连数据都还没有), 不在本页范围内, 不得臆造。
  *
- * 中文输入: 本页无任何自由文本输入控件 (词条池/难度切换走 PixelTabs, 样本查询走固定按钮),
- * 不涉及 PixelInput 的 onRequestEdit 接口位。
+ * 中文输入: 本页无任何自由文本输入控件 (词条池/难度切换走页签, 样本查询走固定按钮),
+ * 不涉及 TextInput 的 onRequestEdit 接口位。
  */
 
 type TopTabId = 'affixes' | 'stars' | 'distribution' | 'inspect'
 type PoolTabId = 'all' | PlannedAffixPool
 
-const TOP_TABS: readonly PixelTab[] = [
-  { id: 'affixes', label: '词条', icon: 'star' },
-  { id: 'stars', label: '星级', icon: 'info' },
-  { id: 'distribution', label: '难度分布', icon: 'sort' },
-  { id: 'inspect', label: '样本查询', icon: 'search' },
+const TOP_TABS: readonly TabItem[] = [
+  { id: 'affixes', label: '词条' },
+  { id: 'stars', label: '星级' },
+  { id: 'distribution', label: '难度分布' },
+  { id: 'inspect', label: '样本查询' },
 ]
 
 const TOP_TAB_IDS: readonly TopTabId[] = ['affixes', 'stars', 'distribution', 'inspect']
@@ -61,11 +71,11 @@ const POOL_LABEL: Record<PlannedAffixPool, string> = {
   SKILL: '技能',
 }
 
-const POOL_TONE: Record<PlannedAffixPool, PixelFrameTone> = {
+const POOL_TONE: Record<PlannedAffixPool, Tone> = {
   SURVIVAL: 'success',
   COMBAT: 'danger',
   MOBILITY: 'info',
-  SKILL: 'accent',
+  SKILL: 'brand',
 }
 
 const DIFFICULTY_LABEL: Record<PlannedDifficulty, string> = {
@@ -93,7 +103,7 @@ function tierText(value: number): string {
   return value === 0 ? '—' : String(value)
 }
 
-function starWeightTone(star: number): PixelFrameTone {
+function starWeightTone(star: number): Tone {
   if (star <= 3) {
     return 'success'
   }
@@ -103,7 +113,7 @@ function starWeightTone(star: number): PixelFrameTone {
   return 'danger'
 }
 
-function healthTone(ratio: number): PixelFrameTone {
+function healthTone(ratio: number): Tone {
   if (ratio > 0.6) {
     return 'success'
   }
@@ -113,18 +123,25 @@ function healthTone(ratio: number): PixelFrameTone {
   return 'danger'
 }
 
-const AFFIX_COLUMNS: readonly PixelTableColumn<PlannedChampionAffix>[] = [
+const AFFIX_COLUMNS: readonly DataTableColumn<PlannedChampionAffix>[] = [
   { key: 'name', header: '名称', render: (row) => row.displayName, sortValue: (row) => row.displayName },
   {
     key: 'pool',
     header: '词条池',
-    render: (row) => <PixelBadge tone={POOL_TONE[row.pool]}>{POOL_LABEL[row.pool]}</PixelBadge>,
+    render: (row) => <Tag tone={POOL_TONE[row.pool]}>{POOL_LABEL[row.pool]}</Tag>,
     sortValue: (row) => row.pool,
   },
-  { key: 'cost', header: '基础成本', render: (row) => String(row.cost), sortValue: (row) => row.cost },
+  {
+    key: 'cost',
+    header: '基础成本',
+    numeric: true,
+    render: (row) => String(row.cost),
+    sortValue: (row) => row.cost,
+  },
   {
     key: 'minStar',
     header: '最低星',
+    numeric: true,
     render: (row) => `${String(row.minStar)} 星`,
     sortValue: (row) => row.minStar,
   },
@@ -142,36 +159,53 @@ const AFFIX_COLUMNS: readonly PixelTableColumn<PlannedChampionAffix>[] = [
   },
 ]
 
-const STAR_COLUMNS: readonly PixelTableColumn<PlannedChampionStar>[] = [
-  { key: 'star', header: '星级', render: (row) => `${String(row.star)} 星`, sortValue: (row) => row.star },
+const STAR_COLUMNS: readonly DataTableColumn<PlannedChampionStar>[] = [
+  {
+    key: 'star',
+    header: '星级',
+    numeric: true,
+    render: (row) => `${String(row.star)} 星`,
+    sortValue: (row) => row.star,
+  },
   {
     key: 'survival',
     header: '生存预算',
+    numeric: true,
     render: (row) => String(row.survivalBudget),
     sortValue: (row) => row.survivalBudget,
   },
   {
     key: 'combat',
     header: '战斗预算',
+    numeric: true,
     render: (row) => String(row.combatBudget),
     sortValue: (row) => row.combatBudget,
   },
   {
     key: 'mobility',
     header: '机动预算',
+    numeric: true,
     render: (row) => String(row.mobilityBudget),
     sortValue: (row) => row.mobilityBudget,
   },
-  { key: 'skill', header: '技能预算', render: (row) => String(row.skillBudget), sortValue: (row) => row.skillBudget },
+  {
+    key: 'skill',
+    header: '技能预算',
+    numeric: true,
+    render: (row) => String(row.skillBudget),
+    sortValue: (row) => row.skillBudget,
+  },
   {
     key: 'affixCap',
     header: '词条上限',
+    numeric: true,
     render: (row) => String(row.affixCap),
     sortValue: (row) => row.affixCap,
   },
   {
     key: 'skillCap',
     header: '技能上限',
+    numeric: true,
     render: (row) => String(row.skillCap),
     sortValue: (row) => row.skillCap,
   },
@@ -179,12 +213,14 @@ const STAR_COLUMNS: readonly PixelTableColumn<PlannedChampionStar>[] = [
   {
     key: 'hp',
     header: '基础有效 HP',
+    numeric: true,
     render: (row) => String(row.baseEffectiveHp),
     sortValue: (row) => row.baseEffectiveHp,
   },
   {
     key: 'hit',
     header: '基础单击 %maxHP',
+    numeric: true,
     render: (row) => `${(row.baseHitPct * 100).toFixed(1)}%`,
     sortValue: (row) => row.baseHitPct,
   },
@@ -222,13 +258,13 @@ export function CodexPage(): ReactElement {
 
   if (codex.status === 'loading') {
     return (
-      <PixelFrame variant="panel" className="p-8">
-        <PixelLoading label="正在读取精英怪图鉴" size="lg" />
-      </PixelFrame>
+      <Panel>
+        <LoadingBlock label="正在读取精英怪图鉴" size="lg" />
+      </Panel>
     )
   }
   if (codex.status === 'error') {
-    return <PixelError message={codex.error.message} onRetry={codex.reload} />
+    return <ErrorBlock message={codex.error.message} onRetry={codex.reload} />
   }
 
   const { affixes, stars, distribution } = codex.data
@@ -239,14 +275,14 @@ export function CodexPage(): ReactElement {
     MOBILITY: affixes.filter((entry) => entry.pool === 'MOBILITY').length,
     SKILL: affixes.filter((entry) => entry.pool === 'SKILL').length,
   }
-  const poolTabs: readonly PixelTab[] = [
+  const poolTabs: readonly TabItem[] = [
     { id: 'all', label: `全部 (${String(affixes.length)})` },
     { id: 'SURVIVAL', label: `生存 (${String(poolCounts.SURVIVAL)})` },
     { id: 'COMBAT', label: `战斗 (${String(poolCounts.COMBAT)})` },
     { id: 'MOBILITY', label: `机动 (${String(poolCounts.MOBILITY)})` },
     { id: 'SKILL', label: `技能 (${String(poolCounts.SKILL)})` },
   ]
-  const difficultyTabs: readonly PixelTab[] = DIFFICULTY_TAB_IDS.map((difficulty) => ({
+  const difficultyTabs: readonly TabItem[] = DIFFICULTY_TAB_IDS.map((difficulty) => ({
     id: difficulty,
     label: DIFFICULTY_LABEL[difficulty],
   }))
@@ -262,17 +298,15 @@ export function CodexPage(): ReactElement {
   )
 
   return (
-    <section className="flex flex-col gap-6">
+    <section className="flex flex-col gap-4">
       {/* 页名由 TabletShell 的 h1 统一渲染, 页面内不再重复 —— 重复两遍且里层更大, 打开必现, 读起来像渲染 bug。 */}
-      <header className="flex flex-col gap-2">
-        <p className="text-1x text-muted">
-          35 条词条按生存 / 战斗 / 机动 / 技能四组呈现, 数值抄自服务端 AffixDef / StarRank 枚举真值
-          (静态 dump, 与真服完全一致); 样本查询走 champion.inspect, 结果来自 mock 固定样本,
-          不代表真实在线实体的实时状态。
-        </p>
-      </header>
+      <p className="text-muted-foreground text-xs">
+        35 条词条按生存 / 战斗 / 机动 / 技能四组呈现, 数值抄自服务端 AffixDef / StarRank 枚举真值
+        (静态 dump, 与真服完全一致); 样本查询走 champion.inspect, 结果来自 mock 固定样本,
+        不代表真实在线实体的实时状态。
+      </p>
 
-      <PixelTabs
+      <TabBar
         tabs={TOP_TABS}
         activeId={activeTab}
         onChange={(id) => {
@@ -284,60 +318,67 @@ export function CodexPage(): ReactElement {
 
       {activeTab === 'affixes' ? (
         <div className="flex flex-col gap-3">
-          <PixelTabs
+          <TabBar
             tabs={poolTabs}
             activeId={activePool}
-            level="secondary"
+            variant="underline"
             onChange={(id) => {
               if (includes(POOL_TAB_IDS, id)) {
                 setActivePool(id)
               }
             }}
           />
-          <PixelTable
-            columns={AFFIX_COLUMNS}
-            rows={visibleAffixes}
-            rowKey={(row) => row.affixId}
-            onRowClick={(row) => {
-              setSelectedAffixId(row.affixId)
-            }}
-            emptyHint="该分组暂无词条"
-            className="h-96"
-            {...(selectedAffixId === null ? {} : { selectedRowKey: selectedAffixId })}
-          />
+          {/* padded=false 让表格铺满卡片, 故须由卡片自己裁掉溢出, 否则表头方角会盖住卡片的圆角。 */}
+          <Panel className="overflow-hidden" padded={false}>
+            <div className="max-h-96 overflow-y-auto">
+              <DataTable
+                columns={AFFIX_COLUMNS}
+                rows={visibleAffixes}
+                rowKey={(row) => row.affixId}
+                onRowClick={(row) => {
+                  setSelectedAffixId(row.affixId)
+                }}
+                emptyHint="该分组暂无词条"
+                {...(selectedAffixId === null ? {} : { selectedRowKey: selectedAffixId })}
+              />
+            </div>
+          </Panel>
         </div>
       ) : null}
 
       {activeTab === 'stars' ? (
         <div className="flex flex-col gap-3">
-          <PixelTable
-            columns={STAR_COLUMNS}
-            rows={stars}
-            rowKey={(row) => String(row.star)}
-            onRowClick={(row) => {
-              setSelectedStar(row.star)
-            }}
-            className="h-96"
-            {...(selectedStar === null ? {} : { selectedRowKey: String(selectedStar) })}
-          />
+          <Panel className="overflow-hidden" padded={false}>
+            <div className="max-h-96 overflow-y-auto">
+              <DataTable
+                columns={STAR_COLUMNS}
+                rows={stars}
+                rowKey={(row) => String(row.star)}
+                onRowClick={(row) => {
+                  setSelectedStar(row.star)
+                }}
+                {...(selectedStar === null ? {} : { selectedRowKey: String(selectedStar) })}
+              />
+            </div>
+          </Panel>
           {selectedStarEntry === null ? null : (
-            <PixelFrame variant="panel" tone="info" className="p-3">
-              <p className="text-1x text-fg">
+            <Surface tone="info">
+              <p className="text-foreground text-sm">
                 {selectedStarEntry.star} 星: 词条上限 {selectedStarEntry.affixCap} 条 (含{' '}
                 {selectedStarEntry.skillCap} 条技能位), 最高品质 {selectedStarEntry.maxQuality}
                 {selectedStarEntry.star >= 6 ? ', 基础有效 HP 突破原版 1024 上限, 走自定义血池' : ''}
               </p>
-            </PixelFrame>
+            </Surface>
           )}
         </div>
       ) : null}
 
       {activeTab === 'distribution' ? (
         <div className="flex flex-col gap-3">
-          <PixelTabs
+          <TabBar
             tabs={difficultyTabs}
             activeId={activeDifficulty}
-            level="secondary"
+            variant="underline"
             onChange={(id) => {
               if (includes(DIFFICULTY_TAB_IDS, id)) {
                 setActiveDifficulty(id)
@@ -345,135 +386,152 @@ export function CodexPage(): ReactElement {
             }}
           />
           {activeDistribution === undefined ? (
-            <PixelEmpty title="无难度分布数据" hint="mock 种子未覆盖该难度" icon="warning" />
+            <EmptyBlock
+              title="无难度分布数据"
+              hint="mock 种子未覆盖该难度"
+              icon={<TriangleAlertIcon aria-hidden="true" />}
+            />
           ) : (
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-col gap-2">
-                {activeDistribution.starWeights.map((entry) => (
-                  <PixelProgress
-                    key={entry.star}
-                    value={entry.weight}
-                    max={100}
-                    tone={starWeightTone(entry.star)}
-                    label={`${String(entry.star)} 星 · 权重 ${String(entry.weight)}%`}
-                  />
-                ))}
+            <Panel>
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-3">
+                  {activeDistribution.starWeights.map((entry) => (
+                    <Meter
+                      key={entry.star}
+                      value={entry.weight}
+                      max={100}
+                      tone={starWeightTone(entry.star)}
+                      label={`${String(entry.star)} 星 · 权重 ${String(entry.weight)}%`}
+                    />
+                  ))}
+                </div>
+                <div>
+                  <Tag tone={totalWeight === 100 ? 'success' : 'warning'}>总权重 {totalWeight}%</Tag>
+                </div>
               </div>
-              <PixelBadge tone={totalWeight === 100 ? 'success' : 'warning'}>总权重 {totalWeight}%</PixelBadge>
-            </div>
+            </Panel>
           )}
         </div>
       ) : null}
 
       {activeTab === 'inspect' ? (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
           <div className="flex flex-wrap gap-2">
             {SAMPLE_ENTITY_IDS.map((sample) => (
-              <PixelButton
+              <Button
                 key={sample.entityId}
-                tone="neutral"
+                variant="outline"
                 loading={inspect.status === 'loading' && inspect.entityId === sample.entityId}
                 onClick={() => {
                   void handleInspect(sample.entityId)
                 }}
               >
                 {sample.label}
-              </PixelButton>
+              </Button>
             ))}
-            <PixelButton
-              tone="danger"
+            <Button
+              variant="destructive-outline"
               loading={inspect.status === 'loading' && inspect.entityId === UNKNOWN_ENTITY_ID}
               onClick={() => {
                 void handleInspect(UNKNOWN_ENTITY_ID)
               }}
             >
               查询未知实体 (演示失败态)
-            </PixelButton>
+            </Button>
           </div>
 
           {inspect.status === 'idle' ? (
-            <PixelEmpty title="尚未查询" hint="点击上方按钮按实体 id 查询精英怪状态" icon="search" />
+            <EmptyBlock
+              title="尚未查询"
+              hint="点击上方按钮按实体 id 查询精英怪状态"
+              icon={<SearchIcon aria-hidden="true" />}
+            />
           ) : inspect.status === 'loading' ? (
-            <PixelFrame variant="panel" className="p-8">
-              <PixelLoading label="正在查询实体" size="lg" />
-            </PixelFrame>
+            <Panel>
+              <LoadingBlock label="正在查询实体" size="lg" />
+            </Panel>
           ) : inspect.status === 'error' ? (
-            <PixelError
+            <ErrorBlock
               message={inspect.message}
               onRetry={() => {
                 void handleInspect(inspect.entityId)
               }}
             />
           ) : (
-            <PixelFrame variant="panel" className="flex flex-col gap-3 p-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-2x text-fg">{inspect.data.displayName}</h3>
-                <PixelBadge tone="warning">{inspect.data.star} 星</PixelBadge>
+            <Panel
+              title={inspect.data.displayName}
+              description={`${inspect.data.entityType} · 实体 id ${String(inspect.data.entityId)}`}
+              actions={<Tag tone="warning">{inspect.data.star} 星</Tag>}
+            >
+              <div className="flex flex-col gap-3">
+                <Meter
+                  value={inspect.data.health}
+                  max={inspect.data.maxHealth}
+                  tone={healthTone(inspect.data.health / inspect.data.maxHealth)}
+                  label="血量"
+                  valueText={`${String(inspect.data.health)}/${String(inspect.data.maxHealth)}`}
+                />
+                {inspect.data.customBloodPool ? (
+                  <div>
+                    <Tag tone="info">自定义血池 (突破原版上限)</Tag>
+                  </div>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  {inspect.data.affixIds.map((affixId) => (
+                    <Tag key={affixId} tone="brand">
+                      {affixNameByid[affixId] ?? affixId}
+                    </Tag>
+                  ))}
+                </div>
               </div>
-              <p className="text-1x text-muted">
-                {inspect.data.entityType} · 实体 id {inspect.data.entityId}
-              </p>
-              <PixelProgress
-                value={inspect.data.health}
-                max={inspect.data.maxHealth}
-                tone={healthTone(inspect.data.health / inspect.data.maxHealth)}
-                label={`血量 ${String(inspect.data.health)}/${String(inspect.data.maxHealth)}`}
-              />
-              {inspect.data.customBloodPool ? <PixelBadge tone="info">自定义血池 (突破原版上限)</PixelBadge> : null}
-              <div className="flex flex-wrap gap-2">
-                {inspect.data.affixIds.map((affixId) => (
-                  <PixelBadge key={affixId} tone="accent">
-                    {affixNameByid[affixId] ?? affixId}
-                  </PixelBadge>
-                ))}
-              </div>
-            </PixelFrame>
+            </Panel>
           )}
         </div>
       ) : null}
 
-      <PixelModal
+      <Dialog
         open={selectedAffix !== null}
-        title={selectedAffix === null ? '' : selectedAffix.displayName}
-        onClose={() => {
-          setSelectedAffixId(null)
+        onOpenChange={(next) => {
+          if (!next) {
+            setSelectedAffixId(null)
+          }
         }}
       >
-        {selectedAffix === null ? null : (
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap gap-2">
-              <PixelBadge tone={POOL_TONE[selectedAffix.pool]}>{POOL_LABEL[selectedAffix.pool]}</PixelBadge>
-              <PixelBadge tone="neutral">基础成本 {selectedAffix.cost}</PixelBadge>
-              <PixelBadge tone="neutral">最低 {selectedAffix.minStar} 星</PixelBadge>
-              {selectedAffix.isSkill ? <PixelBadge tone="accent">占技能位</PixelBadge> : null}
-              {selectedAffix.mutexFamily === null ? null : (
-                <PixelBadge tone="warning">互斥族: {selectedAffix.mutexFamily}</PixelBadge>
-              )}
-            </div>
-            <table className="w-full border-collapse text-1x">
-              <thead>
-                <tr>
+        <DialogPopup>
+          {selectedAffix === null ? null : (
+            <>
+              <DialogHeader>
+                <DialogTitle>{selectedAffix.displayName}</DialogTitle>
+                <DialogDescription>{selectedAffix.affixId}</DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-col gap-3 px-6 pb-6">
+                <div className="flex flex-wrap gap-2">
+                  <Tag tone={POOL_TONE[selectedAffix.pool]}>{POOL_LABEL[selectedAffix.pool]}</Tag>
+                  <Tag>基础成本 {selectedAffix.cost}</Tag>
+                  <Tag>最低 {selectedAffix.minStar} 星</Tag>
+                  {selectedAffix.isSkill ? <Tag tone="brand">占技能位</Tag> : null}
+                  {selectedAffix.mutexFamily === null ? null : (
+                    <Tag tone="warning">互斥族: {selectedAffix.mutexFamily}</Tag>
+                  )}
+                </div>
+                <div className="grid grid-cols-5 gap-2">
                   {TIER_LABELS.map((label) => (
-                    <th key={label} scope="col" className="border-b border-border px-2 py-1 text-left">
+                    <span className="text-muted-foreground text-xs" key={label}>
                       {label}
-                    </th>
+                    </span>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
                   {selectedAffix.tiers.map((value, index) => (
                     // 5 档数值与 TIER_LABELS 一一对应, key 用档位下标本身足够稳定 (数组长度固定为 5)。
-                    <td key={index} className="px-2 py-1">
+                    <span className="text-foreground text-sm tabular-nums" key={index}>
                       {tierText(value)}
-                    </td>
+                    </span>
                   ))}
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        )}
-      </PixelModal>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogPopup>
+      </Dialog>
     </section>
   )
 }

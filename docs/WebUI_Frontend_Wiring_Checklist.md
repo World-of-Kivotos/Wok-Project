@@ -1,9 +1,25 @@
 # 游戏内 Web UI 前端接线清单与实现草案
 
+> ## 视觉部分的修订说明（2026-08-13）
+>
+> 本文的**接线内容全部仍然有效**——要接哪些 action、缺口在哪、按什么顺序接，与视觉风格正交，
+> 一条都没变。但涉及**视觉与组件命名**的部分已经过时，读到时按下表换算：
+>
+> | 本文写的 | 现在的真源 |
+> | --- | --- |
+> | 第二章 L0/L1/L2 的 `Pixel*` 组件表 | `webui/src/components/kit/README.md`（签名表）。旧实现封存在 `webui/_pixel-archive/` |
+> | 第三章"美术资产缺口"里的 9-slice 边框、16×16 图标、点阵中文字体 | 均已不需要。功能图标走 lucide-react，字体走系统栈 |
+> | 第六章"批 1 · 像素单点验证" | 已作废。该批要验的 `devicePixelRatio` × GUI Scale 像素对齐问题只在像素风下存在 |
+> | 决策 J1 的兜底"一律像素占位块" | 改为中性棋盘格占位块（`ItemIcon` 第三层回退），语义不变 |
+>
+> 视觉风格已整体改为**圆角中性灰阶 + 单一可调强调色**（Coss UI + Tailwind v4），
+> 像素风推迟（`PixelUI_DesignSystem_DesignSpec.md` 全文标 DEFERRED，含上一轮的实测教训）。
+> 换风格不影响本文任何一条接线判定。
+
 > 状态标记：DECIDED = 已拍板；DRAFT = 本文提议待确认；BLOCKED = 前端开工前必须先解决。
 > 前置真源：
 > [WebUI_Architecture_DesignSpec.md](WebUI_Architecture_DesignSpec.md)（数据地基：MCEF 宿主、cefQuery 桥、服务端权威）、
-> [PixelUI_DesignSystem_DesignSpec.md](PixelUI_DesignSystem_DesignSpec.md)（视觉地基：9-slice、灰度上色、图标与字体）。
+> [PixelUI_DesignSystem_DesignSpec.md](PixelUI_DesignSystem_DesignSpec.md)（视觉地基，**当前 DEFERRED**）。
 > 本文边界：**只管"前端要接多少东西、缺口在哪、按什么顺序接"**。桥怎么通、画面怎么长，一律见前置真源。
 > 盘点口径：2026-08-12 对 `src/main/java`（583 文件）+ `d:\Repo\WOK-ChestShop` + 31 份 docs 做十切片并行盘点 + 一轮完整性批判，共得 207 条玩家可见面。桥接层与 market 契约的结论为主控逐行读码复核，其余为切片盘点结论并附 Java 落点可自查。
 

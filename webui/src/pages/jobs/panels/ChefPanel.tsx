@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { PixelCurrency, PixelError, PixelFrame, PixelLoading, PixelTable } from '../../../components/pixel'
+import { Currency, DataTable, ErrorBlock, LoadingBlock, Panel, Stat } from '@/components/kit'
 import { useMockAction } from '../../../mock'
 import { formatStatValue } from './shared'
 
@@ -22,45 +22,44 @@ export function ChefPanel(): ReactElement {
   const query = useMockAction('job.chef.state', EMPTY_PAYLOAD)
 
   if (query.status === 'loading') {
-    return <PixelLoading label="正在读取厨师档案" />
+    return <LoadingBlock label="正在读取厨师档案" />
   }
   if (query.status === 'error') {
-    return <PixelError message={query.error.message} onRetry={query.reload} />
+    return <ErrorBlock message={query.error.message} onRetry={query.reload} />
   }
 
   const data = query.data
 
   return (
-    <div className="flex flex-col gap-6">
-      <PixelFrame variant="panel" className="flex flex-wrap items-center justify-between gap-4 p-4">
-        <span className="text-2x text-fg">厨师 Lv.{data.level}</span>
-        <span className="text-1x text-muted">品质上限 {data.qualityCap} 品</span>
-      </PixelFrame>
+    <div className="flex flex-col gap-4">
+      <Panel title="厨师">
+        <div className="grid grid-cols-3 gap-4">
+          <Stat label="职业等级" value={`Lv.${String(data.level)}`} />
+          <Stat label="品质上限" value={`${String(data.qualityCap)} 品`} />
+        </div>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">效果数值表</h2>
-        <PixelTable
+      <Panel title="效果数值表">
+        <DataTable
           columns={[
-            { key: 'label', header: '品质档位', render: (row) => row.label },
+            { header: '品质档位', key: 'label', render: (row) => row.label },
             {
-              key: 'value',
               header: '效果数值',
+              key: 'value',
+              numeric: true,
               render: (row) => formatStatValue(row.value, row.unit),
               sortValue: (row) => row.value,
             },
           ]}
-          rows={data.effects}
-          rowKey={(row) => row.key}
           emptyHint="暂无效果数据"
+          rowKey={(row) => row.key}
+          rows={data.effects}
         />
-      </section>
+      </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2x text-fg">调味台花费</h2>
-        <PixelFrame variant="panel" className="p-4">
-          <PixelCurrency amount={data.seasoningCostCredit} currency="credit" />
-        </PixelFrame>
-      </section>
+      <Panel title="调味台花费">
+        <Stat label="每次调味" value={<Currency amount={data.seasoningCostCredit} currency="credit" />} />
+      </Panel>
     </div>
   )
 }

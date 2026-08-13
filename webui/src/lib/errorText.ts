@@ -9,6 +9,12 @@
  *
  * 未收录的码一律回退到服务端原文 (不编"操作失败, 请重试"这类话术): 收不到的码要么是服务端加了新码而前端
  * 没跟上, 要么是通用异常路径根本没有码 —— 两种情况下服务端原文都是现场唯一的线索, 盖掉它等于把排障线索抹了。
+ *
+ * **开箱那一组码刻意不在本表里** (CASE_DISABLED / INSUFFICIENT_FUNDS / RATE_LIMITED / OPENING_REFUNDED /
+ * OPENING_ID_CONFLICT / TACZ_UNAVAILABLE / ASSET_NOT_OWNED, 全部只由 CaseOpeningService 抛出): CasePage 与
+ * AdminPage 各自展示服务端中文原文 + 括号里的机器码, 不走 callErrorText, 收进来也永远读不到 ——
+ * 留一张读不到的表比没有更糟, 它看着像"已经收编了"。真要改成走本表, 得连那两页一起改, 且 CASE_DISABLED
+ * 在服务端是一码两义 (运营关闭 / TaCZ 与资源包未就绪), 得先在服务端用 params 把成因拆开, 那是另一批的事。
  */
 
 import type { WebUiBusinessError } from './bridge'
@@ -54,13 +60,6 @@ const ERROR_CODE_TEXT: Readonly<Record<string, ErrorCodeText>> = {
       return slot === null ? null : `槽位 ${slot} 是空的`
     },
   },
-  CASE_DISABLED: { text: '开箱系统当前不可用' },
-  INSUFFICIENT_FUNDS: { text: '余额不足' },
-  RATE_LIMITED: { text: '操作太快了, 稍等一下再试' },
-  OPENING_REFUNDED: { text: '这次开箱已退款, 请重新开一次' },
-  OPENING_ID_CONFLICT: { text: '这次开箱的编号已被占用, 请重新开一次' },
-  TACZ_UNAVAILABLE: { text: '枪械模块未就绪, 暂时无法应用皮肤' },
-  ASSET_NOT_OWNED: { text: '你没有这件皮肤' },
 }
 
 /**

@@ -196,6 +196,17 @@ const MOCK_ITEMS: readonly MockItemDef[] = [
     sub: null,
   },
   {
+    /*
+     * NBT 变体件。195 种零件共用这一个 itemId 与这一个翻译键, 故它必须登记 —— 背包里那两件零件挂上市场时
+     * makeListing 要按 itemId 查这张表, 查不到就是一句 "mock 数据缺陷" 的硬抛。
+     */
+    itemId: 'miningdim:gunsmith_part',
+    registered: true,
+    descriptionId: 'item.miningdim.gunsmith_part',
+    top: 'weapons',
+    sub: null,
+  },
+  {
     // 第三方 mod 物品: 贴图既不在本仓库也不在原版镜像站, 是 J1 未决的那一类, 前端应落像素占位块。
     itemId: 'tacz:modern_kinetic_gun',
     registered: true,
@@ -262,6 +273,9 @@ const I18N_NAMES: Readonly<Record<string, string>> = {
   'item.miningdim.plate_armor_banshee_atacs_au': 'Shellback Tactical Banshee 防弹背心（A-Tacs AU 迷彩）',
   // NBT 变体件: Item 级键解出来是"枪匠零件"(195 种共用), 真正区分它们的是下面 nameParts 用的两个键。
   'item.miningdim.gunsmith_part': '枪匠零件',
+  // BASIC 变体的名字不带变体键: GunsmithPartItem.getName 对它拼的是 平台键 + 部位键 + 空格 + 品质键。
+  'gunsmith.platform.ar': 'AR',
+  'gunsmith.part.core': '基础导气',
   'gunsmith.variant.gehenna_high_speed_gas': '格赫娜高速导气',
   'gunsmith.quality.legendary': '传奇',
   'item.tacz.modern_kinetic_gun': '现代动能枪械',
@@ -318,6 +332,46 @@ const inventory: PlayerInventoryItem[] = [
     displayName: '「初火」试作型胸甲',
   },
   { slot: 17, itemId: 'minecraft:wheat', descriptionId: 'item.minecraft.wheat', count: 1 },
+  /*
+   * 两件枪匠零件: 同平台 (AR) 同部位 (core) 同品质 (传奇), 只差变体。
+   *
+   * 必须是两件而不是一件 —— 真服对 BASIC 变体只发 coefficient 一行, 非 BASIC 才另加三行
+   * (WebUiItemDetailJson.appendGunsmithPart:159-167)。只放一件的话另一种行集在假数据模式下永远走不到,
+   * 照着 mock 写详情面板的人就会假定那三行恒存在, 接真服后基础零件上出现三个 undefined 行。
+   *
+   * customModelData 按 GunsmithPartItem.customModelData:249-253 逐位算:
+   * variant.index()*1_000_000 + platform.index()*100 + part.index()*10 + quality.index() + 1。
+   * AR=0 / core=0 / legendary=4, 故 BASIC (变体序号 0) 得 5, 格赫娜高速导气 (变体序号 1) 得 1_000_005
+   * —— 后者与 mock/seed.ts 的 ITEM_GAS_CORE 是同一件, 那条已核对过 /mc/variants.json。
+   *
+   * nameParts 的两种形状也不同 (GunsmithPartItem.getName:122-137): BASIC 拼 平台键 + 部位键,
+   * 非 BASIC 拼变体键, 之后才是空格与品质键。
+   */
+  {
+    slot: 20,
+    itemId: 'miningdim:gunsmith_part',
+    descriptionId: 'item.miningdim.gunsmith_part',
+    count: 1,
+    customModelData: 5,
+    nameParts: [
+      { k: 'gunsmith.platform.ar' },
+      { k: 'gunsmith.part.core' },
+      { t: ' ' },
+      { k: 'gunsmith.quality.legendary' },
+    ],
+  },
+  {
+    slot: 21,
+    itemId: 'miningdim:gunsmith_part',
+    descriptionId: 'item.miningdim.gunsmith_part',
+    count: 1,
+    customModelData: 1_000_005,
+    nameParts: [
+      { k: 'gunsmith.variant.gehenna_high_speed_gas' },
+      { t: ' ' },
+      { k: 'gunsmith.quality.legendary' },
+    ],
+  },
   // 末槽位: 36 槽的最后一格, 撞背包网格的边界渲染。
   { slot: 35, itemId: 'minecraft:arrow', descriptionId: 'item.minecraft.arrow', count: 64 },
 ]
@@ -917,8 +971,23 @@ function mockItemKind(itemId: string): ItemDetailKind {
   return 'plain'
 }
 
+/**
+ * 这件零件是不是 BASIC 变体。
+ *
+ * 真服判的是 NBT 里的 variant (PartData.variant), mock 手里只有 customModelData —— 而按
+ * GunsmithPartItem.customModelData:249-253 的算式, 它的百万位就是 variant.index(), 0 即 BASIC
+ * (GunsmithPartVariant 的首个常量)。缺这一位的零件在真服不存在 (算式带 +1, 恒非 0), 故直接抛,
+ * 不给一个"当作 BASIC"的默认值把 mock 数据缺陷盖过去。
+ */
+function mockPartIsBasic(item: PlayerInventoryItem): boolean {
+  if (item.customModelData === undefined) {
+    throw new Error(`mock 数据缺陷: 槽位 ${String(item.slot)} 的枪匠零件缺 customModelData, 变体无从判定`)
+  }
+  return Math.floor(item.customModelData / 1_000_000) === 0
+}
+
 /** 各 kind 的数值行。key 与 unit 逐字对齐真契约的行表, 数值本身是占位 (mock 无 NBT 可解)。 */
-function mockItemAttributes(kind: ItemDetailKind): ItemDetailStat[] {
+function mockItemAttributes(kind: ItemDetailKind, item: PlayerInventoryItem): ItemDetailStat[] {
   if (kind === 'gun') {
     return [
       { key: 'damage', value: 0.18, unit: 'percent' },
@@ -936,33 +1005,34 @@ function mockItemAttributes(kind: ItemDetailKind): ItemDetailStat[] {
   }
   if (kind === 'gunsmith_part') {
     /*
-     * 这四行对应的是**非 BASIC** 变体 (下面 mockItemTags 写死了 part.variant:gehenna_high_speed_gas)。
-     * 真服对 BASIC 变体只发 coefficient 一行 —— 渲染层严禁假定后三行恒存在, 否则基础零件的详情面板会出现
-     * 三个 undefined。mock 拿不到变体信息 (它只有 itemId), 给不出 BASIC 样本, 故在此写明而不是造一个假分支。
-     *
-     * 另注: 当前 mock 背包里没有 miningdim:gunsmith_part, 本分支实际不可达 —— 它是照真契约备着的形状,
-     * 不是跑过的代码。
+     * 行集随变体走, 与 WebUiItemDetailJson.appendGunsmithPart:159-167 逐条对齐:
+     * coefficient 恒发一行, 后三行**只有非 BASIC 变体才有** (BASIC 的三个乘数恒为 1.0, 发三行 +0% 是噪音)。
+     * 无条件发四行的写法会让照 mock 写的渲染层假定后三行恒存在, 接真服后基础零件上出现三个 undefined 行。
      */
-    return [
-      { key: 'coefficient', value: 0.87, unit: 'flat' },
-      { key: 'fireRate', value: 0.06, unit: 'percent' },
-      { key: 'verticalRecoil', value: -0.12, unit: 'percent' },
-      { key: 'inaccuracy', value: -0.08, unit: 'percent' },
-    ]
+    const stats: ItemDetailStat[] = [{ key: 'coefficient', value: 0.87, unit: 'flat' }]
+    if (!mockPartIsBasic(item)) {
+      stats.push(
+        { key: 'fireRate', value: 0.06, unit: 'percent' },
+        { key: 'verticalRecoil', value: -0.12, unit: 'percent' },
+        { key: 'inaccuracy', value: -0.08, unit: 'percent' },
+      )
+    }
+    return stats
   }
   return []
 }
 
 /** 标签码。形态 'ns.name' 或 'ns.name:<稳定id>', 与真契约同一套; 文案由前端自解, 服务端不发中文。 */
-function mockItemTags(kind: ItemDetailKind): string[] {
+function mockItemTags(kind: ItemDetailKind, item: PlayerInventoryItem): string[] {
   if (kind === 'gun') {
     return ['gun.platform:ar', 'gun.template:m4a1']
   }
   if (kind === 'gunsmith_part') {
     return [
       'part.platform:ar',
-      'part.slot:gas',
-      'part.variant:gehenna_high_speed_gas',
+      // 部位 id 是 core: 真服发的是 part().id() (GunsmithPressPart.CORE), "GAS" 只是它的短标签。
+      'part.slot:core',
+      `part.variant:${mockPartIsBasic(item) ? 'basic' : 'gehenna_high_speed_gas'}`,
       'part.quality:legendary',
     ]
   }
@@ -1002,8 +1072,8 @@ function mockItemDetail(payload: PlayerItemDetailPayload): PlayerItemDetailResul
     ...(stack.customModelData === undefined ? {} : { customModelData: stack.customModelData }),
     ...(stack.nameParts === undefined ? {} : { nameParts: stack.nameParts }),
     kind,
-    attributes: mockItemAttributes(kind),
-    tags: mockItemTags(kind),
+    attributes: mockItemAttributes(kind, stack),
+    tags: mockItemTags(kind, stack),
   }
 }
 

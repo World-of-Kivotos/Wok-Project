@@ -13,6 +13,7 @@ import {
   Tag,
 } from '@/components/kit'
 import type { Tone } from '@/components/kit'
+import { isMockActive } from '../lib/bridge'
 import { callMock } from '../mock/handlers'
 import type { PlannedDifficulty, PlannedMiningInstance } from '../mock/planned'
 import { useMockAction } from '../mock/useMockWorld'
@@ -131,7 +132,7 @@ function MiningInstanceCard({
         <div className="flex flex-col gap-1">
           <Stat label="当前在线" layout="inline" value={`${String(instance.playersInside)} 人`} />
           <Stat label="下次重置" layout="inline" value={formatCountdown(instance.nextResetAt, nowValue)} />
-          <p className="text-muted-foreground text-xs">全服共享实例, 非私有副本</p>
+          <p className="text-muted-foreground text-xs">全服玩家共用同一个矿洞</p>
         </div>
 
         {insideHere ? (
@@ -205,13 +206,13 @@ export function MiningPage(): ReactElement {
       {/* 页名由 TabletShell 的 h1 统一渲染, 页面内不再重复 —— 重复两遍且里层更大, 打开必现, 读起来像渲染 bug。 */}
       <header className="flex flex-col gap-2">
         <p className="text-muted-foreground text-sm">
-          全服共 3 个常驻共享矿洞实例, 每难度各一个 —— 不是你的私有副本; 卡片上的在线人数是与你
-          共享同一空间的全服玩家数, 不是"我的副本进度"。
+          全服只有 3 个矿洞, 简单 / 普通 / 困难各一个, 所有人共用 —— 卡片上的在线人数就是此刻和你
+          在同一个矿洞里的玩家数。
         </p>
         {jobs.status === 'error' ? (
           <FeedbackAlert
             message={jobs.error.message}
-            title="矿工等级读取失败, 等级门暂按锁定处理"
+            title="矿工等级读取失败, 矿洞暂时都按未解锁显示"
             tone="warning"
           />
         ) : null}
@@ -227,12 +228,12 @@ export function MiningPage(): ReactElement {
         <ErrorBlock message={overview.error.message} onRetry={overview.reload} />
       ) : overview.data.instances.length === 0 ? (
         <EmptyBlock
-          hint="矿洞维度当前不可用"
+          hint="矿洞当前不可用, 请稍后再来"
           icon={<TriangleAlertIcon aria-hidden="true" />}
-          title="暂无矿洞实例"
+          title="暂无可进入的矿洞"
         />
       ) : (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {overview.data.instances.map((instance) => (
             <MiningInstanceCard
               key={instance.difficulty}
@@ -259,9 +260,14 @@ export function MiningPage(): ReactElement {
         ) : status.status === 'error' ? (
           <ErrorBlock message={status.error.message} onRetry={status.reload} />
         ) : !status.data.inside ? (
-          <p className="text-muted-foreground text-sm">当前不在任何矿洞实例中。</p>
+          <p className="text-muted-foreground text-sm">当前不在任何矿洞里。</p>
         ) : status.data.difficulty === null ? (
-          <p className="text-destructive text-sm">数据异常: inside 为真但 difficulty 缺失, 请刷新重试。</p>
+          <p className="text-destructive text-sm">
+            {/* 具体是哪个字段缺失只对开发有意义; isMockActive 在生产构建里恒为 false, 装进游戏后只剩后一句。 */}
+            {isMockActive()
+              ? '数据异常: inside 为真但 difficulty 缺失, 请刷新重试。'
+              : '矿洞状态读取异常, 请刷新重试。'}
+          </p>
         ) : (
           <div className="flex flex-col gap-3">
             <p className="text-foreground text-sm">

@@ -631,7 +631,8 @@ function seedHubPanels(): PlannedHubPanel[] {
       route: '/quests',
       iconItemId: 'minecraft:written_book',
       enabled: false,
-      lockReason: '任务系统尚未实现 (经济文档 faucet 之首, 全库零实现)',
+      // 锁定原因是直接画给玩家看的悬停提示, 不是给开发的备注 —— 原文写着"经济文档 faucet 之首, 全库零实现"。
+      lockReason: '任务系统尚未开放',
     },
   ]
 }

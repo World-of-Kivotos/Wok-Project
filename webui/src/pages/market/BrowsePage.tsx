@@ -33,6 +33,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { isMockActive } from '../../lib/bridge'
 import { useItemDisplayNames, useItemNames } from '../../lib/i18n'
 import type {
   CategoryNode,
@@ -188,7 +189,8 @@ interface CategoryRowProps {
   readonly names: Record<string, string>
   readonly selectedItemId: string | null
   readonly onToggle: (id: string) => void
-  readonly onSelect: (itemId: string | null) => void
+  /** 第二参是该叶子的中文名 —— 树里已经解好了, 传上去省掉页面层再发一轮 i18n 请求。 */
+  readonly onSelect: (itemId: string | null, displayName: string | null) => void
 }
 
 /**
@@ -251,7 +253,7 @@ function CategoryRow(props: CategoryRowProps): ReactElement {
         onClick={() => {
           // 再点一次即取消过滤: 树里没有别的地方能承载"回到全部"这个动作, 加一个"全部"伪节点会与
           // 服务端回来的树结构混在一起, 分不清哪些是真数据。
-          onSelect(active ? null : node.itemId)
+          onSelect(active ? null : node.itemId, active ? null : name)
         }}
         className={`flex w-full items-center gap-2 rounded-md py-1 text-sm outline-none hover:bg-accent focus-visible:bg-accent ${indentClass(depth)} ${
           active ? 'font-medium text-brand' : 'text-foreground'
@@ -267,7 +269,7 @@ function CategoryRow(props: CategoryRowProps): ReactElement {
 interface CategoryTreeProps {
   readonly nodes: readonly CategoryNode[]
   readonly selectedItemId: string | null
-  readonly onSelect: (itemId: string | null) => void
+  readonly onSelect: (itemId: string | null, displayName: string | null) => void
 }
 
 function CategoryTree({ nodes, selectedItemId, onSelect }: CategoryTreeProps): ReactElement {
@@ -338,26 +340,20 @@ interface BaseValueLineProps {
 function BaseValueLine({ result, unitPrice }: BaseValueLineProps): ReactElement {
   if (result.v0 === null) {
     return (
-      <p className="text-muted-foreground text-sm">
-        该物品无基准价 (source={result.source}), 无从判断挂价高低。
-      </p>
+      <p className="text-muted-foreground text-sm">该物品没有基准价, 无从判断这个价格是高是低。</p>
     )
   }
   if (result.v0 <= 0) {
     // 基准价为 0 或负数是服务端不该产生的状态; 如实显示原值并跳过百分比, 不用 0 去做除数。
     return (
-      <p className="text-sm text-warning">
-        基准价异常: {String(result.v0)} (source={result.source})
-      </p>
+      <p className="text-sm text-warning">基准价异常: {String(result.v0)}</p>
     )
   }
   const premium = Math.round(((unitPrice - result.v0) / result.v0) * 100)
   const tone: Tone = premium > 0 ? 'warning' : premium < 0 ? 'success' : 'neutral'
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <span className="text-muted-foreground text-sm">
-        基准价 {String(result.v0)} ({result.source})
-      </span>
+      <span className="text-muted-foreground text-sm">基准价 {String(result.v0)}</span>
       <Tag size="sm" tone={tone}>
         {premium >= 0 ? `高 ${String(premium)}%` : `低 ${String(-premium)}%`}
       </Tag>
@@ -373,7 +369,7 @@ function tradableReason(result: PlannedTradableResult): string {
   if (result.reasonCode !== null) {
     return result.reasonCode
   }
-  return '服务端未给出原因 (B12 的 reasonCode 目前仍是自由字符串位)'
+  return '服务端未给出原因'
 }
 
 interface BuyDialogProps {
@@ -458,14 +454,11 @@ function BuyDialog({ listing, itemName, ownedCount, onClose, onBought }: BuyDial
               <Currency amount={listing.unitPrice} className="break-all" currency="credit" size="sm" />
             }
           />
-          <DialogRow
-            label="背包持有"
-            value={ownedCount === null ? '未知 (镜像未就绪)' : String(ownedCount)}
-          />
+          <DialogRow label="背包持有" value={ownedCount === null ? '读取中' : String(ownedCount)} />
 
           <Surface>
             <div className="flex flex-col gap-2">
-              <span className="text-muted-foreground text-sm">购买数量 (支持部分购买)</span>
+              <span className="text-muted-foreground text-sm">购买数量 (可只买一部分)</span>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <NumberInput max={listing.count} min={1} onChange={setCount} size="sm" value={count} />
                 <Button
@@ -488,14 +481,13 @@ function BuyDialog({ listing, itemName, ownedCount, onClose, onBought }: BuyDial
               <Currency amount={total} className="break-all" currency="credit" size="sm" />
             ) : (
               <Tag size="sm" tone="danger">
-                超出 2^53
+                数值过大
               </Tag>
             )}
           </div>
           {totalIsSafe ? null : (
             <p className="text-destructive text-sm">
-              单价 x 数量 已越过 JSON number 的安全整数上限 (契约层标注的 Java long 精度风险),
-              这里显示的总价不可信, 以服务端回执为准。
+              这笔总价太大, 上面显示的数字已经不准; 实际扣多少以购买后的结果为准。
             </p>
           )}
 
@@ -514,10 +506,10 @@ function BuyDialog({ listing, itemName, ownedCount, onClose, onBought }: BuyDial
             <BaseValueLine result={baseValue.data} unitPrice={listing.unitPrice} />
           ) : null}
 
-          {tradable.status === 'loading' ? <LoadingBlock label="校验可交易性" size="sm" /> : null}
+          {tradable.status === 'loading' ? <LoadingBlock label="检查能否交易" size="sm" /> : null}
           {tradable.status === 'error' ? (
             // market.tradable 本身还没接线 (B12), 它查不到不该反过来挡住真契约已经支持的买入。
-            <p className="text-sm text-warning">可交易性未知 (B12 未接线): {tradable.error.message}</p>
+            <p className="text-sm text-warning">暂时无法确认这件物品能否交易: {tradable.error.message}</p>
           ) : null}
           {blockedByTradable && tradable.status === 'ready' ? (
             <Surface tone="danger">
@@ -532,7 +524,7 @@ function BuyDialog({ listing, itemName, ownedCount, onClose, onBought }: BuyDial
           {shortfall !== null && shortfall > 0 ? (
             // 不禁用确认: 余额裁决在服务端, 前端预检只是提前告知; 拦下来反而会掩盖服务端真实的拒绝路径。
             <p className="text-sm text-warning">
-              预估还差 {String(shortfall)} 信用点, 提交后大概率被服务端拒绝。
+              余额大约还差 {String(shortfall)} 信用点, 现在买多半会失败。
             </p>
           ) : null}
 
@@ -570,6 +562,8 @@ export function BrowsePage(): ReactElement {
   const [sort, setSort] = useState<MarketSort>('newest')
   const [page, setPage] = useState(0)
   const [categoryItemId, setCategoryItemId] = useState<string | null>(null)
+  /** 只为标签好看: 过滤本身仍按 itemId 发给服务端, 这个名字不参与任何查询。 */
+  const [categoryItemName, setCategoryItemName] = useState<string | null>(null)
   const [localFilter, setLocalFilter] = useState('')
   const [selected, setSelected] = useState<MarketListing | null>(null)
   const [toasts, setToasts] = useState<readonly ToastEntry[]>([])
@@ -722,13 +716,14 @@ export function BrowsePage(): ReactElement {
       console.error('[market-browse] 手动刷新真域镜像失败:', error)
       pushToast(
         'danger',
-        `背包/钱包刷新失败, 当前持有量仍是旧数据: ${error instanceof Error ? error.message : String(error)}`,
+        `刷新失败, 余额与背包持有量还是刷新前的: ${error instanceof Error ? error.message : String(error)}`,
       )
     })
   }
 
-  const handleSelectCategory = (itemId: string | null): void => {
+  const handleSelectCategory = (itemId: string | null, displayName: string | null): void => {
     setCategoryItemId(itemId)
+    setCategoryItemName(displayName)
     // 换过滤条件必须回到第 0 页: 保留页码会让人停在一个新条件下根本不存在的页上, 表现为"点了分类就空了"。
     setPage(0)
   }
@@ -748,24 +743,17 @@ export function BrowsePage(): ReactElement {
               pushToast(
                 'warning',
                 current === ''
-                  ? '宿主中文输入叠加尚未接线 (接线清单 A14), 搜索词暂时无法输入'
-                  : `宿主中文输入叠加尚未接线 (A14), 无法编辑当前搜索词: ${current}`,
+                  ? '中文输入暂未开放, 可先用左侧的分类筛选'
+                  : `中文输入暂未开放, 暂时改不了当前的搜索词: ${current}`,
               )
             }}
             placeholder="搜索本页 (物品名/卖家)"
             size="sm"
             value={localFilter}
           />
-          <Hint
-            content={
-              <span>
-                文本输入需要 MC 原生 EditBox 浮层接管键盘 (接线清单 A14, BLOCKED)。在它接线之前,
-                这个框只能由宿主回填, 且只做当前页的本地过滤 —— 服务端 market.list 的 query 只匹配 itemId, 不匹配中文名。
-              </span>
-            }
-          >
+          <Hint content="搜索只在当前这一页里查找物品名或卖家; 想换范围请用左侧分类。">
             <Tag size="sm" tone="warning">
-              当前不可输入中文
+              暂不支持中文输入
             </Tag>
           </Hint>
           {keyword === '' ? null : (
@@ -794,11 +782,11 @@ export function BrowsePage(): ReactElement {
           {categoryItemId === null ? null : (
             <>
               <Tag size="sm" tone="brand">
-                分类过滤 {categoryItemId}
+                分类 {categoryItemName ?? categoryItemId}
               </Tag>
               <Button
                 onClick={() => {
-                  handleSelectCategory(null)
+                  handleSelectCategory(null, null)
                 }}
                 size="sm"
                 variant="outline"
@@ -811,24 +799,23 @@ export function BrowsePage(): ReactElement {
           {p2pCap.status === 'ready' ? (
             <Hint
               content={
-                <span>
-                  每日 P2P 成交额度 (接线清单 B10, market.p2pCap 尚未接线, 数值来自 mock 世界)。
-                  买入是否计入额度由服务端记账, mock 不写回, 别照这个数字推断服务端行为。
-                </span>
+                isMockActive()
+                  ? '今天还能与其他玩家成交多少, 到顶后当天不能再买 (假数据: 买入不会写回额度)'
+                  : '今天还能与其他玩家成交多少, 到顶后当天不能再买'
               }
             >
               <Tag size="sm" tone={p2pCap.data.remaining > 0 ? 'info' : 'danger'}>
-                P2P 额度 {String(p2pCap.data.usedToday)}/{String(p2pCap.data.capPerDay)}
+                今日交易额度 {String(p2pCap.data.usedToday)}/{String(p2pCap.data.capPerDay)}
               </Tag>
             </Hint>
           ) : null}
           {p2pCap.status === 'error' ? (
             <Tag size="sm" tone="danger">
-              P2P 额度不可用
+              今日交易额度暂不可用
             </Tag>
           ) : null}
 
-          <Button onClick={handleRefresh} size="sm" variant="outline">
+          <Button className="ml-auto" onClick={handleRefresh} size="sm" variant="outline">
             <RefreshCwIcon />
             刷新
           </Button>
@@ -837,7 +824,7 @@ export function BrowsePage(): ReactElement {
 
       <div className="flex gap-4">
         <aside className="w-56 shrink-0">
-          <Panel description="只有具体物品可作过滤条件" title="分类">
+          <Panel description="点开分类, 选一件具体物品即可筛选" title="分类">
             {categories.status === 'loading' ? <LoadingBlock label="读取分类树" size="sm" /> : null}
             {categories.status === 'error' ? (
               <ErrorBlock
@@ -847,7 +834,7 @@ export function BrowsePage(): ReactElement {
             ) : null}
             {categories.status === 'ready' ? (
               categories.data.length === 0 ? (
-                <EmptyBlock hint="market.categories 回了空数组" title="没有分类" />
+                <EmptyBlock hint="没有拿到分类数据, 可点右上角刷新重试" title="没有分类" />
               ) : (
                 <div aria-label="市场分类树" className="max-h-96 overflow-y-auto">
                   <CategoryTree
@@ -879,8 +866,8 @@ export function BrowsePage(): ReactElement {
                 page === 0
                   ? keyword === ''
                     ? '换个分类, 或等别人上架'
-                    : `当前页没有匹配 "${localFilter.trim()}" 的挂单 (搜索只过滤当前页)`
-                  : 'market.list 不返回 total, 上一页拿满即被判定为"可能还有下一页"; 翻过来是空的说明恰好翻到头了'
+                    : `当前页没有匹配 "${localFilter.trim()}" 的挂单 (搜索只查当前页)`
+                  : '已经翻到最后了, 回上一页继续看'
               }
               icon={<SearchIcon aria-hidden="true" />}
               title={page === 0 ? '这里还没有挂单' : '本页是空的'}
@@ -897,7 +884,7 @@ export function BrowsePage(): ReactElement {
             </Panel>
           ) : null}
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center justify-center gap-3">
             <Button
               disabled={page === 0}
               onClick={() => {
@@ -924,18 +911,24 @@ export function BrowsePage(): ReactElement {
               下一页
               <ArrowRightIcon />
             </Button>
-            <Hint
-              content={
-                <span>
-                  market.list 的回执只有 listings/page/pageSize, 没有 total (接线清单 B1), 前端算不出总页数,
-                  故没有页码。下一页按"本页拿满 {String(PAGE_SIZE)} 条"点亮, 恰好翻到头时会多给一次, 翻过去是空页。
-                </span>
-              }
-            >
-              <Tag size="sm" tone="info">
-                为什么没有页码
-              </Tag>
-            </Hint>
+            {/*
+              "为什么没有页码"是实现层的解释 (B1 的回执没有 total), 玩家读不懂也用不上, 故只留给假数据模式;
+              生产构建里 isMockActive() 恒为 false, 这枚标签整个不存在。
+            */}
+            {isMockActive() ? (
+              <Hint
+                content={
+                  <span>
+                    market.list 的回执只有 listings/page/pageSize, 没有 total (接线清单 B1), 前端算不出总页数,
+                    故没有页码。下一页按"本页拿满 {String(PAGE_SIZE)} 条"点亮, 恰好翻到头时会多给一次, 翻过去是空页。
+                  </span>
+                }
+              >
+                <Tag size="sm" tone="info">
+                  为什么没有页码
+                </Tag>
+              </Hint>
+            ) : null}
           </div>
         </div>
       </div>

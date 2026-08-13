@@ -128,8 +128,7 @@ export function SettingsPage(): ReactElement {
     <div className="flex flex-col gap-4">
       <Surface tone="warning">
         <p className="text-foreground text-sm">
-          以下偏好仅保存在本机浏览器的 localStorage 里, 不随账号同步 —— 换一台电脑或清空浏览数据后,
-          这里的设置会恢复默认值, 需要重新调整一次。
+          以下设置只保存在这台电脑上, 不跟随账号 —— 换一台电脑就会恢复默认值, 需要重新调整一次。
         </p>
       </Surface>
 
@@ -149,7 +148,7 @@ export function SettingsPage(): ReactElement {
         />
       )}
 
-      <Panel description="决定界面整体是深底还是浅底。强调色不受此项影响, 两档各自换算。" title="主题">
+      <Panel description="决定界面整体是深色还是浅色, 强调色不受影响。" title="主题">
         <TabBar
           activeId={theme}
           onChange={handleThemeChange}
@@ -163,7 +162,7 @@ export function SettingsPage(): ReactElement {
             恢复默认
           </Button>
         }
-        description="界面主体是固定的中性灰阶; 这里调的是那一小部分强调色 —— 焦点环、当前导航项、进度条填充、选中行。"
+        description="界面主体是固定的灰色, 这里调的是少量强调色 —— 当前导航项、进度条、选中行。"
         title="强调色"
       >
         <div className="flex flex-col gap-5">
@@ -219,7 +218,7 @@ export function SettingsPage(): ReactElement {
               value={brand.chroma}
             />
             <p className="text-muted-foreground text-xs">
-              拧到 0 即纯中性灰强调, 整套界面变成完全无彩色。这是设计终点之一, 不是坏掉了。
+              调到 0 就是纯灰色界面, 这是正常效果, 不是坏了。
             </p>
           </div>
 
@@ -280,7 +279,14 @@ export function SettingsPage(): ReactElement {
         </div>
       </Panel>
 
-      <Panel title="免打扰">
+      <Panel
+        actions={
+          <Button onClick={handlePreviewToast} size="sm" variant="outline">
+            预览一条示例通知
+          </Button>
+        }
+        title="免打扰"
+      >
         <div className="flex flex-col gap-3">
           <Toggle
             checked={muteToasts}
@@ -288,13 +294,8 @@ export function SettingsPage(): ReactElement {
             onChange={setMuteToasts}
           />
           <p className="text-muted-foreground text-xs">
-            全局提示队列的挂载点尚未接线, 该开关暂不影响真实提示; 下方按钮可预览开关生效后的效果。
+            该功能尚未开放, 开关暂时不影响真实提示; 可用右上角的按钮预览开启后的效果。
           </p>
-          <div>
-            <Button onClick={handlePreviewToast} size="sm" variant="outline">
-              预览一条示例通知
-            </Button>
-          </div>
         </div>
       </Panel>
 
@@ -307,8 +308,7 @@ export function SettingsPage(): ReactElement {
             value={language}
           />
           <p className="text-muted-foreground text-xs">
-            界面文案当前全部硬编码简体中文, 暂无其它语言可选。物品/翻译键名称走玩家 Minecraft
-            客户端自身的语言设置解析 (client.i18n), 与此处选择无关, 不受本设置控制。
+            界面暂时只有简体中文。物品名称跟随你的 Minecraft 客户端语言设置, 不受这里影响。
           </p>
         </div>
       </Panel>

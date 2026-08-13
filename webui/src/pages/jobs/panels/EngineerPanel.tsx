@@ -56,7 +56,7 @@ export function EngineerPanel(): ReactElement {
             <Stat label="职业等级" value={`Lv.${String(data.level)}`} />
           </div>
           <p className="text-muted-foreground text-xs">
-            反应堆冷却字段缺失: 契约 (planned.ts) 未包含 nanoReactorCdEndTick
+            反应堆冷却时间暂不可见
           </p>
         </div>
       </Panel>

@@ -30,7 +30,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { WebUiCallError } from '../lib/bridge'
+import { WebUiCallError, isMockActive } from '../lib/bridge'
 import type {
   CaseCatalogSkin,
   CaseOpenResult,
@@ -152,15 +152,12 @@ function FailurePanel({ failure }: { failure: FailureView }): ReactElement {
     <div role="alert">
       <Surface className="flex flex-col gap-1" tone="danger">
         <p className="text-destructive text-sm">{failure.message}</p>
-        <p className="text-muted-foreground text-xs">
-          {failure.code === null
-            ? '通用异常路径 (无 errorCode), 服务端未给稳定机器码'
-            : `errorCode = ${failure.code}`}
-        </p>
+        {/* 错误码留着是为了让玩家报给管理员时有据可查; 没有码的通用异常就不必再占一行。 */}
+        {failure.code === null ? null : (
+          <p className="text-muted-foreground text-xs">{`错误代码 ${failure.code}`}</p>
+        )}
         {failure.retrySameOpeningId ? (
-          <p className="text-warning text-xs">
-            服务端标记为可原样重试: 扣费已发生, 必须沿用同一 openingId, 换新 id 会再扣一次
-          </p>
+          <p className="text-warning text-xs">这次的费用已经扣了, 直接点重试即可, 不会再扣一次</p>
         ) : null}
       </Surface>
     </div>
@@ -228,7 +225,7 @@ function OddsPanel({ weights }: { weights: readonly CaseRarityWeight[] }): React
 
   const columns: readonly DataTableColumn<CaseRarityWeight>[] = [
     { header: '稀有度', key: 'rarity', render: (row) => <RarityChip rarity={row.rarity} /> },
-    { header: '权重 (整数)', key: 'weight', numeric: true, render: (row) => String(row.weight) },
+    { header: '权重', key: 'weight', numeric: true, render: (row) => String(row.weight) },
     { header: '掉率', key: 'odds', numeric: true, render: (row) => formatOdds(row.weight, total) },
   ]
 
@@ -241,15 +238,13 @@ function OddsPanel({ weights }: { weights: readonly CaseRarityWeight[] }): React
         </Tag>
         <span className="text-muted-foreground text-xs">
           {contractHolds
-            ? '与 CaseWeights 契约恒等式一致'
-            : '与契约恒等式不符: 权重表已破裂, 下方百分比按实际总和折算, 不代表服务端真实掉率'}
+            ? '掉率表校验通过'
+            : '掉率表异常: 下方百分比只按当前数值折算, 可能与实际掉率不符'}
         </span>
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-muted-foreground text-xs">
-          {'五档权重构成 (按声明序 blue -> gold)'}
-        </span>
+        <span className="text-muted-foreground text-xs">五档掉率占比</span>
         <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
           {weights.map((entry) => (
             <div
@@ -278,7 +273,7 @@ function ReelStrip({ open }: { open: CaseOpenResult }): ReactElement {
   return (
     <div className="flex flex-col gap-2">
       <p className="text-muted-foreground text-xs">
-        {`服务端权威落点 stopIndex = ${String(open.stopIndex)} (共 ${String(open.reel.length)} 格)`}
+        {`共 ${String(open.reel.length)} 格, 高亮的一格就是本次开出的皮肤`}
       </p>
       <div aria-label="开箱滚动条" className="w-full overflow-x-auto">
         <div className="flex gap-2 pb-2">
@@ -293,14 +288,13 @@ function ReelStrip({ open }: { open: CaseOpenResult }): ReactElement {
                 scale={1}
                 selected={index === open.stopIndex}
               />
-              <span
-                className={
-                  index === open.stopIndex
-                    ? 'font-medium text-brand text-xs'
-                    : 'text-muted-foreground text-xs'
-                }
-              >
-                {index === open.stopIndex ? '落点' : String(index)}
+              {/*
+                只有落点那一格有文字, 其余格子留空但仍占住这一行的高度 (min-h-4) ——
+                格子编号 0/1/2… 是开发味, 玩家不需要知道自己开出的是第几格; 而直接不渲染这个 span
+                会让非落点格矮一截, 整条 reel 参差不齐。
+              */}
+              <span className="min-h-4 font-medium text-brand text-xs">
+                {index === open.stopIndex ? '本次开出' : ''}
               </span>
             </div>
           ))}
@@ -328,7 +322,7 @@ function CatalogGrid({ skins }: { skins: readonly CaseCatalogSkin[] }): ReactEle
             <div className="flex flex-wrap gap-2">
               {group.map((skin) => (
                 <Hint
-                  content={`${skin.displayName} · ${skin.gunId} · 已持有 ${String(skin.ownedCount)}`}
+                  content={`${skin.displayName} · 已持有 ${String(skin.ownedCount)}`}
                   key={skin.skinId}
                 >
                   <ItemSlot
@@ -430,7 +424,7 @@ export function CasePage(): ReactElement {
   const playCue = (cue: CaseSoundCue): void => {
     callMock('client.playCaseSound', { cue }).catch((error: unknown) => {
       console.error('[case] 音效播放失败:', error)
-      setToast({ tone: 'info', message: `音效 ${cue} 播放失败, 开箱流程不受影响` })
+      setToast({ tone: 'info', message: '音效播放失败, 不影响这次开箱' })
     })
   }
 
@@ -451,7 +445,7 @@ export function CasePage(): ReactElement {
       setToast({
         tone: result.replayed ? 'info' : 'success',
         message: result.replayed
-          ? `断线复播: ${result.result.displayName} (未重复扣费)`
+          ? `已恢复上一次的开箱结果: ${result.result.displayName} (未重复扣费)`
           : `开出 ${RARITY_LABEL[result.result.rarity]} · ${result.result.displayName}`,
       })
       // 钱包与持有列表的权威都在服务端, 开完必须重查一次, 不在前端自己减余额。
@@ -473,7 +467,7 @@ export function CasePage(): ReactElement {
     try {
       const result = await callMock('case.apply', { assetId })
       setAppliedAssetId(result.assetId)
-      setToast({ tone: 'success', message: `已应用皮肤 ${result.skinId} 到 ${result.gunId}` })
+      setToast({ tone: 'success', message: '皮肤已应用到手持枪械' })
     } catch (error: unknown) {
       setFailure(describeFailure(error))
     } finally {
@@ -508,11 +502,14 @@ export function CasePage(): ReactElement {
       <section className="flex flex-col gap-4">
         <ErrorBlock
           message={stateQuery.error.message}
-          code={
-            stateQuery.error instanceof WebUiCallError
-              ? `case.state / code ${String(stateQuery.error.code)}`
-              : 'case.state'
-          }
+          {...(isMockActive()
+            ? {
+                code:
+                  stateQuery.error instanceof WebUiCallError
+                    ? `case.state / code ${String(stateQuery.error.code)}`
+                    : 'case.state',
+              }
+            : {})}
           onRetry={stateQuery.reload}
         />
       </section>
@@ -531,7 +528,11 @@ export function CasePage(): ReactElement {
       <section className="flex flex-col gap-4">
         <EmptyBlock
           title="开箱当前不可用"
-          hint="enabled = 配置开关 AND tacz 已加载 AND 资源包已注册, 三者任一为假即关闭"
+          hint={
+            isMockActive()
+              ? 'enabled = 配置开关 AND tacz 已加载 AND 资源包已注册, 三者任一为假即关闭'
+              : '服务器暂时关闭了开箱功能'
+          }
           icon={<LockIcon aria-hidden="true" />}
         />
       </section>
@@ -567,24 +568,28 @@ export function CasePage(): ReactElement {
           <>
             {stateQuery.status === 'loading' ? <LoadingBlock label="刷新中" size="sm" /> : null}
             <Button
-              aria-label="重新拉取武器箱状态"
+              aria-label="刷新武器箱状态"
               loading={stateQuery.status === 'loading'}
               onClick={stateQuery.reload}
               size="sm"
               variant="outline"
             >
               <RefreshCwIcon />
-              重新拉取
+              刷新
             </Button>
           </>
         }
-        description={`caseId = ${state.caseId} · 平板内版本 (jar 内置整页 case-opening.html 共用同一套服务端权威)`}
+        {...(isMockActive()
+          ? // caseId 对玩家没有意义, 只在假数据模式下露出来便于核对 (生产构建里恒为 false)。
+            { description: `caseId = ${state.caseId}` }
+          : {})}
         title={state.displayName}
       >
         <div className="flex flex-col gap-4">
           {stateQuery.status === 'error' ? (
             <FeedbackAlert
-              message={`重查 case.state 失败: ${stateQuery.error.message} (下方数据是上一次成功的快照, 可能已过期)`}
+              message={stateQuery.error.message}
+              title="刷新失败, 下面显示的仍是上一次的数据"
               tone="danger"
               action={
                 <Button onClick={stateQuery.reload} size="sm" variant="destructive-outline">
@@ -596,7 +601,7 @@ export function CasePage(): ReactElement {
 
           <div className="flex flex-wrap items-end gap-6">
             <Stat
-              label="单次开箱扣费 (双币同时扣, 缺一即拒)"
+              label="单次开箱扣费 (两种货币各扣一份)"
               value={
                 <span className="flex items-center gap-3">
                   <Currency amount={state.creditCost} currency="credit" />
@@ -617,15 +622,15 @@ export function CasePage(): ReactElement {
               label="还能开"
               value={
                 <Tag tone={affordable ? 'success' : 'danger'}>
-                  {openable === null ? '单价非法 (契约破裂)' : `${String(openable)} 次`}
+                  {openable === null ? '价格异常' : `${String(openable)} 次`}
                 </Tag>
               }
             />
             <Hint
               content={
                 affordable
-                  ? '开箱是不可撤销的双币扣费, 服务端以 openingId 幂等'
-                  : '服务端在扣费前同时校验两种货币, 任一不足即 INSUFFICIENT_FUNDS'
+                  ? '开箱会同时扣除两种货币, 且无法撤销'
+                  : '两种货币任一不足都开不了箱'
               }
             >
               <Button
@@ -638,7 +643,7 @@ export function CasePage(): ReactElement {
                 variant="brand"
               >
                 {/* 只有"上一次失败且服务端允许原样重试"才换文案: 请求进行中 retryOpeningId 也非空, 那时换字会让人以为已经失败过一次。 */}
-                {failure !== null && retryOpeningId !== null ? '用同一 openingId 重试' : '开箱'}
+                {failure !== null && retryOpeningId !== null ? '重试 (不会重复扣费)' : '开箱'}
               </Button>
             </Hint>
           </div>
@@ -648,7 +653,7 @@ export function CasePage(): ReactElement {
       </Panel>
 
       <Panel
-        description="权重是服务端下发的整数数组, 百分比由前端按总和折算; 总和与契约恒等式的比对结果同屏给出"
+        description="各档掉率由服务器下发, 下方同时给出这张表的校验结果"
         title="掉率公示"
       >
         <OddsPanel weights={state.weights} />
@@ -674,8 +679,8 @@ export function CasePage(): ReactElement {
               重看结果
             </Button>
           }
-          description="reel 与落点均由服务端下发; 本页不自绘滚动动效, 直接标出权威落点"
-          title="本次开箱回执"
+          description="结果由服务器判定, 高亮的一格就是你开出的那件"
+          title="本次开箱结果"
         >
           <ReelStrip open={lastOpen} />
         </Panel>
@@ -684,7 +689,7 @@ export function CasePage(): ReactElement {
       <Panel
         description={
           state.ownedTotal > ownedShown.length
-            ? `服务端只回前 ${String(ownedShown.length)} 条 (OWNED_RESPONSE_LIMIT), 真实总数 ${String(state.ownedTotal)}`
+            ? `共 ${String(state.ownedTotal)} 件, 这里只列出其中 ${String(ownedShown.length)} 件`
             : `共 ${String(state.ownedTotal)} 件`
         }
         title="我的皮肤资产"
@@ -730,12 +735,16 @@ export function CasePage(): ReactElement {
               <ItemIcon itemId={selectedAsset.gunId} label={selectedAsset.displayName} scale={2} />
               <div className="flex flex-col gap-0.5">
                 <span className="text-foreground text-sm">{selectedAsset.displayName}</span>
-                <span className="text-muted-foreground text-xs">{`assetId ${selectedAsset.assetId}`}</span>
-                <span className="text-muted-foreground text-xs">{`displayId ${selectedAsset.displayId}`}</span>
+                <span className="text-muted-foreground text-xs">{RARITY_LABEL[selectedAsset.rarity]}</span>
+                {/* assetId / displayId 只有排查问题时用得上, 生产构建里这两行不存在。 */}
+                {isMockActive() ? (
+                  <>
+                    <span className="text-muted-foreground text-xs">{`assetId ${selectedAsset.assetId}`}</span>
+                    <span className="text-muted-foreground text-xs">{`displayId ${selectedAsset.displayId}`}</span>
+                  </>
+                ) : null}
               </div>
-              {appliedAssetId === selectedAsset.assetId ? (
-                <Tag tone="success">本次会话已应用</Tag>
-              ) : null}
+              {appliedAssetId === selectedAsset.assetId ? <Tag tone="success">已应用</Tag> : null}
               <Button
                 loading={applying}
                 onClick={() => {
@@ -763,7 +772,7 @@ export function CasePage(): ReactElement {
             <>
               <DialogHeader>
                 <DialogTitle>开箱结果</DialogTitle>
-                <DialogDescription>{`${lastOpen.result.gunId} · ${lastOpen.result.skinId}`}</DialogDescription>
+                <DialogDescription>以下是本次开出的皮肤</DialogDescription>
               </DialogHeader>
               <div className="flex flex-col items-center gap-3 px-6 pb-6">
                 <RarityChip rarity={lastOpen.result.rarity} />
@@ -777,8 +786,8 @@ export function CasePage(): ReactElement {
                 </p>
                 <p className="text-muted-foreground text-xs">
                   {lastOpen.result.tradeLockedUntil === 0
-                    ? '交易锁: 无 (服务端当前恒为 0, 7 天 trade hold 尚未实现)'
-                    : `交易锁至 ${formatMoment(lastOpen.result.tradeLockedUntil)}`}
+                    ? '当前没有交易限制'
+                    : `交易锁定至 ${formatMoment(lastOpen.result.tradeLockedUntil)}`}
                 </p>
                 <div className="flex items-center gap-4">
                   <Currency amount={lastOpen.wallet.credit} currency="credit" />

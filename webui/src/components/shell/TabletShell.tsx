@@ -154,7 +154,7 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
 
   const isOp = profile.status === 'ready' && profile.data.isOp
   const visibleEntries = SHELL_NAV_ENTRIES.filter((entry) => !entry.opOnly || isOp)
-  const title = match.pattern === null ? '未知路由' : ROUTE_TITLES[match.pattern]
+  const title = match.pattern === null ? '页面不存在' : ROUTE_TITLES[match.pattern]
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden rounded-xl border bg-card shadow-lg/5">
@@ -257,7 +257,7 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
             ) : null}
             {mirrorError === null ? null : (
               <Tag size="sm" tone="danger">
-                数据预热失败: {mirrorError.message}
+                数据加载失败: {mirrorError.message}
               </Tag>
             )}
 
@@ -282,7 +282,7 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
             ) : null}
 
             <Button
-              aria-label={onClose === undefined ? '关闭平板 (宿主未接线)' : '关闭平板'}
+              aria-label={onClose === undefined ? '关闭平板 (暂不可用)' : '关闭平板'}
               disabled={onClose === undefined}
               onClick={() => {
                 onClose?.()

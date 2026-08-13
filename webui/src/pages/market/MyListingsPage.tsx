@@ -151,11 +151,11 @@ export function MyListingsPage(): ReactElement {
       ) : null}
 
       {listingsQuery.status === 'ready' && listings.length === 0 ? (
-        <EmptyBlock hint="去仓库页把要出售的物品挂上跳蚤市场" title="暂无在售挂单" />
+        <EmptyBlock hint="去挂单页把背包里的物品挂上跳蚤市场" title="暂无在售挂单" />
       ) : null}
 
       {listingsQuery.status === 'ready' && listings.length > 0 ? (
-        <Panel padded={false} title="在售挂单 (ACTIVE)">
+        <Panel padded={false} title="在售挂单">
           <DataTable
             columns={columns}
             emptyHint="暂无在售挂单"

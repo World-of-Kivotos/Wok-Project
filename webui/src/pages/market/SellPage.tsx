@@ -14,6 +14,7 @@ import {
   Surface,
   Tag,
 } from '@/components/kit'
+import { isMockActive } from '../../lib/bridge'
 import { useItemDisplayNames } from '../../lib/i18n'
 import type { PlayerInventoryItem } from '../../lib/types'
 import { callMock, refreshWalletAndInventory, useMockAction, useMockWorld } from '../../mock'
@@ -88,15 +89,18 @@ function toError(value: unknown): Error {
 /**
  * 拒绝理由的显示文案。
  *
- * PlannedTradableResult 的 reason (人话) 与 reasonCode (机器码) 各自可空, 早先只读 reason 并
- * `?? '未知原因'` —— 服务端明明给了 reasonCode 却被这句兜底盖掉, 玩家与排障的人都看不到它。
- * 两者都缺时如实说"服务端没给理由", 而不是含糊成"未知"。
+ * PlannedTradableResult 的 reason (人话) 与 reasonCode (机器码) 各自可空。
+ * reason 是服务端写给玩家看的原话, 有就原样用 —— 前端改写它等于制造第二套业务口径。
+ *
+ * reasonCode 是机器码 (形如 BOUND_CURRENCY), 玩家读它等于读天书, 故只在假数据模式下附带:
+ * 排障的人需要它, 玩家不需要。两者都缺时给一句能读懂的兜底, 而不是把机器码顶上来当正文。
  */
 function describeNonTradable(reason: string | null, reasonCode: string | null): string {
+  const debugSuffix = isMockActive() && reasonCode !== null ? ` (${reasonCode})` : ''
   if (reason !== null) {
-    return reasonCode === null ? reason : `${reason} (${reasonCode})`
+    return `${reason}${debugSuffix}`
   }
-  return reasonCode === null ? '服务端未给出拒绝理由' : `理由码 ${reasonCode}`
+  return `这件物品不能上架出售${debugSuffix}`
 }
 
 /**
@@ -278,7 +282,7 @@ export function SellPage(): ReactElement {
             <LoadingBlock label="正在读取背包" />
           )
         ) : inventoryItems.length === 0 ? (
-          <EmptyBlock hint="仓库里没有可挂单的物品" title="背包为空" />
+          <EmptyBlock hint="背包里没有可以出售的物品" title="背包为空" />
         ) : (
           <ItemSlotGrid
             columns={INVENTORY_COLUMNS}
@@ -304,9 +308,7 @@ export function SellPage(): ReactElement {
               />
               <div className="flex flex-col">
                 <span className="text-foreground text-sm">{selectedItemLabel}</span>
-                <span className="text-muted-foreground text-xs">
-                  持有 {selectedStack.count} 件 · 槽位 {selectedStack.slot}
-                </span>
+                <span className="text-muted-foreground text-xs">持有 {selectedStack.count} 件</span>
               </div>
             </div>
 
@@ -315,17 +317,17 @@ export function SellPage(): ReactElement {
               而提交按钮那时是可点的 —— 玩家既不知道还在查, 也不知道查失败了。
             */}
             {tradableQuery.status === 'loading' ? (
-              <LoadingBlock label="正在校验该物品是否可挂单" size="sm" />
+              <LoadingBlock label="正在检查这件物品能否上架" size="sm" />
             ) : null}
             {tradableQuery.status === 'error' ? (
               <ErrorBlock
-                message={`可交易性校验失败, 挂单已锁定: ${tradableQuery.error.message}`}
+                message={`没能确认这件物品是否可以上架, 暂时不能提交: ${tradableQuery.error.message}`}
                 onRetry={tradableQuery.reload}
               />
             ) : null}
             {notTradable && tradableQuery.status === 'ready' ? (
               <ErrorBlock
-                message={`该物品不可挂单出售: ${describeNonTradable(tradableQuery.data.reason, tradableQuery.data.reasonCode)}`}
+                message={`这件物品不能上架出售: ${describeNonTradable(tradableQuery.data.reason, tradableQuery.data.reasonCode)}`}
               />
             ) : null}
 
@@ -362,7 +364,7 @@ export function SellPage(): ReactElement {
             <Surface>
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground text-sm">基准价 V0</span>
+                  <span className="text-muted-foreground text-sm">基准价</span>
                   {baseValueQuery.status === 'loading' ? <LoadingBlock size="sm" /> : null}
                   {baseValueQuery.status === 'error' ? (
                     <span className="text-destructive text-sm">
@@ -372,7 +374,7 @@ export function SellPage(): ReactElement {
                   {baseValueQuery.status === 'ready' ? (
                     baseValueQuery.data.v0 === null ? (
                       <span className="text-muted-foreground text-sm">
-                        无锚 (按 {(FEE_RATE * 100).toFixed(0)}% 平率计费)
+                        暂无 (手续费按 {(FEE_RATE * 100).toFixed(0)}% 收取)
                       </span>
                     ) : (
                       <Currency amount={baseValueQuery.data.v0} currency="credit" size="sm" />
@@ -386,7 +388,7 @@ export function SellPage(): ReactElement {
                 */}
                 {selectedStack !== null && baseValueQuery.status !== 'ready' ? (
                   <span className="text-muted-foreground text-sm">
-                    基准价未就绪, 手续费预览暂不可用; 最终以 market.place 回执的 listFee 为准
+                    基准价还没读到, 手续费暂时算不出; 实际手续费以提交后的结果为准
                   </span>
                 ) : null}
 

@@ -262,7 +262,7 @@ export function ShopPage(): ReactElement {
         <div className="grid grid-cols-3 gap-3">
           <Stat
             label="买入价"
-            value={shop.buyPrice === null ? '不收' : <Currency amount={shop.buyPrice} currency="credit" size="sm" />}
+            value={shop.buyPrice === null ? '不售' : <Currency amount={shop.buyPrice} currency="credit" size="sm" />}
           />
           <Stat
             label="卖出价"
@@ -287,33 +287,38 @@ export function ShopPage(): ReactElement {
         )}
 
         {shop.buyPrice === null ? (
-          <p className="text-muted-foreground text-sm">本店不出售该物品, 无法购买。</p>
+          <p className="text-muted-foreground text-sm">这家店不卖这件物品。</p>
         ) : shop.stock === 0 ? (
           <p className="text-destructive text-sm">库存已售罄。</p>
         ) : (
+          /* 数量与合计并排: 各占一整行时, 一个短步进器独占一行, 底下再跟一行只有两个字的合计, 版面很散。 */
           <div className="flex flex-col gap-3">
-            <NumberInput max={shop.stock === null ? 999 : shop.stock} min={1} onChange={setPurchaseCount} value={purchaseCount} />
-            <Stat
-              label="合计"
-              layout="inline"
-              value={<Currency amount={shop.buyPrice * purchaseCount} currency="credit" />}
-            />
-            <Button
-              loading={purchasing}
-              onClick={() => {
-                void handleBuy(shop.shopId)
-              }}
-              variant="brand"
-            >
-              购买
-            </Button>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <NumberInput max={shop.stock === null ? 999 : shop.stock} min={1} onChange={setPurchaseCount} value={purchaseCount} />
+              <Stat
+                label="合计"
+                layout="inline"
+                value={<Currency amount={shop.buyPrice * purchaseCount} currency="credit" />}
+              />
+            </div>
+            <div>
+              <Button
+                loading={purchasing}
+                onClick={() => {
+                  void handleBuy(shop.shopId)
+                }}
+                variant="brand"
+              >
+                购买
+              </Button>
+            </div>
           </div>
         )}
 
         <div className="flex flex-col gap-2">
-          <h3 className="font-medium text-foreground text-sm">同物品其它商店比价</h3>
+          <h3 className="font-medium text-foreground text-sm">同款在别的商店卖多少</h3>
           {comparable.length === 0 ? (
-            <EmptyBlock icon={<InfoIcon aria-hidden="true" />} title="没有其它商店出售同一物品" />
+            <EmptyBlock icon={<InfoIcon aria-hidden="true" />} title="没有别的商店卖这件物品" />
           ) : (
             <div className="max-h-64 overflow-y-auto">
               <DataTable columns={COMPARABLE_COLUMNS} rowKey={(row) => row.shopId} rows={comparable} />
@@ -328,8 +333,8 @@ export function ShopPage(): ReactElement {
     <section className="flex flex-col gap-4">
       {/* 页名由 TabletShell 的 h1 统一渲染, 页面内不再重复 —— 重复两遍且里层更大, 打开必现, 读起来像渲染 bug。 */}
       <p className="text-muted-foreground text-sm">
-        目录聚合自 WOK-ChestShop 跨仓告示牌商店, 真服当前无聚合读取接口 (H1 状态 BACKEND), 本页数据
-        纯 mock; 点击一行可查看比价, 购买通道 (shop.buy, H3) 在真服是否会开放尚未确定。
+        全服告示牌商店的价目一览。点某一行可以看这件物品在别的商店卖多少钱。商店数据与这里的远程购买
+        目前都是演示, 尚未开放。
       </p>
 
       {catalog.status === 'loading' ? (
@@ -342,7 +347,7 @@ export function ShopPage(): ReactElement {
         <>
           <div className="flex flex-wrap items-end gap-3">
             <div className="flex flex-col gap-1">
-              <span className="text-muted-foreground text-xs">搜索物品 ID (如 minecraft:diamond)</span>
+              <span className="text-muted-foreground text-xs">搜索物品 (按英文 ID)</span>
               <TextInput onChange={setSearch} placeholder="minecraft:diamond" value={search} />
             </div>
             <div className="flex flex-col gap-1">
@@ -353,7 +358,7 @@ export function ShopPage(): ReactElement {
 
           {filteredShops.length === 0 ? (
             <EmptyBlock
-              hint="尝试放宽物品 ID 或维度筛选"
+              hint="换个搜索词, 或把维度切回全部"
               icon={<SearchIcon aria-hidden="true" />}
               title="未找到匹配的商店"
             />
@@ -385,7 +390,7 @@ export function ShopPage(): ReactElement {
         <DialogPopup>
           <DialogHeader>
             <DialogTitle>商店详情</DialogTitle>
-            <DialogDescription>单店行情与同物品跨店比价</DialogDescription>
+            <DialogDescription>这家店的价格, 以及别的商店同款卖多少</DialogDescription>
           </DialogHeader>
           <div className="flex min-h-0 flex-col overflow-y-auto px-6 pb-4">{renderDetailBody()}</div>
           <DialogFooter>

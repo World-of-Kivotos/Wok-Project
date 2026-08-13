@@ -5,6 +5,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.miningdim.economy.EconomyServices;
 import com.miningdim.economy.IEconomyService;
+import com.miningdim.webui.server.WebUiItemJson;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
 import net.minecraft.world.entity.player.Inventory;
@@ -19,7 +20,8 @@ import net.minecraft.world.item.ItemStack;
  * {@link WebUiServerDispatcher#dispatchAndRespond} 的 Gateway 统一兜底, 本类严禁 try-catch 生吞 (CLAUDE.md C9)。
  *
  * 前端契约 (World-of-Kivotos_GameUI/src/types.ts):
- *  - player.inventory -&gt; {items:[{slot,itemId,count,displayName?}]} (InvResp; SellView 选物)
+ *  - player.inventory -&gt; {items:[{slot,itemId,descriptionId,count,displayName?,customModelData?,nameParts?}]}
+ *    (InvResp; SellView 选物)。后两个可选字段是 NBT 变体件的差异, 见 {@link com.miningdim.webui.server.WebUiItemJson}
  *  - player.wallet    -&gt; {credit,azure} (Wallet; 顶栏余额)
  */
 public final class PlayerWebUiActions {
@@ -59,10 +61,17 @@ public final class PlayerWebUiActions {
             // 翻译键 —— 物品是 item.<ns>.<path>、方块是 block.<ns>.<path>)。与 admin.listItems 同字段名。
             o.addProperty("descriptionId", stack.getDescriptionId());
             o.addProperty("count", stack.getCount());
-            // nbt 摘要: 仅自定义命名物品附 displayName (改名携 NBT, 是有意义的 nbt 摘要), 让前端区分同 id 的不同实例。
+            // nbt 摘要: 仅自定义命名物品附 displayName (铁砧改名是纯字面量, 服务端 getString 就能拿到真名)。
             if (stack.hasCustomHoverName()) {
                 o.addProperty("displayName", stack.getHoverName().getString());
             }
+            /*
+             * 变体信息 (nameParts / customModelData)。与上面的 displayName 不是一回事, 两者都要:
+             * displayName 管"玩家用铁砧改了名"(纯字面量), 这里管"物品自己按 NBT 拼出来的名字与贴图"
+             * —— 枪匠零件的 195 种变体共用一个 miningdim:gunsmith_part, 不补这一步, 挂单选物界面里
+             * 它们是同名同图标的 195 格。名字必须发结构不发字符串, 理由见 WebUiItemJson 类注释。
+             */
+            WebUiItemJson.appendVariant(o, stack);
             items.add(o);
         }
         JsonObject result = new JsonObject();

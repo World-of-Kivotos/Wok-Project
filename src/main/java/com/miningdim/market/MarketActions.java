@@ -9,11 +9,13 @@ import com.miningdim.market.MarketEngine.BuyResult;
 import com.miningdim.market.MarketEngine.CancelResult;
 import com.miningdim.market.MarketEngine.PlaceResult;
 import com.miningdim.market.store.ListingRow;
+import com.miningdim.webui.server.WebUiItemJson;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.List;
@@ -57,7 +59,9 @@ public final class MarketActions {
     }
 
     // ============================================================
-    // market.list: {query?,sort?,page?,pageSize?} -> {listings:[{id,sellerName,itemId,count,unitPrice,total,createdAt}],page,pageSize}
+    // market.list: {query?,sort?,page?,pageSize?}
+    //   -> {listings:[{id,sellerName,itemId,descriptionId,count,unitPrice,total,createdAt,customModelData?,nameParts?}],page,pageSize}
+    //   末两个可选字段是 NBT 变体件的差异, 见 WebUiItemJson
     // ============================================================
 
     static final WebUiAction LIST = (sender, payload) -> {
@@ -172,6 +176,17 @@ public final class MarketActions {
         // total = unitPrice * count (买入将付的总价, 前端直接展示, 不暴露 fee 计算)。
         o.addProperty("total", r.unitPrice() * (long) r.count());
         o.addProperty("createdAt", r.createdAt());
+        /*
+         * 反序列化托管的整个 ItemStack, 只为补"同 id 不同实例"的差异 (nameParts / customModelData)。
+         *
+         * 上面的 itemId + descriptionId 是 Item 级的, 对靠 NBT 区分变体的物品不够 —— 枪匠零件的 195 种变体
+         * 全部注册在同一个 miningdim:gunsmith_part 之下, 不补这一步, 市场里它们是同名同图标的 195 行。
+         *
+         * 代价是每行一次 NbtIo.read。可接受: 单页上限 100 行, 且这条 action 本来就要走一次 SQLite 查询。
+         * 真成为热点时该做的是在 listings 表里加两列冗余字段, 而不是让前端拿不到变体信息。
+         */
+        ItemStack escrow = MarketEngine.deserializeStack(r.itemNbt());
+        WebUiItemJson.appendVariant(o, escrow);
         return o;
     }
 

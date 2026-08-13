@@ -12,7 +12,7 @@ import {
   LoadingBlock,
   Panel,
 } from '@/components/kit'
-import { useItemNames } from '../../lib/i18n'
+import { useItemDisplayNames } from '../../lib/i18n'
 import type { MarketListing } from '../../lib/types'
 import { callMock, useMockAction } from '../../mock'
 
@@ -54,8 +54,7 @@ export function MyListingsPage(): ReactElement {
   const [cancelError, setCancelError] = useState<Error | null>(null)
 
   const listings = listingsQuery.status === 'ready' ? listingsQuery.data.listings : []
-  const descriptionIds = Array.from(new Set(listings.map((listing) => listing.descriptionId)))
-  const names = useItemNames(descriptionIds)
+  const nameOf = useItemDisplayNames(listings)
 
   function handleConfirmCancel(): void {
     if (cancelTarget === null) {
@@ -82,15 +81,15 @@ export function MyListingsPage(): ReactElement {
       key: 'item',
       header: '物品',
       render: (row) => {
-        const label = names[row.descriptionId] ?? row.descriptionId
+        const label = nameOf(row)
         return (
           <div className="flex items-center gap-2">
-            <ItemIcon itemId={row.itemId} label={label} scale={1} />
+            <ItemIcon customModelData={row.customModelData} itemId={row.itemId} label={label} scale={1} />
             <span className="text-foreground text-sm">{label}</span>
           </div>
         )
       },
-      sortValue: (row) => names[row.descriptionId] ?? row.descriptionId,
+      sortValue: (row) => nameOf(row),
     },
     {
       key: 'count',
@@ -172,7 +171,7 @@ export function MyListingsPage(): ReactElement {
         message={
           cancelTarget === null
             ? ''
-            : `撤下后 ${names[cancelTarget.descriptionId] ?? cancelTarget.descriptionId} x${cancelTarget.count} 将退回背包, 已收取的挂单手续费不予退还。`
+            : `撤下后 ${nameOf(cancelTarget)} x${cancelTarget.count} 将退回背包, 已收取的挂单手续费不予退还。`
         }
         onConfirm={handleConfirmCancel}
         onOpenChange={(next) => {

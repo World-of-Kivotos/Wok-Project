@@ -19,7 +19,7 @@ import {
   TextInput,
 } from '@/components/kit'
 import type { DropdownOption, FeedbackTone, ItemSlotGridEntry, Tone } from '@/components/kit'
-import { useItemNames } from '../lib/i18n'
+import { useItemDisplayNames } from '../lib/i18n'
 import type { PlayerInventoryItem } from '../lib/types'
 import { callMock, useMockAction, useMockWorld } from '../mock'
 import type { PlannedMarriageStatus, PlannedProposal } from '../mock'
@@ -83,19 +83,21 @@ function formatDuration(remainingMs: number): string {
 }
 
 /** 同一条回退链在网格标签 (buildSharedSlots) 与详情面板两处都要用到, 抽出来避免两处各写一遍且悄悄漂移。 */
-function resolveSharedItemName(item: PlayerInventoryItem, names: Record<string, string>): string {
+function resolveSharedItemName(
+  item: PlayerInventoryItem,
+  nameOf: (item: PlayerInventoryItem) => string,
+): string {
   if (item.displayName !== undefined) {
     return item.displayName
   }
-  const translated = names[item.descriptionId]
-  return translated === undefined ? item.descriptionId : translated
+  return nameOf(item)
 }
 
 /** 格子在网格里的身份就是它的下标, 故这里按 slot 号逐位填充, 空位留空对象而不是跳过。 */
 function buildSharedSlots(
   items: readonly PlayerInventoryItem[],
   totalSlots: number,
-  names: Record<string, string>,
+  nameOf: (item: PlayerInventoryItem) => string,
 ): ItemSlotGridEntry[] {
   return Array.from({ length: totalSlots }, (_unused, index) => {
     const item = items.find((entry) => entry.slot === index)
@@ -104,8 +106,10 @@ function buildSharedSlots(
     }
     return {
       itemId: item.itemId,
+      // 不带这个键的话, 195 种枪匠零件在共享背包网格里是同一张图。
+      customModelData: item.customModelData,
       count: item.count,
-      label: resolveSharedItemName(item, names),
+      label: resolveSharedItemName(item, nameOf),
     }
   })
 }
@@ -167,9 +171,9 @@ export function MarriagePage(): ReactElement {
     }
   }, [teleportPhase, teleportTick, teleportCooldownUntil])
 
-  const sharedDescriptionIds =
-    sharedQuery.status === 'ready' ? sharedQuery.data.items.map((item) => item.descriptionId) : []
-  const sharedNames = useItemNames(sharedDescriptionIds)
+  const sharedNameOf = useItemDisplayNames(
+    sharedQuery.status === 'ready' ? sharedQuery.data.items : [],
+  )
 
   async function handleBuyRing(): Promise<void> {
     setBusyAction('ring')
@@ -278,7 +282,7 @@ export function MarriagePage(): ReactElement {
   const canTeleport = data.status === 'married' && data.spouseOnline
 
   const sharedSlots =
-    sharedQuery.status === 'ready' ? buildSharedSlots(sharedQuery.data.items, sharedQuery.data.slots, sharedNames) : []
+    sharedQuery.status === 'ready' ? buildSharedSlots(sharedQuery.data.items, sharedQuery.data.slots, sharedNameOf) : []
   const selectedSharedItem =
     sharedQuery.status === 'ready' && selectedSharedSlot !== undefined
       ? sharedQuery.data.items.find((item) => item.slot === selectedSharedSlot)
@@ -563,10 +567,14 @@ export function MarriagePage(): ReactElement {
                   <p className="text-muted-foreground text-sm">点击一个格子查看物品详情</p>
                 ) : (
                   <div className="flex items-center gap-3">
-                    <ItemIcon itemId={selectedSharedItem.itemId} scale={2} />
+                    <ItemIcon
+                      customModelData={selectedSharedItem.customModelData}
+                      itemId={selectedSharedItem.itemId}
+                      scale={2}
+                    />
                     <div className="flex flex-col">
                       <span className="text-foreground text-sm">
-                        {resolveSharedItemName(selectedSharedItem, sharedNames)}
+                        {resolveSharedItemName(selectedSharedItem, sharedNameOf)}
                       </span>
                       <span className="text-muted-foreground text-xs">数量: {selectedSharedItem.count}</span>
                     </div>

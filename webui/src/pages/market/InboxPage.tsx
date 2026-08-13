@@ -11,7 +11,7 @@ import {
   Panel,
   Surface,
 } from '@/components/kit'
-import { useItemNames } from '../../lib/i18n'
+import { useItemDisplayNames } from '../../lib/i18n'
 import { getWorld, mutateWorld, useMockAction } from '../../mock'
 
 /**
@@ -65,8 +65,7 @@ export function InboxPage(): ReactElement {
   )
 
   const items = payoutQuery.status === 'ready' ? payoutQuery.data.items : []
-  const descriptionIds = Array.from(new Set(items.map((item) => item.descriptionId)))
-  const names = useItemNames(descriptionIds)
+  const nameOf = useItemDisplayNames(items)
 
   function handleClaim(): void {
     if (payoutQuery.status !== 'ready') {
@@ -129,9 +128,12 @@ export function InboxPage(): ReactElement {
                 {items.map((item, index) => (
                   <ItemSlot
                     count={item.count}
+                    // 待领货款里装的是别人买走的挂单实物, 必然出现枪匠零件这类变体件;
+                    // 不带这个键的话它们在格子里是同一张图。
+                    customModelData={item.customModelData}
                     itemId={item.itemId}
                     key={`${item.itemId}-${String(index)}`}
-                    label={names[item.descriptionId] ?? item.descriptionId}
+                    label={nameOf(item)}
                   />
                 ))}
               </div>

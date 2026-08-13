@@ -14,7 +14,7 @@ import {
   Surface,
   Tag,
 } from '@/components/kit'
-import { useItemNames } from '../../lib/i18n'
+import { useItemDisplayNames } from '../../lib/i18n'
 import type { PlayerInventoryItem } from '../../lib/types'
 import { callMock, refreshWalletAndInventory, useMockAction, useMockWorld } from '../../mock'
 
@@ -113,7 +113,7 @@ interface DenseSlot extends ItemSlotGridEntry {
 /** 稠密 36 槽表: 空槽也要有记录, ItemSlotGrid 靠数组下标 (而非 slot 号) 排布几何位置。 */
 function buildDenseSlots(
   items: readonly PlayerInventoryItem[] | null,
-  names: Record<string, string>,
+  nameOf: (item: PlayerInventoryItem) => string,
 ): DenseSlot[] {
   const bySlot = new Map<number, PlayerInventoryItem>()
   if (items !== null) {
@@ -126,12 +126,13 @@ function buildDenseSlots(
     if (item === undefined) {
       return { slot }
     }
-    const label = item.displayName ?? names[item.descriptionId]
     return {
       slot,
       itemId: item.itemId,
+      // 不带这个键的话, 195 种枪匠零件在背包网格里是同一张图。
+      customModelData: item.customModelData,
       count: item.count,
-      ...(label === undefined ? {} : { label }),
+      label: item.displayName ?? nameOf(item),
     }
   })
 }
@@ -179,10 +180,8 @@ export function SellPage(): ReactElement {
       })
   }, [inventoryItems])
 
-  const descriptionIds =
-    inventoryItems === null ? [] : Array.from(new Set(inventoryItems.map((item) => item.descriptionId)))
-  const names = useItemNames(descriptionIds)
-  const denseSlots = buildDenseSlots(inventoryItems, names)
+  const nameOf = useItemDisplayNames(inventoryItems === null ? [] : inventoryItems)
+  const denseSlots = buildDenseSlots(inventoryItems, nameOf)
   const selectedStack = inventoryItems?.find((item) => item.slot === selectedSlot) ?? null
 
   const itemQueryPayload = { itemId: selectedStack === null ? '' : selectedStack.itemId }
@@ -255,9 +254,7 @@ export function SellPage(): ReactElement {
       ? null
       : estimateListingFee(baseValueQuery.data.v0, unitPrice, count)
   const selectedItemLabel =
-    selectedStack === null
-      ? ''
-      : (selectedStack.displayName ?? names[selectedStack.descriptionId] ?? selectedStack.descriptionId)
+    selectedStack === null ? '' : (selectedStack.displayName ?? nameOf(selectedStack))
 
   return (
     <div className="grid grid-cols-2 gap-4">
@@ -299,7 +296,12 @@ export function SellPage(): ReactElement {
         ) : (
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-3">
-              <ItemIcon itemId={selectedStack.itemId} label={selectedItemLabel} scale={2} />
+              <ItemIcon
+                customModelData={selectedStack.customModelData}
+                itemId={selectedStack.itemId}
+                label={selectedItemLabel}
+                scale={2}
+              />
               <div className="flex flex-col">
                 <span className="text-foreground text-sm">{selectedItemLabel}</span>
                 <span className="text-muted-foreground text-xs">

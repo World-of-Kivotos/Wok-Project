@@ -33,7 +33,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useItemNames } from '../../lib/i18n'
+import { useItemDisplayNames, useItemNames } from '../../lib/i18n'
 import type {
   CategoryNode,
   MarketBaseValueResult,
@@ -121,8 +121,11 @@ function toMarketSort(value: string): MarketSort {
 }
 
 /**
+ * 分类叶子 label (翻译键) 的显示名。挂单行不走这条 —— 它们可能是 NBT 变体件, 名字由 useItemDisplayNames
+ * 按 nameParts 拼, 而分类叶子是 Item 级的, 只有一个键。
+ *
  * useItemNames 对每个入参键都会给值 (未解析出中文名时退回键本身), 故这里的 undefined 只可能是
- * "这个 descriptionId 压根没进过入参数组"。退回键本身而不是显示空白, 让缺口在界面上看得见。
+ * "这个键压根没进过入参数组"。退回键本身而不是显示空白, 让缺口在界面上看得见。
  */
 function displayName(names: Record<string, string>, descriptionId: string): string {
   const resolved = names[descriptionId]
@@ -437,7 +440,12 @@ function BuyDialog({ listing, itemName, ownedCount, onClose, onBought }: BuyDial
 
         <div className="flex flex-col gap-3 px-6 pb-4">
           <div className="flex items-center gap-2">
-            <ItemIcon itemId={listing.itemId} label={itemName} scale={1} />
+            <ItemIcon
+              customModelData={listing.customModelData}
+              itemId={listing.itemId}
+              label={itemName}
+              scale={1}
+            />
             <span className="min-w-0 truncate text-foreground text-sm">{itemName}</span>
           </div>
 
@@ -612,7 +620,7 @@ export function BrowsePage(): ReactElement {
 
   const pageListings: readonly MarketListing[] =
     listQuery.status === 'ready' ? listQuery.data.listings : []
-  const names = useItemNames(pageListings.map((listing) => listing.descriptionId))
+  const nameOf = useItemDisplayNames(pageListings)
 
   const keyword = localFilter.trim().toLowerCase()
   const rows =
@@ -621,7 +629,7 @@ export function BrowsePage(): ReactElement {
       : pageListings.filter(
           (listing) =>
             listing.itemId.toLowerCase().includes(keyword) ||
-            displayName(names, listing.descriptionId).toLowerCase().includes(keyword) ||
+            nameOf(listing).toLowerCase().includes(keyword) ||
             listing.sellerName.toLowerCase().includes(keyword),
         )
 
@@ -650,8 +658,13 @@ export function BrowsePage(): ReactElement {
       header: '物品',
       render: (row) => (
         <span className="flex items-center gap-2">
-          <ItemIcon itemId={row.itemId} label={displayName(names, row.descriptionId)} scale={1} />
-          <span className="text-foreground text-sm">{displayName(names, row.descriptionId)}</span>
+          <ItemIcon
+            customModelData={row.customModelData}
+            itemId={row.itemId}
+            label={nameOf(row)}
+            scale={1}
+          />
+          <span className="text-foreground text-sm">{nameOf(row)}</span>
         </span>
       ),
     },
@@ -947,7 +960,7 @@ export function BrowsePage(): ReactElement {
       {selected === null ? null : (
         <BuyDialog
           listing={selected}
-          itemName={displayName(names, selected.descriptionId)}
+          itemName={nameOf(selected)}
           ownedCount={ownedCountOf(selected.itemId)}
           onClose={() => {
             setSelected(null)

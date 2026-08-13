@@ -22,6 +22,11 @@ const SLOT_SIZE_CLASS: Record<ItemSlotScale, string> = {
 export interface ItemSlotProps {
   /** 缺省即空格子, 仍占位并画边框。 */
   itemId?: string | undefined
+  /**
+   * NBT 变体件的贴图选择码, 由服务端随物品下发。缺省即普通物品。
+   * 不传的话枪匠零件那 195 种变体会画成同一张图, 见 ItemIcon 的同名 prop。
+   */
+  customModelData?: number | undefined
   /** 堆叠数。1 或缺省时不渲染角标 —— MC 的惯例是单个物品不显示数字。 */
   count?: number | undefined
   /** 物品显示名, 供读屏与悬停提示。 */
@@ -37,6 +42,7 @@ export interface ItemSlotProps {
 
 export function ItemSlot({
   itemId,
+  customModelData,
   count,
   label,
   selected = false,
@@ -65,7 +71,14 @@ export function ItemSlot({
       title={label ?? itemId}
       type="button"
     >
-      {itemId === undefined ? null : <ItemIcon itemId={itemId} label={label ?? itemId} scale={scale} />}
+      {itemId === undefined ? null : (
+        <ItemIcon
+          customModelData={customModelData}
+          itemId={itemId}
+          label={label ?? itemId}
+          scale={scale}
+        />
+      )}
       {count === undefined || count <= 1 ? null : (
         <span className="pointer-events-none absolute right-0.5 bottom-0.5 rounded-sm bg-background/80 px-1 font-medium text-[0.625rem] text-foreground tabular-nums leading-tight">
           {formatAmount(count)}
@@ -81,6 +94,7 @@ export function ItemSlot({
 
 export interface ItemSlotGridEntry {
   itemId?: string | undefined
+  customModelData?: number | undefined
   count?: number | undefined
   label?: string | undefined
   disabled?: boolean | undefined

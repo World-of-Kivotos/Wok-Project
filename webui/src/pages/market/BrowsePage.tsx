@@ -933,9 +933,16 @@ export function BrowsePage(): ReactElement {
         </div>
       </div>
 
-      {/* 回执条的挂载点由消费页面决定 (它本身不抢视口); z-40 压在对话框的 z-50 之下,
-          购买失败的回执因此留在对话框内部, 不会被浮到对话框上面去。 */}
-      <div className="fixed right-4 bottom-4 z-40 flex w-96 flex-col gap-2">
+      {/*
+        回执条的挂载点由消费页面决定 (它本身不抢视口); z-40 压在对话框的 z-50 之下,
+        购买失败的回执因此留在对话框内部, 不会被浮到对话框上面去。
+
+        容器让出指针事件 (子元素各自要回来, 见 FeedbackAlert): 这块 fixed 区域按最多几条回执的高度撑着,
+        条与条之间的空隙、以及某条正在退场时它腾出的位置, 都会压在下面的挂单表格与翻页按钮上。
+        真页实测过: 只给退场中的 alert 加 pointer-events-none 不够 —— elementFromPoint 命中的是这个容器,
+        点击照样到不了底下的单元格, 症状与没修一模一样。
+      */}
+      <div className="pointer-events-none fixed right-4 bottom-4 z-40 flex w-96 flex-col gap-2">
         {/* entry.id 当 key: 每条各自挂载, FeedbackAlert 的 4 秒倒计时因此各算各的。 */}
         {toasts.map((entry) => (
           <FeedbackAlert

@@ -79,7 +79,20 @@ export function SettingsPage(): ReactElement {
 
   const [muteToasts, setMuteToasts] = useState<boolean>(readStoredMuteToasts)
   const [language, setLanguage] = useState<string>(UI_LANGUAGE_VALUE)
-  const [preview, setPreview] = useState<PreviewBanner>(null)
+  const [preview, setPreviewValue] = useState<PreviewBanner>(null)
+  /*
+   * 回执的实例序号, 只用来当 React key。与 AdminPage / CasePage / MarriagePage 三处同一处理。
+   *
+   * autoDismissMs={0} 只关掉了组件自带的倒计时, **没有**关掉手动点关闭那条退场路径: 点了 X 之后
+   * 组件仍会进 leaving 态并排一个约 140ms 的退场定时器。若在那 140ms 内再点一次"预览"且免打扰开关
+   * 没变 (文案字节完全相同), 组件从 props 上看不出这是新的一条, 旧定时器照常把它关掉 ——
+   * 玩家点了预览却什么都没出现。序号一变 React 就重建实例, 旧定时器随卸载一起清掉。
+   */
+  const previewSeqRef = useRef(0)
+  const setPreview = (next: PreviewBanner): void => {
+    previewSeqRef.current += 1
+    setPreviewValue(next)
+  }
 
   const previewTimeoutRef = useRef<number | null>(null)
 
@@ -140,6 +153,7 @@ export function SettingsPage(): ReactElement {
       {preview === null ? null : (
         <FeedbackAlert
           autoDismissMs={0}
+          key={previewSeqRef.current}
           message={preview.message}
           onDismiss={() => {
             setPreview(null)

@@ -1,6 +1,6 @@
 import { ArrowUpIcon, InfoIcon, RefreshCwIcon, SearchIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactElement, ReactNode } from 'react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   Button,
   ConfirmDangerDialog,
@@ -1038,7 +1038,19 @@ export function AdminPage(): ReactElement {
   const world = useMockWorld()
   const [tab, setTab] = useState<AdminTabId>('economy')
   const [target, setTarget] = useState(world.player.name)
-  const [toast, setToast] = useState<PanelToast | null>(null)
+  const [toast, setToastValue] = useState<PanelToast | null>(null)
+  /*
+   * 回执的实例序号, 只用来当 React key。
+   *
+   * 退场动画那 140ms 里若被一条文案完全相同的新回执顶替, 组件从 props 上看不出这是新的一条,
+   * 上一次排期的退场定时器会照常把它关掉 —— 玩家做了操作却什么都没看到。序号一变 React 就重建实例,
+   * 旧实例的定时器随卸载一起清掉。
+   */
+  const toastSeqRef = useRef(0)
+  const setToast = (next: PanelToast | null): void => {
+    toastSeqRef.current += 1
+    setToastValue(next)
+  }
 
   const playerOptions: readonly DropdownOption<string>[] = [
     { value: world.player.name, label: `${world.player.name} (我自己)` },
@@ -1129,6 +1141,7 @@ export function AdminPage(): ReactElement {
 
       {toast === null ? null : (
         <FeedbackAlert
+          key={toastSeqRef.current}
           onDismiss={() => {
             setToast(null)
           }}

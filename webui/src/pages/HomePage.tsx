@@ -816,10 +816,20 @@ function PanelTile({ panel, current, onOpen }: PanelTileProps): ReactElement {
       ? 'border-border bg-card text-foreground hover:border-ring hover:bg-accent'
       : 'border-border bg-muted/40 text-muted-foreground opacity-64'
 
+  /*
+   * 按压反馈只缩 3%, 不配悬停缩放。快捷入口是每次开平板都会看到的第一屏, 十个磁贴同屏,
+   * 悬停缩放会让"鼠标扫过去"这种无意图的动作也满屏起伏 —— 这一屏要的是安静, 不是活泼。
+   *
+   * not-disabled 同时挡掉了两种点不动的磁贴: 锁着的 (availability.usable 为假) 与当前所在面板
+   * (current), 二者都已合进上面的 disabled。给点不动的东西按压反馈, 等于骗用户它响应了。
+   *
+   * 图标同缩不做反向补偿的理由与 kit/ItemSlot 一致 (最近邻取样下是像素列宽窄不均而非模糊,
+   * 松手即回到整数倍; 补偿反而引入一个与外框耦合、漏改即永久失准的倒数)。
+   */
   const tile = (
     <button
       aria-current={current ? 'page' : undefined}
-      className={`flex w-full flex-col items-center gap-1.5 rounded-lg border px-1.5 py-2.5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring ${stateClass}`}
+      className={`flex w-full flex-col items-center gap-1.5 rounded-lg border px-1.5 py-2.5 transition-[color,background-color,border-color,scale] duration-(--duration-press) ease-out-soft outline-none focus-visible:ring-2 focus-visible:ring-ring not-disabled:active:scale-97 motion-reduce:not-disabled:active:scale-99 ${stateClass}`}
       disabled={disabled}
       onClick={() => {
         onOpen(panel.route)

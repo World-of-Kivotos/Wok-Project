@@ -1,6 +1,6 @@
 import { CheckIcon, CoinsIcon, HeartIcon, UsersIcon, XIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Button,
   ConfirmDangerDialog,
@@ -119,7 +119,16 @@ export function MarriagePage(): ReactElement {
   const stateQuery = useMockAction('marriage.state', {})
   const sharedQuery = useMockAction('marriage.sharedInv', {})
 
-  const [banner, setBanner] = useState<Banner>(null)
+  const [banner, setBannerValue] = useState<Banner>(null)
+  /*
+   * 回执的实例序号, 只用来当 React key。理由见 kit/Feedback.tsx 的退场闸门:
+   * 退场那 140ms 内被同一句文案顶替时, 组件分辨不出这是新的一条, 旧的退场定时器会把它吞掉。
+   */
+  const bannerSeqRef = useRef(0)
+  const setBanner = (next: Banner): void => {
+    bannerSeqRef.current += 1
+    setBannerValue(next)
+  }
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [divorceConfirmOpen, setDivorceConfirmOpen] = useState(false)
   const [selectedSharedSlot, setSelectedSharedSlot] = useState<number | undefined>(undefined)
@@ -306,6 +315,7 @@ export function MarriagePage(): ReactElement {
     <div className="flex flex-col gap-4">
       {banner === null ? null : (
         <FeedbackAlert
+          key={bannerSeqRef.current}
           message={banner.message}
           onDismiss={() => {
             setBanner(null)

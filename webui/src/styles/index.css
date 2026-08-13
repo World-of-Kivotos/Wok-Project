@@ -194,6 +194,75 @@
 }
 
 /*
+ * 动效词汇层 —— 全站动效的唯一取值来源。
+ *
+ * 为什么要单独有这一层: 动效分散在多个互不相邻的文件里 (按压反馈、面板展开、开箱条带、列表入场),
+ * 每处各写各的 cubic-bezier 与毫秒数, 结果必然是同一类动作在不同页面手感不一致 —— 而且这种漂移
+ * 没有任何工具会报错, 只能靠人眼在两个页面之间来回切才发现。曲线与时长收成令牌后, "入场是什么手感"
+ * 变成一次决策而不是 N 次抄写, 调参时也只改这里一处。
+ *
+ * 为什么不能用 @starting-style 做入场前状态: 渲染目标是 MCEF 内嵌的 Chromium 116,
+ * 而 @starting-style 至规则与 transition-behavior: allow-discrete 都是 Chrome 117 才落地的。
+ * 在 116 上它们不是降级而是**整段规则被丢弃且不报错**, 表现为"动效莫名其妙不生效", 排查成本极高。
+ * 需要入场前状态时走 Base UI 的 data-starting-style 属性变体 —— 那是 JS 每帧打的 data 属性,
+ * 与同名的 CSS 至规则毫无关系, 在 116 上正常工作 (本项目 sheet/toast/tooltip 已在用);
+ * 或者用一个挂载后翻转的 state/class。
+ *
+ * 为什么这三条缓动必须放在 @theme static 而不是上面那个 @theme inline 块里:
+ * Tailwind v4 默认只输出"被用到"的主题变量, 而 inline 会把令牌值直接内联进工具类, 令牌本身
+ * 因此永远无人引用, 被树摇掉。实测把 --ease-out-soft 放进 inline 块, 产物 :root 里查无此变量,
+ * 消费方写 var(--ease-out-soft) 拿到的是空值 —— 又一个静默失效。static 强制无条件输出该块变量,
+ * 于是 ease-out-soft 工具类与裸 var(--ease-out-soft) 两条消费路径同时成立。
+ * 注意 static 只作用于本块, 不会把 Tailwind 默认主题整个灌进产物 (实测产物仅 +180 字节)。
+ */
+@theme static {
+  /* 入场 / 展开 / 按压回弹。快起慢落, 末段长时间趋近, 停下来时没有"啪"的一下。 */
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* 退场。慢起快走 —— 元素要走的信息第一帧就给到, 后段迅速离场, 不占用户注意力。 */
+  --ease-in-quick: cubic-bezier(0.4, 0, 1, 1);
+
+  /* 开箱条带的长减速。比 out-soft 更极端的尾部拖尾, 服务于"看着它慢慢停在某一格"的悬念。 */
+  --ease-reel: cubic-bezier(0.12, 0.8, 0.2, 1);
+}
+
+/*
+ * 时长档位。刻意不进 @theme: Tailwind v4 没有 --duration-* 这个命名空间 (duration-* 工具类吃的是
+ * 裸数字), 放进去既不会生成工具类, 又占着一个未来版本可能被官方征用的名字。普通自定义属性最诚实。
+ *
+ * 单独开一个 :root 而不并进下面的主题块: 时长与亮暗档无关, 挂在 :root, .dark 上会让人误以为
+ * 换主题要跟着调时长, 也会诱使后来者在 .light 里再抄一份。
+ */
+:root {
+  --duration-press: 120ms;
+  --duration-enter: 180ms;
+  --duration-exit: 140ms;
+  --duration-expand: 200ms;
+  --duration-reel: 2200ms;
+  --duration-reel-settle: 160ms;
+}
+
+/*
+ * 减弱动效档。是"减弱"不是"归零": 时长全部归零会让状态切换变成跳变, 用户反而分不清界面是响应了
+ * 还是卡住了 —— 前庭敏感人群要躲的是持续、大幅、长时间的运动, 不是"有没有过渡"这件事本身。
+ * 因此这里保留可感知的短过渡, 只把最长的开箱条带 (2200ms 持续滚动, 全站最主要的诱发源) 砍到能
+ * 一眼看完的程度。
+ *
+ * 令牌层只能管时长。位移幅度、旋转、缩放倍率管不到, 消费方在自己的 reduce 分支里另行收窄
+ * translate 距离与 scale 幅度。
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-press: 80ms;
+    --duration-enter: 100ms;
+    --duration-exit: 90ms;
+    --duration-expand: 110ms;
+    --duration-reel: 400ms;
+    --duration-reel-settle: 100ms;
+  }
+}
+
+/*
  * 暗色档 —— 同时挂在无类的 :root 与 .dark 上。
  *
  * 无类那份不是冗余: initTheme() 在 React 渲染前给 <html> 加类, 但样式表比脚本先生效, 中间那一帧

@@ -54,4 +54,13 @@ public final class WebUiErrorCodes {
 
     /** openingId 已属于其它玩家或其它箱子。抛出点: {@code CaseOpeningService.validateIdentity}。 */
     public static final String OPENING_ID_CONFLICT = "OPENING_ID_CONFLICT";
+
+    /**
+     * 回执体积超出下行 {@code writeUtf} 上限, 已被替换成本条定长回执。
+     *
+     * 与本表其余码不同, 它的抛出点不在任何 action handler 内, 而是
+     * {@link WebUiServerDispatcher#respond} 这个 Gateway 收口 —— 因为撑爆回执的既可能是业务拒绝里回显的
+     * 客户端入参, 也可能是聚合类 action 自己长出来的成功回执, 收口是唯一能一次盖住两者的位置。
+     */
+    public static final String RESPONSE_TOO_LARGE = "RESPONSE_TOO_LARGE";
 }

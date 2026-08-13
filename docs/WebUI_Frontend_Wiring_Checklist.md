@@ -275,6 +275,11 @@ PixelLoading / PixelEmpty / PixelError / PixelConfirmDanger
 
 ## 五、落地顺序（DRAFT）
 
+> **本章已被替代（2026-08-13）**：批次划分改以 [WebUI_Wiring_Execution_Scope.md](WebUI_Wiring_Execution_Scope.md) 为准
+> —— 该文按模块拆 12 个分支，而非本章的线性四批（批 1 像素单点验证已作废，见文首修订说明）。
+> 本章保留作历史记录，其中批 0 的完成状态仍然有效。
+> 第三章接线总表与第七章决策项**不受影响，仍是真源**。
+
 严格分批，前一批不通过不进下一批 —— 与 PixelUI 规格第十一章"第 1 步未通过则不进入第 2 步"同纪律。
 
 **批 0 · 解阻塞（Java 侧，不外包）** —— 2026-08-12 已完成，见分支 `feat/webui-host-entry`，699/699 GameTest 全绿

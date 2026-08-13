@@ -297,7 +297,8 @@ export interface PlayerItemDetailResult {
    *  tarot        : 'tarot.quality:<quality().id()>' / 'tarot.upright' 或 'tarot.reversed' / 'tarot.bound'
    *  wine         : 'wine.quality:<readQuality().id()>' / 'wine.spoiled'
    *  nano         : 'nano.effect:<NanoEffect.id()>' (逐个) / 'nano.xpPending'
-   *  降级         : 'data.unreadable:gun' / 'data.unreadable:gunsmith_part' / 'data.unreadable:tarot'
+   *  降级         : 'data.unreadable:gun' / 'data.unreadable:gunsmith_part' / 'data.unreadable:tarot' /
+   *                 'data.unreadable:wine' (两种成因: 年份非有限, 或酒章在但品质 id 已被改名认不出)
    */
   tags: string[]
 }

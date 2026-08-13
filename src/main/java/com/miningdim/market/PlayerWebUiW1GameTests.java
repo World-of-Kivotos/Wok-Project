@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.stream.JsonReader;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.economy.AbuseGuard;
 import com.miningdim.economy.EconomyConstants;
@@ -46,6 +47,7 @@ import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.PlayerList;
@@ -54,6 +56,8 @@ import net.minecraft.world.item.Items;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.io.IOException;
+import java.io.StringReader;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -77,7 +81,9 @@ import java.util.function.Function;
  *  8. 普通物品也走同一套基础字段与变体字段 (改名物品发 displayName + nameParts, 没改过的两个变体键整键缺席);
  *  9. <b>v1 老枪不按 version 分档少发行、也不降级</b> —— 九行相对增减恒发全, 这是对抗复核 M3 的落点;
  * 10. 酒与纳米两类的数值行与标签按各自子系统的既有口径下发 (变质酒强度恒 0 / tick 不折算成秒);
- * 11. 七条 action 确实以契约里的名字注册进派发器 (直接调常量的用例发现不了名字打错)。
+ * 11. 酒的两条降级也守同一纪律 —— 非有限年份不许让回执长出 NaN/Infinity 字面量, 品质 id 解不出来不许静默落
+ *     plain, 两者都必须打 data.unreadable:wine;
+ * 12. 七条 action 确实以契约里的名字注册进派发器 (直接调常量的用例发现不了名字打错)。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -698,6 +704,99 @@ public final class PlayerWebUiW1GameTests {
         helper.succeed();
     }
 
+    /**
+     * 年份是裸的 {@code getDouble}, 手改存档 / {@code /data modify} 能往里写进 NaN 或 Infinity。Gson 序列化
+     * JsonPrimitive 时内部 setLenient(true), <b>不抛</b>, 而是原样吐出 {@code NaN} / {@code Infinity} 字面量 ——
+     * 那串东西回到前端 {@code JSON.parse} 直接失败, 症状是"某一格点开就报一句解析错误", 与真正的病因隔得极远。
+     *
+     * 故断言的不是"没崩", 而是 (1) 回执文本里没有那两个字面量 (2) 整条回执经得起<b>严格</b> JSON 解析
+     * (Gson 的 JsonParser 自身是宽松的, 拿它去验等于没验) (3) 走的是本类既有的降级纪律而不是别的兜底。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void itemDetailDegradesWineWithNonFiniteVintage(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        player.getInventory().clearContent();
+
+        ItemStack notANumber = new ItemStack(BrewerItems.itemFor(WineType.WHISKEY));
+        WineNbt.stamp(notANumber, WineQuality.HIGH, player.getUUID());
+        WineNbt.setVintage(notANumber, Double.NaN);
+        player.getInventory().setItem(0, notANumber);
+
+        ItemStack unbounded = new ItemStack(BrewerItems.itemFor(WineType.VODKA));
+        WineNbt.stamp(unbounded, WineQuality.LOW, player.getUUID());
+        WineNbt.setVintage(unbounded, Double.POSITIVE_INFINITY);
+        player.getInventory().setItem(1, unbounded);
+
+        // 前提校验: 两个脏值真的落进了酒章 (setVintage 的 Math.max 对 NaN/Inf 不过滤), 否则下面测的是别的东西。
+        helper.assertTrue(Double.isNaN(WineNbt.readVintage(notANumber)),
+                "前提校验: NaN 年份必须真的写进酒章, 实得 " + WineNbt.readVintage(notANumber));
+        helper.assertTrue(Double.isInfinite(WineNbt.readVintage(unbounded)),
+                "前提校验: 无穷年份必须真的写进酒章, 实得 " + WineNbt.readVintage(unbounded));
+
+        assertNonFiniteWineDegrades(helper, player, 0, "NaN");
+        assertNonFiniteWineDegrades(helper, player, 1, "Infinity");
+        helper.succeed();
+    }
+
+    private static void assertNonFiniteWineDegrades(GameTestHelper helper, ServerPlayer player,
+                                                    int slot, String literal) {
+        String raw = PlayerWebUiActions.ITEM_DETAIL.handle(player, slotPayload(slot));
+        helper.assertTrue(!raw.contains(literal),
+                "槽 " + slot + " 的回执里出现了 " + literal + " 字面量, 前端 JSON.parse 会直接失败: " + raw);
+        assertStrictlyParsable(helper, raw, "槽 " + slot + " 的 itemDetail 回执");
+
+        JsonObject detail = JsonParser.parseString(raw).getAsJsonObject();
+        helper.assertTrue("plain".equals(detail.get("kind").getAsString()),
+                "槽 " + slot + " 的年份非有限, 必须降级成 plain, 实得 " + detail.get("kind").getAsString());
+        helper.assertTrue(hasTag(detail, "data.unreadable:wine"),
+                "降级不是静默: 槽 " + slot + " 必须带 data.unreadable:wine, 实得 " + detail.getAsJsonArray("tags"));
+        // 先取值验完再写: 半行都不许漏进去, 否则前端会拿到一条只有 vintage 没有 strength 的残缺酒。
+        helper.assertTrue(detail.getAsJsonArray("attributes").isEmpty(),
+                "槽 " + slot + " 降级后不得留下任何数值行, 实得 " + detail.getAsJsonArray("attributes"));
+    }
+
+    /**
+     * 品质 id 被后续版本改名 / 删掉的老酒: 酒章根标签俱全, 但 {@code WineQuality.fromId} 认不出来。
+     *
+     * {@code WineNbt.isWine} 的判据正是"品质解得出来", 只靠它这瓶酒会悄无声息落进 plain 且不带任何标记, 玩家
+     * 只会以为它本来就没数据 —— 而枪 / 零件 / 塔罗三支都老老实实打了 {@code data.unreadable}。本条同时锁住反向:
+     * 真的没盖过酒章的同款物品不许被这条分支误标, 否则"读不出来"这个信号会被稀释成噪音。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void itemDetailMarksWineWithUnknownQualityIdAsUnreadable(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        player.getInventory().clearContent();
+
+        ItemStack legacy = new ItemStack(BrewerItems.itemFor(WineType.WHISKEY));
+        WineNbt.stamp(legacy, WineQuality.SUPERB, player.getUUID());
+        WineNbt.setVintage(legacy, 3.0D);
+        renameWineQualityId(legacy, WineQuality.SUPERB, "superb_renamed_next_version");
+        player.getInventory().setItem(0, legacy);
+
+        // 前提校验: 两个探针必须一真一假, 这才是"有酒章但解不出品质"那一格, 否则测的是别的场景。
+        helper.assertTrue(WineNbt.hasWineStamp(legacy),
+                "前提校验: 改完品质 id 之后酒章根标签必须还在");
+        helper.assertTrue(!WineNbt.isWine(legacy),
+                "前提校验: 未知品质 id 必须让 isWine 判否 (它的判据就是品质解得出来)");
+
+        JsonObject detail = handle(PlayerWebUiActions.ITEM_DETAIL, player, slotPayload(0));
+        helper.assertTrue("plain".equals(detail.get("kind").getAsString()),
+                "品质解不出来就没有可发的数值行, 大类落回 plain, 实得 " + detail.get("kind").getAsString());
+        helper.assertTrue(hasTag(detail, "data.unreadable:wine"),
+                "必须显式标注是这瓶酒读不出来, 而不是静默当普通物品, 实得 " + detail.getAsJsonArray("tags"));
+        helper.assertTrue(detail.getAsJsonArray("attributes").isEmpty(),
+                "品质解不出来就没有强度可算, 不许发数值行, 实得 " + detail.getAsJsonArray("attributes"));
+
+        // 反向: 没盖过酒章的同款空瓶只是普通物品, 不得被同一条分支标成"酒读不出来"。
+        player.getInventory().setItem(1, new ItemStack(BrewerItems.itemFor(WineType.WHISKEY)));
+        JsonObject unstamped = handle(PlayerWebUiActions.ITEM_DETAIL, player, slotPayload(1));
+        helper.assertTrue("plain".equals(unstamped.get("kind").getAsString())
+                        && unstamped.getAsJsonArray("tags").isEmpty(),
+                "没盖过酒章的同款物品是干净的 plain, 实得 " + unstamped);
+
+        helper.succeed();
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void itemDetailDescribesNanoArmorAndPlate(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -882,6 +981,50 @@ public final class PlayerWebUiW1GameTests {
             throw new IllegalStateException("unreachable: helper.fail already threw");
         }
         return row;
+    }
+
+    /**
+     * 把酒章里的品质 id 改成 {@code WineQuality} 认不出来的值 (等价于跨版本改名 / 删档的老酒)。
+     *
+     * 刻意不硬编码 {@code WineNbt} 的根标签名与品质键名 —— 它们是该类的包内私有常量, 测试照抄一份就等于立了
+     * 第二份真源, 改名之后测试还会绿。故按"stamp 刚写进去的那个品质 id 字符串"反查落点: 酒章里只有品质一项
+     * 是字符串, 年份是 double、酿造者是 UUID。
+     */
+    private static void renameWineQualityId(ItemStack wine, WineQuality stamped, String unknownId) {
+        CompoundTag tag = wine.getTag();
+        if (tag == null) {
+            throw new IllegalStateException("stamp 之后酒必须带 NBT, 无法构造未知品质的老酒");
+        }
+        for (String rootKey : tag.getAllKeys()) {
+            if (!tag.contains(rootKey, Tag.TAG_COMPOUND)) {
+                continue;
+            }
+            CompoundTag root = tag.getCompound(rootKey);
+            for (String key : root.getAllKeys()) {
+                if (root.contains(key, Tag.TAG_STRING) && stamped.id().equals(root.getString(key))) {
+                    root.putString(key, unknownId);
+                    return;
+                }
+            }
+        }
+        throw new IllegalStateException("酒章里找不到品质 id " + stamped.id() + ", 无法构造未知品质的老酒");
+    }
+
+    /**
+     * 按<b>严格</b> JSON 校验整条回执, 不合法就地判失败。
+     *
+     * 不能拿 {@code JsonParser.parseString} 当判据: 它内部强制 lenient, 会照单全收 {@code NaN} /
+     * {@code Infinity} 这类前端 {@code JSON.parse} 一定拒掉的字面量, 用它验等于没验。
+     */
+    private static void assertStrictlyParsable(GameTestHelper helper, String resultJson, String what) {
+        JsonReader strict = new JsonReader(new StringReader(resultJson));
+        strict.setLenient(false);
+        try {
+            strict.skipValue();
+        } catch (IOException malformed) {
+            helper.fail(what + " 不是严格合法 JSON (前端 JSON.parse 会失败): " + malformed.getMessage()
+                    + ", 原文 " + resultJson);
+        }
     }
 
     private static boolean hasTag(JsonObject detail, String tag) {

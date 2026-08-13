@@ -1009,7 +1009,9 @@ function mockItemAttributes(kind: ItemDetailKind, item: PlayerInventoryItem): It
      * coefficient 恒发一行, 后三行**只有非 BASIC 变体才有** (BASIC 的三个乘数恒为 1.0, 发三行 +0% 是噪音)。
      * 无条件发四行的写法会让照 mock 写的渲染层假定后三行恒存在, 接真服后基础零件上出现三个 undefined 行。
      */
-    const stats: ItemDetailStat[] = [{ key: 'coefficient', value: 0.87, unit: 'flat' }]
+    // 1.42 落在 GunsmithPartQuality.LEGENDARY 的 [1.36, 1.50] 内 —— 必须与下面 tags 里的 part.quality 自洽,
+    // 否则这份假数据在真服的 requireCoefficient 那里会被当场拒, 而 mock 存在的意义就是与真服同口径。
+    const stats: ItemDetailStat[] = [{ key: 'coefficient', value: 1.42, unit: 'flat' }]
     if (!mockPartIsBasic(item)) {
       stats.push(
         { key: 'fireRate', value: 0.06, unit: 'percent' },

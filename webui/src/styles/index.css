@@ -1,0 +1,416 @@
+@import 'tailwindcss';
+
+/*
+ * 设计令牌层。风格: 经典白到黑中性灰阶 + 单一可调强调色。
+ *
+ * 三条设计约束, 后续改色前先读:
+ *
+ * 1. 中性色一律零彩度 (oklch 的 C 位恒为 0)。带一点色相的"灰"在与游戏 3D 画面叠加时会和场景光染色
+ *    互相干扰, 表现为同一个面板在草原和洞穴里看着不是一个颜色。纯中性灰没有这个问题。
+ *
+ * 2. 强调色只开放**色相 --brand-h 与彩度 --brand-c 两个自由度, 亮度 L 锁死在各档常量上**。
+ *    设置页的取色器因此不可能调出"强调面上的字看不清"的组合 —— 对比度由锁死的 L 保证,
+ *    而不是靠用户自觉。--brand-c 可以拧到 0, 那就是纯灰阶, 整套界面依然成立。
+ *
+ * 3. --primary 是近白 (暗色档) / 近黑 (亮色档) 而非强调色。主按钮走高对比中性色是"经典白到黑"的
+ *    核心表达; 强调色只出现在焦点环、当前导航项、进度条填充、选中行这些**小面积**位置,
+ *    合起来才是"少量强调色"。需要强调色实心按钮时用 <Button variant="brand">, 别去改 primary。
+ */
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  /* Coss UI 组件直接引用的语义色, 由下方 :root / .light 的裸变量供给。 */
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning: var(--warning);
+  --color-success-foreground: var(--success-foreground);
+  --color-success: var(--success);
+  --color-info-foreground: var(--info-foreground);
+  --color-info: var(--info);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  /* shadcn/Coss 基础语义色。CLI 只装了上面几个扩展色, 这一组是本项目补齐的。 */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /*
+   * 强调色。与 --accent 是两回事, 别混:
+   *   --accent  = shadcn 语义里的"悬停/次选中面", 是一层浅灰, 始终中性;
+   *   --brand   = 本项目的可调强调色, 用户能改的就是它。
+   */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-muted: var(--brand-muted);
+  --color-brand-hover: var(--brand-hover);
+
+  /* 侧栏令牌: Coss 的 sidebar.tsx 自带一套独立命名, 缺了它整个侧栏没有背景。 */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* 圆角档位统一从 --radius 派生: 改一处即整套圆角同步, 不必逐个组件改类名。 */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+
+  /*
+   * 字体栈只用系统字体, 刻意不引 Web Font。渲染目标是 MCEF 内嵌 Chromium, 页面由局域网内的
+   * 服务端 serve; 外链字体 CDN 在国内网络与离线服上都会先卡住整屏文字再回退, 不值这个风险。
+   * 中文档位靠 Windows 自带的微软雅黑, 其余系统按栈顺序回退。
+   */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC',
+    'Hiragino Sans GB', sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', 'JetBrains Mono', Consolas, monospace;
+
+  --animate-skeleton: skeleton 2s -1s infinite linear;
+  --animate-caret-blink: 1s ease-out infinite caret-blink;
+  --animate-toast-success-odd: toast-success-odd 0.32s cubic-bezier(0.5, 1, 0.89, 1);
+  --animate-toast-success-even: toast-success-even 0.32s cubic-bezier(0.5, 1, 0.89, 1);
+  --animate-toast-error-odd: toast-error-odd 0.28s cubic-bezier(0.5, 1, 0.89, 1);
+  --animate-toast-error-even: toast-error-even 0.28s cubic-bezier(0.5, 1, 0.89, 1);
+
+  @keyframes skeleton {
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  @keyframes caret-blink {
+    0%,
+    70%,
+    to {
+      opacity: 1;
+    }
+
+    20%,
+    50% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes toast-success-odd {
+    0% {
+      scale: 1;
+    }
+
+    30% {
+      scale: 1.025;
+    }
+
+    60% {
+      scale: 0.99;
+    }
+
+    100% {
+      scale: 1;
+    }
+  }
+
+  @keyframes toast-error-odd {
+    0% {
+      translate: 0 0;
+    }
+
+    25% {
+      translate: -3px 0;
+    }
+
+    50% {
+      translate: 3px 0;
+    }
+
+    75% {
+      translate: -3px 0;
+    }
+
+    100% {
+      translate: 0 0;
+    }
+  }
+
+  @keyframes toast-success-even {
+    0% {
+      scale: 1;
+    }
+
+    30% {
+      scale: 1.025;
+    }
+
+    60% {
+      scale: 0.99;
+    }
+
+    100% {
+      scale: 1;
+    }
+  }
+
+  @keyframes toast-error-even {
+    0% {
+      translate: 0 0;
+    }
+
+    25% {
+      translate: -3px 0;
+    }
+
+    50% {
+      translate: 3px 0;
+    }
+
+    75% {
+      translate: -3px 0;
+    }
+
+    100% {
+      translate: 0 0;
+    }
+  }
+}
+
+/*
+ * 暗色档 —— 同时挂在无类的 :root 与 .dark 上。
+ *
+ * 无类那份不是冗余: initTheme() 在 React 渲染前给 <html> 加类, 但样式表比脚本先生效, 中间那一帧
+ * 根元素还没有类。默认档写在 :root 上, 这一帧就是暗色而不是白闪。
+ */
+:root,
+.dark {
+  color-scheme: dark;
+
+  --radius: 0.625rem;
+
+  /*
+   * 强调色的两个自由度。设置页的取色器只写这两个变量 (见 lib/brand.ts), 亮度是各档写死的常量。
+   * --brand-c 拧到 0 得到纯中性灰强调, 界面退化为完全无彩色, 这是允许且经过设计的终点。
+   */
+  --brand-h: 250;
+  --brand-c: 0.15;
+
+  --brand: oklch(0.64 var(--brand-c) var(--brand-h));
+  --brand-hover: oklch(0.7 var(--brand-c) var(--brand-h));
+  --brand-foreground: oklch(0.16 0 0);
+
+  /* 强调色的低透明度铺底 (选中行 / 当前导航项底色)。走 alpha 而非另调一支色, 才能压在任意灰阶层上。 */
+  --brand-muted: oklch(0.64 var(--brand-c) var(--brand-h) / 18%);
+
+  /* 中性灰阶: 页面底 -> 卡片 -> 浮层, 三层必须互相可辨, 否则层级只能靠边框撑。 */
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.975 0 0);
+  --card: oklch(0.185 0 0);
+  --card-foreground: oklch(0.975 0 0);
+  --popover: oklch(0.215 0 0);
+  --popover-foreground: oklch(0.975 0 0);
+
+  /* 主按钮 = 近白实心。这是"经典白到黑"的主要承载面。 */
+  --primary: oklch(0.975 0 0);
+  --primary-foreground: oklch(0.17 0 0);
+
+  --secondary: oklch(0.275 0 0);
+  --secondary-foreground: oklch(0.975 0 0);
+
+  --muted: oklch(0.24 0 0);
+  --muted-foreground: oklch(0.705 0 0);
+
+  /* shadcn 语义的 accent = 悬停面, 恒为中性灰; 可调强调色是上面的 --brand。 */
+  --accent: oklch(0.285 0 0);
+  --accent-foreground: oklch(0.975 0 0);
+
+  --border: oklch(0.32 0 0);
+  --input: oklch(0.32 0 0);
+  --ring: var(--brand);
+
+  /*
+   * 语义四色。彩度刻意压在 0.13-0.17, 比常见 UI 库低一档 —— 底色是纯中性灰, 高彩度语义色贴上去
+   * 会跳成整屏最抢眼的东西, 而它们表达的只是状态, 不该压过强调色。
+   */
+  --destructive: oklch(0.58 0.17 25);
+  --destructive-foreground: oklch(0.74 0.15 25);
+  --success: oklch(0.62 0.13 152);
+  --success-foreground: oklch(0.76 0.13 152);
+  --warning: oklch(0.72 0.14 78);
+  --warning-foreground: oklch(0.82 0.13 78);
+  --info: oklch(0.63 0.13 240);
+  --info-foreground: oklch(0.76 0.12 240);
+
+  --sidebar: oklch(0.175 0 0);
+  --sidebar-foreground: oklch(0.975 0 0);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--brand-foreground);
+  --sidebar-accent: oklch(0.26 0 0);
+  --sidebar-accent-foreground: oklch(0.975 0 0);
+  --sidebar-border: oklch(0.3 0 0);
+  --sidebar-ring: var(--brand);
+}
+
+/*
+ * 亮色档。不是暗色的机械反相: --primary 翻成近黑实心 (亮底上的经典 CTA), 强调色亮度整体压低一档,
+ * 否则暗色档那支 L=0.64 的强调色放到白底上会糊掉。
+ */
+.light {
+  color-scheme: light;
+
+  --brand: oklch(0.55 var(--brand-c) var(--brand-h));
+  --brand-hover: oklch(0.49 var(--brand-c) var(--brand-h));
+  --brand-foreground: oklch(0.99 0 0);
+  --brand-muted: oklch(0.55 var(--brand-c) var(--brand-h) / 14%);
+
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.16 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.16 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.16 0 0);
+
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+
+  --secondary: oklch(0.945 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+
+  --muted: oklch(0.955 0 0);
+  --muted-foreground: oklch(0.475 0 0);
+
+  --accent: oklch(0.94 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+
+  --border: oklch(0.9 0 0);
+  --input: oklch(0.9 0 0);
+  --ring: var(--brand);
+
+  --destructive: oklch(0.53 0.19 25);
+  --destructive-foreground: oklch(0.46 0.19 25);
+  --success: oklch(0.53 0.13 152);
+  --success-foreground: oklch(0.45 0.13 152);
+  --warning: oklch(0.62 0.14 70);
+  --warning-foreground: oklch(0.52 0.13 70);
+  --info: oklch(0.53 0.14 245);
+  --info-foreground: oklch(0.45 0.14 245);
+
+  --sidebar: oklch(0.97 0 0);
+  --sidebar-foreground: oklch(0.16 0 0);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--brand-foreground);
+  --sidebar-accent: oklch(0.93 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.885 0 0);
+  --sidebar-ring: var(--brand);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+    outline-color: color-mix(in oklab, var(--ring) 50%, transparent);
+  }
+
+  html {
+    font-family: var(--font-sans);
+    color: var(--foreground);
+    background-color: var(--background);
+  }
+
+  /*
+   * MC 物品贴图是 16x16 位图, 放大到 32/48px 必须关插值, 否则糊成一团。
+   * 只挂在 ItemIcon 用的这一类元素上, 不像素化整棵树 —— 界面本体现在是矢量圆角风。
+   */
+  [data-bitmap] {
+    image-rendering: pixelated;
+  }
+
+  /*
+   * 强调色取色器的渐变滑块 (设置页专用)。
+   *
+   * 为什么不用组件库的 Slider: 取色器的轨道本身就是信息 —— 用户要看着色相带选颜色, 而不是拖一根
+   * 灰条看别处的预览块变色。组件库的轨道底色写死在组件内部, 往里塞渐变要靠层层 arbitrary variant
+   * 命中它的内部 data-slot, 那种选择器一旦上游改动就静默失效 (表现是"轨道变回灰条"而不是报错)。
+   * 原生 range + 行内 background 是这一处唯一能保证渐变真出现的写法。
+   */
+  .gradient-slider {
+    width: 100%;
+    height: 1.5rem;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .gradient-slider::-webkit-slider-runnable-track {
+    height: 0.75rem;
+    background-image: var(--track-image);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+
+  .gradient-slider::-webkit-slider-thumb {
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-top: -0.25rem;
+    appearance: none;
+    background: var(--background);
+    border: 2px solid var(--foreground);
+    border-radius: 999px;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 40%);
+  }
+
+  .gradient-slider:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /*
+   * 自绘滚动条。原生滚动条在暗色档下是一根亮灰粗条, 在中性灰界面里是最抢眼的东西。
+   * 渲染目标单一 (只跑 MCEF 内嵌 Chromium), 故直接用 -webkit- 伪元素改造。
+   */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    background-clip: content-box;
+    border: 2px solid transparent;
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+
+  /* 两端箭头按钮是原生绘制的, 与自绘滑块风格对不上, 直接去掉。 */
+  ::-webkit-scrollbar-button {
+    display: none;
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}

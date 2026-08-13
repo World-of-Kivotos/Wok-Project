@@ -1,5 +1,6 @@
 package com.miningdim.economy;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -88,4 +89,24 @@ public interface EconomyLedger {
      * 直接落 AZURE 余额, 返回实际入账量。
      */
     long creditAzureDaily(UUID playerId, String faucetKey, long amount, long dailyCap, long todayStamp);
+
+    /**
+     * 只读地取当日 faucet 计数器的累计值, 一次查多个 key。返回数组与 faucetKeys 同序等长。
+     *
+     * 只读到什么程度: 不写、不清零、不翻日。入账路径 ({@link #recordFaucetGrant} /
+     * {@link #creditAzureDaily}) 跨日时会把计数器清零重写, 展示路径绝不能借它顺手翻日 —— 一次纯查询把玩家
+     * 的衰减档位洗掉是灾难性副作用。故此处改为: 存的 day_stamp 与 todayStamp 不符即当作 0 (昨天的累计不是
+     * 今天的), 那一行原样留在表里等入账路径去处理。
+     *
+     * 为什么一次查多个 key 而不是逐个调: 唯一调用点 (WebUI 的 player.profile) 跑在服务器主线程, 每多一次
+     * SELECT 就是多一次主线程 IO, 而它要的两个计数器 (信用点 faucet 与青辉石 faucet) 本就在同一张表同一
+     * kind 下, 只是 counter_key 不同。
+     *
+     * 各 key 的口径不同, 由调用方自己知道 (这是账本的记法, 不是本方法能统一的): 信用点 faucet 落的是衰减
+     * 主闸打折<b>之前</b>的毛额, 青辉石 faucet 走硬截断落的是实发额。
+     *
+     * @param faucetKeys 至少一个非空键 (空列表会拼出 {@code IN ()} 这种非法 SQL, 故直接拒)
+     * @return 与 faucetKeys 同序的当日累计值; 当日无记录返 0
+     */
+    long[] peekFaucetToday(UUID playerId, long todayStamp, List<String> faucetKeys);
 }

@@ -4,6 +4,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -65,6 +66,25 @@ public final class GunsmithGunStats {
             throw new IllegalArgumentException("Gunsmith root data has no stats compound");
         }
         return new GunsmithGunStats(root, root.getCompound(STATS_KEY));
+    }
+
+    /**
+     * 与 {@link #from(ItemStack)} 同源, 但把"这把枪的缓存数据读不出来"降级成 null 而不是抛。
+     *
+     * 存在的唯一理由是只读展示 (WebUI 的物品详情): {@link #validateCurrentStats()} 用 {@link Double#compare}
+     * 把 NBT 里缓存的 stats 与按<b>当前</b>平衡表重算的值精确比对, 于是每调一次平衡数值, 玩家背包里那批老枪
+     * 就会集体读不出来 —— 那是正常游玩产物, 不是畸形数据, 点开详情不该报错。
+     *
+     * 装配 / 冲压 / 伤害结算等写入与判定路径一律仍走 {@link #from(ItemStack)} 硬校验: 那里读不出来就该炸,
+     * 降级等于把错的 stats 落进新枪或按错的系数算伤害。
+     */
+    @Nullable
+    public static GunsmithGunStats tryFrom(ItemStack stack) {
+        try {
+            return from(stack);
+        } catch (IllegalArgumentException malformed) {
+            return null;
+        }
     }
 
     public String platform() {

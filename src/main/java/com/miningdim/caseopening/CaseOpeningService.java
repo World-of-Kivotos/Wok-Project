@@ -7,6 +7,7 @@ import com.miningdim.caseopening.store.CaseOpeningRow;
 import com.miningdim.caseopening.store.CaseOpeningStatus;
 import com.miningdim.caseopening.store.SkinAssetRow;
 import com.miningdim.webui.server.WebUiBusinessException;
+import com.miningdim.webui.server.WebUiErrorCodes;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import org.slf4j.Logger;
@@ -100,10 +101,11 @@ public final class CaseOpeningService {
     /** Creates or resumes the durable opening identified by openingId. Safe to replay across reconnects/restarts. */
     public synchronized OpenResult open(ServerPlayer player, UUID openingId, String caseId) {
         if (!enabled.getAsBoolean()) {
-            throw new WebUiBusinessException("CASE_DISABLED", "开箱系统当前已关闭", false);
+            throw new WebUiBusinessException(WebUiErrorCodes.CASE_DISABLED, "开箱系统当前已关闭", false);
         }
         if (!integrationAvailable()) {
-            throw new WebUiBusinessException("CASE_DISABLED", "TaCZ 或武器箱资源包未就绪，开箱系统不可用", false);
+            throw new WebUiBusinessException(WebUiErrorCodes.CASE_DISABLED,
+                    "TaCZ 或武器箱资源包未就绪，开箱系统不可用", false);
         }
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(openingId, "openingId");
@@ -123,7 +125,7 @@ public final class CaseOpeningService {
             enforceNewOpenRateLimit(player);
             Wallet available = wallet(player);
             if (available.credit() < requiredCredit || available.azure() < requiredAzure) {
-                throw new WebUiBusinessException("INSUFFICIENT_FUNDS", "余额不足：需要 " + requiredCredit
+                throw new WebUiBusinessException(WebUiErrorCodes.INSUFFICIENT_FUNDS, "余额不足：需要 " + requiredCredit
                         + " CREDIT 和 " + requiredAzure + " AZURE", false);
             }
             try {
@@ -185,11 +187,12 @@ public final class CaseOpeningService {
 
     public ApplyResult apply(ServerPlayer player, UUID assetId) {
         if (!integrationAvailable()) {
-            throw new WebUiBusinessException("TACZ_UNAVAILABLE", "TaCZ 或武器箱资源包未就绪，无法应用枪械皮肤", false);
+            throw new WebUiBusinessException(WebUiErrorCodes.TACZ_UNAVAILABLE,
+                    "TaCZ 或武器箱资源包未就绪，无法应用枪械皮肤", false);
         }
         SkinAssetRow asset = dao.findOwnedAsset(player.getUUID(), assetId);
         if (asset == null) {
-            throw new WebUiBusinessException("ASSET_NOT_OWNED", "你不拥有该皮肤资产: " + assetId, false);
+            throw new WebUiBusinessException(WebUiErrorCodes.ASSET_NOT_OWNED, "你不拥有该皮肤资产: " + assetId, false);
         }
         if (!isEconomySettled(asset)) {
             CaseOpeningRow source = requireOpening(asset.sourceOpeningId());
@@ -238,7 +241,8 @@ public final class CaseOpeningService {
         validateIdentity(row, player.getUUID(), row.caseId());
         if (row.status() == CaseOpeningStatus.REFUNDED) {
             reconcileRefunded(row);
-            throw new WebUiBusinessException("OPENING_REFUNDED", "该开箱事务已退款，请使用新的 openingId", false);
+            throw new WebUiBusinessException(WebUiErrorCodes.OPENING_REFUNDED,
+                    "该开箱事务已退款，请使用新的 openingId", false);
         }
         if (row.status() == CaseOpeningStatus.COMMITTED) {
             SkinAssetRow existing = requireAsset(row.assetId());
@@ -262,7 +266,8 @@ public final class CaseOpeningService {
         CaseEconomyOperations.State moneyState = economy.state(row.ownerId(), row.openingId());
         if (moneyState == CaseEconomyOperations.State.REFUNDED) {
             dao.markRefunded(row.openingId(), System.currentTimeMillis());
-            throw new WebUiBusinessException("OPENING_REFUNDED", "该开箱事务已退款，请使用新的 openingId", false);
+            throw new WebUiBusinessException(WebUiErrorCodes.OPENING_REFUNDED,
+                    "该开箱事务已退款，请使用新的 openingId", false);
         }
 
         // 扣钱与发资产落在同一个事务里。钱与开箱库合库后这才成为可能, 而这正是规格要求的"扣钥匙 + 扣箱子 +
@@ -440,7 +445,7 @@ public final class CaseOpeningService {
         long now = player.server.getTickCount();
         Long previous = lastNewOpenTick.get(player.getUUID());
         if (previous != null && now >= previous && now - previous < cooldown) {
-            throw new WebUiBusinessException("RATE_LIMITED", "开箱请求过快，请稍后再试", false);
+            throw new WebUiBusinessException(WebUiErrorCodes.RATE_LIMITED, "开箱请求过快，请稍后再试", false);
         }
         lastNewOpenTick.put(player.getUUID(), now);
     }
@@ -467,7 +472,7 @@ public final class CaseOpeningService {
 
     private static void validateIdentity(CaseOpeningRow row, UUID ownerId, String caseId) {
         if (!row.ownerId().equals(ownerId) || !row.caseId().equals(caseId)) {
-            throw new WebUiBusinessException("OPENING_ID_CONFLICT",
+            throw new WebUiBusinessException(WebUiErrorCodes.OPENING_ID_CONFLICT,
                     "openingId already belongs to a different player or case: " + row.openingId(), false);
         }
     }

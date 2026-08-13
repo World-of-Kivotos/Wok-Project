@@ -4,6 +4,7 @@ import com.miningdim.economy.EconomyConstants.HighValueOre;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -208,5 +209,17 @@ public final class EconomyService implements IEconomyService {
     public boolean isAfkFrozen(ServerPlayer player) {
         // 只读冻结态, 不触发评估 (评估由经济子系统降频 tick 主导, 见 AbuseGuard.evaluateAfk)。
         return stateResolver.apply(player.getUUID()).afkFrozen();
+    }
+
+    @Override
+    public long[] todayFaucetGross(ServerPlayer player, List<String> faucetKeys) {
+        // 日戳取 abuseGuard.currentPlayerDayStamp(), 与 grantDaily/grantAzureDaily 逐字同一口径 —— 换一套翻日
+        // 时钟的症状是展示值在翻日瞬间与入账侧差一整天的量, 而两边都"看起来对"。
+        return ledger.peekFaucetToday(player.getUUID(), abuseGuard.currentPlayerDayStamp(), faucetKeys);
+    }
+
+    @Override
+    public long currentDayStamp() {
+        return abuseGuard.currentPlayerDayStamp();
     }
 }

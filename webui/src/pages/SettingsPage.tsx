@@ -4,8 +4,10 @@ import {
   Button,
   Currency,
   Dropdown,
+  ErrorBlock,
   FeedbackAlert,
   type FeedbackTone,
+  LoadingBlock,
   Meter,
   Panel,
   Surface,
@@ -13,37 +15,42 @@ import {
   Tag,
   Toggle,
 } from '@/components/kit'
-import { BRAND_CHROMA_MAX, BRAND_PRESETS, useBrand } from '@/lib/brand'
+import { BRAND_CHROMA_MAX, BRAND_PRESETS, DEFAULT_BRAND, useBrand } from '@/lib/brand'
+import { callErrorText } from '@/lib/errorText'
 import type { Theme } from '@/lib/theme'
 import { useTheme } from '@/lib/theme'
+import type { PlayerPrefs } from '@/lib/types'
+import { callMock, useMockAction } from '@/mock'
 
 /*
  * 设置: UI 偏好。
  *
- * 契约缺口 (清单 A9 player.prefs, BACKEND 未落地): planned.ts 定义了 player.prefs.get/set 且
- * mock/handlers.ts 已实现 (走 world.prefs 内存态), 但架构决策 (清单第七章"我直接定的"第 2 条) 明确
- * 拍板不做这条 action —— 服务端 MiningPlayerData 没有 UI 偏好字段, 长期方案是 Chromium localStorage,
- * player.prefs 只是留个位置以防日后真出现跨机器诉求。因此本页刻意不调 callMock('player.prefs.*'),
- * 全部偏好直接读写 localStorage —— 这意味着**换一台机器/清一次浏览器缓存, 偏好就不跟随**,
- * 页面上必须标出这一点, 不能让玩家以为这是账号级设置。
+ * 偏好落在**账号**上 (player.prefs.get/set -> IMiningPlayerData -> player.dat), 不是这台电脑上 ——
+ * 换机器、清浏览器缓存都不丢。本页因此是全前端唯一同时持有两份状态的地方, 那套配合必须写清楚:
  *
- * 本页不发起任何远端/mock 请求, 因此没有可触发的加载态/错误态 —— 偏好要么已在 localStorage 里、
- * 要么取内置默认值, 不存在"取不到"的中间状态。
+ *   1. 启动时 theme.ts/brand.ts 的 initTheme/initBrand 跑在 React 渲染之前 (防首帧闪色), 那一刻远端
+ *      偏好还没到, 只能读 localStorage;
+ *   2. player.prefs.get 到达后, 以服务端的四项为准覆盖本地 (主题/色相当场生效), 并回写 localStorage ——
+ *      回写是给下一次启动的第 1 步用的, 让首帧就是账号里的那一档;
+ *   3. 用户改动时先本地立即生效 (拖滑块要跟手), 再 player.prefs.set 落账号; 被拒时把服务端的实际落盘值
+ *      重新对齐回来。
+ *
+ * 本批刻意不动 theme.ts / brand.ts 的对外 API: 那两个模块跑在全局初始化路径上, 让它们感知远端偏好等于
+ * 把一次网络往返塞进首帧渲染前。对齐只发生在本页。
+ *
+ * 只有四项跟随账号 (muteToasts / language / theme / brandHue)。**强调色彩度 (brand.chroma) 不在其中**,
+ * 它仍只存在这台电脑上 —— 页面上必须如实说明, 不能笼统写成"偏好已跟随账号"。
  *
  * 原"界面缩放"一节已随像素风一并撤除: 它调的是 --pixel-scale (9-slice 边框的整数放大倍率),
  * 而 9-slice 那套已整体封存到 webui/_pixel-archive/。留着它就是一个拖了没有任何效果的滑块。
  */
 
-const MUTE_STORAGE_KEY = 'wok-prefs-mute-toasts'
-const LANGUAGE_STORAGE_KEY = 'wok-prefs-language'
+/** 空入参; 提到模块级只是让"本页发几种请求"一眼可数。 */
+const EMPTY_PAYLOAD: Record<string, never> = {}
 
 /** 界面文案目前全部硬编码简体中文, 唯一能真实生效的语言只有这一档。 */
 const UI_LANGUAGE_VALUE = 'zh_cn'
 const LANGUAGE_OPTIONS = [{ label: '简体中文', value: UI_LANGUAGE_VALUE }] as const
-
-function readStoredMuteToasts(): boolean {
-  return localStorage.getItem(MUTE_STORAGE_KEY) === 'true'
-}
 
 const THEME_TABS: readonly { id: Theme; label: string }[] = [
   { id: 'dark', label: '暗色' },
@@ -73,12 +80,48 @@ function chromaTrackImage(hue: number): string {
   )} ${String(hue)}))`
 }
 
+/** 落账号的四项写完的等待时长。存在的唯一理由是色相滑块: 不合并的话拖一次会打出上百发 prefs.set。 */
+const SAVE_DEBOUNCE_MS = 400
+
+/**
+ * 账号偏好先读到手再渲染表单。
+ *
+ * 分成两层组件而不是在一个组件里判空: 表单的初值 (免打扰/语言) 必须来自服务端那一份, 而 useState 的
+ * 初值只在首次挂载时取一次 —— 若在同一个组件里"先渲染空表单、拿到回执再 setState 同步", 就要额外写一条
+ * 同步 effect, 而那条 effect 与用户正在拖的滑块必然打架。等数据到齐再挂载表单, 这类竞态根本不存在。
+ */
 export function SettingsPage(): ReactElement {
+  const prefs = useMockAction('player.prefs.get', EMPTY_PAYLOAD)
+
+  if (prefs.status === 'loading') {
+    return <LoadingBlock label="读取账号偏好" />
+  }
+  if (prefs.status === 'error') {
+    return (
+      <ErrorBlock
+        message={callErrorText(prefs.error)}
+        code="player.prefs.get"
+        onRetry={prefs.reload}
+      />
+    )
+  }
+  return <SettingsForm stored={prefs.data} />
+}
+
+interface SettingsFormProps {
+  /** 服务端当前落盘的四项。挂载即以它为准覆盖本地 localStorage 那一份。 */
+  stored: PlayerPrefs
+}
+
+type SaveState = { status: 'idle' } | { status: 'saving' } | { status: 'failed'; message: string }
+
+function SettingsForm({ stored }: SettingsFormProps): ReactElement {
   const { theme, toggle: toggleTheme } = useTheme()
   const { brand, setBrand, reset: resetBrand } = useBrand()
 
-  const [muteToasts, setMuteToasts] = useState<boolean>(readStoredMuteToasts)
-  const [language, setLanguage] = useState<string>(UI_LANGUAGE_VALUE)
+  const [muteToasts, setMuteToasts] = useState<boolean>(stored.muteToasts)
+  const [language, setLanguage] = useState<string>(stored.language)
+  const [saveState, setSaveState] = useState<SaveState>({ status: 'idle' })
   const [preview, setPreviewValue] = useState<PreviewBanner>(null)
   /*
    * 回执的实例序号, 只用来当 React key。与 AdminPage / CasePage / MarriagePage 三处同一处理。
@@ -95,23 +138,141 @@ export function SettingsPage(): ReactElement {
   }
 
   const previewTimeoutRef = useRef<number | null>(null)
-
+  const saveTimeoutRef = useRef<number | null>(null)
+  /** 防抖窗口里等着发的那一份完整偏好; 离场补发要靠它 (见下面的 cleanup)。发出后置空。 */
+  const pendingPrefsRef = useRef<PlayerPrefs | null>(null)
+  /*
+   * 主题与强调色的最新值。写请求跨越了防抖 400ms 加一次往返, 回执到达时函数闭包里的那两份可能已经过期
+   * (玩家在这期间又改了一次)。两处都要拿最新值:
+   *   - 对齐色相时要连彩度一起写回去 (setBrand 收的是整个对象), 用过期的那份会把刚拧好的彩度弹回旧值;
+   *   - 对齐主题靠"当前档与目标档比对"决定要不要翻转, 比错了就是翻反。
+   */
+  const brandRef = useRef(brand)
+  const themeRef = useRef(theme)
   useEffect(() => {
-    localStorage.setItem(MUTE_STORAGE_KEY, String(muteToasts))
-  }, [muteToasts])
+    brandRef.current = brand
+    themeRef.current = theme
+  }, [brand, theme])
 
+  /*
+   * 挂载时以账号那份为准覆盖本地: 主题与色相在 React 渲染前就已按 localStorage 生效 (initTheme/initBrand
+   * 防首帧闪色), 这里是那两个模块与账号偏好唯一的对齐点。useTheme/useBrand 各自会把新值写回 localStorage,
+   * 于是下一次启动的首帧直接就是账号里的那一档, 不再闪一下再改。
+   *
+   * 依赖表只放 stored 的两个字段: theme/brand 是被写入的目标, 放进依赖表会让"用户刚改完 -> effect 又按
+   * 账号值改回去"每次都发生一遍。stored 在本组件生命周期内不变 (变了就是重新挂载), 故本 effect 恰好只跑一次。
+   */
   useEffect(() => {
-    localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
-  }, [language])
+    if (stored.theme !== theme) {
+      toggleTheme()
+    }
+    if (stored.brandHue !== Math.round(brand.hue)) {
+      setBrand({ ...brand, hue: stored.brandHue })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上: theme/brand 是写入目标而非触发源
+  }, [stored.theme, stored.brandHue])
 
   useEffect(
     () => () => {
+      // 纯 UI 计时器, 没有要保住的副作用, 取消即可。
       if (previewTimeoutRef.current !== null) {
         window.clearTimeout(previewTimeoutRef.current)
+      }
+      /*
+       * 防抖窗口里离场要**补发**而不是丢弃。改完主题立刻点导航离开是极常见的操作序列, 而窗口有 400ms:
+       * 单纯取消等于"本地已生效、账号没存上" —— 正是本页要根治的那个症状被原地复现, 且这台机器上一切正常,
+       * 换台机器才发现设置没跟过来。
+       *
+       * 直接 callMock 而不走 savePrefs: 组件已在卸载, savePrefs 里的 setSaveState 全是 no-op。请求本身
+       * 不依赖组件存活, 照样能走完。
+       */
+      if (saveTimeoutRef.current !== null) {
+        window.clearTimeout(saveTimeoutRef.current)
+        const pending = pendingPrefsRef.current
+        pendingPrefsRef.current = null
+        if (pending !== null) {
+          callMock('player.prefs.set', pending).catch((thrown: unknown) => {
+            // 卸载后无处呈现失败, 但不能静默: 下次进设置页会以账号那份为准对齐, 玩家只会看到"我改的没生效"
+            // 而不知道为什么, 控制台这条是唯一线索。
+            console.warn('[settings] 离场补发 player.prefs.set 失败', thrown)
+          })
+        }
       }
     },
     [],
   )
+
+  /**
+   * 把一份完整偏好落到账号。
+   *
+   * 整份提交而不是改哪项发哪项: 契约就是整份覆盖 (部分更新会把"清空某项"与"不动某项"混在一起),
+   * 而本页本来就持有完整的四项, 组一份是零成本。
+   *
+   * 失败不回滚本地: 玩家刚拧的色相被服务端一句拒绝弹回去, 比"改动生效了但没存上"更让人摸不着头脑。
+   * 这里只把失败明说出来 (下面那条 danger 横幅), 由玩家决定是改回去还是重试。
+   */
+  function savePrefs(next: PlayerPrefs): void {
+    setSaveState({ status: 'saving' })
+    callMock('player.prefs.set', next)
+      .then((persisted) => {
+        setSaveState({ status: 'idle' })
+        /*
+         * 回执是**落盘后**的值。与提交值不同即说明服务端收窄了取值域 (或钳了某一项), 此时以服务端为准
+         * 当场改回来 —— 让"你以为设成了 A, 实际存的是 B"这种事在界面上立刻可见, 而不是下次开平板才发现。
+         */
+        if (persisted.theme !== next.theme) {
+          setTheme(persisted.theme)
+        }
+        if (persisted.brandHue !== next.brandHue) {
+          setBrandHue(persisted.brandHue)
+        }
+        if (persisted.muteToasts !== next.muteToasts) {
+          setMuteToasts(persisted.muteToasts)
+        }
+        if (persisted.language !== next.language) {
+          setLanguage(persisted.language)
+        }
+      })
+      .catch((thrown: unknown) => {
+        const error = thrown instanceof Error ? thrown : new Error(String(thrown))
+        setSaveState({ status: 'failed', message: callErrorText(error) })
+      })
+  }
+
+  /**
+   * 防抖: 色相滑块一次拖动会触发上百次 onChange, 不合并就是上百发写请求。
+   *
+   * 刻意不用 useCallback 包 savePrefs/scheduleSave: 它们要读当前的 theme/brand, 一旦被 [] 记住,
+   * 拿到的就是首帧的那份闭包 —— 症状是"改完主题再拖色相, 主题被写回旧值"。这两个函数不进任何依赖数组,
+   * 每次渲染重建的开销为零。
+   */
+  function scheduleSave(next: PlayerPrefs): void {
+    if (saveTimeoutRef.current !== null) {
+      window.clearTimeout(saveTimeoutRef.current)
+    }
+    pendingPrefsRef.current = next
+    saveTimeoutRef.current = window.setTimeout(() => {
+      saveTimeoutRef.current = null
+      pendingPrefsRef.current = null
+      savePrefs(next)
+    }, SAVE_DEBOUNCE_MS)
+  }
+
+  /** 当前四项的快照。每次提交都从它出发, 免得四个控件各自拼一份、漏掉刚改的那个。 */
+  function currentPrefs(): PlayerPrefs {
+    // brand.hue 允许是小数 (localStorage 里的历史值), 而契约要求 int, 故这里取整后再提交。
+    return { muteToasts, language, theme, brandHue: Math.round(brand.hue) }
+  }
+
+  function setTheme(next: Theme): void {
+    if (next !== themeRef.current) {
+      toggleTheme()
+    }
+  }
+
+  function setBrandHue(next: number): void {
+    setBrand({ ...brandRef.current, hue: next })
+  }
 
   function handlePreviewToast(): void {
     if (previewTimeoutRef.current !== null) {
@@ -132,18 +293,56 @@ export function SettingsPage(): ReactElement {
   }
 
   function handleThemeChange(id: string): void {
-    if ((id === 'dark' || id === 'light') && id !== theme) {
-      toggleTheme()
+    if ((id !== 'dark' && id !== 'light') || id === theme) {
+      return
     }
+    toggleTheme()
+    scheduleSave({ ...currentPrefs(), theme: id })
+  }
+
+  function handleMuteChange(next: boolean): void {
+    setMuteToasts(next)
+    scheduleSave({ ...currentPrefs(), muteToasts: next })
+  }
+
+  function handleLanguageChange(next: string): void {
+    setLanguage(next)
+    scheduleSave({ ...currentPrefs(), language: next })
+  }
+
+  function handleHueChange(next: number): void {
+    setBrandHue(next)
+    scheduleSave({ ...currentPrefs(), brandHue: Math.round(next) })
+  }
+
+  /** 恢复默认会同时改色相与彩度; 只有色相跟随账号, 故落账号的也只有它。 */
+  function handleResetBrand(): void {
+    resetBrand()
+    scheduleSave({ ...currentPrefs(), brandHue: DEFAULT_BRAND.hue })
   }
 
   return (
     <div className="flex flex-col gap-4">
-      <Surface tone="warning">
+      <Surface>
         <p className="text-foreground text-sm">
-          以下设置只保存在这台电脑上, 不跟随账号 —— 换一台电脑就会恢复默认值, 需要重新调整一次。
+          主题、强调色的色相、语言、免打扰跟随你的账号 —— 换一台电脑登录同一个账号, 这四项还在。
+          <br />
+          强调色的彩度 (颜色浓淡) 只保存在这台电脑上, 换机器会回到默认值。
         </p>
+        {saveState.status === 'saving' ? (
+          <p className="mt-1 text-muted-foreground text-xs">正在保存到账号…</p>
+        ) : null}
       </Surface>
+
+      {saveState.status === 'failed' ? (
+        <Surface tone="danger">
+          <p className="text-foreground text-sm">
+            改动没能存进账号: {saveState.message}
+            <br />
+            当前界面已按你的选择变了, 但换台电脑不会跟随; 再改一次即可重试。
+          </p>
+        </Surface>
+      ) : null}
 
       {/*
         autoDismissMs={0} 关掉组件自带的倒计时, 由本页 previewTimeoutRef 那套接管。
@@ -172,7 +371,7 @@ export function SettingsPage(): ReactElement {
 
       <Panel
         actions={
-          <Button onClick={resetBrand} size="sm" variant="outline">
+          <Button onClick={handleResetBrand} size="sm" variant="outline">
             恢复默认
           </Button>
         }
@@ -200,7 +399,7 @@ export function SettingsPage(): ReactElement {
               max={360}
               min={0}
               onChange={(event) => {
-                setBrand({ ...brand, hue: Number(event.target.value) })
+                handleHueChange(Number(event.target.value))
               }}
               step={1}
               style={{ '--track-image': hueTrackImage(brand.chroma) } as CSSProperties}
@@ -248,7 +447,7 @@ export function SettingsPage(): ReactElement {
                   }`}
                   key={preset.hue}
                   onClick={() => {
-                    setBrand({ ...brand, hue: preset.hue })
+                    handleHueChange(preset.hue)
                   }}
                   type="button"
                 >
@@ -305,7 +504,7 @@ export function SettingsPage(): ReactElement {
           <Toggle
             checked={muteToasts}
             label="关闭成交 / 求婚 / 击杀结算的浮层提示"
-            onChange={setMuteToasts}
+            onChange={handleMuteChange}
           />
           <p className="text-muted-foreground text-xs">
             该功能尚未开放, 开关暂时不影响真实提示; 可用右上角的按钮预览开启后的效果。
@@ -317,7 +516,7 @@ export function SettingsPage(): ReactElement {
         <div className="flex flex-col gap-3">
           <Dropdown
             className="max-w-64"
-            onChange={setLanguage}
+            onChange={handleLanguageChange}
             options={LANGUAGE_OPTIONS}
             value={language}
           />

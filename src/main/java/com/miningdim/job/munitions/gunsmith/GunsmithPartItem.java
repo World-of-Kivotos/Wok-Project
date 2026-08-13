@@ -106,9 +106,11 @@ public final class GunsmithPartItem extends Item {
     }
 
     @Nullable
-    private static PartData tryPartData(ItemStack stack) {
+    public static PartData tryPartData(ItemStack stack) {
         // 渲染线程 (getName/appendHoverText) 不能抛异常, 否则崩客户端; 服务端装配/冲压路径仍走
         // requirePartData 硬校验。裸/损坏 NBT 仅 op /give 可造。(审查 GS-2)
+        // 提为 public: WebUI 的物品详情同属只读展示路径, 它需要的正是"读不出来就降级"而不是把一件脏零件
+        // 变成点开即报错。严禁拿 isGunsmithPart 当探针 —— 那个方法内部就调 requirePartData, 它本身会抛。
         try {
             return requirePartData(stack);
         } catch (IllegalArgumentException invalid) {

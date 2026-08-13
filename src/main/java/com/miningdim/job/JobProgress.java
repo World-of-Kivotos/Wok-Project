@@ -51,6 +51,21 @@ public final class JobProgress {
         return job == JobId.FARMER ? Math.round(dailyXp) : dailyXp();
     }
 
+    /**
+     * 按当前日戳读出当日已结算有效经验: dayStamp 已过期 (跨了 UTC 日) 则本日尚未入过账, 恒回 0。
+     *
+     * 只读不翻日, 清零权仍独归 {@link #prepareGrant} 的入账路径 —— 与账本 peekFaucetToday 同一条纪律:
+     * 查询顺手翻日等于把衰减档位洗回第 0 档, 那是印钞。本方法只负责"读出来的数别撒谎"。
+     *
+     * 存在的理由: 无日戳的 {@link #dailyXp(JobId)} 直接读字段, 跨日后到该职业当天首次入账之前会一直返回昨天
+     * 的值。命令行 /job list 只在玩家主动查询时暴露这个陈旧值, 而 player.profile 把它摆在开平板的第一屏,
+     * 还与同一份回执里走 peekFaucetToday (正确翻日) 的今日产出并排显示 —— 一栏说"额度已用尽"、另一栏说
+     * "今日产出 0", 两句互相打脸。
+     */
+    public long dailyXp(JobId job, long todayStamp) {
+        return dayStamp == todayStamp ? dailyXp(job) : 0L;
+    }
+
     public long dayStamp() {
         return dayStamp;
     }
@@ -124,6 +139,11 @@ public final class JobProgress {
 
     public long dailyRemaining(JobId job) {
         return Math.max(0L, JobXpPolicies.dailySoftCap(job) - dailyXp(job));
+    }
+
+    /** 按当前日戳读出剩余额度; 跨日后恒回该职业满额度。翻日语义见 {@link #dailyXp(JobId, long)}。 */
+    public long dailyRemaining(JobId job, long todayStamp) {
+        return Math.max(0L, JobXpPolicies.dailySoftCap(job) - dailyXp(job, todayStamp));
     }
 
     /** 全字段拷入本对象 (PlayerEvent.Clone 复制: 死亡重生/换维度均保留全部职业进度)。 */

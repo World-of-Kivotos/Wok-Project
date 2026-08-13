@@ -32,7 +32,6 @@ import type {
   PlannedEconomyTodayResult,
   PlannedEngineerStateResult,
   PlannedFarmerStateResult,
-  PlannedHubPanel,
   PlannedJobId,
   PlannedJobProgressEntry,
   PlannedMarketTransaction,
@@ -42,19 +41,23 @@ import type {
   PlannedMiningMyStatusResult,
   PlannedMunitionsStateResult,
   PlannedPendingPayoutResult,
-  PlannedPrefs,
   PlannedPriceTableResult,
-  PlannedServerStatusResult,
   PlannedSharedInvResult,
   PlannedShopEntry,
   PlannedTarotStateResult,
 } from './planned'
 import { createInitialWorld } from './seed'
 
-/** 本地玩家身份。名字与 bridge.mock 的 MOCK_PLAYER_NAME 保持一致, 否则"我的挂单"会两边对不上人。 */
+/**
+ * 本地玩家身份。名字与 bridge.mock 的 MOCK_PLAYER_NAME 保持一致, 否则"我的挂单"会两边对不上人。
+ *
+ * isOp 是设计评审用的"OP 视图"开关 (外壳顶栏那个 Toggle) 的落点, 真契约的 player.isOp / player.profile.isOp /
+ * hub.panels 的 admin 门在假数据模式下都读它 (见 lib/bridge.mock.ts), 因此这里改一处、三处一起翻。
+ *
+ * 无 uuid 字段: 唯一消费者是已核销的 player.profile.playerUuid, 而真契约按"全库零消费者"把它砍了。
+ */
 export interface MockPlayerIdentity {
   name: string
-  uuid: string
   isOp: boolean
 }
 
@@ -154,9 +157,6 @@ export interface MockWorld {
   player: MockPlayerIdentity
   mirror: MockRealDomainMirror
   walletOverlay: MockWalletOverlay
-  prefs: PlannedPrefs
-  server: PlannedServerStatusResult
-  hubPanels: PlannedHubPanel[]
   market: MockMarketExtras
   jobs: MockJobState
   economy: MockEconomyState

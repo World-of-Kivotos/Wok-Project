@@ -1,4 +1,4 @@
-import { ArrowUpIcon, InfoIcon, RefreshCwIcon, SearchIcon, TriangleAlertIcon } from 'lucide-react'
+import { ArrowUpIcon, RefreshCwIcon, SearchIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactElement, ReactNode } from 'react'
 import { useRef, useState } from 'react'
 import {
@@ -49,12 +49,13 @@ import { callMock, useMockAction, useMockWorld } from '../../mock'
  * === 契约依赖 ===
  * 真契约 (已接线, 直接就是最终形状):
  *   admin.listItems / admin.setBaseValue    接线清单 I1 (READY x2, 已接线)
+ *   system.serverStatus                     A4 (MinecraftServer 公开 API 的包装; 无 announcement 字段,
+ *                                           全库零"公告"业务概念, 恒回空串等于立一个永远为空的死约定)
  * planned 假定契约 (后端尚无, 走 mock/planned.ts; 接线时按此表逐条核销):
  *   admin.economy.balance / admin.economy.set   I2 (WRAP x2; /economy set 已有 ledgerOf+balance 范式)
  *   admin.job.setLevel                          I3 (WRAP; 权限校验/setLevel/改级后 syncTo 全就绪)
  *   admin.mining.reset                          I4 (WRAP; 活跃版 /mining reset 无二次确认, 弹窗必须前端加)
  *   mining.overview                             F1 (只读, 用来给三个重置目标提供当前人数与倒计时)
- *   system.serverStatus                         A4 (WRAP, MinecraftServer 公开 API)
  * 另有两条已知缺口在本页直接可见, 不做任何遮掩:
  *   I2 无流水表 (D7): 历史调账查不到, 故 admin.economy.set 的回执带 before, 至少让操作者当场看见改前改后;
  *   A14 中文输入 BLOCKED: 玩家名输入框只能走 onRequestEdit 向宿主喊话, 见下方 PlayerPicker 注释。
@@ -1011,23 +1012,12 @@ function ServerTab(): ReactElement {
           />
           <div className="flex flex-wrap gap-6">
             <Stat label="MSPT" value={`${data.mspt.toFixed(1)} ms`} />
-            <Stat label="已运行" value={formatUptime(data.uptimeSeconds)} />
+            {/*
+              口径写死在文案里: uptimeSeconds = getTickCount()/20, 是"已运行的游戏刻数折算秒", 服务器掉刻时
+              它会慢于挂钟时间。原版没有"开机挂钟时刻"的公开 getter, 别把这个数当成开服到现在的真实时长。
+            */}
+            <Stat label="已运行 (按游戏刻折算)" value={formatUptime(data.uptimeSeconds)} />
           </div>
-        </div>
-
-        <div className="flex w-96 flex-col gap-2">
-          <h3 className="font-medium text-foreground text-sm">公告</h3>
-          {data.announcement === '' ? (
-            <EmptyBlock
-              title="当前没有公告"
-              hint="运营常态是没设置, 服务端给的是空串而不是 null"
-              icon={<InfoIcon aria-hidden="true" />}
-            />
-          ) : (
-            <Surface>
-              <p className="text-foreground text-sm">{data.announcement}</p>
-            </Surface>
-          )}
         </div>
       </div>
     </Section>

@@ -23,6 +23,7 @@ import net.minecraftforge.gametest.PrefixGameTestTemplate;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
@@ -45,7 +46,8 @@ import java.util.function.Function;
  *  - 已提交的余额与账本状态在关闭连接重开后仍在 (提交即落盘, 不再靠脏标记);
  *  - tryChargeDaily 每日上限边界;
  *  - grantAzureDaily / creditAzureDaily 青辉石每人每日产出硬上限 (超 cap 截断 / 撞顶 0 入账 / 跨 UTC 日重置;
- *    经济文档 8.5 战斗 faucet 并入每人每日上限; economy-02)。
+ *    经济文档 8.5 战斗 faucet 并入每人每日上限; economy-02);
+ *  - peekFaucetToday 展示路径只读 (与请求 key 同序、跨日按 0 返回却不清零、空 key 列表被拒)。
  *
  * 纯逻辑断言用内存统一库 (SqliteEconomyLedger.openInMemory), 不依赖世界写; 凡断言"确实落盘"的用例
  * 必须改用 TempStoreDb 的真实文件库并真的关连接重开 —— 内存库的 journal_mode 实为 memory, 测不出落盘。涉及 ServerPlayer 的门面方法
@@ -624,6 +626,62 @@ public final class EconomyGameTests {
         // 计数器若已推进, 这里返回的就是 100 而不是 0 —— 那正是"档位白涨"的形态。
         helper.assertTrue(ledger.recordFaucetGrant(id, faucet, 1L, today) == 0L,
                 "落账失败必须连同当日原始累计一起回滚, 当日累计仍应是 0");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // peekFaucetToday: 展示路径的只读口径 (WebUI player.profile 的今日两栏)
+    // ============================================================
+
+    /**
+     * 只读就是只读: 展示路径读当日 faucet 计数器时, 绝不许顺手翻日清零。
+     *
+     * 入账路径 (recordFaucetGrant / creditAzureDaily) 跨日时会把计数器清零重写, 那是它的职责; 但衰减档位是
+     * 按当日原始累计推进的, 一次纯查询把累计洗掉, 玩家当天余下的 faucet 会全部按第 0 档满额重发 —— 这是印钞,
+     * 而且没有任何记录能说明多发了多少。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void peekFaucetTodayIsReadOnlyAndKeyOrdered(GameTestHelper helper) {
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        UUID id = UUID.randomUUID();
+        long today = new AbuseGuard().currentPlayerDayStamp();
+        String creditKey = EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY;
+        String azureKey = EconomyConstants.AZURE_DAILY_FAUCET_KEY;
+
+        // 两条 faucet 的记法刻意不同: 信用点落的是衰减前毛额 (rawAmount 累加), 青辉石走硬截断落的是实发额。
+        ledger.recordFaucetGrant(id, creditKey, 1234L, today);
+        long grantedAzure = ledger.creditAzureDaily(id, azureKey, 5L,
+                EconomyConstants.AZURE_DAILY_FAUCET_CAP, today);
+        helper.assertTrue(grantedAzure == 5L, "前提校验: 未撞上限时青辉石全额入账");
+
+        // 返回值按请求的 key 顺序对齐而不是按表里的行序: 调用方靠下标取字段, 错一位两栏就互换。
+        long[] swapped = ledger.peekFaucetToday(id, today, List.of(azureKey, creditKey));
+        helper.assertTrue(swapped.length == 2 && swapped[0] == 5L && swapped[1] == 1234L,
+                "peek 必须与 faucetKeys 同序等长, 实得 " + java.util.Arrays.toString(swapped));
+
+        // 昨天的累计不是今天的 -> 按 0 返回; 但那一行必须原样留在表里等入账路径去处理。
+        long[] otherDay = ledger.peekFaucetToday(id, today + 1L, List.of(creditKey, azureKey));
+        helper.assertTrue(otherDay[0] == 0L && otherDay[1] == 0L,
+                "day_stamp 不符的行一律按 0 返回, 实得 " + java.util.Arrays.toString(otherDay));
+        long[] again = ledger.peekFaucetToday(id, today, List.of(creditKey, azureKey));
+        helper.assertTrue(again[0] == 1234L && again[1] == 5L,
+                "跨日查询不得把今天的计数器清掉, 实得 " + java.util.Arrays.toString(again));
+        // 更硬的判据: 入账路径看到的当日累计仍是 1234。若 peek 顺手翻了日, 这里会返回 0 (即档位被洗回第 0 档)。
+        helper.assertTrue(ledger.recordFaucetGrant(id, creditKey, 1L, today) == 1234L,
+                "入账路径看到的当日原始累计仍应是 1234 (peek 未污染衰减档位)");
+
+        // 从未入过账的 key: 0 是真实答案 (同 balance 的无记录返 0), 不是兜底掩盖。
+        long[] unknown = ledger.peekFaucetToday(id, today, List.of("never_used_faucet"));
+        helper.assertTrue(unknown.length == 1 && unknown[0] == 0L, "无记录的 faucet 返回 0");
+
+        // 空列表会拼出 IN () 这种非法 SQL: 必须在入口就拒, 而不是让 SQLite 报一句语法错。
+        boolean rejected = false;
+        try {
+            ledger.peekFaucetToday(id, today, List.of());
+        } catch (IllegalArgumentException expected) {
+            rejected = true;
+        }
+        helper.assertTrue(rejected, "空 faucetKeys 必须被拒");
         helper.succeed();
     }
 

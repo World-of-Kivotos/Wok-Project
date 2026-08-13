@@ -26,8 +26,15 @@ export interface Brand {
 /** 彩度上限。再高会在暗色档冲出 sRGB 色域, 表现为不同色相下的强调色明度对不齐。 */
 export const BRAND_CHROMA_MAX = 0.2
 
-/** 默认值必须与 index.css 里 :root 的 --brand-h / --brand-c 一致, 否则首帧会闪一次色。 */
-const DEFAULT_BRAND: Brand = { hue: 250, chroma: 0.15 }
+/**
+ * 默认值必须与 index.css 里 :root 的 --brand-h / --brand-c 一致, 否则首帧会闪一次色。
+ * hue 还必须与服务端 UiPrefs 的 brandHue 默认值 (250) 一致 —— 那边是账号级偏好的回退档,
+ * 两边不同会让"从没设置过的玩家"在首帧与偏好到达后看到两种颜色。
+ *
+ * 导出是给 SettingsPage 的"恢复默认"用: 它按下之后要把默认色相一并写回账号, 拿不到这个常量就只能
+ * 在页面里再抄一个 250, 那正是上面那句一致性要求最容易被漏掉的地方。
+ */
+export const DEFAULT_BRAND: Brand = { hue: 250, chroma: 0.15 }
 
 /** 与 theme.ts 同理: MCEF 的 localStorage 按 origin 隔离, 本站与将来同源的其它页面共用, 必须带前缀。 */
 const STORAGE_KEY = 'wok-brand'

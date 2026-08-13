@@ -27,7 +27,6 @@ import type {
   PlannedAffixPool,
   PlannedChampionAffix,
   PlannedChampionStar,
-  PlannedHubPanel,
   PlannedJobId,
   PlannedJobProgressEntry,
   PlannedMarketTransaction,
@@ -40,7 +39,6 @@ import type { MockOtherPlayer, MockWorld } from './store'
 
 /** 与 bridge.mock 的 MOCK_PLAYER_NAME 逐字一致; 不一致会让"我的挂单"两边认不出同一个人。 */
 const PLAYER_NAME = '测试员_Mock'
-const PLAYER_UUID = '11111111-1111-4111-8111-111111111111'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
@@ -552,91 +550,6 @@ function seedSharedInvItems(): PlayerInventoryItem[] {
   ]
 }
 
-function seedHubPanels(): PlannedHubPanel[] {
-  /*
-   * route 必须与 src/router.ts 的路由表一致, 且以 router.ts 为准 (它由 hub 负责维护)。
-   * 这里的字符串只是"面板注册表在服务端会长什么样"的假定形状, 不是路由真源 —— 真接线后这份
-   * 注册表由服务端下发, 前端拿到的 route 仍要能在 router.ts 里找到对应页面, 对不上就是接线出错。
-   */
-  return [
-    { panelId: 'home', label: '个人档案', route: '/', iconItemId: 'minecraft:book', enabled: true, lockReason: null },
-    {
-      panelId: 'market',
-      label: '跳蚤市场',
-      route: '/market',
-      iconItemId: 'minecraft:emerald',
-      enabled: true,
-      lockReason: null,
-    },
-    {
-      panelId: 'shop',
-      label: '系统商店',
-      route: '/shop',
-      iconItemId: 'minecraft:chest',
-      enabled: true,
-      lockReason: null,
-    },
-    {
-      panelId: 'jobs',
-      label: '职业',
-      route: '/jobs',
-      iconItemId: 'minecraft:iron_pickaxe',
-      enabled: true,
-      lockReason: null,
-    },
-    {
-      panelId: 'mining',
-      label: '矿洞',
-      route: '/mining',
-      iconItemId: 'minecraft:deepslate',
-      enabled: true,
-      lockReason: null,
-    },
-    {
-      panelId: 'champion',
-      label: '精英怪图鉴',
-      route: '/champion',
-      iconItemId: 'minecraft:wither_skeleton_skull',
-      enabled: true,
-      lockReason: null,
-    },
-    {
-      panelId: 'marriage',
-      label: '婚姻',
-      route: '/marriage',
-      iconItemId: 'minecraft:golden_apple',
-      enabled: true,
-      lockReason: null,
-    },
-    {
-      panelId: 'settings',
-      label: '设置',
-      route: '/settings',
-      iconItemId: 'minecraft:comparator',
-      enabled: true,
-      lockReason: null,
-    },
-    {
-      // 锁态样本: 面板注册表要能表达"看得见但进不去", 否则前端做不出灰态。
-      panelId: 'admin',
-      label: '管理后台',
-      route: '/admin',
-      iconItemId: 'minecraft:command_block',
-      enabled: true,
-      lockReason: null,
-    },
-    {
-      panelId: 'quests',
-      label: '任务',
-      route: '/quests',
-      iconItemId: 'minecraft:written_book',
-      enabled: false,
-      // 锁定原因是直接画给玩家看的悬停提示, 不是给开发的备注 —— 原文写着"经济文档 faucet 之首, 全库零实现"。
-      lockReason: '任务系统尚未开放',
-    },
-  ]
-}
-
 /**
  * 造一份全新的世界。每次调用都返回互不共享引用的新对象 —— resetWorld 依赖这一点,
  * 若这里返回了模块级常量的引用, 重置之后玩家上一轮的改动会跟着一起回来。
@@ -646,7 +559,7 @@ export function createInitialWorld(): MockWorld {
   return {
     revision: 0,
     epoch,
-    player: { name: PLAYER_NAME, uuid: PLAYER_UUID, isOp: true },
+    player: { name: PLAYER_NAME, isOp: true },
     mirror: {
       // 全 null: 本会话还没拉过真域数据。面板据此显示骨架, 而不是显示一个假的 0。
       wallet: null,
@@ -656,16 +569,6 @@ export function createInitialWorld(): MockWorld {
       refreshedAt: 0,
     },
     walletOverlay: { credit: 0, azure: 0 },
-    prefs: { uiScale: 2, muteToasts: false, layout: 'comfortable' },
-    server: {
-      online: 17,
-      maxPlayers: 60,
-      tps: 19.8,
-      mspt: 32.4,
-      uptimeSeconds: 3 * 24 * 3600 + 4 * 3600 + 12 * 60,
-      announcement: '本周末 20:00 精英怪讨伐活动, 详情见群公告。',
-    },
-    hubPanels: seedHubPanels(),
     market: {
       transactions: seedTransactions(epoch),
       pendingPayout: {

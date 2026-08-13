@@ -179,11 +179,25 @@ public final class WebUiServerDispatcher {
         return GSON.toJson(obj);
     }
 
+    /**
+     * 构造业务拒绝回执 {"error","errorCode","retrySameOpeningId"} + 可选 {"params"}。
+     *
+     * params 为空时整键不写 (而非发空对象): 存量 case.* 的回执形状逐字节不变, 前端对"没有占位符实参"
+     * 与"占位符实参形状不对"才能区分处理 —— 前者是正常形态, 后者是契约破裂。
+     */
     static String businessErrorJson(WebUiBusinessException error) {
         JsonObject obj = new JsonObject();
         obj.addProperty("error", error.getMessage());
         obj.addProperty("errorCode", error.errorCode());
         obj.addProperty("retrySameOpeningId", error.retrySameOpeningId());
+        Map<String, String> params = error.params();
+        if (!params.isEmpty()) {
+            JsonObject paramsJson = new JsonObject();
+            for (Map.Entry<String, String> entry : params.entrySet()) {
+                paramsJson.addProperty(entry.getKey(), entry.getValue());
+            }
+            obj.add("params", paramsJson);
+        }
         return GSON.toJson(obj);
     }
 }

@@ -115,9 +115,10 @@ public final class WebUiServerGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void businessErrorHasStableCodeAndRetryPolicy(GameTestHelper helper) {
         WebUiBusinessException error = new WebUiBusinessException(
-                "RATE_LIMITED", "开箱请求过快，请稍后再试", false);
+                WebUiErrorCodes.RATE_LIMITED, "开箱请求过快，请稍后再试", false);
         JsonObject result = JsonParser.parseString(
                 WebUiServerDispatcher.businessErrorJson(error)).getAsJsonObject();
+        // 断言这里刻意写字面量而非常量: 码值是对外契约 (前端文案字典的键), 收编成常量时值不许被改, 改了本测试挂。
         helper.assertTrue(result.get("errorCode").getAsString().equals("RATE_LIMITED"),
                 "expected business rejection includes its stable errorCode");
         helper.assertTrue(!result.get("retrySameOpeningId").getAsBoolean(),
@@ -126,6 +127,53 @@ public final class WebUiServerGameTests {
                 "expected business rejection retains a player-facing message");
         helper.assertTrue(error.getStackTrace().length == 0,
                 "attacker-driven business rejections allocate no stack trace");
+        helper.succeed();
+    }
+
+    /**
+     * 占位符实参通道 (决策 D4)。三段断言各锁一条核心逻辑:
+     *  - 无实参时回执整个不写 params 键 (存量 case.* 的回执逐字节不变; 改成恒发 {} 即挂);
+     *  - 有实参时逐字下发且值仍是字符串、键序 = 调用方写入序 (删 businessErrorJson 的 params 分支即挂);
+     *  - 值为 null 时构造期就抛 (它会在回执里长成 JSON null, 前端形状校验会把整条业务错误判为契约破裂,
+     *    症状离病因太远; 把 copyParams 的守卫删掉即挂)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void businessErrorCarriesParamsOnlyWhenPresent(GameTestHelper helper) {
+        JsonObject withoutParams = JsonParser.parseString(WebUiServerDispatcher.businessErrorJson(
+                        new WebUiBusinessException(WebUiErrorCodes.INVALID_REQUEST, "缺少必填字段 slot", false)))
+                .getAsJsonObject();
+        helper.assertTrue(!withoutParams.has("params"),
+                "a rejection without placeholder args must omit the params key entirely, got " + withoutParams);
+        // 同上: 字面量比对锁住收编后码值未漂移。
+        helper.assertTrue(withoutParams.get("errorCode").getAsString().equals("INVALID_REQUEST"),
+                "WebUiErrorCodes.INVALID_REQUEST must keep its on-the-wire value 'INVALID_REQUEST'");
+
+        java.util.Map<String, String> params = new java.util.LinkedHashMap<>();
+        params.put("field", "brandHue");
+        params.put("value", "361");
+        JsonObject withParams = JsonParser.parseString(WebUiServerDispatcher.businessErrorJson(
+                        new WebUiBusinessException(WebUiErrorCodes.INVALID_REQUEST,
+                                "brandHue 超出 0..360", false, params)))
+                .getAsJsonObject();
+        JsonObject sent = withParams.getAsJsonObject("params");
+        helper.assertTrue(sent.get("field").getAsString().equals("brandHue"),
+                "params must reach the client verbatim (field=brandHue), got " + sent);
+        helper.assertTrue(sent.get("value").getAsString().equals("361"),
+                "params values stay stringified (value=\"361\"), got " + sent);
+        helper.assertTrue(java.util.List.copyOf(sent.keySet()).equals(java.util.List.of("field", "value")),
+                "params key order must follow caller insertion order, got " + sent.keySet());
+
+        java.util.Map<String, String> nullValued = new java.util.HashMap<>();
+        nullValued.put("field", null);
+        boolean rejectedNullValue = false;
+        try {
+            new WebUiBusinessException(WebUiErrorCodes.INVALID_REQUEST, "brandHue 非法", false, nullValued);
+        } catch (IllegalArgumentException e) {
+            rejectedNullValue = true;
+        }
+        helper.assertTrue(rejectedNullValue,
+                "a null param value must be rejected at construction (it would serialize as JSON null)");
+
         helper.succeed();
     }
 

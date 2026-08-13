@@ -20,6 +20,10 @@
  * 即"服务端代码里写了 null"不等于"JSON 里有 null"; 判定依据必须是那一处用的哪个 Gson 实例。
  */
 
+import type { ItemNamePart } from './i18n'
+
+export type { ItemNamePart }
+
 // ============================================================
 // 共享子结构 (跨多个 action 复用同一 JSON 形状; 复用而非逐 action 重复定义)
 // ============================================================
@@ -114,6 +118,35 @@ export interface PlayerInventoryItem {
   count: number
   /** 仅当 stack.hasCustomHoverName() 为真 (铁砧改名) 时才存在; 普通物品该键整体缺席。 */
   displayName?: string
+  /** NBT 变体件的贴图选择码。见 ItemVariantFields。 */
+  customModelData?: number
+  /** NBT 变体件的显示名结构。见 ItemVariantFields。 */
+  nameParts?: ItemNamePart[]
+}
+
+/**
+ * NBT 变体件的两个可选字段 (Java 侧 WebUiItemJson 追加)。
+ *
+ * 为什么需要: itemId 与 descriptionId 都是 **Item 级**的, 而本 mod 有一大类靠 NBT 区分变体的物品 ——
+ * 枪匠零件的 195 种全部注册在同一个 `miningdim:gunsmith_part` 之下, 平台/部位/品质由 NBT 决定。
+ * 不带这两个字段的话, 市场里这 195 行是同名 ("枪匠零件") 同图标的。
+ *
+ * **两者都可能缺席**, 且绝大多数物品两者都缺席 —— 一 id 一贴图一名字的物品不需要它们。
+ * 故判存在一律用 `!== undefined`, 缺席时走既有的 itemId / descriptionId 路径。
+ */
+export interface ItemVariantFields {
+  /**
+   * 原版 CustomModelData。前端按 (itemId, 此值) 查 `/mc/variants.json` 取变体贴图,
+   * 那张表由 vite 在构建期从 mod 的物品模型 overrides 生成。查不到即回落默认贴图。
+   */
+  customModelData?: number
+  /**
+   * 显示名的片段序列 (翻译键与字面量交替)。经 collectNamePartKeys + useItemNames 批量解析后
+   * 用 formatNameParts 拼出显示名。
+   *
+   * 不是一个字符串: 专用服务端不加载 mod 的 lang, 在那边解只能得到原始键。
+   */
+  nameParts?: ItemNamePart[]
 }
 
 /** player.inventory 回执 (PlayerWebUiActions.INVENTORY, :47-71)。 */
@@ -146,6 +179,10 @@ export interface MarketListing {
   total: number
   /** epoch millis, Java long -> number。 */
   createdAt: number
+  /** NBT 变体件的贴图选择码。见 ItemVariantFields。 */
+  customModelData?: number
+  /** NBT 变体件的显示名结构。见 ItemVariantFields。 */
+  nameParts?: ItemNamePart[]
 }
 
 /** market.list 入参 (MarketActions.LIST, :63-81)。 */

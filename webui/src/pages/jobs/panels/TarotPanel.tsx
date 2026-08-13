@@ -212,7 +212,7 @@ export function TarotPanel(): ReactElement {
             <Stat label="碎片" value={String(data.fragments)} />
           </div>
           <p className="text-muted-foreground text-xs">
-            碎片兑换与卡组编入暂无对应服务端接口 (接线清单 C14), 本页仅作只读展示
+            碎片兑换与卡组编入尚未开放, 这里只显示当前情况
           </p>
         </div>
       </Panel>

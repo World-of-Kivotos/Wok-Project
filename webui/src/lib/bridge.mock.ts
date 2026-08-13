@@ -165,9 +165,9 @@ const MOCK_ITEMS: readonly MockItemDef[] = [
   },
   {
     // 超长中文名边界。
-    itemId: 'miningdim:gunsmith_barrel_heavy_match_grade',
+    itemId: 'miningdim:plate_armor_banshee_atacs_au',
     registered: true,
-    descriptionId: 'item.miningdim.gunsmith_barrel_heavy_match_grade',
+    descriptionId: 'item.miningdim.plate_armor_banshee_atacs_au',
     top: 'weapons',
     sub: null,
   },
@@ -234,7 +234,12 @@ const I18N_NAMES: Readonly<Record<string, string>> = {
   'item.minecraft.gold_ingot': '金锭',
   'item.minecraft.netherite_scrap': '下界合金碎片',
   'block.minecraft.iron_ore': '铁矿石',
-  'item.miningdim.gunsmith_barrel_heavy_match_grade': '格黑娜高速导气竞赛级重型枪管总成（含消焰器与配重底座）',
+  // 超长中文名边界 (45 字), 取自 lang/zh_cn.json 的真实条目。
+  'item.miningdim.plate_armor_banshee_atacs_au': 'Shellback Tactical Banshee 防弹背心（A-Tacs AU 迷彩）',
+  // NBT 变体件: Item 级键解出来是"枪匠零件"(195 种共用), 真正区分它们的是下面 nameParts 用的两个键。
+  'item.miningdim.gunsmith_part': '枪匠零件',
+  'gunsmith.variant.gehenna_high_speed_gas': '格赫娜高速导气',
+  'gunsmith.quality.legendary': '传奇',
   'item.tacz.modern_kinetic_gun': '现代动能枪械',
   'item.minecraft.arrow': '箭',
   'item.minecraft.diamond_chestplate': '钻石胸甲',
@@ -260,8 +265,8 @@ const inventory: PlayerInventoryItem[] = [
   { slot: 1, itemId: 'miningdim:azurite', descriptionId: 'item.miningdim.azurite', count: 3 },
   {
     slot: 4,
-    itemId: 'miningdim:gunsmith_barrel_heavy_match_grade',
-    descriptionId: 'item.miningdim.gunsmith_barrel_heavy_match_grade',
+    itemId: 'miningdim:plate_armor_banshee_atacs_au',
+    descriptionId: 'item.miningdim.plate_armor_banshee_atacs_au',
     count: 1,
   },
   {
@@ -302,7 +307,7 @@ function makeListing(
 
 const listings: MarketListing[] = [
   makeListing(1001, '矿工阿建', 'minecraft:diamond', 12, 480, 35),
-  makeListing(1002, MOCK_PLAYER_NAME, 'miningdim:gunsmith_barrel_heavy_match_grade', 1, 88_000, 140),
+  makeListing(1002, MOCK_PLAYER_NAME, 'miningdim:plate_armor_banshee_atacs_au', 1, 88_000, 140),
   // 单价 1 的整叠白菜价, 与下面的天价挂单一起压住金额列的两端。
   makeListing(1003, '拍卖狂魔', 'removedmod:ghost_item', 64, 1, 720),
   // 极大数值边界: Java long 到 2^53-1 之后 JSON.parse 就开始丢精度, 前端在这条上不得静默截断。

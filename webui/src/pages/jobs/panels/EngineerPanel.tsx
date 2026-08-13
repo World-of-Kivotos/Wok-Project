@@ -56,7 +56,7 @@ export function EngineerPanel(): ReactElement {
             <Stat label="职业等级" value={`Lv.${String(data.level)}`} />
           </div>
           <p className="text-muted-foreground text-xs">
-            反应堆冷却字段缺失: 契约 (planned.ts) 未包含 nanoReactorCdEndTick
+            反应堆冷却时间暂不可见
           </p>
         </div>
       </Panel>
@@ -97,7 +97,7 @@ export function EngineerPanel(): ReactElement {
               const expanded = effect.effectId === expandedEffectId
               return (
                 <button
-                  className="flex w-full flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3 text-left transition-colors outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex w-full flex-col rounded-lg border border-border bg-muted/40 p-3 text-left transition-colors outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
                   key={effect.effectId}
                   onClick={() => {
                     setExpandedEffectId(expanded ? null : effect.effectId)
@@ -110,7 +110,34 @@ export function EngineerPanel(): ReactElement {
                       {effect.unlocked ? '已解锁' : '未解锁'}
                     </Tag>
                   </div>
-                  {expanded ? <p className="text-muted-foreground text-sm">{effect.description}</p> : null}
+                  {/*
+                   * 折叠区走 grid-template-rows: 0fr -> 1fr, 不用 height/max-height。
+                   *
+                   * height 需要先量出内容高度才能写死数值, 描述文案长度不定且会随窗口宽度换行, 量不准就是
+                   * 展开到一半被截断; max-height 猜一个上限则让短文案的过渡前半段在空跑, 手感是"先卡后弹"。
+                   * fr 插值由浏览器按内容实际高度算, 两个毛病都没有 —— 代价是它确实会逐帧重排, 这是本次
+                   * 动效里唯一被豁免的非 transform/opacity 属性, 因为折叠区只有一段文字, 重排范围小。
+                   * fr 插值 Chrome 107 起支持, 在 MCEF 的 Chromium 116 基线内。
+                   *
+                   * 内层的 overflow-hidden 不只是裁切: 它同时把 grid 项的 automatic minimum size 归零,
+                   * 少了它行高压不到 0, 收起后仍留一条内容高度的残影。
+                   *
+                   * 按钮上原来的 gap-2 挪进来变成 pt-2: 折叠区现在恒常挂在 DOM 上, 留着 gap 会让收起态
+                   * 也吃到 8px 间距, 卡片收不干净。间距放进被裁切的盒子里才跟着一起收。
+                   *
+                   * aria-hidden 跟着 expanded 走, 是为了保住改动前的读屏行为: 折叠区在 <button> 内部,
+                   * 不隐藏的话这段描述会永远被算进按钮的可访问名, 收起态也照读一遍。
+                   */}
+                  <div
+                    aria-hidden={!expanded}
+                    className={`grid transition-[grid-template-rows,opacity] duration-(--duration-expand) ease-out-soft ${
+                      expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                    }`}
+                  >
+                    <div className="overflow-hidden">
+                      <p className="pt-2 text-muted-foreground text-sm">{effect.description}</p>
+                    </div>
+                  </div>
                 </button>
               )
             })}

@@ -22,6 +22,11 @@ const SLOT_SIZE_CLASS: Record<ItemSlotScale, string> = {
 export interface ItemSlotProps {
   /** 缺省即空格子, 仍占位并画边框。 */
   itemId?: string | undefined
+  /**
+   * NBT 变体件的贴图选择码, 由服务端随物品下发。缺省即普通物品。
+   * 不传的话枪匠零件那 195 种变体会画成同一张图, 见 ItemIcon 的同名 prop。
+   */
+  customModelData?: number | undefined
   /** 堆叠数。1 或缺省时不渲染角标 —— MC 的惯例是单个物品不显示数字。 */
   count?: number | undefined
   /** 物品显示名, 供读屏与悬停提示。 */
@@ -37,6 +42,7 @@ export interface ItemSlotProps {
 
 export function ItemSlot({
   itemId,
+  customModelData,
   count,
   label,
   selected = false,
@@ -52,11 +58,34 @@ export function ItemSlot({
       ? 'border-brand bg-brand/12 ring-2 ring-brand/32'
       : 'border-border bg-muted/40 hover:border-ring hover:bg-accent'
 
+  /*
+   * 按压反馈只缩 3%, 且刻意不配悬停缩放。
+   *
+   * 频率决定幅度: 挂单页一屏就是几十格, 选货时连点是常态。这个频率下动效要传达的只有"这一下点到了"
+   * 一条信息, 幅度再大或者多一层悬停缩放, 就从反馈变成了每次经过都要重看一遍的噪音。
+   *
+   * 缩放连 ItemIcon 一起缩, 没有给图标做反向补偿。图标是 16x16 位图按整数倍放大, 0.97 确实是非整数
+   * 缩放, 但 image-rendering: pixelated 走最近邻取样 —— 代价是某一列像素窄一格, 不是糊, 且松手即回到
+   * 整数倍。反向补偿则要在图标上写死 1/0.97 这个与外框耦合的倒数, 日后有人调了外框倍率而漏改它,
+   * 图标就**永久**偏离整数像素网格 (src/components/ItemIcon.tsx 为此专门删掉过一个档位), 那是比
+   * 120ms 瞬态严重得多的失败模式。
+   *
+   * transition-property 只能有一条声明生效 (后写的整条覆盖前一条), 故与原 transition-colors 合并;
+   * 这里列出的三个颜色属性就是 stateClass 实际会切的全部, ring 走 box-shadow 本来也不在 colors 里。
+   *
+   * 闸门看的是 onClick 而不只是 disabled: 本组件的 onClick 是可选 prop, 于是存在一整类"既不 disabled
+   * 也不可点"的纯展示格子 (开箱条带的奖池格、皮肤图鉴、收件箱待领物品、军火商零件展示)。只按 disabled
+   * 过滤的话, 这些格子按下去会缩 3% 却什么都不发生 —— 那是在给不可点的东西做出可点的暗示, 比没有反馈更糟。
+   */
+  const pressable = onClick !== undefined && !disabled
+
   return (
     <button
       aria-label={label ?? itemId ?? '空格子'}
       aria-pressed={selected}
-      className={`relative flex shrink-0 items-center justify-center rounded-md border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring ${SLOT_SIZE_CLASS[scale]} ${stateClass}${
+      className={`relative flex shrink-0 items-center justify-center rounded-md border transition-[color,background-color,border-color,scale] duration-(--duration-press) ease-out-soft outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+        pressable ? 'active:scale-97 motion-reduce:active:scale-99' : ''
+      } ${SLOT_SIZE_CLASS[scale]} ${stateClass}${
         className === undefined ? '' : ` ${className}`
       }`}
       disabled={disabled}
@@ -65,7 +94,14 @@ export function ItemSlot({
       title={label ?? itemId}
       type="button"
     >
-      {itemId === undefined ? null : <ItemIcon itemId={itemId} label={label ?? itemId} scale={scale} />}
+      {itemId === undefined ? null : (
+        <ItemIcon
+          customModelData={customModelData}
+          itemId={itemId}
+          label={label ?? itemId}
+          scale={scale}
+        />
+      )}
       {count === undefined || count <= 1 ? null : (
         <span className="pointer-events-none absolute right-0.5 bottom-0.5 rounded-sm bg-background/80 px-1 font-medium text-[0.625rem] text-foreground tabular-nums leading-tight">
           {formatAmount(count)}
@@ -81,6 +117,7 @@ export function ItemSlot({
 
 export interface ItemSlotGridEntry {
   itemId?: string | undefined
+  customModelData?: number | undefined
   count?: number | undefined
   label?: string | undefined
   disabled?: boolean | undefined

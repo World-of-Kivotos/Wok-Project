@@ -1,4 +1,12 @@
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -10,6 +18,12 @@ const here = dirname(fileURLToPath(import.meta.url))
 
 /** mod 贴图真源目录。前端与 Java 同一 monorepo, 贴图唯一真源就是它, 复制副本进 git 必然出现双源漂移。 */
 const MOD_TEXTURES = resolve(here, '../src/main/resources/assets/miningdim/textures')
+
+/** mod 物品模型目录。变体贴图映射表由这里的 overrides 生成, 见 buildVariantMap。 */
+const MOD_ITEM_MODELS = resolve(here, '../src/main/resources/assets/miningdim/models/item')
+
+/** 变体映射表的挂载路径。ItemIcon 启动时取一次, 常驻内存。 */
+const VARIANT_MAP_PATH = 'variants.json'
 
 /**
  * 只有这两个子目录会被前端当作物品图标取用 (ItemIcon 的回退链是 item/<id>.png -> block/<id>.png)。
@@ -39,6 +53,90 @@ function walkFiles(root: string): string[] {
     }
   }
   return out
+}
+
+/**
+ * 生成"物品 id + CustomModelData -> 贴图路径"的映射表。
+ *
+ * 要解决的事: 本 mod 有一大类**靠 NBT 区分变体**的物品 —— 枪匠零件的 195 种变体全部注册在同一个
+ * `miningdim:gunsmith_part` 之下, 平台/部位/品质由 NBT 决定, 贴图由 CustomModelData 经模型 overrides 选。
+ * 前端的 ItemIcon 只按 itemId 取图, 于是这 195 种在市场里会画成同一张图标。
+ *
+ * 为什么在构建期生成而不是手写一张表: overrides 表就是这件事的**唯一真源**, 手写副本必然漂移
+ * (加一个变体, 美术改了模型, 表就错了且不报错 —— 症状是"某个品质的图标不对", 极难发现)。
+ * 这里逐个模型解析到 textures.layer0, 再核对 PNG 真的在磁盘上, 只把两头都对得上的写进表 ——
+ * 于是运行期 ItemIcon 可以直接信任表里的路径, 不必再走一遍探测回退链。
+ *
+ * 只扫 overrides 是刻意的: 没有 overrides 的物品是"一 id 一贴图", 走既有的同名直取路径即可,
+ * 把它们也塞进表里只会让表大出两个数量级而一条都用不上。
+ *
+ * **已知覆盖不到的一类 (真实存在, 不是理论风险)**: 塔罗牌 (miningdim:tarot_card) 同样是 NBT 变体件
+ * (220 个 overrides / 56 张牌面), 但它的谓词是自定义 ItemProperties
+ * (miningdim:tarot_card / tarot_quality / tarot_orientation 三个浮点值) 而不是 custom_model_data,
+ * 故本函数正确地跳过了它 —— 于是塔罗牌在 Web UI 里目前仍是一张默认图。
+ * 要覆盖它, 服务端得先把那三个谓词值随物品发下来 (WebUiItemJson 现在只发 CustomModelData),
+ * 那是另一套契约形状, 不是在这里加个分支就能了事。
+ */
+function buildVariantMap(): Record<string, Record<string, string>> {
+  const map: Record<string, Record<string, string>> = {}
+  if (!existsSync(MOD_ITEM_MODELS)) {
+    return map
+  }
+
+  /** 读一个模型文件的 layer0 贴图名 (形如 miningdim:item/xxx); 不是 generated 型模型则返回 null。 */
+  const layer0Of = (modelPath: string): string | null => {
+    const file = join(MOD_ITEM_MODELS, `${modelPath}.json`)
+    if (!existsSync(file)) {
+      return null
+    }
+    const model = JSON.parse(readFileSync(file, 'utf8')) as {
+      textures?: Record<string, string>
+    }
+    return model.textures?.layer0 ?? null
+  }
+
+  for (const entry of readdirSync(MOD_ITEM_MODELS)) {
+    if (!entry.endsWith('.json')) {
+      continue
+    }
+    const source = JSON.parse(readFileSync(join(MOD_ITEM_MODELS, entry), 'utf8')) as {
+      overrides?: { predicate?: Record<string, number>; model?: string }[]
+    }
+    const overrides = source.overrides
+    if (overrides === undefined || overrides.length === 0) {
+      continue
+    }
+
+    const itemId = `miningdim:${entry.slice(0, -'.json'.length)}`
+    const variants: Record<string, string> = {}
+    for (const override of overrides) {
+      const code = override.predicate?.custom_model_data
+      const model = override.model
+      if (code === undefined || model === undefined) {
+        continue
+      }
+      // 模型引用形如 miningdim:item/xxx —— 只认本 mod 命名空间, 原版模型的贴图不在 /mc/ 下。
+      const [namespace, ...rest] = model.split(':')
+      if (namespace !== 'miningdim' || rest.length === 0) {
+        continue
+      }
+      const layer0 = layer0Of(rest.join(':').replace(/^item\//, ''))
+      if (layer0 === null) {
+        continue
+      }
+      const texture = layer0.replace(/^miningdim:/, '')
+      // 核对贴图真的在磁盘上。对不上就不写进表, 让它落回占位块 —— 表里存一条指向 404 的路径,
+      // 会让 ItemIcon 白跑一次请求且拿不到任何提示。
+      if (!existsSync(join(MOD_TEXTURES, `${texture}.png`))) {
+        continue
+      }
+      variants[String(code)] = texture
+    }
+    if (Object.keys(variants).length > 0) {
+      map[itemId] = variants
+    }
+  }
+  return map
 }
 
 /**
@@ -74,6 +172,13 @@ function modTexturesPlugin(): Plugin {
           res.end()
         }
 
+        // 变体映射表。dev 下每次请求重新生成: 改了模型 JSON 刷新页面就生效, 不必重启 dev server。
+        if (url.startsWith(`${MOD_MOUNT}${VARIANT_MAP_PATH}`)) {
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify(buildVariantMap()))
+          return
+        }
+
         // 去掉查询串并拒绝路径穿越: resolve 后必须仍落在 ICON_DIRS 之内。
         const rel = decodeURIComponent(url.slice(MOD_MOUNT.length).split('?')[0] ?? '')
         const target = resolve(MOD_TEXTURES, rel)
@@ -107,8 +212,17 @@ function modTexturesPlugin(): Plugin {
           copied += 1
         }
       }
-      // 留一行构建期日志: 贴图数量突变(比如有人挪了目录)在这里最先暴露。
+      const variants = buildVariantMap()
+      writeFileSync(join(here, 'dist', 'mc', VARIANT_MAP_PATH), JSON.stringify(variants))
+      const variantCount = Object.values(variants).reduce(
+        (sum, table) => sum + Object.keys(table).length,
+        0,
+      )
+      // 留两行构建期日志: 贴图数量或变体条目数突变 (有人挪了目录、模型改名) 在这里最先暴露。
       console.log(`[miningdim] 已复制 ${copied} 张 mod 物品/方块贴图到 dist/mc/`)
+      console.log(
+        `[miningdim] 变体贴图映射表: ${Object.keys(variants).length} 个物品 / ${variantCount} 条变体`,
+      )
     },
   }
 }

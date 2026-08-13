@@ -1,6 +1,6 @@
 import { ArrowUpIcon, InfoIcon, RefreshCwIcon, SearchIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactElement, ReactNode } from 'react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   Button,
   ConfirmDangerDialog,
@@ -39,7 +39,7 @@ import type {
 import { callMock, useMockAction, useMockWorld } from '../../mock'
 
 /**
- * 管理后台 (OP)。五块: 经济调账 / 基准价 curate / 职业调级 / 副本重置 / 服务器状态。
+ * 管理后台 (OP)。五块: 经济调账 / 基准价 / 职业调级 / 副本重置 / 服务器状态。
  *
  * === 权限边界 ===
  * 页签的显隐由平板外壳按 isOp 决定, 本页不重复做一次门控; 服务端每个 admin.* action 内部仍会各自校验
@@ -76,7 +76,7 @@ interface AdminTab extends TabItem {
 
 const ADMIN_TABS: readonly AdminTab[] = [
   { id: 'economy', label: '经济调账' },
-  { id: 'baseValue', label: '基准价 curate' },
+  { id: 'baseValue', label: '基准价' },
   { id: 'job', label: '职业调级' },
   { id: 'mining', label: '副本重置' },
   { id: 'server', label: '服务器状态' },
@@ -88,8 +88,8 @@ const ADMIN_TABS: readonly AdminTab[] = [
  * 后者不引入任何断言, 且"下拉里没有的值"这一情况会自然落到 undefined 分支而不是被强行当成合法值。
  */
 const CURRENCY_OPTIONS: readonly { value: PlannedCurrency; label: string }[] = [
-  { value: 'CREDIT', label: '信用点 CREDIT' },
-  { value: 'AZURE', label: '青辉石 AZURE' },
+  { value: 'CREDIT', label: '信用点' },
+  { value: 'AZURE', label: '青辉石' },
 ]
 
 const PAGE_SIZE_OPTIONS: readonly { value: string; label: string; size: number }[] = [
@@ -99,9 +99,9 @@ const PAGE_SIZE_OPTIONS: readonly { value: string; label: string; size: number }
 ]
 
 const BASE_VALUE_SOURCE_LABEL: Record<BaseValueSource, string> = {
-  override: 'override (OP 手工锚)',
-  preset: 'preset (预设锚)',
-  none: 'none (无锚)',
+  override: '手工设定',
+  preset: '系统预设',
+  none: '未设定',
 }
 
 const BASE_VALUE_SOURCE_TONE: Record<BaseValueSource, Tone> = {
@@ -150,7 +150,7 @@ function displayNameOf(entry: AdminItemEntry, names: Record<string, string>): st
 function describeFailure(error: unknown): string {
   if (error instanceof WebUiCallError) {
     const code = error.business === null ? null : error.business.errorCode
-    return code === null ? error.message : `${error.message} (errorCode ${code})`
+    return code === null ? error.message : `${error.message} (错误代码 ${code})`
   }
   return error instanceof Error ? error.message : String(error)
 }
@@ -170,14 +170,14 @@ function formatUptime(seconds: number): string {
 function formatCountdown(targetMs: number, nowMs: number): string {
   const remain = targetMs - nowMs
   if (remain <= 0) {
-    return '已到期 (等待调度器执行)'
+    return '已到期, 等待自动重置'
   }
   const hours = Math.floor(remain / 3_600_000)
   const minutes = Math.floor((remain % 3_600_000) / 60_000)
   return `${String(hours)} 小时 ${String(minutes)} 分后`
 }
 
-/** 货币在确认弹窗正文里的中文名。下拉里的 label 带着英文枚举名, 塞进句子读不通。 */
+/** 货币在确认弹窗正文里的中文名。与下拉 label 同名, 单列一处只为让弹窗文案不依赖候选表的顺序。 */
 function currencyLabelOf(currency: PlannedCurrency): string {
   return currency === 'CREDIT' ? '信用点' : '青辉石'
 }
@@ -232,14 +232,14 @@ function PlayerPicker({
 }): ReactElement {
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <Field label="目标玩家 (世界内已知)">
+      <Field label="目标玩家">
         <Dropdown onChange={onChange} options={options} value={value} />
       </Field>
-      <Field label="手工输入玩家名 (需宿主输入层)">
+      <Field label="手工输入玩家名">
         <TextInput onChange={onChange} onRequestEdit={onRequestEdit} value={value} />
       </Field>
       <p className="text-warning text-xs">
-        当前不可输入中文 (A14 未实现), 点击输入框只会向宿主发起编辑请求
+        中文输入暂未开放, 请用左侧下拉选择玩家
       </p>
     </div>
   )
@@ -369,16 +369,16 @@ function EconomyTab({
     <div className="flex flex-col gap-4">
       <Section
         title="余额调账"
-        hint="I2 无流水表 (缺口 D7): 历史调账查不到, 故回执带 before, 改前改后必须当场核对"
+        hint="调账没有历史流水可查, 回执里的改前改后请当场核对"
       >
         <PlayerPicker
           value={target}
           options={playerOptions}
           onChange={onTargetChange}
-          onRequestEdit={(current) => {
+          onRequestEdit={() => {
             onToast({
               tone: 'info',
-              message: `已向宿主请求编辑玩家名 (当前值 ${current}); 宿主输入层未实现 (A14), 值不会回填`,
+              message: '中文输入暂未开放, 请用左侧下拉选择玩家',
             })
           }}
         />
@@ -468,7 +468,7 @@ function EconomyTab({
           loading={submitting}
           message={`把 ${target} 的${currencyLabelOf(currency)}由 ${
             queriedBefore === null ? '未知 (尚未查询该玩家余额)' : formatAmount(queriedBefore)
-          } 改为 ${amount === null ? amountText : formatAmount(amount)}。这是 set 不是 add, 直接覆盖经济数据, 无法撤销, 且 I2 没有流水表可供事后追溯。`}
+          } 改为 ${amount === null ? amountText : formatAmount(amount)}。这是直接覆盖余额而不是增减, 无法撤销, 且没有调账历史可供事后追溯。`}
           onConfirm={() => {
             void runSet()
           }}
@@ -480,7 +480,7 @@ function EconomyTab({
 
       <Section
         title="世界内其他玩家余额"
-        hint="直接读 mock 世界状态: 上面提交成功后这张表当场变, 不必刷新 —— 接线后这块换成服务端查询"
+        hint="提交成功后这张表当场刷新"
       >
         <DataTable
           columns={playerColumns}
@@ -597,7 +597,7 @@ function BaseValueTab({ onToast }: { onToast: (toast: PanelToast) => void }): Re
     <div className="flex flex-col gap-4">
       <Section
         title="物品检索"
-        hint="按小写子串匹配完整 itemId。itemId 是纯英文可直接输入; 按中文名过滤要等 A14 宿主输入层"
+        hint="按物品 id 匹配 (纯英文)。中文名过滤暂未开放"
         actions={
           <Button aria-label="重新拉取列表" onClick={listQuery.reload} size="sm" variant="outline">
             <RefreshCwIcon />
@@ -779,10 +779,10 @@ function JobTab({
         value={target}
         options={playerOptions}
         onChange={onTargetChange}
-        onRequestEdit={(current) => {
+        onRequestEdit={() => {
           onToast({
             tone: 'info',
-            message: `已向宿主请求编辑玩家名 (当前值 ${current}); 宿主输入层未实现 (A14), 值不会回填`,
+            message: '中文输入暂未开放, 请用左侧下拉选择玩家',
           })
         }}
       />
@@ -881,7 +881,7 @@ function MiningTab({ onToast }: { onToast: (toast: PanelToast) => void }): React
   return (
     <Section
       title="副本重置"
-      hint="活跃版 /mining reset 无二次确认, 下面这道确认弹窗是前端责任, 接线后也不能去掉"
+      hint="重置会清空该副本的当前进度, 不可撤销"
       actions={
         <Button aria-label="重新拉取矿洞实例" onClick={overview.reload} size="sm" variant="outline">
           <RefreshCwIcon />
@@ -1038,7 +1038,19 @@ export function AdminPage(): ReactElement {
   const world = useMockWorld()
   const [tab, setTab] = useState<AdminTabId>('economy')
   const [target, setTarget] = useState(world.player.name)
-  const [toast, setToast] = useState<PanelToast | null>(null)
+  const [toast, setToastValue] = useState<PanelToast | null>(null)
+  /*
+   * 回执的实例序号, 只用来当 React key。
+   *
+   * 退场动画那 140ms 里若被一条文案完全相同的新回执顶替, 组件从 props 上看不出这是新的一条,
+   * 上一次排期的退场定时器会照常把它关掉 —— 玩家做了操作却什么都没看到。序号一变 React 就重建实例,
+   * 旧实例的定时器随卸载一起清掉。
+   */
+  const toastSeqRef = useRef(0)
+  const setToast = (next: PanelToast | null): void => {
+    toastSeqRef.current += 1
+    setToastValue(next)
+  }
 
   const playerOptions: readonly DropdownOption<string>[] = [
     { value: world.player.name, label: `${world.player.name} (我自己)` },
@@ -1129,6 +1141,7 @@ export function AdminPage(): ReactElement {
 
       {toast === null ? null : (
         <FeedbackAlert
+          key={toastSeqRef.current}
           onDismiss={() => {
             setToast(null)
           }}

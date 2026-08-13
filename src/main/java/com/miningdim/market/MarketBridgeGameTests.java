@@ -13,6 +13,11 @@ import com.miningdim.economy.EconomyLedger;
 import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.PlayerAbuseState;
+import com.miningdim.job.munitions.ModMunitionsItems;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
+import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
+import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.market.store.MarketDaoSqlite;
 import com.miningdim.market.store.MarketDb;
 import com.miningdim.testutil.MockGameTestPlayers;
@@ -116,6 +121,72 @@ public final class MarketBridgeGameTests {
         helper.assertTrue(iron != null && iron.has("displayName")
                         && "传家宝铁锭".equals(iron.get("displayName").getAsString()),
                 "a custom-named item carries its NBT-derived displayName as the nbt summary");
+
+        // 普通物品不带变体字段: 绝大多数物品一个 id 一张贴图一个名字, 多发两个字段只是给前端制造分支。
+        helper.assertTrue(diamond != null && !diamond.has("customModelData") && !diamond.has("nameParts"),
+                "a plain item omits both variant fields (its Item-level id and name already say everything)");
+
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 2b. player.inventory: NBT 变体件 (枪匠零件) 必须带 customModelData 与 nameParts
+    // ============================================================
+
+    /**
+     * 这一条守的是一个真实踩过的坑: 枪匠零件的 195 种变体<b>全部</b>注册在同一个 miningdim:gunsmith_part
+     * 之下, 平台/部位/品质由 NBT 决定。只发 itemId + descriptionId 的话, 前端拿到的 195 行是同名同图标的
+     * —— 名字全是 Item 级翻译键解出来的"枪匠零件", 图标全是模型默认的那一张。
+     *
+     * <p>两个断言各守一半:
+     * customModelData 守图标 (前端按它查模型 overrides 生成的映射表取变体贴图);
+     * nameParts 守名字, 且必须是<b>多项</b>的键序列 —— {@code GunsmithPartItem#getName} 拼的是
+     * "平台键 + 部位键 + 字面空格 + 品质键", 塌成一项就说明 Component 拍平丢了东西。
+     *
+     * <p>名字为什么不能在服务端解成字符串: 专用服务端不加载 mod 的 lang, 解出来是原始键。见 WebUiItemJson。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void playerInventoryCarriesNbtVariantFields(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        player.getInventory().clearContent();
+
+        ItemStack part = GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(),
+                GunsmithPlatform.AR, GunsmithPressPart.CORE, GunsmithPartQuality.LEGENDARY);
+        player.getInventory().setItem(0, part);
+
+        JsonObject result = handle(PlayerWebUiActions.INVENTORY, player, new JsonObject());
+        JsonObject row = findBySlot(result.getAsJsonArray("items"), 0);
+        helper.assertTrue(row != null, "the gunsmith part occupies slot 0");
+
+        // 图标: 必须与物品自己写进 NBT 的那个编号逐位相等, 差一位就取到别的品质的贴图。
+        int expected = part.getOrCreateTag().getInt("CustomModelData");
+        helper.assertTrue(row != null && row.has("customModelData")
+                        && row.get("customModelData").getAsInt() == expected,
+                "the variant carries its exact CustomModelData (" + expected + "), got "
+                        + (row == null || !row.has("customModelData")
+                            ? "<missing>" : row.get("customModelData").getAsString()));
+
+        // 名字: 多项键序列, 且必须与 Item 级默认名不同 —— 后者正是这个 bug 的症状。
+        helper.assertTrue(row != null && row.has("nameParts"), "the variant carries nameParts");
+        JsonArray nameParts = row == null ? new JsonArray() : row.getAsJsonArray("nameParts");
+        helper.assertTrue(nameParts.size() >= 2,
+                "nameParts keeps every segment of the composed name (>=2), got " + nameParts.size());
+        boolean hasQualityKey = false;
+        for (JsonElement element : nameParts) {
+            JsonObject segment = element.getAsJsonObject();
+            helper.assertTrue(segment.has("k") || segment.has("t"),
+                    "every nameParts segment is either a translation key (k) or a literal (t)");
+            if (segment.has("k")
+                    && GunsmithPartQuality.LEGENDARY.labelKey().equals(segment.get("k").getAsString())) {
+                hasQualityKey = true;
+            }
+        }
+        helper.assertTrue(hasQualityKey,
+                "nameParts contains the quality translation key (" + GunsmithPartQuality.LEGENDARY.labelKey()
+                        + ") so the client can tell one quality tier from another");
+        helper.assertTrue(!"item.miningdim.gunsmith_part".equals(row == null ? "" : row.get("descriptionId").getAsString())
+                        || nameParts.size() >= 2,
+                "the Item-level descriptionId alone cannot distinguish variants; nameParts is what does");
 
         helper.succeed();
     }

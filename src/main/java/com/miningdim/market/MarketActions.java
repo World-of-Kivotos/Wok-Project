@@ -89,8 +89,13 @@ public final class MarketActions {
     static final WebUiAction LIST = (sender, payload) -> {
         String query = optString(payload, "query", null);
         String sort = optString(payload, "sort", "created_at");
-        int page = optInt(payload, "page", DEFAULT_PAGE);
-        int pageSize = optInt(payload, "pageSize", DEFAULT_PAGE_SIZE);
+        /*
+         * 分页钳制, 与 market.history 同一口径 —— 这里比 history 更要紧: 负 pageSize 会让 SQLite 的
+         * LIMIT -1 变成不限行, 一次拉回**全服**所有 ACTIVE 挂单, 而每一行还要 NbtIo.read 反序列化托管的
+         * 整个 ItemStack, 全程在服务器主线程上。history 至少只能拉到调用者自己的流水。
+         */
+        int page = Math.max(0, optInt(payload, "page", DEFAULT_PAGE));
+        int pageSize = clamp(optInt(payload, "pageSize", DEFAULT_PAGE_SIZE), 1, MAX_PAGE_SIZE);
         int offset = page * pageSize;
 
         List<ListingRow> rows = MarketServices.marketEngine().queryActive(query, sort, offset, pageSize);

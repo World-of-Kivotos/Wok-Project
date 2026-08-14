@@ -85,6 +85,9 @@ public final class TarotSystem implements Subsystem {
             TarotClientSetup.register(modBus, forgeBus);
         }
 
+        // 平板塔罗页的 job.tarot.state / job.tarot.buyPack (买包复用 TarotPackService, 与 /tarot pack buy 同路径)。
+        TarotWebUiActions.registerAll();
+
         LOGGER.info("[miningdim] tarot subsystem registered (cards + packs + craft + effects + datapack loader)");
     }
 

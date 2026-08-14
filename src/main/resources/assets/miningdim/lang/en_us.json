@@ -304,6 +304,7 @@
   "message.miningdim.tarot.craft.need_two": "Place two cards to craft.",
   "message.miningdim.tarot.craft.bad_inputs": "Inputs must be two cards of the same quality (not Shiny).",
   "message.miningdim.tarot.craft.need_l10": "UR to Shiny requires Tarot Reader level 10.",
+  "message.miningdim.tarot.craft.not_owner": "Only cards you own can be used: purchased and unowned cards cannot be crafting inputs.",
   "message.miningdim.tarot.craft.result.success": "Craft success! Upgraded.",
   "message.miningdim.tarot.craft.result.reverse": "Reversal! Upgraded and flipped orientation.",
   "message.miningdim.tarot.craft.result.shatter": "Shattered. 1 shard refunded.",

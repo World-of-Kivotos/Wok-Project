@@ -9,6 +9,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.UUID;
+
 /**
  * 服务端合成裁决 (TarotReader spec 第八章)。2 张同品质牌 -> 1 张高一档牌, 四结果按档位概率裁决:
  *  成功 (升档) / 逆转 (升档 + 翻面, 改正逆唯一途径) / 破碎 (耗 1 张返 1 碎片) / 大破碎 (耗 2 张返 2 碎片)。
@@ -53,6 +55,23 @@ public final class TarotCraftService {
         // UR->闪耀 等级门控 (spec 第八章): 需 L10。不足则裁决前直接拒绝 (调用 menu 已提示)。
         if (to == TarotQuality.SHINY && TarotLeveling.level(player) < TarotQuality.SHINY.requiredLevel()) {
             throw new IllegalStateException("UR->Shiny craft requires tarot L10");
+        }
+        /*
+         * 归属门: 两张输入牌都必须是合成者本人的。
+         *
+         * 这是市场白名单 (J8: 只有最低品质 R 可挂单) 的另一半。少了它, 高品质牌禁挂只堵住了挂单通道 ——
+         * 买家买一张 R 牌本来打不出效果 (用牌处校验 owner), 但产物盖的是**合成者**的 UUID, 于是买来的牌
+         * 当材料一路合上去就"洗"成了自己的。产品意图原话是"让他们自己合成去", 拿别人的牌合成不在其内。
+         *
+         * 无主牌 (owner 键缺席, 只有创造模式直给或 op /give 拿得到) 一并拒绝: 合成会给产物盖上合成者 UUID,
+         * 放行等于给无主牌开一条洗白通道。
+         *
+         * 抛而不是静默降级: 与上面两条校验同纪律 —— menu 层已先做同判据的友好提示与 no-op, 能走到这里的
+         * 只有绕过 UI 的请求, 那属于该被打断的路径。
+         */
+        UUID crafter = player.getUUID();
+        if (!crafter.equals(TarotCardItem.owner(inputA)) || !crafter.equals(TarotCardItem.owner(inputB))) {
+            throw new IllegalStateException("craft inputs must be owned by the crafter");
         }
 
         Result result = decide(from, rng);

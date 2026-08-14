@@ -168,6 +168,13 @@ public final class TarotCraftMenu extends AbstractMiningMenu {
             player.displayClientMessage(Component.translatable("message.miningdim.tarot.craft.need_l10"), true);
             return false;
         }
+        // 归属门 (与 TarotCraftService.resolve 同判据): 别人的牌与无主牌都不能当材料 —— 判据在服务里,
+        // 这里只是把同一条规则提前成一句提示, 免得玩家点了没反应还不知道为什么。
+        java.util.UUID crafter = player.getUUID();
+        if (!crafter.equals(TarotCardItem.owner(a)) || !crafter.equals(TarotCardItem.owner(b))) {
+            player.displayClientMessage(Component.translatable("message.miningdim.tarot.craft.not_owner"), true);
+            return false;
+        }
 
         TarotCraftService.CraftOutcome outcome =
                 TarotRuntime.craft().resolve(player, a, b, level.getRandom());

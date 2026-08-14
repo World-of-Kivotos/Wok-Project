@@ -49,7 +49,7 @@ public final class MarketSubsystem implements Subsystem {
         // 前端 Mock。动作名不在此逐条重列: 上一版就是列了两条然后随 registerAll 扩到七条而没跟上。
         PlayerWebUiActions.registerAll();
         // 条数是"action 到底注册上没有"在运行期的唯一证据, 与上面三个 registerAll 的实际条数必须逐个对上。
-        LOGGER.info("[miningdim] market subsystem registered (8 market.* + 2 admin.* + 7 player.* actions; SQLite P2P trade channel)");
+        LOGGER.info("[miningdim] market subsystem registered (12 market.* + 2 admin.* + 7 player.* actions; SQLite P2P trade channel)");
     }
 
     @SubscribeEvent

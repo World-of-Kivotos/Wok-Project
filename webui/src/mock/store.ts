@@ -5,7 +5,7 @@
  * 要涨、抽卡后卡池持有要变。一坨常量做不到这件事, 只能做出看着像能用、点下去什么都不动的死界面。
  *
  * 与 ../lib/bridge.mock.ts 的分工 (二者并存, 互不写对方的状态):
- *   - bridge.mock 是**真契约那 19 个 action** 的假后端, 挂在 lib/bridge 的 call() 后面。它是那些 action
+ *   - bridge.mock 是**真契约那 35 个 action** 的假后端, 挂在 lib/bridge 的 call() 后面。它是那些 action
  *     在 dev 下的唯一权威, 本文件不复制它的任何规则, 也不改它的任何字段。
  *   - 本文件是**后端还没有的那些面板**的假世界, 并额外持有真域回执的只读镜像 (mirror), 好让 hub 首页
  *     这类聚合视图不必自己再发一轮请求。镜像只由 handlers 在调完 call() 之后写入, 是单向的。
@@ -35,12 +35,10 @@ import type {
   PlannedEconomyTodayResult,
   PlannedEngineerStateResult,
   PlannedJobId,
-  PlannedMarketTransaction,
   PlannedMarriageStateResult,
   PlannedMiningInstance,
   PlannedMiningMyStatusResult,
   PlannedMunitionsStateResult,
-  PlannedPendingPayoutResult,
   PlannedPriceTableResult,
   PlannedSharedInvResult,
   PlannedShopEntry,
@@ -88,22 +86,6 @@ export interface MockRealDomainMirror {
 export interface MockWalletOverlay {
   credit: number
   azure: number
-}
-
-/** 市场里真契约没覆盖的那几块 (B6/B10/B11/B12)。挂单与成交本身仍归 bridge.mock。 */
-export interface MockMarketExtras {
-  transactions: PlannedMarketTransaction[]
-  pendingPayout: PlannedPendingPayoutResult
-  p2pUsedToday: number
-  p2pCapPerDay: number
-  /** 不可交易标的表 (B12/J8 未拍板, 这里只是把形状占住)。 */
-  nonTradable: MockNonTradableRule[]
-}
-
-export interface MockNonTradableRule {
-  itemId: string
-  reasonCode: string
-  reason: string
 }
 
 /**
@@ -159,7 +141,6 @@ export interface MockWorld {
   player: MockPlayerIdentity
   mirror: MockRealDomainMirror
   walletOverlay: MockWalletOverlay
-  market: MockMarketExtras
   jobs: MockJobState
   economy: MockEconomyState
   marriage: PlannedMarriageStateResult

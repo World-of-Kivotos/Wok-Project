@@ -40,9 +40,9 @@ import type {
   MarketBaseValueResult,
   MarketListPayload,
   MarketListing,
+  MarketP2pCapResult,
   MarketSort,
 } from '../../lib/types'
-import type { PlannedTradableResult } from '../../mock'
 import { callMock, getWorld, refreshWalletAndInventory, useMockAction, useMockWorld } from '../../mock'
 
 /**
@@ -50,20 +50,23 @@ import { callMock, getWorld, refreshWalletAndInventory, useMockAction, useMockWo
  *
  * === 本页依赖的契约, 按接线状态分两类 ===
  *
- * 真契约 (已在 lib/types.ts, 接线即换后端, 页面不动):
+ * 全部依赖都是真契约 (已在 lib/types.ts):
  *   B8  market.categories  左栏分类树; 叶子 label 是**翻译键**, 须过 client.i18n (A2/A12)
  *   B1  market.list        订单簿主体; 已知缺陷: 无 total, 见下方"分页"一段
  *   B3  market.buy         购买 (count 支持部分买入)
  *   B7  market.baseValue   购买确认里的"相对基准价"参照, 分层 source: override / preset / none
+ *   B10 market.p2pCap      工具栏的挂单额度。**只覆盖铜/铁 6 个标的**, 不是全品类额度 (回执自带
+ *                          scopeItemIds, 文案必须点明范围); 且它约束的是**挂单卖出**侧 (cap 判定只在
+ *                          MarketEngine.place 里), 买入一件不占 —— 徽标挂在买入页, 不写限定词必被误读。
+ *                          回执把 activeHeld / soldToday 拆开给, 因为只有后者随日切归零
  *   A7  player.inventory   经 mock 的真域镜像读"我背包里已有几件", 用于买入后果可见
  *   A5  player.profile     余额基线。刻意不自己拼 mirror.wallet + walletOverlay —— profile 的 wallet
  *                          已把 planned 域收支叠加算进去 (同 TabletShell 的理由), 自己再拼一遍等于把
  *                          账目规则复制成两份, 必然与顶栏的数字漂移
  *
- * 假定契约 (后端还没有, 走 mock/planned.ts; 接线时按此表逐条核销):
- *   B10 market.p2pCap      工具栏的每日 P2P 额度。**只读展示** —— 买入是否计入额度由服务端记账,
- *                          mock 不写回 usedToday, 别照着这个数字推断服务端行为
- *   B12 market.tradable    购买确认前的标的可交易性判定; 判定为不可交易时禁用确认按钮
+ * 刻意**不**在买入侧查 market.tradable: 标的合法性由 market.place 在挂单源头堵死 (place 与 tradable
+ * 共用同一份白名单实现), 违规标的进不了挂单表; 而买入侧只有 listing.itemId, 拿不到托管件的 NBT 品质,
+ * 对塔罗牌这类同 id 不同品质的物品判不准 —— 判不准的二次检查比不检查更糟。
  *
  * 受阻项 (不是本页能解的, 只能在 UI 上如实标出):
  *   A14 中文输入 BLOCKED   搜索框走 TextInput 的 onRequestEdit 接口位, 当前点击只喊话不接收输入
@@ -361,15 +364,29 @@ function BaseValueLine({ result, unitPrice }: BaseValueLineProps): ReactElement 
   )
 }
 
-/** reason 是给玩家看的中文, reasonCode 是机器码; 两者都缺时如实说"服务端没给", 不编一句理由。 */
-function tradableReason(result: PlannedTradableResult): string {
-  if (result.reason !== null) {
-    return result.reason
-  }
-  if (result.reasonCode !== null) {
-    return result.reasonCode
-  }
-  return '服务端未给出原因'
+/**
+ * 每日额度徽标的悬浮说明。
+ *
+ * 必须点名"只管铜/铁": 这条 cap 只覆盖回执里那 6 个 item_id (低价大宗矿的对倒防线), 写成笼统的
+ * "今日交易额度"会让玩家以为买把枪也占额度。受限标的直接列注册名 —— 前端推不出它们的翻译键
+ * (方块类是 block.* 而物品是 item.*), 编一份对照表就是又一个会漂移的镜像。
+ *
+ * 还必须点名"约束的是挂单卖出": 这个徽标挂在买入页, 不写限定词的话玩家会读成"我今天只能买 512 件铜"。
+ * 服务端的 cap 判定只在 MarketEngine.place 里, 买入侧一件不占。
+ *
+ * 归零时刻只承诺 soldToday 那一段。ACTIVE 挂单的占用不看 created_at, 到点一件都不会掉 ——
+ * 老文案"额度在 X 重置"是服务端兑现不了的承诺, 玩家挂着卖不掉的货等到零点会发现数字纹丝不动。
+ * 时刻按**服务器本地时区**渲染 (toLocaleString 用客户端时区显示这个绝对时刻), 不写 UTC:
+ * 服务端的当日窗口用的就是系统默认时区, 按 UTC 讲会与真实归零错位。
+ */
+function p2pCapHint(cap: MarketP2pCapResult): string {
+  const resetsAt = new Date(cap.resetsAt).toLocaleString('zh-CN', { hour12: false })
+  const mockNote = isMockActive() ? ' (假数据: 买入与挂单都不会写回额度)' : ''
+  return (
+    `每日限量只管挂单卖出这几件铜/铁标的: ${cap.scopeItemIds.join(', ')}; 其余物品不占额度, 买入也不占。` +
+    `在挂中的 ${String(cap.activeHeld)} 件始终占额度, 撤单即释放; ` +
+    `今日已成交的 ${String(cap.soldToday)} 件在 ${resetsAt} 归零。${mockNote}`
+  )
 }
 
 interface BuyDialogProps {
@@ -387,7 +404,6 @@ function BuyDialog({ listing, itemName, ownedCount, onClose, onBought }: BuyDial
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   const baseValue = useMockAction('market.baseValue', { itemId: listing.itemId })
-  const tradable = useMockAction('market.tradable', { itemId: listing.itemId })
   const profile = useMockAction('player.profile', EMPTY_PAYLOAD)
 
   /*
@@ -398,7 +414,6 @@ function BuyDialog({ listing, itemName, ownedCount, onClose, onBought }: BuyDial
   const totalIsSafe = Number.isSafeInteger(total)
   const balance = profile.status === 'ready' ? profile.data.wallet.credit : null
   const shortfall = balance === null || !totalIsSafe ? null : total - balance
-  const blockedByTradable = tradable.status === 'ready' && !tradable.data.tradable
 
   const handleConfirm = async (): Promise<void> => {
     setSubmitting(true)
@@ -506,16 +521,11 @@ function BuyDialog({ listing, itemName, ownedCount, onClose, onBought }: BuyDial
             <BaseValueLine result={baseValue.data} unitPrice={listing.unitPrice} />
           ) : null}
 
-          {tradable.status === 'loading' ? <LoadingBlock label="检查能否交易" size="sm" /> : null}
-          {tradable.status === 'error' ? (
-            // market.tradable 本身还没接线 (B12), 它查不到不该反过来挡住真契约已经支持的买入。
-            <p className="text-sm text-warning">暂时无法确认这件物品能否交易: {tradable.error.message}</p>
-          ) : null}
-          {blockedByTradable && tradable.status === 'ready' ? (
-            <Surface tone="danger">
-              <p className="text-foreground text-sm">不可交易: {tradableReason(tradable.data)}</p>
-            </Surface>
-          ) : null}
+          {/*
+            买入侧不再查 market.tradable: 标的合法性由 market.place 在挂单源头堵死 (两边共用同一份
+            MarketTradeWhitelist), 违规标的根本进不了挂单表。而买入侧手里只有 listing.itemId, 拿不到托管件的
+            NBT 品质, 对塔罗牌这类"同 id 不同品质"的物品永远判不准 —— 留着就是第二套判不准的规则。
+          */}
 
           {profile.status === 'loading' ? <LoadingBlock label="读取余额" size="sm" /> : null}
           {profile.status === 'error' ? (
@@ -538,7 +548,6 @@ function BuyDialog({ listing, itemName, ownedCount, onClose, onBought }: BuyDial
             取消
           </Button>
           <Button
-            disabled={blockedByTradable}
             loading={submitting}
             onClick={() => {
               void handleConfirm()
@@ -797,21 +806,15 @@ export function BrowsePage(): ReactElement {
           )}
 
           {p2pCap.status === 'ready' ? (
-            <Hint
-              content={
-                isMockActive()
-                  ? '今天还能与其他玩家成交多少, 到顶后当天不能再买 (假数据: 买入不会写回额度)'
-                  : '今天还能与其他玩家成交多少, 到顶后当天不能再买'
-              }
-            >
+            <Hint content={p2pCapHint(p2pCap.data)}>
               <Tag size="sm" tone={p2pCap.data.remaining > 0 ? 'info' : 'danger'}>
-                今日交易额度 {String(p2pCap.data.usedToday)}/{String(p2pCap.data.capPerDay)}
+                铜铁挂单额度 {String(p2pCap.data.usedToday)}/{String(p2pCap.data.capPerDay)}
               </Tag>
             </Hint>
           ) : null}
           {p2pCap.status === 'error' ? (
             <Tag size="sm" tone="danger">
-              今日交易额度暂不可用
+              铜铁挂单额度暂不可用
             </Tag>
           ) : null}
 

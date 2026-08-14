@@ -11,14 +11,16 @@
  * 假的更省事也更有用; 抄的时候连"高级+才有意义的档位填 0 占位"这类细节也一并保留了。
  *
  * 刻意铺满的边界形态 (设计稿最容易漏掉的那些):
- *   - 空列表      特勤扫描候选 seals 为空 (未扫描态)、待收货款 items 为空、部分商店无比价对象
- *   - 超长中文名  防弹背心的 45 字名, 撞流水行/物品格/表头三处截断 (与 bridge.mock 用的是同一件物品)
+ *   - 空列表      特勤扫描候选 seals 为空 (未扫描态)、部分商店无比价对象
+ *   - 超长中文名  防弹背心的 45 字名, 撞挂单行/物品格/表头三处截断 (与 bridge.mock 用的是同一件物品)
  *   - NBT 变体件  同 itemId 同翻译键、只靠 customModelData + nameParts 区分的枪匠零件 (见 ITEM_GAS_CORE)
- *   - 极大数值    一条 total = 2^53-1 的成交流水 + 一个余额 2^53-1 的鲸鱼玩家, 撞金额格式化与 long 精度边界
+ *   - 极大数值    一个余额 2^53-1 的鲸鱼玩家, 撞金额格式化与 long 精度边界
  *   - 零值        一个双币余额均为 0 的玩家、一个 0 层数的酒、一条 0 进度的悬赏
  *   - 单页刚好装满  系统商店 20 条 (按 pageSize=20 恰好一页, 第 2 页为空)
- *   - 差一个装满   成交流水 39 条 (按 pageSize=20 分两页, 第 2 页 19 条, 差一条满页)
- *   - 名字缺席    一条对手方为 null 的流水 (系统回收)、未改名物品无 displayName 键
+ *   - 名字缺席    未改名物品无 displayName 键
+ *
+ * 市场那一块 (成交流水 / 待结货款 / 每日额度 / 不可交易规则) 已随 W2 接线搬进 lib/bridge.mock ——
+ * 它们现在都是真契约 action, 假后端只能有一个, 本文件不再留第二份。
  */
 
 import type { ItemNamePart } from '../lib/i18n'
@@ -28,11 +30,9 @@ import type {
   PlannedChampionAffix,
   PlannedChampionStar,
   PlannedJobId,
-  PlannedMarketTransaction,
   PlannedShopEntry,
   PlannedStatLine,
   PlannedTarotCard,
-  PlannedTxnRole,
 } from './planned'
 import type { MockOtherPlayer, MockWorld } from './store'
 
@@ -90,12 +90,6 @@ function seedVariant(
 }
 
 const ITEM_DIAMOND = seedItem('minecraft:diamond', 'item.minecraft.diamond', '钻石')
-/**
- * 已核实为**编造 id**: 仓库里没有 miningdim:azurite 这件物品 —— 青辉石是纯账本货币
- * (Currency.AZURE), 无注册项无翻译键无贴图。留着是因为改它要先由后端决定"青辉石到底要不要有实体物品",
- * 前端不自行裁决。用到它的地方一律会落占位块, 见 nonTradable 处的说明。
- */
-const ITEM_AZURITE = seedItem('miningdim:azurite', 'item.miningdim.azurite', '青辉石')
 const ITEM_GOLD = seedItem('minecraft:gold_ingot', 'item.minecraft.gold_ingot', '金锭')
 const ITEM_SCRAP = seedItem(
   'minecraft:netherite_scrap',
@@ -309,65 +303,6 @@ function seedStars(): PlannedChampionStar[] {
 }
 
 // ============================================================
-// 成交流水 (39 条 = 按 pageSize 20 分两页, 第 2 页差一条满)
-// ============================================================
-
-const TXN_ITEMS: readonly SeedItem[] = [
-  ITEM_DIAMOND,
-  ITEM_GOLD,
-  ITEM_IRON_ORE,
-  ITEM_WHEAT,
-  ITEM_TACZ_GUN,
-  ITEM_LONG_NAME,
-]
-
-const TXN_COUNTERPARTIES: readonly string[] = ['矿工阿建', '拍卖狂魔', '鲸鱼玩家', '甜品师小狐']
-
-function seedTransactions(epoch: number): PlannedMarketTransaction[] {
-  const total = ASSUMED_PAGE_SIZE * 2 - 1
-  const transactions: PlannedMarketTransaction[] = []
-  for (let index = 0; index < total; index += 1) {
-    const item = TXN_ITEMS[index % TXN_ITEMS.length]
-    if (item === undefined) {
-      throw new Error('mock 种子缺陷: 流水物品表为空')
-    }
-    const role: PlannedTxnRole = index % 3 === 0 ? 'seller' : 'buyer'
-    const count = 1 + (index % 7)
-    const unitPrice = 40 + index * 37
-    const counterparty = TXN_COUNTERPARTIES[index % TXN_COUNTERPARTIES.length]
-    transactions.push({
-      txnId: 9_000 + index,
-      role,
-      itemId: item.itemId,
-      descriptionId: item.descriptionId,
-      count,
-      unitPrice,
-      total: unitPrice * count,
-      // 卖方侧才承担挂单手续费; 买方侧当前恒 0 (与真契约 market.buy 回执的 fee 恒 0 同口径)。
-      fee: role === 'seller' ? Math.round(unitPrice * count * 0.04) : 0,
-      counterpartyName: counterparty === undefined ? null : counterparty,
-      at: epoch - index * 37 * MINUTE,
-    })
-  }
-  // 极大数值边界: 2^53-1, 撞 Java long -> JSON number 的精度上界与金额列的宽度上界。
-  transactions.push({
-    txnId: 9_999,
-    role: 'seller',
-    itemId: ITEM_SCRAP.itemId,
-    descriptionId: ITEM_SCRAP.descriptionId,
-    count: 1,
-    unitPrice: Number.MAX_SAFE_INTEGER,
-    total: Number.MAX_SAFE_INTEGER,
-    fee: 0,
-    // 对手方缺席: 系统回收/挂单过期退回这类没有对家的流水, 前端不得当成"名字没加载出来"。
-    counterpartyName: null,
-    at: epoch - 3 * DAY,
-  })
-  transactions.sort((left, right) => right.at - left.at)
-  return transactions.slice(0, total)
-}
-
-// ============================================================
 // 系统商店 (20 条 = 按 pageSize 20 恰好装满一页, 第 2 页为空)
 // ============================================================
 
@@ -571,34 +506,6 @@ export function createInitialWorld(): MockWorld {
       refreshedAt: 0,
     },
     walletOverlay: { credit: 0, azure: 0 },
-    market: {
-      transactions: seedTransactions(epoch),
-      pendingPayout: {
-        credit: 4_820,
-        // 空列表边界: 有货款待收但没有待退物品, 两段各自可空。
-        items: [],
-      },
-      p2pUsedToday: 380,
-      p2pCapPerDay: 512,
-      /*
-       * 不可交易清单。两条各带一个**已核实的真实缺口**, 别当成随手写的示例:
-       *
-       * 1. 青辉石 (ITEM_AZURITE) 在仓库里**根本不是物品** —— 它是纯账本货币
-       *    (com.miningdim.economy.Currency.AZURE, "点券式高级货币, 仅 >=6 星精英怪掉落入账"),
-       *    没有注册项、没有翻译键、没有贴图。于是 BOUND_CURRENCY 这条规则永远不可能命中一件真物品。
-       *    接线时要么后端确实给青辉石加一个实体物品, 要么这条 reasonCode 整个作废 —— 现在这样
-       *    既画不出图标 (落占位块), 也在语义上站不住。**待后端裁决, 前端不自行改口径。**
-       *
-       * 2. 塔罗牌的真实注册名是 miningdim:tarot_card 一个 id (220 种牌面靠 NBT 区分),
-       *    此前这里写的 tarot_card_fool 是编造的。已改成真 id。它现在仍会落占位块, 但那是
-       *    **如实反映**: 塔罗牌走的是自定义 ItemProperties 谓词而不是 CustomModelData,
-       *    本次的变体贴图映射表覆盖不到它 (理由见 vite.config.ts 的 buildVariantMap)。
-       */
-      nonTradable: [
-        { itemId: ITEM_AZURITE.itemId, reasonCode: 'BOUND_CURRENCY', reason: '青辉石绑定账号, 不可交易' },
-        { itemId: 'miningdim:tarot_card', reasonCode: 'TAROT_BANNED', reason: '塔罗牌禁止交易' },
-      ],
-    },
     jobs: {
       progress: seedJobProgress(),
       tarot: {

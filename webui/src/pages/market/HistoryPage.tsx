@@ -8,68 +8,76 @@ import {
   DataTable,
   EmptyBlock,
   ErrorBlock,
-  FeedbackAlert,
   ItemIcon,
   LoadingBlock,
   Panel,
   Tag,
 } from '@/components/kit'
-import { isMockActive } from '../../lib/bridge'
+import { callErrorText } from '../../lib/errorText'
 import { useItemNames } from '../../lib/i18n'
+import type { MarketTransaction } from '../../lib/types'
 import { useMockAction } from '../../mock'
-import type { PlannedMarketTransaction } from '../../mock'
 
 /**
  * 跳蚤市场 · 成交历史。
  *
- * 本页同时展示两条互不替代的数据源, 界面上必须分开标注, 不能揉成一张看似真实的表:
- *   1. **真实数据** market.history (真契约, 已接线) —— MarketDao 至今没有按玩家查 transactions 的
- *      方法, 服务端固定回 `{ transactions: [], page }`, lib/types.ts 的 MarketHistoryResult 甚至把
- *      transactions 的类型钉死成空元组 `[]`。本页仍然真的调用它 (走 loading/ready/error 三态),
- *      而不是假装这条 action 不存在 —— 它就是当前的真实后果, 空态本身就是要传达的信息。
- *   2. **预览数据** market.transactions (接线清单 B6, planned.ts 假定契约) —— 用来演示"成交流水做出来
- *      之后长什么样", 数据整段来自 mock/seed.ts 的种子, 与任何真实玩家操作无关, 不随挂单/撤单变化。
+ * 单一数据源 market.history (真契约)。本页此前是"真实 action 恒回空 + 一张 planned 示例表"的双轨结构,
+ * W2 给 MarketDao 补上按玩家查流水的方法之后, 示例表整段作废 —— 一张标着"示例"的表和一张真表并排放,
+ * 玩家分不清哪个是自己的钱。
+ *
+ * 分页吃回执的 total。market.list 至今没有 total (前端只能做"还有下一页"的启发式), 本条刻意补上了,
+ * 故这里给的是真页码而不是猜的。
  */
 
-const REAL_HISTORY_PAYLOAD: { page: number } = { page: 0 }
-const PLANNED_PAGE_SIZE = 10
+const PAGE_SIZE = 10
 
-const ROLE_LABEL: Record<PlannedMarketTransaction['role'], string> = {
-  buyer: '买入',
-  seller: '卖出',
+const ROLE_LABEL: Record<MarketTransaction['role'], string> = {
+  buy: '买入',
+  sell: '卖出',
 }
 
 function formatTimestamp(at: number): string {
-  const date = new Date(at)
-  return date.toLocaleString('zh-CN', { hour12: false })
+  return new Date(at).toLocaleString('zh-CN', { hour12: false })
+}
+
+/**
+ * 对手方离线时服务端只有 UUID (transactions 表没有名字快照列, 只能解析在线玩家)。
+ * 取前 8 位是为了让它在表格里放得下, 同时仍能与其它流水对上号; **不编"未知玩家"** ——
+ * 那会把"这人现在不在线"说成"这条记录坏了"。
+ */
+function counterpartyFallback(uuid: string): string {
+  return `${uuid.slice(0, 8)} (离线)`
 }
 
 export function HistoryPage(): ReactElement {
-  const realQuery = useMockAction('market.history', REAL_HISTORY_PAYLOAD)
+  const [page, setPage] = useState(0)
+  const historyQuery = useMockAction('market.history', { page, pageSize: PAGE_SIZE })
 
-  const [plannedPage, setPlannedPage] = useState(0)
-  const plannedQuery = useMockAction('market.transactions', {
-    page: plannedPage,
-    pageSize: PLANNED_PAGE_SIZE,
-  })
-
-  const transactions = plannedQuery.status === 'ready' ? plannedQuery.data.transactions : []
+  const transactions = historyQuery.status === 'ready' ? historyQuery.data.transactions : []
   const descriptionIds = Array.from(new Set(transactions.map((txn) => txn.descriptionId)))
   const names = useItemNames(descriptionIds)
 
   const totalPages =
-    plannedQuery.status === 'ready' ? Math.max(1, Math.ceil(plannedQuery.data.total / PLANNED_PAGE_SIZE)) : 1
+    historyQuery.status === 'ready'
+      ? Math.max(1, Math.ceil(historyQuery.data.total / PAGE_SIZE))
+      : 1
 
-  const columns: readonly DataTableColumn<PlannedMarketTransaction>[] = [
+  const columns: readonly DataTableColumn<MarketTransaction>[] = [
     {
       key: 'role',
       header: '方向',
-      render: (row) => <Tag tone={row.role === 'buyer' ? 'info' : 'success'}>{ROLE_LABEL[row.role]}</Tag>,
+      render: (row) => (
+        <Tag tone={row.role === 'buy' ? 'info' : 'success'}>{ROLE_LABEL[row.role]}</Tag>
+      ),
       sortValue: (row) => ROLE_LABEL[row.role],
     },
     {
       key: 'item',
       header: '物品',
+      /*
+       * 流水行没有 customModelData / nameParts: transactions 表只存 item_id, 不存成交物的 NBT。
+       * 于是 195 种枪匠零件在这张表里是同名同图标 —— 这是数据层缺口, 不在这里用别处的 NBT 猜一个。
+       */
       render: (row) => {
         const label = names[row.descriptionId] ?? row.descriptionId
         return (
@@ -104,7 +112,11 @@ export function HistoryPage(): ReactElement {
     },
     {
       key: 'fee',
-      header: '手续费',
+      /*
+       * 列名必须限定成"成交"手续费: 这一列恒为 0 (费在挂单那一刻由 market.place 收掉, 成交时不再收第二次),
+       * 而叫"手续费"的一列全是 0 会被卖家读成"这单没收过费"。表格头放不下解释, 故下方配一行脚注。
+       */
+      header: '成交手续费',
       numeric: true,
       render: (row) => <Currency amount={row.fee} currency="credit" size="sm" />,
       sortValue: (row) => row.fee,
@@ -112,7 +124,6 @@ export function HistoryPage(): ReactElement {
     {
       key: 'counterparty',
       header: '对手方',
-      // null 是"系统回收/无对手方"的合法值, 不是名字没加载出来 —— 两者不能用同一句"—"含糊带过。
       render: (row) => (
         <span
           className={
@@ -121,62 +132,53 @@ export function HistoryPage(): ReactElement {
               : 'text-foreground text-sm'
           }
         >
-          {row.counterpartyName ?? '系统'}
+          {row.counterpartyName ?? counterpartyFallback(row.counterpartyUuid)}
         </span>
       ),
-      sortValue: (row) => row.counterpartyName ?? '',
+      sortValue: (row) => row.counterpartyName ?? row.counterpartyUuid,
     },
     {
-      key: 'at',
+      key: 'createdAt',
       header: '成交时间',
-      render: (row) => <span className="text-muted-foreground text-sm">{formatTimestamp(row.at)}</span>,
-      sortValue: (row) => row.at,
+      render: (row) => (
+        <span className="text-muted-foreground text-sm">{formatTimestamp(row.createdAt)}</span>
+      ),
+      sortValue: (row) => row.createdAt,
     },
   ]
 
   return (
     <div className="flex flex-col gap-4">
-      <FeedbackAlert
-        message={
-          isMockActive()
-            ? '成交历史暂未开放, 下方"示例记录"是演示数据 (market.transactions, 接线清单 B6), 不是你的真实成交。'
-            : '成交历史暂未开放, 下方"示例记录"只是演示用的数据, 不是你的真实成交。'
-        }
-        tone="warning"
-      />
-
       <Panel title="我的成交记录">
-        {realQuery.status === 'loading' ? <LoadingBlock label="正在查询" size="sm" /> : null}
-        {realQuery.status === 'error' ? (
-          <ErrorBlock message={`查询失败: ${realQuery.error.message}`} onRetry={realQuery.reload} />
+        {historyQuery.status === 'loading' ? <LoadingBlock label="正在查询" /> : null}
+        {historyQuery.status === 'error' ? (
+          <ErrorBlock
+            message={`查询失败: ${callErrorText(historyQuery.error)}`}
+            onRetry={historyQuery.reload}
+          />
         ) : null}
-        {realQuery.status === 'ready' ? (
+
+        {historyQuery.status === 'ready' && transactions.length === 0 ? (
           <EmptyBlock
-            hint="成交流水功能还没开放, 不是你的记录丢了"
+            hint={page === 0 ? '买入或卖出成交后会记在这里' : '这一页没有记录, 请返回上一页'}
             icon={<ClockIcon aria-hidden="true" />}
             title="暂无成交记录"
           />
         ) : null}
-      </Panel>
 
-      <Panel description="功能开放后, 你的成交记录会长这样" title="示例记录">
-        {plannedQuery.status === 'loading' ? <LoadingBlock label="正在读取示例数据" /> : null}
-        {plannedQuery.status === 'error' ? (
-          <ErrorBlock message={`读取失败: ${plannedQuery.error.message}`} onRetry={plannedQuery.reload} />
-        ) : null}
-
-        {plannedQuery.status === 'ready' && transactions.length === 0 ? (
-          <EmptyBlock icon={<ClockIcon aria-hidden="true" />} title="暂无示例记录" />
-        ) : null}
-
-        {plannedQuery.status === 'ready' && transactions.length > 0 ? (
+        {historyQuery.status === 'ready' && transactions.length > 0 ? (
           <div className="flex flex-col gap-3">
             <DataTable columns={columns} rowKey={(row) => String(row.txnId)} rows={transactions} />
+            <p className="text-muted-foreground text-xs">
+              成交手续费恒为 0: 卖出的手续费在
+              <strong className="text-foreground font-medium">挂单那一刻</strong>
+              就已从余额扣除 (撤单不退), 成交时不再收第二次。
+            </p>
             <div className="flex items-center justify-center gap-3">
               <Button
-                disabled={plannedPage <= 0}
+                disabled={page <= 0}
                 onClick={() => {
-                  setPlannedPage((page) => Math.max(0, page - 1))
+                  setPage((current) => Math.max(0, current - 1))
                 }}
                 size="sm"
                 variant="outline"
@@ -184,12 +186,12 @@ export function HistoryPage(): ReactElement {
                 上一页
               </Button>
               <span className="text-muted-foreground text-sm">
-                第 {plannedPage + 1} / {totalPages} 页
+                第 {page + 1} / {totalPages} 页 (共 {historyQuery.data.total} 条)
               </span>
               <Button
-                disabled={plannedPage >= totalPages - 1}
+                disabled={page >= totalPages - 1}
                 onClick={() => {
-                  setPlannedPage((page) => Math.min(totalPages - 1, page + 1))
+                  setPage((current) => Math.min(totalPages - 1, current + 1))
                 }}
                 size="sm"
                 variant="outline"

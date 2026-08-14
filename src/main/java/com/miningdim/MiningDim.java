@@ -160,7 +160,7 @@ public final class MiningDim {
         //      须排在 EconomySystem 与 WebUiServerSubsystem 之后, 运行期只经两者公开门面协作。
         subsystems.add(new com.miningdim.caseopening.CaseOpeningSystem());
         // 26. 跳蚤市场服务端 (服务端权威 P2P 交易通道, 纯服务端无 MCEF): SQLite 托管挂单/流水/离线待结 +
-        //     成交手续费 sink + 铜铁日 cap + 6 个 market.* action 注册进派发器。须排在经济子系统 (第 11) 之后
+        //     成交手续费 sink + 铜铁日 cap + 12 个 market.* action 注册进派发器。须排在经济子系统 (第 11) 之后
         //     —— 买卖结算回调 EconomyServices 的 tryCharge/grant 原子接口, 经济门面须先注入; 须排在网络 (第 2) +
         //     Web UI 服务端派发 (第 25) 之后 —— 复用 WebUiServerDispatcher.register 挂 action, 派发器须先就绪。
         //     生命周期事件 (ServerStarting 开库建表 / ServerStopping 关库 / PlayerLoggedIn 结算离线待结) 在其

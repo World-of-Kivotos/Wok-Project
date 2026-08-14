@@ -24,8 +24,7 @@
  *     一个键是缺席还是 null, 不如全用 null 并在接线时按 Java 逐个改正。
  */
 
-import type { ItemNamePart } from '../lib/i18n'
-import type { BaseValueSource, PlayerInventoryItem, WebUiWallet } from '../lib/types'
+import type { PlayerInventoryItem, WebUiWallet } from '../lib/types'
 
 /** 不吃任何字段的 planned action 用它占位 (等价 `{}`, 但不触发 no-empty-object-type)。 */
 export type PlannedEmptyPayload = Record<string, never>
@@ -65,120 +64,6 @@ export type PlannedJobId =
 
 /** 矿洞三难度。**不是发明的**: 取自 com.miningdim.core.Difficulty.configName()。 */
 export type PlannedDifficulty = 'easy' | 'medium' | 'hard'
-
-// ============================================================
-// B 组 · 跳蚤市场 (补真契约缺的那几条)
-// ============================================================
-
-/** B9 market.feePreview (WRAP, MarketFee:35-46 纯函数已就绪只差单独暴露) 入参。 */
-export interface PlannedFeePreviewPayload {
-  itemId: string
-  unitPrice: number
-  count: number
-}
-
-/**
- * B9 market.feePreview 回执。
- * 没有这条时玩家提交后才知道扣了多少费。ratio 是服务端算出来的实际费率, 前端**不得**自己按比例反算 ——
- * 真费率按挂价对 V0 的偏离度浮动, 量级能差好几倍 (与 bridge.mock 头部记的那条近似同源)。
- */
-export interface PlannedFeePreviewResult {
-  listFee: number
-  /** 0..1 的实际费率, 仅供展示 "本单费率 X%"。 */
-  ratio: number
-  /** 该物品的基准价; 无锚时 null。 */
-  v0: number | null
-  /** 复用真契约的分层标注 (lib/types.ts BaseValueSource)。 */
-  source: BaseValueSource
-}
-
-/** B10 market.p2pCap (WRAP, MarketConstants:51 cap=512/日 + DAO 聚合已就绪) 回执。 */
-export interface PlannedP2pCapResult {
-  usedToday: number
-  capPerDay: number
-  remaining: number
-  /** 额度重置时刻 (UTC 翻日)。 */
-  resetsAt: number
-}
-
-/**
- * B6 成交流水的单条记录。
- * 命名说明: 真 action 名很可能仍叫 market.history (它已存在, 只是 transactions 恒空);
- * 这里用 market.transactions 是为了不与真契约的 MarketHistoryResult 撞名 —— 那个类型把 transactions
- * 钉死成空元组 `[]` 是刻意的编译期路障, 不该被本文件覆盖掉。接线时按后端最终命名合并。
- */
-export interface PlannedMarketTransaction {
-  txnId: number
-  /** 本条流水里"我"是买方还是卖方。 */
-  role: PlannedTxnRole
-  itemId: string
-  descriptionId: string
-  count: number
-  unitPrice: number
-  total: number
-  /** 该笔实收/实付的手续费。 */
-  fee: number
-  /** 对手方玩家名; 系统回收等无对手场景为 null (A16 记的改名过期问题同样适用于这个快照名)。 */
-  counterpartyName: string | null
-  at: number
-}
-
-export type PlannedTxnRole = 'buyer' | 'seller'
-
-/** B6 market.transactions 入参。 */
-export interface PlannedTransactionsPayload {
-  page: number
-  pageSize: number
-}
-
-/** B6 market.transactions 回执。带 total —— market.list 缺 total 是已知缺陷 (B1), 新接的这条别再犯。 */
-export interface PlannedTransactionsResult {
-  transactions: PlannedMarketTransaction[]
-  page: number
-  pageSize: number
-  total: number
-}
-
-/**
- * B11 market.pendingPayout (BACKEND, drainPendingPayout 是登录时取即删的破坏性方法, 无只读 peek) 回执。
- * 这条是只读 peek, 不得触发发放 —— 真接线时若复用了 drain, 玩家一开面板货款就没了。
- */
-export interface PlannedPendingPayoutResult {
-  credit: number
-  items: PlannedPendingItem[]
-}
-
-export interface PlannedPendingItem {
-  itemId: string
-  descriptionId: string
-  count: number
-  /**
-   * NBT 变体件的两个字段, 与 MarketListing / PlayerInventoryItem 同形状 (见 lib/types.ts 的 ItemVariantFields)。
-   *
-   * 这里预先补上而不是等接线时再加: 待领货款里装的就是别人买走的挂单实物, 一定会出现枪匠零件这类
-   * 变体件。服务端真接线时只要让 drainPendingPayout 走一遍 WebUiItemJson, 这两个字段自然就在,
-   * 前端不用再改一次 —— 而缺了它们, 收件箱里的 195 种零件是同名同图标的。
-   */
-  customModelData?: number
-  nameParts?: ItemNamePart[]
-}
-
-/** B12 market.tradable (BACKEND, 挂单路径无标的过滤) 入参。 */
-export interface PlannedTradablePayload {
-  itemId: string
-}
-
-/**
- * B12 market.tradable 回执。
- * 不做这条, 前端无法灰掉不可挂的物品, 玩家会先托管再报错。reasonCode 留成字符串位而不是枚举:
- * 白名单规则 (J8) 尚未拍板, 现在定枚举等于替产品做决定。
- */
-export interface PlannedTradableResult {
-  itemId: string
-  tradable: boolean
-  reasonCode: string | null
-  reason: string | null
-}
 
 // ============================================================
 // C 组 · 职业
@@ -327,7 +212,19 @@ export interface PlannedBlueprint {
   blueprintId: string
   displayName: string
   gunId: string
-  requiredParts: PlannedPendingItem[]
+  requiredParts: PlannedBlueprintPart[]
+}
+
+/**
+ * 蓝图配方里的一行料 (物品 id + 翻译键 + 数量)。
+ *
+ * 它此前借用的是市场待领货款的条目类型, 那条随 W2 接线归位后已不存在 —— 借类型本来就是错的:
+ * 两者只是碰巧同形, 各自的字段将来会朝不同方向长 (待领货款要 NBT 变体字段, 配方料要的是"我还差几件")。
+ */
+export interface PlannedBlueprintPart {
+  itemId: string
+  descriptionId: string
+  count: number
 }
 
 /** C21 job.engineer.state 回执 (玩家可见职业名是"铸甲师", engineer 只是旧存档兼容 id)。 */
@@ -779,16 +676,10 @@ export interface PlannedAdminResetResult {
 /**
  * planned action 名 -> {payload, result}。
  *
- * 命名与真契约的关系: 除 market.transactions 外, 这里的名字都是"后端将来大概率会叫的名字"(接线清单里
- * 写的那个)。market.transactions 是唯一一个刻意避名的 —— 真 action market.history 已存在且回执恒空,
- * 占着那个名字。
+ * 这里的名字都是"后端将来大概率会叫的名字"(接线清单里写的那个)。
+ * 唯一刻意避名的那条 (market.transactions) 已随 W2 核销归位到真契约 market.history, 不再出现在本表。
  */
 export type PlannedContractMap = {
-  'market.feePreview': { payload: PlannedFeePreviewPayload; result: PlannedFeePreviewResult }
-  'market.p2pCap': { payload: PlannedEmptyPayload; result: PlannedP2pCapResult }
-  'market.transactions': { payload: PlannedTransactionsPayload; result: PlannedTransactionsResult }
-  'market.pendingPayout': { payload: PlannedEmptyPayload; result: PlannedPendingPayoutResult }
-  'market.tradable': { payload: PlannedTradablePayload; result: PlannedTradableResult }
   'job.tarot.state': { payload: PlannedEmptyPayload; result: PlannedTarotStateResult }
   'job.tarot.buyPack': { payload: PlannedBuyPackPayload; result: PlannedBuyPackResult }
   'job.agent.state': { payload: PlannedEmptyPayload; result: PlannedAgentStateResult }
@@ -842,11 +733,6 @@ export type PlannedResultOf<A extends PlannedActionName> = PlannedContractMap[A]
  * 数组变短一条, 代表后端真落地了一行。按接线清单的分组顺序排列, 便于与文档对照。
  */
 export const PLANNED_ACTIONS = [
-  'market.feePreview',
-  'market.p2pCap',
-  'market.transactions',
-  'market.pendingPayout',
-  'market.tradable',
   'job.tarot.state',
   'job.tarot.buyPack',
   'job.agent.state',

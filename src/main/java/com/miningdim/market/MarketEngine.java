@@ -5,6 +5,10 @@ import com.miningdim.economy.EconomyServices;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.market.store.ListingRow;
 import com.miningdim.market.store.MarketDao;
+import com.miningdim.market.store.SoldOrListedSplit;
+import com.miningdim.market.store.TxnRow;
+import com.miningdim.webui.server.WebUiBusinessException;
+import com.miningdim.webui.server.WebUiErrorCodes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
@@ -20,6 +24,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalLong;
 import java.util.UUID;
 
@@ -31,6 +36,8 @@ import java.util.UUID;
  * 服务端权威 (架构铁律 1): 卖家/买家身份取 action 的 sender (ServerPlayer), 不信前端 uuid。坏输入/越权 (currency
  * 非 CREDIT / 槽位空 / 数量不足 / 买自己挂单 / 余额不足 / 背包满) 一律自然抛 IllegalArgumentException/IllegalStateException
  * 冒泡到 {@link com.miningdim.webui.server.WebUiServerDispatcher} 的 Gateway 边界, 引擎内不 try-catch 生吞 (CLAUDE.md C9)。
+ * 唯一的例外是标的白名单拒绝 ({@link MarketTradeWhitelist}): 它抛带稳定错误码的 {@link WebUiBusinessException},
+ * 因为面板要在按钮上提前把同一条规则显示出来, 需要一个前端能认的码而不是一句裸文本 (先例: CaseOpeningService)。
  *
  * 成交原子性 (契约第 4 节 + 对 A 实交付的适配): A 的 {@link MarketDao} 刻意不暴露 Connection (业务层只经接口操作),
  * 故 markSold + insertTxn 走 SQLite autocommit 各自原子 (DAO 单方法内部原子), MC 服务端单线程单写者下顺序执行无并发,
@@ -102,11 +109,19 @@ public final class MarketEngine {
 
         String itemId = itemIdOf(stack);
 
+        // 标的白名单 (塔罗牌只有最低品质 R 可挂): 判定与 market.tradable 的只读预判共用 MarketTradeWhitelist.judge,
+        // 这是"前端灰掉的按钮"与"命令行硬挂"落在同一行代码上的唯一保证。位置刻意在此 —— stack 尚含完整 NBT
+        // (品质活在 NBT 里, 靠 itemId 判不出), 且手续费未扣、库存未 shrink, 拒绝时状态干净。
+        MarketTradeWhitelist.Verdict verdict = MarketTradeWhitelist.judge(stack);
+        if (!verdict.tradable()) {
+            throw new WebUiBusinessException(WebUiErrorCodes.ITEM_NOT_TRADABLE, verdict.reason(), false,
+                    Map.of("itemId", itemId, "rule", verdict.rule()));
+        }
+
         // 铜/铁每日 P2P 量上限 (定价台账"铜 P2P 单人 cap"): 仅对铜铁标的生效。口径 = 今日该卖家这些 item 的
         // (当前 ACTIVE 挂单 count 之和 + 今日已 SOLD count 之和), 加本次 count 超 cap 即拒挂 (从源头限量, 不在成交时事后扣)。
         if (MarketConstants.COPPER_IRON_ITEM_IDS.contains(itemId)) {
-            int already = dao.soldOrListedCountToday(
-                    seller.getUUID(), MarketConstants.COPPER_IRON_ITEM_IDS, startOfTodayEpochMillis());
+            int already = copperIronUsedToday(seller.getUUID());
             if (already + count > MarketConstants.COPPER_IRON_DAILY_P2P_CAP) {
                 throw new IllegalStateException(
                         "今日铜/铁 P2P 挂单量已达上限 (cap=" + MarketConstants.COPPER_IRON_DAILY_P2P_CAP
@@ -305,6 +320,55 @@ public final class MarketEngine {
         return dao.listingsBySeller(seller, statusOrNull);
     }
 
+    /** 该玩家参与的成交流水 (买/卖任一侧), 按时间倒序分页 (market.history)。 */
+    public List<TxnRow> transactionsByPlayer(UUID player, int offset, int limit) {
+        return dao.transactionsByPlayer(player, offset, limit);
+    }
+
+    /** 该玩家参与的成交流水总条数 (market.history 的 total, 供前端算总页数)。 */
+    public int transactionsCountByPlayer(UUID player) {
+        return dao.transactionsCountByPlayer(player);
+    }
+
+    /**
+     * 今日该卖家已占用的铜铁 P2P 额度 (当前 ACTIVE 挂单量 + 今日已售出量)。
+     *
+     * {@link #place} 的 cap 判定与 market.p2pCap 的面板展示物理共用本方法。分成两处各写一遍的后果是面板显示
+     * "还剩 300"而挂单被拒 —— 两边只要有一处漏跟了窗口口径 (今日起点/统计范围) 就会错位, 而这种错位在
+     * 玩家眼里是"系统在骗人"。
+     */
+    public int copperIronUsedToday(UUID seller) {
+        return copperIronUsageToday(seller).total();
+    }
+
+    /**
+     * 同 {@link #copperIronUsedToday} 的额度占用, 但分成"在挂中 (撤单前不释放)"与"今日已成交 (次日零点归零)"两段。
+     *
+     * 面板需要这个拆分才能给出成立的承诺: {@link #startOfTomorrowEpochMillis} 只让成交那一段翻篇, ACTIVE 挂单
+     * 那一段不看 created_at, 到点一件不掉。拿总量去配"明天 00:00 重置"的文案, 对挂着货不撤单的玩家就是假话。
+     */
+    public SoldOrListedSplit copperIronUsageToday(UUID seller) {
+        return dao.soldOrListedSplitToday(
+                seller, MarketConstants.COPPER_IRON_ITEM_IDS, startOfTodayEpochMillis());
+    }
+
+    /**
+     * 该卖家的待结货款合计 (只读 peek, 不发放不清空)。累加用 {@link Math#addExact}, 与
+     * {@link #settlePendingOnLogin} 的求和口径逐字一致 —— 面板显示的数与登录时真正到账的数必须是同一个算法。
+     */
+    public long pendingPayoutTotal(UUID seller) {
+        long sum = 0L;
+        for (long[] entry : dao.peekPendingPayout(seller)) {
+            sum = Math.addExact(sum, entry[0]);
+        }
+        return sum;
+    }
+
+    /** 该卖家的待结条目数 (只读 peek), 供面板显示"共 N 笔离线成交"。 */
+    public int pendingPayoutCount(UUID seller) {
+        return dao.peekPendingPayout(seller).size();
+    }
+
     // ============================================================
     // 基准价值 V0 admin curate (OP 门控在 action 层; 引擎只做 dao 读写与解析)
     // ============================================================
@@ -324,6 +388,24 @@ public final class MarketEngine {
     /** 解析某物品当前生效的 V0 (admin 覆盖 &gt; 代码预设 &gt; 空), 供 admin 面板展示当前锚。 */
     public OptionalLong resolveBaseValue(String itemId) {
         return baseValues.resolve(itemId);
+    }
+
+    /**
+     * 一次取回"当前生效 V0 + 它出自哪一层" (market.baseValue 的展示与 market.feePreview 的算费共用本方法)。
+     *
+     * 值只认 {@link BaseValueResolver#resolve} 这一份分层实现 —— 此前 feePreview 与 baseValue 各自手抄了一遍
+     * "先查 admin 覆盖再查代码预设", 于是 {@link BaseValueResolver} 类注释里写明待加的第三层 (市场成交中位数)
+     * 一落地, {@link #place} 立刻吃新锚而预览还在旧两层里打转: 玩家看"预计 800"、实扣 3400, 而这笔费上单即收、
+     * 撤单不退。第二次 {@code dao.getBaseValue} 点查只用来给 source 贴标签, 不参与取值。
+     *
+     * 加第三层时本方法是唯一要改的地方: 给它一个新的 source 标签即可, 两个 action 自动跟上。
+     */
+    public BaseValueLookup lookupBaseValue(String itemId) {
+        OptionalLong v0 = baseValues.resolve(itemId);
+        if (v0.isEmpty()) {
+            return new BaseValueLookup(v0, "none");
+        }
+        return new BaseValueLookup(v0, dao.getBaseValue(itemId) != null ? "override" : "preset");
     }
 
     /** 全部 admin 覆盖 (item_id -&gt; v0), 供 admin 面板批量标注哪些已 curate。 */
@@ -414,9 +496,31 @@ public final class MarketEngine {
         return java.time.LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli();
     }
 
+    /**
+     * 明日 0 点的 epoch 毫秒 (铜铁日 cap 的窗口右端, market.p2pCap 的额度重置时刻)。
+     *
+     * 刻意不写 startOfTodayEpochMillis() + 86400000: 夏令时切换那天的一天不是 24 小时, 加常数会让重置时刻
+     * 偏一小时, 而本值必须与 {@link #startOfTodayEpochMillis} 的下一次取值严格对齐 (面板倒计时归零的那一刻,
+     * 正是 cap 判定换窗口的那一刻)。
+     */
+    static long startOfTomorrowEpochMillis() {
+        java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+        return java.time.LocalDate.now(zone).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli();
+    }
+
     // ============================================================
     // 回执 record (供 action 构 resultJson, 契约第 6 节)
     // ============================================================
+
+    /**
+     * 基准价 V0 的一次解析结果 (值 + 命中层), 见 {@link #lookupBaseValue}。
+     *
+     * @param v0     当前生效的基准价; 无锚时 {@link OptionalLong#empty()} (挂单走平率费)
+     * @param source 命中层的稳定标签, 前端 BaseValueResp 按它分支: {@code "override"} = admin curate 强锚,
+     *               {@code "preset"} = 代码内置预设, {@code "none"} = 无锚
+     */
+    public record BaseValueLookup(OptionalLong v0, String source) {
+    }
 
     /** 挂单回执 (新挂单 id + 上单即收的挂单手续费 listFee, 供 action 回前端展示"已付手续费")。 */
     public record PlaceResult(long listingId, long listFee) {

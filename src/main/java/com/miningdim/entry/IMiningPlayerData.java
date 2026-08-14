@@ -3,6 +3,7 @@ package com.miningdim.entry;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobProgress;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.GameType;
@@ -108,6 +109,24 @@ public interface IMiningPlayerData {
      * 传入实例的取值域已由 {@link UiPrefs} 规范构造器保证。
      */
     void setUiPrefs(UiPrefs prefs);
+
+    // ---- 矿工技能冷却 (跨登出/死亡/换维度保留) ----
+
+    /**
+     * 矿工技能冷却的持久化子标签 (永不返回 null; 从未写过为空标签)。
+     *
+     * 为什么存在: {@code MinerChargeState} 是纯内存的 per-player 运行态, 死亡/登出/离开矿洞维度三处都会
+     * 整体丢弃 —— 那对充能与读条是对的 (它们本就是短时状态), 但对冷却恰恰相反: 冷却存在的意义就是限制
+     * 施放频率, 跟着一起清掉等于没有。探矿 CD 180 秒, 而登出再登入只要几秒。
+     *
+     * 为什么是不透明 {@link CompoundTag} 而不是结构化字段: 冷却的键是 {@code MinerSkill}, 那是 job.miner
+     * 包的类型; entry 包引用它会让 capability 反向依赖职业模块 (miner 本来就依赖 entry)。本层只负责存取
+     * 字节, 语义由矿工模块自己解释, 将来加技能也不必改本接口。
+     */
+    CompoundTag minerCooldowns();
+
+    /** 整份覆盖矿工技能冷却 (传 null 等价于清空)。写入方是矿工模块的运行态丢弃点。 */
+    void setMinerCooldowns(CompoundTag cooldowns);
 
     // ---- 全职业进度 (第 2.3 节: 并入唯一权威 capability; 取代已删的 job.JobCapability) ----
 

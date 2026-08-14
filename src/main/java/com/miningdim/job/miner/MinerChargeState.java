@@ -1,5 +1,7 @@
 package com.miningdim.job.miner;
 
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.EnumMap;
@@ -125,6 +127,53 @@ public final class MinerChargeState {
     /** 触发某技能后置 CD: readyAt = now + cdTicks。 */
     public void startCooldown(MinerSkill skill, long now, int cdTicks) {
         cooldownReadyAt.put(skill, now + cdTicks);
+    }
+
+    /**
+     * 重置全部瞬态运行态, 但<b>保留冷却</b> (死亡 / 离开矿洞维度时调用)。
+     *
+     * 为什么冷却要单独留下: 充能池、脱险读条、省耐久抢拍都是"当下这一刻"的状态, 换个场景重来是对的;
+     * 而冷却存在的意义恰恰是限制施放频率, 跟着一起清等于没有 —— 探矿 CD 180 秒, 而自杀重生只要几秒。
+     * 开关位仍旧清掉 (它是玩家偏好的当场表达, 原设计就不跨死亡保留)。
+     */
+    public void resetTransientKeepingCooldowns() {
+        this.charge = 0.0D;
+        this.lastRechargeTick = Long.MIN_VALUE;
+        this.toggles.clear();
+        this.evacuateChannelStartTick = Long.MIN_VALUE;
+        this.channelStartX = 0.0D;
+        this.channelStartY = 0.0D;
+        this.channelStartZ = 0.0D;
+        this.durabilitySaveStack = null;
+        this.durabilitySaveDamageBefore = 0;
+    }
+
+    /**
+     * 把冷却表导出成可持久化标签 (键 = {@link MinerSkill#name()}, 值 = 就绪 tick)。
+     * 只在玩家登出时调用一次, 不在 startCooldown 热路径上写存档。
+     */
+    public CompoundTag exportCooldowns() {
+        CompoundTag tag = new CompoundTag();
+        for (Map.Entry<MinerSkill, Long> entry : cooldownReadyAt.entrySet()) {
+            tag.putLong(entry.getKey().name(), entry.getValue());
+        }
+        return tag;
+    }
+
+    /**
+     * 从标签恢复冷却表 (玩家登入时建 state 那一次)。
+     *
+     * 按枚举逐个取而不是遍历标签的键: 跨版本删改技能名后, 存档里那些认不出的键会被安静跳过, 而不是
+     * 让一个陌生名字把 valueOf 抛在玩家加载路径上 (那条路径没有 Gateway 兜底)。
+     * 类型不符同理 —— {@code contains(key, TAG_LONG)} 已经把它挡在外面。
+     */
+    public void importCooldowns(CompoundTag tag) {
+        cooldownReadyAt.clear();
+        for (MinerSkill skill : MinerSkill.values()) {
+            if (tag.contains(skill.name(), Tag.TAG_LONG)) {
+                cooldownReadyAt.put(skill, tag.getLong(skill.name()));
+            }
+        }
     }
 
     // ---- 开关位 ----

@@ -1,6 +1,8 @@
 package com.miningdim.marriage;
 
-import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -25,8 +27,13 @@ public final class MarriageProposals {
         }
     }
 
-    /** proposer UUID -> 其发出的意向 (一人一条 outgoing)。 */
-    private final Map<UUID, Proposal> byProposer = new HashMap<>();
+    /**
+     * proposer UUID -> 其发出的意向 (一人一条 outgoing)。全表是婚约意向的唯一真源, 反查亦从它派生。
+     *
+     * 用 LinkedHashMap 而非 HashMap: {@link #proposersFor} 的结果直接决定婚姻面板"谁向我求婚"那张列表的显示序,
+     * 而该列表在收件人过多时会被面板层按上限截断 —— 顺序不定则每次刷新被截掉的是不同的人。
+     */
+    private final Map<UUID, Proposal> byProposer = new LinkedHashMap<>();
 
     /** 登记一条新意向 (proposer 向 target 求婚); 覆盖 proposer 旧的 outgoing 意向。 */
     public void propose(UUID proposer, UUID target) {
@@ -55,6 +62,28 @@ public final class MarriageProposals {
     public UUID targetOf(UUID proposer) {
         Proposal p = byProposer.get(proposer);
         return p == null ? null : p.target;
+    }
+
+    /**
+     * 向 target 求过婚的全部 proposer (反查; 婚姻面板"谁向我求婚"与 marriage.wed 自动定位伴侣用)。
+     *
+     * <b>刻意不建第二张 target -&gt; proposer 的索引表</b>: 那张表必须在三处同步失效 —— {@link #propose} 覆盖旧意向时
+     * 从旧目标下摘除、{@link #clear} 时摘除、以及典礼后双方 clear 时摘除 —— 漏掉任何一处, 被求婚者的面板上就会永远
+     * 挂着一条早已不存在的求婚, 而这种索引漂移在瞬态表上极难复现。正向表是唯一真源, 从它现扫一遍则结构上不可能分叉。
+     *
+     * 代价可忽略: 表的规模上限是"当前持有 outgoing 意向的玩家数", 不超过在线人数, 而调用点只有面板刷新与典礼定位
+     * (清单 E3 亦明确允许 O(n) 扫描)。
+     *
+     * @return 求婚方 UUID, 按各自登记进表的先后序; 无人求婚返回空表
+     */
+    public List<UUID> proposersFor(UUID target) {
+        List<UUID> proposers = new ArrayList<>();
+        for (Map.Entry<UUID, Proposal> entry : byProposer.entrySet()) {
+            if (entry.getValue().target.equals(target)) {
+                proposers.add(entry.getKey());
+            }
+        }
+        return proposers;
     }
 
     /** 清掉 proposer 的 outgoing 意向 (典礼完成/取消后)。 */

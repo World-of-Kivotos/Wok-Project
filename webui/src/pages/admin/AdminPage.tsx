@@ -28,7 +28,7 @@ import {
   type Tone,
 } from '@/components/kit'
 import { WebUiCallError } from '../../lib/bridge'
-import { useItemNames } from '../../lib/i18n'
+import { jobNameKey, useItemNames } from '../../lib/i18n'
 import type { AdminItemEntry, BaseValueSource } from '../../lib/types'
 import type {
   MockOtherPlayer,
@@ -1050,9 +1050,11 @@ export function AdminPage(): ReactElement {
     })),
   ]
 
+  // 职业名走翻译键 (job.progress 已核销为真契约, 进度条目不再带中文名); 解不出时退回键本身。
+  const jobNames = useItemNames(world.jobs.progress.map((entry) => jobNameKey(entry.jobId)))
   const jobOptions: readonly { value: PlannedJobId; label: string }[] = world.jobs.progress.map((entry) => ({
     value: entry.jobId,
-    label: entry.displayName,
+    label: jobNames[jobNameKey(entry.jobId)] ?? jobNameKey(entry.jobId),
   }))
 
   /**

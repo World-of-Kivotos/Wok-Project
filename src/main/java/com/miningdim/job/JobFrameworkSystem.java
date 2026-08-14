@@ -60,7 +60,10 @@ public final class JobFrameworkSystem implements Subsystem {
         // /job 命令 + 登录同步 (本子系统自身的 forge 事件)。
         forgeBus.register(this);
 
-        LOGGER.info("[miningdim] job framework subsystem registered (effects + menu scaffold + /job; progress on entry capability)");
+        // 平板职业页的 job.progress (进程级静态注册, 与门面就绪无关)。
+        JobWebUiActions.registerAll();
+
+        LOGGER.info("[miningdim] job framework subsystem registered (effects + menu scaffold + /job + job.progress action; progress on entry capability)");
     }
 
     @SubscribeEvent

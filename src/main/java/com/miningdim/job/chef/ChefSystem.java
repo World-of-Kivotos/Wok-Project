@@ -61,7 +61,10 @@ public final class ChefSystem implements Subsystem {
         // 凝脂 (爆炸减伤): 迁入玩家减伤单点结算, 不再自挂 LivingHurtEvent (减伤统一, 见 ChefGreaseReduction)。
         com.miningdim.combat.PlayerDamageReduction.register(new ChefGreaseReduction());
 
-        LOGGER.info("[miningdim] chef subsystem registered (5 seasoning tables + minigame + effects + amplify blacklist)");
+        // 平板厨师页的 job.chef.state (数值实时读 ChefConfig, 故与上面的 registerConfig 先后无关)。
+        ChefWebUiActions.registerAll();
+
+        LOGGER.info("[miningdim] chef subsystem registered (5 seasoning tables + minigame + effects + amplify blacklist + job.chef.state action)");
     }
 
     private void onCommonSetup(FMLCommonSetupEvent event) {

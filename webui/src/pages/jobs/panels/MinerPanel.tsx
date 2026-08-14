@@ -1,9 +1,8 @@
 import type { ReactElement } from 'react'
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Button,
   DataTable,
-  Dropdown,
   EmptyBlock,
   ErrorBlock,
   FeedbackAlert,
@@ -15,70 +14,97 @@ import {
   Surface,
   Tag,
 } from '@/components/kit'
+import { callErrorText } from '../../../lib/errorText'
 import { useItemNames } from '../../../lib/i18n'
-import { callMock, useMockAction } from '../../../mock'
-import type { PlannedDailyOreLine, PlannedMinerScanResult } from '../../../mock'
+import type { MinerScanResult, MinerStateResult, WebUiBlockPos } from '../../../lib/types'
+import { callMock, nowMs, useMockAction } from '../../../mock'
 import { formatCountdown, formatStatValue, toError, useLiveNow } from './shared'
 
 /**
- * 矿工面板 (接线清单 C5 job.miner.state / C6 job.miner.scan / C7 当日矿物软上限进度, 均为 PLANNED)。
+ * 矿工面板 (`job.miner.state` / `job.miner.scan`, Java 落点 com.miningdim.job.miner.MinerWebUiActions)。
+ * 回执形状见 lib/types.ts 的 MinerStateResult / MinerScanResult。
  *
- * 依赖的假定契约:
- *   - job.miner.state -> PlannedMinerStateResult (被动数值/连锁充能/探测 CD 与半径/当日矿物软上限)
- *   - job.miner.scan   -> PlannedMinerScanResult (一次性探测快照, 带 expiresAt —— 过期后前端必须自行
- *     熄灭, 不等下一次 state 覆盖, 与 AgentPanel 的战术扫描同一条纪律, 故本面板把扫描结果存在本地
- *     state 而不是长期信任 job.miner.state)
+ * 防 X 光: 等级门 / CD / 半径 / 单矿种 / 64 条硬顶全部由服务端裁决链保证, 本面板只负责把回执画出来 ——
+ * 因此这里既没有矿种选择器 (服务端按固定优先序自选, 没有入参能影响它), 也没有任何能放大半径的入口,
+ * 探测按钮发的是空 payload。
  *
- * C6 的硬约束: 服务端已裁决好等级门/CD/半径, webui 版只是把命中坐标 JSON 化, **必须保留同等防 X 光
- * 限制**(单矿种一次 + 有限半径 + 脉冲熄灭) —— 本面板因此只暴露"选一种矿 + 发起一次脉冲", 不提供放大
- * 半径或同时多矿种探测的入口。
+ * 时间口径: 服务端只发剩余/存活 **tick**, 不发 epoch millis (服务端手里只有 game tick, 折成服务端墙钟
+ * 再让客户端拿 Date.now() 去减, 既吃时钟偏移又在掉刻时失真)。故本面板在**收到回执那一刻**把 tick 折成
+ * 本地时刻, 之后的倒计时与脉冲熄灭全在本地算。
  *
  * 契约缺口 (报告给核销清单, 不在此处自造接口凑齐):
- *   - 连锁开关 (chainEnabled) 没有对应的写 action, 只能只读展示当前状态;
- *   - C7 标注 BACKEND: PlayerAbuseState 有 public getter 但 IEconomyService 无对应查询方法, 且该态
- *     save/load 零调用方、重启即清零 —— 当日矿物软上限进度是本切片持久化最弱的一段, 接线时需要先补
- *     这条查询方法, 不是简单薄封装。
+ *   - 三个开关只读: 没有对应的写 action, 面板只展示当前开合;
+ *   - 当日矿物软上限进度已裁出本批: IEconomyService 门面上没有任何当日矿物计数/衰减系数的只读方法,
+ *     且该状态无 save/load 重启即清零, 接它要先在门面上开只读方法 (BACKEND 级新增)。
  */
 
 const EMPTY_PAYLOAD: Record<string, never> = {}
-// 模块级稳定引用: query 未就绪时的兜底值若每次渲染都新建一个 [] 字面量, 会让下方依赖它的 useEffect
-// 判定"依赖变了"而在 loading 期间每帧重跑 (react-hooks/exhaustive-deps 的提示)。
-const EMPTY_DAILY_ORES: readonly PlannedDailyOreLine[] = []
+const MS_PER_TICK = 50
 
-function DailyOreRow({ ore, name }: { ore: PlannedDailyOreLine; name: string }): ReactElement {
-  const decayed = ore.decayFactor < 1
+/** 收到回执那一刻把剩余 tick 折成本地到期时刻; 0 tick 即已就绪 (返回 0 表示"不在冷却")。 */
+function tickDeadline(remainingTicks: number, receivedAt: number): number {
+  return remainingTicks <= 0 ? 0 : receivedAt + remainingTicks * MS_PER_TICK
+}
+
+/** 一次探测脉冲的本地快照: 回执本身 + 收到它的时刻 (脉冲与冷却都从这一刻起算)。 */
+interface ScanSnapshot {
+  result: MinerScanResult
+  receivedAt: number
+}
+
+function ToggleTag({
+  label,
+  unlocked,
+  enabled,
+}: {
+  label: string
+  unlocked: boolean
+  enabled: boolean
+}): ReactElement {
+  if (!unlocked) {
+    return (
+      <Tag size="sm" tone="neutral">
+        {label} · 未解锁
+      </Tag>
+    )
+  }
   return (
-    <div className="flex items-center gap-3">
-      <ItemIcon itemId={ore.itemId} label={name} />
-      <div className="flex flex-1 flex-col gap-1">
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-foreground">{name}</span>
-          <span className={decayed ? 'text-warning' : 'text-muted-foreground'}>
-            系数 {ore.decayFactor}
-          </span>
-        </div>
-        <Meter
-          label="今日产出"
-          max={ore.softCap}
-          tone={decayed ? 'warning' : 'brand'}
-          value={ore.minedToday}
-          valueText={`${String(ore.minedToday)} / ${String(ore.softCap)}`}
-        />
-      </div>
-    </div>
+    <Tag size="sm" tone={enabled ? 'success' : 'neutral'}>
+      {label} · {enabled ? '已开启' : '已关闭'}
+    </Tag>
   )
 }
 
-function ScanResultView({ result, now }: { result: PlannedMinerScanResult; now: number }): ReactElement {
-  const expired = now >= result.expiresAt
+function ScanResultView({
+  snapshot,
+  oreName,
+  now,
+}: {
+  snapshot: ScanSnapshot
+  oreName: string | null
+  now: number
+}): ReactElement {
+  const expiresAt = snapshot.receivedAt + snapshot.result.pulseTicks * MS_PER_TICK
+  const expired = now >= expiresAt
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-muted-foreground text-xs">
-        {expired ? '本次脉冲已熄灭' : `脉冲还剩 ${formatCountdown(result.expiresAt, now)} 熄灭`} · 命中{' '}
-        {result.hits.length} 处
-      </span>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        {snapshot.result.oreItemId === null ? (
+          <span className="text-muted-foreground">本次脉冲未命中任何可探测矿脉</span>
+        ) : (
+          <span className="flex items-center gap-1 text-muted-foreground">
+            命中矿种
+            <ItemIcon itemId={snapshot.result.oreItemId} label={oreName ?? snapshot.result.oreItemId} />
+            <span className="text-foreground">{oreName ?? snapshot.result.oreItemId}</span>
+          </span>
+        )}
+        <span className="text-muted-foreground">
+          {expired ? '本次脉冲已熄灭' : `脉冲还剩 ${formatCountdown(expiresAt, now)} 熄灭`} · 命中{' '}
+          {snapshot.result.hits.length} 处
+        </span>
+      </div>
       {expired ? null : (
-        <DataTable
+        <DataTable<WebUiBlockPos>
           columns={[
             { header: 'X', key: 'x', numeric: true, render: (row) => String(row.x) },
             { header: 'Y', key: 'y', numeric: true, render: (row) => String(row.y) },
@@ -86,7 +112,7 @@ function ScanResultView({ result, now }: { result: PlannedMinerScanResult; now: 
           ]}
           emptyHint="本次脉冲未命中矿脉"
           rowKey={(row) => `${String(row.x)}_${String(row.y)}_${String(row.z)}`}
-          rows={result.hits}
+          rows={snapshot.result.hits}
         />
       )}
     </div>
@@ -97,23 +123,28 @@ export function MinerPanel(): ReactElement {
   const query = useMockAction('job.miner.state', EMPTY_PAYLOAD)
   const now = useLiveNow()
 
-  const [selectedOreId, setSelectedOreId] = useState<string | null>(null)
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState<Error | null>(null)
-  const [scanResult, setScanResult] = useState<PlannedMinerScanResult | null>(null)
+  const [scan, setScan] = useState<ScanSnapshot | null>(null)
 
-  const dailyOres = query.status === 'ready' ? query.data.dailyOres : EMPTY_DAILY_ORES
-  const oreNames = useItemNames(dailyOres.map((ore) => ore.descriptionId))
+  const data: MinerStateResult | null = query.status === 'ready' ? query.data : null
 
-  // 首次拿到数据后默认选中第一种矿; selectedOreId 一旦非空就不再被这条效果覆盖, 不会打断玩家的手动切换。
-  useEffect(() => {
-    if (selectedOreId === null && dailyOres.length > 0) {
-      const first = dailyOres[0]
-      if (first !== undefined) {
-        setSelectedOreId(first.itemId)
-      }
-    }
-  }, [dailyOres, selectedOreId])
+  /*
+   * state 里那个剩余 tick 只在收到回执那一刻有意义, 故在 data 这个引用刚换新时折一次本地时刻。
+   * data 只在一次新的回执到达时才换引用, 因此这份折算恰好每条回执做一次。
+   */
+  const stateScanReadyAt = useMemo(
+    () => (data === null ? 0 : tickDeadline(data.scanCooldownRemainingTicks, nowMs())),
+    [data],
+  )
+
+  const toggleLabels = useItemNames(
+    data === null ? [] : data.toggles.map((toggle) => `skill.miningdim.miner.${toggle.skillId}`),
+  )
+  const passiveLabels = useItemNames(data === null ? [] : data.passives.map((line) => line.labelKey))
+  const scanOreNames = useItemNames(
+    scan === null || scan.result.oreDescriptionId === null ? [] : [scan.result.oreDescriptionId],
+  )
 
   if (query.status === 'loading') {
     return <LoadingBlock label="正在读取矿工档案" />
@@ -121,24 +152,27 @@ export function MinerPanel(): ReactElement {
   if (query.status === 'error') {
     return <ErrorBlock message={query.error.message} onRetry={query.reload} />
   }
+  if (data === null) {
+    return <ErrorBlock message="job.miner.state 回执为空" onRetry={query.reload} />
+  }
 
-  const data = query.data
-  const levelGated = data.level < data.scanUnlockLevel
-  // 冷却优先取"刚提交那次拿回的" scanReadyAt: 冷却只会因探测而变长, 取两者较大值免去为刷新一个字段
-  // 而重查整个 job.miner.state (重查会让本页闪一次骨架屏, 掩盖掉刚展示出来的命中结果)。
-  const effectiveScanReadyAt =
-    scanResult === null ? data.scanReadyAt : Math.max(data.scanReadyAt, scanResult.scanReadyAt)
-  const scanReady = now >= effectiveScanReadyAt
+  /*
+   * 冷却取"state 折出来的"与"刚探测那次折出来的"两者较大值: 冷却只会因探测而变长, 这样就不必为刷新
+   * 一个字段而重查整个 job.miner.state (重查会让本页闪一次骨架屏, 把刚展示出来的命中结果盖掉)。
+   */
+  const scanReadyAt =
+    scan === null
+      ? stateScanReadyAt
+      : Math.max(stateScanReadyAt, tickDeadline(scan.result.scanCooldownRemainingTicks, scan.receivedAt))
+  const scanReady = now >= scanReadyAt
 
   async function handleScan(): Promise<void> {
-    if (selectedOreId === null) {
-      return
-    }
     setScanning(true)
     setScanError(null)
     try {
-      const result = await callMock('job.miner.scan', { oreItemId: selectedOreId })
-      setScanResult(result)
+      const result = await callMock('job.miner.scan', {})
+      // 收到的那一刻就是脉冲与冷却的起点, 之后一律用它算, 不再问服务端。
+      setScan({ result, receivedAt: nowMs() })
     } catch (error) {
       setScanError(toError(error))
     } finally {
@@ -152,9 +186,13 @@ export function MinerPanel(): ReactElement {
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-3 gap-4">
             <Stat label="职业等级" value={`Lv.${String(data.level)}`} />
-            <Stat label="探测半径" value={`${String(data.scanRadius)} 格`} />
+            <Stat
+              label="探测半径"
+              value={data.scanUnlocked ? `${String(data.scanRadius)} 格` : '未解锁'}
+            />
+            <Stat label="挖掘疲劳" value={data.miningFatigueImmune ? '已免疫' : '未免疫'} />
           </div>
-          <p className="text-muted-foreground text-xs">连锁开关暂不可在此调整, 这里只显示当前状态</p>
+          <p className="text-muted-foreground text-xs">三个开关暂不可在此调整, 这里只显示当前状态</p>
         </div>
       </Panel>
 
@@ -164,7 +202,11 @@ export function MinerPanel(): ReactElement {
         ) : (
           <DataTable
             columns={[
-              { header: '属性', key: 'label', render: (row) => row.label },
+              {
+                header: '属性',
+                key: 'label',
+                render: (row) => passiveLabels[row.labelKey] ?? row.labelKey,
+              },
               {
                 header: '数值',
                 key: 'value',
@@ -179,46 +221,38 @@ export function MinerPanel(): ReactElement {
         )}
       </Panel>
 
-      <Panel title="连锁充能">
-        <div className="flex items-center gap-4">
+      <Panel title="连锁充能与开关">
+        <div className="flex flex-col gap-3">
           <Meter
-            className="flex-1"
             label="充能"
-            max={data.chargeMax}
+            max={data.chargeMax === 0 ? 1 : data.chargeMax}
             tone="brand"
             value={data.charge}
             valueText={`${String(data.charge)} / ${String(data.chargeMax)}`}
           />
-          <Tag tone={data.chainEnabled ? 'success' : 'neutral'}>
-            {data.chainEnabled ? '连锁已开启' : '连锁已关闭'}
-          </Tag>
+          <div className="flex flex-wrap items-center gap-2">
+            {data.toggles.map((toggle) => (
+              <ToggleTag
+                enabled={toggle.enabled}
+                key={toggle.skillId}
+                label={
+                  toggleLabels[`skill.miningdim.miner.${toggle.skillId}`] ??
+                  `skill.miningdim.miner.${toggle.skillId}`
+                }
+                unlocked={toggle.unlocked}
+              />
+            ))}
+          </div>
         </div>
       </Panel>
 
       <Panel title="探测脉冲">
         <div className="flex flex-col gap-3">
-          {levelGated ? (
-            <Surface tone="warning">
-              <p className="text-foreground text-sm">
-                探测需要矿工 {data.scanUnlockLevel} 级 (当前 {data.level} 级)
-              </p>
-            </Surface>
-          ) : (
+          {data.scanUnlocked ? (
             <>
               <div className="flex flex-wrap items-center gap-3">
-                <Dropdown
-                  disabled={dailyOres.length === 0}
-                  onChange={(next) => {
-                    setSelectedOreId(next)
-                  }}
-                  options={dailyOres.map((ore) => ({
-                    label: oreNames[ore.descriptionId] ?? ore.descriptionId,
-                    value: ore.itemId,
-                  }))}
-                  value={selectedOreId ?? ''}
-                />
                 <Button
-                  disabled={!scanReady || selectedOreId === null}
+                  disabled={!scanReady}
                   loading={scanning}
                   onClick={() => {
                     void handleScan()
@@ -228,32 +262,37 @@ export function MinerPanel(): ReactElement {
                   发起探测脉冲
                 </Button>
                 <span className="text-muted-foreground text-sm">
-                  {scanReady
-                    ? '就绪, 可立即探测'
-                    : `冷却中, 剩余 ${formatCountdown(effectiveScanReadyAt, now)}`}
+                  {scanReady ? '就绪, 可立即探测' : `冷却中, 剩余 ${formatCountdown(scanReadyAt, now)}`}
                 </span>
               </div>
-              {scanError === null ? null : <FeedbackAlert message={scanError.message} tone="danger" />}
-              {scanResult === null ? (
+              <p className="text-muted-foreground text-xs">
+                一次只探一种矿, 矿种由服务端按固定优先序自选; 半径与命中数上限同样由服务端裁决
+              </p>
+              {scanError === null ? null : (
+                <FeedbackAlert message={callErrorText(scanError)} tone="danger" />
+              )}
+              {scan === null ? (
                 <EmptyBlock hint="点击上方按钮发起一次探测脉冲, 结果会在此列出" title="尚未进行有效的探测" />
               ) : (
-                <ScanResultView now={now} result={scanResult} />
+                <ScanResultView
+                  now={now}
+                  oreName={
+                    scan.result.oreDescriptionId === null
+                      ? null
+                      : (scanOreNames[scan.result.oreDescriptionId] ?? scan.result.oreDescriptionId)
+                  }
+                  snapshot={scan}
+                />
               )}
             </>
+          ) : (
+            <Surface tone="warning">
+              <p className="text-foreground text-sm">
+                探测需要矿工 {data.scanUnlockLevel} 级 (当前 {data.level} 级)
+              </p>
+            </Surface>
           )}
         </div>
-      </Panel>
-
-      <Panel title="今日矿物产出进度">
-        {dailyOres.length === 0 ? (
-          <EmptyBlock title="今日暂无产出记录" />
-        ) : (
-          <div className="flex flex-col gap-3">
-            {dailyOres.map((ore) => (
-              <DailyOreRow key={ore.itemId} name={oreNames[ore.descriptionId] ?? ore.descriptionId} ore={ore} />
-            ))}
-          </div>
-        )}
       </Panel>
     </div>
   )

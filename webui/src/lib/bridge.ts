@@ -21,18 +21,28 @@ import type {
   AdminListItemsResult,
   AdminSetBaseValuePayload,
   AdminSetBaseValueResult,
+  BrewerStatePayload,
+  BrewerStateResult,
   CaseApplyPayload,
   CaseApplyResult,
   CaseOpenPayload,
   CaseOpenResult,
   CaseStatePayload,
   CaseStateResult,
+  ChefStatePayload,
+  ChefStateResult,
   ClientI18nPayload,
   ClientI18nResult,
   ClientPlayCaseSoundPayload,
   ClientPlayCaseSoundResult,
+  FarmerSellPayload,
+  FarmerSellResult,
+  FarmerStatePayload,
+  FarmerStateResult,
   HubPanelsPayload,
   HubPanelsResult,
+  JobProgressPayload,
+  JobProgressResult,
   MarketBaseValuePayload,
   MarketBaseValueResult,
   MarketBuyPayload,
@@ -49,6 +59,10 @@ import type {
   MarketMineResult,
   MarketPlacePayload,
   MarketPlaceResult,
+  MinerScanPayload,
+  MinerScanResult,
+  MinerStatePayload,
+  MinerStateResult,
   PlayerInventoryPayload,
   PlayerInventoryResult,
   PlayerIsOpPayload,
@@ -87,6 +101,13 @@ type WebUiContractMap = {
   'player.profile': { payload: PlayerProfilePayload; result: PlayerProfileResult }
   'player.wallet': { payload: PlayerWalletPayload; result: PlayerWalletResult }
   'hub.panels': { payload: HubPanelsPayload; result: HubPanelsResult }
+  'job.progress': { payload: JobProgressPayload; result: JobProgressResult }
+  'job.miner.state': { payload: MinerStatePayload; result: MinerStateResult }
+  'job.miner.scan': { payload: MinerScanPayload; result: MinerScanResult }
+  'job.farmer.state': { payload: FarmerStatePayload; result: FarmerStateResult }
+  'job.farmer.sell': { payload: FarmerSellPayload; result: FarmerSellResult }
+  'job.chef.state': { payload: ChefStatePayload; result: ChefStateResult }
+  'job.brewer.state': { payload: BrewerStatePayload; result: BrewerStateResult }
   'market.list': { payload: MarketListPayload; result: MarketListResult }
   'market.place': { payload: MarketPlacePayload; result: MarketPlaceResult }
   'market.buy': { payload: MarketBuyPayload; result: MarketBuyResult }

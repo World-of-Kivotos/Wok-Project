@@ -86,7 +86,10 @@ public final class MinerSystem implements Subsystem {
         });
         // 网络包注册推迟到 FMLCommonSetupEvent.enqueueWork (线程安全窗口, 与 NetworkSystem 同纪律)。
         modBus.addListener((FMLCommonSetupEvent event) -> event.enqueueWork(MinerNetwork::register));
-        LOGGER.info("[miningdim] miner subsystem registered (break speed / who-mines-gets-xp / chain / scan / convenience)");
+        // 平板矿工页的 job.miner.state / job.miner.scan (进程级静态注册, 与本子系统单例就绪无关:
+        // 派发时若单例未就绪, MinerSystem.get() 自然抛, 由 webui Gateway 兜底)。
+        MinerWebUiActions.registerAll();
+        LOGGER.info("[miningdim] miner subsystem registered (break speed / who-mines-gets-xp / chain / scan / convenience + 2 job.miner.* actions)");
     }
 
     @SubscribeEvent

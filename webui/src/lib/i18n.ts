@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import { call } from './bridge'
+// type-only: types.ts 反过来引本文件的 ItemNamePart, 但类型导入在编译期被完全擦除, 不产生运行期循环。
+// 不在此另抄一份 8 个字面量的联合 —— 那正是本函数收在这里要避免的漂移。
+import type { PlayerJobProgressEntry } from './types'
 
 /**
  * 物品显示名解析。真源链条: 服务端只回 descriptionId (翻译键, 如 item.minecraft.diamond) ——
@@ -179,6 +182,17 @@ export function useItemNames(descriptionIds: readonly string[]): Record<string, 
   }, [signature])
 
   return names
+}
+
+/**
+ * 职业名的翻译键。
+ *
+ * 服务端一律不发职业中文名 (JobId.displayName() 返的是 Component.translatable("job.miningdim."+id),
+ * 专用服务端解不出来), 所以每个要显示职业名的地方都得自己拼这个键。收在这里而不是各页各拼一次:
+ * 首页磁贴、职业总览卡片、单职业详情三处都要用, 抄第三份必漂移。
+ */
+export function jobNameKey(jobId: PlayerJobProgressEntry['jobId']): string {
+  return `job.miningdim.${jobId}`
 }
 
 // ============================================================

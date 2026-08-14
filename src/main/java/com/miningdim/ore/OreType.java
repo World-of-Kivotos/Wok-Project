@@ -1,6 +1,7 @@
 package com.miningdim.ore;
 
 import com.miningdim.core.Difficulty;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -116,6 +117,18 @@ public enum OreType {
         this.maxCount = maxCount;
         this.veinSizeMin = veinSizeMin;
         this.veinSizeMax = veinSizeMax;
+    }
+
+    /**
+     * 本矿种的代表物品 (固定取石质变体的方块物品)。
+     *
+     * 存在的理由: {@link #stoneVariant}/{@link #deepslateVariant} 是 private 且只有反向的 {@link #fromBlock},
+     * 没有正向 OreType -&gt; Item 通路; 探矿回执要告诉玩家"这次探到的是什么矿"就必须有一个 itemId 与翻译键。
+     * 固定取石质变体而不是按玩家所在 Y 二选一: 一次探测的命中坐标可能横跨深板岩阈值, 让展示用的 id 随坐标漂移
+     * 只会让同一矿种在面板上时而叫铁矿石、时而叫深层铁矿石。
+     */
+    public Item representativeItem() {
+        return stoneVariant.asItem();
     }
 
     /** 按落点世界 Y 选石质 / 深板岩质方块状态 (8.2)。 */

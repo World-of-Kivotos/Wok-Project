@@ -2,7 +2,6 @@ package com.miningdim.market;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.miningdim.economy.EconomyConstants;
 import com.miningdim.economy.EconomyServices;
@@ -11,12 +10,12 @@ import com.miningdim.entry.IMiningPlayerData;
 import com.miningdim.entry.MiningCapabilities;
 import com.miningdim.entry.UiPrefs;
 import com.miningdim.job.JobId;
-import com.miningdim.job.JobProgress;
-import com.miningdim.job.JobXpCurve;
+import com.miningdim.job.JobProgressJson;
 import com.miningdim.webui.server.WebUiBusinessException;
 import com.miningdim.webui.server.WebUiErrorCodes;
 import com.miningdim.webui.server.WebUiItemDetailJson;
 import com.miningdim.webui.server.WebUiItemJson;
+import com.miningdim.webui.server.WebUiPayloads;
 import com.miningdim.webui.server.WebUiPermissions;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
@@ -150,7 +149,7 @@ public final class PlayerWebUiActions {
      * 又变回同名同图标。大类与数值行见 {@link WebUiItemDetailJson}。
      */
     static final WebUiAction ITEM_DETAIL = (sender, payload) -> {
-        int slot = requiredInt(payload, "slot");
+        int slot = WebUiPayloads.requiredInt(payload, "slot");
         Inventory inv = sender.getInventory();
         if (slot < 0 || slot >= inv.items.size()) {
             throw new WebUiBusinessException(WebUiErrorCodes.SLOT_OUT_OF_RANGE,
@@ -211,7 +210,7 @@ public final class PlayerWebUiActions {
 
         JsonArray jobs = new JsonArray();
         for (JobId job : JobId.values()) {
-            jobs.add(jobProgressJson(job, data.jobProgress(job), todayStamp));
+            jobs.add(JobProgressJson.of(job, data.jobProgress(job), todayStamp));
         }
         result.add("jobs", jobs);
 
@@ -244,21 +243,21 @@ public final class PlayerWebUiActions {
      * 字段被拒, 才能把 field 与 value 填进回执的 params 供前端定位到具体那个控件。
      */
     static final WebUiAction PREFS_SET = (sender, payload) -> {
-        boolean muteToasts = requiredBoolean(payload, "muteToasts");
+        boolean muteToasts = WebUiPayloads.requiredBoolean(payload, "muteToasts");
 
-        String language = requiredString(payload, "language");
+        String language = WebUiPayloads.requiredString(payload, "language");
         if (!UiPrefs.isValidLanguage(language)) {
-            throw illegalValue("language", language,
+            throw WebUiPayloads.illegalValue("language", language,
                     "language 必须是 MC 语言码形态 (小写字母/数字/下划线, 1-16 位)");
         }
-        String theme = requiredString(payload, "theme");
+        String theme = WebUiPayloads.requiredString(payload, "theme");
         if (!UiPrefs.isValidTheme(theme)) {
-            throw illegalValue("theme", theme,
+            throw WebUiPayloads.illegalValue("theme", theme,
                     "theme 只能是 " + UiPrefs.THEME_DARK + " 或 " + UiPrefs.THEME_LIGHT);
         }
-        int brandHue = requiredInt(payload, "brandHue");
+        int brandHue = WebUiPayloads.requiredInt(payload, "brandHue");
         if (!UiPrefs.isValidBrandHue(brandHue)) {
-            throw illegalValue("brandHue", Integer.toString(brandHue),
+            throw WebUiPayloads.illegalValue("brandHue", Integer.toString(brandHue),
                     "brandHue 必须落在 [" + UiPrefs.BRAND_HUE_MIN + "," + UiPrefs.BRAND_HUE_MAX + "]");
         }
 
@@ -284,38 +283,6 @@ public final class PlayerWebUiActions {
                 "玩家 " + sender.getGameProfile().getName() + " 未挂载矿山玩家数据 capability"));
     }
 
-    /**
-     * 单个职业的进度行。
-     *
-     * levelXp / nextLevelXp 没有现成 getter, 在此由曲线派生。nextLevelXp 是<b>本级跨度</b>而不是"还差多少",
-     * 因为前端拿 (levelXp / nextLevelXp) 当进度条的 value/max, 只有跨度口径才落在 [0,1]。
-     *
-     * 满级 (level == MAX_LEVEL) 时两栏<b>同时</b>发 0: 前端据 nextLevelXp === 0 判满级并改画一句结论, 而不是
-     * 画一个 0/0 的 NaN 宽度空槽; 也不必靠 level === 10 硬编码去猜。
-     *
-     * totalXp 用带 JobId 的重载: 存档加载时就是按同一口径 (FARMER 走 round, 其余 floor) 反推 level 的, 两边
-     * 同源才保证 levelXp 恒非负。
-     */
-    private static JsonObject jobProgressJson(JobId job, JobProgress progress, long todayStamp) {
-        int level = progress.level();
-        long totalXp = progress.xp(job);
-        long reachedAt = JobXpCurve.cumulativeXpForLevel(level);
-        boolean graduated = level >= JobXpCurve.MAX_LEVEL;
-
-        JsonObject entry = new JsonObject();
-        entry.addProperty("jobId", job.id());
-        entry.addProperty("level", level);
-        entry.addProperty("totalXp", totalXp);
-        entry.addProperty("levelXp", graduated ? 0L : totalXp - reachedAt);
-        entry.addProperty("nextLevelXp",
-                graduated ? 0L : JobXpCurve.cumulativeXpForLevel(level + 1) - reachedAt);
-        // 带日戳的只读重载: 无日戳版本直接读字段, 跨日后到该职业当天首次入账前会一直吐昨天的值, 而首屏正是
-        // 玩家最可能在"今天还没开工"时看到的地方。
-        entry.addProperty("dailyXp", progress.dailyXp(job, todayStamp));
-        entry.addProperty("dailyRemaining", progress.dailyRemaining(job, todayStamp));
-        return entry;
-    }
-
     private static JsonObject prefsJson(UiPrefs prefs) {
         JsonObject json = new JsonObject();
         json.addProperty("muteToasts", prefs.muteToasts());
@@ -323,77 +290,5 @@ public final class PlayerWebUiActions {
         json.addProperty("theme", prefs.theme());
         json.addProperty("brandHue", prefs.brandHue());
         return json;
-    }
-
-    // ============================================================
-    // payload 校验 helper (全部转 INVALID_REQUEST + params.field)
-    // ============================================================
-
-    private static JsonElement requiredField(JsonObject payload, String field) {
-        JsonElement raw = payload.get(field);
-        if (raw == null || raw.isJsonNull()) {
-            throw new WebUiBusinessException(WebUiErrorCodes.INVALID_REQUEST,
-                    "缺少必填字段 " + field, false, Map.of("field", field));
-        }
-        return raw;
-    }
-
-    private static boolean requiredBoolean(JsonObject payload, String field) {
-        JsonElement raw = requiredField(payload, field);
-        if (!raw.isJsonPrimitive() || !raw.getAsJsonPrimitive().isBoolean()) {
-            throw wrongType(field, "布尔值");
-        }
-        return raw.getAsBoolean();
-    }
-
-    private static String requiredString(JsonObject payload, String field) {
-        JsonElement raw = requiredField(payload, field);
-        if (!raw.isJsonPrimitive() || !raw.getAsJsonPrimitive().isString()) {
-            throw wrongType(field, "字符串");
-        }
-        return raw.getAsString();
-    }
-
-    private static int requiredInt(JsonObject payload, String field) {
-        JsonElement raw = requiredField(payload, field);
-        if (!raw.isJsonPrimitive() || !raw.getAsJsonPrimitive().isNumber()) {
-            throw wrongType(field, "整数");
-        }
-        double value = raw.getAsDouble();
-        // NaN 自动落进第一个条件 (NaN != NaN); 无穷大与超 int 域的值落进后两个。
-        if (value != Math.floor(value) || value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
-            throw wrongType(field, "32 位整数");
-        }
-        return (int) value;
-    }
-
-    /**
-     * 类型不符只回 field, 不回 value: 这一档的实参可能是任意 JSON (整个对象/数组), 原样塞回 params 等于让
-     * 客户端决定回执体积。取值域外那一档才回 value —— 那时它必定是个标量。
-     */
-    private static WebUiBusinessException wrongType(String field, String expected) {
-        return new WebUiBusinessException(WebUiErrorCodes.INVALID_REQUEST,
-                "字段 " + field + " 必须是" + expected, false, Map.of("field", field));
-    }
-
-    /** params 里回显客户端输入的字符上限, 理由见 {@link #illegalValue}。 */
-    private static final int MAX_PARAM_VALUE_CHARS = 64;
-
-    /**
-     * 取值域外的拒绝: params 带 field 与 value, 让前端定位到具体控件并显示被拒的值。
-     *
-     * value 必须截断。回执经 S2CWebUiResponse 的 writeUtf 下行 (上限 32767 字符), 而入站 payload 的
-     * readUtf 允许客户端送来近 32767 字符的标量 —— {@link #wrongType} 那句"取值域外必定是标量"只排除了
-     * 对象与数组, 没排除超长标量。原样回显会让 resultJson 越界, 此时 EncoderException 是从
-     * WebUiServerDispatcher.dispatchAndRespond 的 catch 块**内部**抛出的, 已不在任何 catch 的覆盖范围内:
-     * 该 requestId 既收不到回执, 又已被防重放窗口烧掉 (同 id 重试只会得到 duplicate_request), 前端 Promise
-     * 永不 settle。截断把回执体积与客户端输入解耦, 且占位符文案本就不需要展示一整段输入。
-     */
-    private static WebUiBusinessException illegalValue(String field, String value, String message) {
-        String shown = value.length() <= MAX_PARAM_VALUE_CHARS
-                ? value
-                : value.substring(0, MAX_PARAM_VALUE_CHARS) + "...";
-        return new WebUiBusinessException(WebUiErrorCodes.INVALID_REQUEST, message, false,
-                Map.of("field", field, "value", shown));
     }
 }

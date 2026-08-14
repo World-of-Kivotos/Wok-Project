@@ -46,7 +46,7 @@ public final class WebUiResponseSizeGameTests {
     /**
      * 取值域外的拒绝把客户端原值截断后才回显, 于是整条回执恒能编码下行。
      *
-     * 删掉 {@code PlayerWebUiActions.illegalValue} 里的截断 (改回原样回显) 本条必挂两处: 省略号断言先挂,
+     * 删掉 {@code WebUiPayloads.illegalValue} 里的截断 (改回原样回显) 本条必挂两处: 省略号断言先挂,
      * 随后 encode 断言也挂 —— 后者正是线上真会发生的那一幕。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)

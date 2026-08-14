@@ -2,10 +2,10 @@
  * mock 面板层的唯一调用口 —— callMock(action, payload), 与 lib/bridge 的 call(action, payload) 同签名。
  *
  * 它覆盖两种 action, 且两种走完全不同的路:
- *   1. **真契约那 26 个** (lib/actions.ts 的 SERVER_ACTIONS + CLIENT_LOCAL_ACTIONS): 原样转调 call(),
+ *   1. **真契约那 33 个** (lib/actions.ts 的 SERVER_ACTIONS + CLIENT_LOCAL_ACTIONS): 原样转调 call(),
  *      即 dev 下落 bridge.mock、装进游戏后落真服。本层一行业务规则都不加, 只在写操作成功后顺手把回执
  *      抄进 store.mirror, 好让别的面板 (hub 首页的余额、背包格) 立刻看见后果。
- *   2. **planned.ts 里那 43 个**: 后端还不存在, 全部由 store 的内存世界回答, 带 150-400ms 人为延迟。
+ *   2. **planned.ts 里那 36 个**: 后端还不存在, 全部由 store 的内存世界回答, 带 150-400ms 人为延迟。
  *
  * 为什么要有第 1 类的转调层 (而不是让面板直接用 call):
  * 跨面板的可见后果必须有人负责。市场页买入之后 hub 首页的余额得跟着降 —— 若各页各自 call, 没人知道
@@ -16,18 +16,18 @@
  * 只需要改契约表。面板代码全程不动。
  *
  * 已知偏差 (mock 阶段独有, 接线即消失, 面板不得据此推断服务端行为):
- *   1. 背包权威在 bridge.mock 内部, 外部没有写入口。因此 job.farmer.sell 只校验背包里确实有那件作物,
- *      **不扣物品**; 真服是先扣后发。演示时会看到"卖完菜作物还在", 这是 mock 的缺陷不是设计。
- *   2. 同理, planned 域的收支 (卖菜 / 买卡包 / 买戒指 / 系统商店下单) 只能记进 store.walletOverlay 叠加层,
- *      再与 bridge.mock 的真钱包合成后展示。叠加层仅在 isMockActive() 为真时计入, 生产构建下恒为 0。
- *   3. 手续费率、掉率、等级曲线一律不复刻服务端规则 —— 与 bridge.mock 头部同一条纪律: 漂移的假规则比
+ *   1. planned 域的收支 (买卡包 / 买戒指 / 系统商店下单) 只能记进 store.walletOverlay 叠加层, 再与
+ *      bridge.mock 的真钱包合成后展示。叠加层仅在 isMockActive() 为真时计入, 生产构建下恒为 0。
+ *      (job.farmer.sell 已在 W3 核销为真契约, 它的钱包影响改由 bridge.mock 的 mockFarmerSell 直接落在
+ *      那份真钱包上, 不再经叠加层。)
+ *   2. 手续费率、掉率、等级曲线一律不复刻服务端规则 —— 与 bridge.mock 头部同一条纪律: 漂移的假规则比
  *      没有规则更误导。凡是必须给个数才能画界面的地方都标了"占位比例"。
  */
 
 import type { WebUiActionName } from '../lib/actions'
 import type { WebUiContract } from '../lib/bridge'
 import { SERVER_FAILURE_CODE, WebUiCallError, call, isMockActive } from '../lib/bridge'
-import type { PlayerInventoryItem, WebUiWallet } from '../lib/types'
+import type { WebUiWallet } from '../lib/types'
 import type {
   PlannedActionName,
   PlannedBlockPos,
@@ -117,7 +117,13 @@ function requireOp(action: MockActionName, world: MockWorld): void {
 // ============================================================
 
 /** 写操作之后要刷哪几块镜像。key 是真 action 名, 不要往里塞 planned 名。 */
-const MIRROR_AFTER_WALLET_INVENTORY = new Set<string>(['market.place', 'market.buy', 'market.cancel'])
+const MIRROR_AFTER_WALLET_INVENTORY = new Set<string>([
+  'market.place',
+  'market.buy',
+  'market.cancel',
+  // 卖菜是先扣物后发钱, 两块镜像都会变 —— 不刷的话 hub 首页的余额与背包格会停在卖之前的样子。
+  'job.farmer.sell',
+])
 const MIRROR_AFTER_CASE = new Set<string>(['case.open', 'case.apply'])
 
 /** 拉一遍钱包 / 背包 / 我的挂单并写进镜像。三条并发发出, 因为它们彼此无依赖。 */
@@ -165,17 +171,6 @@ async function ensureWallet(action: MockActionName): Promise<WebUiWallet> {
   return wallet
 }
 
-async function ensureInventory(action: MockActionName): Promise<PlayerInventoryItem[]> {
-  if (getWorld().mirror.inventory === null) {
-    await refreshWalletAndInventory()
-  }
-  const inventory = getWorld().mirror.inventory
-  if (inventory === null) {
-    throw fail(action, '背包镜像仍为空: player.inventory 没有回出可用数据')
-  }
-  return inventory
-}
-
 /** 基线 + 叠加层 = 面板该显示的余额。生产构建下叠加层恒不计入 (见 store.MockWalletOverlay)。 */
 function withOverlay(base: WebUiWallet, overlay: MockWalletOverlay): WebUiWallet {
   if (!isMockActive()) {
@@ -194,8 +189,6 @@ function withOverlay(base: WebUiWallet, overlay: MockWalletOverlay): WebUiWallet
  */
 const MOCK_PLAYER_POS: PlannedBlockPos = { x: 128, y: 40, z: -64 }
 
-const MINER_SCAN_COOLDOWN_MS = 30_000
-const MINER_SCAN_PULSE_MS = 8_000
 const AGENT_SCAN_COOLDOWN_MS = 45_000
 const AGENT_SCAN_SNAPSHOT_MS = 20_000
 const CARDS_PER_PACK = 3
@@ -309,96 +302,6 @@ const PLANNED_HANDLERS: PlannedHandlerMap = {
       reason: rule.reason,
     }
   },
-
-  'job.progress': () => ({ jobs: cloneResult(getWorld().jobs.progress) }),
-
-  'job.miner.state': () => cloneResult(getWorld().jobs.miner),
-
-  'job.miner.scan': (payload) => {
-    const world = getWorld()
-    const miner = world.jobs.miner
-    if (miner.level < miner.scanUnlockLevel) {
-      throw fail('job.miner.scan', `探测需要矿工 ${String(miner.scanUnlockLevel)} 级`)
-    }
-    const now = nowMs()
-    if (miner.scanReadyAt > now) {
-      throw fail('job.miner.scan', `探测冷却中, 还需 ${String(Math.ceil((miner.scanReadyAt - now) / 1000))} 秒`)
-    }
-    const ore = miner.dailyOres.find((entry) => entry.itemId === payload.oreItemId)
-    if (ore === undefined) {
-      throw fail('job.miner.scan', `不支持探测 ${payload.oreItemId}`)
-    }
-    const readyAt = now + MINER_SCAN_COOLDOWN_MS
-    mutateWorld((draft) => {
-      draft.jobs.miner.scanReadyAt = readyAt
-    })
-    return {
-      oreItemId: payload.oreItemId,
-      // 命中数与半径都是服务端裁决的, 前端不得放大 —— 防 X 光靠的正是"单矿种一次 + 有限半径 + 脉冲熄灭"。
-      hits: deterministicHits(6, miner.scanRadius),
-      radius: miner.scanRadius,
-      expiresAt: now + MINER_SCAN_PULSE_MS,
-      scanReadyAt: readyAt,
-    }
-  },
-
-  'job.farmer.state': () => cloneResult(getWorld().jobs.farmer),
-
-  'job.farmer.sell': async (payload) => {
-    const world = getWorld()
-    const farmer = world.jobs.farmer
-    if (farmer.level < farmer.sellUnlockLevel) {
-      throw fail('job.farmer.sell', `卖菜需要农夫 ${String(farmer.sellUnlockLevel)} 级`)
-    }
-    if (payload.count <= 0) {
-      throw fail('job.farmer.sell', '出售数量必须为正整数')
-    }
-    const inventory = await ensureInventory('job.farmer.sell')
-    const stack = inventory.find((item) => item.slot === payload.slot)
-    if (stack === undefined) {
-      throw fail('job.farmer.sell', `槽位 ${String(payload.slot)} 是空的`)
-    }
-    if (payload.count > stack.count) {
-      throw fail('job.farmer.sell', `该槽位只有 ${String(stack.count)} 件`)
-    }
-    const crop = farmer.crops.find((entry) => entry.itemId === stack.itemId)
-    if (crop === undefined) {
-      throw fail('job.farmer.sell', '收购站不收这件物品')
-    }
-    const credited = crop.unitPrice * payload.count
-    /*
-     * 收购曲线在这里只做一件事: 让"再卖会更便宜"这个后果肉眼可见。
-     * 每卖 32 件单价降 1、下限 1 —— 纯占位规则, 真曲线在农夫 spec 与 FarmerSellEngine 里, 不在这。
-     * 背包不扣物 (见文件头偏差 1), 因此同一槽位可以反复卖, 演示时能一路把单价压到底。
-     */
-    mutateWorld((draft) => {
-      const target = draft.jobs.farmer.crops.find((entry) => entry.itemId === stack.itemId)
-      if (target !== undefined) {
-        target.soldToday += payload.count
-        target.unitPrice = Math.max(1, target.basePrice - Math.floor(target.soldToday / 32))
-      }
-      draft.jobs.farmer.soldToday += payload.count
-      addWalletOverlay(draft, 'CREDIT', credited)
-      const faucet = draft.economy.today.faucets.find((entry) => entry.faucetKey === 'farming')
-      if (faucet !== undefined) {
-        faucet.earnedToday += credited
-      }
-      draft.economy.today.totalCreditIn += credited
-    })
-    const updated = getWorld().jobs.farmer
-    const updatedCrop = updated.crops.find((entry) => entry.itemId === stack.itemId)
-    return {
-      itemId: stack.itemId,
-      count: payload.count,
-      credited,
-      soldToday: updated.soldToday,
-      unitPriceAfter: updatedCrop === undefined ? crop.unitPrice : updatedCrop.unitPrice,
-    }
-  },
-
-  'job.chef.state': () => cloneResult(getWorld().jobs.chef),
-
-  'job.brewer.state': () => cloneResult(getWorld().jobs.brewer),
 
   'job.tarot.state': () => cloneResult(getWorld().jobs.tarot),
 

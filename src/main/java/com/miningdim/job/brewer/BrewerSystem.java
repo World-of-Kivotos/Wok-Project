@@ -62,7 +62,9 @@ public final class BrewerSystem implements Subsystem {
 
         // 客户端 Screen 注册 (FMLClientSetupEvent + DistExecutor 隔离, 专用服务器永不触客户端类)。
         modBus.addListener(this::onClientSetup);
-        LOGGER.info("[miningdim] brewer subsystem registered (items + drink effects + brewing station + wine cellar + permanent buffs)");
+        // 平板酿酒师页的 job.brewer.state (只读层数/配方, 进程级静态注册)。
+        BrewerWebUiActions.registerAll();
+        LOGGER.info("[miningdim] brewer subsystem registered (items + drink effects + brewing station + wine cellar + permanent buffs + job.brewer.state action)");
     }
 
     @SubscribeEvent

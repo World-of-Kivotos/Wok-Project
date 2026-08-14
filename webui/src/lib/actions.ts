@@ -11,8 +11,10 @@
 
 /**
  * 全部服务端 action 名 (system.handshake 回执 actions 字段的镜像, 不含 client.* 本地 action)。
- * 六个注册点: WebUiServerSubsystem (system.*) / PlayerWebUiActions (player.*) / MarketActions (market.*) /
- * MarketAdminActions (admin.*) / CaseWebUiActions (case.*) / HubWebUiActions (hub.*)。
+ * 十一个注册点: WebUiServerSubsystem (system.*) / PlayerWebUiActions (player.*) / MarketActions (market.*) /
+ * MarketAdminActions (admin.*) / CaseWebUiActions (case.*) / HubWebUiActions (hub.*) /
+ * JobWebUiActions (job.progress) / MinerWebUiActions (job.miner.*) / FarmerWebUiActions (job.farmer.*) /
+ * ChefWebUiActions (job.chef.*) / BrewerWebUiActions (job.brewer.*)。
  */
 export const SERVER_ACTIONS = [
   'admin.listItems',
@@ -21,6 +23,13 @@ export const SERVER_ACTIONS = [
   'case.open',
   'case.state',
   'hub.panels',
+  'job.brewer.state',
+  'job.chef.state',
+  'job.farmer.sell',
+  'job.farmer.state',
+  'job.miner.scan',
+  'job.miner.state',
+  'job.progress',
   'market.baseValue',
   'market.buy',
   'market.cancel',

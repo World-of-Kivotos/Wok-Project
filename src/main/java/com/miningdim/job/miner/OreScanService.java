@@ -1,6 +1,7 @@
 package com.miningdim.job.miner;
 
 import com.miningdim.core.InstanceState;
+import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
 import com.miningdim.ore.OreType;
 import net.minecraft.core.BlockPos;
@@ -87,6 +88,18 @@ public final class OreScanService {
     public static ScanHit scanDetailed(ServerPlayer player, int level) {
         Set<OreType> allowed = allowedOres(level);
         if (allowed.isEmpty()) {
+            return NO_HIT;
+        }
+        /*
+         * 维度门必须排在 region 门之前: RegionBox.contains 只比 X/Z (Y 与维度都不参与), 而 EASY 区盒是
+         * X∈[0,256)、Z∈[0,256) —— 世界出生点通常就落在这个范围里。少了这一道, 玩家站在主世界或下界的
+         * 出生点附近就能过 region 门, 而随后扫的是 player.serverLevel() 即他当前所在的维度, 于是探矿
+         * 变成任意维度的透视器 (L8 在下界可直接读出远古残骸坐标)。
+         *
+         * 判据与 MinerActions.inMiningRegion 逐字一致 —— 矿工模块其余每一处 region 守卫都是先判维度再判
+         * 区盒, 唯独探矿这条曾漏掉。
+         */
+        if (!player.level().dimension().equals(MiningConstants.MINING_LEVEL)) {
             return NO_HIT;
         }
         InstanceState instance = MiningServices.instanceManager()

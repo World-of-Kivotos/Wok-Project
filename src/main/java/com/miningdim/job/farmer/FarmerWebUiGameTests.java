@@ -464,6 +464,108 @@ public final class FarmerWebUiGameTests {
         return EconomyServices.isRegistered() ? EconomyServices.economyService() : null;
     }
 
+    /**
+     * 发币抛出时: 已扣的小麦必须全额补回, 当日收购曲线不得被推深, 而异常本身仍要冒泡。
+     *
+     * 这条守的是一个真实的中间态 —— 小麦是内存里的背包操作, 没法跟着 SQLite 事务一起回滚, 而 grantDaily
+     * 抛出时物品已经离手。不补的话玩家净损失一批作物, 且 Gateway 在 handler 之前就把 requestId 烧进了防重放
+     * 窗口, 他连原样重试都做不到 (换新 requestId 重试则会再扣一批)。
+     *
+     * 把 FarmerWheatSellService 里那次 refundWheat 删掉, 本条立刻挂在"小麦必须全额补回"上。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void farmerSellRefundsWheatWhenPayoutFails(GameTestHelper helper) {
+        IEconomyService prev = currentEconomy();
+        registerFreshEconomy();
+        IEconomyService working = EconomyServices.economyService();
+        try {
+            ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            player.getInventory().clearContent();
+            player.getInventory().add(new ItemStack(FarmerItems.FARMER_WHEAT.get(), 100));
+
+            long today = FarmerClock.currentUtcDayStamp();
+            FarmerSavedData data = FarmerSavedData.get(player.server.overworld());
+            int soldBefore = data.wheatSoldToday(player.getUUID(), today);
+
+            // 换成 grantDaily 必抛的门面 (模拟库被锁 / 磁盘满)。
+            EconomyServices.reset();
+            EconomyServices.registerEconomyService(new PayoutFailingEconomy(working));
+
+            boolean threw = false;
+            try {
+                FarmerWheatSellService.sell(player, 40);
+            } catch (IllegalStateException expected) {
+                threw = true;
+            }
+
+            helper.assertTrue(threw, "发币失败必须让异常冒泡, 不许静默当成'卖出 0 株'");
+            helper.assertTrue(wheatInInventory(player) == 100,
+                    "已扣的 40 株必须全额补回, 实得剩余 " + wheatInInventory(player));
+            helper.assertTrue(data.wheatSoldToday(player.getUUID(), today) == soldBefore,
+                    "发币失败不得推深当日收购曲线, 实得 " + data.wheatSoldToday(player.getUUID(), today));
+        } finally {
+            restoreEconomy(prev);
+        }
+        helper.succeed();
+    }
+
+    /** 只让 grantDaily 抛的门面替身: 其余方法一律原样转发, 保证被测路径上只有这一处失败源。 */
+    private record PayoutFailingEconomy(IEconomyService delegate) implements IEconomyService {
+
+        @Override
+        public long grantDaily(ServerPlayer player, long rawCredit, String faucetKey, long dailyCap) {
+            throw new IllegalStateException("模拟发币失败: 账本事务未能提交");
+        }
+
+        @Override
+        public long creditBalance(ServerPlayer player) {
+            return delegate.creditBalance(player);
+        }
+
+        @Override
+        public long heartstoneBalance(ServerPlayer player) {
+            return delegate.heartstoneBalance(player);
+        }
+
+        @Override
+        public boolean tryCharge(ServerPlayer player, com.miningdim.economy.Currency currency, long amount) {
+            return delegate.tryCharge(player, currency, amount);
+        }
+
+        @Override
+        public void grant(ServerPlayer player, com.miningdim.economy.Currency currency, long amount) {
+            delegate.grant(player, currency, amount);
+        }
+
+        @Override
+        public boolean tryChargeDaily(ServerPlayer player, com.miningdim.economy.Currency currency,
+                                      long amount, String dailyKey, long dailyCap) {
+            return delegate.tryChargeDaily(player, currency, amount, dailyKey, dailyCap);
+        }
+
+        @Override
+        public long settleOreSale(ServerPlayer player, com.miningdim.economy.EconomyConstants.HighValueOre ore,
+                                  int countSoFar, double basePrice) {
+            return delegate.settleOreSale(player, ore, countSoFar, basePrice);
+        }
+
+        @Override
+        public int recordMinedOreDrops(ServerPlayer player,
+                                       net.minecraft.world.level.block.Block block, int producedCount) {
+            return delegate.recordMinedOreDrops(player, block, producedCount);
+        }
+
+        @Override
+        public long grantAzureDaily(ServerPlayer player, long amount, long dailyCap) {
+            return delegate.grantAzureDaily(player, amount, dailyCap);
+        }
+
+        @Override
+        public boolean isAfkFrozen(ServerPlayer player) {
+            return delegate.isAfkFrozen(player);
+        }
+    }
+
     private static void restoreEconomy(IEconomyService prev) {
         if (prev != null) {
             EconomyServices.registerEconomyService(prev);

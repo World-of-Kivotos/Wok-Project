@@ -5,6 +5,8 @@ import com.miningdim.job.farmer.item.FarmerItems;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 
 /**
  * NPC 小麦动态收购结算 (FarmingXP_Mod_DesignSpec 第八节方案4)。把玩家库存里的 mod 小麦按动态收购价兑成信用点。
@@ -78,21 +80,39 @@ public final class FarmerWheatSellService {
             return new SellResult(0, 0L, false);
         }
 
-        // 本批毛收 = 收购曲线逐株求和 (跨 softCap 连续, 边际单价递减)。先记当日卖出株数 (收购曲线计数, 农夫私有持久)。
+        // 本批毛收 = 收购曲线逐株求和 (跨 softCap 连续, 边际单价递减)。
         long gross = FarmerWheatBuyback.totalBuyPrice(alreadySold, removed, FarmerConstants.WHEAT_BASE_PRICE);
-        data.recordWheatSale(player.getUUID(), removed, today);
 
         // 收购曲线深度超 softCap 后单株单价 floor(base*0.25) 可下取整到 0 (base=1 时), 使 gross=0; 此时不调
         // grantDaily (其契约 rawCredit>0 否则抛 ILLEGAL_AMOUNT)。物品已扣 (锚定离手小麦), 本批发币 0 是收购曲线
         // 已衰减到无货币注入的正常结果 (非吞异常: gross<=0 是边际收益归零的预期, 非装配缺陷)。
+        // 这一支照旧记当日株数: 曲线已到底, 但"卖出去了"这件事本身仍要计入当日深度。
         if (gross <= 0L) {
+            data.recordWheatSale(player.getUUID(), removed, today);
             return new SellResult(removed, 0L, false);
         }
 
         // 入账经全服每人每日统一信用点衰减主闸 (grantDaily 内部 0.6 衰减 / 60000 档 / 1% 地板, 第十一章决策 2/4,
         // 与矿工卖矿共享同一 faucetKey 命名空间 -> 同一天花板)。返回衰减后实发额。
-        long credits = EconomyServices.economyService().grantDaily(
-                player, gross, FarmerConstants.WHEAT_SELL_FAUCET_KEY, FarmerConstants.DAILY_CREDIT_FAUCET_CAP);
+        long credits;
+        try {
+            credits = EconomyServices.economyService().grantDaily(
+                    player, gross, FarmerConstants.WHEAT_SELL_FAUCET_KEY, FarmerConstants.DAILY_CREDIT_FAUCET_CAP);
+        } catch (RuntimeException payoutFailed) {
+            /*
+             * 这不是吞异常 —— 异常原样重抛, 只是在它冒泡之前把已经发生的那半步副作用撤掉。
+             *
+             * 小麦是内存里的背包操作, 没法跟着 SQLite 事务一起回滚; 而 grantDaily 抛出时 (库被锁 / 磁盘满)
+             * 物品已经离手了。不还的话玩家净损失一批作物, 且 Gateway 在 handler 之前就把 requestId 烧进了
+             * 防重放窗口 —— 他连原样重试都做不到 (换新 requestId 重试则会再扣一批)。
+             *
+             * 当日计数刻意留到发币成功之后才记 (见下一行), 所以这条失败路径上没有第二处副作用要撤 ——
+             * 否则还得给 FarmerSavedData 开一个反向接口, 而那个方法明确拒绝负数增量。
+             */
+            refundWheat(player, removed);
+            throw payoutFailed;
+        }
+        data.recordWheatSale(player.getUUID(), removed, today);
         return new SellResult(removed, credits, false);
     }
 
@@ -106,5 +126,24 @@ public final class FarmerWheatSellService {
     private static int chargeWheat(ServerPlayer player, int amount) {
         return player.getInventory().clearOrCountMatchingItems(
                 stack -> stack.is(FarmerItems.FARMER_WHEAT.get()), amount, new SimpleContainer(0));
+    }
+
+    /**
+     * 把已扣的小麦还给玩家 (发币失败时的补偿)。
+     *
+     * 背包放不下的部分掉在脚边而不是静默蒸发: 补偿的意义就是玩家一株不少, 放不下就该看得见东西掉出来。
+     * 按最大堆叠拆批 —— {@code add} 一次只处理一个 ItemStack, 数量超过堆叠上限时会只放进去一摞。
+     */
+    private static void refundWheat(ServerPlayer player, int amount) {
+        Item wheat = FarmerItems.FARMER_WHEAT.get();
+        int remaining = amount;
+        while (remaining > 0) {
+            int batch = Math.min(remaining, wheat.getMaxStackSize());
+            ItemStack stack = new ItemStack(wheat, batch);
+            if (!player.getInventory().add(stack)) {
+                player.drop(stack, false);
+            }
+            remaining -= batch;
+        }
     }
 }

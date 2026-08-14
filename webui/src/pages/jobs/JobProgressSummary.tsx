@@ -1,22 +1,22 @@
 import type { ReactElement } from 'react'
 import { Meter, Tag } from '@/components/kit'
-import type { PlannedJobProgressEntry } from '../../mock'
+import type { PlayerJobProgressEntry } from '../../lib/types'
 
 /**
  * 职业进度的等级徽标与经验条 —— 职业总览的卡片与单职业详情的页头共用同一份渲染逻辑, 避免"满级怎么判"
- * 这条规则 (nextLevelXp === 0, 不是 level === 10, 见 mock/planned.ts PlannedJobProgressEntry 的字段注释)
+ * 这条规则 (nextLevelXp === 0, 不是 level === 10, 见 lib/types.ts PlayerJobProgressEntry 的字段注释)
  * 在两处各抄一份、日后改一处漏一处。
  */
 
-export function isGraduated(entry: PlannedJobProgressEntry): boolean {
+export function isGraduated(entry: PlayerJobProgressEntry): boolean {
   return entry.nextLevelXp === 0
 }
 
-export function JobLevelBadge({ entry }: { entry: PlannedJobProgressEntry }): ReactElement {
+export function JobLevelBadge({ entry }: { entry: PlayerJobProgressEntry }): ReactElement {
   return <Tag tone={isGraduated(entry) ? 'success' : 'brand'}>{`Lv.${String(entry.level)}`}</Tag>
 }
 
-export function JobExpProgress({ entry }: { entry: PlannedJobProgressEntry }): ReactElement {
+export function JobExpProgress({ entry }: { entry: PlayerJobProgressEntry }): ReactElement {
   const graduated = isGraduated(entry)
   return (
     <Meter

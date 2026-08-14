@@ -1,8 +1,8 @@
 import { StarIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
 import { EmptyBlock } from '@/components/kit'
+import { jobNameKey, useItemNames } from '../../lib/i18n'
 import type { PlannedJobId } from '../../mock'
-import { useMockWorld } from '../../mock'
 import { useRouteParams } from '../../router'
 import { AgentPanel } from './panels/AgentPanel'
 import { BrewerPanel } from './panels/BrewerPanel'
@@ -59,7 +59,13 @@ function isPlannedJobId(value: string): value is PlannedJobId {
 export function JobDetailPage(): ReactElement {
   const params = useRouteParams()
   const jobId = params.id
-  const world = useMockWorld()
+  /*
+   * 先把路由参数收窄成合法职业 id 再取翻译键 —— jobNameKey 只吃那 8 个字面量的联合, 传错编译期就报错。
+   * 收窄提前到 hook 之前而不是等下面的早返: hook 不能放在条件返回之后, 但把非法值折成 null 后
+   * useItemNames 照样是无条件调用 (空批本就支持), 两边都不违反。
+   */
+  const knownJobId = jobId !== undefined && isPlannedJobId(jobId) ? jobId : null
+  const names = useItemNames(knownJobId === null ? [] : [jobNameKey(knownJobId)])
 
   if (jobId === undefined) {
     return (
@@ -83,8 +89,7 @@ export function JobDetailPage(): ReactElement {
     return <JobPanel />
   }
 
-  const progress = world.jobs.progress.find((entry) => entry.jobId === jobId)
-  const displayName = progress === undefined ? jobId : progress.displayName
+  const displayName = names[jobNameKey(jobId)] ?? jobNameKey(jobId)
   return (
     <EmptyBlock
       hint="该职业的面板尚未开放"

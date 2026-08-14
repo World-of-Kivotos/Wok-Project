@@ -35,6 +35,9 @@ import type {
   AdminSetBaseValuePayload,
   AdminSetBaseValueResult,
   BaseValueSource,
+  BrewerBrewEntry,
+  BrewerRecipeRow,
+  BrewerStateResult,
   CaseApplyPayload,
   CaseApplyResult,
   CaseOpenPayload,
@@ -45,14 +48,24 @@ import type {
   CaseStateResult,
   CategoryLeafNode,
   CategoryNode,
+  ChefEffectRow,
+  ChefEffectUnit,
+  ChefQualityRow,
+  ChefStateResult,
   ClientI18nPayload,
   ClientI18nResult,
   ClientPlayCaseSoundPayload,
   ClientPlayCaseSoundResult,
+  FarmerSellPayload,
+  FarmerSellResult,
+  FarmerStateResult,
+  FarmerTierRow,
   HubPanelId,
   HubPanelsResult,
   ItemDetailKind,
   ItemDetailStat,
+  JobProgressResult,
+  JobStatLine,
   MarketBaseValuePayload,
   MarketBaseValueResult,
   MarketBuyPayload,
@@ -68,6 +81,9 @@ import type {
   MarketMineResult,
   MarketPlacePayload,
   MarketPlaceResult,
+  MinerScanResult,
+  MinerStateResult,
+  MinerToggleState,
   PlayerInventoryItem,
   PlayerInventoryResult,
   PlayerIsOpResult,
@@ -77,6 +93,7 @@ import type {
   PlayerPrefsGetResult,
   PlayerPrefsSetPayload,
   PlayerPrefsSetResult,
+  PlayerJobProgressEntry,
   PlayerProfileResult,
   PlayerWalletResult,
   SystemEchoPayload,
@@ -236,6 +253,14 @@ const MOCK_ITEMS: readonly MockItemDef[] = [
     sub: null,
   },
   {
+    // 农夫收购站唯一认的作物 (FarmerWheatSellService 只认它); 与原版小麦是两件物品, 不可混用。
+    itemId: 'miningdim:farmer_wheat',
+    registered: true,
+    descriptionId: 'item.miningdim.farmer_wheat',
+    top: 'food',
+    sub: null,
+  },
+  {
     itemId: 'removedmod:ghost_item',
     registered: false,
     descriptionId: '',
@@ -295,6 +320,72 @@ const I18N_NAMES: Readonly<Record<string, string>> = {
   'job.miningdim.agent': '特勤干员',
   'job.miningdim.munitions': '军火商',
   'job.miningdim.brewer': '酿酒师',
+  /*
+   * 以下几批键随 W3 职业一接线补齐。凡是 lang/zh_cn.json 已有条目的 (矿工三个开关、耕地五档、农夫小麦、
+   * 厨师品质与 18 效果、9 种酒) 一律逐字照抄真值; 只有 stat.miningdim.miner.* 与 brewer.moonshine.*
+   * 两批是本批新增的键, 中文取自各自 Java 源码注释里的措辞。
+   */
+  'skill.miningdim.miner.chain': '连锁挖矿',
+  'skill.miningdim.miner.auto_collect': '自动入包',
+  'skill.miningdim.miner.auto_smelt': '自动熔炼',
+  'stat.miningdim.miner.dig_speed': '挖掘提速',
+  'stat.miningdim.miner.durability_save': '不耗耐久概率',
+  'stat.miningdim.miner.fortune_extra': '时运额外掉落',
+  'stat.miningdim.miner.danger_time_factor': '压力累积系数',
+  'stat.miningdim.miner.trap_damage_reduction': '矿脉抗性 (陷阱减伤)',
+  'stat.miningdim.miner.chain_refill_full': '连锁充能回满',
+  'item.miningdim.farmer_wheat': '农夫小麦',
+  'block.miningdim.farmer_farmland_low': '低级耕地',
+  'block.miningdim.farmer_farmland_medium': '中级耕地',
+  'block.miningdim.farmer_farmland_high': '高级耕地',
+  'block.miningdim.farmer_farmland_premium': '极品耕地',
+  'block.miningdim.farmer_farmland_supreme': '超凡耕地',
+  'chef.quality.prefix.low': '低级',
+  'chef.quality.prefix.medium': '中级',
+  'chef.quality.prefix.high': '高级',
+  'chef.quality.prefix.extraordinary': '超凡',
+  'chef.quality.prefix.radiant': '闪耀',
+  'chef.effect.amplify': '增香(buff 时长)',
+  'chef.effect.nourish_food': '增量(额外饱食)',
+  'chef.effect.aftertaste_sat': '回味(饱和)',
+  'chef.effect.sated_jump': '饱食(跳跃提升)',
+  'chef.effect.nourish_heal': '膳香(按最大血量回血)',
+  'chef.effect.purify': '回甘(净化负面)',
+  'chef.effect.oversalt': '多盐(饱和减半)',
+  'chef.effect.spoiled': '失败品(菜肴报废)',
+  'chef.effect.endurance': '耐饥(饥饿衰减变慢)',
+  'chef.effect.refresh': '提神(急速)',
+  'chef.effect.night_sight': '夜照(夜视)',
+  'chef.effect.shield': '披甲(黄心护盾)',
+  'chef.effect.grease': '凝脂(爆炸减伤)',
+  'chef.effect.aftertaste_regen': '余韵(延迟再生)',
+  'chef.effect.stable_aim': '稳膛(抗击退)',
+  'chef.effect.underdone': '夹生(随机负面)',
+  'chef.effect.scorched': '烧焦(自伤)',
+  'chef.effect.nausea': '倒胃(中毒)',
+  'item.miningdim.wine_brandy': '白兰地',
+  'item.miningdim.wine_vodka': '伏特加',
+  'item.miningdim.wine_gin': '金酒',
+  'item.miningdim.wine_rum': '朗姆酒',
+  'item.miningdim.wine_tequila': '龙舌兰',
+  'item.miningdim.wine_maotai': '茅台',
+  'item.miningdim.wine_whiskey': '威士忌',
+  'item.miningdim.wine_champagne': '香槟',
+  'item.miningdim.wine_moonshine': '月光酒',
+  'brewer.moonshine.knockback_res': '击退抗性',
+  'brewer.moonshine.plated': '护甲',
+  'brewer.moonshine.tough': '护甲韧性',
+  'brewer.moonshine.lucky': '幸运',
+  'brewer.moonshine.swift': '移速',
+  'brewer.moonshine.brute': '攻击击退',
+  'brewer.moonshine.vigor': '近战攻击',
+  'brewer.moonshine.night_vision': '永久夜视',
+  // 酿酒配方原料 (BrewRecipes 用到的原版物品)。
+  'item.minecraft.apple': '苹果',
+  'item.minecraft.sugar': '糖',
+  'item.minecraft.sugar_cane': '甘蔗',
+  'item.minecraft.carrot': '胡萝卜',
+  'item.minecraft.wheat_seeds': '小麦种子',
 }
 
 // ============================================================
@@ -332,6 +423,22 @@ const inventory: PlayerInventoryItem[] = [
     displayName: '「初火」试作型胸甲',
   },
   { slot: 17, itemId: 'minecraft:wheat', descriptionId: 'item.minecraft.wheat', count: 1 },
+  /*
+   * 农夫小麦散在两个未满栈里, 正是 job.farmer.sell 不按槽位结算的那个形态: 服务端按物品种类扫全背包扣,
+   * 面板要显示的是"背包里共有 40 株"而不是某一格的数量。只放一格的话这条区别在假数据模式下永远看不出来。
+   */
+  {
+    slot: 18,
+    itemId: 'miningdim:farmer_wheat',
+    descriptionId: 'item.miningdim.farmer_wheat',
+    count: 24,
+  },
+  {
+    slot: 19,
+    itemId: 'miningdim:farmer_wheat',
+    descriptionId: 'item.miningdim.farmer_wheat',
+    count: 16,
+  },
   /*
    * 两件枪匠零件: 同平台 (AR) 同部位 (core) 同品质 (传奇), 只差变体。
    *
@@ -922,17 +1029,8 @@ function mockProfile(): PlayerProfileResult {
     playerName: MOCK_PLAYER_NAME,
     isOp: world.player.isOp,
     wallet: { credit: wallet.credit + world.walletOverlay.credit, azure: wallet.azure + world.walletOverlay.azure },
-    // 真契约无 displayName (服务端不直给中文), 故这里显式挑字段而不是整条 spread —— 多带一个字段
-    // 就等于让面板可以读到真服根本不会发的东西。
-    jobs: world.jobs.progress.map((entry) => ({
-      jobId: entry.jobId,
-      level: entry.level,
-      totalXp: entry.totalXp,
-      levelXp: entry.levelXp,
-      nextLevelXp: entry.nextLevelXp,
-      dailyXp: entry.dailyXp,
-      dailyRemaining: entry.dailyRemaining,
-    })),
+    // 与 job.progress 同一份数据同一个取法 (服务端那侧也是共用 JobProgressJson.of), 两处各抄一遍必漂移。
+    jobs: mockJobProgress().jobs,
     todayCreditFaucetGross: mockCreditFaucetGross(),
     // 青辉石走硬截断, 账本落的就是实发额, 与上一栏刻意不对称。
     todayAzureIn: world.economy.today.azureIn,
@@ -1188,6 +1286,494 @@ function mockHubPanels(): HubPanelsResult {
 }
 
 // ============================================================
+// job.* (W3 职业一: 进度 / 矿工 / 农夫 / 厨师 / 酿酒师)
+// ============================================================
+
+/** 一 game tick 的毫秒数。服务端只发剩余 tick, 由前端在收到那一刻折成本地时刻 (见 MinerStateResult 注释)。 */
+const MS_PER_TICK = 50
+
+/**
+ * 职业等级的唯一来源是 store 的 jobs.progress —— 与 player.profile / job.progress 同一份数据。
+ * 各职业面板若各存一个 level, OP 面板改完级只有一半界面跟着变。
+ */
+function mockJobLevel(jobId: PlayerJobProgressEntry['jobId']): number {
+  const entry = getWorld().jobs.progress.find((candidate) => candidate.jobId === jobId)
+  if (entry === undefined) {
+    throw new Error(`mock 数据缺陷: 职业进度表里没有 ${jobId}`)
+  }
+  return entry.level
+}
+
+function mockJobProgress(): JobProgressResult {
+  return { jobs: getWorld().jobs.progress.map((entry) => ({ ...entry })) }
+}
+
+/** readyAt 已过去时返回 0 (就绪), 否则返回剩余 tick —— 与服务端 cooldownReady 判定后再相减同口径。 */
+function remainingTicks(readyAt: number): number {
+  const remainMs = readyAt - Date.now()
+  return remainMs <= 0 ? 0 : Math.ceil(remainMs / MS_PER_TICK)
+}
+
+/**
+ * 矿工被动的一份 **L6 快照**, 逐个按 MinerSkills 的真实曲线在 level=6 处算好后钉死。
+ *
+ * 为什么是快照而不是把曲线抄进来: 与本文件头第 3 段同一条纪律 —— 复刻一份等级曲线必然与 Java 侧漂移。
+ * 于是 OP 面板把矿工改到别的等级时, 这些数字**不会跟着变** (只有下面几个解锁位会变, 那些是常量不是曲线)。
+ * 拿这一页评估"升级能提升多少挖速"必然错, 真值永远以服务端回执为准。
+ */
+const MINER_PASSIVES_AT_L6: readonly JobStatLine[] = [
+  { key: 'dig_speed', labelKey: 'stat.miningdim.miner.dig_speed', value: 1.678, unit: 'multiplier' },
+  {
+    key: 'durability_save',
+    labelKey: 'stat.miningdim.miner.durability_save',
+    value: 0.189,
+    unit: 'percent',
+  },
+  { key: 'fortune_extra', labelKey: 'stat.miningdim.miner.fortune_extra', value: 0.22, unit: 'flat' },
+  {
+    key: 'danger_time_factor',
+    labelKey: 'stat.miningdim.miner.danger_time_factor',
+    value: 0.767,
+    unit: 'multiplier',
+  },
+  {
+    key: 'trap_damage_reduction',
+    labelKey: 'stat.miningdim.miner.trap_damage_reduction',
+    value: 0.15,
+    unit: 'percent',
+  },
+  {
+    key: 'chain_refill_full',
+    labelKey: 'stat.miningdim.miner.chain_refill_full',
+    value: 5_100,
+    unit: 'ticks',
+  },
+]
+
+/** 三个开关各自的解锁等级 (MinerConstants 常量, 非曲线, 故照抄真值)。 */
+const MINER_TOGGLE_UNLOCK_LEVEL: Readonly<Record<MinerToggleState['skillId'], number>> = {
+  chain: 2,
+  auto_collect: 2,
+  auto_smelt: 6,
+}
+
+/**
+ * 三个开关的当前开合 (瞬态运行态, 服务端也不持久化)。auto_smelt 刻意留在关闭态:
+ * "已解锁但玩家自己关着"与"还没解锁"在面板上必须是两种不同的样子, 只给一种就分不出来。
+ */
+const minerToggleEnabled: Record<MinerToggleState['skillId'], boolean> = {
+  chain: true,
+  auto_collect: true,
+  auto_smelt: false,
+}
+
+const MINER_SCAN_UNLOCK_LEVEL = 3
+/** L6 快照, 同 MINER_PASSIVES_AT_L6 的纪律 (MinerSkills.oreScanRadius / oreScanCooldownTicks 在 L6 处的值)。 */
+const MINER_SCAN_RADIUS_AT_L6 = 10
+const MINER_SCAN_CD_TICKS_AT_L6 = 4_971
+/** MinerConstants.SCAN_PULSE_TICKS = 8s, 是常量不是曲线。 */
+const MINER_SCAN_PULSE_TICKS = 160
+
+/** 探矿冷却到期时刻 (epoch ms); 0 = 就绪。初始就绪, 冷却态由第一次探测产生。 */
+let minerScanReadyAt = 0
+
+/** 矿工当前的连锁充能 (真服由 MinerSystem 每 tick 回充; mock 不跑时钟, 钉在半池附近)。 */
+const MINER_CHARGE_AT_L6 = 19
+const MINER_CHARGE_MAX_AT_L6 = 32
+
+function mockMinerState(): MinerStateResult {
+  const level = mockJobLevel('miner')
+  const scanUnlocked = level >= MINER_SCAN_UNLOCK_LEVEL
+  const chainUnlocked = level >= MINER_TOGGLE_UNLOCK_LEVEL.chain
+  return {
+    level,
+    charge: chainUnlocked ? MINER_CHARGE_AT_L6 : 0,
+    chargeMax: chainUnlocked ? MINER_CHARGE_MAX_AT_L6 : 0,
+    miningFatigueImmune: level >= 4,
+    toggles: (['chain', 'auto_collect', 'auto_smelt'] as const).map((skillId) => ({
+      skillId,
+      unlocked: level >= MINER_TOGGLE_UNLOCK_LEVEL[skillId],
+      enabled: minerToggleEnabled[skillId],
+    })),
+    scanUnlockLevel: MINER_SCAN_UNLOCK_LEVEL,
+    scanUnlocked,
+    // 未解锁时半径是真值 0, 不是缺省填充 (MinerSkills.oreScanRadius 未解锁即返 0)。
+    scanRadius: scanUnlocked ? MINER_SCAN_RADIUS_AT_L6 : 0,
+    scanCooldownRemainingTicks: remainingTicks(minerScanReadyAt),
+    passives: MINER_PASSIVES_AT_L6.map((line) => ({ ...line })),
+  }
+}
+
+/** mock 玩家脚下坐标。真服由 sender 自带; 探测命中点绕它铺一圈, 同样的入参永远画出同一组坐标。 */
+const MOCK_PLAYER_POS = { x: 128, y: 40, z: -64 } as const
+
+function mockMinerScan(): MinerScanResult {
+  const level = mockJobLevel('miner')
+  if (level < MINER_SCAN_UNLOCK_LEVEL) {
+    throw businessFailure(
+      'job.miner.scan',
+      'SKILL_LOCKED',
+      `矿物探测需要矿工 ${String(MINER_SCAN_UNLOCK_LEVEL)} 级`,
+      false,
+      {
+        skill: 'ore_scan',
+        requiredLevel: String(MINER_SCAN_UNLOCK_LEVEL),
+        currentLevel: String(level),
+      },
+    )
+  }
+  const remaining = remainingTicks(minerScanReadyAt)
+  if (remaining > 0) {
+    throw businessFailure('job.miner.scan', 'SKILL_ON_COOLDOWN', '矿物探测仍在冷却中', false, {
+      skill: 'ore_scan',
+      remainingTicks: String(remaining),
+    })
+  }
+  minerScanReadyAt = Date.now() + MINER_SCAN_CD_TICKS_AT_L6 * MS_PER_TICK
+  /*
+   * 命中点数与半径都是服务端裁决的 (单矿种一次 + 有限半径 + 64 条硬顶), 前端不得放大。
+   * 矿种同样由服务端按固定优先序自选 —— 没有入参能影响它, 故这里也只回铁矿这一种。
+   */
+  const hits = Array.from({ length: 6 }, (_unused, index) => {
+    const angle = (index / 6) * Math.PI * 2
+    const distance = MINER_SCAN_RADIUS_AT_L6 * (0.35 + (index % 4) * 0.15)
+    return {
+      x: MOCK_PLAYER_POS.x + Math.round(Math.cos(angle) * distance),
+      y: MOCK_PLAYER_POS.y - (index % 5),
+      z: MOCK_PLAYER_POS.z + Math.round(Math.sin(angle) * distance),
+    }
+  })
+  return {
+    oreItemId: 'minecraft:iron_ore',
+    oreDescriptionId: 'block.minecraft.iron_ore',
+    hits,
+    radius: MINER_SCAN_RADIUS_AT_L6,
+    pulseTicks: MINER_SCAN_PULSE_TICKS,
+    scanCooldownRemainingTicks: MINER_SCAN_CD_TICKS_AT_L6,
+  }
+}
+
+const FARMER_CROP_ITEM_ID = 'miningdim:farmer_wheat'
+const FARMER_CROP_DESCRIPTION_ID = 'item.miningdim.farmer_wheat'
+/** FarmerConstants 的三个真值 (纯常量, 非曲线)。 */
+const FARMER_DAILY_SOFTCAP = 2_160
+const FARMER_BASE_PRICE = 1
+const FARMER_PRICE_FLOOR_RATIO = 0.25
+
+/**
+ * 起始已售株数刻意停在软上限前两株: 面板一打开是"还没降价"的样子, 卖一次就能亲眼看见跨过软上限之后
+ * 单价掉到 0 —— 那正是 FarmerSellResult.credited 可能为 0 而物品照扣的那一态, 不铺出来就没人会去处理它。
+ */
+let farmerSoldToday = FARMER_DAILY_SOFTCAP - 2
+
+/**
+ * 下一株的收购单价。
+ *
+ * 这不是"把收购曲线复刻一遍": 真曲线是 floor(basePrice * max(0.25, 0.97^超出量)), 而 basePrice 恒为 1 时
+ * 它只有两个取值 —— 软上限内 1, 超出一株即被下取整抹成 0。这里直接写出这两个真值; 一旦服务端调高
+ * basePrice, 本函数就不再成立, 面板显示的永远以回执为准。
+ */
+function farmerNextUnitPrice(soldToday: number): number {
+  return soldToday < FARMER_DAILY_SOFTCAP ? FARMER_BASE_PRICE : 0
+}
+
+/** [tierId, 解锁等级, 成长分钟, 每次产量] —— FarmerTier 的四个字段, 纯枚举常量, 照抄真值。 */
+const FARMER_TIER_ROWS: readonly (readonly [string, number, number, number])[] = [
+  ['low', 1, 10, 2],
+  ['medium', 3, 8, 3],
+  ['high', 5, 6, 4],
+  ['premium', 7, 5, 5],
+  ['supreme', 9, 4, 6],
+]
+
+function mockFarmerTiers(level: number): FarmerTierRow[] {
+  return FARMER_TIER_ROWS.map(([tierId, unlockLevel, growthMinutes, yieldPerHarvest]) => ({
+    tierId,
+    nameKey: `block.miningdim.farmer_farmland_${tierId}`,
+    unlockLevel,
+    unlocked: level >= unlockLevel,
+    growthMinutes,
+    yieldPerHarvest,
+    // 与 FarmerCropTable.row 同一派生式 (纯除法, 不是平衡规则)。
+    wheatPerHour: (60 / growthMinutes) * yieldPerHarvest,
+  }))
+}
+
+function mockFarmerState(): FarmerStateResult {
+  const level = mockJobLevel('farmer')
+  return {
+    level,
+    crop: { itemId: FARMER_CROP_ITEM_ID, descriptionId: FARMER_CROP_DESCRIPTION_ID },
+    soldToday: farmerSoldToday,
+    dailySoftCap: FARMER_DAILY_SOFTCAP,
+    basePrice: FARMER_BASE_PRICE,
+    priceFloorRatio: FARMER_PRICE_FLOOR_RATIO,
+    nextUnitPrice: farmerNextUnitPrice(farmerSoldToday),
+    farmlandTiers: mockFarmerTiers(level),
+  }
+}
+
+/** 从背包扣掉 amount 株农夫小麦 (跨槽位按种类扣, 与 Inventory.clearOrCountMatchingItems 同语义), 返回实扣数。 */
+function chargeFarmerWheat(amount: number): number {
+  let left = amount
+  for (const stack of [...inventory]) {
+    if (left <= 0) {
+      break
+    }
+    if (stack.itemId !== FARMER_CROP_ITEM_ID) {
+      continue
+    }
+    const taken = Math.min(stack.count, left)
+    stack.count -= taken
+    left -= taken
+    if (stack.count === 0) {
+      inventory.splice(inventory.indexOf(stack), 1)
+    }
+  }
+  return amount - left
+}
+
+function mockFarmerSell(payload: FarmerSellPayload): FarmerSellResult {
+  if (!Number.isInteger(payload.count) || payload.count < 1) {
+    throw businessFailure('job.farmer.sell', 'INVALID_REQUEST', '出售株数必须是 >= 1 的整数', false, {
+      field: 'count',
+      value: String(payload.count),
+    })
+  }
+  const owned = inventory
+    .filter((item) => item.itemId === FARMER_CROP_ITEM_ID)
+    .reduce((sum, item) => sum + item.count, 0)
+  if (owned <= 0) {
+    throw businessFailure('job.farmer.sell', 'NOTHING_TO_SELL', '背包里没有可出售的农夫小麦', false, {
+      itemId: FARMER_CROP_ITEM_ID,
+    })
+  }
+  // 先扣物后发钱, 与 FarmerWheatSellService.sell 同序: 发币量严格锚定已离手的小麦数。
+  const removed = chargeFarmerWheat(Math.min(owned, payload.count))
+  let credited = 0
+  for (let index = 0; index < removed; index += 1) {
+    credited += farmerNextUnitPrice(farmerSoldToday + index)
+  }
+  farmerSoldToday += removed
+  wallet.credit += credited
+  return {
+    soldCount: removed,
+    credited,
+    soldToday: farmerSoldToday,
+    nextUnitPrice: farmerNextUnitPrice(farmerSoldToday),
+  }
+}
+
+/** [qualityId, tier, maxEffects, noFailure, combatUnlocked, rawXp] —— ChefQuality 五档 + ChefConfig 默认经验。 */
+const CHEF_QUALITY_ROWS: readonly (readonly [string, number, number, boolean, boolean, number])[] = [
+  ['low', 0, 1, false, false, 50],
+  ['medium', 1, 1, false, false, 80],
+  ['high', 2, 2, false, true, 130],
+  ['extraordinary', 3, 2, true, true, 220],
+  ['radiant', 4, 3, true, true, 400],
+]
+
+/** [effectId, combat, negative, windowed, unit, 5 档 magnitude, 5 档时长秒] —— ChefEffectType 顺序 + ChefConfig 默认值。 */
+type ChefEffectSeed = readonly [
+  string,
+  boolean,
+  boolean,
+  boolean,
+  ChefEffectUnit,
+  readonly [number, number, number, number, number],
+  readonly [number, number, number, number, number],
+]
+
+const CHEF_EFFECT_ROWS: readonly ChefEffectSeed[] = [
+  ['amplify', false, false, false, 'mul_x100', [120, 150, 200, 300, 500], [0, 0, 0, 0, 0]],
+  ['nourish_food', false, false, false, 'mul_x100', [150, 200, 300, 400, 800], [0, 0, 0, 0, 0]],
+  ['aftertaste_sat', false, false, false, 'mul_x100', [150, 200, 300, 400, 500], [0, 0, 0, 0, 0]],
+  ['sated_jump', false, false, false, 'level', [1, 2, 3, 4, 5], [0, 0, 0, 0, 0]],
+  // 战斗向只在高/超凡/闪耀解锁, 低/中两档是真值 0 而不是缺数据。
+  ['nourish_heal', true, false, false, 'permille', [0, 0, 75, 100, 1000], [0, 0, 0, 0, 0]],
+  ['purify', true, false, false, 'count', [0, 0, 3, 4, 99], [0, 0, 0, 0, 0]],
+  ['oversalt', false, true, false, 'none', [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]],
+  ['spoiled', false, true, false, 'none', [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]],
+  [
+    'endurance',
+    false,
+    false,
+    true,
+    'permille',
+    [150, 300, 500, 700, 900],
+    [120, 180, 300, 480, 900],
+  ],
+  ['refresh', false, false, false, 'level', [1, 2, 3, 4, 5], [90, 150, 240, 360, 600]],
+  [
+    'night_sight',
+    false,
+    false,
+    false,
+    'seconds',
+    [60, 120, 240, 480, 900],
+    [60, 120, 240, 480, 900],
+  ],
+  ['shield', true, false, true, 'permille', [0, 0, 40, 60, 80], [120, 120, 120, 120, 120]],
+  ['grease', true, false, true, 'permille', [0, 0, 300, 450, 600], [120, 120, 120, 120, 120]],
+  ['aftertaste_regen', true, false, true, 'permille', [0, 0, 50, 60, 100], [30, 30, 30, 30, 30]],
+  ['stable_aim', true, false, true, 'permille', [0, 500, 700, 850, 1000], [60, 60, 60, 60, 60]],
+  // 翻车负面只在低/中/高掷出, 超凡/闪耀 noFailure 恒 0。
+  ['underdone', false, true, false, 'permille', [800, 500, 250, 0, 0], [12, 8, 6, 0, 0]],
+  ['scorched', false, true, false, 'permille', [80, 50, 30, 0, 0], [0, 0, 0, 0, 0]],
+  ['nausea', false, true, false, 'level', [2, 1, 1, 0, 0], [8, 6, 4, 0, 0]],
+]
+
+/** ChefQualityResolver 的等级 -> 品质上限门 (纯阶梯常量)。 */
+function chefQualityCapTier(level: number): number {
+  if (level >= 9) {
+    return 4
+  }
+  if (level >= 7) {
+    return 3
+  }
+  if (level >= 4) {
+    return 2
+  }
+  if (level >= 2) {
+    return 1
+  }
+  return 0
+}
+
+function mockChefState(): ChefStateResult {
+  const level = mockJobLevel('chef')
+  const qualities: ChefQualityRow[] = CHEF_QUALITY_ROWS.map(
+    ([qualityId, tier, maxEffects, noFailure, combatUnlocked, rawXp]) => ({
+      qualityId,
+      tier,
+      nameKey: `chef.quality.prefix.${qualityId}`,
+      maxEffects,
+      noFailure,
+      combatUnlocked,
+      rawXp,
+    }),
+  )
+  const effects: ChefEffectRow[] = CHEF_EFFECT_ROWS.map(
+    ([effectId, combat, negative, windowed, unit, magnitudes, durationSeconds]) => ({
+      effectId,
+      labelKey: `chef.effect.${effectId}`,
+      combat,
+      negative,
+      windowed,
+      unit,
+      magnitudes: [...magnitudes],
+      durationSeconds: [...durationSeconds],
+    }),
+  )
+  return {
+    level,
+    qualityCapTier: chefQualityCapTier(level),
+    qualities,
+    effects,
+    // ChefConfig.TABLE_USE_COST_CREDIT 的默认值; 运营改 toml 即变, 面板不得抄这个数。
+    seasoningCostCredit: 5,
+  }
+}
+
+/** [wineId, 该玩家永久层数] —— WineType 九种, 顺序即枚举声明序。层数铺了 0 / 中间 / 满层三种形态。 */
+const BREWER_BREW_ROWS: readonly (readonly [string, number])[] = [
+  ['brandy', 0],
+  ['vodka', 5],
+  ['gin', 3],
+  ['rum', 0],
+  ['tequila', 1],
+  ['maotai', 0],
+  ['whiskey', 4],
+  ['champagne', 0],
+  ['moonshine', 5],
+]
+
+/** BrewRecipes 九条配方的原料表 (物品 id + 计数), 逐字照抄 Java 侧的精确匹配表。 */
+const BREWER_RECIPE_INPUTS: Readonly<Record<string, readonly (readonly [string, number])[]>> = {
+  brandy: [
+    ['minecraft:wheat', 16],
+    ['minecraft:apple', 4],
+  ],
+  vodka: [['minecraft:wheat', 32]],
+  gin: [
+    ['minecraft:wheat', 16],
+    ['minecraft:sugar', 4],
+  ],
+  rum: [
+    ['minecraft:sugar_cane', 8],
+    ['minecraft:wheat', 16],
+  ],
+  tequila: [
+    ['minecraft:carrot', 8],
+    ['minecraft:wheat', 16],
+  ],
+  maotai: [
+    ['minecraft:wheat', 16],
+    ['minecraft:wheat_seeds', 8],
+  ],
+  whiskey: [['minecraft:wheat', 24]],
+  champagne: [
+    ['minecraft:wheat', 16],
+    ['minecraft:sugar', 4],
+    ['minecraft:apple', 2],
+  ],
+  moonshine: [
+    ['minecraft:wheat', 24],
+    ['minecraft:sugar', 8],
+  ],
+}
+
+/** 月光满层固化的 5 条 (8 选 5, MoonshinePerk 的前五个 id)。上面月光正好是满层, 故这里非空。 */
+const BREWER_MOONSHINE_PERK_IDS: readonly string[] = [
+  'knockback_res',
+  'plated',
+  'lucky',
+  'swift',
+  'night_vision',
+]
+
+/** 原版物品 id -> 翻译键 (配方原料用; 原版命名规则 item.minecraft.<path>, 这几味都不是方块)。 */
+function vanillaItemDescriptionId(itemId: string): string {
+  return `item.minecraft.${itemId.slice('minecraft:'.length)}`
+}
+
+function mockBrewerState(): BrewerStateResult {
+  const brews: BrewerBrewEntry[] = BREWER_BREW_ROWS.map(([wineId, permanentStacks]) => ({
+    wineId,
+    itemId: `miningdim:wine_${wineId}`,
+    descriptionId: `item.miningdim.wine_${wineId}`,
+    permanentStacks,
+  }))
+  const recipes: BrewerRecipeRow[] = BREWER_BREW_ROWS.map(([wineId]) => {
+    const inputs = BREWER_RECIPE_INPUTS[wineId]
+    if (inputs === undefined) {
+      throw new Error(`mock 数据缺陷: 酿酒配方表里没有 ${wineId}`)
+    }
+    return {
+      wineId,
+      inputs: inputs.map(([itemId, count]) => ({
+        itemId,
+        descriptionId: vanillaItemDescriptionId(itemId),
+        count,
+      })),
+    }
+  })
+  return {
+    level: mockJobLevel('brewer'),
+    // BrewerConstants.MAX_LAYERS_PER_TYPE。
+    maxLayersPerType: 5,
+    brews,
+    moonshinePerks: BREWER_MOONSHINE_PERK_IDS.map((perkId) => ({
+      perkId,
+      labelKey: `brewer.moonshine.${perkId}`,
+    })),
+    recipes,
+    // BrewerConstants.MILLIS_PER_VINTAGE_YEAR = 现实一天一个年份。
+    millisPerVintageYear: 86_400_000,
+  }
+}
+
+// ============================================================
 // 派发
 // ============================================================
 
@@ -1220,6 +1806,20 @@ function resolveMock(action: WebUiActionName, payload: unknown): unknown {
       return { ...wallet }
     case 'hub.panels':
       return mockHubPanels()
+    case 'job.progress':
+      return mockJobProgress()
+    case 'job.miner.state':
+      return mockMinerState()
+    case 'job.miner.scan':
+      return mockMinerScan()
+    case 'job.farmer.state':
+      return mockFarmerState()
+    case 'job.farmer.sell':
+      return mockFarmerSell(payload as FarmerSellPayload)
+    case 'job.chef.state':
+      return mockChefState()
+    case 'job.brewer.state':
+      return mockBrewerState()
     case 'market.list':
       return mockMarketList(payload as MarketListPayload)
     case 'market.place':

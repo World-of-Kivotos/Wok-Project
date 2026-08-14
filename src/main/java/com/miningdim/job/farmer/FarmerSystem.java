@@ -67,7 +67,9 @@ public final class FarmerSystem implements Subsystem {
         FarmerCreativeTab.register(modBus);
         FarmerLootModifiers.register(modBus);
         forgeBus.register(this);
-        LOGGER.info("[miningdim] farmer job subsystem registered (5 farmland tiers + crop yield + Farmer's Delight + harvest xp + placement cap + /farmer sell)");
+        // 平板农夫页的 job.farmer.state / job.farmer.sell (卖菜写路径复用 FarmerWheatSellService 同一入口)。
+        FarmerWebUiActions.registerAll();
+        LOGGER.info("[miningdim] farmer job subsystem registered (5 farmland tiers + crop yield + Farmer's Delight + harvest xp + placement cap + /farmer sell + 2 job.farmer.* actions)");
     }
 
     // ============================================================

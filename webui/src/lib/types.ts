@@ -328,9 +328,16 @@ export interface PlayerJobProgressEntry {
    * 前端据 nextLevelXp === 0 判满级并改画一句结论, 不画 0/0 的 NaN 宽度空槽, 也不许靠 level === 10 硬编码。
    */
   nextLevelXp: number
-  /** = JobProgress.dailyXp(JobId) 今日已入账有效经验 (已按每日软上限衰减)。 */
+  /**
+   * = JobProgress.dailyXp(JobId, todayStamp) 今日已入账有效经验 (已按每日软上限衰减)。
+   * todayStamp 由 IEconomyService.currentDayStamp() 给出: 这个只读重载**不翻日**, 只是拿日戳比对后
+   * 决定返 0 还是返存量。直接读字段会拿到昨天的脏值 —— 昨天吃满额度、今天没开工时会显示"额度已用尽"。
+   */
   dailyXp: number
-  /** = JobProgress.dailyRemaining(JobId) 今日还能满额入账多少 (撞 0 后仍能获经验, 但按衰减打折)。 */
+  /**
+   * = JobProgress.dailyRemaining(JobId, todayStamp) 今日还能满额入账多少 (撞 0 后仍能获经验, 但按衰减打折)。
+   * 同上用带日戳的只读重载: 清零权只归入账路径, 只读接口顺手翻日等于把衰减档位洗回第 0 档。
+   */
   dailyRemaining: number
 }
 
@@ -462,6 +469,366 @@ export interface HubPanel {
 /** hub.panels 回执。 */
 export interface HubPanelsResult {
   panels: HubPanel[]
+}
+
+// ============================================================
+// job.* — JobWebUiActions.java + 各职业包内的 *WebUiActions.java
+// ============================================================
+
+/** job.progress 入参 (JobWebUiActions) —— 不读 payload 任何字段。 */
+export type JobProgressPayload = EmptyPayload
+
+/**
+ * job.progress 回执 (Java 落点: com.miningdim.job.JobWebUiActions)。
+ * 与 player.profile 的 jobs 同形且同实现 (共用 JobProgressJson.of); 独立成一条只为省掉钱包/faucet 那 3 次 SQLite。
+ */
+export interface JobProgressResult {
+  /**
+   * 恒 8 条, 顺序 = JobId.values() 声明序。复用 PlayerJobProgressEntry (本文件上方), 不另造形状 ——
+   * 那份同样没有 displayName, 职业名由前端按 `job.miningdim.<jobId>` 走 client.i18n 自解。
+   */
+  jobs: PlayerJobProgressEntry[]
+}
+
+/**
+ * 职业面板一行数值展示的量纲 (JobStatLine.unit)。
+ * percent: 0.35 显示成 35%; multiplier: 1.15 显示成 x1.15; ticks: 20 tick = 1s, 前端换算显示; flat 原样。
+ */
+export type JobStatUnit = 'flat' | 'percent' | 'multiplier' | 'seconds' | 'ticks' | 'blocks' | 'credit'
+
+/** 职业被动表的一行 (服务端只发键与量纲, 中文由 client.i18n 解)。 */
+export interface JobStatLine {
+  /** 稳定机器码, 前端做 rowKey。 */
+  key: string
+  /** 翻译键, 走 useItemNames 解。 */
+  labelKey: string
+  value: number
+  unit: JobStatUnit
+}
+
+/** job.miner.state 入参 (MinerWebUiActions) —— 不读 payload 任何字段。 */
+export type MinerStatePayload = EmptyPayload
+
+/** 矿工的一个开关位 (连锁/自动入包/自动熔炼)。 */
+export interface MinerToggleState {
+  /** = MinerSkill.name().toLowerCase(); 翻译键 = `skill.miningdim.miner.<skillId>` (lang 已有)。 */
+  skillId: 'chain' | 'auto_collect' | 'auto_smelt'
+  /** 等级是否已解锁该开关 (MinerSkills.chainUnlocked / autoCollectUnlocked / autoSmeltBaseUnlocked)。 */
+  unlocked: boolean
+  /** 玩家当前是否打开 (MinerChargeState.toggled; 瞬态运行态, 不持久化, 重启/登出即丢)。 */
+  enabled: boolean
+}
+
+/** job.miner.state 回执 (Java 落点: com.miningdim.job.miner.MinerWebUiActions)。 */
+export interface MinerStateResult {
+  /** = MinerSystem.minerLevel(Player)。 */
+  level: number
+  /** 连锁充能池当前量 (取整, MinerChargeState.currentCharge)。由 MinerSystem 每 tick 回充, 本 action 只读不推进。 */
+  charge: number
+  /** 充能池容量 (MinerSkills.chainChargePool); 未解锁连锁时为 0。 */
+  chargeMax: number
+  /** 是否免疫挖掘疲劳 (MinerSkills.immuneToMiningFatigue, L4 里程碑)。布尔独立成字段, 不塞进 passives 伪装成 0/1。 */
+  miningFatigueImmune: boolean
+  /** 恒 3 条, 顺序 chain / auto_collect / auto_smelt。 */
+  toggles: MinerToggleState[]
+  /** 探矿解锁等级 (MinerConstants.ORE_SCAN_UNLOCK_LEVEL, 常量 3)。 */
+  scanUnlockLevel: number
+  /** = MinerSkills.oreScanUnlocked(level); 前端必须先看它再读下面两栏。 */
+  scanUnlocked: boolean
+  /** 探测半径 (格, MinerSkills.oreScanRadius); 未解锁时为 0 (真值, 不是缺省填充)。前端不得放大这个数。 */
+  scanRadius: number
+  /**
+   * 探矿冷却剩余 tick (0 = 已就绪)。
+   * 刻意不发 epoch millis: 服务端只有 game tick, 换算成服务端墙钟再与 MCEF 客户端 Date.now() 相减会吃时钟偏移;
+   * 且 TPS 掉帧时 tick 与真实秒不成正比。前端收到后自己落成本地 Date.now() + remain*50。
+   */
+  scanCooldownRemainingTicks: number
+  /**
+   * 恒 6 条被动数值 (labelKey = `stat.miningdim.miner.<key>`), 顺序与 key 逐字如下:
+   *  dig_speed : multiplier : MinerSkills.digSpeedMultiplier
+   *  durability_save : percent : MinerSkills.durabilitySaveChance
+   *  fortune_extra : flat : MinerSkills.fortuneExtraExpectancy
+   *  danger_time_factor : multiplier : MinerSkills.dangerTimeFactor
+   *  trap_damage_reduction : percent : MinerSkills.trapDamageReduction
+   *  chain_refill_full : ticks : MinerSkills.chainRefillFullTicks
+   */
+  passives: JobStatLine[]
+}
+
+/**
+ * job.miner.scan 入参: 空。
+ *
+ * 刻意不带 oreItemId —— 服务端按固定优先序 (铁>煤>钻>金>残骸) 自选第一个有命中的矿种
+ * (OreScanService.scanWorld), 没有任何入参能影响这个选择; 加上"玩家选矿种"等于新开一个信息泄露面。
+ * 语义与既有 C2S MinerToggleC2S 一致: 只表达"我要探矿"。
+ */
+export type MinerScanPayload = EmptyPayload
+
+/** 世界方块坐标。 */
+export interface WebUiBlockPos {
+  x: number
+  y: number
+  z: number
+}
+
+/**
+ * job.miner.scan 回执 (Java 落点: com.miningdim.job.miner.MinerWebUiActions)。
+ *
+ * 防 X 光四条硬约束全部由被复用的服务端裁决链保证, webui 层只做 JSON 化:
+ * 等级门 (MinerSkills.oreScanUnlocked) -> CD 门 (MinerChargeState.cooldownReady) ->
+ * OreScanService (region 门 + 半径门 + 单矿种 + ORE_SCAN_MAX_RESULTS=64 硬顶) -> startCooldown。
+ * 顺序与 MinerActions.tryOreScan 逐字一致。
+ */
+export interface MinerScanResult {
+  /** 本次命中的矿种物品 id (如 minecraft:iron_ore); 无命中时 null。 */
+  oreItemId: string | null
+  /** 该矿种的翻译键; 无命中时 null。 */
+  oreDescriptionId: string | null
+  /**
+   * 命中坐标, 个数 <= 64。
+   * 空数组是合法成功: 球内无可探矿、不在矿洞 region 内、半径为 0 都会得到空 —— 服务端裁决链本身
+   * 不区分这三者 (OreScanService.scan 一律返回空表), 故本回执也不编造原因码。
+   */
+  hits: WebUiBlockPos[]
+  /** 本次生效的探测半径 (格, MinerSkills.oreScanRadius)。 */
+  radius: number
+  /**
+   * 高亮脉冲存活 tick (MinerConstants.SCAN_PULSE_TICKS, 常量 160 = 8s)。前端据此落成本地
+   * Date.now() + pulseTicks*50 自行熄灭, 不等下一次 state 覆盖 (理由同 scanCooldownRemainingTicks)。
+   */
+  pulseTicks: number
+  /** 本次已起的冷却全长 tick (= 刚 startCooldown 的量, 也就是剩余量)。 */
+  scanCooldownRemainingTicks: number
+}
+
+/** job.miner.scan 的业务拒绝码 (MinerWebUiActions 的 scan handler)。 */
+export type MinerScanErrorCode = 'SKILL_LOCKED' | 'SKILL_ON_COOLDOWN'
+
+export type MinerScanErrorEnvelope = WebUiBusinessErrorEnvelope<MinerScanErrorCode>
+
+/** job.farmer.state 入参 (FarmerWebUiActions) —— 不读 payload 任何字段。 */
+export type FarmerStatePayload = EmptyPayload
+
+/** 收购站认的那一种作物 (FarmerItems.FARMER_WHEAT)。 */
+export interface FarmerCropRef {
+  /** = miningdim:farmer_wheat。 */
+  itemId: string
+  /** = item.miningdim.farmer_wheat。 */
+  descriptionId: string
+}
+
+/** 一档耕地 (FarmerCropTable.Row + FarmerTier)。 */
+export interface FarmerTierRow {
+  /** = FarmerTier.id(): low/medium/high/premium/supreme。 */
+  tierId: string
+  /** 该档对应方块的翻译键 (block.miningdim.farmer_farmland_<tierId>)。 */
+  nameKey: string
+  /** = FarmerTier.unlockLevel()。 */
+  unlockLevel: number
+  /** = FarmerTier.isUnlockedAt(level); 放置门控真源。 */
+  unlocked: boolean
+  /** 一株从种下到成熟的目标期望时长 (分钟, FarmerTier.growthIntervalMinutes)。 */
+  growthMinutes: number
+  /** 一次成熟破坏掉落的小麦株数 (FarmerTier.yieldPerHarvest)。 */
+  yieldPerHarvest: number
+  /** 派生吞吐: 60 / growthMinutes * yieldPerHarvest (FarmerCropTable.Row.farmerWheatPerHour)。 */
+  wheatPerHour: number
+}
+
+/** job.farmer.state 回执 (Java 落点: com.miningdim.job.farmer.FarmerWebUiActions)。 */
+export interface FarmerStateResult {
+  /** = IJobService.level(player, FARMER)。 */
+  level: number
+  /**
+   * 单个对象而不是数组: 全服只有一种可卖收获物 (FarmerWheatSellService 只认 FarmerItems.FARMER_WHEAT),
+   * 恒长 1 的数组会诱导前端做出根本不存在的多品类选择器。
+   */
+  crop: FarmerCropRef
+  /** 当日已售株数 (FarmerSavedData.wheatSoldToday, UTC 翻日清零), 收购曲线的档位定位量。 */
+  soldToday: number
+  /**
+   * 收购曲线软上限 (株, FarmerConstants.WHEAT_DAILY_SOFTCAP)。**不是拒收线**: 超过后单价按
+   * 0.97^超出量 指数衰减到 basePrice*0.25 地板, 仍然照收。前端文案必须写"超过后降价", 严禁写成"今日额度"。
+   */
+  dailySoftCap: number
+  /** 未衰减时的锚价 (信用点/株, FarmerConstants.WHEAT_BASE_PRICE)。 */
+  basePrice: number
+  /** 衰减地板比例 (FarmerConstants.WHEAT_PRICE_FLOOR_RATIO = 0.25), 用来画"最多跌到哪"。 */
+  priceFloorRatio: number
+  /**
+   * 下一株的收购单价 (FarmerWheatBuyback.wheatBuyPrice(soldToday + 1, basePrice), 已含曲线衰减且向下取整)。
+   * 曲线深处可能整数下取整到 0 —— 那是边际收益归零的真实结果, 不是缺数据。
+   */
+  nextUnitPrice: number
+  /** 恒 5 条, 顺序 = FarmerTier.values()。 */
+  farmlandTiers: FarmerTierRow[]
+}
+
+/**
+ * job.farmer.sell 入参 (FarmerWebUiActions)。
+ *
+ * 只有 count, **没有 slot**: 服务端按物品种类扫全背包扣 (FarmerWheatSellService.chargeWheat ->
+ * Inventory.clearOrCountMatchingItems), 与槽位无关。留着 slot 会让后续维护者以为是按槽结算,
+ * 而玩家的小麦本来就可能散在多个未满栈里。可卖上限由前端拿 player.inventory 镜像按 crop.itemId
+ * 求和自算, 服务端不另开一条查库存的 action。
+ */
+export interface FarmerSellPayload {
+  /** 请求卖出株数, >= 1 (缺失/非 32 位整数/<1 -> INVALID_REQUEST, params.field=count)。实际卖出取 min(库存, count)。 */
+  count: number
+}
+
+/**
+ * job.farmer.sell 回执 (Java 落点: com.miningdim.job.farmer.FarmerWebUiActions)。
+ *
+ * 写操作, 全部结算复用 FarmerWheatSellService.sell 单一入口: 先扣物后发钱、收购曲线逐株求和、
+ * 经 IEconomyService.grantDaily 过全服 faucet 衰减主闸。webui 层一步都不许自己算。
+ */
+export interface FarmerSellResult {
+  /** 实际卖出株数 (= 实际离手的小麦数)。 */
+  soldCount: number
+  /**
+   * 实发信用点, **已过 faucet 衰减主闸**。
+   * soldCount > 0 而 credited === 0 是合法结果: 收购曲线跌到地板后单株单价下取整为 0, 此时物品照扣、
+   * 发币为 0。前端必须如实显示, 不许当失败。
+   */
+  credited: number
+  /** 结算后的当日已售株数。 */
+  soldToday: number
+  /** 结算后下一株的单价 (曲线已下移), 给玩家看"再卖会更便宜"。 */
+  nextUnitPrice: number
+}
+
+/** job.farmer.sell 的业务拒绝码 (FarmerWebUiActions 的 sell handler)。 */
+export type FarmerSellErrorCode = 'INVALID_REQUEST' | 'ECONOMY_OFFLINE' | 'NOTHING_TO_SELL'
+
+export type FarmerSellErrorEnvelope = WebUiBusinessErrorEnvelope<FarmerSellErrorCode>
+
+/** job.chef.state 入参 (ChefWebUiActions) —— 不读 payload 任何字段。 */
+export type ChefStatePayload = EmptyPayload
+
+/**
+ * ChefEffectRow.magnitudes 的量纲 (随效果种类不同, 见 ChefEffectType 各项注释):
+ *  mul_x100 时长/饱食倍率 x100 (120 = x1.2); permille 千分比基点 (50 = 5%, 夹生那条是触发概率);
+ *  level 1-based 效果等级; seconds 秒; count 个数 (回甘 99 = 全部); none 该效果不使用 magnitude。
+ */
+export type ChefEffectUnit = 'mul_x100' | 'permille' | 'level' | 'seconds' | 'count' | 'none'
+
+/** 一档品质 (ChefQuality)。 */
+export interface ChefQualityRow {
+  /** = ChefQuality.id(): low/medium/high/extraordinary/radiant。 */
+  qualityId: string
+  /** = ChefQuality.tier(), 0-based 档位索引, 与下面 magnitudes/durationSeconds 数组下标一一对应。 */
+  tier: number
+  /** = ChefQuality.prefixKey(), 形如 chef.quality.prefix.low。 */
+  nameKey: string
+  /** = ChefQuality.maxEffects(), 一道菜最多带几个效果。 */
+  maxEffects: number
+  /** = ChefQuality.noFailure(), 是否零翻车 (超凡/闪耀 = true)。 */
+  noFailure: boolean
+  /** = ChefQuality.combatUnlocked(), 战斗向效果是否在本档解锁。 */
+  combatUnlocked: boolean
+  /** = ChefConfig.rawXp(quality), 达成该品质的单菜原始经验。 */
+  rawXp: number
+}
+
+/**
+ * 一种效果在 5 档品质下的数值行 (ChefEffectType x ChefQuality)。
+ * 真实数据是 (18 种效果 x 5 档品质) 的矩阵, 压不进"一档一个值"的单列表, 故按效果成行、品质成列。
+ */
+export interface ChefEffectRow {
+  /** = ChefEffectType.id()。 */
+  effectId: string
+  /** = `chef.effect.<effectId>`, lang 已有全 18 条。 */
+  labelKey: string
+  /** = ChefEffectType.isCombat(); 战斗向 (仅高/超凡/闪耀解锁, 一菜最多 1 个)。 */
+  combat: boolean
+  /** = ChefEffectType.isNegative(); 翻车负面 (仅低/中/高会掷出)。 */
+  negative: boolean
+  /** = ChefEffectType.isWindowed(); 窗口/周期型 (非进食瞬时结算)。 */
+  windowed: boolean
+  unit: ChefEffectUnit
+  /** 恒 5 项 (ChefEffectMagnitude.snapshot), 下标 = ChefQuality.tier()。0 表示该档不掷出/不适用该效果 (真值)。 */
+  magnitudes: number[]
+  /** 恒 5 项, 下标同上。0 = 该效果无独立持续时间 (进食一次性结算)。 */
+  durationSeconds: number[]
+}
+
+/**
+ * job.chef.state 回执 (Java 落点: com.miningdim.job.chef.ChefWebUiActions)。
+ * 全部数值每次调用实时 ChefConfig.*.get() (运营可调), 服务端不缓存, 前端更不许抄静态副本。
+ */
+export interface ChefStateResult {
+  /** = IJobService.level(player, CHEF)。 */
+  level: number
+  /** = ChefQualityResolver.qualityCapForLevel(level).tier(); 当前等级能做出的最高品质档的 0-based tier。 */
+  qualityCapTier: number
+  /** 恒 5 条, 顺序 = ChefQuality.values()。 */
+  qualities: ChefQualityRow[]
+  /** 恒 18 条, 顺序 = ChefEffectType.values()。 */
+  effects: ChefEffectRow[]
+  /** = ChefConfig.TABLE_USE_COST_CREDIT; 调味台每道菜的信用点花费 (sink); 0 = 运营把收费关了。 */
+  seasoningCostCredit: number
+}
+
+/** job.brewer.state 入参 (BrewerWebUiActions) —— 不读 payload 任何字段。 */
+export type BrewerStatePayload = EmptyPayload
+
+/** 一种酒的永久层数 (WineType + BrewBuffStore)。 */
+export interface BrewerBrewEntry {
+  /** = WineType.id(): brandy/vodka/gin/rum/tequila/maotai/whiskey/champagne/moonshine。 */
+  wineId: string
+  /** = miningdim:wine_<wineId> (BrewerItems.itemFor)。 */
+  itemId: string
+  /** = item.miningdim.wine_<wineId>。 */
+  descriptionId: string
+  /** = BrewBuffStore.layers(uuid, wineType); 该玩家该酒的永久层数 (喝闪耀酒按年份加层, 死亡清零)。 */
+  permanentStacks: number
+}
+
+/** 月光满层固化的一条良性词条 (MoonshinePerk)。 */
+export interface MoonshinePerkRow {
+  /** = MoonshinePerk.id()。 */
+  perkId: string
+  /** = `brewer.moonshine.<perkId>`。 */
+  labelKey: string
+}
+
+/** 一条配方的一味原料 (BrewRecipes.Ingredient)。 */
+export interface BrewerRecipeInput {
+  itemId: string
+  descriptionId: string
+  count: number
+}
+
+/** 一条配方。没有独立 recipeId —— 配方与酒类型是同一个 WineType 枚举, 两个 id 迟早分叉。 */
+export interface BrewerRecipeRow {
+  wineId: string
+  /** 精确匹配: 投料的物品集合与计数必须与本表逐项相等, 多投/错投都不出酒。 */
+  inputs: BrewerRecipeInput[]
+}
+
+/** job.brewer.state 回执 (Java 落点: com.miningdim.job.brewer.BrewerWebUiActions)。全只读。 */
+export interface BrewerStateResult {
+  /** = IJobService.level(player, BREWER)。 */
+  level: number
+  /** = BrewerConstants.MAX_LAYERS_PER_TYPE (5); 每种酒的永久层数上限。 */
+  maxLayersPerType: number
+  /** 恒 9 条, 顺序 = WineType.values()。 */
+  brews: BrewerBrewEntry[]
+  /**
+   * 月光词条 (BrewBuffStore.moonshinePerks(uuid)), **玩家全局一组** (满 5 层月光时一次性固化 8 选 5),
+   * 与具体是哪种酒无关。未满层前是空数组。刻意提到顶层: 挂在每行酒上是维度错误, 会渲染出
+   * "伏特加带着月光词条"。
+   */
+  moonshinePerks: MoonshinePerkRow[]
+  /** 恒 9 条, 顺序 = WineType.values()。 */
+  recipes: BrewerRecipeRow[]
+  /**
+   * = BrewerConstants.MILLIS_PER_VINTAGE_YEAR; 陈酿速率: 多少真实毫秒累积 1 个年份
+   * (当前 86400000 = 1 现实天 1 年份)。陈酿是酒窖箱按现实挂钟持续累积, 9 种酒共用同一套时钟,
+   * **没有 per-配方的陈酿天数**。
+   */
+  millisPerVintageYear: number
 }
 
 // ============================================================

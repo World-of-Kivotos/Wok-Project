@@ -19,24 +19,24 @@
  * 根一换就重渲染, 再往下做不可变更新只是徒增噪音。
  */
 
-import type { MarketListing, PlayerInventoryItem, WebUiWallet } from '../lib/types'
+import type {
+  MarketListing,
+  PlayerInventoryItem,
+  PlayerJobProgressEntry,
+  WebUiWallet,
+} from '../lib/types'
 import type {
   PlannedAgentStateResult,
   PlannedBlueprintsResult,
-  PlannedBrewerStateResult,
   PlannedChampionCodexResult,
   PlannedChampionInspectResult,
-  PlannedChefStateResult,
   PlannedCurrency,
   PlannedEconomyStatusResult,
   PlannedEconomyTodayResult,
   PlannedEngineerStateResult,
-  PlannedFarmerStateResult,
   PlannedJobId,
-  PlannedJobProgressEntry,
   PlannedMarketTransaction,
   PlannedMarriageStateResult,
-  PlannedMinerStateResult,
   PlannedMiningInstance,
   PlannedMiningMyStatusResult,
   PlannedMunitionsStateResult,
@@ -106,13 +106,15 @@ export interface MockNonTradableRule {
   reason: string
 }
 
-/** 8 职业的面板状态。每个字段直接就是对应 planned action 的 result 形状, handlers 只做克隆。 */
+/**
+ * 尚未核销的职业面板状态。每个字段直接就是对应 planned action 的 result 形状, handlers 只做克隆。
+ *
+ * 矿工/农夫/厨师/酿酒师四家已在 W3 核销成真契约, 它们的假数据随之搬进 lib/bridge.mock (真契约那侧的
+ * 唯一假后端), 本处不再留一份 —— 两份权威必然漂移。progress 仍留在这里: 它的消费方是 bridge.mock 的
+ * mockProfile 与仍是 planned 的 admin.job.setLevel / mining.enter 等级门, 类型换成真契约的条目形状。
+ */
 export interface MockJobState {
-  progress: PlannedJobProgressEntry[]
-  miner: PlannedMinerStateResult
-  farmer: PlannedFarmerStateResult
-  chef: PlannedChefStateResult
-  brewer: PlannedBrewerStateResult
+  progress: PlayerJobProgressEntry[]
   tarot: PlannedTarotStateResult
   agent: PlannedAgentStateResult
   munitions: PlannedMunitionsStateResult
@@ -223,7 +225,7 @@ export function cloneResult<T>(value: T): T {
 }
 
 /** 按 id 取职业进度条目; 不存在即为种子数据缺陷, 直接抛而不是补一条空的。 */
-export function requireJobProgress(draft: MockWorld, jobId: PlannedJobId): PlannedJobProgressEntry {
+export function requireJobProgress(draft: MockWorld, jobId: PlannedJobId): PlayerJobProgressEntry {
   const entry = draft.jobs.progress.find((candidate) => candidate.jobId === jobId)
   if (entry === undefined) {
     throw new Error(`mock 种子缺陷: 职业进度表里没有 ${jobId}`)

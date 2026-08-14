@@ -22,13 +22,12 @@
  */
 
 import type { ItemNamePart } from '../lib/i18n'
-import type { MarketListing, PlayerInventoryItem } from '../lib/types'
+import type { MarketListing, PlayerInventoryItem, PlayerJobProgressEntry } from '../lib/types'
 import type {
   PlannedAffixPool,
   PlannedChampionAffix,
   PlannedChampionStar,
   PlannedJobId,
-  PlannedJobProgressEntry,
   PlannedMarketTransaction,
   PlannedShopEntry,
   PlannedStatLine,
@@ -162,26 +161,29 @@ function statLine(
 // 职业进度 (8 条并列; 顺序与 JobId.values() 一致)
 // ============================================================
 
-/** [jobId, 中文名, 等级, 累计经验, 本级已获, 升级所需, 今日已获, 今日剩余额度]。 */
-type JobSeedRow = readonly [PlannedJobId, string, number, number, number, number, number, number]
+/**
+ * [jobId, 等级, 累计经验, 本级已获, 升级所需, 今日已获, 今日剩余额度]。
+ * 无中文名一列: job.progress 已核销为真契约, 服务端不直给中文, 职业名由前端按 `job.miningdim.<jobId>`
+ * 走 client.i18n 自解 (中文对照见 lib/bridge.mock 的 I18N_NAMES)。
+ */
+type JobSeedRow = readonly [PlannedJobId, number, number, number, number, number, number]
 
 const JOB_ROWS: readonly JobSeedRow[] = [
-  ['miner', '矿工', 6, 48_200, 3_200, 9_000, 1_450, 2_550],
-  ['farmer', '农夫', 4, 12_400, 900, 4_800, 4_000, 0],
-  // 玩家可见名是"铸甲师"; engineer 只是旧存档与旧命令的兼容 id (JobId.byId 里那条特判)。
-  ['engineer', '铸甲师', 2, 2_150, 150, 1_600, 0, 4_000],
-  ['tarot', '塔罗师', 5, 26_800, 5_400, 7_200, 620, 3_380],
-  ['chef', '厨师', 3, 6_900, 400, 2_400, 240, 3_760],
-  ['agent', '特勤干员', 1, 0, 0, 800, 0, 4_000],
-  ['munitions', '军火商', 7, 91_500, 11_500, 14_000, 3_900, 100],
+  ['miner', 6, 48_200, 3_200, 9_000, 1_450, 2_550],
+  ['farmer', 4, 12_400, 900, 4_800, 4_000, 0],
+  ['engineer', 2, 2_150, 150, 1_600, 0, 4_000],
+  ['tarot', 5, 26_800, 5_400, 7_200, 620, 3_380],
+  ['chef', 3, 6_900, 400, 2_400, 240, 3_760],
+  ['agent', 1, 0, 0, 800, 0, 4_000],
+  ['munitions', 7, 91_500, 11_500, 14_000, 3_900, 100],
   // 满级形态: nextLevelXp 为 0, 前端据此判满级而不是硬编码 level === 10。
-  ['brewer', '酿酒师', 10, 412_000, 0, 0, 0, 4_000],
+  ['brewer', 10, 412_000, 0, 0, 0, 4_000],
 ]
 
-function seedJobProgress(): PlannedJobProgressEntry[] {
+function seedJobProgress(): PlayerJobProgressEntry[] {
   return JOB_ROWS.map((row) => {
-    const [jobId, displayName, level, totalXp, levelXp, nextLevelXp, dailyXp, dailyRemaining] = row
-    return { jobId, displayName, level, totalXp, levelXp, nextLevelXp, dailyXp, dailyRemaining }
+    const [jobId, level, totalXp, levelXp, nextLevelXp, dailyXp, dailyRemaining] = row
+    return { jobId, level, totalXp, levelXp, nextLevelXp, dailyXp, dailyRemaining }
   })
 }
 
@@ -599,135 +601,6 @@ export function createInitialWorld(): MockWorld {
     },
     jobs: {
       progress: seedJobProgress(),
-      miner: {
-        level: 6,
-        charge: 7,
-        chargeMax: 12,
-        chainEnabled: true,
-        // 初始就绪 (0 = 无冷却): 冷却态由玩家第一次探测后自然产生, 不必在种子里先堵住入口 ——
-        // 一进面板按钮就是灰的, 会让人以为功能没做。
-        scanReadyAt: 0,
-        scanRadius: 24,
-        scanUnlockLevel: 3,
-        passives: [
-          statLine('mining_speed', '挖掘速度', 0.18, 'percent'),
-          statLine('ore_yield', '矿物额外产出', 0.12, 'percent'),
-          statLine('vein_resist', '矿脉抗性', 0.09, 'percent'),
-          statLine('chain_range', '连锁半径', 5, 'blocks'),
-        ],
-        dailyOres: [
-          {
-            itemId: ITEM_IRON_ORE.itemId,
-            descriptionId: ITEM_IRON_ORE.descriptionId,
-            minedToday: 412,
-            softCap: 600,
-            decayFactor: 1,
-          },
-          {
-            // 已撞软上限: 单价按 0.6 打折, 正是 D3 里"玩家最想看的那个数"。
-            itemId: ITEM_DIAMOND.itemId,
-            descriptionId: ITEM_DIAMOND.descriptionId,
-            minedToday: 64,
-            softCap: 48,
-            decayFactor: 0.6,
-          },
-          {
-            itemId: ITEM_GOLD.itemId,
-            descriptionId: ITEM_GOLD.descriptionId,
-            minedToday: 0,
-            softCap: 200,
-            decayFactor: 1,
-          },
-        ],
-      },
-      farmer: {
-        level: 4,
-        sellUnlockLevel: 2,
-        soldToday: 128,
-        dailySoldCap: 400,
-        crops: [
-          {
-            itemId: ITEM_WHEAT.itemId,
-            descriptionId: ITEM_WHEAT.descriptionId,
-            unitPrice: 6,
-            basePrice: 6,
-            soldToday: 64,
-          },
-          {
-            itemId: ITEM_CARROT.itemId,
-            descriptionId: ITEM_CARROT.descriptionId,
-            unitPrice: 5,
-            basePrice: 7,
-            soldToday: 48,
-          },
-          {
-            itemId: ITEM_POTATO.itemId,
-            descriptionId: ITEM_POTATO.descriptionId,
-            unitPrice: 7,
-            basePrice: 7,
-            soldToday: 16,
-          },
-          {
-            itemId: ITEM_BEETROOT.itemId,
-            descriptionId: ITEM_BEETROOT.descriptionId,
-            unitPrice: 9,
-            basePrice: 9,
-            soldToday: 0,
-          },
-        ],
-        farmlandTiers: [
-          statLine('tier1', '一档 生土', 0, 'percent'),
-          statLine('tier2', '二档 熟土', 0.08, 'percent'),
-          statLine('tier3', '三档 沃土', 0.16, 'percent'),
-          statLine('tier4', '四档 膏壤', 0.26, 'percent'),
-          statLine('tier5', '五档 灵田', 0.4, 'percent'),
-        ],
-      },
-      chef: {
-        level: 3,
-        qualityCap: 3,
-        effects: [
-          statLine('quality1', '一品 饱食恢复', 4, 'flat'),
-          statLine('quality2', '二品 额外心数', 2, 'flat'),
-          statLine('quality3', '三品 减伤', 0.05, 'percent'),
-          statLine('quality4', '四品 减伤', 0.09, 'percent'),
-          statLine('quality5', '五品 减伤', 0.14, 'percent'),
-        ],
-        seasoningCostCredit: 120,
-      },
-      brewer: {
-        level: 10,
-        brews: [
-          { brewId: 'vodka', displayName: '伏特加', permanentStacks: 5, maxStacks: 9, moonshineAffixes: ['烈酒钝感'] },
-          { brewId: 'gin', displayName: '金酒', permanentStacks: 3, maxStacks: 9, moonshineAffixes: [] },
-          // 零值边界: 一瓶都没喝过的酒。
-          { brewId: 'rum', displayName: '朗姆', permanentStacks: 0, maxStacks: 9, moonshineAffixes: [] },
-          {
-            brewId: 'whisky',
-            displayName: '威士忌',
-            permanentStacks: 9,
-            maxStacks: 9,
-            moonshineAffixes: ['橡木回甘', '陈年余韵'],
-          },
-        ],
-        recipes: [
-          {
-            recipeId: 'vodka_base',
-            displayName: '伏特加 基酒',
-            inputs: [
-              { itemId: ITEM_POTATO.itemId, descriptionId: ITEM_POTATO.descriptionId, count: 12 },
-              { itemId: ITEM_WHEAT.itemId, descriptionId: ITEM_WHEAT.descriptionId, count: 6 },
-            ],
-            agingDays: 7,
-          },
-          {
-            recipeId: 'whisky_base',
-            displayName: '威士忌 基酒',
-            inputs: [{ itemId: ITEM_WHEAT.itemId, descriptionId: ITEM_WHEAT.descriptionId, count: 24 }],
-            agingDays: 21,
-          },
-        ],
-      },
       tarot: {
         level: 5,
         fragments: 240,

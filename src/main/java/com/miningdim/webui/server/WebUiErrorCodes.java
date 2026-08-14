@@ -34,6 +34,37 @@ public final class WebUiErrorCodes {
     /** player.itemDetail 的 slot 合法但该格 {@code ItemStack.isEmpty()}。params: {@code slot}。 */
     public static final String SLOT_EMPTY = "SLOT_EMPTY";
 
+    /**
+     * 该主动技能的等级未解锁。抛出点: {@code MinerWebUiActions} 的 job.miner.scan handler (等级门, 对应
+     * 键位路径 {@code MinerActions.notLearned})。params: {@code skill} / {@code requiredLevel} / {@code currentLevel}。
+     *
+     * 命名刻意不带 MINER_ 前缀: 后续别的职业的主动技能面板会撞上同一种拒绝, 由 params.skill 区分是哪一个,
+     * 而不是每个职业各造一个码让前端文案字典按职业翻倍。
+     */
+    public static final String SKILL_LOCKED = "SKILL_LOCKED";
+
+    /**
+     * 该主动技能仍在冷却。抛出点同 {@link #SKILL_LOCKED} (CD 门, 对应 {@code MinerActions.onCooldown})。
+     * params: {@code skill} / {@code remainingTicks} (发 tick 不发墙钟: 服务端手里只有 game tick, 换算成
+     * 服务端墙钟再让页面拿 Date.now() 去减, 既吃时钟偏移又在 TPS 掉帧时失真)。
+     */
+    public static final String SKILL_ON_COOLDOWN = "SKILL_ON_COOLDOWN";
+
+    /**
+     * 经济子系统未注册, 本次不扣物也不发币。抛出点: {@code FarmerWebUiActions} 的 job.farmer.sell handler,
+     * 判 {@code FarmerWheatSellService.SellResult.economyOffline()}。无 params。
+     *
+     * 与装配缺陷分开成业务码的理由: 卖菜路径本就把"经济没起来"当作正常短路 (不扣物不发币直接返回), 而不是
+     * 抛异常; 前端必须能把它与"卖成功了但发币 0"区分开来。
+     */
+    public static final String ECONOMY_OFFLINE = "ECONOMY_OFFLINE";
+
+    /**
+     * 经济已就绪但背包里没有可卖作物 (soldCount &lt;= 0)。抛出点同 {@link #ECONOMY_OFFLINE} 的 handler。
+     * params: {@code itemId}。
+     */
+    public static final String NOTHING_TO_SELL = "NOTHING_TO_SELL";
+
     /** 开箱系统已关闭, 或 TaCZ / 武器箱资源包未就绪。抛出点: {@code CaseOpeningService.open}。 */
     public static final String CASE_DISABLED = "CASE_DISABLED";
 

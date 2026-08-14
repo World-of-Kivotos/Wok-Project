@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
+import type { JobStatUnit } from '../../../lib/types'
 import { nowMs } from '../../../mock'
-import type { PlannedStatUnit } from '../../../mock'
 
 /**
  * 八个职业面板共用的极小工具集, 以及它们必须逐字照抄的排版骨架约定。
@@ -46,16 +46,25 @@ export function formatCountdown(targetMs: number, now: number): string {
 }
 
 /**
- * PlannedStatLine.unit 的展示格式化, 与量纲无关的纯排版逻辑 —— 数值本身一律信任服务端/mock 给的原值,
- * 不在这里做任何四舍五入之外的加工。default 分支理论不可达 (union 已在下方五个 case 穷举), 保留它只是
+ * JobStatLine.unit 的展示格式化, 与量纲无关的纯排版逻辑 —— 数值本身一律信任服务端/mock 给的原值,
+ * 不在这里做任何四舍五入之外的加工。default 分支理论不可达 (union 已在下方各 case 穷举), 保留它只是
  * 为满足 noImplicitReturns, 不是给未知量纲一个静默兜底。
+ *
+ * 入参用真契约的 JobStatUnit 而不是 planned 的 PlannedStatUnit: 后者那 5 个值是前者的子集, 仍在用
+ * planned 结构的几个面板 (塔罗/特勤/军火商/铸甲师) 因此不受影响, 而已核销的矿工面板需要 multiplier
+ * 与 ticks 两档。
  */
-export function formatStatValue(value: number, unit: PlannedStatUnit): string {
+export function formatStatValue(value: number, unit: JobStatUnit): string {
   switch (unit) {
     case 'percent':
       return `${(value * 100).toFixed(1)}%`
+    case 'multiplier':
+      return `x${value.toFixed(2)}`
     case 'seconds':
       return `${String(value)}s`
+    // 服务端只有 game tick 这一种时间量纲 (20 tick = 1s), 折算成秒是纯展示。
+    case 'ticks':
+      return `${(value / 20).toFixed(1)}s`
     case 'blocks':
       return `${String(value)} 格`
     case 'credit':

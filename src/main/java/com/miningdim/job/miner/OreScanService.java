@@ -54,6 +54,18 @@ public final class OreScanService {
     }
 
     /**
+     * 一次探测的完整结果: 命中的矿种 + 该矿种在球内的全部坐标。
+     *
+     * {@code ore} 为 null 且 {@code positions} 为空表示本次无命中 —— 球内无可探矿、不在矿洞 region、半径为 0
+     * 三者在此不作区分 (它们对玩家是同一句"没探到", 也不该让调用方在裁决链之外重建一份判据)。
+     */
+    public record ScanHit(OreType ore, List<BlockPos> positions) {
+    }
+
+    /** 无命中的唯一实例 (三条短路路径共用, 避免各处各造一个空结果)。 */
+    private static final ScanHit NO_HIT = new ScanHit(null, List.of());
+
+    /**
      * 服务端权威扫描: 确认玩家在矿洞 region 内后, 在玩家所在 ServerLevel 的探测球 (半径
      * {@link MinerSkills#oreScanRadius}) 内, 收集第一个有命中的可探矿种的全部坐标 (单矿种一次)。
      * 无实例 (不在矿洞 region) / 半径为 0 / 球内无任何可探矿 -> 返回空列表 (不下发全图)。
@@ -61,21 +73,32 @@ public final class OreScanService {
      * @return 球内确有目标矿的世界坐标列表 (个数 <= ORE_SCAN_MAX_RESULTS)
      */
     public static List<BlockPos> scan(ServerPlayer player, int level) {
-        List<BlockPos> empty = List.of();
+        return scanDetailed(player, level).positions();
+    }
+
+    /**
+     * 同 {@link #scan}, 但连"命中的是哪个矿种"一起返回。
+     *
+     * 拆出本方法而不是给 {@link #scan} 换返回类型: 键位路径 (MinerActions) 只要坐标, 而面板路径要把矿种显示成
+     * 物品名与图标 —— {@link #scanWorldDetailed} 内部本来就知道是哪个矿种, 只是旧签名把它丢了。全部筛选
+     * (等级门 allowedOres / 矿洞门 regionAt / 半径门 oreScanRadius / 单矿种 preferenceOrder / 硬顶
+     * ORE_SCAN_MAX_RESULTS) 仍只有这一份实现, 两条路径共用, 不存在"面板版放宽了某一条"的可能。
+     */
+    public static ScanHit scanDetailed(ServerPlayer player, int level) {
         Set<OreType> allowed = allowedOres(level);
         if (allowed.isEmpty()) {
-            return empty;
+            return NO_HIT;
         }
         InstanceState instance = MiningServices.instanceManager()
                 .regionAt(player.getBlockX(), player.getBlockZ());
         if (instance == null) {
-            return empty; // 不在矿洞 region 内, 不探。
+            return NO_HIT; // 不在矿洞 region 内, 不探。
         }
         int radius = MinerSkills.oreScanRadius(level);
         if (radius <= 0) {
-            return empty;
+            return NO_HIT;
         }
-        return scanWorld(player.serverLevel(), player.blockPosition(), radius, allowed);
+        return scanWorldDetailed(player.serverLevel(), player.blockPosition(), radius, allowed);
     }
 
     /**
@@ -90,8 +113,13 @@ public final class OreScanService {
      * @return 球内第一个有命中矿种的全部坐标 (<= ORE_SCAN_MAX_RESULTS); 无命中返回空表
      */
     public static List<BlockPos> scanWorld(ServerLevel level, BlockPos center, int radius, Set<OreType> allowed) {
+        return scanWorldDetailed(level, center, radius, allowed).positions();
+    }
+
+    /** 同 {@link #scanWorld}, 但连命中的矿种一起返回 (筛选实现的唯一落点)。 */
+    public static ScanHit scanWorldDetailed(ServerLevel level, BlockPos center, int radius, Set<OreType> allowed) {
         if (allowed.isEmpty() || radius <= 0) {
-            return List.of();
+            return NO_HIT;
         }
         int r2 = radius * radius;
         // 单矿种语义: 按可探集合优先序 (铁>煤>钻>金>残骸) 逐个试, 取第一个球内确有命中的矿种, 收其全部坐标。
@@ -101,10 +129,10 @@ public final class OreScanService {
             }
             List<BlockPos> hits = collectWithinSphere(level, center, radius, r2, target);
             if (!hits.isEmpty()) {
-                return hits;
+                return new ScanHit(target, hits);
             }
         }
-        return List.of();
+        return NO_HIT;
     }
 
     /**

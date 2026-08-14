@@ -21,7 +21,7 @@ import {
 } from '@/components/kit'
 import { WebUiCallError, isMockActive } from '../lib/bridge'
 import { callErrorText } from '../lib/errorText'
-import { useItemNames } from '../lib/i18n'
+import { jobNameKey, useItemNames } from '../lib/i18n'
 import { HUB_PANEL_META, panelLockText } from '../lib/panels'
 import type { HubPanel, HubPanelId, PlayerJobProgressEntry, PlayerProfileResult } from '../lib/types'
 import type {
@@ -431,14 +431,6 @@ function WalletSection({ profile, today, now }: WalletSectionProps): ReactElemen
 interface JobsSectionProps {
   jobs: readonly PlayerJobProgressEntry[]
   onOpen: (jobId: string) => void
-}
-
-/**
- * 职业名的翻译键。真契约的 jobs 不带 displayName —— 专用服务端解不出中文 (JobId.displayName() 返的是
- * Component.translatable("job.miningdim."+id)), 故服务端只发 jobId, 中文由客户端 I18n 解。
- */
-function jobNameKey(jobId: PlayerJobProgressEntry['jobId']): string {
-  return `job.miningdim.${jobId}`
 }
 
 function JobsSection({ jobs, onOpen }: JobsSectionProps): ReactElement {

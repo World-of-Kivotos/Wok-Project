@@ -67,34 +67,6 @@ export type PlannedJobId =
 export type PlannedDifficulty = 'easy' | 'medium' | 'hard'
 
 // ============================================================
-// A 组 · 地基
-// ============================================================
-
-/**
- * C1 job.progress 的单条职业进度。
- *
- * 原先它同时服务 A5 player.profile —— 那条已在 W1 核销为真契约 (lib/types.ts 的 PlayerJobProgressEntry),
- * 真契约里没有 displayName (服务端不直给中文, 前端按 `job.miningdim.<jobId>` 自解翻译键)。本结构留着
- * displayName 是 planned 域的既有约定 (见文件头第一条), job.progress 接线时按同一手法一并去掉。
- */
-export interface PlannedJobProgressEntry {
-  jobId: PlannedJobId
-  displayName: string
-  /** 1..10。 */
-  level: number
-  /** 累计有效经验 (IJobService.totalXp)。 */
-  totalXp: number
-  /** 当前等级内已获经验, 与 nextLevelXp 一起画进度条。 */
-  levelXp: number
-  /** 升到下一级所需经验; 满级时为 0 (前端据此判满级, 不要靠 level === 10 硬编码)。 */
-  nextLevelXp: number
-  /** 今日已入账有效经验 (受每日软上限衰减后)。 */
-  dailyXp: number
-  /** 今日还能满额入账多少 (撞 0 之后仍能获经验, 但按衰减系数打折)。 */
-  dailyRemaining: number
-}
-
-// ============================================================
 // B 组 · 跳蚤市场 (补真契约缺的那几条)
 // ============================================================
 
@@ -211,134 +183,6 @@ export interface PlannedTradableResult {
 // ============================================================
 // C 组 · 职业
 // ============================================================
-
-/** C1 job.progress (WRAP, IJobService.progress 已给全字段只经 /job list 聊天文本暴露) 回执。 */
-export interface PlannedJobProgressResult {
-  /** 8 条并列, 按 JobId.values() 顺序。C3 已定: 全职业被动恒生效, 前端不做单选器。 */
-  jobs: PlannedJobProgressEntry[]
-}
-
-/** C5 + C7 job.miner.state 回执。 */
-export interface PlannedMinerStateResult {
-  level: number
-  /** 连锁充能当前值 / 上限 (MinerChargeState)。 */
-  charge: number
-  chargeMax: number
-  /** 玩家自己的连锁开关。 */
-  chainEnabled: boolean
-  /** 探测脉冲可再次使用的时刻; 已就绪时 <= 现在。 */
-  scanReadyAt: number
-  /** 探测半径 (格)。C6 强调必须保留同等防 X 光限制, 前端不得放大这个数。 */
-  scanRadius: number
-  /** 探测解锁等级。 */
-  scanUnlockLevel: number
-  passives: PlannedStatLine[]
-  /** C7 当日矿物软上限进度: 撞上限后单价按 decayFactor 打折。 */
-  dailyOres: PlannedDailyOreLine[]
-}
-
-export interface PlannedDailyOreLine {
-  itemId: string
-  descriptionId: string
-  minedToday: number
-  softCap: number
-  /** 当前生效的价格系数 (1 = 未衰减)。 */
-  decayFactor: number
-}
-
-/** C6 job.miner.scan 入参: 一次只探一种矿 (防 X 光的核心限制之一)。 */
-export interface PlannedMinerScanPayload {
-  oreItemId: string
-}
-
-/** C6 job.miner.scan 回执。hits 是脉冲期内的一次性快照, 过期后必须由前端自行熄灭。 */
-export interface PlannedMinerScanResult {
-  oreItemId: string
-  hits: PlannedBlockPos[]
-  radius: number
-  /** 脉冲熄灭时刻。 */
-  expiresAt: number
-  /** 下次可探测时刻。 */
-  scanReadyAt: number
-}
-
-/** C8 job.farmer.state 回执。 */
-export interface PlannedFarmerStateResult {
-  level: number
-  /** 卖菜的等级门 (地板对齐引用单一真源, 前端不得另抄一份常量)。 */
-  sellUnlockLevel: number
-  soldToday: number
-  /** 今日收购额度; 撞顶后走衰减而非拒收。 */
-  dailySoldCap: number
-  crops: PlannedCropPrice[]
-  /** 耕地五档。 */
-  farmlandTiers: PlannedStatLine[]
-}
-
-export interface PlannedCropPrice {
-  itemId: string
-  descriptionId: string
-  /** 当前单价 (已含收购曲线衰减)。 */
-  unitPrice: number
-  /** 未衰减时的锚价, 用来画"已跌到多少"。 */
-  basePrice: number
-  soldToday: number
-}
-
-/** C8 job.farmer.sell 入参: 按背包槽位卖, 与 market.place 同一索引空间。 */
-export interface PlannedFarmerSellPayload {
-  slot: number
-  count: number
-}
-
-/** C8 job.farmer.sell 回执。服务端先扣物后发钱, 回执里的 credited 是实发金额 (已过收购曲线)。 */
-export interface PlannedFarmerSellResult {
-  itemId: string
-  count: number
-  credited: number
-  soldToday: number
-  /** 卖完之后该作物的新单价 (曲线已下移), 用来给玩家看"再卖会更便宜"。 */
-  unitPriceAfter: number
-}
-
-/**
- * C9 job.chef.state 回执。
- * 数值走 ForgeConfigSpec 运营可调, 前端必须实时读这条 action, **严禁**抄一份静态副本进代码。
- */
-export interface PlannedChefStateResult {
-  level: number
-  /** 当前等级能做出的最高菜品品质 (1..5)。 */
-  qualityCap: number
-  /** 各品质对应的增益数值表。 */
-  effects: PlannedStatLine[]
-  /** 调味台单次花费。 */
-  seasoningCostCredit: number
-}
-
-/** C11 job.brewer.state 回执。 */
-export interface PlannedBrewerStateResult {
-  level: number
-  brews: PlannedBrewEntry[]
-  recipes: PlannedBrewRecipe[]
-}
-
-export interface PlannedBrewEntry {
-  brewId: string
-  displayName: string
-  /** 永久层数 (BrewBuffStore), 喝到即永久。 */
-  permanentStacks: number
-  maxStacks: number
-  /** 月光词条 (8 选 5) 中该酒当前挂上的那些。 */
-  moonshineAffixes: string[]
-}
-
-export interface PlannedBrewRecipe {
-  recipeId: string
-  displayName: string
-  inputs: PlannedPendingItem[]
-  /** 陈酿天数 (至少七天周期的制造职业)。 */
-  agingDays: number
-}
 
 /** C14 job.tarot.state 回执。 */
 export interface PlannedTarotStateResult {
@@ -945,13 +789,6 @@ export type PlannedContractMap = {
   'market.transactions': { payload: PlannedTransactionsPayload; result: PlannedTransactionsResult }
   'market.pendingPayout': { payload: PlannedEmptyPayload; result: PlannedPendingPayoutResult }
   'market.tradable': { payload: PlannedTradablePayload; result: PlannedTradableResult }
-  'job.progress': { payload: PlannedEmptyPayload; result: PlannedJobProgressResult }
-  'job.miner.state': { payload: PlannedEmptyPayload; result: PlannedMinerStateResult }
-  'job.miner.scan': { payload: PlannedMinerScanPayload; result: PlannedMinerScanResult }
-  'job.farmer.state': { payload: PlannedEmptyPayload; result: PlannedFarmerStateResult }
-  'job.farmer.sell': { payload: PlannedFarmerSellPayload; result: PlannedFarmerSellResult }
-  'job.chef.state': { payload: PlannedEmptyPayload; result: PlannedChefStateResult }
-  'job.brewer.state': { payload: PlannedEmptyPayload; result: PlannedBrewerStateResult }
   'job.tarot.state': { payload: PlannedEmptyPayload; result: PlannedTarotStateResult }
   'job.tarot.buyPack': { payload: PlannedBuyPackPayload; result: PlannedBuyPackResult }
   'job.agent.state': { payload: PlannedEmptyPayload; result: PlannedAgentStateResult }
@@ -1010,13 +847,6 @@ export const PLANNED_ACTIONS = [
   'market.transactions',
   'market.pendingPayout',
   'market.tradable',
-  'job.progress',
-  'job.miner.state',
-  'job.miner.scan',
-  'job.farmer.state',
-  'job.farmer.sell',
-  'job.chef.state',
-  'job.brewer.state',
   'job.tarot.state',
   'job.tarot.buyPack',
   'job.agent.state',

@@ -60,6 +60,42 @@ const ERROR_CODE_TEXT: Readonly<Record<string, ErrorCodeText>> = {
       return slot === null ? null : `槽位 ${slot} 是空的`
     },
   },
+  SKILL_LOCKED: {
+    text: '该技能尚未解锁',
+    withParams: (params) => {
+      const requiredLevel = required(params, 'requiredLevel')
+      const currentLevel = required(params, 'currentLevel')
+      return requiredLevel === null || currentLevel === null
+        ? null
+        : `需要 ${requiredLevel} 级才能使用 (当前 ${currentLevel} 级)`
+    },
+  },
+  SKILL_ON_COOLDOWN: {
+    text: '技能冷却中',
+    /*
+     * 服务端发的是 tick, 那是它唯一有的时间量纲; 玩家看不懂 tick, 故在此换算成秒 (1 tick = 50ms)。
+     * 服务端不做这层换算是对的 —— 掉刻时 tick 与真实秒不成正比, 换算属于展示决策而非权威数据。
+     */
+    withParams: (params) => {
+      const remainingTicks = required(params, 'remainingTicks')
+      if (remainingTicks === null) {
+        return null
+      }
+      const ticks = Number(remainingTicks)
+      if (!Number.isFinite(ticks)) {
+        return null
+      }
+      return `冷却中, 还需约 ${String(Math.ceil(ticks / 20))} 秒`
+    },
+  },
+  ECONOMY_OFFLINE: {
+    // 无 params: 这条是环境故障, 玩家做什么都没用, 唯一有用的信息是"东西没少"。
+    text: '经济子系统未就绪, 本次没有扣掉任何物品',
+  },
+  NOTHING_TO_SELL: {
+    // itemId 不进文案: 前端拿它去解物品名要走 client.i18n 一次往返, 而这句话不带名字也说得清。
+    text: '背包里没有可出售的作物',
+  },
 }
 
 /**

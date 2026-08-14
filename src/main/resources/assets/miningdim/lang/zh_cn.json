@@ -304,6 +304,7 @@
   "message.miningdim.tarot.craft.need_two": "需放入两张牌才能合成。",
   "message.miningdim.tarot.craft.bad_inputs": "输入必须是两张同品质牌 (闪耀不可合成)。",
   "message.miningdim.tarot.craft.need_l10": "UR 升闪耀需要塔罗师 10 级。",
+  "message.miningdim.tarot.craft.not_owner": "只能用属于你自己的牌合成: 买来的牌与无主的牌都不能当材料。",
   "message.miningdim.tarot.craft.result.success": "合成成功, 升档!",
   "message.miningdim.tarot.craft.result.reverse": "逆转! 升档并翻面。",
   "message.miningdim.tarot.craft.result.shatter": "破碎, 返还 1 碎片。",

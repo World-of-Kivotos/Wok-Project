@@ -1797,4 +1797,72 @@ public final class TarotGameTests {
             throw new IllegalStateException("failed reading image resource: " + path, e);
         }
     }
+    // ============================================================
+    // 合成归属门 (J8 的另一半: 市场只堵挂单通道, 合成侧也必须堵)
+    // ============================================================
+
+    /**
+     * 别人的牌与无主牌都不能当合成材料; 自己的牌照常可合。
+     *
+     * 为什么这条重要: 市场白名单只允许最低品质 R 挂单, 高品质禁挂。少了归属门, 买家买一张 R 牌
+     * (本来打不出效果, 用牌处校验 owner) 拿去当材料, 产物盖的是**合成者**的 UUID —— 买来的牌一路合上去
+     * 就"洗"成了自己的, "让他们自己合成去"这条规则在合成侧被完全绕开。
+     *
+     * 删掉 TarotCraftService.resolve 里的归属门, 前两段断言立刻挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void craftRejectsCardsNotOwnedByTheCrafter(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        TarotCraftService craft = new TarotCraftService();
+        RandomSource rng = RandomSource.create(1234L);
+        java.util.UUID someoneElse = java.util.UUID.fromString("00000000-0000-0000-0000-0000000000ff");
+
+        // 一、别人的牌: 两张都是别人的。
+        ItemStack foreignA = TarotCardItem.create(TarotRegistry.TAROT_CARD.get(), 0, TarotQuality.R, true, someoneElse);
+        ItemStack foreignB = TarotCardItem.create(TarotRegistry.TAROT_CARD.get(), 0, TarotQuality.R, true, someoneElse);
+        helper.assertTrue(craftThrows(craft, player, foreignA, foreignB, rng),
+                "两张别人的牌必须被拒 (买来的牌不许当材料)");
+
+        // 二、混合: 一张自己的 + 一张别人的, 同样不许 —— 只判首张就会在此漏过。
+        ItemStack mineA = TarotCardItem.create(TarotRegistry.TAROT_CARD.get(), 0, TarotQuality.R, true, player.getUUID());
+        helper.assertTrue(craftThrows(craft, player, mineA, foreignB, rng),
+                "混入一张别人的牌也必须被拒 (归属门必须逐张判)");
+        helper.assertTrue(craftThrows(craft, player, foreignA, mineA, rng),
+                "别人的牌放在第一格同样必须被拒");
+
+        /*
+         * 三、无主牌 (创造模式直给/op give 才拿得到): 放行等于给无主牌开洗白通道。
+         *
+         * 造法是"真实构造再摘掉 owner 键"而不是手搓整份 NBT: 手搓要复刻 cardId/quality/upright 三个键的
+         * 编码方式, 一旦哪个对不上, resolve 的第一行 quality() 就先抛了 —— 测试照样绿, 测的却不是归属门。
+         */
+        ItemStack ownerless =
+                TarotCardItem.create(TarotRegistry.TAROT_CARD.get(), 0, TarotQuality.R, true, player.getUUID());
+        ownerless.getTag().remove("OwnerUUID");
+        helper.assertTrue(TarotCardItem.owner(ownerless) == null,
+                "前提校验: 这张牌必须真的没有 owner 键");
+        helper.assertTrue(TarotCardItem.quality(ownerless) == TarotQuality.R,
+                "前提校验: 摘掉 owner 后其余身份键必须仍可正常读出, 否则本条测的是别的抛出");
+        helper.assertTrue(craftThrows(craft, player, ownerless, mineA, rng),
+                "无主牌必须被拒 (产物会盖合成者 UUID, 放行即洗白)");
+
+        // 四、不误伤: 两张都是自己的必须能合出来。
+        ItemStack mineB = TarotCardItem.create(TarotRegistry.TAROT_CARD.get(), 0, TarotQuality.R, true, player.getUUID());
+        helper.assertTrue(!craftThrows(craft, player, mineA, mineB, rng),
+                "两张自己的牌必须照常可合 (归属门不许误伤正常合成)");
+
+        helper.succeed();
+    }
+
+    /** 调一次 resolve, 被归属门拒绝返回 true。catch 是判据不是生吞 —— 拒绝路径本就以抛出表达。 */
+    private static boolean craftThrows(TarotCraftService craft, ServerPlayer player,
+                                       ItemStack a, ItemStack b, RandomSource rng) {
+        try {
+            craft.resolve(player, a, b, rng);
+            return false;
+        } catch (IllegalStateException rejected) {
+            return true;
+        }
+    }
+
 }

@@ -96,17 +96,48 @@ const ERROR_CODE_TEXT: Readonly<Record<string, ErrorCodeText>> = {
     // itemId 不进文案: 前端拿它去解物品名要走 client.i18n 一次往返, 而这句话不带名字也说得清。
     text: '背包里没有可出售的作物',
   },
+  ITEM_NOT_TRADABLE: {
+    /*
+     * 一码两用: market.place 拒绝时它是失败信封里的 errorCode (带 params.rule), market.tradable 判定为
+     * 不可交易时它是回执里的 reasonCode (不带 params, 走下面的 text)。两条路径同码同文案是刻意的 ——
+     * "按钮为什么是灰的"与"提交为什么被拒"在玩家心里必须是同一句话。
+     */
+    text: '这件物品不能在市场挂单',
+    withParams: (params) => {
+      const rule = required(params, 'rule')
+      if (rule === 'TAROT_QUALITY_ABOVE_R') {
+        return '只有最低品质(R)的塔罗牌可以挂单, 更高品质请自行合成'
+      }
+      if (rule === 'TAROT_IDENTITY_UNREADABLE') {
+        return '这张塔罗牌的数据不完整, 无法上架'
+      }
+      // 未知 rule (服务端加了新分支而前端没跟上) 退回不带参那句, 不把机器码顶给玩家看。
+      return null
+    },
+  },
+}
+
+/** 表里有没有这个码。errorCode 来自服务端, 直接索引会命中原型链 (见 businessErrorText 的说明)。 */
+function lookup(errorCode: string): ErrorCodeText | undefined {
+  return Object.hasOwn(ERROR_CODE_TEXT, errorCode) ? ERROR_CODE_TEXT[errorCode] : undefined
+}
+
+/**
+ * 只有机器码、没有失败信封时的文案 (如 market.tradable 回执里的 reasonCode);
+ * 未收录的码返回 null, 由调用方自己决定退回什么。
+ */
+export function errorCodeText(errorCode: string): string | null {
+  const entry = lookup(errorCode)
+  return entry === undefined ? null : entry.text
 }
 
 /**
  * 业务拒绝的中文文案; 未收录的码返回 null (调用方回退到服务端原文)。
  */
 export function businessErrorText(business: WebUiBusinessError): string | null {
-  // hasOwn 而非直接索引: errorCode 来自服务端, 取值 "toString" / "constructor" 时直接索引会命中原型链上的
+  // 走 lookup 而非直接索引: errorCode 来自服务端, 取值 "toString" / "constructor" 时直接索引会命中原型链上的
   // Function, 后面 entry.text 拿到 undefined —— 签名说好 string | null, 却悄悄漏一个 undefined 给渲染层。
-  const entry = Object.hasOwn(ERROR_CODE_TEXT, business.errorCode)
-    ? ERROR_CODE_TEXT[business.errorCode]
-    : undefined
+  const entry = lookup(business.errorCode)
   if (entry === undefined) {
     return null
   }

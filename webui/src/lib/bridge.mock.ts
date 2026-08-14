@@ -7,15 +7,18 @@
  * 它不是什么: 服务端业务规则的第二实现。手续费率、开箱概率、等级门、OP 门控一律不复刻 ——
  * 复刻一份必然与 Java 侧漂移, 而漂移的假规则比没有规则更误导设计判断。
  *
- * 这条原则有两处**已知且刻意**的近似, 读数时不要当真值:
- *   1. market.place 的 listFee 用一个固定比例占位。真费率由服务端 MarketFee 按挂价对 V0 的偏离度算,
- *      量级可以差好几倍; 前端任何时候都以回执里的 listFee 为准, 不得照这个比例自己算给玩家看。
+ * 这条原则有三处**已知且刻意**的近似, 读数时不要当真值:
+ *   1. market.place / market.feePreview 的 listFee 用同一个固定比例占位。真费率由服务端 MarketFee 按挂价
+ *      对 V0 的偏离度算, 量级可以差好几倍; 前端任何时候都以回执里的 listFee 为准, 不得照这个比例自己算。
  *   2. case.open 的中奖皮肤按 openingId 哈希在皮肤表里均匀取, 不按 weights 抽。于是回执里的
  *      weights 是线上真值, 而 reel 与中奖结果的稀有度分布不是 —— 拿这一页评估"金色出现得多不多"必然错。
- * 两处都不改成真实现: 真实现会与 Java 侧无声漂移, 而漂移的假规则比明写的近似危险得多。
+ *   3. market.tradable / market.place 的可交易判定是服务端 MarketTradeWhitelist 的等价复刻 (塔罗牌只有
+ *      最低品质 R 可挂)。它比前两条更接近真值 (规则本身只有三条分支), 但仍是第二份实现: 服务端改白名单时
+ *      本文件必须跟着改, 否则设计评审会照着一套过期规则做界面。
+ * 三处都不改成"更真"的实现: 真实现会与 Java 侧无声漂移, 而漂移的假规则比明写的近似危险得多。
  *
  * 假数据刻意铺满边界值, 因为这些正是设计稿最容易漏掉的形态:
- *   - 空列表      market.history 恒空、market.list 翻到第 2 页即空
+ *   - 空列表      market.list 翻到第 2 页即空
  *   - 超长中文名  枪匠枪管的 27 字名, 撞挂单行/物品格/表头三处截断
  *   - 极大数值    一条 unitPrice = 2^53-1 的挂单, 撞金额格式化与 Java long 的精度边界
  *   - 零余额      青辉石余额为 0 (负余额不可能, 服务端不允许)
@@ -73,14 +76,21 @@ import type {
   MarketCancelPayload,
   MarketCancelResult,
   MarketCategoriesResult,
+  MarketFeePreviewPayload,
+  MarketFeePreviewResult,
   MarketHistoryPayload,
   MarketHistoryResult,
   MarketListPayload,
   MarketListResult,
   MarketListing,
   MarketMineResult,
+  MarketP2pCapResult,
+  MarketPendingPayoutResult,
   MarketPlacePayload,
   MarketPlaceResult,
+  MarketTradablePayload,
+  MarketTradableResult,
+  MarketTransaction,
   MinerScanResult,
   MinerStateResult,
   MinerToggleState,
@@ -261,6 +271,17 @@ const MOCK_ITEMS: readonly MockItemDef[] = [
     sub: null,
   },
   {
+    /*
+     * 塔罗牌。220 张牌面 x 5 档品质共用这**一个** itemId (TarotRegistry 只注册了 tarot_card),
+     * 区分它们的全部信息都在 NBT 里 —— 这正是 market.tradable 的入参必须是 slot 而不是 itemId 的原因。
+     */
+    itemId: 'miningdim:tarot_card',
+    registered: true,
+    descriptionId: 'item.miningdim.tarot_card',
+    top: 'other',
+    sub: null,
+  },
+  {
     itemId: 'removedmod:ghost_item',
     registered: false,
     descriptionId: '',
@@ -304,6 +325,8 @@ const I18N_NAMES: Readonly<Record<string, string>> = {
   'gunsmith.variant.gehenna_high_speed_gas': '格赫娜高速导气',
   'gunsmith.quality.legendary': '传奇',
   'item.tacz.modern_kinetic_gun': '现代动能枪械',
+  // 塔罗牌: Item 级键 (220 张牌面共用), 牌面与品质在真服由 NBT 决定, 不进翻译键。
+  'item.miningdim.tarot_card': '塔罗牌',
   'item.minecraft.arrow': '箭',
   'item.minecraft.diamond_chestplate': '钻石胸甲',
   'item.minecraft.wheat': '小麦',
@@ -408,6 +431,15 @@ const INVENTORY_SIZE = 36
 const inventory: PlayerInventoryItem[] = [
   { slot: 0, itemId: 'minecraft:diamond', descriptionId: 'item.minecraft.diamond', count: 64 },
   { slot: 1, itemId: 'miningdim:azurite', descriptionId: 'item.miningdim.azurite', count: 3 },
+  /*
+   * 两张塔罗牌: 同 itemId 同翻译键, 只差 NBT 品质 (见 MOCK_TAROT_QUALITY_BY_SLOT)。
+   * 必须是两张而不是一张 —— market.tradable 的"可挂"与"不可挂"是它唯一有分歧的两条分支,
+   * 只放一张的话另一条分支在假数据模式下永远走不到, 照着 mock 做界面的人就会假定按钮从不变灰。
+   */
+  { slot: 2, itemId: 'miningdim:tarot_card', descriptionId: 'item.miningdim.tarot_card', count: 1 },
+  { slot: 3, itemId: 'miningdim:tarot_card', descriptionId: 'item.miningdim.tarot_card', count: 1 },
+  // 第三张: 品质表里查不到, 复刻"创造模式直给的裸牌"(牌身份不可读) 那条拒绝分支。
+  { slot: 5, itemId: 'miningdim:tarot_card', descriptionId: 'item.miningdim.tarot_card', count: 1 },
   {
     slot: 4,
     itemId: 'miningdim:plate_armor_banshee_atacs_au',
@@ -731,8 +763,19 @@ function mockMarketPlace(payload: MarketPlacePayload): MarketPlaceResult {
   if (payload.unitPrice <= 0) {
     throw plainFailure('market.place', '单价必须为正整数')
   }
-  // 4% 只是个能看见 sink 存在的占位比例; 真实费率由服务端 MarketFee 按偏离度算, 前端永远以回执为准。
-  const listFee = Math.max(1, Math.round(payload.unitPrice * payload.count * 0.04))
+  /*
+   * 白名单判定与 market.tradable 共用同一个 judgeTradable —— 服务端那侧 (MarketTradeWhitelist) 也是
+   * 一份判定两条路径。mock 若只在 tradable 里判、place 放行, 就会做出"前端灰了但提交得上去"的假象,
+   * 而那正是这条规则最要防的事。
+   */
+  const verdict = judgeTradable(payload.slot, stack.itemId)
+  if (!verdict.tradable) {
+    throw businessFailure('market.place', ITEM_NOT_TRADABLE, verdict.reason, false, {
+      itemId: stack.itemId,
+      rule: verdict.rule,
+    })
+  }
+  const listFee = mockListFee(payload.unitPrice, payload.count)
   if (listFee > wallet.credit) {
     throw plainFailure('market.place', '信用点不足以支付挂单手续费')
   }
@@ -771,6 +814,26 @@ function mockMarketBuy(payload: MarketBuyPayload): MarketBuyResult {
     listings.splice(listings.indexOf(listing), 1)
   }
   depositToInventory('market.buy', listing.itemId, count)
+  /*
+   * 记一条流水。服务端 MarketEngine.buy 在同一次调用里就 insertTxn, 成交历史是买入的直接后果;
+   * mock 不记的话 market.history 会变成一张与任何操作都无关的静态表, "买了之后去历史里找得到"这条
+   * 最基本的验收路径就走不通。
+   */
+  nextTxnId += 1
+  transactions.unshift({
+    txnId: nextTxnId,
+    listingId: listing.id,
+    role: 'buy',
+    itemId: listing.itemId,
+    descriptionId: listing.descriptionId,
+    count,
+    unitPrice: listing.unitPrice,
+    total,
+    fee: 0,
+    counterpartyUuid: requireCounterpartyUuid(listing.sellerName),
+    counterpartyName: listing.sellerName,
+    createdAt: Date.now(),
+  })
   // fee 恒 0: 买家侧手续费当前不收 (卖家已在挂单时付过), 与服务端回执一致。
   return { ok: true, itemId: listing.itemId, count, total, fee: 0 }
 }
@@ -818,9 +881,287 @@ function mockMarketMine(): MarketMineResult {
   }
 }
 
+// ============================================================
+// 市场 W2 五条 (手续费预览 / 每日额度 / 成交流水 / 待结货款 / 可交易判定)
+// ============================================================
+
+/**
+ * mock 的挂单手续费占位比例。
+ *
+ * 真费率由 MarketFee 按挂价对 V0 的偏离度算, 量级能差好几倍 (见文件头第 1 条近似)。
+ * 关键是 market.feePreview 与 market.place 必须**吃同一个函数**: 服务端那侧两条路径共用 MarketFee.listingFee,
+ * mock 若各算各的, 就会做出"预览 40 实扣 200"这种服务端根本不可能出现的故障。
+ */
+const MOCK_LIST_FEE_RATIO = 0.04
+
+function mockListFee(unitPrice: number, count: number): number {
+  return Math.max(1, Math.round(unitPrice * count * MOCK_LIST_FEE_RATIO))
+}
+
+/** market.place 与 market.tradable 共用的拒绝码 (真源 WebUiErrorCodes.ITEM_NOT_TRADABLE)。 */
+const ITEM_NOT_TRADABLE = 'ITEM_NOT_TRADABLE'
+
+/**
+ * 塔罗牌品质 (按槽位声明)。
+ *
+ * mock 背包只有 itemId/count 这几个字段, 没有 NBT 通道, 而真服的塔罗品质只活在 NBT 里 (220 张牌面
+ * x 5 档品质共用一个 miningdim:tarot_card)。故这里不是"发明了一套品质规则", 只是把"哪一格里是哪档牌"
+ * 这条数据写下来; 判定规则本身在 judgeTradable。表里查不到的塔罗牌 = 牌身份不可读 (创造模式直给的裸牌)。
+ */
+const MOCK_TAROT_QUALITY_BY_SLOT: ReadonlyMap<number, string> = new Map([
+  [2, 'R'],
+  [3, 'SSR'],
+])
+
+const TAROT_ITEM_ID = 'miningdim:tarot_card'
+
+type TradableVerdict =
+  | { tradable: true }
+  | { tradable: false; rule: string; reason: string }
+
+/**
+ * 可交易判定 (MarketTradeWhitelist.judge 的等价复刻, 见文件头第 3 条)。
+ *
+ * 青辉石不写分支: 它是纯账本货币 (Currency.AZURE), 全库没有对应的注册物品, 按 itemId 写的规则永远
+ * 匹配不到真实 ItemStack —— 这一条已由后端确认, 不是前端漏了。
+ */
+function judgeTradable(slot: number, itemId: string): TradableVerdict {
+  if (itemId !== TAROT_ITEM_ID) {
+    return { tradable: true }
+  }
+  const quality = MOCK_TAROT_QUALITY_BY_SLOT.get(slot)
+  if (quality === undefined) {
+    return {
+      tradable: false,
+      rule: 'TAROT_IDENTITY_UNREADABLE',
+      reason: '这张塔罗牌的数据不完整, 无法上架',
+    }
+  }
+  if (quality === 'R') {
+    return { tradable: true }
+  }
+  return {
+    tradable: false,
+    rule: 'TAROT_QUALITY_ABOVE_R',
+    reason: '只有最低品质(R)的塔罗牌可以在市场挂单, 更高品质请自行合成',
+  }
+}
+
+function mockMarketTradable(payload: MarketTradablePayload): MarketTradableResult {
+  if (payload.slot < 0 || payload.slot >= INVENTORY_SIZE) {
+    throw businessFailure(
+      'market.tradable',
+      'SLOT_OUT_OF_RANGE',
+      `槽位 ${String(payload.slot)} 超出背包范围`,
+      false,
+      { slot: String(payload.slot), size: String(INVENTORY_SIZE) },
+    )
+  }
+  const stack = inventory.find((item) => item.slot === payload.slot)
+  if (stack === undefined) {
+    throw businessFailure('market.tradable', 'SLOT_EMPTY', `槽位 ${String(payload.slot)} 是空的`, false, {
+      slot: String(payload.slot),
+    })
+  }
+  const verdict = judgeTradable(stack.slot, stack.itemId)
+  if (verdict.tradable) {
+    return { slot: stack.slot, itemId: stack.itemId, tradable: true, reasonCode: null, reason: null }
+  }
+  return {
+    slot: stack.slot,
+    itemId: stack.itemId,
+    tradable: false,
+    // 与 place 拒绝时抛的 errorCode 是同一个字符串, 故前端一条文案同时服务灰按钮与硬提交被拒。
+    reasonCode: ITEM_NOT_TRADABLE,
+    reason: verdict.reason,
+  }
+}
+
+function mockMarketFeePreview(payload: MarketFeePreviewPayload): MarketFeePreviewResult {
+  // 非法入参抛 INVALID_REQUEST 而不是回一个 listFee=0: 给非法入参编一个金额就是拿掩盖当兜底。
+  if (payload.unitPrice <= 0) {
+    throw businessFailure('market.feePreview', 'INVALID_REQUEST', '单价必须为正整数', false, {
+      field: 'unitPrice',
+      value: String(payload.unitPrice),
+    })
+  }
+  if (payload.count <= 0) {
+    throw businessFailure('market.feePreview', 'INVALID_REQUEST', '数量必须为正整数', false, {
+      field: 'count',
+      value: String(payload.count),
+    })
+  }
+  const resolved = resolveBaseValue(payload.itemId)
+  const listFee = mockListFee(payload.unitPrice, payload.count)
+  return {
+    itemId: payload.itemId,
+    listFee,
+    // 分母是玩家自己挂的总价 (与契约一致), 故它可以 > 1 —— 前端不得按 0..1 钳死。
+    ratio: listFee / (payload.unitPrice * payload.count),
+    v0: resolved.v0,
+    source: resolved.source,
+  }
+}
+
+/** MarketConstants.COPPER_IRON_ITEM_IDS 逐字抄本 (6 项, 字典序); 服务端回执也是排好序的。 */
+const COPPER_IRON_ITEM_IDS: readonly string[] = [
+  'minecraft:copper_ingot',
+  'minecraft:copper_ore',
+  'minecraft:iron_ingot',
+  'minecraft:iron_ore',
+  'minecraft:raw_copper',
+  'minecraft:raw_iron',
+]
+
+/** MarketConstants.COPPER_IRON_DAILY_P2P_CAP。 */
+const COPPER_IRON_DAILY_P2P_CAP = 512
+
+/**
+ * 已用量的两段。**固定值, 挂单/买入都不写回** —— 真服这两个数由 DAO 按各自口径聚合算出,
+ * mock 复刻那套聚合等于把服务端口径抄第二遍。面板上已如实标注"假数据: 买入不会写回额度"。
+ *
+ * 刻意两段都取非零: 只有两段同时有值, 面板那句"在挂中的 N 件始终占额度, 今日已成交的 M 件在 X 归零"
+ * 才在 mock 下也是可读的; 任一段为 0 会让文案的半边在开发期从没被人看见过。
+ */
+const MOCK_P2P_ACTIVE_HELD = 128
+const MOCK_P2P_SOLD_TODAY = 252
+
+/** soldToday 的归零时刻: 服务器本地时区的次日零点 (与服务端 ZoneId.systemDefault() 同口径, 不是 UTC 翻日)。 */
+function startOfTomorrow(): number {
+  const tomorrow = new Date(NOW)
+  // setHours(24,...) 走的是本地日历加一天, 夏令时切换日不会像 +86400000 那样偏一小时。
+  tomorrow.setHours(24, 0, 0, 0)
+  return tomorrow.getTime()
+}
+
+function mockMarketP2pCap(): MarketP2pCapResult {
+  // usedToday 由两段相加得出而不是另写一个常量: 三个数各自独立会让 mock 自己先违反契约里的恒等式。
+  const usedToday = MOCK_P2P_ACTIVE_HELD + MOCK_P2P_SOLD_TODAY
+  return {
+    usedToday,
+    activeHeld: MOCK_P2P_ACTIVE_HELD,
+    soldToday: MOCK_P2P_SOLD_TODAY,
+    capPerDay: COPPER_IRON_DAILY_P2P_CAP,
+    remaining: Math.max(0, COPPER_IRON_DAILY_P2P_CAP - usedToday),
+    resetsAt: startOfTomorrow(),
+    scopeItemIds: [...COPPER_IRON_ITEM_IDS],
+  }
+}
+
+/**
+ * 待结货款。只读 peek: 真服的发放只发生在登录时 (settlePendingOnLogin 走 drainPendingPayout),
+ * 面板查多少次都不会少一分钱, 故这里是个常量而不是可被"领取"消费的状态。
+ */
+const MOCK_PENDING_PAYOUT: MarketPendingPayoutResult = { credit: 4_820, entryCount: 3 }
+
+function mockMarketPendingPayout(): MarketPendingPayoutResult {
+  return { ...MOCK_PENDING_PAYOUT }
+}
+
+/**
+ * 成交流水的对手方。
+ *
+ * 末条 name 为 null 是**离线对手方**这条真实形态: transactions 表没有名字快照列, 服务端只能解析在线玩家,
+ * 离线时回 null 让前端拿 uuid 自行降级 —— 它不是"名字没加载出来", 前端不得编一个"未知玩家"顶上。
+ */
+const TXN_COUNTERPARTIES: readonly { uuid: string; name: string | null }[] = [
+  { uuid: '3f2b1c40-0a11-4c3e-9f01-1a2b3c4d5e6f', name: '矿工阿建' },
+  { uuid: '5c8d2e91-7b33-4a2d-8c44-9e0f1a2b3c4d', name: '拍卖狂魔' },
+  { uuid: '7a1e3d52-4c55-4b6a-9d77-2b3c4d5e6f70', name: '鲸鱼玩家' },
+  { uuid: '9b4f5a63-2d77-4e8b-8a99-3c4d5e6f7081', name: null },
+]
+
+/** 挂单卖家名 -> UUID。查不到即抛: mock 数据缺陷该当场炸, 不该拿一个占位 uuid 糊过去。 */
+const TXN_UUID_BY_NAME: ReadonlyMap<string, string> = new Map([
+  [MOCK_PLAYER_NAME, '1d0c9b8a-7654-4321-9fed-cba987654321'],
+  ...TXN_COUNTERPARTIES.filter(
+    (party): party is { uuid: string; name: string } => party.name !== null,
+  ).map((party): [string, string] => [party.name, party.uuid]),
+])
+
+function requireCounterpartyUuid(name: string): string {
+  const uuid = TXN_UUID_BY_NAME.get(name)
+  if (uuid === undefined) {
+    throw new Error(`mock 数据缺陷: 没有登记玩家 ${name} 的 UUID`)
+  }
+  return uuid
+}
+
+const TXN_ITEM_IDS: readonly string[] = [
+  'minecraft:diamond',
+  'minecraft:gold_ingot',
+  'minecraft:iron_ore',
+  'minecraft:wheat',
+  'tacz:modern_kinetic_gun',
+  'miningdim:plate_armor_banshee_atacs_au',
+]
+
+/** 39 条 = 按 pageSize 20 分两页, 第 2 页 19 条 (差一条满页, 撞分页控件的末页形态)。 */
+const TXN_SEED_COUNT = 39
+
+function buildTransactions(): MarketTransaction[] {
+  const rows: MarketTransaction[] = []
+  for (let index = 0; index < TXN_SEED_COUNT - 1; index += 1) {
+    const itemId = TXN_ITEM_IDS[index % TXN_ITEM_IDS.length]
+    const party = TXN_COUNTERPARTIES[index % TXN_COUNTERPARTIES.length]
+    if (itemId === undefined || party === undefined) {
+      throw new Error('mock 数据缺陷: 流水物品表或对手方表为空')
+    }
+    const count = 1 + (index % 7)
+    const unitPrice = 40 + index * 37
+    rows.push({
+      txnId: 9_000 + index,
+      listingId: 5_000 + index,
+      role: index % 3 === 0 ? 'sell' : 'buy',
+      itemId,
+      descriptionId: marketDescriptionId(requireItem(itemId)),
+      count,
+      unitPrice,
+      total: unitPrice * count,
+      // 恒 0: 手续费在挂单时就收掉了, 写流水时固定传 0 (与服务端 insertTxn 的调用点一致)。
+      fee: 0,
+      counterpartyUuid: party.uuid,
+      counterpartyName: party.name,
+      createdAt: NOW - index * 37 * 60_000,
+    })
+  }
+  // 极大数值边界: 2^53-1, 撞 Java long -> JSON number 的精度上界与金额列的宽度上界。
+  const whale = TXN_COUNTERPARTIES[2]
+  if (whale === undefined) {
+    throw new Error('mock 数据缺陷: 对手方表缺少鲸鱼玩家')
+  }
+  rows.push({
+    txnId: 9_999,
+    listingId: 5_999,
+    role: 'sell',
+    itemId: 'minecraft:netherite_scrap',
+    descriptionId: marketDescriptionId(requireItem('minecraft:netherite_scrap')),
+    count: 1,
+    unitPrice: Number.MAX_SAFE_INTEGER,
+    total: Number.MAX_SAFE_INTEGER,
+    fee: 0,
+    counterpartyUuid: whale.uuid,
+    counterpartyName: whale.name,
+    createdAt: NOW - 3 * 24 * 3_600_000,
+  })
+  return rows
+}
+
+/** 按 created_at 降序维护 (与 DAO 的 ORDER BY 一致): 新成交一律 unshift 到队首。 */
+const transactions: MarketTransaction[] = buildTransactions()
+
+let nextTxnId = 10_000
+
 function mockMarketHistory(payload: MarketHistoryPayload): MarketHistoryResult {
-  // 恒空不是偷懒: MarketDao 至今没有按玩家查 transactions 的方法, 服务端本身就只能回空数组。
-  return { transactions: [], page: payload.page === undefined ? 0 : payload.page }
+  const page = payload.page === undefined ? 0 : payload.page
+  const pageSize = payload.pageSize === undefined ? 20 : payload.pageSize
+  const offset = page * pageSize
+  return {
+    transactions: transactions.slice(offset, offset + pageSize).map((row) => ({ ...row })),
+    page,
+    pageSize,
+    total: transactions.length,
+  }
 }
 
 function mockBaseValue(payload: MarketBaseValuePayload): MarketBaseValueResult {
@@ -1832,6 +2173,14 @@ function resolveMock(action: WebUiActionName, payload: unknown): unknown {
       return mockMarketMine()
     case 'market.history':
       return mockMarketHistory(payload as MarketHistoryPayload)
+    case 'market.feePreview':
+      return mockMarketFeePreview(payload as MarketFeePreviewPayload)
+    case 'market.p2pCap':
+      return mockMarketP2pCap()
+    case 'market.pendingPayout':
+      return mockMarketPendingPayout()
+    case 'market.tradable':
+      return mockMarketTradable(payload as MarketTradablePayload)
     case 'market.baseValue':
       return mockBaseValue(payload as MarketBaseValuePayload)
     case 'market.categories':

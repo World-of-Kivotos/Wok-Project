@@ -943,24 +943,67 @@ export interface MarketMineResult {
   listings: MarketListing[]
 }
 
-/** market.history 入参 (MarketActions.HISTORY, :189-196)。 */
+/**
+ * market.history 入参 (MarketActions.HISTORY)。
+ * 名字归位: 前端曾用 market.transactions 这个假名避开与本条撞名, W2 接线后整体并入本条, 不存在第二个流水 action。
+ */
 export interface MarketHistoryPayload {
-  /** 缺省 0; 当前仅解析不消费 (无查询能力消费它)。 */
+  /** 缺省 0 (MarketActions.DEFAULT_PAGE)。offset = page * pageSize。 */
   page?: number
+  /** 缺省 20 (MarketActions.DEFAULT_PAGE_SIZE); 服务端无上限钳制, 与 market.list 同纪律。 */
+  pageSize?: number
 }
 
 /**
- * market.history 回执 (MarketActions.HISTORY, :189-196)。
- * 陷阱: transactions 当前恒为空数组 —— MarketDao 至今无 transactionsByPlayer 查询 (已复核 store 包接口,
- * 仍只有 insertTxn 写入端)。类型故意钉死成空元组 `[]` 而非 `unknown[]`: 元素类型因此是 never,
- * 任何试图读取条目字段的代码都会立刻编译失败, 逼写这段代码的人先把真实条目形状补进契约。
+ * 一条成交流水 (transactions 表一行的对外投影)。
  *
- * 但要清楚它拦不住什么: TypeScript 不参与 Java 那侧的序列化, 后端单方面把数组填上数据并不会让前端构建失败,
- * 只是"没人写消费代码"时数据被静默丢弃。契约漂移的真正兜底是 system.handshake 自检与人工同步, 不是这个类型。
+ * 无 customModelData / nameParts: transactions 表只存 item_id, 从不存成交物的 NBT (MiningSchema),
+ * 因此枪匠零件这类 NBT 变体件在流水里只能同名同图标。这是数据层缺口而非契约遗漏 —— 要补必须先给表加 NBT 列,
+ * 在此留一个永远填不上的键只会让人以为服务端某天会填上。
+ */
+export interface MarketTransaction {
+  /** transactions.id。Java long -> number。 */
+  txnId: number
+  /** 成交时对应的挂单 id (该挂单可能已 SOLD 或被拆分)。Java long -> number。 */
+  listingId: number
+  /** 本条流水里"我"的角色。取值沿用 MarketActions.HISTORY 既有注释的 buy / sell。 */
+  role: MarketTxnRole
+  itemId: string
+  /** 翻译键; 物品已从注册表移除时回退为 itemId 本身 (与 MarketListing.descriptionId 同一取法)。 */
+  descriptionId: string
+  count: number
+  /** Java long -> number。 */
+  unitPrice: number
+  /** = unitPrice * count, 表内直存。Java long -> number。 */
+  total: number
+  /** 该笔流水记录的手续费。现恒为 0: 费已在挂单时由 market.place 收过, 写入流水时固定传 0。 */
+  fee: number
+  /** 对手方 UUID 文本 (role=buy 时是卖家, role=sell 时是买家); 表内直存, 恒有值。 */
+  counterpartyUuid: string
+  /**
+   * 对手方玩家名; **对手方当前离线时为 null**。transactions 表没有 listings.seller_name 那样的名字快照列,
+   * 服务端只有在线 PlayerList 解析这一条路径。离线时不编名也不拿 UUID 冒充名字 —— 前端拿 counterpartyUuid
+   * 自行降级展示。
+   */
+  counterpartyName: string | null
+  /** 成交时刻 epoch millis (transactions.created_at)。Java long -> number。 */
+  createdAt: number
+}
+
+/** MarketActions.HISTORY 既有注释的取值域 (不是 buyer/seller)。 */
+export type MarketTxnRole = 'buy' | 'sell'
+
+/**
+ * market.history 回执 (MarketActions.HISTORY)。
+ * 带 total —— market.list 缺 total 导致前端算不出总页数是已知缺陷, 本条按 admin.listItems 的
+ * page/pageSize/total 三件套抄, 不另造命名。用 GSON_NULLS 序列化: counterpartyName 恒有键 (离线时值为 JSON null)。
  */
 export interface MarketHistoryResult {
-  transactions: []
+  transactions: MarketTransaction[]
   page: number
+  pageSize: number
+  /** 该玩家 (买或卖任一侧命中) 的流水总条数, 供前端算总页数。 */
+  total: number
 }
 
 /** market.baseValue 入参 (MarketActions.BASE_VALUE, :207-229)。 */
@@ -1007,6 +1050,135 @@ export type CategoryNode = CategoryBranchNode | CategoryLeafNode
  * `{categories: [...]}` 解。
  */
 export type MarketCategoriesResult = CategoryNode[]
+
+/** market.feePreview 入参 (MarketActions.FEE_PREVIEW)。与 market.baseValue 同一索引口径 (物品注册 id)。 */
+export interface MarketFeePreviewPayload {
+  /** 必填; 缺失自然抛。 */
+  itemId: string
+  /** 必填, 必须 >= 1; <= 0 服务端抛 INVALID_REQUEST (params: field=unitPrice / value)。 */
+  unitPrice: number
+  /** 必填, 必须 >= 1; <= 0 服务端抛 INVALID_REQUEST (params: field=count / value)。 */
+  count: number
+}
+
+/**
+ * market.feePreview 回执 (MarketActions.FEE_PREVIEW)。
+ *
+ * 与 market.place 实收同源: 同一 MarketEngine.resolveBaseValue + 同一 MarketFee.listingFee 纯函数,
+ * 前端**不得**再自己镜像一份费率公式。仍非承诺值 —— V0 可能在预览与提交之间被 admin 改动,
+ * 最终以 place 回执的 listFee 为准。用 GSON_NULLS 序列化, 故 v0 恒有键。
+ */
+export interface MarketFeePreviewResult {
+  /** 回显入参, 供前端把异步回执对回当前选中标的 (换标的竞态防串行)。 */
+  itemId: string
+  /** = MarketFee.listingFee(v0, unitPrice, count)。Java long -> number。 */
+  listFee: number
+  /**
+   * 手续费占挂单总价的比例 = listFee / (unitPrice * count)。
+   *
+   * 刻意不是引擎内部那个 rate (deviationFee 的分母是 max(V0,VR)*count, 不是 unitPrice*count):
+   * 玩家心智里的分母是自己挂的总价。**可以 > 1** (极端贱卖时费超过标价), 进度条/染色不得按 0..1 钳死。
+   */
+  ratio: number
+  /** 该物品当前生效基准价 V0; 无锚时为 null (此时走平率)。Java long -> number。 */
+  v0: number | null
+  /** V0 命中层, 与 market.baseValue 完全同一分层判定。 */
+  source: BaseValueSource
+}
+
+/** market.p2pCap 入参 (MarketActions.P2P_CAP) —— 不读 payload, 服务端权威取 sender 自己的额度。 */
+export type MarketP2pCapPayload = EmptyPayload
+
+/**
+ * market.p2pCap 回执 (MarketActions.P2P_CAP)。
+ *
+ * 口径与 MarketEngine.place 的挂单前 cap 校验**同源同方法**, 不是另算一套数字。
+ * **只覆盖铜/铁 6 个 item_id**, 不是全品类额度 —— scopeItemIds 就是为了让面板文案说得出"仅铜铁受限",
+ * 而不是笼统的"今日交易额度"。
+ *
+ * **额度由两段构成, 只有一段随日切释放**: ACTIVE 挂单的占用不看 created_at, 挂着不卖就永久占额度,
+ * 撤单才释放; 只有今日已成交的那段在 resetsAt 归零。回执把两段拆开就是为了让面板说得出这条区别 ——
+ * 讲成"额度在 X 全部重置"是服务端兑现不了的承诺, 玩家到点发现数字纹丝不动只会认定系统在骗人。
+ */
+export interface MarketP2pCapResult {
+  /** = activeHeld + soldToday, 即 place 拿去与 capPerDay 比对的那个总量。 */
+  usedToday: number
+  /**
+   * 当前 ACTIVE 挂单的 count 之和。**不随日切释放** —— 计数 SQL 对 listing 侧不加 created_at 条件,
+   * 只要挂单还在架上就一直占额度, 唯一的释放路径是撤单或卖出。
+   */
+  activeHeld: number
+  /** 今日 (resetsAt 所属窗口内) 已 SOLD 的 count 之和; 只有这一段会在 resetsAt 归零。 */
+  soldToday: number
+  /** = MarketConstants.COPPER_IRON_DAILY_P2P_CAP (当前 512)。 */
+  capPerDay: number
+  /**
+   * = max(0, capPerDay - usedToday)。下钳到 0 是展示钳制而非空值掩盖: cap 被调小后 usedToday 可能超出旧数据,
+   * 负余额对玩家无意义; 真实已用量始终原样放在 usedToday 里。
+   */
+  remaining: number
+  /**
+   * **soldToday 那一段**的归零时刻 (epoch millis) = 服务器**系统默认时区**的次日零点 (不是 UTC 翻日)。
+   * activeHeld 不受这个时刻影响, 故文案严禁把它写成"额度重置"。
+   * 后端唯一的当日窗口算法用 ZoneId.systemDefault(), 且 place 的 cap 判定就吃这个口径;
+   * 按 UTC 展示会让倒计时与真实重置错位。
+   */
+  resetsAt: number
+  /** 受本额度约束的标的 item_id (服务端按字典序排好); 当前恒为铜/铁的原矿/粗矿/锭 6 项。 */
+  scopeItemIds: string[]
+}
+
+/** market.pendingPayout 入参 (MarketActions.PENDING_PAYOUT) —— 不读 payload, 服务端权威取 sender 自己的待结款。 */
+export type MarketPendingPayoutPayload = EmptyPayload
+
+/**
+ * market.pendingPayout 回执 (MarketActions.PENDING_PAYOUT)。
+ *
+ * **只读 peek, 绝不发放、绝不清空**: 真实发放只在玩家登录时由 MarketEngine.settlePendingOnLogin 走
+ * drainPendingPayout 完成。本条读同一批行但不删 —— 复用 drain 会让玩家开一次收件箱就把货款冲掉。
+ *
+ * **没有 items 字段**: pending_payout 表只有 id/seller_uuid/amount/currency/created_at, 唯一写入点也只传金额,
+ * "被卖掉的是什么物品"从未被持久化过。要补得开 schema 迁移, 不是漏了一个 DAO 方法。
+ */
+export interface MarketPendingPayoutResult {
+  /** 待结信用点合计 (与 settlePendingOnLogin 的求和口径逐字一致)。Java long -> number。 */
+  credit: number
+  /** 待结条目数 (行数), 供面板显示"共 N 笔离线成交"。 */
+  entryCount: number
+}
+
+/**
+ * market.tradable 入参 (MarketActions.TRADABLE)。
+ *
+ * **入参是 slot 不是 itemId**: 220 张塔罗牌 x 5 档品质全部注册在同一个 miningdim:tarot_card 之下,
+ * 品质只活在 NBT 里。只给 itemId, 服务端对塔罗牌永远判不出品质 —— 那会做出一个"看着接通了、实则规则是假的"接口。
+ */
+export interface MarketTradablePayload {
+  /** Inventory.items 下标, 与 market.place 的 slot / player.inventory / player.itemDetail 同一索引空间 (0..35)。 */
+  slot: number
+}
+
+/**
+ * market.tradable 回执 (MarketActions.TRADABLE)。
+ *
+ * 判定与 market.place 共用同一份实现 (MarketTradeWhitelist.judge): 本条回 tradable=false 的那一格,
+ * place 也必然拒绝; 反之亦然。前端灰按钮显示的规则因此不是假的。
+ * 用 GSON_NULLS 序列化, reasonCode / reason 恒有键 (可交易时值为 JSON null)。
+ */
+export interface MarketTradableResult {
+  /** 回显入参 slot, 供前端把异步回执对回当前选中格 (换格竞态防串行)。 */
+  slot: number
+  /** 该格物品的注册 id。 */
+  itemId: string
+  tradable: boolean
+  /**
+   * 拒绝的稳定机器码; 可交易时 null。取值与 place 拒绝时抛出的 errorCode 完全同一个值 (ITEM_NOT_TRADABLE),
+   * 故 lib/errorText.ts 一条文案同时服务"提前灰掉按钮"与"硬提交被拒"。
+   */
+  reasonCode: string | null
+  /** 服务端写给玩家看的中文原因 (区分"品质不够低"与"牌数据不完整"两种情形); 可交易时 null。 */
+  reason: string | null
+}
 
 // ============================================================
 // admin.* — MarketAdminActions.java (均为 OP 门控; 非 OP 抛 IllegalStateException 走失败信封)

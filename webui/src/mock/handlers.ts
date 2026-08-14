@@ -2,10 +2,10 @@
  * mock 面板层的唯一调用口 —— callMock(action, payload), 与 lib/bridge 的 call(action, payload) 同签名。
  *
  * 它覆盖两种 action, 且两种走完全不同的路:
- *   1. **真契约那 33 个** (lib/actions.ts 的 SERVER_ACTIONS + CLIENT_LOCAL_ACTIONS): 原样转调 call(),
+ *   1. **真契约那 37 个** (lib/actions.ts 的 SERVER_ACTIONS + CLIENT_LOCAL_ACTIONS): 原样转调 call(),
  *      即 dev 下落 bridge.mock、装进游戏后落真服。本层一行业务规则都不加, 只在写操作成功后顺手把回执
  *      抄进 store.mirror, 好让别的面板 (hub 首页的余额、背包格) 立刻看见后果。
- *   2. **planned.ts 里那 36 个**: 后端还不存在, 全部由 store 的内存世界回答, 带 150-400ms 人为延迟。
+ *   2. **planned.ts 里那 31 个**: 后端还不存在, 全部由 store 的内存世界回答, 带 150-400ms 人为延迟。
  *
  * 为什么要有第 1 类的转调层 (而不是让面板直接用 call):
  * 跨面板的可见后果必须有人负责。市场页买入之后 hub 首页的余额得跟着降 —— 若各页各自 call, 没人知道
@@ -246,63 +246,6 @@ type PlannedHandlerMap = {
 }
 
 const PLANNED_HANDLERS: PlannedHandlerMap = {
-  'market.feePreview': async (payload) => {
-    if (payload.count <= 0 || payload.unitPrice <= 0) {
-      throw fail('market.feePreview', '数量与单价都必须为正整数')
-    }
-    // v0 直接问真契约的 market.baseValue, 不在 mock 里另存一份基准价 —— 两份基准价必然漂移。
-    const base = await call('market.baseValue', { itemId: payload.itemId })
-    /*
-     * 4% 是占位比例, 与 bridge.mock.mockMarketPlace 用的是同一个数, 好让预览与回执对得上。
-     * 真费率按挂价对 V0 的偏离度浮动, 量级能差好几倍; 玩家看到的最终值永远以 market.place 的回执为准。
-     */
-    const ratio = 0.04
-    return {
-      listFee: Math.max(1, Math.round(payload.unitPrice * payload.count * ratio)),
-      ratio,
-      v0: base.v0,
-      source: base.source,
-    }
-  },
-
-  'market.p2pCap': () => {
-    const world = getWorld()
-    return {
-      usedToday: world.market.p2pUsedToday,
-      capPerDay: world.market.p2pCapPerDay,
-      remaining: Math.max(0, world.market.p2pCapPerDay - world.market.p2pUsedToday),
-      resetsAt: world.economy.today.resetsAt,
-    }
-  },
-
-  'market.transactions': (payload) => {
-    const world = getWorld()
-    const page = Math.max(0, payload.page)
-    const pageSize = Math.min(200, Math.max(1, payload.pageSize))
-    const offset = page * pageSize
-    return {
-      transactions: cloneResult(world.market.transactions.slice(offset, offset + pageSize)),
-      page,
-      pageSize,
-      total: world.market.transactions.length,
-    }
-  },
-
-  'market.pendingPayout': () => cloneResult(getWorld().market.pendingPayout),
-
-  'market.tradable': (payload) => {
-    const rule = getWorld().market.nonTradable.find((entry) => entry.itemId === payload.itemId)
-    if (rule === undefined) {
-      return { itemId: payload.itemId, tradable: true, reasonCode: null, reason: null }
-    }
-    return {
-      itemId: payload.itemId,
-      tradable: false,
-      reasonCode: rule.reasonCode,
-      reason: rule.reason,
-    }
-  },
-
   'job.tarot.state': () => cloneResult(getWorld().jobs.tarot),
 
   'job.tarot.buyPack': async (payload) => {

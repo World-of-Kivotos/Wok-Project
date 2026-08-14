@@ -51,14 +51,22 @@ import type {
   MarketCancelResult,
   MarketCategoriesPayload,
   MarketCategoriesResult,
+  MarketFeePreviewPayload,
+  MarketFeePreviewResult,
   MarketHistoryPayload,
   MarketHistoryResult,
   MarketListPayload,
   MarketListResult,
   MarketMinePayload,
   MarketMineResult,
+  MarketP2pCapPayload,
+  MarketP2pCapResult,
+  MarketPendingPayoutPayload,
+  MarketPendingPayoutResult,
   MarketPlacePayload,
   MarketPlaceResult,
+  MarketTradablePayload,
+  MarketTradableResult,
   MinerScanPayload,
   MinerScanResult,
   MinerStatePayload,
@@ -116,6 +124,10 @@ type WebUiContractMap = {
   'market.history': { payload: MarketHistoryPayload; result: MarketHistoryResult }
   'market.baseValue': { payload: MarketBaseValuePayload; result: MarketBaseValueResult }
   'market.categories': { payload: MarketCategoriesPayload; result: MarketCategoriesResult }
+  'market.feePreview': { payload: MarketFeePreviewPayload; result: MarketFeePreviewResult }
+  'market.p2pCap': { payload: MarketP2pCapPayload; result: MarketP2pCapResult }
+  'market.pendingPayout': { payload: MarketPendingPayoutPayload; result: MarketPendingPayoutResult }
+  'market.tradable': { payload: MarketTradablePayload; result: MarketTradableResult }
   'admin.setBaseValue': { payload: AdminSetBaseValuePayload; result: AdminSetBaseValueResult }
   'admin.listItems': { payload: AdminListItemsPayload; result: AdminListItemsResult }
   'case.state': { payload: CaseStatePayload; result: CaseStateResult }

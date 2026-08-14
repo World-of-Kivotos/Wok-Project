@@ -67,11 +67,37 @@ public interface MarketDao {
      * 铜铁日 cap 计数 (契约第 5 节): 今日该卖家这些 item 的
      * (ACTIVE listing.count 之和 + 今日 SOLD transactions.count 之和)。
      *
+     * 恒等于 {@link #soldOrListedSplitToday} 的 {@link SoldOrListedSplit#total()} (实现里就是调它再求和),
+     * cap 判定继续用本方法的单值; 要区分"在挂中/今日已成交"两段时用拆分版, 两者不会给出互相矛盾的数字。
+     *
      * @param seller        卖家 UUID
      * @param itemIds       铜/铁 item_id 集合 (空集合返 0)
      * @param dayStartEpoch 今日起点 epoch millis (B 按本服翻日口径算; created_at >= 此值即"今日")
      */
     int soldOrListedCountToday(UUID seller, Set<String> itemIds, long dayStartEpoch);
+
+    /**
+     * 同 {@link #soldOrListedCountToday} 的计数, 但把两段来源分开返回 (在挂中的 ACTIVE 量 / 今日已成交量)。
+     *
+     * 面板要靠这个拆分才能说出诚实的话: 只有成交那一段会随日窗口翻篇归零, ACTIVE 那一段撤单前一直占着额度。
+     * 参数与口径与单值版逐字相同 (空集合返两段皆 0), 本方法不放宽也不收紧任何统计范围。
+     */
+    SoldOrListedSplit soldOrListedSplitToday(UUID seller, Set<String> itemIds, long dayStartEpoch);
+
+    /**
+     * 该玩家参与的成交流水 (买家或卖家任一侧命中), 按 created_at DESC, id DESC 排序后分页。
+     *
+     * 第二排序键 id 不是装饰: created_at 是毫秒时间戳, 同一 tick 内的多笔成交时间戳相同, 只按它排序时
+     * SQLite 的行序不保证稳定, 翻页会出现同一条重复出现在两页 / 另一条永远看不到。
+     *
+     * @param player 视角玩家 (买或卖任一侧)
+     * @param offset 跳过行数 (分页)
+     * @param limit  返回上限
+     */
+    List<TxnRow> transactionsByPlayer(UUID player, int offset, int limit);
+
+    /** 该玩家参与的成交流水总条数 (与 {@link #transactionsByPlayer} 同一 WHERE), 供前端算总页数。 */
+    int transactionsCountByPlayer(UUID player);
 
     /** 插入一条离线卖家待结信用点 (买入时卖家离线, 卖家登录时结清)。 */
     void insertPendingPayout(UUID seller, long amount, String currency, long createdAt);
@@ -81,6 +107,14 @@ public interface MarketDao {
      * 返回 [amount] 数组的列表 (每条一个 long[]{amount}; currency 当前恒 CREDIT, 由 B 累加 grant)。
      */
     List<long[]> drainPendingPayout(UUID seller);
+
+    /**
+     * 只读查看该卖家的待结款 (面板展示), 返回与 {@link #drainPendingPayout} 同形的 [amount] 列表但**不删行**。
+     *
+     * 必须是独立方法而不是给 drain 加开关: drain 的"取即删"是登录结算的正确语义, 让它顺手承担只读查询,
+     * 迟早会有人在展示路径上调到删除分支 —— 玩家点开一次收件箱就把货款冲掉, 且行已物理删除无从追溯。
+     */
+    List<long[]> peekPendingPayout(UUID seller);
 
     // ---- 基准价值 V0 admin 覆盖 (偏离费锚的最高优先层; DefaultBaseValues 代码预设之上) ----
 

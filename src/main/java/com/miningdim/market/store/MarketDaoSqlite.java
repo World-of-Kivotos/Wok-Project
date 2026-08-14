@@ -215,11 +215,59 @@ public final class MarketDaoSqlite implements MarketDao {
     }
 
     @Override
+    public List<TxnRow> transactionsByPlayer(UUID player, int offset, int limit) {
+        // 买卖双侧同表, 一次查询覆盖两个视角 (role 由业务层按 buyer/seller 命中哪一侧派生)。
+        // OR 两侧各有索引 (idx_txn_buyer / idx_txn_seller), SQLite 走 OR 优化的两路索引并集。
+        final String sql =
+                "SELECT id, listing_id, buyer_uuid, seller_uuid, item_id, count, unit_price, total, fee, created_at "
+                        + "FROM transactions WHERE buyer_uuid = ? OR seller_uuid = ? "
+                        + "ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            String uuid = player.toString();
+            ps.setString(1, uuid);
+            ps.setString(2, uuid);
+            ps.setInt(3, limit);
+            ps.setInt(4, offset);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<TxnRow> out = new ArrayList<>();
+                while (rs.next()) {
+                    out.add(mapTxn(rs));
+                }
+                return out;
+            }
+        } catch (SQLException e) {
+            throw new MarketStoreException("transactionsByPlayer failed", e);
+        }
+    }
+
+    @Override
+    public int transactionsCountByPlayer(UUID player) {
+        final String sql = "SELECT COUNT(*) FROM transactions WHERE buyer_uuid = ? OR seller_uuid = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            String uuid = player.toString();
+            ps.setString(1, uuid);
+            ps.setString(2, uuid);
+            try (ResultSet rs = ps.executeQuery()) {
+                // COUNT 必返一行; 防御性判 next (与 sumCount 同纪律)。
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        } catch (SQLException e) {
+            throw new MarketStoreException("transactionsCountByPlayer failed", e);
+        }
+    }
+
+    @Override
     public int soldOrListedCountToday(UUID seller, Set<String> itemIds, long dayStartEpoch) {
+        // 单值版就是拆分版求和: cap 判定与面板拆分展示只有一份 SQL, 两边不可能漂移出两个数。
+        return soldOrListedSplitToday(seller, itemIds, dayStartEpoch).total();
+    }
+
+    @Override
+    public SoldOrListedSplit soldOrListedSplitToday(UUID seller, Set<String> itemIds, long dayStartEpoch) {
         // 铜铁日 cap (契约第 5 节): 今日该卖家这些 item 的 (ACTIVE listing.count 之和 + 今日 SOLD txn.count 之和)。
-        // 空集合无可统计的 item, 直接返 0 (也避免拼出空 IN () 的非法 SQL)。
+        // 空集合无可统计的 item, 直接返两段皆 0 (也避免拼出空 IN () 的非法 SQL)。
         if (itemIds.isEmpty()) {
-            return 0;
+            return new SoldOrListedSplit(0, 0);
         }
         String placeholders = placeholders(itemIds.size());
         // listing 侧: 当前 ACTIVE 且属铜铁集的挂单量 (托管中, 计入今日 P2P 投放). 不限 created_at —— ACTIVE 即占用额度。
@@ -233,9 +281,9 @@ public final class MarketDaoSqlite implements MarketDao {
         try {
             int listed = sumCount(listedSql, seller, itemIds, null);
             int sold = sumCount(soldSql, seller, itemIds, dayStartEpoch);
-            return listed + sold;
+            return new SoldOrListedSplit(listed, sold);
         } catch (SQLException e) {
-            throw new MarketStoreException("soldOrListedCountToday failed", e);
+            throw new MarketStoreException("soldOrListedSplitToday failed", e);
         }
     }
 
@@ -280,6 +328,24 @@ public final class MarketDaoSqlite implements MarketDao {
             }
             return out;
         });
+    }
+
+    @Override
+    public List<long[]> peekPendingPayout(UUID seller) {
+        // 只读: 与 drainPendingPayout 同一投影, 但没有 DELETE, 也不需要事务 (单条 SELECT 本就原子)。
+        final String sql = "SELECT amount FROM pending_payout WHERE seller_uuid = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, seller.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                List<long[]> out = new ArrayList<>();
+                while (rs.next()) {
+                    out.add(new long[]{rs.getLong(1)});
+                }
+                return out;
+            }
+        } catch (SQLException e) {
+            throw new MarketStoreException("peekPendingPayout failed", e);
+        }
     }
 
     // ---- base_values (V0 admin 覆盖) ----
@@ -342,6 +408,21 @@ public final class MarketDaoSqlite implements MarketDao {
                 rs.getString("currency"),
                 rs.getLong("created_at"),
                 rs.getString("status"));
+    }
+
+    /** 把 ResultSet 当前行映射为 TxnRow (列顺序与 transactionsByPlayer 的投影一致)。 */
+    private static TxnRow mapTxn(ResultSet rs) throws SQLException {
+        return new TxnRow(
+                rs.getLong("id"),
+                rs.getLong("listing_id"),
+                UUID.fromString(rs.getString("buyer_uuid")),
+                UUID.fromString(rs.getString("seller_uuid")),
+                rs.getString("item_id"),
+                rs.getInt("count"),
+                rs.getLong("unit_price"),
+                rs.getLong("total"),
+                rs.getLong("fee"),
+                rs.getLong("created_at"));
     }
 
     /**

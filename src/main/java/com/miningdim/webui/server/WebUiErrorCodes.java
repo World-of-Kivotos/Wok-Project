@@ -22,17 +22,33 @@ public final class WebUiErrorCodes {
      * 入参形状或取值非法 (缺必填字段 / 类型不符 / 取值域外)。
      * 抛出点: {@code CaseWebUiActions.invalidRequest}; W1 起 player.itemDetail 与 player.prefs.set 复用,
      * 后者带 params {@code field} 与 {@code value} 指出是哪个字段的哪个值被拒。
+     * W2 起 {@code MarketActions.FEE_PREVIEW} 复用 (unitPrice/count &lt;= 0, 同带 params {@code field}/{@code value}):
+     * 手续费预览刻意不为非法入参编一个 0 出来 —— 那是给玩家看一个真金白银的假数字。
      */
     public static final String INVALID_REQUEST = "INVALID_REQUEST";
 
     /**
-     * player.itemDetail 的 slot 不在 {@code [0, sender.getInventory().items.size())} 内。
-     * params: {@code slot} 与 {@code size}。
+     * slot 不在 {@code [0, sender.getInventory().items.size())} 内。params: {@code slot} 与 {@code size}。
+     * 抛出点: player.itemDetail; W2 起 {@code MarketActions.TRADABLE} 复用 (两者同一槽位索引空间, 逐字同形)。
      */
     public static final String SLOT_OUT_OF_RANGE = "SLOT_OUT_OF_RANGE";
 
-    /** player.itemDetail 的 slot 合法但该格 {@code ItemStack.isEmpty()}。params: {@code slot}。 */
+    /**
+     * slot 合法但该格 {@code ItemStack.isEmpty()}。params: {@code slot}。
+     * 抛出点: player.itemDetail; W2 起 {@code MarketActions.TRADABLE} 复用。
+     */
     public static final String SLOT_EMPTY = "SLOT_EMPTY";
+
+    /**
+     * 该标的被市场白名单禁止挂单 (当前唯一规则: 塔罗牌只有最低品质 R 可挂)。
+     * params: {@code itemId} 与 {@code rule} ({@code TAROT_QUALITY_ABOVE_R} / {@code TAROT_IDENTITY_UNREADABLE},
+     * 前端据此把一条码分成两句话)。
+     *
+     * 抛出点只有一个: {@code MarketEngine.place} (判定源自 {@code MarketTradeWhitelist.judge})。
+     * {@code market.tradable} 回执的 reasonCode 回的是同一个值但**不抛** —— 灰按钮与硬提交被拒因此共用一条文案,
+     * 不会出现两套口径。
+     */
+    public static final String ITEM_NOT_TRADABLE = "ITEM_NOT_TRADABLE";
 
     /**
      * 该主动技能的等级未解锁。抛出点: {@code MinerWebUiActions} 的 job.miner.scan handler (等级门, 对应

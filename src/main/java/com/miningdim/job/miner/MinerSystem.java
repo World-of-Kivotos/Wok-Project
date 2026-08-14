@@ -125,7 +125,13 @@ public final class MinerSystem implements Subsystem {
 
     /** 取某玩家矿工运行态 (无则建)。 */
     public MinerChargeState stateOf(ServerPlayer player) {
-        return playerStates.computeIfAbsent(player.getUUID(), k -> new MinerChargeState());
+        return playerStates.computeIfAbsent(player.getUUID(), k -> {
+            // 新建时从 capability 取回上次登出时的冷却 —— 否则重连即冷却清零, CD 门形同虚设。
+            MinerChargeState created = new MinerChargeState();
+            com.miningdim.entry.MiningCapabilities.get(player)
+                    .ifPresent(data -> created.importCooldowns(data.minerCooldowns()));
+            return created;
+        });
     }
 
     public ChainMiningEngine chainEngine() {
@@ -351,25 +357,51 @@ public final class MinerSystem implements Subsystem {
     // 玩家生命周期: 清瞬态运行态 (第五章, 防泄漏)
     // ============================================================
 
+    /*
+     * 冷却与其余运行态的分野 (三个清理点共同的前提):
+     *
+     * 充能池、脱险读条、省耐久抢拍都是"当下这一刻"的状态, 换场景重来是对的。冷却不是 —— 它存在的意义
+     * 就是限制施放频率, 跟着一起清等于没有: 探矿 CD 180 秒, 而自杀重生或登出重连都只要几秒, 于是
+     * "有限半径 + CD" 这层节流事实上不存在。故死亡/换维度只重置瞬态, 登出把冷却落进 capability。
+     */
+
     @SubscribeEvent
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        // 落盘后再移除: 内存表按 UUID 存, 玩家离线后留着就是泄漏, 而冷却要跨会话活下去。
+        persistCooldowns(event.getEntity());
         playerStates.remove(event.getEntity().getUUID());
     }
 
     @SubscribeEvent
     public void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
-        // 离开矿山维度即清运行态 (再进入时按需重建); 反复进出矿洞是最高频泄漏路径 (第五章)。
+        // 离开矿山维度重置运行态。不再整条移除: 玩家仍在线, 条目本就该在, 移除只会把冷却一并抹掉。
         if (event.getFrom().equals(MiningConstants.MINING_LEVEL)) {
-            playerStates.remove(event.getEntity().getUUID());
+            MinerChargeState state = playerStates.get(event.getEntity().getUUID());
+            if (state != null) {
+                state.resetTransientKeepingCooldowns();
+            }
         }
     }
 
     @SubscribeEvent
     public void onPlayerClone(PlayerEvent.Clone event) {
-        // 死亡重生: 瞬态 CD/充能不跨死亡保留 (持久进度由 entry 唯一权威 capability 复制, 运行态重置)。
+        // 死亡重生: 瞬态归零, 冷却保留 (持久进度另由 entry 唯一权威 capability 复制)。
         if (event.isWasDeath()) {
-            playerStates.remove(event.getEntity().getUUID());
+            MinerChargeState state = playerStates.get(event.getEntity().getUUID());
+            if (state != null) {
+                state.resetTransientKeepingCooldowns();
+            }
         }
+    }
+
+    /** 把某玩家的冷却表写进其 capability (登出时一次)。capability 缺失时静默跳过: 那是环境故障, 不该在登出路径上抛。 */
+    private void persistCooldowns(Player player) {
+        MinerChargeState state = playerStates.get(player.getUUID());
+        if (state == null) {
+            return;
+        }
+        com.miningdim.entry.MiningCapabilities.get(player)
+                .ifPresent(data -> data.setMinerCooldowns(state.exportCooldowns()));
     }
 
     // ============================================================

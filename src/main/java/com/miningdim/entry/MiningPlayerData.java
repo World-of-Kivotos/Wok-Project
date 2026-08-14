@@ -45,6 +45,9 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
     /** WebUI 界面偏好 (W1 决策 D1): 不可变整份替换, 从未设置过即 DEFAULT。 */
     private UiPrefs uiPrefs = UiPrefs.DEFAULT;
 
+    /** 矿工技能冷却 (不透明子标签, 语义归 job.miner; 见 {@link IMiningPlayerData#minerCooldowns()})。 */
+    private CompoundTag minerCooldowns = new CompoundTag();
+
     @Override
     public ResourceKey<Level> prevDimension() {
         return prevDimension;
@@ -142,6 +145,17 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
     }
 
     @Override
+    public CompoundTag minerCooldowns() {
+        return minerCooldowns;
+    }
+
+    @Override
+    public void setMinerCooldowns(CompoundTag cooldowns) {
+        // 存副本而不是持有调用方的实例: 那份标签由矿工模块现造, 它之后再改自己那份不该悄悄改动存档内容。
+        this.minerCooldowns = cooldowns == null ? new CompoundTag() : cooldowns.copy();
+    }
+
+    @Override
     public JobProgress jobProgress(JobId job) {
         return jobData.jobProgress(job);
     }
@@ -160,6 +174,8 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
         this.spouseUUID = other.spouseUUID;
         // 界面偏好跨死亡/换维度保留 (漏这行的症状是玩家一死主题和强调色就静默复位)。record 不可变, 直接共享引用。
         this.uiPrefs = other.uiPrefs;
+        // 技能冷却跨死亡保留 —— 漏这行等于把"死一次"变成免费重置冷却的手段。CompoundTag 可变, 必须拷。
+        this.minerCooldowns = other.minerCooldowns.copy();
         this.jobData.copyFrom(other.jobData);
     }
 
@@ -179,6 +195,8 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
     private static final String K_JOBS = "jobs";
     /** WebUI 界面偏好子标签 (W1 决策 D1): 与 K_JOBS 同层, 内部四个键名见 UiPrefs。 */
     private static final String K_UI_PREFS = "uiPrefs";
+    /** 矿工技能冷却子标签: 内部键名由 job.miner 自定, 本层只存取字节。 */
+    private static final String K_MINER_COOLDOWNS = "minerCooldowns";
 
     @Override
     public CompoundTag serializeNBT() {
@@ -197,6 +215,7 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
         }
         tag.put(K_JOBS, jobData.serializeNBT());
         tag.put(K_UI_PREFS, uiPrefs.toNbt());
+        tag.put(K_MINER_COOLDOWNS, minerCooldowns.copy());
         return tag;
     }
 
@@ -221,5 +240,8 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
         // 得到全默认偏好。子标签内逐字段的缺键/类型错/取值域外回退由 UiPrefs.sanitized 负责, 全程不抛 ——
         // 这条路径没有 Gateway 兜底, 抛出去就是玩家进不来。
         this.uiPrefs = UiPrefs.sanitized(tag.getCompound(K_UI_PREFS));
+        // 同上: getCompound 对缺键与类型不符都返回空 tag, 旧存档因此得到空冷却表 (等价于全部就绪), 不抛。
+        // 值本身不在这里校验 —— 冷却的语义归 job.miner, 本层只是搬字节。
+        this.minerCooldowns = tag.getCompound(K_MINER_COOLDOWNS).copy();
     }
 }

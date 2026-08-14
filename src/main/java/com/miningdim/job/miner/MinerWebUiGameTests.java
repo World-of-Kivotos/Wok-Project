@@ -271,22 +271,19 @@ public final class MinerWebUiGameTests {
                     "回执坐标 " + actual + " 不在裁决链的命中集合内 (面板不许自建扫描)");
         }
 
-        if (expected.ore() == null) {
-            // 空结果只可能来自矿洞 region 门 (球内确有铁矿, 半径与等级都够) —— 用一条独立判据证明是它拦的。
-            helper.assertTrue(MiningServices.instanceManager()
-                            .regionAt(player.getBlockX(), player.getBlockZ()) == null,
-                    "球内有铁矿却无命中, 唯一合法解释是不在矿洞 region 内; 但 regionAt 返回了非空");
-            assertNullOreKeys(helper, result);
-        } else {
-            helper.assertTrue("minecraft:iron_ore".equals(result.get("oreItemId").getAsString()),
-                    "命中矿种走 OreType.representativeItem 的石质变体 (不随坐标漂移), 实得 "
-                            + result.get("oreItemId").getAsString());
-            helper.assertTrue(Blocks.IRON_ORE.asItem().getDescriptionId()
-                            .equals(result.get("oreDescriptionId").getAsString()),
-                    "oreDescriptionId 必须是该物品的翻译键 (服务端不下发中文)");
-            helper.assertTrue(!hits.isEmpty() && hits.size() <= MinerConstants.ORE_SCAN_MAX_RESULTS,
-                    "命中集合非空且不超过 64 条硬顶, 实得 " + hits.size());
-        }
+        /*
+         * 结果是确定的: GameTest 世界不是矿洞维度, 维度门排在 region 门之前, 故必定无命中。
+         *
+         * 这里原本写成"命中/无命中"两分支, 走哪一支取决于 mock 玩家出生点是否落进 EASY 区盒 —— 于是必有
+         * 一支是死代码, 且断言的内容随世界种子漂移。命中侧的筛选正确性改由
+         * oreScanFilteringEnforcesRadiusSingleOreAndHardCap 直接对 scanWorldDetailed 覆盖 (绕开两道门,
+         * 结果确定), 矿种 JSON 化由 oreScanOreIdentityIsStable 覆盖。
+         */
+        helper.assertTrue(!player.level().dimension().equals(MiningConstants.MINING_LEVEL),
+                "前提校验: 本用例建立在 GameTest 世界非矿洞维度之上");
+        helper.assertTrue(expected.ore() == null && expected.positions().isEmpty(),
+                "非矿洞维度必定无命中 (维度门在 region 门之前), 实得矿种 " + expected.ore());
+        assertNullOreKeys(helper, result);
 
         // 探空/探到都不给免费重试: 同一 tick 再探必须撞 CD 门。
         WebUiBusinessException second = rejection(helper, SCAN_ACTION, player);
@@ -322,6 +319,131 @@ public final class MinerWebUiGameTests {
         helper.assertTrue(MinerSystem.get().stateOf(player).cooldownReadyAt(MinerSkill.ORE_SCAN)
                         > Long.MIN_VALUE,
                 "无命中也必须真起冷却");
+        helper.succeed();
+    }
+
+    /**
+     * 冷却跨死亡与跨会话存活。
+     *
+     * 这一条守的是节流本身: CD 原先随 MinerChargeState 一起被死亡/登出/换维度整体丢弃, 于是 180 秒的探矿
+     * 冷却只要自杀或重连一次 (几秒) 就归零 —— 与半径门叠加后, "有限半径 + CD" 这层节流事实上不存在。
+     *
+     * 分三段断言, 对应三条真实路径: 死亡 (重置瞬态) / 登出 (落 capability) / 登入 (从 capability 恢复)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void oreScanCooldownSurvivesDeathAndRelog(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setMinerLevel(player, 10);
+
+        MinerChargeState state = MinerSystem.get().stateOf(player);
+        long now = player.serverLevel().getGameTime();
+        state.startCooldown(MinerSkill.ORE_SCAN, now, MinerConstants.ORE_SCAN_CD_TICKS_AT_MAX);
+        state.setCharge(5.0D, 10);
+        long readyAt = state.cooldownReadyAt(MinerSkill.ORE_SCAN);
+        helper.assertTrue(readyAt == now + MinerConstants.ORE_SCAN_CD_TICKS_AT_MAX,
+                "前提校验: 冷却必须真的起了, 实得 readyAt=" + readyAt);
+
+        // 一、死亡: 瞬态归零, 冷却留下。
+        state.resetTransientKeepingCooldowns();
+        helper.assertTrue(state.cooldownReadyAt(MinerSkill.ORE_SCAN) == readyAt,
+                "死亡不得重置探矿冷却 (否则自杀就是免费的冷却重置), 实得 "
+                        + state.cooldownReadyAt(MinerSkill.ORE_SCAN));
+        helper.assertTrue(state.currentCharge() == 0,
+                "死亡仍应清掉充能等瞬态, 实得 " + state.currentCharge());
+
+        // 二、登出: 冷却落进 capability。
+        com.miningdim.entry.IMiningPlayerData data = com.miningdim.entry.MiningCapabilities.get(player)
+                .orElseThrow(() -> new IllegalStateException("mock 玩家未挂载 capability"));
+        data.setMinerCooldowns(state.exportCooldowns());
+        helper.assertTrue(data.minerCooldowns().contains(MinerSkill.ORE_SCAN.name(), net.minecraft.nbt.Tag.TAG_LONG),
+                "登出必须把冷却写进 capability, 实得 " + data.minerCooldowns());
+
+        // 三、登入: 新建的运行态从 capability 取回。
+        MinerChargeState relogged = new MinerChargeState();
+        relogged.importCooldowns(data.minerCooldowns());
+        helper.assertTrue(relogged.cooldownReadyAt(MinerSkill.ORE_SCAN) == readyAt,
+                "重连后冷却必须原样恢复 (否则登出重连就是免费的冷却重置), 实得 "
+                        + relogged.cooldownReadyAt(MinerSkill.ORE_SCAN));
+        helper.assertTrue(!relogged.cooldownReady(MinerSkill.ORE_SCAN, now),
+                "恢复后在原时刻仍必须处于冷却中");
+
+        helper.succeed();
+    }
+
+    /**
+     * 旧存档没有冷却子标签时照常加载, 且认不出的技能名被跳过而不是抛在玩家加载路径上。
+     *
+     * 这条路径没有 Gateway 兜底 —— 反序列化抛出去的症状是玩家进不来, 所以缺键与脏值都必须自愈。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void minerCooldownsToleratesLegacyAndDirtyTags(GameTestHelper helper) {
+        com.miningdim.entry.MiningPlayerData legacy = new com.miningdim.entry.MiningPlayerData();
+        legacy.deserializeNBT(new net.minecraft.nbt.CompoundTag()); // 旧存档: 整个标签都没有这一键
+        helper.assertTrue(legacy.minerCooldowns().isEmpty(),
+                "旧存档缺键时冷却表应为空 (等价于全部就绪), 实得 " + legacy.minerCooldowns());
+
+        net.minecraft.nbt.CompoundTag dirty = new net.minecraft.nbt.CompoundTag();
+        dirty.putString("NOT_A_SKILL", "x");        // 认不出的键
+        dirty.putString(MinerSkill.ORE_SCAN.name(), "not a long"); // 类型不符
+        MinerChargeState state = new MinerChargeState();
+        state.importCooldowns(dirty);
+        helper.assertTrue(state.cooldownReadyAt(MinerSkill.ORE_SCAN) == Long.MIN_VALUE,
+                "类型不符的值必须被跳过而不是被当成冷却, 实得 " + state.cooldownReadyAt(MinerSkill.ORE_SCAN));
+
+        helper.succeed();
+    }
+
+    /**
+     * 矿种 JSON 化的口径: 走石质变体的代表物品, 不随命中的是深板岩变体还是普通变体漂移。
+     *
+     * 独立成一条确定性用例 (不依赖任何一次真实扫描): 原先它挂在探矿成功分支里, 而那条分支在 GameTest
+     * 环境下根本走不到, 于是 representativeItem 的口径实际无人守 —— 把它换成方块 id 或深板岩变体,
+     * 全套测试照样全绿。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void oreScanOreIdentityIsStable(GameTestHelper helper) {
+        helper.assertTrue(OreType.IRON.representativeItem() == Blocks.IRON_ORE.asItem(),
+                "铁矿的代表物品必须是石质变体 minecraft:iron_ore (深板岩变体只是同一矿种的另一种赋形)");
+        helper.assertTrue("block.minecraft.iron_ore"
+                        .equals(OreType.IRON.representativeItem().getDescriptionId()),
+                "代表物品的翻译键必须是方块键 block.* —— 矿石是方块, 前端按 item.* 推键会解不出名字, 实得 "
+                        + OreType.IRON.representativeItem().getDescriptionId());
+        helper.succeed();
+    }
+
+    /**
+     * 维度门: 矿工技能只在矿洞维度生效, 探矿在主世界/下界一律不出结果。
+     *
+     * 这一条守的是一个真实可利用的缺口: {@code RegionBox.contains} 只比 X/Z (Y 与维度都不参与), 而 EASY
+     * 区盒是 X∈[0,256)、Z∈[0,256) —— 世界出生点通常就落在里面。少了维度判定, 玩家站在主世界出生点附近
+     * 就能过 region 门, 而随后扫的是他当前所在维度, 探矿即成任意维度的透视器。
+     *
+     * 把玩家放到 (100, ·, 100): region 门在这个坐标必放行, 于是唯一还能挡住的只剩维度门。
+     * 删掉 {@code scanDetailed} 里那句维度判定, 本条立刻挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void oreScanRefusesOutsideTheMiningDimension(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setMinerLevel(player, 10);
+        player.setNoGravity(true);
+        player.teleportTo(100.5D, player.getY(), 100.5D);
+
+        // 前提一: 本测试世界不是矿洞维度 (否则维度门放行, 本条测的就不是它该测的东西)。
+        helper.assertTrue(!player.level().dimension().equals(MiningConstants.MINING_LEVEL),
+                "前提校验: GameTest 世界不该是矿洞维度");
+        // 前提二: region 门在此坐标必放行 —— 这样"无命中"就只可能来自维度门。
+        helper.assertTrue(MiningServices.instanceManager().regionAt(100, 100) != null,
+                "前提校验: (100,100) 必须落在某个区盒内, 否则挡住的是 region 门, 维度门被架空测不到");
+
+        // 脚下真埋一颗铁矿: 没有它的话"无命中"可能只是因为附近本来就没矿。
+        BlockPos underfoot = player.blockPosition().below();
+        helper.getLevel().setBlock(underfoot, Blocks.IRON_ORE.defaultBlockState(), Block.UPDATE_ALL);
+        helper.assertTrue(helper.getLevel().getBlockState(underfoot).is(Blocks.IRON_ORE),
+                "前提校验: 脚下那颗铁矿必须真的放下去了");
+
+        OreScanService.ScanHit hit = OreScanService.scanDetailed(player, 10);
+        helper.assertTrue(hit.ore() == null && hit.positions().isEmpty(),
+                "非矿洞维度一律不探, 实得矿种 " + hit.ore() + " / 坐标 " + hit.positions());
         helper.succeed();
     }
 

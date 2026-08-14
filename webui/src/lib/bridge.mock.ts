@@ -23,6 +23,7 @@
  *   - 注册表缺失  一件已卸载 mod 的遗留物品: market 回退成 itemId, admin 回退成空串 (两处口径本就不同)
  */
 
+import { getWorld } from '../mock/store'
 import type { WebUiActionName } from './actions'
 import { SERVER_ACTIONS } from './actions'
 import type { PayloadOf, ResultOf } from './bridge'
@@ -48,6 +49,10 @@ import type {
   ClientI18nResult,
   ClientPlayCaseSoundPayload,
   ClientPlayCaseSoundResult,
+  HubPanelId,
+  HubPanelsResult,
+  ItemDetailKind,
+  ItemDetailStat,
   MarketBaseValuePayload,
   MarketBaseValueResult,
   MarketBuyPayload,
@@ -65,9 +70,18 @@ import type {
   MarketPlaceResult,
   PlayerInventoryItem,
   PlayerInventoryResult,
+  PlayerIsOpResult,
+  PlayerItemDetailPayload,
+  PlayerItemDetailResult,
+  PlayerPrefs,
+  PlayerPrefsGetResult,
+  PlayerPrefsSetPayload,
+  PlayerPrefsSetResult,
+  PlayerProfileResult,
   PlayerWalletResult,
   SystemEchoPayload,
   SystemEchoResult,
+  SystemServerStatusResult,
 } from './types'
 
 /** 假往返延迟: 太快会让 loading 态在设计稿里根本看不见, 太慢又难用。 */
@@ -89,14 +103,24 @@ function plainFailure(action: WebUiActionName, message: string): WebUiCallError 
   return new WebUiCallError(action, SERVER_FAILURE_CODE, message, null)
 }
 
-/** 服务端业务拒绝路径 (WebUiBusinessException), 带稳定机器码。 */
+/**
+ * 服务端业务拒绝路径 (WebUiBusinessException), 带稳定机器码。
+ *
+ * params 缺省即"不带占位符实参": 服务端 businessErrorJson 在 params 为空 Map 时整键不写, 这里同样
+ * 不传就不写 —— 补一个空对象会让前端文案层把"服务端没给"当成"给了但是空的"。
+ */
 function businessFailure(
   action: WebUiActionName,
   errorCode: string,
   message: string,
   retrySameOpeningId: boolean,
+  params?: Record<string, string>,
 ): WebUiCallError {
-  return new WebUiCallError(action, SERVER_FAILURE_CODE, message, { errorCode, retrySameOpeningId })
+  return new WebUiCallError(action, SERVER_FAILURE_CODE, message, {
+    errorCode,
+    retrySameOpeningId,
+    ...(params === undefined ? {} : { params }),
+  })
 }
 
 /** Java 侧按 UTF-16 码元比较, 这里同口径 (localeCompare 会按语言习惯重排, 与服务端顺序对不上)。 */
@@ -172,6 +196,17 @@ const MOCK_ITEMS: readonly MockItemDef[] = [
     sub: null,
   },
   {
+    /*
+     * NBT 变体件。195 种零件共用这一个 itemId 与这一个翻译键, 故它必须登记 —— 背包里那两件零件挂上市场时
+     * makeListing 要按 itemId 查这张表, 查不到就是一句 "mock 数据缺陷" 的硬抛。
+     */
+    itemId: 'miningdim:gunsmith_part',
+    registered: true,
+    descriptionId: 'item.miningdim.gunsmith_part',
+    top: 'weapons',
+    sub: null,
+  },
+  {
     // 第三方 mod 物品: 贴图既不在本仓库也不在原版镜像站, 是 J1 未决的那一类, 前端应落像素占位块。
     itemId: 'tacz:modern_kinetic_gun',
     registered: true,
@@ -238,12 +273,28 @@ const I18N_NAMES: Readonly<Record<string, string>> = {
   'item.miningdim.plate_armor_banshee_atacs_au': 'Shellback Tactical Banshee 防弹背心（A-Tacs AU 迷彩）',
   // NBT 变体件: Item 级键解出来是"枪匠零件"(195 种共用), 真正区分它们的是下面 nameParts 用的两个键。
   'item.miningdim.gunsmith_part': '枪匠零件',
+  // BASIC 变体的名字不带变体键: GunsmithPartItem.getName 对它拼的是 平台键 + 部位键 + 空格 + 品质键。
+  'gunsmith.platform.ar': 'AR',
+  'gunsmith.part.core': '基础导气',
   'gunsmith.variant.gehenna_high_speed_gas': '格赫娜高速导气',
   'gunsmith.quality.legendary': '传奇',
   'item.tacz.modern_kinetic_gun': '现代动能枪械',
   'item.minecraft.arrow': '箭',
   'item.minecraft.diamond_chestplate': '钻石胸甲',
   'item.minecraft.wheat': '小麦',
+  /*
+   * 八个职业名。player.profile 的 jobs 不带 displayName (服务端不直给中文), 前端按
+   * `job.miningdim.<jobId>` 走 client.i18n 自解, 故这张表必须覆盖它们, 否则假数据模式下首页八个格子
+   * 全显示成原始键。取值逐字抄自 src/main/resources/assets/miningdim/lang/zh_cn.json:704-711。
+   */
+  'job.miningdim.miner': '矿工',
+  'job.miningdim.farmer': '农夫',
+  'job.miningdim.engineer': '铸甲师',
+  'job.miningdim.tarot': '塔罗师',
+  'job.miningdim.chef': '厨师',
+  'job.miningdim.agent': '特勤干员',
+  'job.miningdim.munitions': '军火商',
+  'job.miningdim.brewer': '酿酒师',
 }
 
 // ============================================================
@@ -259,6 +310,9 @@ const I18N_NAMES: Readonly<Record<string, string>> = {
  * 负余额服务端不可能产生, 故不造。
  */
 const wallet: PlayerWalletResult = { credit: 1_234_567, azure: 90 }
+
+/** 主背包格数 (Inventory.items 的长度, 不含护甲/副手)。player.itemDetail 的越界判定与补货找空位共用。 */
+const INVENTORY_SIZE = 36
 
 const inventory: PlayerInventoryItem[] = [
   { slot: 0, itemId: 'minecraft:diamond', descriptionId: 'item.minecraft.diamond', count: 64 },
@@ -278,6 +332,46 @@ const inventory: PlayerInventoryItem[] = [
     displayName: '「初火」试作型胸甲',
   },
   { slot: 17, itemId: 'minecraft:wheat', descriptionId: 'item.minecraft.wheat', count: 1 },
+  /*
+   * 两件枪匠零件: 同平台 (AR) 同部位 (core) 同品质 (传奇), 只差变体。
+   *
+   * 必须是两件而不是一件 —— 真服对 BASIC 变体只发 coefficient 一行, 非 BASIC 才另加三行
+   * (WebUiItemDetailJson.appendGunsmithPart:159-167)。只放一件的话另一种行集在假数据模式下永远走不到,
+   * 照着 mock 写详情面板的人就会假定那三行恒存在, 接真服后基础零件上出现三个 undefined 行。
+   *
+   * customModelData 按 GunsmithPartItem.customModelData:249-253 逐位算:
+   * variant.index()*1_000_000 + platform.index()*100 + part.index()*10 + quality.index() + 1。
+   * AR=0 / core=0 / legendary=4, 故 BASIC (变体序号 0) 得 5, 格赫娜高速导气 (变体序号 1) 得 1_000_005
+   * —— 后者与 mock/seed.ts 的 ITEM_GAS_CORE 是同一件, 那条已核对过 /mc/variants.json。
+   *
+   * nameParts 的两种形状也不同 (GunsmithPartItem.getName:122-137): BASIC 拼 平台键 + 部位键,
+   * 非 BASIC 拼变体键, 之后才是空格与品质键。
+   */
+  {
+    slot: 20,
+    itemId: 'miningdim:gunsmith_part',
+    descriptionId: 'item.miningdim.gunsmith_part',
+    count: 1,
+    customModelData: 5,
+    nameParts: [
+      { k: 'gunsmith.platform.ar' },
+      { k: 'gunsmith.part.core' },
+      { t: ' ' },
+      { k: 'gunsmith.quality.legendary' },
+    ],
+  },
+  {
+    slot: 21,
+    itemId: 'miningdim:gunsmith_part',
+    descriptionId: 'item.miningdim.gunsmith_part',
+    count: 1,
+    customModelData: 1_000_005,
+    nameParts: [
+      { k: 'gunsmith.variant.gehenna_high_speed_gas' },
+      { t: ' ' },
+      { k: 'gunsmith.quality.legendary' },
+    ],
+  },
   // 末槽位: 36 槽的最后一格, 撞背包网格的边界渲染。
   { slot: 35, itemId: 'minecraft:arrow', descriptionId: 'item.minecraft.arrow', count: 64 },
 ]
@@ -595,7 +689,7 @@ function depositToInventory(action: WebUiActionName, itemId: string, count: numb
     stack.count += count
     return
   }
-  for (let slot = 0; slot < 36; slot += 1) {
+  for (let slot = 0; slot < INVENTORY_SIZE; slot += 1) {
     if (!inventory.some((item) => item.slot === slot)) {
       inventory.push({
         slot,
@@ -777,6 +871,323 @@ function mockPlayCaseSound(payload: ClientPlayCaseSoundPayload): ClientPlayCaseS
 }
 
 // ============================================================
+// 账号 / 服务器状态 (W1 核销的七条)
+// ============================================================
+
+/**
+ * 这七条的假实现为什么要读 mock 世界 (import getWorld):
+ *
+ * 它们权威的是"我是谁、我练到哪儿了、我能不能进管理后台", 而这三样在假数据模式下的开关都已经在
+ * mock 世界里了 —— 外壳顶栏的"OP 视图"Toggle 写的是 world.player.isOp, admin.job.setLevel 改的是
+ * world.jobs.progress。本文件若另存一份, 设计评审时会出现"开关拨了但首页没变"这种只有 mock 才有的假故障。
+ * 钱包同理: 基线归本文件的 wallet, planned 域的收支 (卖菜/买卡包) 记在 world.walletOverlay, 两者相加
+ * 才是玩家该看到的余额 —— 这条合成规则整个前端只有这一处。
+ *
+ * 装进游戏后本文件整体不参与 (生产构建摇掉), 故这层耦合不会渗进真服路径。
+ */
+
+/**
+ * 平均每刻毫秒。取 52.6 而不是一个健康值: 原版设计满速是 50ms/刻, 只有 mspt > 50 才可能掉刻,
+ * 而 TPS 徽标的三档配色 (TabletShell.tpsTone) 若在假数据下恒为绿, 掉刻那两档就从没被人看见过。
+ */
+const SERVER_MSPT = 52.6
+const SERVER_ONLINE = 17
+const SERVER_MAX_PLAYERS = 60
+/** 已运行基线 (3 天 4 小时 12 分); 页面存活期内按真实秒数往上走, 好让"已运行"不是个死数字。 */
+const SERVER_UPTIME_BASE_SECONDS = 3 * 24 * 3600 + 4 * 3600 + 12 * 60
+
+function mockServerStatus(): SystemServerStatusResult {
+  /*
+   * tps 由 mspt 现算, 公式 (含 20 的上钳) 与服务端逐字一致。
+   * 不各填一个常数: 那样 mspt 与 tps 会讲两个互相矛盾的故事 (旧种子就是 mspt 32.4 配 tps 19.8,
+   * 而 1000/32.4 = 30.9), 而真服里这两个数恒等地绑在一起。
+   */
+  const tps = SERVER_MSPT <= 0 ? 20 : Math.min(20, 1000 / SERVER_MSPT)
+  return {
+    online: SERVER_ONLINE,
+    maxPlayers: SERVER_MAX_PLAYERS,
+    tps,
+    mspt: SERVER_MSPT,
+    uptimeSeconds: SERVER_UPTIME_BASE_SECONDS + Math.floor((Date.now() - NOW) / 1000),
+  }
+}
+
+function mockIsOp(): PlayerIsOpResult {
+  return { isOp: getWorld().player.isOp }
+}
+
+function mockProfile(): PlayerProfileResult {
+  const world = getWorld()
+  return {
+    playerName: MOCK_PLAYER_NAME,
+    isOp: world.player.isOp,
+    wallet: { credit: wallet.credit + world.walletOverlay.credit, azure: wallet.azure + world.walletOverlay.azure },
+    // 真契约无 displayName (服务端不直给中文), 故这里显式挑字段而不是整条 spread —— 多带一个字段
+    // 就等于让面板可以读到真服根本不会发的东西。
+    jobs: world.jobs.progress.map((entry) => ({
+      jobId: entry.jobId,
+      level: entry.level,
+      totalXp: entry.totalXp,
+      levelXp: entry.levelXp,
+      nextLevelXp: entry.nextLevelXp,
+      dailyXp: entry.dailyXp,
+      dailyRemaining: entry.dailyRemaining,
+    })),
+    todayCreditFaucetGross: mockCreditFaucetGross(),
+    // 青辉石走硬截断, 账本落的就是实发额, 与上一栏刻意不对称。
+    todayAzureIn: world.economy.today.azureIn,
+  }
+}
+
+/**
+ * 今日信用点 faucet 毛额 (衰减前)。
+ *
+ * 真服直接从账本读 rawAmount 的累加值; mock 世界只存了打折**之后**的 earnedToday, 故这里按 decayFactor
+ * 反推回去 —— 目的只有一个: 让首页那两栏 (毛额 vs economy.today 的实发合计) 大小关系与真服一致,
+ * 否则面板上会出现"毛额比实发还小"这种真服不可能的形态, 反而把 D3 那条口径讲反。
+ */
+function mockCreditFaucetGross(): number {
+  let gross = 0
+  for (const faucet of getWorld().economy.today.faucets) {
+    if (faucet.decayFactor <= 0) {
+      throw new Error(`mock 数据缺陷: faucet ${faucet.faucetKey} 的 decayFactor 非正, 无法反推毛额`)
+    }
+    gross += Math.round(faucet.earnedToday / faucet.decayFactor)
+  }
+  return gross
+}
+
+/**
+ * 物品大类。mock 里没有 NBT, 只能按 itemId 判 —— 真服判的是 NBT 根标签 (GunsmithGunStats.ROOT_KEY 等),
+ * 同一个 itemId 完全可能既有 NBT 又没有。这条差异写在这里, 免得有人照着 mock 推断真服的判定依据。
+ */
+function mockItemKind(itemId: string): ItemDetailKind {
+  if (itemId.startsWith('tacz:')) {
+    return 'gun'
+  }
+  if (itemId === 'miningdim:gunsmith_part') {
+    return 'gunsmith_part'
+  }
+  return 'plain'
+}
+
+/**
+ * 这件零件是不是 BASIC 变体。
+ *
+ * 真服判的是 NBT 里的 variant (PartData.variant), mock 手里只有 customModelData —— 而按
+ * GunsmithPartItem.customModelData:249-253 的算式, 它的百万位就是 variant.index(), 0 即 BASIC
+ * (GunsmithPartVariant 的首个常量)。缺这一位的零件在真服不存在 (算式带 +1, 恒非 0), 故直接抛,
+ * 不给一个"当作 BASIC"的默认值把 mock 数据缺陷盖过去。
+ */
+function mockPartIsBasic(item: PlayerInventoryItem): boolean {
+  if (item.customModelData === undefined) {
+    throw new Error(`mock 数据缺陷: 槽位 ${String(item.slot)} 的枪匠零件缺 customModelData, 变体无从判定`)
+  }
+  return Math.floor(item.customModelData / 1_000_000) === 0
+}
+
+/** 各 kind 的数值行。key 与 unit 逐字对齐真契约的行表, 数值本身是占位 (mock 无 NBT 可解)。 */
+function mockItemAttributes(kind: ItemDetailKind, item: PlayerInventoryItem): ItemDetailStat[] {
+  if (kind === 'gun') {
+    return [
+      { key: 'damage', value: 0.18, unit: 'percent' },
+      { key: 'headshot', value: 0.05, unit: 'percent' },
+      { key: 'range', value: 0.12, unit: 'percent' },
+      { key: 'handling', value: -0.04, unit: 'percent' },
+      { key: 'average', value: 0.08, unit: 'percent' },
+      { key: 'fireRate', value: 0.1, unit: 'percent' },
+      // 后坐与散布是"越低越好"的量, 真服同样发负数表示改善, 前端不得取绝对值。
+      { key: 'verticalRecoil', value: -0.15, unit: 'percent' },
+      { key: 'horizontalRecoil', value: -0.09, unit: 'percent' },
+      { key: 'inaccuracy', value: -0.11, unit: 'percent' },
+      { key: 'partCount', value: 5, unit: 'flat' },
+    ]
+  }
+  if (kind === 'gunsmith_part') {
+    /*
+     * 行集随变体走, 与 WebUiItemDetailJson.appendGunsmithPart:159-167 逐条对齐:
+     * coefficient 恒发一行, 后三行**只有非 BASIC 变体才有** (BASIC 的三个乘数恒为 1.0, 发三行 +0% 是噪音)。
+     * 无条件发四行的写法会让照 mock 写的渲染层假定后三行恒存在, 接真服后基础零件上出现三个 undefined 行。
+     */
+    // 1.42 落在 GunsmithPartQuality.LEGENDARY 的 [1.36, 1.50] 内 —— 必须与下面 tags 里的 part.quality 自洽,
+    // 否则这份假数据在真服的 requireCoefficient 那里会被当场拒, 而 mock 存在的意义就是与真服同口径。
+    const stats: ItemDetailStat[] = [{ key: 'coefficient', value: 1.42, unit: 'flat' }]
+    if (!mockPartIsBasic(item)) {
+      stats.push(
+        { key: 'fireRate', value: 0.06, unit: 'percent' },
+        { key: 'verticalRecoil', value: -0.12, unit: 'percent' },
+        { key: 'inaccuracy', value: -0.08, unit: 'percent' },
+      )
+    }
+    return stats
+  }
+  return []
+}
+
+/** 标签码。形态 'ns.name' 或 'ns.name:<稳定id>', 与真契约同一套; 文案由前端自解, 服务端不发中文。 */
+function mockItemTags(kind: ItemDetailKind, item: PlayerInventoryItem): string[] {
+  if (kind === 'gun') {
+    return ['gun.platform:ar', 'gun.template:m4a1']
+  }
+  if (kind === 'gunsmith_part') {
+    return [
+      'part.platform:ar',
+      // 部位 id 是 core: 真服发的是 part().id() (GunsmithPressPart.CORE), "GAS" 只是它的短标签。
+      'part.slot:core',
+      `part.variant:${mockPartIsBasic(item) ? 'basic' : 'gehenna_high_speed_gas'}`,
+      'part.quality:legendary',
+    ]
+  }
+  return []
+}
+
+function mockItemDetail(payload: PlayerItemDetailPayload): PlayerItemDetailResult {
+  if (typeof payload.slot !== 'number' || !Number.isInteger(payload.slot)) {
+    // 与服务端同形: 类型不符只报 field, 不报值 (见 prefsTypeRejected 的说明)。
+    throw businessFailure('player.itemDetail', 'INVALID_REQUEST', '字段 slot 必须是整数', false, {
+      field: 'slot',
+    })
+  }
+  if (payload.slot < 0 || payload.slot >= INVENTORY_SIZE) {
+    throw businessFailure(
+      'player.itemDetail',
+      'SLOT_OUT_OF_RANGE',
+      `槽位 ${String(payload.slot)} 超出背包范围`,
+      false,
+      { slot: String(payload.slot), size: String(INVENTORY_SIZE) },
+    )
+  }
+  const stack = inventory.find((item) => item.slot === payload.slot)
+  if (stack === undefined) {
+    throw businessFailure('player.itemDetail', 'SLOT_EMPTY', `槽位 ${String(payload.slot)} 是空的`, false, {
+      slot: String(payload.slot),
+    })
+  }
+  const kind = mockItemKind(stack.itemId)
+  return {
+    slot: stack.slot,
+    itemId: stack.itemId,
+    descriptionId: stack.descriptionId,
+    count: stack.count,
+    // 三个可选字段一律"没有就整键不写", 与 player.inventory 同一形态 (默认 Gson 不写 null)。
+    ...(stack.displayName === undefined ? {} : { displayName: stack.displayName }),
+    ...(stack.customModelData === undefined ? {} : { customModelData: stack.customModelData }),
+    ...(stack.nameParts === undefined ? {} : { nameParts: stack.nameParts }),
+    kind,
+    attributes: mockItemAttributes(kind, stack),
+    tags: mockItemTags(kind, stack),
+  }
+}
+
+/** 四项默认值逐字对齐服务端 UiPrefs.DEFAULT 与前端 theme.ts / brand.ts 的默认档, 否则首帧会闪一次。 */
+const DEFAULT_PREFS: PlayerPrefs = {
+  muteToasts: false,
+  language: 'zh_cn',
+  theme: 'dark',
+  brandHue: 250,
+}
+
+/**
+ * 偏好在真服落 capability (跟 player.dat 走)。mock 只存进模块变量, 刷新页面即回默认值 ——
+ * 刻意不落 localStorage: 那会与 theme.ts / brand.ts 自己的 localStorage 键长成两份互相打架的偏好,
+ * 而这条 action 存在的意义恰恰是"账号级偏好压过本机偏好"。
+ */
+let prefs: PlayerPrefs = { ...DEFAULT_PREFS }
+
+const LANGUAGE_PATTERN = /^[a-z0-9_]{1,16}$/
+
+function mockPrefsGet(): PlayerPrefsGetResult {
+  return { ...prefs }
+}
+
+/**
+ * 两种拒绝的 params 刻意不同, 与服务端逐字对齐 (PlayerWebUiActions 的 requireXxx / rejectValue):
+ * 字段缺失或类型不符只给 field (根本没有一个"值"可报), 取值域外才给 field + value。
+ * 文案层据此选带参还是不带参的那句话, mock 若一律塞 value, 会把"缺字段"渲染成"字段 x 不接受 undefined"。
+ */
+function prefsTypeRejected(field: string): WebUiCallError {
+  return businessFailure('player.prefs.set', 'INVALID_REQUEST', `字段 ${field} 类型不符`, false, {
+    field,
+  })
+}
+
+function prefsValueRejected(field: string, value: string): WebUiCallError {
+  return businessFailure(
+    'player.prefs.set',
+    'INVALID_REQUEST',
+    `字段 ${field} 取值非法: ${value}`,
+    false,
+    { field, value },
+  )
+}
+
+/**
+ * 整份覆盖 + 逐字段校验。写入侧一律拒绝而不是静默钳制 —— 掩盖非法值等于让契约声明的取值域失效,
+ * 而"钳制"这条路只属于读取侧 (服务端 UiPrefs.sanitized 反序列化 NBT 时才回退)。
+ */
+function mockPrefsSet(payload: PlayerPrefsSetPayload): PlayerPrefsSetResult {
+  if (typeof payload.muteToasts !== 'boolean') {
+    throw prefsTypeRejected('muteToasts')
+  }
+  if (typeof payload.language !== 'string') {
+    throw prefsTypeRejected('language')
+  }
+  if (!LANGUAGE_PATTERN.test(payload.language)) {
+    throw prefsValueRejected('language', payload.language)
+  }
+  if (typeof payload.theme !== 'string') {
+    throw prefsTypeRejected('theme')
+  }
+  if (payload.theme !== 'dark' && payload.theme !== 'light') {
+    throw prefsValueRejected('theme', payload.theme)
+  }
+  if (typeof payload.brandHue !== 'number' || !Number.isInteger(payload.brandHue)) {
+    throw prefsTypeRejected('brandHue')
+  }
+  if (payload.brandHue < 0 || payload.brandHue > 360) {
+    throw prefsValueRejected('brandHue', String(payload.brandHue))
+  }
+  prefs = {
+    muteToasts: payload.muteToasts,
+    language: payload.language,
+    theme: payload.theme,
+    brandHue: payload.brandHue,
+  }
+  // 回发落盘值而不是 {ok:true}: 前端据此对齐本地状态, 服务端日后收窄取值域时也能立刻看出被改成了什么。
+  return { ...prefs }
+}
+
+/**
+ * 面板域与顺序 = 服务端 HubWebUiActions 的硬编码表 (quests 不存在, 精英怪图鉴叫 codex)。
+ * 这里只发 panelId/enabled/lockCode, 展示层三项 (route/label/iconItemId) 归前端 lib/panels.ts。
+ */
+const HUB_PANEL_IDS: readonly HubPanelId[] = [
+  'home',
+  'market',
+  'shop',
+  'jobs',
+  'mining',
+  'codex',
+  'marriage',
+  'case',
+  'settings',
+  'admin',
+]
+
+function mockHubPanels(): HubPanelsResult {
+  const isOp = getWorld().player.isOp
+  return {
+    panels: HUB_PANEL_IDS.map((panelId) => {
+      // 当前唯一的门: admin 随 OP 翻转。婚姻恒开 (它本身就是未婚玩家的求婚入口), 职业等级门本批不做。
+      if (panelId === 'admin' && !isOp) {
+        return { panelId, enabled: false, lockCode: 'NOT_OP' }
+      }
+      return { panelId, enabled: true }
+    }),
+  }
+}
+
+// ============================================================
 // 派发
 // ============================================================
 
@@ -791,10 +1202,24 @@ function resolveMock(action: WebUiActionName, payload: unknown): unknown {
     case 'system.handshake':
       // 与前端声明清单逐字一致 —— mock 下不该出现契约漂移告警, 否则每次本地开发都在喊狼来了。
       return { modVersion: '0.0.0-mock', actions: [...SERVER_ACTIONS] }
+    case 'system.serverStatus':
+      return mockServerStatus()
     case 'player.inventory':
       return mockInventory()
+    case 'player.isOp':
+      return mockIsOp()
+    case 'player.itemDetail':
+      return mockItemDetail(payload as PlayerItemDetailPayload)
+    case 'player.prefs.get':
+      return mockPrefsGet()
+    case 'player.prefs.set':
+      return mockPrefsSet(payload as PlayerPrefsSetPayload)
+    case 'player.profile':
+      return mockProfile()
     case 'player.wallet':
       return { ...wallet }
+    case 'hub.panels':
+      return mockHubPanels()
     case 'market.list':
       return mockMarketList(payload as MarketListPayload)
     case 'market.place':

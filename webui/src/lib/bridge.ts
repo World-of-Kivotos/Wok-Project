@@ -31,6 +31,8 @@ import type {
   ClientI18nResult,
   ClientPlayCaseSoundPayload,
   ClientPlayCaseSoundResult,
+  HubPanelsPayload,
+  HubPanelsResult,
   MarketBaseValuePayload,
   MarketBaseValueResult,
   MarketBuyPayload,
@@ -49,12 +51,24 @@ import type {
   MarketPlaceResult,
   PlayerInventoryPayload,
   PlayerInventoryResult,
+  PlayerIsOpPayload,
+  PlayerIsOpResult,
+  PlayerItemDetailPayload,
+  PlayerItemDetailResult,
+  PlayerPrefsGetPayload,
+  PlayerPrefsGetResult,
+  PlayerPrefsSetPayload,
+  PlayerPrefsSetResult,
+  PlayerProfilePayload,
+  PlayerProfileResult,
   PlayerWalletPayload,
   PlayerWalletResult,
   SystemEchoPayload,
   SystemEchoResult,
   SystemHandshakePayload,
   SystemHandshakeResult,
+  SystemServerStatusPayload,
+  SystemServerStatusResult,
 } from './types'
 
 /**
@@ -64,8 +78,15 @@ import type {
 type WebUiContractMap = {
   'system.echo': { payload: SystemEchoPayload; result: SystemEchoResult }
   'system.handshake': { payload: SystemHandshakePayload; result: SystemHandshakeResult }
+  'system.serverStatus': { payload: SystemServerStatusPayload; result: SystemServerStatusResult }
   'player.inventory': { payload: PlayerInventoryPayload; result: PlayerInventoryResult }
+  'player.isOp': { payload: PlayerIsOpPayload; result: PlayerIsOpResult }
+  'player.itemDetail': { payload: PlayerItemDetailPayload; result: PlayerItemDetailResult }
+  'player.prefs.get': { payload: PlayerPrefsGetPayload; result: PlayerPrefsGetResult }
+  'player.prefs.set': { payload: PlayerPrefsSetPayload; result: PlayerPrefsSetResult }
+  'player.profile': { payload: PlayerProfilePayload; result: PlayerProfileResult }
   'player.wallet': { payload: PlayerWalletPayload; result: PlayerWalletResult }
+  'hub.panels': { payload: HubPanelsPayload; result: HubPanelsResult }
   'market.list': { payload: MarketListPayload; result: MarketListResult }
   'market.place': { payload: MarketPlacePayload; result: MarketPlaceResult }
   'market.buy': { payload: MarketBuyPayload; result: MarketBuyResult }
@@ -101,13 +122,25 @@ export type ResultOf<A extends WebUiActionName> = WebUiContractMap[A]['result']
 
 /**
  * 服务端业务拒绝 (WebUiBusinessException) 附带的稳定机器码。通用异常没有这层 ——
- * 那种情况下 business 为 null, 前端只能拿到一句 Java 异常原文 (缺口 A10 错误码中文化)。
+ * 那种情况下 business 为 null, 只剩一句 Java 异常原文 —— 那是给排障看的, 措辞随实现走。带码的一档
+ * 由 lib/errorText.ts 翻成玩家文案 (A10 已落地); 没码的一档只能原样带出, 因为它本就不是可预期的业务拒绝。
  */
 export type WebUiBusinessError = {
-  /** 如 CASE_DISABLED / INSUFFICIENT_FUNDS / RATE_LIMITED / ASSET_NOT_OWNED / INVALID_REQUEST。 */
+  /**
+   * 如 CASE_DISABLED / INSUFFICIENT_FUNDS / RATE_LIMITED / ASSET_NOT_OWNED / INVALID_REQUEST。
+   * 全集与各自的抛出点见 Java 侧 com.miningdim.webui.server.WebUiErrorCodes。
+   */
   errorCode: string
   /** 开箱专用: true 表示可以拿同一个 openingId 原样重试, 不会重复扣费。 */
   retrySameOpeningId: boolean
+  /**
+   * 错误码文案的占位符实参 (Java 侧 WebUiBusinessException 第四参)。如 SLOT_OUT_OF_RANGE 带
+   * {slot, size}、prefs.set 的 INVALID_REQUEST 带 {field, value}。值一律是字符串 (服务端把数字也
+   * 字符串化了), 只用于填 errorCode 对应的中文文案, 不参与计算 —— 要拿数字就自己 Number() 并自担解析失败。
+   *
+   * 键缺席是正常形态: 服务端 params 为空时整键不写 (businessErrorJson), 不是发空对象。
+   */
+  params?: Record<string, string>
 }
 
 /**
@@ -139,8 +172,16 @@ export class WebUiCallError extends Error {
 /** 服务端失败信封的专用失败码 (WebUiBridge.onResponse 用 0 占位, 细节全在 JSON 里)。 */
 export const SERVER_FAILURE_CODE = 0
 
+/** params 的形状校验: 必须是"值全为字符串"的普通对象 (数组与 null 都不算)。 */
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false
+  }
+  return Object.values(value).every((entry) => typeof entry === 'string')
+}
+
 /**
- * 把服务端失败信封 {"error":...,"errorCode"?:...,"retrySameOpeningId"?:...} 解成结构化错误。
+ * 把服务端失败信封 {"error":...,"errorCode"?:...,"retrySameOpeningId"?:...,"params"?:...} 解成结构化错误。
  *
  * 存在的理由: onFailure 第二参在 code=0 时是一整串 JSON, 直接扔给玩家看就是
  * "{"error":"信用点不足"}" 这种东西。解析失败或形状不符时原样带回 —— 那属于契约破裂,
@@ -173,9 +214,25 @@ function parseServerFailure(action: string, rawJson: string): WebUiCallError {
   if (!('retrySameOpeningId' in parsed) || typeof parsed.retrySameOpeningId !== 'boolean') {
     return new WebUiCallError(action, SERVER_FAILURE_CODE, rawJson, null)
   }
+  if (!('params' in parsed)) {
+    /*
+     * params 缺席是正常形态而非契约破裂: 服务端只在有占位符实参时才写这一键 (空 Map 不写), 存量
+     * case.* 的拒绝全都没有它。这里刻意不补成 {} —— 与上面同纪律, 文案层据"有没有 params"决定用带参
+     * 还是不带参的那句话, 补一个空对象等于把"服务端没给"伪装成"服务端给了但是空的"。
+     */
+    return new WebUiCallError(action, SERVER_FAILURE_CODE, message, {
+      errorCode: parsed.errorCode,
+      retrySameOpeningId: parsed.retrySameOpeningId,
+    })
+  }
+  // 键在却不是全字符串值的对象 = 契约破裂, 按本文件既有纪律原样带回 rawJson, 不把半截 params 交给文案层填坑。
+  if (!isStringRecord(parsed.params)) {
+    return new WebUiCallError(action, SERVER_FAILURE_CODE, rawJson, null)
+  }
   return new WebUiCallError(action, SERVER_FAILURE_CODE, message, {
     errorCode: parsed.errorCode,
     retrySameOpeningId: parsed.retrySameOpeningId,
+    params: parsed.params,
   })
 }
 

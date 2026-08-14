@@ -11,8 +11,8 @@
 
 /**
  * 全部服务端 action 名 (system.handshake 回执 actions 字段的镜像, 不含 client.* 本地 action)。
- * 五个注册点: WebUiServerSubsystem (system.*) / PlayerWebUiActions (player.*) / MarketActions (market.*) /
- * MarketAdminActions (admin.*) / CaseWebUiActions (case.*)。
+ * 六个注册点: WebUiServerSubsystem (system.*) / PlayerWebUiActions (player.*) / MarketActions (market.*) /
+ * MarketAdminActions (admin.*) / CaseWebUiActions (case.*) / HubWebUiActions (hub.*)。
  */
 export const SERVER_ACTIONS = [
   'admin.listItems',
@@ -20,6 +20,7 @@ export const SERVER_ACTIONS = [
   'case.apply',
   'case.open',
   'case.state',
+  'hub.panels',
   'market.baseValue',
   'market.buy',
   'market.cancel',
@@ -29,9 +30,15 @@ export const SERVER_ACTIONS = [
   'market.mine',
   'market.place',
   'player.inventory',
+  'player.isOp',
+  'player.itemDetail',
+  'player.prefs.get',
+  'player.prefs.set',
+  'player.profile',
   'player.wallet',
   'system.echo',
   'system.handshake',
+  'system.serverStatus',
 ] as const
 
 /**

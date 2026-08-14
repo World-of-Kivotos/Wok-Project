@@ -16,6 +16,8 @@ import type { ReactElement, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { Button, Currency, LoadingBlock, Tag, Toggle } from '@/components/kit'
 import { isMockActive } from '@/lib/bridge'
+import { useBrand } from '@/lib/brand'
+import { useTheme } from '@/lib/theme'
 import { mutateWorld, primeRealDomainMirror, useMockAction, useMockWorld } from '@/mock'
 import {
   ROUTE_ADMIN,
@@ -47,7 +49,7 @@ import type { Tone } from '@/components/kit'
  * 压成两字短名 (跳蚤市场 -> 市场) 且一个图标都不给, 仍然逼近极限。竖排之后宽度是常量, 加第 11 个
  * 入口不会挤掉任何东西。
  *
- * 数据一律走 mock 层的 callMock 而不是直接读 store: player.profile 是接线清单 A5 专为首屏设计的聚合
+ * 数据一律走 mock 层的 callMock 而不是直接读 store: player.profile 是专为首屏设计的聚合
  * (不做这条, 顶栏要串行 6+ 次 MCEF 往返), 它回来的 wallet 已经把 planned 域的收支叠加层算进去了 ——
  * 外壳自己再拼一遍 base + overlay 等于把这条账目规则复制成两份, 必然漂移。
  */
@@ -123,10 +125,30 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
 
   const profile = useMockAction('player.profile', EMPTY_PAYLOAD)
   const server = useMockAction('system.serverStatus', EMPTY_PAYLOAD)
+  /*
+   * OP 判定单独走 player.isOp, 不再从 profile 里取 (D9)。
+   *
+   * 理由是这一个布尔决定的是导航栏画不画管理入口, 而 profile 每次都要打 3 次 SQLite 并遍历 8 个职业 ——
+   * 让"管理入口出不出现"排在那份重聚合后面, 是把最贵的一条请求挡在最轻的一个判定前面。
+   *
+   * 诚实备注: profile 这条请求删不掉 —— 下面的 playerName 与双货币余额目前只有它提供。本改动省的不是
+   * 一次往返, 而是让 OP 判定不必等 profile 就绪; 真要省一份得另开题把顶栏改吃 player.wallet 加一个
+   * playerName 来源, 不在本批范围。
+   */
+  const opState = useMockAction('player.isOp', EMPTY_PAYLOAD)
+  /*
+   * 账号偏好在外壳这一层拉一次, 而不是只在设置页拉。
+   *
+   * 不这么做的话账号级主题/强调色只有玩家**主动点进设置页**的那一刻才生效: 换台机器 (或清了浏览器缓存)
+   * 开平板, 首页/市场/开箱全按本机 localStorage 的默认档渲染, 而设置页的文案却写着"换一台电脑登录同一个
+   * 账号, 这四项还在" —— 玩家读到时那句话是假的。外壳是全部面板的共同祖先, 对齐点只能在这里。
+   */
+  const prefs = useMockAction('player.prefs.get', EMPTY_PAYLOAD)
   const [mirrorError, setMirrorError] = useState<Error | null>(null)
 
   const reloadProfile = profile.reload
   const reloadServer = server.reload
+  const reloadIsOp = opState.reload
 
   useEffect(() => {
     // hub 是真域镜像的预热点 (mock/handlers.ts primeRealDomainMirror 的文件注释): 在这里拉一次,
@@ -135,6 +157,31 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
       setMirrorError(toError(error))
     })
   }, [])
+
+  /*
+   * 账号偏好落到全局: 主题与强调色在 React 渲染前已按 localStorage 生效 (initTheme/initBrand 防首帧闪色),
+   * 这里是它们与账号那一份的对齐点。
+   *
+   * 只对齐一次 (prefsAppliedRef 守卫): theme/brand 是本 effect 的写入目标, 放进依赖表会变成
+   * "玩家在设置页刚改完 -> 这里又按账号旧值改回去"。设置页自己也有一份同源对齐, 两处值相同故幂等 ——
+   * 且经本对齐后, 玩家点进设置页时那边通常已无差可对。
+   */
+  const { theme, toggle: toggleTheme } = useTheme()
+  const { brand, setBrand } = useBrand()
+  const prefsAppliedRef = useRef(false)
+  useEffect(() => {
+    if (prefs.status !== 'ready' || prefsAppliedRef.current) {
+      return
+    }
+    prefsAppliedRef.current = true
+    if (prefs.data.theme !== theme) {
+      toggleTheme()
+    }
+    if (prefs.data.brandHue !== Math.round(brand.hue)) {
+      setBrand({ ...brand, hue: prefs.data.brandHue })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- theme/brand 是写入目标而非触发源, 见上
+  }, [prefs.status, prefs.data])
 
   /*
    * useMockAction 刻意不订阅世界版本 (它自己会改世界的那些 action 一旦自动重查就会自锁),
@@ -150,9 +197,11 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
     lastRevisionRef.current = world.revision
     reloadProfile()
     reloadServer()
-  }, [world.revision, reloadProfile, reloadServer])
+    reloadIsOp()
+  }, [world.revision, reloadProfile, reloadServer, reloadIsOp])
 
-  const isOp = profile.status === 'ready' && profile.data.isOp
+  // 未就绪一律按非 OP 处理: 管理入口宁可晚一帧出现, 也不能先画出来再收回去。
+  const isOp = opState.status === 'ready' && opState.data.isOp
   const visibleEntries = SHELL_NAV_ENTRIES.filter((entry) => !entry.opOnly || isOp)
   const title = match.pattern === null ? '页面不存在' : ROUTE_TITLES[match.pattern]
 
@@ -265,7 +314,7 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
               OP 视图开关只在假数据模式下存在 (isMockActive 在生产构建里恒为 false, 见 lib/bridge)。
               它改的是 mock 世界里的身份位, 好让"管理入口有/无"两种形态都能在设计评审里当场切换;
               真服的 OP 判定在服务端, 前端没有也不该有这个开关。
-              勾选态直接读世界 (点下去即时翻转), 而入口的显隐跟着 player.profile 的回执走 ——
+              勾选态直接读世界 (点下去即时翻转), 而入口的显隐跟着 player.isOp 的回执走 ——
               两者之间那一次往返延迟正是接线后的真实手感, 不该用本地状态抹掉。
             */}
             {isMockActive() ? (

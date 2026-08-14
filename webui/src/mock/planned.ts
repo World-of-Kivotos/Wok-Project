@@ -3,7 +3,7 @@
  * 接线时必须以 Java 实现为准重写, 不允许反过来让 Java 迁就本文件。
  *
  * 为什么要单独一个文件 (而不是往 ../lib/types.ts 里塞):
- * lib/types.ts 里那 17 个 action 是逐字读 Java 源码抄下来的真契约, 每个字段都标了落点; 本文件里的东西
+ * lib/types.ts 里那 24 个 action 是逐字读 Java 源码抄下来的真契约, 每个字段都标了落点; 本文件里的东西
  * 一行 Java 都不对应。两者一旦混在一处, 半年后没人分得清哪个字段是"服务端真的会返回"、哪个是"当初编的"。
  * 故物理隔离三件套: 独立文件 + 全部类型名带 Planned 前缀 + 每个 action 标注接线清单行号。
  *
@@ -70,25 +70,13 @@ export type PlannedDifficulty = 'easy' | 'medium' | 'hard'
 // A 组 · 地基
 // ============================================================
 
-/** A4 system.serverStatus (WRAP, MinecraftServer 公开 API) 回执。 */
-export interface PlannedServerStatusResult {
-  online: number
-  maxPlayers: number
-  /** 0..20。低于 20 即服务端在掉刻。 */
-  tps: number
-  /** 平均每刻毫秒。 */
-  mspt: number
-  uptimeSeconds: number
-  /** 公告; 无公告时是空串而不是 null (运营常态是"没设置"而非"字段不存在")。 */
-  announcement: string
-}
-
-/** A6 player.isOp (WRAP, MarketAdminActions.requireOp 只有动作内校验没有查询) 回执。 */
-export interface PlannedIsOpResult {
-  isOp: boolean
-}
-
-/** A5 player.profile 聚合里的单条职业进度 (与 C1 job.progress 同形, 复用同一结构避免两处漂移)。 */
+/**
+ * C1 job.progress 的单条职业进度。
+ *
+ * 原先它同时服务 A5 player.profile —— 那条已在 W1 核销为真契约 (lib/types.ts 的 PlayerJobProgressEntry),
+ * 真契约里没有 displayName (服务端不直给中文, 前端按 `job.miningdim.<jobId>` 自解翻译键)。本结构留着
+ * displayName 是 planned 域的既有约定 (见文件头第一条), job.progress 接线时按同一手法一并去掉。
+ */
 export interface PlannedJobProgressEntry {
   jobId: PlannedJobId
   displayName: string
@@ -104,83 +92,6 @@ export interface PlannedJobProgressEntry {
   dailyXp: number
   /** 今日还能满额入账多少 (撞 0 之后仍能获经验, 但按衰减系数打折)。 */
   dailyRemaining: number
-}
-
-/**
- * A5 player.profile (BACKEND, IMiningPlayerData 指针分散无聚合读取点) 回执。
- * 存在的唯一理由是首屏: 不做这条, hub 首页要串行 6+ 次 MCEF 往返。
- */
-export interface PlannedProfileResult {
-  playerName: string
-  playerUuid: string
-  isOp: boolean
-  /** 复用真契约的钱包形状 (lib/types.ts WebUiWallet) —— 服务端已有这个形状, 没必要再发明一个。 */
-  wallet: WebUiWallet
-  jobs: PlannedJobProgressEntry[]
-  /** 今日全口径信用点收入 (D6); 与 economy.today 的 totalCreditIn 同一个数。 */
-  todayCreditIn: number
-  /** 今日青辉石收入; 硬上限见 economy.today.azureDailyCap (D4)。 */
-  todayAzureIn: number
-  /** 婚姻一句话摘要, 未婚时是空串。完整状态走 marriage.state (E1)。 */
-  marriageSummary: string
-  /** 当前所在矿洞难度; 不在矿洞维度时 null。 */
-  miningDifficulty: PlannedDifficulty | null
-}
-
-/** A8 player.itemDetail (WRAP, GunsmithGunStats.from / NanoNbt / 塔罗 NBT) 入参。 */
-export interface PlannedItemDetailPayload {
-  /** 与 player.inventory 的 slot 同一索引空间 (Inventory.items 下标)。 */
-  slot: number
-}
-
-/**
- * A8 player.itemDetail 回执。
- * player.inventory 只回 slot/itemId/count/descriptionId, 枪械属性、纳米特效、塔罗牌品质全在 NBT 里拿不到,
- * 这条就是把那部分解出来。attributes 用统一行结构, 因为三类物品的属性集合彼此毫无交集。
- */
-export interface PlannedItemDetailResult {
-  slot: number
-  itemId: string
-  descriptionId: string
-  count: number
-  /** 铁砧改名才有, 否则 null。 */
-  displayName: string | null
-  attributes: PlannedStatLine[]
-  /** 可读标签 (如 "闪耀" / "不可交易" / "已绑定"), 供前端渲染徽章。 */
-  tags: string[]
-}
-
-/**
- * A9 player.prefs (BACKEND, MiningPlayerData 无 UI 偏好字段) 的读写形状。
- * 决策已定 (清单第七章"我直接定的"第 2 条): 先不做 capability 字段, 用 Chromium localStorage;
- * 这条 action 留着是因为 localStorage 随缓存清理即丢, 真出现跨机器诉求时形状不必再想一遍。
- */
-export interface PlannedPrefs {
-  /** 整数倍缩放档位 (1/2/3); 像素规格禁非整数倍缩放, 故这里是整数不是小数。 */
-  uiScale: number
-  /** 免打扰: 关掉成交/求婚/击杀结算的浮层提示。 */
-  muteToasts: boolean
-  layout: PlannedPrefsLayout
-}
-
-export type PlannedPrefsLayout = 'compact' | 'comfortable'
-
-/** A17 hub.panels (NONE, 无平板物品/无键位/无面板注册表) 的单个面板条目。 */
-export interface PlannedHubPanel {
-  panelId: string
-  label: string
-  /** 前端 hash 路由的目标 (决策 J4: 单 URL + 前端路由, 切面板不经 Java)。 */
-  route: string
-  /** 图标用的物品 id, 走 ItemIcon 的取图链; 取不到就落像素占位块。 */
-  iconItemId: string
-  enabled: boolean
-  /** enabled 为 false 时的原因文案 (等级门/未婚/非 OP), 否则 null。 */
-  lockReason: string | null
-}
-
-/** A17 hub.panels 回执。 */
-export interface PlannedHubPanelsResult {
-  panels: PlannedHubPanel[]
 }
 
 // ============================================================
@@ -1029,13 +940,6 @@ export interface PlannedAdminResetResult {
  * 占着那个名字。
  */
 export type PlannedContractMap = {
-  'system.serverStatus': { payload: PlannedEmptyPayload; result: PlannedServerStatusResult }
-  'player.profile': { payload: PlannedEmptyPayload; result: PlannedProfileResult }
-  'player.isOp': { payload: PlannedEmptyPayload; result: PlannedIsOpResult }
-  'player.itemDetail': { payload: PlannedItemDetailPayload; result: PlannedItemDetailResult }
-  'player.prefs.get': { payload: PlannedEmptyPayload; result: PlannedPrefs }
-  'player.prefs.set': { payload: PlannedPrefs; result: PlannedPrefs }
-  'hub.panels': { payload: PlannedEmptyPayload; result: PlannedHubPanelsResult }
   'market.feePreview': { payload: PlannedFeePreviewPayload; result: PlannedFeePreviewResult }
   'market.p2pCap': { payload: PlannedEmptyPayload; result: PlannedP2pCapResult }
   'market.transactions': { payload: PlannedTransactionsPayload; result: PlannedTransactionsResult }
@@ -1101,13 +1005,6 @@ export type PlannedResultOf<A extends PlannedActionName> = PlannedContractMap[A]
  * 数组变短一条, 代表后端真落地了一行。按接线清单的分组顺序排列, 便于与文档对照。
  */
 export const PLANNED_ACTIONS = [
-  'system.serverStatus',
-  'player.profile',
-  'player.isOp',
-  'player.itemDetail',
-  'player.prefs.get',
-  'player.prefs.set',
-  'hub.panels',
   'market.feePreview',
   'market.p2pCap',
   'market.transactions',

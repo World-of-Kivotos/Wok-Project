@@ -45,9 +45,11 @@ public final class MarketSubsystem implements Subsystem {
         MarketActions.registerAll();
         // V0 基准价 admin curate 动作 (OP 门控): admin.setBaseValue / admin.listItems。
         MarketAdminActions.registerAll();
-        // 玩家自身数据动作 (顶栏余额 + 挂单选物): player.inventory / player.wallet —— 让真桥脱离前端 Mock。
+        // 玩家自身数据与账号级偏好动作 (顶栏余额 / 挂单选物 / 首屏聚合 / 物品详情 / 偏好读写) —— 让真桥脱离
+        // 前端 Mock。动作名不在此逐条重列: 上一版就是列了两条然后随 registerAll 扩到七条而没跟上。
         PlayerWebUiActions.registerAll();
-        LOGGER.info("[miningdim] market subsystem registered (8 market.* + 2 admin.* + 2 player.* actions; SQLite P2P trade channel)");
+        // 条数是"action 到底注册上没有"在运行期的唯一证据, 与上面三个 registerAll 的实际条数必须逐个对上。
+        LOGGER.info("[miningdim] market subsystem registered (8 market.* + 2 admin.* + 7 player.* actions; SQLite P2P trade channel)");
     }
 
     @SubscribeEvent

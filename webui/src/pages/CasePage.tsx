@@ -123,7 +123,14 @@ interface PanelToast {
 
 interface FailureView {
   message: string
-  /** 业务失败才有的稳定机器码; 通用异常路径没有这一层 (缺口 A10 错误码中文化未做, 故原样展示英文码)。 */
+  /*
+   * 业务失败才有的稳定机器码; 通用异常路径没有这一层。
+   *
+   * 本页展示的是服务端原文 + 括号里的码, 不走 lib/errorText.ts 那张表 —— 那张表因此**刻意不收**
+   * case.* 那一组码 (收了也永远读不到, 留着就是"看着像收编了"的假象)。要改成走那张表, 得连
+   * CASE_DISABLED 的一码两义 (运营关闭 / TaCZ 与资源包未就绪) 一起在服务端用 params 拆开,
+   * 否则玩家会丢掉"是被关了还是没装资源包"的区分, 那属于开箱模块自己的改动, 不在 W1 范围。
+   */
   code: string | null
   /** case.open 专用: 服务端说这次失败可以拿同一个 openingId 原样重试, 不会重复扣费。 */
   retrySameOpeningId: boolean

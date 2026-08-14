@@ -27,6 +27,8 @@ src/generated/
 # 前端 (webui/ monorepo, 见 WebUI_Architecture_DesignSpec 10.2)
 webui/node_modules/
 webui/dist/
+# 依赖预打包缓存。默认落在 webui/node_modules/.vite, 但从别处调起 vite 时会在 webui/ 根另生成一份。
+webui/.vite/
 
 # AI 助手提示词 (各人本地一份, 不入库; 人类可读的协作规范见 分支协作.md)
 CLAUDE.md

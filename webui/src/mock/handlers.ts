@@ -2,10 +2,10 @@
  * mock 面板层的唯一调用口 —— callMock(action, payload), 与 lib/bridge 的 call(action, payload) 同签名。
  *
  * 它覆盖两种 action, 且两种走完全不同的路:
- *   1. **真契约那 19 个** (lib/actions.ts 的 SERVER_ACTIONS + CLIENT_LOCAL_ACTIONS): 原样转调 call(),
+ *   1. **真契约那 26 个** (lib/actions.ts 的 SERVER_ACTIONS + CLIENT_LOCAL_ACTIONS): 原样转调 call(),
  *      即 dev 下落 bridge.mock、装进游戏后落真服。本层一行业务规则都不加, 只在写操作成功后顺手把回执
  *      抄进 store.mirror, 好让别的面板 (hub 首页的余额、背包格) 立刻看见后果。
- *   2. **planned.ts 里那 50 个**: 后端还不存在, 全部由 store 的内存世界回答, 带 150-400ms 人为延迟。
+ *   2. **planned.ts 里那 43 个**: 后端还不存在, 全部由 store 的内存世界回答, 带 150-400ms 人为延迟。
  *
  * 为什么要有第 1 类的转调层 (而不是让面板直接用 call):
  * 跨面板的可见后果必须有人负责。市场页买入之后 hub 首页的余额得跟着降 —— 若各页各自 call, 没人知道
@@ -36,7 +36,6 @@ import type {
   PlannedResultOf,
   PlannedSealTarget,
   PlannedShopEntry,
-  PlannedStatLine,
   PlannedTarotDraw,
 } from './planned'
 import { PLANNED_ACTIONS } from './planned'
@@ -239,28 +238,6 @@ function comparableShops(world: MockWorld, shop: PlannedShopEntry): PlannedShopE
   )
 }
 
-function attributeLinesFor(itemId: string): PlannedStatLine[] {
-  /*
-   * 真服的 A8 按 NBT 分三类解析 (枪械 GunsmithGunStats / 纳米 NanoNbt / 塔罗品质), 三者字段集毫无交集。
-   * mock 没有 NBT, 只能按 itemId 前缀给一组形态上说得通的行 —— 目的仅是让详情面板有多行数据可排版。
-   */
-  if (itemId.startsWith('tacz:') || itemId.includes('gunsmith')) {
-    return [
-      { key: 'damage', label: '基础伤害', value: 34, unit: 'flat' },
-      { key: 'rpm', label: '射速', value: 780, unit: 'flat' },
-      { key: 'recoil', label: '后坐控制', value: 0.72, unit: 'percent' },
-      { key: 'durability', label: '耐久', value: 640, unit: 'flat' },
-    ]
-  }
-  if (itemId.includes('nano')) {
-    return [
-      { key: 'tier', label: '纳米档位', value: 3, unit: 'flat' },
-      { key: 'absorb', label: '动能吸收', value: 0.12, unit: 'percent' },
-    ]
-  }
-  return [{ key: 'stack', label: '最大堆叠', value: 64, unit: 'flat' }]
-}
-
 // ============================================================
 // planned handler 表
 // ============================================================
@@ -276,71 +253,6 @@ type PlannedHandlerMap = {
 }
 
 const PLANNED_HANDLERS: PlannedHandlerMap = {
-  'system.serverStatus': () => cloneResult(getWorld().server),
-
-  'player.profile': async () => {
-    const world = getWorld()
-    const base = await ensureWallet('player.profile')
-    const spouse = world.marriage.spouseName
-    return {
-      playerName: world.player.name,
-      playerUuid: world.player.uuid,
-      isOp: world.player.isOp,
-      wallet: withOverlay(base, world.walletOverlay),
-      jobs: cloneResult(world.jobs.progress),
-      todayCreditIn: world.economy.today.totalCreditIn,
-      todayAzureIn: world.economy.today.azureIn,
-      marriageSummary: spouse === null ? '' : `与 ${spouse} 结缡 ${String(world.marriage.marriageDays)} 天`,
-      miningDifficulty: world.mining.myStatus.difficulty,
-    }
-  },
-
-  'player.isOp': () => ({ isOp: getWorld().player.isOp }),
-
-  'player.itemDetail': async (payload) => {
-    const inventory = await ensureInventory('player.itemDetail')
-    const stack = inventory.find((item) => item.slot === payload.slot)
-    if (stack === undefined) {
-      throw fail('player.itemDetail', `槽位 ${String(payload.slot)} 是空的`)
-    }
-    return {
-      slot: stack.slot,
-      itemId: stack.itemId,
-      descriptionId: stack.descriptionId,
-      count: stack.count,
-      // 真契约里 displayName 是"缺席键", 到了 planned 这层统一成 null (见 planned.ts 的可选性约定)。
-      displayName: stack.displayName === undefined ? null : stack.displayName,
-      attributes: attributeLinesFor(stack.itemId),
-      tags: stack.displayName === undefined ? [] : ['已改名'],
-    }
-  },
-
-  'player.prefs.get': () => cloneResult(getWorld().prefs),
-
-  'player.prefs.set': (payload) => {
-    // 像素规格禁非整数倍缩放, 这条校验属于前端自己的红线, 不指望服务端拦。
-    if (!Number.isInteger(payload.uiScale) || payload.uiScale < 1 || payload.uiScale > 4) {
-      throw fail('player.prefs.set', `uiScale 必须是 1-4 的整数, 收到 ${String(payload.uiScale)}`)
-    }
-    mutateWorld((draft) => {
-      draft.prefs = { ...payload }
-    })
-    return cloneResult(getWorld().prefs)
-  },
-
-  'hub.panels': () => {
-    const world = getWorld()
-    return {
-      // 管理页签的可见性由 player.isOp 决定 (清单第七章"我直接定的"第 3 条), 故在这一层现算而不是写死在种子里。
-      panels: world.hubPanels.map((panel) => {
-        if (panel.panelId !== 'admin' || world.player.isOp) {
-          return cloneResult(panel)
-        }
-        return { ...cloneResult(panel), enabled: false, lockReason: '需要 OP 权限' }
-      }),
-    }
-  },
-
   'market.feePreview': async (payload) => {
     if (payload.count <= 0 || payload.unitPrice <= 0) {
       throw fail('market.feePreview', '数量与单价都必须为正整数')

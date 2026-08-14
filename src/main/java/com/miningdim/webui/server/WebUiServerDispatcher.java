@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.miningdim.network.MiningNetwork;
 import com.miningdim.network.S2CWebUiResponse;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +39,15 @@ public final class WebUiServerDispatcher {
 
     /** 复用单一 Gson 实例构造 resultJson (无定制配置需求, 线程安全可静态共享)。 */
     private static final Gson GSON = new Gson();
+
+    /**
+     * 回执超出下行上限时的替代回执 (见 {@link #respond})。
+     *
+     * 预先算好而不是现造: 这条回执正是"造不出合法回执"时的退路, 它自己必须无条件编得出去 —— 现造就又多了一次
+     * 依赖运行期入参的机会。message 是常量、params 为空, 故长度恒为几十字符。
+     */
+    private static final String RESPONSE_TOO_LARGE_JSON = businessErrorJson(new WebUiBusinessException(
+            WebUiErrorCodes.RESPONSE_TOO_LARGE, "server response exceeded the downstream size limit", false));
 
     /**
      * 每玩家保留的最近已处理 requestId 上限 (滑动窗口容量)。market.buy/place/cancel 这类改资金/库存的副作用
@@ -95,8 +105,7 @@ public final class WebUiServerDispatcher {
         // 短路回 success=false {"error":"duplicate_request"}, 不再触达 handler。登记前置 (而非业务成功后) 保证即便
         // handler 中途抛异常, 同 requestId 的重试也无法二次执行其改资金/库存副作用 —— 重试必须换新 requestId。
         if (!markRequestProcessed(sender.getUUID(), requestId)) {
-            MiningNetwork.sendWebUiResponse(sender,
-                    new S2CWebUiResponse(requestId, false, errorJson("duplicate_request")));
+            respond(sender, requestId, false, errorJson("duplicate_request"));
             return;
         }
         try {
@@ -106,20 +115,44 @@ public final class WebUiServerDispatcher {
             }
             JsonObject payload = JsonParser.parseString(payloadJson).getAsJsonObject();
             String resultJson = handler.handle(sender, payload);
-            MiningNetwork.sendWebUiResponse(sender, new S2CWebUiResponse(requestId, true, resultJson));
+            respond(sender, requestId, true, resultJson);
         } catch (WebUiBusinessException e) {
             // Expected player-facing rejection: stable machine code, explicit retry policy, no WARN stack-log DoS.
             LOGGER.debug("Web UI action '{}' rejected for player {} (requestId={}, errorCode={}): {}",
                     action, sender.getName().getString(), requestId, e.errorCode(), e.getMessage());
-            MiningNetwork.sendWebUiResponse(sender,
-                    new S2CWebUiResponse(requestId, false, businessErrorJson(e)));
+            respond(sender, requestId, false, businessErrorJson(e));
         } catch (Exception e) {
             // Gateway 兜底: 业务错误转为客户端可解析的失败回执, 并记日志保留现场; 不重抛打断网络线程。
             LOGGER.warn("Web UI action '{}' failed for player {} (requestId={})",
                     action, sender.getName().getString(), requestId, e);
-            MiningNetwork.sendWebUiResponse(sender,
-                    new S2CWebUiResponse(requestId, false, errorJson(e.getMessage())));
+            respond(sender, requestId, false, errorJson(e.getMessage()));
         }
+    }
+
+    /**
+     * 下行回执的唯一收口, 兼体积守卫。
+     *
+     * 为什么守在这里而不是各个造 JSON 的地方: 入站 {@code C2SWebUiRequest.decode} 的两个 readUtf 上限同为
+     * {@link FriendlyByteBuf#MAX_STRING_LENGTH}, 于是 action 名与 payloadJson 都是客户端可控的超长标量 ——
+     * 未知 action 拼出的 "unknown Web UI action: " + action, 以及 Gson 对非对象 payload 抛的
+     * "Not a JSON Object: " + 元素全文, 都会把异常 message 撑过上限。而这两条路径的回执是在上面
+     * {@code catch} 块<b>内部</b>发出的, 那一下 EncoderException 不再有任何 catch 兜住: requestId 已被防重放
+     * 窗口烧掉 (同 id 重试只得 duplicate_request), 前端 Promise 永不 settle, 界面就挂死在 loading。
+     *
+     * 成功路径同样经此 —— 聚合类 action 的回执随数据长大, 迟早撞同一堵墙, 而那时症状与病因隔得更远。
+     *
+     * 超限时换成定长回执而不是静默丢弃: 丢弃与"编不出去"对前端是同一种表现 (永不 settle), 换一条能编出去的
+     * 失败回执才能让 Promise 落地并让玩家看见原因。
+     */
+    private static void respond(ServerPlayer sender, long requestId, boolean success, String resultJson) {
+        if (resultJson.length() <= FriendlyByteBuf.MAX_STRING_LENGTH) {
+            MiningNetwork.sendWebUiResponse(sender, new S2CWebUiResponse(requestId, success, resultJson));
+            return;
+        }
+        LOGGER.warn("Web UI response for player {} (requestId={}) exceeded the {}-char downstream limit ({} chars); "
+                        + "replaced with {}", sender.getName().getString(), requestId,
+                FriendlyByteBuf.MAX_STRING_LENGTH, resultJson.length(), WebUiErrorCodes.RESPONSE_TOO_LARGE);
+        MiningNetwork.sendWebUiResponse(sender, new S2CWebUiResponse(requestId, false, RESPONSE_TOO_LARGE_JSON));
     }
 
     /**
@@ -179,11 +212,25 @@ public final class WebUiServerDispatcher {
         return GSON.toJson(obj);
     }
 
+    /**
+     * 构造业务拒绝回执 {"error","errorCode","retrySameOpeningId"} + 可选 {"params"}。
+     *
+     * params 为空时整键不写 (而非发空对象): 存量 case.* 的回执形状逐字节不变, 前端对"没有占位符实参"
+     * 与"占位符实参形状不对"才能区分处理 —— 前者是正常形态, 后者是契约破裂。
+     */
     static String businessErrorJson(WebUiBusinessException error) {
         JsonObject obj = new JsonObject();
         obj.addProperty("error", error.getMessage());
         obj.addProperty("errorCode", error.errorCode());
         obj.addProperty("retrySameOpeningId", error.retrySameOpeningId());
+        Map<String, String> params = error.params();
+        if (!params.isEmpty()) {
+            JsonObject paramsJson = new JsonObject();
+            for (Map.Entry<String, String> entry : params.entrySet()) {
+                paramsJson.addProperty(entry.getKey(), entry.getValue());
+            }
+            obj.add("params", paramsJson);
+        }
         return GSON.toJson(obj);
     }
 }

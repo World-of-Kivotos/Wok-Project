@@ -73,6 +73,26 @@ public final class TarotCardItem extends Item {
         return stack;
     }
 
+    /**
+     * 三个身份键是否齐全<b>且</b>取值落在域内 —— 即 {@link #cardId}/{@link #quality}/{@link #upright} 三个
+     * getter 此刻调都不会抛。
+     *
+     * 为什么需要它: 创造模式直给的裸牌 (见 {@link #owner} 的注释) 是真实场景, 只读展示 (WebUI 物品详情)
+     * 点开这样一张牌必须降级成普通物品, 而不是报错。为什么必须留在本类: 三个键名是 private 常量, 外部
+     * 另抄一份键名就成了第二份真源。为什么不能只判键存在: {@link #quality} 内的
+     * {@link TarotQuality#byOrdinal} 对越界序号照样抛。
+     */
+    public static boolean hasReadableCardIdentity(ItemStack stack) {
+        CompoundTag tag = stack.getTag();
+        if (!hasCardIdentity(tag)) {
+            return false;
+        }
+        int cardId = tag.getInt(K_CARD_ID);
+        int qualityOrdinal = tag.getInt(K_QUALITY);
+        return cardId >= 0 && cardId < TarotArcana.COUNT
+                && qualityOrdinal >= 0 && qualityOrdinal < TarotQuality.values().length;
+    }
+
     public static int cardId(ItemStack stack) {
         CompoundTag tag = stack.getTag();
         if (tag == null || !tag.contains(K_CARD_ID)) {

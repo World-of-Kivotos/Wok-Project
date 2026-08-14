@@ -5,6 +5,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.miningdim.caseopening.store.SkinAssetRow;
 import com.miningdim.webui.server.WebUiBusinessException;
+import com.miningdim.webui.server.WebUiErrorCodes;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
 
@@ -168,6 +169,6 @@ public final class CaseWebUiActions {
     }
 
     private static WebUiBusinessException invalidRequest(String message) {
-        return new WebUiBusinessException("INVALID_REQUEST", message, false);
+        return new WebUiBusinessException(WebUiErrorCodes.INVALID_REQUEST, message, false);
     }
 }

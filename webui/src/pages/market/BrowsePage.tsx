@@ -56,14 +56,14 @@ import { callMock, getWorld, refreshWalletAndInventory, useMockAction, useMockWo
  *   B3  market.buy         购买 (count 支持部分买入)
  *   B7  market.baseValue   购买确认里的"相对基准价"参照, 分层 source: override / preset / none
  *   A7  player.inventory   经 mock 的真域镜像读"我背包里已有几件", 用于买入后果可见
+ *   A5  player.profile     余额基线。刻意不自己拼 mirror.wallet + walletOverlay —— profile 的 wallet
+ *                          已把 planned 域收支叠加算进去 (同 TabletShell 的理由), 自己再拼一遍等于把
+ *                          账目规则复制成两份, 必然与顶栏的数字漂移
  *
  * 假定契约 (后端还没有, 走 mock/planned.ts; 接线时按此表逐条核销):
  *   B10 market.p2pCap      工具栏的每日 P2P 额度。**只读展示** —— 买入是否计入额度由服务端记账,
  *                          mock 不写回 usedToday, 别照着这个数字推断服务端行为
  *   B12 market.tradable    购买确认前的标的可交易性判定; 判定为不可交易时禁用确认按钮
- *   A5  player.profile     余额基线。刻意不自己拼 mirror.wallet + walletOverlay ——
- *                          profile 的 wallet 已把 planned 域收支叠加算进去 (同 TabletShell 的理由),
- *                          自己再拼一遍等于把账目规则复制成两份, 必然与顶栏的数字漂移
  *
  * 受阻项 (不是本页能解的, 只能在 UI 上如实标出):
  *   A14 中文输入 BLOCKED   搜索框走 TextInput 的 onRequestEdit 接口位, 当前点击只喊话不接收输入

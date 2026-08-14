@@ -42,6 +42,9 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
     /** 全职业进度 (第 2.3 节并入): EnumMap<JobId,JobProgress> 持有者, 按需懒建默认。 */
     private final JobData jobData = new JobData();
 
+    /** WebUI 界面偏好 (W1 决策 D1): 不可变整份替换, 从未设置过即 DEFAULT。 */
+    private UiPrefs uiPrefs = UiPrefs.DEFAULT;
+
     @Override
     public ResourceKey<Level> prevDimension() {
         return prevDimension;
@@ -128,6 +131,17 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
     }
 
     @Override
+    public UiPrefs uiPrefs() {
+        return uiPrefs;
+    }
+
+    @Override
+    public void setUiPrefs(UiPrefs prefs) {
+        // null 会一路潜伏到 serializeNBT 才炸在存档保存时 (现场早已丢失), 在入口就断。
+        this.uiPrefs = java.util.Objects.requireNonNull(prefs, "prefs");
+    }
+
+    @Override
     public JobProgress jobProgress(JobId job) {
         return jobData.jobProgress(job);
     }
@@ -144,6 +158,8 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
         // 婚姻指针跨死亡/换维度保留 (spec 第九章: 婚姻不因死亡解除)。
         this.marriageId = other.marriageId;
         this.spouseUUID = other.spouseUUID;
+        // 界面偏好跨死亡/换维度保留 (漏这行的症状是玩家一死主题和强调色就静默复位)。record 不可变, 直接共享引用。
+        this.uiPrefs = other.uiPrefs;
         this.jobData.copyFrom(other.jobData);
     }
 
@@ -161,6 +177,8 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
     private static final String K_SPOUSE_UUID = "spouseUUID";
     /** 全职业进度子标签 (第 2.3 节并入): JobData 自身遍历 EnumMap 的 CompoundTag 挂此键。 */
     private static final String K_JOBS = "jobs";
+    /** WebUI 界面偏好子标签 (W1 决策 D1): 与 K_JOBS 同层, 内部四个键名见 UiPrefs。 */
+    private static final String K_UI_PREFS = "uiPrefs";
 
     @Override
     public CompoundTag serializeNBT() {
@@ -178,6 +196,7 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
             tag.putUUID(K_SPOUSE_UUID, spouseUUID);
         }
         tag.put(K_JOBS, jobData.serializeNBT());
+        tag.put(K_UI_PREFS, uiPrefs.toNbt());
         return tag;
     }
 
@@ -198,5 +217,9 @@ public final class MiningPlayerData implements IMiningPlayerData, INBTSerializab
         this.spouseUUID = tag.hasUUID(K_SPOUSE_UUID) ? tag.getUUID(K_SPOUSE_UUID) : null;
         // 缺键 (旧存档无职业进度) 时 JobData.deserializeNBT 收空 tag, 各职业取用时懒建默认 (向后兼容)。
         this.jobData.deserializeNBT(tag.getCompound(K_JOBS));
+        // 与上一行同一范式: getCompound 对"缺键"和"键在但类型不是 Compound"都返回空 tag, 空 tag 经 sanitized
+        // 得到全默认偏好。子标签内逐字段的缺键/类型错/取值域外回退由 UiPrefs.sanitized 负责, 全程不抛 ——
+        // 这条路径没有 Gateway 兜底, 抛出去就是玩家进不来。
+        this.uiPrefs = UiPrefs.sanitized(tag.getCompound(K_UI_PREFS));
     }
 }

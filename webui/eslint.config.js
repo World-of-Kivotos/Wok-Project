@@ -19,7 +19,9 @@ import tseslint from 'typescript-eslint'
 export default tseslint.config(
   // _pixel-archive 是封存区, 不在 tsconfig 的 include 里 (typed lint 会因此报"文件不属于任何项目"),
   // 也不参与构建。它的代码按 Tailwind v3 那套写, 用现在的规则去查只会得到一堆无意义的报错。
-  { ignores: ['dist/**', '_pixel-archive/**'] },
+  // .vite 是 vite 的依赖预打包缓存 (压缩后的第三方源码)。扁平配置不再默认忽略点目录, 不写在这里
+  // 就会去 lint react-dom 的构建产物, 一次刷出四百多条与本项目无关的 no-undef。
+  { ignores: ['dist/**', '_pixel-archive/**', '.vite/**'] },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [js.configs.recommended, ...tseslint.configs.recommendedTypeChecked],

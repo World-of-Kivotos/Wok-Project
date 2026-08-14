@@ -62,11 +62,15 @@ public final class JobCommands {
             ctx.getSource().sendFailure(Component.translatable("message.miningdim.job.no_data"));
             return 0;
         }
+        // 日戳只取一次, 八个职业同一口径 (每职业各取一次会让跨午夜的那一行与上一行差一整天)。带日戳的只读
+        // 重载: 无日戳版本直接读字段, 玩家昨天吃满额度、今天开工前查询会被告知"额度已用尽"。查询不翻日,
+        // 清零权仍独归入账路径。
+        long todayStamp = JobServiceImpl.currentUtcDayStamp();
         for (JobId job : JobId.values()) {
             JobProgress p = data.jobProgress(job);
             ctx.getSource().sendSuccess(() -> Component.translatable(
                     "message.miningdim.job.list_line",
-                    job.displayName(), p.level(), p.xp(job), p.dailyRemaining(job)), false);
+                    job.displayName(), p.level(), p.xp(job), p.dailyRemaining(job, todayStamp)), false);
         }
         return JobId.values().length;
     }
@@ -85,11 +89,13 @@ public final class JobCommands {
             return 0;
         }
         JobProgress shown = p;
+        // 与 /job list 同一条: 当日已结算经验必须按当前日戳读, 否则跨日后显示的是昨天的量。
+        long todayStamp = JobServiceImpl.currentUtcDayStamp();
         ctx.getSource().sendSuccess(() -> Component.translatable(
                 "message.miningdim.job.info_line",
                 job.displayName(), shown.level(), shown.xp(job),
                 JobXpCurve.cumulativeXpForLevel(Math.min(shown.level() + 1, JobXpCurve.MAX_LEVEL)),
-                shown.dailyXp(job)), false);
+                shown.dailyXp(job, todayStamp)), false);
         return 1;
     }
 

@@ -66,6 +66,11 @@ export interface WebUiBusinessErrorEnvelope<TCode extends string> {
   error: string
   errorCode: TCode
   retrySameOpeningId: boolean
+  /**
+   * 文案占位符实参 (WebUiBusinessException 第四参)。服务端只在非空时写这一键, 故整键可缺席;
+   * 值一律是字符串 (数字也字符串化)。case.* 现有拒绝均不带 params。
+   */
+  params?: Record<string, string>
 }
 
 // ============================================================
@@ -101,11 +106,48 @@ export interface SystemHandshakeResult {
   actions: string[]
 }
 
+/** system.serverStatus 入参 —— 不读 payload 任何字段。 */
+export type SystemServerStatusPayload = EmptyPayload
+
+/**
+ * system.serverStatus 回执 (Java 落点: WebUiServerSubsystem, 与 system.echo/handshake 同类同 GSON 实例
+ * `private static final Gson GSON = new Gson()` —— 默认 Gson, 无 serializeNulls, 故本回执全部字段恒存在,
+ * 无 `?:` 也无 `| null`)。
+ *
+ * announcement 已按 D5 砍掉: 全库 src/main/java 下 grep 公告/announcement/bulletin 零命中, 唯一贴近的
+ * MinecraftServer.getMotd() 是 server.properties 的服务器描述, 不是运营公告。恒回空串等于立一个永远为空的
+ * 死约定, 故直接不发这个字段。
+ */
+export interface SystemServerStatusResult {
+  /** = sender.server.getPlayerCount() (Java int)。 */
+  online: number
+  /** = sender.server.getMaxPlayers() (Java int)。 */
+  maxPlayers: number
+  /**
+   * 派生值, 服务端算: mspt <= 0 ? 20.0 : Math.min(20.0, 1000.0 / mspt)。
+   * mspt <= 0 只出现在服务器首 tick 之前 (averageTickTime 字段初值 0), 是正常初值不是故障, 故给设计满速 20
+   * 而不是让它除出 Infinity。20 是原版 MS_PER_TICK=50 对应的设计上限, 硬编码。
+   */
+  tps: number
+  /**
+   * = sender.server.getAverageTickTime() (Java float -> JSON number)。单位已是毫秒 (原版每 tick 做
+   * averageTickTime = averageTickTime*0.8f + (nanos/1_000_000f)*0.2f 的 EMA 平滑), 服务端不再二次平均。
+   */
+  mspt: number
+  /**
+   * = sender.server.getTickCount() / 20 (Java int 整数除)。
+   * 口径必须写死: 这是"已运行的游戏刻数折算秒", 服务器掉刻时会慢于真实挂钟时间。选它是因为原版没有"开机挂钟
+   * 时刻"的公开 getter, 而为一个状态栏数字新建一份 ServerStartedEvent 时间戳状态不划算 (YAGNI)。
+   * 前端 AdminPage 的 formatUptime 文案按此口径写"已运行", 不要宣称是挂钟时长。
+   */
+  uptimeSeconds: number
+}
+
 // ============================================================
 // player.* — PlayerWebUiActions.java
 // ============================================================
 
-/** player.inventory 入参 (PlayerWebUiActions.INVENTORY, :47-71) —— 不读 payload。 */
+/** player.inventory 入参 (PlayerWebUiActions.INVENTORY) —— 不读 payload。 */
 export type PlayerInventoryPayload = EmptyPayload
 
 /** 主背包非空格位条目 (仅 36 主背包槽, 不含护甲/副手)。 */
@@ -149,16 +191,278 @@ export interface ItemVariantFields {
   nameParts?: ItemNamePart[]
 }
 
-/** player.inventory 回执 (PlayerWebUiActions.INVENTORY, :47-71)。 */
+/** player.inventory 回执 (PlayerWebUiActions.INVENTORY)。 */
 export interface PlayerInventoryResult {
   items: PlayerInventoryItem[]
 }
 
-/** player.wallet 入参 (PlayerWebUiActions.WALLET, :81-87) —— 不读 payload。 */
+/** player.wallet 入参 (PlayerWebUiActions.WALLET) —— 不读 payload。 */
 export type PlayerWalletPayload = EmptyPayload
 
-/** player.wallet 回执 (PlayerWebUiActions.WALLET, :81-87)。 */
+/** player.wallet 回执 (PlayerWebUiActions.WALLET)。 */
 export type PlayerWalletResult = WebUiWallet
+
+/** player.isOp 入参 —— 不读 payload 任何字段。 */
+export type PlayerIsOpPayload = EmptyPayload
+
+/**
+ * player.isOp 回执 (Java 落点: PlayerWebUiActions, 与 player.inventory/player.wallet 同类同 GSON)。
+ *
+ * 只用于前端渲染决策 (TabletShell 的 opOnly 导航过滤与 OP 徽标)。红线不变: 每个 admin.* 动作仍各自
+ * 在自己的 handler 内独立校验 (MarketAdminActions.requireOp), Gateway (WebUiServerDispatcher.dispatchAndRespond)
+ * 不做任何权限兜底 —— 前端拿到 true 也不等于服务端会放行。
+ */
+export interface PlayerIsOpResult {
+  /** = sender.getServer().getPlayerList().isOp(sender.getGameProfile())。 */
+  isOp: boolean
+}
+
+/** player.itemDetail 入参。 */
+export interface PlayerItemDetailPayload {
+  /**
+   * Inventory.items 下标, 与 player.inventory / market.place 同一索引空间 (合法域 0..inv.items.size()-1,
+   * 即主背包 36 槽, 不含护甲/副手)。越界 -> SLOT_OUT_OF_RANGE; 槽位为空 -> SLOT_EMPTY; 缺字段或非整数 -> INVALID_REQUEST。
+   */
+  slot: number
+}
+
+/**
+ * 物品详情的一行数值 (player.itemDetail.attributes 的元素)。
+ *
+ * 刻意不下发 label: 专用服务端不加载 lang, 服务端拼中文违反"直给中文一律删"纪律。文案由前端按 key 自查
+ * (与 hub.panels 的 label 留前端同一条纪律)。
+ */
+export interface ItemDetailStat {
+  /** 稳定机器键 (小驼峰), 各 kind 的行表见 PlayerItemDetailResult 注释。 */
+  key: string
+  /** Java double。unit='percent' 时是"相对基准的增减量"(0.12 = +12%), 服务端已按 (系数 - 1.0) 换算完毕。 */
+  value: number
+  unit: 'flat' | 'percent'
+}
+
+/** 物品大类。判定顺序即声明顺序 (gun -> gunsmith_part -> tarot -> wine -> nano -> plain)。 */
+export type ItemDetailKind = 'plain' | 'gun' | 'gunsmith_part' | 'tarot' | 'wine' | 'nano'
+
+/**
+ * player.itemDetail 回执 (Java 落点: PlayerWebUiActions + WebUiItemDetailJson, 默认 `new Gson()`,
+ * 故凡是条件性 addProperty 的字段一律是缺席键 `?:`, 不存在 JSON null)。
+ *
+ * 一、前四个字段与变体两字段逐字复用 player.inventory 的既有范式
+ * itemId/descriptionId/count 的取法与 PlayerWebUiActions.INVENTORY 完全一致; 变体两字段
+ * (customModelData/nameParts) 由 WebUiItemJson.appendVariant 追加, 与 market.list / player.inventory 同一套 ——
+ * 否则三处各持一套变体展示口径 (195 种枪匠零件同名同图标那个 bug 就是这么来的)。
+ *
+ * 二、脏 NBT 一律降级不冒泡
+ * 创造模式直给的裸塔罗牌与跨平衡改动的老枪 (GunsmithGunStats.validateCurrentStats 用 Double.compare 把缓存
+ * stats 与按当前平衡表重算的值精确比对, 不相等即抛) 都是正常游玩产物; 让它们冒泡等于"正常物品点开就报错"。
+ * 故服务端一律用非抛探针判 kind, 取值走属主类内部的降级包装; 降级不静默: kind 落回 'plain' 且 tags 必带
+ * 'data.unreadable:<原大类>' 一条。
+ */
+export interface PlayerItemDetailResult {
+  /** 回显入参 slot。 */
+  slot: number
+  /** = MarketEngine.itemIdOf(stack) (与 player.inventory 同一取法)。 */
+  itemId: string
+  /** 翻译键 = stack.getDescriptionId(); 过 client.i18n 解中文。 */
+  descriptionId: string
+  count: number
+  /** 仅 stack.hasCustomHoverName() 为真 (铁砧改名) 时存在; 与 PlayerInventoryItem.displayName 同源同判据。 */
+  displayName?: string
+  /** WebUiItemJson.appendVariant 追加; 无 CustomModelData 时整键缺席。见 ItemVariantFields。 */
+  customModelData?: number
+  /** WebUiItemJson.appendVariant 追加; 名字与 Item 级默认名一致时整键缺席。见 ItemVariantFields。 */
+  nameParts?: ItemNamePart[]
+  /** 物品大类; 脏 NBT 降级后恒为 'plain'。 */
+  kind: ItemDetailKind
+  /**
+   * 数值行, 顺序即服务端写入顺序。各 kind 的行表 (key : unit : 来源):
+   *  gun          : damage/headshot/range/handling/average/fireRate/verticalRecoil/horizontalRecoil/inaccuracy : percent :
+   *                 GunsmithGunStats 同名 getter 减 1.0 (verticalRecoil 用现成的 recoilChange(), inaccuracy 用
+   *                 spreadChange(), 二者本身已是 -1.0 口径); 另有 partCount : flat : parts().size()。
+   *  gunsmith_part: coefficient : flat : PartData.coefficient(); 非 BASIC 变体另加
+   *                 fireRate/verticalRecoil/inaccuracy : percent : variant().xxxMultiplier(coefficient) - 1.0。
+   *  tarot        : cardId : flat : TarotCardItem.cardId(stack)。
+   *  wine         : vintage : flat : WineNbt.readVintage; strength : flat : WineNbt.strength (变质恒 0)。
+   *  nano         : shieldCharges/shieldRegenTick/shieldWindowTick : flat : NanoNbt 同名 getter (单位是 tick,
+   *                 服务端不折算秒); qualityHits : flat : NanoNbt.qualityHits (仅护甲板有值)。
+   *  plain        : 空数组。
+   */
+  attributes: ItemDetailStat[]
+  /**
+   * 稳定机器码标签, 恒存在 (无标签时是空数组, 不是缺席键)。文案由前端按码自解。
+   * 形态: 'ns.name' 或带参 'ns.name:<稳定id>'。当前全集:
+   *  gun          : 'gun.platform:<platform()>' / 'gun.template:<template()>'
+   *  gunsmith_part: 'part.platform:<platform().id()>' / 'part.slot:<part().id()>' /
+   *                 'part.variant:<variant().id()>' / 'part.quality:<quality().id()>'
+   *  tarot        : 'tarot.quality:<quality().id()>' / 'tarot.upright' 或 'tarot.reversed' / 'tarot.bound'
+   *  wine         : 'wine.quality:<readQuality().id()>' / 'wine.spoiled'
+   *  nano         : 'nano.effect:<NanoEffect.id()>' (逐个) / 'nano.xpPending'
+   *  降级         : 'data.unreadable:gun' / 'data.unreadable:gunsmith_part' / 'data.unreadable:tarot' /
+   *                 'data.unreadable:wine' (两种成因: 年份非有限, 或酒章在但品质 id 已被改名认不出)
+   */
+  tags: string[]
+}
+
+/** player.profile 入参 —— 不读 payload 任何字段。 */
+export type PlayerProfilePayload = EmptyPayload
+
+/**
+ * player.profile 聚合里的单条职业进度 (Java 落点: PlayerWebUiActions)。
+ *
+ * 刻意无 displayName (纪律: 直给中文一律删): JobId.displayName() 返的是 Component.translatable("job.miningdim."+id),
+ * 专用服务端解不出中文。前端按 `job.miningdim.<jobId>` 走 client.i18n 自解。
+ */
+export interface PlayerJobProgressEntry {
+  /** = JobId.id(); 域与顺序 = JobId.values() 声明序, 恒 8 条。 */
+  jobId: 'miner' | 'farmer' | 'engineer' | 'tarot' | 'chef' | 'agent' | 'munitions' | 'brewer'
+  /** 1..10 = JobProgress.level()。 */
+  level: number
+  /** = JobProgress.xp(JobId) (FARMER 走 Math.round, 其余 floor)。 */
+  totalXp: number
+  /** = totalXp - JobXpCurve.cumulativeXpForLevel(level)。本级已获经验。 */
+  levelXp: number
+  /**
+   * **本级跨度** = cumulativeXpForLevel(level+1) - cumulativeXpForLevel(level), 不是"还差多少"。
+   * 前端拿 (levelXp / nextLevelXp) 当进度条的 value/max, 只有跨度口径才落在 [0,1]。
+   * 满级态 (level === JobXpCurve.MAX_LEVEL === 10): 服务端 **nextLevelXp 固定发 0 且 levelXp 同时发 0**,
+   * 前端据 nextLevelXp === 0 判满级并改画一句结论, 不画 0/0 的 NaN 宽度空槽, 也不许靠 level === 10 硬编码。
+   */
+  nextLevelXp: number
+  /** = JobProgress.dailyXp(JobId) 今日已入账有效经验 (已按每日软上限衰减)。 */
+  dailyXp: number
+  /** = JobProgress.dailyRemaining(JobId) 今日还能满额入账多少 (撞 0 后仍能获经验, 但按衰减打折)。 */
+  dailyRemaining: number
+}
+
+/**
+ * player.profile 回执 (Java 落点: PlayerWebUiActions, 默认 `new Gson()`, 全字段恒存在)。
+ * 存在的唯一理由是首屏: 不做这条, hub 首页要串行多次 MCEF 往返。
+ *
+ * 性能约束: 本 action 每次打 3 次 SQLite (creditBalance / heartstoneBalance / 一次合并的 faucet peek),
+ * 且派发在服务器主线程 (C2SWebUiRequest 经 enqueueWork 切主线程)。
+ * **禁止把 profile 挂上定时轮询**; 现有调用点的 world.revision 触发式重载是上限。
+ */
+export interface PlayerProfileResult {
+  /** = sender.getGameProfile().getName()。 */
+  playerName: string
+  /** = PlayerList.isOp(GameProfile); 与 player.isOp / hub.panels 的 admin 门同一判定, 不许两套。 */
+  isOp: boolean
+  /** 复用 WebUiWallet; 取法与 player.wallet 逐字相同, 不另写一遍。 */
+  wallet: WebUiWallet
+  /** 恒 8 条, 顺序 = JobId.values()。 */
+  jobs: PlayerJobProgressEntry[]
+  /**
+   * 今日信用点 faucet **毛额 (衰减前)**, Java long。
+   * 口径写死: 账本里这个计数器落的是 EconomyLedger.recordFaucetGrant 的 rawAmount 累加值, 即衰减主闸
+   * **打折之前**的原始额; 玩家实际到手的是打折后的数。字段名带 Gross 就是为了让人一眼看出它不是到账额。
+   * 前端文案必须写明"毛额(衰减前)", 严禁笼统写成"今日入账"。
+   */
+  todayCreditFaucetGross: number
+  /**
+   * 今日青辉石 **实发额**, Java long。
+   * 与上一栏刻意不对称: 青辉石走硬截断, 账本落的是 EconomyLedger.creditAzureDaily 实际入账的量, 天然就是
+   * 到手额, 不存在毛额概念。两栏共用 daily_counters 的 KIND_FAUCET 同一张表, 只是 counter_key 不同。
+   */
+  todayAzureIn: number
+}
+
+/** player.prefs.get 入参 —— 不读 payload 任何字段。 */
+export type PlayerPrefsGetPayload = EmptyPayload
+
+/**
+ * 账号级 UI 偏好 (player.prefs.get 回执 / player.prefs.set 入参与回执, 三处同形)。
+ *
+ * 落点是 capability (IMiningPlayerData), 跟玩家 player.dat 走, 因此换机器/清浏览器缓存不丢。
+ * 只收"前端真有控件在改"的四项: uiScale 与 layout 是像素风时代的遗留, 前端零控件零读取, 不落账号 ——
+ * 写进 player.dat 之后想删就要动 deserializeNBT 的兼容分支。
+ *
+ * 未落账号的一项: 强调色彩度 (brand.chroma)。本批只收色相, 故彩度仍是本机 localStorage 值;
+ * SettingsPage 的说明文案必须如实写"色相跟随账号, 彩度只在这台电脑"。
+ *
+ * 全字段恒存在 (默认 Gson 且四项都有硬默认值), 无 `?:` 无 `| null`。
+ */
+export interface PlayerPrefs {
+  /** 免打扰: 关掉成交/求婚/击杀结算的浮层提示。默认 false。 */
+  muteToasts: boolean
+  /** 界面语言码 (MC lang code 形态, 如 'zh_cn')。写入侧域 ^[a-z0-9_]{1,16}$; 读取侧非法值回退 'zh_cn'。 */
+  language: string
+  /** 亮暗档。默认 'dark' (与 lib/theme.ts readStored 的默认档一致)。 */
+  theme: 'dark' | 'light'
+  /** 强调色 oklch 色相角, Java int, 域 0..360 闭区间。默认 250 (与 lib/brand.ts 的 DEFAULT_BRAND.hue 一致)。 */
+  brandHue: number
+}
+
+/** player.prefs.get 回执 = 当前完整偏好。 */
+export type PlayerPrefsGetResult = PlayerPrefs
+
+/**
+ * player.prefs.set 入参 = 一份**完整**偏好 (整份覆盖, 不做部分更新)。
+ * 四个字段缺任意一个或类型不符 -> INVALID_REQUEST (params.field 指出是哪一个);
+ * 取值域外 (theme 不是 dark/light、brandHue 不在 0..360、language 不符 ^[a-z0-9_]{1,16}$) -> INVALID_REQUEST
+ * (params 带 field 与 value)。
+ *
+ * 为什么不做部分更新: 三态语义 (给了 / 给了 null / 没给) 会把"清空某项"与"不动某项"混在一起,
+ * 而前端 SettingsPage 本来就持有完整偏好状态, 整份提交是零成本。
+ */
+export type PlayerPrefsSetPayload = PlayerPrefs
+
+/**
+ * player.prefs.set 回执 = **落盘后**的完整偏好 (与入参同形)。
+ * 回发一份而不是 {ok:true}: 前端据此对齐本地状态; 服务端日后若收窄某项取值域, 前端能立刻看到被改写成什么。
+ */
+export type PlayerPrefsSetResult = PlayerPrefs
+
+// ============================================================
+// hub.* — HubWebUiActions.java
+// ============================================================
+
+/** hub.panels 入参 —— 不读 payload 任何字段。 */
+export type HubPanelsPayload = EmptyPayload
+
+/**
+ * 稳定面板 id。域按 router.ts 的实际路由定死, 恒 10 条, 顺序即服务端写入顺序。
+ * 与旧 mock 种子的两处差异: quests 剔除 (router.ts 里根本没有这条路由, 任务系统零实现),
+ * champion 更名 codex (真实路由 ROUTE_CODEX)。前端的 panelId -> {route,label,iconItemId} 映射表
+ * (lib/panels.ts 的 HUB_PANEL_META) 是这份 id 的唯一消费方。
+ */
+export type HubPanelId =
+  | 'home'
+  | 'market'
+  | 'shop'
+  | 'jobs'
+  | 'mining'
+  | 'codex'
+  | 'marriage'
+  | 'case'
+  | 'settings'
+  | 'admin'
+
+/**
+ * 一个 hub 面板的**服务端权威部分** (Java 落点: HubWebUiActions)。
+ *
+ * route / label / iconItemId **一律不下发**。理由: 那三项是纯展示层信息, 改文案/换图标/调路由是纯前端发版
+ * (不动 mod jar); 一旦服务端也存一份, 就从"前端发版即生效"变成"两端同时发版才不指错路径", 而路线 A (远端托管
+ * + 浏览器缓存) 下这种不同步检测不出来 —— 旧 mock 种子把 champion 面板的 route 写成 '/champion', 而 router.ts
+ * 里真实常量是 ROUTE_CODEX='/codex', 这就是已实测的漂移证据。
+ * 服务端只权威"这个面板我现在能不能进", 因为它依赖的 OP / 等级 / 婚姻是服务端私有权威数据。
+ */
+export interface HubPanel {
+  panelId: HubPanelId
+  /** 该玩家此刻能否进入。当前只有 admin 一条会为 false (非 OP)。 */
+  enabled: boolean
+  /**
+   * 锁定原因的**稳定机器码**, 仅 enabled=false 时存在 (默认 Gson + 条件性 addProperty, 故是缺席键而不是 null)。
+   * 与 action 的 errorCode 是两个命名空间, 各有各的表: 前端本地化字典必须分开两张 (lib/panels.ts 的
+   * PANEL_LOCK_TEXT 与 lib/errorText.ts 的 ERROR_CODE_TEXT), 撞键会让"锁定原因"与"调用失败"静默串号。
+   * 当前全集只有 'NOT_OP' 一条 (Java 侧 HubLockCodes)。
+   */
+  lockCode?: string
+}
+
+/** hub.panels 回执。 */
+export interface HubPanelsResult {
+  panels: HubPanel[]
+}
 
 // ============================================================
 // market.* — MarketActions.java

@@ -9,6 +9,9 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -282,6 +285,55 @@ public final class SqliteEconomyLedger implements EconomyLedger {
             credit(playerId, Currency.AZURE, credited);
             return credited;
         });
+    }
+
+    @Override
+    public long[] peekFaucetToday(UUID playerId, long todayStamp, List<String> faucetKeys) {
+        Objects.requireNonNull(playerId, "playerId");
+        Objects.requireNonNull(faucetKeys, "faucetKeys");
+        if (faucetKeys.isEmpty()) {
+            throw new IllegalArgumentException("peekFaucetToday requires at least one faucet key");
+        }
+        for (String key : faucetKeys) {
+            if (key == null || key.isBlank()) {
+                throw new IllegalArgumentException("peekFaucetToday faucet key must not be blank");
+            }
+        }
+        // 占位符个数由 key 个数生成, key 本身仍走 setString —— 拼进 SQL 文本的只有 '?', 没有外部字符串。
+        StringBuilder sql = new StringBuilder(
+                "SELECT counter_key, amount, day_stamp FROM daily_counters "
+                        + "WHERE player_id=? AND kind=? AND counter_key IN (");
+        for (int i = 0; i < faucetKeys.size(); i++) {
+            sql.append(i == 0 ? "?" : ",?");
+        }
+        sql.append(')');
+
+        Map<String, Long> todayByKey = new HashMap<>();
+        // 不裹 StoreTx: 纯读且只有一条语句, 没有"多个写入同生共死"的需求。
+        try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            ps.setString(1, playerId.toString());
+            ps.setString(2, KIND_FAUCET);
+            for (int i = 0; i < faucetKeys.size(); i++) {
+                ps.setString(3 + i, faucetKeys.get(i));
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    // 昨天的累计不是今天的; 清零重写的权力只归入账路径。
+                    if (rs.getLong(3) == todayStamp) {
+                        todayByKey.put(rs.getString(1), rs.getLong(2));
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new MiningStoreException("读取当日 faucet 计数失败: " + playerId, e);
+        }
+
+        long[] amounts = new long[faucetKeys.size()];
+        for (int i = 0; i < faucetKeys.size(); i++) {
+            // 缺行 = 该玩家今天这条 faucet 一次都没入过账, 0 是真实答案而非兜底掩盖 (同 balance 的无记录返 0)。
+            amounts[i] = todayByKey.getOrDefault(faucetKeys.get(i), 0L);
+        }
+        return amounts;
     }
 
     // ---- 钱包表读写 ----

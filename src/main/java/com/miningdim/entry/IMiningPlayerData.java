@@ -94,6 +94,21 @@ public interface IMiningPlayerData {
 
     void setSpouseUUID(java.util.UUID spouse);
 
+    // ---- WebUI 界面偏好 (W1 决策 D1: 账号级偏好落 capability, 换机器/清浏览器缓存不丢) ----
+
+    /**
+     * 当前界面偏好 (永不返回 null; 从未设置过为 {@link UiPrefs#DEFAULT})。player.prefs.get 直接下发本值。
+     * {@link com.miningdim.entry.MiningCapabilities#onPlayerClone} 跨死亡/换维度经 copyFrom 保留。
+     */
+    UiPrefs uiPrefs();
+
+    /**
+     * 整份覆盖界面偏好 (player.prefs.set 刻意不做部分更新: "给了 null" 与 "没给" 的三态语义会把
+     * 清空某项与不动某项混在一起, 而前端本来就持有完整偏好状态, 整份提交是零成本)。
+     * 传入实例的取值域已由 {@link UiPrefs} 规范构造器保证。
+     */
+    void setUiPrefs(UiPrefs prefs);
+
     // ---- 全职业进度 (第 2.3 节: 并入唯一权威 capability; 取代已删的 job.JobCapability) ----
 
     /**

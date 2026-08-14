@@ -4,6 +4,7 @@ import com.miningdim.economy.EconomyConstants.HighValueOre;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -200,4 +201,38 @@ public interface IEconomyService {
      * @return true=处于 AFK 冻结态
      */
     boolean isAfkFrozen(ServerPlayer player);
+
+    /**
+     * 只读地取该玩家当日各 faucet 计数器的累计值 (WebUI 首屏 player.profile 的"今日入账"两栏)。返回数组与
+     * faucetKeys 同序等长, 翻日口径与 {@link #grantDaily}/{@link #grantAzureDaily} 完全一致。
+     *
+     * 口径按 key 而定, 调用方必须知道自己查的是哪一个 —— 这是账本本身的记法, 不是本方法能统一的:
+     *  - {@link EconomyConstants#GLOBAL_DAILY_CREDIT_FAUCET_KEY}: 记的是 {@link #grantDaily} 的 rawCredit,
+     *    即衰减主闸打折<b>之前</b>的毛额, 不是玩家到手额 (方法名的 Gross 指这个);
+     *  - {@link EconomyConstants#AZURE_DAILY_FAUCET_KEY}: 青辉石走硬截断, 记的是实际入账量, 天然是到手额。
+     *    两栏口径刻意不对称, 展示层必须逐栏写明, 不许笼统合成一句"今日入账"。
+     *
+     * default 抛而不是返 0 或空数组: 无持久层的 GameTest 替身实现没有 faucet 计数器可言, 给它们一个"恒 0"
+     * 的默认值等于让假数据静默通过断言。没有账本就该在调用点炸出来。
+     *
+     * @param faucetKeys 至少一个非空 faucet 计数键
+     * @return 与 faucetKeys 同序的当日累计值; 当日无记录返 0
+     */
+    default long[] todayFaucetGross(ServerPlayer player, List<String> faucetKeys) {
+        throw new UnsupportedOperationException("This economy service does not track daily faucet counters");
+    }
+
+    /**
+     * 当前 UTC 日戳 (epochDay), 与 {@link #grantDaily}/{@link #todayFaucetGross} 的翻日判据同一来源。
+     *
+     * 暴露它是为了让账本之外的每日计数器 (职业的 per-job dailyXp) 能与 faucet 计数器用<b>同一个</b>日戳判翻日。
+     * 各调用方自行算日戳会在跨午夜的那一次请求里产生两套口径 —— 同一份 player.profile 回执可能一栏按今天、
+     * 另一栏按昨天，那种偏差极难复现也极难归因。
+     *
+     * default 抛的理由同 {@link #todayFaucetGross}: 没有 abuseGuard 的替身实现给不出可信日戳, 返 0 会让
+     * "所有进度恒按跨日处理"这种假数据静默通过断言。
+     */
+    default long currentDayStamp() {
+        throw new UnsupportedOperationException("This economy service does not track a day stamp");
+    }
 }

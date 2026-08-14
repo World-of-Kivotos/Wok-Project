@@ -20,27 +20,21 @@ import {
   TextInput,
 } from '@/components/kit'
 import { WebUiCallError, isMockActive } from '../lib/bridge'
+import { callErrorText } from '../lib/errorText'
+import { useItemNames } from '../lib/i18n'
+import { HUB_PANEL_META, panelLockText } from '../lib/panels'
+import type { HubPanel, HubPanelId, PlayerJobProgressEntry, PlayerProfileResult } from '../lib/types'
 import type {
   MockActionQuery,
   PlannedDifficulty,
   PlannedEconomyTodayResult,
-  PlannedHubPanel,
-  PlannedJobProgressEntry,
   PlannedMarriageStateResult,
   PlannedMarriageStatus,
   PlannedMiningInstance,
   PlannedMiningMyStatusResult,
-  PlannedProfileResult,
 } from '../mock'
 import { callMock, nowMs, useMockAction, useMockWorld } from '../mock'
-import {
-  ROUTE_HOME,
-  ROUTE_MARRIAGE,
-  ROUTE_MINING,
-  buildJobDetailPath,
-  matchRoute,
-  useNavigate,
-} from '../router'
+import { ROUTE_HOME, ROUTE_MARRIAGE, ROUTE_MINING, buildJobDetailPath, useNavigate } from '../router'
 
 /**
  * 首页 · 个人档案 —— 平板打开后的第一屏。
@@ -52,9 +46,12 @@ import {
  * 一条定死的设计: 八职业**并列**渲染, 不做单选器 (清单 C3, 决策已定 —— 全职业被动恒生效, 不存在
  * "当前激活职业")。任何把它改成"选一个职业看"的改动都是设计倒退, 不是布局优化。
  *
+ * === 已接线的真契约 (lib/types.ts, W1 核销) ===
+ *   player.profile    首屏聚合: 玩家名/OP/钱包/8 职业进度/今日信用点毛额与青辉石实发额
+ *   hub.panels        面板闸门, 只回 {panelId, enabled, lockCode}; 展示层三项在 lib/panels.ts
+ *   player.itemDetail 仅用于错误通道自检, 不参与业务展示 (见文件末 BridgeErrorProbe)
+ *
  * === 本页依赖的假定契约 (mock/planned.ts, 逐条对应接线清单第三章总表的行) ===
- *   A5  player.profile    首屏聚合: 玩家名/OP/钱包/8 职业进度/今日双币收入/婚姻一句话/所在矿洞难度
- *   A17 hub.panels        快捷入口的面板注册表 (含 enabled + lockReason)
  *   D2  economy.status    挂机冻结 (冻结期间 faucet 不入账, 是"今天赚了多少"的前置条件)
  *   D3  economy.today     各 faucet 当日进度与衰减档 (faucets[].decayFactor)
  *   D4  economy.today     青辉石每日硬上限 (azureIn / azureDailyCap)
@@ -65,16 +62,16 @@ import {
  *   F8  mining.myStatus   新手保护倒计时 (spawnFreezeUntil)
  *   F3  mining.enter      快捷进入 (服务端裁决等级门, 前端不代拒)
  *   F4  mining.leave      快捷离开
- *   A8  player.itemDetail 仅用于错误通道自检, 不参与业务展示 (见文件末 BridgeErrorProbe)
  *   A14 中文输入 BLOCKED  快捷入口搜索框只能留 onRequestEdit 接口位 (见 PanelsSection)
  *
  * 接线核销: 上面每一行落地后, 按 Java 实现重写 planned 类型即可, 本页的读取点不需要改名 ——
  * 页面全程只经 callMock/useMockAction 调用, 而 handlers 会自动把已核销的 action 甩回真桥。
  *
  * 为什么本页要自己再发一次 player.profile (外壳顶栏已经发过一次):
- * 顶栏只需要名字与余额, 本页需要 jobs / todayCreditIn / marriageSummary / miningDifficulty 这几块;
- * 前端至今没有跨组件的请求缓存层, 与其为了省一次往返在两个组件之间搭一条隐式依赖, 不如各查各的 ——
- * 接线后这条重复往返若成为真实开销, 该补的是一层通用请求缓存, 不是让首页去读外壳的私有状态。
+ * 顶栏只需要名字与余额, 本页需要 jobs 与今日两栏收入; 前端至今没有跨组件的请求缓存层, 与其为了省一次
+ * 往返在两个组件之间搭一条隐式依赖, 不如各查各的 —— 接线后这条重复往返若成为真实开销, 该补的是一层
+ * 通用请求缓存, 不是让首页去读外壳的私有状态。注意 profile 每次都要打 3 次 SQLite 且跑在服务器主线程,
+ * 严禁给它挂定时轮询 (现有的 world.revision 触发式重载已经是上限)。
  */
 
 /** planned 域的空入参。提到模块级只是让"本页一共发几种请求"一眼可数。 */
@@ -87,10 +84,13 @@ const EMPTY_PAYLOAD: Record<string, never> = {}
 const TICK_INTERVAL_MS = 1_000
 
 /**
- * 错误通道自检用的槽位号。背包槽位从 0 起, -1 恒不可能存在, 因此这一发请求必然被服务端拒绝 ——
+ * 错误通道自检用的槽位号。背包合法域是 [0, 36), -1 落在域外, 因此这一发请求必然被服务端拒绝 ——
  * 这正是自检要的: 用一条真实的失败往返验证 WebUiCallError 一路能画到界面上 (见 BridgeErrorProbe)。
+ *
+ * 命中的是 **SLOT_OUT_OF_RANGE 而不是 SLOT_EMPTY**: 服务端先判越界再判空槽 (契约 errorCodes 表),
+ * 负数永远走不到空槽那一档。改这个常量前先看清楚要验的是哪一条拒绝路径。
  */
-const PROBE_EMPTY_SLOT = -1
+const PROBE_OUT_OF_RANGE_SLOT = -1
 
 // ============================================================
 // 纯函数与档位表
@@ -101,14 +101,16 @@ function toError(value: unknown): Error {
 }
 
 /**
- * 错误码展示串。A10 (错误码中文化) 未做, 服务端回的是 Java 异常原文, 故这里只把"哪个 action、哪个
- * 失败码"补在文案下方 —— 那是排障唯一能用的线索, 而 message 本身不做任何加工。
+ * 错误码展示串。带业务码时把稳定机器码一并列出 —— 文案已由 lib/errorText 中文化, 但排障要的是那个码本身。
  */
 function errorCodeOf(error: Error): string | null {
   if (!(error instanceof WebUiCallError)) {
     return null
   }
-  return `${error.action} / code ${String(error.code)}`
+  if (error.business === null) {
+    return `${error.action} / code ${String(error.code)}`
+  }
+  return `${error.action} / ${error.business.errorCode}`
 }
 
 /** 整数千分位。经验值与人数不是货币, 不能借 Currency 渲染 (那会给它挂上一个币种图标)。 */
@@ -191,45 +193,60 @@ function isDifficulty(value: string): value is PlannedDifficulty {
 }
 
 /**
- * 一个面板当前能不能进。
+ * 服务端回执 + 前端展示层元数据 合成的一块可渲染磁贴。
  *
- * 两个来源都要判, 缺一不可: 注册表自己的 enabled/lockReason 是服务端的门控 (等级门/OP/婚姻),
- * 而 route 能不能在前端路由表里找到是**接线正确性**问题 —— mock 的注册表里就有 /champion 与 /quests
- * 两条对不上 router.ts 的路由 (前者真实路由是 /codex, 后者整个任务系统零实现)。
- * 不判后者的话, 点下去会进"未知路由"页, 那看起来像前端坏了, 而实际是注册表与路由表脱节。
+ * 服务端只权威 enabled/lockCode (D2: route/label/iconItemId 一律不下发), 故这三项必须在前端按 panelId
+ * 查 HUB_PANEL_META 补齐。
  */
-interface PanelAvailability {
+interface ResolvedPanel {
+  readonly panelId: HubPanelId
+  readonly label: string
+  readonly route: string
+  readonly iconItemId: string
   readonly usable: boolean
   /** usable 为真时是 null。 */
   readonly reason: string | null
 }
 
-function panelAvailability(panel: PlannedHubPanel): PanelAvailability {
+/**
+ * 本地元数据表认不认识这个 panelId。服务端比前端新时会发来没见过的 id, 那不是错误而是版本差。
+ *
+ * 用 Object.hasOwn 而不是 in: 后者走原型链, 于是 "toString" / "constructor" / "valueOf" 这类键会被判成
+ * 已知面板, 取出来的是 Function, 展开后 label 是 undefined, 首页在过滤那步 label.includes 直接 TypeError
+ * 白屏。本守卫的全部意义就是"发来不认识的 id 不炸", 对这一类 key 失效等于没写。
+ */
+function isKnownPanelId(panelId: string): panelId is HubPanelId {
+  return Object.hasOwn(HUB_PANEL_META, panelId)
+}
+
+/**
+ * 把一条回执解析成磁贴; 本地元数据表里没有这个 panelId 时返回 null (调用方跳过它)。
+ *
+ * 为什么是跳过而不是画一个"未知面板": 服务端比前端新的时候 (mod 更新了、浏览器还缓存着旧页面) 会发来
+ * 前端不认识的 id, 此时既没有名字也没有路由可点 —— 画出来是一个点了会进未知路由页的空磁贴, 比不画更糟。
+ * 这条与 lib/panels.ts 的 Record<HubPanelId, T> 是一对: 那边保证前端不会漏配已知 id, 这边保证多出来的 id 不炸。
+ */
+function resolvePanel(panel: HubPanel): ResolvedPanel | null {
+  if (!isKnownPanelId(panel.panelId)) {
+    return null
+  }
+  const meta = HUB_PANEL_META[panel.panelId]
+  const base = { panelId: panel.panelId, ...meta }
+  if (panel.enabled) {
+    return { ...base, usable: true, reason: null }
+  }
   /*
-   * 两处数据缺陷对玩家一律只说"尚未开放", 技术细节只在假数据模式下补出来。
-   *
-   * 玩家看到"路由 /quests 未在前端路由表登记 (面板注册表与 router.ts 脱节)"既看不懂也无从处理,
-   * 而这条信息对开发是有用的 —— 故不是删掉, 是收进 isMockActive() 里 (生产构建恒为 false, 装进游戏
-   * 后整段不存在)。
+   * lockCode 缺席但 enabled=false: 契约要求两者同时出现, 缺了就是服务端的数据缺陷。对玩家只说进不去,
+   * 技术细节收进 isMockActive() (生产构建恒为 false, 装进游戏后整段不存在)。
    */
-  if (matchRoute(panel.route).pattern === null) {
+  if (panel.lockCode === undefined) {
     return {
+      ...base,
       usable: false,
-      reason: isMockActive()
-        ? `尚未开放 (路由 ${panel.route} 未在前端路由表登记, 面板注册表与 router.ts 脱节)`
-        : '该功能尚未开放',
+      reason: isMockActive() ? '暂不可进入 (服务端标为不可用却没给 lockCode, 数据缺陷)' : '暂不可进入',
     }
   }
-  if (!panel.enabled) {
-    if (panel.lockReason === null) {
-      return {
-        usable: false,
-        reason: isMockActive() ? '尚未开放 (注册表标为不可用却未给出原因, 数据缺陷)' : '该功能尚未开放',
-      }
-    }
-    return { usable: false, reason: panel.lockReason }
-  }
-  return { usable: true, reason: null }
+  return { ...base, usable: false, reason: panelLockText(panel.lockCode) }
 }
 
 // ============================================================
@@ -275,7 +292,7 @@ function QueryGate<T>({ query, loadingLabel, children }: QueryGateProps<T>): Rea
     const code = errorCodeOf(query.error)
     return (
       <ErrorBlock
-        message={query.error.message}
+        message={callErrorText(query.error)}
         onRetry={query.reload}
         {...(code === null ? {} : { code })}
       />
@@ -309,7 +326,7 @@ function CapBar({ label, value, max, tone }: CapBarProps): ReactElement {
 // ============================================================
 
 interface WalletSectionProps {
-  profile: PlannedProfileResult
+  profile: PlayerProfileResult
   today: PlannedEconomyTodayResult
   now: number
 }
@@ -320,15 +337,20 @@ function WalletSection({ profile, today, now }: WalletSectionProps): ReactElemen
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-3 gap-4">
+        {/*
+          两栏的口径刻意不对称 (D3), 文案必须把这件事说清楚:
+          信用点那栏是账本里的 faucet **毛额**, 即衰减主闸打折之前的原始额, 玩家实际到手的比它少;
+          青辉石走硬截断, 账本落的就是实发额。写成一样的"今日入账"会让人拿两个不同口径的数直接比大小。
+        */}
         <Stat
           label="信用点余额"
           value={<Currency amount={profile.wallet.credit} currency="credit" size="lg" />}
-          hint={`今日入账 ${formatInteger(profile.todayCreditIn)}`}
+          hint={`今日产出毛额 ${formatInteger(profile.todayCreditFaucetGross)} (衰减前)`}
         />
         <Stat
           label="青辉石余额"
           value={<Currency amount={profile.wallet.azure} currency="azure" size="lg" />}
-          hint={`今日入账 ${formatInteger(profile.todayAzureIn)}`}
+          hint={`今日实发 ${formatInteger(profile.todayAzureIn)}`}
         />
         <Stat
           label="今日净收入"
@@ -407,11 +429,21 @@ function WalletSection({ profile, today, now }: WalletSectionProps): ReactElemen
 // ============================================================
 
 interface JobsSectionProps {
-  jobs: readonly PlannedJobProgressEntry[]
+  jobs: readonly PlayerJobProgressEntry[]
   onOpen: (jobId: string) => void
 }
 
+/**
+ * 职业名的翻译键。真契约的 jobs 不带 displayName —— 专用服务端解不出中文 (JobId.displayName() 返的是
+ * Component.translatable("job.miningdim."+id)), 故服务端只发 jobId, 中文由客户端 I18n 解。
+ */
+function jobNameKey(jobId: PlayerJobProgressEntry['jobId']): string {
+  return `job.miningdim.${jobId}`
+}
+
 function JobsSection({ jobs, onOpen }: JobsSectionProps): ReactElement {
+  // 八个键一次批量解 (client.i18n 本身就按批合并), 不要每个磁贴各发一次。
+  const names = useItemNames(jobs.map((job) => jobNameKey(job.jobId)))
   if (jobs.length === 0) {
     return (
       <EmptyBlock
@@ -424,19 +456,26 @@ function JobsSection({ jobs, onOpen }: JobsSectionProps): ReactElement {
   return (
     <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
       {jobs.map((job) => (
-        <JobRow key={job.jobId} job={job} onOpen={onOpen} />
+        <JobRow
+          key={job.jobId}
+          job={job}
+          // 解不出来时退回翻译键本身 (与 lib/i18n 同纪律: 让"没解出来"可见, 不伪装成正常名字)。
+          displayName={names[jobNameKey(job.jobId)] ?? jobNameKey(job.jobId)}
+          onOpen={onOpen}
+        />
       ))}
     </div>
   )
 }
 
 interface JobRowProps {
-  job: PlannedJobProgressEntry
+  job: PlayerJobProgressEntry
+  displayName: string
   onOpen: (jobId: string) => void
 }
 
-function JobRow({ job, onOpen }: JobRowProps): ReactElement {
-  // nextLevelXp 为 0 即满级 (planned A5 字段注释明确要求据此判, 不许硬编码 level === 10)。
+function JobRow({ job, displayName, onOpen }: JobRowProps): ReactElement {
+  // nextLevelXp 为 0 即满级 (契约字段注释明确要求据此判, 不许硬编码 level === 10)。
   const maxed = job.nextLevelXp === 0
   const dailyTotal = job.dailyXp + job.dailyRemaining
 
@@ -444,7 +483,7 @@ function JobRow({ job, onOpen }: JobRowProps): ReactElement {
     <Surface className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="font-medium text-sm text-foreground">{job.displayName}</span>
+          <span className="font-medium text-sm text-foreground">{displayName}</span>
           <Tag size="sm" tone={maxed ? 'success' : 'neutral'}>
             Lv.{String(job.level)}
           </Tag>
@@ -611,15 +650,19 @@ function MiningSection({
 // 分区: 婚姻摘要
 // ============================================================
 
+/**
+ * 婚姻摘要。
+ *
+ * 无 summary prop: player.profile 原本有一句现成的 marriageSummary, 真契约把它砍了 —— 服务端拼中文句
+ * 违反"直给中文一律删"纪律, 且那句话的信息 (配偶名 + 婚龄) 与下面 marriage.state 渲染的两处逐字重复。
+ */
 interface MarriageSectionProps {
   marriage: PlannedMarriageStateResult
-  /** A5 聚合里那句现成的摘要; 未婚时是空串。 */
-  summary: string
   onOpenMarriage: () => void
   now: number
 }
 
-function MarriageSection({ marriage, summary, onOpenMarriage, now }: MarriageSectionProps): ReactElement {
+function MarriageSection({ marriage, onOpenMarriage, now }: MarriageSectionProps): ReactElement {
   const style = MARRIAGE_STATUS_STYLE[marriage.status]
   const achieved = marriage.milestones.filter((milestone) => milestone.achievedAt !== null).length
   const cooldownRemaining = marriage.remarryCooldownUntil - now
@@ -643,8 +686,6 @@ function MarriageSection({ marriage, summary, onOpenMarriage, now }: MarriageSec
           <Tag tone="warning">{String(marriage.incomingProposals.length)} 份求婚待答复</Tag>
         )}
       </div>
-
-      {summary === '' ? null : <p className="text-sm text-foreground">{summary}</p>}
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
         <Stat
@@ -695,7 +736,7 @@ function MarriageSection({ marriage, summary, onOpenMarriage, now }: MarriageSec
 // ============================================================
 
 interface PanelsSectionProps {
-  panels: readonly PlannedHubPanel[]
+  panels: readonly HubPanel[]
   scope: PanelScope
   onScopeChange: (next: PanelScope) => void
   keyword: string
@@ -715,16 +756,20 @@ function PanelsSection({
   currentRoute,
   onOpen,
 }: PanelsSectionProps): ReactElement {
-  const visible = panels.filter((panel) => {
-    const availability = panelAvailability(panel)
-    if (scope === 'open' && !availability.usable) {
-      return false
-    }
-    if (scope === 'locked' && availability.usable) {
-      return false
-    }
-    return keyword === '' || panel.label.includes(keyword)
-  })
+  const visible = panels
+    // 先解析再筛: 本地元数据表不认识的 panelId 在这一步被丢掉 (见 resolvePanel), 后面的代码因此不必
+    // 到处判"这个面板有没有名字/路由"。
+    .map((panel) => resolvePanel(panel))
+    .filter((panel): panel is ResolvedPanel => panel !== null)
+    .filter((panel) => {
+      if (scope === 'open' && !panel.usable) {
+        return false
+      }
+      if (scope === 'locked' && panel.usable) {
+        return false
+      }
+      return keyword === '' || panel.label.includes(keyword)
+    })
 
   return (
     <div className="flex flex-col gap-3">
@@ -793,7 +838,7 @@ function PanelsSection({
 }
 
 interface PanelTileProps {
-  panel: PlannedHubPanel
+  panel: ResolvedPanel
   current: boolean
   onOpen: (route: string) => void
 }
@@ -807,12 +852,11 @@ interface PanelTileProps {
  * "看起来是按钮实际处处例外"的东西。
  */
 function PanelTile({ panel, current, onOpen }: PanelTileProps): ReactElement {
-  const availability = panelAvailability(panel)
-  const disabled = !availability.usable || current
+  const disabled = !panel.usable || current
 
   const stateClass = current
     ? 'border-brand bg-brand-muted text-foreground'
-    : availability.usable
+    : panel.usable
       ? 'border-border bg-card text-foreground hover:border-ring hover:bg-accent'
       : 'border-border bg-muted/40 text-muted-foreground opacity-64'
 
@@ -838,7 +882,7 @@ function PanelTile({ panel, current, onOpen }: PanelTileProps): ReactElement {
     >
       <span className="relative">
         <ItemIcon itemId={panel.iconItemId} label={panel.label} scale={2} />
-        {availability.usable ? null : (
+        {panel.usable ? null : (
           // 锁标记压在图标右下角而不是排在名字前面: 排进名字会把本就要折行的两行挤成三行,
           // 且十个磁贴里只有两个带锁, 名字起始位置会参差不齐。
           <LockIcon
@@ -852,7 +896,7 @@ function PanelTile({ panel, current, onOpen }: PanelTileProps): ReactElement {
     </button>
   )
 
-  if (availability.reason === null) {
+  if (panel.reason === null) {
     return current ? <Hint content="你正在这个面板上">{tile}</Hint> : tile
   }
 
@@ -860,7 +904,7 @@ function PanelTile({ panel, current, onOpen }: PanelTileProps): ReactElement {
    * 禁用按钮本身不响应 hover/focus, 所以锁定原因必须挂在包在外面的 Hint 上 ——
    * 它把触发元素包进一条独立的 span, 悬停区域不受按钮禁用态影响 (九-1/九-9: 原生 title 属性被禁)。
    */
-  return <Hint content={availability.reason}>{tile}</Hint>
+  return <Hint content={panel.reason}>{tile}</Hint>
 }
 
 // ============================================================
@@ -876,8 +920,9 @@ interface BridgeErrorProbeProps {
  *
  * 存在的理由不是"演示": MCEF 里的失败通道 (WebUiCallError 的 code -1/-2/-3/-100) 与浏览器里不一样,
  * 而首页的六块内容各自都有失败分支 —— 那些分支若从没在真客户端被看见过一次, 上线才发现错误卡片
- * 撑破布局/文案溢出就太晚了。这里打的是 player.itemDetail 的空槽位 (A8), 服务端必然拒绝, 拒绝路径
- * 与真实业务失败完全同一条。
+ * 撑破布局/文案溢出就太晚了。这里打的是 player.itemDetail 的越界槽位, 服务端必然以 SLOT_OUT_OF_RANGE
+ * 拒绝, 拒绝路径与真实业务失败完全同一条 —— 且它带 params (slot/size), 顺带把"错误码 + 占位符实参
+ * 一路填进中文文案"这条链 (lib/errorText) 也验了。
  *
  * 只在假数据模式下渲染: isMockActive() 在生产构建里恒为 false, 装进游戏后这一块不存在。
  */
@@ -889,9 +934,9 @@ function BridgeErrorProbe({ onUnexpectedSuccess }: BridgeErrorProbeProps): React
   const run = useCallback((): void => {
     setBusy(true)
     setError(null)
-    void callMock('player.itemDetail', { slot: PROBE_EMPTY_SLOT })
+    void callMock('player.itemDetail', { slot: PROBE_OUT_OF_RANGE_SLOT })
       .then(() => {
-        // 空槽位竟然回了物品: 那说明 mock 的槽位语义变了, 自检本身失效, 必须喊出来而不是静默通过。
+        // 越界槽位竟然回了物品: 那说明槽位校验没了, 自检本身失效, 必须喊出来而不是静默通过。
         onUnexpectedSuccess()
       })
       .catch((thrown: unknown) => {
@@ -906,7 +951,7 @@ function BridgeErrorProbe({ onUnexpectedSuccess }: BridgeErrorProbeProps): React
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-muted-foreground text-sm">
-          错误通道自检 (仅假数据模式): 向 player.itemDetail 请求一个不存在的槽位, 走完整失败链路。
+          错误通道自检 (仅假数据模式): 向 player.itemDetail 请求一个越界槽位, 走完整失败链路。
         </span>
         <Button size="sm" variant="destructive-outline" loading={busy} onClick={run}>
           触发一次真实失败
@@ -924,7 +969,7 @@ function BridgeErrorProbe({ onUnexpectedSuccess }: BridgeErrorProbeProps): React
         )}
       </div>
       {error === null ? null : (
-        <ErrorBlock message={error.message} onRetry={run} {...(code === null ? {} : { code })} />
+        <ErrorBlock message={callErrorText(error)} onRetry={run} {...(code === null ? {} : { code })} />
       )}
     </div>
   )
@@ -1062,7 +1107,10 @@ export function HomePage(): ReactElement {
   )
 
   const probeUnexpectedSuccess = useCallback((): void => {
-    pushToast('warning', `自检失效: 槽位 ${String(PROBE_EMPTY_SLOT)} 竟然回了物品, 错误通道没有被触发。`)
+    pushToast(
+      'warning',
+      `自检失效: 槽位 ${String(PROBE_OUT_OF_RANGE_SLOT)} 竟然回了物品, 错误通道没有被触发。`,
+    )
   }, [pushToast])
 
   const anyLoading =
@@ -1205,7 +1253,6 @@ export function HomePage(): ReactElement {
             {(marriageData) => (
               <MarriageSection
                 marriage={marriageData}
-                summary={profile.status === 'ready' ? profile.data.marriageSummary : ''}
                 now={now}
                 onOpenMarriage={() => {
                   navigate(ROUTE_MARRIAGE)

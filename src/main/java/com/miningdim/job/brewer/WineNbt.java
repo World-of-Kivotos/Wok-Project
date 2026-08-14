@@ -59,6 +59,17 @@ public final class WineNbt {
         return readQuality(stack) != null;
     }
 
+    /**
+     * 是否带酒章根标签 (只做类型化存在性判定, 不解品质)。
+     *
+     * 与 {@link #isWine} 的差别就是本方法存在的理由: isWine 的判据是"品质 id 解得出来", 因此品质 id 被改名或
+     * 删除的老酒会被它判成"根本不是酒"。业务路径 (陈酿/喝酒) 要的正是那个口径 —— 解不出品质就不结算; 但展示
+     * 路径要能区分"这不是酒"与"这是酒但读不出来", 后者必须显式标记出来而不是静默当普通物品。
+     */
+    public static boolean hasWineStamp(ItemStack stack) {
+        return root(stack) != null;
+    }
+
     /** 读品质 (无章返回 null, 调用方短路 —— 非酒不结算)。 */
     public static WineQuality readQuality(ItemStack stack) {
         CompoundTag r = root(stack);

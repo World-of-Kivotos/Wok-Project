@@ -5,9 +5,12 @@ import { nowMs } from '../../../mock'
 /**
  * 八个职业面板共用的极小工具集, 以及它们必须逐字照抄的排版骨架约定。
  *
- * 工具集抽出来的理由只有一条: 冷却倒计时的展示口径 (取整方式/"已就绪"文案) 与 PlannedStatLine 数值单位的
+ * 工具集抽出来的理由只有一条: 冷却倒计时的展示口径 (取整方式/"已就绪"文案) 与 JobStatLine 数值单位的
  * 格式化规则若在各个文件里各写一遍, 面板就会长出好几种数字观感, 与本设计系统"同一屏用同一套语言"的
  * 前提冲突。这里只沉淀纯展示逻辑, 不碰任何业务规则或世界状态写入 —— 那些仍归各自面板处理。
+ *
+ * tick -> 本地到期时刻的折算 (MS_PER_TICK / tickDeadline) **不在这里**, 在 @/hooks/use-live-updates:
+ * 矿洞页与婚姻页也要用同一份折算, 而它们不是职业面板。
  *
  * 排版骨架 (八个面板是玩家来回切换的兄弟页, 任一处分区结构/字号/间距不一致都会立刻显形):
  *   - 根容器恒为 <div className="flex flex-col gap-4">;
@@ -50,9 +53,9 @@ export function formatCountdown(targetMs: number, now: number): string {
  * 不在这里做任何四舍五入之外的加工。default 分支理论不可达 (union 已在下方各 case 穷举), 保留它只是
  * 为满足 noImplicitReturns, 不是给未知量纲一个静默兜底。
  *
- * 入参用真契约的 JobStatUnit 而不是 planned 的 PlannedStatUnit: 后者那 5 个值是前者的子集, 仍在用
- * planned 结构的几个面板 (塔罗/特勤/军火商/铸甲师) 因此不受影响, 而已核销的矿工面板需要 multiplier
- * 与 ticks 两档。
+ * 入参是 job.* 系列共用的 JobStatUnit。铸甲师的护甲特效数值走的是另一套量纲词表 (EngineerStatUnit,
+ * 多一档 'count' 且没有 multiplier/blocks/credit), 它在 EngineerPanel 内自带格式化函数 ——
+ * 两个互不相交的量纲词表塞进同一个 switch 只会让"这个 unit 属于哪一组"变成读码才知道的事。
  */
 export function formatStatValue(value: number, unit: JobStatUnit): string {
   switch (unit) {

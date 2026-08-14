@@ -2,7 +2,7 @@ import { StarIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
 import { EmptyBlock } from '@/components/kit'
 import { jobNameKey, useItemNames } from '../../lib/i18n'
-import type { PlannedJobId } from '../../mock'
+import type { WebUiJobId } from '../../lib/types'
 import { useRouteParams } from '../../router'
 import { AgentPanel } from './panels/AgentPanel'
 import { BrewerPanel } from './panels/BrewerPanel'
@@ -30,7 +30,7 @@ import { TarotPanel } from './panels/TarotPanel'
  * (各自的假定契约与接线清单行号见对应 panels/ 文件头), 8 个 case 全部认领完毕。
  */
 
-const IMPLEMENTED_PANELS: Partial<Record<PlannedJobId, () => ReactElement>> = {
+const IMPLEMENTED_PANELS: Partial<Record<WebUiJobId, () => ReactElement>> = {
   tarot: TarotPanel,
   agent: AgentPanel,
   munitions: MunitionsPanel,
@@ -41,7 +41,7 @@ const IMPLEMENTED_PANELS: Partial<Record<PlannedJobId, () => ReactElement>> = {
   brewer: BrewerPanel,
 }
 
-const KNOWN_JOB_IDS: readonly PlannedJobId[] = [
+const KNOWN_JOB_IDS: readonly WebUiJobId[] = [
   'miner',
   'farmer',
   'engineer',
@@ -52,7 +52,7 @@ const KNOWN_JOB_IDS: readonly PlannedJobId[] = [
   'brewer',
 ]
 
-function isPlannedJobId(value: string): value is PlannedJobId {
+function isWebUiJobId(value: string): value is WebUiJobId {
   return (KNOWN_JOB_IDS as readonly string[]).includes(value)
 }
 
@@ -64,7 +64,7 @@ export function JobDetailPage(): ReactElement {
    * 收窄提前到 hook 之前而不是等下面的早返: hook 不能放在条件返回之后, 但把非法值折成 null 后
    * useItemNames 照样是无条件调用 (空批本就支持), 两边都不违反。
    */
-  const knownJobId = jobId !== undefined && isPlannedJobId(jobId) ? jobId : null
+  const knownJobId = jobId !== undefined && isWebUiJobId(jobId) ? jobId : null
   const names = useItemNames(knownJobId === null ? [] : [jobNameKey(knownJobId)])
 
   if (jobId === undefined) {
@@ -72,7 +72,7 @@ export function JobDetailPage(): ReactElement {
       <EmptyBlock hint="路径里缺少职业 id" icon={<TriangleAlertIcon aria-hidden="true" />} title="单职业详情" />
     )
   }
-  if (!isPlannedJobId(jobId)) {
+  if (!isWebUiJobId(jobId)) {
     return (
       <EmptyBlock
         hint={`未知职业 id: ${jobId}`}

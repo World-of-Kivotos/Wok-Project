@@ -24,35 +24,44 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { isMockActive } from '../lib/bridge'
-import { callMock } from '../mock/handlers'
+import { callErrorText } from '../lib/errorText'
+import { useItemNames } from '../lib/i18n'
 import type {
-  PlannedAffixPool,
-  PlannedChampionAffix,
-  PlannedChampionInspectResult,
-  PlannedChampionStar,
-  PlannedDifficulty,
-} from '../mock/planned'
+  ChampionAffixPool,
+  ChampionAffixQuality,
+  ChampionAffixRow,
+  ChampionInspectResult,
+  ChampionStarRow,
+  MiningDifficulty,
+} from '../lib/types'
+import { callMock } from '../mock/handlers'
 import { useMockAction } from '../mock/useMockWorld'
 
 /**
- * 精英怪图鉴 (接线清单 G 组)。
+ * 精英怪图鉴 (`champion.codex` / `champion.inspect`, Java 落点
+ * com.miningdim.champion.ChampionWebUiActions)。回执形状见 lib/types.ts。
  *
- * 依赖的假定契约 (均未接线, 走 mock/planned.ts):
- *   - champion.codex    G1  35 词条 (池/成本/最低星/互斥族/5 档数值) + 10 星级主数据表 + 难度分布
- *                       升格权重。清单标注 WRAP、纯静态枚举 dump —— mock/seed.ts 里这块数据是全库
- *                       唯一"逐字抄自 Java 真值"的部分 (AffixDef / StarRank), 不是编出来的演示数字。
- *   - champion.inspect  G2  按实体 id 查星级/词条/血量, 6 星及以上走自定义血池。清单同标 WRAP,
- *                       但 mock 只能提供两只固定样本, 不代表真实在线实体。
+ * 四条决定本页形状的契约事实:
+ *   1. **一条词条五个价**: 同一条词条在五个品质档下成本各不相同 (costs[5] = ceil(baseCost x 系数)),
+ *      单一 cost 字段不存在。ceil 是防小数成本破整数点池预算的业务规则, 前端不得自己乘。
+ *   2. **availableTiers 必须用**: primaryValues 里的 0 全是"该档不存在"的占位 (重型护甲/刚毅前两档、
+ *      小男孩/命定前三档、自我修复中级档)。照直画五格会多出一排"减伤 0%"的假档位。
+ *   3. **没有星级权重表**: ChampionSpawnPolicy.rollStar 就是"区间 [minStar,maxStar] 内均匀取整",
+ *      顶层 starRollMode 声明了这件事。旧版那张权重条是凭空画的, 已改成均匀分布。
+ *   4. **无互斥发字符串 'NONE' 而不是 null**: MutexFlag.NONE 是枚举里实打实的一档, 判空要写 === 'NONE'。
  *
- * 明确不做的部分: 清单 G 组还列了 G3 (参团贡献实时进度)/G4 (击杀奖励结算)/G5 (DoT 层数汇总)/
- * G6 (减伤汇总快照) 四项, 状态全是 BACKEND (服务端连数据都还没有), 不在本页范围内, 不得臆造。
+ * 血量口径: 6 星起 (或低星被巨大化撑破 1024 的怪) 的战斗权威是自定义血池, vanilla 那一对被
+ * generic.max_health 的 1024 硬上限钳住, 只是渲染镜像。**画血条一律只用 health/maxHealth/healthFraction**。
  *
- * 中文输入: 本页无任何自由文本输入控件 (词条池/难度切换走页签, 样本查询走固定按钮),
- * 不涉及 TextInput 的 onRequestEdit 接口位。
+ * 样本查询只在假数据模式下开放: champion.inspect 按**网络实体 id** 查, 而页面自己拿不到这个 id ——
+ * 需要 MCEF 客户端侧提供"把准星/选中实体的 Entity.getId() 传进页面"的桥, 那条桥还不存在。
+ * 在真服放几个写死的 id 只会稳定地拿到 ENTITY_NOT_FOUND。
+ *
+ * 中文输入: 本页无任何自由文本输入控件, 不涉及 TextInput 的 onRequestEdit 接口位。
  */
 
 type TopTabId = 'affixes' | 'stars' | 'distribution' | 'inspect'
-type PoolTabId = 'all' | PlannedAffixPool
+type PoolTabId = 'all' | ChampionAffixPool
 
 const TOP_TABS: readonly TabItem[] = [
   { id: 'affixes', label: '词条' },
@@ -63,32 +72,41 @@ const TOP_TABS: readonly TabItem[] = [
 
 const TOP_TAB_IDS: readonly TopTabId[] = ['affixes', 'stars', 'distribution', 'inspect']
 const POOL_TAB_IDS: readonly PoolTabId[] = ['all', 'SURVIVAL', 'COMBAT', 'MOBILITY', 'SKILL']
-const DIFFICULTY_TAB_IDS: readonly PlannedDifficulty[] = ['easy', 'medium', 'hard']
+const DIFFICULTY_TAB_IDS: readonly MiningDifficulty[] = ['easy', 'medium', 'hard']
 
-const POOL_LABEL: Record<PlannedAffixPool, string> = {
+const POOL_LABEL: Record<ChampionAffixPool, string> = {
   SURVIVAL: '生存',
   COMBAT: '战斗',
   MOBILITY: '机动',
   SKILL: '技能',
 }
 
-const POOL_TONE: Record<PlannedAffixPool, Tone> = {
+const POOL_TONE: Record<ChampionAffixPool, Tone> = {
   SURVIVAL: 'success',
   COMBAT: 'danger',
   MOBILITY: 'info',
   SKILL: 'brand',
 }
 
-const DIFFICULTY_LABEL: Record<PlannedDifficulty, string> = {
+const DIFFICULTY_LABEL: Record<MiningDifficulty, string> = {
   easy: '简单',
   medium: '普通',
   hard: '困难',
 }
 
-/** 5 档品质数值的固定列序, 对应 seed.ts AFFIX_ROWS 的 tiers 元组顺序。 */
-const TIER_LABELS: readonly string[] = ['普通', '中级', '高级', '超凡', '闪耀']
+/**
+ * 词条品质档的中文名。champion.codex 的 ChampionQualityRow **没有 nameKey** (服务端只发成本系数与
+ * 展示色), 故这一档的文案归前端 —— 与旧版那张五档表逐字相同, 不是新发明的叫法。
+ */
+const AFFIX_QUALITY_LABEL: Record<ChampionAffixQuality, string> = {
+  COMMON: '普通',
+  UNCOMMON: '中级',
+  RARE: '高级',
+  EPIC: '超凡',
+  LEGENDARY: '闪耀',
+}
 
-/** 已知样本实体 id (mock/seed.ts champion.samples), 供样本查询按钮使用。 */
+/** 已知样本实体 id (mock 世界的 champion.samples), 只在假数据模式下可用 —— 见文件头。 */
 const SAMPLE_ENTITY_IDS: readonly { entityId: number; label: string }[] = [
   { entityId: 4201, label: '样本 A · 复合装甲 僵尸' },
   { entityId: 4202, label: '样本 B · 命定 凋灵骷髅' },
@@ -100,67 +118,73 @@ function includes<T extends string>(list: readonly T[], value: string): value is
   return (list as readonly string[]).includes(value)
 }
 
-function tierText(value: number): string {
-  return value === 0 ? '—' : String(value)
+/**
+ * 按量纲格式化词条数值。
+ *
+ * 量纲词表来自契约, **严禁跨词条比大小**: flat_hp_damage_cap (刚毅护盾) 与 seconds_cooldown 都是
+ * 数值越小越强, 而 fraction_move_speed_bonus / fraction_max_health_bonus / fraction_damage_bonus
+ * 可以大于 1 (超速最高 2.50 = +250%), 按 0..1 钳制会把超速压成 100%。
+ */
+function formatAffixValue(unit: string, value: number): string {
+  if (unit === 'flag') {
+    return '有'
+  }
+  if (unit.startsWith('fraction_')) {
+    return `${(value * 100).toFixed(1)}%`
+  }
+  if (unit === 'flat_hp_per_second') {
+    return `${String(value)} HP/秒`
+  }
+  if (unit === 'flat_hp_damage_cap') {
+    return `${String(value)} HP`
+  }
+  if (unit === 'durability_points_per_hit') {
+    return `${String(value)} 点/击`
+  }
+  if (unit === 'seconds_cooldown' || unit === 'seconds_duration') {
+    return `${String(value)} 秒`
+  }
+  if (unit === 'multiplier') {
+    return `x${value.toFixed(2)}`
+  }
+  return String(value)
 }
 
-function starWeightTone(star: number): Tone {
-  if (star <= 3) {
+/**
+ * 副数值那一排。收成组件而不是内联三元: secondaryUnit / secondaryValues 是**同进同出的一对缺席键**,
+ * 在 JSX 里判空之后再进 map 回调, TS 的窄化会在回调边界丢掉, 只能补 `?? ''` 这类会掩盖问题的兜底。
+ */
+function AffixSecondaryRow({ affix }: { affix: ChampionAffixRow }): ReactElement | null {
+  const unit = affix.secondaryUnit
+  const values = affix.secondaryValues
+  if (unit === undefined || values === undefined) {
+    return null
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-muted-foreground text-xs">副数值 (量纲 {unit})</span>
+      <div className="grid grid-cols-5 gap-2">
+        {values.map((value, index) => (
+          <span className="text-foreground text-sm tabular-nums" key={`secondary-${String(index)}`}>
+            {affix.availableTiers[index] === true ? formatAffixValue(unit, value) : '—'}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function healthTone(fraction: number): Tone {
+  if (fraction > 0.6) {
     return 'success'
   }
-  if (star <= 6) {
+  if (fraction > 0.3) {
     return 'warning'
   }
   return 'danger'
 }
 
-function healthTone(ratio: number): Tone {
-  if (ratio > 0.6) {
-    return 'success'
-  }
-  if (ratio > 0.3) {
-    return 'warning'
-  }
-  return 'danger'
-}
-
-const AFFIX_COLUMNS: readonly DataTableColumn<PlannedChampionAffix>[] = [
-  { key: 'name', header: '名称', render: (row) => row.displayName, sortValue: (row) => row.displayName },
-  {
-    key: 'pool',
-    header: '词条池',
-    render: (row) => <Tag tone={POOL_TONE[row.pool]}>{POOL_LABEL[row.pool]}</Tag>,
-    sortValue: (row) => row.pool,
-  },
-  {
-    key: 'cost',
-    header: '基础成本',
-    numeric: true,
-    render: (row) => String(row.cost),
-    sortValue: (row) => row.cost,
-  },
-  {
-    key: 'minStar',
-    header: '最低星',
-    numeric: true,
-    render: (row) => `${String(row.minStar)} 星`,
-    sortValue: (row) => row.minStar,
-  },
-  {
-    key: 'isSkill',
-    header: '占技能位',
-    render: (row) => (row.isSkill ? '是' : '否'),
-    sortValue: (row) => (row.isSkill ? 1 : 0),
-  },
-  {
-    key: 'mutex',
-    header: '互斥族',
-    render: (row) => (row.mutexFamily === null ? '—' : row.mutexFamily),
-    sortValue: (row) => row.mutexFamily ?? '',
-  },
-]
-
-const STAR_COLUMNS: readonly DataTableColumn<PlannedChampionStar>[] = [
+const STAR_COLUMNS: readonly DataTableColumn<ChampionStarRow>[] = [
   {
     key: 'star',
     header: '星级',
@@ -197,20 +221,25 @@ const STAR_COLUMNS: readonly DataTableColumn<PlannedChampionStar>[] = [
     sortValue: (row) => row.skillBudget,
   },
   {
-    key: 'affixCap',
+    key: 'maxAffixes',
     header: '词条上限',
     numeric: true,
-    render: (row) => String(row.affixCap),
-    sortValue: (row) => row.affixCap,
+    render: (row) => String(row.maxAffixes),
+    sortValue: (row) => row.maxAffixes,
   },
   {
-    key: 'skillCap',
+    key: 'maxSkills',
     header: '技能上限',
     numeric: true,
-    render: (row) => String(row.skillCap),
-    sortValue: (row) => row.skillCap,
+    render: (row) => String(row.maxSkills),
+    sortValue: (row) => row.maxSkills,
   },
-  { key: 'quality', header: '最高品质', render: (row) => row.maxQuality, sortValue: (row) => row.maxQuality },
+  {
+    key: 'quality',
+    header: '最高品质',
+    render: (row) => AFFIX_QUALITY_LABEL[row.maxQuality],
+    sortValue: (row) => row.maxQuality,
+  },
   {
     key: 'hp',
     header: '基础有效血量',
@@ -220,17 +249,24 @@ const STAR_COLUMNS: readonly DataTableColumn<PlannedChampionStar>[] = [
   },
   {
     key: 'hit',
-    header: '单击伤害 (占最大血量)',
+    header: '单击基线 (占最大血量)',
     numeric: true,
-    render: (row) => `${(row.baseHitPct * 100).toFixed(1)}%`,
-    sortValue: (row) => row.baseHitPct,
+    render: (row) => `${(row.baseSingleHitPct * 100).toFixed(1)}%`,
+    sortValue: (row) => row.baseSingleHitPct,
+  },
+  {
+    key: 'hitCap',
+    header: '单击硬上限',
+    numeric: true,
+    render: (row) => `${(row.normalHitCapPct * 100).toFixed(1)}%`,
+    sortValue: (row) => row.normalHitCapPct,
   },
 ]
 
 type InspectState =
   | { status: 'idle' }
   | { status: 'loading'; entityId: number }
-  | { status: 'ready'; entityId: number; data: PlannedChampionInspectResult }
+  | { status: 'ready'; entityId: number; data: ChampionInspectResult }
   | { status: 'error'; entityId: number; message: string }
 
 export function CodexPage(): ReactElement {
@@ -238,10 +274,22 @@ export function CodexPage(): ReactElement {
 
   const [activeTab, setActiveTab] = useState<TopTabId>('affixes')
   const [activePool, setActivePool] = useState<PoolTabId>('all')
-  const [activeDifficulty, setActiveDifficulty] = useState<PlannedDifficulty>('easy')
+  const [activeDifficulty, setActiveDifficulty] = useState<MiningDifficulty>('easy')
   const [selectedAffixId, setSelectedAffixId] = useState<string | null>(null)
   const [selectedStar, setSelectedStar] = useState<number | null>(null)
   const [inspect, setInspect] = useState<InspectState>({ status: 'idle' })
+
+  const codexData = codex.status === 'ready' ? codex.data : null
+  const inspectData = inspect.status === 'ready' ? inspect.data : null
+
+  // 词条名与实体名一次批量解: 服务端只发翻译键 (专用服务端不加载 lang), 中文由 client.i18n 出。
+  const names = useItemNames([
+    ...(codexData === null ? [] : codexData.affixes.map((affix) => affix.nameKey)),
+    ...(inspectData === null
+      ? []
+      : [inspectData.entityDescriptionId, ...inspectData.affixes.map((affix) => affix.nameKey)]),
+  ])
+  const nameOf = (nameKey: string): string => names[nameKey] ?? nameKey
 
   async function handleInspect(entityId: number): Promise<void> {
     setInspect({ status: 'loading', entityId })
@@ -252,7 +300,7 @@ export function CodexPage(): ReactElement {
       setInspect({
         status: 'error',
         entityId,
-        message: error instanceof Error ? error.message : String(error),
+        message: callErrorText(error instanceof Error ? error : new Error(String(error))),
       })
     }
   }
@@ -265,12 +313,69 @@ export function CodexPage(): ReactElement {
     )
   }
   if (codex.status === 'error') {
-    return <ErrorBlock message={codex.error.message} onRetry={codex.reload} />
+    return <ErrorBlock message={callErrorText(codex.error)} onRetry={codex.reload} />
+  }
+  if (codexData === null) {
+    return <ErrorBlock message="champion.codex 回执为空" onRetry={codex.reload} />
   }
 
-  const { affixes, stars, distribution } = codex.data
+  const { affixes, stars, distribution, qualities } = codexData
 
-  const poolCounts: Record<PlannedAffixPool, number> = {
+  /** 品质档表, 数组下标即 primaryValues / costs / availableTiers 的 tier。 */
+  const tierColumns = qualities.map((quality) => ({
+    qualityId: quality.qualityId,
+    label: AFFIX_QUALITY_LABEL[quality.qualityId],
+  }))
+
+  const affixColumns: readonly DataTableColumn<ChampionAffixRow>[] = [
+    {
+      key: 'name',
+      header: '名称',
+      render: (row) => nameOf(row.nameKey),
+      sortValue: (row) => nameOf(row.nameKey),
+    },
+    {
+      key: 'pool',
+      header: '词条池',
+      render: (row) => <Tag tone={POOL_TONE[row.pool]}>{POOL_LABEL[row.pool]}</Tag>,
+      sortValue: (row) => row.pool,
+    },
+    {
+      key: 'baseCost',
+      header: '基础成本',
+      numeric: true,
+      render: (row) => String(row.baseCost),
+      sortValue: (row) => row.baseCost,
+    },
+    {
+      key: 'minStar',
+      header: '最低星',
+      numeric: true,
+      render: (row) => `${String(row.minStar)} 星`,
+      sortValue: (row) => row.minStar,
+    },
+    {
+      key: 'minQuality',
+      header: '最低品质',
+      render: (row) => AFFIX_QUALITY_LABEL[row.minQuality],
+      sortValue: (row) => row.minQuality,
+    },
+    {
+      key: 'isSkill',
+      header: '占技能位',
+      render: (row) => (row.isSkill ? '是' : '否'),
+      sortValue: (row) => (row.isSkill ? 1 : 0),
+    },
+    {
+      key: 'mutex',
+      // MutexFlag.NONE 是枚举里实打实的一档, 不是"没填"; 判空必须写 === 'NONE'。
+      header: '互斥族',
+      render: (row) => (row.mutexFlag === 'NONE' ? '—' : row.mutexFlag),
+      sortValue: (row) => row.mutexFlag,
+    },
+  ]
+
+  const poolCounts: Record<ChampionAffixPool, number> = {
     SURVIVAL: affixes.filter((entry) => entry.pool === 'SURVIVAL').length,
     COMBAT: affixes.filter((entry) => entry.pool === 'COMBAT').length,
     MOBILITY: affixes.filter((entry) => entry.pool === 'MOBILITY').length,
@@ -289,21 +394,27 @@ export function CodexPage(): ReactElement {
   }))
 
   const visibleAffixes = activePool === 'all' ? affixes : affixes.filter((entry) => entry.pool === activePool)
-  const selectedAffix = selectedAffixId === null ? null : affixes.find((entry) => entry.affixId === selectedAffixId) ?? null
-  const selectedStarEntry = selectedStar === null ? null : stars.find((entry) => entry.star === selectedStar) ?? null
-  const activeDistribution = distribution.find((entry) => entry.difficulty === activeDifficulty)
-  const totalWeight =
-    activeDistribution === undefined ? 0 : activeDistribution.starWeights.reduce((sum, entry) => sum + entry.weight, 0)
-  const affixNameByid: Record<string, string> = Object.fromEntries(
-    affixes.map((entry) => [entry.affixId, entry.displayName]),
-  )
+  const selectedAffix =
+    selectedAffixId === null ? null : (affixes.find((entry) => entry.affixId === selectedAffixId) ?? null)
+  const selectedStarEntry =
+    selectedStar === null ? null : (stars.find((entry) => entry.star === selectedStar) ?? null)
+  const activeDistribution = distribution.find((entry) => entry.configName === activeDifficulty)
+  /** 均匀分布: 服务端没有权重表, 每个可掷星级的概率就是 1 / 区间长度。 */
+  const uniformStars =
+    activeDistribution === undefined
+      ? []
+      : Array.from(
+          { length: activeDistribution.maxStar - activeDistribution.minStar + 1 },
+          (_unused, index) => activeDistribution.minStar + index,
+        )
+  const uniformPercent = uniformStars.length === 0 ? 0 : 100 / uniformStars.length
 
   return (
     <section className="flex flex-col gap-4">
       {/* 页名由 TabletShell 的 h1 统一渲染, 页面内不再重复 —— 重复两遍且里层更大, 打开必现, 读起来像渲染 bug。 */}
       <p className="text-muted-foreground text-xs">
-        35 条词条按生存 / 战斗 / 机动 / 技能四组呈现, 数值与服务器内的实际配置一致; 样本查询看到的是
-        演示数据, 不是当前在线的怪物。
+        {affixes.length} 条词条按生存 / 战斗 / 机动 / 技能四组呈现, 数值与服务器内的实际配置一致;
+        {codexData.customBloodPoolMinStar} 星及以上走自定义血池, 血量会超出原版上限。
       </p>
 
       <TabBar
@@ -332,7 +443,7 @@ export function CodexPage(): ReactElement {
           <Panel className="overflow-hidden" padded={false}>
             <div className="max-h-96 overflow-y-auto">
               <DataTable
-                columns={AFFIX_COLUMNS}
+                columns={affixColumns}
                 rows={visibleAffixes}
                 rowKey={(row) => row.affixId}
                 onRowClick={(row) => {
@@ -364,9 +475,10 @@ export function CodexPage(): ReactElement {
           {selectedStarEntry === null ? null : (
             <Surface tone="info">
               <p className="text-foreground text-sm">
-                {selectedStarEntry.star} 星: 词条上限 {selectedStarEntry.affixCap} 条 (含{' '}
-                {selectedStarEntry.skillCap} 条技能位), 最高品质 {selectedStarEntry.maxQuality}
-                {selectedStarEntry.star >= 6 ? ', 血量超出常规上限' : ''}
+                {selectedStarEntry.star} 星: 词条上限 {selectedStarEntry.maxAffixes} 条 (含{' '}
+                {selectedStarEntry.maxSkills} 条技能位), 最高品质{' '}
+                {AFFIX_QUALITY_LABEL[selectedStarEntry.maxQuality]}
+                {selectedStarEntry.usesCustomBloodPool ? ', 走自定义血池 (血量超出原版上限)' : ''}
               </p>
             </Surface>
           )}
@@ -388,26 +500,36 @@ export function CodexPage(): ReactElement {
           {activeDistribution === undefined ? (
             <EmptyBlock
               title="暂无数据"
-              hint="该难度还没有星级分布"
+              hint="该难度没有星级分布"
               icon={<TriangleAlertIcon aria-hidden="true" />}
             />
           ) : (
             <Panel>
               <div className="flex flex-col gap-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Tag tone="brand">
+                    星级区间 {activeDistribution.minStar} - {activeDistribution.maxStar} 星
+                  </Tag>
+                  <Tag tone="info">
+                    升格率 {(activeDistribution.promoteChance * 100).toFixed(1)}%
+                  </Tag>
+                </div>
                 <div className="flex flex-col gap-3">
-                  {activeDistribution.starWeights.map((entry) => (
+                  {uniformStars.map((star) => (
                     <Meter
-                      key={entry.star}
-                      value={entry.weight}
+                      key={star}
+                      value={uniformPercent}
                       max={100}
-                      tone={starWeightTone(entry.star)}
-                      label={`${String(entry.star)} 星 · 权重 ${String(entry.weight)}%`}
+                      tone="brand"
+                      label={`${String(star)} 星`}
+                      valueText={`${uniformPercent.toFixed(1)}%`}
                     />
                   ))}
                 </div>
-                <div>
-                  <Tag tone={totalWeight === 100 ? 'success' : 'warning'}>总权重 {totalWeight}%</Tag>
-                </div>
+                <p className="text-muted-foreground text-xs">
+                  掷星方式 {codexData.starRollMode}: 区间内均匀取整, 服务端没有任何权重表 ——
+                  这几条等高的条就是真实分布, 不是占位图
+                </p>
               </div>
             </Panel>
           )}
@@ -416,36 +538,46 @@ export function CodexPage(): ReactElement {
 
       {activeTab === 'inspect' ? (
         <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap gap-2">
-            {SAMPLE_ENTITY_IDS.map((sample) => (
+          {isMockActive() ? (
+            <div className="flex flex-wrap gap-2">
+              {SAMPLE_ENTITY_IDS.map((sample) => (
+                <Button
+                  key={sample.entityId}
+                  variant="outline"
+                  loading={inspect.status === 'loading' && inspect.entityId === sample.entityId}
+                  onClick={() => {
+                    void handleInspect(sample.entityId)
+                  }}
+                >
+                  {sample.label}
+                </Button>
+              ))}
               <Button
-                key={sample.entityId}
-                variant="outline"
-                loading={inspect.status === 'loading' && inspect.entityId === sample.entityId}
+                variant="destructive-outline"
+                loading={inspect.status === 'loading' && inspect.entityId === UNKNOWN_ENTITY_ID}
                 onClick={() => {
-                  void handleInspect(sample.entityId)
+                  void handleInspect(UNKNOWN_ENTITY_ID)
                 }}
               >
-                {sample.label}
+                演示查询失败
               </Button>
-            ))}
-            <Button
-              variant="destructive-outline"
-              loading={inspect.status === 'loading' && inspect.entityId === UNKNOWN_ENTITY_ID}
-              onClick={() => {
-                void handleInspect(UNKNOWN_ENTITY_ID)
-              }}
-            >
-              演示查询失败
-            </Button>
-          </div>
-
-          {inspect.status === 'idle' ? (
+            </div>
+          ) : (
             <EmptyBlock
-              title="尚未查询"
-              hint="点击上方按钮查看精英怪样本"
+              title="样本查询暂不可用"
+              hint="查一只精英怪要先知道它的实体编号, 而平板现在拿不到你准星指着的是哪一只 —— 这条通路还没接"
               icon={<SearchIcon aria-hidden="true" />}
             />
+          )}
+
+          {inspect.status === 'idle' ? (
+            isMockActive() ? (
+              <EmptyBlock
+                title="尚未查询"
+                hint="点击上方按钮查看精英怪样本"
+                icon={<SearchIcon aria-hidden="true" />}
+              />
+            ) : null
           ) : inspect.status === 'loading' ? (
             <Panel>
               <LoadingBlock label="正在查询" size="lg" />
@@ -459,32 +591,52 @@ export function CodexPage(): ReactElement {
             />
           ) : (
             <Panel
-              title={inspect.data.displayName}
+              title={nameOf(inspect.data.entityDescriptionId)}
               {...(isMockActive()
                 ? // 实体类型与 id 只有排查时用得上; 生产构建里 isMockActive 恒为 false, 这行不存在。
-                  { description: `${inspect.data.entityType} · 实体 id ${String(inspect.data.entityId)}` }
+                  { description: `${inspect.data.entityTypeId} · 实体 id ${String(inspect.data.entityId)}` }
                 : {})}
               actions={<Tag tone="warning">{inspect.data.star} 星</Tag>}
             >
               <div className="flex flex-col gap-3">
+                {/*
+                  分母只用服务端算好的 healthFraction: 6 星起战斗权威是自定义血池, vanilla 那一对被
+                  1024 硬上限钳住, 拿它算比例必错 (实测 7 星 maxHealth=5312.8 而 vanillaMaxHealth=1024)。
+                */}
                 <Meter
-                  value={inspect.data.health}
-                  max={inspect.data.maxHealth}
-                  tone={healthTone(inspect.data.health / inspect.data.maxHealth)}
+                  value={inspect.data.healthFraction * 100}
+                  max={100}
+                  tone={healthTone(inspect.data.healthFraction)}
                   label="血量"
-                  valueText={`${String(inspect.data.health)}/${String(inspect.data.maxHealth)}`}
+                  valueText={`${inspect.data.health.toFixed(0)} / ${inspect.data.maxHealth.toFixed(0)}`}
                 />
-                {inspect.data.customBloodPool ? (
-                  <div>
-                    <Tag tone="info">血量超出常规上限</Tag>
-                  </div>
-                ) : null}
                 <div className="flex flex-wrap gap-2">
-                  {inspect.data.affixIds.map((affixId) => (
-                    <Tag key={affixId} tone="brand">
-                      {affixNameByid[affixId] ?? affixId}
-                    </Tag>
-                  ))}
+                  <Tag tone={inspect.data.customBloodPool ? 'info' : 'neutral'}>
+                    {inspect.data.customBloodPool ? '自定义血池' : '原版血量'}
+                  </Tag>
+                  <Tag tone="neutral">设计有效血 {inspect.data.effectiveHp.toFixed(0)}</Tag>
+                  <Tag tone="neutral">该星最高品质 {AFFIX_QUALITY_LABEL[inspect.data.maxQuality]}</Tag>
+                  {inspect.data.summonedByAffix ? (
+                    <Tag tone="warning">支援召唤物 (不计货币/经验/掉落)</Tag>
+                  ) : null}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <h3 className="font-medium text-foreground text-sm">已掷出的词条</h3>
+                  {inspect.data.affixes.length === 0 ? (
+                    <p className="text-muted-foreground text-sm">这只精英一条词条都没有。</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {inspect.data.affixes.map((affix) => (
+                        <Tag key={affix.affixId} tone={POOL_TONE[affix.pool]}>
+                          {nameOf(affix.nameKey)} · {AFFIX_QUALITY_LABEL[affix.quality]} ·{' '}
+                          {formatAffixValue(affix.primaryUnit, affix.primaryValue)}
+                          {affix.secondaryUnit === undefined || affix.secondaryValue === undefined
+                            ? ''
+                            : ` / ${formatAffixValue(affix.secondaryUnit, affix.secondaryValue)}`}
+                        </Tag>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </Panel>
@@ -504,7 +656,7 @@ export function CodexPage(): ReactElement {
           {selectedAffix === null ? null : (
             <>
               <DialogHeader>
-                <DialogTitle>{selectedAffix.displayName}</DialogTitle>
+                <DialogTitle>{nameOf(selectedAffix.nameKey)}</DialogTitle>
                 <DialogDescription>
                   {/* 词条 id 只在假数据模式下露出, 生产构建里给玩家看它所属的词条池。 */}
                   {isMockActive() ? selectedAffix.affixId : `${POOL_LABEL[selectedAffix.pool]}词条`}
@@ -513,29 +665,43 @@ export function CodexPage(): ReactElement {
               <div className="flex flex-col gap-3 px-6 pb-6">
                 <div className="flex flex-wrap gap-2">
                   <Tag tone={POOL_TONE[selectedAffix.pool]}>{POOL_LABEL[selectedAffix.pool]}</Tag>
-                  <Tag>基础成本 {selectedAffix.cost}</Tag>
+                  <Tag>基础成本 {selectedAffix.baseCost}</Tag>
                   <Tag>最低 {selectedAffix.minStar} 星</Tag>
+                  <Tag>最低品质 {AFFIX_QUALITY_LABEL[selectedAffix.minQuality]}</Tag>
                   {selectedAffix.isSkill ? <Tag tone="brand">占技能位</Tag> : null}
-                  {selectedAffix.mutexFamily === null ? null : (
-                    <Tag tone="warning">互斥族: {selectedAffix.mutexFamily}</Tag>
+                  {selectedAffix.mutexFlag === 'NONE' ? null : (
+                    <Tag tone="warning">互斥族: {selectedAffix.mutexFlag}</Tag>
                   )}
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-muted-foreground text-xs">各品质档数值</span>
+                  <span className="text-muted-foreground text-xs">
+                    各品质档数值与成本 (量纲 {selectedAffix.primaryUnit}, 不同词条之间不可比大小)
+                  </span>
                   <div className="grid grid-cols-5 gap-2">
-                    {TIER_LABELS.map((label) => (
-                      <span className="text-muted-foreground text-xs" key={label}>
-                        {label}
+                    {tierColumns.map((column) => (
+                      <span className="text-muted-foreground text-xs" key={column.qualityId}>
+                        {column.label}
                       </span>
                     ))}
-                    {selectedAffix.tiers.map((value, index) => (
-                      // 5 档数值与 TIER_LABELS 一一对应, key 用档位下标本身足够稳定 (数组长度固定为 5)。
-                      <span className="text-foreground text-sm tabular-nums" key={index}>
-                        {tierText(value)}
+                    {selectedAffix.primaryValues.map((value, index) => (
+                      // 五档与 tierColumns 一一对应, key 用档位下标本身足够稳定 (数组长度固定为 5)。
+                      <span className="text-foreground text-sm tabular-nums" key={`primary-${String(index)}`}>
+                        {selectedAffix.availableTiers[index] === true
+                          ? formatAffixValue(selectedAffix.primaryUnit, value)
+                          : '—'}
+                      </span>
+                    ))}
+                    {selectedAffix.costs.map((cost, index) => (
+                      <span
+                        className="text-muted-foreground text-xs tabular-nums"
+                        key={`cost-${String(index)}`}
+                      >
+                        {selectedAffix.availableTiers[index] === true ? `${String(cost)} 点` : '—'}
                       </span>
                     ))}
                   </div>
                 </div>
+                <AffixSecondaryRow affix={selectedAffix} />
               </div>
             </>
           )}

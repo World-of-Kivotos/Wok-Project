@@ -14,6 +14,7 @@ import {
   Surface,
   Tag,
 } from '@/components/kit'
+import { MS_PER_TICK, tickDeadline } from '@/hooks/use-live-updates'
 import { callErrorText } from '../../../lib/errorText'
 import { useItemNames } from '../../../lib/i18n'
 import type { MinerScanResult, MinerStateResult, WebUiBlockPos } from '../../../lib/types'
@@ -39,12 +40,6 @@ import { formatCountdown, formatStatValue, toError, useLiveNow } from './shared'
  */
 
 const EMPTY_PAYLOAD: Record<string, never> = {}
-const MS_PER_TICK = 50
-
-/** 收到回执那一刻把剩余 tick 折成本地到期时刻; 0 tick 即已就绪 (返回 0 表示"不在冷却")。 */
-function tickDeadline(remainingTicks: number, receivedAt: number): number {
-  return remainingTicks <= 0 ? 0 : receivedAt + remainingTicks * MS_PER_TICK
-}
 
 /** 一次探测脉冲的本地快照: 回执本身 + 收到它的时刻 (脉冲与冷却都从这一刻起算)。 */
 interface ScanSnapshot {

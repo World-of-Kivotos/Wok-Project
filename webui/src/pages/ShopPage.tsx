@@ -8,10 +8,8 @@ import {
   Dropdown,
   EmptyBlock,
   ErrorBlock,
-  FeedbackAlert,
   ItemIcon,
   LoadingBlock,
-  NumberInput,
   Panel,
   Stat,
   Tag,
@@ -41,10 +39,10 @@ import { useMockAction } from '../mock/useMockWorld'
  *   - shop.detail   H2 + H4  单店详情 + 跨店比价。H2 (WRAP 跨 jar): recordAt(BlockPos) 已就绪但
  *                   handler 须写在主仓跨 jar 调用 ChestShop; H4 (BACKEND): 真服只有正向索引
  *                   BlockPos -> ShopRecord, 反向"同物品有哪些店在卖"的索引要新建。
- *   - shop.buy      H3  远程下单。清单原文: ShopTransaction.buy 逻辑完整且已挂主仓 IEconomyService,
- *                   但**只被玩家物理点击真实告示牌的路径调用**(内嵌 reach/tamper/冷却校验), 隔空下单
- *                   需要新规格 —— 这条 action 在真服是否会存在本身还没定, 本页的购买按钮建立在
- *                   "服务端未来会开一条隔空下单通道"这个假定之上, 是全页面假定成分最高的一处。
+ *
+ * shop.buy 已拍板**不做**: 系统商店只做浏览与跨店比价, 不做隔空下单 —— ShopTransaction.buy 只接受玩家
+ * 物理点击真实告示牌的那条路径 (内嵌 reach/tamper/冷却校验), 它不会有服务端实现。故本页没有购买入口,
+ * 也刻意**不留一个禁用状态的购买按钮**: 灰着的按钮会让玩家以为将来会开放, 那比没有更糟。
  *
  * 明确不做的部分: H5 (商店流水) 状态 NONE —— 每笔买卖只发一条聊天提示, 不落任何流水,
  * 本页不展示"历史成交"之类不存在数据源的列表。
@@ -142,17 +140,11 @@ export function ShopPage(): ReactElement {
   const [search, setSearch] = useState('')
   const [dimensionFilter, setDimensionFilter] = useState('all')
   const [detailState, setDetailState] = useState<DetailState>({ status: 'idle' })
-  const [purchaseCount, setPurchaseCount] = useState(1)
-  const [purchasing, setPurchasing] = useState(false)
-  const [purchaseFeedback, setPurchaseFeedback] = useState<{ tone: 'success' | 'danger'; message: string } | null>(
-    null,
-  )
 
   async function refreshDetail(shopId: string): Promise<void> {
     try {
       const data = await callMock('shop.detail', { shopId })
       setDetailState({ status: 'ready', shopId, data })
-      setPurchaseCount((current) => (data.shop.stock === null ? current : Math.min(current, Math.max(1, data.shop.stock))))
     } catch (error) {
       setDetailState({
         status: 'error',
@@ -164,31 +156,11 @@ export function ShopPage(): ReactElement {
 
   async function handleOpenDetail(shopId: string): Promise<void> {
     setDetailState({ status: 'loading', shopId })
-    setPurchaseFeedback(null)
-    setPurchaseCount(1)
     await refreshDetail(shopId)
   }
 
   function handleCloseDetail(): void {
     setDetailState({ status: 'idle' })
-    setPurchaseFeedback(null)
-  }
-
-  async function handleBuy(shopId: string): Promise<void> {
-    setPurchasing(true)
-    try {
-      const result = await callMock('shop.buy', { shopId, count: purchaseCount })
-      await refreshDetail(shopId)
-      catalog.reload()
-      setPurchaseFeedback({
-        tone: 'success',
-        message: `购买成功: ${String(result.count)} 件, 花费 ${String(result.paidCredit)} 信用点`,
-      })
-    } catch (error) {
-      setPurchaseFeedback({ tone: 'danger', message: error instanceof Error ? error.message : String(error) })
-    } finally {
-      setPurchasing(false)
-    }
   }
 
   const dimensions = Array.from(new Set(shops.map((entry) => entry.dimension)))
@@ -282,38 +254,18 @@ export function ShopPage(): ReactElement {
           />
         </div>
 
-        {purchaseFeedback === null ? null : (
-          <FeedbackAlert message={purchaseFeedback.message} tone={purchaseFeedback.tone} />
-        )}
-
-        {shop.buyPrice === null ? (
-          <p className="text-muted-foreground text-sm">这家店不卖这件物品。</p>
-        ) : shop.stock === 0 ? (
-          <p className="text-destructive text-sm">库存已售罄。</p>
-        ) : (
-          /* 数量与合计并排: 各占一整行时, 一个短步进器独占一行, 底下再跟一行只有两个字的合计, 版面很散。 */
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <NumberInput max={shop.stock === null ? 999 : shop.stock} min={1} onChange={setPurchaseCount} value={purchaseCount} />
-              <Stat
-                label="合计"
-                layout="inline"
-                value={<Currency amount={shop.buyPrice * purchaseCount} currency="credit" />}
-              />
-            </div>
-            <div>
-              <Button
-                loading={purchasing}
-                onClick={() => {
-                  void handleBuy(shop.shopId)
-                }}
-                variant="brand"
-              >
-                购买
-              </Button>
-            </div>
-          </div>
-        )}
+        {/*
+          没有购买入口是设计结论而不是未完成: 系统商店只做浏览比价, 下单必须走玩家在游戏里点告示牌
+          那条路 (那条路才有 reach/tamper/冷却校验)。这句话必须写在玩家看得到的地方, 否则"为什么不能买"
+          会变成一条反复出现的提问。
+        */}
+        <p className="text-muted-foreground text-sm">
+          {shop.buyPrice === null
+            ? '这家店不卖这件物品。'
+            : shop.stock === 0
+              ? '库存已售罄。'
+              : '要买请到这块告示牌前右键 —— 系统商店只能在游戏里当面交易, 平板只负责让你先比好价。'}
+        </p>
 
         <div className="flex flex-col gap-2">
           <h3 className="font-medium text-foreground text-sm">同款在别的商店卖多少</h3>
@@ -333,8 +285,8 @@ export function ShopPage(): ReactElement {
     <section className="flex flex-col gap-4">
       {/* 页名由 TabletShell 的 h1 统一渲染, 页面内不再重复 —— 重复两遍且里层更大, 打开必现, 读起来像渲染 bug。 */}
       <p className="text-muted-foreground text-sm">
-        全服告示牌商店的价目一览。点某一行可以看这件物品在别的商店卖多少钱。商店数据与这里的远程购买
-        目前都是演示, 尚未开放。
+        全服告示牌商店的价目一览。点某一行可以看这件物品在别的商店卖多少钱。买卖仍要到告示牌前当面进行,
+        这里只负责比价; 商店数据本身尚未接通真服。
       </p>
 
       {catalog.status === 'loading' ? (

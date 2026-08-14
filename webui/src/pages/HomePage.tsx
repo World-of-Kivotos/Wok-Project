@@ -19,20 +19,24 @@ import {
   Tag,
   TextInput,
 } from '@/components/kit'
+import { tickDeadline } from '@/hooks/use-live-updates'
 import { WebUiCallError, isMockActive } from '../lib/bridge'
 import { callErrorText } from '../lib/errorText'
 import { jobNameKey, useItemNames } from '../lib/i18n'
 import { HUB_PANEL_META, panelLockText } from '../lib/panels'
-import type { HubPanel, HubPanelId, PlayerJobProgressEntry, PlayerProfileResult } from '../lib/types'
 import type {
-  MockActionQuery,
-  PlannedDifficulty,
-  PlannedEconomyTodayResult,
-  PlannedMarriageStateResult,
-  PlannedMarriageStatus,
-  PlannedMiningInstance,
-  PlannedMiningMyStatusResult,
-} from '../mock'
+  EconomyTodayResult,
+  HubPanel,
+  HubPanelId,
+  MarriageStateResult,
+  MarriageStatus,
+  MiningDifficulty,
+  MiningInstanceRow,
+  MiningMyStatusResult,
+  PlayerJobProgressEntry,
+  PlayerProfileResult,
+} from '../lib/types'
+import type { MockActionQuery } from '../mock'
 import { callMock, nowMs, useMockAction, useMockWorld } from '../mock'
 import { ROUTE_HOME, ROUTE_MARRIAGE, ROUTE_MINING, buildJobDetailPath, useNavigate } from '../router'
 
@@ -51,21 +55,17 @@ import { ROUTE_HOME, ROUTE_MARRIAGE, ROUTE_MINING, buildJobDetailPath, useNaviga
  *   hub.panels        面板闸门, 只回 {panelId, enabled, lockCode}; 展示层三项在 lib/panels.ts
  *   player.itemDetail 仅用于错误通道自检, 不参与业务展示 (见文件末 BridgeErrorProbe)
  *
- * === 本页依赖的假定契约 (mock/planned.ts, 逐条对应接线清单第三章总表的行) ===
- *   D2  economy.status    挂机冻结 (冻结期间 faucet 不入账, 是"今天赚了多少"的前置条件)
- *   D3  economy.today     各 faucet 当日进度与衰减档 (faucets[].decayFactor)
- *   D4  economy.today     青辉石每日硬上限 (azureIn / azureDailyCap)
- *   D6  economy.today     今日全口径收支合计 (totalCreditIn / totalCreditOut / sinks)
- *   E1  marriage.state    婚姻摘要 (状态/配偶/婚龄/共享背包/婚戒/待答复求婚)
- *   F1  mining.overview   三个常驻实例的名字与等级门 (R1 模型: 全服每难度只有一个, 不是私有副本)
- *   F2  mining.myStatus   我在不在矿洞 / 所在区块 / 实时 danger
- *   F8  mining.myStatus   新手保护倒计时 (spawnFreezeUntil)
- *   F3  mining.enter      快捷进入 (服务端裁决等级门, 前端不代拒)
- *   F4  mining.leave      快捷离开
+ * === 其余已接线的真契约 ===
+ *   economy.status    挂机经济冻结。判据是"无挖掘 && 无显著位移"**两条同时成立**, 服务端只持久化了挖掘侧,
+ *                     位移侧只有一个滑动锚点 —— 因此不存在"静止了多久"这个数, 文案必须把两条判据都说清楚
+ *   economy.today     今日**收入两栏**。支出侧全库没有当日计数器也没有流水表, 故本页没有支出面板;
+ *                     creditFaucetTier 是"每档毛收入"不是每日上限, 写成"今日上限"就是把数值观带偏
+ *   marriage.state    婚姻摘要。时间是 gameTime tick 不是墙钟, 收到那一刻折成本地基准
+ *   mining.overview   三块常驻区域的名字与等级门 (R1 模型: 全服每难度只有一块, 不是私有副本)
+ *   mining.myStatus   我在不在矿洞 / 区域原点 / 新手保护剩余 tick
+ *   mining.enter      快捷进入。**accepted 只是"已受理"**, 传送在之后若干 tick 才发生且不走 webui 通道
+ *   mining.leave      快捷离开
  *   A14 中文输入 BLOCKED  快捷入口搜索框只能留 onRequestEdit 接口位 (见 PanelsSection)
- *
- * 接线核销: 上面每一行落地后, 按 Java 实现重写 planned 类型即可, 本页的读取点不需要改名 ——
- * 页面全程只经 callMock/useMockAction 调用, 而 handlers 会自动把已核销的 action 甩回真桥。
  *
  * 为什么本页要自己再发一次 player.profile (外壳顶栏已经发过一次):
  * 顶栏只需要名字与余额, 本页需要 jobs 与今日两栏收入; 前端至今没有跨组件的请求缓存层, 与其为了省一次
@@ -138,25 +138,14 @@ function formatClock(epochMs: number): string {
 }
 
 /**
- * faucet 衰减档的颜色。1 = 满额入账, 低于 1 即已过软上限按比例打折 (D3 玩家最想看的那个数),
- * 0.5 以下按危险色 —— 那一档继续刷同一个 faucet 的收益已经不划算, 该换个赚钱路子。
+ * 衰减主闸边际系数的颜色。1 = 尚未衰减 (再赚 1 点毛收入照单全发), 低于 1 即已过档按比例打折,
+ * 0.5 以下按危险色 —— 那一档继续刷收益已经不划算, 该换个赚钱路子。
  */
-function decayTone(decayFactor: number): Tone {
-  if (decayFactor >= 1) {
+function decayTone(nextFactor: number): Tone {
+  if (nextFactor >= 1) {
     return 'success'
   }
-  if (decayFactor >= 0.5) {
-    return 'warning'
-  }
-  return 'danger'
-}
-
-/** 矿洞 danger 是 0..1 的实时值 (F6)。三档只决定颜色, 不参与任何业务判定。 */
-function dangerTone(danger: number): Tone {
-  if (danger < 0.3) {
-    return 'success'
-  }
-  if (danger < 0.7) {
+  if (nextFactor >= 0.5) {
     return 'warning'
   }
   return 'danger'
@@ -167,8 +156,8 @@ interface MarriageStatusStyle {
   readonly tone: Tone
 }
 
-/** 写成 Record<union, T>: 婚姻状态加一档 (planned E1 的 PlannedMarriageStatus) 时 tsc 直接报缺键。 */
-const MARRIAGE_STATUS_STYLE: Record<PlannedMarriageStatus, MarriageStatusStyle> = {
+/** 写成 Record<union, T>: 婚姻状态加一档时 tsc 直接报缺键。 */
+const MARRIAGE_STATUS_STYLE: Record<MarriageStatus, MarriageStatusStyle> = {
   single: { label: '未婚', tone: 'neutral' },
   engaged: { label: '已订婚', tone: 'info' },
   married: { label: '已婚', tone: 'success' },
@@ -188,7 +177,7 @@ function isPanelScope(value: string): value is PanelScope {
   return value === 'all' || value === 'open' || value === 'locked'
 }
 
-function isDifficulty(value: string): value is PlannedDifficulty {
+function isDifficulty(value: string): value is MiningDifficulty {
   return value === 'easy' || value === 'medium' || value === 'hard'
 }
 
@@ -327,13 +316,11 @@ function CapBar({ label, value, max, tone }: CapBarProps): ReactElement {
 
 interface WalletSectionProps {
   profile: PlayerProfileResult
-  today: PlannedEconomyTodayResult
+  today: EconomyTodayResult
   now: number
 }
 
 function WalletSection({ profile, today, now }: WalletSectionProps): ReactElement {
-  const netCredit = today.totalCreditIn - today.totalCreditOut
-
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-3 gap-4">
@@ -353,73 +340,55 @@ function WalletSection({ profile, today, now }: WalletSectionProps): ReactElemen
           hint={`今日实发 ${formatInteger(profile.todayAzureIn)}`}
         />
         <Stat
-          label="今日净收入"
-          value={<Currency amount={netCredit} currency="credit" size="lg" signed />}
-          hint={`距翻日 ${formatRemaining(today.resetsAt - now)}`}
+          label="距 UTC 翻日"
+          value={formatRemaining(today.resetsAtUtcMillis - now)}
+          hint={`翻日时刻 ${formatClock(today.resetsAtUtcMillis)}`}
         />
       </div>
 
       {/*
-        青辉石与信用点的上限机制不是一回事, 必须分开画: 青辉石是硬截断 (D4, 撞顶即一分不发),
-        信用点各 faucet 是软上限后按 decayFactor 打折继续发 (D3)。用同一种条画两种规则, 玩家会
-        以为撞了软上限就没得赚了。
+        青辉石与信用点的上限机制不是一回事, 必须分开画: 青辉石是**硬截断** (撞顶即一分不发),
+        信用点走**衰减主闸** (过档之后按系数打折继续发, 没有"今日上限"这回事)。
+        用同一种条画两种规则, 玩家会以为撞了档就没得赚了。
       */}
       <CapBar
-        label={`青辉石今日 ${formatInteger(today.azureIn)} / ${formatInteger(today.azureDailyCap)} · 到顶后今天不再产出`}
-        value={today.azureIn}
+        label={`青辉石今日 ${formatInteger(today.todayAzureIn)} / ${formatInteger(today.azureDailyCap)} · 到顶后今天不再产出`}
+        value={today.todayAzureIn}
         max={today.azureDailyCap}
-        tone={today.azureIn >= today.azureDailyCap ? 'danger' : 'info'}
+        tone={today.todayAzureIn >= today.azureDailyCap ? 'danger' : 'info'}
       />
 
-      <div className="flex flex-col gap-3">
-        <h3 className="font-medium text-sm text-foreground">今日收入额度</h3>
-        {today.faucets.length === 0 ? (
-          <EmptyBlock
-            title="今日还没有收入"
-            hint="打一次矿或卖一次菜后这里会出现进度"
-            icon={<InfoIcon aria-hidden="true" />}
-          />
-        ) : (
-          today.faucets.map((faucet) => (
-            <div key={faucet.faucetKey} className="flex flex-col gap-1.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-sm text-foreground">{faucet.label}</span>
-                <div className="flex items-center gap-2">
-                  <Currency amount={faucet.earnedToday} currency="credit" size="sm" showIcon={false} />
-                  <span className="text-muted-foreground text-xs">/ {formatInteger(faucet.softCap)}</span>
-                  <Tag size="sm" tone={decayTone(faucet.decayFactor)}>
-                    {faucet.decayFactor >= 1 ? '全额' : `收益 ${String(Math.round(faucet.decayFactor * 100))}%`}
-                  </Tag>
-                </div>
-              </div>
-              <CapBar
-                label={`${faucet.label} 今日进度`}
-                value={faucet.earnedToday}
-                max={faucet.softCap}
-                tone={decayTone(faucet.decayFactor)}
-              />
-            </div>
-          ))
-        )}
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-medium text-sm text-foreground">今日信用点产出 (毛额)</h3>
+          <div className="flex items-center gap-2">
+            <Currency
+              amount={today.todayCreditFaucetGross}
+              currency="credit"
+              size="sm"
+              showIcon={false}
+            />
+            <Tag size="sm" tone={decayTone(today.creditFaucetNextFactor)}>
+              {today.creditFaucetNextFactor >= 1
+                ? '尚未衰减'
+                : `再赚 1 点到手 ${String(Math.round(today.creditFaucetNextFactor * 100))}%`}
+            </Tag>
+          </div>
+        </div>
+        {/*
+          刻意不画"本档进度条", 也不显示第几档: 服务端刻意不下发档序号, 理由是算档序号等于在面板层
+          重写一份 floor(gross/tier) 公式, 两处一旦分叉玩家看到的档位就是错的。这里只陈述服务端给的三个真值。
+        */}
+        <p className="text-muted-foreground text-xs">
+          卖矿 / 卖菜 / 悬赏 / 精英贡献共用同一个计数器, 服务端没有分渠道明细。每满{' '}
+          {formatInteger(today.creditFaucetTier)} 点毛收入降一档 —— 这不是今日上限, 降档之后照样能赚,
+          只是到手比例变小。
+        </p>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <h3 className="font-medium text-sm text-foreground">今日支出</h3>
-        {today.sinks.length === 0 ? (
-          <p className="text-muted-foreground text-sm">今日还没有任何支出记录。</p>
-        ) : (
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-            {today.sinks.map((sink) => (
-              <Stat
-                key={sink.sinkKey}
-                label={sink.label}
-                layout="inline"
-                value={<Currency amount={sink.spentToday} currency="credit" size="sm" showIcon={false} />}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      <p className="text-muted-foreground text-xs">
+        没有"今日支出"这一栏: 账本层至今没有任何支出侧的当日计数器或流水表, 编一个出来就是假数据。
+      </p>
     </div>
   )
 }
@@ -529,11 +498,11 @@ function JobRow({ job, displayName, onOpen }: JobRowProps): ReactElement {
 // ============================================================
 
 interface MiningSectionProps {
-  myStatus: PlannedMiningMyStatusResult
-  instances: readonly PlannedMiningInstance[]
+  myStatus: MiningMyStatusResult
+  instances: readonly MiningInstanceRow[]
   /** 难度选择是本页唯一的"待提交入参", 由页面持有以便进入失败后保留选择。 */
-  difficulty: PlannedDifficulty
-  onDifficultyChange: (next: PlannedDifficulty) => void
+  difficulty: MiningDifficulty
+  onDifficultyChange: (next: MiningDifficulty) => void
   onEnter: () => void
   onLeave: () => void
   busy: boolean
@@ -550,13 +519,25 @@ function MiningSection({
   busy,
   now,
 }: MiningSectionProps): ReactElement {
-  const options: readonly DropdownOption<PlannedDifficulty>[] = instances.map((instance) => ({
+  // 区域名走翻译键 (服务端不发中文); 解不出时退回难度 id, 与 lib/i18n 的降级同纪律。
+  const names = useItemNames(instances.map((instance) => instance.nameKey))
+  const nameOf = (instance: MiningInstanceRow): string =>
+    names[instance.nameKey] ?? instance.difficulty
+  /*
+   * 新手保护发的是**剩余 tick**, 不是绝对时刻。只在 myStatus 换引用 (即一条新回执到达) 时折成本地
+   * 到期时刻, 之后的倒计时全在本地推进 —— 每次渲染都重折的话, 时钟每走一秒它就跟着往后退一秒。
+   */
+  const freezeUntil = useMemo(
+    () => tickDeadline(myStatus.spawnFreezeRemainingTicks, nowMs()),
+    [myStatus],
+  )
+  const options: readonly DropdownOption<MiningDifficulty>[] = instances.map((instance) => ({
     value: instance.difficulty,
-    label: `${instance.displayName} (需矿工 ${String(instance.requiredMinerLevel)} 级)`,
+    label: `${nameOf(instance)} (需矿工 ${String(instance.requiredMinerLevel)} 级)`,
   }))
   const selected = instances.find((instance) => instance.difficulty === difficulty)
   const current = instances.find((instance) => instance.difficulty === myStatus.difficulty)
-  const freezeRemaining = myStatus.spawnFreezeUntil - now
+  const freezeRemaining = freezeUntil - now
 
   if (!myStatus.inside) {
     return (
@@ -605,28 +586,23 @@ function MiningSection({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Tag tone="info">{current === undefined ? String(myStatus.difficulty) : current.displayName}</Tag>
-        <span className="text-muted-foreground text-sm">
-          区块 ({String(myStatus.regionX)}, {String(myStatus.regionZ)})
-        </span>
+        <Tag tone="info">
+          {current === undefined ? String(myStatus.difficulty) : nameOf(current)}
+        </Tag>
+        {myStatus.regionOriginX === null || myStatus.regionOriginZ === null ? null : (
+          <span className="text-muted-foreground text-sm">
+            区域原点 ({String(myStatus.regionOriginX)}, {String(myStatus.regionOriginZ)})
+          </span>
+        )}
         <span className="text-muted-foreground text-sm">矿工 {String(myStatus.minerLevel)} 级</span>
         {freezeRemaining > 0 ? (
           <Tag tone="success">新手保护 {formatRemaining(freezeRemaining)}</Tag>
         ) : null}
       </div>
 
-      <Meter
-        value={myStatus.danger}
-        max={1}
-        tone={dangerTone(myStatus.danger)}
-        size="sm"
-        label={`危险度 ${String(Math.round(myStatus.danger * 100))}%`}
-      />
-
-      {current === undefined ? null : (
-        <p className="text-muted-foreground text-xs">
-          同区玩家 {String(current.playersInside)} 人 · 下次自动重置 {formatRemaining(current.nextResetAt - now)}后
-        </p>
+      {current === undefined || current.playersInside === null ? null : (
+        /* 下次刷新倒计时留在矿洞面板: 那个数是矿山维度 game tick, 需要同批回执的 gameTime 作基准。 */
+        <p className="text-muted-foreground text-xs">同区玩家 {String(current.playersInside)} 人</p>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
@@ -649,33 +625,42 @@ function MiningSection({
  * 违反"直给中文一律删"纪律, 且那句话的信息 (配偶名 + 婚龄) 与下面 marriage.state 渲染的两处逐字重复。
  */
 interface MarriageSectionProps {
-  marriage: PlannedMarriageStateResult
+  marriage: MarriageStateResult
   onOpenMarriage: () => void
   now: number
 }
 
 function MarriageSection({ marriage, onOpenMarriage, now }: MarriageSectionProps): ReactElement {
   const style = MARRIAGE_STATUS_STYLE[marriage.status]
-  const achieved = marriage.milestones.filter((milestone) => milestone.achievedAt !== null).length
-  const cooldownRemaining = marriage.remarryCooldownUntil - now
+  // 里程碑只有"领没领过"两个布尔; 摘要看本段关系内的那一个 (跨段去重那一位只在已婚时才有意义)。
+  const achieved = marriage.milestones.filter((milestone) => milestone.claimedInCurrentMarriage).length
+  // 再婚冷却发的是剩余 tick, 同样只在回执换引用时折一次本地到期时刻。
+  const cooldownUntil = useMemo(
+    () => tickDeadline(marriage.remarryCooldownTicks, nowMs()),
+    [marriage],
+  )
+  const cooldownRemaining = cooldownUntil - now
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <Tag tone={style.tone}>{style.label}</Tag>
-        {marriage.spouseName === null ? (
+        {marriage.spouseUuid === null ? (
           <span className="text-muted-foreground text-sm">尚无配偶</span>
         ) : (
           <>
-            <span className="text-sm text-foreground">{marriage.spouseName}</span>
+            {/* 离线配偶服务端拿不到名字 (全库零 GameProfileCache), 用 UUID 前 8 位占位而不是编一个名字。 */}
+            <span className="text-sm text-foreground">
+              {marriage.spouseName ?? `离线玩家 ${marriage.spouseUuid.slice(0, 8)}`}
+            </span>
             <Tag size="sm" tone={marriage.spouseOnline ? 'success' : 'neutral'}>
               {marriage.spouseOnline ? '在线' : '离线'}
             </Tag>
-            <span className="text-muted-foreground text-sm">相伴 {String(marriage.marriageDays)} 天</span>
+            <span className="text-muted-foreground text-sm">相伴 {String(marriage.marriedDays)} 天</span>
           </>
         )}
-        {marriage.incomingProposals.length === 0 ? null : (
-          <Tag tone="warning">{String(marriage.incomingProposals.length)} 份求婚待答复</Tag>
+        {marriage.incomingProposalTotal === 0 ? null : (
+          <Tag tone="warning">{String(marriage.incomingProposalTotal)} 份求婚待答复</Tag>
         )}
       </div>
 
@@ -695,7 +680,9 @@ function MarriageSection({ marriage, onOpenMarriage, now }: MarriageSectionProps
           label="婚戒"
           layout="inline"
           value={
-            marriage.ringOwned ? '已持有' : `未持有 (${formatInteger(marriage.ringPriceCredit)} 信用点)`
+            marriage.engagementRingOwned
+              ? '已持有'
+              : `未持有 (${formatInteger(marriage.ringPriceCredit)} 信用点)`
           }
         />
       </div>
@@ -713,7 +700,7 @@ function MarriageSection({ marriage, onOpenMarriage, now }: MarriageSectionProps
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
-          variant={marriage.incomingProposals.length > 0 ? 'brand' : 'outline'}
+          variant={marriage.incomingProposalTotal > 0 ? 'brand' : 'outline'}
           onClick={onOpenMarriage}
         >
           进入婚姻面板
@@ -990,7 +977,7 @@ export function HomePage(): ReactElement {
   const miningOverview = useMockAction('mining.overview', EMPTY_PAYLOAD)
   const hubPanels = useMockAction('hub.panels', EMPTY_PAYLOAD)
 
-  const [difficulty, setDifficulty] = useState<PlannedDifficulty>('easy')
+  const [difficulty, setDifficulty] = useState<MiningDifficulty>('easy')
   const [miningBusy, setMiningBusy] = useState(false)
   const [panelScope, setPanelScope] = useState<PanelScope>('all')
   const [panelKeyword, setPanelKeyword] = useState('')
@@ -1051,16 +1038,30 @@ export function HomePage(): ReactElement {
   /*
    * 进入/离开矿洞。两条都是写操作, 成功后由 mutateWorld 冒出的 revision 变化触发上面那条重查,
    * 因此这里不再手动 reload —— 手动再刷一次等于同一份数据发两轮请求。
-   * 被拒 (等级门/已在内) 时服务端回的是 entered:false + message, 那不是异常, 走 danger 提示而不是抛。
+   *
+   * **accepted 不等于已进去**: 传送在受理之后若干 tick 才发生, 成败只经原生 S2C 下发, webui 通道
+   * 拿不到终局。首页只给一句"已受理", 要确认是否真进去了请到矿洞面板 (那一页挂了 myStatus 轮询)。
+   * 被拒 (等级门/已在内) 时服务端回的是 accepted:false + reasonCode, 那不是异常, 走 danger 提示而不是抛。
    */
   const enterMining = useCallback((): void => {
     setMiningBusy(true)
     void callMock('mining.enter', { difficulty })
       .then((result) => {
-        pushToast(result.entered ? 'success' : 'danger', result.message)
+        if (result.accepted) {
+          pushToast('success', '入场请求已受理, 正在准备地形; 到矿洞面板可以看到是否真进去了')
+          return
+        }
+        pushToast(
+          'danger',
+          result.reasonCode === 'LEVEL_TOO_LOW'
+            ? `矿工等级不够: 该难度需要 ${String(result.requiredMinerLevel)} 级, 你是 ${String(result.minerLevel)} 级`
+            : result.reasonCode === 'ALREADY_INSIDE'
+              ? '你已经在矿洞里了'
+              : '进入被拒绝, 但服务端没有给出原因码',
+        )
       })
       .catch((thrown: unknown) => {
-        pushToast('danger', toError(thrown).message)
+        pushToast('danger', callErrorText(toError(thrown)))
       })
       .finally(() => {
         setMiningBusy(false)
@@ -1071,10 +1072,14 @@ export function HomePage(): ReactElement {
     setMiningBusy(true)
     void callMock('mining.leave', EMPTY_PAYLOAD)
       .then((result) => {
-        pushToast(result.left ? 'success' : 'warning', result.message)
+        // 成功文案服务端不发 (只在失败时给一个翻译键), 由前端自己写。
+        pushToast(
+          result.left ? 'success' : 'warning',
+          result.left ? '已离开矿洞, 传送回进入前的位置' : '你本来就不在矿洞里',
+        )
       })
       .catch((thrown: unknown) => {
-        pushToast('danger', toError(thrown).message)
+        pushToast('danger', callErrorText(toError(thrown)))
       })
       .finally(() => {
         setMiningBusy(false)
@@ -1172,10 +1177,29 @@ export function HomePage(): ReactElement {
                   <Tag size="sm" tone={economyStatus.data.afkFrozen ? 'danger' : 'success'}>
                     {economyStatus.data.afkFrozen ? '挂机冻结中' : '活跃'}
                   </Tag>
+                  {/*
+                    这里刻意不画进度条: 冻结判据是"无挖掘 && 无显著位移"两条**同时**成立, 而服务端只持久化
+                    了挖掘侧 (lastBreakTick), 位移侧只有一个滑动锚点 —— 根本不存在"静止了多久"这个数。
+                    画成一条单独的进度条会让玩家以为熬到头就必定冻结, 或者站着不动就不会冻结, 两个都是错的。
+                    另: 这个计数只被**矿区内**的有效挖掘刷新, 在主世界挖一天也不会变, 文案必须写清楚。
+                  */}
+                  <span className="text-muted-foreground text-xs">
+                    {economyStatus.data.ticksSinceLastMine === null
+                      ? '还没在矿区挖过矿'
+                      : `距上次在矿区挖矿 ${String(
+                          Math.floor(
+                            economyStatus.data.ticksSinceLastMine / economyStatus.data.ticksPerSecond,
+                          ),
+                        )} 秒`}
+                  </span>
                   <span className="text-muted-foreground text-xs">
                     {economyStatus.data.afkFrozen
-                      ? `静止 ${String(economyStatus.data.idleSeconds)} 秒, 期间收入不入账`
-                      : `静止 ${String(economyStatus.data.idleSeconds)} / ${String(economyStatus.data.freezeThresholdSeconds)} 秒`}
+                      ? '冻结期间挖到的高价矿既不计当日产量也不发钱; 动一动并挖一下即可解除'
+                      : `连续 ${String(
+                          Math.floor(
+                            economyStatus.data.afkNoMineTicks / economyStatus.data.ticksPerSecond,
+                          ),
+                        )} 秒不挖矿, 且位移不超过 ${String(economyStatus.data.afkNoMoveBlocks)} 格, 两条同时成立才会冻结`}
                   </span>
                 </div>
               </Surface>

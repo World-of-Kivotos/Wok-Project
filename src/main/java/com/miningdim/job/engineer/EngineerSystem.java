@@ -57,6 +57,9 @@ public final class EngineerSystem implements Subsystem {
         modBus.addListener((ModConfigEvent.Loading event) -> validateOwnConfig(event.getConfig()));
         modBus.addListener((ModConfigEvent.Reloading event) -> validateOwnConfig(event.getConfig()));
 
+        // 平板铸甲师页的 job.engineer.state (档位表/护甲特效/反应堆 CD 只读, 数值实时读 EngineerConfig)。
+        EngineerWebUiActions.registerAll();
+
         // 特效事件订阅 (forgeBus): PlayerTick (重塑/机能修复/护盾) / LivingHurt (护盾免疫窗) /
         // LivingDeath (图腾拦截致死) / AnvilUpdate (禁纳米特效甲铁砧修复)。
         forgeBus.register(new NanoEffectTicker());

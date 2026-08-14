@@ -66,6 +66,10 @@ public final class MunitionsSystem implements Subsystem {
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER,
                 MunitionsConfig.SPEC, "miningdim-munitions.toml");
 
+        // 平板军火商页的 job.munitions.state 与图纸百科 job.blueprints (只读镜像/静态表, 进程级静态注册,
+        // 数值实时读 MunitionsConfig, 故与上面的 registerConfig 先后无关)。
+        MunitionsWebUiActions.registerAll();
+
         // forgeBus: 军火台放置上限门控 + 破坏回收计数。
         forgeBus.register(this);
         modBus.addListener((FMLCommonSetupEvent event) ->

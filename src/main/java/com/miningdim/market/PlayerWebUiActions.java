@@ -51,7 +51,14 @@ public final class PlayerWebUiActions {
     private PlayerWebUiActions() {
     }
 
-    /** 把 7 个 player.* action 注册进派发器 (由 MarketSubsystem.register 调用)。 */
+    /**
+     * 在线名册单次下发上限。名册只服务"点选一个人"这件事, 不是玩家列表功能: 满编公服也就一两百人,
+     * 200 条足够, 又把回执钉死在几 KB 量级 —— 列表类 action 自带上限, 不指望派发器的体积收口兜底
+     * (那是保命不是设计)。
+     */
+    private static final int MAX_ROSTER_ENTRIES = 200;
+
+    /** 把 8 个 player.* action 注册进派发器 (由 MarketSubsystem.register 调用)。 */
     public static void registerAll() {
         WebUiServerDispatcher.register("player.inventory", INVENTORY);
         WebUiServerDispatcher.register("player.wallet", WALLET);
@@ -60,7 +67,46 @@ public final class PlayerWebUiActions {
         WebUiServerDispatcher.register("player.profile", PROFILE);
         WebUiServerDispatcher.register("player.prefs.get", PREFS_GET);
         WebUiServerDispatcher.register("player.prefs.set", PREFS_SET);
+        WebUiServerDispatcher.register("player.roster", ROSTER);
     }
+
+    // ============================================================
+    // player.roster: {} -> {players:[{name,uuid}],total,truncated}
+    // ============================================================
+
+    /**
+     * 在线玩家名册 (名字 + UUID)。
+     *
+     * 存在的理由是"免输入": marriage.propose 与 admin.economy.balance/set 都按玩家名找人, 而中文输入 (W11)
+     * 已推迟 —— 只给一个输入框, 中文 ID 的玩家就永远求不了婚、也调不了自己的账。名册让界面能做成点选。
+     * 见 docs/WebUI_ChineseIME_DesignSpec.md 第五章。
+     *
+     * 不做隐私过滤: 在线名单在原版里本来就是公开的 (Tab 列表就是它), 这里没有新增任何暴露面。
+     * 也不剔除调用者自己 —— 剔了就得在服务端定义"自己"这个语义, 而 admin 调账的目标恰恰可以是自己;
+     * 前端拿 player.profile 里的名字自行过滤即可。
+     */
+    static final WebUiAction ROSTER = (sender, payload) -> {
+        List<ServerPlayer> online = sender.getServer().getPlayerList().getPlayers();
+
+        JsonArray players = new JsonArray();
+        for (ServerPlayer player : online) {
+            if (players.size() >= MAX_ROSTER_ENTRIES) {
+                break;
+            }
+            JsonObject row = new JsonObject();
+            row.addProperty("name", player.getGameProfile().getName());
+            row.addProperty("uuid", player.getUUID().toString());
+            players.add(row);
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("players", players);
+        // total 是全量在线人数而不是本次下发条数: 截断时前端要能讲清"还有多少人没显示", 拿 players.size()
+        // 反推只会得到上限值本身。
+        result.addProperty("total", online.size());
+        result.addProperty("truncated", online.size() > players.size());
+        return GSON.toJson(result);
+    };
 
     // ============================================================
     // player.inventory: {} -> {items:[{slot,itemId,count,displayName?}]}

@@ -61,6 +61,7 @@ import java.io.StringReader;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
@@ -106,7 +107,7 @@ public final class PlayerWebUiW1GameTests {
     /** 七条 player.* action 的契约名 (前端 SERVER_ACTIONS 逐字用的就是这些字符串)。 */
     private static final String[] PLAYER_ACTION_NAMES = {
             "player.inventory", "player.wallet", "player.isOp", "player.itemDetail",
-            "player.profile", "player.prefs.get", "player.prefs.set"};
+            "player.profile", "player.prefs.get", "player.prefs.set", "player.roster"};
 
     // ============================================================
     // 1. player.isOp
@@ -881,6 +882,52 @@ public final class PlayerWebUiW1GameTests {
                 "action 名大小写敏感, 不得另注册一个全小写别名");
         helper.assertTrue(WebUiServerDispatcher.resolve("player.prefs") == null,
                 "偏好是 get/set 两条独立 action, 不存在合并的 player.prefs");
+        helper.succeed();
+    }
+
+    /**
+     * 在线名册必须真的来自 PlayerList, 且总数与下发条数分开发。
+     *
+     * 该 action 是"免输入"的地基: marriage.propose 与 admin.economy.balance/set 都按玩家名找人, 而中文输入
+     * (W11) 已推迟 —— 没有名册, 界面只能给一个输入框, 中文 ID 的玩家就永远求不了婚。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void playerRosterListsEveryOnlinePlayerWithUuid(GameTestHelper helper) {
+        ensurePlayerActionsRegistered();
+        ServerPlayer sender = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        List<ServerPlayer> online = helper.getLevel().getServer().getPlayerList().getPlayers();
+
+        JsonObject result = handle(PlayerWebUiActions.ROSTER, sender);
+        JsonArray players = result.getAsJsonArray("players");
+
+        helper.assertTrue(result.get("total").getAsInt() == online.size(),
+                "total 必须是全量在线人数 (截断时前端要靠它讲清还有多少人没显示), 期望 "
+                        + online.size() + " 实得 " + result.get("total").getAsInt());
+        helper.assertTrue(players.size() == online.size(),
+                "在线人数远未触及 200 条上限, 应当一条不少地下发, 期望 " + online.size()
+                        + " 实得 " + players.size());
+        helper.assertTrue(!result.get("truncated").getAsBoolean(),
+                "未触上限时 truncated 必须是 false");
+
+        // 逐条与 PlayerList 的真值对照, 而不是只看条数对不对 —— 只数个数的话, 发一堆空对象也能全绿。
+        Map<String, String> expected = new HashMap<>();
+        for (ServerPlayer player : online) {
+            expected.put(player.getUUID().toString(), player.getGameProfile().getName());
+        }
+        for (JsonElement element : players) {
+            JsonObject row = element.getAsJsonObject();
+            String uuid = row.get("uuid").getAsString();
+            helper.assertTrue(expected.containsKey(uuid),
+                    "名册里出现了不在 PlayerList 上的 uuid: " + uuid);
+            helper.assertTrue(expected.get(uuid).equals(row.get("name").getAsString()),
+                    "名字必须取自 GameProfile, 期望 " + expected.get(uuid)
+                            + " 实得 " + row.get("name").getAsString());
+        }
+        // 调用者自己也必须在名册里: 服务端不定义"自己"这个语义 (admin 调账的目标恰恰可以是自己),
+        // 过滤由前端按 player.profile 的名字做。
+        helper.assertTrue(players.size() > 0
+                        && expected.containsKey(sender.getUUID().toString()),
+                "调用者本人不得被服务端剔除");
         helper.succeed();
     }
 

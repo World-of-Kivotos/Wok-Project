@@ -205,12 +205,27 @@ interface PanelAvailability {
 }
 
 function panelAvailability(panel: PlannedHubPanel): PanelAvailability {
+  /*
+   * 两处数据缺陷对玩家一律只说"尚未开放", 技术细节只在假数据模式下补出来。
+   *
+   * 玩家看到"路由 /quests 未在前端路由表登记 (面板注册表与 router.ts 脱节)"既看不懂也无从处理,
+   * 而这条信息对开发是有用的 —— 故不是删掉, 是收进 isMockActive() 里 (生产构建恒为 false, 装进游戏
+   * 后整段不存在)。
+   */
   if (matchRoute(panel.route).pattern === null) {
-    return { usable: false, reason: `路由 ${panel.route} 未在前端路由表登记 (面板注册表与 router.ts 脱节)` }
+    return {
+      usable: false,
+      reason: isMockActive()
+        ? `尚未开放 (路由 ${panel.route} 未在前端路由表登记, 面板注册表与 router.ts 脱节)`
+        : '该功能尚未开放',
+    }
   }
   if (!panel.enabled) {
     if (panel.lockReason === null) {
-      return { usable: false, reason: '注册表把该面板标为不可用, 却没有给出原因 (数据缺陷)' }
+      return {
+        usable: false,
+        reason: isMockActive() ? '尚未开放 (注册表标为不可用却未给出原因, 数据缺陷)' : '该功能尚未开放',
+      }
     }
     return { usable: false, reason: panel.lockReason }
   }
@@ -282,7 +297,7 @@ function CapBar({ label, value, max, tone }: CapBarProps): ReactElement {
   if (max <= 0) {
     return (
       <p className="text-muted-foreground text-sm">
-        {label}: {formatInteger(value)} (未给出上限, 无法画进度)
+        {label}: {formatInteger(value)} · 暂无上限数据
       </p>
     )
   }
@@ -316,7 +331,7 @@ function WalletSection({ profile, today, now }: WalletSectionProps): ReactElemen
           hint={`今日入账 ${formatInteger(profile.todayAzureIn)}`}
         />
         <Stat
-          label="今日净流入 (进 - 出)"
+          label="今日净收入"
           value={<Currency amount={netCredit} currency="credit" size="lg" signed />}
           hint={`距翻日 ${formatRemaining(today.resetsAt - now)}`}
         />
@@ -328,17 +343,17 @@ function WalletSection({ profile, today, now }: WalletSectionProps): ReactElemen
         以为撞了软上限就没得赚了。
       */}
       <CapBar
-        label={`青辉石今日 ${formatInteger(today.azureIn)} / ${formatInteger(today.azureDailyCap)} (硬上限, 撞顶即停发)`}
+        label={`青辉石今日 ${formatInteger(today.azureIn)} / ${formatInteger(today.azureDailyCap)} · 到顶后今天不再产出`}
         value={today.azureIn}
         max={today.azureDailyCap}
         tone={today.azureIn >= today.azureDailyCap ? 'danger' : 'info'}
       />
 
       <div className="flex flex-col gap-3">
-        <h3 className="font-medium text-sm text-foreground">信用点 faucet 当日额度</h3>
+        <h3 className="font-medium text-sm text-foreground">今日收入额度</h3>
         {today.faucets.length === 0 ? (
           <EmptyBlock
-            title="今日没有任何 faucet 记录"
+            title="今日还没有收入"
             hint="打一次矿或卖一次菜后这里会出现进度"
             icon={<InfoIcon aria-hidden="true" />}
           />
@@ -351,12 +366,12 @@ function WalletSection({ profile, today, now }: WalletSectionProps): ReactElemen
                   <Currency amount={faucet.earnedToday} currency="credit" size="sm" showIcon={false} />
                   <span className="text-muted-foreground text-xs">/ {formatInteger(faucet.softCap)}</span>
                   <Tag size="sm" tone={decayTone(faucet.decayFactor)}>
-                    {faucet.decayFactor >= 1 ? '满额入账' : `衰减 x${String(faucet.decayFactor)}`}
+                    {faucet.decayFactor >= 1 ? '全额' : `收益 ${String(Math.round(faucet.decayFactor * 100))}%`}
                   </Tag>
                 </div>
               </div>
               <CapBar
-                label={`${faucet.label} 软上限进度`}
+                label={`${faucet.label} 今日进度`}
                 value={faucet.earnedToday}
                 max={faucet.softCap}
                 tone={decayTone(faucet.decayFactor)}
@@ -367,7 +382,7 @@ function WalletSection({ profile, today, now }: WalletSectionProps): ReactElemen
       </div>
 
       <div className="flex flex-col gap-2">
-        <h3 className="font-medium text-sm text-foreground">今日支出 (sink)</h3>
+        <h3 className="font-medium text-sm text-foreground">今日支出</h3>
         {today.sinks.length === 0 ? (
           <p className="text-muted-foreground text-sm">今日还没有任何支出记录。</p>
         ) : (
@@ -746,16 +761,11 @@ function PanelsSection({
       </div>
 
       {/*
-        A14 提示位。面板名全是中文, 这个框因此只能走宿主 EditBox 叠加 (架构文档第七章的中文输入路线),
-        而那层叠加尚未实现 —— 点击只会向宿主报一次"请开输入框", 回填通道接通前它拿不到任何值。
-        照实说明, 不做成一个看起来能打字的框。
+        原先这里有一整条黄色警告横幅, 写着"中文输入未接线 (清单 A14): 宿主 EditBox 叠加未实现…"。
+        撤掉的理由有两条: 玩家读不懂也用不上那串实现细节; 而它占掉一整行, 把本就不宽的磁贴区又压矮一截。
+        这个约束真正需要被说出来的时机是玩家点了输入框的那一刻, 故改由 onRequestEdit 的回执承担 (见首页
+        requestKeywordEdit), 一句话说完。
       */}
-      <Surface tone="warning">
-        <p className="text-xs text-foreground">
-          中文输入未接线 (清单 A14): 宿主 EditBox 叠加未实现, 点击输入框只会向宿主发起一次请求, 回填后本框才会生效。
-        </p>
-      </Surface>
-
       {visible.length === 0 ? (
         <EmptyBlock
           title="没有符合条件的面板"
@@ -763,7 +773,11 @@ function PanelsSection({
           icon={<FilterIcon aria-hidden="true" />}
         />
       ) : (
-        <div className="flex flex-wrap gap-2">
+        /*
+         * 定宽自适应网格而不是 flex-wrap: 后者每个磁贴按自身内容定宽, 于是"婚姻"比"精英怪图鉴"窄一大截,
+         * 十个磁贴排下来宽窄参差。auto-fill + minmax 让每列等宽且随容器变化自动换行。
+         */
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2">
           {visible.map((panel) => (
             <PanelTile
               key={panel.panelId}
@@ -784,25 +798,58 @@ interface PanelTileProps {
   onOpen: (route: string) => void
 }
 
+/**
+ * 磁贴刻意不复用 Button。
+ *
+ * Button 的基类带着 whitespace-nowrap 与固定行高 (它是为"一行字的控件"设计的), 而磁贴是
+ * "图标在上、名字在下、名字可能折行"的两行结构 —— 硬套的结果就是长名字 (精英怪图鉴) 横向溢出到
+ * 边框外面, 且首个磁贴的名字被整行裁掉。用 Button 再逐条覆盖那些基类样式, 只会得到一个
+ * "看起来是按钮实际处处例外"的东西。
+ */
 function PanelTile({ panel, current, onOpen }: PanelTileProps): ReactElement {
   const availability = panelAvailability(panel)
+  const disabled = !availability.usable || current
 
+  const stateClass = current
+    ? 'border-brand bg-brand-muted text-foreground'
+    : availability.usable
+      ? 'border-border bg-card text-foreground hover:border-ring hover:bg-accent'
+      : 'border-border bg-muted/40 text-muted-foreground opacity-64'
+
+  /*
+   * 按压反馈只缩 3%, 不配悬停缩放。快捷入口是每次开平板都会看到的第一屏, 十个磁贴同屏,
+   * 悬停缩放会让"鼠标扫过去"这种无意图的动作也满屏起伏 —— 这一屏要的是安静, 不是活泼。
+   *
+   * not-disabled 同时挡掉了两种点不动的磁贴: 锁着的 (availability.usable 为假) 与当前所在面板
+   * (current), 二者都已合进上面的 disabled。给点不动的东西按压反馈, 等于骗用户它响应了。
+   *
+   * 图标同缩不做反向补偿的理由与 kit/ItemSlot 一致 (最近邻取样下是像素列宽窄不均而非模糊,
+   * 松手即回到整数倍; 补偿反而引入一个与外框耦合、漏改即永久失准的倒数)。
+   */
   const tile = (
-    <Button
-      className="h-auto w-24 flex-col gap-1.5 px-2 py-3"
-      variant={current ? 'brand' : 'outline'}
-      size="sm"
-      disabled={!availability.usable || current}
+    <button
+      aria-current={current ? 'page' : undefined}
+      className={`flex w-full flex-col items-center gap-1.5 rounded-lg border px-1.5 py-2.5 transition-[color,background-color,border-color,scale] duration-(--duration-press) ease-out-soft outline-none focus-visible:ring-2 focus-visible:ring-ring not-disabled:active:scale-97 motion-reduce:not-disabled:active:scale-99 ${stateClass}`}
+      disabled={disabled}
       onClick={() => {
         onOpen(panel.route)
       }}
+      type="button"
     >
-      <ItemIcon itemId={panel.iconItemId} label={panel.label} scale={2} />
-      <span className="flex items-center gap-1 text-xs">
-        {availability.usable ? null : <LockIcon aria-hidden="true" className="size-3" />}
-        {panel.label}
+      <span className="relative">
+        <ItemIcon itemId={panel.iconItemId} label={panel.label} scale={2} />
+        {availability.usable ? null : (
+          // 锁标记压在图标右下角而不是排在名字前面: 排进名字会把本就要折行的两行挤成三行,
+          // 且十个磁贴里只有两个带锁, 名字起始位置会参差不齐。
+          <LockIcon
+            aria-hidden="true"
+            className="absolute -right-1 -bottom-1 size-3.5 rounded-full bg-card p-px text-muted-foreground"
+          />
+        )}
       </span>
-    </Button>
+      {/* 名字允许折到两行: 面板名是中文, 四字与五字并存, 强行一行必然溢出或被裁。 */}
+      <span className="line-clamp-2 text-center text-xs leading-tight">{panel.label}</span>
+    </button>
   )
 
   if (availability.reason === null) {
@@ -1006,12 +1053,10 @@ export function HomePage(): ReactElement {
 
   const requestKeywordEdit = useCallback(
     (current: string): void => {
-      pushToast(
-        'info',
-        current === ''
-          ? '已向宿主请求中文输入框; A14 未接线, 暂时不会有回填。'
-          : `已向宿主请求中文输入框 (当前值 ${current}); A14 未接线, 暂时不会有回填。`,
-      )
+      // 玩家只需要知道两件事: 现在打不了中文, 以及有什么替代办法。为什么打不了是实现细节, 不上界面。
+      // current 参数保留但不进文案 —— 宿主输入层接通后要拿它做初值回填。
+      void current
+      pushToast('info', '中文输入暂未开放, 可先用左侧的范围筛选')
     },
     [pushToast],
   )
@@ -1089,7 +1134,7 @@ export function HomePage(): ReactElement {
                   </Tag>
                   <span className="text-muted-foreground text-xs">
                     {economyStatus.data.afkFrozen
-                      ? `静止 ${String(economyStatus.data.idleSeconds)} 秒, faucet 不入账`
+                      ? `静止 ${String(economyStatus.data.idleSeconds)} 秒, 期间收入不入账`
                       : `静止 ${String(economyStatus.data.idleSeconds)} / ${String(economyStatus.data.freezeThresholdSeconds)} 秒`}
                   </span>
                 </div>
@@ -1172,7 +1217,7 @@ export function HomePage(): ReactElement {
       </div>
 
       <Panel title="快捷入口">
-        <QueryGate query={hubPanels} loadingLabel="读取面板注册表">
+        <QueryGate query={hubPanels} loadingLabel="读取快捷入口">
           {(panelsData) => (
             <PanelsSection
               panels={panelsData.panels}

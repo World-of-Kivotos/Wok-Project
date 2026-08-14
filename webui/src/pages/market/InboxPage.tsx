@@ -11,7 +11,8 @@ import {
   Panel,
   Surface,
 } from '@/components/kit'
-import { useItemNames } from '../../lib/i18n'
+import { isMockActive } from '../../lib/bridge'
+import { useItemDisplayNames } from '../../lib/i18n'
 import { getWorld, mutateWorld, useMockAction } from '../../mock'
 
 /**
@@ -65,8 +66,7 @@ export function InboxPage(): ReactElement {
   )
 
   const items = payoutQuery.status === 'ready' ? payoutQuery.data.items : []
-  const descriptionIds = Array.from(new Set(items.map((item) => item.descriptionId)))
-  const names = useItemNames(descriptionIds)
+  const nameOf = useItemDisplayNames(items)
 
   function handleClaim(): void {
     if (payoutQuery.status !== 'ready') {
@@ -97,7 +97,11 @@ export function InboxPage(): ReactElement {
   return (
     <div className="flex flex-col gap-4">
       <FeedbackAlert
-        message='收件箱背后的 market.pendingPayout 是前端假定契约 (接线清单 B11), 服务端尚未实现对应查询; "领取"按钮当前只在浏览器内存里模拟发放, 装进游戏后由服务端统一改写。'
+        message={
+          isMockActive()
+            ? '收件箱暂未开放, 下面的内容与"领取"都只是演示 (market.pendingPayout, 接线清单 B11), 不会真的发到你身上。'
+            : '收件箱暂未开放, 下面的内容与"领取"都只是演示, 不会真的发到你身上。'
+        }
         tone="warning"
       />
 
@@ -113,30 +117,36 @@ export function InboxPage(): ReactElement {
 
       {payoutQuery.status === 'ready' && hasAnything ? (
         <div className="flex flex-col gap-4">
-          <Panel title="待领取货款">
-            {payoutQuery.data.credit > 0 ? (
-              <Currency amount={payoutQuery.data.credit} currency="credit" size="lg" />
-            ) : (
-              <span className="text-muted-foreground text-sm">暂无待领取货款</span>
-            )}
-          </Panel>
+          {/* 两块内容都很短 (一行金额 + 几个物品格), 各占一整行会把一屏撑得空空荡荡, 故并排。 */}
+          <div className="grid grid-cols-2 gap-4">
+            <Panel title="待领取货款">
+              {payoutQuery.data.credit > 0 ? (
+                <Currency amount={payoutQuery.data.credit} currency="credit" size="lg" />
+              ) : (
+                <span className="text-muted-foreground text-sm">暂无待领取货款</span>
+              )}
+            </Panel>
 
-          <Panel title="待领取物品">
-            {items.length === 0 ? (
-              <span className="text-muted-foreground text-sm">暂无待退回物品</span>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {items.map((item, index) => (
-                  <ItemSlot
-                    count={item.count}
-                    itemId={item.itemId}
-                    key={`${item.itemId}-${String(index)}`}
-                    label={names[item.descriptionId] ?? item.descriptionId}
-                  />
-                ))}
-              </div>
-            )}
-          </Panel>
+            <Panel title="待领取物品">
+              {items.length === 0 ? (
+                <span className="text-muted-foreground text-sm">暂无待退回物品</span>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {items.map((item, index) => (
+                    <ItemSlot
+                      count={item.count}
+                      // 待领货款里装的是别人买走的挂单实物, 必然出现枪匠零件这类变体件;
+                      // 不带这个键的话它们在格子里是同一张图。
+                      customModelData={item.customModelData}
+                      itemId={item.itemId}
+                      key={`${item.itemId}-${String(index)}`}
+                      label={nameOf(item)}
+                    />
+                  ))}
+                </div>
+              )}
+            </Panel>
+          </div>
 
           <div>
             <Button
@@ -155,7 +165,7 @@ export function InboxPage(): ReactElement {
         <Surface tone="success">
           <p className="flex flex-wrap items-center gap-1 text-foreground text-sm">
             已领取 <Currency amount={claimState.creditClaimed} currency="credit" size="sm" /> 货款
-            (退回物品当前 mock 架构无法写回背包, 详见文件头"已知偏差")
+            (退回的物品暂时还不会放回背包)
           </p>
         </Surface>
       ) : null}

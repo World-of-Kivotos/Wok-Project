@@ -12,7 +12,8 @@
  *
  * 刻意铺满的边界形态 (设计稿最容易漏掉的那些):
  *   - 空列表      特勤扫描候选 seals 为空 (未扫描态)、待收货款 items 为空、部分商店无比价对象
- *   - 超长中文名  枪匠枪管的 27 字名, 撞流水行/物品格/表头三处截断 (与 bridge.mock 用的是同一件物品)
+ *   - 超长中文名  防弹背心的 45 字名, 撞流水行/物品格/表头三处截断 (与 bridge.mock 用的是同一件物品)
+ *   - NBT 变体件  同 itemId 同翻译键、只靠 customModelData + nameParts 区分的枪匠零件 (见 ITEM_GAS_CORE)
  *   - 极大数值    一条 total = 2^53-1 的成交流水 + 一个余额 2^53-1 的鲸鱼玩家, 撞金额格式化与 long 精度边界
  *   - 零值        一个双币余额均为 0 的玩家、一个 0 层数的酒、一条 0 进度的悬赏
  *   - 单页刚好装满  系统商店 20 条 (按 pageSize=20 恰好一页, 第 2 页为空)
@@ -20,6 +21,7 @@
  *   - 名字缺席    一条对手方为 null 的流水 (系统回收)、未改名物品无 displayName 键
  */
 
+import type { ItemNamePart } from '../lib/i18n'
 import type { MarketListing, PlayerInventoryItem } from '../lib/types'
 import type {
   PlannedAffixPool,
@@ -47,18 +49,55 @@ const DAY = 24 * HOUR
 /** 假定的默认分页大小; 上面"刚好装满/差一条"两个边界都是按它凑的。 */
 const ASSUMED_PAGE_SIZE = 20
 
-/** 物品三元组 (id + 翻译键 + 中文名) 集中一处, 免得同一件物品在各面板叫不同名字。 */
+/**
+ * 物品三元组 (id + 翻译键 + 中文名) 集中一处, 免得同一件物品在各面板叫不同名字。
+ *
+ * **全部 itemId 必须是仓库里真实存在的注册名**, 中文名必须与 lang/zh_cn.json 逐字一致。
+ * 编一个"看着像那么回事"的 id 的代价: 贴图取不到 -> 界面上是一格棋盘格占位块, 而这个症状看起来
+ * 与"第三方 mod 贴图缺口 (决策 J1)"一模一样, 会把一个纯 mock 数据错误伪装成一条真实的架构缺口。
+ * (2026-08-13 就踩了这个: 一条编造的 gunsmith_barrel_heavy_match_grade 在设计评审里被当成了真物品。)
+ */
 interface SeedItem {
   itemId: string
   descriptionId: string
   displayName: string
+  /** NBT 变体件专用, 见 ITEM_GAS_CORE。 */
+  customModelData?: number
+  /** NBT 变体件专用, 见 ITEM_GAS_CORE。 */
+  nameParts?: ItemNamePart[]
 }
 
 function seedItem(itemId: string, descriptionId: string, displayName: string): SeedItem {
   return { itemId, descriptionId, displayName }
 }
 
+/**
+ * NBT 变体件。itemId 与 descriptionId 都是 Item 级的 (195 种变体共用), 真正区分它们的是后两个字段。
+ * displayName 只作 mock 内部对账用 (真桥上它由 nameParts 经 client.i18n 拼出来)。
+ *
+ * 返回类型把那两个字段收成**必填**, 而不是原样返回 SeedItem。
+ * 理由是 exactOptionalPropertyTypes: 契约类型里它们是 `?: number` (要么键不存在, 要么是 number,
+ * 不接受显式 undefined)。若这里返回的仍是可选版, 把 ITEM_GAS_CORE.customModelData 铺进挂单字面量时
+ * 类型是 `number | undefined`, 直接被拒。收成必填是语义上更准的写法 —— 变体件按定义就一定有这两个值。
+ */
+type SeedVariantItem = SeedItem & Required<Pick<SeedItem, 'customModelData' | 'nameParts'>>
+
+function seedVariant(
+  itemId: string,
+  descriptionId: string,
+  displayName: string,
+  customModelData: number,
+  nameParts: ItemNamePart[],
+): SeedVariantItem {
+  return { itemId, descriptionId, displayName, customModelData, nameParts }
+}
+
 const ITEM_DIAMOND = seedItem('minecraft:diamond', 'item.minecraft.diamond', '钻石')
+/**
+ * 已核实为**编造 id**: 仓库里没有 miningdim:azurite 这件物品 —— 青辉石是纯账本货币
+ * (Currency.AZURE), 无注册项无翻译键无贴图。留着是因为改它要先由后端决定"青辉石到底要不要有实体物品",
+ * 前端不自行裁决。用到它的地方一律会落占位块, 见 nonTradable 处的说明。
+ */
 const ITEM_AZURITE = seedItem('miningdim:azurite', 'item.miningdim.azurite', '青辉石')
 const ITEM_GOLD = seedItem('minecraft:gold_ingot', 'item.minecraft.gold_ingot', '金锭')
 const ITEM_SCRAP = seedItem(
@@ -67,11 +106,37 @@ const ITEM_SCRAP = seedItem(
   '下界合金碎片',
 )
 const ITEM_IRON_ORE = seedItem('minecraft:iron_ore', 'block.minecraft.iron_ore', '铁矿石')
-/** 超长中文名边界: 27 字, 与 bridge.mock 的 I18N_NAMES 用的是同一条。 */
-const ITEM_LONG_BARREL = seedItem(
-  'miningdim:gunsmith_barrel_heavy_match_grade',
-  'item.miningdim.gunsmith_barrel_heavy_match_grade',
-  '格黑娜高速导气竞赛级重型枪管总成（含消焰器与配重底座）',
+/**
+ * 超长中文名边界: 45 字, 取自 lang/zh_cn.json 里全库最长的那条真实物品名 (防弹背心系列)。
+ * 贴图 textures/item/plate_armor_banshee_atacs_au.png 真实存在, 故它在界面上是一张真图标而不是占位块。
+ */
+const ITEM_LONG_NAME = seedItem(
+  'miningdim:plate_armor_banshee_atacs_au',
+  'item.miningdim.plate_armor_banshee_atacs_au',
+  'Shellback Tactical Banshee 防弹背心（A-Tacs AU 迷彩）',
+)
+
+/**
+ * NBT 变体件样本: AR 平台的「格赫娜高速导气」传奇档。
+ *
+ * 它存在的意义不是多一件商品, 而是让**整条变体链路在假数据模式下也真的跑一遍** ——
+ * 195 种枪匠零件共用 miningdim:gunsmith_part 这一个 itemId 与一个翻译键, 只有 customModelData
+ * 与 nameParts 能把它们区分开。少了这个样本, 换皮预览里永远看不出变体件画错没有。
+ *
+ * customModelData 1000005 不是编的: 它等于 variant.index()*1_000_000 + platform*100 + part*10 + quality + 1,
+ * 与构建期从模型 overrides 生成的 /mc/variants.json 里那条 gehenna_high_speed_gas_legendary 逐位相等。
+ * 改它之前先看那张表。
+ */
+const ITEM_GAS_CORE = seedVariant(
+  'miningdim:gunsmith_part',
+  'item.miningdim.gunsmith_part',
+  '格赫娜高速导气 传奇',
+  1_000_005,
+  [
+    { k: 'gunsmith.variant.gehenna_high_speed_gas' },
+    { t: ' ' },
+    { k: 'gunsmith.quality.legendary' },
+  ],
 )
 const ITEM_TACZ_GUN = seedItem('tacz:modern_kinetic_gun', 'item.tacz.modern_kinetic_gun', '现代动能枪械')
 const ITEM_WHEAT = seedItem('minecraft:wheat', 'item.minecraft.wheat', '小麦')
@@ -253,7 +318,7 @@ const TXN_ITEMS: readonly SeedItem[] = [
   ITEM_IRON_ORE,
   ITEM_WHEAT,
   ITEM_TACZ_GUN,
-  ITEM_LONG_BARREL,
+  ITEM_LONG_NAME,
 ]
 
 const TXN_COUNTERPARTIES: readonly string[] = ['矿工阿建', '拍卖狂魔', '鲸鱼玩家', '甜品师小狐']
@@ -438,8 +503,8 @@ function seedMyListings(epoch: number): MarketListing[] {
     {
       id: 1002,
       sellerName: PLAYER_NAME,
-      itemId: ITEM_LONG_BARREL.itemId,
-      descriptionId: ITEM_LONG_BARREL.descriptionId,
+      itemId: ITEM_LONG_NAME.itemId,
+      descriptionId: ITEM_LONG_NAME.descriptionId,
       count: 1,
       unitPrice: 88_000,
       total: 88_000,
@@ -454,6 +519,20 @@ function seedMyListings(epoch: number): MarketListing[] {
       unitPrice: 12_500,
       total: 25_000,
       createdAt: epoch - 900 * MINUTE,
+    },
+    {
+      // NBT 变体件: itemId 与 descriptionId 都是 Item 级的, 名字与图标全靠后两个字段区分。
+      // 少了这一条, 换皮预览里看不出变体件画对没有 (它是本页唯一走这条链路的数据)。
+      id: 1007,
+      sellerName: PLAYER_NAME,
+      itemId: ITEM_GAS_CORE.itemId,
+      descriptionId: ITEM_GAS_CORE.descriptionId,
+      customModelData: ITEM_GAS_CORE.customModelData,
+      nameParts: ITEM_GAS_CORE.nameParts,
+      count: 1,
+      unitPrice: 34_800,
+      total: 34_800,
+      createdAt: epoch - 20 * MINUTE,
     },
   ]
 }
@@ -552,7 +631,8 @@ function seedHubPanels(): PlannedHubPanel[] {
       route: '/quests',
       iconItemId: 'minecraft:written_book',
       enabled: false,
-      lockReason: '任务系统尚未实现 (经济文档 faucet 之首, 全库零实现)',
+      // 锁定原因是直接画给玩家看的悬停提示, 不是给开发的备注 —— 原文写着"经济文档 faucet 之首, 全库零实现"。
+      lockReason: '任务系统尚未开放',
     },
   ]
 }
@@ -595,9 +675,23 @@ export function createInitialWorld(): MockWorld {
       },
       p2pUsedToday: 380,
       p2pCapPerDay: 512,
+      /*
+       * 不可交易清单。两条各带一个**已核实的真实缺口**, 别当成随手写的示例:
+       *
+       * 1. 青辉石 (ITEM_AZURITE) 在仓库里**根本不是物品** —— 它是纯账本货币
+       *    (com.miningdim.economy.Currency.AZURE, "点券式高级货币, 仅 >=6 星精英怪掉落入账"),
+       *    没有注册项、没有翻译键、没有贴图。于是 BOUND_CURRENCY 这条规则永远不可能命中一件真物品。
+       *    接线时要么后端确实给青辉石加一个实体物品, 要么这条 reasonCode 整个作废 —— 现在这样
+       *    既画不出图标 (落占位块), 也在语义上站不住。**待后端裁决, 前端不自行改口径。**
+       *
+       * 2. 塔罗牌的真实注册名是 miningdim:tarot_card 一个 id (220 种牌面靠 NBT 区分),
+       *    此前这里写的 tarot_card_fool 是编造的。已改成真 id。它现在仍会落占位块, 但那是
+       *    **如实反映**: 塔罗牌走的是自定义 ItemProperties 谓词而不是 CustomModelData,
+       *    本次的变体贴图映射表覆盖不到它 (理由见 vite.config.ts 的 buildVariantMap)。
+       */
       nonTradable: [
         { itemId: ITEM_AZURITE.itemId, reasonCode: 'BOUND_CURRENCY', reason: '青辉石绑定账号, 不可交易' },
-        { itemId: 'miningdim:tarot_card_fool', reasonCode: 'TAROT_BANNED', reason: '塔罗牌禁止交易' },
+        { itemId: 'miningdim:tarot_card', reasonCode: 'TAROT_BANNED', reason: '塔罗牌禁止交易' },
       ],
     },
     jobs: {
@@ -790,7 +884,7 @@ export function createInitialWorld(): MockWorld {
             progress: 42,
             maxProgress: 100,
             running: true,
-            outputItemId: ITEM_LONG_BARREL.itemId,
+            outputItemId: ITEM_LONG_NAME.itemId,
           },
           {
             stationId: 'press',
@@ -845,7 +939,7 @@ export function createInitialWorld(): MockWorld {
             displayName: 'M4A1 图纸',
             gunId: 'tacz:m4a1',
             requiredParts: [
-              { itemId: ITEM_LONG_BARREL.itemId, descriptionId: ITEM_LONG_BARREL.descriptionId, count: 1 },
+              { itemId: ITEM_LONG_NAME.itemId, descriptionId: ITEM_LONG_NAME.descriptionId, count: 1 },
               { itemId: ITEM_GOLD.itemId, descriptionId: ITEM_GOLD.descriptionId, count: 4 },
             ],
           },

@@ -24,6 +24,7 @@
  *     一个键是缺席还是 null, 不如全用 null 并在接线时按 Java 逐个改正。
  */
 
+import type { ItemNamePart } from '../lib/i18n'
 import type { BaseValueSource, PlayerInventoryItem, WebUiWallet } from '../lib/types'
 
 /** 不吃任何字段的 planned action 用它占位 (等价 `{}`, 但不触发 no-empty-object-type)。 */
@@ -268,6 +269,15 @@ export interface PlannedPendingItem {
   itemId: string
   descriptionId: string
   count: number
+  /**
+   * NBT 变体件的两个字段, 与 MarketListing / PlayerInventoryItem 同形状 (见 lib/types.ts 的 ItemVariantFields)。
+   *
+   * 这里预先补上而不是等接线时再加: 待领货款里装的就是别人买走的挂单实物, 一定会出现枪匠零件这类
+   * 变体件。服务端真接线时只要让 drainPendingPayout 走一遍 WebUiItemJson, 这两个字段自然就在,
+   * 前端不用再改一次 —— 而缺了它们, 收件箱里的 195 种零件是同名同图标的。
+   */
+  customModelData?: number
+  nameParts?: ItemNamePart[]
 }
 
 /** B12 market.tradable (BACKEND, 挂单路径无标的过滤) 入参。 */

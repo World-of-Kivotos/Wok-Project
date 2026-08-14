@@ -138,7 +138,7 @@ export function MunitionsPanel(): ReactElement {
               value={filterText}
             />
             <span className="text-muted-foreground text-xs">
-              图纸名含中文, 当前宿主中文输入通道未接线, 检索仅支持英文/数字 ID
+              中文输入暂未开放, 检索请用英文或数字 ID
             </span>
           </div>
 

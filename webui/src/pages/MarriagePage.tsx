@@ -1,6 +1,6 @@
 import { CheckIcon, CoinsIcon, HeartIcon, UsersIcon, XIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Button,
   ConfirmDangerDialog,
@@ -19,7 +19,7 @@ import {
   TextInput,
 } from '@/components/kit'
 import type { DropdownOption, FeedbackTone, ItemSlotGridEntry, Tone } from '@/components/kit'
-import { useItemNames } from '../lib/i18n'
+import { useItemDisplayNames } from '../lib/i18n'
 import type { PlayerInventoryItem } from '../lib/types'
 import { callMock, useMockAction, useMockWorld } from '../mock'
 import type { PlannedMarriageStatus, PlannedProposal } from '../mock'
@@ -83,19 +83,21 @@ function formatDuration(remainingMs: number): string {
 }
 
 /** 同一条回退链在网格标签 (buildSharedSlots) 与详情面板两处都要用到, 抽出来避免两处各写一遍且悄悄漂移。 */
-function resolveSharedItemName(item: PlayerInventoryItem, names: Record<string, string>): string {
+function resolveSharedItemName(
+  item: PlayerInventoryItem,
+  nameOf: (item: PlayerInventoryItem) => string,
+): string {
   if (item.displayName !== undefined) {
     return item.displayName
   }
-  const translated = names[item.descriptionId]
-  return translated === undefined ? item.descriptionId : translated
+  return nameOf(item)
 }
 
 /** 格子在网格里的身份就是它的下标, 故这里按 slot 号逐位填充, 空位留空对象而不是跳过。 */
 function buildSharedSlots(
   items: readonly PlayerInventoryItem[],
   totalSlots: number,
-  names: Record<string, string>,
+  nameOf: (item: PlayerInventoryItem) => string,
 ): ItemSlotGridEntry[] {
   return Array.from({ length: totalSlots }, (_unused, index) => {
     const item = items.find((entry) => entry.slot === index)
@@ -104,8 +106,10 @@ function buildSharedSlots(
     }
     return {
       itemId: item.itemId,
+      // 不带这个键的话, 195 种枪匠零件在共享背包网格里是同一张图。
+      customModelData: item.customModelData,
       count: item.count,
-      label: resolveSharedItemName(item, names),
+      label: resolveSharedItemName(item, nameOf),
     }
   })
 }
@@ -115,7 +119,16 @@ export function MarriagePage(): ReactElement {
   const stateQuery = useMockAction('marriage.state', {})
   const sharedQuery = useMockAction('marriage.sharedInv', {})
 
-  const [banner, setBanner] = useState<Banner>(null)
+  const [banner, setBannerValue] = useState<Banner>(null)
+  /*
+   * 回执的实例序号, 只用来当 React key。理由见 kit/Feedback.tsx 的退场闸门:
+   * 退场那 140ms 内被同一句文案顶替时, 组件分辨不出这是新的一条, 旧的退场定时器会把它吞掉。
+   */
+  const bannerSeqRef = useRef(0)
+  const setBanner = (next: Banner): void => {
+    bannerSeqRef.current += 1
+    setBannerValue(next)
+  }
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [divorceConfirmOpen, setDivorceConfirmOpen] = useState(false)
   const [selectedSharedSlot, setSelectedSharedSlot] = useState<number | undefined>(undefined)
@@ -157,7 +170,7 @@ export function MarriagePage(): ReactElement {
     if (teleportPhase === 'channeling' && teleportTick - teleportStartedAt >= TELEPORT_CHANNEL_MS) {
       setTeleportPhase('cooldown')
       setTeleportCooldownUntil(Date.now() + TELEPORT_COOLDOWN_MS)
-      setBanner({ tone: 'info', message: '传送完成 (本地模拟, 无服务端契约, 未产生任何实际效果)' })
+      setBanner({ tone: 'info', message: '传送功能尚未开放, 刚才只是演示效果, 位置没有改变' })
     }
   }, [teleportPhase, teleportTick, teleportStartedAt])
 
@@ -167,9 +180,9 @@ export function MarriagePage(): ReactElement {
     }
   }, [teleportPhase, teleportTick, teleportCooldownUntil])
 
-  const sharedDescriptionIds =
-    sharedQuery.status === 'ready' ? sharedQuery.data.items.map((item) => item.descriptionId) : []
-  const sharedNames = useItemNames(sharedDescriptionIds)
+  const sharedNameOf = useItemDisplayNames(
+    sharedQuery.status === 'ready' ? sharedQuery.data.items : [],
+  )
 
   async function handleBuyRing(): Promise<void> {
     setBusyAction('ring')
@@ -209,7 +222,7 @@ export function MarriagePage(): ReactElement {
         setBanner({ tone: 'info', message: `已拒绝 ${proposal.playerName} 的求婚` })
       } else if (result.spouseName === null) {
         // 服务端回执理应带回配偶名; 缺席是契约破裂, 如实报出而不是拿 proposal.playerName 悄悄补上。
-        setBanner({ tone: 'danger', message: '已接受求婚, 但回执缺少配偶姓名 (契约异常)' })
+        setBanner({ tone: 'danger', message: '已接受求婚, 但没能读到配偶姓名, 请刷新后确认' })
       } else {
         setBanner({ tone: 'success', message: `已与 ${result.spouseName} 订婚` })
       }
@@ -278,14 +291,18 @@ export function MarriagePage(): ReactElement {
   const canTeleport = data.status === 'married' && data.spouseOnline
 
   const sharedSlots =
-    sharedQuery.status === 'ready' ? buildSharedSlots(sharedQuery.data.items, sharedQuery.data.slots, sharedNames) : []
+    sharedQuery.status === 'ready' ? buildSharedSlots(sharedQuery.data.items, sharedQuery.data.slots, sharedNameOf) : []
   const selectedSharedItem =
     sharedQuery.status === 'ready' && selectedSharedSlot !== undefined
       ? sharedQuery.data.items.find((item) => item.slot === selectedSharedSlot)
       : undefined
 
-  // 已订婚/已婚状态下 spouseName 理应非空; 为空是契约异常, 如实标注而不是拿通用词悄悄补上。
-  const spouseLabel = data.spouseName === null ? '(配偶姓名缺失, 契约异常)' : data.spouseName
+  /*
+   * 已订婚/已婚状态下 spouseName 理应非空; 为空是数据异常, 如实说出来而不是拿"对方"这类通用词补上。
+   *
+   * 但**不能**把这句提示塞进句子的姓名位 —— 那会得到"已与 (姓名读取失败) 订婚"这种读不通的句子。
+   * 下面两处消费点各自整句分叉: 有姓名说一句, 没姓名说另一句。
+   */
 
   function handleStartTeleport(): void {
     const now = Date.now()
@@ -298,6 +315,7 @@ export function MarriagePage(): ReactElement {
     <div className="flex flex-col gap-4">
       {banner === null ? null : (
         <FeedbackAlert
+          key={bannerSeqRef.current}
           message={banner.message}
           onDismiss={() => {
             setBanner(null)
@@ -370,7 +388,7 @@ export function MarriagePage(): ReactElement {
               </p>
             ) : proposeOptions.length === 0 ? (
               <EmptyBlock
-                hint="mock 世界里没有其他玩家数据"
+                hint="等其他玩家上线后再来试试"
                 icon={<UsersIcon aria-hidden="true" />}
                 title="暂无可求婚对象"
               />
@@ -384,6 +402,20 @@ export function MarriagePage(): ReactElement {
                     options={proposeOptions}
                     value={proposeTarget}
                   />
+                  <TextInput
+                    className="w-48"
+                    onChange={() => {
+                      // onRequestEdit 模式下本回调不会被触发 (输入框为只读), 保留仅为满足受控 props。
+                    }}
+                    onRequestEdit={() => {
+                      setBanner({
+                        tone: 'info',
+                        message: '中文输入暂未开放, 请用左侧的下拉列表选择求婚对象',
+                      })
+                    }}
+                    placeholder="搜索玩家"
+                    value=""
+                  />
                   <Button
                     disabled={!data.ringOwned || busyAction !== null}
                     loading={busyAction === 'propose'}
@@ -395,24 +427,6 @@ export function MarriagePage(): ReactElement {
                     <HeartIcon />
                     求婚
                   </Button>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <TextInput
-                    onChange={() => {
-                      // onRequestEdit 模式下本回调不会被触发 (输入框为只读), 保留仅为满足受控 props。
-                    }}
-                    onRequestEdit={() => {
-                      setBanner({
-                        tone: 'info',
-                        message: '宿主中文输入尚未接入 (接线清单 A14), 请改用上方下拉列表选择求婚对象',
-                      })
-                    }}
-                    placeholder="搜索玩家 (暂不可输入中文)"
-                    value=""
-                  />
-                  <p className="text-muted-foreground text-xs">
-                    玩家名含中文, 当前无法通过界面直接输入; 上方下拉列表已列出全部已知玩家。
-                  </p>
                 </div>
               </>
             )}
@@ -483,32 +497,41 @@ export function MarriagePage(): ReactElement {
           }
           title="婚礼典礼"
         >
-          <p className="text-muted-foreground text-sm">已与 {spouseLabel} 订婚, 可举行典礼正式结为夫妻</p>
+          <p className="text-muted-foreground text-sm">
+            {data.spouseName === null
+              ? '配偶姓名读取失败, 请刷新后再举行典礼'
+              : `已与 ${data.spouseName} 订婚, 可举行典礼正式结为夫妻`}
+          </p>
         </Panel>
       ) : null}
 
       {/* 离婚 + 传送 + 共享背包 (仅已婚可用) */}
       {data.status === 'married' ? (
         <>
-          <Panel title="离婚">
-            <div>
+          <Panel
+            actions={
               <Button
                 onClick={() => {
                   setDivorceConfirmOpen(true)
                 }}
+                size="sm"
                 variant="destructive"
               >
                 申请离婚
               </Button>
-            </div>
+            }
+            title="离婚"
+          >
+            <p className="text-muted-foreground text-sm">
+              离婚后需要等待一段冷却时间才能再次结婚, 且无法撤销。
+            </p>
           </Panel>
 
-          <Panel title="传送至配偶">
+          <Panel
+            description="传送功能尚未开放, 下面的蓄力与冷却只是效果演示, 不会真的改变你的位置。"
+            title="传送至配偶"
+          >
             <div className="flex flex-col gap-3">
-              <p className="text-muted-foreground text-sm">
-                本区块尚无对应契约 (planned.ts 无 marriage.teleport), 以下蓄力/冷却为纯前端本地模拟,
-                不产生任何服务端或 mock 世界状态变更。
-              </p>
               {teleportPhase === 'idle' ? (
                 <div className="flex items-center gap-2">
                   <Button disabled={!canTeleport} onClick={handleStartTeleport} variant="brand">
@@ -543,7 +566,7 @@ export function MarriagePage(): ReactElement {
           </Panel>
 
           <Panel
-            description="只读快照; 取放物品请在游戏内使用共享背包容器界面。"
+            description="这里只能查看, 存取物品请在游戏里打开共享背包。"
             title={`共享背包 (等级 ${String(data.sharedInvLevel)}, ${String(data.sharedInvSlots)} 格)`}
           >
             {sharedQuery.status === 'loading' ? (
@@ -553,7 +576,8 @@ export function MarriagePage(): ReactElement {
             ) : (
               <div className="flex flex-col gap-3">
                 <ItemSlotGrid
-                  columns={sharedQuery.data.slots}
+                  // 按箱子的 9 列排, 而不是把全部格子摊成一行 —— 升级后格数变多时那一行会横着溢出面板。
+                  columns={Math.min(9, sharedQuery.data.slots)}
                   label="共享背包"
                   onSelect={setSelectedSharedSlot}
                   selectedSlot={selectedSharedSlot}
@@ -563,10 +587,14 @@ export function MarriagePage(): ReactElement {
                   <p className="text-muted-foreground text-sm">点击一个格子查看物品详情</p>
                 ) : (
                   <div className="flex items-center gap-3">
-                    <ItemIcon itemId={selectedSharedItem.itemId} scale={2} />
+                    <ItemIcon
+                      customModelData={selectedSharedItem.customModelData}
+                      itemId={selectedSharedItem.itemId}
+                      scale={2}
+                    />
                     <div className="flex flex-col">
                       <span className="text-foreground text-sm">
-                        {resolveSharedItemName(selectedSharedItem, sharedNames)}
+                        {resolveSharedItemName(selectedSharedItem, sharedNameOf)}
                       </span>
                       <span className="text-muted-foreground text-xs">数量: {selectedSharedItem.count}</span>
                     </div>
@@ -581,7 +609,11 @@ export function MarriagePage(): ReactElement {
       <ConfirmDangerDialog
         confirmLabel="确认离婚"
         loading={busyAction === 'divorce'}
-        message={`离婚后进入再婚冷却, 与 ${spouseLabel} 的婚姻关系将立即解除, 此操作不可撤销。`}
+        message={
+          data.spouseName === null
+            ? '离婚后进入再婚冷却, 当前的婚姻关系将立即解除, 此操作不可撤销。'
+            : `离婚后进入再婚冷却, 与 ${data.spouseName} 的婚姻关系将立即解除, 此操作不可撤销。`
+        }
         onConfirm={() => {
           void handleDivorceConfirm()
         }}

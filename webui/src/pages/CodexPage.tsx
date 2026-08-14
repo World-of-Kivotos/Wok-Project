@@ -23,6 +23,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { isMockActive } from '../lib/bridge'
 import { callMock } from '../mock/handlers'
 import type {
   PlannedAffixPool,
@@ -212,14 +213,14 @@ const STAR_COLUMNS: readonly DataTableColumn<PlannedChampionStar>[] = [
   { key: 'quality', header: '最高品质', render: (row) => row.maxQuality, sortValue: (row) => row.maxQuality },
   {
     key: 'hp',
-    header: '基础有效 HP',
+    header: '基础有效血量',
     numeric: true,
     render: (row) => String(row.baseEffectiveHp),
     sortValue: (row) => row.baseEffectiveHp,
   },
   {
     key: 'hit',
-    header: '基础单击 %maxHP',
+    header: '单击伤害 (占最大血量)',
     numeric: true,
     render: (row) => `${(row.baseHitPct * 100).toFixed(1)}%`,
     sortValue: (row) => row.baseHitPct,
@@ -301,9 +302,8 @@ export function CodexPage(): ReactElement {
     <section className="flex flex-col gap-4">
       {/* 页名由 TabletShell 的 h1 统一渲染, 页面内不再重复 —— 重复两遍且里层更大, 打开必现, 读起来像渲染 bug。 */}
       <p className="text-muted-foreground text-xs">
-        35 条词条按生存 / 战斗 / 机动 / 技能四组呈现, 数值抄自服务端 AffixDef / StarRank 枚举真值
-        (静态 dump, 与真服完全一致); 样本查询走 champion.inspect, 结果来自 mock 固定样本,
-        不代表真实在线实体的实时状态。
+        35 条词条按生存 / 战斗 / 机动 / 技能四组呈现, 数值与服务器内的实际配置一致; 样本查询看到的是
+        演示数据, 不是当前在线的怪物。
       </p>
 
       <TabBar
@@ -366,7 +366,7 @@ export function CodexPage(): ReactElement {
               <p className="text-foreground text-sm">
                 {selectedStarEntry.star} 星: 词条上限 {selectedStarEntry.affixCap} 条 (含{' '}
                 {selectedStarEntry.skillCap} 条技能位), 最高品质 {selectedStarEntry.maxQuality}
-                {selectedStarEntry.star >= 6 ? ', 基础有效 HP 突破原版 1024 上限, 走自定义血池' : ''}
+                {selectedStarEntry.star >= 6 ? ', 血量超出常规上限' : ''}
               </p>
             </Surface>
           )}
@@ -387,8 +387,8 @@ export function CodexPage(): ReactElement {
           />
           {activeDistribution === undefined ? (
             <EmptyBlock
-              title="无难度分布数据"
-              hint="mock 种子未覆盖该难度"
+              title="暂无数据"
+              hint="该难度还没有星级分布"
               icon={<TriangleAlertIcon aria-hidden="true" />}
             />
           ) : (
@@ -436,19 +436,19 @@ export function CodexPage(): ReactElement {
                 void handleInspect(UNKNOWN_ENTITY_ID)
               }}
             >
-              查询未知实体 (演示失败态)
+              演示查询失败
             </Button>
           </div>
 
           {inspect.status === 'idle' ? (
             <EmptyBlock
               title="尚未查询"
-              hint="点击上方按钮按实体 id 查询精英怪状态"
+              hint="点击上方按钮查看精英怪样本"
               icon={<SearchIcon aria-hidden="true" />}
             />
           ) : inspect.status === 'loading' ? (
             <Panel>
-              <LoadingBlock label="正在查询实体" size="lg" />
+              <LoadingBlock label="正在查询" size="lg" />
             </Panel>
           ) : inspect.status === 'error' ? (
             <ErrorBlock
@@ -460,7 +460,10 @@ export function CodexPage(): ReactElement {
           ) : (
             <Panel
               title={inspect.data.displayName}
-              description={`${inspect.data.entityType} · 实体 id ${String(inspect.data.entityId)}`}
+              {...(isMockActive()
+                ? // 实体类型与 id 只有排查时用得上; 生产构建里 isMockActive 恒为 false, 这行不存在。
+                  { description: `${inspect.data.entityType} · 实体 id ${String(inspect.data.entityId)}` }
+                : {})}
               actions={<Tag tone="warning">{inspect.data.star} 星</Tag>}
             >
               <div className="flex flex-col gap-3">
@@ -473,7 +476,7 @@ export function CodexPage(): ReactElement {
                 />
                 {inspect.data.customBloodPool ? (
                   <div>
-                    <Tag tone="info">自定义血池 (突破原版上限)</Tag>
+                    <Tag tone="info">血量超出常规上限</Tag>
                   </div>
                 ) : null}
                 <div className="flex flex-wrap gap-2">
@@ -502,7 +505,10 @@ export function CodexPage(): ReactElement {
             <>
               <DialogHeader>
                 <DialogTitle>{selectedAffix.displayName}</DialogTitle>
-                <DialogDescription>{selectedAffix.affixId}</DialogDescription>
+                <DialogDescription>
+                  {/* 词条 id 只在假数据模式下露出, 生产构建里给玩家看它所属的词条池。 */}
+                  {isMockActive() ? selectedAffix.affixId : `${POOL_LABEL[selectedAffix.pool]}词条`}
+                </DialogDescription>
               </DialogHeader>
               <div className="flex flex-col gap-3 px-6 pb-6">
                 <div className="flex flex-wrap gap-2">
@@ -514,18 +520,21 @@ export function CodexPage(): ReactElement {
                     <Tag tone="warning">互斥族: {selectedAffix.mutexFamily}</Tag>
                   )}
                 </div>
-                <div className="grid grid-cols-5 gap-2">
-                  {TIER_LABELS.map((label) => (
-                    <span className="text-muted-foreground text-xs" key={label}>
-                      {label}
-                    </span>
-                  ))}
-                  {selectedAffix.tiers.map((value, index) => (
-                    // 5 档数值与 TIER_LABELS 一一对应, key 用档位下标本身足够稳定 (数组长度固定为 5)。
-                    <span className="text-foreground text-sm tabular-nums" key={index}>
-                      {tierText(value)}
-                    </span>
-                  ))}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-muted-foreground text-xs">各品质档数值</span>
+                  <div className="grid grid-cols-5 gap-2">
+                    {TIER_LABELS.map((label) => (
+                      <span className="text-muted-foreground text-xs" key={label}>
+                        {label}
+                      </span>
+                    ))}
+                    {selectedAffix.tiers.map((value, index) => (
+                      // 5 档数值与 TIER_LABELS 一一对应, key 用档位下标本身足够稳定 (数组长度固定为 5)。
+                      <span className="text-foreground text-sm tabular-nums" key={index}>
+                        {tierText(value)}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
             </>

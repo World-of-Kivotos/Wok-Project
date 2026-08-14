@@ -45,11 +45,39 @@ interface ModelJson {
   textures?: Record<string, string>
 }
 
-/** itemId -> 贴图 URL; null 表示三层都没取到, 该物品固定走占位块。 */
+/** 缓存键 -> 贴图 URL; null 表示各层都没取到, 该物品固定走占位块。键的构成见 cacheKey。 */
 const textureUrlCache = new Map<string, string | null>()
 
-/** 在途解析。列表滚动时同一 itemId 会被多个单元格同时挂载, 没有它就会把整条回退链重跑 N 遍。 */
+/** 在途解析。列表滚动时同一物品会被多个单元格同时挂载, 没有它就会把整条回退链重跑 N 遍。 */
 const pendingResolves = new Map<string, Promise<string | null>>()
+
+/**
+ * 缓存键。**不能只用 itemId** —— 靠 NBT 区分变体的物品 (枪匠零件的 195 种全部注册在同一个
+ * miningdim:gunsmith_part 之下) 共用一个 itemId, 只按 itemId 缓存会让第一个解析完的变体
+ * 把贴图钉给后面所有变体。
+ */
+function cacheKey(itemId: string, customModelData: number | undefined): string {
+  return customModelData === undefined ? itemId : `${itemId}#${String(customModelData)}`
+}
+
+/**
+ * 变体贴图映射表: itemId -> { CustomModelData -> 贴图路径 }。
+ *
+ * 由 vite.config.ts 的 buildVariantMap 在构建期从 mod 的物品模型 overrides 生成 (dev 下是每次请求现生成),
+ * 且只收录**贴图在磁盘上真实存在**的条目 —— 因此表里查到的路径可以直接用, 不必再走探测回退链。
+ *
+ * 全站取一次。取不到 (旧版产物、静态托管漏拷这个文件) 时退化成空表, 表现是变体件都画默认贴图,
+ * 与补这层之前完全一致 —— 是降级, 不是崩。
+ */
+let variantMapPromise: Promise<Record<string, Record<string, string>>> | null = null
+
+function loadVariantMap(): Promise<Record<string, Record<string, string>>> {
+  variantMapPromise ??= fetch(`${MOD_TEXTURE_ROOT}variants.json`)
+    .then((response) => (response.ok ? response.json() : {}))
+    .then((value) => value as Record<string, Record<string, string>>)
+    .catch(() => ({}))
+  return variantMapPromise
+}
 
 interface ResourceRef {
   namespace: string
@@ -157,8 +185,24 @@ async function resolveByModelChain(startReference: string): Promise<string | nul
   return null
 }
 
-async function resolveTexture(itemId: string): Promise<string | null> {
+async function resolveTexture(itemId: string, customModelData: number | undefined): Promise<string | null> {
   const { namespace, path } = splitRef(itemId)
+
+  /*
+   * 第零层: NBT 变体件。必须排在同名直取之前 —— 枪匠零件的 itemId 是 miningdim:gunsmith_part,
+   * 而 item/gunsmith_part.png 这张贴图并不存在 (存在的是 195 张 gunsmith_part_<平台>_<部位>_<品质>.png),
+   * 顺序反了的话变体件会先探测一次必然落空的 URL 再走到这里, 白跑一趟。
+   *
+   * 查不到就继续往下走既有回退链: 表里没有这个 CustomModelData 说明模型 overrides 没覆盖它,
+   * 那正是 MC 自己也会退回默认模型的情形, 与之同构。
+   */
+  if (customModelData !== undefined && customModelData !== 0) {
+    const variants = await loadVariantMap()
+    const texture = variants[itemId]?.[String(customModelData)]
+    if (texture !== undefined) {
+      return `${MOD_TEXTURE_ROOT}${texture}.png`
+    }
+  }
 
   if (namespace === MOD_NAMESPACE) {
     // 第二层: 本 mod 贴图名与注册名同名, 直取 item/ 再试 block/; 取不到即占位块 (mod 模型未映射为静态资源)。
@@ -187,29 +231,30 @@ async function resolveTexture(itemId: string): Promise<string | null> {
   return await resolveByModelChain(`${VANILLA_NAMESPACE}:item/${path}`)
 }
 
-function readCachedTexture(itemId: string): string | null {
-  const cached = textureUrlCache.get(itemId)
+function readCachedTexture(itemId: string, customModelData: number | undefined): string | null {
+  const cached = textureUrlCache.get(cacheKey(itemId, customModelData))
   return cached === undefined ? null : cached
 }
 
-function resolveItemTexture(itemId: string): Promise<string | null> {
-  const cached = textureUrlCache.get(itemId)
+function resolveItemTexture(itemId: string, customModelData: number | undefined): Promise<string | null> {
+  const key = cacheKey(itemId, customModelData)
+  const cached = textureUrlCache.get(key)
   if (cached !== undefined) {
     return Promise.resolve(cached)
   }
-  const inFlight = pendingResolves.get(itemId)
+  const inFlight = pendingResolves.get(key)
   if (inFlight !== undefined) {
     return inFlight
   }
-  const task = resolveTexture(itemId)
+  const task = resolveTexture(itemId, customModelData)
     .then((url) => {
-      textureUrlCache.set(itemId, url)
+      textureUrlCache.set(key, url)
       return url
     })
     .finally(() => {
-      pendingResolves.delete(itemId)
+      pendingResolves.delete(key)
     })
-  pendingResolves.set(itemId, task)
+  pendingResolves.set(key, task)
   return task
 }
 
@@ -279,6 +324,13 @@ export interface ItemIconProps {
   /** 形如 "minecraft:diamond" / "miningdim:casing"; 省略 namespace 时按原版处理。 */
   itemId: string
   /**
+   * NBT 变体件的 CustomModelData, 由服务端随物品下发 (见 Java 侧 WebUiItemJson)。
+   *
+   * 给了它才画得对: 枪匠零件的 195 种变体共用 miningdim:gunsmith_part 这一个 itemId,
+   * 只按 itemId 取图的话它们全是同一张。表里查不到就自动退回按 itemId 的既有回退链。
+   */
+  customModelData?: number | undefined
+  /**
    * 无障碍名。显示名请由调用方经 useItemNames 解出后传入, 本组件不代发 i18n 请求。
    * 缺省回退为 itemId 本身: 图标脱离文字时仍需要一个可读且唯一的名字, 而空名字会让读屏直接跳过该元素。
    *
@@ -290,39 +342,41 @@ export interface ItemIconProps {
 }
 
 interface ResolvedTexture {
-  readonly itemId: string
+  /** 缓存键 (itemId 或 itemId#cmd), 不是裸 itemId —— 变体件共用 itemId, 用它判错帧会判不出来。 */
+  readonly key: string
   readonly url: string | null
 }
 
-export function ItemIcon({ itemId, label, scale = 1 }: ItemIconProps): ReactElement {
+export function ItemIcon({ itemId, customModelData, label, scale = 1 }: ItemIconProps): ReactElement {
+  const key = cacheKey(itemId, customModelData)
   const [resolved, setResolved] = useState<ResolvedTexture>(() => ({
-    itemId,
-    url: readCachedTexture(itemId),
+    key,
+    url: readCachedTexture(itemId, customModelData),
   }))
 
   useEffect(() => {
     let cancelled = false
-    // 换 itemId 时先落到新 id 的缓存值, 否则解析期间会继续显示上一个物品的贴图。
-    setResolved({ itemId, url: readCachedTexture(itemId) })
-    resolveItemTexture(itemId)
+    // 换物品时先落到新键的缓存值, 否则解析期间会继续显示上一个物品的贴图。
+    setResolved({ key, url: readCachedTexture(itemId, customModelData) })
+    resolveItemTexture(itemId, customModelData)
       .then((url) => {
         if (!cancelled) {
-          setResolved({ itemId, url })
+          setResolved({ key, url })
         }
       })
       .catch((error: unknown) => {
-        console.error('[item-icon] 贴图回退链异常, 落占位块:', itemId, error)
+        console.error('[item-icon] 贴图回退链异常, 落占位块:', key, error)
         if (!cancelled) {
-          setResolved({ itemId, url: null })
+          setResolved({ key, url: null })
         }
       })
     return () => {
       cancelled = true
     }
-  }, [itemId])
+  }, [itemId, customModelData, key])
 
-  // effect 尚未跑完的那一帧 resolved 仍指向旧 itemId, 此时直接读缓存, 避免错帧。
-  const textureUrl = resolved.itemId === itemId ? resolved.url : readCachedTexture(itemId)
+  // effect 尚未跑完的那一帧 resolved 仍指向旧物品, 此时直接读缓存, 避免错帧。
+  const textureUrl = resolved.key === key ? resolved.url : readCachedTexture(itemId, customModelData)
   const accessibleName = label === undefined ? itemId : label
 
   if (textureUrl === null) {
@@ -343,9 +397,9 @@ export function ItemIcon({ itemId, label, scale = 1 }: ItemIconProps): ReactElem
       src={textureUrl}
       alt={accessibleName}
       onError={() => {
-        // 探测通过但正式加载失败 (缓存被逐出后镜像站抽风): 把该 id 钉成占位块, 不让破图留在界面上。
-        textureUrlCache.set(itemId, null)
-        setResolved({ itemId, url: null })
+        // 探测通过但正式加载失败 (缓存被逐出后镜像站抽风): 把该键钉成占位块, 不让破图留在界面上。
+        textureUrlCache.set(key, null)
+        setResolved({ key, url: null })
       }}
     />
   )

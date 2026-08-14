@@ -81,7 +81,7 @@ function UnknownRoute({ path }: { path: string }): ReactElement {
         </Button>
       }
       hint={path}
-      title="未知路由"
+      title="页面不存在"
     />
   )
 }

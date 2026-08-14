@@ -180,3 +180,91 @@ export function useItemNames(descriptionIds: readonly string[]): Record<string, 
 
   return names
 }
+
+// ============================================================
+// NBT 变体件的显示名 (nameParts)
+// ============================================================
+
+/**
+ * 显示名的一个片段: 要么是待解析的翻译键 (k), 要么是原样输出的字面量 (t)。
+ *
+ * 服务端为什么发结构而不发字符串: 专用服务端不加载 mod 的 lang 文件, 在那边解出来的是原始翻译键。
+ * 而 getName(ItemStack) 拼出来的名字往往**不是一个键**, 是若干键与字面量的序列
+ * (枪匠零件是 "平台键 + 部位键 + 字面空格 + 品质键")。真源见 Java 侧 WebUiItemJson。
+ */
+export interface ItemNamePart {
+  /** 翻译键。与 t 互斥。 */
+  k?: string
+  /** 字面量。与 k 互斥。 */
+  t?: string
+}
+
+/** 从若干条 nameParts 里抽出全部翻译键 (去重), 供 useItemNames 一次批量解析。 */
+export function collectNamePartKeys(
+  partsList: readonly (readonly ItemNamePart[] | undefined)[],
+): string[] {
+  const keys = new Set<string>()
+  for (const parts of partsList) {
+    if (parts === undefined) {
+      continue
+    }
+    for (const part of parts) {
+      if (part.k !== undefined) {
+        keys.add(part.k)
+      }
+    }
+  }
+  return [...keys]
+}
+
+/**
+ * 把 nameParts 拼成显示名。names 由 useItemNames 解出。
+ *
+ * 键在 names 里缺席时原样输出该键本身, 与 useItemNames 的降级同纪律 —— 让"名字没解出来"可见,
+ * 而不是悄悄少掉一段, 变成一个读起来像正常、但缺了品质档的短名字。
+ */
+export function formatNameParts(
+  parts: readonly ItemNamePart[],
+  names: Record<string, string>,
+): string {
+  return parts
+    .map((part) => {
+      if (part.k !== undefined) {
+        return names[part.k] ?? part.k
+      }
+      return part.t ?? ''
+    })
+    .join('')
+}
+
+/** 带显示名的物品条目。凡是 Java 侧过了 WebUiItemJson 的回执条目都满足这个形状。 */
+export interface NamedItemLike {
+  descriptionId: string
+  nameParts?: ItemNamePart[]
+}
+
+/**
+ * 一批物品的显示名。返回一个取名函数, 对变体件与普通物品一视同仁。
+ *
+ * 为什么不让各页自己判 `nameParts === undefined ? names[descriptionId] : formatNameParts(...)`:
+ * 这个三元式要在 7 个页面里各写一遍, 而漏写的表现是"某一页里 195 种枪匠零件全叫枪匠零件"——
+ * 一个只在特定物品上才显形、且看起来完全像正常数据的错误。收在这里, 各页改一行导入即可。
+ *
+ * 两类键合并成一次批量请求: 变体件的 nameParts 键与普通物品的 descriptionId 本来就要一起解,
+ * 分两次 useItemNames 会让同一屏发两轮 client.i18n 往返。
+ */
+export function useItemDisplayNames<T extends NamedItemLike>(
+  items: readonly T[],
+): (item: T) => string {
+  const keys = [
+    ...items.map((item) => item.descriptionId),
+    ...collectNamePartKeys(items.map((item) => item.nameParts)),
+  ]
+  const names = useItemNames(keys)
+  return (item: T): string => {
+    if (item.nameParts !== undefined && item.nameParts.length > 0) {
+      return formatNameParts(item.nameParts, names)
+    }
+    return names[item.descriptionId] ?? item.descriptionId
+  }
+}

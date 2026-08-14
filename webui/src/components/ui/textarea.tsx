@@ -40,7 +40,16 @@ export function Textarea({
         render={(defaultProps: React.ComponentProps<"textarea">) => (
           <textarea
             className={cn(
-              "field-sizing-content min-h-17.5 w-full rounded-[inherit] px-[calc(--spacing(3)-1px)] py-[calc(--spacing(1.5)-1px)] text-foreground outline-none placeholder:text-muted-foreground/72 max-sm:min-h-20.5",
+              // 本项目对上游的一处删减: 原文首个类是让 textarea 随内容自动增高的那个 (对应 CSS 的
+              // field-sizing 属性)。该属性 Chrome 123 才落地, 而本工程的渲染目标是 MCEF 内嵌的
+              // Chromium 116 —— 在那里这条声明会被解析器整条丢弃, 属于优雅降级 (只是不再自动增高,
+              // min-h-17.5 仍生效), 不像 @starting-style 那样整块失效。留着没有收益, 却会污染
+              // "产物内零超基线特性"这条可机械扫描的不变量, 故删。
+              //
+              // 注意别在注释里把那个类名原样写出来: Tailwind v4 的扫描器是纯文本的, 不解析 JS,
+              // 注释里的类名照样会被当成使用点重新生成出来 (删完第一次构建就是这么又冒出来的)。
+              // 重新 shadcn add @coss/ui 覆盖本文件后需照此重删一次。
+              "min-h-17.5 w-full rounded-[inherit] px-[calc(--spacing(3)-1px)] py-[calc(--spacing(1.5)-1px)] text-foreground outline-none placeholder:text-muted-foreground/72 max-sm:min-h-20.5",
               size === "sm" &&
                 "min-h-16.5 px-[calc(--spacing(2.5)-1px)] py-[calc(--spacing(1)-1px)] max-sm:min-h-19.5",
               size === "lg" &&

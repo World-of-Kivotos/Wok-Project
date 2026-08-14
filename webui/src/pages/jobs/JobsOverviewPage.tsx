@@ -62,7 +62,7 @@ export function JobsOverviewPage(): ReactElement {
   if (jobs.length === 0) {
     return (
       <EmptyBlock
-        hint="种子数据缺失, 请检查 mock/seed.ts"
+        hint="职业数据读取失败, 请稍后重试"
         icon={<StarIcon aria-hidden="true" />}
         title="暂无职业进度"
       />

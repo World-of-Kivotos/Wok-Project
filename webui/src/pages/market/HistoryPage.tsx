@@ -14,6 +14,7 @@ import {
   Panel,
   Tag,
 } from '@/components/kit'
+import { isMockActive } from '../../lib/bridge'
 import { useItemNames } from '../../lib/i18n'
 import { useMockAction } from '../../mock'
 import type { PlannedMarketTransaction } from '../../mock'
@@ -120,7 +121,7 @@ export function HistoryPage(): ReactElement {
               : 'text-foreground text-sm'
           }
         >
-          {row.counterpartyName ?? '系统 (无对手方)'}
+          {row.counterpartyName ?? '系统'}
         </span>
       ),
       sortValue: (row) => row.counterpartyName ?? '',
@@ -136,32 +137,36 @@ export function HistoryPage(): ReactElement {
   return (
     <div className="flex flex-col gap-4">
       <FeedbackAlert
-        message='后端 market.history 当前恒返回空数组 (MarketDao 无按玩家查流水的方法), 下方"预览数据"表使用前端假定契约 market.transactions (接线清单 B6) 演示日后形态, 与真实成交记录无关。'
+        message={
+          isMockActive()
+            ? '成交历史暂未开放, 下方"示例记录"是演示数据 (market.transactions, 接线清单 B6), 不是你的真实成交。'
+            : '成交历史暂未开放, 下方"示例记录"只是演示用的数据, 不是你的真实成交。'
+        }
         tone="warning"
       />
 
-      <Panel title="真实数据 (market.history)">
+      <Panel title="我的成交记录">
         {realQuery.status === 'loading' ? <LoadingBlock label="正在查询" size="sm" /> : null}
         {realQuery.status === 'error' ? (
           <ErrorBlock message={`查询失败: ${realQuery.error.message}`} onRetry={realQuery.reload} />
         ) : null}
         {realQuery.status === 'ready' ? (
           <EmptyBlock
-            hint="服务端流水查询尚未实现, 这不是你的账号没有交易"
+            hint="成交流水功能还没开放, 不是你的记录丢了"
             icon={<ClockIcon aria-hidden="true" />}
             title="暂无成交记录"
           />
         ) : null}
       </Panel>
 
-      <Panel title="预览数据 (market.transactions, 假定契约)">
-        {plannedQuery.status === 'loading' ? <LoadingBlock label="正在读取演示数据" /> : null}
+      <Panel description="功能开放后, 你的成交记录会长这样" title="示例记录">
+        {plannedQuery.status === 'loading' ? <LoadingBlock label="正在读取示例数据" /> : null}
         {plannedQuery.status === 'error' ? (
           <ErrorBlock message={`读取失败: ${plannedQuery.error.message}`} onRetry={plannedQuery.reload} />
         ) : null}
 
         {plannedQuery.status === 'ready' && transactions.length === 0 ? (
-          <EmptyBlock icon={<ClockIcon aria-hidden="true" />} title="暂无演示流水" />
+          <EmptyBlock icon={<ClockIcon aria-hidden="true" />} title="暂无示例记录" />
         ) : null}
 
         {plannedQuery.status === 'ready' && transactions.length > 0 ? (

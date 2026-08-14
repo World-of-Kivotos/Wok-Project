@@ -135,7 +135,7 @@ export function AgentPanel(): ReactElement {
             <Stat label="探测半径" value={`${String(data.scanRadius)} 格`} />
           </div>
           <p className="text-muted-foreground text-xs">
-            五支线等级数值缺失: 契约 (planned.ts) 只给单一 level 字段
+            五条支线的单独等级暂不可见, 这里只显示总等级
           </p>
         </div>
       </Panel>

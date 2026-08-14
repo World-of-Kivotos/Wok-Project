@@ -154,7 +154,7 @@ export function MinerPanel(): ReactElement {
             <Stat label="职业等级" value={`Lv.${String(data.level)}`} />
             <Stat label="探测半径" value={`${String(data.scanRadius)} 格`} />
           </div>
-          <p className="text-muted-foreground text-xs">连锁开关无对应写 action, 仅只读展示当前状态</p>
+          <p className="text-muted-foreground text-xs">连锁开关暂不可在此调整, 这里只显示当前状态</p>
         </div>
       </Panel>
 
@@ -244,7 +244,7 @@ export function MinerPanel(): ReactElement {
         </div>
       </Panel>
 
-      <Panel title="当日矿物软上限进度">
+      <Panel title="今日矿物产出进度">
         {dailyOres.length === 0 ? (
           <EmptyBlock title="今日暂无产出记录" />
         ) : (

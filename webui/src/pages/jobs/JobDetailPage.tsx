@@ -87,7 +87,7 @@ export function JobDetailPage(): ReactElement {
   const displayName = progress === undefined ? jobId : progress.displayName
   return (
     <EmptyBlock
-      hint="该职业面板由生产职业批次交付, 当前仅占位"
+      hint="该职业的面板尚未开放"
       icon={<StarIcon aria-hidden="true" />}
       title={`单职业详情 · ${displayName}`}
     />

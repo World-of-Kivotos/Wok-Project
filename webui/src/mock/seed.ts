@@ -6,42 +6,27 @@
  * 任何人要评估经济平衡、掉率、等级曲线, 都必须去读那些文件, 不能拿这里的数字当依据 —— 这里的数字
  * 只需满足两个条件: 量级读起来合理 (不会让面板排版失真), 以及能把边界形态铺满。
  *
- * 唯一的例外是精英怪图鉴 (champion.codex): 35 词条与 10 星级表是逐字抄自 com.miningdim.champion.AffixDef
- * 与 StarRank 的真值 —— 那两张表本来就是纯静态枚举 dump (接线清单 G1 判定为 WRAP), 抄真值比编一份
- * 假的更省事也更有用; 抄的时候连"高级+才有意义的档位填 0 占位"这类细节也一并保留了。
- *
  * 刻意铺满的边界形态 (设计稿最容易漏掉的那些):
- *   - 空列表      特勤扫描候选 seals 为空 (未扫描态)、部分商店无比价对象
+ *   - 空列表      部分商店无比价对象
  *   - 超长中文名  防弹背心的 45 字名, 撞挂单行/物品格/表头三处截断 (与 bridge.mock 用的是同一件物品)
  *   - NBT 变体件  同 itemId 同翻译键、只靠 customModelData + nameParts 区分的枪匠零件 (见 ITEM_GAS_CORE)
- *   - 极大数值    一个余额 2^53-1 的鲸鱼玩家, 撞金额格式化与 long 精度边界
- *   - 零值        一个双币余额均为 0 的玩家、一个 0 层数的酒、一条 0 进度的悬赏
  *   - 单页刚好装满  系统商店 20 条 (按 pageSize=20 恰好一页, 第 2 页为空)
- *   - 名字缺席    未改名物品无 displayName 键
  *
  * 市场那一块 (成交流水 / 待结货款 / 每日额度 / 不可交易规则) 已随 W2 接线搬进 lib/bridge.mock ——
  * 它们现在都是真契约 action, 假后端只能有一个, 本文件不再留第二份。
+ * 本轮同理搬走/删除的还有: 职业面板 (塔罗牌组/特勤悬赏/军械台/工程师) 、经济三表、婚姻、矿洞、精英怪图鉴、
+ * 其他玩家名册 —— 对应 action 已全部落地真服, 种子留着只会变成第二份会漂移的权威。
  */
 
 import type { ItemNamePart } from '../lib/i18n'
-import type { MarketListing, PlayerInventoryItem, PlayerJobProgressEntry } from '../lib/types'
-import type {
-  PlannedAffixPool,
-  PlannedChampionAffix,
-  PlannedChampionStar,
-  PlannedJobId,
-  PlannedShopEntry,
-  PlannedStatLine,
-  PlannedTarotCard,
-} from './planned'
-import type { MockOtherPlayer, MockWorld } from './store'
+import type { MarketListing, PlayerJobProgressEntry, WebUiJobId } from '../lib/types'
+import type { PlannedShopEntry } from './planned'
+import type { MockWorld } from './store'
 
 /** 与 bridge.mock 的 MOCK_PLAYER_NAME 逐字一致; 不一致会让"我的挂单"两边认不出同一个人。 */
 const PLAYER_NAME = '测试员_Mock'
 
 const MINUTE = 60_000
-const HOUR = 60 * MINUTE
-const DAY = 24 * HOUR
 
 /** 假定的默认分页大小; 上面"刚好装满/差一条"两个边界都是按它凑的。 */
 const ASSUMED_PAGE_SIZE = 20
@@ -91,11 +76,6 @@ function seedVariant(
 
 const ITEM_DIAMOND = seedItem('minecraft:diamond', 'item.minecraft.diamond', '钻石')
 const ITEM_GOLD = seedItem('minecraft:gold_ingot', 'item.minecraft.gold_ingot', '金锭')
-const ITEM_SCRAP = seedItem(
-  'minecraft:netherite_scrap',
-  'item.minecraft.netherite_scrap',
-  '下界合金碎片',
-)
 const ITEM_IRON_ORE = seedItem('minecraft:iron_ore', 'block.minecraft.iron_ore', '铁矿石')
 /**
  * 超长中文名边界: 45 字, 取自 lang/zh_cn.json 里全库最长的那条真实物品名 (防弹背心系列)。
@@ -142,15 +122,6 @@ const ITEM_CHESTPLATE = seedItem(
 const ITEM_ARROW = seedItem('minecraft:arrow', 'item.minecraft.arrow', '箭')
 const ITEM_BREAD = seedItem('minecraft:bread', 'item.minecraft.bread', '面包')
 
-function statLine(
-  key: string,
-  label: string,
-  value: number,
-  unit: PlannedStatLine['unit'],
-): PlannedStatLine {
-  return { key, label, value, unit }
-}
-
 // ============================================================
 // 职业进度 (8 条并列; 顺序与 JobId.values() 一致)
 // ============================================================
@@ -160,7 +131,7 @@ function statLine(
  * 无中文名一列: job.progress 已核销为真契约, 服务端不直给中文, 职业名由前端按 `job.miningdim.<jobId>`
  * 走 client.i18n 自解 (中文对照见 lib/bridge.mock 的 I18N_NAMES)。
  */
-type JobSeedRow = readonly [PlannedJobId, number, number, number, number, number, number]
+type JobSeedRow = readonly [WebUiJobId, number, number, number, number, number, number]
 
 const JOB_ROWS: readonly JobSeedRow[] = [
   ['miner', 6, 48_200, 3_200, 9_000, 1_450, 2_550],
@@ -178,127 +149,6 @@ function seedJobProgress(): PlayerJobProgressEntry[] {
   return JOB_ROWS.map((row) => {
     const [jobId, level, totalXp, levelXp, nextLevelXp, dailyXp, dailyRemaining] = row
     return { jobId, level, totalXp, levelXp, nextLevelXp, dailyXp, dailyRemaining }
-  })
-}
-
-function jobLevels(
-  miner: number,
-  farmer: number,
-  engineer: number,
-  tarot: number,
-  chef: number,
-  agent: number,
-  munitions: number,
-  brewer: number,
-): Record<PlannedJobId, number> {
-  return { miner, farmer, engineer, tarot, chef, agent, munitions, brewer }
-}
-
-// ============================================================
-// 精英怪图鉴 (唯一一块抄自 Java 真值的数据)
-// ============================================================
-
-/** [枚举名, 中文名, 池, 成本 c, 最低星, 是否技能, 互斥族, 5 档品质数值]。 */
-type AffixSeedRow = readonly [
-  string,
-  string,
-  PlannedAffixPool,
-  number,
-  number,
-  boolean,
-  string | null,
-  readonly number[],
-]
-
-const AFFIX_ROWS: readonly AffixSeedRow[] = [
-  ['COMPOSITE_ARMOR', '复合装甲', 'SURVIVAL', 8, 1, false, null, [0.35, 0.45, 0.55, 0.65, 0.75]],
-  ['UHMWPE_ARMOR', '超高分子聚乙烯护甲层', 'SURVIVAL', 7, 1, false, null, [0.1, 0.15, 0.22, 0.3, 0.4]],
-  // 高级+ 才有意义的词条, 前几档填 0 占位 —— 这是 Java 表里的原样, 前端渲染时要把 0 显示成"—"。
-  ['HEAVY_ARMOR', '重型护甲', 'SURVIVAL', 26, 7, false, 'HEAVY_ARMOR', [0, 0, 0.35, 0.42, 0.49]],
-  ['REGEN_TISSUE', '再生组织', 'SURVIVAL', 6, 1, false, null, [0.03, 0.04, 0.05, 0.06, 0.08]],
-  ['FLAMMABLE_REGEN', '易燃再生', 'SURVIVAL', 10, 3, false, null, [8, 15, 30, 60, 90]],
-  ['DEFLECTOR_SHIELD', '偏斜护盾', 'SURVIVAL', 10, 2, false, 'DEFLECTOR', [0.08, 0.12, 0.18, 0.25, 0.35]],
-  ['FORTITUDE_SHIELD', '刚毅护盾', 'SURVIVAL', 22, 6, false, 'FORTITUDE', [0, 0, 120, 80, 50]],
-  ['THORNS', '反震', 'SURVIVAL', 9, 2, false, null, [0.02, 0.035, 0.05, 0.07, 0.1]],
-  ['GIGANTISM', '巨大化', 'SURVIVAL', 12, 3, false, 'SIZE', [0.3, 0.5, 0.8, 1.2, 1.8]],
-  ['MINIATURIZATION', '缩小化', 'SURVIVAL', 10, 3, false, 'SIZE', [0.25, 0.32, 0.4, 0.48, 0.58]],
-  ['BURNING', '燃烧', 'COMBAT', 8, 1, false, null, [0.01, 0.015, 0.02, 0.03, 0.04]],
-  ['ARMOR_PIERCING', '穿甲', 'COMBAT', 10, 2, false, null, [0.04, 0.06, 0.09, 0.13, 0.18]],
-  ['REND', '撕裂', 'COMBAT', 12, 3, false, null, [0.05, 0.08, 0.12, 0.16, 0.2]],
-  ['HEAVY_CANNON', '重炮', 'COMBAT', 10, 2, false, null, [0.3, 0.475, 0.65, 0.825, 1]],
-  ['CORROSIVE', '强酸', 'COMBAT', 8, 3, false, null, [2, 4, 6, 10, 15]],
-  ['DOUBLE_STRIKE', '双倍打击', 'COMBAT', 9, 3, false, 'MULTI_STRIKE', [2, 2, 2, 2, 2]],
-  ['QUADRUPLE_STRIKE', '四倍痛处', 'COMBAT', 16, 5, false, 'MULTI_STRIKE', [4, 4, 4, 4, 4]],
-  ['BLOODLUST', '嗜血', 'COMBAT', 10, 2, false, null, [0.15, 0.25, 0.35, 0.5, 0.6]],
-  ['CHAOS_STRIKE', '混沌重击', 'COMBAT', 11, 4, false, null, [1, 1, 1, 1, 1]],
-  ['FROST', '寒霜', 'COMBAT', 10, 2, false, null, [0.008, 0.012, 0.018, 0.025, 0.035]],
-  ['SPRINT', '高速移动', 'MOBILITY', 6, 1, false, 'MOVE_SPEED', [0.1, 0.15, 0.22, 0.3, 0.4]],
-  ['OVERDRIVE', '超速移动', 'MOBILITY', 10, 3, false, 'MOVE_SPEED', [1, 1.3, 1.6, 2, 2.5]],
-  ['BLINK', '闪光', 'MOBILITY', 8, 2, false, 'TELEPORT_FAMILY', [9, 8, 7, 5.5, 4]],
-  ['TACTICAL_BLINK', '战术传送', 'MOBILITY', 8, 2, false, 'TELEPORT_FAMILY', [8, 7, 6, 5, 4]],
-  ['PHASE_WALK', '灵体移动', 'MOBILITY', 12, 4, false, 'TELEPORT_FAMILY', [2, 2.5, 3, 3.5, 4]],
-  ['ELECTRO_CHARGE', '电磁蓄力', 'SKILL', 14, 4, true, null, [0.18, 0.26, 0.36, 0.46, 0.55]],
-  ['THUNDER', '天雷', 'SKILL', 18, 5, true, null, [0.12, 0.17, 0.22, 0.27, 0.32]],
-  ['LITTLE_BOY', '小男孩', 'SKILL', 28, 7, true, null, [0, 0, 0, 0.7, 0.85]],
-  ['DEATH_MARK', '命定之死', 'SKILL', 30, 8, true, 'DEATH_MARK', [0, 0, 0, 1.6, 1.6]],
-  ['VISUAL_DISRUPTION', '视觉干扰', 'SKILL', 12, 4, true, null, [3, 3, 3, 3, 3]],
-  ['SELF_REPAIR', '自我修复单元', 'SKILL', 14, 4, true, null, [40, 0, 80, 150, 300]],
-  ['COUNTER_UNIT', '反击单元', 'SKILL', 12, 3, true, 'DEATH_MARK', [0.4, 0.55, 0.7, 0.85, 1]],
-  ['CAESAR_SWAP', '凯撒实验型转换器', 'SKILL', 14, 5, true, 'TELEPORT_FAMILY', [20, 17, 14, 12, 10]],
-  ['BLADE_WALTZ', '利刃华尔兹', 'SKILL', 16, 5, true, 'TELEPORT_FAMILY', [3, 4, 5, 6, 7]],
-  ['SUMMON_SUPPORT', '支援', 'SKILL', 16, 4, true, null, [1, 2, 2, 3, 3]],
-]
-
-function seedAffixes(): PlannedChampionAffix[] {
-  return AFFIX_ROWS.map((row) => {
-    const [affixId, displayName, pool, cost, minStar, isSkill, mutexFamily, tiers] = row
-    return { affixId, displayName, pool, cost, minStar, isSkill, mutexFamily, tiers: [...tiers] }
-  })
-}
-
-/** [星, 生存池, 战斗池, 机动池, 技能池, 总词条上限, 技能数上限, 最高品质, 基础有效HP, 基础单击%]。 */
-type StarSeedRow = readonly [number, number, number, number, number, number, number, string, number, number]
-
-const STAR_ROWS: readonly StarSeedRow[] = [
-  [1, 10, 8, 0, 0, 1, 0, 'COMMON', 135, 0.04],
-  [2, 20, 14, 4, 0, 2, 0, 'COMMON', 225, 0.05],
-  [3, 35, 24, 8, 15, 3, 1, 'UNCOMMON', 360, 0.06],
-  [4, 55, 36, 12, 25, 4, 1, 'UNCOMMON', 540, 0.08],
-  [5, 80, 55, 20, 45, 5, 1, 'RARE', 765, 0.1],
-  // 6 星起基础有效 HP 破原版 generic.max_health 1024 上限, 故走自定义血池 (spec 6.2)。
-  [6, 120, 80, 30, 70, 6, 2, 'RARE', 2_700, 0.12],
-  [7, 165, 110, 45, 110, 7, 2, 'EPIC', 6_000, 0.14],
-  [8, 240, 160, 75, 180, 9, 3, 'EPIC', 27_000, 0.16],
-  [9, 330, 230, 115, 260, 11, 3, 'LEGENDARY', 45_000, 0.18],
-  [10, 440, 310, 155, 360, 13, 4, 'LEGENDARY', 73_000, 0.2],
-]
-
-function seedStars(): PlannedChampionStar[] {
-  return STAR_ROWS.map((row) => {
-    const [
-      star,
-      survivalBudget,
-      combatBudget,
-      mobilityBudget,
-      skillBudget,
-      affixCap,
-      skillCap,
-      maxQuality,
-      baseEffectiveHp,
-      baseHitPct,
-    ] = row
-    return {
-      star,
-      survivalBudget,
-      combatBudget,
-      mobilityBudget,
-      skillBudget,
-      affixCap,
-      skillCap,
-      maxQuality,
-      baseEffectiveHp,
-      baseHitPct,
-    }
   })
 }
 
@@ -345,91 +195,6 @@ function seedShops(): PlannedShopEntry[] {
 }
 
 // ============================================================
-// 塔罗牌组 (22 张大阿卡纳; 名字是通用译名, 品质分档为演示值)
-// ============================================================
-
-const TAROT_NAMES: readonly string[] = [
-  '愚者',
-  '魔术师',
-  '女祭司',
-  '女皇',
-  '皇帝',
-  '教皇',
-  '恋人',
-  '战车',
-  '力量',
-  '隐者',
-  '命运之轮',
-  '正义',
-  '倒吊人',
-  '死神',
-  '节制',
-  '恶魔',
-  '高塔',
-  '星星',
-  '月亮',
-  '太阳',
-  '审判',
-  '世界',
-]
-
-function seedTarotDeck(epoch: number): PlannedTarotCard[] {
-  return TAROT_NAMES.map((displayName, index) => {
-    const quality =
-      index >= 20 ? 'legendary' : index >= 16 ? 'epic' : index >= 10 ? 'rare' : index >= 4 ? 'uncommon' : 'common'
-    return {
-      cardId: `tarot_${String(index).padStart(2, '0')}`,
-      displayName,
-      // 后 6 张未持有: 卡池面板需要同时存在"已持有"与"未持有"两种格位形态。
-      owned: index >= 16 ? 0 : 1 + (index % 3),
-      quality,
-      // 只有一张在冷却中; 冷却是只读 peek, 面板绝不能调 tryUse (那是校验并占用的写方法)。
-      cooldownUntil: index === 5 ? epoch + 42_000 : 0,
-      equipped: index < 3,
-    }
-  })
-}
-
-// ============================================================
-// 其他玩家
-// ============================================================
-
-function seedOtherPlayers(): MockOtherPlayer[] {
-  return [
-    {
-      name: '矿工阿建',
-      uuid: '22222222-2222-4222-8222-222222222222',
-      online: true,
-      wallet: { credit: 24_800, azure: 12 },
-      jobLevels: jobLevels(8, 2, 1, 1, 3, 1, 2, 1),
-    },
-    {
-      // 零余额边界: 双币均为 0。负余额服务端不可能产生, 故不造。
-      name: '拍卖狂魔',
-      uuid: '33333333-3333-4333-8333-333333333333',
-      online: false,
-      wallet: { credit: 0, azure: 0 },
-      jobLevels: jobLevels(1, 1, 1, 1, 1, 1, 1, 1),
-    },
-    {
-      // 极大数值边界: 余额 2^53-1, 撞 OP 调账面板的输入框与金额列。
-      name: '鲸鱼玩家',
-      uuid: '44444444-4444-4444-8444-444444444444',
-      online: true,
-      wallet: { credit: Number.MAX_SAFE_INTEGER, azure: 30 },
-      jobLevels: jobLevels(10, 10, 10, 10, 10, 10, 10, 10),
-    },
-    {
-      name: '甜品师小狐',
-      uuid: '55555555-5555-4555-8555-555555555555',
-      online: true,
-      wallet: { credit: 6_400, azure: 3 },
-      jobLevels: jobLevels(2, 5, 1, 3, 9, 1, 1, 4),
-    },
-  ]
-}
-
-// ============================================================
 // 挂单镜像的种子 (与 bridge.mock 的初始挂单同 id, 便于对照; 真实数据仍以 call 回执为准)
 // ============================================================
 
@@ -472,21 +237,6 @@ function seedMyListings(epoch: number): MarketListing[] {
   ]
 }
 
-function seedSharedInvItems(): PlayerInventoryItem[] {
-  return [
-    { slot: 0, itemId: ITEM_DIAMOND.itemId, descriptionId: ITEM_DIAMOND.descriptionId, count: 9 },
-    { slot: 1, itemId: ITEM_BREAD.itemId, descriptionId: ITEM_BREAD.descriptionId, count: 32 },
-    {
-      // 唯一带 displayName 的格位 (铁砧改名); 其余格位该键整体缺席, 不是空串。
-      slot: 5,
-      itemId: ITEM_CHESTPLATE.itemId,
-      descriptionId: ITEM_CHESTPLATE.descriptionId,
-      count: 1,
-      displayName: '「同心」纪念胸甲',
-    },
-  ]
-}
-
 /**
  * 造一份全新的世界。每次调用都返回互不共享引用的新对象 —— resetWorld 依赖这一点,
  * 若这里返回了模块级常量的引用, 重置之后玩家上一轮的改动会跟着一起回来。
@@ -506,331 +256,7 @@ export function createInitialWorld(): MockWorld {
       refreshedAt: 0,
     },
     walletOverlay: { credit: 0, azure: 0 },
-    jobs: {
-      progress: seedJobProgress(),
-      tarot: {
-        level: 5,
-        fragments: 240,
-        deck: seedTarotDeck(epoch),
-        packPriceCredit: 1_800,
-        packsBoughtToday: 1,
-        packDailyLimit: 5,
-      },
-      agent: {
-        level: 1,
-        scanReadyAt: 0,
-        scanRadius: 32,
-        // 空列表边界: 还没扫描过, 面板必须有"未扫描"这一态而不是空表格。
-        seals: [],
-        bounties: [
-          {
-            bountyId: 'bounty_ore',
-            title: '清点深层矿脉',
-            targetType: 'ORE_SURVEY',
-            progress: 3,
-            goal: 10,
-            rewardCredit: 2_400,
-            expiresAt: epoch + 2 * DAY,
-            claimable: false,
-          },
-          {
-            bountyId: 'bounty_champion',
-            title: '讨伐 5 星以上精英怪',
-            targetType: 'CHAMPION_KILL',
-            // 零进度边界。
-            progress: 0,
-            goal: 3,
-            rewardCredit: 6_000,
-            expiresAt: epoch + 5 * DAY,
-            claimable: false,
-          },
-          {
-            bountyId: 'bounty_deliver',
-            title: '向前哨交付面包',
-            targetType: 'DELIVER',
-            progress: 64,
-            goal: 64,
-            rewardCredit: 900,
-            expiresAt: epoch + 8 * HOUR,
-            // 已达成待领取: 领取按钮的可用态需要有样本。
-            claimable: true,
-          },
-        ],
-      },
-      munitions: {
-        level: 7,
-        stations: [
-          {
-            stationId: 'workbench',
-            displayName: '军械台',
-            pos: { x: 214, y: 71, z: -88 },
-            progress: 42,
-            maxProgress: 100,
-            running: true,
-            outputItemId: ITEM_LONG_NAME.itemId,
-          },
-          {
-            stationId: 'press',
-            displayName: '冲压机',
-            pos: { x: 218, y: 71, z: -88 },
-            progress: 0,
-            maxProgress: 100,
-            running: false,
-            outputItemId: null,
-          },
-          {
-            // 未放置形态: pos 为 null, 面板要能显示"尚未建造"。
-            stationId: 'assembler',
-            displayName: '装配台',
-            pos: null,
-            progress: 0,
-            maxProgress: 100,
-            running: false,
-            outputItemId: null,
-          },
-        ],
-      },
-      engineer: {
-        level: 2,
-        tiers: [
-          statLine('nano_t1', '纳米板 一档', 2, 'flat'),
-          statLine('nano_t2', '纳米板 二档', 4, 'flat'),
-          statLine('nano_t3', '纳米板 三档', 7, 'flat'),
-          statLine('nano_t4', '纳米板 四档', 11, 'flat'),
-          statLine('nano_t5', '纳米板 五档', 16, 'flat'),
-          statLine('nano_t6', '纳米板 六档', 22, 'flat'),
-        ],
-        armorEffects: [
-          {
-            effectId: 'kinetic_absorb',
-            displayName: '动能吸收',
-            description: '受子弹伤害时按层数削减一部分冲量, 与其它减伤乘法叠加。',
-            unlocked: true,
-          },
-          {
-            effectId: 'thermal_vent',
-            displayName: '热管疏导',
-            description: '脱战后每秒回复少量护甲耐久。',
-            unlocked: false,
-          },
-        ],
-      },
-      blueprints: {
-        blueprints: [
-          {
-            blueprintId: 'bp_m4a1',
-            displayName: 'M4A1 图纸',
-            gunId: 'tacz:m4a1',
-            requiredParts: [
-              { itemId: ITEM_LONG_NAME.itemId, descriptionId: ITEM_LONG_NAME.descriptionId, count: 1 },
-              { itemId: ITEM_GOLD.itemId, descriptionId: ITEM_GOLD.descriptionId, count: 4 },
-            ],
-          },
-          {
-            blueprintId: 'bp_ak47',
-            displayName: 'AK47 图纸',
-            gunId: 'tacz:ak47',
-            requiredParts: [
-              { itemId: ITEM_SCRAP.itemId, descriptionId: ITEM_SCRAP.descriptionId, count: 2 },
-              { itemId: ITEM_IRON_ORE.itemId, descriptionId: ITEM_IRON_ORE.descriptionId, count: 12 },
-            ],
-          },
-        ],
-      },
-    },
-    economy: {
-      status: { afkFrozen: false, idleSeconds: 42, freezeThresholdSeconds: 300 },
-      today: {
-        faucets: [
-          { faucetKey: 'mining', label: '挖矿收购', earnedToday: 8_240, softCap: 12_000, decayFactor: 1 },
-          // 已过软上限: 衰减到 0.6, 这一档正是玩家最关心的展示点 (D3)。
-          { faucetKey: 'farming', label: '农作物收购', earnedToday: 14_800, softCap: 12_000, decayFactor: 0.6 },
-          { faucetKey: 'champion', label: '精英怪分赃', earnedToday: 0, softCap: 20_000, decayFactor: 1 },
-          { faucetKey: 'bounty', label: '悬赏奖励', earnedToday: 900, softCap: 6_000, decayFactor: 1 },
-        ],
-        sinks: [
-          { sinkKey: 'market_fee', label: '市场手续费', spentToday: 3_520 },
-          { sinkKey: 'tarot_pack', label: '塔罗卡包', spentToday: 1_800 },
-          { sinkKey: 'case_open', label: '开箱', spentToday: 5_000 },
-          { sinkKey: 'seasoning', label: '调味台', spentToday: 240 },
-        ],
-        totalCreditIn: 23_940,
-        totalCreditOut: 10_560,
-        azureIn: 18,
-        azureDailyCap: 30,
-        resetsAt: epoch + 6 * HOUR,
-      },
-      priceTable: {
-        anchors: [
-          {
-            itemId: ITEM_DIAMOND.itemId,
-            descriptionId: ITEM_DIAMOND.descriptionId,
-            anchorPrice: 500,
-            todayPrice: 300,
-            minedToday: 1_840,
-          },
-          {
-            itemId: ITEM_GOLD.itemId,
-            descriptionId: ITEM_GOLD.descriptionId,
-            anchorPrice: 120,
-            todayPrice: 120,
-            minedToday: 640,
-          },
-          {
-            itemId: ITEM_SCRAP.itemId,
-            descriptionId: ITEM_SCRAP.descriptionId,
-            anchorPrice: 3_000,
-            todayPrice: 2_400,
-            minedToday: 22,
-          },
-          {
-            itemId: ITEM_WHEAT.itemId,
-            descriptionId: ITEM_WHEAT.descriptionId,
-            anchorPrice: 6,
-            todayPrice: 4,
-            minedToday: 9_600,
-          },
-        ],
-      },
-    },
-    marriage: {
-      status: 'single',
-      spouseName: null,
-      spouseUuid: null,
-      spouseOnline: false,
-      weddedAt: null,
-      marriageDays: 0,
-      divorceCount: 1,
-      remarryCooldownUntil: 0,
-      sharedInvLevel: 1,
-      sharedInvSlots: 9,
-      ringOwned: false,
-      ringPriceCredit: 12_000,
-      milestones: [
-        { milestoneId: 'first_week', label: '相伴七日', achievedAt: null },
-        { milestoneId: 'first_month', label: '相伴一月', achievedAt: null },
-        { milestoneId: 'shared_inv_2', label: '共享背包二级', achievedAt: null },
-      ],
-      // 两条待处理求婚: 收件方向的列表在真服是 E3 缺的那个反查索引, 前端必须能展示与应答。
-      incomingProposals: [
-        {
-          proposalId: 'prop_1',
-          playerName: '甜品师小狐',
-          playerUuid: '55555555-5555-4555-8555-555555555555',
-          createdAt: epoch - 20 * MINUTE,
-          expiresAt: epoch + 40 * MINUTE,
-        },
-        {
-          proposalId: 'prop_2',
-          playerName: '矿工阿建',
-          playerUuid: '22222222-2222-4222-8222-222222222222',
-          createdAt: epoch - 3 * HOUR,
-          expiresAt: epoch + 5 * MINUTE,
-        },
-      ],
-      outgoingProposal: null,
-    },
-    sharedInv: { slots: 9, items: seedSharedInvItems() },
-    mining: {
-      instances: [
-        {
-          difficulty: 'easy',
-          displayName: '浅层矿区',
-          requiredMinerLevel: 1,
-          playersInside: 6,
-          danger: 0.12,
-          lastResetAt: epoch - 5 * HOUR,
-          nextResetAt: epoch + 7 * HOUR,
-        },
-        {
-          difficulty: 'medium',
-          displayName: '中层矿区',
-          // 代码权威是 L4 (GateResult 头注释里的 MEDIUM=10 是过期文档口径)。
-          requiredMinerLevel: 4,
-          playersInside: 3,
-          danger: 0.48,
-          lastResetAt: epoch - 11 * HOUR,
-          nextResetAt: epoch + 1 * HOUR,
-        },
-        {
-          difficulty: 'hard',
-          displayName: '深层矿区',
-          requiredMinerLevel: 8,
-          playersInside: 0,
-          danger: 0.86,
-          lastResetAt: epoch - 2 * HOUR,
-          nextResetAt: epoch + 10 * HOUR,
-        },
-      ],
-      myStatus: {
-        inside: false,
-        difficulty: null,
-        regionX: 0,
-        regionZ: 0,
-        danger: 0,
-        spawnFreezeUntil: 0,
-        minerLevel: 6,
-      },
-    },
-    champion: {
-      codex: {
-        affixes: seedAffixes(),
-        stars: seedStars(),
-        distribution: [
-          {
-            difficulty: 'easy',
-            starWeights: [
-              { star: 1, weight: 70 },
-              { star: 2, weight: 25 },
-              { star: 3, weight: 5 },
-            ],
-          },
-          {
-            difficulty: 'medium',
-            starWeights: [
-              { star: 3, weight: 45 },
-              { star: 4, weight: 35 },
-              { star: 5, weight: 15 },
-              { star: 6, weight: 5 },
-            ],
-          },
-          {
-            difficulty: 'hard',
-            starWeights: [
-              { star: 6, weight: 40 },
-              { star: 7, weight: 30 },
-              { star: 8, weight: 20 },
-              { star: 9, weight: 8 },
-              { star: 10, weight: 2 },
-            ],
-          },
-        ],
-      },
-      samples: [
-        {
-          entityId: 4_201,
-          entityType: 'minecraft:zombie',
-          displayName: '复合装甲 僵尸',
-          star: 4,
-          affixIds: ['COMPOSITE_ARMOR', 'BURNING', 'SPRINT'],
-          health: 380,
-          maxHealth: 540,
-          customBloodPool: false,
-        },
-        {
-          entityId: 4_202,
-          entityType: 'minecraft:wither_skeleton',
-          displayName: '命定 凋灵骷髅',
-          star: 9,
-          affixIds: ['HEAVY_ARMOR', 'DEATH_MARK', 'THUNDER', 'PHASE_WALK', 'REND'],
-          health: 41_500,
-          maxHealth: 45_000,
-          // 6 星及以上走自定义血池, 血量不再受原版 generic.max_health 1024 上限约束。
-          customBloodPool: true,
-        },
-      ],
-    },
+    jobs: { progress: seedJobProgress() },
     shops: seedShops(),
-    otherPlayers: seedOtherPlayers(),
   }
 }

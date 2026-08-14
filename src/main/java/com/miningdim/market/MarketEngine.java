@@ -139,15 +139,25 @@ public final class MarketEngine {
         }
         // listFee 蒸发 = sink (不 grant 给任何人, 反通胀)。
 
-        // 托管: 序列化"单位物品 ItemStack(item, count)"的 NBT (整 stack 含 NBT, 但 count 收紧为挂单量),
-        // 再从卖家库存精确扣 count 个。先序列化后扣 (序列化失败则不扣, 自然冒泡, 不留物品凭空消失)。
+        /*
+         * 托管: 序列化"单位物品 ItemStack(item, count)"的 NBT (整 stack 含 NBT, 但 count 收紧为挂单量),
+         * 落库成功之后才从卖家库存精确扣 count 个。
+         *
+         * 扣库存必须排在 insertListing 之后: 挂单期物品的唯一所在就是 listings 那一行, 先扣再落库的话,
+         * insertListing 抛 (磁盘满 / 库被锁) 时物品既不在背包也不在库里 —— 连同已扣的手续费一起蒸发,
+         * 而玩家手上没有任何凭据。反过来先落库后扣, 最坏情况是"库里有行、背包还剩着", 那是可查可对账的。
+         *
+         * 序列化仍排在最前 (它失败则什么都没发生)。手续费那一段仍有独立的窗口: tryCharge 已扣而
+         * insertListing 抛时费收不回 —— 彻底消除要把扣费与落库裹进同一个跨存储事务, 属经济层改动,
+         * 见 PR 描述的遗留说明。本次先把损失面从"物品+手续费"收窄到"手续费"。
+         */
         ItemStack escrow = stack.copy();
         escrow.setCount(count);
         byte[] nbt = serializeStack(escrow);
-        stack.shrink(count);
 
         long listingId = dao.insertListing(seller.getUUID(), seller.getName().getString(),
                 itemId, nbt, count, unitPrice, MarketConstants.CURRENCY_CREDIT, System.currentTimeMillis());
+        stack.shrink(count);
         return new PlaceResult(listingId, listFee);
     }
 

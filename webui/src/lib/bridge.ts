@@ -17,6 +17,64 @@ import { BRIDGE_UNAVAILABLE_CODE, WebUiQueryError, webUiQuery } from '../bridge/
 import type { WebUiActionName } from './actions'
 import { SERVER_ACTIONS } from './actions'
 import type {
+  EconomyPriceTablePayload,
+  EconomyPriceTableResult,
+  EconomyStatusPayload,
+  EconomyStatusResult,
+  EconomyTodayPayload,
+  EconomyTodayResult,
+  AgentStatePayload,
+  AgentStateResult,
+  AgentScanPayload,
+  AgentScanResult,
+  AgentSealPayload,
+  AgentSealResult,
+  MunitionsStatePayload,
+  MunitionsStateResult,
+  BlueprintsPayload,
+  BlueprintsResult,
+  EngineerStatePayload,
+  EngineerStateResult,
+  TarotStatePayload,
+  TarotStateResult,
+  TarotBuyPackPayload,
+  TarotBuyPackResult,
+  MarriageStatePayload,
+  MarriageStateResult,
+  MarriageBuyRingPayload,
+  MarriageBuyRingResult,
+  MarriageProposePayload,
+  MarriageProposeResult,
+  MarriageRespondPayload,
+  MarriageRespondResult,
+  MarriageWedPayload,
+  MarriageWedResult,
+  MarriageDivorcePayload,
+  MarriageDivorceResult,
+  MarriageSharedInvPayload,
+  MarriageSharedInvResult,
+  MiningOverviewPayload,
+  MiningOverviewResult,
+  MiningMyStatusPayload,
+  MiningMyStatusResult,
+  MiningEnterPayload,
+  MiningEnterResult,
+  MiningLeavePayload,
+  MiningLeaveResult,
+  ChampionCodexPayload,
+  ChampionCodexResult,
+  ChampionInspectPayload,
+  ChampionInspectResult,
+  AdminEconomyBalancePayload,
+  AdminEconomyBalanceResult,
+  AdminEconomySetPayload,
+  AdminEconomySetResult,
+  AdminJobSetLevelPayload,
+  AdminJobSetLevelResult,
+  AdminMiningResetPayload,
+  AdminMiningResetResult,
+  PlayerRosterPayload,
+  PlayerRosterResult,
   AdminListItemsPayload,
   AdminListItemsResult,
   AdminSetBaseValuePayload,
@@ -135,6 +193,35 @@ type WebUiContractMap = {
   'case.apply': { payload: CaseApplyPayload; result: CaseApplyResult }
   'client.i18n': { payload: ClientI18nPayload; result: ClientI18nResult }
   'client.playCaseSound': { payload: ClientPlayCaseSoundPayload; result: ClientPlayCaseSoundResult }
+  'economy.priceTable': { payload: EconomyPriceTablePayload; result: EconomyPriceTableResult }
+  'economy.status': { payload: EconomyStatusPayload; result: EconomyStatusResult }
+  'economy.today': { payload: EconomyTodayPayload; result: EconomyTodayResult }
+  'job.agent.state': { payload: AgentStatePayload; result: AgentStateResult }
+  'job.agent.scan': { payload: AgentScanPayload; result: AgentScanResult }
+  'job.agent.seal': { payload: AgentSealPayload; result: AgentSealResult }
+  'job.munitions.state': { payload: MunitionsStatePayload; result: MunitionsStateResult }
+  'job.blueprints': { payload: BlueprintsPayload; result: BlueprintsResult }
+  'job.engineer.state': { payload: EngineerStatePayload; result: EngineerStateResult }
+  'job.tarot.state': { payload: TarotStatePayload; result: TarotStateResult }
+  'job.tarot.buyPack': { payload: TarotBuyPackPayload; result: TarotBuyPackResult }
+  'marriage.state': { payload: MarriageStatePayload; result: MarriageStateResult }
+  'marriage.buyRing': { payload: MarriageBuyRingPayload; result: MarriageBuyRingResult }
+  'marriage.propose': { payload: MarriageProposePayload; result: MarriageProposeResult }
+  'marriage.respond': { payload: MarriageRespondPayload; result: MarriageRespondResult }
+  'marriage.wed': { payload: MarriageWedPayload; result: MarriageWedResult }
+  'marriage.divorce': { payload: MarriageDivorcePayload; result: MarriageDivorceResult }
+  'marriage.sharedInv': { payload: MarriageSharedInvPayload; result: MarriageSharedInvResult }
+  'mining.overview': { payload: MiningOverviewPayload; result: MiningOverviewResult }
+  'mining.myStatus': { payload: MiningMyStatusPayload; result: MiningMyStatusResult }
+  'mining.enter': { payload: MiningEnterPayload; result: MiningEnterResult }
+  'mining.leave': { payload: MiningLeavePayload; result: MiningLeaveResult }
+  'champion.codex': { payload: ChampionCodexPayload; result: ChampionCodexResult }
+  'champion.inspect': { payload: ChampionInspectPayload; result: ChampionInspectResult }
+  'admin.economy.balance': { payload: AdminEconomyBalancePayload; result: AdminEconomyBalanceResult }
+  'admin.economy.set': { payload: AdminEconomySetPayload; result: AdminEconomySetResult }
+  'admin.job.setLevel': { payload: AdminJobSetLevelPayload; result: AdminJobSetLevelResult }
+  'admin.mining.reset': { payload: AdminMiningResetPayload; result: AdminMiningResetResult }
+  'player.roster': { payload: PlayerRosterPayload; result: PlayerRosterResult }
 }
 
 /**

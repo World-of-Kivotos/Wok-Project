@@ -43,6 +43,15 @@ export interface WebUiWallet {
   azure: number
 }
 
+/**
+ * 货币种类 (Java 侧 com.miningdim.economy.Currency 枚举名逐字大写)。
+ *
+ * 只在"服务端会回显币种"或"入参要指定币种"的 action 上出现 (job.tarot.state/buyPack 的卡包定价、
+ * admin.economy.set 的目标币种)。余额本身走 WebUiWallet 的 credit/azure 两个具名字段, 不用本类型索引 ——
+ * 两套写法混用会让"哪一栏是青辉石"变成运行期才知道的事。
+ */
+export type WebUiCurrency = 'CREDIT' | 'AZURE'
+
 /** market.baseValue / admin.listItems 共用的 V0 命中层标注 (MarketActions.BASE_VALUE / MarketAdminActions.LIST_ITEMS)。 */
 export type BaseValueSource = 'override' | 'preset' | 'none'
 
@@ -305,6 +314,34 @@ export interface PlayerItemDetailResult {
 
 /** player.profile 入参 —— 不读 payload 任何字段。 */
 export type PlayerProfilePayload = EmptyPayload
+
+export type PlayerRosterPayload = EmptyPayload
+
+/** player.roster 名册里的一行 (Java 落点: PlayerWebUiActions.ROSTER)。 */
+export interface PlayerRosterEntry {
+  /** = ServerPlayer.getGameProfile().getName()。 */
+  name: string
+  /** = ServerPlayer.getUUID().toString()。 */
+  uuid: string
+}
+
+/**
+ * player.roster 回执: 在线玩家名册 (Java 落点: PlayerWebUiActions.ROSTER)。
+ *
+ * 存在的理由是"免输入": marriage.propose 与 admin.economy.balance/set 都按玩家名找人, 而中文输入 (W11)
+ * 已推迟 —— 只给一个输入框, 中文 ID 的玩家就永远求不了婚。名册让界面能做成点选。
+ *
+ * 服务端不做任何过滤, 调用者自己也在名册里 (admin 调账的目标可以是自己); 要排除自己由前端按
+ * player.profile 的名字做。
+ */
+export interface PlayerRosterResult {
+  /** 单次最多 200 条 (服务端硬上限)。 */
+  players: PlayerRosterEntry[]
+  /** 全量在线人数, 不是本次下发条数 —— 截断时前端靠它讲清还有多少人没显示。 */
+  total: number
+  /** total 超过 200 时为 true。 */
+  truncated: boolean
+}
 
 /**
  * player.profile 聚合里的单条职业进度 (Java 落点: PlayerWebUiActions)。
@@ -830,6 +867,687 @@ export interface BrewerStateResult {
    */
   millisPerVintageYear: number
 }
+
+// ============================================================
+// job.agent.* — com.miningdim.job.agent.AgentWebUiActions
+// (Gson serializeNulls: 全部可空字段一律显式 JSON null, 无缺席键, 故本组只用 `| null` 不用 `?:`)
+// ============================================================
+
+/** job.agent.state 入参 —— 不读 payload 任何字段。 */
+export type AgentStatePayload = EmptyPayload
+
+/**
+ * 封印类别 (SealCategory 枚举名)。被动需干员 L3、机制需 L8; 两类在 SealRegistry 里各有一本 CD 账本,
+ * 封被动不会锁住机制。
+ */
+export type AgentSealCategory = 'PASSIVE' | 'MECHANIC'
+
+/**
+ * 目标身上的一条可封候选词条 (AgentWebUiActions.entryJson)。
+ *
+ * decrypted=false 的行, affixId / displayKey / category **三格同时是 JSON null** —— 这是服务端在 webui
+ * 回执层刻意做的脱敏 (真值送进浏览器等于在开发者工具里明码给出词条身份, 分级解密就白做了), 不是漏发。因此:
+ *   1. 列表 key 只能用行下标, 不能用 affixId;
+ *   2. 未解密行必须渲染成占位且不可点 —— 硬提交会被 INVALID_REQUEST (params.field='affixId') 拒掉。
+ * sealable 只是 UI 预过滤, 服务端封印时会按当刻状态重算。
+ */
+export interface AgentAffixEntry {
+  affixId: string | null
+  displayKey: string | null
+  category: AgentSealCategory | null
+  decrypted: boolean
+  sealable: boolean
+  sealed: boolean
+}
+
+/**
+ * 扫描快照里的一个目标 (AgentWebUiActions.targetsJson)。
+ * job.agent.state 与 job.agent.scan 的目标条目**完全同形** (同一份脉冲记录的两次投影), 前端用同一个组件渲染两处。
+ */
+export interface AgentScanTarget {
+  /** 网络实体 id; 快照一过期即作废 (见 AgentStateResult.snapshotRemainingTicks)。 */
+  targetNetworkId: number
+  star: number
+  /** 未取整的欧氏距离 (格)。半径判定是球不是立方体。 */
+  distanceBlocks: number
+  /** 实体注册 id, 如 minecraft:zombie。 */
+  entityTypeId: string
+  /** 原版 descriptionId, 如 entity.minecraft.zombie; 中文过 client.i18n 解 (服务端不发中文)。 */
+  entityNameKey: string
+  /**
+   * 脉冲当刻的方块坐标 (不随目标移动刷新)。
+   * 精确坐标绑在第四章 L8 那一格 (Glowing 高亮), 且判据取的是**发出那次脉冲时**的干员等级 ——
+   * L7 扫完立刻升到 L8, 在旧快照到期前 pos 仍是 null, 要拿坐标必须重扫。null 时只能显示 distanceBlocks。
+   */
+  pos: WebUiBlockPos | null
+  /** 顺序即精英词条原始顺序 (集成层已过滤掉外来/纯防御词条)。 */
+  entries: AgentAffixEntry[]
+}
+
+/** 干员封印权限表 (AgentSkillTable 的实时查表值; 未解锁档位是真值 0 而不是"无限制")。 */
+export interface AgentSealPermissions {
+  passiveUnlockLevel: number
+  mechanicUnlockLevel: number
+  passiveUnlocked: boolean
+  mechanicUnlocked: boolean
+  /** 可封的最高目标星级 (= 干员等级)。L<3 时是真值 0 (未解锁)。 */
+  maxSealableStar: number
+  /** 被动窗口/CD 秒数; L<3 恒 0。 */
+  passiveWindowSeconds: number
+  passiveCooldownSeconds: number
+  /** 机制窗口/CD 秒数; L<8 恒 0。 */
+  mechanicWindowSeconds: number
+  mechanicCooldownSeconds: number
+  /** 读 SealRegistry 活账本 (与键位路径同一本); 0 = 就绪。 */
+  passiveCooldownRemainingTicks: number
+  mechanicCooldownRemainingTicks: number
+  /** 槽位数; L<3 恒 0。双槽只在 (目标 8 星+ 且干员 L9+) 时为 2。 */
+  slotsDefault: number
+  slotsVsStar8Plus: number
+  secondSlotUnlockLevel: number
+}
+
+/**
+ * 干员悬赏**权限表**, 不是悬赏实例列表。
+ * 全工程没有"玩家已接的悬赏"这个存储 (BountyDefinition/BountyProgress 是零构造点的逻辑骨架),
+ * 故面板上的悬赏板这一屏本轮无数据可渲染, 只能显示这张权限一览。
+ */
+export interface AgentBountyPermissions {
+  dailySlots: number
+  weeklySlots: number
+  weeklyUnlocked: boolean
+  weeklyUnlockLevel: number
+  maxBountyStar: number
+  worldBossUnlocked: boolean
+  worldBossUnlockLevel: number
+  /** 单位青辉石; Cap 恒 50 (AgentBountySavedData.WEEKLY_AZURE_SOFT_CAP), 跨 ISO 周清零。 */
+  weeklyAzureGranted: number
+  weeklyAzureCap: number
+}
+
+/**
+ * job.agent.state 回执 (AgentWebUiActions.STATE)。
+ * 纯只读: 绝不烧 CD、不发脉冲、不写快照 —— targets 只是上一次脉冲的投影, 且服务端已替前端做完过期判定
+ * (过期即空数组), 前端不必自己算过期。
+ */
+export interface AgentStateResult {
+  /** 1-10 (框架对任何玩家默认返 1)。 */
+  level: number
+  /**
+   * = AgentSealSeam.isBound()。false = Champions 未加载, 扫描读不到真精英词条。
+   * 此时面板必须显示"扫描离线", 而不是渲染一张空的候选表 —— 两者对玩家是完全不同的意思。
+   */
+  scanOnline: boolean
+  /**
+   * 本次生效的有效半径 (格)。L1-L9 直取第四章范围列 (64/96/128/160/200/256/320/384/448);
+   * L10 表值是哨兵 -1 (跨区块), 服务端已解析成 max(448, 服务端视距区块 x 16) 的真实数字, 前端拿到的永远是正数。
+   */
+  scanRadiusBlocks: number
+  scanCrossChunk: boolean
+  /** = scanPulseCdSeconds(level) x 20; L1=1200 L5=940 L10=600。 */
+  scanPulseCooldownTicks: number
+  /**
+   * 剩余冷却 tick (20 tick/s), 0 = 就绪, 永不为负。
+   * 刻意不发绝对时刻: 服务端手里只有 game tick, 转成墙钟让 MCEF 拿 Date.now() 去减既吃时钟偏移、
+   * 又在 TPS 掉帧时失真。前端在收到那一刻自己落成本地 epoch 再倒计时 (与 job.miner.* 同纪律)。
+   */
+  scanCooldownRemainingTicks: number
+  /** 与上一字段按设计恒等 (同一 pulseTick 派生); 0 = 无有效快照。归零即 targets 的封印按钮必须变灰。 */
+  snapshotRemainingTicks: number
+  /**
+   * 一次脉冲最多下发 8 个目标 (MAX_SCAN_TARGETS, 回执体积硬上限)。
+   * **语义比字面宽**: Java 是在检视下一个候选"是不是精英"之前就置位的, 真正含义是"球内还有未检视的活体实体"
+   * (448 格球内几乎必然有普通怪/村民/其它玩家)。故底部文案只能写"仅显示最近 8 个",
+   * 严禁写成"还有更多精英未显示"。
+   */
+  truncated: boolean
+  /** 按距离升序, 最多 8 条; 快照过期时是空数组。 */
+  targets: AgentScanTarget[]
+  seal: AgentSealPermissions
+  bounty: AgentBountyPermissions
+  /** 倍率 1.0-3.0 (小数原样发, 未取整)。 */
+  enhancedRewardMultiplier: number
+  /** 整数百分比 5-15。 */
+  damageBonusPercent: number
+  /** 入职标志: false = 从未做过特勤活计, 加强奖励与对精英伤害放大一分不吃。 */
+  activeAgent: boolean
+}
+
+/**
+ * job.agent.scan 入参 —— 刻意不收目标 id 与半径: 那两个是服务端的门 (与 job.miner.scan 同纪律)。
+ */
+export type AgentScanPayload = EmptyPayload
+
+/**
+ * job.agent.scan 回执 (AgentWebUiActions.SCAN)。
+ *
+ * 写操作: 成功一次即烧掉整轮 CD 并覆盖旧快照; 扫空 (球内一只精英也没有) 同样烧 CD。
+ * 唯一不烧 CD 的是 scanOnline=false (接缝未绑定) —— 此时 targets 为空且两个 RemainingTicks 都是 0, 可立即重试。
+ */
+export interface AgentScanResult {
+  agentLevel: number
+  radiusBlocks: number
+  crossChunk: boolean
+  pulseCooldownTicks: number
+  /** false = Champions 未加载: 本次是免费空转, 没烧 CD 也没写快照。 */
+  scanOnline: boolean
+  /** 语义同 AgentStateResult.truncated (同名同义)。 */
+  truncated: boolean
+  /** 成功回执里这两栏都等于 pulseCooldownTicks。 */
+  scanCooldownRemainingTicks: number
+  snapshotRemainingTicks: number
+  targets: AgentScanTarget[]
+}
+
+/**
+ * job.agent.scan 的业务拒绝码。
+ * SKILL_ON_COOLDOWN 与矿工探矿**复用同一条码**, params = {skill:'tactical_scan', remainingTicks:'<tick>'},
+ * 前端按 params.skill 区分是哪一个技能在冷却。
+ */
+export type AgentScanErrorCode = 'SKILL_ON_COOLDOWN'
+
+export type AgentScanErrorEnvelope = WebUiBusinessErrorEnvelope<AgentScanErrorCode>
+
+/** job.agent.seal 入参 (AgentWebUiActions.SEAL)。 */
+export interface AgentSealPayload {
+  /** 必须取自当前有效快照; 快照过期后该 id 立即作废。 */
+  targetNetworkId: number
+  /** 必须是**已解密**行的 affixId; 未解密行的该字段是 null, 前端根本不该让它可点。 */
+  affixId: string
+}
+
+/**
+ * job.agent.seal 的九态结果码, 逐字取自 Java AgentSealSeam.SealOutcome (顺序即声明序)。
+ *
+ * OK                   占槽并真改成功 (ok 只有这一态为真)
+ * NOT_BOUND            Champions 未加载 (本路径实际不可达 —— 未加载时写不出快照, 快照门会先拒; 字典仍应备一条)
+ * NO_TARGET            目标非本工程盖章精英 / 已离场 / 网络 id 失效
+ * AFFIX_NOT_SEALABLE   外来词条 / 纯防御词条 / 列表里已无该词条 / 真改未生效
+ * CATEGORY_LOCKED      被动需 L3、机制需 L8
+ * STAR_TOO_HIGH        目标星级 > 可封星级 (= 干员等级)
+ * ALL_SLOTS_OCCUPIED   该精英的槽已满 (槽是精英自身容量, 不随在场人数涨)
+ * AFFIX_ALREADY_SEALED 该词条已被任意干员封印中 (互斥, 不延长)
+ * ON_COOLDOWN          该干员该类别仍在封印 CD 内
+ */
+export type AgentSealOutcomeCode =
+  | 'OK'
+  | 'NOT_BOUND'
+  | 'NO_TARGET'
+  | 'AFFIX_NOT_SEALABLE'
+  | 'CATEGORY_LOCKED'
+  | 'STAR_TOO_HIGH'
+  | 'ALL_SLOTS_OCCUPIED'
+  | 'AFFIX_ALREADY_SEALED'
+  | 'ON_COOLDOWN'
+
+/**
+ * job.agent.seal 回执 (AgentWebUiActions.SEAL)。
+ *
+ * 服务端不下发中文文案 (专用服务端不加载 lang), 前端必须按 outcomeCode 九态自建文案字典。
+ * 两道**前置门**不走 outcomeCode 而是抛 INVALID_REQUEST, 前端要单独识别成两句话:
+ *   params.field='targetNetworkId' -> "请先扫描" (没扫过 / 快照已过期 / 该目标不在快照里)
+ *   params.field='affixId'         -> "该词条尚未解密, 点不了" (词条不在快照里 / 未解密 / 空白)
+ * 两者的 params 除 field 外**必带 value** (回显被拒的入参, 超 64 字符截断并追加 "...")。
+ */
+export interface AgentSealResult {
+  /** 只有 outcomeCode === 'OK' 时为 true。 */
+  ok: boolean
+  outcomeCode: AgentSealOutcomeCode
+  targetNetworkId: number
+  affixId: string
+  category: AgentSealCategory
+  /** 该等级该类别的公开表值; 失败时同样发 (与占槽时用的是同一张表同一对入参)。 */
+  windowSeconds: number
+  cooldownSeconds: number
+  /** 读 SealRegistry 活账本: 成功后是刚起的整轮 CD, 被 ON_COOLDOWN 拒时是真实剩余量。单位 tick。 */
+  categoryCooldownRemainingTicks: number
+}
+
+// ============================================================
+// job.munitions.state / job.blueprints — com.miningdim.job.munitions.MunitionsWebUiActions
+// (Gson serializeNulls; detail 子对象里的键是"按台种类条件写入"的缺席键, 与外层显式 null 语义不同)
+// ============================================================
+
+/** job.munitions.state 入参 —— 不读 payload 任何字段。 */
+export type MunitionsStatePayload = EmptyPayload
+
+/**
+ * 一台机器的特有状态。键随 stationId 变, 前端必须按 stationId 分支取值; pos=null 时本对象是空的 `{}`。
+ *
+ * 两个 `?: string | null` 是双重可选: 键本身可能不存在 (那台机器没有这个概念),
+ * 存在时值也可能是 null (军火台未选口径 / 装配台没放图纸)。
+ */
+export interface MunitionsStationDetail {
+  /** 军火台: 选中口径 (MunitionsCaliber 枚举名小写, 如 'pistol'/'big_pistol'); 未选为 null。 */
+  caliberId?: string | null
+  /** 军火台: 缓冲内已产发数。**产出权威看这一栏**: TACZ 未装时输出槽恒空而缓冲照常涨。 */
+  bufferedRounds?: number
+  bufferCap?: number
+  locked?: boolean
+  refineUnlocked?: boolean
+  /** 军火台: 这台实际按几级算产能 (台档会把台主等级压到该档上限)。 */
+  effectiveLevel?: number
+  continuousCrafting?: boolean
+  /** 冲压机: 当前选中平台 (GunsmithPlatform.id, 如 'ar')。 */
+  platformId?: string
+  /** 冲压机: 当前选中部位 (GunsmithPressPart.id, 如 'core')。 */
+  partId?: string
+  /** 冲压机: 当前选中品质 (GunsmithPartQuality.id, 如 'common')。 */
+  qualityId?: string
+  /** 冲压机: 当前选中变体 (GunsmithPartVariant.id, 如 'basic')。 */
+  variantId?: string
+  /**
+   * 装配台: 图纸槽里的图纸 (GunsmithBlueprint.templateId, 如 'ak47'); 没放图纸为 null。
+   * 槽里放的是老模板物品 (ModMunitionsItems.M4_ASSEMBLY_TEMPLATE) 时同样会认出来, 值是 'm4a1'。
+   */
+  blueprintId?: string | null
+}
+
+/**
+ * 三台机器之一 (MunitionsWebUiActions.stationRow + benchJson/pressJson/assemblyJson)。
+ * 数值一律经各自 BE 的 ContainerData 读, 与原生 GUI 同一份权威快照。
+ */
+export interface MunitionsStation {
+  /** 'munitions_bench' | 'gunsmith_press' | 'gunsmith_assembly_bench' (= 方块注册名)。 */
+  stationId: string
+  /** 方块翻译键; 军火台扫到时换成实际那一档的键 (六档军火台是六个注册名)。 */
+  nameKey: string
+  /**
+   * **null = "这个半径内没扫到"而不是"没造过"** —— 全工程没有"玩家 -> 台位坐标"注册表。
+   * 文案必须写"附近未找到", 想说"造了几台"请用 MunitionsStateResult.benchesPlaced。
+   */
+  pos: WebUiBlockPos | null
+  running: boolean
+  /**
+   * 已进行 tick。三种取值都要处理:
+   *   null  没扫到, 或**装配台**(它没有 ContainerData, 已进行 tick 服务端读不出) —— running=true 时应画
+   *         不定态进度条 (来回跑), 不要当 0% 画;
+   *   0     军火台扫到了但未选口径 (BE 返 0), 此时 requiredTicks 也是 0, 直接相除会得到 NaN;
+   *   正数  真进度。注意军火台侧 ContainerData 是按秒过线的, 还原回 tick 只能到 20 tick (1 秒) 的格点,
+   *         最多丢 19 tick —— 不是逐 tick 精度。
+   */
+  progressTicks: number | null
+  /** 一次加工所需 tick; 没扫到时 null, 军火台未选口径时 0。装配台是真值常量 160。 */
+  requiredTicks: number | null
+  /** 输出槽物品注册名; 空槽为 null。 */
+  outputItemId: string | null
+  /** 输出槽数量; 空槽为 0。 */
+  outputCount: number
+  detail: MunitionsStationDetail
+}
+
+/**
+ * job.munitions.state 回执 (MunitionsWebUiActions.STATE)。
+ * 纯只读: 绝不调 settleForOwner/onAccess —— 面板刷新若推进产线, 开着平板就成了产能加速器。
+ */
+export interface MunitionsStateResult {
+  /** 军火商职业等级 (JobServices.level, 1-10)。 */
+  level: number
+  /** 该等级允许拥有的军火台总数上限 (MunitionsLevels.tableCount, 实时 config)。 */
+  benchCap: number
+  /** 全局已放置军火台数 (MunitionsSavedData 按 UUID 计, 跨维度权威; 与 stations 里扫到几台无关)。 */
+  benchesPlaced: number
+  /**
+   * 就近搜索半径 (格)。实现是"以玩家所在区块为心、dx/dz in [-4,4] 的 9x9 区块盒", 只有下界是保证的:
+   * 欧氏 64 格内的台位必被扫到 (上界单轴最远 79 格、对角约 112 格)。
+   * 故它只能用来写"没扫到 = 64 格内没有", **不能**反过来假设"扫到的一定在 64 格内"。
+   */
+  searchRadiusBlocks: number
+  /**
+   * 枪匠冲压/装配总开关 (MunitionsConfig.GUNSMITH_ENABLED, **默认 false**)。
+   * 关着时装配台点开工只会被拒 —— 面板必须先把这件事讲清楚, 否则玩家会以为是 bug。
+   */
+  gunsmithEnabled: boolean
+  /** 恒 3 行且顺序恒定: [0]=军火台 [1]=冲压机 [2]=装配台。 */
+  stations: MunitionsStation[]
+}
+
+/** job.blueprints 入参 —— 不读 payload 任何字段。 */
+export type BlueprintsPayload = EmptyPayload
+
+/** 图纸必需的一个部位。 */
+export interface BlueprintPart {
+  /** GunsmithPressPart.id, 如 'core'/'barrel'/'slide'。 */
+  partId: string
+  /** 部位翻译键 'gunsmith.part.<id>' (与零件 tooltip 同一批键)。 */
+  labelKey: string
+  /** 恒 1 (装配台部位槽 getSlotLimit=1)。 */
+  count: number
+}
+
+/** 一张枪匠图纸 (GunsmithBlueprint 枚举一项)。 */
+export interface Blueprint {
+  /** 稳定 id = GunsmithBlueprint.templateId, 如 'm4a1'/'ak47'/'m1911'。 */
+  blueprintId: string
+  /** 成品枪 id, 恒 tacz 命名空间, 如 'tacz:m4a1'。 */
+  gunId: string
+  /** 图纸物品名的套壳键 'item.miningdim.gunsmith_blueprint.name', 带一个 %s 占位, 实参是 gunNameKey。 */
+  nameKey: string
+  /**
+   * 枪名键 'tacz.gun.<templateId>.name'。**属 TACZ 的 lang**, 未装 TACZ 的客户端解不出 ——
+   * 这是真实情况, 服务端没有伪造本 mod 的替代名。解不出时前端只能退回显示 gunId。
+   */
+  gunNameKey: string
+  /** 平台 id (GunsmithPlatform.id: ar/ak/pistol/bullpup/marksman/sniper/machine_gun)。 */
+  platformId: string
+  /** 平台翻译键 'gunsmith.platform.<id>'。 */
+  platformLabelKey: string
+  /**
+   * 该图纸必需的部位 (4-6 个)。顺序是 GunsmithPressPart 的**声明序** (构造里做了 EnumSet.copyOf),
+   * 不是 GunsmithPlatform 那边 List 声明的顺序 —— 将来加 marksman 图纸时会与冲压机 GUI 的部位顺序不一致。
+   */
+  requiredParts: BlueprintPart[]
+}
+
+/**
+ * job.blueprints 回执 (MunitionsWebUiActions.BLUEPRINTS)。纯静态表, 与玩家状态无关, 不分页
+ * (枚举编译期定长, 静态表分页只会让前端多一个永远只有一页的翻页器)。
+ *
+ * 零件的 itemId/descriptionId 提到顶层只发一份: 195 种枪匠零件全注册在同一个 miningdim:gunsmith_part
+ * 之下靠 NBT 区分, 在 50 余个部位行里逐行重复是纯浪费。
+ */
+export interface BlueprintsResult {
+  /** 顺序 = GunsmithBlueprint.values() 声明序, 今 9 款。 */
+  blueprints: Blueprint[]
+  /** = blueprints.length (前端做契约自检用)。 */
+  blueprintCount: number
+  /** 恒 'miningdim:gunsmith_part'。 */
+  partItemId: string
+  /** 恒 'item.miningdim.gunsmith_part' (取图标/兜底名用)。 */
+  partDescriptionId: string
+  /** 与 MunitionsStateResult.gunsmithEnabled 同一个 config 值。 */
+  gunsmithEnabled: boolean
+}
+
+// ============================================================
+// job.engineer.state — com.miningdim.job.engineer.EngineerWebUiActions
+// (默认 Gson: 回执里没有任何 null 值, 两个"仅闪耀档存在"的字段是缺席键, 故一律 `?:` 不用 `| null`)
+// ============================================================
+
+/** job.engineer.state 入参 —— 不读 payload 任何字段。 */
+export type EngineerStatePayload = EmptyPayload
+
+/**
+ * 纳米板修复量的量纲。
+ * **repairValue 必须连本字段一起读**: 同一个 300 在极品档是"最大耐久的 30%", 在低级档是"300 点耐久",
+ * 只画数字就是骗人。
+ */
+export type NanoRepairUnit = 'durability' | 'permille'
+
+/** 护甲特效数值行的量纲。 */
+export type EngineerStatUnit = 'percent' | 'ticks' | 'count' | 'flat'
+
+/** 护甲特效的一行实时数值 (EngineerWebUiActions.stat)。 */
+export interface EngineerStatLine {
+  /** 数值键 (如 sharedCdTicks/reviveHealthPct/maxCharges)。 */
+  key: string
+  /** 翻译键 'stat.miningdim.engineer.<key>' —— **lang 条目尚未落地**, 现在解出来就是键本身。 */
+  labelKey: string
+  /**
+   * 原样下发的裁决值, 未取整。注意实现把 IntValue 的 config 全部拓宽成 double,
+   * 故 unit='ticks'/'count' 的值在 JSON 里也是 36000.0 / 5.0 这种带小数点的形态 ——
+   * 前端不得对它做 Number.isInteger 断言或字符串直显。
+   */
+  value: number
+  unit: EngineerStatUnit
+}
+
+/** 一档纳米板 (NanoTier + 默认档表)。 */
+export interface NanoTierRow {
+  /** 档 id (NanoTier 枚举名小写: low/medium/high/superior/transcendent/radiant)。 */
+  tierId: string
+  /** 'tier.miningdim.nano.<tierId>' (与生产台 GUI / 套件 tooltip 同一批键, lang 已存在)。 */
+  labelKey: string
+  /** 稳定序号 0-5。 */
+  index: number
+  /** 该档解锁所需等级 (1/3/5/7/9/10)。 */
+  unlockLevel: number
+  unlocked: boolean
+  /** 'miningdim:nano_plate_<tierId>'。 */
+  plateItemId: string
+  plateDescriptionId: string
+  /** 单板矿石消耗 (4 铁/5 金/3 钻/1 下界合金/1/2)。 */
+  oreCost: number
+  /** 单次成功产出板数 (仅极品档为 2)。 */
+  outputCount: number
+  produceTicks: number
+  /** 单档原始经验 (框架再过每日衰减)。 */
+  rawXp: number
+  /** 该档修复时是否可能掷出护甲特效 (高级板起 true)。 */
+  canRollEffect: boolean
+  repairUnit: NanoRepairUnit
+  /**
+   * 修复量: durability 档是绝对耐久点数 (100/250/600); permille 档是最大耐久的千分比 (300/650/1000)。
+   * permille 是服务端用常量 1000 喂 NanoRepair.repairAmount 反解出来的 floor 值, 运营把比例调成三位以上
+   * 小数时会丢掉不足 1 个千分点的部分 —— 它是展示值, 不是精确比例。
+   */
+  repairValue: number
+  /** 是否必定重掷特效 (仅闪耀档 true)。 */
+  guaranteedEffect: boolean
+  /** **仅闪耀档存在**: 单次产出成功率 (0..1, 默认 0.5)。 */
+  successChance?: number
+  /** **仅闪耀档存在**: 失败返还的下界合金碎片数 (默认 1)。 */
+  failRefundScrap?: number
+}
+
+/**
+ * 一个护甲特效 (NanoEffect)。
+ * 四个特效**没有各自的等级门**: NanoRepair.rollEffect 是四选一等概率, 它们在"最低的那个能掷特效的档"
+ * (默认 = 高级板 L5) 同时解锁, 故四个 unlocked 恒同步翻转 —— 面板可以只显示一句"L5 起可掷出"。
+ */
+export interface ArmorEffectRow {
+  /** 特效 id (reshape/vitality/shield/totem)。 */
+  effectId: string
+  /** 'effect.miningdim.nano.<effectId>' —— **lang 条目尚未落地**。 */
+  labelKey: string
+  /** 'effect.miningdim.nano.<effectId>.desc' —— **lang 条目尚未落地**。 */
+  descriptionKey: string
+  /** 四个特效同值 (= EngineerStateResult.effectUnlockLevel)。 */
+  unlockLevel: number
+  unlocked: boolean
+  /** 该特效的实时数值行 (图腾共享 CD/复活血量、护盾次数/免疫窗、重塑每周期耐久等)。 */
+  stats: EngineerStatLine[]
+}
+
+/**
+ * job.engineer.state 回执 (EngineerWebUiActions.STATE)。
+ *
+ * 决策 J5: 纳米校准 QTE 的游标/绿区/相位一个字段都不下发 (那是必须在游戏内做的操作, 面板里给出来等于开挂);
+ * 但校准的**结果面** (qualityBonusThreshold / qualityBonusPlateChance) 属数值预览, 照发。
+ */
+export interface EngineerStateResult {
+  /** 铸甲师职业等级 (旧存档兼容 id 仍是 engineer)。 */
+  level: number
+  /** 恒 'job.miningdim.engineer' —— 中文 lang 里就是"铸甲师"。 */
+  jobNameKey: string
+  /** 当前等级已解锁的最高档 id。 */
+  unlockedTierId: string
+  /** 护甲特效的解锁等级 (= 最低可掷特效档的解锁等级, 默认档表 = 5)。 */
+  effectUnlockLevel: number
+  /**
+   * 纳米反应堆 (图腾) 人级共享 CD 剩余 tick; 0 = 已就绪。与 NanoReactorHandler 读同一个字段
+   * (JobProgress.nanoReactorCdEndTick) 且复用同一判据, 面板说能救而实战不触发即两条路径分叉。
+   */
+  reactorCooldownRemainingTicks: number
+  /** CD 全长 tick (画进度条的分母, 默认 36000 = 30 分钟)。 */
+  reactorSharedCdTicks: number
+  /** 恒 6 档, 顺序 = NanoTier 声明序 (低/中/高/极品/超凡/闪耀)。 */
+  tiers: NanoTierRow[]
+  /** 恒 4 个, 顺序 = NanoEffect 声明序 (reshape/vitality/shield/totem)。 */
+  armorEffects: ArmorEffectRow[]
+  /** 校准命中数达到几次后才有额外产板机会 (默认 4)。 */
+  qualityBonusThreshold: number
+  /** 达阈值后额外 +1 板的概率 (0..1, 默认 0.5)。 */
+  qualityBonusPlateChance: number
+  /** 用自己产的板修甲的修复经验加成 (0.5 = +50%)。 */
+  ownPlateRepairXpBonus: number
+}
+
+// ============================================================
+// job.tarot.* — com.miningdim.job.tarot.TarotWebUiActions (Gson serializeNulls)
+// ============================================================
+
+/** job.tarot.state 入参 —— 不读 payload 任何字段。 */
+export type TarotStatePayload = EmptyPayload
+
+/**
+ * 塔罗品质 id (TarotQuality.id(), 等级门依次 L1/L3/L5/L8/L10)。
+ * 同一张大阿卡纳可同时持有多张不同品质的实体卡牌 —— 品质是**牌的属性**, 不是牌与品质一对一。
+ */
+export type TarotQualityId = 'r' | 'sr' | 'ssr' | 'ur' | 'shiny'
+
+/** 卡包种类 (PackKind.id())。闪耀包收 AZURE, 另两种收 CREDIT。 */
+export type TarotPackKind = 'common' | 'advanced' | 'shiny'
+
+/** 非闪耀牌的冷却分类 (TarotCooldownManager.Category)。 */
+export type TarotCooldownCategory = 'utility' | 'buff' | 'combat'
+
+/** 一档品质 (TarotQuality)。 */
+export interface TarotQualityRow {
+  qualityId: TarotQualityId
+  /** 'tooltip.miningdim.tarot.quality.<qualityId>'。 */
+  nameKey: string
+  /** 四档缩放索引 0..3; shiny 恒 -1 (它不走四档, 走签名大招)。 */
+  tierIndex: number
+  requiredLevel: number
+  /**
+   * 本人当前等级能否打出该品质 (纯等级比较 TarotLeveling.canUseQuality)。
+   * **testMode=true 时本栏不成立**: TarotPlayHandler 的等级闸门带 !testMode 前置, 测试模式下任何等级
+   * 都打得出任何品质。此时它只表示"正式环境下能否打出"。
+   */
+  usable: boolean
+  rawXp: number
+}
+
+/** 四个"满 CD 时长" (tick), **不是剩余量** —— 剩余量上游没有只读入口 (TarotCooldownManager 的三张表全私有)。 */
+export interface TarotCooldownTicks {
+  gcd: number
+  utility: number
+  buff: number
+  combat: number
+}
+
+/** 一张大阿卡纳在本玩家处的持有状况。 */
+export interface TarotDeckEntry {
+  cardId: number
+  arcanaId: string
+  /** 'tooltip.miningdim.tarot.arcana.<arcanaId>'。 */
+  nameKey: string
+  /**
+   * 长度恒 5, 下标 = TarotQuality ordinal (r/sr/ssr/ur/shiny)。
+   * **只数 ownerUUID == 本人的牌** —— 别人的牌拿在手上也打不出 (TarotPlayHandler 第一道闸门就是 owner 校验)。
+   */
+  ownedByQuality: number[]
+  /** = ownedByQuality 之和; 0 = 未持有。表达"能不能打"。 */
+  owned: number
+  /**
+   * 背包里同 cardId 的全部可读牌 (不论绑定谁) = 开包判"重复转碎片"的口径。
+   * 表达"再开出来会不会变碎片" —— 与 owned 是两件事, 前端要用两句话分别讲。
+   */
+  inInventory: number
+  /** cardDataLoaded=false (datapack 重载中或失败) 时为 null —— 发 0 会被画成零冷却。 */
+  cooldownCategory: TarotCooldownCategory | null
+  /** 同上, cardDataLoaded=false 时为 null。 */
+  shinyCooldownTicks: number | null
+}
+
+/** 一种卡包的定价 (TarotPackItem + PackKind)。 */
+export interface TarotPackRow {
+  packKind: TarotPackKind
+  itemId: string
+  /** 'item.miningdim.tarot_pack_<kind>'。 */
+  nameKey: string
+  currency: WebUiCurrency
+  unitPrice: number
+}
+
+/**
+ * job.tarot.state 回执 (TarotWebUiActions.STATE)。全只读: 不占冷却、不动碎片、不改计数。
+ *
+ * 刻意不发钱包余额: player.wallet / player.profile 已经发了, 两处各发一份必然漂移。
+ * 前端算"买不买得起"用 wallet 的余额与本页的 unitPrice 自行比对。
+ */
+export interface TarotStateResult {
+  level: number
+  /** TarotConfig.TEST_MODE: 开着时买包免费且不计日限, 价格栏必须据此改写文案。 */
+  testMode: boolean
+  /** 背包 (主背包 + 副手) 里的塔罗碎片总数; 末影箱/盔甲位不计。 */
+  shards: number
+  /** 攒够多少张可确定性兑换一张指定 SSR。 */
+  shardExchangeCost: number
+  /** 开包重复牌返几张碎片。 */
+  duplicateShardRefund: number
+  /** 恒 5 行, 顺序 = TarotQuality 声明序。 */
+  qualities: TarotQualityRow[]
+  cooldownTicks: TarotCooldownTicks
+  /** 牌效 datapack 是否已加载完; false 时 deck 行的两个 CD 字段是 null。 */
+  cardDataLoaded: boolean
+  /** 恒 22 行, 按 cardId 升序 (即 TarotArcana 声明序)。 */
+  deck: TarotDeckEntry[]
+  /** 恒 3 行 (普通/高级/闪耀)。 */
+  packs: TarotPackRow[]
+  /**
+   * 当日**已获取**的卡包数 —— 高级包链式派生出来的免费包同样占额度。
+   * UI 文案写成"今日购买"会与玩家体验对不上 (开一个高级包可能凭空多消耗几个额度)。
+   */
+  packsBoughtToday: number
+  packDailyLimit: number
+  packsRemainingToday: number
+  /** 高级包保底进度: streak >= threshold 时下一个高级包首张保底 SSR。 */
+  advancedPityStreak: number
+  advancedPityThreshold: number
+}
+
+/** job.tarot.buyPack 入参 (TarotWebUiActions.BUY_PACK)。 */
+export interface TarotBuyPackPayload {
+  /** 必填。common/advanced 收 CREDIT, shiny 收 AZURE。 */
+  kind: TarotPackKind
+  /** 必填, 整数, 域 [1,64]。 */
+  count: number
+}
+
+/**
+ * job.tarot.buyPack 回执 (TarotWebUiActions.BUY_PACK)。
+ *
+ * 买到的是**卡包物品**, 不是卡牌: 服务端根本不存在"买即开"的入口 (普通/高级包是右键就地开并走
+ * TarotPackRevealS2C 演出, 闪耀包要开原生 GUI 自选一张 SSR)。故回执里没有也不会有 drawn / fragmentsGained,
+ * 开包动画只能挂在现有客户端揭牌流程上。
+ */
+export interface TarotBuyPackResult {
+  packKind: TarotPackKind
+  itemId: string
+  nameKey: string
+  /** 实际购得的卡包个数 = 入参 count。 */
+  count: number
+  currency: WebUiCurrency
+  unitPrice: number
+  /** **实扣额**; 测试模式下恒 0 (免费), 不等于 unitPrice * count —— 前端不得自己乘。 */
+  totalPrice: number
+  testMode: boolean
+  packsBoughtToday: number
+  /**
+   * 剩余可购。**testMode=true 时本栏不可信**: TarotPackService.buy 在测试模式下把它直接置成 cap,
+   * 会与同回执的 packsBoughtToday 分叉; 此时应改读 job.tarot.state 的同名字段。
+   */
+  packsRemainingToday: number
+  packDailyLimit: number
+}
+
+/**
+ * job.tarot.buyPack 的业务拒绝码。
+ *   INVALID_REQUEST     kind/count 缺失或域外 (params.field, 域外再带 params.value)
+ *   INSUFFICIENT_FUNDS  余额不足 (params: currency/totalPrice/packKind), 未扣款未发包
+ *   RATE_LIMITED        撞每日上限 (params: scope='tarot_pack_daily'/requested/remainingToday/dailyLimit)
+ *                       —— 这条是**暂借**的码 (它的文档钉在"开箱请求过快"), 待服务端补 DAILY_LIMIT_REACHED
+ *   ECONOMY_OFFLINE     经济子系统未注册且本次真会扣款 (非测试模式且总价 > 0), 无 params
+ */
+export type TarotBuyPackErrorCode =
+  | 'INVALID_REQUEST'
+  | 'INSUFFICIENT_FUNDS'
+  | 'RATE_LIMITED'
+  | 'ECONOMY_OFFLINE'
+
+export type TarotBuyPackErrorEnvelope = WebUiBusinessErrorEnvelope<TarotBuyPackErrorCode>
 
 // ============================================================
 // market.* — MarketActions.java
@@ -1389,4 +2107,896 @@ export interface ClientPlayCaseSoundPayload {
 /** client.playCaseSound 回执 (WebUiBridge.handleCaseSound, :188-201) —— 硬编码字符串字面量, 无其它字段。 */
 export interface ClientPlayCaseSoundResult {
   played: true
+}
+
+// ============================================================
+// economy.* — com.miningdim.economy.EconomyWebUiActions (Gson serializeNulls)
+// ============================================================
+
+/** economy.status 入参 —— 不读 payload 任何字段。 */
+export type EconomyStatusPayload = EmptyPayload
+
+/**
+ * economy.status 回执 (EconomyWebUiActions.STATUS)。
+ *
+ * 零 SQLite 读 (纯内存态), 是经济三条里唯一可以较高频轮询的。
+ * 冻结判据是"无挖掘 && 无显著位移"**两条同时成立**: 服务端只持久化了挖掘侧 (lastBreakTick),
+ * 位移侧只有一个滑动锚点, 因此不存在"静止了多久"这个数。故 afkNoMineTicks 不能画成单条进度条,
+ * 文案必须说明还要位移条件同时成立。
+ */
+export interface EconomyStatusResult {
+  /** 挂机经济冻结态: true 期间挖到的高价矿既不计当日产量也不发钱。 */
+  afkFrozen: boolean
+  /**
+   * 距上次挖掘的 game tick 数; null = 从未挖过 (不是 0 —— 0 的意思是"刚刚挖过")。
+   * **只被矿山维度实例区内的有效挖掘刷新**, 在主世界挖一天也不会变, 文案要写"距上次在矿区挖矿"。
+   */
+  ticksSinceLastMine: number | null
+  /** 无挖掘判据阈值 (tick, 恒 2400 = 2 分钟)。 */
+  afkNoMineTicks: number
+  /** 无位移判据阈值 (方块数, 恒 4.0) —— 这是另一条独立判据, 不是倒计时。 */
+  afkNoMoveBlocks: number
+  /** tick/秒 换算率 (恒 20); 前端不得自己写死。 */
+  ticksPerSecond: number
+}
+
+/** economy.today 入参 —— 不读 payload 任何字段。 */
+export type EconomyTodayPayload = EmptyPayload
+
+/**
+ * economy.today 回执 (EconomyWebUiActions.TODAY)。
+ *
+ * 两栏口径**刻意不对称**, 字段名就是唯一提示: 信用点是毛额 (账本记的就是 rawCredit), 青辉石是实发额。
+ * 前端严禁把两者合成一句"今日入账"。
+ *
+ * 支出侧 (sink) 全库没有当日计数器也没有流水表, 故本回执只有收入两栏 —— 支出面板需要先补账本层。
+ * 本 action 打 1 次 SQLite 且跑在服务器主线程, **禁止定时轮询**。
+ */
+export interface EconomyTodayResult {
+  /** 当日 UTC 日戳 (epochDay), 与 faucet 计数器翻日判据同一时钟。 */
+  dayStamp: number
+  /**
+   * 翻日时刻 = (dayStamp + 1) 天的 UTC 零点, epoch 毫秒。
+   * 本组唯一一个墙钟字段 (与"服务端一律发 tick"的规矩不同), 因为翻日的自变量本来就是 UTC 挂钟。
+   */
+  resetsAtUtcMillis: number
+  /** 全服统一信用点 faucet 计数键 (恒 "credit_faucet")。卖矿/卖菜/悬赏/精英贡献共用它, 故没有分渠道明细。 */
+  creditFaucetKey: string
+  /** 今日信用点收入【毛额】: 衰减主闸打折之前的 rawCredit 累计, 不是到手额。 */
+  todayCreditFaucetGross: number
+  /**
+   * 衰减主闸**单档大小** (恒 60000 毛收入/档)。**不是每日上限** ——
+   * 每日实发总额远大于它 (几何主项前 10 档约 14.9 万才是正常落点), 标成"今日上限 60000"是把玩家数值观带偏。
+   */
+  creditFaucetTier: number
+  /** 当前档位下"再赚 1 点毛收入"的实发系数 (1.0 = 尚未衰减, 最低 0.01 地板), 由主闸函数现算。 */
+  creditFaucetNextFactor: number
+  /** 今日青辉石入账【实发额】(硬截断口径, 天然是到手额)。 */
+  todayAzureIn: number
+  /** 青辉石每人每日硬上限 (恒 30; 撞顶即不发, 不是衰减)。 */
+  azureDailyCap: number
+}
+
+/** economy.priceTable 入参 —— 不读 payload 任何字段。 */
+export type EconomyPriceTablePayload = EmptyPayload
+
+/** 高价矿枚举名 (HighValueOre)。货币层只接这三种最大 faucet 龙头, 煤/铁/红石压根没有收购价。 */
+export type HighValueOreId = 'DIAMOND' | 'GOLD' | 'NETHERITE_SCRAP'
+
+/**
+ * 一种高价矿的定价现况。
+ *
+ * 展示建议: 主数字用 nextUnitNetCredit (到手), 划掉的原价用 anchorPrice,
+ * 中间态 nextUnitGrossCredit 用来解释"为什么降了" —— 是产量降的还是主闸降的。
+ */
+export interface EconomyPriceAnchor {
+  oreId: HighValueOreId
+  /** 定价产物的物品 id (minecraft:diamond / minecraft:gold_ingot / minecraft:netherite_scrap)。 */
+  itemId: string
+  /** 翻译键, 过 client.i18n 出中文名。 */
+  descriptionId: string
+  /** ShopPriceTable 静态锚价 (500 / 120 / 4500)。**是浮点** (Java double), 别按整数解析。 */
+  anchorPrice: number
+  /** **本人**今日该矿种已产出个数 (跨日的旧计数按 0 读)。服务端没有全服口径的矿物计数器。 */
+  minedToday: number
+  /** 该矿种每日软上限 (64 / 256 / 8); 超出后逐矿单价开始 0.97 递减。 */
+  dailySoftCap: number
+  /** 下一颗的逐矿毛值 = floor(锚价 x max(1%, 0.97^超限数)), 整数。 */
+  nextUnitGrossCredit: number
+  /**
+   * 下一颗经衰减主闸后的净入账, **未取整浮点** (可能是 290.99999999999994 这种), 展示前自行 round。
+   * 服务端不提前取整是因为业务入账走跨笔小数 carry, 提前取整会与到手额恒差一点。
+   */
+  nextUnitNetCredit: number
+}
+
+/**
+ * economy.priceTable 回执 (EconomyWebUiActions.PRICE_TABLE)。
+ * 两层串联顺序与 EconomyService.settleOreSale 逐字一致: 逐矿 steering -> 衰减主闸。
+ * 恒 3 行且顺序固定 (DIAMOND/GOLD/NETHERITE_SCRAP), 无分页。
+ */
+export interface EconomyPriceTableResult {
+  dayStamp: number
+  /** 主闸的自变量: 今日信用点 faucet 累计毛额 (与 economy.today 同名同口径)。 */
+  todayCreditFaucetGross: number
+  anchors: EconomyPriceAnchor[]
+}
+
+// ============================================================
+// marriage.* — com.miningdim.marriage.MarriageWebUiActions (Gson serializeNulls)
+//
+// 时间一律 overworld gameTime tick, 不是 epoch millis (服务端无可信墙钟)。1 天 = 1728000 tick。
+// marriage.state 另发 nowTick, 前端用 (nowTick 基准 + 本地计时) 自行推进倒计时。
+// ============================================================
+
+/** marriage.state 入参 —— payload 完全忽略。 */
+export type MarriageStatePayload = EmptyPayload
+
+/**
+ * 关系态。四者**并非互斥** (冷却中照样能有已接受婚约), 服务端按 married > engaged > cooldown > single
+ * 取优先级; 典礼会不会被 REMARRY_COOLDOWN 拦下的真判据是 remarryCooldownTicks, 前端不许只看 status 判冷却。
+ */
+export type MarriageStatus = 'single' | 'engaged' | 'married' | 'cooldown'
+
+/**
+ * 一个婚姻里程碑。真实数据只有"领没领过"两个布尔, 没有 label 也没有达成时刻。
+ * 全系统当前只定义了一个 id: 'first_marriage'。
+ */
+export interface MarriageMilestone {
+  milestoneId: string
+  /** 本段关系内是否已领。 */
+  claimedInCurrentMarriage: boolean
+  /**
+   * 这对 UUID 历史上是否领过 (跨结离婚去重的真源, 那正是复婚不重发福利的原因)。
+   * **只在 status='married' 时有意义**: 单身 (含离婚后) 时它与"没有关系记录"绑定, 恒 false ——
+   * 此时不得用它推断"首次结婚福利还能不能领"。
+   */
+  claimedByPair: boolean
+}
+
+/** 别人向我发出的婚约。 */
+export interface MarriageIncomingProposal {
+  /** 恒等于求婚方 UUID 字符串 (一人同时只持一条 outgoing 意向, 该 UUID 已是完整主键)。 */
+  proposalId: string
+  proposerUuid: string
+  /** **仅求婚方在线时有值** —— 全库零 GameProfileCache 用法, 离线拿不到名字。 */
+  proposerName: string | null
+  proposerOnline: boolean
+  accepted: boolean
+}
+
+/** 我发出的那一条婚约。 */
+export interface MarriageOutgoingProposal {
+  /** 恒等于我自己的 UUID 字符串。 */
+  proposalId: string
+  targetUuid: string
+  /** 仅对方在线时有值。 */
+  targetName: string | null
+  targetOnline: boolean
+  accepted: boolean
+}
+
+/**
+ * marriage.state 回执 (MarriageWebUiActions.STATE)。
+ *
+ * 关系态取 MarriageRegistry.forPlayer (权威 + 自带陈旧索引自愈), 不读 capability 指针。
+ * 婚约表 (MarriageProposals) 是**不落盘的瞬态表**: 既不记时间戳也没有过期机制, 只在服务端重启时随进程清空 ——
+ * 故没有 createdAt / expiresAt 可发, 编一个出来就是假数据。
+ */
+export interface MarriageStateResult {
+  /** 服务端当前 overworld gameTime tick。 */
+  nowTick: number
+  status: MarriageStatus
+  divorceCount: number
+  /** 剩余 tick, 0 = 无冷却。冷却 = remarryCooldownDays x (1 + 离婚次数), 随每次离婚递增。 */
+  remarryCooldownTicks: number
+  marriageId: number | null
+  spouseUuid: string | null
+  /** 仅配偶在线时有值; 已婚但配偶离线时 spouseUuid 恒有值而本栏为 null, 前端要备占位显示。 */
+  spouseName: string | null
+  spouseOnline: boolean
+  weddedAtTick: number | null
+  /** 婚龄整数天。 */
+  marriedDays: number
+  /**
+   * 共享背包等级与该级暴露格数 (未婚均为 0)。按婚龄经 MarriageTuning **现算**, 与真菜单同源;
+   * MarriageState 里那个持久 sharedInvLevel 字段全库无写入方, 不作依据。
+   */
+  sharedInvLevel: number
+  sharedInvSlots: number
+  /** 扫主背包 36 格算出的真值。 */
+  engagementRingOwned: boolean
+  /** 三个价格实时读 config, 运营改 toml 立刻生效。 */
+  ringPriceCredit: number
+  /** 典礼总价, 双方各付一半 (总价为奇数时发起方多付 1)。 */
+  weddingCostCredit: number
+  divorceCostCredit: number
+  milestones: MarriageMilestone[]
+  /**
+   * 硬上限 32 条 (防撞回执体积收口)。顺序 = 各求婚方登记进表的先后, 每次刷新被截掉的是同一批人。
+   * 真服大服里可能有几百人向同一人求婚, 故 truncated=true 时前端必须给出提示。
+   */
+  incomingProposals: MarriageIncomingProposal[]
+  incomingProposalTotal: number
+  incomingProposalsTruncated: boolean
+  outgoingProposal: MarriageOutgoingProposal | null
+}
+
+/** marriage.buyRing 入参 —— 不读 payload 任何字段。 */
+export type MarriageBuyRingPayload = EmptyPayload
+
+/**
+ * marriage.buyRing 回执 (MarriageWebUiActions.BUY_RING)。
+ *
+ * 无 ok 字段: 两种失败都走业务异常 (见 MarriageBuyRingErrorCode), 前端在 catch 分支处理。
+ * 扣款/发货顺序由 MarriageEngine 定死 —— 扣不动就一分不扣也不发 (事务安全)。
+ */
+export interface MarriageBuyRingResult {
+  costCredit: number
+  /** 扣款后的双币余额, 形状与 player.wallet 一致, 可复用同一钱包组件。 */
+  wallet: WebUiWallet
+  /**
+   * 扫背包得到的真值, **不是恒 true**: 背包满时引擎把戒指掉在玩家脚下 (玩家已付费, 不吞货),
+   * 那一次它是 false 而钱已扣。前端必须提示"检查脚下", 严禁把它当成"买失败"。
+   */
+  engagementRingOwned: boolean
+}
+
+/**
+ * marriage.buyRing 的业务拒绝码。
+ *   ECONOMY_OFFLINE     经济子系统未注册 (无 params)
+ *   INSUFFICIENT_FUNDS  余额不足 (params: cost / currency='CREDIT' / balance, 三者都是字符串化数字)
+ */
+export type MarriageBuyRingErrorCode = 'ECONOMY_OFFLINE' | 'INSUFFICIENT_FUNDS'
+
+export type MarriageBuyRingErrorEnvelope = WebUiBusinessErrorEnvelope<MarriageBuyRingErrorCode>
+
+/**
+ * marriage.propose 入参 (MarriageWebUiActions.PROPOSE)。
+ *
+ * **只认在线玩家**, 大小写不敏感, 命中在线列表中第一个同名者。找不到 / 传了自己 / 缺字段 / 类型不对
+ * 一律 INVALID_REQUEST + params.field='targetName' —— 但只有"取值域外"那一档 (找不到 / 是自己) 才另带
+ * params.value (缺字段与类型不对走 requiredField/wrongType, params 里只有 field)。
+ *
+ * 界面必须同时提供"在线玩家点选"入口: 中文输入 (W11) 已推迟, 只给输入框会让中文 ID 玩家永远求不了婚。
+ */
+export interface MarriageProposePayload {
+  targetName: string
+}
+
+/**
+ * marriage.propose 回执 (MarriageWebUiActions.PROPOSE)。
+ * 副作用与命令层一致: 覆盖自己旧的那条 outgoing 意向, 并给对方发一条聊天提示 ——
+ * **没有 S2C 推送**, 对方面板要等下次拉 marriage.state 才更新。
+ */
+export interface MarriageProposeResult {
+  /** 恒等于求婚方 (自己) 的 UUID 字符串。 */
+  proposalId: string
+  proposerUuid: string
+  targetUuid: string
+  targetName: string
+  /** 刚发出恒 false。 */
+  accepted: boolean
+}
+
+/** marriage.respond 入参 (MarriageWebUiActions.RESPOND)。 */
+export interface MarriageRespondPayload {
+  /** 必须是**求婚方 UUID 字符串**; 形状不对回 INVALID_REQUEST + params {field:'proposalId', value:原值}。 */
+  proposalId: string
+  /** false 直接清掉该意向 (无"已拒绝"的第三态, 求婚方只能靠下次刷新发现意向没了)。 */
+  accept: boolean
+}
+
+/**
+ * marriage.respond 回执 (MarriageWebUiActions.RESPOND)。
+ * 服务端强制校验"这条意向确实指向本人" —— 少了这道校验任何人都能凭一个 UUID 一键拆散别人。
+ */
+export interface MarriageRespondResult {
+  proposalId: string
+  proposerUuid: string
+  /** 仅求婚方在线时有值。 */
+  proposerName: string | null
+  /** 与入参 accept 同值。 */
+  accepted: boolean
+  /** 接受后通常是 'engaged' 而不是 'married' —— 典礼是 marriage.wed 那一步。 */
+  status: MarriageStatus
+  /** 未婚恒 null (接受求婚 != 已婚)。 */
+  spouseName: string | null
+}
+
+/**
+ * marriage.wed 入参 (MarriageWebUiActions.WED)。
+ *
+ * partnerName 可省: 省略时服务端按"已接受婚约唯一确定"自动定位伴侣; 有 2 份及以上时拒绝替玩家猜 ——
+ * 抛 INVALID_REQUEST + params {field:'partnerName', candidateCount:'N'}, 前端据此把面板从"办典礼"切成"选一位"。
+ * 注意 candidateCount 统计的是**全部**已接受婚约, 而 marriage.state.incomingProposals 有 32 条硬上限,
+ * 超过 32 份时候选行取不全, 前端必须保留手填 partnerName 的兜底入口。
+ */
+export interface MarriageWedPayload {
+  partnerName?: string
+}
+
+/**
+ * marriage.wed 的九态结果码。
+ * 前七个是 MarriageEngine.Reason 的 Java 真值逐字原样, 后两个是引擎之前就短路的本 action 自有码:
+ *   NO_ACCEPTED_PROPOSAL 没有已接受的婚约
+ *   PARTNER_OFFLINE      唯一那位已接受的伴侣不在线 (典礼要求双方在场)
+ */
+export type MarriageWedOutcomeCode =
+  | 'OK'
+  | 'SELF_MARRIAGE'
+  | 'ALREADY_MARRIED'
+  | 'NO_ENGAGEMENT_RING'
+  | 'INSUFFICIENT_FUNDS'
+  | 'NO_ECONOMY'
+  | 'REMARRY_COOLDOWN'
+  | 'NO_ACCEPTED_PROPOSAL'
+  | 'PARTNER_OFFLINE'
+
+/**
+ * marriage.wed 回执 (MarriageWebUiActions.WED)。
+ *
+ * 失败是**正常业务结果**, 走 success=true 的回执体 (ok:false + outcomeCode), 不占 WebUiErrorCodes 命名空间。
+ * messageKey 是 /marriage 命令对同一结果所用的 lang 键 (目的是让面板与聊天栏不出现两套口径),
+ * 前端仍必须自备一套按 outcomeCode 的文案 —— messageKey 可能为 null, 且带 %s 的键要用 messageArgs 填参。
+ */
+export interface MarriageWedResult {
+  ok: boolean
+  outcomeCode: MarriageWedOutcomeCode
+  messageKey: string | null
+  /** 与该键的 %s 一一对应; 无占位符则空数组。 */
+  messageArgs: string[]
+  partnerUuid: string | null
+  partnerName: string | null
+  /** 仅 ok=true。 */
+  marriageId: number | null
+  /** 仅 ok=true; gameTime tick。 */
+  weddedAtTick: number | null
+}
+
+/** marriage.divorce 入参 —— 不读 payload 任何字段。 */
+export type MarriageDivorcePayload = EmptyPayload
+
+/** marriage.divorce 的四态结果码 (MarriageDivorce.Result 全集, OK 之外三条是失败)。 */
+export type MarriageDivorceOutcomeCode = 'OK' | 'NOT_MARRIED' | 'INSUFFICIENT_FUNDS' | 'NO_ECONOMY'
+
+/**
+ * marriage.divorce 回执 (MarriageWebUiActions.DIVORCE)。
+ *
+ * 离婚会把共享背包内容全部退回**发起方** (背包满则落地) 并强制关闭双方已打开的共享背包窗口,
+ * 故成功后应立即重拉 marriage.state 与 marriage.sharedInv。
+ */
+export interface MarriageDivorceResult {
+  ok: boolean
+  outcomeCode: MarriageDivorceOutcomeCode
+  messageKey: string
+  messageArgs: string[]
+  /** 本次离婚的**定价**而非已扣额 —— 三种失败一分未扣。前端据 ok 决定说"已扣"还是"需要"。 */
+  costCredit: number
+  /** 结算后重读。 */
+  divorceCount: number
+  /** 结算后重读的剩余 tick (默认首次离婚 = 14 天 = 24192000 tick)。 */
+  remarryCooldownTicks: number
+  /** 仅 ok=true。 */
+  formerSpouseUuid: string | null
+}
+
+/** marriage.sharedInv 入参 —— 不读 payload 任何字段。 */
+export type MarriageSharedInvPayload = EmptyPayload
+
+/**
+ * marriage.sharedInv 回执 (MarriageWebUiActions.SHARED_INV)。纯只读, 一个字节都不写容器; 取放仍走原版 menu。
+ *
+ * 未婚不是错误而是正常答案 (同 player.isOp 的纪律): 回 married:false + level/slots 为 0 + items 空数组。
+ *
+ * items 复用 PlayerInventoryItem: 槽位 JSON 与 player.inventory **逐字同形** (含变体两字段),
+ * 前端必须复用同一个格子渲染组件 —— 另发明一套的后果是 195 种枪匠零件在其中一套里退回同名同图标。
+ * 注意那三个变体字段是"条件追加"的**缺席键** (`?:`), 与本组其余显式 null 的字段语义不同。
+ */
+export interface MarriageSharedInvResult {
+  /** 恒 54 (容器固定大小)。 */
+  capacity: number
+  married: boolean
+  marriageId: number | null
+  /** 未婚 0。 */
+  level: number
+  /** 当前等级暴露的格数 (默认 1 级 9 格), 未婚 0。 */
+  slots: number
+  /** 只回当前等级暴露的前 slots 格; 超出可见面的格子即使有货也一格不发。 */
+  items: PlayerInventoryItem[]
+}
+
+// ============================================================
+// mining.* — com.miningdim.entry.MiningWebUiActions (Gson serializeNulls)
+//
+// R1 模型: 全服只有 3 块常驻共享区域 (每难度一块), 回执里没有"创建实例/我的副本"概念。
+// 时间一律矿山维度 game tick, 每个回执都附带当前 gameTime 作换算基准。
+// ============================================================
+
+/** 矿洞三难度的规范小写名 (Difficulty.configName())。入参大小写不敏感, 回执一律回显规范小写名。 */
+export type MiningDifficulty = 'easy' | 'medium' | 'hard'
+
+/** 区域实例的生成态 (GenState 枚举名)。 */
+export type MiningGenState =
+  | 'PENDING'
+  | 'GENERATING'
+  | 'READY'
+  | 'READY_FALLBACK'
+  | 'RESETTING'
+  | 'FAILED'
+  | 'RECYCLED'
+
+/** mining.overview 入参 —— 不读 payload 任何字段。 */
+export type MiningOverviewPayload = EmptyPayload
+
+/**
+ * 一个难度的常驻区域 (MiningWebUiActions.OVERVIEW 的一行)。
+ *
+ * available=false 时 instanceId/genState/playersInside/shared/regionOriginX/regionOriginZ **这 6 个**为 null,
+ * enterable 仍是布尔 (false)。该态只可能出现在开服重建未完成的极早期, 前端按不可进入渲染。
+ */
+export interface MiningInstanceRow {
+  difficulty: MiningDifficulty
+  /** 翻译键 'difficulty.miningdim.<难度>'; 服务端不发中文。 */
+  nameKey: string
+  /** 代码权威取 MinerLevelGate = 1/4/8 (GateResult 头注释里的 10/25 是过期文档口径)。 */
+  requiredMinerLevel: number
+  unlocked: boolean
+  /** false = 该难度的常驻区域此刻不存在。 */
+  available: boolean
+  instanceId: number | null
+  genState: MiningGenState | null
+  enterable: boolean
+  playersInside: number | null
+  shared: boolean | null
+  regionOriginX: number | null
+  regionOriginZ: number | null
+  /** 0 = 该难度关闭定时刷新。 */
+  autoResetHours: number
+  /**
+   * 上次**定时刷新**的矿山维度 game tick。手动/管理台重置不写它, 故文案不能写成"上次重置"。
+   * 现实中拿不到 null (调度器在 ServerStartedEvent 就写好了基准)。
+   */
+  lastResetGameTime: number | null
+  /**
+   * = lastReset + autoResetHours * 72000; autoResetHours <= 0 时为 null (此时不许画倒计时)。
+   * **它是预警起点不是换图时刻**: 真正的清场 + 重置发生在其后 autoResetWarnSeconds 秒,
+   * 即真实换图 = nextResetGameTime + autoResetWarnSeconds * 20 tick。
+   */
+  nextResetGameTime: number | null
+}
+
+/** mining.overview 回执 (MiningWebUiActions.OVERVIEW)。恒 3 行, 顺序 = Difficulty.values() (easy/medium/hard)。 */
+export interface MiningOverviewResult {
+  instances: MiningInstanceRow[]
+  minerLevel: number
+  /** 矿山维度当前 game tick, 与行内 last/nextResetGameTime 同一时钟。 */
+  gameTime: number
+  autoResetWarnSeconds: number
+  myDifficulty: MiningDifficulty | null
+}
+
+/** mining.myStatus 入参 —— 不读 payload 任何字段。 */
+export type MiningMyStatusPayload = EmptyPayload
+
+/**
+ * mining.myStatus 回执 (MiningWebUiActions.MY_STATUS)。
+ *
+ * 不在矿洞时 5 个区域字段一律 JSON null 而不是 0 —— 发 0 会被画成"你在原点那块区域"。
+ * currentInstanceId 与 instanceId 是两个独立事实 (前者是传送前写下的 capability 指针, 后者是几何反查),
+ * 二者不一致本身就是要给运维看的现场, 故都发。
+ */
+export interface MiningMyStatusResult {
+  /** [维度 == miningdim:mining] 与 [regionAt(x,z) 命中] **同时成立**才为 true。 */
+  inside: boolean
+  inMiningDimension: boolean
+  difficulty: MiningDifficulty | null
+  instanceId: number | null
+  genState: MiningGenState | null
+  regionOriginX: number | null
+  regionOriginZ: number | null
+  /** capability 的实例指针; 不在任何实例时是哨兵 **-1** (不是 0, 也不是 null)。 */
+  currentInstanceId: number
+  gameTime: number
+  /** 出生保护截止 game tick; 从未进过矿洞为 0。 */
+  spawnFreezeUntilGameTime: number
+  /** = max(0, until - now); 已过期恒 0, 绝不为负。 */
+  spawnFreezeRemainingTicks: number
+  minerLevel: number
+}
+
+/** mining.enter 入参 (MiningWebUiActions.ENTER)。difficulty 大小写不敏感。 */
+export interface MiningEnterPayload {
+  difficulty: MiningDifficulty
+}
+
+/** mining.enter 的同步拒绝码 (LEVEL_TOO_LOW 逐字取自 GateResult 枚举名)。 */
+export type MiningEnterReasonCode = 'LEVEL_TOO_LOW' | 'ALREADY_INSIDE'
+
+/**
+ * mining.enter 回执 (MiningWebUiActions.ENTER)。
+ *
+ * 复用 EntryGateway.requestEnter 这条唯一权威路径 (它做难度门控 + 写回退现场快照 + 等生成就绪 +
+ * 等区块 FULL 再传送, 防掉虚空)。
+ *
+ * **accepted 只表示"已交给权威入场链路", 不表示已经传送进去了**: 真正的传送发生在之后若干 tick,
+ * 其成败只经原生 TeleportResult S2C 下发 (不走 webui 通道), 面板要确认是否真进去了必须轮询 mining.myStatus。
+ */
+export interface MiningEnterResult {
+  difficulty: MiningDifficulty
+  requiredMinerLevel: number
+  minerLevel: number
+  instanceId: number | null
+  accepted: boolean
+  reasonCode: MiningEnterReasonCode | null
+  /** 翻译键 (message.miningdim.gate.level_too_low / message.miningdim.enter.already_inside); accepted=true 时 null。 */
+  reasonKey: string | null
+}
+
+/** mining.leave 入参 —— 不读 payload 任何字段。 */
+export type MiningLeavePayload = EmptyPayload
+
+/**
+ * mining.leave 回执 (MiningWebUiActions.LEAVE)。
+ * 整条逻辑委派 EntrySystem.leaveToFallback (传回退点 + 释放强加载/唤醒排队 + 清 currentInstanceId/spawnFreeze)。
+ * 本就不在实例内返回 left=false, 不抛业务异常; 成功文案由前端自己写 (服务端不发)。
+ */
+export interface MiningLeaveResult {
+  left: boolean
+  reasonCode: 'NOT_INSIDE' | null
+  /** 翻译键 message.miningdim.leave.not_inside; left=true 时 null。 */
+  reasonKey: string | null
+}
+
+// ============================================================
+// champion.* — com.miningdim.champion.ChampionWebUiActions
+// (默认 Gson: 无 null 值, "仅部分词条有"的副数值是缺席键, 故一律 `?:` 不用 `| null`)
+// ============================================================
+
+/** 词条品质 (AffixQuality 枚举名)。 */
+export type ChampionAffixQuality = 'COMMON' | 'UNCOMMON' | 'RARE' | 'EPIC' | 'LEGENDARY'
+
+/** 词条池 (AffixPool 枚举名)。 */
+export type ChampionAffixPool = 'SURVIVAL' | 'COMBAT' | 'MOBILITY' | 'SKILL'
+
+/**
+ * champion.codex 的难度枚举名 (**大写**, Difficulty.name())。
+ * 刻意不与 MiningDifficulty 合并: 同一行里的 configName 才是小写那套, 混用会让 TS 类型对了而运行期取值全不匹配。
+ */
+export type ChampionDifficulty = 'EASY' | 'MEDIUM' | 'HARD'
+
+/** champion.codex 入参 —— 不读 payload 任何字段。 */
+export type ChampionCodexPayload = EmptyPayload
+
+/** 一档品质的成本系数与展示色。 */
+export interface ChampionQualityRow {
+  qualityId: ChampionAffixQuality
+  /** 0-4, 即 primaryValues / costs / availableTiers 的数组下标。 */
+  tier: number
+  /** 1.0 / 1.6 / 2.5 / 4.0 / 6.5。 */
+  costMultiplier: number
+  /** 展示色, 十进制 RGB 整数。 */
+  displayColorRgb: number
+}
+
+/**
+ * 一条词条的全档定义 (AffixDef 一项)。
+ *
+ * primaryUnit 词表 (前端据此格式化, **严禁跨词条比大小**):
+ *   fraction_damage_reduction / fraction_dodge_chance / fraction_reflect  0-1 比率
+ *   fraction_maxhp / fraction_maxhp_per_second / fraction_maxhp_per_second_per_stack  %maxHP 系
+ *   flat_hp_per_second  绝对 HP/秒
+ *   flat_hp_damage_cap  绝对 HP 的单次伤害封顶 (刚毅护盾; **数值越小越强**, 别按大即强排序)
+ *   fraction_max_health_bonus / fraction_max_health_penalty  血量增/减
+ *   fraction_vulnerability_per_stack  每层易伤
+ *   fraction_damage_bonus  伤害增幅
+ *   fraction_move_speed_bonus  移速增幅
+ *   durability_points_per_hit  每击护甲耐久损耗点数
+ *   hit_count / count  跳数 / 个数
+ *   seconds_cooldown  施放周期秒 (**数值越小越强**)
+ *   seconds_duration  持续秒
+ *   multiplier  纯倍率
+ *   flag  数值恒 1 无结算意义, 只表示"带没带这条"
+ * 注意 fraction_move_speed_bonus / fraction_max_health_bonus / fraction_damage_bonus **可以 > 1**
+ * (超速最高 2.50 = +250%, 巨大化最高 1.80, 重炮最高 1.00), 按 0..1 钳制会把超速压成 100%。
+ * secondaryUnit 词表: fraction_size_bonus / fraction_size_penalty / fraction_slow_per_stack /
+ * strike_count / concurrent_count。
+ */
+export interface ChampionAffixRow {
+  /** AffixDef 枚举名, 如 COMPOSITE_ARMOR。 */
+  affixId: string
+  /** 翻译键 'affix.champions.<小写枚举名>'; 服务端不下发中文。 */
+  nameKey: string
+  pool: ChampionAffixPool
+  baseCost: number
+  minStar: number
+  isSkill: boolean
+  /** MutexFlag 枚举名; **无互斥是字符串 'NONE'**, 不是 null —— 判空要写 === 'NONE'。 */
+  mutexFlag: string
+  minQuality: ChampionAffixQuality
+  primaryUnit: string
+  /** 长度恒 5, 下标 = ChampionQualityRow.tier。 */
+  primaryValues: number[]
+  /**
+   * 长度恒 5; false = 该档不存在。
+   * **必须按它灰掉对应格**: primaryValues 里的 0 全是占位而非真值 (重型护甲/刚毅护盾前两档、
+   * 小男孩/命定之死前三档、自我修复的中级档), 照直画会多出一排"减伤 0%"的假档位。
+   */
+  availableTiers: boolean[]
+  /** 长度恒 5; = ceil(baseCost x costMultiplier)。ceil 是防小数成本破整数点池预算的业务规则, 前端不得自己乘。 */
+  costs: number[]
+  /** 仅 5 条词条有 (巨大化/缩小化/寒霜/天雷/支援); 无副数值时整键不出现。 */
+  secondaryUnit?: string
+  /** 与 secondaryUnit 同进同出, 长度恒 5。 */
+  secondaryValues?: number[]
+}
+
+/** 一个星级的预算与红线 (StarRank 一项)。 */
+export interface ChampionStarRow {
+  /** 1-10, 顺序即 1..10。 */
+  star: number
+  survivalBudget: number
+  combatBudget: number
+  mobilityBudget: number
+  skillBudget: number
+  /** 总词条上限 (含技能词条)。 */
+  maxAffixes: number
+  /** 技能数上限, 1-2 星为 0。 */
+  maxSkills: number
+  maxQuality: ChampionAffixQuality
+  /** 基础有效 HP; 6 星起破原版 1024。 */
+  baseEffectiveHp: number
+  /** 该星普通单击的设计基线, 0-1 小数的 %maxHP。 */
+  baseSingleHitPct: number
+  /** 红线 3 单击硬上限, 0-1 小数: 1-5 星 0.4 / 6-7 星 0.5 / 8-10 星 0.6。与设计基线是两回事。 */
+  normalHitCapPct: number
+  usesCustomBloodPool: boolean
+  /** BOSS 血条 signature 色, 十进制 RGB 整数。 */
+  barColorRgb: number
+}
+
+/**
+ * 一个难度的精英分布。
+ * **没有权重表**: ChampionSpawnPolicy.rollStar 就是"区间 [minStar,maxStar] 内均匀取整",
+ * 要画分布图请自己按均匀分布铺 (均匀性由顶层 starRollMode 声明)。
+ */
+export interface ChampionDistributionRow {
+  difficulty: ChampionDifficulty
+  configName: MiningDifficulty
+  /** 升格率 0-1 小数: 0.06 / 0.1 / 0.15。 */
+  promoteChance: number
+  minStar: number
+  maxStar: number
+}
+
+/**
+ * champion.codex 回执 (ChampionWebUiActions.CODEX)。纯静态表, 与玩家无关。
+ * 四个数组全是枚举基数 (affixes 恒 35 / qualities 恒 5 / stars 恒 10 / distribution 恒 3), 无分页。
+ */
+export interface ChampionCodexResult {
+  /** 恒 6: 该星级起走自定义血池 (StarRank.CUSTOM_BLOOD_POOL_MIN_STAR)。 */
+  customBloodPoolMinStar: number
+  /** 掷星方式常量, 当前恒 'UNIFORM_INCLUSIVE' (区间内均匀取整, 无权重表)。 */
+  starRollMode: string
+  qualities: ChampionQualityRow[]
+  affixes: ChampionAffixRow[]
+  stars: ChampionStarRow[]
+  distribution: ChampionDistributionRow[]
+}
+
+/**
+ * champion.inspect 入参 (ChampionWebUiActions.INSPECT)。
+ * 页面自己拿不到网络实体 id, 需要 MCEF 客户端侧把准星/选中实体的 Entity.getId() 传进页面 (客户端与服务端
+ * 的网络实体 id 是同一套)。
+ */
+export interface ChampionInspectPayload {
+  /** 只在发送者所在维度内查。 */
+  entityId: number
+}
+
+/** champion.inspect 拒绝时 params.reason 的取值 (专用错误码补上前的临时区分手段)。 */
+export type ChampionInspectRejectReason = 'ENTITY_NOT_FOUND' | 'NOT_A_CHAMPION'
+
+/** 一条已掷出的词条 (champion.inspect 专用: 带实际品质与实际数值)。 */
+export interface ChampionInspectAffix {
+  affixId: string
+  nameKey: string
+  pool: ChampionAffixPool
+  isSkill: boolean
+  /** 该条实际掷到的品质。 */
+  quality: ChampionAffixQuality
+  /** 0-4, = quality 的档位下标。 */
+  tier: number
+  /** 该品质档的实际点数成本。 */
+  cost: number
+  primaryUnit: string
+  primaryValue: number
+  /** 仅有副数值的词条出现; 无则整键不出现。 */
+  secondaryUnit?: string
+  secondaryValue?: number
+}
+
+/**
+ * champion.inspect 回执 (ChampionWebUiActions.INSPECT)。
+ *
+ * 【血量口径 —— 本条最要紧的一点】6 星起 (或低星被巨大化撑破 1024 的怪) 的战斗权威是自定义血池,
+ * vanilla 那份被 generic.max_health 的 1024 硬上限钳住, 只是渲染镜像 (实测 7 星: maxHealth=5312.8 而
+ * vanillaMaxHealth=1024)。**画血条一律只用 health/maxHealth/healthFraction**, 拿 vanilla 那一对算比例必错。
+ *
+ * 两种拒绝都是 errorCode=INVALID_REQUEST, params={field:'entityId', value:'<传入的 id>',
+ * reason:'ENTITY_NOT_FOUND'|'NOT_A_CHAMPION'} —— 服务端绝不会返回一份 star=0 的成功回执冒充"什么都没有"。
+ */
+export interface ChampionInspectResult {
+  entityId: number
+  /** 实体注册 id, 如 minecraft:zombie。 */
+  entityTypeId: string
+  /** 实体翻译键, 如 entity.minecraft.zombie; 服务端不下发中文。 */
+  entityDescriptionId: string
+  star: number
+  /** 该星允许的最高品质。 */
+  maxQuality: ChampionAffixQuality
+  /** true = 支援召唤词条召出的援军 (不参与货币/经验/掉落/贡献结算)。 */
+  summonedByAffix: boolean
+  /**
+   * 盖章时算出的有效血 (星表基础血 x 生存点剩余曲线 x 体型乘数)。
+   * 走血池时与 maxHealth 相等; 走 vanilla 时 maxHealth 被 1024 钳住而它不会 ——
+   * 要显示"这只怪设计上多硬"该用本栏。
+   */
+  effectiveHp: number
+  /** 取的是血池注册表的在册事实, 不是按 star>=6 反推 (低星巨大化那一类也会建池)。 */
+  customBloodPool: boolean
+  /** 与 customBloodPool 同义, 供文案直接取用。 */
+  healthSource: 'BLOOD_POOL' | 'VANILLA_MAX_HEALTH'
+  /** 权威当前血。 */
+  health: number
+  /** 权威最大血; 走血池时可远超 1024。 */
+  maxHealth: number
+  /** health / maxHealth 的 [0,1] 钳制值 (服务端算好, float 精度)。 */
+  healthFraction: number
+  /** vanilla 当前血, **仅供对账诊断**。 */
+  vanillaHealth: number
+  /** vanilla 最大血, 同上。 */
+  vanillaMaxHealth: number
+  /** 顺序 = AffixDef 声明序 (与 codex 的 affixes 同序, 可直接按 affixId join)。条数上限 = 星表 maxAffixes。 */
+  affixes: ChampionInspectAffix[]
+}
+
+// ============================================================
+// admin.economy.* / admin.job.* / admin.mining.* — 各子系统的管理台 action
+// (EconomyAdminWebUiActions / JobAdminWebUiActions / MiningAdminWebUiActions)
+//
+// 权限现状 (前端文案字典必须照这个现实写): 全库有两套 OP 拒绝口径 ——
+//   admin.economy.*  抛 WebUiBusinessException, errorCode=INVALID_REQUEST + params={field:'permission',value:'op'}
+//   admin.job.setLevel / admin.mining.reset / 存量 admin.*  抛裸 IllegalStateException, 回执**没有 errorCode**
+// 待服务端补 ADMIN_ONLY / NOT_OPERATOR 后两处统一切。
+// ============================================================
+
+/** admin.economy.balance 入参 (EconomyAdminWebUiActions.BALANCE)。 */
+export interface AdminEconomyBalancePayload {
+  /**
+   * 在线玩家名, 大小写不敏感。**只认在线玩家**: 解析不到抛 INVALID_REQUEST +
+   * params={field:'playerName', value:<截断后的入参>}, 绝不返回空钱包 ——
+   * 前端必须把这条拒绝显示成"该玩家不在线/名字不对", 不能显示成"余额 0"。
+   */
+  playerName: string
+}
+
+/** admin.economy.balance 回执 (默认 Gson, 无 null 值)。 */
+export interface AdminEconomyBalanceResult {
+  /** 解析到的 GameProfile **真名** (不是回显入参; 入参大小写可能不同)。 */
+  playerName: string
+  /** 账本真正的键。无 uuid 时操作者无法确认自己改的是不是同名的另一个人。 */
+  playerUuid: string
+  wallet: WebUiWallet
+}
+
+/** admin.economy.set 入参 (EconomyAdminWebUiActions.SET)。 */
+export interface AdminEconomySetPayload {
+  /** 同 admin.economy.balance: 只认在线玩家。 */
+  playerName: string
+  currency: WebUiCurrency
+  /**
+   * 目标【绝对值】不是增量; 必须是 0 到 9007199254740991 (2^53-1) 之间的整数。
+   * 上界是 JS Number 的无损整数上限而非账本上限 (账本是 long) —— 超过它的"整数"在到达服务端前就已经变形了。
+   * 负数直接拒 (账本无欠款语义)。拒绝码 params.field 分别是 permission / playerName / currency / amount。
+   */
+  amount: number
+}
+
+/**
+ * admin.economy.set 回执 (EconomyAdminWebUiActions.SET)。
+ *
+ * 语义是"设成绝对值", 实现为同一事务内读当前值再补差额 (delta>0 走 grant, delta<0 走 tryCharge,
+ * delta==0 一次账本写都不发生), 全程经账本门面。
+ * 本入口走普通 grant/tryCharge, **不计入**当日 faucet 衰减计数器 (与 /economy grant 同纪律) ——
+ * 管理台文案不要暗示"调账会占用玩家今日额度"。每笔调账另落一行服务端日志, 那是事后唯一追溯来源。
+ */
+export interface AdminEconomySetResult {
+  playerName: string
+  playerUuid: string
+  /** 被改的币种回显。 */
+  currency: WebUiCurrency
+  /** 改【前】双币快照 —— 真服无调账流水表, 这是唯一一次看见改前值的机会。 */
+  before: WebUiWallet
+  /** 改【后】双币快照。只动 currency 指定的那一种, 另一种在 before/wallet 里同值。 */
+  wallet: WebUiWallet
+}
+
+/**
+ * 职业稳定 id。派生自既有的 PlayerJobProgressEntry 而不是另抄一份字面量联合:
+ * 两处各写一份的话, JobId 枚举日后增删时只会有一处被改到。
+ */
+export type WebUiJobId = PlayerJobProgressEntry['jobId']
+
+/** admin.job.setLevel 入参 (JobAdminWebUiActions.SET_LEVEL)。 */
+export interface AdminJobSetLevelPayload {
+  /**
+   * 目标玩家档案名, 大小写不敏感; **只认在线玩家** (离线玩家的 capability 不在内存里, 也没有 syncTo 的对象,
+   * 一律 INVALID_REQUEST + params.field='playerName')。管理台的玩家选择器必须只列在线玩家。
+   */
+  playerName: string
+  /**
+   * 服务端另接受历史别名 armorer / 铸甲师 (JobId.byId 的既有兼容分支, 均归一化成 engineer),
+   * 但面板一律发规范 id; 未知 id -> INVALID_REQUEST + params.field='jobId'。
+   */
+  jobId: WebUiJobId
+  /** 1-10 (含两端); 越界 -> INVALID_REQUEST + params.field='level'。 */
+  level: number
+}
+
+/**
+ * admin.job.setLevel 回执 (JobAdminWebUiActions.SET_LEVEL)。
+ *
+ * **副作用不止 level**: JobProgress.setLevel 同时把累计经验对齐到该级整级线 (只改 level 不改 xp 的话,
+ * 下一次入账会被 JobXpCurve 按旧 xp 重新派生回原等级)。故回执发的是改完后读回来的两个真值,
+ * 前端应把 totalXp 一并刷新到界面, 否则 OP 会以为自己只动了等级。
+ *
+ * 改级后服务端已立刻 syncTo 下发全职业 S2C 同步包, 前端无需另外触发任何同步 action。
+ */
+export interface AdminJobSetLevelResult {
+  /** 服务端解析到的目标玩家真名 (按 GameProfile 回填, 不是入参原样回显)。 */
+  playerName: string
+  playerUuid: string
+  /** 归一化后的稳定 id (传 armorer 会拿回 engineer)。 */
+  jobId: WebUiJobId
+  /** 改后从 capability 读回的真值。 */
+  level: number
+  /** 改后从 capability 读回的累计有效经验 (Java long; 当前满级毕业线远小于 2^53)。 */
+  totalXp: number
+}
+
+/** admin.mining.reset 入参 (MiningAdminWebUiActions.RESET)。 */
+export interface AdminMiningResetPayload {
+  /** 与 mining.enter 共用同一个解析器, 同样大小写不敏感; 回执回显规范小写名。 */
+  difficulty: MiningDifficulty
+  /** 可选, 缺省 true = NEW_SEED 换图; 给了就必须是布尔, 字符串会被 INVALID_REQUEST 拒。 */
+  reseed?: boolean
+}
+
+/** admin.mining.reset 的同步拒绝码。 */
+export type AdminMiningResetReasonCode = 'NOT_RESETTABLE' | 'OCCUPIED'
+
+/**
+ * admin.mining.reset 回执 (MiningAdminWebUiActions.RESET)。
+ *
+ * **确认弹窗的责任在前端**: 活跃的 /mining reset 没有二次确认, 服务端照旧不加。
+ *
+ * 受理前先做与 ResetSystem.reset 逐条对齐的前置裁决, 被拒时同步回 accepted=false + reasonCode 且绝不下发重置
+ * (否则面板会回"已受理"而 future 在后台静默失败)。受理后重置本身异步, 终局只进服务端日志。
+ * 另有一条未进本结构的失败形态: 该难度的常驻区域实例不存在时抛裸 IllegalStateException,
+ * 前端收到的是无 errorCode 的通用失败回执 —— 只处理 reasonCode 两态会漏掉它。
+ *
+ * 本 action **不更新** AutoResetData.lastReset, 故 mining.overview 的 lastResetGameTime 不含手动重置。
+ */
+export interface AdminMiningResetResult {
+  difficulty: MiningDifficulty
+  mode: 'NEW_SEED' | 'SAME_SEED'
+  /** 受理那一刻的矿山维度 game tick (不是重置完成时刻, 更不是 epoch millis)。 */
+  requestedAtGameTime: number
+  instanceId: number
+  genState: MiningGenState
+  /** 被踢出该区域的玩家数 (= 受理那一刻的在场人数, 含离线待撤离者); 被拒时也如实回报该数字而不是 0。 */
+  evictedPlayers: number
+  accepted: boolean
+  reasonCode: AdminMiningResetReasonCode | null
 }

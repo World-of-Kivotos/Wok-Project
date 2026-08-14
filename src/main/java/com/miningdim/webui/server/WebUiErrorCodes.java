@@ -110,4 +110,17 @@ public final class WebUiErrorCodes {
      * 客户端入参, 也可能是聚合类 action 自己长出来的成功回执, 收口是唯一能一次盖住两者的位置。
      */
     public static final String RESPONSE_TOO_LARGE = "RESPONSE_TOO_LARGE";
+
+    /**
+     * 权限不足 (当前只有 OP 一档)。抛出点: {@link WebUiPermissions#requireOp}, 由每条 admin.* 动作各自调用。
+     *
+     * 单立一码而不复用 {@link #INVALID_REQUEST}: 后者的语义是"入参形状或取值非法", 拿它表达权限拒绝会让
+     * 前端把"你不是 OP"渲染成"某个字段填错了"。而在补出本码之前, 各 admin 动作只能二选一 —— 要么套
+     * INVALID_REQUEST, 要么抛裸 {@code IllegalStateException} 落进 Gateway 的通用兜底; 两种都出现过,
+     * 于是同一种拒绝有了两种回执形状。
+     *
+     * 抛业务异常而非裸异常还有一层: 派发器对裸异常走 {@code LOGGER.warn(..., e)} 打整条堆栈, 而权限拒绝是
+     * 任何人都能无限次触发的 —— 那正是派发器注释里点名要防的 WARN 堆栈刷屏。
+     */
+    public static final String PERMISSION_DENIED = "PERMISSION_DENIED";
 }

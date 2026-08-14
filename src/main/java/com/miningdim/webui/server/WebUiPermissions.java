@@ -2,6 +2,8 @@ package com.miningdim.webui.server;
 
 import net.minecraft.server.level.ServerPlayer;
 
+import java.util.Map;
+
 /**
  * WebUI 侧的权限判定唯一入口。
  *
@@ -26,5 +28,23 @@ public final class WebUiPermissions {
      */
     public static boolean isOp(ServerPlayer sender) {
         return sender.getServer().getPlayerList().isOp(sender.getGameProfile());
+    }
+
+    /**
+     * admin.* 动作的统一权限门: 非 OP 即抛 {@link WebUiErrorCodes#PERMISSION_DENIED} 业务异常。
+     *
+     * 收成一个抛出点是为了让"权限拒绝"只有一种回执形状。此前四个 admin 动作类各写各的, 分裂成了三种:
+     * 裸 {@code IllegalStateException} 落进 Gateway 通用兜底 (无 errorCode, 且带整条 WARN 堆栈)、
+     * 套 {@code INVALID_REQUEST} 冒充入参非法、以及本方法。前端为同一种拒绝写三套分支, 迟早漏一套。
+     *
+     * 仍然是每个 handler 各自调用, 不是 Gateway 兜底 —— 架构铁律 1 未变: 派发器不做任何权限判断。
+     *
+     * @param action 被拒的 action 名, 进 params.action 供前端定位是哪个后台功能被拦
+     */
+    public static void requireOp(ServerPlayer sender, String action) {
+        if (!isOp(sender)) {
+            throw new WebUiBusinessException(WebUiErrorCodes.PERMISSION_DENIED,
+                    "需要 OP 权限", false, Map.of("action", action));
+        }
     }
 }

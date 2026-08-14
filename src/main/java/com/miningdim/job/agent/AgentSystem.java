@@ -52,6 +52,9 @@ public final class AgentSystem implements Subsystem {
         // 客户端 Screen 注册 (FMLClientSetupEvent + DistExecutor 隔离, 专用服务器永不触客户端类)。
         modBus.addListener(this::onClientSetup);
 
+        // 平板特勤页的 job.agent.* (扫描/封印经 AgentSealSeam 接缝走; Champions 未加载时照常注册, 回执报离线)。
+        AgentWebUiActions.registerAll();
+
         if (!ModList.get().isLoaded(CHAMPIONS_MODID)) {
             LOGGER.info("[agent] Champions not loaded; agent champion integration disabled (pure logic still active)");
             return;

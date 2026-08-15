@@ -10,8 +10,10 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -135,13 +137,19 @@ public final class OreScanService {
             return NO_HIT;
         }
         int r2 = radius * radius;
-        // 单矿种语义: 按可探集合优先序 (铁>煤>钻>金>残骸) 逐个试, 取第一个球内确有命中的矿种, 收其全部坐标。
-        for (OreType target : preferenceOrder()) {
-            if (!allowed.contains(target)) {
-                continue;
+        // 优先序中排在最前、且在可探集合内的矿种: 它一旦攒够硬顶就必然是最终赢家 (下面唯一允许的提前退出判据)。
+        OreType topPriority = null;
+        for (OreType candidate : preferenceOrder()) {
+            if (allowed.contains(candidate)) {
+                topPriority = candidate;
+                break;
             }
-            List<BlockPos> hits = collectWithinSphere(level, center, radius, r2, target);
-            if (!hits.isEmpty()) {
+        }
+        Map<OreType, List<BlockPos>> buckets = collectWithinSphere(level, center, radius, r2, allowed, topPriority);
+        // 单矿种语义: 按可探集合优先序 (铁>煤>钻>金>残骸) 取第一个球内确有命中的矿种。
+        for (OreType target : preferenceOrder()) {
+            List<BlockPos> hits = buckets.get(target);
+            if (hits != null && !hits.isEmpty()) {
                 return new ScanHit(target, hits);
             }
         }
@@ -149,12 +157,18 @@ public final class OreScanService {
     }
 
     /**
-     * 球内逐格读真实世界方块态收集某矿种命中坐标 (服务端权威, 只收确有命中的)。
+     * 球内单趟遍历真实世界方块态, 按矿种同时分桶收集全部可探矿种的命中坐标 (服务端权威, 只收确有命中的)。
      * 仅收已加载区块内的命中 (未加载区块 isLoaded=false 跳过, 不强制加载、不臆造数据)。
+     *
+     * 单趟分桶取代旧实现"每个矿种各扫一遍整球"的缘由: 已挖空区域是常态, 球内某矿种一无所获时旧实现仍会把整球
+     * 读满才判定失败, 而 preferenceOrder 有 5 个矿种 —— 全空是最坏情况, 等价于把同一个球重复读 5 遍;
+     * L10 半径 16 时单次探测该最坏情况约读 9 万次方块态, 落在服务端主线程。改成读一次方块态同时喂给所有桶,
+     * 最坏情况的开销从 5 倍整球读降回 1 倍。
      */
-    private static List<BlockPos> collectWithinSphere(ServerLevel level, BlockPos center,
-                                                      int radius, int r2, OreType target) {
-        List<BlockPos> hits = new ArrayList<>();
+    private static Map<OreType, List<BlockPos>> collectWithinSphere(ServerLevel level, BlockPos center,
+                                                                     int radius, int r2, Set<OreType> allowed,
+                                                                     OreType topPriority) {
+        Map<OreType, List<BlockPos>> buckets = new EnumMap<>(OreType.class);
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dy = -radius; dy <= radius; dy++) {
@@ -167,16 +181,23 @@ public final class OreScanService {
                         continue; // 未加载区块: 无可靠数据, 跳过 (不下发)。
                     }
                     Block block = level.getBlockState(cursor).getBlock();
-                    if (OreType.fromBlock(block) == target) {
-                        hits.add(cursor.immutable());
-                        if (hits.size() >= MinerConstants.ORE_SCAN_MAX_RESULTS) {
-                            return hits;
-                        }
+                    OreType ore = OreType.fromBlock(block);
+                    if (ore == null || !allowed.contains(ore)) {
+                        continue;
+                    }
+                    List<BlockPos> bucket = buckets.computeIfAbsent(ore, k -> new ArrayList<>());
+                    if (bucket.size() >= MinerConstants.ORE_SCAN_MAX_RESULTS) {
+                        continue; // 该矿种已顶硬顶, 但非 topPriority 时仍要继续为其它矿种扫剩余的球。
+                    }
+                    bucket.add(cursor.immutable());
+                    // 唯一允许的提前退出: 优先级最高的可探矿种已顶满硬顶, 它必然是最终赢家, 无需再读剩余方块。
+                    if (ore == topPriority && bucket.size() >= MinerConstants.ORE_SCAN_MAX_RESULTS) {
+                        return buckets;
                     }
                 }
             }
         }
-        return hits;
+        return buckets;
     }
 
     /** 单矿种探测的优先序 (常见矿优先, 高价矿其次)。 */

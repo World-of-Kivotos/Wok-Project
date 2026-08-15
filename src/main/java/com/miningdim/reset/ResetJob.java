@@ -16,9 +16,9 @@ import java.util.concurrent.CompletableFuture;
  * 单实例重置任务的分帧状态机 (D3 滑动 region)。由 {@link ResetSystem} 每服务端 tick 推进。阶段:
  *  UNLOAD : 主线程撤离在场玩家、释放该实例的全部区块强加载 ticket (必须先于几何变更, 否则旧 owner/旧 box
  *           发出的 ticket 无法被正确撤销), 并按 mode 计算/派生本次重置目标 seed;
- *  REGEN  : 调 IInstanceManager.slideRegion 把实例整块滑到一块从未生成过的新坐标 (释放旧强加载与体素缓存、
- *           写回新 regionBox/seed、置 PENDING 并重新提交生成), 之后逐 tick 轮询 instance.genState()
- *           直到 isEnterable() 或 FAILED 或超时;
+ *  REGEN  : 调 IInstanceManager.slideRegion 把实例整块滑到一块从未生成过的新坐标 (写回新 regionBox/seed
+ *           后直接置 READY —— 离线生成已下线, 维度走 minecraft:noise 按需生成), 之后逐 tick 轮询
+ *           instance.genState() 直到 isEnterable() 或 FAILED 或超时 (通常首帧即通过, 轮询作为失败态兜底保留);
  *  SETTLE : 清该实例的影子态 (liveMobs) 并广播 MiningServices.fireInstanceReset, 驱动陷阱/矿物/出生/压力
  *           等子系统的按实例缓存失效重算; 停留满 MIN_SETTLE_TICKS 后落定;
  *  DONE   : genState=READY (幂等, 生成通路通常已写过), 兑现 reset future。
@@ -30,9 +30,9 @@ import java.util.concurrent.CompletableFuture;
  * 原版实体位置/渲染的 float 精度即开始劣化。两者都是本次 D3 未处理的遗留, 一并留给后续分支
  * (候选方向: 旧坐标确认落盘删除后回收游标区间, 或改单轴推进为 Z 轴换行的二维铺开)。
  *
- * 限速契约: 本任务自身不做墙钟预算限速; REGEN 阶段的区块加载速率由
- * com.miningdim.instance.GenerationScheduler 的 MAX_CHUNK_LOADS_PER_TICK 每 tick 强加载队列分帧承担,
- * 本类只负责轮询 genState 与超时判定。
+ * 限速契约: 离线生成管线已下线 (F021/F032), slideRegion 写回新 regionBox/seed 后直接置 READY;
+ * 区块由玩家进入时 com.miningdim.chunk.ChunkTicketManager 的滑动窗口按需强加载, 本任务自身不做
+ * 任何加载限速, 只负责轮询 genState 与超时判定 (兜底失败态)。
  */
 final class ResetJob {
 

@@ -18,7 +18,6 @@ public final class MiningServices {
     }
 
     private static IInstanceManager instanceManager;
-    private static IOfflineGenerator offlineGenerator;
     private static IMiningConfig config;
     private static IMiningNetwork network;
     private static IResetService resetService;
@@ -35,10 +34,6 @@ public final class MiningServices {
 
     public static void registerInstanceManager(IInstanceManager service) {
         instanceManager = requireNonNull(service, "IInstanceManager");
-    }
-
-    public static void registerOfflineGenerator(IOfflineGenerator service) {
-        offlineGenerator = requireNonNull(service, "IOfflineGenerator");
     }
 
     public static void registerConfig(IMiningConfig service) {
@@ -61,10 +56,6 @@ public final class MiningServices {
 
     public static IInstanceManager instanceManager() {
         return require(instanceManager, "IInstanceManager");
-    }
-
-    public static IOfflineGenerator offlineGenerator() {
-        return require(offlineGenerator, "IOfflineGenerator");
     }
 
     public static IMiningConfig config() {
@@ -98,15 +89,16 @@ public final class MiningServices {
         }
     }
 
-    /** 服务端停止时清空, 防止跨存档/跨重启的脏引用 (供 ServerStoppingEvent 调用; 可选)。 */
-    public static void reset() {
+    /**
+     * 服务端停止时只清随存档生命周期的门面 (F091)。config/network/resetService/spawnService 与
+     * instanceResetListeners 一律【不清】: 它们全部在 mod 构造期的 Subsystem.register 里注入,
+     * 且没有任何重装配入口——清了同一 JVM 进第二个存档时, 对应子系统在下一次运行期取用会直接抛
+     * IllegalStateException(require 未注册), 而它们本就不含"上一个存档"的状态, 不清不会造成脏引用。
+     * instanceManager 相反: 它绑定具体 ServerLevel/SavedData, 是唯一真正随存档生命周期的门面,
+     * 不清才会在换存档后残留上一局的实例注册表。
+     */
+    public static void clearServerScoped() {
         instanceManager = null;
-        offlineGenerator = null;
-        config = null;
-        network = null;
-        resetService = null;
-        spawnService = null;
-        instanceResetListeners.clear();
     }
 
     private static <T> T require(T service, String name) {

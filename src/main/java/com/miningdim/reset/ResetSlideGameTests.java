@@ -26,9 +26,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * F003 端到端回归锁 (D3 滑动 region): 证明一次真实重置之后, 实例真的换到了一块新的、与旧区
  * 不相交的世界坐标, 而不是只把 genState 翻一圈就地返回。
  *
- * 会真的把测试服的 Hard region 滑走并触发整块 region 的分帧强加载
- * ({@link com.miningdim.instance.GenerationScheduler} 每 tick 4 个区块), 故两条用例都把
- * timeoutTicks 放宽到 1200。
+ * 会真的把测试服的 Hard region 滑走 (离线生成管线已下线, F021/F032: slideRegion 写回新 regionBox/seed
+ * 后直接置 READY, 区块由玩家/GameTest 触达时按需生成), 故两条用例都把 timeoutTicks 放宽到 1200。
  *
  * 两条用例刻意分属两个不同 batch (reset_slide_new_seed / reset_slide_same_seed) 而非同一个 batch:
  * 本包同批次的其它 GameTest (如 MiningAdminWebUiGameTests 里同批次五个方法故意各挑一个不同难度实例)

@@ -31,10 +31,6 @@ public final class MiningConstants {
     public static final ResourceKey<DimensionType> MINING_DIM_TYPE =
             ResourceKey.create(Registries.DIMENSION_TYPE, new ResourceLocation(MODID, "mining"));
 
-    /** 自定义 ChunkGenerator 的注册 id, 必须与 dimension/mining.json 的 generator.type 一致 (4.4/5.3)。 */
-    public static final ResourceLocation CHUNK_GENERATOR_ID =
-            new ResourceLocation(MODID, "mining_chunk_generator");
-
     /** 自定义 BiomeSource 的注册 id, 必须与 dimension/mining.json 的 biome_source.type 一致 (4.4/5.3)。 */
     public static final ResourceLocation BIOME_SOURCE_ID =
             new ResourceLocation(MODID, "mining_biome_source");

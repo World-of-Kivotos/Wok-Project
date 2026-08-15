@@ -538,6 +538,121 @@ public final class CaseOpeningGameTests {
     }
 
     /**
+     * F006: 结算锚落在开箱库自身 (economy_settled) 之后, 账本侧的双币幂等凭据即使被
+     * {@code EconomySystem} 定期回收 (30 天窗口) 也不得让登录恢复重新扣款、也不得让已发出的皮肤从
+     * 面板上消失。此前的判据是查账本里有没有对应的 CHARGED/COMPLETED 行, 而账本行是会被回收的; 回收后
+     * COMMITTED 行会被当成"孤儿"重新补扣一次, 相当于同一件皮肤反复收费。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void prunedLedgerDoesNotRechargeCommittedOpenings(GameTestHelper helper) {
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+        IEconomyService previous = swapEconomy(fake);
+        CaseDaoSqlite dao = CaseDb.on(ledger.connection());
+        try {
+            ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            fake.grant(player, Currency.CREDIT, 100_000L);
+            fake.grant(player, Currency.AZURE, 20L);
+            UUID openingId = UUID.randomUUID();
+
+            CaseOpeningService.OpenResult opened = service(dao).open(player, openingId, CaseCatalog.CASE_ID);
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 50_000L
+                            && ledger.balance(player.getUUID(), Currency.AZURE) == 10L,
+                    "正常开箱一次后应恰好扣至 50000/10, 实为 " + ledger.balance(player.getUUID(), Currency.CREDIT)
+                            + "/" + ledger.balance(player.getUUID(), Currency.AZURE));
+
+            // 模拟 EconomySystem 30 天窗口回收: 用晚 1ms 的截止时间, 该笔 COMPLETED 记录必然创建于此之前。
+            int pruned = ledger.pruneTerminalOperations(System.currentTimeMillis() + 1L);
+            helper.assertTrue(pruned == 1, "回收必须真的删掉这一笔已结清的账本记录, 实为 " + pruned);
+            helper.assertTrue(fake.operationStatus(EconomyOperationDomain.CASE_OPENING, player.getUUID(), openingId)
+                            == EconomyOperationStatus.NONE,
+                    "账本侧的幂等凭据回收后必须真的查无此笔");
+
+            int recovered = service(dao).recoverFor(player);
+            helper.assertTrue(recovered == 0,
+                    "已结算的 COMMITTED 行不属于登录恢复的处置对象, 实为处置了 " + recovered + " 条");
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 50_000L
+                            && ledger.balance(player.getUUID(), Currency.AZURE) == 10L,
+                    "账本证据被回收后登录恢复不得再扣一次款, 实为 " + ledger.balance(player.getUUID(), Currency.CREDIT)
+                            + "/" + ledger.balance(player.getUUID(), Currency.AZURE));
+
+            List<SkinAssetRow> owned = service(dao).ownedAssets(player);
+            helper.assertTrue(owned.size() == 1 && owned.get(0).assetId().equals(opened.asset().assetId()),
+                    "账本证据被回收后皮肤仍必须留在面板上且是第一次开出的那件, 实为 " + owned.size() + " 件");
+            helper.assertTrue(dao.recoverableOpenings(player.getUUID()).isEmpty(),
+                    "已结算的 COMMITTED 行不得再出现在恢复集合里, 实为 "
+                            + dao.recoverableOpenings(player.getUUID()).size() + " 条");
+
+            CaseOpeningService.OpenResult replay = service(dao).open(player, openingId, CaseCatalog.CASE_ID);
+            helper.assertTrue(replay.replayed(), "账本证据被回收后, 同一 openingId 仍须被识别为重放而非新开");
+            helper.assertTrue(replay.asset().assetId().equals(opened.asset().assetId()),
+                    "重放必须返回第一次开出的同一件资产");
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 50_000L
+                            && ledger.balance(player.getUUID(), Currency.AZURE) == 10L,
+                    "重放不得产生第二次扣款, 实为 " + ledger.balance(player.getUUID(), Currency.CREDIT)
+                            + "/" + ledger.balance(player.getUUID(), Currency.AZURE));
+        } finally {
+            CaseDb.close(dao);
+            restoreEconomy(previous);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * F107 + F108: {@code settledOwnedAssets}/{@code recoverableOpenings} 的过滤必须发生在 SQL 联表里,
+     * 而不是靠 Java 侧再各打一次账本点查。用两件资产分别锁死两侧: 已结算的甲必须出现在拥有列表、绝不出现
+     * 在恢复集合; 未结算的乙必须相反 —— 单改一侧的过滤条件都会让另一侧的断言失衡。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void settledFilterSeparatesRecoverableFromOwned(GameTestHelper helper) {
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService fake = new EconomyService(ledger, new AbuseGuard(), newStateResolver());
+        IEconomyService previous = swapEconomy(fake);
+        CaseDaoSqlite dao = CaseDb.on(ledger.connection());
+        try {
+            ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            fake.grant(player, Currency.CREDIT, 100_000L);
+            fake.grant(player, Currency.AZURE, 20L);
+
+            // 甲: 经 service.open 正常产出, 结算锚已落, 账本 COMPLETED。
+            CaseOpeningService.OpenResult settled = service(dao).open(player, UUID.randomUUID(), CaseCatalog.CASE_ID);
+
+            // 乙: 直接落成 COMMITTED, 不经过 service, 因此结算锚 economy_settled=0 且账本无对应操作。
+            UUID unsettledOpeningId = UUID.randomUUID();
+            long now = 1_700_000_000_000L;
+            CaseOpeningRow proposed = row(unsettledOpeningId, player.getUUID(), UUID.randomUUID(), now,
+                    CaseOpeningStatus.RESERVED);
+            CaseOpeningRow reserved = dao.reserve(proposed);
+            helper.assertTrue(dao.markDebited(unsettledOpeningId, now + 1), "乙应能推进到 DEBITED");
+            dao.commitOpening(unsettledOpeningId, asset(reserved), now + 2);
+
+            List<SkinAssetRow> owned = service(dao).ownedAssets(player);
+            helper.assertTrue(owned.size() == 1 && owned.get(0).assetId().equals(settled.asset().assetId()),
+                    "service.ownedAssets 只应暴露已结算的甲, 实为 " + owned.size() + " 件");
+            helper.assertTrue(dao.ownedAssets(player.getUUID()).size() == 2,
+                    "资产底表本身应有两件, 证明过滤发生在联表查询而非资产表少行, 实为 "
+                            + dao.ownedAssets(player.getUUID()).size() + " 件");
+
+            List<CaseOpeningRow> recoverable = dao.recoverableOpenings(player.getUUID());
+            helper.assertTrue(recoverable.size() == 1 && recoverable.get(0).openingId().equals(unsettledOpeningId),
+                    "recoverableOpenings 只应捞出未结算的乙, 实为 " + recoverable.size() + " 条");
+
+            int recovered = service(dao).recoverFor(player);
+            helper.assertTrue(recovered == 1, "补扣未结算的乙这一件, 实为处置了 " + recovered + " 条");
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 100_000L - 50_000L * 2
+                            && ledger.balance(player.getUUID(), Currency.AZURE) == 20L - 10L * 2,
+                    "补扣乙之后余额应恰为两箱的合计扣款, 实为 " + ledger.balance(player.getUUID(), Currency.CREDIT)
+                            + "/" + ledger.balance(player.getUUID(), Currency.AZURE));
+            helper.assertTrue(service(dao).ownedAssets(player).size() == 2,
+                    "补扣结算后乙也应出现在拥有列表里, 共两件");
+        } finally {
+            CaseDb.close(dao);
+            restoreEconomy(previous);
+        }
+        helper.succeed();
+    }
+
+    /**
      * 开箱事务的最后一步 (推进货币操作到终态) 失败时, 扣款与皮肤归属必须一并回滚。
      *
      * 这是"扣钥匙 + 扣箱子 + 发皮肤 单个原子事务"的反向验证。此前四步各走 autocommit, 落到这里失败就会

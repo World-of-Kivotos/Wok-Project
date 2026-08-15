@@ -173,6 +173,9 @@ public final class MiningStoreGameTests {
             try {
                 MiningSchema.apply(conn);
                 LegacyStoreImport.importLegacyDatabases(conn, dir, 1723000000000L);
+                // 与 MiningStore.open() 的真实顺序对齐: V3 回填在 apply() 那一刻已经跑完, 看不到刚导入的
+                // 旧库行, 必须补跑一次才能追平 (F006 复核, entry a)。
+                MiningSchema.backfillCaseEconomySettled(conn);
 
                 helper.assertTrue(countRows(conn, "listings") == 2,
                         "两条旧挂单必须全部导入, 实为 " + countRows(conn, "listings") + " 条");
@@ -195,11 +198,128 @@ public final class MiningStoreGameTests {
                         "市场导入标记必须写入且带时间戳");
                 helper.assertTrue(StoreMeta.get(conn, LegacyStoreImport.META_CASE_IMPORTED) != null,
                         "开箱导入标记必须写入");
+                helper.assertTrue(singleLong(conn, "SELECT economy_settled FROM case_openings WHERE opening_id='"
+                                + LEGACY_OPENING_ID + "'") == 1L,
+                        "旧库导入行的付款证据只存在于旧版 SavedData, bundle_operations 账本里永远查无此笔, "
+                                + "结构上等价于早于 30 天保留期的孤儿; 补跑一次回填必须把它追平为已结算, "
+                                + "否则会在 30 天后被当成硬崩溃孤儿真实重复扣款 (F006 复核, entry a)");
             } finally {
                 MiningDb.close(conn);
             }
         } finally {
             TempStoreDb.deleteQuietly(dir);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * V3 迁移回填规则的判定表覆盖: 账本证据 (COMPLETED / CHARGED / REFUNDED / 查无) 与 30 天保留期、
+     * case 自身状态 (COMMITTED / RESERVED) 交叉出的六种情形必须逐一落在正确的 economy_settled 值上 ——
+     * 漏判一种就会在真服上表现为该赦免的没赦免 (老玩家被反复重复扣费), 或不该赦免的被误赦免 (真崩溃孤儿
+     * 永远拿不到应得的皮肤/退款)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void caseSettlementBackfillGrandfathersOnlyPrunedEvidence(GameTestHelper helper) {
+        Connection conn = MiningDb.openInMemory();
+        try {
+            SchemaMigrator.migrate(conn, MiningSchema.MIGRATIONS.subList(0, 2));
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == 2,
+                    "推进到 V2 后 user_version 必须是 2, 实为 " + SchemaMigrator.userVersion(conn));
+
+            long now = System.currentTimeMillis();
+            long beyondRetention = now - 60L * 24 * 60 * 60 * 1000;
+
+            // 甲: COMMITTED + 账本同笔 COMPLETED -> 无争议已结算, 必须赦免。
+            insertCaseOpening(conn, JIA_OPENING_ID, JIA_ASSET_ID, "COMMITTED", now);
+            insertBundleOperation(conn, JIA_OPENING_ID, "COMPLETED", now);
+
+            // 乙: COMMITTED + 账本同笔 CHARGED -> 扣款流程未到终态, 交给登录恢复继续推进, 不得赦免。
+            insertCaseOpening(conn, YI_OPENING_ID, YI_ASSET_ID, "COMMITTED", now);
+            insertBundleOperation(conn, YI_OPENING_ID, "CHARGED", now);
+
+            // 丙: COMMITTED + 账本同笔 REFUNDED -> 货已发但钱已退, 自相矛盾数据不得被这次迁移悄悄抹平。
+            insertCaseOpening(conn, BING_OPENING_ID, BING_ASSET_ID, "COMMITTED", now);
+            insertBundleOperation(conn, BING_OPENING_ID, "REFUNDED", now);
+
+            // 丁: COMMITTED + 账本查无此笔 + 早于 30 天保留期 -> 证据只可能是被 prune 删的, 必须赦免。
+            insertCaseOpening(conn, DING_OPENING_ID, DING_ASSET_ID, "COMMITTED", beyondRetention);
+
+            // 戊: COMMITTED + 账本查无此笔 + 仍在保留期内 -> 真正的硬崩溃孤儿, 必须保留 0 交给补扣款。
+            insertCaseOpening(conn, WU_OPENING_ID, WU_ASSET_ID, "COMMITTED", now);
+
+            // 己: RESERVED + 账本查无此笔 + 早于 30 天保留期 -> 未提交订单不进入赦免判定, 必须保持默认 0。
+            insertCaseOpening(conn, JI_OPENING_ID, JI_ASSET_ID, "RESERVED", beyondRetention);
+
+            MiningSchema.apply(conn);
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == MiningSchema.MIGRATIONS.size(),
+                    "推进到最新版后 user_version 必须等于迁移总数 " + MiningSchema.MIGRATIONS.size()
+                            + ", 实为 " + SchemaMigrator.userVersion(conn));
+
+            long jia = economySettled(conn, JIA_OPENING_ID);
+            helper.assertTrue(jia == 1L,
+                    "甲(COMMITTED+账本COMPLETED)必须被赦免, economy_settled 应为 1, 实为 " + jia);
+
+            long yi = economySettled(conn, YI_OPENING_ID);
+            helper.assertTrue(yi == 0L,
+                    "乙(COMMITTED+账本CHARGED)扣款尚未到终态, economy_settled 应为 0, 实为 " + yi);
+
+            long bing = economySettled(conn, BING_OPENING_ID);
+            helper.assertTrue(bing == 0L,
+                    "丙(COMMITTED+账本REFUNDED)是自相矛盾数据, economy_settled 应为 0, 实为 " + bing);
+
+            long ding = economySettled(conn, DING_OPENING_ID);
+            helper.assertTrue(ding == 1L,
+                    "丁(COMMITTED+账本查无+超出30天保留期)必须被赦免, economy_settled 应为 1, 实为 " + ding);
+
+            long wu = economySettled(conn, WU_OPENING_ID);
+            helper.assertTrue(wu == 0L,
+                    "戊(COMMITTED+账本查无+仍在保留期内)是真孤儿, economy_settled 应为 0, 实为 " + wu);
+
+            long ji = economySettled(conn, JI_OPENING_ID);
+            helper.assertTrue(ji == 0L,
+                    "己(RESERVED 状态不进入赦免判定), economy_settled 应保持默认 0, 实为 " + ji);
+        } finally {
+            MiningDb.close(conn);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * F006 复核 entry b: 存档若停在 user_version=1 直升 3, V3 回填在同一事务内对着一张空的
+     * bundle_operations 判定 —— 此时旧账本 (SavedData) 尚未搬进来, 30 天保留期内的 COMMITTED 行会被
+     * 误判成未结算。真正的付款证据要等 {@code EconomyLedgerBootstrap.migrateIfNeeded} 在
+     * ServerStartedEvent 才会写进 bundle_operations, 此时必须补跑一次同一套判据把它追平。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void backfillCanBeRerunAfterLedgerEvidenceArrivesLate(GameTestHelper helper) {
+        Connection conn = MiningDb.openInMemory();
+        try {
+            SchemaMigrator.migrate(conn, MiningSchema.MIGRATIONS.subList(0, 2));
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == 2,
+                    "推进到 V2 后 user_version 必须是 2, 实为 " + SchemaMigrator.userVersion(conn));
+
+            long now = System.currentTimeMillis();
+            insertCaseOpening(conn, LATE_EVIDENCE_OPENING_ID, LATE_EVIDENCE_ASSET_ID, "COMMITTED", now);
+
+            // 模拟 user_version 1->3 的直升: 此刻 bundle_operations 是空表 (旧账本尚未搬入), V3 回填只能
+            // 看见"账本查无此笔", 而该行仍在 30 天保留期内, 必须保持 0, 不得误赦免。
+            MiningSchema.apply(conn);
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == MiningSchema.MIGRATIONS.size(),
+                    "推进到最新版后 user_version 必须等于迁移总数 " + MiningSchema.MIGRATIONS.size()
+                            + ", 实为 " + SchemaMigrator.userVersion(conn));
+            long beforeLedgerArrives = economySettled(conn, LATE_EVIDENCE_OPENING_ID);
+            helper.assertTrue(beforeLedgerArrives == 0L,
+                    "旧账本尚未迁入时, 保留期内的 COMMITTED 行必须保持未结算, 实为 " + beforeLedgerArrives);
+
+            // 模拟 EconomyLedgerBootstrap.migrateIfNeeded 在 ServerStartedEvent 把该笔证据搬进来。
+            insertBundleOperation(conn, LATE_EVIDENCE_OPENING_ID, "COMPLETED", now);
+            MiningSchema.backfillCaseEconomySettled(conn);
+            long afterRerun = economySettled(conn, LATE_EVIDENCE_OPENING_ID);
+            helper.assertTrue(afterRerun == 1L,
+                    "账本证据到位后补跑回填必须把它追平为已结算, 否则 30 天保留期后会被真实重复扣款, 实为 "
+                            + afterRerun);
+        } finally {
+            MiningDb.close(conn);
         }
         helper.succeed();
     }
@@ -301,6 +421,22 @@ public final class MiningStoreGameTests {
     private static final String LEGACY_OPENING_ID = "33333333-3333-4333-8333-333333333333";
     private static final String LEGACY_ASSET_ID = "44444444-4444-4444-8444-444444444444";
 
+    private static final String BACKFILL_OWNER_ID = "55555555-5555-4555-8555-555555555555";
+    private static final String JIA_OPENING_ID = "a0000000-0000-4000-8000-000000000001";
+    private static final String JIA_ASSET_ID = "a0000000-0000-4000-8000-000000000002";
+    private static final String YI_OPENING_ID = "a0000000-0000-4000-8000-000000000003";
+    private static final String YI_ASSET_ID = "a0000000-0000-4000-8000-000000000004";
+    private static final String BING_OPENING_ID = "a0000000-0000-4000-8000-000000000005";
+    private static final String BING_ASSET_ID = "a0000000-0000-4000-8000-000000000006";
+    private static final String DING_OPENING_ID = "a0000000-0000-4000-8000-000000000007";
+    private static final String DING_ASSET_ID = "a0000000-0000-4000-8000-000000000008";
+    private static final String WU_OPENING_ID = "a0000000-0000-4000-8000-000000000009";
+    private static final String WU_ASSET_ID = "a0000000-0000-4000-8000-00000000000a";
+    private static final String JI_OPENING_ID = "a0000000-0000-4000-8000-00000000000b";
+    private static final String JI_ASSET_ID = "a0000000-0000-4000-8000-00000000000c";
+    private static final String LATE_EVIDENCE_OPENING_ID = "a0000000-0000-4000-8000-00000000000d";
+    private static final String LATE_EVIDENCE_ASSET_ID = "a0000000-0000-4000-8000-00000000000e";
+
     /**
      * 造一个合库之前格式的市场库文件。
      * DDL 在此处独立重写而不复用 {@link MiningSchema}: 旧库格式是已经发生的历史, 必须被测试原样钉住 ——
@@ -364,6 +500,29 @@ public final class MiningStoreGameTests {
         } finally {
             MiningDb.close(legacy);
         }
+    }
+
+    /** 插入一条 V1 版 case_openings 行 (V3 的 economy_settled 列此时尚不存在, 取列 DEFAULT 0)。 */
+    private static void insertCaseOpening(Connection conn, String openingId, String assetId,
+                                           String status, long createdAt) {
+        exec(conn, "INSERT INTO case_openings "
+                + "(opening_id,owner_uuid,case_id,credit_cost,azure_cost,status,asset_id,skin_id,rarity,"
+                + "gun_id,display_id,reel_json,stop_index,created_at,updated_at) VALUES ('"
+                + openingId + "','" + BACKFILL_OWNER_ID + "','standard',500,0,'" + status + "','"
+                + assetId + "','skin.violet','LEGENDARY','tacz:ak47','violet','[]',3,"
+                + createdAt + "," + createdAt + ")");
+    }
+
+    /** 插入一条与某开箱同 operation_id 的账本行, 模拟 V3 回填要读取的幂等证据。 */
+    private static void insertBundleOperation(Connection conn, String operationId, String status, long createdAt) {
+        exec(conn, "INSERT INTO bundle_operations "
+                + "(operation_id,domain,player_id,credit_amount,azure_amount,status,created_at) VALUES ('"
+                + operationId + "','CASE_OPENING','" + BACKFILL_OWNER_ID + "',500,0,'" + status + "',"
+                + createdAt + ")");
+    }
+
+    private static long economySettled(Connection conn, String openingId) {
+        return singleLong(conn, "SELECT economy_settled FROM case_openings WHERE opening_id='" + openingId + "'");
     }
 
     private static void exec(Connection conn, String sql) {

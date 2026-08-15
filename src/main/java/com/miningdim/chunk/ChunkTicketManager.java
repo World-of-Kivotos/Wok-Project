@@ -29,6 +29,23 @@ import java.util.Set;
  * 线程契约 (D8): 全部 forceChunk 世界写操作只在服务端主线程调用 (由 ChunkSystem 的 ServerTickEvent
  * 与 EntryGateway/ResetSystem 的 server.execute 回调驱动)。本管理器自身状态 (ticket 窗口) 仅主线程读写,
  * 不需并发容器。
+ *
+ * 撤票必须带上加票时的 ticking 标志 (F031): Forge {@code ForgeChunkManager.forceChunk} 内部按
+ * ticking 参数把票分别存入两张彼此独立的表 (TicketTracker 的 chunks / tickingChunks), 撤票同样按
+ * ticking 参数选表 —— 以 ticking=true 加的票, 只能以 ticking=true 撤; 传 false 撤会打到另一张空表上,
+ * 静默返回 false (连 removeRegionTicket 都不会调), 票本身原样留在 tickingChunks 里。这些票经
+ * ForcedChunksSavedData 落盘, 开服 reinstatePersistentChunks 会把它们重新装回内存, 撤错表的泄漏因此
+ * 跨重启累积。本类所有撤票调用都必须从 {@link InstanceTickets#forced} 里取出该区块当前实际持有的
+ * ticking 标志作为撤票实参, 不能凭撤票发生的场景猜一个常量。
+ *
+ * 历史落盘票的开服清账 (F031 复核修正 #1/#3): 上面这条纪律只保证"以后不再撤错表", 但已经落盘的历史票
+ * (含撤错表 no-op 期间残留的、以及已删除的 GenerationScheduler 生成期间加的整 region 票) 没有任何 Java
+ * 侧代码能构造出对应的 owner 去撤 —— {@link #byInstance} 每次开服从空重建, {@code releaseAll}/{@code
+ * syncGeometry} 只能撤本会话记过账的票。本管理器的 ticket 窗口在设计上完全由玩家在场驱动
+ * (rebuildFromStorage 已把全部实例 playerSet 清空), 故开服瞬间不应存在任何合法持有的历史票; 唯一正确
+ * 且时序安全的清理点是 Forge 的 {@link ForgeChunkManager.LoadingValidationCallback}, 在
+ * reinstatePersistentChunks 把票重新装回内存 *之前* 拦截。回调注册在 {@code ChunkSystem} 的
+ * FMLCommonSetupEvent (modBus 可用, 本类无 modBus 引用), 实际清账逻辑见 {@link #purgeStalePersistentTickets}。
  */
 public final class ChunkTicketManager implements IChunkTicketService {
 
@@ -165,12 +182,14 @@ public final class ChunkTicketManager implements IChunkTicketService {
         if (t == null) {
             return;
         }
-        for (long key : t.forced.keySet()) {
-            int cx = ChunkPos.getX(key);
-            int cz = ChunkPos.getZ(key);
-            ForgeChunkManager.forceChunk(miningLevel, MiningConstants.MODID, t.owner, cx, cz, false, false);
+        int released = t.forced.size();
+        for (Map.Entry<Long, Boolean> e : t.forced.entrySet()) {
+            int cx = ChunkPos.getX(e.getKey());
+            int cz = ChunkPos.getZ(e.getKey());
+            boolean wasTicking = Boolean.TRUE.equals(e.getValue());
+            ForgeChunkManager.forceChunk(miningLevel, MiningConstants.MODID, t.owner, cx, cz, false, wasTicking);
         }
-        LOGGER.debug("[miningdim] released {} ticket(s) for instance {}", t.forced.size(), instanceId);
+        LOGGER.debug("[miningdim] released {} ticket(s) for instance {}", released, instanceId);
         t.forced.clear();
     }
 
@@ -198,10 +217,33 @@ public final class ChunkTicketManager implements IChunkTicketService {
             }
             int cx = ChunkPos.getX(e.getKey());
             int cz = ChunkPos.getZ(e.getKey());
-            ForgeChunkManager.forceChunk(miningLevel, MiningConstants.MODID, t.owner, cx, cz, false, false);
+            // 持有标志为 true (本 for 已用 Boolean.TRUE.equals 过滤), 撤票必须同样传 ticking=true,
+            // 否则打到非 ticking 表上是 no-op, 旧 ticking 票留存, 此方法反而变成净增票 (F031)。
+            ForgeChunkManager.forceChunk(miningLevel, MiningConstants.MODID, t.owner, cx, cz, false, true);
             ForgeChunkManager.forceChunk(miningLevel, MiningConstants.MODID, t.owner, cx, cz, true, false);
             e.setValue(Boolean.FALSE);
         }
+    }
+
+    /**
+     * 开服期一次性历史票清账 (F031 复核修正 #1/#3), 作为 {@link ForgeChunkManager.LoadingValidationCallback}
+     * 注册给 Forge (见 ChunkSystem.register 的 FMLCommonSetupEvent)。本方法本身不持有任何 {@link ChunkTicketManager}
+     * 实例状态 (静态), 只操作 Forge 传入的快照 {@code ticketHelper}, 与本类构造/{@link #byInstance} 重建的时序
+     * 无关, 不存在竞态。无条件撤销该 modId 在本次 level 加载时持有的全部 BlockPos-owner 票 (ticking 与非
+     * ticking 一并撤, {@code removeAllTickets} 内部两张表都清): 会话内窗口从空重建、由玩家在场驱动, 开服瞬间
+     * 不存在任何"仍需保留"的历史票, 全部撤销后交由 refreshWindow/ensureTicking 在玩家实际进场时按需重新申请,
+     * 不会误撤在场需求。本 mod 只以 BlockPos 作 owner (从未用 Entity/UUID 重载), 无需处理 entity 票表。
+     */
+    static void purgeStalePersistentTickets(ServerLevel level, ForgeChunkManager.TicketHelper ticketHelper) {
+        int ownerCount = ticketHelper.getBlockTickets().size();
+        if (ownerCount == 0) {
+            return;
+        }
+        for (BlockPos owner : ticketHelper.getBlockTickets().keySet()) {
+            ticketHelper.removeAllTickets(owner);
+        }
+        LOGGER.info("[miningdim] purged {} stale persistent forced-chunk ticket owner(s) on level load"
+                + " (F031 leaked-before-restart cleanup)", ownerCount);
     }
 
     @Override
@@ -226,10 +268,11 @@ public final class ChunkTicketManager implements IChunkTicketService {
         if (t.regionBox.equals(state.regionBox())) {
             return t;
         }
-        for (long key : t.forced.keySet()) {
-            int cx = ChunkPos.getX(key);
-            int cz = ChunkPos.getZ(key);
-            ForgeChunkManager.forceChunk(miningLevel, MiningConstants.MODID, t.owner, cx, cz, false, false);
+        for (Map.Entry<Long, Boolean> e : t.forced.entrySet()) {
+            int cx = ChunkPos.getX(e.getKey());
+            int cz = ChunkPos.getZ(e.getKey());
+            boolean wasTicking = Boolean.TRUE.equals(e.getValue());
+            ForgeChunkManager.forceChunk(miningLevel, MiningConstants.MODID, t.owner, cx, cz, false, wasTicking);
         }
         t.forced.clear();
         t.regionBox = state.regionBox();
@@ -246,7 +289,8 @@ public final class ChunkTicketManager implements IChunkTicketService {
         for (long key : toRemove) {
             int cx = ChunkPos.getX(key);
             int cz = ChunkPos.getZ(key);
-            ForgeChunkManager.forceChunk(miningLevel, MiningConstants.MODID, t.owner, cx, cz, false, false);
+            boolean wasTicking = Boolean.TRUE.equals(t.forced.get(key));
+            ForgeChunkManager.forceChunk(miningLevel, MiningConstants.MODID, t.owner, cx, cz, false, wasTicking);
             t.forced.remove(key);
         }
         // 2) 新增或翻转 ticking 标志。
@@ -260,8 +304,8 @@ public final class ChunkTicketManager implements IChunkTicketService {
             int cx = ChunkPos.getX(key);
             int cz = ChunkPos.getZ(key);
             if (held != null) {
-                // 同 chunk ticking 标志变更: 先撤旧再加新。
-                ForgeChunkManager.forceChunk(miningLevel, MiningConstants.MODID, t.owner, cx, cz, false, false);
+                // 同 chunk ticking 标志变更: 先按旧标志撤票, 再以新标志重加。
+                ForgeChunkManager.forceChunk(miningLevel, MiningConstants.MODID, t.owner, cx, cz, false, held);
             }
             ForgeChunkManager.forceChunk(miningLevel, MiningConstants.MODID, t.owner, cx, cz, true, wantTicking);
             t.forced.put(key, wantTicking);

@@ -92,10 +92,9 @@ public final class CaseOpeningService {
     }
 
     public List<SkinAssetRow> ownedAssets(ServerPlayer player) {
-        // A SQL asset whose SavedData debit vanished in a hard crash is quarantined until login recovery re-charges it.
-        return dao.ownedAssets(player.getUUID()).stream()
-                .filter(this::isEconomySettled)
-                .toList();
+        // 过滤已下沉到 SQL (settledOwnedAssets 联表): 原写法对每件资产各打一次账本点查, 而 case.state
+        // 的 60 条上限只截回执不截查询, 玩家资产越多查询越多。
+        return dao.settledOwnedAssets(player.getUUID());
     }
 
     /** Creates or resumes the durable opening identified by openingId. Safe to replay across reconnects/restarts. */
@@ -164,12 +163,10 @@ public final class CaseOpeningService {
                     }
                     continue;
                 }
-                boolean alreadySettled = row.status() == CaseOpeningStatus.COMMITTED
-                        && economy.state(row.ownerId(), row.openingId()) == CaseEconomyOperations.State.COMPLETED;
+                // 已结算的 COMMITTED 行现在被 SQL (recoverableOpenings) 直接排除在恢复集合之外,
+                // 进到这里的 COMMITTED 行必然未结算, 因此 resume 之后一律计入 recovered。
                 resume(player, row);
-                if (!alreadySettled) {
-                    recovered++;
-                }
+                recovered++;
             } catch (RuntimeException failure) {
                 if (firstFailure == null) {
                     firstFailure = failure;
@@ -246,7 +243,13 @@ public final class CaseOpeningService {
         }
         if (row.status() == CaseOpeningStatus.COMMITTED) {
             SkinAssetRow existing = requireAsset(row.assetId());
-            // 补扣款与推进终态同事务: 扣了钱却没推进到 COMPLETED, 这条记录下次登录还会再被补扣一次。
+            // 结算锚在开箱库自身 (economy_settled), 账本行是否已被 EconomySystem 定期回收与本次判定
+            // 无关; 无条件 charge 只适用于锚尚未落定的行。
+            if (dao.isOpeningSettled(row.openingId())) {
+                return existing;
+            }
+            // 补扣款与推进终态、落结算锚同事务: 扣了钱却没推进到 COMPLETED 或没标锚, 这条记录下次
+            // 登录还会再被补扣一次。
             return economy.inTransaction(() -> {
                 // 无条件 charge, 不以 state 短路。charge 对同域同玩家同金额的既有记录本就幂等 (返回已持久化
                 // 状态且不重复扣款), 而元组不符时会抛 OPERATION_CONFLICT。先查 state 再决定是否扣款, 等于把
@@ -258,6 +261,9 @@ public final class CaseOpeningService {
                 if (finalized != CaseEconomyOperations.State.COMPLETED) {
                     throw new IllegalStateException("开箱账本已提交但货币操作不是 COMPLETED: "
                             + row.openingId() + " -> " + finalized);
+                }
+                if (!dao.markEconomySettled(row.openingId(), System.currentTimeMillis())) {
+                    throw new IllegalStateException("无法标记开箱结算锚: " + row.openingId());
                 }
                 return existing;
             });
@@ -291,6 +297,10 @@ public final class CaseOpeningService {
                 if (finalState != CaseEconomyOperations.State.COMPLETED) {
                     throw new IllegalStateException("货币操作无法完成: " + row.openingId() + " -> " + finalState);
                 }
+                // 扣款、发资产、推进终态、落结算锚要么全成要么全滚 —— 与上面几步同一个 inTransaction。
+                if (!dao.markEconomySettled(row.openingId(), System.currentTimeMillis())) {
+                    throw new IllegalStateException("无法标记开箱结算锚: " + row.openingId());
+                }
                 return committed;
             });
         } catch (InsufficientFunds insufficient) {
@@ -322,8 +332,18 @@ public final class CaseOpeningService {
         }
         if (after != null && after.status() == CaseOpeningStatus.COMMITTED) {
             SkinAssetRow asset = requireAsset(after.assetId());
-            CaseEconomyOperations.State state = economy.complete(after.ownerId(), after.openingId());
-            if (state == CaseEconomyOperations.State.COMPLETED) {
+            // complete 与落结算锚同事务: 推进到 COMPLETED 却没标锚, 这条记录下次仍会被当作未结算重放。
+            boolean settled = economy.inTransaction(() -> {
+                CaseEconomyOperations.State state = economy.complete(after.ownerId(), after.openingId());
+                if (state != CaseEconomyOperations.State.COMPLETED) {
+                    return Boolean.FALSE;
+                }
+                if (!dao.markEconomySettled(after.openingId(), System.currentTimeMillis())) {
+                    throw new IllegalStateException("无法标记开箱结算锚: " + after.openingId());
+                }
+                return Boolean.TRUE;
+            });
+            if (settled) {
                 return asset;
             }
             throw failure;
@@ -419,7 +439,17 @@ public final class CaseOpeningService {
     /** COMMITTED: 资产已发。钱已扣就只差推进终态; 账本查无此笔则必须补扣款, 那一步要玩家在场, 留给登录。 */
     private int reconcileCommitted(CaseOpeningRow row, CaseEconomyOperations.State state) {
         if (state == CaseEconomyOperations.State.DEBITED) {
-            if (economy.complete(row.ownerId(), row.openingId()) != CaseEconomyOperations.State.COMPLETED) {
+            // complete 与落结算锚同事务: 两步都成才算处置完成, 否则走既有的隔离路径。
+            boolean settled = economy.inTransaction(() -> {
+                if (economy.complete(row.ownerId(), row.openingId()) != CaseEconomyOperations.State.COMPLETED) {
+                    return Boolean.FALSE;
+                }
+                if (!dao.markEconomySettled(row.openingId(), System.currentTimeMillis())) {
+                    throw new IllegalStateException("无法标记开箱结算锚: " + row.openingId());
+                }
+                return Boolean.TRUE;
+            });
+            if (!settled) {
                 dao.markQuarantined(row.openingId(), System.currentTimeMillis());
                 LOGGER.error("[miningdim] 已提交开箱无法推进终态, 已隔离: opening={} owner={}",
                         row.openingId(), row.ownerId());
@@ -433,7 +463,8 @@ public final class CaseOpeningService {
                     row.openingId(), row.ownerId());
             return 0;
         }
-        // COMPLETED 无需处置; NONE 需要补扣款, 由登录恢复处理 (ownedAssets 已把它挡在可用资产之外)。
+        // 未落锚而账本已 COMPLETED 的行由登录恢复的 COMMITTED 分支自愈 (charge 幂等, 不动钱), 这里不
+        // 重复处置; NONE 需要补扣款, 由登录恢复处理 (settledOwnedAssets 已把它挡在可用资产之外)。
         return 0;
     }
 
@@ -466,8 +497,14 @@ public final class CaseOpeningService {
         return asset;
     }
 
+    /**
+     * 结算凭据必须是开箱库自己的永久事实。账本的双币幂等行按设计是有限窗口内的重放凭据、
+     * 会被 {@code EconomySystem} 定期回收 (30 天窗口后 prune 掉 COMPLETED/REFUNDED 行),
+     * 拿它当归属凭据是两个模块对同一张表的生命周期假设互斥: 账本行一旦被回收, 皮肤归属就
+     * 跟着凭空消失。
+     */
     private boolean isEconomySettled(SkinAssetRow asset) {
-        return economy.state(asset.ownerId(), asset.sourceOpeningId()) == CaseEconomyOperations.State.COMPLETED;
+        return dao.isOpeningSettled(asset.sourceOpeningId());
     }
 
     private static void validateIdentity(CaseOpeningRow row, UUID ownerId, String caseId) {

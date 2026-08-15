@@ -38,7 +38,8 @@ import java.util.function.Consumer;
  * 故其内部立即 server.execute 跳回主线程再操作。
  *
  * 持久化 (12.5): 实例注册表/计数器/region 位图的权威副本在 MiningSavedData; 本类内存视图与之同步,
- * 任何结构性变更后写回并 setDirty。region 几何分配委托 RegionGrid, 离线生成委托 GenerationScheduler。
+ * 任何结构性变更后写回并 setDirty。region 几何分配委托 RegionGrid; 维度走 minecraft:noise 按需生成
+ * (F021/F032: 离线体素管线已下线), 实例登记即置 GenState.READY, 不再有独立的生成调度阶段。
  *
  * R1 固定区域模型: 开服时 (rebuildFromStorage 末) 预建恰好三个固定难度实例 (每难度一个, shared=true,
  * 常驻不 GC)。allocate(player, difficulty) 路由到对应固定实例 (不再动态新建/复用/背压); regionAt 仍返回
@@ -58,7 +59,6 @@ public final class InstanceManager implements IInstanceManager {
     private final ServerLevel miningLevel;
     private final MiningSavedData savedData;
     private final RegionGrid regionGrid;
-    private final GenerationScheduler scheduler;
 
     /** 内存实例注册表 (= savedData.instances() 的同一引用, 主线程独占)。 */
     private final Map<Long, InstanceState> instances;
@@ -93,7 +93,6 @@ public final class InstanceManager implements IInstanceManager {
         this.savedData = MiningSavedData.get(miningLevel);
         this.instances = savedData.instances();
         this.regionGrid = new RegionGrid();
-        this.scheduler = new GenerationScheduler(server, MiningServices.config().maxGenWorkers(), this::onInstanceTerminalState);
     }
 
     // ---- 启动重建与孤儿清理 (12.8) ----
@@ -150,11 +149,11 @@ public final class InstanceManager implements IInstanceManager {
 
             switch (inst.genState()) {
                 case GENERATING, RESETTING -> {
-                    // 关服时正在生成, 内存态丢失: 空实例直接回收, 否则置 PENDING 重新触发 (12.8)。
-                    LOGGER.info("[miningdim] instance {} was {} at shutdown; re-queueing generation",
-                            inst.instanceId(), inst.genState());
-                    inst.setGenState(GenState.PENDING);
-                    scheduler.submit(inst);
+                    // 离线生成已下线 (F021/F032): 维度走 minecraft:noise 按需生成, 关服时卡在
+                    // GENERATING/RESETTING 的活实例直接归一到 READY, 不再有生成阶段可重新触发。
+                    LOGGER.info("[miningdim] instance {} was {} at shutdown; offline generation retired,"
+                            + " directly settling to READY", inst.instanceId(), inst.genState());
+                    inst.setGenState(GenState.READY);
                     rebuildPrivateIndex(inst);
                 }
                 case FAILED -> {
@@ -163,9 +162,9 @@ public final class InstanceManager implements IInstanceManager {
                 }
                 case RECYCLED -> orphansToDestroy.add(inst.instanceId());
                 default -> {
-                    // PENDING: 重新提交生成; READY/READY_FALLBACK: 体素需重算, 重新提交以重建缓存。
-                    inst.setGenState(GenState.PENDING);
-                    scheduler.submit(inst);
+                    // PENDING/READY/READY_FALLBACK: 离线生成已下线, 一律归一到 READY (noise 维度按需生成,
+                    // 无需重建体素缓存)。
+                    inst.setGenState(GenState.READY);
                     rebuildPrivateIndex(inst);
                 }
             }
@@ -280,11 +279,10 @@ public final class InstanceManager implements IInstanceManager {
         long seed = SeedUtil.deriveSeed(savedData.globalSeed(), instanceId, 0);
 
         InstanceState inst = new InstanceState(instanceId, seed, difficulty, box,
-                null, true, server.getTickCount(), GenState.PENDING);
+                null, true, server.getTickCount(), GenState.READY);
         instances.put(instanceId, inst);
         savedData.setDirty();
 
-        scheduler.submit(inst);
         LOGGER.info("[miningdim] created fixed instance {} (difficulty={}, region origin={},{})",
                 instanceId, difficulty, box.originX(), box.originZ());
         return inst;
@@ -392,7 +390,7 @@ public final class InstanceManager implements IInstanceManager {
         RegionBox box = regionGrid.claimNextFreeRegion();
 
         InstanceState inst = new InstanceState(instanceId, seed, difficulty, box,
-                ownerKey, shared, server.getTickCount(), GenState.PENDING);
+                ownerKey, shared, server.getTickCount(), GenState.READY);
         instances.put(instanceId, inst);
         if (!shared && ownerKey != null) {
             privateIndex.put(new OwnerDifficultyKey(ownerKey, difficulty), instanceId);
@@ -400,7 +398,6 @@ public final class InstanceManager implements IInstanceManager {
         persistRegionBitmap();
         savedData.setDirty();
 
-        scheduler.submit(inst);
         LOGGER.info("[miningdim] created instance {} (difficulty={}, shared={}, region origin={},{})",
                 instanceId, difficulty, shared, box.originX(), box.originZ());
         return inst;
@@ -452,9 +449,14 @@ public final class InstanceManager implements IInstanceManager {
         }
     }
 
-    // ---- 生成终态回调 (GenerationScheduler -> 此处, 主线程) ----
+    // ---- 生成终态回调 (主线程) ----
 
-    /** 实例进入 READY/READY_FALLBACK/FAILED 时兑现/异常完成挂起的 allocate future (7.9.4)。 */
+    /**
+     * 实例进入 READY/READY_FALLBACK/FAILED 时兑现/异常完成挂起的 allocate future (7.9.4)。
+     * 由 {@link #slideRegion} 在置 READY 后直接调用 (复核修正 finding #2/#4: 删除 GenerationScheduler 时
+     * 一并删掉了其对本方法的注入回调, 导致 RESETTING 窗口内 attachAllocationFuture 落入 pendingAllocations
+     * 的 future 再无兑现路径, 玩家静默永久挂起)。
+     */
     private void onInstanceTerminalState(InstanceState inst) {
         List<CompletableFuture<InstanceState>> waiters = pendingAllocations.remove(inst.instanceId());
         if (waiters == null) {
@@ -518,9 +520,12 @@ public final class InstanceManager implements IInstanceManager {
 
     /**
      * 把实例整块搬到一块从未生成过的新坐标 (F003/D3)。主线程, 由 ResetJob 的 REGEN 阶段调用。
-     * 顺序铁律: release 必须在 relocate 之前 —— scheduler.release 按实例当前 (旧) regionBox 撤销强加载票,
-     * relocate 之后再调就会用新坐标去撤旧票, 旧票永久泄漏; RegionLayout.set 必须在 submit 之前 —— 否则
-     * 生成通路强加载新区块时 MiningBiomeSource 仍按旧快照判归属, 把新区判成 mining_wall 基岩墙。
+     * 区块票的释放责任不在本类: 调用方 ResetJob.doUnload 已在滑动前调
+     * ChunkServices.ticketService().releaseAll(instanceId) 撤销旧几何下的强加载票; 即便有遗漏,
+     * ChunkTicketManager.syncGeometry 在下次同步几何时也会按旧 owner 快照兜底撤票 (旧 owner/旧 regionBox
+     * 下发出的 ticket 只能由旧 owner 撤销, 该逻辑已在几何切换前完成, 见 ChunkTicketManager 类注释)。
+     * RegionLayout.set 仍须在 relocate 之后尽快调用: 否则新区块生成/查询期间 MiningBiomeSource 仍按旧
+     * 快照判归属, 把新区判成 mining_wall 基岩墙。
      */
     @Override
     public RegionBox slideRegion(long instanceId, long newSeed) {
@@ -528,8 +533,6 @@ public final class InstanceManager implements IInstanceManager {
         if (inst == null) {
             throw new IllegalStateException("cannot slide unknown instance " + instanceId);
         }
-
-        scheduler.release(inst);
 
         int newOriginX = savedData.allocateRegionOriginX(regionGrid.sizeX(), MiningConstants.SLIDE_SEPARATION_BLOCKS);
         RegionBox newBox = regionGrid.regionAtOrigin(newOriginX, MiningConstants.REGION_ORIGIN_Z);
@@ -544,8 +547,11 @@ public final class InstanceManager implements IInstanceManager {
         RegionLayout.set(RegionLayout.current().with(inst.difficulty(), newBox));
         savedData.setDirty();
 
-        inst.setGenState(GenState.PENDING);
-        scheduler.submit(inst);
+        inst.setGenState(GenState.READY);
+        // ResetSystem.reset() 在建 ResetJob 前已同步把 genState 置 RESETTING (非 isEnterable), 期间任何
+        // allocate 都会落入 attachAllocationFuture 的 else 分支挂进 pendingAllocations; 上面这行是该窗口
+        // 内 genState 唯一的终态迁移点, 必须原地兑现, 否则挂起的 future 再无任何回调路径 (复核修正 #2/#4)。
+        onInstanceTerminalState(inst);
 
         LOGGER.info("[miningdim] instance {} (difficulty={}) slid region ({},{}) -> ({},{}), newSeed={}",
                 instanceId, inst.difficulty(), oldBox.originX(), oldBox.originZ(),
@@ -592,8 +598,8 @@ public final class InstanceManager implements IInstanceManager {
             if (!isFixedInstance(instanceId)) {
                 inst.setLastEmptyTick(server.getTickCount());
             }
-            scheduler.release(inst);                     // 取消强加载票, 允许区块卸载 (12.7)
-            // 不立即销毁: 进入 emptyTtl 宽限期 (12.6), 由 gcScan 到期处理。
+            // 不立即销毁: 进入 emptyTtl 宽限期 (12.6), 由 gcScan 到期处理。区块票生命周期完全交给
+            // chunk 子系统的滑动窗口 + 空置 TTL, 本类不再自己撤票。
         }
         pollQueue();                                     // 腾出名额, 唤醒排队 (12.3)
     }
@@ -653,7 +659,6 @@ public final class InstanceManager implements IInstanceManager {
             return;
         }
         inst.setGenState(GenState.RECYCLED);
-        scheduler.release(inst);
 
         // 固定/滑动实例从未 markOccupied (见 RegionGrid 类注释 "滑动 region" 段), free 对它们本就是
         // 无操作; 而它们的滑动坐标原点不保证对齐当前网格 stride, 无条件 free 会在孤儿清理路径上直接
@@ -678,21 +683,10 @@ public final class InstanceManager implements IInstanceManager {
         LOGGER.info("[miningdim] destroyed instance {} (region freed, id not reused)", instanceId);
     }
 
-    // ---- tick 驱动入口 (InstanceSystem 调用) ----
+    // ---- 服务端生命周期 (InstanceSystem 调用) ----
 
-    /** 维度 tick 末: 分帧消费区块强加载队列 (7.9)。 */
-    public void tickGeneration() {
-        scheduler.tickChunkLoads();
-    }
-
-    /** 取调度器 (worldgen 子系统阶段2 经此查 voxelsOf 落方块的接线点; 不暴露给业务侧)。 */
-    public GenerationScheduler scheduler() {
-        return scheduler;
-    }
-
-    /** 服务端停止: 关闭线程池, 落盘最终态 (ServerStoppingEvent)。 */
+    /** 服务端停止: 落盘最终态 (ServerStoppingEvent)。离线生成线程池已随 GenerationScheduler 下线 (F090)。 */
     public void shutdown() {
-        scheduler.shutdown();
         savedData.setDirty();
     }
 

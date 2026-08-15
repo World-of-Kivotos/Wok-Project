@@ -22,9 +22,7 @@ import java.util.List;
  * register 期 (mod 构造) 就要取用另一子系统的服务, 被依赖者须排在前面。本工程多数子系统把服务取用
  * 推迟到事件回调 (服务端启动后), 故对顺序不敏感; 仅以下硬约束必须满足:
  *   1. ConfigSystem 最先: 它在 mod 构造期 registerConfig 并注入 IMiningConfig; InstanceManager 构建期读 config。
- *   2. WorldgenSystem 早于 InstanceSystem: instance 调度器在分配时取 offlineGenerator(), 且 instance 在
- *      ServerStartedEvent 把 worldgen 的体素查表 seam (MiningVoxelLookup) 接上离线调度器。
- *   3. NetworkSystem 早于消费 network() 的子系统的服务端启动逻辑 (构造期注入即满足)。
+ *   2. NetworkSystem 早于消费 network() 的子系统的服务端启动逻辑 (构造期注入即满足)。
  *
  * 跨子系统冲突的集成裁决 (阶段2, 见 README "已知架构裁决"):
  *   - 玩家 Capability 与入场/离开/登录恢复路径以 entry 子系统为唯一权威 (EntrySystem + MiningCapabilities):
@@ -76,13 +74,13 @@ public final class MiningDim {
         subsystems.add(new com.miningdim.config.ConfigSystem());
         // 2. 网络门面 (构造期注入, 供命令/进入流程在运行期下发包)。
         subsystems.add(new com.miningdim.network.NetworkSystem());
-        // 3. 世界生成: 注入 IOfflineGenerator + 注册两个 Codec, 须早于 InstanceSystem。
+        // 3. 世界生成: 仅注册 BiomeSource codec (维度走 minecraft:noise, 自定义 ChunkGenerator 已下线)。
         subsystems.add(new com.miningdim.worldgen.WorldgenSystem());
         // 4. 实例后端: InstanceManager / SavedData / 区块强加载调度 / GC (玩家 Capability 归 entry, 见类注释)。
         subsystems.add(new com.miningdim.instance.InstanceSystem());
         // 5. 区块强加载窗口维护 (依赖 instanceManager()/config(), 运行期取用)。
         subsystems.add(new com.miningdim.chunk.ChunkSystem());
-        // 6. 重置服务门面 (依赖 entry 的玩家回退态; 运行期取用 instanceManager/offlineGenerator)。
+        // 6. 重置服务门面 (依赖 entry 的玩家回退态; 运行期取用 instanceManager)。
         subsystems.add(new com.miningdim.reset.ResetSystem());
         // 7. 安全出生服务门面 (实现 ISpawnService, 进入流程在运行期调用)。
         subsystems.add(new com.miningdim.spawn.SpawnSystem());

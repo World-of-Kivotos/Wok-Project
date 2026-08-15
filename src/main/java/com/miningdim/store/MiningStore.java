@@ -32,6 +32,11 @@ public final class MiningStore {
             MiningSchema.apply(conn);
             LegacyStoreImport.importLegacyDatabases(conn,
                     server.getWorldPath(LevelResource.ROOT), System.currentTimeMillis());
+            // V3 的结算回填只在 apply() 那一刻跑一次, 看不到刚导入的旧库 COMMITTED 行 (其付款证据只在
+            // 已删除的旧版 SavedData 里, bundle_operations 永远查无此笔); 不补跑这一次, 这些行会被永久
+            // 当成硬崩溃孤儿, 30 天保留期后遭真实重复扣款 (见 MiningSchema.backfillCaseEconomySettled 的
+            // javadoc)。
+            MiningSchema.backfillCaseEconomySettled(conn);
         } catch (RuntimeException failure) {
             MiningDb.close(conn);
             throw failure;

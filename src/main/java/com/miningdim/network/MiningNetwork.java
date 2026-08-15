@@ -25,8 +25,13 @@ import java.util.Optional;
  */
 public final class MiningNetwork implements IMiningNetwork {
 
-    /** 协议版本; 客户端/服务端不一致时握手拒绝 (N5)。 */
-    private static final String PROTOCOL_VERSION = "1";
+    /**
+     * 协议版本; 客户端/服务端不一致时握手拒绝 (N5)。discriminator 按 {@link #register()} 内注册顺序自增分配;
+     * 1 -> 2 因删除特勤原生扫描面板的 AgentScanSyncS2C/AgentSealRequestC2S 两包 (F065, 整条原生面板下线),
+     * 其后的 ChampionSizeS2C discriminator 随之从 10 变为 8。若新旧版本混用而协议版本不变, 握手会通过但包体
+     * 被错位解码 (静默数据损坏); 提版本让不匹配的客户端在握手期直接被拒, 而非放行后崩在解码阶段。
+     */
+    private static final String PROTOCOL_VERSION = "2";
 
     /** danger 视觉档阈值 (相对 dangerMax 的占比): >=0.66 高危, >=0.33 警戒, 否则安全。便捷重载用。 */
     private static final float TIER_HIGH_RATIO = 0.66f;
@@ -77,20 +82,6 @@ public final class MiningNetwork implements IMiningNetwork {
         CHANNEL.registerMessage(nextId(), S2CWebUiEvent.class,
                 S2CWebUiEvent::encode, S2CWebUiEvent::decode, S2CWebUiEvent::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
-        // 特勤战术扫描面板 (SpecialAgent spec 五章: 复用本 CHANNEL, discriminator 集中自增登记)。追加在既有包之后,
-        // 两端同序, 不改动既有 id 分配。S2C 扫描快照下发 + C2S 封印申请回点两包。
-        CHANNEL.registerMessage(nextId(),
-                com.miningdim.job.agent.network.AgentScanSyncS2C.class,
-                com.miningdim.job.agent.network.AgentScanSyncS2C::encode,
-                com.miningdim.job.agent.network.AgentScanSyncS2C::decode,
-                com.miningdim.job.agent.network.AgentScanSyncS2C::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
-        CHANNEL.registerMessage(nextId(),
-                com.miningdim.job.agent.network.AgentSealRequestC2S.class,
-                com.miningdim.job.agent.network.AgentSealRequestC2S::encode,
-                com.miningdim.job.agent.network.AgentSealRequestC2S::decode,
-                com.miningdim.job.agent.network.AgentSealRequestC2S::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER));
         // 精英怪体型系数同步 (ChampionStarAffix spec 9A.3 #17 体型渲染: 复用本 CHANNEL, discriminator 集中自增登记)。
         // 追加在既有包之后, 两端同序, 不改动既有 id 分配。冠军 capability 客户端不同步, 靠本 S2C 广播尺寸系数。
         CHANNEL.registerMessage(nextId(),
@@ -106,18 +97,6 @@ public final class MiningNetwork implements IMiningNetwork {
      * 无需经 IMiningNetwork core 门面 (该门面为阶段0 定稿, 不含职业方法; 职业包直接用 CHANNEL 是第七章纪律)。
      */
     public static void sendJobSync(ServerPlayer player, JobSyncS2C msg) {
-        if (!canReceive(player)) {
-            return;
-        }
-        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), msg);
-    }
-
-    /**
-     * 下发特勤战术扫描快照到指定玩家 (SpecialAgent spec 五章: 扫描脉冲产出 / 面板打开 / 封印后刷新时调用)。
-     * 静态便捷入口 (镜像 {@link #sendJobSync}): 特勤子系统经此发包, 不经 IMiningNetwork core 门面 (该门面阶段0 定稿,
-     * 不含职业方法; 职业包直接用 CHANNEL 是第七章纪律)。镜像 canReceive 守卫。
-     */
-    public static void sendAgentScan(ServerPlayer player, com.miningdim.job.agent.network.AgentScanSyncS2C msg) {
         if (!canReceive(player)) {
             return;
         }

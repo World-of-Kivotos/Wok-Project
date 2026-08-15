@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
+import com.miningdim.champion.MiningChampions;
 import com.miningdim.job.agent.panel.AgentScanEntry;
 import com.miningdim.job.agent.panel.AgentScanSnapshot;
 import com.miningdim.webui.server.WebUiBusinessException;
@@ -33,9 +34,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * 封印走 {@link AgentSealSeam#requestSealResult} (集成层聚合 SealPlan 三门 + SealRegistry 占槽 + 真改)。
  * 本层只负责: 入参校验 -> 脉冲 CD / 半径两道防 X 光门 -> 快照留存 -> JSON 化。
  *
- * 触发入口 (决策 J9): 本类是探测脉冲的<b>第一个</b>真实调用点 —— 在此之前
- * {@code AgentSealSeam.buildScanSnapshot} 与 {@code AgentScanMenu.Provider} 全工程零调用点。键位入口是客户端
- * 改动, 不在本类职责内; 服务端这条路自此可被调用且自洽。
+ * 触发入口 (决策 J9): {@code AgentScanMenu} 那条原生面板路径已在本 PR 整条删除 (统一 UI 入口走平板 hub, 不为
+ * 特勤单开 ad-hoc 原生入口) —— 扫描与封印的唯一入口是本类的三条 WebUI action ({@code job.agent.scan} /
+ * {@code job.agent.seal} / {@code job.agent.state})。
  *
  * 脉冲记录 ({@link ScanPulse}) 一份数据同时承载三件事, 刻意共用同一个 {@code pulseTick}:
  *  1. 脉冲 CD (五章: 主动脉冲带长 CD 60s-&gt;30s 防全图刷新) —— 记录还在, 就还在冷却;
@@ -228,9 +229,16 @@ public final class AgentWebUiActions {
             return GSON.toJson(result);
         }
 
+        // predicate 里直接下判 MiningChampions.isChampion: F024 修完后精英探测已是自研 capability
+        // (MiningChampionData, 注册中心 champion/MiningChampions.java), 不再有 compileOnly 隔离约束, 本层可以
+        // 直接调用而不用绕道集成层。这道判据只做廉价预筛 —— 收窄 getEntitiesOfClass 的候选表, 换来后面排序 /
+        // 遍历规模的坍缩 (L9 半径 448 格外接盒里通常只有 0-3 只盖章精英, 而不是刷怪塔/农场里成百的普通生物);
+        // 快照构建 / 分级解密 / 是否可封仍全部在 AgentSealSeam.buildScanSnapshot 背后裁决, 本层不做任何精英
+        // 语义之外的判断。
         List<LivingEntity> candidates = level.getEntitiesOfClass(LivingEntity.class,
                 sender.getBoundingBox().inflate(radius),
-                candidate -> candidate != sender && candidate.isAlive());
+                candidate -> candidate != sender && candidate.isAlive()
+                        && MiningChampions.isChampion(candidate));
         candidates.sort(Comparator.comparingDouble((LivingEntity candidate) -> sender.distanceToSqr(candidate)));
 
         double radiusSqr = (double) radius * (double) radius;
@@ -271,6 +279,9 @@ public final class AgentWebUiActions {
         // 且一经置位永久保留; 它原本的唯一置位点是"封印成功"(经 SealPlan 要求被动 L3+)。扫描对全员开放且
         // 职业等级默认 1 级, 在此置位等于把入职门槛降成"站在精英旁边点一次按钮", 特勤专属福利就漏给了
         // 全服每一个打精英的人 —— 那正是 AgentBountySavedData 立这个标志要防的事。入职仍只认封印成功。
+        // 现状 (同 PR): 击杀精英的干员经验已不再受入职标志门约束 (AgentRewardHandler 那道门已解开), 所以
+        // 新号能靠打精英把等级刷到 L3 再去封印 —— 入职门不再是让人进不来的死锁, 只是一道"要封印才给福利"
+        // 的资格线。
         result.addProperty("scanOnline", true);
         result.addProperty("truncated", truncated);
         result.addProperty("scanCooldownRemainingTicks", (long) cooldownTicks);
@@ -497,9 +508,12 @@ public final class AgentWebUiActions {
     /**
      * 一条词条。
      *
-     * 未解密条目连 affixId 与 category 都不下发: 快照 record 里它们是真值 (S2C 面板靠 {@code decrypted} 自律
-     * 不显示), 但"客户端自律"在浏览器里不成立 —— 把 {@code champions:xxx} 发进 CEF, 等于在开发者工具里明码
-     * 给出词条身份, 整条分级解密就白做了。空串同样不行 (那是一个可以被当成 id 的值), 发 JSON null。
+     * 未解密条目连 affixId 与 category 都不下发: 快照 record 里它们已在构建层脱敏为空串 (双保险的第一层,
+     * 见 {@link com.miningdim.job.agent.panel.AgentScanSnapshotBuilder}), 本层再按 {@code decrypted} 发
+     * JSON null 是第二层、更严格的脱敏 —— 未解密条目哪怕真名已在上游变成空串, 这里也不把那个空串当真值
+     * 下发, 而是整键置 null。affixId 的线上格式是 {@code AffixDef} 枚举名 (如 {@code BURNING}), 不是
+     * {@code namespace:path} 注册名; 把它明码发进 CEF, 等于在开发者工具里给出词条身份, 整条分级解密就白做
+     * 了。空串同样不行 (那是一个可以被当成 id 的值), 发 JSON null。
      */
     private static JsonObject entryJson(AgentScanEntry entry) {
         JsonObject json = new JsonObject();

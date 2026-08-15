@@ -1,5 +1,7 @@
 package com.miningdim.job.agent.integration;
 
+import com.miningdim.champion.MiningChampionData;
+import com.miningdim.champion.MiningChampions;
 import com.miningdim.champion.reward.ChampionReward;
 import com.miningdim.champion.reward.ContributionPool;
 import com.miningdim.champion.reward.ContributionTracker;
@@ -20,7 +22,8 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
-import top.theillusivec4.champions.api.IChampion;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -47,14 +50,24 @@ import java.util.UUID;
  *      本任务交付 qualifiedKill 口径 + 周青辉石软上限门控持久层 {@link AgentBountySavedData}, 具体悬赏实例推进留
  *      deferred (见交付报告)。
  *
- * compileOnly 隔离: 本类 import top.theillusivec4.champions.* —— 仅 ModList 守卫下经 {@link AgentIntegrationBootstrap}
- * 挂 forgeBus。dev 不加载, 真死亡结算须正式服验。
+ * 探测源已改自研 {@link MiningChampions#get}, 不再触任何 top.theillusivec4.champions.*, 由 {@link AgentIntegrationBootstrap}
+ * 挂 forgeBus。
+ *
+ * 【醒目约束】本 handler 现在是"装不装 champions 都生效"的全服精英死亡权威结算点 (探测源已自研, 不再依赖 Champions
+ * 加载与否)。今后 {@code ChampionRewardHandler} 新增任何前置判据 (如未来新增的经济闸/资格门) 都必须同步抄到这里,
+ * 否则会在 HIGHEST 抢先 drain 后与原结算分叉 (本类 F112 修复即因漏抄 isSummonedByAffix 判据而踩过一次)。根治办法
+ * 是给 {@link ContributionTracker} 加非破坏性 peek 并把特勤侧改成原结算之后的加成钩子, 但那要改 champion 包,
+ * 留待与 B09 (champion 包维护分支) 协调。
  */
 public final class AgentRewardHandler {
 
+    /** 诊断日志: 本 handler 挂 HIGHEST 抢先 drain, 会使 ChampionRewardHandler.onChampionDeath 的同名诊断行空转
+     * (hasLedger 恒 false 直接 no-op), 故照抄同样字段在本类打一行保住真服首验现场。 */
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/agent/reward");
+
     /**
      * 精英死亡结算 (HIGHEST: 抢在 ChampionRewardHandler 默认优先级 drain 前接管): 贡献池瓜分主结算 + 特勤加强奖励
-     * 叠加。非本工程精英 / 无贡献 / 无合格者 跳过 (整池不发)。
+     * 叠加。非本工程精英 / 支援召唤物 / 无贡献 / 无合格者 跳过 (整池不发)。
      */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onChampionDeath(LivingDeathEvent event) {
@@ -64,9 +77,15 @@ public final class AgentRewardHandler {
             return; // 无人造成有效伤害 (或非本工程精英): 无可结算。
         }
 
-        IChampion champion = AgentChampionData.championOf(victim);
-        if (champion == null || !AgentChampionData.isOurChampion(champion)) {
+        MiningChampionData champ = MiningChampions.get(victim).orElse(null);
+        if (champ == null || !champ.isChampion()) {
             ContributionTracker.discard(championId); // 防泄漏。
+            return;
+        }
+        // F112 判据对齐: 与 ChampionRewardHandler.java (spec 红线 8-a "整池不发") 逐条对齐。本 handler 挂 HIGHEST
+        // 抢先 drain, 一旦少一条判据就与原结算分叉 —— 支援召唤物打钱会变成可反复召唤的战斗印钞口。
+        if (champ.isSummonedByAffix()) {
+            ContributionTracker.discard(championId);
             return;
         }
         if (!(victim.level() instanceof ServerLevel serverLevel)) {
@@ -75,8 +94,8 @@ public final class AgentRewardHandler {
         }
         MinecraftServer server = serverLevel.getServer();
 
-        int star = AgentChampionData.starOf(champion);
-        double bossEffectiveHp = AgentChampionData.effectiveHpOf(champion);
+        int star = champ.star();
+        double bossEffectiveHp = champ.effectiveHp();
         if (star < 1 || bossEffectiveHp <= 0.0D) {
             ContributionTracker.discard(championId);
             return; // 盖章数据缺失: 不发, 丢账本防脏发。
@@ -88,6 +107,12 @@ public final class AgentRewardHandler {
 
         long fixedPoolRaw = ChampionReward.creditPoolRaw(star);
         Map<UUID, Long> payout = ContributionPool.distribute(contributions, bossEffectiveHp, fixedPoolRaw);
+
+        // 诊断 (真服首验): 照抄 ChampionRewardHandler 同名诊断行字段, 见类注释 (本 handler 抢先 drain 使其空转)。
+        LOGGER.info("champion-death {} star{} effHp={} pool={} contributors={} payout={}",
+                victim.getType().getDescriptionId(), star, bossEffectiveHp, fixedPoolRaw,
+                contributions.size(), payout.values());
+
         if (payout.isEmpty()) {
             return; // 无合格者: 整池不发 (防蹭枪/按人头复制)。
         }
@@ -120,21 +145,23 @@ public final class AgentRewardHandler {
         }
 
         // (B) 特勤专属叠加 (仅合格者; 池外个人 faucet)。合格者集合即对该精英造成有效伤害的玩家 (qualifiedKill 口径):
-        // 封印不计贡献 -> 封了没打的怪不在合格集 -> 自然不享。两笔特勤福利:
-        //  - 加强奖励 (7.1): 按初始星级×等级倍率额外信用点, 并入信用点衰减主闸 (不产青辉石);
-        //  - 经验 faucet (8.1): 按 星级×60×贡献占比 给原始经验, 走经验软上限 (与信用点同口径反推占比, 不碰信用点闸)。
-        // fixedPoolRaw (= 该星固定信用点总池) 即占比反推分母 (payout = pool × 占比), 传给经验入账复用同一口径。
+        // 封印不计贡献 -> 封了没打的怪不在合格集 -> 自然不享。
+        // F016 服务端一半修法 (双重死锁): 经验入账原本被下方 isActiveAgent 门与加强信用点共用一道门, 而经验是唯一
+        // 能让玩家升到 L3、进而封印、进而拿到入职标志的通路, 形成"没入职->没经验->升不了级->封不了->进不了职"死锁。
+        // 拆开两道口: 经验对全体合格击杀者无条件照发 (与 MinerSystem.java:273 挖矿即给经验、FarmerSystem.java:188
+        // 收菜即给经验同口径, 也正是设计文档 8.1 把"击杀精英"列为 XP 来源的原意); 加强信用点与伤害放大这两笔真福利
+        // 继续只给做过特勤活计的人 (isActiveAgent)。经验不算福利泄漏: 它只是职业曲线, 不产货币, 且走职业框架经验
+        // 软上限, 与"泄漏信用点/伤害放大"性质不同。
+        // fixedPoolRaw (= 该星固定信用点总池) 是占比反推分母 (payout = pool × 占比), 传给经验入账复用同一口径。
         for (Map.Entry<UUID, Long> entry : payout.entrySet()) {
             ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
             if (player == null) {
                 continue;
             }
-            // 入职标志门只查一次 SavedData: 两笔特勤福利同一资格门 (做过特勤工作才享)。
-            if (!AgentBountySavedData.get(player.server.overworld()).isActiveAgent(player.getUUID())) {
-                continue;
-            }
-            grantAgentKillBonus(player, star);
             grantAgentKillXp(player, star, entry.getValue(), fixedPoolRaw);
+            if (AgentBountySavedData.get(player.server.overworld()).isActiveAgent(player.getUUID())) {
+                grantAgentKillBonus(player, star);
+            }
         }
     }
 
@@ -142,10 +169,11 @@ public final class AgentRewardHandler {
      * 给一名合格的特勤玩家发加强奖励 (7.1): 按精英初始星级 × 该玩家干员等级倍率得额外信用点 raw, 经 grantDaily
      * 并入【同一】credit_faucet 主闸。
      *
-     * 入职标志门 (修复福利泄漏 Major): 加强奖励是【特勤专属】额外奖励 (原有贡献池奖励已对所有合格击杀者照发, 见
-     * (A) 主结算), 仅对【做过特勤工作】的玩家叠发。严禁用 AGENT 等级作门 —— 框架 IJobService.level 对任何玩家
-     * (含从未玩过特勤者) 恒返 1 级默认, 用等级判会把额外奖励泄漏给全服每个打死精英的玩家。isActiveAgent 入职标志门
-     * 已在调用方 (B) 循环统一前置 (两笔特勤福利同一资格门, 只查一次 SavedData), 本法不重复门控。
+     * 入职标志门 (修复福利泄漏 Major, F016 之后仍保留): 加强奖励是【特勤专属】额外货币奖励 (原有贡献池奖励已对
+     * 所有合格击杀者照发, 见 (A) 主结算), 仅对【做过特勤工作】的玩家叠发。严禁用 AGENT 等级作门 —— 框架
+     * IJobService.level 对任何玩家 (含从未玩过特勤者) 恒返 1 级默认, 用等级判会把额外货币奖励泄漏给全服每个打死
+     * 精英的玩家。isActiveAgent 门已在调用方 (B) 循环前置 (只对加强奖励这一笔货币福利生效; F016 之后经验 faucet
+     * 已拆到无条件照发, 不再共用此门), 本法不重复门控。
      *
      * 设计哲学符合: 加强奖励是 PVE 经济 faucet, 走主闸衰减不破每日天花板; 只 CREDIT 不含青辉石 (青辉石仅周常悬赏出)。
      */
@@ -169,9 +197,13 @@ public final class AgentRewardHandler {
      * payoutRaw / creditPoolRaw (与 (A) 主结算瓜分同一口径; 末名 round 余数吸收使其占比含整池兜底, 量级误差 &lt; 1
      * 信用点, 对经验影响可忽略)。占比夹 [0,1] 防末名兜底浮点越界。
      *
-     * 入职标志门已在调用方 (B) 循环统一前置, 本法不重复门控。
+     * F016 服务端一半修法: 本法【不】查入职标志门, 对全体合格击杀者 (对该精英造成有效伤害者) 无条件照发 —— 经验
+     * 是唯一能让玩家升到 L3 (SEAL_UNLOCK_LEVEL)、进而封印、进而拿到入职标志的通路, 若继续共用 isActiveAgent 门
+     * 会形成"没入职->没经验->升不了级->封不了->进不了职"的死锁。经验不算福利泄漏: 它只是职业曲线产出, 不产货币,
+     * 且走职业框架经验软上限约束, 与"泄漏信用点/伤害放大"两笔真货币/战力福利性质不同 (与 MinerSystem.java:273
+     * 挖矿即给经验、FarmerSystem.java:188 收菜即给经验同口径)。
      *
-     * @param player        合格的特勤玩家
+     * @param player        合格的击杀者 (不要求入职标志)
      * @param star          精英初始星级 (1-10)
      * @param payoutRaw     该玩家本次信用点瓜分所得 raw (占比反推分子)
      * @param creditPoolRaw 该星固定信用点总池 raw (占比反推分母; &gt;0)

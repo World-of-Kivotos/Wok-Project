@@ -55,7 +55,12 @@ public final class GunsmithTaczStatsHandler {
             return;
         }
         ItemStack gun = event.getGunItem();
-        GunsmithGunStats stats = GunsmithGunStats.from(gun);
+        // 复核 (major, F011 同根因): AttachmentPropertyEvent 在客户端拔枪/切枪/换配件时就会触发 (无外层
+        // Controller 兜底, 与 tooltip 同一崩客户端风险), 故同 MunitionsSystem.onItemTooltip 改走 tryFrom ——
+        // stats==null 时下面已经是"跳过本次乘算, 维持 TACZ 委托算出的原始缓存值"这条早就写好的安全退路,
+        // 并非把半解析的脏数据当真去乘伤害, 与 GunsmithGunStats#tryFrom 文档强调的"装配/冲压等写入路径不能降级"
+        // 不冲突: 那里怕的是把读错的系数落进新枪或伤害缓存, 这里读错时直接不落, 缓存维持未加成的原值。
+        GunsmithGunStats stats = GunsmithGunStats.tryFrom(gun);
         if (stats == null) {
             return;
         }
@@ -177,7 +182,9 @@ public final class GunsmithTaczStatsHandler {
             if (!MunitionsConfig.GUNSMITH_ENABLED.get()) {
                 return new RecoilMultipliers(1.0D, 1.0D);
             }
-            GunsmithGunStats stats = GunsmithGunStats.from(gun);
+            // 复核 (major, 同 onAttachmentProperty): 同一事件族的第二个入口, 同理改 tryFrom —— 读不出来时
+            // 已有的 1.0/1.0 恒等乘数分支就是安全退路。
+            GunsmithGunStats stats = GunsmithGunStats.tryFrom(gun);
             if (stats == null) {
                 return new RecoilMultipliers(1.0D, 1.0D);
             }

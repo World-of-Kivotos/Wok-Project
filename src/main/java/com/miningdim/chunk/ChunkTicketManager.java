@@ -41,9 +41,10 @@ public final class ChunkTicketManager implements IChunkTicketService {
     private static final class InstanceTickets {
 
         final long instanceId;
-        final RegionBox regionBox;
+        /** regionBox/owner 随实例滑动重建时改写 (D3), 故非 final —— 见 {@link #syncGeometry}。 */
+        RegionBox regionBox;
         /** owner = region 原点 BlockPos, 每实例唯一且稳定 (区块对齐区域不与他实例重叠, D1)。 */
-        final BlockPos owner;
+        BlockPos owner;
         /** 当前持有的强加载区块 -> 是否 ticking。 */
         final Map<Long, Boolean> forced = new HashMap<>();
 
@@ -76,7 +77,7 @@ public final class ChunkTicketManager implements IChunkTicketService {
      */
     @Override
     public void refreshWindow(InstanceState state, Iterable<ServerPlayer> presentPlayers) {
-        InstanceTickets t = byInstance.computeIfAbsent(state.instanceId(), k -> new InstanceTickets(state));
+        InstanceTickets t = syncGeometry(state);
 
         int activeRadius = MiningServices.config().loadRadiusChunks();
         // tick 半径取 load 半径的内圈: 刷怪/坍塌作用半径必须落在 ticking 区块内 (19.1 DECIDED),
@@ -117,7 +118,7 @@ public final class ChunkTicketManager implements IChunkTicketService {
      */
     @Override
     public void ensureTicking(InstanceState state, Set<Long> chunks) {
-        InstanceTickets t = byInstance.computeIfAbsent(state.instanceId(), k -> new InstanceTickets(state));
+        InstanceTickets t = syncGeometry(state);
         for (long key : chunks) {
             int cx = ChunkPos.getX(key);
             int cz = ChunkPos.getZ(key);
@@ -214,6 +215,28 @@ public final class ChunkTicketManager implements IChunkTicketService {
     }
 
     // ---- 内部 ----
+
+    /**
+     * 取/建实例的 ticket 窗口记录, 并在几何 (regionBox) 随重置滑动改变时重建 (D3)。
+     * 旧 owner/旧 regionBox 快照下发出的 ticket 只能由旧 owner 撤销, 几何切换前必须先用旧 owner
+     * 逐个撤票并清空 forced, 否则新 region 的区块会被 chunkInRegion 全部过滤掉, 该实例永远拿不到强加载票。
+     */
+    private InstanceTickets syncGeometry(InstanceState state) {
+        InstanceTickets t = byInstance.computeIfAbsent(state.instanceId(), k -> new InstanceTickets(state));
+        if (t.regionBox.equals(state.regionBox())) {
+            return t;
+        }
+        for (long key : t.forced.keySet()) {
+            int cx = ChunkPos.getX(key);
+            int cz = ChunkPos.getZ(key);
+            ForgeChunkManager.forceChunk(miningLevel, MiningConstants.MODID, t.owner, cx, cz, false, false);
+        }
+        t.forced.clear();
+        t.regionBox = state.regionBox();
+        t.owner = new BlockPos(t.regionBox.originX(), t.regionBox.originY(), t.regionBox.originZ());
+        LOGGER.info("[miningdim] instance {} ticket window rebuilt for slid region", state.instanceId());
+        return t;
+    }
 
     /** 把当前持有窗口差量收敛到目标窗口。 */
     private void applyDesired(InstanceTickets t, Map<Long, Boolean> desired) {

@@ -1,6 +1,7 @@
 package com.miningdim.ore;
 
 import com.miningdim.core.InstanceState;
+import com.miningdim.core.MiningServices;
 import com.miningdim.core.Subsystem;
 import com.miningdim.core.VoxelOccupancy;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -35,6 +36,8 @@ public final class OreSystem implements Subsystem {
     public void register(IEventBus modBus, IEventBus forgeBus) {
         // 矿物子系统无 DeferredRegister / 事件订阅: 仅自注册供查表。bus 参数未用是契约形态, 不留空壳 —— 见类注释说明。
         instance = this;
+        // 滑动重置后按 (instanceId, seed) 缓存的旧铺矿表必须失效重算 (D3)。
+        MiningServices.registerInstanceResetListener(this::invalidate);
     }
 
     @Override

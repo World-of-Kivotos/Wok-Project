@@ -1,5 +1,6 @@
 package com.miningdim.persistence;
 
+import com.miningdim.core.Difficulty;
 import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningConstants;
 import net.minecraft.nbt.CompoundTag;
@@ -10,6 +11,7 @@ import net.minecraft.world.level.saveddata.SavedData;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.OptionalLong;
 
 /**
  * 实例注册表与全局计数器的持久层 (设计文档 12.5 第一层)。挂在矿山维度的 DimensionDataStorage,
@@ -33,6 +35,9 @@ public final class MiningSavedData extends SavedData {
     private static final String K_RESET_GEN = "resetGeneration";
     private static final String K_INSTANCES = "instances";
     private static final String K_REGION_OCCUPANCY = "regionOccupancy";
+    private static final String K_REGION_FRONTIER_X = "regionFrontierX";
+    private static final String K_HAS_REGION_FRONTIER = "hasRegionFrontier";
+    private static final String K_FIXED_INSTANCE_PREFIX = "fixedInstance_";
 
     /** 持久自增主键, 从 1 起 (0 保留为"无效/未分配"语义)。绝不复用已销毁 id (12.4)。 */
     private long nextInstanceId = 1L;
@@ -46,7 +51,8 @@ public final class MiningSavedData extends SavedData {
     /**
      * 全 mod 累计重置代数计数器 (NEW_SEED 重置时 +1, 供 ResetService 派生新种子)。
      * 注: 12.5 实例字段表未把 per-instance resetGeneration 列入持久列, 故重置代数以全局计数器形式
-     * 持久化于本层; ResetService 取此值经 SeedUtil.deriveSeed 派生。SAME_SEED 重置不动此值。
+     * 持久化于本层; 由 IInstanceManager.deriveNextResetSeed 消费经 SeedUtil.deriveSeed 派生。
+     * SAME_SEED 重置不动此值。
      */
     private int resetGeneration;
 
@@ -58,6 +64,18 @@ public final class MiningSavedData extends SavedData {
      * 槽编号与几何映射由 instance.RegionGrid 单一权威定义, 本类只存裸字节, 不解释语义。
      */
     private byte[] regionOccupancy = new byte[0];
+
+    /** 滑动 region 分配游标的世界 X 原点 (13.4/D3); 未初始化前 hasRegionFrontier=false。 */
+    private int regionFrontierX;
+
+    /** regionFrontierX 是否已确定初始值。 */
+    private boolean hasRegionFrontier;
+
+    /**
+     * 三固定难度实例的持久 id (F088 认领问题: region 一滑走, ensureFixedInstances 就不能再靠
+     * regionBox.equals(固定几何) 认领固定实例, 每次重启会再造三个新实例; 改由本表按难度直接查 id)。
+     */
+    private final Map<Difficulty, Long> fixedInstanceIds = new HashMap<>();
 
     public MiningSavedData() {
     }
@@ -160,6 +178,61 @@ public final class MiningSavedData extends SavedData {
         setDirty();
     }
 
+    // ---- 滑动 region 分配游标 (13.4/D3) ----
+
+    public boolean hasRegionFrontier() {
+        return hasRegionFrontier;
+    }
+
+    public int regionFrontierX() {
+        return regionFrontierX;
+    }
+
+    /** 首次确定滑动游标起点 (= 初始三块 region 的最右边界 + SLIDE_SEPARATION_BLOCKS); 已初始化则忽略。 */
+    public void initRegionFrontierIfAbsent(int worldX) {
+        if (!hasRegionFrontier) {
+            this.regionFrontierX = worldX;
+            this.hasRegionFrontier = true;
+            setDirty();
+        }
+    }
+
+    /**
+     * 取下一块从未使用过的 region 世界 X 原点并把游标推进 (regionSizeX + separationBlocks)。
+     * 游标未初始化, 或推进后越过 MiningConstants.MAX_REGION_WORLD_X, 一律抛 IllegalStateException 暴露,
+     * 严禁绕回复用旧坐标 (旧坐标的区块文件还在磁盘上)。
+     */
+    public int allocateRegionOriginX(int regionSizeX, int separationBlocks) {
+        if (!hasRegionFrontier) {
+            throw new IllegalStateException(
+                    "MiningSavedData.allocateRegionOriginX: regionFrontierX not initialized, call initRegionFrontierIfAbsent first");
+        }
+        int originX = regionFrontierX;
+        long advanced = (long) regionFrontierX + regionSizeX + separationBlocks;
+        if (advanced > MiningConstants.MAX_REGION_WORLD_X) {
+            throw new IllegalStateException(
+                    "MiningSavedData.allocateRegionOriginX: frontier " + advanced
+                            + " exceeds MAX_REGION_WORLD_X=" + MiningConstants.MAX_REGION_WORLD_X
+                            + "; refusing to reuse old region coordinates");
+        }
+        regionFrontierX = (int) advanced;
+        setDirty();
+        return originX;
+    }
+
+    // ---- 三固定难度实例的持久 id (13.4/D3) ----
+
+    /** 该难度当前登记的固定实例 id; 尚未登记 (启动重建首次运行) 返回 empty。 */
+    public OptionalLong fixedInstanceId(Difficulty difficulty) {
+        Long id = fixedInstanceIds.get(difficulty);
+        return id == null ? OptionalLong.empty() : OptionalLong.of(id);
+    }
+
+    public void setFixedInstanceId(Difficulty difficulty, long instanceId) {
+        fixedInstanceIds.put(difficulty, instanceId);
+        setDirty();
+    }
+
     // ---- 持久化 ----
 
     @Override
@@ -176,6 +249,13 @@ public final class MiningSavedData extends SavedData {
         tag.put(K_INSTANCES, list);
 
         tag.putByteArray(K_REGION_OCCUPANCY, regionOccupancy);
+
+        tag.putBoolean(K_HAS_REGION_FRONTIER, hasRegionFrontier);
+        tag.putInt(K_REGION_FRONTIER_X, regionFrontierX);
+
+        for (Map.Entry<Difficulty, Long> entry : fixedInstanceIds.entrySet()) {
+            tag.putLong(K_FIXED_INSTANCE_PREFIX + entry.getKey().configName(), entry.getValue());
+        }
         return tag;
     }
 
@@ -195,6 +275,16 @@ public final class MiningSavedData extends SavedData {
         }
 
         data.regionOccupancy = tag.getByteArray(K_REGION_OCCUPANCY);
+
+        data.hasRegionFrontier = tag.getBoolean(K_HAS_REGION_FRONTIER);
+        data.regionFrontierX = tag.getInt(K_REGION_FRONTIER_X);
+
+        for (Difficulty difficulty : Difficulty.values()) {
+            String key = K_FIXED_INSTANCE_PREFIX + difficulty.configName();
+            if (tag.contains(key)) {
+                data.fixedInstanceIds.put(difficulty, tag.getLong(key));
+            }
+        }
         return data;
     }
 

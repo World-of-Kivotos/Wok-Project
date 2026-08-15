@@ -65,6 +65,8 @@ public final class SpawnSystem implements Subsystem, ISpawnService {
         // 本子系统不需要自有 DeferredRegister / 事件订阅: 仅作为 ISpawnService 被入口流程调用。
         // 注入门面供其他子系统按接口取用 (铁律 3)。
         MiningServices.registerSpawnService(this);
+        // 滑动重置后按 instanceId 缓存的旧 spawn pool (旧几何/旧种子) 与取点计数器必须失效重算 (D3)。
+        MiningServices.registerInstanceResetListener(this::onInstanceReleased);
     }
 
     @Override

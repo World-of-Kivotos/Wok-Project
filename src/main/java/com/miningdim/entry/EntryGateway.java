@@ -20,7 +20,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.block.Blocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,7 +33,7 @@ import java.util.UUID;
  * 入场流程编排 (设计文档 14.2 / 14.3, Critical 防虚空)。完整链路全程主线程编排:
  *  1 gateCheck 难度门控 (14.4) -> 2 snapshotFallback 写 Capability (14.2) -> 3 allocate 实例 ->
  *  4 awaitReady (生成中等待, 监听 genState) -> 5 force-load spawn 周边区块 (14.3) ->
- *  6 awaitChunksLoaded (确认 FULL 再传送, 防虚空) -> 7 resolveSpawn 安全出生点 ->
+ *  6 awaitChunksLoaded (确认 FULL 再传送, 防虚空) -> 7 经 ISpawnService.findSpawn 取安全出生点 (池 + 占用 TTL) ->
  *  8 按 PendingEnter 捕获的报价扣费 -> 9 写 currentInstanceId / danger / spawnFreeze ->
  *  10 onPlayerEnter (refCount++ / active=true) -> 11 主线程 teleportTo -> 12 成功反馈并启动收益探针。
  *
@@ -60,8 +59,6 @@ public final class EntryGateway {
 
     // ---- 11.7 出生冻结 ----
     private static final int SPAWN_FREEZE_TICKS = 200;
-    /** 出生扫描候选水平搜索半宽 (在难度子盒内按列找安全站立点)。 */
-    private static final int SPAWN_SCAN_HORIZONTAL_RADIUS = 24;
 
     /** 入场推进阶段 (14.2 步骤 4/6)。 */
     private enum Phase {
@@ -262,7 +259,7 @@ public final class EntryGateway {
     /** 14.2 步骤 7-12: resolveSpawn 后扣费, 再写 Capability/refCount 并传送。 */
     private void completeEnter(PendingEnter pe, ServerPlayer player, InstanceState inst) {
         ServerLevel miningLevel = ChunkServices.ticketService().level();
-        BlockPos spawn = resolveSpawn(miningLevel, inst);
+        BlockPos spawn = MiningServices.spawnService().findSpawn(miningLevel, inst);
 
         // 余额门与此处可能相隔多个 tick, 所以必须按请求时快照的费用再次尝试扣款。费用是纯 sink,
         // 不转入任何玩家账户。免费配置必须短路, 因为货币层拒绝 amount <= 0。
@@ -301,66 +298,6 @@ public final class EntryGateway {
         }
         LOGGER.info("[miningdim] player {} entered instance {} at {}", pe.playerId, inst.instanceId(), spawn);
         MiningYieldProbe.start(player, pe.difficulty);
-    }
-
-    /**
-     * 在已落方块的真实世界中解析安全出生点 (设计文档 11.2 谓词, 用 {@link com.miningdim.core.ISpawnService#isSafe}
-     * 复核)。理想路径是 ISpawnService 用离线体素的 spawnPool 选点 (11.3), 但 core 未暴露 region 缓存体素的取用口,
-     * 故此处在 region 中心列附近、整块 region 全高内自顶向下找首个 isSafe 站立点。找不到则抛 (C4: 连通性保证应存在,
-     * 抛出即暴露生成缺陷, 不静默兜底掩盖)。
-     */
-    private BlockPos resolveSpawn(ServerLevel level, InstanceState inst) {
-        RegionBox box = inst.regionBox();
-        int centerX = box.originX() + box.sizeX() / 2;
-        int centerZ = box.originZ() + box.sizeZ() / 2;
-        // 原版噪声生成: 扫描范围限制在维度实际可建高度内 (caves 维度仅 min..maxBuild, 非 region 全高)。
-        int yTop = Math.min(MiningConstants.REGION_MAX_Y_EXCLUSIVE - 2, level.getMaxBuildHeight() - 2);
-        int yBottom = Math.max(MiningConstants.REGION_FULL_MIN_WORLD_Y, level.getMinBuildHeight() + 1);
-
-        // 以 region 中心为心做由内向外环形水平搜索, 每列自顶向下找站立点。
-        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-        for (int r = 0; r <= SPAWN_SCAN_HORIZONTAL_RADIUS; r++) {
-            for (int dx = -r; dx <= r; dx++) {
-                for (int dz = -r; dz <= r; dz++) {
-                    // 只扫当前环 (|dx|==r 或 |dz|==r), 由内向外。
-                    if (Math.abs(dx) != r && Math.abs(dz) != r) {
-                        continue;
-                    }
-                    int wx = centerX + dx;
-                    int wz = centerZ + dz;
-                    if (!box.contains(wx, wz)) {
-                        continue;
-                    }
-                    for (int wy = yTop; wy >= yBottom; wy--) {
-                        cursor.set(wx, wy, wz);
-                        if (MiningServices.spawnService().isSafe(level, cursor, inst)) {
-                            return cursor.immutable();
-                        }
-                    }
-                }
-            }
-        }
-        // 原版噪声地形不保证中心列附近一定有现成空腔 (镐子连通理念: 只需保证安全落点)。
-        // 找不到则强制建一个 3x3 安全平台 + 头顶净空, 任何地形下都能安全落地, 玩家自行挖出。
-        return buildFallbackPlatform(level, centerX, centerZ);
-    }
-
-    /** 兜底安全平台: region 中心建 3x3 石台 + 头顶 3 格净空, 返回站立点。保证任何地形都有安全出生 (11.5)。 */
-    private BlockPos buildFallbackPlatform(ServerLevel level, int centerX, int centerZ) {
-        int y = Math.min(48, level.getMaxBuildHeight() - 5);
-        BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                p.set(centerX + dx, y, centerZ + dz);
-                level.setBlockAndUpdate(p, Blocks.STONE.defaultBlockState());
-                for (int dy = 1; dy <= 3; dy++) {
-                    p.set(centerX + dx, y + dy, centerZ + dz);
-                    level.setBlockAndUpdate(p, Blocks.AIR.defaultBlockState());
-                }
-            }
-        }
-        LOGGER.info("[miningdim] built fallback spawn platform at {} {} {}", centerX, y + 1, centerZ);
-        return new BlockPos(centerX, y + 1, centerZ);
     }
 
     /** region 几何中心 (XZ), Y 取 region 全高上界附近, 供 force-load 圆心。 */

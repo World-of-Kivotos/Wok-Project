@@ -52,11 +52,13 @@ public final class MiningNetwork implements IMiningNetwork {
     /**
      * 集中注册全部 packet (15.2)。注册次序两端一致, 显式传 NetworkDirection 用于握手期方向校验。
      * 由 NetworkSystem 在 FMLCommonSetupEvent.enqueueWork 内调用一次。
+     *
+     * F087: 原 discriminator 0 曾注册 SelectZoneC2S (零发送方、绕过矿工等级门直接 allocate、且从不传送玩家的
+     * 半成品入场路径), 现已整包删除注销。入场需求已由 Web UI (MiningWebUiActions) 与入口方块/命令覆盖。
+     * 删除后其后各包 discriminator 顺序下移一位; 两端注册顺序来自同一份代码同一个 jar, 天然一致, 不需要动
+     * PROTOCOL_VERSION。
      */
     public void register() {
-        CHANNEL.registerMessage(nextId(), SelectZoneC2S.class,
-                SelectZoneC2S::encode, SelectZoneC2S::decode, SelectZoneC2S::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER));
         CHANNEL.registerMessage(nextId(), DangerSyncS2C.class,
                 DangerSyncS2C::encode, DangerSyncS2C::decode, DangerSyncS2C::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));

@@ -395,6 +395,52 @@ public final class MunitionsWebUiGameTests {
     }
 
     // ============================================================
+    // F053: NearbyStations.around 从"扫满整个方框"改成"按环扫 + 提前收敛", 结果必须与旧实现逐字相同
+    // ============================================================
+
+    /**
+     * 三段覆盖三条判据:
+     *  (a) 约 60 格外、仍在军火台 64 格半径内的台必须被扫到 (按环扫不能漏最外层);
+     *  (b) 无归属机台 (冲压机) 的公用可见半径只有 16 格, 20 格外必须发 pos=null —— 这段刻意放在近台之前做:
+     *      此时全场只有 (a) 那台远台 (距离 60), 军火台提前收敛的阈值要到 r=4 (64 格) 才达到, 中途的 r=1 环
+     *      (冲压机所在) 必然被完整扫过, "null" 因此对应的是公用半径的真距离截断, 不是扫描提前退出撞上的假阴性;
+     *  (c) 再放一台自己的近台 (脚下, 距离 0): 两台自己的军火台同时存在时必须取最近那台, 不是先放的远台。
+     *
+     * 删掉 NearbyStations.around 里按环提前收敛的那段 (或改错判定半径), (a)/(c) 会在军火台仍应被扫到的位置
+     * 突然扫不到 (真距离在 64/0 格内, 却因为换了扫描顺序/半径漏判), 断言必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void munitionsStateRingScanFindsSameStationsAsFullScan(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        BlockPos homeRel = new BlockPos(0, 1, 0);
+        BlockPos farBenchRel = new BlockPos(60, 1, 0);
+        BlockPos farPressRel = new BlockPos(20, 1, 0);
+
+        placeBench(helper, player.getUUID(), farBenchRel);
+        standAt(helper, player, homeRel);
+
+        // (a)
+        JsonObject stateA = state(helper, player);
+        assertPos(helper, station(helper, stateA, STATION_BENCH), helper.absolutePos(farBenchRel),
+                "60 格外仍在 64 格半径内的军火台必须被扫到");
+
+        // (b)
+        placePress(helper, farPressRel);
+        JsonObject stateB = state(helper, player);
+        JsonObject pressRow = station(helper, stateB, STATION_PRESS);
+        helper.assertTrue(pressRow.get("pos").isJsonNull(),
+                "冲压机公用可见半径只有 16 格, 20 格外必须发 pos=null, 实得 " + pressRow.get("pos"));
+
+        // (c)
+        placeBench(helper, player.getUUID(), homeRel);
+        JsonObject stateC = state(helper, player);
+        assertPos(helper, station(helper, stateC, STATION_BENCH), helper.absolutePos(homeRel),
+                "两台自己的军火台同时存在时必须取最近那台, 而不是先放的远台");
+
+        helper.succeed();
+    }
+
+    // ============================================================
     // 5. 注册名
     // ============================================================
 
@@ -500,20 +546,30 @@ public final class MunitionsWebUiGameTests {
 
     /** 在 BENCH_REL 放一台全档军火台并指定主人。 */
     private static MunitionsBenchBlockEntity placeBench(GameTestHelper helper, UUID owner) {
-        helper.setBlock(BENCH_REL, ModMunitionsBlocks.MUNITIONS_BENCH.get());
-        if (!(helper.getLevel().getBlockEntity(helper.absolutePos(BENCH_REL))
+        return placeBench(helper, owner, BENCH_REL);
+    }
+
+    /** 在任意相对坐标放一台全档军火台并指定主人 (F053 环扫测试用非固定坐标)。 */
+    private static MunitionsBenchBlockEntity placeBench(GameTestHelper helper, UUID owner, BlockPos rel) {
+        helper.setBlock(rel, ModMunitionsBlocks.MUNITIONS_BENCH.get());
+        if (!(helper.getLevel().getBlockEntity(helper.absolutePos(rel))
                 instanceof MunitionsBenchBlockEntity bench)) {
-            throw new IllegalStateException("军火台 BE 没有出现在 " + BENCH_REL);
+            throw new IllegalStateException("军火台 BE 没有出现在 " + rel);
         }
         bench.setOwner(owner);
         return bench;
     }
 
     private static GunsmithPressBlockEntity placePress(GameTestHelper helper) {
-        helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get());
-        if (!(helper.getLevel().getBlockEntity(helper.absolutePos(PRESS_REL))
+        return placePress(helper, PRESS_REL);
+    }
+
+    /** 在任意相对坐标放一台冲压机 (F053 环扫测试用非固定坐标)。 */
+    private static GunsmithPressBlockEntity placePress(GameTestHelper helper, BlockPos rel) {
+        helper.setBlock(rel, ModMunitionsBlocks.GUNSMITH_PRESS.get());
+        if (!(helper.getLevel().getBlockEntity(helper.absolutePos(rel))
                 instanceof GunsmithPressBlockEntity press)) {
-            throw new IllegalStateException("冲压机 BE 没有出现在 " + PRESS_REL);
+            throw new IllegalStateException("冲压机 BE 没有出现在 " + rel);
         }
         return press;
     }

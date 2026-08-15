@@ -15,6 +15,9 @@ public final class GunsmithAssemblyRecipe {
     private GunsmithAssemblyRecipe() {
     }
 
+    /**
+     * 谓词就该返 false 而不是抛, 硬校验留在取内容处 (blueprint()/assembledGunId()/assemble())。
+     */
     public static boolean isBlueprint(ItemStack stack) {
         Objects.requireNonNull(stack, "stack");
         if (stack.isEmpty()) {
@@ -26,8 +29,7 @@ public final class GunsmithAssemblyRecipe {
         if (!GunsmithBlueprintItem.isBlueprintItem(stack)) {
             return false;
         }
-        GunsmithBlueprintItem.requireBlueprint(stack);
-        return true;
+        return GunsmithBlueprintItem.tryBlueprint(stack) != null;
     }
 
     public static GunsmithBlueprint blueprint(ItemStack stack) {

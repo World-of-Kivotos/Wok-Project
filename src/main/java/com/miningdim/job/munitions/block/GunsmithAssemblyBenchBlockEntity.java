@@ -1,8 +1,11 @@
 package com.miningdim.job.munitions.block;
 
+import com.miningdim.economy.Currency;
+import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.munitions.ModMunitionsBlockEntities;
 import com.miningdim.job.munitions.ModMunitionsSounds;
 import com.miningdim.job.munitions.MunitionsConfig;
+import com.miningdim.job.munitions.MunitionsLevels;
 import com.miningdim.job.munitions.gunsmith.GunsmithAssemblyRecipe;
 import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunFactory;
@@ -144,6 +147,11 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
             player.displayClientMessage(Component.translatable("message.miningdim.gunsmith.disabled"), true);
             return false;
         }
+        if (!MunitionsLevels.isAssemblyUnlocked(MunitionsLevels.munitionsLevel(player))) {
+            player.displayClientMessage(Component.translatable("message.miningdim.gunsmith_assembly_bench.level_locked",
+                    MunitionsConfig.ASSEMBLY_UNLOCK_LEVEL.get()), true);
+            return false;
+        }
         if (isAnimating() || !pendingResult.isEmpty()) {
             player.displayClientMessage(
                     Component.translatable("message.miningdim.gunsmith_assembly_bench.busy"), true);
@@ -181,6 +189,12 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         }
 
         ItemStack result = GunsmithAssemblyRecipe.assemble(baseGun, blueprintStack, parts);
+        long fee = MunitionsConfig.ASSEMBLY_WORK_FEE_CREDITS.get();
+        if (!tryChargeWorkFee(player, fee)) {
+            player.displayClientMessage(
+                    Component.translatable("message.miningdim.gunsmith.work_fee_unaffordable", fee), true);
+            return false;
+        }
         for (GunsmithPressPart part : blueprint.requiredParts()) {
             inventory.extractItem(slotForPart(part), 1, false);
         }
@@ -190,6 +204,14 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         player.displayClientMessage(
                 Component.translatable("message.miningdim.gunsmith_assembly_bench.started"), true);
         return true;
+    }
+
+    /** 工费 sink: 经 {@link EconomyServices} 定位器先查后扣; 经济未注入或 cost<=0 放行 (不阻塞核心循环)。 */
+    private boolean tryChargeWorkFee(ServerPlayer player, long cost) {
+        if (cost <= 0L || !EconomyServices.isRegistered()) {
+            return true;
+        }
+        return EconomyServices.economyService().tryCharge(player, Currency.CREDIT, cost);
     }
 
     private EnumMap<GunsmithPressPart, ItemStack> snapshotParts() {

@@ -89,7 +89,7 @@ public final class GunsmithPressMenu extends AbstractMiningMenu {
         }
         int qualityIndex = id - BUTTON_QUALITY_BASE;
         if (qualityIndex >= 0 && qualityIndex < GunsmithPartQuality.values().length) {
-            return blockEntity.trySelectQuality(qualityIndex);
+            return blockEntity.trySelectQuality(qualityIndex, serverPlayer);
         }
         int variantIndex = id - BUTTON_VARIANT_BASE;
         if (variantIndex >= 0 && variantIndex < GunsmithPartVariant.values().length) {

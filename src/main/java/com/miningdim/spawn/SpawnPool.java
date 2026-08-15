@@ -2,27 +2,25 @@ package com.miningdim.spawn;
 
 import net.minecraft.core.BlockPos;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 单实例预生成的出生点池 + 运行期占用表 (设计文档 11.3 / 11.4)。
  *
  * pool 为预扫描的世界坐标合法站立点 (anchor 始终在首位, 11.3 spawnAnchor 处理), 不可变。
- * occupied 为运行期瞬态占用表, 带 TTL: 多玩家并发取点经主线程串行 + 占用标记避免叠人 (11.4)。
- * occupied 不持久化, 实例卸载/重置时随本对象一并丢弃。
+ * occupiedUntil 为运行期瞬态占用表, 带 TTL: 多玩家并发取点经主线程串行 + 占用标记避免叠人 (11.4)。
+ * 占用状态的唯一真源是 occupiedUntil, 不另存重复状态。occupiedUntil 不持久化, 实例卸载/重置时
+ * 随本对象一并丢弃; 条目数被池容量封顶, 不存在无界增长, 无需额外清理。
  *
- * 线程纪律 (D8): 取点 (claim) 只在服务端主线程串行调用, 单线程天然互斥 (11.4)。occupied 用并发集合
- * 仅为防御调试侧只读, 不替代主线程串行。
+ * 线程纪律 (D8): 取点 (claim) 只在服务端主线程串行调用, 单线程天然互斥 (11.4)。occupiedUntil 用并发
+ * 集合仅为防御调试侧只读, 不替代主线程串行。
  */
 public final class SpawnPool {
 
     private final List<BlockPos> pool;
 
     /** 占用点 -> 占用截止 tick (TTL)。到期自动可复用 (11.4 占用 TTL 后释放)。 */
-    private final Set<BlockPos> occupied = ConcurrentHashMap.newKeySet();
     private final ConcurrentHashMap<BlockPos, Long> occupiedUntil = new ConcurrentHashMap<>();
 
     public SpawnPool(List<BlockPos> pool) {
@@ -65,7 +63,6 @@ public final class SpawnPool {
             Long until = occupiedUntil.get(pos);
             boolean free = until == null || currentTick >= until;
             if (free) {
-                occupied.add(pos);
                 occupiedUntil.put(pos, currentTick + ttlTicks);
                 return pos;
             }
@@ -75,32 +72,31 @@ public final class SpawnPool {
 
     /** 显式占用一个 (兜底平台中心) 点 (11.5 step3 纳入 occupiedSpawns)。 */
     public void reserve(BlockPos pos, long currentTick, int ttlTicks) {
-        occupied.add(pos);
         occupiedUntil.put(pos, currentTick + ttlTicks);
+    }
+
+    /**
+     * 查某坐标当前是否仍在占用 TTL 内 (F034 复核修正): 与 {@link #claim} 不同, 不要求 pos 属于
+     * {@link #pool} 列表 —— 供兜底平台去重使用 (兜底候选点本就不在预扫描池里, 见 SpawnSystem)。
+     */
+    public boolean isOccupied(BlockPos pos, long currentTick) {
+        Long until = occupiedUntil.get(pos);
+        return until != null && currentTick < until;
     }
 
     /** 主动释放占用 (玩家离开/超时清理); 不强制, TTL 也会自然过期。 */
     public void release(BlockPos pos) {
-        occupied.remove(pos);
         occupiedUntil.remove(pos);
     }
 
-    /** 清理已过期占用条目, 避免 map 无界增长 (在 region tick 末调用)。 */
-    public void pruneExpired(long currentTick) {
-        List<BlockPos> expired = new ArrayList<>();
-        for (var e : occupiedUntil.entrySet()) {
-            if (currentTick >= e.getValue()) {
-                expired.add(e.getKey());
+    /** 调试/测试: 当前尚未过期的占用数 (currentTick < until)。 */
+    public int occupiedCount(long currentTick) {
+        int count = 0;
+        for (long until : occupiedUntil.values()) {
+            if (currentTick < until) {
+                count++;
             }
         }
-        for (BlockPos pos : expired) {
-            occupied.remove(pos);
-            occupiedUntil.remove(pos);
-        }
-    }
-
-    /** 调试: 当前占用数。 */
-    public int occupiedCount() {
-        return occupied.size();
+        return count;
     }
 }

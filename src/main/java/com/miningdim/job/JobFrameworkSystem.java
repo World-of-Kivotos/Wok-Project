@@ -63,6 +63,9 @@ public final class JobFrameworkSystem implements Subsystem {
         // 平板职业页的 job.progress (进程级静态注册, 与门面就绪无关)。
         JobWebUiActions.registerAll();
 
+        // 管理台职业页的 admin.job.setLevel (改级后要经本实例 syncTo, 故把自己交出去)。
+        JobAdminWebUiActions.registerAll(this);
+
         LOGGER.info("[miningdim] job framework subsystem registered (effects + menu scaffold + /job + job.progress action; progress on entry capability)");
     }
 

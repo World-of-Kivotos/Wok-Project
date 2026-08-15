@@ -1,6 +1,6 @@
 import { ArrowUpIcon, RefreshCwIcon, SearchIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactElement, ReactNode } from 'react'
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   Button,
   ConfirmDangerDialog,
@@ -27,16 +27,17 @@ import {
   TextInput,
   type Tone,
 } from '@/components/kit'
+import { tickDeadline } from '@/hooks/use-live-updates'
 import { WebUiCallError } from '../../lib/bridge'
 import { jobNameKey, useItemNames } from '../../lib/i18n'
-import type { AdminItemEntry, BaseValueSource } from '../../lib/types'
 import type {
-  MockOtherPlayer,
-  PlannedCurrency,
-  PlannedJobId,
-  PlannedMiningInstance,
-} from '../../mock'
-import { callMock, useMockAction, useMockWorld } from '../../mock'
+  AdminItemEntry,
+  BaseValueSource,
+  MiningInstanceRow,
+  WebUiCurrency,
+  WebUiJobId,
+} from '../../lib/types'
+import { callMock, nowMs, useMockAction, useMockWorld } from '../../mock'
 
 /**
  * 管理后台 (OP)。五块: 经济调账 / 基准价 / 职业调级 / 副本重置 / 服务器状态。
@@ -51,14 +52,21 @@ import { callMock, useMockAction, useMockWorld } from '../../mock'
  *   admin.listItems / admin.setBaseValue    接线清单 I1 (READY x2, 已接线)
  *   system.serverStatus                     A4 (MinecraftServer 公开 API 的包装; 无 announcement 字段,
  *                                           全库零"公告"业务概念, 恒回空串等于立一个永远为空的死约定)
- * planned 假定契约 (后端尚无, 走 mock/planned.ts; 接线时按此表逐条核销):
- *   admin.economy.balance / admin.economy.set   I2 (WRAP x2; /economy set 已有 ledgerOf+balance 范式)
- *   admin.job.setLevel                          I3 (WRAP; 权限校验/setLevel/改级后 syncTo 全就绪)
- *   admin.mining.reset                          I4 (WRAP; 活跃版 /mining reset 无二次确认, 弹窗必须前端加)
+ *   admin.economy.balance / admin.economy.set    I2 (已接线)
+ *   admin.job.setLevel                          I3 (已接线; 改级后服务端自行 syncTo, 前端不必再同步)
+ *   admin.mining.reset                          I4 (已接线; 服务端不做二次确认, 弹窗永远是前端责任)
  *   mining.overview                             F1 (只读, 用来给三个重置目标提供当前人数与倒计时)
- * 另有两条已知缺口在本页直接可见, 不做任何遮掩:
+ * 三条已知缺口在本页直接可见, 不做任何遮掩:
  *   I2 无流水表 (D7): 历史调账查不到, 故 admin.economy.set 的回执带 before, 至少让操作者当场看见改前改后;
- *   A14 中文输入 BLOCKED: 玩家名输入框只能走 onRequestEdit 向宿主喊话, 见下方 PlayerPicker 注释。
+ *   A14 中文输入 BLOCKED: 玩家名输入框只能走 onRequestEdit 向宿主喊话, 见下方 PlayerPicker 注释;
+ *   A16 无在线玩家名单 action: 下拉候选目前只能取自 mock 世界, 真服里那份名单还没有来源。
+ *
+ * **三条 admin.* 一律只认在线玩家** (离线玩家的 capability 不在内存里, 账本接口也全收 ServerPlayer),
+ * 故玩家选择器只列在线玩家 —— 列了离线的等于给 OP 一个点了必被拒的选项。
+ *
+ * 权限拒绝有**两套口径**, 文案字典必须照这个现实写 (服务端已报备, 待统一):
+ *   admin.economy.*   抛业务异常, errorCode=INVALID_REQUEST + params={field:'permission', value:'op'}
+ *   admin.job.setLevel / admin.mining.reset   抛裸异常, 回执**没有 errorCode**, 只有一句服务端原文
  *
  * === 权限之外的一条硬约束 ===
  * 本页四处破坏性写操作 (改余额 / 改基准价 / 改职业等级 / 重置副本) 一律走 ConfirmDangerDialog, 这是
@@ -88,9 +96,15 @@ const ADMIN_TABS: readonly AdminTab[] = [
  * Dropdown 的 onChange 只能回 string, 于是面板要么写一次断言, 要么在自己的候选表里 find 回来 ——
  * 后者不引入任何断言, 且"下拉里没有的值"这一情况会自然落到 undefined 分支而不是被强行当成合法值。
  */
-const CURRENCY_OPTIONS: readonly { value: PlannedCurrency; label: string }[] = [
+const CURRENCY_OPTIONS: readonly { value: WebUiCurrency; label: string }[] = [
   { value: 'CREDIT', label: '信用点' },
   { value: 'AZURE', label: '青辉石' },
+]
+
+/** admin.mining.reset 的 reseed 入参 (缺省 true = NEW_SEED 换图, 与定时自动刷新同口径)。 */
+const RESEED_OPTIONS: readonly DropdownOption<'NEW_SEED' | 'SAME_SEED'>[] = [
+  { value: 'NEW_SEED', label: '换图 (新种子)' },
+  { value: 'SAME_SEED', label: '原样重建 (同种子)' },
 ]
 
 const PAGE_SIZE_OPTIONS: readonly { value: string; label: string; size: number }[] = [
@@ -156,10 +170,6 @@ function describeFailure(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function formatMoment(epochMs: number): string {
-  return new Date(epochMs).toLocaleString('zh-CN', { hour12: false })
-}
-
 function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86_400)
   const hours = Math.floor((seconds % 86_400) / 3_600)
@@ -179,7 +189,7 @@ function formatCountdown(targetMs: number, nowMs: number): string {
 }
 
 /** 货币在确认弹窗正文里的中文名。与下拉 label 同名, 单列一处只为让弹窗文案不依赖候选表的顺序。 */
-function currencyLabelOf(currency: PlannedCurrency): string {
+function currencyLabelOf(currency: WebUiCurrency): string {
   return currency === 'CREDIT' ? '信用点' : '青辉石'
 }
 
@@ -240,26 +250,24 @@ function PlayerPicker({
         <TextInput onChange={onChange} onRequestEdit={onRequestEdit} value={value} />
       </Field>
       <p className="text-warning text-xs">
-        中文输入暂未开放, 请用左侧下拉选择玩家
+        仅在线玩家 (离线一律被服务端拒绝); 中文输入暂未开放, 中文 ID 请用左侧下拉选择
       </p>
     </div>
   )
 }
 
 function EconomyTab({
-  players,
   playerOptions,
   target,
   onTargetChange,
   onToast,
 }: {
-  players: readonly MockOtherPlayer[]
   playerOptions: readonly DropdownOption<string>[]
   target: string
   onTargetChange: (next: string) => void
   onToast: (toast: PanelToast) => void
 }): ReactElement {
-  const [currency, setCurrency] = useState<PlannedCurrency>('CREDIT')
+  const [currency, setCurrency] = useState<WebUiCurrency>('CREDIT')
   const [amountText, setAmountText] = useState('0')
   const [querying, setQuerying] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -270,6 +278,8 @@ function EconomyTab({
   )
   const [applied, setApplied] = useState<{
     playerName: string
+    playerUuid: string
+    currency: WebUiCurrency
     beforeCredit: number
     beforeAzure: number
     afterCredit: number
@@ -309,8 +319,14 @@ function EconomyTab({
         currency,
         amount,
       })
+      /*
+       * 回执里的 playerName / currency 是服务端解析回来的真值 (名字解析大小写不敏感, 回的是 GameProfile
+       * 真名), 不是入参回显 —— 刷新界面一律用回执的那份, 否则 OP 会以为自己改的是输入框里那个人。
+       */
       setApplied({
         playerName: result.playerName,
+        playerUuid: result.playerUuid,
+        currency: result.currency,
         beforeCredit: result.before.credit,
         beforeAzure: result.before.azure,
         afterCredit: result.wallet.credit,
@@ -318,7 +334,7 @@ function EconomyTab({
       })
       onToast({
         tone: 'success',
-        message: `${result.playerName} 的 ${currency} 已设为 ${String(amount)}`,
+        message: `${result.playerName} 的${currencyLabelOf(result.currency)}已设为 ${String(amount)}`,
       })
     } catch (error: unknown) {
       setFailure(describeFailure(error))
@@ -340,37 +356,12 @@ function EconomyTab({
         ? queried.credit
         : queried.azure
 
-  const playerColumns: readonly DataTableColumn<MockOtherPlayer>[] = [
-    { key: 'name', header: '玩家', sortValue: (row) => row.name, render: (row) => row.name },
-    {
-      key: 'online',
-      header: '在线',
-      sortValue: (row) => (row.online ? 1 : 0),
-      render: (row) => (
-        <Tag tone={row.online ? 'success' : 'neutral'}>{row.online ? '在线' : '离线'}</Tag>
-      ),
-    },
-    {
-      key: 'credit',
-      header: '信用点',
-      numeric: true,
-      sortValue: (row) => row.wallet.credit,
-      render: (row) => <Currency amount={row.wallet.credit} currency="credit" size="sm" />,
-    },
-    {
-      key: 'azure',
-      header: '青辉石',
-      numeric: true,
-      sortValue: (row) => row.wallet.azure,
-      render: (row) => <Currency amount={row.wallet.azure} currency="azure" size="sm" />,
-    },
-  ]
 
   return (
     <div className="flex flex-col gap-4">
       <Section
         title="余额调账"
-        hint="调账没有历史流水可查, 回执里的改前改后请当场核对"
+        hint="只认在线玩家; 金额是绝对值不是增量; 调账不计入玩家当日 faucet 衰减档位; 没有历史流水可查, 回执里的改前改后请当场核对"
       >
         <PlayerPicker
           value={target}
@@ -439,7 +430,10 @@ function EconomyTab({
         {applied === null ? null : (
           <Surface tone="success">
             <div className="flex flex-col gap-2">
-              <span className="text-foreground text-sm">{`${applied.playerName} 调账完成`}</span>
+              <span className="text-foreground text-sm">
+                {`${applied.playerName} 的${currencyLabelOf(applied.currency)}调账完成`}
+              </span>
+              <span className="font-mono text-muted-foreground text-xs">{applied.playerUuid}</span>
               <div className="flex flex-wrap items-center gap-4">
                 <span className="text-muted-foreground text-xs">改前</span>
                 <Currency amount={applied.beforeCredit} currency="credit" />
@@ -476,17 +470,6 @@ function EconomyTab({
           onOpenChange={setConfirmOpen}
           open={confirmOpen}
           title="修改玩家余额"
-        />
-      </Section>
-
-      <Section
-        title="世界内其他玩家余额"
-        hint="提交成功后这张表当场刷新"
-      >
-        <DataTable
-          columns={playerColumns}
-          rowKey={(row) => row.uuid}
-          rows={players}
         />
       </Section>
     </div>
@@ -728,11 +711,11 @@ function JobTab({
   currentLevel,
   onToast,
 }: {
-  jobOptions: readonly { value: PlannedJobId; label: string }[]
+  jobOptions: readonly { value: WebUiJobId; label: string }[]
   playerOptions: readonly DropdownOption<string>[]
   target: string
   onTargetChange: (next: string) => void
-  currentLevel: (jobId: PlannedJobId) => number | null
+  currentLevel: (jobId: WebUiJobId) => number | null
   onToast: (toast: PanelToast) => void
 }): ReactElement {
   const firstJob = jobOptions[0]
@@ -742,7 +725,7 @@ function JobTab({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
 
-  // 候选表本身带着 PlannedJobId, 从它 find 回来即完成收窄; 没命中说明世界里没有这个职业, 按未知处理。
+  // 候选表本身带着 WebUiJobId, 从它 find 回来即完成收窄; 没命中说明世界里没有这个职业, 按未知处理。
   const matchedJob = jobOptions.find((option) => option.value === jobId)
   const typedJobId = matchedJob === undefined ? null : matchedJob.value
   const now = typedJobId === null ? null : currentLevel(typedJobId)
@@ -759,9 +742,16 @@ function JobTab({
         jobId: typedJobId,
         level,
       })
+      /*
+       * 回执发的是改完后**读回来**的 level 与 totalXp: JobProgress.setLevel 同时把累计经验对齐到该级
+       * 整级线 (只改 level 不改 xp 的话, 下一次入账会被 XP 曲线按旧 xp 派生回原等级)。totalXp 必须一并
+       * 报出来, 否则 OP 会以为自己只动了等级。
+       */
       onToast({
         tone: 'success',
-        message: `${result.playerName} 的 ${result.jobId} 已调至 ${String(result.level)} 级`,
+        message: `${result.playerName} 的 ${result.jobId} 已调至 ${String(
+          result.level,
+        )} 级, 累计经验同步为 ${String(result.totalXp)}`,
       })
     } catch (error: unknown) {
       setFailure(describeFailure(error))
@@ -774,7 +764,7 @@ function JobTab({
   return (
     <Section
       title="职业调级"
-      hint="真服改级后会自行 syncTo 客户端, 前端不必再触发一次同步; 等级区间 1-10"
+      hint="只认在线玩家; 改级会同时把累计经验对齐到该级整级线; 服务端改完自行 syncTo 客户端, 前端不必再触发同步; 等级区间 1-10"
     >
       <PlayerPicker
         value={target}
@@ -834,23 +824,55 @@ function JobTab({
   )
 }
 
+/** admin.mining.reset 的两条同步拒绝。服务端刻意不给 reasonKey (无对应 lang 条目), 管理台文案归前端。 */
+const RESET_REJECT_TEXT: Record<'NOT_RESETTABLE' | 'OCCUPIED', string> = {
+  NOT_RESETTABLE: '该区域正在生成或重置中, 现在重置不了',
+  OCCUPIED: '该区域里还有人, 且当前配置不允许强制清场',
+}
+
+const MINING_TAB_HINT = '全服只有 3 块常驻共享区域, 每难度一块, 不存在私有副本'
+
 function MiningTab({ onToast }: { onToast: (toast: PanelToast) => void }): ReactElement {
   const overview = useMockAction('mining.overview', {})
-  const [pending, setPending] = useState<PlannedMiningInstance | null>(null)
+  const [pending, setPending] = useState<MiningInstanceRow | null>(null)
+  const [reseed, setReseed] = useState(true)
   const [resetting, setResetting] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
 
-  const runReset = async (instance: PlannedMiningInstance): Promise<void> => {
+  const overviewData = overview.status === 'ready' ? overview.data : null
+  // 回执里的 game tick 只在收到那一刻有意义, 故在 data 换引用时折一次本地基准 (与矿洞面板同纪律)。
+  /*
+   * 依赖数组在这里当"新回执到达"的信号用, 不是工厂真读了它: 服务端一律发剩余 tick 而非绝对时刻,
+   * 前端必须在收到回执那一刻折一个本地基准, 否则倒计时会从页面挂载时刻算起, 越挂越偏。
+   * exhaustive-deps 建议删掉这个依赖 —— 删了基准就永不刷新, 故定向豁免。
+   */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const overviewReceivedAt = useMemo(() => nowMs(), [overviewData])
+  const instanceNames = useItemNames(
+    overviewData === null ? [] : overviewData.instances.map((instance) => instance.nameKey),
+  )
+
+  const runReset = async (instance: MiningInstanceRow, displayName: string): Promise<void> => {
     setResetting(true)
     setFailure(null)
     try {
-      const result = await callMock('admin.mining.reset', { difficulty: instance.difficulty })
-      onToast({
-        tone: 'warning',
-        message: `${instance.displayName} 已于 ${formatMoment(result.resetAt)} 重置, 踢出 ${String(
-          result.evictedPlayers,
-        )} 名玩家`,
-      })
+      const result = await callMock('admin.mining.reset', { difficulty: instance.difficulty, reseed })
+      if (result.accepted) {
+        onToast({
+          tone: 'warning',
+          message: `${displayName} 的重置已受理 (${
+            result.mode === 'NEW_SEED' ? '换图' : '原样重建'
+          }), 清出 ${String(result.evictedPlayers)} 名玩家; 重置本身是异步的, 完成情况只进服务端日志`,
+        })
+      } else {
+        // 被拒时 evictedPlayers 仍是受理那一刻的真实在场人数, 不是 0 —— 照实说出来更有助于判断。
+        onToast({
+          tone: 'danger',
+          message: `${displayName} 没有被重置: ${
+            result.reasonCode === null ? '服务端未给出原因码' : RESET_REJECT_TEXT[result.reasonCode]
+          } (当时在场 ${String(result.evictedPlayers)} 人)`,
+        })
+      }
       setPending(null)
       overview.reload()
     } catch (error: unknown) {
@@ -862,7 +884,7 @@ function MiningTab({ onToast }: { onToast: (toast: PanelToast) => void }): React
 
   if (overview.status === 'loading') {
     return (
-      <Section title="副本重置" hint="全服只有 3 个常驻共享固定实例, 每难度一个, 不存在私有副本">
+      <Section title="副本重置" hint={MINING_TAB_HINT}>
         <LoadingBlock label="正在拉取矿洞实例" />
       </Section>
     )
@@ -870,19 +892,23 @@ function MiningTab({ onToast }: { onToast: (toast: PanelToast) => void }): React
 
   if (overview.status === 'error') {
     return (
-      <Section title="副本重置" hint="全服只有 3 个常驻共享固定实例, 每难度一个, 不存在私有副本">
+      <Section title="副本重置" hint={MINING_TAB_HINT}>
         <ErrorBlock message={overview.error.message} code="mining.overview" onRetry={overview.reload} />
       </Section>
     )
   }
 
   const instances = overview.data.instances
+  const gameTime = overview.data.gameTime
   const now = Date.now()
+  const nameOf = (instance: MiningInstanceRow): string =>
+    instanceNames[instance.nameKey] ?? instance.difficulty
+  const pendingName = pending === null ? '' : nameOf(pending)
 
   return (
     <Section
       title="副本重置"
-      hint="重置会清空该副本的当前进度, 不可撤销"
+      hint="重置会清空该区域的当前进度并清出在场玩家, 不可撤销; 服务端不做二次确认"
       actions={
         <Button aria-label="重新拉取矿洞实例" onClick={overview.reload} size="sm" variant="outline">
           <RefreshCwIcon />
@@ -890,45 +916,80 @@ function MiningTab({ onToast }: { onToast: (toast: PanelToast) => void }): React
         </Button>
       }
     >
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="重置方式">
+          <Dropdown
+            value={reseed ? 'NEW_SEED' : 'SAME_SEED'}
+            options={RESEED_OPTIONS}
+            onChange={(next) => {
+              setReseed(next === 'NEW_SEED')
+            }}
+          />
+        </Field>
+        <p className="text-muted-foreground text-xs">
+          换图 = 换一份新地形 (与定时自动刷新同口径); 原样重建 = 用同一个种子把地形恢复原状
+        </p>
+      </div>
+
       {instances.length === 0 ? (
         <EmptyBlock
-          title="没有可重置的矿洞实例"
-          hint="三个常驻实例一个都没回来, 属服务端异常"
+          title="没有可重置的矿洞区域"
+          hint="三块常驻区域一块都没回来, 属服务端异常"
           icon={<TriangleAlertIcon aria-hidden="true" />}
         />
       ) : (
         <div className="flex flex-wrap gap-3">
-          {instances.map((instance) => (
-            <Surface className="flex w-96 flex-col gap-2" key={instance.difficulty}>
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="font-medium text-foreground text-sm">{instance.displayName}</h3>
-                <Tag tone={overview.data.myDifficulty === instance.difficulty ? 'brand' : 'neutral'}>
-                  {instance.difficulty}
-                </Tag>
-              </div>
-              <div className="flex flex-wrap gap-6">
-                <Stat label="矿工等级门槛" value={String(instance.requiredMinerLevel)} />
-                <Stat label="当前在内" value={`${String(instance.playersInside)} 人`} />
-              </div>
-              <Meter
-                value={instance.danger}
-                max={1}
-                tone={instance.danger >= 0.7 ? 'danger' : instance.danger >= 0.4 ? 'warning' : 'success'}
-                size="sm"
-                label={`danger ${(instance.danger * 100).toFixed(0)}%`}
-              />
-              <span className="text-muted-foreground text-xs">{`上次重置 ${formatMoment(instance.lastResetAt)}`}</span>
-              <span className="text-muted-foreground text-xs">{`下次自动重置 ${formatCountdown(instance.nextResetAt, now)}`}</span>
-              <Button
-                onClick={() => {
-                  setPending(instance)
-                }}
-                variant="destructive"
-              >
-                立即重置
-              </Button>
-            </Surface>
-          ))}
+          {instances.map((instance) => {
+            /*
+             * nextResetGameTime 是矿山维度 game tick, 与顶层 gameTime 同一时钟; 关闭定时刷新或没有基准
+             * 时它是 null, 此时**不许画倒计时** (画一个假的比不画更糟)。
+             */
+            const nextResetAt =
+              instance.nextResetGameTime === null
+                ? null
+                : tickDeadline(
+                    Math.max(0, instance.nextResetGameTime - gameTime),
+                    overviewReceivedAt,
+                  )
+            return (
+              <Surface className="flex w-96 flex-col gap-2" key={instance.difficulty}>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-medium text-foreground text-sm">{nameOf(instance)}</h3>
+                  <Tag tone={overview.data.myDifficulty === instance.difficulty ? 'brand' : 'neutral'}>
+                    {instance.difficulty}
+                  </Tag>
+                </div>
+                <div className="flex flex-wrap gap-6">
+                  <Stat label="矿工等级门槛" value={String(instance.requiredMinerLevel)} />
+                  <Stat
+                    label="当前在内"
+                    value={instance.playersInside === null ? '—' : `${String(instance.playersInside)} 人`}
+                  />
+                  <Stat label="区域状态" value={instance.genState ?? '不存在'} />
+                </div>
+                <span className="text-muted-foreground text-xs">
+                  {/* 手动/管理台重置不写 lastReset, 故这一栏只代表"上次定时刷新", 不能写成"上次重置"。 */}
+                  {instance.autoResetHours <= 0
+                    ? '该难度已关闭定时刷新'
+                    : `定时刷新周期 ${String(instance.autoResetHours)} 小时`}
+                </span>
+                <span className="text-muted-foreground text-xs">
+                  {nextResetAt === null
+                    ? '无定时刷新倒计时'
+                    : `下次定时刷新 ${formatCountdown(nextResetAt, now)}`}
+                </span>
+                <Button
+                  disabled={!instance.available}
+                  onClick={() => {
+                    setPending(instance)
+                  }}
+                  variant="destructive"
+                >
+                  立即重置
+                </Button>
+              </Surface>
+            )
+          })}
         </div>
       )}
 
@@ -940,13 +1001,15 @@ function MiningTab({ onToast }: { onToast: (toast: PanelToast) => void }): React
         message={
           pending === null
             ? ''
-            : `该实例内当前有 ${String(
-                pending.playersInside,
-              )} 名玩家, 重置会把他们全部踢出并清空进度。此操作不可撤销, 服务端不会再问第二遍。`
+            : `该区域内当前有 ${
+                pending.playersInside === null ? '未知数量的' : String(pending.playersInside)
+              } 名玩家, 重置会把他们全部清出并${
+                reseed ? '换成一份新地形' : '用同一个种子恢复原地形'
+              }。此操作不可撤销, 服务端不会再问第二遍。`
         }
         onConfirm={() => {
           if (pending !== null) {
-            void runReset(pending)
+            void runReset(pending, pendingName)
           }
         }}
         onOpenChange={(next) => {
@@ -956,7 +1019,7 @@ function MiningTab({ onToast }: { onToast: (toast: PanelToast) => void }): React
           }
         }}
         open={pending !== null}
-        title={pending === null ? '重置矿洞实例' : `重置 ${pending.displayName}`}
+        title={pending === null ? '重置矿洞区域' : `重置 ${pendingName}`}
       />
     </Section>
   )
@@ -1042,17 +1105,24 @@ export function AdminPage(): ReactElement {
     setToastValue(next)
   }
 
+  /*
+   * 只列在线玩家: 三条 admin.* 全部只认在线玩家 (离线玩家的 capability 不在内存里, 账本接口也只收
+   * ServerPlayer), 列出离线的等于给 OP 一个点了必被 INVALID_REQUEST 拒的选项。
+   * 名册取自 player.roster —— 服务端只把在线的人放进去, 故这里不必再过滤一次 online。
+   * 自己也在名册里 (服务端刻意不剔除, 调账目标可以是自己), 单拎出来加个"我自己"标注免得两条同名项。
+   */
+  const rosterQuery = useMockAction('player.roster', {})
+  const rosterNames = (rosterQuery.data?.players ?? [])
+    .map((entry) => entry.name)
+    .filter((name) => name !== world.player.name)
   const playerOptions: readonly DropdownOption<string>[] = [
     { value: world.player.name, label: `${world.player.name} (我自己)` },
-    ...world.otherPlayers.map((player) => ({
-      value: player.name,
-      label: `${player.name}${player.online ? '' : ' (离线)'}`,
-    })),
+    ...rosterNames.map((name) => ({ value: name, label: name })),
   ]
 
   // 职业名走翻译键 (job.progress 已核销为真契约, 进度条目不再带中文名); 解不出时退回键本身。
   const jobNames = useItemNames(world.jobs.progress.map((entry) => jobNameKey(entry.jobId)))
-  const jobOptions: readonly { value: PlannedJobId; label: string }[] = world.jobs.progress.map((entry) => ({
+  const jobOptions: readonly { value: WebUiJobId; label: string }[] = world.jobs.progress.map((entry) => ({
     value: entry.jobId,
     label: jobNames[jobNameKey(entry.jobId)] ?? jobNameKey(entry.jobId),
   }))
@@ -1061,13 +1131,14 @@ export function AdminPage(): ReactElement {
    * 目标玩家在某职业的当前等级。自己与他人取自两处不同的世界字段 (自己有完整进度, 他人只有等级表),
    * 取不到时返回 null 而不是 1 —— "查不到"和"真的是 1 级"在调级面板上是两件事。
    */
-  const currentLevel = (jobId: PlannedJobId): number | null => {
+  const currentLevel = (jobId: WebUiJobId): number | null => {
     if (target === world.player.name) {
       const entry = world.jobs.progress.find((candidate) => candidate.jobId === jobId)
       return entry === undefined ? null : entry.level
     }
-    const other = world.otherPlayers.find((candidate) => candidate.name === target)
-    return other === undefined ? null : other.jobLevels[jobId]
+    // 别人的职业等级没有任何只读 action (admin.job.setLevel 只写不读), player.roster 也只给名字与 uuid。
+    // 返回 null 让界面显示"未知"而不是编一个 1 —— 面板上"查不到"与"真的是 1 级"是两件事。
+    return null
   }
 
   const pushToast = (next: PanelToast): void => {
@@ -1110,7 +1181,6 @@ export function AdminPage(): ReactElement {
 
       {tab === 'economy' ? (
         <EconomyTab
-          players={world.otherPlayers}
           playerOptions={playerOptions}
           target={target}
           onTargetChange={setTarget}

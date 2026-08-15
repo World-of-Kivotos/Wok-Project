@@ -52,6 +52,20 @@ public final class MarriageSystem implements Subsystem {
     /** 传送蓄力状态机 (进程级单例; 交互回调起、ServerTickEvent 推进, 主线程独占)。 */
     private final MarriageTeleport teleport = new MarriageTeleport();
 
+    /**
+     * 接线校验缝: {@link #register} 把注入给面板的那两张表原样记在这里, 供 GameTest 断言
+     * "面板拿到的就是本子系统自己那张表"。
+     *
+     * 为什么单靠"marriage.* 注册了没有"测不出来: 把这一行改成 {@code registerAll(new MarriageProposals(), ...)},
+     * action 照样注册成功, 十条用例也照样全绿 —— 因为它们全都经 {@code MarriageWebUiActions.proposals()} 读同一份
+     * 错表, 自洽。而真服上的后果是 A 用 /marriage propose 求的婚 B 在面板上永远看不见, 离婚时也关不掉对方
+     * 正开着的共享背包窗口 (spec 第四章要堵死的并发 dupe 窗口)。唯一能证伪它的断言是<b>实例同一性</b>。
+     *
+     * 生产代码一律经构造注入取用这两张表, 不许读这两个静态字段。
+     */
+    static MarriageProposals wiredProposals;
+    static MarriageBackpackSessions wiredBackpackSessions;
+
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
         forgeBus.register(this);
@@ -60,6 +74,11 @@ public final class MarriageSystem implements Subsystem {
         touch(MarriageRegistration.BACKPACK_MENU);
         // 客户端 Screen 注册 (FMLClientSetupEvent + DistExecutor 隔离; 专用服务器永不触客户端类)。
         modBus.addListener(this::onClientSetup);
+        // 婚姻面板的 marriage.* WebUiAction: 注入本子系统的两张瞬态表, 使面板与 /marriage 命令共用同一份婚约意向
+        // 与同一份共享背包会话 (各 new 一份 = 命令行求的婚面板看不见, 且离婚强制关窗关不到真正打开的那些窗口)。
+        MarriageWebUiActions.registerAll(proposals, backpackSessions);
+        wiredProposals = proposals;
+        wiredBackpackSessions = backpackSessions;
         LOGGER.info("[miningdim] marriage subsystem registered (rings + ceremony + shared backpack + teleport + divorce)");
     }
 

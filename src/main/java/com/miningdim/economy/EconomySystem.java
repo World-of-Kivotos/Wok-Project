@@ -72,6 +72,10 @@ public final class EconomySystem implements Subsystem {
     public void register(IEventBus modBus, IEventBus forgeBus) {
         // 全部是 forge 总线运行期事件 (挖掘/死亡/tick/玩家生命周期/服务端启停), 不涉及 mod 总线注册。
         forgeBus.register(this);
+        // 面板层与事件层必须共用同一份玩家反滥用态和同一个 AbuseGuard: 传 this 是为了让 economy.priceTable 读到的
+        // 当日矿物计数, 就是 onBlockBreak 正在写的那一份 (另起一份等于让面板显示一个谁也没在用的影子账)。
+        EconomyWebUiActions.registerAll(this);
+        EconomyAdminWebUiActions.registerAll();
         LOGGER.info("[miningdim] economy subsystem registered (abuse gates: reset/ore-softcap/afk/reentry/death)");
     }
 

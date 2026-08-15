@@ -1,14 +1,17 @@
 /**
  * mock 世界状态单例 —— 全部面板在"接线前"共用的那一份可变内存世界。
  *
- * 为什么不是静态 fixture: 验收判据是"操作有可见后果" —— 挂单后它要出现在我的挂单里、卖菜后今日已售
- * 要涨、抽卡后卡池持有要变。一坨常量做不到这件事, 只能做出看着像能用、点下去什么都不动的死界面。
+ * 为什么不是静态 fixture: 验收判据是"操作有可见后果" —— 写操作之后 hub 首页的余额与背包格要跟着变、
+ * 顶栏 OP 视图一拨三处面板一起翻。一坨常量做不到这件事, 只能做出看着像能用、点下去什么都不动的死界面。
  *
  * 与 ../lib/bridge.mock.ts 的分工 (二者并存, 互不写对方的状态):
- *   - bridge.mock 是**真契约那 35 个 action** 的假后端, 挂在 lib/bridge 的 call() 后面。它是那些 action
+ *   - bridge.mock 是**真契约 action** 的假后端, 挂在 lib/bridge 的 call() 后面。它是那些 action
  *     在 dev 下的唯一权威, 本文件不复制它的任何规则, 也不改它的任何字段。
  *   - 本文件是**后端还没有的那些面板**的假世界, 并额外持有真域回执的只读镜像 (mirror), 好让 hub 首页
  *     这类聚合视图不必自己再发一轮请求。镜像只由 handlers 在调完 call() 之后写入, 是单向的。
+ *
+ * 本轮核销 (28 条 action 落地真服) 之后, 假世界只剩系统商店 shops 一块 —— 职业/经济/婚姻/矿洞/图鉴/管理
+ * 六块连同各自的种子已随对应 handler 一并删除, 它们现在整条走真桥。
  *
  * 于是"同一份数据两个权威"这个经典 mock 事故在这里不成立: 钱包/背包/挂单的权威恒在 bridge.mock (接线后
  * 是真服), 本文件只存它回来的样子; 唯一的例外是 walletOverlay, 那是刻意留的、有明确销毁条件的叠加层,
@@ -25,25 +28,7 @@ import type {
   PlayerJobProgressEntry,
   WebUiWallet,
 } from '../lib/types'
-import type {
-  PlannedAgentStateResult,
-  PlannedBlueprintsResult,
-  PlannedChampionCodexResult,
-  PlannedChampionInspectResult,
-  PlannedCurrency,
-  PlannedEconomyStatusResult,
-  PlannedEconomyTodayResult,
-  PlannedEngineerStateResult,
-  PlannedJobId,
-  PlannedMarriageStateResult,
-  PlannedMiningInstance,
-  PlannedMiningMyStatusResult,
-  PlannedMunitionsStateResult,
-  PlannedPriceTableResult,
-  PlannedSharedInvResult,
-  PlannedShopEntry,
-  PlannedTarotStateResult,
-} from './planned'
+import type { PlannedShopEntry } from './planned'
 import { createInitialWorld } from './seed'
 
 /**
@@ -74,14 +59,14 @@ export interface MockRealDomainMirror {
 }
 
 /**
- * 钱包叠加层 —— 唯一一处本文件敢改"真域数据"的地方, 有明确的存在理由与销毁条件。
+ * 钱包叠加层 —— 曾经唯一一处本文件敢改"真域数据"的地方, 现已到达它自己写明的销毁条件。
  *
- * 理由: 卖菜进账、买卡包扣费、买戒指扣费这些都是 planned 域的动作, 真服里它们由服务端直接改钱包;
- * 但 mock 阶段钱包权威在 bridge.mock 内部, 外部无写入口。若不叠加, 玩家在演示里卖完菜钱包纹丝不动,
- * 那是比数字不准更糟的错觉。
+ * 原理由: 买卡包/买戒指这类扣费当时是 planned 域动作, 钱包权威却在 bridge.mock 内部无外部写入口,
+ * 不叠加就会出现"付了钱但余额纹丝不动"的错觉。这些 action 本轮全部核销成真契约, 扣款改由服务端落在
+ * 那份真钱包上, 于是**本文件已无任何写入方, 两个分量恒为 0**。
  *
- * 销毁条件: 某个 planned action 接线成真之后, 它对钱包的影响就由服务端回执带回来了, 对应的叠加调用
- * 必须一并删掉; 全部 planned 域接完时本字段整体删除。它只在 isMockActive() 为真时被计入 (见 handlers)。
+ * 之所以还留着结构: lib/bridge.mock 的 mockProfile 仍在读它做余额合成 (那侧本轮尚未跟进改造)。
+ * 待 bridge.mock 补齐 28 条真 action 时, 应连同那处读取一并删除本字段。
  */
 export interface MockWalletOverlay {
   credit: number
@@ -89,45 +74,14 @@ export interface MockWalletOverlay {
 }
 
 /**
- * 尚未核销的职业面板状态。每个字段直接就是对应 planned action 的 result 形状, handlers 只做克隆。
+ * 职业进度。八家职业面板本身已全部核销成真契约, 各自的假数据随之搬进 lib/bridge.mock (真契约那侧的
+ * 唯一假后端), 本处不再留一份 —— 两份权威必然漂移。
  *
- * 矿工/农夫/厨师/酿酒师四家已在 W3 核销成真契约, 它们的假数据随之搬进 lib/bridge.mock (真契约那侧的
- * 唯一假后端), 本处不再留一份 —— 两份权威必然漂移。progress 仍留在这里: 它的消费方是 bridge.mock 的
- * mockProfile 与仍是 planned 的 admin.job.setLevel / mining.enter 等级门, 类型换成真契约的条目形状。
+ * 只剩 progress 一项: 它的消费方是 bridge.mock 的 mockProfile / mockJobProgress / mockJobLevel,
+ * 那侧刻意不另存一份等级, 否则外壳顶栏的 OP 视图与首页会出现"开关拨了但数字没变"的假故障。
  */
 export interface MockJobState {
   progress: PlayerJobProgressEntry[]
-  tarot: PlannedTarotStateResult
-  agent: PlannedAgentStateResult
-  munitions: PlannedMunitionsStateResult
-  engineer: PlannedEngineerStateResult
-  blueprints: PlannedBlueprintsResult
-}
-
-export interface MockEconomyState {
-  status: PlannedEconomyStatusResult
-  today: PlannedEconomyTodayResult
-  priceTable: PlannedPriceTableResult
-}
-
-export interface MockMiningState {
-  instances: PlannedMiningInstance[]
-  myStatus: PlannedMiningMyStatusResult
-}
-
-export interface MockChampionState {
-  codex: PlannedChampionCodexResult
-  /** 可被 champion.inspect 查到的样本实体。真服按实体 id 查活体, mock 只能给几只固定的。 */
-  samples: PlannedChampionInspectResult[]
-}
-
-/** 其他玩家: 求婚选人、OP 调账选目标、看配偶在线都要用 (真服这块是 A16 的缺口)。 */
-export interface MockOtherPlayer {
-  name: string
-  uuid: string
-  online: boolean
-  wallet: WebUiWallet
-  jobLevels: Record<PlannedJobId, number>
 }
 
 export interface MockWorld {
@@ -142,13 +96,7 @@ export interface MockWorld {
   mirror: MockRealDomainMirror
   walletOverlay: MockWalletOverlay
   jobs: MockJobState
-  economy: MockEconomyState
-  marriage: PlannedMarriageStateResult
-  sharedInv: PlannedSharedInvResult
-  mining: MockMiningState
-  champion: MockChampionState
   shops: PlannedShopEntry[]
-  otherPlayers: MockOtherPlayer[]
 }
 
 let world: MockWorld = createInitialWorld()
@@ -203,32 +151,4 @@ export function nowMs(): number {
 /** 深拷贝一份回执, 免得面板改到世界状态本身 (React 里最难查的一类 bug 就是有人就地改了数据源)。 */
 export function cloneResult<T>(value: T): T {
   return structuredClone(value)
-}
-
-/** 按 id 取职业进度条目; 不存在即为种子数据缺陷, 直接抛而不是补一条空的。 */
-export function requireJobProgress(draft: MockWorld, jobId: PlannedJobId): PlayerJobProgressEntry {
-  const entry = draft.jobs.progress.find((candidate) => candidate.jobId === jobId)
-  if (entry === undefined) {
-    throw new Error(`mock 种子缺陷: 职业进度表里没有 ${jobId}`)
-  }
-  return entry
-}
-
-/** 按名字取其他玩家; 找不到时抛 —— 求婚/调账输错名字在真服也是失败, 不该静默造一个人出来。 */
-export function findOtherPlayer(draft: MockWorld, name: string): MockOtherPlayer | undefined {
-  const lowered = name.toLowerCase()
-  return draft.otherPlayers.find((candidate) => candidate.name.toLowerCase() === lowered)
-}
-
-/** 给叠加层记一笔。currency 与 planned 契约的 PlannedCurrency 同口径。 */
-export function addWalletOverlay(
-  draft: MockWorld,
-  currency: PlannedCurrency,
-  delta: number,
-): void {
-  if (currency === 'CREDIT') {
-    draft.walletOverlay.credit += delta
-    return
-  }
-  draft.walletOverlay.azure += delta
 }

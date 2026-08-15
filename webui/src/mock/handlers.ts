@@ -2,10 +2,11 @@
  * mock 面板层的唯一调用口 —— callMock(action, payload), 与 lib/bridge 的 call(action, payload) 同签名。
  *
  * 它覆盖两种 action, 且两种走完全不同的路:
- *   1. **真契约那 37 个** (lib/actions.ts 的 SERVER_ACTIONS + CLIENT_LOCAL_ACTIONS): 原样转调 call(),
- *      即 dev 下落 bridge.mock、装进游戏后落真服。本层一行业务规则都不加, 只在写操作成功后顺手把回执
- *      抄进 store.mirror, 好让别的面板 (hub 首页的余额、背包格) 立刻看见后果。
- *   2. **planned.ts 里那 31 个**: 后端还不存在, 全部由 store 的内存世界回答, 带 150-400ms 人为延迟。
+ *   1. **真契约那 65 个** (lib/actions.ts 的 SERVER_ACTIONS 63 条 + CLIENT_LOCAL_ACTIONS 2 条): 原样转调
+ *      call(), 即 dev 下落 bridge.mock、装进游戏后落真服。本层一行业务规则都不加, 只在写操作成功后顺手把
+ *      回执抄进 store.mirror, 好让别的面板 (hub 首页的余额、背包格) 立刻看见后果。
+ *   2. **planned.ts 里剩下那 2 个** (shop.catalog / shop.detail): 后端还不存在 (在 WOK-ChestShop 跨仓),
+ *      由 store 的内存世界回答, 带 150-400ms 人为延迟。
  *
  * 为什么要有第 1 类的转调层 (而不是让面板直接用 call):
  * 跨面板的可见后果必须有人负责。市场页买入之后 hub 首页的余额得跟着降 —— 若各页各自 call, 没人知道
@@ -16,39 +17,29 @@
  * 只需要改契约表。面板代码全程不动。
  *
  * 已知偏差 (mock 阶段独有, 接线即消失, 面板不得据此推断服务端行为):
- *   1. planned 域的收支 (买卡包 / 买戒指 / 系统商店下单) 只能记进 store.walletOverlay 叠加层, 再与
- *      bridge.mock 的真钱包合成后展示。叠加层仅在 isMockActive() 为真时计入, 生产构建下恒为 0。
- *      (job.farmer.sell 已在 W3 核销为真契约, 它的钱包影响改由 bridge.mock 的 mockFarmerSell 直接落在
- *      那份真钱包上, 不再经叠加层。)
- *   2. 手续费率、掉率、等级曲线一律不复刻服务端规则 —— 与 bridge.mock 头部同一条纪律: 漂移的假规则比
- *      没有规则更误导。凡是必须给个数才能画界面的地方都标了"占位比例"。
+ *   1. 系统商店的报价 (buyPrice / sellPrice / stock) 不复刻服务端任何定价规则, 是按等差凑出来的占位数字,
+ *      只为把"只收不卖""无限库存""有比价对手/无比价对手"几种形态铺满 —— 与 bridge.mock 头部同一条纪律:
+ *      漂移的假规则比没有规则更误导。比价排序也因此只是按种子顺序, 不代表真服会怎么排。
+ *
+ * 已随本轮核销消失的偏差 (留档, 免得有人照着旧文档再造一遍):
+ *   钱包叠加层 store.walletOverlay 曾用来记 planned 域收支 (买卡包 / 买戒指 / 系统商店下单)。这三笔的
+ *   前两笔已核销成真契约、由服务端直接扣款, 第三笔 (shop.buy) 按"系统商店只做浏览比价"的决策整条删除,
+ *   故本层已无任何写入叠加层的地方。取而代之的是把这些真 action 登记进下面的镜像刷新表。
  */
 
 import type { WebUiActionName } from '../lib/actions'
 import type { WebUiContract } from '../lib/bridge'
-import { SERVER_FAILURE_CODE, WebUiCallError, call, isMockActive } from '../lib/bridge'
-import type { WebUiWallet } from '../lib/types'
+import { SERVER_FAILURE_CODE, WebUiCallError, call } from '../lib/bridge'
 import type {
   PlannedActionName,
-  PlannedBlockPos,
   PlannedContractMap,
   PlannedPayloadOf,
   PlannedResultOf,
-  PlannedSealTarget,
   PlannedShopEntry,
-  PlannedTarotDraw,
 } from './planned'
 import { PLANNED_ACTIONS } from './planned'
-import type { MockWalletOverlay, MockWorld } from './store'
-import {
-  addWalletOverlay,
-  cloneResult,
-  findOtherPlayer,
-  getWorld,
-  mutateWorld,
-  nowMs,
-  requireJobProgress,
-} from './store'
+import type { MockWorld } from './store'
+import { cloneResult, getWorld, mutateWorld, nowMs } from './store'
 
 // ============================================================
 // 契约合并 (两张表并排放, 永不合并成一张)
@@ -106,23 +97,31 @@ function fail(action: MockActionName, message: string): WebUiCallError {
   return new WebUiCallError(action, SERVER_FAILURE_CODE, message, null)
 }
 
-function requireOp(action: MockActionName, world: MockWorld): void {
-  if (!world.player.isOp) {
-    throw fail(action, '该操作需要 OP 权限')
-  }
-}
-
 // ============================================================
 // 真域镜像 (第 1 类 action 的回执抄本)
 // ============================================================
 
-/** 写操作之后要刷哪几块镜像。key 是真 action 名, 不要往里塞 planned 名。 */
+/**
+ * 写操作之后要刷哪几块镜像。key 是真 action 名, 不要往里塞 planned 名。
+ *
+ * 判据只有一条: 该 action 会不会动**本人**的钱包或背包。会动就必须列进来 —— 这批里的后五条过去是 planned,
+ * 靠写 walletOverlay 让界面立刻变; 叠加层随核销作废后, 唯一能让 hub 首页跟着变的就是重拉一次镜像。
+ */
 const MIRROR_AFTER_WALLET_INVENTORY = new Set<string>([
   'market.place',
   'market.buy',
   'market.cancel',
   // 卖菜是先扣物后发钱, 两块镜像都会变 —— 不刷的话 hub 首页的余额与背包格会停在卖之前的样子。
   'job.farmer.sell',
+  // 扣信用点/青辉石并把卡包**实物**发进背包 (回执 itemId 就是那件卡包), 两块镜像都会变。
+  'job.tarot.buyPack',
+  // 扣款并发戒指; 背包满时戒指掉在脚下, 那一次背包不变但钱照扣, 故仍要刷。
+  'marriage.buyRing',
+  // 典礼与离婚都要收费 (两者都有 INSUFFICIENT_FUNDS 态), 离婚还会把共享背包内容退回发起方背包。
+  'marriage.wed',
+  'marriage.divorce',
+  // OP 调账的目标可能就是自己, 此时改的正是本人钱包。
+  'admin.economy.set',
 ])
 const MIRROR_AFTER_CASE = new Set<string>(['case.open', 'case.apply'])
 
@@ -156,73 +155,9 @@ export async function primeRealDomainMirror(): Promise<void> {
   await Promise.all([refreshWalletAndInventory(), refreshCaseTotals()])
 }
 
-/**
- * 取钱包基线; 镜像为空时先拉一次。
- * 拉完仍为空说明 call 回了个不符契约的东西, 直接抛 —— 余额这种数字上兜一个 0 出来是最坏的处理。
- */
-async function ensureWallet(action: MockActionName): Promise<WebUiWallet> {
-  if (getWorld().mirror.wallet === null) {
-    await refreshWalletAndInventory()
-  }
-  const wallet = getWorld().mirror.wallet
-  if (wallet === null) {
-    throw fail(action, '钱包镜像仍为空: player.wallet 没有回出可用数据')
-  }
-  return wallet
-}
-
-/** 基线 + 叠加层 = 面板该显示的余额。生产构建下叠加层恒不计入 (见 store.MockWalletOverlay)。 */
-function withOverlay(base: WebUiWallet, overlay: MockWalletOverlay): WebUiWallet {
-  if (!isMockActive()) {
-    return { ...base }
-  }
-  return { credit: base.credit + overlay.credit, azure: base.azure + overlay.azure }
-}
-
 // ============================================================
 // planned handler 用的小工具
 // ============================================================
-
-/**
- * mock 玩家所在坐标。真服由 sender 自带, mock 没有这个来源, 故钉一个常量 ——
- * 探测/封印/矿洞面板只关心"有没有一组坐标能画", 不关心它在哪。
- */
-const MOCK_PLAYER_POS: PlannedBlockPos = { x: 128, y: 40, z: -64 }
-
-const AGENT_SCAN_COOLDOWN_MS = 45_000
-const AGENT_SCAN_SNAPSHOT_MS = 20_000
-const CARDS_PER_PACK = 3
-/** 重复卡折算的碎片数。占位值, 真实兑换比在塔罗 spec 里, 不在这。 */
-const DUPLICATE_FRAGMENTS = 40
-
-/** 围绕原点铺一圈确定性的命中点: 同样的入参永远画出同一组坐标, 截图可复现。 */
-function deterministicHits(count: number, radius: number): PlannedBlockPos[] {
-  const hits: PlannedBlockPos[] = []
-  for (let index = 0; index < count; index += 1) {
-    const angle = (index / count) * Math.PI * 2
-    const distance = radius * (0.35 + (index % 4) * 0.15)
-    hits.push({
-      x: MOCK_PLAYER_POS.x + Math.round(Math.cos(angle) * distance),
-      y: MOCK_PLAYER_POS.y - (index % 9),
-      z: MOCK_PLAYER_POS.z + Math.round(Math.sin(angle) * distance),
-    })
-  }
-  return hits
-}
-
-function buildSealTargets(world: MockWorld): PlannedSealTarget[] {
-  const positions = deterministicHits(3, 20)
-  return world.champion.samples.map((sample, index) => {
-    const pos = positions[index]
-    return {
-      targetNetworkId: sample.entityId,
-      entityLabel: sample.displayName,
-      star: sample.star,
-      affixIds: [...sample.affixIds],
-      pos: pos === undefined ? MOCK_PLAYER_POS : pos,
-    }
-  })
-}
 
 /** 系统商店比价: 同一件物品在别家店的报价 (H4 在真服是要新建的反向索引)。 */
 function comparableShops(world: MockWorld, shop: PlannedShopEntry): PlannedShopEntry[] {
@@ -246,353 +181,6 @@ type PlannedHandlerMap = {
 }
 
 const PLANNED_HANDLERS: PlannedHandlerMap = {
-  'job.tarot.state': () => cloneResult(getWorld().jobs.tarot),
-
-  'job.tarot.buyPack': async (payload) => {
-    const world = getWorld()
-    const tarot = world.jobs.tarot
-    if (payload.count <= 0) {
-      throw fail('job.tarot.buyPack', '购买数量必须为正整数')
-    }
-    const remaining = tarot.packDailyLimit - tarot.packsBoughtToday
-    if (payload.count > remaining) {
-      throw fail('job.tarot.buyPack', `今日限购剩余 ${String(remaining)} 包`)
-    }
-    const base = await ensureWallet('job.tarot.buyPack')
-    const spentCredit = tarot.packPriceCredit * payload.count
-    const available = withOverlay(base, world.walletOverlay)
-    if (available.credit < spentCredit) {
-      throw fail('job.tarot.buyPack', '信用点不足')
-    }
-    const drawn: PlannedTarotDraw[] = []
-    let fragmentsGained = 0
-    mutateWorld((draft) => {
-      const deck = draft.jobs.tarot.deck
-      for (let index = 0; index < payload.count * CARDS_PER_PACK; index += 1) {
-        // 按已购包数推进的确定性抽取: 同一状态下开出的牌恒定, 但连开会一路走过整副牌, 不会永远只出同一张。
-        const seed = (draft.jobs.tarot.packsBoughtToday + 1) * 7 + index * 5
-        const card = deck[seed % deck.length]
-        if (card === undefined) {
-          throw fail('job.tarot.buyPack', 'mock 种子缺陷: 牌组为空')
-        }
-        const duplicate = card.owned > 0
-        if (duplicate) {
-          fragmentsGained += DUPLICATE_FRAGMENTS
-        } else {
-          card.owned = 1
-        }
-        drawn.push({
-          cardId: card.cardId,
-          displayName: card.displayName,
-          quality: card.quality,
-          duplicate,
-        })
-      }
-      draft.jobs.tarot.packsBoughtToday += payload.count
-      draft.jobs.tarot.fragments += fragmentsGained
-      addWalletOverlay(draft, 'CREDIT', -spentCredit)
-      const sink = draft.economy.today.sinks.find((entry) => entry.sinkKey === 'tarot_pack')
-      if (sink !== undefined) {
-        sink.spentToday += spentCredit
-      }
-      draft.economy.today.totalCreditOut += spentCredit
-    })
-    const after = getWorld().jobs.tarot
-    return {
-      drawn,
-      spentCredit,
-      fragmentsGained,
-      packsBoughtToday: after.packsBoughtToday,
-      packsRemainingToday: after.packDailyLimit - after.packsBoughtToday,
-    }
-  },
-
-  'job.agent.state': () => cloneResult(getWorld().jobs.agent),
-
-  'job.agent.scan': () => {
-    const world = getWorld()
-    const now = nowMs()
-    if (world.jobs.agent.scanReadyAt > now) {
-      throw fail(
-        'job.agent.scan',
-        `战术扫描冷却中, 还需 ${String(Math.ceil((world.jobs.agent.scanReadyAt - now) / 1000))} 秒`,
-      )
-    }
-    const seals = buildSealTargets(world)
-    const readyAt = now + AGENT_SCAN_COOLDOWN_MS
-    mutateWorld((draft) => {
-      draft.jobs.agent.seals = seals
-      draft.jobs.agent.scanReadyAt = readyAt
-    })
-    return {
-      seals: cloneResult(seals),
-      radius: world.jobs.agent.scanRadius,
-      scanReadyAt: readyAt,
-      expiresAt: now + AGENT_SCAN_SNAPSHOT_MS,
-    }
-  },
-
-  'job.agent.seal': (payload) => {
-    const world = getWorld()
-    const target = world.jobs.agent.seals.find(
-      (entry) => entry.targetNetworkId === payload.targetNetworkId,
-    )
-    if (target === undefined) {
-      throw fail('job.agent.seal', '目标不在当前扫描快照内, 请重新扫描')
-    }
-    if (!target.affixIds.includes(payload.affixId)) {
-      throw fail('job.agent.seal', '该目标身上没有这个词条')
-    }
-    /*
-     * 成败判定只用"星级越高越难封"这一条占位规则。真裁决是 SealOutcome 九态, 逻辑在服务端;
-     * 这里绝不复刻它, 只保证成功与失败两条 UI 分支都能被走到。
-     */
-    const ok = target.star <= 6
-    if (ok) {
-      mutateWorld((draft) => {
-        const entry = draft.jobs.agent.seals.find(
-          (candidate) => candidate.targetNetworkId === payload.targetNetworkId,
-        )
-        if (entry !== undefined) {
-          entry.affixIds = entry.affixIds.filter((affixId) => affixId !== payload.affixId)
-        }
-      })
-    }
-    return {
-      ok,
-      outcomeCode: ok ? 'SEALED' : 'RESISTED',
-      message: ok ? `已封印 ${payload.affixId}` : `目标星级过高, 封印被抵抗 (${String(target.star)} 星)`,
-    }
-  },
-
-  'job.munitions.state': () => cloneResult(getWorld().jobs.munitions),
-
-  'job.blueprints': () => cloneResult(getWorld().jobs.blueprints),
-
-  'job.engineer.state': () => cloneResult(getWorld().jobs.engineer),
-
-  'economy.status': () => cloneResult(getWorld().economy.status),
-
-  'economy.today': () => cloneResult(getWorld().economy.today),
-
-  'economy.priceTable': () => cloneResult(getWorld().economy.priceTable),
-
-  'marriage.state': () => cloneResult(getWorld().marriage),
-
-  'marriage.buyRing': async () => {
-    const world = getWorld()
-    if (world.marriage.ringOwned) {
-      throw fail('marriage.buyRing', '你已经有一枚婚戒了')
-    }
-    const base = await ensureWallet('marriage.buyRing')
-    const cost = world.marriage.ringPriceCredit
-    if (withOverlay(base, world.walletOverlay).credit < cost) {
-      throw fail('marriage.buyRing', '信用点不足以购买婚戒')
-    }
-    mutateWorld((draft) => {
-      draft.marriage.ringOwned = true
-      addWalletOverlay(draft, 'CREDIT', -cost)
-      draft.economy.today.totalCreditOut += cost
-    })
-    const after = getWorld()
-    const updatedBase = after.mirror.wallet
-    return {
-      ok: true,
-      costCredit: cost,
-      wallet: withOverlay(updatedBase === null ? base : updatedBase, after.walletOverlay),
-    }
-  },
-
-  'marriage.propose': (payload) => {
-    const world = getWorld()
-    if (!world.marriage.ringOwned) {
-      throw fail('marriage.propose', '求婚需要先购买婚戒')
-    }
-    if (world.marriage.status !== 'single') {
-      throw fail('marriage.propose', '当前状态无法求婚')
-    }
-    if (world.marriage.outgoingProposal !== null) {
-      throw fail('marriage.propose', '已有一份求婚在等待答复')
-    }
-    const target = findOtherPlayer(world, payload.targetName)
-    if (target === undefined) {
-      // A16 的现实形态: 真服也要经 GameProfileCache 解析, 解不出就是这个错。
-      throw fail('marriage.propose', `找不到玩家 ${payload.targetName}`)
-    }
-    const now = nowMs()
-    const proposal = {
-      proposalId: `prop_out_${String(now)}`,
-      playerName: target.name,
-      playerUuid: target.uuid,
-      createdAt: now,
-      expiresAt: now + 60 * 60_000,
-    }
-    mutateWorld((draft) => {
-      draft.marriage.outgoingProposal = proposal
-    })
-    return {
-      proposalId: proposal.proposalId,
-      targetName: target.name,
-      expiresAt: proposal.expiresAt,
-    }
-  },
-
-  'marriage.respond': (payload) => {
-    const world = getWorld()
-    const proposal = world.marriage.incomingProposals.find(
-      (entry) => entry.proposalId === payload.proposalId,
-    )
-    if (proposal === undefined) {
-      throw fail('marriage.respond', '该求婚已失效')
-    }
-    mutateWorld((draft) => {
-      draft.marriage.incomingProposals = draft.marriage.incomingProposals.filter(
-        (entry) => entry.proposalId !== payload.proposalId,
-      )
-      if (!payload.accept) {
-        return
-      }
-      draft.marriage.status = 'engaged'
-      draft.marriage.spouseName = proposal.playerName
-      draft.marriage.spouseUuid = proposal.playerUuid
-      const spouse = findOtherPlayer(draft, proposal.playerName)
-      draft.marriage.spouseOnline = spouse !== undefined && spouse.online
-      // 接受一份即作废其余: 真服同样不允许同时与两人订婚。
-      draft.marriage.incomingProposals = []
-      draft.marriage.outgoingProposal = null
-    })
-    const after = getWorld().marriage
-    return { status: after.status, spouseName: after.spouseName }
-  },
-
-  'marriage.wed': () => {
-    const world = getWorld()
-    if (world.marriage.status !== 'engaged') {
-      // wed 在真服有六态失败枚举; 这里只保留字符串位, 枚举名以 Java 为准 (见 planned.ts)。
-      return { ok: false, outcomeCode: 'NOT_ENGAGED', message: '尚未订婚, 无法举行典礼', weddedAt: null }
-    }
-    const now = nowMs()
-    mutateWorld((draft) => {
-      draft.marriage.status = 'married'
-      draft.marriage.weddedAt = now
-      draft.marriage.marriageDays = 0
-    })
-    return { ok: true, outcomeCode: 'OK', message: '典礼完成', weddedAt: now }
-  },
-
-  'marriage.divorce': () => {
-    const world = getWorld()
-    if (world.marriage.status !== 'married') {
-      return { ok: false, outcomeCode: 'NOT_MARRIED', message: '当前并未处于婚姻状态', cooldownUntil: 0 }
-    }
-    const cooldownUntil = nowMs() + 3 * 24 * 60 * 60_000
-    mutateWorld((draft) => {
-      draft.marriage.status = 'cooldown'
-      draft.marriage.spouseName = null
-      draft.marriage.spouseUuid = null
-      draft.marriage.spouseOnline = false
-      draft.marriage.weddedAt = null
-      draft.marriage.marriageDays = 0
-      draft.marriage.divorceCount += 1
-      draft.marriage.remarryCooldownUntil = cooldownUntil
-    })
-    return { ok: true, outcomeCode: 'OK', message: '已离婚, 进入再婚冷却', cooldownUntil }
-  },
-
-  'marriage.sharedInv': () => {
-    const world = getWorld()
-    if (world.marriage.status !== 'married') {
-      throw fail('marriage.sharedInv', '共享背包仅对已婚玩家开放')
-    }
-    return cloneResult(world.sharedInv)
-  },
-
-  'mining.overview': () => {
-    const world = getWorld()
-    return {
-      instances: cloneResult(world.mining.instances),
-      myDifficulty: world.mining.myStatus.difficulty,
-    }
-  },
-
-  'mining.myStatus': () => cloneResult(getWorld().mining.myStatus),
-
-  'mining.enter': (payload) => {
-    const world = getWorld()
-    if (world.mining.myStatus.inside) {
-      return {
-        entered: false,
-        difficulty: payload.difficulty,
-        reasonCode: 'ALREADY_INSIDE',
-        message: '你已经在矿洞里了, 请先离开',
-      }
-    }
-    const instance = world.mining.instances.find((entry) => entry.difficulty === payload.difficulty)
-    if (instance === undefined) {
-      throw fail('mining.enter', `未知难度 ${payload.difficulty}`)
-    }
-    const minerLevel = requireJobProgress(world, 'miner').level
-    if (minerLevel < instance.requiredMinerLevel) {
-      return {
-        entered: false,
-        difficulty: payload.difficulty,
-        reasonCode: 'LEVEL_GATE',
-        message: `需要矿工 ${String(instance.requiredMinerLevel)} 级 (当前 ${String(minerLevel)} 级)`,
-      }
-    }
-    mutateWorld((draft) => {
-      const target = draft.mining.instances.find((entry) => entry.difficulty === payload.difficulty)
-      if (target !== undefined) {
-        target.playersInside += 1
-      }
-      draft.mining.myStatus = {
-        inside: true,
-        difficulty: payload.difficulty,
-        regionX: instance.difficulty === 'easy' ? 0 : instance.difficulty === 'medium' ? 1 : 2,
-        regionZ: 0,
-        danger: instance.danger,
-        // F8 新手保护: 进入后一小段时间不刷怪, 真服有这个态但从不告知客户端。
-        spawnFreezeUntil: nowMs() + 30_000,
-        minerLevel,
-      }
-    })
-    return { entered: true, difficulty: payload.difficulty, reasonCode: null, message: '已进入矿洞' }
-  },
-
-  'mining.leave': () => {
-    const world = getWorld()
-    const current = world.mining.myStatus.difficulty
-    if (!world.mining.myStatus.inside || current === null) {
-      return { left: false, message: '你当前不在矿洞里' }
-    }
-    mutateWorld((draft) => {
-      const target = draft.mining.instances.find((entry) => entry.difficulty === current)
-      if (target !== undefined) {
-        target.playersInside = Math.max(0, target.playersInside - 1)
-      }
-      draft.mining.myStatus = {
-        inside: false,
-        difficulty: null,
-        regionX: 0,
-        regionZ: 0,
-        danger: 0,
-        spawnFreezeUntil: 0,
-        minerLevel: draft.mining.myStatus.minerLevel,
-      }
-    })
-    return { left: true, message: '已离开矿洞' }
-  },
-
-  'champion.codex': () => cloneResult(getWorld().champion.codex),
-
-  'champion.inspect': (payload) => {
-    const sample = getWorld().champion.samples.find((entry) => entry.entityId === payload.entityId)
-    if (sample === undefined) {
-      throw fail('champion.inspect', `没有找到实体 ${String(payload.entityId)}`)
-    }
-    return cloneResult(sample)
-  },
-
   'shop.catalog': () => ({ shops: cloneResult(getWorld().shops) }),
 
   'shop.detail': (payload) => {
@@ -602,166 +190,6 @@ const PLANNED_HANDLERS: PlannedHandlerMap = {
       throw fail('shop.detail', `没有找到商店 ${payload.shopId}`)
     }
     return { shop: cloneResult(shop), comparable: cloneResult(comparableShops(world, shop)) }
-  },
-
-  'shop.buy': async (payload) => {
-    const world = getWorld()
-    const shop = world.shops.find((entry) => entry.shopId === payload.shopId)
-    if (shop === undefined) {
-      throw fail('shop.buy', `没有找到商店 ${payload.shopId}`)
-    }
-    if (shop.buyPrice === null) {
-      throw fail('shop.buy', '该商店不出售此物品')
-    }
-    if (payload.count <= 0) {
-      throw fail('shop.buy', '购买数量必须为正整数')
-    }
-    if (shop.stock !== null && payload.count > shop.stock) {
-      throw fail('shop.buy', `库存仅剩 ${String(shop.stock)} 件`)
-    }
-    const base = await ensureWallet('shop.buy')
-    const paidCredit = shop.buyPrice * payload.count
-    if (withOverlay(base, world.walletOverlay).credit < paidCredit) {
-      throw fail('shop.buy', '信用点不足')
-    }
-    mutateWorld((draft) => {
-      const target = draft.shops.find((entry) => entry.shopId === payload.shopId)
-      if (target !== undefined && target.stock !== null) {
-        target.stock -= payload.count
-      }
-      addWalletOverlay(draft, 'CREDIT', -paidCredit)
-      draft.economy.today.totalCreditOut += paidCredit
-    })
-    const after = getWorld()
-    const updatedBase = after.mirror.wallet
-    return {
-      itemId: shop.itemId,
-      count: payload.count,
-      paidCredit,
-      wallet: withOverlay(updatedBase === null ? base : updatedBase, after.walletOverlay),
-    }
-  },
-
-  'admin.economy.balance': (payload) => {
-    const world = getWorld()
-    requireOp('admin.economy.balance', world)
-    const target = findOtherPlayer(world, payload.playerName)
-    if (target === undefined) {
-      throw fail('admin.economy.balance', `找不到玩家 ${payload.playerName}`)
-    }
-    return {
-      playerName: target.name,
-      playerUuid: target.uuid,
-      wallet: { ...target.wallet },
-    }
-  },
-
-  'admin.economy.set': async (payload) => {
-    const world = getWorld()
-    requireOp('admin.economy.set', world)
-    if (!Number.isInteger(payload.amount) || payload.amount < 0) {
-      throw fail('admin.economy.set', '金额必须是非负整数')
-    }
-    if (payload.playerName === world.player.name) {
-      /*
-       * 调自己的账: 钱包权威在 bridge.mock 里改不动, 只能反推一个叠加量, 让合成后的余额等于目标值。
-       * 这条是 walletOverlay 存在理由最直白的一处 —— 接线后服务端直接改余额, 整段删掉即可。
-       */
-      const base = await ensureWallet('admin.economy.set')
-      const before = withOverlay(base, world.walletOverlay)
-      mutateWorld((draft) => {
-        if (payload.currency === 'CREDIT') {
-          draft.walletOverlay.credit = payload.amount - base.credit
-          return
-        }
-        draft.walletOverlay.azure = payload.amount - base.azure
-      })
-      return {
-        playerName: payload.playerName,
-        before,
-        wallet: withOverlay(base, getWorld().walletOverlay),
-      }
-    }
-    const target = findOtherPlayer(world, payload.playerName)
-    if (target === undefined) {
-      throw fail('admin.economy.set', `找不到玩家 ${payload.playerName}`)
-    }
-    const before = { ...target.wallet }
-    mutateWorld((draft) => {
-      const entry = findOtherPlayer(draft, payload.playerName)
-      if (entry === undefined) {
-        return
-      }
-      if (payload.currency === 'CREDIT') {
-        entry.wallet.credit = payload.amount
-        return
-      }
-      entry.wallet.azure = payload.amount
-    })
-    const updated = findOtherPlayer(getWorld(), payload.playerName)
-    return {
-      playerName: payload.playerName,
-      before,
-      wallet: updated === undefined ? before : { ...updated.wallet },
-    }
-  },
-
-  'admin.job.setLevel': (payload) => {
-    const world = getWorld()
-    requireOp('admin.job.setLevel', world)
-    if (!Number.isInteger(payload.level) || payload.level < 1 || payload.level > 10) {
-      throw fail('admin.job.setLevel', '等级必须是 1-10 的整数')
-    }
-    if (payload.playerName === world.player.name) {
-      mutateWorld((draft) => {
-        requireJobProgress(draft, payload.jobId).level = payload.level
-      })
-      return { playerName: payload.playerName, jobId: payload.jobId, level: payload.level }
-    }
-    const target = findOtherPlayer(world, payload.playerName)
-    if (target === undefined) {
-      throw fail('admin.job.setLevel', `找不到玩家 ${payload.playerName}`)
-    }
-    mutateWorld((draft) => {
-      const entry = findOtherPlayer(draft, payload.playerName)
-      if (entry !== undefined) {
-        entry.jobLevels[payload.jobId] = payload.level
-      }
-    })
-    return { playerName: payload.playerName, jobId: payload.jobId, level: payload.level }
-  },
-
-  'admin.mining.reset': (payload) => {
-    const world = getWorld()
-    requireOp('admin.mining.reset', world)
-    const instance = world.mining.instances.find((entry) => entry.difficulty === payload.difficulty)
-    if (instance === undefined) {
-      throw fail('admin.mining.reset', `未知难度 ${payload.difficulty}`)
-    }
-    const evictedPlayers = instance.playersInside
-    const resetAt = nowMs()
-    mutateWorld((draft) => {
-      const target = draft.mining.instances.find((entry) => entry.difficulty === payload.difficulty)
-      if (target !== undefined) {
-        target.playersInside = 0
-        target.lastResetAt = resetAt
-        target.nextResetAt = resetAt + 12 * 60 * 60_000
-        target.danger = 0
-      }
-      // 重置会把里面的人踢出来, 包括我自己 —— 面板必须能看见自己被踢出去这一后果。
-      if (draft.mining.myStatus.difficulty === payload.difficulty) {
-        draft.mining.myStatus = {
-          inside: false,
-          difficulty: null,
-          regionX: 0,
-          regionZ: 0,
-          danger: 0,
-          spawnFreezeUntil: 0,
-          minerLevel: draft.mining.myStatus.minerLevel,
-        }
-      }
-    })
-    return { difficulty: payload.difficulty, resetAt, evictedPlayers }
   },
 }
 
@@ -804,8 +232,8 @@ export async function callMock<A extends MockActionName>(
      * 这道门不能用 isMockActive() —— 它的判据含"桥未注入", 而真客户端加载 dev server 时桥是注入的,
      * 那样会把设计预览也一并锁死。判据只看构建模式: DEV 放行 (预览), 生产拒绝 (未接线)。
      *
-     * 为什么必须拒绝而不是继续回假数据: 玩家看到的余额、今日收支、职业等级若来自内存假世界, 表现是
-     * "一切正常但数字全错", 且写操作还会显示成功。那比抛错难查得多 —— 报错至少在界面上是可见的。
+     * 为什么必须拒绝而不是继续回假数据: 玩家看到的商店报价与库存若来自内存假世界, 表现是
+     * "一切正常但数字全错", 照着比价跑一趟才发现店根本不存在。那比抛错难查得多 —— 报错至少在界面上是可见的。
      */
     if (!import.meta.env.DEV) {
       throw new WebUiCallError(

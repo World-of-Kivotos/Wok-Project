@@ -1,73 +1,71 @@
 import { CheckIcon, LockIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Button,
   EmptyBlock,
   ErrorBlock,
   FeedbackAlert,
   LoadingBlock,
-  Meter,
   Panel,
   Stat,
   Tag,
 } from '@/components/kit'
-import type { Tone } from '@/components/kit'
+import { POLL_INTERVAL_MS, tickDeadline, usePolling } from '@/hooks/use-live-updates'
 import { isMockActive } from '../lib/bridge'
+import { callErrorText } from '../lib/errorText'
+import { useItemNames } from '../lib/i18n'
+import type { MiningDifficulty, MiningEnterReasonCode, MiningInstanceRow } from '../lib/types'
+import { nowMs } from '../mock'
 import { callMock } from '../mock/handlers'
-import type { PlannedDifficulty, PlannedMiningInstance } from '../mock/planned'
 import { useMockAction } from '../mock/useMockWorld'
 
 /**
- * 矿洞总览 (接线清单 F 组)。
+ * 矿洞总览 (`mining.overview` / `mining.myStatus` / `mining.enter` / `mining.leave`,
+ * Java 落点 com.miningdim.entry.MiningWebUiActions)。回执形状见 lib/types.ts。
  *
- * 依赖的假定契约 (均未接线, 走 mock/planned.ts, 见文件头"接线核销流程"三步走):
- *   - mining.overview  F1  三难度实例列表 + 我当前所在难度
- *   - mining.myStatus  F2 + F8  我的实时矿洞状态 (在场 / 区域坐标 / 危险度 / 新手保护倒计时)
- *   - mining.enter     F3  进入某一难度。**服务端实现必须复用 EntryGateway.requestEnter 权威路径**
- *                      (清单 F3 记录: /mining enter 命令与 SelectZoneC2S 包都跳过 gateCheck 且从不
- *                      实际传送玩家, 前端不得假定这两条路径已经能用)
- *   - mining.leave     F4  离开当前矿洞, 委派 EntrySystem.leaveToFallback
- *   - job.progress     C1  只用来读矿工当前等级: mining.myStatus.minerLevel 只是上次进入/离开那一刻
- *                      的快照, 升级后不会自动刷新, 等级门判定改从这条更新鲜的数据源取
+ * R1 模型 (这一条被反复改错过, 再写一遍): 全服**只有 3 块常驻共享区域**, 每难度一块, 不是每个玩家各开
+ * 一份。卡片上的"当前在线 N 人"指的是与我共享同一个物理空间的全服玩家数。
  *
- * 认知前提 (F1 状态列原文, 这里重复一遍防止被"顺手"改成"我的副本"文案):
- * R1 模型下全服**只有 3 个常驻共享固定实例**, 每难度一个, 不是每个玩家各开一份。
- * 卡片上的"当前在线 N 人"指的是与我共享同一个物理空间的全服玩家数。
+ * 三条必须照做的契约事实:
+ *   1. **accepted 不等于已进去**: mining.enter 只表示"已交给权威入场链路", 真正的传送发生在之后若干
+ *      tick, 且成败只经原生 TeleportResult S2C 下发 (webui 通道收不到)。要确认是否真进去了只能轮询
+ *      mining.myStatus —— 本页因此挂了一条 3 秒的轮询 (间隔见 hooks/use-live-updates)。
+ *   2. **时间全是矿山维度 game tick**, 不是 epoch millis。每个回执都附带当刻 gameTime 作换算基准,
+ *      前端在收到那一刻折成本地时刻再倒计时。
+ *   3. **danger 已从契约里删掉**: capability 上那个字段全库只被写过一次 0.0f, 活值没有对外只读门面,
+ *      编一个 0 出来比不发更糟。旧版的危险度进度条随之删除。
  *
- * 等级门数值来源: 清单 F5 记录 `GateResult` 头注释里的 MEDIUM=10/HARD=25 是过期文档口径,
- * 代码权威是 L4 开 Medium、L8 开 Hard —— 本页直接读 mining.overview 各实例的 requiredMinerLevel
- * 字段 (mock 种子已按 L4/L8 填), 不在前端另外硬编码一份数字。
- *
- * 重置倒计时 (F7): 真服倒计时只活在 AutoResetScheduler 私有内存字段, 仅经聊天广播, 无 S2C 通道;
- * mock 按 "上次重置时刻 + 固定周期" 推算 nextResetAt, 与清单建议的退而求其次方案同构。
- *
- * 中文输入: 本页全部交互都是按钮点击与只读展示, 不含任何自由文本输入控件, 不涉及
- * TextInput 的 onRequestEdit 接口位。
+ * nextResetGameTime 是**预警起点不是换图时刻**: 真正的清场与重置发生在其后 autoResetWarnSeconds 秒。
+ * 且它只反映"定时自动刷新" —— 手动 / 管理台重置不写这个基准, 文案不能写成"上次重置"。
  */
 
-const DIFFICULTY_TAG: Record<PlannedDifficulty, string> = {
+const DIFFICULTY_TAG: Record<MiningDifficulty, string> = {
   easy: '简单',
   medium: '普通',
   hard: '困难',
 }
 
-type ActionFeedback = { tone: 'success' | 'danger'; message: string }
-
-function dangerTone(danger: number): Tone {
-  if (danger < 0.3) {
-    return 'success'
-  }
-  if (danger < 0.6) {
-    return 'warning'
-  }
-  return 'danger'
+/**
+ * mining.enter 两条同步拒绝的文案。服务端只发翻译键 (reasonKey), 专用服务端解不出中文;
+ * 这张表是玩家看到的那句话的唯一出处, 与 reasonCode 一一对应。
+ */
+const ENTER_REASON_TEXT: Record<MiningEnterReasonCode, string> = {
+  LEVEL_TOO_LOW: '矿工等级不够, 这个难度还进不去',
+  ALREADY_INSIDE: '你已经在矿洞里了',
 }
 
+type ActionFeedback = { tone: 'success' | 'danger' | 'warning'; message: string }
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value))
+}
+
+/** 剩余毫秒 -> HH:MM:SS。已到点时不显示负数。 */
 function formatCountdown(targetMs: number, nowValue: number): string {
   const remaining = targetMs - nowValue
   if (remaining <= 0) {
-    return '即将重置'
+    return '00:00:00'
   }
   const totalSeconds = Math.floor(remaining / 1000)
   const hours = Math.floor(totalSeconds / 3600)
@@ -78,11 +76,14 @@ function formatCountdown(targetMs: number, nowValue: number): string {
 }
 
 interface MiningInstanceCardProps {
-  instance: PlannedMiningInstance
-  minerLevel: number | null
+  instance: MiningInstanceRow
+  displayName: string
+  minerLevel: number
   insideHere: boolean
   entering: boolean
   leaving: boolean
+  /** 该难度下一次定时刷新的本地时刻; null = 关闭了定时刷新或没有基准, 此时不许画倒计时。 */
+  nextResetAt: number | null
   nowValue: number
   onEnter: () => void
   onLeave: () => void
@@ -90,20 +91,22 @@ interface MiningInstanceCardProps {
 
 function MiningInstanceCard({
   instance,
+  displayName,
   minerLevel,
   insideHere,
   entering,
   leaving,
+  nextResetAt,
   nowValue,
   onEnter,
   onLeave,
 }: MiningInstanceCardProps): ReactElement {
-  const locked = minerLevel === null || minerLevel < instance.requiredMinerLevel
+  const locked = !instance.unlocked || minerLevel < instance.requiredMinerLevel
 
   return (
     <Panel
       actions={<Tag tone={locked ? 'neutral' : 'brand'}>{DIFFICULTY_TAG[instance.difficulty]}</Tag>}
-      title={instance.displayName}
+      title={displayName}
     >
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-2 text-sm">
@@ -114,24 +117,29 @@ function MiningInstanceCard({
           )}
           <span className={locked ? 'text-muted-foreground' : 'text-foreground'}>
             {locked
-              ? `需要矿工 ${String(instance.requiredMinerLevel)} 级 (${
-                  minerLevel === null ? '等级读取中' : `当前 ${String(minerLevel)} 级`
-                })`
+              ? `需要矿工 ${String(instance.requiredMinerLevel)} 级 (当前 ${String(minerLevel)} 级)`
               : `已解锁 (需矿工 ${String(instance.requiredMinerLevel)} 级)`}
           </span>
         </div>
 
-        <Meter
-          label="危险度"
-          max={100}
-          tone={dangerTone(instance.danger)}
-          value={instance.danger * 100}
-          valueText={`${String(Math.round(instance.danger * 100))}%`}
-        />
+        {instance.available ? null : (
+          <p className="text-warning text-sm">该难度的常驻区域此刻不存在, 暂时进不去</p>
+        )}
 
         <div className="flex flex-col gap-1">
-          <Stat label="当前在线" layout="inline" value={`${String(instance.playersInside)} 人`} />
-          <Stat label="下次重置" layout="inline" value={formatCountdown(instance.nextResetAt, nowValue)} />
+          <Stat
+            label="当前在线"
+            layout="inline"
+            value={instance.playersInside === null ? '—' : `${String(instance.playersInside)} 人`}
+          />
+          <Stat
+            label="下次定时刷新"
+            layout="inline"
+            value={nextResetAt === null ? '未开启定时刷新' : formatCountdown(nextResetAt, nowValue)}
+          />
+          {instance.genState === null ? null : (
+            <Stat label="区域状态" layout="inline" value={instance.genState} />
+          )}
           <p className="text-muted-foreground text-xs">全服玩家共用同一个矿洞</p>
         </div>
 
@@ -140,7 +148,12 @@ function MiningInstanceCard({
             离开矿洞
           </Button>
         ) : (
-          <Button disabled={locked} loading={entering} onClick={onEnter} variant="brand">
+          <Button
+            disabled={locked || !instance.enterable}
+            loading={entering}
+            onClick={onEnter}
+            variant="brand"
+          >
             进入矿洞
           </Button>
         )}
@@ -152,13 +165,22 @@ function MiningInstanceCard({
 export function MiningPage(): ReactElement {
   const overview = useMockAction('mining.overview', {})
   const status = useMockAction('mining.myStatus', {})
-  const jobs = useMockAction('job.progress', {})
 
   const [nowValue, setNowValue] = useState(() => Date.now())
-  const [pendingDifficulty, setPendingDifficulty] = useState<PlannedDifficulty | null>(null)
+  const [pendingDifficulty, setPendingDifficulty] = useState<MiningDifficulty | null>(null)
   const [leavePending, setLeavePending] = useState(false)
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
 
+  const overviewData = overview.status === 'ready' ? overview.data : null
+  const statusData = status.status === 'ready' ? status.data : null
+
+  /*
+   * mining.enter 只回"已受理", 真正的传送在之后若干 tick 才发生且不走 webui 通道 —— 契约明文要求
+   * 轮询本条才能知道自己到底进去了没有。间隔集中在 hooks/use-live-updates, 不在此写死。
+   */
+  usePolling(status.reload, POLL_INTERVAL_MS.miningStatus)
+
+  // 本地时钟, 不是轮询: 回执里的 game tick 只在收到那一刻折算一次, 之后的倒计时全在本地推进。
   useEffect(() => {
     const timer = window.setInterval(() => {
       setNowValue(Date.now())
@@ -168,16 +190,51 @@ export function MiningPage(): ReactElement {
     }
   }, [])
 
-  async function handleEnter(difficulty: PlannedDifficulty): Promise<void> {
+  /*
+   * 依赖数组在这里当"新回执到达"的信号用, 不是工厂真读了它: 服务端一律发剩余 tick 而非绝对时刻,
+   * 前端必须在收到回执那一刻折一个本地基准, 否则倒计时会从页面挂载时刻算起, 越挂越偏。
+   * exhaustive-deps 建议删掉这个依赖 —— 删了基准就永不刷新, 故定向豁免。
+   */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const overviewReceivedAt = useMemo(() => nowMs(), [overviewData])
+  /*
+   * 依赖数组在这里当"新回执到达"的信号用, 不是工厂真读了它: 服务端一律发剩余 tick 而非绝对时刻,
+   * 前端必须在收到回执那一刻折一个本地基准, 否则倒计时会从页面挂载时刻算起, 越挂越偏。
+   * exhaustive-deps 建议删掉这个依赖 —— 删了基准就永不刷新, 故定向豁免。
+   */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const statusReceivedAt = useMemo(() => nowMs(), [statusData])
+
+  const instanceNames = useItemNames(
+    overviewData === null ? [] : overviewData.instances.map((instance) => instance.nameKey),
+  )
+
+  const spawnFreezeUntil =
+    statusData === null ? 0 : tickDeadline(statusData.spawnFreezeRemainingTicks, statusReceivedAt)
+
+  async function handleEnter(difficulty: MiningDifficulty): Promise<void> {
     setPendingDifficulty(difficulty)
     setFeedback(null)
     try {
       const result = await callMock('mining.enter', { difficulty })
-      setFeedback({ tone: result.entered ? 'success' : 'danger', message: result.message })
+      if (result.accepted) {
+        setFeedback({
+          tone: 'success',
+          message: '入场请求已受理, 正在为你准备地形; 进去之后本页会自动刷新',
+        })
+      } else {
+        setFeedback({
+          tone: 'danger',
+          message:
+            result.reasonCode === null
+              ? '进入被拒绝, 但服务端没有给出原因码'
+              : ENTER_REASON_TEXT[result.reasonCode],
+        })
+      }
       overview.reload()
       status.reload()
     } catch (error) {
-      setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : String(error) })
+      setFeedback({ tone: 'danger', message: callErrorText(toError(error)) })
     } finally {
       setPendingDifficulty(null)
     }
@@ -188,18 +245,31 @@ export function MiningPage(): ReactElement {
     setFeedback(null)
     try {
       const result = await callMock('mining.leave', {})
-      setFeedback({ tone: result.left ? 'success' : 'danger', message: result.message })
+      setFeedback(
+        result.left
+          ? { tone: 'success', message: '已离开矿洞, 传送回进入前的位置' }
+          : { tone: 'warning', message: '你本来就不在矿洞里' },
+      )
       overview.reload()
       status.reload()
     } catch (error) {
-      setFeedback({ tone: 'danger', message: error instanceof Error ? error.message : String(error) })
+      setFeedback({ tone: 'danger', message: callErrorText(toError(error)) })
     } finally {
       setLeavePending(false)
     }
   }
 
-  const minerLevel = jobs.status === 'ready' ? jobs.data.jobs.find((entry) => entry.jobId === 'miner')?.level ?? null : null
-  const insideDifficulty = status.status === 'ready' && status.data.inside ? status.data.difficulty : null
+  const minerLevel = overviewData === null ? 0 : overviewData.minerLevel
+  const insideDifficulty = statusData !== null && statusData.inside ? statusData.difficulty : null
+
+  /** 该难度下一次定时刷新的本地时刻; 未开启定时刷新或没有基准时为 null (契约: 此时不许画倒计时)。 */
+  function nextResetAtOf(instance: MiningInstanceRow): number | null {
+    if (overviewData === null || instance.nextResetGameTime === null) {
+      return null
+    }
+    const remainingTicks = instance.nextResetGameTime - overviewData.gameTime
+    return remainingTicks <= 0 ? overviewReceivedAt : tickDeadline(remainingTicks, overviewReceivedAt)
+  }
 
   return (
     <section className="flex flex-col gap-4">
@@ -209,13 +279,11 @@ export function MiningPage(): ReactElement {
           全服只有 3 个矿洞, 简单 / 普通 / 困难各一个, 所有人共用 —— 卡片上的在线人数就是此刻和你
           在同一个矿洞里的玩家数。
         </p>
-        {jobs.status === 'error' ? (
-          <FeedbackAlert
-            message={jobs.error.message}
-            title="矿工等级读取失败, 矿洞暂时都按未解锁显示"
-            tone="warning"
-          />
-        ) : null}
+        {overviewData === null || overviewData.autoResetWarnSeconds <= 0 ? null : (
+          <p className="text-muted-foreground text-xs">
+            倒计时归零是换图预警的起点, 真正的清场与重置在其后 {overviewData.autoResetWarnSeconds} 秒发生
+          </p>
+        )}
       </header>
 
       {feedback === null ? null : <FeedbackAlert message={feedback.message} tone={feedback.tone} />}
@@ -225,10 +293,10 @@ export function MiningPage(): ReactElement {
           <LoadingBlock label="正在读取矿洞总览" size="lg" />
         </Panel>
       ) : overview.status === 'error' ? (
-        <ErrorBlock message={overview.error.message} onRetry={overview.reload} />
+        <ErrorBlock message={callErrorText(overview.error)} onRetry={overview.reload} />
       ) : overview.data.instances.length === 0 ? (
         <EmptyBlock
-          hint="矿洞当前不可用, 请稍后再来"
+          hint="三个常驻区域一个都没回来, 属服务端异常"
           icon={<TriangleAlertIcon aria-hidden="true" />}
           title="暂无可进入的矿洞"
         />
@@ -237,11 +305,13 @@ export function MiningPage(): ReactElement {
           {overview.data.instances.map((instance) => (
             <MiningInstanceCard
               key={instance.difficulty}
+              displayName={instanceNames[instance.nameKey] ?? DIFFICULTY_TAG[instance.difficulty]}
               instance={instance}
               minerLevel={minerLevel}
               insideHere={insideDifficulty === instance.difficulty}
               entering={pendingDifficulty === instance.difficulty}
               leaving={leavePending && insideDifficulty === instance.difficulty}
+              nextResetAt={nextResetAtOf(instance)}
               nowValue={nowValue}
               onEnter={() => {
                 void handleEnter(instance.difficulty)
@@ -258,9 +328,16 @@ export function MiningPage(): ReactElement {
         {status.status === 'loading' ? (
           <LoadingBlock label="正在读取我的状态" />
         ) : status.status === 'error' ? (
-          <ErrorBlock message={status.error.message} onRetry={status.reload} />
+          <ErrorBlock message={callErrorText(status.error)} onRetry={status.reload} />
         ) : !status.data.inside ? (
-          <p className="text-muted-foreground text-sm">当前不在任何矿洞里。</p>
+          <div className="flex flex-col gap-2">
+            <p className="text-muted-foreground text-sm">当前不在任何矿洞里。</p>
+            {status.data.inMiningDimension ? (
+              <p className="text-warning text-sm">
+                你人在矿洞维度里, 但站的位置不属于任何一块常驻区域 —— 请用上面的按钮重新进入。
+              </p>
+            ) : null}
+          </div>
         ) : status.data.difficulty === null ? (
           <p className="text-destructive text-sm">
             {/* 具体是哪个字段缺失只对开发有意义; isMockActive 在生产构建里恒为 false, 装进游戏后只剩后一句。 */}
@@ -271,21 +348,20 @@ export function MiningPage(): ReactElement {
         ) : (
           <div className="flex flex-col gap-3">
             <p className="text-foreground text-sm">
-              当前位于 {DIFFICULTY_TAG[status.data.difficulty]} 难度, 区域坐标 ({status.data.regionX},{' '}
-              {status.data.regionZ})
+              当前位于 {DIFFICULTY_TAG[status.data.difficulty]} 难度
+              {status.data.regionOriginX === null || status.data.regionOriginZ === null
+                ? ''
+                : `, 区域原点 (${String(status.data.regionOriginX)}, ${String(status.data.regionOriginZ)})`}
             </p>
-            <Meter
-              label="实时危险度"
-              max={100}
-              tone={dangerTone(status.data.danger)}
-              value={status.data.danger * 100}
-              valueText={`${String(Math.round(status.data.danger * 100))}%`}
-            />
-            {status.data.spawnFreezeUntil > nowValue ? (
+            {status.data.instanceId === status.data.currentInstanceId ? null : (
+              <p className="text-warning text-xs">
+                实例指针 ({status.data.currentInstanceId}) 与几何反查结果 (
+                {status.data.instanceId === null ? '无' : status.data.instanceId}) 不一致, 请报告给管理员
+              </p>
+            )}
+            {spawnFreezeUntil > nowValue ? (
               <div>
-                <Tag tone="info">
-                  新手保护中, 剩余 {formatCountdown(status.data.spawnFreezeUntil, nowValue)}
-                </Tag>
+                <Tag tone="info">新手保护中, 剩余 {formatCountdown(spawnFreezeUntil, nowValue)}</Tag>
               </div>
             ) : null}
           </div>

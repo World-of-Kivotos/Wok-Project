@@ -102,6 +102,9 @@ public final class ChampionSystem implements Subsystem {
         forgeBus.register(new ChampionSizeHandler());             // 体型: AABB 缩放 + 移速补偿 + 巨大化卡墙 blink
         forgeBus.register(new ChampionPhaseWalkHandler());        // 灵体移动: noPhysics 漂移 + 四级回退链
 
+        // 平板精英怪图鉴的 champion.codex / champion.inspect (进程级静态注册, 与事件总线无关)。
+        ChampionWebUiActions.registerAll();
+
         // 调试命令 /mchampion summon (取代已移除的 Champions /champions summon; OP 真服按需召唤指定星级+词条冠军)。
         forgeBus.addListener(this::onRegisterCommands);
 

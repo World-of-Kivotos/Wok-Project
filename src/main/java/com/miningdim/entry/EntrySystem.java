@@ -55,6 +55,10 @@ public final class EntrySystem implements Subsystem {
         forgeBus.addGenericListener(Entity.class, caps::onAttachCapabilities);
         forgeBus.addListener(caps::onPlayerClone);
         forgeBus.register(this);
+        // 矿洞面板与管理台的 WebUI action (进程级静态注册表, 与 gateway 就绪与否无关: mining.enter 到调用时
+        // 才向本实例要当时的 gateway)。传 this 是必需的 —— EntryGateway 与 leaveToFallback 都挂在本实例上。
+        MiningWebUiActions.registerAll(this);
+        MiningAdminWebUiActions.registerAll();
     }
 
     EntryGateway gateway() {

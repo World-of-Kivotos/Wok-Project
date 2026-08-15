@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
+import com.miningdim.webui.server.WebUiPermissions;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
 import net.minecraft.resources.ResourceLocation;
@@ -22,7 +23,7 @@ import java.util.OptionalLong;
  * 基准价值 V0 admin curate 动作 (OP 门控, 偏离费锚的人工 curate 入口)。游戏内 OP 经 WebUI 面板枚举全注册物品、
  * 逐个设 V0 覆盖 (写 base_values 表, 优先于代码预设)。
  *
- * 权限 (用户决策: 游戏内 OP 改): 每个动作先过 {@link #requireOp} 校验 sender.hasPermissions(2) (原版 OP/gamemaster 级),
+ * 权限 (用户决策: 游戏内 OP 改): 每个动作先过 {@link WebUiPermissions#requireOp} (与 player.isOp / hub.panels 同一判定入口),
  * 非 OP 自然抛 IllegalStateException, 经 {@link WebUiServerDispatcher#dispatchAndRespond} Gateway 转 success=false。
  * 服务端权威: 操作者身份取 sender (不信前端 uuid)。
  *
@@ -51,7 +52,7 @@ public final class MarketAdminActions {
     // ============================================================
 
     static final WebUiAction SET_BASE_VALUE = (sender, payload) -> {
-        requireOp(sender);
+        WebUiPermissions.requireOp(sender, "admin.setBaseValue");
         // 业务字段必填: 缺失自然抛冒泡到 Gateway。
         String itemId = payload.get("itemId").getAsString();
         long v0 = payload.get("v0").getAsLong();
@@ -70,7 +71,7 @@ public final class MarketAdminActions {
     // ============================================================
 
     static final WebUiAction LIST_ITEMS = (sender, payload) -> {
-        requireOp(sender);
+        WebUiPermissions.requireOp(sender, "admin.listItems");
         String query = optString(payload, "query", "").toLowerCase(Locale.ROOT);
         int page = Math.max(0, optInt(payload, "page", DEFAULT_PAGE));
         int pageSize = clamp(optInt(payload, "pageSize", DEFAULT_PAGE_SIZE), 1, MAX_PAGE_SIZE);
@@ -133,11 +134,6 @@ public final class MarketAdminActions {
      * 用 {@code PlayerList.isOp(GameProfile)} (确定的公开 API) 而非 {@code hasPermissions(int)}
      * (其在 ServerPlayer 上的语义跨版本不一, 避免误判)。
      */
-    private static void requireOp(ServerPlayer sender) {
-        if (!sender.getServer().getPlayerList().isOp(sender.getGameProfile())) {
-            throw new IllegalStateException("需要 OP 权限才能 curate 基准价值");
-        }
-    }
 
     private static String optString(JsonObject payload, String key, String fallback) {
         return payload.has(key) && !payload.get(key).isJsonNull() ? payload.get(key).getAsString() : fallback;

@@ -11,25 +11,62 @@
 
 /**
  * 全部服务端 action 名 (system.handshake 回执 actions 字段的镜像, 不含 client.* 本地 action)。
- * 十一个注册点: WebUiServerSubsystem (system.*) / PlayerWebUiActions (player.*) / MarketActions (market.*) /
- * MarketAdminActions (admin.*) / CaseWebUiActions (case.*) / HubWebUiActions (hub.*) /
- * JobWebUiActions (job.progress) / MinerWebUiActions (job.miner.*) / FarmerWebUiActions (job.farmer.*) /
- * ChefWebUiActions (job.chef.*) / BrewerWebUiActions (job.brewer.*)。
+ *
+ * 二十二个注册点 (每个 *WebUiActions 类的 registerAll 各占一个):
+ *   system.*            WebUiServerSubsystem
+ *   player.*            PlayerWebUiActions
+ *   hub.*               HubWebUiActions
+ *   market.*            MarketActions
+ *   admin.setBaseValue / admin.listItems   MarketAdminActions
+ *   case.*              CaseWebUiActions
+ *   job.progress        JobWebUiActions
+ *   job.miner.*         MinerWebUiActions
+ *   job.farmer.*        FarmerWebUiActions
+ *   job.chef.*          ChefWebUiActions
+ *   job.brewer.*        BrewerWebUiActions
+ *   job.agent.*         AgentWebUiActions
+ *   job.munitions.state / job.blueprints   MunitionsWebUiActions
+ *   job.engineer.state  EngineerWebUiActions
+ *   job.tarot.*         TarotWebUiActions
+ *   admin.job.setLevel  JobAdminWebUiActions
+ *   economy.*           EconomyWebUiActions
+ *   admin.economy.*     EconomyAdminWebUiActions
+ *   marriage.*          MarriageWebUiActions
+ *   mining.*            MiningWebUiActions
+ *   admin.mining.reset  MiningAdminWebUiActions
+ *   champion.*          ChampionWebUiActions
  */
 export const SERVER_ACTIONS = [
+  'admin.economy.balance',
+  'admin.economy.set',
+  'admin.job.setLevel',
   'admin.listItems',
+  'admin.mining.reset',
   'admin.setBaseValue',
   'case.apply',
   'case.open',
   'case.state',
+  'champion.codex',
+  'champion.inspect',
+  'economy.priceTable',
+  'economy.status',
+  'economy.today',
   'hub.panels',
+  'job.agent.scan',
+  'job.agent.seal',
+  'job.agent.state',
+  'job.blueprints',
   'job.brewer.state',
   'job.chef.state',
+  'job.engineer.state',
   'job.farmer.sell',
   'job.farmer.state',
   'job.miner.scan',
   'job.miner.state',
+  'job.munitions.state',
   'job.progress',
+  'job.tarot.buyPack',
+  'job.tarot.state',
   'market.baseValue',
   'market.buy',
   'market.cancel',
@@ -42,12 +79,24 @@ export const SERVER_ACTIONS = [
   'market.pendingPayout',
   'market.place',
   'market.tradable',
+  'marriage.buyRing',
+  'marriage.divorce',
+  'marriage.propose',
+  'marriage.respond',
+  'marriage.sharedInv',
+  'marriage.state',
+  'marriage.wed',
+  'mining.enter',
+  'mining.leave',
+  'mining.myStatus',
+  'mining.overview',
   'player.inventory',
   'player.isOp',
   'player.itemDetail',
   'player.prefs.get',
   'player.prefs.set',
   'player.profile',
+  'player.roster',
   'player.wallet',
   'system.echo',
   'system.handshake',

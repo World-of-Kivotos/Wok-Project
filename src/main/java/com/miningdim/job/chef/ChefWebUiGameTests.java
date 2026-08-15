@@ -33,6 +33,20 @@ public final class ChefWebUiGameTests {
     private static final String EMPTY = "empty";
     private static final String BATCH = "webui_w3";
 
+    /**
+     * 会临时改写全局 config 的用例单独成批。Forge GameTest 批与批之间串行、<b>批内并行</b>,
+     * 与读同一份 config 的用例同批就是一个必然偶发的竞态: 读的那条会在探针值还没被 finally 放回时
+     * 取到探针值 (已实测撞出过一次: 低级板经验期望 15 实得 56 = 15 + 探针偏移 41)。
+     *
+     * 另一个坑与批次无关但同源: Forge 的 serverconfig 是 autosave 且<b>异步落盘</b>, 而 GameTest 服务器跑完
+     * 立刻退出 —— 探针写的值可能已经落进 run/world/serverconfig/*.toml, 而 finally 恢复的那次写还没刷出去
+     * 进程就结束了。于是之后每次运行都从被污染的值起步, 表现为某条断言硬编码期望值的用例"无缘无故"开始挂
+     * (实测: 低级板经验期望 15 恒得 56 = 15 + 探针偏移 41)。真遇到时把那个 toml 里对应键改回默认即可;
+     * run/ 已在 .gitignore 内, 不会污染仓库。
+     */
+    private static final String BATCH_CONFIG = "webui_w3_config";
+
+
     private static final String STATE_ACTION = "job.chef.state";
 
     /** 五档品质的契约值 (写死在测试里: 面板照这张表画"这一档能带几个效果/会不会翻车")。 */
@@ -170,7 +184,7 @@ public final class ChefWebUiGameTests {
      * 两个探针分别打在两条不同的取数路径上: seasoningCostCredit 是顶层单值, 增香低级档是逐效果逐品质矩阵里的
      * 一格 —— 只缓存其中一条的实现也会被抓出来。改动在 finally 里原样放回, 不污染同批其它用例。
      */
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH_CONFIG)
     public static void chefStateReadsConfigLiveInsteadOfASnapshot(GameTestHelper helper) {
         ChefConfig.ensureLoadedForTest();
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);

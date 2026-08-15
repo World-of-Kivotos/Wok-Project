@@ -87,6 +87,17 @@ public final class GunsmithGunStats {
         }
     }
 
+    /**
+     * 只判"这是不是一把枪匠枪"——不解析、不校验、绝不抛。
+     *
+     * 存在的唯一理由是给 {@link #tryFrom} 的调用方 (只读展示) 区分两种截然不同的 null: "这个物品根本不是枪匠枪"
+     * (该静默跳过) 与"是枪匠枪但缓存数据读不出来" (该给玩家一条降级提示, 而不是当作普通物品一声不吭)。
+     */
+    public static boolean hasGunsmithData(ItemStack stack) {
+        CompoundTag tag = stack.getTag();
+        return tag != null && tag.contains(ROOT_KEY);
+    }
+
     public String platform() {
         return root.getString("platform");
     }

@@ -144,14 +144,28 @@ public final class PressureGameTests {
             PressureSystem pressure = new PressureSystem();
             pressure.register(throwaway, throwaway); // register 末尾 setDangerSource: 接 mobPressure.danger()
 
-            // 把该玩家压力态推到 HARD 区满 danger: zone(HARD)=1.0 * wZone=1.0 -> clamp 到 dangerMax=1.0。
+            // F035 重配后 zone 常量不再让 Hard 出场即顶格 (zone(HARD)=0.50, 留满时间项 0.50 的余量),
+            // 本测试要断的是"注入源接线"而不是"出场即满"。先验证正向断言: 出生 (tWin 仍低) 时 danger
+            // 严格低于岩浆阈值; 再在同一压力态上持续爬坡, 证明时间项接线仍能把 danger 推过阈值。
             IMiningConfig config = new DangerTestConfig();
             long instanceId = 1L;
             PlayerMiningData data = pressure.mobPressure().danger().onEnter(player.getUUID(), instanceId, 0L);
+            long tick = 100L;
             float danger = pressure.mobPressure().danger()
-                    .evaluate(data, Difficulty.HARD, true, 0.0f, 1.0f, 100L, config);
+                    .evaluate(data, Difficulty.HARD, true, 0.0f, 1.0f, tick, config);
+            helper.assertTrue(danger < TrapParams.DANGER_THRESH_LAVA,
+                    "F035: HARD-zone danger on spawn (tWin still low) must NOT reach the lava gate; got " + danger);
+
+            // 爬坡: tWin 每次 evaluate 累积 TWIN_ACCRUE_PER_EVAL (=20), timeSoftCap=60s=1200 tick 下
+            // tWin~=620 (danger~=0.50+0.5*0.40=0.70) 即可越过岩浆阈值; 循环 200 次 (tWin 累积到 4000,
+            // timeTerm=1-exp(-4000/1200)≈0.964, danger≈0.50+0.48=0.98) 留足冗余, 越线即提前退出。
+            for (int i = 0; i < 200 && danger < TrapParams.DANGER_THRESH_LAVA; i++) {
+                tick += 20L;
+                danger = pressure.mobPressure().danger()
+                        .evaluate(data, Difficulty.HARD, true, 0.0f, 1.0f, tick, config);
+            }
             helper.assertTrue(danger >= TrapParams.DANGER_THRESH_LAVA,
-                    "HARD-zone full danger must reach the highest (lava) gate; got " + danger);
+                    "HARD-zone danger after sustained active mining must still reach the highest (lava) gate; got " + danger);
 
             // 注入后: 陷阱引擎门控所读的同一注入源对该玩家返回真实 danger (> 0 且 >= 岩浆阈值)。
             float injected = trap.injectedDangerOf(player, instanceId);

@@ -23,10 +23,43 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class Danger {
 
-    /** 难度区基础压力查表 (10.2 zoneTerm), 已归一 [0,1]。 */
-    private static final float ZONE_EASY = 0.20f;
-    private static final float ZONE_MEDIUM = 0.55f;
-    private static final float ZONE_HARD = 1.00f;
+    /**
+     * 难度区基础压力查表 (10.2 zoneTerm), 已归一 [0,1] (F035 重配, ZONE_HARD 经复核修正)。
+     *
+     * 生效预算: MobPressureSystem.java:174 把 oreRichness01 硬编码 0.0f, wOre*ore 那 0.3 恒拿不到;
+     * 实际可达 danger = wZone*zone + wTime*timeTerm, spec 默认 wZone=1.0 / wTime=0.5 / danger.max=1.0
+     * (MiningServerConfig:176-186)。即时间项最多贡献 0.50, zone 必须给它留满这 0.50 的余量。
+     *
+     * 三档天花板 (zone + 0.50) 按难度拉开且各自卡在一个有语义的门下: Easy 0.59 严格低于 SpawnTier.HIGH
+     * 的 0.60 (SpawnTier.java:34) 也低于 DANGER_THRESH_LAVA 0.70, 即 Easy 全程不出苦力怕、不喷岩浆,
+     * 与 TrapParams.FACTOR_EASY=0 "新手区无致死陷阱" 同口径; Medium 0.79 严格低于 SpawnTier.EXTREME
+     * 的 0.80, 即满压档是 Hard 专属; Hard 0.90 (原 1.00, 见下方复核修正) 仍能爬过 EXTREME 的 0.80 门。
+     *
+     * 三档出场值同样拉开且都不在顶档: Easy 0.09 = SAFE, Medium 0.29 = LIGHT, Hard 0.40 (原 0.50, 见下方
+     * 复核修正) = MEDIUM 档, 三档都留出了"越待越危险"的成长区间。
+     *
+     * Easy 取 0.09 而不是整数 0.10, Medium 取 0.29 而不是 0.30: 就是为了让天花板严格小于上述两个档位
+     * 阈值 (0.10+0.5=0.60 会因浮点相等而恰好踩进 HIGH; 0.30+0.5=0.80 会恰好踩进 EXTREME)。
+     *
+     * 复核修正 (三次独立复核坐实): 上一版 ZONE_HARD 取 0.50, 与 TrapParams.DANGER_THRESH_CREEPER 的
+     * 0.50 完全相等 —— compose(HARD,0,...)=wZone*0.50=0.50, danger>=0.50 即成立, 出生冻结一结束 (freeze
+     * 期间 tWin 仍在累积, 只是 danger 显示被钳低) 身后刷苦力怕立刻可触发, 与 Easy/Medium 特意避开浮点相等
+     * 的做法自相矛盾, 且零成长区间 (原论证只核对了 SpawnTier.HIGH/EXTREME 与 DANGER_THRESH_LAVA 三个门,
+     * 漏了 TrapParams 里另外两个更低的门 DANGER_THRESH_CREEPER=0.50 / DANGER_THRESH_COLLAPSE=0.55)。
+     * 改取 0.40: (a) 与 CREEPER 阈值留出 0.10 的原始余量, 而不是恰好相等; (b) 恰好落在 SpawnTier.MEDIUM
+     * 的下界, 与 Medium 难度出场的 LIGHT 档区分开, 不破坏"三档出场值分属三个不同 SpawnTier"的既有设计
+     * 不变量 (DangerCurveGameTests.spawnValuesDistinguishableAcrossDifficulties); (c) 天花板降到 0.90,
+     * 仍严格高于 EXTREME 的 0.80, 久留满压这条能力不受影响。
+     *
+     * 已知残留 (据实报告, 本次未修, 超出本 finding 范围): 出生冻结期内 tWin 并未被冻结 (MobPressureSystem
+     * 只钳低 danger 显示值, 不冻结 tWin 累积), SPAWN_FREEZE_TICKS=200 结束时 tWin 已累积约 200,
+     * timeTerm(200,1200)≈0.154, 令冻结刚结束时的原始 danger ≈ 0.40+0.5*0.154=0.477, 距 CREEPER(0.50) 仅
+     * 剩约 0.023 的余量 —— 严格意义上不再"零成长区间", 但余量依然很薄。彻底解决需要冻结窗口内也冻结 tWin
+     * 累积 (改 MobPressureSystem/PlayerMiningData), 不在 Danger.java 范围内, 留待后续 finding 处理。
+     */
+    private static final float ZONE_EASY = 0.09f;
+    private static final float ZONE_MEDIUM = 0.29f;
+    private static final float ZONE_HARD = 0.40f;
 
     /** 时间项收敛速率 K_TIME (10.3), 曲线在 tWin == TIME_SCALE 时达约 0.63。 */
     private static final double K_TIME = 1.0;

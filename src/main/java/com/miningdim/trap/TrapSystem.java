@@ -1,11 +1,8 @@
 package com.miningdim.trap;
 
-import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
 import com.miningdim.core.Subsystem;
-import com.miningdim.core.VoxelOccupancy;
-import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraftforge.event.TickEvent;
@@ -17,25 +14,23 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * 陷阱子系统入口 (模块化铁律 3)。
  *
  * 职责:
- *  - 离线静态陷阱布点: 经 {@link #staticPlacementFor(InstanceState, VoxelOccupancy, BlockPos)} 计算并缓存
- *    (8.5/9.5 与矿物同阶段, 由 GenerationScheduler 在工作线程调用; MiningChunkGenerator 区块填充读表落陷阱方块)。
  *  - 动态陷阱运行期驱动: 订阅 LevelTickEvent(END, 仅矿山维度), 按 danger 评估周期遍历活跃实例触发动态陷阱 (9.6/9.8)。
  *  - 反应窗口延迟队列: 动态陷阱的"预警 -> reactionWindow -> 落地"用 server game time 调度延迟任务, 在 tick 主线程执行。
+ *
+ * 离线静态陷阱布点这条链已删除 (F033 修复): 原离线布点计算的形参吃体素占用视图, 但维度已改用 minecraft:noise
+ * 生成 (F032), 全库已无任何该视图的构造方, 该链本就是零调用方的死代码。陷阱探测现改为直接读真实世界地形危害
+ * (见 {@link WorldHazards} / job.miner.TrapScanService), 不再依赖离线布点表。
  *
  * 跨子系统: danger 由压力子系统经 {@link #setDangerSource} 注入 (DangerSource, 推依赖); 实例查询经 core
  * MiningServices.instanceManager()。本系统不 import 矿物/压力等其他子系统实现类 (铁律 2)。
  *
  * 对外入口 (阶段2 接线点):
  *  - {@link #get()} 取单例;
- *  - {@link #staticPlacement(long)} 供 MiningChunkGenerator 查已缓存静态陷阱表落方块;
- *  - {@link #staticPlacementFor} 供 GenerationScheduler 离线预热;
  *  - {@link #setDangerSource} 供压力子系统注入 danger 读取。
  */
 public final class TrapSystem implements Subsystem {
@@ -43,9 +38,6 @@ public final class TrapSystem implements Subsystem {
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/TrapSystem");
 
     private static volatile TrapSystem instance;
-
-    /** 实例静态陷阱表缓存: instanceId -> (seed, placement)。同 OreSystem 的缓存语义。 */
-    private final ConcurrentMap<Long, CachedStatic> staticCache = new ConcurrentHashMap<>();
 
     /** 动态陷阱引擎 (运行期决策 + 世界写经 server.execute)。 */
     private final DynamicTrapEngine dynamicEngine = new DynamicTrapEngine();
@@ -61,9 +53,9 @@ public final class TrapSystem implements Subsystem {
         instance = this;
         // 动态陷阱挂 forge 总线 tick 事件 (9.8 挂载点)。
         forgeBus.register(this);
-        // 滑动重置后按 instanceId 缓存的旧静态陷阱表 (旧几何/旧种子) 与动态引擎运行期状态必须失效重算 (D3)。
+        // 滑动重置后动态引擎运行期状态 (节流时间戳) 必须失效重算 (D3)。
         MiningServices.registerInstanceResetListener(this::invalidate);
-        LOGGER.info("[miningdim] TrapSystem registered (static placement + dynamic engine on LevelTickEvent)");
+        LOGGER.info("[miningdim] TrapSystem registered (dynamic engine on LevelTickEvent)");
     }
 
     @Override
@@ -93,47 +85,8 @@ public final class TrapSystem implements Subsystem {
         return dynamicEngine.injectedDangerOf(player, instanceId);
     }
 
-    // ---- 静态陷阱表 (离线) ----
-
-    /**
-     * 取/算实例静态陷阱表 (9.5)。缓存命中 (同 instanceId 同 seed) 复用; 否则在调用线程计算并缓存。
-     * 由 GenerationScheduler 在工作线程首次调用预热。
-     *
-     * @param state       实例
-     * @param voxels      体素视图
-     * @param spawnAnchor 出生锚点世界坐标 (9.5 步骤1 距出生点过滤基准)
-     */
-    public StaticTrapPlacement staticPlacementFor(InstanceState state, VoxelOccupancy voxels, BlockPos spawnAnchor) {
-        CachedStatic cached = staticCache.get(state.instanceId());
-        if (cached != null && cached.seed == state.seed()) {
-            return cached.placement;
-        }
-        StaticTrapPlacement placement = StaticTrapGenerator.generate(
-                state.seed(), state.difficulty(), state.regionBox(), voxels, spawnAnchor);
-        staticCache.put(state.instanceId(), new CachedStatic(state.seed(), placement));
-        return placement;
-    }
-
-    /**
-     * 已缓存静态陷阱表 (MiningChunkGenerator 热路径读表; 运行期动态陷阱查"非陷阱区")。
-     * 未缓存时返回空表 (而非 null): 区块填充/刷怪校验拿到空表即"无静态陷阱", 行为安全且不 NPE。
-     */
-    public StaticTrapPlacement staticPlacement(long instanceId) {
-        CachedStatic cached = staticCache.get(instanceId);
-        if (cached != null) {
-            return cached.placement;
-        }
-        InstanceState state = MiningServices.instanceManager().byId(instanceId).orElse(null);
-        if (state == null) {
-            // 实例不存在: 给一个退化空表 (regionBox 取一个 0 体积盒占位)。
-            return EMPTY_PLACEMENT;
-        }
-        return new StaticTrapPlacement(state.regionBox(), java.util.Map.of(), java.util.List.of());
-    }
-
-    /** 实例释放/重置时清缓存与运行期状态。供 InstanceManager/ResetService 经接口或阶段2 接线调用。 */
+    /** 实例释放/重置时清运行期状态。供 InstanceManager/ResetService 经接口或阶段2 接线调用。 */
     public void invalidate(long instanceId) {
-        staticCache.remove(instanceId);
         dynamicEngine.onInstanceReleased(instanceId);
     }
 
@@ -202,13 +155,6 @@ public final class TrapSystem implements Subsystem {
 
     // ---- 内部类型 ----
 
-    private record CachedStatic(long seed, StaticTrapPlacement placement) {
-    }
-
     private record DelayedTask(long dueTick, Runnable task) {
     }
-
-    /** 实例不存在时的退化空表占位 (0 体积 region: containsWorld 恒 false, 任何查询都返回"无陷阱")。 */
-    private static final StaticTrapPlacement EMPTY_PLACEMENT = new StaticTrapPlacement(
-            new com.miningdim.core.RegionBox(0, 0, 0, 0, 0, 0), java.util.Map.of(), java.util.List.of());
 }

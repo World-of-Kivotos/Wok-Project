@@ -83,7 +83,10 @@ public final class GunsmithPressGameTests {
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
+            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
             helper.assertTrue(press.tryStartPreview(player), "complete hammer materials must start the press");
             helper.assertTrue(press.isPressing(), "pistol hammer production must put the press into its active state");
             helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 62,
@@ -96,6 +99,7 @@ public final class GunsmithPressGameTests {
                     "press output must remain empty until production finishes");
         } finally {
             restoreJob(prevJob);
+            restoreEconomy(prevEco);
         }
         helper.succeed();
     }
@@ -135,7 +139,10 @@ public final class GunsmithPressGameTests {
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
+            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
             helper.assertTrue(press.tryStartPreview(player), "complete receiver materials must start the press");
             helper.assertTrue(press.isPressing(), "bullpup receiver production must put the press into its active state");
             helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
@@ -146,6 +153,7 @@ public final class GunsmithPressGameTests {
                     "common receiver production must consume five polymer units");
         } finally {
             restoreJob(prevJob);
+            restoreEconomy(prevEco);
         }
         helper.succeed();
     }
@@ -179,7 +187,10 @@ public final class GunsmithPressGameTests {
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
+            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
             helper.assertTrue(press.tryStartPreview(player), "complete handguard materials must start the press");
             helper.assertTrue(press.isPressing(), "marksman handguard production must put the press into its active state");
             helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 61,
@@ -190,6 +201,7 @@ public final class GunsmithPressGameTests {
                     "common handguard production must consume four polymer units");
         } finally {
             restoreJob(prevJob);
+            restoreEconomy(prevEco);
         }
         helper.succeed();
     }
@@ -233,7 +245,10 @@ public final class GunsmithPressGameTests {
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
+            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
             helper.assertTrue(press.tryStartPreview(player), "complete receiver materials must start the press");
             helper.assertTrue(press.isPressing(), "sniper receiver production must put the press into its active state");
             helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
@@ -244,6 +259,7 @@ public final class GunsmithPressGameTests {
                     "common receiver production must consume five polymer units");
         } finally {
             restoreJob(prevJob);
+            restoreEconomy(prevEco);
         }
         helper.succeed();
     }
@@ -283,7 +299,10 @@ public final class GunsmithPressGameTests {
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
+            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
             helper.assertTrue(press.tryStartPreview(player), "complete bipod materials must start the press");
             helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 61,
                     "common bipod production must consume three generic gun parts");
@@ -293,6 +312,7 @@ public final class GunsmithPressGameTests {
                     "common bipod production must consume one polymer unit");
         } finally {
             restoreJob(prevJob);
+            restoreEconomy(prevEco);
         }
         helper.succeed();
     }
@@ -398,11 +418,15 @@ public final class GunsmithPressGameTests {
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
+            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
             helper.assertTrue(press.tryStartPreview(player),
                     "complete materials must start Gehenna component production");
         } finally {
             restoreJob(prevJob);
+            restoreEconomy(prevEco);
         }
 
         CompoundTag inProgress = new CompoundTag();
@@ -563,7 +587,10 @@ public final class GunsmithPressGameTests {
                 new ItemStack(Items.COBBLESTONE, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
         try {
+            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
             helper.assertFalse(press.tryStartPreview(player),
                     "cobblestone stuffed into every slot must not start a real gun-part press");
             helper.assertFalse(press.isPressing(), "rejected press must stay idle");
@@ -587,6 +614,7 @@ public final class GunsmithPressGameTests {
                     "receiver press must consume five slime polymer");
         } finally {
             restoreJob(prevJob);
+            restoreEconomy(prevEco);
         }
         helper.succeed();
     }

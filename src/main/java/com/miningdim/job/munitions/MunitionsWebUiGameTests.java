@@ -401,13 +401,14 @@ public final class MunitionsWebUiGameTests {
     /**
      * 三段覆盖三条判据:
      *  (a) 约 60 格外、仍在军火台 64 格半径内的台必须被扫到 (按环扫不能漏最外层);
-     *  (b) 无归属机台 (冲压机) 的公用可见半径只有 16 格, 20 格外必须发 pos=null —— 这段刻意放在近台之前做:
-     *      此时全场只有 (a) 那台远台 (距离 60), 军火台提前收敛的阈值要到 r=4 (64 格) 才达到, 中途的 r=1 环
-     *      (冲压机所在) 必然被完整扫过, "null" 因此对应的是公用半径的真距离截断, 不是扫描提前退出撞上的假阴性;
+     *  (b) 无归属机台 (冲压机) 的公用可见半径只有 16 格, 我们自己刻意放在 20 格外的这台绝不能被选中
+     *      (不断言 pos 恒为 null: GameTest 批内并行且冲压机没有归属字段, 世界里同时跑着的其它测试实例
+     *      可能凑巧也有一台落在玩家 16 格公用半径内, 那不是本条要测的东西——公用半径的真距离截断才是);
      *  (c) 再放一台自己的近台 (脚下, 距离 0): 两台自己的军火台同时存在时必须取最近那台, 不是先放的远台。
      *
      * 删掉 NearbyStations.around 里按环提前收敛的那段 (或改错判定半径), (a)/(c) 会在军火台仍应被扫到的位置
-     * 突然扫不到 (真距离在 64/0 格内, 却因为换了扫描顺序/半径漏判), 断言必挂。
+     * 突然扫不到 (真距离在 64/0 格内, 却因为换了扫描顺序/半径漏判), 断言必挂; 把 (b) 的公用半径真距离截断
+     * (PUBLIC_STATION_RADIUS_SQR 判定) 删掉或改错, 我们自己那台 20 格外的冲压机就会被选中, 断言同样必挂。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void munitionsStateRingScanFindsSameStationsAsFullScan(GameTestHelper helper) {
@@ -428,8 +429,19 @@ public final class MunitionsWebUiGameTests {
         placePress(helper, farPressRel);
         JsonObject stateB = state(helper, player);
         JsonObject pressRow = station(helper, stateB, STATION_PRESS);
-        helper.assertTrue(pressRow.get("pos").isJsonNull(),
-                "冲压机公用可见半径只有 16 格, 20 格外必须发 pos=null, 实得 " + pressRow.get("pos"));
+        // 断言不能硬要求 pos=null: GameTest 批内并行 (类头注释已记录), 冲压机没有归属字段 (F053 设计如此),
+        // 世界里同时跑着的其它测试实例可能恰好也有一台落在玩家 16 格公用半径内, 那不是本条要测的东西。
+        // 真正要测的不变量是"我们自己刻意放的这台 (20 格外) 绝不能是被选中的那台"——若 pos 命中它, 说明
+        // 公用半径的真距离截断失效, 是 F053 的真回归; pos 命中别的机台或干脆是 null, 都不构成失败。
+        if (!pressRow.get("pos").isJsonNull()) {
+            JsonObject pos = pressRow.getAsJsonObject("pos");
+            BlockPos farPressAbs = helper.absolutePos(farPressRel);
+            boolean matchesOurFarPress = pos.get("x").getAsInt() == farPressAbs.getX()
+                    && pos.get("y").getAsInt() == farPressAbs.getY()
+                    && pos.get("z").getAsInt() == farPressAbs.getZ();
+            helper.assertFalse(matchesOurFarPress,
+                    "冲压机公用可见半径只有 16 格, 20 格外我们自己放的这台绝不能被选中, 实得 " + pos);
+        }
 
         // (c)
         placeBench(helper, player.getUUID(), homeRel);

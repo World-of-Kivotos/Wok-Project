@@ -88,7 +88,10 @@ public final class GunsmithAssemblyBusinessGameTests {
         try {
             MunitionsConfig.GUNSMITH_ENABLED.set(true);
             IJobService prevJob = swapJob(new FixedLevelJobService(10));
+            EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+            IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
             try {
+                ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
                 helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
                         "complete recipe must start assembly");
                 helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT)
@@ -133,6 +136,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                 });
             } finally {
                 restoreJob(prevJob);
+                restoreEconomy(prevEco);
             }
         } finally {
             MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
@@ -150,7 +154,10 @@ public final class GunsmithAssemblyBusinessGameTests {
         try {
             MunitionsConfig.GUNSMITH_ENABLED.set(true);
             IJobService prevJob = swapJob(new FixedLevelJobService(10));
+            EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+            IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
             try {
+                ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
                 helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
                         "complete recipe must start assembly");
 
@@ -174,6 +181,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                 });
             } finally {
                 restoreJob(prevJob);
+                restoreEconomy(prevEco);
             }
         } finally {
             MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
@@ -416,7 +424,10 @@ public final class GunsmithAssemblyBusinessGameTests {
         try {
             MunitionsConfig.GUNSMITH_ENABLED.set(true);
             IJobService prevJob = swapJob(new FixedLevelJobService(10));
+            EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+            IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
             try {
+                ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
                 helper.assertFalse(be.tryStartAssembly(player, new ItemStack(Items.DIAMOND_HOE), 4),
                         "AK blueprint must reject a complete AR part set");
                 for (GunsmithPressPart part : GunsmithBlueprint.AK47.requiredParts()) {
@@ -443,6 +454,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                 });
             } finally {
                 restoreJob(prevJob);
+                restoreEconomy(prevEco);
             }
         } finally {
             MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
@@ -460,7 +472,10 @@ public final class GunsmithAssemblyBusinessGameTests {
         try {
             MunitionsConfig.GUNSMITH_ENABLED.set(true);
             IJobService prevJob = swapJob(new FixedLevelJobService(10));
+            EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+            IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
             try {
+                ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
                 for (GunsmithPressPart part : GunsmithPressPart.values()) {
                     helper.assertTrue(be.isPartSlotVisible(part) == GunsmithBlueprint.M1911.requiredParts().contains(part),
                             "M1911 must expose exactly its five required slots: " + part);
@@ -497,6 +512,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                 });
             } finally {
                 restoreJob(prevJob);
+                restoreEconomy(prevEco);
             }
         } finally {
             MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
@@ -1142,15 +1158,14 @@ public final class GunsmithAssemblyBusinessGameTests {
         placeStructure(helper, Direction.NORTH);
         GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
         be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT, corrupt);
-        boolean partValidationThrew = false;
-        try {
-            be.inventory().isItemValid(GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.CORE),
-                    part(GunsmithPlatform.AR, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1.00D));
-        } catch (IllegalArgumentException expected) {
-            partValidationThrew = true;
-        }
-        helper.assertTrue(partValidationThrew,
-                "a corrupt blueprint must fail part-slot validation instead of behaving like no blueprint");
+        // F052: isBlueprint 现在是不抛的谓词 (硬校验收口到 blueprint()/assemble() 等取内容的方法), 故容器点击/
+        // 面板刷新路径 (SlotItemHandler.mayPlace 即走 isItemValid) 对裸 NBT 图纸必须静默拒绝, 不能再让异常
+        // 冒穿渲染/网络线程。原断言 (期望这里抛异常) 正是 F052 要修的那个缺陷, 故改为断言静默拒绝。
+        boolean rejected = !be.inventory().isItemValid(
+                GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.CORE),
+                part(GunsmithPlatform.AR, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1.00D));
+        helper.assertTrue(rejected,
+                "a corrupt blueprint must reject part-slot validation without throwing (F052)");
         helper.succeed();
     }
 

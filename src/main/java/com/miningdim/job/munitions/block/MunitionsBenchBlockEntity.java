@@ -458,23 +458,28 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         MunitionsProduction.Result result = MunitionsProduction.settle(
                 selectedCaliber, level0, 1, elapsed, bufferRemaining,
                 primers, casings, bulletHeads, propellant);
-        boolean active = canAccumulateProduction();
+        // 复核 (major, F049 同源): active 必须与 settle 的判定同源 (含它的时间门), 不能只看料/缓冲/口径三道
+        // 静态门 —— 台主持续在线时 serverTick 每 tick 都追算一次, elapsed 恒为 1 tick, 单 tick 换算的理论发数
+        // 几乎恒不够一整批; 静态门此时恒真, 会把机器点成常亮/持续焊接音却一发都出不来。result.produced() 是
+        // settle 本次是否真出弹的唯一真源, 直接复用, 不再另算一套可能与它不一致的判据。
+        boolean active = result.produced();
         setMachineActive(active);
         playWeldSoundIfActive(now, active);
 
         if (!result.produced()) {
             lastSettleTick = now;
-            if (!canAccumulateProduction()) {
-                nextWeldSoundTick = 0L;
-            }
             setChanged();
             return;
         }
 
         // Charge before advancing lastSettleTick so a failed fee keeps the production window.
+        // 复核 (major, F049 同源): 扣费失败不撤销本 tick 已点亮的 active/音效状态, 也不重置 nextWeldSoundTick。
+        // 本 tick 的产出条件本就成立 (料/缓冲/时间三门都过了), 只是差信用点, 不是"没在产"; lastSettleTick 未推进
+        // 故下一 tick elapsed 继续累积、result.produced() 大概率仍为 true, 若这里强制拉黑再在下一 tick 重新点亮,
+        // 就是每 tick 一次熄灭再点亮 —— 音效节流被清零后每 tick 都重新达标, 造成 20 次/秒的音效轰炸 + 方块状态
+        // 每 tick 两次 (主+副半块) 的更新包风暴。保留当前 active/节流状态即可: setPartActive 本身按值变判据去重
+        // (已是 true 就不会重复发包), 音效则继续走 WELD_SOUND_MIN_INTERVAL 的正常节奏, 不因反复欠费而失效。
         if (!tryChargeWorkFee(owner, result.workFeeCredits())) {
-            nextWeldSoundTick = 0L;
-            setMachineActive(false);
             setChanged();
             return;
         }
@@ -494,6 +499,8 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         MunitionsLevels.grantRawXp(owner, result.rawXp());
 
         refreshOutputStack();
+        // 产出落账后的持续指示灯 (与逐 tick 的 result.produced() 不同源): 反映"还有没有下一批的余粮" ——
+        // 料/缓冲/口径三道静态门, 供玩家判断台子是否还需要补料, 对应 F049 原始诉求 ("出弹却熄火")。
         setMachineActive(canAccumulateProduction());
         setChanged();
     }
@@ -639,11 +646,12 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     }
 
     /**
-     * 机器是否处于 "在产" 态 (供 setMachineActive 驱动方块 ACTIVE 状态 + 焊接音)。手动批次与被动产线是两套独立
-     * 产出通道: craftingActive 只描述手动开工 (tryStartCraft/finishActiveCraft 的状态机) 是否在进行, 被动产线
-     * 从不置位 craftingActive (settleForOwner 走的是 MunitionsProduction.settle 纯时间戳追算), 故不能直接复用
-     * craftingActive 判被动是否在产 —— 必须另按被动产线自身的料门与缓冲门判定, 与 MunitionsProduction.settle
-     * 内部一致: 选中口径 + 攒够一批材料 + 缓冲还有空间。
+     * 机器是否 "仍有余粮" (供 settleForOwner 产出落账后判定要不要继续点灯; 与逐 tick 的 active 不是同一件事)。
+     * 复核 (major, F049): 这是一道粗粒度静态门 (选中口径 + 攒够一批材料 + 缓冲还有空间), 刻意不含
+     * {@link MunitionsProduction#settle} 的时间门 —— 台主持续在线时 serverTick 每 tick 都追算一次, elapsed
+     * 恒为 1 tick, 时间门几乎永远不够一整批; 若拿这三道静态门驱动逐 tick 的 "在产" 显示, 会把机器点成常亮却
+     * 一发都出不来。故逐 tick 的 active 已改用 {@link MunitionsProduction.Result#produced()} (settle 本次是否
+     * 真出弹的唯一真源), 本方法只在产出落账之后调用一次, 表达 "这批产完了, 还要不要继续亮着等下一批"。
      */
     private boolean canAccumulateProduction() {
         if (craftingActive) {
@@ -889,15 +897,20 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         }
         if (tag.contains(K_INV)) {
             CompoundTag invTag = tag.getCompound(K_INV);
-            // 没有 Size 的 Inv 复合标签不可能由 ItemStackHandler.serializeNBT 写出; 静默按 SLOT_COUNT 兜底会掩盖
-            // 真问题 (对齐 GunsmithAssemblyBenchBlockEntity.loadInventory 同一纪律)。
+            // 没有 Size 的 Inv 复合标签不可能由 ItemStackHandler.serializeNBT 写出, 形状不明无法安全迁移。
+            // 复核 (blocker): 这里曾经 throw —— BlockEntity.loadStatic 对 load() 抛出的处理是把整个 BE 丢弃
+            // (catch Throwable 后 return null, forge-1.20.1-47.4.20 sources 核实), 不是"拒绝这条 Inv", 后果
+            // 是台主/缓冲/四格料全部清零, 比放过一段形状不明的 Inv 更糟。改为只丢弃这一段损坏的 Inv 数据
+            // (库存清空, owner/buffer/selectedCaliber 等其余字段照常还原), 记错误日志, 不让局部数据损坏级联成
+            // 整台消失。
             if (!invTag.contains(K_INV_SIZE, Tag.TAG_INT)) {
-                throw new IllegalStateException("Munitions bench inventory is missing its serialized size at "
-                        + worldPosition);
+                LOGGER.error("[miningdim] munitions bench inventory tag is missing its serialized size at {}; "
+                        + "discarding the corrupted inventory only (owner/buffer state preserved)", worldPosition);
+            } else {
+                int savedSlots = invTag.getInt(K_INV_SIZE);
+                inventory.deserializeNBT(invTag);
+                migrateInventoryShape(savedSlots);
             }
-            int savedSlots = invTag.getInt(K_INV_SIZE);
-            inventory.deserializeNBT(invTag);
-            migrateInventoryShape(savedSlots);
         }
         int sel = tag.contains(K_SELECTED) ? tag.getInt(K_SELECTED) : -1;
         selectedCaliber = sel < 0 ? null : MunitionsCaliber.byIndex(sel);
@@ -921,9 +934,9 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     }
 
     /**
-     * 库存形状迁移分派 (F015): 当前形状照旧处理, 旧 4 槽形状走专门迁移, 其余尺寸一律拒绝而非静默 setSize 抹平
-     * (对齐 GunsmithAssemblyBenchBlockEntity.loadInventory 同一纪律 —— 未知尺寸多半是数据损坏或跨版本混用,
-     * 抹平整台库存等于替玩家销毁一台机器里的所有料)。
+     * 库存形状迁移分派 (F015): 当前形状照旧处理, 旧 4 槽形状走专门迁移, 其余尺寸一律进待掉落队列 + 重置形状
+     * (复核 blocker: 曾经在这里 throw 来"拒绝而非静默抹平", 但 load() 里的抛出会被 BlockEntity.loadStatic 吞掉、
+     * 丢弃整台 BE, 比"抹平库存"更狠; 现在不静默销毁, 但也不再拿抛异常当拒绝手段)。
      */
     private void migrateInventoryShape(int savedSlots) {
         if (savedSlots == SLOT_COUNT) {
@@ -934,9 +947,23 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
             migrateLegacyFourSlot();
             return;
         }
-        throw new IllegalStateException("Unsupported munitions bench inventory size " + savedSlots
-                + " at " + worldPosition + "; expected " + SLOT_COUNT
-                + " or legacy " + LEGACY_FOUR_SLOT_COUNT);
+        // 复核 (blocker, 与 K_INV_SIZE 缺失分支同一根因): 未知槽数曾经 throw, 而 load() 里的抛出会被
+        // BlockEntity.loadStatic 吞掉、丢弃整台 BE (owner/缓冲/四格料全没), 比"抹平库存"更狠。inventory 此时已被
+        // ItemStackHandler.deserializeNBT 按 savedSlots resize 并填好内容, 原样进待掉落队列 (不静默销毁), 再把
+        // 库存重置到当前 5 槽形状, 只记错误日志。
+        LOGGER.error("[miningdim] munitions bench inventory has unsupported size {} at {} (expected {} or legacy "
+                        + "{}); queuing its contents for drop and resetting the inventory shape",
+                savedSlots, worldPosition, SLOT_COUNT, LEGACY_FOUR_SLOT_COUNT);
+        for (int slot = 0; slot < inventory.getSlots(); slot++) {
+            ItemStack stack = inventory.getStackInSlot(slot).copy();
+            if (!stack.isEmpty()) {
+                pendingLegacyDrops.add(stack);
+            }
+        }
+        inventory.setSize(SLOT_COUNT);
+        for (int slot = 0; slot < SLOT_COUNT; slot++) {
+            inventory.setStackInSlot(slot, ItemStack.EMPTY);
+        }
     }
 
     /**
@@ -973,11 +1000,41 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
             queuedDrops++;
         }
         if (!legacyOutput.isEmpty()) {
-            setOutputStack(legacyOutput);
+            queuedDrops += settleLegacyOutputStack(legacyOutput);
         }
 
         LOGGER.info("[miningdim] munitions bench migrated legacy 4-slot inventory at {}: propellant restored={}, "
                 + "{} stack(s) queued for drop", worldPosition, restoredPropellant, queuedDrops);
+    }
+
+    /**
+     * 旧档输出槽落新槽前钳上限 (复核 blocker, 与 F015 同一条链): 若把 legacyOutput 原样喂给 setOutputStack,
+     * 其不变量断言在 count 超过物品自报上限时会抛出, 而 load() 路径里的抛出会被 BlockEntity.loadStatic 吞掉、
+     * 丢弃整台 BE —— F001 修复前的旧档输出槽正是不受 TACZ 钳制的弹栈, count 很容易超过枪包 json 里的
+     * stack_size (12g=36/308=48)。按 min(count, 物品自报上限, NBT 存盘安全上限) 落一栈进输出槽, 超出部分按
+     * 同一上限分块进待掉落队列 (不静默销毁), 这条迁移路径不再有机会把不变量断言抛到 load() 里。
+     *
+     * @return 因超栈被排入待掉落队列的份数 (供调用方汇总日志)
+     */
+    private int settleLegacyOutputStack(ItemStack legacyOutput) {
+        int cap = Math.min(legacyOutput.getMaxStackSize(), PERSISTENCE_SAFE_MAX_COUNT);
+        int settled = Math.min(legacyOutput.getCount(), cap);
+        if (settled > 0) {
+            ItemStack head = legacyOutput.copy();
+            head.setCount(settled);
+            setOutputStack(head);
+        }
+        int overflow = legacyOutput.getCount() - settled;
+        int queued = 0;
+        while (overflow > 0) {
+            int chunk = Math.min(overflow, cap);
+            ItemStack drop = legacyOutput.copy();
+            drop.setCount(chunk);
+            pendingLegacyDrops.add(drop);
+            overflow -= chunk;
+            queued++;
+        }
+        return queued;
     }
 
     private void clearInvalidInputSlots() {

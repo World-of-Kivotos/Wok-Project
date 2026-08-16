@@ -25,7 +25,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
@@ -36,11 +35,9 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -77,9 +74,6 @@ public final class ChampionLittleBoyHandler {
 
     /** 扫描周期 (tick): 1s 扫一次近玩家冠军检出到达背水血线者起手 (背水核弹, 1s 触发粒度玩家可接受)。 */
     private static final int SCAN_INTERVAL_TICKS = (int) ChampionLittleBoyPlan.TICKS_PER_SECOND;
-
-    /** 起手检出的玩家可见距离 (格; 与自身被动/BOSS 血条同量级)。无玩家在此范围的冠军不检出 (无需核弹)。 */
-    private static final double VIEW_RANGE = 48.0D;
 
     /**
      * 到场玩家统计 + 蓄力警告半径 (格; 主线裁定"16 格内存活玩家数" + spec"半径 16 玩家 actionbar 警告"): 起手瞬间此半径内
@@ -168,21 +162,11 @@ public final class ChampionLittleBoyHandler {
      * 有效血量占比达背水血线的冠军起手; 多玩家同看一冠军本轮只结算一次。
      */
     private void scanForIgnition(MinecraftServer server, long nowTick) {
-        Set<UUID> processed = new HashSet<>();
-        for (ServerLevel level : server.getAllLevels()) {
-            List<ServerPlayer> players = level.players();
-            if (players.isEmpty()) {
-                continue;
+        for (ChampionProximityScanner.Sighting sighting : ChampionProximityScanner.sightings(server)) {
+            if (!sighting.entity().isAlive()) {
+                continue; // 快照按 tick 复用, 同 tick 更早的 handler 可能已致死: 存活性逐条重查。
             }
-            for (ServerPlayer player : players) {
-                AABB box = player.getBoundingBox().inflate(VIEW_RANGE);
-                for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class, box, LivingEntity::isAlive)) {
-                    if (!processed.add(entity.getUUID())) {
-                        continue; // 多玩家同看一冠军: 本轮只判一次。
-                    }
-                    maybeIgnite(entity, level, nowTick);
-                }
-            }
+            maybeIgnite(sighting.entity(), sighting.level(), nowTick);
         }
     }
 
@@ -308,8 +292,8 @@ public final class ChampionLittleBoyHandler {
             double distance = Math.sqrt(player.distanceToSqr(champion));
             double damage = ChampionLittleBoyPlan.blastDamage(state.quality, player.getMaxHealth(), distance);
             player.hurt(source, (float) damage);
-            // 结算完自身伤害后授缓冲 (每玩家本轮只命中一次, hurt 后立即 grant 不影响其它玩家; 红线 3)。
-            AoeImmunityBuffer.grant(player);
+            // 结算完自身伤害后授缓冲 (每玩家本轮只命中一次, hurt 后立即 grant 不影响其它玩家; 窗内首发不续窗, F102)。
+            AoeImmunityBuffer.grantIfNotBuffered(player);
             hitCount++;
             if (trace) {
                 LOGGER.info("skill-littleboy champion={} DETONATE hit player={} dist={} dmg={}",

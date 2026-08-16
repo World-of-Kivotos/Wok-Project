@@ -50,6 +50,30 @@ public final class WebUiServerDispatcher {
             WebUiErrorCodes.RESPONSE_TOO_LARGE, "server response exceeded the downstream size limit", false));
 
     /**
+     * 判重命中时的替代回执 (F045)。与 {@link #RESPONSE_TOO_LARGE_JSON} 同规格预先算好: 它是"拒绝"路径本身,
+     * 必须无条件编得出去, 不该在判重短路那一刻现造。
+     */
+    static final String DUPLICATE_REQUEST_JSON = businessErrorJson(new WebUiBusinessException(
+            WebUiErrorCodes.DUPLICATE_REQUEST, "这次请求已经处理过了，请勿重复提交", false));
+
+    /**
+     * 限流命中时的替代回执 (F008)。与 {@link #RESPONSE_TOO_LARGE_JSON} 同规格预先算好, 理由相同: 它是"拒绝"
+     * 路径本身, 必须无条件编得出去。
+     */
+    static final String TOO_MANY_REQUESTS_JSON = businessErrorJson(new WebUiBusinessException(
+            WebUiErrorCodes.TOO_MANY_REQUESTS, "操作太频繁了，请稍后再试", false));
+
+    /**
+     * 每玩家令牌桶 (F008): 突发 40、每秒补充 10。
+     *
+     * 数字来源, 不是拍脑袋: 前端唯一允许的两条轮询是 webui/src/hooks/use-live-updates.ts 的
+     * miningStatus 3 秒一次与 marriageState 10 秒一次 (合计稳态约 0.43 次/秒), 补充速率 10 次/秒给了二十倍
+     * 以上余量。突发容量 40 是给页面冷启动那一批一次性拉取 (握手 + hub 面板 + profile 等) 留的头寸。
+     * 它是防失控的护栏, 不是容量规划 —— 真要做容量规划应量化冷启动实际并发拉取数, 而不是在此处再猜一个数。
+     */
+    private static final WebUiRateLimiter RATE_LIMITER = new WebUiRateLimiter(40, 10.0);
+
+    /**
      * 每玩家保留的最近已处理 requestId 上限 (滑动窗口容量)。market.buy/place/cancel 这类改资金/库存的副作用
      * action 都经本派发器, 一个 requestId 只能被处理一次 (契约第八章红线 6 / 5.3 防重放)。超窗后逐出最旧的
      * requestId 以防单玩家内存无界增长; 客户端桥接层 requestId 是 AtomicLong 单调自增 (C2SWebUiRequest 第 16 行),
@@ -101,17 +125,29 @@ public final class WebUiServerDispatcher {
      * action handler) 一律让异常自然冒泡到此。
      */
     public static void dispatchAndRespond(ServerPlayer sender, long requestId, String action, String payloadJson) {
+        // 限流门 (F008), 在判重之前: 被限流的请求不该把自己的 requestId 烧进防重放窗口, 否则客户端拿同一 id
+        // 重试只会得到 duplicate_request 而不是重新获得执行机会。DEBUG 而非 WARN: 这条失败任何人都能无限触发,
+        // 正是本类要防的日志放大器 (与判重/未知 action 同纪律)。
+        if (!RATE_LIMITER.tryAcquire(sender.getUUID(), System.nanoTime())) {
+            LOGGER.debug("Web UI action '{}' throttled for player {} (requestId={})",
+                    action, sender.getName().getString(), requestId);
+            respond(sender, requestId, false, TOO_MANY_REQUESTS_JSON);
+            return;
+        }
         // 防重放/防重复提交 (契约第八章红线 6 / 5.3): 在执行任何 handler 副作用前先登记 requestId。命中已处理窗口即
-        // 短路回 success=false {"error":"duplicate_request"}, 不再触达 handler。登记前置 (而非业务成功后) 保证即便
+        // 短路回 success=false + errorCode DUPLICATE_REQUEST, 不再触达 handler。登记前置 (而非业务成功后) 保证即便
         // handler 中途抛异常, 同 requestId 的重试也无法二次执行其改资金/库存副作用 —— 重试必须换新 requestId。
+        // 用带 errorCode 的 DUPLICATE_REQUEST_JSON 而非裸 errorJson: 裸 errorJson 没有 errorCode, 前端只能把
+        // 英文机器串原样呈给玩家 (webui/src/lib/errorText.ts 顶部已写明未收录的码回退服务端原文)。
         if (!markRequestProcessed(sender.getUUID(), requestId)) {
-            respond(sender, requestId, false, errorJson("duplicate_request"));
+            respond(sender, requestId, false, DUPLICATE_REQUEST_JSON);
             return;
         }
         try {
             WebUiAction handler = ACTIONS.get(action);
             if (handler == null) {
-                throw new IllegalArgumentException("unknown Web UI action: " + action);
+                throw new WebUiBusinessException(WebUiErrorCodes.UNKNOWN_ACTION,
+                        "unknown Web UI action: " + action, false);
             }
             JsonObject payload = JsonParser.parseString(payloadJson).getAsJsonObject();
             String resultJson = handler.handle(sender, payload);
@@ -198,11 +234,13 @@ public final class WebUiServerDispatcher {
     }
 
     /**
-     * 清除某玩家的 requestId 滑动窗口 (玩家登出时由 {@link WebUiServerSubsystem} 挂的 PlayerLoggedOutEvent 调用)。
-     * 防止离线玩家的窗口长期驻留造成内存泄漏; 同一玩家重连后从空窗口开始 (新会话 requestId 仍单调自增, 不复用)。
+     * 清除某玩家的 requestId 滑动窗口与令牌桶 (玩家登出时由 {@link WebUiServerSubsystem} 挂的
+     * PlayerLoggedOutEvent 调用)。防止离线玩家的窗口/令牌桶长期驻留造成内存泄漏; 同一玩家重连后从空窗口与满桶
+     * 重新开始 (新会话 requestId 仍单调自增, 不复用)。
      */
     public static void clearPlayer(UUID sender) {
         PROCESSED_REQUEST_IDS.remove(sender);
+        RATE_LIMITER.clear(sender);
     }
 
     /** 构造 {"error":"<message>"} 失败回执 (经 Gson 转义, 防 message 内引号破坏 JSON)。 */

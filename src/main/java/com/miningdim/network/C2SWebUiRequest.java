@@ -17,17 +17,27 @@ import java.util.function.Supplier;
  */
 public record C2SWebUiRequest(long requestId, String action, String payloadJson) {
 
+    /**
+     * action 名的上行长度上限 (F008)。全库 {@code WebUiServerDispatcher.register} 最长的 action 名是
+     * {@code admin.economy.balance} 共 21 字符, 64 留了三倍余量。默认上限
+     * {@link FriendlyByteBuf#MAX_STRING_LENGTH} 是 32767, 等于让改版客户端每个垃圾包往服务端日志与回执各塞
+     * 32KB 可控文本。超限时解码抛 {@code DecoderException} 由 netty 管道处理 (该连接被断开) —— 这是对畸形包
+     * 的正确处置, 不是业务错误, 故不在此 catch。payloadJson 保持默认上限不动: 聚合类 action 的合法 payload
+     * 确实可能长, 它已被 respond 的体积守卫与 Gateway 限流共同兜住。
+     */
+    public static final int MAX_ACTION_CHARS = 64;
+
     /** 编码 (契约第 4 节): 仅按序写字段, 无世界访问。payloadJson 用工程同款 writeUtf。 */
     public static void encode(C2SWebUiRequest msg, FriendlyByteBuf buf) {
         buf.writeLong(msg.requestId);
-        buf.writeUtf(msg.action);
+        buf.writeUtf(msg.action, MAX_ACTION_CHARS);
         buf.writeUtf(msg.payloadJson);
     }
 
     /** 解码 (契约第 4 节): 按序读回构造不可变 record, 无世界访问。 */
     public static C2SWebUiRequest decode(FriendlyByteBuf buf) {
         long requestId = buf.readLong();
-        String action = buf.readUtf();
+        String action = buf.readUtf(MAX_ACTION_CHARS);
         String payloadJson = buf.readUtf();
         return new C2SWebUiRequest(requestId, action, payloadJson);
     }

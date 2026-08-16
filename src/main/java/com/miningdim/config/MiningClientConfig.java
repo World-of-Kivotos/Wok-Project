@@ -2,6 +2,8 @@ package com.miningdim.config;
 
 import net.minecraftforge.common.ForgeConfigSpec;
 
+import com.miningdim.webui.WebUiPageUrl;
+
 /**
  * CLIENT 级配置 spec (设计文档 16.5)。仅影响本机渲染, 不参与任何世界/平衡逻辑, 故置于 CLIENT 层。
  *
@@ -54,13 +56,33 @@ public final class MiningClientConfig {
     /**
      * webui.url 取值校验: 必须是 http/https 绝对地址。拒 file:// 与 data: 是有意为之 —— 前端走远端托管
      * (架构文档第二章第 2 条), 本地文件加载既不在分发路线内, 也会让页面落进 CEF 的非安全上下文。
+     * data: 这一条由本方法挡住 (WebUiPageUrl.normalize 会把 data: 原样放行, 但本配置项刻意只收 http(s))。
      * 校验失败时 ForgeConfigSpec 自动回退到默认值并在日志留痕, 不崩客户端。
      */
     private static boolean isHttpUrl(Object raw) {
         if (!(raw instanceof String s)) {
             return false;
         }
-        return s.startsWith("http://") || s.startsWith("https://");
+        String normalized;
+        try {
+            normalized = WebUiPageUrl.normalize(s);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+        return normalized.startsWith("http://") || normalized.startsWith("https://");
+    }
+
+    /**
+     * webui.url 的唯一读取口径。配置里存的是运维手打的字面量, 宿主要拿它去和 Chromium 归一化后的
+     * 文档 URL 比对 (WebUiBridge.onQuery), 两侧必须过同一套归一化, 否则尾斜杠/大小写/默认端口这类
+     * 字面差异会把合法页面判成不可信。
+     *
+     * 这里的 normalize 理论上不会抛: 上面的校验器 (isHttpUrl) 已经保证了 SPEC 里存的值合法,
+     * 非法值会被 ForgeConfigSpec 自动回退成默认值。真抛出说明校验器与本读取口径已经失步 (例如
+     * 校验器改了但这里没跟上), 属于配置子系统自身的 bug, 必须让它痛, 不在这里 try/catch 兜底。
+     */
+    public static String webUiUrl() {
+        return WebUiPageUrl.normalize(WEBUI_URL.get());
     }
 
     private MiningClientConfig() {

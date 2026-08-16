@@ -123,4 +123,30 @@ public final class WebUiErrorCodes {
      * 任何人都能无限次触发的 —— 那正是派发器注释里点名要防的 WARN 堆栈刷屏。
      */
     public static final String PERMISSION_DENIED = "PERMISSION_DENIED";
+
+    /**
+     * 该 requestId 已被处理过 (防重放窗口命中)。
+     *
+     * 与 {@link #RESPONSE_TOO_LARGE} 同类: 抛出点不在任何 action handler 内, 而在
+     * {@link WebUiServerDispatcher#dispatchAndRespond} 这个 Gateway 收口的判重短路处产生。无 params。
+     */
+    public static final String DUPLICATE_REQUEST = "DUPLICATE_REQUEST";
+
+    /**
+     * Gateway 级每玩家令牌桶超限。抛出点: {@link WebUiServerDispatcher#dispatchAndRespond} 的限流门。无 params。
+     *
+     * 为什么不复用 {@link #RATE_LIMITED}: 后者的抛出点只有 {@code CaseOpeningService.enforceNewOpenRateLimit}
+     * (只管 case.open 的新开箱冷却), 且前端刻意把开箱那一组码排除在 errorText 表外由 CasePage 自己展示原文;
+     * 两者合表会让"整条 WebUI 通道被限流"渲染成一句开箱专属文案。
+     */
+    public static final String TOO_MANY_REQUESTS = "TOO_MANY_REQUESTS";
+
+    /**
+     * 查注册表落空 (action 名未注册)。抛出点: {@link WebUiServerDispatcher#dispatchAndRespond}。无 params。
+     *
+     * 改用业务码而非裸异常的理由: 未知 action 是任何改版客户端都能无限触发的失败, 走裸异常会让每个垃圾包在
+     * WARN 里写一条完整堆栈 (本表 {@link #PERMISSION_DENIED} 的 javadoc 已经点名过这个刷屏问题), 业务异常
+     * 不分配堆栈也不打 WARN。
+     */
+    public static final String UNKNOWN_ACTION = "UNKNOWN_ACTION";
 }

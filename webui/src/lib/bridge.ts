@@ -61,6 +61,14 @@ import type {
   MiningEnterResult,
   MiningLeavePayload,
   MiningLeaveResult,
+  QuestBoardPayload,
+  QuestBoardResult,
+  QuestClaimPayload,
+  QuestClaimResult,
+  QuestRefreshPayload,
+  QuestRefreshResult,
+  QuestTurnInPayload,
+  QuestTurnInResult,
   ChampionCodexPayload,
   ChampionCodexResult,
   ChampionInspectPayload,
@@ -215,6 +223,10 @@ type WebUiContractMap = {
   'mining.myStatus': { payload: MiningMyStatusPayload; result: MiningMyStatusResult }
   'mining.enter': { payload: MiningEnterPayload; result: MiningEnterResult }
   'mining.leave': { payload: MiningLeavePayload; result: MiningLeaveResult }
+  'quest.board': { payload: QuestBoardPayload; result: QuestBoardResult }
+  'quest.claim': { payload: QuestClaimPayload; result: QuestClaimResult }
+  'quest.refresh': { payload: QuestRefreshPayload; result: QuestRefreshResult }
+  'quest.turnIn': { payload: QuestTurnInPayload; result: QuestTurnInResult }
   'champion.codex': { payload: ChampionCodexPayload; result: ChampionCodexResult }
   'champion.inspect': { payload: ChampionInspectPayload; result: ChampionInspectResult }
   'admin.economy.balance': { payload: AdminEconomyBalancePayload; result: AdminEconomyBalanceResult }

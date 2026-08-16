@@ -39,6 +39,7 @@ export const ROUTE_SHOP = '/shop'
 export const ROUTE_JOBS = '/jobs'
 export const ROUTE_JOB_DETAIL = '/jobs/:id'
 export const ROUTE_MINING = '/mining'
+export const ROUTE_QUESTS = '/quests'
 export const ROUTE_CODEX = '/codex'
 export const ROUTE_MARRIAGE = '/marriage'
 export const ROUTE_CASE = '/case'
@@ -63,6 +64,7 @@ export const ROUTE_PATTERNS = [
   ROUTE_SHOP,
   ROUTE_JOBS,
   ROUTE_MINING,
+  ROUTE_QUESTS,
   ROUTE_CODEX,
   ROUTE_MARRIAGE,
   ROUTE_CASE,
@@ -91,6 +93,7 @@ export const ROUTE_TITLES: Record<RoutePattern, string> = {
   [ROUTE_JOBS]: '职业总览',
   [ROUTE_JOB_DETAIL]: '单职业详情',
   [ROUTE_MINING]: '矿洞',
+  [ROUTE_QUESTS]: '任务板',
   [ROUTE_CODEX]: '精英怪图鉴',
   [ROUTE_MARRIAGE]: '婚姻',
   [ROUTE_CASE]: '开箱',

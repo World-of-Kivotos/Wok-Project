@@ -18,6 +18,7 @@ import { MyListingsPage } from './pages/market/MyListingsPage'
 import { SellPage } from './pages/market/SellPage'
 import { MarriagePage } from './pages/MarriagePage'
 import { MiningPage } from './pages/MiningPage'
+import { QuestsPage } from './pages/QuestsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ShopPage } from './pages/ShopPage'
 import type { RouteMatch, RoutePattern } from './router'
@@ -36,6 +37,7 @@ import {
   ROUTE_MARKET_SELL,
   ROUTE_MARRIAGE,
   ROUTE_MINING,
+  ROUTE_QUESTS,
   ROUTE_SETTINGS,
   ROUTE_SHOP,
   useNavigate,
@@ -59,6 +61,7 @@ const ROUTE_ELEMENTS: Record<RoutePattern, () => ReactElement> = {
   [ROUTE_JOBS]: () => <JobsOverviewPage />,
   [ROUTE_JOB_DETAIL]: () => <JobDetailPage />,
   [ROUTE_MINING]: () => <MiningPage />,
+  [ROUTE_QUESTS]: () => <QuestsPage />,
   [ROUTE_CODEX]: () => <CodexPage />,
   [ROUTE_MARRIAGE]: () => <MarriagePage />,
   [ROUTE_CASE]: () => <CasePage />,

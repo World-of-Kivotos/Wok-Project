@@ -96,6 +96,9 @@ const ERROR_CODE_TEXT: Readonly<Record<string, ErrorCodeText>> = {
     // itemId 不进文案: 前端拿它去解物品名要走 client.i18n 一次往返, 而这句话不带名字也说得清。
     text: '背包里没有可出售的作物',
   },
+  QUEST_DISABLED: {
+    text: '任务系统当前未启用',
+  },
   ITEM_NOT_TRADABLE: {
     /*
      * 一码两用: market.place 拒绝时它是失败信封里的 errorCode (带 params.rule), market.tradable 判定为

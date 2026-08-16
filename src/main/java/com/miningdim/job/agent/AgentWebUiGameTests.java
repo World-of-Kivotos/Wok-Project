@@ -3,9 +3,15 @@ package com.miningdim.job.agent;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.miningdim.champion.AffixDef;
+import com.miningdim.champion.AffixQuality;
+import com.miningdim.champion.MiningChampionData;
+import com.miningdim.champion.MiningChampions;
+import com.miningdim.champion.integration.ChampionPromoter;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.entry.MiningCapabilities;
 import com.miningdim.job.JobId;
+import com.miningdim.job.agent.integration.AgentIntegrationBootstrap;
 import com.miningdim.job.agent.panel.AgentScanSnapshotBuilder;
 import com.miningdim.testutil.MockGameTestPlayers;
 import com.miningdim.webui.server.WebUiBusinessException;
@@ -14,7 +20,6 @@ import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntityType;
@@ -24,8 +29,10 @@ import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -34,14 +41,20 @@ import java.util.UUID;
  * 本组的被测面是"服务端这条路自洽": 防 X 光的三道门 (脉冲 CD / 球形半径 / 分级解密) 与封印的两道前置门
  * (快照有效 / 词条已解密), 加上九态裁决的逐字透传。
  *
- * 为什么要给接缝装桩: {@link AgentSealSeam} 的真实现住在 compileOnly 的 Champions 集成层, dev 永不加载, 于是
- * 不装桩就只测得到"扫描离线"那一条分支, CD、半径、截断、封印前置门全部测不到。桩是 champions-free 的:
- * 目标由自定义名 {@value #TARGET_NAME_PREFIX}&lt;星级&gt; 标记, 词条表按 {@link AgentSealSeam.SealOutcome} 逐态生成,
- * 封印桩按 affixId 回对应那一态 —— 于是"九态透传"能被逐个断言, 而不是只测到 OK 一条。
+ * 为什么要给接缝装桩: {@link AgentSealSeam} 的真实现住在集成层 (读真精英词条 + 聚合 SealPlan/SealRegistry),
+ * 桩把"分级解密九态透传"整段替换成一张 champions-free 的固定词条表, 好让"九态透传"能被逐个断言而不是只测到
+ * OK 一条。桩<b>不再</b>替代"目标是不是精英"这一判据 (F082 剪枝后 {@code AgentWebUiActions.SCAN} 的
+ * {@code getEntitiesOfClass} predicate 直接调 {@code MiningChampions.isChampion}, 自定义名标记的假目标会被
+ * 整批筛掉): {@link #spawnMarkedTarget} 改为对生成的僵尸真调
+ * {@link com.miningdim.champion.integration.ChampionPromoter#applyChampion} 盖章 (真写
+ * {@code MiningChampionData} capability), {@link #markedStar} 相应改读该 capability 的 {@code star()},
+ * 星级词条表本身仍完全由 {@link #STUB_SCAN}/{@link #STUB_SEAL} 桩提供 (真盖章只用来通过预筛, 不参与九态裁决)。
  *
  * 桩绑定后不解绑: 同一批 (batch) 内的用例在同一轮 tick 里陆续执行, 中途解绑会打断同批其它用例。真正需要
  * "未绑定"的那一条单独放在 {@value #BATCH_OFFLINE} 批 (批与批之间串行), 且 {@code AgentGameTests
- * .sealSeamShortCircuitsWhenUnbound} 自己会先 unbind, 故批序如何排列都能自愈。
+ * .sealSeamShortCircuitsWhenUnbound} 自己会先 unbind, 故批序如何排列都能自愈; 两条用例末尾都会调
+ * {@link com.miningdim.job.agent.integration.AgentIntegrationBootstrap#bindSeam} 把真实现装回来 (接缝现在
+ * 启动期就绑好且 {@code ServerStopping} 不再解绑, 测试留下的未绑定状态会一直污染到进程重启)。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -55,9 +68,6 @@ public final class AgentWebUiGameTests {
     private static final String STATE_ACTION = "job.agent.state";
     private static final String SCAN_ACTION = "job.agent.scan";
     private static final String SEAL_ACTION = "job.agent.seal";
-
-    /** 测试桩识别目标用的自定义名前缀, 后接星级 (如 agent_webui_target_5)。 */
-    private static final String TARGET_NAME_PREFIX = "agent_webui_target_";
 
     /** 桩词条表里唯一的机制类词条 (用来验机制真名需 L5+ 才解密)。 */
     private static final String MECHANIC_AFFIX_ID = "miningdim:webui_mechanic";
@@ -241,6 +251,10 @@ public final class AgentWebUiGameTests {
                         && "targetNetworkId".equals(rejected.params().get("field")),
                 "离线扫描没有写下任何快照, 封印必须撞快照门, 实得 " + rejected.errorCode()
                         + " / " + rejected.params());
+
+        // 装回真实现: 接缝现在在启动期就绑好且 ServerStopping 不再解绑, 本用例自己 unbind 留下的未绑定态若不
+        // 收拾, 会一直污染到进程重启 (同批其它用例 / 后续批次都会误判"接缝未绑定")。
+        AgentIntegrationBootstrap.bindSeam();
         helper.succeed();
     }
 
@@ -566,7 +580,7 @@ public final class AgentWebUiGameTests {
                 sealPayload(target.getId(), outcomeAffixId(AgentSealSeam.SealOutcome.NO_TARGET)));
         // B: 目标身上压根没有这条词条 (瞎猜一个注册名)。
         WebUiBusinessException absent = rejection(helper, SEAL_ACTION, player,
-                sealPayload(target.getId(), "champions:definitely_not_on_this_target"));
+                sealPayload(target.getId(), "DEFINITELY_NOT_AN_AFFIX"));
 
         helper.assertTrue(encrypted.errorCode().equals(absent.errorCode()),
                 "两种拒绝的错误码必须相同, 实得 " + encrypted.errorCode() + " vs " + absent.errorCode());
@@ -687,11 +701,15 @@ public final class AgentWebUiGameTests {
         }
     }
 
-    /** 幂等装桩 (见类注释: 装了不解绑, 否则会打断同批其它用例)。 */
+    /**
+     * 幂等装桩 (见类注释: 装了不解绑, 否则会打断同批其它用例)。F024 之后 {@code AgentSystem.register} 在启动期
+     * 就无条件把接缝绑到真实现 (不再受 ModList 守卫), 于是 {@code isBound()} 在本组用例跑之前恒为 true ——
+     * 原先"未绑定才绑"的守卫会把真实现误判成"已经是桩", 整批用例改成走真实现而不是桩表 (桩表覆盖 9 态 SealOutcome,
+     * 真实现只按目标真实装配的词条走, 两者语义完全不同)。bind 只是静态字段赋值, 重复绑同一份桩本身幂等无副作用,
+     * 故直接无条件覆盖绑定, 不再查 isBound。
+     */
     private static void ensureSeamStubBound() {
-        if (!AgentSealSeam.isBound()) {
-            AgentSealSeam.bind(STUB_SEAL, STUB_SCAN, STUB_CLEANUP);
-        }
+        AgentSealSeam.bind(STUB_SEAL, STUB_SCAN, STUB_CLEANUP);
     }
 
     private static List<AgentScanSnapshotBuilder.RawAffix> buildStubAffixes() {
@@ -713,23 +731,24 @@ public final class AgentWebUiGameTests {
         return "miningdim:webui_" + outcome.name().toLowerCase(Locale.ROOT);
     }
 
-    /** 桩识别目标的判据: 打了 {@value #TARGET_NAME_PREFIX} 标的实体才是"本工程盖章精英", 星级写在名字里。 */
+    /**
+     * 桩识别目标的判据 (F082 剪枝后与 SCAN 的 predicate 同一份真理): "本工程盖章精英" = 挂了
+     * {@link MiningChampionData} capability 且 star≥1 的实体, 星级直接读 capability, 不再解析自定义名。
+     */
     private static int markedStar(LivingEntity target) {
-        if (target == null || !target.hasCustomName()) {
-            return 0;
-        }
-        String name = target.getCustomName().getString();
-        if (!name.startsWith(TARGET_NAME_PREFIX)) {
-            return 0;
-        }
-        return Integer.parseInt(name.substring(TARGET_NAME_PREFIX.length()));
+        return MiningChampions.get(target).map(MiningChampionData::star).orElse(0);
     }
 
     /**
-     * 在玩家身边 offsetX 格处放一只打标的假精英。
+     * 在玩家身边 offsetX 格处放一只<b>真盖章</b>的精英。
      *
      * 必须相对<b>玩家</b>放而不是相对测试结构: mock 玩家由 placeNewPlayer 落在世界出生点, 不在结构内, 按结构
      * 坐标放目标等于放在扫描球外, 用例就只跑得到"扫空"分支 (与 MinerWebUiGameTests 同一个坑)。
+     *
+     * 真盖章而非自定义名 (F082): {@code AgentWebUiActions.SCAN} 的 predicate 现在直接调
+     * {@code MiningChampions.isChampion} 做入表预筛, 打自定义名的假目标从此连候选表都进不去。词条内容不重要
+     * (九态透传仍完全由 {@link #STUB_SCAN}/{@link #STUB_SEAL} 桩接管, 这里的词条只用来满足"合法装配"), 随便给
+     * 两条 minStar=1 的被动词条即可; 品质固定 COMMON 且不给体型词条, 换算不出的有效血不会离谱到需要关心的地步。
      */
     private static LivingEntity spawnMarkedTarget(GameTestHelper helper, ServerPlayer near, double offsetX, int star) {
         ServerLevel level = helper.getLevel();
@@ -742,8 +761,11 @@ public final class AgentWebUiGameTests {
         zombie.setNoAi(true);          // 别让它在断言之间走出扫描球。
         zombie.setNoGravity(true);
         zombie.setInvulnerable(true);
-        zombie.setCustomName(Component.literal(TARGET_NAME_PREFIX + star));
         level.addFreshEntity(zombie);
+        Map<AffixDef, AffixQuality> stubAffixes = new EnumMap<>(AffixDef.class);
+        stubAffixes.put(AffixDef.BURNING, AffixQuality.COMMON);
+        stubAffixes.put(AffixDef.REGEN_TISSUE, AffixQuality.COMMON);
+        ChampionPromoter.applyChampion(zombie, star, stubAffixes);
         return zombie;
     }
 

@@ -15,7 +15,9 @@ import com.miningdim.job.agent.SealCategory;
  * 表示该词条当前已被某干员封印中 (面板标注, 不可重复点)。
  *
  * @param affixId    词条全限定注册名 (namespace:path; 与 {@link com.miningdim.job.agent.SealRegistry} 账本键 +
- *                   {@code AgentSealHandler.requestSeal} 的 affixId 同口径; 客户端回点封印请求按此回传)
+ *                   {@code AgentSealHandler.requestSeal} 的 affixId 同口径; 客户端回点封印请求按此回传)。
+ *                   未解密条目为脱敏空串 (与 displayKey 同口径; 真名不进入下行对象, 见构建层
+ *                   {@link AgentScanSnapshotBuilder})
  * @param displayKey 词条显示名 lang key (集成层提供; 客户端 Component.translatable 渲染; 未解密条目为占位空串)
  * @param category   封印类别 (被动/机制; 决定窗口门控)。未解密条目类别对客户端隐藏, 仍随快照传以便面板可在解密后
  *                   即时着色, 但 {@code decrypted=false} 时客户端不得据此泄漏 (面板侧只在 decrypted 为真时显示类别)

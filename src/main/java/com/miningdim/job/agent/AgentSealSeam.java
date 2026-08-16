@@ -5,19 +5,21 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 
 /**
- * 特勤封印 + 战术扫描的 champions-free 接缝 (SpecialAgent_Job_DesignSpec 五章面板 + 六章封印; 模块化 + compileOnly
- * 解耦)。纯逻辑层 {@link com.miningdim.job.agent.AgentSystem} 与面板网络层 (扫描快照构建 / 封印申请发起) 经本接缝
- * 调用集成层执行, 而真实现 ({@code com.miningdim.job.agent.integration.AgentSealHandler} /
- * {@code AgentScanProbe}) import top.theillusivec4.champions.*, 故只能在 {@code ModList.isLoaded("champions")}
- * 守卫下 {@link #bind} 注入。
+ * 特勤封印 + 战术扫描的 champions-free 接缝 (SpecialAgent_Job_DesignSpec 五章面板 + 六章封印; 模块化解耦)。纯逻辑层
+ * {@link com.miningdim.job.agent.AgentSystem} 与面板网络层 (扫描快照构建 / 封印申请发起) 经本接缝调用集成层执行,
+ * 而真实现 ({@code com.miningdim.job.agent.integration.AgentSealHandler}/{@code AgentScanProbe}) 落在
+ * {@code com.miningdim.job.agent.integration} 包, 经 {@link #bind} 注入。
  *
- * Champions 未加载 (dev / 未装) 时接缝未绑定: 封印申请 {@link #requestSealResult} 优雅短路返 {@link SealOutcome
- * #NOT_BOUND}; 扫描快照构建 {@link #buildScanSnapshot} 返 null; 生命周期清理 {@link #onServerStopping} 空操作
- * (纯逻辑层照常工作, GameTest 不触 Champions)。范式对齐 {@code com.miningdim.champion.ChampionSpawnSeam}
- * (升格接缝同样 champions-free holder + ModList 守卫 bind/unbind)。
+ * 本接缝现在的职责是装配期解耦 + 给 GameTest 留装桩点: 接缝未绑定 (集成层尚未装配, 即启动早期) 时, 封印申请
+ * {@link #requestSealResult} 优雅短路返 {@link SealOutcome#NOT_BOUND}; 扫描快照构建 {@link #buildScanSnapshot} 返
+ * null; 生命周期清理 {@link #onServerStopping} 空操作 (纯逻辑层照常工作, GameTest 可自由 unbind 测短路分支再
+ * 重新 bind 装回真实现)。{@link #NOT_BOUND} 常量保留 —— 它是 job.agent.seal 九态回执的前端契约的一部分
+ * (见 webui/src/lib/types.ts 的 outcomeCode 词表), 删枚举等于破坏契约, 语义改为"集成层尚未装配 (启动早期) 或
+ * 测试桩未绑定"。
  *
- * 本接缝不持任何 Champions 类型: 入参是原版/Forge 类型 ({@link ServerPlayer}/{@link LivingEntity}/String), 出参是
- * champions-free 的 {@link SealOutcome}/{@link AgentScanSnapshot}; 真 IChampion 探测在接缝另一侧 (integration 层) 完成。
+ * 本接缝不持任何第三方 mod 类型: 入参是原版/Forge 类型 ({@link ServerPlayer}/{@link LivingEntity}/String), 出参是
+ * champions-free 的 {@link SealOutcome}/{@link AgentScanSnapshot}; 真探测 (自研 MiningChampions capability) 在
+ * 接缝另一侧 (integration 层) 完成。
  */
 public final class AgentSealSeam {
 
@@ -31,7 +33,7 @@ public final class AgentSealSeam {
     public enum SealOutcome {
         /** 封印成功 (占槽 + 真改均成功)。 */
         OK,
-        /** Champions 未加载 / 接缝未绑定 (扫描离线; 优雅降级)。 */
+        /** 集成层尚未装配 (启动早期) 或测试桩未绑定 (扫描离线; 优雅降级)。 */
         NOT_BOUND,
         /** 目标非本工程盖章精英 / 不存在。 */
         NO_TARGET,
@@ -49,7 +51,7 @@ public final class AgentSealSeam {
         ON_COOLDOWN
     }
 
-    /** 封印申请回调 (integration 层 bind 真实现; 未绑定 = Champions 未加载)。 */
+    /** 封印申请回调 (integration 层 bind 真实现; 未绑定 = 集成层尚未装配 / 测试桩)。 */
     @FunctionalInterface
     public interface SealResultRequest {
         /**
@@ -63,7 +65,7 @@ public final class AgentSealSeam {
         SealOutcome requestSeal(ServerPlayer agent, LivingEntity target, String affixId);
     }
 
-    /** 扫描快照构建回调 (integration 层 bind 真实现; 未绑定 = Champions 未加载, 接缝返 null)。 */
+    /** 扫描快照构建回调 (integration 层 bind 真实现; 未绑定 = 集成层尚未装配, 接缝返 null)。 */
     @FunctionalInterface
     public interface ScanSnapshotRequest {
         /**
@@ -87,7 +89,7 @@ public final class AgentSealSeam {
     private static volatile ServerStopCleanup stopCleanup;
 
     /**
-     * 绑定真封印 + 扫描执行 (仅 {@code ModList.isLoaded("champions")} 守卫下由集成层 bootstrap 调用一次)。
+     * 绑定真封印 + 扫描执行 (由集成层 bootstrap 装配期调用一次; GameTest 亦可 unbind 后重新调用装回真实现)。
      *
      * @param request  封印申请真实现 (聚合结果)
      * @param scan     扫描快照构建真实现
@@ -109,34 +111,34 @@ public final class AgentSealSeam {
         stopCleanup = null;
     }
 
-    /** 接缝是否已绑定 (= Champions 已加载且集成层已装配)。 */
+    /** 接缝是否已绑定 (= 集成层已装配)。 */
     public static boolean isBound() {
         return sealRequest != null;
     }
 
     /**
-     * 经接缝发起封印申请 (五章面板点已解密词条的服务端处理调用)。Champions 未加载 (接缝未绑定) 优雅短路返
-     * {@link SealOutcome#NOT_BOUND}。
+     * 经接缝发起封印申请 (五章面板点已解密词条的服务端处理调用)。集成层尚未装配 (启动早期) / 测试桩未绑定时
+     * 优雅短路返 {@link SealOutcome#NOT_BOUND}。
      *
      * @return 接缝级封印结果 (OK / 各失败原因 / NOT_BOUND)
      */
     public static SealOutcome requestSealResult(ServerPlayer agent, LivingEntity target, String affixId) {
         SealResultRequest request = sealRequest;
         if (request == null) {
-            return SealOutcome.NOT_BOUND; // Champions 未加载: 优雅短路。
+            return SealOutcome.NOT_BOUND; // 集成层尚未装配: 优雅短路。
         }
         return request.requestSeal(agent, target, affixId);
     }
 
     /**
-     * 经接缝构建扫描快照 (五章探测脉冲服务端处理调用)。Champions 未加载 (接缝未绑定) 返 null (调用方据此不发包)。
+     * 经接缝构建扫描快照 (五章探测脉冲服务端处理调用)。集成层尚未装配 (接缝未绑定) 返 null (调用方据此不发包)。
      *
-     * @return 扫描快照; Champions 未加载 / 无法扫描时返 null
+     * @return 扫描快照; 未绑定 / 无法扫描时返 null
      */
     public static AgentScanSnapshot buildScanSnapshot(ServerPlayer agent, LivingEntity target) {
         ScanSnapshotRequest request = scanRequest;
         if (request == null) {
-            return null; // Champions 未加载: 无法读真精英词条, 不构建快照。
+            return null; // 集成层尚未装配: 无法读精英词条, 不构建快照。
         }
         return request.buildSnapshot(agent, target);
     }

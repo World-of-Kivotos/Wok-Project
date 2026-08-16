@@ -2,100 +2,108 @@ package com.miningdim.job.agent.integration;
 
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixPool;
-import com.miningdim.job.agent.AgentSystem;
 import com.miningdim.job.agent.SealCategory;
-import net.minecraft.resources.ResourceLocation;
-import top.theillusivec4.champions.api.AffixCategory;
-import top.theillusivec4.champions.api.IAffix;
 
 import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
 
 /**
- * 真 IAffix -> 特勤封印类别 ({@link SealCategory}) 归类 (SpecialAgent_Job_DesignSpec 六章封印类型门控; 落集成层,
- * 纯逻辑层 {@link SealCategory} 不映射任何 Champions 类型)。
+ * 自研 {@link AffixDef} -> 特勤封印类别 ({@link SealCategory}) 归类 (SpecialAgent_Job_DesignSpec 六章封印类型门控)。
+ * 本工程精英怪已自研脱离 Champions (盖章唯一写入点 {@code ChampionPromoter.applyChampion}, 取用入口
+ * {@code MiningChampions.get}), 本类是纯查表, 不 import 任何 top.theillusivec4.champions.*。
  *
  * 归类两层 (与设计哲学"封印只压词条、高度克制、机制类绝不永久移除"对齐):
- *  1. 只对本工程盖章词条 (registry namespace = miningdim) 归类: 外来 mod 词条 identifier 命名空间不同, 返 null
- *     (不归本工程封印体系, 不可封)。
- *  2. 本工程词条按 {@link AffixDef} 所属池区分: {@link AffixPool#SKILL} 池 (主动有 CD 须预兆的读条核弹: 命定之死/
- *     小男孩/天雷/电磁蓄力等) = {@link SealCategory#MECHANIC} (仅 L8+ 可短暂封印, 窗口更短, 绝不永久移除);
- *     生存/战斗/机动池的被动词条 = {@link SealCategory#PASSIVE} (L3 起可封)。
+ *  1. 池决定是否值得封 ({@link AffixPool#SURVIVAL} = 纯防御, 封了不减玩家压力, 不作封印目标, 返 null)。
+ *  2. 池决定窗口门控: {@link AffixPool#SKILL} 池 (主动有 CD 须预兆的读条核弹: 命定之死/小男孩/天雷/电磁蓄力等)
+ *     = {@link SealCategory#MECHANIC} (仅 L8+ 可短暂封印, 窗口更短, 绝不永久移除); 战斗/机动池的被动词条 =
+ *     {@link SealCategory#PASSIVE} (L3 起可封)。
  *
- * Champions 三分类过滤 (调研铁律): 封印目标只取对玩家施压的词条 —— {@link AffixCategory#OFFENSE} 与
- * {@link AffixCategory#CC} (PVE 减压); 纯 {@link AffixCategory#DEFENSE} 词条封了不改变对玩家的战斗压力 (只是怪更
- * 脆), 不作封印目标 (返 null)。注意本工程 35 词条的 Champions category 由 affix_setting JSON 驱动 (防御≈生存/攻击≈
- * 战斗/CC≈控制), 故"按 AffixPool 取 SealCategory"与"按 AffixCategory 过滤可封性"是两个正交判定: 池决定窗口门控
- * (被动/机制), category 决定该词条是否值得封 (施压 vs 纯防御)。
- *
- * compileOnly 隔离: 本类 import top.theillusivec4.champions.* —— 仅 ModList 守卫下经 {@link AgentIntegrationBootstrap}
- * 触达。
+ * 等价迁移依据 (已逐条核对, 零行为漂移): 旧代码用 Champions 的 AffixCategory.DEFENSE 排除纯防御词条; 本工程 35
+ * 条词条的 category 由 src/main/resources/data/miningdim/affix_setting/*.json 驱动, 逐条核对该 35 个 json 后确认:
+ * 10 条 {@link AffixPool#SURVIVAL} 全 category=defence, 10 条 {@link AffixPool#COMBAT} + 5 条
+ * {@link AffixPool#MOBILITY} 全 offense, 10 条 {@link AffixPool#SKILL} 全 cc。故 "AffixDef.pool()==SURVIVAL
+ * 即不可封" 精确复刻旧 AffixCategory.DEFENSE 判据。
  */
 final class AgentAffixClassifier {
 
     private AgentAffixClassifier() {
     }
 
-    /** registry path (词条名小写) -> AffixDef 反查表 (与 MiningAffixTypes.registryName 同口径: 枚举名小写)。 */
-    private static final Map<String, AffixDef> BY_PATH = buildPathIndex();
+    /** 枚举名 (name()) -> AffixDef 反查表 (与线上 affixId 口径同源)。 */
+    private static final Map<String, AffixDef> BY_NAME = buildNameIndex();
 
-    private static Map<String, AffixDef> buildPathIndex() {
+    private static Map<String, AffixDef> buildNameIndex() {
         Map<String, AffixDef> index = new HashMap<>();
         for (AffixDef def : AffixDef.values()) {
-            index.put(def.name().toLowerCase(Locale.ROOT), def);
+            index.put(def.name(), def);
         }
         return index;
     }
 
-    /** AffixDef -> 该词条 Champions category 缓存 (避免每次封印申请重读 JSON 驱动的 category; 由 affixOf 反推)。 */
+    /** AffixDef -> 封印类别缓存 (SURVIVAL 池不进本表, get 返 null 即不可封)。 */
     private static final Map<AffixDef, SealCategory> SEAL_CATEGORY = buildSealCategory();
 
     private static Map<AffixDef, SealCategory> buildSealCategory() {
         Map<AffixDef, SealCategory> map = new EnumMap<>(AffixDef.class);
         for (AffixDef def : AffixDef.values()) {
+            if (def.pool() == AffixPool.SURVIVAL) {
+                continue; // 纯防御词条: 不进封印类别表, classify 据此返 null。
+            }
             map.put(def, def.pool() == AffixPool.SKILL ? SealCategory.MECHANIC : SealCategory.PASSIVE);
         }
         return map;
     }
 
     /**
-     * 把真 IAffix 归类为特勤封印类别。非我方词条 (命名空间非 champions, 或 champions 下但非我方 35 词条) / 纯防御词条 (不施压, 封了无意义)
-     * 返 null (= 不可封, 集成层据此跳过该词条不进封印候选)。
+     * 词条线上标识 (与 {@link com.miningdim.job.agent.SealRegistry} 账本键 + 面板 affixId 同口径): 直接取
+     * {@link AffixDef#name()} (如 BURNING / SUMMON_SUPPORT)。依据: 同工程的精英图鉴 action 已用同一格式
+     * (ChampionWebUiActions.java row.addProperty("affixId", def.name())), 且 {@code MiningChampionData} 的 NBT
+     * 本来就以枚举名为键; 前端 AgentPanel.tsx 只把 affixId 当不透明串原样回传, 无解析, SealRegistry 的账本键是
+     * 进程内存 String, 无持久兼容问题。
      *
-     * @param affix 真 IAffix (来自 IChampion.getServer().getAffixes())
-     * @return {@link SealCategory#PASSIVE} / {@link SealCategory#MECHANIC}; 不可封返 null
+     * @param def 词条定义
+     * @return 线上 affixId
      */
-    static SealCategory classify(IAffix affix) {
-        if (affix == null) {
+    static String affixId(AffixDef def) {
+        return def.name();
+    }
+
+    /**
+     * affixId -> AffixDef 反查 (客户端 C2S 封印申请携带的串)。未知返 null, 不抛 (客户端可以送任意串, 这是正常
+     * 业务分支, 由调用方转译成 AFFIX_NOT_SEALABLE 回执)。
+     *
+     * @param affixId 线上词条标识
+     * @return 对应 AffixDef; 未知返 null
+     */
+    static AffixDef affixOf(String affixId) {
+        if (affixId == null) {
             return null;
         }
-        ResourceLocation id = affix.getIdentifier();
-        // 我方 35 词条经 Champions 的 DeferredRegister 注册, 真 namespace = champions (非 miningdim); 故守卫判 champions,
-        // 再由下方 BY_PATH 把 Champions 自家词条 (molten/arctic 等, 不在我方 path 表) 过滤掉。
-        if (id == null || !AgentSystem.CHAMPIONS_MODID.equals(id.getNamespace())) {
-            return null; // 外来命名空间词条: 不归本工程封印体系。
-        }
-        AffixDef def = BY_PATH.get(id.getPath());
+        return BY_NAME.get(affixId);
+    }
+
+    /**
+     * 把 AffixDef 归类为特勤封印类别。null / 纯防御词条 (SURVIVAL 池, 不施压, 封了无意义) 返 null (= 不可封,
+     * 集成层据此跳过该词条不进封印候选)。
+     *
+     * @param def 词条定义 (可为 null)
+     * @return {@link SealCategory#PASSIVE} / {@link SealCategory#MECHANIC}; 不可封返 null
+     */
+    static SealCategory classify(AffixDef def) {
         if (def == null) {
-            return null; // champions 命名空间下但非我方已知 AffixDef (Champions 自家词条 / 异常注册): 不可封。
-        }
-        // Champions 三分类过滤: 纯防御词条封了不减玩家压力, 不作封印目标。
-        if (affix.getCategory() == AffixCategory.DEFENSE) {
             return null;
         }
         return SEAL_CATEGORY.get(def);
     }
 
     /**
-     * 词条注册名 (集成层与纯逻辑层 SealRegistry 同口径的 affixId): identifier 的全限定字符串 (namespace:path),
-     * 作为 {@link com.miningdim.job.agent.SealRegistry} 账本键 + 恢复时按 id 匹配真 IAffix。
+     * 词条显示名 lang key (客户端 Component.translatable 渲染)。
      *
-     * @param affix 真 IAffix
-     * @return 全限定注册名 (namespace:path)
+     * @param def 词条定义
+     * @return {@link AffixDef#displayNameKey()}
      */
-    static String affixId(IAffix affix) {
-        return affix.getIdentifier().toString();
+    static String displayKey(AffixDef def) {
+        return def.displayNameKey();
     }
 }

@@ -892,6 +892,10 @@ export type AgentSealCategory = 'PASSIVE' | 'MECHANIC'
  * sealable 只是 UI 预过滤, 服务端封印时会按当刻状态重算。
  */
 export interface AgentAffixEntry {
+  /**
+   * 值是服务端 AffixDef 枚举名 (如 BURNING / SUMMON_SUPPORT), 不是 namespace:path 注册名;
+   * 与精英图鉴 ChampionAffixRow.affixId 同一口径, 可按此 join。未解密行仍是 JSON null (脱敏)。
+   */
   affixId: string | null
   displayKey: string | null
   category: AgentSealCategory | null
@@ -1052,7 +1056,10 @@ export type AgentScanErrorEnvelope = WebUiBusinessErrorEnvelope<AgentScanErrorCo
 export interface AgentSealPayload {
   /** 必须取自当前有效快照; 快照过期后该 id 立即作废。 */
   targetNetworkId: number
-  /** 必须是**已解密**行的 affixId; 未解密行的该字段是 null, 前端根本不该让它可点。 */
+  /**
+   * 必须是**已解密**行的 affixId; 未解密行的该字段是 null, 前端根本不该让它可点。
+   * 格式见 {@link AgentAffixEntry.affixId} (AffixDef 枚举名, 如 BURNING)。
+   */
   affixId: string
 }
 
@@ -1094,6 +1101,7 @@ export interface AgentSealResult {
   ok: boolean
   outcomeCode: AgentSealOutcomeCode
   targetNetworkId: number
+  /** 原样回显请求里的 affixId; 格式见 {@link AgentAffixEntry.affixId}。 */
   affixId: string
   category: AgentSealCategory
   /** 该等级该类别的公开表值; 失败时同样发 (与占槽时用的是同一张表同一对入参)。 */

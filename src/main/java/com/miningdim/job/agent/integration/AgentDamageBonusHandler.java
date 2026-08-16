@@ -1,5 +1,7 @@
 package com.miningdim.job.agent.integration;
 
+import com.miningdim.champion.MiningChampionData;
+import com.miningdim.champion.MiningChampions;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.agent.AgentBountySavedData;
@@ -9,7 +11,6 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
-import top.theillusivec4.champions.api.IChampion;
 
 /**
  * 特勤伤害加成接线 (SpecialAgent_Job_DesignSpec 第四章伤害加成支线; FF14 生产职铁律: 战斗只少量加成, 严防战力)。
@@ -27,8 +28,8 @@ import top.theillusivec4.champions.api.IChampion;
  * 框架 IJobService.level 对任何玩家恒返 1 级默认, 用等级判会把对精英 +5%->+15% 伤害放大泄漏给全服每个打到精英的
  * 玩家; 入职标志确保只有真做过特勤活计 (如封印申请成功) 的玩家吃放大, 非特勤零加成。
  *
- * compileOnly 隔离: 本类 import top.theillusivec4.champions.* (经 {@link AgentChampionData} 探测精英) —— 仅 ModList
- * 守卫下经 {@link AgentIntegrationBootstrap} 挂 forgeBus。
+ * 探测源已改自研 {@link MiningChampions#get}, 不再触任何 top.theillusivec4.champions.*, 由 {@link AgentIntegrationBootstrap}
+ * 挂 forgeBus。
  */
 public final class AgentDamageBonusHandler {
 
@@ -42,8 +43,8 @@ public final class AgentDamageBonusHandler {
             return; // 非真玩家直接伤害 (含召唤物/环境): 不加成。
         }
         LivingEntity victim = event.getEntity();
-        IChampion champion = AgentChampionData.championOf(victim);
-        if (champion == null || !AgentChampionData.isOurChampion(champion)) {
+        MiningChampionData champ = MiningChampions.get(victim).orElse(null);
+        if (champ == null || !champ.isChampion()) {
             return; // 非本工程盖章精英: 不加成 (普通怪/外来冠军不享, 防战力泛化)。
         }
 

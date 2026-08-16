@@ -160,8 +160,27 @@ public final class AgentScanPanelGameTests {
         helper.assertTrue(!encrypted.decrypted(), "2nd affix is encrypted at L1");
         helper.assertTrue(!encrypted.sealable(), "encrypted affix is never sealable");
         helper.assertTrue(encrypted.displayKey().isEmpty(), "encrypted affix hides real display key (empty)");
+        // F081 脱敏下沉: affixId 与 displayKey 同口径一起清空, 不是只脱 displayKey 留 affixId 明码
+        // (真名本不该进入下行对象; 见 AgentScanSnapshotBuilder 类注释)。删掉构建层这道脱敏, 本条必挂。
+        helper.assertTrue(encrypted.affixId().isEmpty(), "encrypted affix also hides its real affixId (empty)");
         // 已解密条目仍保留真显示名 (供客户端渲染)。
         helper.assertTrue(!l1.entries().get(0).displayKey().isEmpty(), "decrypted affix carries real display key");
+        helper.succeed();
+    }
+
+    /**
+     * F081 回归网的另一半: 脱敏不得误伤已解密行 —— 已解密条目的 affixId 必须逐字等于喂进来的原始 affixId,
+     * 不是被清空的空串, 也不是别的什么值。若构建层把脱敏条件写反 (对 decrypted 条目也清空), 本条必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void buildDecryptedEntryKeepsOriginalAffixId(GameTestHelper helper) {
+        List<AgentScanSnapshotBuilder.RawAffix> raws = List.of(raw("p1", SealCategory.PASSIVE));
+        AgentScanSnapshot l1 = AgentScanSnapshotBuilder.build(7, 1, 1, raws);
+        AgentScanEntry decrypted = l1.entries().get(0);
+        helper.assertTrue(decrypted.decrypted(), "L1 decrypts the single (first-position) affix");
+        helper.assertTrue("miningdim:p1".equals(decrypted.affixId()),
+                "decrypted entry's affixId must be verbatim the raw affixId (miningdim:p1), 实得 "
+                        + decrypted.affixId());
         helper.succeed();
     }
 
@@ -179,6 +198,25 @@ public final class AgentScanPanelGameTests {
         helper.assertTrue(s.star() == 4, "snapshot carries star");
         helper.assertTrue(s.agentLevel() == 3, "snapshot carries agent level");
         helper.assertTrue(s.entries().get(0).sealed(), "sealed flag is passed through from raw to entry");
+        helper.succeed();
+    }
+
+    /**
+     * F024 复核修正: 已封印中的词条即使类别/星级门都通过, sealable 也必须为 false —— 否则面板给玩家一个
+     * "可点"的假象, 点下去只会拿到 AFFIX_NOT_SEALABLE/AFFIX_ALREADY_SEALED 而不是更准确的"已被封印中"。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void buildSealedEntryIsNeverSealableEvenWhenGatesPass(GameTestHelper helper) {
+        // L3 对 3star 被动 (buildPassiveSealableOnlyFromL3 已验证该组合类别/星级门全通过) 但当前正被封印中。
+        AgentScanSnapshotBuilder.RawAffix sealedRaw =
+                new AgentScanSnapshotBuilder.RawAffix("miningdim:p1", "affix.miningdim.p1", SealCategory.PASSIVE, true);
+        AgentScanSnapshot s = AgentScanSnapshotBuilder.build(7, 3, 3, List.of(sealedRaw));
+        AgentScanEntry entry = s.entries().get(0);
+        helper.assertTrue(entry.decrypted(), "前提校验: L3 对 3star 该条目必须已解密");
+        helper.assertTrue(entry.sealed(), "前提校验: sealed 标注必须透传");
+        helper.assertTrue(!entry.sealable(),
+                "已封印中的词条即使类别/星级门都通过, sealable 也必须为 false (删掉 build() 里的 !raw.sealed() "
+                        + "短路必挂), 实得 " + entry.sealable());
         helper.succeed();
     }
 

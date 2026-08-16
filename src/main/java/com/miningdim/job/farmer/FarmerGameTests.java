@@ -12,6 +12,7 @@ import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.job.JobXpCurve;
 import com.miningdim.job.farmer.block.FarmerBlocks;
 import com.miningdim.job.farmer.block.FarmerCropBlock;
+import com.miningdim.job.farmer.block.FarmerFarmlandBlock;
 import com.miningdim.job.farmer.item.FarmerItems;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
@@ -19,6 +20,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.InteractionHand;
@@ -85,7 +87,10 @@ public final class FarmerGameTests {
                 FarmerBlocks.farmland(FarmerTier.SUPREME).get().defaultBlockState());
         helper.setBlock(relativeCrop, crop.getStateForAge(crop.getMaxAge()));
 
+        // F026 复核: loot modifier / 采摘裁决对未解锁玩家退化为不放大, 1 级 mock 玩家不摆到 SUPREME 解锁线
+        // (L9) 会只拿到原生 1-2 个, 与本用例断言的 6/12 SUPREME 产量互相打架 (既有假绿, 一并修掉)。
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setFarmerLevel(player, FarmerTier.SUPREME.unlockLevel());
         BlockPos cropPos = helper.absolutePos(relativeCrop);
         BlockHitResult hit = new BlockHitResult(
                 Vec3.atCenterOf(cropPos), Direction.UP, cropPos, false);
@@ -123,7 +128,9 @@ public final class FarmerGameTests {
                 FarmerBlocks.farmland(FarmerTier.SUPREME).get().defaultBlockState());
         helper.setBlock(relativeCrop, cropState);
 
+        // F026 复核: 同上一用例, 未摆到 SUPREME 解锁线的 1 级 mock 玩家只会拿原生 1-2 个 (既有假绿, 一并修掉)。
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setFarmerLevel(player, FarmerTier.SUPREME.unlockLevel());
         BlockPos cropPos = helper.absolutePos(relativeCrop);
         BlockHitResult hit = new BlockHitResult(
                 Vec3.atCenterOf(cropPos), Direction.UP, cropPos, false);
@@ -172,7 +179,11 @@ public final class FarmerGameTests {
             return;
         }
 
+        // F026 复核: 这条走 loot modifier 路径, 它早就有等级门 (FarmerHarvestLootModifier.doApply 的
+        // tier.yieldFor); 1 级 mock 玩家不摆到 SUPREME 解锁线, 掉落会退化为不放大, 与下方按满档产量断言
+        // 互相打架 (仅因 dev 无 FarmersDelight jar 短路成 helper.succeed() 才未暴露, 既有假绿一并修掉)。
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setFarmerLevel(player, FarmerTier.SUPREME.unlockLevel());
         BlockPos relativeSoil = new BlockPos(1, 1, 1);
         BlockPos relativeCrop = relativeSoil.above();
         helper.setBlock(relativeSoil,
@@ -919,6 +930,366 @@ public final class FarmerGameTests {
         int expected = VANILLA_WHEAT_BASE * FarmerTier.LOW.yieldPerHarvest();
         helper.assertTrue(wheatCount(loot) == expected,
                 "LOW 档对 1 级玩家已解锁, 应得其倍率, 期望 " + expected + " 实得 " + wheatCount(loot));
+        helper.succeed();
+    }
+
+    // ============================================================
+    // F026: 事件层 onCropHarvested 对 mod 原生作物 (miningdim:farmer_crop) 的产量/经验裁决同一等级门。
+    // 刻意用 mod 原生作物而非 FD 兼容作物: 走 BlockEvent.BreakEvent -> FarmerSystem.onCropHarvested 的
+    // nativeCrop 分支 (Block.popResource 单一权威发放小麦), 与 loot modifier 路径 (FD/原版小麦) 是两条独立
+    // 产出路径, 必须分别覆盖; dev 环境无第三方依赖, 在任何环境下都真实执行。
+    // ============================================================
+
+    private static BlockState matureFarmerCrop() {
+        net.minecraft.world.level.block.CropBlock crop =
+                (net.minecraft.world.level.block.CropBlock) FarmerBlocks.FARMER_CROP.get();
+        return crop.getStateForAge(crop.getMaxAge());
+    }
+
+    private static int farmerWheatCount(GameTestHelper helper, BlockPos absolutePos) {
+        return helper.getLevel().getEntitiesOfClass(
+                        ItemEntity.class, new AABB(absolutePos).inflate(3.0D)).stream()
+                .map(ItemEntity::getItem)
+                .filter(stack -> stack.is(FarmerItems.FARMER_WHEAT.get()))
+                .mapToInt(ItemStack::getCount)
+                .sum();
+    }
+
+    private static com.miningdim.job.JobProgress farmerProgress(ServerPlayer player) {
+        return com.miningdim.entry.MiningCapabilities.get(player)
+                .orElseThrow(() -> new IllegalStateException("mock 玩家未挂载 capability, 无法读取职业经验"))
+                .jobProgress(com.miningdim.job.JobId.FARMER);
+    }
+
+    /**
+     * 未解锁 SUPREME 档的玩家收割 mod 原生小麦必须退化为基准产量 1 (F026)。删掉
+     * FarmerSystem.onCropHarvested 里 {@code tier.yieldFor(...)} 换回恒定 {@code tier.yieldPerHarvest()}
+     * (即无门放大) 会让此断言挂 (1 级玩家在超凡地上也拿满 6 株)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void modCropDropRequiresTierUnlock(GameTestHelper helper) {
+        BlockPos relativeSoil = new BlockPos(1, 1, 1);
+        helper.setBlock(relativeSoil, FarmerBlocks.farmland(FarmerTier.SUPREME).get().defaultBlockState());
+        BlockPos relativeCrop = relativeSoil.above();
+        helper.setBlock(relativeCrop, matureFarmerCrop());
+
+        ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+        setFarmerLevel(player, FarmerTier.SUPREME.unlockLevel() - 1);
+
+        BlockPos cropPos = helper.absolutePos(relativeCrop);
+        player.gameMode.destroyBlock(cropPos);
+
+        int count = farmerWheatCount(helper, cropPos);
+        helper.assertTrue(count == 1,
+                "未解锁 SUPREME 档收割 mod 原生小麦必须退化为基准产量 1, 实得 " + count);
+        helper.succeed();
+    }
+
+    /**
+     * 已解锁 SUPREME 档的玩家收割 mod 原生小麦必须拿到满档产量 6, 证明上一条修复没有过度杀伤合法收益 (F026)。
+     * 删掉 tier.yieldFor(...) 的解锁分支 (钳死在 LOCKED_TIER_YIELD) 会让此断言挂 (变 1)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void modCropDropAppliesForUnlockedFarmer(GameTestHelper helper) {
+        BlockPos relativeSoil = new BlockPos(1, 1, 1);
+        helper.setBlock(relativeSoil, FarmerBlocks.farmland(FarmerTier.SUPREME).get().defaultBlockState());
+        BlockPos relativeCrop = relativeSoil.above();
+        helper.setBlock(relativeCrop, matureFarmerCrop());
+
+        ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+        setFarmerLevel(player, FarmerTier.SUPREME.unlockLevel());
+
+        BlockPos cropPos = helper.absolutePos(relativeCrop);
+        player.gameMode.destroyBlock(cropPos);
+
+        int count = farmerWheatCount(helper, cropPos);
+        helper.assertTrue(count == FarmerTier.SUPREME.yieldPerHarvest(),
+                "已解锁 SUPREME 档收割应得满档产量 " + FarmerTier.SUPREME.yieldPerHarvest() + ", 实得 " + count);
+        helper.succeed();
+    }
+
+    /**
+     * 收获经验入账与小麦掉落同门 (F026): FarmerSystem.onCropHarvested 的 rawXp = SINGLE_CROP_XP *
+     * tier.yieldFor(level), 未解锁 (yield=1) 与已解锁 (yield=6) 折算出的当日有效经验必须不同且分别匹配
+     * 衰减引擎在当日 0 起入 2 / 12 原始经验的结果。删掉 yieldFor(...) 换回恒定产量会让两分支入账相同,
+     * 下方 "两者必须不等" 的断言挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void modCropHarvestXpFollowsTheSameGate(GameTestHelper helper) {
+        BlockPos lockedSoil = new BlockPos(1, 1, 1);
+        helper.setBlock(lockedSoil, FarmerBlocks.farmland(FarmerTier.SUPREME).get().defaultBlockState());
+        BlockPos lockedCrop = lockedSoil.above();
+        helper.setBlock(lockedCrop, matureFarmerCrop());
+        ServerPlayer lockedPlayer = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+        setFarmerLevel(lockedPlayer, FarmerTier.SUPREME.unlockLevel() - 1);
+        long lockedXpBefore = farmerProgress(lockedPlayer).dailyXp(com.miningdim.job.JobId.FARMER);
+        helper.assertTrue(lockedXpBefore == 0L,
+                "locked mock 玩家当日经验基线必须为 0, 实得 " + lockedXpBefore);
+        lockedPlayer.gameMode.destroyBlock(helper.absolutePos(lockedCrop));
+        long lockedGained = farmerProgress(lockedPlayer).dailyXp(com.miningdim.job.JobId.FARMER) - lockedXpBefore;
+        long expectedLocked = JobXpCurve.applyDailyDecay(0L, 2L);
+        helper.assertTrue(lockedGained == expectedLocked,
+                "未解锁收获原始经验 2 (1x 产量) 折算有效经验应为 " + expectedLocked + ", 实得 " + lockedGained);
+
+        BlockPos unlockedSoil = new BlockPos(5, 1, 1);
+        helper.setBlock(unlockedSoil, FarmerBlocks.farmland(FarmerTier.SUPREME).get().defaultBlockState());
+        BlockPos unlockedCrop = unlockedSoil.above();
+        helper.setBlock(unlockedCrop, matureFarmerCrop());
+        ServerPlayer unlockedPlayer = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+        setFarmerLevel(unlockedPlayer, FarmerTier.SUPREME.unlockLevel());
+        long unlockedXpBefore = farmerProgress(unlockedPlayer).dailyXp(com.miningdim.job.JobId.FARMER);
+        helper.assertTrue(unlockedXpBefore == 0L,
+                "unlocked mock 玩家当日经验基线必须为 0, 实得 " + unlockedXpBefore);
+        unlockedPlayer.gameMode.destroyBlock(helper.absolutePos(unlockedCrop));
+        long unlockedGained =
+                farmerProgress(unlockedPlayer).dailyXp(com.miningdim.job.JobId.FARMER) - unlockedXpBefore;
+        long expectedUnlocked = JobXpCurve.applyDailyDecay(0L, 12L);
+        helper.assertTrue(unlockedGained == expectedUnlocked,
+                "已解锁收获原始经验 12 (6x 产量) 折算有效经验应为 " + expectedUnlocked + ", 实得 " + unlockedGained);
+
+        helper.assertTrue(lockedGained != unlockedGained,
+                "未解锁与已解锁收获的有效经验必须不同 (两者都得 " + lockedGained + " 说明产量门未接进经验结算)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // F025: 耕地归属索引按 (维度, 坐标) 记, 回收权唯一在 FarmerFarmlandBlock.onRemove (反绕过 + 反泄漏)。
+    // ============================================================
+
+    /**
+     * 核心反绕过断言 (F025): 破坏者破坏台主的耕地, 回收的必须是台主的配额, 破坏者自己的配额分毫不动。
+     * 把回收点改回 "扣破坏者自己的计数" (旧 increment/decrement 口径) 会让两条断言同时挂
+     * (owner 仍是 1、breaker 变 0)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void farmlandRemovalRecoversCountForOwnerNotBreaker(GameTestHelper helper) {
+        ServerLevel overworld = helper.getLevel().getServer().overworld();
+        FarmerSavedData data = FarmerSavedData.get(overworld);
+        ResourceLocation dim = helper.getLevel().dimension().location();
+
+        ServerPlayer owner = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        ServerPlayer breaker = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        BlockPos ownerRelative = new BlockPos(1, 1, 1);
+        BlockPos breakerRelative = new BlockPos(3, 1, 1);
+        helper.setBlock(ownerRelative, FarmerBlocks.farmland(FarmerTier.LOW).get().defaultBlockState());
+        helper.setBlock(breakerRelative, FarmerBlocks.farmland(FarmerTier.LOW).get().defaultBlockState());
+        BlockPos ownerAbs = helper.absolutePos(ownerRelative);
+        BlockPos breakerAbs = helper.absolutePos(breakerRelative);
+
+        data.claimFarmland(dim, ownerAbs, owner.getUUID());
+        data.claimFarmland(dim, breakerAbs, breaker.getUUID());
+        try {
+            helper.assertTrue(data.placedCount(owner.getUUID()) == 1,
+                    "owner 基线已认领 1 块, 实得 " + data.placedCount(owner.getUUID()));
+            helper.assertTrue(data.placedCount(breaker.getUUID()) == 1,
+                    "breaker 基线已认领 1 块, 实得 " + data.placedCount(breaker.getUUID()));
+
+            breaker.gameMode.destroyBlock(ownerAbs);
+
+            helper.assertTrue(data.placedCount(owner.getUUID()) == 0,
+                    "台主的耕地被他人破坏后, 台主的配额必须真回收, 实得 " + data.placedCount(owner.getUUID()));
+            helper.assertTrue(data.placedCount(breaker.getUUID()) == 1,
+                    "破坏者破坏他人耕地不得动自己的配额, 实得 " + data.placedCount(breaker.getUUID()));
+        } finally {
+            data.releaseFarmland(dim, ownerAbs);
+            data.releaseFarmland(dim, breakerAbs);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 反向泄漏断言 (F025): 无玩家上下文的破坏 (等价爆炸/指令/活塞级联) 也必须真回收台主的配额, 而不是
+     * 只有 BreakEvent 覆盖的玩家手动破坏才回收。删掉 FarmerFarmlandBlock.onRemove 里的 releaseFarmland
+     * 调用 (退回只挂 BreakEvent 的旧实现) 会让此断言挂 (配额永久冻结在 1)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void farmlandRemovalWithoutPlayerStillRecoversOwnerQuota(GameTestHelper helper) {
+        ServerLevel overworld = helper.getLevel().getServer().overworld();
+        FarmerSavedData data = FarmerSavedData.get(overworld);
+        ResourceLocation dim = helper.getLevel().dimension().location();
+
+        ServerPlayer owner = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        BlockPos relative = new BlockPos(1, 1, 1);
+        helper.setBlock(relative, FarmerBlocks.farmland(FarmerTier.LOW).get().defaultBlockState());
+        BlockPos abs = helper.absolutePos(relative);
+        data.claimFarmland(dim, abs, owner.getUUID());
+        try {
+            helper.assertTrue(data.placedCount(owner.getUUID()) == 1,
+                    "基线已认领 1 块, 实得 " + data.placedCount(owner.getUUID()));
+
+            helper.getLevel().destroyBlock(abs, false); // 无玩家上下文, 等价爆炸/指令/活塞级联。
+
+            helper.assertTrue(data.placedCount(owner.getUUID()) == 0,
+                    "无玩家破坏后台主配额仍必须回收到 0, 实得 " + data.placedCount(owner.getUUID()));
+            helper.assertTrue(data.ownerOf(dim, abs) == null,
+                    "无玩家破坏后归属索引必须清除该坐标条目, 实得 " + data.ownerOf(dim, abs));
+        } finally {
+            data.releaseFarmland(dim, abs);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 真实放置链路 (F025): 经 BlockItem 放置流程 (BlockEvent.EntityPlaceEvent) 落地的 mod 耕地必须登记
+     * 放置者归属, 随后破坏必须清零。删掉 FarmerSystem.onFarmlandPlace 里的 claimFarmland 调用会让放置后
+     * placedCount/ownerOf 两条断言挂 (仍为 0/null)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void farmlandPlacementClaimsOwnershipForPlacer(GameTestHelper helper) {
+        ServerLevel overworld = helper.getLevel().getServer().overworld();
+        FarmerSavedData data = FarmerSavedData.get(overworld);
+        ResourceLocation dim = helper.getLevel().dimension().location();
+
+        BlockPos relativeGround = new BlockPos(1, 1, 1);
+        helper.setBlock(relativeGround, Blocks.STONE.defaultBlockState());
+        BlockPos groundAbs = helper.absolutePos(relativeGround);
+        BlockPos placedAbs = groundAbs.above();
+
+        ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+        setFarmerLevel(player, 1);
+
+        ItemStack farmlandStack = new ItemStack(FarmerItems.farmlandItem(FarmerTier.LOW).get());
+        player.setItemInHand(InteractionHand.MAIN_HAND, farmlandStack);
+        BlockHitResult hit = new BlockHitResult(
+                Vec3.atCenterOf(groundAbs), Direction.UP, groundAbs, false);
+        player.gameMode.useItemOn(player, helper.getLevel(), farmlandStack, InteractionHand.MAIN_HAND, hit);
+
+        try {
+            helper.assertTrue(
+                    helper.getLevel().getBlockState(placedAbs).getBlock() instanceof FarmerFarmlandBlock,
+                    "useItemOn 真实放置流程必须在 " + placedAbs + " 落地一块 FarmerFarmlandBlock, 实得 "
+                            + helper.getLevel().getBlockState(placedAbs).getBlock());
+            helper.assertTrue(data.placedCount(player.getUUID()) == 1,
+                    "放置者的配额必须恰好 +1, 实得 " + data.placedCount(player.getUUID()));
+            helper.assertTrue(player.getUUID().equals(data.ownerOf(dim, placedAbs)),
+                    "ownerOf 必须能解析回放置者 UUID, 实得 " + data.ownerOf(dim, placedAbs));
+
+            player.gameMode.destroyBlock(placedAbs);
+            helper.assertTrue(data.placedCount(player.getUUID()) == 0,
+                    "破坏自己刚放置的耕地后配额必须回收到 0, 实得 " + data.placedCount(player.getUUID()));
+        } finally {
+            data.releaseFarmland(dim, placedAbs);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 持久层往返 (F025): 按 (维度, 坐标) 记录跨维度不撞键, save/load 后 placedCount/ownerOf 精确重建;
+     * 只含旧 "placedCounts" 字段的存档 (迁移前) 必须把数值原样迁入 legacyOverflow 并计入 placedCount
+     * (复核 Major 修正, 不得再悄悄丢弃 —— 丢弃等于让老玩家在硬封顶外白得一份不可回收的配额), 且必须能被
+     * {@link FarmerSavedData#clearLegacyOverflow} 显式清除。删掉 FarmlandKey 里的 dimension 分量会让跨维度
+     * 断言挂 (posA1/posB1 同坐标撞键, ownerA 计数变 1); 让 load 丢弃 legacy 计数会让第四条断言挂 (变 0
+     * 而非 7); 让 clearLegacyOverflow 忘记 setDirty 或忘记回收会让第五/六条断言挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void farmlandOwnerIndexRoundTripsAndMigratesLegacyCountersAsOverflow(GameTestHelper helper) {
+        FarmerSavedData data = new FarmerSavedData();
+        UUID ownerA = new UUID(0xFA1L, 0xA00L);
+        UUID ownerB = new UUID(0xFB1L, 0xB00L);
+        ResourceLocation overworldDim = new ResourceLocation("minecraft", "overworld");
+        ResourceLocation miningDim = new ResourceLocation("miningdim", "mining");
+        BlockPos posA1 = new BlockPos(10, 64, 10);
+        BlockPos posA2 = new BlockPos(20, 64, 20);
+        BlockPos posB1 = new BlockPos(10, 64, 10); // 与 posA1 原始坐标相同, 维度不同: 验证不撞键。
+
+        data.claimFarmland(overworldDim, posA1, ownerA);
+        data.claimFarmland(miningDim, posA2, ownerA);
+        data.claimFarmland(miningDim, posB1, ownerB);
+
+        net.minecraft.nbt.CompoundTag saved = data.save(new net.minecraft.nbt.CompoundTag());
+        FarmerSavedData reloaded = FarmerSavedData.load(saved);
+
+        helper.assertTrue(reloaded.placedCount(ownerA) == 2,
+                "ownerA 跨维度两块地重载后应为 2, 实得 " + reloaded.placedCount(ownerA));
+        helper.assertTrue(reloaded.placedCount(ownerB) == 1,
+                "ownerB 一块地重载后应为 1, 实得 " + reloaded.placedCount(ownerB));
+        helper.assertTrue(ownerA.equals(reloaded.ownerOf(overworldDim, posA1)),
+                "ownerOf 必须能把 posA1 (overworld) 解析回 ownerA");
+        helper.assertTrue(ownerA.equals(reloaded.ownerOf(miningDim, posA2)),
+                "ownerOf 必须能把 posA2 (miningdim) 解析回 ownerA");
+        helper.assertTrue(ownerB.equals(reloaded.ownerOf(miningDim, posB1)),
+                "ownerOf 必须能把 posB1 (miningdim, 与 posA1 同原始坐标) 解析回 ownerB, 不与 overworld posA1 撞键");
+
+        // 只含旧 "placedCounts" 字段、不含 K_LEGACY_OVERFLOW / K_OWNERS 的存档: 模拟修复前的老存档首次升级。
+        net.minecraft.nbt.CompoundTag legacyOnly = new net.minecraft.nbt.CompoundTag();
+        net.minecraft.nbt.ListTag legacyCounts = new net.minecraft.nbt.ListTag();
+        net.minecraft.nbt.CompoundTag legacyEntry = new net.minecraft.nbt.CompoundTag();
+        legacyEntry.putUUID("uuid", ownerA);
+        legacyEntry.putInt("count", 7);
+        legacyCounts.add(legacyEntry);
+        legacyOnly.put("placedCounts", legacyCounts);
+        FarmerSavedData legacyLoaded = FarmerSavedData.load(legacyOnly);
+        helper.assertTrue(legacyLoaded.placedCount(ownerA) == 7,
+                "只含旧 placedCounts 字段的存档必须原样迁入 legacyOverflow 计入配额, 不得丢弃, 实得 "
+                        + legacyLoaded.placedCount(ownerA));
+        helper.assertTrue(legacyLoaded.legacyOverflow(ownerA) == 7,
+                "legacyOverflow 查询接口必须能读回迁移进来的 7, 实得 " + legacyLoaded.legacyOverflow(ownerA));
+
+        // 迁移遗留占用持久化往返: 存一次后应写出新 tag K_LEGACY_OVERFLOW, 再次 load 不再依赖旧 K_COUNTS_LEGACY。
+        net.minecraft.nbt.CompoundTag resaved = legacyLoaded.save(new net.minecraft.nbt.CompoundTag());
+        FarmerSavedData reloadedAgain = FarmerSavedData.load(resaved);
+        helper.assertTrue(reloadedAgain.placedCount(ownerA) == 7,
+                "legacyOverflow 必须能经新 tag 持久化往返, 实得 " + reloadedAgain.placedCount(ownerA));
+
+        // 唯一清除入口: 清除前返回清除前的值, 清除后配额归零且幂等 (二次清除返回 0, 不报错)。
+        int clearedFirst = reloadedAgain.clearLegacyOverflow(ownerA);
+        helper.assertTrue(clearedFirst == 7,
+                "clearLegacyOverflow 必须返回清除前的遗留占用数 7, 实得 " + clearedFirst);
+        helper.assertTrue(reloadedAgain.placedCount(ownerA) == 0,
+                "清除遗留占用后配额必须归零, 实得 " + reloadedAgain.placedCount(ownerA));
+        int clearedSecond = reloadedAgain.clearLegacyOverflow(ownerA);
+        helper.assertTrue(clearedSecond == 0,
+                "对已清除的玩家再次清除必须返回 0 (幂等, 不误报成功), 实得 " + clearedSecond);
+        helper.succeed();
+    }
+
+    /**
+     * 迁移遗留占用与归属索引派生计数必须相加而非重复计入 (回归 bumpCount 曾经的一处 bug: 若 bumpCount 内部
+     * 误读 placedCount(叠加态) 再写回 placedCounts, 每次 claim/release 都会把 legacyOverflow 值再累加一次)。
+     * 有 3 点遗留占用的玩家再放 1 块新地必须恰好是 4, 不是 4+3=7; 破坏掉那块新地必须精确回落到 3, 不是负值
+     * 或漂移值。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void legacyOverflowDoesNotDoubleCountAcrossClaimAndRelease(GameTestHelper helper) {
+        UUID owner = new UUID(0xFC1L, 0xC00L);
+        ResourceLocation dim = new ResourceLocation("minecraft", "overworld");
+
+        net.minecraft.nbt.CompoundTag legacyOnly = new net.minecraft.nbt.CompoundTag();
+        net.minecraft.nbt.ListTag legacyCounts = new net.minecraft.nbt.ListTag();
+        net.minecraft.nbt.CompoundTag legacyEntry = new net.minecraft.nbt.CompoundTag();
+        legacyEntry.putUUID("uuid", owner);
+        legacyEntry.putInt("count", 3);
+        legacyCounts.add(legacyEntry);
+        legacyOnly.put("placedCounts", legacyCounts);
+        FarmerSavedData data = FarmerSavedData.load(legacyOnly);
+        helper.assertTrue(data.placedCount(owner) == 3,
+                "迁移后初始配额应为 3, 实得 " + data.placedCount(owner));
+
+        BlockPos pos = new BlockPos(30, 64, 30);
+        data.claimFarmland(dim, pos, owner);
+        helper.assertTrue(data.placedCount(owner) == 4,
+                "3 点遗留占用 + 新放 1 块必须恰好为 4, 实得 " + data.placedCount(owner)
+                        + " (若为 7 说明 legacyOverflow 在 claim 时被重复叠加进了 placedCounts)");
+
+        data.releaseFarmland(dim, pos);
+        helper.assertTrue(data.placedCount(owner) == 3,
+                "破坏刚放的那块新地后应精确回落到遗留占用的 3, 实得 " + data.placedCount(owner));
+        helper.succeed();
+    }
+
+    /**
+     * 五档耕地必须活塞不可推 (F025): 归属记录以坐标为键, 被推走会把旧坐标记录孤儿掉、新坐标又无主,
+     * 重新打开放置上限绕过面。删掉 FarmerBlocks.registerFarmland 里的 .pushReaction(PushReaction.BLOCK)
+     * (退回默认 NORMAL) 会让此断言挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void farmlandIsImmovableByPistons(GameTestHelper helper) {
+        for (FarmerTier tier : FarmerTier.values()) {
+            net.minecraft.world.level.material.PushReaction reaction =
+                    FarmerBlocks.farmland(tier).get().defaultBlockState().getPistonPushReaction();
+            helper.assertTrue(reaction == net.minecraft.world.level.material.PushReaction.BLOCK,
+                    tier.id() + " 耕地必须活塞不可推 (BLOCK), 实得 " + reaction);
+        }
         helper.succeed();
     }
 }

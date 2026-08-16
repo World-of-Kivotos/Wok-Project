@@ -53,11 +53,14 @@ public final class FarmerHarvestLootModifier extends LootModifier {
             return generatedLoot;
         }
         // 与耕地放置门 (FarmlandPlacementGuard) 同一口径: 未解锁该档位者不享受其倍率, 退化为不放大。
-        // 否则 1 级玩家在他人闪耀耕地上收割即可拿满 6 倍, 与"按职业等级递进"的经济设计相悖。
-        if (!tier.isUnlockedAt(JobServices.jobService().level(player, JobId.FARMER))) {
+        // 否则 1 级玩家在他人闪耀耕地上收割即可拿满 6 倍, 与"按职业等级递进"的经济设计相悖。该判据现已提为
+        // FarmerTier.yieldFor 共享裁决 (F026), 事件层三条产出路径 (本处 loot / onCropHarvested / onCropPicked)
+        // 复用同一份, 不再各自判断。
+        int factor = tier.yieldFor(JobServices.jobService().level(player, JobId.FARMER));
+        if (factor <= 1) {
             return generatedLoot;
         }
-        FarmerHarvests.multiplyProduce(generatedLoot, state, tier);
+        FarmerHarvests.multiplyProduce(generatedLoot, state, factor);
         return generatedLoot;
     }
 

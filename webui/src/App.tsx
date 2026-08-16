@@ -122,7 +122,12 @@ export function App(): ReactElement {
    */
   return (
     <TooltipProvider>
-      <div className="h-screen overflow-hidden bg-background p-3 text-foreground">
+      {/*
+        圆角 + overflow-hidden 挂在这一层: 它是页面里唯一铺满视口的元素, 也就是宿主那张离屏贴图的边界。
+        html/body 已改成透明 (styles/index.css), 于是圆角之外的四个小三角是真透明, 游戏画面透得出来。
+        border 让面板在暗背景上有一条明确的边, 否则深色内容与压暗的背景糊在一起看不出边界。
+      */}
+      <div className="h-screen overflow-hidden rounded-2xl border border-border bg-background p-3 text-foreground">
         <TabletShell onClose={closePanel}>{renderRoute(match)}</TabletShell>
       </div>
     </TooltipProvider>

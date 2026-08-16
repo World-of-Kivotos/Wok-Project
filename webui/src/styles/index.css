@@ -397,10 +397,22 @@
     outline-color: color-mix(in oklab, var(--ring) 50%, transparent);
   }
 
+  /*
+   * 根元素<b>透明</b>: 平板在游戏里是一块居中的圆角面板, 四角必须透出背后的画面。宿主的离屏贴图是
+   * 矩形且无法裁圆 (MC 的 GuiGraphics 只有矩形 scissor), 所以圆角只能由页面画 —— 底色因此不能铺在
+   * html 上, 而要铺在 App 那个 rounded 容器上。
+   *
+   * 在普通浏览器里打开时背后是浏览器自己的白/黑底, 与游戏内观感略有差异, 属预期。
+   */
   html {
     font-family: var(--font-sans);
     color: var(--foreground);
-    background-color: var(--background);
+    background-color: transparent;
+  }
+
+  body,
+  #root {
+    background-color: transparent;
   }
 
   /*

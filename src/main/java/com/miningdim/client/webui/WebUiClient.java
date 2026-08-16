@@ -135,7 +135,9 @@ public final class WebUiClient {
         BRIDGE.setAllowedPage(pageUrl);
         WebBrowser b = browser;
         if (b == null) {
-            b = new WebBrowser(false);
+            // 透明底: 圆角只能由页面自己画 (离屏贴图是矩形, MC 这边没有裁圆的手段)。页面把四角留成
+            // 透明, 浏览器不透明的话那四块会被填成纯色, 看起来还是直角。
+            b = new WebBrowser(true);
             int w = mc.getWindow().getWidth();
             int h = mc.getWindow().getHeight();
             boolean ok = b.create(pageUrl, w, h);

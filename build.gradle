@@ -143,3 +143,27 @@ tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = 17
 }
+
+// GameTest 每轮从代码默认值起跑: 开跑前删掉 dev 存档里本 mod 的 serverconfig。
+//
+// 起因是一类会跨 run 传染的真实故障: 有 9 个 GameTest 文件为了覆盖分支会临时改 ForgeConfigSpec 的值
+// (如把军火台工费设成 0 测扣费失败), 它们都在 finally 里恢复了内存值 —— 但 NightConfig 的自动保存会在
+// 任意时刻把当时的内存值刷进 world/serverconfig/*.toml, 恢复挡不住那一次。磁盘上于是留下 perTenRounds=0
+// 或 entryFeeEasy=90 这类残值, 下一轮启动带着它跑, 表现为一批与被改配置毫不相干的用例集体红掉, 症状与
+// 病因隔着一整个 run, 实测已经咬过两次。
+//
+// 删的只有 miningdim-*.toml (Forge 自己的 forge-server.toml 不动), 世界加载时按 spec 默认值重新生成。
+// 这些文件是 run/ 下的派生状态而非源码, 且 GameTest 本就该是自洽的 —— 真要手工调 dev 配置做交互测试,
+// 用 runClient/runServer, 那两个任务不受本钩子影响。
+tasks.matching { it.name == 'runGameTestServer' }.configureEach {
+    doFirst {
+        def serverConfigDir = file("$projectDir/run/world/serverconfig")
+        if (serverConfigDir.isDirectory()) {
+            def wiped = serverConfigDir.listFiles({ f -> f.name.startsWith('miningdim-') && f.name.endsWith('.toml') } as FileFilter)
+            wiped.each { it.delete() }
+            if (wiped.length > 0) {
+                logger.lifecycle("[gametest] 已清除 ${wiped.length} 个 miningdim serverconfig, 本轮从代码默认值起跑")
+            }
+        }
+    }
+}

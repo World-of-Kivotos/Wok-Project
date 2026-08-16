@@ -73,14 +73,22 @@ public final class WebUiServerDispatcher {
             WebUiErrorCodes.TOO_MANY_REQUESTS, "操作太频繁了，请稍后再试", false));
 
     /**
-     * 每玩家令牌桶 (F008): 突发 40、每秒补充 10。
+     * 每玩家令牌桶 (F008): 突发 120、每秒补充 30。
      *
-     * 数字来源, 不是拍脑袋: 前端唯一允许的两条轮询是 webui/src/hooks/use-live-updates.ts 的
-     * miningStatus 3 秒一次与 marriageState 10 秒一次 (合计稳态约 0.43 次/秒), 补充速率 10 次/秒给了二十倍
-     * 以上余量。突发容量 40 是给页面冷启动那一批一次性拉取 (握手 + hub 面板 + profile 等) 留的头寸。
-     * 它是防失控的护栏, 不是容量规划 —— 真要做容量规划应量化冷启动实际并发拉取数, 而不是在此处再猜一个数。
+     * 原值 (40 / 10) 的注释自己写着"真要做容量规划应量化冷启动实际并发拉取数, 而不是在此处再猜一个数"。
+     * 现在量过了, 所以换成实测值:
+     *
+     *  - 冷启动一次性拉取 <b>11 条</b>: 外壳 4 条 (player.isOp / player.prefs.get / player.profile /
+     *    system.serverStatus) + 首页 7 条 (economy.status / economy.today / hub.panels / marriage.state /
+     *    mining.myStatus / mining.overview / player.profile);
+     *  - 开发态 React StrictMode 会把每个 effect 跑两遍, 于是同一批实际是 <b>22 条</b>;
+     *  - 再叠上开面板后立刻翻一次页 (另一页的那批) 与两条轮询, 40 的突发头寸当场见底 —— 真机实测就是
+     *    hub.panels 与 mining.overview 一起回 TOO_MANY_REQUESTS。
+     *
+     * 120 给了实测冷启动约五倍余量, 30/秒对稳态轮询 (miningStatus 3 秒 + marriageState 10 秒, 合计约
+     * 0.43 次/秒) 仍是七十倍以上。它依旧是防失控的护栏而不是容量规划: 正常游玩摸不到, 脚本刷仍会被挡。
      */
-    private static final WebUiRateLimiter RATE_LIMITER = new WebUiRateLimiter(40, 10.0);
+    private static final WebUiRateLimiter RATE_LIMITER = new WebUiRateLimiter(120, 30.0);
 
     /**
      * 每玩家保留的最近已处理 requestId 上限 (滑动窗口容量)。market.buy/place/cancel 这类改资金/库存的副作用

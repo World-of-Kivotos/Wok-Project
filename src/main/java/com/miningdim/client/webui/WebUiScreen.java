@@ -112,7 +112,10 @@ public final class WebUiScreen extends Screen {
         if (browser != null && browser.isReady()) {
             int textureId = browser.getTextureId();
             if (textureId > 0) {
-                browser.render(graphics, panelX, panelY, panelX + panelWidth, panelY + panelHeight);
+                // 后两个参数是宽高, 不是右下角坐标 (见 WebBrowser.render 的顶点拼装)。
+                // 传 panelX+panelWidth 会把面板拉成"起点在中心、尺寸按右下角算"的样子, 溢出屏幕右下 ——
+                // 全屏时因为起点是 (0,0) 两种口径恰好等价, 所以这个错只在居中之后才看得出来。
+                browser.render(graphics, panelX, panelY, panelWidth, panelHeight);
             } else {
                 graphics.drawCenteredString(this.font, "Loading WebUI...",
                         this.width / 2, this.height / 2, 0xFFFFFF);

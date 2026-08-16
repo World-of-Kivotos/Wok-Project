@@ -103,6 +103,14 @@ public final class CaseOpeningSystem implements Subsystem {
     }
 
     @SubscribeEvent
+    public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player) || !CaseServices.isRegistered()) {
+            return;
+        }
+        CaseServices.service().forgetPlayer(player.getUUID());
+    }
+
+    @SubscribeEvent
     public void onPlayerTick(TickEvent.PlayerTickEvent event) {
         if (event.phase != TickEvent.Phase.END
                 || !(event.player instanceof ServerPlayer player)

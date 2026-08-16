@@ -1,6 +1,7 @@
 package com.miningdim.economy;
 
 import com.miningdim.economy.EconomyConstants.HighValueOre;
+import com.miningdim.entry.MiningYieldProbe;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
 
@@ -126,8 +127,11 @@ public final class EconomyService implements IEconomyService {
         // 经主闸衰减入账并返回净额 (深档可能 < gross, 随累计毛收入推进逐档递减; 几何主项前 10 档 ≈ 14.9 万为正常落点,
         // 其后 1% 地板留极薄线性尾巴 (每 60000 毛 +600, 不收敛、靠巡查兜底); 这是收入封顶的预期语义)。
         // 铜 P2P 单人 cap (第十一章决策 5) 是 follow-up: 依赖尚不存在的跳蚤/交易层 + 铜未进 HighValueOre 枚举, 本轮不实现。
-        return grantDaily(player, gross, EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY,
+        long effective = grantDaily(player, gross, EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY,
                 EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER);
+        // 本次主闸 grantDaily 成功返回后, 才把这颗产出计入行程。
+        MiningYieldProbe.record(player, 1, gross);
+        return effective;
     }
 
     @Override

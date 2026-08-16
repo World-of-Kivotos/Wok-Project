@@ -70,6 +70,7 @@ public final class EntrySystem implements Subsystem {
     @SubscribeEvent
     public void onServerStarted(ServerStartedEvent event) {
         this.server = event.getServer();
+        MiningYieldProbe.clear();
         this.gateway = new EntryGateway(server);
         // R4: 把入口方块 -> 入场流程的触发器接入 entrance seam (entrance 包不 import entry 实现)。
         // 入口方块默认走非 reseed 入场 (常驻固定区域, 复用现有图; reseed 由 /mining reset 单独负责)。
@@ -211,6 +212,7 @@ public final class EntrySystem implements Subsystem {
         if (instanceId == IMiningPlayerData.NO_INSTANCE) {
             return;
         }
+        MiningYieldProbe.finish(player);
         // byId 可能为空 (实例已销毁): 仍清玩家态, 但无 instance 可 onPlayerLeave。
         MiningServices.instanceManager().byId(instanceId).ifPresent(
                 inst -> MiningServices.instanceManager().onPlayerLeave(instanceId, player));

@@ -9,6 +9,8 @@ import com.miningdim.core.InstanceLimitException;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
 import com.miningdim.core.RegionBox;
+import com.miningdim.economy.Currency;
+import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.miner.MinerLevelGate;
@@ -33,8 +35,8 @@ import java.util.UUID;
  *  1 gateCheck 难度门控 (14.4) -> 2 snapshotFallback 写 Capability (14.2) -> 3 allocate 实例 ->
  *  4 awaitReady (生成中等待, 监听 genState) -> 5 force-load spawn 周边区块 (14.3) ->
  *  6 awaitChunksLoaded (确认 FULL 再传送, 防虚空) -> 7 resolveSpawn 安全出生点 ->
- *  8 主线程 teleportTo -> 9 onPlayerEnter (refCount++) -> 10 写 currentInstanceId ->
- *  11 initDanger / spawnFreeze -> 12 active=true。
+ *  8 按 PendingEnter 捕获的报价扣费 -> 9 写 currentInstanceId / danger / spawnFreeze ->
+ *  10 onPlayerEnter (refCount++ / active=true) -> 11 主线程 teleportTo -> 12 成功反馈并启动收益探针。
  *
  * 步骤 4-6 是防掉虚空核心: 绝不在 genState 非 READY 或区块未 FULL 时传送。等待与轮询经 {@link #tick}
  * 每服务端 tick 推进, 不阻塞主线程; 超时/竞态 (RESETTING/断线) 回滚 force ticket 并提示。
@@ -45,6 +47,8 @@ import java.util.UUID;
 public final class EntryGateway {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/entry");
+    private static final String INSUFFICIENT_FUNDS_ACTIONBAR_KEY =
+            "message.miningdim.gate.insufficient_funds_actionbar";
 
     // ---- 14.4 等级门槛: 改为委派矿工职业等级 (MinerLevelGate), 不再用原版经验等级常量 (见 gateCheck)。 ----
 
@@ -70,14 +74,16 @@ public final class EntryGateway {
         final UUID playerId;
         final long instanceId;
         final Difficulty difficulty;
+        final long entryFee;
         Phase phase;
         int waitedTicks;
         Set<Long> forcedChunks;
 
-        PendingEnter(UUID playerId, long instanceId, Difficulty difficulty) {
+        PendingEnter(UUID playerId, long instanceId, Difficulty difficulty, long entryFee) {
             this.playerId = playerId;
             this.instanceId = instanceId;
             this.difficulty = difficulty;
+            this.entryFee = entryFee;
             this.phase = Phase.AWAIT_READY;
             this.waitedTicks = 0;
         }
@@ -102,8 +108,13 @@ public final class EntryGateway {
      * @param reseed     true=换新图入口; 本次入场分配复用 InstanceManager 既有语义, reseed 仅透传日志与未来扩展。
      */
     public void requestEnter(ServerPlayer player, Difficulty difficulty, boolean reseed) {
-        GateResult gate = gateCheck(player, difficulty);
+        long entryFee = MiningServices.config().entryFee(difficulty);
+        GateResult gate = gateCheck(player, difficulty, entryFee);
         if (!gate.passed()) {
+            if (gate == GateResult.INSUFFICIENT_FUNDS) {
+                sendInsufficientFundsFeedback(player, -1L, entryFee);
+                return;
+            }
             MiningServices.network().sendTeleportResult(
                     player, com.miningdim.core.IMiningNetwork.TeleportResult.REJECTED_FULL,
                     -1L, -1, gate.reasonKey());
@@ -128,11 +139,11 @@ public final class EntryGateway {
         UUID playerId = player.getUUID();
         MiningServices.instanceManager().allocate(player, difficulty).whenComplete((inst, err) ->
                 // 回到主线程登记 (CompletableFuture 可能在工作线程兑现)。
-                server.execute(() -> onAllocateComplete(playerId, difficulty, reseed, inst, err)));
+                server.execute(() -> onAllocateComplete(playerId, difficulty, entryFee, reseed, inst, err)));
     }
 
     /** allocate 兑现回调 (主线程): 异常 -> 提示; 成功 -> 登记 PendingEnter 进入 force-load 推进。 */
-    private void onAllocateComplete(UUID playerId, Difficulty difficulty, boolean reseed,
+    private void onAllocateComplete(UUID playerId, Difficulty difficulty, long entryFee, boolean reseed,
                                     InstanceState inst, Throwable err) {
         ServerPlayer player = server.getPlayerList().getPlayer(playerId);
         if (err != null) {
@@ -161,7 +172,7 @@ public final class EntryGateway {
             return;
         }
         LOGGER.debug("[miningdim] player {} allocated instance {} (reseed={})", playerId, inst.instanceId(), reseed);
-        pending.add(new PendingEnter(playerId, inst.instanceId(), difficulty));
+        pending.add(new PendingEnter(playerId, inst.instanceId(), difficulty, entryFee));
     }
 
     /** 每服务端 tick 推进所有进行中的入场 (14.2 步骤 4-8)。主线程。 */
@@ -248,10 +259,18 @@ public final class EntryGateway {
         }
     }
 
-    /** 14.2 步骤 7-12: 解析出生点 -> 传送 -> 登记 refCount -> 写 Capability -> 初始化 danger/freeze。 */
+    /** 14.2 步骤 7-12: resolveSpawn 后扣费, 再写 Capability/refCount 并传送。 */
     private void completeEnter(PendingEnter pe, ServerPlayer player, InstanceState inst) {
         ServerLevel miningLevel = ChunkServices.ticketService().level();
         BlockPos spawn = resolveSpawn(miningLevel, inst);
+
+        // 余额门与此处可能相隔多个 tick, 所以必须按请求时快照的费用再次尝试扣款。费用是纯 sink,
+        // 不转入任何玩家账户。免费配置必须短路, 因为货币层拒绝 amount <= 0。
+        if (pe.entryFee > 0L
+                && !EconomyServices.economyService().tryCharge(player, Currency.CREDIT, pe.entryFee)) {
+            notifyInsufficientFundsAndRollback(pe, player, pe.entryFee);
+            return;
+        }
 
         // 必须在传送【之前】取写 Capability: 跨维度 teleportTo 会令 Forge 在同 tick 内暂时失效玩家 capability 的
         // LazyOptional (实测崩因: 传送后立刻 get() 返 empty -> orElseThrow 抛 IllegalStateException -> 逃逸 onServerTick
@@ -281,6 +300,7 @@ public final class EntryGateway {
                     .withStyle(ChatFormatting.RED));
         }
         LOGGER.info("[miningdim] player {} entered instance {} at {}", pe.playerId, inst.instanceId(), spawn);
+        MiningYieldProbe.start(player, pe.difficulty);
     }
 
     /**
@@ -356,9 +376,36 @@ public final class EntryGateway {
      * 集成阶段裁决 (Miner_Job_DesignSpec 第八章): 门槛口径从原版经验等级 (experienceLevel) 改为矿工职业等级,
      * 经职业框架门面 {@link com.miningdim.job.JobServices#jobService()} 读取; 数值表权威在 MinerLevelGate。
      */
-    private GateResult gateCheck(ServerPlayer player, Difficulty difficulty) {
+    private GateResult gateCheck(ServerPlayer player, Difficulty difficulty, long entryFee) {
         int minerLevel = JobServices.jobService().level(player, JobId.MINER);
-        return MinerLevelGate.canEnter(minerLevel, difficulty) ? GateResult.PASS : GateResult.LEVEL_TOO_LOW;
+        if (!MinerLevelGate.canEnter(minerLevel, difficulty)) {
+            return GateResult.LEVEL_TOO_LOW;
+        }
+        if (entryFee <= 0L) {
+            return GateResult.PASS;
+        }
+        return EconomyServices.economyService().creditBalance(player) >= entryFee
+                ? GateResult.PASS
+                : GateResult.INSUFFICIENT_FUNDS;
+    }
+
+    private void sendInsufficientFundsFeedback(ServerPlayer player, long instanceId, long entryFee) {
+        // TeleportResult 协议不承载翻译参数, actionbar 用无占位符专用键;
+        // 精确差额另由 system chat 的带参数键告知玩家。
+        MiningServices.network().sendTeleportResult(player,
+                com.miningdim.core.IMiningNetwork.TeleportResult.REJECTED_FULL,
+                instanceId, -1, INSUFFICIENT_FUNDS_ACTIONBAR_KEY);
+        player.sendSystemMessage(Component.translatable(
+                GateResult.INSUFFICIENT_FUNDS.reasonKey(), entryFeeShortfall(player, entryFee)));
+    }
+
+    private long entryFeeShortfall(ServerPlayer player, long entryFee) {
+        return entryFee - EconomyServices.economyService().creditBalance(player);
+    }
+
+    private void notifyInsufficientFundsAndRollback(PendingEnter pe, ServerPlayer player, long entryFee) {
+        rollback(pe);
+        sendInsufficientFundsFeedback(player, pe.instanceId, entryFee);
     }
 
     /** 失败回滚: 撤 force ticket (若已申请)。playerSet 此前未 add, 无需 remove (14.3 竞态表)。 */

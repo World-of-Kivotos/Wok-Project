@@ -103,6 +103,9 @@ import type {
   ClientClosePanelResult,
   ClientPlayCaseSoundPayload,
   ClientPlayCaseSoundResult,
+  ClientDisplayGetPayload,
+  ClientDisplayResult,
+  ClientDisplaySetPayload,
   ClientTextFocusPayload,
   ClientTextFocusResult,
   FarmerSellPayload,
@@ -207,6 +210,8 @@ type WebUiContractMap = {
   'client.playCaseSound': { payload: ClientPlayCaseSoundPayload; result: ClientPlayCaseSoundResult }
   'client.closePanel': { payload: ClientClosePanelPayload; result: ClientClosePanelResult }
   'client.textFocus': { payload: ClientTextFocusPayload; result: ClientTextFocusResult }
+  'client.display.get': { payload: ClientDisplayGetPayload; result: ClientDisplayResult }
+  'client.display.set': { payload: ClientDisplaySetPayload; result: ClientDisplayResult }
   'economy.priceTable': { payload: EconomyPriceTablePayload; result: EconomyPriceTableResult }
   'economy.status': { payload: EconomyStatusPayload; result: EconomyStatusResult }
   'economy.today': { payload: EconomyTodayPayload; result: EconomyTodayResult }

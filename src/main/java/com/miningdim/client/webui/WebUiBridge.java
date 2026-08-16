@@ -19,6 +19,8 @@ import org.cef.handler.CefMessageRouterHandlerAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.miningdim.config.MiningClientConfig;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.language.I18n;
 
@@ -232,6 +234,14 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
             handleTextFocus(payloadJson, callback);
             return;
         }
+        if ("client.display.get".equals(action)) {
+            callback.success(displayJson());
+            return;
+        }
+        if ("client.display.set".equals(action)) {
+            handleDisplaySet(payloadJson, callback);
+            return;
+        }
         if (!"client.i18n".equals(action)) {
             callback.failure(-1, "unknown client-local action: " + action);
             return;
@@ -262,6 +272,53 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
      * 关闭键时必须知道玩家是在搜索框里打字还是在翻页面。字段缺失按"没有焦点"处理 —— 那是默认可关的一侧,
      * 与页面尚未接上报时的行为一致。
      */
+    /** 当前的面板显示参数 (缩放% + 覆盖边长%), 供设置页回显滑块初值。 */
+    private String displayJson() {
+        JsonObject result = new JsonObject();
+        result.addProperty("zoomPercent", MiningClientConfig.WEBUI_ZOOM_PERCENT.get());
+        result.addProperty("coveragePercent", MiningClientConfig.WEBUI_COVERAGE_PERCENT.get());
+        return GSON.toJson(result);
+    }
+
+    /**
+     * 设置页拖动滑块 -> 落盘 + 当场生效。
+     *
+     * 这两项是<b>客户端本地</b>偏好 (跟这台机器走, 不跟账号走), 与主题彩度同性质, 所以住在
+     * miningdim-client.toml 而不是服务端的 player.prefs。
+     *
+     * 落盘用 ConfigValue.set + save: 前者只改内存, 少了 save 就是"这次生效、重启回退", 而玩家调完滑块
+     * 的预期显然是记住。取值域外一律拒 —— ForgeConfigSpec 的 set 不做范围校验, 塞个 0 进去会让下次
+     * setZoomPercent 抛 IllegalArgumentException, 而那已经离这里很远了。
+     */
+    private void handleDisplaySet(String payloadJson, CefQueryCallback callback) {
+        try {
+            JsonObject payload = JsonParser.parseString(payloadJson).getAsJsonObject();
+            if (payload.has("zoomPercent")) {
+                int zoom = payload.get("zoomPercent").getAsInt();
+                if (zoom < 50 || zoom > 300) {
+                    callback.failure(-1, "zoomPercent 必须在 50..300, 实得 " + zoom);
+                    return;
+                }
+                MiningClientConfig.WEBUI_ZOOM_PERCENT.set(zoom);
+                MiningClientConfig.WEBUI_ZOOM_PERCENT.save();
+            }
+            if (payload.has("coveragePercent")) {
+                int coverage = payload.get("coveragePercent").getAsInt();
+                if (coverage < 30 || coverage > 100) {
+                    callback.failure(-1, "coveragePercent 必须在 30..100, 实得 " + coverage);
+                    return;
+                }
+                MiningClientConfig.WEBUI_COVERAGE_PERCENT.set(coverage);
+                MiningClientConfig.WEBUI_COVERAGE_PERCENT.save();
+            }
+            // 当场重排: Screen 的 init/resize 才会重新读配置, 不主动踢一下的话玩家得关掉再开才看见效果。
+            Minecraft.getInstance().execute(WebUiClient::relayoutOpenScreen);
+            callback.success(displayJson());
+        } catch (RuntimeException e) {
+            callback.failure(-1, "client.display.set failed: " + e.getMessage());
+        }
+    }
+
     private void handleTextFocus(String payloadJson, CefQueryCallback callback) {
         try {
             JsonObject payload = JsonParser.parseString(payloadJson).getAsJsonObject();

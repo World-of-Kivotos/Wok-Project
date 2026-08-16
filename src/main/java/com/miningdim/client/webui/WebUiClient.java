@@ -153,6 +153,11 @@ public final class WebUiClient {
             loadedUrl = pageUrl;
         }
         BRIDGE.onScreenOpened();
+        // 页面是常驻 SPA: 关面板只是隐藏 MC 的 Screen, React 树原样活着, 于是重新打开时看到的还是上次
+        // 拉取的那份数据 (玩家在游戏里赚了钱、做完了任务, 面板上一个数都不动)。借既有事件通道通知页面
+        // 把缓存全部作废重拉 —— 这条必须在 setScreen 之前发, 否则 onScreenOpened 尚未置位, 桥会以
+        // "界面已关闭" 为由把页面随后发起的那批请求全部挡掉。
+        BRIDGE.onEvent("panelOpened", "{}");
         mc.setScreen(new WebUiScreen(b, net.minecraft.network.chat.Component.literal(title)));
     }
 
@@ -183,6 +188,19 @@ public final class WebUiClient {
     /** 打开键此刻能不能兼作关闭键。 */
     static boolean canCloseWithOpenKey() {
         return !textInputFocused;
+    }
+
+    /**
+     * 配置改动后让已打开的界面立刻重排 (设置页拖完滑块调)。
+     *
+     * 走 Screen.resize 而不是重开界面: 后者会把浏览器 setFocus 走一遍并可能打断玩家正在填的表单,
+     * 而 resize 只触发 WebUiScreen.layout —— 那里本来就每次都重读配置。
+     */
+    static void relayoutOpenScreen() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.screen instanceof WebUiScreen screen) {
+            screen.resize(mc, screen.width, screen.height);
+        }
     }
 
     /** 页面自己的关闭按钮 (右上角 X) 请求关界面。必须在主线程执行: 动的是 MC 的 Screen 栈。 */

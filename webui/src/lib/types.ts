@@ -2148,6 +2148,29 @@ export interface ClientTextFocusResult {
   ok: true
 }
 
+/** client.display.get 入参 —— 不读任何字段。 */
+export interface ClientDisplayGetPayload {
+  [key: string]: never
+}
+
+/**
+ * 面板显示参数 (client.display.get / set 共用回执形状)。
+ *
+ * 两项都是<b>客户端本地</b>偏好: 跟这台机器走不跟账号走, 落在 miningdim-client.toml, 与主题彩度同性质。
+ */
+export interface ClientDisplayResult {
+  /** 页面缩放百分比, 50..300。走 CEF 自己的 zoom, 参与布局与媒体查询重算。 */
+  zoomPercent: number
+  /** 面板占屏幕<b>每条边</b>的百分比, 30..100 (不是面积百分比)。100 = 铺满。 */
+  coveragePercent: number
+}
+
+/** client.display.set 入参: 两项都可选, 只发要改的那个。 */
+export interface ClientDisplaySetPayload {
+  zoomPercent?: number
+  coveragePercent?: number
+}
+
 // ============================================================
 // economy.* — com.miningdim.economy.EconomyWebUiActions (Gson serializeNulls)
 // ============================================================

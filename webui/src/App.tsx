@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
 import { useEffect } from 'react'
-import { installWebUiEventBridge } from './bridge/events'
+import { installWebUiEventBridge, subscribeWebUiEvent } from './bridge/events'
 import { Button, EmptyBlock } from './components/kit'
 import { TabletShell } from './components/shell/TabletShell'
 import { closePanel, useTextFocusReporting } from '@/lib/host-panel'
+import { invalidateAll } from '@/lib/refresh'
 import { TooltipProvider } from './components/ui/tooltip'
 import { AdminPage } from './pages/admin/AdminPage'
 import { CasePage } from './pages/CasePage'
@@ -106,6 +107,15 @@ export function App(): ReactElement {
 
   // 全局跟踪可编辑焦点并上报宿主: 打开键 (默认 G) 兼作关闭键, 在输入框里打字时必须让位给字符。
   useTextFocusReporting()
+
+  /*
+   * 面板重开即全量重拉。关面板只是隐藏 MC 的 Screen, 这个 SPA 原样活着 —— 不接这条的话, 玩家挖完矿
+   * 打开平板看到的还是上次打开时的余额与任务进度。宿主在 setScreen 之前派 panelOpened (见
+   * WebUiClient.openScreen)。
+   */
+  useEffect(() => subscribeWebUiEvent('panelOpened', () => {
+    invalidateAll()
+  }), [])
 
   /*
    * 平板外壳恒在最外层, 路由只决定内容区画什么: 统一入口的意思就是"不存在脱离平板的页面",

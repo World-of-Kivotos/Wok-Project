@@ -1,3 +1,5 @@
+import { resolveItemNames } from '@/lib/i18n'
+import { invalidateAll } from '@/lib/refresh'
 import { RefreshCwIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
 import { useState } from 'react'
@@ -70,11 +72,47 @@ function requireTitle(result: { questId: string; title: string | null }): string
   return result.title
 }
 
-function claimFeedback(result: QuestClaimResult): ActionFeedback {
+/**
+ * 把领奖发下的物品拼成人能读的一句, 如 "铁锭 x6、附魔书 (经验修补 I)"。
+ *
+ * 名字必须客户端解析: 专用服务端不加载 lang 文件, 服务端只能给翻译键。附魔书尤其要展开附魔 ——
+ * 所有附魔书的 descriptionId 都是 item.minecraft.enchanted_book, 不展开的话中了经验修补和中了
+ * 一本没人要的书, 提示里长得一模一样。
+ *
+ * @param names descriptionId (以及附魔的翻译键) -> 当前语言显示名
+ */
+function describeItems(items: QuestClaimResult['items'], names: Record<string, string>): string {
+  return items
+    .map((item) => {
+      const base = names[item.descriptionId] ?? item.itemId
+      const count = item.count > 1 ? ` x${String(item.count)}` : ''
+      const enchants = (item.enchantments ?? [])
+        .map((e) => `${names[enchantmentKey(e.id)] ?? e.id} ${roman(e.level)}`)
+        .join('、')
+      const suffix = enchants === '' ? '' : ` (${enchants})`
+      return `${base}${count}${suffix}`
+    })
+    .join('、')
+}
+
+/** 附魔注册名 -> 翻译键。原版约定就是 namespace:path -> enchantment.namespace.path。 */
+function enchantmentKey(id: string): string {
+  const [namespace, path] = id.includes(':') ? id.split(':', 2) : ['minecraft', id]
+  return `enchantment.${String(namespace)}.${String(path)}`
+}
+
+/** 附魔等级的罗马数字。原版只到 V, 超出就退回阿拉伯数字而不是编一个更长的。 */
+function roman(level: number): string {
+  const table = ['', 'I', 'II', 'III', 'IV', 'V']
+  return table[level] ?? String(level)
+}
+
+function claimFeedback(result: QuestClaimResult, names: Record<string, string>): ActionFeedback {
   switch (result.outcome) {
     case 'CLAIMED': {
-      const itemCount = result.items.reduce((sum, item) => sum + item.count, 0)
-      const itemText = itemCount > 0 ? `，另有 ${String(itemCount)} 件物品` : ''
+      const itemText = result.items.length === 0
+        ? ''
+        : `，另得 ${describeItems(result.items, names)}`
       return {
         tone: 'success',
         message: `已领取「${requireTitle(result)}」：${String(result.credit)} 信用点${itemText}`,
@@ -360,8 +398,16 @@ export function QuestsPage(): ReactElement {
     setFeedback(null)
     try {
       const result = await callMock('quest.claim', { questId })
-      board.reload()
-      setFeedback(claimFeedback(result))
+      // 全局作废而不是只 reload 自己: 这三个动作都会改钱包, 而余额画在外壳顶栏。
+      invalidateAll()
+      // 名字解析放在这里而不是渲染期: 领奖回执是一次性的, 拿到就得把话说完整。解析失败不影响领奖
+      // 结果本身, 故退回空表 (describeItems 会落到 itemId 兜底)。
+      const keys = result.items.flatMap((item) => [
+        item.descriptionId,
+        ...(item.enchantments ?? []).map((e) => enchantmentKey(e.id)),
+      ])
+      const names = keys.length === 0 ? {} : await resolveItemNames(keys).catch(() => ({}))
+      setFeedback(claimFeedback(result, names))
     } catch (error: unknown) {
       setFeedback({ tone: 'danger', message: callErrorText(toError(error)) })
     } finally {
@@ -375,7 +421,8 @@ export function QuestsPage(): ReactElement {
     setFeedback(null)
     try {
       const result = await callMock('quest.turnIn', { questId })
-      board.reload()
+      // 全局作废而不是只 reload 自己: 这三个动作都会改钱包, 而余额画在外壳顶栏。
+      invalidateAll()
       setFeedback(turnInFeedback(result))
     } catch (error: unknown) {
       setFeedback({ tone: 'danger', message: callErrorText(toError(error)) })
@@ -393,7 +440,8 @@ export function QuestsPage(): ReactElement {
     setFeedback(null)
     try {
       const result = await callMock('quest.refresh', { source, slot })
-      board.reload()
+      // 全局作废而不是只 reload 自己: 这三个动作都会改钱包, 而余额画在外壳顶栏。
+      invalidateAll()
       setFeedback(refreshFeedback(result))
     } catch (error: unknown) {
       setFeedback({ tone: 'danger', message: callErrorText(toError(error)) })

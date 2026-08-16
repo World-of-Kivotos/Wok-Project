@@ -118,6 +118,8 @@ export const CLIENT_LOCAL_ACTIONS = [
   'client.playCaseSound',
   'client.closePanel',
   'client.textFocus',
+  'client.display.get',
+  'client.display.set',
 ] as const
 
 /** 参与 system.handshake 自检的服务端 action 名字面量类型。 */

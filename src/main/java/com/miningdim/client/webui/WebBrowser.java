@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 
 import com.cinemamod.mcef.MCEF;
 import com.cinemamod.mcef.MCEFBrowser;
+import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.BufferUploader;
@@ -134,7 +135,11 @@ public final class WebBrowser {
         }
 
         RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
+        // 预乘 alpha 混合, 不是 defaultBlendFunc。CEF 的离屏缓冲交出来的 BGRA 是<b>预乘</b>的 (颜色分量已经
+        // 乘过 alpha), 而 defaultBlendFunc 是 (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) —— 那套公式假设颜色未预乘,
+        // 于是把已经乘过一次的颜色再乘一次 alpha。全不透明处 alpha=1 看不出差别, 但圆角那圈抗锯齿像素
+        // (0<alpha<1) 会被压暗成一道黑边, 表现就是"圆角像是描了一圈黑"。
+        RenderSystem.blendFunc(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
         RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
         RenderSystem.setShaderTexture(0, textureId);
 

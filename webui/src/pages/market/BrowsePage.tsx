@@ -1,4 +1,13 @@
 import {
+  ROUTE_MARKET,
+  ROUTE_MARKET_HISTORY,
+  ROUTE_MARKET_INBOX,
+  ROUTE_MARKET_MINE,
+  ROUTE_MARKET_SELL,
+  useNavigate,
+  useRouteMatch,
+} from '@/router'
+import {
   ArrowLeftIcon,
   ArrowRightIcon,
   ChevronDownIcon,
@@ -566,6 +575,16 @@ function BuyDialog({ listing, itemName, ownedCount, onClose, onBought }: BuyDial
 // 页面
 // ============================================================
 
+
+/** 跳蚤市场的四个平级子页。顺序按使用频次: 先看再挂, 挂完才管自己的单与收件箱。 */
+const MARKET_TABS = [
+  { label: '浏览', route: ROUTE_MARKET },
+  { label: '挂单', route: ROUTE_MARKET_SELL },
+  { label: '我的挂单', route: ROUTE_MARKET_MINE },
+  { label: '成交历史', route: ROUTE_MARKET_HISTORY },
+  { label: '收件箱', route: ROUTE_MARKET_INBOX },
+] as const
+
 export function BrowsePage(): ReactElement {
   const world = useMockWorld()
   const [sort, setSort] = useState<MarketSort>('newest')
@@ -573,6 +592,8 @@ export function BrowsePage(): ReactElement {
   const [categoryItemId, setCategoryItemId] = useState<string | null>(null)
   /** 只为标签好看: 过滤本身仍按 itemId 发给服务端, 这个名字不参与任何查询。 */
   const [categoryItemName, setCategoryItemName] = useState<string | null>(null)
+  const navigate = useNavigate()
+  const match = useRouteMatch()
   const [localFilter, setLocalFilter] = useState('')
   const [selected, setSelected] = useState<MarketListing | null>(null)
   const [toasts, setToasts] = useState<readonly ToastEntry[]>([])
@@ -737,6 +758,27 @@ export function BrowsePage(): ReactElement {
 
   return (
     <section className="flex flex-col gap-4">
+      {/*
+        市场四个子页此前只有路由没有入口: 侧栏只指到浏览页, 页面里也没有任何地方能点去挂单, 于是
+        "怎么上架"根本无从发现。四个页面平级, 用一排标签而不是把它们塞进侧栏 —— 侧栏是功能域的一级
+        导航, 一个域展开四条会把其它域挤下去。
+      */}
+      <Panel>
+        <nav aria-label="跳蚤市场子页" className="flex flex-wrap items-center gap-2">
+          {MARKET_TABS.map((tab) => (
+            <Button
+              key={tab.route}
+              onClick={() => {
+                navigate(tab.route)
+              }}
+              size="sm"
+              variant={match.path === tab.route ? 'secondary' : 'ghost'}
+            >
+              {tab.label}
+            </Button>
+          ))}
+        </nav>
+      </Panel>
       <Panel>
         <div className="flex flex-wrap items-center gap-2">
           <TextInput

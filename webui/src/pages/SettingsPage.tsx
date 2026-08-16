@@ -17,6 +17,7 @@ import {
 } from '@/components/kit'
 import { BRAND_CHROMA_MAX, BRAND_PRESETS, DEFAULT_BRAND, useBrand } from '@/lib/brand'
 import { callErrorText } from '@/lib/errorText'
+import type { ClientDisplayResult } from '@/lib/types'
 import type { Theme } from '@/lib/theme'
 import { useTheme } from '@/lib/theme'
 import type { PlayerPrefs } from '@/lib/types'
@@ -315,6 +316,27 @@ function SettingsForm({ stored }: SettingsFormProps): ReactElement {
     scheduleSave({ ...currentPrefs(), brandHue: Math.round(next) })
   }
 
+  /*
+   * 面板显示参数走 client.display.*, 不走 player.prefs: 它们由宿主 (MC 客户端) 持有并落 client toml,
+   * 服务端根本不知道也不该知道玩家把面板拉多大。
+   */
+  const display = useMockAction('client.display.get', {})
+  const [displayDraft, setDisplayDraft] = useState<ClientDisplayResult | null>(null)
+  const zoomPercent = displayDraft?.zoomPercent ?? display.data?.zoomPercent ?? 125
+  const coveragePercent = displayDraft?.coveragePercent ?? display.data?.coveragePercent ?? 70
+
+  /**
+   * 拖动即写。没有做防抖: 这两条是纯客户端本地动作 (不过服务端、不占令牌桶), 而拖动过程中面板实时跟着
+   * 变大变小正是这里想要的反馈 —— 防抖会让它一顿一顿的。
+   */
+  function handleDisplayChange(patch: Partial<ClientDisplayResult>): void {
+    const next = { zoomPercent, coveragePercent, ...patch }
+    setDisplayDraft(next)
+    void callMock('client.display.set', patch).catch((error: unknown) => {
+      console.warn('[settings] 写入面板显示设置失败', error)
+    })
+  }
+
   /** 恢复默认会同时改色相与彩度; 只有色相跟随账号, 故落账号的也只有它。 */
   function handleResetBrand(): void {
     resetBrand()
@@ -360,6 +382,70 @@ function SettingsForm({ stored }: SettingsFormProps): ReactElement {
           tone={preview.tone}
         />
       )}
+
+
+      {/*
+        面板尺寸与缩放。两项都只落这台电脑 (miningdim-client.toml), 不跟账号 —— 屏幕大小是机器属性,
+        换台机器把上一台的比例带过来只会更别扭。
+      */}
+      <Panel
+        description="调完立刻生效, 不用重开面板。只保存在这台电脑上。"
+        title="面板显示"
+      >
+        {display.status === 'error' ? (
+          <p className="text-muted-foreground text-sm">
+            读不到显示设置 (页面不在游戏内时没有宿主可问)。
+          </p>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-baseline justify-between">
+                <label className="text-foreground text-sm" htmlFor="webui-zoom">
+                  页面缩放
+                </label>
+                <span className="text-muted-foreground text-xs tabular-nums">{zoomPercent}%</span>
+              </div>
+              <input
+                id="webui-zoom"
+                max={300}
+                min={50}
+                onChange={(event) => {
+                  handleDisplayChange({ zoomPercent: Number(event.target.value) })
+                }}
+                step={5}
+                type="range"
+                value={zoomPercent}
+              />
+              <p className="text-muted-foreground text-xs">
+                字和控件整体放大缩小。走浏览器自己的缩放, 排版会跟着重算, 不是把画面拉大。
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <div className="flex items-baseline justify-between">
+                <label className="text-foreground text-sm" htmlFor="webui-coverage">
+                  面板大小
+                </label>
+                <span className="text-muted-foreground text-xs tabular-nums">{coveragePercent}%</span>
+              </div>
+              <input
+                id="webui-coverage"
+                max={100}
+                min={30}
+                onChange={(event) => {
+                  handleDisplayChange({ coveragePercent: Number(event.target.value) })
+                }}
+                step={5}
+                type="range"
+                value={coveragePercent}
+              />
+              <p className="text-muted-foreground text-xs">
+                面板占屏幕每条边的百分比, 居中显示。100% 就是铺满整个屏幕。
+              </p>
+            </div>
+          </div>
+        )}
+      </Panel>
 
       <Panel description="决定界面整体是深色还是浅色, 强调色不受影响。" title="主题">
         <TabBar

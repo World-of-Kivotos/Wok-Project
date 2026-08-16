@@ -5261,6 +5261,10 @@ function resolveMock(action: WebUiActionName, payload: unknown): unknown {
       return { closed: true }
     case 'client.textFocus':
       return { ok: true }
+    // 浏览器里没有宿主可调, 回默认值让设置页能画出滑块。
+    case 'client.display.get':
+    case 'client.display.set':
+      return { zoomPercent: 125, coveragePercent: 70 }
     default: {
       // 契约表新增 action 而这里忘了实现时, 本行编译失败 (action 被收窄成 never)。
       const unhandled: never = action

@@ -10,6 +10,7 @@
  * 数据请走 useMockWorld, 需要重查的地方请显式调 reload —— 这条边界是刻意划的, 别为了省事把它抹掉。
  */
 
+import { useRefreshRevision } from '@/lib/refresh'
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { MockActionName, MockPayloadOf, MockResultOf } from './handlers'
 import { callMock } from './handlers'
@@ -25,8 +26,13 @@ export function useMockWorld(): MockWorld {
   return useSyncExternalStore(subscribeWorld, getWorld, getWorld)
 }
 
+/**
+ * loading 态的 data 是 <b>T | null</b> 而不是恒 null: 重拉 (全局作废 / reload) 时要保住上一份数据,
+ * 否则整页控件会闪一次骨架屏再长回来, 数字没变也闪。首次加载时它自然是 null, 调用方原有的
+ * "status !== 'ready' 就画骨架" 写法不受影响 —— 想做"旧数据 + 刷新中"的调用方才需要读这个 data。
+ */
 export type MockActionState<T> =
-  | { status: 'loading'; data: null; error: null }
+  | { status: 'loading'; data: T | null; error: null }
   | { status: 'ready'; data: T; error: null }
   | { status: 'error'; data: null; error: Error }
 
@@ -54,13 +60,19 @@ export function useMockAction<A extends MockActionName>(
     error: null,
   })
 
+  // 全局作废版本号: 别处的写操作 (或面板重开) 会推高它, 本查询随之重拉。
+  const revision = useRefreshRevision()
+
   const reload = useCallback(() => {
     setAttempt((previous) => previous + 1)
   }, [])
 
   useEffect(() => {
     let cancelled = false
-    setState({ status: 'loading', data: null, error: null })
+    // 重拉时<b>保住上一份数据</b>, 只把状态压回 loading。原来这里连 data 一起清成 null, 于是每次作废
+    // (领个奖、重开面板) 整页控件都会闪一次骨架屏再长回来 —— 数字明明没变也闪。首次加载 data 本来就是
+    // null, 不受影响。
+    setState((previous) => ({ status: 'loading', data: previous.data, error: null }))
     const parsed = JSON.parse(signature) as MockPayloadOf<A>
     callMock(action, parsed)
       .then((data) => {
@@ -77,7 +89,7 @@ export function useMockAction<A extends MockActionName>(
     return () => {
       cancelled = true
     }
-  }, [action, signature, attempt])
+  }, [action, signature, attempt, revision])
 
   return { ...state, reload }
 }

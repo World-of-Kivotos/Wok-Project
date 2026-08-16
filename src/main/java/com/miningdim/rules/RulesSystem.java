@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * R7 矿山维度规则子系统入口 (模块化铁律 3)。在矿山维度 (miningdim:mining) 内, 放置非白名单方块
- * (rules.placeWhitelist) 一律取消并提示放置者; 指向矿山维度的重生点设置同样会被取消。
+ * (rules.placeWhitelist) 一律取消并提示放置者; 同时执行重生点禁令与 HARD 区域死亡掉落规则。
  *
  * 监听两个 forge 放置事件与重生点设置事件:
  *  - {@link BlockEvent.EntityPlaceEvent}: 单方块放置 (绝大多数情形)。
@@ -37,9 +37,10 @@ public final class RulesSystem implements Subsystem {
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
-        // 纯 forge 总线运行期事件 (方块放置与重生点设置), 不涉及 mod 总线注册。
+        // 纯 forge 总线运行期事件, 不涉及 mod 总线注册。
         forgeBus.register(this);
-        LOGGER.info("[miningdim] rules subsystem registered (mining-dimension placement and respawn rules enforced)");
+        forgeBus.register(new MiningDeathRules());
+        LOGGER.info("[miningdim] rules subsystem registered (placement, respawn and death rules enforced)");
     }
 
     @SubscribeEvent

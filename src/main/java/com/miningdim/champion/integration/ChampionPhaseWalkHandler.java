@@ -31,12 +31,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -78,9 +75,6 @@ public final class ChampionPhaseWalkHandler {
 
     /** 扫描/周期推进周期 (tick): 1s 扫一次近玩家冠军 (与纯逻辑 {@link ChampionPhaseWalkPlan#SCAN_INTERVAL_TICKS} 对齐)。 */
     private static final int SCAN_INTERVAL_TICKS = (int) ChampionPhaseWalkPlan.SCAN_INTERVAL_TICKS;
-
-    /** 作用的玩家可见距离 (格; 与自身被动/BOSS 血条同量级)。远离该范围的冠军不结算 (无玩家在场无需穿墙)。 */
-    private static final double VIEW_RANGE = 48.0D;
 
     /** 强制脱离眩晕时长 (tick = 2s): Slowness V + Glowing 同窗, 给玩家一个高亮可辨的行动窗口 (spec 9.4 强制脱离补偿)。 */
     private static final int FORCED_STUN_TICKS = 40;
@@ -193,21 +187,11 @@ public final class ChampionPhaseWalkHandler {
      * 的冠军 (命令召唤 + 自然刷一视同仁), 门控通过者推进周期; 多玩家同看一冠军本轮只结算一次。
      */
     private void scanNearbyChampions(MinecraftServer server, long nowTick) {
-        Set<UUID> processed = new HashSet<>();
-        for (ServerLevel level : server.getAllLevels()) {
-            List<ServerPlayer> players = level.players();
-            if (players.isEmpty()) {
-                continue;
+        for (ChampionProximityScanner.Sighting sighting : ChampionProximityScanner.sightings(server)) {
+            if (!sighting.entity().isAlive()) {
+                continue; // 快照按 tick 复用, 同 tick 更早的 handler 可能已致死: 存活性逐条重查。
             }
-            for (ServerPlayer player : players) {
-                AABB box = player.getBoundingBox().inflate(VIEW_RANGE);
-                for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class, box, LivingEntity::isAlive)) {
-                    if (!processed.add(entity.getUUID())) {
-                        continue; // 多玩家同看一冠军: 本轮只结算一次。
-                    }
-                    applyPhaseWalkScan(entity, nowTick);
-                }
-            }
+            applyPhaseWalkScan(sighting.entity(), nowTick);
         }
     }
 

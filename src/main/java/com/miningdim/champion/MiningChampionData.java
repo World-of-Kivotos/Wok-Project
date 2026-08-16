@@ -18,6 +18,9 @@ import java.util.Map;
  * 纯数据 + NBT 序列化, 无世界/实体引用 (与 {@code MiningPlayerData} 同范式), GameTest 直接断言。词条以 def→品质
  * 直存 (非 Champions 的 registryName 字符串), 星级即 {@link StarRank} 星值; 数值语义解释仍下沉 {@link AffixDef}/
  * {@link ChampionAffixValues} 等纯逻辑。非冠军 (star=0) 不写 NBT (防每只普通怪 NBT 膨胀)。
+ *
+ * currentHp 随 NBT 持久是为了让 6★+ 影子血池在服务端重启/区块重载后可被原样重建 (F040): 否则
+ * {@code BloodPoolRegistry.get} 返 null 会让战斗权威静默切回 vanilla 血, 违反 spec 6.2 #2。
  */
 public final class MiningChampionData {
 
@@ -28,11 +31,13 @@ public final class MiningChampionData {
     private static final String NBT_EFFECTIVE_HP = "effective_hp";
     private static final String NBT_AFFIXES = "affixes";
     private static final String NBT_SUMMONED = "summoned_by_affix";
+    private static final String NBT_CURRENT_HP = "current_hp";
 
     private int star = NOT_CHAMPION;
     private final EnumMap<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
     private double effectiveHp = 0.0D;
     private boolean summonedByAffix = false;
+    private double currentHp = 0.0D;
 
     /** 是否已被盖章为冠军 (star ∈ [1,10])。非冠军的默认 capability 恒 false。 */
     public boolean isChampion() {
@@ -47,6 +52,16 @@ public final class MiningChampionData {
     /** 总有效血 (贡献池盖章门槛分母; 6★+ = 血池 maxHp, 1-5★ = 星表基础有效血, 巨大化后为实际有效血)。 */
     public double effectiveHp() {
         return effectiveHp;
+    }
+
+    /** 当前血量 (F040: 随 NBT 持久, 供 6★+ 影子血池在实体重新入世时按此重建, 而非恒回满血)。 */
+    public double currentHp() {
+        return currentHp;
+    }
+
+    /** 写入当前血量 (受击/回血落账点调用; 纯赋值, 越界与否由血池层的构造校验负责, 本层不做 clamp 掩盖)。 */
+    public void setCurrentHp(double hp) {
+        this.currentHp = hp;
     }
 
     /** 装配词条→品质 (不可变视图; 遍历顺序 = AffixDef 声明序)。 */
@@ -99,6 +114,7 @@ public final class MiningChampionData {
         this.affixes.putAll(newAffixes);
         this.effectiveHp = effectiveHp;
         this.summonedByAffix = false; // 重新盖章即普通冠军; 召唤物身份由 markSummonedByAffix 在 promote 后补盖。
+        this.currentHp = effectiveHp; // 新盖章的冠军恒为满血 (spawn 期/命令召唤同一入口, 无旧血量可延续)。
     }
 
     /** 清为非冠军态 (deserialize 前重置 / 显式清除)。 */
@@ -107,6 +123,7 @@ public final class MiningChampionData {
         this.affixes.clear();
         this.effectiveHp = 0.0D;
         this.summonedByAffix = false;
+        this.currentHp = 0.0D;
     }
 
     /**
@@ -135,6 +152,7 @@ public final class MiningChampionData {
         }
         tag.putInt(NBT_STAR, star);
         tag.putDouble(NBT_EFFECTIVE_HP, effectiveHp);
+        tag.putDouble(NBT_CURRENT_HP, currentHp);
         if (summonedByAffix) {
             tag.putBoolean(NBT_SUMMONED, true); // 仅召唤物写键 (普通冠军不膨胀 NBT)。
         }
@@ -161,6 +179,10 @@ public final class MiningChampionData {
         }
         this.star = s;
         this.effectiveHp = tag.getDouble(NBT_EFFECTIVE_HP);
+        // 向后兼容: 旧存档 (本键上线前已盖章的冠军) 没有 NBT_CURRENT_HP, 缺键按满血续战而非按 0 血 (0 血会让
+        // 重建的血池 install 时以死态出现)。这是本类唯一一处"缺键不视为脏数据"的容忍 —— 与其它字段 (星级/词条)
+        // 的"脏则整体回退非冠军/单条跳过"不同, 因为旧存档的冠军本身是合法态, 只是缺一个新引入的字段。
+        this.currentHp = tag.contains(NBT_CURRENT_HP) ? tag.getDouble(NBT_CURRENT_HP) : this.effectiveHp;
         this.summonedByAffix = tag.getBoolean(NBT_SUMMONED);
         CompoundTag affixTag = tag.getCompound(NBT_AFFIXES);
         AffixQuality[] qualities = AffixQuality.values();

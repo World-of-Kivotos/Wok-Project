@@ -24,7 +24,6 @@ import net.minecraft.world.entity.LightningBolt;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -32,11 +31,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -84,9 +81,6 @@ public final class ChampionThunderHandler {
 
     /** 单落点预兆环采样点数 (绕半径圆均匀取点标出杀伤边界, 让玩家肉眼判半径 2.5 的危险圈)。 */
     private static final int RING_SAMPLES = 12;
-
-    /** 作用的玩家可见距离 (格; 与自身被动/BOSS 血条同量级)。远离该范围的冠军不结算 (无玩家在场无需起雷)。 */
-    private static final double VIEW_RANGE = 48.0D;
 
     /** per-冠军天雷循环状态; 冠军死亡摘除 + TTL 清扫双保险 (despawn/卸载不发死亡事件的泄漏兜底)。 */
     private final Map<UUID, ThunderState> stateByChampion = new HashMap<>();
@@ -158,21 +152,11 @@ public final class ChampionThunderHandler {
      * 冠军 (命令召唤 + 自然刷一视同仁), 门控通过者推进周期; 多玩家同看一冠军本轮只结算一次。
      */
     private void scanNearbyChampions(MinecraftServer server, long nowTick) {
-        Set<UUID> processed = new HashSet<>();
-        for (ServerLevel level : server.getAllLevels()) {
-            List<ServerPlayer> players = level.players();
-            if (players.isEmpty()) {
-                continue;
+        for (ChampionProximityScanner.Sighting sighting : ChampionProximityScanner.sightings(server)) {
+            if (!sighting.entity().isAlive()) {
+                continue; // 快照按 tick 复用, 同 tick 更早的 handler 可能已致死: 存活性逐条重查。
             }
-            for (ServerPlayer player : players) {
-                AABB box = player.getBoundingBox().inflate(VIEW_RANGE);
-                for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class, box, LivingEntity::isAlive)) {
-                    if (!processed.add(entity.getUUID())) {
-                        continue; // 多玩家同看一冠军: 本轮只结算一次。
-                    }
-                    applyThunderScan(entity, nowTick);
-                }
-            }
+            applyThunderScan(sighting.entity(), nowTick);
         }
     }
 
@@ -291,7 +275,7 @@ public final class ChampionThunderHandler {
                 }
                 float damage = (float) ChampionThunderPlan.perPointDamage(player.getMaxHealth(), quality);
                 player.hurt(aoeSource, damage);
-                AoeImmunityBuffer.grant(player); // 结算完自身伤害后 grant: 窗内后续点/其它冠军来源掐 0 (红线 3)。
+                AoeImmunityBuffer.grantIfNotBuffered(player); // 结算完自身伤害后开窗: 窗内首发不续窗 (F102)。
                 hits++;
             }
         }

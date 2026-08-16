@@ -22,7 +22,6 @@ import net.minecraft.world.damagesource.DamageType;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
@@ -32,10 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -73,9 +69,6 @@ public final class ChampionDeathMarkHandler {
     /** 标记驱动断档放弃阈值 (tick): 两个扫描周期无驱动 = 目标已脱离扫描范围, 放弃标记防冻结延迟处决。 */
     private static final long DRIVE_GAP_ABORT_TICKS = 2L * SCAN_INTERVAL_TICKS;
 
-    /** 生命周期推进的玩家可见距离 (格; 与自身被动/血条同量级)。远离该范围的冠军不结算。 */
-    private static final double VIEW_RANGE = 48.0D;
-
     /** 状态 TTL 清扫周期 (tick): 每 60s 扫一次 (低频, 表通常极小)。 */
     private static final int STATE_SWEEP_INTERVAL_TICKS = 1200;
 
@@ -102,21 +95,11 @@ public final class ChampionDeathMarkHandler {
             return;
         }
         long nowTick = server.overworld().getGameTime();
-        Set<UUID> processed = new HashSet<>();
-        for (ServerLevel level : server.getAllLevels()) {
-            List<ServerPlayer> players = level.players();
-            if (players.isEmpty()) {
-                continue;
+        for (ChampionProximityScanner.Sighting sighting : ChampionProximityScanner.sightings(server)) {
+            if (!sighting.entity().isAlive()) {
+                continue; // 快照按 tick 复用, 同 tick 更早的 handler 可能已致死: 存活性逐条重查。
             }
-            for (ServerPlayer player : players) {
-                AABB box = player.getBoundingBox().inflate(VIEW_RANGE);
-                for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class, box, LivingEntity::isAlive)) {
-                    if (!processed.add(entity.getUUID())) {
-                        continue; // 多玩家同看一冠军: 本轮只结算一次。
-                    }
-                    applyDeathMarkTick(entity, nowTick);
-                }
-            }
+            applyDeathMarkTick(sighting.entity(), nowTick);
         }
 
         if (server.getTickCount() % STATE_SWEEP_INTERVAL_TICKS == 0) {

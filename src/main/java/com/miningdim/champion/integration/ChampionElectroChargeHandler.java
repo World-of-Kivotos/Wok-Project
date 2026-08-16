@@ -30,11 +30,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -76,9 +73,6 @@ public final class ChampionElectroChargeHandler {
 
     /** 蓄力时长 (tick; 用户裁定 2s = 40): 起手到引爆的可躲窗 (与纯逻辑 {@link ChampionElectroChargePlan#CHARGE_TICKS} 对齐)。 */
     private static final int CHARGE_TICKS = (int) ChampionElectroChargePlan.CHARGE_TICKS;
-
-    /** 作用的玩家可见距离 (格; 与自身被动/BOSS 血条同量级)。远离该范围的冠军不结算 (无玩家在场无需起手)。 */
-    private static final double VIEW_RANGE = 48.0D;
 
     /**
      * 落点环描点节流 (tick): 每此 tick 描一次 24 点环 (5Hz)。逐 tick 描 24 点 = 24 包/tick 过密, 5Hz 已足够让玩家
@@ -184,21 +178,11 @@ public final class ChampionElectroChargeHandler {
      * 冠军 (命令召唤 + 自然刷一视同仁), 门控通过者推进冷却周期; 多玩家同看一冠军本轮只结算一次。
      */
     private void scanNearbyChampions(MinecraftServer server, long nowTick) {
-        Set<UUID> processed = new HashSet<>();
-        for (ServerLevel level : server.getAllLevels()) {
-            List<ServerPlayer> players = level.players();
-            if (players.isEmpty()) {
-                continue;
+        for (ChampionProximityScanner.Sighting sighting : ChampionProximityScanner.sightings(server)) {
+            if (!sighting.entity().isAlive()) {
+                continue; // 快照按 tick 复用, 同 tick 更早的 handler 可能已致死: 存活性逐条重查。
             }
-            for (ServerPlayer player : players) {
-                AABB box = player.getBoundingBox().inflate(VIEW_RANGE);
-                for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class, box, LivingEntity::isAlive)) {
-                    if (!processed.add(entity.getUUID())) {
-                        continue; // 多玩家同看一冠军: 本轮只结算一次。
-                    }
-                    applyCooldownScan(entity, nowTick);
-                }
-            }
+            applyCooldownScan(sighting.entity(), nowTick);
         }
     }
 
@@ -270,12 +254,13 @@ public final class ChampionElectroChargeHandler {
     /**
      * 引爆结算: 爆点大电火花迸发 + 爆炸粒子 + 雷击音; AABB 扫落点半径内存活玩家, 各吃
      * {@link ChampionElectroChargePlan#aoeDamage} 名义伤 (自身 maxHP × 品质百分比) 的 CHAMPION_SKILL_AOE, 结算完
-     * 【逐个】{@link AoeImmunityBuffer#grant} 开 2s 缓冲 (红线 3)。已走出半径的玩家 (可躲) 不结算不 grant。
+     * 【逐个】{@link AoeImmunityBuffer#grantIfNotBuffered} 开 2s 缓冲 (红线 3)。已走出半径的玩家 (可躲) 不结算不 grant。
      *
      * <p>DamageSource 构造照 {@code ChampionDeathMarkHandler#executePlayer} 的 registry Holder 写法 (1.20.1
      * DamageSources.source 全 private, 公开路径 = registry 取 Holder 后 new DamageSource(holder, entity))。首发时
      * 玩家尚未获缓冲 (grant 在 hurt 之后), 故 AoeImmunityBuffer 的 HIGHEST 闸不掐首发; 若玩家已在上一发缓冲窗内则
-     * 首发即被掐 0, grant 只续窗 (幂等)。
+     * 首发即被掐 0, 此时窗内首发不构成新的压制, {@code grantIfNotBuffered} 不再续窗 (F102 修复: 旧版无条件 grant
+     * 会被同一玩家站在爆点反复触发的零伤命中链式续到 now+2s, 与本技能"锁定落点可躲"的设计意图相反)。
      */
     private void detonate(ServerLevel level, LivingEntity champion, ElectroState state) {
         double cx = state.landingX;
@@ -298,7 +283,7 @@ public final class ChampionElectroChargeHandler {
             }
             float dmg = (float) ChampionElectroChargePlan.aoeDamage(quality, player.getMaxHealth());
             player.hurt(source, dmg);
-            AoeImmunityBuffer.grant(player); // 结算完自身伤害后开 2s 缓冲 (窗内后续大额 AOE 被掐 0)。
+            AoeImmunityBuffer.grantIfNotBuffered(player); // 结算完自身伤害后开 2s 缓冲 (窗内后续大额 AOE 被掐 0)。
             hitCount++;
         }
 

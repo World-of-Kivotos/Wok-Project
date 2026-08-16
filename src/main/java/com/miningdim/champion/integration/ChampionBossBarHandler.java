@@ -10,11 +10,9 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.server.level.ServerBossEvent;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.BossEvent;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -32,7 +30,7 @@ import java.util.UUID;
 /**
  * 精英怪自定义 BOSS 血条 (ChampionStarAffix spec 9.7 显示层)。原版 Champions 2.1.10.2 只有"瞄准时自绘 HUD + Jade 提示",
  * 无顶部 BOSS 血条 (那是 Champions Unofficial 分支的功能, 换回原版后没了)。本 handler 自建: 玩家靠近精英怪
- * (&lt;= {@value #VIEW_RANGE} 格) 即在屏幕顶部出 vanilla {@code ServerBossEvent} 血条, 标题显示 名字 + 星级 + 词条名 (中文),
+ * (&lt;= {@value ChampionProximityScanner#VIEW_RANGE} 格) 即在屏幕顶部出 vanilla {@code ServerBossEvent} 血条, 标题显示 名字 + 星级 + 词条名 (中文),
  * 颜色/分段随星级 (见 {@link ChampionBossBarText})。BOSS 条是 vanilla 服务端机制 (addPlayer 即自动同步渲染), 故纯服务端、零客户端代码。
  *
  * 血量: 直接读 vanilla getHealth/getMaxHealth —— 6★+ 的影子血池由 {@link ChampionBloodPoolHandler} 每 tick 镜像进
@@ -44,14 +42,15 @@ import java.util.UUID;
  */
 public final class ChampionBossBarHandler {
 
-    /** 诊断日志: BOSS 条真服首验用 (条创建/摘除各打一行, 低频不门控; 定位"为什么没血条")。 */
+    /**
+     * 诊断日志: BOSS 条创建/摘除各打一行 (定位"为什么没血条")。F071 降级: 玩家在
+     * {@value ChampionProximityScanner#VIEW_RANGE} 格边界来回走动会让同一只怪每 {@value #SCAN_INTERVAL_TICKS}tick
+     * (0.5s) 反复创建/摘除, 这是战斗热路径而非低频事件, 故降到 debug (默认关闭; 需要时开该 logger 的 debug 级别真服核对)。
+     */
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/champion/bossbar");
 
     /** 扫描节流: 每多少 tick 重算"附近精英怪 + 观察玩家集" + 刷血量 (0.5s; 够顺滑且省全实体遍历)。 */
     private static final int SCAN_INTERVAL_TICKS = 10;
-
-    /** 玩家可见 BOSS 条的距离 (格); 与 champions-client.toml hudRange 同量级。 */
-    private static final double VIEW_RANGE = 48.0D;
 
     /** 精英怪实体 UUID -> 其 BOSS 条 (在册 = 当前至少一个玩家在范围内看)。 */
     private final Map<UUID, ServerBossEvent> bars = new HashMap<>();
@@ -65,36 +64,27 @@ public final class ChampionBossBarHandler {
             return;
         }
 
-        // 1. 收集每只附近精英怪 + 看它的玩家集 (按玩家 AABB 扫实体, 经 Champions capability 检出精英怪)。
+        // 1. 收集每只附近精英怪 + 看它的玩家集 (读共享近场快照, 经 Champions capability 检出精英怪)。
         Map<UUID, View> live = new HashMap<>();
-        for (ServerLevel level : event.getServer().getAllLevels()) {
-            List<ServerPlayer> players = level.players();
-            if (players.isEmpty()) {
-                continue;
+        for (ChampionProximityScanner.Sighting sighting : ChampionProximityScanner.sightings(event.getServer())) {
+            LivingEntity entity = sighting.entity();
+            if (!entity.isAlive()) {
+                continue; // 快照按 tick 复用, 同 tick 更早的 handler 可能已致死: 存活性逐条重查。
             }
-            for (ServerPlayer player : players) {
-                AABB box = player.getBoundingBox().inflate(VIEW_RANGE);
-                for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class, box,
-                        e -> e.isAlive() && e != player)) {
-                    View view = live.get(entity.getUUID());
-                    if (view == null) {
-                        view = viewOf(entity);
-                        if (view == null) {
-                            continue; // 非精英怪。
-                        }
-                        live.put(entity.getUUID(), view);
-                    }
-                    view.viewers.add(player);
-                }
+            View view = viewOf(entity);
+            if (view == null) {
+                continue; // 支援召唤物 (spec 红线 8-c): 不出 BOSS 条。
             }
+            view.viewers.addAll(sighting.viewers());
+            live.put(entity.getUUID(), view);
         }
 
         // 2. 摘除不再 live 的 BOSS 条 (精英怪死亡/离开所有玩家范围)。
         bars.entrySet().removeIf(e -> {
             if (!live.containsKey(e.getKey())) {
                 e.getValue().removeAllPlayers();
-                // 诊断 (真服首验): 条摘除打一行 (死亡/离开全部玩家范围; 低频不门控)。
-                LOGGER.info("bossbar-remove {}", e.getKey());
+                // 诊断: 条摘除打一行 (死亡/离开全部玩家范围; F071 降级为战斗热路径, 见 LOGGER 声明处)。
+                LOGGER.debug("bossbar-remove {}", e.getKey());
                 return true;
             }
             return false;
@@ -107,8 +97,11 @@ public final class ChampionBossBarHandler {
             if (bar == null) {
                 bar = new ServerBossEvent(view.name, view.barColor, ChampionBossBarText.overlayForTier(view.tier));
                 bars.put(e.getKey(), bar);
-                // 诊断 (真服首验): 条创建打一行 星级/标题 (低频不门控; 没这行 = viewOf 没检出冠军)。
-                LOGGER.info("bossbar-create {} tier{} title={}", e.getKey(), view.tier, view.name.getString());
+                // 诊断: 条创建打一行 星级/标题 (F071 降级为战斗热路径; isDebugEnabled 守卫 —— view.name.getString()
+                // 是实参, 不加守卫的话日志关着也照样解析翻译组件, 白白多做一次字符串构建)。
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug("bossbar-create {} tier{} title={}", e.getKey(), view.tier, view.name.getString());
+                }
             } else {
                 bar.setName(view.name);
                 bar.setColor(view.barColor);

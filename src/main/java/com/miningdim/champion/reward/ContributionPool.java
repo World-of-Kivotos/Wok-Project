@@ -91,8 +91,11 @@ public final class ContributionPool {
      * 盖章 + 按个人有效伤害加权瓜分固定池 (spec 第十一章核心交付物): 先用双门槛筛出合格者, 再按合格者之间
      * 的有效伤害占比瓜分固定总池, 严禁按人头复制。
      *
-     * 加权口径: 合格者 i 应得 raw = round(fixedPoolRaw × dmgᵢ / Σ(合格者 dmg))。最后一名合格者吸收 round 余数,
-     * 保证 Σ应得 = fixedPoolRaw (无因逐笔 round 丢失/虚增信用点)。无合格者返回空 (整池不发, 防按人头复制)。
+     * 加权口径: 合格者 i 应得 raw = round(fixedPoolRaw × dmgᵢ / Σ(合格者 dmg)), 但逐笔钳制到"剩余预算"
+     * (share = min(round(...), remaining)), remaining 随每笔发放递减; 末名直接吃 remaining 剩余全部
+     * (F103 修复: 最大余数法的逐笔累计版, 而非只钳末名一处)。保证 Σ应得 恒等于 fixedPoolRaw (逐笔钳制,
+     * 不会因前面 round 上偏累计而超池, 也不会因下钳漏发而少于池——末名兜底吃光剩余预算)。无合格者返回空
+     * (整池不发, 防按人头复制)。
      *
      * @param contributions      全部贡献记录 (含蹭枪/离线者; 召唤物伤害已在采集层排除)
      * @param bossTotalEffectiveHp BOSS 总有效血 (盖章门槛一分母)
@@ -125,17 +128,19 @@ public final class ContributionPool {
             return payout; // 无合格者/无有效伤害/空池: 整池不发 (防按人头复制)。
         }
 
-        long distributed = 0L;
+        long remaining = fixedPoolRaw;
         for (int i = 0; i < qualified.size(); i++) {
             DamageContribution c = qualified.get(i);
             long share;
             if (i == qualified.size() - 1) {
-                // 末名吸收 round 余数, 保证总和 = fixedPoolRaw。
-                share = fixedPoolRaw - distributed;
+                // 末名吃光剩余预算 (吸收逐笔 round 的上/下偏差), 恒 >= 0 (remaining 只减不增, 起点 fixedPoolRaw >= 0)。
+                share = remaining;
             } else {
                 double weight = c.effectiveDamage() / qualifiedDamageSum;
-                share = Math.round(fixedPoolRaw * weight);
-                distributed += share;
+                long raw = Math.round(fixedPoolRaw * weight);
+                // 逐笔钳制到剩余预算 (F103): 防前面若干笔的 round 上偏累计推着后续份额把总池发穿。
+                share = Math.min(raw, remaining);
+                remaining -= share;
             }
             payout.put(c.playerId(), share);
         }

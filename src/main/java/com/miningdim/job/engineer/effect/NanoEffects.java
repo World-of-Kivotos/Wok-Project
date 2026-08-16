@@ -135,10 +135,13 @@ public final class NanoEffects {
     }
 
     /**
-     * 受击时尝试反应式触发护盾免疫窗 (6.2): 该件有充能 (charges > 0) 且 armed (regenTick <= 0) 时, 消耗一次充能、
-     * 开 X 秒免疫窗、重置再生倒计时, 返回 true; 否则不动, 返回 false。仅在无活动窗口时由 handler 调用。
+     * 受击时尝试反应式触发护盾免疫窗 (6.2): 该件有充能 (charges > 0) 时, 消耗一次充能、开 X 秒免疫窗、重置该件
+     * 再生倒计时, 返回 true; 否则不动, 返回 false。仅在无活动窗口时由 handler 调用。
      *
      * charges > 0 即 "带护盾且有充能" 的可靠廉价代理 (K_SHIELD_CHARGES 仅随 SHIELD 特效写入/清除)。
+     *
+     * 按件独立充能, 无跨件安全阀: MillenniumEngineer_Mod_DesignSpec 6.2 表格对护盾的显式裁决是件级独立资源池,
+     * 与机能修复的递减安全阀、图腾的人级共享 CD 分属不同类。
      */
     public static boolean tryReactiveShield(ItemStack armor) {
         int charges = NanoNbt.shieldCharges(armor);

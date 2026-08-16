@@ -1,0 +1,10 @@
+{
+  "replace": false,
+  "values": [
+    "#minecraft:bypasses_invulnerability",
+    "minecraft:starve",
+    "minecraft:drown",
+    "minecraft:in_wall",
+    "minecraft:cramming"
+  ]
+}

@@ -223,6 +223,15 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
             handleCaseSound(payloadJson, callback);
             return;
         }
+        if ("client.closePanel".equals(action)) {
+            WebUiClient.requestClose();
+            callback.success("{\"closed\":true}");
+            return;
+        }
+        if ("client.textFocus".equals(action)) {
+            handleTextFocus(payloadJson, callback);
+            return;
+        }
         if (!"client.i18n".equals(action)) {
             callback.failure(-1, "unknown client-local action: " + action);
             return;
@@ -243,6 +252,24 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
             callback.success(GSON.toJson(result));
         } catch (RuntimeException e) {
             callback.failure(-1, "client.i18n failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 页面上报"当前焦点是不是可编辑元素"。
+     *
+     * 只在页面侧判定得了: CEF 与 MCEF 都不暴露焦点节点的可编辑性 (javap 实测), 而打开键 (默认 G) 兼作
+     * 关闭键时必须知道玩家是在搜索框里打字还是在翻页面。字段缺失按"没有焦点"处理 —— 那是默认可关的一侧,
+     * 与页面尚未接上报时的行为一致。
+     */
+    private void handleTextFocus(String payloadJson, CefQueryCallback callback) {
+        try {
+            JsonObject payload = JsonParser.parseString(payloadJson).getAsJsonObject();
+            boolean focused = payload.has("focused") && payload.get("focused").getAsBoolean();
+            WebUiClient.setTextInputFocused(focused);
+            callback.success("{\"ok\":true}");
+        } catch (RuntimeException e) {
+            callback.failure(-1, "client.textFocus failed: " + e.getMessage());
         }
     }
 

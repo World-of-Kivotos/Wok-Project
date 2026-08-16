@@ -5255,6 +5255,12 @@ function resolveMock(action: WebUiActionName, payload: unknown): unknown {
       return mockI18n(payload as ClientI18nPayload)
     case 'client.playCaseSound':
       return mockPlayCaseSound(payload as ClientPlayCaseSoundPayload)
+    // 两条宿主动作在浏览器里没有对应物 (没有 Screen 可关, 也没有 Java 侧的焦点标记),
+    // 回一个成功回执即可 —— 目的只是让 dev 下点关闭按钮不报错。
+    case 'client.closePanel':
+      return { closed: true }
+    case 'client.textFocus':
+      return { ok: true }
     default: {
       // 契约表新增 action 而这里忘了实现时, 本行编译失败 (action 被收窄成 never)。
       const unhandled: never = action

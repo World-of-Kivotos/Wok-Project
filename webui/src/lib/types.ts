@@ -2124,6 +2124,30 @@ export interface ClientPlayCaseSoundResult {
   played: true
 }
 
+/** client.closePanel 入参 (WebUiBridge.handleClientLocal) —— 不读任何字段。 */
+export interface ClientClosePanelPayload {
+  [key: string]: never
+}
+
+/** client.closePanel 回执 —— 宿主已受理关闭请求 (真正关屏在 MC 主线程随后执行)。 */
+export interface ClientClosePanelResult {
+  closed: true
+}
+
+/**
+ * client.textFocus 入参: 页面当前焦点是不是可编辑元素。
+ *
+ * 上报它的唯一目的是让打开键 (默认 G) 兼作关闭键 —— CEF 不暴露焦点节点的可编辑性, 只有 DOM 知道。
+ */
+export interface ClientTextFocusPayload {
+  focused: boolean
+}
+
+/** client.textFocus 回执。 */
+export interface ClientTextFocusResult {
+  ok: true
+}
+
 // ============================================================
 // economy.* — com.miningdim.economy.EconomyWebUiActions (Gson serializeNulls)
 // ============================================================

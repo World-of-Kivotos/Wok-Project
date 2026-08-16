@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { installWebUiEventBridge } from './bridge/events'
 import { Button, EmptyBlock } from './components/kit'
 import { TabletShell } from './components/shell/TabletShell'
+import { closePanel, useTextFocusReporting } from '@/lib/host-panel'
 import { TooltipProvider } from './components/ui/tooltip'
 import { AdminPage } from './pages/admin/AdminPage'
 import { CasePage } from './pages/CasePage'
@@ -103,12 +104,15 @@ export function App(): ReactElement {
   // 事件入口在挂载期存在即可: 服务端零业务调用方, 此刻它是一条接住但不依赖的空管道 (决策 J2)。
   useEffect(() => installWebUiEventBridge(), [])
 
+  // 全局跟踪可编辑焦点并上报宿主: 打开键 (默认 G) 兼作关闭键, 在输入框里打字时必须让位给字符。
+  useTextFocusReporting()
+
   /*
    * 平板外壳恒在最外层, 路由只决定内容区画什么: 统一入口的意思就是"不存在脱离平板的页面",
    * 组件预览页同样在壳内 —— 它要验的是这套外壳里的真实观感, 单独裸跑反而看不出与导航、
    * 边框叠在一起时的层级关系。
    *
-   * onClose 不传: 宿主侧还没有关闭通道 (接线清单第四章), 外壳据此把关闭按钮渲染成禁用态。
+   * onClose 接宿主的 client.closePanel: 关的是 MC 的 Screen 栈, 页面自己关不掉。
    *
    * 根节点用 h-screen + overflow-hidden 把滚动关在壳内, 而不是 min-h-screen 让文档级滚动接管:
    * 平板外壳是一个有边框的矩形, 文档级滚动会让整块平板跟着页面滚出视口, 而不是内容在平板里滚。
@@ -119,7 +123,7 @@ export function App(): ReactElement {
   return (
     <TooltipProvider>
       <div className="h-screen overflow-hidden bg-background p-3 text-foreground">
-        <TabletShell>{renderRoute(match)}</TabletShell>
+        <TabletShell onClose={closePanel}>{renderRoute(match)}</TabletShell>
       </div>
     </TooltipProvider>
   )

@@ -99,8 +99,12 @@ import type {
   ChefStateResult,
   ClientI18nPayload,
   ClientI18nResult,
+  ClientClosePanelPayload,
+  ClientClosePanelResult,
   ClientPlayCaseSoundPayload,
   ClientPlayCaseSoundResult,
+  ClientTextFocusPayload,
+  ClientTextFocusResult,
   FarmerSellPayload,
   FarmerSellResult,
   FarmerStatePayload,
@@ -201,6 +205,8 @@ type WebUiContractMap = {
   'case.apply': { payload: CaseApplyPayload; result: CaseApplyResult }
   'client.i18n': { payload: ClientI18nPayload; result: ClientI18nResult }
   'client.playCaseSound': { payload: ClientPlayCaseSoundPayload; result: ClientPlayCaseSoundResult }
+  'client.closePanel': { payload: ClientClosePanelPayload; result: ClientClosePanelResult }
+  'client.textFocus': { payload: ClientTextFocusPayload; result: ClientTextFocusResult }
   'economy.priceTable': { payload: EconomyPriceTablePayload; result: EconomyPriceTableResult }
   'economy.status': { payload: EconomyStatusPayload; result: EconomyStatusResult }
   'economy.today': { payload: EconomyTodayPayload; result: EconomyTodayResult }

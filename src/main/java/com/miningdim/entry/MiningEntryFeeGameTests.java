@@ -7,6 +7,7 @@ import com.miningdim.core.GenState;
 import com.miningdim.core.IMiningNetwork;
 import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningConstants;
+import com.miningdim.core.MiningServices;
 import com.miningdim.economy.AbuseGuard;
 import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyConstants;
@@ -36,7 +37,11 @@ import net.minecraft.world.level.Level;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import com.miningdim.core.IMiningConfig;
+
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -78,14 +83,14 @@ public final class MiningEntryFeeGameTests {
         InstanceState target = requireFixedInstance(helper, Difficulty.EASY);
         int refsBefore = target.refCount();
         MiningYieldProbe.clear();
-        long previousFee = MiningServerConfig.ENTRY_FEE_EASY.get();
+        long previousFee = currentEntryFee(Difficulty.EASY);
         try {
-            MiningServerConfig.ENTRY_FEE_EASY.set(50L);
+            overrideEntryFee(Difficulty.EASY, 50L);
             withEconomyService(economy,
                     () -> new EntryGateway(helper.getLevel().getServer())
                             .requestEnter(player, Difficulty.EASY, false));
         } finally {
-            MiningServerConfig.ENTRY_FEE_EASY.set(previousFee);
+            clearEntryFeeOverride(Difficulty.EASY);
         }
 
         FeedbackPackets feedback = drainFeedbackPackets(channel);
@@ -193,12 +198,12 @@ public final class MiningEntryFeeGameTests {
         Runnable cleanup = () -> withEconomyService(economy, () -> cleanupPlayer(player, gateway, origin));
         MiningYieldProbe.clear();
 
-        long previousFee = MiningServerConfig.ENTRY_FEE_EASY.get();
+        long previousFee = currentEntryFee(Difficulty.EASY);
         try {
-            MiningServerConfig.ENTRY_FEE_EASY.set(0L);
+            overrideEntryFee(Difficulty.EASY, 0L);
             withEconomyService(economy, () -> gateway.requestEnter(player, Difficulty.EASY, false));
         } finally {
-            MiningServerConfig.ENTRY_FEE_EASY.set(previousFee);
+            clearEntryFeeOverride(Difficulty.EASY);
         }
 
         pumpUntilMessage(helper, channel, ENTERED_MESSAGE_KEY, MAX_PUMP_ATTEMPTS,
@@ -244,12 +249,12 @@ public final class MiningEntryFeeGameTests {
         Runnable cleanup = () -> withEconomyService(economy, () -> cleanupPlayer(player, gateway, origin));
         MiningYieldProbe.clear();
 
-        long previousFee = MiningServerConfig.ENTRY_FEE_EASY.get();
+        long previousFee = currentEntryFee(Difficulty.EASY);
         try {
-            MiningServerConfig.ENTRY_FEE_EASY.set(fee);
+            overrideEntryFee(Difficulty.EASY, fee);
             withEconomyService(economy, () -> gateway.requestEnter(player, Difficulty.EASY, false));
         } finally {
-            MiningServerConfig.ENTRY_FEE_EASY.set(previousFee);
+            clearEntryFeeOverride(Difficulty.EASY);
         }
 
         pumpUntilMessage(helper, channel, ENTERED_MESSAGE_KEY, MAX_PUMP_ATTEMPTS,
@@ -307,12 +312,12 @@ public final class MiningEntryFeeGameTests {
         Runnable cleanup = () -> withEconomyService(economy, () -> cleanupPlayer(player, gateway, origin));
         MiningYieldProbe.clear();
 
-        long previousFee = MiningServerConfig.ENTRY_FEE_EASY.get();
+        long previousFee = currentEntryFee(Difficulty.EASY);
         try {
-            MiningServerConfig.ENTRY_FEE_EASY.set(fee);
+            overrideEntryFee(Difficulty.EASY, fee);
             withEconomyService(economy, () -> gateway.requestEnter(player, Difficulty.EASY, false));
         } finally {
-            MiningServerConfig.ENTRY_FEE_EASY.set(previousFee);
+            clearEntryFeeOverride(Difficulty.EASY);
         }
 
         Runnable advanceWhileResetting = () -> {
@@ -372,12 +377,12 @@ public final class MiningEntryFeeGameTests {
         Runnable cleanup = () -> withEconomyService(economy, () -> cleanupPlayer(player, gateway, origin));
         MiningYieldProbe.clear();
 
-        long previousFee = MiningServerConfig.ENTRY_FEE_EASY.get();
+        long previousFee = currentEntryFee(Difficulty.EASY);
         try {
-            MiningServerConfig.ENTRY_FEE_EASY.set(fee);
+            overrideEntryFee(Difficulty.EASY, fee);
             withEconomyService(economy, () -> gateway.requestEnter(player, Difficulty.EASY, false));
         } finally {
-            MiningServerConfig.ENTRY_FEE_EASY.set(previousFee);
+            clearEntryFeeOverride(Difficulty.EASY);
         }
         boolean balanceExhausted = economy.tryCharge(player, Currency.CREDIT, balanceBefore);
 
@@ -610,4 +615,63 @@ public final class MiningEntryFeeGameTests {
             List<SystemMessage> systemMessages,
             List<TeleportResultS2C> teleportResults) {
     }
+
+    // ============================================================
+    // 入场费的测试替身 (不碰文件型配置)
+    // ============================================================
+
+    /**
+     * 本批用例覆盖入场费的取值, 但<b>严禁直接改 {@code MiningServerConfig.ENTRY_FEE_*}</b>。
+     *
+     * 那条路踩过一次: ForgeConfigSpec 的 set 只改内存, 而 NightConfig 的自动保存会在任意时刻把当前内存值
+     * 刷进 world/serverconfig/*.toml。用例在 finally 里恢复了内存值, 却挡不住恢复<b>之前</b>那一次自动保存
+     * —— 磁盘上留下 entryFeeEasy=90, 下一轮启动带着这个值跑, 于是另一个文件里两条与入场费无关的用例
+     * (miningEnterRejectsMissingAndUnknownDifficulty / ...WhenAlreadyInsideAnInstance) 集体红掉, 且症状与
+     * 病因隔着一整个 run。
+     *
+     * 改走 {@code MiningServices.registerConfig} 这个门面: 装一个把 entryFee 拦下、其余全部委派给真实配置的
+     * 代理。全程只在内存里, 没有任何东西会被写进存档。
+     */
+    private static final Map<Difficulty, Long> ENTRY_FEE_OVERRIDES = new EnumMap<>(Difficulty.class);
+
+    private static IMiningConfig delegateConfig;
+
+    private static long currentEntryFee(Difficulty difficulty) {
+        return MiningServices.config().entryFee(difficulty);
+    }
+
+    /**
+     * 撤掉覆盖, 让该难度重新走真实配置。
+     *
+     * 必须是"撤掉"而不是"设回旧值": 代理只要还持有这个键就会一直遮住真实配置, 于是别处那些直接改
+     * {@code MiningServerConfig.ENTRY_FEE_*} 的用例 (如 MiningWebUiGameTests 的实时入场费映射) 会读到
+     * 本批用例最后写进去的那个数, 而不是它们自己设的值。
+     */
+    private static void clearEntryFeeOverride(Difficulty difficulty) {
+        ENTRY_FEE_OVERRIDES.remove(difficulty);
+    }
+
+    /** 安装 (或更新) 入场费覆盖值。首次调用时把真实配置包进代理并注册回门面。 */
+    private static void overrideEntryFee(Difficulty difficulty, long fee) {
+        if (delegateConfig == null) {
+            IMiningConfig real = MiningServices.config();
+            delegateConfig = real;
+            IMiningConfig proxy = (IMiningConfig) Proxy.newProxyInstance(
+                    IMiningConfig.class.getClassLoader(),
+                    new Class<?>[] { IMiningConfig.class },
+                    (unusedProxy, method, args) -> {
+                        if ("entryFee".equals(method.getName()) && args != null && args.length == 1) {
+                            Difficulty asked = (Difficulty) args[0];
+                            Long override = ENTRY_FEE_OVERRIDES.get(asked);
+                            if (override != null) {
+                                return override;
+                            }
+                        }
+                        return method.invoke(delegateConfig, args);
+                    });
+            MiningServices.registerConfig(proxy);
+        }
+        ENTRY_FEE_OVERRIDES.put(difficulty, fee);
+    }
+
 }

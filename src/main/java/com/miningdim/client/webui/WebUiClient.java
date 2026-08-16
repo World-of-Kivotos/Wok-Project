@@ -157,6 +157,40 @@ public final class WebUiClient {
     /** Screen 的 ESC / 被其它界面替换路径统一清理在途回调与 UI 音效。 */
     static void onScreenClosed() {
         BRIDGE.onScreenClosed();
+        // 关屏即复位: 页面里那个输入框的焦点随界面一起消失了, 留着 true 会让下一次开面板按不了关闭键。
+        textInputFocused = false;
+    }
+
+    /**
+     * 页面里是否有可编辑元素正持有焦点 (由页面经 {@code client.textFocus} 上报)。
+     *
+     * 存在的唯一理由是让打开键能兼作关闭键: 那个键 (默认 G) 同时也是玩家要在市场搜索框里打出来的字符,
+     * 而 CEF/MCEF 不暴露"当前焦点是不是可编辑节点"这一信息 (javap 实测 CefRenderHandler 与 MCEFBrowser
+     * 都没有), 只有 DOM 自己知道。故由页面在 focusin/focusout 时上报, Java 侧只读这一个布尔。
+     *
+     * 上报是异步的, 理论上存在"刚点进输入框就立刻按 G"这一帧的滞后。代价是最坏情况下少打一个字母,
+     * 而不是关错界面 —— 反过来 (默认可关) 的代价是打字打到一半界面没了, 两者不对称。
+     */
+    private static volatile boolean textInputFocused;
+
+    /** 页面上报可编辑焦点变化。 */
+    static void setTextInputFocused(boolean focused) {
+        textInputFocused = focused;
+    }
+
+    /** 打开键此刻能不能兼作关闭键。 */
+    static boolean canCloseWithOpenKey() {
+        return !textInputFocused;
+    }
+
+    /** 页面自己的关闭按钮 (右上角 X) 请求关界面。必须在主线程执行: 动的是 MC 的 Screen 栈。 */
+    static void requestClose() {
+        Minecraft mc = Minecraft.getInstance();
+        mc.execute(() -> {
+            if (mc.screen instanceof WebUiScreen) {
+                mc.setScreen(null);
+            }
+        });
     }
 
     /** 优雅降级提示: 经本地玩家 actionbar 显示 (与 ClientFeedback 同范式); 玩家未就绪时退回日志。 */

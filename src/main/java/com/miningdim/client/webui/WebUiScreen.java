@@ -211,6 +211,12 @@ public final class WebUiScreen extends Screen {
             onClose();
             return true;
         }
+        // 打开键兼作关闭键 (默认 G)。判据取 KeyMapping 本身而不是写死 GLFW_KEY_G: 玩家在控制设置里改绑之后,
+        // 开和关必须还是同一个键。页面里有输入框持有焦点时让位给打字 —— 那个键同时也是要打进搜索框的字符。
+        if (WebUiKeyMappings.OPEN_WEB_UI.matches(keyCode, scanCode) && WebUiClient.canCloseWithOpenKey()) {
+            onClose();
+            return true;
+        }
         if (browser != null) {
             input.updateModifiers(keyCode, true);
             browser.sendKeyPress(keyCode, scanCode, modifiers);

@@ -113,7 +113,12 @@ export const SERVER_ACTIONS = [
  * system.handshake 的 actions 字段里)。刻意与 SERVER_ACTIONS 分开导出: 握手自检若把这两份合并比对,
  * 会把"服务端 actions 不含 client.i18n / client.playCaseSound"误判成契约漂移 —— 这是设计如此, 不是缺陷。
  */
-export const CLIENT_LOCAL_ACTIONS = ['client.i18n', 'client.playCaseSound'] as const
+export const CLIENT_LOCAL_ACTIONS = [
+  'client.i18n',
+  'client.playCaseSound',
+  'client.closePanel',
+  'client.textFocus',
+] as const
 
 /** 参与 system.handshake 自检的服务端 action 名字面量类型。 */
 export type WebUiServerActionName = (typeof SERVER_ACTIONS)[number]

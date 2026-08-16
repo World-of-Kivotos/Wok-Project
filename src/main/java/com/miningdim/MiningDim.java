@@ -166,6 +166,11 @@ public final class MiningDim {
         //     生命周期事件 (ServerStarting 开库建表 / ServerStopping 关库 / PlayerLoggedIn 结算离线待结) 在其
         //     register 内订阅 forgeBus, 对 register 顺序不敏感; 仅上述门面/派发器依赖约束此处列序。
         subsystems.add(new com.miningdim.market.MarketSubsystem());
+        // 26b. 任务系统 (每日/每周/特殊/隐藏四类任务): 内容池 + 玩家任务板 SavedData + /quest 命令树 +
+        //      原版事件钩子; TaCZ 存在时另注册枪械边界 (枪械击杀事实与神射手任务线解锁)。发奖与重摇费经
+        //      EconomyServices 门面, 故须排在经济子系统 (第 11) 之后 —— 但只是运行期依赖 (领奖时才触达),
+        //      register 期不碰货币层。
+        subsystems.add(new com.miningdim.quest.QuestSystem());
         // 27. Web UI 客户端外壳 (MCEF 浏览器/Screen/路由): register 内全部客户端逻辑用 DistExecutor.unsafeRunWhenOn
         //     (Dist.CLIENT) + 双箭头 () -> () -> ... 关进 client-only lambda, 故主类无条件加入列表即可 (服务端 GameTest
         //     进程不 classload MCEF, 不崩)。注意必须是 unsafeRunWhenOn 而非 safeRunWhenOn —— 后者触 SafeReferent

@@ -1,5 +1,6 @@
 import {
   BookOpenIcon,
+  ClipboardListIcon,
   BriefcaseIcon,
   GiftIcon,
   HeartIcon,
@@ -29,6 +30,7 @@ import {
   ROUTE_MARKET,
   ROUTE_MARRIAGE,
   ROUTE_MINING,
+  ROUTE_QUESTS,
   ROUTE_SETTINGS,
   ROUTE_SHOP,
   ROUTE_TITLES,
@@ -74,6 +76,7 @@ const SHELL_NAV_ENTRIES: readonly ShellNavEntry[] = [
   { icon: ShoppingCartIcon, id: 'shop', label: '系统商店', opOnly: false, route: ROUTE_SHOP },
   { icon: BriefcaseIcon, id: 'jobs', label: '职业', opOnly: false, route: ROUTE_JOBS },
   { icon: PickaxeIcon, id: 'mining', label: '矿洞', opOnly: false, route: ROUTE_MINING },
+  { icon: ClipboardListIcon, id: 'quests', label: '任务', opOnly: false, route: ROUTE_QUESTS },
   { icon: BookOpenIcon, id: 'codex', label: '图鉴', opOnly: false, route: ROUTE_CODEX },
   { icon: HeartIcon, id: 'marriage', label: '婚姻', opOnly: false, route: ROUTE_MARRIAGE },
   { icon: GiftIcon, id: 'case', label: '开箱', opOnly: false, route: ROUTE_CASE },

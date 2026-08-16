@@ -22,6 +22,8 @@ public final class MiningClientConfig {
     public static final ForgeConfigSpec.DoubleValue DANGER_HUD_SCALE;
 
     public static final ForgeConfigSpec.ConfigValue<String> WEBUI_URL;
+    public static final ForgeConfigSpec.IntValue WEBUI_ZOOM_PERCENT;
+    public static final ForgeConfigSpec.IntValue WEBUI_COVERAGE_PERCENT;
 
     /** 16.5 client.dangerVisualMode 枚举。 */
     public enum DangerVisualMode {
@@ -48,6 +50,20 @@ public final class MiningClientConfig {
         // 默认指向本地 vite dev server; 生产环境改为远端托管地址 (架构文档第二章第 2 条, 路线 A)。
         WEBUI_URL = b.comment("Single URL of the in-game Web UI front-end; panel routing is handled by the page's own hash router")
                 .define("url", "http://localhost:5173/", MiningClientConfig::isHttpUrl);
+        // 页面缩放走 CEF 自己的 zoom (setZoomLevel) 而不是前端 CSS transform: CEF 的 zoom 参与布局,
+        // 媒体查询与滚动条都按缩放后的 CSS 视口重算; CSS transform 只是把已经排好版的画面拉大, 会在
+        // 窄视口下把响应式断点卡在错误的一档。
+        WEBUI_ZOOM_PERCENT = b.comment(
+                        "In-game Web UI page zoom, in percent. Applied through CEF's own zoom so layout and media "
+                                + "queries recompute; 100 = no zoom")
+                .defineInRange("zoomPercent", 125, 50, 300);
+        // 覆盖比例是"每条边占屏幕的百分比", 不是面积百分比: 70 表示宽高各取 70% (面积约 49%)。
+        // 按边长定义才能让面板在任何宽高比下都保持与屏幕同形, 按面积定义则要开方, 换算出来的边长是个
+        // 没人能一眼验算的数。
+        WEBUI_COVERAGE_PERCENT = b.comment(
+                        "How much of the screen the in-game Web UI covers, as a percentage of each edge "
+                                + "(70 = 70% of width and 70% of height, centered). 100 = fullscreen")
+                .defineInRange("coveragePercent", 70, 30, 100);
         b.pop();
 
         SPEC = b.build();

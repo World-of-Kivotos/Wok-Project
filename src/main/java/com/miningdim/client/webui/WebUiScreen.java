@@ -4,6 +4,8 @@ import javax.annotation.Nullable;
 
 import org.lwjgl.glfw.GLFW;
 
+import com.miningdim.config.MiningClientConfig;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
@@ -14,12 +16,13 @@ import net.minecraft.network.chat.Component;
  *
  * 1) 鼠标按钮映射: 原版本把原始 GLFW button 直传 sendMousePress, 导致右键/中键在网页里互换;
  *    本版本一律经 {@link WebUiInput#toCefMouseButton} 映射为 CEF 编号 (left0/middle1/right2)。
- * 2) DPI/坐标三件套: init 按帧缓冲分辨率 (mc.getWindow().getWidth/Height) resize 浏览器避免模糊;
- *    render 按 GUI scale 全屏铺满; 鼠标坐标 (GUI 坐标系) 经 {@link #toPixelX}/{@link #toPixelY}
- *    线性映射回帧缓冲像素再喂给 CEF。
+ * 2) DPI/坐标三件套: {@link #layout} 按<b>面板矩形</b>的帧缓冲像素 resize 浏览器避免模糊; 鼠标坐标
+ *    (GUI 坐标系) 经 {@link #toPixelX}/{@link #toPixelY} 先减面板原点再线性映射回帧缓冲像素喂给 CEF。
  * 3) 打开即 setFocus(true); ESC 关闭; isPauseScreen()=false (公服不暂停)。
  *
- * 渲染全屏铺满 (displayScale 固定 1.0): 本步是开发宿主, 不引入配置缩放; 生产前端如需边框/分屏由后续步骤扩展。
+ * 面板<b>居中且不铺满</b>: 边长占屏幕 {@code webui.coveragePercent}% (默认 70), 面板外压一层暗色背景。
+ * 页面缩放走 CEF 自己的 zoom ({@code webui.zoomPercent}, 默认 125), 不是 CSS transform —— 理由见
+ * {@link WebBrowser#setZoomPercent}。两项都在 {@code config/miningdim-client.toml} 里可调, 改完重开界面即生效。
  *
  * 中文 IME (step2 接口位): 完整 IME 需叠加一个不可见原版 EditBox 捕获 GLFW IME 组字事件 (preedit/commit),
  * 再把已上屏字符经 {@link WebBrowser#sendKeyTyped} 注入 CEF。本步仅在 {@link #charTyped} 直接转发 BMP 字符
@@ -30,12 +33,21 @@ public final class WebUiScreen extends Screen {
     @Nullable
     private final WebBrowser browser;
 
+    /** 面板之外那圈背景的压暗程度 (ARGB)。原版 Screen 的默认遮罩是全屏渐变, 这里只压面板外的部分。 */
+    private static final int BACKDROP_COLOR = 0xB0101014;
+
     private final WebUiInput input = new WebUiInput();
     private boolean cleanedUp;
 
     // 帧缓冲实际像素尺寸 (考虑系统 DPI / GUI scale 的真实渲染分辨率); CEF 离屏渲染按此尺寸, 避免模糊。
     private int pixelWidth;
     private int pixelHeight;
+
+    // 面板在 GUI 坐标系里的矩形 (居中, 每条边占屏幕 coveragePercent%)。
+    private int panelX;
+    private int panelY;
+    private int panelWidth;
+    private int panelHeight;
 
     public WebUiScreen(@Nullable WebBrowser browser) {
         this(browser, Component.literal("MiningDim WebUI"));
@@ -49,11 +61,8 @@ public final class WebUiScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        Minecraft mc = Minecraft.getInstance();
-        pixelWidth = mc.getWindow().getWidth();
-        pixelHeight = mc.getWindow().getHeight();
+        layout();
         if (browser != null) {
-            browser.resize(pixelWidth, pixelHeight);
             // 打开时聚焦, 保证键盘/输入直达网页 (否则首帧无光标/不响应键入)。
             browser.setFocus(true);
         }
@@ -62,20 +71,48 @@ public final class WebUiScreen extends Screen {
     @Override
     public void resize(Minecraft mc, int newWidth, int newHeight) {
         super.resize(mc, newWidth, newHeight);
-        pixelWidth = mc.getWindow().getWidth();
-        pixelHeight = mc.getWindow().getHeight();
+        layout();
+    }
+
+    /**
+     * 按配置算出面板矩形并把浏览器调到该矩形的<b>帧缓冲像素</b>尺寸。
+     *
+     * 离屏渲染尺寸必须跟着面板走而不是跟着窗口走: 面板只占七成边长, 若仍按整窗尺寸渲染, 那张贴图会被压进
+     * 更小的矩形里显示 —— 页面自以为有一整屏的 CSS 视口, 响应式断点按大屏走, 最后被缩小到看不清。
+     * 按面板尺寸渲染, 页面拿到的才是它真正被显示的那个视口。
+     *
+     * 缩放在每次 layout 都重设一次: 浏览器实例跨界面复用, 玩家改完配置重开界面就该生效, 不必重启游戏。
+     */
+    private void layout() {
+        Minecraft mc = Minecraft.getInstance();
+        double coverage = MiningClientConfig.WEBUI_COVERAGE_PERCENT.get() / 100.0;
+        panelWidth = Math.max(1, (int) Math.round(this.width * coverage));
+        panelHeight = Math.max(1, (int) Math.round(this.height * coverage));
+        panelX = (this.width - panelWidth) / 2;
+        panelY = (this.height - panelHeight) / 2;
+
+        // GUI 坐标 -> 帧缓冲像素的换算比例; 用整窗两侧的比值而不是自己猜 GUI scale, 与既有做法一致。
+        int windowPixelWidth = mc.getWindow().getWidth();
+        int windowPixelHeight = mc.getWindow().getHeight();
+        pixelWidth = this.width <= 0 ? windowPixelWidth
+                : Math.max(1, (int) Math.round((double) panelWidth * windowPixelWidth / this.width));
+        pixelHeight = this.height <= 0 ? windowPixelHeight
+                : Math.max(1, (int) Math.round((double) panelHeight * windowPixelHeight / this.height));
+
         if (browser != null) {
             browser.resize(pixelWidth, pixelHeight);
+            browser.setZoomPercent(MiningClientConfig.WEBUI_ZOOM_PERCENT.get());
         }
     }
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // 面板外压暗: 让它读起来是一层浮在游戏之上的模态, 而不是一块贴在画面中间的方形贴图。
+        graphics.fill(0, 0, this.width, this.height, BACKDROP_COLOR);
         if (browser != null && browser.isReady()) {
             int textureId = browser.getTextureId();
             if (textureId > 0) {
-                // 全屏铺满 (GUI 坐标系 0..width/height); WebBrowser 内部按帧缓冲像素采样贴图。
-                browser.render(graphics, 0, 0, this.width, this.height);
+                browser.render(graphics, panelX, panelY, panelX + panelWidth, panelY + panelHeight);
             } else {
                 graphics.drawCenteredString(this.font, "Loading WebUI...",
                         this.width / 2, this.height / 2, 0xFFFFFF);
@@ -87,27 +124,42 @@ public final class WebUiScreen extends Screen {
         super.render(graphics, mouseX, mouseY, partialTick);
     }
 
-    // ---- 坐标换算: GUI 坐标系 (width/height) -> 帧缓冲像素 (pixelWidth/pixelHeight) ----
+    // ---- 坐标换算: GUI 坐标系 -> 面板内的帧缓冲像素 ----
+    //
+    // 先减去面板左上角再按面板尺寸换算。少减这一步的话, 页面收到的坐标会整体偏移 panelX/panelY,
+    // 表现是"鼠标在按钮上但点不中, 越靠右下偏得越多" —— 全屏时两者恰好相等, 所以这个 bug 只会在
+    // 覆盖比例调到 100 以下时出现。
 
     private int toPixelX(double guiX) {
-        if (this.width <= 0) {
+        if (panelWidth <= 0) {
             return 0;
         }
-        return (int) (guiX * pixelWidth / this.width);
+        return (int) ((guiX - panelX) * pixelWidth / panelWidth);
     }
 
     private int toPixelY(double guiY) {
-        if (this.height <= 0) {
+        if (panelHeight <= 0) {
             return 0;
         }
-        return (int) (guiY * pixelHeight / this.height);
+        return (int) ((guiY - panelY) * pixelHeight / panelHeight);
+    }
+
+    /**
+     * 该 GUI 坐标是否落在面板内。
+     *
+     * 面板外的点击一律不转发给页面, 也<b>不关闭界面</b>: 平板里有挂单、求婚这类填到一半的表单, 点空白处
+     * 就整屏关掉会让人白填一遍。要退出有 ESC。
+     */
+    private boolean insidePanel(double guiX, double guiY) {
+        return guiX >= panelX && guiX < panelX + panelWidth
+                && guiY >= panelY && guiY < panelY + panelHeight;
     }
 
     // ---- 鼠标事件 (button 一律经 toCefMouseButton 映射) ----
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (browser != null) {
+        if (browser != null && insidePanel(mouseX, mouseY)) {
             browser.sendMousePress(toPixelX(mouseX), toPixelY(mouseY), input.toCefMouseButton(button));
             return true;
         }
@@ -116,7 +168,7 @@ public final class WebUiScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (browser != null) {
+        if (browser != null && insidePanel(mouseX, mouseY)) {
             browser.sendMouseRelease(toPixelX(mouseX), toPixelY(mouseY), input.toCefMouseButton(button));
             return true;
         }
@@ -125,7 +177,7 @@ public final class WebUiScreen extends Screen {
 
     @Override
     public void mouseMoved(double mouseX, double mouseY) {
-        if (browser != null) {
+        if (browser != null && insidePanel(mouseX, mouseY)) {
             browser.sendMouseMove(toPixelX(mouseX), toPixelY(mouseY));
         }
         super.mouseMoved(mouseX, mouseY);
@@ -142,7 +194,7 @@ public final class WebUiScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-        if (browser != null) {
+        if (browser != null && insidePanel(mouseX, mouseY)) {
             // 放大滚轮步进到像素级 (原版 delta 为 +-1 行, CEF 期望像素偏移); 附带当前修饰键状态。
             double pixelDelta = delta * 40.0;
             browser.sendMouseWheel(toPixelX(mouseX), toPixelY(mouseY), pixelDelta, input.currentModifiers());

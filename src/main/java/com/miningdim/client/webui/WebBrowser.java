@@ -89,6 +89,28 @@ public final class WebBrowser {
         }
     }
 
+    /**
+     * 设置页面缩放百分比 (100 = 原始大小)。
+     *
+     * CEF 的 zoomLevel 不是倍率而是<b>以 1.2 为底的对数刻度</b> (zoomFactor = 1.2^level, 与 Chrome 工具栏
+     * 那一档一档的缩放同一套刻度)。直接把 1.25 当 level 传进去会得到 1.2^1.25 ≈ 1.26 倍 —— 数字看着接近,
+     * 纯属巧合; 传 2.0 就会变成 1.44 倍而不是 2 倍。故必须换底。
+     *
+     * 100% 显式走 setZoomLevel(0) 而不是跳过: 浏览器实例是复用的, 玩家把缩放调回 100 时必须真的把上一次的
+     * 缩放清掉。
+     */
+    public void setZoomPercent(int percent) {
+        MCEFBrowser b = browser;
+        if (b == null) {
+            return;
+        }
+        if (percent <= 0) {
+            throw new IllegalArgumentException("zoom percent must be > 0, got " + percent);
+        }
+        double level = Math.log(percent / 100.0) / Math.log(1.2);
+        b.setZoomLevel(level);
+    }
+
     /** 当前离屏贴图 OpenGL 纹理 ID; 浏览器或渲染器未就绪时返回 -1 (调用方据此跳过绘制)。 */
     public int getTextureId() {
         MCEFBrowser b = browser;

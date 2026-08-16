@@ -3409,6 +3409,12 @@ const MARRIAGE_WEDDING_COST_CREDIT = 20_000
 const MARRIAGE_DIVORCE_COST_CREDIT = 10_000
 /** 冷却 = 本值 x (1 + 离婚次数), 随每次离婚递增 (故首次离婚是 14 天)。 */
 const MARRIAGE_REMARRY_COOLDOWN_DAYS = 7
+/**
+ * 离婚公示期时长 (MiningServerConfig divorceEscrowHours 默认 24 小时, 24 x 3600 x 20 tick/s = TICKS_PER_DAY,
+ * 与"1 天"那个换算常数刚好同值, 不是巧合编的数字)。marriage.divorce 现在提交进公示期而不是立即解除
+ * (spec 第六章闸 2), mock 必须能复现这一态, 否则新增的"待生效离婚"面板永远没有假数据能验证它。
+ */
+const MARRIAGE_DIVORCE_ESCROW_TICKS = TICKS_PER_DAY
 /** 共享背包解锁婚龄 (天) 与各级暴露格数; 两张表下标一一对应。 */
 const MARRIAGE_BACKPACK_UNLOCK_DAYS: readonly number[] = [0, 3, 7, 14, 30]
 const MARRIAGE_BACKPACK_SLOTS: readonly number[] = [9, 18, 27, 45, 54]
@@ -3462,6 +3468,13 @@ let marriageDivorceCount = 0
 let marriageRemarryCooldownEndTick = 0
 /** 本段关系内是否已领过 first_marriage 里程碑。 */
 let marriageMilestoneClaimed = false
+/**
+ * 待生效离婚 (spec 第六章闸 2); null = 当前无 pending。initiatorUuid 恒是本地玩家 —— mock 只有一个可操作视角,
+ * 没有"配偶主动提交"这回事。撤回 (/marriage divorce cancel) / 提前确认 (/marriage divorce confirm) 是命令层
+ * 专属能力, 本假桥只做 WebUiAction 分发, 没有聊天指令入口可模拟, 故这里只提供"到期自动结算"这一条出路,
+ * 与真实 MarriageDivorce.finalizeMatured 的低频扫描同源。
+ */
+let marriagePendingDivorce: { initiatorUuid: string; filedAtTick: number; effectiveAtTick: number } | null = null
 
 /**
  * 共享背包内容。离婚时整份退回**发起方**背包, 故它必须是可变的 ——
@@ -3526,7 +3539,33 @@ function marriageStatus(): MarriageStatus {
   return 'single'
 }
 
+/**
+ * 公示期到期自动结算 (仿真实 MarriageDivorce.finalizeMatured 的低频扫描); 在任何读取婚姻状态的入口前置调用,
+ * 让"到期"这件事不需要一个真的后台定时器。共享背包按槽归属清算在真实现里是"谁放入谁取回", mock 世界不追踪
+ * 逐槽归属 (marriageSharedItems 只是一张平铺列表), 简化为全部退回本地玩家背包 —— 与旧的"即时离婚"分支
+ * 退货逻辑同源, 不是新引入的简化。
+ */
+function settleMarriageDivorceIfMatured(): void {
+  if (marriagePendingDivorce === null || gameTick() < marriagePendingDivorce.effectiveAtTick) {
+    return
+  }
+  for (const item of [...marriageSharedItems]) {
+    depositToInventory('marriage.divorce', item.itemId, item.count)
+  }
+  marriageSharedItems = []
+  marriageSpouse = null
+  marriageIdValue = null
+  marriageWeddedAtTick = null
+  marriageMilestoneClaimed = false
+  marriageDivorceCount += 1
+  // 冷却随离婚次数递增: 首次离婚 = 7 x (1+1) = 14 天。
+  marriageRemarryCooldownEndTick =
+    gameTick() + MARRIAGE_REMARRY_COOLDOWN_DAYS * (1 + marriageDivorceCount) * TICKS_PER_DAY
+  marriagePendingDivorce = null
+}
+
 function mockMarriageState(): MarriageStateResult {
+  settleMarriageDivorceIfMatured()
   const shared = sharedInvLevelAndSlots()
   const visible: MarriageIncomingProposal[] = marriageIncoming
     .slice(0, MARRIAGE_INCOMING_CAP)
@@ -3568,6 +3607,14 @@ function mockMarriageState(): MarriageStateResult {
     incomingProposalTotal: marriageIncoming.length,
     incomingProposalsTruncated: marriageIncoming.length > MARRIAGE_INCOMING_CAP,
     outgoingProposal: marriageOutgoing === null ? null : { ...marriageOutgoing },
+    pendingDivorce:
+      marriagePendingDivorce === null
+        ? null
+        : {
+            initiatorUuid: marriagePendingDivorce.initiatorUuid,
+            filedAtTick: marriagePendingDivorce.filedAtTick,
+            effectiveAtTick: marriagePendingDivorce.effectiveAtTick,
+          },
   }
 }
 
@@ -3806,7 +3853,13 @@ function mockMarriageWed(payload: MarriageWedPayload): MarriageWedResult {
   )
 }
 
+/**
+ * marriage.divorce (MarriageWebUiActions.DIVORCE)。**不是立即解除** —— 只做"提交进公示期"这一步 (spec 第六章
+ * 闸 2), 与 MarriageDivorce.file 的真实语义同源: 首次提交扣费并开公示期, 关系照旧存续; 到期自动结算由
+ * settleMarriageDivorceIfMatured 处理, 撤回/确认是命令层专属, 本假桥不提供。
+ */
 function mockMarriageDivorce(): MarriageDivorceResult {
+  settleMarriageDivorceIfMatured()
   if (marriageSpouse === null) {
     return {
       ok: false,
@@ -3818,9 +3871,13 @@ function mockMarriageDivorce(): MarriageDivorceResult {
       divorceCount: marriageDivorceCount,
       remarryCooldownTicks: marriageRemarryCooldownTicks(),
       formerSpouseUuid: null,
+      pending: false,
+      alreadyPending: false,
+      effectiveAtTick: null,
+      escrowTicks: MARRIAGE_DIVORCE_ESCROW_TICKS,
     }
   }
-  if (wallet.credit < MARRIAGE_DIVORCE_COST_CREDIT) {
+  if (marriagePendingDivorce === null && wallet.credit < MARRIAGE_DIVORCE_COST_CREDIT) {
     return {
       ok: false,
       outcomeCode: 'INSUFFICIENT_FUNDS',
@@ -3831,32 +3888,58 @@ function mockMarriageDivorce(): MarriageDivorceResult {
       divorceCount: marriageDivorceCount,
       remarryCooldownTicks: marriageRemarryCooldownTicks(),
       formerSpouseUuid: null,
+      pending: false,
+      alreadyPending: false,
+      effectiveAtTick: null,
+      escrowTicks: MARRIAGE_DIVORCE_ESCROW_TICKS,
     }
   }
-  wallet.credit -= MARRIAGE_DIVORCE_COST_CREDIT
+  // formerSpouseUuid 取的是**调用这一刻**的配偶 (真实实现同样在 file() 之前取快照), 提交进公示期时关系
+  // 尚未解除, 此时它描述的其实是"当前仍然是"的那位配偶, 不是"刚刚变成前任"的那位。
   const formerSpouseUuid = marriageSpouse.uuid
-  // 共享背包内容全部退回发起方 (背包满则由 depositToInventory 抛错, 与服务端落地的效果不同, 但同样不静默吞货)。
-  for (const item of [...marriageSharedItems]) {
-    depositToInventory('marriage.divorce', item.itemId, item.count)
+  const now = gameTick()
+
+  if (marriagePendingDivorce !== null) {
+    // 幂等重复提交: 不二次扣费, 不推迟到期时刻。真实实现用 Long 整除 (/20L), 这里用 Math.floor 对齐截断语义。
+    const remainingSeconds = Math.floor(Math.max(0, marriagePendingDivorce.effectiveAtTick - now) / 20)
+    return {
+      ok: true,
+      outcomeCode: 'OK',
+      messageKey: 'message.miningdim.marriage.divorce.filed',
+      messageArgs: [String(remainingSeconds)],
+      costCredit: MARRIAGE_DIVORCE_COST_CREDIT,
+      divorceCount: marriageDivorceCount,
+      remarryCooldownTicks: marriageRemarryCooldownTicks(),
+      formerSpouseUuid,
+      pending: true,
+      alreadyPending: true,
+      effectiveAtTick: marriagePendingDivorce.effectiveAtTick,
+      escrowTicks: MARRIAGE_DIVORCE_ESCROW_TICKS,
+    }
   }
-  marriageSharedItems = []
-  marriageSpouse = null
-  marriageIdValue = null
-  marriageWeddedAtTick = null
-  marriageMilestoneClaimed = false
-  marriageDivorceCount += 1
-  // 冷却随离婚次数递增: 首次离婚 = 7 x (1+1) = 14 天。
-  marriageRemarryCooldownEndTick =
-    gameTick() + MARRIAGE_REMARRY_COOLDOWN_DAYS * (1 + marriageDivorceCount) * TICKS_PER_DAY
+
+  wallet.credit -= MARRIAGE_DIVORCE_COST_CREDIT
+  const effectiveAtTick = now + MARRIAGE_DIVORCE_ESCROW_TICKS
+  marriagePendingDivorce = {
+    initiatorUuid: requireCounterpartyUuid(MOCK_PLAYER_NAME),
+    filedAtTick: now,
+    effectiveAtTick,
+  }
+  const remainingSeconds = MARRIAGE_DIVORCE_ESCROW_TICKS / 20
   return {
     ok: true,
     outcomeCode: 'OK',
-    messageKey: 'message.miningdim.marriage.divorce.done',
-    messageArgs: [],
+    messageKey: 'message.miningdim.marriage.divorce.filed',
+    messageArgs: [String(remainingSeconds)],
     costCredit: MARRIAGE_DIVORCE_COST_CREDIT,
+    // 提交阶段重读的旧值: 只有公示期到期真正 settle 时才会变, 与真实契约同源, 不能拿来说"已离婚"。
     divorceCount: marriageDivorceCount,
     remarryCooldownTicks: marriageRemarryCooldownTicks(),
     formerSpouseUuid,
+    pending: true,
+    alreadyPending: false,
+    effectiveAtTick,
+    escrowTicks: MARRIAGE_DIVORCE_ESCROW_TICKS,
   }
 }
 

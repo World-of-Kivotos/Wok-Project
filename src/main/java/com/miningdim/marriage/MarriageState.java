@@ -19,8 +19,13 @@ import java.util.UUID;
  * 时才读写。里程碑领取记录 ({@link #claimedMilestones}) 用 "双方 UUID 对 + 里程碑" 去重 (spec 第六章: 换
  * marriageId 不重发同一里程碑), 故以字符串 id 集合形式持久化。
  *
+ * 共享背包等级/传送等级不在本类存储: 二者是婚龄的纯函数, 由 {@link MarriageTuning} 按 {@link #marriedSinceTick}
+ * 现算, 不落盘也不缓存 (原先的 sharedInvLevel/teleportLevel 派生字段全库零写入方, 属于"存档里躺着自洽但错误的
+ * 数据", 已删除)。离婚次数由 {@link MarriageHistory} 按玩家 (而非本关系) 持有, 因为再婚冷却要跨越关系解除后
+ * 依然生效; 本类不再重复存一份关系内计数 (原 divorceCount/lastWeddingTick 同理零写入方, 已删除)。
+ *
  * 线程纪律: 仅服务端主线程读写 (典礼/离婚/共享背包取放均经 server.execute 串行回主线程, spec 第四章)。
- * marriageId / partnerA / partnerB 创建后不可变 (final); 其余运行态可变。
+ * marriageId / partnerA / partnerB / marriedSinceTick 创建后不可变 (final); 其余运行态可变。
  */
 public final class MarriageState {
 
@@ -33,33 +38,42 @@ public final class MarriageState {
     /** 配偶 B。 */
     private final UUID partnerB;
 
-    /** 典礼完成时的 overworld game time (婚龄起算点; spec 第四/五章婚龄阶梯解锁基准)。 */
-    private long marriedSinceTick;
-
-    /** 共享背包当前解锁等级 1..5 (按婚龄阶梯; spec 第四章, 阶段 2 用)。 */
-    private int sharedInvLevel;
-
-    /** 传送到伴侣当前解锁等级 1..5 (按婚龄阶梯; spec 第五章, 阶段 4 用)。 */
-    private int teleportLevel;
-
-    /** 该关系累计离婚次数 (再婚冷却递增基数; spec 第六章, 阶段 5 用)。本段关系内随结离刷取递增。 */
-    private int divorceCount;
-
-    /** 最近一次典礼的 game time (再婚冷却 untilTick 计算基准; spec 第六章, 阶段 5 用)。 */
-    private long lastWeddingTick;
+    /** 典礼完成时的 overworld game time (婚龄起算点; spec 第四/五章婚龄阶梯解锁基准)。婚龄真源, 不可变。 */
+    private final long marriedSinceTick;
 
     /**
      * 共享背包内容唯一权威 (spec 第四章防 dupe: 服务端唯一权威容器, NBT 编解码)。阶段 1 先建容器但保持空,
-     * 阶段 2 共享背包 menu 落地时按 sharedInvLevel 决定可用格数并读写。容量取最高 5 级满格, 低级 menu 只暴露
+     * 阶段 2 共享背包 menu 落地时按婚龄现算等级决定可用格数并读写。容量取最高 5 级满格, 低级 menu 只暴露
      * 前若干格 (容器恒定大小, 等级只控暴露面, 避免降级丢物)。
      */
     private final NonNullList<ItemStack> sharedInv;
+
+    /**
+     * 每个共享背包槽的归属玩家 (谁把该槽从空变成非空即归谁; spec 第六章闸 2 清算依据 "谁放入谁取回")。
+     * 与 sharedInv 一一对应, 无归属的槽 (旧存档残留 / 非菜单写入路径) 为 null, 离婚清算时按槽号奇偶平分。
+     * 认领记账在 {@link MarriageBackpackMenu} (只有那里知道操作者是谁), 释放记账在
+     * {@link MarriageBackpackContainer} (取出物品不经过菜单的 Slot 写入路径)。
+     */
+    private final UUID[] slotDepositors = new UUID[SHARED_INV_SIZE];
 
     /**
      * 已领取的一次性里程碑去重集合 (spec 第六章: "双方 UUID 对 + 里程碑" 为键, 换 marriageId 也不重发同一里程碑)。
      * 本集合按里程碑 id 存; 跨 marriageId 的 UUID 对去重由 {@link MarriageRegistry} 在重建里程碑历史时合并 (阶段 5)。
      */
     private final Set<String> claimedMilestones = new HashSet<>();
+
+    /**
+     * 待生效离婚发起方; null 表示当前无待生效离婚 (spec 第六章闸 2 escrow 公示期)。这三个字段有真实写入方
+     * ({@link MarriageDivorce#file} 写入, {@link MarriageDivorce#cancel}/结算清空), 不是派生态, 与本类文档开头
+     * 说明"不重复存派生数据"的原则不冲突。
+     */
+    private UUID pendingDivorceInitiator;
+
+    /** 提交离婚时的 overworld game time (公示期到期时刻 = 该值 + {@link MarriageTuning#divorceEscrowTicks()})。 */
+    private long pendingDivorceFiledTick;
+
+    /** 提交离婚时实际扣除的信用点 (撤回时按此值全额退回, 与提交时的定价脱钩, 防中途改配置导致退款对不上)。 */
+    private long pendingDivorceCost;
 
     /** 共享背包容器固定大小 (最高 5 级满格; 阶段 2 按等级暴露子集)。 */
     public static final int SHARED_INV_SIZE = 54;
@@ -75,10 +89,6 @@ public final class MarriageState {
         this.partnerA = partnerA;
         this.partnerB = partnerB;
         this.marriedSinceTick = marriedSinceTick;
-        this.lastWeddingTick = marriedSinceTick;
-        this.sharedInvLevel = 1;
-        this.teleportLevel = 1;
-        this.divorceCount = 0;
         this.sharedInv = NonNullList.withSize(SHARED_INV_SIZE, ItemStack.EMPTY);
     }
 
@@ -118,45 +128,34 @@ public final class MarriageState {
         return marriedSinceTick;
     }
 
-    public void setMarriedSinceTick(long tick) {
-        this.marriedSinceTick = tick;
-    }
-
-    public int sharedInvLevel() {
-        return sharedInvLevel;
-    }
-
-    public void setSharedInvLevel(int level) {
-        this.sharedInvLevel = level;
-    }
-
-    public int teleportLevel() {
-        return teleportLevel;
-    }
-
-    public void setTeleportLevel(int level) {
-        this.teleportLevel = level;
-    }
-
-    public int divorceCount() {
-        return divorceCount;
-    }
-
-    public void setDivorceCount(int count) {
-        this.divorceCount = count;
-    }
-
-    public long lastWeddingTick() {
-        return lastWeddingTick;
-    }
-
-    public void setLastWeddingTick(long tick) {
-        this.lastWeddingTick = tick;
-    }
-
     /** 共享背包内容唯一权威视图 (阶段 2 共享背包 menu 读写; 阶段 1 恒空)。 */
     public NonNullList<ItemStack> sharedInv() {
         return sharedInv;
+    }
+
+    /** 该槽当前归属的玩家; 无归属 (含旧存档残留 / 非菜单写入路径) 返回 null。 */
+    public UUID depositorOf(int slot) {
+        return slotDepositors[slot];
+    }
+
+    /**
+     * 认领某槽的归属。只在该槽当前无归属时写入, 已有归属不覆盖 —— 归属属于把该槽从空变非空的那个人,
+     * 若允许覆盖, 配偶只需往对方已占用的整摞物品上合并一个同种物品, 就能把整槽据为己有。
+     */
+    public void claimSlot(int slot, UUID depositor) {
+        if (slotDepositors[slot] == null) {
+            slotDepositors[slot] = depositor;
+        }
+    }
+
+    /** 释放某槽的归属 (槽变空时调用, 见 {@link MarriageBackpackContainer})。 */
+    public void releaseSlot(int slot) {
+        slotDepositors[slot] = null;
+    }
+
+    /** 清空全部槽归属 (容器 clearContent 时调用)。 */
+    public void clearAllSlotDepositors() {
+        java.util.Arrays.fill(slotDepositors, null);
     }
 
     /** 该里程碑是否已领取 (一次性福利去重; spec 第六章)。 */
@@ -174,6 +173,52 @@ public final class MarriageState {
         return claimedMilestones;
     }
 
+    // ---- 待生效离婚 (escrow 公示期; spec 第六章闸 2) ----
+
+    /** 当前是否存在待生效离婚。 */
+    public boolean hasPendingDivorce() {
+        return pendingDivorceInitiator != null;
+    }
+
+    /** 待生效离婚的发起方; 无 pending 时为 null。 */
+    public UUID pendingDivorceInitiator() {
+        return pendingDivorceInitiator;
+    }
+
+    /** 提交离婚时的 game time; 无 pending 时未定义 (调用方须先 hasPendingDivorce)。 */
+    public long pendingDivorceFiledTick() {
+        return pendingDivorceFiledTick;
+    }
+
+    /** 提交离婚时实际扣除的信用点 (撤回全额退款依据); 无 pending 时未定义。 */
+    public long pendingDivorceCost() {
+        return pendingDivorceCost;
+    }
+
+    /**
+     * 开启公示期。initiator 必须属于本关系, 否则抛 (异常必痛, 不静默接受非本关系玩家的离婚意图)。
+     * 已存在 pending 时再调也抛 —— 调用方 (MarriageDivorce.file) 必须先用 hasPendingDivorce 判断,
+     * 已 pending 的重复提交走"不二次扣费"分支, 不会走到这里。
+     */
+    public void beginPendingDivorce(UUID initiator, long filedTick, long cost) {
+        if (!involves(initiator)) {
+            throw new IllegalArgumentException("initiator " + initiator + " is not part of marriage " + marriageId);
+        }
+        if (hasPendingDivorce()) {
+            throw new IllegalStateException("marriage " + marriageId + " already has a pending divorce");
+        }
+        this.pendingDivorceInitiator = initiator;
+        this.pendingDivorceFiledTick = filedTick;
+        this.pendingDivorceCost = cost;
+    }
+
+    /** 清空待生效离婚 (撤回或结算生效后调用)。 */
+    public void clearPendingDivorce() {
+        this.pendingDivorceInitiator = null;
+        this.pendingDivorceFiledTick = 0L;
+        this.pendingDivorceCost = 0L;
+    }
+
     // ---- 持久化 (供 MarriageRegistry; 仿 InstanceState.save/load) ----
 
     private static final String K_ID = "marriageId";
@@ -182,17 +227,21 @@ public final class MarriageState {
     private static final String K_B_MOST = "partnerBMost";
     private static final String K_B_LEAST = "partnerBLeast";
     private static final String K_MARRIED_SINCE = "marriedSinceTick";
-    private static final String K_SHARED_LEVEL = "sharedInvLevel";
-    private static final String K_TP_LEVEL = "teleportLevel";
-    private static final String K_DIVORCE_COUNT = "divorceCount";
-    private static final String K_LAST_WEDDING = "lastWeddingTick";
     private static final String K_SHARED_INV = "sharedInv";
     private static final String K_INV_SLOT = "Slot";
+    private static final String K_DEPOSITOR_MOST = "DepositorMost";
+    private static final String K_DEPOSITOR_LEAST = "DepositorLeast";
     private static final String K_MILESTONES = "claimedMilestones";
+    private static final String K_PENDING_DIVORCE_INITIATOR_MOST = "pendingDivorceInitiatorMost";
+    private static final String K_PENDING_DIVORCE_INITIATOR_LEAST = "pendingDivorceInitiatorLeast";
+    private static final String K_PENDING_DIVORCE_FILED_TICK = "pendingDivorceFiledTick";
+    private static final String K_PENDING_DIVORCE_COST = "pendingDivorceCost";
 
     /**
      * 序列化为 CompoundTag。共享背包 ListTag 写法仿 {@link com.miningdim.core.InstanceState} 的 players 列表:
-     * 逐非空槽写 {Slot:byte, ItemStack...} (空槽不写, 加载按 Slot 索引还原)。里程碑集合存为字符串 ListTag。
+     * 逐非空槽写 {Slot:byte, ItemStack..., [DepositorMost/DepositorLeast]} (空槽不写, 加载按 Slot 索引还原;
+     * 归属只在该槽有归属时写, 与"空槽不写物品"同口径)。里程碑集合存为字符串 ListTag。待生效离婚三字段只在
+     * 存在 pending 时写。
      */
     public CompoundTag save() {
         CompoundTag tag = new CompoundTag();
@@ -202,10 +251,6 @@ public final class MarriageState {
         tag.putLong(K_B_MOST, partnerB.getMostSignificantBits());
         tag.putLong(K_B_LEAST, partnerB.getLeastSignificantBits());
         tag.putLong(K_MARRIED_SINCE, marriedSinceTick);
-        tag.putInt(K_SHARED_LEVEL, sharedInvLevel);
-        tag.putInt(K_TP_LEVEL, teleportLevel);
-        tag.putInt(K_DIVORCE_COUNT, divorceCount);
-        tag.putLong(K_LAST_WEDDING, lastWeddingTick);
 
         ListTag inv = new ListTag();
         for (int slot = 0; slot < sharedInv.size(); slot++) {
@@ -214,6 +259,11 @@ public final class MarriageState {
                 CompoundTag slotTag = new CompoundTag();
                 slotTag.putByte(K_INV_SLOT, (byte) slot);
                 stack.save(slotTag);
+                UUID depositor = slotDepositors[slot];
+                if (depositor != null) {
+                    slotTag.putLong(K_DEPOSITOR_MOST, depositor.getMostSignificantBits());
+                    slotTag.putLong(K_DEPOSITOR_LEAST, depositor.getLeastSignificantBits());
+                }
                 inv.add(slotTag);
             }
         }
@@ -224,6 +274,13 @@ public final class MarriageState {
             milestones.add(net.minecraft.nbt.StringTag.valueOf(id));
         }
         tag.put(K_MILESTONES, milestones);
+
+        if (hasPendingDivorce()) {
+            tag.putLong(K_PENDING_DIVORCE_INITIATOR_MOST, pendingDivorceInitiator.getMostSignificantBits());
+            tag.putLong(K_PENDING_DIVORCE_INITIATOR_LEAST, pendingDivorceInitiator.getLeastSignificantBits());
+            tag.putLong(K_PENDING_DIVORCE_FILED_TICK, pendingDivorceFiledTick);
+            tag.putLong(K_PENDING_DIVORCE_COST, pendingDivorceCost);
+        }
         return tag;
     }
 
@@ -233,10 +290,6 @@ public final class MarriageState {
         UUID a = new UUID(tag.getLong(K_A_MOST), tag.getLong(K_A_LEAST));
         UUID b = new UUID(tag.getLong(K_B_MOST), tag.getLong(K_B_LEAST));
         MarriageState st = new MarriageState(id, a, b, tag.getLong(K_MARRIED_SINCE));
-        st.sharedInvLevel = tag.getInt(K_SHARED_LEVEL);
-        st.teleportLevel = tag.getInt(K_TP_LEVEL);
-        st.divorceCount = tag.getInt(K_DIVORCE_COUNT);
-        st.lastWeddingTick = tag.getLong(K_LAST_WEDDING);
 
         ListTag inv = tag.getList(K_SHARED_INV, Tag.TAG_COMPOUND);
         for (int i = 0; i < inv.size(); i++) {
@@ -244,12 +297,22 @@ public final class MarriageState {
             int slot = slotTag.getByte(K_INV_SLOT) & 0xFF;
             if (slot >= 0 && slot < st.sharedInv.size()) {
                 st.sharedInv.set(slot, ItemStack.of(slotTag));
+                if (slotTag.contains(K_DEPOSITOR_MOST) && slotTag.contains(K_DEPOSITOR_LEAST)) {
+                    st.slotDepositors[slot] = new UUID(slotTag.getLong(K_DEPOSITOR_MOST), slotTag.getLong(K_DEPOSITOR_LEAST));
+                }
             }
         }
 
         ListTag milestones = tag.getList(K_MILESTONES, Tag.TAG_STRING);
         for (int i = 0; i < milestones.size(); i++) {
             st.claimedMilestones.add(milestones.getString(i));
+        }
+
+        if (tag.contains(K_PENDING_DIVORCE_INITIATOR_MOST) && tag.contains(K_PENDING_DIVORCE_INITIATOR_LEAST)) {
+            st.pendingDivorceInitiator = new UUID(
+                    tag.getLong(K_PENDING_DIVORCE_INITIATOR_MOST), tag.getLong(K_PENDING_DIVORCE_INITIATOR_LEAST));
+            st.pendingDivorceFiledTick = tag.getLong(K_PENDING_DIVORCE_FILED_TICK);
+            st.pendingDivorceCost = tag.getLong(K_PENDING_DIVORCE_COST);
         }
         return st;
     }

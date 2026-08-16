@@ -11,7 +11,8 @@ import java.util.List;
  *
  * 婚龄口径 (与离婚再婚冷却同源): 以 overworld {@code getGameTime()} 的"服务器运行 tick"为基准, 每 {@value #TICKS_PER_DAY}
  * tick = 1 天 (20 tick/s * 86400 s = 一真实日的服务器在线 tick), 故"30 天解锁满级背包"≈30 真实日服务器在线时长,
- * 与"再婚冷却 N 真实日"口径一致 (二者都用 lastWeddingTick/marriedSinceTick 这一 gameTime 轴)。
+ * 与"再婚冷却 N 真实日"口径一致 (婚龄用 {@link MarriageState#marriedSinceTick()}, 再婚冷却用
+ * {@link MarriageHistory} 按离婚时刻算出的 remarryAllowedTick, 二者同一条 gameTime 轴)。
  *
  * 等级钳制: 共享背包/传送等级恒在 [1, {@value #MAX_LEVEL}]; 1 级永远可用 (即使婚龄为 0)。各级数值列表若 config 配短于
  * MAX_LEVEL, 取该列表最后一项兜底 (不抛, 不静默给 0); 列表为空属配置缺陷, 自然抛 (异常必痛, 不掩盖)。
@@ -26,6 +27,9 @@ public final class MarriageTuning {
 
     /** 一"天"对应的服务器运行 tick 数 (20 tick/s * 86400 s; 与再婚冷却同源, 见类注释)。 */
     public static final long TICKS_PER_DAY = 20L * 86400L;
+
+    /** 一"小时"对应的服务器运行 tick 数 (20 tick/s * 3600 s; 与离婚公示期同源, 见类注释)。 */
+    public static final long TICKS_PER_HOUR = 20L * 3600L;
 
     /**
      * 由婚龄 (当前 gameTime - marriedSinceTick) 派生共享背包解锁等级 (spec 第四章按婚龄阶梯)。
@@ -80,6 +84,15 @@ public final class MarriageTuning {
         long baseDays = MiningServerConfig.MARRIAGE_REMARRY_COOLDOWN_DAYS.get();
         long effectiveDays = baseDays * (1L + Math.max(0, divorceCount));
         return effectiveDays * TICKS_PER_DAY;
+    }
+
+    /**
+     * 离婚公示期时长, 折算成 tick (spec 第六章闸 2)。与婚龄/再婚冷却同一条 overworld {@code getGameTime()} 轴;
+     * 实时读 config, 严禁缓存 (与本类既有纪律一致)。返回 0 表示公示期关闭, 离婚提交即立即生效。
+     */
+    public static long divorceEscrowTicks() {
+        long hours = MiningServerConfig.MARRIAGE_DIVORCE_ESCROW_HOURS.get();
+        return hours * TICKS_PER_HOUR;
     }
 
     /** 由婚龄天数与解锁阈值列表派生等级: 从高级向低级找首个"婚龄 >= 该级阈值"的级。 */

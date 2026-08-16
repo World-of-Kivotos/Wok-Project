@@ -44,10 +44,12 @@ import java.util.UUID;
  * 收下 {@link MarriageSystem} 的两个实例, 静态绑定后供全部 handler 取用。
  *
  * <h2>失败态一律回机器码, 不回中文</h2>
- * 典礼六态 ({@link MarriageEngine.Reason} 除 OK 外) 与离婚三态 ({@link MarriageDivorce.Result} 除 OK 外) 是
- * <b>正常业务结果</b>而非异常, 故走 success=true 的回执体 {@code {ok:false, outcomeCode, messageKey, messageArgs}},
+ * 典礼六态 ({@link MarriageEngine.Reason} 除 OK 外) 与离婚提交的三个非 OK 态 ({@link MarriageDivorce.Result}
+ * 除 OK 外) 是<b>正常业务结果</b>而非异常, 故走 success=true 的回执体 {@code {ok:false, outcomeCode, messageKey, messageArgs}},
  * 不占 {@link WebUiErrorCodes} 的命名空间 (那张表只收真正的调用失败)。messageKey 是 /marriage 命令对同一结果所用的
- * lang 键原文 —— 面板与聊天栏因此不可能出现两套口径; 中文由客户端 I18n 解 (专用服务端不加载 lang)。
+ * lang 键原文 —— 面板与聊天栏因此不可能出现两套口径; 中文由客户端 I18n 解 (专用服务端不加载 lang)。离婚 OK 态
+ * 本身也不再等于"立即解除": marriage.divorce 现在提交进公示期 (spec 第六章闸 2), 回执追加 pending/alreadyPending/
+ * effectiveAtTick/escrowTicks 四个字段供前端渲染倒计时; 撤回/确认走命令层, 不进本 action。
  *
  * <h2>时间一律发 tick</h2>
  * 婚龄 / 再婚冷却 / 典礼时刻全部是 overworld {@code getGameTime()} 轴上的服务器运行 tick, 与
@@ -135,8 +137,8 @@ public final class MarriageWebUiActions {
      * 玩家侧缓存 (IMiningPlayerData 类注释), 且 forPlayer 自带陈旧索引自愈。
      *
      * 共享背包等级/格数按 {@link MarriageTuning} 现算, 与 {@link MarriageBackpackMenu.Provider} 逐字同源 ——
-     * 面板显示的格数与真正开出来的格数不允许是两个数。{@link MarriageState#sharedInvLevel()} 那个持久字段全库
-     * 无写入方, 不作展示依据。
+     * 面板显示的格数与真正开出来的格数不允许是两个数。等级/格数不落盘 (是婚龄的纯函数), MarriageState 不再存
+     * 一份自己的等级字段。
      */
     static final WebUiAction STATE = (sender, payload) -> {
         MinecraftServer server = sender.getServer();
@@ -176,6 +178,18 @@ public final class MarriageWebUiActions {
             result.addProperty("marriedDays", MarriageTuning.marriedDays(state.marriedSinceTick(), now));
             result.addProperty("sharedInvLevel", level);
             result.addProperty("sharedInvSlots", visibleSlots(level));
+        }
+
+        // 待生效离婚 (spec 第六章闸 2 escrow 公示期); 仍用 tick 轴, 与本类"时间一律发 tick"的既有纪律同源。
+        if (state != null && state.hasPendingDivorce()) {
+            JsonObject pendingDivorce = new JsonObject();
+            pendingDivorce.addProperty("initiatorUuid", state.pendingDivorceInitiator().toString());
+            pendingDivorce.addProperty("filedAtTick", state.pendingDivorceFiledTick());
+            pendingDivorce.addProperty("effectiveAtTick",
+                    state.pendingDivorceFiledTick() + MarriageTuning.divorceEscrowTicks());
+            result.add("pendingDivorce", pendingDivorce);
+        } else {
+            result.add("pendingDivorce", JsonNull.INSTANCE);
         }
 
         result.addProperty("engagementRingOwned", engagementRingOwned(sender));
@@ -414,17 +428,24 @@ public final class MarriageWebUiActions {
     };
 
     // ============================================================
-    // marriage.divorce: {} -> {ok, outcomeCode, messageKey, messageArgs, costCredit, divorceCount, remarryCooldownTicks, formerSpouseUuid}
+    // marriage.divorce: {} -> {ok, outcomeCode, messageKey, messageArgs, costCredit, divorceCount, remarryCooldownTicks,
+    //                          formerSpouseUuid, pending, alreadyPending, effectiveAtTick, escrowTicks}
     // ============================================================
 
     /**
-     * 离婚 (发起方付成本 + 共享背包清算退回发起方 + 强制关双方窗口 + 再婚冷却递增)。
+     * 提交离婚 (spec 第六章闸 2 三段式: 提交 -&gt; 公示期 -&gt; 生效; 经 {@link MarriageDivorce#file})。本 action
+     * 只做"提交"这一步, 撤回/确认走命令层 ({@code /marriage divorce cancel|confirm}), 不进 WebUI 契约。
      *
-     * costCredit 回的是本次离婚的<b>定价</b>而非已扣额: ok=false 的三种结果一分未扣 (NOT_MARRIED / NO_ECONOMY 在
-     * 扣费前短路, INSUFFICIENT_FUNDS 是扣不动), 前端据 ok 决定说"已扣"还是"需要"。
+     * costCredit 回的仍是本次离婚的<b>定价</b>而非已扣额: 提交成功 (ok=true) 时该笔已在这次调用里扣下 (公示期内
+     * 撤回才全额退); ok=false 的三种结果一分未扣 (NOT_MARRIED / NO_ECONOMY 在扣费前短路, INSUFFICIENT_FUNDS 是
+     * 扣不动), 前端据 ok 决定说"已扣"还是"需要"。
      *
-     * divorceCount 与 remarryCooldownTicks 是结算<b>之后</b>重读的值 —— 冷却随离婚次数递增, 玩家在点下按钮的那一刻
-     * 最需要知道的就是"这次要等多久"。
+     * divorceCount 与 remarryCooldownTicks 是调用<b>之后</b>重读的值 —— 这两个只在公示期到期真正 dissolve 时才变,
+     * 提交阶段不变, 之所以每次都带回是保持面板刷新口径统一, 不额外多发一次 marriage.state。
+     *
+     * pending 表示本次调用后关系是否处于公示期中 (escrow 配置关闭时提交即结算, pending 恒 false); alreadyPending
+     * 表示本次提交前是否已经在公示期里 (true = 本次调用未二次扣费, 是幂等回执); effectiveAtTick 是公示期到期
+     * 生效的 gameTime (ok=false 时为 null); escrowTicks 是当前配置的公示期时长 (供前端换算成秒/天显示)。
      */
     static final WebUiAction DIVORCE = (sender, payload) -> {
         ServerLevel overworld = sender.getServer().overworld();
@@ -433,19 +454,26 @@ public final class MarriageWebUiActions {
         UUID formerSpouse = before == null ? null : before.spouseOf(me);
 
         long cost = MiningServerConfig.MARRIAGE_DIVORCE_COST.get();
-        MarriageDivorce.Result outcome = new MarriageDivorce(overworld, sessions()).divorce(sender, cost);
+        MarriageDivorce.Filing filing = new MarriageDivorce(overworld, sessions()).file(sender, cost);
+        MarriageDivorce.Result outcome = filing.result();
 
         MarriageHistory history = MarriageHistory.get(overworld);
         long now = overworld.getGameTime();
         boolean ok = outcome == MarriageDivorce.Result.OK;
+        long escrowTicks = MarriageTuning.divorceEscrowTicks();
 
         JsonObject result = new JsonObject();
         result.addProperty("ok", ok);
         result.addProperty("outcomeCode", outcome.name());
         result.addProperty("messageKey", divorceMessageKey(outcome));
-        result.add("messageArgs", outcome == MarriageDivorce.Result.INSUFFICIENT_FUNDS
-                ? messageArgs(Long.toString(cost))
-                : messageArgs());
+        if (outcome == MarriageDivorce.Result.INSUFFICIENT_FUNDS) {
+            result.add("messageArgs", messageArgs(Long.toString(cost)));
+        } else if (ok) {
+            long remainingSeconds = Math.max(0L, filing.effectiveAtTick() - now) / 20L;
+            result.add("messageArgs", messageArgs(Long.toString(remainingSeconds)));
+        } else {
+            result.add("messageArgs", messageArgs());
+        }
         result.addProperty("costCredit", cost);
         result.addProperty("divorceCount", history.divorceCount(me));
         result.addProperty("remarryCooldownTicks", history.remarryCooldownRemaining(me, now));
@@ -454,6 +482,14 @@ public final class MarriageWebUiActions {
         } else {
             result.add("formerSpouseUuid", JsonNull.INSTANCE);
         }
+        result.addProperty("pending", ok && escrowTicks > 0L);
+        result.addProperty("alreadyPending", filing.alreadyPending());
+        if (ok) {
+            result.addProperty("effectiveAtTick", filing.effectiveAtTick());
+        } else {
+            result.add("effectiveAtTick", JsonNull.INSTANCE);
+        }
+        result.addProperty("escrowTicks", escrowTicks);
         return GSON.toJson(result);
     };
 
@@ -686,10 +722,10 @@ public final class MarriageWebUiActions {
         };
     }
 
-    /** 离婚结果码对应的 lang 键 (与 {@code MarriageCommands.divorce} 的 switch 同一张映射)。 */
+    /** 离婚结果码对应的 lang 键 (与 {@code MarriageCommands.divorceFile} 的 switch 同一张映射)。 */
     private static String divorceMessageKey(MarriageDivorce.Result result) {
         return switch (result) {
-            case OK -> "message.miningdim.marriage.divorce.done";
+            case OK -> "message.miningdim.marriage.divorce.filed";
             case NOT_MARRIED -> "message.miningdim.marriage.not_married";
             case INSUFFICIENT_FUNDS -> "message.miningdim.marriage.divorce.insufficient";
             case NO_ECONOMY -> "message.miningdim.marriage.wed.no_economy";

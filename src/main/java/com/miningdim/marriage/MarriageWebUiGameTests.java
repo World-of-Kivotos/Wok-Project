@@ -505,9 +505,22 @@ public final class MarriageWebUiGameTests {
     }
 
     // ============================================================
-    // 8. marriage.divorce: 扣一次成本 + 冷却递增 + 重复离婚不再扣
+    // 8. marriage.divorce: 提交进公示期 + 只扣一次成本 + 重复提交幂等; 到期结算才真正解除并递增冷却
     // ============================================================
 
+    /**
+     * 提交离婚 (spec 第六章闸 2 三段式的"提交"这一步): 首次提交要 OK + pending=true + 扣一次成本 + effectiveAtTick
+     * 按 filedTick + escrowTicks 现算; 重复点击 (alreadyPending=true) 一分不再扣, 且回执的 effectiveAtTick 必须原样
+     * (不会被重复提交推迟)。此刻关系仍在 Registry 里 (公示期 != 已解除)。
+     *
+     * 到期结算走 {@link MarriageDivorce#finalizeMatured}, 边界值用 {@code filedTick + escrowTicks} 精确踩
+     * "{@code nowTick - filedTick >= escrowTicks}" 那道 &gt;= 判断的临界点。结算之后关系才真正双向解除、离婚次数
+     * 才 +1、再婚冷却才落盘 —— 且冷却落盘用的是 {@code finalizeMatured} 调用方传入的那个 nowTick (本用例故意让它
+     * 比测试世界实际的 {@code overworld.getGameTime()} 超前 escrowTicks, 模拟"到期扫描比世界时钟更晚才追上"的真实
+     * 调度节奏), 故查询侧算出的剩余冷却里会原样带着这段超前量: {@code escrowTicks + remarryCooldownTicks(1)},
+     * 不是裸的 {@code remarryCooldownTicks(1)} —— 把 {@link MarriageDivorce#finalizeMatured} 内部换成读
+     * {@code overworld.getGameTime()} 而不是用传入的 nowTick, 这条断言立刻挂。
+     */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void divorceDissolvesOnceChargesOnceAndReportsTheNewCooldown(GameTestHelper helper) {
         WalletEconomy economy = new WalletEconomy();
@@ -519,42 +532,161 @@ public final class MarriageWebUiGameTests {
             wedPair(overworld, a, b);
             MarriageRegistry registry = MarriageRegistry.get(overworld);
             long cost = MiningServerConfig.MARRIAGE_DIVORCE_COST.get();
+            long escrowTicks = MarriageTuning.divorceEscrowTicks();
+            helper.assertTrue(escrowTicks > 0L,
+                    "本用例要验公示期提交/幂等两态, 前提 config divorceEscrowHours 非 0 (默认 24)");
             long creditBefore = economy.credit(a);
+            long filedTick = overworld.getGameTime();
 
-            JsonObject divorced = handle(helper, DIVORCE, a, new JsonObject());
-            helper.assertTrue(divorced.get("ok").getAsBoolean()
-                            && "OK".equals(divorced.get("outcomeCode").getAsString())
-                            && "message.miningdim.marriage.divorce.done"
-                            .equals(divorced.get("messageKey").getAsString()),
-                    "已婚发起方离婚成功, 实得 " + divorced.get("outcomeCode").getAsString());
-            helper.assertTrue(divorced.get("costCredit").getAsLong() == cost
+            JsonObject filed = handle(helper, DIVORCE, a, new JsonObject());
+            helper.assertTrue(filed.get("ok").getAsBoolean()
+                            && "OK".equals(filed.get("outcomeCode").getAsString())
+                            && "message.miningdim.marriage.divorce.filed"
+                            .equals(filed.get("messageKey").getAsString()),
+                    "已婚发起方提交离婚成功, 实得 " + filed.get("outcomeCode").getAsString());
+            helper.assertTrue(filed.get("pending").getAsBoolean() && !filed.get("alreadyPending").getAsBoolean(),
+                    "首次提交要落进公示期且不是幂等重复, 实得 pending=" + filed.get("pending")
+                            + " alreadyPending=" + filed.get("alreadyPending"));
+            helper.assertTrue(filed.get("effectiveAtTick").getAsLong() == filedTick + escrowTicks,
+                    "生效 tick 必须是提交时 gameTime 加 escrowTicks, 实得 "
+                            + filed.get("effectiveAtTick").getAsLong() + " 期望 " + (filedTick + escrowTicks));
+            helper.assertTrue(filed.get("costCredit").getAsLong() == cost
                             && economy.credit(a) == creditBefore - cost,
-                    "离婚成本恰扣一次, 实得余额 " + economy.credit(a));
-            helper.assertTrue(b.getUUID().toString().equals(divorced.get("formerSpouseUuid").getAsString()),
-                    "回执要指明跟谁离的");
-            helper.assertTrue(registry.forPlayer(a.getUUID()) == null && registry.forPlayer(b.getUUID()) == null,
-                    "关系必须从 Registry 解除 (双方都查不到)");
-            helper.assertTrue(divorced.get("divorceCount").getAsInt() == 1,
-                    "离婚次数记 1, 实得 " + divorced.get("divorceCount").getAsInt());
-            helper.assertTrue(divorced.get("remarryCooldownTicks").getAsLong()
-                            == MarriageTuning.remarryCooldownTicks(1),
-                    "再婚冷却是按'第 1 次离婚'算出来的那个 tick 数, 实得 "
-                            + divorced.get("remarryCooldownTicks").getAsLong());
-            helper.assertTrue("cooldown".equals(handle(helper, STATE, a, new JsonObject())
-                            .get("status").getAsString()),
-                    "离婚后未婚且在冷却中 -> status=cooldown (前提: config remarryCooldownDays 非 0, 默认 7)");
+                    "提交这一刻就要扣一次离婚成本, 实得余额 " + economy.credit(a));
+            helper.assertTrue(filed.get("divorceCount").getAsInt() == 0,
+                    "公示期内关系尚未真正解除, 离婚次数原样是提交前的 0, 实得 " + filed.get("divorceCount").getAsInt());
+            helper.assertTrue(registry.forPlayer(a.getUUID()) != null && registry.forPlayer(b.getUUID()) != null,
+                    "公示期内双方仍是已婚 (关系还没从 Registry 解除)");
 
-            long creditAfter = economy.credit(a);
+            // 重复点击: 幂等回执, 不二次扣费, 生效 tick 不被推迟。
+            long creditAfterFiling = economy.credit(a);
             JsonObject again = handle(helper, DIVORCE, a, new JsonObject());
-            helper.assertTrue(!again.get("ok").getAsBoolean()
-                            && "NOT_MARRIED".equals(again.get("outcomeCode").getAsString())
-                            && "message.miningdim.marriage.not_married"
-                            .equals(again.get("messageKey").getAsString()),
-                    "已经离过的人再点一次要回 NOT_MARRIED, 实得 " + again.get("outcomeCode").getAsString());
-            helper.assertTrue(economy.credit(a) == creditAfter,
-                    "失败的离婚一分都不许扣, 实得 " + economy.credit(a));
-            helper.assertTrue(again.get("divorceCount").getAsInt() == 1,
-                    "失败的离婚不许把次数推高 (冷却会跟着翻倍)");
+            helper.assertTrue(again.get("ok").getAsBoolean() && again.get("alreadyPending").getAsBoolean(),
+                    "已在公示期内再提交一次要回幂等的 alreadyPending=true, 实得 " + again);
+            helper.assertTrue(economy.credit(a) == creditAfterFiling,
+                    "重复提交一分都不许再扣, 实得 " + economy.credit(a));
+            helper.assertTrue(again.get("effectiveAtTick").getAsLong() == filedTick + escrowTicks,
+                    "幂等回执的生效 tick 必须与首次提交一致 (按存量 filedTick 现算, 不会被重复提交推迟)");
+            helper.assertTrue(again.get("divorceCount").getAsInt() == 0,
+                    "重复提交同样不许把次数推高 (关系压根还没到期解除)");
+
+            // 到期结算: finalizeMatured 传入的判定基准精确踩在 filedTick + escrowTicks 这个 >= 边界值上。
+            int settledCount = new MarriageDivorce(overworld, MarriageWebUiActions.sessions())
+                    .finalizeMatured(filedTick + escrowTicks);
+            helper.assertTrue(settledCount == 1, "到期扫描本次必须恰好结算这一对, 实得 " + settledCount);
+            helper.assertTrue(registry.forPlayer(a.getUUID()) == null && registry.forPlayer(b.getUUID()) == null,
+                    "到期结算后关系必须从 Registry 双向解除");
+
+            JsonObject afterSettle = handle(helper, STATE, a, new JsonObject());
+            helper.assertTrue(afterSettle.get("divorceCount").getAsInt() == 1,
+                    "到期结算才是离婚次数真正 +1 的那一刻, 实得 " + afterSettle.get("divorceCount").getAsInt());
+            long expectedRemaining = escrowTicks + MarriageTuning.remarryCooldownTicks(1);
+            helper.assertTrue(afterSettle.get("remarryCooldownTicks").getAsLong() == expectedRemaining,
+                    "再婚冷却剩余必须原样带着 finalizeMatured 的超前量 (escrowTicks) 加上'第 1 次离婚'的基础冷却, "
+                            + "期望 " + expectedRemaining + " 实得 " + afterSettle.get("remarryCooldownTicks").getAsLong());
+            helper.assertTrue("cooldown".equals(afterSettle.get("status").getAsString()),
+                    "结算后未婚且冷却 tick 数 > 0 -> status 按其自身既有优先级 (married > engaged > cooldown > single)"
+                            + " 算成 cooldown, 实得 " + afterSettle.get("status").getAsString());
+            helper.succeed();
+        } finally {
+            restoreEconomy(previous);
+        }
+    }
+
+    // ============================================================
+    // 8b. marriage.state 的 pendingDivorce 字段: 只在公示期内非 null, 且内容与提交时的成本对象一致
+    // ============================================================
+
+    /**
+     * 未婚玩家、以及已婚但没有 pending 的玩家, {@code pendingDivorce} 都必须是显式 null (不是键消失); 公示期内
+     * {@code pendingDivorce} 要变成一个非 null 对象, 且 {@code initiatorUuid}/{@code effectiveAtTick} 与提交时的
+     * 发起方/公示期到期 tick 一致 —— 配偶那一侧 (未提交的一方) 读的必须是同一条状态, 不是"只有发起方能看见"。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void marriageStatePendingDivorceFieldIsNullExceptDuringThePublicNoticeWindow(GameTestHelper helper) {
+        WalletEconomy economy = new WalletEconomy();
+        IEconomyService previous = swapEconomy(economy);
+        try {
+            ServerLevel overworld = helper.getLevel().getServer().overworld();
+
+            ServerPlayer single = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            helper.assertTrue(handle(helper, STATE, single, new JsonObject()).get("pendingDivorce").isJsonNull(),
+                    "未婚玩家的 pendingDivorce 必须是显式 null");
+
+            ServerPlayer a = richMock(helper, economy);
+            ServerPlayer b = richMock(helper, economy);
+            wedPair(overworld, a, b);
+            helper.assertTrue(handle(helper, STATE, a, new JsonObject()).get("pendingDivorce").isJsonNull(),
+                    "刚结婚还没提交离婚时, pendingDivorce 同样必须是显式 null");
+
+            long filedTick = overworld.getGameTime();
+            JsonObject filed = handle(helper, DIVORCE, a, new JsonObject());
+            long escrowTicks = MarriageTuning.divorceEscrowTicks();
+            helper.assertTrue(filed.get("ok").getAsBoolean() && escrowTicks > 0L,
+                    "前置条件: 提交离婚成功且公示期非空窗口 (默认 divorceEscrowHours=24), 实得 " + filed);
+
+            JsonObject aPending = handle(helper, STATE, a, new JsonObject()).getAsJsonObject("pendingDivorce");
+            helper.assertTrue(aPending != null, "公示期内发起方的 pendingDivorce 必须是非 null 对象");
+            helper.assertTrue(a.getUUID().toString().equals(aPending.get("initiatorUuid").getAsString()),
+                    "initiatorUuid 必须指向发起方 A, 实得 " + aPending.get("initiatorUuid"));
+            helper.assertTrue(aPending.get("effectiveAtTick").getAsLong() == filedTick + escrowTicks,
+                    "effectiveAtTick 必须等于提交时 gameTime 加 escrowTicks, 实得 "
+                            + aPending.get("effectiveAtTick").getAsLong() + " 期望 " + (filedTick + escrowTicks));
+
+            JsonObject bPending = handle(helper, STATE, b, new JsonObject()).getAsJsonObject("pendingDivorce");
+            helper.assertTrue(bPending != null
+                            && a.getUUID().toString().equals(bPending.get("initiatorUuid").getAsString())
+                            && bPending.get("effectiveAtTick").getAsLong() == filedTick + escrowTicks,
+                    "配偶一侧 (没提交的那一方) 读到的必须是同一条公示期状态, 不是各自一份, 实得 " + bPending);
+
+            MarriageRegistry.get(overworld).forPlayer(a.getUUID()).clearPendingDivorce();
+            helper.succeed();
+        } finally {
+            restoreEconomy(previous);
+        }
+    }
+
+    // ============================================================
+    // 8c. marriage.sharedInv 在公示期内仍可读: 冻结只挡互动窗口, 不挡只读快照
+    // ============================================================
+
+    /**
+     * 公示期把共享背包的互动窗口冻结 (提交那一刻 forceCloseAll 强关双方已开的窗口), 但面板的只读快照
+     * ({@code marriage.sharedInv}) 走的是另一条完全不查 pending 态的路径 —— 它必须在公示期内照样读得到内容, 与
+     * {@code marriage.state} 同时报告 pendingDivorce 非 null (冻结属实) 这两件事要同时成立, 防止后来有人图省事
+     * 把只读快照也顺手挂上 pending 拦截。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sharedInvStaysReadableWhilePendingDivorceFreezesTheState(GameTestHelper helper) {
+        WalletEconomy economy = new WalletEconomy();
+        IEconomyService previous = swapEconomy(economy);
+        try {
+            ServerLevel overworld = helper.getLevel().getServer().overworld();
+            ServerPlayer a = richMock(helper, economy);
+            ServerPlayer b = richMock(helper, economy);
+            long marriageId = wedPair(overworld, a, b);
+            MarriageState married = MarriageRegistry.get(overworld).byId(marriageId);
+            married.sharedInv().set(0, new ItemStack(Items.GOLD_INGOT, 5));
+
+            JsonObject filed = handle(helper, DIVORCE, a, new JsonObject());
+            helper.assertTrue(filed.get("ok").getAsBoolean() && filed.get("pending").getAsBoolean(),
+                    "前置条件: 提交离婚要成功落进公示期, 实得 " + filed);
+
+            JsonObject state = handle(helper, STATE, a, new JsonObject());
+            helper.assertTrue(state.get("pendingDivorce").isJsonObject(),
+                    "冻结属实: pendingDivorce 必须是非 null 对象, 实得 " + state.get("pendingDivorce"));
+
+            JsonArray items = handle(helper, SHARED_INV, a, new JsonObject()).getAsJsonArray("items");
+            helper.assertTrue(items.size() == 1,
+                    "公示期内只读快照依旧要读到已放入的物品, 实得 " + items.size() + " 条");
+            JsonObject gold = items.get(0).getAsJsonObject();
+            helper.assertTrue(gold.get("slot").getAsInt() == 0
+                            && "minecraft:gold_ingot".equals(gold.get("itemId").getAsString())
+                            && gold.get("count").getAsInt() == 5,
+                    "读到的必须是冻结前放入的那件, 槽位/物品/数量不许被冻结逻辑改动, 实得 " + gold);
+
+            married.sharedInv().set(0, ItemStack.EMPTY);
+            married.clearPendingDivorce();
             helper.succeed();
         } finally {
             restoreEconomy(previous);

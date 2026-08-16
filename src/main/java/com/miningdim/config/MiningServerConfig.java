@@ -102,6 +102,8 @@ public final class MiningServerConfig {
     public static final ForgeConfigSpec.ConfigValue<List<? extends Integer>> MARRIAGE_TELEPORT_COOLDOWN_SECONDS;
     // 离婚成本 (信用点; 由发起方支付)。spec 第六章闸 2。
     public static final ForgeConfigSpec.IntValue MARRIAGE_DIVORCE_COST;
+    // 离婚公示期小时数 (延迟生效窗口; 0 = 立即生效)。spec 第六章闸 2, 具体时长 PENDING 待拍板。
+    public static final ForgeConfigSpec.IntValue MARRIAGE_DIVORCE_ESCROW_HOURS;
     // 再婚冷却基数 (实游戏天数; 实际冷却 = 基数 * (1 + divorceCount), 随离婚次数递增)。spec 第六章闸 1。
     public static final ForgeConfigSpec.IntValue MARRIAGE_REMARRY_COOLDOWN_DAYS;
     // 共享背包远程开界面的配偶距离上限 (格; 仅同维度生效, 超出或跨维度即 stillValid 失效自动关闭)。spec 第四章。
@@ -280,6 +282,9 @@ public final class MiningServerConfig {
         // 离婚 (spec ch.6): 成本 (发起方付) + 再婚冷却 (随离婚次数递增)。
         MARRIAGE_DIVORCE_COST = b.comment("Credit cost to file a divorce, paid by the initiator")
                 .defineInRange("divorceCost", 10000, 0, 10_000_000);
+        MARRIAGE_DIVORCE_ESCROW_HOURS = b.comment(
+                        "Divorce escrow (public notice) window in hours before the divorce takes effect; 0 = immediate. spec ch.6 gate 2, exact value PENDING")
+                .defineInRange("divorceEscrowHours", 24, 0, 720);
         MARRIAGE_REMARRY_COOLDOWN_DAYS = b.comment(
                         "Base remarry cooldown in real days; actual cooldown = base * (1 + divorceCount), escalating with each divorce")
                 .defineInRange("remarryCooldownDays", 7, 0, 3650);

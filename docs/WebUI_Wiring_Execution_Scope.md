@@ -140,7 +140,7 @@
 | `marriage.buyRing` | WRAP | E2 | 走现成 Engine 方法 |
 | `marriage.propose` | WRAP | E2 | 同上 |
 | `marriage.wed` | WRAP | E2 | 失败原因六态，需映射前端文案 |
-| `marriage.divorce` | WRAP | E2 | 失败原因四态，需映射前端文案 |
+| `marriage.divorce` | WRAP | E2 | 失败原因四态，需映射前端文案；**后续 fix/marriage-escrow 分支已把语义从"立即解除"改成"提交进公示期"**（回执追加 pending/alreadyPending/effectiveAtTick/escrowTicks，真源见 `MarriageWebUiActions.DIVORCE` 与 `webui/src/lib/types.ts` 的 `MarriageDivorceResult`），本表格是分支 W6 落地时的历史快照，不代表当前契约 |
 | `marriage.sharedInv` | WRAP | E5 | 仿 `PlayerWebUiActions.INVENTORY` 逐槽转 JSON；白名单已在容器层强制，前端只读展示 |
 | `marriage.respond` | BACKEND | E3 | `MarriageProposals` 只有 byProposer 单向表，**无反查索引**，须新增反查 |
 

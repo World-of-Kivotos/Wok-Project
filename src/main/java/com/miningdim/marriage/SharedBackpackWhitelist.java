@@ -1,5 +1,8 @@
 package com.miningdim.marriage;
 
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -22,11 +25,23 @@ import java.util.Set;
  *    绑定装备 (互借神装/转移婚戒白嫖福利)。以 NBT 键识别, 不枚举具体物品类, 新增绑定物自动覆盖。
  *
  * 允许: 其余普通材料/消耗品/食物/任务道具/纪念物 (spec 第四章白名单口径: 黑名单未命中即放行)。
+ *
+ * 容器下钻: 只看顶层 {@code stack.getItem()} 的话, 三条黑名单都对"潜影盒"这个物品本身无效判定, 于是把钻石/绑定
+ * 装备整包塞进潜影盒再放进共享背包即可绕过全部黑名单。故 {@link #isAllowed(ItemStack)} 对容器内容物递归判一层,
+ * 深度上限见 {@link #MAX_CONTAINER_DEPTH}。这套下钻逻辑与 market 包
+ * {@code com.miningdim.market.MarketTradeWhitelist#judgeContents} 是两份独立实现, 形状仿照后者但未抽公共工具
+ * 类 —— market 包属另一分支的改动范围, 本轮不跨包收口, 收口成共用工具是后续项。
  */
 public final class SharedBackpackWhitelist {
 
     private SharedBackpackWhitelist() {
     }
+
+    /**
+     * 容器下钻的深度上限: 容器本体判一次 + 内容物判一次。原版禁止潜影盒装潜影盒, 所以一层足以覆盖真实可达的嵌套,
+     * 与 market 包 {@code MarketTradeWhitelist.MAX_CONTAINER_DEPTH} 同口径。
+     */
+    private static final int MAX_CONTAINER_DEPTH = 1;
 
     /** 身份盖章 NBT 键 (任一存在即视为绑定装备; 与 TarotCardItem/RingItem 的盖章键对齐)。 */
     private static final String NBT_OWNER_UUID = "OwnerUUID";
@@ -57,6 +72,15 @@ public final class SharedBackpackWhitelist {
      * 命中任一黑名单维度即拒绝。
      */
     public static boolean isAllowed(ItemStack stack) {
+        return isAllowed(stack, MAX_CONTAINER_DEPTH);
+    }
+
+    /**
+     * 单层裁决 + 有界下钻。三条黑名单先判本层, 都不命中且还有下钻额度时再判容器内容物。
+     *
+     * @param remainingDepth 还允许下钻的层数; 0 表示只判本层, 不再看内容物
+     */
+    private static boolean isAllowed(ItemStack stack, int remainingDepth) {
         if (stack.isEmpty()) {
             return true;
         }
@@ -66,7 +90,39 @@ public final class SharedBackpackWhitelist {
         if (isSkinCredential(stack)) {
             return false;
         }
-        return !isHighValueOre(stack);
+        if (isHighValueOre(stack)) {
+            return false;
+        }
+        if (remainingDepth <= 0) {
+            return true;
+        }
+        return contentsAllowed(stack, remainingDepth);
+    }
+
+    /**
+     * 判容器内容物 (方块实体形态的容器: 潜影盒/箱子等把内容物存在物品 NBT 的 BlockEntityTag.Items 里)。
+     * 任一内容物被拒则整包被拒。
+     *
+     * NBT 全用类型化读取 (getCompound/getList 带类型参数, 类型不符即返回空), 脏 NBT 走到这里必须是"当作没装东西"
+     * 而不是抛 —— 本谓词在 canPlaceItem 里每次拖放都会跑, 抛出去就是玩家放个物品直接崩服。
+     * {@link ItemStack#of} 对坏行内部已兜成 EMPTY (它自己 catch RuntimeException), 空栈跳过。
+     */
+    private static boolean contentsAllowed(ItemStack container, int remainingDepth) {
+        CompoundTag tag = container.getTag();
+        if (tag == null) {
+            return true;
+        }
+        ListTag items = tag.getCompound("BlockEntityTag").getList("Items", Tag.TAG_COMPOUND);
+        for (int i = 0; i < items.size(); i++) {
+            ItemStack inner = ItemStack.of(items.getCompound(i));
+            if (inner.isEmpty()) {
+                continue;
+            }
+            if (!isAllowed(inner, remainingDepth - 1)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** 带身份盖章 NBT (OwnerUUID/SpouseUUID/MarriageId) 的绑定装备 -> 拒绝 (互借神装/转移婚戒)。 */

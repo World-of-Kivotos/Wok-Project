@@ -4,7 +4,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 
 /**
@@ -54,11 +53,20 @@ public final class MarriageBackpackSessions {
         }
     }
 
-    /** 注销一个打开者 (玩家正常关闭窗口后调; 集合空但容器实例保留, 供下次开复用同一权威容器)。 */
+    /**
+     * 注销一个打开者 (玩家正常关闭窗口后调); 集合空后立即把整条 Session 从 map 移除。共享背包内容的唯一权威落点
+     * 是 {@link MarriageState#sharedInv}, {@link MarriageBackpackContainer} 只是它的视图 (直接以那个 NonNullList
+     * 为后备存储, 不复制不镜像), 因此没人开着窗口时丢掉容器实例既不丢物也不开 dupe 面; 而留着它会让 session 表随
+     * "历史累计婚姻数"单向增长, 从不回收。
+     */
     public void onClosed(long marriageId, ServerPlayer player) {
         Session session = sessions.get(marriageId);
-        if (session != null) {
-            session.openers.remove(player.getUUID());
+        if (session == null) {
+            return;
+        }
+        session.openers.remove(player.getUUID());
+        if (session.openers.isEmpty()) {
+            sessions.remove(marriageId);
         }
     }
 
@@ -77,7 +85,9 @@ public final class MarriageBackpackSessions {
         if (session == null || session.openers.isEmpty()) {
             return;
         }
-        // 关窗会回调 onClosed 改 openers, 故先快照集合再迭代 (避免并发修改)。
+        // 关窗会回调 onClosed 改 openers, 故先快照集合再迭代 (避免并发修改); onClosed 现在可能顺带把
+        // Session 从 sessions map 移除, 但操作对象是快照列表, 末尾的 session.openers.clear() 又是作用在
+        // 已取出的 Session 对象本身 (不经 map 查找), 两者都不受影响 —— 不会 ConcurrentModificationException。
         for (java.util.UUID opener : new java.util.ArrayList<>(session.openers)) {
             ServerPlayer p = overworld.getServer().getPlayerList().getPlayer(opener);
             if (p != null) {
@@ -85,7 +95,11 @@ public final class MarriageBackpackSessions {
                 p.closeContainer();
             }
         }
-        // 兜底: 离线/取不到的打开者直接从集合移除 (其 menu 随登出已被原版清理)。
+        // 兜底: 离线/取不到的打开者直接从集合移除 (其 menu 随登出已被原版清理)。注意这条兜底路径不经 onClosed,
+        // 故不会触发 sessions.remove —— 若循环里存在取不到玩家的 opener, 本次会留下一条 openers 已空但仍在
+        // map 里的 Session; 这属于代码里早已存在、理论上不该发生的边界分支 (openers 里的 UUID 只可能在玩家在线
+        // 时经 onOpened 写入), 不当场作为回归处理。留空条目本身对功能无害 (container 仍是同一份权威实例), 只是
+        // 不参与本轮的表回收, 会在下次同一 marriageId 正常开关或 onMarriageDissolved 时被清掉。
         session.openers.clear();
     }
 
@@ -105,13 +119,8 @@ public final class MarriageBackpackSessions {
         return session == null ? 0 : session.openers.size();
     }
 
-    /** 移除所有无人打开的会话缓存 (周期清理可选; 当前不主动调, 保留为诊断/GC 接缝)。 */
-    public void pruneIdle() {
-        Iterator<Map.Entry<Long, Session>> it = sessions.entrySet().iterator();
-        while (it.hasNext()) {
-            if (it.next().getValue().openers.isEmpty()) {
-                it.remove();
-            }
-        }
+    /** 当前登记在表里的会话条数 (测试/诊断用; 与 {@link #openerCount} 同性质, 用于断言空闲会话确已回收)。 */
+    public int sessionCount() {
+        return sessions.size();
     }
 }

@@ -72,6 +72,15 @@ public final class MarriageRegistry extends SavedData {
         return marriages.size();
     }
 
+    /**
+     * 全部当前生效关系的快照 (低频到期扫描用, 见 {@link MarriageDivorce#finalizeMatured})。必须是快照而非活视图:
+     * 到期结算会在遍历过程中调 {@link #dissolve} 改主表, 直接遍历 marriages.values() 会撞
+     * ConcurrentModificationException。
+     */
+    public java.util.Collection<MarriageState> all() {
+        return java.util.List.copyOf(marriages.values());
+    }
+
     // ---- 结构性变更 (主线程串行) ----
 
     /**
@@ -102,7 +111,8 @@ public final class MarriageRegistry extends SavedData {
 
     /**
      * 解除一段婚姻 (离婚; spec 第六章, 阶段 5)。从主表移除并清双方反查索引; 返回被移除的关系 (供调用方做清算/
-     * 转历史表)。不存在返回 null。本期 (阶段 1) 仅提供解除原语, 离婚冷却/清算/escrow 由阶段 5 接入。
+     * 转历史表)。不存在返回 null。本方法只是移除原语, 由 {@link MarriageDivorce#settle} 在 escrow 公示期到期后
+     * 调用; 离婚冷却记入 {@link MarriageHistory}, 共享背包按槽归属清算, 二者均已在阶段 5 落地。
      */
     public MarriageState dissolve(long marriageId) {
         MarriageState st = marriages.remove(marriageId);

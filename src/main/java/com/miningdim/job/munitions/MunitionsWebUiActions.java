@@ -422,8 +422,18 @@ public final class MunitionsWebUiActions {
                         }
                     }
                 }
+                // 提前收敛必须三台都不可能再改善才成立。原先只判军火台, 而玩家几乎总是站在自家台子边上
+                // (benchDistSqr ≈ 0), 于是 r=0 就 break —— 只扫了玩家脚下这一个区块, 冲压机/装配台只要落在
+                // 相邻区块 (哪怕只隔一格) 就永远扫不到, 面板上恒显示"未放置"。
                 double convergedRadius = (double) r * 16;
-                if (found.bench != null && found.benchDistSqr <= convergedRadius * convergedRadius) {
+                double convergedRadiusSqr = convergedRadius * convergedRadius;
+                boolean benchConverged = found.bench != null && found.benchDistSqr <= convergedRadiusSqr;
+                // 无归属机台只在 r <= PUBLIC_STATION_CHUNK_RADIUS 的环里参与判定, 故跨过那个环之后不可能再有
+                // 新命中, 此时无条件视为收敛; 在那之前则要求已命中且外环不可能更近。
+                boolean publicStationsConverged = r >= PUBLIC_STATION_CHUNK_RADIUS
+                        || (found.press != null && found.pressDistSqr <= convergedRadiusSqr
+                                && found.assembly != null && found.assemblyDistSqr <= convergedRadiusSqr);
+                if (benchConverged && publicStationsConverged) {
                     break;
                 }
             }

@@ -71,15 +71,45 @@ public final class ContributionTracker {
         if (onlineResolver == null) {
             throw new IllegalArgumentException("onlineResolver must not be null");
         }
-        Map<UUID, Accum> perPlayer = LEDGER.remove(championId);
+        return snapshot(LEDGER.remove(championId), onlineResolver);
+    }
+
+    /**
+     * 只读地取某冠军的全部贡献记录, <b>不清账</b>。输出与 {@link #drain} 逐字段一致 (同一排序、同一 online 现查)。
+     *
+     * 存在的理由: 同一次冠军死亡有不止一个消费者 —— 贡献池主结算 ({@code ChampionRewardHandler}) 要按份额发钱,
+     * 特勤子系统要在池外叠加自己的加强奖励与悬赏推进。若两者都用 {@link #drain}, 先跑的那个会把账本抽干,
+     * 后跑的直接读到空表; 而"谁先跑"取决于 Forge 同优先级下的注册先后, 是个没人能稳定推理的顺序。
+     *
+     * 因此约定: <b>账本的所有权归主结算</b> —— 只有 {@code ChampionRewardHandler} 调 {@link #drain}, 其余消费者
+     * 一律 peek。这条约定一旦破坏, 症状是"某个奖励静默不发", 极难归因 (线上已因此让 F099 的青辉石瓜分修复
+     * 空转过一轮: 特勤侧抢先 drain 后按自己那份旧逻辑按人头发, 主结算的按权重瓜分从未执行)。
+     *
+     * @return 贡献记录列表 (排序同 drain; 无账本返回空表)
+     */
+    public static List<DamageContribution> peek(UUID championId, OnlineResolver onlineResolver) {
+        if (championId == null) {
+            throw new IllegalArgumentException("championId must not be null");
+        }
+        if (onlineResolver == null) {
+            throw new IllegalArgumentException("onlineResolver must not be null");
+        }
+        return snapshot(LEDGER.get(championId), onlineResolver);
+    }
+
+    /**
+     * 把累计表快照成有序的贡献记录。
+     *
+     * 真排序保确定性 (F103 修复): perPlayer 是 ConcurrentHashMap, entrySet() 的遍历序是哈希桶序 —— 换一批
+     * 玩家 UUID (哈希值不同) 结果就变, 而下游 {@link ContributionPool#distribute} 的 round 余数归属 (末名吸收)
+     * 依赖本输出的迭代序, 不排序则"可复现性"不成立。按首伤 tick 升序; 同 tick (理论极罕见, 两玩家同 tick 首次
+     * 命中) 按 UUID 兜底保全序, 不依赖排序算法稳定性。
+     */
+    private static List<DamageContribution> snapshot(Map<UUID, Accum> perPlayer, OnlineResolver onlineResolver) {
         List<DamageContribution> out = new ArrayList<>();
         if (perPlayer == null) {
             return out;
         }
-        // 真排序保确定性 (F103 修复): perPlayer 是 ConcurrentHashMap, entrySet() 的遍历序是哈希桶序 —— 换一批
-        // 玩家 UUID (哈希值不同) 结果就变, 而下游 ContributionPool.distribute 的 round 余数归属 (末名吸收) 依赖
-        // 本方法输出的迭代序, 不排序则该方法自述的"可复现性"不成立。按首伤 tick 升序; 同 tick (理论极罕见, 两玩家
-        // 同 tick 首次命中) 按 UUID 兜底保全序, 不依赖排序算法稳定性。
         List<Map.Entry<UUID, Accum>> entries = new ArrayList<>(perPlayer.entrySet());
         entries.sort(Comparator
                 .comparingLong((Map.Entry<UUID, Accum> e) -> e.getValue().firstHitTick)

@@ -967,6 +967,11 @@ export interface AgentBountyPermissions {
   /** 单位青辉石; Cap 恒 50 (AgentBountySavedData.WEEKLY_AZURE_SOFT_CAP), 跨 ISO 周清零。 */
   weeklyAzureGranted: number
   weeklyAzureCap: number
+  /**
+   * F017/F078: 悬赏接取/进度推进/发奖三个环节尚未上线, 恒为 false。以上字段是真实的等级门槛预览 (等级查表),
+   * 不是"可接取的悬赏列表"——面板必须据此字段诚实展示"权限预览"而非暗示玩家能接单, 严禁把它当纯装饰位忽略。
+   */
+  available: boolean
 }
 
 /**

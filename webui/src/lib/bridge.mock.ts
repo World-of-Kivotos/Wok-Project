@@ -2874,9 +2874,11 @@ function mockAgentState(): AgentStateResult {
       maxBountyStar: clampJobLevel(level),
       worldBossUnlocked: level >= AGENT_WORLD_BOSS_UNLOCK_LEVEL,
       worldBossUnlockLevel: AGENT_WORLD_BOSS_UNLOCK_LEVEL,
-      // 本周已领的青辉石: 取一个已过半的量, 好让"周上限"那条进度条不是空的。
-      weeklyAzureGranted: level >= AGENT_WEEKLY_BOUNTY_UNLOCK_LEVEL ? 32 : 0,
+      // 悬赏接取/进度/发奖尚未上线 (F017/F078), 真实后端此计数器永远无人写入, mock 必须如实恒为 0——
+      // 之前这里写死 32 只是为了让进度条"看起来不是空的", 属于伪造玩家从未达成过的既成进度, 已按复核意见改正。
+      weeklyAzureGranted: 0,
       weeklyAzureCap: AGENT_WEEKLY_AZURE_CAP,
+      available: false,
     },
     enhancedRewardMultiplier: requireAt(AGENT_ENHANCED_REWARD, clampJobLevel(level) - 1, '加强奖励表'),
     damageBonusPercent: requireAt(AGENT_DAMAGE_BONUS_PERCENT, clampJobLevel(level) - 1, '伤害加成表'),

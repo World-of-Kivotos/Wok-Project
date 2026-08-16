@@ -161,6 +161,8 @@ public final class AgentWebUiGameTests {
         helper.assertTrue(bounty.get("weeklyAzureGranted").getAsLong() == 0L
                         && bounty.get("weeklyAzureCap").getAsLong() == AgentBountySavedData.WEEKLY_AZURE_SOFT_CAP,
                 "新号本周青辉石产出 0, 上限恒发 " + AgentBountySavedData.WEEKLY_AZURE_SOFT_CAP);
+        helper.assertTrue(!bounty.get("available").getAsBoolean(),
+                "F017/F078: 悬赏接取/进度/发奖尚未上线, available 必须诚实报 false, 不得把等级门槛预览包装成可用系统");
 
         helper.assertTrue(Math.abs(state.get("enhancedRewardMultiplier").getAsDouble() - 1.0D) < 1.0E-9D,
                 "L1 加强奖励倍率 ×1.0");
@@ -214,6 +216,8 @@ public final class AgentWebUiGameTests {
         helper.assertTrue(bounty.get("dailySlots").getAsInt() == 5 && bounty.get("weeklySlots").getAsInt() == 3,
                 "L10 日 5 槽 / 周 3 槽");
         helper.assertTrue(bounty.get("worldBossUnlocked").getAsBoolean(), "L10 世界 BOSS 悬赏已开");
+        helper.assertTrue(!bounty.get("available").getAsBoolean(),
+                "L10 满级也一样: 悬赏系统对任何等级都尚未上线, available 不得随等级变 true");
         helper.assertTrue(state.get("damageBonusPercent").getAsInt() == 15, "L10 对精英伤害加成 +15%");
         helper.succeed();
     }

@@ -21,7 +21,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
@@ -30,11 +29,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -48,7 +44,10 @@ import java.util.UUID;
  * <p>与波1 传送家族 (闪光/战术传送) 的关键契约差异: 那两者是冠军【自体】瞬移, 不位移玩家, 故不涉波0 玩家落地保护;
  * 凯撒转换器【位移玩家】(把玩家拽到冠军原位), 故换位后必须调 {@link PlayerLandingProtection#grant} 开 2s 抗位移窗
  * (红线 6: 换位后玩家获 2s 抗位移落地保护, 防紧接着的原版近战击退把玩家推回岩浆/虚空)。换位不造成任何伤害, 故不
- * 涉 AOE 免疫缓冲 / 伤害类型。
+ * 涉 AOE 免疫缓冲 / 伤害类型。同理 (F104 修复), 换位动手前必须反向自查 {@link PlayerLandingProtection#isProtected}:
+ * teleportTo 不经 {@code LivingKnockBackEvent}, 落地保护的事件闸拦不住位移类效果, 目标仍在上一次落地保护窗内时
+ * {@link #executeSwapOrAbandon} 直接放弃本次换位 (CD 照走), 与波0 红线 6"位移类效果动手前先查 isProtected"的自查
+ * 约定一致。
  *
  * <p>状态机 (per-冠军, 两相, 与 {@code ChampionBlinkHandler} 同范式): CHARGING (门控推进 CD) -&gt; 到点且有缰绳内
  * 存活目标则转 TELEGRAPH (锁定目标 UUID, 双方发光, 1s 后换位) -&gt; 换位/取消/放弃后回 CHARGING。两个时间尺度:
@@ -80,9 +79,6 @@ public final class ChampionCaesarSwapHandler {
 
     /** 预兆时长 (tick): 用户裁定 1s (与纯逻辑 {@link ChampionCaesarSwapPlan#TELEGRAPH_TICKS} 对齐)。 */
     private static final int TELEGRAPH_TICKS = (int) ChampionCaesarSwapPlan.TELEGRAPH_TICKS;
-
-    /** 作用的玩家可见距离 (格; 与闪光/战术传送同量级)。缰绳 (24) 另在纯逻辑内二次门控 CD 推进/预兆维持。 */
-    private static final double VIEW_RANGE = 48.0D;
 
     /** 预兆脚下旋环: 每帧每方 portal 环点数。 */
     private static final int TELEGRAPH_RING_POINTS = 12;
@@ -180,21 +176,11 @@ public final class ChampionCaesarSwapHandler {
      * 的冠军 (命令召唤 + 自然刷一视同仁), 门控通过者推进 CD; 多玩家同看一冠军本轮只结算一次。
      */
     private void scanNearbyChampions(MinecraftServer server, long nowTick) {
-        Set<UUID> processed = new HashSet<>();
-        for (ServerLevel level : server.getAllLevels()) {
-            List<ServerPlayer> players = level.players();
-            if (players.isEmpty()) {
-                continue;
+        for (ChampionProximityScanner.Sighting sighting : ChampionProximityScanner.sightings(server)) {
+            if (!sighting.entity().isAlive()) {
+                continue; // 快照按 tick 复用, 同 tick 更早的 handler 可能已致死: 存活性逐条重查。
             }
-            for (ServerPlayer player : players) {
-                AABB box = player.getBoundingBox().inflate(VIEW_RANGE);
-                for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class, box, LivingEntity::isAlive)) {
-                    if (!processed.add(entity.getUUID())) {
-                        continue; // 多玩家同看一冠军: 本轮只结算一次。
-                    }
-                    applySwapScan(entity, nowTick);
-                }
-            }
+            applySwapScan(sighting.entity(), nowTick);
         }
     }
 
@@ -277,18 +263,27 @@ public final class ChampionCaesarSwapHandler {
         float playerYaw = target.getYRot();
         float playerPitch = target.getXRot();
 
-        // 双向落点裁决: 玩家目的格 (冠军当前格) + 冠军目的格 (玩家当前格) 分别过守卫单点裁决, 任一非 SAFE 则放弃。
+        // 换位准入 (F104): 红线 6 波0 位移自查 (目标仍在落地保护窗内) + 双向落点裁决, 合一交给
+        // ChampionCaesarSwapPlan#shouldSwap 单点判定 (生产与 GameTest 真值表共享同一份逻辑)。
+        boolean targetLandingProtected = PlayerLandingProtection.isProtected(target);
         boolean playerDestSafe =
                 KnockbackSafetyGuard.evaluateLanding(level, champBlock).outcome() == KnockbackSafetyGuard.Outcome.SAFE;
         boolean champDestSafe =
                 KnockbackSafetyGuard.evaluateLanding(level, playerBlock).outcome() == KnockbackSafetyGuard.Outcome.SAFE;
+        boolean bothSafe = ChampionCaesarSwapPlan.bothLandingsSafe(playerDestSafe, champDestSafe);
         boolean trace = ChampionDiagnostics.shouldTrace(champion);
-        if (!ChampionCaesarSwapPlan.bothLandingsSafe(playerDestSafe, champDestSafe)) {
-            // 放弃本次: 落点危险 (岩浆/火/虚空边缘/被填埋), CD 照走。回充能等下个 CD (elapsed 已清零)。
+        if (!ChampionCaesarSwapPlan.shouldSwap(targetLandingProtected, bothSafe)) {
+            // 放弃本次 (落地保护窗内 或 落点危险), CD 照走。回充能等下个 CD (elapsed 已清零)。
             returnToCharging(state, nowTick);
             if (trace) {
-                LOGGER.info("{} champion={} ABANDON no-safe-landing playerDestSafe={} champDestSafe={}",
-                        SKILL_TAG, champion.getType().getDescriptionId(), playerDestSafe, champDestSafe);
+                if (targetLandingProtected) {
+                    // 与 ChampionAttackHandler:399 同款早退, 避免玩家被连续两次拽走完全失去落点后的操作窗。
+                    LOGGER.info("{} champion={} ABANDON landing-protected target={}",
+                            SKILL_TAG, champion.getType().getDescriptionId(), target.getGameProfile().getName());
+                } else {
+                    LOGGER.info("{} champion={} ABANDON no-safe-landing playerDestSafe={} champDestSafe={}",
+                            SKILL_TAG, champion.getType().getDescriptionId(), playerDestSafe, champDestSafe);
+                }
             }
             return;
         }

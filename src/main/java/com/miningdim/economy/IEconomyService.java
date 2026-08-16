@@ -153,9 +153,10 @@ public interface IEconomyService {
     int recordMinedOreDrops(ServerPlayer player, Block block, int producedCount);
 
     /**
-     * 含每日 faucet 衰减主闸的信用点入账 (经济文档 1.1/8.5 + 第十一章决策 2: 所有 faucet —— 矿工卖矿 / 农夫卖菜 / 任务 /
+     * 含每日 faucet 衰减主闸的信用点入账 (经济文档 1.1/8.5 + 第十一章决策 2: 所有 faucet —— 矿工卖矿 / 农夫卖菜 /
      * 刷怪 —— 必须并入"每人每日信用点统一衰减主闸 (0.6 衰减 / 60000 档 / 1% 地板)", 复用 UTC 翻日; 否则各 faucet 各自
-     * 私有上限即留印钞口)。主闸取代硬上限: 几何主项前 10 档 ≈ 14.9 万 (sum dailyCap*0.6^k, k=0..9 = 149093), 正常游玩落点
+     * 私有上限即留印钞口。任务奖励是唯一有判据的例外, 见
+     * {@link EconomyConstants#QUEST_DAILY_CREDIT_FAUCET_KEY})。主闸取代硬上限: 几何主项前 10 档 ≈ 14.9 万 (sum dailyCap*0.6^k, k=0..9 = 149093), 正常游玩落点
      * ~10 万 (正常) / ~14.9 万 (硬肝), 基本撞顶; 但 1% 地板使深档 (累计毛收入 >=60 万) 留极薄线性尾巴 (每 60000 毛 +600,
      * 不收敛、无数学硬顶), 该深档只有 xray/自动化挖得到, 实操封顶靠反矿透/反挂机巡查 (用户决策: 保留 1% 地板 + 巡查兜底)。
      *

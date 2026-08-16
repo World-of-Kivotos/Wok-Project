@@ -81,13 +81,29 @@ public final class EconomyConstants {
     /** 衰减主闸单档大小 (第十一章决策 2: 60000 信用点毛收入/档)。注意是"每档毛收入", 不是"每日总上限":
      *  当日累计毛收入每满 60000 进入下一档, 下一档系数 ×0.6。每日实发总额不是 60000: 几何主项前 10 档 ≈ 14.9 万 (正常落点),
      *  其后 1% 地板留极薄线性尾巴 (每 60000 毛 +600, 不收敛、无数学硬顶, 靠巡查兜底)。所有信用点 faucet (矿工卖矿 / 农夫卖菜 /
-     *  任务 / 刷怪) 传同一档值即并入同一每人每日衰减主闸 (决策 3/4)。 */
+     *  刷怪) 传同一档值即并入同一每人每日衰减主闸 (决策 3/4)。任务奖励是唯一有判据的例外, 见
+     *  {@link #QUEST_DAILY_CREDIT_FAUCET_KEY}。 */
     public static final long GLOBAL_DAILY_CREDIT_FAUCET_TIER = 60000L;
 
     /** 全服统一信用点 faucet 计数键 (第十一章决策 3/4): 所有信用点 faucet 传同一键即并入同一 (playerId, key) 每日累计计数器,
      *  共享同一衰减主闸天花板。矿工卖矿 ({@link EconomyService#settleOreSale}) 与农夫卖菜 (FarmerWheatSellService) 均引用本常量,
      *  消灭字符串字面量副本漂移 (此前农夫私有声明同值字面量)。 */
     public static final String GLOBAL_DAILY_CREDIT_FAUCET_KEY = "credit_faucet";
+
+    /** 任务奖励专用信用点 faucet 计数键 —— <b>刻意不并入 {@link #GLOBAL_DAILY_CREDIT_FAUCET_KEY} 主闸</b> (用户决策)。
+     *
+     *  <b>为何这次开独立键不是印钞口</b>: 主闸存在的理由是"产能无上限"。矿工卖矿、农夫卖菜的产出只受玩家肝度限制,
+     *  不衰减就没有天花板, 故必须并闸。任务奖励的供给<b>由槽位数硬性封死</b>: 每人每天 {@code dailySlots} 条日常 +
+     *  每周 {@code weeklySlots} 条周常, 每条只能领一次 (领取幂等在 {@code QuestProgress.claimed}), 玩家再肝也变不出
+     *  第五条日常。封顶手段是"发多少条", 不是"每条打几折" —— 再叠一层衰减只会把保底金额变成一个玩家算不明白的
+     *  随机数, 而任务对新人的意义正是<b>可预期</b>的保底收入。
+     *
+     *  <b>独立键而不是绕开计数器</b>: 走独立键仍然逐日累计, {@link EconomyService#todayFaucetGross} 照样查得到,
+     *  运营能看见任务这条龙头到底注入了多少; 且配套档位 (quest.faucetTier) 仍是真档位, 哪天任务真被玩出花来,
+     *  运营把该档位调小即可当场恢复衰减, 不用改代码。裸调 {@link EconomyService#grant} 则两样都没有。
+     *
+     *  改动纪律: 任何<b>产能不受槽位约束</b>的新 faucet 一律并回 {@link #GLOBAL_DAILY_CREDIT_FAUCET_KEY}, 不得援引本例。 */
+    public static final String QUEST_DAILY_CREDIT_FAUCET_KEY = "quest_faucet";
 
     // ---- 8.5 青辉石 faucet 每人每日产出上限 (精英怪 PvE 唯一龙头) ----
 

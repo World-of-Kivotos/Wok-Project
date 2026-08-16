@@ -52,8 +52,8 @@ import java.util.function.Function;
  * 三块重点:
  *  1. 判据层 —— 枪械三道闸 (枪型/爆头/距离) 与标签匹配, 这是任务能不能正确计数的根;
  *  2. 周期层 —— 翻日翻周只在戳变化时重抽, 且重抽是"换新任务"不是"清计数";
- *  3. 经济层 —— 发奖必须走全服共享的 credit_faucet 键 (私有 faucet 键 = 绕开统一软上限的印钞口),
- *     且一条任务的奖励只发一次。
+ *  3. 经济层 —— 发奖走任务专属的 quest_faucet 键且<b>足额不打折</b> (用户决策: 任务是保底收入, 必须可预期;
+ *     判据见 EconomyConstants.QUEST_DAILY_CREDIT_FAUCET_KEY), 共享主闸撞穿也不影响, 且一条任务只发一次。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -426,14 +426,16 @@ public final class QuestGameTests {
     // ============================================================
 
     /**
-     * 领奖: 钱真的到账、走的是<b>全服共享的 credit_faucet 计数键</b>、且只发一次。
+     * 领奖: 钱真的到账、<b>足额</b>到账、记在任务专属的 quest_faucet 计数键上、且只发一次。
      *
-     * 第三行是本文件最重要的一条断言。任务是新增 faucet, 若给它另起一个 faucetKey 或另配私有上限, 玩家就能
-     * 在卖矿卖菜撞上每日软上限后, 靠任务继续按全额领钱 —— 这正是经济文档 8.5 与既往审计判过的印钞口。把
-     * {@code QuestRewards.payout} 里的键换成任意私有字符串, 共享计数器不动, 本条立刻挂。
+     * 三条断言各锚一个可被删掉的实现:
+     *  - 实发 == {@code creditFor} 的名义值: 任务是保底收入 (用户决策), 必须可预期。把 {@code payout} 的档位换回
+     *    {@code GLOBAL_DAILY_CREDIT_FAUCET_TIER}, 名义值一旦超过一档就会被 0.6 系数打折, 本条即挂;
+     *  - 记在 quest_faucet 上: 独立键不等于不计数, 运营必须查得到任务这条龙头。改成裸调 {@code grant} 本条即挂;
+     *  - 共享 credit_faucet 毫发未动: 这是"不过闸"的正面证据。改回共享键本条即挂。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void questClaimPaysThroughSharedCreditFaucetExactlyOnce(GameTestHelper helper) {
+    public static void questClaimPaysFullAmountThroughQuestFaucetExactlyOnce(GameTestHelper helper) {
         IEconomyService previous = currentEconomy();
         registerFreshEconomy();
         try {
@@ -453,18 +455,23 @@ public final class QuestGameTests {
             helper.assertTrue(board.daily().get(0).isComplete(), "喂满 requiredCount 次挖矿后任务应达标");
 
             long balanceBefore = economy.creditBalance(player);
-            long faucetBefore = sharedFaucetGross(economy, player);
+            long questFaucetBefore = questFaucetGross(economy, player);
+            long sharedFaucetBefore = sharedFaucetGross(economy, player);
+            long nominal = QuestRewards.creditFor(definition);
 
             QuestService.ClaimResult first = service.claim(player, definition.id());
             helper.assertTrue(first.outcome() == QuestService.ClaimOutcome.CLAIMED,
                     "达标任务领取应成功, 实得 " + first.outcome());
-            helper.assertTrue(first.credit() > 0, "默认配置下实发额应大于 0, 实得 " + first.credit());
+            helper.assertTrue(first.credit() == nominal,
+                    "任务奖励不过闸, 实发必须等于名义值 " + nominal + ", 实得 " + first.credit());
             helper.assertTrue(economy.creditBalance(player) - balanceBefore == first.credit(),
                     "钱包增量必须与回执一致, 实得 " + (economy.creditBalance(player) - balanceBefore));
-            helper.assertTrue(sharedFaucetGross(economy, player) - faucetBefore
-                            == QuestRewards.creditFor(definition),
-                    "发奖必须计入全服共享的 credit_faucet 毛额计数器, 实得增量 "
-                            + (sharedFaucetGross(economy, player) - faucetBefore));
+            helper.assertTrue(questFaucetGross(economy, player) - questFaucetBefore == nominal,
+                    "发奖必须计入任务专属的 quest_faucet 毛额计数器, 实得增量 "
+                            + (questFaucetGross(economy, player) - questFaucetBefore));
+            helper.assertTrue(sharedFaucetGross(economy, player) == sharedFaucetBefore,
+                    "任务发奖不得触碰全服共享的 credit_faucet 计数器, 实得增量 "
+                            + (sharedFaucetGross(economy, player) - sharedFaucetBefore));
 
             long balanceAfterFirst = economy.creditBalance(player);
             QuestService.ClaimResult second = service.claim(player, definition.id());
@@ -475,6 +482,81 @@ public final class QuestGameTests {
         } finally {
             restoreEconomy(previous);
         }
+        helper.succeed();
+    }
+
+    /**
+     * 保底的正面证据: 玩家当天已经把<b>共享主闸撞进深档</b>之后, 任务照样足额发。
+     *
+     * 上一条只证明"任务不写共享计数器", 本条证明"共享计数器写满了也不影响任务"。两条缺一不可 —— 只有前者时,
+     * 有人把 {@code payout} 改成读共享计数器算衰减系数、再记到 quest_faucet 上, 前者仍绿而保底已经没了。
+     *
+     * 手法: 先经共享键灌 10 档毛额 (衰减系数已跌到 0.6^10 ≈ 0.006, 被 1% 地板钳住), 再领任务。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void questPayoutIgnoresAnAlreadyExhaustedSharedFaucet(GameTestHelper helper) {
+        IEconomyService previous = currentEconomy();
+        registerFreshEconomy();
+        try {
+            ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            IEconomyService economy = EconomyServices.economyService();
+            QuestPool pool = QuestPool.builtin();
+            QuestService service = new QuestService(pool);
+            QuestDefinition definition = pool.byId("daily.mine.iron");
+
+            // 先用卖矿卖菜的那个键把当日累计打进深衰减档。
+            long tier = EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER;
+            long minedGross = 10L * tier;
+            long minedNet = economy.grantDaily(player, minedGross,
+                    EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY, tier);
+            helper.assertTrue(minedNet < minedGross,
+                    "前置条件: 共享主闸必须真的在衰减, 毛 " + minedGross + " 实发 " + minedNet);
+            helper.assertTrue(sharedFaucetGross(economy, player) >= minedGross,
+                    "前置条件: 共享计数器应已累计至少 " + minedGross
+                            + ", 实得 " + sharedFaucetGross(economy, player));
+
+            QuestBoard board = service.boardOf(player);
+            board.restorePeriodic(QuestClock.currentUtcDayStamp(), List.of(new QuestProgress(definition)),
+                    QuestClock.currentUtcWeekStamp(), List.of());
+            for (int i = 0; i < definition.objective().requiredCount(); i++) {
+                service.record(new QuestFacts.BlockMine(player, Blocks.IRON_ORE.defaultBlockState()));
+            }
+
+            long balanceBefore = economy.creditBalance(player);
+            QuestService.ClaimResult result = service.claim(player, definition.id());
+            long nominal = QuestRewards.creditFor(definition);
+            helper.assertTrue(result.credit() == nominal,
+                    "共享主闸撞穿后任务仍须足额发 " + nominal + ", 实得 " + result.credit());
+            helper.assertTrue(economy.creditBalance(player) - balanceBefore == nominal,
+                    "钱包必须真的多出这 " + nominal + ", 实得增量 "
+                            + (economy.creditBalance(player) - balanceBefore));
+        } finally {
+            restoreEconomy(previous);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 每日保底 10,000 信用点 (用户决策) 在<b>代码默认值</b>下真的成立。
+     *
+     * 算式与 {@code QuestConfig} 的注释同源: {@code dailySlots} 条槽位里 {@code dailyHardSlots} 条按难度 2 结算、
+     * 其余按难度 1, 全部基于 {@code dailyBase}。把 dailyBase 调回 1,200 本条立刻挂 —— 这正是它存在的意义:
+     * 保底数字被人无意中调没了要有人喊。
+     *
+     * 断言的是 {@code getDefault()} 而不是 {@code get()}: 后者读的是本次运行所在存档的 serverconfig 文件, 那是
+     * 部署状态不是代码意图。ForgeConfigSpec 对<b>已存在</b>的键只刷新注释、不覆盖取值, 于是老存档会一直按旧数字
+     * 跑 —— 那是运维要处理的事 (改服务端 world/serverconfig/miningdim-quest.toml), 不该让一个测本代码的用例随
+     * dev 存档的新旧变红或变绿。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void dailyQuestFloorReachesTenThousandCredits(GameTestHelper helper) {
+        long base = QuestConfig.DAILY_REWARD_BASE.getDefault();
+        int slots = QuestConfig.DAILY_SLOTS.getDefault();
+        int hardSlots = QuestConfig.DAILY_HARD_SLOTS.getDefault();
+        // 难档的难度按内容池的判据取 2 (QuestPool.isHardTier 的下界), 简单档取 1。
+        long floor = base * (long) (slots - hardSlots) + base * 2L * hardSlots;
+        helper.assertTrue(floor >= 10_000L,
+                "默认配置下一天四条日常的保底应不低于 10000 信用点, 实得 " + floor);
         helper.succeed();
     }
 
@@ -931,6 +1013,11 @@ public final class QuestGameTests {
     private static long sharedFaucetGross(IEconomyService economy, ServerPlayer player) {
         return economy.todayFaucetGross(player,
                 List.of(EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY))[0];
+    }
+
+    private static long questFaucetGross(IEconomyService economy, ServerPlayer player) {
+        return economy.todayFaucetGross(player,
+                List.of(EconomyConstants.QUEST_DAILY_CREDIT_FAUCET_KEY))[0];
     }
 
     private static boolean throwsUnsupported(Runnable action) {

@@ -9,13 +9,18 @@ import net.minecraftforge.common.ForgeConfigSpec;
  * 三大 sink 当前全线失效, 全服净流入尚未做过核对, 任务奖励是一个新增 faucet, 数值必然要随经济总表反复调。
  * 把它们集中在一个 TOML 里, 调平衡不需要改代码更不需要重新编译。
  *
- * 默认值的标定锚点 (取自既有经济常量): 衰减档 60,000 CP/档 · 钻石约 500 CP · 开箱 50,000 CP。按默认值, 4 条
- * 每日任务约 7,200 CP/天, 折合约 14 颗钻石, 明显低于一个衰减档 —— 刻意保守, 宁可上线后往上调。
+ * 默认值的标定锚点 (取自既有经济常量): 衰减档 60,000 CP/档 · 钻石约 500 CP · 开箱 50,000 CP。日常基数 2,000
+ * 是从"每日保底一万"倒推的 (用户决策): 3 条简单档 x 2,000 x 难度 1 + 1 条难档 x 2,000 x 难度 2 = 10,000 CP,
+ * 折合约 20 颗钻石。这是<b>全额到手</b>而非过闸前的毛额 —— 理由见下。
  *
- * <b>这里没有"任务每日信用点上限"这一项, 是刻意的。</b> 任务奖励与卖矿卖菜共用
- * {@link com.miningdim.economy.EconomyConstants#GLOBAL_DAILY_CREDIT_FAUCET_KEY} 这一个 faucet 键与同一个
- * 60,000 衰减档 (见 {@link QuestRewards})。给任务再配一个私有上限, 正是经济文档 8.5 与既往审计判定过的缺陷
- * ——"各 faucet 各算私有上限"等于在全服统一软上限之外另开一个口子。
+ * <b>任务奖励不过全服衰减主闸 (用户决策)。</b> 发奖走
+ * {@link com.miningdim.economy.EconomyConstants#QUEST_DAILY_CREDIT_FAUCET_KEY} 这个独立键 + 下方
+ * {@link #FAUCET_TIER} 这个正常游玩够不到的档位, 于是实发恒等于名义值。判据写在那个常量的注释里, 一句话:
+ * 任务的供给由槽位数硬封, 不是靠衰减封 —— 玩家再肝也变不出第五条日常, 而任务对新人的意义正是<b>可预期</b>的
+ * 保底收入, 再叠一层衰减只会把它变成一个玩家算不明白的随机数。
+ *
+ * 独立键<b>不等于</b>不计数: 任务注入的信用点照样按日累计, 运营查得到; 真被玩出花来时把 {@link #FAUCET_TIER}
+ * 调小即可当场恢复衰减, 不用改代码。任何产能不受槽位约束的新 faucet 一律并回全服主闸, 不得援引本例。
  */
 public final class QuestConfig {
 
@@ -31,6 +36,7 @@ public final class QuestConfig {
     public static final ForgeConfigSpec.LongValue DAILY_REFRESH_COST;
     public static final ForgeConfigSpec.LongValue WEEKLY_REFRESH_COST;
 
+    public static final ForgeConfigSpec.LongValue FAUCET_TIER;
     public static final ForgeConfigSpec.LongValue DAILY_REWARD_BASE;
     public static final ForgeConfigSpec.LongValue WEEKLY_REWARD_BASE;
     public static final ForgeConfigSpec.LongValue SPECIAL_REWARD_BASE;
@@ -76,9 +82,19 @@ public final class QuestConfig {
         builder.pop();
 
         builder.push("reward");
+        FAUCET_TIER = builder.comment(
+                        "Decay tier size for the quest-only CREDIT faucet counter (quest_faucet). Quest payouts "
+                                + "deliberately do NOT join the global credit_faucet soft cap: quest supply is hard "
+                                + "capped by the number of slots dealt, not by grinding, so the cap is 'how many "
+                                + "quests', not 'how much each one is worth'. The default is far above what a day of "
+                                + "quests can ever total, so payouts are never decayed. Lower it to re-gate quest "
+                                + "income without touching code")
+                .defineInRange("faucetTier", 1_000_000L, 1L, Long.MAX_VALUE);
         DAILY_REWARD_BASE = builder.comment(
-                        "Base CREDIT for a daily quest; actual payout is base * difficulty (difficulty is 1..3)")
-                .defineInRange("dailyBase", 1_200L, 0L, Long.MAX_VALUE);
+                        "Base CREDIT for a daily quest; actual payout is base * difficulty (difficulty is 1..3). "
+                                + "The default is back-solved from a 10,000 CREDIT daily floor: three easy slots at "
+                                + "difficulty 1 plus one hard slot at difficulty 2 = 10,000")
+                .defineInRange("dailyBase", 2_000L, 0L, Long.MAX_VALUE);
         WEEKLY_REWARD_BASE = builder.comment("Base CREDIT for a weekly quest; payout is base * difficulty")
                 .defineInRange("weeklyBase", 6_000L, 0L, Long.MAX_VALUE);
         SPECIAL_REWARD_BASE = builder.comment("Base CREDIT for a special quest; payout is base * difficulty")

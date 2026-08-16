@@ -12,10 +12,17 @@ import net.minecraft.server.level.ServerPlayer;
  * 只有一处可查、一处可改 —— 经济尚未做过全局净流入核对 (docs/Economy_Completeness_Audit.md), 将来要么改档位
  * 要么整体下调, 散落调用点会漏。
  *
- * <b>faucet 口径 (硬约束)</b>: 发奖一律走 {@link EconomyConstants#GLOBAL_DAILY_CREDIT_FAUCET_KEY} +
- * {@link EconomyConstants#GLOBAL_DAILY_CREDIT_FAUCET_TIER}, 与矿工卖矿、农夫卖菜共用同一个每人每日衰减主闸。
- * 严禁给任务另起 faucetKey 或另配私有上限: 经济文档 8.5 明确所有信用点 faucet 并入统一软上限, 各算各的等于
- * 直接留一个印钞口 (仓库已因这一条判过一次 Major)。
+ * <b>faucet 口径</b>: 发奖走 {@link EconomyConstants#QUEST_DAILY_CREDIT_FAUCET_KEY} 这个独立计数键 +
+ * {@link QuestConfig#FAUCET_TIER} 这个正常游玩够不到的档位, 于是<b>实发恒等于名义值, 不过全服衰减主闸</b>
+ * (用户决策: 任务是保底收入, 必须可预期)。
+ *
+ * 这是对"所有信用点 faucet 并入统一软上限"(经济文档 8.5) 的一次<b>有判据的例外</b>, 不是对它的推翻 —— 完整
+ * 论证写在 {@link EconomyConstants#QUEST_DAILY_CREDIT_FAUCET_KEY} 的注释里, 一句话: 主闸封的是"产能无上限"的
+ * 龙头, 而任务的产能由槽位数硬封, 玩家再肝也变不出第五条日常。
+ *
+ * <b>援引边界</b>: 后来人给任何新 faucet 开独立键之前, 先回答"它的供给是不是由槽位这类硬计数封死的"。答案不是
+ * 斩钉截铁的"是", 就并回 {@link EconomyConstants#GLOBAL_DAILY_CREDIT_FAUCET_KEY} —— 仓库已因各算各的判过一次
+ * Major。
  */
 public final class QuestRewards {
 
@@ -55,8 +62,13 @@ public final class QuestRewards {
     /**
      * 发放一条任务的完成奖励。
      *
-     * @return 过完衰减主闸后实际入账的信用点 (可能小于 {@link #creditFor}, 当日 faucet 累计越高衰减越狠;
-     *         配置把该来源基数调为 0 时返回 0 且不触碰货币层)
+     * 仍然走 {@code grantDaily} 而不是裸调 {@code grant}: 前者顺带把这笔钱记进 (玩家, quest_faucet) 的当日累计
+     * 计数器, 运营查得到任务这条龙头注入了多少; 后者两样都没有。默认档位高到正常游玩够不到, 故衰减系数恒为 1,
+     * 实发 == 名义值。
+     *
+     * @return 实际入账的信用点。默认配置下恒等于 {@link #creditFor}; 运营把 {@code quest.faucetTier} 调到玩家
+     *         真能撞上的量级时才会低于它 (那正是重新给任务上闸的手段)。配置把该来源基数调为 0 时返回 0 且不
+     *         触碰货币层
      */
     public static long payout(ServerPlayer player, QuestDefinition definition) {
         long raw = creditFor(definition);
@@ -66,8 +78,8 @@ public final class QuestRewards {
             return 0;
         }
         return EconomyServices.economyService().grantDaily(player, raw,
-                EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY,
-                EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER);
+                EconomyConstants.QUEST_DAILY_CREDIT_FAUCET_KEY,
+                QuestConfig.FAUCET_TIER.get());
     }
 
     /**

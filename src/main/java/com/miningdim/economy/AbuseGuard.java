@@ -245,8 +245,10 @@ public final class AbuseGuard {
 
     /**
      * 全服每人每日信用点衰减主闸的逐档积分折算 (第十一章决策 2: 取代硬上限, 0.6 衰减 / 1% 地板 / 60000 档大小)。
-     * 所有信用点 faucet (矿工卖矿 / 农夫卖菜 / 任务 / 刷怪) 并入同一 (playerId, faucetKey) 累计计数器即共享本主闸,
-     * 复用 UTC 翻日。返回本次拟入账原始信用点经主闸衰减后实际应入账的信用点。
+     * 所有信用点 faucet (矿工卖矿 / 农夫卖菜 / 刷怪) 并入同一 (playerId, faucetKey) 累计计数器即共享本主闸,
+     * 复用 UTC 翻日。返回本次拟入账原始信用点经主闸衰减后实际应入账的信用点。任务奖励是唯一有判据的例外
+     * (走独立键 + 够不到的档位, 故系数恒为 1), 判据见
+     * {@link EconomyConstants#QUEST_DAILY_CREDIT_FAUCET_KEY}。
      *
      * 模型 (容量模型, 对标 {@link com.miningdim.job.JobXpCurve#applyDailyDecayExact}): 衰减档划在"当日累计原始毛收入"轴上,
      * 每档容量 = dailyCap (60000 毛收入)。第 k 档 (k 从 0 起) 的实发系数 = max(地板, base^k) = max(0.01, 0.6^k):

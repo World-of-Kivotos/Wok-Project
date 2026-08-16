@@ -53,20 +53,12 @@ public final class WebUiPageUrl {
             throw new IllegalArgumentException(
                     "WebUI page URL scheme must be http or https, got \"" + scheme + "\": " + url);
         }
-        String host = uri.getHost();
-        if (host == null || host.isEmpty()) {
-            throw new IllegalArgumentException("WebUI page URL is missing a host: " + url);
-        }
-        if (uri.getRawUserInfo() != null) {
-            // 页面 URL 带凭据 (user:pass@host) 是配置错误: WebUI 前端不走 HTTP Basic 鉴权,
-            // 静默接受只会把凭据悄悄嵌进以后每一次 URL 比较里。
-            throw new IllegalArgumentException("WebUI page URL must not carry userinfo/credentials: " + url);
-        }
+        HostAndPort hostAndPort = resolveHostAndPort(uri, url);
 
         // URI.getHost() 对 IPv6 字面量返回带方括号的形式 (如 "[::1]"), 直接转小写即可, 方括号不受影响。
-        String lowerHost = host.toLowerCase(Locale.ROOT);
+        String lowerHost = hostAndPort.host().toLowerCase(Locale.ROOT);
 
-        int port = uri.getPort();
+        int port = hostAndPort.port();
         int defaultPort = "https".equals(lowerScheme) ? 443 : 80;
         // 端口省略或等于该 scheme 的默认端口时不写出: 运维把默认端口显式打出来 (如 ":80") 与不写
         // 端口在语义上是同一个地址, 保留差异只会制造第二种"看起来不同但其实相同"的误判来源。
@@ -109,6 +101,60 @@ public final class WebUiPageUrl {
             return false;
         }
         return normalizedAllowed.equals(candidateNormalized);
+    }
+
+    /** host 与显式端口 (-1 表示未显式指定), 从 {@link #resolveHostAndPort} 解出。 */
+    private record HostAndPort(String host, int port) {
+    }
+
+    /**
+     * 从已解析的 {@link URI} 里取出 host 与端口, 并顺带做凭据校验 (F007 复核修正)。
+     *
+     * {@code URI.getHost()} 只认严格的 DNS 标签 / IPv4 / IPv6 语法, 一旦 authority 里出现下划线等字符
+     * (docker-compose 服务名、局域网机器名的常见形态, 如 {@code webui_host}), 整段 authority 就会退化成
+     * "registry-based" 解析: {@code getHost()}/{@code getPort()}/{@code getRawUserInfo()} 全部返回
+     * null/-1/null, 即便这段 authority 早已通过 {@code new URI(url)} 的语法校验、明显是合法的
+     * "host[:port]" 形态。原实现在 host 为 null 时直接判非法, 于是这类地址被 ForgeConfigSpec 的校验器拒绝、
+     * 静默回退到默认 localhost —— 是 F007 描述症状 (部署当天硬失败) 的换位复现。这里手工拆 authority
+     * 兜底, 而不是放弃并整条拒绝。
+     *
+     * @throws IllegalArgumentException authority 缺失、host 为空、带凭据 (user:pass@host)、
+     *         或端口段不是合法数字。
+     */
+    private static HostAndPort resolveHostAndPort(URI uri, String url) {
+        String host = uri.getHost();
+        if (host != null && !host.isEmpty()) {
+            if (uri.getRawUserInfo() != null) {
+                // 页面 URL 带凭据 (user:pass@host) 是配置错误: WebUI 前端不走 HTTP Basic 鉴权,
+                // 静默接受只会把凭据悄悄嵌进以后每一次 URL 比较里。
+                throw new IllegalArgumentException("WebUI page URL must not carry userinfo/credentials: " + url);
+            }
+            return new HostAndPort(host, uri.getPort());
+        }
+
+        String rawAuthority = uri.getRawAuthority();
+        if (rawAuthority == null) {
+            throw new IllegalArgumentException("WebUI page URL is missing a host: " + url);
+        }
+        if (rawAuthority.indexOf('@') >= 0) {
+            // registry-based 解析下 getRawUserInfo() 也退化成 null, 凭据禁令必须在这里手工重新执行一遍,
+            // 不能因为退化到这条分支就放宽。
+            throw new IllegalArgumentException("WebUI page URL must not carry userinfo/credentials: " + url);
+        }
+        int colon = rawAuthority.lastIndexOf(':');
+        String rawHost = colon < 0 ? rawAuthority : rawAuthority.substring(0, colon);
+        String rawPort = colon < 0 ? "" : rawAuthority.substring(colon + 1);
+        if (rawHost.isEmpty()) {
+            throw new IllegalArgumentException("WebUI page URL is missing a host: " + url);
+        }
+        if (rawPort.isEmpty()) {
+            return new HostAndPort(rawHost, -1);
+        }
+        try {
+            return new HostAndPort(rawHost, Integer.parseInt(rawPort));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("WebUI page URL has a malformed port: " + url, e);
+        }
     }
 
     /**

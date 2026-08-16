@@ -62,6 +62,13 @@ public final class WebUiPageUrlGameTests {
         assertNormalizesTo(helper, "https://ui.example.com/app?v=2", "https://ui.example.com/app?v=2",
                 "query 串必须原样保留 (架构决策 J4: 前端走 hash router, query 变化才是真的换文档实例)");
 
+        assertNormalizesTo(helper, "http://webui_host:5173/", "http://webui_host:5173/",
+                "host 带下划线 (docker-compose 服务名的典型形态) 必须被接受并保留非默认端口, 而不是因为 "
+                        + "java.net.URI.getHost() 对下划线的严格校验退化成 null 就整条判非法 (F007 复核修正)");
+
+        assertNormalizesTo(helper, "http://Webui_Host/app", "http://webui_host/app",
+                "host 带下划线时同样要转小写并省略默认端口 80, 与非下划线 host 的归一化规则一致");
+
         String dataUri = "data:text/html;base64,PGh0bWw+";
         helper.assertTrue(WebUiPageUrl.normalize(dataUri).equals(dataUri),
                 "data: URI 必须原样直通不做任何加工 (jar 内置开箱页走这条, 加工即破), got "
@@ -85,6 +92,9 @@ public final class WebUiPageUrlGameTests {
                 "无 host 的 URL 必须被拒绝");
         assertNormalizeThrows(helper, "https://ops:secret@ui.example.com/",
                 "带凭据 (userinfo) 的 URL 必须被拒绝, 防止凭据悄悄嵌进后续每一次比较");
+        assertNormalizeThrows(helper, "https://ops:secret@webui_host/",
+                "host 带下划线时 java.net.URI 会把凭据校验一起退化掉 (getRawUserInfo() 也变 null), "
+                        + "resolveHostAndPort 的手工兜底必须重新执行同一条凭据禁令, 不能因为退化到这条分支就放宽");
         assertNormalizeThrows(helper, "https://ui.example.com/%zz",
                 "畸形百分号转义 (%zz 不是合法十六进制) 必须被拒绝");
 

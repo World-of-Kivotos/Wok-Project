@@ -4,6 +4,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 
@@ -15,8 +16,11 @@ import java.util.UUID;
  * 时钟用 {@link MinecraftServer#getTickCount()} 全局服务器 tick (spec 第十二章红线: 不用 level.getGameTime,
  * 全局时钟跨维度一致; 反复进出矿洞维度时 CD 不漂移)。
  *
- * 内存态 (UUID -> 截止 tick map); 登出清理由 {@link #clear(UUID)}。强增益 "同类不可续期" 不在此 (那是效果
- * 应用层的去重, 见 {@link TarotEffectEngine}); 本类只管时间闸。全部主线程访问, 无需并发保护。
+ * 内存态 (UUID -> 截止 tick map)。冷却按 UUID 在整个服务端会话内保留, <b>登出不清</b> (F022: 公服断线重连
+ * 往往只需十几秒, 若登出即清表, 12 分钟量级的闪耀 CD 会被重连白嫖归零, 等于闸门形同虚设)。只有两处会清:
+ * 服务器整表停机 {@link #clearAll()}, 以及周期性回收已过期条目的 {@link #purgeExpired(long)} (登出不清表以后,
+ * 断线玩家的残留条目不再自然消失, 需要定期回收防止随独立玩家数单调增长)。强增益 "同类不可续期" 不在此
+ * (那是效果应用层的去重, 见 {@link TarotEffectEngine}); 本类只管时间闸。全部主线程访问, 无需并发保护。
  */
 public final class TarotCooldownManager {
 
@@ -89,9 +93,14 @@ public final class TarotCooldownManager {
         return c != null && now < c;
     }
 
-    /** 清空某卡的非闪耀级 CD (按卡逐个清的入口; 闪耀级 CD 不在可清范围)。 */
-    public void clearCard(UUID player, int cardId) {
-        Map<Integer, Long> cards = cardEnd.get(player);
+    /**
+     * 清空某玩家某张卡的 CD (按卡逐个清的入口)。
+     *
+     * @param shiny true 清闪耀级表 (shinyCardEnd), false 清非闪耀级表 (cardEnd)。演出被打断补偿 (F074) 需要
+     *              按本次实际触发的级别回退对应表, 否则闪耀牌演出被打断后仍会被普通表误清 (等于没退)。
+     */
+    public void clearCard(UUID player, int cardId, boolean shiny) {
+        Map<Integer, Long> cards = (shiny ? shinyCardEnd : cardEnd).get(player);
         if (cards != null) {
             cards.remove(cardId);
         }
@@ -105,11 +114,45 @@ public final class TarotCooldownManager {
         cardEnd.remove(player);
     }
 
-    /** 登出清理某玩家全部 CD 状态 (内存态不跨会话; 重连重新计时)。 */
-    public void clear(UUID player) {
-        gcdEnd.remove(player);
-        cardEnd.remove(player);
-        shinyCardEnd.remove(player);
+    /**
+     * 整表清空 (ServerStopping 专用)。本类时钟是 {@link MinecraftServer#getTickCount()}, 单机整合服换存档
+     * (关服再开一个新存档) 时 tick 从 0 重新计数; 若上一局残留的 endTick 还留在表里, 新时钟下 now 远小于旧
+     * endTick, 玩家会被拿旧存档的截止 tick 误锁在冷却里, 故停服时必须整表清, 不能像登出那样保留 (F022)。
+     */
+    public void clearAll() {
+        gcdEnd.clear();
+        cardEnd.clear();
+        shinyCardEnd.clear();
+    }
+
+    /**
+     * 回收已过期的条目 (endTick &lt;= now 的记录连同变空的 per-player 内层 map 一并移除)。
+     * 登出不再清冷却表 (F022) 之后, 断线玩家的记录不会自然消失, 需要周期性回收, 否则表随历史登陆过的
+     * 独立玩家数单调增长。GCD 表不在回收范围内 —— GCD 截止时间以秒计, 条目量与在线玩家数同阶, 无长期
+     * 堆积风险, 且早于每卡 CD 过期, 回收每卡表时 GCD 表通常已自然被后续 tryUse 覆盖。
+     */
+    public void purgeExpired(long now) {
+        purgeExpiredTable(cardEnd, now);
+        purgeExpiredTable(shinyCardEnd, now);
+    }
+
+    private static void purgeExpiredTable(Map<UUID, Map<Integer, Long>> table, long now) {
+        Iterator<Map.Entry<UUID, Map<Integer, Long>>> playerIt = table.entrySet().iterator();
+        while (playerIt.hasNext()) {
+            Map<Integer, Long> cards = playerIt.next().getValue();
+            cards.entrySet().removeIf(e -> e.getValue() <= now);
+            if (cards.isEmpty()) {
+                playerIt.remove();
+            }
+        }
+    }
+
+    /** 三张表里出现过的 UUID 去重个数; 仅供 GameTest 断言 {@link #purgeExpired(long)} 确实回收了残留条目。 */
+    int trackedPlayers() {
+        java.util.Set<UUID> ids = new java.util.HashSet<>(gcdEnd.keySet());
+        ids.addAll(cardEnd.keySet());
+        ids.addAll(shinyCardEnd.keySet());
+        return ids.size();
     }
 
     private static long currentTick(ServerPlayer player) {

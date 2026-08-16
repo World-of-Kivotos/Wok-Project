@@ -727,10 +727,11 @@ public final class TarotGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         TarotCastManager casts = new TarotCastManager();
         int[] resolutions = {0};
+        int[] discards = {0};
 
-        helper.assertTrue(casts.begin(player, 6, p -> resolutions[0]++),
+        helper.assertTrue(casts.begin(player, 6, p -> resolutions[0]++, p -> discards[0]++),
                 "first card presentation must enter the cast queue");
-        helper.assertFalse(casts.begin(player, 6, p -> resolutions[0]++),
+        helper.assertFalse(casts.begin(player, 6, p -> resolutions[0]++, p -> discards[0]++),
                 "a second card must not start while the first presentation is active");
         casts.tick(helper.getLevel().getServer());
         helper.assertTrue(resolutions[0] == 0,
@@ -742,6 +743,8 @@ public final class TarotGameTests {
                     "gameplay effect resolves once after the presentation delay");
             helper.assertTrue(casts.pendingCount() == 0,
                     "resolved presentation leaves no pending cast behind");
+            helper.assertTrue(discards[0] == 0,
+                    "a normal resolution must never also trigger the discard refund (F074: that would be a free card)");
             helper.succeed();
         });
     }

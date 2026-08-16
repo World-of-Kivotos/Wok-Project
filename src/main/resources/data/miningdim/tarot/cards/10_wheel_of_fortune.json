@@ -129,7 +129,8 @@
     "ops": [
       {
         "kind": "self_refresh_beneficial",
-        "durationTicks": 1200
+        "durationTicks": 1200,
+        "maxAmplifier": 1
       },
       {
         "kind": "self_potion",

@@ -206,8 +206,11 @@ public final class TarotCardItem extends Item {
     @Override
     public void inventoryTick(ItemStack stack, Level level, Entity entity, int slotId, boolean isSelected) {
         super.inventoryTick(stack, level, entity, slotId, isSelected);
-        if (!level.isClientSide
-                && (!hasCurrentEffectTooltip(stack.getTag()) || cachedEffectTooltip(stack.getTag()).isEmpty())) {
+        // F073: 只判 NBT 是否存在非空缓存表 (ListTag map 查表), 不反序列化其内容——每张牌每 tick 全量 Gson
+        // 解析整份 tooltip JSON 结果只为判空即丢, 是纯浪费。若缓存行本身写坏 (JSON 串损坏), 不再靠背包 tick
+        // 反复重试修复, 而是等 EFFECT_TOOLTIP_VERSION 变更时统一重写；期间显示侧已有兜底——appendHoverText 在
+        // cachedEffectTooltip 解析失败返回空表时会回落到 liveEffectTooltip, 玩家看到的说明不会因此消失。
+        if (!level.isClientSide && !hasUsableEffectTooltip(stack.getTag())) {
             // 兼容更新前已经存在的卡牌：第一次进入玩家背包后补写真实牌效，随后由原版物品同步送到客户端。
             refreshEffectTooltip(stack);
         }
@@ -224,6 +227,11 @@ public final class TarotCardItem extends Item {
         return hasCardIdentity(tag)
                 && tag.getInt(K_EFFECT_TOOLTIP_VERSION) == EFFECT_TOOLTIP_VERSION
                 && tag.contains(K_EFFECT_TOOLTIP, Tag.TAG_LIST);
+    }
+
+    /** 缓存表版本匹配且非空——只查 NBT 结构, 不反序列化内容 (F073 热路径判据)。 */
+    private static boolean hasUsableEffectTooltip(CompoundTag tag) {
+        return hasCurrentEffectTooltip(tag) && tag.getList(K_EFFECT_TOOLTIP, Tag.TAG_STRING).size() > 0;
     }
 
     private static void refreshEffectTooltip(ItemStack stack) {

@@ -1,5 +1,6 @@
 package com.miningdim.job.tarot;
 
+import com.miningdim.combat.PlayerDamageReduction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -34,8 +35,14 @@ import java.util.UUID;
  */
 public final class TarotCombatHandlers {
 
-    /** package-private: 仅 {@link TarotSystem} 实例化注册事件。 */
+    /**
+     * package-private: 仅 {@link TarotSystem} 实例化注册事件。同时在此登记预知减伤源
+     * {@link PlayerDamageReduction#register}: 本类是预知窗的唯一消费方 (onLivingHurtVictim 消费窗口 + 暂存),
+     * 由它自己登记可以避免把职业内部窗口语义泄露到 {@link TarotSystem} 门面; TarotSystem 只 new 一次 (字段初始化),
+     * 注册表 (CopyOnWriteArrayList) 对顺序不敏感。
+     */
     TarotCombatHandlers() {
+        PlayerDamageReduction.register(new PremonitionReduction());
     }
 
     /** 免疫击退窗 (倒吊人逆位/力量闪耀): 窗口内强度归零 (严禁 AttributeModifier; 仿厨师稳膛红线)。 */
@@ -83,6 +90,22 @@ public final class TarotCombatHandlers {
     /**
      * 受伤侧: 无敌窗归零伤害 (真免疫); 延迟记账冻死窗挂账并冻结致命伤 (倒吊人闪耀); 反伤窗回击 (正义正位);
      * 累计反击窗逐攻击者累计伤害 (正义闪耀, 窗口结束统一回击)。
+     *
+     * 女祭司正位预知 (F096): 不再就地 setAmount 施加减伤, 而是暂存到 {@link TarotCombatState} 交
+     * {@link PlayerDamageReduction} 在 LOWEST 与凝脂/矿脉抗性/烈酒钝感一起连乘并吃同一个 PLAYER_MAX_REDUCTION
+     * 全局帽 (见本类底部 {@link PremonitionReduction})。真·免疫窗 (愚者 setAmount(0), 上面那段) 是另一语义,
+     * 不受该帽约束, 保留原样就地归零。
+     *
+     * <p>复核追加修正: 上面这条 stash 机制只管住了"最终打到玩家身上的真实伤害"要在 LOWEST 统一乘算, 但本
+     * handler 剩下的记账/反伤/分摊三段逻辑仍在默认优先级里跑, 若继续读 {@code event.getAmount()} 会读到
+     * "预知减伤生效前"的原始值 —— F096 改之前这里是就地 setAmount, 三段逻辑读到的天然已经是预知减伤后的量;
+     * 改成 stash 之后若不跟着调整, 相当于把预知的减伤收益从"记账/反伤/队友分摊也按比例少算"退化成"记账/
+     * 反伤/队友分摊完全不知道预知生效过", 数值直接翻倍。修法: 把 reduction 提到方法顶层, 三段逻辑各自按
+     * {@code event.getAmount() * (1 - reduction)} 算它们自己要用的基数, 但不把这个基数写回 event —— 写回去
+     * 会导致 LOWEST 的 PlayerDamageReduction 把 reduction 在同一次受击里乘算两遍 (reduction 本身就是
+     * PlayerDamageReduction 注册表里的一个源)。队友分摊仍然只从 event.getAmount() 的原始值里扣
+     * distributed (而非从 reduction 调整后的值里扣), 这样受害者剩下的那部分原始伤害在 LOWEST 才被
+     * reduction 连同其它减伤源一起乘算一次, 不多不少。
      */
     @SubscribeEvent
     public void onLivingHurtVictim(LivingHurtEvent event) {
@@ -101,32 +124,40 @@ public final class TarotCombatHandlers {
             return;
         }
 
-        // 女祭司正位预知：仅首次实际受击消费窗口，按品质减伤后继续进入记账/反伤/分摊流程。
+        // 女祭司正位预知：仅首次实际受击消费窗口，暂存减伤率交 LOWEST 单点结算连乘 (F096, 不再就地 setAmount)。
+        // reduction 同时留在方法作用域内, 供下面记账/反伤/分摊三段各自换算 (复核追加修正, 见类头说明)。
+        double reduction = 0.0D;
         if (event.getAmount() > 0.0F) {
-            double reduction = TarotCombatState.consumePremonitionReduction(victim.getUUID(), now);
+            reduction = TarotCombatState.consumePremonitionReduction(victim.getUUID(), now);
             if (reduction > 0.0D) {
-                event.setAmount((float) Math.max(0.0D, event.getAmount() * (1.0D - reduction)));
+                TarotCombatState.stashPremonitionReduction(victim.getUUID(), now, reduction);
                 victim.displayClientMessage(Component.translatable(
                         "message.miningdim.tarot.premonition.block", Math.round(reduction * 100.0D)), true);
             }
         }
+        float amountAfterPremonition = (float) (event.getAmount() * (1.0D - reduction));
 
         // 延迟记账冻死窗 (倒吊人闪耀): 本次伤害挂账; 若会致命则把伤害削到 "留 1 滴血" (冻结不死), 否则照常承伤。
         // 挂起账本在窗口结束按 50% 结算 (TarotEffectEngine.settleLedger)。spec "致命伤冻结不死"。
+        // 记账值按预知减伤后的量算 (复核追加修正) —— 结算走 setHealth 直接扣血, 不再经过 LOWEST, 记原始值
+        // 等于让预知对这条延迟伤害完全失效。lethalGuard 的钳制比较仍用原始 event.getAmount() (保守, 多护一点
+        // 不是 bug), 不受这次修正影响。
         if (TarotCombatState.hasLedger(victim.getUUID(), now)) {
-            TarotCombatState.recordLedgerDamage(victim.getUUID(), event.getAmount(), now);
+            TarotCombatState.recordLedgerDamage(victim.getUUID(), amountAfterPremonition, now);
             float lethalGuard = victim.getHealth() - 1.0F; // 最多扣到剩 1 血 (冻结致命伤)。
             if (event.getAmount() > lethalGuard) {
                 event.setAmount(Math.max(0.0F, lethalGuard));
             }
         }
 
-        // 反伤窗 (正义正位): 把本次受到伤害的 percent 回击攻击者, 单次封顶 perHitCap。
+        // 反伤窗 (正义正位): 把本次受到伤害的 percent 回击攻击者, 单次封顶 perHitCap。按预知减伤后的量算
+        // (复核追加修正) —— 回击走独立的 attacker.hurt(magic), 不经过受害者的 LOWEST 结算, 用原始值等于
+        // 让预知对这一击的反伤完全失效。
         double reflectPct = TarotCombatState.reflectPercent(victim.getUUID(), now);
         if (reflectPct > 0.0D && event.getSource().getEntity() instanceof LivingEntity attacker
                 && attacker != victim) {
             double cap = TarotCombatState.reflectPerHitCap(victim.getUUID(), now);
-            double reflected = Math.min(event.getAmount() * reflectPct, cap);
+            double reflected = Math.min(amountAfterPremonition * reflectPct, cap);
             if (reflected > 0.0D && attacker.level() instanceof ServerLevel level) {
                 // 用 magic 源 (绕过攻击者护甲/抗性的近战格挡; 不递归触发本类吸血)。
                 attacker.hurt(level.damageSources().magic(), (float) reflected);
@@ -139,6 +170,11 @@ public final class TarotCombatHandlers {
             TarotCombatState.recordReflectAccum(victim.getUUID(), src.getUUID(), event.getAmount(), now);
         }
 
+        // 队友分摊 (节制闪耀): distributed 按预知减伤后的量算 (复核追加修正, 队友承伤不该因为受害者自己有
+        // 预知窗而翻倍), 但从 event.getAmount() 的原始值里扣 —— 受害者剩下的那部分原始伤害仍要在 LOWEST
+        // 被 reduction 连同其它减伤源乘算一次; 若这里改成从 amountAfterPremonition 里扣并写回 event, LOWEST
+        // 会把 reduction 在同一次受击里乘两遍。队友直接 setHealth (不经过队友自己的 LOWEST 减伤链), 维持
+        // 原有语义不变, 只修正被分摊的基数。
         TarotCombatState.DamageShareSnapshot share = TarotCombatState.damageShare(victim.getUUID(), now);
         if (share != null && share.percent() > 0.0D && event.getAmount() > 0.0F) {
             java.util.List<ServerPlayer> recipients = share.members().stream()
@@ -148,7 +184,7 @@ public final class TarotCombatHandlers {
                     .filter(Player::isAlive)
                     .toList();
             if (!recipients.isEmpty()) {
-                float distributed = (float) (event.getAmount() * share.percent());
+                float distributed = (float) (amountAfterPremonition * share.percent());
                 event.setAmount(Math.max(0.0F, event.getAmount() - distributed));
                 float each = distributed / recipients.size();
                 for (ServerPlayer recipient : recipients) {
@@ -244,6 +280,28 @@ public final class TarotCombatHandlers {
                 // 延迟连死: 经调度器在 delay ticks 后对 partner setHealth(0); partner 此时已无绑定, 不会再连锁。
                 TarotRuntime.scheduler().scheduleOnce(partnerPlayer, delay, p -> p.setHealth(0.0F));
             }
+        }
+    }
+
+    /**
+     * 女祭司正位预知的命名减伤源 (F096): 把 {@link #onLivingHurtVictim} 同 tick 暂存的减伤率交
+     * {@link PlayerDamageReduction} 在 LOWEST 单点取走并入连乘, 使预知减伤吃到与其它职业减伤源相同的
+     * PLAYER_MAX_REDUCTION 全局帽, 不再绕开单点结算。
+     */
+    private static final class PremonitionReduction implements PlayerDamageReduction.ReductionSource {
+
+        @Override
+        public String name() {
+            return "tarot_premonition";
+        }
+
+        @Override
+        public double rate(Player victim, DamageSource source) {
+            MinecraftServer server = victim.getServer();
+            if (server == null) {
+                return 0.0D; // 非服务端上下文不可能有窗口 (仿本类其它 handler 的 server==null 早退惯例)。
+            }
+            return TarotCombatState.takePremonitionReduction(victim.getUUID(), server.getTickCount());
         }
     }
 }

@@ -13,7 +13,7 @@
  * 因此两边不会各自维护一份余额/背包/挂单。详见 handlers.ts 文件头。
  */
 
-export { callMock, primeRealDomainMirror, refreshCaseTotals, refreshWalletAndInventory } from './handlers'
+export { callMock, primeRealDomainMirror, recordMirrorError, refreshInventoryMirror } from './handlers'
 export type { MockActionName, MockPayloadOf, MockResultOf } from './handlers'
 
 export { getWorld, mutateWorld, nowMs, resetWorld, subscribeWorld } from './store'

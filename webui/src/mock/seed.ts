@@ -8,9 +8,11 @@
  *
  * 刻意铺满的边界形态 (设计稿最容易漏掉的那些):
  *   - 空列表      部分商店无比价对象
- *   - 超长中文名  防弹背心的 45 字名, 撞挂单行/物品格/表头三处截断 (与 bridge.mock 用的是同一件物品)
- *   - NBT 变体件  同 itemId 同翻译键、只靠 customModelData + nameParts 区分的枪匠零件 (见 ITEM_GAS_CORE)
  *   - 单页刚好装满  系统商店 20 条 (按 pageSize=20 恰好一页, 第 2 页为空)
+ *
+ * 已随 F059 (mirror.myListings 整字段核销) 一并删除的边界样本: 超长中文名 (原 ITEM_LONG_NAME, 防弹背心
+ * 45 字名) 与 NBT 变体件 (原 ITEM_GAS_CORE, customModelData/nameParts 区分同 itemId 枪匠零件) 都只在
+ * "我的挂单"种子里出现过, 唯一消费方随字段一起没了。这两类边界在换皮预览里目前没有别的样本覆盖。
  *
  * 市场那一块 (成交流水 / 待结货款 / 每日额度 / 不可交易规则) 已随 W2 接线搬进 lib/bridge.mock ——
  * 它们现在都是真契约 action, 假后端只能有一个, 本文件不再留第二份。
@@ -18,15 +20,12 @@
  * 其他玩家名册 —— 对应 action 已全部落地真服, 种子留着只会变成第二份会漂移的权威。
  */
 
-import type { ItemNamePart } from '../lib/i18n'
-import type { MarketListing, PlayerJobProgressEntry, WebUiJobId } from '../lib/types'
+import type { PlayerJobProgressEntry, WebUiJobId } from '../lib/types'
 import type { PlannedShopEntry } from './planned'
 import type { MockWorld } from './store'
 
 /** 与 bridge.mock 的 MOCK_PLAYER_NAME 逐字一致; 不一致会让"我的挂单"两边认不出同一个人。 */
 const PLAYER_NAME = '测试员_Mock'
-
-const MINUTE = 60_000
 
 /** 假定的默认分页大小; 上面"刚好装满/差一条"两个边界都是按它凑的。 */
 const ASSUMED_PAGE_SIZE = 20
@@ -43,73 +42,15 @@ interface SeedItem {
   itemId: string
   descriptionId: string
   displayName: string
-  /** NBT 变体件专用, 见 ITEM_GAS_CORE。 */
-  customModelData?: number
-  /** NBT 变体件专用, 见 ITEM_GAS_CORE。 */
-  nameParts?: ItemNamePart[]
 }
 
 function seedItem(itemId: string, descriptionId: string, displayName: string): SeedItem {
   return { itemId, descriptionId, displayName }
 }
 
-/**
- * NBT 变体件。itemId 与 descriptionId 都是 Item 级的 (195 种变体共用), 真正区分它们的是后两个字段。
- * displayName 只作 mock 内部对账用 (真桥上它由 nameParts 经 client.i18n 拼出来)。
- *
- * 返回类型把那两个字段收成**必填**, 而不是原样返回 SeedItem。
- * 理由是 exactOptionalPropertyTypes: 契约类型里它们是 `?: number` (要么键不存在, 要么是 number,
- * 不接受显式 undefined)。若这里返回的仍是可选版, 把 ITEM_GAS_CORE.customModelData 铺进挂单字面量时
- * 类型是 `number | undefined`, 直接被拒。收成必填是语义上更准的写法 —— 变体件按定义就一定有这两个值。
- */
-type SeedVariantItem = SeedItem & Required<Pick<SeedItem, 'customModelData' | 'nameParts'>>
-
-function seedVariant(
-  itemId: string,
-  descriptionId: string,
-  displayName: string,
-  customModelData: number,
-  nameParts: ItemNamePart[],
-): SeedVariantItem {
-  return { itemId, descriptionId, displayName, customModelData, nameParts }
-}
-
 const ITEM_DIAMOND = seedItem('minecraft:diamond', 'item.minecraft.diamond', '钻石')
 const ITEM_GOLD = seedItem('minecraft:gold_ingot', 'item.minecraft.gold_ingot', '金锭')
 const ITEM_IRON_ORE = seedItem('minecraft:iron_ore', 'block.minecraft.iron_ore', '铁矿石')
-/**
- * 超长中文名边界: 45 字, 取自 lang/zh_cn.json 里全库最长的那条真实物品名 (防弹背心系列)。
- * 贴图 textures/item/plate_armor_banshee_atacs_au.png 真实存在, 故它在界面上是一张真图标而不是占位块。
- */
-const ITEM_LONG_NAME = seedItem(
-  'miningdim:plate_armor_banshee_atacs_au',
-  'item.miningdim.plate_armor_banshee_atacs_au',
-  'Shellback Tactical Banshee 防弹背心（A-Tacs AU 迷彩）',
-)
-
-/**
- * NBT 变体件样本: AR 平台的「格赫娜高速导气」传奇档。
- *
- * 它存在的意义不是多一件商品, 而是让**整条变体链路在假数据模式下也真的跑一遍** ——
- * 195 种枪匠零件共用 miningdim:gunsmith_part 这一个 itemId 与一个翻译键, 只有 customModelData
- * 与 nameParts 能把它们区分开。少了这个样本, 换皮预览里永远看不出变体件画错没有。
- *
- * customModelData 1000005 不是编的: 它等于 variant.index()*1_000_000 + platform*100 + part*10 + quality + 1,
- * 与构建期从模型 overrides 生成的 /mc/variants.json 里那条 gehenna_high_speed_gas_legendary 逐位相等。
- * 改它之前先看那张表。
- */
-const ITEM_GAS_CORE = seedVariant(
-  'miningdim:gunsmith_part',
-  'item.miningdim.gunsmith_part',
-  '格赫娜高速导气 传奇',
-  1_000_005,
-  [
-    { k: 'gunsmith.variant.gehenna_high_speed_gas' },
-    { t: ' ' },
-    { k: 'gunsmith.quality.legendary' },
-  ],
-)
-const ITEM_TACZ_GUN = seedItem('tacz:modern_kinetic_gun', 'item.tacz.modern_kinetic_gun', '现代动能枪械')
 const ITEM_WHEAT = seedItem('minecraft:wheat', 'item.minecraft.wheat', '小麦')
 const ITEM_CARROT = seedItem('minecraft:carrot', 'item.minecraft.carrot', '胡萝卜')
 const ITEM_POTATO = seedItem('minecraft:potato', 'item.minecraft.potato', '马铃薯')
@@ -194,49 +135,6 @@ function seedShops(): PlannedShopEntry[] {
   return shops
 }
 
-// ============================================================
-// 挂单镜像的种子 (与 bridge.mock 的初始挂单同 id, 便于对照; 真实数据仍以 call 回执为准)
-// ============================================================
-
-function seedMyListings(epoch: number): MarketListing[] {
-  return [
-    {
-      id: 1002,
-      sellerName: PLAYER_NAME,
-      itemId: ITEM_LONG_NAME.itemId,
-      descriptionId: ITEM_LONG_NAME.descriptionId,
-      count: 1,
-      unitPrice: 88_000,
-      total: 88_000,
-      createdAt: epoch - 140 * MINUTE,
-    },
-    {
-      id: 1005,
-      sellerName: PLAYER_NAME,
-      itemId: ITEM_TACZ_GUN.itemId,
-      descriptionId: ITEM_TACZ_GUN.descriptionId,
-      count: 2,
-      unitPrice: 12_500,
-      total: 25_000,
-      createdAt: epoch - 900 * MINUTE,
-    },
-    {
-      // NBT 变体件: itemId 与 descriptionId 都是 Item 级的, 名字与图标全靠后两个字段区分。
-      // 少了这一条, 换皮预览里看不出变体件画对没有 (它是本页唯一走这条链路的数据)。
-      id: 1007,
-      sellerName: PLAYER_NAME,
-      itemId: ITEM_GAS_CORE.itemId,
-      descriptionId: ITEM_GAS_CORE.descriptionId,
-      customModelData: ITEM_GAS_CORE.customModelData,
-      nameParts: ITEM_GAS_CORE.nameParts,
-      count: 1,
-      unitPrice: 34_800,
-      total: 34_800,
-      createdAt: epoch - 20 * MINUTE,
-    },
-  ]
-}
-
 /**
  * 造一份全新的世界。每次调用都返回互不共享引用的新对象 —— resetWorld 依赖这一点,
  * 若这里返回了模块级常量的引用, 重置之后玩家上一轮的改动会跟着一起回来。
@@ -248,12 +146,10 @@ export function createInitialWorld(): MockWorld {
     epoch,
     player: { name: PLAYER_NAME, isOp: true },
     mirror: {
-      // 全 null: 本会话还没拉过真域数据。面板据此显示骨架, 而不是显示一个假的 0。
-      wallet: null,
+      // inventory 为 null: 本会话还没拉过真域背包数据。面板据此显示骨架, 而不是显示一个假的空背包。
       inventory: null,
-      myListings: seedMyListings(epoch),
-      caseOwnedTotal: null,
       refreshedAt: 0,
+      lastError: null,
     },
     walletOverlay: { credit: 0, azure: 0 },
     jobs: { progress: seedJobProgress() },

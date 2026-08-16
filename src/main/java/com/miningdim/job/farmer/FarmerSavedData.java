@@ -41,6 +41,7 @@ public final class FarmerSavedData extends SavedData {
 
     private static final String K_OWNERS = "farmlandOwners";
     private static final String K_COUNTS_LEGACY = "placedCounts";
+    private static final String K_LEGACY_OVERFLOW = "legacyOverflow";
     private static final String K_DIM = "dim";
     private static final String K_POS = "pos";
     private static final String K_UUID = "uuid";
@@ -72,6 +73,17 @@ public final class FarmerSavedData extends SavedData {
     /** 玩家 UUID -> 当前全局已放置 mod 耕地数; 由 {@link #farmlandOwners} 派生的运行期计数索引, 不单独持久化。 */
     private final Map<UUID, Integer> placedCounts = new HashMap<>();
 
+    /**
+     * 玩家 UUID -> 迁移前遗留、未纳入 {@link #farmlandOwners} 坐标索引的历史占用数 (F025 迁移口径复核修正)。
+     * 旧存档只留过总数没留坐标, 无法反查回 farmlandOwners、也就永远无法通过 releaseFarmland 自然回收 ——
+     * 直接丢弃这部分数值等于让老玩家在硬封顶 {@link com.miningdim.job.farmer.FarmlandPlacementGuard} 之外
+     * 白得一份不可回收的额外配额 (复核 Major, 复现 F025 本身的经济危害)。故如实保留原值计入
+     * {@link #placedCount(UUID)}, 不再自动衰减、也不主动豁免 —— 是否给老玩家一次性宽限是运营口径决策,
+     * 代码不替主控拍板, 只提供机械清零动作, 唯一清除入口是 {@link #clearLegacyOverflow(UUID)} (命令层见
+     * FarmerSystem /farmer admin recount/legacy)。持久化于独立 tag, 不按坐标 (单独一张玩家 -> 数量表)。
+     */
+    private final Map<UUID, Integer> legacyOverflow = new HashMap<>();
+
     /** 玩家 UUID -> 当日卖菜记录 (株数 + 日戳; 翻日整条重建, 第八节收购曲线计数)。 */
     private final Map<UUID, DailySell> wheatSold = new HashMap<>();
 
@@ -84,9 +96,33 @@ public final class FarmerSavedData extends SavedData {
                 FarmerSavedData::load, FarmerSavedData::new, DATA_NAME);
     }
 
-    /** 玩家当前已放置 mod 耕地数 (无记录返回 0)。派生计数, 语义与修复前一致。 */
+    /**
+     * 玩家当前占用的 mod 耕地放置配额 (无记录返回 0)。= 归属索引派生计数 {@link #placedCounts} +
+     * 迁移遗留占用 {@link #legacyOverflow} (后者未清零前同样计入硬封顶, 复核 Major)。
+     */
     public int placedCount(UUID playerId) {
-        return placedCounts.getOrDefault(playerId, 0);
+        return placedCounts.getOrDefault(playerId, 0) + legacyOverflow.getOrDefault(playerId, 0);
+    }
+
+    /** 玩家当前的迁移遗留占用数 (无记录返回 0)。供 /farmer admin legacy 对账查询展示, 不参与其它用途。 */
+    public int legacyOverflow(UUID playerId) {
+        return legacyOverflow.getOrDefault(playerId, 0);
+    }
+
+    /**
+     * 清除一名玩家的迁移遗留占用 (唯一清除入口, 命令层见 FarmerSystem /farmer admin recount)。
+     * 是否清除、何时清除由运营对账后判断 (例如已核实玩家对应的旧耕地已拆除), 本方法只做机械清零,
+     * 不内置任何自动豁免规则或数值。
+     *
+     * @return 清除前的遗留占用数 (0 表示该玩家本无遗留占用, 调用方据此可提示"无需处理", 而非误报成功)
+     */
+    public int clearLegacyOverflow(UUID playerId) {
+        Integer removed = legacyOverflow.remove(playerId);
+        if (removed == null) {
+            return 0;
+        }
+        setDirty();
+        return removed;
     }
 
     /** 某坐标当前的耕地放置者 (无记录返回 null: 旧存档遗留、指令生成等合法常态)。 */
@@ -126,9 +162,13 @@ public final class FarmerSavedData extends SavedData {
         return owner;
     }
 
-    /** 维护 {@link #placedCounts} 派生计数 (钳零, 归零即清条目, 避免离场玩家长期占表)。 */
+    /**
+     * 维护 {@link #placedCounts} 派生计数 (钳零, 归零即清条目, 避免离场玩家长期占表)。
+     * 必须只读写 {@link #placedCounts} 本身, 不能经 {@link #placedCount(UUID)} (后者会叠加
+     * {@link #legacyOverflow}, 在此处读回来再写回 placedCounts 会把遗留占用重复计入两张表)。
+     */
     private void bumpCount(UUID playerId, int delta) {
-        int next = Math.max(0, placedCount(playerId) + delta);
+        int next = Math.max(0, placedCounts.getOrDefault(playerId, 0) + delta);
         if (next == 0) {
             placedCounts.remove(playerId);
         } else {
@@ -198,6 +238,15 @@ public final class FarmerSavedData extends SavedData {
         }
         tag.put(K_OWNERS, owners);
 
+        ListTag legacy = new ListTag();
+        for (Map.Entry<UUID, Integer> e : legacyOverflow.entrySet()) {
+            CompoundTag entry = new CompoundTag();
+            entry.putUUID(K_UUID, e.getKey());
+            entry.putInt(K_COUNT, e.getValue());
+            legacy.add(entry);
+        }
+        tag.put(K_LEGACY_OVERFLOW, legacy);
+
         ListTag sold = new ListTag();
         for (Map.Entry<UUID, DailySell> e : wheatSold.entrySet()) {
             DailySell record = e.getValue();
@@ -226,25 +275,40 @@ public final class FarmerSavedData extends SavedData {
                 }
             }
         }
-        // 一次性、有界迁移: 旧存档的 placedCounts 是"破坏者回收"口径, 无归属记录可核对回收权, 保留会让
-        // 老玩家配额永久冻结且无补救入口 (F025)。丢弃这些计数, 配额改由归属索引 (K_OWNERS) 重建 —— 代价是
-        // 老玩家最多一次性多放出"迁移前已放块数"那么多新配额, 之后不再复现 (K_OWNERS 是唯一持久口径)。
-        if (tag.contains(K_COUNTS_LEGACY)) {
+        if (tag.contains(K_LEGACY_OVERFLOW)) {
+            // 常规路径: 已跑过一次迁移 (下方分支) 或本就是新存档, legacyOverflow 已是本类自己持久化的字段。
+            ListTag overflow = tag.getList(K_LEGACY_OVERFLOW, Tag.TAG_COMPOUND);
+            for (int i = 0; i < overflow.size(); i++) {
+                CompoundTag entry = overflow.getCompound(i);
+                if (entry.hasUUID(K_UUID)) {
+                    data.legacyOverflow.put(entry.getUUID(K_UUID), entry.getInt(K_COUNT));
+                }
+            }
+        } else if (tag.contains(K_COUNTS_LEGACY)) {
+            // 一次性迁移 (复核 Major 修正): 只在从"修复前"存档首次升级时命中 (存档一旦重新保存过, 会写出
+            // K_LEGACY_OVERFLOW, 此分支此后不再命中)。旧 placedCounts 只留总数没留坐标, 无法核对回归属索引,
+            // 但数值本身如实保留计入 legacyOverflow (不再丢弃) —— 丢弃会让老玩家在硬封顶之外白得一份不可
+            // 回收的额外配额, 复现 F025 本身的危害。是否给老玩家一次性宽限、要不要清除这份遗留占用是运营口径
+            // 决策, 不在此处替主控拍板, 唯一清除入口是 {@link #clearLegacyOverflow}。
             ListTag legacy = tag.getList(K_COUNTS_LEGACY, Tag.TAG_COMPOUND);
-            int discardedPlayers = 0;
-            long discardedBlocks = 0;
+            int migratedPlayers = 0;
+            long migratedBlocks = 0;
             for (int i = 0; i < legacy.size(); i++) {
                 CompoundTag entry = legacy.getCompound(i);
                 if (entry.hasUUID(K_UUID)) {
-                    discardedPlayers++;
-                    discardedBlocks += entry.getInt(K_COUNT);
+                    int count = entry.getInt(K_COUNT);
+                    if (count > 0) {
+                        data.legacyOverflow.put(entry.getUUID(K_UUID), count);
+                        migratedPlayers++;
+                        migratedBlocks += count;
+                    }
                 }
             }
-            if (discardedPlayers > 0) {
-                LOGGER.warn("[miningdim] discarded legacy farmland placedCounts on load: {} player(s), "
-                                + "{} block(s) total; no ownership record to reconcile against (F025 migration), "
-                                + "quota now rebuilt from farmlandOwners going forward",
-                        discardedPlayers, discardedBlocks);
+            if (migratedPlayers > 0) {
+                LOGGER.info("[miningdim] migrated legacy farmland placedCounts into legacyOverflow on load: "
+                                + "{} player(s), {} block(s) total; counted against the placement cap until an op "
+                                + "reconciles via /farmer admin recount (F025 migration policy correction)",
+                        migratedPlayers, migratedBlocks);
             }
         }
         if (tag.contains(K_SOLD)) {

@@ -1175,12 +1175,14 @@ public final class FarmerGameTests {
 
     /**
      * 持久层往返 (F025): 按 (维度, 坐标) 记录跨维度不撞键, save/load 后 placedCount/ownerOf 精确重建;
-     * 只含旧 "placedCounts" 字段的存档 (迁移前) 必须被丢弃而非悄悄恢复 (迁移决策, 见 FarmerSavedData.load
-     * javadoc)。删掉 FarmlandKey 里的 dimension 分量会让跨维度断言挂 (posA1/posB1 同坐标撞键, ownerA 计数
-     * 变 1); 让 load 恢复 legacy 计数会让最后一条断言挂 (变 7)。
+     * 只含旧 "placedCounts" 字段的存档 (迁移前) 必须把数值原样迁入 legacyOverflow 并计入 placedCount
+     * (复核 Major 修正, 不得再悄悄丢弃 —— 丢弃等于让老玩家在硬封顶外白得一份不可回收的配额), 且必须能被
+     * {@link FarmerSavedData#clearLegacyOverflow} 显式清除。删掉 FarmlandKey 里的 dimension 分量会让跨维度
+     * 断言挂 (posA1/posB1 同坐标撞键, ownerA 计数变 1); 让 load 丢弃 legacy 计数会让第四条断言挂 (变 0
+     * 而非 7); 让 clearLegacyOverflow 忘记 setDirty 或忘记回收会让第五/六条断言挂。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void farmlandOwnerIndexRoundTripsAndDropsLegacyCounters(GameTestHelper helper) {
+    public static void farmlandOwnerIndexRoundTripsAndMigratesLegacyCountersAsOverflow(GameTestHelper helper) {
         FarmerSavedData data = new FarmerSavedData();
         UUID ownerA = new UUID(0xFA1L, 0xA00L);
         UUID ownerB = new UUID(0xFB1L, 0xB00L);
@@ -1208,6 +1210,7 @@ public final class FarmerGameTests {
         helper.assertTrue(ownerB.equals(reloaded.ownerOf(miningDim, posB1)),
                 "ownerOf 必须能把 posB1 (miningdim, 与 posA1 同原始坐标) 解析回 ownerB, 不与 overworld posA1 撞键");
 
+        // 只含旧 "placedCounts" 字段、不含 K_LEGACY_OVERFLOW / K_OWNERS 的存档: 模拟修复前的老存档首次升级。
         net.minecraft.nbt.CompoundTag legacyOnly = new net.minecraft.nbt.CompoundTag();
         net.minecraft.nbt.ListTag legacyCounts = new net.minecraft.nbt.ListTag();
         net.minecraft.nbt.CompoundTag legacyEntry = new net.minecraft.nbt.CompoundTag();
@@ -1216,9 +1219,61 @@ public final class FarmerGameTests {
         legacyCounts.add(legacyEntry);
         legacyOnly.put("placedCounts", legacyCounts);
         FarmerSavedData legacyLoaded = FarmerSavedData.load(legacyOnly);
-        helper.assertTrue(legacyLoaded.placedCount(ownerA) == 0,
-                "只含旧 placedCounts 字段的存档必须被丢弃, 不得悄悄恢复成 7, 实得 "
+        helper.assertTrue(legacyLoaded.placedCount(ownerA) == 7,
+                "只含旧 placedCounts 字段的存档必须原样迁入 legacyOverflow 计入配额, 不得丢弃, 实得 "
                         + legacyLoaded.placedCount(ownerA));
+        helper.assertTrue(legacyLoaded.legacyOverflow(ownerA) == 7,
+                "legacyOverflow 查询接口必须能读回迁移进来的 7, 实得 " + legacyLoaded.legacyOverflow(ownerA));
+
+        // 迁移遗留占用持久化往返: 存一次后应写出新 tag K_LEGACY_OVERFLOW, 再次 load 不再依赖旧 K_COUNTS_LEGACY。
+        net.minecraft.nbt.CompoundTag resaved = legacyLoaded.save(new net.minecraft.nbt.CompoundTag());
+        FarmerSavedData reloadedAgain = FarmerSavedData.load(resaved);
+        helper.assertTrue(reloadedAgain.placedCount(ownerA) == 7,
+                "legacyOverflow 必须能经新 tag 持久化往返, 实得 " + reloadedAgain.placedCount(ownerA));
+
+        // 唯一清除入口: 清除前返回清除前的值, 清除后配额归零且幂等 (二次清除返回 0, 不报错)。
+        int clearedFirst = reloadedAgain.clearLegacyOverflow(ownerA);
+        helper.assertTrue(clearedFirst == 7,
+                "clearLegacyOverflow 必须返回清除前的遗留占用数 7, 实得 " + clearedFirst);
+        helper.assertTrue(reloadedAgain.placedCount(ownerA) == 0,
+                "清除遗留占用后配额必须归零, 实得 " + reloadedAgain.placedCount(ownerA));
+        int clearedSecond = reloadedAgain.clearLegacyOverflow(ownerA);
+        helper.assertTrue(clearedSecond == 0,
+                "对已清除的玩家再次清除必须返回 0 (幂等, 不误报成功), 实得 " + clearedSecond);
+        helper.succeed();
+    }
+
+    /**
+     * 迁移遗留占用与归属索引派生计数必须相加而非重复计入 (回归 bumpCount 曾经的一处 bug: 若 bumpCount 内部
+     * 误读 placedCount(叠加态) 再写回 placedCounts, 每次 claim/release 都会把 legacyOverflow 值再累加一次)。
+     * 有 3 点遗留占用的玩家再放 1 块新地必须恰好是 4, 不是 4+3=7; 破坏掉那块新地必须精确回落到 3, 不是负值
+     * 或漂移值。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void legacyOverflowDoesNotDoubleCountAcrossClaimAndRelease(GameTestHelper helper) {
+        UUID owner = new UUID(0xFC1L, 0xC00L);
+        ResourceLocation dim = new ResourceLocation("minecraft", "overworld");
+
+        net.minecraft.nbt.CompoundTag legacyOnly = new net.minecraft.nbt.CompoundTag();
+        net.minecraft.nbt.ListTag legacyCounts = new net.minecraft.nbt.ListTag();
+        net.minecraft.nbt.CompoundTag legacyEntry = new net.minecraft.nbt.CompoundTag();
+        legacyEntry.putUUID("uuid", owner);
+        legacyEntry.putInt("count", 3);
+        legacyCounts.add(legacyEntry);
+        legacyOnly.put("placedCounts", legacyCounts);
+        FarmerSavedData data = FarmerSavedData.load(legacyOnly);
+        helper.assertTrue(data.placedCount(owner) == 3,
+                "迁移后初始配额应为 3, 实得 " + data.placedCount(owner));
+
+        BlockPos pos = new BlockPos(30, 64, 30);
+        data.claimFarmland(dim, pos, owner);
+        helper.assertTrue(data.placedCount(owner) == 4,
+                "3 点遗留占用 + 新放 1 块必须恰好为 4, 实得 " + data.placedCount(owner)
+                        + " (若为 7 说明 legacyOverflow 在 claim 时被重复叠加进了 placedCounts)");
+
+        data.releaseFarmland(dim, pos);
+        helper.assertTrue(data.placedCount(owner) == 3,
+                "破坏刚放的那块新地后应精确回落到遗留占用的 3, 实得 " + data.placedCount(owner));
         helper.succeed();
     }
 

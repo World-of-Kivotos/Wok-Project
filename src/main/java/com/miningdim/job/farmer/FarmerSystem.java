@@ -13,6 +13,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -51,6 +52,9 @@ import org.slf4j.LoggerFactory;
  *  - 反作弊骨粉 ({@link #onBonemeal}, forgeBus BonemealEvent): mod 作物禁骨粉;
  *  - 卖菜命令 ({@link #onRegisterCommands}, RegisterCommandsEvent): 自注册 /farmer sell &lt;amount&gt; 子根作为
  *    {@link FarmerWheatSellService#sell} 的触发点 (包内闭合, 不改共享 JobCommands; 审查 Critical 1)。
+ *  - 管理端对账 ({@link #onRegisterCommands}): /farmer admin legacy|recount &lt;target&gt; (OP {@value #OP_LEVEL}),
+ *    F025 迁移口径修正的唯一对账/重算入口 (复核 Major, 见 {@link FarmerSavedData#legacyOverflow}) —— 迁移前存档
+ *    的旧配额不再被静默丢弃, op 用这两条命令查询/清除, 是否清除是运营决策, 代码不预设自动豁免。
  *
  * 不持有玩家进度: 经验走共享 {@link JobServices#jobService()} 入账 (JobId.FARMER), 衰减/翻日/升级由框架裁决;
  * 耕地放置归属走 {@link FarmerSavedData} (overworld 持久层, 按 (维度, 坐标) 记归属, 已放置数是该归属索引的
@@ -62,6 +66,9 @@ public final class FarmerSystem implements Subsystem {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/job/farmer");
 
+    /** /farmer admin 子根的 OP 门槛 (与 JobCommands/EconomyCommands 一致的管理操作等级)。 */
+    private static final int OP_LEVEL = 2;
+
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
         FarmerBlocks.register(modBus);
@@ -71,7 +78,7 @@ public final class FarmerSystem implements Subsystem {
         forgeBus.register(this);
         // 平板农夫页的 job.farmer.state / job.farmer.sell (卖菜写路径复用 FarmerWheatSellService 同一入口)。
         FarmerWebUiActions.registerAll();
-        LOGGER.info("[miningdim] farmer job subsystem registered (5 farmland tiers + crop yield + Farmer's Delight + harvest xp + placement cap + /farmer sell + 2 job.farmer.* actions)");
+        LOGGER.info("[miningdim] farmer job subsystem registered (5 farmland tiers + crop yield + Farmer's Delight + harvest xp + placement cap + /farmer sell + /farmer admin legacy|recount + 2 job.farmer.* actions)");
     }
 
     // ============================================================
@@ -93,7 +100,15 @@ public final class FarmerSystem implements Subsystem {
                                 .executes(this::cropTableCommand))
                         .then(Commands.literal("sell")
                                 .then(Commands.argument("amount", IntegerArgumentType.integer(1))
-                                        .executes(this::sellCommand))));
+                                        .executes(this::sellCommand)))
+                        .then(Commands.literal("admin")
+                                .requires(src -> src.hasPermission(OP_LEVEL))
+                                .then(Commands.literal("legacy")
+                                        .then(Commands.argument("target", EntityArgument.player())
+                                                .executes(this::adminLegacyQuery)))
+                                .then(Commands.literal("recount")
+                                        .then(Commands.argument("target", EntityArgument.player())
+                                                .executes(this::adminRecount)))));
     }
 
     private int cropTableCommand(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
@@ -143,6 +158,49 @@ public final class FarmerSystem implements Subsystem {
                         + result.creditsGranted() + " credit(s)."),
                 false);
         return result.soldCount();
+    }
+
+    // ============================================================
+    // 管理端对账/重算入口 (复核 Major: F025 迁移口径修正 —— 迁移前存档的 placedCounts 不再被丢弃,
+    // 而是原样迁入 FarmerSavedData.legacyOverflow 并计入放置上限; 是否给老玩家一次性宽限是运营口径
+    // 决策, 这两条命令只提供只读查询与机械清零动作, 不内置任何自动豁免规则)
+    // ============================================================
+
+    /**
+     * /farmer admin legacy &lt;target&gt;: 只读查询, 展示目标玩家当前的迁移遗留占用数、总配额占用数
+     * 与其当前等级的硬封顶, 供 op 判断是否需要 /farmer admin recount。
+     */
+    private int adminLegacyQuery(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer target = EntityArgument.getPlayer(ctx, "target");
+        FarmerSavedData data = FarmerSavedData.get(target.server.overworld());
+        int legacy = data.legacyOverflow(target.getUUID());
+        int total = data.placedCount(target.getUUID());
+        int cap = FarmlandPlacementGuard.capForLevel(JobServices.jobService().level(target, JobId.FARMER));
+        ctx.getSource().sendSuccess(() -> Component.translatable(
+                "message.miningdim.farmer.admin_legacy_query",
+                target.getGameProfile().getName(), legacy, total, cap), false);
+        return legacy;
+    }
+
+    /**
+     * /farmer admin recount &lt;target&gt;: 清除目标玩家的迁移遗留占用 (唯一清除入口,
+     * {@link FarmerSavedData#clearLegacyOverflow})。是否清除由 op 对账后自行判断, 本命令不做任何前置校验或
+     * 自动豁免规则, 只机械执行清零并回显清除前的值。
+     */
+    private int adminRecount(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer target = EntityArgument.getPlayer(ctx, "target");
+        FarmerSavedData data = FarmerSavedData.get(target.server.overworld());
+        int cleared = data.clearLegacyOverflow(target.getUUID());
+        if (cleared == 0) {
+            ctx.getSource().sendSuccess(() -> Component.translatable(
+                    "message.miningdim.farmer.admin_recount_none",
+                    target.getGameProfile().getName()), true);
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.translatable(
+                "message.miningdim.farmer.admin_recount_done",
+                target.getGameProfile().getName(), cleared), true);
+        return cleared;
     }
 
     // ============================================================

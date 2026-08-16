@@ -1,6 +1,5 @@
 package com.miningdim.caseopening;
 
-import com.miningdim.caseopening.store.CaseDao;
 import com.miningdim.caseopening.store.SkinAssetRow;
 import com.tacz.guns.api.TimelessAPI;
 import com.tacz.guns.api.item.IGun;
@@ -10,7 +9,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.UUID;
-import java.util.function.Predicate;
 
 /** TaCZ boundary: applies an owned display to the main hand and strips displays whose owner no longer matches. */
 public final class CaseTaczBridge {
@@ -44,8 +42,7 @@ public final class CaseTaczBridge {
     }
 
     /** @return true when an unauthorized display was stripped. */
-    public static boolean enforce(ServerPlayer player, ItemStack stack, CaseDao dao,
-                                  Predicate<SkinAssetRow> settledOwnership) {
+    static boolean enforce(ServerPlayer player, ItemStack stack, CaseOwnershipCache.Lookup lookup) {
         IGun gun = IGun.getIGunOrNull(stack);
         if (gun == null) {
             return false;
@@ -56,13 +53,13 @@ public final class CaseTaczBridge {
         }
         CompoundTag tag = stack.getTag();
         UUID assetId = parseUuid(tag == null ? null : tag.getString(TAG_ASSET_ID));
-        SkinAssetRow asset = assetId == null ? null : dao.findOwnedAsset(player.getUUID(), assetId);
+        // 归属由 lookup 以 player.getUUID() 作为 ownerId 入参保证: 缓存键就是 (ownerId, assetId),
+        // 命中即代表该资产确实归此玩家, 不需要再从 Grant 里读一遍 ownerId 来复核。
         ResourceLocation gunId = gun.getGunId(stack);
-        boolean authorized = asset != null
-                && asset.ownerId().equals(player.getUUID())
-                && asset.displayId().equals(display.toString())
-                && asset.gunId().equals(gunId.toString())
-                && settledOwnership.test(asset);
+        CaseOwnershipCache.Grant grant = assetId == null ? null : lookup.find(player.getUUID(), assetId);
+        boolean authorized = grant != null
+                && grant.displayId().equals(display.toString())
+                && grant.gunId().equals(gunId.toString());
         if (authorized) {
             return false;
         }

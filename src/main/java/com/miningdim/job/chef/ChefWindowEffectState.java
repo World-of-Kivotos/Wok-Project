@@ -80,8 +80,9 @@ public final class ChefWindowEffectState {
      * eat-time 盖披甲 (黄心护盾) 窗口: 立即授予 absorption 并记录授予的绝对护盾值, 过期由 {@link #onServerTick}
      * 回收 (与其它窗口同生命周期; 解决 "护盾窗口过期后绝不回收 absorption" 的平衡红线)。
      *
-     * 刷新不叠 (Chef_Job_DesignSpec 第十一章): 新护盾大于当前 absorption 才提升; 同种刷新覆盖窗口记录的授予值,
-     * 使过期回收只减去本窗口这一份, 不误扣其它来源 (如吃金苹果) 的 absorption。
+     * 刷新不叠 (Chef_Job_DesignSpec 第十一章): 本 mod 只对自己授予的那一份 absorption 负责, 与金苹果等外来
+     * 来源互不侵犯。故先按上一窗口 shieldGranted 与当前 absorption 的较小值分离出厨师自留份额, 剩余记为外来
+     * 份额; 厨师份额取 max(旧, 新) 实现刷新不叠, 再与外来份额相加重铺, 使过期回收只减去厨师自己那一份。
      *
      * @param player        吃菜玩家 (服务端)
      * @param perMille      护盾 %最大血量千分比基点 (写进 magnitude 供读)
@@ -92,15 +93,19 @@ public final class ChefWindowEffectState {
         if (shield <= 0.0F) {
             return;
         }
-        // 刷新不叠: 取 max(现有 absorption, 新护盾), 不累加。
-        if (shield > player.getAbsorptionAmount()) {
-            player.setAbsorptionAmount(shield);
-        }
+        Map<ChefEffectType, Window> existing = STATE.get(player.getUUID());
+        Window prev = existing == null ? null : existing.get(ChefEffectType.SHIELD);
+        float current = player.getAbsorptionAmount();
+        // 旧护盾可能已被伤害吃掉一部分, 账面绝不能超过玩家实际剩余的 absorption。
+        float prevOwned = prev == null ? 0.0F : Math.min(prev.shieldGranted, current);
+        float foreign = current - prevOwned;
+        float granted = Math.max(prevOwned, shield);
+        player.setAbsorptionAmount(foreign + granted);
         long now = player.serverLevel().getGameTime();
         Window w = new Window();
         w.endTick = now + (long) windowSeconds * 20L;
-        w.magnitude = perMille;
-        w.shieldGranted = shield;
+        w.magnitude = (prev != null && granted > shield) ? prev.magnitude : perMille;
+        w.shieldGranted = granted;
         STATE.computeIfAbsent(player.getUUID(), k -> new ConcurrentHashMap<>()).put(ChefEffectType.SHIELD, w);
     }
 

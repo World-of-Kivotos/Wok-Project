@@ -173,6 +173,12 @@ public final class AgentWebUiActions {
         bounty.addProperty("weeklyAzureGranted",
                 bountyData.weeklyAzureGranted(sender.getUUID(), AgentClock.currentUtcWeekStamp()));
         bounty.addProperty("weeklyAzureCap", AgentBountySavedData.WEEKLY_AZURE_SOFT_CAP);
+        // F017/F078 复核裁决: 悬赏模板库/每玩家多槽实例接取-推进-发奖整条链的业务数值 (十二章 PENDING, 未拍板)
+        // 不得由本层臆造。上面五个字段是真实的等级门槛预览 (dailySlots/weeklySlots/maxBountyStar/worldBossUnlocked
+        // 均由 AgentSkillTable 按等级查表, 货真价实), 但没有任何代码路径能让玩家接取/推进/领取一条具体悬赏 ——
+        // 必须显式告知前端这半条链尚未上线, 不能让面板把权限预览包装成"可用的悬赏系统"。一旦接取/进度/发奖三个
+        // WebUiAction 落地, 此处改为 true。
+        bounty.addProperty("available", false);
         result.add("bounty", bounty);
 
         result.addProperty("enhancedRewardMultiplier", AgentSkillTable.enhancedRewardMultiplier(level));

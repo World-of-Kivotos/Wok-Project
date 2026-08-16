@@ -443,6 +443,9 @@ export function AgentPanel(): ReactElement {
 
       <Panel title="悬赏权限一览">
         <div className="flex flex-col gap-3">
+          {data.bounty.available ? null : (
+            <Tag tone="warning">悬赏系统尚未开放: 接单 / 进度推进 / 领奖目前游戏内外都没有入口</Tag>
+          )}
           <div className="grid grid-cols-3 gap-4">
             <Stat label="每日悬赏位" value={`${String(data.bounty.dailySlots)} 个`} />
             <Stat
@@ -458,20 +461,25 @@ export function AgentPanel(): ReactElement {
               value={data.bounty.maxBountyStar === 0 ? '未解锁' : `${String(data.bounty.maxBountyStar)} 星`}
             />
           </div>
-          <Meter
-            label="本周青辉石配额"
-            max={data.bounty.weeklyAzureCap}
-            tone={data.bounty.weeklyAzureGranted >= data.bounty.weeklyAzureCap ? 'danger' : 'info'}
-            value={data.bounty.weeklyAzureGranted}
-            valueText={`${String(data.bounty.weeklyAzureGranted)} / ${String(data.bounty.weeklyAzureCap)}`}
-          />
+          {data.bounty.available ? (
+            <Meter
+              label="本周青辉石配额"
+              max={data.bounty.weeklyAzureCap}
+              tone={data.bounty.weeklyAzureGranted >= data.bounty.weeklyAzureCap ? 'danger' : 'info'}
+              value={data.bounty.weeklyAzureGranted}
+              valueText={`${String(data.bounty.weeklyAzureGranted)} / ${String(data.bounty.weeklyAzureCap)}`}
+            />
+          ) : (
+            <Stat label="本周青辉石配额" value={`上限 ${String(data.bounty.weeklyAzureCap)} (系统未开放, 产量恒为 0)`} />
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <Tag tone={data.bounty.worldBossUnlocked ? 'success' : 'neutral'}>
               世界 BOSS {data.bounty.worldBossUnlocked ? '已解锁' : `需要 Lv.${String(data.bounty.worldBossUnlockLevel)}`}
             </Tag>
           </div>
           <p className="text-muted-foreground text-xs">
-            这里是权限表而不是悬赏列表: 服务端目前没有"玩家已接的悬赏"这个存储, 接单与进度只能在游戏里进行
+            这里只是按干员等级算出的权限预览 (槽位数 / 可接星级 / 青辉石上限), 不是可接取的悬赏列表: 具体悬赏的
+            接单、进度记录与领奖尚未实现, 游戏内也没有对应入口
           </p>
         </div>
       </Panel>

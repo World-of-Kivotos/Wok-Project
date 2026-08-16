@@ -591,6 +591,154 @@ public final class ChefGameTests {
     }
 
     // ============================================================
+    // 披甲记账只认自己那一份 (F083): 低档覆盖高档仍全额可回收 / 叠在外来 absorption 之上 / 同档刷新不叠加
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shieldLowWindowOverwritingHighStillFullyReclaims(GameTestHelper helper) {
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        UUID id = player.getUUID();
+        try {
+            player.setAbsorptionAmount(0.0F);
+            float maxHp = player.getMaxHealth();
+            int highPerMille = ChefConfig.shieldPerMille(ChefQuality.RADIANT); // 80 = 8% maxHP
+            int lowPerMille = ChefConfig.shieldPerMille(ChefQuality.HIGH);     // 40 = 4% maxHP
+            int windowSec = ChefConfig.SHIELD_WINDOW_SECONDS.get();
+            float expectedHigh = maxHp * (highPerMille / 1000.0F);
+
+            // 先吃闪耀 (高档): 立即授予 8% maxHP。
+            ChefWindowEffectState.stampShield(player, highPerMille, windowSec);
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount() - expectedHigh) < 0.01F,
+                    "high-tier shield grants expected " + expectedHigh + " got " + player.getAbsorptionAmount());
+
+            // 窗口内又吃一份高级 (低档): 刷新不叠取 max(旧份额, 新护盾), 8% 不被 4% 压低。
+            ChefWindowEffectState.stampShield(player, lowPerMille, windowSec);
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount() - expectedHigh) < 0.01F,
+                    "low-tier dish inside the window must NOT overwrite the higher shieldGranted: expected "
+                            + expectedHigh + " got " + player.getAbsorptionAmount());
+
+            // 越过被低档刷新过的窗口: 必须全额回收 8%, 不是只退 4% (F083 修复点: 记账须跟 max(旧,新) 走)。
+            long now = player.serverLevel().getGameTime();
+            ChefWindowEffectState.advancePlayerWindows(id, player, now + (long) windowSec * 20L + 1L);
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount() - 0.0F) < 0.01F,
+                    "shield fully reclaimed to 0 after a low-tier refresh, expected 0.0 got "
+                            + player.getAbsorptionAmount());
+            helper.assertFalse(ChefWindowEffectState.active(id, ChefEffectType.SHIELD),
+                    "shield window removed after expiry");
+            // 删 stampShield 里 granted = Math.max(prevOwned, shield) (改回直接赋 shield), 低档刷新会把
+            // shieldGranted 压到 4%, 过期只退 4%, 残留 4% maxHP 黄心, 归零断言必挂。
+        } finally {
+            ChefWindowEffectState.clearAll(id);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shieldRaisesToOwnTargetWithoutClobberingHigherForeignAbsorption(GameTestHelper helper) {
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        UUID id = player.getUUID();
+        try {
+            player.setAbsorptionAmount(0.0F);
+            float maxHp = player.getMaxHealth();
+            int shieldPerMille = ChefConfig.shieldPerMille(ChefQuality.RADIANT); // 80 = 8% maxHP
+            float ownShield = maxHp * (shieldPerMille / 1000.0F);
+            int windowSec = ChefConfig.SHIELD_WINDOW_SECONDS.get();
+
+            // 外来 absorption 先在场 (如金苹果/塔罗), 厨师护盾此时才盖章。
+            float foreign = 4.0F;
+            player.setAbsorptionAmount(foreign);
+            ChefWindowEffectState.stampShield(player, shieldPerMille, windowSec);
+
+            // max 语义 (与 TarotEffectEngine#addAbsorption 同一约定): 厨师只把总量顶到自己的目标, 不与外来
+            // 来源相加。expectedTotal = max(foreign, ownShield), 此处 ownShield(6.4) > foreign(4.0)。
+            float expectedTotal = Math.max(foreign, ownShield);
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount() - expectedTotal) < 0.01F,
+                    "chef shield raises total to max(foreign, own), not a sum: expected " + expectedTotal
+                            + " (max of foreign " + foreign + " and own " + ownShield + ") got "
+                            + player.getAbsorptionAmount());
+
+            // 越过窗口: 只扣厨师自己实际抬高的那一份 (delta = ownShield - foreign), absorption 精确回到外来的 4.0F。
+            long now = player.serverLevel().getGameTime();
+            ChefWindowEffectState.advancePlayerWindows(id, player, now + (long) windowSec * 20L + 1L);
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount() - foreign) < 0.01F,
+                    "expiry reclaims only the chef's own delta, foreign absorption " + foreign
+                            + " survives untouched, got " + player.getAbsorptionAmount());
+            // 删 stampShield 里的 delta 抬高写法 (改回整体 setAbsorptionAmount(shield) 覆盖), 授予那一刻会
+            // 把 absorption 直接砸成 maxHp*0.08 而丢掉先在场的 4.0F 外来份额, 第一条断言必挂。
+        } finally {
+            ChefWindowEffectState.clearAll(id);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shieldDoesNotRaiseWhenForeignAbsorptionAlreadyExceedsOwnTarget(GameTestHelper helper) {
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        UUID id = player.getUUID();
+        try {
+            player.setAbsorptionAmount(0.0F);
+            float maxHp = player.getMaxHealth();
+            int shieldPerMille = ChefConfig.shieldPerMille(ChefQuality.RADIANT); // 80 = 8% maxHP
+            float ownShield = maxHp * (shieldPerMille / 1000.0F);
+            int windowSec = ChefConfig.SHIELD_WINDOW_SECONDS.get();
+
+            // 外来 absorption (如附魔金苹果 ABSORPTION IV = 16 点) 已高于厨师自己的目标 (6.4)。
+            float foreign = ownShield + 10.0F;
+            player.setAbsorptionAmount(foreign);
+            ChefWindowEffectState.stampShield(player, shieldPerMille, windowSec);
+
+            // 厨师护盾不得盖章式加总: 更高的外来 absorption 保持不变, 厨师这份不贡献任何抬高。
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount() - foreign) < 0.01F,
+                    "chef shield must NOT add on top when foreign absorption already exceeds its own target: "
+                            + "expected untouched " + foreign + " got " + player.getAbsorptionAmount());
+
+            // 越过窗口: 厨师没抬高任何东西, 过期回收量为 0, 外来 absorption 原封不动。
+            long now = player.serverLevel().getGameTime();
+            ChefWindowEffectState.advancePlayerWindows(id, player, now + (long) windowSec * 20L + 1L);
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount() - foreign) < 0.01F,
+                    "expiry reclaims nothing (chef contributed 0), foreign absorption " + foreign
+                            + " survives untouched, got " + player.getAbsorptionAmount());
+            // 删 delta = Math.max(0.0F, shield - current) 的钳位 (改回无条件抬高), 会把 absorption 拉低回
+            // shield 或凭空叠加, 两条断言之一必挂。
+        } finally {
+            ChefWindowEffectState.clearAll(id);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shieldRefreshSameTierDoesNotDoubleGrant(GameTestHelper helper) {
+        var player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        UUID id = player.getUUID();
+        try {
+            player.setAbsorptionAmount(0.0F);
+            float maxHp = player.getMaxHealth();
+            int shieldPerMille = ChefConfig.shieldPerMille(ChefQuality.RADIANT); // 80 = 8% maxHP
+            int windowSec = ChefConfig.SHIELD_WINDOW_SECONDS.get();
+            float expectedSingle = maxHp * (shieldPerMille / 1000.0F);
+
+            // 同一档 (闪耀) 在窗口内连盖两次: 刷新不叠, absorption 必须仍是单份, 不是两份累加。
+            ChefWindowEffectState.stampShield(player, shieldPerMille, windowSec);
+            ChefWindowEffectState.stampShield(player, shieldPerMille, windowSec);
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount() - expectedSingle) < 0.01F,
+                    "same-tier refresh must NOT double-grant: expected single share " + expectedSingle
+                            + " (not " + (expectedSingle * 2.0F) + ") got " + player.getAbsorptionAmount());
+
+            // 越过窗口: 单份全额回收到 0。
+            long now = player.serverLevel().getGameTime();
+            ChefWindowEffectState.advancePlayerWindows(id, player, now + (long) windowSec * 20L + 1L);
+            helper.assertTrue(Math.abs(player.getAbsorptionAmount() - 0.0F) < 0.01F,
+                    "double-stamped same-tier shield still fully reclaims to 0, got "
+                            + player.getAbsorptionAmount());
+            // 删 STATE.computeIfAbsent(...).put(...) 的覆盖写 (改成两个 Window 并存/累加 granted), 第二次
+            // stampShield 会让 absorption 变成两份 (expectedSingle*2), 第一条断言必挂。
+        } finally {
+            ChefWindowEffectState.clearAll(id);
+        }
+        helper.succeed();
+    }
+
+    // ============================================================
     // 倒胃中毒时长逐级 (spec 第十一章: 低 8s/中 6s/高 4s, 走 config 非硬编码)
     // ============================================================
 

@@ -77,11 +77,14 @@ public final class ChefWindowEffectState {
     }
 
     /**
-     * eat-time 盖披甲 (黄心护盾) 窗口: 立即授予 absorption 并记录授予的绝对护盾值, 过期由 {@link #onServerTick}
-     * 回收 (与其它窗口同生命周期; 解决 "护盾窗口过期后绝不回收 absorption" 的平衡红线)。
+     * eat-time 盖披甲 (黄心护盾) 窗口: 立即把 absorption 抬到 max(现值, 目标) 并记录本 mod 实际抬高的份额,
+     * 过期由 {@link #onServerTick} 回收 (与其它窗口同生命周期; 解决 "护盾窗口过期后绝不回收 absorption" 的
+     * 平衡红线)。max 语义与 TarotEffectEngine#addAbsorption/schedulePeriodicAbsorption 同一约定, 不与之
+     * 相加 (F083 复核: 厨师不得凭空叠加外来/塔罗来源的 absorption, 只负责把总量顶到自己的目标)。
      *
-     * 刷新不叠 (Chef_Job_DesignSpec 第十一章): 新护盾大于当前 absorption 才提升; 同种刷新覆盖窗口记录的授予值,
-     * 使过期回收只减去本窗口这一份, 不误扣其它来源 (如吃金苹果) 的 absorption。
+     * 刷新不叠 (Chef_Job_DesignSpec 第十一章): 同档/低档在窗口内重复吃, 目标不超过之前已抬到的高度, 不二次
+     * 加算。记账取"本次相对施加前 absorption 的差值"并按上一窗口的自留份额累加 (F083 建议: shieldGranted 应
+     * 记差值而非整体覆盖) —— 若不累加, 窗口内二次刷新时 delta=0 会把上一次已抬高的份额记丢, 过期永不回收。
      *
      * @param player        吃菜玩家 (服务端)
      * @param perMille      护盾 %最大血量千分比基点 (写进 magnitude 供读)
@@ -92,15 +95,21 @@ public final class ChefWindowEffectState {
         if (shield <= 0.0F) {
             return;
         }
-        // 刷新不叠: 取 max(现有 absorption, 新护盾), 不累加。
-        if (shield > player.getAbsorptionAmount()) {
-            player.setAbsorptionAmount(shield);
+        Map<ChefEffectType, Window> existing = STATE.get(player.getUUID());
+        Window prev = existing == null ? null : existing.get(ChefEffectType.SHIELD);
+        float current = player.getAbsorptionAmount();
+        // 旧护盾可能已被伤害吃掉一部分, 账面绝不能超过玩家实际剩余的 absorption。
+        float prevOwned = prev == null ? 0.0F : Math.min(prev.shieldGranted, current);
+        // 本次相对当前总 absorption (含外来份额) 还能再抬高多少; 若外来来源已经更高, delta=0, 不动它。
+        float delta = Math.max(0.0F, shield - current);
+        if (delta > 0.0F) {
+            player.setAbsorptionAmount(current + delta);
         }
         long now = player.serverLevel().getGameTime();
         Window w = new Window();
         w.endTick = now + (long) windowSeconds * 20L;
-        w.magnitude = perMille;
-        w.shieldGranted = shield;
+        w.magnitude = delta > 0.0F ? perMille : (prev != null ? prev.magnitude : perMille);
+        w.shieldGranted = prevOwned + delta;
         STATE.computeIfAbsent(player.getUUID(), k -> new ConcurrentHashMap<>()).put(ChefEffectType.SHIELD, w);
     }
 

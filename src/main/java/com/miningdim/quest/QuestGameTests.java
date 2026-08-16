@@ -1,5 +1,6 @@
 package com.miningdim.quest;
 
+import com.miningdim.core.Difficulty;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.economy.AbuseGuard;
 import com.miningdim.economy.Currency;
@@ -10,6 +11,7 @@ import com.miningdim.economy.EconomyServices;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.economy.SqliteEconomyLedger;
+import com.miningdim.quest.objective.AmmoSpentObjective;
 import com.miningdim.quest.objective.GunKillObjective;
 import com.miningdim.quest.objective.KillEntityObjective;
 import com.miningdim.quest.objective.MineBlockObjective;
@@ -26,6 +28,8 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -234,12 +238,12 @@ public final class QuestGameTests {
         board.restorePeriodic(100L, List.of(new QuestProgress(pool.byId("daily.mine.iron"), 9, false)),
                 200L, List.of());
 
-        helper.assertTrue(!board.rolloverIfStale(pool, random, 100L, 200L, 4, 1),
+        helper.assertTrue(!board.rolloverIfStale(pool, random, 100L, 200L, 4, 1, 1),
                 "戳未变时不得重抽");
         helper.assertTrue(board.daily().size() == 1 && board.daily().get(0).count() == 9,
                 "同一周期内已有进度必须原样保留");
 
-        helper.assertTrue(board.rolloverIfStale(pool, random, 101L, 200L, 4, 1), "跨日必须重抽");
+        helper.assertTrue(board.rolloverIfStale(pool, random, 101L, 200L, 4, 1, 1), "跨日必须重抽");
         helper.assertTrue(board.daily().size() == 4,
                 "重抽后应发满 4 个日常槽, 实得 " + board.daily().size());
         for (QuestProgress progress : board.daily()) {
@@ -261,7 +265,7 @@ public final class QuestGameTests {
         QuestPool pool = QuestPool.builtin();
         RandomSource random = helper.getLevel().getRandom();
         QuestBoard board = new QuestBoard();
-        board.rolloverIfStale(pool, random, 1L, 1L, 4, 1);
+        board.rolloverIfStale(pool, random, 1L, 1L, 4, 1, 1);
 
         List<QuestProgress> before = board.daily();
         String replacedId = before.get(1).definition().id();
@@ -631,6 +635,188 @@ public final class QuestGameTests {
                     "任务线各阶段必须进 id 反查表, 否则重启后进度反查不回来: " + stage.id());
         }
         helper.succeed();
+    }
+
+    // ============================================================
+    // 6. 分层发牌 / 撤离 / 上交 / 倾泻火力
+    // ============================================================
+
+    /**
+     * 日常按 "3 简单 + 1 难" 分层发牌, 不是均匀随机抽 4 条。
+     *
+     * 把 {@code dealStratified} 换回一次 {@code draw(4)}, 难档条数就变成随机的 0-4, 本条即挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void dailyDealIsStratifiedIntoEasyAndHardTiers(GameTestHelper helper) {
+        QuestPool pool = QuestPool.builtin();
+        QuestBoard board = new QuestBoard();
+        board.rolloverIfStale(pool, helper.getLevel().getRandom(), 1L, 1L, 4, 1, 1);
+
+        List<QuestProgress> daily = board.daily();
+        int hard = 0;
+        for (QuestProgress progress : daily) {
+            if (QuestPool.isHardTier(progress.definition())) {
+                hard++;
+            }
+        }
+        helper.assertTrue(daily.size() == 4, "应发满 4 个日常槽, 实得 " + daily.size());
+        helper.assertTrue(hard == 1, "4 个日常槽里必须恰好 1 个难档, 实得 " + hard);
+        helper.succeed();
+    }
+
+    /**
+     * 重摇必须在原槽位的难度档内摇: 难档摇出来还是难档, 简单档摇出来还是简单档。
+     *
+     * 这是防套利的红线 —— 允许跨档重摇的话, 花 500 信用点把难档换成简单档就是一条稳赚的固定套利。把
+     * {@code refreshSlot} 里的 {@code drawTier} 换回 {@code draw}, 本条会在难档那一行挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void refreshStaysInsideTheSameDifficultyTier(GameTestHelper helper) {
+        QuestPool pool = QuestPool.builtin();
+        RandomSource random = helper.getLevel().getRandom();
+        QuestBoard board = new QuestBoard();
+        board.rolloverIfStale(pool, random, 1L, 1L, 4, 1, 1);
+
+        int hardIndex = -1;
+        int easyIndex = -1;
+        List<QuestProgress> daily = board.daily();
+        for (int i = 0; i < daily.size(); i++) {
+            if (QuestPool.isHardTier(daily.get(i).definition())) {
+                hardIndex = i;
+            } else if (easyIndex < 0) {
+                easyIndex = i;
+            }
+        }
+        helper.assertTrue(hardIndex >= 0 && easyIndex >= 0, "分层发牌后应当同时存在难档槽与简单档槽");
+
+        QuestProgress newHard = board.refreshSlot(QuestSource.DAILY, hardIndex, pool, random);
+        helper.assertTrue(QuestPool.isHardTier(newHard.definition()),
+                "重摇难档槽必须仍摇出难档, 实得难度 " + newHard.definition().difficulty());
+
+        QuestProgress newEasy = board.refreshSlot(QuestSource.DAILY, easyIndex, pool, random);
+        helper.assertTrue(!QuestPool.isHardTier(newEasy.definition()),
+                "重摇简单档槽必须仍摇出简单档, 实得难度 " + newEasy.definition().difficulty());
+        helper.succeed();
+    }
+
+    /**
+     * 撤离判定: 死过不算、停留不够不算、计时不可信不算; 只有活着待够了走出来才算。
+     *
+     * "死了被抬出去不算撤离"是这条判据存在的全部理由 —— 删掉 {@code finishVisit} 里的 {@code visit.died()}
+     * 判据, 第三段立刻挂。删掉停留门槛则第一段挂, 那道门是防"进洞立刻出来"秒刷的红线。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void miningExtractionRejectsDeathAndShortVisits(GameTestHelper helper) {
+        UUID player = UUID.randomUUID();
+        long gate = 6_000L;
+
+        QuestMiningVisits.startVisit(player, Difficulty.HARD, 1_000L);
+        helper.assertTrue(QuestMiningVisits.finishVisit(player, 1_000L + gate - 1L, gate) == null,
+                "停留差一 tick 也不算撤离");
+
+        QuestMiningVisits.startVisit(player, Difficulty.HARD, 1_000L);
+        QuestMiningVisits.Extraction ok = QuestMiningVisits.finishVisit(player, 1_000L + gate, gate);
+        helper.assertTrue(ok != null, "活着且停留达标必须判为撤离");
+        helper.assertTrue(ok.difficulty() == Difficulty.HARD && ok.dwellTicks() == gate,
+                "撤离产物必须带上进入时记下的难度与实际停留时长");
+
+        QuestMiningVisits.startVisit(player, Difficulty.EASY, 0L);
+        QuestMiningVisits.markDied(player);
+        helper.assertTrue(QuestMiningVisits.finishVisit(player, 100_000L, gate) == null,
+                "死过的行程即使之后走出矿洞也不算撤离");
+
+        helper.assertTrue(QuestMiningVisits.finishVisit(UUID.randomUUID(), 100_000L, 0L) == null,
+                "没有在途行程时不得凭空判出一次撤离");
+
+        QuestMiningVisits.startVisit(player, Difficulty.MEDIUM, 10_000L);
+        helper.assertTrue(QuestMiningVisits.finishVisit(player, 5_000L, 0L) == null,
+                "世界时间倒流时本趟不可信计时, 必须判废而不是当成负停留放行");
+
+        QuestMiningVisits.startVisit(player, Difficulty.EASY, 0L);
+        QuestMiningVisits.finishVisit(player, gate, gate);
+        helper.assertTrue(QuestMiningVisits.finishVisit(player, gate * 2L, gate) == null,
+                "一趟行程只能结算一次, 结算后在途记录必须已被摘掉");
+        helper.succeed();
+    }
+
+    /**
+     * 上交: 一次交足剩余需求 (不多扣), 交够之后再交一分不动背包。
+     *
+     * 删掉 {@code turnIn} 里按剩余需求裁剪的那一步, 第一段会在"背包应剩 36"上挂 (会把 100 个全收走);
+     * 删掉 {@code isComplete} 短路, 第二段会在"交够后背包不再变"上挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void turnInTakesOnlyWhatIsNeededAndStopsWhenComplete(GameTestHelper helper) {
+        IEconomyService previous = currentEconomy();
+        registerFreshEconomy();
+        try {
+            ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            QuestPool pool = QuestPool.builtin();
+            QuestService service = new QuestService(pool);
+            QuestDefinition definition = pool.byId("daily.turnin.rotten");
+            int required = definition.objective().requiredCount();
+
+            QuestBoard board = service.boardOf(player);
+            board.restorePeriodic(QuestClock.currentUtcDayStamp(), List.of(new QuestProgress(definition)),
+                    QuestClock.currentUtcWeekStamp(), List.of());
+            player.getInventory().clearContent();
+            player.getInventory().add(new ItemStack(Items.ROTTEN_FLESH, 64));
+            player.getInventory().add(new ItemStack(Items.ROTTEN_FLESH, 36));
+
+            QuestService.TurnInResult first = service.turnIn(player, definition.id());
+            helper.assertTrue(first.outcome() == QuestService.TurnInOutcome.TURNED_IN,
+                    "背包里够就应当上交成功, 实得 " + first.outcome());
+            helper.assertTrue(first.count() == required,
+                    "一次应交足剩余需求 " + required + ", 实得 " + first.count());
+            helper.assertTrue(countInInventory(player, Items.ROTTEN_FLESH) == 100 - required,
+                    "只能扣走需要的那些, 实得剩余 " + countInInventory(player, Items.ROTTEN_FLESH));
+            helper.assertTrue(board.daily().get(0).isComplete(), "交足后任务应达标");
+
+            QuestService.TurnInResult again = service.turnIn(player, definition.id());
+            helper.assertTrue(again.outcome() == QuestService.TurnInOutcome.ALREADY_COMPLETE,
+                    "交够之后再交必须被拒, 实得 " + again.outcome());
+            helper.assertTrue(countInInventory(player, Items.ROTTEN_FLESH) == 100 - required,
+                    "被拒的上交一个物品都不许扣");
+        } finally {
+            restoreEconomy(previous);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 倾泻火力算的是<b>击发</b>, 不是击杀也不是命中。
+     *
+     * 第二行是要害: 把 {@code AmmoSpentObjective.match} 错接到 GunKill 上, 这条任务就变成了"击杀 N 只",
+     * 与设计意图 (弹药消耗) 完全不同。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void ammoSpentCountsShotsNotKills(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        LivingEntity victim = spawnZombie(helper);
+        AmmoSpentObjective anyGun = AmmoSpentObjective.anyGun(3);
+        AmmoSpentObjective sniperOnly = new AmmoSpentObjective(SNIPER, 3);
+
+        QuestFacts sniperShot = new QuestFacts.GunShot(player, TEST_GUN, SNIPER);
+        QuestFacts rifleShot = new QuestFacts.GunShot(player, TEST_GUN, "rifle");
+        QuestFacts unknownShot = new QuestFacts.GunShot(player, TEST_GUN, null);
+
+        helper.assertTrue(anyGun.match(sniperShot) == 1, "任意枪型的击发必须计入");
+        helper.assertTrue(anyGun.match(gunKill(player, victim, SNIPER, true, 10)) == 0,
+                "击杀不是击发, 不得计入倾泻火力");
+        helper.assertTrue(sniperOnly.match(rifleShot) == 0, "限定枪型时其它枪的击发不得计入");
+        helper.assertTrue(sniperOnly.match(unknownShot) == 0, "枪型未知时限定枪型的目标不得计入");
+        helper.assertTrue(anyGun.match(unknownShot) == 1, "枪型未知不该让'打出一发'这件事消失");
+        helper.succeed();
+    }
+
+    private static int countInInventory(ServerPlayer player, net.minecraft.world.item.Item item) {
+        int total = 0;
+        for (ItemStack stack : player.getInventory().items) {
+            if (!stack.isEmpty() && stack.getItem() == item) {
+                total += stack.getCount();
+            }
+        }
+        return total;
     }
 
     // ============================================================

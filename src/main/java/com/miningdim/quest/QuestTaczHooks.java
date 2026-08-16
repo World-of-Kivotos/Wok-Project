@@ -2,6 +2,7 @@ package com.miningdim.quest;
 
 import com.tacz.guns.api.TimelessAPI;
 import com.tacz.guns.api.event.common.EntityKillByGunEvent;
+import com.tacz.guns.api.event.common.GunShootEvent;
 import com.tacz.guns.api.item.IGun;
 import com.tacz.guns.resource.index.CommonGunIndex;
 import net.minecraft.ChatFormatting;
@@ -60,6 +61,29 @@ public final class QuestTaczHooks {
         double distance = player.position().distanceTo(victim.position());
         QuestEventHooks.post(new QuestFacts.GunKill(player, victim, gunId, gunTypeOf(gunId),
                 event.isHeadShot(), distance, event.getBaseDamage()));
+    }
+
+    /**
+     * 击发一次枪械 (塔科夫"倾泻火力")。
+     *
+     * 挂 {@code GunShootEvent} 而非 {@code GunFireEvent}: 后者是扣扳机的意图, 会被弹匣空/冷却等情形取消,
+     * 而"倾泻火力"该数的是真的打出去的弹。霰弹枪一次击发只产生一条事件 (按扣扳机发, 不按弹丸发)。
+     */
+    @SubscribeEvent
+    public void onGunShoot(GunShootEvent event) {
+        if (event.getLogicalSide() != LogicalSide.SERVER) {
+            return;
+        }
+        if (!(event.getShooter() instanceof ServerPlayer player)) {
+            return;
+        }
+        ItemStack gunStack = event.getGunItemStack();
+        IGun gun = IGun.getIGunOrNull(gunStack);
+        if (gun == null) {
+            return;
+        }
+        ResourceLocation gunId = gun.getGunId(gunStack);
+        QuestEventHooks.post(new QuestFacts.GunShot(player, gunId, gunTypeOf(gunId)));
     }
 
     /**

@@ -86,7 +86,7 @@ public record GunKillObjective(String gunType, boolean requireHeadshot, double m
      * TaCZ 分类字符串转中文显示名。未收录的分类原样回显 —— 整合包可能装了自定义分类的枪械资源包,
      * 回显原文比显示"未知武器"更有助于玩家自己对上号。
      */
-    private static String localizedGunType(String type) {
+    static String localizedGunType(String type) {
         return switch (type.toLowerCase(java.util.Locale.ROOT)) {
             case "pistol" -> "手枪";
             case "sniper" -> "狙击枪";

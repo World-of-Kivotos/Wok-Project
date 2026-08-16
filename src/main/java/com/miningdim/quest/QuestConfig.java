@@ -23,8 +23,10 @@ public final class QuestConfig {
 
     public static final ForgeConfigSpec.BooleanValue ENABLED;
     public static final ForgeConfigSpec.IntValue DAILY_SLOTS;
+    public static final ForgeConfigSpec.IntValue DAILY_HARD_SLOTS;
     public static final ForgeConfigSpec.IntValue WEEKLY_SLOTS;
     public static final ForgeConfigSpec.IntValue MAX_ACTIVE_SPECIAL;
+    public static final ForgeConfigSpec.IntValue EXTRACTION_MIN_DWELL_TICKS;
 
     public static final ForgeConfigSpec.LongValue DAILY_REFRESH_COST;
     public static final ForgeConfigSpec.LongValue WEEKLY_REFRESH_COST;
@@ -50,6 +52,11 @@ public final class QuestConfig {
                 .define("enabled", true);
         DAILY_SLOTS = builder.comment("How many daily quests are dealt on each UTC day rollover")
                 .defineInRange("dailySlots", 4, 1, 12);
+        DAILY_HARD_SLOTS = builder.comment(
+                        "How many of the daily slots are drawn from the hard tier (difficulty >= 2); the rest come "
+                                + "from the easy tier. Rerolling a slot always redraws within that slot's own tier, "
+                                + "otherwise paying to turn a hard slot into an easy one would be a fixed arbitrage")
+                .defineInRange("dailyHardSlots", 1, 0, 12);
         WEEKLY_SLOTS = builder.comment("How many weekly quests are dealt on each ISO week rollover")
                 .defineInRange("weeklySlots", 1, 1, 6);
         MAX_ACTIVE_SPECIAL = builder.comment(
@@ -88,6 +95,11 @@ public final class QuestConfig {
                         "How often a player's position is tested against structures; structure lookup touches "
                                 + "chunk structure starts, so do not lower this without measuring")
                 .defineInRange("structureScanIntervalTicks", 40, 5, 1_200);
+        EXTRACTION_MIN_DWELL_TICKS = builder.comment(
+                        "Minimum ticks a player must stay inside the mining dimension for a voluntary exit to count "
+                                + "as an extraction (6000 = 5 minutes). Without this gate, entering and immediately "
+                                + "leaving costs nothing and the objective degrades into an unlimited free action")
+                .defineInRange("extractionMinDwellTicks", 6_000, 0, 1_728_000);
         CHAIN_UNLOCK_SCAN_INTERVAL_TICKS = builder.comment(
                         "How often a player's inventory is scanned for hidden-chain unlock items (e.g. a sniper "
                                 + "rifle for the marksman chain)")

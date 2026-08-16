@@ -59,4 +59,43 @@ public sealed interface QuestFacts {
     record GunKill(ServerPlayer player, LivingEntity victim, ResourceLocation gunId, String gunType,
                    boolean headshot, double distance, float damage) implements QuestFacts {
     }
+
+    /**
+     * 玩家击发了一次 TaCZ 枪械 (TaCZ {@code GunShootEvent})。对应塔科夫"倾泻火力"类任务。
+     *
+     * 记的是<b>击发</b>而非命中 (主控 2026-08-16 定, 取塔科夫原味)。判据之所以仍然安全, 是因为成本是子弹本身
+     * —— 子弹由军火商生产, 打出去就没了, 所以这条任务是弹药 sink 兼军火商需求源, 而不是零成本的无限动作。
+     *
+     * 霰弹枪一次击发只产生一条本事实 (TaCZ 的 GunShootEvent 按扣扳机发, 不按弹丸发), 故"打出 200 发"对霰弹枪
+     * 与步枪是同一口径。
+     *
+     * @param gunType 同 {@link GunKill#gunType()}, 可为 null (TaCZ 索引缺失)
+     */
+    record GunShot(ServerPlayer player, ResourceLocation gunId, String gunType) implements QuestFacts {
+    }
+
+    /**
+     * 玩家从矿洞成功撤离 (主动经 {@code /mining leave} 或面板离开, 且本次进入未死亡)。对应塔科夫"撤离点"类任务。
+     *
+     * <b>死亡被抬出去不算撤离</b> —— 这是这条判据全部意义所在。同理掉线也不算。
+     *
+     * @param difficulty  本次进入的矿洞难度档
+     * @param dwellTicks  本次进入的停留时长 (tick)。发出本事实前调用方已过停留门槛; 带上它是为了让目标可以
+     *                    再加更严的时长要求 (如"单次驻留 20 分钟以上的撤离")。
+     */
+    record MiningExtraction(ServerPlayer player, com.miningdim.core.Difficulty difficulty, long dwellTicks)
+            implements QuestFacts {
+    }
+
+    /**
+     * 玩家上交了一批物品 (塔科夫"寻物上交")。
+     *
+     * 与其它事实不同, 本事实<b>不是世界事件的翻译, 而是玩家主动动作的结果</b>: 由 {@code /quest turnin} 在
+     * 确认目标确实要这件物品、并且已经从背包扣掉之后发出。顺序不能反 —— 先扣后记, 扣不掉就不发。
+     *
+     * @param item  上交的物品
+     * @param count 本次实际扣掉的个数 (已按剩余需求裁剪, 不会多扣)
+     */
+    record ItemTurnIn(ServerPlayer player, net.minecraft.world.item.Item item, int count) implements QuestFacts {
+    }
 }

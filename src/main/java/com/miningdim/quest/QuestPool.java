@@ -1,12 +1,19 @@
 package com.miningdim.quest;
 
+import com.miningdim.core.Difficulty;
+import com.miningdim.quest.objective.AmmoSpentObjective;
 import com.miningdim.quest.objective.GunKillObjective;
 import com.miningdim.quest.objective.KillEntityObjective;
 import com.miningdim.quest.objective.MineBlockObjective;
+import com.miningdim.quest.objective.MiningExtractionObjective;
+import com.miningdim.quest.objective.SpecialMobKillObjective;
+import com.miningdim.quest.objective.SpecialMobKind;
+import com.miningdim.quest.objective.TurnInItemObjective;
 import com.miningdim.quest.objective.VillagerTradeObjective;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.item.Items;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -118,6 +125,51 @@ public final class QuestPool {
         return drawn;
     }
 
+    /**
+     * 难档判据: 难度 &gt;= 2 算难档, 难度 1 算简单档。
+     *
+     * 日常按 "3 简单 + 1 难" 分层发牌 (主控 2026-08-16 定), 分层的唯一依据就是这条; 它同时也是重摇的档位依据
+     * —— 重摇必须在同档内摇, 否则花信用点把难档换成简单档就是一条固定套利。
+     */
+    public static boolean isHardTier(QuestDefinition definition) {
+        return definition.difficulty() >= HARD_TIER_MIN_DIFFICULTY;
+    }
+
+    /** 难档的最低难度值。 */
+    public static final int HARD_TIER_MIN_DIFFICULTY = 2;
+
+    /**
+     * 在指定难度档内抽取 count 条互不重复的定义。
+     *
+     * 该档完全没有内容时回落到全池 ({@link #draw}): 宁可发一条不合档的任务, 也不给玩家一个空槽 —— 内容分布
+     * 不均是策划问题, 不该表现成界面上少一格。
+     */
+    public List<QuestDefinition> drawTier(QuestSource source, boolean hardTier, int count, RandomSource random,
+                                          Set<String> excludeIds) {
+        if (count < 1) {
+            throw new IllegalArgumentException("draw count must be >= 1, got " + count);
+        }
+        List<QuestDefinition> tier = new ArrayList<>();
+        for (QuestDefinition definition : bySource(source)) {
+            if (isHardTier(definition) == hardTier) {
+                tier.add(definition);
+            }
+        }
+        if (tier.isEmpty()) {
+            return draw(source, count, random, excludeIds);
+        }
+        List<QuestDefinition> preferred = new ArrayList<>(tier);
+        preferred.removeIf(definition -> excludeIds.contains(definition.id()));
+        List<QuestDefinition> drawn = new ArrayList<>(count);
+        takeRandom(preferred, count, random, drawn);
+        if (drawn.size() < count) {
+            List<QuestDefinition> fallback = new ArrayList<>(tier);
+            fallback.removeIf(drawn::contains);
+            takeRandom(fallback, count - drawn.size(), random, drawn);
+        }
+        return drawn;
+    }
+
     private static void takeRandom(List<QuestDefinition> candidates, int count, RandomSource random,
                                    List<QuestDefinition> sink) {
         for (int i = 0; i < count && !candidates.isEmpty(); i++) {
@@ -143,31 +195,51 @@ public final class QuestPool {
     public static QuestPool builtin() {
         List<QuestDefinition> definitions = new ArrayList<>();
 
+        // ---- 日常 · 简单档 (难度 1): 正常游玩顺手完成, 不改变玩家当天的行程 ----
         definitions.add(new QuestDefinition("daily.kill.zombie", QuestSource.DAILY, "清理亡灵",
                 new KillEntityObjective(EntityType.ZOMBIE, 15), 1));
         definitions.add(new QuestDefinition("daily.kill.skeleton", QuestSource.DAILY, "白骨消殒",
                 new KillEntityObjective(EntityType.SKELETON, 12), 1));
         definitions.add(new QuestDefinition("daily.kill.spider", QuestSource.DAILY, "驱虫作业",
                 new KillEntityObjective(EntityType.SPIDER, 12), 1));
-        definitions.add(new QuestDefinition("daily.kill.creeper", QuestSource.DAILY, "拆弹专家",
-                new KillEntityObjective(EntityType.CREEPER, 8), 2));
-        definitions.add(new QuestDefinition("daily.kill.pillager", QuestSource.DAILY, "边境肃清",
-                new KillEntityObjective(EntityType.PILLAGER, 10), 2));
-        definitions.add(new QuestDefinition("daily.kill.drowned", QuestSource.DAILY, "水下清淤",
-                new KillEntityObjective(EntityType.DROWNED, 10), 2));
         definitions.add(new QuestDefinition("daily.mine.coal", QuestSource.DAILY, "燃料采集",
                 new MineBlockObjective(BlockTags.COAL_ORES, "煤矿石", 32), 1));
         definitions.add(new QuestDefinition("daily.mine.copper", QuestSource.DAILY, "线材原料",
                 new MineBlockObjective(BlockTags.COPPER_ORES, "铜矿石", 24), 1));
         definitions.add(new QuestDefinition("daily.mine.iron", QuestSource.DAILY, "钢铁配额",
                 new MineBlockObjective(BlockTags.IRON_ORES, "铁矿石", 24), 1));
+        definitions.add(new QuestDefinition("daily.extract.any", QuestSource.DAILY, "例行下矿",
+                MiningExtractionObjective.any(1), 1));
+        definitions.add(new QuestDefinition("daily.turnin.rotten", QuestSource.DAILY, "腐肉回收",
+                new TurnInItemObjective(Items.ROTTEN_FLESH, 64), 1));
+        definitions.add(new QuestDefinition("daily.turnin.bone", QuestSource.DAILY, "骨料回收",
+                new TurnInItemObjective(Items.BONE, 32), 1));
+        definitions.add(new QuestDefinition("daily.ammo.any", QuestSource.DAILY, "打靶训练",
+                AmmoSpentObjective.anyGun(60), 1));
+
+        // ---- 日常 · 难档 (难度 2-3): 每天只发 1 条, 需要玩家专门跑一趟 ----
+        definitions.add(new QuestDefinition("daily.kill.creeper", QuestSource.DAILY, "拆弹专家",
+                new KillEntityObjective(EntityType.CREEPER, 8), 2));
+        definitions.add(new QuestDefinition("daily.kill.pillager", QuestSource.DAILY, "边境肃清",
+                new KillEntityObjective(EntityType.PILLAGER, 10), 2));
+        definitions.add(new QuestDefinition("daily.kill.drowned", QuestSource.DAILY, "水下清淤",
+                new KillEntityObjective(EntityType.DROWNED, 10), 2));
         definitions.add(new QuestDefinition("daily.mine.redstone", QuestSource.DAILY, "红石订单",
                 new MineBlockObjective(BlockTags.REDSTONE_ORES, "红石矿石", 16), 2));
         definitions.add(new QuestDefinition("daily.mine.lapis", QuestSource.DAILY, "青金配额",
                 new MineBlockObjective(BlockTags.LAPIS_ORES, "青金石矿石", 12), 2));
         definitions.add(new QuestDefinition("daily.mine.gold", QuestSource.DAILY, "贵金属采集",
                 new MineBlockObjective(BlockTags.GOLD_ORES, "金矿石", 12), 2));
+        definitions.add(new QuestDefinition("daily.turnin.gunpowder", QuestSource.DAILY, "火药征集",
+                new TurnInItemObjective(Items.GUNPOWDER, 48), 2));
+        definitions.add(new QuestDefinition("daily.ammo.sniper", QuestSource.DAILY, "精确射击训练",
+                new AmmoSpentObjective(GUN_TYPE_SNIPER, 40), 2));
+        definitions.add(new QuestDefinition("daily.extract.medium", QuestSource.DAILY, "中级勘探",
+                MiningExtractionObjective.of(Difficulty.MEDIUM, 2), 2));
+        definitions.add(new QuestDefinition("daily.extract.hard", QuestSource.DAILY, "深层勘探",
+                MiningExtractionObjective.of(Difficulty.HARD, 1), 3));
 
+        // ---- 周常: 目标是 1-3 天完成, 因此全部落在难档; 多数靠硬指标, 稀有怪只占一小部分 ----
         definitions.add(new QuestDefinition("weekly.mine.diamond", QuestSource.WEEKLY, "钻石周供",
                 new MineBlockObjective(BlockTags.DIAMOND_ORES, "钻石矿石", 16), 3));
         definitions.add(new QuestDefinition("weekly.mine.emerald", QuestSource.WEEKLY, "绿宝石周供",
@@ -178,6 +250,23 @@ public final class QuestPool {
                 new KillEntityObjective(EntityType.ZOMBIE, 150), 2));
         definitions.add(new QuestDefinition("weekly.kill.pillager", QuestSource.WEEKLY, "劫掠者周清",
                 new KillEntityObjective(EntityType.PILLAGER, 60), 3));
+        definitions.add(new QuestDefinition("weekly.ammo.any", QuestSource.WEEKLY, "弹药消耗周报",
+                AmmoSpentObjective.anyGun(800), 2));
+        definitions.add(new QuestDefinition("weekly.extract.hard", QuestSource.WEEKLY, "深层周巡",
+                MiningExtractionObjective.of(Difficulty.HARD, 5), 3));
+        definitions.add(new QuestDefinition("weekly.turnin.totem", QuestSource.WEEKLY, "图腾征集",
+                new TurnInItemObjective(Items.TOTEM_OF_UNDYING, 8), 3));
+        // 下界之星 x3 = 打三只凋灵; 与击杀末影龙同属本池最高档, 刻意各留一条给硬核玩家。
+        definitions.add(new QuestDefinition("weekly.turnin.netherstar", QuestSource.WEEKLY, "星辰征集",
+                new TurnInItemObjective(Items.NETHER_STAR, 3), 3));
+        definitions.add(new QuestDefinition("weekly.kill.enderdragon", QuestSource.WEEKLY, "屠龙",
+                new KillEntityObjective(EntityType.ENDER_DRAGON, 1), 3));
+        // 稀有变种怪只占周常池的两条, 且优先给"任意变种"这条 —— 点名单一变种时完成与否很大程度看刷怪运气,
+        // 那种手感是"抽不到"而不是"难"。点名小鸡骑士的那条作彩蛋保留, 抽到打不出来还可以花信用点重摇。
+        definitions.add(new QuestDefinition("weekly.kill.specialmob", QuestSource.WEEKLY, "异种讨伐",
+                SpecialMobKillObjective.any(3), 3));
+        definitions.add(new QuestDefinition("weekly.kill.chickenjockey", QuestSource.WEEKLY, "鸡飞狗跳",
+                new SpecialMobKillObjective(SpecialMobKind.CHICKEN_JOCKEY, 1), 3));
 
         definitions.add(new QuestDefinition("special.village.trade", QuestSource.SPECIAL, "路过的商机",
                 new VillagerTradeObjective(1), 1));

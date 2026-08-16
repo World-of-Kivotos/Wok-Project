@@ -102,26 +102,46 @@ public final class QuestBoard {
      * @return 是否发生了重发 (调用方据此标脏存档 / 通知玩家)
      */
     public boolean rolloverIfStale(QuestPool pool, RandomSource random, long dayStamp, long weekStamp,
-                                   int dailySlots, int weeklySlots) {
+                                   int dailySlots, int dailyHardSlots, int weeklySlots) {
         boolean changed = false;
         if (dailyStamp != dayStamp) {
             dailyStamp = dayStamp;
-            deal(daily, pool, QuestSource.DAILY, dailySlots, random);
+            dealStratified(daily, pool, QuestSource.DAILY, dailySlots, dailyHardSlots, random);
             changed = true;
         }
         if (weeklyStamp != weekStamp) {
             weeklyStamp = weekStamp;
-            deal(weekly, pool, QuestSource.WEEKLY, weeklySlots, random);
+            // 周常整池都在难档 (设计上就是要 1-3 天才做得完), 故不分层, 全部按难档发。
+            dealStratified(weekly, pool, QuestSource.WEEKLY, weeklySlots, weeklySlots, random);
             changed = true;
         }
         return changed;
     }
 
-    private static void deal(List<QuestProgress> slots, QuestPool pool, QuestSource source, int count,
-                             RandomSource random) {
+    /**
+     * 分层发牌: 先发简单档, 再发难档 (日常 "3 简单 + 1 难", 主控 2026-08-16 定)。
+     *
+     * 简单档先发是有意的 —— 难档回落到全池时 ({@link QuestPool#drawTier} 的兜底) 已发的简单档会进排除表,
+     * 不至于出现"难档兜底又摇出同一条简单任务"。
+     */
+    private static void dealStratified(List<QuestProgress> slots, QuestPool pool, QuestSource source,
+                                       int totalSlots, int hardSlots, RandomSource random) {
         slots.clear();
-        for (QuestDefinition definition : pool.draw(source, count, random, Set.of())) {
+        int hard = Math.min(Math.max(hardSlots, 0), totalSlots);
+        int easy = totalSlots - hard;
+        Set<String> taken = new HashSet<>();
+        dealTier(slots, pool, source, false, easy, random, taken);
+        dealTier(slots, pool, source, true, hard, random, taken);
+    }
+
+    private static void dealTier(List<QuestProgress> slots, QuestPool pool, QuestSource source, boolean hardTier,
+                                 int count, RandomSource random, Set<String> taken) {
+        if (count < 1) {
+            return;
+        }
+        for (QuestDefinition definition : pool.drawTier(source, hardTier, count, random, taken)) {
             slots.add(new QuestProgress(definition));
+            taken.add(definition.id());
         }
     }
 
@@ -130,6 +150,10 @@ public final class QuestBoard {
      *
      * 新任务排除该来源当前持有的全部任务 id, 保证摇出来的确实不一样 (内容池不足时的兜底见
      * {@link QuestPool#draw})。
+     *
+     * <b>重摇必须在原槽位所属的难度档内摇</b>: 否则玩家花信用点就能把难档槽换成简单档槽, 那是一条稳赚的固定
+     * 套利 (简单任务奖励低但按难度线性算, 单位时间收益更高), 重摇会从"换一个不想做的任务"退化成"买便宜任务"。
+     * 档位直接读原槽位当前那条任务的难度, 不额外持久化槽位属性 —— 少一份可能与真相不同步的状态。
      *
      * @param index 槽位下标
      * @return 新任务; 下标越界或该来源不可重摇时抛异常 (属调用方校验缺失, 不静默吞)
@@ -143,11 +167,12 @@ public final class QuestBoard {
             throw new IllegalArgumentException(
                     "slot index out of range for " + source + ": " + index + " (size " + slots.size() + ")");
         }
+        boolean hardTier = QuestPool.isHardTier(slots.get(index).definition());
         Set<String> held = new HashSet<>();
         for (QuestProgress progress : slots) {
             held.add(progress.definition().id());
         }
-        List<QuestDefinition> drawn = pool.draw(source, 1, random, held);
+        List<QuestDefinition> drawn = pool.drawTier(source, hardTier, 1, random, held);
         if (drawn.isEmpty()) {
             throw new IllegalStateException("quest pool has no definition for source " + source);
         }

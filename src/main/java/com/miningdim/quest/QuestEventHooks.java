@@ -1,5 +1,6 @@
 package com.miningdim.quest;
 
+import com.miningdim.core.MiningConstants;
 import com.miningdim.economy.EconomyServices;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
@@ -10,6 +11,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.TradeWithVillagerEvent;
 import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
@@ -30,10 +32,49 @@ public final class QuestEventHooks {
 
     @SubscribeEvent
     public void onLivingDeath(LivingDeathEvent event) {
+        // 玩家自己死在矿洞里: 本趟行程作废, 之后即使走出去也不算撤离 (死了被抬出去不是撤离)。
+        if (event.getEntity() instanceof ServerPlayer dying
+                && dying.level().dimension().equals(MiningConstants.MINING_LEVEL)) {
+            QuestMiningVisits.onDiedInMining(dying);
+        }
         if (!(event.getSource().getEntity() instanceof ServerPlayer player)) {
             return;
         }
         post(new QuestFacts.EntityKill(player, event.getEntity()));
+    }
+
+    /**
+     * 进出矿洞维度: 开始 / 结算一趟行程。
+     *
+     * 行程跟踪无条件执行 (不看任务系统开关), 只有最终事实的投递才过 {@link #post} 的闸 —— 否则运营方中途开关
+     * 一次配置, 所有在途玩家的行程就会凭空消失。
+     */
+    @SubscribeEvent
+    public void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
+            return;
+        }
+        boolean toMining = event.getTo().equals(MiningConstants.MINING_LEVEL);
+        boolean fromMining = event.getFrom().equals(MiningConstants.MINING_LEVEL);
+        if (toMining && !fromMining) {
+            QuestMiningVisits.onEnterMining(player);
+            return;
+        }
+        if (fromMining && !toMining) {
+            QuestFacts.MiningExtraction extraction =
+                    QuestMiningVisits.onLeaveMining(player, QuestConfig.EXTRACTION_MIN_DWELL_TICKS.get());
+            if (extraction != null) {
+                post(extraction);
+            }
+        }
+    }
+
+    /** 掉线: 丢弃在途行程。掉线不是撤离, 重连后从零算起。 */
+    @SubscribeEvent
+    public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            QuestMiningVisits.onLoggedOut(player);
+        }
     }
 
     /**

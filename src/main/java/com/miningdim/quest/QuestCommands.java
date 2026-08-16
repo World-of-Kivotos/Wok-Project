@@ -32,6 +32,10 @@ public final class QuestCommands {
                         .then(Commands.argument("id", StringArgumentType.string())
                                 .executes(context -> claim(context.getSource(),
                                         StringArgumentType.getString(context, "id")))))
+                .then(Commands.literal("turnin")
+                        .then(Commands.argument("id", StringArgumentType.string())
+                                .executes(context -> turnIn(context.getSource(),
+                                        StringArgumentType.getString(context, "id")))))
                 .then(Commands.literal("refresh")
                         .then(Commands.literal("daily")
                                 .then(Commands.argument("slot", IntegerArgumentType.integer(1))
@@ -108,6 +112,30 @@ public final class QuestCommands {
             case ALREADY_CLAIMED -> source.sendFailure(Component.literal("奖励已经领过了: " + result.definition().title()));
         }
         return result.outcome() == QuestService.ClaimOutcome.CLAIMED ? Command.SINGLE_SUCCESS : 0;
+    }
+
+    /**
+     * 上交物品。一次尽可能多交 (按剩余需求裁剪), 而不是一次一个 —— 交 64 个腐肉要敲 64 次命令是纯粹的折磨。
+     */
+    private static int turnIn(CommandSourceStack source, String questId) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        if (!requireActive(source)) {
+            return 0;
+        }
+        QuestService.TurnInResult result = QuestServices.service().turnIn(player, questId);
+        switch (result.outcome()) {
+            case TURNED_IN -> source.sendSuccess(() -> Component.literal(
+                    "已上交 x" + result.count() + ": " + line(
+                            QuestServices.service().boardOf(player).find(questId))), false);
+            case NOT_FOUND -> source.sendFailure(Component.literal("任务板上没有这条任务: " + questId));
+            case NOT_A_TURN_IN -> source.sendFailure(Component.literal(
+                    "这条任务不是上交类: " + result.definition().title()));
+            case ALREADY_COMPLETE -> source.sendFailure(Component.literal(
+                    "已经交够了: " + result.definition().title() + " —— 用 /quest claim " + questId + " 领奖"));
+            case NOTHING_TO_TURN_IN -> source.sendFailure(Component.literal(
+                    "背包里没有可上交的物品: " + result.definition().objective().describe()));
+        }
+        return result.outcome() == QuestService.TurnInOutcome.TURNED_IN ? Command.SINGLE_SUCCESS : 0;
     }
 
     private static int refresh(CommandSourceStack source, QuestSource questSource, int playerFacingSlot)

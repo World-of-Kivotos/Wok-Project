@@ -1,5 +1,6 @@
 package com.miningdim.quest;
 
+import com.miningdim.quest.objective.TurnInItemObjective;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
@@ -70,7 +71,8 @@ public final class QuestService {
         QuestBoard board = data.board(player.getUUID());
         boolean rolled = board.rolloverIfStale(pool, overworld.getRandom(),
                 QuestClock.currentUtcDayStamp(), QuestClock.currentUtcWeekStamp(),
-                QuestConfig.DAILY_SLOTS.get(), QuestConfig.WEEKLY_SLOTS.get());
+                QuestConfig.DAILY_SLOTS.get(), QuestConfig.DAILY_HARD_SLOTS.get(),
+                QuestConfig.WEEKLY_SLOTS.get());
         if (rolled) {
             data.setDirty();
         }
@@ -185,6 +187,82 @@ public final class QuestService {
         }
         data.setDirty();
         return board.find(definition.id());
+    }
+
+    /** 上交结果。 */
+    public enum TurnInOutcome {
+        TURNED_IN,
+        /** 板上没有这条任务。 */
+        NOT_FOUND,
+        /** 这条任务不是上交类。 */
+        NOT_A_TURN_IN,
+        /** 已经交够了。 */
+        ALREADY_COMPLETE,
+        /** 背包里一个都没有。 */
+        NOTHING_TO_TURN_IN
+    }
+
+    /** @param count 本次实际上交 (并从背包扣掉) 的个数 */
+    public record TurnInResult(TurnInOutcome outcome, QuestDefinition definition, int count) {
+    }
+
+    /**
+     * 上交物品推进一条上交类任务。
+     *
+     * <b>顺序: 先按剩余需求裁剪, 再从背包扣, 扣掉之后才记进度。</b> 反过来 (先记进度再扣) 时, 扣物品那步一旦
+     * 失败, 玩家就白得了进度; 先扣则最坏情况是物品没了而进度没记, 这在同一次主线程调用里不会发生 (中间没有
+     * 任何可失败的外部调用)。
+     *
+     * 只按物品种类比对, 不看 NBT: 上交类任务选的都是无实例状态的原版材料 (腐肉/骨头/火药/图腾/下界之星),
+     * 没有"附魔过的下界之星"这种东西。将来若要收可损耗或带 NBT 的物品, 这里必须改成显式的匹配规则。
+     */
+    public TurnInResult turnIn(ServerPlayer player, String definitionId) {
+        QuestBoard board = boardOf(player);
+        QuestProgress progress = board.find(definitionId);
+        if (progress == null) {
+            return new TurnInResult(TurnInOutcome.NOT_FOUND, null, 0);
+        }
+        QuestDefinition definition = progress.definition();
+        if (!(definition.objective() instanceof TurnInItemObjective objective)) {
+            return new TurnInResult(TurnInOutcome.NOT_A_TURN_IN, definition, 0);
+        }
+        if (progress.isComplete()) {
+            return new TurnInResult(TurnInOutcome.ALREADY_COMPLETE, definition, 0);
+        }
+        int wanted = progress.requiredCount() - progress.count();
+        int taken = removeFromInventory(player, objective.item(), wanted);
+        if (taken <= 0) {
+            return new TurnInResult(TurnInOutcome.NOTHING_TO_TURN_IN, definition, 0);
+        }
+        record(new QuestFacts.ItemTurnIn(player, objective.item(), taken));
+        return new TurnInResult(TurnInOutcome.TURNED_IN, definition, taken);
+    }
+
+    /**
+     * 从背包 (主背包 + 副手) 扣掉至多 wanted 个指定物品, 返回实际扣掉的个数。
+     *
+     * 不碰盔甲槽 —— 那里放着的同种物品多半是玩家正穿着的, 静默扒下来交任务是玩家绝不会预期的行为。
+     */
+    private static int removeFromInventory(ServerPlayer player, net.minecraft.world.item.Item item, int wanted) {
+        int remaining = wanted;
+        remaining -= takeFrom(player.getInventory().items, item, remaining);
+        remaining -= takeFrom(player.getInventory().offhand, item, remaining);
+        return wanted - remaining;
+    }
+
+    private static int takeFrom(java.util.List<net.minecraft.world.item.ItemStack> stacks,
+                                net.minecraft.world.item.Item item, int wanted) {
+        int taken = 0;
+        for (int i = 0; i < stacks.size() && taken < wanted; i++) {
+            net.minecraft.world.item.ItemStack stack = stacks.get(i);
+            if (stack.isEmpty() || stack.getItem() != item) {
+                continue;
+            }
+            int take = Math.min(stack.getCount(), wanted - taken);
+            stack.shrink(take);
+            taken += take;
+        }
+        return taken;
     }
 
     /**

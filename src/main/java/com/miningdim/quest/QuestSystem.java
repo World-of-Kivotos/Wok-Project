@@ -60,5 +60,7 @@ public final class QuestSystem implements Subsystem {
     public void onServerStopping(ServerStoppingEvent event) {
         // 解绑而不是留着: 单机连开两个世界时, 残留的服务会让第二个世界读到上一个世界的池子实例。
         QuestServices.reset();
+        // 在途矿洞行程是进程内瞬时状态, 跨存档留着只会让下一个世界读到假行程。
+        QuestMiningVisits.reset();
     }
 }

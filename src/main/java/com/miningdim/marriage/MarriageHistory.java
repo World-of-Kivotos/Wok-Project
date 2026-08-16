@@ -5,22 +5,28 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.saveddata.SavedData;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 /**
  * 婚姻历史持久层 (结婚系统 spec 第六章离婚三闸的持久基座; 仿 {@link MarriageRegistry} 挂 overworld DimensionDataStorage)。
- * {@link MarriageRegistry} 只持"当前生效关系", 离婚后 {@link MarriageState} 被移除 —— 但下面两类数据必须跨关系存活:
+ * {@link MarriageRegistry} 只持"当前生效关系", 离婚后 {@link MarriageState} 被移除 —— 但下面三类数据必须跨关系存活:
  *
  *  1. 再婚冷却 (闸 1): 离婚后 N 天禁再婚, 冷却随离婚次数递增。冷却基于"玩家", 关系已解除故不能再存 MarriageState;
  *     本表按 playerUUID 存 {@code divorceCount} + {@code remarryAllowedTick} (下次允许再婚的最早 gameTime)。
  *  2. 一次性福利去重 (闸 3): 去重键 = "双方 UUID 对 + 里程碑", 换 marriageId 也不重发同一里程碑。本表按规范化
  *     UUID 对键 (小 UUID 在前, 与谁先 propose 无关) 存已领里程碑集合, 跨任意次结离对该对去重。
+ *  3. 清算待领取表 (闸 2/3): 离婚生效时按槽归属分配的共享背包物品, 若归属方当时离线, 没有别处可放 ——
+ *     关系已 dissolve, 共享背包容器随之作废, 无法再开窗口补发。本表按 playerUUID 存一份待领取物品队列,
+ *     登录时 (见 {@link MarriageDivorce#deliverClaims}) 或在线立即下发。
  *
  * 线程纪律: 仅服务端主线程读写; 任何写后 setDirty 才落盘 (与 MarriageRegistry 同纪律)。
  */
@@ -36,6 +42,8 @@ public final class MarriageHistory extends SavedData {
     private static final String K_PAIRS = "pairMilestones";
     private static final String K_PAIR_KEY = "pairKey";
     private static final String K_PAIR_MILESTONES = "milestones";
+    private static final String K_SETTLEMENT_CLAIMS = "settlementClaims";
+    private static final String K_CLAIM_ITEMS = "items";
 
     /** 单玩家的再婚闸态 (divorceCount 递增 + 下次允许再婚 tick)。 */
     private static final class PlayerHistory {
@@ -48,6 +56,9 @@ public final class MarriageHistory extends SavedData {
 
     /** 规范化 UUID 对键 -> 该对已领里程碑集合 (跨任意次结离去重)。 */
     private final Map<String, Set<String>> pairMilestones = new HashMap<>();
+
+    /** playerUUID -> 待领取的离婚清算物品队列 (离线时暂存, 登录或在线立即下发)。 */
+    private final Map<UUID, List<ItemStack>> settlementClaims = new HashMap<>();
 
     public MarriageHistory() {
     }
@@ -130,6 +141,33 @@ public final class MarriageHistory extends SavedData {
         return b + "_" + a;
     }
 
+    // ---- 清算待领取表 (spec 第六章闸 2/3: 离婚结算按槽归属分配, 离线方暂存待领) ----
+
+    /** 排一件清算物到该玩家的待领取队列 (离婚结算调; 空栈直接返回)。 */
+    public void queueSettlementClaim(UUID player, ItemStack stack) {
+        if (stack.isEmpty()) {
+            return;
+        }
+        settlementClaims.computeIfAbsent(player, k -> new ArrayList<>()).add(stack.copy());
+        setDirty();
+    }
+
+    /** 取出并移除该玩家全部待领取清算物 (无则返回空表); 非空时 setDirty。 */
+    public List<ItemStack> takeSettlementClaims(UUID player) {
+        List<ItemStack> claims = settlementClaims.remove(player);
+        if (claims == null || claims.isEmpty()) {
+            return List.of();
+        }
+        setDirty();
+        return claims;
+    }
+
+    /** 该玩家待领取清算物条目数 (非物品总数; 测试/诊断用)。 */
+    public int settlementClaimCount(UUID player) {
+        List<ItemStack> claims = settlementClaims.get(player);
+        return claims == null ? 0 : claims.size();
+    }
+
     // ---- 持久化 ----
 
     @Override
@@ -157,6 +195,23 @@ public final class MarriageHistory extends SavedData {
             pairList.add(pt);
         }
         tag.put(K_PAIRS, pairList);
+
+        ListTag claimList = new ListTag();
+        for (Map.Entry<UUID, List<ItemStack>> e : settlementClaims.entrySet()) {
+            if (e.getValue().isEmpty()) {
+                continue;
+            }
+            CompoundTag ct = new CompoundTag();
+            ct.putLong(K_PLAYER_MOST, e.getKey().getMostSignificantBits());
+            ct.putLong(K_PLAYER_LEAST, e.getKey().getLeastSignificantBits());
+            ListTag items = new ListTag();
+            for (ItemStack stack : e.getValue()) {
+                items.add(stack.save(new CompoundTag()));
+            }
+            ct.put(K_CLAIM_ITEMS, items);
+            claimList.add(ct);
+        }
+        tag.put(K_SETTLEMENT_CLAIMS, claimList);
         return tag;
     }
 
@@ -181,6 +236,18 @@ public final class MarriageHistory extends SavedData {
                 set.add(milestones.getString(j));
             }
             data.pairMilestones.put(key, set);
+        }
+
+        ListTag claimList = tag.getList(K_SETTLEMENT_CLAIMS, Tag.TAG_COMPOUND);
+        for (int i = 0; i < claimList.size(); i++) {
+            CompoundTag ct = claimList.getCompound(i);
+            UUID id = new UUID(ct.getLong(K_PLAYER_MOST), ct.getLong(K_PLAYER_LEAST));
+            ListTag items = ct.getList(K_CLAIM_ITEMS, Tag.TAG_COMPOUND);
+            List<ItemStack> claims = new ArrayList<>(items.size());
+            for (int j = 0; j < items.size(); j++) {
+                claims.add(ItemStack.of(items.getCompound(j)));
+            }
+            data.settlementClaims.put(id, claims);
         }
         return data;
     }

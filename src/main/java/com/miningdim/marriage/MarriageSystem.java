@@ -33,9 +33,12 @@ import java.util.Objects;
  *  - 共享背包: MenuType ({@link MarriageRegistration}) + 蹲下右键戒指远程开 ({@link PlayerInteractEvent.RightClickItem}) +
  *    会话登记 {@link MarriageBackpackSessions} (掉线强制关闭) + 客户端 Screen (FMLClientSetupEvent + Dist 隔离)。
  *  - 传送到伴侣: 右键结婚戒指 (不潜行) 起蓄力 {@link MarriageTeleport}; ServerTickEvent 推进; 移动/潜行/受伤打断。
- *  - 离婚: /marriage divorce 经 {@link MarriageDivorce} (再婚冷却 + 成本 + 共享背包清算 + 审计) + 持久历史
- *    {@link MarriageHistory} (再婚冷却 + UUID 对里程碑去重)。
- *  - 登录自愈: capability 婚姻指针指向已解除关系时清指针 (离线配偶离婚后登录自愈)。
+ *  - 离婚: /marriage divorce 三段式经 {@link MarriageDivorce} —— 提交 (扣成本 + 开公示期) -&gt; 公示期 (共享背包冻结,
+ *    可撤回/可提前确认) -&gt; 到期低频扫描自动生效 (本类 onServerTick 每 100 tick 调 finalizeMatured) -&gt; 按槽归属清算
+ *    共享背包 + 记再婚冷却 ({@link MarriageHistory})。
+ *  - 登录自愈: capability 婚姻指针指向已解除关系时清指针 (离线配偶离婚后登录自愈) + 下发待领取的离婚清算物
+ *    ({@link MarriageDivorce#deliverClaims}) + 补发离线期间错过的公示期知情通知 + 清掉该玩家牵涉的求婚意向
+ *    (F098: 意向寿命上界是连续在线的这一段会话, 登出即作废)。
  *
  * 注入顺序: 经济门面经 {@link com.miningdim.economy.EconomyServices} 定位器在事件回调取用, 对 register 顺序不敏感。
  */
@@ -143,6 +146,11 @@ public final class MarriageSystem implements Subsystem {
             player.displayClientMessage(Component.translatable("message.miningdim.marriage.not_married"), true);
             return;
         }
+        if (state.hasPendingDivorce()) {
+            // 公示期冻结开窗 (spec 第六章闸 2): 已提交离婚的关系共享背包全程不可开。
+            player.displayClientMessage(Component.translatable("message.miningdim.marriage.divorce.frozen"), true);
+            return;
+        }
         MarriageBackpackMenu.Provider provider =
                 new MarriageBackpackMenu.Provider(state, registry, backpackSessions, overworld);
         NetworkHooks.openScreen(player, provider, provider::writeExtra);
@@ -182,6 +190,11 @@ public final class MarriageSystem implements Subsystem {
         net.minecraft.server.MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
         if (server != null) {
             teleport.tick(server.overworld());
+            // 离婚公示期到期低频扫描 (spec 第六章闸 2): 关系表规模是全服婚姻数量级, 公示期以小时计, 5 秒精度绰绰
+            // 有余, 没必要每 tick 都扫一遍全表 (范式同 InstanceSystem 的 scanInterval 节流)。
+            if (server.getTickCount() % 100 == 0) {
+                new MarriageDivorce(server.overworld(), backpackSessions).finalizeMatured(server.overworld().getGameTime());
+            }
         }
     }
 
@@ -207,13 +220,39 @@ public final class MarriageSystem implements Subsystem {
             backpackSessions.forceCloseAll(data.marriageId(), overworld);
         }
         teleport.onHurt(player.getUUID(), overworld); // 复用打断: 登出者参与的蓄力取消 (在线一方收提示)。
+        // F098: 登出即作废该玩家牵涉的全部求婚意向 (会话边界是意向寿命的结构性上界, 见 MarriageProposals 类注释)。
+        proposals.clearInvolving(player.getUUID());
     }
 
-    /** 登录: capability 婚姻指针指向已解除关系时清指针 (离线配偶离婚后登录自愈; spec 第六章离线侧)。 */
+    /**
+     * 登录: capability 婚姻指针指向已解除关系时清指针 (离线配偶离婚后登录自愈; spec 第六章离线侧) + 下发离线期间
+     * 积压的离婚清算物 + 若当前关系正处于公示期且本人不是发起方, 补发一条知情通知 (提交阶段离线时错过的那条)。
+     */
     @SubscribeEvent
     public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
-        if (event.getEntity() instanceof ServerPlayer player) {
-            reconcileMarriagePointer(player);
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
+            return;
+        }
+        reconcileMarriagePointer(player);
+        MarriageDivorce.deliverClaims(player);
+
+        IMiningPlayerData data = MiningCapabilities.get(player).orElse(null);
+        if (data == null || data.marriageId() == IMiningPlayerData.NO_MARRIAGE) {
+            return;
+        }
+        ServerLevel overworld = player.getServer().overworld();
+        MarriageState state = MarriageRegistry.get(overworld).byId(data.marriageId());
+        if (state != null && state.hasPendingDivorce() && !player.getUUID().equals(state.pendingDivorceInitiator())) {
+            long remainingSeconds = Math.max(0L,
+                    state.pendingDivorceFiledTick() + MarriageTuning.divorceEscrowTicks() - overworld.getGameTime()) / 20L;
+            ServerPlayer initiator = overworld.getServer().getPlayerList().getPlayer(state.pendingDivorceInitiator());
+            // 发起方此刻也可能离线: 离线玩家名字本 mod 拿不到 (全库零 GameProfileCache 用法, 与
+            // MarriageWebUiActions#addNameOrNull 同一处已知缺口), 退化用 UUID 兜底而不是编一个假名。
+            String initiatorName = initiator != null
+                    ? initiator.getGameProfile().getName()
+                    : state.pendingDivorceInitiator().toString();
+            player.sendSystemMessage(Component.translatable(
+                    "message.miningdim.marriage.divorce.filed_notify", initiatorName, remainingSeconds));
         }
     }
 

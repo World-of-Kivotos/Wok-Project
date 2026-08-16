@@ -13,6 +13,10 @@ import java.util.UUID;
  *
  * 语义: proposer -> target 的单向意向; target 经 accept 把意向标为"已接受"。wed 校验意向存在且已接受。
  * 一名玩家同一时刻只持一条 outgoing 意向 (再 propose 覆盖旧的)。线程: 仅服务端主线程访问 (命令回调主线程)。
+ *
+ * 意向寿命的上界是"双方连续在线的这一段会话"(登出即作废, 见 {@link #clearInvolving}), 刻意不做定时过期 ——
+ * 过期窗口时长在设计文档里没有拍板, 编一个出来比不做更糟 (纪律 14)。会话边界是零数值的结构性上界, 已经堵掉
+ * "求婚方几小时后远程 /marriage wed 兑现"这条滥用路径, 不需要额外的时间阈值。
  */
 public final class MarriageProposals {
 
@@ -89,5 +93,33 @@ public final class MarriageProposals {
     /** 清掉 proposer 的 outgoing 意向 (典礼完成/取消后)。 */
     public void clear(UUID proposer) {
         byProposer.remove(proposer);
+    }
+
+    /**
+     * target 拒绝 proposer 的求婚 (F098 /marriage reject)。仅当该 proposer 确实有一条指向 target 的意向时移除
+     * 并返回 true; 否则 false, 不动表 —— 不能按 proposer 裸删, 那等于谁都能拒掉别人指向第三方的婚约。
+     */
+    public boolean rejectFrom(UUID proposer, UUID target) {
+        Proposal p = byProposer.get(proposer);
+        if (p == null || !p.target.equals(target)) {
+            return false;
+        }
+        byProposer.remove(proposer);
+        return true;
+    }
+
+    /** proposer 撤回自己的 outgoing 意向 (F098 /marriage withdraw)。返回被撤回意向原本的 target; 无意向则 null。 */
+    public UUID withdraw(UUID proposer) {
+        Proposal p = byProposer.remove(proposer);
+        return p == null ? null : p.target;
+    }
+
+    /**
+     * 清掉该玩家牵涉的全部意向 (F098: 登出即作废, 见类注释的会话边界): 既清他自己发出的 outgoing 意向,
+     * 也清所有指向他的 incoming 意向 (否则对方登出后, 求婚方仍握着一条"已被接受"的意向可以远程兑现)。
+     */
+    public void clearInvolving(UUID player) {
+        byProposer.remove(player);
+        byProposer.values().removeIf(p -> p.target.equals(player));
     }
 }

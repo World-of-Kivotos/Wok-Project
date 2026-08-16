@@ -1173,6 +1173,20 @@ export function AdminPage(): ReactElement {
     setToast(next)
   }
 
+  /*
+   * loading 帧与 error 态不能共用同一条"当非 OP 处理"的降级路径: loading 只是身份还没到, 多看半拍
+   * 会被服务端拒绝的横幅代价可以接受 (见上面 profileReady 的注释); error 是身份查询本身已经失败,
+   * 若仍按非 OP 画, 真 OP 会被骗着相信自己没权限, 职业调级页签的下拉也会一直空着且不说明原因。
+   * 这里必须单独截停, 不让后面的 isOp/jobOptions 假装成"确定不是 OP"。
+   */
+  if (profileQuery.status === 'error') {
+    return (
+      <section className="flex flex-col gap-4">
+        <ErrorBlock message={profileQuery.error.message} code="player.profile" onRetry={profileQuery.reload} />
+      </section>
+    )
+  }
+
   return (
     <section className="flex flex-col gap-4">
       {/* 页名由 TabletShell 的 h1 统一渲染, 页面内不再重复 —— 重复两遍且里层更大, 打开必现, 读起来像渲染 bug。 */}

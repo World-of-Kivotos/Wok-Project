@@ -4,7 +4,8 @@
  * 它覆盖两种 action, 且两种走完全不同的路:
  *   1. **真契约那 65 个** (lib/actions.ts 的 SERVER_ACTIONS 63 条 + CLIENT_LOCAL_ACTIONS 2 条): 原样转调
  *      call(), 即 dev 下落 bridge.mock、装进游戏后落真服。本层一行业务规则都不加, 只在写操作成功后顺手
- *      重拉一次背包镜像, 好让别的面板 (卖菜/买入/挂单页的背包格) 立刻看见后果。
+ *      重拉一次背包镜像 (动背包的 action), 或单纯把 world.revision 自增一下 (只动钱包不动背包的
+ *      case.open/case.apply), 好让别的面板 (卖菜/买入/挂单页的背包格、顶栏余额) 立刻看见后果。
  *   2. **planned.ts 里剩下那 2 个** (shop.catalog / shop.detail): 后端还不存在 (在 WOK-ChestShop 跨仓),
  *      由 store 的内存世界回答, 带 150-400ms 人为延迟。
  *
@@ -106,8 +107,10 @@ function fail(action: MockActionName, message: string): WebUiCallError {
  *
  * 判据: 该 action 会不会动**本人**的钱包或背包 (集合成员照旧, 一条不删)。钱包本身已不再进镜像
  * (F057: mirror.wallet 全库零读取方, 已删字段), 由各页自己的 player.profile / job.farmer.state 等
- * 聚合重查负责; 这张表现在只管背包那一半 —— 只动钱包不动背包的 action (如 admin.economy.set) 留在表里
- * 也无妨, 多刷一次背包不会出错, 只是当次没有可见变化。
+ * 聚合重查负责 —— 但那条重查链挂在 TabletShell 的 world.revision effect 上 (见下方
+ * refreshInventoryMirror 与 bumpWorldRevision 的说明), 只动钱包不动背包的 action 若两张表都不进,
+ * 顶栏余额就没有任何东西会把它捅醒。这张表现在只管背包那一半 —— 只动钱包不动背包的 action
+ * (如 admin.economy.set) 留在表里也无妨, 多刷一次背包不会出错, 只是当次没有可见变化。
  */
 const MIRROR_AFTER_INVENTORY = new Set<string>([
   'market.place',
@@ -125,6 +128,17 @@ const MIRROR_AFTER_INVENTORY = new Set<string>([
   // OP 调账只动钱包, 不动背包; 留在表里见上方判据说明。
   'admin.economy.set',
 ])
+
+/**
+ * 写操作之后只需要顶栏重查, 不动背包的 action。case.open 扣信用点/青辉石买一次开箱机会,
+ * case.apply 把已持有皮肤换到手持枪械上的持有状态 —— 两者都不进背包, 故不能塞进
+ * MIRROR_AFTER_INVENTORY (那张表的刷新只查 player.inventory, 查不出钱包变化)。
+ *
+ * mirror.wallet / mirror.caseOwnedTotal 已随 F057 核销 (全库零读取方, 已删字段), 这两个 action
+ * 因此不再需要任何专属的镜像字段 —— 唯一还欠的是 world.revision 的那一次自增, 用来叫醒
+ * TabletShell.tsx 的 "世界变了就重查 profile" effect, 顶栏 Currency 才会跟着扣费后的余额走。
+ */
+const BUMP_REVISION_AFTER = new Set<string>(['case.open', 'case.apply'])
 
 /**
  * 拉一遍背包并写进镜像。成功时顺带清掉上一次的失败标记。
@@ -152,6 +166,16 @@ export function recordMirrorError(error: unknown): void {
   mutateWorld((draft) => {
     draft.mirror.lastError = error instanceof Error ? error.message : String(error)
   })
+}
+
+/**
+ * 只让 world.revision 自增, 不写任何草稿字段 —— BUMP_REVISION_AFTER 里的 action 没有专属镜像
+ * 字段可写 (见该常量上方说明), 需要的只是 mutateWorld 广播这一侧的副作用。
+ *
+ * 同步执行、不吞异常: 与 refreshInventoryMirror 不同, 这里没有网络往返可失败, 没有 reject 的余地。
+ */
+function bumpWorldRevision(): void {
+  mutateWorld(() => {})
 }
 
 /** 首屏预热: hub 挂载时调一次, 免得每个面板各自去发现镜像是 null。 */
@@ -214,6 +238,8 @@ async function delegateReal(action: WebUiActionName, payload: unknown): Promise<
     // 红线 (F012): 镜像刷新绝不能挂在这条 await 链上, 也绝不能包一层 try/catch 把 result 换掉 ——
     // 写操作在上一行已经生效, 刷新失败不该让调用方把已经成功的写操作误判成失败并丢弃回执。
     void refreshInventoryMirror().catch(recordMirrorError)
+  } else if (BUMP_REVISION_AFTER.has(action)) {
+    bumpWorldRevision()
   }
   return result
 }

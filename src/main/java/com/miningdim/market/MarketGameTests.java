@@ -12,10 +12,14 @@ import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.market.store.MarketDaoSqlite;
 import com.miningdim.market.store.MarketDb;
 import com.miningdim.testutil.MockGameTestPlayers;
+import com.miningdim.webui.server.WebUiBusinessException;
+import com.miningdim.webui.server.WebUiErrorCodes;
 import com.mojang.authlib.GameProfile;
 import io.netty.channel.embedded.EmbeddedChannel;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.server.level.ServerLevel;
@@ -25,6 +29,10 @@ import net.minecraft.world.item.Items;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -608,6 +616,164 @@ public final class MarketGameTests {
     }
 
     // ============================================================
+    // 9. 托管物不可解析 (F042): 买入/撤单必须抛 ESCROW_UNRESOLVABLE 且零副作用; 正常物品不受该守卫误伤
+    // ============================================================
+
+    /**
+     * 托管 NBT 指向的物品已不存在 (所属 mod 被卸载 / 物品被移除) 时, 买入与撤单都必须拒绝而不是真的
+     * 扣款/入账/退物品。1.20.1 的 defaulted 注册表把无法解析的 id 兜成 minecraft:air (isEmpty()==true),
+     * {@link MarketEngine#buy} 与 {@link MarketEngine#cancel} 各自在 copy()/setCount() 之前挡这一刀
+     * (见 MarketEngine.java :198-206, :280-289), 抛 {@link WebUiBusinessException}, errorCode 为
+     * {@link WebUiErrorCodes#ESCROW_UNRESOLVABLE}。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void unresolvableEscrowRejectsBuyAndCancelWithoutSideEffects(GameTestHelper helper) {
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
+        MarketDaoSqlite dao = MarketDb.on(ledger.connection());
+        try {
+            ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            ServerPlayer buyer = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            MarketEngine engine = new MarketEngine(dao, helper.getLevel().getServer());
+
+            // 手工拼一个指向不存在 item id 的 ItemStack NBT (不走 MarketEngine.serializeStack, 那需要一个
+            // 真实可解析的 ItemStack)。字段名与 ItemStack.save/of 的读写形状一致 (id: String, Count: byte)。
+            CompoundTag ghostTag = new CompoundTag();
+            ghostTag.putString("id", "nonexistent:ghost_item");
+            ghostTag.putByte("Count", (byte) 1);
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            try (DataOutputStream dos = new DataOutputStream(bos)) {
+                NbtIo.write(ghostTag, dos);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+            byte[] ghostNbt = bos.toByteArray();
+
+            // 前提校验: 这段字节确实反序列化为空栈, 否则本测试测的是别的路径, 不是 ESCROW_UNRESOLVABLE。
+            helper.assertTrue(MarketEngine.deserializeStack(ghostNbt).isEmpty(),
+                    "手工拼的幽灵物品 NBT 必须反序列化为空栈 (isEmpty), 这是本测试成立的前提");
+
+            EconomyServices.economyService().grant(seller, Currency.CREDIT, 5_000L);
+            EconomyServices.economyService().grant(buyer, Currency.CREDIT, 5_000L);
+            long sellerBefore = ledger.balance(seller.getUUID(), Currency.CREDIT);
+            long buyerBefore = ledger.balance(buyer.getUUID(), Currency.CREDIT);
+
+            // 直接经 DAO 落一条 ACTIVE 挂单 (绕过 place, 模拟托管所属 mod 在挂单之后才被卸载的历史挂单)。
+            long ghostListingId = dao.insertListing(seller.getUUID(), seller.getName().getString(),
+                    "nonexistent:ghost_item", ghostNbt, 1, 100L, "CREDIT", System.currentTimeMillis());
+
+            // 买入必须抛 ESCROW_UNRESOLVABLE, 不能真扣款、不能写流水、不能给卖家入账。
+            WebUiBusinessException buyEx = null;
+            try {
+                engine.buy(buyer, ghostListingId, 1);
+            } catch (WebUiBusinessException e) {
+                buyEx = e;
+            }
+            helper.assertTrue(buyEx != null,
+                    "买入托管物不可解析的挂单必须抛 WebUiBusinessException, 而不是真的成交");
+            helper.assertTrue(WebUiErrorCodes.ESCROW_UNRESOLVABLE.equals(buyEx.errorCode()),
+                    "买入拒绝的 errorCode 必须是 ESCROW_UNRESOLVABLE, 实为 " + buyEx.errorCode());
+            long buyerAfterBuyAttempt = ledger.balance(buyer.getUUID(), Currency.CREDIT);
+            helper.assertTrue(buyerAfterBuyAttempt == buyerBefore,
+                    "买家余额必须逐位不变, 实为 " + buyerAfterBuyAttempt + " (应为 " + buyerBefore + ")");
+            long sellerAfterBuyAttempt = ledger.balance(seller.getUUID(), Currency.CREDIT);
+            helper.assertTrue(sellerAfterBuyAttempt == sellerBefore,
+                    "卖家余额必须逐位不变, 实为 " + sellerAfterBuyAttempt + " (应为 " + sellerBefore + ")");
+            com.miningdim.market.store.ListingRow afterBuyAttempt = dao.findListing(ghostListingId);
+            helper.assertTrue("ACTIVE".equals(afterBuyAttempt.status()) && afterBuyAttempt.count() == 1,
+                    "被拒的买入不得改动挂单, 必须仍是 ACTIVE 且 count 仍为 1, 实为 status="
+                            + afterBuyAttempt.status() + " count=" + afterBuyAttempt.count());
+            helper.assertTrue(rowCount(ledger, "SELECT COUNT(*) FROM transactions WHERE listing_id="
+                            + ghostListingId) == 0L,
+                    "被拒的买入不得写入任何一行 transactions 流水");
+            helper.assertTrue(rowCount(ledger, "SELECT COUNT(*) FROM pending_payout WHERE seller_uuid='"
+                            + seller.getUUID() + "'") == 0L,
+                    "被拒的买入不得写入任何一行 pending_payout (卖家未实际入账, 不该有待结款)");
+
+            // 撤单必须抛同一个 errorCode, 挂单不得被标 CANCELLED, 卖家背包不得凭空多出任何东西。
+            int sellerItemsBefore = totalItemCount(seller);
+            WebUiBusinessException cancelEx = null;
+            try {
+                engine.cancel(seller, ghostListingId);
+            } catch (WebUiBusinessException e) {
+                cancelEx = e;
+            }
+            helper.assertTrue(cancelEx != null,
+                    "撤销托管物不可解析的挂单必须抛 WebUiBusinessException, 而不是真的退货");
+            helper.assertTrue(WebUiErrorCodes.ESCROW_UNRESOLVABLE.equals(cancelEx.errorCode()),
+                    "撤单拒绝的 errorCode 必须与买入一致, 都是 ESCROW_UNRESOLVABLE, 实为 " + cancelEx.errorCode());
+            com.miningdim.market.store.ListingRow afterCancelAttempt = dao.findListing(ghostListingId);
+            helper.assertTrue("ACTIVE".equals(afterCancelAttempt.status()),
+                    "被拒的撤单不得把挂单标成 CANCELLED, 实为 " + afterCancelAttempt.status());
+            int sellerItemsAfter = totalItemCount(seller);
+            helper.assertTrue(sellerItemsAfter == sellerItemsBefore,
+                    "被拒的撤单不得让卖家背包凭空多出任何物品, 实为 " + sellerItemsAfter
+                            + " (应为 " + sellerItemsBefore + ")");
+
+            helper.succeed();
+        } finally {
+            MarketDb.close(dao);
+            restoreEconomy(prev);
+        }
+    }
+
+    /**
+     * 不误伤回归: ESCROW_UNRESOLVABLE 守卫只挡真正解析失败的挂单, 正常物品的 place -&gt; buy 与
+     * place -&gt; cancel 必须照常成交/退货, 金额与件数照常守恒。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void resolvableEscrowStillTradesNormallyAlongsideTheGuard(GameTestHelper helper) {
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
+        MarketDaoSqlite dao = MarketDb.on(ledger.connection());
+        try {
+            ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            ServerPlayer buyer = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            MarketEngine engine = new MarketEngine(dao, helper.getLevel().getServer());
+
+            // 场景一: place -> buy 一个真实可解析的物品, 守卫不得误伤。
+            seller.getInventory().clearContent();
+            seller.getInventory().setItem(0, new ItemStack(Items.IRON_INGOT, 3));
+            EconomyServices.economyService().grant(seller, Currency.CREDIT, 2_000L);
+            long buyListingId = engine.place(seller, 0, 3, 50L, "CREDIT").listingId();
+
+            EconomyServices.economyService().grant(buyer, Currency.CREDIT, 2_000L);
+            buyer.getInventory().clearContent();
+            long buyerBeforeBuy = ledger.balance(buyer.getUUID(), Currency.CREDIT);
+            long sellerBeforeBuy = ledger.balance(seller.getUUID(), Currency.CREDIT);
+
+            MarketEngine.BuyResult result = engine.buy(buyer, buyListingId, 3);
+            helper.assertTrue(result.total() == 150L,
+                    "正常物品仍能正常成交, total = 50*3 = 150, 实为 " + result.total());
+            helper.assertTrue(ledger.balance(buyer.getUUID(), Currency.CREDIT) == buyerBeforeBuy - 150L,
+                    "正常成交里买家仍被正常扣 total");
+            helper.assertTrue(ledger.balance(seller.getUUID(), Currency.CREDIT) == sellerBeforeBuy + 150L,
+                    "正常成交里卖家仍正常收到全额 total");
+            helper.assertTrue(countItem(buyer, Items.IRON_INGOT) == 3,
+                    "正常物品仍能正常交付给买家");
+            helper.assertTrue("SOLD".equals(dao.findListing(buyListingId).status()),
+                    "正常挂单仍能正常转 SOLD");
+
+            // 场景二: place -> cancel 一个真实可解析的物品, 守卫同样不得误伤。
+            seller.getInventory().clearContent();
+            seller.getInventory().setItem(0, new ItemStack(Items.IRON_INGOT, 2));
+            long cancelListingId = engine.place(seller, 0, 2, 50L, "CREDIT").listingId();
+            MarketEngine.CancelResult cancelResult = engine.cancel(seller, cancelListingId);
+            helper.assertTrue(cancelResult.count() == 2,
+                    "正常挂单的撤单回执仍报告托管数量 2, 实为 " + cancelResult.count());
+            helper.assertTrue(countItem(seller, Items.IRON_INGOT) == 2,
+                    "正常挂单撤单仍能把物品退回卖家背包");
+            helper.assertTrue("CANCELLED".equals(dao.findListing(cancelListingId).status()),
+                    "正常挂单撤单后仍能正常转 CANCELLED");
+
+            helper.succeed();
+        } finally {
+            MarketDb.close(dao);
+            restoreEconomy(prev);
+        }
+    }
+
+    // ============================================================
     // 7. 偏离费校准 (纯函数): 平价=平率地板 / 极端偏离≈物品价值 / 两端对称 / 小幅偏离便宜 / 无锚退平率
     // ============================================================
 
@@ -680,6 +846,15 @@ public final class MarketGameTests {
             if (s.is(item)) {
                 total += s.getCount();
             }
+        }
+        return total;
+    }
+
+    /** 某玩家主背包内全部物品总数 (被拒操作后"没有凭空多出任何东西"断言用, 不区分物品种类)。 */
+    private static int totalItemCount(ServerPlayer player) {
+        int total = 0;
+        for (ItemStack s : player.getInventory().items) {
+            total += s.getCount();
         }
         return total;
     }

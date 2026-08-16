@@ -34,14 +34,24 @@ import java.util.UUID;
  *      6★+ 冠军的贡献全漏记。贡献口径是"玩家有效输出统计"(非扣血量), 故即使血池取消 vanilla 扣血也要记。
  *  (2) {@link LivingDeathEvent}: 冠军死亡时结算 —— drain 贡献 -> {@link ContributionPool#distribute} 盖章双门槛
  *      + 按有效伤害加权瓜分固定池 -> 逐合格玩家经 {@code EconomyServices.economyService().grantDaily} 并入
- *      credit_faucet 信用点衰减主闸 (60000 档, 不自开印钞口); 6★+ 另发青辉石经
- *      {@code grantAzureDaily(player, n, AZURE_DAILY_FAUCET_CAP)} 并入每人每日青辉石产出硬上限。
+ *      credit_faucet 信用点衰减主闸 (60000 档, 不自开印钞口); 6★+ 另按同一双门槛 + 同一加权瓜分口径 (F099 修复,
+ *      复用 {@link ContributionPool#distribute} 把 {@link ChampionReward#azureDrop} 当作青辉石固定总池) 分青辉石,
+ *      逐合格玩家经 {@code grantAzureDaily(player, share, AZURE_DAILY_FAUCET_CAP)} 并入每人每日青辉石产出硬上限。
  *
  * 经济闸铁律 (spec 第十一章 + 经济文档 8.5): 贡献池战斗 faucet 必须并入每人每日上限, 故信用点一律走
  * grantDaily(player, raw, GLOBAL_DAILY_CREDIT_FAUCET_KEY, GLOBAL_DAILY_CREDIT_FAUCET_TIER) (与矿工卖矿/农夫卖菜
- * 共享同一信用点衰减主闸天花板); 青辉石一律走 grantAzureDaily(player, n, AZURE_DAILY_FAUCET_CAP) 并入每人每日青辉石
- * 产出硬上限 (azure_faucet 键, UTC 翻日; economy-02 修复, 此前直发 grant(AZURE) 无任何日上限是印钞口)。
+ * 共享同一信用点衰减主闸天花板); 青辉石一律走 grantAzureDaily(player, share, AZURE_DAILY_FAUCET_CAP) 并入每人每日
+ * 青辉石产出硬上限 (azure_faucet 键, UTC 翻日; economy-02 修复, 此前直发 grant(AZURE) 无任何日上限是印钞口)。
  * 本类不自建 addCredit / addAzure 印钞口。
+ *
+ * F099 修复 (青辉石按人头复制发放, 与信用点池反人头复制口径相反): 复核结论 (Full_Repo_Audit_2026-08.md F099) 已
+ * 推翻"可跨账号洗额度"的原判 —— {@code Currency.AZURE} 硬绑定玩家不可转移不可交易 (见 economy 包 Currency 类注释),
+ * 塔罗卡/开箱皮肤两个出口也都强制盖玩家 UUID 归属, 小号刷到的青辉石烂在小号手里, 无法归集。但复核仍指出"打 47
+ * 点伤害的蹭枪者与打 26000 的主力拿一样多青辉石"是真实的公平性/口径不一致 —— 与信用点侧 :119 走加权瓜分相反,
+ * 本类 :85 注释自称"整池不发, 防按人头复制"对青辉石分支并不成立。按审计员给的建议 A (让青辉石与信用点走同一分配
+ * 语义: 整只怪固定产出 N 颗按合格者权重取整瓜分), 把 {@link ChampionReward#azureDrop} 的产出量重新定义为"本次击杀
+ * 青辉石固定总池" (而非每人一份的常量), 复用同一份 {@link ContributionPool#distribute} 按有效伤害权重瓜分, 不新增
+ * 分配算法。
  *
  * 冠军判定经自研 {@link MiningChampions} capability: 1-10★ 全星级冠军均发奖 (非仅 6★+ 血池冠军), 故读
  * {@link MiningChampionData#star()}/{@link MiningChampionData#effectiveHp()}。普通怪 capability star=0 直接放行。
@@ -132,8 +142,13 @@ public final class ChampionRewardHandler {
             return;
         }
 
+        // 青辉石固定总池 (F099 修复): azureDrop(star) 不再是"每合格者一份"的常量, 而是本次击杀的青辉石总池 raw,
+        // 复用信用点同一份贡献记录 + 同一双门槛, 按有效伤害权重瓜分 (与信用点分配语义完全对齐, 严禁按人头复制)。
         boolean dropsAzure = ChampionReward.dropsAzure(star);
-        long azureAmount = ChampionReward.azureDrop(star);
+        long azurePoolRaw = dropsAzure ? ChampionReward.azureDrop(star) : 0L;
+        Map<UUID, Long> azurePayout = azurePoolRaw > 0L
+                ? ContributionPool.distribute(contributions, bossEffectiveHp, azurePoolRaw)
+                : Map.of();
 
         for (Map.Entry<UUID, Long> entry : payout.entrySet()) {
             ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
@@ -147,11 +162,12 @@ public final class ChampionRewardHandler {
                         EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY,
                         EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER);
             }
-            // 6★+ 青辉石 PvE 掉落: 并入经济层每人每日产出硬上限 (grantAzureDaily, 经济文档 8.5 战斗 faucet 必须并入
-            // 每人每日上限; economy-02 修复)。超当日 cap 部分被经济层截断丢弃, 返回值为实际入账量 (此处不二次用, 留作
-            // 将来"撞上限提示"接线点)。
-            if (dropsAzure && azureAmount > 0L) {
-                EconomyServices.economyService().grantAzureDaily(player, azureAmount,
+            // 6★+ 青辉石 PvE 掉落: 与信用点同一份 payout 键集 (同一双门槛过滤), 按权重取份额, 并入经济层每人每日
+            // 产出硬上限 (grantAzureDaily, 经济文档 8.5 战斗 faucet 必须并入每人每日上限; economy-02 修复)。超当日
+            // cap 部分被经济层截断丢弃, 返回值为实际入账量 (此处不二次用, 留作将来"撞上限提示"接线点)。
+            long azureShare = azurePayout.getOrDefault(entry.getKey(), 0L);
+            if (azureShare > 0L) {
+                EconomyServices.economyService().grantAzureDaily(player, azureShare,
                         EconomyConstants.AZURE_DAILY_FAUCET_CAP);
             }
         }

@@ -36,6 +36,9 @@ public final class QuestConfig {
     public static final ForgeConfigSpec.LongValue SPECIAL_REWARD_BASE;
     public static final ForgeConfigSpec.LongValue HIDDEN_REWARD_BASE;
 
+    public static final ForgeConfigSpec.DoubleValue DAILY_BOOK_CHANCE;
+    public static final ForgeConfigSpec.DoubleValue WEEKLY_BOOK_CHANCE;
+
     public static final ForgeConfigSpec.DoubleValue VILLAGE_TRIGGER_CHANCE;
     public static final ForgeConfigSpec.IntValue VILLAGE_TRIGGER_COOLDOWN_TICKS;
     public static final ForgeConfigSpec.IntValue STRUCTURE_SCAN_INTERVAL_TICKS;
@@ -82,6 +85,14 @@ public final class QuestConfig {
                 .defineInRange("specialBase", 800L, 0L, Long.MAX_VALUE);
         HIDDEN_REWARD_BASE = builder.comment("Base CREDIT for one hidden chain stage; payout is base * difficulty")
                 .defineInRange("hiddenBase", 4_000L, 0L, Long.MAX_VALUE);
+        DAILY_BOOK_CHANCE = builder.comment(
+                        "Chance that claiming a daily (or special) quest also yields an enchanted book. Rolled "
+                                + "independently of the guaranteed material drop, so a book never costs the player "
+                                + "their materials")
+                .defineInRange("dailyBookChance", 0.04D, 0.0D, 1.0D);
+        WEEKLY_BOOK_CHANCE = builder.comment(
+                        "Chance that claiming a weekly (or hidden chain) quest also yields an enchanted book")
+                .defineInRange("weeklyBookChance", 0.30D, 0.0D, 1.0D);
         builder.pop();
 
         builder.push("triggers");

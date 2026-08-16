@@ -62,6 +62,19 @@
 - 递增公式 / 衰退速率 / 宽限期 / 变质态 的具体数值与懒结算逻辑落在酒窖箱阶段 (阶段 4); 懒结算为纯函数
   (输入 起始年份 / 流逝现实时间 / 可用燃料 -> 输出 终止年份 / 耗燃料 / 是否变质), 便于 GameTest。
 
+> **F027 二段修复落地 (2026-08)**: 全库审计复核指出本节"宽限期"的字面承诺被两处实现缺口打穿——(a) 补齐
+> 结算 (`CellarSettle.settle`) 曾把断粮差额记成无上限债, 一次区块卸载/离线即可能永久欠款; (b) 燃料槽被
+> `ItemStackHandler` 默认 64 上限与 `dried_wheat` 默认 `stacksTo(64)` 双重卡死, 而 12 瓶 vintage 10 一天
+> 满额应耗 6192 远超 64 (约 15 分钟量), 使闪耀主线门槛 (`VINTAGE_LAYER_T1=10`) 事实上不可达。(a) 已改为
+> 按当步可支付燃料预算截断实际增龄比例, 未覆盖部分按衰退速率倒扣、不再欠账 (`CellarSettle` 类 javadoc 详述
+> 不变式)。(b) 已把燃料槽单槽容量与 `dried_wheat` 的 `stacksTo` 一并顶到派生常量
+> `BrewerConstants.FUEL_SLOT_CAPACITY=6192` ——数值系"满窖 12 瓶停在 vintage 10 时一个结算步 (1 现实天)
+> 的满额应耗", 非拍脑袋数字, 推导见该常量 javadoc。效果: 单次离线/区块卸载间隔 <=1 天时, 满槽一次即可让
+> agedFraction 恒为 1、零衰退; 超过 1 天, 或年份继续推高到 v18/v25 (应耗随年份平方递增), 断粮衰退会重新
+> 咬人——这是"老酒烧钱凶, 自然经济封顶"故意保留的经济压力, 不是本次修复的范围。若未来要覆盖更长的离线
+> 窗口, 需在 (i) 继续加大槽容量、(ii) 开放受控的燃料输入通道 (与本类反挂机决策冲突, 需先拍板)、(iii) 真正
+> 意义上的"宽限期"(债务式短期免罚) 三者之间二选一或组合, 均属未拍板事项, 本次不擅自展开。
+
 强度公式统一入口: `WineNbt.strength(stack) = 年份 × 品质系数` (软上限在效果映射层施加)。落地: `VintageClock`
 (纯静态换算, 现实毫秒由调用方传入, 便于 GameTest 确定性验证) + `BrewerConstants` (单一来源可调常量)。
 
@@ -94,9 +107,42 @@
 - 死亡丢失: `LivingDeathEvent` 清空该玩家全部永久增益 + 摘除属性修饰/效果。
 - 跨下线保留: 永久增益持久化 (`BrewBuffStore extends SavedData`), `PlayerLoggedInEvent` 重挂; 仅死亡清。
 - 单项数值帽: 金酒永久生命上限有硬帽 (`GIN_MAX_HEALTH_CAP`, 经 `MaxHealthModifierManager.capUp` 执行);
-  伏特加永久减伤 `VODKA_DAMAGE_REDUCTION = 0.20`。
+  伏特加永久减伤 `VODKA_DAMAGE_REDUCTION = 0.20` (与当前实现 0.05x5=0.25 不一致, 见五之补)。
 
 落地: `BrewBuffStore` + `BrewPermanentBuffs` (后续阶段)。
+
+## 五之补: 跨类型总帽缺口 (PENDING, 待主控拍板)
+
+F028 全库审计复核确认: 九种闪耀永久层可同时叠满, 无职业门也无跨类型总帽, 构成战力叠叠乐。本节只陈述已核实
+的事实与待决项, 不擅自拟定任何数值 —— 具体数值须主控拍板后另行落地。
+
+**(1) 现状事实 (已核实)**:
+
+- `BrewEffectEngine.applyOnDrink` 固化永久层时不读 `JobId.BREWER`; 酒是可自由交易的普通物品 (无绑定 NBT
+  校验), 故非酿酒师玩家只要在跳蚤市场买齐九种闪耀高年份酒即可拿到全部九类永久层, 与酿酒师身份/等级无关。
+- 九类各自独立封顶 `MAX_LAYERS_PER_TYPE=5`, 但彼此之间【无任何约束】——玩家可以同时把九类全部叠满。
+- 已有的跨职业帽只覆盖两项: 最大生命 (`GinMaxHealthManager.clampToGlobalCap`, 与塔罗共享
+  `GLOBAL_BONUS_MAX_HEALTH_CAP_PCT`) 与减伤 (`PlayerDamageReduction` 连乘 + `CombatConstants.PLAYER_MAX_REDUCTION`
+  全局帽)。朗姆移速、龙舌兰近战攻击、白兰地永久急迫、威士忌/香槟周期回血、月光永久词条【全部无帽】。
+
+**(2) 待主控拍板的五条**:
+
+- 永久层是否加职业门 (仅 `JobId.BREWER` 且等级 >= N 才生效? 是否进一步收紧为"只喝自己酿的酒"——
+  `WineNbt` 已存酿造者 UUID, 结构上具备条件, 但当前未启用此校验);
+- 跨类型总帽的模型与数值 (同时生效的酒类数上限? 还是战斗向层与续航向层各设独立总预算? 预算取值多少);
+- 朗姆移速 / 龙舌兰近战 / 威士忌与香槟周期回血 各自的单项数值帽;
+- 周期回血 (威士忌/香槟) 是否改为脱战才生效, 若是则脱战判据取哪个 (与厨师/其它职业已有的脱战判定复用还是
+  另立);
+- 本文档第 96 行遗留的 `VODKA_DAMAGE_REDUCTION=0.20` 与代码现状 `0.05×5=0.25` 的分叉, 以哪个为准。
+
+**(3) 本轮已做的过渡措施**:
+
+- 九类每层收益的数值 (`GIN_MAX_HEALTH_PCT_PER_LAYER` / `VODKA_REDUCTION_PER_LAYER` /
+  `RUM_MOVE_SPEED_PCT_PER_LAYER` / `TEQUILA_ATTACK_PER_LAYER` / `WHISKEY_HEAL_PCT_PER_LAYER` /
+  `CHAMPAGNE_HEAL_PCT_PER_LAYER` / `MAOTAI_XP_PCT_PER_LAYER` 等) 已全部搬进 `miningdim-brewer.toml`
+  (`BrewerConfig`, F086), 拍板后改 toml 数值即可收紧, 无需重编译。
+- 一旦拍板跨类型总帽, 减伤类新增/调整必须继续走 `combat/PlayerDamageReduction` 那套单点乘法非线性结算
+  + 全局帽的既有范式 (与凝脂/矿脉抗性/烈酒钝感/女祭司预知同一套), 严禁另起炉灶。
 
 ## 六、实现分期 (原子提交)
 

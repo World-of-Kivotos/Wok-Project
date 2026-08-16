@@ -42,6 +42,6 @@ public final class VintageClock {
         if (baseYears <= 0.0D) {
             return 0.0D;
         }
-        return isFullMoon(moonPhase) ? baseYears * (1.0D + BrewerConstants.FULL_MOON_BONUS) : baseYears;
+        return isFullMoon(moonPhase) ? baseYears * (1.0D + BrewerConfig.FULL_MOON_BONUS.get()) : baseYears;
     }
 }

@@ -52,9 +52,18 @@ public final class WebUiServerDispatcher {
     /**
      * 判重命中时的替代回执 (F045)。与 {@link #RESPONSE_TOO_LARGE_JSON} 同规格预先算好: 它是"拒绝"路径本身,
      * 必须无条件编得出去, 不该在判重短路那一刻现造。
+     *
+     * retrySameOpeningId 必须是 true (复核修正, 原实现误写 false): 判重命中恰恰证明这个 requestId 对应的
+     * handler 已经真实执行过一次 —— 对 case.open 而言, {@code CaseOpeningService.open} 的 javadoc 明写
+     * "Safe to replay across reconnects/restarts", 即同一 openingId 的重放是幂等续跑, 不会二次扣费。
+     * 若这里回 false, 前端 (case-opening.html 的 shouldRetrySameOpening) 会按 false 语义丢弃 pendingOpeningId
+     * 并在下次点击时铸造一个全新 openingId —— 那是一次独立的新开箱请求, 若原始那次其实已经成功扣费+发货,
+     * 玩家就会被二次收费。回 true 才是把"这次执行结果未知"正确翻译成"继续用同一个幂等键安全续跑"，
+     * 与页面自身对所有未识别错误的默认策略 (同文件 1396-1397 行 "未知错误无法证明服务端没有完成扣款与入库；
+     * 默认复用流水号避免重复开箱") 一致。
      */
     static final String DUPLICATE_REQUEST_JSON = businessErrorJson(new WebUiBusinessException(
-            WebUiErrorCodes.DUPLICATE_REQUEST, "这次请求已经处理过了，请勿重复提交", false));
+            WebUiErrorCodes.DUPLICATE_REQUEST, "这次请求已经处理过了，请勿重复提交", true));
 
     /**
      * 限流命中时的替代回执 (F008)。与 {@link #RESPONSE_TOO_LARGE_JSON} 同规格预先算好, 理由相同: 它是"拒绝"

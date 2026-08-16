@@ -46,13 +46,25 @@ import com.miningdim.webui.WebUiPageUrl;
  *
  * 服务端权威 (架构铁律 1): 本桥不写任何世界状态, 只转发意图与渲染结果。
  *
- * onQuery/onScreenClosed 返回给前端的 failure code 表 (前端 errorText.ts 据此选择提示文案):
+ * onQuery/onScreenClosed 返回给前端的 failure code 表:
  *   -1  信封非法 (缺 action / JSON 解析失败) 或本地动作 (client.*) 自身失败;
  *   -2  服务端 30 秒内未响应, 请求超时;
  *   -3  页面不可信: 发起方不是顶层帧, 或其文档 URL 与登记的允许页面不匹配 (子帧/iframe/被导航到别处);
  *   -4  界面已关闭, 请求根本没有发出去 (screenOpen=false 时的本地短路), 前端可安全忽略/退避轮询;
  *   -5  界面在请求发出后、响应回来前被关闭, 请求可能已经在服务端落账, 前端应提示"操作可能已完成,
  *       请刷新确认" 而不是当作单纯失败处理。
+ *
+ * 复核修正: 上一句"前端 errorText.ts 据此选择提示文案"与实际链路不符, 已删除 —— webui/src/lib/errorText.ts
+ * 的 businessErrorText 只按服务端业务失败信封 (JSON 里的 errorCode 字符串) 查表, 而本类这五个码是 CEF
+ * cefQuery 的宿主级失败码 (数字), 走的是 webui/src/lib/bridge.ts 的 toCallError: 非 0 码一律
+ * {@code business = null}, callErrorText 在 business 为 null 时直接 {@code return error.message} ——
+ * 也就是说, 这里 callback.failure 第二参传的字符串会被玩家原样看到, 不会再经过任何码表翻译。
+ * 因此这五个码的 message 必须是可以直接给玩家看的中文句子, 不能写成给日志看的英文诊断串。
+ *
+ * 已知遗留 (跨车道缺口, 本类无法独自补齐): webui/src/lib/bridge.ts 的 WebUiCallError code 注释表目前只列到
+ * -3, webui/src/lib/errorText.ts 完全没有按宿主数字码分支的入口; -4/-5 若要做到"前端保留上一次数据 + 退避
+ * 轮询"而不是把整个查询状态清成 error/null (webui/src/mock/useMockWorld.ts 的 useMockAction 对任何 reject
+ * 都会这样清), 需要 webui/ 前端车道配套改造, 不在本 Java 文件的改动范围内。
  */
 public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
 
@@ -175,7 +187,8 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
         // 关掉平板的玩家每 3 秒真打一次服务端主线程。只给 client.i18n 开口子, 因为它是纯本地、
         // 零副作用的翻译键解析; client.playCaseSound 会在界面不可见时凭空放音效, 必须一起挡。
         if (!screenOpen && !"client.i18n".equals(action)) {
-            callback.failure(-4, "WebUI screen is closed");
+            // 中文文案, 不是英文诊断串: business=null 时这句话会被玩家原样看到 (见上方类注释)。
+            callback.failure(-4, "界面已关闭，请求未发送");
             return true;
         }
 
@@ -295,7 +308,9 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
         for (Long requestId : inFlightRequestIds) {
             PendingQuery query = removePending(requestId);
             if (query != null) {
-                query.callback().failure(-5, "WebUI screen closed before the response arrived");
+                // 中文文案, 不是英文诊断串 (见上方类注释): 请求已经发到服务端, 落账与否未知,
+                // 措辞必须明确提示玩家自行确认, 不能读起来像一次单纯的失败。
+                query.callback().failure(-5, "界面已关闭，本次操作是否已生效尚不确定，请刷新确认");
             }
         }
         // 兜底残留 (理论上 removePending 已清空两个 map, 这里防御性收尾)。

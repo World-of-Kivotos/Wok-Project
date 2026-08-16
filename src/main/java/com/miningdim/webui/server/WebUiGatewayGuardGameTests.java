@@ -184,8 +184,11 @@ public final class WebUiGatewayGuardGameTests {
         helper.assertTrue("DUPLICATE_REQUEST".equals(duplicate.get("errorCode").getAsString()),
                 "DUPLICATE_REQUEST_JSON errorCode must be the stable wire value 'DUPLICATE_REQUEST', got "
                         + duplicate.get("errorCode"));
-        helper.assertTrue(!duplicate.get("retrySameOpeningId").getAsBoolean(),
-                "a duplicate rejection must not invite an opening-id retry (retrySameOpeningId must be false)");
+        helper.assertTrue(duplicate.get("retrySameOpeningId").getAsBoolean(),
+                "a duplicate rejection proves the requestId's handler already ran once with an unknown outcome; "
+                        + "retrySameOpeningId must be true so case.open's idempotent-by-openingId resume path is "
+                        + "used instead of minting a fresh openingId (which would double-charge if the original "
+                        + "call had already succeeded)");
         String duplicateMessage = duplicate.get("error").getAsString();
         helper.assertTrue(!duplicateMessage.isEmpty(),
                 "duplicate rejection must carry a non-empty player-facing Chinese message");

@@ -762,7 +762,7 @@
   "tooltip.miningdim.tarot.effect.op.self_dash": "Dash %1$s blocks, affecting a %2$s-block radius with %3$s knockback force",
   "tooltip.miningdim.tarot.effect.op.self_random_buff": "Gain a random %1$s-second buff; %2$s strong-pool chance, %3$s / %4$s absorption",
   "tooltip.miningdim.tarot.effect.op.self_fortune_gamble": "%1$s chance to heal %2$s; otherwise take %3$s true damage",
-  "tooltip.miningdim.tarot.effect.op.self_refresh_beneficial": "Empower and refresh all current beneficial effects to %1$s seconds",
+  "tooltip.miningdim.tarot.effect.op.self_refresh_beneficial": "Empower and refresh all current beneficial effects to at least %1$s seconds",
   "tooltip.miningdim.tarot.effect.op.self_delayed_potion": "After %4$s seconds, gain %1$s %2$s for %3$s seconds",
   "tooltip.miningdim.tarot.effect.op.self_periodic_true_damage": "Take %1$s true damage every %2$s seconds for %3$s seconds",
   "tooltip.miningdim.tarot.effect.op.self_cleanse_limited": "Cleanse %1$s negative effects from yourself",

@@ -20,7 +20,7 @@ public record TarotEffectOp(
         TarotEffectKind kind,
         /** 原版 MobEffect 注册名 (如 minecraft:speed); 仅 *_POTION 用, 其余空串。 */
         String effectId,
-        /** MobEffect amplifier (0-based); 仅 *_POTION 用。 */
+        /** MobEffect amplifier (0-based); *_POTION 用; SELF_REFRESH_BENEFICIAL 用作刷新增益时允许抬到的等级上限 (0-based)。 */
         int amplifier,
         /** 持续/归还 ticks; *_POTION 的药水时长, SELF_MAX_HEALTH 的归还延迟, SELF_HEAL_OVER_TIME 的周期。 */
         int durationTicks,
@@ -160,6 +160,9 @@ public record TarotEffectOp(
                 threshold = GsonHelper.getAsDouble(obj, "selfDamage");
                 break;
             case SELF_REFRESH_BENEFICIAL:
+                durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
+                amplifier = GsonHelper.getAsInt(obj, "maxAmplifier");
+                break;
             case SELF_HEALING_BLOCK:
                 durationTicks = GsonHelper.getAsInt(obj, "durationTicks");
                 break;

@@ -762,7 +762,7 @@
   "tooltip.miningdim.tarot.effect.op.self_dash": "向前冲锋 %1$s 格，影响半径 %2$s 格，击退强度 %3$s",
   "tooltip.miningdim.tarot.effect.op.self_random_buff": "随机获得 %1$s 秒增益；强档概率 %2$s，吸收值 %3$s / %4$s",
   "tooltip.miningdim.tarot.effect.op.self_fortune_gamble": "%1$s 概率治疗 %2$s，否则自身受到 %3$s 点真实伤害",
-  "tooltip.miningdim.tarot.effect.op.self_refresh_beneficial": "强化并刷新全部现有增益至 %1$s 秒",
+  "tooltip.miningdim.tarot.effect.op.self_refresh_beneficial": "强化并刷新全部现有增益至少 %1$s 秒",
   "tooltip.miningdim.tarot.effect.op.self_delayed_potion": "%4$s 秒后获得 %1$s %2$s，持续 %3$s 秒",
   "tooltip.miningdim.tarot.effect.op.self_periodic_true_damage": "每 %2$s 秒自身受到 %1$s 点真实伤害，持续 %3$s 秒",
   "tooltip.miningdim.tarot.effect.op.self_cleanse_limited": "净化自身 %1$s 个负面效果",

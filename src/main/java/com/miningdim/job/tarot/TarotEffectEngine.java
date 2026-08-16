@@ -126,7 +126,7 @@ public final class TarotEffectEngine {
             case SELF_WILD_OVERDRIVE -> wildOverdrive(level, caster, op);
             case SELF_RANDOM_BUFF -> applyRandomBuff(caster, op);
             case SELF_FORTUNE_GAMBLE -> applyFortuneGamble(caster, op);
-            case SELF_REFRESH_BENEFICIAL -> refreshBeneficial(caster, op.durationTicks());
+            case SELF_REFRESH_BENEFICIAL -> refreshBeneficial(caster, op.durationTicks(), op.amplifier());
             case SELF_DELAYED_POTION -> scheduleDelayedPotion(caster, op);
             case SELF_PERIODIC_TRUE_DAMAGE -> schedulePeriodicTrueDamage(caster, op);
             case SELF_CLEANSE_LIMITED -> cleanseLimited(caster, op.count());
@@ -533,17 +533,28 @@ public final class TarotEffectEngine {
         }
     }
 
-    private void refreshBeneficial(ServerPlayer caster, int durationTicks) {
+    /**
+     * 刷新全部现有增益 (命运之轮闪耀; F023 三项修正):
+     * 1) 强增益 (抗性/隐身) 跳过不刷新 —— 与 {@link #applySelfPotion} 同守 spec 第五章 4 的红线, 不再借道
+     *    removeEffect+addEffect 绕开 "同类不可续期", 也不再把玩家已有的抗性直接抬到 amplifier 封顶。
+     * 2) 幅度只取 max(现有, maxAmplifier): maxAmplifier 由 datapack 给 (10_wheel_of_fortune.json 的
+     *    maxAmplifier), 绝不下调玩家已有的更高等级, 也不再硬编码 4 (V 级)。
+     * 3) 时长只取 max(现有, durationTicks): 原覆盖式写法会把 8 分钟的抗火/夜视砍成 60 秒, 与"刷新/强化"的
+     *    牌面语义相反, 是反向伤害。
+     */
+    private void refreshBeneficial(ServerPlayer caster, int durationTicks, int maxAmplifier) {
         List<MobEffectInstance> beneficial = caster.getActiveEffects().stream()
                 .filter(instance -> instance.getEffect().getCategory() == MobEffectCategory.BENEFICIAL)
                 .toList();
         for (MobEffectInstance current : beneficial) {
             MobEffect effect = current.getEffect();
-            int maxAmp = effect == MobEffects.DAMAGE_RESISTANCE
-                    ? RESISTANCE_MAX_AMPLIFIER
-                    : Math.max(current.getAmplifier(), 4);
+            if (isNonRefreshable(effect)) {
+                continue;
+            }
+            int amp = Math.max(current.getAmplifier(), maxAmplifier);
+            int duration = Math.max(current.getDuration(), durationTicks);
             caster.removeEffect(effect);
-            caster.addEffect(new MobEffectInstance(effect, durationTicks, maxAmp));
+            caster.addEffect(new MobEffectInstance(effect, duration, amp));
         }
     }
 

@@ -62,5 +62,7 @@ public final class QuestSystem implements Subsystem {
         QuestServices.reset();
         // 在途矿洞行程是进程内瞬时状态, 跨存档留着只会让下一个世界读到假行程。
         QuestMiningVisits.reset();
+        // 近期放置表同理: 坐标只对当前存档有意义。
+        QuestPlacedBlocks.reset();
     }
 }

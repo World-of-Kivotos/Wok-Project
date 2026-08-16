@@ -847,6 +847,58 @@ public final class QuestGameTests {
         return total;
     }
 
+    /**
+     * 玩家自己放下的方块被挖掉时不计数 —— 堵死"精准采集挖一块 -> 放回去 -> 再挖"的无限计数循环。
+     *
+     * {@code MineBlockObjective} 数的是破坏事件而不是材料, 所以放回去再挖一次就白得一次计数。任务一天只能
+     * 领一次奖, 因此这不是印钞而是把当天日常压缩到几十秒 —— 是白嫖手感, 但仍然该堵。
+     *
+     * 删掉 {@code QuestEventHooks.onBlockBreak} 里那句 {@code consumeIfPlaced} 短路, 第二段立刻挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void breakingYourOwnPlacedBlockDoesNotCountTowardMiningQuests(GameTestHelper helper) {
+        QuestPlacedBlocks.reset();
+        try {
+            ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            QuestService service = QuestServices.service();
+            QuestDefinition definition = service.pool().byId("daily.mine.iron");
+
+            // 走真实服务的板 (事件钩子内部取的就是它), 强制放一条挖铁矿的日常进去。
+            QuestBoard board = service.boardOf(player);
+            board.restorePeriodic(QuestClock.currentUtcDayStamp(), List.of(new QuestProgress(definition)),
+                    QuestClock.currentUtcWeekStamp(), List.of());
+
+            QuestEventHooks hooks = new QuestEventHooks();
+            net.minecraft.world.level.Level level = helper.getLevel();
+            net.minecraft.core.BlockPos pos = helper.absolutePos(new net.minecraft.core.BlockPos(1, 2, 1));
+            net.minecraft.world.level.block.state.BlockState ore = Blocks.IRON_ORE.defaultBlockState();
+
+            // 天生的那块: 经真实钩子照常计数。
+            hooks.onBlockBreak(new net.minecraftforge.event.level.BlockEvent.BreakEvent(level, pos, ore, player));
+            helper.assertTrue(board.daily().get(0).count() == 1,
+                    "自然生成的矿必须照常计数, 实得 " + board.daily().get(0).count());
+
+            // 玩家放下同一块再挖掉: 钩子必须在投递事实之前短路掉, 计数不动。
+            QuestPlacedBlocks.markPlaced(level, pos);
+            hooks.onBlockBreak(new net.minecraftforge.event.level.BlockEvent.BreakEvent(level, pos, ore, player));
+            helper.assertTrue(board.daily().get(0).count() == 1,
+                    "玩家自己放下的那块被挖掉不得计数, 实得 " + board.daily().get(0).count());
+
+            // 记录是一次性的: 同一坐标上后来自然生成的方块不该被无故跳过。
+            hooks.onBlockBreak(new net.minecraftforge.event.level.BlockEvent.BreakEvent(level, pos, ore, player));
+            helper.assertTrue(board.daily().get(0).count() == 2,
+                    "放置记录只挡一次, 之后同坐标必须恢复计数, 实得 " + board.daily().get(0).count());
+
+            // 跟踪范围: 只收任务真正会数的方块, 盖房子的泥土不进表 (否则会把矿石记录挤出有界表)。
+            helper.assertTrue(service.pool().tracksMinedBlock(ore), "铁矿石应当被跟踪");
+            helper.assertTrue(!service.pool().tracksMinedBlock(Blocks.DIRT.defaultBlockState()),
+                    "泥土不该被跟踪");
+        } finally {
+            QuestPlacedBlocks.reset();
+        }
+        helper.succeed();
+    }
+
     // ============================================================
     // 辅助
     // ============================================================

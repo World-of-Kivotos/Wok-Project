@@ -11,14 +11,18 @@ import com.miningdim.quest.objective.SpecialMobKind;
 import com.miningdim.quest.objective.TurnInItemObjective;
 import com.miningdim.quest.objective.VillagerTradeObjective;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.TagKey;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.item.Items;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -44,6 +48,9 @@ public final class QuestPool {
     private final Map<String, QuestDefinition> byId;
     private final Map<QuestSource, List<QuestDefinition>> bySource;
     private final Map<String, QuestChain> chains;
+
+    /** {@link #minedBlockTags} 的缓存 (池不可变, 算一次即可)。 */
+    private volatile Set<TagKey<Block>> minedTagsCache;
 
     private QuestPool(List<QuestDefinition> definitions, List<QuestChain> chainList) {
         Map<String, QuestDefinition> ids = new LinkedHashMap<>();
@@ -76,6 +83,37 @@ public final class QuestPool {
             throw new IllegalStateException("duplicate quest id: " + definition.id());
         }
         sources.computeIfAbsent(definition.source(), key -> new ArrayList<>()).add(definition);
+    }
+
+    /**
+     * 本池里所有挖掘类目标关心的方块标签 (首次调用时算一遍并缓存; 池子不可变故结果恒定)。
+     *
+     * 给 {@link QuestPlacedBlocks} 用: 只有落在这些标签里的方块才值得记"是玩家放的", 否则玩家盖房子放的
+     * 泥土石头几千格就能把矿石记录挤出有界表。
+     */
+    public Set<TagKey<Block>> minedBlockTags() {
+        Set<TagKey<Block>> cached = minedTagsCache;
+        if (cached == null) {
+            Set<TagKey<Block>> tags = new LinkedHashSet<>();
+            for (QuestDefinition definition : byId.values()) {
+                if (definition.objective() instanceof MineBlockObjective mine) {
+                    tags.add(mine.target());
+                }
+            }
+            cached = Set.copyOf(tags);
+            minedTagsCache = cached;
+        }
+        return cached;
+    }
+
+    /** 该方块是否被本池的某个挖掘类目标关心 (即挖掉它有可能给某条任务计数)。 */
+    public boolean tracksMinedBlock(BlockState state) {
+        for (TagKey<Block> tag : minedBlockTags()) {
+            if (state.is(tag)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

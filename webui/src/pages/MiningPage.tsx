@@ -126,6 +126,14 @@ function MiningInstanceCard({
           <p className="text-warning text-sm">该难度的常驻区域此刻不存在, 暂时进不去</p>
         )}
 
+        {instance.dropsOnDeath ? (
+          <FeedbackAlert
+            message="本区死亡掉落全部物品, 请只携带能够承受损失的装备"
+            title="死亡掉落"
+            tone="danger"
+          />
+        ) : null}
+
         <div className="flex flex-col gap-1">
           <Stat
             label="当前在线"

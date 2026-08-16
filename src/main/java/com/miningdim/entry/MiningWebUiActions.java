@@ -120,6 +120,7 @@ public final class MiningWebUiActions {
     private static JsonObject overviewRow(Difficulty difficulty, int minerLevel, AutoResetData autoReset) {
         JsonObject row = new JsonObject();
         row.addProperty("difficulty", difficulty.configName());
+        row.addProperty("dropsOnDeath", difficulty == Difficulty.HARD);
         // 服务端只发翻译键 (专用服务端不加载 lang), 中文由客户端 i18n 桥解; 键与入场提示用的是同一批。
         row.addProperty("nameKey", "difficulty.miningdim." + difficulty.configName());
         row.addProperty("requiredMinerLevel", MinerLevelGate.minLevelFor(difficulty));

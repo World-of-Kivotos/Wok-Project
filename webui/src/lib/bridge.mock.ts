@@ -4081,6 +4081,7 @@ function mockMiningOverview(): MiningOverviewResult {
     const lastResetGameTime = GAME_TICK_BASE - row.lastResetAgoTicks
     return {
       difficulty: row.difficulty,
+      dropsOnDeath: row.difficulty === 'hard',
       nameKey: `difficulty.miningdim.${row.difficulty}`,
       requiredMinerLevel: row.requiredMinerLevel,
       unlocked: minerLevel >= row.requiredMinerLevel,

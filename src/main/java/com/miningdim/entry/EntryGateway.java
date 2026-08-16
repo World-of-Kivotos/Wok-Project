@@ -12,6 +12,7 @@ import com.miningdim.core.RegionBox;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.miner.MinerLevelGate;
+import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -275,6 +276,10 @@ public final class EntryGateway {
         // R5: 进入成功后给玩家发一条聊天提示 (难度名 + /mining leave 退出指引), translatable。
         player.sendSystemMessage(Component.translatable("message.miningdim.enter.entered_hint",
                 Component.translatable("difficulty.miningdim." + inst.difficulty().configName())));
+        if (inst.difficulty() == Difficulty.HARD) {
+            player.sendSystemMessage(Component.translatable("message.miningdim.enter.hard_death_drops")
+                    .withStyle(ChatFormatting.RED));
+        }
         LOGGER.info("[miningdim] player {} entered instance {} at {}", pe.playerId, inst.instanceId(), spawn);
     }
 

@@ -17,6 +17,7 @@
   "difficulty.miningdim.medium": "Medium",
   "difficulty.miningdim.hard": "Hard",
   "message.miningdim.enter.entered_hint": "Entered the %s mine. Type /mining leave to exit.",
+  "message.miningdim.enter.hard_death_drops": "Warning: dying in this area drops every item in your inventory.",
   "message.miningdim.enter.requested": "Preparing your mining instance (%s)...",
   "message.miningdim.enter.already_inside": "You are already inside a mining instance.",
   "message.miningdim.enter.bad_difficulty": "Unknown difficulty: %s (use easy, medium or hard).",

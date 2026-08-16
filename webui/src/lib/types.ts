@@ -2586,6 +2586,8 @@ export type MiningOverviewPayload = EmptyPayload
  */
 export interface MiningInstanceRow {
   difficulty: MiningDifficulty
+  /** true 仅表示服务端权威规则会在该区域强制掉落背包物品。 */
+  dropsOnDeath: boolean
   /** 翻译键 'difficulty.miningdim.<难度>'; 服务端不发中文。 */
   nameKey: string
   /** 代码权威取 MinerLevelGate = 1/4/8 (GateResult 头注释里的 10/25 是过期文档口径)。 */

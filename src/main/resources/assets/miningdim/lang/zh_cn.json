@@ -17,6 +17,7 @@
   "difficulty.miningdim.medium": "普通",
   "difficulty.miningdim.hard": "困难",
   "message.miningdim.enter.entered_hint": "已进入 %s 矿洞，输入 /mining leave 退出。",
+  "message.miningdim.enter.hard_death_drops": "警告：本区死亡掉落全部物品。",
   "message.miningdim.enter.requested": "正在准备你的矿洞实例（%s）……",
   "message.miningdim.enter.already_inside": "你已经身处一个矿洞实例中。",
   "message.miningdim.enter.bad_difficulty": "未知难度：%s（可用 easy、medium 或 hard）。",

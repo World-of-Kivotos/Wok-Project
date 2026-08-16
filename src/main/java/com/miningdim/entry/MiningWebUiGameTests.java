@@ -85,6 +85,11 @@ public final class MiningWebUiGameTests {
             JsonObject row = rows.get(i).getAsJsonObject();
             helper.assertTrue(DIFFICULTY_ORDER[i].equals(row.get("difficulty").getAsString()),
                     "第 " + i + " 行必须是 " + DIFFICULTY_ORDER[i] + ", 实得 " + row.get("difficulty").getAsString());
+            boolean expectedDropsOnDeath = Difficulty.values()[i] == Difficulty.HARD;
+            helper.assertTrue(row.has("dropsOnDeath")
+                            && row.get("dropsOnDeath").getAsBoolean() == expectedDropsOnDeath,
+                    DIFFICULTY_ORDER[i] + " 行 dropsOnDeath 必须为 " + expectedDropsOnDeath
+                            + " (仅 HARD 死亡掉落), 实得 " + row.get("dropsOnDeath"));
             helper.assertTrue(("difficulty.miningdim." + DIFFICULTY_ORDER[i]).equals(row.get("nameKey").getAsString()),
                     "nameKey 必须是翻译键 difficulty.miningdim.<难度> (服务端不发中文), 实得 "
                             + row.get("nameKey").getAsString());
@@ -465,8 +470,9 @@ public final class MiningWebUiGameTests {
         for (String key : new String[]{
                 GateResult.LEVEL_TOO_LOW.reasonKey(),
                 "message.miningdim.enter.already_inside",
+                "message.miningdim.enter.hard_death_drops",
                 "message.miningdim.leave.not_inside"}) {
-            helper.assertTrue(zh.has(key) && en.has(key), "两份 lang 都必须有拒绝原因翻译键 " + key);
+            helper.assertTrue(zh.has(key) && en.has(key), "两份 lang 都必须有玩家提示翻译键 " + key);
         }
         helper.succeed();
     }

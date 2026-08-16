@@ -34,10 +34,22 @@ public final class BloodPoolRegistry {
      * @return 新建的血池
      */
     public static BloodPool install(UUID entityId, double maxHp) {
+        return install(entityId, maxHp, maxHp);
+    }
+
+    /**
+     * spawn 期或 F040 载入重建期为冠军建血池, 按指定当前血 (从 NBT 还原可 &lt; maxHp; 覆盖同 UUID 旧池, 防重生残留)。
+     *
+     * @param entityId  冠军实体 UUID
+     * @param maxHp     该冠军有效最大血量 (必须 &gt;0)
+     * @param currentHp 当前血量 (必须 &gt;0 且 &lt;=maxHp; 越界抛 IllegalArgumentException, 见 BloodPool 构造校验)
+     * @return 新建的血池
+     */
+    public static BloodPool install(UUID entityId, double maxHp, double currentHp) {
         if (entityId == null) {
             throw new IllegalArgumentException("entityId must not be null");
         }
-        BloodPool pool = new BloodPool(maxHp);
+        BloodPool pool = new BloodPool(maxHp, currentHp);
         POOLS.put(entityId, pool);
         return pool;
     }
@@ -73,14 +85,33 @@ public final class BloodPoolRegistry {
         return POOLS.size();
     }
 
+    /** 在册血池是否为空 (F039: 供每 tick 镜像 handler 空表早退, 省无谓遍历/复制)。 */
+    public static boolean isEmpty() {
+        return POOLS.isEmpty();
+    }
+
     /**
-     * 在册血池只读快照 (entity UUID -> 影子血池)。供渲染镜像 tick handler 每 tick 遍历在册实体统一刷 vanilla 血条
-     * (含回血同步), 仅遍在册血池实体 (通常极少) 而非全世界实体, 控遍历开销。返回独立副本 (LinkedHashMap 稳定序),
-     * 遍历期间不锁原表; 期间 install/remove 不影响本次快照 (主线程串行, 快照与后续读写同 tick 一致)。
+     * 在册血池只读快照 (entity UUID -> 影子血池)。供需要"独立副本"的场景 (GameTest 断言 / 遍历中可能改表的调用方)
+     * 使用。返回独立副本 (LinkedHashMap 稳定序), 遍历期间不锁原表; 期间 install/remove 不影响本次快照。
+     *
+     * 与 {@link #live()} 的分工: snapshot 每次调用分配一份新副本 (有拷贝开销), live 零拷贝直接暴露只读视图。
+     * 每 tick 的渲染镜像遍历走 live, 不走本方法 (F039: 空表也复制是纯浪费, 主线程串行遍历中无 install/remove)。
      *
      * @return 在册血池 UUID -> BloodPool 的不可变副本 (空表示无 6★+ 血池冠军)
      */
     public static Map<UUID, BloodPool> snapshot() {
         return Collections.unmodifiableMap(new LinkedHashMap<>(POOLS));
+    }
+
+    /**
+     * 在册血池零拷贝只读视图 (F039)。供主线程串行的每 tick 镜像遍历用: ConcurrentHashMap 的弱一致迭代器在
+     * 遍历期间即便原表变化也不抛 ConcurrentModificationException, 而本表的写 (install/remove) 只发生在受击/
+     * spawn/死亡等同样串行在主线程的时点, 遍历中途无并发写入, 故此处零拷贝视图安全。与 {@link #snapshot()}
+     * 的独立副本语义不同, 不供需要遍历中改表或跨线程持有的调用方使用。
+     *
+     * @return 在册血池 UUID -> BloodPool 的不可变视图 (随原表实时变化, 非副本)
+     */
+    public static Map<UUID, BloodPool> live() {
+        return Collections.unmodifiableMap(POOLS);
     }
 }

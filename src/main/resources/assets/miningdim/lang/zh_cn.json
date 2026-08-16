@@ -309,6 +309,8 @@
   "message.miningdim.tarot.craft.result.reverse": "逆转! 升档并翻面。",
   "message.miningdim.tarot.craft.result.shatter": "破碎, 返还 1 碎片。",
   "message.miningdim.tarot.craft.result.big_shatter": "大破碎, 返还 2 碎片。",
+  "message.miningdim.tarot.invalid_card": "这张塔罗牌的数据不完整, 无法使用",
+  "message.miningdim.tarot.cast_interrupted": "演出被打断, 卡牌与冷却已返还",
   "tooltip.miningdim.tarot.arcana.fool": "0 愚者",
   "tooltip.miningdim.tarot.arcana.magician": "I 魔术师",
   "tooltip.miningdim.tarot.arcana.high_priestess": "II 女祭司",

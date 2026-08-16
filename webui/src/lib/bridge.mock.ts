@@ -2521,7 +2521,11 @@ const TAROT_SHINY_COOLDOWN_TICKS: Readonly<Record<TarotCooldownCategory, number>
  *   单档持有       最常见形态
  *   跨两档持有     同一张牌同时有 R 与 SR, 正是"品质是牌的属性、不是牌与品质一对一"那条契约
  * inInventory 另在 1/4 的牌上比 owned 多一张 (背包里有别人绑定的同名牌): owned 与 inInventory 讲的是
- * "能不能打"与"再开出来会不会变碎片"两件事, 两栏恒等的话面板上永远分不出这个区别。
+ * "能不能打"与"背包里实际有几张"两件事, 两栏恒等的话面板上永远分不出这个区别。
+ *
+ * collected (复核 finding 3/5) 特意在 cardId 是 6 的倍数、owned=0 且 inInventory=0 的那几张 (0/6/12/18)
+ * 上仍置 true, 用来在 dev 通路里练出"账本记着但背包/持有栏都是 0"这一态 (牌被放进箱子, 或曾经收集过、
+ * 品质净额还没被打出/合成消耗掉) —— 只看 owned/inInventory 推 collected 会让这条状态在 mock 里永远造不出来。
  */
 function tarotDeck(): TarotDeckEntry[] {
   return TAROT_ARCANA_IDS.map((arcanaId, cardId) => {
@@ -2536,13 +2540,15 @@ function tarotDeck(): TarotDeckEntry[] {
             ? [1, 0, 0, 0, 0]
             : [2, 1, 0, 0, 0]
     const owned = ownedByQuality.reduce((sum, count) => sum + count, 0)
+    const inInventory = cardId % 4 === 0 ? owned + 1 : owned
     return {
       cardId,
       arcanaId,
       nameKey: `tooltip.miningdim.tarot.arcana.${arcanaId}`,
       ownedByQuality,
       owned,
-      inInventory: cardId % 4 === 0 ? owned + 1 : owned,
+      inInventory,
+      collected: owned > 0 || inInventory > 0 || cardId % 6 === 0,
       /*
        * cardDataLoaded 为真, 故这两栏一律有值。它们为 null 的那一态只在 datapack 重载中/失败时出现,
        * 而那是**整份牌组同时**为 null (不是逐牌的), 与本回执的 cardDataLoaded=true 互斥, 造不出来。

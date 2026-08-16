@@ -46,6 +46,9 @@ public final class TarotSystem implements Subsystem {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/tarot");
 
+    /** 冷却过期条目回收周期 (F022: 登出不再清冷却表, 需周期回收残留条目防止随历史玩家数单调增长)。 */
+    private static final int COOLDOWN_PURGE_INTERVAL_TICKS = 600;
+
     private final TarotCooldownManager cooldown = new TarotCooldownManager();
     private final TarotCastManager castManager = new TarotCastManager();
     private final ScheduledEffectManager scheduler = new ScheduledEffectManager();
@@ -187,6 +190,10 @@ public final class TarotSystem implements Subsystem {
         TarotCombatState.tick(server);
         TarotConsentRegistry.tick(server);
         unbindDistantLifeBonds(server);
+        long now = server.getTickCount();
+        if (now % COOLDOWN_PURGE_INTERVAL_TICKS == 0) {
+            cooldown.purgeExpired(now);
+        }
     }
 
     /**
@@ -231,7 +238,7 @@ public final class TarotSystem implements Subsystem {
         if (event.getEntity() instanceof ServerPlayer player) {
             // 真死: 清最大生命修饰 (防重生后残留) + 调度队列 + 战斗窗口 (spec: 死亡清队列防泄漏)。
             maxHealth.remove(player);
-            castManager.cancel(player.getUUID());
+            castManager.cancel(player);
             scheduler.cancelFor(player.getUUID());
             TarotCombatState.clearAll(player.getUUID());
         }
@@ -244,7 +251,7 @@ public final class TarotSystem implements Subsystem {
             // 调度队列保留 (换维度玩家仍在线, 周期治疗等可继续; 仅 maxHealth attribute 修饰需清, 因换维度
             // 会重建属性实例, 不清会残留旧修饰)。战斗窗口同样清 (跨维度战斗上下文失效)。
             maxHealth.remove(player);
-            castManager.cancel(player.getUUID());
+            castManager.cancel(player);
             TarotCombatState.clearAll(player.getUUID());
         }
     }
@@ -262,14 +269,17 @@ public final class TarotSystem implements Subsystem {
         // 清运行期态防跨存档脏引用 (与 MiningServices.reset / JobServices.reset 同纪律)。
         // 经济门面引用由 economy 子系统经 EconomyServices.reset 自清 (本职业不再持悬空 seam)。
         castManager.clear();
+        cooldown.clearAll();
         TarotRuntime.reset();
     }
 
     private void cleanup(ServerPlayer player) {
         maxHealth.remove(player);
-        castManager.cancel(player.getUUID());
+        castManager.cancel(player);
         scheduler.cancelFor(player.getUUID());
-        cooldown.clear(player.getUUID());
+        // F022: 冷却刻意不随登出清空。公服断线重连往往只需十几秒, 若清表等于让分钟级闪耀 CD 归零,
+        // 闸门形同虚设; 冷却按 UUID 在整个服务端会话内保留, 只在 ServerStopping 整表清 (见 clearAll)
+        // 以及 onServerTick 的周期性 purgeExpired 回收过期条目。
         TarotCombatState.clearAll(player.getUUID());
         TarotConsentRegistry.clear(player.getUUID());
     }

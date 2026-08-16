@@ -309,6 +309,8 @@
   "message.miningdim.tarot.craft.result.reverse": "Reversal! Upgraded and flipped orientation.",
   "message.miningdim.tarot.craft.result.shatter": "Shattered. 1 shard refunded.",
   "message.miningdim.tarot.craft.result.big_shatter": "Catastrophic shatter. 2 shards refunded.",
+  "message.miningdim.tarot.invalid_card": "This tarot card is missing its data and cannot be played",
+  "message.miningdim.tarot.cast_interrupted": "The card's presentation was interrupted; the card and its cooldown were returned",
   "tooltip.miningdim.tarot.arcana.fool": "0 - The Fool",
   "tooltip.miningdim.tarot.arcana.magician": "I - The Magician",
   "tooltip.miningdim.tarot.arcana.high_priestess": "II - The High Priestess",

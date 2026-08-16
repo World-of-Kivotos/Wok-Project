@@ -23,9 +23,9 @@ import java.util.Set;
  * 另造 handler), 故删掉被测的注册行或 handler 逻辑本类必挂。
  *
  * 强断言 (删被测核心逻辑必挂):
- *  1. hub.panels 恒发 10 条且顺序固定, 域与前端路由表逐条对齐 (quests 必须不在, champion 必须叫 codex);
+ *  1. hub.panels 恒发 11 条且顺序固定, 域与前端路由表逐条对齐 (quests 已接入, champion 必须叫 codex);
  *  2. admin 面板的 enabled 随真实 OP 状态翻转, 且锁上时带 lockCode=NOT_OP、开着时整键缺席;
- *  3. 除 admin 外 9 条恒开且一律不带 lockCode (本批不做等级门/婚姻门, 提前发锁码即挂);
+ *  3. 默认启用任务系统时除 admin 外 10 条恒开且一律不带 lockCode (本批不做等级门/婚姻门);
  *  4. 面板只发 panelId/enabled/lockCode 三个键, route/label/iconItemId 一律不下发 (展示层真源在前端);
  *  5. system.serverStatus 的五个字段取真实服务器数值, 且 tps 由 mspt 派生并被钳在 20 以内。
  */
@@ -39,7 +39,7 @@ public final class WebUiHubStatusGameTests {
     /** 面板 id 的期望全集与顺序。写死在测试里而不是引用被测常量, 否则改错了域两边一起改还是绿的。 */
     private static final String[] EXPECTED_PANEL_IDS = {
             "home", "market", "shop", "jobs", "mining",
-            "codex", "marriage", "case", "settings", "admin"};
+            "quests", "codex", "marriage", "case", "settings", "admin"};
 
     /** 单个面板允许出现的全部键 (lockCode 仅锁上时出现)。多一个键都是往服务端搬前端的活。 */
     private static final Set<String> ALLOWED_PANEL_KEYS = Set.of("panelId", "enabled", "lockCode");
@@ -60,16 +60,16 @@ public final class WebUiHubStatusGameTests {
             helper.assertTrue(EXPECTED_PANEL_IDS[i].equals(actual),
                     "第 " + i + " 条面板 id 应为 " + EXPECTED_PANEL_IDS[i] + ", 实得 " + actual);
         }
-        // 这两条是已实测过的漂移点: mock 种子里有 quests (前端根本没这条路由) 且把 codex 写成 champion。
-        helper.assertTrue(findPanel(panels, "quests") == null,
-                "quests 面板必须不存在 (前端无此路由, 任务系统零实现)");
+        JsonObject quests = findPanel(panels, "quests");
+        helper.assertTrue(quests != null && quests.get("enabled").getAsBoolean(),
+                "默认启用任务系统时 hub.panels 必须包含可进入的 quests 行");
         helper.assertTrue(findPanel(panels, "champion") == null,
                 "精英怪图鉴的稳定 id 是 codex 而不是 champion (对齐 ROUTE_CODEX)");
         helper.succeed();
     }
 
     // ============================================================
-    // 2/3. hub.panels: admin 门随真实 OP 翻转, 其余 9 条恒开
+    // 2/3. hub.panels: admin 门随真实 OP 翻转, 其余 10 条在默认配置下恒开
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)

@@ -3,6 +3,7 @@ package com.miningdim.webui.server;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.miningdim.quest.QuestServices;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
 
 import java.util.List;
@@ -29,17 +30,17 @@ public final class HubWebUiActions {
     /**
      * 面板 id 全集, 顺序即下发顺序 (决策 D7)。
      *
-     * 取值逐条对齐前端 {@code router.ts} 的路由常量与 {@code TabletShell} 的一级导航 id, 与 mock 种子有两处
-     * 刻意的差异: quests 剔除 (前端根本没有这条路由, 任务系统零实现, 发一个点不进去的入口只会制造工单),
-     * champion 更名 codex (真实路由是 ROUTE_CODEX)。前端的 panelId -&gt; {route,label,icon} 映射表是这份 id 的
-     * 唯一消费方; 服务端多发一个前端不认识的 id 时前端应安全跳过。
+     * 取值逐条对齐前端 {@code router.ts} 的路由常量与 {@code TabletShell} 的一级导航 id。任务面板已经接入
+     * {@code /quests}; 精英怪图鉴的稳定 id 是 codex (真实路由是 ROUTE_CODEX)。前端的
+     * panelId -&gt; {route,label,icon} 映射表是这份 id 的唯一消费方; 服务端多发一个前端不认识的 id 时前端应
+     * 安全跳过。
      */
     private static final List<String> PANEL_IDS = List.of(
             "home", "market", "shop", "jobs", "mining",
-            "codex", "marriage", "case", "settings", "admin");
+            "quests", "codex", "marriage", "case", "settings", "admin");
 
-    /** 当前唯一带门的面板。 */
     private static final String PANEL_ADMIN = "admin";
+    private static final String PANEL_QUESTS = "quests";
 
     private HubWebUiActions() {
     }
@@ -52,7 +53,7 @@ public final class HubWebUiActions {
     /**
      * 发送者此刻各面板的可达性。
      *
-     * 当前只有 admin 一条会为 false。刻意<b>没有</b>的两道门:
+     * admin 权限门与 quests 子系统状态门各自独立判定。刻意<b>没有</b>的两道门:
      *  - 婚姻面板恒开 (D6): 它本身就是未婚玩家的求婚入口, 灰锁掉等于把入口锁在需求后面;
      *  - 职业等级门本批不做 (D7), 故不调 IJobService, 也不得提前造 LEVEL_TOO_LOW 之类还没有判据的锁码。
      */
@@ -60,13 +61,22 @@ public final class HubWebUiActions {
         boolean op = WebUiPermissions.isOp(sender);
         JsonArray panels = new JsonArray();
         for (String panelId : PANEL_IDS) {
-            boolean enabled = !PANEL_ADMIN.equals(panelId) || op;
+            boolean enabled = true;
+            String lockCode = null;
+            if (PANEL_ADMIN.equals(panelId) && !op) {
+                enabled = false;
+                lockCode = HubLockCodes.NOT_OP;
+            }
+            if (PANEL_QUESTS.equals(panelId) && !QuestServices.active()) {
+                enabled = false;
+                lockCode = HubLockCodes.QUEST_DISABLED;
+            }
             JsonObject panel = new JsonObject();
             panel.addProperty("panelId", panelId);
             panel.addProperty("enabled", enabled);
             if (!enabled) {
                 // 缺席键而不是 null: 默认 Gson 无 serializeNulls, 条件性 addProperty 得到的就是"没有这个键"。
-                panel.addProperty("lockCode", HubLockCodes.NOT_OP);
+                panel.addProperty("lockCode", lockCode);
             }
             panels.add(panel);
         }

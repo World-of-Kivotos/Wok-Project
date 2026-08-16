@@ -23,4 +23,7 @@ public final class HubLockCodes {
      * (见 {@link WebUiPermissions#isOp}), 服务端不存在第二套判定。
      */
     public static final String NOT_OP = "NOT_OP";
+
+    /** 任务子系统当前未启用, {@code panelId='quests'} 因而不可进入。 */
+    public static final String QUEST_DISABLED = "QUEST_DISABLED";
 }

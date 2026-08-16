@@ -23,6 +23,13 @@ public final class FarmerConstants {
     public static final int SINGLE_CROP_XP = 2;
 
     /**
+     * 玩家等级未解锁该档耕地时退化到的基准产量 (= 不放大)。不是新拍的平衡数值, 而是
+     * {@link FarmerHarvestLootModifier} 已有裁决 ("未解锁 -> 原样返回 loot", 即 1 倍) 的显式化 (F026)。
+     * mod 小麦的 loot table 只补种种子、小麦全由事件层单发, 故其"不放大"的基准就是每株 1。
+     */
+    public static final int LOCKED_TIER_YIELD = 1;
+
+    /**
      * 各等级 (L1-L10) mod 耕地放置上限 (表A 第5列, 索引 = level - 1)。
      * 校验: 9/12/16/20/25/30/36/42/48/64 (FarmingXP spec 表A 行 40-49)。
      * 超限拒放是反扩建硬封顶 (设计目标 2)。

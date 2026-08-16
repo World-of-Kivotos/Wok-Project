@@ -78,7 +78,10 @@ public final class FarmerHarvests {
         return null;
     }
 
-    public static void multiplyProduce(ObjectArrayList<ItemStack> loot, BlockState cropState, FarmerTier tier) {
+    public static void multiplyProduce(ObjectArrayList<ItemStack> loot, BlockState cropState, int factor) {
+        if (factor < 1) {
+            throw new IllegalArgumentException("factor must be >= 1, got " + factor);
+        }
         Set<ResourceLocation> produceIds = PRODUCE_BY_CROP.get(
                 ForgeRegistries.BLOCKS.getKey(cropState.getBlock()));
         if (produceIds == null) {
@@ -86,7 +89,7 @@ public final class FarmerHarvests {
         }
         for (ItemStack stack : loot) {
             if (produceIds.contains(ForgeRegistries.ITEMS.getKey(stack.getItem()))) {
-                stack.setCount(stack.getCount() * tier.yieldPerHarvest());
+                stack.setCount(stack.getCount() * factor);
             }
         }
     }

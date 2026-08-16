@@ -1,11 +1,14 @@
 package com.miningdim.job.farmer.block;
 
+import com.miningdim.job.farmer.FarmerSavedData;
 import com.miningdim.job.farmer.FarmerTier;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
@@ -49,6 +52,23 @@ public final class FarmerFarmlandBlock extends Block {
     /** 本耕地档位 (作物成长速率/产量来源)。 */
     public FarmerTier tier() {
         return tier;
+    }
+
+    /**
+     * 耕地放置归属回收的唯一权威点 (F025)。onRemove 是方块移除的汇合点, 覆盖玩家破坏、爆炸、活塞、指令
+     * /setblock、级联 updateShape 等全部路径 —— 这正是只挂钩玩家操作的 BreakEvent 覆盖不到的那些。
+     * `!state.is(newState.getBlock())` 是 vanilla 惯用判据: 只有方块真正被替换为另一种方块时才回收,
+     * 同方块状态翻转 (如属性变更) 不误扣。归属记录按坐标存, 故本方块在 FarmerBlocks 声明为活塞不可推
+     * ({@link FarmerBlocks#registerFarmland}) —— 否则被推走的耕地会把记录孤儿在旧坐标, 也因此这里不做
+     * isMoving 特判: 推不动就不存在 isMoving=true 的搬运场景。
+     */
+    @Override
+    public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean isMoving) {
+        if (!level.isClientSide && !state.is(newState.getBlock()) && level instanceof ServerLevel serverLevel) {
+            FarmerSavedData.get(serverLevel.getServer().overworld())
+                    .releaseFarmland(serverLevel.dimension().location(), pos);
+        }
+        super.onRemove(state, level, pos, newState, isMoving);
     }
 
     @Override

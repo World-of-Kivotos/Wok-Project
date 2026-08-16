@@ -1,22 +1,28 @@
 package com.miningdim.job.farmer;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.saveddata.SavedData;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 /**
- * 农夫 mod 耕地放置计数 + 当日卖菜株数持久层 (FarmingXP_Mod_DesignSpec 表A 方块上限 + 第八节收购曲线计数)。
+ * 农夫 mod 耕地归属索引 + 当日卖菜株数持久层 (FarmingXP_Mod_DesignSpec 表A 方块上限 + 第八节收购曲线计数)。
  * 挂在 overworld 的 DimensionDataStorage, 文件名 {@value #DATA_NAME}。
  *
- * 口径裁决 (spec 留 PENDING): 按玩家 UUID 全局计数 (跨维度、跨地块统一计单人已放置的 mod 耕地总数),
- * 放置 +1 / 破坏 -1。理由见 {@link FarmlandPlacementGuard} 类注释。计数与 JobProgress 解耦单独持久化
- * (它不是经验状态, 而是世界放置事实; 死亡/重生不影响已放在世界里的耕地)。
+ * 口径裁决 (F025 修复): 按 (维度, 坐标) 记每块 mod 耕地的放置者 UUID ({@link #farmlandOwners}), 玩家已放置数
+ * ({@link #placedCounts}) 是该归属索引的运行期派生投影, 不再单独持久化、也不再由破坏者直接自增自减。回收点
+ * 唯一在 {@link com.miningdim.job.farmer.block.FarmerFarmlandBlock#onRemove} (覆盖玩家破坏/爆炸/活塞/指令/
+ * 级联更新全部路径, 而非仅 BreakEvent 覆盖的玩家手动破坏), 从物理移除的方块反查归属再回收, 杜绝"甲玩家放置、
+ * 乙玩家或非玩家事件破坏"造成的配额永久冻结、以及小号互破刷计数的绕过面。
  *
  * 当日卖菜株数 ({@link DailySell}): 仅记当日已售出 mod 小麦株数 (UTC 翻日清), 供 {@link FarmerWheatBuyback}
  * 收购曲线定位边际单价档 (第几株 -> 衰减比例)。本层不再记 "当日已发信用点": 每日信用点 faucet 软上限已收敛进
@@ -28,15 +34,24 @@ import java.util.UUID;
  */
 public final class FarmerSavedData extends SavedData {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/job/farmer");
+
     /** DimensionDataStorage 数据文件名。 */
     public static final String DATA_NAME = "miningdim_farmer";
 
-    private static final String K_COUNTS = "placedCounts";
+    private static final String K_OWNERS = "farmlandOwners";
+    private static final String K_COUNTS_LEGACY = "placedCounts";
+    private static final String K_DIM = "dim";
+    private static final String K_POS = "pos";
     private static final String K_UUID = "uuid";
     private static final String K_COUNT = "count";
 
     private static final String K_SOLD = "wheatSold";
     private static final String K_SOLD_DAY = "wheatSoldDay";
+
+    /** 耕地归属索引的 key: (维度, 打包坐标)。耕地可放在任意维度, 只用 BlockPos 会跨维度撞键。 */
+    private record FarmlandKey(ResourceLocation dimension, long packedPos) {
+    }
 
     /**
      * 单玩家当日卖菜记录: 株数 + UTC 日戳合一条 (翻日整条丢弃, 杜绝孤儿日戳累积)。可变记录 (主线程顺序写,
@@ -51,7 +66,10 @@ public final class FarmerSavedData extends SavedData {
         }
     }
 
-    /** 玩家 UUID -> 当前全局已放置 mod 耕地数。 */
+    /** (维度, 坐标) -> 放置者 UUID。归属记录的唯一真源, 回收权威点见类 javadoc。 */
+    private final Map<FarmlandKey, UUID> farmlandOwners = new HashMap<>();
+
+    /** 玩家 UUID -> 当前全局已放置 mod 耕地数; 由 {@link #farmlandOwners} 派生的运行期计数索引, 不单独持久化。 */
     private final Map<UUID, Integer> placedCounts = new HashMap<>();
 
     /** 玩家 UUID -> 当日卖菜记录 (株数 + 日戳; 翻日整条重建, 第八节收购曲线计数)。 */
@@ -66,29 +84,56 @@ public final class FarmerSavedData extends SavedData {
                 FarmerSavedData::load, FarmerSavedData::new, DATA_NAME);
     }
 
-    /** 玩家当前已放置 mod 耕地数 (无记录返回 0)。 */
+    /** 玩家当前已放置 mod 耕地数 (无记录返回 0)。派生计数, 语义与修复前一致。 */
     public int placedCount(UUID playerId) {
         return placedCounts.getOrDefault(playerId, 0);
     }
 
-    /** 放置一块: 计数 +1, 标脏, 返回新计数。 */
-    public int increment(UUID playerId) {
-        int next = placedCount(playerId) + 1;
-        placedCounts.put(playerId, next);
-        setDirty();
-        return next;
+    /** 某坐标当前的耕地放置者 (无记录返回 null: 旧存档遗留、指令生成等合法常态)。 */
+    public UUID ownerOf(ResourceLocation dimension, BlockPos pos) {
+        return farmlandOwners.get(new FarmlandKey(dimension, pos.asLong()));
     }
 
-    /** 破坏一块: 计数 -1 (不低于 0), 标脏, 返回新计数。 */
-    public int decrement(UUID playerId) {
-        int next = Math.max(0, placedCount(playerId) - 1);
+    /**
+     * 登记一块耕地的放置归属。owner 为 null 直接抛异常 (异常必须痛, 不允许静默跳过)。
+     * 若该坐标已有旧记录 (孤儿: /setblock 覆盖、世界编辑等非本方块生命周期路径写入), 先把旧 owner 的
+     * 派生计数减 1 再写新记录并给新 owner 加 1, 使索引在下一次正常事件流中自愈, 不遗留计数漂移。
+     */
+    public void claimFarmland(ResourceLocation dimension, BlockPos pos, UUID owner) {
+        if (owner == null) {
+            throw new IllegalArgumentException("owner must not be null");
+        }
+        FarmlandKey key = new FarmlandKey(dimension, pos.asLong());
+        UUID previousOwner = farmlandOwners.put(key, owner);
+        if (previousOwner != null) {
+            bumpCount(previousOwner, -1);
+        }
+        bumpCount(owner, 1);
+        setDirty();
+    }
+
+    /**
+     * 移除一块耕地的放置归属并回收其派生计数。无记录返回 null 且不改任何计数、不抛异常
+     * (旧存档遗留耕地、指令生成的耕地均无归属记录, 是合法常态)。
+     */
+    public UUID releaseFarmland(ResourceLocation dimension, BlockPos pos) {
+        UUID owner = farmlandOwners.remove(new FarmlandKey(dimension, pos.asLong()));
+        if (owner == null) {
+            return null;
+        }
+        bumpCount(owner, -1);
+        setDirty();
+        return owner;
+    }
+
+    /** 维护 {@link #placedCounts} 派生计数 (钳零, 归零即清条目, 避免离场玩家长期占表)。 */
+    private void bumpCount(UUID playerId, int delta) {
+        int next = Math.max(0, placedCount(playerId) + delta);
         if (next == 0) {
-            placedCounts.remove(playerId); // 计数归零即清条目, 避免离场玩家长期占表。
+            placedCounts.remove(playerId);
         } else {
             placedCounts.put(playerId, next);
         }
-        setDirty();
-        return next;
     }
 
     /**
@@ -143,14 +188,15 @@ public final class FarmerSavedData extends SavedData {
 
     @Override
     public CompoundTag save(CompoundTag tag) {
-        ListTag list = new ListTag();
-        for (Map.Entry<UUID, Integer> e : placedCounts.entrySet()) {
+        ListTag owners = new ListTag();
+        for (Map.Entry<FarmlandKey, UUID> e : farmlandOwners.entrySet()) {
             CompoundTag entry = new CompoundTag();
-            entry.putUUID(K_UUID, e.getKey());
-            entry.putInt(K_COUNT, e.getValue());
-            list.add(entry);
+            entry.putString(K_DIM, e.getKey().dimension().toString());
+            entry.putLong(K_POS, e.getKey().packedPos());
+            entry.putUUID(K_UUID, e.getValue());
+            owners.add(entry);
         }
-        tag.put(K_COUNTS, list);
+        tag.put(K_OWNERS, owners);
 
         ListTag sold = new ListTag();
         for (Map.Entry<UUID, DailySell> e : wheatSold.entrySet()) {
@@ -167,13 +213,38 @@ public final class FarmerSavedData extends SavedData {
 
     public static FarmerSavedData load(CompoundTag tag) {
         FarmerSavedData data = new FarmerSavedData();
-        if (tag.contains(K_COUNTS)) {
-            ListTag list = tag.getList(K_COUNTS, Tag.TAG_COMPOUND);
+        if (tag.contains(K_OWNERS)) {
+            ListTag list = tag.getList(K_OWNERS, Tag.TAG_COMPOUND);
             for (int i = 0; i < list.size(); i++) {
                 CompoundTag entry = list.getCompound(i);
-                if (entry.hasUUID(K_UUID)) {
-                    data.placedCounts.put(entry.getUUID(K_UUID), entry.getInt(K_COUNT));
+                if (entry.hasUUID(K_UUID) && entry.contains(K_DIM) && entry.contains(K_POS)) {
+                    FarmlandKey key = new FarmlandKey(
+                            new ResourceLocation(entry.getString(K_DIM)), entry.getLong(K_POS));
+                    UUID owner = entry.getUUID(K_UUID);
+                    data.farmlandOwners.put(key, owner);
+                    data.bumpCount(owner, 1);
                 }
+            }
+        }
+        // 一次性、有界迁移: 旧存档的 placedCounts 是"破坏者回收"口径, 无归属记录可核对回收权, 保留会让
+        // 老玩家配额永久冻结且无补救入口 (F025)。丢弃这些计数, 配额改由归属索引 (K_OWNERS) 重建 —— 代价是
+        // 老玩家最多一次性多放出"迁移前已放块数"那么多新配额, 之后不再复现 (K_OWNERS 是唯一持久口径)。
+        if (tag.contains(K_COUNTS_LEGACY)) {
+            ListTag legacy = tag.getList(K_COUNTS_LEGACY, Tag.TAG_COMPOUND);
+            int discardedPlayers = 0;
+            long discardedBlocks = 0;
+            for (int i = 0; i < legacy.size(); i++) {
+                CompoundTag entry = legacy.getCompound(i);
+                if (entry.hasUUID(K_UUID)) {
+                    discardedPlayers++;
+                    discardedBlocks += entry.getInt(K_COUNT);
+                }
+            }
+            if (discardedPlayers > 0) {
+                LOGGER.warn("[miningdim] discarded legacy farmland placedCounts on load: {} player(s), "
+                                + "{} block(s) total; no ownership record to reconcile against (F025 migration), "
+                                + "quota now rebuilt from farmlandOwners going forward",
+                        discardedPlayers, discardedBlocks);
             }
         }
         if (tag.contains(K_SOLD)) {

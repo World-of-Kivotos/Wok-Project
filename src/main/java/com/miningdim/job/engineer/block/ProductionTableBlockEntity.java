@@ -314,15 +314,23 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
 
     /**
      * 玩家手取输出板时结算生产经验 (7.4 / 9.3): 取出者 UUID == 板 producerUUID 且 productionXpPending,
-     * 按本次实际取走数量给取出者工程师经验; 结算即清 pending (防塞回再取重复刷)。
-     * 由 {@link ProductionTableMenu} 的输出槽 onTake 调。
+     * 按本次实际取走数量给取出者工程师经验。由 {@link ProductionTableMenu} 的输出槽 onTake 调。
      *
      * 不依赖传入 stack 自身的 count/empty: 基类 {@link com.miningdim.menu.AbstractMiningMenu#quickMoveStack}
      * 在 Shift 整栈移走后传给 onTake 的是移动后的【残留栈】(整栈取走时为 EMPTY), 据其 count/empty 结算会漏算
      * 最常用的 Shift 取板路径。故调用处 (OutputSlot) 显式传入【取出前的板栈快照 boardSnapshot】(承载 NBT) +
      * 【本次实际取走量 takenCount】(取出前数量 - 残留数量), 此处仅据 takenCount 判非空与计经验, 与鼠标单取口径一致。
      *
-     * @param boardSnapshot 取出前的板栈快照 (producer/pending/quality 经此读取与清除)
+     * 注意: 本方法末尾清的 pending 是【调用方传入的 boardSnapshot 这一个 ItemStack 对象】, 而
+     * boardSnapshot 在 {@link ProductionTableMenu.OutputSlot} 里按构造就是 {@code current.copy()} 产生的快照
+     * 副本, 不是玩家手上真正拿到的那份实栈——清副本不影响原件, "结算即清防塞回刷"这句承诺不能靠本方法单独
+     * 兑现。玩家真正离槽的实栈 (鼠标取时 {@code SlotItemHandler.remove} 经 extractItem 返回的 handler 内栈
+     * 新副本 / Shift 取时 {@code moveItemStackTo} 内 {@code stack.split(n)} 分裂给玩家背包的那份) 由
+     * {@link ProductionTableMenu.OutputSlot} 分别在 {@code remove(int)} 覆写与 beginQuickMove/endQuickMove
+     * 配对中清除, 两处职责互不重叠、缺一不可。
+     *
+     * @param boardSnapshot 取出前的板栈快照 (producer/pending/quality 经此读取; 末尾清的 pending 只作用于
+     *                      这个快照对象本身, 不代表玩家手上实栈已清)
      * @param takenCount    本次实际取走的板数 (>0 才结算)
      */
     public void onOutputTaken(ServerPlayer player, ItemStack boardSnapshot, int takenCount) {
@@ -346,7 +354,8 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
                 }
             }
         }
-        // 结算即清 (无论是否匹配, 防塞回刷)。
+        // 只清调用方传入的 boardSnapshot 这份快照 (对直接传实栈的调用方仍是正确契约)。玩家真正离槽的
+        // 实栈由 ProductionTableMenu.OutputSlot 在移除时机清除, 详见本方法上方 javadoc。
         NanoNbt.clearProductionXpPending(boardSnapshot);
     }
 

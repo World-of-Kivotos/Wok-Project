@@ -28,6 +28,7 @@ import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.monster.Zombie;
+import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -237,10 +238,12 @@ public final class AgentChampionIntegrationGameTests {
         ContributionTracker.record(summoned.getUUID(), player.getUUID(), 60.0D, nowTick);
 
         DamageSource src = helper.getLevel().damageSources().generic();
-        AgentRewardHandler handler = new AgentRewardHandler();
 
+        // 经真实事件总线派发, 而不是单独 new 一个 AgentRewardHandler 直调: 贡献池主结算归 ChampionRewardHandler,
+        // 特勤 handler 只在其之上叠加自己那两笔 (见 AgentRewardHandler 类注释)。单独调一个 handler 只能测到半条
+        // 链路 —— 那正是这两条断言此前测不出 F099 青辉石按人头复制的原因。
         long creditBeforeNormal = EconomyServices.economyService().creditBalance(player);
-        handler.onChampionDeath(new LivingDeathEvent(normal, src));
+        MinecraftForge.EVENT_BUS.post(new LivingDeathEvent(normal, src));
         long creditAfterNormal = EconomyServices.economyService().creditBalance(player);
 
         helper.assertTrue(creditAfterNormal > creditBeforeNormal,
@@ -248,7 +251,7 @@ public final class AgentChampionIntegrationGameTests {
         helper.assertTrue(!ContributionTracker.hasLedger(normal.getUUID()),
                 "正常结算后账本必须被 drain 清空");
 
-        handler.onChampionDeath(new LivingDeathEvent(summoned, src));
+        MinecraftForge.EVENT_BUS.post(new LivingDeathEvent(summoned, src));
         long creditAfterSummoned = EconomyServices.economyService().creditBalance(player);
 
         helper.assertTrue(creditAfterSummoned == creditAfterNormal,
@@ -256,6 +259,52 @@ public final class AgentChampionIntegrationGameTests {
         helper.assertTrue(!ContributionTracker.hasLedger(summoned.getUUID()),
                 "召唤物账本必须被 discard 清空 (防泄漏), 而不是结算后清空");
 
+        helper.succeed();
+    }
+
+    /**
+     * 青辉石是<b>一整池按贡献权重瓜分</b>, 不是每个合格者各发一份 (F099)。
+     *
+     * 这条用例补的是一个真实事故的缺口: F099 的修复只落在 {@code ChampionRewardHandler} 里, 而当时
+     * {@code AgentRewardHandler} 挂 HIGHEST 抢先 drain 并按自己那份旧逻辑"每人一份"发, 于是修复在生产里
+     * 从未执行过。当时全部青辉石断言都是 {@code ChampionReward.azureDrop(6)==2} 这类<b>纯数值表</b>单测,
+     * 谁也没验过"经真实事件总线走完一次精英死亡之后, 全服到手的青辉石总量是几"—— 所以按人头复制发了一轮没人发现。
+     *
+     * 断言取"全员到手合计 == 一池", 而不是逐人份额: 份额受 round 余数归属影响, 而总量不受, 且总量正是按人头
+     * 复制会翻倍的那个量 (两名合格者时 2 变 4)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void championAzurePoolIsSplitByWeightNotCopiedPerHead(GameTestHelper helper) {
+        ServerPlayer heavy = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        ServerPlayer light = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+
+        // 6★ 是青辉石掉落的起点 (5★ 不掉)。
+        Zombie champion = helper.spawn(EntityType.ZOMBIE, new BlockPos(0, 1, 0));
+        ChampionPromoter.applyChampion(champion, 6, new EnumMap<>(AffixDef.class));
+        double effectiveHp = MiningChampions.get(champion).orElseThrow().effectiveHp();
+        helper.assertTrue(effectiveHp > 0.0D, "前提: 盖章必须写入有效血 (盖章门槛一的分母)");
+
+        long nowTick = helper.getLevel().getGameTime();
+        // 两人都远超盖章门槛 (个人有效伤害 >= 总有效血 0.5%), 权重 3:1。
+        ContributionTracker.record(champion.getUUID(), heavy.getUUID(), effectiveHp * 0.6D, nowTick);
+        ContributionTracker.record(champion.getUUID(), light.getUUID(), effectiveHp * 0.2D, nowTick);
+
+        long heavyBefore = EconomyServices.economyService().heartstoneBalance(heavy);
+        long lightBefore = EconomyServices.economyService().heartstoneBalance(light);
+
+        MinecraftForge.EVENT_BUS.post(
+                new LivingDeathEvent(champion, helper.getLevel().damageSources().generic()));
+
+        long heavyDelta = EconomyServices.economyService().heartstoneBalance(heavy) - heavyBefore;
+        long lightDelta = EconomyServices.economyService().heartstoneBalance(light) - lightBefore;
+        long pool = ChampionReward.azureDrop(6);
+
+        helper.assertTrue(pool > 0L, "前提: 6star 必须掉青辉石, 实得池 " + pool);
+        helper.assertTrue(heavyDelta + lightDelta == pool,
+                "两名合格者到手的青辉石合计必须恰好一池 (" + pool + "), 按人头复制会得到 " + (pool * 2)
+                        + "; 实得 " + heavyDelta + " + " + lightDelta + " = " + (heavyDelta + lightDelta));
+        helper.assertTrue(heavyDelta >= lightDelta,
+                "打得多的那位不该分得更少, 实得 " + heavyDelta + " vs " + lightDelta);
         helper.succeed();
     }
 
@@ -281,7 +330,8 @@ public final class AgentChampionIntegrationGameTests {
         long creditBefore = EconomyServices.economyService().creditBalance(rookie);
 
         DamageSource src = helper.getLevel().damageSources().generic();
-        new AgentRewardHandler().onChampionDeath(new LivingDeathEvent(champion, src));
+        // 同上: 走总线才能同时覆盖"主结算发池"与"特勤叠加"两半, 单调一个 handler 测不出职责拆分是否正确。
+        MinecraftForge.EVENT_BUS.post(new LivingDeathEvent(champion, src));
 
         long xpAfter = JobServices.jobService().totalXp(rookie, JobId.AGENT);
         helper.assertTrue(xpAfter > xpBefore,

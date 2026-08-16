@@ -33,14 +33,18 @@ import java.util.UUID;
  * 特勤加强奖励 + 悬赏结算接线 (SpecialAgent_Job_DesignSpec 7.1 加强奖励 + 10.5 悬赏完成判定; Champions 集成层)。
  *
  * 结算职责拆分 (调研铁律: 复用精英怪贡献池按伤害分、不重造、加强奖励从池外给不挤占贡献占比):
- *  本 handler 挂 {@link EventPriority#HIGHEST}, 在已落地 {@code ChampionRewardHandler.onChampionDeath} (默认优先级)
- *  之前先 {@link ContributionTracker#drain} 取贡献并完成"贡献池瓜分主结算"(与 ChampionRewardHandler 同口径:
- *  盖章双门槛 + 加权瓜分固定池 -> grantDaily 并入 credit_faucet 主闸 + 6★+ 青辉石)。drain 后账本已空, 默认优先级
- *  的 ChampionRewardHandler.onChampionDeath 查 hasLedger=false 直接 no-op (不双发)。本 handler 由此成为"特勤在场时
- *  的精英死亡权威结算点", 既复用同一贡献池逻辑 (不重造) 又在同一结算里叠加特勤专属的加强奖励 + 悬赏推进, 无需
- *  对 ContributionTracker 加非破坏性 peek (那要改 champion 包, 违硬约束)。
+ *  <b>贡献池主结算不归本 handler</b> —— 它归 {@code ChampionRewardHandler.onChampionDeath} (默认优先级), 那是账本
+ *  的唯一所有者与唯一 {@link ContributionTracker#drain} 调用方。本 handler 挂 {@link EventPriority#HIGHEST} 只是为了
+ *  在账本被清空之前读到它, 用的是非破坏性的 {@link ContributionTracker#peek}: 取同一份贡献 + 跑同一个
+ *  {@code ContributionPool.distribute}, 只为得出"谁合格、各自占比多少", 据此叠加特勤专属的那两笔, 一分钱的池内
+ *  奖励都不发。
  *
- * 特勤专属叠加 (在贡献池主结算之后, 仅对合格 + 是特勤职业的玩家):
+ *  这里曾经反过来 —— 本 handler 抢先 drain 并接管主结算, 让 ChampionRewardHandler 查 hasLedger=false 空转。那个
+ *  形态要求两边的前置判据逐条同步, 实际做不到, 已连踩两次: F112 漏抄 {@code isSummonedByAffix} 让召唤物变成印钞口;
+ *  F099 把青辉石从"每人一份"改成"按权重瓜分总池"后没抄过来, 于是修复在生产里从未执行, 青辉石一直按人头复制发。
+ *  改成 peek + 单一所有者之后, 两边判据即便漂移, 最坏后果也只是特勤加成多发/少发一笔。
+ *
+ * 特勤专属叠加 (仅对合格 + 是特勤职业的玩家):
  *  (1) 加强奖励 (7.1): 按精英初始星级 × 等级倍率 {@link AgentEnhancedReward#extraCreditRaw} 得每击杀额外信用点
  *      raw, 经 {@code grantDaily} 并入【同一】credit_faucet 主闸 (不另开印钞口; 与池内信用点共享每人每日天花板)。
  *      不产青辉石 (7.1)。"从池外给"= 这是池瓜分之外的个人 faucet, 不参与池的加权占比 (不挤占他人), 但仍受统一
@@ -53,21 +57,18 @@ import java.util.UUID;
  * 探测源已改自研 {@link MiningChampions#get}, 不再触任何 top.theillusivec4.champions.*, 由 {@link AgentIntegrationBootstrap}
  * 挂 forgeBus。
  *
- * 【醒目约束】本 handler 现在是"装不装 champions 都生效"的全服精英死亡权威结算点 (探测源已自研, 不再依赖 Champions
- * 加载与否)。今后 {@code ChampionRewardHandler} 新增任何前置判据 (如未来新增的经济闸/资格门) 都必须同步抄到这里,
- * 否则会在 HIGHEST 抢先 drain 后与原结算分叉 (本类 F112 修复即因漏抄 isSummonedByAffix 判据而踩过一次)。根治办法
- * 是给 {@link ContributionTracker} 加非破坏性 peek 并把特勤侧改成原结算之后的加成钩子, 但那要改 champion 包,
- * 留待与 B09 (champion 包维护分支) 协调。
+ * 【醒目约束】本 handler 无条件生效 (探测源已自研, 不依赖 Champions 加载与否), 且<b>永远不得调用
+ * {@link ContributionTracker#drain} 或 {@code discard}</b>。账本只有一个所有者 —— 贡献池主结算。多一个 drain 调用方,
+ * 症状就是"某个奖励静默不发", 且取决于 Forge 同优先级下的注册先后, 没人能稳定推理。
  */
 public final class AgentRewardHandler {
 
-    /** 诊断日志: 本 handler 挂 HIGHEST 抢先 drain, 会使 ChampionRewardHandler.onChampionDeath 的同名诊断行空转
-     * (hasLedger 恒 false 直接 no-op), 故照抄同样字段在本类打一行保住真服首验现场。 */
+    /** 诊断日志: 只记特勤侧自己发出的那两笔 (经验 / 加强信用点); 贡献池主结算的诊断行归 ChampionRewardHandler。 */
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/agent/reward");
 
     /**
-     * 精英死亡结算 (HIGHEST: 抢在 ChampionRewardHandler 默认优先级 drain 前接管): 贡献池瓜分主结算 + 特勤加强奖励
-     * 叠加。非本工程精英 / 支援召唤物 / 无贡献 / 无合格者 跳过 (整池不发)。
+     * 精英死亡时叠加特勤专属奖励 (HIGHEST: 早于主结算, 但<b>只读账本不清账</b>)。
+     * 非本工程精英 / 支援召唤物 / 无贡献 / 无合格者 一律跳过。
      */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onChampionDeath(LivingDeathEvent event) {
@@ -79,17 +80,14 @@ public final class AgentRewardHandler {
 
         MiningChampionData champ = MiningChampions.get(victim).orElse(null);
         if (champ == null || !champ.isChampion()) {
-            ContributionTracker.discard(championId); // 防泄漏。
             return;
         }
-        // F112 判据对齐: 与 ChampionRewardHandler.java (spec 红线 8-a "整池不发") 逐条对齐。本 handler 挂 HIGHEST
-        // 抢先 drain, 一旦少一条判据就与原结算分叉 —— 支援召唤物打钱会变成可反复召唤的战斗印钞口。
+        // 本 handler 的判据只管"这名玩家该不该拿特勤加成", 不再兼管整池发不发 —— 后者归主结算, 它有自己的同名
+        // 判据。两边即便将来漂移, 最坏后果也只是特勤加成多发/少发一笔, 不会再像 F112/F099 那样把主结算整条带偏。
         if (champ.isSummonedByAffix()) {
-            ContributionTracker.discard(championId);
             return;
         }
         if (!(victim.level() instanceof ServerLevel serverLevel)) {
-            ContributionTracker.discard(championId);
             return;
         }
         MinecraftServer server = serverLevel.getServer();
@@ -97,54 +95,27 @@ public final class AgentRewardHandler {
         int star = champ.star();
         double bossEffectiveHp = champ.effectiveHp();
         if (star < 1 || bossEffectiveHp <= 0.0D) {
-            ContributionTracker.discard(championId);
-            return; // 盖章数据缺失: 不发, 丢账本防脏发。
+            return; // 盖章数据缺失: 不发。账本留给主结算按它自己的判据处置。
         }
 
-        // drain 贡献 (接管主结算): online 现查 (玩家可能中途登出 = 离线没收)。
-        List<DamageContribution> contributions = ContributionTracker.drain(championId,
+        // peek 而非 drain: 账本所有权归 ChampionRewardHandler 的贡献池主结算 (见 ContributionTracker.peek 注释)。
+        // online 现查 (玩家可能中途登出 = 离线没收), 与主结算同口径。
+        List<DamageContribution> contributions = ContributionTracker.peek(championId,
                 playerId -> server.getPlayerList().getPlayer(playerId) != null);
 
+        // 复算一次分配只为拿到"谁合格 + 各自占比", 不用于发钱 —— 发钱是主结算的事。同一份 contributions +
+        // 同一个 distribute 保证两边的合格者集合逐字一致。
         long fixedPoolRaw = ChampionReward.creditPoolRaw(star);
         Map<UUID, Long> payout = ContributionPool.distribute(contributions, bossEffectiveHp, fixedPoolRaw);
 
-        // 诊断 (真服首验): 照抄 ChampionRewardHandler 同名诊断行字段, 见类注释 (本 handler 抢先 drain 使其空转)。
-        LOGGER.info("champion-death {} star{} effHp={} pool={} contributors={} payout={}",
-                victim.getType().getDescriptionId(), star, bossEffectiveHp, fixedPoolRaw,
-                contributions.size(), payout.values());
-
         if (payout.isEmpty()) {
-            return; // 无合格者: 整池不发 (防蹭枪/按人头复制)。
+            return; // 无合格者 (防蹭枪)。
         }
         if (!EconomyServices.isRegistered()) {
             return; // 经济门面未就绪 (启动早期): 不发, 不抛打断死亡。
         }
 
-        boolean dropsAzure = ChampionReward.dropsAzure(star);
-        long azurePoolDrop = ChampionReward.azureDrop(star);
-
-        // (A) 贡献池主结算 (与 ChampionRewardHandler 同口径: 信用点并入主闸 + 6★+ 青辉石; drain 已接管故由本 handler 发)。
-        for (Map.Entry<UUID, Long> entry : payout.entrySet()) {
-            ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
-            if (player == null) {
-                continue; // 结算瞬间登出: 没收。
-            }
-            long raw = entry.getValue();
-            if (raw > 0L) {
-                EconomyServices.economyService().grantDaily(player, raw,
-                        EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY,
-                        EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER);
-            }
-            // 6★+ 青辉石 PvE 掉落: 并入经济层每人每日产出硬上限 (grantAzureDaily, 与精英怪 ChampionRewardHandler 共享
-            // 同一 azure_faucet 键 -> 合并龙头: 每人每日青辉石总产出受统一上限, 防 agent/champion 双路绕过印钞)。
-            // 超当日 cap 部分被经济层截断丢弃, 返回值为实际入账量 (此处不二次用, 留作将来"撞上限提示"接线点)。
-            if (dropsAzure && azurePoolDrop > 0L) {
-                EconomyServices.economyService().grantAzureDaily(player, azurePoolDrop,
-                        EconomyConstants.AZURE_DAILY_FAUCET_CAP);
-            }
-        }
-
-        // (B) 特勤专属叠加 (仅合格者; 池外个人 faucet)。合格者集合即对该精英造成有效伤害的玩家 (qualifiedKill 口径):
+        // 特勤专属叠加 (仅合格者; 池外个人 faucet)。合格者集合即对该精英造成有效伤害的玩家 (qualifiedKill 口径):
         // 封印不计贡献 -> 封了没打的怪不在合格集 -> 自然不享。
         // F016 服务端一半修法 (双重死锁): 经验入账原本被下方 isActiveAgent 门与加强信用点共用一道门, 而经验是唯一
         // 能让玩家升到 L3、进而封印、进而拿到入职标志的通路, 形成"没入职->没经验->升不了级->封不了->进不了职"死锁。
@@ -153,16 +124,25 @@ public final class AgentRewardHandler {
         // 继续只给做过特勤活计的人 (isActiveAgent)。经验不算福利泄漏: 它只是职业曲线, 不产货币, 且走职业框架经验
         // 软上限, 与"泄漏信用点/伤害放大"性质不同。
         // fixedPoolRaw (= 该星固定信用点总池) 是占比反推分母 (payout = pool × 占比), 传给经验入账复用同一口径。
+        int xpGranted = 0;
+        int bonusGranted = 0;
         for (Map.Entry<UUID, Long> entry : payout.entrySet()) {
             ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
             if (player == null) {
                 continue;
             }
             grantAgentKillXp(player, star, entry.getValue(), fixedPoolRaw);
+            xpGranted++;
             if (AgentBountySavedData.get(player.server.overworld()).isActiveAgent(player.getUUID())) {
                 grantAgentKillBonus(player, star);
+                bonusGranted++;
             }
         }
+
+        // 诊断 (真服首验): 只记特勤侧自己做的那两笔。刻意不再照抄 ChampionRewardHandler 的同名 champion-death 行
+        // —— 主结算已经归它, 两边打同样的字段只会让日志里出现两行看似矛盾的重复记录。
+        LOGGER.info("agent-bonus champion={} star{} qualified={} xp={} bonus={}",
+                victim.getType().getDescriptionId(), star, payout.size(), xpGranted, bonusGranted);
     }
 
     /**

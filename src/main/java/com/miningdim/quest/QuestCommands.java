@@ -87,6 +87,18 @@ public final class QuestCommands {
         }
     }
 
+    /** 把随奖发下的物品拼成 " + 铁锭 x6 + 附魔书" 这样的一截; 无物品时返回空串。 */
+    private static String describeItems(List<net.minecraft.world.item.ItemStack> items) {
+        StringBuilder text = new StringBuilder();
+        for (net.minecraft.world.item.ItemStack stack : items) {
+            text.append(" + ").append(stack.getHoverName().getString());
+            if (stack.getCount() > 1) {
+                text.append(" x").append(stack.getCount());
+            }
+        }
+        return text.toString();
+    }
+
     private static String line(QuestProgress progress) {
         QuestDefinition definition = progress.definition();
         String state = progress.claimed() ? "已领取"
@@ -104,7 +116,8 @@ public final class QuestCommands {
         QuestService.ClaimResult result = QuestServices.service().claim(player, questId);
         switch (result.outcome()) {
             case CLAIMED -> source.sendSuccess(() -> Component.literal(
-                            "领取成功: " + result.definition().title() + " (+" + result.credit() + " 信用点)")
+                            "领取成功: " + result.definition().title() + " (+" + result.credit() + " 信用点"
+                                    + describeItems(result.items()) + ")")
                     .withStyle(ChatFormatting.GREEN), false);
             // 实发额低于名义奖励是全服 faucet 衰减主闸的正常结果, 不是错误, 故仍走成功分支。
             case NOT_FOUND -> source.sendFailure(Component.literal("任务板上没有这条任务: " + questId));

@@ -4,6 +4,7 @@ import com.miningdim.quest.objective.TurnInItemObjective;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
 
@@ -45,8 +46,14 @@ public final class QuestService {
 
     /**
      * @param credit 实际入账的信用点 (过完全服衰减主闸; 仅 {@link ClaimOutcome#CLAIMED} 时有意义)
+     * @param items  一并发下的物品 (必得一份材料, 中了附魔书则多一件; 非 CLAIMED 时为空表)
      */
-    public record ClaimResult(ClaimOutcome outcome, QuestDefinition definition, long credit) {
+    public record ClaimResult(ClaimOutcome outcome, QuestDefinition definition, long credit,
+                              List<ItemStack> items) {
+
+        ClaimResult(ClaimOutcome outcome, QuestDefinition definition, long credit) {
+            this(outcome, definition, credit, List.of());
+        }
     }
 
     /** 重摇结果。 */
@@ -132,8 +139,29 @@ public final class QuestService {
             // 特殊任务是一次性的: 领完即摘牌, 把在途名额还给下一次随机事件。
             board.removeSpecial(definitionId);
         }
+        // 物品奖励在发钱与推进阶段之后: 它是纯赠予, 不参与前面那串必须成套发生的状态变更, 放最后即使背包
+        // 满了也只是掉在脚下, 不会让已完成的领奖回退。
+        List<ItemStack> items =
+                QuestItemRewards.roll(definition.source(), player.server.overworld().getRandom());
+        giveOrDrop(player, items);
+
         QuestSavedData.get(player.server.overworld(), pool).setDirty();
-        return new ClaimResult(ClaimOutcome.CLAIMED, definition, credit);
+        return new ClaimResult(ClaimOutcome.CLAIMED, definition, credit, items);
+    }
+
+    /**
+     * 把奖励物品塞进背包, 塞不下就丢在脚下。
+     *
+     * 丢在脚下而不是拒发或暂存: 玩家背包满是常态, 让领奖因此失败会把一次好运变成一次报错; 而暂存要引入一套
+     * 邮箱式的持久层, 与"任务是随手拿的保底"这个定位不相称。
+     */
+    private static void giveOrDrop(ServerPlayer player, List<ItemStack> items) {
+        for (ItemStack stack : items) {
+            ItemStack copy = stack.copy();
+            if (!player.getInventory().add(copy)) {
+                player.drop(copy, false);
+            }
+        }
     }
 
     /**

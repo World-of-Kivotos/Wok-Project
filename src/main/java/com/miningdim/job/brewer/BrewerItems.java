@@ -27,9 +27,15 @@ public final class BrewerItems {
     public static final DeferredRegister<Item> ITEMS =
             DeferredRegister.create(ForgeRegistries.ITEMS, MiningConstants.MODID);
 
-    /** 干小麦: 酒窖箱保鲜燃料 (要求量大, 联动农夫小麦经济)。 */
+    /**
+     * 干小麦: 酒窖箱保鲜燃料 (要求量大, 联动农夫小麦经济)。stacksTo 顶到
+     * {@link BrewerConstants#FUEL_SLOT_CAPACITY} (F027 二段修复): 与酒窖箱燃料槽的 getSlotLimit 覆写配套,
+     * 单槽一次即可覆盖满窖 (12 瓶) 停在闪耀主线最低门槛 (vintage 10) 时一个结算步 (1 现实天) 的满额应耗,
+     * 见该常量 javadoc 的推导。
+     */
     public static final RegistryObject<Item> DRIED_WHEAT =
-            ITEMS.register("dried_wheat", () -> new Item(new Item.Properties()));
+            ITEMS.register("dried_wheat",
+                    () -> new Item(new Item.Properties().stacksTo(BrewerConstants.FUEL_SLOT_CAPACITY)));
 
     /** 九种酒 item (类型 -> RegistryObject)。 */
     private static final Map<WineType, RegistryObject<Item>> WINES = new EnumMap<>(WineType.class);

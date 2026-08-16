@@ -114,8 +114,8 @@ public final class BrewerWebUiGameTests {
         }
 
         // 抽两条对着定稿配方核对: 数量是精确匹配的判据, 面板发错量玩家就照着错的下料。
-        assertIngredient(helper, recipes, WineType.VODKA, 0, "minecraft:wheat", 32);
-        assertIngredient(helper, recipes, WineType.CHAMPAGNE, 0, "minecraft:wheat", 16);
+        assertIngredient(helper, recipes, WineType.VODKA, 0, "miningdim:farmer_wheat", 32);
+        assertIngredient(helper, recipes, WineType.CHAMPAGNE, 0, "miningdim:farmer_wheat", 16);
         assertIngredient(helper, recipes, WineType.CHAMPAGNE, 1,
                 ForgeRegistries.ITEMS.getKey(Items.SUGAR).toString(), 4);
         assertIngredient(helper, recipes, WineType.CHAMPAGNE, 2,

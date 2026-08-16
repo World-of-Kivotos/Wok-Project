@@ -62,8 +62,8 @@ public final class BrewPermanentBuffHandlers {
         }
         long t = player.tickCount;
         // 仅在两个周期边界的 tick 才取 store (摊薄: 每 20/600 tick 才读一次, 非每 tick)。
-        boolean champagneTick = t % BrewerConstants.CHAMPAGNE_HEAL_INTERVAL_TICKS == 0;
-        boolean whiskeyTick = t % BrewerConstants.WHISKEY_HEAL_INTERVAL_TICKS == 0;
+        boolean champagneTick = t % BrewerConfig.CHAMPAGNE_HEAL_INTERVAL_TICKS.get() == 0;
+        boolean whiskeyTick = t % BrewerConfig.WHISKEY_HEAL_INTERVAL_TICKS.get() == 0;
         if (!champagneTick && !whiskeyTick) {
             return;
         }

@@ -25,6 +25,7 @@ import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.block.state.BlockState;
@@ -896,6 +897,143 @@ public final class EngineerGameTests {
             helper.assertTrue(job.grantXpCalls == 0,
                     "a fully blocked quick-move must not grant any production xp, got "
                             + job.grantXpCalls + " calls");
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
+    // ============================================================
+    // 复核修正 (a): Shift 部分取板必须给残留板保留 pending, 不能因 onOutputTaken 就地清 boardSnapshot 而
+    // 连带清掉 endQuickMove 还原残留要用的那份 takeSnapshot 字段
+    // ============================================================
+    // 缺陷: 修复前 OutputSlot.onTake 把 this.takeSnapshot 字段本身 (而非副本) 传给 onOutputTaken; 后者末尾
+    // NanoNbt.clearProductionXpPending(boardSnapshot) 就地改 tag, 直接把字段自己的 pending 也清成 false。
+    // endQuickMove 随后用这份已被污染的字段还原残留 tag, 残留板被错误标成"已结算", 经验永久丢失。
+    //
+    // 造真实部分移动 (非"挪不动"的全零场景, 那条已由 quickMoveRestoresPendingWhenNoRoomToReceive 覆盖):
+    // vanilla AbstractContainerMenu.moveItemStackTo 的"塞空槽"分支只按 slot.getMaxStackSize() (无参, 通用玩家
+    // 槽默认 64) 判断上限, 不会按物品自身 stacksTo(16) 截断——若只留一个空槽会被整栈 20 块塞满, 无法制造部分
+    // 移动。真正会按物品自身上限截断的是"与已有同 NBT 栈合并"分支 (maxSize =
+    // Math.min(slot.getMaxStackSize(), pStack.getMaxStackSize()), 见 AbstractContainerMenu.java:656), 所以此处
+    // 预放一份 tag 完全相同 (producer/quality/pending 三者一致, 因为活体板栈在 beginQuickMove 里已把 pending
+    // 清成 false) 的已结算板在快捷栏 0 号位当合并目标, 其余 35 槽全部灌石头挡死, 逼 20 块只能合并出 15 块
+    // (1+15=16=maxStackSize) 后再无处可去, 残留 5 块。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shiftPartialTakeKeepsResidualPendingOnRealSettlement(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService();
+        IJobService prevJob = swapJob(job);
+        try {
+            ProductionTableBlockEntity be = newProductionTable(helper);
+            be.setOwner(player.getUUID());
+            BlockPos abs = helper.absolutePos(new BlockPos(0, 1, 0));
+
+            int plateCount = 20;
+            ItemStack plates = NanoProduction.makePlate(NanoTier.HIGH, plateCount, player.getUUID(), 0);
+            be.inventory().setStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT, plates);
+
+            // 合并目标: 与"活体栈经 beginQuickMove 清 pending 后"的 NBT 完全一致的 1 块已结算板, 放快捷栏 0 号位。
+            ItemStack mergeTarget = NanoProduction.makePlate(NanoTier.HIGH, 1, player.getUUID(), 0);
+            NanoNbt.clearProductionXpPending(mergeTarget);
+            player.getInventory().setItem(0, mergeTarget);
+            // 其余 35 槽全灌石头 (与板不同物, 不可合并也不是空槽), 堵死除合并目标外的一切去处。
+            for (int i = 1; i < player.getInventory().items.size(); i++) {
+                player.getInventory().setItem(i, new ItemStack(Items.STONE, 64));
+            }
+
+            ProductionTableMenu menu = new ProductionTableMenu(0, player.getInventory(), abs);
+            ItemStack moved = menu.quickMoveStack(player, ProductionTableBlockEntity.SLOT_OUTPUT);
+            helper.assertTrue(moved.getCount() == plateCount,
+                    "quickMoveStack returns the pre-move snapshot (count " + plateCount + "), got "
+                            + moved.getCount());
+
+            ItemStack landed = player.getInventory().getItem(0);
+            helper.assertTrue(landed.getCount() == 16,
+                    "the merge target must be topped up to the plate item's stacksTo(16) cap (1+15), got "
+                            + landed.getCount());
+            helper.assertFalse(NanoNbt.isProductionXpPending(landed),
+                    "the merged stack (settled portion) must have pending cleared");
+
+            ItemStack residual = be.inventory().getStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT);
+            helper.assertTrue(residual.getCount() == 5,
+                    "5 unsettled plates (20 - 15 actually merged out) must remain in the output slot, got "
+                            + residual.getCount());
+            helper.assertTrue(NanoNbt.isProductionXpPending(residual),
+                    "endQuickMove must restore pending on the RESIDUAL board from an untouched snapshot; "
+                            + "leaking onOutputTaken's in-place clear onto the shared takeSnapshot field would "
+                            + "wrongly mark the still-unsettled residual as already-settled and lose its xp");
+
+            helper.assertTrue(job.grantXpCalls == 1,
+                    "partial shift-take must settle production xp exactly once, got " + job.grantXpCalls);
+            long expectedRaw = (long) Math.floor(NanoTier.HIGH.rawXp()) * 15;
+            helper.assertTrue(expectedRaw == 900L, "high plate x15 raw xp anchor = 60*15=900");
+            helper.assertTrue(job.lastRawXp == expectedRaw,
+                    "partial shift-take settles by the ACTUAL merged-out count 15 (=900), not the full 20; got "
+                            + job.lastRawXp);
+
+            // 残留必须仍可正常结算 (证明未被永久锁死): 直接驱动 BE 结算口径复核这 5 块的经验能拿到。
+            int callsBefore = job.grantXpCalls;
+            be.onOutputTaken(player, residual, 5);
+            helper.assertTrue(job.grantXpCalls == callsBefore + 1,
+                    "the residual 5 plates must still be settleable for xp after the partial take");
+            long expectedResidualRaw = (long) Math.floor(NanoTier.HIGH.rawXp()) * 5;
+            helper.assertTrue(job.lastRawXp == expectedResidualRaw,
+                    "residual settle grants xp for exactly the 5 remaining plates (=" + expectedResidualRaw
+                            + "), got " + job.lastRawXp);
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
+    // ============================================================
+    // 复核修正 (b): 数字键/副手键 SWAP 取输出板 (第三条不经 remove(int) 也不经 quickMoveStack 的路径) 必须
+    // 清掉玩家真正拿到手的那份实栈的 pending
+    // ============================================================
+    // 缺陷: vanilla AbstractContainerMenu.doClick 的 ClickType.SWAP 分支 (目标快捷栏槽为空时) 直接
+    // `inventory.setItem(pButton, itemstack6)` 把 slot2.getItem() 读到的 live 栈本体塞进玩家背包, 再调
+    // `slot2.setByPlayer(EMPTY)` + `slot2.onTake(player, itemstack6)` —— 全程不调 Slot.remove(int), 也不经
+    // AbstractMiningMenu.quickMoveStack, 修复前的 remove(int) 覆写与 beginQuickMove/endQuickMove 配对两条通道
+    // 都覆盖不到它, 经验照发但玩家手上的板 pending 仍为 true。此处走真菜单 clicked(SWAP) 端到端复现。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void swapTakeClearsPendingOnRealReceivedStack(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService();
+        IJobService prevJob = swapJob(job);
+        try {
+            ProductionTableBlockEntity be = newProductionTable(helper);
+            be.setOwner(player.getUUID());
+            BlockPos abs = helper.absolutePos(new BlockPos(0, 1, 0));
+
+            int plateCount = 3;
+            ItemStack plates = NanoProduction.makePlate(NanoTier.HIGH, plateCount, player.getUUID(), 0);
+            be.inventory().setStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT, plates);
+            // 目标快捷栏 0 号位必须为空, 这样才走 doClick 的 "itemstack3.isEmpty()" 分支 (整体换出)。
+            player.getInventory().setItem(0, ItemStack.EMPTY);
+
+            ProductionTableMenu menu = new ProductionTableMenu(0, player.getInventory(), abs);
+            int outputMenuSlot = ProductionTableBlockEntity.SLOT_OUTPUT;
+            menu.clicked(outputMenuSlot, 0, ClickType.SWAP, player);
+
+            ItemStack landed = player.getInventory().getItem(0);
+            helper.assertTrue(landed.getCount() == plateCount,
+                    "SWAP must move the full output stack into the target hotbar slot, got " + landed.getCount());
+            helper.assertFalse(NanoNbt.isProductionXpPending(landed),
+                    "SWAP-received stack must have pending cleared too, not just the mouse/Shift paths");
+
+            ItemStack stillInSlot = be.inventory().getStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT);
+            helper.assertTrue(stillInSlot.isEmpty(),
+                    "output slot must be empty after SWAP moved the whole stack out");
+
+            helper.assertTrue(job.grantXpCalls == 1,
+                    "SWAP take must still settle production xp exactly once, got " + job.grantXpCalls);
+            helper.assertTrue(job.lastRawXp == 180L,
+                    "high plate x3 raw xp anchor stays 60*3=180 on SWAP take, got " + job.lastRawXp);
             helper.succeed();
         } finally {
             restoreJob(prevJob);

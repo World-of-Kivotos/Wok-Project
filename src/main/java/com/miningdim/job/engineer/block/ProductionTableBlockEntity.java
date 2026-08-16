@@ -322,12 +322,14 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
      * 【本次实际取走量 takenCount】(取出前数量 - 残留数量), 此处仅据 takenCount 判非空与计经验, 与鼠标单取口径一致。
      *
      * 注意: 本方法末尾清的 pending 是【调用方传入的 boardSnapshot 这一个 ItemStack 对象】, 而
-     * boardSnapshot 在 {@link ProductionTableMenu.OutputSlot} 里按构造就是 {@code current.copy()} 产生的快照
-     * 副本, 不是玩家手上真正拿到的那份实栈——清副本不影响原件, "结算即清防塞回刷"这句承诺不能靠本方法单独
-     * 兑现。玩家真正离槽的实栈 (鼠标取时 {@code SlotItemHandler.remove} 经 extractItem 返回的 handler 内栈
-     * 新副本 / Shift 取时 {@code moveItemStackTo} 内 {@code stack.split(n)} 分裂给玩家背包的那份) 由
-     * {@link ProductionTableMenu.OutputSlot} 分别在 {@code remove(int)} 覆写与 beginQuickMove/endQuickMove
-     * 配对中清除, 两处职责互不重叠、缺一不可。
+     * boardSnapshot 在 {@link ProductionTableMenu.OutputSlot} 里按调用点就是 takeSnapshot 字段的 copy——传
+     * 副本是刻意的: 字段本身要留给 Shift 部分取时的 endQuickMove 去还原槽内残留的 pending, 若直接传字段会被
+     * 本方法就地清空。清副本不影响原件, "结算即清防塞回刷"这句承诺不能靠本方法单独兑现。玩家真正离槽的实栈
+     * (鼠标取时 {@code SlotItemHandler.remove} 经 extractItem 返回的 handler 内栈新副本 / Shift 取时
+     * {@code moveItemStackTo} 内 {@code stack.split(n)} 分裂给玩家背包的那份 / SWAP 数字键交换时 vanilla
+     * doClick 直接塞进玩家背包的 live 栈本体) 由 {@link ProductionTableMenu.OutputSlot} 分三路清除:
+     * {@code remove(int)} 覆写 (鼠标 PICKUP/THROW/PICKUP_ALL) / beginQuickMove-endQuickMove 配对 (Shift) /
+     * {@code onTake} 内对 stack 形参的兜底清除 (覆盖 SWAP, 对已经过 remove(int) 的鼠标路径幂等)。
      *
      * @param boardSnapshot 取出前的板栈快照 (producer/pending/quality 经此读取; 末尾清的 pending 只作用于
      *                      这个快照对象本身, 不代表玩家手上实栈已清)

@@ -199,14 +199,21 @@ public final class ProductionTableMenu extends AbstractMiningMenu {
             if (player instanceof ServerPlayer serverPlayer) {
                 // 实际取走量 = 取出前快照数量 - 移除后槽内残留数量。鼠标/Shift、整取/部分取四条路径统一口径:
                 // Shift 整栈取走时基类传入的 stack 是残留 EMPTY, 据其结算会漏算 (engineer-01), 故改用快照差值。
+                // 传副本给 onOutputTaken: 该方法会就地清掉传入栈的 pending (结算即清契约), 但 takeSnapshot
+                // 字段本身必须保留原始 pending=true —— quickMoveActive 分支下 endQuickMove 还要用它把槽内
+                // 残留的 pending 还原回去, 传实体字段会导致这份快照被提前清空, 残留经验永久丢失。
                 int takenCount = this.takeSnapshot.getCount() - super.getItem().getCount();
-                be.onOutputTaken(serverPlayer, this.takeSnapshot, takenCount);
+                be.onOutputTaken(serverPlayer, this.takeSnapshot.copy(), takenCount);
             }
             super.onTake(player, stack);
             if (quickMoveActive) {
                 // endQuickMove 需要这份带 pending 的快照去还原槽内残留, 此处不能提前覆盖。
                 return;
             }
+            // SWAP (数字键 1-9 / 副手键 F) 既不经 remove(int) 也不经 quickMoveStack: vanilla doClick 直接把
+            // slot.getItem() 拿到的 live 栈本体塞进玩家背包再调 onTake, 此处的 stack 形参就是玩家手上那个
+            // 实际对象, 必须在这里兜底清 pending; 鼠标路径的 stack 已在 remove(int) 覆写里清过, 此处幂等。
+            NanoNbt.clearProductionXpPending(stack);
             // 取后把快照重置为槽内残留, 作为下一次取出的基线 (空槽则 EMPTY)。
             this.takeSnapshot = super.getItem().copy();
         }

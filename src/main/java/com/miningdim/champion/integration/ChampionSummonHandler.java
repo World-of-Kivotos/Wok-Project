@@ -14,7 +14,6 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
@@ -23,7 +22,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingDropsEvent;
@@ -73,9 +71,6 @@ public final class ChampionSummonHandler {
     /** 召唤扫描/维护周期 (tick): 1s 扫一次近玩家冠军, 查冷却/拴绳 (与 {@link ChampionSummonPlan} 冷却 tick 对齐)。 */
     private static final int SCAN_INTERVAL_TICKS = 20;
 
-    /** 作用的玩家可见距离 (格; 与 BOSS 条/自身被动同量级)。远离该范围的冠军不维护召唤 (无玩家在场无需助战)。 */
-    private static final double VIEW_RANGE = 48.0D;
-
     /** 拴绳距离 (格): 召唤物离主人超此距离开始计"远离"; 持续 {@value #LEASH_GRACE_TICKS}tick 触发传回。 */
     private static final double LEASH_RANGE = 24.0D;
 
@@ -121,21 +116,14 @@ public final class ChampionSummonHandler {
             return;
         }
         long nowTick = server.overworld().getGameTime();
-        Set<UUID> processed = new HashSet<>();
-        for (ServerLevel level : server.getAllLevels()) {
-            List<ServerPlayer> players = level.players();
-            if (players.isEmpty()) {
-                continue;
+        for (ChampionProximityScanner.Sighting sighting : ChampionProximityScanner.sightings(server)) {
+            if (!sighting.entity().isAlive()) {
+                continue; // 快照按 tick 复用, 同 tick 更早的 handler 可能已致死: 存活性逐条重查。
             }
-            for (ServerPlayer player : players) {
-                AABB box = player.getBoundingBox().inflate(VIEW_RANGE);
-                for (Mob entity : level.getEntitiesOfClass(Mob.class, box, Mob::isAlive)) {
-                    if (!processed.add(entity.getUUID())) {
-                        continue; // 多玩家同看一冠军: 本轮只维护一次。
-                    }
-                    applySummonTick(entity, nowTick);
-                }
+            if (!(sighting.entity() instanceof Mob mob)) {
+                continue; // 冠军 capability 只挂 Mob (MiningChampions:58-65), 快照内 entity 恒为 Mob; 防御性早退。
             }
+            applySummonTick(mob, nowTick);
         }
 
         // TTL 清扫 (despawn/卸载不发死亡事件的泄漏兜底): 低频回收长期未触达的 owner 状态条目。

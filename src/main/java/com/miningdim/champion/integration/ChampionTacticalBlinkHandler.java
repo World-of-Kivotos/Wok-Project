@@ -15,7 +15,6 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
-import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
@@ -24,10 +23,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -63,9 +60,6 @@ public final class ChampionTacticalBlinkHandler {
     /** 扫描/周期推进周期 (tick): 1s 扫一次近玩家冠军 (与纯逻辑 SCAN_INTERVAL_TICKS 对齐)。 */
     private static final int SCAN_INTERVAL_TICKS = (int) ChampionTacticalBlinkPlan.SCAN_INTERVAL_TICKS;
 
-    /** 扫描可见距离 (格; 与视觉干扰/反击单元同量级)。缰绳 (24) 另在纯逻辑内二次门控周期推进。 */
-    private static final double VIEW_RANGE = 48.0D;
-
     /** 两端脱离表现: POOF 烟颗数 (spec 9A.6 粒子预算纪律)。 */
     private static final int POOF_PARTICLE_COUNT = 15;
 
@@ -96,21 +90,11 @@ public final class ChampionTacticalBlinkHandler {
             return;
         }
         long nowTick = server.overworld().getGameTime();
-        Set<UUID> processed = new HashSet<>();
-        for (ServerLevel level : server.getAllLevels()) {
-            List<ServerPlayer> players = level.players();
-            if (players.isEmpty()) {
-                continue;
+        for (ChampionProximityScanner.Sighting sighting : ChampionProximityScanner.sightings(server)) {
+            if (!sighting.entity().isAlive()) {
+                continue; // 快照按 tick 复用, 同 tick 更早的 handler 可能已致死: 存活性逐条重查。
             }
-            for (ServerPlayer player : players) {
-                AABB box = player.getBoundingBox().inflate(VIEW_RANGE);
-                for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class, box, LivingEntity::isAlive)) {
-                    if (!processed.add(entity.getUUID())) {
-                        continue; // 多玩家同看一冠军: 本轮只结算一次。
-                    }
-                    applyBlinkTick(level, entity, nowTick);
-                }
-            }
+            applyBlinkTick(sighting.level(), sighting.entity(), nowTick);
         }
 
         // TTL 清扫 (despawn/卸载不发死亡事件的泄漏兜底): 低频回收长期未触达的状态条目。

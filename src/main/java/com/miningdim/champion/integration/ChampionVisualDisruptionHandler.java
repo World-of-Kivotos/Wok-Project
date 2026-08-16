@@ -17,7 +17,6 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
-import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -25,10 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -58,9 +54,6 @@ public final class ChampionVisualDisruptionHandler {
     /** 扫描/周期推进周期 (tick): 1s 扫一次近玩家冠军 (与纯逻辑 SCAN_INTERVAL_TICKS 对齐)。 */
     private static final int SCAN_INTERVAL_TICKS = (int) ChampionVisualDisruptionValues.SCAN_INTERVAL_TICKS;
 
-    /** 作用的玩家可见距离 (格; 与自身被动/BOSS 血条同量级)。远离该范围的冠军不结算 (无玩家在场无需施控)。 */
-    private static final double VIEW_RANGE = 48.0D;
-
     /** per-冠军循环状态; 冠军死亡摘除 + TTL 清扫双保险 (despawn/卸载不发死亡事件的泄漏兜底)。 */
     private final Map<UUID, DisruptionState> stateByChampion = new HashMap<>();
 
@@ -88,21 +81,11 @@ public final class ChampionVisualDisruptionHandler {
             return;
         }
         long nowTick = server.overworld().getGameTime();
-        Set<UUID> processed = new HashSet<>();
-        for (ServerLevel level : server.getAllLevels()) {
-            List<ServerPlayer> players = level.players();
-            if (players.isEmpty()) {
-                continue;
+        for (ChampionProximityScanner.Sighting sighting : ChampionProximityScanner.sightings(server)) {
+            if (!sighting.entity().isAlive()) {
+                continue; // 快照按 tick 复用, 同 tick 更早的 handler 可能已致死: 存活性逐条重查。
             }
-            for (ServerPlayer player : players) {
-                AABB box = player.getBoundingBox().inflate(VIEW_RANGE);
-                for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class, box, LivingEntity::isAlive)) {
-                    if (!processed.add(entity.getUUID())) {
-                        continue; // 多玩家同看一冠军: 本轮只结算一次。
-                    }
-                    applyDisruptionTick(entity, nowTick);
-                }
-            }
+            applyDisruptionTick(sighting.entity(), nowTick);
         }
 
         // TTL 清扫 (despawn/卸载不发死亡事件的泄漏兜底): 低频回收长期未触达的状态条目。

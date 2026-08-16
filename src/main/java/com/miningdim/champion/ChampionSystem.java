@@ -9,6 +9,7 @@ import com.miningdim.champion.integration.ChampionCounterUnitHandler;
 import com.miningdim.champion.integration.ChampionDeathMarkHandler;
 import com.miningdim.champion.integration.ChampionDotTickHandler;
 import com.miningdim.champion.integration.ChampionParticleHandler;
+import com.miningdim.champion.integration.ChampionProximityScanner;
 import com.miningdim.champion.integration.ChampionPromoter;
 import com.miningdim.champion.integration.ChampionRewardHandler;
 import com.miningdim.champion.integration.ChampionSelfEffectHandler;
@@ -125,6 +126,9 @@ public final class ChampionSystem implements Subsystem {
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         BloodPoolRegistry.reset();
+        // 共享近场快照 (F020/F100 收口) 持强 ServerLevel/LivingEntity 引用: 与 ChampionAttackHandler.reset 同理,
+        // 不清则跨存档泄漏旧服务端实体。
+        ChampionProximityScanner.reset();
         ContributionTracker.reset();
         ChampionEffectRegistries.reset();
         ChampionTargetLocks.reset();

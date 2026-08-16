@@ -14,6 +14,8 @@ import com.miningdim.job.munitions.menu.MunitionsBenchMenu;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
@@ -30,19 +32,23 @@ import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.common.util.LazyOptional;
 import net.minecraftforge.items.IItemHandler;
+import net.minecraftforge.items.IItemHandlerModifiable;
 import net.minecraftforge.items.ItemStackHandler;
 import net.minecraftforge.items.wrapper.RangedWrapper;
+import net.minecraftforge.registries.ForgeRegistries;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
  * 军火台方块实体 (Munitions_Job_DesignSpec 五/六/九/十章)。被动产线 (类农夫塞料->时间戳追算产->缓冲满停产->人手回收)。
  * 持:
  *  - ownerUUID + locked (上锁访问控制; 仿工程师生产台);
- *  - 料槽 铜 (slot 0) / 火药 (slot 1) / 发射药 (slot 2) + 输出缓冲展示槽 (slot 3);
+ *  - 料槽 底火 (slot 0) / 弹壳 (slot 1) / 弹头 (slot 2) / 发射药 (slot 3) + 输出缓冲展示槽 (slot 4);
  *  - bufferedRounds + bufferedCaliber: 缓冲内已产弹的权威发数与口径 (int 权威, 输出槽的 TACZ 弹 ItemStack 是其
  *    可视物化, 仅在主人在线访问时由 {@link MunitionsAmmoFactory} 物化, tick 不触 TACZ);
  *  - selectedCaliber: 选中口径 (clickMenuButton 选, 服务端校等级门);
@@ -57,8 +63,9 @@ import java.util.UUID;
  * 唯一 TACZ 物化点是 {@link #refreshOutputStack} (主人在线访问帧, ModList isLoaded 守卫)。dev GameTest 不进 tick
  * 的 TACZ 路径。
  *
- * 反漏斗 (仿工程师): getCapability 只暴露料槽 [0,3) 的只写包装, 输出缓冲槽不对漏斗暴露 (RangedWrapper), 保证
- * "必须人手取" 的结算前提。
+ * 反漏斗 (仿工程师): getCapability 只暴露料槽 [0,3) 的只写包装 (InsertOnlyRangedWrapper), 输出缓冲槽不对漏斗
+ * 暴露, 保证 "必须人手取" 的结算前提。RangedWrapper 本身同时代理 insert 与 extract, 不覆写 extract 时漏斗能把
+ * 底火/弹壳/弹头/发射药反抽走, 产线静默停摆; InsertOnlyRangedWrapper 只覆写 extractItem 恒返空。
  */
 public final class MunitionsBenchBlockEntity extends BlockEntity implements MenuProvider {
 
@@ -73,6 +80,8 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     private static final int SLOT_COUNT = 5;
     /** 反漏斗只暴露料槽 [0,4) (四件套), 输出槽不暴露。 */
     private static final int INPUT_SLOT_END = SLOT_OUTPUT;
+    /** 旧档 4 槽布局 (F015 迁移用): legacy 0/1 无对应料槽, legacy 2=发射药, legacy 3=输出。 */
+    private static final int LEGACY_FOUR_SLOT_COUNT = 4;
 
     /** ContainerData 索引 (开 GUI 者实时同步; int-only)。 */
     public static final int DATA_SELECTED_CALIBER = 0;
@@ -126,6 +135,13 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     private boolean settleInitialized;
     private long nextWeldSoundTick;
 
+    /**
+     * 4->5 槽迁移 (F015) 待掉落队列: 旧档 legacy slot 0/1 (类型无关) 与非发射药的 legacy slot 2 内容无处安放,
+     * 排队等首个 serverTick 用 Block.popResource 吐在方块位置, 不静默销毁。load() 期间 level 恒为 null 无法当场
+     * popResource, 故须持久化跨重载保持 (迁移后、首次 tick 前关服不能真丢)。
+     */
+    private final List<ItemStack> pendingLegacyDrops = new ArrayList<>();
+
     private final ItemStackHandler inventory = new ItemStackHandler(SLOT_COUNT) {
         @Override
         protected void onContentsChanged(int slot) {
@@ -144,9 +160,27 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         }
     };
 
-    /** 反漏斗暴露: 任何 side 只给料槽 [0,3) 只写包装, 输出缓冲槽不暴露 (必须人手取)。 */
+    /**
+     * 反漏斗暴露: 任何 side 只给料槽 [0,3) 的 InsertOnlyRangedWrapper, 输出缓冲槽不暴露 (必须人手取)。
+     * RangedWrapper 本身同时代理 insert 与 extract, 不覆写 extract 时漏斗能把底火/弹壳/弹头/发射药反抽走,
+     * 产线静默停摆 (F051)。
+     */
     private final LazyOptional<IItemHandler> inputOnlyHandler =
-            LazyOptional.of(() -> new RangedWrapper(inventory, SLOT_PRIMER, INPUT_SLOT_END));
+            LazyOptional.of(() -> new InsertOnlyRangedWrapper(inventory, SLOT_PRIMER, INPUT_SLOT_END));
+
+    /**
+     * 只写料槽包装 (F051): 只覆写 {@link #extractItem}, insert 侧仍走基类的范围校验与 isItemValid。
+     */
+    private static final class InsertOnlyRangedWrapper extends RangedWrapper {
+        InsertOnlyRangedWrapper(IItemHandlerModifiable inventory, int minSlot, int maxSlot) {
+            super(inventory, minSlot, maxSlot);
+        }
+
+        @Override
+        public ItemStack extractItem(int slot, int amount, boolean simulate) {
+            return ItemStack.EMPTY;
+        }
+    }
 
     private final ContainerData dataAccess = new ContainerData() {
         @Override
@@ -246,7 +280,10 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
      * @return 选口径是否被接受
      */
     public boolean trySelectCaliber(MunitionsCaliber target, ServerPlayer player) {
-        if (!canAccess(player)) {
+        // 归属收敛 (审查 M-3, 同 tryStartCraft/cancelCraft/toggleContinuousCrafting): 路人点一下就会把
+        // lastSettleTick 推到当前, 抹掉台主离线攒下的全部流逝时间 (五章离线补产唯一依据), 且会用路人等级污染
+        // ownerLevelCache; 选口径须收敛到台主。canAccess 仍保留给开 GUI/取物用, 这里不能借用。
+        if (!isOwner(player)) {
             return false;
         }
         if (craftingActive) {
@@ -341,6 +378,16 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         if (level == null || level.isClientSide) {
             return;
         }
+        // F015 老档补料: load() 期间 level 恒为 null (BlockEntity.loadStatic 先 load 再 setLevel), 4->5 槽迁移
+        // 时无法当场 popResource, 只能先记队列再等首个 tick 冲掉; 必须在 ownerUUID==null 早退之前处理, 否则无主台
+        // 永远不还料。
+        if (!pendingLegacyDrops.isEmpty()) {
+            for (ItemStack drop : pendingLegacyDrops) {
+                Block.popResource(level, worldPosition, drop);
+            }
+            pendingLegacyDrops.clear();
+            setChanged();
+        }
         if (ownerUUID == null) {
             nextWeldSoundTick = 0L;
             setMachineActive(false);
@@ -411,23 +458,28 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         MunitionsProduction.Result result = MunitionsProduction.settle(
                 selectedCaliber, level0, 1, elapsed, bufferRemaining,
                 primers, casings, bulletHeads, propellant);
-        boolean active = canAccumulateProduction();
+        // 复核 (major, F049 同源): active 必须与 settle 的判定同源 (含它的时间门), 不能只看料/缓冲/口径三道
+        // 静态门 —— 台主持续在线时 serverTick 每 tick 都追算一次, elapsed 恒为 1 tick, 单 tick 换算的理论发数
+        // 几乎恒不够一整批; 静态门此时恒真, 会把机器点成常亮/持续焊接音却一发都出不来。result.produced() 是
+        // settle 本次是否真出弹的唯一真源, 直接复用, 不再另算一套可能与它不一致的判据。
+        boolean active = result.produced();
         setMachineActive(active);
         playWeldSoundIfActive(now, active);
 
         if (!result.produced()) {
             lastSettleTick = now;
-            if (!canAccumulateProduction()) {
-                nextWeldSoundTick = 0L;
-            }
             setChanged();
             return;
         }
 
         // Charge before advancing lastSettleTick so a failed fee keeps the production window.
+        // 复核 (major, F049 同源): 扣费失败不撤销本 tick 已点亮的 active/音效状态, 也不重置 nextWeldSoundTick。
+        // 本 tick 的产出条件本就成立 (料/缓冲/时间三门都过了), 只是差信用点, 不是"没在产"; lastSettleTick 未推进
+        // 故下一 tick elapsed 继续累积、result.produced() 大概率仍为 true, 若这里强制拉黑再在下一 tick 重新点亮,
+        // 就是每 tick 一次熄灭再点亮 —— 音效节流被清零后每 tick 都重新达标, 造成 20 次/秒的音效轰炸 + 方块状态
+        // 每 tick 两次 (主+副半块) 的更新包风暴。保留当前 active/节流状态即可: setPartActive 本身按值变判据去重
+        // (已是 true 就不会重复发包), 音效则继续走 WELD_SOUND_MIN_INTERVAL 的正常节奏, 不因反复欠费而失效。
         if (!tryChargeWorkFee(owner, result.workFeeCredits())) {
-            nextWeldSoundTick = 0L;
-            setMachineActive(false);
             setChanged();
             return;
         }
@@ -447,6 +499,8 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         MunitionsLevels.grantRawXp(owner, result.rawXp());
 
         refreshOutputStack();
+        // 产出落账后的持续指示灯 (与逐 tick 的 result.produced() 不同源): 反映"还有没有下一批的余粮" ——
+        // 料/缓冲/口径三道静态门, 供玩家判断台子是否还需要补料, 对应 F049 原始诉求 ("出弹却熄火")。
         setMachineActive(canAccumulateProduction());
         setChanged();
     }
@@ -591,8 +645,20 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
                 && inventory.getStackInSlot(SLOT_PROPELLANT).getCount() >= MunitionsConfig.RECIPE_PROPELLANT_COST.get();
     }
 
+    /**
+     * 机器是否 "仍有余粮" (供 settleForOwner 产出落账后判定要不要继续点灯; 与逐 tick 的 active 不是同一件事)。
+     * 复核 (major, F049): 这是一道粗粒度静态门 (选中口径 + 攒够一批材料 + 缓冲还有空间), 刻意不含
+     * {@link MunitionsProduction#settle} 的时间门 —— 台主持续在线时 serverTick 每 tick 都追算一次, elapsed
+     * 恒为 1 tick, 时间门几乎永远不够一整批; 若拿这三道静态门驱动逐 tick 的 "在产" 显示, 会把机器点成常亮却
+     * 一发都出不来。故逐 tick 的 active 已改用 {@link MunitionsProduction.Result#produced()} (settle 本次是否
+     * 真出弹的唯一真源), 本方法只在产出落账之后调用一次, 表达 "这批产完了, 还要不要继续亮着等下一批"。
+     */
     private boolean canAccumulateProduction() {
-        return craftingActive && craftingCaliber != null;
+        if (craftingActive) {
+            return craftingCaliber != null;
+        }
+        return selectedCaliber != null && hasBatchMaterials()
+                && bufferCap() - bufferedRounds >= MunitionsProduction.roundsPerBatch(selectedCaliber, ownerLevelCache);
     }
 
     private int productionRequiredTicks() {
@@ -656,18 +722,50 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     // ---- TACZ 物化点 (唯一触 com.tacz.*; ModList 守卫; tick 不进) ----
 
     /**
+     * NBT 存盘安全上限 (F001): ItemStack.save 用 putByte("Count", (byte) count) 存 Count, 128 起符号回绕
+     * (480 存成 -32, 重载后该槽变空)。这与物品自报的 getMaxStackSize 是两条独立约束, 取更严的一条。
+     */
+    private static final int PERSISTENCE_SAFE_MAX_COUNT = 127;
+
+    /**
      * 把缓冲发数物化成可视的 TACZ 弹 ItemStack 放进输出展示槽 (主人在线访问帧调; ModList isLoaded 守卫)。
      * TACZ 未加载 (dev) 时 materialize 返回 EMPTY, 输出槽留空 (产能逻辑照常累积 bufferedRounds, 真造弹在正式服验)。
-     * 受 TACZ 弹药 stack_size 上限约束, 单槽只展示一栈 (取走后下次刷新再补; 缓冲发数是权威)。
+     * TACZ builder 不钳上限 (javap 核实), 上限只能由本方法自己保证: 按 min(bufferedRounds, 物品自报上限, NBT
+     * 存盘安全上限) 分栈, 单槽只展示一栈, 余量继续留在 bufferedRounds (权威), 由后续 refresh/取走后补。
      */
     private void refreshOutputStack() {
         if (bufferedCaliber == null || bufferedRounds <= 0) {
-            inventory.setStackInSlot(SLOT_OUTPUT, ItemStack.EMPTY);
+            setOutputStack(ItemStack.EMPTY);
             return;
         }
         ItemStack ammo = MunitionsAmmoFactory.materialize(bufferedCaliber, bufferedRounds);
-        // materialize 已按 count 建栈; 若超 TACZ stack_size, TACZ 内部钳到上限, 取走后下次刷新补余量。
-        inventory.setStackInSlot(SLOT_OUTPUT, ammo);
+        if (ammo.isEmpty()) {
+            setOutputStack(ItemStack.EMPTY);
+            return;
+        }
+        int itemMax = ammo.getMaxStackSize();
+        if (itemMax > PERSISTENCE_SAFE_MAX_COUNT) {
+            LOGGER.warn("[miningdim] munitions ammo {} reports getMaxStackSize()={} exceeding NBT-safe {} "
+                            + "(check the gun pack's ammo json stack_size); clamping output stack",
+                    ForgeRegistries.ITEMS.getKey(ammo.getItem()), itemMax, PERSISTENCE_SAFE_MAX_COUNT);
+            itemMax = PERSISTENCE_SAFE_MAX_COUNT;
+        }
+        int stackCount = Math.min(bufferedRounds, itemMax);
+        ammo.setCount(stackCount);
+        setOutputStack(ammo);
+    }
+
+    /**
+     * 唯一写 SLOT_OUTPUT 的入口 (F001): 落槽前断言不变量, 违反直接抛出而非静默钳制 —— 这是自家不变量,
+     * 一旦触发说明上游分栈逻辑本身出了错, 不能被这里的兜底掩盖。
+     */
+    private void setOutputStack(ItemStack stack) {
+        if (!stack.isEmpty() && stack.getCount() > stack.getMaxStackSize()) {
+            throw new IllegalStateException("munitions bench output stack exceeds max stack size at "
+                    + worldPosition + ": item=" + ForgeRegistries.ITEMS.getKey(stack.getItem())
+                    + " count=" + stack.getCount() + " max=" + stack.getMaxStackSize());
+        }
+        inventory.setStackInSlot(SLOT_OUTPUT, stack);
     }
 
     /**
@@ -701,6 +799,11 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
             this.ownerLevelCache = effectiveOwnerLevel(MunitionsLevels.munitionsLevel(player));
             this.refineUnlockedForOwnerCache = MunitionsLevels.isRefineUnlocked(ownerLevelCache);
             settleForOwner(player);
+            // F001 老档兜底: 缓冲打满时 settleForOwner 走 !result.produced() 早退, 不刷输出槽; load() 也不刷。
+            // 于是老档里被 byte 截断成空的输出槽永不重建, 玩家几千发弹卡死在 bufferedRounds 里取不出。
+            if (bufferedRounds > 0 && inventory.getStackInSlot(SLOT_OUTPUT).isEmpty()) {
+                refreshOutputStack();
+            }
         }
     }
 
@@ -749,6 +852,8 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     private static final String K_CRAFTING_CALIBER = "CraftingCaliber";
     private static final String K_CRAFTING_LEVEL = "CraftingOwnerLevel";
     private static final String K_CRAFTING_START = "CraftingStartTick";
+    private static final String K_PENDING_DROPS = "PendingLegacyDrops";
+    private static final String K_INV_SIZE = "Size";
 
     @Override
     protected void saveAdditional(CompoundTag tag) {
@@ -769,6 +874,15 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         tag.putInt(K_CRAFTING_CALIBER, craftingCaliber == null ? -1 : craftingCaliber.index());
         tag.putInt(K_CRAFTING_LEVEL, craftingOwnerLevel);
         tag.putLong(K_CRAFTING_START, craftingStartTick);
+        if (!pendingLegacyDrops.isEmpty()) {
+            ListTag drops = new ListTag();
+            for (ItemStack stack : pendingLegacyDrops) {
+                CompoundTag stackTag = new CompoundTag();
+                stack.save(stackTag);
+                drops.add(stackTag);
+            }
+            tag.put(K_PENDING_DROPS, drops);
+        }
     }
 
     @Override
@@ -776,11 +890,27 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         super.load(tag);
         ownerUUID = tag.hasUUID(K_OWNER) ? tag.getUUID(K_OWNER) : null;
         locked = tag.getBoolean(K_LOCKED);
+        pendingLegacyDrops.clear();
+        ListTag drops = tag.getList(K_PENDING_DROPS, Tag.TAG_COMPOUND);
+        for (int i = 0; i < drops.size(); i++) {
+            pendingLegacyDrops.add(ItemStack.of(drops.getCompound(i)));
+        }
         if (tag.contains(K_INV)) {
             CompoundTag invTag = tag.getCompound(K_INV);
-            int savedSlots = invTag.contains("Size") ? invTag.getInt("Size") : SLOT_COUNT;
-            inventory.deserializeNBT(invTag);
-            migrateInventoryShape(savedSlots);
+            // 没有 Size 的 Inv 复合标签不可能由 ItemStackHandler.serializeNBT 写出, 形状不明无法安全迁移。
+            // 复核 (blocker): 这里曾经 throw —— BlockEntity.loadStatic 对 load() 抛出的处理是把整个 BE 丢弃
+            // (catch Throwable 后 return null, forge-1.20.1-47.4.20 sources 核实), 不是"拒绝这条 Inv", 后果
+            // 是台主/缓冲/四格料全部清零, 比放过一段形状不明的 Inv 更糟。改为只丢弃这一段损坏的 Inv 数据
+            // (库存清空, owner/buffer/selectedCaliber 等其余字段照常还原), 记错误日志, 不让局部数据损坏级联成
+            // 整台消失。
+            if (!invTag.contains(K_INV_SIZE, Tag.TAG_INT)) {
+                LOGGER.error("[miningdim] munitions bench inventory tag is missing its serialized size at {}; "
+                        + "discarding the corrupted inventory only (owner/buffer state preserved)", worldPosition);
+            } else {
+                int savedSlots = invTag.getInt(K_INV_SIZE);
+                inventory.deserializeNBT(invTag);
+                migrateInventoryShape(savedSlots);
+            }
         }
         int sel = tag.contains(K_SELECTED) ? tag.getInt(K_SELECTED) : -1;
         selectedCaliber = sel < 0 ? null : MunitionsCaliber.byIndex(sel);
@@ -803,26 +933,108 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         }
     }
 
+    /**
+     * 库存形状迁移分派 (F015): 当前形状照旧处理, 旧 4 槽形状走专门迁移, 其余尺寸一律进待掉落队列 + 重置形状
+     * (复核 blocker: 曾经在这里 throw 来"拒绝而非静默抹平", 但 load() 里的抛出会被 BlockEntity.loadStatic 吞掉、
+     * 丢弃整台 BE, 比"抹平库存"更狠; 现在不静默销毁, 但也不再拿抛异常当拒绝手段)。
+     */
     private void migrateInventoryShape(int savedSlots) {
-        if (savedSlots == 4 && inventory.getSlots() == 4) {
-            ItemStack legacyPropellant = inventory.getStackInSlot(2).copy();
-            ItemStack legacyOutput = inventory.getStackInSlot(3).copy();
-            inventory.setSize(SLOT_COUNT);
-            for (int slot = 0; slot < SLOT_COUNT; slot++) {
-                inventory.setStackInSlot(slot, ItemStack.EMPTY);
-            }
-            if (legacyPropellant.is(ModMunitionsItems.PROPELLANT.get())) {
-                inventory.setStackInSlot(SLOT_PROPELLANT, legacyPropellant);
-            }
-            if (!legacyOutput.isEmpty()) {
-                inventory.setStackInSlot(SLOT_OUTPUT, legacyOutput);
-            }
+        if (savedSlots == SLOT_COUNT) {
+            clearInvalidInputSlots();
             return;
         }
-        if (inventory.getSlots() != SLOT_COUNT) {
-            inventory.setSize(SLOT_COUNT);
+        if (savedSlots == LEGACY_FOUR_SLOT_COUNT) {
+            migrateLegacyFourSlot();
+            return;
         }
-        clearInvalidInputSlots();
+        // 复核 (blocker, 与 K_INV_SIZE 缺失分支同一根因): 未知槽数曾经 throw, 而 load() 里的抛出会被
+        // BlockEntity.loadStatic 吞掉、丢弃整台 BE (owner/缓冲/四格料全没), 比"抹平库存"更狠。inventory 此时已被
+        // ItemStackHandler.deserializeNBT 按 savedSlots resize 并填好内容, 原样进待掉落队列 (不静默销毁), 再把
+        // 库存重置到当前 5 槽形状, 只记错误日志。
+        LOGGER.error("[miningdim] munitions bench inventory has unsupported size {} at {} (expected {} or legacy "
+                        + "{}); queuing its contents for drop and resetting the inventory shape",
+                savedSlots, worldPosition, SLOT_COUNT, LEGACY_FOUR_SLOT_COUNT);
+        for (int slot = 0; slot < inventory.getSlots(); slot++) {
+            ItemStack stack = inventory.getStackInSlot(slot).copy();
+            if (!stack.isEmpty()) {
+                pendingLegacyDrops.add(stack);
+            }
+        }
+        inventory.setSize(SLOT_COUNT);
+        for (int slot = 0; slot < SLOT_COUNT; slot++) {
+            inventory.setStackInSlot(slot, ItemStack.EMPTY);
+        }
+    }
+
+    /**
+     * 旧 4 槽布局迁移 (F015): legacy 2/3 语义已知 (发射药/输出), 原样回填; legacy 0/1 在旧布局里无对应料槽,
+     * 类型未知, 与非发射药的 legacy 2 一起进待掉落队列 (由 serverTick 首帧 popResource 吐出), 不再静默销毁。
+     * 调用时 inventory 已被 ItemStackHandler.deserializeNBT 按存档 Size 自行 resize 到 4 槽 (load() 里
+     * inventory.deserializeNBT(invTag) 已执行), 故直接从 inventory 读取即可, 无需另建临时 handler。
+     */
+    private void migrateLegacyFourSlot() {
+        ItemStack legacySlot0 = inventory.getStackInSlot(0).copy();
+        ItemStack legacySlot1 = inventory.getStackInSlot(1).copy();
+        ItemStack legacyPropellant = inventory.getStackInSlot(2).copy();
+        ItemStack legacyOutput = inventory.getStackInSlot(3).copy();
+
+        inventory.setSize(SLOT_COUNT);
+        for (int slot = 0; slot < SLOT_COUNT; slot++) {
+            inventory.setStackInSlot(slot, ItemStack.EMPTY);
+        }
+
+        int queuedDrops = 0;
+        if (!legacySlot0.isEmpty()) {
+            pendingLegacyDrops.add(legacySlot0);
+            queuedDrops++;
+        }
+        if (!legacySlot1.isEmpty()) {
+            pendingLegacyDrops.add(legacySlot1);
+            queuedDrops++;
+        }
+        boolean restoredPropellant = legacyPropellant.is(ModMunitionsItems.PROPELLANT.get());
+        if (restoredPropellant) {
+            inventory.setStackInSlot(SLOT_PROPELLANT, legacyPropellant);
+        } else if (!legacyPropellant.isEmpty()) {
+            pendingLegacyDrops.add(legacyPropellant);
+            queuedDrops++;
+        }
+        if (!legacyOutput.isEmpty()) {
+            queuedDrops += settleLegacyOutputStack(legacyOutput);
+        }
+
+        LOGGER.info("[miningdim] munitions bench migrated legacy 4-slot inventory at {}: propellant restored={}, "
+                + "{} stack(s) queued for drop", worldPosition, restoredPropellant, queuedDrops);
+    }
+
+    /**
+     * 旧档输出槽落新槽前钳上限 (复核 blocker, 与 F015 同一条链): 若把 legacyOutput 原样喂给 setOutputStack,
+     * 其不变量断言在 count 超过物品自报上限时会抛出, 而 load() 路径里的抛出会被 BlockEntity.loadStatic 吞掉、
+     * 丢弃整台 BE —— F001 修复前的旧档输出槽正是不受 TACZ 钳制的弹栈, count 很容易超过枪包 json 里的
+     * stack_size (12g=36/308=48)。按 min(count, 物品自报上限, NBT 存盘安全上限) 落一栈进输出槽, 超出部分按
+     * 同一上限分块进待掉落队列 (不静默销毁), 这条迁移路径不再有机会把不变量断言抛到 load() 里。
+     *
+     * @return 因超栈被排入待掉落队列的份数 (供调用方汇总日志)
+     */
+    private int settleLegacyOutputStack(ItemStack legacyOutput) {
+        int cap = Math.min(legacyOutput.getMaxStackSize(), PERSISTENCE_SAFE_MAX_COUNT);
+        int settled = Math.min(legacyOutput.getCount(), cap);
+        if (settled > 0) {
+            ItemStack head = legacyOutput.copy();
+            head.setCount(settled);
+            setOutputStack(head);
+        }
+        int overflow = legacyOutput.getCount() - settled;
+        int queued = 0;
+        while (overflow > 0) {
+            int chunk = Math.min(overflow, cap);
+            ItemStack drop = legacyOutput.copy();
+            drop.setCount(chunk);
+            pendingLegacyDrops.add(drop);
+            overflow -= chunk;
+            queued++;
+        }
+        return queued;
     }
 
     private void clearInvalidInputSlots() {

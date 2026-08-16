@@ -107,6 +107,15 @@ public final class MunitionsWebUiActions {
             (double) PUBLIC_STATION_RADIUS_BLOCKS * PUBLIC_STATION_RADIUS_BLOCKS;
 
     /**
+     * 无归属机台参与判定的区块环上限 (F053 扫描收敛用)。
+     *
+     * 推导: 区块偏移 {@code |d| >= 2} 的任意方块与玩家的最小距离 &gt;= {@code (|d|-1)*16 + 1 = 17} 格,
+     * 大于 {@link #PUBLIC_STATION_RADIUS_BLOCKS}=16, 故这两台机器不可能出现在 {@code |d| >= 2} 的区块环里 ——
+     * 只扫 r &lt;= 1 (以玩家所在区块为心的 3x3 区块) 与扫全部 81 个区块相比, 判定结果逐字相同。
+     */
+    private static final int PUBLIC_STATION_CHUNK_RADIUS = 1;
+
+    /**
      * 军火台进度的 tick 还原系数。
      *
      * 军火台的 ContainerData 把进度<b>按秒</b>过线 (vanilla 的 ClientboundContainerSetDataPacket 的 value 是
@@ -381,35 +390,60 @@ public final class MunitionsWebUiActions {
         private double pressDistSqr = Double.MAX_VALUE;
         private double assemblyDistSqr = Double.MAX_VALUE;
 
+        /**
+         * 按环 (Chebyshev 距离) 由内向外扫, 而不是无条件扫满 {@value #SEARCH_CHUNK_RADIUS} 半径的正方形区块盒。
+         * 与今天逐字相同的判定结果由两点保证:
+         *  - 无归属机台只在 r &lt;= {@link #PUBLIC_STATION_CHUNK_RADIUS} 的环参与判定 (推导见该常量注释), 更外层
+         *    的环本就不可能让它们命中距离截断, 跳过对应的两段 instanceof 判定不改变最终选出的那一台;
+         *  - 军火台在每环扫完后做提前收敛: 若本环结束时已有命中且其距离 &lt;= r*16, 未访问的环 r+1 上任意方块
+         *    与玩家的最小距离 &gt;= r*16 (环 r+1 的区块与玩家所在区块的 Chebyshev 距离为 r+1, 故其最近的方块
+         *    到玩家所在区块边缘至少还有 r*16 格), 不可能比已找到的更近, 故可安全提前退出。
+         *    常见情形 (玩家就站在自家台旁) 会在 r=1 收敛, 81 个区块降到 9 个; 附近确实没台的最坏情形下,
+         *    扫描范围与今天完全一致。
+         */
         static NearbyStations around(ServerPlayer sender) {
             NearbyStations found = new NearbyStations();
             ServerLevel level = sender.serverLevel();
             BlockPos origin = sender.blockPosition();
             ChunkPos center = new ChunkPos(origin);
-            for (int dx = -SEARCH_CHUNK_RADIUS; dx <= SEARCH_CHUNK_RADIUS; dx++) {
-                for (int dz = -SEARCH_CHUNK_RADIUS; dz <= SEARCH_CHUNK_RADIUS; dz++) {
-                    LevelChunk chunk = level.getChunkSource().getChunkNow(center.x + dx, center.z + dz);
-                    if (chunk == null) {
-                        continue; // 未加载: 跳过而不是 getChunk 强载 (面板刷新不许变成区块加载器)。
+            for (int r = 0; r <= SEARCH_CHUNK_RADIUS; r++) {
+                boolean publicStationRing = r <= PUBLIC_STATION_CHUNK_RADIUS;
+                for (int dx = -r; dx <= r; dx++) {
+                    for (int dz = -r; dz <= r; dz++) {
+                        if (Math.max(Math.abs(dx), Math.abs(dz)) != r) {
+                            continue; // 内圈已在更早的 r 扫过, 只取本环的边界偏移。
+                        }
+                        LevelChunk chunk = level.getChunkSource().getChunkNow(center.x + dx, center.z + dz);
+                        if (chunk == null) {
+                            continue; // 未加载: 跳过而不是 getChunk 强载 (面板刷新不许变成区块加载器)。
+                        }
+                        for (BlockEntity blockEntity : chunk.getBlockEntities().values()) {
+                            found.offer(sender, origin, blockEntity, publicStationRing);
+                        }
                     }
-                    for (BlockEntity blockEntity : chunk.getBlockEntities().values()) {
-                        found.offer(sender, origin, blockEntity);
-                    }
+                }
+                double convergedRadius = (double) r * 16;
+                if (found.bench != null && found.benchDistSqr <= convergedRadius * convergedRadius) {
+                    break;
                 }
             }
             return found;
         }
 
-        private void offer(ServerPlayer sender, BlockPos origin, BlockEntity blockEntity) {
+        private void offer(ServerPlayer sender, BlockPos origin, BlockEntity blockEntity,
+                            boolean publicStationRing) {
             double distSqr = blockEntity.getBlockPos().distSqr(origin);
             if (blockEntity instanceof MunitionsBenchBlockEntity candidate) {
                 // 军火台唯一有归属字段的一台: 只认自己的, 别人的产线不进你的面板。
-                // 距离另需真截断: 区块盒是 9x9 区块 (单轴最远 79 格、对角约 112 格), 不截断则回执里
+                // 距离另需真截断: 区块盒最远可达 SEARCH_CHUNK_RADIUS 环, 不截断则回执里
                 // 那个 searchRadiusBlocks=64 是句谎话, 前端照它画距离刻度会把台位画到圈外。
                 if (candidate.isOwner(sender) && distSqr <= SEARCH_RADIUS_SQR && distSqr < benchDistSqr) {
                     bench = candidate;
                     benchDistSqr = distSqr;
                 }
+            } else if (!publicStationRing) {
+                // r > PUBLIC_STATION_CHUNK_RADIUS: 无归属机台在这个环里不可能命中距离截断 (推导见该常量注释),
+                // 省去两段 instanceof。
             } else if (blockEntity instanceof GunsmithPressBlockEntity candidate) {
                 if (distSqr <= PUBLIC_STATION_RADIUS_SQR && distSqr < pressDistSqr) {
                     press = candidate;

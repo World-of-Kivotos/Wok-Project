@@ -83,6 +83,20 @@ public final class MunitionsConfig {
      */
     public static final ForgeConfigSpec.DoubleValue GUNSMITH_HEADSHOT_DAMAGE_CAP;
 
+    // ---- 3A 章: 枪匠品质等级门 + 装配等级门 + 经济 sink (F048 补齐, 数值随 6.1 口径解锁曲线初定, 待主控事后调) ----
+    /** 各品质档的军火商解锁等级 (对齐 6.1 口径解锁曲线: 手枪 L1 ... 特种弹 L10 毕业; 传奇零件与特种弹同为 L10 毕业档)。 */
+    public static final ForgeConfigSpec.IntValue QUALITY_UNLOCK_COMMON;
+    public static final ForgeConfigSpec.IntValue QUALITY_UNLOCK_IMPROVED;
+    public static final ForgeConfigSpec.IntValue QUALITY_UNLOCK_MILSPEC;
+    public static final ForgeConfigSpec.IntValue QUALITY_UNLOCK_PRECISION;
+    public static final ForgeConfigSpec.IntValue QUALITY_UNLOCK_LEGENDARY;
+    /** 单次冲压的信用点工费基数; 实扣 = 基数 x GunsmithPartQuality.materialMultiplier() (1/2/4/7/10), 与弹药链工费同为销毁型 sink。 */
+    public static final ForgeConfigSpec.IntValue PRESS_WORK_FEE_CREDITS;
+    /** 解锁枪械装配的军火商等级。 */
+    public static final ForgeConfigSpec.IntValue ASSEMBLY_UNLOCK_LEVEL;
+    /** 单次装配的信用点工费 (销毁型 sink, 与冲压工费独立结算)。 */
+    public static final ForgeConfigSpec.IntValue ASSEMBLY_WORK_FEE_CREDITS;
+
     // ---- 九章: 工费 sink (1.5 CP/发, ×10 锚价整数化为 15/10 发) ----
     /** 每 10 发产弹扣的信用点工费 (整数化锚价; 实发 1.5/发 = 15/10 发, 销毁 = sink)。 */
     public static final ForgeConfigSpec.IntValue WORK_FEE_PER_TEN_ROUNDS;
@@ -192,7 +206,7 @@ public final class MunitionsConfig {
         RECIPE_PROPELLANT_COST = b.comment("Propellant consumed per production batch (1 propellant = 8 gunpowder)")
                 .defineInRange("propellantCost", 2, 1, 64);
         GUNSMITH_ENABLED = b.comment("Enable the gunsmith press subsystem (WIP chapter 3A; keep false until"
-                        + " material items, survival chain, gating and damage coefficients pass review)")
+                        + " material items, survival chain, gating, damage coefficients and economy sink pass review)")
                 .define("gunsmithEnabled", false);
         GUNSMITH_HEADSHOT_DAMAGE_CAP = b.comment("Cap on the compounded headshot-equivalent damage multiplier"
                         + " (damage coeff x headshot coeff). WIP conservative default pending live tuning against"
@@ -210,6 +224,23 @@ public final class MunitionsConfig {
         b.comment("9. work-fee sink: 1.5 CP destroyed per round (×10 anchor integerized = 15 per 10 rounds). 弹药链唯一信用点 sink.");
         WORK_FEE_PER_TEN_ROUNDS = b.comment("Credits charged (destroyed) per 10 rounds produced; 1.5/round = 15/10 rounds")
                 .defineInRange("perTenRounds", 15, 0, 100000);
+        b.pop();
+
+        b.push("gunsmith");
+        b.comment("3A. gunsmith quality unlock levels + assembly unlock level + work-fee sinks (F048). Aligned to the"
+                + " 6.1 caliber unlock curve (pistol L1 ... special-round L10 graduation); legendary parts share the"
+                + " L10 graduation tier with special rounds.");
+        QUALITY_UNLOCK_COMMON = b.defineInRange("qualityUnlockCommon", 1, 1, 10);
+        QUALITY_UNLOCK_IMPROVED = b.defineInRange("qualityUnlockImproved", 4, 1, 10);
+        QUALITY_UNLOCK_MILSPEC = b.defineInRange("qualityUnlockMilspec", 6, 1, 10);
+        QUALITY_UNLOCK_PRECISION = b.defineInRange("qualityUnlockPrecision", 8, 1, 10);
+        QUALITY_UNLOCK_LEGENDARY = b.defineInRange("qualityUnlockLegendary", 10, 1, 10);
+        PRESS_WORK_FEE_CREDITS = b.comment("Base credits charged (destroyed) per press run; actual charge ="
+                        + " base x GunsmithPartQuality.materialMultiplier() (1/2/4/7/10). Sink mirrors the"
+                        + " ammunition chain's per-round work fee.")
+                .defineInRange("pressWorkFeeCredits", 200, 0, 1000000);
+        ASSEMBLY_UNLOCK_LEVEL = b.defineInRange("assemblyUnlockLevel", 5, 1, 10);
+        ASSEMBLY_WORK_FEE_CREDITS = b.defineInRange("assemblyWorkFeeCredits", 5000, 0, 100000000);
         b.pop();
 
         b.push("timing");

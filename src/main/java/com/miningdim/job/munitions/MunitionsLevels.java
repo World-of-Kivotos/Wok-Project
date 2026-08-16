@@ -2,6 +2,7 @@ package com.miningdim.job.munitions;
 
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
 import net.minecraft.world.entity.player.Player;
 
 /**
@@ -115,5 +116,26 @@ public final class MunitionsLevels {
     /** 该等级是否解锁发射药提炼 (四章 L6 利润质变线; 经 config REFINE_UNLOCK_LEVEL)。 */
     public static boolean isRefineUnlocked(int level) {
         return level >= MunitionsConfig.REFINE_UNLOCK_LEVEL.get();
+    }
+
+    /** 某枪匠零件品质档解锁所需的军火商等级 (3A 章, F048; 经 MunitionsConfig 各品质档独立配置)。 */
+    public static int partQualityUnlockLevel(GunsmithPartQuality quality) {
+        return switch (quality) {
+            case COMMON -> MunitionsConfig.QUALITY_UNLOCK_COMMON.get();
+            case IMPROVED -> MunitionsConfig.QUALITY_UNLOCK_IMPROVED.get();
+            case MILSPEC -> MunitionsConfig.QUALITY_UNLOCK_MILSPEC.get();
+            case PRECISION -> MunitionsConfig.QUALITY_UNLOCK_PRECISION.get();
+            case LEGENDARY -> MunitionsConfig.QUALITY_UNLOCK_LEGENDARY.get();
+        };
+    }
+
+    /** 该等级是否已解锁某枪匠零件品质档 (3A 章, F048)。 */
+    public static boolean isPartQualityUnlocked(int level, GunsmithPartQuality quality) {
+        return level >= partQualityUnlockLevel(quality);
+    }
+
+    /** 该等级是否已解锁枪械装配 (3A 章, F048; 经 config ASSEMBLY_UNLOCK_LEVEL)。 */
+    public static boolean isAssemblyUnlocked(int level) {
+        return level >= MunitionsConfig.ASSEMBLY_UNLOCK_LEVEL.get();
     }
 }

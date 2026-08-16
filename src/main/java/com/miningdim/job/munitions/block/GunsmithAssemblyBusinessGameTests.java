@@ -1,6 +1,18 @@
 package com.miningdim.job.munitions.block;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.economy.AbuseGuard;
+import com.miningdim.economy.Currency;
+import com.miningdim.economy.EconomyLedger;
+import com.miningdim.economy.EconomyService;
+import com.miningdim.economy.EconomyServices;
+import com.miningdim.economy.IEconomyService;
+import com.miningdim.economy.PlayerAbuseState;
+import com.miningdim.economy.SqliteEconomyLedger;
+import com.miningdim.job.IJobService;
+import com.miningdim.job.JobId;
+import com.miningdim.job.JobProgress;
+import com.miningdim.job.JobServices;
 import com.miningdim.job.munitions.ModMunitionsBlocks;
 import com.miningdim.job.munitions.ModMunitionsItems;
 import com.miningdim.job.munitions.MunitionsAmmoFactory;
@@ -30,8 +42,10 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -39,7 +53,11 @@ import net.minecraftforge.items.ItemStackHandler;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
 
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -69,48 +87,57 @@ public final class GunsmithAssemblyBusinessGameTests {
 
         try {
             MunitionsConfig.GUNSMITH_ENABLED.set(true);
-            helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
-                    "complete recipe must start assembly");
-            helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT)
-                            .is(ModMunitionsItems.GUNSMITH_BLUEPRINT.get()),
-                    "assembly blueprint must remain in its slot");
-            for (GunsmithPressPart part : GunsmithPressPart.values()) {
-                helper.assertTrue(be.inventory().getStackInSlot(
-                                GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
-                        part + " must be consumed when assembly starts");
-            }
-            helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
-                    "output must remain empty while the arms are moving");
-            assertStructureActive(helper, facing, true);
+            IJobService prevJob = swapJob(new FixedLevelJobService(10));
+            EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+            IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+            try {
+                ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
+                helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
+                        "complete recipe must start assembly");
+                helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT)
+                                .is(ModMunitionsItems.GUNSMITH_BLUEPRINT.get()),
+                        "assembly blueprint must remain in its slot");
+                for (GunsmithPressPart part : GunsmithPressPart.values()) {
+                    helper.assertTrue(be.inventory().getStackInSlot(
+                                    GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
+                            part + " must be consumed when assembly starts");
+                }
+                helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
+                        "output must remain empty while the arms are moving");
+                assertStructureActive(helper, facing, true);
 
-            helper.runAfterDelay(8, () -> {
-                assertStructureActive(helper, facing, false);
-                ItemStack output = be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT);
-                helper.assertTrue(output.is(Items.IRON_HOE), "animation completion must deliver the stamped base item");
-                GunsmithGunStats stats = GunsmithGunStats.from(output);
-                helper.assertTrue(stats != null, "finished gun must carry gunsmith NBT");
-                assertClose(helper, stats.damage(), 1.20D, "damage coefficient");
-                assertClose(helper, stats.headshot(), 1.10D, "headshot coefficient");
-                assertClose(helper, stats.range(), 1.04D, "range coefficient");
-                assertClose(helper, stats.recoil(), 1.08D, "recoil coefficient");
-                assertClose(helper, stats.fireRateMultiplier(), 1.0D,
-                        "basic components must not change fire rate");
-                assertClose(helper, stats.verticalRecoilMultiplier(), 1.0D / 1.08D,
-                        "basic stock must control vertical recoil");
-                assertClose(helper, stats.horizontalRecoilMultiplier(), 1.0D / 1.08D,
-                        "basic stock must control horizontal recoil equally");
-                assertClose(helper, stats.spread(), 1.30D, "spread coefficient");
-                assertClose(helper, stats.handling(), 1.40D, "handling coefficient");
-                assertClose(helper, stats.average(), 7.12D / 6.0D, "average coefficient");
-                helper.assertTrue(stats.gunId().equals(GunsmithBlueprint.M4A1.gunId()),
-                        "M4 blueprint must stamp the original TaCZ M4A1 id");
-                assertClose(helper, stats.effectiveDamage(M4_BASE_STATS), 7.80D, "effective damage");
-                assertClose(helper, stats.effectiveHeadshot(M4_BASE_STATS), 1.65D, "effective headshot");
-                assertClose(helper, stats.effectiveRange(M4_BASE_STATS), 49.92D, "effective range");
-                assertClose(helper, stats.effectiveAdsTime(M4_BASE_STATS),
-                        0.16D / 1.40D, "effective ADS time");
-                helper.succeed();
-            });
+                helper.runAfterDelay(8, () -> {
+                    assertStructureActive(helper, facing, false);
+                    ItemStack output = be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT);
+                    helper.assertTrue(output.is(Items.IRON_HOE), "animation completion must deliver the stamped base item");
+                    GunsmithGunStats stats = GunsmithGunStats.from(output);
+                    helper.assertTrue(stats != null, "finished gun must carry gunsmith NBT");
+                    assertClose(helper, stats.damage(), 1.20D, "damage coefficient");
+                    assertClose(helper, stats.headshot(), 1.10D, "headshot coefficient");
+                    assertClose(helper, stats.range(), 1.04D, "range coefficient");
+                    assertClose(helper, stats.recoil(), 1.08D, "recoil coefficient");
+                    assertClose(helper, stats.fireRateMultiplier(), 1.0D,
+                            "basic components must not change fire rate");
+                    assertClose(helper, stats.verticalRecoilMultiplier(), 1.0D / 1.08D,
+                            "basic stock must control vertical recoil");
+                    assertClose(helper, stats.horizontalRecoilMultiplier(), 1.0D / 1.08D,
+                            "basic stock must control horizontal recoil equally");
+                    assertClose(helper, stats.spread(), 1.30D, "spread coefficient");
+                    assertClose(helper, stats.handling(), 1.40D, "handling coefficient");
+                    assertClose(helper, stats.average(), 7.12D / 6.0D, "average coefficient");
+                    helper.assertTrue(stats.gunId().equals(GunsmithBlueprint.M4A1.gunId()),
+                            "M4 blueprint must stamp the original TaCZ M4A1 id");
+                    assertClose(helper, stats.effectiveDamage(M4_BASE_STATS), 7.80D, "effective damage");
+                    assertClose(helper, stats.effectiveHeadshot(M4_BASE_STATS), 1.65D, "effective headshot");
+                    assertClose(helper, stats.effectiveRange(M4_BASE_STATS), 49.92D, "effective range");
+                    assertClose(helper, stats.effectiveAdsTime(M4_BASE_STATS),
+                            0.16D / 1.40D, "effective ADS time");
+                    helper.succeed();
+                });
+            } finally {
+                restoreJob(prevJob);
+                restoreEconomy(prevEco);
+            }
         } finally {
             MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
         }
@@ -126,27 +153,36 @@ public final class GunsmithAssemblyBusinessGameTests {
 
         try {
             MunitionsConfig.GUNSMITH_ENABLED.set(true);
-            helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
-                    "complete recipe must start assembly");
+            IJobService prevJob = swapJob(new FixedLevelJobService(10));
+            EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+            IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+            try {
+                ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
+                helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
+                        "complete recipe must start assembly");
 
-            // 动画进行中存盘再读回 (模拟区块卸载/服务器重启): pendingResult + animationEndTick 必须往返无损。(审查 TQ-3)
-            CompoundTag saved = be.saveWithoutMetadata();
-            helper.assertTrue(saved.contains("PendingResult", Tag.TAG_COMPOUND),
-                    "in-progress assembly must persist its pending result");
-            be.load(saved);
-            helper.assertTrue(be.isAnimating(), "reloaded assembly must still be animating");
-            helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
-                    "reloaded assembly must not deliver before the animation ends");
+                // 动画进行中存盘再读回 (模拟区块卸载/服务器重启): pendingResult + animationEndTick 必须往返无损。(审查 TQ-3)
+                CompoundTag saved = be.saveWithoutMetadata();
+                helper.assertTrue(saved.contains("PendingResult", Tag.TAG_COMPOUND),
+                        "in-progress assembly must persist its pending result");
+                be.load(saved);
+                helper.assertTrue(be.isAnimating(), "reloaded assembly must still be animating");
+                helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
+                        "reloaded assembly must not deliver before the animation ends");
 
-            helper.runAfterDelay(8, () -> {
-                ItemStack output = be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT);
-                helper.assertTrue(output.is(Items.IRON_HOE),
-                        "assembly must still deliver the stamped gun after a save/load round trip");
-                GunsmithGunStats stats = GunsmithGunStats.from(output);
-                helper.assertTrue(stats != null, "delivered gun must carry gunsmith NBT after reload");
-                assertClose(helper, stats.damage(), 1.20D, "round-tripped damage coefficient");
-                helper.succeed();
-            });
+                helper.runAfterDelay(8, () -> {
+                    ItemStack output = be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT);
+                    helper.assertTrue(output.is(Items.IRON_HOE),
+                            "assembly must still deliver the stamped gun after a save/load round trip");
+                    GunsmithGunStats stats = GunsmithGunStats.from(output);
+                    helper.assertTrue(stats != null, "delivered gun must carry gunsmith NBT after reload");
+                    assertClose(helper, stats.damage(), 1.20D, "round-tripped damage coefficient");
+                    helper.succeed();
+                });
+            } finally {
+                restoreJob(prevJob);
+                restoreEconomy(prevEco);
+            }
         } finally {
             MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
         }
@@ -164,15 +200,20 @@ public final class GunsmithAssemblyBusinessGameTests {
 
         try {
             MunitionsConfig.GUNSMITH_ENABLED.set(true);
-            helper.assertFalse(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
-                    "missing grip must reject assembly");
-            helper.assertFalse(be.isAnimating(), "rejected assembly must not animate");
-            helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
-                    "rejected assembly must not create output");
-            for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
-                ItemStack stack = be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(part));
-                helper.assertTrue(part == GunsmithPressPart.GRIP ? stack.isEmpty() : !stack.isEmpty(),
-                        "rejected assembly must preserve the exact input state for " + part);
+            IJobService prevJob = swapJob(new FixedLevelJobService(10));
+            try {
+                helper.assertFalse(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
+                        "missing grip must reject assembly");
+                helper.assertFalse(be.isAnimating(), "rejected assembly must not animate");
+                helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
+                        "rejected assembly must not create output");
+                for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
+                    ItemStack stack = be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(part));
+                    helper.assertTrue(part == GunsmithPressPart.GRIP ? stack.isEmpty() : !stack.isEmpty(),
+                            "rejected assembly must preserve the exact input state for " + part);
+                }
+            } finally {
+                restoreJob(prevJob);
             }
         } finally {
             MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
@@ -382,30 +423,39 @@ public final class GunsmithAssemblyBusinessGameTests {
 
         try {
             MunitionsConfig.GUNSMITH_ENABLED.set(true);
-            helper.assertFalse(be.tryStartAssembly(player, new ItemStack(Items.DIAMOND_HOE), 4),
-                    "AK blueprint must reject a complete AR part set");
-            for (GunsmithPressPart part : GunsmithBlueprint.AK47.requiredParts()) {
-                helper.assertTrue(!be.inventory().getStackInSlot(
-                                GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
-                        "rejected AK assembly must preserve " + part);
-            }
+            IJobService prevJob = swapJob(new FixedLevelJobService(10));
+            EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+            IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+            try {
+                ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
+                helper.assertFalse(be.tryStartAssembly(player, new ItemStack(Items.DIAMOND_HOE), 4),
+                        "AK blueprint must reject a complete AR part set");
+                for (GunsmithPressPart part : GunsmithBlueprint.AK47.requiredParts()) {
+                    helper.assertTrue(!be.inventory().getStackInSlot(
+                                    GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
+                            "rejected AK assembly must preserve " + part);
+                }
 
-            fillParts(be, GunsmithPlatform.AK);
-            helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.DIAMOND_HOE), 4),
-                    "AK blueprint must accept a complete AK part set");
-            helper.runAfterDelay(6, () -> {
-                ItemStack output = be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT);
-                helper.assertTrue(output.is(Items.DIAMOND_HOE), "AK assembly must deliver the supplied base item");
-                GunsmithGunStats stats = GunsmithGunStats.from(output);
-                helper.assertTrue(stats != null, "AK output must carry gunsmith NBT");
-                helper.assertTrue(stats.gunId().equals(GunsmithBlueprint.AK47.gunId()),
-                        "AK blueprint must stamp tacz:ak47");
-                helper.assertTrue(stats.platform().equals(GunsmithPlatform.AK.id()),
-                        "AK blueprint must stamp the AK platform");
-                helper.assertTrue(stats.template().equals(GunsmithBlueprint.AK47.templateId()),
-                        "AK blueprint must stamp the AK47 template id");
-                helper.succeed();
-            });
+                fillParts(be, GunsmithPlatform.AK);
+                helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.DIAMOND_HOE), 4),
+                        "AK blueprint must accept a complete AK part set");
+                helper.runAfterDelay(6, () -> {
+                    ItemStack output = be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT);
+                    helper.assertTrue(output.is(Items.DIAMOND_HOE), "AK assembly must deliver the supplied base item");
+                    GunsmithGunStats stats = GunsmithGunStats.from(output);
+                    helper.assertTrue(stats != null, "AK output must carry gunsmith NBT");
+                    helper.assertTrue(stats.gunId().equals(GunsmithBlueprint.AK47.gunId()),
+                            "AK blueprint must stamp tacz:ak47");
+                    helper.assertTrue(stats.platform().equals(GunsmithPlatform.AK.id()),
+                            "AK blueprint must stamp the AK platform");
+                    helper.assertTrue(stats.template().equals(GunsmithBlueprint.AK47.templateId()),
+                            "AK blueprint must stamp the AK47 template id");
+                    helper.succeed();
+                });
+            } finally {
+                restoreJob(prevJob);
+                restoreEconomy(prevEco);
+            }
         } finally {
             MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
         }
@@ -421,40 +471,49 @@ public final class GunsmithAssemblyBusinessGameTests {
 
         try {
             MunitionsConfig.GUNSMITH_ENABLED.set(true);
-            for (GunsmithPressPart part : GunsmithPressPart.values()) {
-                helper.assertTrue(be.isPartSlotVisible(part) == GunsmithBlueprint.M1911.requiredParts().contains(part),
-                        "M1911 must expose exactly its five required slots: " + part);
+            IJobService prevJob = swapJob(new FixedLevelJobService(10));
+            EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+            IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+            try {
+                ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
+                for (GunsmithPressPart part : GunsmithPressPart.values()) {
+                    helper.assertTrue(be.isPartSlotVisible(part) == GunsmithBlueprint.M1911.requiredParts().contains(part),
+                            "M1911 must expose exactly its five required slots: " + part);
+                }
+                helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.GOLDEN_HOE), 4),
+                        "complete M1911 recipe must start assembly");
+                for (GunsmithPressPart part : GunsmithBlueprint.M1911.requiredParts()) {
+                    helper.assertTrue(be.inventory().getStackInSlot(
+                                    GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
+                            part + " must be consumed by M1911 assembly");
+                }
+                helper.runAfterDelay(6, () -> {
+                    ItemStack output = be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT);
+                    helper.assertTrue(output.is(Items.GOLDEN_HOE), "M1911 assembly must deliver the supplied base item");
+                    GunsmithGunStats stats = GunsmithGunStats.from(output);
+                    helper.assertTrue(stats != null, "M1911 output must carry gunsmith NBT");
+                    helper.assertTrue(stats.gunId().equals(GunsmithBlueprint.M1911.gunId()),
+                            "M1911 blueprint must stamp tacz:m1911");
+                    helper.assertTrue(stats.parts().size() == 5, "M1911 must record exactly five installed parts");
+                    assertClose(helper, stats.damage(), 1.20D, "M1911 hammer damage coefficient");
+                    assertClose(helper, stats.headshot(), 1.10D, "M1911 barrel headshot coefficient");
+                    assertClose(helper, stats.range(), 1.0D, "M1911 range must remain unchanged");
+                    assertClose(helper, stats.recoil(), 1.08D, "M1911 slide recoil coefficient");
+                    assertClose(helper, stats.spread(), 1.30D, "M1911 trigger spread coefficient");
+                    assertClose(helper, stats.handling(), 1.40D, "M1911 grip handling coefficient");
+                    assertClose(helper, stats.average(), 6.08D / 5.0D, "M1911 five-part average");
+                    assertClose(helper, stats.effectiveDamage(M1911_BASE_STATS), 13.20D,
+                            "M1911 effective damage");
+                    assertClose(helper, stats.effectiveRange(M1911_BASE_STATS), 19.0D,
+                            "M1911 effective range");
+                    assertClose(helper, stats.effectiveAdsTime(M1911_BASE_STATS), 0.08D / 1.40D,
+                            "M1911 effective ADS time");
+                    helper.succeed();
+                });
+            } finally {
+                restoreJob(prevJob);
+                restoreEconomy(prevEco);
             }
-            helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.GOLDEN_HOE), 4),
-                    "complete M1911 recipe must start assembly");
-            for (GunsmithPressPart part : GunsmithBlueprint.M1911.requiredParts()) {
-                helper.assertTrue(be.inventory().getStackInSlot(
-                                GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
-                        part + " must be consumed by M1911 assembly");
-            }
-            helper.runAfterDelay(6, () -> {
-                ItemStack output = be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT);
-                helper.assertTrue(output.is(Items.GOLDEN_HOE), "M1911 assembly must deliver the supplied base item");
-                GunsmithGunStats stats = GunsmithGunStats.from(output);
-                helper.assertTrue(stats != null, "M1911 output must carry gunsmith NBT");
-                helper.assertTrue(stats.gunId().equals(GunsmithBlueprint.M1911.gunId()),
-                        "M1911 blueprint must stamp tacz:m1911");
-                helper.assertTrue(stats.parts().size() == 5, "M1911 must record exactly five installed parts");
-                assertClose(helper, stats.damage(), 1.20D, "M1911 hammer damage coefficient");
-                assertClose(helper, stats.headshot(), 1.10D, "M1911 barrel headshot coefficient");
-                assertClose(helper, stats.range(), 1.0D, "M1911 range must remain unchanged");
-                assertClose(helper, stats.recoil(), 1.08D, "M1911 slide recoil coefficient");
-                assertClose(helper, stats.spread(), 1.30D, "M1911 trigger spread coefficient");
-                assertClose(helper, stats.handling(), 1.40D, "M1911 grip handling coefficient");
-                assertClose(helper, stats.average(), 6.08D / 5.0D, "M1911 five-part average");
-                assertClose(helper, stats.effectiveDamage(M1911_BASE_STATS), 13.20D,
-                        "M1911 effective damage");
-                assertClose(helper, stats.effectiveRange(M1911_BASE_STATS), 19.0D,
-                        "M1911 effective range");
-                assertClose(helper, stats.effectiveAdsTime(M1911_BASE_STATS), 0.08D / 1.40D,
-                        "M1911 effective ADS time");
-                helper.succeed();
-            });
         } finally {
             MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
         }
@@ -1023,24 +1082,29 @@ public final class GunsmithAssemblyBusinessGameTests {
 
         try {
             MunitionsConfig.GUNSMITH_ENABLED.set(true);
-            helper.assertFalse(MunitionsAmmoFactory.isTaczLoaded(),
-                    "GameTest profile must exercise the missing-TaCZ boundary");
-            helper.assertTrue(GunsmithTaczBridge.findBaseStats(GunsmithBlueprint.M4A1.gunId()).isEmpty(),
-                    "missing TaCZ must expose unavailable base stats");
-            helper.assertFalse(be.tryStartAssembly(player),
-                    "real gun factory must reject assembly when TaCZ is unavailable");
-            helper.assertFalse(be.isAnimating(), "rejected assembly must not animate");
-            helper.assertTrue(be.inventory().getStackInSlot(
-                            GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT).is(ModMunitionsItems.GUNSMITH_BLUEPRINT.get()),
-                    "rejected assembly must preserve the blueprint");
-            for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
-                helper.assertTrue(!be.inventory().getStackInSlot(
-                                GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
-                        "rejected assembly must preserve " + part);
+            IJobService prevJob = swapJob(new FixedLevelJobService(10));
+            try {
+                helper.assertFalse(MunitionsAmmoFactory.isTaczLoaded(),
+                        "GameTest profile must exercise the missing-TaCZ boundary");
+                helper.assertTrue(GunsmithTaczBridge.findBaseStats(GunsmithBlueprint.M4A1.gunId()).isEmpty(),
+                        "missing TaCZ must expose unavailable base stats");
+                helper.assertFalse(be.tryStartAssembly(player),
+                        "real gun factory must reject assembly when TaCZ is unavailable");
+                helper.assertFalse(be.isAnimating(), "rejected assembly must not animate");
+                helper.assertTrue(be.inventory().getStackInSlot(
+                                GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT).is(ModMunitionsItems.GUNSMITH_BLUEPRINT.get()),
+                        "rejected assembly must preserve the blueprint");
+                for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
+                    helper.assertTrue(!be.inventory().getStackInSlot(
+                                    GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
+                            "rejected assembly must preserve " + part);
+                }
+                helper.assertTrue(be.inventory().getStackInSlot(
+                                GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
+                        "rejected assembly must not create output");
+            } finally {
+                restoreJob(prevJob);
             }
-            helper.assertTrue(be.inventory().getStackInSlot(
-                            GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
-                    "rejected assembly must not create output");
             helper.succeed();
         } finally {
             MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
@@ -1094,15 +1158,14 @@ public final class GunsmithAssemblyBusinessGameTests {
         placeStructure(helper, Direction.NORTH);
         GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
         be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT, corrupt);
-        boolean partValidationThrew = false;
-        try {
-            be.inventory().isItemValid(GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.CORE),
-                    part(GunsmithPlatform.AR, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1.00D));
-        } catch (IllegalArgumentException expected) {
-            partValidationThrew = true;
-        }
-        helper.assertTrue(partValidationThrew,
-                "a corrupt blueprint must fail part-slot validation instead of behaving like no blueprint");
+        // F052: isBlueprint 现在是不抛的谓词 (硬校验收口到 blueprint()/assemble() 等取内容的方法), 故容器点击/
+        // 面板刷新路径 (SlotItemHandler.mayPlace 即走 isItemValid) 对裸 NBT 图纸必须静默拒绝, 不能再让异常
+        // 冒穿渲染/网络线程。原断言 (期望这里抛异常) 正是 F052 要修的那个缺陷, 故改为断言静默拒绝。
+        boolean rejected = !be.inventory().isItemValid(
+                GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.CORE),
+                part(GunsmithPlatform.AR, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1.00D));
+        helper.assertTrue(rejected,
+                "a corrupt blueprint must reject part-slot validation without throwing (F052)");
         helper.succeed();
     }
 
@@ -1198,6 +1261,17 @@ public final class GunsmithAssemblyBusinessGameTests {
         }
     }
 
+    /**
+     * 落 AIR 抹掉整台结构, 强制销毁旧 BE (vanilla 只在 Block 类型变化时才销毁重建, 同类型重新 setBlock 不会重置
+     * pendingResult/animationEndTick 等字段)。仅供需要在同一坐标上取一台真正全新 BE 的用例, 在下一次
+     * {@link #placeStructure} 之前调用。
+     */
+    private static void clearStructure(GameTestHelper helper, Direction facing) {
+        for (GunsmithAssemblyBenchBlock.Part part : GunsmithAssemblyBenchBlock.Part.values()) {
+            helper.setBlock(GunsmithAssemblyBenchBlock.partPos(MAIN_REL, facing, part), Blocks.AIR.defaultBlockState());
+        }
+    }
+
     private static GunsmithAssemblyBenchBlockEntity requireBench(GameTestHelper helper) {
         if (!(helper.getLevel().getBlockEntity(helper.absolutePos(MAIN_REL))
                 instanceof GunsmithAssemblyBenchBlockEntity be)) {
@@ -1259,5 +1333,203 @@ public final class GunsmithAssemblyBusinessGameTests {
             threw = true;
         }
         helper.assertTrue(threw, message);
+    }
+
+    // ============================================================
+    // F048 装配等级门 + 工费 sink: L1 拒且图纸/零件原封不动; L10 余额充足精确扣 assemblyWorkFeeCredits;
+    // L10 余额差 1 CP (边界值) 全额作废且零件一件没扣 (先查后扣)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 20)
+    public static void assemblyEnforcesLevelGateAndWorkFeeSink(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        fillCompleteRecipe(be, GunsmithBlueprint.M4A1);
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        boolean previousEnabled = MunitionsConfig.GUNSMITH_ENABLED.get();
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+
+        try {
+            MunitionsConfig.GUNSMITH_ENABLED.set(true);
+
+            // -- L1: 装配等级门 (F048, unlock L5) 未解锁 -> 拒绝, 图纸与全部零件槽原封不动。
+            IJobService lowJob = swapJob(new FixedLevelJobService(1));
+            try {
+                helper.assertFalse(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
+                        "L1 player must not pass the assembly unlock gate (F048, unlock L5)");
+                helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT)
+                                .is(ModMunitionsItems.GUNSMITH_BLUEPRINT.get()),
+                        "a level-gate rejection must preserve the blueprint");
+                for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
+                    helper.assertTrue(!be.inventory().getStackInSlot(
+                                    GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
+                            "a level-gate rejection must preserve " + part);
+                }
+            } finally {
+                restoreJob(lowJob);
+            }
+
+            // -- L10 + 余额恰好够付: 成功并精确扣款 assemblyWorkFeeCredits。
+            long assemblyFee = MunitionsConfig.ASSEMBLY_WORK_FEE_CREDITS.get();
+            ledger.credit(player.getUUID(), Currency.CREDIT, assemblyFee);
+            IJobService highJob = swapJob(new FixedLevelJobService(10));
+            try {
+                helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
+                        "L10 player with sufficient balance must start assembly");
+                helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 0L,
+                        "assembly work fee sink must destroy exactly assemblyWorkFeeCredits, balance left "
+                                + ledger.balance(player.getUUID(), Currency.CREDIT));
+            } finally {
+                restoreJob(highJob);
+            }
+
+            // -- 第二台 (重置台面): L10 但余额比工费差 1 CP (边界值) -> 全额作废, 图纸与零件分文不扣 (先查后扣)。
+            // 第一台还在 isAnimating() 中 (同一 tick 未推进) —— 同一坐标重新 placeStructure 同一方块类型不会真的
+            // 换出新 BE (vanilla 只在 Block 类型变化时才销毁重建), 故先落 AIR 强制销毁旧 BE, 再重建结构取一台全新
+            // 的、真正空闲的 BE, 否则 tryStartAssembly 会被第一台遗留的 isAnimating() 挡在工费门之前, 本条断言就
+            // 测不到真正要测的东西。
+            clearStructure(helper, Direction.NORTH);
+            placeStructure(helper, Direction.NORTH);
+            GunsmithAssemblyBenchBlockEntity shortBench = requireBench(helper);
+            fillCompleteRecipe(shortBench, GunsmithBlueprint.M4A1);
+            ledger.credit(player.getUUID(), Currency.CREDIT, assemblyFee - 1L);
+            IJobService highJob2 = swapJob(new FixedLevelJobService(10));
+            try {
+                helper.assertFalse(shortBench.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
+                        "a balance one credit short of the assembly work fee must reject the start");
+                helper.assertFalse(shortBench.isAnimating(), "a fee-rejected start must not animate");
+                helper.assertTrue(shortBench.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT)
+                                .is(ModMunitionsItems.GUNSMITH_BLUEPRINT.get()),
+                        "a fee-rejected start must preserve the blueprint");
+                for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
+                    helper.assertTrue(!shortBench.inventory().getStackInSlot(
+                                    GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
+                            "a fee-rejected start must not consume " + part);
+                }
+                helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == assemblyFee - 1L,
+                        "a failed fee charge must leave the balance untouched, got "
+                                + ledger.balance(player.getUUID(), Currency.CREDIT));
+            } finally {
+                restoreJob(highJob2);
+            }
+        } finally {
+            restoreEconomy(prevEco);
+            MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
+        }
+        helper.succeed();
+    }
+
+    // ============================================================
+    // F052 isBlueprint 谓词遇裸 NBT 不再抛: 只判 false, 服务端插槽校验/可见性判定安全降级
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void isBlueprintPredicateToleratesBareNbtWithoutThrowing(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        ItemStack bare = new ItemStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get());
+
+        helper.assertFalse(GunsmithAssemblyRecipe.isBlueprint(bare),
+                "a bare gunsmith blueprint stack without NBT must not be treated as a valid blueprint (F052)");
+
+        boolean itemValidThrew = false;
+        boolean itemValidAccepted = true;
+        try {
+            itemValidAccepted = be.inventory().isItemValid(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT, bare);
+        } catch (IllegalArgumentException unexpected) {
+            itemValidThrew = true;
+        }
+        helper.assertFalse(itemValidThrew, "isItemValid must not throw on a bare blueprint stack");
+        helper.assertFalse(itemValidAccepted, "the blueprint slot must reject a bare blueprint stack");
+
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT, bare);
+        boolean visibleThrew = false;
+        boolean coreVisible = true;
+        try {
+            coreVisible = be.isPartSlotVisible(GunsmithPressPart.CORE);
+        } catch (IllegalArgumentException unexpected) {
+            visibleThrew = true;
+        }
+        helper.assertFalse(visibleThrew, "isPartSlotVisible must not throw when a bare blueprint occupies the slot");
+        helper.assertFalse(coreVisible, "no part slot may be visible while the blueprint slot holds a bare stack");
+
+        // 反向断言: 合法图纸未被谓词的宽容化误伤, 仍能正确识别并取出其 templateId。
+        ItemStack legit = GunsmithBlueprintItem.createStack(
+                ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1);
+        helper.assertTrue(GunsmithAssemblyRecipe.isBlueprint(legit),
+                "a legitimate blueprint stack must still be recognized as a valid blueprint");
+        helper.assertTrue(GunsmithAssemblyRecipe.blueprint(legit) == GunsmithBlueprint.M4A1,
+                "a legitimate blueprint stack must still resolve its correct templateId (M4A1)");
+        helper.succeed();
+    }
+
+    private static IJobService swapJob(IJobService fake) {
+        IJobService prev;
+        try {
+            prev = JobServices.jobService();
+        } catch (IllegalStateException notRegistered) {
+            prev = null;
+        }
+        JobServices.registerJobService(fake);
+        return prev;
+    }
+
+    private static void restoreJob(IJobService prev) {
+        if (prev != null) {
+            JobServices.registerJobService(prev);
+        } else {
+            JobServices.reset();
+        }
+    }
+
+    private static IEconomyService swapEconomy(IEconomyService fake) {
+        IEconomyService prev = EconomyServices.isRegistered() ? EconomyServices.economyService() : null;
+        EconomyServices.registerEconomyService(fake);
+        return prev;
+    }
+
+    private static void restoreEconomy(IEconomyService prev) {
+        if (prev != null) {
+            EconomyServices.registerEconomyService(prev);
+        } else {
+            EconomyServices.reset();
+        }
+    }
+
+    /** 真 EconomyService (内存账本 + AbuseGuard + 惰性玩家态解析器); tryCharge 走真 sink 语义。 */
+    private static IEconomyService freshEconomy(EconomyLedger ledger) {
+        Map<UUID, PlayerAbuseState> states = new HashMap<>();
+        Function<UUID, PlayerAbuseState> resolver = id -> states.computeIfAbsent(id, k -> new PlayerAbuseState());
+        return new EconomyService(ledger, new AbuseGuard(), resolver);
+    }
+
+    /** 定级职业门面替身 (level/grantXp 不计数, 仅供枪匠等级门读取); 逐字照抄 MunitionsGameTests 同名类。 */
+    private static final class FixedLevelJobService implements IJobService {
+        private final int level;
+
+        FixedLevelJobService(int level) {
+            this.level = level;
+        }
+
+        @Override
+        public int level(Player player, JobId job) {
+            return level;
+        }
+
+        @Override
+        public long totalXp(Player player, JobId job) {
+            return 0L;
+        }
+
+        @Override
+        public long grantXp(Player player, JobId job, long rawXp) {
+            return rawXp;
+        }
+
+        @Override
+        public JobProgress progress(Player player, JobId job) {
+            throw new UnsupportedOperationException("not exercised by gunsmith assembly business tests");
+        }
     }
 }

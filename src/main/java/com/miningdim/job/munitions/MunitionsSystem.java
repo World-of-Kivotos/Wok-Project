@@ -44,7 +44,8 @@ import java.util.Optional;
  * 配置: 军火商自带 SERVER spec (miningdim-munitions.toml), 在此经 ModLoadingContext.registerConfig 注册。
  *
  * 放置门控 (5/10.5 台数上限): forgeBus EntityPlaceEvent 校验军火商等级对应的台数上限 (6.1), 超限取消放置 +
- * actionbar 提示; BreakEvent 回收台数计数。计数走 {@link MunitionsSavedData} (overworld 持久层, 按 ownerUUID 全局)。
+ * actionbar 提示; 回收在 {@link MunitionsBenchBlock#onRemove} (覆盖玩家破坏/爆炸/活塞/级联/指令全部路径)。
+ * 计数走 {@link MunitionsSavedData} (overworld 持久层, 按 ownerUUID 全局)。
  */
 public final class MunitionsSystem implements Subsystem {
 
@@ -70,7 +71,7 @@ public final class MunitionsSystem implements Subsystem {
         // 数值实时读 MunitionsConfig, 故与上面的 registerConfig 先后无关)。
         MunitionsWebUiActions.registerAll();
 
-        // forgeBus: 军火台放置上限门控 + 破坏回收计数。
+        // forgeBus: 军火台放置上限门控 + tooltip 降级展示 (破坏回收计数已挪到 MunitionsBenchBlock.onRemove)。
         forgeBus.register(this);
         modBus.addListener((FMLCommonSetupEvent event) ->
                 event.enqueueWork(() -> {
@@ -122,26 +123,22 @@ public final class MunitionsSystem implements Subsystem {
         data.increment(player.getUUID());
     }
 
-    /** 破坏军火台时回收台数计数 (-1)。仅服务端玩家破坏计入回收 (与放置侧对称)。 */
-    @SubscribeEvent
-    public void onBenchBroken(BlockEvent.BreakEvent event) {
-        if (event.isCanceled()) {
-            return;
-        }
-        if (!(event.getPlayer() instanceof ServerPlayer player)) {
-            return;
-        }
-        if (!(event.getState().getBlock() instanceof MunitionsBenchBlock)) {
-            return;
-        }
-        ServerLevel overworld = player.server.overworld();
-        MunitionsSavedData.get(overworld).decrement(player.getUUID());
-    }
-
+    /**
+     * ItemTooltipEvent 跑在客户端渲染线程, 无外层 Controller 兜底。{@link GunsmithGunStats#from} 对"缓存值与
+     * 当前平衡表重算不精确相等"等情形一律抛 IllegalArgumentException (装配/冲压/伤害结算需要这份硬校验炸出畸形
+     * 数据), 但只读展示不能替它背这个锅 —— 划过背包里一把老枪就崩客户端。故这里改走 {@link GunsmithGunStats#tryFrom}
+     * (同类 :81-88 的降级读, GunsmithBlueprintItem.java:69-79 的渲染钩子已立过同款规矩): 读不出来时先用
+     * {@link GunsmithGunStats#hasGunsmithData} 区分"根本不是枪匠枪" (静默跳过) 与"是枪匠枪但读不出来"
+     * (追加一条降级提示, 而不是让异常冒到渲染线程)。
+     */
     @SubscribeEvent
     public void onItemTooltip(ItemTooltipEvent event) {
-        GunsmithGunStats stats = GunsmithGunStats.from(event.getItemStack());
+        GunsmithGunStats stats = GunsmithGunStats.tryFrom(event.getItemStack());
         if (stats == null) {
+            if (GunsmithGunStats.hasGunsmithData(event.getItemStack())) {
+                event.getToolTip().add(Component.translatable("tooltip.miningdim.gunsmith.stats_unreadable")
+                        .withStyle(ChatFormatting.RED));
+            }
             return;
         }
         Optional<GunsmithBaseStats> baseStats = GunsmithTaczBridge.findBaseStats(stats.gunId());

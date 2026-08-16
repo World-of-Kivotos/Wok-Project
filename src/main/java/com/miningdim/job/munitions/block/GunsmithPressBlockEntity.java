@@ -1,8 +1,12 @@
 package com.miningdim.job.munitions.block;
 
+import com.miningdim.economy.Currency;
+import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.munitions.ModMunitionsBlockEntities;
 import com.miningdim.job.munitions.ModMunitionsItems;
 import com.miningdim.job.munitions.ModMunitionsSounds;
+import com.miningdim.job.munitions.MunitionsConfig;
+import com.miningdim.job.munitions.MunitionsLevels;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartVariant;
@@ -161,11 +165,18 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
         return false;
     }
 
-    public boolean trySelectQuality(int index) {
+    public boolean trySelectQuality(int index, ServerPlayer player) {
         if (isPressing()) {
             return false;
         }
-        this.selectedQuality = GunsmithPartQuality.byIndex(index);
+        GunsmithPartQuality quality = GunsmithPartQuality.byIndex(index);
+        int level = MunitionsLevels.munitionsLevel(player);
+        if (!MunitionsLevels.isPartQualityUnlocked(level, quality)) {
+            player.displayClientMessage(Component.translatable("message.miningdim.gunsmith_press.quality_locked",
+                    MunitionsLevels.partQualityUnlockLevel(quality)), true);
+            return false;
+        }
+        this.selectedQuality = quality;
         setChanged();
         return true;
     }
@@ -199,6 +210,18 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
         }
         if (!hasRequiredMaterials()) {
             player.displayClientMessage(Component.translatable("message.miningdim.gunsmith_press.missing_materials"), true);
+            return false;
+        }
+        int level = MunitionsLevels.munitionsLevel(player);
+        if (!MunitionsLevels.isPartQualityUnlocked(level, selectedQuality)) {
+            player.displayClientMessage(Component.translatable("message.miningdim.gunsmith_press.quality_locked",
+                    MunitionsLevels.partQualityUnlockLevel(selectedQuality)), true);
+            return false;
+        }
+        long fee = (long) MunitionsConfig.PRESS_WORK_FEE_CREDITS.get() * selectedQuality.materialMultiplier();
+        if (!tryChargeWorkFee(player, fee)) {
+            player.displayClientMessage(
+                    Component.translatable("message.miningdim.gunsmith.work_fee_unaffordable", fee), true);
             return false;
         }
         consumeRequiredMaterials();
@@ -308,6 +331,14 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
 
     private int requiredPolymer() {
         return selectedPart.polymerCost() * selectedQuality.materialMultiplier();
+    }
+
+    /** 工费 sink: 经 {@link EconomyServices} 定位器先查后扣; 经济未注入或 cost<=0 放行 (不阻塞核心循环)。 */
+    private boolean tryChargeWorkFee(ServerPlayer player, long cost) {
+        if (cost <= 0L || !EconomyServices.isRegistered()) {
+            return true;
+        }
+        return EconomyServices.economyService().tryCharge(player, Currency.CREDIT, cost);
     }
 
     private void consume(int slot, int amount) {

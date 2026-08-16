@@ -13,6 +13,7 @@ import com.miningdim.job.IJobService;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobProgress;
 import com.miningdim.job.JobServices;
+import com.miningdim.job.munitions.block.MunitionsBenchBlock;
 import com.miningdim.job.munitions.block.MunitionsBenchBlockEntity;
 import com.miningdim.job.munitions.menu.MunitionsBenchMenu;
 import com.miningdim.testutil.MockGameTestPlayers;
@@ -22,12 +23,19 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.AABB;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
+import net.minecraftforge.items.IItemHandler;
+import net.minecraftforge.items.ItemStackHandler;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
@@ -832,6 +840,491 @@ public final class MunitionsGameTests {
             helper.succeed();
         } finally {
             restoreJob(prevJob);
+        }
+    }
+
+    // ============================================================
+    // Full_Repo_Audit_2026-08 补测: F001 输出槽分栈/写入不变量, F009 台数按台主回收, F010 选口径限台主,
+    // F015 4->5 槽迁移, F049 被动产线驱动 ACTIVE, F051 反漏斗只写
+    // ============================================================
+
+    /**
+     * F001 (Critical): 输出槽必须按 TACZ 弹自己的单栈上限分栈, 不能把 480 发权威缓冲整坨怼进一个栈。
+     * dev 无 TACZ, 默认 materializer 恒返 EMPTY, 结构上测不到这条 —— 注入返回原版物品 (真实 getMaxStackSize)
+     * 的替身撬开这条盲区 (compileOnly 铁律不破: 替身只返回原版 ItemStack, 不触 com.tacz.*)。
+     *
+     * 删 refreshOutputStack 里的 Math.min 分栈 -> 输出槽 count 会变成 480, 第一条 ==64 的断言必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchOutputStackSplitsToItemMaxThenRefillsAfterPartialTake(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        MunitionsBenchBlockEntity be = newBench(helper, player);
+        try {
+            MunitionsAmmoFactory.registerMaterializer((caliber, count) ->
+                    new ItemStack(ModMunitionsItems.PRIMER.get(), count));
+
+            seedBuffer(be, MunitionsCaliber.RIFLE, 480);
+            be.onAccess(player);
+
+            ItemStack output = be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT);
+            helper.assertTrue(output.getCount() == 64,
+                    "output slot splits to the item's own stack limit (64), not the full 480 buffered, got "
+                            + output.getCount());
+            helper.assertTrue(output.is(ModMunitionsItems.PRIMER.get()), "output slot holds the materialized item");
+            helper.assertTrue(be.bufferedRounds() == 480,
+                    "authoritative bufferedRounds is untouched by the visual split, got " + be.bufferedRounds());
+
+            MunitionsBenchMenu menu = openBenchMenu(be, player);
+            ItemStack moved = menu.quickMoveStack(player, MunitionsBenchBlockEntity.SLOT_OUTPUT);
+
+            helper.assertTrue(moved.getCount() == 64,
+                    "shift-take moved the full 64-count visualized stack, got " + moved.getCount());
+            helper.assertTrue(be.bufferedRounds() == 416,
+                    "taking 64 of 480 buffered rounds leaves exactly 416, got " + be.bufferedRounds());
+            helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT).getCount() == 64,
+                    "output slot is refilled to the item max (64) out of the remaining 416-round buffer, got "
+                            + be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT).getCount());
+            helper.succeed();
+        } finally {
+            MunitionsAmmoFactory.resetMaterializer();
+        }
+    }
+
+    /**
+     * 复核 (blocker, 取代原 benchLegacyMigrationRejectsUnknownSlotCountAndOversizedOutputWrite): 旧版对"未知
+     * 槽数"与"输出槽超栈"两种损坏都直接在 load() 里 throw, 而 BlockEntity.loadStatic 会把 load() 抛出的
+     * Throwable 吞掉并丢弃整台 BE (forge-1.20.1-47.4.20 sources 核实: catch Throwable 后 return null, 之后
+     * getBlockEntity(CHECK) 不会补建) —— owner/缓冲/四格料全部消失, 比它原本要防的"抹平库存"更狠, 且旧版
+     * 测试只验证了"抛了", 没验证"抛完这台还在不在", 把这个回归锁成了契约。改为两种损坏都不再抛: 未知槽数把
+     * 原内容进待掉落队列 + 重置库存形状; 超栈输出槽按物品自报上限落一栈、余量进待掉落队列。
+     *
+     * 断言链: (1) load() 不抛; (2) owner 在两种损坏后都还在 (证明 BE 没被 Forge 整体丢弃); (3) 未知槽数场景
+     * 库存重置为空的当前形状, 原有的 1 个铁锭堆叠经首个 serverTick 精确吐成掉落物; (4) 超栈场景输出槽被钳到
+     * 底火单栈上限 64, 溢出的 36 发经首个 serverTick 精确吐成掉落物。
+     *
+     * 删 migrateInventoryShape 的未知槽数分支或 settleLegacyOutputStack 的钳位逻辑 (退回 throw / 不钳直接落槽)
+     * -> 对应断言必挂 (要么 load() 重新抛出, 要么输出槽出现超过 64 的堆叠)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchLegacyMigrationDegradesInsteadOfDiscardingTheWholeBlockEntity(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+
+        // 未知槽数 (3, 既非当前 5 槽也非旧档 4 槽) 必须保留 BE (owner 还在), 原内容进待掉落队列而不是抛异常丢整台。
+        MunitionsBenchBlockEntity beUnknownSize = newBench(helper, player);
+        UUID unknownSizeOwner = beUnknownSize.owner();
+        ItemStackHandler unknownSizeFixture = new ItemStackHandler(3);
+        unknownSizeFixture.setStackInSlot(0, new ItemStack(Items.IRON_INGOT, 5));
+        net.minecraft.nbt.CompoundTag unknownSizeTag = beUnknownSize.saveWithoutMetadata();
+        unknownSizeTag.put("Inv", unknownSizeFixture.serializeNBT());
+        beUnknownSize.load(unknownSizeTag); // 必须不抛。
+        helper.assertTrue(unknownSizeOwner != null && unknownSizeOwner.equals(beUnknownSize.owner()),
+                "unknown slot count must not wipe the owner (BE must survive, not get discarded by loadStatic)");
+        helper.assertTrue(
+                beUnknownSize.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER).isEmpty()
+                        && beUnknownSize.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_CASING).isEmpty()
+                        && beUnknownSize.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_BULLET_HEAD)
+                                .isEmpty()
+                        && beUnknownSize.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PROPELLANT)
+                                .isEmpty()
+                        && beUnknownSize.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
+                "inventory shape must be reset to empty current-layout slots after an unknown slot count");
+        beUnknownSize.serverTick();
+        AABB unknownSizeDropBox = new AABB(beUnknownSize.getBlockPos()).inflate(2.0D);
+        List<ItemEntity> unknownSizeDrops =
+                helper.getLevel().getEntitiesOfClass(ItemEntity.class, unknownSizeDropBox);
+        helper.assertTrue(unknownSizeDrops.size() == 1 && unknownSizeDrops.get(0).getItem().getCount() == 5
+                        && unknownSizeDrops.get(0).getItem().is(Items.IRON_INGOT),
+                "the unknown-shape inventory's only stack (5 iron ingots) must be queued for drop, not vanished");
+        // newBench 固定用 (0,1,0), 第二段场景的方块会摆在同一个绝对坐标: 先把这批掉落物清场, 不然第二段的
+        // dropBox 查询 (同一位置) 会把这批铁锭也算进去, 误判超栈溢出份数。
+        unknownSizeDrops.forEach(net.minecraft.world.entity.Entity::discard);
+
+        // 旧档输出槽超栈 (100 > 底火单栈上限 64) 必须按上限落槽 + 余量排队掉落, 不能在 load() 里抛出丢整台。
+        MunitionsBenchBlockEntity beOversizedOutput = newBench(helper, player);
+        UUID oversizedOutputOwner = beOversizedOutput.owner();
+        ItemStackHandler oversizedOutputFixture = new ItemStackHandler(4);
+        oversizedOutputFixture.setStackInSlot(3, new ItemStack(ModMunitionsItems.PRIMER.get(), 100));
+        net.minecraft.nbt.CompoundTag oversizedOutputTag = beOversizedOutput.saveWithoutMetadata();
+        oversizedOutputTag.put("Inv", oversizedOutputFixture.serializeNBT());
+        beOversizedOutput.load(oversizedOutputTag); // 必须不抛。
+        helper.assertTrue(oversizedOutputOwner != null && oversizedOutputOwner.equals(beOversizedOutput.owner()),
+                "an oversized legacy output stack must not wipe the owner (BE must survive)");
+        ItemStack settledOutput =
+                beOversizedOutput.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT);
+        helper.assertTrue(settledOutput.is(ModMunitionsItems.PRIMER.get()) && settledOutput.getCount() == 64,
+                "legacy output is clamped to the item's own stack limit (64), got " + settledOutput);
+        beOversizedOutput.serverTick();
+        AABB oversizedOutputDropBox = new AABB(beOversizedOutput.getBlockPos()).inflate(2.0D);
+        List<ItemEntity> oversizedOutputDrops =
+                helper.getLevel().getEntitiesOfClass(ItemEntity.class, oversizedOutputDropBox);
+        int overflowTotal = 0;
+        for (ItemEntity entity : oversizedOutputDrops) {
+            helper.assertTrue(entity.getItem().is(ModMunitionsItems.PRIMER.get()),
+                    "unexpected overflow drop item " + entity.getItem());
+            overflowTotal += entity.getItem().getCount();
+        }
+        helper.assertTrue(overflowTotal == 36,
+                "the 36-round overflow (100 - 64 clamped) must be queued for drop, got " + overflowTotal);
+        helper.succeed();
+    }
+
+    /**
+     * F015 (4->5 槽迁移): 旧档发射药/输出原样搬到新槽位, 类型未知的 legacy 0/1 进待掉落队列而不是被静默销毁,
+     * 首个 serverTick 把队列精确吐成两件世界掉落物 (逐件核对物品与数量, 不只数个数)。
+     *
+     * 删掉待掉落队列 (migrateLegacyFourSlot 里 pendingLegacyDrops.add 那两处) -> 掉落物断言 (==2) 必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchLegacyFourSlotMigrationRestoresPropellantAndOutputThenDropsTheRest(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        MunitionsBenchBlockEntity be = newBench(helper, player);
+
+        ItemStackHandler legacy = new ItemStackHandler(4);
+        legacy.setStackInSlot(0, new ItemStack(Items.COPPER_INGOT, 7));
+        legacy.setStackInSlot(1, new ItemStack(Items.GUNPOWDER, 16));
+        legacy.setStackInSlot(2, new ItemStack(ModMunitionsItems.PROPELLANT.get(), 5));
+        legacy.setStackInSlot(3, new ItemStack(ModMunitionsItems.PRIMER.get(), 3));
+        net.minecraft.nbt.CompoundTag tag = be.saveWithoutMetadata();
+        tag.put("Inv", legacy.serializeNBT());
+        be.load(tag);
+
+        ItemStack propellant = be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PROPELLANT);
+        helper.assertTrue(propellant.is(ModMunitionsItems.PROPELLANT.get()) && propellant.getCount() == 5,
+                "legacy slot 2 (propellant) migrates to the new SLOT_PROPELLANT unchanged (5), got " + propellant);
+        ItemStack output = be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT);
+        helper.assertTrue(output.is(ModMunitionsItems.PRIMER.get()) && output.getCount() == 3,
+                "legacy slot 3 (old output) migrates to the new SLOT_OUTPUT unchanged (3), got " + output);
+        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER).isEmpty()
+                        && be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_CASING).isEmpty()
+                        && be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_BULLET_HEAD).isEmpty(),
+                "type-unknown legacy slots 0/1 (copper/gunpowder) must NOT leak into any new input slot");
+
+        be.serverTick(); // 冲掉待掉落队列。
+
+        AABB dropBox = new AABB(be.getBlockPos()).inflate(2.0D);
+        List<ItemEntity> drops = helper.getLevel().getEntitiesOfClass(ItemEntity.class, dropBox);
+        helper.assertTrue(drops.size() == 2,
+                "exactly 2 legacy stacks (copper ingot + gunpowder) are queued for drop, got " + drops.size());
+        int copperCount = 0;
+        int gunpowderCount = 0;
+        for (ItemEntity entity : drops) {
+            ItemStack stack = entity.getItem();
+            if (stack.is(Items.COPPER_INGOT)) {
+                copperCount += stack.getCount();
+            } else if (stack.is(Items.GUNPOWDER)) {
+                gunpowderCount += stack.getCount();
+            } else {
+                helper.fail("unexpected legacy drop item " + stack);
+            }
+        }
+        helper.assertTrue(copperCount == 7, "dropped copper ingots must total exactly 7, got " + copperCount);
+        helper.assertTrue(gunpowderCount == 16, "dropped gunpowder must total exactly 16, got " + gunpowderCount);
+        helper.succeed();
+    }
+
+    /**
+     * F049: 被动产线 (非手动开工) 也必须驱动方块 ACTIVE 状态。备 2 批料, 只回拨 1 批的时间 (时间瓶颈), 结算后
+     * 恰产 1 批、还剩 1 批料且缓冲有空间 -> 机器仍要亮灯。清空四个料槽再结算一次 -> 无料可产, 机器必须灭灯。
+     *
+     * 删 canAccumulateProduction 的新判据 (退回旧的直接复用 craftingActive) -> 被动产线从不置位
+     * craftingActive, canAccumulateProduction 恒 false, 第一条 ACTIVE==true 断言必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void passiveProductionDrivesActiveBlockState(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        IJobService prevJob = swapJob(new FixedLevelJobService(5));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            MunitionsBenchBlockEntity be = newBench(helper, player);
+            be.trySelectCaliber(MunitionsCaliber.RIFLE, player);
+            stockParts(be, 2);
+            ledger.credit(player.getUUID(), Currency.CREDIT, 1000L);
+
+            int perBatch = MunitionsProduction.roundsPerBatch(MunitionsCaliber.RIFLE, 5);
+            long oneBatchTime = MunitionsProduction.ticksPerRound(5) * (long) perBatch;
+            backdateSettleTick(be, helper, oneBatchTime);
+            be.settleForOwner(player);
+
+            helper.assertTrue(be.bufferedRounds() == perBatch,
+                    "sanity: exactly one batch produced (time-clamped), got " + be.bufferedRounds());
+            assertPartCounts(helper, be, 1);
+            BlockPos benchPos = be.getBlockPos();
+            helper.assertTrue(helper.getLevel().getBlockState(benchPos).getValue(MunitionsBenchBlock.ACTIVE),
+                    "bench with remaining material and buffer room must be ACTIVE after a productive settle");
+
+            be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER, ItemStack.EMPTY);
+            be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_CASING, ItemStack.EMPTY);
+            be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_BULLET_HEAD, ItemStack.EMPTY);
+            be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_PROPELLANT, ItemStack.EMPTY);
+            backdateSettleTick(be, helper, 1L);
+            be.settleForOwner(player);
+            helper.assertFalse(helper.getLevel().getBlockState(benchPos).getValue(MunitionsBenchBlock.ACTIVE),
+                    "bench with no material left must go inactive (ACTIVE=false) after settling");
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
+    }
+
+    /**
+     * 复核 (major, F049 同源): 台主持续在线时 serverTick 每 tick 都追算一次, elapsed 恒为 1 tick, 单 tick 换算
+     * 的理论发数不够一整批。旧判据 (canAccumulateProduction 的料/缓冲/口径三道静态门) 在这种"料齐但流逝时间
+     * 不够" 的状态下恒真, 会把机器点成常亮却一发都出不来。本用例只回拨 1 tick (远不够一整批), 断言这个真实
+     * 的"在线空转"状态下 ACTIVE 必须是 false、且确实没有任何产出。
+     *
+     * 退回旧判据 (canAccumulateProduction 而非 result.produced() 驱动 active) -> ACTIVE 断言必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void passiveProductionStaysInactiveWhenElapsedTimeIsTooShortForABatch(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        IJobService prevJob = swapJob(new FixedLevelJobService(5));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            MunitionsBenchBlockEntity be = newBench(helper, player);
+            be.trySelectCaliber(MunitionsCaliber.RIFLE, player);
+            stockParts(be, 2);
+            ledger.credit(player.getUUID(), Currency.CREDIT, 1000L);
+
+            // 料/缓冲/口径三道静态门全过, 但只给 1 tick 流逝 (远不够一整批所需的上万 tick) —— 这正是台主持续
+            // 在线时 serverTick 每 tick 都会遇到的真实状态。
+            backdateSettleTick(be, helper, 1L);
+            be.settleForOwner(player);
+
+            helper.assertTrue(be.bufferedRounds() == 0,
+                    "sanity: 1 elapsed tick cannot complete a batch, got " + be.bufferedRounds());
+            assertPartCounts(helper, be, 2);
+            BlockPos benchPos = be.getBlockPos();
+            helper.assertFalse(helper.getLevel().getBlockState(benchPos).getValue(MunitionsBenchBlock.ACTIVE),
+                    "bench with materials ready but insufficient elapsed time must stay inactive, "
+                            + "not falsely light up as if producing");
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
+    }
+
+    /**
+     * 复核 (major, F049 同源): 扣费失败分支曾经每次都 {@code nextWeldSoundTick = 0L; setMachineActive(false);},
+     * 而工费失败不推进 lastSettleTick (先查后扣, 扣不动则本批作废但保留流逝窗口), 于是台主持续在线、始终缺钱时,
+     * 每 tick 都会重演 "重新点亮 -> 立刻拉黑" 的循环, 音效节流被清零后每 tick 都重新达标, 造成音效轰炸 + 方块
+     * 更新包风暴。本用例模拟连续两次 "料/缓冲/时间都够, 唯独差信用点" 的结算, 断言 ACTIVE 在两次失败结算之间
+     * 保持不变 (不闪烁), 且材料/缓冲分文不动 (扣不动则本批真的作废); 随后补上信用点, 断言产出最终按
+     * "下次再追" 的契约正常完成, 证明这不是简单粗暴地让失败分支永久生效, 而是保留了正确的重试语义。
+     *
+     * 删掉本轮修复 (在扣费失败分支重新加回 nextWeldSoundTick=0L / setMachineActive(false)) -> 第二次结算后的
+     * ACTIVE 稳定性断言必挂 (会先被拉黑, 与第一次的 ACTIVE=true 矛盾, 断言即为"两次读到的状态相同"因而失败)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void passiveProductionKeepsActiveStableAcrossRepeatedFeeFailures(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        IJobService prevJob = swapJob(new FixedLevelJobService(5));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger)); // 玩家账户 0 CP, 工费必扣不动。
+        try {
+            MunitionsBenchBlockEntity be = newBench(helper, player);
+            be.trySelectCaliber(MunitionsCaliber.RIFLE, player);
+            stockParts(be, 3);
+
+            int perBatch = MunitionsProduction.roundsPerBatch(MunitionsCaliber.RIFLE, 5);
+            long oneBatchTime = MunitionsProduction.ticksPerRound(5) * (long) perBatch;
+            BlockPos benchPos = be.getBlockPos();
+
+            backdateSettleTick(be, helper, oneBatchTime);
+            be.settleForOwner(player);
+            helper.assertTrue(be.bufferedRounds() == 0,
+                    "sanity: no CP means the fee charge fails, nothing produced yet, got " + be.bufferedRounds());
+            assertPartCounts(helper, be, 3);
+            boolean activeAfterFirstFailure =
+                    helper.getLevel().getBlockState(benchPos).getValue(MunitionsBenchBlock.ACTIVE);
+            helper.assertTrue(activeAfterFirstFailure,
+                    "a settle that is only blocked on the CP fee (material/buffer/time all satisfied) must stay lit");
+
+            // 再来一次"缺钱失败", 模拟台主持续在线时下一 tick 重演同样的判定 (材料/缓冲/时间照常满足)。
+            backdateSettleTick(be, helper, oneBatchTime);
+            be.settleForOwner(player);
+            helper.assertTrue(be.bufferedRounds() == 0, "still no CP: still nothing produced");
+            assertPartCounts(helper, be, 3);
+            boolean activeAfterSecondFailure =
+                    helper.getLevel().getBlockState(benchPos).getValue(MunitionsBenchBlock.ACTIVE);
+            helper.assertTrue(activeAfterSecondFailure == activeAfterFirstFailure,
+                    "ACTIVE must not flicker between repeated fee failures (was " + activeAfterFirstFailure
+                            + ", now " + activeAfterSecondFailure + ")");
+
+            // 补上信用点, 证明 "扣不动则本批作废, 下次再追" 的契约仍然成立 —— 不是把失败分支焊死成永久生效。
+            ledger.credit(player.getUUID(), Currency.CREDIT, 1000L);
+            backdateSettleTick(be, helper, oneBatchTime);
+            be.settleForOwner(player);
+            helper.assertTrue(be.bufferedRounds() == perBatch,
+                    "once CP is available, the retained production window must still complete, got "
+                            + be.bufferedRounds());
+            assertPartCounts(helper, be, 2);
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
+    }
+
+    /**
+     * F051: getCapability(ITEM_HANDLER) 只暴露反漏斗包装 —— 漏斗那种只走 extractItem/insertItem 的调用方,
+     * extract 恒空 (反抽不走), insert 照常成功 (塞料不受影响)。
+     *
+     * 删 InsertOnlyRangedWrapper 对 extractItem 的覆写 (RangedWrapper 恢复默认双向代理) -> extractItem 会真的
+     * 抽走底火, 第一条 isEmpty() 断言必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void inputCapabilityIsInsertOnlyAgainstHoppers(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        MunitionsBenchBlockEntity be = newBench(helper, player);
+        be.inventory().setStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER,
+                new ItemStack(ModMunitionsItems.PRIMER.get(), 8));
+
+        IItemHandler h = be.getCapability(ForgeCapabilities.ITEM_HANDLER, null)
+                .orElseThrow(() -> new IllegalStateException("munitions bench must expose an ITEM_HANDLER capability"));
+
+        ItemStack extracted = h.extractItem(0, 64, false);
+        helper.assertTrue(extracted.isEmpty(),
+                "hopper-side extractItem must be blocked (anti-hopper), got " + extracted.getCount() + " extracted");
+        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER).getCount() == 8,
+                "primer count must be untouched by the blocked extraction, got "
+                        + be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER).getCount());
+
+        ItemStack insertLeftover = h.insertItem(0, new ItemStack(ModMunitionsItems.PRIMER.get(), 4), false);
+        helper.assertTrue(insertLeftover.isEmpty(),
+                "hopper-side insertItem into the primer slot must succeed, leftover=" + insertLeftover.getCount());
+        helper.assertTrue(be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER).getCount() == 12,
+                "primer count after inserting 4 more must be 12, got "
+                        + be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER).getCount());
+        helper.succeed();
+    }
+
+    /**
+     * F010: 选口径服务端权威归属门 —— 路人不能改台主的选中口径, 也不能借这一次点击把台主攒下的离线时间窗抹掉
+     * (trySelectCaliber 接受时会把 lastSettleTick 推到 now, 拒绝路径绝不能有这个副作用)。
+     *
+     * 删 trySelectCaliber 里的 isOwner 门 -> 路人的 PISTOL 请求会被接受, 时间戳被推进到 now、selectedCaliber
+     * 被改成 PISTOL, 前两条断言必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void trySelectCaliberRejectsNonOwnerAndPreservesSettleWindow(GameTestHelper helper) {
+        ServerPlayer owner = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        ServerPlayer stranger = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        IJobService prevJob = swapJob(new FixedLevelJobService(5));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            MunitionsBenchBlockEntity be = newBench(helper, owner);
+            helper.assertTrue(be.trySelectCaliber(MunitionsCaliber.RIFLE, owner), "owner selects RIFLE at L5");
+
+            int perBatch = MunitionsProduction.roundsPerBatch(MunitionsCaliber.RIFLE, 5);
+            long window = MunitionsProduction.ticksPerRound(5) * (long) perBatch; // 恰好一批的流逝量。
+            backdateSettleTick(be, helper, window);
+            long settleTickAfterBackdate = readSettleTick(be);
+
+            helper.assertFalse(be.trySelectCaliber(MunitionsCaliber.PISTOL, stranger),
+                    "a stranger cannot switch caliber on someone else's bench");
+            helper.assertTrue(readSettleTick(be) == settleTickAfterBackdate,
+                    "rejected stranger selection must NOT touch lastSettleTick (owner's offline window preserved), "
+                            + "expected " + settleTickAfterBackdate + " got " + readSettleTick(be));
+            helper.assertTrue(be.selectedCaliber() == MunitionsCaliber.RIFLE,
+                    "rejected stranger selection leaves RIFLE selected (not PISTOL, not null)");
+
+            // 台主自己结算一次: 证明整段回拨窗口确实还在, 没被路人那次被拒的调用抹掉。
+            stockParts(be, 1);
+            ledger.credit(owner.getUUID(), Currency.CREDIT, 1000L);
+            be.settleForOwner(owner);
+            helper.assertTrue(be.bufferedRounds() == perBatch,
+                    "owner settle after the rejected stranger call still catches up the full retained window ("
+                            + perBatch + " rounds), got " + be.bufferedRounds());
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
+    }
+
+    /**
+     * F009: 台数计数的回收必须按台主 (BE 持有的 owner), 而不是破坏者。用 level.destroyBlock (不带玩家上下文)
+     * 覆盖爆炸/指令这类没有 PlayerInteractEvent/BreakEvent 的破坏路径。
+     *
+     * 删 MunitionsBenchBlock.onRemove 里的回收逻辑 -> owner 的计数在破坏后仍是 1, 第一条 ==0 断言必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchRemovalRecoversCountForOwnerNotBreaker(GameTestHelper helper) {
+        ServerPlayer owner = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        ServerPlayer breaker = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        MunitionsSavedData savedData = MunitionsSavedData.get(owner.server.overworld());
+        try {
+            helper.assertTrue(savedData.increment(owner.getUUID()) == 1, "seed: owner placed 1 bench");
+
+            MunitionsBenchBlockEntity be = newBench(helper, owner);
+            BlockPos benchPos = be.getBlockPos();
+            helper.getLevel().destroyBlock(benchPos, false);
+
+            helper.assertTrue(savedData.benchCount(owner.getUUID()) == 0,
+                    "destroying the bench through a no-player path (explosion/command) still recovers the owner's "
+                            + "count to 0, got " + savedData.benchCount(owner.getUUID()));
+            helper.assertTrue(savedData.benchCount(breaker.getUUID()) == 0,
+                    "the breaker is not the owner and placed nothing, so their count stays 0, got "
+                            + savedData.benchCount(breaker.getUUID()));
+            helper.succeed();
+        } finally {
+            // decrement 天然钳零 (见 MunitionsSavedData), 无论断言前半程 onRemove 是否已经归零, 这里都安全地
+            // 把种子计数收干净, 不给同批次其它用例留下污染的 SavedData。
+            savedData.decrement(owner.getUUID());
+        }
+    }
+
+    /**
+     * 复核 (blocker, F009 同源): 撞放置上限被 EntityMultiPlaceEvent 取消后, ForgeHooks.onPlaceItemIntoWorld
+     * 会把已捕获的两半快照 restore 回 AIR (level.restoringBlockSnapshots=true 期间), 触发的正是
+     * MunitionsBenchBlock.onRemove 同一条路径 —— 但这次放置从未 increment 过 (event 在 increment 之前就
+     * setCanceled)。若 onRemove 照常 decrement, 每撞一次上限就能白送自己一格额度, 可无限刷台。
+     *
+     * 用 restoringBlockSnapshots 直接驱动 (对齐 vanilla Block.popResource/popExperience 同一套跳过纪律的验证
+     * 手法), 不必手搭一整条 BlockItem.place 流水线: 先用真实 increment 记一台已放置的台, 再在
+     * restoringBlockSnapshots=true 期间移除它 (模拟快照回滚), 断言计数不受影响; 随后在正常状态下 (标志位为
+     * false) 移除同一台, 断言计数照常回收, 证明新增的判据只挡快照回滚这一种场景, 不影响真实破坏路径。
+     *
+     * 删 onRemove 里新加的 {@code !level.restoringBlockSnapshots} 判据 -> 第一条 (回滚期不扣) 断言必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchRemovalDuringSnapshotRestoreDoesNotRecoverCount(GameTestHelper helper) {
+        ServerPlayer owner = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        MunitionsSavedData savedData = MunitionsSavedData.get(owner.server.overworld());
+        try {
+            helper.assertTrue(savedData.increment(owner.getUUID()) == 1,
+                    "seed: owner has 1 genuinely counted placement (mirrors a real MunitionsSystem.onBenchPlace)");
+
+            MunitionsBenchBlockEntity be = newBench(helper, owner);
+            BlockPos benchPos = be.getBlockPos();
+            net.minecraft.world.level.Level level = helper.getLevel();
+
+            // 模拟 ForgeHooks.onPlaceItemIntoWorld 取消放置后回滚快照的那个窗口: 此时的 setBlock(AIR) 与真实
+            // 破坏走的是同一个 LevelChunk.setBlockState -> oldState.onRemove 路径。
+            level.restoringBlockSnapshots = true;
+            level.setBlock(benchPos, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 3);
+            level.restoringBlockSnapshots = false;
+
+            helper.assertTrue(savedData.benchCount(owner.getUUID()) == 1,
+                    "a block update during snapshot restore (cancelled placement rollback) must NOT decrement "
+                            + "a count that was never incremented for it, got "
+                            + savedData.benchCount(owner.getUUID()));
+
+            // 正常破坏路径不受影响: 上面的 restore 已把该位置清成 AIR, 在同一相对坐标重新放一台 (newBench 固定
+            // 用 (0,1,0)), 在标志位为 false 时正常移除, 计数照常回收到 0 —— 证明新判据只挡快照回滚这一种场景。
+            newBench(helper, owner);
+            helper.getLevel().destroyBlock(benchPos, false);
+            helper.assertTrue(savedData.benchCount(owner.getUUID()) == 0,
+                    "a genuine destroy outside snapshot-restore still recovers the count normally, got "
+                            + savedData.benchCount(owner.getUUID()));
+            helper.succeed();
+        } finally {
+            savedData.decrement(owner.getUUID());
         }
     }
 

@@ -59,4 +59,37 @@ public final class StackData {
         setStackSize(entity, next);
         return next;
     }
+
+    /** 拆分保护期持久化键 (FR-5.1; {@link StackSplit#splitOne})。 */
+    public static final String NO_MERGE_UNTIL_KEY = "miningdim:StackNoMergeUntil";
+
+    /**
+     * 读拆分保护期截止的绝对 gameTime。缺键返回 0 (即 "无保护期", 因为合法 gameTime 恒 >=0 且调用方总用
+     * {@code level.getGameTime() < until} 判定, 0 必然已过期)。
+     *
+     * 用绝对 gameTime 而非倒计时 tick: 实体可能在保护期内被卸载 (区块 unload) 又重载, 绝对时刻随 NBT 落盘后语义
+     * 仍正确 (重载后直接与新的当前 gameTime 比较即可); 倒计时则需要每 tick 主动递减, 卸载期间无法递减会导致
+     * 保护期在实体离线时不消耗或语义漂移。
+     */
+    public static long getNoMergeUntil(Entity entity) {
+        if (!entity.getPersistentData().contains(NO_MERGE_UNTIL_KEY)) {
+            return 0L;
+        }
+        return entity.getPersistentData().getLong(NO_MERGE_UNTIL_KEY);
+    }
+
+    /** 写拆分保护期截止的绝对 gameTime (调用方传 {@code level.getGameTime() + graceTicks})。 */
+    public static void setNoMergeUntil(Entity entity, long gameTime) {
+        entity.getPersistentData().putLong(NO_MERGE_UNTIL_KEY, gameTime);
+    }
+
+    /**
+     * 清除本系统在该实体上写入的全部 persistentData 键 (堆叠数 + 拆分保护期)。供旧存档消毒用
+     * (见 {@link StackingSystem#onEntityJoinLevel}): 白名单化后, 非白名单实体身上残留的旧版堆叠数据须整体清除,
+     * 而非只清其中一个键。
+     */
+    public static void clearStackData(Entity entity) {
+        entity.getPersistentData().remove(KEY);
+        entity.getPersistentData().remove(NO_MERGE_UNTIL_KEY);
+    }
 }

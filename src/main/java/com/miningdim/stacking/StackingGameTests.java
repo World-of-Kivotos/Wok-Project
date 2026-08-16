@@ -1,5 +1,6 @@
 package com.miningdim.stacking;
 
+import com.miningdim.champion.MiningChampions;
 import com.miningdim.core.MiningConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
@@ -10,11 +11,16 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Chicken;
 import net.minecraft.world.entity.animal.Cow;
+import net.minecraft.world.entity.animal.IronGolem;
 import net.minecraft.world.entity.animal.Sheep;
 import net.minecraft.world.entity.animal.Wolf;
+import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.monster.Zombie;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -667,5 +673,233 @@ public final class StackingGameTests {
             ticks++;
         }
         return ticks;
+    }
+
+    // ============================================================
+    // T1 白名单准入与旧数据消毒 (findings F002/F004/F005/F018/F037; 主控决策 D1)
+    // ============================================================
+
+    // ------------------------------------------------------------
+    // F004: 玩家永不合并 (白名单闸挡在 isAlive/isChampion 等一切后续判定之前)
+    // ------------------------------------------------------------
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void f004_playerNeverStacks(GameTestHelper helper) {
+        StackingConfig.ensureLoadedForTest();
+        Player mock = helper.makeMockPlayer();
+        helper.assertFalse(StackMerge.canStack(mock),
+                "mock player is never a stacking candidate (F004 whitelist gate); "
+                        + "removing StackMerge's whitelist check would let a live, unnamed, untamed mock "
+                        + "player fall through to true");
+        helper.succeed();
+    }
+
+    // ------------------------------------------------------------
+    // F005: 村民 / 盔甲架 / 铁傀儡永不合并 (装备与交易表不得被误并销毁)
+    // ------------------------------------------------------------
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void f005_villagerArmorStandIronGolemNeverStack(GameTestHelper helper) {
+        StackingConfig.ensureLoadedForTest();
+        BlockPos origin = new BlockPos(1, 2, 1);
+
+        List<Villager> villagers = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            villagers.add(helper.spawn(EntityType.VILLAGER, origin));
+        }
+        List<ArmorStand> stands = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            stands.add(helper.spawn(EntityType.ARMOR_STAND, origin));
+        }
+        IronGolem golem = helper.spawn(EntityType.IRON_GOLEM, origin);
+
+        for (Villager v : villagers) {
+            helper.assertFalse(StackMerge.canStack(v), "villager never a stacking candidate (F005 whitelist gate)");
+        }
+        for (ArmorStand a : stands) {
+            helper.assertFalse(StackMerge.canStack(a), "armor stand never a stacking candidate (F005 whitelist gate)");
+        }
+        helper.assertFalse(StackMerge.canStack(golem), "iron golem never a stacking candidate (F005 whitelist gate)");
+
+        List<net.minecraft.world.entity.Entity> all = new ArrayList<>();
+        all.addAll(villagers);
+        all.addAll(stands);
+        all.add(golem);
+
+        int discarded = StackMerge.mergeCandidates(all);
+        helper.assertTrue(discarded == 0,
+                "villagers/armor stands/iron golem never merge (zero discards), got discarded=" + discarded);
+
+        long alive = all.stream().filter(net.minecraft.world.entity.Entity::isAlive).count();
+        helper.assertTrue(alive == 6, "all 6 non-whitelisted entities remain alive, got " + alive);
+        for (net.minecraft.world.entity.Entity e : all) {
+            helper.assertTrue(!StackData.hasStackData(e), "entity never received stack data, type=" + e.getType());
+        }
+        helper.succeed();
+    }
+
+    // ------------------------------------------------------------
+    // F002/F018: 矿洞 SpawnTier 刷怪池的敌对怪 (以 zombie 为代表) 永不合并
+    // ------------------------------------------------------------
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void f002_f018_hostileMiningSpawnsNeverStack(GameTestHelper helper) {
+        StackingConfig.ensureLoadedForTest();
+        BlockPos origin = new BlockPos(1, 2, 1);
+
+        List<Zombie> zombies = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            zombies.add(helper.spawn(EntityType.ZOMBIE, origin));
+        }
+
+        int discarded = StackMerge.mergeCandidates(new ArrayList<>(zombies));
+        helper.assertTrue(discarded == 0,
+                "hostile mobs from the mining spawn pool never merge (zero discards), got discarded=" + discarded);
+
+        long alive = zombies.stream().filter(net.minecraft.world.entity.Entity::isAlive).count();
+        helper.assertTrue(alive == 4, "all 4 zombies remain alive after merge attempt, got " + alive);
+        for (Zombie z : zombies) {
+            helper.assertTrue(!StackData.hasStackData(z), "zombie never received stack data");
+        }
+        helper.succeed();
+    }
+
+    // ------------------------------------------------------------
+    // F037: 自研精英怪永不合并 (纵深防御: MiningChampions.isChampion 闸, 即便类型在白名单内)
+    // ------------------------------------------------------------
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void f037_championCowNeverStacksDespiteWhitelistedType(GameTestHelper helper) {
+        StackingConfig.ensureLoadedForTest();
+        BlockPos origin = new BlockPos(1, 2, 1);
+
+        Cow champion = helper.spawn(EntityType.COW, origin);
+        MiningChampions.get(champion).orElseThrow().promote(3, java.util.Map.of(), 100.0D);
+        helper.assertTrue(MiningChampions.isChampion(champion), "cow was promoted to a 3-star champion");
+        helper.assertFalse(StackMerge.canStack(champion),
+                "champion cow is excluded from stacking despite EntityType.COW being whitelisted "
+                        + "(F037 defense-in-depth gate); removing the champion check would let it pass canStack");
+
+        Cow plain = helper.spawn(EntityType.COW, origin);
+        int discarded = StackMerge.mergeCandidates(List.of(champion, plain));
+        helper.assertTrue(discarded == 0,
+                "champion cow and plain cow never merge (zero discards), got discarded=" + discarded);
+        helper.assertTrue(champion.isAlive() && plain.isAlive(), "both cows remain alive after merge attempt");
+        helper.succeed();
+    }
+
+    // ------------------------------------------------------------
+    // 白名单正向准入: 猪/鸡/牛各 4 只同点合并为 1 堆叠 x4 (防 "一刀切全不堆" 的假修复; 羊已被 ac1 覆盖)
+    // ------------------------------------------------------------
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void whitelistAdmitsPigChickenCowFourIntoOneStack(GameTestHelper helper) {
+        StackingConfig.ensureLoadedForTest();
+        BlockPos origin = new BlockPos(1, 2, 1);
+        assertFourOfWhitelistedTypeMergeToOneStack(helper, EntityType.PIG, origin);
+        assertFourOfWhitelistedTypeMergeToOneStack(helper, EntityType.CHICKEN, origin);
+        assertFourOfWhitelistedTypeMergeToOneStack(helper, EntityType.COW, origin);
+        helper.succeed();
+    }
+
+    /**
+     * 白名单正向准入断言: 同点 spawn 4 只 type, 合并后必须 discarded==3 / 恰 1 只存活 / StackSize==4 /
+     * 显示名含 "x4"。删掉白名单中该 type 的条目 -> mergeCandidates 直接对该组返回 0 (canStack 全灭) -> 必挂。
+     */
+    private static <E extends net.minecraft.world.entity.Entity> void assertFourOfWhitelistedTypeMergeToOneStack(
+            GameTestHelper helper, EntityType<E> type, BlockPos origin) {
+        List<E> group = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            group.add(helper.spawn(type, origin));
+        }
+
+        int discarded = StackMerge.mergeCandidates(new ArrayList<>(group));
+        helper.assertTrue(discarded == 3,
+                "4 " + type + " merge into one stack (3 discarded), got discarded=" + discarded);
+
+        List<E> survivors = group.stream().filter(net.minecraft.world.entity.Entity::isAlive).toList();
+        helper.assertTrue(survivors.size() == 1,
+                "exactly one " + type + " survivor after merge, got " + survivors.size());
+        E survivor = survivors.get(0);
+        helper.assertTrue(StackData.getStackSize(survivor) == 4,
+                "survivor stack size 4 for " + type + ", got " + StackData.getStackSize(survivor));
+        helper.assertTrue(survivor.getCustomName() != null && survivor.getCustomName().getString().contains("x4"),
+                "survivor custom name contains x4 for " + type + ", got " + (survivor.getCustomName() == null
+                        ? "<null>" : survivor.getCustomName().getString()));
+    }
+
+    // ------------------------------------------------------------
+    // 总开关 (StackingConfig.ENABLED) 只关新合并, 不得掐断既有堆叠的结算路径 (StackDeath/StackPassive/StackSplit
+    // 均经 StackMerge.canStack 判定是否仍是合法堆叠个体; 若实现者误把 ENABLED 塞进 canStack, 已成堆叠的牛
+    // 会在关停期间被结算 handler 误判为 "不再是堆叠成员")。
+    // ------------------------------------------------------------
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void enabledSwitchGatesOnlyNewMergesNotExistingSettlement(GameTestHelper helper) {
+        StackingConfig.ensureLoadedForTest();
+        boolean prevEnabled = StackingConfig.ENABLED.get();
+        StackingConfig.ENABLED.set(false);
+        try {
+            BlockPos origin = new BlockPos(1, 2, 1);
+            Cow cow = helper.spawn(EntityType.COW, origin);
+            StackData.setStackSize(cow, 8);
+
+            helper.assertTrue(StackMerge.canStack(cow),
+                    "canStack still true for an already-formed stack while ENABLED=false: "
+                            + "the kill switch stops the periodic scan from finding NEW merge candidates "
+                            + "(StackingSystem.onServerTick), it must not be wired into canStack itself, "
+                            + "otherwise StackDeath/StackPassive/StackSplit would stop settling this stack's "
+                            + "8 individuals while the switch is off");
+        } finally {
+            StackingConfig.ENABLED.set(prevEnabled);
+        }
+        helper.succeed();
+    }
+
+    // ------------------------------------------------------------
+    // F004/F005 旧存档消毒 (StackingSystem.onEntityJoinLevel): 白名单化前写下的脏堆叠数据须整体回收,
+    // 系统生成的 "xN" 标签一并清除, 但玩家用命名牌覆盖过的名字必须保留。
+    // ------------------------------------------------------------
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void staleStackDataSanitizedOnEntityJoinLevelPreservesPlayerNames(GameTestHelper helper) {
+        StackingConfig.ensureLoadedForTest();
+        BlockPos origin = new BlockPos(1, 2, 1);
+        StackingSystem system = new StackingSystem();
+
+        // 案例 A: 旧版本 (黑名单式 canStack) 曾把村民并进堆叠并打上系统生成的 "xN" 标签; 白名单化后村民
+        // 永久无法再走 canStack, 该数据是死数据 -- 必须被整体回收, 标签也必须清 (不能继续误导玩家)。
+        Villager dirty = helper.spawn(EntityType.VILLAGER, origin);
+        StackData.setStackSize(dirty, 5);
+        net.minecraft.network.chat.Component staleLabel = net.minecraft.network.chat.Component.empty()
+                .append(dirty.getType().getDescription())
+                .append(net.minecraft.network.chat.Component.literal(" x5"));
+        dirty.setCustomName(staleLabel);
+        dirty.setCustomNameVisible(true);
+
+        system.onEntityJoinLevel(new EntityJoinLevelEvent(dirty, helper.getLevel()));
+
+        helper.assertTrue(!StackData.hasStackData(dirty),
+                "stale StackSize/NoMergeUntil cleared after sanitize (F004/F005 legacy save cleanup); "
+                        + "deleting the onEntityJoinLevel handler would leave this true");
+        helper.assertTrue(dirty.getCustomName() == null,
+                "stale system-generated 'xN' label cleared after sanitize, got "
+                        + (dirty.getCustomName() == null ? "<null>" : dirty.getCustomName().getString()));
+
+        // 案例 B: 玩家事后用命名牌把同一只村民重命名为 "Bob"。堆叠数据仍须清 (仍是死数据), 但 "Bob" 这个
+        // 玩家命名绝不能被当成系统标签误删 -- 只有 CustomName 恰好等于 applyLabel 会生成的那串才清名。
+        Villager named = helper.spawn(EntityType.VILLAGER, origin);
+        StackData.setStackSize(named, 5);
+        named.setCustomName(net.minecraft.network.chat.Component.literal("Bob"));
+        named.setCustomNameVisible(true);
+
+        system.onEntityJoinLevel(new EntityJoinLevelEvent(named, helper.getLevel()));
+
+        helper.assertTrue(!StackData.hasStackData(named),
+                "stale stack data cleared even when the entity carries a player-given name");
+        helper.assertTrue(named.getCustomName() != null && "Bob".equals(named.getCustomName().getString()),
+                "player-given name tag 'Bob' is preserved (not deleted) by sanitize, got "
+                        + (named.getCustomName() == null ? "<null>" : named.getCustomName().getString()));
+        helper.succeed();
     }
 }

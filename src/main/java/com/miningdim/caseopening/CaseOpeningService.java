@@ -53,6 +53,9 @@ public final class CaseOpeningService {
     private final Map<UUID, Long> lastNewOpenTick = new HashMap<>();
     /** A successful full reconciliation is needed only once per server process; a hard crash clears this set. */
     private final Set<UUID> recoveryAuditedPlayers = new HashSet<>();
+    // 必须是实例字段而非 static: ServerStopping 时 CaseServices.reset() 会丢掉本实例, 缓存要跟着一起死,
+    // 否则单人存档换世界会带着上一个世界的归属判定。
+    private final CaseOwnershipCache ownershipCache = new CaseOwnershipCache();
 
     public CaseOpeningService(CaseDao dao, CaseEconomyOperations economy, CaseRoller roller,
                               BooleanSupplier enabled, BooleanSupplier taczLoaded,
@@ -210,7 +213,32 @@ public final class CaseOpeningService {
     /** TaCZ event boundary: validates the exact gun stack involved in draw/fire/shoot. */
     boolean enforceGunStack(ServerPlayer player, ItemStack stack) {
         return taczLoaded.getAsBoolean()
-                && CaseTaczBridge.enforce(player, stack, dao, this::isEconomySettled);
+                && CaseTaczBridge.enforce(player, stack, this::authorizedSkin);
+    }
+
+    /**
+     * 归属判定的缓存穿透点: 命中直接返回, 未命中才落 SQL 并只在通过时写回。
+     *
+     * dao.isOpeningSettled 在开箱行缺失时会抛 CaseStoreException —— 那是数据损坏, 必须原样冒泡,
+     * 不能在这里 try/catch 吞掉伪装成"未授权"。
+     */
+    CaseOwnershipCache.Grant authorizedSkin(UUID ownerId, UUID assetId) {
+        CaseOwnershipCache.Grant cached = ownershipCache.get(ownerId, assetId);
+        if (cached != null) {
+            return cached;
+        }
+        SkinAssetRow asset = dao.findOwnedAsset(ownerId, assetId);
+        if (asset == null || !isEconomySettled(asset)) {
+            return null;
+        }
+        CaseOwnershipCache.Grant grant = new CaseOwnershipCache.Grant(asset.displayId(), asset.gunId());
+        ownershipCache.put(ownerId, assetId, grant);
+        return grant;
+    }
+
+    /** 登出回收: 缓存内容不随玩家离线过期, 但没有必要继续为已离线的玩家占内存。 */
+    public void forgetPlayer(UUID ownerId) {
+        ownershipCache.forget(ownerId);
     }
 
     private boolean integrationAvailable() {

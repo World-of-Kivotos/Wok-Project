@@ -386,6 +386,85 @@ public final class MiningStoreGameTests {
     }
 
     /**
+     * F070: 全新库应用统一 schema 后, {@code pending_payout} 按 {@code seller_uuid} 过滤必须真的走
+     * {@link MiningSchema} V4 新建的 idx_pending_payout_seller 索引, 而不仅仅是"索引存在"。
+     * 缺该索引时 SQLite 的查询计划会退化成全表 SCAN, 判据必须落在 EXPLAIN QUERY PLAN 的 detail 文本上。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void pendingPayoutSellerIndexIsUsedByTheQueryPlanner(GameTestHelper helper) {
+        Connection conn = MiningDb.openInMemory();
+        try {
+            MiningSchema.apply(conn);
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == MiningSchema.MIGRATIONS.size(),
+                    "全新库应用统一 schema 后 user_version 必须等于迁移总数 " + MiningSchema.MIGRATIONS.size()
+                            + ", 实为 " + SchemaMigrator.userVersion(conn));
+
+            String plan = explainQueryPlanDetail(conn,
+                    "SELECT amount FROM pending_payout WHERE seller_uuid = 'x'");
+            helper.assertTrue(plan.contains("idx_pending_payout_seller"),
+                    "按 seller_uuid 查询 pending_payout 必须走 idx_pending_payout_seller 索引 (缺索引时会是"
+                            + " SCAN), 实际查询计划: " + plan);
+        } finally {
+            MiningDb.close(conn);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * F070 核心: 停在 V3 的老库 (idx_pending_payout_seller 尚不存在) 升级到最新版时, {@link SchemaMigrator}
+     * 只能补跑 V4, 严禁重跑已经执行过的 V1 (否则 CREATE TABLE 撞已存在的表直接抛错)。升级前后
+     * pending_payout 里已有的行必须逐行逐值原样保留, 且升级后同样真走新建的索引。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void legacyDatabaseStoppedAtV3GetsTheIndexOnUpgradeWithoutLosingRows(GameTestHelper helper) {
+        Connection conn = MiningDb.openInMemory();
+        try {
+            SchemaMigrator.migrate(conn, MiningSchema.MIGRATIONS.subList(0, 3));
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == 3,
+                    "停在 V3 的老库 user_version 必须是 3, 实为 " + SchemaMigrator.userVersion(conn));
+
+            // 老库升级前已有若干条待结款行 (真实存档场景); 记下确切行数与其中两行的金额, 升级后必须一条不少、
+            // 一分不差。
+            exec(conn, "INSERT INTO pending_payout (seller_uuid, amount, currency, created_at) VALUES "
+                    + "('" + LEGACY_PAYOUT_SELLER_ID + "', 1500, 'CREDIT', 9001)");
+            exec(conn, "INSERT INTO pending_payout (seller_uuid, amount, currency, created_at) VALUES "
+                    + "('" + LEGACY_PAYOUT_SELLER_ID + "', 300, 'CREDIT', 9002)");
+            exec(conn, "INSERT INTO pending_payout (seller_uuid, amount, currency, created_at) VALUES "
+                    + "('" + LEGACY_PAYOUT_OTHER_SELLER_ID + "', 42, 'CREDIT', 9003)");
+            int rowsBefore = countRows(conn, "pending_payout");
+            helper.assertTrue(rowsBefore == 3, "升级前必须先落 3 条待结款行, 实为 " + rowsBefore);
+
+            MiningSchema.apply(conn);
+
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == MiningSchema.MIGRATIONS.size(),
+                    "老库升级后 user_version 必须推进到迁移总数 " + MiningSchema.MIGRATIONS.size()
+                            + ", 实为 " + SchemaMigrator.userVersion(conn));
+
+            String plan = explainQueryPlanDetail(conn,
+                    "SELECT amount FROM pending_payout WHERE seller_uuid = 'x'");
+            helper.assertTrue(plan.contains("idx_pending_payout_seller"),
+                    "老库升级后按 seller_uuid 查询 pending_payout 也必须走新建的索引, 实际查询计划: " + plan);
+
+            int rowsAfter = countRows(conn, "pending_payout");
+            helper.assertTrue(rowsAfter == 3,
+                    "老库升级 (仅补索引) 不得丢失或增删任何一行待结款, 实为 " + rowsAfter);
+            long firstAmount = singleLong(conn,
+                    "SELECT amount FROM pending_payout WHERE seller_uuid='" + LEGACY_PAYOUT_SELLER_ID
+                            + "' AND created_at=9001");
+            helper.assertTrue(firstAmount == 1500L,
+                    "老库升级不得改动既有行的列值, created_at=9001 那行 amount 必须仍是 1500, 实为 " + firstAmount);
+            long secondAmount = singleLong(conn,
+                    "SELECT amount FROM pending_payout WHERE seller_uuid='" + LEGACY_PAYOUT_SELLER_ID
+                            + "' AND created_at=9002");
+            helper.assertTrue(secondAmount == 300L,
+                    "老库升级不得改动既有行的列值, created_at=9002 那行 amount 必须仍是 300, 实为 " + secondAmount);
+        } finally {
+            MiningDb.close(conn);
+        }
+        helper.succeed();
+    }
+
+    /**
      * 导入带显式主键的行之后, 新挂单的自增 id 必须越过已导入的最大值。
      * 若自增序列没跟上, 第一笔新挂单就会撞上导入行的主键, 表现为开服后无人能挂单。
      */
@@ -436,6 +515,9 @@ public final class MiningStoreGameTests {
     private static final String JI_ASSET_ID = "a0000000-0000-4000-8000-00000000000c";
     private static final String LATE_EVIDENCE_OPENING_ID = "a0000000-0000-4000-8000-00000000000d";
     private static final String LATE_EVIDENCE_ASSET_ID = "a0000000-0000-4000-8000-00000000000e";
+
+    private static final String LEGACY_PAYOUT_SELLER_ID = "b0000000-0000-4000-8000-000000000001";
+    private static final String LEGACY_PAYOUT_OTHER_SELLER_ID = "b0000000-0000-4000-8000-000000000002";
 
     /**
      * 造一个合库之前格式的市场库文件。
@@ -561,6 +643,23 @@ public final class MiningStoreGameTests {
         } catch (SQLException e) {
             throw new MiningStoreException("查询失败: " + sql, e);
         }
+    }
+
+    /**
+     * 拼接 {@code EXPLAIN QUERY PLAN} 每一行的 detail 文本 (可能多行, 如涉及连接查询)。
+     * 判据必须落在这段文本上而不是"索引对象是否存在于 sqlite_master"——后者测不出查询实际有没有用到索引。
+     */
+    private static String explainQueryPlanDetail(Connection conn, String sql) {
+        StringBuilder detail = new StringBuilder();
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery("EXPLAIN QUERY PLAN " + sql)) {
+            while (rs.next()) {
+                detail.append(rs.getString("detail")).append('\n');
+            }
+        } catch (SQLException e) {
+            throw new MiningStoreException("EXPLAIN QUERY PLAN 查询失败: " + sql, e);
+        }
+        return detail.toString();
     }
 
 }

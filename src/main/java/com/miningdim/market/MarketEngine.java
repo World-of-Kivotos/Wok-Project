@@ -36,8 +36,10 @@ import java.util.UUID;
  * 服务端权威 (架构铁律 1): 卖家/买家身份取 action 的 sender (ServerPlayer), 不信前端 uuid。坏输入/越权 (currency
  * 非 CREDIT / 槽位空 / 数量不足 / 买自己挂单 / 余额不足 / 背包满) 一律自然抛 IllegalArgumentException/IllegalStateException
  * 冒泡到 {@link com.miningdim.webui.server.WebUiServerDispatcher} 的 Gateway 边界, 引擎内不 try-catch 生吞 (CLAUDE.md C9)。
- * 唯一的例外是标的白名单拒绝 ({@link MarketTradeWhitelist}): 它抛带稳定错误码的 {@link WebUiBusinessException},
- * 因为面板要在按钮上提前把同一条规则显示出来, 需要一个前端能认的码而不是一句裸文本 (先例: CaseOpeningService)。
+ * 例外走带稳定错误码的 {@link WebUiBusinessException}, 现有两条: 标的白名单拒绝 ({@link MarketTradeWhitelist}),
+ * 因为面板要在按钮上提前把同一条规则显示出来, 需要一个前端能认的码而不是一句裸文本 (先例: CaseOpeningService);
+ * 以及托管物不可解析拒绝 ({@link com.miningdim.webui.server.WebUiErrorCodes#ESCROW_UNRESOLVABLE}), 因为它是
+ * "卖家可挽回" (装回所属 mod 后能撤单) 而非纯坏输入, 前端需要一个稳定码而不是裸文本来区分对待。
  *
  * 成交原子性 (契约第 4 节 + 对 A 实交付的适配): A 的 {@link MarketDao} 刻意不暴露 Connection (业务层只经接口操作),
  * 故 markSold + insertTxn 走 SQLite autocommit 各自原子 (DAO 单方法内部原子), MC 服务端单线程单写者下顺序执行无并发,
@@ -194,6 +196,14 @@ public final class MarketEngine {
 
         // 托管物品反序列化 (含整单 count); 交付件 = 买走的 buyCount 个。先做背包容量预检 (不够则抛, 此时未扣款)。
         ItemStack escrow = deserializeStack(row.itemNbt());
+        // 可解析性守卫: 位置必须在 copy()/setCount() 之前 —— 1.20.1 的 defaulted 注册表把无法解析的 id 兜成
+        // minecraft:air (isEmpty() 为 true), 而空栈的 copy() 直接返回全局 ItemStack.EMPTY 单例, 之后的裸
+        // setCount 会污染这个共享单例。此刻尚未扣款、未改挂单状态, 拒绝时状态干净 (同 place 白名单守卫 :112-114 的理由)。
+        if (escrow.isEmpty()) {
+            throw new WebUiBusinessException(WebUiErrorCodes.ESCROW_UNRESOLVABLE,
+                    "该挂单托管的物品当前无法识别 (可能是所属 mod 已被卸载或物品已变更), 暂时无法购买", false,
+                    Map.of("listingId", Long.toString(listingId), "itemId", row.itemId()));
+        }
         ItemStack delivered = escrow.copy();
         delivered.setCount(buyCount);
         if (!canInsert(buyer.getInventory(), delivered)) {
@@ -268,6 +278,15 @@ public final class MarketEngine {
         }
 
         ItemStack item = deserializeStack(row.itemNbt());
+        // 可解析性守卫 (同 buy 的理由: 位置在 canInsert/copy 之前, 此刻未 markCancelled, 状态干净)。
+        // message 给卖家指明可退路径: 挂单行与托管 NBT 原样留在库里没有丢失, 装回该物品所属的 mod 后即可正常撤回;
+        // 在那之前这单既买不走也撤不掉 —— 这是唯一不销毁也不凭空补偿的处置 (补偿策略未拍板, 本次不做)。
+        if (item.isEmpty()) {
+            throw new WebUiBusinessException(WebUiErrorCodes.ESCROW_UNRESOLVABLE,
+                    "该挂单托管的物品当前无法识别 (可能是所属 mod 已被卸载或物品已变更), 挂单与托管数据原样保留, "
+                            + "装回该物品所属的 mod 后即可正常撤回, 暂时无法撤单", false,
+                    Map.of("listingId", Long.toString(listingId), "itemId", row.itemId()));
+        }
         // 先验空间: 背包满则抛, 不 markCancelled (物品仍在 DB 托管, 待背包腾空后再撤, 不丢失)。
         if (!canInsert(seller.getInventory(), item)) {
             throw new IllegalStateException("背包空间不足无法撤单退回 (listingId=" + listingId + ")");

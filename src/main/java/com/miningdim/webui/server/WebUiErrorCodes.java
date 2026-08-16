@@ -123,4 +123,14 @@ public final class WebUiErrorCodes {
      * 任何人都能无限次触发的 —— 那正是派发器注释里点名要防的 WARN 堆栈刷屏。
      */
     public static final String PERMISSION_DENIED = "PERMISSION_DENIED";
+
+    /**
+     * 挂单托管物的注册 id 当前解析不出来 (通常是托管时所属 mod 已被卸载, 或该物品 id 已变更):
+     * 反序列化落地的是 {@code ItemStack.EMPTY} (1.20.1 的 defaulted 注册表兜底), 不是真实物品。
+     * params: {@code listingId} 与 {@code itemId}。
+     *
+     * 抛出点两处: {@code MarketEngine.buy} 与 {@code MarketEngine.cancel}, 均在反序列化之后、
+     * 任何扣款/改状态之前拦下, 拒绝时状态干净。
+     */
+    public static final String ESCROW_UNRESOLVABLE = "ESCROW_UNRESOLVABLE";
 }

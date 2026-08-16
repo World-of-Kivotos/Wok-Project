@@ -1,5 +1,8 @@
 package com.miningdim.client.webui;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -27,6 +30,7 @@ import com.google.gson.JsonParser;
 import com.miningdim.caseopening.CaseSounds;
 import com.miningdim.network.C2SWebUiRequest;
 import com.miningdim.network.MiningNetwork;
+import com.miningdim.webui.WebUiPageUrl;
 
 /**
  * cefQuery 桥核心 (客户端宿主侧, 仅 Dist.CLIENT classload)。一端接 JS 的 window.miningdimQuery,
@@ -41,6 +45,26 @@ import com.miningdim.network.MiningNetwork;
  * requestId 仅 Java 客户端可见 (AtomicLong 自增), 不进 JS 信封; JS 侧靠 cefQuery 自带 callback 关联 (共享契约 3)。
  *
  * 服务端权威 (架构铁律 1): 本桥不写任何世界状态, 只转发意图与渲染结果。
+ *
+ * onQuery/onScreenClosed 返回给前端的 failure code 表:
+ *   -1  信封非法 (缺 action / JSON 解析失败) 或本地动作 (client.*) 自身失败;
+ *   -2  服务端 30 秒内未响应, 请求超时;
+ *   -3  页面不可信: 发起方不是顶层帧, 或其文档 URL 与登记的允许页面不匹配 (子帧/iframe/被导航到别处);
+ *   -4  界面已关闭, 请求根本没有发出去 (screenOpen=false 时的本地短路), 前端可安全忽略/退避轮询;
+ *   -5  界面在请求发出后、响应回来前被关闭, 请求可能已经在服务端落账, 前端应提示"操作可能已完成,
+ *       请刷新确认" 而不是当作单纯失败处理。
+ *
+ * 复核修正: 上一句"前端 errorText.ts 据此选择提示文案"与实际链路不符, 已删除 —— webui/src/lib/errorText.ts
+ * 的 businessErrorText 只按服务端业务失败信封 (JSON 里的 errorCode 字符串) 查表, 而本类这五个码是 CEF
+ * cefQuery 的宿主级失败码 (数字), 走的是 webui/src/lib/bridge.ts 的 toCallError: 非 0 码一律
+ * {@code business = null}, callErrorText 在 business 为 null 时直接 {@code return error.message} ——
+ * 也就是说, 这里 callback.failure 第二参传的字符串会被玩家原样看到, 不会再经过任何码表翻译。
+ * 因此这五个码的 message 必须是可以直接给玩家看的中文句子, 不能写成给日志看的英文诊断串。
+ *
+ * 已知遗留 (跨车道缺口, 本类无法独自补齐): webui/src/lib/bridge.ts 的 WebUiCallError code 注释表目前只列到
+ * -3, webui/src/lib/errorText.ts 完全没有按宿主数字码分支的入口; -4/-5 若要做到"前端保留上一次数据 + 退避
+ * 轮询"而不是把整个查询状态清成 error/null (webui/src/mock/useMockWorld.ts 的 useMockAction 对任何 reject
+ * 都会这样清), 需要 webui/ 前端车道配套改造, 不在本 Java 文件的改动范围内。
  */
 public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
 
@@ -70,6 +94,12 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
     private volatile WebBrowser browser;
     @Nullable
     private volatile String allowedPageUrl;
+    // 界面是否处于打开状态 (F043): 只跟随 WebUiClient.openScreen/onScreenClosed, 与 allowedPageUrl
+    // 是否非空是两条独立的门 —— 页面可信与界面在不在屏幕上是两件不同的事。
+    private volatile boolean screenOpen;
+    // 上一次因页面不可信被拒时记录的实际文档 URL (onQuery 拒绝日志去重用); 见 onQuery 内注释。
+    @Nullable
+    private volatile String lastRejectedPageUrl;
 
     public void setBrowser(@Nullable WebBrowser browser) {
         this.browser = browser;
@@ -85,6 +115,10 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
      * 放宽的只是"页面从哪来", **没有放宽"哪个页面可信"** —— onQuery 仍要求发起方是顶层帧且其 URL 精确等于本值。
      * 挡住子帧/iframe/导航后页面的是那道精确匹配, 与 scheme 无关, 对 http 页面同样成立。信任判定点在宿主
      * {@link WebUiClient}: 它只会加载 jar 内置页或运维配置的前端地址, 二者之外的 URL 永远不会传到这里。
+     *
+     * 登记值经 {@link WebUiPageUrl#normalize} 归一化后存入; onQuery 侧对 CEF 实时回读的文档 URL 也过
+     * 同一套归一化再比对 (见 {@link WebUiPageUrl#matchesNormalized}), 尾斜杠/大小写/默认端口/百分号
+     * 编码差异不再构成拒绝。
      */
     public void setAllowedPage(String pageUrl) {
         if (!pageUrl.startsWith("data:text/html")
@@ -93,7 +127,12 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
             throw new IllegalArgumentException(
                     "WebUI page must be an in-mod HTML data URI or an http(s) front-end URL");
         }
-        this.allowedPageUrl = pageUrl;
+        this.allowedPageUrl = WebUiPageUrl.normalize(pageUrl);
+    }
+
+    /** 界面已打开 (由 {@link WebUiClient#openScreen} 在 {@code mc.setScreen} 之前调用)。 */
+    public void onScreenOpened() {
+        this.screenOpen = true;
     }
 
     /**
@@ -108,7 +147,17 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
                            String request, boolean persistent, CefQueryCallback callback) {
         String allowed = allowedPageUrl;
         if (allowed == null || cefBrowser == null || frame == null || !frame.isMain()
-                || !allowed.equals(cefBrowser.getURL())) {
+                || !WebUiPageUrl.matchesNormalized(allowed, cefBrowser.getURL())) {
+            // 诊断日志: 归一化能盖住尾斜杠/大小写/默认端口这类字面差异, 但盖不住 301/302 或 HSTS
+            // 升级 (那是真的换了文档)。部署当天必须能一眼看出配的是什么、浏览器实际停在哪, 而不是
+            // 只看到一个 -3。去重按 (实际 URL) 键: 前端每 3 秒轮询一次, 不去重就是刷屏。
+            if (cefBrowser != null) {
+                String actual = cefBrowser.getURL();
+                if (!Objects.equals(actual, lastRejectedPageUrl)) {
+                    LOGGER.warn("WebUI 页面授权失败: 配置/登记页面为 {}, 浏览器实际停在 {}", allowed, actual);
+                    lastRejectedPageUrl = actual;
+                }
+            }
             callback.failure(-3, "WebUI query rejected: untrusted page or subframe");
             return true;
         }
@@ -130,6 +179,18 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
         String payloadJson = envelope.has("payload") && !envelope.get("payload").isJsonNull()
                 ? GSON.toJson(envelope.get("payload"))
                 : "{}";
+
+        // F043 关屏门: 界面关闭后请求根本不该发出去。-4 与 -3 是两个独立的失败码——
+        // -3 语义是"页面被塞进 iframe 或改过 location"(真安全问题), -4 语义是"界面已关闭,
+        // 请求原地短路", 前端据此保留上一次的好数据并退避轮询; 共用一个码会让排障指向一个不存在
+        // 的安全问题。这里不能干脆放行: SPA 在关屏后原样存活并继续按原节奏轮询, 放行就等于每个
+        // 关掉平板的玩家每 3 秒真打一次服务端主线程。只给 client.i18n 开口子, 因为它是纯本地、
+        // 零副作用的翻译键解析; client.playCaseSound 会在界面不可见时凭空放音效, 必须一起挡。
+        if (!screenOpen && !"client.i18n".equals(action)) {
+            // 中文文案, 不是英文诊断串: business=null 时这句话会被玩家原样看到 (见上方类注释)。
+            callback.failure(-4, "界面已关闭，请求未发送");
+            return true;
+        }
 
         // 客户端本地动作 (client.* 前缀): 不走服务端权威往返, 就地在客户端解析回调。
         // 目前只有 client.i18n —— 把翻译键解析成当前语言显示名 (专用服务器不加载 lang, 故中文名必须客户端解析)。
@@ -227,9 +288,32 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
         }
     }
 
-    /** 页面退出后丢弃全部在途 CEF callback, 并停止仍在播放的开箱 UI 音效。 */
+    /**
+     * 页面退出后逐个回失败在途 CEF callback, 并停止仍在播放的开箱 UI 音效。
+     *
+     * F043: 这里不再清空 {@code allowedPageUrl} —— 授权只跟随宿主加载了哪个页面 (setAllowedPage),
+     * 不跟随 Screen 开关。SPA 关屏后在后台继续存活并轮询, 若把授权也撤销, 每次轮询都会被 onQuery
+     * 判成"页面不可信"而不是"界面已关闭", 前端据此清空了本该保留的数据。改为置 {@code screenOpen=false},
+     * 由 onQuery 顶部的 F043 关屏门统一短路。
+     *
+     * F044: 在途请求逐个回 -5 而不是整批静默丢弃。-5 与短路用的 -4 是两个码: -4 表示请求压根没出门,
+     * 可以安全忽略; -5 表示请求已经发到服务端、可能已经落账 (玩家点了 market.buy 后立刻 ESC, 钱是
+     * 真扣了), 前端必须提示"操作可能已完成, 请刷新确认"而不是简单说失败。线程模型与 expireRequest
+     * 一致: 本方法经 WebUiScreen.cleanup -> WebUiClient.onScreenClosed 在客户端主线程调用, 不引入
+     * 新线程模型。
+     */
     public void onScreenClosed() {
-        allowedPageUrl = null;
+        screenOpen = false;
+        List<Long> inFlightRequestIds = new ArrayList<>(pending.keySet());
+        for (Long requestId : inFlightRequestIds) {
+            PendingQuery query = removePending(requestId);
+            if (query != null) {
+                // 中文文案, 不是英文诊断串 (见上方类注释): 请求已经发到服务端, 落账与否未知,
+                // 措辞必须明确提示玩家自行确认, 不能读起来像一次单纯的失败。
+                query.callback().failure(-5, "界面已关闭，本次操作是否已生效尚不确定，请刷新确认");
+            }
+        }
+        // 兜底残留 (理论上 removePending 已清空两个 map, 这里防御性收尾)。
         pending.clear();
         requestIdByCefQueryId.clear();
         CaseSounds.stopClient();

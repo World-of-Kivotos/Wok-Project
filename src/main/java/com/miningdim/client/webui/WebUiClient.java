@@ -92,14 +92,14 @@ public final class WebUiClient {
     }
 
     /**
-     * 打开正式前端 (键位入口与后续平板 hub 的唯一路径)。加载 {@link MiningClientConfig#WEBUI_URL} 配置的单一 URL;
-     * 面板路由由页面自身的 hash router 承担 (决策 J4), Java 侧不按面板换 URL。
+     * 打开正式前端 (键位入口与后续平板 hub 的唯一路径)。加载 {@link MiningClientConfig#webUiUrl()} 归一化后的
+     * 单一 URL; 面板路由由页面自身的 hash router 承担 (决策 J4), Java 侧不按面板换 URL。
      *
      * 与 jar 内置页的关键差异是 {@code forceReload=false}: 内置页是一次性展示 (开箱动画每次都该从头播), 而正式
      * 前端是常驻 SPA —— 每次按键都重载会丢掉已加载的应用状态并把路由弹回首页, 正是架构文档 10.5 要消除的开销。
      */
     public static void openWebUi() {
-        openScreen(MiningClientConfig.WEBUI_URL.get(), "WOK", false);
+        openScreen(MiningClientConfig.webUiUrl(), "WOK", false);
     }
 
     /** 打开 jar 内置的武器箱页面。页面仍走统一 cefQuery 桥, 仅展示与动画在客户端执行。 */
@@ -130,6 +130,8 @@ public final class WebUiClient {
         }
 
         // cefQuery 能触发扣费等权威动作, 因此桥只接受宿主本次明确加载的完整页面 URL。
+        // 页面可信 (setAllowedPage) 与界面是否显示 (onScreenOpened/onScreenClosed) 是两件事:
+        // 前者跟随宿主加载了哪个页面, 后者跟随 Screen 开关, 两者互不覆盖。
         BRIDGE.setAllowedPage(pageUrl);
         WebBrowser b = browser;
         if (b == null) {
@@ -148,6 +150,7 @@ public final class WebUiClient {
             b.loadURL(pageUrl);
             loadedUrl = pageUrl;
         }
+        BRIDGE.onScreenOpened();
         mc.setScreen(new WebUiScreen(b, net.minecraft.network.chat.Component.literal(title)));
     }
 

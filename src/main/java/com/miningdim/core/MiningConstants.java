@@ -12,7 +12,7 @@ import net.minecraft.world.level.dimension.DimensionType;
  * 杜绝跨子系统各写一份导致漂移。region 几何为设计文档第四章建议初值 (PENDING待校验),
  * 真正权威以维度 JSON 的 generator.settings 为准 (4.4), 本类常量作为 Java 默认值与 datapack 对齐。
  *
- * 难度模型 (R1/R2): 三个固定、独立、共享、常驻的区域在 XZ 平面并排, 每块 256x384x256, 一整块就是一个难度
+ * 难度模型 (R1/R2): 三个固定、独立、共享、常驻的区域在 XZ 平面并排, 每块 256x192x256, 一整块就是一个难度
  * (Easy/Medium/Hard)。难度由"玩家在哪一块 region"决定, 不再按 worldY 分带; 旧的难度子盒 Y 常量已删除。
  */
 public final class MiningConstants {
@@ -55,24 +55,39 @@ public final class MiningConstants {
     /** region 在 Z 方向格数, 必须为 16 的整数倍。 */
     public static final int REGION_SIZE_Z = 256;
 
-    /** region 垂直高度, 等于维度 height, 必须为 16 的倍数。 */
-    public static final int REGION_HEIGHT = 384;
+    /**
+     * region 垂直高度。必须等于 data/miningdim/dimension_type/mining.json 的 height;
+     * InstanceManager 启动期会与 ServerLevel.getHeight() 做自检, 不一致直接抛。
+     */
+    public static final int REGION_HEIGHT = 192;
 
     /** region 底部世界 Y, 等于维度 min_y。 */
     public static final int REGION_MIN_Y = -64;
 
     /** region 顶部世界 Y (开区间上界等价值: 体素 localY 范围 [0, REGION_HEIGHT))。 */
-    public static final int REGION_MAX_Y_EXCLUSIVE = REGION_MIN_Y + REGION_HEIGHT; // 320
+    public static final int REGION_MAX_Y_EXCLUSIVE = REGION_MIN_Y + REGION_HEIGHT; // 128
 
-    /** 相邻 region 之间缓冲带宽度 (区块数), >=1, 实心填充 (D1/C2)。 */
-    public static final int BUFFER_CHUNKS = 1;
+    /** 相邻 region 之间缓冲带宽度 (区块数), >=1, 实心填充 (D1/C2)。必须与 config 的 instance.bufferChunks 默认值一致。 */
+    public static final int BUFFER_CHUNKS = 2;
 
-    /** 相邻 region 之间缓冲带格数 = BUFFER_CHUNKS * 16 (设计文档 REGION_GAP=32 时取 2 区块; 此处以 BUFFER_CHUNKS 派生)。 */
-    public static final int REGION_GAP = 32;
+    /** 相邻 region 之间缓冲带格数 = BUFFER_CHUNKS * 16 (既有存档的 stride 288 依赖此值不变)。 */
+    public static final int REGION_GAP = BUFFER_CHUNKS * 16;
 
-    /** XZ 网格步长 = SIZE + GAP (派生量, 4.2)。 */
-    public static final int REGION_STRIDE_X = REGION_SIZE_X + REGION_GAP; // 288 (按 GAP=32; 文档建议 544 对应 GAP=288, 取 JSON 为权威时由 settings 覆盖)
+    /** XZ 网格步长 = SIZE + GAP; 与 RegionGrid 从 config 派生的运行期 stride 必须同值。 */
+    public static final int REGION_STRIDE_X = REGION_SIZE_X + REGION_GAP; // 288
     public static final int REGION_STRIDE_Z = REGION_SIZE_Z + REGION_GAP;
+
+    /**
+     * 相邻两代 region (滑动重置产出) 之间的最小空白带。必须大于原版最大视距 32 区块 (512 格),
+     * 否则旧 region 里的玩家会提前把下一块 region 的区块按 mining_wall 生成成整列基岩, 滑过去就是一坨实心基岩。
+     */
+    public static final int SLIDE_SEPARATION_BLOCKS = 1024;
+
+    /**
+     * 滑动游标的世界 X 硬上限 (世界边界 29,999,984 内留余量)。越界即抛异常暴露, 严禁绕回复用旧坐标——
+     * 旧坐标的区块文件仍在磁盘上, 复用就是把玩家挖空的旧图当新图发。
+     */
+    public static final int MAX_REGION_WORLD_X = 25_000_000;
 
     /** 网格原点世界坐标 (4.2)。 */
     public static final int REGION_ORIGIN_X = 0;
@@ -93,16 +108,16 @@ public final class MiningConstants {
     /** 三固定难度区域共用的网格单元 Z 列 (并排只在 X 轴展开)。 */
     public static final int FIXED_REGION_CELL_Z = 0;
 
-    // ---- 全区域 localY 区间 (R2: 难度=区域, 不再有难度子盒; 整块 384 高都属同一难度) ----
+    // ---- 全区域 localY 区间 (R2: 难度=区域, 不再有难度子盒; 整块 192 高都属同一难度) ----
     // 旧的 EASY/MEDIUM/HARD 子盒 worldY/localY 常量已删除 (难度不再由 worldY 决定)。可雕刻/出生扫描
     // 的 Y 范围现在是整块 region 的全高, 由下列全区间常量给出, 与具体难度无关。
 
     /** 全区域可用 localY 下界 (含) = 0。 */
     public static final int REGION_FULL_MIN_LOCAL_Y = 0;
     /** 全区域可用 localY 上界 (含) = REGION_HEIGHT - 1。 */
-    public static final int REGION_FULL_MAX_LOCAL_Y = REGION_HEIGHT - 1; // 383
+    public static final int REGION_FULL_MAX_LOCAL_Y = REGION_HEIGHT - 1; // 191
     /** 全区域可用 worldY 下界 (含) = REGION_MIN_Y。 */
     public static final int REGION_FULL_MIN_WORLD_Y = REGION_MIN_Y;            // -64
     /** 全区域可用 worldY 上界 (含) = REGION_MAX_Y_EXCLUSIVE - 1。 */
-    public static final int REGION_FULL_MAX_WORLD_Y = REGION_MAX_Y_EXCLUSIVE - 1; // 319
+    public static final int REGION_FULL_MAX_WORLD_Y = REGION_MAX_Y_EXCLUSIVE - 1; // 127
 }

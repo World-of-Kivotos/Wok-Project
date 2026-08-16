@@ -62,4 +62,17 @@ public interface IInstanceManager {
      * ResetService 做 NEW_SEED 重置时按 resetGeneration 自行调用 SeedUtil 派生新种子; 本方法给首次种子。
      */
     long nextSeedFor(long instanceId);
+
+    /**
+     * 滑动重置的几何搬迁 (13.4 / D3): 释放旧 region 的强加载票与体素缓存 -> 从随存档落盘的游标取一块从未
+     * 生成过的世界坐标 -> 写回实例 (regionBox + seed) -> 刷新 RegionLayout -> 重新提交生成。仅主线程。
+     * @param newSeed NEW_SEED 传 deriveNextResetSeed 的产出; SAME_SEED 传实例当前 seed
+     * @return 搬迁后的新 RegionBox
+     */
+    RegionBox slideRegion(long instanceId, long newSeed);
+
+    /**
+     * 推进随存档落盘的重置代数并派生该实例的新 seed (F089: 代数只在进程内存里会导致重启后复用同一批种子)。仅主线程。
+     */
+    long deriveNextResetSeed(long instanceId);
 }

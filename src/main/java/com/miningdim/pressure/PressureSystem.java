@@ -1,5 +1,6 @@
 package com.miningdim.pressure;
 
+import com.miningdim.core.MiningServices;
 import com.miningdim.core.Subsystem;
 import com.miningdim.trap.TrapSystem;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -36,6 +37,8 @@ public final class PressureSystem implements Subsystem {
             PlayerMiningData data = mobPressure.danger().get(player.getUUID());
             return data == null ? 0.0f : data.danger();
         });
+        // 滑动重置后按 instanceId 缓存的刷怪调度态/mob 索引必须失效重算 (D3)。
+        MiningServices.registerInstanceResetListener(mobPressure::onInstanceReset);
     }
 
     @Override

@@ -61,6 +61,8 @@ public final class TrapSystem implements Subsystem {
         instance = this;
         // 动态陷阱挂 forge 总线 tick 事件 (9.8 挂载点)。
         forgeBus.register(this);
+        // 滑动重置后按 instanceId 缓存的旧静态陷阱表 (旧几何/旧种子) 与动态引擎运行期状态必须失效重算 (D3)。
+        MiningServices.registerInstanceResetListener(this::invalidate);
         LOGGER.info("[miningdim] TrapSystem registered (static placement + dynamic engine on LevelTickEvent)");
     }
 

@@ -13,21 +13,23 @@ import java.util.concurrent.ConcurrentHashMap;
  * 线程纪律 (D8/12.4): 字段的写入 (playerSet 增删、genState/active 翻转、tick 标记) 只在服务端主线程发生;
  * 工作线程的离线生成回调经 server.execute 串行回主线程后才改 genState。volatile/并发集合是对
  * "读侧可能跨线程" (如调试快照、日志、生成线程读 seed/regionBox 等不可变量) 的防御, 不替代主线程串行写。
- * seed / difficulty / regionBox / instanceId 在创建后不可变, 生成线程只读它们, 故为 final。
+ * difficulty / instanceId 在创建后不可变, 为 final。seed / regionBox 会在滑动重置 (13.4/D3) 时被主线程
+ * 经 relocate() 改写一次, 故为 volatile —— 任何把 regionBox 缓存进长生命周期对象的子系统必须在实例重置后
+ * (经 IInstanceResetListener) 重建缓存, 否则读到陈旧几何。
  */
 public final class InstanceState {
 
     /** 持久自增主键, 全 mod 唯一, 不复用 (12.4)。 */
     private final long instanceId;
 
-    /** 实例确定性种子 (SeedUtil.deriveSeed 产出)。 */
-    private final long seed;
+    /** 实例确定性种子 (SeedUtil.deriveSeed 产出); 滑动重置时随 regionBox 一并改写, 见 relocate()。 */
+    private volatile long seed;
 
     /** 难度档, 决定矿物/陷阱/压力参数。 */
     private final Difficulty difficulty;
 
-    /** 该实例独占的 region 包围盒 (区块对齐, 实例间留缓冲带)。 */
-    private final RegionBox regionBox;
+    /** 该实例独占的 region 包围盒 (区块对齐, 实例间留缓冲带); 滑动重置时改写, 见 relocate()。 */
+    private volatile RegionBox regionBox;
 
     /** 私有实例归属键 (玩家 UUID 或队伍 id 的 UUID 形式); 共享实例为 null。 */
     private final UUID ownerKey;
@@ -83,6 +85,19 @@ public final class InstanceState {
 
     public RegionBox regionBox() {
         return regionBox;
+    }
+
+    /**
+     * 滑动重置: 把实例整块搬到一块从未生成过的新 region 并换种子 (13.4/D3)。
+     * 仅主线程, 仅 InstanceManager.slideRegion 调用。
+     * @throws IllegalArgumentException newRegionBox 为 null
+     */
+    public void relocate(RegionBox newRegionBox, long newSeed) {
+        if (newRegionBox == null) {
+            throw new IllegalArgumentException("InstanceState.relocate: newRegionBox must not be null");
+        }
+        this.regionBox = newRegionBox;
+        this.seed = newSeed;
     }
 
     /** 私有实例归属键; 共享实例为 null。 */
@@ -203,9 +218,11 @@ public final class InstanceState {
         long id = tag.getLong(K_ID);
         long seed = tag.getLong(K_SEED);
         Difficulty difficulty = Difficulty.byId(tag.getInt(K_DIFFICULTY));
+        // F088 存档迁移: 旧存档写的 regionBox 是 384 高 (originY=-64, sizeY=384), 而世界只有 REGION_HEIGHT(192)
+        // 高; originY/sizeY 一律归一到当前几何常量, X/Z 的 origin/size 原样保留 (不是业务兜底, 是几何对齐迁移)。
         RegionBox box = new RegionBox(
-                tag.getInt(K_OX), tag.getInt(K_OY), tag.getInt(K_OZ),
-                tag.getInt(K_SX), tag.getInt(K_SY), tag.getInt(K_SZ));
+                tag.getInt(K_OX), MiningConstants.REGION_MIN_Y, tag.getInt(K_OZ),
+                tag.getInt(K_SX), MiningConstants.REGION_HEIGHT, tag.getInt(K_SZ));
         UUID owner = null;
         if (tag.getBoolean(K_HAS_OWNER)) {
             owner = new UUID(tag.getLong(K_OWNER_MOST), tag.getLong(K_OWNER_LEAST));

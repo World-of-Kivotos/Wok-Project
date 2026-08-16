@@ -1,6 +1,7 @@
 package com.miningdim.worldgen;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.core.MiningServices;
 
 /**
  * 整块 region "可雕刻" local_y 区间 (设计文档 6.5; R2 改: 难度不再分子盒, 整块 384 高都属同一难度,
@@ -38,9 +39,14 @@ public final class CarveBounds {
         return EDGE_INSET;
     }
 
-    /** 可雕刻 local_x 上界 (含)。 */
+    /**
+     * 可雕刻 local_x 上界 (含)。region 实际边长取运行期 config 派生值 (instance.regionSizeChunks * 16,
+     * 与 RegionGrid.sizeX 同一公式), 不能用 MiningConstants.REGION_SIZE_X 硬编码 256: regionSizeChunks
+     * 一旦被运维改成非默认值, 用编译期常量算出的可雕刻边界会比 RegionGrid 实际产出的 region 宽度更窄
+     * 或更宽, 骨架/噪声阶段据此越界写体素, 静默错位而非报错 (分支复核 finding #3)。
+     */
     public static int maxLocalX() {
-        return MiningConstants.REGION_SIZE_X - 1 - EDGE_INSET;
+        return MiningServices.config().regionSizeChunks() * 16 - 1 - EDGE_INSET;
     }
 
     /** 可雕刻 local_z 下界 (含)。 */
@@ -48,8 +54,8 @@ public final class CarveBounds {
         return EDGE_INSET;
     }
 
-    /** 可雕刻 local_z 上界 (含)。 */
+    /** 可雕刻 local_z 上界 (含); 同 maxLocalX 的理由, 取运行期 config 派生边长。 */
     public static int maxLocalZ() {
-        return MiningConstants.REGION_SIZE_Z - 1 - EDGE_INSET;
+        return MiningServices.config().regionSizeChunks() * 16 - 1 - EDGE_INSET;
     }
 }

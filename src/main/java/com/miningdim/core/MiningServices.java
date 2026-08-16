@@ -24,6 +24,13 @@ public final class MiningServices {
     private static IResetService resetService;
     private static ISpawnService spawnService;
 
+    /**
+     * 实例重置监听器 (13.4/D3)。与上面的单例门面不同, 这一路是多播的: 陷阱静态表、铺矿表、出生池、
+     * 刷怪调度态四个子系统都要在实例被滑动重置后各自清缓存, 不能只挂一个实现。
+     */
+    private static final java.util.List<IInstanceResetListener> instanceResetListeners =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+
     // ---- 注册 (子系统在 Subsystem.register 内调用) ----
 
     public static void registerInstanceManager(IInstanceManager service) {
@@ -76,6 +83,21 @@ public final class MiningServices {
         return require(spawnService, "ISpawnService");
     }
 
+    /** 注册一个实例重置监听器 (13.4/D3); 允许多个子系统各自注册, 按注册序逐个调用。 */
+    public static void registerInstanceResetListener(IInstanceResetListener listener) {
+        instanceResetListeners.add(requireNonNull(listener, "IInstanceResetListener"));
+    }
+
+    /**
+     * 广播"实例已重置"事件 (主线程, 由 reset 子系统在滑动完成后调用)。按注册序逐个调用监听器;
+     * 严禁在此吞监听器异常 —— 缓存清理失败必须冒泡到 reset 子系统的最外层, 而不是被静默忽略。
+     */
+    public static void fireInstanceReset(long instanceId) {
+        for (IInstanceResetListener listener : instanceResetListeners) {
+            listener.onInstanceReset(instanceId);
+        }
+    }
+
     /** 服务端停止时清空, 防止跨存档/跨重启的脏引用 (供 ServerStoppingEvent 调用; 可选)。 */
     public static void reset() {
         instanceManager = null;
@@ -84,6 +106,7 @@ public final class MiningServices {
         network = null;
         resetService = null;
         spawnService = null;
+        instanceResetListeners.clear();
     }
 
     private static <T> T require(T service, String name) {

@@ -38,8 +38,8 @@ public final class BrewEffectEngine {
 
     /** 软化强度: S 超过 knee 后只按 diminish 折算 (软上限的数值核心)。tight=战斗类 (收紧)。 */
     public static double softened(double strength, boolean tight) {
-        double knee = tight ? BrewerConstants.COMBAT_SOFTCAP_KNEE : BrewerConstants.LOOSE_SOFTCAP_KNEE;
-        double diminish = tight ? BrewerConstants.COMBAT_SOFTCAP_DIMINISH : BrewerConstants.LOOSE_SOFTCAP_DIMINISH;
+        double knee = tight ? BrewerConfig.COMBAT_SOFTCAP_KNEE.get() : BrewerConfig.LOOSE_SOFTCAP_KNEE.get();
+        double diminish = tight ? BrewerConfig.COMBAT_SOFTCAP_DIMINISH.get() : BrewerConfig.LOOSE_SOFTCAP_DIMINISH.get();
         if (strength <= knee) {
             return strength;
         }
@@ -48,23 +48,23 @@ public final class BrewEffectEngine {
 
     /** 软化强度 -> 放大等级 (0-indexed), 钳到 [0, cap]。 */
     public static int amplifierFor(double softStrength, int cap) {
-        int amp = (int) Math.floor(softStrength / BrewerConstants.AMP_PER_SOFT_STRENGTH);
+        int amp = (int) Math.floor(softStrength / BrewerConfig.AMP_PER_SOFT_STRENGTH.get());
         return Math.max(0, Math.min(cap, amp));
     }
 
     /** 软化强度 -> 持续时长 (tick), 钳到 [base, max]。 */
     public static int durationFor(double softStrength) {
-        int dur = BrewerConstants.EFFECT_BASE_DURATION_TICKS
-                + (int) (softStrength * BrewerConstants.EFFECT_DURATION_PER_SOFT);
-        return Math.max(BrewerConstants.EFFECT_BASE_DURATION_TICKS,
-                Math.min(BrewerConstants.EFFECT_MAX_DURATION_TICKS, dur));
+        int dur = BrewerConfig.EFFECT_BASE_DURATION_TICKS.get()
+                + (int) (softStrength * BrewerConfig.EFFECT_DURATION_PER_SOFT.get());
+        return Math.max(BrewerConfig.EFFECT_BASE_DURATION_TICKS.get(),
+                Math.min(BrewerConfig.EFFECT_MAX_DURATION_TICKS.get(), dur));
     }
 
     /** 月光好结果概率 (强度越高越可能好, 钳到上限)。 */
     public static double moonshineGoodProb(double strength) {
-        double p = BrewerConstants.MOONSHINE_GOOD_BASE_PROB
-                + strength * BrewerConstants.MOONSHINE_GOOD_PROB_PER_STRENGTH;
-        return Math.min(BrewerConstants.MOONSHINE_GOOD_PROB_MAX, Math.max(0.0D, p));
+        double p = BrewerConfig.MOONSHINE_GOOD_BASE_PROB.get()
+                + strength * BrewerConfig.MOONSHINE_GOOD_PROB_PER_STRENGTH.get();
+        return Math.min(BrewerConfig.MOONSHINE_GOOD_PROB_MAX.get(), Math.max(0.0D, p));
     }
 
     /** 一个按软化强度缩放的持续效果方案 (tight 决定软化曲线, cap 决定放大封顶)。 */
@@ -88,16 +88,16 @@ public final class BrewEffectEngine {
         }
         return switch (type) {
             // 续航/工具类 (放宽软上限): 急迫(挖矿酒) / 速度 / 金心 / 生命恢复。
-            case BRANDY -> timed(MobEffects.DIG_SPEED, strength, false, BrewerConstants.AMP_CAP_LOOSE);
-            case RUM -> timed(MobEffects.MOVEMENT_SPEED, strength, false, BrewerConstants.AMP_CAP_LOOSE);
-            case GIN -> timed(MobEffects.ABSORPTION, strength, false, BrewerConstants.AMP_CAP_LOOSE);
-            case CHAMPAGNE -> timed(MobEffects.REGENERATION, strength, false, BrewerConstants.AMP_CAP_LOOSE);
+            case BRANDY -> timed(MobEffects.DIG_SPEED, strength, false, BrewerConfig.AMP_CAP_LOOSE.get());
+            case RUM -> timed(MobEffects.MOVEMENT_SPEED, strength, false, BrewerConfig.AMP_CAP_LOOSE.get());
+            case GIN -> timed(MobEffects.ABSORPTION, strength, false, BrewerConfig.AMP_CAP_LOOSE.get());
+            case CHAMPAGNE -> timed(MobEffects.REGENERATION, strength, false, BrewerConfig.AMP_CAP_LOOSE.get());
             // 战斗类 (收紧软上限 + 低放大封顶): 抗性 / 力量。
-            case VODKA -> timed(MobEffects.DAMAGE_RESISTANCE, strength, true, BrewerConstants.AMP_CAP_COMBAT);
-            case TEQUILA -> timed(MobEffects.DAMAGE_BOOST, strength, true, BrewerConstants.AMP_CAP_COMBAT);
+            case VODKA -> timed(MobEffects.DAMAGE_RESISTANCE, strength, true, BrewerConfig.AMP_CAP_COMBAT.get());
+            case TEQUILA -> timed(MobEffects.DAMAGE_BOOST, strength, true, BrewerConfig.AMP_CAP_COMBAT.get());
             // 瞬时类。
-            case WHISKEY -> BrewEffectPlan.ofHeal((float) (softened(strength, false) * BrewerConstants.WHISKEY_HEAL_PER_SOFT));
-            case MAOTAI -> BrewEffectPlan.ofXp((int) Math.round(softened(strength, false) * BrewerConstants.MAOTAI_XP_PER_SOFT));
+            case WHISKEY -> BrewEffectPlan.ofHeal((float) (softened(strength, false) * BrewerConfig.WHISKEY_HEAL_PER_SOFT.get()));
+            case MAOTAI -> BrewEffectPlan.ofXp((int) Math.round(softened(strength, false) * BrewerConfig.MAOTAI_XP_PER_SOFT.get()));
             // 赌博类。
             case MOONSHINE -> moonshine(strength, rng);
         };
@@ -110,11 +110,11 @@ public final class BrewEffectEngine {
             MobEffect effect = MOONSHINE_GOOD_POOL[rng.nextInt(MOONSHINE_GOOD_POOL.length)];
             double soft = softened(strength, false);
             MobEffectInstance inst = new MobEffectInstance(effect, durationFor(soft),
-                    amplifierFor(soft, BrewerConstants.AMP_CAP_LOOSE));
+                    amplifierFor(soft, BrewerConfig.AMP_CAP_LOOSE.get()));
             return new BrewEffectPlan(java.util.List.of(inst), 0.0F, 0, "message.miningdim.brewer.moonshine.good");
         }
         MobEffect effect = MOONSHINE_BAD_POOL[rng.nextInt(MOONSHINE_BAD_POOL.length)];
-        MobEffectInstance inst = new MobEffectInstance(effect, BrewerConstants.MOONSHINE_BAD_DURATION_TICKS, 0);
+        MobEffectInstance inst = new MobEffectInstance(effect, BrewerConfig.MOONSHINE_BAD_DURATION_TICKS.get(), 0);
         return new BrewEffectPlan(java.util.List.of(inst), 0.0F, 0, "message.miningdim.brewer.moonshine.bad");
     }
 

@@ -18,7 +18,7 @@ import java.util.UUID;
  * 单来源即可 (金酒按层数一次施加一个聚合 delta, 不像塔罗有多张牌并发来源), 故每玩家只记一个 delta。
  *
  * 跨职业全局帽 (设计锁定): 施加金酒前把【塔罗管理器 + 金酒管理器】的额外最大生命加总, 超
- * {@link BrewerConstants#GLOBAL_BONUS_MAX_HEALTH_CAP_PCT}×base 就把金酒本次削到不超帽 (防生命叠叠乐)。
+ * {@link BrewerConfig#GLOBAL_BONUS_MAX_HEALTH_CAP_PCT}×base 就把金酒本次削到不超帽 (防生命叠叠乐)。
  * 帽位钳算是纯函数 {@link #clampToGlobalCap}, 便于 GameTest 直测; 读塔罗总量在施加点经
  * {@code TarotRuntime.maxHealth().aggregateDelta} (塔罗已有公开只读 getter, 无需改塔罗)。
  *
@@ -51,7 +51,7 @@ public final class GinMaxHealthManager {
             return;
         }
         double base = inst.getBaseValue(); // 服 base (80 血), 修饰前的稳定锚。
-        double desired = base * BrewerConstants.GIN_MAX_HEALTH_PCT_PER_LAYER * layers;
+        double desired = base * BrewerConfig.GIN_MAX_HEALTH_PCT_PER_LAYER.get() * layers;
         double allowed = clampToGlobalCap(desired, otherBonus, base);
         removeFrom(inst);
         if (allowed <= 0.0D) {
@@ -90,7 +90,7 @@ public final class GinMaxHealthManager {
      * @return 金酒本次实际可施加的额外最大生命 (>=0)
      */
     public static double clampToGlobalCap(double desired, double otherBonus, double base) {
-        double globalCap = base * BrewerConstants.GLOBAL_BONUS_MAX_HEALTH_CAP_PCT;
+        double globalCap = base * BrewerConfig.GLOBAL_BONUS_MAX_HEALTH_CAP_PCT.get();
         double remaining = globalCap - Math.max(0.0D, otherBonus);
         if (remaining <= 0.0D) {
             return 0.0D;

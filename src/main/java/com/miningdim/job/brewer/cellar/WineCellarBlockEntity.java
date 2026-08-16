@@ -15,6 +15,8 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.items.ItemStackHandler;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,9 +29,13 @@ import java.util.List;
  * {@link BrewerConstants#CELLAR_SETTLE_INTERVAL_TICKS} 唤醒一次取 {@code System.currentTimeMillis()} 差结算;
  * 离线 / 区块卸载期间不 tick, 重新加载时一次性补齐这段挂钟差 (酒窖本就该你不在也熟)。
  *
- * 不挂 getCapability 物品能力 (与调味台同: 反挂机, 漏斗 / 机器无法注入抽取酒或燃料), 故陈酿成果须人手开箱取走。
+ * 不挂 getCapability 物品能力 (与调味台同: 反挂机, 漏斗 / 机器无法注入抽取酒或燃料), 故陈酿成果与燃料续添均须
+ * 人手开箱操作。燃料槽单槽容量顶到 {@link BrewerConstants#FUEL_SLOT_CAPACITY} (F027 二段修复), 使人手一次
+ * 顶满即可覆盖满窖停在闪耀主线门槛年份时一个结算步的满额应耗 —— 抬高的是"一次能扛多久", 不是自动化程度。
  */
 public final class WineCellarBlockEntity extends BlockEntity implements MenuProvider {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/brewer");
 
     /** 酒槽数 (索引 [0, CELLAR_WINE_SLOTS))。 */
     public static final int WINE_SLOTS = BrewerConstants.CELLAR_WINE_SLOTS;
@@ -54,6 +60,14 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
             }
             // 酒槽: 仅接受带酒章的酒 (品质已盖)。
             return WineNbt.isWine(stack);
+        }
+
+        @Override
+        public int getSlotLimit(int slot) {
+            // F027 二段修复: 燃料槽顶到 FUEL_SLOT_CAPACITY (与 BrewerItems.DRIED_WHEAT 的 stacksTo 配套,
+            // Forge ItemStackHandler.getStackLimit 取两者较小值, 缺一实际生效上限仍卡在默认 64); 酒槽维持
+            // 默认 (由 WineItem 自身 stacksTo(16) 及同 NBT 才可堆叠的天然分栈约束, 不需要单独放宽)。
+            return slot == FUEL_SLOT ? BrewerConstants.FUEL_SLOT_CAPACITY : super.getSlotLimit(slot);
         }
     };
 
@@ -178,6 +192,17 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
         }
         // 旧档无此键 -> UNSET, 首次 tick 锚定当前挂钟 (不把缺键误算成 1970 起的巨量陈酿)。
         lastSettleEpochMillis = tag.contains(K_LAST_SETTLE) ? tag.getLong(K_LAST_SETTLE) : UNSET;
-        fuelDebt = tag.getDouble(K_FUEL_DEBT); // 缺键默认 0.0。
+
+        // F027 修复后的结算算法保证 debt 恒落在 [0,1) (见 CellarSettle 类 javadoc 不变式)。旧档里 >=1 的债是
+        // 本缺陷 (燃料债无上限累加) 累积出的产物: 强行让玩家偿还一笔本不该存在的欠款只会把缺陷后果延续下去,
+        // 故不采信, 直接归零并留痕方便排查异常存档。
+        double loadedFuelDebt = tag.getDouble(K_FUEL_DEBT); // 缺键默认 0.0。
+        if (loadedFuelDebt >= 0.0D && loadedFuelDebt < 1.0D) {
+            fuelDebt = loadedFuelDebt;
+        } else {
+            fuelDebt = 0.0D;
+            LOGGER.warn("[miningdim] wine cellar at {} had out-of-invariant fuel debt {} (pre-F027 artifact); discarded to 0.0",
+                    worldPosition, loadedFuelDebt);
+        }
     }
 }

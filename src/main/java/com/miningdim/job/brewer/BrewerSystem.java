@@ -10,6 +10,8 @@ import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.DistExecutor;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +43,9 @@ public final class BrewerSystem implements Subsystem {
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
+        // 酿酒师 SERVER 配置 (自己的 toml; 不碰中央 MiningServerConfig; F086)。
+        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, BrewerConfig.SPEC, "miningdim-brewer.toml");
+
         BrewerItems.register(modBus);
         BrewerTab.register(modBus);
         // 阶段 3/4: 酿酒台 + 酒窖箱 (各自有 Block/Item/BE DeferredRegister; MenuType 走共享 ModMenus.MENUS)。

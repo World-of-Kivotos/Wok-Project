@@ -1,6 +1,7 @@
 package com.miningdim.job.brewer.station;
 
 import com.miningdim.job.brewer.WineType;
+import com.miningdim.job.farmer.item.FarmerItems;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -15,8 +16,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 酿酒台投料配方 (酿酒师 阶段 3 纯逻辑)。九种酒各一配方, 全用原版物品, 数量体现 "大量小麦" 的 sink ——
- * 小麦既是酿造主料 (此处) 又是酒窖陈酿燃料 (干小麦), 双重消耗联动农夫经济 (见 MEMORY economy-laundering)。
+ * 酿酒台投料配方 (酿酒师 阶段 3 纯逻辑)。九种酒各一配方, 小麦项吃 {@code miningdim:farmer_wheat}
+ * (农夫 mod 耕地产出, 受耕地放置硬封顶与档位门约束), 其余辅料 (苹果/糖/甘蔗/胡萝卜/小麦种子) 仍用原版物品;
+ * 这才是设计里 "农夫供给酿酒师" 那条链的真正落点 —— 原版小麦不再能满足任何一条酿造配方
+ * (见 MEMORY economy-laundering, F029)。
  *
  * 设计为纯函数 (无世界依赖, 只读 {@link IItemHandler} 的 N 个输入槽): {@link #match} 扫输入槽判出唯一满足的
  * 配方类型, {@link #consume} 把该配方各料从槽内扣掉。BE 调这两个入口, GameTest 直接驱动断言, 故配方逻辑可测。
@@ -44,43 +47,53 @@ public final class BrewRecipes {
     }
 
     /**
-     * 九种酒配方表 (精确匹配)。原料量体现小麦大宗消耗 (每配方含 16-32 小麦):
-     *  - BRANDY 白兰地  = 小麦16 + 苹果4
-     *  - VODKA  伏特加  = 小麦32 (纯小麦超大宗)
-     *  - GIN    金酒    = 小麦16 + 糖4
-     *  - RUM    朗姆酒  = 甘蔗8 + 小麦16
-     *  - TEQUILA 龙舌兰 = 胡萝卜8 + 小麦16
-     *  - MAOTAI 茅台    = 小麦16 + 小麦种子8 (稻米暂用小麦种子代, 见 openIssues)
-     *  - WHISKEY 威士忌 = 小麦24
-     *  - CHAMPAGNE 香槟 = 小麦16 + 糖4 + 苹果2
-     *  - MOONSHINE 月光 = 小麦24 + 糖8
-     *
-     * 精确匹配下无歧义约束 (子集不再误命中)。香槟与金酒物品集合不同 (香槟多苹果2), 月光与威士忌不同 (月光多糖8),
-     * 故各配方的 "物品集合 + 计数" 互不相等, 一组输入至多命中一条。
+     * initialization-on-demand holder: 配方表引用 {@code FarmerItems.FARMER_WHEAT.get()}, 而
+     * {@code RegistryObject.get()} 在物品注册完成前调用会抛; 工程范式禁止在类静态初始化期 (即本类被首次加载时)
+     * 求值任何 RegistryObject。把表挪进内部类可以让 JVM 把求值推迟到 Holder 类首次被引用的那一刻 (也就是
+     * {@link #recipeFor} / {@link #match} 首次被调用时), 而这必然发生在 mod 物品注册完成之后; JVM 规范保证
+     * 类初始化本身线程安全, 无需额外加锁。
      */
-    private static final Map<WineType, List<Ingredient>> RECIPES = buildRecipes();
+    private static final class Holder {
+        /**
+         * 九种酒配方表 (精确匹配)。原料量体现小麦大宗消耗 (每配方含 16-32 小麦, 均为 farmer_wheat):
+         *  - BRANDY 白兰地  = 小麦16 + 苹果4
+         *  - VODKA  伏特加  = 小麦32 (纯小麦超大宗)
+         *  - GIN    金酒    = 小麦16 + 糖4
+         *  - RUM    朗姆酒  = 甘蔗8 + 小麦16
+         *  - TEQUILA 龙舌兰 = 胡萝卜8 + 小麦16
+         *  - MAOTAI 茅台    = 小麦16 + 小麦种子8 (稻米暂用小麦种子代, 见 openIssues)
+         *  - WHISKEY 威士忌 = 小麦24
+         *  - CHAMPAGNE 香槟 = 小麦16 + 糖4 + 苹果2
+         *  - MOONSHINE 月光 = 小麦24 + 糖8
+         *
+         * 精确匹配下无歧义约束 (子集不再误命中)。香槟与金酒物品集合不同 (香槟多苹果2), 月光与威士忌不同
+         * (月光多糖8), 故各配方的 "物品集合 + 计数" 互不相等, 一组输入至多命中一条。
+         */
+        static final Map<WineType, List<Ingredient>> RECIPES = buildRecipes();
+    }
 
     private static Map<WineType, List<Ingredient>> buildRecipes() {
         Map<WineType, List<Ingredient>> map = new EnumMap<>(WineType.class);
+        Item farmerWheat = FarmerItems.FARMER_WHEAT.get();
         map.put(WineType.BRANDY, List.of(
-                new Ingredient(Items.WHEAT, 16), new Ingredient(Items.APPLE, 4)));
+                new Ingredient(farmerWheat, 16), new Ingredient(Items.APPLE, 4)));
         map.put(WineType.VODKA, List.of(
-                new Ingredient(Items.WHEAT, 32)));
+                new Ingredient(farmerWheat, 32)));
         map.put(WineType.GIN, List.of(
-                new Ingredient(Items.WHEAT, 16), new Ingredient(Items.SUGAR, 4)));
+                new Ingredient(farmerWheat, 16), new Ingredient(Items.SUGAR, 4)));
         map.put(WineType.RUM, List.of(
-                new Ingredient(Items.SUGAR_CANE, 8), new Ingredient(Items.WHEAT, 16)));
+                new Ingredient(Items.SUGAR_CANE, 8), new Ingredient(farmerWheat, 16)));
         map.put(WineType.TEQUILA, List.of(
-                new Ingredient(Items.CARROT, 8), new Ingredient(Items.WHEAT, 16)));
+                new Ingredient(Items.CARROT, 8), new Ingredient(farmerWheat, 16)));
         map.put(WineType.MAOTAI, List.of(
-                new Ingredient(Items.WHEAT, 16), new Ingredient(Items.WHEAT_SEEDS, 8)));
+                new Ingredient(farmerWheat, 16), new Ingredient(Items.WHEAT_SEEDS, 8)));
         map.put(WineType.WHISKEY, List.of(
-                new Ingredient(Items.WHEAT, 24)));
+                new Ingredient(farmerWheat, 24)));
         map.put(WineType.CHAMPAGNE, List.of(
-                new Ingredient(Items.WHEAT, 16), new Ingredient(Items.SUGAR, 4),
+                new Ingredient(farmerWheat, 16), new Ingredient(Items.SUGAR, 4),
                 new Ingredient(Items.APPLE, 2)));
         map.put(WineType.MOONSHINE, List.of(
-                new Ingredient(Items.WHEAT, 24), new Ingredient(Items.SUGAR, 8)));
+                new Ingredient(farmerWheat, 24), new Ingredient(Items.SUGAR, 8)));
         // 不可变化 (配方表全局只读, 防运行期被改)。
         Map<WineType, List<Ingredient>> immutable = new EnumMap<>(WineType.class);
         for (Map.Entry<WineType, List<Ingredient>> e : map.entrySet()) {
@@ -91,7 +104,7 @@ public final class BrewRecipes {
 
     /** 取某酒类型的配方 (只读); 未定义返回空列表 (九种均有定义, 防御性兜底)。 */
     public static List<Ingredient> recipeFor(WineType type) {
-        return RECIPES.getOrDefault(type, Collections.emptyList());
+        return Holder.RECIPES.getOrDefault(type, Collections.emptyList());
     }
 
     /**

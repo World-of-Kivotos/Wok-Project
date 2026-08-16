@@ -2,7 +2,7 @@
   "type": "minecraft:smelting",
   "category": "misc",
   "ingredient": {
-    "item": "minecraft:wheat"
+    "item": "miningdim:farmer_wheat"
   },
   "result": "miningdim:dried_wheat",
   "experience": 0.1,

@@ -2,6 +2,7 @@ package com.miningdim.instance;
 
 import com.miningdim.core.Difficulty;
 import com.miningdim.core.MiningConstants;
+import com.miningdim.core.MiningServices;
 import com.miningdim.core.RegionBox;
 
 import java.util.BitSet;
@@ -20,9 +21,19 @@ import java.util.BitSet;
  * R1 固定区域: 三难度各占一个固定网格单元 (Difficulty.regionCellX, Z=FIXED_REGION_CELL_Z), 经 fixedRegionFor
  * 派生 RegionBox。固定区域沿用同一螺旋槽位映射与占用位图 (markOccupied/slotForRegion), 与动态分配机制共存,
  * 几何与持久化自洽; 本模式下动态 claim 不再被触发 (InstanceManager 只预建三固定实例)。
+ *
+ * 网格步长现在由 config 的 instance.regionSizeChunks / instance.bufferChunks 派生 (worldRestart, 见
+ * IMiningConfig), MiningConstants 里的编译期常量只作默认值镜像, 不再是运行期几何的唯一来源 (F063)。
+ *
+ * 滑动 region (D3/13.4): regionAtOrigin 按当前 size 几何在任意世界原点直接建盒, 不查也不写占用位图。
+ * 原因: 螺旋槽号随网格单元半径平方增长 (cellToSlot ~ (2r)^2), 滑动 region 的坐标会被 MiningSavedData 的
+ * 单向游标推到千万级, 一旦 markOccupied 就会把 BitSet 撑到 GB 级内存; 滑动 region 的"永不复用"由该游标
+ * 单向推进保证, 与本类的螺旋占用位图机制无关, 两者刻意解耦。
  */
 public final class RegionGrid {
 
+    private final int sizeX;
+    private final int sizeZ;
     private final int strideX;
     private final int strideZ;
     private final int originX;
@@ -32,16 +43,30 @@ public final class RegionGrid {
     private final BitSet occupancy;
 
     public RegionGrid() {
-        this(MiningConstants.REGION_STRIDE_X, MiningConstants.REGION_STRIDE_Z,
+        this(MiningServices.config().regionSizeChunks(), MiningServices.config().bufferChunks(),
                 MiningConstants.REGION_ORIGIN_X, MiningConstants.REGION_ORIGIN_Z);
     }
 
-    public RegionGrid(int strideX, int strideZ, int originX, int originZ) {
-        this.strideX = strideX;
-        this.strideZ = strideZ;
+    /** 显式几何构造器 (测试/运维覆盖用); size/stride 派生公式与无参构造一致, 只是来源换成显式实参而非 config。 */
+    public RegionGrid(int regionSizeChunks, int bufferChunks, int originX, int originZ) {
+        this.sizeX = regionSizeChunks * 16;
+        this.sizeZ = regionSizeChunks * 16;
+        int gap = bufferChunks * 16;
+        this.strideX = sizeX + gap;
+        this.strideZ = sizeZ + gap;
         this.originX = originX;
         this.originZ = originZ;
         this.occupancy = new BitSet();
+    }
+
+    /** region 在 X 方向格数 (= regionSizeChunks * 16, 滑动 region 计算 frontier 步进时用)。 */
+    public int sizeX() {
+        return sizeX;
+    }
+
+    /** region 在 Z 方向格数。 */
+    public int sizeZ() {
+        return sizeZ;
     }
 
     /** 从持久化字节还原占用位图 (启动重建, 12.8)。 */
@@ -89,19 +114,33 @@ public final class RegionGrid {
         return occupancy.cardinality();
     }
 
-    /** 给定螺旋槽位号生成 RegionBox (单元几何 = ofDefault, 原点按螺旋格 * stride 平移)。 */
+    /** 给定螺旋槽位号生成 RegionBox (原点按螺旋格 * stride 平移, 尺寸取本实例的 sizeX/sizeZ)。 */
     public RegionBox regionForSlot(int slot) {
         long[] cell = slotToCell(slot);
         int regionOriginX = originX + (int) cell[0] * strideX;
         int regionOriginZ = originZ + (int) cell[1] * strideZ;
-        return RegionBox.ofDefault(regionOriginX, regionOriginZ);
+        return box(regionOriginX, regionOriginZ);
     }
 
     /** 给定网格单元坐标 (cellX, cellZ) 直接生成 RegionBox (固定区域用; 与 regionForSlot 同几何, 跳过螺旋编号)。 */
     public RegionBox regionForCell(int cellX, int cellZ) {
         int regionOriginX = originX + cellX * strideX;
         int regionOriginZ = originZ + cellZ * strideZ;
-        return RegionBox.ofDefault(regionOriginX, regionOriginZ);
+        return box(regionOriginX, regionOriginZ);
+    }
+
+    /**
+     * 按当前 size 几何在给定世界原点直接建盒 (滑动 region 专用), 不查也不写占用位图 —— 理由见类注释
+     * "滑动 region" 段: 螺旋位图与滑动坐标的"永不复用"保证是两套互不依赖的机制。
+     */
+    public RegionBox regionAtOrigin(int worldOriginX, int worldOriginZ) {
+        return box(worldOriginX, worldOriginZ);
+    }
+
+    /** 按本实例几何 (originY/sizeY 固定取 MiningConstants, XZ size 取 config 派生值) 建 RegionBox。 */
+    private RegionBox box(int regionOriginX, int regionOriginZ) {
+        return new RegionBox(regionOriginX, MiningConstants.REGION_MIN_Y, regionOriginZ,
+                sizeX, MiningConstants.REGION_HEIGHT, sizeZ);
     }
 
     /**
@@ -113,9 +152,18 @@ public final class RegionGrid {
         return regionForCell(difficulty.regionCellX(), MiningConstants.FIXED_REGION_CELL_Z);
     }
 
+    /**
+     * 某 box 原点是否落在本网格 stride 上 (不抛异常)。供不确定是否为网格成员的调用方先探测 ——
+     * 固定/滑动实例的几何独立于网格 (regionAtOrigin 不查也不写位图), 其 box 不保证对齐, 不能直接
+     * 走 slotForRegion (会抛 IAE); 见 InstanceManager 对固定/滑动实例的位图豁免用法。
+     */
+    public boolean isAligned(RegionBox box) {
+        return (box.originX() - originX) % strideX == 0 && (box.originZ() - originZ) % strideZ == 0;
+    }
+
     /** RegionBox -> 螺旋槽位号 (free/markOccupied 用)。box 原点须落在网格上, 否则抛 IAE。 */
     public int slotForRegion(RegionBox box) {
-        if ((box.originX() - originX) % strideX != 0 || (box.originZ() - originZ) % strideZ != 0) {
+        if (!isAligned(box)) {
             throw new IllegalArgumentException(
                     "RegionBox origin (" + box.originX() + "," + box.originZ() + ") not aligned to grid stride");
         }

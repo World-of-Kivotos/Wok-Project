@@ -34,6 +34,49 @@ const MOD_TEXTURE_ROOT = `${import.meta.env.BASE_URL}mc/`
  */
 const MAX_MODEL_HOPS = 4
 
+/**
+ * 探图 (Image) 超时。局域网内本 mod 贴图 (/mc/) 恒在几十毫秒内返回, 公网镜像站的请求若挂起
+ * 到这个数量级仍未落地, 就该判定为不可达而不是继续占着连接等: 4000ms 留够正常公网往返的余量,
+ * 又不至于让离线局域网服的每个原版物品都各自卡上好几秒才落到占位块。
+ */
+const PROBE_TIMEOUT_MS = 4000
+
+/** 模型 JSON 请求超时, 判据与 PROBE_TIMEOUT_MS 相同; 单独声明是因为它走 fetch/AbortSignal 而非 Image。 */
+const MODEL_FETCH_TIMEOUT_MS = 4000
+
+/**
+ * 原版镜像站连续超时计数与本会话熔断位。只统计"超时"这一种结果 —— 探测失败 (404/onerror) 或
+ * HTTP 非 ok 说明站点本身是通的, 只是这张贴图/这个模型不存在 (原版几千个 itemId 里大量物品
+ * 走完整条链本就找不到图), 这种情况按计数会把正常使用误判成"站点不可达"。
+ */
+let vanillaCdnConsecutiveTimeouts = 0
+let vanillaCdnCircuitOpen = false
+
+/**
+ * 熔断阈值。一件原版物品最坏情况下这条链会打 2 次探图 (item/block 同名猜测) + 最多 MAX_MODEL_HOPS
+ * 跳模型请求, 阈值必须严格大于这个正常上限, 否则单是一个"两处都没有对应贴图"的冷门物品自己就能
+ * 攒够超时次数误触发熔断, 连累它之后所有原版物品被错误地判成站点不可达。
+ */
+const VANILLA_CDN_TIMEOUT_THRESHOLD = 2 + MAX_MODEL_HOPS + 1
+
+/**
+ * 记录一次公网镜像站请求的结果是否为超时, 并在连续超时达到阈值时熔断本会话剩余的原版 CDN 请求。
+ * 非超时结果 (成功或快速失败) 一律清零计数 —— 熔断只应由"持续连不上"触发, 不能被零散的 404 累加。
+ */
+function recordVanillaCdnOutcome(isTimeout: boolean): void {
+  if (!isTimeout) {
+    vanillaCdnConsecutiveTimeouts = 0
+    return
+  }
+  vanillaCdnConsecutiveTimeouts += 1
+  if (vanillaCdnConsecutiveTimeouts >= VANILLA_CDN_TIMEOUT_THRESHOLD && !vanillaCdnCircuitOpen) {
+    vanillaCdnCircuitOpen = true
+    console.warn(
+      '[item-icon] 原版贴图镜像站连续超时, 判定为不可达: 本会话后续原版物品图标一律回退占位块, 不再重试。',
+    )
+  }
+}
+
 /** 贴图变量取用顺序: 物品模型出 layer0, 方块模型多为 all / side, particle 只作最后兜底。 */
 const TEXTURE_SLOTS = ['layer0', 'all', 'texture', 'side', 'north', 'particle']
 
@@ -93,20 +136,59 @@ function splitRef(reference: string): ResourceRef {
   return { namespace: reference.slice(0, separator), path: reference.slice(separator + 1) }
 }
 
+/** 探图结果三态: 熔断判据需要区分"超时"与"确定性失败", 单纯的 boolean 做不到。 */
+type ProbeOutcome = 'success' | 'error' | 'timeout'
+
 /**
  * 探测一个 URL 是否存在可解码的图像。用 Image 而不是 fetch: 图片加载不受 CORS 约束
  * (镜像站是否发 CORS 头不受本项目控制), 且探测成功后浏览器已把它放进缓存, 真正渲染时是零延迟命中。
+ *
+ * 三条路径 (成功/失败/超时) 用 settled 标志互斥, 保证只 resolve 一次; 超时那条额外解绑
+ * onload/onerror 并把 probe.src 清空 —— 只清定时器不中止请求的话, 请求仍会在 MCEF 的连接池里
+ * 挂到底, 修的是表面, 连接池照样被占满。
  */
-function probeImage(url: string): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
+function probeImage(url: string, timeoutMs: number): Promise<ProbeOutcome> {
+  return new Promise<ProbeOutcome>((resolve) => {
+    let settled = false
     const probe = new Image()
+    const timer = setTimeout(() => {
+      if (settled) {
+        return
+      }
+      settled = true
+      probe.onload = null
+      probe.onerror = null
+      probe.src = ''
+      resolve('timeout')
+    }, timeoutMs)
     probe.onload = () => {
-      resolve(true)
+      if (settled) {
+        return
+      }
+      settled = true
+      clearTimeout(timer)
+      resolve('success')
     }
     probe.onerror = () => {
-      resolve(false)
+      if (settled) {
+        return
+      }
+      settled = true
+      clearTimeout(timer)
+      resolve('error')
     }
     probe.src = url
+  })
+}
+
+/**
+ * 探图的公网镜像站专用包装: 把结果计入熔断计数, 再折叠回 resolveTexture / resolveByModelChain
+ * 需要的 boolean。本 mod 贴图 (/mc/) 的探测不经过这层, 熔断只作用于原版 CDN 那条链。
+ */
+function probeVanillaImage(url: string): Promise<boolean> {
+  return probeImage(url, PROBE_TIMEOUT_MS).then((outcome) => {
+    recordVanillaCdnOutcome(outcome === 'timeout')
+    return outcome === 'success'
   })
 }
 
@@ -125,17 +207,24 @@ async function fetchVanillaModel(reference: string): Promise<ModelJson | null> {
     return null
   }
   try {
-    const response = await fetch(`${VANILLA_ASSET_ROOT}models/${path}.json`)
+    const response = await fetch(`${VANILLA_ASSET_ROOT}models/${path}.json`, {
+      signal: AbortSignal.timeout(MODEL_FETCH_TIMEOUT_MS),
+    })
     if (!response.ok) {
+      recordVanillaCdnOutcome(false)
       return null
     }
     const model = (await response.json()) as ModelJson
+    recordVanillaCdnOutcome(false)
     return typeof model === 'object' && model !== null ? model : null
   } catch (networkError) {
     /*
-     * 这不是吞异常: 模型解析本身就是回退链的一级, 镜像站不可达或未发 CORS 头时整条 CDN 链失效,
+     * 这不是吞异常: 模型解析本身就是回退链的一级, 镜像站不可达、未发 CORS 头、或本次请求超时中止
+     * (AbortSignal.timeout 触发, DOMException name === 'TimeoutError') 时整条 CDN 链失效,
      * 正确行为是继续落到第三层占位块。真正的失败信号是"图标变占位块", 在界面上直接可见。
      */
+    const isTimeout = networkError instanceof DOMException && networkError.name === 'TimeoutError'
+    recordVanillaCdnOutcome(isTimeout)
     console.debug('[item-icon] 模型请求失败, 回退链继续下沉:', reference, networkError)
     return null
   }
@@ -171,7 +260,7 @@ async function resolveByModelChain(startReference: string): Promise<string | nul
     const textureRef = pickTextureRef(model.textures)
     if (textureRef !== null) {
       const url = textureUrlFromRef(textureRef)
-      if (url !== null && (await probeImage(url))) {
+      if (url !== null && (await probeVanillaImage(url))) {
         return url
       }
       return null
@@ -207,7 +296,7 @@ async function resolveTexture(itemId: string, customModelData: number | undefine
   if (namespace === MOD_NAMESPACE) {
     // 第二层: 本 mod 贴图名与注册名同名, 直取 item/ 再试 block/; 取不到即占位块 (mod 模型未映射为静态资源)。
     for (const url of [`${MOD_TEXTURE_ROOT}item/${path}.png`, `${MOD_TEXTURE_ROOT}block/${path}.png`]) {
-      if (await probeImage(url)) {
+      if ((await probeImage(url, PROBE_TIMEOUT_MS)) === 'success') {
         return url
       }
     }
@@ -219,12 +308,17 @@ async function resolveTexture(itemId: string, customModelData: number | undefine
     return null
   }
 
+  if (vanillaCdnCircuitOpen) {
+    // 已判定镜像站不可达: 不再为任何原版物品发起请求, 本会话剩余的原版图标直接落占位块。
+    return null
+  }
+
   // 第一层: 先直猜同名贴图 (绝大多数原版物品命中), 未命中再花一次 JSON 往返走模型解析。
   for (const url of [
     `${VANILLA_ASSET_ROOT}textures/item/${path}.png`,
     `${VANILLA_ASSET_ROOT}textures/block/${path}.png`,
   ]) {
-    if (await probeImage(url)) {
+    if (await probeVanillaImage(url)) {
       return url
     }
   }

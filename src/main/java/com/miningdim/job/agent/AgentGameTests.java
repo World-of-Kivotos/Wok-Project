@@ -8,6 +8,7 @@ import com.miningdim.core.MiningConstants;
 import com.miningdim.economy.AbuseGuard;
 import com.miningdim.economy.EconomyConstants;
 import com.miningdim.job.JobProgress;
+import com.miningdim.job.agent.integration.AgentIntegrationBootstrap;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraftforge.gametest.GameTestHolder;
@@ -902,13 +903,19 @@ public final class AgentGameTests {
         // dev (Champions 未加载) 接缝未绑定: 封印申请优雅短路返 NOT_BOUND, 扫描快照返 null, 不触 Champions, 不抛。
         AgentSealSeam.unbind();
         helper.assertTrue(!AgentSealSeam.isBound(), "seam is unbound in dev (Champions not loaded)");
-        AgentSealSeam.SealOutcome outcome = AgentSealSeam.requestSealResult(null, null, "champions:composite_armor");
+        // 字面量是线上 affixId 的真实格式 (AffixDef 枚举名, 非 namespace:path 注册名; 见
+        // AgentWebUiActions.entryJson 的类注释), 即便本条走的是短路分支根本不查它。
+        AgentSealSeam.SealOutcome outcome = AgentSealSeam.requestSealResult(null, null, "COMPOSITE_ARMOR");
         helper.assertTrue(outcome == AgentSealSeam.SealOutcome.NOT_BOUND,
                 "unbound seam seal request short-circuits to NOT_BOUND (no Champions touch)");
         helper.assertTrue(AgentSealSeam.buildScanSnapshot(null, null) == null,
                 "unbound seam scan snapshot short-circuits to null (no Champions touch)");
         // 服务端停止清理在未绑定时空操作, 不抛。
         AgentSealSeam.onServerStopping();
+
+        // 装回真实现: 接缝现在在启动期就绑好且 ServerStopping 不再解绑, 本用例自己 unbind 留下的未绑定态若不
+        // 收拾会一直污染到进程重启 (调 bindSeam 而非 assemble, 后者会把三个 handler 重复注册进 forgeBus)。
+        AgentIntegrationBootstrap.bindSeam();
         helper.succeed();
     }
 

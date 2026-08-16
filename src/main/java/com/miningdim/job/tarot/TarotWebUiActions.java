@@ -76,11 +76,14 @@ public final class TarotWebUiActions {
     /**
      * 塔罗师面板只读态。本 action 不推进任何状态: 不占冷却、不动碎片、不改每日计数。
      *
-     * 持有量拆成两栏是刻意的, 它们回答的是两个不同问题, 合并任一栏都会误导玩家:
+     * 持有量拆成三栏是刻意的, 它们回答的是三个不同问题, 合并任一栏都会误导玩家:
      *  - ownedByQuality/owned 只数<b>绑定在本人名下</b>的牌 —— {@link TarotPlayHandler} 的第一道闸门就是
      *    ownerUUID 校验, 别人的牌拿在手里也打不出, 计进"持有"等于在面板上承诺一个打不出的效果;
-     *  - inInventory 数背包里同 cardId 的<b>全部</b>可读牌 (不论绑定) —— 那才是
-     *    {@link com.miningdim.job.tarot.pack.PackGachaService} 判"重复牌转碎片"的口径。
+     *  - inInventory 数背包里同 cardId 的<b>全部</b>可读牌 (不论绑定) —— 老实回答"背包里有几张", 与
+     *    {@link com.miningdim.job.tarot.pack.PackGachaService} 判重复的口径不再等价 (见下一条, F079);
+     *  - collected 才是 {@link com.miningdim.job.tarot.pack.PackGachaService} 判"重复牌转碎片"的真实口径
+     *    (F079 修正后): 持久化的已收集集合并集当前背包。只看 inInventory 会被"把牌放进箱子"绕过, 是修复前的
+     *    旧口径, 面板必须换成 collected 才不会承诺一个已经绕不过去的假重复保护。
      */
     static final WebUiAction STATE = (sender, payload) -> {
         int level = TarotLeveling.level(sender);
@@ -146,6 +149,9 @@ public final class TarotWebUiActions {
             row.add("ownedByQuality", counts);
             row.addProperty("owned", owned);
             row.addProperty("inInventory", inInventory[arcana.cardId()]);
+            // F079: 与 PackGachaService.grantOrRefund 的重复判据逐字一致 —— 持久化的已收集集合并集当前背包。
+            row.addProperty("collected",
+                    packData.hasCollectedAny(sender.getUUID(), arcana.cardId()) || inInventory[arcana.cardId()] > 0);
 
             if (cardDataLoaded) {
                 TarotCardData data = TarotRuntime.cardLoader().get(arcana);

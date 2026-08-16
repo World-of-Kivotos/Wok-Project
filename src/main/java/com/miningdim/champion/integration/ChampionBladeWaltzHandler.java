@@ -27,7 +27,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -35,11 +34,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -80,9 +77,6 @@ public final class ChampionBladeWaltzHandler {
 
     /** 扫描/CD 就绪判定周期 (tick): 1s 扫一次近玩家冠军 (与纯逻辑 {@link ChampionBladeWaltzPlan#SCAN_INTERVAL_TICKS} 对齐)。 */
     private static final int SCAN_INTERVAL_TICKS = (int) ChampionBladeWaltzPlan.SCAN_INTERVAL_TICKS;
-
-    /** 作用的玩家可见距离 (格; 与自身被动/BOSS 血条同量级)。远离该范围的冠军不结算 (无玩家在场无需连段)。 */
-    private static final double VIEW_RANGE = 48.0D;
 
     /** 预兆期目标脚下粒子的节流粒度 (tick): 每 5 tick 喷一次 (30t 预兆窗喷 6 次, 控 spec 9A.6 粒子预算)。 */
     private static final int TELEGRAPH_PARTICLE_INTERVAL = 5;
@@ -272,21 +266,11 @@ public final class ChampionBladeWaltzHandler {
      * 冠军 (命令召唤 + 自然刷一视同仁), CD 就绪 + 有目标 + 缰绳内者起手预兆; 多玩家同看一冠军本轮只结算一次。
      */
     private void scanNearbyChampions(MinecraftServer server, long nowTick) {
-        Set<UUID> processed = new HashSet<>();
-        for (ServerLevel level : server.getAllLevels()) {
-            List<ServerPlayer> players = level.players();
-            if (players.isEmpty()) {
-                continue;
+        for (ChampionProximityScanner.Sighting sighting : ChampionProximityScanner.sightings(server)) {
+            if (!sighting.entity().isAlive()) {
+                continue; // 快照按 tick 复用, 同 tick 更早的 handler 可能已致死: 存活性逐条重查。
             }
-            for (ServerPlayer player : players) {
-                AABB box = player.getBoundingBox().inflate(VIEW_RANGE);
-                for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class, box, LivingEntity::isAlive)) {
-                    if (!processed.add(entity.getUUID())) {
-                        continue; // 多玩家同看一冠军: 本轮只结算一次。
-                    }
-                    applyBladeWaltzScan(level, entity, nowTick);
-                }
-            }
+            applyBladeWaltzScan(sighting.level(), sighting.entity(), nowTick);
         }
     }
 

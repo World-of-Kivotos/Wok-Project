@@ -1,8 +1,21 @@
 package com.miningdim.job.munitions.block;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.economy.AbuseGuard;
+import com.miningdim.economy.Currency;
+import com.miningdim.economy.EconomyLedger;
+import com.miningdim.economy.EconomyService;
+import com.miningdim.economy.EconomyServices;
+import com.miningdim.economy.IEconomyService;
+import com.miningdim.economy.PlayerAbuseState;
+import com.miningdim.economy.SqliteEconomyLedger;
+import com.miningdim.job.IJobService;
+import com.miningdim.job.JobId;
+import com.miningdim.job.JobProgress;
+import com.miningdim.job.JobServices;
 import com.miningdim.job.munitions.ModMunitionsBlocks;
 import com.miningdim.job.munitions.ModMunitionsItems;
+import com.miningdim.job.munitions.MunitionsConfig;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartVariant;
@@ -15,14 +28,19 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
 
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -64,17 +82,25 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-
-        helper.assertTrue(press.tryStartPreview(player), "complete hammer materials must start the press");
-        helper.assertTrue(press.isPressing(), "pistol hammer production must put the press into its active state");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 62,
-                "common hammer production must consume two generic gun parts");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 60,
-                "common hammer production must consume four alloy units");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 64,
-                "common hammer production must not consume polymer");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_OUTPUT).isEmpty(),
-                "press output must remain empty until production finishes");
+        IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
+            helper.assertTrue(press.tryStartPreview(player), "complete hammer materials must start the press");
+            helper.assertTrue(press.isPressing(), "pistol hammer production must put the press into its active state");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 62,
+                    "common hammer production must consume two generic gun parts");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 60,
+                    "common hammer production must consume four alloy units");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 64,
+                    "common hammer production must not consume polymer");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_OUTPUT).isEmpty(),
+                    "press output must remain empty until production finishes");
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
         helper.succeed();
     }
 
@@ -112,15 +138,23 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-
-        helper.assertTrue(press.tryStartPreview(player), "complete receiver materials must start the press");
-        helper.assertTrue(press.isPressing(), "bullpup receiver production must put the press into its active state");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
-                "common receiver production must consume six generic gun parts");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 58,
-                "common receiver production must consume six alloy units");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 59,
-                "common receiver production must consume five polymer units");
+        IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
+            helper.assertTrue(press.tryStartPreview(player), "complete receiver materials must start the press");
+            helper.assertTrue(press.isPressing(), "bullpup receiver production must put the press into its active state");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
+                    "common receiver production must consume six generic gun parts");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 58,
+                    "common receiver production must consume six alloy units");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 59,
+                    "common receiver production must consume five polymer units");
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
         helper.succeed();
     }
 
@@ -152,15 +186,23 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-
-        helper.assertTrue(press.tryStartPreview(player), "complete handguard materials must start the press");
-        helper.assertTrue(press.isPressing(), "marksman handguard production must put the press into its active state");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 61,
-                "common handguard production must consume three generic gun parts");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 62,
-                "common handguard production must consume two alloy units");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 60,
-                "common handguard production must consume four polymer units");
+        IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
+            helper.assertTrue(press.tryStartPreview(player), "complete handguard materials must start the press");
+            helper.assertTrue(press.isPressing(), "marksman handguard production must put the press into its active state");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 61,
+                    "common handguard production must consume three generic gun parts");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 62,
+                    "common handguard production must consume two alloy units");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 60,
+                    "common handguard production must consume four polymer units");
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
         helper.succeed();
     }
 
@@ -202,15 +244,23 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-
-        helper.assertTrue(press.tryStartPreview(player), "complete receiver materials must start the press");
-        helper.assertTrue(press.isPressing(), "sniper receiver production must put the press into its active state");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
-                "common receiver production must consume six generic gun parts");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 58,
-                "common receiver production must consume six alloy units");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 59,
-                "common receiver production must consume five polymer units");
+        IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
+            helper.assertTrue(press.tryStartPreview(player), "complete receiver materials must start the press");
+            helper.assertTrue(press.isPressing(), "sniper receiver production must put the press into its active state");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
+                    "common receiver production must consume six generic gun parts");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 58,
+                    "common receiver production must consume six alloy units");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 59,
+                    "common receiver production must consume five polymer units");
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
         helper.succeed();
     }
 
@@ -248,14 +298,22 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-
-        helper.assertTrue(press.tryStartPreview(player), "complete bipod materials must start the press");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 61,
-                "common bipod production must consume three generic gun parts");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 60,
-                "common bipod production must consume four alloy units");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 63,
-                "common bipod production must consume one polymer unit");
+        IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
+            helper.assertTrue(press.tryStartPreview(player), "complete bipod materials must start the press");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 61,
+                    "common bipod production must consume three generic gun parts");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 60,
+                    "common bipod production must consume four alloy units");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 63,
+                    "common bipod production must consume one polymer unit");
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
         helper.succeed();
     }
 
@@ -359,8 +417,17 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        helper.assertTrue(press.tryStartPreview(player),
-                "complete materials must start Gehenna component production");
+        IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
+            helper.assertTrue(press.tryStartPreview(player),
+                    "complete materials must start Gehenna component production");
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
 
         CompoundTag inProgress = new CompoundTag();
         press.saveAdditional(inProgress);
@@ -519,27 +586,36 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
                 new ItemStack(Items.COBBLESTONE, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        helper.assertFalse(press.tryStartPreview(player),
-                "cobblestone stuffed into every slot must not start a real gun-part press");
-        helper.assertFalse(press.isPressing(), "rejected press must stay idle");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 64,
-                "rejected press must not consume the fake gun-parts material");
+        IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
+            helper.assertFalse(press.tryStartPreview(player),
+                    "cobblestone stuffed into every slot must not start a real gun-part press");
+            helper.assertFalse(press.isPressing(), "rejected press must stay idle");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 64,
+                    "rejected press must not consume the fake gun-parts material");
 
-        // 换成正确材料 -> 正常开工并按 6/6/5 消耗。
-        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
-                new ItemStack(Items.IRON_INGOT, 64));
-        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
-                new ItemStack(Items.COPPER_INGOT, 64));
-        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
-                new ItemStack(Items.SLIME_BLOCK, 64));
-        helper.assertTrue(press.tryStartPreview(player),
-                "correct iron/copper/slime materials must start the receiver press");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
-                "receiver press must consume six iron gun parts");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 58,
-                "receiver press must consume six copper alloy");
-        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 59,
-                "receiver press must consume five slime polymer");
+            // 换成正确材料 -> 正常开工并按 6/6/5 消耗。
+            press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
+                    new ItemStack(Items.IRON_INGOT, 64));
+            press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
+                    new ItemStack(Items.COPPER_INGOT, 64));
+            press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
+                    new ItemStack(Items.SLIME_BLOCK, 64));
+            helper.assertTrue(press.tryStartPreview(player),
+                    "correct iron/copper/slime materials must start the receiver press");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
+                    "receiver press must consume six iron gun parts");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 58,
+                    "receiver press must consume six copper alloy");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 59,
+                    "receiver press must consume five slime polymer");
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
         helper.succeed();
     }
 
@@ -600,5 +676,195 @@ public final class GunsmithPressGameTests {
             threw = true;
         }
         helper.assertTrue(threw, variant + " must reject " + platform + "/" + part);
+    }
+
+    // ============================================================
+    // F048 冲压品质等级门: 拒绝时不留半吊子状态 + 服务端在开工帧权威重校 (不信客户端已选好的高品质)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void pressQualitySelectionRejectsLockedTierAndServerRechecksAtStart(GameTestHelper helper) {
+        helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
+        GunsmithPressBlockEntity press = requirePress(helper);
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        GunsmithPartQuality before = press.selectedQuality();
+
+        IJobService lowJob = swapJob(new FixedLevelJobService(1));
+        try {
+            helper.assertFalse(press.trySelectQuality(GunsmithPartQuality.LEGENDARY.index(), player),
+                    "L1 player must not select the LEGENDARY quality tier (F048 unlock L10)");
+            helper.assertTrue(press.selectedQuality() == before,
+                    "a rejected quality selection must leave the prior tier unchanged (no half-applied state)");
+        } finally {
+            restoreJob(lowJob);
+        }
+
+        IJobService highJob = swapJob(new FixedLevelJobService(10));
+        try {
+            helper.assertTrue(press.trySelectQuality(GunsmithPartQuality.LEGENDARY.index(), player),
+                    "L10 player must select the LEGENDARY quality tier");
+            helper.assertTrue(press.selectedQuality() == GunsmithPartQuality.LEGENDARY,
+                    "accepted selection must persist LEGENDARY");
+        } finally {
+            restoreJob(highJob);
+        }
+
+        // 服务端权威重校: 高等级玩家已选好 LEGENDARY 后, 换回低等级玩家开工必须仍被挡, 且拒绝帧零消耗 (不能靠
+        // 别人选好的高品质开工)。
+        stockPressMaterials(press);
+        IJobService reDowngraded = swapJob(new FixedLevelJobService(1));
+        try {
+            helper.assertFalse(press.tryStartPreview(player),
+                    "the server must re-check the quality gate at start time even though LEGENDARY is already selected");
+            helper.assertFalse(press.isPressing(), "a level-gate rejection must not start the press");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 64,
+                    "a rejected start must not consume gun parts (zero-cost rejection frame)");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 64,
+                    "a rejected start must not consume alloy");
+            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 64,
+                    "a rejected start must not consume polymer");
+        } finally {
+            restoreJob(reDowngraded);
+        }
+        helper.succeed();
+    }
+
+    // ============================================================
+    // F048 冲压工费 sink: 按品质 materialMultiplier 精确扣款; 余额差 1 CP 时全额作废且零消耗 (先查后扣)
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void pressWorkFeeScalesWithQualityAndForfeitsWhenUnaffordable(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        IJobService prevJob = swapJob(new FixedLevelJobService(10));
+        try {
+            // -- 场景 A: 余额恰好够付 PRECISION 工费 -> 精确扣款到 0。
+            helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
+            GunsmithPressBlockEntity affordable = requirePress(helper);
+            helper.assertTrue(affordable.trySelectQuality(GunsmithPartQuality.PRECISION.index(), player),
+                    "L10 player selects PRECISION quality");
+            stockPressMaterials(affordable);
+            long expectedFee = (long) MunitionsConfig.PRESS_WORK_FEE_CREDITS.get()
+                    * GunsmithPartQuality.PRECISION.materialMultiplier();
+            ledger.credit(player.getUUID(), Currency.CREDIT, expectedFee);
+
+            helper.assertTrue(affordable.tryStartPreview(player),
+                    "sufficient balance must start the press and charge the PRECISION work fee");
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 0L,
+                    "work fee sink must destroy exactly pressWorkFeeCredits x quality.materialMultiplier(), balance left "
+                            + ledger.balance(player.getUUID(), Currency.CREDIT));
+
+            // -- 场景 B: 余额比 MILSPEC 工费差 1 CP (边界值) -> 全额作废, 料槽/开工态/余额分文不动。
+            // 场景 A 的台还在 isPressing() 中 (同一 tick 未推进) —— 同一坐标重新 setBlock 同一方块类型不会真的
+            // 换出新 BE (vanilla 只在 Block 类型变化时才销毁重建), 故先落 AIR 强制销毁旧 BE, 再落回冲压机取一台
+            // 全新的、真正空闲的 BE, 否则 trySelectQuality/tryStartPreview 会被场景 A 遗留的 isPressing() 挡在
+            // 等级门/工费门之前, 本条断言就测不到真正要测的东西。
+            helper.setBlock(PRESS_REL, Blocks.AIR.defaultBlockState());
+            helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
+            GunsmithPressBlockEntity unaffordable = requirePress(helper);
+            helper.assertTrue(unaffordable.trySelectQuality(GunsmithPartQuality.MILSPEC.index(), player),
+                    "L10 player selects MILSPEC quality");
+            stockPressMaterials(unaffordable);
+            long milspecFee = (long) MunitionsConfig.PRESS_WORK_FEE_CREDITS.get()
+                    * GunsmithPartQuality.MILSPEC.materialMultiplier();
+            ledger.credit(player.getUUID(), Currency.CREDIT, milspecFee - 1L);
+
+            helper.assertFalse(unaffordable.tryStartPreview(player),
+                    "a balance one credit short of the MILSPEC work fee must reject the press run");
+            helper.assertFalse(unaffordable.isPressing(), "an unaffordable start must not enter the pressing state");
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == milspecFee - 1L,
+                    "a failed fee charge must leave the balance untouched, got "
+                            + ledger.balance(player.getUUID(), Currency.CREDIT));
+            helper.assertTrue(unaffordable.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 64,
+                    "a failed fee charge must not consume gun parts");
+            helper.assertTrue(unaffordable.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 64,
+                    "a failed fee charge must not consume alloy");
+            helper.assertTrue(unaffordable.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 64,
+                    "a failed fee charge must not consume polymer");
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
+        helper.succeed();
+    }
+
+    private static void stockPressMaterials(GunsmithPressBlockEntity press) {
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
+                new ItemStack(Items.IRON_INGOT, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
+                new ItemStack(Items.COPPER_INGOT, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
+                new ItemStack(Items.SLIME_BLOCK, 64));
+    }
+
+    private static IJobService swapJob(IJobService fake) {
+        IJobService prev;
+        try {
+            prev = JobServices.jobService();
+        } catch (IllegalStateException notRegistered) {
+            prev = null;
+        }
+        JobServices.registerJobService(fake);
+        return prev;
+    }
+
+    private static void restoreJob(IJobService prev) {
+        if (prev != null) {
+            JobServices.registerJobService(prev);
+        } else {
+            JobServices.reset();
+        }
+    }
+
+    private static IEconomyService swapEconomy(IEconomyService fake) {
+        IEconomyService prev = EconomyServices.isRegistered() ? EconomyServices.economyService() : null;
+        EconomyServices.registerEconomyService(fake);
+        return prev;
+    }
+
+    private static void restoreEconomy(IEconomyService prev) {
+        if (prev != null) {
+            EconomyServices.registerEconomyService(prev);
+        } else {
+            EconomyServices.reset();
+        }
+    }
+
+    /** 真 EconomyService (内存账本 + AbuseGuard + 惰性玩家态解析器); tryCharge 走真 sink 语义。 */
+    private static IEconomyService freshEconomy(EconomyLedger ledger) {
+        Map<UUID, PlayerAbuseState> states = new HashMap<>();
+        Function<UUID, PlayerAbuseState> resolver = id -> states.computeIfAbsent(id, k -> new PlayerAbuseState());
+        return new EconomyService(ledger, new AbuseGuard(), resolver);
+    }
+
+    /** 定级职业门面替身 (level/grantXp 不计数, 仅供枪匠等级门读取); 逐字照抄 MunitionsGameTests 同名类。 */
+    private static final class FixedLevelJobService implements IJobService {
+        private final int level;
+
+        FixedLevelJobService(int level) {
+            this.level = level;
+        }
+
+        @Override
+        public int level(Player player, JobId job) {
+            return level;
+        }
+
+        @Override
+        public long totalXp(Player player, JobId job) {
+            return 0L;
+        }
+
+        @Override
+        public long grantXp(Player player, JobId job, long rawXp) {
+            return rawXp;
+        }
+
+        @Override
+        public JobProgress progress(Player player, JobId job) {
+            throw new UnsupportedOperationException("not exercised by gunsmith press tests");
+        }
     }
 }

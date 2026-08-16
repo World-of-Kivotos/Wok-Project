@@ -137,10 +137,14 @@ public final class CaseDaoSqlite implements CaseDao {
 
     @Override
     public List<CaseOpeningRow> recoverableOpenings(UUID ownerId) {
-        // COMMITTED/REFUNDED are included deliberately: SQLite may have persisted its terminal state while the
-        // corresponding SavedData complete/refund transition was still only dirty in memory at a hard crash.
+        // RESERVED/DEBITED/REFUNDED 仍需要恢复: SQLite 可能已把这些状态持久化, 而对应的 SavedData
+        // complete/refund 迁移在硬崩溃时仍只脏在内存里。已结算 (economy_settled=1) 的 COMMITTED 行
+        // 被排除在外, 因为它是永久终态: 结算锚落在开箱库自身, 与账本行是否被 EconomySystem 定期回收
+        // 无关。把已结算的 COMMITTED 也留在这里, 曾经既是登录恢复集合无上界增长的成因,
+        // 也是账本行被回收后重复扣款的载体。
         String sql = "SELECT * FROM case_openings WHERE owner_uuid=? "
-                + "AND status IN ('RESERVED','DEBITED','COMMITTED','REFUNDED') "
+                + "AND (status IN ('RESERVED','DEBITED','REFUNDED') "
+                + "OR (status='COMMITTED' AND economy_settled=0)) "
                 + "ORDER BY created_at ASC";
         List<CaseOpeningRow> rows = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -158,8 +162,14 @@ public final class CaseDaoSqlite implements CaseDao {
 
     @Override
     public List<CaseOpeningRow> allRecoverableOpenings() {
+        // RESERVED/DEBITED/REFUNDED 仍需要恢复: SQLite 可能已把这些状态持久化, 而对应的 SavedData
+        // complete/refund 迁移在硬崩溃时仍只脏在内存里。已结算 (economy_settled=1) 的 COMMITTED 行
+        // 被排除在外, 因为它是永久终态: 结算锚落在开箱库自身, 与账本行是否被 EconomySystem 定期回收
+        // 无关。把已结算的 COMMITTED 也留在这里, 曾经既是登录恢复集合无上界增长的成因,
+        // 也是账本行被回收后重复扣款的载体。
         String sql = "SELECT * FROM case_openings "
-                + "WHERE status IN ('RESERVED','DEBITED','COMMITTED','REFUNDED') "
+                + "WHERE status IN ('RESERVED','DEBITED','REFUNDED') "
+                + "OR (status='COMMITTED' AND economy_settled=0) "
                 + "ORDER BY created_at ASC";
         List<CaseOpeningRow> rows = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(sql);
@@ -226,6 +236,58 @@ public final class CaseDaoSqlite implements CaseDao {
             return rows;
         } catch (SQLException exception) {
             throw new CaseStoreException("failed to list owned skin assets for " + ownerId, exception);
+        }
+    }
+
+    @Override
+    public boolean markEconomySettled(UUID openingId, long updatedAt) {
+        // status='COMMITTED' 是刻意加的闸: 非 COMMITTED 行被标结算属于不可能状态, 必须让调用方看见
+        // false 而不是静默写成功。
+        String sql = "UPDATE case_openings SET economy_settled=1,updated_at=? "
+                + "WHERE opening_id=? AND status='COMMITTED'";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, updatedAt);
+            statement.setString(2, openingId.toString());
+            return statement.executeUpdate() > 0;
+        } catch (SQLException exception) {
+            throw new CaseStoreException("failed to mark case opening economy settled " + openingId, exception);
+        }
+    }
+
+    @Override
+    public boolean isOpeningSettled(UUID openingId) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT economy_settled FROM case_openings WHERE opening_id=?")) {
+            statement.setString(1, openingId.toString());
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    // skin_assets.source_opening_id 有指向 case_openings 的外键, 查不到即数据损坏,
+                    // 必须响, 严禁返回 false 掩盖。
+                    throw new CaseStoreException("case opening referenced by settled check is missing: " + openingId);
+                }
+                return result.getInt("economy_settled") != 0;
+            }
+        } catch (SQLException exception) {
+            throw new CaseStoreException("failed to read economy settled flag for case opening " + openingId, exception);
+        }
+    }
+
+    @Override
+    public List<SkinAssetRow> settledOwnedAssets(UUID ownerId) {
+        String sql = "SELECT a.* FROM skin_assets a JOIN case_openings o ON a.source_opening_id=o.opening_id "
+                + "WHERE a.owner_uuid=? AND o.economy_settled=1 "
+                + "ORDER BY a.acquired_at DESC,a.asset_id ASC";
+        List<SkinAssetRow> rows = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, ownerId.toString());
+            try (ResultSet result = statement.executeQuery()) {
+                while (result.next()) {
+                    rows.add(asset(result));
+                }
+            }
+            return rows;
+        } catch (SQLException exception) {
+            throw new CaseStoreException("failed to list settled owned skin assets for " + ownerId, exception);
         }
     }
 

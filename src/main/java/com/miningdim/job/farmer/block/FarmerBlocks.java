@@ -7,6 +7,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.MapColor;
+import net.minecraft.world.level.material.PushReaction;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
@@ -54,7 +55,11 @@ public final class FarmerBlocks {
     private static RegistryObject<Block> registerFarmland(FarmerTier tier, MapColor mapColor) {
         return BLOCKS.register("farmer_farmland_" + tier.id(),
                 () -> new FarmerFarmlandBlock(
-                        BlockBehaviour.Properties.copy(Blocks.DIRT).mapColor(mapColor),
+                        // 活塞不可推 (PushReaction.BLOCK): 放置归属记录以 (维度, 坐标) 为键 (FarmerSavedData,
+                        // F025), 活塞把耕地推到新坐标时既不触发任何可挂钩事件、也无法把记录一并搬走, 会造成
+                        // "旧坐标孤儿记录 + 新坐标无主耕地", 重新打开放置上限绕过面。耕地是职业产出基建, 刻意
+                        // 牺牲"可被活塞搬运"这一原版方块惯常玩法行为, 换取归属记录的坐标稳定性。
+                        BlockBehaviour.Properties.copy(Blocks.DIRT).mapColor(mapColor).pushReaction(PushReaction.BLOCK),
                         tier));
     }
 

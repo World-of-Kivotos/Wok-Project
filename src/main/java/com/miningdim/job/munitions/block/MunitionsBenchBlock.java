@@ -1,9 +1,11 @@
 package com.miningdim.job.munitions.block;
 
+import com.miningdim.job.munitions.MunitionsSavedData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.StringRepresentable;
@@ -35,6 +37,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraftforge.network.NetworkHooks;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.UUID;
 import java.util.function.Supplier;
 
 public final class MunitionsBenchBlock extends Block implements EntityBlock {
@@ -148,6 +151,35 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
             }
         }
         super.playerWillDestroy(level, pos, state, player);
+    }
+
+    /**
+     * 台数计数的唯一回收点 (F009: 挪出 forgeBus BreakEvent, 覆盖玩家破坏/爆炸/活塞/级联/指令全部路径)。
+     *
+     * 三条理由:
+     * (a) {@code !state.is(newState.getBlock())} 是 vanilla 惯用判据, 少了它每次 ACTIVE 属性翻转都会误扣 ——
+     *     {@code LevelChunk.setBlockState} 对同方块的每次状态变更 (进度 tick 切换 ACTIVE) 都会调一次 onRemove。
+     * (b) 只在 MAIN 半块扣: EXTENSION 没有 BE ({@link #newBlockEntity} 对它返 null), 挖任一半最终都只会让
+     *     MAIN 走一次 onRemove (updateShape 级联或 playerWillDestroy 的创造模式清理), 天然单次不重复扣。
+     * (c) 放置侧按放置者 increment ({@code MunitionsSystem.onBenchPlace}), 而 {@link #setPlacedBy} 把 owner
+     *     写成放置者, 故两侧同一个 UUID; 非玩家放置 (owner 为 null) 天然两侧都不计, 与放置侧对称。
+     * (d) 复核 (blocker): {@code level.restoringBlockSnapshots} 时必须跳过。撞上限被取消的放置也会走一遍
+     *     "setBlock 主+副 -> EntityMultiPlaceEvent 取消 -> BlockSnapshot.restore 把两半 setBlock 回 AIR"——
+     *     此时 {@link #setPlacedBy} 早已把 owner 写好但 increment 从未执行 (event 在 increment 之前就
+     *     setCanceled), 若这里照常 decrement 就会把台数计数刷到比实际已放置台数还低, 相当于每撞一次上限就
+     *     白送一格额度, 可无限刷台。vanilla 自己的 {@code Block.popResource}/{@code popExperience} 就是靠这个
+     *     字段跳过快照回滚期的副作用 (forge-1.20.1-47.4.20 sources 核实), 这里对齐同一套纪律。
+     */
+    @Override
+    public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean isMoving) {
+        if (!level.isClientSide && !level.restoringBlockSnapshots && isMain(state) && !state.is(newState.getBlock())
+                && level.getBlockEntity(pos) instanceof MunitionsBenchBlockEntity be) {
+            UUID owner = be.owner();
+            if (owner != null && level instanceof ServerLevel serverLevel) {
+                MunitionsSavedData.get(serverLevel.getServer().overworld()).decrement(owner);
+            }
+        }
+        super.onRemove(state, level, pos, newState, isMoving);
     }
 
     @Override

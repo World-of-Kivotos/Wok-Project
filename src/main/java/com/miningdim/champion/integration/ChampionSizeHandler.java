@@ -37,11 +37,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -71,9 +68,6 @@ public final class ChampionSizeHandler {
 
     /** 扫描周期 (tick): 1s 扫一次近玩家冠军 (与自身被动/闪光同范式)。 */
     private static final int SCAN_INTERVAL_TICKS = 20;
-
-    /** 作用的玩家可见距离 (格; 与自身被动/BOSS 血条同量级)。远离该范围的冠军不结算 (无玩家在场无需守卫/补偿)。 */
-    private static final double VIEW_RANGE = 48.0D;
 
     /** 巨大化移速补偿 modifier 固定 UUID (瞬态 MULTIPLY_TOTAL, 独立于 SPRINT/OVERDRIVE 的 UUID; 不入 NBT)。 */
     private static final UUID GIGANTISM_SPEED_UUID = UUID.fromString("2b7e4c19-8a63-4f52-9d0e-1c6a5b8f3e70");
@@ -258,21 +252,11 @@ public final class ChampionSizeHandler {
 
     /** 每秒扫近玩家冠军 (与自身被动同范式): 对体型冠军确保尺寸已算 + 巨大化挂移速补偿 + 运行时卡死检测。 */
     private void scanNearbyChampions(MinecraftServer server, long nowTick) {
-        Set<UUID> processed = new HashSet<>();
-        for (ServerLevel level : server.getAllLevels()) {
-            List<ServerPlayer> players = level.players();
-            if (players.isEmpty()) {
-                continue;
+        for (ChampionProximityScanner.Sighting sighting : ChampionProximityScanner.sightings(server)) {
+            if (!sighting.entity().isAlive()) {
+                continue; // 快照按 tick 复用, 同 tick 更早的 handler 可能已致死: 存活性逐条重查。
             }
-            for (ServerPlayer player : players) {
-                AABB box = player.getBoundingBox().inflate(VIEW_RANGE);
-                for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class, box, LivingEntity::isAlive)) {
-                    if (!processed.add(entity.getUUID())) {
-                        continue; // 多玩家同看一冠军: 本轮只结算一次。
-                    }
-                    applySizeScan(entity, level, nowTick);
-                }
-            }
+            applySizeScan(sighting.entity(), sighting.level(), nowTick);
         }
     }
 

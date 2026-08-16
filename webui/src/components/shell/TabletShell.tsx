@@ -15,10 +15,10 @@ import {
 import type { ReactElement, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { Button, Currency, LoadingBlock, Tag, Toggle } from '@/components/kit'
-import { isMockActive } from '@/lib/bridge'
+import { handshake, isMockActive } from '@/lib/bridge'
 import { useBrand } from '@/lib/brand'
 import { useTheme } from '@/lib/theme'
-import { mutateWorld, primeRealDomainMirror, useMockAction, useMockWorld } from '@/mock'
+import { mutateWorld, primeRealDomainMirror, recordMirrorError, useMockAction, useMockWorld } from '@/mock'
 import {
   ROUTE_ADMIN,
   ROUTE_CASE,
@@ -36,6 +36,7 @@ import {
   useRouteMatch,
 } from '@/router'
 import type { Tone } from '@/components/kit'
+import type { HandshakeReport } from '@/lib/bridge'
 
 /**
  * 平板 hub 外壳。真源: 接线清单第一章信息架构 + 记忆项 unified-ui-entry-plan。
@@ -105,9 +106,18 @@ function tpsTone(tps: number): Tone {
   return 'danger'
 }
 
-function toError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value))
+/** 契约漂移徽标的文案: 前 5 条 missing action 名, 超过 5 条追加"等 N 条"而不是把顶栏撑爆。 */
+function describeMissingActions(missingOnServer: readonly string[]): string {
+  const shown = missingOnServer.slice(0, 5).join(', ')
+  const rest = missingOnServer.length - 5
+  return rest > 0 ? `${shown} 等 ${String(missingOnServer.length)} 条` : shown
 }
+
+/*
+ * StrictMode (main.tsx) 会在 dev 下把挂载期 effect 跑两遍。握手自检没有幂等性可言 —— 两遍各发一次
+ * system.handshake、各打一遍诊断日志, 模块级守卫拦掉第二遍。
+ */
+let handshakeStarted = false
 
 export interface TabletShellProps {
   children: ReactNode
@@ -144,7 +154,8 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
    * 账号, 这四项还在" —— 玩家读到时那句话是假的。外壳是全部面板的共同祖先, 对齐点只能在这里。
    */
   const prefs = useMockAction('player.prefs.get', EMPTY_PAYLOAD)
-  const [mirrorError, setMirrorError] = useState<Error | null>(null)
+  const [handshakeReport, setHandshakeReport] = useState<HandshakeReport | null>(null)
+  const [handshakeError, setHandshakeError] = useState<string | null>(null)
 
   const reloadProfile = profile.reload
   const reloadServer = server.reload
@@ -152,10 +163,27 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
 
   useEffect(() => {
     // hub 是真域镜像的预热点 (mock/handlers.ts primeRealDomainMirror 的文件注释): 在这里拉一次,
-    // 后续每个面板就不必各自去发现镜像还是 null。失败不吞 —— 落进状态并在顶栏显形。
-    primeRealDomainMirror().catch((error: unknown) => {
-      setMirrorError(toError(error))
-    })
+    // 后续每个面板就不必各自去发现镜像还是 null。失败不吞 —— 落进 mirror.lastError 并在顶栏显形
+    // (recordMirrorError 是全库唯一的失败落点, 见 mock/handlers.ts)。
+    primeRealDomainMirror().catch(recordMirrorError)
+  }, [])
+
+  useEffect(() => {
+    if (handshakeStarted) {
+      return
+    }
+    handshakeStarted = true
+    handshake()
+      .then((report) => {
+        setHandshakeReport(report)
+        // unknownToClient 不算不兼容 (服务端跑在更新的构建上), 只值得留个痕迹, 不值得占顶栏一个位置。
+        if (report.unknownToClient.length > 0) {
+          console.info('[webui-handshake] 服务端注册了前端未声明的 action:', report.unknownToClient)
+        }
+      })
+      .catch((error: unknown) => {
+        setHandshakeError(error instanceof Error ? error.message : String(error))
+      })
   }, [])
 
   /*
@@ -304,9 +332,25 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
                 服务器状态不可用
               </Tag>
             ) : null}
-            {mirrorError === null ? null : (
+            {world.mirror.lastError === null ? null : (
               <Tag size="sm" tone="danger">
-                数据加载失败: {mirrorError.message}
+                数据加载失败: {world.mirror.lastError}
+              </Tag>
+            )}
+
+            {/*
+              两条互斥: compatible === false 才算契约漂移 (unknownToClient 非空不算, 只值得进控制台,
+              见上方 handshake effect); handshakeError 是握手请求本身失败 (连不上桥/回执畸形), 与
+              "连上了但清单对不上"是两种不同的故障, 不能合并成一句话。
+            */}
+            {handshakeReport !== null && !handshakeReport.compatible ? (
+              <Tag size="sm" tone="danger">
+                契约漂移 {handshakeReport.modVersion}: {describeMissingActions(handshakeReport.missingOnServer)}
+              </Tag>
+            ) : null}
+            {handshakeError === null ? null : (
+              <Tag size="sm" tone="danger">
+                契约自检失败: {handshakeError}
               </Tag>
             )}
 

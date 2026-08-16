@@ -17,6 +17,10 @@ import java.util.List;
  *
  * 本期 (阶段 1 合并 + 持久化) 仅 merge.* / exclusions.* 有读取方 (StackMerge / StackingSystem); drops.* /
  * passive.* 由阶段 2 (主动/被动产出) 消费, 但默认参数表要求全量定义, 故此处一并落地 (有明确后续读取方, 非死键)。
+ *
+ * 顶层 {@link #ENABLED} 是子系统总开关 (F094 修复配套的运维旋钮, 与合并候选白名单 —— 由 {@link StackMerge} 硬编码,
+ * 非 config 键 —— 是两回事: 白名单决定 "谁能堆", 本开关决定 "整个子系统是否发新的合并")。interaction.* 是 FR-5
+ * 拆分/拴绳语义 (F066), 由 {@link StackSplit} 消费。
  */
 public final class StackingConfig {
 
@@ -43,6 +47,15 @@ public final class StackingConfig {
         MULTIPLY_BASE
     }
 
+    /** interaction.leashMode 枚举 (FR-5.2): 拴绳作用于整堆还是拆出单个个体。 */
+    public enum LeashMode {
+        WHOLE_STACK,
+        SPLIT_ONE
+    }
+
+    /** 子系统总开关 (F094 修复配套); false 时新合并全面停止, 但已成堆叠仍可正常走掉落/被动/拆分结算, 不丢个体。 */
+    public static final ForgeConfigSpec.BooleanValue ENABLED;
+
     // ---- merge.* (合并核心; 阶段 1 消费) ----
     public static final ForgeConfigSpec.IntValue MERGE_RADIUS_HORIZONTAL;
     public static final ForgeConfigSpec.IntValue MERGE_RADIUS_VERTICAL;
@@ -67,8 +80,17 @@ public final class StackingConfig {
     public static final ForgeConfigSpec.BooleanValue EXCLUSIONS_BOSS;
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> EXCLUSIONS_BLACKLIST;
 
+    // ---- interaction.* (拆分/拴绳; FR-5 消费) ----
+    public static final ForgeConfigSpec.EnumValue<LeashMode> LEASH_MODE;
+    public static final ForgeConfigSpec.IntValue SPLIT_GRACE_TICKS;
+
     static {
         ForgeConfigSpec.Builder b = new ForgeConfigSpec.Builder();
+
+        ENABLED = b.comment("Master kill switch for the entity stacking subsystem. false stops all NEW merges (the periodic scan short-circuits); already-formed stacks keep settling correctly through drops/passive/split handlers so no individual is lost. Hot-reloadable.")
+                .define("enabled", true);
+        // 默认 true: 合并候选已收口到白名单四种低价值农场动物 (决策 D1), 崩服级/资产损毁级后果 (F004/F005/F018/F037)
+        // 已随白名单化全部消除, 剩余只是 F038 那条按决策 D2 接受的掉落等价语义, 无需默认关停等待人工开启。
 
         b.push("merge");
         MERGE_RADIUS_HORIZONTAL = b.comment("Horizontal merge radius in blocks (FR-1.1)")
@@ -113,6 +135,13 @@ public final class StackingConfig {
                 .define("boss", true);
         EXCLUSIONS_BLACKLIST = b.comment("Entity ids excluded from stacking, e.g. modded entities (C-3); format \"namespace:path\"")
                 .defineList("blacklist", List.of(), o -> o instanceof String);
+        b.pop();
+
+        b.push("interaction");
+        LEASH_MODE = b.comment("FR-5.2 leash semantics. SPLIT_ONE: using a lead on a stack peels off exactly 1 individual and leashes that one. WHOLE_STACK: the lead attaches to the whole stack entity (vanilla behaviour); a leashed stack stops absorbing others.")
+                .defineEnum("leashMode", LeashMode.SPLIT_ONE);
+        SPLIT_GRACE_TICKS = b.comment("FR-5.1 ticks during which a freshly split-off individual is excluded from re-merging, so the player can lead it away (600 = 30s)")
+                .defineInRange("splitGraceTicks", 600, 0, 72000);
         b.pop();
 
         SPEC = b.build();

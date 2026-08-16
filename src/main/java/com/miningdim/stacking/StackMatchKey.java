@@ -49,8 +49,17 @@ public final class StackMatchKey {
      */
     private static String variantSignature(Entity entity) {
         if (entity instanceof Sheep sheep) {
-            // 羊毛色: 不同颜色不合并 (剪毛产出按色结算)。getColor 返回 DyeColor, 取 ordinal 稳定。
-            return "wool:" + sheep.getColor().getId();
+            // 羊毛色 + 已剪态: 不同颜色不合并 (剪毛产出按色结算)。已剪态也纳入签名 (F095 关联修复) ——
+            // 已剪羊与带毛羊若被并成一堆, StackPassive 的恢复计数就会失真: 带毛个体被并进已剪堆叠会白白
+            // 损失一次剪毛机会, 反向则凭空多出可剪个体 (恢复账算的是 "待长毛只数", 与实际已剪只数对不上)。
+            // 已剪态是直接影响产出结算的状态维度, 必须与羊毛色同级进等价键, 使换色/剪毛前后自然分堆。
+            //
+            // 用 "isSheared() || 恢复账未清" 而非单看 isSheared() (findings 2/4/6 第二条路径修复): 原版
+            // Sheep.ate() 与 StackPassive 的恢复账推进同挂 LivingTickEvent, 但 ate() 由 AI 目标在同一 tick 内更晚
+            // 触发, 每次真实吃草后有整整 1 tick 处于 "isSheared() 已翻 false 但恢复账未清" 的窗口; 若周期扫描
+            // 恰好落在该窗口, 单看 isSheared() 会把这只 "还没走完恢复账" 的羊错判成满毛, 与真正满毛的羊同键。
+            boolean effectivelySheared = sheep.isSheared() || StackPassive.hasPendingRegrowLedger(sheep);
+            return "wool:" + sheep.getColor().getId() + "|sheared:" + (effectivelySheared ? 1 : 0);
         }
         if (entity instanceof Creeper creeper) {
             // 充能苦力怕与普通苦力怕分堆 (爆炸/掉落不同)。

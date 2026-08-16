@@ -8,15 +8,14 @@ import com.miningdim.champion.ChampionRedlines;
 import com.miningdim.champion.CompositeArmorRampTracker;
 import com.miningdim.champion.MiningChampionData;
 import com.miningdim.champion.MiningChampions;
+import com.miningdim.champion.StarRank;
 import com.miningdim.champion.bloodpool.BloodPool;
 import com.miningdim.champion.bloodpool.BloodPoolRegistry;
-import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.core.MiningConstants;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageType;
@@ -24,6 +23,8 @@ import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
+import net.minecraftforge.event.entity.EntityLeaveLevelEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
@@ -55,10 +56,11 @@ import java.util.UUID;
  *
  * 血池权威 (6.2 #2): 6★+ 冠军 vanilla getHealth/max_health 仅渲染镜像, 一切判定读影子血池。本 handler 把
  * event 的伤害从影子血池扣 (经净减伤), 并把 vanilla 这次伤害取消 (setCanceled) —— vanilla 不再扣自己那点
- * ≤1024 的血, 避免双重扣血/原版提前判死。拦死 (6.2 #3): 影子血池 wouldDieFrom 致死则主动 entity.kill();
- * 否则取消 vanilla 伤害, 影子血扣完由本 handler 权威推进。渲染镜像 (6.2 #2): 受击分支即时刷 + ServerTickEvent
- * 每 tick 对在册血池实体统一按 {@link BloodPool#displayHealth()} 刷 (含回血同步与绕过本 handler 的伤害路径
- * 兜底), 保血条不滞后/不诈活。
+ * ≤1024 的血, 避免双重扣血/原版提前判死。拦死 (6.2 #3): 影子血池 wouldDieFrom 致死则扣池到 0 + setHealth(0) +
+ * 摘池放行, 真死流程由外层 vanilla hurt() 尾部的 die() 驱动 (setHealth(0) 已使 isDeadOrDying 为真, 不需要也不
+ * 应再主动调 kill() —— F101: 详见 onLivingHurt 内联注释); 否则取消 vanilla 伤害, 影子血扣完由本 handler 权威
+ * 推进。渲染镜像 (6.2 #2): 受击分支即时刷 + ServerTickEvent 每 tick 对在册血池实体统一按
+ * {@link BloodPool#displayHealth()} 刷 (含回血同步与绕过本 handler 的伤害路径兜底), 保血条不滞后/不诈活。
  *
  * 冠军数据源: 受击时经 {@link MiningChampions#get} 读自研 {@link MiningChampionData} 词条池 (星级 + 词条→品质
  * 直存), 不再触任何 top.theillusivec4.champions.* (数值/分类折算的纯逻辑下沉到 {@link ChampionDamageReduction} /
@@ -128,35 +130,44 @@ public final class ChampionBloodPoolHandler {
         }
 
         if (pool.wouldDieFrom(netDamage)) {
-            // 影子血池致死 (6.2 #3 拦死单一判据): 扣到 0, 取消本次 vanilla 伤害, 先摘池再 kill。
+            // 影子血池致死 (6.2 #3 拦死单一判据): 扣到 0, 取消本次 vanilla 伤害, 摘池放行。
             pool.applyDamage(netDamage);
+            flushCurrentHp(victim, pool);
             event.setCanceled(true);
 
-            // 先落账再致死 (缺陷1 修复): kill() 内部走 hurt(OUT_OF_WORLD, MAX_VALUE) 会同步重入 LivingHurtEvent
-            // (归因 OUT_OF_WORLD 不记) 紧接 LivingDeathEvent -> RewardHandler.onChampionDeath 在嵌套里 drain 清账。
-            // 若不在 kill 前补记, 这笔致命单击 (常是最高伤) 要等嵌套返回后才被 RewardHandler.onChampionHurt 记入,
-            // 此时账本已 drain -> 既漏算瓜分权重又泄漏到 ServerStopping。故在 kill 前用与 RewardHandler 同一归因
-            // (resolvePlayerAttacker 复用, 不另造) 把这笔致命单击按"有效伤害"口径 (event.getAmount(), 与受击累计
-            // 一致用名义入伤而非净伤) 落账, 使嵌套 drain 时最后一击已在账内。归因为 null (环境/召唤物致死) 时不记。
-            ServerPlayer killer = ChampionRewardHandler.resolvePlayerAttacker(event);
-            if (killer != null) {
-                long nowTick = victim.level().getGameTime();
-                ContributionTracker.record(victim.getUUID(), killer.getUUID(), incoming, nowTick);
-            }
+            // 不预记贡献 (F101 修复): LivingEntity.hurt() 的 setHealth(0) 之后紧跟
+            // `else if (this.isDeadOrDying()) return false;` (LivingEntity.java:1064) —— 本次 setHealth(0) 已使
+            // isDeadOrDying 为真, 若本 handler 再调 kill() (即 hurt(genericKill, MAX_VALUE)) 必在这条分支恒 no-op,
+            // 不会重入 LivingHurtEvent。真正致死是外层 vanilla hurt 尾部的
+            // `if (this.isDeadOrDying()) ... this.die(source);` (LivingEntity.java:1175-1182), 它在 actuallyHurt
+            // 返回、即本次 LivingHurtEvent 全部监听器 (含 LOWEST 的本 handler) 跑完【之后】才执行。故
+            // ChampionRewardHandler.onChampionHurt (同为 LOWEST, receiveCanceled=true, 注册序在本 handler 之后
+            // 故 FIFO 后跑) 必然先按常规入伤口径记完这笔致命击, 才轮到 die() 触发 onChampionDeath 去 drain ——
+            // 常规记账已独占这笔账, 这里再记一次就是把致命击算两遍。
 
-            // 摘池关键 (防 kill 重入): 若池仍在册则重入受击 wouldDieFrom 再判致死 -> 再取消 -> 再 kill 形成递归。
-            // 先 remove 让重入的受击找不到池而放行到 vanilla, 由 vanilla 的 MAX_VALUE 伤害走真死路径。
+            // 摘池 (放行 vanilla 真死路径): 摘除后本次 event 循环内不会再有本 handler 的重入 (受击已在处理中),
+            // 摘池是为了让任何后续/嵌套受击 (若外部 mod 在更高优先级另触发一次) 找不到池而放行走 vanilla。
             BloodPoolRegistry.remove(victim.getUUID());
             victim.setHealth(0.0F);
-            victim.kill();
             return;
         }
 
         // 未致死: 影子血池扣净伤, 取消 vanilla 本次伤害 (影子血权威, vanilla 不重复扣其 ≤1024 血)。
         pool.applyDamage(netDamage);
+        flushCurrentHp(victim, pool);
         event.setCanceled(true);
         // 渲染镜像即时同步 (6.2 #2): vanilla 血条按影子血占比映射到 [0,1024], 保血条不因取消伤害而卡满。
         mirrorToVanilla(victim, pool);
+    }
+
+    /**
+     * 把影子血池当前血落账进冠军 capability (F040: 供服务端重启/区块重载后 {@link #onEntityJoinLevel} 按此重建血池)。
+     * 受击是唯一与维度无关且逐次精确的落账点 —— 每 tick 镜像 ({@link #onServerTick}) 只覆盖矿洞维度在册实体,
+     * 命令传送到其它维度的冠军受击后仍能经此落账, 不依赖 tick 镜像覆盖范围。取不到 capability (非 Mob/未挂载)
+     * 静默跳过, 不影响血池本身权威。
+     */
+    private static void flushCurrentHp(LivingEntity victim, BloodPool pool) {
+        MiningChampions.get(victim).ifPresent(data -> data.setCurrentHp(pool.currentHp()));
     }
 
     /**
@@ -323,7 +334,7 @@ public final class ChampionBloodPoolHandler {
      * 按实体【实际属性上限】等比例映射 —— promoter 已把血池怪 vanilla 血量属性设到有效血真值, 测试服 AttributeFix
      * (max_health 上限 1e6) 环境下 getMaxHealth() = 池 maxHp, Jade 悬浮血条直显真血; 无 AttributeFix 属性自钳 1024,
      * 镜像自动退回保守比例 (与旧行为一致, 不诈活)。displayHealth>0 (池未死) 才写 vanilla 血, 池已死 (==0) 由致死
-     * 分支 kill() 路径处理, 此处不强写 0 避免与 kill 打架。
+     * 分支 (onLivingHurt) 的 setHealth(0) 处理, 此处不强写 0 避免与致死分支打架。
      */
     private static void mirrorToVanilla(LivingEntity victim, BloodPool pool) {
         float mirrored = pool.displayHealth(victim.getMaxHealth());
@@ -337,18 +348,23 @@ public final class ChampionBloodPoolHandler {
      * tick ({@link BloodPool#heal}) 与"绕过本 handler 的伤害路径"(直接 setHealth/秒杀效果/更高优先级 mod 先
      * setCanceled 截走) 都不会触发受击镜像, 导致血条滞后或顶高 (诈活)。故移到 ServerTickEvent END 每 tick 对
      * {@link BloodPoolRegistry} 在册实体 (通常极少) 统一按 displayHealth 刷一遍, 含回血同步。受击分支保留即时刷
-     * (低血阈值等当 tick 即时反馈)。
+     * (低血阈值等当 tick 即时反馈); 本 tick 循环末尾同样 flushCurrentHp 一次, 兜住只走回血路径 (
+     * {@code ChampionSelfEffectHandler}/{@code ChampionSelfRepairHandler} 调 {@link BloodPool#heal}) 而不经受击
+     * 落账口径的漂移 (F040)。
      *
-     * 性能: 只遍在册血池快照 (6★+ 冠军, 数量极少), 非全世界实体扫描。自研后本 handler 由 {@code ChampionSystem#register}
-     * 无条件挂 forgeBus (不再依赖 Champions), 血池在册与否经我方 {@link BloodPoolRegistry} (promoter 建池写入)。
+     * 遍历只在 {@link MiningConstants#MINING_LEVEL} 维度查实体是既有行为, 命令召唤到其它维度的冠军拿不到 tick
+     * 镜像是另一个已知问题, 本次不动。
+     *
+     * F039 修复: 原实现每 tick 无条件 {@code snapshot()} (LinkedHashMap 全表复制) 再判空, 空表也照样分配一份
+     * 拷贝纯属浪费; 服务端主线程串行, 本循环遍历期间不会有 install/remove 插队, 故改走 {@link BloodPoolRegistry#live()}
+     * 零拷贝视图, 先 {@link BloodPoolRegistry#isEmpty()} 早退。
      */
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) {
             return;
         }
-        Map<UUID, BloodPool> pools = BloodPoolRegistry.snapshot();
-        if (pools.isEmpty()) {
+        if (BloodPoolRegistry.isEmpty()) {
             return;
         }
         MinecraftServer server = event.getServer();
@@ -356,11 +372,91 @@ public final class ChampionBloodPoolHandler {
         if (mining == null) {
             return; // 维度未加载 (启动早期/配置异常): 本 tick 跳过镜像, 不刷屏。
         }
-        for (Map.Entry<UUID, BloodPool> entry : pools.entrySet()) {
+        for (Map.Entry<UUID, BloodPool> entry : BloodPoolRegistry.live().entrySet()) {
             Entity entity = mining.getEntity(entry.getKey());
             if (entity instanceof LivingEntity living && living.isAlive()) {
                 mirrorToVanilla(living, entry.getValue());
+                flushCurrentHp(living, entry.getValue());
             }
         }
+    }
+
+    /**
+     * 冠军实体离开世界 (F039): 本仓已有 11 个同类 per-冠军状态表 (惩罚/技能冷却等) 各自都在此类事件里清扫, 唯独
+     * 血池此前缺这条通道。自然 despawn 不发 {@link LivingDeathEvent} (MobPressureSystem 以 MobSpawnType.SPAWNER
+     * 落地且从不 setPersistenceRequired, 走原版 Mob.checkDespawn 的 discard 路径), 只发本事件, 故 {@link #onLivingDeath}
+     * 单独回收覆盖不到 despawn 的 6★+ 冠军, 条目永久驻留、每 tick 镜像还要对着已消失的 UUID 空扫。
+     *
+     * 分流按 {@link Entity.RemovalReason}: KILLED/DISCARDED ({@code shouldDestroy()}=true, 涵盖自然 despawn 与
+     * 主动 discard) 与 UNLOADED_TO_CHUNK (区块卸载但玩家未随行) 视为真正离场 -> 摘池; UNLOADED_WITH_PLAYER (随
+     * 玩家客户端视距卸载, 服务端侧仍在) 与 CHANGED_DIMENSION (换维度, 同 UUID 马上以新实例回来) 保留在册 —— 摘了
+     * 反而丢当前血, 回来时还要靠 {@link #onEntityJoinLevel} 重建。reason 为 null (理论不该出现) 保守保留不回收。
+     */
+    @SubscribeEvent
+    public void onEntityLeaveLevel(EntityLeaveLevelEvent event) {
+        if (event.getLevel().isClientSide()) {
+            return;
+        }
+        Entity entity = event.getEntity();
+        UUID id = entity.getUUID();
+        BloodPool pool = BloodPoolRegistry.get(id);
+        if (pool == null) {
+            return;
+        }
+        if (entity instanceof LivingEntity living) {
+            flushCurrentHp(living, pool);
+        }
+        Entity.RemovalReason reason = entity.getRemovalReason();
+        if (reason == null) {
+            return; // 保守保留: 理论上离场事件必带 reason, 防御性不回收。
+        }
+        if (reason.shouldDestroy() || reason == Entity.RemovalReason.UNLOADED_TO_CHUNK) {
+            BloodPoolRegistry.remove(id);
+            compositeRamps.remove(id);
+        }
+    }
+
+    /**
+     * 冠军实体进入世界 (F040): 服务端重启/区块重载后, 已盖章冠军 (star≥1) 若按 spec 6.2 判据需要血池
+     * ({@link ChampionPromoter#requiresBloodPool}) 但表中无池, 按持久化的 {@link MiningChampionData#currentHp()}
+     * 重建, 而不是让第一次受击时 {@link BloodPoolRegistry#get} 返 null 静默切回 vanilla 血权威 (F040 核心缺陷)。
+     *
+     * 时序安全: {@code MobPressureSystem} 的 addFreshEntityWithPassengers (触发本事件) 在
+     * {@code ChampionSpawnSeam.promote} (盖章) 之前, 新刷冠军进本事件时 star 仍为 0 (isChampion=false) 自然
+     * no-op, 随后由 promoter 建池; 两条路径 (新刷 vs 载入重建) 不打架。不用 {@code loadedFromDisk()} 做门 ——
+     * 跨维度传送 (CHANGED_DIMENSION) 时它为 false, 用它做门会让换维度的冠军永远重建不出池。
+     *
+     * 脏值容忍: currentHp 不在 (0, effectiveHp] 内 (版本漂移/理论不该发生) 时不让单个脏值毁掉整只冠军 —— 按满血
+     * 重建并打一行 warn, 与 {@link MiningChampionData#deserializeNBT} 对脏词条"跳过该条不摧毁整体"的容忍策略一致。
+     */
+    @SubscribeEvent
+    public void onEntityJoinLevel(EntityJoinLevelEvent event) {
+        if (event.getLevel().isClientSide()) {
+            return;
+        }
+        if (!(event.getEntity() instanceof LivingEntity living)) {
+            return;
+        }
+        UUID id = living.getUUID();
+        if (BloodPoolRegistry.has(id)) {
+            return; // 幂等: 已在册, 避开与 promoter 抢建。
+        }
+        MiningChampionData data = MiningChampions.get(living).orElse(null);
+        if (data == null || !data.isChampion()) {
+            return;
+        }
+        double effHp = data.effectiveHp();
+        StarRank rank = StarRank.ofStar(data.star());
+        if (!ChampionPromoter.requiresBloodPool(rank, effHp)) {
+            return; // 1-5★ 且未破 1024: vanilla 血权威, 不建池。
+        }
+        double cur = data.currentHp();
+        if (!(cur > 0.0D && cur <= effHp)) {
+            LOGGER.warn("champion {} currentHp={} out of (0,{}] on rejoin, rebuilding blood pool at full health",
+                    living.getType().getDescriptionId(), cur, effHp);
+            BloodPoolRegistry.install(id, effHp);
+            return;
+        }
+        BloodPoolRegistry.install(id, effHp, cur);
     }
 }

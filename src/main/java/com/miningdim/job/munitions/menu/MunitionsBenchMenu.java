@@ -22,7 +22,7 @@ import net.minecraftforge.items.SlotItemHandler;
  * 军火台容器 (Munitions_Job_DesignSpec 五/十章)。继承共享 {@link AbstractMiningMenu} (正确 quickMoveStack +
  * stillValid 已由基类经 {@link MenuValidity#ofBlock} 实现)。
  *
- * 槽位: 料槽 铜/火药/发射药 (可放可取, isItemValid 限料种) + 输出缓冲槽 (只取不放, 取出经
+ * 槽位: 料槽 底火/弹壳/弹头/发射药 (可放可取, isItemValid 限料种) + 输出缓冲槽 (只取不放, 取出经
  * {@link MunitionsBenchBlockEntity#onOutputTaken} 回收缓冲计数) + 玩家 36 槽。选中口径/缓冲发数/缓冲上限/锁/提炼
  * 解锁 经 {@link ContainerData} 同步 (服务端用 BE 实时 dataAccess; 客户端用 SimpleContainerData)。
  *

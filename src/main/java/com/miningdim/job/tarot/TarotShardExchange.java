@@ -13,6 +13,10 @@ import net.minecraft.world.item.ItemStack;
  *
  * 服务端权威: 先校验碎片足够 (事务安全, 不足不扣不发), 足够则原子扣碎片 + 给牌。纯逻辑抽出供 TDD 断言
  * (扣 N 张碎片精确, 不足则无副作用)。
+ *
+ * 兑换发的牌同样计入 {@link com.miningdim.job.tarot.pack.TarotPackSavedData} 的净额账本 (复核追加修正,
+ * F079 原实现漏了这条通道): 不计入的话, 花碎片兑到 X 再放进箱子, 卡包判重扫不到这笔发放, 会再发一张真 X ——
+ * "放进箱子规避重复判定"对这条通道形同虚设。兑换固定发 SSR (见类头), 只写 SSR 档不影响 R/SR/UR 的独立判重。
  */
 public final class TarotShardExchange {
 
@@ -43,6 +47,8 @@ public final class TarotShardExchange {
         ItemStack card = TarotCardItem.create(
                 TarotRegistry.TAROT_CARD.get(), cardId, TarotQuality.SSR, upright, player.getUUID());
         net.minecraftforge.items.ItemHandlerHelper.giveItemToPlayer(player, card);
+        com.miningdim.job.tarot.pack.TarotPackSavedData.get(player.getServer().overworld())
+                .markCollected(player.getUUID(), cardId, TarotQuality.SSR);
         return new ExchangeResult(true, cost);
     }
 

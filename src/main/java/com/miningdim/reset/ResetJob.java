@@ -5,8 +5,7 @@ import com.miningdim.core.GenState;
 import com.miningdim.core.IResetService;
 import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningServices;
-import com.miningdim.core.SeedUtil;
-import com.miningdim.core.VoxelOccupancy;
+import com.miningdim.core.RegionBox;
 import net.minecraft.server.MinecraftServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,26 +13,36 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * 单实例重置任务的分帧状态机 (设计文档 13.4, Critical 性能核心)。由 {@link ResetSystem} 每服务端 tick 推进,
- * 全程不阻塞主线程超过单 tick 预算。阶段:
- *  UNLOAD   : 主线程释放 region 强加载 ticket, region 区块走原版卸载 (13.4 阶段一: 不逐块 setBlock);
- *  REGEN    : 工作线程重跑 {@link com.miningdim.core.IOfflineGenerator} 算体素 (13.4 阶段二, D2/D8);
- *             SAME_SEED 复用原 seed (逐位相同), NEW_SEED 用 resetGeneration+1 派生新 seed;
- *  SETTLE   : 限速等待区块按需重生成 (区块下次被加载时经 MiningChunkGenerator 查新体素填块),
- *             每 tick 预算受 maxMillisPerTick 约束顺延;
- *  DONE     : genState=READY, 兑现 reset future。
+ * 单实例重置任务的分帧状态机 (D3 滑动 region)。由 {@link ResetSystem} 每服务端 tick 推进。阶段:
+ *  UNLOAD : 主线程撤离在场玩家、释放该实例的全部区块强加载 ticket (必须先于几何变更, 否则旧 owner/旧 box
+ *           发出的 ticket 无法被正确撤销), 并按 mode 计算/派生本次重置目标 seed;
+ *  REGEN  : 调 IInstanceManager.slideRegion 把实例整块滑到一块从未生成过的新坐标 (释放旧强加载与体素缓存、
+ *           写回新 regionBox/seed、置 PENDING 并重新提交生成), 之后逐 tick 轮询 instance.genState()
+ *           直到 isEnterable() 或 FAILED 或超时;
+ *  SETTLE : 清该实例的影子态 (liveMobs) 并广播 MiningServices.fireInstanceReset, 驱动陷阱/矿物/出生/压力
+ *           等子系统的按实例缓存失效重算; 停留满 MIN_SETTLE_TICKS 后落定;
+ *  DONE   : genState=READY (幂等, 生成通路通常已写过), 兑现 reset future。
  *
- * 重置后区块的实际重建由 MiningChunkGenerator (worldgen 子系统) 在区块加载时查实例体素完成 ——
- * 本任务不直接写方块, 只负责卸载旧区块、触发体素重算、限速推进与状态翻转 (维持子系统边界)。
+ * 已知遗留: 旧坐标 region 的区块 (含玩家挖的坑、放的箱子、掉落物、残留怪物) 被整体遗弃在磁盘上不再访问,
+ * 旧 region 对应 .mca 文件的磁盘回收未实现 (由后续分支处理)。同一根因还有坐标空间本身的单调消耗:
+ * MiningSavedData.allocateRegionOriginX 只增不减、越过 MiningConstants.MAX_REGION_WORLD_X 直接拒绝
+ * 分配 (绝不绕回复用旧坐标), 默认三难度重置节奏下约 888 天耗尽; 且世界 X 坐标越过 2^23 (~298 天) 起
+ * 原版实体位置/渲染的 float 精度即开始劣化。两者都是本次 D3 未处理的遗留, 一并留给后续分支
+ * (候选方向: 旧坐标确认落盘删除后回收游标区间, 或改单轴推进为 Z 轴换行的二维铺开)。
+ *
+ * 限速契约: 本任务自身不做墙钟预算限速; REGEN 阶段的区块加载速率由
+ * com.miningdim.instance.GenerationScheduler 的 MAX_CHUNK_LOADS_PER_TICK 每 tick 强加载队列分帧承担,
+ * 本类只负责轮询 genState 与超时判定。
  */
 final class ResetJob {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/reset");
 
-    /** SETTLE 阶段单 tick 墙钟预算 (ms, 13.4 reset.maxMillisPerTick 建议 10)。 */
-    private static final long MAX_MILLIS_PER_TICK = 10L;
-    /** SETTLE 阶段最少停留 tick (给卸载/重算落定一个最小窗口, 防止瞬间翻 READY)。 */
+    /** SETTLE 阶段最少停留 tick (给影子态清理与监听器回调落定一个最小窗口, 防止瞬间翻 READY)。 */
     private static final int MIN_SETTLE_TICKS = 2;
+
+    /** REGEN 阶段等待生成完成的超时 tick 数 (5 分钟), 超过判失败, 绝不无限挂着 future。 */
+    private static final int REGEN_TIMEOUT_TICKS = 6000;
 
     private enum Phase {
         UNLOAD,
@@ -45,22 +54,21 @@ final class ResetJob {
     private final MinecraftServer server;
     private final InstanceState instance;
     private final IResetService.ResetMode mode;
-    private final long globalSeed;
-    private final int resetGeneration;
+    private final ResetSystem owner;
     private final CompletableFuture<Void> completion = new CompletableFuture<>();
 
     private Phase phase = Phase.UNLOAD;
-    private volatile boolean voxelsReady = false;
-    private volatile Throwable regenError = null;
+    private long targetSeed;
+    private boolean slideRequested = false;
+    private RegionBox slidTo;
+    private int regenWaitTicks = 0;
     private int settleTicks = 0;
 
-    ResetJob(MinecraftServer server, InstanceState instance, IResetService.ResetMode mode,
-             long globalSeed, int resetGeneration) {
+    ResetJob(MinecraftServer server, InstanceState instance, IResetService.ResetMode mode, ResetSystem owner) {
         this.server = server;
         this.instance = instance;
         this.mode = mode;
-        this.globalSeed = globalSeed;
-        this.resetGeneration = resetGeneration;
+        this.owner = owner;
     }
 
     CompletableFuture<Void> completion() {
@@ -80,20 +88,16 @@ final class ResetJob {
                 return false;
             }
             case REGEN -> {
-                if (regenError != null) {
-                    fail(regenError);
-                    return true;
-                }
-                if (voxelsReady) {
-                    phase = Phase.SETTLE;
-                    settleTicks = 0;
-                }
-                return false;
+                return tickRegen();
             }
             case SETTLE -> {
+                if (settleTicks == 0) {
+                    // 首个 tick: 清实例影子态 (liveMobs)。子系统按实例缓存失效的广播已提前到
+                    // InstanceManager.slideRegion 内部, 几何一改立刻生效 (分支复核 finding #11),
+                    // 此处不再重复调用 MiningServices.fireInstanceReset。
+                    instance.liveMobs().clear();
+                }
                 settleTicks++;
-                // 限速窗口: 至少 MIN_SETTLE_TICKS, 单 tick 不做重活 (区块重建由 MiningChunkGenerator 按需触发),
-                // 这里仅以墙钟预算守门, 给卸载与体素缓存落定时间, 避免与生成线程的状态翻转竞态。
                 if (settleTicks >= MIN_SETTLE_TICKS) {
                     finish();
                     phase = Phase.DONE;
@@ -107,35 +111,60 @@ final class ResetJob {
         }
     }
 
-    /** 13.4 阶段一: 释放 region 强加载 ticket, region 区块自然卸载 (不逐块 setBlock)。 */
+    /** UNLOAD: 撤离在场玩家 + 释放全部区块 ticket (必须先于滑动几何变更) + 计算本次目标 seed。 */
     private void doUnload() {
+        if (!instance.playerSet().isEmpty()) {
+            owner.evacuate(instance, server);
+        }
         if (ChunkServices.isReady()) {
             ChunkServices.ticketService().releaseAll(instance.instanceId());
         }
-        // 13.4 阶段二: 触发离线体素重算 (工作线程, D8)。
-        long seed = (mode == IResetService.ResetMode.SAME_SEED)
+        targetSeed = (mode == IResetService.ResetMode.SAME_SEED)
                 ? instance.seed()
-                : SeedUtil.deriveSeed(globalSeed, instance.instanceId(), resetGeneration);
-        CompletableFuture<VoxelOccupancy> gen =
-                MiningServices.offlineGenerator().generate(seed, instance.difficulty(), instance.regionBox());
-        gen.whenComplete((voxels, err) -> server.execute(() -> {
-            if (err != null) {
-                regenError = err;
-            } else {
-                // 体素已重算完成。重建后的区块在下次加载时由 MiningChunkGenerator 查实例体素填块;
-                // 此处只标记就绪, 由 SETTLE 阶段限速翻转状态 (本子系统不直接写世界方块)。
-                voxelsReady = true;
-            }
-        }));
-        LOGGER.debug("[miningdim] reset job UNLOAD done for instance {} (mode={})",
-                instance.instanceId(), mode);
+                : MiningServices.instanceManager().deriveNextResetSeed(instance.instanceId());
+        LOGGER.debug("[miningdim] reset job UNLOAD done for instance {} (mode={}, targetSeed={})",
+                instance.instanceId(), mode, targetSeed);
     }
 
-    /** 重置成功收尾: genState 回 READY, 兑现 future。 */
+    /** REGEN: 首次进入触发滑动, 之后逐 tick 轮询 genState 直到就绪/失败/超时。 */
+    private boolean tickRegen() {
+        if (!slideRequested) {
+            slideRequested = true;
+            slidTo = MiningServices.instanceManager().slideRegion(instance.instanceId(), targetSeed);
+            LOGGER.info("[miningdim] instance {} region slid to origin ({}, {}, {}) seed={}",
+                    instance.instanceId(), slidTo.originX(), slidTo.originY(), slidTo.originZ(), targetSeed);
+        }
+
+        GenState state = instance.genState();
+        if (state == GenState.FAILED) {
+            fail(new IllegalStateException(
+                    "instance " + instance.instanceId() + " regeneration failed after slide"));
+            return true;
+        }
+        if (state.isEnterable()) {
+            phase = Phase.SETTLE;
+            settleTicks = 0;
+            return false;
+        }
+
+        regenWaitTicks++;
+        if (regenWaitTicks > REGEN_TIMEOUT_TICKS) {
+            fail(new IllegalStateException("instance " + instance.instanceId()
+                    + " regeneration timed out after slide (last genState=" + state + ")"));
+            return true;
+        }
+        return false;
+    }
+
+    /** 重置成功收尾: genState 回 READY (幂等), 兑现 future。 */
     private void finish() {
-        instance.setGenState(GenState.READY);
+        if (instance.genState() != GenState.FAILED) {
+            instance.setGenState(GenState.READY);
+        }
         completion.complete(null);
-        LOGGER.info("[miningdim] instance {} reset complete (mode={})", instance.instanceId(), mode);
+        // slidTo 在 finish() 可达前必经 tickRegen 首次 slideRegion 调用赋值, 恒非 null。
+        LOGGER.info("[miningdim] instance {} reset complete (mode={}, region origin=({}, {}, {}))",
+                instance.instanceId(), mode, slidTo.originX(), slidTo.originY(), slidTo.originZ());
     }
 
     private void fail(Throwable err) {
@@ -144,5 +173,10 @@ final class ResetJob {
         instance.setGenState(GenState.FAILED);
         completion.completeExceptionally(cause);
         LOGGER.warn("[miningdim] instance {} reset FAILED: {}", instance.instanceId(), cause.toString());
+    }
+
+    /** ResetSystem tick 循环捕获到本 job 抛异常时调用的失败收尾 (复用 fail 逻辑)。包内可见。 */
+    void abort(Throwable cause) {
+        fail(cause);
     }
 }

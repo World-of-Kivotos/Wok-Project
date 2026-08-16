@@ -13,6 +13,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -46,19 +47,27 @@ import org.slf4j.LoggerFactory;
  *  - 方块/物品/创造页 DeferredRegister ({@link FarmerBlocks}/{@link FarmerItems}/{@link FarmerCreativeTab}, modBus);
  *  - 收获经验结算 ({@link #onCropHarvested}, forgeBus BreakEvent): 只认 mod 作物成熟态破坏;
  *  - 放置上限 + 档位门控 ({@link #onFarmlandPlace}, forgeBus EntityPlaceEvent): 超限/未解锁拒放;
- *  - 耕地破坏回收计数 ({@link #onFarmlandBroken}, 复用 BreakEvent);
+ *  - 耕地破坏回收计数走 {@link com.miningdim.job.farmer.block.FarmerFarmlandBlock#onRemove}
+ *    (覆盖玩家破坏/爆炸/活塞/指令全部路径, F025);
  *  - 反作弊骨粉 ({@link #onBonemeal}, forgeBus BonemealEvent): mod 作物禁骨粉;
  *  - 卖菜命令 ({@link #onRegisterCommands}, RegisterCommandsEvent): 自注册 /farmer sell &lt;amount&gt; 子根作为
  *    {@link FarmerWheatSellService#sell} 的触发点 (包内闭合, 不改共享 JobCommands; 审查 Critical 1)。
+ *  - 管理端对账 ({@link #onRegisterCommands}): /farmer admin legacy|recount &lt;target&gt; (OP {@value #OP_LEVEL}),
+ *    F025 迁移口径修正的唯一对账/重算入口 (复核 Major, 见 {@link FarmerSavedData#legacyOverflow}) —— 迁移前存档
+ *    的旧配额不再被静默丢弃, op 用这两条命令查询/清除, 是否清除是运营决策, 代码不预设自动豁免。
  *
  * 不持有玩家进度: 经验走共享 {@link JobServices#jobService()} 入账 (JobId.FARMER), 衰减/翻日/升级由框架裁决;
- * 耕地放置计数走 {@link FarmerSavedData} (overworld 持久层)。
+ * 耕地放置归属走 {@link FarmerSavedData} (overworld 持久层, 按 (维度, 坐标) 记归属, 已放置数是该归属索引的
+ * 派生投影, F025)。
  *
  * 已在 {@code MiningDim.registerSubsystems()} 实装 (本子系统经 modBus/forgeBus 自注册其全部注册项与事件)。
  */
 public final class FarmerSystem implements Subsystem {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/job/farmer");
+
+    /** /farmer admin 子根的 OP 门槛 (与 JobCommands/EconomyCommands 一致的管理操作等级)。 */
+    private static final int OP_LEVEL = 2;
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
@@ -69,7 +78,7 @@ public final class FarmerSystem implements Subsystem {
         forgeBus.register(this);
         // 平板农夫页的 job.farmer.state / job.farmer.sell (卖菜写路径复用 FarmerWheatSellService 同一入口)。
         FarmerWebUiActions.registerAll();
-        LOGGER.info("[miningdim] farmer job subsystem registered (5 farmland tiers + crop yield + Farmer's Delight + harvest xp + placement cap + /farmer sell + 2 job.farmer.* actions)");
+        LOGGER.info("[miningdim] farmer job subsystem registered (5 farmland tiers + crop yield + Farmer's Delight + harvest xp + placement cap + /farmer sell + /farmer admin legacy|recount + 2 job.farmer.* actions)");
     }
 
     // ============================================================
@@ -91,7 +100,15 @@ public final class FarmerSystem implements Subsystem {
                                 .executes(this::cropTableCommand))
                         .then(Commands.literal("sell")
                                 .then(Commands.argument("amount", IntegerArgumentType.integer(1))
-                                        .executes(this::sellCommand))));
+                                        .executes(this::sellCommand)))
+                        .then(Commands.literal("admin")
+                                .requires(src -> src.hasPermission(OP_LEVEL))
+                                .then(Commands.literal("legacy")
+                                        .then(Commands.argument("target", EntityArgument.player())
+                                                .executes(this::adminLegacyQuery)))
+                                .then(Commands.literal("recount")
+                                        .then(Commands.argument("target", EntityArgument.player())
+                                                .executes(this::adminRecount)))));
     }
 
     private int cropTableCommand(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
@@ -144,6 +161,49 @@ public final class FarmerSystem implements Subsystem {
     }
 
     // ============================================================
+    // 管理端对账/重算入口 (复核 Major: F025 迁移口径修正 —— 迁移前存档的 placedCounts 不再被丢弃,
+    // 而是原样迁入 FarmerSavedData.legacyOverflow 并计入放置上限; 是否给老玩家一次性宽限是运营口径
+    // 决策, 这两条命令只提供只读查询与机械清零动作, 不内置任何自动豁免规则)
+    // ============================================================
+
+    /**
+     * /farmer admin legacy &lt;target&gt;: 只读查询, 展示目标玩家当前的迁移遗留占用数、总配额占用数
+     * 与其当前等级的硬封顶, 供 op 判断是否需要 /farmer admin recount。
+     */
+    private int adminLegacyQuery(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer target = EntityArgument.getPlayer(ctx, "target");
+        FarmerSavedData data = FarmerSavedData.get(target.server.overworld());
+        int legacy = data.legacyOverflow(target.getUUID());
+        int total = data.placedCount(target.getUUID());
+        int cap = FarmlandPlacementGuard.capForLevel(JobServices.jobService().level(target, JobId.FARMER));
+        ctx.getSource().sendSuccess(() -> Component.translatable(
+                "message.miningdim.farmer.admin_legacy_query",
+                target.getGameProfile().getName(), legacy, total, cap), false);
+        return legacy;
+    }
+
+    /**
+     * /farmer admin recount &lt;target&gt;: 清除目标玩家的迁移遗留占用 (唯一清除入口,
+     * {@link FarmerSavedData#clearLegacyOverflow})。是否清除由 op 对账后自行判断, 本命令不做任何前置校验或
+     * 自动豁免规则, 只机械执行清零并回显清除前的值。
+     */
+    private int adminRecount(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer target = EntityArgument.getPlayer(ctx, "target");
+        FarmerSavedData data = FarmerSavedData.get(target.server.overworld());
+        int cleared = data.clearLegacyOverflow(target.getUUID());
+        if (cleared == 0) {
+            ctx.getSource().sendSuccess(() -> Component.translatable(
+                    "message.miningdim.farmer.admin_recount_none",
+                    target.getGameProfile().getName()), true);
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.translatable(
+                "message.miningdim.farmer.admin_recount_done",
+                target.getGameProfile().getName(), cleared), true);
+        return cleared;
+    }
+
+    // ============================================================
     // 收获经验结算 (第二章: 只认 mod 作物成熟态破坏并掉落; 第十章: 防重复刷取)
     // ============================================================
 
@@ -154,6 +214,10 @@ public final class FarmerSystem implements Subsystem {
      *  - 入账走框架 {@link JobServices#jobService()#grantXp}, 受每日有效经验软上限衰减 (2000 系) 约束。
      *
      * 经验与作物掉落解耦 (第二章): 本法只算经验, 不动掉落 (loot table 照常掉小麦), 故软上限只削经验不削小麦。
+     *
+     * 产量走 {@link FarmerTier#yieldFor} 共享裁决 (F026): 未解锁本档退化为基准值 1, 与 loot modifier 同一判据,
+     * 使经验与小麦掉落同门 —— 否则 1 级号借他人闪耀地收割, 掉落被 loot modifier 拦到不放大, 经验却仍按满档
+     * 结算, 变相加速升级。
      */
     // LOWEST: 必须排在所有可能取消 BreakEvent 的监听器 (领地/保护类) 之后再结算。挂 NORMAL 时
     // isCanceled() 只看得见 HIGHEST/HIGH 阶段的取消, 被 LOW/LOWEST 取消的破坏仍会先发出经验,
@@ -181,7 +245,7 @@ public final class FarmerSystem implements Subsystem {
         if (tier == null) {
             return; // 下方不是 mod 耕地 (原版耕地上的 mod 作物不产经验, 反扩建): 经验 = 0。
         }
-        int yield = tier.yieldPerHarvest();
+        int yield = tier.yieldFor(JobServices.jobService().level(player, JobId.FARMER));
 
         // 经验入账 (表B: 单作物经验 × 产量), 受框架每日软上限衰减。
         long rawXp = (long) FarmerConstants.SINGLE_CROP_XP * yield;
@@ -220,11 +284,14 @@ public final class FarmerSystem implements Subsystem {
         if (tier == null) {
             return;
         }
+        // 与 loot modifier / onCropHarvested 同一裁决 (F026): 未解锁本档退化为基准值, FD 番茄未解锁时
+        // 退化为原生 1-2 个的表现, 不再无门放大。
+        int yield = tier.yieldFor(JobServices.jobService().level(player, JobId.FARMER));
 
         int nativeCount = 1 + level.random.nextInt(2);
         Block.popResource(level, event.getPos(),
                 new ItemStack(requiredItem("farmersdelight", "tomato"),
-                        nativeCount * tier.yieldPerHarvest()));
+                        nativeCount * yield));
         if (level.random.nextFloat() < 0.05F) {
             Block.popResource(level, event.getPos(),
                     new ItemStack(requiredItem("farmersdelight", "rotten_tomato")));
@@ -235,7 +302,7 @@ public final class FarmerSystem implements Subsystem {
         level.setBlock(event.getPos(), state.setValue(BlockStateProperties.AGE_3, 0), 2);
 
         JobServices.jobService().grantXp(player, JobId.FARMER,
-                (long) FarmerConstants.SINGLE_CROP_XP * tier.yieldPerHarvest());
+                (long) FarmerConstants.SINGLE_CROP_XP * yield);
         event.setCanceled(true);
         event.setCancellationResult(InteractionResult.SUCCESS);
     }
@@ -264,7 +331,11 @@ public final class FarmerSystem implements Subsystem {
 
     /**
      * 放置 mod 耕地时校验等级门控 (档位是否解锁) 与方块上限 (已放数是否到顶), 超限/未解锁直接取消放置。
-     * 通过则计数 +1 (全局按玩家 UUID 计, 见 {@link FarmlandPlacementGuard} 口径裁决)。
+     * 通过则登记放置归属 (按 (维度, 坐标) 记, 见 {@link FarmerSavedData} 口径裁决, F025)。
+     *
+     * 放置/回收对称性: EntityPlaceEvent 是快照式事件, 方块此时已在世界里; 若被更低优先级的监听器随后取消,
+     * Forge 恢复快照会触发本方块的 {@link FarmerFarmlandBlock#onRemove} -> releaseFarmland 把计数还回去,
+     * 两侧天然自洽, 无需在本方法内做取消补偿。
      */
     @SubscribeEvent
     public void onFarmlandPlace(BlockEvent.EntityPlaceEvent event) {
@@ -273,6 +344,9 @@ public final class FarmerSystem implements Subsystem {
         }
         if (!(event.getEntity() instanceof ServerPlayer player)) {
             return; // 仅服务端玩家放置受闸门约束 (活塞/掉落方块等非玩家放置不计入也不受限)。
+        }
+        if (!(event.getLevel() instanceof ServerLevel placedLevel)) {
+            return; // 归属记录需要真实维度 id。
         }
         if (!(event.getPlacedBlock().getBlock() instanceof FarmerFarmlandBlock farmland)) {
             return; // 非 mod 耕地: 不约束。
@@ -299,27 +373,8 @@ public final class FarmerSystem implements Subsystem {
                 return;
             case ALLOW:
             default:
-                data.increment(player.getUUID());
+                data.claimFarmland(placedLevel.dimension().location(), event.getPos(), player.getUUID());
         }
-    }
-
-    /**
-     * 破坏 mod 耕地时回收放置计数 (-1)。与 {@link #onCropHarvested} 复用同一 BreakEvent: 该处只认作物,
-     * 本处只认耕地, 互不重叠。仅服务端玩家破坏计入回收 (与放置侧对称: 玩家放/玩家破)。
-     */
-    @SubscribeEvent
-    public void onFarmlandBroken(BlockEvent.BreakEvent event) {
-        if (event.isCanceled()) {
-            return;
-        }
-        if (!(event.getPlayer() instanceof ServerPlayer player)) {
-            return;
-        }
-        if (!(event.getState().getBlock() instanceof FarmerFarmlandBlock)) {
-            return;
-        }
-        ServerLevel overworld = player.server.overworld();
-        FarmerSavedData.get(overworld).decrement(player.getUUID());
     }
 
     // ============================================================

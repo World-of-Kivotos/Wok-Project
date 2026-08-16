@@ -59,6 +59,11 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
     /** 原版 generic.max_health 硬上限 (RangedAttribute maxValue=1024): 6★+ vanilla 血作影子血池渲染镜像的天花板。 */
     private static final double VANILLA_MAX_HEALTH = BloodPool.VANILLA_MAX_HEALTH_CLAMP;
 
+    /** 该冠军是否需要影子血池 (spec 6.2): 6★+ 恒需, 或有效血破 vanilla 1024 上限亦需。升格建池与载入重建共用同一判据, 不许各写一份。 */
+    public static boolean requiresBloodPool(StarRank rank, double effectiveHp) {
+        return rank.usesCustomBloodPool() || effectiveHp > VANILLA_MAX_HEALTH;
+    }
+
     @Override
     public void promote(Mob mob, Difficulty difficulty) {
         RandomSource rng = mob.level().getRandom();
@@ -114,7 +119,7 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
                 String.format("%.3f", ChampionHpConversion.hpFraction(rank, affixes)),
                 String.format("%.2f", ChampionHpConversion.sizeMultiplier(affixes)),
                 ChampionHpConversion.survivalSpent(affixes),
-                rank.usesCustomBloodPool() || effectiveHp > VANILLA_MAX_HEALTH,
+                requiresBloodPool(rank, effectiveHp),
                 sizeEligibleOf(mob));
 
         // 体型词条落地触发 (批4 波3): 盖章毕刷新碰撞箱, 令 ChampionSizeHandler 的 EntityEvent.Size 按刚写入的
@@ -141,7 +146,7 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
      * 唯一战斗权威 (spec 6.2), vanilla 恒为渲染镜像。
      */
     private static void applyBaseHealth(Mob mob, StarRank rank, double effectiveHp) {
-        boolean useBloodPool = rank.usesCustomBloodPool() || effectiveHp > VANILLA_MAX_HEALTH;
+        boolean useBloodPool = requiresBloodPool(rank, effectiveHp);
         double vanillaTarget = effectiveHp;
 
         AttributeInstance maxHp = mob.getAttribute(Attributes.MAX_HEALTH);

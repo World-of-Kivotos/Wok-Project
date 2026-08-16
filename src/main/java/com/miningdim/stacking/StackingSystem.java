@@ -5,10 +5,11 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -24,13 +25,20 @@ import java.util.Map;
  * 实体堆叠子系统入口 (需求规格阶段 1; implements core.Subsystem; 模块化铁律 3 自注册)。
  *
  * 装配: 在主类 {@code registerSubsystems()} 加一行 (marriage 之后)。register 内只挂事件 (ServerTickEvent 周期扫描
- * + ServerStoppingEvent 清瞬态)。配置 SPEC 由本系统 registerConfig 到 SERVER 级 (与 ChefSystem 同范式: 各职业/子
- * 系统自持配置, 不碰中央 MiningServerConfig)。
+ * + ServerStoppingEvent 清瞬态 + EntityJoinLevelEvent 旧存档消毒)。配置 SPEC 由本系统 registerConfig 到 SERVER 级
+ * (与 ChefSystem 同范式: 各职业/子系统自持配置, 不碰中央 MiningServerConfig)。
+ *
+ * 白名单准入 (主控决策 D1): 周期扫描已收敛到 {@link StackMerge#canMerge} 作为唯一遍历 predicate, 只把
+ * minecraft:pig / chicken / sheep / cow 四种 {@link Animal} 纳入候选, 其余 LivingEntity (含玩家/村民/盔甲架/
+ * 矿洞刷怪/自研精英怪) 从不进入 buckets, 详见 {@link #scanLevel}。
+ *
+ * 总开关 ({@link StackingConfig#ENABLED}, F094 修复配套): false 时 {@link #onServerTick} 直接短路, 不发生任何新
+ * 合并; 已成堆叠不受影响, 掉落 (FR-2)/被动产出 (FR-3)/繁殖 (FR-4)/拆分与拴绳 (FR-5) 各自独立监听事件, 均不经本方法。
  *
  * 触发与性能 (NFR-3 禁每 tick O(n^2)):
  *  - 周期扫描: 每 {@code merge.scanIntervalTicks} (默认 100=5s) 对每个已加载 {@link ServerLevel} 扫一次, 非每 tick。
- *  - 区块本地配对: 把存活 LivingEntity 按 {@link ChunkPos} 分桶, 仅桶内候选交给 {@link StackMerge#mergeCandidates}
- *    两两就近合并 —— 不做全世界 O(n^2) 全配对。
+ *  - 区块本地配对: 把存活可堆叠 {@link Animal} 按 {@link ChunkPos} 分桶, 仅桶内候选交给
+ *    {@link StackMerge#mergeCandidates} 两两就近合并 —— 不做全世界 O(n^2) 全配对。
  *  - require_moved: trigger=ON_MOVE 且 requireMoved=true 时, 仅 "自上次扫描后跨方块" 的实体进入候选 (静止农场不
  *    反复扫)。用进程级 {@code Map<entityId, packedBlockPos>} 记录上次位置; 新生实体 (无记录) 视为已移动, 必参与
  *    首次合并 (AC-1 spawn 即合并)。
@@ -56,16 +64,23 @@ public final class StackingSystem implements Subsystem {
                 net.minecraftforge.fml.config.ModConfig.Type.SERVER,
                 StackingConfig.SPEC, "miningdim-stacking.toml");
         forgeBus.register(this);
-        // 阶段 2 产出倍增 handler (各自无状态, 注册独立监听对象): 击杀掉落 (FR-2) / 被动产出 (FR-3) / 繁殖 (FR-4)。
+        // 阶段 2 产出倍增 handler (各自无状态, 注册独立监听对象): 击杀掉落 (FR-2) / 被动产出 (FR-3) / 繁殖 (FR-4) /
+        // 拆分与拴绳 (FR-5)。
         forgeBus.register(new StackDeath());
         forgeBus.register(new StackPassive());
         forgeBus.register(new StackBreed());
-        LOGGER.info("[miningdim] stacking subsystem registered (merge + persistence + drops/passive/breed; FR-1..4 / NFR-6)");
+        forgeBus.register(new StackSplit());
+        LOGGER.info("[miningdim] stacking subsystem registered (merge + persistence + drops/passive/breed/split; FR-1..5 / NFR-6)");
     }
 
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
+        if (!StackingConfig.ENABLED.get()) {
+            // 总开关关停: 不发生新合并 (F094 修复配套)。已成堆叠不受影响 —— 掉落/被动/拆分 handler 各自独立监听,
+            // 不经过本方法。放在 sinceLastScan 自增之前 return, 关停期间不空耗计数。
             return;
         }
         MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
@@ -87,8 +102,16 @@ public final class StackingSystem implements Subsystem {
     }
 
     /**
-     * 扫一个维度: 收集存活可堆叠 LivingEntity, 按区块分桶, require_moved 过滤后桶内合并。
+     * 扫一个维度: 收集存活可堆叠 {@link Animal} (白名单四种), 按区块分桶, require_moved 过滤后桶内合并。
      * 把本维度见到的可堆叠实体 id 记入 seenThisScan (调用方据全集回收 lastSeenPos)。
+     *
+     * F094 性能修复: {@code getEntities(EntityTypeTest, Predicate)} 底层 (ServerLevel.java:772-776 ->
+     * LevelEntityGetterAdapter.java:32-34 -> EntityLookup.java:19-27) 在遍历内、add 进 List 之前就执行 predicate ——
+     * EntityLookup 只有 byId/byUuid 两张表, 没有任何按 EntityType 的索引, {@code for(T t : this.byId.values())}
+     * 是对全量实体的线性遍历。故按四个 EntityType 分别调 getEntities 等于跑四趟全量遍历, 是性能倒退; 正确做法是把
+     * {@link StackMerge#canMerge} (合并候选判据, 非结算侧 canStack —— 见该方法 Javadoc) 作为唯一一次遍历的
+     * predicate 下沉传入, 只有通过白名单+二次过滤且当下确实可被合并的动物才会被 add 进 List、才会被后续代码触碰
+     * persistentData。严禁"优化"回按类型分别取。
      */
     private void scanLevel(ServerLevel level, java.util.Set<Integer> seenThisScan) {
         boolean requireMoved = StackingConfig.MERGE_TRIGGER.get() == StackingConfig.MergeTrigger.ON_MOVE
@@ -99,15 +122,10 @@ public final class StackingSystem implements Subsystem {
         // 则该区块内全部可堆叠实体 (含静止的堆叠锚) 一并参与 —— 否则静止锚永远吸不进新到的散怪 (require_moved 漏并)。
         java.util.Set<ChunkPos> chunksWithMovement = new java.util.HashSet<>();
 
-        // 用 EntityTypeTest 精确取 LivingEntity (底层走 EntitySection 索引), 避免对全量实体逐个 instanceof。
-        List<? extends LivingEntity> all = level.getEntities(
-                EntityTypeTest.forClass(LivingEntity.class), e -> true);
+        List<? extends Animal> candidates = level.getEntities(
+                EntityTypeTest.forClass(Animal.class), StackMerge::canMerge);
 
-        for (LivingEntity e : all) {
-            if (!StackMerge.canStack(e)) {
-                // 不可堆叠 (命名/驯服/Boss/blacklist): 不参与, 也不占 require_moved 记录。
-                continue;
-            }
+        for (Animal e : candidates) {
             seenThisScan.add(e.getId());
             ChunkPos chunk = new ChunkPos(e.blockPosition());
             buckets.computeIfAbsent(chunk, k -> new ArrayList<>()).add(e);
@@ -133,6 +151,52 @@ public final class StackingSystem implements Subsystem {
     private boolean hasMoved(int entityId, long packed) {
         Long prev = lastSeenPos.get(entityId);
         return prev == null || prev != packed;
+    }
+
+    /**
+     * 旧存档脏堆叠数据消毒 (F004/F005 历史遗留回收)。白名单化前的旧版本对任意 LivingEntity (含玩家/村民/
+     * 盔甲架/僵尸骷髅/精英怪) 都可能写下 {@link StackData#KEY}; 白名单化后这些实体永久无法再走 canStack, 其
+     * persistentData 里的堆叠数据成为死数据, 且若实体仍带着本系统当年打的 "xN" CustomName, 会持续误导服主
+     * 与玩家 (以为它是活跃堆叠)。本 handler 在实体加入维度时一次性核对并回收。
+     *
+     * 判定链刻意分层, 前两层是廉价短路 (绝大多数实体在这里就返回, 不触碰 persistentData 分配):
+     *  1) !hasCustomName(): O(1) 的 entityData 读。本系统写 StackSize&gt;1 时必然经 applyLabel 打了 CustomName,
+     *     残留 StackSize&lt;=1 的实体 (从未真正合并过, 或已被拆到 1) 无 CustomName 也无害, 直接放行。
+     *  2) isStackableType() 为真: 白名单内四种动物, StackData 是合法在用数据, 不消毒。
+     *  3) !hasStackData(): 无堆叠数据可消毒。
+     *  到这里说明是旧版本给非白名单实体写下的脏堆叠数。仅当当前 CustomName 恰好等于 {@link StackMerge#applyLabel}
+     *  会生成的那串时才清名 —— 名字不匹配说明玩家后来用命名牌覆盖过, 必须保留玩家命名; 无论清不清名, 都整体回收
+     *  persistentData 并记诊断日志 (供服主核账, 不得删)。
+     */
+    @SubscribeEvent
+    public void onEntityJoinLevel(EntityJoinLevelEvent event) {
+        if (event.getLevel().isClientSide) {
+            return;
+        }
+        Entity entity = event.getEntity();
+        if (!entity.hasCustomName()) {
+            return;
+        }
+        if (StackMerge.isStackableType(entity)) {
+            return;
+        }
+        if (!StackData.hasStackData(entity)) {
+            return;
+        }
+
+        int staleSize = StackData.getStackSize(entity);
+        net.minecraft.network.chat.Component expectedLabel = net.minecraft.network.chat.Component.empty()
+                .append(entity.getType().getDescription())
+                .append(net.minecraft.network.chat.Component.literal(" x" + staleSize));
+        net.minecraft.network.chat.Component actualName = entity.getCustomName();
+        if (actualName != null && actualName.getString().equals(expectedLabel.getString())) {
+            entity.setCustomName(null);
+            entity.setCustomNameVisible(false);
+        }
+        StackData.clearStackData(entity);
+        LOGGER.warn("[miningdim] sanitized stale stacking data on non-whitelisted entity {} (was stack size {}); "
+                        + "pre-whitelist versions could write stack data to any LivingEntity",
+                net.minecraft.world.entity.EntityType.getKey(entity.getType()), staleSize);
     }
 
     @SubscribeEvent

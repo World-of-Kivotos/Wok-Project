@@ -1,7 +1,7 @@
 package com.miningdim.champion.reward;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -62,7 +62,7 @@ public final class ContributionTracker {
      *
      * @param championId     冠军 UUID
      * @param onlineResolver 现查某玩家是否在线 (handler 经 server.getPlayerList 判)
-     * @return 贡献记录列表 (按首次记录顺序; 空表示无人参战)
+     * @return 贡献记录列表 (按首伤 tick 升序, 同 tick 按玩家 UUID 兜底保全序; 空表示无人参战)
      */
     public static List<DamageContribution> drain(UUID championId, OnlineResolver onlineResolver) {
         if (championId == null) {
@@ -76,9 +76,15 @@ public final class ContributionTracker {
         if (perPlayer == null) {
             return out;
         }
-        // 保持稳定迭代序: LinkedHashMap 重建 (ConcurrentHashMap 无序; 用首伤 tick 排序保确定性)。
-        Map<UUID, Accum> ordered = new LinkedHashMap<>(perPlayer);
-        for (Map.Entry<UUID, Accum> e : ordered.entrySet()) {
+        // 真排序保确定性 (F103 修复): perPlayer 是 ConcurrentHashMap, entrySet() 的遍历序是哈希桶序 —— 换一批
+        // 玩家 UUID (哈希值不同) 结果就变, 而下游 ContributionPool.distribute 的 round 余数归属 (末名吸收) 依赖
+        // 本方法输出的迭代序, 不排序则该方法自述的"可复现性"不成立。按首伤 tick 升序; 同 tick (理论极罕见, 两玩家
+        // 同 tick 首次命中) 按 UUID 兜底保全序, 不依赖排序算法稳定性。
+        List<Map.Entry<UUID, Accum>> entries = new ArrayList<>(perPlayer.entrySet());
+        entries.sort(Comparator
+                .comparingLong((Map.Entry<UUID, Accum> e) -> e.getValue().firstHitTick)
+                .thenComparing(Map.Entry::getKey));
+        for (Map.Entry<UUID, Accum> e : entries) {
             UUID playerId = e.getKey();
             Accum accum = e.getValue();
             boolean online = onlineResolver.isOnline(playerId);

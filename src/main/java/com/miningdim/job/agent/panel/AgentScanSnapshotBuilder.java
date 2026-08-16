@@ -20,6 +20,11 @@ import java.util.List;
  * 可封判定: 解密条目再经 {@link SealPlan#canSeal} 三门 (类别解锁 / 星级门; 槽位占用门不在静态判定, 那依赖活跃
  * 账本由服务端发包前另查并写入 sealed)。未解密条目 sealable 恒 false (未解密不可点封)。
  *
+ * 未解密条目脱敏 (F081): affixId 与 displayKey 一并置空串, 不是只脱 displayKey 留 affixId 明码。真名本来就
+ * 不该进入"要下行的对象" —— 脱敏做在本构建层, 任何下行路径 (今天的 WebUI JSON, 将来任何重新接上的通道)
+ * 共享同一份已脱敏数据, 而不是各自在序列化处再补一遍 (序列化层各自补脱敏等于把同一道门开在 N 处, 少补一处
+ * 就漏)。{@link AgentScanEntry} 的紧凑构造器只拒 null, 空串是合法的脱敏取值。
+ *
  * 纯逻辑, 不触 Champions/实体: 入参 {@link RawAffix} 是 champions-free 描述 (集成层从真 IAffix 翻译, GameTest 喂
  * 合成描述), 故解密分级 + 可封门 逻辑可在 dev GameTest 直断言 (删本类逻辑必挂)。
  */
@@ -52,7 +57,7 @@ public final class AgentScanSnapshotBuilder {
      * @param star            目标精英初始星级 (1-10)
      * @param agentLevel      干员等级 (内部经 clampLevel 夹 [1,10])
      * @param rawAffixes      目标精英全部可封候选词条 (集成层已过滤掉不可封/外来词条; 按精英词条原始顺序)
-     * @return 不可变扫描快照
+     * @return 不可变扫描快照; 未解密条目的 affixId/displayKey 已在此脱敏为空串 (见类注释 F081)
      */
     public static AgentScanSnapshot build(int targetNetworkId, int star, int agentLevel, List<RawAffix> rawAffixes) {
         if (rawAffixes == null) {
@@ -66,10 +71,12 @@ public final class AgentScanSnapshotBuilder {
         for (int i = 0; i < rawAffixes.size(); i++) {
             RawAffix raw = rawAffixes.get(i);
             boolean decrypted = isDecrypted(i, raw.category(), visibleCount, showsAllPassive, showsSkill);
-            // 可封: 仅已解密条目经 SealPlan 三门 (类别/星级门); 未解密恒不可封。
-            boolean sealable = decrypted && SealPlan.canSeal(agentLevel, star, raw.category());
+            // 可封: 仅已解密 + 当前未被封印中的条目才经 SealPlan 三门 (类别/星级门); 未解密恒不可封。已封印中的
+            // 条目若仍标 sealable=true, 玩家点下去只会拿到 AFFIX_NOT_SEALABLE ("不可封印") 而非更准确的
+            // "已被封印中" —— sealed 必须先短路 sealable, 否则面板会给出误导性的可点提示 (F024 复核发现)。
+            boolean sealable = decrypted && !raw.sealed() && SealPlan.canSeal(agentLevel, star, raw.category());
             entries.add(new AgentScanEntry(
-                    raw.affixId(),
+                    decrypted ? raw.affixId() : "", // 未解密不泄漏真名: affixId 与 displayKey 同口径脱敏。
                     decrypted ? raw.displayKey() : "", // 未解密不泄漏真名 (客户端显示加密占位)。
                     raw.category(),
                     decrypted,

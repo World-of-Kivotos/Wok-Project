@@ -118,6 +118,21 @@ public final class TarotCombatState {
     public record DamageShareSnapshot(double percent, java.util.Set<UUID> members) {
     }
 
+    /**
+     * 女祭司正位预知的同 tick 暂存: onLivingHurtVictim 消费窗口后不再就地 setAmount, 而是把减伤率暂存于此,
+     * 交 {@link com.miningdim.combat.PlayerDamageReduction} 在 LOWEST 单点取走并入连乘 (F096)。tick 字段用于
+     * 校验 stash/take 发生在同一次受击事件内; 事件被中途取消导致无人 take 时, 由 {@link #tick} 兜底清理悬挂条目。
+     */
+    private static final class PendingPremonition {
+        long tick;
+        double rate;
+    }
+
+    /** 清索敌对 0.5 秒级延迟不敏感, 没有必要跟着 tick() 每 tick 跑 (F069/F080)。 */
+    private static final int UNTARGETABLE_SCAN_INTERVAL_TICKS = 10;
+    /** 原 64 格 inflate 得到 128 立方的盒, 远超原版怪 follow range 量级, 收到 32 后体积降到八分之一 (F069/F080)。 */
+    private static final double UNTARGETABLE_CLEAR_RADIUS = 32.0D;
+
     private static final Map<UUID, Map<WindowKind, Window>> WINDOWS = new ConcurrentHashMap<>();
     private static final Map<UUID, Contract> CONTRACTS = new ConcurrentHashMap<>();
     private static final Map<UUID, ReflectAccum> REFLECT_ACCUMS = new ConcurrentHashMap<>();
@@ -127,6 +142,7 @@ public final class TarotCombatState {
     private static final Map<UUID, Map<Restriction, Long>> RESTRICTIONS = new ConcurrentHashMap<>();
     private static final Map<UUID, DamageShare> DAMAGE_SHARES = new ConcurrentHashMap<>();
     private static final Map<UUID, WildOverdrive> WILD_OVERDRIVES = new ConcurrentHashMap<>();
+    private static final Map<UUID, PendingPremonition> PENDING_PREMONITIONS = new ConcurrentHashMap<>();
 
     private TarotCombatState() {
     }
@@ -307,6 +323,29 @@ public final class TarotCombatState {
         return premonition.percent;
     }
 
+    /**
+     * 暂存本 tick 消费到的预知减伤率, 供 {@link com.miningdim.combat.PlayerDamageReduction} 同 tick 内取走并入
+     * LOWEST 连乘 (F096: 不再就地 setAmount 绕过全局帽)。
+     */
+    public static void stashPremonitionReduction(UUID playerId, long now, double rate) {
+        PendingPremonition p = new PendingPremonition();
+        p.tick = now;
+        p.rate = rate;
+        PENDING_PREMONITIONS.put(playerId, p);
+    }
+
+    /**
+     * 取走本 tick 暂存的预知减伤率并移除。tick 不匹配 (上一条因受击事件被中途取消而无人 take, 已跨 tick 悬挂)
+     * 视为作废, 返回 0, 绝不顺延给下一次受击。
+     */
+    public static double takePremonitionReduction(UUID playerId, long now) {
+        PendingPremonition p = PENDING_PREMONITIONS.remove(playerId);
+        if (p == null || p.tick != now) {
+            return 0.0D;
+        }
+        return p.rate;
+    }
+
     /** 野性过载当前吸血比例；生命比例低于阈值时叠加额外吸血。 */
     public static double wildOverdriveLifestealPercent(UUID playerId, long now, double healthRatio) {
         WildOverdrive overdrive = WILD_OVERDRIVES.get(playerId);
@@ -485,6 +524,7 @@ public final class TarotCombatState {
         IMMUNITIES.remove(playerId);
         RESTRICTIONS.remove(playerId);
         WILD_OVERDRIVES.remove(playerId);
+        PENDING_PREMONITIONS.remove(playerId);
         clearDamageShare(playerId);
         clearBond(playerId);
     }
@@ -515,7 +555,11 @@ public final class TarotCombatState {
         RESTRICTIONS.entrySet().removeIf(e -> e.getValue().isEmpty());
         DAMAGE_SHARES.entrySet().removeIf(e -> now >= e.getValue().endTick);
         WILD_OVERDRIVES.entrySet().removeIf(e -> now >= e.getValue().endTick);
-        clearMobTargets(server, now);
+        // 悬挂的预知暂存条目: 受击事件被中途取消导致无人 take, tick 已过即作废清理 (防泄漏)。
+        PENDING_PREMONITIONS.entrySet().removeIf(e -> now > e.getValue().tick);
+        if (now % UNTARGETABLE_SCAN_INTERVAL_TICKS == 0) {
+            clearMobTargets(server, now);
+        }
         // 过期绑定双向解绑 (拷贝键集后再清, 避免遍历中改 map)。
         for (UUID id : java.util.List.copyOf(BONDS.keySet())) {
             Bond b = BONDS.get(id);
@@ -525,6 +569,9 @@ public final class TarotCombatState {
         }
     }
 
+    /**
+     * 降频与缩半径后, 怪最多多追持窗玩家 0.5 秒、且只清 32 格内的仇恨 —— 这是 F069/F080 明确接受的精度代价。
+     */
     private static void clearMobTargets(MinecraftServer server, long now) {
         for (Map.Entry<UUID, Map<Restriction, Long>> entry : RESTRICTIONS.entrySet()) {
             Long end = entry.getValue().get(Restriction.UNTARGETABLE);
@@ -535,7 +582,7 @@ public final class TarotCombatState {
             if (player == null) {
                 continue;
             }
-            AABB area = player.getBoundingBox().inflate(64.0D);
+            AABB area = player.getBoundingBox().inflate(UNTARGETABLE_CLEAR_RADIUS);
             for (Mob mob : player.serverLevel().getEntitiesOfClass(Mob.class, area,
                     candidate -> candidate.getTarget() == player)) {
                 mob.setTarget(null);

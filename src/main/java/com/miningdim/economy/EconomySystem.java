@@ -7,6 +7,7 @@ import com.miningdim.core.MiningServices;
 import com.miningdim.core.Subsystem;
 import com.miningdim.error.MiningErrors;
 import com.miningdim.error.MiningMessages;
+import com.miningdim.store.MiningSchema;
 import com.miningdim.store.MiningStore;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -101,6 +102,11 @@ public final class EconomySystem implements Subsystem {
         // 迁移失败自然冒泡 —— 钱对不上时宁可起不来, 也不能带着说不清的余额开服。
         EconomyLedgerBootstrap.migrateIfNeeded(MiningStore.connection(),
                 EconomyWalletData.get(mining), System.currentTimeMillis());
+        // 存档若停在 user_version=1 直升 3 (case_openings 已在统一库、钱包还在 SavedData), MiningSchema
+        // 的 V3 回填会在 ServerAboutToStartEvent 对着一张空的 bundle_operations 判定, 30 天保留期内的
+        // COMMITTED 行因此全部误判成未结算; 此刻旧账本刚搬完, 证据才第一次到位, 必须补跑一次同一套判据
+        // 把它们追平, 否则这批玩家会在保留期后被真实重复扣款 (见 MiningSchema.backfillCaseEconomySettled)。
+        MiningSchema.backfillCaseEconomySettled(MiningStore.connection());
         // 门面引用由 EconomyServices 定位器持有 (单一所有者); 本子系统不另存字段, 避免与定位器重复持有。
         EconomyLedger ledger = new SqliteEconomyLedger(MiningStore.connection());
         // 态表唯一所有者仍是本子系统; 门面经 playerState 取同一 PlayerAbuseState (recordMinedOreDrops 计数 / isAfkFrozen 读冻结态)。

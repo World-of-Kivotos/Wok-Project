@@ -4,6 +4,7 @@ import com.miningdim.job.tarot.TarotCardItem;
 import com.miningdim.job.tarot.TarotQuality;
 import com.miningdim.job.tarot.TarotRegistry;
 import com.miningdim.job.tarot.TarotRuntime;
+import com.miningdim.job.tarot.pack.TarotPackSavedData;
 import com.miningdim.menu.AbstractMiningMenu;
 import com.miningdim.menu.MenuValidity;
 import net.minecraft.core.BlockPos;
@@ -20,6 +21,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemStackHandler;
 import net.minecraftforge.items.SlotItemHandler;
+
+import java.util.UUID;
 
 /**
  * 合成 GUI (TarotReader spec 第八章)。两输入槽 (取自 {@link TarotCraftBlockEntity} 的 ItemStackHandler,
@@ -156,6 +159,12 @@ public final class TarotCraftMenu extends AbstractMiningMenu {
         if (!(a.getItem() instanceof TarotCardItem) || !(b.getItem() instanceof TarotCardItem)) {
             return false;
         }
+        // F075: 身份不可读的裸牌 (缺 CardId/Quality 键或越界) 不能进 quality()/cardId() —— 那两个 getter
+        // 对这种栈直接抛 IllegalStateException, 会把整条合成流程炸掉而不是给玩家一句提示。
+        if (!TarotCardItem.hasReadableCardIdentity(a) || !TarotCardItem.hasReadableCardIdentity(b)) {
+            player.displayClientMessage(Component.translatable("message.miningdim.tarot.craft.bad_inputs"), true);
+            return false;
+        }
         TarotQuality qa = TarotCardItem.quality(a);
         TarotQuality qb = TarotCardItem.quality(b);
         if (qa != qb || qa == TarotQuality.SHINY) {
@@ -181,8 +190,39 @@ public final class TarotCraftMenu extends AbstractMiningMenu {
 
         int revealCard = encodeRevealCard(outcome.product());
         applyOutcome(player, level, outcome);
+        updateCollectedLedger(player, a, b, outcome);
         publishOutcome(outcome.result(), revealCard);
         return true;
+    }
+
+    /**
+     * 合成材料/产物同步进净额账本 (复核追加修正, F079 原实现漏了这条通道): {@code a}/{@code b} 是 tryCraft
+     * 里 clear 前捕获的引用, applyOutcome 只替换槽内 handler 的条目, 不会动这两个 ItemStack 对象本身,
+     * 故这里读到的 cardId/quality 仍是耗用前的真值。
+     *
+     * 耗用侧按 applyOutcome 实际清空的槽数对齐: SUCCESS/REVERSE/BIG_SHATTER 清两槽 (两张材料都释放净额),
+     * SHATTER 只清槽 0 (只释放 a 那张)。产出侧: SUCCESS/REVERSE 的产物同步 markCollected, 否则花碎片兑到
+     * / 打出去又合成回来的同一张牌会被误判"未收集"而在下次开包给出重复真牌。
+     */
+    private static void updateCollectedLedger(ServerPlayer player, ItemStack a, ItemStack b,
+                                               TarotCraftService.CraftOutcome outcome) {
+        TarotPackSavedData savedData = TarotPackSavedData.get(player.getServer().overworld());
+        int idA = TarotCardItem.cardId(a);
+        TarotQuality qFrom = TarotCardItem.quality(a);
+        UUID uuid = player.getUUID();
+        switch (outcome.result()) {
+            case SUCCESS, REVERSE -> {
+                savedData.releaseCollected(uuid, idA, qFrom);
+                savedData.releaseCollected(uuid, TarotCardItem.cardId(b), qFrom);
+                ItemStack product = outcome.product();
+                savedData.markCollected(uuid, TarotCardItem.cardId(product), TarotCardItem.quality(product));
+            }
+            case SHATTER -> savedData.releaseCollected(uuid, idA, qFrom);
+            case BIG_SHATTER -> {
+                savedData.releaseCollected(uuid, idA, qFrom);
+                savedData.releaseCollected(uuid, TarotCardItem.cardId(b), qFrom);
+            }
+        }
     }
 
     /** Publishes the result after all authoritative inventory mutations have completed. */

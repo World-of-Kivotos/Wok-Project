@@ -13,7 +13,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "lint:css": "stylelint \"src/**/*.css\""
+    "lint:css": "stylelint \"src/**/*.css\"",
+    "check:contract": "node scripts/check-frontend-contract.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

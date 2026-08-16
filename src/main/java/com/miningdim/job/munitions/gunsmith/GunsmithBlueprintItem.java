@@ -67,7 +67,7 @@ public final class GunsmithBlueprintItem extends Item {
     }
 
     @Nullable
-    private static GunsmithBlueprint tryBlueprint(ItemStack stack) {
+    static GunsmithBlueprint tryBlueprint(ItemStack stack) {
         // getName/appendHoverText 跑在客户端渲染线程 (物品栏/手持名悬浮), 抛异常会直接崩客户端 —— 无外层
         // Controller 兜底。故渲染钩子对损坏/裸 NBT (仅 op /give 可造) 降级显示; 服务端装配路径仍走
         // requireBlueprint 硬校验。(审查 GS-2)

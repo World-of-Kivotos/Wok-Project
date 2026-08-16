@@ -41,8 +41,10 @@ import { toError } from './shared'
  *      唯一读取入口 tryUse 是"校验并占用"的写方法, 面板一调就把玩家的 GCD 吃掉。故本页画的是
  *      "这一类牌的 CD 有多长", 不是倒计时。
  *
- * owned 与 inInventory 是两件事, 必须两句话分别讲: owned 只数 ownerUUID == 本人的牌 (决定"能不能打"),
- * inInventory 数背包里同 cardId 的全部可读牌 (决定"再开出来会不会变碎片")。
+ * owned / inInventory / collected 是三件事, 必须分开讲 (复核 finding 3/5): owned 只数 ownerUUID == 本人
+ * 的牌 (决定"能不能打"); inInventory 数背包里同 cardId 的全部可读牌 (老实回答"背包里有几张", 不是判重口径);
+ * collected 才是服务端账本判"再开出来会不会变碎片"的真实口径 —— 五档品质任一档净持有 (含放进箱子里的牌)
+ * 即真, 打出/合成消耗掉后账本会释放, 不是永久标记。
  *
  * 开包入口刻意不做: 普通/高级包右键就地开并走 TarotPackRevealS2C 客户端演出, 闪耀包要开原生 GUI 自选,
  * 两者在 MCEF 页面里都点不动 —— buyPack 买到的是**卡包物品**, 回执里没有也不会有开出的牌。
@@ -488,7 +490,12 @@ export function TarotPanel(): ReactElement {
                 属于我的牌 {selectedCard.owned} 张 (只有这些打得出来)
               </span>
               <span className="text-muted-foreground text-sm">
-                背包里同名牌共 {selectedCard.inInventory} 张 (含别人绑定的; 再开出同名牌会转成碎片)
+                背包里同名牌共 {selectedCard.inInventory} 张 (含别人绑定的)
+              </span>
+              <span className="text-muted-foreground text-sm">
+                {selectedCard.collected
+                  ? '至少一个品质已收集过 (含放进箱子未拿出的牌): 该品质再开包会转成碎片, 未收集的品质仍可能开出真牌'
+                  : '尚未收集过任何品质: 开包仍可能开出真牌'}
               </span>
               <span className="text-muted-foreground text-sm">
                 {selectedCard.cooldownCategory === null

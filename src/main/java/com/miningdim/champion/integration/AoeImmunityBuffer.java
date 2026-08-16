@@ -17,6 +17,8 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.UUID;
+
 /**
  * 大额 AOE 2s 伤害免疫缓冲 (精英怪批4 波0 基建; ChampionStarAffix spec 红线 3)。红线 3 原文: 大额 AOE/核弹命中后
  * 给被击玩家 2s 伤害免疫缓冲 (其他冠军来源衰减至 0, DoT 按时间走), 由【缓冲而非压低数值】防多来源叠杀 —— 一次
@@ -84,6 +86,35 @@ public final class AoeImmunityBuffer {
      */
     public static boolean isBuffered(ServerPlayer player) {
         return LEDGER.isActive(player.getUUID(), player.level().getGameTime());
+    }
+
+    /**
+     * 大额 AOE 命中后的开窗裁决 (纯逻辑, 与 {@link PlayerLandingProtection#shouldCancelKnockback} 同为测试可见缝):
+     * 仅当受击玩家在【本次命中之前】不在缓冲窗内, 这一发才算一次真实命中, 才开窗。窗内的那一发已被
+     * {@link #onLivingHurt} 在 HIGHEST 掐 0, 不构成新的压制, 不得续窗 —— 否则玩家只要待在落点圈里, 每 &lt;=2s 一发
+     * 的零伤 AOE 就能把免疫窗无限推到 now+2s, 站在爆点不动反而成为最优解, 与这些技能"锁定落点可躲"的设计意图相反
+     * (F102)。
+     *
+     * @param playerId 受击玩家 UUID
+     * @param nowTick  本次命中时的 gameTime tick
+     * @param ledger   查询的到期账本
+     * @return 是否应在本次命中后开窗
+     */
+    public static boolean shouldGrantAfterAoeHit(UUID playerId, long nowTick, ExpiryLedger ledger) {
+        return !ledger.isActive(playerId, nowTick);
+    }
+
+    /**
+     * 大额 AOE 结算完自身伤害后的统一开窗入口 (电磁蓄力/天雷/小男孩共用, 各 handler 不再自行判断): 本次命中前已在
+     * 窗内则不续窗, 否则照常开 2s 窗。
+     *
+     * @param player 结算完伤害的服务端玩家
+     */
+    public static void grantIfNotBuffered(ServerPlayer player) {
+        if (!shouldGrantAfterAoeHit(player.getUUID(), player.level().getGameTime(), LEDGER)) {
+            return;
+        }
+        grant(player);
     }
 
     /**

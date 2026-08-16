@@ -892,6 +892,10 @@ export type AgentSealCategory = 'PASSIVE' | 'MECHANIC'
  * sealable 只是 UI 预过滤, 服务端封印时会按当刻状态重算。
  */
 export interface AgentAffixEntry {
+  /**
+   * 值是服务端 AffixDef 枚举名 (如 BURNING / SUMMON_SUPPORT), 不是 namespace:path 注册名;
+   * 与精英图鉴 ChampionAffixRow.affixId 同一口径, 可按此 join。未解密行仍是 JSON null (脱敏)。
+   */
   affixId: string | null
   displayKey: string | null
   category: AgentSealCategory | null
@@ -1052,7 +1056,10 @@ export type AgentScanErrorEnvelope = WebUiBusinessErrorEnvelope<AgentScanErrorCo
 export interface AgentSealPayload {
   /** 必须取自当前有效快照; 快照过期后该 id 立即作废。 */
   targetNetworkId: number
-  /** 必须是**已解密**行的 affixId; 未解密行的该字段是 null, 前端根本不该让它可点。 */
+  /**
+   * 必须是**已解密**行的 affixId; 未解密行的该字段是 null, 前端根本不该让它可点。
+   * 格式见 {@link AgentAffixEntry.affixId} (AffixDef 枚举名, 如 BURNING)。
+   */
   affixId: string
 }
 
@@ -1094,6 +1101,7 @@ export interface AgentSealResult {
   ok: boolean
   outcomeCode: AgentSealOutcomeCode
   targetNetworkId: number
+  /** 原样回显请求里的 affixId; 格式见 {@link AgentAffixEntry.affixId}。 */
   affixId: string
   category: AgentSealCategory
   /** 该等级该类别的公开表值; 失败时同样发 (与占槽时用的是同一张表同一对入参)。 */
@@ -1441,10 +1449,17 @@ export interface TarotDeckEntry {
   /** = ownedByQuality 之和; 0 = 未持有。表达"能不能打"。 */
   owned: number
   /**
-   * 背包里同 cardId 的全部可读牌 (不论绑定谁) = 开包判"重复转碎片"的口径。
-   * 表达"再开出来会不会变碎片" —— 与 owned 是两件事, 前端要用两句话分别讲。
+   * 背包里同 cardId 的全部可读牌 (不论绑定谁)。老实回答"背包里有几张", 不是开包判重的口径 ——
+   * 判重口径见 {@link collected} (复核 finding 3/5: 放进箱子后本栏会掉到 0, 但 collected 仍可能是 true)。
    */
   inInventory: number
+  /**
+   * 服务端持久账本 (TarotPackSavedData) 判"重复转碎片"的真实口径: 五档品质中任一档净持有 (含被放进箱子、
+   * 未被打出/合成消耗掉的牌) 即为 true。品质独立记账 —— 本栏是"任一品质已收集"的聚合, 不代表每个品质都挡;
+   * 未收集的品质仍可能开出真牌。塔罗牌是消耗品: 打出/合成材料耗用后账本会释放净额, collected 不是永久标记
+   * (复核 finding 1/3/5)。
+   */
+  collected: boolean
   /** cardDataLoaded=false (datapack 重载中或失败) 时为 null —— 发 0 会被画成零冷却。 */
   cooldownCategory: TarotCooldownCategory | null
   /** 同上, cardDataLoaded=false 时为 null。 */

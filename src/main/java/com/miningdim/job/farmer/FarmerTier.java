@@ -72,4 +72,9 @@ public enum FarmerTier {
     public boolean isUnlockedAt(int playerLevel) {
         return playerLevel >= unlockLevel;
     }
+
+    /** 该玩家实际吃到的每次产量: 未解锁本档退化为基准值, 与 FarmerHarvestLootModifier 同一裁决。 */
+    public int yieldFor(int playerLevel) {
+        return isUnlockedAt(playerLevel) ? yieldPerHarvest : FarmerConstants.LOCKED_TIER_YIELD;
+    }
 }

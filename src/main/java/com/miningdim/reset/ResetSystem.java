@@ -25,20 +25,19 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 重置子系统入口 + {@link IResetService} 实现 (设计文档第十三章, G8/D1)。单实例 region 级重置:
  * 仅删除/重生成该 region 区块, 不触碰其他实例, 不增删维度 (C1)。
  *
- * 重置语义 (13.2-13.5):
+ * 重置语义 (13.2-13.5, D3 滑动 region):
  *  - reset(): 前置校验 genState 可重置 + (requireEmpty 时) 无玩家; 置 RESETTING, 入分帧 {@link ResetJob} 队列;
  *  - evacuate(): 强制撤离在场玩家回各自进入前坐标 (读 Capability, D5/14.6); 离线者标记待撤离;
- *  - NEW_SEED 用 resetGeneration 计数器派生新 seed (本子系统进程内跟踪, 因 core InstanceState 未持久化该计数)。
+ *  - NEW_SEED 的重置代数与派生 seed 已下沉到 core InstanceManager.deriveNextResetSeed (F089 持久化,
+ *    随存档落盘, 重启不归零), 本子系统不再自行跟踪计数。
  *
  * 线程 (D8): reset/evacuate 的世界写在主线程 (经 server.execute 或 tick); 体素重算在工作线程 (ResetJob 内部)。
  * 本子系统在 register 内把自身注入 MiningServices, 供命令/GC/入口层调用。
@@ -55,8 +54,6 @@ public final class ResetSystem implements Subsystem, IResetService {
 
     /** 进行中的分帧重置任务 (每 tick 推进)。 */
     private final List<ResetJob> activeJobs = new ArrayList<>();
-    /** 同一实例的重置代数计数器 (NEW_SEED 派生第三维; core 未持久化, 进程内跟踪, 13.5)。 */
-    private final Map<Long, Integer> resetGenerations = new ConcurrentHashMap<>();
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
@@ -85,7 +82,6 @@ public final class ResetSystem implements Subsystem, IResetService {
                     new IllegalStateException("server stopping, reset of instance " + job.instanceId() + " aborted"));
         }
         activeJobs.clear();
-        resetGenerations.clear();
         this.autoResetScheduler = null;
         this.server = null;
         this.miningLevel = null;
@@ -103,10 +99,20 @@ public final class ResetSystem implements Subsystem, IResetService {
         if (activeJobs.isEmpty()) {
             return;
         }
+        // 本 tick 入口是重置链路的最外层调度点: 单个 job.tick() 抛出的异常在此统一捕获并将该 job
+        // 失败收尾, 不许连坐拖垮整个服务端 tick 事件, 但异常必须落日志且 future 必须异常完成, 不静默吞。
         Iterator<ResetJob> it = activeJobs.iterator();
         while (it.hasNext()) {
             ResetJob job = it.next();
-            if (job.tick()) {
+            boolean done;
+            try {
+                done = job.tick();
+            } catch (RuntimeException ex) {
+                LOGGER.error("[miningdim] reset job for instance {} threw during tick, aborting", job.instanceId(), ex);
+                job.abort(ex);
+                done = true;
+            }
+            if (done) {
                 it.remove();
             }
         }
@@ -125,8 +131,13 @@ public final class ResetSystem implements Subsystem, IResetService {
             return CompletableFuture.failedFuture(
                     new IllegalStateException("reset: instance " + instanceId + " does not exist"));
         }
-        // 13.2: 仅 READY/READY_FALLBACK 可重置; RESETTING/GENERATING/已回收均拒绝。
-        if (!inst.genState().isEnterable()) {
+        // 13.2: READY/READY_FALLBACK 可重置; RESETTING/GENERATING/已回收均拒绝。FAILED 也放行——
+        // GenState 状态流转表把 "FAILED --运维/自动重试--> PENDING" 列为设计内的合法转移, 且
+        // AutoResetScheduler 失败后本就设计成下个周期自动重试 (onResetComplete 失败分支不更新
+        // lastReset, 注释明写"下个周期会再次判到期并重试")。R1 下三块固定难度实例永久存在、从不重建,
+        // 若这里继续把 FAILED 挡在 isEnterable() 门外, 一次失败的重置会让该难度永久锁死、重试机制
+        // 形同虚设 (分支复核 finding #10)。
+        if (!inst.genState().isEnterable() && inst.genState() != GenState.FAILED) {
             return CompletableFuture.failedFuture(new IllegalStateException(
                     "reset: instance " + instanceId + " not in resettable state (" + inst.genState() + ")"));
         }
@@ -137,12 +148,9 @@ public final class ResetSystem implements Subsystem, IResetService {
         }
 
         inst.setGenState(GenState.RESETTING);
-        int generation = nextResetGeneration(instanceId, mode);
-        long globalSeed = miningLevel.getSeed();
-        ResetJob job = new ResetJob(server, inst, mode, globalSeed, generation);
+        ResetJob job = new ResetJob(server, inst, mode, this);
         activeJobs.add(job);
-        LOGGER.info("[miningdim] enqueued reset for instance {} (mode={}, generation={})",
-                instanceId, mode, generation);
+        LOGGER.info("[miningdim] enqueued reset for instance {} (mode={})", instanceId, mode);
         return job.completion();
     }
 
@@ -198,14 +206,6 @@ public final class ResetSystem implements Subsystem, IResetService {
         player.teleportTo(targetLevel, targetPos.getX() + 0.5, targetPos.getY(), targetPos.getZ() + 0.5,
                 player.getYRot(), player.getXRot());
         dataOpt.ifPresent(IMiningPlayerData::clearMiningState);
-    }
-
-    /** NEW_SEED 自增重置代数; SAME_SEED 不改 (复用原 seed, 逐位相同), 返回当前代数 (13.5)。 */
-    private int nextResetGeneration(long instanceId, ResetMode mode) {
-        if (mode == ResetMode.SAME_SEED) {
-            return resetGenerations.getOrDefault(instanceId, 0);
-        }
-        return resetGenerations.merge(instanceId, 1, Integer::sum);
     }
 
     @Override

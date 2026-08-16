@@ -129,12 +129,12 @@ public final class MiningDim {
         //     仅 ModList.isLoaded("champions") 为真时装配。压力子系统 spawnMob 经 ChampionSpawnSeam 回调升格,
         //     故须排在压力子系统 (第 10) 之后 (seam 在启动期 bind, 对 register 顺序不敏感, 此处列尾即可)。
         subsystems.add(new com.miningdim.champion.ChampionSystem());
-        // 24. 特勤干员职业 (Champions compileOnly): 探测精英 + 临时封印词条 (不叠加, 到期恢复) + 加强奖励 (按初始
+        // 24. 特勤干员职业: 探测精英 + 临时封印词条 (不叠加, 到期恢复) + 加强奖励 (按初始
         //     星级×等级倍率, 经 grantDaily 并入 credit_faucet 主闸, 复用精英怪贡献池按伤害分) + 日常/周常悬赏 (周
-        //     青辉石 AZURE 绑定) + 对精英少量伤害加成。纯逻辑层 (五支线查表/封印账本/加强奖励倍率/悬赏计数/周序)
-        //     始终生效; 真探测/真封印/奖励结算仅 ModList.isLoaded("champions") 为真时装配。复用已落地 champion 子系统
-        //     的贡献池/盖章 NBT (经 IChampion 探测), 故须排在 ChampionSystem 之后 (handler 挂 forgeBus, 对 register
-        //     顺序不敏感, 列尾即可)。等级/经验走共享职业框架 capability (JobId.AGENT), 故须在 JobFrameworkSystem 之后。
+        //     青辉石 AZURE 绑定) + 对精英少量伤害加成。集成层已自研化, 读自研 MiningChampions capability, 全包零
+        //     第三方依赖, 无条件装配 (F024)。复用已落地 champion 子系统的贡献池/盖章 NBT, 故须排在 ChampionSystem
+        //     之后 (handler 挂 forgeBus, 对 register 顺序不敏感, 列尾即可)。等级/经验走共享职业框架 capability
+        //     (JobId.AGENT), 故须在 JobFrameworkSystem 之后。
         subsystems.add(new com.miningdim.job.agent.AgentSystem());
         // 24b. 酿酒师职业: 至少七天周期的制造职业 (酿酒台按等级 roll 品质酿基酒 + 酒窖箱陈酿年份 + 喝酒按
         //     S=年份×品质系数 获增益 + 闪耀档永久一条命增益)。年份时钟用现实挂钟 (与经济 UTC 同源), 潮汐 Tide 味
@@ -166,6 +166,11 @@ public final class MiningDim {
         //     生命周期事件 (ServerStarting 开库建表 / ServerStopping 关库 / PlayerLoggedIn 结算离线待结) 在其
         //     register 内订阅 forgeBus, 对 register 顺序不敏感; 仅上述门面/派发器依赖约束此处列序。
         subsystems.add(new com.miningdim.market.MarketSubsystem());
+        // 26b. 任务系统 (每日/每周/特殊/隐藏四类任务): 内容池 + 玩家任务板 SavedData + /quest 命令树 +
+        //      原版事件钩子; TaCZ 存在时另注册枪械边界 (枪械击杀事实与神射手任务线解锁)。发奖与重摇费经
+        //      EconomyServices 门面, 故须排在经济子系统 (第 11) 之后 —— 但只是运行期依赖 (领奖时才触达),
+        //      register 期不碰货币层。
+        subsystems.add(new com.miningdim.quest.QuestSystem());
         // 27. Web UI 客户端外壳 (MCEF 浏览器/Screen/路由): register 内全部客户端逻辑用 DistExecutor.unsafeRunWhenOn
         //     (Dist.CLIENT) + 双箭头 () -> () -> ... 关进 client-only lambda, 故主类无条件加入列表即可 (服务端 GameTest
         //     进程不 classload MCEF, 不崩)。注意必须是 unsafeRunWhenOn 而非 safeRunWhenOn —— 后者触 SafeReferent

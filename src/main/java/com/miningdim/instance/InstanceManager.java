@@ -8,6 +8,7 @@ import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
 import com.miningdim.core.RegionBox;
+import com.miningdim.core.RegionLayout;
 import com.miningdim.core.SeedUtil;
 import com.miningdim.persistence.MiningSavedData;
 import net.minecraft.server.MinecraftServer;
@@ -39,11 +40,15 @@ import java.util.function.Consumer;
  * 持久化 (12.5): 实例注册表/计数器/region 位图的权威副本在 MiningSavedData; 本类内存视图与之同步,
  * 任何结构性变更后写回并 setDirty。region 几何分配委托 RegionGrid, 离线生成委托 GenerationScheduler。
  *
- * R1 固定区域模型: 开服时 (rebuildFromStorage 末) 预建恰好三个固定难度实例 (每难度一个, 占
- * RegionGrid.fixedRegionFor 的固定槽位, shared=true, 常驻不 GC)。allocate(player, difficulty) 路由到对应
- * 固定实例 (不再动态新建/复用/背压); regionAt 仍返回包含该点的固定实例。这三个实例稳定存在于 SavedData,
- * 永不进入空实例 GC 或动态回收, 只能被 ResetService 重置。旧的动态分配/共享复用/容量背压机制 (findReusable* /
- * createInstance / backpressureOrQueue / pollQueue / 空实例 GC) 代码保留但本模式下不触发。
+ * R1 固定区域模型: 开服时 (rebuildFromStorage 末) 预建恰好三个固定难度实例 (每难度一个, shared=true,
+ * 常驻不 GC)。allocate(player, difficulty) 路由到对应固定实例 (不再动态新建/复用/背压); regionAt 仍返回
+ * 包含该点的固定实例。这三个实例稳定存在于 SavedData, 永不进入空实例 GC 或动态回收, 只能被 ResetService 重置。
+ * 旧的动态分配/共享复用/容量背压机制 (findReusable* / createInstance / backpressureOrQueue / pollQueue /
+ * 空实例 GC) 代码保留但本模式下不触发。
+ *
+ * D3 滑动重置: 三块固定 region 在每次重置时会经 slideRegion 整体滑到一块从未生成过的新坐标 (由
+ * MiningSavedData 的世界 X 游标单向推进保证不复用), 旧坐标的区块数据留在磁盘上不再被访问 (旧 .mca
+ * 的回收是已知遗留, 不在本类处理)。故固定实例只能靠持久 fixedInstanceId 认领, 不能再靠编译期几何比对。
  */
 public final class InstanceManager implements IInstanceManager {
 
@@ -98,11 +103,29 @@ public final class InstanceManager implements IInstanceManager {
      * 步骤: 初始化 globalSeed -> 还原 region 位图 -> 逐实例重置在场态/重建索引/交叉校验 -> 清理孤儿。
      */
     public void rebuildFromStorage() {
+        // F088 几何自检: dimension_type/mining.json 与 MiningConstants 已脱钩, 早年不对齐时新 region 的 Y
+        // 会落到世界外。用 LevelHeightAccessor 的方法而非 dimensionType() 上的 record 访问器 (少一层版本风险)。
+        if (miningLevel.getHeight() != MiningConstants.REGION_HEIGHT
+                || miningLevel.getMinBuildHeight() != MiningConstants.REGION_MIN_Y) {
+            throw new IllegalStateException("mining dimension geometry mismatch: level height="
+                    + miningLevel.getHeight() + " minBuildHeight=" + miningLevel.getMinBuildHeight()
+                    + " but MiningConstants.REGION_HEIGHT=" + MiningConstants.REGION_HEIGHT
+                    + " REGION_MIN_Y=" + MiningConstants.REGION_MIN_Y
+                    + " -- data/miningdim/dimension_type/mining.json 与 MiningConstants 已脱钩");
+        }
+
         // globalSeed 首次确定: 取存档主 seed 与 mod 常量混合 (12.4), 全程不变。
         long worldSeed = miningLevel.getSeed();
         savedData.initGlobalSeedIfAbsent(SeedUtil.deriveSeed(worldSeed, 0L, 0));
 
         regionGrid.loadOccupancy(savedData.regionOccupancy());
+
+        // 三固定实例的 id 先收集成集合: 占用位图交叉校验只对非固定实例执行 (固定实例的滑动坐标不进位图,
+        // 见 RegionGrid 类注释 "滑动 region" 段)。
+        java.util.Set<Long> fixedIds = new java.util.HashSet<>();
+        for (Difficulty d : Difficulty.values()) {
+            savedData.fixedInstanceId(d).ifPresent(fixedIds::add);
+        }
 
         List<Long> orphansToDestroy = new ArrayList<>();
         for (InstanceState inst : instances.values()) {
@@ -111,9 +134,15 @@ public final class InstanceManager implements IInstanceManager {
             inst.setActive(false);
             inst.setLastEmptyTick(server.getTickCount());
 
-            // region 位图与 instances 交叉校验: 以 instances 为准修正位图 (12.8)。
+            // region 位图与 instances 交叉校验: 以 instances 为准修正位图 (12.8)。固定/滑动实例不参与
+            // (它们的滑动坐标从不写入位图, 见 RegionGrid 类注释 "滑动 region" 段)。用 isAligned 而非只
+            // 靠 fixedIds 判断: 存档升级窗口内 (fixedInstance_* NBT 键尚未写入前) fixedIds 为空,
+            // 若仅凭 fixedIds 会把老几何误当动态实例强行 markOccupied/isOccupied, 一旦老几何与当前
+            // config 派生 stride 不对齐 (F063 config 默认值变化后的既有存档) 就直接抛 IAE 崩服
+            // (分支复核 finding #1/#5/#8)。非网格成员一律跳过, 不强行对齐。
             RegionBox box = inst.regionBox();
-            if (!regionGrid.isOccupied(box)) {
+            boolean gridMember = !fixedIds.contains(inst.instanceId()) && regionGrid.isAligned(box);
+            if (gridMember && !regionGrid.isOccupied(box)) {
                 LOGGER.warn("[miningdim] region for instance {} not marked occupied in bitmap; correcting (instances authoritative)",
                         inst.instanceId());
                 regionGrid.markOccupied(box);
@@ -156,47 +185,108 @@ public final class InstanceManager implements IInstanceManager {
     }
 
     /**
-     * R1: 预建/复用三固定难度实例。每难度占 RegionGrid.fixedRegionFor(d) 的固定槽位, shared=true。
-     * 复用规则: 若已有持久实例的 difficulty 与 regionBox 都等于该难度的固定几何, 则认作该固定实例 (重启后复用,
-     * 不重复创建); 否则新建。建立 fixedInstances 索引供 allocate 路由。主线程, 玩家未登录, 天然安全。
+     * R1: 预建/复用三固定难度实例。每难度占一个常驻槽位, shared=true。
+     *
+     * 认领顺序 (F088/D3: region 会滑动, 原点不再是稳定锚点, 持久 id 才是):
+     *   1) savedData.fixedInstanceId(d) 有值且该 id 在 instances 里且 isAlive -> 直接认领 (重启常规路径);
+     *   2) 否则按旧规则做一次性迁移认领 (difficulty 相同 + isAlive + regionBox 的 XZ 原点等于历史硬编码
+     *      几何 MiningConstants.REGION_STRIDE_X/Z 算出的原点, 不是当前 config 派生的 regionGrid.fixedRegionFor(d);
+     *      只比 XZ, 不比 Y/size, 因为 F088 把 sizeY 归一到 192; 详见 claimFixedByLegacyGeometry 方法注释);
+     *   3) 都不中才新建 —— 新存档 (!hasRegionFrontier) 用初始三格固定几何, 老存档 (hasRegionFrontier)
+     *      必须从 frontier 游标取一块从未生成过的坐标, 绝不能落回可能已生成过地形的老坐标。
+     * 三块都就位后把当前真实 regionBox 写入 RegionLayout, 供 MiningBiomeSource 判归属。主线程, 玩家未登录, 天然安全。
      */
     private void ensureFixedInstances() {
+        java.util.EnumMap<Difficulty, RegionBox> resolvedBoxes = new java.util.EnumMap<>(Difficulty.class);
+
         for (Difficulty d : Difficulty.values()) {
-            RegionBox fixedBox = regionGrid.fixedRegionFor(d);
-            InstanceState existing = null;
-            for (InstanceState inst : instances.values()) {
-                if (inst.difficulty() == d && inst.regionBox().equals(fixedBox) && inst.genState().isAlive()) {
-                    existing = inst;
-                    break;
-                }
+            InstanceState claimed = claimFixedById(d);
+            if (claimed == null) {
+                claimed = claimFixedByLegacyGeometry(d);
             }
-            if (existing != null) {
-                fixedInstances.put(d, existing.instanceId());
-                regionGrid.markOccupied(fixedBox);
-                LOGGER.info("[miningdim] reusing fixed instance {} for difficulty {} (region origin={},{})",
-                        existing.instanceId(), d, fixedBox.originX(), fixedBox.originZ());
-            } else {
-                InstanceState created = createFixedInstance(d, fixedBox);
-                fixedInstances.put(d, created.instanceId());
+            if (claimed != null) {
+                fixedInstances.put(d, claimed.instanceId());
+                savedData.setFixedInstanceId(d, claimed.instanceId());
+                resolvedBoxes.put(d, claimed.regionBox());
+                LOGGER.info("[miningdim] claimed fixed instance {} for difficulty {} (region origin={},{})",
+                        claimed.instanceId(), d, claimed.regionBox().originX(), claimed.regionBox().originZ());
+                continue;
             }
+
+            RegionBox box = savedData.hasRegionFrontier()
+                    ? regionGrid.regionAtOrigin(
+                            savedData.allocateRegionOriginX(regionGrid.sizeX(), MiningConstants.SLIDE_SEPARATION_BLOCKS),
+                            MiningConstants.REGION_ORIGIN_Z)
+                    : regionGrid.fixedRegionFor(d);
+            InstanceState created = createFixedInstance(d, box);
+            fixedInstances.put(d, created.instanceId());
+            savedData.setFixedInstanceId(d, created.instanceId());
+            resolvedBoxes.put(d, box);
         }
+
+        if (!savedData.hasRegionFrontier()) {
+            int frontierX = resolvedBoxes.values().stream()
+                    .mapToInt(box -> box.originX() + box.sizeX())
+                    .max().orElseThrow()
+                    + MiningConstants.SLIDE_SEPARATION_BLOCKS;
+            savedData.initRegionFrontierIfAbsent(frontierX);
+        }
+
+        RegionLayout.set(new RegionLayout.Snapshot(
+                resolvedBoxes.get(Difficulty.EASY), resolvedBoxes.get(Difficulty.MEDIUM), resolvedBoxes.get(Difficulty.HARD)));
     }
 
-    /** 在固定槽位创建一个常驻共享实例 (R1)。与 createInstance 同流程, 但 region 取固定几何而非螺旋 claim。 */
-    private InstanceState createFixedInstance(Difficulty difficulty, RegionBox fixedBox) {
+    /** 按持久固定 id 认领 (重启常规路径; 唯一在 region 滑动后仍稳定的锚点)。 */
+    private InstanceState claimFixedById(Difficulty d) {
+        java.util.OptionalLong fixedId = savedData.fixedInstanceId(d);
+        if (fixedId.isEmpty()) {
+            return null;
+        }
+        InstanceState inst = instances.get(fixedId.getAsLong());
+        return (inst != null && inst.genState().isAlive()) ? inst : null;
+    }
+
+    /**
+     * 一次性迁移认领 (存量存档尚未写 fixedInstanceId 时的兜底; 只比 XZ 原点, 不比 Y/size)。
+     *
+     * 匹配几何必须用 MiningConstants 硬编码的历史值 (SIZE=256/STRIDE=288), 不能用
+     * {@code regionGrid.fixedRegionFor(d)}: 后者现在由运行期 config 的 regionSizeChunks/bufferChunks
+     * 派生 (F063), 而 F063 落地前的所有存档, 其固定实例一律是按写死几何建的, 与之后 config 里的值
+     * 无关也不随其变化。用 config 派生几何去匹配, 在既有存档的 config 默认值与写死历史值不一致时
+     * (例如本分支把 bufferChunks 默认值从 1 改成 2 之后) 会把老实例判成"未认领", 从而重复新建、
+     * 与老实例已挖空的地形在世界里直接重叠 (分支复核 finding #1/#5/#8)。
+     */
+    private InstanceState claimFixedByLegacyGeometry(Difficulty d) {
+        int legacyOriginX = MiningConstants.REGION_ORIGIN_X + d.regionCellX() * MiningConstants.REGION_STRIDE_X;
+        int legacyOriginZ = MiningConstants.REGION_ORIGIN_Z
+                + MiningConstants.FIXED_REGION_CELL_Z * MiningConstants.REGION_STRIDE_Z;
+        for (InstanceState inst : instances.values()) {
+            if (inst.difficulty() == d && inst.genState().isAlive()
+                    && inst.regionBox().originX() == legacyOriginX
+                    && inst.regionBox().originZ() == legacyOriginZ) {
+                return inst;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 在给定 region 创建一个常驻共享固定实例 (R1)。与 createInstance 同流程, 但 region 取固定或 frontier
+     * 几何而非螺旋 claim。不调用 regionGrid.markOccupied: 固定实例常驻且不参与动态螺旋分配, 滑动坐标进
+     * 位图会把 BitSet 撑到 GB 级 (见 RegionGrid 类注释 "滑动 region" 段), 位图对固定实例毫无意义。
+     */
+    private InstanceState createFixedInstance(Difficulty difficulty, RegionBox box) {
         long instanceId = savedData.allocateInstanceId();
         long seed = SeedUtil.deriveSeed(savedData.globalSeed(), instanceId, 0);
-        regionGrid.markOccupied(fixedBox);
 
-        InstanceState inst = new InstanceState(instanceId, seed, difficulty, fixedBox,
+        InstanceState inst = new InstanceState(instanceId, seed, difficulty, box,
                 null, true, server.getTickCount(), GenState.PENDING);
         instances.put(instanceId, inst);
-        persistRegionBitmap();
         savedData.setDirty();
 
         scheduler.submit(inst);
         LOGGER.info("[miningdim] created fixed instance {} (difficulty={}, region origin={},{})",
-                instanceId, difficulty, fixedBox.originX(), fixedBox.originZ());
+                instanceId, difficulty, box.originX(), box.originZ());
         return inst;
     }
 
@@ -424,6 +514,55 @@ public final class InstanceManager implements IInstanceManager {
         return SeedUtil.deriveSeed(savedData.globalSeed(), instanceId, 0);
     }
 
+    // ---- 滑动重置 (D3/13.4) ----
+
+    /**
+     * 把实例整块搬到一块从未生成过的新坐标 (F003/D3)。主线程, 由 ResetJob 的 REGEN 阶段调用。
+     * 顺序铁律: release 必须在 relocate 之前 —— scheduler.release 按实例当前 (旧) regionBox 撤销强加载票,
+     * relocate 之后再调就会用新坐标去撤旧票, 旧票永久泄漏; RegionLayout.set 必须在 submit 之前 —— 否则
+     * 生成通路强加载新区块时 MiningBiomeSource 仍按旧快照判归属, 把新区判成 mining_wall 基岩墙。
+     */
+    @Override
+    public RegionBox slideRegion(long instanceId, long newSeed) {
+        InstanceState inst = instances.get(instanceId);
+        if (inst == null) {
+            throw new IllegalStateException("cannot slide unknown instance " + instanceId);
+        }
+
+        scheduler.release(inst);
+
+        int newOriginX = savedData.allocateRegionOriginX(regionGrid.sizeX(), MiningConstants.SLIDE_SEPARATION_BLOCKS);
+        RegionBox newBox = regionGrid.regionAtOrigin(newOriginX, MiningConstants.REGION_ORIGIN_Z);
+
+        RegionBox oldBox = inst.regionBox();
+        inst.relocate(newBox, newSeed);
+        // 几何一改立刻广播失效 (分支复核 finding #11): 陷阱静态表/铺矿表/出生池/刷怪调度态四个子系统
+        // 按 instanceId 缓存的都是旧几何/旧种子, 必须在 genState 变回 enterable 之前失效, 否则生成完成
+        // 到 SETTLE 阶段广播之间存在 1-2 tick 窗口, 期间新进入的玩家会拿到旧几何算出的出生点坐标。
+        // 原先这条广播放在 ResetJob 的 SETTLE 阶段首 tick (远晚于此处), 已移除, 不再重复调用。
+        MiningServices.fireInstanceReset(inst.instanceId());
+        RegionLayout.set(RegionLayout.current().with(inst.difficulty(), newBox));
+        savedData.setDirty();
+
+        inst.setGenState(GenState.PENDING);
+        scheduler.submit(inst);
+
+        LOGGER.info("[miningdim] instance {} (difficulty={}) slid region ({},{}) -> ({},{}), newSeed={}",
+                instanceId, inst.difficulty(), oldBox.originX(), oldBox.originZ(),
+                newBox.originX(), newBox.originZ(), newSeed);
+        return newBox;
+    }
+
+    /**
+     * 派生下一次重置的种子 (F089)。重置代数经 savedData.incrementResetGeneration() 随存档落盘,
+     * 重启后不会从 0 重来 (代数在内存里跟踪会导致重启后复用同一批种子)。主线程。
+     */
+    @Override
+    public long deriveNextResetSeed(long instanceId) {
+        int generation = savedData.incrementResetGeneration();
+        return SeedUtil.deriveSeed(savedData.globalSeed(), instanceId, generation);
+    }
+
     // ---- 引用计数与离开路径 (12.6) ----
 
     @Override
@@ -516,7 +655,12 @@ public final class InstanceManager implements IInstanceManager {
         inst.setGenState(GenState.RECYCLED);
         scheduler.release(inst);
 
-        regionGrid.free(inst.regionBox());
+        // 固定/滑动实例从未 markOccupied (见 RegionGrid 类注释 "滑动 region" 段), free 对它们本就是
+        // 无操作; 而它们的滑动坐标原点不保证对齐当前网格 stride, 无条件 free 会在孤儿清理路径上直接
+        // 抛 IAE 崩服 (分支复核 finding #2/#4/#9)。只对真正网格成员 (对齐的动态分配实例) 调用 free。
+        if (regionGrid.isAligned(inst.regionBox())) {
+            regionGrid.free(inst.regionBox());
+        }
         instances.remove(instanceId);
         if (!inst.shared() && inst.ownerKey() != null) {
             privateIndex.remove(new OwnerDifficultyKey(inst.ownerKey(), inst.difficulty()));

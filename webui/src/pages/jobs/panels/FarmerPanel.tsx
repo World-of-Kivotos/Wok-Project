@@ -18,7 +18,7 @@ import {
 import { callErrorText } from '../../../lib/errorText'
 import { useItemNames } from '../../../lib/i18n'
 import type { FarmerSellResult, FarmerTierRow, PlayerInventoryItem } from '../../../lib/types'
-import { callMock, refreshWalletAndInventory, useMockAction, useMockWorld } from '../../../mock'
+import { callMock, refreshInventoryMirror, useMockAction, useMockWorld } from '../../../mock'
 import { toError } from './shared'
 
 /**
@@ -38,8 +38,9 @@ import { toError } from './shared'
  * 背包镜像按 crop.itemId 求和自算 —— 服务端不另开一条查库存的 action。
  *
  * 背包数据走 mock 的真域镜像 (world.mirror.inventory): TabletShell 已在挂载期拉过一次 player.inventory,
- * 但页面自身可能先于外壳的 effect 挂载, 不能假设镜像已就绪, 故本文件独立调用一次 refreshWalletAndInventory
- * 兜底; 卖出成功后同样重拉一次, 因为服务端是真的把小麦扣掉了。
+ * 但页面自身可能先于外壳的 effect 挂载, 不能假设镜像已就绪, 故本文件独立调用一次 refreshInventoryMirror
+ * 兜底。卖出成功后不必再手动重拉背包 —— job.farmer.sell 已登记进 handlers.ts 的 MIRROR_AFTER_INVENTORY,
+ * delegateReal 会在写操作成功后自动刷一次镜像。
  */
 
 const EMPTY_PAYLOAD: Record<string, never> = {}
@@ -55,7 +56,7 @@ export function FarmerPanel(): ReactElement {
   const [sellResult, setSellResult] = useState<FarmerSellResult | null>(null)
 
   const loadInventory = useCallback(() => {
-    refreshWalletAndInventory()
+    refreshInventoryMirror()
       .then(() => {
         setInventoryError(null)
       })
@@ -99,8 +100,8 @@ export function FarmerPanel(): ReactElement {
     try {
       const result = await callMock('job.farmer.sell', { count })
       setSellResult(result)
-      // 服务端先扣物后发钱, 故背包与钱包都要重拉; soldToday/单价曲线的新值则由 state 重查带回。
-      loadInventory()
+      // 背包由镜像层在写操作成功后自动刷 (handlers.ts 的 MIRROR_AFTER_INVENTORY); 本处只重查职业档案,
+      // 拿到 soldToday/单价曲线的新值。
       query.reload()
     } catch (error) {
       setSellError(toError(error))

@@ -144,6 +144,25 @@ public final class ChampionCaesarSwapPlan {
         return playerDestSafe && champDestSafe;
     }
 
+    /**
+     * 换位准入 (F104 修复; 红线 6 波0"位移类效果动手前先查 isProtected"自查约定 + 双向落点裁决合一)。目标仍在 2s
+     * 抗位移落地保护窗内时一律不换位: 该窗的业务含义是"服务端权威守卫刚把玩家挪到安全落点, 2s 内不得再被任何
+     * 位移拽走", 而换位走 teleportTo 不经 LivingKnockBackEvent, {@code PlayerLandingProtection} 的事件闸拦不住,
+     * 只能由本方自查。
+     *
+     * <p>本法是 {@code ChampionCaesarSwapHandler#executeSwapOrAbandon} 的唯一换位准入判定 (生产与
+     * GameTest 真值表共享同一份逻辑, 不存在两套判据分叉的风险): 删 {@code !targetLandingProtected} 则目标仍在
+     * 落地保护窗内也照换位, 破红线 6 自查约定; 删 {@code bothLandingsSafe} 则不安全落点也照换。两者任一为假
+     * 即不得换位。
+     *
+     * @param targetLandingProtected 目标玩家当前是否仍在落地保护窗内
+     * @param bothLandingsSafe       双向落点是否都安全 (见 {@link #bothLandingsSafe(boolean, boolean)})
+     * @return 是否应执行本次换位
+     */
+    public static boolean shouldSwap(boolean targetLandingProtected, boolean bothLandingsSafe) {
+        return !targetLandingProtected && bothLandingsSafe;
+    }
+
     private static void requireQuality(AffixQuality quality) {
         if (quality == null) {
             throw new IllegalArgumentException("quality must not be null");

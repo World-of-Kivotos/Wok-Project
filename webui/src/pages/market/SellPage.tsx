@@ -18,7 +18,7 @@ import { isMockActive } from '../../lib/bridge'
 import { callErrorText, errorCodeText } from '../../lib/errorText'
 import { useItemDisplayNames } from '../../lib/i18n'
 import type { PlayerInventoryItem } from '../../lib/types'
-import { callMock, refreshWalletAndInventory, useMockAction, useMockWorld } from '../../mock'
+import { callMock, refreshInventoryMirror, useMockAction, useMockWorld } from '../../mock'
 
 /**
  * 跳蚤市场 · 挂单。
@@ -381,7 +381,7 @@ export function SellPage(): ReactElement {
       return
     }
     setInventoryFetch({ status: 'loading', error: null })
-    refreshWalletAndInventory()
+    refreshInventoryMirror()
       .then(() => {
         setInventoryFetch({ status: 'idle', error: null })
       })
@@ -422,7 +422,7 @@ export function SellPage(): ReactElement {
               message={`背包读取失败: ${inventoryFetch.error.message}`}
               onRetry={() => {
                 setInventoryFetch({ status: 'loading', error: null })
-                refreshWalletAndInventory()
+                refreshInventoryMirror()
                   .then(() => {
                     setInventoryFetch({ status: 'idle', error: null })
                   })

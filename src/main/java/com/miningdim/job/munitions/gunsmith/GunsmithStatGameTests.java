@@ -1,11 +1,24 @@
 package com.miningdim.job.munitions.gunsmith;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.munitions.ModMunitionsItems;
+import com.miningdim.job.munitions.MunitionsSystem;
+import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.TooltipFlag;
+import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.List;
 import java.util.function.Function;
 
 @GameTestHolder(MiningConstants.MODID)
@@ -209,5 +222,73 @@ public final class GunsmithStatGameTests {
     private static void assertClose(GameTestHelper helper, double actual, double expected, String label) {
         helper.assertTrue(Math.abs(actual - expected) < 0.0000001D,
                 label + " expected " + expected + " but was " + actual);
+    }
+
+    // ============================================================
+    // F011 tooltip 不再崩客户端: 缓存 stats 与当前平衡表算不出一致时, from() 仍必须硬抛 (装配/伤害结算路径的铁律),
+    // 但 onItemTooltip 只读展示要降级成一条提示而不是让异常冒到渲染线程。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void tooltipDegradesInsteadOfCrashingOnUnreadableStats(GameTestHelper helper) {
+        ItemStack legit = assembledM4Gun();
+        helper.assertTrue(GunsmithGunStats.from(legit) != null,
+                "a freshly assembled gun must be readable before corruption");
+
+        ItemStack corrupted = legit.copy();
+        CompoundTag corruptedStats = corrupted.getOrCreateTag()
+                .getCompound(GunsmithGunStats.ROOT_KEY)
+                .getCompound(GunsmithGunStats.STATS_KEY);
+        corruptedStats.putDouble("damage", corruptedStats.getDouble("damage") + 0.01D);
+
+        boolean fromThrew = false;
+        try {
+            GunsmithGunStats.from(corrupted);
+        } catch (IllegalArgumentException expected) {
+            fromThrew = true;
+        }
+        helper.assertTrue(fromThrew,
+                "a stats cache inconsistent with its installed parts must still make from() throw");
+
+        helper.assertTrue(GunsmithGunStats.tryFrom(corrupted) == null,
+                "tryFrom must degrade an unreadable gunsmith gun to null instead of throwing");
+        helper.assertTrue(GunsmithGunStats.hasGunsmithData(corrupted),
+                "a corrupted gunsmith gun must still be recognized as carrying gunsmith data");
+
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        List<Component> tooltip = new ArrayList<>();
+        ItemTooltipEvent event = new ItemTooltipEvent(corrupted, player, tooltip, TooltipFlag.Default.NORMAL);
+
+        boolean tooltipThrew = false;
+        try {
+            new MunitionsSystem().onItemTooltip(event);
+        } catch (RuntimeException unexpected) {
+            tooltipThrew = true;
+        }
+        helper.assertFalse(tooltipThrew, "the tooltip handler must not crash the client on unreadable gunsmith stats");
+        helper.assertTrue(event.getToolTip().size() == 1,
+                "an unreadable gunsmith gun must append exactly one degraded tooltip row, got "
+                        + event.getToolTip().size());
+        helper.succeed();
+    }
+
+    private static ItemStack assembledM4Gun() {
+        EnumMap<GunsmithPressPart, ItemStack> parts = new EnumMap<>(GunsmithPressPart.class);
+        parts.put(GunsmithPressPart.CORE, part(GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1.04D));
+        parts.put(GunsmithPressPart.BARREL, part(GunsmithPressPart.BARREL, GunsmithPartQuality.IMPROVED, 1.10D));
+        parts.put(GunsmithPressPart.BOLT, part(GunsmithPressPart.BOLT, GunsmithPartQuality.MILSPEC, 1.20D));
+        parts.put(GunsmithPressPart.HANDGUARD, part(GunsmithPressPart.HANDGUARD, GunsmithPartQuality.PRECISION, 1.30D));
+        parts.put(GunsmithPressPart.GRIP, part(GunsmithPressPart.GRIP, GunsmithPartQuality.LEGENDARY, 1.40D));
+        parts.put(GunsmithPressPart.STOCK, part(GunsmithPressPart.STOCK, GunsmithPartQuality.IMPROVED, 1.08D));
+        return GunsmithAssemblyRecipe.assemble(
+                new ItemStack(Items.IRON_HOE),
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1),
+                parts);
+    }
+
+    private static ItemStack part(GunsmithPressPart part, GunsmithPartQuality quality, double coefficient) {
+        return GunsmithPartItem.createStack(
+                ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AR, part,
+                GunsmithPartVariant.BASIC, quality, coefficient);
     }
 }

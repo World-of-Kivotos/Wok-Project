@@ -136,12 +136,14 @@ public final class MiningServerConfig {
                 .defineInRange("maxPartySize", 4, 1, 16);
         SHARE_CAP = b.comment("Max concurrent players in a single shared instance")
                 .defineInRange("shareCap", 8, 1, 64);
-        REGION_SIZE_CHUNKS = b.comment("Region edge length in chunks; changing invalidates the existing grid")
+        REGION_SIZE_CHUNKS = b.comment("Region edge length in chunks; combined with bufferChunks this determines the "
+                        + "runtime grid stride. Changing requires a restart, and only affects regions newly built/slid "
+                        + "after restart; existing regions' geometry is authoritative from the save data.")
                 .worldRestart()
                 .defineInRange("regionSizeChunks", 16, 4, 64);
-        BUFFER_CHUNKS = b.comment("Solid buffer band width between regions, in chunks (>=1)")
+        BUFFER_CHUNKS = b.comment("Solid buffer band width between regions, in chunks (>=1); must equal MiningConstants.BUFFER_CHUNKS")
                 .worldRestart()
-                .defineInRange("bufferChunks", 1, 1, 8);
+                .defineInRange("bufferChunks", 2, 1, 8);
         b.pop();
 
         // R2: layer.* 子盒 Y 配置已删除 —— 难度由所在 region 决定, 不再按 worldY 分带。

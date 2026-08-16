@@ -29,6 +29,8 @@
   "message.miningdim.enter.cap_global_cap": "All mining instances are full right now. Please try again later.",
   "message.miningdim.enter.cap_queue_timeout": "Timed out waiting in the mining queue. Please try again.",
   "message.miningdim.gate.level_too_low": "Your level is too low to enter this difficulty.",
+  "message.miningdim.gate.insufficient_funds": "Insufficient credits; you need %s more.",
+  "message.miningdim.gate.insufficient_funds_actionbar": "Insufficient credits.",
   "message.miningdim.gate.missing_advancement": "You have not unlocked this difficulty yet.",
   "message.miningdim.gate.no_ticket": "You need an entry ticket for this difficulty.",
   "message.miningdim.leave.done": "You have left the mining dimension.",

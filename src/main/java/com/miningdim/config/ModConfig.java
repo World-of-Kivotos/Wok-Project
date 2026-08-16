@@ -256,6 +256,15 @@ public final class ModConfig implements IMiningConfig {
         };
     }
 
+    @Override
+    public long entryFee(Difficulty difficulty) {
+        return switch (difficulty) {
+            case EASY -> MiningServerConfig.ENTRY_FEE_EASY.get();
+            case MEDIUM -> MiningServerConfig.ENTRY_FEE_MEDIUM.get();
+            case HARD -> MiningServerConfig.ENTRY_FEE_HARD.get();
+        };
+    }
+
     // ---- 16.2.10 性能与生命周期 ----
 
     @Override

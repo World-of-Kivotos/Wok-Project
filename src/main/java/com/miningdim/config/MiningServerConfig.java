@@ -88,6 +88,9 @@ public final class MiningServerConfig {
     public static final ForgeConfigSpec.ConfigValue<String> ENTRY_LABEL_EASY;
     public static final ForgeConfigSpec.ConfigValue<String> ENTRY_LABEL_MEDIUM;
     public static final ForgeConfigSpec.ConfigValue<String> ENTRY_LABEL_HARD;
+    public static final ForgeConfigSpec.LongValue ENTRY_FEE_EASY;
+    public static final ForgeConfigSpec.LongValue ENTRY_FEE_MEDIUM;
+    public static final ForgeConfigSpec.LongValue ENTRY_FEE_HARD;
 
     // ---- 结婚系统 (marriage; 结婚系统 spec 第三章典礼成本 + 第十二章 PENDING 数值标定) ----
     public static final ForgeConfigSpec.IntValue MARRIAGE_ENGAGEMENT_COST;
@@ -249,6 +252,11 @@ public final class MiningServerConfig {
         ENTRY_LABEL_EASY = b.define("labelEasy", "Easy 矿洞 / 右键进入");
         ENTRY_LABEL_MEDIUM = b.define("labelMedium", "Medium 矿洞 / 右键进入");
         ENTRY_LABEL_HARD = b.define("labelHard", "Hard 矿洞 / 右键进入");
+        b.comment("Entry fees in CREDIT. 0 = free; values await yield measurement before tuning. "
+                + "See docs/TaskSpec_Mining_EntryFee.md.");
+        ENTRY_FEE_EASY = b.defineInRange("entryFeeEasy", 0L, 0L, Long.MAX_VALUE);
+        ENTRY_FEE_MEDIUM = b.defineInRange("entryFeeMedium", 0L, 0L, Long.MAX_VALUE);
+        ENTRY_FEE_HARD = b.defineInRange("entryFeeHard", 0L, 0L, Long.MAX_VALUE);
         b.pop();
 
         b.push("marriage");

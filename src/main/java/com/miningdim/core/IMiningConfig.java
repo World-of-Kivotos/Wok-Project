@@ -162,6 +162,9 @@ public interface IMiningConfig {
     /** R4: 指定难度入口方块上方浮空字默认文案 (entry.label<D>, 默认中文)。 */
     String entryLabel(Difficulty difficulty);
 
+    /** 指定难度的入场信用点费用 (entry.entryFee<D>, 默认 0 即免费)。 */
+    long entryFee(Difficulty difficulty);
+
     // ---- 16.2.10 性能与生命周期 ----
 
     /** 实例激活时强加载区块半径 (perf.loadRadiusChunks, 默认 4)。 */

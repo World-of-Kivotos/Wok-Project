@@ -1057,9 +1057,11 @@ export function HomePage(): ReactElement {
             'danger',
             result.reasonCode === 'LEVEL_TOO_LOW'
               ? `矿工等级不够: 该难度需要 ${String(result.requiredMinerLevel)} 级, 你是 ${String(result.minerLevel)} 级`
-              : result.reasonCode === 'ALREADY_INSIDE'
-                ? '你已经在矿洞里了'
-                : '进入被拒绝, 但服务端没有给出原因码',
+              : result.reasonCode === 'INSUFFICIENT_FUNDS'
+                ? '信用点余额不足, 无法支付本次入场费'
+                : result.reasonCode === 'ALREADY_INSIDE'
+                  ? '你已经在矿洞里了'
+                  : '进入被拒绝, 但服务端没有给出原因码',
           )
         }
         reloadMiningStatus()

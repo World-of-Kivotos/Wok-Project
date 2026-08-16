@@ -29,6 +29,8 @@
   "message.miningdim.enter.cap_global_cap": "当前所有矿洞实例均已占满，请稍后再试。",
   "message.miningdim.enter.cap_queue_timeout": "排队等待矿洞超时，请重试。",
   "message.miningdim.gate.level_too_low": "你的等级不足以进入该难度。",
+  "message.miningdim.gate.insufficient_funds": "信用点不足，还差 %s 点。",
+  "message.miningdim.gate.insufficient_funds_actionbar": "信用点不足。",
   "message.miningdim.gate.missing_advancement": "你尚未解锁该难度。",
   "message.miningdim.gate.no_ticket": "进入该难度需要对应的入场券。",
   "message.miningdim.leave.done": "你已离开矿业维度。",

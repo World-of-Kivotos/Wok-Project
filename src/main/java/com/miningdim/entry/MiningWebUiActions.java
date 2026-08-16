@@ -11,6 +11,7 @@ import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
 import com.miningdim.core.RegionBox;
+import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.miner.MinerLevelGate;
@@ -121,6 +122,7 @@ public final class MiningWebUiActions {
         JsonObject row = new JsonObject();
         row.addProperty("difficulty", difficulty.configName());
         row.addProperty("dropsOnDeath", difficulty == Difficulty.HARD);
+        row.addProperty("entryFee", MiningServices.config().entryFee(difficulty));
         // 服务端只发翻译键 (专用服务端不加载 lang), 中文由客户端 i18n 桥解; 键与入场提示用的是同一批。
         row.addProperty("nameKey", "difficulty.miningdim." + difficulty.configName());
         row.addProperty("requiredMinerLevel", MinerLevelGate.minLevelFor(difficulty));
@@ -219,9 +221,10 @@ public final class MiningWebUiActions {
      * {@code EntryGateway#tick} 里。此刻回 {@code entered:true} 是撒谎。传送成功/失败的终局由入场链路经
      * 原生 TeleportResult S2C 下发 (不走 webui 通道), 面板要确认是否真进去了应轮询 {@code mining.myStatus}。
      *
-     * 两条同步拒绝判据的顺序与 requestEnter 内部逐字一致 (先难度门, 后"已在实例内"), 否则同一次请求在这里
-     * 与在权威路径里会给出不同的原因。判据本身不另写一份: 难度门直接问 {@link MinerLevelGate} (gateCheck
-     * 问的同一个方法), "已在实例内"直接读 capability 的同一个字段。
+     * 三条同步拒绝判据的顺序与 requestEnter 内部逐字一致 (先难度门, 再余额门, 最后"已在实例内"), 否则
+     * 同一次请求在这里与在权威路径里会给出不同的原因。判据本身不另写一份: 难度门直接问
+     * {@link MinerLevelGate} (gateCheck 问的同一个方法), 余额与配置都读各自服务门面, "已在实例内"直接读
+     * capability 的同一个字段。
      */
     static final WebUiAction ENTER = (sender, payload) -> {
         Difficulty difficulty = parseDifficulty(payload);
@@ -242,6 +245,12 @@ public final class MiningWebUiActions {
         if (!MinerLevelGate.canEnter(minerLevel, difficulty)) {
             // 原因码与 i18n 键都取自 GateResult 本身, 不新造一套字符串 (命令路径提示的是同一句话)。
             return rejected(result, GateResult.LEVEL_TOO_LOW.name(), GateResult.LEVEL_TOO_LOW.reasonKey());
+        }
+        long entryFee = MiningServices.config().entryFee(difficulty);
+        // 0 是合法的免费运营配置; 货币门面拒绝非正扣费, 所以免费时必须连余额查询也一并短路。
+        if (entryFee > 0L && EconomyServices.economyService().creditBalance(sender) < entryFee) {
+            return rejected(result, GateResult.INSUFFICIENT_FUNDS.name(),
+                    GateResult.INSUFFICIENT_FUNDS.reasonKey());
         }
         if (data.currentInstanceId() != IMiningPlayerData.NO_INSTANCE) {
             return rejected(result, "ALREADY_INSIDE", "message.miningdim.enter.already_inside");

@@ -8,6 +8,7 @@ public enum GateResult {
 
     PASS(null),
     LEVEL_TOO_LOW("message.miningdim.gate.level_too_low"),
+    INSUFFICIENT_FUNDS("message.miningdim.gate.insufficient_funds"),
     MISSING_ADVANCEMENT("message.miningdim.gate.missing_advancement"),
     NO_TICKET("message.miningdim.gate.no_ticket");
 

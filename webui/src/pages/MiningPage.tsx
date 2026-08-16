@@ -6,6 +6,7 @@ import {
   EmptyBlock,
   ErrorBlock,
   FeedbackAlert,
+  formatAmount,
   LoadingBlock,
   Panel,
   Stat,
@@ -47,11 +48,12 @@ const DIFFICULTY_TAG: Record<MiningDifficulty, string> = {
 }
 
 /**
- * mining.enter 两条同步拒绝的文案。服务端只发翻译键 (reasonKey), 专用服务端解不出中文;
+ * mining.enter 三条同步拒绝的文案。服务端只发翻译键 (reasonKey), 专用服务端解不出中文;
  * 这张表是玩家看到的那句话的唯一出处, 与 reasonCode 一一对应。
  */
 const ENTER_REASON_TEXT: Record<MiningEnterReasonCode, string> = {
   LEVEL_TOO_LOW: '矿工等级不够, 这个难度还进不去',
+  INSUFFICIENT_FUNDS: '信用点余额不足, 无法支付本次入场费',
   ALREADY_INSIDE: '你已经在矿洞里了',
 }
 
@@ -135,6 +137,11 @@ function MiningInstanceCard({
         ) : null}
 
         <div className="flex flex-col gap-1">
+          <Stat
+            label="入场价格"
+            layout="inline"
+            value={instance.entryFee <= 0 ? '免费' : `${formatAmount(instance.entryFee)} 信用点`}
+          />
           <Stat
             label="当前在线"
             layout="inline"

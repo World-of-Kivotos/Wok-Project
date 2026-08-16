@@ -242,6 +242,7 @@ public final class PressureGameTests {
         @Override public int autoResetWarnSeconds() { throw unused(); }
         @Override public List<String> placeWhitelist() { throw unused(); }
         @Override public String entryLabel(Difficulty difficulty) { throw unused(); }
+        @Override public long entryFee(Difficulty difficulty) { return 0L; }
         @Override public int loadRadiusChunks() { throw unused(); }
         @Override public int emptyInstanceTtlSeconds() { throw unused(); }
         @Override public int gcGraceSeconds() { throw unused(); }

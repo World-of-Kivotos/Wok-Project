@@ -2588,6 +2588,8 @@ export interface MiningInstanceRow {
   difficulty: MiningDifficulty
   /** true 仅表示服务端权威规则会在该区域强制掉落背包物品。 */
   dropsOnDeath: boolean
+  /** 入场费 (信用点), Java long -> number; 0 = 免费。 */
+  entryFee: number
   /** 翻译键 'difficulty.miningdim.<难度>'; 服务端不发中文。 */
   nameKey: string
   /** 代码权威取 MinerLevelGate = 1/4/8 (GateResult 头注释里的 10/25 是过期文档口径)。 */
@@ -2661,8 +2663,8 @@ export interface MiningEnterPayload {
   difficulty: MiningDifficulty
 }
 
-/** mining.enter 的同步拒绝码 (LEVEL_TOO_LOW 逐字取自 GateResult 枚举名)。 */
-export type MiningEnterReasonCode = 'LEVEL_TOO_LOW' | 'ALREADY_INSIDE'
+/** mining.enter 的同步拒绝码 (两个门控码逐字取自 GateResult 枚举名)。 */
+export type MiningEnterReasonCode = 'LEVEL_TOO_LOW' | 'INSUFFICIENT_FUNDS' | 'ALREADY_INSIDE'
 
 /**
  * mining.enter 回执 (MiningWebUiActions.ENTER)。
@@ -2680,7 +2682,7 @@ export interface MiningEnterResult {
   instanceId: number | null
   accepted: boolean
   reasonCode: MiningEnterReasonCode | null
-  /** 翻译键 (message.miningdim.gate.level_too_low / message.miningdim.enter.already_inside); accepted=true 时 null。 */
+  /** 等级、余额或已在矿洞的翻译键; accepted=true 时 null。 */
   reasonKey: string | null
 }
 

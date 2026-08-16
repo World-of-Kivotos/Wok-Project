@@ -3973,6 +3973,8 @@ type MockMiningRow = {
   difficulty: MiningDifficulty
   /** MinerLevelGate 的真值 1/4/8 (GateResult 头注释里的 10/25 是过期文档口径)。 */
   requiredMinerLevel: number
+  /** 入场费默认全为 0; 等产出埋点积累真机样本后再标定。 */
+  entryFee: number
   /** AUTO_RESET_HOURS_<难度> 默认值 (6/4/2 小时)。 */
   autoResetHours: number
   /** 距今多少 tick 之前做的上一次**定时**刷新 (手动重置不写它)。 */
@@ -3996,6 +3998,7 @@ const MINING_ROWS: readonly MockMiningRow[] = [
   {
     difficulty: 'easy',
     requiredMinerLevel: 1,
+    entryFee: 0,
     autoResetHours: 6,
     lastResetAgoTicks: 190_000,
     available: true,
@@ -4008,6 +4011,7 @@ const MINING_ROWS: readonly MockMiningRow[] = [
   {
     difficulty: 'medium',
     requiredMinerLevel: 4,
+    entryFee: 0,
     autoResetHours: 4,
     // 距下次定时刷新只剩约 15 分钟: 预警倒计时那一屏在 mock 下也看得见。
     lastResetAgoTicks: 270_000,
@@ -4022,6 +4026,7 @@ const MINING_ROWS: readonly MockMiningRow[] = [
   {
     difficulty: 'hard',
     requiredMinerLevel: 8,
+    entryFee: 0,
     autoResetHours: 2,
     lastResetAgoTicks: 100_000,
     available: false,
@@ -4082,6 +4087,7 @@ function mockMiningOverview(): MiningOverviewResult {
     return {
       difficulty: row.difficulty,
       dropsOnDeath: row.difficulty === 'hard',
+      entryFee: row.entryFee,
       nameKey: `difficulty.miningdim.${row.difficulty}`,
       requiredMinerLevel: row.requiredMinerLevel,
       unlocked: minerLevel >= row.requiredMinerLevel,
@@ -4139,9 +4145,28 @@ function mockMiningEnter(payload: MiningEnterPayload): MiningEnterResult {
   const difficulty = requireDifficulty('mining.enter', payload.difficulty)
   const row = requireMiningRow(difficulty)
   const minerLevel = mockJobLevel('miner')
-  if (!row.available) {
-    // 与 admin.mining.reset 同一形态: 常驻区域不存在时服务端抛的是裸异常, 回执里没有 errorCode。
-    throw plainFailure('mining.enter', `${difficulty} 难度的常驻区域此刻不存在`)
+  if (minerLevel < row.requiredMinerLevel) {
+    return {
+      difficulty,
+      requiredMinerLevel: row.requiredMinerLevel,
+      minerLevel,
+      instanceId: row.instanceId,
+      accepted: false,
+      reasonCode: 'LEVEL_TOO_LOW',
+      reasonKey: 'message.miningdim.gate.level_too_low',
+    }
+  }
+  // 0 是合法免费配置; 与真服一致, 免费时连 wallet.credit 的读取也不发生。
+  if (row.entryFee > 0 && wallet.credit < row.entryFee) {
+    return {
+      difficulty,
+      requiredMinerLevel: row.requiredMinerLevel,
+      minerLevel,
+      instanceId: row.instanceId,
+      accepted: false,
+      reasonCode: 'INSUFFICIENT_FUNDS',
+      reasonKey: 'message.miningdim.gate.insufficient_funds',
+    }
   }
   if (miningCurrentDifficulty !== null) {
     return {
@@ -4154,16 +4179,12 @@ function mockMiningEnter(payload: MiningEnterPayload): MiningEnterResult {
       reasonKey: 'message.miningdim.enter.already_inside',
     }
   }
-  if (minerLevel < row.requiredMinerLevel) {
-    return {
-      difficulty,
-      requiredMinerLevel: row.requiredMinerLevel,
-      minerLevel,
-      instanceId: row.instanceId,
-      accepted: false,
-      reasonCode: 'LEVEL_TOO_LOW',
-      reasonKey: 'message.miningdim.gate.level_too_low',
-    }
+  if (!row.available) {
+    // 与 admin.mining.reset 同一形态: 常驻区域不存在时服务端抛的是裸异常, 回执里没有 errorCode。
+    throw plainFailure('mining.enter', `${difficulty} 难度的常驻区域此刻不存在`)
+  }
+  if (row.entryFee > 0) {
+    wallet.credit -= row.entryFee
   }
   miningCurrentDifficulty = difficulty
   miningCurrentInstanceId = row.instanceId

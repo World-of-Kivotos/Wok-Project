@@ -3,10 +3,13 @@ package com.miningdim.entry;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.miningdim.config.MiningServerConfig;
 import com.miningdim.core.Difficulty;
 import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
+import com.miningdim.economy.Currency;
+import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.JobId;
 import com.miningdim.job.miner.MinerConstants;
 import com.miningdim.testutil.MockGameTestPlayers;
@@ -74,7 +77,25 @@ public final class MiningWebUiGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void miningOverviewListsExactlyThreeResidentSharedRegions(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        JsonObject overview = handle(helper, OVERVIEW_ACTION, player, new JsonObject());
+        long previousEasyFee = MiningServerConfig.ENTRY_FEE_EASY.get();
+        long previousMediumFee = MiningServerConfig.ENTRY_FEE_MEDIUM.get();
+        long previousHardFee = MiningServerConfig.ENTRY_FEE_HARD.get();
+        long[] expectedEntryFees = {101L, 202L, 303L};
+        long[] configuredEntryFees = new long[3];
+        JsonObject overview;
+        try {
+            MiningServerConfig.ENTRY_FEE_EASY.set(expectedEntryFees[0]);
+            MiningServerConfig.ENTRY_FEE_MEDIUM.set(expectedEntryFees[1]);
+            MiningServerConfig.ENTRY_FEE_HARD.set(expectedEntryFees[2]);
+            for (int i = 0; i < configuredEntryFees.length; i++) {
+                configuredEntryFees[i] = MiningServices.config().entryFee(Difficulty.values()[i]);
+            }
+            overview = handle(helper, OVERVIEW_ACTION, player, new JsonObject());
+        } finally {
+            MiningServerConfig.ENTRY_FEE_EASY.set(previousEasyFee);
+            MiningServerConfig.ENTRY_FEE_MEDIUM.set(previousMediumFee);
+            MiningServerConfig.ENTRY_FEE_HARD.set(previousHardFee);
+        }
 
         JsonArray rows = overview.getAsJsonArray("instances");
         helper.assertTrue(rows.size() == 3,
@@ -90,6 +111,12 @@ public final class MiningWebUiGameTests {
                             && row.get("dropsOnDeath").getAsBoolean() == expectedDropsOnDeath,
                     DIFFICULTY_ORDER[i] + " 行 dropsOnDeath 必须为 " + expectedDropsOnDeath
                             + " (仅 HARD 死亡掉落), 实得 " + row.get("dropsOnDeath"));
+            helper.assertTrue(configuredEntryFees[i] == expectedEntryFees[i],
+                    DIFFICULTY_ORDER[i] + " 的实时配置门面必须映射到 " + expectedEntryFees[i]
+                            + ", 实得 " + configuredEntryFees[i]);
+            helper.assertTrue(row.has("entryFee") && row.get("entryFee").getAsLong() == configuredEntryFees[i],
+                    DIFFICULTY_ORDER[i] + " 行 entryFee 必须精确等于实时配置 " + configuredEntryFees[i]
+                            + ", 实得 " + row.get("entryFee"));
             helper.assertTrue(("difficulty.miningdim." + DIFFICULTY_ORDER[i]).equals(row.get("nameKey").getAsString()),
                     "nameKey 必须是翻译键 difficulty.miningdim.<难度> (服务端不发中文), 实得 "
                             + row.get("nameKey").getAsString());
@@ -278,7 +305,14 @@ public final class MiningWebUiGameTests {
         IMiningPlayerData data = dataOf(player);
         helper.assertTrue(!data.hasFallback(), "前提校验: 新号还没有回退现场快照");
 
-        JsonObject result = handle(helper, ENTER_ACTION, player, enterPayload("hard"));
+        long previousFee = MiningServerConfig.ENTRY_FEE_HARD.get();
+        JsonObject result;
+        try {
+            MiningServerConfig.ENTRY_FEE_HARD.set(500L);
+            result = handle(helper, ENTER_ACTION, player, enterPayload("hard"));
+        } finally {
+            MiningServerConfig.ENTRY_FEE_HARD.set(previousFee);
+        }
         helper.assertTrue(!result.get("accepted").getAsBoolean(), "1 级矿工不得被受理进入 hard");
         helper.assertTrue(GateResult.LEVEL_TOO_LOW.name().equals(result.get("reasonCode").getAsString()),
                 "原因码取自 GateResult, 实得 " + result.get("reasonCode").getAsString());
@@ -291,6 +325,46 @@ public final class MiningWebUiGameTests {
         helper.assertTrue(result.get("minerLevel").getAsInt() == 1, "回执带的是发送者真实矿工等级");
         helper.assertTrue(!data.hasFallback(),
                 "被门控拒绝的一次不得写回退现场 (写了说明 requestEnter 已被调用, 玩家的回退点会被覆盖)");
+        helper.succeed();
+    }
+
+    /** 余额门排在等级门之后、已在实例门之前, 拒绝只读余额且一分钱不扣。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void miningEnterRejectsInsufficientFundsBeforeAlreadyInsideWithoutCharging(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setMinerLevel(player, MinerConstants.MAX_LEVEL);
+        IMiningPlayerData data = dataOf(player);
+        data.setCurrentInstanceId(77L);
+
+        long startingBalance = EconomyServices.economyService().creditBalance(player);
+        helper.assertTrue(startingBalance == 0L,
+                "前提校验: 随机 UUID 的新玩家信用点余额必须为 0, 实得 " + startingBalance);
+        EconomyServices.economyService().grant(player, Currency.CREDIT, 40L);
+
+        long previousFee = MiningServerConfig.ENTRY_FEE_EASY.get();
+        JsonObject result;
+        boolean fallbackAfter;
+        long instanceIdAfter;
+        try {
+            MiningServerConfig.ENTRY_FEE_EASY.set(50L);
+            result = handle(helper, ENTER_ACTION, player, enterPayload("easy"));
+            fallbackAfter = data.hasFallback();
+            instanceIdAfter = data.currentInstanceId();
+        } finally {
+            MiningServerConfig.ENTRY_FEE_EASY.set(previousFee);
+            data.clearMiningState();
+        }
+
+        helper.assertTrue(!result.get("accepted").getAsBoolean(), "余额 40 小于入场费 50 时必须同步拒绝");
+        helper.assertTrue(GateResult.INSUFFICIENT_FUNDS.name().equals(result.get("reasonCode").getAsString()),
+                "余额门必须排在已在实例门之前, 实得原因码 " + result.get("reasonCode").getAsString());
+        helper.assertTrue(GateResult.INSUFFICIENT_FUNDS.reasonKey().equals(result.get("reasonKey").getAsString()),
+                "余额不足必须复用 GateResult 的翻译键, 实得 " + result.get("reasonKey").getAsString());
+        helper.assertTrue(EconomyServices.economyService().creditBalance(player) == 40L,
+                "WebUI 预拒只检查余额不得扣费, 余额必须仍为 40, 实得 "
+                        + EconomyServices.economyService().creditBalance(player));
+        helper.assertTrue(!fallbackAfter, "余额不足不得触碰 EntryGateway, 否则会提前覆盖回退现场");
+        helper.assertTrue(instanceIdAfter == 77L, "余额拒绝不得改动既有实例指针");
         helper.succeed();
     }
 
@@ -469,6 +543,8 @@ public final class MiningWebUiGameTests {
         }
         for (String key : new String[]{
                 GateResult.LEVEL_TOO_LOW.reasonKey(),
+                GateResult.INSUFFICIENT_FUNDS.reasonKey(),
+                "message.miningdim.gate.insufficient_funds_actionbar",
                 "message.miningdim.enter.already_inside",
                 "message.miningdim.enter.hard_death_drops",
                 "message.miningdim.leave.not_inside"}) {

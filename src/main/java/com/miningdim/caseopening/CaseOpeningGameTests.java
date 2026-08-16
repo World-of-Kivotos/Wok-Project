@@ -1,6 +1,7 @@
 package com.miningdim.caseopening;
 
 import com.google.gson.JsonObject;
+import com.miningdim.caseopening.store.CaseDao;
 import com.miningdim.caseopening.store.CaseDaoSqlite;
 import com.miningdim.caseopening.store.CaseDb;
 import com.miningdim.caseopening.store.CaseOpeningRow;
@@ -33,6 +34,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 /** Strong server-side tests for exact probability boundaries, SQL idempotency and the cross-store opening Saga. */
@@ -653,6 +655,222 @@ public final class CaseOpeningGameTests {
     }
 
     /**
+     * F106 (缓存命中): 已结算资产的归属判定首次未命中缓存, 必须真查 findOwnedAsset 与 isOpeningSettled
+     * 各一次; 命中之后连续重复判定必须不再增长这两个计数, 且每次都返回同一个 grant。
+     *
+     * 用真实文件库 (而非内存库) 是为了让 CountingCaseDao 包着一条与生产路径同构的连接, 计数才可信;
+     * 内存库在这里不是必需的, 但沿用同文件既有的 TempStoreDb + MiningDb + CaseDb.on(...) 建库范式,
+     * 不另造一套。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void authorizedSkinCachesPositiveGrantAndSkipsFurtherQueries(GameTestHelper helper) {
+        java.nio.file.Path dir = TempStoreDb.createTempDir();
+        java.sql.Connection connection = TempStoreDb.openUnified(dir.resolve("cases.db"));
+        try {
+            CaseDaoSqlite dao = CaseDb.on(connection);
+            UUID ownerId = UUID.randomUUID();
+            UUID assetId = UUID.randomUUID();
+            long now = 1_700_000_000_000L;
+            SkinAssetRow committed = settledOpening(helper, dao, ownerId, assetId, now);
+
+            AtomicInteger findOwnedAssetCalls = new AtomicInteger();
+            AtomicInteger isOpeningSettledCalls = new AtomicInteger();
+            CaseOpeningService service = service(
+                    new CountingCaseDao(dao, findOwnedAssetCalls, isOpeningSettledCalls));
+
+            CaseOwnershipCache.Grant first = service.authorizedSkin(ownerId, assetId);
+            helper.assertTrue(first != null, "已结算资产的首次判定必须放行, 实为 null");
+            helper.assertTrue(first.displayId().equals(committed.displayId()),
+                    "首次判定的 displayId 必须与资产行逐字相等, 期望 " + committed.displayId()
+                            + ", 实为 " + first.displayId());
+            helper.assertTrue(first.gunId().equals(committed.gunId()),
+                    "首次判定的 gunId 必须与资产行逐字相等, 期望 " + committed.gunId()
+                            + ", 实为 " + first.gunId());
+            helper.assertTrue(findOwnedAssetCalls.get() == 1,
+                    "首次未命中缓存必须真查一次 findOwnedAsset, 实为 " + findOwnedAssetCalls.get());
+            helper.assertTrue(isOpeningSettledCalls.get() == 1,
+                    "首次未命中缓存必须真查一次 isOpeningSettled, 实为 " + isOpeningSettledCalls.get());
+
+            for (int attempt = 1; attempt <= 4; attempt++) {
+                CaseOwnershipCache.Grant repeated = service.authorizedSkin(ownerId, assetId);
+                helper.assertTrue(repeated != null && repeated.equals(first),
+                        "第 " + attempt + " 次重复判定必须命中缓存并返回同一个 grant, 实为 " + repeated);
+            }
+            helper.assertTrue(findOwnedAssetCalls.get() == 1,
+                    "缓存命中 4 次之后 findOwnedAsset 计数不得增长, 应仍为 1, 实为 " + findOwnedAssetCalls.get());
+            helper.assertTrue(isOpeningSettledCalls.get() == 1,
+                    "缓存命中 4 次之后 isOpeningSettled 计数不得增长, 应仍为 1, 实为 " + isOpeningSettledCalls.get());
+        } finally {
+            MiningDb.close(connection);
+            TempStoreDb.deleteQuietly(dir);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * F106 (反向结论不得进缓存): 未结算资产的判定必须每次都真查 isOpeningSettled, 绝不能把"拒绝"这个
+     * 结论缓存下来 —— 一旦缓存住, 结算锚事后补落时就会被旧的拒绝结论挡住, 玩家必须等重登才能用刚开出的
+     * 皮肤。同一测试里再验一次压根不存在的 assetId, 证明"资产查无此件"同样不被缓存。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void authorizedSkinNeverCachesNegativeConclusion(GameTestHelper helper) {
+        java.nio.file.Path dir = TempStoreDb.createTempDir();
+        java.sql.Connection connection = TempStoreDb.openUnified(dir.resolve("cases.db"));
+        try {
+            CaseDaoSqlite dao = CaseDb.on(connection);
+            UUID ownerId = UUID.randomUUID();
+            UUID assetId = UUID.randomUUID();
+            long now = 1_700_000_000_000L;
+            UUID openingId = unsettledOpening(helper, dao, ownerId, assetId, now);
+
+            AtomicInteger findOwnedAssetCalls = new AtomicInteger();
+            AtomicInteger isOpeningSettledCalls = new AtomicInteger();
+            CaseOpeningService service = service(
+                    new CountingCaseDao(dao, findOwnedAssetCalls, isOpeningSettledCalls));
+
+            CaseOwnershipCache.Grant first = service.authorizedSkin(ownerId, assetId);
+            helper.assertTrue(first == null, "未结算资产的首次判定必须拒绝, 实为 " + first);
+            helper.assertTrue(isOpeningSettledCalls.get() == 1,
+                    "首次拒绝必须真查一次 isOpeningSettled, 实为 " + isOpeningSettledCalls.get());
+
+            CaseOwnershipCache.Grant second = service.authorizedSkin(ownerId, assetId);
+            helper.assertTrue(second == null, "结算锚落定前重复判定仍必须拒绝, 实为 " + second);
+            helper.assertTrue(isOpeningSettledCalls.get() == 2,
+                    "反向结论绝不能被缓存, 第二次仍必须真查 isOpeningSettled, 应为 2, 实为 "
+                            + isOpeningSettledCalls.get());
+
+            helper.assertTrue(dao.markEconomySettled(openingId, now + 10),
+                    "fixture 应能事后补落结算锚: " + openingId);
+            SkinAssetRow settledAsset = dao.findOwnedAsset(ownerId, assetId);
+            helper.assertTrue(settledAsset != null, "fixture 断言前置: 补落结算锚后资产行必须存在");
+            CaseOwnershipCache.Grant afterSettlement = service.authorizedSkin(ownerId, assetId);
+            helper.assertTrue(afterSettlement != null,
+                    "结算锚落定后必须立刻放行 (刚结算完的资产不必等重登), 实为 null");
+            helper.assertTrue(afterSettlement.displayId().equals(settledAsset.displayId()),
+                    "补落结算锚后的 grant displayId 必须与资产行逐字相等, 期望 " + settledAsset.displayId()
+                            + ", 实为 " + afterSettlement.displayId());
+
+            UUID missingAssetId = UUID.randomUUID();
+            int findCallsBeforeMissing = findOwnedAssetCalls.get();
+            CaseOwnershipCache.Grant missingFirst = service.authorizedSkin(ownerId, missingAssetId);
+            CaseOwnershipCache.Grant missingSecond = service.authorizedSkin(ownerId, missingAssetId);
+            helper.assertTrue(missingFirst == null && missingSecond == null,
+                    "不存在的 assetId 两次判定都必须拒绝, 实为 " + missingFirst + " / " + missingSecond);
+            // CaseOwnershipCache 没有暴露给 CaseOpeningService 之外的 size() 访问器; 用调用计数间接证明
+            // 缓存条目未增长 —— 若实现把"查无此件"也缓存住, 第二次判定会直接命中缓存而不再打 SQL,
+            // 计数增量就会从 2 掉到 1, 这条断言必挂。
+            helper.assertTrue(findOwnedAssetCalls.get() == findCallsBeforeMissing + 2,
+                    "不存在的资产也绝不能被缓存, 两次判定必须各自真查一次 findOwnedAsset, 期望增量 2, 实为增量 "
+                            + (findOwnedAssetCalls.get() - findCallsBeforeMissing));
+        } finally {
+            MiningDb.close(connection);
+            TempStoreDb.deleteQuietly(dir);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * F106 (缓存不跨玩家): 缓存键必须是 (ownerId, assetId) 二元组。若实现漏掉 ownerId 只按 assetId 建键,
+     * 玩家 A 开出的资产一旦被判定过一次, 玩家 B 只要猜到/截获同一个 assetId 就能白拿授权 —— 这是一个越权
+     * 放行漏洞, 不只是缓存正确性问题。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void authorizedSkinCacheDoesNotCrossOwners(GameTestHelper helper) {
+        java.nio.file.Path dir = TempStoreDb.createTempDir();
+        java.sql.Connection connection = TempStoreDb.openUnified(dir.resolve("cases.db"));
+        try {
+            CaseDaoSqlite dao = CaseDb.on(connection);
+            UUID ownerA = UUID.randomUUID();
+            UUID ownerB = UUID.randomUUID();
+            UUID assetId = UUID.randomUUID();
+            long now = 1_700_000_000_000L;
+            settledOpening(helper, dao, ownerA, assetId, now);
+
+            AtomicInteger findOwnedAssetCalls = new AtomicInteger();
+            AtomicInteger isOpeningSettledCalls = new AtomicInteger();
+            CaseOpeningService service = service(
+                    new CountingCaseDao(dao, findOwnedAssetCalls, isOpeningSettledCalls));
+
+            CaseOwnershipCache.Grant forOwnerA = service.authorizedSkin(ownerA, assetId);
+            helper.assertTrue(forOwnerA != null, "玩家 A 对自己开出的资产的判定必须放行, 实为 null");
+            int findCallsAfterOwnerA = findOwnedAssetCalls.get();
+
+            CaseOwnershipCache.Grant forOwnerB = service.authorizedSkin(ownerB, assetId);
+            helper.assertTrue(forOwnerB == null,
+                    "玩家 B 绝不能因玩家 A 缓存了同一 assetId 而越权拿到皮肤授权, 实为 " + forOwnerB);
+            helper.assertTrue(findOwnedAssetCalls.get() == findCallsAfterOwnerA + 1,
+                    "缓存键若漏掉 ownerId, 玩家 B 的判定会命中玩家 A 的缓存条目而不再查库; "
+                            + "findOwnedAsset 必须真的再打一次, 期望增量 1, 实为增量 "
+                            + (findOwnedAssetCalls.get() - findCallsAfterOwnerA));
+        } finally {
+            MiningDb.close(connection);
+            TempStoreDb.deleteQuietly(dir);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * F106 (登出回收): forgetPlayer 必须真的清空该玩家名下全部缓存条目, 而不只是清掉其中一个 assetId。
+     * 先缓存住两件不同资产的正向结论, 登出后两件各自的判定都必须重新真查两条 SQL 且结果依旧正确。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void forgetPlayerClearsCachedGrantsOnLogout(GameTestHelper helper) {
+        java.nio.file.Path dir = TempStoreDb.createTempDir();
+        java.sql.Connection connection = TempStoreDb.openUnified(dir.resolve("cases.db"));
+        try {
+            CaseDaoSqlite dao = CaseDb.on(connection);
+            UUID ownerId = UUID.randomUUID();
+            UUID assetId1 = UUID.randomUUID();
+            UUID assetId2 = UUID.randomUUID();
+            long now = 1_700_000_000_000L;
+            SkinAssetRow asset1 = settledOpening(helper, dao, ownerId, assetId1, now);
+            SkinAssetRow asset2 = settledOpening(helper, dao, ownerId, assetId2, now + 100);
+
+            AtomicInteger findOwnedAssetCalls = new AtomicInteger();
+            AtomicInteger isOpeningSettledCalls = new AtomicInteger();
+            CaseOpeningService service = service(
+                    new CountingCaseDao(dao, findOwnedAssetCalls, isOpeningSettledCalls));
+
+            helper.assertTrue(service.authorizedSkin(ownerId, assetId1) != null,
+                    "登出回收测试的前置: 资产 1 的首次判定必须放行");
+            helper.assertTrue(service.authorizedSkin(ownerId, assetId2) != null,
+                    "登出回收测试的前置: 资产 2 的首次判定必须放行");
+            int findCallsAfterWarmup = findOwnedAssetCalls.get();
+            int settledCallsAfterWarmup = isOpeningSettledCalls.get();
+            helper.assertTrue(findCallsAfterWarmup == 2 && settledCallsAfterWarmup == 2,
+                    "两件资产各自首次判定应各查一次库, 应为 2/2, 实为 "
+                            + findCallsAfterWarmup + "/" + settledCallsAfterWarmup);
+
+            helper.assertTrue(service.authorizedSkin(ownerId, assetId1) != null,
+                    "登出前重复判定应命中缓存");
+            helper.assertTrue(findOwnedAssetCalls.get() == findCallsAfterWarmup,
+                    "登出前缓存命中不应增长 findOwnedAsset 计数, 应仍为 " + findCallsAfterWarmup
+                            + ", 实为 " + findOwnedAssetCalls.get());
+
+            service.forgetPlayer(ownerId);
+
+            CaseOwnershipCache.Grant grant1After = service.authorizedSkin(ownerId, assetId1);
+            CaseOwnershipCache.Grant grant2After = service.authorizedSkin(ownerId, assetId2);
+            helper.assertTrue(grant1After != null && grant1After.displayId().equals(asset1.displayId())
+                            && grant1After.gunId().equals(asset1.gunId()),
+                    "登出回收后资产 1 的判定必须重新真查且结果仍正确, 实为 " + grant1After);
+            helper.assertTrue(grant2After != null && grant2After.displayId().equals(asset2.displayId())
+                            && grant2After.gunId().equals(asset2.gunId()),
+                    "登出回收后资产 2 的判定必须重新真查且结果仍正确, 实为 " + grant2After);
+            helper.assertTrue(findOwnedAssetCalls.get() == findCallsAfterWarmup + 2,
+                    "forgetPlayer 必须真的清空缓存: 登出后两次判定各自必须再查一次 findOwnedAsset, 期望 "
+                            + (findCallsAfterWarmup + 2) + ", 实为 " + findOwnedAssetCalls.get());
+            helper.assertTrue(isOpeningSettledCalls.get() == settledCallsAfterWarmup + 2,
+                    "forgetPlayer 必须真的清空缓存: 登出后两次判定各自必须再查一次 isOpeningSettled, 期望 "
+                            + (settledCallsAfterWarmup + 2) + ", 实为 " + isOpeningSettledCalls.get());
+        } finally {
+            MiningDb.close(connection);
+            TempStoreDb.deleteQuietly(dir);
+        }
+        helper.succeed();
+    }
+
+    /**
      * 开箱事务的最后一步 (推进货币操作到终态) 失败时, 扣款与皮肤归属必须一并回滚。
      *
      * 这是"扣钥匙 + 扣箱子 + 发皮肤 单个原子事务"的反向验证。此前四步各走 autocommit, 落到这里失败就会
@@ -929,6 +1147,14 @@ public final class CaseOpeningGameTests {
                 () -> CaseWeights.DEFAULT, () -> 20);
     }
 
+    /** 接受任意 {@link CaseDao} 实现 (含探针装饰器) 的重载; 取值与 {@link #service(CaseDaoSqlite)} 一致。 */
+    private static CaseOpeningService service(CaseDao dao) {
+        return new CaseOpeningService(dao, new EconomyCaseOperations(), new CaseRoller(bound -> 0),
+                () -> true, () -> true, () -> true,
+                () -> 50_000L, () -> 10L,
+                () -> CaseWeights.DEFAULT, () -> 20);
+    }
+
     private static CaseOpeningRow row(UUID openingId, UUID ownerId, UUID assetId,
                                       long now, CaseOpeningStatus status) {
         CaseSkin skin = CaseCatalog.requireSkin("arctic_grid");
@@ -941,6 +1167,109 @@ public final class CaseOpeningGameTests {
     private static SkinAssetRow asset(CaseOpeningRow opening) {
         return new SkinAssetRow(opening.assetId(), opening.ownerId(), opening.skinId(), opening.rarity(),
                 opening.gunId(), opening.displayId(), opening.openingId(), opening.createdAt(), 0L);
+    }
+
+    /** F106 缓存用例的正向 fixture: 一路推进到 COMMITTED 并落定结算锚, 返回落盘后的资产行。 */
+    private static SkinAssetRow settledOpening(GameTestHelper helper, CaseDaoSqlite dao,
+                                               UUID ownerId, UUID assetId, long now) {
+        UUID openingId = UUID.randomUUID();
+        CaseOpeningRow reserved = dao.reserve(row(openingId, ownerId, assetId, now, CaseOpeningStatus.RESERVED));
+        helper.assertTrue(dao.markDebited(openingId, now + 1), "fixture 应能推进到 DEBITED: " + openingId);
+        SkinAssetRow committed = dao.commitOpening(openingId, asset(reserved), now + 2);
+        helper.assertTrue(dao.markEconomySettled(openingId, now + 3), "fixture 应能落定结算锚: " + openingId);
+        return committed;
+    }
+
+    /** F106 缓存用例的反向 fixture: 推进到 COMMITTED 但刻意不落结算锚, 返回开箱行 id 供事后补锚。 */
+    private static UUID unsettledOpening(GameTestHelper helper, CaseDaoSqlite dao,
+                                         UUID ownerId, UUID assetId, long now) {
+        UUID openingId = UUID.randomUUID();
+        CaseOpeningRow reserved = dao.reserve(row(openingId, ownerId, assetId, now, CaseOpeningStatus.RESERVED));
+        helper.assertTrue(dao.markDebited(openingId, now + 1), "fixture 应能推进到 DEBITED: " + openingId);
+        dao.commitOpening(openingId, asset(reserved), now + 2);
+        return openingId;
+    }
+
+    /**
+     * F106 归属判定缓存的探针 DAO: 只在 findOwnedAsset / isOpeningSettled 上计数, 其余原样转发给真 DAO。
+     * 这两个方法正是 authorizedSkin 缓存未命中时才会打的两条 SQL —— 缓存命中必须完全绕开它们,
+     * 计数不增长才是"确实省掉了两条查询"的直接证据 (范式同 market 包
+     * MarketPlaceAtomicityAndPagingGameTests 里的 InsertFailingMarketDao)。
+     */
+    private record CountingCaseDao(CaseDao delegate, AtomicInteger findOwnedAssetCalls,
+                                   AtomicInteger isOpeningSettledCalls) implements CaseDao {
+
+        @Override
+        public CaseOpeningRow reserve(CaseOpeningRow proposed) {
+            return delegate.reserve(proposed);
+        }
+
+        @Override
+        public CaseOpeningRow findOpening(UUID openingId) {
+            return delegate.findOpening(openingId);
+        }
+
+        @Override
+        public boolean markDebited(UUID openingId, long updatedAt) {
+            return delegate.markDebited(openingId, updatedAt);
+        }
+
+        @Override
+        public SkinAssetRow commitOpening(UUID openingId, SkinAssetRow asset, long updatedAt) {
+            return delegate.commitOpening(openingId, asset, updatedAt);
+        }
+
+        @Override
+        public boolean markRefunded(UUID openingId, long updatedAt) {
+            return delegate.markRefunded(openingId, updatedAt);
+        }
+
+        @Override
+        public List<CaseOpeningRow> recoverableOpenings(UUID ownerId) {
+            return delegate.recoverableOpenings(ownerId);
+        }
+
+        @Override
+        public List<CaseOpeningRow> allRecoverableOpenings() {
+            return delegate.allRecoverableOpenings();
+        }
+
+        @Override
+        public boolean markQuarantined(UUID openingId, long updatedAt) {
+            return delegate.markQuarantined(openingId, updatedAt);
+        }
+
+        @Override
+        public SkinAssetRow findAsset(UUID assetId) {
+            return delegate.findAsset(assetId);
+        }
+
+        @Override
+        public SkinAssetRow findOwnedAsset(UUID ownerId, UUID assetId) {
+            findOwnedAssetCalls.incrementAndGet();
+            return delegate.findOwnedAsset(ownerId, assetId);
+        }
+
+        @Override
+        public List<SkinAssetRow> ownedAssets(UUID ownerId) {
+            return delegate.ownedAssets(ownerId);
+        }
+
+        @Override
+        public boolean markEconomySettled(UUID openingId, long updatedAt) {
+            return delegate.markEconomySettled(openingId, updatedAt);
+        }
+
+        @Override
+        public boolean isOpeningSettled(UUID openingId) {
+            isOpeningSettledCalls.incrementAndGet();
+            return delegate.isOpeningSettled(openingId);
+        }
+
+        @Override
+        public List<SkinAssetRow> settledOwnedAssets(UUID ownerId) {
+            return delegate.settledOwnedAssets(ownerId);
+        }
     }
 
     private static void assertRarity(GameTestHelper helper, int roll, CaseRarity expected) {

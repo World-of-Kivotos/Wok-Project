@@ -8,6 +8,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.StructureTags;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
@@ -100,7 +101,36 @@ public final class QuestEventHooks {
         if (!(player instanceof ServerPlayer serverPlayer)) {
             return;
         }
+        // 玩家自己刚放下的那块不计数, 否则"精准采集挖一块 -> 放回去 -> 再挖"就是一条无限计数的循环
+        // (详见 QuestPlacedBlocks 类注释)。判定与摘记一步完成: 一块被放下又挖掉的方块跳过这一次就够了。
+        if (QuestPlacedBlocks.consumeIfPlaced(serverPlayer.level(), event.getPos())) {
+            return;
+        }
         post(new QuestFacts.BlockMine(serverPlayer, event.getState()));
+    }
+
+    /**
+     * 记下玩家放置的、任务会数的方块。
+     *
+     * 无条件记录 (不看 {@link QuestServices#active()}): 运营方中途开关一次配置, 之前放下的那些方块就会失去
+     * 标记, 于是关一下再开就成了刷计数的手法。记录本身没有副作用, 代价只是一张有界小表。
+     *
+     * 只记任务真正会数的方块种类 —— 理由见 {@link QuestPlacedBlocks} 类注释 (盖房子的泥土石头会把矿石记录
+     * 挤出有界表)。
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public void onBlockPlace(BlockEvent.EntityPlaceEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer)) {
+            return;
+        }
+        if (!(event.getLevel() instanceof Level level) || level.isClientSide()) {
+            return;
+        }
+        if (!QuestServices.isRegistered()
+                || !QuestServices.service().pool().tracksMinedBlock(event.getPlacedBlock())) {
+            return;
+        }
+        QuestPlacedBlocks.markPlaced(level, event.getPos());
     }
 
     @SubscribeEvent

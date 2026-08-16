@@ -17,8 +17,9 @@ import java.util.Optional;
  * 追加 discriminator (集成阶段统一接线职责)。本子系统按实现手册 "新 SimpleChannel 包" 范式自持 channel,
  * 与既有 main channel 的 ResourceLocation 不同 (miningdim:miner) 故 discriminator 独立, 不破坏既有次序。
  *
- * 两包: {@link MinerToggleC2S} (开关翻转 / 主动技能触发, PLAY_TO_SERVER) 与 {@link MinerHighlightS2C}
- * (探矿/陷阱高亮坐标下发, PLAY_TO_CLIENT)。注册次序两端一致, 在 FMLCommonSetupEvent.enqueueWork 内调用 register()。
+ * 三包: {@link MinerToggleC2S} (开关翻转 / 主动技能触发, PLAY_TO_SERVER)、{@link MinerHighlightS2C}
+ * (探矿/陷阱高亮坐标下发, PLAY_TO_CLIENT) 与 {@link MinerStatusS2C} (状态 HUD 瞬态态同步, PLAY_TO_CLIENT)。
+ * 注册次序两端一致, 在 FMLCommonSetupEvent.enqueueWork 内调用 register()。
  */
 public final class MinerNetwork {
 
@@ -47,10 +48,38 @@ public final class MinerNetwork {
         CHANNEL.registerMessage(nextId(), MinerHighlightS2C.class,
                 MinerHighlightS2C::encode, MinerHighlightS2C::decode, MinerHighlightS2C::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(nextId(), MinerStatusS2C.class,
+                MinerStatusS2C::encode, MinerStatusS2C::decode, MinerStatusS2C::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(nextId(), MinerChainHoldC2S.class,
+                MinerChainHoldC2S::encode, MinerChainHoldC2S::decode, MinerChainHoldC2S::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(nextId(), MinerChainPreviewC2S.class,
+                MinerChainPreviewC2S::encode, MinerChainPreviewC2S::decode, MinerChainPreviewC2S::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(nextId(), MinerChainPreviewS2C.class,
+                MinerChainPreviewS2C::encode, MinerChainPreviewS2C::decode, MinerChainPreviewS2C::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 
     /** 下发高亮包到指定玩家 (探矿/陷阱探测服务端权威查询后发)。 */
     public static void sendHighlight(ServerPlayer player, MinerHighlightS2C msg) {
+        if (!canReceive(player)) {
+            return;
+        }
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), msg);
+    }
+
+    /** 下发状态 HUD 包到指定玩家 (瞬态态节流同步; 复用 highlight 的活动连接守卫)。 */
+    public static void sendStatus(ServerPlayer player, MinerStatusS2C msg) {
+        if (!canReceive(player)) {
+            return;
+        }
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), msg);
+    }
+
+    /** 下发连锁预览包到指定玩家 (服务端权威跑 plan 后发; 复用同一活动连接守卫)。 */
+    public static void sendChainPreview(ServerPlayer player, MinerChainPreviewS2C msg) {
         if (!canReceive(player)) {
             return;
         }

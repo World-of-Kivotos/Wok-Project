@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "kind=tnt_vein": { "model": "miningdim:block/trap_ore" },
+    "kind=lava_pocket": { "model": "miningdim:block/trap_ore" },
+    "kind=collapsing_tunnel": { "model": "miningdim:block/trap_ore" },
+    "kind=fake_ore": { "model": "miningdim:block/trap_ore" }
+  }
+}

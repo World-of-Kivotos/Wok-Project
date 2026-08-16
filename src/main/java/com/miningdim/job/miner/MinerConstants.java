@@ -1,8 +1,5 @@
 package com.miningdim.job.miner;
 
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-
 /**
  * 矿工职业全部成长曲线 / CD / 充能 / 时运 / danger 系数的唯一数值源 (Miner_Job_DesignSpec 第三-八章 + 契约 numbers)。
  *
@@ -22,6 +19,9 @@ public final class MinerConstants {
 
     /** 每秒 tick 数 (原版固定 20), 秒<->tick 换算。 */
     public static final int TICKS_PER_SECOND = 20;
+
+    /** 矿工状态 HUD 的服务端节流推送间隔 (tick): 每 0.5s 推一次瞬态态 (充能/开关/探测 CD) 到客户端 overlay。 */
+    public static final int HUD_STATUS_PUSH_INTERVAL_TICKS = 10;
 
     public static final int MIN_LEVEL = 1;
     public static final int MAX_LEVEL = 10;
@@ -60,6 +60,24 @@ public final class MinerConstants {
     // ============================================================
     // 四、速挖类 (连锁 / 隧道, 慢充能 + 长 CD)
     // ============================================================
+
+    /**
+     * 连锁"按住激活"续期宽限 (tick): 收到 hold=true 心跳包后, 服务端把 heldUntilTick 续到 now + 本值。
+     * 必须 > {@link #CHAIN_HOLD_HEARTBEAT_TICKS} 心跳间隔, 使按住期间每次心跳都在过期前续上 (不闪断)。松开包立即置失效。
+     */
+    public static final int CHAIN_HOLD_GRACE_TICKS = 30;
+
+    /** 客户端按住连锁期间重发 hold=true 心跳的间隔 (tick): 20 tick 一次, 小于 {@link #CHAIN_HOLD_GRACE_TICKS} 保证续期不断。 */
+    public static final int CHAIN_HOLD_HEARTBEAT_TICKS = 20;
+
+    /** 客户端连锁预览请求的兜底节流间隔 (tick): 准星目标块未变时最多每 10 tick 也重发一次, 使预览随充能回充刷新。 */
+    public static final int CHAIN_PREVIEW_REQUEST_INTERVAL_TICKS = 10;
+
+    /**
+     * 连锁预览高亮存活时长 (tick): 服务端每次预览响应设 expire = now + 本值。按住期间客户端持续请求 (<=10 tick 一次)
+     * 不断刷新故常亮; 松开/目标失效后请求停止, 预览槽约 15 tick 内天然自清 (无需显式清空包)。
+     */
+    public static final int CHAIN_PREVIEW_EXPIRE_TICKS = 15;
 
     /** 连锁挖矿: 解锁 L2。充能池 16(L2) -> 48(L10) 块; 整池回满 ~5 分(L2) -> ~3.5 分(L10)。 */
     public static final int CHAIN_UNLOCK_LEVEL = 2;
@@ -147,30 +165,4 @@ public final class MinerConstants {
 
     public static final int MEDIUM_MIN_MINER_LEVEL = 4;
     public static final int HARD_MIN_MINER_LEVEL = 8;
-
-    // ============================================================
-    // 速挖类硬白名单 / 硬排除 (代码级, 物理排除高价矿)
-    // ============================================================
-
-    /**
-     * 连锁/隧道硬白名单 (Miner spec 第四章): 仅这些普通方块可连带破坏。
-     * 石/深板岩/凝灰岩/花岗岩 + 煤/铁/铜 (含深层变体)。其余 (尤其高价矿) 一律停在边界。
-     */
-    public static final Block[] CHAIN_WHITELIST = {
-            Blocks.STONE, Blocks.DEEPSLATE, Blocks.TUFF, Blocks.GRANITE,
-            Blocks.COAL_ORE, Blocks.DEEPSLATE_COAL_ORE,
-            Blocks.IRON_ORE, Blocks.DEEPSLATE_IRON_ORE,
-            Blocks.COPPER_ORE, Blocks.DEEPSLATE_COPPER_ORE
-    };
-
-    /**
-     * 连锁硬排除 (Miner spec 第四章): 高价矿 + 绿宝石, 物理排除使连锁停在其边界。
-     * 此名单与 CHAIN_WHITELIST 互斥; 既不在白名单也不在排除名单的方块同样不连锁 (默认拒绝)。
-     */
-    public static final Block[] CHAIN_HARD_EXCLUDE = {
-            Blocks.DIAMOND_ORE, Blocks.DEEPSLATE_DIAMOND_ORE,
-            Blocks.GOLD_ORE, Blocks.DEEPSLATE_GOLD_ORE, Blocks.NETHER_GOLD_ORE,
-            Blocks.ANCIENT_DEBRIS,
-            Blocks.EMERALD_ORE, Blocks.DEEPSLATE_EMERALD_ORE
-    };
 }

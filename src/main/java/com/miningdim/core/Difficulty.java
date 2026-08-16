@@ -70,6 +70,7 @@ public enum Difficulty {
         return biomeKey;
     }
 
+
     /** byte 序号反查难度档; 非法序号自然抛 IllegalArgumentException (C9, 不掩盖)。 */
     public static Difficulty byId(int id) {
         for (Difficulty d : values()) {

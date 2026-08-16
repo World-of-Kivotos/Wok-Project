@@ -8,6 +8,7 @@ import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.miner.network.MinerNetwork;
+import com.miningdim.job.miner.network.MinerStatusS2C;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
@@ -30,8 +31,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 矿工子系统入口 (Miner_Job_DesignSpec 第十一章; 模块化铁律 3)。集成阶段在 MiningDim.registerSubsystems()
- * 追加一行 {@code subsystems.add(new com.miningdim.job.miner.MinerSystem())} (本任务不接线, 见 foundationGaps)。
+ * 矿工子系统入口 (Miner_Job_DesignSpec 第十一章; 模块化铁律 3)。已在 {@code MiningDim.registerSubsystems()} 实装
+ * (经 modBus/forgeBus 自注册其全部事件订阅与专属网络包)。
  *
  * 持有: per-player {@link MinerChargeState} (UUID 键, 瞬态运行态, 死亡/登出/换维度清理), 连锁 BFS 引擎单例。
  *
@@ -48,7 +49,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * 跨子系统只经 core 门面 ({@link MiningServices}) / 职业框架门面 ({@link JobServices}) / 货币门面定位器
  * ({@link EconomyServices}); 不硬 import 对方实现类。经济当日矿物计数回放 (方案 B, 含时运额外) 与 AFK 冻结查询经
  * {@link EconomyServices#economyService()} 取 IEconomyService 完成; 难度门控读矿工等级 / danger 时间项注入 (pressure)
- * / 陷阱专属 DamageSource (trap) 仍属其它子系统的同步改动, 见 foundationGaps。
+ * 属其它子系统的同步接线。静态陷阱已由 trap 子系统落地 (TrapOreBlock + StaticTrapTrigger, 方案 C datapack 布点),
+ * 触发效果走 isTrapSource 认可的原版环境伤类型, 矿脉抗性自动覆盖; 专属 TrapDamageSource 为可选未来收紧点 (见 isTrapSource 注释)。
  */
 public final class MinerSystem implements Subsystem {
 
@@ -205,8 +207,11 @@ public final class MinerSystem implements Subsystem {
         // 当前工具与扣前 damageValue, 同 tick 末 (onServerTick) 核对回补 (净零耐久损耗)。详见 MinerChargeState 字段注释。
         armDurabilitySave(player, minerLevel, state);
 
-        // 连锁挖矿 (开关开 + 已解锁 + 有充能): 起始块是本事件的块, 连带破坏受充能预算约束。
-        if (state.toggled(MinerSkill.CHAIN) && MinerSkills.chainUnlocked(minerLevel) && level instanceof ServerLevel sl) {
+        // 连锁挖矿 (按住激活 + 已解锁 + 有充能): 连锁改 FTB Ultimine 式按住键激活 —— 客户端按住期间心跳续期
+        // heldUntilTick, 此处以 chainHeldActive(now) 判定激活 (取代旧持久开关 toggled(CHAIN))。起始块是本事件的块,
+        // 连带破坏受充能预算约束。
+        if (MinerSkills.chainUnlocked(minerLevel) && level instanceof ServerLevel sl
+                && state.chainHeldActive(sl.getGameTime())) {
             int budget = state.currentCharge();
             if (budget > 0) {
                 boolean autoCollect = state.toggled(MinerSkill.AUTO_COLLECT) && MinerSkills.autoCollectUnlocked(minerLevel);
@@ -340,6 +345,8 @@ public final class MinerSystem implements Subsystem {
             return;
         }
         long now = mining.getGameTime();
+        // HUD 状态节流推送: 同一 tick 对全体矿洞维度玩家统一发 (瞬态态本就权威, 只读同步不持久化)。
+        boolean pushHud = now % MinerConstants.HUD_STATUS_PUSH_INTERVAL_TICKS == 0;
         for (ServerPlayer player : mining.players()) {
             MinerChargeState state = stateOf(player);
             int level = minerLevel(player);
@@ -349,6 +356,9 @@ public final class MinerSystem implements Subsystem {
             // 故此处核对登记栈的 damageValue 是否上升并回补 (净零损耗); 详见 MinerChargeState 字段注释。
             if (state.hasArmedDurabilitySave()) {
                 state.consumeDurabilitySave(player.getMainHandItem());
+            }
+            if (pushHud) {
+                MinerNetwork.sendStatus(player, MinerStatusS2C.capture(state, level, now));
             }
         }
     }

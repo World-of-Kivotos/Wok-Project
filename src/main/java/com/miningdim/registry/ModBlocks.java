@@ -3,6 +3,7 @@ package com.miningdim.registry;
 import com.miningdim.core.Difficulty;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.entrance.EntranceBlock;
+import com.miningdim.trap.block.TrapOreBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockBehaviour;
@@ -39,6 +40,15 @@ public final class ModBlocks {
     public static final RegistryObject<Block> FAKE_ORE =
             BLOCKS.register("fake_ore",
                     () -> new Block(BlockBehaviour.Properties.copy(Blocks.STONE)));
+
+    /**
+     * 静态陷阱触发方块 (方案 C, vanilla-noise datapack 布点)。单块经 KIND 属性承载 4 个静态陷阱种类, 由四个
+     * {@code minecraft:ore} 型 configured_feature 各自指定一种在矿洞石层散布; 挖到时 {@link com.miningdim.trap.StaticTrapTrigger}
+     * 按 KIND 分发爆炸/岩浆/落石。noLootTable: 挖到即触发, 不进背包 (伪装块不作为物品存在, 故不注册 BlockItem/创造栏)。
+     */
+    public static final RegistryObject<Block> TRAP_ORE =
+            BLOCKS.register("trap_ore",
+                    () -> new TrapOreBlock(BlockBehaviour.Properties.copy(Blocks.STONE).noLootTable()));
 
     // ---- R4 难度入口方块 (entrance 子系统) ----
 

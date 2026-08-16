@@ -18,8 +18,11 @@ import com.miningdim.job.JobId;
 import com.miningdim.job.JobProgress;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.miner.network.MinerHighlightS2C;
+import com.miningdim.job.miner.network.MinerStatusS2C;
 import com.miningdim.ore.OreType;
 import com.miningdim.testutil.MockGameTestPlayers;
+import com.miningdim.trap.StaticTrapKind;
+import com.miningdim.trap.TrapRegistry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
@@ -30,7 +33,9 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -42,6 +47,7 @@ import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -54,7 +60,7 @@ import java.util.function.Function;
 /**
  * 矿工职业核心逻辑 GameTest (断言具体业务结果, 删被测核心逻辑测试必挂; 禁 is-not-null 弱校验; 含边界值)。
  *
- * 覆盖: 挖速封顶、省耐久封顶、时运封顶、难度门控边界、减 danger 满级封底、矿脉抗性陷阱专属、连锁白名单/硬排除、
+ * 覆盖: 挖速封顶、省耐久封顶、时运封顶、难度门控边界、减 danger 满级封底、矿脉抗性陷阱专属、连锁判定谓词 chainable、
  * 自动熔炼 1:1、探测可探矿种里程碑、陷阱探测致死门控; 以及复审缺陷闭合的回归断言 (删修复测试必挂):
  *  - 连锁/隧道经济计数回放按产出物个数 (方案 B) 经货币门面入账 (反通胀第一道硬约束, 非 debug-log/计数 0);
  *  - 时运额外掉落随连带产出进经济计数 (时运计入隐藏软上限, 非死代码);
@@ -213,29 +219,68 @@ public final class MinerGameTests {
     }
 
     // ============================================================
-    // 连锁白名单 / 硬排除
+    // 连锁判定谓词 chainable (全放开: 镐可采 + 手持镐档位足够 + 可破坏 + 无 BlockEntity; 废除旧枚举白名单/高价矿硬排除双表)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void chainWhitelistAndExclude(GameTestHelper helper) {
-        // 白名单: 石/深板岩/煤/铁/铜 放行。
-        helper.assertTrue(ChainMiningEngine.isWhitelisted(Blocks.STONE), "stone is chain-whitelisted");
-        helper.assertTrue(ChainMiningEngine.isWhitelisted(Blocks.DEEPSLATE), "deepslate is chain-whitelisted");
-        helper.assertTrue(ChainMiningEngine.isWhitelisted(Blocks.IRON_ORE), "iron ore is chain-whitelisted");
-        helper.assertTrue(ChainMiningEngine.isWhitelisted(Blocks.DEEPSLATE_COPPER_ORE), "deepslate copper whitelisted");
-        helper.assertTrue(ChainMiningEngine.isWhitelisted(Blocks.COAL_ORE), "coal ore is chain-whitelisted");
-        // 硬排除: 钻石/金/残骸/绿宝石 物理排除 (连锁停在边界)。
-        helper.assertTrue(ChainMiningEngine.isHardExcluded(Blocks.DIAMOND_ORE), "diamond is hard-excluded");
-        helper.assertTrue(ChainMiningEngine.isHardExcluded(Blocks.DEEPSLATE_DIAMOND_ORE), "deepslate diamond excluded");
-        helper.assertTrue(ChainMiningEngine.isHardExcluded(Blocks.GOLD_ORE), "gold is hard-excluded");
-        helper.assertTrue(ChainMiningEngine.isHardExcluded(Blocks.ANCIENT_DEBRIS), "ancient debris is hard-excluded");
-        helper.assertTrue(ChainMiningEngine.isHardExcluded(Blocks.EMERALD_ORE), "emerald is hard-excluded");
-        // 互斥: 高价矿不在白名单; 普通石不在排除名单。
-        helper.assertFalse(ChainMiningEngine.isWhitelisted(Blocks.DIAMOND_ORE), "diamond NOT in chain whitelist");
-        helper.assertFalse(ChainMiningEngine.isHardExcluded(Blocks.STONE), "stone NOT in hard-exclude");
-        // 默认拒绝: 既非白名单也非排除的方块 (如基岩) 不连锁。
-        helper.assertFalse(ChainMiningEngine.isWhitelisted(Blocks.BEDROCK), "bedrock not whitelisted (default deny)");
+    public static void chainablePredicate(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        ItemStack netherite = new ItemStack(Items.NETHERITE_PICKAXE);
+        ItemStack wood = new ItemStack(Items.WOODEN_PICKAXE);
+        ItemStack shovel = new ItemStack(Items.NETHERITE_SHOVEL);
+
+        // 基础方块: 任意镐 (含木镐) 可连锁 (旧白名单成员照旧放行)。
+        assertChainableAt(helper, level, new BlockPos(0, 1, 0), Blocks.STONE, wood, true, "stone chainable with a wooden pickaxe");
+        assertChainableAt(helper, level, new BlockPos(2, 1, 0), Blocks.DEEPSLATE, wood, true, "deepslate chainable with a wooden pickaxe");
+        assertChainableAt(helper, level, new BlockPos(4, 1, 0), Blocks.COAL_ORE, wood, true, "coal ore chainable with a wooden pickaxe");
+        assertChainableAt(helper, level, new BlockPos(6, 1, 0), Blocks.IRON_ORE, netherite, true, "iron ore chainable with a proper pickaxe");
+        assertChainableAt(helper, level, new BlockPos(8, 1, 0), Blocks.DEEPSLATE_COPPER_ORE, netherite, true, "deepslate copper chainable");
+
+        // (a) 高价矿用正确档位镐可连锁 (旧硬排除废除, 用户 2026-07-12 裁决): 深层金 / 钻 / 绿宝石。
+        assertChainableAt(helper, level, new BlockPos(0, 1, 2), Blocks.DEEPSLATE_DIAMOND_ORE, netherite, true, "deep diamond chainable with a netherite pickaxe (hard-exclude abolished)");
+        assertChainableAt(helper, level, new BlockPos(2, 1, 2), Blocks.DEEPSLATE_GOLD_ORE, netherite, true, "deep gold chainable with a netherite pickaxe");
+        assertChainableAt(helper, level, new BlockPos(4, 1, 2), Blocks.DEEPSLATE_EMERALD_ORE, netherite, true, "deep emerald chainable with a netherite pickaxe");
+
+        // (b) 木镐对钻石不启动链: isCorrectToolForDrops=false (档位不足无掉落, 不该连锁)。
+        assertChainableAt(helper, level, new BlockPos(6, 1, 2), Blocks.DIAMOND_ORE, wood, false, "diamond NOT chainable with a wooden pickaxe (wrong tier, no drops)");
+
+        // 手持非镐 (铲): 对镐类方块 isCorrectToolForDrops 天然 false -> 整链不启动。
+        assertChainableAt(helper, level, new BlockPos(8, 1, 2), Blocks.STONE, shovel, false, "stone NOT chainable with a shovel (non-pickaxe tool)");
+
+        // (c) 带 BlockEntity 的位置被跳过: furnace 镐可采 + 档位足够 (前三条全过), 唯 BlockEntity 一条不过 -> 排除 (防吞容器内容物)。
+        BlockPos furnaceAbs = helper.absolutePos(new BlockPos(0, 1, 4));
+        net.minecraft.world.level.block.state.BlockState furnace = Blocks.FURNACE.defaultBlockState();
+        level.setBlock(furnaceAbs, furnace, Block.UPDATE_ALL);
+        net.minecraft.world.level.block.state.BlockState placedFurnace = level.getBlockState(furnaceAbs);
+        helper.assertTrue(placedFurnace.is(BlockTags.MINEABLE_WITH_PICKAXE), "furnace IS pickaxe-mineable (chainable tag condition passes)");
+        helper.assertTrue(netherite.isCorrectToolForDrops(placedFurnace), "netherite pickaxe correctly tools furnace (chainable tool condition passes)");
+        helper.assertTrue(level.getBlockEntity(furnaceAbs) != null, "furnace is placed with a BlockEntity present");
+        helper.assertFalse(ChainMiningEngine.chainable(level, furnaceAbs, placedFurnace, netherite),
+                "furnace NOT chainable despite tag+tool passing: the BlockEntity guard alone excludes it (protects container contents)");
+
+        // (d) 基岩不可连: 硬度 -1 不可破坏 (可破坏条件不过)。
+        BlockPos bedrockAbs = helper.absolutePos(new BlockPos(2, 1, 4));
+        net.minecraft.world.level.block.state.BlockState bedrock = Blocks.BEDROCK.defaultBlockState();
+        level.setBlock(bedrockAbs, bedrock, Block.UPDATE_ALL);
+        net.minecraft.world.level.block.state.BlockState placedBedrock = level.getBlockState(bedrockAbs);
+        helper.assertTrue(placedBedrock.getDestroySpeed(level, bedrockAbs) < 0.0F, "bedrock is unbreakable (destroySpeed -1)");
+        helper.assertFalse(ChainMiningEngine.chainable(level, bedrockAbs, placedBedrock, netherite),
+                "bedrock NOT chainable (unbreakable block, destroySpeed < 0)");
+
         helper.succeed();
+    }
+
+    /** chainable 谓词断言小工具: 在 rel (转绝对坐标直写世界) 放 block, 用 tool 判定并与 expected 比对。 */
+    private static void assertChainableAt(GameTestHelper helper, ServerLevel level, BlockPos rel,
+                                          Block block, ItemStack tool, boolean expected, String msg) {
+        BlockPos abs = helper.absolutePos(rel);
+        level.setBlock(abs, block.defaultBlockState(), Block.UPDATE_ALL);
+        boolean actual = ChainMiningEngine.chainable(level, abs, level.getBlockState(abs), tool);
+        if (expected) {
+            helper.assertTrue(actual, msg);
+        } else {
+            helper.assertFalse(actual, msg);
+        }
     }
 
     // ============================================================
@@ -479,6 +524,49 @@ public final class MinerGameTests {
         int consumed2 = state.consumeCharge(20);
         helper.assertTrue(consumed2 == 6, "over-consume takes only remaining 6");
         helper.assertTrue(state.currentCharge() == 0, "charge depleted to 0");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 状态 HUD 同步包纯函数: 开关位打包/解包 + 探测 CD 剩余计算 (未解锁 -1 / 就绪 0 / 冷却剩余)
+    // 删打包位运算 -> 开关错位必挂; 删 -1 未解锁哨兵 -> locked 与 ready 混淆必挂; 删 (readyAt-now) -> 剩余错必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void hudStatusPacking(GameTestHelper helper) {
+        // 开关位打包/解包 round-trip: 连锁开 + 入包关 + 熔炼开。
+        byte bits = MinerStatusS2C.packToggles(true, false, true);
+        MinerStatusS2C p = new MinerStatusS2C(0, 0, bits, 0, 0);
+        helper.assertTrue(p.chainOn(), "chain bit set decodes ON");
+        helper.assertFalse(p.autoCollectOn(), "auto-collect bit clear decodes OFF");
+        helper.assertTrue(p.autoSmeltOn(), "auto-smelt bit set decodes ON");
+        helper.assertTrue(MinerStatusS2C.packToggles(false, false, false) == 0, "all-off packs to 0 byte");
+
+        // 探测 CD 剩余: 未解锁 -> CD_LOCKED (-1, 区别于就绪 0); 解锁未用 -> 0 就绪; 冷却中 -> readyAt-now。
+        MinerChargeState state = new MinerChargeState();
+        helper.assertTrue(
+                MinerStatusS2C.cdRemainingTicks(state, MinerSkill.ORE_SCAN, 100L, false) == MinerStatusS2C.CD_LOCKED,
+                "locked scan reports -1 (CD_LOCKED), distinct from ready 0");
+        helper.assertTrue(MinerStatusS2C.cdRemainingTicks(state, MinerSkill.ORE_SCAN, 100L, true) == 0,
+                "unlocked never-used scan reports 0 (ready)");
+        state.startCooldown(MinerSkill.ORE_SCAN, 100L, 60);
+        helper.assertTrue(MinerStatusS2C.cdRemainingTicks(state, MinerSkill.ORE_SCAN, 130L, true) == 30,
+                "unlocked scan on CD reports remaining 30 ticks (readyAt 160 - now 130)");
+        helper.assertTrue(MinerStatusS2C.cdRemainingTicks(state, MinerSkill.ORE_SCAN, 160L, true) == 0,
+                "at readyAt tick the scan reads ready (0)");
+
+        // capture 端到端: L2 (连锁解锁, 探矿未解锁 L3) -> 池 16, 矿探 locked -1; 连锁位 = 按住激活中 (非持久开关)。
+        // 连锁改按住激活后, capture 的 CHAIN 位反映 chainHeldActive(now): 续期后激活, 松开/超时后待机。
+        state.setChainHeld(200L + MinerConstants.CHAIN_HOLD_GRACE_TICKS); // now=200 时 heldUntil=230 -> 激活。
+        MinerStatusS2C snap = MinerStatusS2C.capture(state, 2, 200L);
+        helper.assertTrue(snap.poolMax() == 16, "L2 capture poolMax = 16 (chain unlocked)");
+        helper.assertTrue(snap.chainOn(), "L2 capture reflects chain held-active (heldUntil >= now)");
+        helper.assertTrue(snap.oreScanCdTicks() == MinerStatusS2C.CD_LOCKED,
+                "L2 capture ore scan locked (-1) since ore scan unlocks at L3");
+        // 松开 (clear) 后同一 now 的 capture 连锁位转 false (激活 -> 待机)。删 chainHeldActive 接线则 CHAIN 位恒错必挂。
+        state.clearChainHeld();
+        MinerStatusS2C released = MinerStatusS2C.capture(state, 2, 200L);
+        helper.assertFalse(released.chainOn(), "after release capture reflects chain standby (not held-active)");
         helper.succeed();
     }
 
@@ -825,6 +913,133 @@ public final class MinerGameTests {
             threwLive = true;
         }
         helper.assertFalse(threwLive, "sendHighlight to a connected player dispatches without error (guard passes)");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 连锁"按住激活" hold 语义 (FTB Ultimine): heldUntilTick 续期 / 超时失效 / 松开立即失效 (纯逻辑)。
+    // 删 chainHeldActive / setChainHeld / clearChainHeld 任一 -> 激活判定错必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void chainHoldRenewExpireRelease(GameTestHelper helper) {
+        MinerChargeState state = new MinerChargeState();
+        // 从未按住: 不激活 (heldUntilTick = Long.MIN_VALUE)。
+        helper.assertFalse(state.chainHeldActive(100L), "never-held chain is not active");
+
+        // 收 hold=true (now=100): heldUntil = 100 + 30 = 130; [100,130] 激活, 131 失效 (无心跳续期)。
+        state.setChainHeld(100L + MinerConstants.CHAIN_HOLD_GRACE_TICKS);
+        helper.assertTrue(state.chainHeldActive(100L), "held-active at grant tick");
+        helper.assertTrue(state.chainHeldActive(130L), "held-active at exact grace boundary (heldUntil >= now)");
+        helper.assertFalse(state.chainHeldActive(131L), "expires one tick past the 30-tick grace without a heartbeat");
+
+        // 心跳续期 (now=125 再收 hold=true): heldUntil = 125+30 = 155; 原 131 已过期, 续期后 150 又激活。
+        state.setChainHeld(125L + MinerConstants.CHAIN_HOLD_GRACE_TICKS);
+        helper.assertTrue(state.chainHeldActive(150L), "heartbeat renewal extends the active window to 155");
+        helper.assertFalse(state.chainHeldActive(156L), "still expires one tick past the renewed grace");
+
+        // 松开 (clear): 立即失效, 即便远未到自然失效点 (heldUntil=230, now=205 本应激活)。
+        state.setChainHeld(200L + MinerConstants.CHAIN_HOLD_GRACE_TICKS);
+        helper.assertTrue(state.chainHeldActive(205L), "held-active before release");
+        state.clearChainHeld();
+        helper.assertFalse(state.chainHeldActive(205L), "release clears held immediately, before natural expiry");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // plan/execute 单一真源一致性: execute 消费 plan 的候选做破坏与陷阱交互; 实际产出集合 == plan 候选 减去(触发的)陷阱位。
+    // 删 execute 的陷阱交互 -> 陷阱被当普通矿产出必挂; 删 plan 把未揭示陷阱计入候选 -> plan.size 不含 trap 必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void chainPlanExecuteConsistency(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        // 手持正确档位镐: 新 chainable 谓词要求 isCorrectToolForDrops, mock 玩家默认空手会使 coal 不可连锁 (整链不启动)。
+        player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.NETHERITE_PICKAXE));
+        TrapRegistry reg = TrapRegistry.get(level);
+
+        // coal 矿脉 (绝对坐标直写世界, 避开结构相对边界): origin + a + b + trap 相连成 2x2 一角; trap 是未揭示陷阱
+        // (身份只在注册表, 世界里是真 coal_ore)。origin-a-b 直邻, trap 邻 a 与 b (BFS 第二层)。
+        BlockPos origin = helper.absolutePos(new BlockPos(0, 1, 0));
+        BlockPos a = origin.east();     // 直邻 origin
+        BlockPos b = origin.south();    // 直邻 origin
+        BlockPos trap = a.south();      // = b.east(); 邻 a 与 b, BFS 第二层
+        net.minecraft.world.level.block.state.BlockState coal = Blocks.COAL_ORE.defaultBlockState();
+        level.setBlock(origin, coal, Block.UPDATE_ALL);
+        level.setBlock(a, coal, Block.UPDATE_ALL);
+        level.setBlock(b, coal, Block.UPDATE_ALL);
+        level.setBlock(trap, coal, Block.UPDATE_ALL);
+        reg.put(trap, StaticTrapKind.TNT_VEIN); // 未揭示。
+
+        // plan: 三个候选 (a,b 直邻 + trap 第二层; 未揭示 trap 按普通矿石计入), origin 不入。
+        List<BlockPos> planned = ChainMiningEngine.plan(player, level, origin, 16);
+        helper.assertTrue(planned.size() == 3,
+                "plan yields the 3 connected coal candidates incl. the disguised trap, got " + planned.size());
+        helper.assertTrue(planned.contains(a) && planned.contains(b) && planned.contains(trap),
+                "plan contains a, b and the (unrevealed) trap position");
+        helper.assertFalse(planned.contains(origin), "plan excludes the origin block");
+
+        // execute 消费同一 plan: 破坏普通 a/b (产出), 触发 trap (无产出, 移除条目), 返回 broken=2。
+        List<BlockPos> produced = new ArrayList<>();
+        ChainMiningEngine engine = new ChainMiningEngine();
+        int broken = engine.execute(player, level, planned, (pos, block, drops) -> produced.add(pos));
+        helper.assertTrue(broken == 2, "execute breaks exactly the 2 non-trap candidates, broken=" + broken);
+        helper.assertTrue(produced.size() == 2 && produced.contains(a) && produced.contains(b),
+                "produced set == plan candidates minus the trap position (a, b)");
+        helper.assertFalse(produced.contains(trap), "detonated trap produces nothing (excluded from output settlement)");
+        helper.assertTrue(reg.get(trap) == null, "unrevealed trap in the plan is triggered by execute -> entry removed");
+
+        reg.remove(trap); // 幂等清理共享 SavedData (触发已移除, 此处防御性)。
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 防泄密不变量 (最高优先级): "该位是未揭示陷阱" 与 "该位是同种普通矿" 两种世界, plan 输出逐位完全相同 —— 否则预览沦为
+    // 免费陷阱探测器, 击穿协议级伪装。已揭示后 plan 排除该位 (玩家已知情报, 允许截断)。
+    // 删 plan 对未揭示陷阱的"按普通矿石处理" (改成跳过/不扩散) -> 两世界 plan 不同必挂 (核心防泄密断言)。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void chainPlanDoesNotLeakUnrevealedTraps(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        // 手持正确档位镐: 新 chainable 谓词要求 isCorrectToolForDrops, mock 玩家默认空手会使 coal 不可连锁 (整链不启动)。
+        player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.NETHERITE_PICKAXE));
+        TrapRegistry reg = TrapRegistry.get(level);
+
+        // 折线 coal 矿脉 origin-mid-beyond (绝对坐标直写): beyond 仅经 mid 连通 (mid 是割点), 便于验证"已揭示 mid 后
+        // beyond 也被截断"。origin 直邻 mid; beyond 邻 mid 但不邻 origin。
+        BlockPos origin = helper.absolutePos(new BlockPos(0, 1, 0));
+        BlockPos mid = origin.east();   // 直邻 origin
+        BlockPos beyond = mid.south();  // 邻 mid, 不邻 origin (仅经 mid 连通)
+        net.minecraft.world.level.block.state.BlockState coal = Blocks.COAL_ORE.defaultBlockState();
+        level.setBlock(origin, coal, Block.UPDATE_ALL);
+        level.setBlock(mid, coal, Block.UPDATE_ALL);
+        level.setBlock(beyond, coal, Block.UPDATE_ALL);
+
+        // 世界 B (mid 是普通 coal, 无注册表条目): 基线 plan = [mid, beyond]。
+        List<BlockPos> planNormal = ChainMiningEngine.plan(player, level, origin, 16);
+        helper.assertTrue(planNormal.size() == 2 && planNormal.contains(mid) && planNormal.contains(beyond),
+                "baseline (normal-ore) plan reaches mid + beyond, size 2, got " + planNormal);
+
+        // 世界 A (mid 是未揭示陷阱): plan 必须与世界 B 逐位完全相同 (list.equals), 否则预览泄漏 mid 是陷阱。
+        reg.put(mid, StaticTrapKind.TNT_VEIN); // 未揭示 (未 markRevealed)。
+        List<BlockPos> planUnrevealedTrap = ChainMiningEngine.plan(player, level, origin, 16);
+        helper.assertTrue(planUnrevealedTrap.equals(planNormal),
+                "UNREVEALED trap plan is identical to the normal-ore plan (no free trap detector): "
+                        + planUnrevealedTrap + " vs " + planNormal);
+
+        // 世界 C (mid 已揭示): plan 排除 mid, 且 beyond 因只经 mid 连通亦被截断 (玩家已知情报, 允许截断)。
+        reg.markRevealed(player.getUUID(), mid);
+        List<BlockPos> planRevealedTrap = ChainMiningEngine.plan(player, level, origin, 16);
+        helper.assertFalse(planRevealedTrap.contains(mid), "revealed trap is excluded from the plan");
+        helper.assertFalse(planRevealedTrap.contains(beyond), "block reachable only through a revealed trap is also excluded");
+        helper.assertTrue(planRevealedTrap.isEmpty(), "revealed trap acts as a barrier: nothing chains past it here");
+        helper.assertTrue(planRevealedTrap.size() < planUnrevealedTrap.size(),
+                "revealing the trap strictly shrinks the plan (proves unrevealed was treated as normal ore)");
+
+        reg.remove(mid); // 清理共享 SavedData。
         helper.succeed();
     }
 

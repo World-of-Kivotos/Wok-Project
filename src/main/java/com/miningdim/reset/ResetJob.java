@@ -4,9 +4,15 @@ import com.miningdim.chunk.ChunkServices;
 import com.miningdim.core.GenState;
 import com.miningdim.core.IResetService;
 import com.miningdim.core.InstanceState;
+import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
 import com.miningdim.core.RegionBox;
+import com.miningdim.core.SeedUtil;
+import com.miningdim.core.VoxelOccupancy;
+import com.miningdim.trap.TrapRegistry;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ChunkPos;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -122,6 +128,12 @@ final class ResetJob {
         targetSeed = (mode == IResetService.ResetMode.SAME_SEED)
                 ? instance.seed()
                 : MiningServices.instanceManager().deriveNextResetSeed(instance.instanceId());
+        // 协议级伪装陷阱: region 即将换坐标并重生成布局, 旧 TrapRegistry 条目会指向不再是陷阱的坐标 (幽灵陷阱)。
+        // 在此按 region 覆盖的 chunk 清注册表, 与区块卸载/重算同步 (重生的区块加载时由转换器重新登记新陷阱)。
+        //
+        // 位置在 targetSeed 算完之后、滑动之前: clearTrapRegistryForRegion 读的是 instance.regionBox(), 而滑动
+        // 会把它换成新坐标 —— 放到滑动之后清的就是新 region 的空表, 旧坐标上的幽灵陷阱一条都清不掉。
+        clearTrapRegistryForRegion();
         LOGGER.debug("[miningdim] reset job UNLOAD done for instance {} (mode={}, targetSeed={})",
                 instance.instanceId(), mode, targetSeed);
     }
@@ -157,6 +169,35 @@ final class ResetJob {
     }
 
     /** 重置成功收尾: genState 回 READY (幂等), 兑现 future。 */
+    /**
+     * 清 region 覆盖 chunk 的伪装陷阱注册表条目 (防旧陷阱身份变幽灵)。region 与 chunk 对齐 (SIZE=256=16 chunk,
+     * origin 落 stride 倍数且为 16 倍), 故按 chunk 边界枚举整 region。矿洞维度未加载 (极端时序) 则跳过 —— 无维度即
+     * 无 DataStorage 可清, 不静默造维度。
+     */
+    private void clearTrapRegistryForRegion() {
+        ServerLevel mining = server.getLevel(MiningConstants.MINING_LEVEL);
+        if (mining == null) {
+            return;
+        }
+        TrapRegistry registry = TrapRegistry.get(mining);
+        RegionBox box = instance.regionBox();
+        int minChunkX = box.originX() >> 4;
+        int maxChunkX = (box.originX() + box.sizeX() - 1) >> 4;
+        int minChunkZ = box.originZ() >> 4;
+        int maxChunkZ = (box.originZ() + box.sizeZ() - 1) >> 4;
+        int cleared = 0;
+        for (int cx = minChunkX; cx <= maxChunkX; cx++) {
+            for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
+                cleared += registry.clearChunk(new ChunkPos(cx, cz));
+            }
+        }
+        if (cleared > 0) {
+            LOGGER.debug("[miningdim] reset cleared {} trap registry entries for instance {}",
+                    cleared, instance.instanceId());
+        }
+    }
+
+    /** 重置成功收尾: genState 回 READY, 兑现 future。 */
     private void finish() {
         if (instance.genState() != GenState.FAILED) {
             instance.setGenState(GenState.READY);

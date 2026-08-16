@@ -20,8 +20,9 @@ import java.util.List;
  * 探矿/陷阱高亮渲染 (Miner_Job_DesignSpec 第十一章: 客户端 RenderLevelStageEvent 画轮廓)。仅客户端逻辑端加载
  * (经 {@link MinerHighlightS2C#handle} 的 DistExecutor 隔离调 {@link #accept})。
  *
- * 收到一组高亮坐标 (矿=绿 / 陷阱=红) 缓存到熄灭 tick (~8s 脉冲); RenderLevelStageEvent(AFTER_TRANSLUCENT_BLOCKS)
- * 用线框盒画轮廓, 到熄灭 tick 后停画。整体替换式更新 (新一次探测覆盖旧缓存)。
+ * 双槽位 (互不覆盖): "探测脉冲槽" (探矿=绿 / 陷阱=红, ~8s 脉冲) 与 "连锁预览槽" (青, ~15tick 短存活由持续请求刷新)。
+ * 各自独立 expireTick、独立熄灭, 新一次探测只顶掉探测槽、新一次预览只顶掉预览槽 (故连锁预览不会抹掉刚探出的矿脉高亮)。
+ * RenderLevelStageEvent(AFTER_TRANSLUCENT_BLOCKS) 逐槽用线框盒画轮廓。
  *
  * 不持有任何服务端态; 只缓存 S2C 携带的服务端结果 (服务端权威, 客户端不自算)。
  */
@@ -31,20 +32,42 @@ public final class MinerHighlightRenderer {
     private MinerHighlightRenderer() {
     }
 
-    /** 当前高亮快照 (整体替换式更新; volatile 保证网络主线程写、渲染线程读可见)。 */
-    private static volatile Highlight current = null;
+    /** 探测脉冲槽 (探矿/陷阱; 整体替换式; volatile 保证网络主线程写、渲染线程读可见)。 */
+    private static volatile Slot probe = null;
+    /** 连锁预览槽 (按住连锁期间的候选轮廓; 与探测槽互不覆盖)。 */
+    private static volatile Slot preview = null;
 
-    private record Highlight(byte kind, long expireTick, List<BlockPos> positions) {
+    /** 一个高亮槽: 熄灭 tick + 坐标列表 + 线框颜色 (rgba)。 */
+    private record Slot(long expireTick, List<BlockPos> positions, float[] rgba) {
     }
 
-    /** 矿物高亮颜色 (绿)。 */
+    /** 探矿高亮颜色 (绿)。 */
     private static final float[] ORE_RGBA = {0.20f, 1.00f, 0.30f, 0.85f};
     /** 陷阱高亮颜色 (红)。 */
     private static final float[] TRAP_RGBA = {1.00f, 0.20f, 0.20f, 0.85f};
+    /** 连锁预览颜色 (青): 刻意区别于探矿绿/陷阱红, 一眼可辨这是"将连锁的范围"而非探测结果。 */
+    private static final float[] PREVIEW_RGBA = {0.30f, 0.85f, 1.00f, 0.85f};
 
-    /** 由 S2C 客户端 handler 在客户端主线程调用: 整体替换高亮快照。 */
+    /** 由探矿/陷阱 S2C 客户端 handler 调用: 整体替换探测脉冲槽 (矿=绿/陷阱=红)。 */
     public static void accept(byte kind, long expireTick, List<BlockPos> positions) {
-        current = new Highlight(kind, expireTick, List.copyOf(positions));
+        float[] color = kind == MinerHighlightS2C.KIND_TRAP ? TRAP_RGBA : ORE_RGBA;
+        probe = new Slot(expireTick, List.copyOf(positions), color);
+    }
+
+    /** 由连锁预览 S2C 客户端 handler 调用: 整体替换连锁预览槽 (青)。 */
+    public static void acceptPreview(long expireTick, List<BlockPos> positions) {
+        preview = new Slot(expireTick, List.copyOf(positions), PREVIEW_RGBA);
+    }
+
+    /** 松开连锁键时客户端本地即清预览槽 (跟手; 不等 expire)。 */
+    public static void clearPreview() {
+        preview = null;
+    }
+
+    /** 当前有效连锁预览的候选数 (供 HUD 画"连锁 N"); 无预览/已过期返回 0。 */
+    public static int activePreviewCount(long gameTime) {
+        Slot p = preview;
+        return (p != null && gameTime < p.expireTick()) ? p.positions().size() : 0;
     }
 
     @SubscribeEvent
@@ -52,17 +75,26 @@ public final class MinerHighlightRenderer {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
             return;
         }
-        Highlight hl = current;
-        if (hl == null) {
+        Slot probeSlot = probe;
+        Slot previewSlot = preview;
+        if (probeSlot == null && previewSlot == null) {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.player == null) {
             return;
         }
-        // 脉冲熄灭: 到 expireTick 后清缓存停画。
-        if (mc.level.getGameTime() >= hl.expireTick) {
-            current = null;
+        long now = mc.level.getGameTime();
+        // 逐槽脉冲熄灭: 各自到 expireTick 后清对应槽 (互不影响)。
+        if (probeSlot != null && now >= probeSlot.expireTick()) {
+            probe = null;
+            probeSlot = null;
+        }
+        if (previewSlot != null && now >= previewSlot.expireTick()) {
+            preview = null;
+            previewSlot = null;
+        }
+        if (probeSlot == null && previewSlot == null) {
             return;
         }
 
@@ -70,16 +102,25 @@ public final class MinerHighlightRenderer {
         PoseStack pose = event.getPoseStack();
         MultiBufferSource.BufferSource buffers = mc.renderBuffers().bufferSource();
         VertexConsumer lines = buffers.getBuffer(RenderType.lines());
-        float[] c = hl.kind == MinerHighlightS2C.KIND_TRAP ? TRAP_RGBA : ORE_RGBA;
 
         pose.pushPose();
         pose.translate(-cam.x, -cam.y, -cam.z);
-        for (BlockPos p : hl.positions) {
-            drawBoxOutline(pose, lines, p, c);
+        if (probeSlot != null) {
+            drawSlot(pose, lines, probeSlot);
+        }
+        if (previewSlot != null) {
+            drawSlot(pose, lines, previewSlot);
         }
         pose.popPose();
         buffers.endBatch(RenderType.lines());
         RenderSystem.applyModelViewMatrix();
+    }
+
+    /** 画一个槽的全部方块轮廓 (共用同一 rgba)。 */
+    private static void drawSlot(PoseStack pose, VertexConsumer lines, Slot slot) {
+        for (BlockPos p : slot.positions()) {
+            drawBoxOutline(pose, lines, p, slot.rgba());
+        }
     }
 
     /** 画一个单位方块的线框轮廓 (12 条棱)。 */

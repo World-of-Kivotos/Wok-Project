@@ -128,8 +128,17 @@ public final class QuestPool {
     /**
      * 内置内容池。
      *
-     * 每日 13 条 / 每周 6 条 / 特殊 3 条 —— 每日条数远多于 4 个槽位是刻意的: 槽位数与池子等大时"重摇"退化成
+     * 每日 12 条 / 每周 5 条 / 特殊 3 条 —— 每日条数远多于 4 个槽位是刻意的: 槽位数与池子等大时"重摇"退化成
      * 洗牌, 玩家每天看到的是同一组任务。
+     *
+     * <b>日常与周常一律不用"交易"作判据 (主控 2026-08-16 定)。</b> 任务的定位是系统给玩家的保底收入, 保底
+     * 成立的前提是完成量受正常游玩速度约束; 而村民交易在原版里是可无限 farm 的 (绿宝石农场挂上, 交易次数
+     * 要多少有多少), 拿它当周期任务判据等于把一个无上限动作换成有保障的信用点产出。玩家间市场成交同理 ——
+     * 那是转移不是产出, 两个号对敲即可刷任务 (见 docs 与既往审计记录的跨账号洗额度问题), 故市场动作一条都
+     * 没有接进任务事实层。
+     *
+     * 交易类判据只留在<b>特殊任务</b>里: 它由随机事件抛出, 受概率闸 + 冷却 + 在途上限三重约束, 不是可重复
+     * 刷的产出口。
      */
     public static QuestPool builtin() {
         List<QuestDefinition> definitions = new ArrayList<>();
@@ -158,8 +167,6 @@ public final class QuestPool {
                 new MineBlockObjective(BlockTags.LAPIS_ORES, "青金石矿石", 12), 2));
         definitions.add(new QuestDefinition("daily.mine.gold", QuestSource.DAILY, "贵金属采集",
                 new MineBlockObjective(BlockTags.GOLD_ORES, "金矿石", 12), 2));
-        definitions.add(new QuestDefinition("daily.trade.villager", QuestSource.DAILY, "日常采买",
-                new VillagerTradeObjective(3), 1));
 
         definitions.add(new QuestDefinition("weekly.mine.diamond", QuestSource.WEEKLY, "钻石周供",
                 new MineBlockObjective(BlockTags.DIAMOND_ORES, "钻石矿石", 16), 3));
@@ -171,8 +178,6 @@ public final class QuestPool {
                 new KillEntityObjective(EntityType.ZOMBIE, 150), 2));
         definitions.add(new QuestDefinition("weekly.kill.pillager", QuestSource.WEEKLY, "劫掠者周清",
                 new KillEntityObjective(EntityType.PILLAGER, 60), 3));
-        definitions.add(new QuestDefinition("weekly.trade.villager", QuestSource.WEEKLY, "周度贸易",
-                new VillagerTradeObjective(25), 2));
 
         definitions.add(new QuestDefinition("special.village.trade", QuestSource.SPECIAL, "路过的商机",
                 new VillagerTradeObjective(1), 1));

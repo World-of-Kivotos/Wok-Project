@@ -83,9 +83,13 @@ const WED_OUTCOME_TEXT: Record<MarriageWedOutcomeCode, string> = {
   PARTNER_OFFLINE: '对方不在线, 典礼要求双方都在场',
 }
 
-/** marriage.divorce 的四态文案 (OK 之外三条是失败)。 */
+/**
+ * marriage.divorce 的四态文案 (OK 之外三条是失败)。OK 只表示"提交成功", **不代表关系已解除**——
+ * 是否立即解除还是进入公示期由回执的 pending 字段决定, handleDivorceConfirm 据此另拼一句更具体的话,
+ * 这里的 OK 文案只在两者都用不上的兜底路径出现 (理论上不会触发, 留着防 outcomeCode 穷尽访问漏字段)。
+ */
 const DIVORCE_OUTCOME_TEXT: Record<MarriageDivorceOutcomeCode, string> = {
-  OK: '已离婚',
+  OK: '已提交离婚申请',
   NOT_MARRIED: '你现在没有婚姻关系',
   INSUFFICIENT_FUNDS: '信用点不够支付离婚费用, 一分未扣',
   NO_ECONOMY: '经济子系统未就绪, 一分未扣',
@@ -256,6 +260,14 @@ export function MarriagePage(): ReactElement {
     () => (stateData === null ? 0 : tickDeadline(stateData.remarryCooldownTicks, nowMs())),
     [stateData],
   )
+  // 待生效离婚 (spec 第六章闸 2 公示期): effectiveAtTick - nowTick 才是剩余 tick, 服务端发的是两个绝对 tick。
+  const pendingDivorceReadyAt = useMemo(
+    () =>
+      stateData?.pendingDivorce == null
+        ? 0
+        : tickDeadline(stateData.pendingDivorce.effectiveAtTick - stateData.nowTick, nowMs()),
+    [stateData],
+  )
 
   async function handleBuyRing(): Promise<void> {
     setBusyAction('ring')
@@ -363,16 +375,33 @@ export function MarriagePage(): ReactElement {
     setBusyAction('divorce')
     try {
       const result = await callMock('marriage.divorce', {})
-      setBanner({
-        tone: result.ok ? 'warning' : 'danger',
-        message: result.ok
-          ? `${DIVORCE_OUTCOME_TEXT.OK}, 已扣 ${formatAmount(result.costCredit)} 信用点; 再婚冷却 ${formatDuration(
-              result.remarryCooldownTicks * MS_PER_TICK,
-            )}`
-          : DIVORCE_OUTCOME_TEXT[result.outcomeCode],
-      })
+      if (!result.ok) {
+        setBanner({ tone: 'danger', message: DIVORCE_OUTCOME_TEXT[result.outcomeCode] })
+      } else if (result.alreadyPending) {
+        // 幂等重复提交: 本次未二次扣费, 关系仍在公示期里, 不是新一轮离婚。
+        setBanner({
+          tone: 'info',
+          message: '离婚申请已在公示期中, 未重复扣费; 可在游戏内聊天栏输入 /marriage divorce cancel 撤回',
+        })
+      } else if (result.pending) {
+        // 关系尚未解除: 只是进入公示期, remarryCooldownTicks/divorceCount 是提交前的旧值, 不能拿来说"已离婚"。
+        setBanner({
+          tone: 'warning',
+          message: `已提交离婚申请, 已扣 ${formatAmount(result.costCredit)} 信用点; 公示期 ${formatDuration(
+            result.escrowTicks * MS_PER_TICK,
+          )}内双方均可在聊天栏用 /marriage divorce cancel（发起方）或 confirm（对方）撤回或提前生效`,
+        })
+      } else {
+        // escrowTicks 配 0 (公示期关闭) 或历史遗留场景才会立即结算, 此时才是真正的"已离婚"。
+        setBanner({
+          tone: 'warning',
+          message: `已离婚, 已扣 ${formatAmount(result.costCredit)} 信用点; 再婚冷却 ${formatDuration(
+            result.remarryCooldownTicks * MS_PER_TICK,
+          )}`,
+        })
+      }
       setDivorceConfirmOpen(false)
-      // 离婚会把共享背包内容全部退回发起方并强制关闭双方的窗口, 两块都必须立刻重拉。
+      // 无论提交成立即结算还是进入公示期, 状态与共享背包 (公示期内被强制冻结) 都必须立刻重拉。
       stateQuery.reload()
       sharedQuery.reload()
     } catch (error) {
@@ -428,6 +457,9 @@ export function MarriagePage(): ReactElement {
     teleportPhase === 'cooldown' ? Math.max(0, teleportCooldownUntil - teleportTick) : 0
   const teleportCooldownElapsed = TELEPORT_COOLDOWN_MS - teleportCooldownRemaining
   const canTeleport = data.status === 'married' && data.spouseOnline
+  // 双方共用一个 pendingDivorce, 没有单独的"我的 uuid"字段可读: 发起方不等于配偶 uuid 即是自己。
+  const isPendingDivorceInitiatedBySelf =
+    data.pendingDivorce !== null && data.pendingDivorce.initiatorUuid !== data.spouseUuid
 
   const sharedSlots =
     sharedQuery.status === 'ready'
@@ -732,22 +764,42 @@ export function MarriagePage(): ReactElement {
         <>
           <Panel
             actions={
-              <Button
-                onClick={() => {
-                  setDivorceConfirmOpen(true)
-                }}
-                size="sm"
-                variant="destructive"
-              >
-                申请离婚
-              </Button>
+              data.pendingDivorce === null ? (
+                <Button
+                  onClick={() => {
+                    setDivorceConfirmOpen(true)
+                  }}
+                  size="sm"
+                  variant="destructive"
+                >
+                  申请离婚
+                </Button>
+              ) : null
             }
             title="离婚"
           >
-            <p className="text-muted-foreground text-sm">
-              离婚需要 {formatAmount(data.divorceCostCredit)} 信用点, 之后进入再婚冷却 (随离婚次数递增),
-              且共享背包里的东西会全部退回发起方 (也就是先点的那一方), 无法撤销。
-            </p>
+            {data.pendingDivorce === null ? (
+              <p className="text-muted-foreground text-sm">
+                离婚需要 {formatAmount(data.divorceCostCredit)} 信用点, 提交后进入一段公示期 (时长以提交回执为准),
+                公示期内共享背包会被冻结、按双方各自实际存入的物品清算 (不是全退发起方), 且发起方可在游戏内聊天栏
+                用 <code>/marriage divorce cancel</code> 全额撤回; 公示期到期后自动解除, 之后进入再婚冷却
+                (随离婚次数递增)。
+              </p>
+            ) : (
+              // 撤回/确认是命令层专属能力, 面板目前没有对应 action —— 如实告知去处而不是假装能在这里操作。
+              <div className="flex flex-col gap-2">
+                <p className="text-warning text-sm">
+                  {isPendingDivorceInitiatedBySelf ? '你已提交离婚申请' : '对方已提交离婚申请'}, 公示期还剩{' '}
+                  {formatDuration(pendingDivorceReadyAt - nowClock)}, 到期后自动解除。
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  期间共享背包已被冻结。
+                  {isPendingDivorceInitiatedBySelf
+                    ? '如需撤回, 请在游戏内聊天栏输入 /marriage divorce cancel。'
+                    : '如同意立即生效, 请在游戏内聊天栏输入 /marriage divorce confirm; 什么都不做则等公示期自然到期。'}
+                </p>
+              </div>
+            )}
           </Panel>
 
           <Panel
@@ -838,21 +890,21 @@ export function MarriagePage(): ReactElement {
       ) : null}
 
       <ConfirmDangerDialog
-        confirmLabel="确认离婚"
+        confirmLabel="提交离婚申请"
         loading={busyAction === 'divorce'}
         message={
           data.spouseUuid === null
-            ? `离婚需要 ${formatAmount(data.divorceCostCredit)} 信用点, 之后进入再婚冷却, 共享背包内容全部退回你, 此操作不可撤销。`
-            : `与 ${playerLabel(data.spouseName, data.spouseUuid)} 的婚姻关系将立即解除, 需要 ${formatAmount(
+            ? `提交离婚申请需要 ${formatAmount(data.divorceCostCredit)} 信用点, 之后进入一段公示期; 公示期内共享背包会被冻结、按双方各自实际存入的物品清算 (不是全退给你), 提交后可在游戏内聊天栏用 /marriage divorce cancel 全额撤回。`
+            : `向 ${playerLabel(data.spouseName, data.spouseUuid)} 提交离婚申请需要 ${formatAmount(
                 data.divorceCostCredit,
-              )} 信用点, 之后进入再婚冷却, 共享背包内容全部退回你, 此操作不可撤销。`
+              )} 信用点, 之后进入一段公示期 (不是立即解除); 公示期内共享背包会被冻结、按双方各自实际存入的物品清算 (不是全退给你), 提交后可在游戏内聊天栏用 /marriage divorce cancel 全额撤回。`
         }
         onConfirm={() => {
           void handleDivorceConfirm()
         }}
         onOpenChange={setDivorceConfirmOpen}
         open={divorceConfirmOpen}
-        title="确认离婚"
+        title="确认提交离婚申请"
       />
     </div>
   )

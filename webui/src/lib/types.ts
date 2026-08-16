@@ -2277,6 +2277,20 @@ export interface MarriageOutgoingProposal {
 }
 
 /**
+ * 待生效离婚 (spec 第六章闸 2 escrow 公示期)。marriage.state 里只在 status='married' 且已提交离婚时非 null;
+ * 撤回 (/marriage divorce cancel) / 提前确认 (/marriage divorce confirm) 只走命令层, WebUI 无对应 action ——
+ * 面板能读到公示期存在, 但撤回/确认按钮暂无契约可接, 需引导玩家去聊天栏输入命令。
+ */
+export interface MarriagePendingDivorce {
+  /** 发起方 UUID 字符串。 */
+  initiatorUuid: string
+  /** 提交时的 overworld gameTime tick。 */
+  filedAtTick: number
+  /** 公示期到期生效的 gameTime tick (= filedAtTick + escrowTicks)。 */
+  effectiveAtTick: number
+}
+
+/**
  * marriage.state 回执 (MarriageWebUiActions.STATE)。
  *
  * 关系态取 MarriageRegistry.forPlayer (权威 + 自带陈旧索引自愈), 不读 capability 指针。
@@ -2320,6 +2334,8 @@ export interface MarriageStateResult {
   incomingProposalTotal: number
   incomingProposalsTruncated: boolean
   outgoingProposal: MarriageOutgoingProposal | null
+  /** 待生效离婚 (spec 第六章闸 2); 无 pending 或未婚时为 null。 */
+  pendingDivorce: MarriagePendingDivorce | null
 }
 
 /** marriage.buyRing 入参 —— 不读 payload 任何字段。 */
@@ -2463,8 +2479,14 @@ export type MarriageDivorceOutcomeCode = 'OK' | 'NOT_MARRIED' | 'INSUFFICIENT_FU
 /**
  * marriage.divorce 回执 (MarriageWebUiActions.DIVORCE)。
  *
- * 离婚会把共享背包内容全部退回**发起方** (背包满则落地) 并强制关闭双方已打开的共享背包窗口,
- * 故成功后应立即重拉 marriage.state 与 marriage.sharedInv。
+ * **不是"立即解除"**: 本 action 只做 spec 第六章闸 2 三段式 (提交 -&gt; 公示期 -&gt; 生效) 的"提交"这一步
+ * (经 MarriageDivorce.file)。escrow 配置关闭 (escrowTicks=0) 时提交即结算, 否则进入公示期, 到期前发起方可
+ * 用 `/marriage divorce cancel` 全额撤回、配偶可用 `/marriage divorce confirm` 提前生效 —— 二者均为命令层
+ * 专属, 本回执不带撤回/确认入口。共享背包按槽归属清算 (谁放入谁取回, 无归属按槽号奇偶平分), 不是全退发起方。
+ *
+ * ok=true 且 pending=true 时关系仍然存续 (未解除): 前端不得在此时展示"已离婚", 应展示"已提交离婚, 公示期至
+ * effectiveAtTick, 可在聊天栏用 /marriage divorce cancel 撤回"。只有 pending=false (escrow 关闭时的立即结算,
+ * 或历史遗留场景) 才是真正的"已离婚"。
  */
 export interface MarriageDivorceResult {
   ok: boolean
@@ -2473,12 +2495,24 @@ export interface MarriageDivorceResult {
   messageArgs: string[]
   /** 本次离婚的**定价**而非已扣额 —— 三种失败一分未扣。前端据 ok 决定说"已扣"还是"需要"。 */
   costCredit: number
-  /** 结算后重读。 */
+  /**
+   * 提交阶段重读的值, **不是结算后的值**: 只在公示期到期真正 dissolve 时才变, 提交这一刻 divorceCount 与
+   * remarryCooldownTicks 均未更新 (即便本次是 escrow 关闭时的立即结算, 也是先 settle 再回执, 该值已是新值 ——
+   * 唯独"进入公示期"这条路径下, 回执里的这两个字段仍是解除前的旧值, 不能当"离婚已生效"的证据展示)。
+   */
   divorceCount: number
-  /** 结算后重读的剩余 tick (默认首次离婚 = 14 天 = 24192000 tick)。 */
+  /** 同上: 公示期未到期时仍是提交前的剩余冷却, 不代表本次离婚已经计入冷却。 */
   remarryCooldownTicks: number
   /** 仅 ok=true。 */
   formerSpouseUuid: string | null
+  /** 本次调用后关系是否处于公示期中 (escrow 配置关闭时提交即结算, 恒 false)。 */
+  pending: boolean
+  /** 本次提交前关系是否已处于公示期 (true = 幂等重复提交, 本次未二次扣费, costCredit 也没有实际发生)。 */
+  alreadyPending: boolean
+  /** 公示期到期生效的 gameTime tick; ok=false 或 pending=false (立即结算) 时为 null。 */
+  effectiveAtTick: number | null
+  /** 当前配置的公示期时长 (tick), 供前端换算成秒/天显示。 */
+  escrowTicks: number
 }
 
 /** marriage.sharedInv 入参 —— 不读 payload 任何字段。 */

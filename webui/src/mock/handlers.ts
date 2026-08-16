@@ -117,7 +117,8 @@ const MIRROR_AFTER_WALLET_INVENTORY = new Set<string>([
   'job.tarot.buyPack',
   // 扣款并发戒指; 背包满时戒指掉在脚下, 那一次背包不变但钱照扣, 故仍要刷。
   'marriage.buyRing',
-  // 典礼与离婚都要收费 (两者都有 INSUFFICIENT_FUNDS 态), 离婚还会把共享背包内容退回发起方背包。
+  // 典礼与离婚都要收费 (两者都有 INSUFFICIENT_FUNDS 态)。离婚提交即扣费 —— 但只做"提交进公示期"这一步,
+  // 共享背包按各自存入清算是到期结算时才发生, 不在这次调用里, 故这里只需刷钱包/背包的钱已扣这一半。
   'marriage.wed',
   'marriage.divorce',
   // OP 调账的目标可能就是自己, 此时改的正是本人钱包。

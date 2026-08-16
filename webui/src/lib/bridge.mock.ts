@@ -177,6 +177,16 @@ import type {
   PlayerProfileResult,
   PlayerRosterResult,
   PlayerWalletResult,
+  QuestBoardResult,
+  QuestChainRow,
+  QuestClaimPayload,
+  QuestClaimResult,
+  QuestItemRow,
+  QuestRefreshPayload,
+  QuestRefreshResult,
+  QuestRow,
+  QuestTurnInPayload,
+  QuestTurnInResult,
   SystemEchoPayload,
   SystemEchoResult,
   SystemServerStatusResult,
@@ -1799,7 +1809,7 @@ function mockPrefsSet(payload: PlayerPrefsSetPayload): PlayerPrefsSetResult {
 }
 
 /**
- * 面板域与顺序 = 服务端 HubWebUiActions 的硬编码表 (quests 不存在, 精英怪图鉴叫 codex)。
+ * 面板域与顺序 = 服务端 HubWebUiActions 的 11 项硬编码表 (任务叫 quests, 精英怪图鉴叫 codex)。
  * 这里只发 panelId/enabled/lockCode, 展示层三项 (route/label/iconItemId) 归前端 lib/panels.ts。
  */
 const HUB_PANEL_IDS: readonly HubPanelId[] = [
@@ -1808,6 +1818,7 @@ const HUB_PANEL_IDS: readonly HubPanelId[] = [
   'shop',
   'jobs',
   'mining',
+  'quests',
   'codex',
   'marriage',
   'case',
@@ -4218,6 +4229,282 @@ function mockMiningLeave(): MiningLeaveResult {
 }
 
 // ============================================================
+// quest.* (只复刻任务板交互闭环, 任务判据与奖励池仍以服务端为准)
+// ============================================================
+
+const QUEST_DAILY_REFRESH_COST = 500
+const QUEST_WEEKLY_REFRESH_COST = 2_500
+
+const questDaily: QuestRow[] = [
+  {
+    questId: 'daily.mine.coal',
+    title: '今日矿务',
+    objective: '挖掘 32 个煤矿石',
+    difficulty: 1,
+    count: 14,
+    requiredCount: 32,
+    complete: false,
+    claimed: false,
+    turnIn: false,
+    creditReward: 1_200,
+  },
+  {
+    questId: 'daily.turn_in.wheat',
+    title: '粮食储备',
+    objective: '上交 16 株农夫小麦',
+    difficulty: 2,
+    count: 0,
+    requiredCount: 16,
+    complete: false,
+    claimed: false,
+    turnIn: true,
+    creditReward: 1_800,
+  },
+  {
+    questId: 'daily.kill.zombie',
+    title: '清理亡灵',
+    objective: '击败 24 只僵尸',
+    difficulty: 2,
+    count: 24,
+    requiredCount: 24,
+    complete: true,
+    claimed: true,
+    turnIn: false,
+    creditReward: 2_200,
+  },
+]
+
+const questWeekly: QuestRow[] = [
+  {
+    questId: 'weekly.travel.overworld',
+    title: '远行者',
+    objective: '在主世界移动 12000 格',
+    difficulty: 3,
+    count: 12_000,
+    requiredCount: 12_000,
+    complete: true,
+    claimed: false,
+    turnIn: false,
+    creditReward: 8_000,
+  },
+]
+
+const questSpecial: QuestRow[] = [
+  {
+    questId: 'special.village.defense',
+    title: '村庄告急',
+    objective: '击败 5 名灾厄村民',
+    difficulty: 3,
+    count: 2,
+    requiredCount: 5,
+    complete: false,
+    claimed: false,
+    turnIn: false,
+    creditReward: 5_000,
+  },
+]
+
+const questChains: QuestChainRow[] = [
+  {
+    chainId: 'deep_delver',
+    title: '深层勘探',
+    finished: false,
+    stageIndex: 1,
+    stageCount: 4,
+    current: {
+      questId: 'hidden.deep_delver.2',
+      title: '深层勘探 II',
+      objective: '在困难矿洞挖掘 10 个钻石矿石',
+      difficulty: 3,
+      count: 3,
+      requiredCount: 10,
+      complete: false,
+      claimed: false,
+      turnIn: false,
+      creditReward: 3_500,
+    },
+  },
+]
+
+const QUEST_TURN_IN_ITEMS: ReadonlyMap<string, string> = new Map([
+  ['daily.turn_in.wheat', FARMER_CROP_ITEM_ID],
+])
+
+let questRefreshSerial = 0
+
+function cloneQuestRow(row: QuestRow): QuestRow {
+  return { ...row }
+}
+
+function cloneQuestItem(row: QuestItemRow): QuestItemRow {
+  return {
+    ...row,
+    ...(row.enchantments === undefined
+      ? {}
+      : { enchantments: row.enchantments.map((enchantment) => ({ ...enchantment })) }),
+  }
+}
+
+function questRows(): QuestRow[] {
+  const rows = [...questDaily, ...questWeekly, ...questSpecial]
+  for (const chain of questChains) {
+    if (chain.current !== null) {
+      rows.push(chain.current)
+    }
+  }
+  return rows
+}
+
+function questById(questId: string): QuestRow | undefined {
+  return questRows().find((row) => row.questId === questId)
+}
+
+function mockQuestBoard(): QuestBoardResult {
+  return {
+    dailyRefreshCost: QUEST_DAILY_REFRESH_COST,
+    weeklyRefreshCost: QUEST_WEEKLY_REFRESH_COST,
+    creditBalance: wallet.credit,
+    daily: questDaily.map(cloneQuestRow),
+    weekly: questWeekly.map(cloneQuestRow),
+    special: questSpecial.map(cloneQuestRow),
+    chains: questChains.map((chain) => ({
+      ...chain,
+      current: chain.current === null ? null : cloneQuestRow(chain.current),
+    })),
+  }
+}
+
+function questRewardItems(questId: string): QuestItemRow[] {
+  if (questId === 'weekly.travel.overworld') {
+    return [
+      {
+        itemId: 'minecraft:diamond_chestplate',
+        descriptionId: 'item.minecraft.diamond_chestplate',
+        count: 1,
+        enchantments: [{ id: 'minecraft:mending', level: 1 }],
+      },
+    ]
+  }
+  return [
+    {
+      itemId: 'minecraft:diamond',
+      descriptionId: 'item.minecraft.diamond',
+      count: 2,
+    },
+  ]
+}
+
+function mockQuestClaim(payload: QuestClaimPayload): QuestClaimResult {
+  const row = questById(payload.questId)
+  if (row === undefined) {
+    return { outcome: 'NOT_FOUND', questId: payload.questId, title: null, credit: 0, items: [] }
+  }
+  if (row.claimed) {
+    return { outcome: 'ALREADY_CLAIMED', questId: row.questId, title: row.title, credit: 0, items: [] }
+  }
+  if (!row.complete) {
+    return { outcome: 'NOT_COMPLETE', questId: row.questId, title: row.title, credit: 0, items: [] }
+  }
+  const items = questRewardItems(row.questId)
+  wallet.credit += row.creditReward
+  row.claimed = true
+  for (const item of items) {
+    depositToInventory('quest.claim', item.itemId, item.count)
+  }
+  return {
+    outcome: 'CLAIMED',
+    questId: row.questId,
+    title: row.title,
+    credit: row.creditReward,
+    items: items.map(cloneQuestItem),
+  }
+}
+
+function takeQuestTurnInItem(itemId: string, wanted: number): number {
+  let remaining = wanted
+  for (const stack of [...inventory]) {
+    if (remaining <= 0) {
+      break
+    }
+    if (stack.itemId !== itemId) {
+      continue
+    }
+    const taken = Math.min(stack.count, remaining)
+    stack.count -= taken
+    remaining -= taken
+    if (stack.count === 0) {
+      inventory.splice(inventory.indexOf(stack), 1)
+    }
+  }
+  return wanted - remaining
+}
+
+function mockQuestTurnIn(payload: QuestTurnInPayload): QuestTurnInResult {
+  const row = questById(payload.questId)
+  if (row === undefined) {
+    return { outcome: 'NOT_FOUND', questId: payload.questId, title: null, count: 0 }
+  }
+  if (!row.turnIn) {
+    return { outcome: 'NOT_A_TURN_IN', questId: row.questId, title: row.title, count: 0 }
+  }
+  if (row.complete) {
+    return { outcome: 'ALREADY_COMPLETE', questId: row.questId, title: row.title, count: 0 }
+  }
+  const itemId = QUEST_TURN_IN_ITEMS.get(row.questId)
+  if (itemId === undefined) {
+    throw new Error(`mock 数据缺陷: 上交任务 ${row.questId} 没有登记物品`)
+  }
+  const taken = takeQuestTurnInItem(itemId, row.requiredCount - row.count)
+  if (taken <= 0) {
+    return { outcome: 'NOTHING_TO_TURN_IN', questId: row.questId, title: row.title, count: 0 }
+  }
+  row.count += taken
+  row.complete = row.count >= row.requiredCount
+  return { outcome: 'TURNED_IN', questId: row.questId, title: row.title, count: taken }
+}
+
+function refreshedQuest(source: QuestRefreshPayload['source']): QuestRow {
+  questRefreshSerial += 1
+  return {
+    questId: `${source}.mock.refresh.${String(questRefreshSerial)}`,
+    title: source === 'daily' ? '临时巡查' : '周度清剿',
+    objective: source === 'daily' ? '击败 12 只骷髅' : '击败 80 只怪物',
+    difficulty: source === 'daily' ? 1 : 3,
+    count: 0,
+    requiredCount: source === 'daily' ? 12 : 80,
+    complete: false,
+    claimed: false,
+    turnIn: false,
+    creditReward: source === 'daily' ? 1_400 : 7_500,
+  }
+}
+
+function mockQuestRefresh(payload: QuestRefreshPayload): QuestRefreshResult {
+  const source = payload.source.toLowerCase()
+  if (source !== 'daily' && source !== 'weekly') {
+    throw businessFailure('quest.refresh', 'INVALID_REQUEST', '任务来源只接受 daily 或 weekly', false, {
+      field: 'source',
+      value: truncateValue(String(payload.source)),
+    })
+  }
+  const rows = source === 'daily' ? questDaily : questWeekly
+  if (!Number.isInteger(payload.slot) || payload.slot < 0 || payload.slot >= rows.length) {
+    throw businessFailure('quest.refresh', 'SLOT_OUT_OF_RANGE', '任务槽位超出范围', false, {
+      slot: String(payload.slot),
+      size: String(rows.length),
+    })
+  }
+  const cost = source === 'daily' ? QUEST_DAILY_REFRESH_COST : QUEST_WEEKLY_REFRESH_COST
+  if (wallet.credit < cost) {
+    return { outcome: 'NOT_ENOUGH_CREDIT', cost, replacement: null }
+  }
+  wallet.credit -= cost
+  const replacement = refreshedQuest(source)
+  rows[payload.slot] = replacement
+  return { outcome: 'REFRESHED', cost, replacement: cloneQuestRow(replacement) }
+}
+
+// ============================================================
 // champion.* (StarRank / AffixQuality / AffixDef / ChampionSpawnPolicy 的真值)
 // ============================================================
 
@@ -4946,6 +5233,14 @@ function resolveMock(action: WebUiActionName, payload: unknown): unknown {
       return mockMiningEnter(payload as MiningEnterPayload)
     case 'mining.leave':
       return mockMiningLeave()
+    case 'quest.board':
+      return mockQuestBoard()
+    case 'quest.claim':
+      return mockQuestClaim(payload as QuestClaimPayload)
+    case 'quest.turnIn':
+      return mockQuestTurnIn(payload as QuestTurnInPayload)
+    case 'quest.refresh':
+      return mockQuestRefresh(payload as QuestRefreshPayload)
     case 'champion.codex':
       return mockChampionCodex()
     case 'champion.inspect':

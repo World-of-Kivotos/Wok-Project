@@ -23,6 +23,7 @@ import {
   ROUTE_MARKET,
   ROUTE_MARRIAGE,
   ROUTE_MINING,
+  ROUTE_QUESTS,
   ROUTE_SETTINGS,
   ROUTE_SHOP,
 } from '../router'
@@ -42,6 +43,7 @@ export const HUB_PANEL_META: Record<HubPanelId, HubPanelMeta> = {
   shop: { label: '系统商店', route: ROUTE_SHOP, iconItemId: 'minecraft:chest' },
   jobs: { label: '职业', route: ROUTE_JOBS, iconItemId: 'minecraft:iron_pickaxe' },
   mining: { label: '矿洞', route: ROUTE_MINING, iconItemId: 'minecraft:deepslate' },
+  quests: { label: '任务', route: ROUTE_QUESTS, iconItemId: 'minecraft:writable_book' },
   codex: { label: '精英怪图鉴', route: ROUTE_CODEX, iconItemId: 'minecraft:wither_skeleton_skull' },
   marriage: { label: '婚姻', route: ROUTE_MARRIAGE, iconItemId: 'minecraft:golden_apple' },
   case: { label: '开箱', route: ROUTE_CASE, iconItemId: 'minecraft:ender_chest' },
@@ -58,6 +60,7 @@ export const HUB_PANEL_META: Record<HubPanelId, HubPanelMeta> = {
  */
 const PANEL_LOCK_TEXT: Readonly<Record<string, string>> = {
   NOT_OP: '仅 OP 可进入',
+  QUEST_DISABLED: '任务系统当前未启用',
 }
 
 /**

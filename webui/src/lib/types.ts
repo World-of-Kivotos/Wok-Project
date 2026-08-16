@@ -464,10 +464,9 @@ export type PlayerPrefsSetResult = PlayerPrefs
 export type HubPanelsPayload = EmptyPayload
 
 /**
- * 稳定面板 id。域按 router.ts 的实际路由定死, 恒 10 条, 顺序即服务端写入顺序。
- * 与旧 mock 种子的两处差异: quests 剔除 (router.ts 里根本没有这条路由, 任务系统零实现),
- * champion 更名 codex (真实路由 ROUTE_CODEX)。前端的 panelId -> {route,label,iconItemId} 映射表
- * (lib/panels.ts 的 HUB_PANEL_META) 是这份 id 的唯一消费方。
+ * 稳定面板 id。域按 router.ts 的实际路由定死, 恒 11 条, 顺序即服务端写入顺序。
+ * quests 已接入真实任务板路由; 精英怪图鉴的稳定 id 是 codex (真实路由 ROUTE_CODEX)。前端的
+ * panelId -> {route,label,iconItemId} 映射表 (lib/panels.ts 的 HUB_PANEL_META) 是这份 id 的唯一消费方。
  */
 export type HubPanelId =
   | 'home'
@@ -475,6 +474,7 @@ export type HubPanelId =
   | 'shop'
   | 'jobs'
   | 'mining'
+  | 'quests'
   | 'codex'
   | 'marriage'
   | 'case'
@@ -492,13 +492,13 @@ export type HubPanelId =
  */
 export interface HubPanel {
   panelId: HubPanelId
-  /** 该玩家此刻能否进入。当前只有 admin 一条会为 false (非 OP)。 */
+  /** 该玩家此刻能否进入。admin 权限门与 quests 子系统状态门各自独立。 */
   enabled: boolean
   /**
    * 锁定原因的**稳定机器码**, 仅 enabled=false 时存在 (默认 Gson + 条件性 addProperty, 故是缺席键而不是 null)。
    * 与 action 的 errorCode 是两个命名空间, 各有各的表: 前端本地化字典必须分开两张 (lib/panels.ts 的
    * PANEL_LOCK_TEXT 与 lib/errorText.ts 的 ERROR_CODE_TEXT), 撞键会让"锁定原因"与"调用失败"静默串号。
-   * 当前全集只有 'NOT_OP' 一条 (Java 侧 HubLockCodes)。
+   * 当前全集是 'NOT_OP' / 'QUEST_DISABLED' (Java 侧 HubLockCodes)。
    */
   lockCode?: string
 }
@@ -2699,6 +2699,101 @@ export interface MiningLeaveResult {
   reasonCode: 'NOT_INSIDE' | null
   /** 翻译键 message.miningdim.leave.not_inside; left=true 时 null。 */
   reasonKey: string | null
+}
+
+// ============================================================
+// quest.* — com.miningdim.quest.QuestWebUiActions (Gson serializeNulls)
+// ============================================================
+
+export type QuestBoardPayload = EmptyPayload
+
+export interface QuestRow {
+  questId: string
+  title: string
+  objective: string
+  difficulty: number
+  count: number
+  requiredCount: number
+  complete: boolean
+  claimed: boolean
+  /** 由服务端按 TurnInItemObjective 判定, 前端不得解析 objective 文本猜测。 */
+  turnIn: boolean
+  /** Java long -> number。 */
+  creditReward: number
+}
+
+export interface QuestChainRow {
+  chainId: string
+  title: string
+  finished: boolean
+  /** 0 起阶段下标; finished=true 时等于 stageCount。 */
+  stageIndex: number
+  stageCount: number
+  current: QuestRow | null
+}
+
+export interface QuestBoardResult {
+  dailyRefreshCost: number
+  weeklyRefreshCost: number
+  creditBalance: number
+  daily: QuestRow[]
+  weekly: QuestRow[]
+  special: QuestRow[]
+  chains: QuestChainRow[]
+}
+
+export interface QuestClaimPayload {
+  questId: string
+}
+
+export type QuestClaimOutcome = 'CLAIMED' | 'NOT_FOUND' | 'NOT_COMPLETE' | 'ALREADY_CLAIMED'
+
+export interface QuestItemRow extends ItemVariantFields {
+  itemId: string
+  descriptionId: string
+  count: number
+  /** 无附魔时整键缺席。 */
+  enchantments?: { id: string; level: number }[]
+}
+
+export interface QuestClaimResult {
+  outcome: QuestClaimOutcome
+  questId: string
+  title: string | null
+  credit: number
+  items: QuestItemRow[]
+}
+
+export interface QuestTurnInPayload {
+  questId: string
+}
+
+export type QuestTurnInOutcome =
+  | 'TURNED_IN'
+  | 'NOT_FOUND'
+  | 'NOT_A_TURN_IN'
+  | 'ALREADY_COMPLETE'
+  | 'NOTHING_TO_TURN_IN'
+
+export interface QuestTurnInResult {
+  outcome: QuestTurnInOutcome
+  questId: string
+  title: string | null
+  count: number
+}
+
+export interface QuestRefreshPayload {
+  source: 'daily' | 'weekly'
+  /** 0 起槽位下标。 */
+  slot: number
+}
+
+export type QuestRefreshOutcome = 'REFRESHED' | 'NOT_ENOUGH_CREDIT'
+
+export interface QuestRefreshResult {
+  outcome: QuestRefreshOutcome
+  cost: number
+  replacement: QuestRow | null
 }
 
 // ============================================================

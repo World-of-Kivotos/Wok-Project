@@ -12,7 +12,7 @@
 /**
  * 全部服务端 action 名 (system.handshake 回执 actions 字段的镜像, 不含 client.* 本地 action)。
  *
- * 二十二个注册点 (每个 *WebUiActions 类的 registerAll 各占一个):
+ * 二十三个注册点 (每个 *WebUiActions 类的 registerAll 各占一个):
  *   system.*            WebUiServerSubsystem
  *   player.*            PlayerWebUiActions
  *   hub.*               HubWebUiActions
@@ -33,6 +33,7 @@
  *   admin.economy.*     EconomyAdminWebUiActions
  *   marriage.*          MarriageWebUiActions
  *   mining.*            MiningWebUiActions
+ *   quest.*             QuestWebUiActions
  *   admin.mining.reset  MiningAdminWebUiActions
  *   champion.*          ChampionWebUiActions
  */
@@ -98,6 +99,10 @@ export const SERVER_ACTIONS = [
   'player.profile',
   'player.roster',
   'player.wallet',
+  'quest.board',
+  'quest.claim',
+  'quest.refresh',
+  'quest.turnIn',
   'system.echo',
   'system.handshake',
   'system.serverStatus',

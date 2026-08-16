@@ -81,6 +81,9 @@ public final class WebUiErrorCodes {
      */
     public static final String NOTHING_TO_SELL = "NOTHING_TO_SELL";
 
+    /** 任务系统已被配置关闭。抛出点: 所有 {@code quest.*} action 的统一前置门。 */
+    public static final String QUEST_DISABLED = "QUEST_DISABLED";
+
     /** 开箱系统已关闭, 或 TaCZ / 武器箱资源包未就绪。抛出点: {@code CaseOpeningService.open}。 */
     public static final String CASE_DISABLED = "CASE_DISABLED";
 

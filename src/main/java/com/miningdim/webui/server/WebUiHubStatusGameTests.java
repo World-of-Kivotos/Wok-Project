@@ -5,6 +5,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.miningdim.core.MiningConstants;
+import com.miningdim.quest.QuestService;
+import com.miningdim.quest.QuestServices;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -14,6 +16,7 @@ import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -23,11 +26,12 @@ import java.util.Set;
  * 另造 handler), 故删掉被测的注册行或 handler 逻辑本类必挂。
  *
  * 强断言 (删被测核心逻辑必挂):
- *  1. hub.panels 恒发 10 条且顺序固定, 域与前端路由表逐条对齐 (quests 必须不在, champion 必须叫 codex);
+ *  1. hub.panels 恒发 11 条且顺序固定, 域与前端路由表逐条对齐 (quests 已接入, champion 必须叫 codex);
  *  2. admin 面板的 enabled 随真实 OP 状态翻转, 且锁上时带 lockCode=NOT_OP、开着时整键缺席;
- *  3. 除 admin 外 9 条恒开且一律不带 lockCode (本批不做等级门/婚姻门, 提前发锁码即挂);
+ *  3. 默认启用任务系统时除 admin 外 10 条恒开且一律不带 lockCode (本批不做等级门/婚姻门);
  *  4. 面板只发 panelId/enabled/lockCode 三个键, route/label/iconItemId 一律不下发 (展示层真源在前端);
- *  5. system.serverStatus 的五个字段取真实服务器数值, 且 tps 由 mspt 派生并被钳在 20 以内。
+ *  5. QuestServices inactive 时 quests 独立锁为 QUEST_DISABLED, 不串改其它面板的锁;
+ *  6. system.serverStatus 的五个字段取真实服务器数值, 且 tps 由 mspt 派生并被钳在 20 以内。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -39,7 +43,7 @@ public final class WebUiHubStatusGameTests {
     /** 面板 id 的期望全集与顺序。写死在测试里而不是引用被测常量, 否则改错了域两边一起改还是绿的。 */
     private static final String[] EXPECTED_PANEL_IDS = {
             "home", "market", "shop", "jobs", "mining",
-            "codex", "marriage", "case", "settings", "admin"};
+            "quests", "codex", "marriage", "case", "settings", "admin"};
 
     /** 单个面板允许出现的全部键 (lockCode 仅锁上时出现)。多一个键都是往服务端搬前端的活。 */
     private static final Set<String> ALLOWED_PANEL_KEYS = Set.of("panelId", "enabled", "lockCode");
@@ -60,16 +64,16 @@ public final class WebUiHubStatusGameTests {
             helper.assertTrue(EXPECTED_PANEL_IDS[i].equals(actual),
                     "第 " + i + " 条面板 id 应为 " + EXPECTED_PANEL_IDS[i] + ", 实得 " + actual);
         }
-        // 这两条是已实测过的漂移点: mock 种子里有 quests (前端根本没这条路由) 且把 codex 写成 champion。
-        helper.assertTrue(findPanel(panels, "quests") == null,
-                "quests 面板必须不存在 (前端无此路由, 任务系统零实现)");
+        JsonObject quests = findPanel(panels, "quests");
+        helper.assertTrue(quests != null && quests.get("enabled").getAsBoolean(),
+                "默认启用任务系统时 hub.panels 必须包含可进入的 quests 行");
         helper.assertTrue(findPanel(panels, "champion") == null,
                 "精英怪图鉴的稳定 id 是 codex 而不是 champion (对齐 ROUTE_CODEX)");
         helper.succeed();
     }
 
     // ============================================================
-    // 2/3. hub.panels: admin 门随真实 OP 翻转, 其余 9 条恒开
+    // 2/3. hub.panels: admin 门随真实 OP 翻转, 其余 10 条在默认配置下恒开
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
@@ -106,6 +110,34 @@ public final class WebUiHubStatusGameTests {
         } finally {
             // 同一进程内后续用例共用这台服务器的 ops 名单, 不清掉会污染别人的权限断言。
             playerList.deop(player.getGameProfile());
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void hubPanelsLocksQuestsWhileQuestServicesIsInactive(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        QuestService previous = QuestServices.service();
+        QuestServices.reset();
+        try {
+            JsonArray result = panels(player);
+            JsonObject quests = Objects.requireNonNull(findPanel(result, "quests"),
+                    "hub.panels 必须保留 quests 行而不是在停用时删掉入口");
+            helper.assertTrue(!quests.get("enabled").getAsBoolean(),
+                    "QuestServices inactive 时 quests 必须 enabled=false, 实得 " + quests);
+            helper.assertTrue(quests.has("lockCode")
+                            && HubLockCodes.QUEST_DISABLED.equals(quests.get("lockCode").getAsString()),
+                    "锁上的 quests 必须带 QUEST_DISABLED, 实得 " + quests);
+
+            JsonObject home = Objects.requireNonNull(findPanel(result, "home"));
+            helper.assertTrue(home.get("enabled").getAsBoolean() && !home.has("lockCode"),
+                    "任务锁必须独立, 不得连带锁住 home, 实得 " + home);
+            JsonObject admin = Objects.requireNonNull(findPanel(result, "admin"));
+            helper.assertTrue(!admin.get("enabled").getAsBoolean()
+                            && HubLockCodes.NOT_OP.equals(admin.get("lockCode").getAsString()),
+                    "任务锁不得覆盖非 OP 的 admin 独立锁码, 实得 " + admin);
+        } finally {
+            QuestServices.register(previous);
         }
         helper.succeed();
     }

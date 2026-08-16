@@ -29,6 +29,7 @@ public final class QuestSystem implements Subsystem {
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, QuestConfig.SPEC, "miningdim-quest.toml");
         forgeBus.register(this);
         forgeBus.register(new QuestEventHooks());
+        QuestWebUiActions.registerAll();
         // TaCZ 是 compileOnly 的可选依赖: 只有 Forge 报告它已加载时才注册边界层, 否则本进程永不 classload
         // 任何 com.tacz.* 类 (没装枪械 mod 的服务器照常起服)。
         modBus.addListener((FMLCommonSetupEvent event) -> event.enqueueWork(() -> {

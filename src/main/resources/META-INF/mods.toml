@@ -50,3 +50,30 @@ mandatory = false
 versionRange = "[1.20.1-1.2.0,)"
 ordering = "AFTER"
 side = "BOTH"
+
+# TACZ 集成越过 api 包直连内部实现包 (com.tacz.guns.resource.*/client.resource.*), 无兼容承诺,
+# 故 mandatory=false: 写 true 会让两个 mod 都不在的 dev GameTest 服务端直接拒绝启动。
+# 上界锁死补丁段排他区间, 因为内部包耦合在任何补丁版本都可能断, 升级前置必须先改这里并复验内部包用法。
+# 下界写普通 1.1.8 而非 1.1.8-hotfix: Maven 版本比较里未知限定符 "hotfix" 排在 release 之后
+# (DefaultArtifactVersion("1.1.8").compareTo(DefaultArtifactVersion("1.1.8-hotfix")) < 0), 若下界写
+# 1.1.8-hotfix 会把普通 1.1.8 版本挡在区间外, 而 hotfix 是 1.1.8 的补丁构建不改包结构, 没有理由排除。
+# ordering=AFTER 保证 FMLCommonSetupEvent.enqueueWork 里读 TACZ 静态注册表 AttachmentPropertyManager.getModifiers()
+# 时前置已完成初始化。
+[[dependencies.miningdim]]
+modId = "tacz"
+mandatory = false
+versionRange = "[1.1.8,1.1.9)"
+ordering = "AFTER"
+side = "BOTH"
+
+# Champions 集成越过 api 包直连内部实现包 (common.util/common.capability), 无兼容承诺,
+# 故 mandatory=false: 写 true 会让两个 mod 都不在的 dev GameTest 服务端直接拒绝启动。
+# 上界锁死补丁段排他区间, 理由同 tacz。side=BOTH 而非 SERVER: 整合包单人/局域网的集成服务端
+# Dist 为 CLIENT, 写 SERVER 会让 DependencySide.isCorrectSide 在客户端返回 false 从而跳过校验。
+# ordering=AFTER 保证 Champions 侧注册表先于本 mod 读取完成初始化。
+[[dependencies.miningdim]]
+modId = "champions"
+mandatory = false
+versionRange = "[1.20.1-2.1.10.2,1.20.1-2.1.11)"
+ordering = "AFTER"
+side = "BOTH"

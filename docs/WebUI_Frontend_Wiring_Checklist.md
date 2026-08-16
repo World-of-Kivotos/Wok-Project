@@ -143,7 +143,8 @@ PixelLoading / PixelEmpty / PixelError / PixelConfirmDanger
 | B5 | `market.mine` | READY | 服务端权威取 sender 自己的 ACTIVE |
 | B6 | `market.history` | BACKEND | **恒回空数组**。transactions 表 + 双索引 + insertTxn 全就绪，唯独 `MarketDao` 契约缺 `transactionsByPlayer(UUID,offset,limit)` |
 | B7 | `market.baseValue` | READY | 分层回 source：override / preset（仅钻/金锭/残骸/小麦 4 项）/ none |
-| B8 | `market.categories` | READY | 顶层数组直回；label 是翻译键，撞 A12 |
+| B8 | `market.categories` | READY(契约已变更，前端未跟进) | **F041 修复 (fix/market-payload) 起，回执形状不再是含叶子的树** —— 只出六个固定顶层 + ores 三个固定子分类，每个分支节点带 `leafCount`，`children` 恒存在但**不再保证非空**（原因：全量叶子超 `FriendlyByteBuf.MAX_STRING_LENGTH=32767` 字符硬闸，真服必炸，见 F041）。旧契约 `webui/src/lib/types.ts` 的 `CategoryBranchNode` 注释「恒有 children 且非空」与此矛盾，须作废；旧契约也无 `leafCount` 字段。叶子改由新 action `market.categoryItems` 按需分页取，见 B8b。前端未接入前，左栏分类展开后是空目录，等同 F041 玩家侧症状未消失，只是从报错变成空目录——**必须与前端配套改动同批次上线，不能单独放行** |
+| B8b | `market.categoryItems`（新增，本清单原未登记） | READY(前端零接入) | `{categoryId,page?,pageSize?} -> {categoryId,items:[{id,label,itemId}],page,pageSize,total}`。`categoryId` 必须是 `market.categories` 骨架里出现过的顶层/子分类 id，未知 id 拒绝。分页口径同 `market.list`（`page`/`pageSize` 缺省 0/20，钳制上限 100）。前端要接入需三件事：(1) `webui/src/lib/actions.ts` 的 `SERVER_ACTIONS` 登记本 action，`types.ts` 补返回类型；(2) `CategoryTree`/`BrowsePage.tsx` 改成点开分支节点时懒加载调用本 action 取叶子，而不是假设骨架自带叶子；(3) 同步改掉 `bridge.mock.ts` 里 `market.categories` 的 mock 实现（当前仍回旧的含叶子小树），否则 dev 假桥与真桥形状分叉 |
 | B9 | `market.feePreview` | WRAP | `MarketFee:35-46` 纯函数已就绪且被 place 内部调用，只差单独暴露 —— 否则玩家提交后才知道扣了多少费 |
 | B10 | `market.p2pCap` | WRAP | `MarketConstants:51` cap=512/日 + DAO 聚合方法均已就绪且在 place 内部做拒挂判定，只差包成"已用/剩余"查询 |
 | B11 | `market.pendingPayout` | BACKEND | `drainPendingPayout` 是登录时"取即删"的破坏性方法，无只读 peek。DAO 签名固定须新增而非改签名 |

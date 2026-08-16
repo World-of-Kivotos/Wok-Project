@@ -32,10 +32,15 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 跳蚤市场 12 个 market.* WebUiAction (共享契约第 6 节 + 真桥脱 Mock 补充: baseValue/categories + W2 接线补充:
+ * 跳蚤市场 13 个 market.* WebUiAction (共享契约第 6 节 + 真桥脱 Mock 补充: baseValue/categories + W2 接线补充:
  * feePreview/p2pCap/pendingPayout/tradable, 以及被填充的 history)。每个 handler 拿
  * 服务端校验过的 sender (卖家/买家身份, 不信前端 uuid) 与解析后的 payload (JsonObject), 经
  * {@link MarketServices#marketEngine()} 调引擎, 构 resultJson 返回。
+ *
+ * market.categories 与 market.categoryItems 的分工: 前者只回分类骨架 (六个固定顶层 + ores 三个固定子分类, 各带
+ * leafCount), 后者按 categoryId 分页取该分类 (含其后代) 的叶子。拆开的原因见 {@link MarketCategoryTree} 类注释
+ * (32767 字符下行硬闸 + 注册表规模) —— 骨架恒小, 叶子按需按页取, 两条 action 合起来才顶替原来那条会超限的
+ * market.categories。
  *
  * 异常纪律 (契约第 6 节 / CLAUDE.md C9): handler 内坏输入 (缺字段/类型错) 经 Gson 的 getAsX 自然抛, 引擎的越权/业务
  * 错误 (余额不足/挂单不存在/铜铁超 cap) 自然抛, 一律冒泡到 {@link WebUiServerDispatcher#dispatchAndRespond} 的 Gateway
@@ -64,7 +69,7 @@ public final class MarketActions {
     private MarketActions() {
     }
 
-    /** 把 12 个 market.* action 注册进派发器 (由 MarketSubsystem.register 调用)。 */
+    /** 把 13 个 market.* action 注册进派发器 (由 MarketSubsystem.register 调用)。 */
     public static void registerAll() {
         WebUiServerDispatcher.register("market.list", LIST);
         WebUiServerDispatcher.register("market.place", PLACE);
@@ -74,6 +79,7 @@ public final class MarketActions {
         WebUiServerDispatcher.register("market.history", HISTORY);
         WebUiServerDispatcher.register("market.baseValue", BASE_VALUE);
         WebUiServerDispatcher.register("market.categories", CATEGORIES);
+        WebUiServerDispatcher.register("market.categoryItems", CATEGORY_ITEMS);
         WebUiServerDispatcher.register("market.feePreview", FEE_PREVIEW);
         WebUiServerDispatcher.register("market.p2pCap", P2P_CAP);
         WebUiServerDispatcher.register("market.pendingPayout", PENDING_PAYOUT);
@@ -214,6 +220,9 @@ public final class MarketActions {
          */
         ItemStack escrow = MarketEngine.deserializeStack(r.itemNbt());
         WebUiItemJson.appendVariant(o, escrow);
+        // 托管物所属 mod 被卸载后, deserializeStack 兜成 EMPTY —— 这类挂单在列表里与正常挂单长得一模一样,
+        // 而成交路径会硬拒 (托管不可解析守卫)。多这一个键前端才能提前灰掉按钮, 不必让玩家点了才失败。
+        o.addProperty("escrowResolvable", !escrow.isEmpty());
         return o;
     }
 
@@ -486,14 +495,52 @@ public final class MarketActions {
     };
 
     // ============================================================
-    // market.categories: {} -> CategoryNode[]  (服务端按物品注册表构建, 下钻到叶子)
+    // market.categories: {} -> CategoryNode[]  (服务端按物品注册表构建骨架, 不含叶子)
     // ============================================================
 
     /**
-     * 物品分类树 (前端左栏筛选)。服务端按物品注册表枚举全物品归类成树 (见 {@link MarketCategoryTree}), 顶层数组直接回
-     * (前端 call&lt;CategoryNode[]&gt; 直接 JSON.parse 拿数组, 不包外层对象)。叶子带 itemId, label 是翻译键 (客户端 i18n 解析)。
+     * 分类骨架 (前端左栏筛选的顶层结构)。服务端按物品注册表统计各分类物品数构骨架 (见 {@link MarketCategoryTree}),
+     * 顶层数组直接回 (前端 call&lt;CategoryNode[]&gt; 直接 JSON.parse 拿数组, 不包外层对象)。骨架不含叶子 —— 叶子改由
+     * market.categoryItems 按分类节点分页取回, 理由见 {@link MarketCategoryTree} 类注释 (32767 字符下行硬闸)。
      */
-    static final WebUiAction CATEGORIES = (sender, payload) -> GSON.toJson(MarketCategoryTree.build());
+    static final WebUiAction CATEGORIES = (sender, payload) -> GSON.toJson(MarketCategoryTree.buildSkeleton());
+
+    // ============================================================
+    // market.categoryItems: {categoryId,page?,pageSize?} -> {categoryId,items:[{id,label,itemId}],page,pageSize,total}
+    // ============================================================
+
+    /**
+     * 某分类节点 (含其后代) 的叶子分页 (与 market.categories 配套, 见该 action 注释的分工说明)。categoryId 必须是
+     * {@link MarketCategoryTree#buildSkeleton} 输出过的六个顶层或三个 ores 子分类之一, 未知 id 直接拒绝 —— 骨架
+     * 已把合法 id 集合亮给前端, 传别的只可能是前端 bug 或探测, 不该静默回空列表。
+     *
+     * 分页口径与 market.list / market.history 同一套 (DEFAULT_PAGE / DEFAULT_PAGE_SIZE / MAX_PAGE_SIZE + clamp),
+     * total 是该分类叶子总数供前端算总页数, 与 {@link #HISTORY} 带 total 同理 (最后一页正好装满时不多翻出一页空表)。
+     */
+    static final WebUiAction CATEGORY_ITEMS = (sender, payload) -> {
+        // categoryId 业务必填: 缺失自然抛 (与 market.place 同纪律)。
+        String categoryId = payload.get("categoryId").getAsString();
+        if (!MarketCategoryTree.isKnownCategory(categoryId)) {
+            throw WebUiPayloads.illegalValue("categoryId", categoryId, "未知的分类 id");
+        }
+        int page = Math.max(0, optInt(payload, "page", DEFAULT_PAGE));
+        int pageSize = clamp(optInt(payload, "pageSize", DEFAULT_PAGE_SIZE), 1, MAX_PAGE_SIZE);
+        int offset = page * pageSize;
+
+        MarketCategoryTree.LeafPage leafPage = MarketCategoryTree.leavesOf(categoryId, offset, pageSize);
+
+        JsonObject result = new JsonObject();
+        result.addProperty("categoryId", categoryId);
+        JsonArray items = new JsonArray();
+        for (JsonObject leaf : leafPage.items()) {
+            items.add(leaf);
+        }
+        result.add("items", items);
+        result.addProperty("page", page);
+        result.addProperty("pageSize", pageSize);
+        result.addProperty("total", leafPage.total());
+        return GSON.toJson(result);
+    };
 
     // ============================================================
     // payload 取值 helper (可选字段缺省; 业务必填字段不走此路, 直接 get().getAsX 自然抛)

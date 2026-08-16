@@ -191,8 +191,28 @@ public final class MiningSchema {
             "ALTER TABLE case_openings ADD COLUMN economy_settled INTEGER NOT NULL DEFAULT 0",
             BACKFILL_ECONOMY_SETTLED_SQL);
 
+    /**
+     * 版本 4: 给 {@code pending_payout} 补 {@code seller_uuid} 索引。
+     *
+     * 为什么不能改 V1 而必须新开一版: 迁移由 user_version 门控只跑一次, 老存档的 user_version 早已推进过
+     * V1, 不会重新执行其中的 CREATE 语句。把索引塞进 V1 只会让"从这版代码起新建的库"与"已经跑过旧版 V1
+     * 的老存档"结构分歧、而 user_version 相同, 这类不一致事后无法诊断 —— 与本文件顶部的铁律直接冲突。
+     *
+     * 为什么需要这个索引: 访问 pending_payout 的三条语句 (MarketDaoSqlite.java 的两处待领款 SELECT 与一处
+     * DELETE) 全部按 seller_uuid 过滤, 调用点分别是 MarketEngine.settlePendingOnLogin (卖家每次上线触发)
+     * 与 market.pendingPayout (卖家每次打开收件箱面板触发), 两者都跑在服务端主线程上。没有该列的索引时,
+     * 这三条语句在 pending_payout 上都是全表扫描, 且扫描频率随在线卖家数与他们的操作频次线性放大。
+     *
+     * 只加索引、不加清理: 行只在该卖家本人 drain 时被删除, 退坑/长期离线卖家的待领款行会永久驻留、表单调
+     * 增长。这本该配一条清理或归档策略, 但保留期是需要主控拍板的业务数值 (例如"离线满多久视为弃置"),
+     * 本次迁移刻意不臆造这个数字, 只解决索引缺失导致的扫描代价, 清理逻辑留给后续单独的、附带具体保留期
+     * 拍板结果的变更。
+     */
+    private static final List<String> V4 = List.of(
+            "CREATE INDEX idx_pending_payout_seller ON pending_payout(seller_uuid)");
+
     /** 全部迁移, 下标 + 1 即其版本号。 */
-    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3);
+    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3, V4);
 
     /** 把连接上的库推进到本版代码支持的最新结构。 */
     public static void apply(Connection conn) {

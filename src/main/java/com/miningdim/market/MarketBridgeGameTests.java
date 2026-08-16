@@ -1,5 +1,6 @@
 package com.miningdim.market;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -21,16 +22,23 @@ import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.market.store.MarketDaoSqlite;
 import com.miningdim.market.store.MarketDb;
 import com.miningdim.testutil.MockGameTestPlayers;
+import com.miningdim.webui.server.WebUiBusinessException;
+import com.miningdim.webui.server.WebUiErrorCodes;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
+import net.minecraftforge.registries.ForgeRegistries;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -43,7 +51,8 @@ import java.util.function.Function;
  *  1. player.wallet 回发送者真实 CREDIT/AZURE 账本余额。
  *  2. player.inventory 回发送者非空主背包槽位 (slot/itemId/count), 改名物品带 displayName, 普通物品不带。
  *  3. market.baseValue 三层解析 + source 标注: preset (钻石 500/preset) / none (鹅卵石 null/none) / override (覆盖后 override)。
- *  4. market.categories 树构建: 顶层含矿物与材料 + 钻石下钻到 ores/gem 叶子 (带 itemId), 分支节点无 itemId, 叶子有序。
+ *  4. market.categories 只出分支骨架 (leafCount 自洽, 零叶子); market.categoryItems 按 categoryId 分页取叶子
+ *     (排序 / 分页钳制 / ores 并集语义 / 未知分类拒绝 / 32767 字符体积上限, 见本文件 categoryItems 系列测试)。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -228,13 +237,13 @@ public final class MarketBridgeGameTests {
     }
 
     // ============================================================
-    // 4. market.categories: 树构建 + 下钻到带 itemId 的叶子 + 分支无 itemId
+    // 4. market.categories: 只出分支骨架 (F041) —— 零叶子, ores 挂三个固定子分支
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void marketCategoriesBuildsTreeDrillingToLeaves(GameTestHelper helper) {
-        // build() 枚举真实物品注册表 (GameTest 在已注册全物品的服务端跑), 不依赖门面/账本。
-        JsonArray tree = MarketCategoryTree.build();
+    public static void marketCategoriesBuildsBranchSkeletonWithoutLeaves(GameTestHelper helper) {
+        // buildSkeleton() 枚举真实物品注册表 (GameTest 在已注册全物品的服务端跑), 不依赖门面/账本。
+        JsonArray tree = MarketCategoryTree.buildSkeleton();
         helper.assertTrue(tree.size() > 0, "category tree has at least one top-level category");
 
         // 顶层"矿物与材料" (ores) 存在且是分支 (无 itemId, 有 children)。
@@ -243,28 +252,146 @@ public final class MarketBridgeGameTests {
         helper.assertTrue(ores != null && !ores.has("itemId") && ores.has("children"),
                 "a branch node carries no itemId and has children");
 
-        // ores 下有"宝石" (gem) 子分支, 其下钻到钻石叶子 (带 itemId=minecraft:diamond, label=翻译键)。
-        JsonObject gem = findById(ores.getAsJsonArray("children"), "gem");
-        helper.assertTrue(gem != null && gem.has("children"), "the gem sub-branch exists under ores");
-        JsonObject diamondLeaf = findByItemId(gem.getAsJsonArray("children"), "minecraft:diamond");
-        helper.assertTrue(diamondLeaf != null,
-                "diamond drills down to a leaf under ores/gem (registry-driven bucketing)");
-        helper.assertTrue(diamondLeaf != null
-                        && diamondLeaf.get("label").getAsString().equals("item.minecraft.diamond"),
-                "a leaf's label is the item translation key (resolved client-side via i18n)");
+        // ores 下含固定的三个子分支: 原矿 (ore) / 锭 (ingot) / 宝石 (gem)。
+        JsonArray oresChildren = ores.getAsJsonArray("children");
+        helper.assertTrue(findById(oresChildren, "ore") != null, "ores 下含 ore 子分支");
+        helper.assertTrue(findById(oresChildren, "ingot") != null, "ores 下含 ingot 子分支");
+        helper.assertTrue(findById(oresChildren, "gem") != null, "ores 下含 gem 子分支");
 
-        // 锭子分支含铁锭叶子 (按 _ingot 后缀归入 ores/ingot)。
-        JsonObject ingot = findById(ores.getAsJsonArray("children"), "ingot");
-        helper.assertTrue(ingot != null
-                        && findByItemId(ingot.getAsJsonArray("children"), "minecraft:iron_ingot") != null,
-                "iron ingot drills down to ores/ingot by its _ingot suffix");
+        // 递归遍历整棵骨架: 零个节点带 itemId (删掉"骨架只出分支"这条实施, 任何一处混入叶子本断言必挂)。
+        assertNoLeaves(helper, tree);
 
-        // 叶子按 item_id 字典序 (确定性): copper_ingot 应排在 iron_ingot 之前 (c < i)。
-        JsonArray ingotLeaves = ingot.getAsJsonArray("children");
-        int copperIdx = indexOfItemId(ingotLeaves, "minecraft:copper_ingot");
-        int ironIdx = indexOfItemId(ingotLeaves, "minecraft:iron_ingot");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 4b. market.categories 骨架体积必须严格小于下行 32767 字符硬闸 (F041 核心判据)
+    // ============================================================
+
+    /**
+     * 前提校验先证明这不是小注册表下的永真断言: 若骨架仍像旧实现那样把全部叶子内嵌其中, 按每条叶子 JSON
+     * 最短可能形态 (40 字符) 估算, 当前注册表规模下必然超限 —— 也就是说旧实现在本测试环境里本来就会被
+     * 这条体积断言当场抓到, 而不是靠"真服才炸"才发现。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void marketCategoriesSkeletonFitsUnderStringLimit(GameTestHelper helper) {
+        int itemCount = ForgeRegistries.ITEMS.getKeys().size();
+        helper.assertTrue((long) itemCount * 40L > FriendlyByteBuf.MAX_STRING_LENGTH,
+                "前提校验: 注册表含 " + itemCount + " 个物品, 按最短叶子 JSON (40 字符/条) 估算必然超过 "
+                        + FriendlyByteBuf.MAX_STRING_LENGTH + " 字符上限 (证明骨架不能再内嵌全部叶子)");
+
+        String skeletonJson = new Gson().toJson(MarketCategoryTree.buildSkeleton());
+        helper.assertTrue(skeletonJson.length() < FriendlyByteBuf.MAX_STRING_LENGTH,
+                "market.categories 骨架体积必须严格小于下行硬闸 " + FriendlyByteBuf.MAX_STRING_LENGTH
+                        + " 字符, 实得 " + skeletonJson.length());
+
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 4c. market.categoryItems: 排序 + 分页 + pageSize 钳制
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void marketCategoryItemsPaginatesIngotLeavesDeterministically(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+
+        // 先取一页够大的 (100, 硬上限) 拿 ingot 分类的完整顺序与真实 total, 验证字典序 (copper 排在 iron 之前)。
+        JsonObject full = handle(MarketActions.CATEGORY_ITEMS, player, categoryPayload("ingot", 0, 100));
+        JsonArray fullItems = full.getAsJsonArray("items");
+        int total = full.get("total").getAsInt();
+        helper.assertTrue(total > 2,
+                "ingot 分类真实叶子数必须 > 2 (否则后续分页/去重断言测不出东西), 实得 total=" + total);
+        int copperIdx = indexOfItemId(fullItems, "minecraft:copper_ingot");
+        int ironIdx = indexOfItemId(fullItems, "minecraft:iron_ingot");
         helper.assertTrue(copperIdx >= 0 && ironIdx >= 0 && copperIdx < ironIdx,
-                "leaves are sorted by item_id lexicographically (copper before iron), deterministic tree");
+                "items 按 itemId 字典序排列 (copper_ingot 排在 iron_ingot 之前), 实得 copperIdx=" + copperIdx
+                        + " ironIdx=" + ironIdx);
+
+        // page=0 pageSize=2 恰回 2 条, 且第一页必含字典序最小的 copper_ingot; total 与 offset/limit 无关。
+        JsonObject page0 = handle(MarketActions.CATEGORY_ITEMS, player, categoryPayload("ingot", 0, 2));
+        JsonArray items0 = page0.getAsJsonArray("items");
+        helper.assertTrue(items0.size() == 2,
+                "page=0 pageSize=2 必须恰回 2 条, 实得 " + items0.size());
+        helper.assertTrue(findByItemId(items0, "minecraft:copper_ingot") != null,
+                "page=0 必须含字典序最小的 copper_ingot");
+        helper.assertTrue(page0.get("total").getAsInt() == total,
+                "total 必须恒为该分类真实总数, 与 offset/limit 无关, 实得 " + page0.get("total"));
+
+        // page=1 与 page=0 的 itemId 集合互斥 (删掉 offset 计算, page=1 会与 page=0 撞车, 本断言必挂)。
+        JsonObject page1 = handle(MarketActions.CATEGORY_ITEMS, player, categoryPayload("ingot", 1, 2));
+        JsonArray items1 = page1.getAsJsonArray("items");
+        Set<String> ids0 = itemIdsOf(items0);
+        Set<String> ids1 = itemIdsOf(items1);
+        helper.assertTrue(Collections.disjoint(ids0, ids1),
+                "page=1 与 page=0 的 itemId 集合不相交, 实得 page0=" + ids0 + " page1=" + ids1);
+
+        // pageSize 钳制: 传 1000 必须被钳到 100, 回执条数不得超过钳制后的上限 (删掉 clamp 必挂)。
+        JsonObject clamped = handle(MarketActions.CATEGORY_ITEMS, player, categoryPayload("ingot", 0, 1000));
+        helper.assertTrue(clamped.get("pageSize").getAsInt() == 100,
+                "pageSize=1000 必须被钳到 100, 实得 " + clamped.get("pageSize"));
+        helper.assertTrue(clamped.getAsJsonArray("items").size() <= 100,
+                "回执 items 实际条数不得超过钳制后的 100, 实得 " + clamped.getAsJsonArray("items").size());
+
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 4d. market.categoryItems: ores 的并集语义 + 与骨架 leafCount 同源自洽
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void marketCategoryItemsOresUnionMatchesSkeletonLeafCount(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+
+        int oreTotal = handle(MarketActions.CATEGORY_ITEMS, player, categoryPayload("ore", 0, 1))
+                .get("total").getAsInt();
+        int ingotTotal = handle(MarketActions.CATEGORY_ITEMS, player, categoryPayload("ingot", 0, 1))
+                .get("total").getAsInt();
+        int gemTotal = handle(MarketActions.CATEGORY_ITEMS, player, categoryPayload("gem", 0, 1))
+                .get("total").getAsInt();
+        int oresTotal = handle(MarketActions.CATEGORY_ITEMS, player, categoryPayload("ores", 0, 1))
+                .get("total").getAsInt();
+
+        // 并集语义 (两条独立路径同源): "ores" 单查的 total 必须等于三个子分类各自单查 total 之和。
+        helper.assertTrue(oresTotal == oreTotal + ingotTotal + gemTotal,
+                "ores 分类 total 必须等于 ore+ingot+gem 三次单查 total 之和, 实得 ores=" + oresTotal
+                        + " 三者之和=" + (oreTotal + ingotTotal + gemTotal));
+
+        // leafCount 自洽: 骨架里 ores.leafCount == 其三个子分支 leafCount 之和 == 上面 ores 分类查询回的 total。
+        JsonArray tree = MarketCategoryTree.buildSkeleton();
+        JsonObject ores = findById(tree, "ores");
+        helper.assertTrue(ores != null, "ores 顶层分支必须存在于骨架里");
+        int oresLeafCount = ores.get("leafCount").getAsInt();
+        int childLeafCountSum = 0;
+        for (JsonElement child : ores.getAsJsonArray("children")) {
+            childLeafCountSum += child.getAsJsonObject().get("leafCount").getAsInt();
+        }
+        helper.assertTrue(childLeafCountSum == oresLeafCount,
+                "ores.leafCount 必须等于其子分支 leafCount 之和, 实得子分支之和=" + childLeafCountSum
+                        + " ores.leafCount=" + oresLeafCount);
+        helper.assertTrue(oresLeafCount == oresTotal,
+                "骨架 ores.leafCount 必须与 market.categoryItems(ores) 的 total 同源一致, 实得 leafCount="
+                        + oresLeafCount + " total=" + oresTotal);
+
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 4e. market.categoryItems: 未知 categoryId 必须抛 INVALID_REQUEST 并指名字段
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void marketCategoryItemsRejectsUnknownCategory(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+
+        WebUiBusinessException rejected = rejection(helper, MarketActions.CATEGORY_ITEMS, player,
+                categoryPayload("no_such_bucket", 0, 20));
+
+        helper.assertTrue(WebUiErrorCodes.INVALID_REQUEST.equals(rejected.errorCode()),
+                "未知 categoryId 必须回 INVALID_REQUEST, 实得 " + rejected.errorCode());
+        helper.assertTrue("categoryId".equals(rejected.params().get("field")),
+                "params.field 必须指名 categoryId, 实得 " + rejected.params());
 
         helper.succeed();
     }
@@ -313,6 +440,45 @@ public final class MarketBridgeGameTests {
         JsonObject p = new JsonObject();
         p.addProperty("itemId", itemId);
         return p;
+    }
+
+    private static JsonObject categoryPayload(String categoryId, int page, int pageSize) {
+        JsonObject p = new JsonObject();
+        p.addProperty("categoryId", categoryId);
+        p.addProperty("page", page);
+        p.addProperty("pageSize", pageSize);
+        return p;
+    }
+
+    private static Set<String> itemIdsOf(JsonArray items) {
+        Set<String> ids = new HashSet<>();
+        for (JsonElement e : items) {
+            ids.add(e.getAsJsonObject().get("itemId").getAsString());
+        }
+        return ids;
+    }
+
+    /** 递归断言骨架里零个节点带 itemId (骨架只出分支, 叶子改由 market.categoryItems 按需取)。 */
+    private static void assertNoLeaves(GameTestHelper helper, JsonArray nodes) {
+        for (JsonElement e : nodes) {
+            JsonObject node = e.getAsJsonObject();
+            helper.assertTrue(!node.has("itemId"),
+                    "骨架节点 " + node.get("id").getAsString() + " 不应带 itemId (骨架只出分支, 无叶子)");
+            assertNoLeaves(helper, node.getAsJsonArray("children"));
+        }
+    }
+
+    /** 调 action 并要求它抛业务拒绝; 没抛就地判失败 (返回值必非 null, 调用方可直接取字段)。 */
+    private static WebUiBusinessException rejection(GameTestHelper helper,
+                                                     com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction action,
+                                                     ServerPlayer sender, JsonObject payload) {
+        try {
+            action.handle(sender, payload);
+        } catch (WebUiBusinessException rejected) {
+            return rejected;
+        }
+        helper.fail("该请求本应被业务拒绝, 实际却成功返回了: " + payload);
+        throw new IllegalStateException("unreachable: helper.fail already threw");
     }
 
     private static JsonObject findBySlot(JsonArray items, int slot) {

@@ -1,6 +1,8 @@
 package com.miningdim.store;
 
 import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.List;
 
 /**
@@ -134,11 +136,79 @@ public final class MiningSchema {
                     + "credit_carry REAL NOT NULL DEFAULT 0, "
                     + "PRIMARY KEY (player_id, counter_key, kind))");
 
+    /**
+     * 版本 3: 给 {@code case_openings} 加 {@code economy_settled} 列, 把开箱结算的幂等锚从可回收的
+     * {@code bundle_operations} 账本行搬到开箱库自己的表上。
+     *
+     * 此前 {@code CaseOpeningService.isEconomySettled} 靠查 {@code bundle_operations} 里对应 operation_id
+     * 是否存在 CHARGED/COMPLETED 行来判定一笔开箱是否已扣过款; 而 {@code EconomySystem} 每次启动都会 prune
+     * 掉 30 天前的 COMPLETED/REFUNDED 行。凭据被删后, 登录恢复会把这类无证据的 COMMITTED 行当成"扣款中途
+     * 崩溃的孤儿", 对玩家真扣一次 CREDIT/AZURE —— 皮肤明明已经发到手, 却在 30 天窗口后被反复重复扣费。
+     * 把结算状态落到 case_openings 自己身上, 使其不再随账本保留期漂移。
+     *
+     * 回填 (第二条语句) 的四种情形与取值依据:
+     * <ul>
+     *   <li>账本里查到该笔的 COMPLETED 证据 -> 置 1。这是无争议的已结算, 有终态凭证。</li>
+     *   <li>账本里查到该笔的 CHARGED 或 REFUNDED 证据 -> 保持 0。CHARGED 说明扣款流程尚未走到终态, 交给既有
+     *       的登录恢复逻辑继续推进; REFUNDED 与 case_openings.status='COMMITTED' 本身自相矛盾 (一边说货已发,
+     *       一边说钱已退), 这类冲突数据不该被这次迁移悄悄抹平, 必须继续走既有的隔离/人工路径。</li>
+     *   <li>账本里查无此笔、且该行创建时间早于 30 天保留期 -> 置 1。这类行的证据只可能是被本仓自己的
+     *       prune 删掉的: 在修复前, 登录恢复对任何无证据的 COMMITTED 行都会补扣款并写回一条新的账本证据,
+     *       所以一条创建时间已经超出保留期、却仍然查无证据的行, 只有"证据存在过但被 prune 删了"这一种解释,
+     *       不可能是从未结算过。这里的 2592000000 (30 天毫秒数) 与 {@code EconomySystem} 里的保留期常量
+     *       同源, 但在此处刻死为字面量是刻意的: 这是一条一次性的历史数据迁移, 描述的是"升级那一刻" 30 天
+     *       保留期造成的既成事实, 不应该跟随日后配置调整而改变对历史行的判断。
+     *       代价: 极少数保留期外的"真崩溃孤儿" (资产从未真正发出、账本也丢了) 会被这条规则一并赦免、不再
+     *       补扣款。权衡过的替代方案是让每个老玩家在升级后的第一次登录都按其历史开箱笔数逐笔重新扣款 ——
+     *       那正是这次要修的 Critical 本身, 不可接受, 因此选择赦免这极少数真孤儿。</li>
+     *   <li>账本里查无此笔、且该行仍在 30 天保留期之内 -> 保持 0。这才是真正的硬崩溃孤儿 (资产已发、账本
+     *       却从未写入或已被显式作废), 保留 0 让登录恢复照常补扣款, 是正确处置, 不应被赦免。</li>
+     * </ul>
+     *
+     * 这条 UPDATE 只在 user_version 推进到 3 的那一刻跑一次 (由 {@link SchemaMigrator} 门控)。但两类数据
+     * 恰好都发生在这一刻【之后】才落进库里, 回填因此够不着它们:
+     * <ul>
+     *   <li>{@link LegacyStoreImport} 从 miningdim_cases.db 搬入的 COMMITTED 开箱行 —— 它们的付款证据只
+     *       存在于早已删除的旧版 SavedData, bundle_operations 里永远查不到, 结构上等价于"账本查无此笔",
+     *       会一直卡在 economy_settled=0 直到被当作硬崩溃孤儿重新扣款。</li>
+     *   <li>存档若停在 user_version=1 (case_openings 已在统一库、钱包仍在 SavedData), 本次 apply 会在同一
+     *       个事务里先跑 V2 建出空的 bundle_operations、再跑 V3 对着这张空表判定; 真正的付款证据要等
+     *       {@code EconomyLedgerBootstrap.migrateIfNeeded} 在 ServerStartedEvent (晚于本类所在的
+     *       ServerAboutToStartEvent) 才会被搬进来, 同样早已错过这次判定。</li>
+     * </ul>
+     * {@link #backfillCaseEconomySettled} 把这条 UPDATE 抽成可重复调用的独立入口, 供 {@link MiningStore}
+     * 在 {@link LegacyStoreImport} 之后、{@code EconomySystem} 在旧账本迁移之后各自补跑一次, 让这两类
+     * 迟到的数据也能被同一套判据追平。
+     */
+    private static final String BACKFILL_ECONOMY_SETTLED_SQL =
+            "UPDATE case_openings SET economy_settled=1 WHERE status='COMMITTED' AND NOT EXISTS "
+                    + "(SELECT 1 FROM bundle_operations b WHERE b.operation_id=case_openings.opening_id "
+                    + "AND b.status IN ('CHARGED','REFUNDED')) AND "
+                    + "(EXISTS (SELECT 1 FROM bundle_operations b2 WHERE b2.operation_id=case_openings.opening_id "
+                    + "AND b2.status='COMPLETED') OR created_at < (strftime('%s','now')*1000 - 2592000000))";
+
+    private static final List<String> V3 = List.of(
+            "ALTER TABLE case_openings ADD COLUMN economy_settled INTEGER NOT NULL DEFAULT 0",
+            BACKFILL_ECONOMY_SETTLED_SQL);
+
     /** 全部迁移, 下标 + 1 即其版本号。 */
-    static final List<List<String>> MIGRATIONS = List.of(V1, V2);
+    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3);
 
     /** 把连接上的库推进到本版代码支持的最新结构。 */
     public static void apply(Connection conn) {
         SchemaMigrator.migrate(conn, MIGRATIONS);
+    }
+
+    /**
+     * 重新执行 V3 的结算回填判据 (见上方 javadoc)。该 UPDATE 只依赖 case_openings 与 bundle_operations
+     * 的当前内容, 对已经是目标值的行重复执行无副作用, 可以在旧库导入、旧账本迁移等"迟到数据到位"的
+     * 时间点安全地重复调用。
+     */
+    public static void backfillCaseEconomySettled(Connection conn) {
+        try (Statement statement = conn.createStatement()) {
+            statement.execute(BACKFILL_ECONOMY_SETTLED_SQL);
+        } catch (SQLException e) {
+            throw new MiningStoreException("重跑开箱结算回填失败", e);
+        }
     }
 }

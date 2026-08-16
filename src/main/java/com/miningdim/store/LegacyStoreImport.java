@@ -10,6 +10,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -111,9 +112,14 @@ public final class LegacyStoreImport {
                     // 旧库来自更早的版本, 少几张表是可能的; 缺表等价于零行, 不是错误。
                     continue;
                 }
-                // 整表按列序搬迁: 列数或列序不一致时 SQLite 会直接抛, 而不是静默错位。
-                exec(conn, "INSERT INTO main." + table
-                        + " SELECT * FROM " + LEGACY_SCHEMA + "." + table);
+                // 按【旧库】的列名清单搬迁, 而不再是 SELECT * 依赖新旧两侧列数与列序完全一致: 统一库的表结构
+                // 会随迁移演进 (例如追加新列), 旧库不会跟着变。由旧库列集驱动意味着统一库日后新增的列在导入
+                // 后取的是各自 DDL 里的默认值; 反过来, 旧库有而统一库没有的列, INSERT 仍会因目标列不存在而
+                // 直接抛错、不会静默错位 —— 原先靠"列序一致"守住的那条底线, 现在靠"旧库列名必须都在目标表
+                // 里存在"继续守住。
+                String columns = String.join(",", legacyColumns(conn, legacyPath, table));
+                exec(conn, "INSERT INTO main." + table + " (" + columns + ")"
+                        + " SELECT " + columns + " FROM " + LEGACY_SCHEMA + "." + table);
             }
             for (String table : tables) {
                 long source = legacyTableExists(conn, table)
@@ -165,6 +171,29 @@ public final class LegacyStoreImport {
         } catch (SQLException e) {
             throw new MiningStoreException("探测旧库表失败: " + tableName, e);
         }
+    }
+
+    /**
+     * 读出旧库该表的列名清单, 按 cid 顺序 (即建表时的列序)。表名只来自本类内的 MARKET_TABLES/CASE_TABLES
+     * 常量, 不是外部输入, 拼进 PRAGMA 语句是安全的 —— PRAGMA 不支持参数绑定, 只能拼接。
+     */
+    private static List<String> legacyColumns(Connection conn, Path legacyPath, String table) {
+        List<String> columns = new ArrayList<>();
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery(
+                     "PRAGMA " + LEGACY_SCHEMA + ".table_info(" + table + ")")) {
+            while (rs.next()) {
+                columns.add(rs.getString("name"));
+            }
+        } catch (SQLException e) {
+            throw new MiningStoreException("读取旧库 " + legacyPath.getFileName()
+                    + " 的 " + table + " 表结构失败", e);
+        }
+        if (columns.isEmpty()) {
+            throw new MiningStoreException("旧库 " + legacyPath.getFileName() + " 的表 " + table
+                    + " 存在却读不出任何列, 旧库文件可能已损坏, 拒绝导入");
+        }
+        return columns;
     }
 
     private static long countRows(Connection conn, String qualifiedTable) {

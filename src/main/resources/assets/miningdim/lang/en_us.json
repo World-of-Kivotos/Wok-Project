@@ -37,6 +37,7 @@
   "message.miningdim.info.line": "Instance #%s | difficulty %s | state %s | players %s",
   "message.miningdim.reset.auto_warn": "The %s mining region will reset in %s second(s). Please leave the area.",
   "message.miningdim.rules.placement_denied": "You cannot place that block inside the mining dimension.",
+  "message.miningdim.rules.spawn_denied": "You cannot set a respawn point in the mining dimension -- the entire region will be refreshed.",
   "message.miningdim.reset.unknown": "Unknown mining instance: %s",
   "message.miningdim.reset.failed": "Reset of instance #%s failed: %s",
   "message.miningdim.reset.done": "Instance #%s has been reset.",

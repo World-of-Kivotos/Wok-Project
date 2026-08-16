@@ -8,6 +8,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
+import net.minecraftforge.event.entity.player.PlayerSetSpawnEvent;
 import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -15,10 +16,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * R7 放置规则子系统入口 (模块化铁律 3)。在矿山维度 (miningdim:mining) 内, 放置非白名单方块
- * (rules.placeWhitelist) 一律取消并提示放置者; 挖矿/破坏不受限。
+ * R7 矿山维度规则子系统入口 (模块化铁律 3)。在矿山维度 (miningdim:mining) 内, 放置非白名单方块
+ * (rules.placeWhitelist) 一律取消并提示放置者; 指向矿山维度的重生点设置同样会被取消。
  *
- * 监听两个 forge 放置事件:
+ * 监听两个 forge 放置事件与重生点设置事件:
  *  - {@link BlockEvent.EntityPlaceEvent}: 单方块放置 (绝大多数情形)。
  *  - {@link BlockEvent.EntityMultiPlaceEvent}: 单次放置触发多方块 (如床), Forge 以独立事件类分发,
  *    EntityPlaceEvent 监听器收不到它, 故必须单独订阅 (EntityMultiPlaceEvent extends EntityPlaceEvent,
@@ -36,9 +37,9 @@ public final class RulesSystem implements Subsystem {
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
-        // 纯 forge 总线运行期事件 (方块放置), 不涉及 mod 总线注册。
+        // 纯 forge 总线运行期事件 (方块放置与重生点设置), 不涉及 mod 总线注册。
         forgeBus.register(this);
-        LOGGER.info("[miningdim] rules subsystem registered (mining-dimension placement whitelist enforced)");
+        LOGGER.info("[miningdim] rules subsystem registered (mining-dimension placement and respawn rules enforced)");
     }
 
     @SubscribeEvent
@@ -50,6 +51,19 @@ public final class RulesSystem implements Subsystem {
     public void onEntityMultiPlace(BlockEvent.EntityMultiPlaceEvent event) {
         // 多方块放置 (如床): getPlacedBlock 为首个 snapshot 的方块, 足以代表本次放置的方块种类。
         enforce(event, event.getPlacedBlock().getBlock());
+    }
+
+    @SubscribeEvent
+    public void onSetSpawn(PlayerSetSpawnEvent event) {
+        // 判据是重生点指向的维度, 不是玩家当前所在维度: 人在矿洞里把重生点设回主世界是正常操作。
+        // 清除重生点时 Forge 会把 null 坐标对应的维度改为主世界, 因此清除已有重生点永远不会被此闸拦截。
+        if (!event.getSpawnLevel().equals(MiningConstants.MINING_LEVEL)) {
+            return;
+        }
+        event.setCanceled(true);
+        if (event.getEntity() instanceof ServerPlayer player) {
+            player.sendSystemMessage(Component.translatable("message.miningdim.rules.spawn_denied"));
+        }
     }
 
     /**

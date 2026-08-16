@@ -37,6 +37,7 @@
   "message.miningdim.info.line": "实例 #%s ｜ 难度 %s ｜ 状态 %s ｜ 在场玩家 %s",
   "message.miningdim.reset.auto_warn": "%s 矿洞区域将在 %s 秒后重置，请尽快离开该区域。",
   "message.miningdim.rules.placement_denied": "你无法在矿业维度内放置该方块。",
+  "message.miningdim.rules.spawn_denied": "矿洞里不能设置重生点 —— 这块地会被整块刷新。",
   "message.miningdim.reset.unknown": "未知的矿洞实例：%s",
   "message.miningdim.reset.failed": "重置实例 #%s 失败：%s",
   "message.miningdim.reset.done": "实例 #%s 已重置完成。",

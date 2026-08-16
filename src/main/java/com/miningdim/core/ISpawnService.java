@@ -5,24 +5,25 @@ import net.minecraft.server.level.ServerLevel;
 
 /**
  * 安全出生服务门面 (设计文档 3.3 SpawnSystem / 第十一章, G7/D4)。
- * 从离线生成的体素视图里筛选满足安全谓词 (头顶 spawn.headroomBlocks 格空气 / 脚下固体 /
- * 无岩浆 / 非陷阱区) 且 ∈ 主连通分量的点 (D4 保证存在)。
+ * 候选点来自真实世界预扫描的出生池, 取点带占用 TTL 避免多人叠格; 池内取不到安全点时
+ * 由实现方建兜底安全平台并返回其站立点, 故本方法不返回 null、也不抛 —— 原版噪声地形
+ * 本来就不保证中心有现成空腔, 那是预期分支不是缺陷。
  */
 public interface ISpawnService {
 
     /**
-     * 解析一个安全出生点 (世界坐标)。候选来自体素视图主连通分量, 经安全谓词过滤。
+     * 解析一个安全出生点 (世界坐标)。候选来自真实世界预扫描的出生池, 经安全谓词过滤,
+     * 取点带占用 TTL 避免多人叠格。
      *
+     * @param level    矿山维度 ServerLevel
      * @param instance 实例 (提供 regionBox/difficulty/seed)
-     * @param voxels   该实例已生成的体素占用视图
      * @return 世界坐标安全出生点
-     * @throws IllegalStateException 无合法点时抛 (C4 保证不应发生; 抛出即暴露连通性缺陷, 不掩盖)
      */
-    BlockPos findSpawn(InstanceState instance, VoxelOccupancy voxels);
+    BlockPos findSpawn(ServerLevel level, InstanceState instance);
 
     /**
      * 在已落方块的世界中复核某点是否安全 (传送前二次确认 / 重生点校验)。
-     * 与 findSpawn 的体素谓词一致, 但读真实 ServerLevel 方块状态。
+     * 与 findSpawn 预扫描出生池所用的安全谓词一致。
      *
      * @param level    矿山维度 ServerLevel
      * @param pos      候选点 (玩家脚部)

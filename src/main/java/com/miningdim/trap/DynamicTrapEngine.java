@@ -1,5 +1,6 @@
 package com.miningdim.trap;
 
+import com.miningdim.core.Difficulty;
 import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningServices;
 import net.minecraft.core.BlockPos;
@@ -9,12 +10,14 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
@@ -96,7 +99,10 @@ public final class DynamicTrapEngine {
             }
 
             // 优先级: 岩浆喷发 (高危, 阈值最高) > 局部坍塌 > 身后刷怪。每周期至多触发一类。
+            // F035 配套: 致死类 (岩浆喷发/身后刷苦力怕) 在 Easy 区恒不触发, 与 TrapParams.difficultyFactor(EASY)=0
+            // (新手区无致死陷阱) 对齐; 非致死的局部坍塌不受此门约束。
             if (danger >= TrapParams.DANGER_THRESH_LAVA
+                    && lethalDynamicAllowed(instance.difficulty())
                     && throttle.canTriggerLava(gameTime)
                     && tryLavaBurst(level, instance, player, server, gameTime)) {
                 throttle.markLava(gameTime);
@@ -111,6 +117,7 @@ public final class DynamicTrapEngine {
                 continue;
             }
             if (danger >= TrapParams.DANGER_THRESH_CREEPER
+                    && lethalDynamicAllowed(instance.difficulty())
                     && throttle.canTriggerCreeper(playerId, gameTime)
                     && tryBehindCreeper(level, instance, player, server)) {
                 throttle.markCreeper(playerId, gameTime);
@@ -167,13 +174,12 @@ public final class DynamicTrapEngine {
 
     /**
      * 在玩家身后 8-20 格找一个合法站立点 (9.7): 视锥外 (dot(look,dir) < cos70) + 脚下固体 + 头顶 2 格净空 +
-     * 不在静态致死陷阱半径内。复用本类站立点谓词 (与 11.2 同口径的运行期方块态版本)。
+     * 邻域无岩浆 (见 {@link #findStandableColumn})。复用本类站立点谓词 (与 11.2 同口径的运行期方块态版本)。
      */
     private BlockPos findBehindSpawn(ServerLevel level, InstanceState instance, ServerPlayer player) {
         Vec3 look = player.getLookAngle();
         BlockPos base = player.blockPosition();
         var random = level.getRandom();
-        StaticTrapPlacement statics = TrapSystem.get().staticPlacement(instance.instanceId());
         double lookHorizLen = Math.sqrt(look.x * look.x + look.z * look.z);
         for (int attempt = 0; attempt < 12; attempt++) {
             double angle = random.nextDouble() * Math.PI * 2.0;
@@ -190,7 +196,7 @@ public final class DynamicTrapEngine {
             }
             int wx = base.getX() + (int) Math.round(dirX * dist);
             int wz = base.getZ() + (int) Math.round(dirZ * dist);
-            BlockPos found = findStandableColumn(level, instance, statics, wx, base.getY(), wz);
+            BlockPos found = findStandableColumn(level, instance, wx, base.getY(), wz);
             if (found != null) {
                 return found;
             }
@@ -198,9 +204,13 @@ public final class DynamicTrapEngine {
         return null;
     }
 
-    /** 在 (wx,wz) 列以玩家 Y 为中心上下搜一个合法站立点 (脚下固体 + 头顶 2 格净空 + 非致死陷阱区 + 在 region 内)。 */
-    private BlockPos findStandableColumn(ServerLevel level, InstanceState instance, StaticTrapPlacement statics,
-                                         int wx, int centerY, int wz) {
+    /**
+     * 在 (wx,wz) 列以玩家 Y 为中心上下搜一个合法站立点 (脚下固体 + 头顶 2 格净空 + 邻域无岩浆 + 在 region 内)。
+     * isStandable 提供 level.isLoaded 前置守卫与几何判据 (脚下固体/头顶净空); isSafe (core ISpawnService,
+     * 唯一被允许的跨子系统口径) 补上"邻域无岩浆"这条真实危害判据, 取代已随离线静态陷阱布点表一起删除的
+     * 致死禁区判据 (原判据依赖的离线布点表恒空已判废, 见 F033)。
+     */
+    private BlockPos findStandableColumn(ServerLevel level, InstanceState instance, int wx, int centerY, int wz) {
         if (!instance.regionBox().contains(wx, wz)) {
             return null; // 越 region 不刷
         }
@@ -210,7 +220,7 @@ public final class DynamicTrapEngine {
                 continue;
             }
             BlockPos feet = new BlockPos(wx, y, wz);
-            if (isStandable(level, feet) && !statics.inLethalTrapRadius(wx, y, wz)) {
+            if (isStandable(level, feet) && MiningServices.spawnService().isSafe(level, feet, instance)) {
                 return feet;
             }
         }
@@ -253,6 +263,11 @@ public final class DynamicTrapEngine {
         if (targets.isEmpty()) {
             return false;
         }
+        // F033 复核修正: 预警一响起就登记活跃危害坐标 (早于真正落地成方块态那一刻), 让陷阱探测在
+        // reactionWindow 内有机会提前示警这处即将坍塌的列 (见 WorldHazards 类注释的完整取舍记录)。
+        for (BlockPos t : targets) {
+            WorldHazards.markActive(t, TrapType.LOCAL_COLLAPSE);
+        }
         // TR-1: 先发预警 (粒子 + 落沙音), reactionWindow 10 tick 后再落方块。
         server.execute(() -> {
             for (BlockPos t : targets) {
@@ -265,12 +280,19 @@ public final class DynamicTrapEngine {
         TrapSystem.get().scheduleDelayed(gameTime + TrapType.LOCAL_COLLAPSE.reactionWindowTicks(), () -> {
             for (BlockPos t : targets) {
                 dropColumn(level, t);
+                WorldHazards.clearActive(t); // 危害已处理完毕 (落方块或因二次校验放弃), 注销登记。
             }
         });
         return true;
     }
 
-    /** 从玩家头顶向上找第一块实心承重方块 (作为坍塌源)。无则 null。 */
+    /**
+     * 从玩家头顶向上找第一块实心承重方块 (作为坍塌源)。无则 null。
+     *
+     * F036 修复: 第一块非空气/非流体方块若不属 {@link #isCollapsible} 白名单 (即是矿石或其他非承重方块),
+     * 直接放弃这一列 (不继续往上找)。这保证任何情况下都不会删掉玩家头顶的矿, 也不会让落块穿过矿石 ——
+     * 旧实现无差别把找到的第一块方块换成砂砾, 会静默吞掉玩家头顶的矿石并成为零成本砂砾产出。
+     */
     private BlockPos findCeilingBlock(ServerLevel level, InstanceState instance, int wx, int feetY, int wz) {
         for (int dy = 2; dy <= 6; dy++) {
             int y = feetY + dy;
@@ -282,29 +304,43 @@ public final class DynamicTrapEngine {
                 return null;
             }
             BlockState bs = level.getBlockState(p);
-            if (!bs.isAir() && bs.getFluidState().isEmpty()) {
-                return p;
+            if (bs.isAir() || !bs.getFluidState().isEmpty()) {
+                continue;
             }
+            return isCollapsible(bs) ? p : null;
         }
         return null;
     }
 
     /**
-     * 坍塌单列 (19.2 DECIDED): 默认 setBlock 把承重块换成空气并在原位生成 1 个真实 FallingBlockEntity 做表现
-     * (视觉关键点少量真实落沙, 19.2 visualFallingBudget), 伤害封顶 COLLAPSE_DAMAGE_CAP。不批量 spawn 实体。
+     * 承重白名单判据 (公开静态纯函数, 供同包 GameTest 锁死回归, 与本文件已有的 {@link #cooldownAllows} 同范式):
+     * 只认原版基岩类石材 (石/花岗岩/闪长岩/安山岩/凝灰岩/深板岩) 或本身就是 {@link FallingBlock} (砂砾/沙/
+     * 混凝土粉)。用白名单而非黑名单, 是因为 trap 子系统不得 import 矿物子系统实现 (铁律 2): 用基岩类标签
+     * 天然把一切矿石排除在外, 无需知道矿物子系统认哪些方块是矿。
      */
-    private void dropColumn(ServerLevel level, BlockPos source) {
+    public static boolean isCollapsible(BlockState bs) {
+        return bs.is(BlockTags.BASE_STONE_OVERWORLD) || bs.getBlock() instanceof FallingBlock;
+    }
+
+    /**
+     * 坍塌单列 (19.2 DECIDED, F036 修复后): 读到承重块的真实方块态生成 1 个真实 FallingBlockEntity 做表现
+     * (视觉关键点少量真实落块, 19.2 visualFallingBudget), 伤害封顶 COLLAPSE_DAMAGE_CAP。不批量 spawn 实体。
+     * 由 private 改为包内可见, 供同包 GameTest 断言坍塌保留原方块态 (而非无差别写成砂砾)。
+     *
+     * 不手写 setBlock(source, AIR) 清空源格: 官方映射 sources (FallingBlockEntity.java:78-83) 里
+     * {@link FallingBlockEntity#fall} 自身就会 setBlock(pos, fluidState.createLegacyBlock(), 3) 并
+     * addFreshEntity, 手写那行是纯冗余 (且会与 fall 内部的 setBlock 竞争同一 tick 内的两次方块更新广播)。
+     */
+    void dropColumn(ServerLevel level, BlockPos source) {
         if (!level.isLoaded(source)) {
             return;
         }
         BlockState bs = level.getBlockState(source);
-        if (bs.isAir()) {
+        // 延迟窗口 (reactionWindow) 内地形可能已被玩家挖掉或被上一次坍塌改写, 此处二次校验。
+        if (bs.isAir() || !isCollapsible(bs)) {
             return;
         }
-        // 用砂砾作坍塌坠落态 (与崩塌矿道线索一致); 把源方块清空, 生成一个会砸下来的 FallingBlock。
-        BlockState falling = Blocks.GRAVEL.defaultBlockState();
-        level.setBlock(source, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS);
-        FallingBlockEntity fb = FallingBlockEntity.fall(level, source, falling);
+        FallingBlockEntity fb = FallingBlockEntity.fall(level, source, bs);
         // setHurtsEntities(perBlockDamage, maxDamage): 单块伤害 + 累计封顶 (9.4/9.6)。
         fb.setHurtsEntities(TrapType.LOCAL_COLLAPSE.damage(), (int) TrapParams.COLLAPSE_DAMAGE_CAP);
     }
@@ -317,6 +353,9 @@ public final class DynamicTrapEngine {
         if (floor == null) {
             return false;
         }
+        // F033 复核修正: 预警一响起就登记活跃危害坐标, 覆盖预警窗口 + 存续窗口的整段时间 (而不仅是
+        // fillLava 之后那 5 tick 的真实 LAVA 方块态窗口), 见 WorldHazards 类注释的完整取舍记录。
+        WorldHazards.markActive(floor, TrapType.LAVA_BURST);
         // TR-1: 预警 20 tick (地面裂纹粒子 + 红光 + LAVA_POP), 之后喷出有限岩浆, RECYCLE_TICKS 后回收。
         server.execute(() -> {
             level.sendParticles(ParticleTypes.LAVA, floor.getX() + 0.5, floor.getY() + 1.0, floor.getZ() + 0.5,
@@ -375,6 +414,7 @@ public final class DynamicTrapEngine {
         if (level.isLoaded(pos) && level.getBlockState(pos).is(Blocks.LAVA)) {
             level.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
         }
+        WorldHazards.clearActive(pos); // 危害存续窗口结束, 注销登记 (无论回收前是否已被玩家自行处理)。
     }
 
     /**
@@ -385,6 +425,15 @@ public final class DynamicTrapEngine {
      */
     public static boolean cooldownAllows(long lastTick, long now, long cooldownTicks) {
         return lastTick == Long.MIN_VALUE || now - lastTick >= cooldownTicks;
+    }
+
+    /**
+     * F035 配套门控 (公开静态纯函数, 供 GameTest 锁死回归): Easy 区恒不触发致死类动态陷阱 (岩浆喷发 / 身后
+     * 刷苦力怕), 与 {@link TrapParams#difficultyFactor} 对 EASY 取 0 (新手区无致死陷阱) 的口径对齐。
+     * 非致死的局部坍塌不受此门约束 (evaluateInstance 里 tryLocalCollapse 分支不接此判据)。
+     */
+    public static boolean lethalDynamicAllowed(Difficulty difficulty) {
+        return difficulty != Difficulty.EASY;
     }
 
     // ---- 实例级节流状态 ----

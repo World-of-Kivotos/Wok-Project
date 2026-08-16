@@ -35,8 +35,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 动态压力刷怪 worker (设计文档第十章, DG-1..DG-7)。每 N tick 对矿山内在线玩家评估 danger,
- * 据 SpawnTier (10.4) 决定刷怪节奏并显式生成怪物, 受单实例硬上限 MAX_MOBS_PER_INSTANCE=30 封顶 (DG-5),
- * 不依赖原版 mobcap。danger HUD 经 IMiningNetwork.sendDanger 下发 (15.4.2)。
+ * 据 SpawnTier (10.4) 决定刷怪节奏并显式生成怪物, 受单实例硬上限 config.mobMaxPerInstance() 封顶 (DG-5,
+ * 与陷阱引擎 DynamicTrapEngine 共用同一配置键 mob.maxPerInstance), 不依赖原版 mobcap。
+ * danger HUD 经 IMiningNetwork.sendDanger 下发 (15.4.2)。
  *
  * 模块化: 仅经 core 门面 (MiningServices) 取 IInstanceManager / IMiningConfig / IMiningNetwork; 压力态
  * (PlayerMiningData) 由本包 Danger 自持, 不依赖其他子系统实现类。本类是压力子系统的事件处理 worker,
@@ -49,8 +50,11 @@ public final class MobPressureSystem {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/pressure");
 
-    /** 单实例怪物硬上限 (DG-5 / 10.5)。自管理计数, 不读原版 mobcap。 */
-    private static final int MAX_MOBS_PER_INSTANCE = 30;
+    /**
+     * liveMobs 对账周期 (F030): 每实例 UUID 数受 mobMaxPerInstance 硬上限约束 (默认 30, 上限 256),
+     * 三个固定难度实例 5 秒 (100 tick) 一次 level.getEntity 查询开销可忽略。
+     */
+    private static final int MOB_RECONCILE_INTERVAL_TICKS = 100;
 
     /** 出生冻结窗口 (11.7 SPAWN_FREEZE_TICKS), 玩家进入实例后该窗口内 danger 钳低且不刷怪。 */
     private static final int SPAWN_FREEZE_TICKS = 200;
@@ -102,9 +106,40 @@ public final class MobPressureSystem {
         long now = mining.getGameTime();
         int evalInterval = Math.max(1, config.dangerEvalIntervalTicks());
 
+        // liveMobs 周期对账 (F030): 死亡事件之外的消失路径 (discard/超距 despawn/区块卸载/陷阱引擎生成物)
+        // 都不会经 onMobDeath 销账, 只能靠 "世界里实体是否还在" 定期核对真相, 见 reconcileLiveMobs 注释。
+        if (now % MOB_RECONCILE_INTERVAL_TICKS == 0L) {
+            instances.forEach(inst -> reconcileLiveMobs(mining, inst));
+        }
+
         for (ServerPlayer player : mining.players()) {
             tickPlayer(player, mining, instances, config, network, now, evalInterval);
         }
+    }
+
+    /**
+     * liveMobs 按实体真实存活状态周期对账 (F030 核心修法)。
+     *
+     * liveMobs 的写入方不止本系统 (DynamicTrapEngine 陷阱身后苦力怕也写), 而计数的消失路径远多于
+     * LivingDeathEvent 死亡 (Creeper.explodeCreeper 走 discard 不发死亡事件, finalizeSpawn 不置
+     * persistenceRequired 时超距 checkDespawn 直接 discard, 区块卸载同理) —— 逐条消失路径挂事件补不全,
+     * 只能以 "世界里该 UUID 对应的实体是否还在且存活" 为唯一真相做对账, 一次遍历同时清 liveMobs 与
+     * mobInstanceIndex 两处影子账本。
+     */
+    void reconcileLiveMobs(ServerLevel level, InstanceState instance) {
+        instance.liveMobs().removeIf(id -> {
+            net.minecraft.world.entity.Entity entity = level.getEntity(id);
+            boolean gone = entity == null || !entity.isAlive();
+            if (gone) {
+                mobInstanceIndex.remove(id);
+            }
+            return gone;
+        });
+    }
+
+    /** 实例是否已达刷怪硬上限 (F030: 与 spawnWave 共用单一真源, 供 GameTest 断言真实业务结果)。 */
+    boolean atMobCap(InstanceState instance) {
+        return instance.liveMobs().size() >= MiningServices.config().mobMaxPerInstance();
     }
 
     /**
@@ -170,20 +205,20 @@ public final class MobPressureSystem {
 
     /**
      * 对一个玩家刷一波怪 (10.5): 实例计数封顶 -> 选点 (身后约束 9.7) -> finalizeSpawn + checkSpawnRules
-     * -> addFreshEntityWithPassengers -> 标记 + 计数。单波数量取 tier 区间随机, 受 MAX_MOBS 封顶。
+     * -> addFreshEntityWithPassengers -> 标记 + 计数。单波数量取 tier 区间随机, 受 mobMaxPerInstance 封顶。
      */
     private void spawnWave(ServerPlayer player, ServerLevel mining, InstanceState instance,
                            SpawnTier tier, IMiningConfig config, InstanceSpawnState ss, long now) {
-        int liveCount = instance.liveMobs().size();
-        if (liveCount >= MAX_MOBS_PER_INSTANCE) {
+        int mobCap = config.mobMaxPerInstance();
+        if (atMobCap(instance)) {
             // 硬上限封顶, 本波跳过 (10.4: 只更新计时, 不强塞)。保留诊断便于调参观察封顶频率。
-            LOGGER.debug("instance {} at mob cap {}, skipping wave", instance.instanceId(), MAX_MOBS_PER_INSTANCE);
+            LOGGER.debug("instance {} at mob cap {}, skipping wave", instance.instanceId(), mobCap);
             return;
         }
 
         RandomSource rng = mining.random;
         int waveTarget = tier.waveMin() + rng.nextInt(tier.waveMax() - tier.waveMin() + 1);
-        int budget = Math.min(waveTarget, MAX_MOBS_PER_INSTANCE - liveCount);
+        int budget = Math.min(waveTarget, mobCap - instance.liveMobs().size());
         // 每玩家周边活跃上限 (config.mobMaxPerPlayer): 限制单玩家身边并发怪数。
         budget = Math.min(budget, Math.max(1, config.mobMaxPerPlayer()));
 
@@ -367,6 +402,7 @@ public final class MobPressureSystem {
         UUID id = mob.getUUID();
         Long instanceId = mobInstanceIndex.remove(id);
         if (instanceId == null) {
+            // 陷阱引擎 (DynamicTrapEngine) 生成的怪不在本索引里, 它们由 reconcileLiveMobs 周期对账销账。
             return; // 非本系统生成的怪
         }
         MiningServices.instanceManager().byId(instanceId)

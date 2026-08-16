@@ -18,7 +18,7 @@ public interface IInstanceManager {
 
     /**
      * 为请求者分配一个匹配难度的实例 (12.2 私有/共享分配语义)。
-     * 实例可能尚在 PENDING/GENERATING; 返回的 future 在生成完成 (genState 进入 READY/READY_FALLBACK) 后兑现。
+     * 实例登记即 READY (维度走 minecraft:noise 按需生成), future 通常立即兑现; 实例已被销毁时以异常完成。
      * 超全局上限按配置 overflowPolicy 处理: REJECT 时立即以 InstanceLimitException 完成异常; QUEUE 时入队, 兑现或超时失败。
      *
      * @param requester  发起进入的玩家 (用于解析 ownerKey 与组队)

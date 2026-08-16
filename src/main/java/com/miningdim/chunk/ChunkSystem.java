@@ -7,16 +7,20 @@ import com.miningdim.core.Subsystem;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.common.world.ForgeChunkManager;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -40,9 +44,25 @@ public final class ChunkSystem implements Subsystem {
     private MinecraftServer server;
     private ChunkTicketManager ticketManager;
 
+    /**
+     * ticket TTL 独立于 InstanceState.lastEmptyTick 的空置起始时刻记录 (F031)。R1 固定难度实例
+     * 刻意让 InstanceManager 把 lastEmptyTick 永久保持 -1 以豁免实例 GC 销毁 (onPlayerLeave 不写),
+     * 若 ticket TTL 复用同一个字段, releaseAll 分支对这三个实例永远不可达 (emptySince < 0 恒真)。
+     * 这里另起一份只服务于 ticket 释放的计时表, 与"实例是否该被 GC 销毁"完全解耦。
+     * 线程契约同类: 仅服务端主线程 (ServerTickEvent) 读写, 无需并发容器。
+     */
+    private final Map<Long, Long> ticketEmptySinceTick = new HashMap<>();
+
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
         forgeBus.register(this);
+        // F031 复核修正 #1/#3: 落盘的历史强加载票只能在 Forge reinstatePersistentChunks 把它们重新装回
+        // 内存之前拦截清除, 唯一入口是 LoadingValidationCallback, 且 Forge 要求必须在 FMLCommonSetupEvent
+        // 的 enqueueWork 内注册 (见 ForgeChunkManager.setForcedChunkLoadingCallback 文档)。清账逻辑见
+        // ChunkTicketManager.purgeStalePersistentTickets 类注释。
+        modBus.addListener((FMLCommonSetupEvent event) -> event.enqueueWork(() ->
+                ForgeChunkManager.setForcedChunkLoadingCallback(
+                        MiningConstants.MODID, ChunkTicketManager::purgeStalePersistentTickets)));
     }
 
     /**
@@ -71,6 +91,8 @@ public final class ChunkSystem implements Subsystem {
                 ticketManager.releaseAll(inst.instanceId());
             }
         }
+        // 清空 ticket TTL 计时表, 避免残留的空置起始时刻串到下一个存档 (换存档后实例 id 语义不同)。
+        ticketEmptySinceTick.clear();
         ChunkServices.clear();
         this.ticketManager = null;
         this.server = null;
@@ -90,7 +112,10 @@ public final class ChunkSystem implements Subsystem {
 
     /** 单实例的 ticket 维护: 活跃刷新窗口, 空置降级与 TTL 释放。 */
     private void tickInstance(InstanceState inst, long now, boolean refreshWindows, long ttlTicks) {
+        long instanceId = inst.instanceId();
         if (inst.active() && !inst.playerSet().isEmpty()) {
+            // 有人在场即重新计时: 下次翻空要从 0 重新起算 TTL, 不能延续上一次空置期的旧计时。
+            ticketEmptySinceTick.remove(instanceId);
             if (refreshWindows) {
                 ticketManager.refreshWindow(inst, onlinePlayersIn(inst));
             }
@@ -98,20 +123,24 @@ public final class ChunkSystem implements Subsystem {
         }
 
         // 空置实例: 先降级为仅加载不 tick (短暂往返复用), TTL 到期再彻底释放 (19.1 / 12.6 / 12.7)。
-        if (!ticketManager.hasTickets(inst.instanceId())) {
+        // TTL 起算点用本类自维护的 ticketEmptySinceTick, 不用 InstanceState.lastEmptyTick: R1 固定
+        // 难度实例刻意让该字段永久保持 -1 以豁免实例 GC (见字段注释), 若复用会导致 releaseAll 恒不可达。
+        if (!ticketManager.hasTickets(instanceId)) {
+            ticketEmptySinceTick.remove(instanceId);
             return;
         }
-        long emptySince = inst.lastEmptyTick();
-        if (emptySince < 0L) {
-            // playerSet 空但 lastEmptyTick 尚未记录 (刚翻空那一 tick), 由 InstanceManager 在 onPlayerLeave 记录;
-            // 这里先降级, 下个扫描周期 lastEmptyTick 已就绪再计 TTL。
-            ticketManager.demoteToLoadOnly(inst.instanceId());
+        Long emptySince = ticketEmptySinceTick.get(instanceId);
+        if (emptySince == null) {
+            // 刚翻空那一 tick: 记录起点并先降级, TTL 从下个周期开始计。
+            ticketEmptySinceTick.put(instanceId, now);
+            ticketManager.demoteToLoadOnly(instanceId);
             return;
         }
         if (now - emptySince >= ttlTicks) {
-            ticketManager.releaseAll(inst.instanceId());
+            ticketManager.releaseAll(instanceId);
+            ticketEmptySinceTick.remove(instanceId);
         } else {
-            ticketManager.demoteToLoadOnly(inst.instanceId());
+            ticketManager.demoteToLoadOnly(instanceId);
         }
     }
 

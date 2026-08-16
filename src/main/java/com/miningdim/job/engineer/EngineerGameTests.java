@@ -10,6 +10,7 @@ import com.miningdim.job.engineer.block.ProductionTableBlockEntity;
 import com.miningdim.job.engineer.effect.NanoEffects;
 import com.miningdim.job.engineer.effect.NanoAnvilGuard;
 import com.miningdim.job.engineer.effect.NanoReactor;
+import com.miningdim.job.engineer.effect.NanoShieldHandler;
 import com.miningdim.job.engineer.menu.ProductionTableMenu;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
@@ -20,13 +21,16 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -567,6 +571,83 @@ public final class EngineerGameTests {
     }
 
     // ============================================================
+    // F046 回归: 纳米护盾必须放行 bypasses_invulnerability 与非正伤害, 不吃 /kill、虚空清理与 0 伤害假事件
+    // ============================================================
+    // 缺陷: onLivingHurt 修复前无源头/幅值前置守卫, /kill (genericKill, 走 bypasses_invulnerability) 与虚空
+    // 伤害 (fellOutOfWorld, 同属该 tag) 会被免疫窗或反应式触发吃掉伤害, 使管理员清理手段静默失效; 非正伤害
+    // (amount<=0) 也会白烧一格救命充能。此处仅穿 NETHERITE_CHESTPLATE + SHIELD 特效, 不穿 PlateArmorItem /
+    // PlasmaShieldItem (二者任一装备都会让 NanoShieldHandler 直接短路)。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void nanoShieldBypassesInvulnerabilityAndIgnoresNonPositiveDamage(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        ItemStack armor = new ItemStack(Items.NETHERITE_CHESTPLATE);
+        NanoNbt.writeEffects(armor, java.util.EnumSet.of(NanoEffect.SHIELD));
+        player.setItemSlot(EquipmentSlot.CHEST, armor);
+        int maxCharges = NanoNbt.shieldCharges(armor);
+
+        // 1) /kill 路: bypasses_invulnerability 必须完整放行, 不烧充能、不开免疫窗。
+        LivingHurtEvent killEvent = new LivingHurtEvent(
+                player, helper.getLevel().damageSources().genericKill(), 23.75F);
+        new NanoShieldHandler().onLivingHurt(killEvent);
+        helper.assertTrue(Float.compare(killEvent.getAmount(), 23.75F) == 0,
+                "generic_kill damage must pass through the nano shield completely unchanged, got "
+                        + killEvent.getAmount());
+        helper.assertTrue(NanoNbt.shieldCharges(armor) == maxCharges,
+                "generic_kill must not burn a shield charge, had " + maxCharges
+                        + " now " + NanoNbt.shieldCharges(armor));
+        helper.assertTrue(NanoNbt.shieldWindowTick(armor) == 0,
+                "generic_kill must not open an immunity window");
+
+        // 2) 虚空路: fellOutOfWorld 同属 bypasses_invulnerability, 同等放行 + 充能不变。
+        LivingHurtEvent voidEvent = new LivingHurtEvent(
+                player, helper.getLevel().damageSources().fellOutOfWorld(), 23.75F);
+        new NanoShieldHandler().onLivingHurt(voidEvent);
+        helper.assertTrue(Float.compare(voidEvent.getAmount(), 23.75F) == 0,
+                "fell_out_of_world damage must pass through the nano shield completely unchanged, got "
+                        + voidEvent.getAmount());
+        helper.assertTrue(NanoNbt.shieldCharges(armor) == maxCharges,
+                "void damage must not burn a shield charge, now " + NanoNbt.shieldCharges(armor));
+
+        // 3) 运营标签: bypasses_nano_shield 这个自定义 datapack 标签必须真的被加载, 且能独立 (不靠
+        // bypasses_invulnerability) 放行饥饿伤害。
+        helper.assertTrue(helper.getLevel().damageSources().starve().is(NanoShieldHandler.BYPASSES_NANO_SHIELD),
+                "the bypasses_nano_shield datapack tag must load and include starvation damage");
+        LivingHurtEvent starveEvent = new LivingHurtEvent(
+                player, helper.getLevel().damageSources().starve(), 4.0F);
+        new NanoShieldHandler().onLivingHurt(starveEvent);
+        helper.assertTrue(Float.compare(starveEvent.getAmount(), 4.0F) == 0,
+                "starvation damage tagged bypasses_nano_shield must pass through unchanged, got "
+                        + starveEvent.getAmount());
+
+        // 4) 非正伤害不烧充能: amount<=0 的假事件必须被前置守卫短路, 不动状态。
+        LivingHurtEvent zeroEvent = new LivingHurtEvent(
+                player, helper.getLevel().damageSources().generic(), 0.0F);
+        new NanoShieldHandler().onLivingHurt(zeroEvent);
+        helper.assertTrue(NanoNbt.shieldCharges(armor) == maxCharges,
+                "zero-amount damage must not burn a shield charge");
+        helper.assertTrue(NanoNbt.shieldWindowTick(armor) == 0,
+                "zero-amount damage must not open an immunity window");
+
+        // 5) 正向回归 (防把 handler 改死): 真实正伤害仍必须被完整吸收、烧一格充能、开满配置免疫窗。
+        NanoNbt.setShieldWindowTick(armor, 0);
+        int chargesBeforeRealHit = NanoNbt.shieldCharges(armor);
+        LivingHurtEvent realHit = new LivingHurtEvent(
+                player, helper.getLevel().damageSources().playerAttack(player), 20.0F);
+        new NanoShieldHandler().onLivingHurt(realHit);
+        helper.assertTrue(Float.compare(realHit.getAmount(), 0.0F) == 0,
+                "a genuine hit with charges available must be fully absorbed to zero, got " + realHit.getAmount());
+        helper.assertTrue(NanoNbt.shieldCharges(armor) == chargesBeforeRealHit - 1,
+                "an absorbed hit must burn exactly one shield charge, had " + chargesBeforeRealHit
+                        + " now " + NanoNbt.shieldCharges(armor));
+        helper.assertTrue(NanoNbt.shieldWindowTick(armor) == EngineerConfig.SHIELD_IMMUNITY_TICKS.get(),
+                "an absorbed hit must open the full configured immunity window, got "
+                        + NanoNbt.shieldWindowTick(armor));
+        helper.succeed();
+    }
+
+    // ============================================================
     // engineer-01 回归: Shift 取产物板 (走基类 quickMoveStack) 必须结算生产经验 + 清 pending
     // ============================================================
     // 缺陷: 基类 AbstractMiningMenu.quickMoveStack 先 moveItemStackTo 把整栈移走, 再 slot.onTake(player, 残留栈);
@@ -675,7 +756,301 @@ public final class EngineerGameTests {
         }
     }
 
+    // ============================================================
+    // F050 (a): Shift 整栈取板必须把 pending 清在玩家真正拿到的那份实栈上, 而非仅清一份脱离玩家的快照
+    // ============================================================
+    // 缺陷: 修复前 NanoNbt.clearProductionXpPending 只清 onOutputTaken 收到的 boardSnapshot (调用方自建的
+    // ItemStack.copy() 副本), 玩家 Shift 拿到手的那份实栈 (moveItemStackTo 内 stack.split(n) 分裂出的副本)
+    // 完全清不到。塞回同一生产台再取会重复触发 onOutputTaken 判定 pending=true 再发一次经验。此处直接遍历
+    // 玩家 36 槽主背包, 断言落地的那个"真身"而非任何快照的 pending 状态。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shiftTakeClearsPendingOnRealReceivedStack(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService();
+        IJobService prevJob = swapJob(job);
+        try {
+            ProductionTableBlockEntity be = newProductionTable(helper);
+            be.setOwner(player.getUUID());
+            BlockPos abs = helper.absolutePos(new BlockPos(0, 1, 0));
+
+            int plateCount = 3;
+            ItemStack plates = NanoProduction.makePlate(NanoTier.HIGH, plateCount, player.getUUID(), 0);
+            be.inventory().setStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT, plates);
+
+            ProductionTableMenu menu = new ProductionTableMenu(0, player.getInventory(), abs);
+            menu.quickMoveStack(player, ProductionTableBlockEntity.SLOT_OUTPUT);
+
+            ItemStack landed = findPlateInMainInventory(player, NanoTier.HIGH);
+            helper.assertTrue(landed != null,
+                    "the shift-taken plates must land somewhere in the player's 36-slot main inventory");
+            helper.assertTrue(landed.getCount() == plateCount,
+                    "the landed stack must carry all " + plateCount + " plates, got " + landed.getCount());
+            helper.assertFalse(NanoNbt.isProductionXpPending(landed),
+                    "F050: pending must be cleared on the REAL stack the player received, "
+                            + "not merely on a detached settlement snapshot");
+
+            helper.assertTrue(job.grantXpCalls == 1,
+                    "shift-take must still settle production xp exactly once, got " + job.grantXpCalls);
+            helper.assertTrue(job.lastRawXp == 180L,
+                    "high plate x3 raw xp anchor stays 60*3=180, got " + job.lastRawXp);
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
+    // ============================================================
+    // F050 (b): 鼠标部分取板必须按实际取走量结算, 残留板必须保留 pending 等待下次结算
+    // ============================================================
+    // 真实 API 核实 (非猜测): OutputSlot.mayPlace 恒 false, 使 Slot.tryRemove 里
+    // "!allowModification(player) && decrement < 现存量" 的守卫恒为 true —— decrement 若传实际取走量 (如 2)
+    // 且现存量 (5) 更大, tryRemove 会直接判失败返回空、什么都不发生。vanilla 鼠标右键半取同一处调用的
+    // decrement 恒传 Integer.MAX_VALUE (真实取走量单独由 count 参数控制), 此处照同一口径调用
+    // Slot.safeTake(count, Integer.MAX_VALUE, player), 否则整条断言链会在这一步就悄悄失败。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void mousePartialTakeSettlesByActualCountAndKeepsResidualPending(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService();
+        IJobService prevJob = swapJob(job);
+        try {
+            ProductionTableBlockEntity be = newProductionTable(helper);
+            be.setOwner(player.getUUID());
+            BlockPos abs = helper.absolutePos(new BlockPos(0, 1, 0));
+
+            int plateCount = 5;
+            ItemStack plates = NanoProduction.makePlate(NanoTier.HIGH, plateCount, player.getUUID(), 0);
+            be.inventory().setStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT, plates);
+
+            ProductionTableMenu menu = new ProductionTableMenu(0, player.getInventory(), abs);
+            ItemStack taken = menu.getSlot(ProductionTableBlockEntity.SLOT_OUTPUT)
+                    .safeTake(2, Integer.MAX_VALUE, player);
+
+            helper.assertTrue(taken.getCount() == 2,
+                    "mouse partial take must return exactly 2 plates, got " + taken.getCount());
+            helper.assertFalse(NanoNbt.isProductionXpPending(taken),
+                    "the 2 plates actually handed to the player must have pending cleared");
+
+            ItemStack residual = be.inventory().getStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT);
+            helper.assertTrue(residual.getCount() == 3,
+                    "3 unsettled plates must remain in the output slot after taking 2 of 5, got "
+                            + residual.getCount());
+            helper.assertTrue(NanoNbt.isProductionXpPending(residual),
+                    "F050: the residual plates left in the slot must keep pending true (not yet taken, "
+                            + "clearing it here would steal future xp)");
+
+            helper.assertTrue(job.grantXpCalls == 1,
+                    "partial mouse take must settle production xp exactly once, got " + job.grantXpCalls);
+            long expectedRaw = (long) Math.floor(NanoTier.HIGH.rawXp()) * 2;
+            helper.assertTrue(expectedRaw == 120L, "high plate x2 raw xp anchor = 60*2=120");
+            helper.assertTrue(job.lastRawXp == expectedRaw,
+                    "partial take must settle by the ACTUAL taken count 2 (=120), not the full stack; got "
+                            + job.lastRawXp);
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
+    // ============================================================
+    // F050 (c): Shift 取板挪不动时 (背包满异物) 必须原样还原残留板的 pending, 不能提前清空未结算的经验
+    // ============================================================
+    // 缺陷: beginQuickMove 在 moveItemStackTo 之前就把 live 栈的 pending 抹掉了; 若 moveItemStackTo 因背包
+    // 无处可放而整体失败 (基类提前 return EMPTY, 不调 onTake), 若没有 endQuickMove 的还原步骤, 板栈会永久
+    // 卡在 pending=false 却从未真正结算过经验的状态, 玩家之后取出这批残留板将永远拿不到本该属于它的经验。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void quickMoveRestoresPendingWhenNoRoomToReceive(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService();
+        IJobService prevJob = swapJob(job);
+        try {
+            ProductionTableBlockEntity be = newProductionTable(helper);
+            be.setOwner(player.getUUID());
+            BlockPos abs = helper.absolutePos(new BlockPos(0, 1, 0));
+
+            int plateCount = 3;
+            ItemStack plates = NanoProduction.makePlate(NanoTier.HIGH, plateCount, player.getUUID(), 0);
+            be.inventory().setStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT, plates);
+
+            // 灌满玩家 36 槽主背包异物 (与板不可合并), 使 moveItemStackTo 找不到任何可放位置。
+            for (int i = 0; i < player.getInventory().items.size(); i++) {
+                player.getInventory().setItem(i, new ItemStack(Items.STONE, 64));
+            }
+
+            ProductionTableMenu menu = new ProductionTableMenu(0, player.getInventory(), abs);
+            ItemStack moved = menu.quickMoveStack(player, ProductionTableBlockEntity.SLOT_OUTPUT);
+
+            helper.assertTrue(moved.isEmpty(),
+                    "with zero free inventory space, quickMoveStack must return EMPTY (nothing moved)");
+            ItemStack stillInSlot = be.inventory().getStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT);
+            helper.assertTrue(stillInSlot.getCount() == plateCount,
+                    "the unmovable plate stack must remain in the output slot untouched, got "
+                            + stillInSlot.getCount());
+            helper.assertTrue(NanoNbt.isProductionXpPending(stillInSlot),
+                    "F050: endQuickMove must restore pending on the residual stack when the whole move failed, "
+                            + "otherwise the still-unsettled plates would silently lose their xp forever");
+            helper.assertTrue(job.grantXpCalls == 0,
+                    "a fully blocked quick-move must not grant any production xp, got "
+                            + job.grantXpCalls + " calls");
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
+    // ============================================================
+    // 复核修正 (a): Shift 部分取板必须给残留板保留 pending, 不能因 onOutputTaken 就地清 boardSnapshot 而
+    // 连带清掉 endQuickMove 还原残留要用的那份 takeSnapshot 字段
+    // ============================================================
+    // 缺陷: 修复前 OutputSlot.onTake 把 this.takeSnapshot 字段本身 (而非副本) 传给 onOutputTaken; 后者末尾
+    // NanoNbt.clearProductionXpPending(boardSnapshot) 就地改 tag, 直接把字段自己的 pending 也清成 false。
+    // endQuickMove 随后用这份已被污染的字段还原残留 tag, 残留板被错误标成"已结算", 经验永久丢失。
+    //
+    // 造真实部分移动 (非"挪不动"的全零场景, 那条已由 quickMoveRestoresPendingWhenNoRoomToReceive 覆盖):
+    // vanilla AbstractContainerMenu.moveItemStackTo 的"塞空槽"分支只按 slot.getMaxStackSize() (无参, 通用玩家
+    // 槽默认 64) 判断上限, 不会按物品自身 stacksTo(16) 截断——若只留一个空槽会被整栈 20 块塞满, 无法制造部分
+    // 移动。真正会按物品自身上限截断的是"与已有同 NBT 栈合并"分支 (maxSize =
+    // Math.min(slot.getMaxStackSize(), pStack.getMaxStackSize()), 见 AbstractContainerMenu.java:656), 所以此处
+    // 预放一份 tag 完全相同 (producer/quality/pending 三者一致, 因为活体板栈在 beginQuickMove 里已把 pending
+    // 清成 false) 的已结算板在快捷栏 0 号位当合并目标, 其余 35 槽全部灌石头挡死, 逼 20 块只能合并出 15 块
+    // (1+15=16=maxStackSize) 后再无处可去, 残留 5 块。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void shiftPartialTakeKeepsResidualPendingOnRealSettlement(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService();
+        IJobService prevJob = swapJob(job);
+        try {
+            ProductionTableBlockEntity be = newProductionTable(helper);
+            be.setOwner(player.getUUID());
+            BlockPos abs = helper.absolutePos(new BlockPos(0, 1, 0));
+
+            int plateCount = 20;
+            ItemStack plates = NanoProduction.makePlate(NanoTier.HIGH, plateCount, player.getUUID(), 0);
+            be.inventory().setStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT, plates);
+
+            // 合并目标: 与"活体栈经 beginQuickMove 清 pending 后"的 NBT 完全一致的 1 块已结算板, 放快捷栏 0 号位。
+            ItemStack mergeTarget = NanoProduction.makePlate(NanoTier.HIGH, 1, player.getUUID(), 0);
+            NanoNbt.clearProductionXpPending(mergeTarget);
+            player.getInventory().setItem(0, mergeTarget);
+            // 其余 35 槽全灌石头 (与板不同物, 不可合并也不是空槽), 堵死除合并目标外的一切去处。
+            for (int i = 1; i < player.getInventory().items.size(); i++) {
+                player.getInventory().setItem(i, new ItemStack(Items.STONE, 64));
+            }
+
+            ProductionTableMenu menu = new ProductionTableMenu(0, player.getInventory(), abs);
+            ItemStack moved = menu.quickMoveStack(player, ProductionTableBlockEntity.SLOT_OUTPUT);
+            helper.assertTrue(moved.getCount() == plateCount,
+                    "quickMoveStack returns the pre-move snapshot (count " + plateCount + "), got "
+                            + moved.getCount());
+
+            ItemStack landed = player.getInventory().getItem(0);
+            helper.assertTrue(landed.getCount() == 16,
+                    "the merge target must be topped up to the plate item's stacksTo(16) cap (1+15), got "
+                            + landed.getCount());
+            helper.assertFalse(NanoNbt.isProductionXpPending(landed),
+                    "the merged stack (settled portion) must have pending cleared");
+
+            ItemStack residual = be.inventory().getStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT);
+            helper.assertTrue(residual.getCount() == 5,
+                    "5 unsettled plates (20 - 15 actually merged out) must remain in the output slot, got "
+                            + residual.getCount());
+            helper.assertTrue(NanoNbt.isProductionXpPending(residual),
+                    "endQuickMove must restore pending on the RESIDUAL board from an untouched snapshot; "
+                            + "leaking onOutputTaken's in-place clear onto the shared takeSnapshot field would "
+                            + "wrongly mark the still-unsettled residual as already-settled and lose its xp");
+
+            helper.assertTrue(job.grantXpCalls == 1,
+                    "partial shift-take must settle production xp exactly once, got " + job.grantXpCalls);
+            long expectedRaw = (long) Math.floor(NanoTier.HIGH.rawXp()) * 15;
+            helper.assertTrue(expectedRaw == 900L, "high plate x15 raw xp anchor = 60*15=900");
+            helper.assertTrue(job.lastRawXp == expectedRaw,
+                    "partial shift-take settles by the ACTUAL merged-out count 15 (=900), not the full 20; got "
+                            + job.lastRawXp);
+
+            // 残留必须仍可正常结算 (证明未被永久锁死): 直接驱动 BE 结算口径复核这 5 块的经验能拿到。
+            int callsBefore = job.grantXpCalls;
+            be.onOutputTaken(player, residual, 5);
+            helper.assertTrue(job.grantXpCalls == callsBefore + 1,
+                    "the residual 5 plates must still be settleable for xp after the partial take");
+            long expectedResidualRaw = (long) Math.floor(NanoTier.HIGH.rawXp()) * 5;
+            helper.assertTrue(job.lastRawXp == expectedResidualRaw,
+                    "residual settle grants xp for exactly the 5 remaining plates (=" + expectedResidualRaw
+                            + "), got " + job.lastRawXp);
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
+    // ============================================================
+    // 复核修正 (b): 数字键/副手键 SWAP 取输出板 (第三条不经 remove(int) 也不经 quickMoveStack 的路径) 必须
+    // 清掉玩家真正拿到手的那份实栈的 pending
+    // ============================================================
+    // 缺陷: vanilla AbstractContainerMenu.doClick 的 ClickType.SWAP 分支 (目标快捷栏槽为空时) 直接
+    // `inventory.setItem(pButton, itemstack6)` 把 slot2.getItem() 读到的 live 栈本体塞进玩家背包, 再调
+    // `slot2.setByPlayer(EMPTY)` + `slot2.onTake(player, itemstack6)` —— 全程不调 Slot.remove(int), 也不经
+    // AbstractMiningMenu.quickMoveStack, 修复前的 remove(int) 覆写与 beginQuickMove/endQuickMove 配对两条通道
+    // 都覆盖不到它, 经验照发但玩家手上的板 pending 仍为 true。此处走真菜单 clicked(SWAP) 端到端复现。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void swapTakeClearsPendingOnRealReceivedStack(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService();
+        IJobService prevJob = swapJob(job);
+        try {
+            ProductionTableBlockEntity be = newProductionTable(helper);
+            be.setOwner(player.getUUID());
+            BlockPos abs = helper.absolutePos(new BlockPos(0, 1, 0));
+
+            int plateCount = 3;
+            ItemStack plates = NanoProduction.makePlate(NanoTier.HIGH, plateCount, player.getUUID(), 0);
+            be.inventory().setStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT, plates);
+            // 目标快捷栏 0 号位必须为空, 这样才走 doClick 的 "itemstack3.isEmpty()" 分支 (整体换出)。
+            player.getInventory().setItem(0, ItemStack.EMPTY);
+
+            ProductionTableMenu menu = new ProductionTableMenu(0, player.getInventory(), abs);
+            int outputMenuSlot = ProductionTableBlockEntity.SLOT_OUTPUT;
+            menu.clicked(outputMenuSlot, 0, ClickType.SWAP, player);
+
+            ItemStack landed = player.getInventory().getItem(0);
+            helper.assertTrue(landed.getCount() == plateCount,
+                    "SWAP must move the full output stack into the target hotbar slot, got " + landed.getCount());
+            helper.assertFalse(NanoNbt.isProductionXpPending(landed),
+                    "SWAP-received stack must have pending cleared too, not just the mouse/Shift paths");
+
+            ItemStack stillInSlot = be.inventory().getStackInSlot(ProductionTableBlockEntity.SLOT_OUTPUT);
+            helper.assertTrue(stillInSlot.isEmpty(),
+                    "output slot must be empty after SWAP moved the whole stack out");
+
+            helper.assertTrue(job.grantXpCalls == 1,
+                    "SWAP take must still settle production xp exactly once, got " + job.grantXpCalls);
+            helper.assertTrue(job.lastRawXp == 180L,
+                    "high plate x3 raw xp anchor stays 60*3=180 on SWAP take, got " + job.lastRawXp);
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
     // ---- 测试辅助 ----
+
+    /** 在玩家 36 槽主背包中找到第一个匹配指定纳米板档位的非空实栈 (Shift 取板落点验证用); 未找到返回 null。 */
+    private static ItemStack findPlateInMainInventory(ServerPlayer player, NanoTier tier) {
+        for (ItemStack stack : player.getInventory().items) {
+            if (!stack.isEmpty() && stack.is(ModEngineerItems.plate(tier).get())) {
+                return stack;
+            }
+        }
+        return null;
+    }
 
     /** 在 helper 世界 (0,1,0) 放一个高级生产台 BE 并返回 (机器档 HIGH, 供 dataAccess.machineTier 解析)。 */
     private static ProductionTableBlockEntity newProductionTable(GameTestHelper helper) {

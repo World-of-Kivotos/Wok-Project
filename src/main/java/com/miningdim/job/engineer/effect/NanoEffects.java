@@ -135,10 +135,19 @@ public final class NanoEffects {
     }
 
     /**
-     * 受击时尝试反应式触发护盾免疫窗 (6.2): 该件有充能 (charges > 0) 且 armed (regenTick <= 0) 时, 消耗一次充能、
-     * 开 X 秒免疫窗、重置再生倒计时, 返回 true; 否则不动, 返回 false。仅在无活动窗口时由 handler 调用。
+     * 受击时尝试反应式触发护盾免疫窗 (6.2): 该件有充能 (charges > 0) 时, 消耗一次充能、开 X 秒免疫窗、重置该件
+     * 再生倒计时, 返回 true; 否则不动, 返回 false。仅在无活动窗口时由 handler 调用。
      *
      * charges > 0 即 "带护盾且有充能" 的可靠廉价代理 (K_SHIELD_CHARGES 仅随 SHIELD 特效写入/清除)。
+     *
+     * 按件独立充能, 无跨件安全阀: MillenniumEngineer_Mod_DesignSpec 6.2 表格对护盾当前的记录是件级独立资源池,
+     * 与机能修复的递减安全阀、图腾的人级共享 CD 分属不同类; 本方法忠实实现该记录, 未擅自加装阀门数值。
+     *
+     * 未拍板事项 (docs/Full_Repo_Audit_2026-08.md F047 复核标记为设计复议项, 已降级为 Minor 但未结案):
+     * 149 行的分类原则是"作用于护甲自身的效果按件安全, 作用于玩家本体的效果需收敛", 但全伤害免疫窗按该判据
+     * 实际作用于玩家本体 (四件套 = 20 次共 40 秒硬免疫), 与"归入护甲自身"的分类自相矛盾, 在 80 血 + 高 DPS
+     * 枪战 + 生产职业哲学下值得回炉。是否把护盾免疫窗/充能收敛到人级共享 (参照图腾) 或加装与机能修复同形的
+     * 递减阀、以及具体阀值, 均需主控拍板; 本类不臆造数值, 现状按规格既有记录实现。
      */
     public static boolean tryReactiveShield(ItemStack armor) {
         int charges = NanoNbt.shieldCharges(armor);

@@ -43,7 +43,7 @@ import type {
   MarketP2pCapResult,
   MarketSort,
 } from '../../lib/types'
-import { callMock, getWorld, refreshWalletAndInventory, useMockAction, useMockWorld } from '../../mock'
+import { callMock, getWorld, refreshInventoryMirror, useMockAction, useMockWorld } from '../../mock'
 
 /**
  * 跳蚤市场 · 浏览与购买 (接线清单 B 组)。
@@ -60,9 +60,9 @@ import { callMock, getWorld, refreshWalletAndInventory, useMockAction, useMockWo
  *                          MarketEngine.place 里), 买入一件不占 —— 徽标挂在买入页, 不写限定词必被误读。
  *                          回执把 activeHeld / soldToday 拆开给, 因为只有后者随日切归零
  *   A7  player.inventory   经 mock 的真域镜像读"我背包里已有几件", 用于买入后果可见
- *   A5  player.profile     余额基线。刻意不自己拼 mirror.wallet + walletOverlay —— profile 的 wallet
- *                          已把 planned 域收支叠加算进去 (同 TabletShell 的理由), 自己再拼一遍等于把
- *                          账目规则复制成两份, 必然与顶栏的数字漂移
+ *   A5  player.profile     余额基线。mirror 已不再持有钱包 (F057: 全库零读取方, 字段已删), walletOverlay
+ *                          也已恒为 0 (见 mock/store.ts 该字段注释); 余额统一读 profile.wallet, 不再从
+ *                          别处拼一份, 避免与顶栏的数字漂移
  *
  * 刻意**不**在买入侧查 market.tradable: 标的合法性由 market.place 在挂单源头堵死 (place 与 tradable
  * 共用同一份白名单实现), 违规标的进不了挂单表; 而买入侧只有 listing.itemId, 拿不到托管件的 NBT 品质,
@@ -598,15 +598,13 @@ export function BrowsePage(): ReactElement {
      * 直接深链进本页 (未经 hub) 时真域镜像还是空的, 背包持有量会显示"未知"。这里补一次预热,
      * 已经热过就不重复发请求 —— 读的是 getWorld() 而不是订阅值, 免得镜像一变就重跑这个 effect。
      *
-     * 判据看 inventory 本身而不是 mirror.refreshedAt: refreshedAt 是四块镜像共用的一个时间戳,
-     * 开箱页的 refreshCaseTotals 只写钱包与皮肤总数却同样会推进它 (mock/handlers.ts)。
-     * 按 refreshedAt 判定的话, 先逛过开箱页 (或首屏预热时背包那一路失败而开箱那一路成功) 再进本页,
-     * 这次补拉会被直接跳过, 背包持有量就永久停在"未知"且没有任何重试。
+     * 判据直接看 inventory 本身: 本页真正关心的是"背包持有量算不算得出来", 镜像现在也只剩背包这一块
+     * (F057), inventory 就是最直接的那个信号, 不必再绕经 refreshedAt。
      */
     if (getWorld().mirror.inventory !== null) {
       return
     }
-    refreshWalletAndInventory().catch((error: unknown) => {
+    refreshInventoryMirror().catch((error: unknown) => {
       console.error('[market-browse] 真域镜像预热失败, 背包持有量将显示为未知:', error)
     })
   }, [])
@@ -719,13 +717,13 @@ export function BrowsePage(): ReactElement {
     listQuery.reload()
     categories.reload()
     p2pCap.reload()
-    refreshWalletAndInventory().catch((error: unknown) => {
+    refreshInventoryMirror().catch((error: unknown) => {
       // 控制台那条留着 (带完整堆栈, 排障要用); 但只写控制台等于玩家点了刷新之后看着旧的持有量当新的用,
       // 故同时在页面上给一条 danger 回执 —— 本页已经有 toast 通道, 不必另造一套。
       console.error('[market-browse] 手动刷新真域镜像失败:', error)
       pushToast(
         'danger',
-        `刷新失败, 余额与背包持有量还是刷新前的: ${error instanceof Error ? error.message : String(error)}`,
+        `刷新失败, 背包持有量还是刷新前的: ${error instanceof Error ? error.message : String(error)}`,
       )
     })
   }
@@ -971,8 +969,9 @@ export function BrowsePage(): ReactElement {
           onBought={(message) => {
             setSelected(null)
             pushToast('success', message)
-            // 买入后这一页的数量/条目都变了; 钱包与背包由 callMock 在 market.buy 成功后自动刷进真域镜像,
-            // 顶栏余额与本页"背包持有"因此跟着动, 不需要本页再各刷一遍。
+            // 买入后这一页的数量/条目都变了; 背包由 callMock 在 market.buy 成功后自动刷进真域镜像,
+            // 本页"背包持有"因此跟着动 (顶栏余额则由 TabletShell 那边监听世界版本变化重查 profile 带回来),
+            // 不需要本页再各刷一遍。
             listQuery.reload()
           }}
         />

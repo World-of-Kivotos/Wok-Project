@@ -3,8 +3,8 @@
  *
  * 它覆盖两种 action, 且两种走完全不同的路:
  *   1. **真契约那 65 个** (lib/actions.ts 的 SERVER_ACTIONS 63 条 + CLIENT_LOCAL_ACTIONS 2 条): 原样转调
- *      call(), 即 dev 下落 bridge.mock、装进游戏后落真服。本层一行业务规则都不加, 只在写操作成功后顺手把
- *      回执抄进 store.mirror, 好让别的面板 (hub 首页的余额、背包格) 立刻看见后果。
+ *      call(), 即 dev 下落 bridge.mock、装进游戏后落真服。本层一行业务规则都不加, 只在写操作成功后顺手
+ *      重拉一次背包镜像, 好让别的面板 (卖菜/买入/挂单页的背包格) 立刻看见后果。
  *   2. **planned.ts 里剩下那 2 个** (shop.catalog / shop.detail): 后端还不存在 (在 WOK-ChestShop 跨仓),
  *      由 store 的内存世界回答, 带 150-400ms 人为延迟。
  *
@@ -102,57 +102,61 @@ function fail(action: MockActionName, message: string): WebUiCallError {
 // ============================================================
 
 /**
- * 写操作之后要刷哪几块镜像。key 是真 action 名, 不要往里塞 planned 名。
+ * 写操作之后要不要触发一次背包镜像重查。key 是真 action 名, 不要往里塞 planned 名。
  *
- * 判据只有一条: 该 action 会不会动**本人**的钱包或背包。会动就必须列进来 —— 这批里的后五条过去是 planned,
- * 靠写 walletOverlay 让界面立刻变; 叠加层随核销作废后, 唯一能让 hub 首页跟着变的就是重拉一次镜像。
+ * 判据: 该 action 会不会动**本人**的钱包或背包 (集合成员照旧, 一条不删)。钱包本身已不再进镜像
+ * (F057: mirror.wallet 全库零读取方, 已删字段), 由各页自己的 player.profile / job.farmer.state 等
+ * 聚合重查负责; 这张表现在只管背包那一半 —— 只动钱包不动背包的 action (如 admin.economy.set) 留在表里
+ * 也无妨, 多刷一次背包不会出错, 只是当次没有可见变化。
  */
-const MIRROR_AFTER_WALLET_INVENTORY = new Set<string>([
+const MIRROR_AFTER_INVENTORY = new Set<string>([
   'market.place',
   'market.buy',
   'market.cancel',
-  // 卖菜是先扣物后发钱, 两块镜像都会变 —— 不刷的话 hub 首页的余额与背包格会停在卖之前的样子。
+  // 卖菜会把作物从背包扣掉, 不刷的话 hub 首页与农夫面板的背包格会停在卖之前的样子。
   'job.farmer.sell',
-  // 扣信用点/青辉石并把卡包**实物**发进背包 (回执 itemId 就是那件卡包), 两块镜像都会变。
+  // 把卡包**实物**发进背包 (回执 itemId 就是那件卡包)。
   'job.tarot.buyPack',
-  // 扣款并发戒指; 背包满时戒指掉在脚下, 那一次背包不变但钱照扣, 故仍要刷。
+  // 背包满时戒指掉在脚下, 那一次背包不变; 其余情形戒指会进背包。
   'marriage.buyRing',
-  // 典礼与离婚都要收费 (两者都有 INSUFFICIENT_FUNDS 态), 离婚还会把共享背包内容退回发起方背包。
+  // 离婚会把共享背包内容退回发起方背包。
   'marriage.wed',
   'marriage.divorce',
-  // OP 调账的目标可能就是自己, 此时改的正是本人钱包。
+  // OP 调账只动钱包, 不动背包; 留在表里见上方判据说明。
   'admin.economy.set',
 ])
-const MIRROR_AFTER_CASE = new Set<string>(['case.open', 'case.apply'])
 
-/** 拉一遍钱包 / 背包 / 我的挂单并写进镜像。三条并发发出, 因为它们彼此无依赖。 */
-export async function refreshWalletAndInventory(): Promise<void> {
-  const [wallet, inventory, mine] = await Promise.all([
-    call('player.wallet', {}),
-    call('player.inventory', {}),
-    call('market.mine', {}),
-  ])
+/**
+ * 拉一遍背包并写进镜像。成功时顺带清掉上一次的失败标记。
+ *
+ * 必须 reject: 调用方 (FarmerPanel/BrowsePage/SellPage) 各自有用户可见的错误分支与重试按钮,
+ * 这里吞掉异常就会变成"点重试没反应"。把刷新失败隔离在写操作结果之外的责任在 delegateReal
+ * (不 await 这个调用), 不在这里 try/catch。
+ */
+export async function refreshInventoryMirror(): Promise<void> {
+  const inventory = await call('player.inventory', {})
   mutateWorld((draft) => {
-    draft.mirror.wallet = wallet
     draft.mirror.inventory = inventory.items
-    draft.mirror.myListings = mine.listings
     draft.mirror.refreshedAt = nowMs()
+    draft.mirror.lastError = null
   })
 }
 
-/** 开箱相关: 只需要钱包与皮肤资产总数, 不必再拉背包。 */
-export async function refreshCaseTotals(): Promise<void> {
-  const state = await call('case.state', {})
+/**
+ * 记录一次镜像刷新失败: console.error 打一条带前缀的诊断日志 (保留原始 error 对象, 供控制台展开完整
+ * 堆栈), 并把人可读的消息写进 mirror.lastError 供顶栏显形。刷新失败不代表触发它的那次写操作失败,
+ * 见 delegateReal 的红线注释。
+ */
+export function recordMirrorError(error: unknown): void {
+  console.error('[mock-mirror] 真域背包镜像刷新失败:', error)
   mutateWorld((draft) => {
-    draft.mirror.wallet = state.wallet
-    draft.mirror.caseOwnedTotal = state.ownedTotal
-    draft.mirror.refreshedAt = nowMs()
+    draft.mirror.lastError = error instanceof Error ? error.message : String(error)
   })
 }
 
 /** 首屏预热: hub 挂载时调一次, 免得每个面板各自去发现镜像是 null。 */
 export async function primeRealDomainMirror(): Promise<void> {
-  await Promise.all([refreshWalletAndInventory(), refreshCaseTotals()])
+  await refreshInventoryMirror()
 }
 
 // ============================================================
@@ -206,10 +210,10 @@ function invokePlanned(action: PlannedActionName, payload: unknown): unknown {
 
 async function delegateReal(action: WebUiActionName, payload: unknown): Promise<unknown> {
   const result = await callErased(action, payload)
-  if (MIRROR_AFTER_WALLET_INVENTORY.has(action)) {
-    await refreshWalletAndInventory()
-  } else if (MIRROR_AFTER_CASE.has(action)) {
-    await refreshCaseTotals()
+  if (MIRROR_AFTER_INVENTORY.has(action)) {
+    // 红线 (F012): 镜像刷新绝不能挂在这条 await 链上, 也绝不能包一层 try/catch 把 result 换掉 ——
+    // 写操作在上一行已经生效, 刷新失败不该让调用方把已经成功的写操作误判成失败并丢弃回执。
+    void refreshInventoryMirror().catch(recordMirrorError)
   }
   return result
 }

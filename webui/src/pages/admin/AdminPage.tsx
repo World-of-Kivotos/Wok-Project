@@ -1,6 +1,6 @@
 import { ArrowUpIcon, RefreshCwIcon, SearchIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactElement, ReactNode } from 'react'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button,
   ConfirmDangerDialog,
@@ -37,7 +37,7 @@ import type {
   WebUiCurrency,
   WebUiJobId,
 } from '../../lib/types'
-import { callMock, nowMs, useMockAction, useMockWorld } from '../../mock'
+import { callMock, nowMs, useMockAction } from '../../mock'
 
 /**
  * 管理后台 (OP)。五块: 经济调账 / 基准价 / 职业调级 / 副本重置 / 服务器状态。
@@ -396,11 +396,16 @@ function EconomyTab({
               maxLength={16}
             />
           </Field>
-          <Button loading={querying} onClick={() => { void runQuery() }} variant="outline">
+          <Button
+            disabled={target === ''}
+            loading={querying}
+            onClick={() => { void runQuery() }}
+            variant="outline"
+          >
             查询余额
           </Button>
           <Button
-            disabled={amount === null}
+            disabled={amount === null || target === ''}
             onClick={() => {
               setConfirmOpen(true)
             }}
@@ -786,7 +791,7 @@ function JobTab({
           <NumberInput value={level} onChange={setLevel} min={JOB_LEVEL_MIN} max={JOB_LEVEL_MAX} />
         </Field>
         <Button
-          disabled={typedJobId === null}
+          disabled={typedJobId === null || target === ''}
           onClick={() => {
             setConfirmOpen(true)
           }}
@@ -1088,9 +1093,28 @@ function ServerTab(): ReactElement {
 }
 
 export function AdminPage(): ReactElement {
-  const world = useMockWorld()
+  /*
+   * 真身份来自 player.profile, 一条回执同时给出 playerName / isOp / jobs 三样 (不为此拆三条 action)。
+   * lib/types.ts 写死性能约束: 该 action 每次打 3 次 SQLite 且跑在服务器主线程, 严禁挂定时轮询;
+   * 挂载时拉一次是允许的上限, 本页无 reload 触发点。
+   */
+  const profileQuery = useMockAction('player.profile', {})
+  const profileReady = profileQuery.status === 'ready'
+  // 未就绪一律按最保守处理: 没身份就当没身份, 不许借上一帧或猜测的值垫场。
+  const selfName = profileReady ? profileQuery.data.playerName : null
+  const isOp = profileReady && profileQuery.data.isOp
+  const jobs = profileReady ? profileQuery.data.jobs : []
+
   const [tab, setTab] = useState<AdminTabId>('economy')
-  const [target, setTarget] = useState(world.player.name)
+  const [target, setTarget] = useState('')
+  // profile 就绪后把默认调账目标对到自己, 但只对齐一次: OP 选了别人之后不能被后续重渲染拽回自己。
+  const targetAlignedRef = useRef(false)
+  useEffect(() => {
+    if (!targetAlignedRef.current && selfName !== null && target === '') {
+      targetAlignedRef.current = true
+      setTarget(selfName)
+    }
+  }, [selfName, target])
   const [toast, setToastValue] = useState<PanelToast | null>(null)
   /*
    * 回执的实例序号, 只用来当 React key。
@@ -1109,31 +1133,35 @@ export function AdminPage(): ReactElement {
    * 只列在线玩家: 三条 admin.* 全部只认在线玩家 (离线玩家的 capability 不在内存里, 账本接口也只收
    * ServerPlayer), 列出离线的等于给 OP 一个点了必被 INVALID_REQUEST 拒的选项。
    * 名册取自 player.roster —— 服务端只把在线的人放进去, 故这里不必再过滤一次 online。
-   * 自己也在名册里 (服务端刻意不剔除, 调账目标可以是自己), 单拎出来加个"我自己"标注免得两条同名项。
+   * player.roster 刻意不剔除调用者自己, 排除自己这一步由前端按 selfName 做; selfName 未就绪 (null)
+   * 时不剔除任何人, 也不编一个"(我自己)"占位项 —— 宁可列表里暂时含着自己, 也不许猜一个假名字。
    */
   const rosterQuery = useMockAction('player.roster', {})
   const rosterNames = (rosterQuery.data?.players ?? [])
     .map((entry) => entry.name)
-    .filter((name) => name !== world.player.name)
-  const playerOptions: readonly DropdownOption<string>[] = [
-    { value: world.player.name, label: `${world.player.name} (我自己)` },
-    ...rosterNames.map((name) => ({ value: name, label: name })),
-  ]
+    .filter((name) => selfName === null || name !== selfName)
+  const playerOptions: readonly DropdownOption<string>[] =
+    selfName === null
+      ? rosterNames.map((name) => ({ value: name, label: name }))
+      : [
+          { value: selfName, label: `${selfName} (我自己)` },
+          ...rosterNames.map((name) => ({ value: name, label: name })),
+        ]
 
   // 职业名走翻译键 (job.progress 已核销为真契约, 进度条目不再带中文名); 解不出时退回键本身。
-  const jobNames = useItemNames(world.jobs.progress.map((entry) => jobNameKey(entry.jobId)))
-  const jobOptions: readonly { value: WebUiJobId; label: string }[] = world.jobs.progress.map((entry) => ({
+  const jobNames = useItemNames(jobs.map((entry) => jobNameKey(entry.jobId)))
+  const jobOptions: readonly { value: WebUiJobId; label: string }[] = jobs.map((entry) => ({
     value: entry.jobId,
     label: jobNames[jobNameKey(entry.jobId)] ?? jobNameKey(entry.jobId),
   }))
 
   /**
-   * 目标玩家在某职业的当前等级。自己与他人取自两处不同的世界字段 (自己有完整进度, 他人只有等级表),
+   * 目标玩家在某职业的当前等级。自己与他人取自两处不同的来源 (自己有完整进度, 他人只有等级表),
    * 取不到时返回 null 而不是 1 —— "查不到"和"真的是 1 级"在调级面板上是两件事。
    */
   const currentLevel = (jobId: WebUiJobId): number | null => {
-    if (target === world.player.name) {
-      const entry = world.jobs.progress.find((candidate) => candidate.jobId === jobId)
+    if (selfName !== null && target === selfName) {
+      const entry = jobs.find((candidate) => candidate.jobId === jobId)
       return entry === undefined ? null : entry.level
     }
     // 别人的职业等级没有任何只读 action (admin.job.setLevel 只写不读), player.roster 也只给名字与 uuid。
@@ -1150,14 +1178,19 @@ export function AdminPage(): ReactElement {
       {/* 页名由 TabletShell 的 h1 统一渲染, 页面内不再重复 —— 重复两遍且里层更大, 打开必现, 读起来像渲染 bug。 */}
       <Panel
         actions={
-          <Tag tone={world.player.isOp ? 'success' : 'danger'}>
-            {world.player.isOp ? 'OP' : '非 OP'}
+          <Tag tone={isOp ? 'success' : 'danger'}>
+            {isOp ? 'OP' : '非 OP'}
           </Tag>
         }
         description="页签显隐由平板外壳按 isOp 决定; 服务端每个 admin.* 动作内部仍会各自校验权限"
       >
         <div className="flex flex-col gap-3">
-          {world.player.isOp ? null : (
+          {/*
+            profile 未就绪的那一帧 isOp 恒为 false, 徽标画 danger、横幅照常显示。宁可让 OP 在加载完成前
+            多看半拍这条"会被拒绝"的横幅, 也不能在身份未知时先画一个绿色 OP 徽标 —— 后者一旦被非 OP
+            玩家瞥见就是真实的信息泄露, 前者只是一帧过时提示, 代价不对等。
+          */}
+          {isOp ? null : (
             <Surface tone="danger">
               <p className="text-destructive text-sm">
                 当前身份不是 OP: 本页所有提交都会被服务端以"该操作需要 OP 权限"拒绝, 界面仍可浏览

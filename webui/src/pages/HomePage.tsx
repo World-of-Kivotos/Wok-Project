@@ -1036,12 +1036,15 @@ export function HomePage(): ReactElement {
   }, [world.revision, reloadAll])
 
   /*
-   * 进入/离开矿洞。两条都是写操作, 成功后由 mutateWorld 冒出的 revision 变化触发上面那条重查,
-   * 因此这里不再手动 reload —— 手动再刷一次等于同一份数据发两轮请求。
+   * 进入/离开矿洞。mining.enter / mining.leave **不在**镜像刷新表内 (mock/handlers.ts 那张表管的是
+   * wallet/挂单一类可被"回执直接改字段"的东西), 生产路径上也没有任何一处会因 mining.* 而 bump
+   * world.revision —— 上面那条"世界变了就重查"的 effect 对这两条写操作根本不会触发, 卡片会永久停在
+   * 调用前的旧状态。因此两条写操作都必须在回调里显式调 reloadMiningStatus / reloadMiningOverview,
+   * 且成功与被拒两支都要刷: 被拒 (如 ALREADY_INSIDE) 恰恰说明卡片当前显示的状态已经是陈旧的。
    *
    * **accepted 不等于已进去**: 传送在受理之后若干 tick 才发生, 成败只经原生 S2C 下发, webui 通道
-   * 拿不到终局。首页只给一句"已受理", 要确认是否真进去了请到矿洞面板 (那一页挂了 myStatus 轮询)。
-   * 被拒 (等级门/已在内) 时服务端回的是 accepted:false + reasonCode, 那不是异常, 走 danger 提示而不是抛。
+   * 拿不到终局。首页只给一句"已受理", 要确认是否真进去了请到矿洞面板 (那一页挂了 myStatus 轮询) ——
+   * 首页本身不为此再挂一条轮询, 满编公服上没必要为一张卡片常态加请求。
    */
   const enterMining = useCallback((): void => {
     setMiningBusy(true)
@@ -1049,16 +1052,18 @@ export function HomePage(): ReactElement {
       .then((result) => {
         if (result.accepted) {
           pushToast('success', '入场请求已受理, 正在准备地形; 到矿洞面板可以看到是否真进去了')
-          return
+        } else {
+          pushToast(
+            'danger',
+            result.reasonCode === 'LEVEL_TOO_LOW'
+              ? `矿工等级不够: 该难度需要 ${String(result.requiredMinerLevel)} 级, 你是 ${String(result.minerLevel)} 级`
+              : result.reasonCode === 'ALREADY_INSIDE'
+                ? '你已经在矿洞里了'
+                : '进入被拒绝, 但服务端没有给出原因码',
+          )
         }
-        pushToast(
-          'danger',
-          result.reasonCode === 'LEVEL_TOO_LOW'
-            ? `矿工等级不够: 该难度需要 ${String(result.requiredMinerLevel)} 级, 你是 ${String(result.minerLevel)} 级`
-            : result.reasonCode === 'ALREADY_INSIDE'
-              ? '你已经在矿洞里了'
-              : '进入被拒绝, 但服务端没有给出原因码',
-        )
+        reloadMiningStatus()
+        reloadMiningOverview()
       })
       .catch((thrown: unknown) => {
         pushToast('danger', callErrorText(toError(thrown)))
@@ -1066,7 +1071,7 @@ export function HomePage(): ReactElement {
       .finally(() => {
         setMiningBusy(false)
       })
-  }, [difficulty, pushToast])
+  }, [difficulty, pushToast, reloadMiningStatus, reloadMiningOverview])
 
   const leaveMining = useCallback((): void => {
     setMiningBusy(true)
@@ -1077,6 +1082,8 @@ export function HomePage(): ReactElement {
           result.left ? 'success' : 'warning',
           result.left ? '已离开矿洞, 传送回进入前的位置' : '你本来就不在矿洞里',
         )
+        reloadMiningStatus()
+        reloadMiningOverview()
       })
       .catch((thrown: unknown) => {
         pushToast('danger', callErrorText(toError(thrown)))
@@ -1084,7 +1091,7 @@ export function HomePage(): ReactElement {
       .finally(() => {
         setMiningBusy(false)
       })
-  }, [pushToast])
+  }, [pushToast, reloadMiningStatus, reloadMiningOverview])
 
   const openJob = useCallback(
     (jobId: string): void => {

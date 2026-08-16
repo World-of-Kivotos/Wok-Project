@@ -30,7 +30,7 @@ import type {
   MarriageWedOutcomeCode,
   PlayerInventoryItem,
 } from '../lib/types'
-import { callMock, nowMs, useMockAction, useMockWorld } from '../mock'
+import { callMock, nowMs, useMockAction } from '../mock'
 
 /*
  * 婚姻 (`marriage.*`, Java 落点 com.miningdim.marriage.MarriageWebUiActions)。回执形状见 lib/types.ts。
@@ -169,7 +169,6 @@ function buildSharedSlots(
 }
 
 export function MarriagePage(): ReactElement {
-  const world = useMockWorld()
   const stateQuery = useMockAction('marriage.state', {})
   const sharedQuery = useMockAction('marriage.sharedInv', {})
   /*
@@ -179,6 +178,11 @@ export function MarriagePage(): ReactElement {
    * 在那之后调 Hook 会让每次渲染的 Hook 顺序不一致 (react-hooks/rules-of-hooks)。
    */
   const rosterQuery = useMockAction('player.roster', {})
+  /*
+   * 本人真名的唯一来源。marriage.state 回执里没有本人姓名字段 (只有 spouseUuid / spouseName),
+   * 求婚候选去重必须知道"我是谁"才能把自己从下拉里剔除 —— 与另外三条并列放在最顶上, 理由同上。
+   */
+  const profileQuery = useMockAction('player.profile', {})
 
   const [banner, setBannerValue] = useState<Banner>(null)
   /*
@@ -382,7 +386,7 @@ export function MarriagePage(): ReactElement {
     }
   }
 
-  if (stateQuery.status === 'loading') {
+  if (stateQuery.status === 'loading' || profileQuery.status === 'loading') {
     return (
       <div className="flex flex-col gap-4">
         <LoadingBlock label="正在加载婚姻状态" size="lg" />
@@ -393,19 +397,40 @@ export function MarriagePage(): ReactElement {
   if (stateQuery.status === 'error') {
     return (
       <div className="flex flex-col gap-4">
-        <ErrorBlock message={callErrorText(stateQuery.error)} onRetry={stateQuery.reload} />
+        <ErrorBlock
+          message={callErrorText(stateQuery.error)}
+          onRetry={() => {
+            stateQuery.reload()
+            profileQuery.reload()
+          }}
+        />
+      </div>
+    )
+  }
+
+  if (profileQuery.status === 'error') {
+    return (
+      <div className="flex flex-col gap-4">
+        <ErrorBlock
+          message={callErrorText(profileQuery.error)}
+          onRetry={() => {
+            stateQuery.reload()
+            profileQuery.reload()
+          }}
+        />
       </div>
     )
   }
 
   const data = stateQuery.data
+  const selfName = profileQuery.data.playerName
 
   const rosterNames = (rosterQuery.data?.players ?? []).map((entry) => entry.name)
   const proposerNames = data.incomingProposals
     .filter((proposal) => proposal.proposerOnline && proposal.proposerName !== null)
     .map((proposal) => proposal.proposerName ?? '')
   const proposeCandidates = [...new Set([...proposerNames, ...rosterNames])].filter(
-    (name) => name !== '' && name !== world.player.name,
+    (name) => name !== '' && name !== selfName,
   )
   const proposeOptions: DropdownOption<string>[] = proposeCandidates.map((name) => ({
     value: name,

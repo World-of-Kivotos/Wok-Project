@@ -22,12 +22,7 @@
  * 根一换就重渲染, 再往下做不可变更新只是徒增噪音。
  */
 
-import type {
-  MarketListing,
-  PlayerInventoryItem,
-  PlayerJobProgressEntry,
-  WebUiWallet,
-} from '../lib/types'
+import type { PlayerInventoryItem, PlayerJobProgressEntry } from '../lib/types'
 import type { PlannedShopEntry } from './planned'
 import { createInitialWorld } from './seed'
 
@@ -46,16 +41,18 @@ export interface MockPlayerIdentity {
 
 /**
  * 真域回执的只读镜像。null = 本会话还没拉过, 面板据此显示骨架而不是显示 0 ——
- * "还没拉到"和"真的是 0"在余额面板上是两件完全不同的事, 合成一个 0 就再也分不开了。
+ * "还没拉到"和"真的是 0"在背包面板上是两件完全不同的事, 合成一个 0 就再也分不开了。
+ *
+ * 只留 inventory 一块: wallet / myListings / caseOwnedTotal 三个字段全库零读取方 (F057) ——
+ * 余额由各页自己的 player.profile / job.farmer.state 等聚合重查负责, 再镜像一份只会让 hub 首页
+ * 每次刷新都多打一轮请求, 却没有任何面板读它。
  */
 export interface MockRealDomainMirror {
-  wallet: WebUiWallet | null
   inventory: PlayerInventoryItem[] | null
-  myListings: MarketListing[] | null
-  /** case.state 的 ownedTotal (皮肤资产真实总数, owned 数组会被截断到 60 条)。 */
-  caseOwnedTotal: number | null
   /** 最近一次镜像写入时刻; 0 = 从未写入。 */
   refreshedAt: number
+  /** 最近一次镜像刷新失败的可读消息; null = 最近一次成功或从未刷新过 (F012)。 */
+  lastError: string | null
 }
 
 /**

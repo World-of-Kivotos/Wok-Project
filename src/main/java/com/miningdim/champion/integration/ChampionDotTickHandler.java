@@ -98,11 +98,16 @@ public final class ChampionDotTickHandler {
                 recordActiveSources(player, maxHp, nowTick);
                 PlayerDotAccumulator.FlushResult result = acc.flush(maxHp, nowTick);
                 if (result.total() > 0.0D) {
-                    // 诊断 (真服首验): 每秒对每个身上有 DoT 的玩家打一行 本秒合计伤/血量/活跃源层数 (≤15% 封顶后)。
-                    LOGGER.info("dot-tick {} total={} hp={}/{} sources={}",
-                            player.getName().getString(), String.format("%.2f", result.total()),
-                            String.format("%.1f", player.getHealth()), String.format("%.1f", maxHp),
-                            summarizeSources(sources.activeSources()));
+                    // 诊断 (F071 降级): 原为无门控 INFO, 一场 20 人被 DoT 的团战就是 20 行/秒持续输出。三次
+                    // String.format + summarizeSources 都是 SLF4J 参数化日志的【实参】, 会先求值再传入本调用,
+                    // 加不加 isDebugEnabled 门控直接决定这几次求值是否发生 —— 不加守卫等于没降级。
+                    // applyDotDamage 是业务动作, 必须留在守卫外面, 不随日志级别变化。
+                    if (LOGGER.isDebugEnabled()) {
+                        LOGGER.debug("dot-tick {} total={} hp={}/{} sources={}",
+                                player.getName().getString(), String.format("%.2f", result.total()),
+                                String.format("%.1f", player.getHealth()), String.format("%.1f", maxHp),
+                                summarizeSources(sources.activeSources()));
+                    }
                     applyDotDamage(player, result.total());
                 }
             }

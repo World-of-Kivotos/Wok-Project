@@ -740,6 +740,34 @@ public final class QuestGameTests {
     }
 
     /**
+     * 掉线重连: 行程重开且计时从重连那一刻起算, <b>离线时长一秒都不计入停留</b>。
+     *
+     * 这条守的是撤离判据最容易被绕开的地方 —— 若重连时接续掉线前的进入时间, 最优解就变成"进洞后直接退出
+     * 游戏, 几小时后上线走出来", 秒过任何停留门槛。把 {@code onReconnect} 改成恢复原进入时间, 第二行立刻挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void reconnectRestartsDwellClockSoOfflineTimeNeverCounts(GameTestHelper helper) {
+        UUID player = UUID.randomUUID();
+        long gate = 6_000L;
+
+        QuestMiningVisits.startVisit(player, Difficulty.HARD, 0L);
+        QuestMiningVisits.discardVisit(player);      // 掉线
+        helper.assertTrue(!QuestMiningVisits.hasVisit(player), "掉线后不得留下在途行程");
+
+        // 重连: 离线了一百万 tick, 但计时从重连这一刻起算。
+        long reconnectAt = 1_000_000L;
+        QuestMiningVisits.startVisit(player, Difficulty.HARD, reconnectAt);
+        helper.assertTrue(QuestMiningVisits.finishVisit(player, reconnectAt + gate - 1L, gate) == null,
+                "离线时长不得计入停留, 重连后必须重新待够门槛");
+
+        QuestMiningVisits.startVisit(player, Difficulty.HARD, reconnectAt);
+        QuestMiningVisits.Extraction ok = QuestMiningVisits.finishVisit(player, reconnectAt + gate, gate);
+        helper.assertTrue(ok != null && ok.dwellTicks() == gate,
+                "重连后待够门槛必须算撤离, 且停留时长只计重连之后的那一段");
+        helper.succeed();
+    }
+
+    /**
      * 上交: 一次交足剩余需求 (不多扣), 交够之后再交一分不动背包。
      *
      * 删掉 {@code turnIn} 里按剩余需求裁剪的那一步, 第一段会在"背包应剩 36"上挂 (会把 100 个全收走);

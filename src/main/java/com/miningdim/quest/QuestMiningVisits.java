@@ -62,9 +62,27 @@ public final class QuestMiningVisits {
         markDied(player.getUUID());
     }
 
-    /** 玩家掉线: 直接丢弃行程 (掉线不是撤离; 重连后从零开始算)。 */
+    /**
+     * 玩家掉线: 丢弃在途行程。
+     *
+     * 掉线本身不是撤离, 但也不该让这一趟彻底作废 —— 重连时 {@link #onReconnect} 会重开一趟, <b>计时从重连
+     * 那一刻起算</b>。这个"丢弃 + 重新起算"的组合是刻意的: 若重连时把原来的进入时间恢复回来, 玩家就能进洞
+     * 后直接退出游戏, 几小时后上线走出来, 秒过任何停留门槛 —— 离线挂机将成为最优解。离线时长永不计入停留,
+     * 是这条判据不被绕开的前提。
+     */
     public static void onLoggedOut(ServerPlayer player) {
-        IN_FLIGHT.remove(player.getUUID());
+        discardVisit(player.getUUID());
+    }
+
+    /**
+     * 玩家登录: 人若仍在矿洞维度里 (断线重连回到原实例), 重开一趟行程, 计时从此刻起算。
+     *
+     * 与 {@link #onEnterMining} 同实现 —— 对本类而言"重连回到洞里"与"刚走进洞里"是同一件事, 差别只在
+     * 计时起点, 而计时起点本来就取当下。若登录恢复流程随后把玩家送回了回退点 (实例已销毁等情形), 那次传送
+     * 会触发离开判定, 届时停留时长约为 0, 达不到门槛, 自然不会误判成一次撤离。
+     */
+    public static void onReconnect(ServerPlayer player) {
+        onEnterMining(player);
     }
 
     /**
@@ -84,6 +102,11 @@ public final class QuestMiningVisits {
     /** 标记本趟死亡 (纯状态机入口)。无在途行程时什么都不做 —— 在矿洞外死亡与撤离判定无关。 */
     static void markDied(UUID playerId) {
         IN_FLIGHT.computeIfPresent(playerId, (id, visit) -> visit.markDied());
+    }
+
+    /** 丢弃在途行程而不结算 (纯状态机入口, 掉线用)。 */
+    static void discardVisit(UUID playerId) {
+        IN_FLIGHT.remove(playerId);
     }
 
     /**
@@ -123,9 +146,14 @@ public final class QuestMiningVisits {
         return new QuestFacts.MiningExtraction(player, extraction.difficulty(), extraction.dwellTicks());
     }
 
-    /** 玩家当前是否有一趟在途行程 (诊断与测试用)。 */
+    /** 玩家当前是否有一趟在途行程 (诊断用)。 */
     public static boolean hasVisit(ServerPlayer player) {
-        return IN_FLIGHT.containsKey(player.getUUID());
+        return hasVisit(player.getUUID());
+    }
+
+    /** 同上, 按 UUID (纯状态机查询, 测试用)。 */
+    static boolean hasVisit(UUID playerId) {
+        return IN_FLIGHT.containsKey(playerId);
     }
 
     /** 停服时清空 (进程内瞬时状态, 不跨存档)。 */

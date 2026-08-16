@@ -69,11 +69,24 @@ public final class QuestEventHooks {
         }
     }
 
-    /** 掉线: 丢弃在途行程。掉线不是撤离, 重连后从零算起。 */
+    /** 掉线: 丢弃在途行程。掉线不是撤离。 */
     @SubscribeEvent
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             QuestMiningVisits.onLoggedOut(player);
+        }
+    }
+
+    /**
+     * 登录: 人若仍在矿洞里 (断线重连回原实例), 重开一趟行程并从此刻起算。
+     *
+     * 重连不走维度切换事件 (玩家本来就在那个维度), 所以必须在这里补一次, 否则掉线过的玩家这一趟无论怎么走
+     * 都不会被判成撤离。计时不接续掉线前的进度 —— 理由见 {@link QuestMiningVisits#onLoggedOut}。
+     */
+    @SubscribeEvent
+    public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            QuestMiningVisits.onReconnect(player);
         }
     }
 

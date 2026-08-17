@@ -1,4 +1,6 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
+import { transitionContent } from '@/lib/motion'
+import type { ContentTransitionDirection } from '@/lib/motion'
 
 /**
  * 单 URL + 前端路由 (决策 J4): Java 侧只持有一个 webui.url, 切面板不经 Java。
@@ -75,6 +77,27 @@ export const ROUTE_PATTERNS = [
 ] as const
 
 export type RoutePattern = (typeof ROUTE_PATTERNS)[number]
+
+/** 页面在侧栏与子级流程中的空间顺序, 用来决定切换从左还是从右进入。 */
+const ROUTE_TRANSITION_RANK: Record<RoutePattern, number> = {
+  [ROUTE_HOME]: 0,
+  [ROUTE_MARKET]: 1,
+  [ROUTE_MARKET_SELL]: 2,
+  [ROUTE_MARKET_MINE]: 3,
+  [ROUTE_MARKET_HISTORY]: 4,
+  [ROUTE_MARKET_INBOX]: 5,
+  [ROUTE_SHOP]: 6,
+  [ROUTE_JOBS]: 7,
+  [ROUTE_JOB_DETAIL]: 8,
+  [ROUTE_MINING]: 9,
+  [ROUTE_QUESTS]: 10,
+  [ROUTE_CODEX]: 11,
+  [ROUTE_MARRIAGE]: 12,
+  [ROUTE_CASE]: 13,
+  [ROUTE_SETTINGS]: 14,
+  [ROUTE_ADMIN]: 15,
+  [ROUTE_COMPONENTS]: 16,
+}
 
 /**
  * 每条路由的标题 —— 平板外壳内容区表头与页面自身共用这一份。
@@ -162,6 +185,17 @@ export function matchRoute(path: string): RouteMatch {
   return { path, pattern: null, params: EMPTY_PARAMS }
 }
 
+function routeTransitionDirection(currentPath: string, nextPath: string): ContentTransitionDirection {
+  const currentPattern = matchRoute(currentPath).pattern
+  const nextPattern = matchRoute(nextPath).pattern
+  if (currentPattern === null || nextPattern === null) {
+    return 'forward'
+  }
+  return ROUTE_TRANSITION_RANK[nextPattern] >= ROUTE_TRANSITION_RANK[currentPattern]
+    ? 'forward'
+    : 'backward'
+}
+
 // ============================================================
 // 内存路由状态
 // ============================================================
@@ -222,6 +256,11 @@ export function useRouteParams(): Readonly<Record<string, string>> {
 /** 导航到目标路由。返回稳定引用, 可直接进依赖数组。 */
 export function useNavigate(): (path: string) => void {
   return useCallback((path: string) => {
-    setRoute(path)
+    if (path === currentRoute) {
+      return
+    }
+    transitionContent(routeTransitionDirection(currentRoute, path), () => {
+      setRoute(path)
+    })
   }, [])
 }

@@ -396,7 +396,9 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
           超长页面会被直接裁掉而不是可滚。
           min-h-0 是必须的 —— flex 子项默认 min-height:auto, 不归零则 flex-1 撑不下去, overflow 永不触发。
         */}
-        <main className="min-h-0 flex-1 overflow-y-auto p-4">{children}</main>
+        <main className="page-transition-surface min-h-0 flex-1 overflow-y-auto p-4">
+          {children}
+        </main>
       </div>
     </div>
   )

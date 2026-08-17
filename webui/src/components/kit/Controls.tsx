@@ -11,6 +11,7 @@ import {
 import { Progress, ProgressIndicator, ProgressTrack } from '@/components/ui/progress'
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
+import { transitionContent, updateContentFromKeyboard } from '@/lib/motion'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
 import type { ControlSize, Tone } from './tokens'
 import { COSS_SIZE, TEXT_SIZE_CLASS, TONE_FILL_CLASS } from './tokens'
@@ -345,8 +346,23 @@ export function TabBar({
 }: TabBarProps): ReactElement {
   return (
     <Tabs
-      onValueChange={(next) => {
-        onChange(String(next))
+      onValueChange={(next, eventDetails) => {
+        const nextId = String(next)
+        if (nextId === activeId) {
+          return
+        }
+
+        const update = (): void => {
+          onChange(nextId)
+        }
+        if (eventDetails.event instanceof KeyboardEvent) {
+          updateContentFromKeyboard(update)
+          return
+        }
+
+        const activeIndex = tabs.findIndex((tab) => tab.id === activeId)
+        const nextIndex = tabs.findIndex((tab) => tab.id === nextId)
+        transitionContent(nextIndex >= activeIndex ? 'forward' : 'backward', update)
       }}
       value={activeId}
     >

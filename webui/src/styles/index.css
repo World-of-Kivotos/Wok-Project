@@ -224,6 +224,9 @@
 
   /* 开箱条带的长减速。比 out-soft 更极端的尾部拖尾, 服务于"看着它慢慢停在某一格"的悬念。 */
   --ease-reel: cubic-bezier(0.12, 0.8, 0.2, 1);
+
+  /* 页面与页签内容在屏幕内换位, 前后段对称以保持明确的左右空间关系。 */
+  --ease-move: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 /*
@@ -234,12 +237,15 @@
  * 换主题要跟着调时长, 也会诱使后来者在 .light 里再抄一份。
  */
 :root {
+  view-transition-name: none;
+
   --duration-press: 120ms;
   --duration-enter: 180ms;
   --duration-exit: 140ms;
   --duration-expand: 200ms;
   --duration-reel: 2200ms;
   --duration-reel-settle: 160ms;
+  --duration-page: 250ms;
 }
 
 /*
@@ -259,6 +265,105 @@
     --duration-expand: 110ms;
     --duration-reel: 400ms;
     --duration-reel-settle: 100ms;
+    --duration-page: 100ms;
+  }
+}
+
+/*
+ * 主内容切换用同文档 View Transition: React 只挂载新页面一次, 旧页面由 Chromium 快照负责退场,
+ * 因此不会为了动画让旧页面多活 250ms 并重复请求数据。只给内容区命名, 侧栏与顶栏保持稳定锚点。
+ */
+.page-transition-surface {
+  contain: paint;
+  view-transition-name: page-content;
+}
+
+::view-transition-group(page-content) {
+  overflow: clip;
+}
+
+::view-transition-old(page-content),
+::view-transition-new(page-content) {
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  mix-blend-mode: normal;
+  transform-origin: center;
+}
+
+:root[data-content-direction='forward']::view-transition-old(page-content) {
+  animation: page-exit-forward var(--duration-page) var(--ease-move) both;
+}
+
+:root[data-content-direction='forward']::view-transition-new(page-content) {
+  animation: page-enter-forward var(--duration-page) var(--ease-move) both;
+}
+
+:root[data-content-direction='backward']::view-transition-old(page-content) {
+  animation: page-exit-backward var(--duration-page) var(--ease-move) both;
+}
+
+:root[data-content-direction='backward']::view-transition-new(page-content) {
+  animation: page-enter-backward var(--duration-page) var(--ease-move) both;
+}
+
+:root[data-motion-input='keyboard'] [data-slot='tab-indicator'] {
+  transition-duration: 0ms;
+}
+
+@keyframes page-exit-forward {
+  to {
+    opacity: 0;
+    clip-path: inset(0 8% 0 0);
+    transform: translate3d(-8%, 0, 0);
+  }
+}
+
+@keyframes page-enter-forward {
+  from {
+    opacity: 0;
+    clip-path: inset(0 0 0 8%);
+    transform: translate3d(8%, 0, 0);
+  }
+}
+
+@keyframes page-exit-backward {
+  to {
+    opacity: 0;
+    clip-path: inset(0 0 0 8%);
+    transform: translate3d(8%, 0, 0);
+  }
+}
+
+@keyframes page-enter-backward {
+  from {
+    opacity: 0;
+    clip-path: inset(0 8% 0 0);
+    transform: translate3d(-8%, 0, 0);
+  }
+}
+
+@keyframes page-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes page-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-content-direction]::view-transition-old(page-content) {
+    animation-name: page-fade-out;
+    animation-timing-function: var(--ease-out-soft);
+  }
+
+  :root[data-content-direction]::view-transition-new(page-content) {
+    animation-name: page-fade-in;
+    animation-timing-function: var(--ease-out-soft);
   }
 }
 

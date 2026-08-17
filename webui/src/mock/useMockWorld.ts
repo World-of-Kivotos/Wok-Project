@@ -10,8 +10,9 @@
  * 数据请走 useMockWorld, 需要重查的地方请显式调 reload —— 这条边界是刻意划的, 别为了省事把它抹掉。
  */
 
-import { useRefreshRevision } from '@/lib/refresh'
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { useCachedQuery } from '@/lib/query-cache'
+import type { QueryState } from '@/lib/query-cache'
+import { useSyncExternalStore } from 'react'
 import type { MockActionName, MockPayloadOf, MockResultOf } from './handlers'
 import { callMock } from './handlers'
 import type { MockWorld } from './store'
@@ -27,69 +28,38 @@ export function useMockWorld(): MockWorld {
 }
 
 /**
- * loading 态的 data 是 <b>T | null</b> 而不是恒 null: 重拉 (全局作废 / reload) 时要保住上一份数据,
- * 否则整页控件会闪一次骨架屏再长回来, 数字没变也闪。首次加载时它自然是 null, 调用方原有的
- * "status !== 'ready' 就画骨架" 写法不受影响 —— 想做"旧数据 + 刷新中"的调用方才需要读这个 data。
+ * loading 态的 data 是 <b>T | null</b> 而不是恒 null: 重查时要保住上一份数据, 否则整页控件会闪一次骨架屏
+ * 再长回来, 数字没变也闪。首次加载时它自然是 null, 调用方原有的 "status !== 'ready' 就画骨架" 写法不受影响。
+ *
+ * refreshing 是加出来的第四个字段 (不改动原有三态, 存量调用方一行不用动): 后台重查期间 status 保持 ready
+ * 而 refreshing 为真, 想画一个不打断阅读的刷新指示就读它。
  */
-export type MockActionState<T> =
-  | { status: 'loading'; data: T | null; error: null }
-  | { status: 'ready'; data: T; error: null }
-  | { status: 'error'; data: null; error: Error }
+export type MockActionState<T> = QueryState<T>
 
 export type MockActionQuery<T> = MockActionState<T> & { reload: () => void }
-
-function toError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value))
-}
 
 /**
  * 发起一次 action 调用并跟随其生命周期。
  *
- * 依赖取 payload 的内容签名而不是对象引用: 调用方每次渲染都会新建一个 payload 字面量, 用引用会让 effect
- * 每帧重跑 (与 lib/i18n.ts 的 useItemNames 同一套理由)。签名走 JSON 是可逆的, effect 里再解回来即可。
+ * 缓存键 = action 名 + payload 的内容签名。取内容而不是对象引用: 调用方每次渲染都会新建一个 payload 字面量,
+ * 用引用会让 effect 每帧重跑 (与 lib/i18n.ts 的 useItemNames 同一套理由)。
+ *
+ * 真正的缓存与在途合并住在 lib/query-cache (见那里的文件注释): 命中新鲜缓存时本 hook 首帧即 ready,
+ * 一个请求都不发 —— 这是"切页面不闪"与"别反复打服务端"两件事的同一个实现。
  */
 export function useMockAction<A extends MockActionName>(
   action: A,
   payload: MockPayloadOf<A>,
 ): MockActionQuery<MockResultOf<A>> {
   const signature = JSON.stringify(payload)
-  const [attempt, setAttempt] = useState(0)
-  const [state, setState] = useState<MockActionState<MockResultOf<A>>>({
-    status: 'loading',
-    data: null,
-    error: null,
-  })
+  return useCachedQuery<MockResultOf<A>>(
+    `${action}|${signature}`,
+    // payload 经签名往返一遍而不是直接闭包住入参对象: 与缓存键同源, 杜绝"键相同但实际发出的入参不同"。
+    () => callMock(action, JSON.parse(signature) as MockPayloadOf<A>),
+  )
+}
 
-  // 全局作废版本号: 别处的写操作 (或面板重开) 会推高它, 本查询随之重拉。
-  const revision = useRefreshRevision()
-
-  const reload = useCallback(() => {
-    setAttempt((previous) => previous + 1)
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    // 重拉时<b>保住上一份数据</b>, 只把状态压回 loading。原来这里连 data 一起清成 null, 于是每次作废
-    // (领个奖、重开面板) 整页控件都会闪一次骨架屏再长回来 —— 数字明明没变也闪。首次加载 data 本来就是
-    // null, 不受影响。
-    setState((previous) => ({ status: 'loading', data: previous.data, error: null }))
-    const parsed = JSON.parse(signature) as MockPayloadOf<A>
-    callMock(action, parsed)
-      .then((data) => {
-        if (!cancelled) {
-          setState({ status: 'ready', data, error: null })
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          // 保留原始错误对象 (WebUiCallError 带 action/code/business 三个字段), 不要在这层压成一句文案。
-          setState({ status: 'error', data: null, error: toError(error) })
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [action, signature, attempt, revision])
-
-  return { ...state, reload }
+/** 缓存键的唯一合成处。预取方 (侧栏悬停) 必须经它取键, 不许自己拼 —— 拼错的症状是预取永不命中。 */
+export function mockActionKey<A extends MockActionName>(action: A, payload: MockPayloadOf<A>): string {
+  return `${action}|${JSON.stringify(payload)}`
 }

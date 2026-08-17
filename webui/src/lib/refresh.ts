@@ -27,18 +27,23 @@ export function invalidateAll(): void {
   }
 }
 
-function subscribe(onStoreChange: () => void): () => void {
+/**
+ * 订阅作废信号 (供 useSyncExternalStore 用)。导出而不是留作私有: lib/query-cache 要在缓存层直接订阅它,
+ * 而不是让每个查询各自包一层 hook 再传参进去。
+ */
+export function subscribeRefresh(onStoreChange: () => void): () => void {
   listeners.add(onStoreChange)
   return () => {
     listeners.delete(onStoreChange)
   }
 }
 
-function getSnapshot(): number {
+/** 当前作废版本号。缓存条目记下取数时的版本, 与它不等即为过期。 */
+export function currentRefreshRevision(): number {
   return revision
 }
 
 /** 当前作废版本号。放进查询 hook 的依赖数组即可跟随作废。 */
 export function useRefreshRevision(): number {
-  return useSyncExternalStore(subscribe, getSnapshot)
+  return useSyncExternalStore(subscribeRefresh, currentRefreshRevision)
 }

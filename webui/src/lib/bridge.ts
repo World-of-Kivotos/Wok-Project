@@ -16,6 +16,7 @@ import { installWebUiEventBridge, subscribeWebUiEvent } from '../bridge/events'
 import { BRIDGE_UNAVAILABLE_CODE, WebUiQueryError, webUiQuery } from '../bridge/query'
 import type { WebUiActionName } from './actions'
 import { SERVER_ACTIONS } from './actions'
+import { enqueueBatched, installBatchTransport, isBatchableAction } from './batch'
 import type {
   EconomyPriceTablePayload,
   EconomyPriceTableResult,
@@ -158,6 +159,8 @@ import type {
   PlayerProfileResult,
   PlayerWalletPayload,
   PlayerWalletResult,
+  SystemBatchPayload,
+  SystemBatchResult,
   SystemEchoPayload,
   SystemEchoResult,
   SystemHandshakePayload,
@@ -171,6 +174,7 @@ import type {
  * 这里只做名字与形状的配对, 好让 call() 一个泛型函数覆盖全部 action 而不必逐个写重载。
  */
 type WebUiContractMap = {
+  'system.batch': { payload: SystemBatchPayload; result: SystemBatchResult }
   'system.echo': { payload: SystemEchoPayload; result: SystemEchoResult }
   'system.handshake': { payload: SystemHandshakePayload; result: SystemHandshakeResult }
   'system.serverStatus': { payload: SystemServerStatusPayload; result: SystemServerStatusResult }
@@ -426,8 +430,26 @@ function warnMockOnce(): void {
  *
  * 失败一律以 WebUiCallError 抛出, 不做任何默认值兜底 —— 余额/库存回假值比报错危险得多。
  * 调用方只在最外层 (页面级错误边界 / 提交按钮的一次性 catch) 收口, 不要在数据函数里 try/catch。
+ *
+ * 只读 action 会被<b>透明合并</b>进一次 system.batch 往返 (见 lib/batch.ts): 调用方无从分辨自己是被合并了
+ * 还是单发的, 成功与失败两条路径都同形。合并只在宿主已注入时生效 —— 假数据模式下 bridge.mock 没有
+ * system.batch, 且那条路上本来就没有往返成本可省。
  */
 export async function call<A extends WebUiActionName>(
+  action: A,
+  payload: PayloadOf<A>,
+): Promise<ResultOf<A>> {
+  if (bridgeInjected() && isBatchableAction(action)) {
+    return (await enqueueBatched(action, asPayloadRecord(payload))) as ResultOf<A>
+  }
+  return callDirect(action, payload)
+}
+
+/**
+ * 不经批量合并的单发通道。批量调度器自己要用它 (发那条 system.batch、以及降级/溢出时逐条重发),
+ * 若它调回 {@link call} 就成了无限自套。
+ */
+async function callDirect<A extends WebUiActionName>(
   action: A,
   payload: PayloadOf<A>,
 ): Promise<ResultOf<A>> {
@@ -455,6 +477,23 @@ export async function call<A extends WebUiActionName>(
     throw queryError
   }
 }
+
+/**
+ * 单发通道的类型擦除视图。批量调度器按运行期字符串收发, 拿不到 A 这个泛型参数 —— 与
+ * mock/handlers.ts 里那处 callErased 同源同理由: 集中成一个具名常量, 让"本文件一共有几处断言"一眼可数。
+ */
+const callDirectErased = callDirect as unknown as (
+  action: string,
+  payload: Record<string, unknown>,
+) => Promise<unknown>
+
+/*
+ * 模块求值时把单发通道与失败信封翻译交给批量调度器。
+ *
+ * 方向是 bridge -> batch 的单向注入, 不让 batch 反过来 import 本文件: ESM 的循环 import 不报错, 只会让先
+ * 求值的一侧拿到 undefined, 症状是"call 偶尔不是函数"这类极难归因的故障。
+ */
+installBatchTransport(callDirectErased, parseServerFailure)
 
 export type WebUiEventHandler = (data: unknown) => void
 

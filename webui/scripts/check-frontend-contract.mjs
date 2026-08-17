@@ -612,6 +612,55 @@ runCheck(
 )
 
 // ============================================================
+// 11. 批量白名单两侧逐条相等 (前端 lib/batch.ts <-> 服务端 WebUiBatchAction.java)
+// ============================================================
+//
+// 这两张表必须字字相同, 而它们分处两种语言、两个构建, 没有任何编译器能把它们对上:
+//   - 前端多一条 (服务端不许): 那条 action 每次进批都被逐条拒, 页面上是一次可见的失败;
+//   - 前端少一条: 只是那条走单发, 性能回退但不出错。
+// 运行期已有自愈 (batch.ts 收到 ACTION_NOT_BATCHABLE 会改走单发并 console.warn), 但自愈只是不让玩家受伤,
+// 缺陷本身必须在这里被抓住 —— 否则它会以"某个面板偶尔慢一点"的形态永久活下去。
+
+runCheck(
+  'batchable-whitelist-parity',
+  'lib/batch.ts 的 BATCHABLE_ACTIONS 与 WebUiBatchAction.java 的 BATCHABLE 逐条相等',
+  () => {
+    const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..')
+    const javaFile = path.join(
+      REPO_ROOT, 'src', 'main', 'java', 'com', 'miningdim', 'webui', 'server', 'WebUiBatchAction.java',
+    )
+    const tsText = readFileSync(path.join(SRC_ROOT, 'lib', 'batch.ts'), 'utf8')
+    const javaText = readFileSync(javaFile, 'utf8')
+
+    // 锚点取"变量名 + 集合字面量开头", 找不到即视为断言失败: 有人重构了表的写法, 就该同时把本守卫指向新位置,
+    // 而不是让守卫悄悄退化成永远通过。
+    const tsBlock = /BATCHABLE_ACTIONS[^[]*\[([^\]]*)\]/.exec(tsText)
+    assert.ok(tsBlock, 'lib/batch.ts 里找不到 BATCHABLE_ACTIONS 的数组字面量 (表的写法变了? 请同步本守卫)')
+    const javaBlock = /BATCHABLE = Set\.of\(([^;]*)\);/.exec(javaText)
+    assert.ok(javaBlock, 'WebUiBatchAction.java 里找不到 BATCHABLE = Set.of(...) (表的写法变了? 请同步本守卫)')
+
+    const collect = (block) => [...block.matchAll(/'([^']+)'|"([^"]+)"/g)]
+      .map((match) => match[1] ?? match[2])
+      .sort()
+    const frontend = collect(tsBlock[1])
+    const server = collect(javaBlock[1])
+
+    assert.ok(server.length >= 30, `服务端白名单只解析出 ${String(server.length)} 条, 解析显然出错了`)
+    const onlyFrontend = frontend.filter((action) => !server.includes(action))
+    const onlyServer = server.filter((action) => !frontend.includes(action))
+    assert.deepEqual(
+      onlyFrontend, [],
+      `前端白名单多出服务端不允许的 action: ${onlyFrontend.join(', ')} (进批会被逐条拒)`,
+    )
+    assert.deepEqual(
+      onlyServer, [],
+      `服务端允许但前端没登记的 action: ${onlyServer.join(', ')} (这些 action 会白走单发)`,
+    )
+    return `两侧各 ${String(frontend.length)} 条, 逐条相等`
+  },
+)
+
+// ============================================================
 // 汇总输出
 // ============================================================
 

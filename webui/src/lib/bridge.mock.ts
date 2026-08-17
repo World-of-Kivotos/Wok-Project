@@ -5134,6 +5134,17 @@ function resolveMock(action: WebUiActionName, payload: unknown): unknown {
       return { modVersion: '0.0.0-mock', actions: [...SERVER_ACTIONS] }
     case 'system.serverStatus':
       return mockServerStatus()
+    /*
+     * 批量合并在没有宿主时是关着的 (lib/bridge 的 call 判据是 bridgeInjected() && isBatchableAction),
+     * 所以这条分支<b>不可达</b>: 假数据模式下每条 action 各自落到上面那些 mock 函数, 没有往返成本可省。
+     *
+     * 于是这里明确抛错而不是补一个能跑的假实现 —— 它真被走到只有一种可能: 那个判据被改坏了, 而那时
+     * 假数据模式会开始批量, 一整屏数据的形状全变。宁可在 dev 里当场炸掉, 也不要让它默默"看起来能用"。
+     */
+    case 'system.batch':
+      throw new Error(
+        'bridge.mock 不实现 system.batch: 无宿主时批量合并本应是关闭的 (见 lib/bridge.ts 的 call 与 lib/batch.ts)',
+      )
     case 'player.inventory':
       return mockInventory()
     case 'player.isOp':

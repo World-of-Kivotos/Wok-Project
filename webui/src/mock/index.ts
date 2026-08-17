@@ -25,7 +25,7 @@ export type {
   MockWorld,
 } from './store'
 
-export { useMockAction, useMockWorld } from './useMockWorld'
+export { mockActionKey, useMockAction, useMockWorld } from './useMockWorld'
 export type { MockActionQuery, MockActionState } from './useMockWorld'
 
 export { PLANNED_ACTIONS } from './planned'

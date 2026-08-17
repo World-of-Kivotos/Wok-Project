@@ -115,6 +115,39 @@ export interface SystemHandshakeResult {
   actions: string[]
 }
 
+/** system.batch 的一条子调用 (Java 落点: WebUiBatchAction.handle 逐条读 action 与 payload 两个键)。 */
+export interface SystemBatchCall {
+  action: string
+  /** 必填键 —— 服务端对缺键自然抛并整批拒 (契约破裂不补默认值)。无入参的 action 传 {}。 */
+  payload: Record<string, unknown>
+}
+
+/** system.batch 入参 (Java 落点: WebUiBatchAction, 条数上限 MAX_CALLS = 24, 超限整批拒)。 */
+export interface SystemBatchPayload {
+  calls: readonly SystemBatchCall[]
+}
+
+/**
+ * system.batch 的一条回执条目 (Java 落点: WebUiBatchAction.runOne / assemble)。
+ *
+ * result 与 error 二者必有其一且互斥, 但类型上刻意都是可选的 unknown: 本层是通道而非契约层, 每条子调用的
+ * 真实回执形状由它自己那条 action 的契约决定 —— 在这里写成联合类型等于把 41 个 action 的形状再抄一遍。
+ * 收窄发生在 batch.ts 把 result 派回原调用方之后, 由调用方自己的泛型承接。
+ */
+export interface SystemBatchResultEntry {
+  /** 原样回显的 action 名 (诊断用; 认领按下标, 不按名字 —— 同批允许两条同名不同 payload)。 */
+  action: string
+  ok: boolean
+  result?: unknown
+  /** 失败信封, 与单发失败逐字节同形 {error, errorCode?, retrySameOpeningId?, params?}。 */
+  error?: unknown
+}
+
+/** system.batch 回执。results 与入参 calls 逐条保序一一对应, 条数必然相等 (不等即契约破裂)。 */
+export interface SystemBatchResult {
+  results: SystemBatchResultEntry[]
+}
+
 /** system.serverStatus 入参 —— 不读 payload 任何字段。 */
 export type SystemServerStatusPayload = EmptyPayload
 

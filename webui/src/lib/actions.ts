@@ -103,6 +103,7 @@ export const SERVER_ACTIONS = [
   'quest.claim',
   'quest.refresh',
   'quest.turnIn',
+  'system.batch',
   'system.echo',
   'system.handshake',
   'system.serverStatus',

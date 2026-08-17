@@ -102,6 +102,8 @@ public final class MiningDim {
         subsystems.add(new com.miningdim.entry.EntrySystem());
         // 15. 入口方块子系统 (R4): 三难度入口方块的方块实体类型 + 创造物品栏注册。
         subsystems.add(new com.miningdim.entrance.EntranceSystem());
+        // 15b. 发电系统一期: 三套 3x2x2 发电机外壳、物品与独立创造页。
+        subsystems.add(new com.miningdim.power.PowerSystem());
 
         // 16. 职业框架地基 (JobFramework_Shared_Foundation): 职业进度 Capability + 共享效果/menu 脚手架
         //     + 易伤单一全局仲裁 + IJobService 门面注入 + /job 命令 + 登录同步。须排在所有具体职业之前:

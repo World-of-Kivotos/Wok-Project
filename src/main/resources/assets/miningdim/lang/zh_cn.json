@@ -912,5 +912,14 @@
   "subtitles.miningdim.tarot_pack_open": "塔罗卡包开封",
   "subtitles.miningdim.tarot_pack_reveal": "塔罗卡牌揭晓",
   "subtitles.miningdim.tarot_pack_complete": "塔罗招募完成",
-  "message.miningdim.engineer.repair.shield_incompatible": "护盾类护甲不能使用纳米维修套件维修"
+  "message.miningdim.engineer.repair.shield_incompatible": "护盾类护甲不能使用纳米维修套件维修",
+  "itemGroup.miningdim_power": "能源系统",
+  "block.miningdim.industrial_generator": "工业发电机",
+  "block.miningdim.modern_generator": "现代发电机",
+  "block.miningdim.future_energy_generator": "未来能源发电机",
+  "item.miningdim.industrial_generator": "工业发电机",
+  "item.miningdim.modern_generator": "现代发电机",
+  "item.miningdim.future_energy_generator": "未来能源发电机",
+  "block.miningdim.iron_energy_cable": "铁质能量线缆",
+  "block.miningdim.copper_energy_cable": "铜质能量线缆"
 }

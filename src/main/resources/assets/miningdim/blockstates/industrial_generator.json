@@ -1,0 +1,196 @@
+{
+  "variants": {
+    "part=x0_z0_y0,facing=north": {
+      "model": "miningdim:block/generator/industrial/part_x0_z0_y0",
+      "y": 0
+    },
+    "part=x0_z0_y0,facing=east": {
+      "model": "miningdim:block/generator/industrial/part_x0_z0_y0",
+      "y": 90
+    },
+    "part=x0_z0_y0,facing=south": {
+      "model": "miningdim:block/generator/industrial/part_x0_z0_y0",
+      "y": 180
+    },
+    "part=x0_z0_y0,facing=west": {
+      "model": "miningdim:block/generator/industrial/part_x0_z0_y0",
+      "y": 270
+    },
+    "part=x0_z0_y1,facing=north": {
+      "model": "miningdim:block/generator/industrial/part_x0_z0_y1",
+      "y": 0
+    },
+    "part=x0_z0_y1,facing=east": {
+      "model": "miningdim:block/generator/industrial/part_x0_z0_y1",
+      "y": 90
+    },
+    "part=x0_z0_y1,facing=south": {
+      "model": "miningdim:block/generator/industrial/part_x0_z0_y1",
+      "y": 180
+    },
+    "part=x0_z0_y1,facing=west": {
+      "model": "miningdim:block/generator/industrial/part_x0_z0_y1",
+      "y": 270
+    },
+    "part=x0_z1_y0,facing=north": {
+      "model": "miningdim:block/generator/industrial/part_x0_z1_y0",
+      "y": 0
+    },
+    "part=x0_z1_y0,facing=east": {
+      "model": "miningdim:block/generator/industrial/part_x0_z1_y0",
+      "y": 90
+    },
+    "part=x0_z1_y0,facing=south": {
+      "model": "miningdim:block/generator/industrial/part_x0_z1_y0",
+      "y": 180
+    },
+    "part=x0_z1_y0,facing=west": {
+      "model": "miningdim:block/generator/industrial/part_x0_z1_y0",
+      "y": 270
+    },
+    "part=x0_z1_y1,facing=north": {
+      "model": "miningdim:block/generator/industrial/part_x0_z1_y1",
+      "y": 0
+    },
+    "part=x0_z1_y1,facing=east": {
+      "model": "miningdim:block/generator/industrial/part_x0_z1_y1",
+      "y": 90
+    },
+    "part=x0_z1_y1,facing=south": {
+      "model": "miningdim:block/generator/industrial/part_x0_z1_y1",
+      "y": 180
+    },
+    "part=x0_z1_y1,facing=west": {
+      "model": "miningdim:block/generator/industrial/part_x0_z1_y1",
+      "y": 270
+    },
+    "part=x1_z0_y0,facing=north": {
+      "model": "miningdim:block/generator/industrial/part_x1_z0_y0",
+      "y": 0
+    },
+    "part=x1_z0_y0,facing=east": {
+      "model": "miningdim:block/generator/industrial/part_x1_z0_y0",
+      "y": 90
+    },
+    "part=x1_z0_y0,facing=south": {
+      "model": "miningdim:block/generator/industrial/part_x1_z0_y0",
+      "y": 180
+    },
+    "part=x1_z0_y0,facing=west": {
+      "model": "miningdim:block/generator/industrial/part_x1_z0_y0",
+      "y": 270
+    },
+    "part=x1_z0_y1,facing=north": {
+      "model": "miningdim:block/generator/industrial/part_x1_z0_y1",
+      "y": 0
+    },
+    "part=x1_z0_y1,facing=east": {
+      "model": "miningdim:block/generator/industrial/part_x1_z0_y1",
+      "y": 90
+    },
+    "part=x1_z0_y1,facing=south": {
+      "model": "miningdim:block/generator/industrial/part_x1_z0_y1",
+      "y": 180
+    },
+    "part=x1_z0_y1,facing=west": {
+      "model": "miningdim:block/generator/industrial/part_x1_z0_y1",
+      "y": 270
+    },
+    "part=x1_z1_y0,facing=north": {
+      "model": "miningdim:block/generator/industrial/part_x1_z1_y0",
+      "y": 0
+    },
+    "part=x1_z1_y0,facing=east": {
+      "model": "miningdim:block/generator/industrial/part_x1_z1_y0",
+      "y": 90
+    },
+    "part=x1_z1_y0,facing=south": {
+      "model": "miningdim:block/generator/industrial/part_x1_z1_y0",
+      "y": 180
+    },
+    "part=x1_z1_y0,facing=west": {
+      "model": "miningdim:block/generator/industrial/part_x1_z1_y0",
+      "y": 270
+    },
+    "part=x1_z1_y1,facing=north": {
+      "model": "miningdim:block/generator/industrial/part_x1_z1_y1",
+      "y": 0
+    },
+    "part=x1_z1_y1,facing=east": {
+      "model": "miningdim:block/generator/industrial/part_x1_z1_y1",
+      "y": 90
+    },
+    "part=x1_z1_y1,facing=south": {
+      "model": "miningdim:block/generator/industrial/part_x1_z1_y1",
+      "y": 180
+    },
+    "part=x1_z1_y1,facing=west": {
+      "model": "miningdim:block/generator/industrial/part_x1_z1_y1",
+      "y": 270
+    },
+    "part=x2_z0_y0,facing=north": {
+      "model": "miningdim:block/generator/industrial/part_x2_z0_y0",
+      "y": 0
+    },
+    "part=x2_z0_y0,facing=east": {
+      "model": "miningdim:block/generator/industrial/part_x2_z0_y0",
+      "y": 90
+    },
+    "part=x2_z0_y0,facing=south": {
+      "model": "miningdim:block/generator/industrial/part_x2_z0_y0",
+      "y": 180
+    },
+    "part=x2_z0_y0,facing=west": {
+      "model": "miningdim:block/generator/industrial/part_x2_z0_y0",
+      "y": 270
+    },
+    "part=x2_z0_y1,facing=north": {
+      "model": "miningdim:block/generator/industrial/part_x2_z0_y1",
+      "y": 0
+    },
+    "part=x2_z0_y1,facing=east": {
+      "model": "miningdim:block/generator/industrial/part_x2_z0_y1",
+      "y": 90
+    },
+    "part=x2_z0_y1,facing=south": {
+      "model": "miningdim:block/generator/industrial/part_x2_z0_y1",
+      "y": 180
+    },
+    "part=x2_z0_y1,facing=west": {
+      "model": "miningdim:block/generator/industrial/part_x2_z0_y1",
+      "y": 270
+    },
+    "part=x2_z1_y0,facing=north": {
+      "model": "miningdim:block/generator/industrial/part_x2_z1_y0",
+      "y": 0
+    },
+    "part=x2_z1_y0,facing=east": {
+      "model": "miningdim:block/generator/industrial/part_x2_z1_y0",
+      "y": 90
+    },
+    "part=x2_z1_y0,facing=south": {
+      "model": "miningdim:block/generator/industrial/part_x2_z1_y0",
+      "y": 180
+    },
+    "part=x2_z1_y0,facing=west": {
+      "model": "miningdim:block/generator/industrial/part_x2_z1_y0",
+      "y": 270
+    },
+    "part=x2_z1_y1,facing=north": {
+      "model": "miningdim:block/generator/industrial/part_x2_z1_y1",
+      "y": 0
+    },
+    "part=x2_z1_y1,facing=east": {
+      "model": "miningdim:block/generator/industrial/part_x2_z1_y1",
+      "y": 90
+    },
+    "part=x2_z1_y1,facing=south": {
+      "model": "miningdim:block/generator/industrial/part_x2_z1_y1",
+      "y": 180
+    },
+    "part=x2_z1_y1,facing=west": {
+      "model": "miningdim:block/generator/industrial/part_x2_z1_y1",
+      "y": 270
+    }
+  }
+}

@@ -912,5 +912,14 @@
   "subtitles.miningdim.tarot_pack_open": "Tarot pack opens",
   "subtitles.miningdim.tarot_pack_reveal": "Tarot card revealed",
   "subtitles.miningdim.tarot_pack_complete": "Tarot recruitment complete",
-  "message.miningdim.engineer.repair.shield_incompatible": "Shield-type armor cannot be repaired with nano repair kits"
+  "message.miningdim.engineer.repair.shield_incompatible": "Shield-type armor cannot be repaired with nano repair kits",
+  "itemGroup.miningdim_power": "Power Systems",
+  "block.miningdim.industrial_generator": "Industrial Generator",
+  "block.miningdim.modern_generator": "Modern Generator",
+  "block.miningdim.future_energy_generator": "Future Energy Generator",
+  "item.miningdim.industrial_generator": "Industrial Generator",
+  "item.miningdim.modern_generator": "Modern Generator",
+  "item.miningdim.future_energy_generator": "Future Energy Generator",
+  "block.miningdim.iron_energy_cable": "Iron Energy Cable",
+  "block.miningdim.copper_energy_cable": "Copper Energy Cable"
 }

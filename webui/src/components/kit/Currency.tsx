@@ -1,5 +1,6 @@
 import { CoinsIcon, GemIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
+import { useCountUp } from '@/lib/motion'
 import type { ControlSize } from './tokens'
 import { TEXT_SIZE_CLASS } from './tokens'
 
@@ -26,6 +27,12 @@ export interface CurrencyProps {
   showIcon?: boolean | undefined
   /** 语义着色: 收入为正、支出为负时自动着色。默认 false, 即一律用常规前景色。 */
   signed?: boolean | undefined
+  /**
+   * 金额变化时滚动到新值。默认 false, 且刻意做成 opt-in ——
+   * 本组件也用在挂单价、手续费预览这类<b>成排出现</b>的位置, 那里每行都滚一遍只是噪音 (还要为此重绘半屏)。
+   * 只有"同一个数字持续代表同一件事"的场合 (顶栏钱包) 才值得滚: 那时滚动传达的是"你刚赚了多少"。
+   */
+  animate?: boolean | undefined
   className?: string | undefined
 }
 
@@ -59,11 +66,16 @@ export function Currency({
   size = 'md',
   showIcon = true,
   signed = false,
+  animate = false,
   className,
 }: CurrencyProps): ReactElement {
   const Icon = currency === 'credit' ? CoinsIcon : GemIcon
+  // hook 必须无条件调用 (React 规则), 故由 animate 决定用哪个结果而不是决定要不要调。
+  const rolled = useCountUp(amount)
+  const shown = animate ? rolled : amount
+  // 着色仍看**目标值**而不是滚动中的中间值: 一笔正收入在滚动途中不该有任何一帧显示成红色。
   const signClass = signed && amount > 0 ? 'text-success' : signed && amount < 0 ? 'text-destructive' : ''
-  const text = signed && amount > 0 ? `+${formatAmount(amount)}` : formatAmount(amount)
+  const text = signed && amount > 0 ? `+${formatAmount(shown)}` : formatAmount(shown)
 
   return (
     <span

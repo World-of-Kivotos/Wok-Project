@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { installWebUiEventBridge, subscribeWebUiEvent } from './bridge/events'
 import { Button, EmptyBlock } from './components/kit'
 import { TabletShell } from './components/shell/TabletShell'
 import { closePanel, useTextFocusReporting } from '@/lib/host-panel'
 import { invalidateAll } from '@/lib/refresh'
+import { installWheelNormalizer } from '@/lib/wheel'
 import { TooltipProvider } from './components/ui/tooltip'
 import { AdminPage } from './pages/admin/AdminPage'
 import { CasePage } from './pages/CasePage'
@@ -101,6 +102,7 @@ function renderRoute(match: RouteMatch): ReactElement {
 
 export function App(): ReactElement {
   const match = useRouteMatch()
+  const frameRef = useRef<HTMLDivElement>(null)
 
   // 事件入口在挂载期存在即可: 服务端零业务调用方, 此刻它是一条接住但不依赖的空管道 (决策 J2)。
   useEffect(() => installWebUiEventBridge(), [])
@@ -109,12 +111,33 @@ export function App(): ReactElement {
   useTextFocusReporting()
 
   /*
-   * 面板重开即全量重拉。关面板只是隐藏 MC 的 Screen, 这个 SPA 原样活着 —— 不接这条的话, 玩家挖完矿
-   * 打开平板看到的还是上次打开时的余额与任务进度。宿主在 setScreen 之前派 panelOpened (见
-   * WebUiClient.openScreen)。
+   * 滚轮接管: 把"原版 sensitivity x 本 mod 的 40 x MCEF 的 3"这条三层放大链钳成一个确定的步长, 并顺带
+   * 做平滑滚动。装在最外层是因为它按事件目标向上找滚动容器, 一处即覆盖全部页面与浮层 (见 lib/wheel.ts)。
+   */
+  useEffect(() => installWheelNormalizer(), [])
+
+  /*
+   * 面板重开即全量作废 + 重播一次开面板动画。
+   *
+   * 关面板只是隐藏 MC 的 Screen, 这个 SPA 原样活着 —— 不接这条的话, 玩家挖完矿打开平板看到的还是上次
+   * 打开时的余额与任务进度。宿主在 setScreen 之前派 panelOpened (见 WebUiClient.openScreen)。
+   *
+   * 作废只是把缓存标记为过期, 不清空: 屏幕上的数字原样留着, 后台重查回来才换 —— 这是"重开面板不闪"
+   * 与"重开面板必须看到新数据"两个要求的唯一交点 (见 lib/query-cache.ts)。
+   *
+   * 动画的重播走"摘掉属性 -> 下一帧再挂上": 同一个属性值不变时 CSS 动画不会重新开始, 而强制重排那种
+   * 写法 (读一下 offsetWidth) 靠的是副作用不被优化掉, 跨浏览器版本不可靠。
    */
   useEffect(() => subscribeWebUiEvent('panelOpened', () => {
     invalidateAll()
+    const frame = frameRef.current
+    if (frame === null) {
+      return
+    }
+    delete frame.dataset.opening
+    window.requestAnimationFrame(() => {
+      frame.dataset.opening = 'true'
+    })
   }), [])
 
   /*
@@ -136,8 +159,16 @@ export function App(): ReactElement {
         圆角 + overflow-hidden 挂在这一层: 它是页面里唯一铺满视口的元素, 也就是宿主那张离屏贴图的边界。
         html/body 已改成透明 (styles/index.css), 于是圆角之外的四个小三角是真透明, 游戏画面透得出来。
         border 让面板在暗背景上有一条明确的边, 否则深色内容与压暗的背景糊在一起看不出边界。
+
+        圆角与内边距一律走 .tablet-frame 而不是 rounded-* / p-* 工具类: 外框圆角、边框宽度、内边距与
+        内屏圆角是一组必须同心的量 (内圈 = 外圈 - 间距), 散成四个工具类之后没有任何东西能阻止它们漂移 ——
+        上一版就是这么漂的。关系写在 styles/index.css 的 --radius-frame / --radius-screen 里。
       */}
-      <div className="h-screen overflow-hidden rounded-2xl border border-border bg-background p-3 text-foreground">
+      <div
+        className="tablet-frame h-screen overflow-hidden border border-border bg-background text-foreground"
+        data-opening="true"
+        ref={frameRef}
+      >
         <TabletShell onClose={closePanel}>{renderRoute(match)}</TabletShell>
       </div>
     </TooltipProvider>

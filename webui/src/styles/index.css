@@ -246,6 +246,22 @@
   --duration-reel: 2200ms;
   --duration-reel-settle: 160ms;
   --duration-page: 250ms;
+  --duration-open: 320ms;
+
+  /*
+   * 平板的两层圆角。**必须同心**: 一个圆角矩形套另一个时, 内圈半径只能等于外圈半径减去两者之间的全部间距,
+   * 否则两条弧线在角上不平行, 读起来就是"圆角画错了"—— 这正是上一版的毛病 (外 18px / 间距 12px / 内 14px,
+   * 内圈比它能占的位置圆了 8px, 于是内圈那条弧从外圈弧里鼓出来一块)。
+   *
+   * 间距是**边框 + 内边距**两段, 不是只有内边距: border-radius 量的是边框盒的外沿, 所以内边距盒的角半径
+   * 已经比它小了一个边框宽度。少减这 1px 就差 1px, 而圆角上差 1px 恰恰是最显眼的那种差。
+   *
+   * 写成 calc 派生而不是三个独立常量, 就是为了让这条关系没法漂移: 改外圈、改边距、改边框宽度, 内圈自动跟上。
+   */
+  --frame-border: 1px;
+  --frame-bezel: 10px;
+  --radius-frame: 22px;
+  --radius-screen: calc(var(--radius-frame) - var(--frame-bezel) - var(--frame-border));
 }
 
 /*
@@ -266,7 +282,101 @@
     --duration-reel: 400ms;
     --duration-reel-settle: 100ms;
     --duration-page: 100ms;
+    --duration-open: 120ms;
   }
+}
+
+/*
+ * ==========================================================================
+ * 平板外框 —— 圆角、开面板动画、以及 MCEF 下的动效成本纪律
+ * ==========================================================================
+ *
+ * 成本模型 (改动效前必读): 渲染目标是 MCEF 的**离屏**浏览器, 页面每重绘一帧, MCEF 就要把脏矩形经
+ * glTexSubImage2D 上传到 MC 的渲染线程 (MCEFRenderer.onPaint 实测如此)。于是在普通浏览器里免费的东西
+ * 在这里明码计价:
+ *
+ *   - **有限动画**是一次性支出: 一段 250ms 的位移约十几帧, 播完这块像素回到零成本。随便用。
+ *   - **无限循环动画是永久支出**: 只要它在屏幕上, 游戏就一直在为它掉帧。上一版的骨架屏流光
+ *     (无限循环 background-position, 还带 background-attachment: fixed) 就是"开面板就卡"的主因。
+ *
+ * 所以本文件的纪律是: 动效要多, 但一律 event-driven 且必须自己停下来。稳态屏幕上不许有任何东西在动。
+ */
+.tablet-frame {
+  padding: var(--frame-bezel);
+  border-width: var(--frame-border);
+  border-radius: var(--radius-frame);
+}
+
+.tablet-screen {
+  border-radius: var(--radius-screen);
+}
+
+/*
+ * 开面板动画。挂在 panelOpened 事件上 (见 App.tsx) 而不是只在首次挂载时播:
+ * 关面板只是隐藏 MC 的 Screen, 这个 SPA 原样活着 —— 若只在挂载期播, 玩家整局游戏里只看得到一次。
+ */
+.tablet-frame[data-opening='true'] {
+  animation: tablet-open var(--duration-open) var(--ease-out-soft) both;
+}
+
+@keyframes tablet-open {
+  from {
+    opacity: 0;
+    scale: 0.97;
+  }
+}
+
+/* 一次性淡入, 取代原先无限循环的流光 (见 components/ui/skeleton.tsx 的说明)。 */
+.skeleton-appear {
+  animation: skeleton-appear var(--duration-enter) var(--ease-out-soft) both;
+}
+
+@keyframes skeleton-appear {
+  from {
+    opacity: 0;
+  }
+}
+
+/*
+ * 侧栏当前项的高亮条。给它一个 view-transition-name, Chromium 就会在导航的那次 View Transition 里
+ * 把它从旧位置**平移**到新位置 —— 零 JS, 不用测量任何坐标, 也不需要为此引入动画库。
+ *
+ * 前提是同一时刻只能有一个元素叫这个名字 (两个同名会让 Chromium 直接放弃整次过渡并在控制台报错)。
+ * 当前恒成立: 高亮判定 isNavActive 对首页取精确匹配、其余取带斜杠的前缀匹配, 十一个入口互不重叠
+ * (/market 与 /marriage 因为那条斜杠而不会互相命中)。
+ */
+[data-slot='nav-indicator'] {
+  view-transition-name: nav-indicator;
+}
+
+/* 导航项的悬停微动: 只动 translate 与颜色, 都是廉价属性, 且 120ms 内结束。 */
+[data-slot='nav-item'] {
+  transition-property: background-color, color, translate;
+  transition-duration: var(--duration-press);
+  transition-timing-function: var(--ease-out-soft);
+}
+
+[data-slot='nav-item']:hover:not([aria-current='page']) {
+  translate: 2px 0;
+}
+
+/*
+ * 按压反馈。补在这里而不是改 components/ui/button.tsx: 那是照 Coss UI 装进来的组件, 每一处本地改动都是
+ * 下次升级的冲突点; 而"按下去要缩一下"是全站统一的动效词汇, 本就该住在动效层。
+ *
+ * 用 scale 属性而不是 transform: 不会覆盖组件自己可能用到的 transform, 两者各自独立合成。
+ * transition-property 必须连 box-shadow 一起重写 —— 组件类名里的 transition-shadow 只声明了 box-shadow,
+ * 直接加一条 transition 简写会把它整条顶掉, 表现是阴影过渡没了。
+ */
+[data-slot='button'] {
+  transition-property: box-shadow, background-color, border-color, scale;
+  transition-duration: var(--duration-press);
+  transition-timing-function: var(--ease-out-soft);
+}
+
+[data-slot='button']:not(:disabled):active,
+[data-slot='button']:not(:disabled)[data-pressed] {
+  scale: 0.97;
 }
 
 /*

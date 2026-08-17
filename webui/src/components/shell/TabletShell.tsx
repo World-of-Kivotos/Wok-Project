@@ -18,8 +18,17 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, Currency, LoadingBlock, Tag, Toggle } from '@/components/kit'
 import { handshake, isMockActive } from '@/lib/bridge'
 import { useBrand } from '@/lib/brand'
+import { prefetchQuery } from '@/lib/query-cache'
 import { useTheme } from '@/lib/theme'
-import { mutateWorld, primeRealDomainMirror, recordMirrorError, useMockAction, useMockWorld } from '@/mock'
+import {
+  callMock,
+  mockActionKey,
+  mutateWorld,
+  primeRealDomainMirror,
+  recordMirrorError,
+  useMockAction,
+  useMockWorld,
+} from '@/mock'
 import {
   ROUTE_ADMIN,
   ROUTE_CASE,
@@ -83,6 +92,73 @@ const SHELL_NAV_ENTRIES: readonly ShellNavEntry[] = [
   { icon: SettingsIcon, id: 'settings', label: '设置', opOnly: false, route: ROUTE_SETTINGS },
   { icon: ShieldCheckIcon, id: 'admin', label: '管理后台', opOnly: true, route: ROUTE_ADMIN },
 ]
+
+/**
+ * 侧栏悬停预取表: 一级入口 -> 那一页首屏要用的只读 action (全是无入参的)。
+ *
+ * 为什么值得做: 缓存命中之后翻回已看过的页面是零请求零闪烁, 但**第一次**进某页仍要等一次往返。鼠标从
+ * 侧栏划过到真的点下去有一二百毫秒, 正好够那一批数据回来 —— 于是首次进入也不闪。
+ *
+ * 预取的是玩家马上就要看的那一页, 不是"所有页面全预热": 后者会把冷启动的请求量翻好几倍, 与省服务端
+ * 压力的初衷相反。悬停即将访问, 这份请求本来就要发, 只是提前了。
+ *
+ * 缺一条只是那页照旧走加载态 (不会出错), 故本表不必与页面实现严格同步; 但多写一条不存在的 action 会
+ * 白发一次请求, 加的时候照页面里的 useMockAction 抄。刻意不收录 market.list (入参含筛选组合, 预取的
+ * 键与页面实际用的键对不上就是白发) 与 shop.catalog (planned 域, 生产构建里必定失败)。
+ */
+const NAV_PREFETCH: Readonly<Record<string, readonly EmptyPayloadAction[]>> = {
+  [ROUTE_HOME]: [
+    'player.profile',
+    'economy.today',
+    'economy.status',
+    'marriage.state',
+    'mining.myStatus',
+    'mining.overview',
+    'hub.panels',
+  ],
+  [ROUTE_MARKET]: ['market.categories', 'market.p2pCap'],
+  [ROUTE_JOBS]: ['job.progress'],
+  [ROUTE_MINING]: ['mining.overview', 'mining.myStatus'],
+  [ROUTE_QUESTS]: ['quest.board'],
+  [ROUTE_CODEX]: ['champion.codex'],
+  [ROUTE_MARRIAGE]: ['marriage.state', 'marriage.sharedInv', 'player.roster', 'player.profile'],
+  [ROUTE_CASE]: ['case.state'],
+  [ROUTE_SETTINGS]: ['player.prefs.get'],
+}
+
+/** 预取表里的 action 名 —— 只收无入参的那些, 好让下面一行 EMPTY_PAYLOAD 对所有条目都成立。 */
+type EmptyPayloadAction =
+  | 'case.state'
+  | 'champion.codex'
+  | 'economy.status'
+  | 'economy.today'
+  | 'hub.panels'
+  | 'job.progress'
+  | 'market.categories'
+  | 'market.p2pCap'
+  | 'marriage.sharedInv'
+  | 'marriage.state'
+  | 'mining.myStatus'
+  | 'mining.overview'
+  | 'player.prefs.get'
+  | 'player.profile'
+  | 'player.roster'
+  | 'quest.board'
+
+/**
+ * 预热某个一级入口的首屏数据。已新鲜的键直接跳过 (prefetchQuery 自己判), 故反复划过侧栏不会重复发请求。
+ *
+ * 键必须经 mockActionKey 合成 —— 自己拼字符串拼错的症状是"预取一直不命中", 而它不报错也不可见。
+ */
+function prefetchRoute(route: string): void {
+  const actions = NAV_PREFETCH[route]
+  if (actions === undefined) {
+    return
+  }
+  for (const action of actions) {
+    prefetchQuery(mockActionKey(action, EMPTY_PAYLOAD), () => callMock(action, EMPTY_PAYLOAD))
+  }
+}
 
 /**
  * 入口高亮判定: 子路由 (如 /market/sell) 必须点亮它所属的一级入口, 否则从浏览页点进挂单页时整条导航
@@ -237,7 +313,13 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
   const title = match.pattern === null ? '页面不存在' : ROUTE_TITLES[match.pattern]
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden rounded-xl border bg-card shadow-lg/5">
+    /*
+      内屏。圆角走 .tablet-screen (= 外框圆角 - 边距), 与 App.tsx 那层同心 —— 见 styles/index.css。
+
+      刻意<b>不再画边框</b>: 外框已经有一条了, 两条相隔 10px 的细线在暗色下读起来是一道双框, 而层级已经
+      由三档底色 (background -> card/sidebar) 表达清楚了。这也是上一版"边框吃光内容盒"的同一类毛病。
+    */
+    <div className="tablet-screen flex h-full min-h-0 overflow-hidden bg-card shadow-lg/5">
       {/* ==================== 左侧导航栏 ==================== */}
       <nav
         aria-label="平板主导航"
@@ -263,19 +345,40 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
           return (
             <button
               aria-current={active ? 'page' : undefined}
-              className={`flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                active
-                  ? 'bg-brand-muted font-medium text-foreground'
-                  : 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground'
+              className={`relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                active ? 'font-medium text-foreground' : 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground'
               }`}
+              data-slot="nav-item"
               key={entry.id}
               onClick={() => {
                 navigate(entry.route)
               }}
+              /*
+                悬停即预取那一页的首屏数据 (见 NAV_PREFETCH)。onFocus 一并接上, 键盘 Tab 过来的人应当享受
+                同样的手感 —— 且两者都幂等 (新鲜的键直接跳过), 反复触发不会重复发请求。
+              */
+              onFocus={() => {
+                prefetchRoute(entry.route)
+              }}
+              onMouseEnter={() => {
+                prefetchRoute(entry.route)
+              }}
               type="button"
             >
-              <Icon aria-hidden="true" className={`size-4 shrink-0 ${active ? 'text-brand' : ''}`} />
-              <span className="truncate">{entry.label}</span>
+              {/*
+                当前项的高亮面。单独成元素而不是给 button 加 bg-brand-muted, 是为了给它挂一个
+                view-transition-name —— 导航时 Chromium 会把这一块从旧入口平移到新入口 (零 JS, 不测坐标)。
+                详见 styles/index.css 里 [data-slot='nav-indicator'] 的说明。
+              */}
+              {active ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-0 rounded-md bg-brand-muted"
+                  data-slot="nav-indicator"
+                />
+              ) : null}
+              <Icon aria-hidden="true" className={`relative size-4 shrink-0 ${active ? 'text-brand' : ''}`} />
+              <span className="relative truncate">{entry.label}</span>
             </button>
           )
         })}
@@ -315,8 +418,9 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
             ) : null}
             {profile.status === 'ready' ? (
               <>
-                <Currency amount={profile.data.wallet.credit} currency="credit" size="sm" />
-                <Currency amount={profile.data.wallet.azure} currency="azure" size="sm" />
+                {/* 顶栏钱包是全站唯一开滚动的两处: 卖菜/买入/领奖之后, 这两个数字自己爬到新值。 */}
+                <Currency animate amount={profile.data.wallet.credit} currency="credit" size="sm" />
+                <Currency animate amount={profile.data.wallet.azure} currency="azure" size="sm" />
               </>
             ) : null}
 

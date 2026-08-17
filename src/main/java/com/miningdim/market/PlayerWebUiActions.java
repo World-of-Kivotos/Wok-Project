@@ -55,8 +55,11 @@ public final class PlayerWebUiActions {
      * 在线名册单次下发上限。名册只服务"点选一个人"这件事, 不是玩家列表功能: 满编公服也就一两百人,
      * 200 条足够, 又把回执钉死在几 KB 量级 —— 列表类 action 自带上限, 不指望派发器的体积收口兜底
      * (那是保命不是设计)。
+     *
+     * 包内可见而非 private: 同包的 PlayerWebUiW1GameTests 要按这个上限分两种情形断言 (未触上限一条不少 /
+     * 触了上限恰好截断), 抄一份字面量到测试里就等于给上限开了第二个真源。
      */
-    private static final int MAX_ROSTER_ENTRIES = 200;
+    static final int MAX_ROSTER_ENTRIES = 200;
 
     /** 把 8 个 player.* action 注册进派发器 (由 MarketSubsystem.register 调用)。 */
     public static void registerAll() {

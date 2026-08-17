@@ -1198,9 +1198,18 @@ public final class FarmerGameTests {
         return crop.getStateForAge(crop.getMaxAge());
     }
 
+    /**
+     * 数指定方块处当前存在的农夫小麦掉落物 (绝对数量)。
+     *
+     * 调用方必须取<b>破坏前后的差值</b>而不是直接断言这个返回值: runGameTestServer 复用 run/world 存档, 同一
+     * 用例每轮跑在同一组绝对坐标上, 上一轮掉的物品实体还躺在那里 —— 直接断言绝对值会一轮比一轮多
+     * (实测 6 -> 12 -> 18), 表现成"什么都没改却挂了"。取样半径同时收到 inflate(1): empty 模板只有一格, 同
+     * batch 的用例贴着排, 7x7x7 的盒子会探进隔壁用例的结构。destroyBlock 是同步的, 计数前没有 tick 过去,
+     * 掉落物还落在被破坏的那一格内, 1 格余量够。
+     */
     private static int farmerWheatCount(GameTestHelper helper, BlockPos absolutePos) {
         return helper.getLevel().getEntitiesOfClass(
-                        ItemEntity.class, new AABB(absolutePos).inflate(3.0D)).stream()
+                        ItemEntity.class, new AABB(absolutePos).inflate(1.0D)).stream()
                 .map(ItemEntity::getItem)
                 .filter(stack -> stack.is(FarmerItems.FARMER_WHEAT.get()))
                 .mapToInt(ItemStack::getCount)
@@ -1229,9 +1238,10 @@ public final class FarmerGameTests {
         setFarmerLevel(player, FarmerTier.SUPREME.unlockLevel() - 1);
 
         BlockPos cropPos = helper.absolutePos(relativeCrop);
+        int before = farmerWheatCount(helper, cropPos);
         player.gameMode.destroyBlock(cropPos);
 
-        int count = farmerWheatCount(helper, cropPos);
+        int count = farmerWheatCount(helper, cropPos) - before;
         helper.assertTrue(count == 1,
                 "未解锁 SUPREME 档收割 mod 原生小麦必须退化为基准产量 1, 实得 " + count);
         helper.succeed();
@@ -1252,9 +1262,10 @@ public final class FarmerGameTests {
         setFarmerLevel(player, FarmerTier.SUPREME.unlockLevel());
 
         BlockPos cropPos = helper.absolutePos(relativeCrop);
+        int before = farmerWheatCount(helper, cropPos);
         player.gameMode.destroyBlock(cropPos);
 
-        int count = farmerWheatCount(helper, cropPos);
+        int count = farmerWheatCount(helper, cropPos) - before;
         helper.assertTrue(count == FarmerTier.SUPREME.yieldPerHarvest(),
                 "已解锁 SUPREME 档收割应得满档产量 " + FarmerTier.SUPREME.yieldPerHarvest() + ", 实得 " + count);
         helper.succeed();

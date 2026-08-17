@@ -66,7 +66,16 @@ public final class MiningEntryFeeGameTests {
     private static final String INSUFFICIENT_ACTIONBAR_KEY =
             "message.miningdim.gate.insufficient_funds_actionbar";
     private static final ResourceLocation MAIN_CHANNEL = new ResourceLocation(MiningConstants.MODID, "main");
-    private static final int TELEPORT_RESULT_DISCRIMINATOR = 2;
+    /**
+     * TeleportResultS2C 在 {@link com.miningdim.network.MiningNetwork#register} 里的注册序号 (SimpleChannel 的
+     * discriminator 就是 registerMessage 的调用次序, 从 0 起)。当前次序: DangerSyncS2C(0) / TeleportResultS2C(1) /
+     * InstanceStatusS2C(2) / JobSyncS2C(3) / C2SWebUiRequest(4) / S2CWebUiResponse(5) / S2CWebUiEvent(6)。
+     *
+     * 这是一处对注册次序的硬耦合: 在 TeleportResultS2C 之前增删任何一个包都会让它错位, 而错位的表现不是报错,
+     * 是 drainFeedbackPackets 一条下行都解不出来、断言以 "observed=[]" 失败 (F087 删掉原本排在 0 位的
+     * SelectZoneC2S 时就撞过一次)。改注册次序时必须同步这个数。
+     */
+    private static final int TELEPORT_RESULT_DISCRIMINATOR = 1;
 
     private MiningEntryFeeGameTests() {
     }

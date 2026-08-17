@@ -903,11 +903,20 @@ public final class PlayerWebUiW1GameTests {
         helper.assertTrue(result.get("total").getAsInt() == online.size(),
                 "total 必须是全量在线人数 (截断时前端要靠它讲清还有多少人没显示), 期望 "
                         + online.size() + " 实得 " + result.get("total").getAsInt());
-        helper.assertTrue(players.size() == online.size(),
-                "在线人数远未触及 200 条上限, 应当一条不少地下发, 期望 " + online.size()
-                        + " 实得 " + players.size());
-        helper.assertTrue(!result.get("truncated").getAsBoolean(),
-                "未触上限时 truncated 必须是 false");
+        /*
+         * 断言按上限分档而不是写死"一条不少": GameTest 的 mock 玩家会在整轮运行里持续累积进 PlayerList
+         * (没有退出路径), 在线数会随全库测试总量增长 —— 一旦越过 MAX_ROSTER_ENTRIES, 写死"全量下发"的断言
+         * 就会因为别处新增了测试而挂, 而那不是名册的缺陷。改成同时锁两种情形: 未触上限时一条不少, 触了上限时
+         * 恰好截到上限且 truncated 为真 (删掉 action 里的截断逻辑, 上限那一侧必挂)。
+         */
+        int cap = PlayerWebUiActions.MAX_ROSTER_ENTRIES;
+        int expectedRows = Math.min(online.size(), cap);
+        helper.assertTrue(players.size() == expectedRows,
+                "下发条数应为 min(在线数, " + cap + ") = " + expectedRows
+                        + " (在线 " + online.size() + "), 实得 " + players.size());
+        helper.assertTrue(result.get("truncated").getAsBoolean() == (online.size() > cap),
+                "truncated 必须严格反映是否越过上限: 在线 " + online.size() + " 上限 " + cap
+                        + ", 实得 " + result.get("truncated").getAsBoolean());
 
         // 逐条与 PlayerList 的真值对照, 而不是只看条数对不对 —— 只数个数的话, 发一堆空对象也能全绿。
         Map<String, String> expected = new HashMap<>();

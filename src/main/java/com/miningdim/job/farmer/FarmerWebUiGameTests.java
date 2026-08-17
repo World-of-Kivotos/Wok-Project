@@ -43,10 +43,12 @@ import java.util.function.Function;
  *  2. 实发额是<b>过了全服 faucet 衰减主闸</b>之后的数 —— 先把主闸推进两整档再卖, 实发必须是 0.6^2 档,
  *     绕开 grantDaily 自己算就会得到全额, 本条即挂;
  *  3. 收购曲线跌到地板后 soldCount&gt;0 而 credited==0 <b>仍是成功回执</b> (物品照扣发币为 0), 不许当失败;
- *  4. 三条失败态各有稳定 errorCode 且<b>一株都不许扣</b>: INVALID_REQUEST / ECONOMY_OFFLINE / NOTHING_TO_SELL。
+ *  4. 四条失败态各有稳定 errorCode 且<b>一株都不许扣</b>: INVALID_REQUEST / ECONOMY_OFFLINE /
+ *     NOTHING_TO_SELL / SELL_LEVEL_TOO_LOW。
  *
- * 另: 契约 K5 写的"精通等级门 level&gt;=2"在服务端并不存在, 本文件按<b>当前真实行为</b>立据
- * ({@link #farmerSellHasNoMasteryLevelGateToday}), 主控要新设这道门时该用例会红, 正是需要的信号。
+ * 另: 契约 K5 写的"精通等级门 level&gt;=2"已落地, 由 {@link #farmerSellIsGatedByMasteryLevel} 锁死两侧
+ * (1 级被专用码拒绝且零副作用, 到门槛立刻成交)。凡卖菜成功路径的用例都须先 {@code setFarmerLevel} 到门槛 ——
+ * mock 玩家的 capability 默认 1 级, 不设就会撞在这道门上。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -96,7 +98,7 @@ public final class FarmerWebUiGameTests {
                     "锚价取农夫常量单一真源");
             helper.assertTrue(Math.abs(state.get("priceFloorRatio").getAsDouble()
                             - FarmerConstants.WHEAT_PRICE_FLOOR_RATIO) < 1.0E-9D,
-                    "地板比例 0.25 用来画'最多跌到哪'");
+                    "地板比例用来画'最多跌到哪', 取 EconomyConstants 的全服统一地板单一真源");
             helper.assertTrue(state.get("nextUnitPrice").getAsLong()
                             == FarmerWheatBuyback.wheatBuyPrice(1, FarmerConstants.WHEAT_BASE_PRICE),
                     "下一株单价 = 收购曲线第 (soldToday+1) 株的价 (含本株, 故 +1)");
@@ -149,6 +151,8 @@ public final class FarmerWebUiGameTests {
         EconomyLedger ledger = registerFreshEconomy();
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            // 卖菜有精通等级门 (SELL_MIN_MASTERY_LEVEL); 本例测的不是那道门, 先把等级设到门槛让它过去。
+            setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
             player.getInventory().clearContent();
             player.getInventory().add(new ItemStack(FarmerItems.FARMER_WHEAT.get(), 100));
 
@@ -189,6 +193,8 @@ public final class FarmerWebUiGameTests {
         EconomyLedger ledger = registerFreshEconomy();
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            // 卖菜有精通等级门 (SELL_MIN_MASTERY_LEVEL); 本例测的不是那道门, 先把等级设到门槛让它过去。
+            setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
             player.getInventory().clearContent();
             long tier = FarmerConstants.DAILY_CREDIT_FAUCET_CAP;
             String sharedKey = FarmerConstants.WHEAT_SELL_FAUCET_KEY;
@@ -227,6 +233,8 @@ public final class FarmerWebUiGameTests {
         EconomyLedger ledger = registerFreshEconomy();
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            // 卖菜有精通等级门 (SELL_MIN_MASTERY_LEVEL); 本例测的不是那道门, 先把等级设到门槛让它过去。
+            setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
             player.getInventory().clearContent();
             long today = FarmerClock.currentUtcDayStamp();
             // 把当日已售推到软上限: 之后每一株的单价 floor(1 * 0.97^n) 都是 0。
@@ -308,6 +316,8 @@ public final class FarmerWebUiGameTests {
         EconomyLedger ledger = registerFreshEconomy();
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            // 卖菜有精通等级门 (SELL_MIN_MASTERY_LEVEL); 本例测的不是那道门, 先把等级设到门槛让它过去。
+            setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
             player.getInventory().clearContent();
 
             WebUiBusinessException empty = rejection(helper, SELL_ACTION, player, countPayload(8));
@@ -356,14 +366,17 @@ public final class FarmerWebUiGameTests {
     // ============================================================
 
     /**
-     * 契约 K5 声称卖菜有"精通等级门 level&gt;=2", 但服务端全路径 (FarmerSystem.sellCommand /
-     * FarmerWheatSellService.sell) 没有任何等级判定。本用例按<b>当前真实行为</b>立据: 1 级农夫照样卖得出去。
+     * 契约 K5 的"精通等级门 level&gt;=2"现已落地 (见 {@link FarmerWheatSellService#sell} 的
+     * {@link FarmerConstants#SELL_MIN_MASTERY_LEVEL} 判据, 反洗钱身份门), 本用例随之从"立据无门"翻成"锁死有门"。
      *
-     * 之所以要有这条而不是留空: 那道门若将来真被加上, 它改的是 /farmer sell 的对外行为, 本用例会立刻变红,
-     * 逼一次显式评审, 而不是让面板与命令行悄悄分叉。
+     * 三条断言各锁一件事, 删掉服务层那道门则三条全挂:
+     *  1. 1 级农夫被拒, 且 errorCode 是专用的 SELL_LEVEL_TOO_LOW 而非 NOTHING_TO_SELL —— 复用后者会让面板
+     *     对着一个背包里明明有小麦的玩家说"没有可卖的东西";
+     *  2. 拒绝时零副作用: 一株不扣、一分不发 (门排在扣料之前);
+     *  3. 同一个玩家换成 2 级立刻卖得动 —— 证明拒绝的原因确实是等级而不是别的什么把这条路堵死了。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void farmerSellHasNoMasteryLevelGateToday(GameTestHelper helper) {
+    public static void farmerSellIsGatedByMasteryLevel(GameTestHelper helper) {
         IEconomyService prev = currentEconomy();
         EconomyLedger ledger = registerFreshEconomy();
         try {
@@ -374,11 +387,22 @@ public final class FarmerWebUiGameTests {
                             .get("level").getAsInt() == 1,
                     "前置条件: 这是个 1 级农夫");
 
+            WebUiBusinessException denied = rejection(helper, SELL_ACTION, player, countPayload(3));
+            helper.assertTrue(WebUiErrorCodes.SELL_LEVEL_TOO_LOW.equals(denied.errorCode()),
+                    "1 级卖菜必须回专用码 SELL_LEVEL_TOO_LOW, 实得 " + denied.errorCode());
+            helper.assertTrue(wheatInInventory(player) == 3,
+                    "被等级门拒绝时一株都不许扣, 实得剩 " + wheatInInventory(player));
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 0L,
+                    "被等级门拒绝时一分都不许发, 实得 " + ledger.balance(player.getUUID(), Currency.CREDIT));
+
+            // 同一玩家升到门槛等级: 立刻卖得动, 证明上面那条拒绝的成因确实是等级。
+            setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
             JsonObject result = handle(helper, SELL_ACTION, player, countPayload(3));
             helper.assertTrue(result.get("soldCount").getAsInt() == 3 && result.get("credited").getAsLong() == 3L,
-                    "当前服务端对卖菜没有等级门: 1 级照样成交 (契约里的 level>=2 尚未落地)");
+                    "达到 SELL_MIN_MASTERY_LEVEL 后 3 株全价成交, 实得 soldCount="
+                            + result.get("soldCount").getAsInt() + " credited=" + result.get("credited").getAsLong());
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 3L,
-                    "1 级农夫的信用点真进了钱包");
+                    "过门后的信用点真进了钱包, 实得 " + ledger.balance(player.getUUID(), Currency.CREDIT));
             helper.succeed();
         } finally {
             restoreEconomy(prev);
@@ -480,6 +504,8 @@ public final class FarmerWebUiGameTests {
         IEconomyService working = EconomyServices.economyService();
         try {
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            // 卖菜有精通等级门 (SELL_MIN_MASTERY_LEVEL); 本例测的不是那道门, 先把等级设到门槛让它过去。
+            setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
             player.getInventory().clearContent();
             player.getInventory().add(new ItemStack(FarmerItems.FARMER_WHEAT.get(), 100));
 
@@ -573,4 +599,5 @@ public final class FarmerWebUiGameTests {
             EconomyServices.reset();
         }
     }
+
 }

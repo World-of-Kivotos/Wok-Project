@@ -81,6 +81,19 @@ public final class WebUiErrorCodes {
      */
     public static final String NOTHING_TO_SELL = "NOTHING_TO_SELL";
 
+    /**
+     * 出售被职业精通等级门拒绝 (反洗钱身份门)。抛出点同 {@link #ECONOMY_OFFLINE} 的 handler, 判
+     * {@code FarmerWheatSellService.SellResult.belowMastery()}。params: {@code job} / {@code requiredLevel} /
+     * {@code currentLevel}。
+     *
+     * 必须与 {@link #NOTHING_TO_SELL} 分开: 后者的文案是"背包里没有可卖的东西", 而这条拒绝发生时玩家手里
+     * 确实有货, 只是等级不够 —— 复用会让面板显示一句与事实相反的话。
+     *
+     * 命名不带 FARMER_ 前缀, 同 {@link #SKILL_LOCKED} 的理由: 别的职业若也要给出售加身份门, 由 params.job
+     * 区分, 不为每个职业各造一个码。
+     */
+    public static final String SELL_LEVEL_TOO_LOW = "SELL_LEVEL_TOO_LOW";
+
     /** 任务系统已被配置关闭。抛出点: 所有 {@code quest.*} action 的统一前置门。 */
     public static final String QUEST_DISABLED = "QUEST_DISABLED";
 

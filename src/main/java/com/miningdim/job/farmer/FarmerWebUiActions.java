@@ -116,6 +116,15 @@ public final class FarmerWebUiActions {
             throw new WebUiBusinessException(WebUiErrorCodes.ECONOMY_OFFLINE,
                     "经济子系统未就绪, 本次未扣物也未发币", false);
         }
+        // 等级门必须排在 NOTHING_TO_SELL 之前判: belowMastery 的 soldCount 也是 0 (拒绝时零副作用, 一株不扣),
+        // 落到下面那条会告诉玩家"背包里没有可卖的农夫小麦" —— 而他背包里明明有, 只是等级不够。
+        if (sold.belowMastery()) {
+            throw new WebUiBusinessException(WebUiErrorCodes.SELL_LEVEL_TOO_LOW,
+                    "农夫精通等级不足, 本次未扣物也未发币", false,
+                    Map.of("job", JobId.FARMER.name(),
+                            "requiredLevel", Integer.toString(FarmerConstants.SELL_MIN_MASTERY_LEVEL),
+                            "currentLevel", Integer.toString(JobServices.jobService().level(sender, JobId.FARMER))));
+        }
         if (sold.soldCount() <= 0) {
             throw new WebUiBusinessException(WebUiErrorCodes.NOTHING_TO_SELL,
                     "背包里没有可卖的农夫小麦", false,

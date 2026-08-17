@@ -29,11 +29,22 @@
   "features": [
     [],
     [],
-    [],
-    [ "minecraft:monster_room", "minecraft:monster_room_deep" ],
+    [
+      "miningdim:misc_amethyst_geode"
+    ],
+    [
+      "minecraft:monster_room",
+      "minecraft:monster_room_deep"
+    ],
     [],
     [],
     [
+      "miningdim:misc_andesite",
+      "miningdim:misc_granite",
+      "miningdim:misc_diorite",
+      "miningdim:misc_tuff",
+      "miningdim:misc_dirt",
+      "miningdim:misc_gravel",
       "minecraft:ore_coal_lower",
       "minecraft:ore_iron_middle",
       "minecraft:ore_iron_small",

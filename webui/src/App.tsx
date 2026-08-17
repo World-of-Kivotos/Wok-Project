@@ -4,6 +4,7 @@ import { installWebUiEventBridge, subscribeWebUiEvent } from './bridge/events'
 import { Button, EmptyBlock } from './components/kit'
 import { TabletShell } from './components/shell/TabletShell'
 import { closePanel, useTextFocusReporting } from '@/lib/host-panel'
+import { installPanelVisibility } from '@/lib/panel-visibility'
 import { invalidateAll } from '@/lib/refresh'
 import { installWheelNormalizer } from '@/lib/wheel'
 import { TooltipProvider } from './components/ui/tooltip'
@@ -115,6 +116,16 @@ export function App(): ReactElement {
    * 做平滑滚动。装在最外层是因为它按事件目标向上找滚动容器, 一处即覆盖全部页面与浮层 (见 lib/wheel.ts)。
    */
   useEffect(() => installWheelNormalizer(), [])
+
+  /*
+   * 平板可见性。宿主在开/关面板时各派一条事件, 这里把它们收敛成一个全站可读的布尔, 供全部定时器
+   * (倒计时时钟与轮询) 判断"还要不要继续跑"。
+   *
+   * 必须装在 installWebUiEventBridge 之后是个错觉 —— 两者互不依赖: 事件入口装的是 window 上那个分发函数,
+   * 本模块登记的是分发表里的订阅者, 顺序任意。真正有顺序要求的是它必须在**任何页面挂载之前**装好,
+   * 而它在 App 顶层 effect 里, 天然满足。
+   */
+  useEffect(() => installPanelVisibility(), [])
 
   /*
    * 面板重开即全量作废 + 重播一次开面板动画。

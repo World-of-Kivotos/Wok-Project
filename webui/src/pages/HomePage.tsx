@@ -19,7 +19,7 @@ import {
   Tag,
   TextInput,
 } from '@/components/kit'
-import { tickDeadline } from '@/hooks/use-live-updates'
+import { tickDeadline, useLiveClock } from '@/hooks/use-live-updates'
 import { WebUiCallError, isMockActive } from '../lib/bridge'
 import { callErrorText } from '../lib/errorText'
 import { jobNameKey, useItemNames } from '../lib/i18n'
@@ -241,23 +241,6 @@ function resolvePanel(panel: HubPanel): ResolvedPanel | null {
 // ============================================================
 // 页面内的通用小件 (都是既有 kit 控件的组合, 不是新控件)
 // ============================================================
-
-/**
- * 自走的"当前时刻"。倒计时若只在渲染那一刻算一次, 玩家看到的是一个静止的假数字 ——
- * 冷却、新手保护、翻日剩余全是随时间走的量, 必须自己推。
- */
-function useNowTick(intervalMs: number): number {
-  const [now, setNow] = useState(() => nowMs())
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(nowMs())
-    }, intervalMs)
-    return () => {
-      clearInterval(timer)
-    }
-  }, [intervalMs])
-  return now
-}
 
 interface QueryGateProps<T> {
   query: MockActionQuery<T>
@@ -967,7 +950,7 @@ interface ToastEntry {
 export function HomePage(): ReactElement {
   const navigate = useNavigate()
   const world = useMockWorld()
-  const now = useNowTick(TICK_INTERVAL_MS)
+  const now = useLiveClock(TICK_INTERVAL_MS)
 
   const profile = useMockAction('player.profile', EMPTY_PAYLOAD)
   const today = useMockAction('economy.today', EMPTY_PAYLOAD)

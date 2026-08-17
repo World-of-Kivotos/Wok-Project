@@ -1,6 +1,6 @@
 import { CheckIcon, LockIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactElement } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Button,
   EmptyBlock,
@@ -12,7 +12,7 @@ import {
   Stat,
   Tag,
 } from '@/components/kit'
-import { POLL_INTERVAL_MS, tickDeadline, usePolling } from '@/hooks/use-live-updates'
+import { POLL_INTERVAL_MS, tickDeadline, useLiveClock, usePolling } from '@/hooks/use-live-updates'
 import { isMockActive } from '../lib/bridge'
 import { callErrorText } from '../lib/errorText'
 import { useItemNames } from '../lib/i18n'
@@ -181,7 +181,8 @@ export function MiningPage(): ReactElement {
   const overview = useMockAction('mining.overview', {})
   const status = useMockAction('mining.myStatus', {})
 
-  const [nowValue, setNowValue] = useState(() => Date.now())
+  // 本地时钟, 不是轮询: 回执里的 game tick 只在收到那一刻折算一次, 之后的倒计时全在本地推进。
+  const nowValue = useLiveClock(1000)
   const [pendingDifficulty, setPendingDifficulty] = useState<MiningDifficulty | null>(null)
   const [leavePending, setLeavePending] = useState(false)
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
@@ -194,16 +195,6 @@ export function MiningPage(): ReactElement {
    * 轮询本条才能知道自己到底进去了没有。间隔集中在 hooks/use-live-updates, 不在此写死。
    */
   usePolling(status.reload, POLL_INTERVAL_MS.miningStatus)
-
-  // 本地时钟, 不是轮询: 回执里的 game tick 只在收到那一刻折算一次, 之后的倒计时全在本地推进。
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setNowValue(Date.now())
-    }, 1000)
-    return () => {
-      window.clearInterval(timer)
-    }
-  }, [])
 
   /*
    * 依赖数组在这里当"新回执到达"的信号用, 不是工厂真读了它: 服务端一律发剩余 tick 而非绝对时刻,

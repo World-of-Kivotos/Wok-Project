@@ -1,4 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { usePanelVisible } from '@/lib/panel-visibility'
+// 直取 store 而不是 @/mock 桶文件: 那条"一律从桶文件 import"的规矩是写给面板的, 而本文件是面板的下游依赖,
+// 经桶文件会把整个 handlers/bridge 链拖进来, 平白制造一条 hooks -> mock 全量的依赖边。
+import { nowMs } from '@/mock/store'
 
 /**
  * "服务端不会主动告诉你" 这件事的两个后果, 集中收在这一个文件里。
@@ -55,17 +59,54 @@ export const POLL_INTERVAL_MS = {
  * 按固定间隔重复调用 reload。enabled 为假时一个定时器都不挂 (不是挂了再跳过) ——
  * 面板没打开、或本页当前不需要跟踪时, 不该给服务端主线程留一条空转的心跳。
  *
+ * 平板不可见时一律不挂 (usePanelVisible)。关面板只是隐藏 MC 的 Screen, 这个 SPA 原样活着, 于是
+ * 玩家关掉平板出去挖矿的整段时间里, 停在矿洞页的那条 3 秒轮询还在跑 —— 桥的 -4 关屏门只挡住请求出门,
+ * 挡不住这次重渲染带来的整表面重绘 (见 lib/panel-visibility)。
+ *
  * reload 必须是稳定引用 (useMockAction 的 reload 是 useCallback([]) 的, 天然满足);
  * 传一个每帧重建的闭包会让定时器每帧重挂, 于是永远轮不到它触发。
  */
 export function usePolling(reload: () => void, intervalMs: number, enabled = true): void {
+  const visible = usePanelVisible()
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || !visible) {
       return
     }
     const timer = window.setInterval(reload, intervalMs)
     return () => {
       window.clearInterval(timer)
     }
-  }, [reload, intervalMs, enabled])
+  }, [reload, intervalMs, enabled, visible])
+}
+
+/**
+ * 自走的"当前时刻"。倒计时若只在渲染那一刻算一次, 玩家看到的是一个静止的假数字 —— 冷却、新手保护、
+ * 翻日剩余全是随时间走的量, 必须自己推。
+ *
+ * 收在这里而不是各页面自己写一个: 改动前首页 (useNowTick)、职业面板 (useLiveNow)、矿洞页与婚姻页
+ * 各有一份逐字相同的实现, 四处都得记得加可见性门 —— 而漏掉一处的症状是"关了平板还在后台掉帧",
+ * 没有任何检查会报它。
+ *
+ * 不可见时停表, 重新可见时**立刻**跳到当前时刻而不是等下一拍: 30 秒那一档若等下一拍, 玩家重开面板后
+ * 最长有半分钟看到的是一个过期的倒计时, 而它与真数字长得毫无区别。
+ */
+export function useLiveClock(intervalMs: number, enabled = true): number {
+  const visible = usePanelVisible()
+  const running = enabled && visible
+  const [now, setNow] = useState(nowMs)
+
+  useEffect(() => {
+    if (!running) {
+      return
+    }
+    setNow(nowMs())
+    const timer = window.setInterval(() => {
+      setNow(nowMs())
+    }, intervalMs)
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [intervalMs, running])
+
+  return now
 }

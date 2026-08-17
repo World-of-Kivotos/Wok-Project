@@ -19,7 +19,7 @@ import {
   TextInput,
 } from '@/components/kit'
 import type { DropdownOption, FeedbackTone, ItemSlotGridEntry, Tone } from '@/components/kit'
-import { MS_PER_TICK, POLL_INTERVAL_MS, tickDeadline, usePolling } from '@/hooks/use-live-updates'
+import { MS_PER_TICK, POLL_INTERVAL_MS, tickDeadline, useLiveClock, usePolling } from '@/hooks/use-live-updates'
 import { WebUiCallError } from '../lib/bridge'
 import { callErrorText } from '../lib/errorText'
 import { useItemDisplayNames } from '../lib/i18n'
@@ -213,32 +213,14 @@ export function MarriagePage(): ReactElement {
    */
   usePolling(stateQuery.reload, POLL_INTERVAL_MS.marriageState)
 
-  const [nowClock, setNowClock] = useState<number>(() => Date.now())
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setNowClock(Date.now())
-    }, 30_000)
-    return () => {
-      window.clearInterval(timer)
-    }
-  }, [])
+  const nowClock = useLiveClock(30_000)
 
   const [teleportPhase, setTeleportPhase] = useState<TeleportPhase>('idle')
   const [teleportStartedAt, setTeleportStartedAt] = useState(0)
   const [teleportCooldownUntil, setTeleportCooldownUntil] = useState(0)
-  const [teleportTick, setTeleportTick] = useState<number>(() => Date.now())
 
-  useEffect(() => {
-    if (teleportPhase === 'idle') {
-      return
-    }
-    const timer = window.setInterval(() => {
-      setTeleportTick(Date.now())
-    }, TELEPORT_TICK_MS)
-    return () => {
-      window.clearInterval(timer)
-    }
-  }, [teleportPhase])
+  // 传送进度条只在读条/冷却期间需要活体时钟, idle 时一拍都不跑 (第二参即 enabled)。
+  const teleportTick = useLiveClock(TELEPORT_TICK_MS, teleportPhase !== 'idle')
 
   useEffect(() => {
     if (teleportPhase === 'channeling' && teleportTick - teleportStartedAt >= TELEPORT_CHANNEL_MS) {
@@ -476,8 +458,15 @@ export function MarriagePage(): ReactElement {
       disabled: !proposal.proposerOnline,
     }))
 
+  /*
+   * 下界必须夹住 0。时钟由 useLiveClock 在 idle 期间停表, 重新启动那一拍走的是 effect ——
+   * 于是"点下传送"这一次渲染里 teleportTick 还是停表时的旧值, 差值为负。夹住之后那一帧读作"刚开始",
+   * 一帧后时钟补上真值; 不夹的话进度条会先闪一个负宽度。
+   */
   const teleportChannelElapsed =
-    teleportPhase === 'channeling' ? Math.min(TELEPORT_CHANNEL_MS, teleportTick - teleportStartedAt) : 0
+    teleportPhase === 'channeling'
+      ? Math.min(TELEPORT_CHANNEL_MS, Math.max(0, teleportTick - teleportStartedAt))
+      : 0
   const teleportCooldownRemaining =
     teleportPhase === 'cooldown' ? Math.max(0, teleportCooldownUntil - teleportTick) : 0
   const teleportCooldownElapsed = TELEPORT_COOLDOWN_MS - teleportCooldownRemaining
@@ -496,9 +485,7 @@ export function MarriagePage(): ReactElement {
       : undefined
 
   function handleStartTeleport(): void {
-    const now = Date.now()
-    setTeleportStartedAt(now)
-    setTeleportTick(now)
+    setTeleportStartedAt(Date.now())
     setTeleportPhase('channeling')
   }
 

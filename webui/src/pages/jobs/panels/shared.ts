@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useLiveClock } from '@/hooks/use-live-updates'
 import type { JobStatUnit } from '../../../lib/types'
-import { nowMs } from '../../../mock'
 
 /**
  * 八个职业面板共用的极小工具集, 以及它们必须逐字照抄的排版骨架约定。
@@ -22,18 +21,14 @@ import { nowMs } from '../../../mock'
  *   - 页名由 TabletShell 按 ROUTE_TITLES 统一渲染, 面板内不再画一遍页名。
  */
 
-/** 高频倒计时展示 (扫描 CD / 牌冷却 / 悬赏过期) 需要的活体时钟; 默认每秒刷新一次。 */
+/**
+ * 高频倒计时展示 (扫描 CD / 牌冷却 / 悬赏过期) 需要的活体时钟; 默认每秒刷新一次。
+ *
+ * 实现已并入 @/hooks/use-live-updates 的 useLiveClock (那里带平板不可见即停表的门), 本名保留只是
+ * 为了让八个职业面板的调用点一行不用改 —— 它们叫的是"职业面板的时钟", 而时钟本身不是职业的事。
+ */
 export function useLiveNow(intervalMs = 1000): number {
-  const [now, setNow] = useState(nowMs)
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setNow(nowMs())
-    }, intervalMs)
-    return () => {
-      window.clearInterval(timer)
-    }
-  }, [intervalMs])
-  return now
+  return useLiveClock(intervalMs)
 }
 
 /** targetMs 已过去时返回"已就绪", 否则按 分:秒 显示剩余时长 (向上取整, 避免显示 0:00 却仍不可用)。 */

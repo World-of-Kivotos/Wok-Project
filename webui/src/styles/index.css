@@ -225,7 +225,7 @@
   /* 开箱条带的长减速。比 out-soft 更极端的尾部拖尾, 服务于"看着它慢慢停在某一格"的悬念。 */
   --ease-reel: cubic-bezier(0.12, 0.8, 0.2, 1);
 
-  /* 页面与页签内容在屏幕内换位, 前后段对称以保持明确的左右空间关系。 */
+  /* 页面与页签内容在屏幕内换位, 前后段对称以保持明确的上下空间关系。 */
   --ease-move: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
@@ -421,35 +421,45 @@
   transition-duration: 0ms;
 }
 
+/*
+ * 上下翻页。方向语义: forward (进入排序更靠后的页面) = 新页从**下方**顶上来, 旧页向上让位;
+ * backward 反过来。与侧栏的纵向排列同轴 —— 导航是竖排的, 内容却横向滑走, 那两条运动轴对不上,
+ * "从哪来的"这条空间线索就废了。
+ *
+ * 只动 transform 与 opacity, 刻意<b>不再动 clip-path</b>。这两个属性 Chromium 能全程交给合成线程,
+ * 快照贴图在动画期间一次都不用重新栅格化; 而 clip-path 的 inset 插值不在可合成属性表里, 它会把这
+ * 250ms 拖回主线程逐帧重绘 —— 在 MCEF 上那意味着每帧一次全表面 (实测约 2688x1439) 的软件栅格 +
+ * glTexSubImage2D 上传, 而这条上传就跑在 MC 的渲染线程上 (MCEF 的 CefRenderUpdateMixin 每帧
+ * 同步 pump 一次 CEF 消息循环)。翻一次页掉一次帧的来源就在这里。
+ *
+ * 位移取 10% 而不是横版那 8%: 内容区是横长的, 同一个百分比在纵向上的绝对距离小得多, 8% 会弱到
+ * 看不出方向。
+ */
 @keyframes page-exit-forward {
   to {
     opacity: 0;
-    clip-path: inset(0 8% 0 0);
-    transform: translate3d(-8%, 0, 0);
+    transform: translate3d(0, -10%, 0);
   }
 }
 
 @keyframes page-enter-forward {
   from {
     opacity: 0;
-    clip-path: inset(0 0 0 8%);
-    transform: translate3d(8%, 0, 0);
+    transform: translate3d(0, 10%, 0);
   }
 }
 
 @keyframes page-exit-backward {
   to {
     opacity: 0;
-    clip-path: inset(0 0 0 8%);
-    transform: translate3d(8%, 0, 0);
+    transform: translate3d(0, 10%, 0);
   }
 }
 
 @keyframes page-enter-backward {
   from {
     opacity: 0;
-    clip-path: inset(0 8% 0 0);
-    transform: translate3d(-8%, 0, 0);
+    transform: translate3d(0, -10%, 0);
   }
 }
 

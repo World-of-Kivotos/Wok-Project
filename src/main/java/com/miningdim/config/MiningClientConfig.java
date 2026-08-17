@@ -24,6 +24,7 @@ public final class MiningClientConfig {
     public static final ForgeConfigSpec.ConfigValue<String> WEBUI_URL;
     public static final ForgeConfigSpec.IntValue WEBUI_ZOOM_PERCENT;
     public static final ForgeConfigSpec.IntValue WEBUI_COVERAGE_PERCENT;
+    public static final ForgeConfigSpec.IntValue WEBUI_MAX_RENDER_WIDTH;
 
     /** 16.5 client.dangerVisualMode 枚举。 */
     public enum DangerVisualMode {
@@ -64,6 +65,26 @@ public final class MiningClientConfig {
                         "How much of the screen the in-game Web UI covers, as a percentage of each edge "
                                 + "(70 = 70% of width and 70% of height, centered). 100 = fullscreen")
                 .defineInRange("coveragePercent", 70, 30, 100);
+        // 离屏栅格宽度上限。这是本 mod 里唯一的画质/帧数旋钮, 改它之前先读清楚它到底管什么:
+        //
+        // 面板的离屏表面原本严格等于它在屏幕上占的**帧缓冲像素**, 也就是设备像素比恒为 1:1。在 4K 上
+        // 那是 2688x1439 (387 万像素) —— 而 CEF 的离屏渲染没有共享贴图通道, 这 387 万像素要在 CPU 上
+        // 栅格与合成完再交出来。实测那一帧要 60ms 上下, 于是页面自身的动画只能跑到约 15fps
+        // (CEF 的离屏出帧上限是 30fps, 超预算就变成隔一拍出一帧), 尽管此时游戏本体有 700fps。
+        //
+        // 本上限只在"面板的帧缓冲宽度超过它"时才介入, 且介入的是**设备像素比而不是 CSS 视口**:
+        // 缩表面的同时按同一比例缩 CEF zoom (见 WebUiScreen.layout), 页面拿到的 CSS 视口一个像素都不变,
+        // 响应式断点与排版完全不动, 变的只是那张贴图的采样密度 —— 代价是文字被 GPU 线性放大, 糊一档。
+        //
+        // 默认 1600: 1080p 屏在默认覆盖比例下算出来是 1344, 低于上限, 一点画质都不损失; 只有 2K/4K 才会
+        // 被压下来 (4K 上 2688 -> 1600, 像素量降到 35%)。嫌糊就往上调, 嫌卡就往下调, 100% 关掉本上限的
+        // 办法是把它设到大于自己屏幕宽度的值。
+        WEBUI_MAX_RENDER_WIDTH = b.comment(
+                        "Upper bound on the in-game Web UI off-screen raster width, in framebuffer pixels. Only kicks "
+                                + "in when the panel is wider than this; it lowers the device pixel ratio (CEF zoom is "
+                                + "compensated so the CSS viewport and layout stay identical) to cut CEF's CPU raster "
+                                + "cost. Lower = smoother in-page animation, blurrier text")
+                .defineInRange("maxRenderWidth", 1600, 320, 7680);
         b.pop();
 
         SPEC = b.build();

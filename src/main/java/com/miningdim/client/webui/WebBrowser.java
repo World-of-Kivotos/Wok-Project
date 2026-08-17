@@ -99,8 +99,12 @@ public final class WebBrowser {
      *
      * 100% 显式走 setZoomLevel(0) 而不是跳过: 浏览器实例是复用的, 玩家把缩放调回 100 时必须真的把上一次的
      * 缩放清掉。
+     *
+     * 收 double 而不是 int: 调用方传进来的已经不是配置里那个整数, 而是"配置值 x 离屏降采样比例"
+     * (见 {@link WebUiScreen#layout})。降采样必须由 zoom 等比补偿, 否则缩小离屏表面等于同时缩小了页面的
+     * CSS 视口 —— 那会挪动响应式断点、改变排版, 而本意只是降低采样密度。
      */
-    public void setZoomPercent(int percent) {
+    public void setZoomPercent(double percent) {
         MCEFBrowser b = browser;
         if (b == null) {
             return;

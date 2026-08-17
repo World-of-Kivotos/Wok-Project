@@ -82,6 +82,8 @@ public final class WebUiScreen extends Screen {
      * 按面板尺寸渲染, 页面拿到的才是它真正被显示的那个视口。
      *
      * 缩放在每次 layout 都重设一次: 浏览器实例跨界面复用, 玩家改完配置重开界面就该生效, 不必重启游戏。
+     *
+     * 离屏栅格宽度另有一道上限 ({@code webui.maxRenderWidth}), 见下方 renderScale 处的说明。
      */
     private void layout() {
         Minecraft mc = Minecraft.getInstance();
@@ -94,14 +96,35 @@ public final class WebUiScreen extends Screen {
         // GUI 坐标 -> 帧缓冲像素的换算比例; 用整窗两侧的比值而不是自己猜 GUI scale, 与既有做法一致。
         int windowPixelWidth = mc.getWindow().getWidth();
         int windowPixelHeight = mc.getWindow().getHeight();
-        pixelWidth = this.width <= 0 ? windowPixelWidth
+        int framebufferWidth = this.width <= 0 ? windowPixelWidth
                 : Math.max(1, (int) Math.round((double) panelWidth * windowPixelWidth / this.width));
-        pixelHeight = this.height <= 0 ? windowPixelHeight
+        int framebufferHeight = this.height <= 0 ? windowPixelHeight
                 : Math.max(1, (int) Math.round((double) panelHeight * windowPixelHeight / this.height));
+
+        /*
+         * 离屏降采样。上面两个数是面板在屏幕上真正占的帧缓冲像素, 也就是"设备像素比 1:1"这一档; 上限只在
+         * 超出时才介入, 未超出时 renderScale 恒为 1, 这条分支等于不存在。
+         *
+         * 为什么需要它: CEF 的离屏渲染没有共享贴图通道, 整张表面要在 CPU 上栅格与合成完再交出来, 成本随
+         * 像素数线性上涨。4K 上这张表面是 2688x1439 (387 万像素), 一帧约 60ms —— 而 CEF 的离屏出帧上限
+         * 本来就是 30fps, 超预算就退化成隔一拍出一帧, 于是页面动画只有约 15fps, 哪怕游戏本体跑着 700fps。
+         * 这是纯粹的 CEF 侧瓶颈, 与 MC 的渲染线程无关, 因此只能从像素数下手。
+         *
+         * zoom 必须按同一比例补偿, 这是本段唯一容易写错的地方: CEF 的 CSS 视口 = 表面像素 / zoom 倍率。
+         * 只缩表面不缩 zoom, 页面拿到的 CSS 视口就跟着变窄, 响应式断点会挪、排版会变 —— 而本意只是降低
+         * 采样密度。两者同比缩放后 CSS 视口逐像素不变, 变的只有那张贴图的清晰度 (贴图按 GL_LINEAR 放大回
+         * 面板尺寸, 表现为文字糊一档)。
+         */
+        int maxRenderWidth = MiningClientConfig.WEBUI_MAX_RENDER_WIDTH.get();
+        double renderScale = framebufferWidth <= maxRenderWidth
+                ? 1.0
+                : (double) maxRenderWidth / framebufferWidth;
+        pixelWidth = Math.max(1, (int) Math.round(framebufferWidth * renderScale));
+        pixelHeight = Math.max(1, (int) Math.round(framebufferHeight * renderScale));
 
         if (browser != null) {
             browser.resize(pixelWidth, pixelHeight);
-            browser.setZoomPercent(MiningClientConfig.WEBUI_ZOOM_PERCENT.get());
+            browser.setZoomPercent(MiningClientConfig.WEBUI_ZOOM_PERCENT.get() * renderScale);
         }
     }
 

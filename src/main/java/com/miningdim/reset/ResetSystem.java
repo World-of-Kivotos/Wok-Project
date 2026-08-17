@@ -52,6 +52,9 @@ public final class ResetSystem implements Subsystem, IResetService {
     /** R6 每难度定时自动重置调度器 (开服时构建, 关服置空)。 */
     private AutoResetScheduler autoResetScheduler;
 
+    /** 退役 region 的磁盘回收器 (滑动重置的收尾; 开服时构建, 关服置空)。 */
+    private RetiredRegionGc retiredRegionGc;
+
     /** 进行中的分帧重置任务 (每 tick 推进)。 */
     private final List<ResetJob> activeJobs = new ArrayList<>();
 
@@ -72,6 +75,9 @@ public final class ResetSystem implements Subsystem, IResetService {
         }
         // R6: 构建每难度定时自动重置调度器 (其构造读 AutoResetData, 首次开服初始化 lastReset 基准)。
         this.autoResetScheduler = new AutoResetScheduler(server, miningLevel, this);
+        // 退役 region 回收器: 队列本身在存档里, 故重启后会接着清上次没清完的那块 (见 RetiredRegionGc 类注释)。
+        this.retiredRegionGc = new RetiredRegionGc(
+                miningLevel, com.miningdim.persistence.MiningSavedData.get(miningLevel));
     }
 
     @SubscribeEvent
@@ -83,6 +89,7 @@ public final class ResetSystem implements Subsystem, IResetService {
         }
         activeJobs.clear();
         this.autoResetScheduler = null;
+        this.retiredRegionGc = null;
         this.server = null;
         this.miningLevel = null;
     }
@@ -95,6 +102,11 @@ public final class ResetSystem implements Subsystem, IResetService {
         // R6: 推进每难度定时自动重置 (内部按秒降频; 与分帧重置任务相互独立)。
         if (autoResetScheduler != null) {
             autoResetScheduler.tick();
+        }
+        // 退役 region 回收 (内部按周期降频)。放在 activeJobs 的早退之前: 没有在跑的重置任务时同样要回收,
+        // 而积压恰恰多发生在"刚重置完、任务已收尾"的那段时间。
+        if (retiredRegionGc != null && miningLevel != null) {
+            retiredRegionGc.tick(miningLevel.getGameTime());
         }
         if (activeJobs.isEmpty()) {
             return;

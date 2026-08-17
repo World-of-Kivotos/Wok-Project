@@ -38,6 +38,10 @@ public final class MiningSavedData extends SavedData {
     private static final String K_REGION_FRONTIER_X = "regionFrontierX";
     private static final String K_HAS_REGION_FRONTIER = "hasRegionFrontier";
     private static final String K_FIXED_INSTANCE_PREFIX = "fixedInstance_";
+    private static final String K_RETIRED_REGIONS = "retiredRegions";
+    private static final String K_RETIRED_ORIGIN_X = "originX";
+    private static final String K_RETIRED_ORIGIN_Z = "originZ";
+    private static final String K_RETIRED_CURSOR = "clearedChunks";
 
     /** 持久自增主键, 从 1 起 (0 保留为"无效/未分配"语义)。绝不复用已销毁 id (12.4)。 */
     private long nextInstanceId = 1L;
@@ -76,6 +80,43 @@ public final class MiningSavedData extends SavedData {
      * regionBox.equals(固定几何) 认领固定实例, 每次重启会再造三个新实例; 改由本表按难度直接查 id)。
      */
     private final Map<Difficulty, Long> fixedInstanceIds = new HashMap<>();
+
+    /**
+     * 已退役 region 的待回收队列 (滑动重置的磁盘代价回收)。
+     *
+     * 滑动 region 方案每次重置把实例挪到一块从未生成过的新坐标, 旧坐标那 16x16 个区块原样留在 .mca 里 ——
+     * 不回收就是每次重置泄漏一整块 region 的磁盘。本队列由 InstanceManager.slideRegion 在换几何时登记,
+     * 由 RetiredRegionGc 分批清除后出队。
+     *
+     * 带 cursor 而非只记坐标: 一块 region 有 256 个区块, GC 分多个 tick 清, 停服重启后必须能接着清而不是从头
+     * 再来 (从头再来对已清的区块是白发一遍 IO), 也不能就此漏掉未清的那部分。
+     */
+    private final java.util.List<RetiredRegion> retiredRegions = new java.util.ArrayList<>();
+
+    /** 一块待回收的退役 region: 原点 + 已清区块数游标。 */
+    public static final class RetiredRegion {
+        private final int originX;
+        private final int originZ;
+        private int clearedChunks;
+
+        RetiredRegion(int originX, int originZ, int clearedChunks) {
+            this.originX = originX;
+            this.originZ = originZ;
+            this.clearedChunks = clearedChunks;
+        }
+
+        public int originX() {
+            return originX;
+        }
+
+        public int originZ() {
+            return originZ;
+        }
+
+        public int clearedChunks() {
+            return clearedChunks;
+        }
+    }
 
     public MiningSavedData() {
     }
@@ -220,6 +261,44 @@ public final class MiningSavedData extends SavedData {
         return originX;
     }
 
+    // ---- 退役 region 待回收队列 ----
+
+    /**
+     * 登记一块退役 region 待回收。同坐标重复登记直接忽略 —— 坐标只会被 allocateRegionOriginX 发一次,
+     * 重复登记只可能来自调用方缺陷, 静默叠加会让 GC 对同一块区域清两遍 (第二遍全是空操作但白发 IO)。
+     */
+    public void retireRegion(int originX, int originZ) {
+        for (RetiredRegion existing : retiredRegions) {
+            if (existing.originX == originX && existing.originZ == originZ) {
+                return;
+            }
+        }
+        retiredRegions.add(new RetiredRegion(originX, originZ, 0));
+        setDirty();
+    }
+
+    /** 待回收队列的只读视图 (GC 遍历用)。 */
+    public java.util.List<RetiredRegion> retiredRegions() {
+        return java.util.Collections.unmodifiableList(retiredRegions);
+    }
+
+    /** 推进某块退役 region 的已清游标。 */
+    public void advanceRetiredCursor(RetiredRegion region, int clearedChunks) {
+        if (clearedChunks < region.clearedChunks) {
+            throw new IllegalArgumentException("retired region cursor must not go backwards: "
+                    + region.clearedChunks + " -> " + clearedChunks);
+        }
+        region.clearedChunks = clearedChunks;
+        setDirty();
+    }
+
+    /** 清完出队。 */
+    public void dropRetiredRegion(RetiredRegion region) {
+        if (retiredRegions.remove(region)) {
+            setDirty();
+        }
+    }
+
     // ---- 三固定难度实例的持久 id (13.4/D3) ----
 
     /** 该难度当前登记的固定实例 id; 尚未登记 (启动重建首次运行) 返回 empty。 */
@@ -253,6 +332,16 @@ public final class MiningSavedData extends SavedData {
         tag.putBoolean(K_HAS_REGION_FRONTIER, hasRegionFrontier);
         tag.putInt(K_REGION_FRONTIER_X, regionFrontierX);
 
+        ListTag retired = new ListTag();
+        for (RetiredRegion region : retiredRegions) {
+            CompoundTag entry = new CompoundTag();
+            entry.putInt(K_RETIRED_ORIGIN_X, region.originX);
+            entry.putInt(K_RETIRED_ORIGIN_Z, region.originZ);
+            entry.putInt(K_RETIRED_CURSOR, region.clearedChunks);
+            retired.add(entry);
+        }
+        tag.put(K_RETIRED_REGIONS, retired);
+
         for (Map.Entry<Difficulty, Long> entry : fixedInstanceIds.entrySet()) {
             tag.putLong(K_FIXED_INSTANCE_PREFIX + entry.getKey().configName(), entry.getValue());
         }
@@ -278,6 +367,15 @@ public final class MiningSavedData extends SavedData {
 
         data.hasRegionFrontier = tag.getBoolean(K_HAS_REGION_FRONTIER);
         data.regionFrontierX = tag.getInt(K_REGION_FRONTIER_X);
+
+        ListTag retired = tag.getList(K_RETIRED_REGIONS, Tag.TAG_COMPOUND);
+        for (int i = 0; i < retired.size(); i++) {
+            CompoundTag entry = retired.getCompound(i);
+            data.retiredRegions.add(new RetiredRegion(
+                    entry.getInt(K_RETIRED_ORIGIN_X),
+                    entry.getInt(K_RETIRED_ORIGIN_Z),
+                    entry.getInt(K_RETIRED_CURSOR)));
+        }
 
         for (Difficulty difficulty : Difficulty.values()) {
             String key = K_FIXED_INSTANCE_PREFIX + difficulty.configName();

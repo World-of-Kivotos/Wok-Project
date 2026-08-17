@@ -538,6 +538,9 @@ public final class InstanceManager implements IInstanceManager {
         RegionBox newBox = regionGrid.regionAtOrigin(newOriginX, MiningConstants.REGION_ORIGIN_Z);
 
         RegionBox oldBox = inst.regionBox();
+        // 旧 region 登记待回收: 滑动方案的代价是旧坐标那 16x16 个区块原样留在 .mca 里, 不登记就是每次重置
+        // 泄漏一整块 region 的磁盘。实际清除由 RetiredRegionGc 在区块卸载后分批做, 此处只入队。
+        savedData.retireRegion(oldBox.originX(), oldBox.originZ());
         inst.relocate(newBox, newSeed);
         // 几何一改立刻广播失效 (分支复核 finding #11): 陷阱静态表/铺矿表/出生池/刷怪调度态四个子系统
         // 按 instanceId 缓存的都是旧几何/旧种子, 必须在 genState 变回 enterable 之前失效, 否则生成完成

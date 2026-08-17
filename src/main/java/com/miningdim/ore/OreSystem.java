@@ -56,8 +56,10 @@ public final class OreSystem implements Subsystem {
 
     /**
      * 取实例铺矿表 (8.8): 缓存命中 (同 instanceId 同 seed) 直接复用; 否则在调用线程计算并缓存。
-     * 设计上由 GenerationScheduler 在工作线程首次调用预热缓存, MiningChunkGenerator 主线程读区块时命中缓存零计算。
-     * 若缓存未预热而主线程先到, 也能正确计算 (纯函数, 仅一次性开销), 不会出错。
+     *
+     * 原注释描述的"由 GenerationScheduler 在工作线程预热、MiningChunkGenerator 主线程读缓存"这条链已不存在:
+     * 维度改用 minecraft:noise 生成后, 那两个类连同整条离线体素管线已判废删除, 矿物改由数据包的 placed_feature
+     * 铺设。本方法目前只剩纯函数计算 + 缓存两件事, 由谁在哪个线程先调都正确 (仅一次性开销)。
      *
      * @param instance 实例 (提供 seed/difficulty/regionBox)
      * @param voxels   该实例已生成的体素视图

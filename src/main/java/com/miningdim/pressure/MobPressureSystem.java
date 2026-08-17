@@ -7,10 +7,10 @@ import com.miningdim.core.IMiningNetwork;
 import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
+import com.miningdim.core.MobInstanceTag;
 import com.miningdim.core.RegionBox;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -22,8 +22,10 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
+import net.minecraftforge.event.entity.EntityLeaveLevelEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,12 +52,6 @@ public final class MobPressureSystem {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/pressure");
 
-    /**
-     * liveMobs 对账周期 (F030): 每实例 UUID 数受 mobMaxPerInstance 硬上限约束 (默认 30, 上限 256),
-     * 三个固定难度实例 5 秒 (100 tick) 一次 level.getEntity 查询开销可忽略。
-     */
-    private static final int MOB_RECONCILE_INTERVAL_TICKS = 100;
-
     /** 出生冻结窗口 (11.7 SPAWN_FREEZE_TICKS), 玩家进入实例后该窗口内 danger 钳低且不刷怪。 */
     private static final int SPAWN_FREEZE_TICKS = 200;
 
@@ -69,14 +65,14 @@ public final class MobPressureSystem {
     /** 身后刷怪同玩家冷却 (9.7: >= 100 tick)。 */
     private static final int BEHIND_COOLDOWN_TICKS = 100;
 
+    /** 每玩家周边活跃怪数的现查半径下限 (格): 至少覆盖身后刷怪的最远落点, 否则刚落地的怪数不进来。 */
+    private static final int PER_PLAYER_COUNT_MIN_RADIUS = BEHIND_MAX_DIST;
+
     /** 选点尝试上限 (避免狭窄空腔下无限找点)。 */
     private static final int SPAWN_POINT_TRIES = 12;
 
     /** resolveStandableColumn 自玩家 Y 上下探查的最大格距。 */
     private static final int COLUMN_SEARCH_RANGE = 24;
-
-    /** mob PersistentData 中标记所属实例 id 的键 (10.5 step5, namespaced 防撞)。 */
-    private static final String MOB_INSTANCE_TAG = MiningConstants.MODID + ":instance";
 
     /** 怪物所属实例标记的反查表 (mob UUID -> instanceId), 供死亡回收计数 (10.5 step6)。 */
     private final Map<UUID, Long> mobInstanceIndex = new ConcurrentHashMap<>();
@@ -106,40 +102,30 @@ public final class MobPressureSystem {
         long now = mining.getGameTime();
         int evalInterval = Math.max(1, config.dangerEvalIntervalTicks());
 
-        // liveMobs 周期对账 (F030): 死亡事件之外的消失路径 (discard/超距 despawn/区块卸载/陷阱引擎生成物)
-        // 都不会经 onMobDeath 销账, 只能靠 "世界里实体是否还在" 定期核对真相, 见 reconcileLiveMobs 注释。
-        if (now % MOB_RECONCILE_INTERVAL_TICKS == 0L) {
-            instances.forEach(inst -> reconcileLiveMobs(mining, inst));
-        }
-
         for (ServerPlayer player : mining.players()) {
             tickPlayer(player, mining, instances, config, network, now, evalInterval);
         }
     }
 
-    /**
-     * liveMobs 按实体真实存活状态周期对账 (F030 核心修法)。
-     *
-     * liveMobs 的写入方不止本系统 (DynamicTrapEngine 陷阱身后苦力怕也写), 而计数的消失路径远多于
-     * LivingDeathEvent 死亡 (Creeper.explodeCreeper 走 discard 不发死亡事件, finalizeSpawn 不置
-     * persistenceRequired 时超距 checkDespawn 直接 discard, 区块卸载同理) —— 逐条消失路径挂事件补不全,
-     * 只能以 "世界里该 UUID 对应的实体是否还在且存活" 为唯一真相做对账, 一次遍历同时清 liveMobs 与
-     * mobInstanceIndex 两处影子账本。
-     */
-    void reconcileLiveMobs(ServerLevel level, InstanceState instance) {
-        instance.liveMobs().removeIf(id -> {
-            net.minecraft.world.entity.Entity entity = level.getEntity(id);
-            boolean gone = entity == null || !entity.isAlive();
-            if (gone) {
-                mobInstanceIndex.remove(id);
-            }
-            return gone;
-        });
-    }
-
-    /** 实例是否已达刷怪硬上限 (F030: 与 spawnWave 共用单一真源, 供 GameTest 断言真实业务结果)。 */
+    /** 实例是否已达刷怪硬上限 (与 spawnWave 共用单一真源, 供 GameTest 断言真实业务结果)。 */
     boolean atMobCap(InstanceState instance) {
         return instance.liveMobs().size() >= MiningServices.config().mobMaxPerInstance();
+    }
+
+    /**
+     * 玩家周边当前活跃怪数 —— <b>现查世界, 不读账本</b>。
+     *
+     * 每玩家上限 (config.mobMaxPerPlayer) 的语义就是"这个玩家身边有几只", 而这件事世界本身随时知道:
+     * 一次 AABB 实体查询即可, 且天然把死亡/despawn/被杀/走远算进去, 没有任何可漂移的中间状态。
+     * 相比之下按 UUID 记一份"我刷过谁"的账本, 每条实体消失路径都得单独接线才能不失真 —— 那正是 F030。
+     *
+     * 只数受本系统实例标记的怪 (MobInstanceTag): 玩家自带的驯服动物、别的 mod 刷的怪、村民都不该占
+     * 压力系统的额度, 否则玩家牵两只羊进矿洞就把自己的刷怪配额顶满了。
+     */
+    int nearbyMobCount(ServerPlayer player, ServerLevel level, int radius) {
+        double r = Math.max(PER_PLAYER_COUNT_MIN_RADIUS, radius);
+        return level.getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(r),
+                mob -> mob.isAlive() && MobInstanceTag.isTagged(mob)).size();
     }
 
     /**
@@ -217,14 +203,28 @@ public final class MobPressureSystem {
         }
 
         RandomSource rng = mining.random;
+        int spawnRadius = Math.max(BEHIND_MIN_DIST, config.mobSpawnRadius());
         int waveTarget = tier.waveMin() + rng.nextInt(tier.waveMax() - tier.waveMin() + 1);
         int budget = Math.min(waveTarget, mobCap - instance.liveMobs().size());
-        // 每玩家周边活跃上限 (config.mobMaxPerPlayer): 限制单玩家身边并发怪数。
-        budget = Math.min(budget, Math.max(1, config.mobMaxPerPlayer()));
+
+        /*
+         * 每玩家周边上限是"并发存活数"而不是"单波上限"。
+         *
+         * 原实现写的是 budget = min(budget, mobMaxPerPlayer) —— 那只钳住了一波最多刷几只, 玩家原地不动
+         * 每波都能再吃满一波, 实际身边并发数只受每实例 30 那道远得多的闸约束。配置键叫 maxPerPlayer,
+         * 语义就该是"身边同时最多这么多只", 故这里改成按现查的周边存活数算剩余额度。
+         */
+        int perPlayerCap = Math.max(1, config.mobMaxPerPlayer());
+        int headroom = perPlayerCap - nearbyMobCount(player, mining, spawnRadius);
+        if (headroom <= 0) {
+            LOGGER.debug("player {} already at per-player mob cap {}, skipping wave",
+                    player.getGameProfile().getName(), perPlayerCap);
+            return;
+        }
+        budget = Math.min(budget, headroom);
 
         boolean behindEnabled = tier.behindPlayerEnabled();
         double behindChance = config.mobBehindPlayerChance();
-        int spawnRadius = Math.max(BEHIND_MIN_DIST, config.mobSpawnRadius());
 
         for (int i = 0; i < budget; i++) {
             EntityType<? extends Mob> type = tier.allowedTypes().get(rng.nextInt(tier.allowedTypes().size()));
@@ -291,18 +291,14 @@ public final class MobPressureSystem {
             return null;
         }
 
-        // 标记所属实例 (10.5 step5), 供离场清理/计数回收/重置定向清除。
-        CompoundTag pd = mob.getPersistentData();
-        pd.putLong(MOB_INSTANCE_TAG, instance.instanceId());
+        // 标记所属实例 (10.5 step5) 必须在入场之前打: 计数登记由 onEntityJoinLevel 按这个标记完成,
+        // 而 addFreshEntityWithPassengers 内部就会触发 EntityJoinLevelEvent —— 标记晚一步, 这只怪就不计数。
+        MobInstanceTag.mark(mob, instance.instanceId());
 
         level.addFreshEntityWithPassengers(mob);
 
-        // 注册进实例计数与生命周期跟踪 (10.5 step4)。
-        instance.liveMobs().add(mob.getUUID());
-        mobInstanceIndex.put(mob.getUUID(), instance.instanceId());
-
         // 精英怪升格 seam (模块化铁律 2: 不硬 import champion 实现类): 落地成功后按实例难度尝试升格为冠军。
-        // 未接线 (Champions 未加载) 时 promote 直接短路 (普通怪)。冠军仍占用本实例 liveMobs 计数 (已 add)。
+        // 未接线 (Champions 未加载) 时 promote 直接短路 (普通怪)。冠军照样占本实例计数 (入场事件已登记)。
         com.miningdim.champion.ChampionSpawnSeam.promote(mob, instance.difficulty());
         return mob;
     }
@@ -392,20 +388,56 @@ public final class MobPressureSystem {
         return level.getBlockState(below).isFaceSturdy(level, below, Direction.UP);
     }
 
-    // ---- 计数回收 (10.5 step6) ----
+    // ---- 实例计数的唯一增减两点 (10.5 step4/step6) ----
 
+    /*
+     * 计数为什么挂在实体进出世界这对事件上, 而不是挂在死亡事件 + 定期对账上 (F030 的正解):
+     *
+     * 怪走的本来就是原版消失逻辑 —— 落地用 MobSpawnType.SPAWNER 且不置 persistenceRequired, 所以超距
+     * checkDespawn、区块卸载、苦力怕自爆 discard 全都按原版规则安静发生。旧实现的毛病不在"没保留原版消失",
+     * 而在旁边另记了一份只在 LivingDeathEvent 里减的影子账本: 原版让怪消失了, 账本不知道, 于是只增不减,
+     * 攒满 mobMaxPerInstance 后该实例永久停止刷怪。
+     *
+     * 先前的修法是每 5 秒轮询世界把账本同步回真相 —— 那是拿轮询去追一份本来就不该存在的副本。改成:
+     *   入场 (EntityJoinLevelEvent) -> 登记;  离场 (EntityLeaveLevelEvent) -> 销账
+     * 后, "带本系统实例标记且在世界里的怪" 与 "账本里的怪" 就是同一件事, 按构造相等, 不需要任何对账。
+     * 离场事件覆盖全部消失路径 (死亡移除 / discard / despawn / 区块卸载 / 换维度), 入场事件则负责把区块
+     * 重新加载回来的怪重新计上 —— 只接离场不接入场会让账本单向少算, 反而刷得比上限更多。
+     */
+
+    /** 带本系统实例标记的怪进入世界即登记 (含首次刷怪落地与区块重载回来的怪)。 */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public void onEntityJoinLevel(EntityJoinLevelEvent event) {
+        // LOWEST + isCanceled 检查: 本事件可被取消 (刷怪管理类 mod 会用), 被取消的实体不会真进世界, 不能计数。
+        if (event.isCanceled() || !(event.getEntity() instanceof Mob mob)) {
+            return;
+        }
+        Long instanceId = MobInstanceTag.instanceIdOf(mob);
+        if (instanceId == null) {
+            return; // 非本系统刷的怪 (玩家带进来的动物 / 别的 mod 刷的), 不占压力系统额度
+        }
+        mobInstanceIndex.put(mob.getUUID(), instanceId);
+        MiningServices.instanceManager().byId(instanceId)
+                .ifPresent(inst -> inst.liveMobs().add(mob.getUUID()));
+    }
+
+    /** 怪离开世界即销账。这是唯一的减账点, 覆盖死亡/discard/despawn/区块卸载/换维度全部路径。 */
     @SubscribeEvent
-    public void onMobDeath(LivingDeathEvent event) {
+    public void onEntityLeaveLevel(EntityLeaveLevelEvent event) {
         if (!(event.getEntity() instanceof Mob mob)) {
             return;
         }
         UUID id = mob.getUUID();
+        // 优先查反查表; 查不到再读标记 —— 服务端重启后账本是空的, 而世界里的怪仍带着标记。
         Long instanceId = mobInstanceIndex.remove(id);
         if (instanceId == null) {
-            // 陷阱引擎 (DynamicTrapEngine) 生成的怪不在本索引里, 它们由 reconcileLiveMobs 周期对账销账。
-            return; // 非本系统生成的怪
+            instanceId = MobInstanceTag.instanceIdOf(mob);
         }
-        MiningServices.instanceManager().byId(instanceId)
+        if (instanceId == null) {
+            return;
+        }
+        final long target = instanceId;
+        MiningServices.instanceManager().byId(target)
                 .ifPresent(inst -> inst.liveMobs().remove(id));
     }
 

@@ -3,6 +3,7 @@ package com.miningdim.trap;
 import com.miningdim.core.Difficulty;
 import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningServices;
+import com.miningdim.core.MobInstanceTag;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.MinecraftServer;
@@ -160,8 +161,11 @@ public final class DynamicTrapEngine {
             }
             creeper.setUUID(mobId);
             creeper.setTarget(player);
+            // 必须在入场前打实例标记: 计数登记由 MobPressureSystem 的入场事件按这个标记完成 (见 MobInstanceTag),
+            // 销账同样按标记。此前本处是入场后手动 liveMobs().add 且不打标记, 于是这只苦力怕能加账却永远减不掉 ——
+            // 它自爆走 discard 不发死亡事件, 旧代码只能靠周期对账兜, 那份对账已随 F030 的正解一并删除。
+            MobInstanceTag.mark(creeper, instance.instanceId());
             if (level.addFreshEntity(creeper)) {
-                instance.liveMobs().add(mobId);
                 // TR-1: 生成即播方位提示音, 给玩家回头反应窗口。
                 level.playSound(null, spawnPos.getX() + 0.5, spawnPos.getY() + 0.5, spawnPos.getZ() + 0.5,
                         SoundEvents.CREEPER_PRIMED, SoundSource.HOSTILE, 1.0f, 1.0f);

@@ -90,6 +90,15 @@ public final class MiningAdminWebUiActions {
         if (!plan.accepted()) {
             result.addProperty("accepted", false);
             result.addProperty("reasonCode", plan.reasonCode());
+            /*
+             * 拒绝也必须留一行。此前只有受理路径记日志, 于是"区域里还有人"或"正在生成中"导致的拒绝在服务端
+             * 侧毫无现场 —— 只有点按钮那个人在面板上看过一句提示, 事后无从复查。实测踩过: 排查一次"重置没
+             * 生效"时, 日志里查不到该难度的任何记录, 而"没请求过"与"被拒了"这两种完全不同的情况长得一模一样。
+             */
+            LOGGER.info("[miningdim] WebUI admin {} was REFUSED a {} reset of {} region (instance {}): "
+                            + "reasonCode={}, genState={}, players present={}",
+                    sender.getGameProfile().getName(), mode, difficulty.configName(), inst.instanceId(),
+                    plan.reasonCode(), inst.genState(), plan.evictedPlayers());
             return GSON.toJson(result);
         }
 

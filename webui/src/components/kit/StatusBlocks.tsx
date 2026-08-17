@@ -1,5 +1,6 @@
 import { InboxIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactElement, ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Spinner } from '@/components/ui/spinner'
@@ -19,6 +20,18 @@ const SPINNER_SIZE_CLASS: Record<ControlSize, string> = {
   lg: 'size-6',
 }
 
+/**
+ * 转圈出现前的静默期。
+ *
+ * 这不是审美偏好, 是 MCEF 的动效成本纪律 (见 styles/index.css 顶部): animate-spin 是<b>无限</b>动画,
+ * 只要它在屏幕上, CEF 就得按离屏帧率一遍遍重新合成整张表面 —— 而那张表面在 4K 上是几百万像素、
+ * 全在 CPU 上跑。命中缓存或一次快往返只要几十毫秒, 那期间转半圈的圈既没传达任何信息, 又按最贵的
+ * 价钱买下了这段合成。
+ *
+ * 220ms 是"人开始怀疑它是不是卡了"的量级: 短于它的等待无需交代, 长于它的必须交代。
+ */
+const SPINNER_DELAY_MS = 220
+
 export interface LoadingBlockProps {
   label?: string | undefined
   size?: ControlSize | undefined
@@ -26,6 +39,22 @@ export interface LoadingBlockProps {
 }
 
 export function LoadingBlock({ label, size = 'md', className }: LoadingBlockProps): ReactElement {
+  const [spinnerShown, setSpinnerShown] = useState(false)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSpinnerShown(true)
+    }, SPINNER_DELAY_MS)
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [])
+
+  /*
+   * 静默期里画的是一个等高的占位容器, 不是 null: 直接不渲染的话, 转圈出现的那一刻整块内容会向下跳一格,
+   * 而"避免闪一下"正是加这段延迟的初衷, 换成跳一下等于白做。文字标签同样压在静默期内 —— 只留文字不留圈
+   * 会读作"加载失败但有句说明", 两者要么一起出现要么都不出现。
+   */
   return (
     <div
       className={`flex items-center justify-center gap-2 py-6 text-muted-foreground${
@@ -33,8 +62,14 @@ export function LoadingBlock({ label, size = 'md', className }: LoadingBlockProp
       }`}
       role="status"
     >
-      <Spinner className={SPINNER_SIZE_CLASS[size]} />
-      {label === undefined ? null : <span className={TEXT_SIZE_CLASS[size]}>{label}</span>}
+      {spinnerShown ? (
+        <>
+          <Spinner className={SPINNER_SIZE_CLASS[size]} />
+          {label === undefined ? null : <span className={TEXT_SIZE_CLASS[size]}>{label}</span>}
+        </>
+      ) : (
+        <span aria-hidden="true" className={`${SPINNER_SIZE_CLASS[size]} block`} />
+      )}
     </div>
   )
 }

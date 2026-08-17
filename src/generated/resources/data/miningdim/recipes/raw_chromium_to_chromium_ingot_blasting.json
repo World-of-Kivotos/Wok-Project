@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:blasting",
+  "category": "misc",
+  "cookingtime": 100,
+  "experience": 0.7,
+  "group": "chromium_ingot",
+  "ingredient": [
+    {
+      "item": "miningdim:chromium_ore"
+    },
+    {
+      "item": "miningdim:deepslate_chromium_ore"
+    },
+    {
+      "item": "miningdim:raw_chromium"
+    }
+  ],
+  "result": "miningdim:chromium_ingot"
+}

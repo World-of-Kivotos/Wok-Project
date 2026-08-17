@@ -1,0 +1,35 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_raw_tin": {
+      "conditions": {
+        "items": [
+          {
+            "items": [
+              "miningdim:raw_tin"
+            ]
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "miningdim:raw_tin_to_tin_ingot_blasting"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_raw_tin",
+      "has_the_recipe"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "miningdim:raw_tin_to_tin_ingot_blasting"
+    ]
+  },
+  "sends_telemetry_event": false
+}

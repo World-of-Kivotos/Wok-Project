@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:smelting",
+  "category": "misc",
+  "cookingtime": 200,
+  "experience": 0.7,
+  "group": "bauxite_ingot",
+  "ingredient": [
+    {
+      "item": "miningdim:bauxite_ore"
+    },
+    {
+      "item": "miningdim:deepslate_bauxite_ore"
+    },
+    {
+      "item": "miningdim:raw_aluminum"
+    }
+  ],
+  "result": "miningdim:aluminum_ingot"
+}

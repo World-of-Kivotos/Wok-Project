@@ -1,0 +1,11 @@
+{
+  "values": [
+    "miningdim:raw_aluminum",
+    "miningdim:borax",
+    "miningdim:raw_silver",
+    "miningdim:raw_tin",
+    "miningdim:raw_nickel",
+    "miningdim:raw_chromium",
+    "miningdim:raw_tungsten"
+  ]
+}

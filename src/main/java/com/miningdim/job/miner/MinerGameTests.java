@@ -298,27 +298,33 @@ public final class MinerGameTests {
     }
 
     // ============================================================
-    // 探矿可探矿种里程碑 (L3 铁/煤 -> L6 +钻 -> L8 +金/残骸)
+    // 探矿可探矿种里程碑 (原版矿门槛保持不变，能源矿按可进入的难度层追加)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void oreScanMilestones(GameTestHelper helper) {
         // 未解锁 (L2): 空集。
         helper.assertTrue(OreScanService.allowedOres(2).isEmpty(), "ore scan locked below L3 -> empty allowed set");
-        // L3: 铁/煤, 无钻无金。
+        // L3: 铁/煤/铝土, 无钻无金。
         Set<OreType> l3 = OreScanService.allowedOres(3);
         helper.assertTrue(l3.contains(OreType.IRON) && l3.contains(OreType.COAL), "L3 scans iron + coal");
+        helper.assertTrue(l3.contains(OreType.BAUXITE), "L3 adds easy-tier bauxite");
         helper.assertFalse(l3.contains(OreType.DIAMOND), "L3 does NOT scan diamond");
         helper.assertFalse(l3.contains(OreType.GOLD), "L3 does NOT scan gold");
-        // L6: +钻, 仍无金/残骸。
+        // L6: +钻与 Medium 能源矿, 仍无金/残骸及 Hard 能源矿。
         Set<OreType> l6 = OreScanService.allowedOres(6);
         helper.assertTrue(l6.contains(OreType.DIAMOND), "L6 adds diamond");
+        helper.assertTrue(l6.containsAll(Set.of(OreType.BORAX, OreType.TIN, OreType.SILVER)),
+                "L6 adds medium-tier borax, tin, and silver");
         helper.assertFalse(l6.contains(OreType.GOLD), "L6 still no gold");
         helper.assertFalse(l6.contains(OreType.ANCIENT_DEBRIS), "L6 still no debris");
-        // L8: +金 +残骸。
+        helper.assertFalse(l6.contains(OreType.NICKEL), "L6 still has no hard-tier nickel");
+        // L8: +金/残骸与 Hard 能源矿。
         Set<OreType> l8 = OreScanService.allowedOres(8);
         helper.assertTrue(l8.contains(OreType.GOLD), "L8 adds gold");
         helper.assertTrue(l8.contains(OreType.ANCIENT_DEBRIS), "L8 adds ancient debris");
+        helper.assertTrue(l8.containsAll(Set.of(OreType.NICKEL, OreType.CHROMIUM, OreType.TUNGSTEN)),
+                "L8 adds hard-tier nickel, chromium, and tungsten");
         // 探矿半径阶梯 6 -> 16。
         helper.assertTrue(MinerSkills.oreScanRadius(3) == 6, "L3 ore scan radius = 6");
         helper.assertTrue(MinerSkills.oreScanRadius(10) == 16, "L10 ore scan radius = 16");

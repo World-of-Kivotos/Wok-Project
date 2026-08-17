@@ -1,168 +1,168 @@
 package com.miningdim.ore;
 
 import com.miningdim.core.Difficulty;
+import com.miningdim.power.mineral.PowerMineral;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 矿种枚举 (设计文档 8.2 权重表 + 8.5 矿脉尺寸表)。每个矿种携带:
- *  - 石质 / 深板岩质两套方块变体 (按落点 worldY 是否 < DEEPSLATE_Y_THRESHOLD 二选一, 与第四章分层一致);
- *  - baseWeight: 加权轮盘的相对权重基准 (8.2);
- *  - mult[]: 难度乘子, 索引 = Difficulty.ordinal() (8.2 表方向);
- *  - densityPerK[]: 每 1000 可铺壁面体素的目标矿块数, 索引 = ordinal (8.4 配额);
- *  - maxCount[]: 每实例硬上限, 索引 = ordinal (8.4, OG-1 评审硬约束);
- *  - veinSizeMin/Max: 矿脉成簇 BFS 尺寸 (8.5)。
- *
- * 数值照抄设计文档 8.2/8.4/8.5 的 PENDING 初值; ancient_debris 无深板岩变体, 两槽同填 ANCIENT_DEBRIS。
- * 矿石方块均引用原版 net.minecraft.world.level.block.Blocks 真实字段 (8.2 末注), 本 mod 不另注册矿石方块。
+ * 矿种枚举。方块 ID 而非方块实例存入枚举，避免 Forge DeferredRegister 尚未完成时的静态取值。
+ * 能源矿的旧离线配额全部为零，真实生成完全由 datapack worldgen 接管。
  */
 public enum OreType {
 
-    COAL(Blocks.COAL_ORE, Blocks.DEEPSLATE_COAL_ORE,
+    COAL(minecraft("coal_ore"), minecraft("deepslate_coal_ore"),
             100, new float[]{1.30f, 1.00f, 0.70f},
-            new float[]{28f, 22f, 14f}, new int[]{900, 700, 480},
-            4, 12),
-
-    COPPER(Blocks.COPPER_ORE, Blocks.DEEPSLATE_COPPER_ORE,
+            new float[]{28f, 22f, 14f}, new int[]{900, 700, 480}, 4, 12),
+    COPPER(minecraft("copper_ore"), minecraft("deepslate_copper_ore"),
             60, new float[]{1.10f, 1.00f, 0.80f},
-            new float[]{16f, 16f, 13f}, new int[]{520, 520, 440},
-            3, 8),
-
-    IRON(Blocks.IRON_ORE, Blocks.DEEPSLATE_IRON_ORE,
+            new float[]{16f, 16f, 13f}, new int[]{520, 520, 440}, 3, 8),
+    IRON(minecraft("iron_ore"), minecraft("deepslate_iron_ore"),
             70, new float[]{1.20f, 1.10f, 0.90f},
-            new float[]{20f, 20f, 18f}, new int[]{640, 640, 600},
-            3, 8),
-
-    GOLD(Blocks.GOLD_ORE, Blocks.DEEPSLATE_GOLD_ORE,
+            new float[]{20f, 20f, 18f}, new int[]{640, 640, 600}, 3, 8),
+    GOLD(minecraft("gold_ore"), minecraft("deepslate_gold_ore"),
             25, new float[]{0.40f, 1.00f, 1.60f},
-            new float[]{3f, 7f, 13f}, new int[]{110, 230, 420},
-            2, 5),
-
-    REDSTONE(Blocks.REDSTONE_ORE, Blocks.DEEPSLATE_REDSTONE_ORE,
+            new float[]{3f, 7f, 13f}, new int[]{110, 230, 420}, 2, 5),
+    REDSTONE(minecraft("redstone_ore"), minecraft("deepslate_redstone_ore"),
             40, new float[]{0.60f, 1.00f, 1.20f},
-            new float[]{8f, 12f, 16f}, new int[]{260, 380, 520},
-            4, 9),
-
-    LAPIS(Blocks.LAPIS_ORE, Blocks.DEEPSLATE_LAPIS_ORE,
+            new float[]{8f, 12f, 16f}, new int[]{260, 380, 520}, 4, 9),
+    LAPIS(minecraft("lapis_ore"), minecraft("deepslate_lapis_ore"),
             18, new float[]{0.80f, 1.00f, 1.10f},
-            new float[]{4f, 5f, 6f}, new int[]{140, 170, 210},
-            3, 6),
-
-    EMERALD(Blocks.EMERALD_ORE, Blocks.DEEPSLATE_EMERALD_ORE,
+            new float[]{4f, 5f, 6f}, new int[]{140, 170, 210}, 3, 6),
+    EMERALD(minecraft("emerald_ore"), minecraft("deepslate_emerald_ore"),
             6, new float[]{0.20f, 0.60f, 1.40f},
-            new float[]{0.3f, 1.0f, 3.0f}, new int[]{12, 36, 96},
-            1, 2),
-
-    DIAMOND(Blocks.DIAMOND_ORE, Blocks.DEEPSLATE_DIAMOND_ORE,
+            new float[]{0.3f, 1.0f, 3.0f}, new int[]{12, 36, 96}, 1, 2),
+    DIAMOND(minecraft("diamond_ore"), minecraft("deepslate_diamond_ore"),
             8, new float[]{0.15f, 0.70f, 2.20f},
-            new float[]{0.5f, 1.6f, 4.5f}, new int[]{18, 56, 150},
-            1, 4),
-
-    ANCIENT_DEBRIS(Blocks.ANCIENT_DEBRIS, Blocks.ANCIENT_DEBRIS,
+            new float[]{0.5f, 1.6f, 4.5f}, new int[]{18, 56, 150}, 1, 4),
+    ANCIENT_DEBRIS(minecraft("ancient_debris"), minecraft("ancient_debris"),
             2, new float[]{0.00f, 0.10f, 1.00f},
-            new float[]{0f, 0.15f, 0.6f}, new int[]{0, 6, 20},
-            1, 2);
+            new float[]{0f, 0.15f, 0.6f}, new int[]{0, 6, 20}, 1, 2),
 
-    /**
-     * 深板岩变体阈值 (8.2 末): 落点 worldY < 该值用深板岩矿, 否则用石质矿。
-     * PENDING 初值 0; region 高度重定时可调, 但调整属阶段2 数值校验范畴, 此处取文档给定 0。
-     */
+    BAUXITE(PowerMineral.BAUXITE.oreKey(), PowerMineral.BAUXITE.deepslateOreKey(), 0, zeroMultipliers(), zeroDensities(), zeroCounts(), 9, 9),
+    BORAX(PowerMineral.BORAX.oreKey(), PowerMineral.BORAX.deepslateOreKey(), 0, zeroMultipliers(), zeroDensities(), zeroCounts(), 5, 5),
+    SILVER(PowerMineral.SILVER.oreKey(), PowerMineral.SILVER.deepslateOreKey(), 0, zeroMultipliers(), zeroDensities(), zeroCounts(), 5, 5),
+    TIN(PowerMineral.TIN.oreKey(), PowerMineral.TIN.deepslateOreKey(), 0, zeroMultipliers(), zeroDensities(), zeroCounts(), 8, 8),
+    NICKEL(PowerMineral.NICKEL.oreKey(), PowerMineral.NICKEL.deepslateOreKey(), 0, zeroMultipliers(), zeroDensities(), zeroCounts(), 6, 6),
+    CHROMIUM(PowerMineral.CHROMIUM.oreKey(), PowerMineral.CHROMIUM.deepslateOreKey(), 0, zeroMultipliers(), zeroDensities(), zeroCounts(), 4, 4),
+    TUNGSTEN(PowerMineral.TUNGSTEN.oreKey(), PowerMineral.TUNGSTEN.deepslateOreKey(), 0, zeroMultipliers(), zeroDensities(), zeroCounts(), 3, 3);
+
     public static final int DEEPSLATE_Y_THRESHOLD = 0;
 
-    /**
-     * 方块 -> 矿种反查表 (石质 + 深板岩两套变体均映射回同一 OreType)。供矿工探矿在真实世界扫块时把
-     * 命中的矿石方块还原为矿种 (OreScanService 改扫真实世界路径), 取代死体素表 cachedPlacement。
-     * ANCIENT_DEBRIS 两变体同方块, put 同键幂等。本表在枚举值全部构造完成后初始化 (static 块晚于枚举常量)。
-     */
-    private static final Map<Block, OreType> BY_BLOCK = buildBlockIndex();
-
-    private static Map<Block, OreType> buildBlockIndex() {
-        Map<Block, OreType> index = new HashMap<>();
-        for (OreType ore : values()) {
-            index.put(ore.stoneVariant, ore);
-            index.put(ore.deepslateVariant, ore);
-        }
-        return Map.copyOf(index);
-    }
-
-    /**
-     * 由矿石方块反查矿种; 非本 mod 关心的矿石方块返回 null (调用方据此跳过)。
-     * 石质与深板岩两变体均能命中 (如 IRON_ORE 与 DEEPSLATE_IRON_ORE 同映射 IRON)。
-     */
-    public static OreType fromBlock(Block block) {
-        return BY_BLOCK.get(block);
-    }
-
-    private final Block stoneVariant;
-    private final Block deepslateVariant;
+    private final ResourceLocation stoneVariantId;
+    private final ResourceLocation deepslateVariantId;
     private final int baseWeight;
-    private final float[] mult;
+    private final float[] multipliers;
     private final float[] densityPerK;
     private final int[] maxCount;
     private final int veinSizeMin;
     private final int veinSizeMax;
+    private static volatile Map<Block, OreType> blockIndex;
 
-    OreType(Block stoneVariant, Block deepslateVariant, int baseWeight, float[] mult,
-            float[] densityPerK, int[] maxCount, int veinSizeMin, int veinSizeMax) {
-        this.stoneVariant = stoneVariant;
-        this.deepslateVariant = deepslateVariant;
+    OreType(ResourceLocation stoneVariantId, ResourceLocation deepslateVariantId, int baseWeight,
+            float[] multipliers, float[] densityPerK, int[] maxCount, int veinSizeMin, int veinSizeMax) {
+        this.stoneVariantId = stoneVariantId;
+        this.deepslateVariantId = deepslateVariantId;
         this.baseWeight = baseWeight;
-        this.mult = mult;
+        this.multipliers = multipliers;
         this.densityPerK = densityPerK;
         this.maxCount = maxCount;
         this.veinSizeMin = veinSizeMin;
         this.veinSizeMax = veinSizeMax;
     }
 
-    /**
-     * 本矿种的代表物品 (固定取石质变体的方块物品)。
-     *
-     * 存在的理由: {@link #stoneVariant}/{@link #deepslateVariant} 是 private 且只有反向的 {@link #fromBlock},
-     * 没有正向 OreType -&gt; Item 通路; 探矿回执要告诉玩家"这次探到的是什么矿"就必须有一个 itemId 与翻译键。
-     * 固定取石质变体而不是按玩家所在 Y 二选一: 一次探测的命中坐标可能横跨深板岩阈值, 让展示用的 id 随坐标漂移
-     * 只会让同一矿种在面板上时而叫铁矿石、时而叫深层铁矿石。
-     */
+    public static OreType fromBlock(Block block) {
+        return blockIndex().get(block);
+    }
+
     public Item representativeItem() {
-        return stoneVariant.asItem();
+        return resolveItem(stoneVariantId);
     }
 
-    /** 按落点世界 Y 选石质 / 深板岩质方块状态 (8.2)。 */
     public BlockState blockStateAt(int worldY) {
-        return (worldY < DEEPSLATE_Y_THRESHOLD ? deepslateVariant : stoneVariant).defaultBlockState();
+        return (worldY < DEEPSLATE_Y_THRESHOLD ? deepslateVariant() : stoneVariant()).defaultBlockState();
     }
 
-    /** 加权轮盘相对权重基准 (8.2)。 */
     public int baseWeight() {
         return baseWeight;
     }
 
-    /** effectiveWeight = baseWeight * difficultyMultiplier (8.2 公式)。 */
     public float effectiveWeight(Difficulty difficulty) {
-        return baseWeight * mult[difficulty.ordinal()];
+        return baseWeight * multipliers[difficulty.ordinal()];
     }
 
-    /** 每 1000 可铺壁面体素目标矿块数 (8.4)。 */
     public float densityPerK(Difficulty difficulty) {
         return densityPerK[difficulty.ordinal()];
     }
 
-    /** 每实例硬上限 maxCount (8.4, OG-1)。 */
     public int maxCount(Difficulty difficulty) {
         return maxCount[difficulty.ordinal()];
     }
 
-    /** 矿脉最小体素数 (8.5)。 */
     public int veinSizeMin() {
         return veinSizeMin;
     }
 
-    /** 矿脉最大体素数 (8.5)。 */
     public int veinSizeMax() {
         return veinSizeMax;
+    }
+
+    private Block stoneVariant() {
+        return resolveBlock(stoneVariantId);
+    }
+
+    private Block deepslateVariant() {
+        return resolveBlock(deepslateVariantId);
+    }
+
+    private static Block resolveBlock(ResourceLocation id) {
+        if (!BuiltInRegistries.BLOCK.containsKey(id)) {
+            throw new IllegalStateException("Missing ore block registration: " + id);
+        }
+        return BuiltInRegistries.BLOCK.get(id);
+    }
+
+    private static Map<Block, OreType> blockIndex() {
+        Map<Block, OreType> current = blockIndex;
+        if (current != null) {
+            return current;
+        }
+        Map<Block, OreType> resolved = new HashMap<>();
+        for (OreType ore : values()) {
+            resolved.put(ore.stoneVariant(), ore);
+            resolved.put(ore.deepslateVariant(), ore);
+        }
+        current = Map.copyOf(resolved);
+        blockIndex = current;
+        return current;
+    }
+
+    private static Item resolveItem(ResourceLocation id) {
+        if (!BuiltInRegistries.ITEM.containsKey(id)) {
+            throw new IllegalStateException("Missing representative ore item registration: " + id);
+        }
+        return BuiltInRegistries.ITEM.get(id);
+    }
+
+    private static ResourceLocation minecraft(String path) {
+        return new ResourceLocation("minecraft", path);
+    }
+
+    private static float[] zeroMultipliers() {
+        return new float[]{0f, 0f, 0f};
+    }
+
+    private static float[] zeroDensities() {
+        return new float[]{0f, 0f, 0f};
+    }
+
+    private static int[] zeroCounts() {
+        return new int[]{0, 0, 0};
     }
 }

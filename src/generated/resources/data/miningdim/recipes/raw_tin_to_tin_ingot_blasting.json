@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:blasting",
+  "category": "misc",
+  "cookingtime": 100,
+  "experience": 0.7,
+  "group": "tin_ingot",
+  "ingredient": [
+    {
+      "item": "miningdim:tin_ore"
+    },
+    {
+      "item": "miningdim:deepslate_tin_ore"
+    },
+    {
+      "item": "miningdim:raw_tin"
+    }
+  ],
+  "result": "miningdim:tin_ingot"
+}

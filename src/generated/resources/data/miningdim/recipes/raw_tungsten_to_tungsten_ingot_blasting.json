@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:blasting",
+  "category": "misc",
+  "cookingtime": 100,
+  "experience": 0.7,
+  "group": "tungsten_ingot",
+  "ingredient": [
+    {
+      "item": "miningdim:tungsten_ore"
+    },
+    {
+      "item": "miningdim:deepslate_tungsten_ore"
+    },
+    {
+      "item": "miningdim:raw_tungsten"
+    }
+  ],
+  "result": "miningdim:tungsten_ingot"
+}

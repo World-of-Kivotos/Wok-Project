@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "miningdim:block/chromium_ore"
+    }
+  }
+}

@@ -7,7 +7,14 @@ bin/
 # Forge 运行目录与生成数据
 run/
 runs/
-src/generated/
+run-data/
+src/generated/*
+!src/generated/resources/
+src/generated/resources/*
+!src/generated/resources/assets/
+!src/generated/resources/data/
+!src/generated/resources/assets/**
+!src/generated/resources/data/**
 
 # IDE
 .idea/

@@ -65,10 +65,34 @@ minecraft {
         gameTestServer {
             property 'forge.enabledGameTestNamespaces', mod_id
         }
+
+        data {
+            workingDirectory project.file('run-data')
+            args '--mod', mod_id, '--all',
+                    '--output', file('src/generated/resources/'),
+                    '--existing', file('src/main/resources/')
+        }
     }
 }
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
+
+// Forge data 运行会把同一生成文件重复加入资源复制输入。仅排除“路径与物理源文件都相同”的第二份；
+// 若主资源与生成资源出现同路径但内容来源不同，继续让构建失败，避免静默覆盖真正的资源冲突。
+tasks.named('processResources', ProcessResources).configure {
+    def copiedSources = [:]
+    doFirst { copiedSources.clear() }
+    eachFile { details ->
+        def path = details.relativePath.pathString
+        def source = details.file.canonicalFile
+        def previous = copiedSources.putIfAbsent(path, source)
+        if (previous == source) {
+            details.exclude()
+        } else if (previous != null) {
+            throw new GradleException("资源路径冲突: ${path} 同时来自 ${previous} 与 ${source}")
+        }
+    }
+}
 
 repositories {
     mavenCentral()

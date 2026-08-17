@@ -11,6 +11,7 @@
     "miningdim:gunsmith_assembly_bench",
     "miningdim:industrial_generator",
     "miningdim:modern_generator",
-    "miningdim:future_energy_generator"
+    "miningdim:future_energy_generator",
+    "#miningdim:power_minerals"
   ]
 }

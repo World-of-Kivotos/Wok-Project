@@ -1,6 +1,8 @@
 package com.miningdim.power;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.power.mineral.PowerMineral;
+import com.miningdim.power.mineral.PowerMineralRegistry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.CreativeModeTab;
@@ -26,6 +28,14 @@ public final class PowerCreativeTab {
                         output.accept(PowerRegistry.FUTURE_ENERGY_GENERATOR_ITEM.get());
                         for (RegistryObject<Item> cable : PowerRegistry.CABLE_ITEMS.values()) {
                             output.accept(cable.get());
+                        }
+                        for (PowerMineral mineral : PowerMineral.values()) {
+                            output.accept(PowerMineralRegistry.oreItem(mineral).get());
+                            output.accept(PowerMineralRegistry.deepslateOre(mineral).get().asItem());
+                            output.accept(PowerMineralRegistry.rawMaterial(mineral).get());
+                            if (mineral.hasIngot()) {
+                                output.accept(PowerMineralRegistry.ingot(mineral).get());
+                            }
                         }
                     })
                     .build());

@@ -1,0 +1,6 @@
+{
+  "parent": "miningdim:block/tinted_ore",
+  "textures": {
+    "base": "minecraft:block/deepslate"
+  }
+}

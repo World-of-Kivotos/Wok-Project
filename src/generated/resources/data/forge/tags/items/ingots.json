@@ -1,0 +1,10 @@
+{
+  "values": [
+    "miningdim:aluminum_ingot",
+    "miningdim:silver_ingot",
+    "miningdim:tin_ingot",
+    "miningdim:nickel_ingot",
+    "miningdim:chromium_ingot",
+    "miningdim:tungsten_ingot"
+  ]
+}

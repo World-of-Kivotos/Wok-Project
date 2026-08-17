@@ -24,7 +24,7 @@ import java.util.Set;
  * 改扫真实世界缘由 (经济文档第十章 H): 旧实现读 {@link com.miningdim.ore.OreSystem#cachedPlacement} 死体素表,
  * 该缓存仅在离线铺矿 placementFor 被调用时填充, 而维度已改用 minecraft:noise 生成 + 原版 ore feature, 无任何
  * 生产调用方填表 -> cachedPlacement 恒空 -> scan 永远空返, 探矿技能事实失效。改读真实世界后, L3/L6/L8 探矿
- * 里程碑恢复 (原版 ore feature 生成的铁/煤/钻/金/残骸/绿宝石矿块均可被还原命中)。
+ * 里程碑恢复（数据包 ore feature 生成的原版矿与能源矿均可被还原命中）。
  *
  * 单次探测固定扫一个 "可探矿种集合" 里 player 当前指定/默认的目标 (本实现按里程碑可探集合的优先序自动选一个有结果
  * 的矿种, 满足 "单矿种一次"); 矿/陷阱拆两个技能, 本类只管矿。结果坐标个数受 {@link MinerConstants#ORE_SCAN_MAX_RESULTS}
@@ -36,7 +36,7 @@ public final class OreScanService {
     }
 
     /**
-     * 按矿工等级开放的可探矿种 (里程碑): L3 铁/煤; L6 +钻; L8 +金/残骸。
+     * 按矿工等级开放的可探矿种: L3 铁/煤/铝土; L6 +钻/硼砂/锡/银; L8 +金/残骸/镍/铬/钨。
      * 未达探矿解锁级 (L3) 返回空集 (调用方据此短路)。
      */
     public static Set<OreType> allowedOres(int level) {
@@ -46,12 +46,19 @@ public final class OreScanService {
         }
         set.add(OreType.IRON);
         set.add(OreType.COAL);
+        set.add(OreType.BAUXITE);
         if (level >= MinerConstants.ORE_SCAN_DIAMOND_LEVEL) {
             set.add(OreType.DIAMOND);
+            set.add(OreType.BORAX);
+            set.add(OreType.TIN);
+            set.add(OreType.SILVER);
         }
         if (level >= MinerConstants.ORE_SCAN_GOLD_DEBRIS_LEVEL) {
             set.add(OreType.GOLD);
             set.add(OreType.ANCIENT_DEBRIS);
+            set.add(OreType.NICKEL);
+            set.add(OreType.CHROMIUM);
+            set.add(OreType.TUNGSTEN);
         }
         return set;
     }
@@ -146,7 +153,7 @@ public final class OreScanService {
             }
         }
         Map<OreType, List<BlockPos>> buckets = collectWithinSphere(level, center, radius, r2, allowed, topPriority);
-        // 单矿种语义: 按可探集合优先序 (铁>煤>钻>金>残骸) 取第一个球内确有命中的矿种。
+        // 单矿种语义: 按可探集合优先序取第一个球内确有命中的矿种。
         for (OreType target : preferenceOrder()) {
             List<BlockPos> hits = buckets.get(target);
             if (hits != null && !hits.isEmpty()) {
@@ -161,7 +168,7 @@ public final class OreScanService {
      * 仅收已加载区块内的命中 (未加载区块 isLoaded=false 跳过, 不强制加载、不臆造数据)。
      *
      * 单趟分桶取代旧实现"每个矿种各扫一遍整球"的缘由: 已挖空区域是常态, 球内某矿种一无所获时旧实现仍会把整球
-     * 读满才判定失败, 而 preferenceOrder 有 5 个矿种 —— 全空是最坏情况, 等价于把同一个球重复读 5 遍;
+     * 读满才判定失败, 而 preferenceOrder 覆盖所有已解锁矿种 —— 全空时尤其不能重复读取同一个球;
      * L10 半径 16 时单次探测该最坏情况约读 9 万次方块态, 落在服务端主线程。改成读一次方块态同时喂给所有桶,
      * 最坏情况的开销从 5 倍整球读降回 1 倍。
      */
@@ -200,8 +207,12 @@ public final class OreScanService {
         return buckets;
     }
 
-    /** 单矿种探测的优先序 (常见矿优先, 高价矿其次)。 */
+    /** 单矿种探测的优先序 (常见矿优先，逐阶段覆盖能源导体矿)。 */
     private static OreType[] preferenceOrder() {
-        return new OreType[]{OreType.IRON, OreType.COAL, OreType.DIAMOND, OreType.GOLD, OreType.ANCIENT_DEBRIS};
+        return new OreType[]{
+                OreType.IRON, OreType.COAL, OreType.BAUXITE,
+                OreType.DIAMOND, OreType.BORAX, OreType.TIN, OreType.SILVER,
+                OreType.GOLD, OreType.ANCIENT_DEBRIS, OreType.NICKEL, OreType.CHROMIUM, OreType.TUNGSTEN
+        };
     }
 }

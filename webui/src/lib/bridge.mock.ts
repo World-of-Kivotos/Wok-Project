@@ -4249,6 +4249,7 @@ const questDaily: QuestRow[] = [
     claimed: false,
     turnIn: false,
     creditReward: 1_200,
+    itemReward: { tier: 'IRON', materialStacks: 1, bookChance: 0.04 },
   },
   {
     questId: 'daily.turn_in.wheat',
@@ -4261,6 +4262,7 @@ const questDaily: QuestRow[] = [
     claimed: false,
     turnIn: true,
     creditReward: 1_800,
+    itemReward: { tier: 'IRON', materialStacks: 1, bookChance: 0.04 },
   },
   {
     questId: 'daily.kill.zombie',
@@ -4273,6 +4275,7 @@ const questDaily: QuestRow[] = [
     claimed: true,
     turnIn: false,
     creditReward: 2_200,
+    itemReward: { tier: 'IRON', materialStacks: 1, bookChance: 0.04 },
   },
 ]
 
@@ -4288,6 +4291,7 @@ const questWeekly: QuestRow[] = [
     claimed: false,
     turnIn: false,
     creditReward: 8_000,
+    itemReward: { tier: 'DIAMOND', materialStacks: 1, bookChance: 0.3 },
   },
 ]
 
@@ -4303,6 +4307,7 @@ const questSpecial: QuestRow[] = [
     claimed: false,
     turnIn: false,
     creditReward: 5_000,
+    itemReward: { tier: 'IRON', materialStacks: 1, bookChance: 0.04 },
   },
 ]
 
@@ -4324,6 +4329,7 @@ const questChains: QuestChainRow[] = [
       claimed: false,
       turnIn: false,
       creditReward: 3_500,
+      itemReward: { tier: 'DIAMOND', materialStacks: 1, bookChance: 0.3 },
     },
   },
 ]
@@ -4335,7 +4341,8 @@ const QUEST_TURN_IN_ITEMS: ReadonlyMap<string, string> = new Map([
 let questRefreshSerial = 0
 
 function cloneQuestRow(row: QuestRow): QuestRow {
-  return { ...row }
+  // itemReward 是嵌套对象, 浅拷会让所有克隆共享同一份 —— 与 cloneQuestItem 同一条纪律。
+  return { ...row, itemReward: { ...row.itemReward } }
 }
 
 function cloneQuestItem(row: QuestItemRow): QuestItemRow {
@@ -4478,6 +4485,10 @@ function refreshedQuest(source: QuestRefreshPayload['source']): QuestRow {
     claimed: false,
     turnIn: false,
     creditReward: source === 'daily' ? 1_400 : 7_500,
+    itemReward:
+      source === 'daily'
+        ? { tier: 'IRON', materialStacks: 1, bookChance: 0.04 }
+        : { tier: 'DIAMOND', materialStacks: 1, bookChance: 0.3 },
   }
 }
 

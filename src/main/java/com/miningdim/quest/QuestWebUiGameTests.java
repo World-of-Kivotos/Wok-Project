@@ -72,7 +72,50 @@ public final class QuestWebUiGameTests {
                     questId + " 的 creditReward 必须等于权威奖励公式, 实得 "
                             + row.get("creditReward").getAsLong() + ", 应为 "
                             + QuestRewards.creditFor(definition));
+            // 物品奖励与信用点同为任务卡上的对外承诺, 同样按权威真源锁死 (面板照这个数画, 不许分叉)。
+            assertItemRewardMatchesSource(helper, row, definition);
         }
+        helper.succeed();
+    }
+
+    /**
+     * 物品奖励档位必须真的随来源分档, 不是一律发同一个值。
+     *
+     * 单开这条的原因是变异实测: 只用 daily 那一组断言时, 把 tier 写死成 "IRON" 能让 1267 条全绿通过 ——
+     * 因为没有任何用例跑过 DIAMOND 档的行, 那条"必须等于 QuestItemRewards.tier(source)"的断言对档位区分
+     * 是空的。这里显式取两侧: daily 必须 IRON, weekly 必须 DIAMOND, 且两者必须不相等 (最后这条锁死"写死成
+     * 任意一个字面量"这整类退化, 不管写死的是哪一个)。附魔书掉率同理取两侧比对。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void boardItemRewardTierActuallyDiffersPerSource(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        JsonObject result = handle(helper, BOARD_ACTION, player, new JsonObject());
+
+        JsonArray daily = result.getAsJsonArray("daily");
+        JsonArray weekly = result.getAsJsonArray("weekly");
+        helper.assertTrue(daily.size() > 0 && weekly.size() > 0,
+                "本用例要求日常与周常各至少一行才能比出档位差异, 实得 daily=" + daily.size()
+                        + " weekly=" + weekly.size());
+
+        JsonObject dailyReward = daily.get(0).getAsJsonObject().getAsJsonObject("itemReward");
+        JsonObject weeklyReward = weekly.get(0).getAsJsonObject().getAsJsonObject("itemReward");
+        String dailyTier = dailyReward.get("tier").getAsString();
+        String weeklyTier = weeklyReward.get("tier").getAsString();
+
+        helper.assertTrue(QuestItemRewards.Tier.IRON.name().equals(dailyTier),
+                "日常任务必须报 IRON 档, 实得 " + dailyTier);
+        helper.assertTrue(QuestItemRewards.Tier.DIAMOND.name().equals(weeklyTier),
+                "周常任务必须报 DIAMOND 档, 实得 " + weeklyTier);
+        helper.assertFalse(dailyTier.equals(weeklyTier),
+                "日常与周常的物品档位必须不同 —— 相同即说明 tier 被写死成了某个字面量, 实得两侧都是 " + dailyTier);
+
+        double dailyChance = dailyReward.get("bookChance").getAsDouble();
+        double weeklyChance = weeklyReward.get("bookChance").getAsDouble();
+        helper.assertTrue(dailyChance == QuestConfig.DAILY_BOOK_CHANCE.get()
+                        && weeklyChance == QuestConfig.WEEKLY_BOOK_CHANCE.get(),
+                "两档附魔书掉率必须分别取各自的配置键, 实得 daily=" + dailyChance + " weekly=" + weeklyChance);
+        helper.assertFalse(dailyChance == weeklyChance,
+                "两档掉率相同即说明 bookChance 没按来源取, 实得均为 " + dailyChance);
         helper.succeed();
     }
 
@@ -413,14 +456,44 @@ public final class QuestWebUiGameTests {
         throw new IllegalStateException("quest.board 未返回预置任务 " + questId);
     }
 
+    /**
+     * 物品奖励三字段必须逐个来自权威真源, 不许前端按 source 自己推档位。
+     *
+     * 删掉 itemRewardRow 的下发 -> row 少一个键, 上面的字段集断言先挂; 把 tier 改成写死的字面量或让它与
+     * QuestItemRewards.tier 分叉 -> 本方法挂。bookChance 用 == 精确比: 它就是同一个 config 读出来的 double,
+     * 中间不该有任何换算, 有换算就是精度损失, 而玩家看到的百分比正是照这个数画的。
+     */
+    private static void assertItemRewardMatchesSource(GameTestHelper helper, JsonObject row,
+                                                      QuestDefinition definition) {
+        JsonObject reward = row.getAsJsonObject("itemReward");
+        Set<String> expectedKeys = Set.of("tier", "materialStacks", "bookChance");
+        helper.assertTrue(reward.keySet().equals(expectedKeys),
+                "itemReward 必须只含 tier/materialStacks/bookChance 三字段, 实得 " + reward.keySet());
+
+        QuestItemRewards.Tier expectedTier = QuestItemRewards.tier(definition.source());
+        helper.assertTrue(expectedTier.name().equals(reward.get("tier").getAsString()),
+                definition.id() + " 的物品档位必须取 QuestItemRewards.tier(" + definition.source()
+                        + ")=" + expectedTier + ", 实得 " + reward.get("tier").getAsString());
+        helper.assertTrue(reward.get("materialStacks").getAsInt()
+                        == QuestItemRewards.GUARANTEED_MATERIAL_STACKS,
+                "必得材料份数必须取权威常量 " + QuestItemRewards.GUARANTEED_MATERIAL_STACKS
+                        + ", 实得 " + reward.get("materialStacks").getAsInt());
+        double expectedChance = QuestItemRewards.bookChance(definition.source());
+        helper.assertTrue(reward.get("bookChance").getAsDouble() == expectedChance,
+                definition.id() + " 的附魔书掉率必须等于 QuestItemRewards.bookChance("
+                        + definition.source() + ")=" + expectedChance
+                        + ", 实得 " + reward.get("bookChance").getAsDouble());
+    }
+
     private static void assertRowMatchesProgress(GameTestHelper helper, JsonObject row,
                                                  QuestProgress progress) {
         QuestDefinition definition = progress.definition();
         Set<String> expectedKeys = Set.of(
                 "questId", "title", "objective", "difficulty", "count", "requiredCount",
-                "complete", "claimed", "turnIn", "creditReward");
+                "complete", "claimed", "turnIn", "creditReward", "itemReward");
         helper.assertTrue(row.keySet().equals(expectedKeys),
-                "replacement 必须只含完整 QuestRow 十字段, 实得 " + row.keySet());
+                "replacement 必须只含完整 QuestRow 十一字段, 实得 " + row.keySet());
+        assertItemRewardMatchesSource(helper, row, definition);
         helper.assertTrue(definition.id().equals(row.get("questId").getAsString())
                         && definition.title().equals(row.get("title").getAsString())
                         && definition.objective().describe().equals(row.get("objective").getAsString()),

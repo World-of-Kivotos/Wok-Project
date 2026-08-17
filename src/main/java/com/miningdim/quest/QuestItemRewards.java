@@ -151,13 +151,37 @@ public final class QuestItemRewards {
     private QuestItemRewards() {
     }
 
-    /** 某来源用哪张材料表 (特殊跟日常同档, 隐藏跟周常同档)。 */
-    public static List<Drop> pool(QuestSource source) {
+    /**
+     * 材料档位。既是选表依据, 也是下发给面板画"这个任务给什么档次的东西"的标识。
+     *
+     * 单列成枚举而不是让前端按 source 自己推 (DAILY/SPECIAL 一档, WEEKLY/HIDDEN 一档): 那个映射一旦在别处
+     * 被改 (比如将来特殊任务提到钻石档), 前端那份复制品不会跟着变, 玩家看到的档位就跟实际掉的东西不符。
+     */
+    public enum Tier {
+        /** 日常/特殊: 最高到铁。 */
+        IRON,
+        /** 周常/隐藏: 最高到钻石。 */
+        DIAMOND
+    }
+
+    /** 某来源属哪个材料档 (特殊跟日常同档, 隐藏跟周常同档)。 */
+    public static Tier tier(QuestSource source) {
         return switch (source) {
-            case DAILY, SPECIAL -> DAILY_POOL;
-            case WEEKLY, HIDDEN -> WEEKLY_POOL;
+            case DAILY, SPECIAL -> Tier.IRON;
+            case WEEKLY, HIDDEN -> Tier.DIAMOND;
         };
     }
+
+    /** 某来源用哪张材料表。经 {@link #tier} 派生, 保证"选表"与"展示的档位"永远是同一个判断。 */
+    public static List<Drop> pool(QuestSource source) {
+        return switch (tier(source)) {
+            case IRON -> DAILY_POOL;
+            case DIAMOND -> WEEKLY_POOL;
+        };
+    }
+
+    /** 一次领奖必得的材料份数 (材料与附魔书互不占位, 书是额外一件)。 */
+    public static final int GUARANTEED_MATERIAL_STACKS = 1;
 
     /** 某来源的附魔书掉率。 */
     public static double bookChance(QuestSource source) {

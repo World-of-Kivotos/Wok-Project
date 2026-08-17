@@ -2772,6 +2772,22 @@ export interface QuestRow {
   turnIn: boolean
   /** Java long -> number。 */
   creditReward: number
+  itemReward: QuestItemReward
+}
+
+/**
+ * 物品奖励的可展示形态。
+ *
+ * 没有"会掉哪几样"这种字段: 物品是领奖那一刻按权重掷出来的, 领之前不存在确定答案。服务端只发档位与概率,
+ * 前端照发即画, 不得自行按 source 推档位 (那份映射的真源在 QuestItemRewards.tier)。
+ */
+export interface QuestItemReward {
+  /** 材料档位: IRON = 日常/特殊 (最高到铁), DIAMOND = 周常/隐藏 (最高到钻石)。 */
+  tier: 'IRON' | 'DIAMOND'
+  /** 必得的材料份数 (当前恒为 1; 附魔书不占这个位, 中了是额外一件)。 */
+  materialStacks: number
+  /** 附魔书掉率, 0..1。 */
+  bookChance: number
 }
 
 export interface QuestChainRow {

@@ -20,6 +20,7 @@ import { callErrorText } from '../lib/errorText'
 import type {
   QuestChainRow,
   QuestClaimResult,
+  QuestItemReward,
   QuestRefreshPayload,
   QuestRefreshResult,
   QuestRow,
@@ -182,6 +183,28 @@ function difficultyTone(difficulty: number): 'neutral' | 'warning' | 'danger' {
   return difficulty === 2 ? 'warning' : 'danger'
 }
 
+const ITEM_TIER_LABEL: Record<QuestItemReward['tier'], string> = {
+  IRON: '铁档',
+  DIAMOND: '钻石档',
+}
+
+/**
+ * 物品奖励的一行说明。
+ *
+ * 说"必得 1 份"而不是列具体物品: 物品在领奖那一刻才按权重掷出来, 提前列举就是编。档位与书的概率是确定的,
+ * 那就只讲这两件确定的事 —— 玩家据此判断这条任务值不值得留到重摇之后。
+ */
+function describeItemReward(reward: QuestItemReward): string {
+  const material = `${ITEM_TIER_LABEL[reward.tier]}材料 x${String(reward.materialStacks)}`
+  if (reward.bookChance <= 0) {
+    return material
+  }
+  const percent = reward.bookChance * 100
+  // 4% 与 30% 都要能看清, 故小数位按量级给: 不足 1% 时保留一位, 否则取整。
+  const shown = percent < 1 ? percent.toFixed(1) : String(Math.round(percent))
+  return `${material} + 附魔书 ${shown}%`
+}
+
 function QuestCard({
   row,
   pendingKey,
@@ -237,10 +260,15 @@ function QuestCard({
       />
 
       <div className="mt-auto flex items-end justify-between gap-3">
-        <Stat
-          label="信用点奖励"
-          value={<Currency amount={row.creditReward} currency="credit" size="sm" />}
-        />
+        <div className="flex min-w-0 flex-col gap-1">
+          <Stat
+            label="信用点奖励"
+            value={<Currency amount={row.creditReward} currency="credit" size="sm" />}
+          />
+          <p className="text-muted-foreground text-xs">
+            物品奖励 {describeItemReward(row.itemReward)}
+          </p>
+        </div>
         {row.claimed ? (
           <Button disabled size="sm" variant="secondary">
             已领取

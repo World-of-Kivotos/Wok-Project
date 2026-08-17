@@ -146,7 +146,23 @@ public final class QuestWebUiActions {
         row.addProperty("claimed", progress.claimed());
         row.addProperty("turnIn", definition.objective() instanceof TurnInItemObjective);
         row.addProperty("creditReward", QuestRewards.creditFor(definition));
+        row.add("itemReward", itemRewardRow(definition.source()));
         return row;
+    }
+
+    /**
+     * 物品奖励的可展示形态: 档位 + 必得材料份数 + 附魔书概率。
+     *
+     * 刻意不发"会掉哪几样": 物品是领奖那一刻按权重掷的 ({@link QuestItemRewards#roll}), 领之前根本不存在
+     * 确定答案。把整张掉落表塞进每一行更不行 —— 六行任务各带一份十六条的表纯属浪费带宽, 那是图鉴页的事。
+     * 发档位与概率, 玩家据此判断"这条值不值得留着", 且每一个字都是真的。
+     */
+    private static JsonObject itemRewardRow(QuestSource source) {
+        JsonObject reward = new JsonObject();
+        reward.addProperty("tier", QuestItemRewards.tier(source).name());
+        reward.addProperty("materialStacks", QuestItemRewards.GUARANTEED_MATERIAL_STACKS);
+        reward.addProperty("bookChance", QuestItemRewards.bookChance(source));
+        return reward;
     }
 
     private static JsonObject chainRow(QuestChainState state) {

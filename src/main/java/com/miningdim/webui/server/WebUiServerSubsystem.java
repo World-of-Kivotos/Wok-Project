@@ -32,6 +32,9 @@ public final class WebUiServerSubsystem implements Subsystem {
         // 服务器运行状态 (管理后台顶部四项): 在线人数/容量/TPS/MSPT/已运行刻数。纯只读, 不设权限门 ——
         // 这四个数字在任何多人服的 F3 与计分板上都是公开信息, 加门只会让普通玩家的状态栏一片空白。
         WebUiServerDispatcher.register("system.serverStatus", WebUiServerSubsystem::handleServerStatus);
+        // 只读 action 的批量聚合 (一次往返跑完一屏的全部查询)。注册点放在 system.* 这一组里, 但实现单独成类:
+        // 它是第二个 Gateway 边界 (逐条翻译异常 + 体积计账 + 白名单), 塞进本类会让"注册表"与"派发逻辑"混住。
+        WebUiBatchAction.registerAll();
         // 平板 hub 的面板可达性。本类是 hub.* 与 system.* 两组 action 的唯一注册入口 (同一个 register 方法),
         // 避免两组人各改一处注册点后合并时互相覆盖。
         HubWebUiActions.registerAll();

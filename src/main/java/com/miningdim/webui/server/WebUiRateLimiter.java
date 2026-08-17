@@ -36,6 +36,22 @@ final class WebUiRateLimiter {
      * 无论扣减成功与否都推进 {@code lastNanos}, 否则被拒绝的高频请求会让补充窗口原地冻结, 永远算不出新令牌。
      */
     boolean tryAcquire(UUID player, long nowNanos) {
+        return tryAcquire(player, nowNanos, 1);
+    }
+
+    /**
+     * 扣 {@code cost} 枚令牌 —— 供 {@code system.batch} 按真实条数计费。
+     *
+     * 必须按条数计费, 否则聚合请求就是一个限流旁路: 一批 24 条只付一枚令牌, 等于把每玩家上限凭空放大 24 倍,
+     * 而那 24 个 handler 在服务器主线程上是实打实各跑一次的。
+     *
+     * 令牌不足时<b>一枚也不扣</b> (全有或全无), 不做部分扣减: 半批执行没有任何调用方能处理 —— 前端拿到
+     * "一半成功一半失败"与拿到"整批被限流"是两种完全不同的恢复路径, 而后者才是它真正实现了的那一条。
+     */
+    boolean tryAcquire(UUID player, long nowNanos, int cost) {
+        if (cost <= 0) {
+            throw new IllegalArgumentException("cost must be positive: " + cost);
+        }
         Bucket bucket = buckets.computeIfAbsent(player, k -> new Bucket(burstCapacity, nowNanos));
         synchronized (bucket) {
             double elapsedSeconds = (nowNanos - bucket.lastNanos) / 1_000_000_000.0;
@@ -43,8 +59,8 @@ final class WebUiRateLimiter {
                 bucket.tokens = Math.min(burstCapacity, bucket.tokens + elapsedSeconds * refillPerSecond);
             }
             bucket.lastNanos = nowNanos;
-            if (bucket.tokens >= 1.0) {
-                bucket.tokens -= 1.0;
+            if (bucket.tokens >= cost) {
+                bucket.tokens -= cost;
                 return true;
             }
             return false;

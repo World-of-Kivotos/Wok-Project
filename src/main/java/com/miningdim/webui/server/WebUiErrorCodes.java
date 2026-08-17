@@ -167,6 +167,21 @@ public final class WebUiErrorCodes {
     public static final String UNKNOWN_ACTION = "UNKNOWN_ACTION";
 
     /**
+     * 该 action 不许进 system.batch。抛出点: {@code WebUiBatchAction} 的白名单门, 逐条判定 (不整批拒)。
+     *
+     * 存在的理由是聚合请求绕开了防重放: 一整批只占一个 requestId, 于是同一批里的 handler 无法各自享有
+     * "同 id 只执行一次"的保护。只读 action 重放无害, 写 action 重放会二次扣款/二次发货, 故白名单是安全
+     * 边界而不是性能清单。前端把某条写 action 误塞进批量时必须得到一个明确的拒绝码, 而不是静默照跑。
+     */
+    public static final String ACTION_NOT_BATCHABLE = "ACTION_NOT_BATCHABLE";
+
+    /**
+     * 单批条数超出 {@code WebUiBatchAction.MAX_CALLS}。抛出点同上, 但<b>整批拒</b> —— 条数本身非法时没有
+     * "哪几条能跑"可言。params: {@code count} 与 {@code max}。
+     */
+    public static final String BATCH_TOO_LARGE = "BATCH_TOO_LARGE";
+
+    /**
      * 挂单托管物的注册 id 当前解析不出来 (通常是托管时所属 mod 已被卸载, 或该物品 id 已变更):
      * 反序列化落地的是 {@code ItemStack.EMPTY} (1.20.1 的 defaulted 注册表兜底), 不是真实物品。
      * params: {@code listingId} 与 {@code itemId}。

@@ -260,8 +260,27 @@ public final class WebUiServerDispatcher {
         RATE_LIMITER.clear(sender);
     }
 
-    /** 构造 {"error":"<message>"} 失败回执 (经 Gson 转义, 防 message 内引号破坏 JSON)。 */
-    private static String errorJson(String message) {
+    /**
+     * 为一次 {@code system.batch} 按真实条数补扣令牌 (第一枚已由 {@link #dispatchAndRespond} 的限流门扣掉,
+     * 故这里补的是 {@code size - 1})。
+     *
+     * 令牌桶留在本类而不是暴露给批量处理器: 桶是"每玩家在整条 WebUI 通道上的预算", 批量只是它的一个消费方,
+     * 换个位置就会有第二个消费方各自建桶, 于是限流总账再也算不清。
+     *
+     * extra 为 0 (单条批) 直接放行, 不做零成本扣减 —— 令牌桶的 cost 参数拒绝非正数, 那是配置缺陷的信号,
+     * 不该被一次合法的单条批触发。
+     */
+    static boolean chargeExtraTokens(UUID player, int extra) {
+        return extra <= 0 || RATE_LIMITER.tryAcquire(player, System.nanoTime(), extra);
+    }
+
+    /**
+     * 构造 {"error":"<message>"} 失败回执 (经 Gson 转义, 防 message 内引号破坏 JSON)。
+     *
+     * 包级可见而非私有: {@code WebUiBatchAction} 是第二个 Gateway 边界, 它兜底非预期异常时必须编出与本类
+     * 逐字节同形的失败信封 —— 让前端对"单发失败"与"批内某条失败"共用同一套解析。
+     */
+    static String errorJson(String message) {
         JsonObject obj = new JsonObject();
         obj.addProperty("error", message == null ? "unknown error" : message);
         return GSON.toJson(obj);

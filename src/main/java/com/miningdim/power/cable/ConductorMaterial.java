@@ -12,15 +12,10 @@ import com.miningdim.power.grid.VoltageClass;
  *  - 降效 floor 按真实温度系数 (低系数=耐热=floor 高): 铁 α=0.0065 最先崩 (floor 最低), 金 α=0.0034 最稳 (floor 最高);
  *    石墨烯负温度系数 (越热电阻越低) => floor 接近 1; 超导临界温下近零损耗 => floor = 1。
  *
- * 数值定标: 所有 ratedCapacityFe 与 degradeFloor 均为占位 (PENDING), 落码前须过反洗钱经济总表
- * docs/Economy_BalanceSheet_DesignSpec.md 核对 (吞吐是隐性 faucet, 过载损耗是隐性 sink)。结构真实, 数值待定。
+ * 数值定标: ratedCapacityFe 与 degradeFloor 已按能源总表定标；吞吐是隐性 faucet，过载损耗是隐性 sink，修改时
+ * 须同步复核 docs/Economy_BalanceSheet_DesignSpec.md。
  *
- * 本期 (P1) 实际注册方块为 {@link #IRON}、{@link #ALUMINUM}、{@link #COPPER} (见 PowerRegistry 的 P1 白名单);
- * 其余 9 行数据就位, 待各自门槛落地后逐级点亮:
- *  - 银: 需新矿与中期配方;
- *  - OFC/OFE/金: 需提纯机 (P1.5);
- *  - 镀锡/镀银: 需镀层工艺 (P2);
- *  - 石墨烯/超导: 需高能合成 (P3)。
+ * P1-P2 已注册 {@link #IRON} 至 {@link #SILVER} 九档导体；石墨烯及两种超导导体保留给 P3 的高能合成和低温保护。
  */
 public enum ConductorMaterial implements CableProfile {
 
@@ -71,7 +66,7 @@ public enum ConductorMaterial implements CableProfile {
         return id + "_energy_cable";
     }
 
-    /** 额定每 settlement 吞吐帽 R (FE)。混级网取网内最低此值 (木桶效应)。占位, 由真实电导率排序。 */
+    /** 额定每 settlement 吞吐帽 R (FE)。混级网取网内最低此值（木桶效应）。 */
     public int ratedCapacityFe() {
         return ratedCapacityFe;
     }

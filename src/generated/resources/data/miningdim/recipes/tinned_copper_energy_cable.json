@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "building",
+  "ingredients": [
+    {
+      "item": "miningdim:tinned_copper_wire"
+    },
+    {
+      "item": "miningdim:tinned_copper_wire"
+    },
+    {
+      "item": "miningdim:tinned_copper_wire"
+    },
+    {
+      "item": "miningdim:insulation_pe"
+    },
+    {
+      "item": "miningdim:insulation_pe"
+    },
+    {
+      "item": "miningdim:insulation_pe"
+    }
+  ],
+  "result": {
+    "count": 6,
+    "item": "miningdim:tinned_copper_energy_cable"
+  }
+}

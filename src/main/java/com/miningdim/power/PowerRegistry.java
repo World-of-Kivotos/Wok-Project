@@ -65,12 +65,21 @@ public final class PowerRegistry {
     public static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITIES =
             DeferredRegister.create(ForgeRegistries.BLOCK_ENTITY_TYPES, MiningConstants.MODID);
 
-    /**
-     * P1 实际注册方块的导体材料白名单: 铁、铝、铜。{@code ConductorMaterial} 其余 9 行
-     * 数据已就位, 待各自门槛 (新矿 / 提纯机 / 镀层 / 合成) 落地后逐级加入本表点亮, 见 ConductorMaterial 类注释。
-     */
+    /** P1 保留的三档导体集合，供阶段性兼容断言和配方门槛使用。 */
     public static final List<ConductorMaterial> P1_MATERIALS = List.of(
             ConductorMaterial.IRON, ConductorMaterial.ALUMINUM, ConductorMaterial.COPPER);
+
+    /** 当前已落地注册的 P1-P2 导体。网络与方块实体继续统一通过 {@link ConductorMaterial} 参数化。 */
+    public static final List<ConductorMaterial> REGISTERED_MATERIALS = List.of(
+            ConductorMaterial.IRON,
+            ConductorMaterial.ALUMINUM,
+            ConductorMaterial.COPPER,
+            ConductorMaterial.TINNED_COPPER,
+            ConductorMaterial.OFC_COPPER,
+            ConductorMaterial.OFE_COPPER,
+            ConductorMaterial.SILVER_PLATED_COPPER,
+            ConductorMaterial.GOLD,
+            ConductorMaterial.SILVER);
 
     public static final Map<ConductorMaterial, RegistryObject<EnergyCableBlock>> CABLES = registerCables();
     public static final Map<ConductorMaterial, RegistryObject<Item>> CABLE_ITEMS = registerCableItems();
@@ -97,7 +106,7 @@ public final class PowerRegistry {
 
     private static Map<ConductorMaterial, RegistryObject<EnergyCableBlock>> registerCables() {
         Map<ConductorMaterial, RegistryObject<EnergyCableBlock>> map = new EnumMap<>(ConductorMaterial.class);
-        for (ConductorMaterial material : P1_MATERIALS) {
+        for (ConductorMaterial material : REGISTERED_MATERIALS) {
             map.put(material, BLOCKS.register(material.blockId(), () -> new EnergyCableBlock(material,
                     BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK).noOcclusion())));
         }
@@ -106,7 +115,7 @@ public final class PowerRegistry {
 
     private static Map<ConductorMaterial, RegistryObject<Item>> registerCableItems() {
         Map<ConductorMaterial, RegistryObject<Item>> map = new EnumMap<>(ConductorMaterial.class);
-        for (ConductorMaterial material : P1_MATERIALS) {
+        for (ConductorMaterial material : REGISTERED_MATERIALS) {
             map.put(material, ITEMS.register(material.blockId(),
                     () -> new BlockItem(CABLES.get(material).get(), new Item.Properties())));
         }
@@ -115,7 +124,7 @@ public final class PowerRegistry {
 
     private static Map<ConductorMaterial, RegistryObject<Item>> registerWireItems() {
         Map<ConductorMaterial, RegistryObject<Item>> map = new EnumMap<>(ConductorMaterial.class);
-        for (ConductorMaterial material : P1_MATERIALS) {
+        for (ConductorMaterial material : REGISTERED_MATERIALS) {
             map.put(material, ITEMS.register(material.id() + "_wire", () -> new Item(new Item.Properties())));
         }
         return map;

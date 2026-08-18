@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "miningdim:gold_4n_ingot"
+    },
+    {
+      "item": "miningdim:gold_4n_ingot"
+    },
+    {
+      "item": "miningdim:gold_4n_ingot"
+    }
+  ],
+  "result": {
+    "count": 6,
+    "item": "miningdim:gold_wire"
+  }
+}

@@ -10,7 +10,7 @@ import net.minecraft.resources.ResourceLocation;
 
 import java.util.concurrent.CompletableFuture;
 
-/** 仅开放工业档的默认生存配方；现代与未来档随各自分期进入。 */
+/** 已开放发电机及燃料芯的默认生存配方；未来档随 P3 进入。 */
 final class PowerGeneratorRecipeProvider implements DataProvider {
 
     private final PackOutput.PathProvider recipes;
@@ -28,7 +28,14 @@ final class PowerGeneratorRecipeProvider implements DataProvider {
                 save(output, "industrial_generator", shaped("misc", "miningdim:industrial_generator",
                         new String[]{"ICI", "IRI", "IFI"},
                         new String[]{"I", "minecraft:iron_ingot", "C", "minecraft:copper_ingot",
-                                "R", "minecraft:redstone", "F", "minecraft:furnace"})));
+                                "R", "minecraft:redstone", "F", "minecraft:furnace"})),
+                save(output, "modern_fuel_core", shaped("misc", "miningdim:modern_fuel_core",
+                        new String[]{"BOB", "OBO", "BOB"},
+                        new String[]{"O", "miningdim:ofe_copper_ingot", "B", "minecraft:blaze_rod"})),
+                save(output, "modern_generator", shaped("misc", "miningdim:modern_generator",
+                        new String[]{"OGO", "GIG", "OGO"},
+                        new String[]{"O", "miningdim:ofe_copper_ingot", "G", "miningdim:gold_4n_ingot",
+                                "I", "miningdim:industrial_generator"})));
     }
 
     @Override

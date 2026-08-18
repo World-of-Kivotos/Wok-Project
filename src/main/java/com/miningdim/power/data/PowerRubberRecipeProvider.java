@@ -11,7 +11,7 @@ import net.minecraft.resources.ResourceLocation;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * PVC 与 PE 的配方是已批准的“从橡胶加工”生存接线默认值：各用一份橡胶和一种原版辅料，
+ * 五档绝缘配方是已批准的“从橡胶加工”生存接线默认值；高级档额外消耗原版合成辅料，
  * 不产出信用点，也不替代后续经济总表对正式工业链的平衡裁决。
  * 原始 JSON Provider 避开 Forge 对多个同名 RecipeProvider 的注册冲突。
  */
@@ -33,7 +33,13 @@ final class PowerRubberRecipeProvider implements DataProvider {
                 save(output, "insulation_pvc", shapeless("misc", "miningdim:insulation_pvc", 1,
                         new String[]{"miningdim:rubber", "minecraft:clay_ball"})),
                 save(output, "insulation_pe", shapeless("misc", "miningdim:insulation_pe", 1,
-                        new String[]{"miningdim:rubber", "minecraft:charcoal"})));
+                        new String[]{"miningdim:rubber", "minecraft:charcoal"})),
+                save(output, "insulation_epr", shapeless("misc", "miningdim:insulation_epr", 2,
+                        new String[]{"miningdim:rubber", "miningdim:rubber", "minecraft:slime_ball"})),
+                save(output, "insulation_xlpe", shapeless("misc", "miningdim:insulation_xlpe", 2,
+                        new String[]{"miningdim:insulation_pe", "miningdim:insulation_pe", "minecraft:blaze_powder"})),
+                save(output, "insulation_silicone", shapeless("misc", "miningdim:insulation_silicone", 2,
+                        new String[]{"miningdim:rubber", "miningdim:rubber", "minecraft:quartz"})));
     }
 
     @Override

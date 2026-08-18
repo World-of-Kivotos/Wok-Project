@@ -1,0 +1,37 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "miningdim:ofe_copper_wire"
+    },
+    {
+      "item": "miningdim:ofe_copper_wire"
+    },
+    {
+      "item": "miningdim:ofe_copper_wire"
+    },
+    {
+      "item": "miningdim:ofe_copper_wire"
+    },
+    {
+      "item": "miningdim:ofe_copper_wire"
+    },
+    {
+      "item": "miningdim:ofe_copper_wire"
+    },
+    {
+      "item": "miningdim:ofe_copper_wire"
+    },
+    {
+      "item": "miningdim:ofe_copper_wire"
+    },
+    {
+      "item": "miningdim:silver_ingot"
+    }
+  ],
+  "result": {
+    "count": 8,
+    "item": "miningdim:silver_plated_copper_wire"
+  }
+}

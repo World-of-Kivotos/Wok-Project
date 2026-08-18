@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "B": {
+      "item": "minecraft:blaze_rod"
+    },
+    "O": {
+      "item": "miningdim:ofe_copper_ingot"
+    }
+  },
+  "pattern": [
+    "BOB",
+    "OBO",
+    "BOB"
+  ],
+  "result": {
+    "item": "miningdim:modern_fuel_core"
+  }
+}

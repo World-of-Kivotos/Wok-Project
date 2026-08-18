@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "miningdim:ofc_copper_ingot"
+    },
+    {
+      "item": "miningdim:ofc_copper_ingot"
+    },
+    {
+      "item": "miningdim:ofc_copper_ingot"
+    }
+  ],
+  "result": {
+    "count": 6,
+    "item": "miningdim:ofc_copper_wire"
+  }
+}

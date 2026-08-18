@@ -24,6 +24,9 @@ final class PowerRubberItemModelProvider extends ItemModelProvider {
         generated("rubber");
         generated("insulation_pvc");
         generated("insulation_pe");
+        generated("insulation_epr");
+        generated("insulation_xlpe");
+        generated("insulation_silicone");
     }
 
     @Override

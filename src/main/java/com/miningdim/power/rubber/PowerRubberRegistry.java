@@ -45,6 +45,12 @@ public final class PowerRubberRegistry {
             ITEMS.register("insulation_pvc", () -> new Item(new Item.Properties()));
     public static final RegistryObject<Item> INSULATION_PE =
             ITEMS.register("insulation_pe", () -> new Item(new Item.Properties()));
+    public static final RegistryObject<Item> INSULATION_EPR =
+            ITEMS.register("insulation_epr", () -> new Item(new Item.Properties()));
+    public static final RegistryObject<Item> INSULATION_XLPE =
+            ITEMS.register("insulation_xlpe", () -> new Item(new Item.Properties()));
+    public static final RegistryObject<Item> INSULATION_SILICONE =
+            ITEMS.register("insulation_silicone", () -> new Item(new Item.Properties()));
     public static final RegistryObject<Item> RUBBER_TAPPING_KNIFE =
             ITEMS.register("rubber_tapping_knife", () -> new Item(new Item.Properties().durability(128)));
 

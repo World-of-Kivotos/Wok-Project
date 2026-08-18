@@ -2,6 +2,12 @@
   "values": [
     "miningdim:iron_energy_cable",
     "miningdim:aluminum_energy_cable",
-    "miningdim:copper_energy_cable"
+    "miningdim:copper_energy_cable",
+    "miningdim:tinned_copper_energy_cable",
+    "miningdim:ofc_copper_energy_cable",
+    "miningdim:ofe_copper_energy_cable",
+    "miningdim:silver_plated_copper_energy_cable",
+    "miningdim:gold_energy_cable",
+    "miningdim:silver_energy_cable"
   ]
 }

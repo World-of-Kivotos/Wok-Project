@@ -2,6 +2,12 @@
   "values": [
     "miningdim:iron_wire",
     "miningdim:aluminum_wire",
-    "miningdim:copper_wire"
+    "miningdim:copper_wire",
+    "miningdim:tinned_copper_wire",
+    "miningdim:ofc_copper_wire",
+    "miningdim:ofe_copper_wire",
+    "miningdim:silver_plated_copper_wire",
+    "miningdim:gold_wire",
+    "miningdim:silver_wire"
   ]
 }

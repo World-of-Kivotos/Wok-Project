@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "building",
+  "ingredients": [
+    {
+      "item": "miningdim:silver_wire"
+    },
+    {
+      "item": "miningdim:silver_wire"
+    },
+    {
+      "item": "miningdim:silver_wire"
+    },
+    {
+      "item": "miningdim:insulation_silicone"
+    },
+    {
+      "item": "miningdim:insulation_silicone"
+    },
+    {
+      "item": "miningdim:insulation_silicone"
+    }
+  ],
+  "result": {
+    "count": 6,
+    "item": "miningdim:silver_energy_cable"
+  }
+}

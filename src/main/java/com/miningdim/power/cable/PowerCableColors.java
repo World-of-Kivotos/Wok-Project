@@ -15,7 +15,7 @@ public final class PowerCableColors {
     }
 
     private static void registerItemColors(RegisterColorHandlersEvent.Item event) {
-        for (ConductorMaterial material : PowerRegistry.P1_MATERIALS) {
+        for (ConductorMaterial material : PowerRegistry.REGISTERED_MATERIALS) {
             event.register((stack, tintIndex) -> tintIndex == 0 ? material.tintColor() : -1,
                     PowerRegistry.WIRE_ITEMS.get(material).get());
         }

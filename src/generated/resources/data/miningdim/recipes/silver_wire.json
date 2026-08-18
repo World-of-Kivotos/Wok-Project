@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "miningdim:silver_ingot"
+    },
+    {
+      "item": "miningdim:silver_ingot"
+    },
+    {
+      "item": "miningdim:silver_ingot"
+    }
+  ],
+  "result": {
+    "count": 6,
+    "item": "miningdim:silver_wire"
+  }
+}

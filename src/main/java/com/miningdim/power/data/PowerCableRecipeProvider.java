@@ -5,9 +5,6 @@ import com.google.gson.JsonObject;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.power.PowerRegistry;
 import com.miningdim.power.cable.ConductorMaterial;
-import com.miningdim.power.mineral.PowerMineral;
-import com.miningdim.power.mineral.PowerMineralRegistry;
-import com.miningdim.power.rubber.PowerRubberRegistry;
 import net.minecraft.data.CachedOutput;
 import net.minecraft.data.DataProvider;
 import net.minecraft.data.PackOutput;
@@ -15,7 +12,7 @@ import net.minecraft.resources.ResourceLocation;
 
 import java.util.concurrent.CompletableFuture;
 
-/** P1 导线与线缆配方，固定三进六出产量。 */
+/** 已开放导线与线缆配方；常规导线三进六出，镀层导线八根等量升级。 */
 final class PowerCableRecipeProvider implements DataProvider {
 
     private final PackOutput.PathProvider recipes;
@@ -28,20 +25,18 @@ final class PowerCableRecipeProvider implements DataProvider {
     public CompletableFuture<?> run(CachedOutput output) {
         CompletableFuture<?>[] saves = PowerRegistry.CABLES.keySet().stream()
                 .flatMap(material -> java.util.stream.Stream.of(
-                        save(output, material.id() + "_wire", shapeless("misc",
-                                itemId(PowerRegistry.WIRE_ITEMS.get(material).get()), 6,
-                                itemId(conductorIngot(material)), "3")),
+                        wireRecipe(output, material),
                         save(output, material.blockId(), shapeless("building",
                                 itemId(PowerRegistry.CABLE_ITEMS.get(material).get()), 6,
                                 itemId(PowerRegistry.WIRE_ITEMS.get(material).get()), "3",
-                                itemId(insulation(material)), "3"))))
+                                insulationId(material), "3"))))
                 .toArray(CompletableFuture<?>[]::new);
         return CompletableFuture.allOf(saves);
     }
 
     @Override
     public String getName() {
-        return "能源P1线缆配方";
+        return "能源线缆配方";
     }
 
     private CompletableFuture<?> save(CachedOutput output, String id, JsonObject recipe) {
@@ -70,21 +65,41 @@ final class PowerCableRecipeProvider implements DataProvider {
         return recipe;
     }
 
-    private net.minecraft.world.level.ItemLike conductorIngot(ConductorMaterial material) {
+    private CompletableFuture<?> wireRecipe(CachedOutput output, ConductorMaterial material) {
         return switch (material) {
-            case IRON -> net.minecraft.world.item.Items.IRON_INGOT;
-            case ALUMINUM -> PowerMineralRegistry.ingot(PowerMineral.BAUXITE).get();
-            case COPPER -> net.minecraft.world.item.Items.COPPER_INGOT;
-            default -> throw new IllegalStateException("P1 recipe requested for unopened conductor " + material);
+            case TINNED_COPPER -> save(output, material.id() + "_wire", shapeless("misc",
+                    itemId(PowerRegistry.WIRE_ITEMS.get(material).get()), 8,
+                    "miningdim:copper_wire", "8", "miningdim:tin_ingot", "1"));
+            case SILVER_PLATED_COPPER -> save(output, material.id() + "_wire", shapeless("misc",
+                    itemId(PowerRegistry.WIRE_ITEMS.get(material).get()), 8,
+                    "miningdim:ofe_copper_wire", "8", "miningdim:silver_ingot", "1"));
+            default -> save(output, material.id() + "_wire", shapeless("misc",
+                    itemId(PowerRegistry.WIRE_ITEMS.get(material).get()), 6,
+                    conductorIngotId(material), "3"));
         };
     }
 
-    private net.minecraft.world.level.ItemLike insulation(ConductorMaterial material) {
+    private String conductorIngotId(ConductorMaterial material) {
+        return switch (material) {
+            case IRON -> "minecraft:iron_ingot";
+            case ALUMINUM -> "miningdim:aluminum_ingot";
+            case COPPER -> "minecraft:copper_ingot";
+            case OFC_COPPER -> "miningdim:ofc_copper_ingot";
+            case OFE_COPPER -> "miningdim:ofe_copper_ingot";
+            case GOLD -> "miningdim:gold_4n_ingot";
+            case SILVER -> "miningdim:silver_ingot";
+            default -> throw new IllegalStateException("wire recipe requested for plated or unopened conductor "
+                    + material);
+        };
+    }
+
+    private String insulationId(ConductorMaterial material) {
         return switch (material.insulation()) {
-            case PVC -> PowerRubberRegistry.INSULATION_PVC.get();
-            case PE -> PowerRubberRegistry.INSULATION_PE.get();
-            default -> throw new IllegalStateException("P1 recipe requested for unsupported insulation "
-                    + material.insulation());
+            case PVC -> "miningdim:insulation_pvc";
+            case PE -> "miningdim:insulation_pe";
+            case EPR -> "miningdim:insulation_epr";
+            case XLPE -> "miningdim:insulation_xlpe";
+            case SILICONE -> "miningdim:insulation_silicone";
         };
     }
 

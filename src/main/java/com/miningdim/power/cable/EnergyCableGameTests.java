@@ -8,6 +8,7 @@ import com.miningdim.power.grid.EnergyNetworkManager;
 import com.miningdim.power.grid.EnergyNetworkSnapshot;
 import com.miningdim.power.grid.VoltageAwareEnergyStorage;
 import com.miningdim.power.grid.VoltageClass;
+import com.miningdim.power.rubber.PowerRubberRegistry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
@@ -41,16 +42,28 @@ public final class EnergyCableGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void p1CableAndWireRegistrationsPreserveExistingIds(GameTestHelper helper) {
+    public static void p1AndP2RegisteredMaterialsPreserveExistingIds(GameTestHelper helper) {
         ConductorMaterial[] p1 = {
                 ConductorMaterial.IRON,
                 ConductorMaterial.ALUMINUM,
                 ConductorMaterial.COPPER
         };
-        helper.assertTrue(PowerRegistry.CABLES.size() == 3
-                        && PowerRegistry.CABLE_ITEMS.size() == 3
-                        && PowerRegistry.WIRE_ITEMS.size() == 3,
-                "P1 只能注册铁、铝、铜三种线缆、方块物品和导线，实得 "
+        helper.assertTrue(PowerRegistry.P1_MATERIALS.size() == 3
+                        && PowerRegistry.REGISTERED_MATERIALS.size() == 9
+                        && PowerRegistry.CABLES.size() == 9
+                        && PowerRegistry.CABLE_ITEMS.size() == 9
+                        && PowerRegistry.WIRE_ITEMS.size() == 9
+                        && PowerRegistry.REGISTERED_MATERIALS.containsAll(java.util.List.of(
+                                ConductorMaterial.IRON, ConductorMaterial.ALUMINUM, ConductorMaterial.COPPER,
+                                ConductorMaterial.TINNED_COPPER, ConductorMaterial.OFC_COPPER,
+                                ConductorMaterial.OFE_COPPER, ConductorMaterial.SILVER_PLATED_COPPER,
+                                ConductorMaterial.GOLD, ConductorMaterial.SILVER))
+                        && !PowerRegistry.CABLES.containsKey(ConductorMaterial.GRAPHENE)
+                        && !PowerRegistry.CABLES.containsKey(ConductorMaterial.NBTI_SUPERCONDUCTOR)
+                        && !PowerRegistry.CABLES.containsKey(ConductorMaterial.YBCO_SUPERCONDUCTOR),
+                "注册集合必须恰为 T1-T9，且 T10-T12 不得提前开放，实得 "
+                        + PowerRegistry.P1_MATERIALS.size() + "/"
+                        + PowerRegistry.REGISTERED_MATERIALS.size() + "/"
                         + PowerRegistry.CABLES.size() + "/"
                         + PowerRegistry.CABLE_ITEMS.size() + "/"
                         + PowerRegistry.WIRE_ITEMS.size());
@@ -65,6 +78,50 @@ public final class EnergyCableGameTests {
                         && ConductorMaterial.ALUMINUM.ratedCapacityFe() == 768
                         && ConductorMaterial.COPPER.ratedCapacityFe() == 1_280,
                 "P1 铁、铝、铜容量必须固定为 256/768/1280 FE/t");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void p2ConductorsKeepExactCapacityVoltageAndInsulationContracts(GameTestHelper helper) {
+        ConductorMaterial[] p2 = {
+                ConductorMaterial.TINNED_COPPER,
+                ConductorMaterial.OFC_COPPER,
+                ConductorMaterial.OFE_COPPER,
+                ConductorMaterial.SILVER_PLATED_COPPER,
+                ConductorMaterial.GOLD,
+                ConductorMaterial.SILVER
+        };
+        for (ConductorMaterial material : p2) {
+            helper.assertTrue(PowerRegistry.CABLES.get(material).getId().getPath().equals(material.blockId())
+                            && PowerRegistry.CABLE_ITEMS.get(material).getId().getPath().equals(material.blockId())
+                            && PowerRegistry.WIRE_ITEMS.get(material).getId().getPath().equals(material.id() + "_wire")
+                            && PowerRegistry.CABLES.get(material).get().material() == material,
+                    "P2 " + material.id() + " 必须注册匹配的线缆方块、物品和导线");
+        }
+        helper.assertTrue(ConductorMaterial.TINNED_COPPER.ratedCapacityFe() == 1_536
+                        && ConductorMaterial.OFC_COPPER.ratedCapacityFe() == 2_048
+                        && ConductorMaterial.OFE_COPPER.ratedCapacityFe() == 3_072
+                        && ConductorMaterial.SILVER_PLATED_COPPER.ratedCapacityFe() == 4_096
+                        && ConductorMaterial.GOLD.ratedCapacityFe() == 2_560
+                        && ConductorMaterial.SILVER.ratedCapacityFe() == 5_120,
+                "P2 六档导体容量必须固定为 1536/2048/3072/4096/2560/5120 FE/t");
+        helper.assertTrue(ConductorMaterial.TINNED_COPPER.voltageClass() == VoltageClass.MEDIUM
+                        && ConductorMaterial.OFC_COPPER.voltageClass() == VoltageClass.MEDIUM
+                        && ConductorMaterial.OFE_COPPER.voltageClass() == VoltageClass.MEDIUM
+                        && ConductorMaterial.SILVER_PLATED_COPPER.voltageClass() == VoltageClass.HIGH
+                        && ConductorMaterial.GOLD.voltageClass() == VoltageClass.HIGH
+                        && ConductorMaterial.SILVER.voltageClass() == VoltageClass.HIGH,
+                "P2 耐压必须按 T4-T6 MEDIUM、T7-T9 HIGH 固定");
+        helper.assertTrue(ConductorMaterial.TINNED_COPPER.insulation() == InsulationGrade.PE
+                        && ConductorMaterial.OFC_COPPER.insulation() == InsulationGrade.EPR
+                        && ConductorMaterial.OFE_COPPER.insulation() == InsulationGrade.XLPE
+                        && ConductorMaterial.SILVER_PLATED_COPPER.insulation() == InsulationGrade.XLPE
+                        && ConductorMaterial.GOLD.insulation() == InsulationGrade.XLPE
+                        && ConductorMaterial.SILVER.insulation() == InsulationGrade.SILICONE
+                        && PowerRubberRegistry.INSULATION_EPR.getId().getPath().equals("insulation_epr")
+                        && PowerRubberRegistry.INSULATION_XLPE.getId().getPath().equals("insulation_xlpe")
+                        && PowerRubberRegistry.INSULATION_SILICONE.getId().getPath().equals("insulation_silicone"),
+                "P2 绝缘品及 T4-T9 绝缘关联必须固定");
         helper.succeed();
     }
 

@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "miningdim:rubber"
+    },
+    {
+      "item": "miningdim:rubber"
+    },
+    {
+      "item": "minecraft:quartz"
+    }
+  ],
+  "result": {
+    "count": 2,
+    "item": "miningdim:insulation_silicone"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "G": {
+      "item": "miningdim:gold_4n_ingot"
+    },
+    "I": {
+      "item": "miningdim:industrial_generator"
+    },
+    "O": {
+      "item": "miningdim:ofe_copper_ingot"
+    }
+  },
+  "pattern": [
+    "OGO",
+    "GIG",
+    "OGO"
+  ],
+  "result": {
+    "item": "miningdim:modern_generator"
+  }
+}

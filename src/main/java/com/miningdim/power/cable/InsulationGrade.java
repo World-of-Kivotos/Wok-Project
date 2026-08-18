@@ -6,7 +6,7 @@ package com.miningdim.power.cable;
  * 绝缘与导体纯度双轴各司其职: 导体纯度定容量, 绝缘定耐热。绝缘决定"网温升到多高才开始/加剧降效" ——
  * 低档 PVC 一过载即软化降效, 高档硅橡胶扛更高温才降效 (见 {@link CableThermics#efficiency})。
  *
- * maxContinuousTempC 为占位 (PENDING, 落码前过经济总表), 结构真实即可。
+ * 耐温档已由设计文档锁定；修改时须同步复核能源总表。
  */
 public enum InsulationGrade {
 
@@ -28,7 +28,7 @@ public enum InsulationGrade {
         return id;
     }
 
-    /** 允许的最高持续温度 (°C); 网温接近此值降效加剧, 达到则钳在导体的降效 floor。占位数值, 待经济总表标定。 */
+    /** 允许的最高持续温度 (°C); 网温接近此值降效加剧，达到则钳在导体的降效 floor。 */
     public int maxContinuousTempC() {
         return maxContinuousTempC;
     }

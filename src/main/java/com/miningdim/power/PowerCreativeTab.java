@@ -62,6 +62,9 @@ public final class PowerCreativeTab {
                         output.accept(PowerRubberRegistry.RUBBER.get());
                         output.accept(PowerRubberRegistry.INSULATION_PVC.get());
                         output.accept(PowerRubberRegistry.INSULATION_PE.get());
+                        output.accept(PowerRubberRegistry.INSULATION_EPR.get());
+                        output.accept(PowerRubberRegistry.INSULATION_XLPE.get());
+                        output.accept(PowerRubberRegistry.INSULATION_SILICONE.get());
                         output.accept(PowerRubberRegistry.RUBBER_TAPPING_KNIFE.get());
                     })
                     .build());

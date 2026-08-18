@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "building",
+  "ingredients": [
+    {
+      "item": "miningdim:ofc_copper_wire"
+    },
+    {
+      "item": "miningdim:ofc_copper_wire"
+    },
+    {
+      "item": "miningdim:ofc_copper_wire"
+    },
+    {
+      "item": "miningdim:insulation_epr"
+    },
+    {
+      "item": "miningdim:insulation_epr"
+    },
+    {
+      "item": "miningdim:insulation_epr"
+    }
+  ],
+  "result": {
+    "count": 6,
+    "item": "miningdim:ofc_copper_energy_cable"
+  }
+}

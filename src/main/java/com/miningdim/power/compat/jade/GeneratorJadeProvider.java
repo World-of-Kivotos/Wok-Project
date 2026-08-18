@@ -1,6 +1,7 @@
 package com.miningdim.power.compat.jade;
 
 import com.miningdim.power.generator.GeneratorBlockEntity;
+import net.minecraft.ChatFormatting;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -15,6 +16,10 @@ import snownee.jade.api.config.IPluginConfig;
 public final class GeneratorJadeProvider implements IBlockComponentProvider, IServerDataProvider<BlockAccessor> {
 
     private static final ResourceLocation UID = new ResourceLocation("miningdim", "power_generator");
+    private static final ResourceLocation BUFFER_BAR = new ResourceLocation("miningdim", "power_generator_buffer");
+    private static final ResourceLocation FUEL_BAR = new ResourceLocation("miningdim", "power_generator_fuel");
+    private static final ResourceLocation TEMPERATURE_BAR =
+            new ResourceLocation("miningdim", "power_generator_temperature");
     private static final String DATA_KEY = "miningdim_power_generator";
     private static final String STATE = "state";
     private static final String BUFFER = "buffer";
@@ -63,25 +68,39 @@ public final class GeneratorJadeProvider implements IBlockComponentProvider, ISe
             return;
         }
         CompoundTag data = serverData.getCompound(DATA_KEY);
-        tooltip.add(Component.translatable("jade.miningdim.power.generator.state",
-                PowerJadeText.enumValue("jade.miningdim.power.generator.state_value", data.getString(STATE))));
-        tooltip.add(Component.translatable("jade.miningdim.power.generator.buffer",
-                data.getInt(BUFFER), data.getInt(BUFFER_CAPACITY)));
+        String state = data.getString(STATE);
+        String fuse = data.getString(FUSE);
+        PowerJadeText.addPair(tooltip,
+                PowerJadeText.metric("jade.miningdim.power.generator.state",
+                        PowerJadeText.statusValue("jade.miningdim.power.generator.state_value", state)),
+                PowerJadeText.metric("jade.miningdim.power.generator.fuse",
+                        PowerJadeText.statusValue("jade.miningdim.power.generator.fuse_value", fuse)));
+        PowerJadeText.addProgress(tooltip,
+                PowerJadeText.metric("jade.miningdim.power.generator.buffer",
+                        data.getInt(BUFFER), data.getInt(BUFFER_CAPACITY)),
+                data.getInt(BUFFER), data.getInt(BUFFER_CAPACITY),
+                PowerJadeText.ENERGY_BRIGHT, PowerJadeText.ENERGY_DARK, BUFFER_BAR);
         if (data.getBoolean(FUEL_PRESENT)) {
             int maxDamage = data.getInt(FUEL_MAX_DAMAGE);
-            tooltip.add(Component.translatable("jade.miningdim.power.generator.fuel",
-                    maxDamage - data.getInt(FUEL_DAMAGE), maxDamage));
+            int remaining = maxDamage - data.getInt(FUEL_DAMAGE);
+            PowerJadeText.addProgress(tooltip,
+                    PowerJadeText.metric("jade.miningdim.power.generator.fuel", remaining, maxDamage),
+                    remaining, maxDamage, PowerJadeText.FUEL_BRIGHT, PowerJadeText.FUEL_DARK, FUEL_BAR);
         } else {
-            tooltip.add(Component.translatable("jade.miningdim.power.generator.fuel_empty"));
+            tooltip.add(PowerJadeText.colored(
+                    Component.translatable("jade.miningdim.power.generator.fuel_empty"), ChatFormatting.GOLD));
         }
-        tooltip.add(Component.translatable("jade.miningdim.power.generator.fuse",
-                PowerJadeText.enumValue("jade.miningdim.power.generator.fuse_value", data.getString(FUSE))));
-        tooltip.add(Component.translatable("jade.miningdim.power.generator.temperature",
-                PowerJadeText.oneDecimal(data.getDouble(TEMPERATURE)),
-                PowerJadeText.oneDecimal(data.getDouble(MELTDOWN_TEMPERATURE))));
-        tooltip.add(Component.translatable("jade.miningdim.power.generator.network_fault",
-                PowerJadeText.enumValue("jade.miningdim.power.generator.network_fault_value",
-                        data.getString(NETWORK_FAULT)),
-                PowerJadeText.enumValue("jade.miningdim.power.voltage", data.getString(NETWORK_LIMIT))));
+        double temperature = data.getDouble(TEMPERATURE);
+        double meltdownTemperature = data.getDouble(MELTDOWN_TEMPERATURE);
+        PowerJadeText.addTemperatureProgress(tooltip,
+                PowerJadeText.metric("jade.miningdim.power.generator.temperature",
+                        PowerJadeText.oneDecimal(temperature), PowerJadeText.oneDecimal(meltdownTemperature)),
+                temperature, meltdownTemperature, TEMPERATURE_BAR);
+        String networkFault = data.getString(NETWORK_FAULT);
+        tooltip.add(PowerJadeText.metric("jade.miningdim.power.generator.network_fault",
+                PowerJadeText.statusValue("jade.miningdim.power.generator.network_fault_value", networkFault),
+                PowerJadeText.colored(
+                        PowerJadeText.enumValue("jade.miningdim.power.voltage", data.getString(NETWORK_LIMIT)),
+                        ChatFormatting.AQUA)));
     }
 }

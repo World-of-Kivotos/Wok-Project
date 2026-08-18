@@ -2,8 +2,8 @@ package com.miningdim.power.compat.jade;
 
 import com.miningdim.power.cable.EnergyCableBlockEntity;
 import com.miningdim.power.grid.EnergyNetworkSnapshot;
+import net.minecraft.ChatFormatting;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import snownee.jade.api.BlockAccessor;
 import snownee.jade.api.IBlockComponentProvider;
@@ -17,6 +17,8 @@ import java.util.stream.Collectors;
 public final class CableJadeProvider implements IBlockComponentProvider, IServerDataProvider<BlockAccessor> {
 
     private static final ResourceLocation UID = new ResourceLocation("miningdim", "power_cable");
+    private static final ResourceLocation BUFFER_BAR = new ResourceLocation("miningdim", "power_cable_buffer");
+    private static final ResourceLocation LOAD_BAR = new ResourceLocation("miningdim", "power_cable_load");
     private static final String DATA_KEY = "miningdim_power_cable";
     private static final String TEMPERATURE = "temperature";
     private static final String RATED_CAPACITY = "ratedCapacity";
@@ -75,23 +77,34 @@ public final class CableJadeProvider implements IBlockComponentProvider, IServer
             return;
         }
         CompoundTag data = serverData.getCompound(DATA_KEY);
-        tooltip.add(Component.translatable("jade.miningdim.power.cable.temperature",
-                PowerJadeText.oneDecimal(data.getDouble(TEMPERATURE))));
-        tooltip.add(Component.translatable("jade.miningdim.power.cable.capacity",
-                data.getInt(EFFECTIVE_CAPACITY), data.getInt(RATED_CAPACITY)));
-        tooltip.add(Component.translatable("jade.miningdim.power.cable.buffer",
-                data.getInt(STORED), data.getInt(BUFFER_CAPACITY)));
-        tooltip.add(Component.translatable("jade.miningdim.power.cable.load",
-                data.getInt(LAST_LOAD), PowerJadeText.oneDecimal(data.getDouble(LOAD_RATIO) * 100.0D)));
-        tooltip.add(Component.translatable("jade.miningdim.power.cable.buffer_overflow_loss",
-                data.getInt(LAST_BUFFER_OVERFLOW_LOSS), data.getLong(TOTAL_BUFFER_OVERFLOW_LOSS)));
-        tooltip.add(Component.translatable("jade.miningdim.power.cable.distance_loss",
-                data.getInt(LAST_DISTANCE_LOSS), data.getLong(TOTAL_DISTANCE_LOSS)));
-        tooltip.add(Component.translatable("jade.miningdim.power.cable.voltage",
-                PowerJadeText.enumValue("jade.miningdim.power.voltage", data.getString(VOLTAGE))));
-        tooltip.add(Component.translatable("jade.miningdim.power.cable.faults",
+        String voltage = data.getString(VOLTAGE);
+        String cooling = data.getString(COOLING);
+        PowerJadeText.addPair(tooltip,
+                PowerJadeText.metric("jade.miningdim.power.cable.voltage",
+                        PowerJadeText.colored(PowerJadeText.enumValue("jade.miningdim.power.voltage", voltage),
+                                ChatFormatting.AQUA)),
+                PowerJadeText.metric("jade.miningdim.power.cable.cooling",
+                        PowerJadeText.statusValue("jade.miningdim.power.cooling", cooling)));
+        PowerJadeText.addPair(tooltip,
+                PowerJadeText.metric("jade.miningdim.power.cable.temperature",
+                        PowerJadeText.oneDecimal(data.getDouble(TEMPERATURE))),
+                PowerJadeText.metric("jade.miningdim.power.cable.capacity",
+                        data.getInt(EFFECTIVE_CAPACITY), data.getInt(RATED_CAPACITY)));
+        PowerJadeText.addProgress(tooltip,
+                PowerJadeText.metric("jade.miningdim.power.cable.buffer",
+                        data.getInt(STORED), data.getInt(BUFFER_CAPACITY)),
+                data.getInt(STORED), data.getInt(BUFFER_CAPACITY),
+                PowerJadeText.ENERGY_BRIGHT, PowerJadeText.ENERGY_DARK, BUFFER_BAR);
+        PowerJadeText.addProgress(tooltip,
+                PowerJadeText.metric("jade.miningdim.power.cable.load",
+                        data.getInt(LAST_LOAD), PowerJadeText.oneDecimal(data.getDouble(LOAD_RATIO) * 100.0D)),
+                data.getDouble(LOAD_RATIO), 1.0D,
+                PowerJadeText.PROCESS_BRIGHT, PowerJadeText.PROCESS_DARK, LOAD_BAR);
+        tooltip.add(PowerJadeText.metric("jade.miningdim.power.cable.faults",
                 PowerJadeText.enumList("jade.miningdim.power.network_fault", data.getString(FAULTS))));
-        tooltip.add(Component.translatable("jade.miningdim.power.cable.cooling",
-                PowerJadeText.enumValue("jade.miningdim.power.cooling", data.getString(COOLING))));
+        tooltip.add(PowerJadeText.metric("jade.miningdim.power.cable.buffer_overflow_loss",
+                data.getInt(LAST_BUFFER_OVERFLOW_LOSS), data.getLong(TOTAL_BUFFER_OVERFLOW_LOSS)));
+        tooltip.add(PowerJadeText.metric("jade.miningdim.power.cable.distance_loss",
+                data.getInt(LAST_DISTANCE_LOSS), data.getLong(TOTAL_DISTANCE_LOSS)));
     }
 }

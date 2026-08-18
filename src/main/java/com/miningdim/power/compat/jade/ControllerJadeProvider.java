@@ -1,6 +1,7 @@
 package com.miningdim.power.compat.jade;
 
 import com.miningdim.power.endgame.LowTemperatureControllerBlockEntity;
+import net.minecraft.ChatFormatting;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -46,8 +47,11 @@ public final class ControllerJadeProvider implements IBlockComponentProvider, IS
         Component state = data.getBoolean(ACTIVE)
                 ? Component.translatable("screen.miningdim.low_temperature_controller.active")
                 : Component.translatable("screen.miningdim.low_temperature_controller.inactive");
-        tooltip.add(Component.translatable("jade.miningdim.power.controller.state", state));
-        tooltip.add(Component.translatable("jade.miningdim.power.controller.remaining", data.getInt(REMAINING)));
-        tooltip.add(Component.translatable("jade.miningdim.power.controller.coverage", data.getInt(COVERAGE)));
+        ChatFormatting stateColor = data.getBoolean(ACTIVE) ? ChatFormatting.GREEN : ChatFormatting.GRAY;
+        PowerJadeText.addPair(tooltip,
+                PowerJadeText.metric("jade.miningdim.power.controller.state",
+                        PowerJadeText.colored(state, stateColor)),
+                PowerJadeText.metric("jade.miningdim.power.controller.coverage", data.getInt(COVERAGE)));
+        tooltip.add(PowerJadeText.metric("jade.miningdim.power.controller.remaining", data.getInt(REMAINING)));
     }
 }

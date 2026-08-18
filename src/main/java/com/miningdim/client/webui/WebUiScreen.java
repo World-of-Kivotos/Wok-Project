@@ -132,7 +132,12 @@ public final class WebUiScreen extends Screen {
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         // 面板外压暗: 让它读起来是一层浮在游戏之上的模态, 而不是一块贴在画面中间的方形贴图。
         graphics.fill(0, 0, this.width, this.height, BACKDROP_COLOR);
-        if (browser != null && browser.isReady()) {
+        WebBrowser.LoadFailure failure = browser == null ? null : browser.loadFailure();
+        if (failure != null) {
+            // 加载失败时不画浏览器贴图: 浏览器是透明底的, CEF 那张内部错误页在这层近黑背板上几乎看不见,
+            // 玩家只会看到"黑屏"而拿不到任何线索。改由我们自己把错误码与地址写在面板中央。
+            renderLoadFailure(graphics, failure);
+        } else if (browser != null && browser.isReady()) {
             int textureId = browser.getTextureId();
             if (textureId > 0) {
                 // 后两个参数是宽高, 不是右下角坐标 (见 WebBrowser.render 的顶点拼装)。
@@ -148,6 +153,27 @@ public final class WebUiScreen extends Screen {
                     this.width / 2, this.height / 2, 0xFFFF00);
         }
         super.render(graphics, mouseX, mouseY, partialTick);
+    }
+
+    /**
+     * 画出加载失败详情。玩家看到"黑屏"时唯一能自救的信息是<b>它到底在连哪个地址</b> —— 最常见的成因是
+     * {@code webui.url} 还停在默认或写错, 所以地址必须原样显示出来, 不能只报一个错误码。
+     */
+    private void renderLoadFailure(GuiGraphics graphics, WebBrowser.LoadFailure failure) {
+        int cx = this.width / 2;
+        int y = this.height / 2 - this.font.lineHeight * 2;
+        graphics.drawCenteredString(this.font,
+                Component.translatable("gui.miningdim.webui.load_failed"), cx, y, 0xFFE0525C);
+        y += this.font.lineHeight * 2;
+        graphics.drawCenteredString(this.font,
+                Component.translatable("gui.miningdim.webui.load_failed.code",
+                        failure.code(), failure.text()),
+                cx, y, 0xFFD6DCE7);
+        y += this.font.lineHeight;
+        graphics.drawCenteredString(this.font, failure.url(), cx, y, 0xFF8FB4D9);
+        y += this.font.lineHeight * 2;
+        graphics.drawCenteredString(this.font,
+                Component.translatable("gui.miningdim.webui.load_failed.hint"), cx, y, 0xFF9AA3B2);
     }
 
     // ---- 坐标换算: GUI 坐标系 -> 面板内的帧缓冲像素 ----

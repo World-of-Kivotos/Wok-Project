@@ -148,7 +148,9 @@ public final class WebUiClient {
             browser = b;
             BRIDGE.setBrowser(b);
             loadedUrl = pageUrl;
-        } else if (forceReload || !pageUrl.equals(loadedUrl)) {
+            // 上次加载失败过就借这次开面板重来一遍: 浏览器是复用的, 地址没变时本不会重新导航, 于是那张
+            // 失败页会一直挂着 —— 玩家反复开关面板都还是同一片"黑屏", 网络恢复了也自己好不了。
+        } else if (forceReload || !pageUrl.equals(loadedUrl) || b.loadFailure() != null) {
             b.loadURL(pageUrl);
             loadedUrl = pageUrl;
         }

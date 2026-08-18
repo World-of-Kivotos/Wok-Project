@@ -5,6 +5,11 @@ import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.cef.browser.CefBrowser;
+import org.cef.browser.CefFrame;
+import org.cef.handler.CefLoadHandler;
+import org.cef.handler.CefLoadHandlerAdapter;
+
 import com.cinemamod.mcef.MCEF;
 import com.cinemamod.mcef.MCEFBrowser;
 import com.mojang.blaze3d.platform.GlStateManager;
@@ -44,6 +49,27 @@ public final class WebBrowser {
     private int width;
     private int height;
 
+    /** 主框架加载失败的快照; null 表示当前这次导航没有失败。CEF 线程写, 渲染线程读, 故 volatile。 */
+    @Nullable
+    private volatile LoadFailure loadFailure;
+
+    /**
+     * 当前持有底层浏览器的宿主实例。
+     *
+     * 加载回调只能挂在 {@link MCEF#getClient()} 这个<b>全局</b> client 上, 且 MCEFClient 只有 addLoadHandler
+     * 没有 remove —— 每建一次浏览器就挂一个 handler 会越挂越多。因此整个进程只注册一次, 事件到达后再按
+     * CEF 侧 browser 的对象身份回找宿主, 避免旧实例收到新浏览器的事件。
+     */
+    @Nullable
+    private static volatile WebBrowser active;
+
+    private static final Object HANDLER_LOCK = new Object();
+    private static boolean handlerRegistered;
+
+    /** 主框架加载失败的快照: CEF 错误码枚举名、CEF 给的错误文本、失败的那个 URL。 */
+    public record LoadFailure(String code, String text, String url) {
+    }
+
     public WebBrowser(boolean transparent) {
         this.transparent = transparent;
     }
@@ -61,6 +87,9 @@ public final class WebBrowser {
         this.height = height;
         MCEFBrowser created = MCEF.createBrowser(url, transparent, width, height);
         this.browser = created;
+        this.loadFailure = null;
+        active = this;
+        registerLoadHandlerOnce();
         LOGGER.info("WebUI 浏览器已创建: {} ({}x{})", url, width, height);
         return true;
     }
@@ -68,8 +97,53 @@ public final class WebBrowser {
     public void loadURL(String url) {
         MCEFBrowser b = browser;
         if (b != null) {
+            // 只在宿主主动导航时清除上一次的失败: CEF 加载失败后会自己再导航去内部错误页, 若跟着
+            // onLoadStart 清除, 刚记下的失败会被那次内部导航立刻抹掉。
+            loadFailure = null;
             b.loadURL(url);
         }
+    }
+
+    /**
+     * 注册全局加载回调 (进程内仅一次)。
+     *
+     * 只认主框架: 页面里某张图片或某个 XHR 失败不该让整个面板判定为加载失败。
+     * 只忽略 ERR_ABORTED: 那是导航被下一次导航取代时的正常事件, 不是故障。
+     */
+    private static void registerLoadHandlerOnce() {
+        synchronized (HANDLER_LOCK) {
+            if (handlerRegistered) {
+                return;
+            }
+            MCEF.getClient().addLoadHandler(new CefLoadHandlerAdapter() {
+                @Override
+                public void onLoadError(CefBrowser cefBrowser, CefFrame frame,
+                        CefLoadHandler.ErrorCode errorCode, String errorText, String failedUrl) {
+                    WebBrowser host = hostOf(cefBrowser, frame);
+                    if (host == null || errorCode == CefLoadHandler.ErrorCode.ERR_ABORTED) {
+                        return;
+                    }
+                    host.loadFailure = new LoadFailure(errorCode.name(), errorText, failedUrl);
+                    LOGGER.warn("WebUI 页面加载失败: {} ({}) <- {}", errorCode, errorText, failedUrl);
+                }
+            });
+            handlerRegistered = true;
+        }
+    }
+
+    @Nullable
+    private static WebBrowser hostOf(CefBrowser cefBrowser, @Nullable CefFrame frame) {
+        if (frame == null || !frame.isMain()) {
+            return null;
+        }
+        WebBrowser host = active;
+        return host != null && host.browser == cefBrowser ? host : null;
+    }
+
+    /** 当前主框架加载失败快照; null 表示没有失败。 */
+    @Nullable
+    public LoadFailure loadFailure() {
+        return loadFailure;
     }
 
     public void executeJavaScript(String script) {
@@ -228,6 +302,11 @@ public final class WebBrowser {
             return;
         }
         browser = null;
+        loadFailure = null;
+        // 全局 handler 靠 active 回找宿主, 实例关掉后必须撤下, 否则它会拿着一个已失效的宿主继续比对。
+        if (active == this) {
+            active = null;
+        }
         b.close();
         LOGGER.info("WebUI 浏览器已关闭");
     }

@@ -1085,5 +1085,8 @@
   "jade.miningdim.power.air_separator.mode": "Mode: %1$s",
   "jade.miningdim.power.controller.state": "State: %1$s",
   "jade.miningdim.power.controller.remaining": "Cooling time: %1$s ticks",
-  "jade.miningdim.power.controller.coverage": "NbTi coverage: %1$s segments"
+  "jade.miningdim.power.controller.coverage": "NbTi coverage: %1$s segments",
+  "gui.miningdim.webui.load_failed": "Web UI failed to load",
+  "gui.miningdim.webui.load_failed.code": "%s (%s)",
+  "gui.miningdim.webui.load_failed.hint": "Check webui.url in config/miningdim-client.toml"
 }

@@ -4,14 +4,21 @@ import com.miningdim.core.MiningConstants;
 import com.miningdim.power.cable.ConductorMaterial;
 import com.miningdim.power.cable.EnergyCableBlock;
 import com.miningdim.power.cable.EnergyCableBlockEntity;
+import com.miningdim.power.generator.GeneratorBlockEntity;
+import com.miningdim.power.generator.GeneratorFuelCoreItem;
+import com.miningdim.power.generator.GeneratorMenu;
+import com.miningdim.power.generator.GeneratorPortBlockEntity;
+import com.miningdim.power.generator.GeneratorSpec;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.PushReaction;
 import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.common.extensions.IForgeMenuType;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
@@ -27,13 +34,15 @@ public final class PowerRegistry {
             DeferredRegister.create(ForgeRegistries.BLOCKS, MiningConstants.MODID);
     public static final DeferredRegister<Item> ITEMS =
             DeferredRegister.create(ForgeRegistries.ITEMS, MiningConstants.MODID);
+    public static final DeferredRegister<MenuType<?>> MENUS =
+            DeferredRegister.create(ForgeRegistries.MENU_TYPES, MiningConstants.MODID);
 
     public static final RegistryObject<GeneratorMultiblockBlock> INDUSTRIAL_GENERATOR =
-            registerGenerator("industrial_generator");
+            registerGenerator("industrial_generator", GeneratorSpec.LOW);
     public static final RegistryObject<GeneratorMultiblockBlock> MODERN_GENERATOR =
-            registerGenerator("modern_generator");
+            registerGenerator("modern_generator", GeneratorSpec.MEDIUM);
     public static final RegistryObject<GeneratorMultiblockBlock> FUTURE_ENERGY_GENERATOR =
-            registerGenerator("future_energy_generator");
+            registerGenerator("future_energy_generator", GeneratorSpec.HIGH);
 
     public static final RegistryObject<Item> INDUSTRIAL_GENERATOR_ITEM =
             registerBlockItem("industrial_generator", INDUSTRIAL_GENERATOR);
@@ -41,6 +50,15 @@ public final class PowerRegistry {
             registerBlockItem("modern_generator", MODERN_GENERATOR);
     public static final RegistryObject<Item> FUTURE_ENERGY_GENERATOR_ITEM =
             registerBlockItem("future_energy_generator", FUTURE_ENERGY_GENERATOR);
+
+    public static final RegistryObject<Item> INDUSTRIAL_FUEL_CORE = ITEMS.register(
+            "industrial_fuel_core", () -> new GeneratorFuelCoreItem(GeneratorSpec.LOW));
+    public static final RegistryObject<Item> MODERN_FUEL_CORE = ITEMS.register(
+            "modern_fuel_core", () -> new GeneratorFuelCoreItem(GeneratorSpec.MEDIUM));
+    public static final RegistryObject<Item> FUTURE_FUEL_CORE = ITEMS.register(
+            "future_fuel_core", () -> new GeneratorFuelCoreItem(GeneratorSpec.HIGH));
+    public static final RegistryObject<Item> NICHROME_FUSE = ITEMS.register(
+            "nichrome_fuse", () -> new Item(new Item.Properties().stacksTo(1)));
 
     // ---- 有线 FE 线缆 (导体材料数据驱动, 逻辑在 com.miningdim.power.cable/grid) ----
 
@@ -62,6 +80,17 @@ public final class PowerRegistry {
     public static final RegistryObject<BlockEntityType<EnergyCableBlockEntity>> ENERGY_CABLE_BE =
             BLOCK_ENTITIES.register("energy_cable",
                     () -> BlockEntityType.Builder.of(EnergyCableBlockEntity::new, cableBlocks()).build(null));
+
+    public static final RegistryObject<BlockEntityType<GeneratorBlockEntity>> GENERATOR_CONTROLLER_BE =
+            BLOCK_ENTITIES.register("generator_controller",
+                    () -> BlockEntityType.Builder.of(GeneratorBlockEntity::new, generatorBlocks()).build(null));
+    public static final RegistryObject<BlockEntityType<GeneratorPortBlockEntity>> GENERATOR_PORT_BE =
+            BLOCK_ENTITIES.register("generator_port",
+                    () -> BlockEntityType.Builder.of(GeneratorPortBlockEntity::new, generatorBlocks()).build(null));
+
+    public static final RegistryObject<MenuType<GeneratorMenu>> GENERATOR_MENU =
+            MENUS.register("generator", () -> IForgeMenuType.create(
+                    (windowId, inventory, data) -> new GeneratorMenu(windowId, inventory, data.readBlockPos())));
 
     private PowerRegistry() {
     }
@@ -96,8 +125,13 @@ public final class PowerRegistry {
         return CABLES.values().stream().map(RegistryObject::get).toArray(Block[]::new);
     }
 
-    private static RegistryObject<GeneratorMultiblockBlock> registerGenerator(String name) {
+    private static Block[] generatorBlocks() {
+        return new Block[]{INDUSTRIAL_GENERATOR.get(), MODERN_GENERATOR.get(), FUTURE_ENERGY_GENERATOR.get()};
+    }
+
+    private static RegistryObject<GeneratorMultiblockBlock> registerGenerator(String name, GeneratorSpec spec) {
         return BLOCKS.register(name, () -> new GeneratorMultiblockBlock(
+                spec,
                 BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK)
                         .noOcclusion()
                         .pushReaction(PushReaction.BLOCK)));
@@ -112,5 +146,6 @@ public final class PowerRegistry {
         BLOCKS.register(modBus);
         ITEMS.register(modBus);
         BLOCK_ENTITIES.register(modBus);
+        MENUS.register(modBus);
     }
 }

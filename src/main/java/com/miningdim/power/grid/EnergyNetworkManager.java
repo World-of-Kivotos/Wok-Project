@@ -1,12 +1,15 @@
 package com.miningdim.power.grid;
 
+import com.miningdim.power.GeneratorMultiblockBlock;
 import com.miningdim.power.cable.CableProfile;
+import com.miningdim.power.generator.GeneratorBlockEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.energy.IEnergyStorage;
 import net.minecraftforge.event.TickEvent;
@@ -553,7 +556,15 @@ public final class EnergyNetworkManager {
         }
         BlockEntity be = level.getBlockEntity(endpoint.pos());
         if (be == null) {
-            return null;
+            BlockState state = level.getBlockState(endpoint.pos());
+            if (state.getBlock() instanceof GeneratorMultiblockBlock
+                    && state.getValue(GeneratorMultiblockBlock.PART) == GeneratorMultiblockBlock.PORT_PART) {
+                GeneratorBlockEntity.ensureLegacyEntities(level, endpoint.pos());
+                be = level.getBlockEntity(endpoint.pos());
+            }
+            if (be == null) {
+                return null;
+            }
         }
         return be.getCapability(ForgeCapabilities.ENERGY, endpoint.direction()).resolve().orElse(null);
     }

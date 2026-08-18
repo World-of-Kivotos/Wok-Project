@@ -27,6 +27,10 @@ public final class PowerCreativeTab {
                         output.accept(PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get());
                         output.accept(PowerRegistry.MODERN_GENERATOR_ITEM.get());
                         output.accept(PowerRegistry.FUTURE_ENERGY_GENERATOR_ITEM.get());
+                        output.accept(PowerRegistry.INDUSTRIAL_FUEL_CORE.get());
+                        output.accept(PowerRegistry.MODERN_FUEL_CORE.get());
+                        output.accept(PowerRegistry.FUTURE_FUEL_CORE.get());
+                        output.accept(PowerRegistry.NICHROME_FUSE.get());
                         for (RegistryObject<Item> cable : PowerRegistry.CABLE_ITEMS.values()) {
                             output.accept(cable.get());
                         }

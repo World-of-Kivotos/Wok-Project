@@ -35,6 +35,8 @@ public final class PowerDataGeneration {
                 new PowerCableBlockStateProvider(output, existingFiles));
         generator.addProvider(event.includeClient(),
                 new PowerCableItemModelProvider(output, existingFiles));
+        generator.addProvider(event.includeClient(),
+                new PowerGeneratorItemModelProvider(output, existingFiles));
 
         generator.addProvider(event.includeServer(),
                 new LootTableProvider(output, Set.of(), List.of(
@@ -56,6 +58,7 @@ public final class PowerDataGeneration {
         generator.addProvider(event.includeServer(), new PowerMineralRecipeProvider(output));
         generator.addProvider(event.includeServer(), new PowerRubberRecipeProvider(output));
         generator.addProvider(event.includeServer(), new PowerCableRecipeProvider(output));
+        generator.addProvider(event.includeServer(), new PowerGeneratorRecipeProvider(output));
         generator.addProvider(event.includeServer(), new PowerMineralWorldgenProvider(output));
         generator.addProvider(event.includeServer(), new PowerRubberWorldgenProvider(output));
     }

@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "front": "miningdim:block/air_separation_unit_front_on",
+    "side": "miningdim:block/air_separation_unit_side",
+    "top": "miningdim:block/air_separation_unit_top"
+  }
+}

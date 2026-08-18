@@ -37,12 +37,17 @@ public final class PowerDataGeneration {
                 new PowerCableItemModelProvider(output, existingFiles));
         generator.addProvider(event.includeClient(),
                 new PowerGeneratorItemModelProvider(output, existingFiles));
+        generator.addProvider(event.includeClient(),
+                new PowerMachineBlockStateProvider(output, existingFiles));
+        generator.addProvider(event.includeClient(),
+                new PowerMachineItemModelProvider(output, existingFiles));
 
         generator.addProvider(event.includeServer(),
                 new LootTableProvider(output, Set.of(), List.of(
                         new LootTableProvider.SubProviderEntry(PowerMineralLootProvider::new, LootContextParamSets.BLOCK),
                         new LootTableProvider.SubProviderEntry(PowerRubberLootProvider::new, LootContextParamSets.BLOCK),
-                        new LootTableProvider.SubProviderEntry(PowerCableLootProvider::new, LootContextParamSets.BLOCK))));
+                        new LootTableProvider.SubProviderEntry(PowerCableLootProvider::new, LootContextParamSets.BLOCK),
+                        new LootTableProvider.SubProviderEntry(PowerMachineLootProvider::new, LootContextParamSets.BLOCK))));
         PowerMineralTagsProvider blockTags = generator.addProvider(event.includeServer(),
                 new PowerMineralTagsProvider(output, event.getLookupProvider(), existingFiles));
         generator.addProvider(event.includeServer(), new PowerMineralItemTagsProvider(output, event.getLookupProvider(),
@@ -59,6 +64,7 @@ public final class PowerDataGeneration {
         generator.addProvider(event.includeServer(), new PowerRubberRecipeProvider(output));
         generator.addProvider(event.includeServer(), new PowerCableRecipeProvider(output));
         generator.addProvider(event.includeServer(), new PowerGeneratorRecipeProvider(output));
+        generator.addProvider(event.includeServer(), new PowerMachineRecipeProvider(output));
         generator.addProvider(event.includeServer(), new PowerMineralWorldgenProvider(output));
         generator.addProvider(event.includeServer(), new PowerRubberWorldgenProvider(output));
     }

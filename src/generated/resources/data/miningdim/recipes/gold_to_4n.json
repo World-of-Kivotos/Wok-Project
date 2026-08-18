@@ -1,0 +1,16 @@
+{
+  "type": "miningdim:metallurgic_purifying",
+  "base": {
+    "item": "minecraft:gold_ingot"
+  },
+  "infusion": {
+    "type": "miningdim:argon",
+    "ingredient": {
+      "item": "miningdim:argon_canister"
+    }
+  },
+  "profile": "gold_to_4n",
+  "result": {
+    "item": "miningdim:gold_4n_ingot"
+  }
+}

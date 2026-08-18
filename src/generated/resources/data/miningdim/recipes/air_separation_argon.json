@@ -1,0 +1,7 @@
+{
+  "type": "miningdim:air_separating",
+  "mode": "argon",
+  "result": {
+    "item": "miningdim:argon_canister"
+  }
+}

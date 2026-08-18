@@ -1,0 +1,16 @@
+{
+  "type": "miningdim:metallurgic_purifying",
+  "base": {
+    "item": "miningdim:deoxidized_copper_ingot"
+  },
+  "infusion": {
+    "type": "miningdim:borax",
+    "ingredient": {
+      "item": "miningdim:borax"
+    }
+  },
+  "profile": "deoxidized_to_ofc",
+  "result": {
+    "item": "miningdim:ofc_copper_ingot"
+  }
+}

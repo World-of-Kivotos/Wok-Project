@@ -94,6 +94,7 @@ public final class PowerGeneratorConfig {
                 "centerDamageFraction", 0.60D, 0.0001D, 1.0D);
         builder.pop();
 
+        PowerMachineConfig.define(builder);
         SPEC = builder.build();
     }
 

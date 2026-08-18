@@ -1,0 +1,34 @@
+{
+  "variants": {
+    "facing=east,lit=false": {
+      "model": "miningdim:block/metallurgic_purifier",
+      "y": 90
+    },
+    "facing=east,lit=true": {
+      "model": "miningdim:block/metallurgic_purifier_on",
+      "y": 90
+    },
+    "facing=north,lit=false": {
+      "model": "miningdim:block/metallurgic_purifier"
+    },
+    "facing=north,lit=true": {
+      "model": "miningdim:block/metallurgic_purifier_on"
+    },
+    "facing=south,lit=false": {
+      "model": "miningdim:block/metallurgic_purifier",
+      "y": 180
+    },
+    "facing=south,lit=true": {
+      "model": "miningdim:block/metallurgic_purifier_on",
+      "y": 180
+    },
+    "facing=west,lit=false": {
+      "model": "miningdim:block/metallurgic_purifier",
+      "y": 270
+    },
+    "facing=west,lit=true": {
+      "model": "miningdim:block/metallurgic_purifier_on",
+      "y": 270
+    }
+  }
+}

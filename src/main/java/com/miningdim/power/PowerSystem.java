@@ -2,6 +2,7 @@ package com.miningdim.power;
 
 import com.miningdim.core.Subsystem;
 import com.miningdim.power.client.PowerGeneratorClient;
+import com.miningdim.power.client.PowerMachineClient;
 import com.miningdim.power.cable.PowerCableColors;
 import com.miningdim.power.data.PowerDataGeneration;
 import com.miningdim.power.grid.EnergyNetworkManager;
@@ -21,6 +22,7 @@ public final class PowerSystem implements Subsystem {
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
         PowerRegistry.register(modBus);
+        PowerMachineRegistry.register(modBus);
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER,
                 PowerGeneratorConfig.SPEC, "miningdim-power.toml");
         PowerMineralRegistry.register(modBus);
@@ -33,7 +35,10 @@ public final class PowerSystem implements Subsystem {
         });
         modBus.addListener((FMLClientSetupEvent event) ->
                 event.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
-                        () -> PowerGeneratorClient::registerScreens)));
+                        () -> () -> {
+                            PowerGeneratorClient.registerScreens();
+                            PowerMachineClient.registerScreens();
+                        })));
         EnergyNetworkManager.register(forgeBus);
     }
 }

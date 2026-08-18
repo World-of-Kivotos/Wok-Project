@@ -1,0 +1,16 @@
+{
+  "type": "miningdim:metallurgic_purifying",
+  "base": {
+    "item": "miningdim:ofc_copper_ingot"
+  },
+  "infusion": {
+    "type": "miningdim:argon",
+    "ingredient": {
+      "item": "miningdim:argon_canister"
+    }
+  },
+  "profile": "ofc_to_ofe",
+  "result": {
+    "item": "miningdim:ofe_copper_ingot"
+  }
+}

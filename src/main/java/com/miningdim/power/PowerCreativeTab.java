@@ -31,6 +31,15 @@ public final class PowerCreativeTab {
                         output.accept(PowerRegistry.MODERN_FUEL_CORE.get());
                         output.accept(PowerRegistry.FUTURE_FUEL_CORE.get());
                         output.accept(PowerRegistry.NICHROME_FUSE.get());
+                        output.accept(PowerMachineRegistry.PURIFIER_ITEM.get());
+                        output.accept(PowerMachineRegistry.AIR_SEPARATOR_ITEM.get());
+                        output.accept(PowerMachineRegistry.DEOXIDIZED_COPPER_INGOT.get());
+                        output.accept(PowerMachineRegistry.PHOSPHORUS_DEOXIDIZED_COPPER_INGOT.get());
+                        output.accept(PowerMachineRegistry.OFC_COPPER_INGOT.get());
+                        output.accept(PowerMachineRegistry.OFE_COPPER_INGOT.get());
+                        output.accept(PowerMachineRegistry.GOLD_4N_INGOT.get());
+                        output.accept(PowerMachineRegistry.ARGON_CANISTER.get());
+                        output.accept(PowerMachineRegistry.LIQUID_NITROGEN_CANISTER.get());
                         for (RegistryObject<Item> cable : PowerRegistry.CABLE_ITEMS.values()) {
                             output.accept(cable.get());
                         }

@@ -1,0 +1,16 @@
+{
+  "type": "miningdim:metallurgic_purifying",
+  "base": {
+    "item": "miningdim:deoxidized_copper_ingot"
+  },
+  "infusion": {
+    "type": "miningdim:phosphorus",
+    "ingredient": {
+      "item": "minecraft:bone_meal"
+    }
+  },
+  "profile": "deoxidized_to_phosphorus",
+  "result": {
+    "item": "miningdim:phosphorus_deoxidized_copper_ingot"
+  }
+}

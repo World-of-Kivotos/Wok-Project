@@ -1,0 +1,7 @@
+{
+  "type": "miningdim:air_separating",
+  "mode": "liquid_nitrogen",
+  "result": {
+    "item": "miningdim:liquid_nitrogen_canister"
+  }
+}

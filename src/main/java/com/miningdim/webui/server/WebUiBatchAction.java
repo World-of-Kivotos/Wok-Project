@@ -1,6 +1,7 @@
 package com.miningdim.webui.server;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -38,7 +39,18 @@ final class WebUiBatchAction {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/webui");
 
-    private static final Gson GSON = new Gson();
+    /**
+     * 必须 serializeNulls。
+     *
+     * 本类会把各 action 的回执<b>重新解析再重新序列化</b>一遍 (见 invoke 里的 JsonParser.parseString), 而默认
+     * Gson 的 JsonWriter 遇到 null 值的属性会把整个键丢掉。于是像 MarriageWebUiActions 那样特意用
+     * serializeNulls 发出的 "spouseUuid": null, 经本通道转一手就凭空消失, 前端拿到的是 undefined ——
+     * 而前端的守卫写作 spouseUuid === null, undefined 过不了这道判空, 直接落进"有配偶"分支去 .slice 一个
+     * undefined, 整棵 React 树当场崩掉, 面板全黑 (2026-08-19 真机)。
+     *
+     * 转发通道无权改写被转发内容的语义: 内层 action 发不发 null 是它自己的契约, 本类只负责原样带过去。
+     */
+    private static final Gson GSON = new GsonBuilder().serializeNulls().create();
 
     static final String ACTION = "system.batch";
 

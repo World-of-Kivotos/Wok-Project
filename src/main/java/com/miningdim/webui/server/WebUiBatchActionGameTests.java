@@ -184,6 +184,32 @@ public final class WebUiBatchActionGameTests {
      * 异常 (已实测), 于是没有任何外部输入能驱动到那个兜底分支 —— 而它正是这条保障的唯一实现。
      * 兜底信封刻意<b>没有</b> errorCode (与派发器的 errorJson 同形), 前端据此区分"业务拒绝"与"服务端炸了"。
      */
+    /**
+     * 转发不得吞掉内层回执里的 null 键。
+     *
+     * 真机故障 (2026-08-19): 婚姻回执特意用 serializeNulls 发 "spouseUuid": null 表示未婚, 经本通道用默认
+     * Gson 转发后该键整条消失; 前端守卫是 spouseUuid === null, undefined 过不了, 于是去 .slice 一个
+     * undefined, 整棵 React 树崩掉, 面板全黑。把 GSON 换回 new Gson() 本例必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void batchForwardingKeepsNullValuedKeys(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        String encoded = WebUiBatchAction.invoke(player, "player.profile", new JsonObject(),
+                (sender, payload) -> "{\"spouseUuid\":null,\"spouseName\":null,\"marriedDays\":0}");
+
+        JsonObject entry = JsonParser.parseString(encoded).getAsJsonObject();
+        JsonObject result = entry.getAsJsonObject("result");
+        helper.assertTrue(result.has("spouseUuid"),
+                "内层回执的 null 键必须原样带过去, 实得回执 " + result);
+        helper.assertTrue(result.get("spouseUuid").isJsonNull(),
+                "spouseUuid 必须仍是 JSON null 而不是被改写, 实得 " + result.get("spouseUuid"));
+        helper.assertTrue(result.has("spouseName") && result.get("spouseName").isJsonNull(),
+                "同一条回执里的其余 null 键同样不得丢失, 实得回执 " + result);
+        helper.assertTrue(result.get("marriedDays").getAsInt() == 0,
+                "非 null 值不受影响, 实得 " + result.get("marriedDays"));
+        helper.succeed();
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void unexpectedExceptionStaysInsideItsOwnEntry(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);

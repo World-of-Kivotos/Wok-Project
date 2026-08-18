@@ -948,5 +948,14 @@
   "item.miningdim.raw_chromium": "Raw Chromium",
   "item.miningdim.chromium_ingot": "Chromium Ingot",
   "item.miningdim.raw_tungsten": "Raw Tungsten",
-  "item.miningdim.tungsten_ingot": "Tungsten Ingot"
+  "item.miningdim.tungsten_ingot": "Tungsten Ingot",
+  "block.miningdim.rubber_log": "Rubber Log",
+  "block.miningdim.rubber_planks": "Rubber Planks",
+  "block.miningdim.rubber_leaves": "Rubber Leaves",
+  "block.miningdim.rubber_tree_sapling": "Rubber Tree Sapling",
+  "item.miningdim.latex": "Latex",
+  "item.miningdim.rubber": "Rubber",
+  "item.miningdim.insulation_pvc": "PVC Insulation",
+  "item.miningdim.insulation_pe": "PE Insulation",
+  "item.miningdim.rubber_tapping_knife": "Rubber Tapping Knife"
 }

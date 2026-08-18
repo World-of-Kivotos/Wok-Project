@@ -1,0 +1,24 @@
+{
+  "variants": {
+    "axis=x,tapped=false": {
+      "model": "miningdim:block/rubber_log_horizontal",
+      "y": 90
+    },
+    "axis=x,tapped=true": {
+      "model": "miningdim:block/rubber_log_tapped_horizontal",
+      "y": 90
+    },
+    "axis=y,tapped=false": {
+      "model": "miningdim:block/rubber_log"
+    },
+    "axis=y,tapped=true": {
+      "model": "miningdim:block/rubber_log_tapped"
+    },
+    "axis=z,tapped=false": {
+      "model": "miningdim:block/rubber_log_horizontal"
+    },
+    "axis=z,tapped=true": {
+      "model": "miningdim:block/rubber_log_tapped_horizontal"
+    }
+  }
+}

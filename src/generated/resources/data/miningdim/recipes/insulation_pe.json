@@ -1,0 +1,15 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "miningdim:rubber"
+    },
+    {
+      "item": "minecraft:charcoal"
+    }
+  ],
+  "result": {
+    "item": "miningdim:insulation_pe"
+  }
+}

@@ -3,6 +3,7 @@ package com.miningdim.power;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.power.mineral.PowerMineral;
 import com.miningdim.power.mineral.PowerMineralRegistry;
+import com.miningdim.power.rubber.PowerRubberRegistry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.CreativeModeTab;
@@ -37,6 +38,15 @@ public final class PowerCreativeTab {
                                 output.accept(PowerMineralRegistry.ingot(mineral).get());
                             }
                         }
+                        output.accept(PowerRubberRegistry.RUBBER_LOG_ITEM.get());
+                        output.accept(PowerRubberRegistry.RUBBER_PLANKS_ITEM.get());
+                        output.accept(PowerRubberRegistry.RUBBER_LEAVES_ITEM.get());
+                        output.accept(PowerRubberRegistry.RUBBER_SAPLING_ITEM.get());
+                        output.accept(PowerRubberRegistry.LATEX.get());
+                        output.accept(PowerRubberRegistry.RUBBER.get());
+                        output.accept(PowerRubberRegistry.INSULATION_PVC.get());
+                        output.accept(PowerRubberRegistry.INSULATION_PE.get());
+                        output.accept(PowerRubberRegistry.RUBBER_TAPPING_KNIFE.get());
                     })
                     .build());
 

@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/handheld",
+  "textures": {
+    "layer0": "miningdim:item/rubber_tapping_knife"
+  }
+}

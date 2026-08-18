@@ -948,5 +948,14 @@
   "item.miningdim.raw_chromium": "铬原矿",
   "item.miningdim.chromium_ingot": "铬锭",
   "item.miningdim.raw_tungsten": "钨原矿",
-  "item.miningdim.tungsten_ingot": "钨锭"
+  "item.miningdim.tungsten_ingot": "钨锭",
+  "block.miningdim.rubber_log": "橡胶原木",
+  "block.miningdim.rubber_planks": "橡胶木板",
+  "block.miningdim.rubber_leaves": "橡胶树叶",
+  "block.miningdim.rubber_tree_sapling": "橡胶树苗",
+  "item.miningdim.latex": "生胶乳",
+  "item.miningdim.rubber": "天然橡胶",
+  "item.miningdim.insulation_pvc": "PVC绝缘料",
+  "item.miningdim.insulation_pe": "PE绝缘料",
+  "item.miningdim.rubber_tapping_knife": "割胶刀"
 }

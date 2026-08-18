@@ -13,14 +13,17 @@ import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.quest.objective.TurnInItemObjective;
+import com.miningdim.testutil.ConfigBaseline;
 import com.miningdim.testutil.MockGameTestPlayers;
 import com.miningdim.webui.server.WebUiBusinessException;
 import com.miningdim.webui.server.WebUiErrorCodes;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
+import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -49,6 +52,13 @@ public final class QuestWebUiGameTests {
     private static final String CLAIM_ACTION = "quest.claim";
     private static final String REFRESH_ACTION = "quest.refresh";
     private static final String TURN_IN_ACTION = "quest.turnIn";
+
+    /** 跨轮基线归位: 本批次会改下列配置项, 先抹掉上一轮可能残留的探针值 (见 ConfigBaseline)。 */
+    @BeforeBatch(batch = BATCH)
+    public static void resetConfigBaseline(ServerLevel level) {
+        ConfigBaseline.resetToDefaults(
+                QuestConfig.DAILY_BOOK_CHANCE);
+    }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void boardRowsMatchTheAuthoritativeQuestPool(GameTestHelper helper) {

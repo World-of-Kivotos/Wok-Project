@@ -6,11 +6,14 @@ import com.google.gson.JsonParser;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.entry.MiningCapabilities;
 import com.miningdim.job.JobId;
+import com.miningdim.testutil.ConfigBaseline;
 import com.miningdim.testutil.MockGameTestPlayers;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
+import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -57,6 +60,14 @@ public final class ChefWebUiGameTests {
     // ============================================================
     // 1. 形状与数值
     // ============================================================
+
+    /** 跨轮基线归位: 本批次会改下列配置项, 先抹掉上一轮可能残留的探针值 (见 ConfigBaseline)。 */
+    @BeforeBatch(batch = BATCH)
+    public static void resetConfigBaseline(ServerLevel level) {
+        ConfigBaseline.resetToDefaults(
+                ChefConfig.TABLE_USE_COST_CREDIT,
+                ChefConfig.AMPLIFY_LOW);
+    }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void chefStateReportsQualityRowsAndEffectMatrix(GameTestHelper helper) {

@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.miningdim.testutil.ConfigBaseline;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.entry.MiningCapabilities;
 import com.miningdim.job.JobId;
@@ -79,6 +80,11 @@ public final class EngineerWebUiGameTests {
     @BeforeBatch(batch = BATCH)
     public static void beforeEngineerWebUiBatch(ServerLevel level) {
         EngineerConfig.ensureLoadedForTest();
+        // 跨轮基线归位: 本批次会改下列配置项, 先抹掉上一轮可能残留的探针值 (见 ConfigBaseline)。
+        ConfigBaseline.resetToDefaults(
+                EngineerConfig.RAW_XP_LOW,
+                EngineerConfig.TOTEM_SHARED_CD_TICKS,
+                EngineerConfig.REPAIR_FIXED_LOW);
     }
 
     // ============================================================

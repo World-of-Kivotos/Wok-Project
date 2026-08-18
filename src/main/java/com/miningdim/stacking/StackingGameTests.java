@@ -1,8 +1,10 @@
 package com.miningdim.stacking;
 
+import com.miningdim.testutil.ConfigBaseline;
 import com.miningdim.champion.MiningChampions;
 import com.miningdim.core.MiningConstants;
 import net.minecraft.core.BlockPos;
+import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
@@ -56,6 +58,17 @@ public final class StackingGameTests {
     // ============================================================
     // AC-1: 半径内 spawn 20 成年羊 -> 合并后计数 1, 显示名含 "x20"
     // ============================================================
+
+    /** 跨轮基线归位: 本批次会改下列配置项, 先抹掉上一轮可能残留的探针值 (见 ConfigBaseline)。 */
+    @BeforeBatch(batch = BATCH)
+    public static void resetConfigBaseline(ServerLevel level) {
+        ConfigBaseline.resetToDefaults(
+                StackingConfig.ENABLED,
+                StackingConfig.MERGE_MAX_STACK_SIZE,
+                StackingConfig.DROPS_LOOT_ROLL_MODE,
+                StackingConfig.DROPS_DEATH_MODE,
+                StackingConfig.LEASH_MODE);
+    }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void ac1_twentyAdultSheepMergeToOne(GameTestHelper helper) {

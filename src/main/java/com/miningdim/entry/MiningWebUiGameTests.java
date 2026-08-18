@@ -12,15 +12,18 @@ import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.JobId;
 import com.miningdim.job.miner.MinerConstants;
+import com.miningdim.testutil.ConfigBaseline;
 import com.miningdim.testutil.MockGameTestPlayers;
 import com.miningdim.webui.server.WebUiBusinessException;
 import com.miningdim.webui.server.WebUiErrorCodes;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
 import net.minecraft.core.BlockPos;
+import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.minecraftforge.gametest.GameTestHolder;
@@ -74,6 +77,15 @@ public final class MiningWebUiGameTests {
      * 这条锁的是"面板上不许出现私有副本"这个认知前提: 一旦有人把 overview 改成按玩家列实例 (或按需新建),
      * 行数/shared/id 三个断言里至少一个会挂。
      */
+    /** 跨轮基线归位: 本批次会改下列配置项, 先抹掉上一轮可能残留的探针值 (见 ConfigBaseline)。 */
+    @BeforeBatch(batch = BATCH)
+    public static void resetConfigBaseline(ServerLevel level) {
+        ConfigBaseline.resetToDefaults(
+                MiningServerConfig.ENTRY_FEE_EASY,
+                MiningServerConfig.ENTRY_FEE_MEDIUM,
+                MiningServerConfig.ENTRY_FEE_HARD);
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void miningOverviewListsExactlyThreeResidentSharedRegions(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);

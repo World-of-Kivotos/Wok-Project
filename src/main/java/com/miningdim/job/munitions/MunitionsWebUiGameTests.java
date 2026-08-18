@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.miningdim.testutil.ConfigBaseline;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlock;
 import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlockEntity;
@@ -94,6 +95,14 @@ public final class MunitionsWebUiGameTests {
     @BeforeBatch(batch = BATCH)
     public static void beforeMunitionsWebUiBatch(ServerLevel level) {
         MunitionsConfig.ensureLoadedForTest();
+        // 跨轮基线归位: 本批次会改下列配置项, 先抹掉上一轮可能残留的探针值 (见 ConfigBaseline)。
+        // tableCountL1 曾因探针写作"原值+5"且还原未落盘, 每轮涨一次, 反复把 munitions 批次的
+        // capacityCurveLookups 判红 —— 那个用例只是读者, 污染源在本批次。
+        ConfigBaseline.resetToDefaults(
+                MunitionsConfig.TABLE_COUNT_L1,
+                MunitionsConfig.BUFFER_L1,
+                MunitionsConfig.WORK_FEE_PER_TEN_ROUNDS,
+                MunitionsConfig.GUNSMITH_ENABLED);
     }
 
     // ============================================================

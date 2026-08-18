@@ -1,0 +1,6 @@
+{
+  "parent": "miningdim:block/trap_ore",
+  "textures": {
+    "particle": "minecraft:block/stone"
+  }
+}

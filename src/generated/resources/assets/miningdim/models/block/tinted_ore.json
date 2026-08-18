@@ -73,6 +73,7 @@
   ],
   "render_type": "minecraft:cutout",
   "textures": {
-    "ore": "miningdim:block/ore_overlay"
+    "ore": "miningdim:block/ore_overlay",
+    "particle": "#ore"
   }
 }

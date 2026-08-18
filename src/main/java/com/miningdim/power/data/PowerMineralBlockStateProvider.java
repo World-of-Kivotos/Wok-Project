@@ -23,7 +23,8 @@ final class PowerMineralBlockStateProvider extends BlockStateProvider {
     protected void registerStatesAndModels() {
         BlockModelBuilder template = models().getBuilder("tinted_ore")
                 .renderType("minecraft:cutout")
-                .texture("ore", modLoc("block/ore_overlay"));
+                .texture("ore", modLoc("block/ore_overlay"))
+                .texture("particle", "#ore");
         template.element().from(0, 0, 0).to(16, 16, 16).textureAll("#base").end();
         template.element()
                 .from(-OVERLAY_OFFSET, -OVERLAY_OFFSET, -OVERLAY_OFFSET)

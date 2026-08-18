@@ -506,6 +506,46 @@ public final class MunitionsGameTests {
         }
     }
 
+    /**
+     * 已移除的主人 (死亡到重生之间的旧实体) 一律不结算。
+     *
+     * 2026-08-18 真服连环崩服回归: 台主一死, 旧 ServerPlayer 被标记 KILLED 且 capability 被 invalidate,
+     * 但仍留在 PlayerList 里被军火台取到, 结算读职业等级即抛 IllegalStateException 崩掉服务端 tick。
+     * 本例断言"已移除即不结算": 备了料、时间也回拨到远古 (不设防必产 80 发), 主人已移除则一发不产、
+     * 料不扣、经验不给。删掉 settleForOwner 里的 isRemoved 守卫, 这三条断言全挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchSkipsSettleForRemovedOwner(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        RecordingJobService job = new RecordingJobService(5);
+        IJobService prevJob = swapJob(job);
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
+        try {
+            MunitionsBenchBlockEntity be = newBench(helper, player);
+            helper.assertTrue(be.trySelectCaliber(MunitionsCaliber.RIFLE, player), "select RIFLE at L5");
+            stockParts(be, 2);
+            ledger.credit(player.getUUID(), Currency.CREDIT, 1000L);
+            backdateSettleTick(be, helper, MunitionsProduction.ticksPerRound(5) * 100_000L);
+
+            // 玩家死亡: 旧实体被标记移除 (Forge 随即失效其 capability), 但对象本身仍可被持有与传入。
+            player.remove(net.minecraft.world.entity.Entity.RemovalReason.KILLED);
+            be.settleForOwner(player);
+
+            helper.assertTrue(be.bufferedRounds() == 0,
+                    "已移除的主人不得产出, 实得 " + be.bufferedRounds());
+            assertPartCounts(helper, be, 2);
+            helper.assertTrue(job.grantXpCalls == 0,
+                    "已移除的主人不得入账经验, 实得 " + job.grantXpCalls + " 次");
+            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 1000L,
+                    "已移除的主人不得扣工费, 实得 " + ledger.balance(player.getUUID(), Currency.CREDIT));
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+            restoreEconomy(prevEco);
+        }
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void benchSettleForfeitsBatchWhenBalanceShort(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);

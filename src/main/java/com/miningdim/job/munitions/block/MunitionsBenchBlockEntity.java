@@ -415,6 +415,19 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
      * 在 GUI 打开帧 (Menu 构造) 与 tick 帧共用 (主人在线时都驱动)。
      */
     public void settleForOwner(ServerPlayer owner) {
+        /*
+         * 已移除的玩家实体等同离线, 一律不结算。
+         *
+         * 玩家死亡时旧 ServerPlayer 会被标记 RemovalReason.KILLED, Forge 随即 invalidate 它身上的
+         * capability, 但在重生换上新实例之前它仍能从 PlayerList 里取到。此时读职业进度会命中
+         * JobServiceImpl.require 的"capability 缺失"不变量并抛出 —— 那条抛出是对的 (活人身上取不到
+         * capability 确实是故障), 错在这里把一个已经死掉的实体当活人交了过去。
+         * 2026-08-18 真服连环崩服的根因即此: 台主一死, 军火台每 tick 抛一次, 看门狗补刀, MCSM 拉起再崩。
+         * 不结算不丢产量: lastSettleTick 原样保留, 玩家重生后按经过的时间一次性补算。
+         */
+        if (owner.isRemoved()) {
+            return;
+        }
         if (settleManualCraft(owner)) {
             return;
         }

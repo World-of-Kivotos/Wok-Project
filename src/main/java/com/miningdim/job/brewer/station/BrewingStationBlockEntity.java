@@ -263,13 +263,16 @@ public final class BrewingStationBlockEntity extends BlockEntity implements Menu
         return JobServices.jobService().level(operator, JobId.BREWER);
     }
 
-    /** 取当前在线的 operator (离线/无 operator/非服务端返回 null)。 */
+    /** 取当前在线的 operator (离线/无 operator/非服务端/实体已移除均返回 null)。 */
     @Nullable
     private ServerPlayer onlineOperator() {
         if (operatorUuid == null || !(level instanceof ServerLevel serverLevel)) {
             return null;
         }
-        return serverLevel.getServer().getPlayerList().getPlayer(operatorUuid);
+        ServerPlayer operator = serverLevel.getServer().getPlayerList().getPlayer(operatorUuid);
+        // 死亡到重生之间旧实体仍留在 PlayerList 里, 但 capability 已被 invalidate; 交给职业框架读进度
+        // 会撞上"capability 缺失"抛出并崩掉服务端 tick (2026-08-18 军火台同源崩服)。已移除即当离线。
+        return operator == null || operator.isRemoved() ? null : operator;
     }
 
     // ---- MenuProvider ----

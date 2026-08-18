@@ -207,7 +207,10 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         }
         ServerPlayer operator = serverLevel.getServer().getPlayerList().getPlayer(operatorUUID);
         ItemStack input = inputSlots.getStackInSlot(SeasoningMenu.SLOT_INPUT);
-        if (operator == null || input.isEmpty() || input.getFoodProperties(operator) == null) {
+        // isRemoved: 死亡到重生之间旧实体仍在 PlayerList 里但 capability 已失效, 下面读厨师等级会撞上
+        // "capability 缺失"抛出并崩掉服务端 tick (2026-08-18 军火台同源崩服)。已移除即当离线处理。
+        if (operator == null || operator.isRemoved()
+                || input.isEmpty() || input.getFoodProperties(operator) == null) {
             resetToIdle();
             return;
         }

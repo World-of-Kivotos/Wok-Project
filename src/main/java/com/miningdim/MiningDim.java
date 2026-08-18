@@ -124,9 +124,10 @@ public final class MiningDim {
         subsystems.add(new com.miningdim.job.chef.ChefSystem());
         // 22. 军火商职业: 军火台被动产线 + 双推进剂弹药制造 + 工费 sink (依赖职业框架门面 + 货币门面 + TACZ compileOnly)。
         subsystems.add(new com.miningdim.job.munitions.MunitionsSystem());
-        // 23. 精英怪星级词条 (Champions compileOnly): 35 词条注册 + 按矿洞难度升格冠军 + 6star+ 血池拦死 +
-        //     贡献池奖励并入 credit_faucet 主闸。纯逻辑层 (星表/血池/红线/贡献池) 始终生效; 真词条/血池/奖励
-        //     仅 ModList.isLoaded("champions") 为真时装配。压力子系统 spawnMob 经 ChampionSpawnSeam 回调升格,
+        // 23. 精英怪星级词条 (2026-07-07 起自研, 零 top.theillusivec4.champions.* 依赖): 35 词条注册 + 按矿洞
+        //     难度升格冠军 + 6star+ 血池拦死 + 贡献池奖励并入 credit_faucet 主闸。标记冠军与星级/词条改走自研
+        //     MiningChampions capability, 故【无条件】装配, 不再有 ModList.isLoaded("champions") 守卫 ——
+        //     装了 Champions 反而会漏其原生刷怪与 16 个原版词条, 部署时应禁用它。压力子系统 spawnMob 经 ChampionSpawnSeam 回调升格,
         //     故须排在压力子系统 (第 10) 之后 (seam 在启动期 bind, 对 register 顺序不敏感, 此处列尾即可)。
         subsystems.add(new com.miningdim.champion.ChampionSystem());
         // 24. 特勤干员职业: 探测精英 + 临时封印词条 (不叠加, 到期恢复) + 加强奖励 (按初始

@@ -4,6 +4,7 @@ import com.miningdim.core.MiningConstants;
 import com.miningdim.power.PowerRegistry;
 import com.miningdim.power.cable.EnergyCableBlock;
 import com.miningdim.power.cable.ConductorMaterial;
+import net.minecraft.core.Direction;
 import net.minecraft.data.PackOutput;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.Block;
@@ -32,8 +33,8 @@ final class PowerCableBlockStateProvider extends BlockStateProvider {
 
     private void registerCable(String name, Block block) {
         ResourceLocation texture = modLoc("block/" + name);
-        ModelFile core = cableModel(name + "_core", texture, 6, 6, 6, 10, 10, 10);
-        ModelFile port = cableModel(name + "_port", texture, 6, 6, 0, 10, 10, 10);
+        ModelFile core = cableCoreModel(name + "_core", texture);
+        ModelFile port = cablePortModel(name + "_port", texture);
 
         MultiPartBlockStateBuilder multipart = getMultipartBuilder(block);
         multipart.part().modelFile(core).addModel().end();
@@ -50,17 +51,55 @@ final class PowerCableBlockStateProvider extends BlockStateProvider {
         return "能源线缆方块状态: " + MiningConstants.MODID;
     }
 
-    private ModelFile cableModel(String name, ResourceLocation texture,
-                                 float fromX, float fromY, float fromZ,
-                                 float toX, float toY, float toZ) {
+    private ModelFile cableCoreModel(String name, ResourceLocation texture) {
         BlockModelBuilder model = models().getBuilder(name)
                 .renderType("minecraft:cutout")
+                .texture("particle", texture)
                 .texture("cable", texture);
-        model.element()
-                .from(fromX, fromY, fromZ)
-                .to(toX, toY, toZ)
-                .textureAll("#cable")
+        BlockModelBuilder.ElementBuilder element = model.element()
+                .from(6, 6, 6)
+                .to(10, 10, 10);
+        for (Direction direction : Direction.values()) {
+            element.face(direction)
+                    .uvs(6, 7, 10, 9)
+                    .texture("#cable")
+                    .end();
+        }
+        element.end();
+        return model;
+    }
+
+    private ModelFile cablePortModel(String name, ResourceLocation texture) {
+        BlockModelBuilder model = models().getBuilder(name)
+                .renderType("minecraft:cutout")
+                .texture("particle", texture)
+                .texture("cable", texture);
+        BlockModelBuilder.ElementBuilder element = model.element()
+                .from(6, 6, 0)
+                .to(10, 10, 6);
+        element.face(Direction.NORTH)
+                .uvs(0, 7, 2, 9)
+                .texture("#cable")
                 .end();
+        element.face(Direction.WEST)
+                .uvs(0, 7, 6, 9)
+                .texture("#cable")
+                .end();
+        element.face(Direction.EAST)
+                .uvs(0, 7, 6, 9)
+                .texture("#cable")
+                .end();
+        element.face(Direction.UP)
+                .uvs(0, 7, 6, 9)
+                .rotation(BlockModelBuilder.FaceRotation.CLOCKWISE_90)
+                .texture("#cable")
+                .end();
+        element.face(Direction.DOWN)
+                .uvs(0, 7, 6, 9)
+                .rotation(BlockModelBuilder.FaceRotation.COUNTERCLOCKWISE_90)
+                .texture("#cable")
+                .end();
+        element.end();
         return model;
     }
 

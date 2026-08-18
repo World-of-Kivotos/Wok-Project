@@ -3,22 +3,51 @@
     {
       "faces": {
         "down": {
-          "texture": "#cable"
+          "rotation": 270,
+          "texture": "#cable",
+          "uv": [
+            0.0,
+            7.0,
+            6.0,
+            9.0
+          ]
         },
         "east": {
-          "texture": "#cable"
+          "texture": "#cable",
+          "uv": [
+            0.0,
+            7.0,
+            6.0,
+            9.0
+          ]
         },
         "north": {
-          "texture": "#cable"
-        },
-        "south": {
-          "texture": "#cable"
+          "texture": "#cable",
+          "uv": [
+            0.0,
+            7.0,
+            2.0,
+            9.0
+          ]
         },
         "up": {
-          "texture": "#cable"
+          "rotation": 90,
+          "texture": "#cable",
+          "uv": [
+            0.0,
+            7.0,
+            6.0,
+            9.0
+          ]
         },
         "west": {
-          "texture": "#cable"
+          "texture": "#cable",
+          "uv": [
+            0.0,
+            7.0,
+            6.0,
+            9.0
+          ]
         }
       },
       "from": [
@@ -29,12 +58,13 @@
       "to": [
         10,
         10,
-        10
+        6
       ]
     }
   ],
   "render_type": "minecraft:cutout",
   "textures": {
-    "cable": "miningdim:block/silver_plated_copper_energy_cable"
+    "cable": "miningdim:block/silver_plated_copper_energy_cable",
+    "particle": "miningdim:block/silver_plated_copper_energy_cable"
   }
 }

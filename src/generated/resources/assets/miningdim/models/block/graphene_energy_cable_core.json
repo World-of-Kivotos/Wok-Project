@@ -3,22 +3,58 @@
     {
       "faces": {
         "down": {
-          "texture": "#cable"
+          "texture": "#cable",
+          "uv": [
+            6.0,
+            7.0,
+            10.0,
+            9.0
+          ]
         },
         "east": {
-          "texture": "#cable"
+          "texture": "#cable",
+          "uv": [
+            6.0,
+            7.0,
+            10.0,
+            9.0
+          ]
         },
         "north": {
-          "texture": "#cable"
+          "texture": "#cable",
+          "uv": [
+            6.0,
+            7.0,
+            10.0,
+            9.0
+          ]
         },
         "south": {
-          "texture": "#cable"
+          "texture": "#cable",
+          "uv": [
+            6.0,
+            7.0,
+            10.0,
+            9.0
+          ]
         },
         "up": {
-          "texture": "#cable"
+          "texture": "#cable",
+          "uv": [
+            6.0,
+            7.0,
+            10.0,
+            9.0
+          ]
         },
         "west": {
-          "texture": "#cable"
+          "texture": "#cable",
+          "uv": [
+            6.0,
+            7.0,
+            10.0,
+            9.0
+          ]
         }
       },
       "from": [
@@ -35,6 +71,7 @@
   ],
   "render_type": "minecraft:cutout",
   "textures": {
-    "cable": "miningdim:block/graphene_energy_cable"
+    "cable": "miningdim:block/graphene_energy_cable",
+    "particle": "miningdim:block/graphene_energy_cable"
   }
 }

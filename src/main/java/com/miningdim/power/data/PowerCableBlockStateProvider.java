@@ -24,21 +24,25 @@ final class PowerCableBlockStateProvider extends BlockStateProvider {
     @Override
     protected void registerStatesAndModels() {
         for (ConductorMaterial material : PowerRegistry.CABLES.keySet()) {
-            Block block = PowerRegistry.CABLES.get(material).get();
-            String name = material.blockId();
-            ResourceLocation texture = modLoc("block/" + name);
-            ModelFile core = cableModel(name + "_core", texture, 6, 6, 6, 10, 10, 10);
-            ModelFile port = cableModel(name + "_port", texture, 6, 6, 0, 10, 10, 10);
-
-            MultiPartBlockStateBuilder multipart = getMultipartBuilder(block);
-            multipart.part().modelFile(core).addModel().end();
-            addPort(multipart, port, EnergyCableBlock.NORTH, 0, 0);
-            addPort(multipart, port, EnergyCableBlock.SOUTH, 0, 180);
-            addPort(multipart, port, EnergyCableBlock.EAST, 0, 90);
-            addPort(multipart, port, EnergyCableBlock.WEST, 0, 270);
-            addPort(multipart, port, EnergyCableBlock.UP, 90, 0);
-            addPort(multipart, port, EnergyCableBlock.DOWN, 270, 0);
+            registerCable(material.blockId(), PowerRegistry.CABLES.get(material).get());
         }
+        registerCable("tungsten_heat_resistant_wire",
+                PowerRegistry.TUNGSTEN_HEAT_RESISTANT_CABLE.get());
+    }
+
+    private void registerCable(String name, Block block) {
+        ResourceLocation texture = modLoc("block/" + name);
+        ModelFile core = cableModel(name + "_core", texture, 6, 6, 6, 10, 10, 10);
+        ModelFile port = cableModel(name + "_port", texture, 6, 6, 0, 10, 10, 10);
+
+        MultiPartBlockStateBuilder multipart = getMultipartBuilder(block);
+        multipart.part().modelFile(core).addModel().end();
+        addPort(multipart, port, EnergyCableBlock.NORTH, 0, 0);
+        addPort(multipart, port, EnergyCableBlock.SOUTH, 0, 180);
+        addPort(multipart, port, EnergyCableBlock.EAST, 0, 90);
+        addPort(multipart, port, EnergyCableBlock.WEST, 0, 270);
+        addPort(multipart, port, EnergyCableBlock.UP, 90, 0);
+        addPort(multipart, port, EnergyCableBlock.DOWN, 270, 0);
     }
 
     @Override

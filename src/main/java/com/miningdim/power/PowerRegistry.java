@@ -4,6 +4,10 @@ import com.miningdim.core.MiningConstants;
 import com.miningdim.power.cable.ConductorMaterial;
 import com.miningdim.power.cable.EnergyCableBlock;
 import com.miningdim.power.cable.EnergyCableBlockEntity;
+import com.miningdim.power.cable.SpecialCableMaterial;
+import com.miningdim.power.endgame.LowTemperatureControllerBlock;
+import com.miningdim.power.endgame.LowTemperatureControllerBlockEntity;
+import com.miningdim.power.endgame.LowTemperatureControllerMenu;
 import com.miningdim.power.generator.GeneratorBlockEntity;
 import com.miningdim.power.generator.GeneratorFuelCoreItem;
 import com.miningdim.power.generator.GeneratorMenu;
@@ -59,6 +63,14 @@ public final class PowerRegistry {
             "future_fuel_core", () -> new GeneratorFuelCoreItem(GeneratorSpec.HIGH));
     public static final RegistryObject<Item> NICHROME_FUSE = ITEMS.register(
             "nichrome_fuse", () -> new Item(new Item.Properties().stacksTo(1)));
+    public static final RegistryObject<Item> GRAPHENE_SHEET = ITEMS.register(
+            "graphene_sheet", () -> new Item(new Item.Properties()));
+    public static final RegistryObject<Item> SUPERCONDUCTOR_PRECURSOR = ITEMS.register(
+            "superconductor_precursor", () -> new Item(new Item.Properties()));
+    public static final RegistryObject<Item> NBTI_CONDUCTOR = ITEMS.register(
+            "nbti_conductor", () -> new Item(new Item.Properties()));
+    public static final RegistryObject<Item> YBCO_TAPE = ITEMS.register(
+            "ybco_tape", () -> new Item(new Item.Properties()));
 
     // ---- 有线 FE 线缆 (导体材料数据驱动, 逻辑在 com.miningdim.power.cable/grid) ----
 
@@ -79,11 +91,37 @@ public final class PowerRegistry {
             ConductorMaterial.OFE_COPPER,
             ConductorMaterial.SILVER_PLATED_COPPER,
             ConductorMaterial.GOLD,
-            ConductorMaterial.SILVER);
+            ConductorMaterial.SILVER,
+            ConductorMaterial.GRAPHENE,
+            ConductorMaterial.NBTI_SUPERCONDUCTOR,
+            ConductorMaterial.YBCO_SUPERCONDUCTOR);
 
     public static final Map<ConductorMaterial, RegistryObject<EnergyCableBlock>> CABLES = registerCables();
     public static final Map<ConductorMaterial, RegistryObject<Item>> CABLE_ITEMS = registerCableItems();
     public static final Map<ConductorMaterial, RegistryObject<Item>> WIRE_ITEMS = registerWireItems();
+
+    public static final RegistryObject<EnergyCableBlock> TUNGSTEN_HEAT_RESISTANT_WIRE = BLOCKS.register(
+            SpecialCableMaterial.TUNGSTEN.blockId(), () -> new EnergyCableBlock(
+                    SpecialCableMaterial.TUNGSTEN,
+                    BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK).noOcclusion()));
+    public static final RegistryObject<Item> TUNGSTEN_HEAT_RESISTANT_WIRE_ITEM = ITEMS.register(
+            SpecialCableMaterial.TUNGSTEN.blockId(),
+            () -> new BlockItem(TUNGSTEN_HEAT_RESISTANT_WIRE.get(), new Item.Properties()));
+    public static final RegistryObject<EnergyCableBlock> TUNGSTEN_HEAT_RESISTANT_CABLE =
+            TUNGSTEN_HEAT_RESISTANT_WIRE;
+    public static final RegistryObject<Item> TUNGSTEN_HEAT_RESISTANT_CABLE_ITEM =
+            TUNGSTEN_HEAT_RESISTANT_WIRE_ITEM;
+
+    public static final RegistryObject<LowTemperatureControllerBlock> LOW_TEMPERATURE_CONTROLLER = BLOCKS.register(
+            "low_temperature_controller", () -> new LowTemperatureControllerBlock(
+                    BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK)));
+    public static final RegistryObject<Item> LOW_TEMPERATURE_CONTROLLER_ITEM = registerBlockItem(
+            "low_temperature_controller", LOW_TEMPERATURE_CONTROLLER);
+
+    public static final RegistryObject<BlockEntityType<LowTemperatureControllerBlockEntity>>
+            LOW_TEMPERATURE_CONTROLLER_BE = BLOCK_ENTITIES.register("low_temperature_controller",
+                    () -> BlockEntityType.Builder.of(LowTemperatureControllerBlockEntity::new,
+                            LOW_TEMPERATURE_CONTROLLER.get()).build(null));
 
     /** 全部线缆级共用一个方块实体类型 (范式同入口三方块共用 ENTRANCE 类型)。 */
     public static final RegistryObject<BlockEntityType<EnergyCableBlockEntity>> ENERGY_CABLE_BE =
@@ -100,6 +138,10 @@ public final class PowerRegistry {
     public static final RegistryObject<MenuType<GeneratorMenu>> GENERATOR_MENU =
             MENUS.register("generator", () -> IForgeMenuType.create(
                     (windowId, inventory, data) -> new GeneratorMenu(windowId, inventory, data.readBlockPos())));
+    public static final RegistryObject<MenuType<LowTemperatureControllerMenu>> LOW_TEMPERATURE_CONTROLLER_MENU =
+            MENUS.register("low_temperature_controller", () -> IForgeMenuType.create(
+                    (windowId, inventory, data) -> new LowTemperatureControllerMenu(
+                            windowId, inventory, data.readBlockPos())));
 
     private PowerRegistry() {
     }
@@ -131,7 +173,10 @@ public final class PowerRegistry {
     }
 
     private static Block[] cableBlocks() {
-        return CABLES.values().stream().map(RegistryObject::get).toArray(Block[]::new);
+        Block[] conductorBlocks = CABLES.values().stream().map(RegistryObject::get).toArray(Block[]::new);
+        Block[] blocks = java.util.Arrays.copyOf(conductorBlocks, conductorBlocks.length + 1);
+        blocks[conductorBlocks.length] = TUNGSTEN_HEAT_RESISTANT_WIRE.get();
+        return blocks;
     }
 
     private static Block[] generatorBlocks() {
@@ -146,8 +191,8 @@ public final class PowerRegistry {
                         .pushReaction(PushReaction.BLOCK)));
     }
 
-    private static RegistryObject<Item> registerBlockItem(
-            String name, RegistryObject<GeneratorMultiblockBlock> block) {
+    private static <T extends Block> RegistryObject<Item> registerBlockItem(
+            String name, RegistryObject<T> block) {
         return ITEMS.register(name, () -> new BlockItem(block.get(), new Item.Properties()));
     }
 

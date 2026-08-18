@@ -1,0 +1,26 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "L": {
+      "item": "miningdim:liquid_nitrogen_canister"
+    },
+    "N": {
+      "item": "miningdim:nbti_conductor"
+    },
+    "O": {
+      "item": "miningdim:ofe_copper_ingot"
+    },
+    "P": {
+      "item": "miningdim:phosphorus_deoxidized_copper_ingot"
+    }
+  },
+  "pattern": [
+    "PNP",
+    "OLO",
+    "PNP"
+  ],
+  "result": {
+    "item": "miningdim:low_temperature_controller"
+  }
+}

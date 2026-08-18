@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "miningdim:graphene_sheet"
+    },
+    {
+      "item": "miningdim:graphene_sheet"
+    },
+    {
+      "item": "miningdim:graphene_sheet"
+    }
+  ],
+  "result": {
+    "count": 6,
+    "item": "miningdim:graphene_wire"
+  }
+}

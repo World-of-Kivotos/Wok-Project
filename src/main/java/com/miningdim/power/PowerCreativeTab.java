@@ -31,6 +31,11 @@ public final class PowerCreativeTab {
                         output.accept(PowerRegistry.MODERN_FUEL_CORE.get());
                         output.accept(PowerRegistry.FUTURE_FUEL_CORE.get());
                         output.accept(PowerRegistry.NICHROME_FUSE.get());
+                        output.accept(PowerRegistry.GRAPHENE_SHEET.get());
+                        output.accept(PowerRegistry.SUPERCONDUCTOR_PRECURSOR.get());
+                        output.accept(PowerRegistry.NBTI_CONDUCTOR.get());
+                        output.accept(PowerRegistry.YBCO_TAPE.get());
+                        output.accept(PowerRegistry.LOW_TEMPERATURE_CONTROLLER_ITEM.get());
                         output.accept(PowerMachineRegistry.PURIFIER_ITEM.get());
                         output.accept(PowerMachineRegistry.AIR_SEPARATOR_ITEM.get());
                         output.accept(PowerMachineRegistry.DEOXIDIZED_COPPER_INGOT.get());
@@ -43,6 +48,7 @@ public final class PowerCreativeTab {
                         for (RegistryObject<Item> cable : PowerRegistry.CABLE_ITEMS.values()) {
                             output.accept(cable.get());
                         }
+                        output.accept(PowerRegistry.TUNGSTEN_HEAT_RESISTANT_WIRE_ITEM.get());
                         for (RegistryObject<Item> wire : PowerRegistry.WIRE_ITEMS.values()) {
                             output.accept(wire.get());
                         }

@@ -15,6 +15,7 @@ public final class PowerCableColors {
     }
 
     private static void registerItemColors(RegisterColorHandlersEvent.Item event) {
+        // Tungsten uses its own opaque icon and deliberately has no wire item tint.
         for (ConductorMaterial material : PowerRegistry.REGISTERED_MATERIALS) {
             event.register((stack, tintIndex) -> tintIndex == 0 ? material.tintColor() : -1,
                     PowerRegistry.WIRE_ITEMS.get(material).get());

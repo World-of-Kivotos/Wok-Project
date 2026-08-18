@@ -1,0 +1,23 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "G": {
+      "item": "miningdim:graphene_sheet"
+    },
+    "M": {
+      "item": "miningdim:modern_generator"
+    },
+    "Y": {
+      "item": "miningdim:ybco_tape"
+    }
+  },
+  "pattern": [
+    "GYG",
+    "YMY",
+    "GYG"
+  ],
+  "result": {
+    "item": "miningdim:future_energy_generator"
+  }
+}

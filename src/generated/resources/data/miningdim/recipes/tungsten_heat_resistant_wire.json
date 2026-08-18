@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "building",
+  "ingredients": [
+    {
+      "item": "miningdim:tungsten_ingot"
+    },
+    {
+      "item": "miningdim:tungsten_ingot"
+    },
+    {
+      "item": "miningdim:tungsten_ingot"
+    },
+    {
+      "item": "miningdim:insulation_silicone"
+    },
+    {
+      "item": "miningdim:insulation_silicone"
+    },
+    {
+      "item": "miningdim:insulation_silicone"
+    }
+  ],
+  "result": {
+    "count": 6,
+    "item": "miningdim:tungsten_heat_resistant_wire"
+  }
+}

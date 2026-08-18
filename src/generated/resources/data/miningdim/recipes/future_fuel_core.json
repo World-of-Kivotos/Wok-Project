@@ -1,0 +1,23 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "G": {
+      "item": "miningdim:graphene_sheet"
+    },
+    "N": {
+      "item": "minecraft:nether_star"
+    },
+    "Y": {
+      "item": "miningdim:ybco_tape"
+    }
+  },
+  "pattern": [
+    "GYG",
+    "YNY",
+    "GYG"
+  ],
+  "result": {
+    "item": "miningdim:future_fuel_core"
+  }
+}

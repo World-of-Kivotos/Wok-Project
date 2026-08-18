@@ -39,6 +39,7 @@ final class PowerCableTagsProvider extends BlockTagsProvider {
             Block block = PowerRegistry.CABLES.get(material).get();
             cables.add(block);
         }
+        cables.add(PowerRegistry.TUNGSTEN_HEAT_RESISTANT_CABLE.get());
     }
 
     @Override
@@ -65,6 +66,7 @@ final class PowerCableItemTagsProvider extends ItemTagsProvider {
             cables.add(item);
             wires.add(PowerRegistry.WIRE_ITEMS.get(material).get());
         }
+        cables.add(PowerRegistry.TUNGSTEN_HEAT_RESISTANT_CABLE_ITEM.get());
     }
 
     @Override

@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "building",
+  "ingredients": [
+    {
+      "item": "miningdim:nbti_superconductor_wire"
+    },
+    {
+      "item": "miningdim:nbti_superconductor_wire"
+    },
+    {
+      "item": "miningdim:nbti_superconductor_wire"
+    },
+    {
+      "item": "miningdim:insulation_silicone"
+    },
+    {
+      "item": "miningdim:insulation_silicone"
+    },
+    {
+      "item": "miningdim:insulation_silicone"
+    }
+  ],
+  "result": {
+    "count": 6,
+    "item": "miningdim:nbti_superconductor_energy_cable"
+  }
+}

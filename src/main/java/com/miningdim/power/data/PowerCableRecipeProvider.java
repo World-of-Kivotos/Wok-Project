@@ -31,7 +31,12 @@ final class PowerCableRecipeProvider implements DataProvider {
                                 itemId(PowerRegistry.WIRE_ITEMS.get(material).get()), "3",
                                 insulationId(material), "3"))))
                 .toArray(CompletableFuture<?>[]::new);
-        return CompletableFuture.allOf(saves);
+        CompletableFuture<?> tungsten = save(output, "tungsten_heat_resistant_wire", shapeless("building",
+                itemId(PowerRegistry.TUNGSTEN_HEAT_RESISTANT_CABLE_ITEM.get()), 6,
+                "miningdim:tungsten_ingot", "3", "miningdim:insulation_silicone", "3"));
+        CompletableFuture<?>[] all = java.util.Arrays.copyOf(saves, saves.length + 1);
+        all[saves.length] = tungsten;
+        return CompletableFuture.allOf(all);
     }
 
     @Override
@@ -73,6 +78,15 @@ final class PowerCableRecipeProvider implements DataProvider {
             case SILVER_PLATED_COPPER -> save(output, material.id() + "_wire", shapeless("misc",
                     itemId(PowerRegistry.WIRE_ITEMS.get(material).get()), 8,
                     "miningdim:ofe_copper_wire", "8", "miningdim:silver_ingot", "1"));
+            case GRAPHENE -> save(output, material.id() + "_wire", shapeless("misc",
+                    itemId(PowerRegistry.WIRE_ITEMS.get(material).get()), 6,
+                    "miningdim:graphene_sheet", "3"));
+            case NBTI_SUPERCONDUCTOR -> save(output, material.id() + "_wire", shapeless("misc",
+                    itemId(PowerRegistry.WIRE_ITEMS.get(material).get()), 6,
+                    "miningdim:nbti_conductor", "3"));
+            case YBCO_SUPERCONDUCTOR -> save(output, material.id() + "_wire", shapeless("misc",
+                    itemId(PowerRegistry.WIRE_ITEMS.get(material).get()), 6,
+                    "miningdim:ybco_tape", "3"));
             default -> save(output, material.id() + "_wire", shapeless("misc",
                     itemId(PowerRegistry.WIRE_ITEMS.get(material).get()), 6,
                     conductorIngotId(material), "3"));
@@ -88,8 +102,7 @@ final class PowerCableRecipeProvider implements DataProvider {
             case OFE_COPPER -> "miningdim:ofe_copper_ingot";
             case GOLD -> "miningdim:gold_4n_ingot";
             case SILVER -> "miningdim:silver_ingot";
-            default -> throw new IllegalStateException("wire recipe requested for plated or unopened conductor "
-                    + material);
+            default -> throw new IllegalStateException("wire recipe requested for plated conductor " + material);
         };
     }
 

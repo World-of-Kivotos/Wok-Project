@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "miningdim:ybco_tape"
+    },
+    {
+      "item": "miningdim:ybco_tape"
+    },
+    {
+      "item": "miningdim:ybco_tape"
+    }
+  ],
+  "result": {
+    "count": 6,
+    "item": "miningdim:ybco_superconductor_wire"
+  }
+}

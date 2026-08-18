@@ -13,8 +13,10 @@ public record EnergyNetworkSnapshot(
         double temperatureC,
         int lastLoadFe,
         double loadRatio,
-        int lastLossFe,
-        long totalLossFe,
+        int lastBufferOverflowLossFe,
+        long totalBufferOverflowLossFe,
+        int lastDistanceLossFe,
+        long totalDistanceLossFe,
         VoltageClass voltageLimit,
         Set<EnergyNetworkFault> faults,
         CoolingState coolingState

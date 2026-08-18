@@ -1,0 +1,25 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "miningdim:nickel_ingot"
+    },
+    {
+      "item": "miningdim:nickel_ingot"
+    },
+    {
+      "item": "miningdim:nickel_ingot"
+    },
+    {
+      "item": "miningdim:nickel_ingot"
+    },
+    {
+      "item": "miningdim:chromium_ingot"
+    }
+  ],
+  "result": {
+    "count": 4,
+    "item": "miningdim:nichrome_fuse"
+  }
+}

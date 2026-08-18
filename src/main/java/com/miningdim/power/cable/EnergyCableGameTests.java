@@ -37,31 +37,37 @@ public final class EnergyCableGameTests {
 
     private static final String EMPTY = "empty";
     private static final String BATCH = "energy_cable";
+    private static final String P3_PROFILE_BATCH = "power_endgame_profile";
+    private static final String P3_NBTI_BATCH = "power_endgame_nbti";
+    private static final String P3_DISTANCE_BATCH = "power_endgame_distance";
 
     private EnergyCableGameTests() {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void p1AndP2RegisteredMaterialsPreserveExistingIds(GameTestHelper helper) {
+    public static void registeredMaterialsPreserveAllTwelveTiersAndExistingIds(GameTestHelper helper) {
         ConductorMaterial[] p1 = {
                 ConductorMaterial.IRON,
                 ConductorMaterial.ALUMINUM,
                 ConductorMaterial.COPPER
         };
         helper.assertTrue(PowerRegistry.P1_MATERIALS.size() == 3
-                        && PowerRegistry.REGISTERED_MATERIALS.size() == 9
-                        && PowerRegistry.CABLES.size() == 9
-                        && PowerRegistry.CABLE_ITEMS.size() == 9
-                        && PowerRegistry.WIRE_ITEMS.size() == 9
+                        && PowerRegistry.REGISTERED_MATERIALS.size() == 12
+                        && PowerRegistry.CABLES.size() == 12
+                        && PowerRegistry.CABLE_ITEMS.size() == 12
+                        && PowerRegistry.WIRE_ITEMS.size() == 12
                         && PowerRegistry.REGISTERED_MATERIALS.containsAll(java.util.List.of(
                                 ConductorMaterial.IRON, ConductorMaterial.ALUMINUM, ConductorMaterial.COPPER,
                                 ConductorMaterial.TINNED_COPPER, ConductorMaterial.OFC_COPPER,
                                 ConductorMaterial.OFE_COPPER, ConductorMaterial.SILVER_PLATED_COPPER,
                                 ConductorMaterial.GOLD, ConductorMaterial.SILVER))
-                        && !PowerRegistry.CABLES.containsKey(ConductorMaterial.GRAPHENE)
-                        && !PowerRegistry.CABLES.containsKey(ConductorMaterial.NBTI_SUPERCONDUCTOR)
-                        && !PowerRegistry.CABLES.containsKey(ConductorMaterial.YBCO_SUPERCONDUCTOR),
-                "注册集合必须恰为 T1-T9，且 T10-T12 不得提前开放，实得 "
+                        && PowerRegistry.REGISTERED_MATERIALS.containsAll(java.util.List.of(
+                                ConductorMaterial.GRAPHENE, ConductorMaterial.NBTI_SUPERCONDUCTOR,
+                                ConductorMaterial.YBCO_SUPERCONDUCTOR))
+                        && PowerRegistry.CABLES.containsKey(ConductorMaterial.GRAPHENE)
+                        && PowerRegistry.CABLES.containsKey(ConductorMaterial.NBTI_SUPERCONDUCTOR)
+                        && PowerRegistry.CABLES.containsKey(ConductorMaterial.YBCO_SUPERCONDUCTOR),
+                "注册集合必须恰为 T1-T12 且保留 P1 兼容集合，实得 "
                         + PowerRegistry.P1_MATERIALS.size() + "/"
                         + PowerRegistry.REGISTERED_MATERIALS.size() + "/"
                         + PowerRegistry.CABLES.size() + "/"
@@ -79,6 +85,163 @@ public final class EnergyCableGameTests {
                         && ConductorMaterial.COPPER.ratedCapacityFe() == 1_280,
                 "P1 铁、铝、铜容量必须固定为 256/768/1280 FE/t");
         helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = P3_PROFILE_BATCH)
+    public static void p3ProfilesAndTungstenSpecialCableKeepExactContracts(GameTestHelper helper) {
+        helper.assertTrue(ConductorMaterial.values().length == 12,
+                "ConductorMaterial 必须恰好保留十二级，实得 " + ConductorMaterial.values().length);
+        helper.assertTrue(ConductorMaterial.GRAPHENE.ratedCapacityFe() == 8_192
+                        && ConductorMaterial.NBTI_SUPERCONDUCTOR.ratedCapacityFe() == 16_384
+                        && ConductorMaterial.YBCO_SUPERCONDUCTOR.ratedCapacityFe() == 32_768,
+                "P3 三档额定容量必须为 8192/16384/32768 FE/t");
+        helper.assertTrue(ConductorMaterial.GRAPHENE.voltageClass() == VoltageClass.EXTREME
+                        && ConductorMaterial.NBTI_SUPERCONDUCTOR.voltageClass() == VoltageClass.EXTREME
+                        && ConductorMaterial.YBCO_SUPERCONDUCTOR.voltageClass() == VoltageClass.EXTREME
+                        && ConductorMaterial.GRAPHENE.thermalMode() == CableProfile.ThermalMode.GRAPHENE
+                        && ConductorMaterial.NBTI_SUPERCONDUCTOR.thermalMode() == CableProfile.ThermalMode.NBTI
+                        && ConductorMaterial.YBCO_SUPERCONDUCTOR.thermalMode() == CableProfile.ThermalMode.YBCO,
+                "P3 三档必须使用 EXTREME 耐压和对应热学模式");
+        helper.assertTrue(!PowerRegistry.REGISTERED_MATERIALS.contains(SpecialCableMaterial.TUNGSTEN)
+                        && SpecialCableMaterial.TUNGSTEN.ratedCapacityFe() == 1_536
+                        && SpecialCableMaterial.TUNGSTEN.voltageClass() == VoltageClass.EXTREME
+                        && SpecialCableMaterial.TUNGSTEN.maxContinuousTemperatureC() == 300
+                        && Double.compare(SpecialCableMaterial.TUNGSTEN.degradeFloor(), 0.85D) == 0
+                        && PowerRegistry.TUNGSTEN_HEAT_RESISTANT_CABLE.get().material()
+                        == SpecialCableMaterial.TUNGSTEN,
+                "钨耐热线必须独立于十二级，容量/耐压/耐温/floor 和统一网络剖面必须精确");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = P3_NBTI_BATCH)
+    public static void nbtiCoolingHasSixtyFourSegmentBoundaryAndSecondControllerRestoresIt(
+            GameTestHelper helper) {
+        EnergyNetworkManager manager = EnergyNetworkManager.get(helper.getLevel());
+        BlockPos first = helper.absolutePos(new BlockPos(2, 2_001, 2));
+        BlockPos controllerA = helper.absolutePos(new BlockPos(2, 2_003, 2));
+        BlockPos controllerB = helper.absolutePos(new BlockPos(2, 2_003, 4));
+        for (int i = 0; i < 64; i++) {
+            manager.addCable(first.east(i), ConductorMaterial.NBTI_SUPERCONDUCTOR);
+        }
+        manager.updateCoolingController(controllerA, first, 64);
+        EnergyNetworkSnapshot active = manager.snapshotAt(first).orElseThrow();
+        helper.assertTrue(active.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
+                        && active.effectiveCapacityFe() == 16_384
+                        && !active.faults().contains(EnergyNetworkFault.SUPERCONDUCTOR_QUENCH),
+                "64 段 NbTi 恰好由一台控制器覆盖时必须保持 ACTIVE 和 16384 FE/t");
+
+        manager.addCable(first.east(64), ConductorMaterial.NBTI_SUPERCONDUCTOR);
+        EnergyNetworkSnapshot insufficient = manager.snapshotAt(first).orElseThrow();
+        helper.assertTrue(insufficient.coolingState() == EnergyNetworkSnapshot.CoolingState.INSUFFICIENT
+                        && insufficient.effectiveCapacityFe() == 1_638
+                        && insufficient.faults().contains(EnergyNetworkFault.SUPERCONDUCTOR_QUENCH),
+                "新增第65段后必须失超，容量降为额定10%%并报告 SUPERCONDUCTOR_QUENCH");
+
+        manager.updateCoolingController(controllerB, first.east(64), 64);
+        EnergyNetworkSnapshot restored = manager.snapshotAt(first).orElseThrow();
+        helper.assertTrue(restored.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
+                        && restored.effectiveCapacityFe() == 16_384
+                        && manager.debugNetworkSize(first) == 65,
+                "第二台控制器补足覆盖后必须恢复 ACTIVE，且65段线缆不得被销毁");
+
+        BlockPos splitCable = first.east(32);
+        manager.removeCable(splitCable);
+        EnergyNetworkSnapshot leftSplit = manager.snapshotAt(first).orElseThrow();
+        EnergyNetworkSnapshot rightSplit = manager.snapshotAt(first.east(64)).orElseThrow();
+        helper.assertTrue(leftSplit.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
+                        && rightSplit.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
+                        && manager.debugNetworkSize(first) == 32
+                        && manager.debugNetworkSize(first.east(64)) == 32,
+                "拆网后两台控制器必须分别覆盖32段分量且都保持 ACTIVE");
+        manager.addCable(splitCable, ConductorMaterial.NBTI_SUPERCONDUCTOR);
+        EnergyNetworkSnapshot remerged = manager.snapshotAt(first).orElseThrow();
+        helper.assertTrue(remerged.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
+                        && remerged.effectiveCapacityFe() == 16_384
+                        && manager.debugNetworkSize(first) == 65,
+                "重新并网后两台控制器覆盖必须重新汇总并保持65段 ACTIVE");
+        manager.removeCoolingController(controllerA);
+        manager.removeCoolingController(controllerB);
+        for (int i = 0; i < 65; i++) {
+            manager.removeCable(first.east(i));
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = P3_DISTANCE_BATCH)
+    public static void p3DistanceResistanceAndTemperatureContractsAreExact(GameTestHelper helper) {
+        helper.assertTrue(CableThermics.grapheneResistanceMultiplier(20.0D) == 1.0D
+                        && CableThermics.grapheneResistanceMultiplier(180.0D) == 0.5D,
+                "石墨烯线路电阻倍率必须从20C的1.0线性降至180C的0.5");
+        int warmGross = 100_000;
+        int warmNet = CableThermics.netAfterDistanceLoss(warmGross, 80);
+        int hotNet = CableThermics.netAfterDistanceLoss(warmGross, 40);
+        helper.assertTrue(warmNet == 99_992 && hotNet == 99_996 && hotNet > warmNet,
+                "石墨烯升温后线路电阻下降必须降低精确距离损耗，实得 " + warmNet + "/" + hotNet);
+        int target = 10_000;
+        int gross = CableThermics.grossForDelivered(target, 80);
+        helper.assertTrue(gross == 10_001
+                        && CableThermics.netAfterDistanceLoss(gross, 80) == target
+                        && CableThermics.netAfterDistanceLoss(10_000, 1) == 9_999,
+                "距离损耗反解必须满足送达守恒，YBCO单单位线路损耗应近零");
+
+        EnergyNetworkManager manager = EnergyNetworkManager.get(helper.getLevel());
+        BlockPos grapheneFirst = helper.absolutePos(new BlockPos(2, 2_001, 2));
+        BlockPos grapheneSource = grapheneFirst.west();
+        BlockPos grapheneSink = grapheneFirst.east(20);
+        for (int index = 0; index < 20; index++) {
+            manager.addCable(grapheneFirst.east(index), ConductorMaterial.GRAPHENE);
+        }
+        manager.debugPutSyntheticEndpoint(grapheneSource, infiniteSource());
+        manager.debugPutSyntheticEndpoint(grapheneSink, infiniteSink());
+
+        helper.startSequence()
+                .thenIdle(1)
+                .thenExecute(() -> {
+                    EnergyNetworkSnapshot ambient = manager.snapshotAt(grapheneFirst).orElseThrow();
+                    helper.assertTrue(ambient.temperatureC() > CableThermics.AMBIENT_C
+                                    && ambient.lastDistanceLossFe() == 15
+                                    && ambient.totalDistanceLossFe() == 15
+                                    && ambient.effectiveCapacityFe() == 8_192,
+                            "20段石墨烯网络环境首结算必须实际记账15 FE损耗且容量仍为8192，实得温度/损耗/容量 "
+                                    + ambient.temperatureC() + "/" + ambient.lastDistanceLossFe() + "/"
+                                    + ambient.effectiveCapacityFe());
+                })
+                .thenIdle(40)
+                .thenExecute(() -> {
+                    EnergyNetworkSnapshot hot = manager.snapshotAt(grapheneFirst).orElseThrow();
+                    helper.assertTrue(hot.temperatureC() >= 180.0D
+                                    && hot.lastDistanceLossFe() == 8
+                                    && hot.lastDistanceLossFe() < 15
+                                    && hot.effectiveCapacityFe() == 8_192,
+                            "石墨烯网温达到180C后实际距离损耗必须降至8 FE且容量不升额定，实得温度/损耗/容量 "
+                                    + hot.temperatureC() + "/" + hot.lastDistanceLossFe() + "/"
+                                    + hot.effectiveCapacityFe());
+                    manager.debugClearSyntheticEndpoints();
+                    BlockPos ybcoFirst = helper.absolutePos(new BlockPos(2, 2_001, 10));
+                    for (int index = 0; index < 20; index++) {
+                        manager.addCable(ybcoFirst.east(index), ConductorMaterial.YBCO_SUPERCONDUCTOR);
+                    }
+                    manager.debugPutSyntheticEndpoint(ybcoFirst.west(), infiniteSource());
+                    manager.debugPutSyntheticEndpoint(ybcoFirst.east(20), infiniteSink());
+                })
+                .thenIdle(1)
+                .thenExecute(() -> {
+                    BlockPos ybcoFirst = helper.absolutePos(new BlockPos(2, 2_001, 10));
+                    EnergyNetworkSnapshot ybcoSnapshot = manager.snapshotAt(ybcoFirst).orElseThrow();
+                    helper.assertTrue(ybcoSnapshot.coolingState() == EnergyNetworkSnapshot.CoolingState.NOT_REQUIRED
+                                    && ybcoSnapshot.effectiveCapacityFe() == 32_768
+                                    && ybcoSnapshot.lastDistanceLossFe() == 2
+                                    && ybcoSnapshot.totalDistanceLossFe() == 2,
+                            "20段YBCO无需低温控制且实际距离损耗必须近零为2 FE，实得状态/容量/损耗 "
+                                    + ybcoSnapshot.coolingState() + "/" + ybcoSnapshot.effectiveCapacityFe() + "/"
+                                    + ybcoSnapshot.lastDistanceLossFe() + "/" + ybcoSnapshot.totalDistanceLossFe());
+                    manager.debugClearSyntheticEndpoints();
+                    for (int index = 0; index < 20; index++) {
+                        manager.removeCable(grapheneFirst.east(index));
+                        manager.removeCable(ybcoFirst.east(index));
+                    }
+                })
+                .thenSucceed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
@@ -311,10 +474,11 @@ public final class EnergyCableGameTests {
         EnergyNetworkSnapshot merged = manager.snapshotAt(aAbs).orElseThrow();
         helper.assertTrue(merged.storedFe() == 256,
                 "合网后缓冲必须显式裁到新容量 256 FE，实得 " + merged.storedFe());
-        helper.assertTrue(merged.lastLossFe() == 1_280 && merged.totalLossFe() == 1_280,
+        helper.assertTrue(merged.lastBufferOverflowLossFe() == 1_280
+                        && merged.totalBufferOverflowLossFe() == 1_280,
                 "合网前 1536 FE 必须记账损失 1280 FE，实得 "
-                        + merged.lastLossFe() + "/" + merged.totalLossFe());
-        helper.assertTrue(merged.storedFe() + merged.lastLossFe() == 1_536,
+                        + merged.lastBufferOverflowLossFe() + "/" + merged.totalBufferOverflowLossFe());
+        helper.assertTrue(merged.storedFe() + merged.lastBufferOverflowLossFe() == 1_536,
                 "合网存量与损失之和必须守恒为 1536 FE");
         helper.assertTrue(merged.faults().contains(EnergyNetworkFault.BUFFER_OVERFLOW),
                 "合网裁剪必须在只读快照留下 BUFFER_OVERFLOW 故障");

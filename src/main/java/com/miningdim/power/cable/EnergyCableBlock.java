@@ -1,6 +1,7 @@
 package com.miningdim.power.cable;
 
 import com.miningdim.power.grid.EnergyNetworkManager;
+import com.miningdim.power.grid.CoolingControllerAttachment;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -91,7 +92,7 @@ public final class EnergyCableBlock extends Block implements EntityBlock {
         return new EnergyCableBlockEntity(pos, state);
     }
 
-    static void refreshConnectionState(ServerLevel level, BlockPos pos) {
+    public static void refreshConnectionState(ServerLevel level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
         if (!(state.getBlock() instanceof EnergyCableBlock cable)) {
             throw new IllegalStateException("energy cable block entity at non-cable state " + pos);
@@ -134,6 +135,10 @@ public final class EnergyCableBlock extends Block implements EntityBlock {
             return true;
         }
         BlockEntity neighbor = level.getBlockEntity(neighborPos);
+        if (neighbor instanceof CoolingControllerAttachment attachment
+                && attachment.controlledCablePos().equals(neighborPos.relative(direction.getOpposite()))) {
+            return true;
+        }
         return neighbor != null
                 && neighbor.getCapability(ForgeCapabilities.ENERGY, direction.getOpposite()).isPresent();
     }

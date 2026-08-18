@@ -6,5 +6,6 @@ package com.miningdim.power.grid;
 public enum EnergyNetworkFault {
     NONE,
     OVER_VOLTAGE,
-    BUFFER_OVERFLOW
+    BUFFER_OVERFLOW,
+    SUPERCONDUCTOR_QUENCH
 }

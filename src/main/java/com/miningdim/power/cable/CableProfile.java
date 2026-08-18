@@ -19,5 +19,26 @@ public interface CableProfile {
 
     InsulationGrade insulation();
 
+    /**
+     * 允许特殊线缆在不伪造绝缘档位的情况下给出自身连续耐温上限。
+     */
+    default int maxContinuousTemperatureC() {
+        return insulation().maxContinuousTempC();
+    }
+
+    ThermalMode thermalMode();
+
+    /**
+     * 用于 P3 拓扑缓存的每段常态线路电阻单位；单位与距离损耗比例尺配套，非现实欧姆值。
+     */
+    int baseLineResistanceUnits();
+
     VoltageClass voltageClass();
+
+    enum ThermalMode {
+        STANDARD,
+        GRAPHENE,
+        NBTI,
+        YBCO
+    }
 }

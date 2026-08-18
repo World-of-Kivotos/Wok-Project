@@ -7,12 +7,15 @@ package com.miningdim.power.grid;
  * 现实背书: 焦耳定律 P=I^2R —— 负载 75%->100% 电流仅 +33%, 发热却 +78% (1.33^2), 故过载升温超线性;
  * 金属正温度系数 R(T)=R0[1+α(T-T0)] —— 温升则阻升则效率降, 降到材料 floor 为止。
  *
- * 所有常量为占位 (PENDING), 落码前过经济总表标定; 升温速率取"满载约 1°C/tick"量级, 令过载在可测窗口内显效。
+ * 热学与距离常量均已在能源规格和经济技术账登记；变更时必须同步两份文档，不能只改代码。
  */
 public final class CableThermics {
 
     /** 环境温度 (°C), 网温的下限与冷却回落目标。 */
     public static final double AMBIENT_C = 20.0;
+
+    /** 距离损耗的固定比例尺，配合线路电阻单位以整数方式结算 FE。 */
+    public static final int DISTANCE_SCALE = 1_000_000;
 
     /** 安全持续线 = 额定的 75% (用户定, 非 50%): 负载率 <= 此值向环境回落, 高于则升温。 */
     public static final double SAFE_LINE = 0.75;
@@ -79,5 +82,43 @@ public final class CableThermics {
         }
         double t = (tempC - onset) / (full - onset);
         return 1.0 - t * (1.0 - degradeFloor);
+    }
+
+    /** 石墨烯负温度系数：20C 为 1，180C 起稳定在 0.5。 */
+    public static double grapheneResistanceMultiplier(double tempC) {
+        if (tempC <= AMBIENT_C) {
+            return 1.0;
+        }
+        if (tempC >= 180.0) {
+            return 0.5;
+        }
+        double progress = (tempC - AMBIENT_C) / (180.0 - AMBIENT_C);
+        return 1.0 - progress * 0.5;
+    }
+
+    /** 以有界有理式将毛额变换为可送达净额，线路电阻不会吞掉全部 FE。 */
+    public static int netAfterDistanceLoss(int grossFe, long routeResistanceUnits) {
+        if (grossFe < 0 || routeResistanceUnits < 0) {
+            throw new IllegalArgumentException("grossFe and routeResistanceUnits must be non-negative");
+        }
+        if (routeResistanceUnits == 0 || grossFe == 0) {
+            return grossFe;
+        }
+        long numerator = Math.multiplyExact((long) grossFe, DISTANCE_SCALE);
+        long denominator = Math.addExact(DISTANCE_SCALE, routeResistanceUnits);
+        return Math.toIntExact(numerator / denominator);
+    }
+
+    /** 反解至少需要多少网络缓冲，才能在指定线路电阻下送达 targetFe。 */
+    public static int grossForDelivered(int targetFe, long routeResistanceUnits) {
+        if (targetFe < 0 || routeResistanceUnits < 0) {
+            throw new IllegalArgumentException("targetFe and routeResistanceUnits must be non-negative");
+        }
+        if (routeResistanceUnits == 0 || targetFe == 0) {
+            return targetFe;
+        }
+        long numerator = Math.multiplyExact((long) targetFe, Math.addExact(DISTANCE_SCALE, routeResistanceUnits));
+        long gross = (numerator + DISTANCE_SCALE - 1L) / DISTANCE_SCALE;
+        return Math.toIntExact(gross);
     }
 }

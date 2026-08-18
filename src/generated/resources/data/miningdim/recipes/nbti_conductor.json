@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "C": {
+      "item": "miningdim:superconductor_precursor"
+    },
+    "N": {
+      "item": "miningdim:nickel_ingot"
+    },
+    "O": {
+      "item": "miningdim:ofe_copper_ingot"
+    }
+  },
+  "pattern": [
+    "ONO",
+    "NCN",
+    "ONO"
+  ],
+  "result": {
+    "count": 4,
+    "item": "miningdim:nbti_conductor"
+  }
+}

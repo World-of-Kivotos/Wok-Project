@@ -8,6 +8,10 @@
     "miningdim:ofe_copper_energy_cable",
     "miningdim:silver_plated_copper_energy_cable",
     "miningdim:gold_energy_cable",
-    "miningdim:silver_energy_cable"
+    "miningdim:silver_energy_cable",
+    "miningdim:graphene_energy_cable",
+    "miningdim:nbti_superconductor_energy_cable",
+    "miningdim:ybco_superconductor_energy_cable",
+    "miningdim:tungsten_heat_resistant_wire"
   ]
 }

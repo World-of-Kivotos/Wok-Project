@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "miningdim:nbti_conductor"
+    },
+    {
+      "item": "miningdim:nbti_conductor"
+    },
+    {
+      "item": "miningdim:nbti_conductor"
+    }
+  ],
+  "result": {
+    "count": 6,
+    "item": "miningdim:nbti_superconductor_wire"
+  }
+}

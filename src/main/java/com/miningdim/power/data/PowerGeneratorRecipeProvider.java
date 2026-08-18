@@ -35,7 +35,15 @@ final class PowerGeneratorRecipeProvider implements DataProvider {
                 save(output, "modern_generator", shaped("misc", "miningdim:modern_generator",
                         new String[]{"OGO", "GIG", "OGO"},
                         new String[]{"O", "miningdim:ofe_copper_ingot", "G", "miningdim:gold_4n_ingot",
-                                "I", "miningdim:industrial_generator"})));
+                                "I", "miningdim:industrial_generator"})),
+                save(output, "future_fuel_core", shaped("misc", "miningdim:future_fuel_core",
+                        new String[]{"GYG", "YNY", "GYG"},
+                        new String[]{"G", "miningdim:graphene_sheet", "Y", "miningdim:ybco_tape",
+                                "N", "minecraft:nether_star"})),
+                save(output, "future_energy_generator", shaped("misc", "miningdim:future_energy_generator",
+                        new String[]{"GYG", "YMY", "GYG"},
+                        new String[]{"G", "miningdim:graphene_sheet", "Y", "miningdim:ybco_tape",
+                                "M", "miningdim:modern_generator"})));
     }
 
     @Override

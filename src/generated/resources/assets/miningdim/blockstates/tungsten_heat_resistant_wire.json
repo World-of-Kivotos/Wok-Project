@@ -1,0 +1,62 @@
+{
+  "multipart": [
+    {
+      "apply": {
+        "model": "miningdim:block/tungsten_heat_resistant_wire_core"
+      }
+    },
+    {
+      "apply": {
+        "model": "miningdim:block/tungsten_heat_resistant_wire_port"
+      },
+      "when": {
+        "north": "true"
+      }
+    },
+    {
+      "apply": {
+        "model": "miningdim:block/tungsten_heat_resistant_wire_port",
+        "y": 180
+      },
+      "when": {
+        "south": "true"
+      }
+    },
+    {
+      "apply": {
+        "model": "miningdim:block/tungsten_heat_resistant_wire_port",
+        "y": 90
+      },
+      "when": {
+        "east": "true"
+      }
+    },
+    {
+      "apply": {
+        "model": "miningdim:block/tungsten_heat_resistant_wire_port",
+        "y": 270
+      },
+      "when": {
+        "west": "true"
+      }
+    },
+    {
+      "apply": {
+        "model": "miningdim:block/tungsten_heat_resistant_wire_port",
+        "x": 90
+      },
+      "when": {
+        "up": "true"
+      }
+    },
+    {
+      "apply": {
+        "model": "miningdim:block/tungsten_heat_resistant_wire_port",
+        "x": 270
+      },
+      "when": {
+        "down": "true"
+      }
+    }
+  ]
+}

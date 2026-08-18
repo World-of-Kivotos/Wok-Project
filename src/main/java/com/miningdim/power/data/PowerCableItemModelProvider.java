@@ -24,6 +24,9 @@ final class PowerCableItemModelProvider extends ItemModelProvider {
                     .parent(new net.minecraftforge.client.model.generators.ModelFile.UncheckedModelFile("item/generated"))
                     .texture("layer0", new ResourceLocation(MiningConstants.MODID, "item/wire_base"));
         }
+        getBuilder("tungsten_heat_resistant_wire")
+                .parent(new net.minecraftforge.client.model.generators.ModelFile.UncheckedModelFile("item/generated"))
+                .texture("layer0", modLoc("item/tungsten_heat_resistant_wire"));
     }
 
     @Override

@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "B": {
+      "item": "minecraft:blaze_powder"
+    },
+    "C": {
+      "item": "miningdim:ofe_copper_ingot"
+    },
+    "G": {
+      "item": "miningdim:gold_4n_ingot"
+    },
+    "P": {
+      "item": "miningdim:superconductor_precursor"
+    }
+  },
+  "pattern": [
+    "PCP",
+    "GBG",
+    "PCP"
+  ],
+  "result": {
+    "count": 4,
+    "item": "miningdim:ybco_tape"
+  }
+}

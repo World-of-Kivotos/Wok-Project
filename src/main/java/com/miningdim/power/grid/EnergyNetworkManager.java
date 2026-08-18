@@ -28,7 +28,9 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 
 /**
@@ -64,6 +66,10 @@ public final class EnergyNetworkManager {
     private final Map<EnergyEndpointKey, IEnergyStorage> syntheticEndpoints = new HashMap<>();
     /** 旧测试兼容的任意面合成端点；新测试应使用精确面重载。 */
     private final Map<BlockPos, IEnergyStorage> syntheticAnySideEndpoints = new HashMap<>();
+    /** 控制器坐标 -> 单根受控线缆及当前有效覆盖，控制器不会作为 FE 端点混入网络。 */
+    private final Map<BlockPos, CoolingControllerState> coolingControllers = new HashMap<>();
+    /** 受控线缆坐标 -> 所有控制器相加后的覆盖段数；控制器状态变化可 O(1) 更新所属网。 */
+    private final Map<BlockPos, Integer> coolingCoverageByCable = new HashMap<>();
     private final ResourceKey<Level> dimension;
 
     private EnergyNetworkManager(ResourceKey<Level> dimension) {
@@ -109,6 +115,7 @@ public final class EnergyNetworkManager {
             int previousStored = existing.stored;
             existing.cables.put(pos, material);
             existing.recomputeProfile();
+            refreshNetworkCooling(existing);
             enforceBufferCapacity(existing, pos, List.of(previousStored), List.of(previousCapacity));
             existing.endpointsDirty = true;
             activeNetworks.add(existing);
@@ -140,9 +147,13 @@ public final class EnergyNetworkManager {
                     net.cables.put(entry.getKey(), entry.getValue());
                     byCable.put(entry.getKey(), net);
                 }
-                net.stored += other.stored;
-                net.totalLossFe += other.totalLossFe;
-                net.lastLossFe = Math.max(net.lastLossFe, other.lastLossFe);
+                net.stored = Math.addExact(net.stored, other.stored);
+                net.totalBufferOverflowLossFe = Math.addExact(
+                        net.totalBufferOverflowLossFe, other.totalBufferOverflowLossFe);
+                net.lastBufferOverflowLossFe = Math.max(
+                        net.lastBufferOverflowLossFe, other.lastBufferOverflowLossFe);
+                net.totalDistanceLossFe = Math.addExact(net.totalDistanceLossFe, other.totalDistanceLossFe);
+                net.lastDistanceLossFe = Math.max(net.lastDistanceLossFe, other.lastDistanceLossFe);
                 net.faults.addAll(other.faults);
                 // 合并两网时取较热者为并网后网温 (保守: 不因并网凭空散热)。
                 net.temperatureC = Math.max(net.temperatureC, other.temperatureC);
@@ -154,6 +165,7 @@ public final class EnergyNetworkManager {
         net.cables.put(pos, material);
         byCable.put(pos, net);
         net.recomputeProfile();
+        refreshNetworkCooling(net);
         enforceBufferCapacity(net, pos, previousStored, previousCapacities);
         net.endpointsDirty = true;
         activeNetworks.add(net);
@@ -210,11 +222,11 @@ public final class EnergyNetworkManager {
             }
             net.recomputeProfile();
             net.endpointsDirty = true;
-            net.coolingState = source.coolingState;
             if (source.faults.contains(EnergyNetworkFault.BUFFER_OVERFLOW)) {
                 net.faults.add(EnergyNetworkFault.BUFFER_OVERFLOW);
             }
             normalizeFaults(net);
+            refreshNetworkCooling(net);
             components.add(net);
         }
         components.sort(Comparator.comparing(this::networkAnchor, BLOCK_POS_ORDER));
@@ -228,13 +240,19 @@ public final class EnergyNetworkManager {
                     + ": stored=" + source.stored + ", newCapacity=" + totalCapacity);
         }
         long[] storedAllocation = allocateByCapacity(source.stored, components, totalCapacity);
-        long[] lastLossAllocation = allocateByCapacity(source.lastLossFe, components, totalCapacity);
-        long[] totalLossAllocation = allocateByCapacity(source.totalLossFe, components, totalCapacity);
+        long[] lastOverflowAllocation = allocateByCapacity(
+                source.lastBufferOverflowLossFe, components, totalCapacity);
+        long[] totalOverflowAllocation = allocateByCapacity(
+                source.totalBufferOverflowLossFe, components, totalCapacity);
+        long[] lastDistanceLossAllocation = allocateByCapacity(source.lastDistanceLossFe, components, totalCapacity);
+        long[] totalDistanceLossAllocation = allocateByCapacity(source.totalDistanceLossFe, components, totalCapacity);
         for (int i = 0; i < components.size(); i++) {
             EnergyNetwork component = components.get(i);
             component.stored = Math.toIntExact(storedAllocation[i]);
-            component.lastLossFe = Math.toIntExact(lastLossAllocation[i]);
-            component.totalLossFe = totalLossAllocation[i];
+            component.lastBufferOverflowLossFe = Math.toIntExact(lastOverflowAllocation[i]);
+            component.totalBufferOverflowLossFe = totalOverflowAllocation[i];
+            component.lastDistanceLossFe = Math.toIntExact(lastDistanceLossAllocation[i]);
+            component.totalDistanceLossFe = totalDistanceLossAllocation[i];
             for (BlockPos cable : component.cables.keySet()) {
                 byCable.put(cable, component);
             }
@@ -273,8 +291,8 @@ public final class EnergyNetworkManager {
         int storedBefore = net.stored;
         int loss = storedBefore - net.bufferCap();
         net.stored = net.bufferCap();
-        net.lastLossFe = loss;
-        net.totalLossFe += loss;
+        net.lastBufferOverflowLossFe = loss;
+        net.totalBufferOverflowLossFe = Math.addExact(net.totalBufferOverflowLossFe, loss);
         net.faults.add(EnergyNetworkFault.BUFFER_OVERFLOW);
         normalizeFaults(net);
         LOGGER.warn("energy network buffer overflow dimension={} changedAt={} participatingNetworks={} "
@@ -295,6 +313,70 @@ public final class EnergyNetworkManager {
         } else if (net.faults.isEmpty()) {
             net.faults.add(EnergyNetworkFault.NONE);
         }
+    }
+
+    /**
+     * 控制器活跃覆盖变更。一个控制器只可绑定 FACING 指向的一根线缆，最大覆盖契约固定为 64 段。
+     */
+    public void updateCoolingController(BlockPos controllerPos, BlockPos controlledCablePos, int activeCoverageSegments) {
+        if (activeCoverageSegments < 0 || activeCoverageSegments > 64) {
+            throw new IllegalArgumentException("cooling controller coverage must be in [0,64], got "
+                    + activeCoverageSegments);
+        }
+        CoolingControllerState next = new CoolingControllerState(controlledCablePos, activeCoverageSegments);
+        CoolingControllerState previous = coolingControllers.put(controllerPos.immutable(), next);
+        if (previous != null) {
+            changeCoolingCoverage(previous.controlledCablePos(), -previous.activeCoverageSegments());
+        }
+        changeCoolingCoverage(next.controlledCablePos(), next.activeCoverageSegments());
+        refreshNetworkCoolingAt(previous == null ? null : previous.controlledCablePos());
+        refreshNetworkCoolingAt(controlledCablePos);
+    }
+
+    /** 控制器移除时撤销它对所在线缆网的覆盖贡献。 */
+    public void removeCoolingController(BlockPos controllerPos) {
+        CoolingControllerState previous = coolingControllers.remove(controllerPos);
+        if (previous == null) {
+            return;
+        }
+        changeCoolingCoverage(previous.controlledCablePos(), -previous.activeCoverageSegments());
+        refreshNetworkCoolingAt(previous.controlledCablePos());
+    }
+
+    private void changeCoolingCoverage(BlockPos controlledCablePos, int delta) {
+        int previous = coolingCoverageByCable.getOrDefault(controlledCablePos, 0);
+        int next = Math.addExact(previous, delta);
+        if (next < 0) {
+            throw new IllegalStateException("cooling coverage became negative at " + controlledCablePos
+                    + " in " + dimension.location());
+        }
+        if (next == 0) {
+            coolingCoverageByCable.remove(controlledCablePos);
+        } else {
+            coolingCoverageByCable.put(controlledCablePos.immutable(), next);
+        }
+    }
+
+    private void refreshNetworkCoolingAt(BlockPos controlledCablePos) {
+        if (controlledCablePos == null) {
+            return;
+        }
+        EnergyNetwork net = byCable.get(controlledCablePos);
+        if (net != null) {
+            refreshNetworkCooling(net);
+            activeNetworks.add(net);
+        }
+    }
+
+    /** 仅在网络拓扑或控制器状态变化时汇总覆盖，稳态 settlement 不扫描线缆或控制器。 */
+    private void refreshNetworkCooling(EnergyNetwork net) {
+        int coverage = 0;
+        for (BlockPos cable : net.cables.keySet()) {
+            coverage = Math.addExact(coverage, coolingCoverageByCable.getOrDefault(cable, 0));
+        }
+        net.activeCoolingCoverageSegments = coverage;
+        net.refreshCoolingState();
+        normalizeFaults(net);
     }
 
     // ---- BE capability 读写瞬态缓冲 / 网温 (线缆只收不放, 见 EnergyCableBlockEntity) ----------------
@@ -440,6 +522,7 @@ public final class EnergyNetworkManager {
         if (net.endpointsDirty) {
             recomputeEndpoints(level, net);
         }
+        net.lastDistanceLossFe = 0;
         net.faults.remove(EnergyNetworkFault.OVER_VOLTAGE);
         normalizeFaults(net);
         int rated = net.ratedCap;
@@ -483,7 +566,13 @@ public final class EnergyNetworkManager {
                 continue;
             }
             int got = storage.extractEnergy(room, false);
+            if (got < 0 || got > room) {
+                throw new IllegalStateException("energy producer returned invalid extract amount " + got
+                        + " for request " + room + " at " + endpoint + " in " + dimension.location());
+            }
             net.stored += got;
+            int distanceLoss = distanceLossForGross(got, routeFor(net, endpoint));
+            deductDistanceLoss(net, distanceLoss);
             room -= got;
         }
         if (producerScanned > 0) {
@@ -502,9 +591,21 @@ public final class EnergyNetworkManager {
             if (storage == null || !storage.canReceive() || storage.canExtract()) {
                 continue;
             }
-            int sent = storage.receiveEnergy(pushable, false);
+            long routeUnits = routeFor(net, endpoint);
+            int offer = CableThermics.netAfterDistanceLoss(pushable, routeUnits);
+            if (offer == 0) {
+                continue;
+            }
+            int sent = storage.receiveEnergy(offer, false);
+            if (sent < 0 || sent > offer) {
+                throw new IllegalStateException("energy consumer returned invalid receive amount " + sent
+                        + " for request " + offer + " at " + endpoint + " in " + dimension.location());
+            }
+            int gross = CableThermics.grossForDelivered(sent, routeUnits);
+            int distanceLoss = gross - sent;
             net.stored -= sent;
-            pushable -= sent;
+            pushable -= gross;
+            deductDistanceLoss(net, distanceLoss);
             delivered += sent;
         }
         if (consumerScanned > 0) {
@@ -513,7 +614,8 @@ public final class EnergyNetworkManager {
 
         // 依实际送达负载推进网温 (过载升、低载冷)。
         net.lastLoad = delivered;
-        net.temperatureC = CableThermics.advanceTemperature(net.temperatureC, delivered, rated);
+        int thermalLoad = Math.addExact(delivered, net.lastDistanceLossFe);
+        net.temperatureC = CableThermics.advanceTemperature(net.temperatureC, thermalLoad, rated);
         convergeCoolingToAmbient(net);
     }
 
@@ -525,6 +627,7 @@ public final class EnergyNetworkManager {
 
     private void recomputeEndpoints(ServerLevel level, EnergyNetwork net) {
         Set<EnergyEndpointKey> rebuilt = new TreeSet<>();
+        Map<EnergyEndpointKey, BlockPos> attachedCables = new TreeMap<>();
         for (BlockPos cable : net.cables.keySet()) {
             for (Direction dir : Direction.values()) {
                 BlockPos neighbour = cable.relative(dir);
@@ -534,12 +637,92 @@ public final class EnergyNetworkManager {
                 EnergyEndpointKey endpoint = new EnergyEndpointKey(neighbour, dir.getOpposite());
                 if (capAt(level, endpoint) != null) {
                     rebuilt.add(endpoint);
+                    attachedCables.put(endpoint, cable);
                 }
             }
         }
         net.endpoints.clear();
         net.endpoints.addAll(rebuilt);
+        rebuildEndpointRoutes(net, attachedCables);
         net.endpointsDirty = false;
+    }
+
+    /**
+     * 从稳定锚点建立每个端点的代表线路。Dijkstra 仅在端点/拓扑改变时运行，settlement 不接触线缆图。
+     */
+    private void rebuildEndpointRoutes(EnergyNetwork net, Map<EnergyEndpointKey, BlockPos> attachedCables) {
+        BlockPos anchor = networkAnchor(net);
+        Map<BlockPos, EnergyNetwork.EndpointRouteResistance> routesByCable = new HashMap<>();
+        Map<BlockPos, BlockPos> predecessors = new HashMap<>();
+        PriorityQueue<RouteVisit> queue = new PriorityQueue<>(Comparator
+                .comparingLong((RouteVisit visit) -> visit.route().staticCost())
+                .thenComparing(RouteVisit::pos, BLOCK_POS_ORDER));
+        EnergyNetwork.EndpointRouteResistance anchorRoute = EnergyNetwork.EndpointRouteResistance.ZERO
+                .add(net.cables.get(anchor));
+        routesByCable.put(anchor, anchorRoute);
+        queue.add(new RouteVisit(anchor, anchorRoute));
+
+        while (!queue.isEmpty()) {
+            RouteVisit visit = queue.poll();
+            EnergyNetwork.EndpointRouteResistance known = routesByCable.get(visit.pos());
+            if (!visit.route().equals(known)) {
+                continue;
+            }
+            for (Direction direction : Direction.values()) {
+                BlockPos neighbour = visit.pos().relative(direction);
+                CableProfile neighbourProfile = net.cables.get(neighbour);
+                if (neighbourProfile == null) {
+                    continue;
+                }
+                EnergyNetwork.EndpointRouteResistance candidate = visit.route().add(neighbourProfile);
+                EnergyNetwork.EndpointRouteResistance previous = routesByCable.get(neighbour);
+                BlockPos previousPredecessor = predecessors.get(neighbour);
+                boolean better = previous == null || candidate.staticCost() < previous.staticCost()
+                        || candidate.staticCost() == previous.staticCost()
+                        && BLOCK_POS_ORDER.compare(visit.pos(), previousPredecessor) < 0;
+                if (better) {
+                    routesByCable.put(neighbour, candidate);
+                    predecessors.put(neighbour, visit.pos());
+                    queue.add(new RouteVisit(neighbour, candidate));
+                }
+            }
+        }
+
+        net.endpointRoutes.clear();
+        for (Map.Entry<EnergyEndpointKey, BlockPos> entry : attachedCables.entrySet()) {
+            EnergyNetwork.EndpointRouteResistance route = routesByCable.get(entry.getValue());
+            if (route == null) {
+                throw new IllegalStateException("endpoint route missing for " + entry.getKey() + " in "
+                        + dimension.location());
+            }
+            net.endpointRoutes.put(entry.getKey(), route);
+        }
+    }
+
+    private long routeFor(EnergyNetwork net, EnergyEndpointKey endpoint) {
+        EnergyNetwork.EndpointRouteResistance route = net.endpointRoutes.get(endpoint);
+        if (route == null) {
+            throw new IllegalStateException("endpoint route cache missing for " + endpoint + " in "
+                    + dimension.location());
+        }
+        return route.effectiveUnits(net.temperatureC, net.coolingState);
+    }
+
+    private int distanceLossForGross(int gross, long routeUnits) {
+        return gross - CableThermics.netAfterDistanceLoss(gross, routeUnits);
+    }
+
+    private void deductDistanceLoss(EnergyNetwork net, int distanceLoss) {
+        if (distanceLoss == 0) {
+            return;
+        }
+        if (distanceLoss < 0 || distanceLoss > net.stored) {
+            throw new IllegalStateException("distance loss exceeds network buffer in " + dimension.location()
+                    + ": loss=" + distanceLoss + ", stored=" + net.stored);
+        }
+        net.stored -= distanceLoss;
+        net.lastDistanceLossFe = Math.addExact(net.lastDistanceLossFe, distanceLoss);
+        net.totalDistanceLossFe = Math.addExact(net.totalDistanceLossFe, distanceLoss);
     }
 
     private IEnergyStorage capAt(ServerLevel level, EnergyEndpointKey endpoint) {
@@ -567,5 +750,14 @@ public final class EnergyNetworkManager {
             }
         }
         return be.getCapability(ForgeCapabilities.ENERGY, endpoint.direction()).resolve().orElse(null);
+    }
+
+    private record CoolingControllerState(BlockPos controlledCablePos, int activeCoverageSegments) {
+        private CoolingControllerState {
+            controlledCablePos = controlledCablePos.immutable();
+        }
+    }
+
+    private record RouteVisit(BlockPos pos, EnergyNetwork.EndpointRouteResistance route) {
     }
 }

@@ -3,6 +3,7 @@ package com.miningdim.power;
 import com.miningdim.core.Subsystem;
 import com.miningdim.power.client.PowerGeneratorClient;
 import com.miningdim.power.client.PowerMachineClient;
+import com.miningdim.power.client.PowerEndgameClient;
 import com.miningdim.power.cable.PowerCableColors;
 import com.miningdim.power.data.PowerDataGeneration;
 import com.miningdim.power.grid.EnergyNetworkManager;
@@ -38,6 +39,7 @@ public final class PowerSystem implements Subsystem {
                         () -> () -> {
                             PowerGeneratorClient.registerScreens();
                             PowerMachineClient.registerScreens();
+                            PowerEndgameClient.registerScreens();
                         })));
         EnergyNetworkManager.register(forgeBus);
     }

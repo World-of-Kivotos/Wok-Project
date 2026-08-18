@@ -8,6 +8,9 @@
     "miningdim:ofe_copper_wire",
     "miningdim:silver_plated_copper_wire",
     "miningdim:gold_wire",
-    "miningdim:silver_wire"
+    "miningdim:silver_wire",
+    "miningdim:graphene_wire",
+    "miningdim:nbti_superconductor_wire",
+    "miningdim:ybco_superconductor_wire"
   ]
 }

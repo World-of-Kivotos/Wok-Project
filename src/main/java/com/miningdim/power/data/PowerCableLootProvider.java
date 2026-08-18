@@ -20,6 +20,7 @@ final class PowerCableLootProvider extends BlockLootSubProvider {
         for (ConductorMaterial material : PowerRegistry.CABLES.keySet()) {
             add(PowerRegistry.CABLES.get(material).get(), this::createSelfDrop);
         }
+        add(PowerRegistry.TUNGSTEN_HEAT_RESISTANT_CABLE.get(), this::createSelfDrop);
     }
 
     private net.minecraft.world.level.storage.loot.LootTable.Builder createSelfDrop(Block block) {
@@ -28,8 +29,9 @@ final class PowerCableLootProvider extends BlockLootSubProvider {
 
     @Override
     protected Iterable<Block> getKnownBlocks() {
-        return PowerRegistry.CABLES.values().stream()
+        return java.util.stream.Stream.concat(PowerRegistry.CABLES.values().stream()
                 .map(registryObject -> (Block) registryObject.get())
-                .toList();
+                .map(block -> block), java.util.stream.Stream.of(
+                        PowerRegistry.TUNGSTEN_HEAT_RESISTANT_CABLE.get())).toList();
     }
 }

@@ -3,8 +3,13 @@ package com.miningdim.power.cable;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.power.PowerRegistry;
 import com.miningdim.power.grid.CableThermics;
+import com.miningdim.power.grid.EnergyNetworkFault;
 import com.miningdim.power.grid.EnergyNetworkManager;
+import com.miningdim.power.grid.EnergyNetworkSnapshot;
+import com.miningdim.power.grid.VoltageAwareEnergyStorage;
+import com.miningdim.power.grid.VoltageClass;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
@@ -69,7 +74,169 @@ public final class EnergyCableGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY,
+            batch = "energy_cable_multi_face", timeoutTicks = 40)
+    public static void multiFaceEndpointsAndRoundRobinStayFair(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        EnergyNetworkManager manager = EnergyNetworkManager.get(level);
+        BlockState iron = PowerRegistry.CABLES.get(ConductorMaterial.IRON).get().defaultBlockState();
+
+        BlockPos corner = new BlockPos(2, 1, 2);
+        BlockPos northCable = new BlockPos(3, 1, 2);
+        BlockPos westCable = new BlockPos(2, 1, 3);
+        helper.setBlock(corner, iron);
+        helper.setBlock(northCable, iron);
+        helper.setBlock(westCable, iron);
+
+        CountingSource sourceWest = new CountingSource(4_096);
+        CountingSource sourceNorth = new CountingSource(4_096);
+        CountingSink sinkNorthFace = new CountingSink();
+        CountingSink sinkWestFace = new CountingSink();
+        BlockPos sharedEndpoint = helper.absolutePos(new BlockPos(3, 1, 3));
+        manager.debugPutSyntheticEndpoint(helper.absolutePos(new BlockPos(1, 1, 2)), Direction.EAST, sourceWest);
+        manager.debugPutSyntheticEndpoint(helper.absolutePos(new BlockPos(2, 1, 1)), Direction.SOUTH, sourceNorth);
+        manager.debugPutSyntheticEndpoint(sharedEndpoint, Direction.NORTH, sinkNorthFace);
+        manager.debugPutSyntheticEndpoint(sharedEndpoint, Direction.WEST, sinkWestFace);
+
+        BlockPos networkPos = helper.absolutePos(corner);
+        helper.startSequence()
+                .thenIdle(4)
+                .thenExecute(() -> {
+                    helper.assertTrue(manager.debugEndpointCountAt(networkPos) == 4,
+                            "同一方块的两个查询面必须与两个源一起保留为 4 个端点，实得 "
+                                    + manager.debugEndpointCountAt(networkPos));
+                    helper.assertTrue(sourceWest.extracted() > 0 && sourceNorth.extracted() > 0,
+                            "双生产端必须都获得轮转额度，实得 "
+                                    + sourceWest.extracted() + "/" + sourceNorth.extracted());
+                    helper.assertTrue(Math.abs(sourceWest.extracted() - sourceNorth.extracted()) <= 256,
+                            "双生产端四 tick 累计差不得超过一轮 256 FE，实得 "
+                                    + sourceWest.extracted() + "/" + sourceNorth.extracted());
+                    helper.assertTrue(sinkNorthFace.received() > 0 && sinkWestFace.received() > 0,
+                            "同坐标双面消费端必须都获得轮转额度，实得 "
+                                    + sinkNorthFace.received() + "/" + sinkWestFace.received());
+                    helper.assertTrue(Math.abs(sinkNorthFace.received() - sinkWestFace.received()) <= 256,
+                            "双面消费端四 tick 累计差不得超过一轮 256 FE，实得 "
+                                    + sinkNorthFace.received() + "/" + sinkWestFace.received());
+                })
+                .thenExecute(manager::debugClearSyntheticEndpoints)
+                .thenSucceed();
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void splitDistributesAndMergeAccountsForOverflow(GameTestHelper helper) {
+        EnergyNetworkManager manager = EnergyNetworkManager.get(helper.getLevel());
+        BlockState copper = PowerRegistry.CABLES.get(ConductorMaterial.COPPER).get().defaultBlockState();
+        BlockState iron = PowerRegistry.CABLES.get(ConductorMaterial.IRON).get().defaultBlockState();
+        BlockPos a = new BlockPos(2, 1, 1);
+        BlockPos bridge = new BlockPos(2, 1, 2);
+        BlockPos c = new BlockPos(2, 1, 3);
+        BlockPos aAbs = helper.absolutePos(a);
+        BlockPos cAbs = helper.absolutePos(c);
+        helper.setBlock(a, copper);
+        helper.setBlock(bridge, iron);
+        helper.setBlock(c, iron);
+        helper.assertTrue(manager.receiveIntoNetwork(aAbs, 200, false) == 200,
+                "混级网必须先接收 200 FE 作为拆网守恒输入");
+
+        helper.setBlock(bridge, Blocks.AIR);
+        helper.assertTrue(manager.storedAt(aAbs) == 167 && manager.storedAt(cAbs) == 33,
+                "拆网必须按 1280:256 容量比例精确分配为 167/33，实得 "
+                        + manager.storedAt(aAbs) + "/" + manager.storedAt(cAbs));
+        helper.assertTrue(manager.receiveIntoNetwork(aAbs, 1_113, false) == 1_113,
+                "铜分量必须可补满至 1280 FE");
+        helper.assertTrue(manager.receiveIntoNetwork(cAbs, 223, false) == 223,
+                "铁分量必须可补满至 256 FE");
+
+        helper.setBlock(bridge, iron);
+        EnergyNetworkSnapshot merged = manager.snapshotAt(aAbs).orElseThrow();
+        helper.assertTrue(merged.storedFe() == 256,
+                "合网后缓冲必须显式裁到新容量 256 FE，实得 " + merged.storedFe());
+        helper.assertTrue(merged.lastLossFe() == 1_280 && merged.totalLossFe() == 1_280,
+                "合网前 1536 FE 必须记账损失 1280 FE，实得 "
+                        + merged.lastLossFe() + "/" + merged.totalLossFe());
+        helper.assertTrue(merged.storedFe() + merged.lastLossFe() == 1_536,
+                "合网存量与损失之和必须守恒为 1536 FE");
+        helper.assertTrue(merged.faults().contains(EnergyNetworkFault.BUFFER_OVERFLOW),
+                "合网裁剪必须在只读快照留下 BUFFER_OVERFLOW 故障");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY,
+            batch = "energy_cable_voltage", timeoutTicks = 40)
+    public static void overvoltageTripsInternalSourceButThirdPartyLowWorks(GameTestHelper helper) {
+        helper.assertTrue(ConductorMaterial.IRON.voltageClass() == VoltageClass.LOW
+                        && ConductorMaterial.ALUMINUM.voltageClass() == VoltageClass.LOW
+                        && ConductorMaterial.COPPER.voltageClass() == VoltageClass.LOW
+                        && ConductorMaterial.TINNED_COPPER.voltageClass() == VoltageClass.MEDIUM
+                        && ConductorMaterial.OFC_COPPER.voltageClass() == VoltageClass.MEDIUM
+                        && ConductorMaterial.OFE_COPPER.voltageClass() == VoltageClass.MEDIUM
+                        && ConductorMaterial.SILVER_PLATED_COPPER.voltageClass() == VoltageClass.HIGH
+                        && ConductorMaterial.GOLD.voltageClass() == VoltageClass.HIGH
+                        && ConductorMaterial.SILVER.voltageClass() == VoltageClass.HIGH
+                        && ConductorMaterial.GRAPHENE.voltageClass() == VoltageClass.EXTREME
+                        && ConductorMaterial.NBTI_SUPERCONDUCTOR.voltageClass() == VoltageClass.EXTREME
+                        && ConductorMaterial.YBCO_SUPERCONDUCTOR.voltageClass() == VoltageClass.EXTREME,
+                "十二级导体的四档耐压边界必须保持 T1-3/T4-6/T7-9/T10-12");
+
+        EnergyNetworkManager manager = EnergyNetworkManager.get(helper.getLevel());
+        BlockState iron = PowerRegistry.CABLES.get(ConductorMaterial.IRON).get().defaultBlockState();
+        BlockPos protectedCable = new BlockPos(2, 1, 2);
+        BlockPos fullBufferCable = new BlockPos(4, 1, 2);
+        BlockPos thirdPartyCable = new BlockPos(6, 1, 2);
+        helper.setBlock(protectedCable, iron);
+        helper.setBlock(fullBufferCable, iron);
+        helper.setBlock(thirdPartyCable, iron);
+
+        VoltageCountingSource highSource = new VoltageCountingSource(VoltageClass.HIGH, 1_024);
+        VoltageCountingSource fullBufferHighSource = new VoltageCountingSource(VoltageClass.HIGH, 1_024);
+        CountingSink protectedSink = new CountingSink();
+        CountingSource thirdPartySource = new CountingSource(1_024);
+        CountingSink thirdPartySink = new CountingSink();
+        manager.debugPutSyntheticEndpoint(helper.absolutePos(new BlockPos(2, 1, 1)), Direction.SOUTH, highSource);
+        manager.debugPutSyntheticEndpoint(helper.absolutePos(new BlockPos(2, 1, 3)), Direction.NORTH, protectedSink);
+        manager.debugPutSyntheticEndpoint(helper.absolutePos(new BlockPos(4, 1, 1)), Direction.SOUTH,
+                fullBufferHighSource);
+        manager.debugPutSyntheticEndpoint(helper.absolutePos(new BlockPos(6, 1, 1)), Direction.SOUTH, thirdPartySource);
+        manager.debugPutSyntheticEndpoint(helper.absolutePos(new BlockPos(6, 1, 3)), Direction.NORTH, thirdPartySink);
+
+        BlockPos protectedAbs = helper.absolutePos(protectedCable);
+        BlockPos fullBufferAbs = helper.absolutePos(fullBufferCable);
+        helper.assertTrue(manager.receiveIntoNetwork(fullBufferAbs, 256, false) == 256,
+                "满缓冲过压场景必须预置 256 FE");
+        helper.startSequence()
+                .thenIdle(2)
+                .thenExecute(() -> {
+                    helper.assertTrue(highSource.extracted() == 0,
+                            "HIGH 自研源接 LOW 网络不得被抽取，实抽 " + highSource.extracted());
+                    helper.assertTrue(highSource.overvoltageReports() > 0
+                                    && highSource.lastNetworkLimit() == VoltageClass.LOW,
+                            "过压必须回报 LOW 网耐压，回报次数/档位为 "
+                                    + highSource.overvoltageReports() + "/" + highSource.lastNetworkLimit());
+                    helper.assertTrue(protectedSink.received() == 0,
+                            "过压网络不得向汇送电，实送 " + protectedSink.received());
+                    EnergyNetworkSnapshot snapshot = manager.snapshotAt(protectedAbs).orElseThrow();
+                    helper.assertTrue(snapshot.voltageLimit() == VoltageClass.LOW
+                                    && snapshot.faults().contains(EnergyNetworkFault.OVER_VOLTAGE),
+                            "LOW 网络快照必须报告 OVER_VOLTAGE");
+                    EnergyNetworkSnapshot fullBufferSnapshot = manager.snapshotAt(fullBufferAbs).orElseThrow();
+                    helper.assertTrue(fullBufferHighSource.extracted() == 0
+                                    && fullBufferHighSource.overvoltageReports() > 0,
+                            "满缓冲时 HIGH 自研源仍须被拒绝并收到过压回报，实得抽取/回报 "
+                                    + fullBufferHighSource.extracted() + "/"
+                                    + fullBufferHighSource.overvoltageReports());
+                    helper.assertTrue(fullBufferSnapshot.storedFe() == 256
+                                    && fullBufferSnapshot.faults().contains(EnergyNetworkFault.OVER_VOLTAGE),
+                            "满缓冲 LOW 网络必须保留 256 FE 并在快照报告过压");
+                    helper.assertTrue(thirdPartySource.extracted() > 0 && thirdPartySink.received() > 0,
+                            "普通 IEnergyStorage 必须按 LOW 兼容并完成传输，实得 "
+                                    + thirdPartySource.extracted() + "/" + thirdPartySink.received());
+                })
+                .thenExecute(manager::debugClearSyntheticEndpoints)
+                .thenSucceed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY,
+            batch = "energy_cable_idle_scheduler", timeoutTicks = 40)
     public static void cableCapabilityIsReceiveOnlyAndSharesBufferAcrossNetwork(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         EnergyNetworkManager manager = EnergyNetworkManager.get(level);
@@ -101,7 +268,11 @@ public final class EnergyCableGameTests {
         helper.assertTrue(accepted2 == 156, "越量收电应受缓冲余量(156)限制, 实收 " + accepted2);
         helper.assertTrue(manager.storedAt(firstAbs) == 256,
                 "缓冲应填满至 256, 实读 " + manager.storedAt(firstAbs));
-        helper.succeed();
+        helper.startSequence()
+                .thenIdle(2)
+                .thenExecute(() -> helper.assertTrue(!manager.debugNetworkActiveAt(firstAbs),
+                        "无端点且环境温度的稳态网络必须退出活跃调度集合"))
+                .thenSucceed();
     }
 
     /**
@@ -223,5 +394,124 @@ public final class EnergyCableGameTests {
                 return true;
             }
         };
+    }
+
+    private static class CountingSource implements IEnergyStorage {
+        private int energy;
+        private int extracted;
+
+        private CountingSource(int energy) {
+            this.energy = energy;
+        }
+
+        int extracted() {
+            return extracted;
+        }
+
+        @Override
+        public int receiveEnergy(int maxReceive, boolean simulate) {
+            return 0;
+        }
+
+        @Override
+        public int extractEnergy(int maxExtract, boolean simulate) {
+            int extractedNow = Math.min(maxExtract, energy);
+            if (!simulate) {
+                energy -= extractedNow;
+                extracted += extractedNow;
+            }
+            return extractedNow;
+        }
+
+        @Override
+        public int getEnergyStored() {
+            return energy;
+        }
+
+        @Override
+        public int getMaxEnergyStored() {
+            return energy + extracted;
+        }
+
+        @Override
+        public boolean canExtract() {
+            return true;
+        }
+
+        @Override
+        public boolean canReceive() {
+            return false;
+        }
+    }
+
+    private static final class VoltageCountingSource extends CountingSource implements VoltageAwareEnergyStorage {
+        private final VoltageClass voltage;
+        private int overvoltageReports;
+        private VoltageClass lastNetworkLimit;
+
+        private VoltageCountingSource(VoltageClass voltage, int energy) {
+            super(energy);
+            this.voltage = voltage;
+        }
+
+        int overvoltageReports() {
+            return overvoltageReports;
+        }
+
+        VoltageClass lastNetworkLimit() {
+            return lastNetworkLimit;
+        }
+
+        @Override
+        public VoltageClass outputVoltage() {
+            return voltage;
+        }
+
+        @Override
+        public void reportOvervoltage(VoltageClass networkLimit) {
+            overvoltageReports++;
+            lastNetworkLimit = networkLimit;
+        }
+    }
+
+    private static final class CountingSink implements IEnergyStorage {
+        private int received;
+
+        int received() {
+            return received;
+        }
+
+        @Override
+        public int receiveEnergy(int maxReceive, boolean simulate) {
+            if (!simulate) {
+                received += maxReceive;
+            }
+            return maxReceive;
+        }
+
+        @Override
+        public int extractEnergy(int maxExtract, boolean simulate) {
+            return 0;
+        }
+
+        @Override
+        public int getEnergyStored() {
+            return received;
+        }
+
+        @Override
+        public int getMaxEnergyStored() {
+            return Integer.MAX_VALUE;
+        }
+
+        @Override
+        public boolean canExtract() {
+            return false;
+        }
+
+        @Override
+        public boolean canReceive() {
+            return true;
+        }
     }
 }

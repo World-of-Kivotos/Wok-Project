@@ -2,6 +2,7 @@ package com.miningdim.power.cable;
 
 import com.miningdim.power.PowerRegistry;
 import com.miningdim.power.grid.EnergyNetworkManager;
+import com.miningdim.power.grid.EnergyNetworkSnapshot;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -12,6 +13,8 @@ import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.common.util.LazyOptional;
 import net.minecraftforge.energy.IEnergyStorage;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Optional;
 
 /**
  * 线缆方块实体。刻意无 ticker: 全部搬电工作由 {@link EnergyNetworkManager} 每 settlement 统一做 (抗掉刻),
@@ -87,6 +90,12 @@ public final class EnergyCableBlockEntity extends BlockEntity {
     public double networkLoadRatio() {
         EnergyNetworkManager manager = manager();
         return manager == null ? 0.0 : manager.networkLoadRatioAt(worldPosition);
+    }
+
+    /** 后续 Jade 集成只读取不可变快照；空值仅表示客户端侧或服务端尚未完成并网。 */
+    public Optional<EnergyNetworkSnapshot> networkSnapshot() {
+        EnergyNetworkManager manager = manager();
+        return manager == null ? Optional.empty() : manager.snapshotAt(worldPosition);
     }
 
     @Override

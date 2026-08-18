@@ -48,9 +48,12 @@ public final class MiningClientConfig {
         b.push("webui");
         // 单一 URL (决策 J4): 面板路由由页面自身的 hash router 承担, Java 侧不按面板切 URL ——
         // 换 URL 会丢弃已加载的单例浏览器实例, 与架构文档 10.5 的预加载复用策略冲突。
-        // 默认指向本地 vite dev server; 生产环境改为远端托管地址 (架构文档第二章第 2 条, 路线 A)。
+        // 默认必须是生产地址: 这份配置由 Forge 在玩家首次进游戏时自动生成, 玩家不会去改它。默认值曾是
+        // 本地 vite dev server (http://localhost:5173/), 结果每个新玩家的面板都在连自己电脑上并不存在的
+        // 开发服务器 —— 浏览器是透明底的, 加载失败就只剩一层近黑背板, 玩家看到的就是"黑屏"。
+        // 前端开发时在自己那份 config/miningdim-client.toml 里把它改回 localhost 即可, 不要改默认值。
         WEBUI_URL = b.comment("Single URL of the in-game Web UI front-end; panel routing is handled by the page's own hash router")
-                .define("url", "http://localhost:5173/", MiningClientConfig::isHttpUrl);
+                .define("url", "https://home.shinoyuki.cn:8443/ui/", MiningClientConfig::isHttpUrl);
         // 页面缩放走 CEF 自己的 zoom (setZoomLevel) 而不是前端 CSS transform: CEF 的 zoom 参与布局,
         // 媒体查询与滚动条都按缩放后的 CSS 视口重算; CSS transform 只是把已经排好版的画面拉大, 会在
         // 窄视口下把响应式断点卡在错误的一档。

@@ -139,14 +139,23 @@ public final class WebUiScreen extends Screen {
             renderLoadFailure(graphics, failure);
         } else if (browser != null && browser.isReady()) {
             int textureId = browser.getTextureId();
-            if (textureId > 0) {
+            // hasPainted 而非仅 textureId > 0: 纹理 id 在 CEF 出首帧之前就是合法值, 只看 id 会把一张空白
+            // 纹理当画面画出去 (纯黑面板, 且下面的加载提示永远不显示)。见 WebBrowser#hasPainted。
+            if (textureId > 0 && browser.hasPainted()) {
                 // 后两个参数是宽高, 不是右下角坐标 (见 WebBrowser.render 的顶点拼装)。
                 // 传 panelX+panelWidth 会把面板拉成"起点在中心、尺寸按右下角算"的样子, 溢出屏幕右下 ——
                 // 全屏时因为起点是 (0,0) 两种口径恰好等价, 所以这个错只在居中之后才看得出来。
                 browser.render(graphics, panelX, panelY, panelWidth, panelHeight);
             } else {
-                graphics.drawCenteredString(this.font, "Loading WebUI...",
-                        this.width / 2, this.height / 2, 0xFFFFFF);
+                graphics.drawCenteredString(this.font,
+                        Component.translatable("gui.miningdim.webui.loading"),
+                        this.width / 2, this.height / 2, 0xFFD6DCE7);
+                // 页面已经在报错却迟迟不出帧时, 把控制台首条 error 一并摊开 —— 否则玩家只看到一直"加载中"。
+                String consoleError = browser.lastConsoleError();
+                if (consoleError != null) {
+                    graphics.drawCenteredString(this.font, consoleError,
+                            this.width / 2, this.height / 2 + this.font.lineHeight * 2, 0xFFE0525C);
+                }
             }
         } else {
             graphics.drawCenteredString(this.font, "WebUI browser not ready",

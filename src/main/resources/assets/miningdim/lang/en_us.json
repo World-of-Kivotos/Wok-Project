@@ -1088,5 +1088,6 @@
   "jade.miningdim.power.controller.coverage": "NbTi coverage: %1$s segments",
   "gui.miningdim.webui.load_failed": "Web UI failed to load",
   "gui.miningdim.webui.load_failed.code": "%s (%s)",
-  "gui.miningdim.webui.load_failed.hint": "Check webui.url in config/miningdim-client.toml"
+  "gui.miningdim.webui.load_failed.hint": "Check webui.url in config/miningdim-client.toml",
+  "gui.miningdim.webui.loading": "Loading Web UI..."
 }

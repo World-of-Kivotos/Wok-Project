@@ -5,8 +5,13 @@ import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.awt.Rectangle;
+import java.nio.ByteBuffer;
+
+import org.cef.CefSettings;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
+import org.cef.handler.CefDisplayHandlerAdapter;
 import org.cef.handler.CefLoadHandler;
 import org.cef.handler.CefLoadHandlerAdapter;
 
@@ -53,6 +58,14 @@ public final class WebBrowser {
     @Nullable
     private volatile LoadFailure loadFailure;
 
+    /** 与 {@link #browser} 同一对象, 单独持一份强类型引用用于查首帧; close 时一并置空。 */
+    @Nullable
+    private volatile PaintAwareBrowser paintTracker;
+
+    /** 最近一条 error 级页面控制台消息 (供面板直接显示; 排查黑屏时这是唯一能拿到的页面侧线索)。 */
+    @Nullable
+    private volatile String lastConsoleError;
+
     /**
      * 当前持有底层浏览器的宿主实例。
      *
@@ -85,8 +98,9 @@ public final class WebBrowser {
         }
         this.width = width;
         this.height = height;
-        MCEFBrowser created = MCEF.createBrowser(url, transparent, width, height);
+        PaintAwareBrowser created = new PaintAwareBrowser(url, transparent, width, height);
         this.browser = created;
+        this.paintTracker = created;
         this.loadFailure = null;
         active = this;
         registerLoadHandlerOnce();
@@ -127,6 +141,27 @@ public final class WebBrowser {
                     LOGGER.warn("WebUI 页面加载失败: {} ({}) <- {}", errorCode, errorText, failedUrl);
                 }
             });
+            MCEF.getClient().addDisplayHandler(new CefDisplayHandlerAdapter() {
+                @Override
+                public boolean onConsoleMessage(CefBrowser cefBrowser, CefSettings.LogSeverity level,
+                        String message, String source, int line) {
+                    String text = message + " (" + source + ":" + line + ")";
+                    if (level == CefSettings.LogSeverity.LOGSEVERITY_ERROR
+                            || level == CefSettings.LogSeverity.LOGSEVERITY_FATAL) {
+                        WebBrowser host = active;
+                        if (host != null && host.browser == cefBrowser) {
+                            host.lastConsoleError = text;
+                        }
+                        LOGGER.error("WebUI 页面控制台: {}", text);
+                    } else if (level == CefSettings.LogSeverity.LOGSEVERITY_WARNING) {
+                        LOGGER.warn("WebUI 页面控制台: {}", text);
+                    } else {
+                        LOGGER.info("WebUI 页面控制台: {}", text);
+                    }
+                    // false = 不吞, 让 CEF 继续按自身设置处理这条消息。
+                    return false;
+                }
+            });
             handlerRegistered = true;
         }
     }
@@ -144,6 +179,53 @@ public final class WebBrowser {
     @Nullable
     public LoadFailure loadFailure() {
         return loadFailure;
+    }
+
+    /**
+     * CEF 是否已经交出过至少一帧画面。
+     *
+     * 不能用 {@code getTextureId() > 0} 代替: MCEFRenderer.initialize() 一上来就 glGenTextures 拿到了合法
+     * 纹理 id, 首帧之前那张纹理是空白的。据此判"就绪"会把一张全黑纹理当正常画面画出去 —— 表现就是玩家看到
+     * 纯黑面板, 而且连"正在加载"这类兜底提示都被跳过, 拿不到任何线索 (2026-08-19 黑屏排查即卡在这一点)。
+     */
+    public boolean hasPainted() {
+        PaintAwareBrowser tracker = paintTracker;
+        return tracker != null && tracker.painted;
+    }
+
+    /** 最近一条页面控制台错误; null 表示尚未出现。 */
+    @Nullable
+    public String lastConsoleError() {
+        return lastConsoleError;
+    }
+
+    /**
+     * 可观测首帧的浏览器。
+     *
+     * 构造步骤与 {@code MCEF.createBrowser(url, transparent, w, h)} 逐条对齐 (已 javap 核对其字节码:
+     * new MCEFBrowser -> setCloseAllowed -> createImmediately -> resize)。自建而不复用那个工厂, 只为拿到
+     * onPaint 这个覆写点; 升级 MCEF 时需重新核对该方法有无新增步骤。
+     */
+    private static final class PaintAwareBrowser extends MCEFBrowser {
+
+        private volatile boolean painted;
+
+        private PaintAwareBrowser(String url, boolean transparent, int width, int height) {
+            super(MCEF.getClient(), url, transparent);
+            setCloseAllowed();
+            createImmediately();
+            resize(width, height);
+        }
+
+        @Override
+        public void onPaint(CefBrowser browser, boolean popup, Rectangle[] dirtyRects,
+                ByteBuffer buffer, int width, int height) {
+            super.onPaint(browser, popup, dirtyRects, buffer, width, height);
+            // 弹出层 (下拉框等) 单独走一张表面, 不能作为主画面已出帧的证据。
+            if (!popup) {
+                painted = true;
+            }
+        }
     }
 
     public void executeJavaScript(String script) {
@@ -302,6 +384,7 @@ public final class WebBrowser {
             return;
         }
         browser = null;
+        paintTracker = null;
         loadFailure = null;
         // 全局 handler 靠 active 回找宿主, 实例关掉后必须撤下, 否则它会拿着一个已失效的宿主继续比对。
         if (active == this) {

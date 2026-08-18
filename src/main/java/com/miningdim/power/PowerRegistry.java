@@ -48,14 +48,15 @@ public final class PowerRegistry {
             DeferredRegister.create(ForgeRegistries.BLOCK_ENTITY_TYPES, MiningConstants.MODID);
 
     /**
-     * P1 实际注册方块的导体材料白名单: 仅铁、铜 (原版金属可直接 raw 搓)。{@code ConductorMaterial} 其余 10 行
+     * P1 实际注册方块的导体材料白名单: 铁、铝、铜。{@code ConductorMaterial} 其余 9 行
      * 数据已就位, 待各自门槛 (新矿 / 提纯机 / 镀层 / 合成) 落地后逐级加入本表点亮, 见 ConductorMaterial 类注释。
      */
-    private static final List<ConductorMaterial> P1_MATERIALS = List.of(
-            ConductorMaterial.IRON, ConductorMaterial.COPPER);
+    public static final List<ConductorMaterial> P1_MATERIALS = List.of(
+            ConductorMaterial.IRON, ConductorMaterial.ALUMINUM, ConductorMaterial.COPPER);
 
     public static final Map<ConductorMaterial, RegistryObject<EnergyCableBlock>> CABLES = registerCables();
     public static final Map<ConductorMaterial, RegistryObject<Item>> CABLE_ITEMS = registerCableItems();
+    public static final Map<ConductorMaterial, RegistryObject<Item>> WIRE_ITEMS = registerWireItems();
 
     /** 全部线缆级共用一个方块实体类型 (范式同入口三方块共用 ENTRANCE 类型)。 */
     public static final RegistryObject<BlockEntityType<EnergyCableBlockEntity>> ENERGY_CABLE_BE =
@@ -79,6 +80,14 @@ public final class PowerRegistry {
         for (ConductorMaterial material : P1_MATERIALS) {
             map.put(material, ITEMS.register(material.blockId(),
                     () -> new BlockItem(CABLES.get(material).get(), new Item.Properties())));
+        }
+        return map;
+    }
+
+    private static Map<ConductorMaterial, RegistryObject<Item>> registerWireItems() {
+        Map<ConductorMaterial, RegistryObject<Item>> map = new EnumMap<>(ConductorMaterial.class);
+        for (ConductorMaterial material : P1_MATERIALS) {
+            map.put(material, ITEMS.register(material.id() + "_wire", () -> new Item(new Item.Properties())));
         }
         return map;
     }

@@ -13,8 +13,13 @@ import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.energy.IEnergyStorage;
 import net.minecraftforge.gametest.GameTestHolder;
@@ -33,6 +38,104 @@ public final class EnergyCableGameTests {
     private static final String BATCH = "energy_cable";
 
     private EnergyCableGameTests() {
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void p1CableAndWireRegistrationsPreserveExistingIds(GameTestHelper helper) {
+        ConductorMaterial[] p1 = {
+                ConductorMaterial.IRON,
+                ConductorMaterial.ALUMINUM,
+                ConductorMaterial.COPPER
+        };
+        helper.assertTrue(PowerRegistry.CABLES.size() == 3
+                        && PowerRegistry.CABLE_ITEMS.size() == 3
+                        && PowerRegistry.WIRE_ITEMS.size() == 3,
+                "P1 只能注册铁、铝、铜三种线缆、方块物品和导线，实得 "
+                        + PowerRegistry.CABLES.size() + "/"
+                        + PowerRegistry.CABLE_ITEMS.size() + "/"
+                        + PowerRegistry.WIRE_ITEMS.size());
+        for (ConductorMaterial material : p1) {
+            helper.assertTrue(PowerRegistry.CABLES.get(material).getId().getPath().equals(material.blockId())
+                            && PowerRegistry.CABLE_ITEMS.get(material).getId().getPath().equals(material.blockId())
+                            && PowerRegistry.WIRE_ITEMS.get(material).getId().getPath().equals(material.id() + "_wire")
+                            && PowerRegistry.CABLES.get(material).get().material() == material,
+                    "P1 " + material.id() + " 必须保留线缆 ID、注册方块物品并新增匹配导线");
+        }
+        helper.assertTrue(ConductorMaterial.IRON.ratedCapacityFe() == 256
+                        && ConductorMaterial.ALUMINUM.ratedCapacityFe() == 768
+                        && ConductorMaterial.COPPER.ratedCapacityFe() == 1_280,
+                "P1 铁、铝、铜容量必须固定为 256/768/1280 FE/t");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void cableSixWayConnectionsAndShapesTrackPlacedNeighbours(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockState iron = PowerRegistry.CABLES.get(ConductorMaterial.IRON).get().defaultBlockState();
+        BlockPos center = new BlockPos(4, 2, 4);
+        BlockPos centerAbs = helper.absolutePos(center);
+        helper.setBlock(center, iron);
+        for (Direction direction : Direction.values()) {
+            helper.setBlock(center.relative(direction), iron);
+            helper.assertTrue(level.getBlockState(centerAbs).getValue(connectionProperty(direction)),
+                    "放置 " + direction + " 邻缆后中心线缆必须接通该方向");
+        }
+        for (Direction direction : Direction.values()) {
+            helper.setBlock(center.relative(direction), Blocks.AIR);
+            helper.assertTrue(!level.getBlockState(centerAbs).getValue(connectionProperty(direction)),
+                    "移除 " + direction + " 邻缆后中心线缆必须断开该方向");
+        }
+
+        EnergyCableBlock cable = (EnergyCableBlock) level.getBlockState(centerAbs).getBlock();
+        BlockState disconnected = level.getBlockState(centerAbs);
+        VoxelShape disconnectedShape = cable.getShape(disconnected, level, centerAbs, CollisionContext.empty());
+        VoxelShape disconnectedCollision = cable.getCollisionShape(disconnected, level, centerAbs,
+                CollisionContext.empty());
+        assertShapeBounds(helper, disconnectedShape, 0.375D, 0.625D, 0.375D, 0.625D, 0.375D, 0.625D,
+                "无臂线缆外形");
+        assertShapeBounds(helper, disconnectedCollision, 0.375D, 0.625D, 0.375D, 0.625D, 0.375D, 0.625D,
+                "无臂线缆碰撞");
+        helper.assertTrue(!cable.isCollisionShapeFullBlock(disconnected, level, centerAbs),
+                "无臂线缆碰撞不得是满方块");
+
+        BlockState eastWest = disconnected.setValue(EnergyCableBlock.EAST, true)
+                .setValue(EnergyCableBlock.WEST, true);
+        VoxelShape eastWestShape = cable.getShape(eastWest, level, centerAbs, CollisionContext.empty());
+        VoxelShape eastWestCollision = cable.getCollisionShape(eastWest, level, centerAbs, CollisionContext.empty());
+        assertShapeBounds(helper, eastWestShape, 0.0D, 1.0D, 0.375D, 0.625D, 0.375D, 0.625D,
+                "东西轴向线缆外形");
+        assertShapeBounds(helper, eastWestCollision, 0.0D, 1.0D, 0.375D, 0.625D, 0.375D, 0.625D,
+                "东西轴向线缆碰撞");
+        helper.assertTrue(!cable.isCollisionShapeFullBlock(eastWest, level, centerAbs),
+                "东西轴向线缆碰撞不得是满方块");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void cableOnLoadRepairsStaleConnectionStateWithoutTicker(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockState iron = PowerRegistry.CABLES.get(ConductorMaterial.IRON).get().defaultBlockState();
+        BlockPos center = new BlockPos(4, 2, 4);
+        BlockPos east = center.relative(Direction.EAST);
+        BlockPos centerAbs = helper.absolutePos(center);
+        helper.setBlock(east, iron);
+        helper.setBlock(center, iron);
+        BlockState stale = level.getBlockState(centerAbs).setValue(EnergyCableBlock.EAST, false);
+        level.setBlock(centerAbs, stale, Block.UPDATE_CLIENTS);
+        helper.assertTrue(!level.getBlockState(centerAbs).getValue(EnergyCableBlock.EAST),
+                "测试前必须构造出已加载邻缆旁的陈旧断开状态");
+
+        BlockEntity blockEntity = level.getBlockEntity(centerAbs);
+        helper.assertTrue(blockEntity instanceof EnergyCableBlockEntity,
+                "线缆必须具有 EnergyCableBlockEntity 以执行 chunk load 修复");
+        blockEntity.onLoad();
+        BlockState repaired = level.getBlockState(centerAbs);
+        helper.assertTrue(repaired.getValue(EnergyCableBlock.EAST),
+                "真实 EnergyCableBlockEntity.onLoad 必须修复陈旧 EAST 连接");
+        EnergyCableBlock cable = (EnergyCableBlock) repaired.getBlock();
+        helper.assertTrue(cable.getTicker(level, repaired, PowerRegistry.ENERGY_CABLE_BE.get()) == null,
+                "线缆修复不得引入逐方块 ticker");
+        helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
@@ -324,6 +427,31 @@ public final class EnergyCableGameTests {
                             "撤载冷却后网温必须回落近环境, 实为 " + temp);
                 })
                 .thenSucceed();
+    }
+
+    private static BooleanProperty connectionProperty(Direction direction) {
+        return switch (direction) {
+            case DOWN -> EnergyCableBlock.DOWN;
+            case UP -> EnergyCableBlock.UP;
+            case NORTH -> EnergyCableBlock.NORTH;
+            case SOUTH -> EnergyCableBlock.SOUTH;
+            case WEST -> EnergyCableBlock.WEST;
+            case EAST -> EnergyCableBlock.EAST;
+        };
+    }
+
+    private static void assertShapeBounds(GameTestHelper helper, VoxelShape shape,
+                                          double minX, double maxX, double minY, double maxY,
+                                          double minZ, double maxZ, String label) {
+        helper.assertTrue(!shape.isEmpty()
+                        && shape.min(Direction.Axis.X) == minX && shape.max(Direction.Axis.X) == maxX
+                        && shape.min(Direction.Axis.Y) == minY && shape.max(Direction.Axis.Y) == maxY
+                        && shape.min(Direction.Axis.Z) == minZ && shape.max(Direction.Axis.Z) == maxZ,
+                label + " 边界必须为 x=" + minX + ".." + maxX
+                        + " y=" + minY + ".." + maxY + " z=" + minZ + ".." + maxZ
+                        + "，实为 x=" + shape.min(Direction.Axis.X) + ".." + shape.max(Direction.Axis.X)
+                        + " y=" + shape.min(Direction.Axis.Y) + ".." + shape.max(Direction.Axis.Y)
+                        + " z=" + shape.min(Direction.Axis.Z) + ".." + shape.max(Direction.Axis.Z));
     }
 
     /** 合成无限源: 只出不进 (canExtract), 供热学测试制造持续满载。 */

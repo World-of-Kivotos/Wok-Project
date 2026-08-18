@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "miningdim:aluminum_ingot"
+    },
+    {
+      "item": "miningdim:aluminum_ingot"
+    },
+    {
+      "item": "miningdim:aluminum_ingot"
+    }
+  ],
+  "result": {
+    "count": 6,
+    "item": "miningdim:aluminum_wire"
+  }
+}

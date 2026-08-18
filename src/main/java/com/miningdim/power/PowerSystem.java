@@ -1,6 +1,7 @@
 package com.miningdim.power;
 
 import com.miningdim.core.Subsystem;
+import com.miningdim.power.cable.PowerCableColors;
 import com.miningdim.power.data.PowerDataGeneration;
 import com.miningdim.power.grid.EnergyNetworkManager;
 import com.miningdim.power.mineral.PowerMineralColors;
@@ -20,7 +21,10 @@ public final class PowerSystem implements Subsystem {
         PowerRubberRegistry.register(modBus);
         PowerCreativeTab.register(modBus);
         PowerDataGeneration.register(modBus);
-        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> PowerMineralColors.register(modBus));
+        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> {
+            PowerMineralColors.register(modBus);
+            PowerCableColors.register(modBus);
+        });
         EnergyNetworkManager.register(forgeBus);
     }
 }

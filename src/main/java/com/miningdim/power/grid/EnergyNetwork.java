@@ -1,6 +1,6 @@
 package com.miningdim.power.grid;
 
-import com.miningdim.power.cable.ConductorMaterial;
+import com.miningdim.power.cable.CableProfile;
 import net.minecraft.core.BlockPos;
 
 import java.util.ArrayList;
@@ -23,8 +23,8 @@ import java.util.Set;
  */
 final class EnergyNetwork {
 
-    /** 成员线缆坐标 -> 其导体材料 (决定木桶额定/floor/绝缘)。 */
-    final Map<BlockPos, ConductorMaterial> cables = new HashMap<>();
+    /** 成员线缆坐标 -> 其物理剖面 (决定木桶额定/floor/绝缘)。 */
+    final Map<BlockPos, CableProfile> cables = new HashMap<>();
 
     /** 相邻的非线缆能量端点，按 {@link EnergyEndpointKey} 的稳定顺序刷新。 */
     final List<EnergyEndpointKey> endpoints = new ArrayList<>();
@@ -100,7 +100,7 @@ final class EnergyNetwork {
         double floor = 1.0;
         int insulation = Integer.MAX_VALUE;
         VoltageClass voltage = VoltageClass.EXTREME;
-        for (ConductorMaterial material : cables.values()) {
+        for (CableProfile material : cables.values()) {
             cap = Math.min(cap, material.ratedCapacityFe());
             floor = Math.min(floor, material.degradeFloor());
             insulation = Math.min(insulation, material.insulation().maxContinuousTempC());

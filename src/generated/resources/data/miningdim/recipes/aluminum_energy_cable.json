@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "building",
+  "ingredients": [
+    {
+      "item": "miningdim:aluminum_wire"
+    },
+    {
+      "item": "miningdim:aluminum_wire"
+    },
+    {
+      "item": "miningdim:aluminum_wire"
+    },
+    {
+      "item": "miningdim:insulation_pvc"
+    },
+    {
+      "item": "miningdim:insulation_pvc"
+    },
+    {
+      "item": "miningdim:insulation_pvc"
+    }
+  ],
+  "result": {
+    "count": 6,
+    "item": "miningdim:aluminum_energy_cable"
+  }
+}

@@ -31,11 +31,16 @@ public final class PowerDataGeneration {
                 new PowerRubberBlockStateProvider(output, existingFiles));
         generator.addProvider(event.includeClient(),
                 new PowerRubberItemModelProvider(output, existingFiles));
+        generator.addProvider(event.includeClient(),
+                new PowerCableBlockStateProvider(output, existingFiles));
+        generator.addProvider(event.includeClient(),
+                new PowerCableItemModelProvider(output, existingFiles));
 
         generator.addProvider(event.includeServer(),
                 new LootTableProvider(output, Set.of(), List.of(
                         new LootTableProvider.SubProviderEntry(PowerMineralLootProvider::new, LootContextParamSets.BLOCK),
-                        new LootTableProvider.SubProviderEntry(PowerRubberLootProvider::new, LootContextParamSets.BLOCK))));
+                        new LootTableProvider.SubProviderEntry(PowerRubberLootProvider::new, LootContextParamSets.BLOCK),
+                        new LootTableProvider.SubProviderEntry(PowerCableLootProvider::new, LootContextParamSets.BLOCK))));
         PowerMineralTagsProvider blockTags = generator.addProvider(event.includeServer(),
                 new PowerMineralTagsProvider(output, event.getLookupProvider(), existingFiles));
         generator.addProvider(event.includeServer(), new PowerMineralItemTagsProvider(output, event.getLookupProvider(),
@@ -44,8 +49,13 @@ public final class PowerDataGeneration {
                 new PowerRubberTagsProvider(output, event.getLookupProvider(), existingFiles));
         generator.addProvider(event.includeServer(), new PowerRubberItemTagsProvider(output, event.getLookupProvider(),
                 rubberBlockTags.contentsGetter(), existingFiles));
+        PowerCableTagsProvider cableBlockTags = generator.addProvider(event.includeServer(),
+                new PowerCableTagsProvider(output, event.getLookupProvider(), existingFiles));
+        generator.addProvider(event.includeServer(), new PowerCableItemTagsProvider(output, event.getLookupProvider(),
+                cableBlockTags.contentsGetter(), existingFiles));
         generator.addProvider(event.includeServer(), new PowerMineralRecipeProvider(output));
         generator.addProvider(event.includeServer(), new PowerRubberRecipeProvider(output));
+        generator.addProvider(event.includeServer(), new PowerCableRecipeProvider(output));
         generator.addProvider(event.includeServer(), new PowerMineralWorldgenProvider(output));
         generator.addProvider(event.includeServer(), new PowerRubberWorldgenProvider(output));
     }

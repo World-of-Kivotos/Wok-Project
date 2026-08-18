@@ -1,6 +1,6 @@
 package com.miningdim.power.grid;
 
-import com.miningdim.power.cable.ConductorMaterial;
+import com.miningdim.power.cable.CableProfile;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
@@ -99,7 +99,7 @@ public final class EnergyNetworkManager {
     // ---- 拓扑维护 (增量, 不在结算路径) ----------------------------------------------------------
 
     /** 线缆并入网: 无相邻线缆则建新网, 一个则加入, 多个则合并 (典型 add 为 O(1))。 */
-    public void addCable(BlockPos pos, ConductorMaterial material) {
+    public void addCable(BlockPos pos, CableProfile material) {
         EnergyNetwork existing = byCable.get(pos);
         if (existing != null) {
             int previousCapacity = existing.bufferCap();
@@ -133,7 +133,7 @@ public final class EnergyNetworkManager {
             net = orderedNeighbours.get(0);
             for (int i = 1; i < orderedNeighbours.size(); i++) {
                 EnergyNetwork other = orderedNeighbours.get(i);
-                for (Map.Entry<BlockPos, ConductorMaterial> entry : other.cables.entrySet()) {
+                for (Map.Entry<BlockPos, CableProfile> entry : other.cables.entrySet()) {
                     net.cables.put(entry.getKey(), entry.getValue());
                     byCable.put(entry.getKey(), net);
                 }
@@ -162,7 +162,7 @@ public final class EnergyNetworkManager {
         if (net == null) {
             return;
         }
-        Map<BlockPos, ConductorMaterial> survivors = new HashMap<>(net.cables);
+        Map<BlockPos, CableProfile> survivors = new HashMap<>(net.cables);
         survivors.remove(pos);
 
         for (BlockPos member : net.cables.keySet()) {
@@ -183,7 +183,7 @@ public final class EnergyNetworkManager {
         }
     }
 
-    private void reindexComponents(Map<BlockPos, ConductorMaterial> members, EnergyNetwork source) {
+    private void reindexComponents(Map<BlockPos, CableProfile> members, EnergyNetwork source) {
         Set<BlockPos> remaining = new TreeSet<>(BLOCK_POS_ORDER);
         remaining.addAll(members.keySet());
         List<EnergyNetwork> components = new ArrayList<>();

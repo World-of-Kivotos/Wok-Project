@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "building",
+  "ingredients": [
+    {
+      "item": "miningdim:iron_wire"
+    },
+    {
+      "item": "miningdim:iron_wire"
+    },
+    {
+      "item": "miningdim:iron_wire"
+    },
+    {
+      "item": "miningdim:insulation_pvc"
+    },
+    {
+      "item": "miningdim:insulation_pvc"
+    },
+    {
+      "item": "miningdim:insulation_pvc"
+    }
+  ],
+  "result": {
+    "count": 6,
+    "item": "miningdim:iron_energy_cable"
+  }
+}

@@ -30,6 +30,9 @@ public final class PowerCreativeTab {
                         for (RegistryObject<Item> cable : PowerRegistry.CABLE_ITEMS.values()) {
                             output.accept(cable.get());
                         }
+                        for (RegistryObject<Item> wire : PowerRegistry.WIRE_ITEMS.values()) {
+                            output.accept(wire.get());
+                        }
                         for (PowerMineral mineral : PowerMineral.values()) {
                             output.accept(PowerMineralRegistry.oreItem(mineral).get());
                             output.accept(PowerMineralRegistry.deepslateOre(mineral).get().asItem());

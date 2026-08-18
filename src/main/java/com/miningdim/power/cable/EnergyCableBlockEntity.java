@@ -70,8 +70,11 @@ public final class EnergyCableBlockEntity extends BlockEntity {
         super(PowerRegistry.ENERGY_CABLE_BE.get(), pos, state);
     }
 
-    private ConductorMaterial material() {
-        return getBlockState().getBlock() instanceof EnergyCableBlock cable ? cable.material() : ConductorMaterial.IRON;
+    private CableProfile material() {
+        if (getBlockState().getBlock() instanceof EnergyCableBlock cable) {
+            return cable.material();
+        }
+        throw new IllegalStateException("energy cable block entity at non-cable state " + worldPosition);
     }
 
     @Nullable
@@ -101,9 +104,16 @@ public final class EnergyCableBlockEntity extends BlockEntity {
     @Override
     public void onLoad() {
         super.onLoad();
-        EnergyNetworkManager manager = manager();
-        if (manager != null) {
-            manager.addCable(worldPosition, material());
+        if (level instanceof ServerLevel serverLevel) {
+            EnergyNetworkManager.get(serverLevel).addCable(worldPosition, material());
+            EnergyCableBlock.refreshConnectionState(serverLevel, worldPosition);
+            for (Direction direction : Direction.values()) {
+                BlockPos neighborPos = worldPosition.relative(direction);
+                if (serverLevel.hasChunkAt(neighborPos)
+                        && serverLevel.getBlockEntity(neighborPos) instanceof EnergyCableBlockEntity) {
+                    EnergyCableBlock.refreshConnectionState(serverLevel, neighborPos);
+                }
+            }
         }
     }
 

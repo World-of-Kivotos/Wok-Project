@@ -132,8 +132,26 @@ public final class ModDependencyDeclarationGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void modsTomlDeclaresJeiAndJadeOptionalCompatibilityDependencies(GameTestHelper helper) {
-        assertExactOptionalCompatibilityDependency(helper, findDependency("jei"), "jei", "15.20.0.135",
-                IModInfo.DependencySide.CLIENT);
+        // JEI: 必须是区间而非精确锁定。曾锁死在编译锚 [15.20.0.135], 玩家装的 15.20.0.129 直接把客户端
+        // 挡在加载阶段外 (2026-08-19 真机崩溃)。mandatory=false 只管"没装", 装了仍强制校验范围。
+        IModInfo.ModVersion jei = findDependency("jei");
+        helper.assertTrue(!jei.isMandatory(),
+                "mods.toml 的 jei 依赖必须 mandatory=false, 实际读到 mandatory=true");
+        helper.assertTrue(jei.getOrdering() == IModInfo.Ordering.AFTER,
+                "mods.toml 的 jei 依赖必须 ordering=AFTER, 实际读到 " + jei.getOrdering());
+        helper.assertTrue(jei.getSide() == IModInfo.DependencySide.CLIENT,
+                "mods.toml 的 jei 依赖 side 应为 CLIENT, 实际读到 " + jei.getSide());
+
+        VersionRange jeiRange = jei.getVersionRange();
+        helper.assertTrue(jeiRange.containsVersion(new DefaultArtifactVersion("15.20.0.129")),
+                "jei versionRange " + jeiRange + " 必须包含玩家在装的 15.20.0.129 (锁死编译锚曾导致客户端起不来)");
+        helper.assertTrue(jeiRange.containsVersion(new DefaultArtifactVersion("15.20.0.135")),
+                "jei versionRange " + jeiRange + " 必须包含编译锚 15.20.0.135, 实际不包含");
+        helper.assertTrue(!jeiRange.containsVersion(new DefaultArtifactVersion("16.0.0.0")),
+                "jei versionRange " + jeiRange + " 上界必须开区间排除 16.x (跨主版本 API 无保证), 实际包含");
+
+        // Jade 反之必须保持精确锁定: 版本串 11.13.2+forge 带 + 号, Maven 解析不出数字段, 整串退化为
+        // qualifier, 任何数字区间都不会命中 —— 这里若被"顺手"改成区间, 装了 Jade 的客户端会全数被挡。
         assertExactOptionalCompatibilityDependency(helper, findDependency("jade"), "jade", "11.13.2+forge",
                 IModInfo.DependencySide.BOTH);
         helper.succeed();

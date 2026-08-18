@@ -79,14 +79,23 @@ ordering = "AFTER"
 side = "BOTH"
 
 # JEI 只扩展客户端配方浏览；专服和未安装 JEI 的客户端均不能被此声明阻断。
+#
+# 版本范围不得钉死在编译锚的那个精确版本: mandatory=false 只表示"没装也能跑", 一旦装了, Forge 仍会
+# 强制校验 versionRange, 不满足即硬性加载失败。此处曾写作 [15.20.0.135] (编译锚), 而玩家装的是
+# 15.20.0.129, 客户端直接起不来 (2026-08-19 实况)。我方只用 JEI 的插件门面 (IModPlugin /
+# IRecipeCategory / RecipeType / IRecipeLayoutBuilder 等), 这套接口在 15.x 内稳定, 故按主版本段开区间。
 [[dependencies.miningdim]]
 modId = "jei"
 mandatory = false
-versionRange = "[15.20.0.135]"
+versionRange = "[15.20.0,16)"
 ordering = "AFTER"
 side = "CLIENT"
 
 # Jade 通过客户端 HUD 查询方块信息；BOTH 让单人集成服务端与独立服务端的声明语义一致。
+#
+# 这一条必须保持精确匹配, 不要"顺手"改成区间: Jade 的版本串是 11.13.2+forge (由 ${file.jarVersion}
+# 取自 jar 清单的 Implementation-Version)。带 + 号使 Maven 无法按数字解析, 整串退化为 qualifier,
+# 于是任何数字区间 (如 [11.13.0,12)) 都不会命中, 反而把现在可用的组合判成不兼容。换 Jade 版本时同步改本行。
 [[dependencies.miningdim]]
 modId = "jade"
 mandatory = false

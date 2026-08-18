@@ -21,15 +21,15 @@ final class PowerMineralBlockStateProvider extends BlockStateProvider {
 
     @Override
     protected void registerStatesAndModels() {
-        BlockModelBuilder template = models().getBuilder("tinted_ore")
+        BlockModelBuilder template = models().withExistingParent("tinted_ore", mcLoc("block/block"))
                 .renderType("minecraft:cutout")
                 .texture("ore", modLoc("block/ore_overlay"))
                 .texture("particle", "#ore");
-        template.element().from(0, 0, 0).to(16, 16, 16).textureAll("#base").end();
+        template.element().from(0, 0, 0).to(16, 16, 16).cube("#base").end();
         template.element()
                 .from(-OVERLAY_OFFSET, -OVERLAY_OFFSET, -OVERLAY_OFFSET)
                 .to(16 + OVERLAY_OFFSET, 16 + OVERLAY_OFFSET, 16 + OVERLAY_OFFSET)
-                .allFaces((direction, face) -> face.texture("#ore").tintindex(0))
+                .allFaces((direction, face) -> face.texture("#ore").tintindex(0).cullface(direction))
                 .end();
         for (PowerMineral mineral : PowerMineral.values()) {
             registerOre(PowerMineralRegistry.ore(mineral).get(),

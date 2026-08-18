@@ -1,5 +1,6 @@
 package com.miningdim.power.mineral;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -27,6 +28,7 @@ public final class PowerMineralAssetGameTests {
     private static final String BATCH = "power_mineral_assets";
     private static final String ASSET_ROOT = "/assets/miningdim/";
     private static final String TEMPLATE_MODEL = ASSET_ROOT + "models/block/tinted_ore.json";
+    private static final Set<String> CUBE_FACES = Set.of("down", "up", "north", "south", "west", "east");
     private static final Set<String> EXPECTED_POWER_ORE_IDS = Set.of(
             "bauxite_ore", "deepslate_bauxite_ore",
             "borax_ore", "deepslate_borax_ore",
@@ -61,6 +63,51 @@ public final class PowerMineralAssetGameTests {
                 "能源矿物资源必须精确覆盖 14 个既定方块，实得 " + actualOreIds);
         assertLegacyFakeOreAssets(helper);
         helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void tintedOreModelCullsBuriedFacesBeforeLighting(GameTestHelper helper) {
+        JsonObject template = loadJson(TEMPLATE_MODEL);
+        helper.assertTrue("minecraft:block/block".equals(requireString(template, "parent", TEMPLATE_MODEL)),
+                "公共矿石模型必须继承原版 block 父模型以保留标准物品展示变换");
+        helper.assertTrue(!template.has("ambientocclusion") || template.get("ambientocclusion").getAsBoolean(),
+                "公共矿石模型不得关闭环境光遮蔽来掩盖内部面渲染问题");
+        helper.assertTrue("minecraft:cutout".equals(requireString(template, "render_type", TEMPLATE_MODEL)),
+                "公共矿石模型必须继续使用 cutout 渲染透明覆盖层");
+
+        JsonArray elements = requireArray(template, "elements", TEMPLATE_MODEL);
+        helper.assertTrue(elements.size() == 2,
+                "公共矿石模型必须精确包含石质基底与矿脉覆盖两层，实得 " + elements.size());
+        assertCulledCubeElement(helper, elements.get(0), "#base", false, "石质基底");
+        assertCulledCubeElement(helper, elements.get(1), "#ore", true, "矿脉覆盖层");
+        helper.succeed();
+    }
+
+    private static void assertCulledCubeElement(GameTestHelper helper, JsonElement element,
+                                                String expectedTexture, boolean tinted, String layerName) {
+        if (!element.isJsonObject()) {
+            throw new IllegalStateException(TEMPLATE_MODEL + " 的" + layerName + "必须是 JSON 对象");
+        }
+        JsonObject elementObject = element.getAsJsonObject();
+        helper.assertTrue(!elementObject.has("shade") || elementObject.get("shade").getAsBoolean(),
+                layerName + "不得关闭方向明暗来掩盖内部面渲染问题");
+        JsonObject faces = requireObject(elementObject, "faces", TEMPLATE_MODEL + " " + layerName);
+        helper.assertTrue(CUBE_FACES.equals(faces.keySet()),
+                layerName + "必须精确包含六个标准方向面，实得 " + faces.keySet());
+        for (String direction : CUBE_FACES) {
+            JsonObject face = requireObject(faces, direction, TEMPLATE_MODEL + " " + layerName);
+            helper.assertTrue(expectedTexture.equals(requireString(face, "texture", TEMPLATE_MODEL)),
+                    layerName + "的 " + direction + " 面必须使用 " + expectedTexture);
+            helper.assertTrue(direction.equals(requireString(face, "cullface", TEMPLATE_MODEL)),
+                    layerName + "的 " + direction + " 面必须对同方向实体邻块执行剔除");
+            if (tinted) {
+                helper.assertTrue(face.has("tintindex") && face.get("tintindex").getAsInt() == 0,
+                        layerName + "的 " + direction + " 面必须使用 tintindex 0");
+            } else {
+                helper.assertTrue(!face.has("tintindex"),
+                        layerName + "的 " + direction + " 面不得染色石质基底");
+            }
+        }
     }
 
     private static void assertOreVariant(GameTestHelper helper, JsonObject templateTextures,
@@ -159,6 +206,14 @@ public final class PowerMineralAssetGameTests {
             throw new IllegalStateException(path + " 缺少 JSON 对象字段 '" + key + "'");
         }
         return element.getAsJsonObject();
+    }
+
+    private static JsonArray requireArray(JsonObject parent, String key, String path) {
+        JsonElement element = parent.get(key);
+        if (element == null || !element.isJsonArray()) {
+            throw new IllegalStateException(path + " 缺少 JSON 数组字段 '" + key + "'");
+        }
+        return element.getAsJsonArray();
     }
 
     private static String requireString(JsonObject parent, String key, String path) {

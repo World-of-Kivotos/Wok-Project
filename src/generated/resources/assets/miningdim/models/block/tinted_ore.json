@@ -1,23 +1,30 @@
 {
+  "parent": "minecraft:block/block",
   "elements": [
     {
       "faces": {
         "down": {
+          "cullface": "down",
           "texture": "#base"
         },
         "east": {
+          "cullface": "east",
           "texture": "#base"
         },
         "north": {
+          "cullface": "north",
           "texture": "#base"
         },
         "south": {
+          "cullface": "south",
           "texture": "#base"
         },
         "up": {
+          "cullface": "up",
           "texture": "#base"
         },
         "west": {
+          "cullface": "west",
           "texture": "#base"
         }
       },
@@ -35,26 +42,32 @@
     {
       "faces": {
         "down": {
+          "cullface": "down",
           "texture": "#ore",
           "tintindex": 0
         },
         "east": {
+          "cullface": "east",
           "texture": "#ore",
           "tintindex": 0
         },
         "north": {
+          "cullface": "north",
           "texture": "#ore",
           "tintindex": 0
         },
         "south": {
+          "cullface": "south",
           "texture": "#ore",
           "tintindex": 0
         },
         "up": {
+          "cullface": "up",
           "texture": "#ore",
           "tintindex": 0
         },
         "west": {
+          "cullface": "west",
           "texture": "#ore",
           "tintindex": 0
         }

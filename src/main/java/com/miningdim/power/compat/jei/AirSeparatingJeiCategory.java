@@ -1,0 +1,81 @@
+package com.miningdim.power.compat.jei;
+
+import com.miningdim.power.PowerMachineConfig;
+import com.miningdim.power.PowerMachineRegistry;
+import com.miningdim.power.machine.AirSeparatingRecipe;
+import com.miningdim.power.machine.AirSeparatingRuntime;
+import mezz.jei.api.gui.builder.IRecipeLayoutBuilder;
+import mezz.jei.api.gui.drawable.IDrawable;
+import mezz.jei.api.gui.ingredient.IRecipeSlotsView;
+import mezz.jei.api.helpers.IGuiHelper;
+import mezz.jei.api.recipe.IFocusGroup;
+import mezz.jei.api.recipe.RecipeType;
+import mezz.jei.api.recipe.category.IRecipeCategory;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
+
+/** JEI 中的空分工序展示；能耗数字每帧从服务端同步配置读取。 */
+public final class AirSeparatingJeiCategory implements IRecipeCategory<AirSeparatingRecipe> {
+
+    private static final int WIDTH = 154;
+    private static final int HEIGHT = 80;
+
+    private final IDrawable icon;
+    private final IDrawable arrow;
+
+    public AirSeparatingJeiCategory(IGuiHelper guiHelper) {
+        this.icon = guiHelper.createDrawableItemLike(PowerMachineRegistry.AIR_SEPARATOR_ITEM.get());
+        this.arrow = guiHelper.getRecipeArrow();
+    }
+
+    @Override
+    public RecipeType<AirSeparatingRecipe> getRecipeType() {
+        return PowerJeiRecipeTypes.AIR_SEPARATING;
+    }
+
+    @Override
+    public Component getTitle() {
+        return Component.translatable("block.miningdim.air_separation_unit");
+    }
+
+    @Override
+    public int getWidth() {
+        return WIDTH;
+    }
+
+    @Override
+    public int getHeight() {
+        return HEIGHT;
+    }
+
+    @Override
+    public IDrawable getIcon() {
+        return icon;
+    }
+
+    @Override
+    public void setRecipe(IRecipeLayoutBuilder builder, AirSeparatingRecipe recipe, IFocusGroup focuses) {
+        builder.addOutputSlot(128, 10).setOutputSlotBackground().addItemStack(recipe.result());
+    }
+
+    @Override
+    public void draw(AirSeparatingRecipe recipe, IRecipeSlotsView recipeSlotsView, GuiGraphics guiGraphics,
+                     double mouseX, double mouseY) {
+        AirSeparatingRuntime runtime = PowerMachineConfig.airSeparating(recipe.mode());
+        long totalFe = Math.multiplyExact((long) runtime.durationTicks(), runtime.fePerTick());
+        arrow.draw(guiGraphics, 88, 10);
+        guiGraphics.drawString(Minecraft.getInstance().font,
+                Component.translatable("jei.miningdim.power.mode",
+                        Component.translatable("screen.miningdim.air_separation_unit.mode." + recipe.mode().id())),
+                8, 40, 0x404040, false);
+        guiGraphics.drawString(Minecraft.getInstance().font,
+                Component.translatable("jei.miningdim.power.duration", runtime.durationTicks()), 8, 50, 0x404040,
+                false);
+        guiGraphics.drawString(Minecraft.getInstance().font,
+                Component.translatable("jei.miningdim.power.fe_per_tick", runtime.fePerTick()), 8, 60, 0x404040,
+                false);
+        guiGraphics.drawString(Minecraft.getInstance().font,
+                Component.translatable("jei.miningdim.power.total_fe", totalFe), 8, 70, 0x404040, false);
+    }
+}

@@ -16,6 +16,9 @@ import org.apache.maven.artifact.versioning.VersionRange;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +48,12 @@ public final class ModDependencyDeclarationGameTests {
 
     private static final String EMPTY = "empty";
     private static final String BATCH = "compat_declarations";
+    private static final Set<String> JADE_CONFIG_TRANSLATION_KEYS = Set.of(
+            "config.jade.plugin_miningdim.power_cable",
+            "config.jade.plugin_miningdim.power_generator",
+            "config.jade.plugin_miningdim.power_purifier",
+            "config.jade.plugin_miningdim.power_air_separator",
+            "config.jade.plugin_miningdim.power_low_temperature_controller");
 
     /** F062 反例锚点: champions:affix_setting 下应恰好是这 16 个原版词条禁用覆盖文件, 一个不多一个不少。 */
     private static final Set<String> EXPECTED_CHAMPIONS_AFFIX_PATHS = new TreeSet<>(List.of(
@@ -121,6 +130,48 @@ public final class ModDependencyDeclarationGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void modsTomlDeclaresJeiAndJadeOptionalCompatibilityDependencies(GameTestHelper helper) {
+        assertExactOptionalCompatibilityDependency(helper, findDependency("jei"), "jei", "15.20.0.135",
+                IModInfo.DependencySide.CLIENT);
+        assertExactOptionalCompatibilityDependency(helper, findDependency("jade"), "jade", "11.13.2+forge",
+                IModInfo.DependencySide.BOTH);
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void jadeProvidersHaveRequiredConfigTranslations(GameTestHelper helper) throws IOException {
+        for (String language : List.of("en_us", "zh_cn")) {
+            JsonObject translations = readAssetJson("assets/" + MiningConstants.MODID + "/lang/" + language + ".json");
+            for (String key : JADE_CONFIG_TRANSLATION_KEYS) {
+                helper.assertTrue(translations.has(key) && translations.get(key).isJsonPrimitive()
+                                && !translations.get(key).getAsString().isBlank(),
+                        language + " 缺少 Jade 组件配置翻译或翻译值为空: " + key);
+            }
+        }
+        helper.succeed();
+    }
+
+    private static void assertExactOptionalCompatibilityDependency(GameTestHelper helper, IModInfo.ModVersion dependency,
+                                                                    String modId, String version,
+                                                                    IModInfo.DependencySide expectedSide) {
+        helper.assertTrue(!dependency.isMandatory(),
+                "mods.toml 的 " + modId + " 依赖必须 mandatory=false, 实际读到 mandatory=true");
+        helper.assertTrue(dependency.getOrdering() == IModInfo.Ordering.AFTER,
+                "mods.toml 的 " + modId + " 依赖必须 ordering=AFTER, 实际读到 " + dependency.getOrdering());
+        helper.assertTrue(dependency.getSide() == expectedSide,
+                "mods.toml 的 " + modId + " 依赖 side 应为 " + expectedSide + ", 实际读到 " + dependency.getSide());
+
+        VersionRange range = dependency.getVersionRange();
+        DefaultArtifactVersion exactVersion = new DefaultArtifactVersion(version);
+        helper.assertTrue(range.getRestrictions().size() == 1
+                        && range.getRestrictions().get(0).isLowerBoundInclusive()
+                        && range.getRestrictions().get(0).isUpperBoundInclusive()
+                        && exactVersion.equals(range.getRestrictions().get(0).getLowerBound())
+                        && exactVersion.equals(range.getRestrictions().get(0).getUpperBound()),
+                "mods.toml 的 " + modId + " versionRange 必须精确锁定 " + version + ", 实际读到 " + range);
+    }
+
     /** 反例已在各调用点标注: 找不到指定 modId 的依赖声明时直接判该 GameTest 失败, 而不是返回 null 让 NPE 掩盖真实原因。 */
     private static IModInfo.ModVersion findDependency(String modId) {
         Optional<? extends net.minecraftforge.fml.ModContainer> container =
@@ -135,6 +186,16 @@ public final class ModDependencyDeclarationGameTests {
         }
         throw new AssertionError("mods.toml 的 [[dependencies." + MiningConstants.MODID + "]] 里找不到 modId=\""
                 + modId + "\" 的依赖声明");
+    }
+
+    private static JsonObject readAssetJson(String path) throws IOException {
+        InputStream stream = ModDependencyDeclarationGameTests.class.getClassLoader().getResourceAsStream(path);
+        if (stream == null) {
+            throw new AssertionError("运行时 classpath 找不到资源: " + path);
+        }
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            return GsonHelper.parse(reader);
+        }
     }
 
     // ============================================================

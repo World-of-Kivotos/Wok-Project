@@ -77,3 +77,19 @@ mandatory = false
 versionRange = "[1.20.1-2.1.10.2,1.20.1-2.1.11)"
 ordering = "AFTER"
 side = "BOTH"
+
+# JEI 只扩展客户端配方浏览；专服和未安装 JEI 的客户端均不能被此声明阻断。
+[[dependencies.miningdim]]
+modId = "jei"
+mandatory = false
+versionRange = "[15.20.0.135]"
+ordering = "AFTER"
+side = "CLIENT"
+
+# Jade 通过客户端 HUD 查询方块信息；BOTH 让单人集成服务端与独立服务端的声明语义一致。
+[[dependencies.miningdim]]
+modId = "jade"
+mandatory = false
+versionRange = "[11.13.2+forge]"
+ordering = "AFTER"
+side = "BOTH"

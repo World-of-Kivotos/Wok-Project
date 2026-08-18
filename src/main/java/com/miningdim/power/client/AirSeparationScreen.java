@@ -1,48 +1,79 @@
 package com.miningdim.power.client;
 
+import com.miningdim.core.MiningConstants;
 import com.miningdim.power.machine.AirSeparationMenu;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 
-/** 空分机容器界面，模式选择走原版菜单按钮包，服务端负责零进度校验。 */
-public final class AirSeparationScreen extends AbstractContainerScreen<AirSeparationMenu> {
+import java.util.ArrayList;
+import java.util.List;
 
-    private static final int WIDTH = 176;
-    private static final int HEIGHT = 222;
-    private static final int BAR_WIDTH = 156;
-    private static final int ARGON_BUTTON_ID = 0;
-    private static final int LIQUID_NITROGEN_BUTTON_ID = 1;
-    private static final int BUTTON_X = 10;
-    private static final int BUTTON_Y = 43;
-    private static final int BUTTON_WIDTH = 74;
-    private static final int BUTTON_HEIGHT = 16;
+/** Air separation container with server-authoritative production mode selection. */
+public final class AirSeparationScreen extends AbstractPowerMachineScreen<AirSeparationMenu> {
+
+    private static final ResourceLocation BACKGROUND = new ResourceLocation(
+            MiningConstants.MODID, "textures/gui/power/air_separation.png");
+
+    private static final int BUTTON_Y = 36;
+    private static final int ARGON_BUTTON_X = 20;
+    private static final int NITROGEN_BUTTON_X = 114;
+    private static final int BUTTON_WIDTH = 84;
+    private static final int BUTTON_HEIGHT = 18;
+    private static final int METER_X = 20;
+    private static final int METER_WIDTH = 178;
+    private static final int METER_HEIGHT = 7;
+    private static final int PROGRESS_Y = 97;
+    private static final int ENERGY_Y = 117;
 
     public AirSeparationScreen(AirSeparationMenu menu, Inventory inventory, Component title) {
-        super(menu, inventory, title);
-        imageWidth = WIDTH;
-        imageHeight = HEIGHT;
+        super(menu, inventory, title, BACKGROUND, STANDARD_HEIGHT, 132);
     }
 
     @Override
-    protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
-        int left = leftPos;
-        int top = topPos;
-        graphics.fill(left, top, left + imageWidth, top + imageHeight, 0xFFB5B5B5);
-        graphics.fill(left + 4, top + 4, left + imageWidth - 4, top + 31, 0xFF373737);
-        graphics.fill(left + 4, top + 130, left + imageWidth - 4, top + 136, 0xFF6A6A6A);
-        drawSlotFrame(graphics, left + 79, top + 72);
-        drawModeButton(graphics, left + BUTTON_X, top + BUTTON_Y, ARGON_BUTTON_ID,
-                Component.translatable("screen.miningdim.air_separation_unit.mode.argon"));
-        drawModeButton(graphics, left + BUTTON_X + 82, top + BUTTON_Y, LIQUID_NITROGEN_BUTTON_ID,
-                Component.translatable("screen.miningdim.air_separation_unit.mode.liquid_nitrogen"));
-        drawBar(graphics, left + 10, top + 102, menu.progress(), menu.processingTime(), 0xFF67A9E3);
-        drawBar(graphics, left + 10, top + 122, menu.storedFe(), menu.energyCapacity(), 0xFFE3B34F);
-        graphics.drawString(font, Component.translatable("screen.miningdim.air_separation_unit.progress",
-                menu.progress(), menu.processingTime()), left + 10, top + 91, 0xFF252525, false);
-        graphics.drawString(font, Component.translatable("screen.miningdim.air_separation_unit.energy",
-                menu.storedFe(), menu.energyCapacity()), left + 10, top + 111, 0xFF252525, false);
+    protected void renderMachine(GuiGraphics graphics, int left, int top,
+                                 int mouseX, int mouseY, float partialTick) {
+        drawModeButton(graphics, left + ARGON_BUTTON_X, top + BUTTON_Y,
+                AirSeparationMenu.BUTTON_ARGON, argonText(), mouseX, mouseY);
+        drawModeButton(graphics, left + NITROGEN_BUTTON_X, top + BUTTON_Y,
+                AirSeparationMenu.BUTTON_LIQUID_NITROGEN, nitrogenText(), mouseX, mouseY);
+
+        drawMeter(graphics, left + METER_X, top + PROGRESS_Y, METER_WIDTH, METER_HEIGHT,
+                menu.progress(), menu.processingTime(), PROCESS_COLOR);
+        drawMeter(graphics, left + METER_X, top + ENERGY_Y, METER_WIDTH, METER_HEIGHT,
+                menu.storedFe(), menu.energyCapacity(), ENERGY_COLOR);
+        drawFittedString(graphics, progressText(), left + METER_X, top + 87,
+                METER_WIDTH, PRIMARY_TEXT_COLOR);
+        drawFittedString(graphics, energyText(), left + METER_X, top + 107,
+                METER_WIDTH, PRIMARY_TEXT_COLOR);
+    }
+
+    @Override
+    protected void renderMachineTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
+        int mode = modeButtonAt(mouseX, mouseY);
+        if (mode >= 0) {
+            List<Component> lines = new ArrayList<>();
+            lines.add((mode == AirSeparationMenu.BUTTON_ARGON ? argonText() : nitrogenText())
+                    .copy().withStyle(ChatFormatting.AQUA));
+            if (menu.progress() > 0) {
+                lines.add(progressText().copy().withStyle(ChatFormatting.GRAY));
+            }
+            showTooltip(graphics, lines, mouseX, mouseY);
+            return;
+        }
+        if (inside(mouseX, mouseY, leftPos + METER_X, topPos + PROGRESS_Y,
+                METER_WIDTH, METER_HEIGHT)) {
+            showTooltip(graphics, List.of(
+                    progressText().copy().withStyle(ChatFormatting.GREEN)), mouseX, mouseY);
+            return;
+        }
+        if (inside(mouseX, mouseY, leftPos + METER_X, topPos + ENERGY_Y,
+                METER_WIDTH, METER_HEIGHT)) {
+            showTooltip(graphics, List.of(
+                    energyText().copy().withStyle(ChatFormatting.AQUA)), mouseX, mouseY);
+        }
     }
 
     @Override
@@ -50,7 +81,7 @@ public final class AirSeparationScreen extends AbstractContainerScreen<AirSepara
         if (button == 0) {
             int modeId = modeButtonAt(mouseX, mouseY);
             if (modeId >= 0) {
-                if (minecraft != null && minecraft.gameMode != null) {
+                if (menu.progress() == 0 && minecraft != null && minecraft.gameMode != null) {
                     minecraft.gameMode.handleInventoryButtonClick(menu.containerId, modeId);
                 }
                 return true;
@@ -59,36 +90,58 @@ public final class AirSeparationScreen extends AbstractContainerScreen<AirSepara
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
-    private void drawSlotFrame(GuiGraphics graphics, int x, int y) {
-        graphics.fill(x - 1, y - 1, x + 17, y + 17, 0xFF373737);
-        graphics.fill(x, y, x + 16, y + 16, 0xFF8B8B8B);
-    }
-
-    private void drawModeButton(GuiGraphics graphics, int x, int y, int modeId, Component label) {
+    private void drawModeButton(GuiGraphics graphics, int x, int y, int modeId,
+                                Component label, int mouseX, int mouseY) {
         boolean selected = menu.modeOrdinal() == modeId;
-        int fill = selected ? 0xFF5F8F4B : 0xFF696969;
-        graphics.fill(x, y, x + BUTTON_WIDTH, y + BUTTON_HEIGHT, 0xFF373737);
-        graphics.fill(x + 1, y + 1, x + BUTTON_WIDTH - 1, y + BUTTON_HEIGHT - 1, fill);
-        graphics.drawCenteredString(font, label, x + BUTTON_WIDTH / 2, y + 4, 0xFFFFFFFF);
-    }
+        boolean enabled = menu.progress() == 0;
+        boolean hovered = inside(mouseX, mouseY, x, y, BUTTON_WIDTH, BUTTON_HEIGHT);
+        int fillColor;
+        if (!enabled) {
+            fillColor = selected ? 0xFF1A4E51 : 0xFF17232C;
+        } else if (selected) {
+            fillColor = 0xFF176F76;
+        } else if (hovered) {
+            fillColor = 0xFF2A4652;
+        } else {
+            fillColor = 0xFF1A2A34;
+        }
 
-    private void drawBar(GuiGraphics graphics, int x, int y, int value, int capacity, int color) {
-        int filled = capacity == 0 ? 0 : (int) ((long) BAR_WIDTH * value / capacity);
-        graphics.fill(x, y, x + BAR_WIDTH, y + 5, 0xFF373737);
-        graphics.fill(x, y, x + filled, y + 5, color);
+        graphics.fill(x + 2, y + 2, x + BUTTON_WIDTH - 2, y + BUTTON_HEIGHT - 2, fillColor);
+        if (selected) {
+            graphics.fill(x + 3, y + BUTTON_HEIGHT - 3,
+                    x + BUTTON_WIDTH - 3, y + BUTTON_HEIGHT - 1, ENERGY_COLOR);
+        }
+        drawFittedCenteredString(graphics, label, x + BUTTON_WIDTH / 2, y + 5,
+                BUTTON_WIDTH - 8, enabled ? TITLE_COLOR : MUTED_TEXT_COLOR);
     }
 
     private int modeButtonAt(double mouseX, double mouseY) {
-        if (insideButton(mouseX, mouseY, leftPos + BUTTON_X, topPos + BUTTON_Y)) {
-            return ARGON_BUTTON_ID;
+        if (inside(mouseX, mouseY, leftPos + ARGON_BUTTON_X, topPos + BUTTON_Y,
+                BUTTON_WIDTH, BUTTON_HEIGHT)) {
+            return AirSeparationMenu.BUTTON_ARGON;
         }
-        if (insideButton(mouseX, mouseY, leftPos + BUTTON_X + 82, topPos + BUTTON_Y)) {
-            return LIQUID_NITROGEN_BUTTON_ID;
+        if (inside(mouseX, mouseY, leftPos + NITROGEN_BUTTON_X, topPos + BUTTON_Y,
+                BUTTON_WIDTH, BUTTON_HEIGHT)) {
+            return AirSeparationMenu.BUTTON_LIQUID_NITROGEN;
         }
         return -1;
     }
 
-    private boolean insideButton(double mouseX, double mouseY, int x, int y) {
-        return mouseX >= x && mouseX < x + BUTTON_WIDTH && mouseY >= y && mouseY < y + BUTTON_HEIGHT;
+    private Component progressText() {
+        return Component.translatable("screen.miningdim.air_separation_unit.progress",
+                menu.progress(), menu.processingTime());
+    }
+
+    private Component energyText() {
+        return Component.translatable("screen.miningdim.air_separation_unit.energy",
+                menu.storedFe(), menu.energyCapacity());
+    }
+
+    private static Component argonText() {
+        return Component.translatable("screen.miningdim.air_separation_unit.mode.argon");
+    }
+
+    private static Component nitrogenText() {
+        return Component.translatable("screen.miningdim.air_separation_unit.mode.liquid_nitrogen");
     }
 }

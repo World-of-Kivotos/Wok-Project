@@ -1,49 +1,64 @@
 package com.miningdim.power.client;
 
+import com.miningdim.core.MiningConstants;
 import com.miningdim.power.endgame.LowTemperatureControllerBlockEntity;
 import com.miningdim.power.endgame.LowTemperatureControllerMenu;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 
-/** 控制器界面只显示必要的液氮槽、剩余时间和冷却状态。 */
-public final class LowTemperatureControllerScreen extends AbstractContainerScreen<LowTemperatureControllerMenu> {
+import java.util.List;
 
-    private static final int WIDTH = 176;
-    private static final int HEIGHT = 176;
-    private static final int BAR_WIDTH = 156;
+/** Low-temperature controller with coolant lifetime and active-state feedback. */
+public final class LowTemperatureControllerScreen
+        extends AbstractPowerMachineScreen<LowTemperatureControllerMenu> {
 
-    public LowTemperatureControllerScreen(LowTemperatureControllerMenu menu, Inventory inventory, Component title) {
-        super(menu, inventory, title);
-        imageWidth = WIDTH;
-        imageHeight = HEIGHT;
+    private static final ResourceLocation BACKGROUND = new ResourceLocation(
+            MiningConstants.MODID, "textures/gui/power/low_temperature_controller.png");
+
+    private static final int METER_X = 20;
+    private static final int METER_Y = 68;
+    private static final int METER_WIDTH = 178;
+    private static final int METER_HEIGHT = 7;
+
+    public LowTemperatureControllerScreen(LowTemperatureControllerMenu menu,
+                                          Inventory inventory, Component title) {
+        super(menu, inventory, title, BACKGROUND, CONTROLLER_HEIGHT, 84);
     }
 
     @Override
-    protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
-        int left = leftPos;
-        int top = topPos;
-        graphics.fill(left, top, left + imageWidth, top + imageHeight, 0xFFB5B5B5);
-        graphics.fill(left + 4, top + 4, left + imageWidth - 4, top + 26, 0xFF373737);
-        drawSlotFrame(graphics, left + 79, top + 33);
-        int remaining = menu.remainingTicks();
-        int filled = (int) ((long) BAR_WIDTH * remaining
-                / LowTemperatureControllerBlockEntity.COOLING_TICKS_PER_CANISTER);
-        graphics.fill(left + 10, top + 65, left + 10 + BAR_WIDTH, top + 70, 0xFF373737);
-        graphics.fill(left + 10, top + 65, left + 10 + filled, top + 70,
-                menu.isCoolingActive() ? 0xFF67A9E3 : 0xFF6A6A6A);
-        Component state = menu.isCoolingActive()
-                ? Component.translatable("screen.miningdim.low_temperature_controller.active")
-                : Component.translatable("screen.miningdim.low_temperature_controller.inactive");
-        graphics.drawString(font, state, left + 10, top + 76, 0xFF252525, false);
-        graphics.drawString(font, Component.translatable("screen.miningdim.low_temperature_controller.remaining",
-                remaining, LowTemperatureControllerBlockEntity.COOLING_TICKS_PER_CANISTER),
-                left + 10, top + 88, 0xFF252525, false);
+    protected void renderMachine(GuiGraphics graphics, int left, int top,
+                                 int mouseX, int mouseY, float partialTick) {
+        drawMeter(graphics, left + METER_X, top + METER_Y, METER_WIDTH, METER_HEIGHT,
+                menu.remainingTicks(), LowTemperatureControllerBlockEntity.COOLING_TICKS_PER_CANISTER,
+                menu.isCoolingActive() ? ENERGY_COLOR : MUTED_TEXT_COLOR);
+        drawFittedString(graphics, remainingText(), left + METER_X, top + 58,
+                METER_WIDTH, PRIMARY_TEXT_COLOR);
+        drawFittedString(graphics, stateText(), left + 112, top + 78,
+                86, menu.isCoolingActive() ? PROCESS_COLOR : MUTED_TEXT_COLOR);
     }
 
-    private void drawSlotFrame(GuiGraphics graphics, int x, int y) {
-        graphics.fill(x - 1, y - 1, x + 17, y + 17, 0xFF373737);
-        graphics.fill(x, y, x + 16, y + 16, 0xFF8B8B8B);
+    @Override
+    protected void renderMachineTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
+        if (inside(mouseX, mouseY, leftPos + METER_X, topPos + METER_Y,
+                METER_WIDTH, METER_HEIGHT)) {
+            showTooltip(graphics, List.of(
+                    remainingText().copy().withStyle(ChatFormatting.AQUA),
+                    stateText().copy().withStyle(menu.isCoolingActive()
+                            ? ChatFormatting.GREEN : ChatFormatting.GRAY)), mouseX, mouseY);
+        }
+    }
+
+    private Component remainingText() {
+        return Component.translatable("screen.miningdim.low_temperature_controller.remaining",
+                menu.remainingTicks(), LowTemperatureControllerBlockEntity.COOLING_TICKS_PER_CANISTER);
+    }
+
+    private Component stateText() {
+        return Component.translatable(menu.isCoolingActive()
+                ? "screen.miningdim.low_temperature_controller.active"
+                : "screen.miningdim.low_temperature_controller.inactive");
     }
 }

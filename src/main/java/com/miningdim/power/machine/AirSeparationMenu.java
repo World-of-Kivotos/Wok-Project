@@ -32,7 +32,7 @@ public final class AirSeparationMenu extends AbstractMiningMenu {
                 ? separator : null;
         ItemStackHandler slots = blockEntity == null
                 ? new ItemStackHandler(AirSeparationUnitBlockEntity.SLOT_COUNT) : blockEntity.inventory();
-        addSlot(new SlotItemHandler(slots, AirSeparationUnitBlockEntity.SLOT_OUTPUT, 79, 72) {
+        addSlot(new SlotItemHandler(slots, AirSeparationUnitBlockEntity.SLOT_OUTPUT, 101, 70) {
             @Override
             public boolean mayPlace(ItemStack stack) {
                 return false;
@@ -41,7 +41,7 @@ public final class AirSeparationMenu extends AbstractMiningMenu {
         data = blockEntity != null && !inventory.player.level().isClientSide
                 ? blockEntity.data() : new SimpleContainerData(AirSeparationUnitBlockEntity.DATA_COUNT);
         addDataSlots(data);
-        addPlayerInventory(inventory, 8, 140);
+        addPlayerInventory(inventory, 28, 142);
     }
 
     @Override

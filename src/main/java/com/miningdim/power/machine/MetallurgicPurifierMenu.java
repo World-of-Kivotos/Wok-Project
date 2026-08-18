@@ -28,9 +28,9 @@ public final class MetallurgicPurifierMenu extends AbstractMiningMenu {
                 ? purifier : null;
         ItemStackHandler slots = blockEntity == null
                 ? new ItemStackHandler(MetallurgicPurifierBlockEntity.SLOT_COUNT) : blockEntity.inventory();
-        addSlot(new SlotItemHandler(slots, MetallurgicPurifierBlockEntity.SLOT_BASE, 43, 36));
-        addSlot(new SlotItemHandler(slots, MetallurgicPurifierBlockEntity.SLOT_INFUSION, 79, 36));
-        addSlot(new SlotItemHandler(slots, MetallurgicPurifierBlockEntity.SLOT_OUTPUT, 115, 36) {
+        addSlot(new SlotItemHandler(slots, MetallurgicPurifierBlockEntity.SLOT_BASE, 51, 36));
+        addSlot(new SlotItemHandler(slots, MetallurgicPurifierBlockEntity.SLOT_INFUSION, 101, 36));
+        addSlot(new SlotItemHandler(slots, MetallurgicPurifierBlockEntity.SLOT_OUTPUT, 151, 36) {
             @Override
             public boolean mayPlace(ItemStack stack) {
                 return false;
@@ -39,7 +39,7 @@ public final class MetallurgicPurifierMenu extends AbstractMiningMenu {
         data = blockEntity != null && !inventory.player.level().isClientSide
                 ? blockEntity.data() : new SimpleContainerData(MetallurgicPurifierBlockEntity.DATA_COUNT);
         addDataSlots(data);
-        addPlayerInventory(inventory, 8, 140);
+        addPlayerInventory(inventory, 28, 142);
     }
 
     public @Nullable MetallurgicPurifierBlockEntity blockEntity() {

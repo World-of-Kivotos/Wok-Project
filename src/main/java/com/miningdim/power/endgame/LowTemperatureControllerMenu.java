@@ -30,7 +30,7 @@ public final class LowTemperatureControllerMenu extends AbstractMiningMenu {
                 ? controller : null;
         ItemStackHandler slots = blockEntity == null
                 ? new ItemStackHandler(LowTemperatureControllerBlockEntity.SLOT_COUNT) : blockEntity.inventory();
-        addSlot(new SlotItemHandler(slots, LowTemperatureControllerBlockEntity.SLOT_LIQUID_NITROGEN, 79, 33) {
+        addSlot(new SlotItemHandler(slots, LowTemperatureControllerBlockEntity.SLOT_LIQUID_NITROGEN, 101, 35) {
             @Override
             public boolean mayPlace(ItemStack stack) {
                 return stack.is(PowerMachineRegistry.LIQUID_NITROGEN_CANISTER.get());
@@ -39,7 +39,7 @@ public final class LowTemperatureControllerMenu extends AbstractMiningMenu {
         data = blockEntity != null && !inventory.player.level().isClientSide
                 ? blockEntity.data() : new SimpleContainerData(LowTemperatureControllerBlockEntity.DATA_COUNT);
         addDataSlots(data);
-        addPlayerInventory(inventory, 8, 94);
+        addPlayerInventory(inventory, 28, 94);
     }
 
     public @Nullable LowTemperatureControllerBlockEntity blockEntity() {

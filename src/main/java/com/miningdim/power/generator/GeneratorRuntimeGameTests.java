@@ -13,6 +13,8 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.Chicken;
+import net.minecraft.world.inventory.ContainerData;
+import net.minecraft.world.inventory.SimpleContainerData;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -32,6 +34,93 @@ public final class GeneratorRuntimeGameTests {
     private static final String BATCH = "power_generator_runtime";
 
     private GeneratorRuntimeGameTests() {
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void menuDataUsesExactInt32SchemaAndDetachedClientMirror(GameTestHelper helper) {
+        helper.assertTrue(GeneratorMenu.DATA_STATE == 0
+                        && GeneratorMenu.DATA_STORED_FE_LOW == 1
+                        && GeneratorMenu.DATA_STORED_FE_HIGH == 2
+                        && GeneratorMenu.DATA_BUFFER_CAPACITY_LOW == 3
+                        && GeneratorMenu.DATA_BUFFER_CAPACITY_HIGH == 4
+                        && GeneratorMenu.DATA_TEMPERATURE_LOW == 5
+                        && GeneratorMenu.DATA_TEMPERATURE_HIGH == 6
+                        && GeneratorMenu.DATA_MELTDOWN_TEMPERATURE_LOW == 7
+                        && GeneratorMenu.DATA_MELTDOWN_TEMPERATURE_HIGH == 8
+                        && GeneratorMenu.DATA_BUFFER_REJECTION_LOW == 9
+                        && GeneratorMenu.DATA_BUFFER_REJECTION_HIGH == 10
+                        && GeneratorMenu.DATA_FUSE_STATE == 11
+                        && GeneratorMenu.DATA_FUEL_REMAINING_LOW == 12
+                        && GeneratorMenu.DATA_FUEL_REMAINING_HIGH == 13
+                        && GeneratorMenu.DATA_FUEL_MAX_DAMAGE_LOW == 14
+                        && GeneratorMenu.DATA_FUEL_MAX_DAMAGE_HIGH == 15
+                        && GeneratorMenu.DATA_NETWORK_FAULT == 16
+                        && GeneratorMenu.DATA_COUNT == 17,
+                "发电机菜单数据索引必须保持 5 个 int32、2 个燃料 int32 与 3 个枚举字段的固定顺序");
+
+        int[] reachableBoundaries = {
+                0, 32_767, 32_768, 65_535, 65_536,
+                GeneratorSpec.LOW.runtime().bufferCapacityFe(),
+                GeneratorSpec.MEDIUM.runtime().bufferCapacityFe(),
+                GeneratorSpec.HIGH.runtime().bufferCapacityFe(),
+                GeneratorSpec.LOW.runtime().coreDurability(),
+                GeneratorSpec.MEDIUM.runtime().coreDurability(),
+                GeneratorSpec.HIGH.runtime().coreDurability(),
+                1_000_000,
+                200_000_000
+        };
+        for (int value : reachableBoundaries) {
+            int low = GeneratorMenu.lowWord(value);
+            int high = GeneratorMenu.highWord(value);
+            int networkLow = (short) low;
+            int networkHigh = (short) high;
+            helper.assertTrue(GeneratorMenu.joinInt32(low, high) == value
+                            && GeneratorMenu.joinInt32(networkLow, networkHigh) == value,
+                    "32 位菜单值必须跨 signed short 传输后无损复原: " + value);
+        }
+
+        GeneratorBlockEntity controller = placeGenerator(helper, PowerRegistry.INDUSTRIAL_GENERATOR.get(),
+                new BlockPos(3, 1, 3));
+        ItemStack core = fuelCore(GeneratorSpec.LOW);
+        core.setDamageValue(137);
+        controller.inventory().setStackInSlot(GeneratorBlockEntity.SLOT_FUEL_CORE, core);
+
+        ContainerData serverData = GeneratorMenu.dataFor(controller, false);
+        ContainerData clientData = GeneratorMenu.dataFor(controller, true);
+        ContainerData missingServerData = GeneratorMenu.dataFor(null, false);
+        helper.assertTrue(!(serverData instanceof SimpleContainerData)
+                        && clientData instanceof SimpleContainerData
+                        && missingServerData instanceof SimpleContainerData
+                        && serverData.getCount() == GeneratorMenu.DATA_COUNT
+                        && clientData.getCount() == GeneratorMenu.DATA_COUNT,
+                "客户端或缺失 BE 的发电机菜单必须使用独立 SimpleContainerData 镜像");
+
+        for (int index = 0; index < GeneratorMenu.DATA_COUNT; index++) {
+            clientData.set(index, (short) serverData.get(index));
+        }
+        int mirroredCapacity = GeneratorMenu.joinInt32(
+                clientData.get(GeneratorMenu.DATA_BUFFER_CAPACITY_LOW),
+                clientData.get(GeneratorMenu.DATA_BUFFER_CAPACITY_HIGH));
+        int mirroredRemaining = GeneratorMenu.joinInt32(
+                clientData.get(GeneratorMenu.DATA_FUEL_REMAINING_LOW),
+                clientData.get(GeneratorMenu.DATA_FUEL_REMAINING_HIGH));
+        int mirroredMaximum = GeneratorMenu.joinInt32(
+                clientData.get(GeneratorMenu.DATA_FUEL_MAX_DAMAGE_LOW),
+                clientData.get(GeneratorMenu.DATA_FUEL_MAX_DAMAGE_HIGH));
+        helper.assertTrue(mirroredCapacity == controller.bufferCapacityFe()
+                        && mirroredRemaining == core.getMaxDamage() - 137
+                        && mirroredMaximum == core.getMaxDamage()
+                        && clientData.get(GeneratorMenu.DATA_STATE) == controller.state().ordinal()
+                        && clientData.get(GeneratorMenu.DATA_FUSE_STATE) == controller.fuseState().ordinal()
+                        && clientData.get(GeneratorMenu.DATA_NETWORK_FAULT) == controller.networkFault().ordinal(),
+                "客户端镜像必须精确重组容量、剩余耐久、最大耐久与三个枚举字段");
+
+        controller.fuelCore().setDamageValue(138);
+        helper.assertTrue(GeneratorMenu.joinInt32(
+                        clientData.get(GeneratorMenu.DATA_FUEL_REMAINING_LOW),
+                        clientData.get(GeneratorMenu.DATA_FUEL_REMAINING_HIGH)) == mirroredRemaining,
+                "客户端菜单镜像不得绕过同步包直接读取客户端方块实体状态");
+        helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)

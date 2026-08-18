@@ -13,19 +13,37 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraftforge.items.ItemStackHandler;
 import net.minecraftforge.items.SlotItemHandler;
+import org.jetbrains.annotations.Nullable;
 
 /** 三档发电机菜单：燃料芯与镍铬保险丝均可由玩家取放，自动化抽取由 BE 能力另行限制。 */
 public final class GeneratorMenu extends AbstractMiningMenu {
 
     public static final int CONTAINER_SLOTS = GeneratorBlockEntity.SLOT_COUNT;
-    public static final int DATA_COUNT = 10;
+    public static final int DATA_STATE = 0;
+    public static final int DATA_STORED_FE_LOW = 1;
+    public static final int DATA_STORED_FE_HIGH = 2;
+    public static final int DATA_BUFFER_CAPACITY_LOW = 3;
+    public static final int DATA_BUFFER_CAPACITY_HIGH = 4;
+    public static final int DATA_TEMPERATURE_LOW = 5;
+    public static final int DATA_TEMPERATURE_HIGH = 6;
+    public static final int DATA_MELTDOWN_TEMPERATURE_LOW = 7;
+    public static final int DATA_MELTDOWN_TEMPERATURE_HIGH = 8;
+    public static final int DATA_BUFFER_REJECTION_LOW = 9;
+    public static final int DATA_BUFFER_REJECTION_HIGH = 10;
+    public static final int DATA_FUSE_STATE = 11;
+    public static final int DATA_FUEL_REMAINING_LOW = 12;
+    public static final int DATA_FUEL_REMAINING_HIGH = 13;
+    public static final int DATA_FUEL_MAX_DAMAGE_LOW = 14;
+    public static final int DATA_FUEL_MAX_DAMAGE_HIGH = 15;
+    public static final int DATA_NETWORK_FAULT = 16;
+    public static final int DATA_COUNT = 17;
 
-    private static final int FUEL_SLOT_X = 62;
-    private static final int FUEL_SLOT_Y = 35;
-    private static final int FUSE_SLOT_X = 98;
-    private static final int FUSE_SLOT_Y = 35;
+    private static final int FUEL_SLOT_X = 69;
+    private static final int FUEL_SLOT_Y = 37;
+    private static final int FUSE_SLOT_X = 133;
+    private static final int FUSE_SLOT_Y = 37;
 
-    private final GeneratorBlockEntity blockEntity;
+    private final @Nullable GeneratorBlockEntity blockEntity;
     private final ItemStackHandler fallbackInventory = new ItemStackHandler(CONTAINER_SLOTS);
     private final ContainerData data;
 
@@ -35,8 +53,8 @@ public final class GeneratorMenu extends AbstractMiningMenu {
                         generatorBlockAt(playerInv, pos)));
         this.blockEntity = findGenerator(playerInv, pos);
         addGeneratorSlots(playerInv, pos);
-        addPlayerInventory(playerInv, 8, 140);
-        this.data = blockEntity == null ? new SimpleContainerData(DATA_COUNT) : dataFor(blockEntity);
+        addPlayerInventory(playerInv, 28, 142);
+        this.data = dataFor(blockEntity, playerInv.player.level().isClientSide);
         addDataSlots(data);
     }
 
@@ -78,21 +96,31 @@ public final class GeneratorMenu extends AbstractMiningMenu {
         });
     }
 
-    private static ContainerData dataFor(GeneratorBlockEntity generator) {
+    static ContainerData dataFor(@Nullable GeneratorBlockEntity generator, boolean clientSide) {
+        if (clientSide || generator == null) {
+            return new SimpleContainerData(DATA_COUNT);
+        }
         return new ContainerData() {
             @Override
             public int get(int index) {
                 return switch (index) {
-                    case 0 -> generator.state().ordinal();
-                    case 1 -> generator.storedFe();
-                    case 2 -> generator.bufferCapacityFe();
-                    case 3 -> toCentidegrees(generator.temperatureC());
-                    case 4 -> toCentidegrees(generator.meltdownTemperatureC());
-                    case 5 -> generator.bufferRejectionFe();
-                    case 6 -> generator.fuseState().ordinal();
-                    case 7 -> generator.fuelCore().isEmpty() ? 0 : generator.fuelCore().getDamageValue();
-                    case 8 -> generator.fuelCore().isEmpty() ? 0 : generator.fuelCore().getMaxDamage();
-                    case 9 -> generator.networkFault().ordinal();
+                    case DATA_STATE -> generator.state().ordinal();
+                    case DATA_STORED_FE_LOW -> lowWord(generator.storedFe());
+                    case DATA_STORED_FE_HIGH -> highWord(generator.storedFe());
+                    case DATA_BUFFER_CAPACITY_LOW -> lowWord(generator.bufferCapacityFe());
+                    case DATA_BUFFER_CAPACITY_HIGH -> highWord(generator.bufferCapacityFe());
+                    case DATA_TEMPERATURE_LOW -> lowWord(toCentidegrees(generator.temperatureC()));
+                    case DATA_TEMPERATURE_HIGH -> highWord(toCentidegrees(generator.temperatureC()));
+                    case DATA_MELTDOWN_TEMPERATURE_LOW -> lowWord(toCentidegrees(generator.meltdownTemperatureC()));
+                    case DATA_MELTDOWN_TEMPERATURE_HIGH -> highWord(toCentidegrees(generator.meltdownTemperatureC()));
+                    case DATA_BUFFER_REJECTION_LOW -> lowWord(generator.bufferRejectionFe());
+                    case DATA_BUFFER_REJECTION_HIGH -> highWord(generator.bufferRejectionFe());
+                    case DATA_FUSE_STATE -> generator.fuseState().ordinal();
+                    case DATA_FUEL_REMAINING_LOW -> lowWord(fuelRemainingDurability(generator));
+                    case DATA_FUEL_REMAINING_HIGH -> highWord(fuelRemainingDurability(generator));
+                    case DATA_FUEL_MAX_DAMAGE_LOW -> lowWord(fuelMaxDamage(generator));
+                    case DATA_FUEL_MAX_DAMAGE_HIGH -> highWord(fuelMaxDamage(generator));
+                    case DATA_NETWORK_FAULT -> generator.networkFault().ordinal();
                     default -> throw new IndexOutOfBoundsException("generator menu data index: " + index);
                 };
             }
@@ -111,11 +139,21 @@ public final class GeneratorMenu extends AbstractMiningMenu {
         };
     }
 
+    private static int fuelRemainingDurability(GeneratorBlockEntity generator) {
+        ItemStack fuelCore = generator.fuelCore();
+        return fuelCore.isEmpty() ? 0 : Math.max(0, fuelCore.getMaxDamage() - fuelCore.getDamageValue());
+    }
+
+    private static int fuelMaxDamage(GeneratorBlockEntity generator) {
+        ItemStack fuelCore = generator.fuelCore();
+        return fuelCore.isEmpty() ? 0 : fuelCore.getMaxDamage();
+    }
+
     private static int toCentidegrees(double temperature) {
         return Math.toIntExact(Math.round(temperature * 100.0D));
     }
 
-    public GeneratorBlockEntity blockEntity() {
+    public @Nullable GeneratorBlockEntity blockEntity() {
         return blockEntity;
     }
 
@@ -124,42 +162,55 @@ public final class GeneratorMenu extends AbstractMiningMenu {
     }
 
     public int stateOrdinal() {
-        return dataValue(0);
+        return dataValue(DATA_STATE);
     }
 
     public int storedFe() {
-        return dataValue(1);
+        return joinInt32(dataValue(DATA_STORED_FE_LOW), dataValue(DATA_STORED_FE_HIGH));
     }
 
     public int bufferCapacityFe() {
-        return dataValue(2);
+        return joinInt32(dataValue(DATA_BUFFER_CAPACITY_LOW), dataValue(DATA_BUFFER_CAPACITY_HIGH));
     }
 
     public double temperatureC() {
-        return dataValue(3) / 100.0D;
+        return joinInt32(dataValue(DATA_TEMPERATURE_LOW), dataValue(DATA_TEMPERATURE_HIGH)) / 100.0D;
     }
 
     public double meltdownTemperatureC() {
-        return dataValue(4) / 100.0D;
+        return joinInt32(dataValue(DATA_MELTDOWN_TEMPERATURE_LOW),
+                dataValue(DATA_MELTDOWN_TEMPERATURE_HIGH)) / 100.0D;
     }
 
     public int bufferRejectionFe() {
-        return dataValue(5);
+        return joinInt32(dataValue(DATA_BUFFER_REJECTION_LOW), dataValue(DATA_BUFFER_REJECTION_HIGH));
     }
 
     public int fuseStateOrdinal() {
-        return dataValue(6);
+        return dataValue(DATA_FUSE_STATE);
     }
 
-    public int fuelDamage() {
-        return dataValue(7);
+    public int fuelRemainingDurability() {
+        return joinInt32(dataValue(DATA_FUEL_REMAINING_LOW), dataValue(DATA_FUEL_REMAINING_HIGH));
     }
 
     public int fuelMaxDamage() {
-        return dataValue(8);
+        return joinInt32(dataValue(DATA_FUEL_MAX_DAMAGE_LOW), dataValue(DATA_FUEL_MAX_DAMAGE_HIGH));
     }
 
     public int networkFaultOrdinal() {
-        return dataValue(9);
+        return dataValue(DATA_NETWORK_FAULT);
+    }
+
+    static int lowWord(int value) {
+        return value & 0xFFFF;
+    }
+
+    static int highWord(int value) {
+        return (value >>> 16) & 0xFFFF;
+    }
+
+    static int joinInt32(int low, int high) {
+        return (low & 0xFFFF) | ((high & 0xFFFF) << 16);
     }
 }

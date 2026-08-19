@@ -27,7 +27,7 @@ public enum ConductorMaterial implements CableProfile {
     OFC_COPPER(          "ofc_copper",            0xD47B45,   2048, 0.46, InsulationGrade.EPR,      VoltageClass.MEDIUM,  ThermalMode.STANDARD, 166, false),
     OFE_COPPER(          "ofe_copper",            0xE08A50,   3072, 0.46, InsulationGrade.XLPE,     VoltageClass.MEDIUM,  ThermalMode.STANDARD, 165, false),
     SILVER_PLATED_COPPER("silver_plated_copper",  0xD8E0E8,   4096, 0.47, InsulationGrade.XLPE,     VoltageClass.HIGH,    ThermalMode.STANDARD, 160, false),
-    GOLD(                "gold",                  0xE6B84A,   2560, 0.50, InsulationGrade.XLPE,     VoltageClass.HIGH,    ThermalMode.STANDARD, 221, false),
+    GOLD(                "gold",                  0xE6B84A,   3200, 0.50, InsulationGrade.XLPE,     VoltageClass.HIGH,    ThermalMode.STANDARD, 221, false),
     SILVER(              "silver",                0xC7D1D8,   5120, 0.46, InsulationGrade.SILICONE, VoltageClass.HIGH,    ThermalMode.STANDARD, 159, false),
     GRAPHENE(            "graphene",              0x4A4A50,   8192, 1.00, InsulationGrade.SILICONE, VoltageClass.EXTREME, ThermalMode.GRAPHENE, 80, false),
     NBTI_SUPERCONDUCTOR( "nbti_superconductor",   0x8A9CAF,  16384, 1.00, InsulationGrade.SILICONE, VoltageClass.EXTREME, ThermalMode.NBTI, 168, false),

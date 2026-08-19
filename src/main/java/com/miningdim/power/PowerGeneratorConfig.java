@@ -46,7 +46,7 @@ public final class PowerGeneratorConfig {
         builder.push("industrial");
         INDUSTRIAL_PEAK_FE_PER_TICK = builder.defineInRange("peakFePerTick", 192, 1, 1_000_000);
         INDUSTRIAL_FUEL_CORE_DURABILITY = builder.defineInRange(
-                "fuelCoreDurability", 600, 1, 1_000_000);
+                "fuelCoreDurability", 3_600, 1, 1_000_000);
         INDUSTRIAL_MELTDOWN_TEMPERATURE_C = builder.defineInRange(
                 "meltdownTemperatureC", 200.0D, 21.0D, 10_000.0D);
         INDUSTRIAL_MAX_REJECTED_TEMPERATURE_RISE_PER_TICK = builder.defineInRange(
@@ -63,7 +63,7 @@ public final class PowerGeneratorConfig {
         builder.push("modern");
         MODERN_PEAK_FE_PER_TICK = builder.defineInRange("peakFePerTick", 1_152, 1, 1_000_000);
         MODERN_FUEL_CORE_DURABILITY = builder.defineInRange(
-                "fuelCoreDurability", 900, 1, 1_000_000);
+                "fuelCoreDurability", 7_200, 1, 1_000_000);
         MODERN_MELTDOWN_TEMPERATURE_C = builder.defineInRange(
                 "meltdownTemperatureC", 260.0D, 21.0D, 10_000.0D);
         MODERN_MAX_REJECTED_TEMPERATURE_RISE_PER_TICK = builder.defineInRange(
@@ -80,7 +80,7 @@ public final class PowerGeneratorConfig {
         builder.push("future");
         FUTURE_PEAK_FE_PER_TICK = builder.defineInRange("peakFePerTick", 3_072, 1, 1_000_000);
         FUTURE_FUEL_CORE_DURABILITY = builder.defineInRange(
-                "fuelCoreDurability", 1_200, 1, 1_000_000);
+                "fuelCoreDurability", 14_400, 1, 1_000_000);
         FUTURE_MELTDOWN_TEMPERATURE_C = builder.defineInRange(
                 "meltdownTemperatureC", 320.0D, 21.0D, 10_000.0D);
         FUTURE_MAX_REJECTED_TEMPERATURE_RISE_PER_TICK = builder.defineInRange(

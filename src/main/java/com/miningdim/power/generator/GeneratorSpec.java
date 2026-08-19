@@ -7,9 +7,9 @@ import net.minecraft.world.level.block.Block;
 
 /** 三档发电机不可配置的身份与可配置运行数据的唯一入口。 */
 public enum GeneratorSpec {
-    LOW("low", VoltageClass.LOW, 192, 600, 200.0D, 0.25D, 0.10D, 4, 64, 8, 0.25D),
-    MEDIUM("medium", VoltageClass.MEDIUM, 1_152, 900, 260.0D, 0.50D, 0.15D, 8, 192, 24, 0.40D),
-    HIGH("high", VoltageClass.HIGH, 3_072, 1_200, 320.0D, 1.00D, 0.20D, 24, 512, 64, 0.60D);
+    LOW("low", VoltageClass.LOW, 192, 3_600, 200.0D, 0.25D, 0.10D, 4, 64, 8, 0.25D),
+    MEDIUM("medium", VoltageClass.MEDIUM, 1_152, 7_200, 260.0D, 0.50D, 0.15D, 8, 192, 24, 0.40D),
+    HIGH("high", VoltageClass.HIGH, 3_072, 14_400, 320.0D, 1.00D, 0.20D, 24, 512, 64, 0.60D);
 
     private final String id;
     private final VoltageClass sourceVoltage;

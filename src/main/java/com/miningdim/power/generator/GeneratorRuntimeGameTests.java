@@ -125,9 +125,9 @@ public final class GeneratorRuntimeGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void threeSpecsKeepExactOutputDurationAndNbtContract(GameTestHelper helper) {
-        assertRuntime(helper, GeneratorSpec.LOW, 192, 600, 200.0D, 4, 64, 8, 0.25D);
-        assertRuntime(helper, GeneratorSpec.MEDIUM, 1_152, 900, 260.0D, 8, 192, 24, 0.40D);
-        assertRuntime(helper, GeneratorSpec.HIGH, 3_072, 1_200, 320.0D, 24, 512, 64, 0.60D);
+        assertRuntime(helper, GeneratorSpec.LOW, 192, 3_600, 200.0D, 4, 64, 8, 0.25D);
+        assertRuntime(helper, GeneratorSpec.MEDIUM, 1_152, 7_200, 260.0D, 8, 192, 24, 0.40D);
+        assertRuntime(helper, GeneratorSpec.HIGH, 3_072, 14_400, 320.0D, 24, 512, 64, 0.60D);
 
         for (GeneratorSpec spec : GeneratorSpec.values()) {
             BlockPos anchorRelative = new BlockPos(3 + spec.ordinal() * 5, 1, 3);

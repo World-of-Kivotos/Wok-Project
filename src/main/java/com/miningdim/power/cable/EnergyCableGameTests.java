@@ -265,9 +265,9 @@ public final class EnergyCableGameTests {
                         && ConductorMaterial.OFC_COPPER.ratedCapacityFe() == 2_048
                         && ConductorMaterial.OFE_COPPER.ratedCapacityFe() == 3_072
                         && ConductorMaterial.SILVER_PLATED_COPPER.ratedCapacityFe() == 4_096
-                        && ConductorMaterial.GOLD.ratedCapacityFe() == 2_560
+                        && ConductorMaterial.GOLD.ratedCapacityFe() == 3_200
                         && ConductorMaterial.SILVER.ratedCapacityFe() == 5_120,
-                "P2 六档导体容量必须固定为 1536/2048/3072/4096/2560/5120 FE/t");
+                "P2 六档导体容量必须固定为 1536/2048/3072/4096/3200/5120 FE/t");
         helper.assertTrue(ConductorMaterial.TINNED_COPPER.voltageClass() == VoltageClass.MEDIUM
                         && ConductorMaterial.OFC_COPPER.voltageClass() == VoltageClass.MEDIUM
                         && ConductorMaterial.OFE_COPPER.voltageClass() == VoltageClass.MEDIUM

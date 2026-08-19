@@ -5,36 +5,77 @@
 - 用途: 线材(导体/线缆)子系统的美术需求与资产状态清单。列出分期成品所需的方块贴图、物品图标和共享基底, 供美术与实现逐项对账。所有机制/分级依据以 `docs/Power_Cable_DesignSpec.md` 为唯一真源, 本文档只做美术资产映射与状态记录, 不改机制。
 - 关联真源: 导体阶梯与材料 id 见设计文档第四章 12 级导体表及 `ConductorMaterial` 枚举; 绝缘 5 档见 `InsulationGrade` 枚举; 分期路线见设计文档第十三章。
 - 贴图规格通用约定:
-  - 方块贴图: 16x16 PNG, 放置于 `src/main/resources/assets/miningdim/textures/block/`。
+  - 方块贴图: 一般方块仍为 16x16 PNG; 本轮摆放态线缆是明确例外, 使用 32x32 RGBA PNG, 放置于 `src/main/resources/assets/miningdim/textures/block/`。
   - 物品图标: 16x16 PNG(扁平 2D sprite), 放置于 `src/main/resources/assets/miningdim/textures/item/`。
   - 命名: 一律小写下划线, 与注册 id / blockstate / model / lang 键完全一致(如 `iron_energy_cable`), 大小写或拼写不符将导致材质丢失(紫黑格)。
   - 多面机器方块: 按 `top` / `side` / `front` 拆分独立贴图文件, 工作态另出 `front_on`。
-- 线缆模型方案(DECIDED): 采用细管本体加六向连接口的多部件模型, 按相邻线缆/端点状态组合连接方向。整方块模型只保留为迁移前的旧占位, 不再作为待确认方案。
-- 线缆贴图方案(DECIDED): 细管本体、连接口和物品图标使用灰度基底, 导体/绝缘色由材料数据 tint 注入; 不为 12 级导体重复绘制同形状的整套彩色 PNG。
-- 旧占位事实: 当前 `models/block/iron_energy_cable.json` 与 `copper_energy_cable.json` 仍是 `cube_all` 路径, 仅铁、铜方块已在 `PowerRegistry` 注册。仓库中已有的 58 个旧式 PNG 只能记为“文件已生成但待新模型/数据接线复核”, 不能据此宣称新模型或新材料已完成。
+- 线缆模型方案(DECIDED): 采用细管中心本体加六向连接口的 multipart 模型, 按相邻线缆/端点状态组合连接方向; 13 种摆放态共用同一套几何规则。
+- 线缆贴图方案(DECIDED): 12 档 `ConductorMaterial` 与钨耐热线各有一张独立 32x32 彩色 PNG, 材料色、绝缘皮、卡箍和细节纹样直接烘入像素, 不依赖 block tint。物品图标继续使用各自的 16x16 PNG。
+- 当前成品事实: `PowerRegistry` 已注册完整 12 档导体和钨耐热线; 对应 13 张摆放态 PNG、multipart blockstate、中心模型和端口模型均已接线。旧 `cube_all` 与“仅铁、铜已注册”的描述已经失效。
 - 状态/严重度记法: 纯文本 Critical / Major / Minor 与 [x] / [ ]; 优先级用 P1 / P2 / P3; 不使用任何 emoji 或颜色符号。
-- 资产状态记法: `[x] 已生成` 表示目标 PNG 文件在当前分支存在; `[~] 已生成但待复核` 表示文件存在但仍需按细管模型、灰度基底或数据 tint 重绑; `[ ] 未生成` 表示当前没有目标文件。文件存在不等于代码已注册, 也不等于分期验收完成。
+- 资产状态记法: `[x] 已生成` 表示目标 PNG 文件在当前分支存在; `[~] 已生成但待复核` 表示文件存在但模型、注册或验收仍未闭环; `[ ] 未生成` 表示当前没有目标文件。文件存在不等于代码已注册, 也不等于分期验收完成。
 - 资源类型缩写: BLOCK=方块贴图, ITEM=物品图标, TOOL=工具图标(物品图标的一种)。
 
 当前实现与资产边界:
 
-- 代码已注册: `iron_energy_cable`(T1)、`copper_energy_cable`(T3)。
-- 代码未注册: `aluminum_energy_cable`(T2) 及其余 `ConductorMaterial` 条目; 旧 PNG 即使存在也不能写成“已接入”。
-- 本清单旧版的 58 项仅覆盖一批历史同名 PNG, 不覆盖灰度矿脉覆盖层、原矿/锭/线材共享基底+tint、燃料芯、低温控制器等新增独立资产。因此“合计 58”不再是覆盖总量或完成标准。
+- 代码已注册: T1-T12 全部 `ConductorMaterial` 线缆, 以及 `tungsten_heat_resistant_wire`, 共 13 种摆放态。
+- 摆放态资源: 13 张同名 32x32 PNG 独立着色, 由中心本体和六向端口模型采样; 方块模型没有 `tintindex`, 客户端也没有为线缆方块注册 block color handler。
+- 物品资源: 13 张同名线缆物品图标继续保持 16x16; `PowerCableColors` 的材料 tint 只服务导线中间物 `WIRE_ITEMS`, 不参与摆放态方块着色。
+- 本轮闭环只覆盖上述摆放态线缆升级; 矿物、绝缘料、燃料芯和机器等其他清单项仍按各自状态独立验收。
+
+### 本轮摆放态线缆成品
+
+| 档位 | 独立 BLOCK PNG | 当前状态 |
+|---|---|---|
+| T1-T3 | `iron_energy_cable.png`, `aluminum_energy_cable.png`, `copper_energy_cable.png` | [x] 32x32, 已注册并接入 multipart 模型 |
+| T4-T6 | `tinned_copper_energy_cable.png`, `ofc_copper_energy_cable.png`, `ofe_copper_energy_cable.png` | [x] 32x32, 已注册并接入 multipart 模型 |
+| T7-T9 | `silver_plated_copper_energy_cable.png`, `gold_energy_cable.png`, `silver_energy_cable.png` | [x] 32x32, 已注册并接入 multipart 模型 |
+| T10-T12 | `graphene_energy_cable.png`, `nbti_superconductor_energy_cable.png`, `ybco_superconductor_energy_cable.png` | [x] 32x32, 已注册并接入 multipart 模型 |
+| P3 特殊线材 | `tungsten_heat_resistant_wire.png` | [x] 32x32, 已注册并接入 multipart 模型 |
+
+上述 13 张文件位于 `src/main/resources/assets/miningdim/textures/block/`; 每张都直接包含该材料的外皮、导体、卡箍和材质纹样颜色。对应 `textures/item/` 下的 13 张同名 BlockItem 图标没有随本轮放大, 仍严格保持 16x16。
+
+模型几何与像素密度约束:
+
+- 世界内几何不变: 中心体仍为 `(6,6,6)` 到 `(10,10,10)`, 连接段仍为 `(6,6,0)` 到 `(10,10,6)`, 即 4x4 截面的细管。
+- UV 实体带厚度由旧方案的 2 个逻辑像素提高到 4 个逻辑像素。中心六面使用 `(6,6)-(10,10)`, 端口外端面使用 `(0,6)-(4,10)`, 端口长边使用 `(0,6)-(6,10)`。
+- Minecraft 模型 UV 仍以 16 为逻辑尺寸; 32x32 源图使每个逻辑像素对应 2x2 个物理像素, 因而提高质感而不放粗世界内线缆。
+- `tools/build_power_cable_block_textures.py` 将整条物理实体带 `x=0..31, y=12..19` 写为完全不透明; 自动测试至少覆盖模型实际会采样的 `x=0..19, y=12..19`。
+
+白边与像素采样约束:
+
+- PNG 透明区必须是透明黑 `(0,0,0,0)`, 不得使用 alpha 为 0 但 RGB 为白色的隐藏像素。预览中的白底或棋盘格只能来自查看器, 不能进入成品 PNG。
+- 透明度只允许 0 或 255; 实体带必须完全不透明。不得使用抗锯齿、半透明描边、阴影羽化或模糊滤镜。
+- 成品保持原始 32x32, 不做二次缩放。制作联系表或放大检查时只能使用 nearest-neighbor; 禁止 bilinear、bicubic 或其他会混色的插值。
+- 透明黑边界与整数像素硬边共同避免 atlas 缩放、mipmap 和 cutout 采样时出现白色晕边。
+
+重建与验收命令:
+
+```powershell
+python tools\build_power_cable_block_textures.py
+.\gradlew.bat --no-daemon runData
+.\gradlew.bat --no-daemon compileJava processResources
+.\gradlew.bat --no-daemon runGameTestServer
+```
+
+- 只修改 13 张摆放态纹理的调色或纹样时运行首条命令; 修改模型几何或 UV 时还必须运行 `runData`, 以更新 `src/generated/resources/assets/miningdim/models/block/`。
+- `PowerCableAssetGameTests.everyRegisteredCableUsesNonOverlappingModelsAndValidTextures` 遍历 12 档 `ConductorMaterial` 和钨耐热线, 验证 13 个注册、每个 blockstate 的 1 个中心部件加 6 个方向端口、旋转、几何、UV、贴图绑定、32x32 BLOCK 尺寸及模型采样实体带完全不透明。
+- 同一测试还验证每个 ITEM 模型绑定同名扁平图标, 且 ITEM PNG 保持 16x16。
+- 自动测试守住尺寸、引用和采样区不透明性; 透明区 RGB 必须为黑以及 nearest-neighbor 放大仍由确定性生成脚本和像素级目检共同守住。
 
 ---
 
 ## 二、P1 现在就需要(T1-T3 + 橡胶/PVC/PE 基础绝缘)
 
-P1 的目标范围固定为 T1 铁、T2 铝、T3 铜, 并把橡胶、PVC、PE 前移为基础绝缘资产。当前代码只注册 T1 和 T3; T2 是 P1 目标但尚未注册。细管六向模型已经拍板, 以下条目不再保留整方块/细管待确认项。
+P1 的目标范围固定为 T1 铁、T2 铝、T3 铜, 并把橡胶、PVC、PE 前移为基础绝缘资产。T1-T3 均已注册并接入六向细管模型; 更高等级导体与钨耐热线也已沿同一模型规则落地。
 
 | 资源类型 | 资源路径 / 文件名 | 用途 | 状态 | 说明 |
 |---|---|---|---|---|
-| BLOCK | textures/block/energy_cable_base.png | 六向细管线缆共用灰度本体 | [ ] 未生成 | T1-T3 及后续导体共用, 由材料数据 tint 导体芯与绝缘层; 不是每级一张彩色整方块贴图 |
-| ITEM | textures/item/energy_cable_base.png | 六向细管线缆共用扁平灰度图标 | [ ] 未生成 | 物品图标独立于方块模型, 各级沿用同一基底并注入 tint |
-| BLOCK / MODEL | `iron_energy_cable`(T1) | 已注册铁线缆的六向细管放置态 | [~] 旧 PNG 已存在, 新模型未接线 | `PowerRegistry` 已注册; 需将旧 `cube_all` 模型改为六向连接模型 |
-| BLOCK / MODEL | `aluminum_energy_cable`(T2) | P1 铝线缆放置态 | [~] 旧 PNG 已存在, 代码未注册 | P1 目标条目, 铝土矿与导体注册落地后再接入 |
-| BLOCK / MODEL | `copper_energy_cable`(T3) | 已注册铜线缆的六向细管放置态 | [~] 旧 PNG 已存在, 新模型未接线 | `PowerRegistry` 已注册; 铜芯 + PE tint 由数据驱动 |
+| BLOCK | textures/block/energy_cable_base.png | 旧共享灰度基底方案 | 不适用 | 当前改为 13 张独立 32x32 彩色摆放态 PNG, 不再需要此共享文件 |
+| ITEM | textures/item/energy_cable_base.png | 旧共享扁平基底方案 | 不适用 | 当前线缆 BlockItem 使用各自同名 16x16 图标; 导线中间物的共享 tint 管线不等于此文件 |
+| BLOCK / MODEL | `iron_energy_cable`(T1) | 铁线缆六向细管放置态 | [x] 已生成并接线 | 独立 32x32 彩色 PNG + multipart 中心/端口模型 |
+| BLOCK / MODEL | `aluminum_energy_cable`(T2) | 铝线缆六向细管放置态 | [x] 已生成并接线 | 已注册, 独立 32x32 彩色 PNG + multipart 中心/端口模型 |
+| BLOCK / MODEL | `copper_energy_cable`(T3) | 铜线缆六向细管放置态 | [x] 已生成并接线 | 独立 32x32 彩色 PNG + multipart 中心/端口模型, 不依赖 block tint |
 | ITEM | item/rubber_tapping_knife.png | 割胶刀 | [x] 已生成 | 文件存在; 独立物品注册与配方仍需代码侧对账 |
 | ITEM | item/latex.png | 生胶乳 | [x] 已生成 | 文件存在; 不代表物品已注册 |
 | ITEM | item/rubber.png | 天然橡胶 | [x] 已生成 | P1 基础绝缘原料 |
@@ -73,7 +114,7 @@ P1 的目标范围固定为 T1 铁、T2 铝、T3 铜, 并把橡胶、PVC、PE �
 
 ## 四、后续分期资源清单
 
-以下按 P2 / P3 列出 P1 之外的资产。原 P1.5 内容作为 P2 的前置设施与高纯材料资产, 不再另设独立交付门槛; 机器方块与线缆方块的 resource id 仍需以实际注册为准。表内历史 PNG 仅表示文件曾生成, 不表示对应方块、物品或配方已接入。
+以下按 P2 / P3 列出 P1 之外的资产。原 P1.5 内容作为 P2 的前置设施与高纯材料资产, 不再另设独立交付门槛。13 种摆放态线缆的注册、模型和 BLOCK PNG 状态以上文“本轮摆放态线缆成品”为准; 其余机器、物品、配方和加工链仍需分别按实际实现验收。
 
 ### P2 前置 — 提纯机 + 无氧铜档(OFC/OFE) + 空分氩气罐
 
@@ -93,10 +134,10 @@ P1 的目标范围固定为 T1 铁、T2 铝、T3 铜, 并把橡胶、PVC、PE �
 | ITEM | item/ofe_copper_ingot.png | 无氧高导铜锭 OFE(P2) | 最亮最纯的粉红铜锭, 边缘冷白高光, 顶级质感 |
 | ITEM | item/argon_canister.png | 氩气罐(P2, OFE 顶级灌注料) | 加压钢瓶, 惰性气标识 / 冷白瓶身 + 阀头 |
 | ITEM | item/copper_wire.png | 导线·中间物(P2 起, 拉丝退火产物) | 一小卷细铜导线; 各金属级沿共享基底注入 tint |
-| BLOCK | block/ofc_copper_energy_cable.png | 无氧铜线缆(T5)放置态 | 亮红铜芯 + EPR 绝缘皮, 沿细管模型与数据 tint 接入 |
-| ITEM | item/ofc_copper_energy_cable.png | 无氧铜线缆物品图标 | 沿共享线材基底注入 tint |
-| BLOCK | block/ofe_copper_energy_cable.png | 无氧高导铜线缆(T6)放置态 | 顶级铜芯 + XLPE 交联绝缘皮, 沿细管模型与数据 tint 接入 |
-| ITEM | item/ofe_copper_energy_cable.png | 无氧高导铜线缆物品图标 | 沿共享线材基底注入 tint |
+| BLOCK | block/ofc_copper_energy_cable.png | 无氧铜线缆(T5)放置态 | 亮红铜芯 + EPR 绝缘皮, 独立 32x32 彩色 PNG 已接入细管模型 |
+| ITEM | item/ofc_copper_energy_cable.png | 无氧铜线缆物品图标 | 独立同名 16x16 图标 |
+| BLOCK | block/ofe_copper_energy_cable.png | 无氧高导铜线缆(T6)放置态 | 顶级铜芯 + XLPE 交联绝缘皮, 独立 32x32 彩色 PNG 已接入细管模型 |
+| ITEM | item/ofe_copper_energy_cable.png | 无氧高导铜线缆物品图标 | 独立同名 16x16 图标 |
 
 P2 前置补充说明:
 - 磷灌注料复用原版骨粉 / 骨头, 无需新图标; 硼砂 worldgen 接入当前真实生效的 datapack, 不依赖已退役的离线体素路径, 视觉基底和 tint 按本清单第三节登记。
@@ -125,7 +166,7 @@ P2 补充说明: PVC/PE 基础档已前移 P1; EPR/XLPE/硅橡胶为 P2 额外�
 
 ### 跨分期缺失的独立组件资产
 
-以下文件当前不存在, 不能以旧 58 项中的任意线缆、机器或锭图标代替。燃料芯属于发电机的独立输入物; 低温控制器是 NbTi 超导线缆的独立机器方块, 同时登记四张方块面贴图与物品图标。
+以下独立组件不能以本轮完成的 13 张摆放态线缆、其他机器或锭图标代替。燃料芯属于发电机的独立输入物; 低温控制器是 NbTi 超导线缆的独立机器方块, 同时登记四张方块面贴图与物品图标。
 
 | 资源类型 | 建议路径 / 文件名 | 用途 | 分期 | 状态 |
 |---|---|---|---|---|
@@ -159,10 +200,10 @@ P3 补充说明: 镍矿、铬矿、钨矿的 worldgen 走当前生效的 datapac
 
 ## 五、优先级建议
 
-- P1 的最小交付是 T1-T3 的六向细管模型接线、共享线缆灰度基底、材料 tint, 以及橡胶/PVC/PE 基础绝缘资产。当前只有铁、铜代码注册; 铝仍是 P1 目标而非已接入成品。
+- P1 的 T1-T3 六向细管模型和独立 32x32 摆放态纹理已经闭环; 橡胶/PVC/PE 基础绝缘资产仍按各自条目验收。
 - P2 从 T4 开始, 覆盖 T4-T9、EPR/XLPE/硅橡胶、七矿中的 P2 内容和提纯机/空分前置资产。原 P1.5 只作为 P2 前置资产分组, 不再单独计为完成阶段。
 - P3 覆盖 T10-T12、镍铬保险丝、钨耐热线、低温控制器和未来燃料芯。缺少独立组件图标时, 不得用线缆或机器贴图代替。
-- 细管六向连接模型已定稿; 物品图标与方块本体均按灰度基底 + 数据 tint 处理, 不再等待“整方块还是细管”确认。
+- 细管六向连接模型已定稿; 13 张方块贴图按材料独立着色并直接烘色, 13 张 BlockItem 图标继续保持独立 16x16, 不依赖 block tint。
 - 机器工作态 `front_on`、`rubber_log_tapped` 与 `rubber_planks` 均属于本轮正式交付, 不能作为可选项后补。
 - 七矿矿脉覆盖层、原矿/锭/线材共享基底和 tint 数据属于本次清单新增覆盖范围, 不再排除在外。
 
@@ -172,10 +213,10 @@ P3 补充说明: 镍矿、铬矿、钨矿的 worldgen 走当前生效的 datapac
 
 | 范围 | 当前事实 | 验收口径 |
 |---|---|---|
-| 历史 58 项 PNG | 文件已在当前分支存在, 但多为旧式逐级彩色贴图 | 统一按 `[~]` 处理, 直到细管模型与数据 tint 接线复核完成 |
-| P1 目标 | T1-T3 + 橡胶/PVC/PE | 以共享基底、tint、模型连接和代码注册分别核对, 不以文件数量代替 |
-| P2 目标 | T4-T9 + 七矿 P2 内容 + 提纯/空分前置 | 资源文件、worldgen/物品注册和配方接线均完成后才可标记 `[x]` |
-| P3 目标 | T10-T12 + 支援组件 | 独立组件资产(含低温控制器、燃料芯)必须逐项存在 |
-| 新增独立资产 | 灰度矿脉覆盖层、原矿/锭/线材基底、三档燃料芯、液氮罐、低温控制器 | 当前均按 `[ ] 未生成` 登记, 不从历史 58 项冲抵 |
+| 本轮线缆摆放态 | T1-T12 + 钨耐热线, 共 13 张 BLOCK PNG | [x] 逐张 32x32, 独立烘色, multipart/UV/注册与采样区由 GameTest 验收 |
+| P1 目标 | T1-T3 + 橡胶/PVC/PE | T1-T3 摆放态已完成; 其余绝缘与材料链按独立条目核对 |
+| P2 目标 | T4-T9 + 七矿 P2 内容 + 提纯/空分前置 | T4-T9 摆放态已完成; worldgen、物品、机器和配方仍分别验收 |
+| P3 目标 | T10-T12 + 支援组件 | T10-T12 与钨耐热线摆放态已完成; 低温控制器、燃料芯等独立组件不得据此冲抵 |
+| 新增独立资产 | 灰度矿脉覆盖层、原矿/锭/线材基底、三档燃料芯、液氮罐、低温控制器 | 按各自文件与注册状态逐项验收, 不从本轮 13 张摆放态线缆冲抵 |
 
-统计口径: 旧 58 项只代表历史 PNG 文件数, 不是当前完整需求量。共享灰度基底、tint 数据、六向模型部件和独立组件均单独登记; 未生成或未接线条目不得写成已完成。
+统计口径: 本轮只把 13 张已注册、已接线并满足 32x32/UV 契约的摆放态线缆记为完成。16x16 ITEM、导线中间物 tint、矿物共享基底、机器与独立组件仍按各自条目统计, 不用线缆成品状态互相冲抵。

@@ -81,13 +81,16 @@ public final class PowerCableAssetGameTests {
         verifyPortGeometry(helper, cableId, port);
 
         BufferedImage blockImage = loadImage("/assets/miningdim/textures/block/" + cableId + ".png");
-        helper.assertTrue(blockImage.getWidth() == 16 && blockImage.getHeight() == 16,
-                cableId + " 方块贴图必须保持 16x16 像素");
-        for (int x = 0; x < 16; x++) {
-            int rowSevenAlpha = (blockImage.getRGB(x, 7) >>> 24) & 0xFF;
-            int rowEightAlpha = (blockImage.getRGB(x, 8) >>> 24) & 0xFF;
-            helper.assertTrue(rowSevenAlpha == 255 && rowEightAlpha == 255,
-                    cableId + " 模型使用的 UV 实体带必须完全不透明，失败像素 x=" + x);
+        helper.assertTrue(blockImage.getWidth() == 32 && blockImage.getHeight() == 32,
+                cableId + " 摆放态方块贴图必须保持 32x32 像素");
+        int blockTextureScale = blockImage.getWidth() / 16;
+        for (int x = 0; x < 10 * blockTextureScale; x++) {
+            for (int y = 6 * blockTextureScale; y < 10 * blockTextureScale; y++) {
+                int alpha = (blockImage.getRGB(x, y) >>> 24) & 0xFF;
+                helper.assertTrue(alpha == 255,
+                        cableId + " 模型使用的 2x 像素密度 UV 实体带必须完全不透明，失败像素 x=" + x
+                                + ", y=" + y);
+            }
         }
 
         JsonObject item = loadJson("/assets/miningdim/models/item/" + cableId + ".json");
@@ -118,7 +121,7 @@ public final class PowerCableAssetGameTests {
         JsonObject faces = element.getAsJsonObject("faces");
         helper.assertTrue(faces.size() == 6, cableId + " 中心模型必须封闭六个面");
         for (String face : List.of("down", "up", "north", "south", "west", "east")) {
-            verifyFace(helper, cableId + " 中心 " + face, faces.getAsJsonObject(face), 6, 7, 10, 9);
+            verifyFace(helper, cableId + " 中心 " + face, element, face, 6, 6, 10, 10);
         }
     }
 
@@ -131,19 +134,47 @@ public final class PowerCableAssetGameTests {
         JsonObject faces = element.getAsJsonObject("faces");
         helper.assertTrue(faces.size() == 5 && !faces.has("south"),
                 cableId + " 连接段不得伸入中心或保留共面内端面");
-        verifyFace(helper, cableId + " 连接 north", faces.getAsJsonObject("north"), 0, 7, 2, 9);
+        verifyFace(helper, cableId + " 连接 north", element, "north", 0, 6, 4, 10);
         for (String face : List.of("down", "up", "west", "east")) {
-            verifyFace(helper, cableId + " 连接 " + face, faces.getAsJsonObject(face), 0, 7, 6, 9);
+            verifyFace(helper, cableId + " 连接 " + face, element, face, 0, 6, 6, 10);
         }
         helper.assertTrue(faces.getAsJsonObject("up").get("rotation").getAsInt() == 90
                         && faces.getAsJsonObject("down").get("rotation").getAsInt() == 270,
                 cableId + " 连接段顶面与底面 UV 必须沿线缆轴旋转");
     }
 
-    private static void verifyFace(GameTestHelper helper, String label, JsonObject face, int... expectedUv) {
+    private static void verifyFace(GameTestHelper helper, String label, JsonObject element,
+                                   String faceName, int... expectedUv) {
+        JsonObject face = element.getAsJsonObject("faces").getAsJsonObject(faceName);
         helper.assertTrue(face != null && "#cable".equals(face.get("texture").getAsString()),
                 label + " 必须显式绑定线缆贴图");
-        assertVector(helper, label + " UV", face.getAsJsonArray("uv"), expectedUv);
+        JsonArray uv = face.getAsJsonArray("uv");
+        assertVector(helper, label + " UV", uv == null ? implicitUv(element, faceName) : uv, expectedUv);
+    }
+
+    private static JsonArray implicitUv(JsonObject element, String faceName) {
+        JsonArray from = element.getAsJsonArray("from");
+        JsonArray to = element.getAsJsonArray("to");
+        int fromX = from.get(0).getAsInt();
+        int fromY = from.get(1).getAsInt();
+        int fromZ = from.get(2).getAsInt();
+        int toX = to.get(0).getAsInt();
+        int toY = to.get(1).getAsInt();
+        int toZ = to.get(2).getAsInt();
+        int[] values = switch (faceName) {
+            case "down" -> new int[]{fromX, 16 - toZ, toX, 16 - fromZ};
+            case "up" -> new int[]{fromX, fromZ, toX, toZ};
+            case "north" -> new int[]{16 - toX, 16 - toY, 16 - fromX, 16 - fromY};
+            case "south" -> new int[]{fromX, 16 - toY, toX, 16 - fromY};
+            case "west" -> new int[]{fromZ, 16 - toY, toZ, 16 - fromY};
+            case "east" -> new int[]{16 - toZ, 16 - toY, 16 - fromZ, 16 - fromY};
+            default -> throw new IllegalArgumentException("未知方块面: " + faceName);
+        };
+        JsonArray uv = new JsonArray();
+        for (int value : values) {
+            uv.add(value);
+        }
+        return uv;
     }
 
     private static void assertVector(GameTestHelper helper, String label, JsonArray actual, int... expected) {

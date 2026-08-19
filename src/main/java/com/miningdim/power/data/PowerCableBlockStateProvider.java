@@ -61,7 +61,7 @@ final class PowerCableBlockStateProvider extends BlockStateProvider {
                 .to(10, 10, 10);
         for (Direction direction : Direction.values()) {
             element.face(direction)
-                    .uvs(6, 7, 10, 9)
+                    .uvs(6, 6, 10, 10)
                     .texture("#cable")
                     .end();
         }
@@ -78,24 +78,24 @@ final class PowerCableBlockStateProvider extends BlockStateProvider {
                 .from(6, 6, 0)
                 .to(10, 10, 6);
         element.face(Direction.NORTH)
-                .uvs(0, 7, 2, 9)
+                .uvs(0, 6, 4, 10)
                 .texture("#cable")
                 .end();
         element.face(Direction.WEST)
-                .uvs(0, 7, 6, 9)
+                .uvs(0, 6, 6, 10)
                 .texture("#cable")
                 .end();
         element.face(Direction.EAST)
-                .uvs(0, 7, 6, 9)
+                .uvs(0, 6, 6, 10)
                 .texture("#cable")
                 .end();
         element.face(Direction.UP)
-                .uvs(0, 7, 6, 9)
+                .uvs(0, 6, 6, 10)
                 .rotation(BlockModelBuilder.FaceRotation.CLOCKWISE_90)
                 .texture("#cable")
                 .end();
         element.face(Direction.DOWN)
-                .uvs(0, 7, 6, 9)
+                .uvs(0, 6, 6, 10)
                 .rotation(BlockModelBuilder.FaceRotation.COUNTERCLOCKWISE_90)
                 .texture("#cable")
                 .end();

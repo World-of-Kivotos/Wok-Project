@@ -3,6 +3,7 @@ plugins {
     id 'idea'
     id 'net.minecraftforge.gradle'
     id 'org.parchmentmc.librarian.forgegradle'
+    id 'org.spongepowered.mixin' version '0.7.+'
     id 'java'
 }
 
@@ -41,10 +42,10 @@ minecraft {
             workingDirectory project.file('run')
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
-            if (file('libs/FarmersDelight-1.20.1-1.3.2.jar').exists() || project.hasProperty('withPowerCompat')) {
-                property 'mixin.env.remapRefMap', 'true'
-                property 'mixin.env.refMapRemappingFile', file('build/createSrgToMcp/output.srg').absolutePath
-            }
+            // 本 mod 自带 mixin 后必须无条件反映射 refmap: 产物里的 refmap 是 SRG 态, dev run 跑官方映射,
+            // 不反映射则 dev 下 mixin 解析不到目标。原先只在 FarmersDelight 在位时才设, 现取其超集。
+            property 'mixin.env.remapRefMap', 'true'
+            property 'mixin.env.refMapRemappingFile', file('build/createSrgToMcp/output.srg').absolutePath
             mods {
                 "${mod_id}" {
                     source sourceSets.main
@@ -73,6 +74,13 @@ minecraft {
                     '--existing', file('src/main/resources/')
         }
     }
+}
+
+// Mixin: 目前只有 MoveSpeedCheckMixin (放宽创造飞行的原版移动校验)。refmap 供生产 SRG 环境解析目标,
+// dev run 由上面的 mixin.env.remapRefMap 反向映射回官方名。
+mixin {
+    add sourceSets.main, "${mod_id}.refmap.json"
+    config "${mod_id}.mixins.json"
 }
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
@@ -150,6 +158,9 @@ dependencies {
         jarJar.pin(it, '3.45.3.0')
     }
     minecraftLibrary 'org.xerial:sqlite-jdbc:3.45.3.0'
+
+    // Mixin 注解处理器: 生成 refmap。本 mod 只用 @ModifyConstant, 不依赖 MixinExtras。
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 }
 
 // 注意: mods.toml 中的 ${file.jarVersion} 是 FML 运行期从 jar MANIFEST 注入的占位,
@@ -164,6 +175,7 @@ tasks.named('jar', Jar).configure {
             'Implementation-Title'    : project.name,
             'Implementation-Version'  : project.jar.archiveVersion,
             'Implementation-Vendor'   : mod_authors,
+            'MixinConfigs'            : "${mod_id}.mixins.json",
         ])
     }
     finalizedBy 'reobfJar'

@@ -210,6 +210,7 @@ public final class DangerCurveGameTests {
         @Override public int gcGraceSeconds() { throw unused(); }
         @Override public int gcScanIntervalTicks() { throw unused(); }
         @Override public int maxGenWorkers() { throw unused(); }
+        @Override public int creativeFlightMaxBlocksPerTick() { throw unused(); }
 
         private static UnsupportedOperationException unused() {
             return new UnsupportedOperationException("config method not exercised by DangerCurveGameTests");

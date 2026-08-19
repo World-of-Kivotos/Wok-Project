@@ -291,4 +291,9 @@ public final class ModConfig implements IMiningConfig {
     public int maxGenWorkers() {
         return MiningServerConfig.MAX_GEN_WORKERS.get();
     }
+
+    @Override
+    public int creativeFlightMaxBlocksPerTick() {
+        return MiningServerConfig.CREATIVE_FLIGHT_MAX_BLOCKS_PER_TICK.get();
+    }
 }

@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "minVersion": "0.8.5",
+  "package": "com.miningdim.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "miningdim.refmap.json",
+  "mixins": [
+    "MoveSpeedCheckMixin"
+  ],
+  "client": [],
+  "server": [],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

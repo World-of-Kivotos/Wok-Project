@@ -119,6 +119,9 @@ public final class MiningServerConfig {
     public static final ForgeConfigSpec.IntValue GC_SCAN_INTERVAL;
     public static final ForgeConfigSpec.IntValue MAX_GEN_WORKERS;
 
+    // ---- 运维项 (不属 16.2 表, 与 maxGenWorkers 同性质): 移动校验 (movement) ----
+    public static final ForgeConfigSpec.IntValue CREATIVE_FLIGHT_MAX_BLOCKS_PER_TICK;
+
     /** 16.2.1 instance.overflowPolicy 枚举值 (REJECT 拒绝 / QUEUE 排队)。 */
     public enum OverflowPolicy {
         REJECT,
@@ -312,6 +315,16 @@ public final class MiningServerConfig {
                 .defineInRange("gcScanIntervalTicks", 200, 20, 6000);
         MAX_GEN_WORKERS = b.comment("Offline voxel-generation worker thread cap (D2/D8)")
                 .defineInRange("maxGenWorkers", 2, 1, 8);
+        b.pop();
+
+        b.push("movement");
+        CREATIVE_FLIGHT_MAX_BLOCKS_PER_TICK = b.comment(
+                        "Max horizontal+vertical distance (blocks per tick) a CREATIVE-FLYING player may move before",
+                        "the vanilla 'moved too quickly' check teleports them back. Vanilla's own limit is 10 and stays",
+                        "in force for every other state (walking, sprinting, elytra, vehicles) -- this only widens the",
+                        "check while Abilities.flying is true, because server-side deltaMovement stays near zero for",
+                        "creative flight and any KubeJS-boosted fly speed above 10 blocks/tick trips it on every packet.")
+                .defineInRange("creativeFlightMaxBlocksPerTick", 32, 10, 256);
         b.pop();
 
         SPEC = b.build();

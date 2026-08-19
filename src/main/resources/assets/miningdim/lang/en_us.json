@@ -1093,5 +1093,15 @@
   "message.miningdim.power.generator.blocked_by_block": "A generator needs a 3x2x2 space: (%1$s, %2$s, %3$s) is occupied by %4$s",
   "message.miningdim.power.generator.blocked_by_entity": "A generator needs a 3x2x2 space: (%1$s, %2$s, %3$s) is blocked by an entity",
   "message.miningdim.power.generator.out_of_bounds": "A generator needs a 3x2x2 space: (%1$s, %2$s, %3$s) is outside the build height or world border",
-  "message.miningdim.power.generator.broken_cleared": "Leftover block of a broken generator; removed"
+  "message.miningdim.power.generator.broken_cleared": "Leftover block of a broken generator; removed",
+  "block.miningdim.coal_generator": "Coal Generator",
+  "item.miningdim.coal_generator": "Coal Generator",
+  "block.miningdim.geothermal_generator": "Geothermal Generator",
+  "item.miningdim.geothermal_generator": "Geothermal Generator",
+  "gui.miningdim.power.preheat.temperature": "Temperature: %s / %s C",
+  "gui.miningdim.power.preheat.energy": "Energy: %s / %s FE",
+  "gui.miningdim.power.preheat.output": "Current output: %s FE/t",
+  "gui.miningdim.power.preheat.output_hint": "A cold machine produces nothing; full output needs working temperature",
+  "gui.miningdim.power.preheat.burn": "Burn left: %s / %s s",
+  "message.miningdim.power.geothermal.needs_lava": "A geothermal generator needs a lava source block directly below"
 }

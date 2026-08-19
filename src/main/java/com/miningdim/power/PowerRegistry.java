@@ -13,6 +13,10 @@ import com.miningdim.power.generator.GeneratorFuelCoreItem;
 import com.miningdim.power.generator.GeneratorMenu;
 import com.miningdim.power.generator.GeneratorPortBlockEntity;
 import com.miningdim.power.generator.GeneratorSpec;
+import com.miningdim.power.generator.PreheatGeneratorBlock;
+import com.miningdim.power.generator.PreheatGeneratorBlockEntity;
+import com.miningdim.power.generator.PreheatGeneratorMenu;
+import com.miningdim.power.generator.PreheatGeneratorSpec;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.inventory.MenuType;
@@ -47,6 +51,16 @@ public final class PowerRegistry {
             registerGenerator("modern_generator", GeneratorSpec.MEDIUM);
     public static final RegistryObject<GeneratorMultiblockBlock> FUTURE_ENERGY_GENERATOR =
             registerGenerator("future_energy_generator", GeneratorSpec.HIGH);
+
+    public static final RegistryObject<PreheatGeneratorBlock> COAL_GENERATOR =
+            registerPreheatGenerator("coal_generator", PreheatGeneratorSpec.COAL);
+    public static final RegistryObject<PreheatGeneratorBlock> GEOTHERMAL_GENERATOR =
+            registerPreheatGenerator("geothermal_generator", PreheatGeneratorSpec.GEOTHERMAL);
+
+    public static final RegistryObject<Item> COAL_GENERATOR_ITEM =
+            registerBlockItem("coal_generator", COAL_GENERATOR);
+    public static final RegistryObject<Item> GEOTHERMAL_GENERATOR_ITEM =
+            registerBlockItem("geothermal_generator", GEOTHERMAL_GENERATOR);
 
     public static final RegistryObject<Item> INDUSTRIAL_GENERATOR_ITEM =
             registerBlockItem("industrial_generator", INDUSTRIAL_GENERATOR);
@@ -131,6 +145,10 @@ public final class PowerRegistry {
     public static final RegistryObject<BlockEntityType<GeneratorBlockEntity>> GENERATOR_CONTROLLER_BE =
             BLOCK_ENTITIES.register("generator_controller",
                     () -> BlockEntityType.Builder.of(GeneratorBlockEntity::new, generatorBlocks()).build(null));
+    public static final RegistryObject<BlockEntityType<PreheatGeneratorBlockEntity>> PREHEAT_GENERATOR_BE =
+            BLOCK_ENTITIES.register("preheat_generator",
+                    () -> BlockEntityType.Builder.of(PreheatGeneratorBlockEntity::new,
+                            COAL_GENERATOR.get(), GEOTHERMAL_GENERATOR.get()).build(null));
     public static final RegistryObject<BlockEntityType<GeneratorPortBlockEntity>> GENERATOR_PORT_BE =
             BLOCK_ENTITIES.register("generator_port",
                     () -> BlockEntityType.Builder.of(GeneratorPortBlockEntity::new, generatorBlocks()).build(null));
@@ -138,6 +156,9 @@ public final class PowerRegistry {
     public static final RegistryObject<MenuType<GeneratorMenu>> GENERATOR_MENU =
             MENUS.register("generator", () -> IForgeMenuType.create(
                     (windowId, inventory, data) -> new GeneratorMenu(windowId, inventory, data.readBlockPos())));
+    public static final RegistryObject<MenuType<PreheatGeneratorMenu>> PREHEAT_GENERATOR_MENU =
+            MENUS.register("preheat_generator", () -> IForgeMenuType.create(
+                    (windowId, inventory, data) -> new PreheatGeneratorMenu(windowId, inventory, data.readBlockPos())));
     public static final RegistryObject<MenuType<LowTemperatureControllerMenu>> LOW_TEMPERATURE_CONTROLLER_MENU =
             MENUS.register("low_temperature_controller", () -> IForgeMenuType.create(
                     (windowId, inventory, data) -> new LowTemperatureControllerMenu(
@@ -181,6 +202,12 @@ public final class PowerRegistry {
 
     private static Block[] generatorBlocks() {
         return new Block[]{INDUSTRIAL_GENERATOR.get(), MODERN_GENERATOR.get(), FUTURE_ENERGY_GENERATOR.get()};
+    }
+
+    private static RegistryObject<PreheatGeneratorBlock> registerPreheatGenerator(
+            String name, PreheatGeneratorSpec spec) {
+        return BLOCKS.register(name, () -> new PreheatGeneratorBlock(
+                BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK), spec));
     }
 
     private static RegistryObject<GeneratorMultiblockBlock> registerGenerator(String name, GeneratorSpec spec) {

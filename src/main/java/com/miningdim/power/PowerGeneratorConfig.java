@@ -1,6 +1,7 @@
 package com.miningdim.power;
 
 import com.miningdim.power.generator.GeneratorSpec;
+import com.miningdim.power.generator.PreheatGeneratorSpec;
 import net.minecraftforge.common.ForgeConfigSpec;
 
 /**
@@ -39,6 +40,18 @@ public final class PowerGeneratorConfig {
     private static final ForgeConfigSpec.IntValue FUTURE_MAX_DESTRUCTIBLE_BLOCKS;
     private static final ForgeConfigSpec.IntValue FUTURE_MAX_FIRE_POINTS;
     private static final ForgeConfigSpec.DoubleValue FUTURE_CENTER_DAMAGE_FRACTION;
+
+    private static final ForgeConfigSpec.IntValue COAL_PEAK_FE_PER_TICK;
+    private static final ForgeConfigSpec.DoubleValue COAL_WORKING_TEMPERATURE_C;
+    private static final ForgeConfigSpec.IntValue COAL_PREHEAT_TICKS;
+    private static final ForgeConfigSpec.DoubleValue COAL_COOLING_PER_TICK;
+    private static final ForgeConfigSpec.IntValue COAL_FUEL_BURN_MULTIPLIER;
+
+    private static final ForgeConfigSpec.IntValue GEOTHERMAL_PEAK_FE_PER_TICK;
+    private static final ForgeConfigSpec.DoubleValue GEOTHERMAL_WORKING_TEMPERATURE_C;
+    private static final ForgeConfigSpec.IntValue GEOTHERMAL_PREHEAT_TICKS;
+    private static final ForgeConfigSpec.DoubleValue GEOTHERMAL_COOLING_PER_TICK;
+    private static final ForgeConfigSpec.IntValue GEOTHERMAL_FUEL_BURN_MULTIPLIER;
 
     static {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
@@ -94,6 +107,27 @@ public final class PowerGeneratorConfig {
                 "centerDamageFraction", 0.60D, 0.0001D, 1.0D);
         builder.pop();
 
+        builder.push("coal");
+        COAL_PEAK_FE_PER_TICK = builder.defineInRange("peakFePerTick", 48, 1, 1_000_000);
+        COAL_WORKING_TEMPERATURE_C = builder.defineInRange(
+                "workingTemperatureC", 300.0D, 21.0D, 10_000.0D);
+        COAL_PREHEAT_TICKS = builder.defineInRange("preheatTicks", 1_200, 1, 1_000_000);
+        COAL_COOLING_PER_TICK = builder.defineInRange("coolingPerTick", 0.15D, 0.0D, 1_000.0D);
+        COAL_FUEL_BURN_MULTIPLIER = builder.comment(
+                        "Multiplier applied to the vanilla burn time of the inserted fuel.",
+                        "Raw coal only burns 1600 ticks, which would force a refuel every 80 seconds.")
+                .defineInRange("fuelBurnMultiplier", 4, 1, 1_000);
+        builder.pop();
+
+        builder.push("geothermal");
+        GEOTHERMAL_PEAK_FE_PER_TICK = builder.defineInRange("peakFePerTick", 144, 1, 1_000_000);
+        GEOTHERMAL_WORKING_TEMPERATURE_C = builder.defineInRange(
+                "workingTemperatureC", 600.0D, 21.0D, 10_000.0D);
+        GEOTHERMAL_PREHEAT_TICKS = builder.defineInRange("preheatTicks", 2_400, 1, 1_000_000);
+        GEOTHERMAL_COOLING_PER_TICK = builder.defineInRange("coolingPerTick", 0.20D, 0.0D, 1_000.0D);
+        GEOTHERMAL_FUEL_BURN_MULTIPLIER = builder.defineInRange("fuelBurnMultiplier", 1, 1, 1_000);
+        builder.pop();
+
         PowerMachineConfig.define(builder);
         SPEC = builder.build();
     }
@@ -121,6 +155,17 @@ public final class PowerGeneratorConfig {
                     FUTURE_LOW_LOAD_COOLING_PER_TICK.get(), FUTURE_SCATTER_RADIUS.get(),
                     FUTURE_MAX_DESTRUCTIBLE_BLOCKS.get(), FUTURE_MAX_FIRE_POINTS.get(),
                     FUTURE_CENTER_DAMAGE_FRACTION.get());
+        };
+    }
+
+    public static PreheatGeneratorSpec.Runtime preheatProfile(PreheatGeneratorSpec spec) {
+        return switch (spec) {
+            case COAL -> new PreheatGeneratorSpec.Runtime(COAL_PEAK_FE_PER_TICK.get(),
+                    COAL_WORKING_TEMPERATURE_C.get(), COAL_PREHEAT_TICKS.get(),
+                    COAL_COOLING_PER_TICK.get(), COAL_FUEL_BURN_MULTIPLIER.get());
+            case GEOTHERMAL -> new PreheatGeneratorSpec.Runtime(GEOTHERMAL_PEAK_FE_PER_TICK.get(),
+                    GEOTHERMAL_WORKING_TEMPERATURE_C.get(), GEOTHERMAL_PREHEAT_TICKS.get(),
+                    GEOTHERMAL_COOLING_PER_TICK.get(), GEOTHERMAL_FUEL_BURN_MULTIPLIER.get());
         };
     }
 

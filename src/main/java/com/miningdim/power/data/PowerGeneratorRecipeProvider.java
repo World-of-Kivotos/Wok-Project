@@ -22,6 +22,14 @@ final class PowerGeneratorRecipeProvider implements DataProvider {
     @Override
     public CompletableFuture<?> run(CachedOutput output) {
         return CompletableFuture.allOf(
+                save(output, "coal_generator", shaped("misc", "miningdim:coal_generator",
+                        new String[]{"III", "IFI", "ICI"},
+                        new String[]{"I", "minecraft:iron_ingot", "F", "minecraft:furnace",
+                                "C", "minecraft:copper_ingot"})),
+                save(output, "geothermal_generator", shaped("misc", "miningdim:geothermal_generator",
+                        new String[]{"IBI", "BCB", "IBI"},
+                        new String[]{"I", "minecraft:iron_ingot", "B", "minecraft:blackstone",
+                                "C", "minecraft:copper_ingot"})),
                 save(output, "industrial_fuel_core", shaped("misc", "miningdim:industrial_fuel_core",
                         new String[]{"CRC", "RIR", "CRC"},
                         new String[]{"C", "tag:minecraft:coals", "R", "minecraft:redstone", "I", "minecraft:iron_ingot"})),

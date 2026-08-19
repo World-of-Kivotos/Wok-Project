@@ -164,6 +164,20 @@ def build_generator() -> None:
     save(image, "generator")
 
 
+def build_preheat_generator() -> None:
+    """煤炭/地热共用底图: 单燃料槽 + 温度/能量/燃烧三条量条。"""
+    image, draw = draw_main_frame(STANDARD_HEIGHT, 134, 142, 200)
+    draw_panel(draw, (12, 24, 205, 66), AMBER)
+    draw_machine_socket(draw, 101, 36, AMBER)
+    draw.line((95, 60, 123, 60), fill=STEEL)
+    draw_energy_node(draw, 109, 60, CYAN)
+
+    draw_meter_track(draw, 20, 74, 178, 7, RED)
+    draw_meter_track(draw, 20, 94, 178, 7, CYAN)
+    draw_meter_track(draw, 20, 114, 178, 7, AMBER)
+    save(image, "preheat_generator")
+
+
 def build_metallurgic_purifier() -> None:
     image, draw = draw_main_frame(STANDARD_HEIGHT, 134, 142, 200)
     draw_panel(draw, (12, 24, 205, 65), TEAL)
@@ -212,6 +226,7 @@ def build_low_temperature_controller() -> None:
 
 def main() -> None:
     build_generator()
+    build_preheat_generator()
     build_metallurgic_purifier()
     build_air_separation()
     build_low_temperature_controller()

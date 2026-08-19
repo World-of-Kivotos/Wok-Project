@@ -1093,5 +1093,15 @@
   "message.miningdim.power.generator.blocked_by_block": "发电机需要 3x2x2 空间：(%1$s, %2$s, %3$s) 被 %4$s 占据",
   "message.miningdim.power.generator.blocked_by_entity": "发电机需要 3x2x2 空间：(%1$s, %2$s, %3$s) 有实体挡住",
   "message.miningdim.power.generator.out_of_bounds": "发电机需要 3x2x2 空间：(%1$s, %2$s, %3$s) 超出建筑高度或世界边界",
-  "message.miningdim.power.generator.broken_cleared": "该处是残缺发电机的残留方块，已清除"
+  "message.miningdim.power.generator.broken_cleared": "该处是残缺发电机的残留方块，已清除",
+  "block.miningdim.coal_generator": "煤炭发电机",
+  "item.miningdim.coal_generator": "煤炭发电机",
+  "block.miningdim.geothermal_generator": "地热发电机",
+  "item.miningdim.geothermal_generator": "地热发电机",
+  "gui.miningdim.power.preheat.temperature": "炉温：%s / %s C",
+  "gui.miningdim.power.preheat.energy": "能量：%s / %s FE",
+  "gui.miningdim.power.preheat.output": "当前输出：%s FE/t",
+  "gui.miningdim.power.preheat.output_hint": "冷机不发电，烧到工作温度才满载",
+  "gui.miningdim.power.preheat.burn": "剩余燃烧：%s / %s 秒",
+  "message.miningdim.power.geothermal.needs_lava": "地热发电机需要正下方有一格岩浆源"
 }

@@ -24,6 +24,8 @@ public final class PowerCreativeTab {
                     .title(Component.translatable("itemGroup.miningdim_power"))
                     .icon(() -> new ItemStack(PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get()))
                     .displayItems((params, output) -> {
+                        output.accept(PowerRegistry.COAL_GENERATOR_ITEM.get());
+                        output.accept(PowerRegistry.GEOTHERMAL_GENERATOR_ITEM.get());
                         output.accept(PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get());
                         output.accept(PowerRegistry.MODERN_GENERATOR_ITEM.get());
                         output.accept(PowerRegistry.FUTURE_ENERGY_GENERATOR_ITEM.get());

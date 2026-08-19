@@ -1,9 +1,11 @@
 package com.miningdim.power;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.power.generator.GeneratorPortBlockEntity;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
@@ -23,6 +25,7 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
@@ -431,6 +434,75 @@ public final class GeneratorGameTests {
                 "an upper layer above build height must be reported as out of bounds, got " + outOfBounds);
         helper.getLevel().setBlock(topSupport, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
 
+        helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+        helper.succeed();
+    }
+
+    /**
+     * 端口方块落地到控制器 link 之间必然有一个"实体已在、尚未 link"的窗口, 而挂在 setBlock 上的观察者
+     * (Cairn 方块审计 / BetterAutoSave 区块快照 / Forge BlockSnapshot) 会在窗口里保存这个实体。
+     * 线上事故正是从这里起的: 保存抛异常 -> 放置补格循环当场炸断 -> 结构永远残缺(幽灵方块),
+     * 自愈清理再踩一次直接崩服。保存与回读都必须容忍未 link。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void unlinkedPortSurvivesSaveAndReload(GameTestHelper helper) {
+        GeneratorMultiblockBlock block = PowerRegistry.FUTURE_ENERGY_GENERATOR.get();
+        Direction facing = Direction.NORTH;
+        BlockState portState = block.defaultBlockState()
+                .setValue(GeneratorMultiblockBlock.FACING, facing)
+                .setValue(GeneratorMultiblockBlock.PART, GeneratorMultiblockBlock.PORT_PART);
+        helper.setBlock(ANCHOR_REL, portState);
+
+        BlockPos portAbsolute = helper.absolutePos(ANCHOR_REL);
+        BlockEntity portEntity = helper.getLevel().getBlockEntity(portAbsolute);
+        helper.assertTrue(portEntity instanceof GeneratorPortBlockEntity,
+                "port state must create a port block entity, got " + portEntity);
+        GeneratorPortBlockEntity port = (GeneratorPortBlockEntity) portEntity;
+        helper.assertTrue(port.controllerPos() == null,
+                "an isolated port must start without a controller link");
+
+        CompoundTag saved = port.saveWithFullMetadata();
+        helper.assertTrue(!saved.contains("controller"),
+                "an unlinked port must not persist a controller key");
+        GeneratorPortBlockEntity reloaded = new GeneratorPortBlockEntity(portAbsolute, portState);
+        reloaded.load(saved);
+        helper.assertTrue(reloaded.controllerPos() == null && reloaded.linkVersion() == 0L,
+                "reloading an unlinked port must keep it unlinked instead of failing");
+
+        helper.setBlock(ANCHOR_REL, Blocks.AIR);
+        helper.succeed();
+    }
+
+    /** 完整放置之后端口必须真的连上控制器, 守住 ensurePortProxy 确实跑到了。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void placedGeneratorLinksItsPort(GameTestHelper helper) {
+        GeneratorMultiblockBlock block = PowerRegistry.INDUSTRIAL_GENERATOR.get();
+        Item item = PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        player.setYRot(0.0F);
+        movePlayerClearOfFootprint(helper, player);
+        clearFootprint(helper, Direction.NORTH);
+
+        InteractionResult result = ForgeHooks.onPlaceItemIntoWorld(
+                useOnContext(helper, player, item, ANCHOR_REL));
+        helper.assertTrue(result.consumesAction(), "placement must succeed, got " + result);
+        assertTwelveParts(helper, block, Direction.NORTH);
+
+        BlockPos anchorAbsolute = helper.absolutePos(ANCHOR_REL);
+        BlockPos portAbsolute = helper.absolutePos(GeneratorMultiblockBlock.partPos(
+                ANCHOR_REL, Direction.NORTH, GeneratorMultiblockBlock.PORT_PART));
+        BlockEntity portEntity = helper.getLevel().getBlockEntity(portAbsolute);
+        helper.assertTrue(portEntity instanceof GeneratorPortBlockEntity,
+                "the port cell must own a port block entity");
+        GeneratorPortBlockEntity port = (GeneratorPortBlockEntity) portEntity;
+        helper.assertTrue(anchorAbsolute.equals(port.controllerPos()),
+                "the port must point at the anchor, got " + port.controllerPos());
+        helper.assertTrue(port.linkVersion() > 0L,
+                "a linked port must carry a positive link version, got " + port.linkVersion());
+        helper.assertTrue(port.saveWithFullMetadata().contains("controller"),
+                "a linked port must persist its controller key");
+
+        removeStructureByReplacement(helper, block);
         helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
         helper.succeed();
     }

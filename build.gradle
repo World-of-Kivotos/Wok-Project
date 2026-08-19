@@ -144,7 +144,9 @@ dependencies {
     //     项目 implementation/runtimeOnly 库)。FG6 的 minecraftLibrary 配置才会把库并入该 run classpath + 编译,
     //     故 dev 用它让驱动上 FML game 层 classpath (配合 MarketDb 的显式 Class.forName 注册), 否则 GameTest
     //     连 SQLite 抛 "No suitable driver found"。minecraftLibrary 不被 shade 进产物 jar, 与 jarJar 互不重复。
-    jarJar(group: 'org.xerial', name: 'sqlite-jdbc', version: '[3.45.3.0,3.46)') {
+    //   上界取下一个大版本(4.0)而非下一个小版本: 范围写窄了, 别的 mod (accesshub / cairn) 内嵌更新的
+    //   sqlite-jdbc 时两个范围不相交, Forge 模块层直接判定依赖冲突拒绝启动 (2026-08-19 实机复现)。
+    jarJar(group: 'org.xerial', name: 'sqlite-jdbc', version: '[3.45.3.0,4.0)') {
         jarJar.pin(it, '3.45.3.0')
     }
     minecraftLibrary 'org.xerial:sqlite-jdbc:3.45.3.0'

@@ -5,8 +5,10 @@ import com.miningdim.power.generator.GeneratorPortBlockEntity;
 import com.miningdim.power.generator.GeneratorSpec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.RandomSource;
 import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -15,6 +17,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.EntityBlock;
@@ -33,6 +36,8 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraftforge.network.NetworkHooks;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
 
@@ -49,6 +54,9 @@ public final class GeneratorMultiblockBlock extends Block implements EntityBlock
 
     private static final ThreadLocal<Boolean> CLEARING_STRUCTURE =
             ThreadLocal.withInitial(() -> false);
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/power");
+    /** anchor 周期自检间隔 (tick)。只为兜底捡漏, 不必更密。 */
+    private static final int STRUCTURE_AUDIT_INTERVAL = 20;
     private final GeneratorSpec spec;
 
     public GeneratorMultiblockBlock(GeneratorSpec spec, BlockBehaviour.Properties properties) {
@@ -103,26 +111,54 @@ public final class GeneratorMultiblockBlock extends Block implements EntityBlock
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {
         Direction facing = context.getHorizontalDirection().getOpposite();
+        Component obstruction = findObstruction(context, facing);
+        if (obstruction != null) {
+            // 12 格里任何一格不通过就整体拒绝, 原版对此只会静默 FAIL; 3x2x2 的占地远超玩家的直觉,
+            // 不把被挡的那一格报出来, 现场表现就是"右键没反应", 且无法区分是地形挡住还是残留幽灵格。
+            if (context.getPlayer() instanceof ServerPlayer player) {
+                player.displayClientMessage(obstruction, true);
+            }
+            return null;
+        }
+        return defaultBlockState()
+                .setValue(FACING, facing)
+                .setValue(PART, ANCHOR_PART);
+    }
+
+    /**
+     * 逐格核对 3x2x2 占地。可放置时返回 null; 否则返回首个被挡格的诊断文案 (含绝对坐标与阻挡来源),
+     * 供放置路径回报玩家。包级可见以便 GameTest 直接断言文案内容而不必抓网络包。
+     */
+    @Nullable
+    Component findObstruction(BlockPlaceContext context, Direction facing) {
         BlockPos anchorPos = context.getClickedPos();
+        Level level = context.getLevel();
         CollisionContext collisionContext = context.getPlayer() == null
                 ? CollisionContext.empty()
                 : CollisionContext.of(context.getPlayer());
         for (Part part : Part.values()) {
             BlockPos targetPos = partPos(anchorPos, facing, part);
+            if (!level.isInWorldBounds(targetPos)
+                    || level.isOutsideBuildHeight(targetPos)
+                    || !level.getWorldBorder().isWithinBounds(targetPos)) {
+                return Component.translatable("message.miningdim.power.generator.out_of_bounds",
+                        targetPos.getX(), targetPos.getY(), targetPos.getZ());
+            }
+            BlockState occupant = level.getBlockState(targetPos);
+            if (!occupant.canBeReplaced(context)) {
+                return Component.translatable("message.miningdim.power.generator.blocked_by_block",
+                        targetPos.getX(), targetPos.getY(), targetPos.getZ(),
+                        occupant.getBlock().getName());
+            }
             BlockState targetState = defaultBlockState()
                     .setValue(FACING, facing)
                     .setValue(PART, part);
-            if (!context.getLevel().isInWorldBounds(targetPos)
-                    || context.getLevel().isOutsideBuildHeight(targetPos)
-                    || !context.getLevel().getWorldBorder().isWithinBounds(targetPos)
-                    || !context.getLevel().getBlockState(targetPos).canBeReplaced(context)
-                    || !context.getLevel().isUnobstructed(targetState, targetPos, collisionContext)) {
-                return null;
+            if (!level.isUnobstructed(targetState, targetPos, collisionContext)) {
+                return Component.translatable("message.miningdim.power.generator.blocked_by_entity",
+                        targetPos.getX(), targetPos.getY(), targetPos.getZ());
             }
         }
-        return defaultBlockState()
-                .setValue(FACING, facing)
-                .setValue(PART, ANCHOR_PART);
+        return null;
     }
 
     @Override
@@ -154,7 +190,15 @@ public final class GeneratorMultiblockBlock extends Block implements EntityBlock
             return InteractionResult.CONSUME;
         }
         GeneratorBlockEntity controller = GeneratorBlockEntity.ensureLegacyEntities(serverLevel, pos);
-        if (isAnchor(state) && controller != null) {
+        if (controller == null) {
+            // 右键是玩家对着一格幽灵能做的最直接动作: 就地复核, 确属残留就当场清掉并告知, 免得只能靠挖。
+            if (auditStructure(serverLevel, pos, state)) {
+                serverPlayer.displayClientMessage(
+                        Component.translatable("message.miningdim.power.generator.broken_cleared"), true);
+            }
+            return InteractionResult.CONSUME;
+        }
+        if (isAnchor(state)) {
             NetworkHooks.openScreen(serverPlayer, controller, buf -> buf.writeBlockPos(controller.getBlockPos()));
         }
         return InteractionResult.CONSUME;
@@ -181,7 +225,24 @@ public final class GeneratorMultiblockBlock extends Block implements EntityBlock
             return null;
         }
         return createTickerHelper(type, PowerRegistry.GENERATOR_CONTROLLER_BE.get(),
-                (tickerLevel, tickerPos, tickerState, controller) -> controller.serverTick());
+                (tickerLevel, tickerPos, tickerState, controller) -> {
+                    if (auditOnSchedule(tickerLevel, tickerPos, tickerState)) {
+                        return;
+                    }
+                    controller.serverTick();
+                });
+    }
+
+    /**
+     * anchor 的周期性自检。邻居更新触发的 {@link #updateShape} 覆盖不到两类残留: 旧存档里遗留的孤格,
+     * 以及被 /setblock 之类直接改坏、之后再没有邻居动过的机器。按坐标错峰, 避免全服发电机挤在同一 tick。
+     */
+    private boolean auditOnSchedule(Level level, BlockPos pos, BlockState state) {
+        if (!(level instanceof ServerLevel serverLevel)
+                || Math.floorMod(serverLevel.getGameTime() + pos.asLong(), STRUCTURE_AUDIT_INTERVAL) != 0) {
+            return false;
+        }
+        return auditStructure(serverLevel, pos, state);
     }
 
     @Nullable
@@ -189,6 +250,59 @@ public final class GeneratorMultiblockBlock extends Block implements EntityBlock
     private static <E extends BlockEntity, A extends BlockEntity> BlockEntityTicker<A> createTickerHelper(
             BlockEntityType<A> actual, BlockEntityType<E> expected, BlockEntityTicker<? super E> ticker) {
         return actual == expected ? (BlockEntityTicker<A>) ticker : null;
+    }
+
+    @Override
+    public BlockState updateShape(BlockState state, Direction direction, BlockState neighborState,
+                                  LevelAccessor level, BlockPos pos, BlockPos neighborPos) {
+        // 结构完整性只能在世界稳定之后判定: 放置补格与拆除清理本身都会制造中间态, 当场裁决必然误杀。
+        // 故一律推迟一 tick 交给 tick() 复核; 届时方块若已消失, 原版调度会按方块类型比对自行跳过。
+        level.scheduleTick(pos, this, 1);
+        return super.updateShape(state, direction, neighborState, level, pos, neighborPos);
+    }
+
+    @Override
+    public void tick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
+        auditStructure(level, pos, state);
+    }
+
+    /**
+     * 判定并清除一处残缺结构: 12 格里只要有一格不是本机对应的 part 状态, 整机就已不成立, 剩下的格子
+     * 就是"看不见整机、却占着位置"的残留 —— 它们会让同一片空间再也放不下发电机。返回 true 表示本次
+     * 确实清掉了残留。
+     *
+     * 本体方块不掉落: 走到残缺态说明正常拆除路径已经掉过一次本体, 再掉一次就是复制; 但玩家自己放进去
+     * 的燃料芯与保险丝必须归还, 故仍走 dropInternalContents。
+     */
+    private boolean auditStructure(ServerLevel level, BlockPos pos, BlockState state) {
+        if (CLEARING_STRUCTURE.get() || structureIntegrity(level, pos, state) != Integrity.BROKEN) {
+            return false;
+        }
+        BlockPos anchorPos = anchorPos(pos, state);
+        if (level.getBlockEntity(anchorPos) instanceof GeneratorBlockEntity controller) {
+            controller.dropInternalContents();
+        }
+        LOGGER.warn("clearing broken generator structure dimension={} trigger={} part={} facing={} anchor={}",
+                level.dimension().location(), pos, state.getValue(PART).getSerializedName(),
+                state.getValue(FACING), anchorPos);
+        clearStructure(level, pos, state);
+        return true;
+    }
+
+    private Integrity structureIntegrity(ServerLevel level, BlockPos pos, BlockState state) {
+        Direction facing = state.getValue(FACING);
+        BlockPos anchorPos = anchorPos(pos, state);
+        for (Part part : Part.values()) {
+            BlockPos partPos = partPos(anchorPos, facing, part);
+            // 跨区块的机器在邻块未加载时无法判定; 此时宁可不动手, 否则会把完好的机器误判成残缺删掉。
+            if (!level.hasChunkAt(partPos)) {
+                return Integrity.UNLOADED;
+            }
+            if (!matchesPart(level.getBlockState(partPos), this, facing, part)) {
+                return Integrity.BROKEN;
+            }
+        }
+        return Integrity.INTACT;
     }
 
     @Override
@@ -250,6 +364,13 @@ public final class GeneratorMultiblockBlock extends Block implements EntityBlock
             return mirrored;
         }
         return mirrored.setValue(PART, state.getValue(PART).mirrored());
+    }
+
+    /** 结构自检的三态: UNLOADED 表示区块没加载全, 判不了, 与"完好"同样不允许动手。 */
+    private enum Integrity {
+        INTACT,
+        BROKEN,
+        UNLOADED
     }
 
     public enum Part implements StringRepresentable {

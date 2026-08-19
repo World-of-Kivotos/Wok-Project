@@ -1089,5 +1089,9 @@
   "gui.miningdim.webui.load_failed": "Web UI failed to load",
   "gui.miningdim.webui.load_failed.code": "%s (%s)",
   "gui.miningdim.webui.load_failed.hint": "Check webui.url in config/miningdim-client.toml",
-  "gui.miningdim.webui.loading": "Loading Web UI..."
+  "gui.miningdim.webui.loading": "Loading Web UI...",
+  "message.miningdim.power.generator.blocked_by_block": "A generator needs a 3x2x2 space: (%1$s, %2$s, %3$s) is occupied by %4$s",
+  "message.miningdim.power.generator.blocked_by_entity": "A generator needs a 3x2x2 space: (%1$s, %2$s, %3$s) is blocked by an entity",
+  "message.miningdim.power.generator.out_of_bounds": "A generator needs a 3x2x2 space: (%1$s, %2$s, %3$s) is outside the build height or world border",
+  "message.miningdim.power.generator.broken_cleared": "Leftover block of a broken generator; removed"
 }

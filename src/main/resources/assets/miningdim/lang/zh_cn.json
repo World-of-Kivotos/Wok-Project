@@ -1089,5 +1089,9 @@
   "gui.miningdim.webui.load_failed": "面板加载失败",
   "gui.miningdim.webui.load_failed.code": "%s (%s)",
   "gui.miningdim.webui.load_failed.hint": "请检查 config/miningdim-client.toml 里的 webui.url",
-  "gui.miningdim.webui.loading": "面板加载中..."
+  "gui.miningdim.webui.loading": "面板加载中...",
+  "message.miningdim.power.generator.blocked_by_block": "发电机需要 3x2x2 空间：(%1$s, %2$s, %3$s) 被 %4$s 占据",
+  "message.miningdim.power.generator.blocked_by_entity": "发电机需要 3x2x2 空间：(%1$s, %2$s, %3$s) 有实体挡住",
+  "message.miningdim.power.generator.out_of_bounds": "发电机需要 3x2x2 空间：(%1$s, %2$s, %3$s) 超出建筑高度或世界边界",
+  "message.miningdim.power.generator.broken_cleared": "该处是残缺发电机的残留方块，已清除"
 }

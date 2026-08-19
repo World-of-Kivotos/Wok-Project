@@ -6,6 +6,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -15,6 +17,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
@@ -29,6 +32,10 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraftforge.common.ForgeHooks;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.level.BlockEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -253,6 +260,224 @@ public final class GeneratorGameTests {
         block.onBlockExploded(explodedState, helper.getLevel(), explodedAbsolute, explosion);
         assertStructureRemoved(helper, block, facing);
         helper.succeed();
+    }
+
+    /**
+     * 玩家放置的真实链路是 ServerPlayerGameMode -> ForgeHooks.onPlaceItemIntoWorld: 那条路径会打开
+     * Level.captureBlockSnapshots, setPlacedBy 补的 11 格全部落进快照, 直到 hook 收尾才统一
+     * markAndNotifyBlock 广播给客户端。直接调 BlockItem.place 会整段绕开这套机制, 所以真实路径必须
+     * 单独守一条: 它一旦漏格, 现场就是"服务端有方块、客户端看不见"的幽灵。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void forgePlacementPathPlacesTwelveParts(GameTestHelper helper) {
+        GeneratorMultiblockBlock block = PowerRegistry.MODERN_GENERATOR.get();
+        Item item = PowerRegistry.MODERN_GENERATOR_ITEM.get();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        player.setYRot(0.0F);
+        movePlayerClearOfFootprint(helper, player);
+        clearFootprint(helper, Direction.NORTH);
+
+        InteractionResult result = ForgeHooks.onPlaceItemIntoWorld(
+                useOnContext(helper, player, item, ANCHOR_REL));
+        helper.assertTrue(result.consumesAction(),
+                "forge placement path must consume the action, got " + result);
+        assertTwelveParts(helper, block, Direction.NORTH);
+
+        removeStructureByReplacement(helper, block);
+        helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+        helper.succeed();
+    }
+
+    /**
+     * 放置事件被取消时 (矿山维度白名单闸就会这么干), Forge 只回滚它捕获到的快照。若 12 格没有被当作
+     * 同一次 multi-place 捕获, 回滚就只会撤掉 anchor, 另外 11 格原地留成幽灵。这里同时钉死两件事:
+     * 事件确实带着 12 份快照发出, 且取消后一格不剩。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void canceledPlacementEventLeavesNoPartBehind(GameTestHelper helper) {
+        GeneratorMultiblockBlock block = PowerRegistry.INDUSTRIAL_GENERATOR.get();
+        Item item = PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        player.setYRot(0.0F);
+        movePlayerClearOfFootprint(helper, player);
+        clearFootprint(helper, Direction.NORTH);
+
+        int[] capturedSnapshots = {0};
+        Object placementCanceler = new Object() {
+            @SubscribeEvent
+            public void onMultiPlace(BlockEvent.EntityMultiPlaceEvent event) {
+                capturedSnapshots[0] = event.getReplacedBlockSnapshots().size();
+                event.setCanceled(true);
+            }
+        };
+        MinecraftForge.EVENT_BUS.register(placementCanceler);
+        InteractionResult result;
+        try {
+            result = ForgeHooks.onPlaceItemIntoWorld(useOnContext(helper, player, item, ANCHOR_REL));
+        } finally {
+            MinecraftForge.EVENT_BUS.unregister(placementCanceler);
+        }
+
+        helper.assertTrue(result == InteractionResult.FAIL,
+                "canceled placement must report FAIL, got " + result);
+        helper.assertTrue(capturedSnapshots[0] == 12,
+                "the whole 3x2x2 must reach the event as one multi-place, got " + capturedSnapshots[0]);
+        assertStructureRemoved(helper, block, Direction.NORTH);
+        helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+        helper.succeed();
+    }
+
+    /**
+     * 孤立的从属格 (指令直接放的、旧存档遗留的、拆除时因状态错位被 clearStructure 漏掉的) 没有方块实体,
+     * 只能靠邻居更新触发自检。它看起来只是整机的一块碎片, 却照样占位挡住重新放置。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void orphanPartSelfHealsAfterNeighborUpdate(GameTestHelper helper) {
+        GeneratorMultiblockBlock block = PowerRegistry.FUTURE_ENERGY_GENERATOR.get();
+        Direction facing = Direction.NORTH;
+        helper.setBlock(ANCHOR_REL, block.defaultBlockState()
+                .setValue(GeneratorMultiblockBlock.FACING, facing)
+                .setValue(GeneratorMultiblockBlock.PART, GeneratorMultiblockBlock.Part.X2_Z1_Y1));
+        helper.assertBlockPresent(block, ANCHOR_REL);
+
+        helper.setBlock(ANCHOR_REL.above(), Blocks.STONE);
+        helper.runAfterDelay(3L, () -> {
+            helper.assertBlock(ANCHOR_REL, candidate -> candidate != block,
+                    "orphan subordinate part must clear itself after a neighbour update");
+            helper.setBlock(ANCHOR_REL.above(), Blocks.AIR);
+            helper.succeed();
+        });
+    }
+
+    /** 孤立 anchor 有自己的 ticker, 不依赖任何邻居动静也该在一个自检周期内清掉。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 200)
+    public static void orphanAnchorSelfHealsOnItsOwnTicker(GameTestHelper helper) {
+        GeneratorMultiblockBlock block = PowerRegistry.INDUSTRIAL_GENERATOR.get();
+        helper.setBlock(ANCHOR_REL, block.defaultBlockState()
+                .setValue(GeneratorMultiblockBlock.FACING, Direction.NORTH)
+                .setValue(GeneratorMultiblockBlock.PART, GeneratorMultiblockBlock.ANCHOR_PART));
+        helper.assertBlockPresent(block, ANCHOR_REL);
+
+        helper.runAfterDelay(25L, () -> {
+            helper.assertBlock(ANCHOR_REL, candidate -> candidate != block,
+                    "orphan anchor must clear itself within one audit interval");
+            helper.succeed();
+        });
+    }
+
+    /**
+     * 把一格换成同方块不同 facing 是现场里最阴的一种破损: onRemove 的入口条件是
+     * {@code !state.is(newState.getBlock())}, 同方块替换整段跳过, clearStructure 根本不会跑,
+     * 于是剩下 11 格全部原地留存。自检必须把这类残缺连同错位格一起清干净。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void rotatedPartBreaksStructureAndIsCleared(GameTestHelper helper) {
+        GeneratorMultiblockBlock block = PowerRegistry.MODERN_GENERATOR.get();
+        Direction facing = Direction.NORTH;
+        placeStructure(helper, block, facing);
+        BlockPos rotatedRel = GeneratorMultiblockBlock.partPos(
+                ANCHOR_REL, facing, GeneratorMultiblockBlock.Part.X0_Z0_Y1);
+        helper.setBlock(rotatedRel, block.defaultBlockState()
+                .setValue(GeneratorMultiblockBlock.FACING, facing.getClockWise())
+                .setValue(GeneratorMultiblockBlock.PART, GeneratorMultiblockBlock.Part.X0_Z0_Y1));
+        helper.assertBlockPresent(block, rotatedRel);
+
+        helper.runAfterDelay(6L, () -> {
+            for (GeneratorMultiblockBlock.Part part : GeneratorMultiblockBlock.Part.values()) {
+                BlockPos target = GeneratorMultiblockBlock.partPos(ANCHOR_REL, facing, part);
+                helper.assertBlock(target,
+                        candidate -> !(candidate instanceof GeneratorMultiblockBlock),
+                        "broken structure must leave no generator block at " + part);
+            }
+            helper.succeed();
+        });
+    }
+
+    /** 放置被拒时必须报出到底是哪一格、被什么挡住, 否则现场只能看到"右键没反应"。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void placementObstructionNamesTheBlockedCell(GameTestHelper helper) {
+        GeneratorMultiblockBlock block = PowerRegistry.INDUSTRIAL_GENERATOR.get();
+        Item item = PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        player.setYRot(0.0F);
+        movePlayerClearOfFootprint(helper, player);
+        clearFootprint(helper, Direction.NORTH);
+        BlockPlaceContext context = placementContext(helper, player, item, ANCHOR_REL);
+        Direction facing = Direction.NORTH;
+        helper.assertTrue(block.findObstruction(context, facing) == null,
+                "a clear footprint must report no obstruction");
+
+        BlockPos blockedPos = GeneratorMultiblockBlock.partPos(
+                context.getClickedPos(), facing, GeneratorMultiblockBlock.Part.X2_Z1_Y1);
+        helper.getLevel().setBlock(blockedPos, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
+        assertObstruction(helper, block.findObstruction(context, facing),
+                "message.miningdim.power.generator.blocked_by_block", blockedPos);
+        helper.getLevel().setBlock(blockedPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+
+        BlockPos occupiedPos = GeneratorMultiblockBlock.partPos(
+                context.getClickedPos(), facing, GeneratorMultiblockBlock.Part.X0_Z0_Y0);
+        player.teleportTo(occupiedPos.getX() + 0.5D, occupiedPos.getY(), occupiedPos.getZ() + 0.5D);
+        assertObstruction(helper, block.findObstruction(context, facing),
+                "message.miningdim.power.generator.blocked_by_entity", occupiedPos);
+        movePlayerClearOfFootprint(helper, player);
+
+        BlockPos topSupport = new BlockPos(context.getClickedPos().getX(),
+                helper.getLevel().getMaxBuildHeight() - 1, context.getClickedPos().getZ()).below();
+        helper.getLevel().setBlock(topSupport, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
+        BlockPlaceContext topContext = placementContextAtSupport(helper, player, item, topSupport);
+        Component outOfBounds = block.findObstruction(topContext, facing);
+        helper.assertTrue(outOfBounds != null && translationKeyOf(outOfBounds)
+                        .equals("message.miningdim.power.generator.out_of_bounds"),
+                "an upper layer above build height must be reported as out of bounds, got " + outOfBounds);
+        helper.getLevel().setBlock(topSupport, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+
+        helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+        helper.succeed();
+    }
+
+    private static void assertObstruction(GameTestHelper helper, Component obstruction,
+                                          String expectedKey, BlockPos expectedPos) {
+        helper.assertTrue(obstruction != null, "blocked cell " + expectedPos + " must produce a report");
+        helper.assertTrue(translationKeyOf(obstruction).equals(expectedKey),
+                "expected " + expectedKey + ", got " + translationKeyOf(obstruction));
+        Object[] args = ((TranslatableContents) obstruction.getContents()).getArgs();
+        helper.assertTrue(args.length >= 3, "the report must carry the blocked coordinates");
+        helper.assertTrue(args[0].equals(expectedPos.getX())
+                        && args[1].equals(expectedPos.getY())
+                        && args[2].equals(expectedPos.getZ()),
+                "the report must name " + expectedPos + ", got ("
+                        + args[0] + ", " + args[1] + ", " + args[2] + ")");
+    }
+
+    private static String translationKeyOf(Component component) {
+        return ((TranslatableContents) component.getContents()).getKey();
+    }
+
+    private static UseOnContext useOnContext(GameTestHelper helper, ServerPlayer player,
+                                             Item item, BlockPos anchorRelative) {
+        BlockPos supportRelative = anchorRelative.below();
+        helper.setBlock(supportRelative, Blocks.STONE);
+        BlockPos supportAbsolute = helper.absolutePos(supportRelative);
+        ItemStack stack = new ItemStack(item);
+        player.setItemInHand(InteractionHand.MAIN_HAND, stack);
+        BlockHitResult hit = new BlockHitResult(
+                Vec3.atCenterOf(supportAbsolute).add(0.0D, 0.5D, 0.0D),
+                Direction.UP, supportAbsolute, false);
+        return new UseOnContext(helper.getLevel(), player, InteractionHand.MAIN_HAND, stack, hit);
+    }
+
+    private static void assertTwelveParts(GameTestHelper helper, GeneratorMultiblockBlock block,
+                                          Direction facing) {
+        for (GeneratorMultiblockBlock.Part part : GeneratorMultiblockBlock.Part.values()) {
+            BlockPos target = helper.absolutePos(
+                    GeneratorMultiblockBlock.partPos(ANCHOR_REL, facing, part));
+            BlockState state = helper.getLevel().getBlockState(target);
+            helper.assertTrue(state.getBlock() == block, "real placement path must place " + part);
+            helper.assertTrue(state.getValue(GeneratorMultiblockBlock.FACING) == facing,
+                    part + " must share the anchor facing");
+            helper.assertTrue(state.getValue(GeneratorMultiblockBlock.PART) == part,
+                    part + " must keep its exact part state");
+        }
     }
 
     private static void placeAndAssert(GameTestHelper helper, ServerPlayer player,

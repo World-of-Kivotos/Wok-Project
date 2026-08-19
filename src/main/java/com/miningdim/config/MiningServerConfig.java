@@ -323,8 +323,10 @@ public final class MiningServerConfig {
                         "the vanilla 'moved too quickly' check teleports them back. Vanilla's own limit is 10 and stays",
                         "in force for every other state (walking, sprinting, elytra, vehicles) -- this only widens the",
                         "check while Abilities.flying is true, because server-side deltaMovement stays near zero for",
-                        "creative flight and any KubeJS-boosted fly speed above 10 blocks/tick trips it on every packet.")
-                .defineInRange("creativeFlightMaxBlocksPerTick", 32, 10, 256);
+                        "creative flight and any KubeJS-boosted fly speed above 10 blocks/tick trips it on every packet.",
+                        "Default 280 = roughly 5x the 54 blocks/tick measured at /flyspeed's 50x ceiling (flyingSpeed",
+                        "2.5), so the whole range the script can produce stays clear of the check with margin to spare.")
+                .defineInRange("creativeFlightMaxBlocksPerTick", 280, 10, 2048);
         b.pop();
 
         SPEC = b.build();

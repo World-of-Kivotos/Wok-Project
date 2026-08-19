@@ -183,7 +183,7 @@ public interface IMiningConfig {
     int maxGenWorkers();
 
     /**
-     * 创造飞行状态下允许的每 tick 最大位移 (格, movement.creativeFlightMaxBlocksPerTick, 默认 32)。
+     * 创造飞行状态下允许的每 tick 最大位移 (格, movement.creativeFlightMaxBlocksPerTick, 默认 280)。
      * 仅放宽 Abilities.flying 为真时的原版 "moved too quickly" 校验; 其余状态一律维持原版 10 格/tick。
      */
     int creativeFlightMaxBlocksPerTick();

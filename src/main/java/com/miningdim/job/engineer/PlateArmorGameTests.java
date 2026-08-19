@@ -415,6 +415,89 @@ public final class PlateArmorGameTests {
         helper.succeed();
     }
 
+    /**
+     * 插板耗电契约。电按实际吸收量计费, 不打架不掉电; 电耗尽的插板退化成普通护甲而不是静默假装工作。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void plateArmorBillsPowerPerAbsorbedDamage(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        ItemStack armor = new ItemStack(ModEngineerItems.plateArmor(
+                com.miningdim.job.engineer.armor.PlateArmorVariant.B6B23_1_DIGITAL_FLORA).get());
+        player.setItemSlot(EquipmentSlot.CHEST, armor);
+
+        int capacity = com.miningdim.job.engineer.armor.PlateArmorPowerCell.capacity();
+        int fePerPoint = com.miningdim.job.engineer.armor.PlateArmorConfig.fePerAbsorbedDamage();
+        helper.assertTrue(com.miningdim.job.engineer.armor.PlateArmorPowerCell.storedEnergy(armor) == capacity,
+                "新造的插板必须出厂满电, 否则玩家造出第一件就发现它不防弹");
+
+        LivingHurtEvent event = new LivingHurtEvent(player,
+                helper.getLevel().damageSources().playerAttack(player), 20.0F);
+        new PlateArmorDamageHandler().onLivingHurt(event);
+        double absorbed = 20.0D - event.getAmount();
+        int expectedDrain = (int) Math.ceil(absorbed * fePerPoint);
+        int remaining = com.miningdim.job.engineer.armor.PlateArmorPowerCell.storedEnergy(armor);
+        int drain = capacity - remaining;
+        // 容差 1 FE 的唯一来源: handler 内部用 double 计算吸收量, 而这里只能从 event 读回被 setAmount
+        // 截断过的 float, 两者在 ceil 边界上可能差一个单位。删掉扣电逻辑会差整整 7 万 FE, 拦得住。
+        helper.assertTrue(Math.abs(drain - expectedDrain) <= 1,
+                "扣电必须等于吸收量乘单价, 期望约 " + expectedDrain + " 实得 " + drain);
+        helper.assertTrue(drain > 0, "有吸收就必须扣电");
+
+        // 不受击不掉电。
+        int idle = com.miningdim.job.engineer.armor.PlateArmorPowerCell.storedEnergy(armor);
+        helper.assertTrue(idle == remaining, "不打架不得掉电");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void drainedPlateArmorStopsAbsorbingAndPartialPowerScalesBack(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        ItemStack armor = new ItemStack(ModEngineerItems.plateArmor(
+                com.miningdim.job.engineer.armor.PlateArmorVariant.B6B23_1_DIGITAL_FLORA).get());
+        player.setItemSlot(EquipmentSlot.CHEST, armor);
+
+        // 抽干: 没电的插板必须完全不减伤。
+        com.miningdim.job.engineer.armor.PlateArmorPowerCell.consume(armor, Integer.MAX_VALUE);
+        helper.assertTrue(com.miningdim.job.engineer.armor.PlateArmorPowerCell.storedEnergy(armor) == 0,
+                "抽干后电量必须为零");
+        LivingHurtEvent drained = new LivingHurtEvent(player,
+                helper.getLevel().damageSources().playerAttack(player), 20.0F);
+        new PlateArmorDamageHandler().onLivingHurt(drained);
+        helper.assertTrue(close(drained.getAmount(), 20.0D),
+                "没电的插板必须原样放行伤害, 实得 " + drained.getAmount());
+
+        // 残电只够挡一部分: 减伤按可支付比例回退, 而不是让最后一击免费吃满防护。
+        int fePerPoint = com.miningdim.job.engineer.armor.PlateArmorConfig.fePerAbsorbedDamage();
+        ItemStack partial = new ItemStack(ModEngineerItems.plateArmor(
+                com.miningdim.job.engineer.armor.PlateArmorVariant.B6B23_1_DIGITAL_FLORA).get());
+        player.setItemSlot(EquipmentSlot.CHEST, partial);
+        com.miningdim.job.engineer.armor.PlateArmorPowerCell.consume(partial, Integer.MAX_VALUE);
+        partial.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ENERGY)
+                .ifPresent(storage -> storage.receiveEnergy(fePerPoint, false));
+        LivingHurtEvent partialEvent = new LivingHurtEvent(player,
+                helper.getLevel().damageSources().playerAttack(player), 20.0F);
+        new PlateArmorDamageHandler().onLivingHurt(partialEvent);
+        helper.assertTrue(partialEvent.getAmount() > 5.632D && partialEvent.getAmount() < 20.0D,
+                "一点电只能买到一点减伤, 实得 " + partialEvent.getAmount());
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void plateArmorEnergyIsReceiveOnly(GameTestHelper helper) {
+        ItemStack armor = new ItemStack(ModEngineerItems.plateArmor(
+                com.miningdim.job.engineer.armor.PlateArmorVariant.HEXGRID).get());
+        net.minecraftforge.energy.IEnergyStorage storage = armor
+                .getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ENERGY)
+                .orElseThrow(() -> new IllegalStateException("plate armor exposes no energy capability"));
+        helper.assertTrue(storage.canReceive() && !storage.canExtract(),
+                "插板电池只进不出: 电只能由减伤逻辑内部扣除, 不得被外部抽走");
+        helper.assertTrue(storage.extractEnergy(Integer.MAX_VALUE, false) == 0, "外部不得抽走插板的电");
+        com.miningdim.job.engineer.armor.PlateArmorPowerCell.consume(armor, Integer.MAX_VALUE);
+        helper.assertTrue(storage.receiveEnergy(1_000, false) == 1_000, "抽干后必须可以充电");
+        helper.assertTrue(storage.getEnergyStored() == 1_000, "充入量必须落账");
+        helper.succeed();
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void liveGeneralHitUsesGTAndWearsOnce(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);

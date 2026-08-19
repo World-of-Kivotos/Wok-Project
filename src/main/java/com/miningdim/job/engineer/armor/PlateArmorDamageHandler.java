@@ -13,6 +13,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
  */
 public final class PlateArmorDamageHandler {
 
+
     /** 先把同 tick 换装状态同步到属性，避免插板公式后又误叠一次原版护甲。 */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void beforeLivingHurt(LivingHurtEvent event) {
@@ -36,6 +37,11 @@ public final class PlateArmorDamageHandler {
 
         PlateArmorStats stats = PlateArmorStats.resolve(armor.variant());
         double input = event.getAmount();
+        int fePerPoint = PlateArmorConfig.fePerAbsorbedDamage();
+        // 没电的插板退化成普通护甲: 不减伤、不磨损、也不静默假装工作。
+        if (fePerPoint > 0 && PlateArmorPowerCell.storedEnergy(armorStack) <= 0) {
+            return;
+        }
         PlateArmorDamageClassifier.Kind kind = PlateArmorDamageClassifier.classify(event.getSource());
         double output = switch (kind) {
             case BALLISTIC_NORMAL -> PlateArmorMath.reduceSegment(input, stats.ballisticProtection());
@@ -44,6 +50,17 @@ public final class PlateArmorDamageHandler {
                     input, stats.generalProtection(), stats.pressureCapacity());
             case EXCLUDED -> input;
         };
+        // 电力按实际吸收量计费: 挡得多扣得多, 不打架完全不掉电。电不够时按可支付的比例回退减伤,
+        // 而不是让最后一次防护免费 —— 否则残电可以无限次挡满伤害。
+        double absorbed = input - output;
+        if (fePerPoint > 0 && absorbed > 0.0D) {
+            int demand = (int) Math.ceil(absorbed * fePerPoint);
+            int paid = PlateArmorPowerCell.consume(armorStack, demand);
+            if (paid < demand) {
+                double affordable = (double) paid / fePerPoint;
+                output = input - Math.min(absorbed, affordable);
+            }
+        }
         event.setAmount((float) output);
 
         // TaCZ 一颗弹丸会产生两个 LivingHurtEvent，耐久统一留给 Post/Kill 集成只扣一次。

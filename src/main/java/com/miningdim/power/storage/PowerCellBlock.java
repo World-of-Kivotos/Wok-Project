@@ -81,11 +81,40 @@ public final class PowerCellBlock extends Block implements EntityBlock {
         if (level.isClientSide) {
             return InteractionResult.SUCCESS;
         }
-        if (player instanceof ServerPlayer serverPlayer
-                && level.getBlockEntity(pos) instanceof PowerCellBlockEntity cell) {
-            NetworkHooks.openScreen(serverPlayer, cell, buffer -> buffer.writeBlockPos(pos));
+        if (!(player instanceof ServerPlayer serverPlayer)
+                || !(level.getBlockEntity(pos) instanceof PowerCellBlockEntity cell)) {
+            return InteractionResult.CONSUME;
         }
+        // 潜行右键给手持物品充电。护甲穿在身上没法接线缆, 在 Flux 无线充电接入之前, 这是随身装备
+        // 唯一的补给通路; 普通右键仍然是开界面。
+        if (player.isShiftKeyDown()) {
+            chargeHeldItem(cell, player.getItemInHand(hand));
+            return InteractionResult.CONSUME;
+        }
+        NetworkHooks.openScreen(serverPlayer, cell, buffer -> buffer.writeBlockPos(pos));
         return InteractionResult.CONSUME;
+    }
+
+    /** 把储电里的电灌进手持物品, 灌满或储电抽干为止。 */
+    private static void chargeHeldItem(PowerCellBlockEntity cell, net.minecraft.world.item.ItemStack held) {
+        if (held.isEmpty()) {
+            return;
+        }
+        held.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ENERGY)
+                .ifPresent(target -> {
+                    int guard = 0;
+                    while (guard++ < 1_000) {
+                        int room = target.receiveEnergy(Integer.MAX_VALUE, true);
+                        if (room <= 0) {
+                            return;
+                        }
+                        int available = cell.extractForCharging(room);
+                        if (available <= 0) {
+                            return;
+                        }
+                        target.receiveEnergy(available, false);
+                    }
+                });
     }
 
     @Nullable

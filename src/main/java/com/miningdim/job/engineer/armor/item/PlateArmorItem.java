@@ -37,6 +37,12 @@ public final class PlateArmorItem extends ArmorItem {
         this.variant = variant;
     }
 
+    @Override
+    public net.minecraftforge.common.capabilities.ICapabilityProvider initCapabilities(
+            ItemStack stack, @org.jetbrains.annotations.Nullable net.minecraft.nbt.CompoundTag nbt) {
+        return new com.miningdim.job.engineer.armor.PlateArmorPowerCell(stack);
+    }
+
     public PlateArmorVariant variant() {
         return variant;
     }

@@ -96,6 +96,11 @@ public final class PowerCellBlockEntity extends BlockEntity implements MenuProvi
         extractedThisTick = 0;
     }
 
+    /** 玩家手动给随身装备充电用的抽取口, 与电网抽取共用同一账本与限速。 */
+    public int extractForCharging(int maxExtract) {
+        return extractInternal(maxExtract, false);
+    }
+
     private int receiveInternal(int maxReceive, boolean simulate) {
         if (maxReceive <= 0) {
             return 0;

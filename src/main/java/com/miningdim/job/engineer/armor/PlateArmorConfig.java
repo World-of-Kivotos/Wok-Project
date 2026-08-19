@@ -46,6 +46,8 @@ public final class PlateArmorConfig {
     private final ForgeConfigSpec.ConfigValue<List<? extends Double>> armorPiercingBuffer;
     private final ForgeConfigSpec.ConfigValue<List<? extends Double>> generalProtection;
     private final ForgeConfigSpec.ConfigValue<List<? extends Double>> pressureCapacity;
+    private final ForgeConfigSpec.IntValue energyCapacity;
+    private final ForgeConfigSpec.IntValue fePerAbsorbedDamage;
     private final ForgeConfigSpec.DoubleValue lightMovement;
     private final ForgeConfigSpec.DoubleValue mediumMovement;
     private final ForgeConfigSpec.DoubleValue heavyMovement;
@@ -63,6 +65,18 @@ public final class PlateArmorConfig {
                 .defineList("generalProtectionG", DEFAULT_G, PlateArmorConfig::isRate);
         pressureCapacity = builder.comment("T: per-hit covered damage capacity for eligible non-TaCZ combat damage.")
                 .defineList("pressureCapacityT", DEFAULT_T, PlateArmorConfig::isNonNegative);
+
+        builder.push("power");
+        energyCapacity = builder.comment(
+                        "FE buffer carried by a plate armor. Stored on the item stack, so it travels with the",
+                        "armor through chests and trades.")
+                .defineInRange("energyCapacity", 2_000_000, 0, 2_000_000_000);
+        fePerAbsorbedDamage = builder.comment(
+                        "FE drained per point of damage the plate actually absorbs. Charged on absorption only:",
+                        "an idle plate never drains, and the cost scales with how much punishment it soaked.",
+                        "Set to 0 to disable the power requirement entirely.")
+                .defineInRange("fePerAbsorbedDamage", 5_000, 0, 10_000_000);
+        builder.pop();
 
         builder.push("movement");
         lightMovement = builder.comment("Light plate movement modifier; 0.10 = +10%, MULTIPLY_TOTAL.")
@@ -117,6 +131,16 @@ public final class PlateArmorConfig {
 
     public double pressureCapacity(PlateArmorTier tier, PlateArmorWeight weight) {
         return matrixValue("pressureCapacityT", pressureCapacity, tier, weight);
+    }
+
+    /** 单件护甲的随身电池容量。 */
+    public static int energyCapacity() {
+        return com.miningdim.job.engineer.EngineerConfig.PLATE_ARMOR.energyCapacity.get();
+    }
+
+    /** 每吸收一点伤害要扣的电。0 表示关闭电力需求。 */
+    public static int fePerAbsorbedDamage() {
+        return com.miningdim.job.engineer.EngineerConfig.PLATE_ARMOR.fePerAbsorbedDamage.get();
     }
 
     public double movementModifier(PlateArmorWeight weight) {

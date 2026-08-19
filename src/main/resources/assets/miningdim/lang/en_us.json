@@ -1103,5 +1103,15 @@
   "gui.miningdim.power.preheat.output": "Current output: %s FE/t",
   "gui.miningdim.power.preheat.output_hint": "A cold machine produces nothing; full output needs working temperature",
   "gui.miningdim.power.preheat.burn": "Burn left: %s / %s s",
-  "message.miningdim.power.geothermal.needs_lava": "A geothermal generator needs a lava source block directly below"
+  "message.miningdim.power.geothermal.needs_lava": "A geothermal generator needs a lava source block directly below",
+  "block.miningdim.industrial_power_cell": "Industrial Power Cell",
+  "item.miningdim.industrial_power_cell": "Industrial Power Cell",
+  "block.miningdim.modern_power_cell": "Modern Power Cell",
+  "item.miningdim.modern_power_cell": "Modern Power Cell",
+  "block.miningdim.future_power_cell": "Future Power Cell",
+  "item.miningdim.future_power_cell": "Future Power Cell",
+  "gui.miningdim.power.cell.stored": "Stored: %s / %s FE",
+  "gui.miningdim.power.cell.input": "Input: %s FE/t",
+  "gui.miningdim.power.cell.output": "Output: %s FE/t",
+  "gui.miningdim.power.cell.net": "Net: %s FE/t"
 }

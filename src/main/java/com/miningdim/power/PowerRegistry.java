@@ -17,6 +17,10 @@ import com.miningdim.power.generator.PreheatGeneratorBlock;
 import com.miningdim.power.generator.PreheatGeneratorBlockEntity;
 import com.miningdim.power.generator.PreheatGeneratorMenu;
 import com.miningdim.power.generator.PreheatGeneratorSpec;
+import com.miningdim.power.storage.PowerCellBlock;
+import com.miningdim.power.storage.PowerCellBlockEntity;
+import com.miningdim.power.storage.PowerCellMenu;
+import com.miningdim.power.storage.PowerCellSpec;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.inventory.MenuType;
@@ -61,6 +65,20 @@ public final class PowerRegistry {
             registerBlockItem("coal_generator", COAL_GENERATOR);
     public static final RegistryObject<Item> GEOTHERMAL_GENERATOR_ITEM =
             registerBlockItem("geothermal_generator", GEOTHERMAL_GENERATOR);
+
+    public static final RegistryObject<PowerCellBlock> INDUSTRIAL_POWER_CELL =
+            registerPowerCell("industrial_power_cell", PowerCellSpec.INDUSTRIAL);
+    public static final RegistryObject<PowerCellBlock> MODERN_POWER_CELL =
+            registerPowerCell("modern_power_cell", PowerCellSpec.MODERN);
+    public static final RegistryObject<PowerCellBlock> FUTURE_POWER_CELL =
+            registerPowerCell("future_power_cell", PowerCellSpec.FUTURE);
+
+    public static final RegistryObject<Item> INDUSTRIAL_POWER_CELL_ITEM =
+            registerBlockItem("industrial_power_cell", INDUSTRIAL_POWER_CELL);
+    public static final RegistryObject<Item> MODERN_POWER_CELL_ITEM =
+            registerBlockItem("modern_power_cell", MODERN_POWER_CELL);
+    public static final RegistryObject<Item> FUTURE_POWER_CELL_ITEM =
+            registerBlockItem("future_power_cell", FUTURE_POWER_CELL);
 
     public static final RegistryObject<Item> INDUSTRIAL_GENERATOR_ITEM =
             registerBlockItem("industrial_generator", INDUSTRIAL_GENERATOR);
@@ -145,6 +163,11 @@ public final class PowerRegistry {
     public static final RegistryObject<BlockEntityType<GeneratorBlockEntity>> GENERATOR_CONTROLLER_BE =
             BLOCK_ENTITIES.register("generator_controller",
                     () -> BlockEntityType.Builder.of(GeneratorBlockEntity::new, generatorBlocks()).build(null));
+    public static final RegistryObject<BlockEntityType<PowerCellBlockEntity>> POWER_CELL_BE =
+            BLOCK_ENTITIES.register("power_cell",
+                    () -> BlockEntityType.Builder.of(PowerCellBlockEntity::new,
+                            INDUSTRIAL_POWER_CELL.get(), MODERN_POWER_CELL.get(),
+                            FUTURE_POWER_CELL.get()).build(null));
     public static final RegistryObject<BlockEntityType<PreheatGeneratorBlockEntity>> PREHEAT_GENERATOR_BE =
             BLOCK_ENTITIES.register("preheat_generator",
                     () -> BlockEntityType.Builder.of(PreheatGeneratorBlockEntity::new,
@@ -156,6 +179,9 @@ public final class PowerRegistry {
     public static final RegistryObject<MenuType<GeneratorMenu>> GENERATOR_MENU =
             MENUS.register("generator", () -> IForgeMenuType.create(
                     (windowId, inventory, data) -> new GeneratorMenu(windowId, inventory, data.readBlockPos())));
+    public static final RegistryObject<MenuType<PowerCellMenu>> POWER_CELL_MENU =
+            MENUS.register("power_cell", () -> IForgeMenuType.create(
+                    (windowId, inventory, data) -> new PowerCellMenu(windowId, inventory, data.readBlockPos())));
     public static final RegistryObject<MenuType<PreheatGeneratorMenu>> PREHEAT_GENERATOR_MENU =
             MENUS.register("preheat_generator", () -> IForgeMenuType.create(
                     (windowId, inventory, data) -> new PreheatGeneratorMenu(windowId, inventory, data.readBlockPos())));
@@ -202,6 +228,11 @@ public final class PowerRegistry {
 
     private static Block[] generatorBlocks() {
         return new Block[]{INDUSTRIAL_GENERATOR.get(), MODERN_GENERATOR.get(), FUTURE_ENERGY_GENERATOR.get()};
+    }
+
+    private static RegistryObject<PowerCellBlock> registerPowerCell(String name, PowerCellSpec spec) {
+        return BLOCKS.register(name, () -> new PowerCellBlock(
+                BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK), spec));
     }
 
     private static RegistryObject<PreheatGeneratorBlock> registerPreheatGenerator(

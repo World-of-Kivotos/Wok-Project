@@ -1103,5 +1103,15 @@
   "gui.miningdim.power.preheat.output": "当前输出：%s FE/t",
   "gui.miningdim.power.preheat.output_hint": "冷机不发电，烧到工作温度才满载",
   "gui.miningdim.power.preheat.burn": "剩余燃烧：%s / %s 秒",
-  "message.miningdim.power.geothermal.needs_lava": "地热发电机需要正下方有一格岩浆源"
+  "message.miningdim.power.geothermal.needs_lava": "地热发电机需要正下方有一格岩浆源",
+  "block.miningdim.industrial_power_cell": "工业储电池",
+  "item.miningdim.industrial_power_cell": "工业储电池",
+  "block.miningdim.modern_power_cell": "现代储电池",
+  "item.miningdim.modern_power_cell": "现代储电池",
+  "block.miningdim.future_power_cell": "未来储电池",
+  "item.miningdim.future_power_cell": "未来储电池",
+  "gui.miningdim.power.cell.stored": "储量：%s / %s FE",
+  "gui.miningdim.power.cell.input": "输入：%s FE/t",
+  "gui.miningdim.power.cell.output": "输出：%s FE/t",
+  "gui.miningdim.power.cell.net": "净流入：%s FE/t"
 }

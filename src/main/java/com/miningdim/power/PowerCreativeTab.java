@@ -29,6 +29,9 @@ public final class PowerCreativeTab {
                         output.accept(PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get());
                         output.accept(PowerRegistry.MODERN_GENERATOR_ITEM.get());
                         output.accept(PowerRegistry.FUTURE_ENERGY_GENERATOR_ITEM.get());
+                        output.accept(PowerRegistry.INDUSTRIAL_POWER_CELL_ITEM.get());
+                        output.accept(PowerRegistry.MODERN_POWER_CELL_ITEM.get());
+                        output.accept(PowerRegistry.FUTURE_POWER_CELL_ITEM.get());
                         output.accept(PowerRegistry.INDUSTRIAL_FUEL_CORE.get());
                         output.accept(PowerRegistry.MODERN_FUEL_CORE.get());
                         output.accept(PowerRegistry.FUTURE_FUEL_CORE.get());

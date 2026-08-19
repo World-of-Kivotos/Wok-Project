@@ -12,5 +12,6 @@ public final class PowerGeneratorClient {
     public static void registerScreens() {
         MenuScreens.register(PowerRegistry.GENERATOR_MENU.get(), GeneratorScreen::new);
         MenuScreens.register(PowerRegistry.PREHEAT_GENERATOR_MENU.get(), PreheatGeneratorScreen::new);
+        MenuScreens.register(PowerRegistry.POWER_CELL_MENU.get(), PowerCellScreen::new);
     }
 }

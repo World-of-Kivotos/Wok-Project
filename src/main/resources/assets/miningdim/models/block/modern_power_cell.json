@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "top": "miningdim:block/modern_power_cell_top",
+    "side": "miningdim:block/modern_power_cell_side",
+    "front": "miningdim:block/modern_power_cell_front"
+  }
+}

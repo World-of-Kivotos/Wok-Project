@@ -14,6 +14,9 @@
     "miningdim:future_energy_generator",
     "#miningdim:power_minerals",
     "miningdim:coal_generator",
-    "miningdim:geothermal_generator"
+    "miningdim:geothermal_generator",
+    "miningdim:industrial_power_cell",
+    "miningdim:modern_power_cell",
+    "miningdim:future_power_cell"
   ]
 }

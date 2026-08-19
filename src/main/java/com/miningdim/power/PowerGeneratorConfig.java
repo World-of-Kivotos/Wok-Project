@@ -128,6 +128,7 @@ public final class PowerGeneratorConfig {
         GEOTHERMAL_FUEL_BURN_MULTIPLIER = builder.defineInRange("fuelBurnMultiplier", 1, 1, 1_000);
         builder.pop();
 
+        PowerStorageConfig.define(builder);
         PowerMachineConfig.define(builder);
         SPEC = builder.build();
     }

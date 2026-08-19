@@ -116,6 +116,40 @@ def geothermal_front(lit: bool) -> None:
     save(image, f"geothermal_generator_front{'_on' if lit else ''}")
 
 
+CELL_ACCENTS = {
+    "industrial_power_cell": ((92, 104, 116, 255), CYAN),
+    "modern_power_cell": ((70, 96, 120, 255), (110, 200, 255, 255)),
+    "future_power_cell": ((58, 74, 110, 255), (168, 140, 255, 255)),
+}
+
+
+def power_cell(block_id: str) -> None:
+    """储电三档: 底色随档位加深, 正面能量窗按档位换色, 熄灭态无发光。"""
+    base, accent = CELL_ACCENTS[block_id]
+
+    image, draw = plate(base, VOID)
+    draw.rectangle((4, 4, 11, 11), fill=NAVY_RAISED, outline=STEEL)
+    draw.line((6, 6, 9, 6), fill=accent)
+    save(image, f"{block_id}_top")
+
+    image, draw = plate(base, VOID)
+    draw.rectangle((3, 3, 12, 12), fill=NAVY, outline=STEEL_DARK)
+    for y in (5, 8, 11):
+        draw.line((5, y, 10, y), fill=STEEL)
+    save(image, f"{block_id}_side")
+
+    for lit in (False, True):
+        image, draw = plate(base, VOID)
+        draw.rectangle((3, 3, 12, 12), fill=NAVY, outline=STEEL)
+        draw.rectangle((5, 5, 10, 10), fill=VOID, outline=STEEL_DARK)
+        if lit:
+            draw.rectangle((6, 6, 9, 9), fill=accent)
+            draw.point((7, 7), fill=(255, 255, 255, 255))
+        else:
+            draw.rectangle((6, 6, 9, 9), fill=DEEP_SHADOW)
+        save(image, f"{block_id}_front{'_on' if lit else ''}")
+
+
 def main() -> None:
     coal_top()
     coal_side()
@@ -125,7 +159,9 @@ def main() -> None:
     geothermal_side()
     geothermal_front(False)
     geothermal_front(True)
-    print("Built 8 preheat generator block textures.")
+    for cell_id in CELL_ACCENTS:
+        power_cell(cell_id)
+    print("Built 8 preheat generator + 12 power cell block textures.")
 
 
 if __name__ == "__main__":

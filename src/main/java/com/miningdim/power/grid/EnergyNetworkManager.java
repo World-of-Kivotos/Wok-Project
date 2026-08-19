@@ -40,8 +40,9 @@ import java.util.TreeSet;
  *  3. 端点集合缓存, 仅 endpointsDirty 时重算一次; 结算只遍历缓存端点; 网温/材料剖面仅重建时算并缓存。
  *
  * 反双计边界: 线缆对外只 receiveEnergy (见 EnergyCableBlockEntity), 故消费端一律由本管理器 push, 不会与
- * "端点自拉 + 管理器 push" 双计。端点分类: canExtract 者为生产端(拉), canReceive 且非 canExtract 者为消费端(推);
- * 两者皆真的电池 v1 当生产端 (避免来回 churn, 专用储能块后续单独设计其单向面)。
+ * "端点自拉 + 管理器 push" 双计。端点分类: 只能发的是生产端(拉), 只能收的是消费端(推), 两者皆真的是储电。
+ * 储电在拉、推两阶段各自单开一轮且排在后面 —— 即"先用发电机的电、先满足真实负载, 储电两头兜底";
+ * 分轮是硬要求, 若与发电机同轮参与会在同一 settlement 内来回 churn(取出又充回), 白吃吞吐并推高网温。
  *
  * 热学: 有效吞吐 = 额定 × eff(网温)(见 {@link CableThermics}); 过载则本 settlement 送达量 > 75%额定, 网温升,
  * eff 降, 下 settlement 吞吐随之降 —— 自限于安全线附近。网温每张网一个值, 每 settlement O(1) 推进。
@@ -549,67 +550,76 @@ public final class EnergyNetworkManager {
             }
         }
 
-        // 拉: 从生产端 (canExtract) 抽入缓冲, 单 settlement 封顶 effCap。
+        // 拉: 先从纯发电端抽入缓冲, 再让储电兜底补足, 单 settlement 封顶 effCap。
+        // 分两轮的原因: 储电既能收也能发, 若与发电机同轮参与, 同一 settlement 内会出现
+        // "从储电取电又立刻充回去" 的来回 churn, 白白吃掉吞吐并把网温推高。
         int room = Math.min(net.bufferCap() - net.stored, effCap);
         int endpointCount = net.endpoints.size();
-        int producerStart = Math.floorMod(net.producerCursor, endpointCount);
-        int producerScanned = 0;
-        while (producerScanned < endpointCount && room > 0) {
-            EnergyEndpointKey endpoint = net.endpoints.get((producerStart + producerScanned) % endpointCount);
-            producerScanned++;
-            IEnergyStorage storage = capAt(level, endpoint);
-            if (storage == null || !storage.canExtract()) {
-                continue;
+        for (int pass = 0; pass < 2 && room > 0; pass++) {
+            boolean storagePass = pass == 1;
+            int producerStart = Math.floorMod(net.producerCursor, endpointCount);
+            int producerScanned = 0;
+            while (producerScanned < endpointCount && room > 0) {
+                EnergyEndpointKey endpoint = net.endpoints.get((producerStart + producerScanned) % endpointCount);
+                producerScanned++;
+                IEnergyStorage storage = capAt(level, endpoint);
+                if (storage == null || !storage.canExtract() || isStorageEndpoint(storage) != storagePass) {
+                    continue;
+                }
+                if (storage instanceof VoltageAwareEnergyStorage voltageAware
+                        && voltageAware.outputVoltage().isHigherThan(net.voltageLimit)) {
+                    continue;
+                }
+                int got = storage.extractEnergy(room, false);
+                if (got < 0 || got > room) {
+                    throw new IllegalStateException("energy producer returned invalid extract amount " + got
+                            + " for request " + room + " at " + endpoint + " in " + dimension.location());
+                }
+                net.stored += got;
+                int distanceLoss = distanceLossForGross(got, routeFor(net, endpoint));
+                deductDistanceLoss(net, distanceLoss);
+                room -= got;
             }
-            if (storage instanceof VoltageAwareEnergyStorage voltageAware
-                    && voltageAware.outputVoltage().isHigherThan(net.voltageLimit)) {
-                continue;
+            if (producerScanned > 0) {
+                net.producerCursor = (producerStart + producerScanned) % endpointCount;
             }
-            int got = storage.extractEnergy(room, false);
-            if (got < 0 || got > room) {
-                throw new IllegalStateException("energy producer returned invalid extract amount " + got
-                        + " for request " + room + " at " + endpoint + " in " + dimension.location());
-            }
-            net.stored += got;
-            int distanceLoss = distanceLossForGross(got, routeFor(net, endpoint));
-            deductDistanceLoss(net, distanceLoss);
-            room -= got;
-        }
-        if (producerScanned > 0) {
-            net.producerCursor = (producerStart + producerScanned) % endpointCount;
         }
 
-        // 推: 从缓冲发给消费端 (canReceive 且非 canExtract), 封顶 effCap; 送达量即本 settlement 负载。
+        // 推: 先发给纯消费端, 余量再灌进储电, 封顶 effCap; 送达量即本 settlement 负载。
+        // 储电排在消费端之后, 保证"先满足真实用电, 剩下的才存起来"这一优先级。
         int pushable = Math.min(net.stored, effCap);
         int delivered = 0;
-        int consumerStart = Math.floorMod(net.consumerCursor, endpointCount);
-        int consumerScanned = 0;
-        while (consumerScanned < endpointCount && pushable > 0) {
-            EnergyEndpointKey endpoint = net.endpoints.get((consumerStart + consumerScanned) % endpointCount);
-            consumerScanned++;
-            IEnergyStorage storage = capAt(level, endpoint);
-            if (storage == null || !storage.canReceive() || storage.canExtract()) {
-                continue;
+        for (int pass = 0; pass < 2 && pushable > 0; pass++) {
+            boolean storagePass = pass == 1;
+            int consumerStart = Math.floorMod(net.consumerCursor, endpointCount);
+            int consumerScanned = 0;
+            while (consumerScanned < endpointCount && pushable > 0) {
+                EnergyEndpointKey endpoint = net.endpoints.get((consumerStart + consumerScanned) % endpointCount);
+                consumerScanned++;
+                IEnergyStorage storage = capAt(level, endpoint);
+                if (storage == null || !storage.canReceive() || isStorageEndpoint(storage) != storagePass) {
+                    continue;
+                }
+                long routeUnits = routeFor(net, endpoint);
+                int offer = CableThermics.netAfterDistanceLoss(pushable, routeUnits);
+                if (offer == 0) {
+                    continue;
+                }
+                int sent = storage.receiveEnergy(offer, false);
+                if (sent < 0 || sent > offer) {
+                    throw new IllegalStateException("energy consumer returned invalid receive amount " + sent
+                            + " for request " + offer + " at " + endpoint + " in " + dimension.location());
+                }
+                int gross = CableThermics.grossForDelivered(sent, routeUnits);
+                int distanceLoss = gross - sent;
+                net.stored -= sent;
+                pushable -= gross;
+                deductDistanceLoss(net, distanceLoss);
+                delivered += sent;
             }
-            long routeUnits = routeFor(net, endpoint);
-            int offer = CableThermics.netAfterDistanceLoss(pushable, routeUnits);
-            if (offer == 0) {
-                continue;
+            if (consumerScanned > 0) {
+                net.consumerCursor = (consumerStart + consumerScanned) % endpointCount;
             }
-            int sent = storage.receiveEnergy(offer, false);
-            if (sent < 0 || sent > offer) {
-                throw new IllegalStateException("energy consumer returned invalid receive amount " + sent
-                        + " for request " + offer + " at " + endpoint + " in " + dimension.location());
-            }
-            int gross = CableThermics.grossForDelivered(sent, routeUnits);
-            int distanceLoss = gross - sent;
-            net.stored -= sent;
-            pushable -= gross;
-            deductDistanceLoss(net, distanceLoss);
-            delivered += sent;
-        }
-        if (consumerScanned > 0) {
-            net.consumerCursor = (consumerStart + consumerScanned) % endpointCount;
         }
 
         // 依实际送达负载推进网温 (过载升、低载冷)。
@@ -706,6 +716,14 @@ public final class EnergyNetworkManager {
                     + dimension.location());
         }
         return route.effectiveUnits(net.temperatureC, net.coolingState);
+    }
+
+    /**
+     * 双向端点(既能收又能发)即储电。它在拉阶段与推阶段都排在纯发电端/纯消费端之后,
+     * 语义是"先用发电机的电、先满足真实负载, 储电两头兜底"。
+     */
+    private static boolean isStorageEndpoint(IEnergyStorage storage) {
+        return storage.canExtract() && storage.canReceive();
     }
 
     private int distanceLossForGross(int gross, long routeUnits) {

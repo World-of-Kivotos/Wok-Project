@@ -178,6 +178,20 @@ def build_preheat_generator() -> None:
     save(image, "preheat_generator")
 
 
+def build_power_cell() -> None:
+    """三级储电共用底图: 无槽位, 一条主容量表加进出两条细表。"""
+    image, draw = draw_main_frame(STANDARD_HEIGHT, 134, 142, 200)
+    draw_panel(draw, (12, 24, 205, 70), CYAN)
+    draw_meter_track(draw, 20, 36, 178, 18, CYAN)
+    draw_energy_node(draw, 30, 62, CYAN)
+    draw_energy_node(draw, 188, 62, AMBER)
+
+    draw_meter_track(draw, 20, 84, 178, 7, TEAL)
+    draw_meter_track(draw, 20, 104, 178, 7, AMBER)
+    draw_panel(draw, (12, 116, 205, 129), BLUE)
+    save(image, "power_cell")
+
+
 def build_metallurgic_purifier() -> None:
     image, draw = draw_main_frame(STANDARD_HEIGHT, 134, 142, 200)
     draw_panel(draw, (12, 24, 205, 65), TEAL)
@@ -227,10 +241,11 @@ def build_low_temperature_controller() -> None:
 def main() -> None:
     build_generator()
     build_preheat_generator()
+    build_power_cell()
     build_metallurgic_purifier()
     build_air_separation()
     build_low_temperature_controller()
-    print("Built four power machine GUI atlases.")
+    print("Built power machine GUI atlases.")
 
 
 if __name__ == "__main__":

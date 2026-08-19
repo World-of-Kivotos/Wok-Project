@@ -1,0 +1,23 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "G": {
+      "item": "miningdim:gold_4n_ingot"
+    },
+    "O": {
+      "item": "miningdim:ofe_copper_ingot"
+    },
+    "P": {
+      "item": "miningdim:industrial_power_cell"
+    }
+  },
+  "pattern": [
+    "OGO",
+    "GPG",
+    "OGO"
+  ],
+  "result": {
+    "item": "miningdim:modern_power_cell"
+  }
+}

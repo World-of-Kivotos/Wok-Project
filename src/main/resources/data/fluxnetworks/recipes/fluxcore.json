@@ -1,0 +1,30 @@
+{
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "fluxnetworks"
+    }
+  ],
+  "type": "minecraft:crafting_shaped",
+  "group": "fluxnetworks",
+  "pattern": [
+    "gyg",
+    "yny",
+    "gyg"
+  ],
+  "key": {
+    "g": {
+      "item": "miningdim:graphene_sheet"
+    },
+    "y": {
+      "item": "miningdim:ybco_tape"
+    },
+    "n": {
+      "item": "minecraft:nether_star"
+    }
+  },
+  "result": {
+    "item": "fluxnetworks:flux_core",
+    "count": 1
+  }
+}

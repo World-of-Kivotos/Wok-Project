@@ -1,8 +1,8 @@
-# 前期发电机（煤炭 / 地热）美术资源需求清单
+# 电力系统美术资源需求清单（前期发电机 + 三级储电）
 
 ## 一、文档说明
 
-- 用途：煤炭发电机与地热发电机的美术需求与资产状态清单。逻辑与数值已全部实现并通过测试，本文只列美术资产，**不含任何待实现的机制**。
+- 用途：煤炭发电机、地热发电机与三级储电的美术需求与资产状态清单。逻辑与数值已全部实现并通过测试，本文只列美术资产，**不含任何待实现的机制**。
 - 机制真源：[Power_Economy_Rebalance_DesignSpec.md](Power_Economy_Rebalance_DesignSpec.md) 第二章。本文不改机制。
 - 当前状态：**全部资产已有占位且游戏内可正常显示**，不是紫黑格。占位由 `tools/build_preheat_generator_textures.py`（方块贴图）与 `tools/build_power_ui_assets.py`（界面底图）程序生成，配色取自既有 power 界面调色板。美术出成品时**直接覆盖同名 PNG 即可，无需改动任何 JSON 或 Java**。
 - 验收保险：`PreheatGeneratorGameTests.blockAssetsExistAndMatchModels` 会断言模型引用的每一张贴图真实存在且为 16x16。替换后跑 `gradlew runGameTestServer` 即可确认没有漏文件或改错尺寸。
@@ -42,13 +42,28 @@
 1. **`_front` 与 `_front_on` 必须构图一致，只差发光部分。** 游戏里这两张会随 `lit` 状态实时切换，构图不一致会导致视觉跳变。
 2. **熄火态不得有任何发光像素。** 玩家靠正面是否发光判断机器在不在工作，这是唯一的外部状态指示。
 
-## 三、界面底图（1 张，P2）
+## 二之二、三级储电方块贴图（12 张，P1）
 
-| 文件名 | 路径 | 画布 | 有效区域 |
+同为 16x16 PNG，同放 `textures/block/`，同走 `orientable` 父模型（top / side / front / front_on 四张一组）。
+
+| 档 | 文件名前缀 | 占位配色 | 美术要求 |
 | --- | --- | --- | --- |
-| `preheat_generator.png` | `src/main/resources/assets/miningdim/textures/gui/power/` | 256x256 | 左上角 218x222 |
+| 一级 | `industrial_power_cell_*` | 钢灰底 + 青色能量窗 | 铆接钢壳电池，工业感 |
+| 二级 | `modern_power_cell_*` | 蓝灰底 + 亮青能量窗 | 精密化外壳，可见散热结构 |
+| 三级 | `future_power_cell_*` | 深蓝紫底 + 紫色能量窗 | 高能感，与未来发电机同语言 |
 
-煤炭机与地热机**共用这一张**底图。现有占位由 `tools/build_power_ui_assets.py` 的 `build_preheat_generator()` 生成，与提纯机、空分机等既有界面同风格。
+三档必须**一眼可区分**（玩家会同屏摆放多档），建议靠底色明度与能量窗色相拉开差距，而不是靠细节密度——16x16 下细节密度区分不出来。
+
+`_front` 与 `_front_on` 的构图一致性要求同第二章：只差发光部分，熄灭态不得有任何发光像素（储电的 LIT 状态表示"本 tick 有进出电流"，是玩家判断电网是否在工作的唯一外部指示）。
+
+## 三、界面底图（2 张，P2）
+
+| 文件名 | 路径 | 画布 | 有效区域 | 共用者 |
+| --- | --- | --- | --- | --- |
+| `preheat_generator.png` | `assets/miningdim/textures/gui/power/` | 256x256 | 左上角 218x222 | 煤炭机 + 地热机 |
+| `power_cell.png` | 同上 | 256x256 | 左上角 218x222 | 三档储电 |
+
+`power_cell.png` 的元素坐标：主容量表 (20, 36) 尺寸 178x18、输入表 (20, 84) 178x7、输出表 (20, 104) 178x7、玩家背包 (28, 142)、快捷栏 (28, 200)。储电**没有任何槽位**，底图不要画槽。现有占位由 `tools/build_power_ui_assets.py` 的 `build_preheat_generator()` 生成，与提纯机、空分机等既有界面同风格。
 
 界面元素坐标（**代码已按此渲染，改图必须保持这些位置**）：
 

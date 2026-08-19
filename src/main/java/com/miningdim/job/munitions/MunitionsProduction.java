@@ -31,13 +31,14 @@ public final class MunitionsProduction {
      * @param propellantConsumed 本次消耗发射药总数
      * @param workFeeCredits  本次产弹应扣的信用点工费 (聚合整数; 销毁 = sink)
      * @param rawXp           本次产弹应给的原始经验 (谁产谁得, 框架再过衰减/软上限)
+     * @param feConsumed      本次产弹应扣的电力 (批数 × 每批电费; BE 据此从内部缓冲扣电)
      */
     public record Result(int roundsProduced, int batchesConsumed, int primerConsumed,
                          int casingConsumed, int bulletHeadConsumed, int propellantConsumed,
-                         long workFeeCredits, long rawXp) {
+                         long workFeeCredits, long rawXp, int feConsumed) {
 
-        /** 空结算 (无产出): 流逝不足 / 缓冲已满 / 无料。 */
-        public static final Result NONE = new Result(0, 0, 0, 0, 0, 0, 0L, 0L);
+        /** 空结算 (无产出): 流逝不足 / 缓冲已满 / 无料 / 无电。 */
+        public static final Result NONE = new Result(0, 0, 0, 0, 0, 0, 0L, 0L, 0);
 
         public boolean produced() {
             return roundsProduced > 0;
@@ -85,6 +86,25 @@ public final class MunitionsProduction {
      * @param level   军火商等级 (决定提炼是否解锁)
      * @return 单批料该口径实产发数 (>=1)
      */
+    /**
+     * 单批料的电费。刻意用"步枪当量基础批发数"而不是口径缩产后的实发数: 电价按步枪当量收
+     * (每发 100,000 ÷ yieldFactor), 而单批实发数正是基础发数 × yieldFactor, 两者相乘 yieldFactor
+     * 恰好约掉 —— 于是同一等级下每批电费与口径无关, 大口径"发数少但每发更贵"自动成立。
+     *
+     * 若改成按实发数收电, 1 发 50BMG 与 1 发步枪弹同价, 而前者卖 150 后者卖 15, 性价比差十倍,
+     * 所有人都只会造大口径, 小口径彻底死掉。
+     *
+     * @param level 军火商等级 (决定提炼是否解锁, 进而决定基础批发数)
+     * @return 该等级下每批料的电费 (FE)
+     */
+    public static int feCostPerBatch(int level) {
+        int baseRounds = MunitionsLevels.isRefineUnlocked(level)
+                ? MunitionsConfig.REFINED_ROUNDS_PER_BATCH.get()
+                : MunitionsConfig.DIRECT_ROUNDS_PER_BATCH.get();
+        return Math.max(1, Math.multiplyExact(baseRounds,
+                MunitionsConfig.FE_PER_RIFLE_EQUIVALENT_ROUND.get()));
+    }
+
     public static int roundsPerBatch(MunitionsCaliber caliber, int level) {
         int baseRounds = MunitionsLevels.isRefineUnlocked(level)
                 ? MunitionsConfig.REFINED_ROUNDS_PER_BATCH.get()
@@ -116,7 +136,7 @@ public final class MunitionsProduction {
      */
     public static Result settle(MunitionsCaliber caliber, int level, int tableCount, long elapsedTicks,
                                 int bufferRemaining, int availablePrimer, int availableCasing,
-                                int availableBulletHead, int availablePropellant) {
+                                int availableBulletHead, int availablePropellant, int availableFe) {
         if (caliber == null || tableCount <= 0 || elapsedTicks <= 0 || bufferRemaining <= 0) {
             return Result.NONE;
         }
@@ -143,12 +163,17 @@ public final class MunitionsProduction {
             return Result.NONE; // 料不足一批: 不产 (先查后扣, 杜绝白产)。
         }
 
-        // 三门取最小, 折算到 "整批"。先把时间门/缓冲门换成 "允许的最大批数" (向下取整)。
+        // 门 4: 电力能撑的最大批数。电不足不是停产而是减产 —— 这正是"电不够就一颗一颗慢慢造"。
+        int feCostPerBatch = feCostPerBatch(level);
+        long maxBatchesByPower = (long) availableFe / feCostPerBatch;
+
+        // 四门取最小, 折算到 "整批"。先把时间门/缓冲门换成 "允许的最大批数" (向下取整)。
         long maxBatchesByTime = theoryCaliberRounds / perBatchRounds;
         long maxBatchesByBuffer = (long) bufferRemaining / perBatchRounds;
-        long batches = Math.min(maxBatchesByMaterial, Math.min(maxBatchesByTime, maxBatchesByBuffer));
+        long batches = Math.min(Math.min(maxBatchesByMaterial, maxBatchesByPower),
+                Math.min(maxBatchesByTime, maxBatchesByBuffer));
         if (batches <= 0) {
-            return Result.NONE; // 时间/缓冲/料任一不足一整批: 不产。
+            return Result.NONE; // 时间/缓冲/料/电任一不足一整批: 不产。
         }
 
         int batchesInt = (int) Math.min(batches, Integer.MAX_VALUE);
@@ -159,9 +184,10 @@ public final class MunitionsProduction {
         int propellantConsumed = batchesInt * propellantPerBatch;
         long workFee = workFee(rounds);
         long rawXp = produceXp(rounds);
+        int feConsumed = Math.multiplyExact(batchesInt, feCostPerBatch);
 
         return new Result(rounds, batchesInt, primerConsumed, casingConsumed,
-                bulletHeadConsumed, propellantConsumed, workFee, rawXp);
+                bulletHeadConsumed, propellantConsumed, workFee, rawXp, feConsumed);
     }
 
     /**

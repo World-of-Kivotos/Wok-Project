@@ -28,6 +28,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import com.miningdim.power.machine.MachineEnergyStorage;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.common.util.LazyOptional;
@@ -167,6 +168,11 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
      */
     private final LazyOptional<IItemHandler> inputOnlyHandler =
             LazyOptional.of(() -> new InsertOnlyRangedWrapper(inventory, SLOT_PRIMER, INPUT_SLOT_END));
+
+    /** 军械台的内部 FE 缓冲。电网只 push 进来, 产线结算时从这里扣。 */
+    private final MachineEnergyStorage energy =
+            new MachineEnergyStorage(MunitionsConfig.BENCH_ENERGY_CAPACITY::get, this::setChanged);
+    private final LazyOptional<MachineEnergyStorage> energyHandler = LazyOptional.of(() -> energy);
 
     /**
      * 只写料槽包装 (F051): 只覆写 {@link #extractItem}, insert 侧仍走基类的范围校验与 isItemValid。
@@ -340,6 +346,10 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         if (bufferCap() - bufferedRounds < rounds || !hasBatchMaterials()) {
             return false;
         }
+        // 手动路径完全绕开 MunitionsProduction.settle(), 若不在这里单独设闸, 它就是电力限制的逃逸口。
+        if (!energy.hasAtLeast(MunitionsProduction.feCostPerBatch(level0))) {
+            return false;
+        }
 
         // 原子结算 (审查 M-2): 开工帧只校验不扣料, 材料留在槽内, 完成帧与工费同帧一次性结算
         // ("扣不动则料不扣" 契约); 取消/中断因此天然零损失, 不需要退料路径。
@@ -470,7 +480,7 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         // 单台 BE 视作 1 台参与产能 (全局多台 = 多 BE 各自累加; 台数上限由 SavedData 放置门控)。
         MunitionsProduction.Result result = MunitionsProduction.settle(
                 selectedCaliber, level0, 1, elapsed, bufferRemaining,
-                primers, casings, bulletHeads, propellant);
+                primers, casings, bulletHeads, propellant, energy.getEnergyStored());
         // 复核 (major, F049 同源): active 必须与 settle 的判定同源 (含它的时间门), 不能只看料/缓冲/口径三道
         // 静态门 —— 台主持续在线时 serverTick 每 tick 都追算一次, elapsed 恒为 1 tick, 单 tick 换算的理论发数
         // 几乎恒不够一整批; 静态门此时恒真, 会把机器点成常亮/持续焊接音却一发都出不来。result.produced() 是
@@ -499,6 +509,9 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
 
         // 工费扣成功, 本段流逝已兑现为产出: 推进时间戳 (产出受料/缓冲夹断时不重复累积已兑现的流逝)。
         lastSettleTick = now;
+
+        // 扣电与扣料同帧: settle 已按 energy.getEnergyStored() 夹过批数, 这里必然扣得动。
+        energy.consume(result.feConsumed());
 
         // 扣料 + 入缓冲。
         consume(SLOT_PRIMER, result.primerConsumed());
@@ -567,12 +580,20 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
             return false;
         }
         int rounds = MunitionsProduction.roundsPerBatch(craftingCaliber, craftingOwnerLevel);
+        // 电力与工费同帧先查后扣: 开工帧只校验不锁电, 制作期间电可能被别处抽走, 完成帧必须复查。
+        int feCost = MunitionsProduction.feCostPerBatch(craftingOwnerLevel);
+        if (!energy.hasAtLeast(feCost)) {
+            clearActiveCraft();
+            setMachineActive(false);
+            return false;
+        }
         long workFee = MunitionsProduction.workFee(rounds);
         if (!tryChargeWorkFee(owner, workFee)) {
             clearActiveCraft();
             setMachineActive(false);
             return false;
         }
+        energy.consume(feCost);
 
         consume(SLOT_PRIMER, MunitionsConfig.RECIPE_PRIMER_COST.get());
         consume(SLOT_CASING, MunitionsConfig.RECIPE_CASING_COST.get());
@@ -827,6 +848,9 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         if (cap == ForgeCapabilities.ITEM_HANDLER) {
             return inputOnlyHandler.cast();
         }
+        if (cap == ForgeCapabilities.ENERGY) {
+            return energyHandler.cast();
+        }
         return super.getCapability(cap, side);
     }
 
@@ -834,6 +858,7 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     public void invalidateCaps() {
         super.invalidateCaps();
         inputOnlyHandler.invalidate();
+        energyHandler.invalidate();
     }
 
     // ---- MenuProvider ----
@@ -856,6 +881,7 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     private static final String K_INV = "Inv";
     private static final String K_SELECTED = "SelectedCaliber";
     private static final String K_BUFFERED = "BufferedRounds";
+    private static final String K_ENERGY = "energy";
     private static final String K_BUFFERED_CAL = "BufferedCaliber";
     private static final String K_LAST_SETTLE = "LastSettleTick";
     private static final String K_SETTLE_INIT = "SettleInitialized";
@@ -878,6 +904,9 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         tag.put(K_INV, inventory.serializeNBT());
         tag.putInt(K_SELECTED, selectedCaliber == null ? -1 : selectedCaliber.index());
         tag.putInt(K_BUFFERED, bufferedRounds);
+        CompoundTag energyTag = new CompoundTag();
+        energy.save(energyTag);
+        tag.put(K_ENERGY, energyTag);
         tag.putInt(K_BUFFERED_CAL, bufferedCaliber == null ? -1 : bufferedCaliber.index());
         tag.putLong(K_LAST_SETTLE, lastSettleTick);
         tag.putBoolean(K_SETTLE_INIT, settleInitialized);
@@ -903,6 +932,9 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         super.load(tag);
         ownerUUID = tag.hasUUID(K_OWNER) ? tag.getUUID(K_OWNER) : null;
         locked = tag.getBoolean(K_LOCKED);
+        if (tag.contains(K_ENERGY, Tag.TAG_COMPOUND)) {
+            energy.load(tag.getCompound(K_ENERGY));
+        }
         pendingLegacyDrops.clear();
         ListTag drops = tag.getList(K_PENDING_DROPS, Tag.TAG_COMPOUND);
         for (int i = 0; i < drops.size(); i++) {

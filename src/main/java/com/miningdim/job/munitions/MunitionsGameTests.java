@@ -309,7 +309,7 @@ public final class MunitionsGameTests {
                 2 * MunitionsConfig.RECIPE_PRIMER_COST.get(),
                 2 * MunitionsConfig.RECIPE_CASING_COST.get(),
                 2 * MunitionsConfig.RECIPE_BULLET_HEAD_COST.get(),
-                2 * MunitionsConfig.RECIPE_PROPELLANT_COST.get());
+                2 * MunitionsConfig.RECIPE_PROPELLANT_COST.get(), Integer.MAX_VALUE);
         helper.assertTrue(r.batchesConsumed() == 2, "material caps to exactly 2 batches, got " + r.batchesConsumed());
         helper.assertTrue(r.roundsProduced() == 2 * perBatch,
                 "rounds == batches × roundsPerBatch = 2*40 = 80, got " + r.roundsProduced());
@@ -329,6 +329,51 @@ public final class MunitionsGameTests {
         helper.succeed();
     }
 
+    /**
+     * 电力门。电不足不是停产而是减产, 这是"电不够就一颗一颗慢慢造"的落点。
+     * 同时钉死"每批电费与口径无关": 电价按步枪当量收, 单批实发数又正好乘了同一个 yieldFactor,
+     * 两者约掉。若改成按实发数收电, 大口径的每 FE 产出会是小口径的十倍, 小口径彻底死掉。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void settleClampedByPowerAndCostIsCaliberIndependent(GameTestHelper helper) {
+        int level = 1;
+        long bigElapsed = 20L * MunitionsConfig.TICKS_PER_RATE_HOUR.get();
+        int feePerBatch = MunitionsProduction.feCostPerBatch(level);
+        helper.assertTrue(feePerBatch == MunitionsConfig.DIRECT_ROUNDS_PER_BATCH.get()
+                        * MunitionsConfig.FE_PER_RIFLE_EQUIVALENT_ROUND.get(),
+                "每批电费必须等于基础批发数乘每发电价, 得到 " + feePerBatch);
+
+        MunitionsProduction.Result twoBatches = MunitionsProduction.settle(
+                MunitionsCaliber.RIFLE, level, 1, bigElapsed, 100_000,
+                9999, 9999, 9999, 9999, feePerBatch * 2);
+        helper.assertTrue(twoBatches.batchesConsumed() == 2,
+                "两批的电只能产两批, 得到 " + twoBatches.batchesConsumed());
+        helper.assertTrue(twoBatches.feConsumed() == feePerBatch * 2,
+                "扣电必须等于批数乘每批电费, 得到 " + twoBatches.feConsumed());
+
+        MunitionsProduction.Result shortOfOne = MunitionsProduction.settle(
+                MunitionsCaliber.RIFLE, level, 1, bigElapsed, 100_000,
+                9999, 9999, 9999, 9999, feePerBatch - 1);
+        helper.assertFalse(shortOfOne.produced(),
+                "不足一批的电必须一发不产, 得到 " + shortOfOne.roundsProduced());
+        helper.assertTrue(shortOfOne.feConsumed() == 0, "不产就不得扣电");
+
+        // 同等级同电量下, 不同口径消耗的电必须完全一致 —— 大口径只是发数少、每发更贵。
+        MunitionsProduction.Result rifle = MunitionsProduction.settle(
+                MunitionsCaliber.RIFLE, level, 1, bigElapsed, 100_000,
+                9999, 9999, 9999, 9999, feePerBatch);
+        MunitionsProduction.Result antiMateriel = MunitionsProduction.settle(
+                MunitionsCaliber.ANTI_MATERIEL, level, 1, bigElapsed, 100_000,
+                9999, 9999, 9999, 9999, feePerBatch);
+        helper.assertTrue(rifle.feConsumed() == antiMateriel.feConsumed(),
+                "同等级每批电费必须与口径无关, 步枪 " + rifle.feConsumed()
+                        + " 反器材 " + antiMateriel.feConsumed());
+        helper.assertTrue(rifle.roundsProduced() > antiMateriel.roundsProduced(),
+                "同样一批电, 大口径的发数必须更少(缩产系数), 步枪 " + rifle.roundsProduced()
+                        + " 反器材 " + antiMateriel.roundsProduced());
+        helper.succeed();
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void settleClampedByBufferAndTime(GameTestHelper helper) {
         int level = 5;
@@ -338,7 +383,7 @@ public final class MunitionsGameTests {
         int bufferRemaining = 100;
         long bigElapsed = MunitionsProduction.ticksPerRound(level) * 100_000L;
         MunitionsProduction.Result byBuffer = MunitionsProduction.settle(
-                MunitionsCaliber.RIFLE, level, 1, bigElapsed, bufferRemaining, 9999, 9999, 9999, 9999);
+                MunitionsCaliber.RIFLE, level, 1, bigElapsed, bufferRemaining, 9999, 9999, 9999, 9999, Integer.MAX_VALUE);
         helper.assertTrue(byBuffer.batchesConsumed() == bufferRemaining / perBatch,
                 "buffer 100 / 40-per-batch floors to 2 batches, got " + byBuffer.batchesConsumed());
         helper.assertTrue(byBuffer.roundsProduced() == 2 * perBatch,
@@ -350,7 +395,7 @@ public final class MunitionsGameTests {
         // 时间瓶颈: 料/缓冲充裕, 但流逝只够 1 批的步枪当量时间 -> 1 批 (40 发)。
         long oneBatchTime = MunitionsProduction.ticksPerRound(level) * (long) perBatch; // 恰好 40 发时间。
         MunitionsProduction.Result byTime = MunitionsProduction.settle(
-                MunitionsCaliber.RIFLE, level, 1, oneBatchTime, 9999, 9999, 9999, 9999, 9999);
+                MunitionsCaliber.RIFLE, level, 1, oneBatchTime, 9999, 9999, 9999, 9999, 9999, Integer.MAX_VALUE);
         helper.assertTrue(byTime.batchesConsumed() == 1,
                 "elapsed sufficient for exactly 1 batch yields 1 batch, got " + byTime.batchesConsumed());
         helper.assertTrue(byTime.roundsProduced() == perBatch, "time-clamped to 1 batch = 40 rounds");
@@ -362,20 +407,20 @@ public final class MunitionsGameTests {
         int level = 5;
         long bigElapsed = MunitionsProduction.ticksPerRound(level) * 100_000L;
         // 未选口径 (null) -> NONE。
-        helper.assertTrue(MunitionsProduction.settle(null, level, 1, bigElapsed, 9999, 9999, 9999, 9999, 9999)
+        helper.assertTrue(MunitionsProduction.settle(null, level, 1, bigElapsed, 9999, 9999, 9999, 9999, 9999, Integer.MAX_VALUE)
                 == MunitionsProduction.Result.NONE, "null caliber forfeits (NONE)");
         // 缓冲已满 (剩 0) -> NONE。
-        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, bigElapsed, 0, 9999, 9999, 9999, 9999)
+        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, bigElapsed, 0, 9999, 9999, 9999, 9999, Integer.MAX_VALUE)
                 .produced(), "buffer full (remaining 0) produces nothing");
         // 料不足一批 -> NONE。
-        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, bigElapsed, 9999, 0, 9999, 9999, 9999)
+        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, bigElapsed, 9999, 0, 9999, 9999, 9999, Integer.MAX_VALUE)
                 .produced(), "missing primer produces nothing (先查后扣, 不白产)");
         // 0 流逝 -> NONE (未达时间不产)。
-        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, 0L, 9999, 9999, 9999, 9999, 9999)
+        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, 0L, 9999, 9999, 9999, 9999, 9999, Integer.MAX_VALUE)
                 .produced(), "0 elapsed produces nothing");
         // 时间不足一整批 (1 发的时间, 但一批要 40 发) -> NONE (按整批走料)。
         long subBatchTime = MunitionsProduction.ticksPerRound(level) * 1L;
-        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, subBatchTime, 9999, 9999, 9999, 9999, 9999)
+        helper.assertFalse(MunitionsProduction.settle(MunitionsCaliber.RIFLE, level, 1, subBatchTime, 9999, 9999, 9999, 9999, 9999, Integer.MAX_VALUE)
                 .produced(), "time for <1 full batch produces nothing (整批走料, 不产半批)");
         helper.succeed();
     }
@@ -1454,6 +1499,10 @@ public final class MunitionsGameTests {
             throw new IllegalStateException("munitions bench BE not present at " + abs);
         }
         be.setOwner(owner.getUUID());
+        // 军械台现在吃电: 除电力门本身的用例外, 其余用例关注的是料/时间/缓冲/权限等维度,
+        // 故这里默认把内部缓冲充满, 免得每个既有用例都要重复一遍充电样板。
+        be.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ENERGY)
+                .ifPresent(storage -> storage.receiveEnergy(Integer.MAX_VALUE, false));
         return be;
     }
 

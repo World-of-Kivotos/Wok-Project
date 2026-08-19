@@ -578,6 +578,9 @@ public final class MunitionsWebUiGameTests {
             throw new IllegalStateException("军火台 BE 没有出现在 " + rel);
         }
         bench.setOwner(owner);
+        // 军械台吃电: 本文件的用例关注 WebUI 状态投影而非电力门, 故默认把内部缓冲充满。
+        bench.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ENERGY)
+                .ifPresent(storage -> storage.receiveEnergy(Integer.MAX_VALUE, false));
         return bench;
     }
 

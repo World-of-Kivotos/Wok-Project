@@ -62,6 +62,8 @@ public final class MunitionsConfig {
     public static final ForgeConfigSpec.IntValue RECIPE_BULLET_HEAD_COST;
     public static final ForgeConfigSpec.IntValue RECIPE_PROPELLANT_COST;
     /** 直造 (L1-5) 单批产出步枪弹基准发数。 */
+    public static final ForgeConfigSpec.IntValue FE_PER_RIFLE_EQUIVALENT_ROUND;
+    public static final ForgeConfigSpec.IntValue BENCH_ENERGY_CAPACITY;
     public static final ForgeConfigSpec.IntValue DIRECT_ROUNDS_PER_BATCH;
     /** 提炼 (L6+) 单批产出步枪弹基准发数 (翻倍, 利润质变线)。 */
     public static final ForgeConfigSpec.IntValue REFINED_ROUNDS_PER_BATCH;
@@ -212,6 +214,18 @@ public final class MunitionsConfig {
                         + " (damage coeff x headshot coeff). WIP conservative default pending live tuning against"
                         + " the 80-HP server; 2.25 restores the uncapped legendary+legendary compound.")
                 .defineInRange("gunsmithHeadshotDamageCap", 1.8D, 1.0D, 2.25D);
+        FE_PER_RIFLE_EQUIVALENT_ROUND = b.comment(
+                        "FE charged per rifle-equivalent round. Power is billed on the rifle-equivalent",
+                        "count rather than the actual round count, so a batch costs the same regardless of",
+                        "caliber: a large caliber yields fewer rounds but each costs proportionally more.",
+                        "Billing per actual round instead would make 50BMG ten times more power-efficient",
+                        "than rifle ammo and kill every small caliber.")
+                .defineInRange("fePerRifleEquivalentRound", 100_000, 0, 100_000_000);
+        BENCH_ENERGY_CAPACITY = b.comment(
+                        "Internal FE buffer of a munitions bench. It bounds how much offline production can",
+                        "be caught up in one settlement: the grid does not run while chunks are unloaded, so",
+                        "whatever was buffered before logout is all the power the catch-up can spend.")
+                .defineInRange("benchEnergyCapacity", 32_000_000, 1, 2_000_000_000);
         DIRECT_ROUNDS_PER_BATCH = b.comment("Rounds per batch via direct crafting (L1-5, half yield)")
                 .defineInRange("directRoundsPerBatch", 40, 1, 100000);
         REFINED_ROUNDS_PER_BATCH = b.comment("Rounds per batch via refining into propellant (L6+, double yield, profit inflection)")

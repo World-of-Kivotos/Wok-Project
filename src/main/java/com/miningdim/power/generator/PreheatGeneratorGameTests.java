@@ -27,7 +27,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 前期两台预热式发电机的运行契约。
@@ -43,6 +45,9 @@ public final class PreheatGeneratorGameTests {
     private static final String BATCH = "preheat_generator";
     private static final BlockPos MACHINE_REL = new BlockPos(3, 2, 3);
     private static final double EPSILON = 1.0E-6D;
+    private static final List<String> BLOCK_ASSET_IDS = List.of(
+            "coal_generator", "geothermal_generator",
+            "industrial_power_cell", "modern_power_cell", "future_power_cell");
 
     private PreheatGeneratorGameTests() {
     }
@@ -273,31 +278,39 @@ public final class PreheatGeneratorGameTests {
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void blockAssetsExistAndMatchModels(GameTestHelper helper) {
-        for (String blockId : List.of("coal_generator", "geothermal_generator")) {
+        Set<String> textureReferences = new LinkedHashSet<>();
+        for (String blockId : BLOCK_ASSET_IDS) {
             JsonObject blockstate = readJson("/assets/miningdim/blockstates/" + blockId + ".json");
             JsonObject variants = blockstate.getAsJsonObject("variants");
             helper.assertTrue(variants.size() == 8,
                     blockId + " 必须覆盖 4 朝向 x 2 燃烧态, 得到 " + variants.size());
             for (String facing : List.of("north", "east", "south", "west")) {
                 for (String lit : List.of("false", "true")) {
-                    helper.assertTrue(variants.has("facing=" + facing + ",lit=" + lit),
-                            blockId + " 缺少 variant facing=" + facing + ",lit=" + lit);
+                    String variantKey = "facing=" + facing + ",lit=" + lit;
+                    helper.assertTrue(variants.has(variantKey),
+                            blockId + " 缺少 variant " + variantKey);
+                    String expectedModel = "miningdim:block/" + blockId
+                            + ("true".equals(lit) ? "_on" : "");
+                    String actualModel = variants.getAsJsonObject(variantKey).get("model").getAsString();
+                    helper.assertTrue(actualModel.equals(expectedModel),
+                            blockId + " 的 " + variantKey + " 必须引用 " + expectedModel
+                                    + ", 得到 " + actualModel);
                 }
             }
 
             for (String suffix : List.of("", "_on")) {
                 JsonObject model = readJson("/assets/miningdim/models/block/" + blockId + suffix + ".json");
+                helper.assertTrue(model.get("parent").getAsString().equals("minecraft:block/orientable"),
+                        blockId + suffix + " 必须使用 orientable 方块模型");
                 JsonObject textures = model.getAsJsonObject("textures");
                 for (String key : List.of("top", "side", "front")) {
                     String reference = textures.get(key).getAsString();
-                    helper.assertTrue(reference.startsWith("miningdim:block/"),
-                            blockId + suffix + " 的 " + key + " 必须引用本 mod 贴图, 得到 " + reference);
-                    String texturePath = "/assets/miningdim/textures/block/"
-                            + reference.substring("miningdim:block/".length()) + ".png";
-                    BufferedImage image = readPng(texturePath);
-                    helper.assertTrue(image.getWidth() == 16 && image.getHeight() == 16,
-                            texturePath + " 必须是 16x16, 得到 "
-                                    + image.getWidth() + "x" + image.getHeight());
+                    String expectedTexture = "miningdim:block/" + blockId + "_" + key
+                            + ("front".equals(key) && "_on".equals(suffix) ? "_on" : "");
+                    helper.assertTrue(reference.equals(expectedTexture),
+                            blockId + suffix + " 的 " + key + " 必须引用 " + expectedTexture
+                                    + ", 得到 " + reference);
+                    textureReferences.add(reference);
                 }
             }
 
@@ -308,7 +321,80 @@ public final class PreheatGeneratorGameTests {
             helper.assertTrue(loot.getAsJsonArray("pools").size() == 1,
                     blockId + " 战利品表必须恰好一个池");
         }
+
+        helper.assertTrue(textureReferences.size() == 20,
+                "五台设备必须恰好引用 20 张唯一方块贴图, 得到 " + textureReferences.size()
+                        + ": " + textureReferences);
+        for (String reference : textureReferences) {
+            String texturePath = "/assets/miningdim/textures/block/"
+                    + reference.substring("miningdim:block/".length()) + ".png";
+            BufferedImage image = readPng(texturePath);
+            helper.assertTrue(image.getWidth() == 16 && image.getHeight() == 16,
+                    texturePath + " 必须是 16x16, 得到 "
+                            + image.getWidth() + "x" + image.getHeight());
+            assertOpaqueAndWithoutPureWhite(helper, texturePath, image);
+        }
+        for (String blockId : BLOCK_ASSET_IDS) {
+            assertFrontStateDifference(helper, blockId);
+        }
         helper.succeed();
+    }
+
+    private static void assertOpaqueAndWithoutPureWhite(GameTestHelper helper, String path,
+                                                        BufferedImage image) {
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int argb = image.getRGB(x, y);
+                int alpha = argb >>> 24;
+                helper.assertTrue(alpha == 255,
+                        path + " 所有像素必须完全不透明, (" + x + "," + y + ") alpha=" + alpha);
+                helper.assertTrue((argb & 0x00FFFFFF) != 0x00FFFFFF,
+                        path + " 不得出现纯白像素, 失败坐标 (" + x + "," + y + ")");
+                if (x == 0 || x == image.getWidth() - 1 || y == 0 || y == image.getHeight() - 1) {
+                    int red = (argb >>> 16) & 0xFF;
+                    int green = (argb >>> 8) & 0xFF;
+                    int blue = argb & 0xFF;
+                    helper.assertTrue(red < 224 || green < 224 || blue < 224,
+                            path + " 最外圈不得出现 RGB 三通道均大于等于 224 的近白像素, 失败坐标 ("
+                                    + x + "," + y + "), RGB=(" + red + "," + green + "," + blue + ")");
+                }
+            }
+        }
+    }
+
+    private static void assertFrontStateDifference(GameTestHelper helper, String blockId) {
+        String textureRoot = "/assets/miningdim/textures/block/" + blockId;
+        BufferedImage inactive = readPng(textureRoot + "_front.png");
+        BufferedImage active = readPng(textureRoot + "_front_on.png");
+        int changedPixels = 0;
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                if (inactive.getRGB(x, y) == active.getRGB(x, y)) {
+                    continue;
+                }
+                changedPixels++;
+                helper.assertTrue(isAllowedFrontDifference(blockId, x, y),
+                        blockId + " 亮灭态只能在工作窗内改变, 越界坐标 (" + x + "," + y + ")");
+            }
+        }
+        helper.assertTrue(changedPixels > 0,
+                blockId + " 的 front 与 front_on 必须至少有一个工作窗像素不同");
+    }
+
+    private static boolean isAllowedFrontDifference(String blockId, int x, int y) {
+        return switch (blockId) {
+            case "coal_generator" -> within(x, 6, 9) && within(y, 7, 10);
+            case "geothermal_generator" -> (within(x, 5, 6) || within(x, 9, 10))
+                    && (within(y, 6, 7) || within(y, 9, 10));
+            case "industrial_power_cell" -> within(x, 5, 10) && within(y, 5, 7);
+            case "modern_power_cell" -> within(x, 6, 9) && within(y, 5, 8);
+            case "future_power_cell" -> within(x, 5, 10) && within(y, 5, 10);
+            default -> throw new IllegalArgumentException("unknown block asset id: " + blockId);
+        };
+    }
+
+    private static boolean within(int value, int minimum, int maximum) {
+        return value >= minimum && value <= maximum;
     }
 
     private static JsonObject readJson(String path) {

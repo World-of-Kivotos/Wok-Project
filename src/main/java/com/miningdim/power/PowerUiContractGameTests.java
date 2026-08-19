@@ -4,8 +4,10 @@ import com.miningdim.core.MiningConstants;
 import com.miningdim.menu.AbstractMiningMenu;
 import com.miningdim.power.endgame.LowTemperatureControllerMenu;
 import com.miningdim.power.generator.GeneratorMenu;
+import com.miningdim.power.generator.PreheatGeneratorMenu;
 import com.miningdim.power.machine.AirSeparationMenu;
 import com.miningdim.power.machine.MetallurgicPurifierMenu;
+import com.miningdim.power.storage.PowerCellMenu;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
@@ -45,11 +47,18 @@ public final class PowerUiContractGameTests {
     private static final int STANDARD_HOTBAR_Y = 200;
     private static final int CONTROLLER_PLAYER_Y = 94;
     private static final int CONTROLLER_HOTBAR_Y = 152;
+    private static final int NEAR_WHITE_CHANNEL_MIN = 224;
     private static final int SLOT_FRAME_COLOR = 0xFF4D606F;
     private static final BlockPos MENU_BLOCK_POS = new BlockPos(3, 1, 3);
     private static final List<AtlasSpec> ATLASES = List.of(
             new AtlasSpec("generator.png", STANDARD_WIDTH, STANDARD_HEIGHT, List.of(
                     new SlotPoint(69, 37), new SlotPoint(133, 37),
+                    new SlotPoint(28, 142), new SlotPoint(172, 178),
+                    new SlotPoint(28, 200), new SlotPoint(172, 200))),
+            new AtlasSpec("preheat_generator.png", STANDARD_WIDTH, STANDARD_HEIGHT, List.of(
+                    new SlotPoint(101, 36), new SlotPoint(28, 142), new SlotPoint(172, 178),
+                    new SlotPoint(28, 200), new SlotPoint(172, 200))),
+            new AtlasSpec("power_cell.png", STANDARD_WIDTH, STANDARD_HEIGHT, List.of(
                     new SlotPoint(28, 142), new SlotPoint(172, 178),
                     new SlotPoint(28, 200), new SlotPoint(172, 200))),
             new AtlasSpec("metallurgic_purifier.png", STANDARD_WIDTH, STANDARD_HEIGHT, List.of(
@@ -72,6 +81,7 @@ public final class PowerUiContractGameTests {
             String path = GUI_ROOT + spec.fileName();
             byte[] encoded = loadResource(path);
             assertRgbaPngHeader(helper, path, encoded);
+            assertNoTextureMetadata(helper, path);
             BufferedImage image = decodeImage(path, encoded);
             helper.assertTrue(image.getWidth() == ATLAS_SIZE && image.getHeight() == ATLAS_SIZE,
                     path + " 物理 atlas 必须为 256x256，实得 "
@@ -100,8 +110,22 @@ public final class PowerUiContractGameTests {
                 STANDARD_PLAYER_X, STANDARD_PLAYER_Y, STANDARD_HOTBAR_Y);
         generator.removed(player);
 
+        helper.setBlock(MENU_BLOCK_POS, PowerRegistry.COAL_GENERATOR.get());
+        PreheatGeneratorMenu preheatGenerator = new PreheatGeneratorMenu(1, inventory, absolute);
+        assertMachineSlots(helper, "preheat_generator", preheatGenerator, new SlotPoint(101, 36));
+        assertPlayerInventory(helper, "preheat_generator", preheatGenerator, inventory, 1,
+                STANDARD_PLAYER_X, STANDARD_PLAYER_Y, STANDARD_HOTBAR_Y);
+        preheatGenerator.removed(player);
+
+        helper.setBlock(MENU_BLOCK_POS, PowerRegistry.INDUSTRIAL_POWER_CELL.get());
+        PowerCellMenu powerCell = new PowerCellMenu(2, inventory, absolute);
+        assertMachineSlots(helper, "power_cell", powerCell);
+        assertPlayerInventory(helper, "power_cell", powerCell, inventory, 0,
+                STANDARD_PLAYER_X, STANDARD_PLAYER_Y, STANDARD_HOTBAR_Y);
+        powerCell.removed(player);
+
         helper.setBlock(MENU_BLOCK_POS, PowerMachineRegistry.PURIFIER_BLOCK.get());
-        MetallurgicPurifierMenu purifier = new MetallurgicPurifierMenu(1, inventory, absolute);
+        MetallurgicPurifierMenu purifier = new MetallurgicPurifierMenu(3, inventory, absolute);
         assertMachineSlots(helper, "metallurgic_purifier", purifier,
                 new SlotPoint(51, 36), new SlotPoint(101, 36), new SlotPoint(151, 36));
         assertPlayerInventory(helper, "metallurgic_purifier", purifier, inventory, 3,
@@ -109,14 +133,14 @@ public final class PowerUiContractGameTests {
         purifier.removed(player);
 
         helper.setBlock(MENU_BLOCK_POS, PowerMachineRegistry.AIR_SEPARATOR_BLOCK.get());
-        AirSeparationMenu airSeparator = new AirSeparationMenu(2, inventory, absolute);
+        AirSeparationMenu airSeparator = new AirSeparationMenu(4, inventory, absolute);
         assertMachineSlots(helper, "air_separation", airSeparator, new SlotPoint(101, 70));
         assertPlayerInventory(helper, "air_separation", airSeparator, inventory, 1,
                 STANDARD_PLAYER_X, STANDARD_PLAYER_Y, STANDARD_HOTBAR_Y);
         airSeparator.removed(player);
 
         helper.setBlock(MENU_BLOCK_POS, PowerRegistry.LOW_TEMPERATURE_CONTROLLER.get());
-        LowTemperatureControllerMenu controller = new LowTemperatureControllerMenu(3, inventory, absolute);
+        LowTemperatureControllerMenu controller = new LowTemperatureControllerMenu(5, inventory, absolute);
         assertMachineSlots(helper, "low_temperature_controller", controller, new SlotPoint(101, 35));
         assertPlayerInventory(helper, "low_temperature_controller", controller, inventory, 1,
                 STANDARD_PLAYER_X, CONTROLLER_PLAYER_Y, CONTROLLER_HOTBAR_Y);
@@ -147,11 +171,29 @@ public final class PowerUiContractGameTests {
     private static void assertLogicalBounds(GameTestHelper helper, String path, BufferedImage image,
                                             int logicalWidth, int logicalHeight) {
         int outsideVisible = 0;
+        int semiTransparent = 0;
+        int transparentWithRgb = 0;
+        int nearWhitePerimeter = 0;
         boolean reachesRightEdge = false;
         boolean reachesBottomEdge = false;
         for (int y = 0; y < ATLAS_SIZE; y++) {
             for (int x = 0; x < ATLAS_SIZE; x++) {
-                int alpha = image.getRGB(x, y) >>> 24;
+                int argb = image.getRGB(x, y);
+                int alpha = argb >>> 24;
+                if (alpha != 0 && alpha != 255) {
+                    semiTransparent++;
+                }
+                if (alpha == 0 && (argb & 0x00FFFFFF) != 0) {
+                    transparentWithRgb++;
+                }
+                boolean logicalPerimeter = x < logicalWidth && y < logicalHeight
+                        && (x == 0 || x == logicalWidth - 1 || y == 0 || y == logicalHeight - 1);
+                if (logicalPerimeter && alpha != 0
+                        && ((argb >>> 16) & 0xFF) >= NEAR_WHITE_CHANNEL_MIN
+                        && ((argb >>> 8) & 0xFF) >= NEAR_WHITE_CHANNEL_MIN
+                        && (argb & 0xFF) >= NEAR_WHITE_CHANNEL_MIN) {
+                    nearWhitePerimeter++;
+                }
                 if ((x >= logicalWidth || y >= logicalHeight) && alpha != 0) {
                     outsideVisible++;
                 }
@@ -166,9 +208,23 @@ public final class PowerUiContractGameTests {
         helper.assertTrue(outsideVisible == 0,
                 path + " 在逻辑尺寸 " + logicalWidth + "x" + logicalHeight
                         + " 之外必须全透明，发现 " + outsideVisible + " 个可见像素");
+        helper.assertTrue(semiTransparent == 0,
+                path + " 像素画界面的 alpha 只允许 0/255，发现 "
+                        + semiTransparent + " 个半透明像素");
+        helper.assertTrue(transparentWithRgb == 0,
+                path + " 全透明像素的 RGB 必须为 0，发现 "
+                        + transparentWithRgb + " 个隐藏颜色像素");
+        helper.assertTrue(nearWhitePerimeter == 0,
+                path + " 逻辑区域最外周长禁止近白可见像素，发现 "
+                        + nearWhitePerimeter + " 个 RGB 三通道均不低于 224 的像素");
         helper.assertTrue(reachesRightEdge && reachesBottomEdge,
                 path + " 的可见内容必须精确延伸到逻辑右边界与下边界 "
                         + logicalWidth + "x" + logicalHeight);
+    }
+
+    private static void assertNoTextureMetadata(GameTestHelper helper, String path) {
+        helper.assertTrue(PowerUiContractGameTests.class.getResource(path + ".mcmeta") == null,
+                path + ".mcmeta 禁止存在，避免 blur 线性过滤破坏像素画边缘");
     }
 
     private static void assertMachineSlots(GameTestHelper helper, String menuName,

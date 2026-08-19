@@ -22,6 +22,7 @@ NAVY_RAISED = (14, 34, 48, 255)
 NAVY_RECESS = (7, 20, 31, 255)
 STEEL_DARK = (39, 52, 63, 255)
 STEEL = (77, 96, 111, 255)
+STEEL_MID = (112, 139, 154, 255)
 STEEL_LIGHT = (166, 201, 220, 255)
 WHITE = (235, 248, 255, 255)
 BLUE = (62, 160, 222, 255)
@@ -58,12 +59,30 @@ def chamfered_box(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], cut
     draw.line(points + [points[0]], fill=outline, width=1)
 
 
+def draw_surface_grain(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], seed: int) -> None:
+    """Low-contrast horizontal clusters keep broad panels metallic without competing with text."""
+    x0, y0, x1, y1 = box
+    if x1 - x0 < 24 or y1 - y0 < 10:
+        return
+    for y in range(y0 + 4, y1 - 2, 5):
+        x = x0 + 6 + ((y * 11 + seed) % 19)
+        while x < x1 - 7:
+            length = 2 + ((x + y + seed) % 4)
+            color = NAVY_RAISED if ((x + y + seed) // 3) % 2 == 0 else DEEP_SHADOW
+            draw.line((x, y, min(x + length, x1 - 6), y), fill=color)
+            x += 23
+
+
 def draw_panel(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int],
                accent: tuple[int, int, int, int] = BLUE) -> None:
     x0, y0, x1, y1 = box
     chamfered_box(draw, box, 3, NAVY_RECESS, STEEL)
+    draw_surface_grain(draw, box, x0 + y0)
     draw.line((x0 + 4, y0 + 1, x1 - 4, y0 + 1), fill=STEEL_LIGHT)
+    draw.line((x0 + 4, y0 + 2, x1 - 4, y0 + 2), fill=STEEL_DARK)
     draw.line((x0 + 4, y1 - 1, x1 - 4, y1 - 1), fill=STEEL_DARK)
+    draw.point((x0 + 3, y0 + 3), fill=STEEL_MID)
+    draw.point((x1 - 3, y0 + 3), fill=STEEL_MID)
     draw.line((x0 + 6, y1 - 3, x0 + 18, y1 - 3), fill=accent)
     draw.line((x1 - 18, y1 - 3, x1 - 6, y1 - 3), fill=accent)
 
@@ -73,8 +92,14 @@ def draw_slot(draw: ImageDraw.ImageDraw, x: int, y: int,
     draw.rectangle((x, y, x + 17, y + 17), fill=SLOT_SHADOW, outline=STEEL)
     draw.line((x + 1, y + 1, x + 16, y + 1), fill=STEEL_LIGHT)
     draw.line((x + 1, y + 1, x + 1, y + 16), fill=STEEL_LIGHT)
+    draw.line((x + 3, y + 3, x + 14, y + 3), fill=NAVY_RAISED)
+    draw.line((x + 3, y + 3, x + 3, y + 14), fill=NAVY_RAISED)
+    draw.line((x + 4, y + 14, x + 14, y + 14), fill=DEEP_SHADOW)
+    draw.line((x + 14, y + 4, x + 14, y + 14), fill=DEEP_SHADOW)
     draw.line((x + 2, y + 16, x + 16, y + 16), fill=STEEL_DARK)
     draw.line((x + 16, y + 2, x + 16, y + 16), fill=STEEL_DARK)
+    draw.point((x + 2, y + 2), fill=WHITE)
+    draw.point((x + 15, y + 15), fill=VOID)
     draw.line((x + 5, y + 15, x + 12, y + 15), fill=accent)
 
 
@@ -82,8 +107,10 @@ def draw_machine_socket(draw: ImageDraw.ImageDraw, x: int, y: int,
                         accent: tuple[int, int, int, int]) -> None:
     draw_panel(draw, (x - 6, y - 6, x + 23, y + 23), accent)
     draw_slot(draw, x, y, accent)
-    draw.point((x - 3, y - 3), fill=WHITE)
-    draw.point((x + 20, y - 3), fill=WHITE)
+    for bolt_x, bolt_y in ((x - 3, y - 3), (x + 20, y - 3),
+                           (x - 3, y + 20), (x + 20, y + 20)):
+        draw.rectangle((bolt_x - 1, bolt_y - 1, bolt_x + 1, bolt_y + 1), fill=STEEL_DARK)
+        draw.point((bolt_x, bolt_y), fill=WHITE)
 
 
 def draw_meter_track(draw: ImageDraw.ImageDraw, x: int, y: int, width: int, height: int,
@@ -94,8 +121,12 @@ def draw_meter_track(draw: ImageDraw.ImageDraw, x: int, y: int, width: int, heig
     draw.rectangle((x + 1, y + 1, x1 - 1, y1 - 1), fill=VOID)
     draw.line((x + 2, y + 1, x1 - 2, y + 1), fill=STEEL_DARK)
     for tick_x in range(x + 9, x1 - 4, 12):
-        draw.point((tick_x, y1 - 1), fill=STEEL)
+        draw.line((tick_x, y1 - 2, tick_x, y1 - 1), fill=STEEL_DARK)
+    if height >= 12:
+        draw.line((x + 3, y + 3, x1 - 3, y + 3), fill=NAVY_RAISED)
+        draw.line((x + 3, y1 - 3, x1 - 3, y1 - 3), fill=DEEP_SHADOW)
     draw.rectangle((x + 2, y - 2, x + 5, y - 1), fill=accent)
+    draw.point((x1 - 3, y - 1), fill=accent)
 
 
 def draw_button_base(draw: ImageDraw.ImageDraw, x: int, y: int, width: int, height: int) -> None:
@@ -103,6 +134,7 @@ def draw_button_base(draw: ImageDraw.ImageDraw, x: int, y: int, width: int, heig
     y1 = y + height - 1
     chamfered_box(draw, (x, y, x1, y1), 2, NAVY_RECESS, STEEL)
     draw.line((x + 3, y + 1, x1 - 3, y + 1), fill=STEEL_LIGHT)
+    draw.line((x + 3, y + 2, x1 - 3, y + 2), fill=STEEL_DARK)
     draw.line((x + 4, y1 - 2, x1 - 4, y1 - 2), fill=BLUE)
 
 
@@ -113,6 +145,7 @@ def draw_inventory(draw: ImageDraw.ImageDraw, origin_y: int, hotbar_y: int) -> N
     for col in range(9):
         draw_slot(draw, 28 + col * 18, hotbar_y, CYAN)
     draw.line((25, hotbar_y - 4, 192, hotbar_y - 4), fill=STEEL)
+    draw.line((27, hotbar_y - 5, 190, hotbar_y - 5), fill=DEEP_SHADOW)
     draw.line((29, hotbar_y - 3, 65, hotbar_y - 3), fill=BLUE)
     draw.line((155, hotbar_y - 3, 191, hotbar_y - 3), fill=BLUE)
 
@@ -125,7 +158,11 @@ def draw_main_frame(height: int, inventory_top: int, inventory_y: int,
 
     chamfered_box(draw, (0, 0, STANDARD_WIDTH - 1, visible_bottom), 5, VOID, STEEL_DARK)
     chamfered_box(draw, (2, 2, STANDARD_WIDTH - 3, visible_bottom - 2), 4, NAVY, STEEL)
+    draw_surface_grain(draw, (3, 3, STANDARD_WIDTH - 4, visible_bottom - 3), height)
     draw.line((7, 4, STANDARD_WIDTH - 8, 4), fill=STEEL_LIGHT)
+    draw.line((7, 5, STANDARD_WIDTH - 8, 5), fill=STEEL_DARK)
+    draw.line((4, 8, 4, visible_bottom - 8), fill=STEEL_DARK)
+    draw.line((STANDARD_WIDTH - 5, 8, STANDARD_WIDTH - 5, visible_bottom - 8), fill=DEEP_SHADOW)
     draw.line((7, visible_bottom - 4, STANDARD_WIDTH - 8, visible_bottom - 4), fill=DEEP_SHADOW)
 
     draw_panel(draw, (8, 7, STANDARD_WIDTH - 9, 20), CYAN)
@@ -135,6 +172,11 @@ def draw_main_frame(height: int, inventory_top: int, inventory_y: int,
         draw.rectangle((rivet_x - 1, 10, rivet_x + 1, 12), fill=STEEL_LIGHT)
         draw.point((rivet_x, 11), fill=VOID)
 
+    for corner_x, corner_y in ((7, 6), (STANDARD_WIDTH - 8, 6),
+                               (7, visible_bottom - 7), (STANDARD_WIDTH - 8, visible_bottom - 7)):
+        draw.rectangle((corner_x - 1, corner_y - 1, corner_x + 1, corner_y + 1), fill=STEEL_DARK)
+        draw.point((corner_x, corner_y), fill=STEEL_LIGHT)
+
     draw_panel(draw, (8, inventory_top, STANDARD_WIDTH - 9, visible_bottom - 5), BLUE)
     draw_inventory(draw, inventory_y, hotbar_y)
     return image, draw
@@ -142,8 +184,10 @@ def draw_main_frame(height: int, inventory_top: int, inventory_y: int,
 
 def draw_energy_node(draw: ImageDraw.ImageDraw, cx: int, cy: int,
                      accent: tuple[int, int, int, int]) -> None:
+    draw.rectangle((cx - 4, cy - 4, cx + 4, cy + 4), fill=DEEP_SHADOW)
     draw.rectangle((cx - 3, cy - 3, cx + 3, cy + 3), fill=NAVY_RAISED, outline=accent)
     draw.rectangle((cx - 1, cy - 1, cx + 1, cy + 1), fill=CYAN)
+    draw.point((cx, cy), fill=WHITE)
 
 
 def build_generator() -> None:

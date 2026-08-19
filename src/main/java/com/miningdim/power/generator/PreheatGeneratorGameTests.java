@@ -1,5 +1,7 @@
 package com.miningdim.power.generator;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.power.PowerRegistry;
 import com.miningdim.power.grid.CableThermics;
@@ -18,6 +20,14 @@ import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.energy.IEnergyStorage;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /**
  * 前期两台预热式发电机的运行契约。
@@ -255,6 +265,76 @@ public final class PreheatGeneratorGameTests {
         helper.assertTrue(clamped.burnTicksRemaining() == 0,
                 "负燃烧计时必须钳到零, 得到 " + clamped.burnTicksRemaining());
         helper.succeed();
+    }
+
+    /**
+     * 资产对账。方块模型引用的贴图一旦缺失，游戏里表现为紫黑格而不是报错，靠肉眼巡检必然漏，
+     * 故把"模型声明的每一张贴图都真实存在且是 16x16"钉成断言。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void blockAssetsExistAndMatchModels(GameTestHelper helper) {
+        for (String blockId : List.of("coal_generator", "geothermal_generator")) {
+            JsonObject blockstate = readJson("/assets/miningdim/blockstates/" + blockId + ".json");
+            JsonObject variants = blockstate.getAsJsonObject("variants");
+            helper.assertTrue(variants.size() == 8,
+                    blockId + " 必须覆盖 4 朝向 x 2 燃烧态, 得到 " + variants.size());
+            for (String facing : List.of("north", "east", "south", "west")) {
+                for (String lit : List.of("false", "true")) {
+                    helper.assertTrue(variants.has("facing=" + facing + ",lit=" + lit),
+                            blockId + " 缺少 variant facing=" + facing + ",lit=" + lit);
+                }
+            }
+
+            for (String suffix : List.of("", "_on")) {
+                JsonObject model = readJson("/assets/miningdim/models/block/" + blockId + suffix + ".json");
+                JsonObject textures = model.getAsJsonObject("textures");
+                for (String key : List.of("top", "side", "front")) {
+                    String reference = textures.get(key).getAsString();
+                    helper.assertTrue(reference.startsWith("miningdim:block/"),
+                            blockId + suffix + " 的 " + key + " 必须引用本 mod 贴图, 得到 " + reference);
+                    String texturePath = "/assets/miningdim/textures/block/"
+                            + reference.substring("miningdim:block/".length()) + ".png";
+                    BufferedImage image = readPng(texturePath);
+                    helper.assertTrue(image.getWidth() == 16 && image.getHeight() == 16,
+                            texturePath + " 必须是 16x16, 得到 "
+                                    + image.getWidth() + "x" + image.getHeight());
+                }
+            }
+
+            JsonObject itemModel = readJson("/assets/miningdim/models/item/" + blockId + ".json");
+            helper.assertTrue(itemModel.get("parent").getAsString().equals("miningdim:block/" + blockId),
+                    blockId + " 物品模型必须复用方块模型");
+            JsonObject loot = readJson("/data/miningdim/loot_tables/blocks/" + blockId + ".json");
+            helper.assertTrue(loot.getAsJsonArray("pools").size() == 1,
+                    blockId + " 战利品表必须恰好一个池");
+        }
+        helper.succeed();
+    }
+
+    private static JsonObject readJson(String path) {
+        try (InputStream input = PreheatGeneratorGameTests.class.getResourceAsStream(path)) {
+            if (input == null) {
+                throw new IllegalStateException("missing asset: " + path);
+            }
+            return JsonParser.parseReader(new InputStreamReader(input, StandardCharsets.UTF_8)).getAsJsonObject();
+        } catch (IOException exception) {
+            throw new IllegalStateException("unreadable asset: " + path, exception);
+        }
+    }
+
+    private static BufferedImage readPng(String path) {
+        try (InputStream input = PreheatGeneratorGameTests.class.getResourceAsStream(path)) {
+            if (input == null) {
+                throw new IllegalStateException("missing texture: " + path);
+            }
+            BufferedImage image = ImageIO.read(input);
+            if (image == null) {
+                throw new IllegalStateException("undecodable texture: " + path);
+            }
+            return image;
+        } catch (IOException exception) {
+            throw new IllegalStateException("unreadable texture: " + path, exception);
+        }
     }
 
     private static void assertRuntime(GameTestHelper helper, PreheatGeneratorSpec spec, int peak,

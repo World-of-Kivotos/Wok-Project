@@ -1,8 +1,8 @@
 {
   "parent": "minecraft:block/orientable",
   "textures": {
-    "top": "minecraft:block/basalt_top",
-    "side": "minecraft:block/blackstone",
-    "front": "minecraft:block/polished_blackstone"
+    "top": "miningdim:block/geothermal_generator_top",
+    "side": "miningdim:block/geothermal_generator_side",
+    "front": "miningdim:block/geothermal_generator_front"
   }
 }

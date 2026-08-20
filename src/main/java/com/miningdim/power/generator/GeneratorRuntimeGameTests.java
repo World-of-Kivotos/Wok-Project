@@ -258,9 +258,9 @@ public final class GeneratorRuntimeGameTests {
             GeneratorPortBlockEntity portEntity = (GeneratorPortBlockEntity) level.getBlockEntity(port);
             IEnergyStorage energy = portEntity.getCapability(ForgeCapabilities.ENERGY, output)
                     .resolve().orElseThrow(() -> new IllegalStateException("missing generator port energy"));
-            helper.assertTrue(energy.extractEnergy(Integer.MAX_VALUE, false) == GeneratorSpec.HIGH.runtime().peakFePerTick()
+            helper.assertTrue(energy.extractEnergy(Integer.MAX_VALUE, false) == 3_840
                             && energy.extractEnergy(Integer.MAX_VALUE, false) == 0,
-                    "端口同 tick 输出必须被峰值 3072 FE/t 硬封顶");
+                    "端口同 tick 输出必须被 3072 x 1.25 = 3840 FE/t 的输出上限硬封顶");
             helper.succeed();
         });
     }
@@ -320,6 +320,98 @@ public final class GeneratorRuntimeGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void outputCapIsOnePointTwoFivePeakAndAccumulatesAcrossCallsInOneTick(GameTestHelper helper) {
+        int[] expectedCaps = {240, 1_440, 3_840};
+        int[] expectedCalls = {3, 15, 39};
+        for (GeneratorSpec spec : GeneratorSpec.values()) {
+            int expectedCap = expectedCaps[spec.ordinal()];
+            helper.assertTrue(spec.runtime().outputMarginMultiplier() == 1.25D
+                            && spec.runtime().outputCapFePerTick() == expectedCap,
+                    spec + " 输出上限必须是峰值的 1.25 倍并精确等于 " + expectedCap);
+
+            BlockPos anchorRelative = new BlockPos(3 + spec.ordinal() * 5, 1, 3);
+            GeneratorBlockEntity controller = placeGenerator(helper, generatorBlock(spec), anchorRelative);
+            controller.inventory().setStackInSlot(GeneratorBlockEntity.SLOT_FUEL_CORE, fuelCore(spec));
+            primeFullBuffer(controller);
+            int capacity = spec.runtime().bufferCapacityFe();
+
+            helper.assertTrue(controller.extractForNetwork(Integer.MAX_VALUE, true) == expectedCap
+                            && controller.storedFe() == capacity,
+                    spec + " 模拟抽取必须报出 " + expectedCap + " FE 且不得动缓冲");
+
+            int drained = 0;
+            int calls = 0;
+            int step;
+            // 分 100 FE 一批抽取: 同 tick 累计器若失效, 每批都会重新拿到满额度, 循环将排空整个缓冲而不是停在上限。
+            while ((step = controller.extractForNetwork(100, false)) > 0) {
+                drained += step;
+                calls++;
+            }
+            helper.assertTrue(drained == expectedCap && calls == expectedCalls[spec.ordinal()]
+                            && controller.extractForNetwork(Integer.MAX_VALUE, false) == 0
+                            && controller.storedFe() == capacity - expectedCap,
+                    spec + " 同 tick 分批抽取累计必须精确停在 " + expectedCap + " FE");
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 唯一由方块实体自带 ticker 驱动产电、测试只负责每 tick 抽一次的用例。每个采样都取在"抽取之前"这一相同相位,
+     * 因此产电与抽取在一个游戏 tick 内谁先谁后都不影响相邻采样之差, 断言不依赖 GameTest 回调与 BE tick 的先后。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 40)
+    public static void backedUpBufferDrainsSevenHundredSixtyEightFePerTick(GameTestHelper helper) {
+        GeneratorBlockEntity controller = placeGenerator(helper, PowerRegistry.FUTURE_ENERGY_GENERATOR.get(),
+                new BlockPos(3, 1, 3));
+        controller.inventory().setStackInSlot(GeneratorBlockEntity.SLOT_FUEL_CORE,
+                fuelCore(GeneratorSpec.HIGH));
+        primeFullBuffer(controller);
+
+        int[] samples = new int[20];
+        for (int index = 0; index < samples.length; index++) {
+            int slot = index;
+            helper.runAfterDelay(index + 1L, () -> {
+                samples[slot] = controller.storedFe();
+                controller.extractForNetwork(Integer.MAX_VALUE, false);
+            });
+        }
+        helper.runAfterDelay(samples.length + 1L, () -> {
+            for (int index = 1; index < samples.length; index++) {
+                helper.assertTrue(samples[index] < samples[index - 1],
+                        "满缓冲的未来发电机在持续抽取下必须每 tick 严格净流出, 第 " + index + " 次采样却没有下降");
+            }
+            helper.assertTrue(samples[0] == 614_400 && samples[1] <= 614_400 - 768
+                            && samples[samples.length - 1] == samples[1] - 768 * (samples.length - 2),
+                    "未来发电机每 tick 必须净排出 3840 - 3072 = 768 FE, 18 tick 合计 13824 FE");
+            helper.assertTrue(controller.state() == GeneratorState.RUNNING
+                            && Math.abs(controller.temperatureC() - 20.0D) < 0.000001D,
+                    "缓冲被排空的过程中不得再有拒收升温, 温度必须回落到 20C 环境温度");
+            helper.succeed();
+        });
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void outputMarginLeavesGenerationAndHeatModelUntouched(GameTestHelper helper) {
+        GeneratorBlockEntity controller = placeGenerator(helper, PowerRegistry.FUTURE_ENERGY_GENERATOR.get(),
+                new BlockPos(3, 1, 3));
+        controller.inventory().setStackInSlot(GeneratorBlockEntity.SLOT_FUEL_CORE,
+                fuelCore(GeneratorSpec.HIGH));
+        for (int tick = 0; tick < 20; tick++) {
+            controller.serverTick();
+        }
+        helper.assertTrue(controller.storedFe() == 61_440 && controller.bufferRejectionFe() == 0
+                        && Math.abs(controller.temperatureC() - 20.0D) < 0.000001D,
+                "未来发电机 20 tick 只能按峰值产 3072x20=61440 FE, 输出裕度不得渗进产电侧");
+        for (int tick = 20; tick < 201; tick++) {
+            controller.serverTick();
+        }
+        helper.assertTrue(controller.storedFe() == 614_400 && controller.bufferRejectionFe() == 3_072
+                        && Math.abs(controller.temperatureC() - 21.0D) < 0.000001D,
+                "无消费时满缓冲必须按峰值 3072 全额拒收并升温 1.00C, 不得按输出上限 3840 计热");
+        helper.succeed();
+    }
+
     private static void assertRuntime(GameTestHelper helper, GeneratorSpec spec, int peak, int durability,
                                       double meltdownTemperature, int radius, int blocks, int fires, double damage) {
         GeneratorSpec.Runtime runtime = spec.runtime();
@@ -352,6 +444,13 @@ public final class GeneratorRuntimeGameTests {
             throw new IllegalStateException("failed to build generator controller at " + anchor);
         }
         return controller;
+    }
+
+    /** 直接把缓冲灌满以复现"电网断流后积压"的现场; 靠真实 tick 攒 200 tick 只会把用例拖成压力测试。 */
+    private static void primeFullBuffer(GeneratorBlockEntity controller) {
+        CompoundTag primed = controller.saveWithoutMetadata();
+        primed.putInt("storedFe", controller.bufferCapacityFe());
+        controller.load(primed);
     }
 
     private static ItemStack fuelCore(GeneratorSpec spec) {

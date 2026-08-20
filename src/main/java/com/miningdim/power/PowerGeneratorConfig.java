@@ -12,6 +12,7 @@ public final class PowerGeneratorConfig {
     public static final ForgeConfigSpec SPEC;
 
     private static final ForgeConfigSpec.IntValue INDUSTRIAL_PEAK_FE_PER_TICK;
+    private static final ForgeConfigSpec.DoubleValue INDUSTRIAL_OUTPUT_MARGIN_MULTIPLIER;
     private static final ForgeConfigSpec.IntValue INDUSTRIAL_FUEL_CORE_DURABILITY;
     private static final ForgeConfigSpec.DoubleValue INDUSTRIAL_MELTDOWN_TEMPERATURE_C;
     private static final ForgeConfigSpec.DoubleValue INDUSTRIAL_MAX_REJECTED_TEMPERATURE_RISE_PER_TICK;
@@ -22,6 +23,7 @@ public final class PowerGeneratorConfig {
     private static final ForgeConfigSpec.DoubleValue INDUSTRIAL_CENTER_DAMAGE_FRACTION;
 
     private static final ForgeConfigSpec.IntValue MODERN_PEAK_FE_PER_TICK;
+    private static final ForgeConfigSpec.DoubleValue MODERN_OUTPUT_MARGIN_MULTIPLIER;
     private static final ForgeConfigSpec.IntValue MODERN_FUEL_CORE_DURABILITY;
     private static final ForgeConfigSpec.DoubleValue MODERN_MELTDOWN_TEMPERATURE_C;
     private static final ForgeConfigSpec.DoubleValue MODERN_MAX_REJECTED_TEMPERATURE_RISE_PER_TICK;
@@ -32,6 +34,7 @@ public final class PowerGeneratorConfig {
     private static final ForgeConfigSpec.DoubleValue MODERN_CENTER_DAMAGE_FRACTION;
 
     private static final ForgeConfigSpec.IntValue FUTURE_PEAK_FE_PER_TICK;
+    private static final ForgeConfigSpec.DoubleValue FUTURE_OUTPUT_MARGIN_MULTIPLIER;
     private static final ForgeConfigSpec.IntValue FUTURE_FUEL_CORE_DURABILITY;
     private static final ForgeConfigSpec.DoubleValue FUTURE_MELTDOWN_TEMPERATURE_C;
     private static final ForgeConfigSpec.DoubleValue FUTURE_MAX_REJECTED_TEMPERATURE_RISE_PER_TICK;
@@ -58,6 +61,11 @@ public final class PowerGeneratorConfig {
 
         builder.push("industrial");
         INDUSTRIAL_PEAK_FE_PER_TICK = builder.defineInRange("peakFePerTick", 192, 1, 1_000_000);
+        INDUSTRIAL_OUTPUT_MARGIN_MULTIPLIER = builder.comment(
+                        "Output ceiling as a multiple of peakFePerTick.",
+                        "Above 1.0 the internal buffer can drain itself instead of overheating forever.")
+                .defineInRange("outputMarginMultiplier",
+                        GeneratorSpec.DEFAULT_OUTPUT_MARGIN_MULTIPLIER, 1.0D, 4.0D);
         INDUSTRIAL_FUEL_CORE_DURABILITY = builder.defineInRange(
                 "fuelCoreDurability", 3_600, 1, 1_000_000);
         INDUSTRIAL_MELTDOWN_TEMPERATURE_C = builder.defineInRange(
@@ -75,6 +83,11 @@ public final class PowerGeneratorConfig {
 
         builder.push("modern");
         MODERN_PEAK_FE_PER_TICK = builder.defineInRange("peakFePerTick", 1_152, 1, 1_000_000);
+        MODERN_OUTPUT_MARGIN_MULTIPLIER = builder.comment(
+                        "Output ceiling as a multiple of peakFePerTick.",
+                        "Above 1.0 the internal buffer can drain itself instead of overheating forever.")
+                .defineInRange("outputMarginMultiplier",
+                        GeneratorSpec.DEFAULT_OUTPUT_MARGIN_MULTIPLIER, 1.0D, 4.0D);
         MODERN_FUEL_CORE_DURABILITY = builder.defineInRange(
                 "fuelCoreDurability", 7_200, 1, 1_000_000);
         MODERN_MELTDOWN_TEMPERATURE_C = builder.defineInRange(
@@ -92,6 +105,11 @@ public final class PowerGeneratorConfig {
 
         builder.push("future");
         FUTURE_PEAK_FE_PER_TICK = builder.defineInRange("peakFePerTick", 3_072, 1, 1_000_000);
+        FUTURE_OUTPUT_MARGIN_MULTIPLIER = builder.comment(
+                        "Output ceiling as a multiple of peakFePerTick.",
+                        "Above 1.0 the internal buffer can drain itself instead of overheating forever.")
+                .defineInRange("outputMarginMultiplier",
+                        GeneratorSpec.DEFAULT_OUTPUT_MARGIN_MULTIPLIER, 1.0D, 4.0D);
         FUTURE_FUEL_CORE_DURABILITY = builder.defineInRange(
                 "fuelCoreDurability", 14_400, 1, 1_000_000);
         FUTURE_MELTDOWN_TEMPERATURE_C = builder.defineInRange(
@@ -138,19 +156,22 @@ public final class PowerGeneratorConfig {
 
     public static GeneratorSpec.Runtime profile(GeneratorSpec spec) {
         return switch (spec) {
-            case LOW -> runtime(INDUSTRIAL_PEAK_FE_PER_TICK.get(), INDUSTRIAL_FUEL_CORE_DURABILITY.get(),
+            case LOW -> runtime(INDUSTRIAL_PEAK_FE_PER_TICK.get(),
+                    INDUSTRIAL_OUTPUT_MARGIN_MULTIPLIER.get(), INDUSTRIAL_FUEL_CORE_DURABILITY.get(),
                     INDUSTRIAL_MELTDOWN_TEMPERATURE_C.get(),
                     INDUSTRIAL_MAX_REJECTED_TEMPERATURE_RISE_PER_TICK.get(),
                     INDUSTRIAL_LOW_LOAD_COOLING_PER_TICK.get(), INDUSTRIAL_SCATTER_RADIUS.get(),
                     INDUSTRIAL_MAX_DESTRUCTIBLE_BLOCKS.get(), INDUSTRIAL_MAX_FIRE_POINTS.get(),
                     INDUSTRIAL_CENTER_DAMAGE_FRACTION.get());
-            case MEDIUM -> runtime(MODERN_PEAK_FE_PER_TICK.get(), MODERN_FUEL_CORE_DURABILITY.get(),
+            case MEDIUM -> runtime(MODERN_PEAK_FE_PER_TICK.get(),
+                    MODERN_OUTPUT_MARGIN_MULTIPLIER.get(), MODERN_FUEL_CORE_DURABILITY.get(),
                     MODERN_MELTDOWN_TEMPERATURE_C.get(),
                     MODERN_MAX_REJECTED_TEMPERATURE_RISE_PER_TICK.get(),
                     MODERN_LOW_LOAD_COOLING_PER_TICK.get(), MODERN_SCATTER_RADIUS.get(),
                     MODERN_MAX_DESTRUCTIBLE_BLOCKS.get(), MODERN_MAX_FIRE_POINTS.get(),
                     MODERN_CENTER_DAMAGE_FRACTION.get());
-            case HIGH -> runtime(FUTURE_PEAK_FE_PER_TICK.get(), FUTURE_FUEL_CORE_DURABILITY.get(),
+            case HIGH -> runtime(FUTURE_PEAK_FE_PER_TICK.get(),
+                    FUTURE_OUTPUT_MARGIN_MULTIPLIER.get(), FUTURE_FUEL_CORE_DURABILITY.get(),
                     FUTURE_MELTDOWN_TEMPERATURE_C.get(),
                     FUTURE_MAX_REJECTED_TEMPERATURE_RISE_PER_TICK.get(),
                     FUTURE_LOW_LOAD_COOLING_PER_TICK.get(), FUTURE_SCATTER_RADIUS.get(),
@@ -170,14 +191,14 @@ public final class PowerGeneratorConfig {
         };
     }
 
-    private static GeneratorSpec.Runtime runtime(int peakFePerTick, int coreDurability,
-                                                   double meltdownTemperatureC,
+    private static GeneratorSpec.Runtime runtime(int peakFePerTick, double outputMarginMultiplier,
+                                                   int coreDurability, double meltdownTemperatureC,
                                                    double maxRejectedTemperatureRiseCPerTick,
                                                    double lowLoadCoolingCPerTick, int scatterRadius,
                                                    int maxDestructibleBlocks, int maxFirePoints,
                                                    double centerDamageFraction) {
-        return new GeneratorSpec.Runtime(peakFePerTick, coreDurability, meltdownTemperatureC,
-                maxRejectedTemperatureRiseCPerTick, lowLoadCoolingCPerTick, scatterRadius,
-                maxDestructibleBlocks, maxFirePoints, centerDamageFraction);
+        return new GeneratorSpec.Runtime(peakFePerTick, outputMarginMultiplier, coreDurability,
+                meltdownTemperatureC, maxRejectedTemperatureRiseCPerTick, lowLoadCoolingCPerTick,
+                scatterRadius, maxDestructibleBlocks, maxFirePoints, centerDamageFraction);
     }
 }

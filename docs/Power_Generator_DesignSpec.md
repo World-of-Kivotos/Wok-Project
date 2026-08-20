@@ -88,6 +88,8 @@
 
 内置缓冲向线缆网络的排出由既有 `EnergyNetworkManager` 拉取生产端的机制完成。控制器只能作为可提取 FE 端点，绝不将自己伪装为 receive-only 线缆端点。
 
+控制器单 tick 对外输出的硬上限是 `outputCapFePerTick = peakFePerTick × outputMarginMultiplier`（默认 1.25 倍，可配置区间 1.0 ~ 4.0），而不是峰值产能本身。裕度只作用于抽取侧：输出上限一旦等于峰值，满载运行时缓冲的净流出恒为零，一次电网断流灌满的缓冲将永远排不掉，只能持续满额拒收升温直到熔毁。缓冲排空后，`min(storedFe, 剩余额度)` 会把实际输出自然收敛回当期产量，裕度不会放大稳态吞吐。
+
 ---
 
 ## 四、热量、电压保护与熔毁契约
@@ -211,6 +213,8 @@ GeneratorSpec {
   id: LOW | MEDIUM | HIGH
   sourceVoltageClass
   peakFePerTick
+  outputMarginMultiplier
+  outputCapFePerTick
   bufferCapacity
   nominalCoreDuration
   nominalCoreEnergy
@@ -234,7 +238,7 @@ MeltdownProfile {
 1. 三档 `bufferCapacity == peakFePerTick × 200`。
 2. `RUNNING` 每 20 tick 只损耗一次燃料芯耐久，且每次为 1；一次反应不能同时持有多件燃料芯。
 3. `storedFe` 不得超过该档缓冲；候选 FE 的任何拒收量必须进入热结算。
-4. 发电机单 tick 候选产能不得超过该档 `peakFePerTick`，唯一后部输出端口不能绕过该上限。
+4. 发电机单 tick 候选产能不得超过该档 `peakFePerTick`；唯一后部输出端口单 tick 的对外输出不得超过 `outputCapFePerTick`，该裕度只用于排空积压，绝不放大候选产能与拒收热量的计算基准。
 5. `sourceVoltageClass > weakestVoltageClass` 时网络必报告 `OVER_VOLTAGE` 且不得抽取；缓冲拒收只由本机写入缓冲失败决定。
 6. 安装镍铬保险丝时，温差达到熔毁温差 85% 必 SCRAM 并消耗保险；无保险时继续运行；SCRAM 恢复同时要求温差不高于 50%、新保险和未耗尽燃料芯。
 7. 熔毁半径、可爆块数、火点和伤害均从 `MeltdownProfile` 读取，伤害只能按最大生命值百分比并按距离衰减结算。

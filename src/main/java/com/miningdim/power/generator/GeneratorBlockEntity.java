@@ -232,7 +232,9 @@ public final class GeneratorBlockEntity extends BlockEntity implements MenuProvi
         }
         long now = serverLevel.getGameTime();
         int alreadyExtracted = extractionTick == now ? extractedThisTick : 0;
-        int remainingThisTick = runtime().peakFePerTick() - alreadyExtracted;
+        // 输出上限刻意高于产能: 二者相等时满载运行的净流出恒为零, 被电网断流灌满过的缓冲将永远排不空,
+        // 只能持续满额拒收升温直到熔毁。裕度只放宽抽取, 不动产电侧, 所以稳态吞吐仍收敛回当期产量。
+        int remainingThisTick = runtime().outputCapFePerTick() - alreadyExtracted;
         if (remainingThisTick < 0) {
             throw new IllegalStateException("generator extraction invariant broken at " + worldPosition);
         }

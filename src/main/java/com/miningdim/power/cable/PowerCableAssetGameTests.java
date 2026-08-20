@@ -24,13 +24,22 @@ public final class PowerCableAssetGameTests {
 
     private static final String EMPTY = "empty";
     private static final String BATCH = "power_cable_assets";
+    /**
+     * 六向端口的期望旋转。判据是原版约定而不是本仓库的实现: 端口基准模型的臂占 -Z 半边(朝北), 与原版
+     * observer/piston 的基准朝向一致, 因此绕 X 轴的取值必须与原版 blockstate 逐字对齐 —— facing=up 是
+     * x=270, facing=down 是 x=90。
+     *
+     * 这张表原先照抄了写反的实现 (up=90/down=270), 测试与缺陷同源于是长期为绿, 真机上表现为线缆的上下
+     * 连接臂画反 (碰撞箱走 EnergyCableBlock 的 arms 表, 是对的, 所以贴图与实体错位)。期望值必须独立于
+     * 被测代码, 否则这类断言只是把 bug 抄了一遍。
+     */
     private static final List<PortState> PORT_STATES = List.of(
             new PortState("north", 0, 0),
             new PortState("south", 0, 180),
             new PortState("east", 0, 90),
             new PortState("west", 0, 270),
-            new PortState("up", 90, 0),
-            new PortState("down", 270, 0));
+            new PortState("up", 270, 0),
+            new PortState("down", 90, 0));
 
     private PowerCableAssetGameTests() {
     }

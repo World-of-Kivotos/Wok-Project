@@ -43,7 +43,7 @@
     {
       "apply": {
         "model": "miningdim:block/ybco_superconductor_energy_cable_port",
-        "x": 90
+        "x": 270
       },
       "when": {
         "up": "true"
@@ -52,7 +52,7 @@
     {
       "apply": {
         "model": "miningdim:block/ybco_superconductor_energy_cable_port",
-        "x": 270
+        "x": 90
       },
       "when": {
         "down": "true"

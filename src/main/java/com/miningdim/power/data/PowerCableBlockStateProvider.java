@@ -42,8 +42,11 @@ final class PowerCableBlockStateProvider extends BlockStateProvider {
         addPort(multipart, port, EnergyCableBlock.SOUTH, 0, 180);
         addPort(multipart, port, EnergyCableBlock.EAST, 0, 90);
         addPort(multipart, port, EnergyCableBlock.WEST, 0, 270);
-        addPort(multipart, port, EnergyCableBlock.UP, 90, 0);
-        addPort(multipart, port, EnergyCableBlock.DOWN, 270, 0);
+        // 端口基准模型的臂在 -Z 半边(朝北), 与原版 observer/piston 同基准, 故绕 X 轴的取值必须与原版一致:
+        // x=270 转到上、x=90 转到下。此前两者写反, 导致勾选 UP 时臂画在下方、勾选 DOWN 时画在上方,
+        // 而碰撞箱走的是 EnergyCableBlock 的 arms 表(正确), 于是出现贴图与实体上下错位。
+        addPort(multipart, port, EnergyCableBlock.UP, 270, 0);
+        addPort(multipart, port, EnergyCableBlock.DOWN, 90, 0);
     }
 
     @Override

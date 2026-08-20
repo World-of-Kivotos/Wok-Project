@@ -64,6 +64,14 @@ public final class PowerCellMenu extends AbstractMiningMenu {
             return new SimpleContainerData(DATA_COUNT);
         }
         return new ContainerData() {
+            /**
+             * 每个 long 读数切成 4 个槽, broadcastChanges 每 tick 会把 20 个槽全取一遍, 而整组读数是
+             * O(成员数) 的解析求和 —— 不缓存就是每个打开的界面每 tick 十几倍成员数次 getBlockEntity。
+             * 同一 tick 内组的状态不会变, 按 gameTime 缓存一份即可。
+             */
+            private final long[] cachedValues = new long[VALUE_COUNT];
+            private long cachedAtGameTime = Long.MIN_VALUE;
+
             @Override
             public int get(int index) {
                 if (index < 0 || index >= DATA_COUNT) {
@@ -74,15 +82,24 @@ public final class PowerCellMenu extends AbstractMiningMenu {
                 if (cell.isRemoved()) {
                     return 0;
                 }
-                long value = switch (index / WORDS_PER_VALUE) {
-                    case VALUE_STORED -> cell.groupStoredFe();
-                    case VALUE_CAPACITY -> cell.groupCapacityFe();
-                    case VALUE_RECEIVED -> cell.groupLastReceivedFe();
-                    case VALUE_EXTRACTED -> cell.groupLastExtractedFe();
-                    case VALUE_TRANSFER -> cell.groupTransferFePerTick();
-                    default -> throw new IllegalArgumentException("invalid power cell value index: " + index);
-                };
-                return word(value, index % WORDS_PER_VALUE);
+                int valueIndex = index / WORDS_PER_VALUE;
+                if (valueIndex >= VALUE_COUNT) {
+                    throw new IllegalArgumentException("invalid power cell value index: " + valueIndex);
+                }
+                return word(cachedValue(valueIndex), index % WORDS_PER_VALUE);
+            }
+
+            private long cachedValue(int valueIndex) {
+                long now = cell.getLevel() == null ? Long.MIN_VALUE : cell.getLevel().getGameTime();
+                if (now != cachedAtGameTime) {
+                    cachedValues[VALUE_STORED] = cell.groupStoredFe();
+                    cachedValues[VALUE_CAPACITY] = cell.groupCapacityFe();
+                    cachedValues[VALUE_RECEIVED] = cell.groupLastReceivedFe();
+                    cachedValues[VALUE_EXTRACTED] = cell.groupLastExtractedFe();
+                    cachedValues[VALUE_TRANSFER] = cell.groupTransferFePerTick();
+                    cachedAtGameTime = now;
+                }
+                return cachedValues[valueIndex];
             }
 
             @Override

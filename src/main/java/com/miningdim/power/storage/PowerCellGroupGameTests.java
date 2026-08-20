@@ -320,7 +320,7 @@ public final class PowerCellGroupGameTests {
                         + view.getMaxEnergyStored());
         helper.assertTrue(view.receiveEnergy(1_000, false) == 0 && view.extractEnergy(1_000, false) == 0,
                 "未入组时绝不搬电: 绕开组的每 tick 速率额度等于把刷电漏洞放回来");
-        helper.assertTrue(cellA.extractForCharging(1_000) == 0, "未入组时手动充电口同样必须返回 0");
+        helper.assertTrue(cellA.extractForCharging(1_000, false) == 0, "未入组时手动充电口同样必须返回 0");
         helper.assertTrue(cellA.storedFeLong() == INDUSTRIAL_RATE,
                 "全程一分余额都不得被动过, 得到 " + cellA.storedFeLong());
         helper.assertTrue(cellA.groupSize() == 1
@@ -497,6 +497,123 @@ public final class PowerCellGroupGameTests {
     }
 
     /**
+     * 手动充电必须只扣走目标真正收下的量。
+     *
+     * 目标的 simulate 与实收不一致是第三方 capability 里真实存在的情况(Forge 不做任何保证)。旧实现
+     * 先按 simulate 报的余量从储电扣电, 再把扣出来的量丢给目标并丢弃返回值 —— 目标少收多少就凭空烧掉
+     * 多少, 而组化把单次可搬量从单块速率抬到整组速率之后, 单次失配的损失最多放大到 64 倍。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void manualChargingBurnsNothingWhenTargetAcceptsLessThanSimulated(GameTestHelper helper) {
+        clearWorkspace(helper);
+        PowerCellBlockEntity cellA = place(helper, CELL_A, PowerRegistry.INDUSTRIAL_POWER_CELL.get());
+        PowerCellBlockEntity cellB = place(helper, CELL_B, PowerRegistry.INDUSTRIAL_POWER_CELL.get());
+        long total = 12_000L;
+        preload(cellA, 6_000L);
+        preload(cellB, 6_000L);
+        helper.assertTrue(cellA.groupStoredFe() == total,
+                "两块工业储电必须成组且共 " + total + " FE, 得到 " + cellA.groupStoredFe());
+
+        HalfAcceptingSink sink = new HalfAcceptingSink((int) total);
+        PowerCellBlock.chargeInto(cellA, sink);
+
+        long conserved = sink.stored + cellA.groupStoredFe();
+        helper.assertTrue(conserved == total,
+                "手动充电必须逐 FE 守恒: 目标实收 " + sink.stored + " + 组内余额 " + cellA.groupStoredFe()
+                        + " 应等于 " + total + ", 得到 " + conserved);
+        // 只断言守恒会被"什么都没发生"蒙混过关(0 + 12000 也守恒), 故同时钉住确实灌进去了。
+        helper.assertTrue(sink.stored >= 11_000,
+                "目标必须被灌到接近满仓, 实收 " + sink.stored);
+        helper.assertTrue(cellA.groupStoredFe() < INDUSTRIAL_RATE,
+                "储电必须被抽到只剩不足一份速率的零头, 剩余 " + cellA.groupStoredFe());
+        helper.succeed();
+    }
+
+    /**
+     * 组容量越过 int 上限后, 对外读数必须仍留出可用余量。
+     *
+     * 余额与容量各自独立饱和截断时两者会同时钉在 Integer.MAX_VALUE, 第三方按 Forge 的事实约定算
+     * max - stored 得 0, 于是判定这组储电已满而停止推电 —— 三块未来储电(26.5 亿)就已经触发。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void oversizedGroupKeepsUsableRoomInItsIntWindow(GameTestHelper helper) {
+        clearWorkspace(helper);
+        PowerCellBlockEntity futureA = place(helper, CELL_A, PowerRegistry.FUTURE_POWER_CELL.get());
+        PowerCellBlockEntity futureB = place(helper, CELL_B, PowerRegistry.FUTURE_POWER_CELL.get());
+        PowerCellBlockEntity futureC = place(helper, CELL_C, PowerRegistry.FUTURE_POWER_CELL.get());
+        preload(futureA, 833_333_334L);
+        preload(futureB, 833_333_333L);
+        preload(futureC, 833_333_333L);
+
+        long capacity = 3L * FUTURE_CAPACITY;
+        long stored = 2_500_000_000L;
+        helper.assertTrue(futureA.groupCapacityFe() == capacity && futureA.groupStoredFe() == stored,
+                "内部账本必须是真实的 long 值 " + stored + "/" + capacity + ", 得到 "
+                        + futureA.groupStoredFe() + "/" + futureA.groupCapacityFe());
+        helper.assertTrue(capacity > Integer.MAX_VALUE && stored > Integer.MAX_VALUE,
+                "本用例的前提是余额与容量双双越过 int 上限, 否则测不到缩放路径");
+
+        IEnergyStorage energy = energyOf(futureA);
+        helper.assertTrue(energy.getMaxEnergyStored() == Integer.MAX_VALUE,
+                "越界容量对外必须饱和到 " + Integer.MAX_VALUE + ", 得到 " + energy.getMaxEnergyStored());
+        // 2_500_000_000 / 2_654_208_000 x Integer.MAX_VALUE, 按同一公式独立算出的期望值。
+        helper.assertTrue(energy.getEnergyStored() == 2_022_716_048,
+                "越界余额必须按同比例缩进 int 窗口, 期望 2022716048, 得到 " + energy.getEnergyStored());
+        long reportedRoom = (long) energy.getMaxEnergyStored() - energy.getEnergyStored();
+        helper.assertTrue(reportedRoom == 124_767_599L,
+                "第三方按 max - stored 算出的余量必须仍然可用, 期望 124767599, 得到 " + reportedRoom);
+        helper.assertTrue(futureB.groupStoredFe() == stored && futureC.groupStoredFe() == stored,
+                "对外缩放只是展示口径, 绝不许回写内部账本");
+
+        // 容量没越界时一律走精确值, 缩放不得渗进正常量级。
+        clearWorkspace(helper);
+        PowerCellBlockEntity smallA = place(helper, CELL_A, PowerRegistry.INDUSTRIAL_POWER_CELL.get());
+        place(helper, CELL_B, PowerRegistry.INDUSTRIAL_POWER_CELL.get());
+        preload(smallA, 1_000L);
+        IEnergyStorage small = energyOf(smallA);
+        helper.assertTrue(small.getEnergyStored() == 1_000
+                        && small.getMaxEnergyStored() == (int) (2L * INDUSTRIAL_CAPACITY),
+                "容量在 int 安全区内时读数必须逐位精确, 得到 " + small.getEnergyStored()
+                        + "/" + small.getMaxEnergyStored());
+        helper.succeed();
+    }
+
+    /**
+     * 菜单的整组读数必须在同一 tick 内取自同一份快照。
+     *
+     * 每个 long 读数切成 4 个槽, broadcastChanges 每 tick 把 20 个槽逐一取一遍; 若每槽各自重算, 组余额
+     * 在两次取槽之间发生变化就会撕裂 —— 四段来自不同的值, 客户端拼回来的既不是变化前也不是变化后, 而是
+     * 一个不存在的数。顺带把每 tick 十几倍成员数次的 getBlockEntity 也省掉。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void menuReadingsComeFromOneSnapshotPerTick(GameTestHelper helper) {
+        clearWorkspace(helper);
+        PowerCellBlockEntity cellA = place(helper, CELL_A, PowerRegistry.INDUSTRIAL_POWER_CELL.get());
+        place(helper, CELL_B, PowerRegistry.INDUSTRIAL_POWER_CELL.get());
+        // 65536 与 65535 刻意跨 16 位段边界: 前者是 word0=0/word1=1, 后者是 word0=65535/word1=0,
+        // 撕裂读会拼出 0 —— 既不是 65536 也不是 65535。
+        preload(cellA, 65_536L);
+        ContainerData data = PowerCellMenu.dataFor(cellA, false);
+
+        int base = PowerCellMenu.VALUE_STORED * PowerCellMenu.WORDS_PER_VALUE;
+        int word0 = data.get(base);
+        preload(cellA, 65_535L);
+        long reassembled = PowerCellMenu.mergeWords(
+                word0, data.get(base + 1), data.get(base + 2), data.get(base + 3));
+        helper.assertTrue(reassembled == 65_536L,
+                "同一 tick 内取到的四段必须来自同一份快照(65536), 撕裂读会得到 0, 实得 " + reassembled);
+
+        helper.startSequence()
+                .thenIdle(2)
+                .thenExecute(() -> {
+                    long refreshed = mirrored(data, PowerCellMenu.VALUE_STORED);
+                    helper.assertTrue(refreshed == 65_535L,
+                            "跨 tick 后必须刷新成新值 65535, 实得 " + refreshed);
+                })
+                .thenSucceed();
+    }
+
+    /**
      * GameTest 复用存档, 结构外的方块会跨轮留在原地。留在工作区一格邻域里的旧储电会并进本轮的组, 把
      * 成员数与容量断言全部带偏, 因此每个用例先把工作区连同一格边界清干净。
      */
@@ -536,6 +653,55 @@ public final class PowerCellGroupGameTests {
     private static IEnergyStorage energyOf(PowerCellBlockEntity cell) {
         return cell.getCapability(ForgeCapabilities.ENERGY)
                 .orElseThrow(() -> new IllegalStateException("power cell exposes no energy capability"));
+    }
+
+    /**
+     * simulate 老实报余量、实收只收一半的目标。用来复现第三方 capability 的 simulate 与实收不一致,
+     * 这正是"先扣后送"会凭空烧电的那种目标。
+     */
+    private static final class HalfAcceptingSink implements IEnergyStorage {
+        private final int capacity;
+        private int stored;
+
+        private HalfAcceptingSink(int capacity) {
+            this.capacity = capacity;
+        }
+
+        @Override
+        public int receiveEnergy(int maxReceive, boolean simulate) {
+            int room = capacity - stored;
+            if (simulate) {
+                return Math.min(maxReceive, room);
+            }
+            int accepted = Math.min(maxReceive / 2, room);
+            stored += accepted;
+            return accepted;
+        }
+
+        @Override
+        public int extractEnergy(int maxExtract, boolean simulate) {
+            return 0;
+        }
+
+        @Override
+        public int getEnergyStored() {
+            return stored;
+        }
+
+        @Override
+        public int getMaxEnergyStored() {
+            return capacity;
+        }
+
+        @Override
+        public boolean canExtract() {
+            return false;
+        }
+
+        @Override
+        public boolean canReceive() {
+            return true;
+        }
     }
 
     /** 只发不收的无限电源, 让电网的拉阶段每 tick 都能把缓冲填满, 排除供给不足对断言的干扰。 */

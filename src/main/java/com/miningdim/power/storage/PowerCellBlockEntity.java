@@ -177,12 +177,12 @@ public final class PowerCellBlockEntity extends BlockEntity implements MenuProvi
     }
 
     /** 玩家手动给随身装备充电用的抽取口, 走整组账本但不吃电网的每 tick 速率额度, 理由见 PowerCellGroup。 */
-    public int extractForCharging(int maxExtract) {
+    public int extractForCharging(int maxExtract, boolean simulate) {
         if (!(level instanceof ServerLevel serverLevel)) {
             return 0;
         }
         PowerCellGroup group = group(serverLevel);
-        return group == null ? 0 : group.extractForCharging(serverLevel, maxExtract);
+        return group == null ? 0 : group.extractForCharging(serverLevel, maxExtract, simulate);
     }
 
     /** 组把一次读写均摊到成员后落到这里；越界即组的分摊算错了，必须当场炸而不是悄悄改数。 */
@@ -213,6 +213,29 @@ public final class PowerCellBlockEntity extends BlockEntity implements MenuProvi
      */
     private static int saturate(long value) {
         return (int) Math.max(0L, Math.min(value, Integer.MAX_VALUE));
+    }
+
+    /**
+     * 组容量越过 int 上限后，余额与容量若各自独立饱和截断，两者会同时钉在 Integer.MAX_VALUE：第三方按
+     * Forge 的事实约定算 {@code max - stored} 得 0，会判定这组储电已满而停止推电，尽管组里还有数亿 FE
+     * 的空间。int 窗口装不下真实值时无法同时忠实表达存量与余量，故按比例整体缩放，并守住两个端点的语义
+     * ——还剩一点电就不许读成空，还剩一点空间就不许读成满，否则收发两个方向会各自被卡死一个。
+     *
+     * <p>缩放走 double：真实容量上限是 64 块未来储电共 566 亿 FE，与 Integer.MAX_VALUE 相乘会溢出 long，
+     * 而 double 的 53 位尾数足以精确表示这两个量级，缩放本身也只服务于展示。
+     */
+    private static int scaleStoredToIntWindow(long stored, long capacity) {
+        if (capacity <= Integer.MAX_VALUE) {
+            return saturate(stored);
+        }
+        if (stored <= 0L) {
+            return 0;
+        }
+        if (stored >= capacity) {
+            return Integer.MAX_VALUE;
+        }
+        long scaled = Math.round((double) stored / (double) capacity * Integer.MAX_VALUE);
+        return (int) Math.min(Integer.MAX_VALUE - 1L, Math.max(1L, scaled));
     }
 
     @Override
@@ -310,7 +333,10 @@ public final class PowerCellBlockEntity extends BlockEntity implements MenuProvi
                 return saturate(storedFe);
             }
             PowerCellGroup group = group(serverLevel);
-            return group == null ? saturate(storedFe) : saturate(group.storedFe(serverLevel));
+            if (group == null) {
+                return saturate(storedFe);
+            }
+            return scaleStoredToIntWindow(group.storedFe(serverLevel), group.capacityFe());
         }
 
         @Override

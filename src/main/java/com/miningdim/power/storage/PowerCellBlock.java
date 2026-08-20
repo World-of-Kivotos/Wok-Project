@@ -23,6 +23,7 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraftforge.energy.IEnergyStorage;
 import net.minecraftforge.network.NetworkHooks;
 import org.jetbrains.annotations.Nullable;
 
@@ -95,26 +96,44 @@ public final class PowerCellBlock extends Block implements EntityBlock {
         return InteractionResult.CONSUME;
     }
 
-    /** 把储电里的电灌进手持物品, 灌满或储电抽干为止。 */
+    /**
+     * 把储电里的电灌进手持物品, 灌满或储电抽干为止。
+     *
+     * <p>顺序是"先探、后送、再按实收扣", 三步都不能换: 先扣后送时目标的 simulate 与实收一旦不一致
+     * (第三方 capability 并不保证一致), 少收多少就凭空烧掉多少; 反过来先送后扣又会在扣失败时凭空
+     * 复制。这里两次调用之间不过 tick、储电状态不变, 因此按实收回扣必然足额, 扣不足只可能是组的账
+     * 算错了, 必须当场炸而不是把差额吞掉。
+     */
     private static void chargeHeldItem(PowerCellBlockEntity cell, net.minecraft.world.item.ItemStack held) {
         if (held.isEmpty()) {
             return;
         }
         held.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ENERGY)
-                .ifPresent(target -> {
-                    int guard = 0;
-                    while (guard++ < 1_000) {
-                        int room = target.receiveEnergy(Integer.MAX_VALUE, true);
-                        if (room <= 0) {
-                            return;
-                        }
-                        int available = cell.extractForCharging(room);
-                        if (available <= 0) {
-                            return;
-                        }
-                        target.receiveEnergy(available, false);
-                    }
-                });
+                .ifPresent(target -> chargeInto(cell, target));
+    }
+
+    /** 包级可见, 供 GameTest 直接喂一个 simulate 与实收不一致的目标, 无需伪造带能量能力的物品。 */
+    static void chargeInto(PowerCellBlockEntity cell, IEnergyStorage target) {
+        int guard = 0;
+        while (guard++ < 1_000) {
+            int room = target.receiveEnergy(Integer.MAX_VALUE, true);
+            if (room <= 0) {
+                return;
+            }
+            int available = cell.extractForCharging(room, true);
+            if (available <= 0) {
+                return;
+            }
+            int accepted = target.receiveEnergy(available, false);
+            if (accepted <= 0) {
+                return;
+            }
+            int drawn = cell.extractForCharging(accepted, false);
+            if (drawn != accepted) {
+                throw new IllegalStateException("power cell charging ledger mismatch: accepted "
+                        + accepted + " but drew " + drawn);
+            }
+        }
     }
 
     @Nullable

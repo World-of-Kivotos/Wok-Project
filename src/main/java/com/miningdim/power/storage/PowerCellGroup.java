@@ -168,8 +168,8 @@ public final class PowerCellGroup {
      * 若并入每 tick 的组额度，一次右键只能灌一份速率，交互就退化成要玩家连点上千次。它仍走同一本账
      * （余额从组内成员真实扣减），只是不把电网的每 tick 吞吐上限套在玩家的一次交互上。
      */
-    int extractForCharging(ServerLevel level, int maxExtract) {
-        return extract(level, maxExtract, false, transferFePerTick(), false);
+    int extractForCharging(ServerLevel level, int maxExtract, boolean simulate) {
+        return extract(level, maxExtract, simulate, transferFePerTick(), false);
     }
 
     private int extract(ServerLevel level, int maxExtract, boolean simulate, long budget, boolean chargeBudget) {

@@ -12,6 +12,7 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.energy.IEnergyStorage;
@@ -60,32 +61,54 @@ public final class PowerCellGameTests {
         helper.succeed();
     }
 
+    /**
+     * 速率钳制的口径是"每 tick 一份组额度"而不是"每次调用一份"：储电成组后一组可能有多块贴着同一张
+     * 线缆网、被登记成多个端点逐个 receiveEnergy，按调用计就等于把速率乘上接触面数（见
+     * {@link PowerCellGroup}）。单块储电就是成员数为 1 的组，额度即单块速率。
+     */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void transferRateClampsBothDirectionsAndCapacityHolds(GameTestHelper helper) {
+    public static void transferRateClampsBothDirectionsPerTick(GameTestHelper helper) {
         PowerCellBlockEntity cell = place(helper, CELL_REL, PowerRegistry.INDUSTRIAL_POWER_CELL.get());
         IEnergyStorage storage = energyOf(cell);
         int rate = PowerCellSpec.INDUSTRIAL.runtime().transferFePerTick();
 
         helper.assertTrue(storage.canReceive() && storage.canExtract(),
                 "储电必须是双向端点, 这正是它与发电机(只出)和机器(只进)的区别");
+        helper.assertTrue(storage.receiveEnergy(100, true) == 100 && cell.storedFe() == 0,
+                "simulate 不得真正改变余额, 也不得吃掉本 tick 的额度");
         helper.assertTrue(storage.receiveEnergy(Integer.MAX_VALUE, false) == rate,
                 "单次注入必须被传输速率钳到 " + rate);
         helper.assertTrue(cell.storedFe() == rate, "注入后余额必须精确等于速率, 得到 " + cell.storedFe());
+        helper.assertTrue(storage.receiveEnergy(Integer.MAX_VALUE, false) == 0,
+                "同 tick 内额度已用尽, 第二次收电必须返回 0(否则贴多张面即可把速率乘一遍)");
+        helper.assertTrue(cell.storedFe() == rate, "被拒的第二次收电不得改变余额, 得到 " + cell.storedFe());
         helper.assertTrue(storage.extractEnergy(Integer.MAX_VALUE, false) == rate,
-                "单次抽取同样被速率钳制");
+                "放电额度与收电额度各自独立, 单次抽取同样被速率钳制");
         helper.assertTrue(cell.storedFe() == 0, "抽干后余额必须归零, 得到 " + cell.storedFe());
+        helper.succeed();
+    }
 
-        helper.assertTrue(storage.receiveEnergy(100, true) == 100 && cell.storedFe() == 0,
-                "simulate 不得真正改变余额");
-
-        // 灌满: 容量除以速率次注入应恰好填满且不溢出。
+    /**
+     * 容量硬顶单独成例：速率额度按 tick 计，单 tick 内注不满 1382 万 FE，所以用 NBT 把余额预置到临界
+     * 再验最后 100 FE 的收口，而不是在一个 tick 里空转一万八千次注入。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void capacityCeilingHoldsWithoutOverflow(GameTestHelper helper) {
+        PowerCellBlockEntity cell = place(helper, CELL_REL, PowerRegistry.INDUSTRIAL_POWER_CELL.get());
+        IEnergyStorage storage = energyOf(cell);
         int capacity = PowerCellSpec.INDUSTRIAL.runtime().capacityFe();
-        int guard = 0;
-        while (cell.storedFe() < capacity && guard++ < 100_000) {
-            storage.receiveEnergy(Integer.MAX_VALUE, false);
-        }
+        int rate = PowerCellSpec.INDUSTRIAL.runtime().transferFePerTick();
+
+        CompoundTag preloaded = cell.saveWithFullMetadata();
+        preloaded.putLong("storedFe", capacity - 100L);
+        cell.load(preloaded);
+        helper.assertTrue(cell.storedFeLong() == capacity - 100L,
+                "预置余额必须精确落在 " + (capacity - 100L) + ", 得到 " + cell.storedFeLong());
+
+        helper.assertTrue(storage.receiveEnergy(Integer.MAX_VALUE, false) == 100,
+                "临界注入必须被剩余空间钳到 100, 得到 " + cell.storedFeLong());
         helper.assertTrue(cell.storedFe() == capacity,
-                "反复注入必须精确停在容量上限, 得到 " + cell.storedFe());
+                "注入必须精确停在容量上限而不是溢出, 得到 " + cell.storedFe());
         helper.assertTrue(storage.receiveEnergy(rate, false) == 0, "满仓后不得再收电");
         helper.assertTrue(cell.storedFeLong() == capacity,
                 "long 账本必须与 int 读数一致, 得到 " + cell.storedFeLong());
@@ -266,6 +289,10 @@ public final class PowerCellGameTests {
     }
 
     private static PowerCellBlockEntity place(GameTestHelper helper, BlockPos relative, Block block) {
+        // GameTest 复用存档: 上一轮遗留在结构外的储电会与这块并成一组, 把单块速率/容量断言整体带偏。
+        for (Direction direction : Direction.values()) {
+            helper.setBlock(relative.relative(direction), Blocks.AIR);
+        }
         helper.setBlock(relative, cellState(block));
         if (helper.getBlockEntity(relative) instanceof PowerCellBlockEntity cell) {
             return cell;

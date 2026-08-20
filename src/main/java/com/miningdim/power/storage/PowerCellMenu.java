@@ -11,22 +11,25 @@ import net.minecraft.world.inventory.SimpleContainerData;
 import net.minecraft.world.level.block.Block;
 import org.jetbrains.annotations.Nullable;
 
-/** 储电菜单：没有槽位，只同步余额与上一 tick 的进出功率。 */
+/**
+ * 储电菜单：没有槽位，只同步整组的余额、容量与上一 tick 的进出功率。点开组内任意一块看到的都是整组读数。
+ *
+ * 每个读数占 4 个数据槽。原版 ContainerData 的同步包按 16 位写值，单槽装不下大数；而聚合读数是 long
+ * （64 块未来储电就是 566 亿 FE，连 int 都装不下），所以按 16 位切四段传输，客户端再拼回 long。
+ */
 public final class PowerCellMenu extends AbstractMiningMenu {
 
     public static final int CONTAINER_SLOTS = 0;
-    public static final int DATA_STORED_LOW = 0;
-    public static final int DATA_STORED_HIGH = 1;
-    public static final int DATA_CAPACITY_LOW = 2;
-    public static final int DATA_CAPACITY_HIGH = 3;
-    public static final int DATA_RECEIVED_LOW = 4;
-    public static final int DATA_RECEIVED_HIGH = 5;
-    public static final int DATA_EXTRACTED_LOW = 6;
-    public static final int DATA_EXTRACTED_HIGH = 7;
-    /** 本档传输速率上限, 供界面把进出两条表按同一个满格基准画, 否则读数之间没有可比性。 */
-    public static final int DATA_TRANSFER_LOW = 8;
-    public static final int DATA_TRANSFER_HIGH = 9;
-    public static final int DATA_COUNT = 10;
+    /** 一个 long 读数占几个 16 位数据槽。 */
+    public static final int WORDS_PER_VALUE = 4;
+    public static final int VALUE_STORED = 0;
+    public static final int VALUE_CAPACITY = 1;
+    public static final int VALUE_RECEIVED = 2;
+    public static final int VALUE_EXTRACTED = 3;
+    /** 整组传输速率上限, 供界面把进出两条表按同一个满格基准画, 否则读数之间没有可比性。 */
+    public static final int VALUE_TRANSFER = 4;
+    public static final int VALUE_COUNT = 5;
+    public static final int DATA_COUNT = VALUE_COUNT * WORDS_PER_VALUE;
 
     private final ContainerData data;
 
@@ -55,26 +58,31 @@ public final class PowerCellMenu extends AbstractMiningMenu {
         return null;
     }
 
-    private static ContainerData dataFor(@Nullable PowerCellBlockEntity cell, boolean clientSide) {
+    /** 包级可见供 GameTest 直接取服务端数据槽与客户端镜像, 与 GeneratorMenu.dataFor 同范式。 */
+    static ContainerData dataFor(@Nullable PowerCellBlockEntity cell, boolean clientSide) {
         if (cell == null || clientSide) {
             return new SimpleContainerData(DATA_COUNT);
         }
         return new ContainerData() {
             @Override
             public int get(int index) {
-                return switch (index) {
-                    case DATA_STORED_LOW -> lowWord(cell.storedFe());
-                    case DATA_STORED_HIGH -> highWord(cell.storedFe());
-                    case DATA_CAPACITY_LOW -> lowWord(cell.capacityFe());
-                    case DATA_CAPACITY_HIGH -> highWord(cell.capacityFe());
-                    case DATA_RECEIVED_LOW -> lowWord(cell.lastReceivedFe());
-                    case DATA_RECEIVED_HIGH -> highWord(cell.lastReceivedFe());
-                    case DATA_EXTRACTED_LOW -> lowWord(cell.lastExtractedFe());
-                    case DATA_EXTRACTED_HIGH -> highWord(cell.lastExtractedFe());
-                    case DATA_TRANSFER_LOW -> lowWord(cell.runtime().transferFePerTick());
-                    case DATA_TRANSFER_HIGH -> highWord(cell.runtime().transferFePerTick());
-                    default -> throw new IllegalArgumentException("invalid power cell data index: " + index);
+                if (index < 0 || index >= DATA_COUNT) {
+                    throw new IllegalArgumentException("invalid power cell data index: " + index);
+                }
+                // 玩家可以在界面开着时把这块挖掉: stillValid 要到下一 tick 才关窗, 这一 tick 的同步先报 0,
+                // 否则会去查一个已经退组的坐标。
+                if (cell.isRemoved()) {
+                    return 0;
+                }
+                long value = switch (index / WORDS_PER_VALUE) {
+                    case VALUE_STORED -> cell.groupStoredFe();
+                    case VALUE_CAPACITY -> cell.groupCapacityFe();
+                    case VALUE_RECEIVED -> cell.groupLastReceivedFe();
+                    case VALUE_EXTRACTED -> cell.groupLastExtractedFe();
+                    case VALUE_TRANSFER -> cell.groupTransferFePerTick();
+                    default -> throw new IllegalArgumentException("invalid power cell value index: " + index);
                 };
+                return word(value, index % WORDS_PER_VALUE);
             }
 
             @Override
@@ -92,35 +100,41 @@ public final class PowerCellMenu extends AbstractMiningMenu {
         };
     }
 
-    public static int lowWord(int value) {
-        return value & 0xFFFF;
+    /** 取 long 的第 wordIndex 个 16 位段 (0 为最低段)。 */
+    public static int word(long value, int wordIndex) {
+        return (int) ((value >>> (16 * wordIndex)) & 0xFFFFL);
     }
 
-    public static int highWord(int value) {
-        return (value >>> 16) & 0xFFFF;
+    /** 把四个 16 位段拼回 long；每段都要先掩掉符号扩展，网络层是按 short 传的。 */
+    public static long mergeWords(int word0, int word1, int word2, int word3) {
+        return (word0 & 0xFFFFL)
+                | ((word1 & 0xFFFFL) << 16)
+                | ((word2 & 0xFFFFL) << 32)
+                | ((word3 & 0xFFFFL) << 48);
     }
 
-    public static int merge(int low, int high) {
-        return (high << 16) | (low & 0xFFFF);
+    private long value(int valueIndex) {
+        int base = valueIndex * WORDS_PER_VALUE;
+        return mergeWords(data.get(base), data.get(base + 1), data.get(base + 2), data.get(base + 3));
     }
 
-    public int storedFe() {
-        return merge(data.get(DATA_STORED_LOW), data.get(DATA_STORED_HIGH));
+    public long storedFe() {
+        return value(VALUE_STORED);
     }
 
-    public int capacityFe() {
-        return merge(data.get(DATA_CAPACITY_LOW), data.get(DATA_CAPACITY_HIGH));
+    public long capacityFe() {
+        return value(VALUE_CAPACITY);
     }
 
-    public int lastReceivedFe() {
-        return merge(data.get(DATA_RECEIVED_LOW), data.get(DATA_RECEIVED_HIGH));
+    public long lastReceivedFe() {
+        return value(VALUE_RECEIVED);
     }
 
-    public int lastExtractedFe() {
-        return merge(data.get(DATA_EXTRACTED_LOW), data.get(DATA_EXTRACTED_HIGH));
+    public long lastExtractedFe() {
+        return value(VALUE_EXTRACTED);
     }
 
-    public int transferFePerTick() {
-        return merge(data.get(DATA_TRANSFER_LOW), data.get(DATA_TRANSFER_HIGH));
+    public long transferFePerTick() {
+        return value(VALUE_TRANSFER);
     }
 }

@@ -6,7 +6,20 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "miningdim:modern_power_cell"
+          "name": "miningdim:modern_power_cell",
+          "functions": [
+            {
+              "function": "minecraft:copy_nbt",
+              "source": "block_entity",
+              "ops": [
+                {
+                  "source": "storedFe",
+                  "target": "BlockEntityTag.storedFe",
+                  "op": "replace"
+                }
+              ]
+            }
+          ]
         }
       ],
       "conditions": [

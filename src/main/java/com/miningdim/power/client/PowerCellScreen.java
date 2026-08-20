@@ -9,7 +9,7 @@ import net.minecraft.world.entity.player.Inventory;
 
 import java.util.List;
 
-/** 三级储电共用界面：余额是主读数，进出功率各占一条细表。 */
+/** 三级储电共用界面：余额是主读数，进出功率各占一条细表。读数一律是整块所在储电组的聚合值。 */
 public final class PowerCellScreen extends AbstractPowerMachineScreen<PowerCellMenu> {
 
     private static final ResourceLocation BACKGROUND =
@@ -33,10 +33,10 @@ public final class PowerCellScreen extends AbstractPowerMachineScreen<PowerCellM
                                  int mouseX, int mouseY, float partialTick) {
         drawMeter(graphics, left + METER_X, top + MAIN_METER_Y, METER_WIDTH, MAIN_METER_HEIGHT,
                 menu.storedFe(), menu.capacityFe(), ENERGY_COLOR);
-        // 进出两条表以"本档最大传输速率"为满格基准, 靠单条表的填充比例就能看出电网是在充还是在放。
+        // 进出两条表以"整组最大传输速率"为满格基准, 靠单条表的填充比例就能看出电网是在充还是在放。
         // 基准必须是这个固定值而不是两条读数的较大者: 取较大者会让其中一条永远画成满格, 两条之间也就
-        // 只剩相对关系, 读不出"离本档上限还有多远"。
-        int flowScale = Math.max(1, menu.transferFePerTick());
+        // 只剩相对关系, 读不出"离本组上限还有多远"。
+        long flowScale = Math.max(1L, menu.transferFePerTick());
         drawMeter(graphics, left + METER_X, top + RECEIVED_METER_Y, METER_WIDTH, FLOW_METER_HEIGHT,
                 menu.lastReceivedFe(), flowScale, PROCESS_COLOR);
         drawMeter(graphics, left + METER_X, top + EXTRACTED_METER_Y, METER_WIDTH, FLOW_METER_HEIGHT,

@@ -10,6 +10,7 @@ import com.miningdim.power.grid.EnergyNetworkManager;
 import com.miningdim.power.mineral.PowerMineralColors;
 import com.miningdim.power.mineral.PowerMineralRegistry;
 import com.miningdim.power.rubber.PowerRubberRegistry;
+import com.miningdim.power.storage.PowerCellGroupManager;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.DistExecutor;
@@ -42,5 +43,6 @@ public final class PowerSystem implements Subsystem {
                             PowerEndgameClient.registerScreens();
                         })));
         EnergyNetworkManager.register(forgeBus);
+        PowerCellGroupManager.register(forgeBus);
     }
 }

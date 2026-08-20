@@ -555,8 +555,19 @@ public final class EnergyNetworkManager {
         // "从储电取电又立刻充回去" 的来回 churn, 白白吃掉吞吐并把网温推高。
         int room = Math.min(net.bufferCap() - net.stored, effCap);
         int endpointCount = net.endpoints.size();
+        // 储电轮的额度独立于 room: 它只补足纯消费端本 settlement 的真实缺口, 绝不为了"填满线缆缓冲"而抽。
+        // 分轮只挡住了发电机与储电同轮的 churn, 挡不住储电自己被抽出后在推阶段原样灌回 —— 那条往返会
+        // 让空载电网每 tick 凭空跑满一趟假流水: 两侧各扣一次距离损耗(空载自放电), 且回灌量计入负载把网温
+        // 顶进降效区, 稳态卡在 eff=0.75, 等于线缆常年白丢 25% 有效吞吐。缺口为 0 时储电一点都不该动。
+        int storageDemand = consumerDemandGross(level, net, effCap);
         for (int pass = 0; pass < 2 && room > 0; pass++) {
             boolean storagePass = pass == 1;
+            if (storagePass) {
+                room = Math.min(room, Math.max(0, storageDemand - net.stored));
+                if (room <= 0) {
+                    break;
+                }
+            }
             int producerStart = Math.floorMod(net.producerCursor, endpointCount);
             int producerScanned = 0;
             while (producerScanned < endpointCount && room > 0) {
@@ -653,16 +664,37 @@ public final class EnergyNetworkManager {
         }
         net.endpoints.clear();
         net.endpoints.addAll(rebuilt);
-        rebuildEndpointRoutes(net, attachedCables);
+        if (net.topologyDirty) {
+            rebuildCableRoutes(net);
+            net.topologyDirty = false;
+        }
+        mapEndpointRoutes(net, attachedCables);
         net.endpointsDirty = false;
     }
 
     /**
-     * 从稳定锚点建立每个端点的代表线路。Dijkstra 仅在端点/拓扑改变时运行，settlement 不接触线缆图。
+     * 把已缓存的线缆路径投影到当前端点集合。端点增删只走这一步 (O(端点数) 查表), 不重跑 Dijkstra ——
+     * 路径由线缆拓扑唯一决定, 端点方块换个 blockstate 并不改变任何一段线路的电阻。
      */
-    private void rebuildEndpointRoutes(EnergyNetwork net, Map<EnergyEndpointKey, BlockPos> attachedCables) {
+    private void mapEndpointRoutes(EnergyNetwork net, Map<EnergyEndpointKey, BlockPos> attachedCables) {
+        net.endpointRoutes.clear();
+        for (Map.Entry<EnergyEndpointKey, BlockPos> entry : attachedCables.entrySet()) {
+            EnergyNetwork.EndpointRouteResistance route = net.routesByCable.get(entry.getValue());
+            if (route == null) {
+                throw new IllegalStateException("endpoint route missing for " + entry.getKey() + " in "
+                        + dimension.location());
+            }
+            net.endpointRoutes.put(entry.getKey(), route);
+        }
+    }
+
+    /**
+     * 从稳定锚点重建全网每根线缆的代表线路。Dijkstra 仅在线缆成员增删时运行，settlement 与端点变化都不触发。
+     */
+    private void rebuildCableRoutes(EnergyNetwork net) {
         BlockPos anchor = networkAnchor(net);
-        Map<BlockPos, EnergyNetwork.EndpointRouteResistance> routesByCable = new HashMap<>();
+        Map<BlockPos, EnergyNetwork.EndpointRouteResistance> routesByCable = net.routesByCable;
+        routesByCable.clear();
         Map<BlockPos, BlockPos> predecessors = new HashMap<>();
         PriorityQueue<RouteVisit> queue = new PriorityQueue<>(Comparator
                 .comparingLong((RouteVisit visit) -> visit.route().staticCost())
@@ -697,16 +729,6 @@ public final class EnergyNetworkManager {
                 }
             }
         }
-
-        net.endpointRoutes.clear();
-        for (Map.Entry<EnergyEndpointKey, BlockPos> entry : attachedCables.entrySet()) {
-            EnergyNetwork.EndpointRouteResistance route = routesByCable.get(entry.getValue());
-            if (route == null) {
-                throw new IllegalStateException("endpoint route missing for " + entry.getKey() + " in "
-                        + dimension.location());
-            }
-            net.endpointRoutes.put(entry.getKey(), route);
-        }
     }
 
     private long routeFor(EnergyNetwork net, EnergyEndpointKey endpoint) {
@@ -724,6 +746,36 @@ public final class EnergyNetworkManager {
      */
     private static boolean isStorageEndpoint(IEnergyStorage storage) {
         return storage.canExtract() && storage.canReceive();
+    }
+
+    /**
+     * 本 settlement 全部纯消费端的缺口合计, 折算成缓冲侧毛额 (已含距离损耗)。全程 simulate, 无副作用。
+     *
+     * 储电轮据此决定放不放电: 没有真实负载就一点都不放。上限取 effCap 与推阶段一致 —— 一个 settlement
+     * 本来也送不出超过这个量, 多算的部分只会让储电白白多放。
+     */
+    private int consumerDemandGross(ServerLevel level, EnergyNetwork net, int cap) {
+        int demand = 0;
+        for (EnergyEndpointKey endpoint : net.endpoints) {
+            if (demand >= cap) {
+                break;
+            }
+            IEnergyStorage storage = capAt(level, endpoint);
+            if (storage == null || !storage.canReceive() || isStorageEndpoint(storage)) {
+                continue;
+            }
+            long routeUnits = routeFor(net, endpoint);
+            int offer = CableThermics.netAfterDistanceLoss(cap - demand, routeUnits);
+            if (offer <= 0) {
+                continue;
+            }
+            int accepted = storage.receiveEnergy(offer, true);
+            if (accepted > 0) {
+                demand = Math.min(cap, Math.addExact(demand,
+                        CableThermics.grossForDelivered(Math.min(accepted, offer), routeUnits)));
+            }
+        }
+        return demand;
     }
 
     private int distanceLossForGross(int gross, long routeUnits) {

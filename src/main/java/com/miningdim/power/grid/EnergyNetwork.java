@@ -81,6 +81,19 @@ final class EnergyNetwork {
     /** 端点脏标记: 成员增删或邻居变化时置真, 下次 settlement 前惰性重算一次, 绝不每 tick 扫描。 */
     boolean endpointsDirty = true;
 
+    /**
+     * 拓扑脏标记, 与 {@link #endpointsDirty} 分级: 只有线缆成员增删才置真, 邻居方块变化不置。
+     *
+     * 分级的理由是代价差一个数量级 —— 端点重扫是 O(线缆数) 的邻接查表, 而路径重算是全网 Dijkstra。
+     * 路径只取决于线缆拓扑, 与端点方块的 blockstate 无关; 合在一起会让任何一个邻居 blockstate 抖动
+     * (机器 LIT 每 tick 翻转就是活例) 都拖着全网 Dijkstra 每 tick 跑一遍, 直接作废本类"仅成员增删时
+     * 重算"的承诺。
+     */
+    boolean topologyDirty = true;
+
+    /** Dijkstra 结果缓存: 线缆坐标 -> 到锚点的代表线路。仅 {@link #topologyDirty} 时重建。 */
+    final Map<BlockPos, EndpointRouteResistance> routesByCable = new HashMap<>();
+
     /** 瞬态缓冲容量 = 一次额定吞吐 (线缆不是电池)。 */
     int bufferCap() {
         return ratedCap;
@@ -145,6 +158,8 @@ final class EnergyNetwork {
         hasStandardThermalCable = standardThermal;
         nbtiSegmentCount = nbtiSegments;
         voltageLimit = voltage;
+        // 拓扑脏标记绑定在此: manager 的每一条成员增删路径都必调本方法, 挂在这里就不存在漏标的路径。
+        topologyDirty = true;
     }
 
     /** 根据已缓存的控制器覆盖刷新 NbTi 失超状态；调用方负责统一故障集合。 */

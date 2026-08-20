@@ -1,5 +1,6 @@
 package com.miningdim.power.storage;
 
+import com.miningdim.power.PowerLitDisplay;
 import com.miningdim.power.PowerRegistry;
 import com.miningdim.power.grid.VoltageAwareEnergyStorage;
 import com.miningdim.power.grid.VoltageClass;
@@ -44,6 +45,8 @@ public final class PowerCellBlockEntity extends BlockEntity implements MenuProvi
     private int extractedThisTick;
     private int lastReceivedFe;
     private int lastExtractedFe;
+    /** LIT 熄灭前的剩余宽限, 见 {@link PowerLitDisplay}: 进出流量断续时不让贴图每 tick 翻。 */
+    private int litGraceTicks;
 
     public PowerCellBlockEntity(BlockPos pos, BlockState state) {
         super(PowerRegistry.POWER_CELL_BE.get(), pos, state);
@@ -87,11 +90,13 @@ public final class PowerCellBlockEntity extends BlockEntity implements MenuProvi
         if (lastReceivedFe != receivedThisTick || lastExtractedFe != extractedThisTick) {
             lastReceivedFe = receivedThisTick;
             lastExtractedFe = extractedThisTick;
-            boolean active = lastReceivedFe > 0 || lastExtractedFe > 0;
-            if (getBlockState().getValue(PowerCellBlock.LIT) != active) {
-                level.setBlock(worldPosition, getBlockState().setValue(PowerCellBlock.LIT, active), 3);
-            }
         }
+        if (lastReceivedFe > 0 || lastExtractedFe > 0) {
+            litGraceTicks = PowerLitDisplay.GRACE_TICKS;
+        } else if (litGraceTicks > 0) {
+            litGraceTicks--;
+        }
+        PowerLitDisplay.apply(level, worldPosition, getBlockState(), PowerCellBlock.LIT, litGraceTicks > 0);
         receivedThisTick = 0;
         extractedThisTick = 0;
     }

@@ -1,5 +1,6 @@
 package com.miningdim.power.generator;
 
+import com.miningdim.power.PowerLitDisplay;
 import com.miningdim.power.PowerRegistry;
 import com.miningdim.power.grid.CableThermics;
 import com.miningdim.power.grid.VoltageAwareEnergyStorage;
@@ -139,9 +140,7 @@ public final class PreheatGeneratorBlockEntity extends BlockEntity implements Me
         }
 
         boolean lit = temperatureC > CableThermics.AMBIENT_C;
-        if (getBlockState().getValue(PreheatGeneratorBlock.LIT) != lit) {
-            serverLevel.setBlock(worldPosition, getBlockState().setValue(PreheatGeneratorBlock.LIT, lit), 3);
-        }
+        PowerLitDisplay.apply(serverLevel, worldPosition, getBlockState(), PreheatGeneratorBlock.LIT, lit);
         if (Double.compare(previousTemperature, temperatureC) != 0 || previousStored != storedFe) {
             setChanged();
         }

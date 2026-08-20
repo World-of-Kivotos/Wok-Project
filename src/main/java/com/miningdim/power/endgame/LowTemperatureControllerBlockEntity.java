@@ -1,5 +1,6 @@
 package com.miningdim.power.endgame;
 
+import com.miningdim.power.PowerLitDisplay;
 import com.miningdim.power.PowerMachineRegistry;
 import com.miningdim.power.PowerRegistry;
 import com.miningdim.power.cable.EnergyCableBlock;
@@ -167,9 +168,7 @@ public final class LowTemperatureControllerBlockEntity extends BlockEntity
     }
 
     private void updateLit(boolean lit) {
-        if (level != null && getBlockState().getValue(LowTemperatureControllerBlock.LIT) != lit) {
-            level.setBlock(worldPosition, getBlockState().setValue(LowTemperatureControllerBlock.LIT, lit), 3);
-        }
+        PowerLitDisplay.apply(level, worldPosition, getBlockState(), LowTemperatureControllerBlock.LIT, lit);
     }
 
     public void dropUnconsumedCanisters() {

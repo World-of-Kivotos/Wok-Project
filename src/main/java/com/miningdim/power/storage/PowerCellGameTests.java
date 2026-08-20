@@ -1,8 +1,10 @@
 package com.miningdim.power.storage;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.power.PowerLitDisplay;
 import com.miningdim.power.PowerRegistry;
 import com.miningdim.power.cable.ConductorMaterial;
+import com.miningdim.power.grid.CableThermics;
 import com.miningdim.power.grid.EnergyNetworkManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -118,6 +120,107 @@ public final class PowerCellGameTests {
                 })
                 .thenExecute(manager::debugClearSyntheticEndpoints)
                 .thenSucceed();
+    }
+
+    /**
+     * 空载电网不得动储电一分钱。
+     *
+     * 修复前拉阶段的储电轮无条件把线缆缓冲填满, 推阶段又原样灌回, 于是没有任何负载时储电每 tick 也在
+     * "抽出去又收回来": 余额看着不动 (净额为零), 实际两侧各扣一次距离损耗在慢慢漏电, 且回灌量被计入
+     * 负载把网温顶进降效区, 稳态卡在 eff=0.75 —— 线缆常年白丢 25% 有效吞吐。故余额断言不够, 必须钉死
+     * 放电流水为零, 并钉死网温不离环境温。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 200)
+    public static void idleNetworkNeverDrainsStorage(GameTestHelper helper) {
+        EnergyNetworkManager manager = EnergyNetworkManager.get(helper.getLevel());
+        BlockPos cableA = helper.absolutePos(new BlockPos(2, 2, 2));
+        BlockPos cableB = cableA.east();
+        manager.addCable(cableA, ConductorMaterial.COPPER);
+        manager.addCable(cableB, ConductorMaterial.COPPER);
+
+        FakeCell cell = new FakeCell(1_000_000);
+        cell.stored = 500_000;
+        manager.debugPutSyntheticEndpoint(cableB.south(), cell);
+
+        helper.startSequence()
+                .thenIdle(40)
+                .thenExecute(() -> {
+                    helper.assertTrue(cell.extractedTotal == 0,
+                            "空载电网必须一点都不抽储电, 实抽 " + cell.extractedTotal
+                                    + " FE, 放电 " + cell.extractCalls + " 次");
+                    helper.assertTrue(cell.stored == 500_000,
+                            "储电余额必须纹丝不动, 得到 " + cell.stored);
+                    double temperature = manager.networkTemperatureAt(cableA);
+                    helper.assertTrue(Math.abs(temperature - CableThermics.AMBIENT_C) < 0.001,
+                            "空载不得升温, 得到 " + temperature + "C (修复前空转往返会把网温顶到降效点)");
+                })
+                .thenExecute(manager::debugClearSyntheticEndpoints)
+                .thenSucceed();
+    }
+
+    /**
+     * 储电放电量只补消费端的真实缺口, 不按线缆额定吞吐放。
+     *
+     * 铜缆额定 1280 FE/t, 而消费端总共只要 300 FE。修复前储电会被抽满 1280 (填满线缆缓冲), 多出来的
+     * 980 当场原路灌回; 修复后放电量必须贴着 300 这个真实缺口。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 200)
+    public static void storageDischargeTracksConsumerDemand(GameTestHelper helper) {
+        EnergyNetworkManager manager = EnergyNetworkManager.get(helper.getLevel());
+        BlockPos cableA = helper.absolutePos(new BlockPos(2, 2, 2));
+        BlockPos cableB = cableA.east();
+        manager.addCable(cableA, ConductorMaterial.COPPER);
+        manager.addCable(cableB, ConductorMaterial.COPPER);
+
+        FakeCell cell = new FakeCell(1_000_000);
+        cell.stored = 500_000;
+        FakeSink sink = new FakeSink(300);
+        manager.debugPutSyntheticEndpoint(cableA.north(), sink);
+        manager.debugPutSyntheticEndpoint(cableB.south(), cell);
+
+        helper.startSequence()
+                .thenIdle(40)
+                .thenExecute(() -> {
+                    // 尾部 1 FE 送不达是距离损耗的既有整数边界, 与本修复无关: 铜缆 168 units 下
+                    // netAfterDistanceLoss(1, 168) 整除后为 0, 于是最后一点余量永远开不出报价。
+                    // 这里钉的是"储电确实把消费端喂到了容量附近", 不是钉那 1 FE。
+                    helper.assertTrue(sink.stored >= 299,
+                            "消费端必须由储电喂到容量附近, 得到 " + sink.stored);
+                    // 放行余量留给距离损耗的整数进位; 上限远低于 1280, 修复前的"抽满缓冲"必然越过。
+                    helper.assertTrue(cell.extractedTotal <= 400,
+                            "储电放电量必须贴着消费端缺口(300 FE)而不是线缆额定(1280 FE/t), 实抽 "
+                                    + cell.extractedTotal + " FE");
+                    helper.assertTrue(cell.extractedTotal >= 300,
+                            "放电量不得少于消费端实收, 实抽 " + cell.extractedTotal + " FE");
+                })
+                .thenExecute(manager::debugClearSyntheticEndpoints)
+                .thenSucceed();
+    }
+
+    /**
+     * LIT 熄灭必须走宽限, 不能跟着当 tick 的流量翻。
+     *
+     * 供电落在临界时机器/储电会"攒一 tick 跑一格", 若 LIT 直接等于当 tick 的流量判定, 贴图就每一两
+     * tick 翻一次 (真机上看到的抽搐), 且每次翻转都是一次方块更新。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void litHoldsThroughGraceAfterFlowStops(GameTestHelper helper) {
+        PowerCellBlockEntity cell = place(helper, CELL_REL, PowerRegistry.INDUSTRIAL_POWER_CELL.get());
+        energyOf(cell).receiveEnergy(1_000, false);
+        cell.serverTick();
+        helper.assertTrue(helper.getBlockState(CELL_REL).getValue(PowerCellBlock.LIT),
+                "有进出流量必须点亮");
+
+        for (int tick = 0; tick < PowerLitDisplay.GRACE_TICKS - 1; tick++) {
+            cell.serverTick();
+        }
+        helper.assertTrue(helper.getBlockState(CELL_REL).getValue(PowerCellBlock.LIT),
+                "宽限期内断流不得熄灭, 否则供电临界会被渲染成贴图抽搐");
+
+        cell.serverTick();
+        helper.assertTrue(!helper.getBlockState(CELL_REL).getValue(PowerCellBlock.LIT),
+                "宽限耗尽必须熄灭, 否则灯会骗人");
+        helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
@@ -257,6 +360,9 @@ public final class PowerCellGameTests {
     private static final class FakeCell implements IEnergyStorage {
         private final int capacity;
         private int stored;
+        /** 真实放电总量与调用次数: 空转 churn 只看余额看不出来 (抽出又灌回, 净额为零), 必须记流水。 */
+        private int extractedTotal;
+        private int extractCalls;
 
         private FakeCell(int capacity) {
             this.capacity = capacity;
@@ -276,6 +382,10 @@ public final class PowerCellGameTests {
             int extracted = Math.min(maxExtract, stored);
             if (!simulate) {
                 stored -= extracted;
+                extractedTotal += extracted;
+                if (extracted > 0) {
+                    extractCalls++;
+                }
             }
             return extracted;
         }

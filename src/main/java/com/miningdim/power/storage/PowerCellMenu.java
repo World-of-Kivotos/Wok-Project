@@ -23,7 +23,10 @@ public final class PowerCellMenu extends AbstractMiningMenu {
     public static final int DATA_RECEIVED_HIGH = 5;
     public static final int DATA_EXTRACTED_LOW = 6;
     public static final int DATA_EXTRACTED_HIGH = 7;
-    public static final int DATA_COUNT = 8;
+    /** 本档传输速率上限, 供界面把进出两条表按同一个满格基准画, 否则读数之间没有可比性。 */
+    public static final int DATA_TRANSFER_LOW = 8;
+    public static final int DATA_TRANSFER_HIGH = 9;
+    public static final int DATA_COUNT = 10;
 
     private final ContainerData data;
 
@@ -68,6 +71,8 @@ public final class PowerCellMenu extends AbstractMiningMenu {
                     case DATA_RECEIVED_HIGH -> highWord(cell.lastReceivedFe());
                     case DATA_EXTRACTED_LOW -> lowWord(cell.lastExtractedFe());
                     case DATA_EXTRACTED_HIGH -> highWord(cell.lastExtractedFe());
+                    case DATA_TRANSFER_LOW -> lowWord(cell.runtime().transferFePerTick());
+                    case DATA_TRANSFER_HIGH -> highWord(cell.runtime().transferFePerTick());
                     default -> throw new IllegalArgumentException("invalid power cell data index: " + index);
                 };
             }
@@ -113,5 +118,9 @@ public final class PowerCellMenu extends AbstractMiningMenu {
 
     public int lastExtractedFe() {
         return merge(data.get(DATA_EXTRACTED_LOW), data.get(DATA_EXTRACTED_HIGH));
+    }
+
+    public int transferFePerTick() {
+        return merge(data.get(DATA_TRANSFER_LOW), data.get(DATA_TRANSFER_HIGH));
     }
 }

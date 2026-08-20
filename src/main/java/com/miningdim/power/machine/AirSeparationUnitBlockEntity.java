@@ -1,5 +1,6 @@
 package com.miningdim.power.machine;
 
+import com.miningdim.power.PowerLitDisplay;
 import com.miningdim.power.PowerMachineConfig;
 import com.miningdim.power.PowerMachineRegistry;
 import net.minecraft.core.BlockPos;
@@ -103,6 +104,8 @@ public final class AirSeparationUnitBlockEntity extends BlockEntity implements M
     private AirSeparationMode mode = AirSeparationMode.ARGON;
     private int progress;
     private @Nullable String lastRecipeFault;
+    /** LIT 熄灭前的剩余宽限, 见 {@link PowerLitDisplay}: 缺电停顿时不让贴图每 tick 翻。 */
+    private int litGraceTicks;
 
     public AirSeparationUnitBlockEntity(BlockPos pos, BlockState state) {
         super(PowerMachineRegistry.AIR_SEPARATION_UNIT_BE.get(), pos, state);
@@ -173,7 +176,9 @@ public final class AirSeparationUnitBlockEntity extends BlockEntity implements M
             return;
         }
         if (!energy.hasAtLeast(runtime.fePerTick())) {
-            updateLit(false);
+            // 缺电是瞬态: 配方还在, 只是这一 tick 没攒够。走宽限而不是立刻熄灭, 否则供电临界时
+            // "攒一 tick 跑一格" 的锯齿会被原样渲染成贴图抽搐。
+            updateLitStalled();
             return;
         }
         energy.consume(runtime.fePerTick());
@@ -241,10 +246,18 @@ public final class AirSeparationUnitBlockEntity extends BlockEntity implements M
         }
     }
 
+    /** 确定态: 有进度推进就点亮并续满宽限, 真正停机 (无配方/产物槽满/已完成) 立刻熄灭。 */
     private void updateLit(boolean lit) {
-        if (level != null && getBlockState().getValue(PowerMachineBlock.LIT) != lit) {
-            level.setBlock(worldPosition, getBlockState().setValue(PowerMachineBlock.LIT, lit), 3);
+        litGraceTicks = lit ? PowerLitDisplay.GRACE_TICKS : 0;
+        PowerLitDisplay.apply(level, worldPosition, getBlockState(), PowerMachineBlock.LIT, lit);
+    }
+
+    /** 缺电停顿: 保持点亮直到宽限耗尽。 */
+    private void updateLitStalled() {
+        if (litGraceTicks > 0) {
+            litGraceTicks--;
         }
+        PowerLitDisplay.apply(level, worldPosition, getBlockState(), PowerMachineBlock.LIT, litGraceTicks > 0);
     }
 
     public void dropContents() {

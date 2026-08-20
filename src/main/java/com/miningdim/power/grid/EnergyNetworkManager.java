@@ -72,6 +72,8 @@ public final class EnergyNetworkManager {
     /** 受控线缆坐标 -> 所有控制器相加后的覆盖段数；控制器状态变化可 O(1) 更新所属网。 */
     private final Map<BlockPos, Integer> coolingCoverageByCable = new HashMap<>();
     private final ResourceKey<Level> dimension;
+    /** 本维度累计随最后一根线缆一起消失的瞬态缓冲 (FE); 这条路径没有幸存网可挂账, 只能记在管理器上。 */
+    private long discardedBufferFe;
 
     private EnergyNetworkManager(ResourceKey<Level> dimension) {
         this.dimension = dimension;
@@ -117,7 +119,7 @@ public final class EnergyNetworkManager {
             existing.cables.put(pos, material);
             existing.recomputeProfile();
             refreshNetworkCooling(existing);
-            enforceBufferCapacity(existing, pos, List.of(previousStored), List.of(previousCapacity));
+            noteBufferOverflow(existing, pos, List.of(previousStored), List.of(previousCapacity));
             existing.endpointsDirty = true;
             activeNetworks.add(existing);
             return;
@@ -148,11 +150,10 @@ public final class EnergyNetworkManager {
                     net.cables.put(entry.getKey(), entry.getValue());
                     byCable.put(entry.getKey(), net);
                 }
+                // 存量直接相加: 合网不改变系统里的电总量。新网木桶容量变小只意味着后面几 tick 走得慢,
+                // 不构成销毁玩家电力的理由 (旧实现在此处硬裁, 一根线缆就蒸发一整个缓冲)。
                 net.stored = Math.addExact(net.stored, other.stored);
-                net.totalBufferOverflowLossFe = Math.addExact(
-                        net.totalBufferOverflowLossFe, other.totalBufferOverflowLossFe);
-                net.lastBufferOverflowLossFe = Math.max(
-                        net.lastBufferOverflowLossFe, other.lastBufferOverflowLossFe);
+                net.totalBufferOverflowFe = Math.addExact(net.totalBufferOverflowFe, other.totalBufferOverflowFe);
                 net.totalDistanceLossFe = Math.addExact(net.totalDistanceLossFe, other.totalDistanceLossFe);
                 net.lastDistanceLossFe = Math.max(net.lastDistanceLossFe, other.lastDistanceLossFe);
                 net.faults.addAll(other.faults);
@@ -167,7 +168,7 @@ public final class EnergyNetworkManager {
         byCable.put(pos, net);
         net.recomputeProfile();
         refreshNetworkCooling(net);
-        enforceBufferCapacity(net, pos, previousStored, previousCapacities);
+        noteBufferOverflow(net, pos, previousStored, previousCapacities);
         net.endpointsDirty = true;
         activeNetworks.add(net);
     }
@@ -223,43 +224,56 @@ public final class EnergyNetworkManager {
             }
             net.recomputeProfile();
             net.endpointsDirty = true;
-            if (source.faults.contains(EnergyNetworkFault.BUFFER_OVERFLOW)) {
-                net.faults.add(EnergyNetworkFault.BUFFER_OVERFLOW);
-            }
-            normalizeFaults(net);
             refreshNetworkCooling(net);
             components.add(net);
         }
         components.sort(Comparator.comparing(this::networkAnchor, BLOCK_POS_ORDER));
         if (components.isEmpty()) {
+            discardLastCableBuffer(source);
             return;
         }
 
+        // 存量可能仍高于各分量容量之和 (合网超额尚未被推阶段消化完就拆线)。按容量比例整体搬过去即可:
+        // 比例分配对超额输入同样成立, 只是每个分量各自继续超编 —— 拆线一样不是销毁玩家电力的理由。
         long totalCapacity = components.stream().mapToLong(EnergyNetwork::bufferCap).sum();
-        if (source.stored > totalCapacity) {
-            throw new IllegalStateException("split capacity invariant broken in " + dimension.location()
-                    + ": stored=" + source.stored + ", newCapacity=" + totalCapacity);
-        }
         long[] storedAllocation = allocateByCapacity(source.stored, components, totalCapacity);
-        long[] lastOverflowAllocation = allocateByCapacity(
-                source.lastBufferOverflowLossFe, components, totalCapacity);
         long[] totalOverflowAllocation = allocateByCapacity(
-                source.totalBufferOverflowLossFe, components, totalCapacity);
+                source.totalBufferOverflowFe, components, totalCapacity);
         long[] lastDistanceLossAllocation = allocateByCapacity(source.lastDistanceLossFe, components, totalCapacity);
         long[] totalDistanceLossAllocation = allocateByCapacity(source.totalDistanceLossFe, components, totalCapacity);
         for (int i = 0; i < components.size(); i++) {
             EnergyNetwork component = components.get(i);
             component.stored = Math.toIntExact(storedAllocation[i]);
-            component.lastBufferOverflowLossFe = Math.toIntExact(lastOverflowAllocation[i]);
-            component.totalBufferOverflowLossFe = totalOverflowAllocation[i];
+            component.totalBufferOverflowFe = totalOverflowAllocation[i];
             component.lastDistanceLossFe = Math.toIntExact(lastDistanceLossAllocation[i]);
             component.totalDistanceLossFe = totalDistanceLossAllocation[i];
+            // 故障按分量拆分后的实际状态重判, 不从旧网无条件继承: 拆开后不再超编的分量不该背着红字。
+            if (component.bufferOverflowFe() > 0) {
+                component.faults.add(EnergyNetworkFault.BUFFER_OVERFLOW);
+                normalizeFaults(component);
+            }
             for (BlockPos cable : component.cables.keySet()) {
                 byCable.put(cable, component);
             }
             networks.add(component);
             activeNetworks.add(component);
         }
+    }
+
+    /**
+     * 最后一根线缆被拆掉时没有任何幸存分量能承接瞬态缓冲。线缆不是电池, 缓冲随导体一起消失是设计内行为
+     * (设计文档"绝不裁剪丢弃"那条的唯一例外), 但绝不能静默: 不记账就会出现"距离损耗 0 FE、超额账没变、
+     * 电却少了"的无头账, 玩家与运维都无从复盘。
+     */
+    private void discardLastCableBuffer(EnergyNetwork source) {
+        if (source.stored <= 0) {
+            return;
+        }
+        discardedBufferFe = Math.addExact(discardedBufferFe, source.stored);
+        LOGGER.warn("energy network transient buffer discarded with its last cable dimension={} lastCableAt={} "
+                        + "discardedFe={} bufferCapacity={} pendingOverflowFe={} dimensionTotalDiscardedFe={}",
+                dimension.location(), networkAnchor(source), source.stored, source.bufferCap(),
+                source.bufferOverflowFe(), discardedBufferFe);
     }
 
     private long[] allocateByCapacity(long total, List<EnergyNetwork> components, long totalCapacity) {
@@ -283,24 +297,41 @@ public final class EnergyNetworkManager {
         return allocation;
     }
 
-    private void enforceBufferCapacity(EnergyNetwork net, BlockPos changedAt,
-                                       List<Integer> previousStored, List<Integer> previousCapacities) {
-        if (net.stored <= net.bufferCap()) {
+    /**
+     * 合网或换材料后存量可能高于新的木桶缓冲容量。此处只记账、只标故障, 绝不裁剪存量。
+     *
+     * 硬裁剪是真机上"接一根线缆蒸发一整个缓冲"的成因, 且后果不止丢电: stored 被摁平到 bufferCap 后
+     * settleNetwork 拉阶段的 room 恒为 0, 上游发电机再也拉不走一分电, 自身缓冲灌满后积热直至熔毁。
+     * 现在超额部分留在账上, 由推阶段 (按 stored 而非 bufferCap 计量) 在随后若干 tick 内自然送出去。
+     */
+    private void noteBufferOverflow(EnergyNetwork net, BlockPos changedAt,
+                                    List<Integer> previousStored, List<Integer> previousCapacities) {
+        int overflow = net.bufferOverflowFe();
+        if (overflow <= 0) {
             normalizeFaults(net);
             return;
         }
-        int storedBefore = net.stored;
-        int loss = storedBefore - net.bufferCap();
-        net.stored = net.bufferCap();
-        net.lastBufferOverflowLossFe = loss;
-        net.totalBufferOverflowLossFe = Math.addExact(net.totalBufferOverflowLossFe, loss);
+        // 故障标记按当期实际超额状态设置, 与"是不是新事件"无关: 只要还超编, 红字就得挂着。
         net.faults.add(EnergyNetworkFault.BUFFER_OVERFLOW);
         normalizeFaults(net);
-        LOGGER.warn("energy network buffer overflow dimension={} changedAt={} participatingNetworks={} "
-                        + "priorStored={} priorCapacities={} storedBefore={} newCapacity={} lost={} "
-                        + "cableCount={} voltageLimit={}",
-                dimension.location(), changedAt, previousStored.size(), previousStored, previousCapacities, storedBefore,
-                net.bufferCap(), loss, net.cables.size(), net.voltageLimit);
+        // 本次拓扑变更之前就已经存在的超额不是新事件。只看 overflow > 0 会让"往一张仍在超编的网上再放
+        // 一根线缆"把同一笔 FE 反复记进累计账 —— 跨区块的网每次重载时每根线缆各走一次 addCable, 一次
+        // 重载就能把累计值抬高数百倍, 与 totalBufferOverflowFe 自己写的"只记一次事件量"契约直接打架。
+        long carried = 0L;
+        for (int i = 0; i < previousStored.size(); i++) {
+            carried += Math.max(0, previousStored.get(i) - previousCapacities.get(i));
+        }
+        long fresh = Math.max(0L, overflow - carried);
+        if (fresh <= 0L) {
+            return;
+        }
+        net.totalBufferOverflowFe = Math.addExact(net.totalBufferOverflowFe, fresh);
+        // 降为 info: 没有任何 FE 丢失, 这行只用于运维复盘"玩家接线后电网为何短暂超编"。
+        LOGGER.info("energy network buffer over-subscribed dimension={} changedAt={} participatingNetworks={} "
+                        + "priorStored={} priorCapacities={} stored={} newCapacity={} pendingOverflow={} "
+                        + "carriedOverflow={} freshOverflow={} cableCount={} voltageLimit={}",
+                dimension.location(), changedAt, previousStored.size(), previousStored, previousCapacities,
+                net.stored, net.bufferCap(), overflow, carried, fresh, net.cables.size(), net.voltageLimit);
     }
 
     private BlockPos networkAnchor(EnergyNetwork net) {
@@ -388,10 +419,11 @@ public final class EnergyNetworkManager {
         if (net == null || amount <= 0) {
             return 0;
         }
+        // 合网后存量可短暂高于木桶容量 (见 noteBufferOverflow), 此时余量为负 = 一分都不再收。这里绝不能抛异常:
+        // 推式发电机连 simulate 探测都走这条路径, 抛出去就是拿玩家的一次接线换服务端主线程崩溃。
         int room = net.bufferCap() - net.stored;
-        if (room < 0) {
-            throw new IllegalStateException("network buffer exceeds capacity in " + dimension.location()
-                    + " at " + pos + ": stored=" + net.stored + ", capacity=" + net.bufferCap());
+        if (room <= 0) {
+            return 0;
         }
         int accepted = Math.min(room, amount);
         if (!simulate) {
@@ -411,6 +443,11 @@ public final class EnergyNetworkManager {
     public int capacityAt(BlockPos pos) {
         EnergyNetwork net = byCable.get(pos);
         return net == null ? 0 : net.bufferCap();
+    }
+
+    /** 本维度累计随最后一根线缆一起消失的瞬态缓冲 (FE); 见 {@link #discardLastCableBuffer}。 */
+    public long discardedBufferFe() {
+        return discardedBufferFe;
     }
 
     /** 该坐标所属网的网温 (°C); 无网返回环境温 (供 BE / Jade 读)。 */
@@ -525,6 +562,10 @@ public final class EnergyNetworkManager {
         }
         net.lastDistanceLossFe = 0;
         net.faults.remove(EnergyNetworkFault.OVER_VOLTAGE);
+        if (net.bufferOverflowFe() == 0) {
+            // 超额是瞬态的: 推阶段消化完就必须自行摘掉标记, 否则玩家会看到一条永远擦不掉的红字。
+            net.faults.remove(EnergyNetworkFault.BUFFER_OVERFLOW);
+        }
         normalizeFaults(net);
         int rated = net.ratedCap;
         if (rated <= 0 || net.endpoints.isEmpty()) {
@@ -553,6 +594,8 @@ public final class EnergyNetworkManager {
         // 拉: 先从纯发电端抽入缓冲, 再让储电兜底补足, 单 settlement 封顶 effCap。
         // 分两轮的原因: 储电既能收也能发, 若与发电机同轮参与, 同一 settlement 内会出现
         // "从储电取电又立刻充回去" 的来回 churn, 白白吃掉吞吐并把网温推高。
+        // 超额期间 room 为负, 下面两轮 pass 的 room > 0 守卫会整体跳过拉阶段: 网上的电还没送完, 就一分都不再
+        // 从发电端多拉。这条负值语义是修复合网超额后必须守住的行为, 不要"顺手"把它钳到 0 而丢掉这层表达。
         int room = Math.min(net.bufferCap() - net.stored, effCap);
         int endpointCount = net.endpoints.size();
         // 储电轮的额度独立于 room: 它只补足纯消费端本 settlement 的真实缺口, 绝不为了"填满线缆缓冲"而抽。

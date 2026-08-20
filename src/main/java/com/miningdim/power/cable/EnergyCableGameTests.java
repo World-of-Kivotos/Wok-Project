@@ -446,7 +446,7 @@ public final class EnergyCableGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void splitDistributesAndMergeAccountsForOverflow(GameTestHelper helper) {
+    public static void splitDistributesAndMergeConservesEnergy(GameTestHelper helper) {
         EnergyNetworkManager manager = EnergyNetworkManager.get(helper.getLevel());
         BlockState copper = PowerRegistry.CABLES.get(ConductorMaterial.COPPER).get().defaultBlockState();
         BlockState iron = PowerRegistry.CABLES.get(ConductorMaterial.IRON).get().defaultBlockState();
@@ -472,17 +472,281 @@ public final class EnergyCableGameTests {
 
         helper.setBlock(bridge, iron);
         EnergyNetworkSnapshot merged = manager.snapshotAt(aAbs).orElseThrow();
-        helper.assertTrue(merged.storedFe() == 256,
-                "合网后缓冲必须显式裁到新容量 256 FE，实得 " + merged.storedFe());
-        helper.assertTrue(merged.lastBufferOverflowLossFe() == 1_280
-                        && merged.totalBufferOverflowLossFe() == 1_280,
-                "合网前 1536 FE 必须记账损失 1280 FE，实得 "
-                        + merged.lastBufferOverflowLossFe() + "/" + merged.totalBufferOverflowLossFe());
-        helper.assertTrue(merged.storedFe() + merged.lastBufferOverflowLossFe() == 1_536,
-                "合网存量与损失之和必须守恒为 1536 FE");
+        helper.assertTrue(merged.storedFe() == 1_536 && merged.bufferCapacityFe() == 256,
+                "合网必须把 1280+256 原样保留为 1536 FE 并把木桶容量取到 256，实得 "
+                        + merged.storedFe() + "/" + merged.bufferCapacityFe());
+        helper.assertTrue(merged.bufferOverflowFe() == 1_280 && merged.totalBufferOverflowFe() == 1_280,
+                "超出木桶容量的 1280 FE 必须记为待消化超额而不是损耗，实得 "
+                        + merged.bufferOverflowFe() + "/" + merged.totalBufferOverflowFe());
         helper.assertTrue(merged.faults().contains(EnergyNetworkFault.BUFFER_OVERFLOW),
-                "合网裁剪必须在只读快照留下 BUFFER_OVERFLOW 故障");
+                "合网超额必须在只读快照留下 BUFFER_OVERFLOW 故障");
+        helper.assertTrue(manager.receiveIntoNetwork(aAbs, 512, false) == 0
+                        && manager.receiveIntoNetwork(aAbs, 512, true) == 0
+                        && manager.storedAt(aAbs) == 1_536,
+                "超额期间推式注入必须安全返回 0 且不动存量，实得 " + manager.storedAt(aAbs));
+
+        // 展示夹紧与内部真账是两条独立契约, 必须同时钉死: 第三方 mod 按 Forge 的事实约定用
+        // getMaxEnergyStored() - getEnergyStored() 算可注入余量, 不夹紧就会拿到 256-1536 = -1280。
+        IEnergyStorage overflowedView = helper.getLevel().getBlockEntity(aAbs)
+                .getCapability(ForgeCapabilities.ENERGY).resolve().orElseThrow();
+        helper.assertTrue(overflowedView.getEnergyStored() == 256 && overflowedView.getMaxEnergyStored() == 256,
+                "超额期间线缆对外读数必须夹在木桶容量 256 内(否则第三方算余量得 -1280)，实得 "
+                        + overflowedView.getEnergyStored() + "/" + overflowedView.getMaxEnergyStored());
+        helper.assertTrue(manager.storedAt(aAbs) == 1_536,
+                "展示层夹紧绝不得回写内部真账, 内部存量必须仍是 1536，实得 " + manager.storedAt(aAbs));
+
+        // 超额尚未消化时拆掉铜段: 拆网既不得因"存量高于剩余容量"抛异常, 也不得顺手把这 1536 FE 抹掉。
+        helper.setBlock(a, Blocks.AIR);
+        helper.assertTrue(manager.storedAt(cAbs) == 1_536 && manager.debugNetworkSize(cAbs) == 2,
+                "超额网拆掉铜段后 1536 FE 必须全额留在剩余 2 根铁缆上，实得 "
+                        + manager.storedAt(cAbs) + "/" + manager.debugNetworkSize(cAbs));
         helper.succeed();
+    }
+
+    /**
+     * 真机故障复现: 两张各自打满的同级网被一根线缆桥接时, 存量必须逐 FE 守恒。
+     * 删掉"合网不再裁剪"这条修复, 存量会被摁回 256 并把 256 FE 记成损耗, 本用例必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void mergingTwoFullNetworksKeepsEveryStoredFe(GameTestHelper helper) {
+        EnergyNetworkManager manager = EnergyNetworkManager.get(helper.getLevel());
+        BlockState iron = PowerRegistry.CABLES.get(ConductorMaterial.IRON).get().defaultBlockState();
+        BlockPos left = new BlockPos(2, 1, 1);
+        BlockPos bridge = new BlockPos(2, 1, 2);
+        BlockPos right = new BlockPos(2, 1, 3);
+        BlockPos leftAbs = helper.absolutePos(left);
+        BlockPos rightAbs = helper.absolutePos(right);
+        helper.setBlock(left, iron);
+        helper.setBlock(right, iron);
+        helper.assertTrue(manager.receiveIntoNetwork(leftAbs, 256, false) == 256
+                        && manager.receiveIntoNetwork(rightAbs, 256, false) == 256,
+                "两张铁网必须各自先打满 256 FE");
+
+        helper.setBlock(bridge, iron);
+        EnergyNetworkSnapshot merged = manager.snapshotAt(leftAbs).orElseThrow();
+        helper.assertTrue(merged.storedFe() == 512,
+                "两张满缓冲网合并后存量必须精确守恒为 512 FE，实得 " + merged.storedFe());
+        helper.assertTrue(merged.bufferCapacityFe() == 256 && merged.bufferOverflowFe() == 256,
+                "木桶容量仍为 256 FE 且超额量必须精确为 256 FE，实得 "
+                        + merged.bufferCapacityFe() + "/" + merged.bufferOverflowFe());
+        helper.assertTrue(merged.totalBufferOverflowFe() == 256
+                        && merged.lastDistanceLossFe() == 0
+                        && merged.totalDistanceLossFe() == 0,
+                "合网只记一次 256 FE 超额事件，且绝不得把它算进任何损耗账，实得超额/距离损耗 "
+                        + merged.totalBufferOverflowFe() + "/" + merged.totalDistanceLossFe());
+        helper.assertTrue(manager.storedAt(rightAbs) == 512 && manager.debugNetworkSize(leftAbs) == 3,
+                "三根铁缆必须同属一网并共享这 512 FE，实得 "
+                        + manager.storedAt(rightAbs) + "/" + manager.debugNetworkSize(leftAbs));
+        helper.succeed();
+    }
+
+    /**
+     * 最后一根线缆被拆掉时瞬态缓冲无处承接, 随导体一起消失是设计内行为, 但必须记账 + 告警, 绝不静默 return。
+     * 删掉 discardLastCableBuffer 这 1536 FE 会凭空蒸发而累计弃电量恒为 0, 本用例必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = "energy_cable_discard")
+    public static void removingLastCableAccountsForDiscardedBuffer(GameTestHelper helper) {
+        clearCableWorkspace(helper);
+        EnergyNetworkManager manager = EnergyNetworkManager.get(helper.getLevel());
+        BlockState copper = PowerRegistry.CABLES.get(ConductorMaterial.COPPER).get().defaultBlockState();
+        BlockState iron = PowerRegistry.CABLES.get(ConductorMaterial.IRON).get().defaultBlockState();
+        BlockPos a = new BlockPos(2, 1, 1);
+        BlockPos bridge = new BlockPos(2, 1, 2);
+        BlockPos c = new BlockPos(2, 1, 3);
+        BlockPos aAbs = helper.absolutePos(a);
+        BlockPos cAbs = helper.absolutePos(c);
+        // GameTest 复用存档, 累计弃电量跨轮不清零, 只能断言本轮增量 (清场本身也可能产生弃电, 故基线在清场之后取)。
+        long baseline = manager.discardedBufferFe();
+
+        helper.setBlock(a, copper);
+        helper.setBlock(c, iron);
+        helper.assertTrue(manager.receiveIntoNetwork(aAbs, 1_280, false) == 1_280
+                        && manager.receiveIntoNetwork(cAbs, 256, false) == 256,
+                "铜网与铁网必须各自先打满 1280 / 256 FE");
+        helper.setBlock(bridge, iron);
+        helper.assertTrue(manager.storedAt(aAbs) == 1_536,
+                "合网瞬间必须完整保留 1536 FE，实得 " + manager.storedAt(aAbs));
+
+        // 拆到只剩一根: 中途每一步都由 reindexComponents 按容量比例整体搬走, 一分都不该算作弃电。
+        helper.setBlock(a, Blocks.AIR);
+        helper.setBlock(bridge, Blocks.AIR);
+        helper.assertTrue(manager.storedAt(cAbs) == 1_536,
+                "拆到最后一根之前 1536 FE 必须全额跟着幸存分量走，实得 " + manager.storedAt(cAbs));
+        helper.assertTrue(manager.discardedBufferFe() - baseline == 0L,
+                "还有幸存线缆时绝不得记任何弃电，实得 " + (manager.discardedBufferFe() - baseline));
+
+        helper.setBlock(c, Blocks.AIR);
+        helper.assertTrue(manager.debugNetworkSize(cAbs) == 0,
+                "最后一根拆掉后该坐标不得再属于任何网");
+        helper.assertTrue(manager.discardedBufferFe() - baseline == 1_536L,
+                "随最后一根线缆消失的 1536 FE 必须精确记进弃电账，实得 "
+                        + (manager.discardedBufferFe() - baseline));
+        helper.succeed();
+    }
+
+    /**
+     * 累计超额账只记"本次拓扑变更新产生"的那一笔。往一张仍在超编的网上再放线缆(真机上区块重载时每根线缆
+     * 各走一次 addCable)必须一分都不再计, 否则同一笔 FE 会被反复累加到 Jade 的"累计超额"上。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = "energy_cable_overflow_once")
+    public static void extendingAnOverflowingNetworkCountsOverflowOnlyOnce(GameTestHelper helper) {
+        clearCableWorkspace(helper);
+        EnergyNetworkManager manager = EnergyNetworkManager.get(helper.getLevel());
+        BlockState iron = PowerRegistry.CABLES.get(ConductorMaterial.IRON).get().defaultBlockState();
+        BlockPos left = new BlockPos(2, 1, 1);
+        BlockPos bridge = new BlockPos(2, 1, 2);
+        BlockPos right = new BlockPos(2, 1, 3);
+        BlockPos extension = new BlockPos(3, 1, 1);
+        BlockPos secondExtension = new BlockPos(4, 1, 1);
+        BlockPos leftAbs = helper.absolutePos(left);
+        helper.setBlock(left, iron);
+        helper.setBlock(right, iron);
+        helper.assertTrue(manager.receiveIntoNetwork(leftAbs, 256, false) == 256
+                        && manager.receiveIntoNetwork(helper.absolutePos(right), 256, false) == 256,
+                "两张铁网必须各自先打满 256 FE");
+
+        helper.setBlock(bridge, iron);
+        EnergyNetworkSnapshot merged = manager.snapshotAt(leftAbs).orElseThrow();
+        helper.assertTrue(merged.storedFe() == 512 && merged.bufferOverflowFe() == 256
+                        && merged.totalBufferOverflowFe() == 256,
+                "合网必须守恒 512 FE 并记一次 256 FE 超额，实得 " + merged.storedFe() + "/"
+                        + merged.bufferOverflowFe() + "/" + merged.totalBufferOverflowFe());
+
+        helper.setBlock(extension, iron);
+        EnergyNetworkSnapshot afterFirst = manager.snapshotAt(leftAbs).orElseThrow();
+        helper.assertTrue(afterFirst.storedFe() == 512 && afterFirst.bufferOverflowFe() == 256,
+                "扩容不得改变存量与当期超额，实得 " + afterFirst.storedFe() + "/" + afterFirst.bufferOverflowFe());
+        helper.assertTrue(afterFirst.totalBufferOverflowFe() == 256,
+                "往超编网上再放一根线缆必须一分都不再计入累计超额, 实得 "
+                        + afterFirst.totalBufferOverflowFe() + " (重复计会得到 512)");
+
+        helper.setBlock(secondExtension, iron);
+        EnergyNetworkSnapshot afterSecond = manager.snapshotAt(leftAbs).orElseThrow();
+        helper.assertTrue(afterSecond.totalBufferOverflowFe() == 256,
+                "第二次扩容同样不得再计, 实得 " + afterSecond.totalBufferOverflowFe() + " (重复计会得到 768)");
+        helper.assertTrue(afterSecond.faults().contains(EnergyNetworkFault.BUFFER_OVERFLOW),
+                "仍在超编期间 BUFFER_OVERFLOW 故障必须继续挂着, 与是不是新事件无关");
+        helper.assertTrue(afterSecond.storedFe() == 512 && manager.debugNetworkSize(leftAbs) == 5,
+                "五根铁缆必须同属一网并共享这 512 FE，实得 " + afterSecond.storedFe() + "/"
+                        + manager.debugNetworkSize(leftAbs));
+        helper.succeed();
+    }
+
+    /**
+     * GameTest 的 empty 模板只有 1x1x1, 结构外的方块跨轮留在原地。同名用例第二轮跑时, 对着一根已经存在
+     * 且状态相同的线缆调 setBlock 是空操作 (原版 LevelChunk 直接短路), 于是上一轮的并网关系会原样带进来,
+     * 把"两张独立网各自打满"这类前置断言整体带偏。故新用例先把工作区清干净。
+     */
+    private static void clearCableWorkspace(GameTestHelper helper) {
+        // 从 x=1/z=1 起清: 相对坐标 (0,0,0) 是结构方块本体, 清掉它 GameTest 收尾取不到结构边界会直接炸。
+        for (int x = 1; x <= 5; x++) {
+            for (int y = 0; y <= 2; y++) {
+                for (int z = 1; z <= 4; z++) {
+                    helper.setBlock(new BlockPos(x, y, z), Blocks.AIR);
+                }
+            }
+        }
+    }
+
+    /**
+     * 合网超额必须由推阶段在随后若干 settlement 内消化干净, 且全程守恒: 送达量 + 距离损耗 + 余量 = 合网前总量。
+     * 该用例同时守住"消化完故障标记自行摘除", 防止玩家看到一条永远擦不掉的红字。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY,
+            batch = "energy_cable_overflow_drain", timeoutTicks = 80)
+    public static void mergeOverflowDrainsThroughConsumerWithoutLosingFe(GameTestHelper helper) {
+        EnergyNetworkManager manager = EnergyNetworkManager.get(helper.getLevel());
+        BlockState copper = PowerRegistry.CABLES.get(ConductorMaterial.COPPER).get().defaultBlockState();
+        BlockState iron = PowerRegistry.CABLES.get(ConductorMaterial.IRON).get().defaultBlockState();
+        BlockPos a = new BlockPos(2, 1, 1);
+        BlockPos bridge = new BlockPos(2, 1, 2);
+        BlockPos c = new BlockPos(2, 1, 3);
+        BlockPos aAbs = helper.absolutePos(a);
+        helper.setBlock(a, copper);
+        helper.setBlock(c, iron);
+        helper.assertTrue(manager.receiveIntoNetwork(aAbs, 1_280, false) == 1_280
+                        && manager.receiveIntoNetwork(helper.absolutePos(c), 256, false) == 256,
+                "铜网与铁网必须各自先打满 1280 / 256 FE");
+
+        helper.setBlock(bridge, iron);
+        CountingSink sink = new CountingSink();
+        manager.debugPutSyntheticEndpoint(helper.absolutePos(new BlockPos(2, 1, 4)), Direction.NORTH, sink);
+        helper.assertTrue(manager.storedAt(aAbs) == 1_536,
+                "合网瞬间必须完整保留 1536 FE，实得 " + manager.storedAt(aAbs));
+
+        helper.startSequence()
+                .thenIdle(1)
+                .thenExecute(() -> {
+                    int stored = manager.storedAt(aAbs);
+                    helper.assertTrue(stored > 256 && stored < 1_536,
+                            "超额必须逐 settlement 缓慢消化(仍高于 256 且已低于 1536)，实得 " + stored);
+                })
+                .thenIdle(20)
+                .thenExecute(() -> {
+                    EnergyNetworkSnapshot drained = manager.snapshotAt(aAbs).orElseThrow();
+                    helper.assertTrue(drained.storedFe() <= drained.bufferCapacityFe(),
+                            "超额必须在 21 tick 内回落到 256 FE 缓冲以内，实得存量/容量 "
+                                    + drained.storedFe() + "/" + drained.bufferCapacityFe());
+                    helper.assertTrue(sink.received() + drained.totalDistanceLossFe() + drained.storedFe() == 1_536,
+                            "送达量+距离损耗+余量必须精确守恒为 1536 FE，实得 "
+                                    + sink.received() + "+" + drained.totalDistanceLossFe() + "+"
+                                    + drained.storedFe());
+                    helper.assertTrue(sink.received() >= 1_280,
+                            "至少超额的那 1280 FE 必须真的送到消费端，实送 " + sink.received());
+                    helper.assertTrue(drained.totalBufferOverflowFe() == 1_280
+                                    && !drained.faults().contains(EnergyNetworkFault.BUFFER_OVERFLOW),
+                            "消化完累计超额必须停在 1280 FE 且故障标记自行摘除，实得 "
+                                    + drained.totalBufferOverflowFe() + "/" + drained.faults());
+                })
+                .thenExecute(manager::debugClearSyntheticEndpoints)
+                .thenSucceed();
+    }
+
+    /**
+     * 超额期间拉阶段必须整体跳过: 网上的电还没送完就一分都不再从发电端拉。对照组是同期未超额的等价网络,
+     * 它必须照常拉满 —— 没有对照组的话, 本用例会退化成"结算根本没跑"也能通过的空断言。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY,
+            batch = "energy_cable_overflow_pull", timeoutTicks = 60)
+    public static void overflowingNetworkStopsPullingFromProducers(GameTestHelper helper) {
+        EnergyNetworkManager manager = EnergyNetworkManager.get(helper.getLevel());
+        BlockState iron = PowerRegistry.CABLES.get(ConductorMaterial.IRON).get().defaultBlockState();
+        BlockPos left = new BlockPos(2, 1, 1);
+        BlockPos bridge = new BlockPos(2, 1, 2);
+        BlockPos right = new BlockPos(2, 1, 3);
+        BlockPos control = new BlockPos(6, 1, 1);
+        BlockPos leftAbs = helper.absolutePos(left);
+        helper.setBlock(left, iron);
+        helper.setBlock(right, iron);
+        helper.setBlock(control, iron);
+        helper.assertTrue(manager.receiveIntoNetwork(leftAbs, 256, false) == 256
+                        && manager.receiveIntoNetwork(helper.absolutePos(right), 256, false) == 256,
+                "两张铁网必须各自先打满 256 FE");
+        helper.setBlock(bridge, iron);
+
+        CountingSource overflowSource = new CountingSource(256);
+        CountingSource controlSource = new CountingSource(256);
+        manager.debugPutSyntheticEndpoint(helper.absolutePos(new BlockPos(2, 1, 0)), Direction.SOUTH,
+                overflowSource);
+        manager.debugPutSyntheticEndpoint(helper.absolutePos(new BlockPos(6, 1, 0)), Direction.SOUTH,
+                controlSource);
+
+        helper.startSequence()
+                .thenIdle(3)
+                .thenExecute(() -> {
+                    helper.assertTrue(manager.debugEndpointCountAt(leftAbs) == 1,
+                            "超额网必须真的被结算过并缓存到 1 个端点，实得 "
+                                    + manager.debugEndpointCountAt(leftAbs));
+                    helper.assertTrue(overflowSource.extractCalls() == 0 && overflowSource.extracted() == 0,
+                            "超额期间生产端不得被调用或被取走一分 FE，实得调用次数/取电量 "
+                                    + overflowSource.extractCalls() + "/" + overflowSource.extracted());
+                    helper.assertTrue(manager.storedAt(leftAbs) == 512,
+                            "无消费端时超额存量必须原样保留 512 FE，实得 " + manager.storedAt(leftAbs));
+                    helper.assertTrue(controlSource.extracted() == 256,
+                            "同期未超额的对照网必须把整段 256 FE 拉入缓冲，实得 " + controlSource.extracted());
+                })
+                .thenExecute(manager::debugClearSyntheticEndpoints)
+                .thenSucceed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY,
@@ -748,6 +1012,7 @@ public final class EnergyCableGameTests {
     private static class CountingSource implements IEnergyStorage {
         private int energy;
         private int extracted;
+        private int extractCalls;
 
         private CountingSource(int energy) {
             this.energy = energy;
@@ -757,6 +1022,11 @@ public final class EnergyCableGameTests {
             return extracted;
         }
 
+        /** 含 simulate 在内的抽取调用次数; 用于断言超额期间生产端被完全跳过而不只是抽到 0。 */
+        int extractCalls() {
+            return extractCalls;
+        }
+
         @Override
         public int receiveEnergy(int maxReceive, boolean simulate) {
             return 0;
@@ -764,6 +1034,7 @@ public final class EnergyCableGameTests {
 
         @Override
         public int extractEnergy(int maxExtract, boolean simulate) {
+            extractCalls++;
             int extractedNow = Math.min(maxExtract, energy);
             if (!simulate) {
                 energy -= extractedNow;

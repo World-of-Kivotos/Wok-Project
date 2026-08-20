@@ -27,8 +27,8 @@ public final class CableJadeProvider implements IBlockComponentProvider, IServer
     private static final String STORED = "stored";
     private static final String LAST_LOAD = "lastLoad";
     private static final String LOAD_RATIO = "loadRatio";
-    private static final String LAST_BUFFER_OVERFLOW_LOSS = "lastBufferOverflowLoss";
-    private static final String TOTAL_BUFFER_OVERFLOW_LOSS = "totalBufferOverflowLoss";
+    private static final String BUFFER_OVERFLOW = "bufferOverflow";
+    private static final String TOTAL_BUFFER_OVERFLOW = "totalBufferOverflow";
     private static final String LAST_DISTANCE_LOSS = "lastDistanceLoss";
     private static final String TOTAL_DISTANCE_LOSS = "totalDistanceLoss";
     private static final String VOLTAGE = "voltage";
@@ -57,8 +57,8 @@ public final class CableJadeProvider implements IBlockComponentProvider, IServer
         data.putInt(STORED, snapshot.storedFe());
         data.putInt(LAST_LOAD, snapshot.lastLoadFe());
         data.putDouble(LOAD_RATIO, snapshot.loadRatio());
-        data.putInt(LAST_BUFFER_OVERFLOW_LOSS, snapshot.lastBufferOverflowLossFe());
-        data.putLong(TOTAL_BUFFER_OVERFLOW_LOSS, snapshot.totalBufferOverflowLossFe());
+        data.putInt(BUFFER_OVERFLOW, snapshot.bufferOverflowFe());
+        data.putLong(TOTAL_BUFFER_OVERFLOW, snapshot.totalBufferOverflowFe());
         data.putInt(LAST_DISTANCE_LOSS, snapshot.lastDistanceLossFe());
         data.putLong(TOTAL_DISTANCE_LOSS, snapshot.totalDistanceLossFe());
         data.putString(VOLTAGE, snapshot.voltageLimit().name());
@@ -102,8 +102,8 @@ public final class CableJadeProvider implements IBlockComponentProvider, IServer
                 PowerJadeText.PROCESS_BRIGHT, PowerJadeText.PROCESS_DARK, LOAD_BAR);
         tooltip.add(PowerJadeText.metric("jade.miningdim.power.cable.faults",
                 PowerJadeText.enumList("jade.miningdim.power.network_fault", data.getString(FAULTS))));
-        tooltip.add(PowerJadeText.metric("jade.miningdim.power.cable.buffer_overflow_loss",
-                data.getInt(LAST_BUFFER_OVERFLOW_LOSS), data.getLong(TOTAL_BUFFER_OVERFLOW_LOSS)));
+        tooltip.add(PowerJadeText.metric("jade.miningdim.power.cable.buffer_overflow",
+                data.getInt(BUFFER_OVERFLOW), data.getLong(TOTAL_BUFFER_OVERFLOW)));
         tooltip.add(PowerJadeText.metric("jade.miningdim.power.cable.distance_loss",
                 data.getInt(LAST_DISTANCE_LOSS), data.getLong(TOTAL_DISTANCE_LOSS)));
     }

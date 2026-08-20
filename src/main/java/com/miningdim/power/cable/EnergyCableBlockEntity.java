@@ -44,7 +44,12 @@ public final class EnergyCableBlockEntity extends BlockEntity {
         @Override
         public int getEnergyStored() {
             EnergyNetworkManager manager = manager();
-            return manager == null ? 0 : manager.storedAt(worldPosition);
+            if (manager == null) {
+                return 0;
+            }
+            // 合网后本网存量可短暂高于木桶容量; 对外读数按 Forge IEnergyStorage 的事实约定夹在容量内, 否则
+            // 第三方 mod 用 max-stored 算余量会拿到负数。内部结算照旧用真实存量, 不受这层展示夹紧影响。
+            return Math.min(manager.storedAt(worldPosition), manager.capacityAt(worldPosition));
         }
 
         @Override

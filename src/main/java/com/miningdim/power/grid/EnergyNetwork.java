@@ -16,7 +16,9 @@ import java.util.Set;
  * 在 onLoad 时 flood-fill 重建)。
  *
  * 拓扑与端点由 {@link EnergyNetworkManager} 维护, 本类只持状态; 故字段包级可见、由 manager 直写。
- * stored 是瞬态导体缓冲 (非电池): 每 settlement 由 manager 抽空再分配, 上限 {@link #bufferCap}。
+ * stored 是瞬态导体缓冲 (非电池): 每 settlement 由 manager 抽空再分配, 稳态上限 {@link #bufferCap}。
+ * 合网是唯一例外 —— 两网存量相加而 bufferCap 取木桶最小值, stored 会短暂高于 bufferCap。那些电不是玩家的错
+ * 也不该凭空销毁, 由随后 settlement 的推阶段 (按 stored 而非 bufferCap 计量) 逐 tick 消化回落。
  *
  * 热学 (设计文档第三章): 网温 temperatureC 是每张网一个值; 材料剖面 (额定 / 降效 floor / 绝缘耐温) 均取
  * 网内最弱一段 (木桶效应), 仅成员增删时由 {@link #recomputeProfile} 重算并缓存, 绝不每 tick 算。
@@ -63,9 +65,11 @@ final class EnergyNetwork {
     /** 上一 settlement 实际送达用电端的 FE (供热学推进与 Jade 负载率显示)。 */
     int lastLoad;
 
-    /** 最近一次拓扑缓冲溢出及全生命周期溢出量；它们不是每 tick 传输损耗。 */
-    int lastBufferOverflowLossFe;
-    long totalBufferOverflowLossFe;
+    /**
+     * 全生命周期累计的合网超额量 (FE)。只在合网那一刻记一次事件量, 不是损耗账 —— 这些 FE 随后由推阶段
+     * 原样送出去; 当期超额量是 {@link #bufferOverflowFe} 的实时导出值, 不再另存一份会过期的快照。
+     */
+    long totalBufferOverflowFe;
 
     /** P3 距离传输损耗独立记账，避免与拓扑合网的缓冲溢出混淆。 */
     int lastDistanceLossFe;
@@ -99,6 +103,11 @@ final class EnergyNetwork {
         return ratedCap;
     }
 
+    /** 当期超出瞬态缓冲容量的存量 (FE); 合网瞬间为正, 被推阶段消化完即自然归零。 */
+    int bufferOverflowFe() {
+        return Math.max(0, stored - bufferCap());
+    }
+
     /** 当前网温下可用吞吐帽，供 manager 结算和只读快照复用。 */
     int effectiveCap() {
         double efficiency = hasStandardThermalCable
@@ -121,8 +130,8 @@ final class EnergyNetwork {
                 temperatureC,
                 lastLoad,
                 loadRatio,
-                lastBufferOverflowLossFe,
-                totalBufferOverflowLossFe,
+                bufferOverflowFe(),
+                totalBufferOverflowFe,
                 lastDistanceLossFe,
                 totalDistanceLossFe,
                 voltageLimit,

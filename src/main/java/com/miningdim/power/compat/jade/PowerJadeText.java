@@ -115,8 +115,10 @@ final class PowerJadeText {
     private static ChatFormatting statusColor(String name) {
         return switch (name) {
             case "RUNNING", "ACTIVE", "INSTALLED", "NONE" -> ChatFormatting.GREEN;
-            case "SCRAM", "MELTDOWN", "TRIPPED", "INSUFFICIENT", "OVER_VOLTAGE", "BUFFER_OVERFLOW",
+            case "SCRAM", "MELTDOWN", "TRIPPED", "INSUFFICIENT", "OVER_VOLTAGE",
                     "SUPERCONDUCTOR_QUENCH" -> ChatFormatting.RED;
+            // 缓冲超额只是"还没送完", 电一分不少且会自行消化, 不与熔毁/失超同级用红色。
+            case "BUFFER_OVERFLOW" -> ChatFormatting.YELLOW;
             case "IDLE", "ABSENT", "NOT_REQUIRED" -> ChatFormatting.GRAY;
             default -> ChatFormatting.AQUA;
         };

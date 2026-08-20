@@ -35,7 +35,7 @@
 - `EnergyCableBlockEntity`: 暴露 `ForgeCapabilities.ENERGY` 的 **receive-only** 能力(canReceive=true, canExtract=false), 挂网络缓冲。receive-only 杜绝"端点自拉 + manager push"双计。
 - `EnergyCableBlock`: EntityBlock, `neighborChanged` 标脏端点。
 - 反双计边界: 端点分类 canExtract=生产端(拉), canReceive 且非 canExtract=消费端(推); 两者皆真的电池 v1 当生产端(避免 churn)。
-- 网络硬化契约: 端点键固定为 `(BlockPos, Direction)`，同一方块多面接线不得互相覆盖；生产端和消费端均按稳定键排序并持久轮转游标，低容量竞争时不得因 `HashMap` 顺序长期饥饿。拆网时瞬态 FE 按各连通分量缓冲容量比例守恒分配；合网超过新容量时记录被丢弃 FE 与完整网络上下文，不得静默截断。
+- 网络硬化契约: 端点键固定为 `(BlockPos, Direction)`，同一方块多面接线不得互相覆盖；生产端和消费端均按稳定键排序并持久轮转游标，低容量竞争时不得因 `HashMap` 顺序长期饥饿。拆网时瞬态 FE 按各连通分量缓冲容量比例守恒分配；合网时两网存量直接相加，高于新木桶容量的部分记为待消化超额并连同完整网络上下文写日志，由随后 settlement 的推阶段（按 stored 而非 bufferCap 计量）消化回落，绝不裁剪丢弃 —— 玩家接一根线缆不得蒸发任何 FE，超额期间拉阶段整体停拉、注入路径安全拒收。唯一例外：整张网的最后一根线缆被拆除时没有任何幸存分量能承接瞬态缓冲，导体没了缓冲随之消失；这条路径必须按维度累计弃电量并打 WARN 日志（含维度、末根坐标、弃电量），绝不静默 return。合网超额只在**新产生**的那一刻计一次事件量：拓扑变更前就已存在的超额属于结转量，必须扣除后只记增量，否则往仍在超编的网上再放一根线缆（或区块重载时逐根 `onLoad` 并网）会把同一笔 FE 反复计入累计账。
 - 只读观测契约: manager 只向外提供不可变 `EnergyNetworkSnapshot`，字段至少包括额定容量、有效容量、温度、上次负载、损耗、全网最弱 `VoltageClass`、故障和冷却/失超状态；禁止把可变 `EnergyNetwork` 暴露给发电机、Jade 或其他调用方。
 - 电压抽取边界: 第三方 `ForgeCapabilities.ENERGY` 能源源默认 `LOW`。自研发电机显式报告输出 `VoltageClass`; 当源端电压高于该网所有成员中的最弱耐压时，manager 不从该源抽取，并向源端/日志报告超压拒绝，绝不把超压偷偷折算成热量或损耗。
 

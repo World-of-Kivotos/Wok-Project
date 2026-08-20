@@ -131,7 +131,10 @@ Forge 的 `IEnergyStorage` 全套接口是 **int**，上限 2,147,483,647。三�
 必须知情的既成事实（1.20 分支源码核实）：
 
 - `TransferHandler.getLimit()` 的实现是 `return mDisableLimit ? Long.MAX_VALUE : mLimit;`，GUI 有 "Bypass Limit" 复选框，勾选即无限带宽。`FluxConfig` 的 energy 段只有 `defaultLimit` 初始值，**没有任何 maxLimit 或禁止绕过的开关，服务端无法封堵**。故不存在"把 Flux 压成低带宽末梢与线缆共存"的方案。
-- `TileFluxStorage` **不暴露** `ForgeCapabilities.ENERGY`（仓库内只有 `TileFluxPlug` 与 `TileFluxPoint` 覆写了 `getCapability`）。储电必须经 Flux Plug 进入 Flux 网络，**储能与无线传输在 Flux 里绑死，无法靠裁剪配方拆分**。
+- `TileFluxStorage` **不暴露** `ForgeCapabilities.ENERGY`（仓库内只有 `TileFluxPlug` 与 `TileFluxPoint` 覆写了 `getCapability`）。储电必须经 Flux Plug 进入 Flux 网络，**储能与无线传输在 Flux 里绑死，无法靠裁剪配方拆分**。`TileFluxController` 与 `TileFluxConnector` 基类同样不暴露。
+- **Flux 从不主动从邻居抽电**（7.2.1.15 反编译核实）：`IBlockEnergyConnector.receiveFrom` 与 `canReceiveFrom` 在 device、connection 两包内**零调用点**，属 API 预留；真正干活的 `SideTransfer.send` 只被 `FluxPointHandler` 调用。即 **Point 是纯主动发送方**（调邻居 `receiveEnergy`），**Plug 是纯被动接收方**（坐等邻居调它的 `receiveEnergy`）。
+
+由上一条推出一个对玩家可见、且极易误判为"不兼容"的结论：**Flux Plug 必须贴在线缆上，贴储电池或机器一律恒为 0**。因为我方只有 `EnergyNetworkManager`（线缆网结算）会主动 push 给邻居，储电池、机器、发电机端口全是被动等调度，于是 Plug 贴上去就是双方互相干等。更具迷惑性的是 Flux 此时仍显示"已连接"——它的连接判据是 `canReceiveFrom(邻居) = 邻居.canExtract()`，我方储电池的 `canExtract` 确实为真（那是给我方 manager 抽电用的），于是 Flux 宣称能抽却从不真抽。该互操作边界已由 `FluxInteropGameTests` 用与 Flux 逐位一致的 capability 形状钉住。
 
 因此 Flux 的定位是终局奖励，靠配方难度控制解锁节奏，而非靠配置削弱。
 
@@ -141,11 +144,75 @@ Forge 的 `IEnergyStorage` 全套接口是 **int**，上限 2,147,483,647。三�
 | --- | --- | --- | --- |
 | `basicCapacity` | 2,000,000 | 3,538,944,000 | 三级储电 × 4 |
 | `herculeanCapacity` | 16,000,000 | 28,311,552,000 | 保持 Flux 原生 1 : 8 : 64 比例 |
-| `gargantuanCapacity` | 128,000,000 | 226,494,976,000 | 同上 |
+| `gargantuanCapacity` | 128,000,000 | 226,492,416,000 | 同上 |
 | `enableChunkLoading` | true | **false** | Flux 设备可强加载区块，公服性能与滥用双重风险 |
 | `maximumPerPlayer` | 5 | 待定 | 按公服在线规模重定 |
 
-**配方难度**：用本 mod 的 datapack 覆盖 Flux 同 id 配方，把 Flux Plug / Point / Controller / Storage 全线推到未来发电机之后。具体配方在实现期定，门槛不低于未来燃料芯（石墨烯 + YBCO 带 + 下界之星）。
+（订正：`gargantuanCapacity` 原文作 226,494,976,000，与 1 : 8 : 64 比例差 2,560,000，系笔算笔误；按 3,538,944,000 × 64 订正为 226,492,416,000。该值同时等于三级储电 884,736,000 × 256，与 3.3.1 的容量倍数表自洽。）
+
+**配方难度**：用本 mod 的 datapack 覆盖 Flux 同 id 配方，把 Flux Plug / Point / Controller / Storage 全线推到未来发电机之后，门槛不低于未来燃料芯（石墨烯 + YBCO 带 + 下界之星）。具体配方见 3.3.1。
+
+### 3.3.1 配方覆盖全表
+
+**计价锚。** 已落地的 `fluxcore.json` 覆盖配方是 `gyg / yny / gyg`（4 石墨烯片 + 4 YBCO 带 + 1 下界之星，产出 **1 个**），与 `future_fuel_core` 的配方逐字相同。故本节一律以
+
+> 1 flux_core = 1 未来燃料芯 = 1 颗下界之星 = **1 FC**
+
+为计价单位。原版该配方一次产出 4 个且用黑曜石 / flux_dust / 末影之眼，覆盖后单个成本抬升逾一个数量级，这是下面所有推算的起点。
+
+**为什么必须全线覆盖，而不只是"想加门槛"。** Flux 上层是逐级 ×6 的指数结构，被已经很贵的 core 一放大即失控。按原版配方逐级展开（1.20.1-7.2.1.15 实测）：
+
+| 物品 | 原版配方 | 折合 FC |
+| --- | --- | --- |
+| flux_core | 已覆盖 | 1 |
+| flux_block | 4 core + 5 dust | 4 |
+| flux_point | 4 core + 红石块 | 4 |
+| flux_plug | 4 core + 1 block | 8 |
+| flux_controller | 4 block + 1 core + 2 dust | 17 |
+| basic_flux_storage | 6 block + 2 玻璃板 | 24 |
+| herculean_flux_storage | 6 basic | 144 |
+| gargantuan_flux_storage | 6 herculean | **864** |
+
+864 颗下界之星等于 2592 个凋灵骷髅头。**不覆盖上层不是"太容易"，是根本造不出来**，故全线覆盖是可行性要求而非平衡要求。
+
+**flux_dust 不作门槛（管不到）。** dust 不来自任何配方：`EventHandler.onPlayerInteract` 是硬编码事件——左键点击火焰、火下方两格为黑曜石、把**红石粉**扔在火里即转化，仅受 serverconfig `enableFluxRecipe` 一个开关控制。datapack 无法覆盖事件逻辑，且原料就是红石粉。故门槛全部押在 flux_core 上，dust 视为免费。关掉 `enableFluxRecipe` 会连带切断 flux_block，不采用。
+
+**覆盖方案。**
+
+| 物品 | 覆盖配方 | FC | 状态 |
+| --- | --- | --- | --- |
+| flux_point | 1 core + 4 红石块 | 1 | 建议，待确认 |
+| flux_plug | 1 core + 我方中级导体 | 1 | 建议，待确认 |
+| flux_controller | 2 core + 石墨烯片 | 2 | 建议，待确认 |
+| basic_flux_storage | **4 未来储电池 + 2 flux_block + 2 石墨烯片** | 8 | **已定案** |
+| herculean_flux_storage | 1 basic + 4 未来储电池 + 2 flux_block | 16 | 已定案 |
+| gargantuan_flux_storage | 1 herculean + 4 未来储电池 + 2 flux_block | 24 | 已定案 |
+
+Storage 的 3×3 布局（三级同形，只换中心那级的输入方块）：
+
+    P B P      P = miningdim:future_power_cell
+    G   G      B = fluxnetworks:flux_block
+    P B P      G = miningdim:graphene_sheet
+
+**设计语义：容量 1:1 兑换，溢价买的是"无线"。** `basicCapacity` 取 3,538,944,000 = 三级储电 884,736,000 × 4，而配方投入正好是 **4 个**未来储电池——玩家付出的 4 个电池换回等量容量，多付的 2 个 flux_block（8 FC）与 2 个石墨烯片买的不是容量，是摆脱线缆本身。这条语义可直接写进 Wiki，也让自研三级储电池获得终局出口，不至于沦为被跳过的过渡件。
+
+**成本线性、容量指数。** 二三级若照搬"容量守恒"会退回指数陷阱（gargantuan 将需 512 颗星），故改为每级"上一级 + 同样一份料"：
+
+| 级别 | 累计 FC | 累计未来储电池 | 容量（= 单个三级储电的倍数） |
+| --- | --- | --- | --- |
+| basic | 8 | 4 | 4 |
+| herculean | 16 | 8 | 32 |
+| gargantuan | 24 | 12 | 256 |
+
+成本 8 / 16 / 24 线性爬升，容量 4 / 32 / 256 指数增长，规模效应即升级动力；满级全程 24 颗下界之星，较原版展开的 864 颗降低一个半数量级，且每一步玩家都清楚自己买到了什么。
+
+**三条实现约束。**
+
+1. `herculean` 与 `gargantuan` 的配方 type 是 **`fluxnetworks:flux_storage_recipe`**，不是普通 shaped。`FluxStorageRecipe.assemble` 会把输入方块的 `FluxData` NBT（含 `networkID` 与已存电量）转移到产物，即升级不丢电、不掉网络绑定。**覆盖时必须原样保留该 type**，改成 `minecraft:crafting_shaped` 会让玩家升级储能时电量与网络绑定当场清零。`basic_flux_storage` 原本就是普通 shaped，不受此限。
+2. 全部覆盖文件带 `forge:mod_loaded` 条件，沿用现有 `fluxcore.json` 的范式，未装 Flux 时配方不注册。
+3. `wipe_*` 六个配方（`NBTWipeRecipe`）是把存电方块还原成同级空方块，不产出新方块，不构成绕过途径，**不覆盖**。
+
+**与 serverconfig 的强耦合。** 本节成本表的全部依据是三级容量取 3,538,944,000 / 28,311,552,000 / 226,492,416,000。若 `fluxnetworks-server.toml` 未按 3.3 表改（默认仅 2M / 16M / 128M），则玩家花 8 FC 造出的 basic 容量还不到单个三级储电的 1/400，配方与容量彻底脱节。**配方覆盖与 serverconfig 必须同批次落地**，两者缺一不可，且后者按第七之二章结论只能由运维手工改或写进部署脚本。
 
 ---
 
@@ -266,7 +333,8 @@ Forge 的 `IEnergyStorage` 全套接口是 **int**，上限 2,147,483,647。三�
 | 电网支持双向端点 | 已落地 | `EnergyNetworkManager.settleNetwork` 拉/推各分两轮 |
 | 弹药产线电力接入 | 已落地 | `MunitionsProduction.settle` 第四门 + 军械台 FE 缓冲 + 手动路径闸 |
 | 护甲耗电 | 已落地 | `PlateArmorPowerCell` + `PlateArmorDamageHandler` |
-| Flux 配方覆盖 | 已落地 | `data/fluxnetworks/recipes/fluxcore.json`，带 `forge:mod_loaded` 条件 |
+| Flux 配方覆盖 | **部分落地** | 仅 `data/fluxnetworks/recipes/fluxcore.json`（带 `forge:mod_loaded` 条件）。Plug / Point / Controller / Storage 全线覆盖方案已定，见 3.3.1，尚未写入 |
+| Flux 互操作边界 | 已落地 | `FluxInteropGameTests`：Plug 形状被我方 push 喂电 / 未接网 Plug 被跳过且不挡同网负载 / Point 形状推入线缆的电可被消费端用掉 |
 | Flux serverconfig 五项 | **未落地** | 无法用 datapack 覆盖第三方 serverconfig，只能运维手工改，见下 |
 | 燃料芯成本重标 | **阻塞** | 缺物料 CP 定价表，见第五章订正 |
 
@@ -290,6 +358,6 @@ Forge 的 `IEnergyStorage` 全套接口是 **int**，上限 2,147,483,647。三�
 1. 燃料芯新配方的具体物料（与经济总表联评）。
 2. 护甲吸伤比例与耐久模型（与战斗环境标定联评）。
 3. Flux `maximumPerPlayer` 的公服取值。
-4. Flux 全线配方的 datapack 覆盖内容。
+4. Flux Plug / Point / Controller 三者的配方取值——即 3.3.1 覆盖表中标注"建议，待确认"的三行。Storage 三级已定案，其余部分同节已完稿。
 5. 三级储电的方块形态（单方块或多方块）与 GUI。
 6. 金导体取 3,200 还是保持 2,560 加 UI 提示。

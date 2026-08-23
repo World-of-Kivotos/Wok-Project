@@ -853,45 +853,45 @@ public final class FarmerGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void onCropHarvestedSettlesXpForMatureModCrop(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        FixedLevelJobService job = new FixedLevelJobService(5); // 等级不影响收获结算; 仅用其 grantXp 捕获。
-        IJobService prevJob = swapJob(job);
-        try {
-            FarmerSystem sys = new FarmerSystem();
-            BlockPos farmlandRel = new BlockPos(0, 1, 0);
-            BlockPos cropRel = new BlockPos(0, 2, 0); // 其 below == farmlandRel。
-            BlockPos cropAbs = helper.absolutePos(cropRel);
-            FarmerCropBlock cropBlock = (FarmerCropBlock) FarmerBlocks.FARMER_CROP.get();
-            BlockState matureCrop = cropBlock.getStateForAge(cropBlock.getMaxAge());
+        FarmerSystem sys = new FarmerSystem();
+        BlockPos farmlandRel = new BlockPos(0, 1, 0);
+        BlockPos cropRel = new BlockPos(0, 2, 0); // 其 below == farmlandRel。
+        BlockPos cropAbs = helper.absolutePos(cropRel);
+        FarmerCropBlock cropBlock = (FarmerCropBlock) FarmerBlocks.FARMER_CROP.get();
+        BlockState matureCrop = cropBlock.getStateForAge(cropBlock.getMaxAge());
+        long xpBefore = ExperienceServices.experienceService()
+                .snapshot(player, FarmerExperience.TRACK_ID).totalXp();
 
-            // 成熟 mod 作物 + 下方 LOW mod 耕地 -> 结算 rawXp = SINGLE_CROP_XP(2) * LOW.yield(2) = 4, 一次, 记 FARMER。
-            helper.setBlock(farmlandRel, FarmerBlocks.farmland(FarmerTier.LOW).get());
-            helper.setBlock(cropRel, matureCrop);
-            sys.onCropHarvested(new BlockEvent.BreakEvent(helper.getLevel(), cropAbs, matureCrop, player));
-            helper.assertTrue(job.grantXpCalls == 1 && job.lastJob == JobId.FARMER && job.lastRawXp == 4L,
-                    "mature mod crop over LOW mod farmland settles rawXp 4 to FARMER once, got calls="
-                            + job.grantXpCalls + " job=" + job.lastJob + " raw=" + job.lastRawXp);
+        // 成熟 mod 作物 + 下方 LOW mod 耕地 -> 通过全服经验路由结算 4 点 FARMER 经验。
+        helper.setBlock(farmlandRel, FarmerBlocks.farmland(FarmerTier.LOW).get());
+        helper.setBlock(cropRel, matureCrop);
+        sys.onCropHarvested(new BlockEvent.BreakEvent(helper.getLevel(), cropAbs, matureCrop, player));
+        long xpAfterMature = ExperienceServices.experienceService()
+                .snapshot(player, FarmerExperience.TRACK_ID).totalXp();
+        helper.assertTrue(xpAfterMature - xpBefore == 4L,
+                "mature mod crop over LOW mod farmland settles exactly 4 FARMER XP through wok-experience");
 
-            // 未成熟作物 (age 0) 破坏: 不结算 (第十章只认成熟态)。
-            job.reset();
-            sys.onCropHarvested(new BlockEvent.BreakEvent(
-                    helper.getLevel(), cropAbs, cropBlock.getStateForAge(0), player));
-            helper.assertTrue(job.grantXpCalls == 0, "immature mod crop break settles no xp");
+        // 未成熟作物 (age 0) 破坏: 不结算 (第十章只认成熟态)。
+        sys.onCropHarvested(new BlockEvent.BreakEvent(
+                helper.getLevel(), cropAbs, cropBlock.getStateForAge(0), player));
+        helper.assertTrue(ExperienceServices.experienceService()
+                        .snapshot(player, FarmerExperience.TRACK_ID).totalXp() == xpAfterMature,
+                "immature mod crop break settles no xp");
 
-            // 成熟 mod 作物但下方原版泥土 (tierBelow null): 不结算 (反扩建, 原版耕地上 mod 作物不产经验)。
-            job.reset();
-            helper.setBlock(farmlandRel, Blocks.DIRT);
-            sys.onCropHarvested(new BlockEvent.BreakEvent(helper.getLevel(), cropAbs, matureCrop, player));
-            helper.assertTrue(job.grantXpCalls == 0, "mature crop over vanilla dirt settles no xp (anti-sprawl)");
+        // 成熟 mod 作物但下方原版泥土 (tierBelow null): 不结算 (反扩建, 原版耕地上 mod 作物不产经验)。
+        helper.setBlock(farmlandRel, Blocks.DIRT);
+        sys.onCropHarvested(new BlockEvent.BreakEvent(helper.getLevel(), cropAbs, matureCrop, player));
+        helper.assertTrue(ExperienceServices.experienceService()
+                        .snapshot(player, FarmerExperience.TRACK_ID).totalXp() == xpAfterMature,
+                "mature crop over vanilla dirt settles no xp (anti-sprawl)");
 
-            // 非 mod 作物 (原版小麦) 破坏: 不结算 (只认 FarmerCropBlock)。
-            job.reset();
-            sys.onCropHarvested(new BlockEvent.BreakEvent(
-                    helper.getLevel(), cropAbs, Blocks.WHEAT.defaultBlockState(), player));
-            helper.assertTrue(job.grantXpCalls == 0, "non-mod crop break settles no xp");
-            helper.succeed();
-        } finally {
-            restoreJob(prevJob);
-        }
+        // 非 mod 作物 (原版小麦) 破坏: 不结算 (只认 FarmerCropBlock)。
+        sys.onCropHarvested(new BlockEvent.BreakEvent(
+                helper.getLevel(), cropAbs, Blocks.WHEAT.defaultBlockState(), player));
+        helper.assertTrue(ExperienceServices.experienceService()
+                        .snapshot(player, FarmerExperience.TRACK_ID).totalXp() == xpAfterMature,
+                "non-mod crop break settles no xp");
+        helper.succeed();
     }
 
     /*

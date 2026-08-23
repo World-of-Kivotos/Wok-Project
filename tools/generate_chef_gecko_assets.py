@@ -23,7 +23,6 @@ UV = {
     "food": [104, 188],
     "cloth": [148, 188],
     "fire": [192, 188],
-    "steam": [224, 188],
     "savory": [0, 120],
     "sweet": [24, 120],
     "oily": [48, 120],
@@ -365,10 +364,6 @@ def workstation_bones() -> list[dict[str, Any]]:
         bone("pot", pot, parent="workstation", pivot=(-7, 12, -1)),
         bone("pot_lid", lid, parent="pot", pivot=(-7, 17.2, -1)),
         bone("ladle", ladle, parent="pot", pivot=(-7, 16, -1), rotation=(0, 0, -18)),
-        bone("steam_left", [cube((-9.3, 18.3, -2.2), (1.1, 4.5, 1.1), "steam")],
-             parent="pot", pivot=(-8.75, 18.3, -1.65)),
-        bone("steam_right", [cube((-5.8, 18.8, 0.2), (1, 4, 1), "steam")],
-             parent="pot", pivot=(-5.3, 18.8, 0.7)),
         bone("prep", prep, parent="workstation"),
         bone("knife", knife, parent="prep", pivot=(9.8, 12.4, -3.1), rotation=(0, -8, 0)),
         *seasoning_bones,
@@ -396,8 +391,6 @@ def animation_data() -> dict[str, Any]:
                 "bones": {
                     "fire_core": hidden,
                     "fire_outer": hidden,
-                    "steam_left": hidden,
-                    "steam_right": hidden,
                     "pot_lid": {"rotation": {
                         "0.0": {"vector": [0, 0, -0.8]},
                         "2.0": {"vector": [0, 0, 0.8], "easing": "easeInOutSine"},
@@ -456,16 +449,6 @@ def animation_data() -> dict[str, Any]:
                             "1.8": {"vector": [0, 30, -15], "easing": "easeInOutSine"},
                             "2.4": {"vector": [0, -32, -20], "easing": "easeInOutSine"},
                         },
-                    },
-                    "steam_left": {
-                        "position": {"0.0": {"vector": [0, -1, 0]}, "2.4": {"vector": [-0.5, 4, 0.4]}},
-                        "scale": {"0.0": {"vector": [0.25, 0.2, 0.25]},
-                                  "1.2": {"vector": [1, 1.2, 1]}, "2.4": {"vector": [0, 1.5, 0]}},
-                    },
-                    "steam_right": {
-                        "position": {"0.0": {"vector": [0.5, 3.5, -0.3]}, "2.4": {"vector": [0, -1, 0]}},
-                        "scale": {"0.0": {"vector": [0, 1.4, 0]},
-                                  "1.2": {"vector": [0.9, 1.1, 0.9]}, "2.4": {"vector": [0.2, 0.2, 0.2]}},
                     },
                     "knife": {"rotation": {
                         "0.0": {"vector": [0, -8, 0]},
@@ -532,7 +515,6 @@ def build_atlas(path: Path, palette: tuple[tuple[int, int, int], ...]) -> None:
     paint_region(draw, (104, 188, 139, 223), (167, 85, 43), (91, 40, 24), (238, 155, 71))
     paint_region(draw, (148, 188, 183, 223), (216, 205, 172), (119, 91, 74), (248, 239, 206))
     paint_region(draw, (192, 188, 219, 223), (241, 92, 19), (170, 24, 9), (255, 213, 59), 220)
-    paint_region(draw, (224, 188, 251, 243), (223, 232, 229), (134, 151, 151), (255, 255, 255), 92)
     paint_seasoning_region(draw, (0, 120, 19, 139), (225, 220, 200), (139, 127, 105),
                             (255, 249, 226), ((4, 4, 6, 6, True), (12, 3, 13, 5, True),
                                               (6, 12, 8, 14, False), (14, 10, 16, 12, True)))
@@ -593,7 +575,7 @@ def build_preview(path: Path, bones: list[dict[str, Any]], palette: tuple[tuple[
         "dark_metal": (42, 47, 49), "pot": (58, 64, 66), "wood": (174, 119, 61),
         "red": (201, 58, 43), "yellow": (222, 157, 44), "green": (69, 136, 72),
         "food": (201, 101, 50), "cloth": (221, 210, 181), "fire": (247, 94, 18),
-        "steam": (207, 222, 218), "savory": (225, 220, 200), "sweet": (190, 122, 36),
+        "savory": (225, 220, 200), "sweet": (190, 122, 36),
         "oily": (213, 173, 45), "sour": (130, 154, 78), "spicy": (181, 48, 30),
         "aromatic": (67, 126, 61), "complex": (122, 70, 42), "glass": (168, 190, 194),
         "board": (181, 126, 68), "board_dark": (112, 72, 41), "blade": (170, 183, 185),
@@ -615,7 +597,7 @@ def build_preview(path: Path, bones: list[dict[str, Any]], palette: tuple[tuple[
         top = [project(p) for p in ((x1, y2, z1), (x2, y2, z1), (x2, y2, z2), (x1, y2, z2))]
         right = [project(p) for p in ((x2, y1, z1), (x2, y2, z1), (x2, y2, z2), (x2, y1, z2))]
         front = [project(p) for p in ((x1, y1, z2), (x1, y2, z2), (x2, y2, z2), (x2, y1, z2))]
-        alpha = 125 if item["_material"] == "steam" else 230 if item["_material"] == "fire" else 255
+        alpha = 230 if item["_material"] == "fire" else 255
         shade = lambda amount: tuple(max(0, min(255, channel + amount)) for channel in color) + (alpha,)
         draw.polygon(right, fill=shade(-10), outline=(16, 15, 17, alpha))
         draw.polygon(front, fill=shade(-28), outline=(16, 15, 17, alpha))

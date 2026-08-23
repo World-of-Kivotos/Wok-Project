@@ -24,6 +24,13 @@ UV = {
     "cloth": [148, 188],
     "fire": [192, 188],
     "steam": [224, 188],
+    "savory": [0, 120],
+    "sweet": [24, 120],
+    "oily": [48, 120],
+    "sour": [72, 120],
+    "spicy": [0, 148],
+    "aromatic": [24, 148],
+    "complex": [48, 148],
 }
 
 
@@ -135,15 +142,51 @@ def workstation_bones() -> list[dict[str, Any]]:
         cube((5, 12.3, -3.7), (5.3, 0.35, 1.2), "metal"),
         cube((9.8, 12.15, -3.85), (3, 0.7, 1.5), "wood"),
     ]
-    spice_bones = []
-    for name, x, material in (("spice_red", 6.3, "red"),
-                              ("spice_yellow", 9.3, "yellow"),
-                              ("spice_green", 12.3, "green")):
-        spice_bones.append(bone(name, [
-            cube((x, 15, 4.1), (2.2, 3.2, 2.2), material),
-            cube((x - 0.15, 18.2, 3.95), (2.5, 0.55, 2.5), "metal"),
-            cube((x + 0.45, 16, 3.8), (1.3, 1.1, 0.3), "cloth"),
-        ], parent="workstation", pivot=(x + 1.1, 15, 5.2)))
+    seasoning_bones = [
+        bone("seasoning_savory", [
+            cube((5.6, 15, 4.9), (1.55, 1.75, 1.3), "savory"),
+            cube((5.5, 16.75, 4.8), (1.75, 0.35, 1.5), "metal"),
+            cube((5.9, 15.5, 4.65), (0.95, 0.65, 0.25), "cloth"),
+        ], parent="workstation", pivot=(6.375, 15, 5.55)),
+        bone("seasoning_sweet", [
+            cube((7.95, 15, 4.9), (1.4, 1.85, 1.25), "sweet"),
+            cube((8.15, 16.85, 5.05), (1, 0.4, 0.95), "sweet"),
+            cube((8.32, 17.25, 5.2), (0.65, 0.55, 0.65), "sweet"),
+            cube((8.27, 17.8, 5.15), (0.75, 0.35, 0.75), "wood"),
+            cube((8.2, 15.55, 4.65), (0.9, 0.65, 0.25), "cloth"),
+        ], parent="workstation", pivot=(8.65, 15, 5.525)),
+        bone("seasoning_oily", [
+            cube((10.3, 15, 4.9), (1.3, 2.15, 1.2), "oily"),
+            cube((10.48, 17.15, 5.05), (0.94, 0.35, 0.9), "oily"),
+            cube((10.65, 17.5, 5.18), (0.6, 0.65, 0.64), "oily"),
+            cube((10.6, 18.15, 5.13), (0.7, 0.3, 0.74), "wood"),
+            cube((10.52, 15.65, 4.65), (0.86, 0.7, 0.25), "cloth"),
+        ], parent="workstation", pivot=(10.95, 15, 5.5)),
+        bone("seasoning_sour", [
+            cube((12.65, 15, 4.9), (1.4, 1.95, 1.25), "sour"),
+            cube((12.85, 16.95, 5.05), (1, 0.4, 0.95), "sour"),
+            cube((13.03, 17.35, 5.2), (0.64, 0.6, 0.65), "sour"),
+            cube((12.98, 17.95, 5.15), (0.74, 0.3, 0.75), "metal"),
+            cube((12.9, 15.6, 4.65), (0.9, 0.65, 0.25), "cloth"),
+        ], parent="workstation", pivot=(13.35, 15, 5.525)),
+        bone("seasoning_spicy", [
+            cube((6.7, 15, 3.55), (1.6, 1.65, 1.2), "spicy"),
+            cube((6.62, 16.65, 3.47), (1.76, 0.42, 1.36), "metal"),
+            cube((7.02, 15.48, 3.3), (0.96, 0.68, 0.25), "cloth"),
+        ], parent="workstation", pivot=(7.5, 15, 4.15)),
+        bone("seasoning_aromatic", [
+            cube((9.05, 15, 3.55), (1.6, 1.75, 1.2), "aromatic"),
+            cube((8.97, 16.75, 3.47), (1.76, 0.38, 1.36), "dark_metal"),
+            cube((9.37, 15.52, 3.3), (0.96, 0.68, 0.25), "cloth"),
+        ], parent="workstation", pivot=(9.85, 15, 4.15)),
+        bone("seasoning_complex", [
+            cube((11.4, 15, 3.5), (1.9, 1.25, 1.3), "complex"),
+            cube((11.3, 16.25, 3.4), (2.1, 0.25, 1.5), "metal"),
+            cube((11.55, 16.5, 3.65), (1.6, 0.18, 1), "complex"),
+            cube((11.78, 16.68, 3.82), (0.35, 0.22, 0.3), "spicy"),
+            cube((12.35, 16.68, 4.1), (0.4, 0.2, 0.32), "aromatic"),
+        ], parent="workstation", pivot=(12.35, 15, 4.15)),
+    ]
     fire_core = [
         cube((-10.5, 11.7, -3.2), (2, 2.8, 1.2), "fire", pivot=(-7, 12, -1), rotation=(0, 25, 0)),
         cube((-7.8, 11.7, -2.1), (1.6, 3.6, 1.2), "fire", pivot=(-7, 12, -1), rotation=(0, -20, 0)),
@@ -167,12 +210,22 @@ def workstation_bones() -> list[dict[str, Any]]:
              parent="pot", pivot=(-5.3, 18.8, 0.7)),
         bone("prep", prep, parent="workstation"),
         bone("knife", knife, parent="prep", pivot=(9.8, 12.4, -3.1), rotation=(0, -8, 0)),
-        *spice_bones,
+        *seasoning_bones,
     ]
 
 
 def animation_data() -> dict[str, Any]:
     hidden = {"scale": {"vector": [0, 0, 0]}}
+    seasoning_animation = {}
+    for index, name in enumerate(("seasoning_savory", "seasoning_sweet", "seasoning_oily",
+                                  "seasoning_sour", "seasoning_spicy", "seasoning_aromatic",
+                                  "seasoning_complex")):
+        start = index * 0.3
+        seasoning_animation[name] = {"position": {
+            f"{start:.1f}": {"vector": [0, 0, 0]},
+            f"{start + 0.2:.1f}": {"vector": [0, 0.75, 0], "easing": "easeOutBack"},
+            f"{start + 0.4:.1f}": {"vector": [0, 0, 0], "easing": "easeInQuad"},
+        }}
     return {
         "format_version": "1.8.0",
         "animations": {
@@ -262,15 +315,7 @@ def animation_data() -> dict[str, Any]:
                         "1.7": {"vector": [0, -8, 0], "easing": "easeOutBack"},
                         "2.4": {"vector": [0, -8, 0]},
                     }},
-                    "spice_red": {"position": {"0.0": {"vector": [0, 0, 0]},
-                                                  "0.35": {"vector": [0, 1.1, 0], "easing": "easeOutBack"},
-                                                  "0.7": {"vector": [0, 0, 0], "easing": "easeInQuad"}}},
-                    "spice_yellow": {"position": {"0.6": {"vector": [0, 0, 0]},
-                                                     "0.95": {"vector": [0, 1.1, 0], "easing": "easeOutBack"},
-                                                     "1.3": {"vector": [0, 0, 0], "easing": "easeInQuad"}}},
-                    "spice_green": {"position": {"1.2": {"vector": [0, 0, 0]},
-                                                    "1.55": {"vector": [0, 1.1, 0], "easing": "easeOutBack"},
-                                                    "1.9": {"vector": [0, 0, 0], "easing": "easeInQuad"}}},
+                    **seasoning_animation,
                 },
             },
         },
@@ -316,6 +361,13 @@ def build_atlas(path: Path, palette: tuple[tuple[int, int, int], ...]) -> None:
     paint_region(draw, (148, 188, 183, 223), (216, 205, 172), (119, 91, 74), (248, 239, 206))
     paint_region(draw, (192, 188, 219, 223), (241, 92, 19), (170, 24, 9), (255, 213, 59), 220)
     paint_region(draw, (224, 188, 251, 243), (223, 232, 229), (134, 151, 151), (255, 255, 255), 92)
+    paint_region(draw, (0, 120, 19, 139), (225, 220, 200), (139, 127, 105), (255, 249, 226))
+    paint_region(draw, (24, 120, 43, 139), (190, 122, 36), (99, 58, 23), (244, 185, 70))
+    paint_region(draw, (48, 120, 67, 139), (213, 173, 45), (123, 91, 23), (255, 224, 103))
+    paint_region(draw, (72, 120, 91, 139), (130, 154, 78), (67, 88, 46), (194, 210, 123))
+    paint_region(draw, (0, 148, 19, 167), (181, 48, 30), (91, 24, 22), (242, 98, 52))
+    paint_region(draw, (24, 148, 43, 167), (67, 126, 61), (30, 67, 34), (126, 181, 90))
+    paint_region(draw, (48, 148, 67, 167), (122, 70, 42), (64, 35, 26), (188, 112, 61))
     image.save(path, optimize=True)
 
 
@@ -334,7 +386,9 @@ def build_preview(path: Path, bones: list[dict[str, Any]], palette: tuple[tuple[
         "dark_metal": (42, 47, 49), "pot": (58, 64, 66), "wood": (174, 119, 61),
         "red": (201, 58, 43), "yellow": (222, 157, 44), "green": (69, 136, 72),
         "food": (201, 101, 50), "cloth": (221, 210, 181), "fire": (247, 94, 18),
-        "steam": (207, 222, 218),
+        "steam": (207, 222, 218), "savory": (225, 220, 200), "sweet": (190, 122, 36),
+        "oily": (213, 173, 45), "sour": (130, 154, 78), "spicy": (181, 48, 30),
+        "aromatic": (67, 126, 61), "complex": (122, 70, 42),
     }
     image = Image.new("RGBA", (760, 470), (24, 21, 25, 255))
     draw = ImageDraw.Draw(image)
@@ -359,7 +413,7 @@ def build_preview(path: Path, bones: list[dict[str, Any]], palette: tuple[tuple[
         draw.polygon(front, fill=shade(-28), outline=(16, 15, 17, alpha))
         draw.polygon(top, fill=shade(20), outline=(16, 15, 17, alpha))
     draw.text((22, 20), "WOK CHEF / GECKOLIB TWO-BLOCK WORKSTATION", fill=(242, 224, 180, 255))
-    draw.text((22, 42), "pot + lid + ladle + steam + fire + prep + knife + animated spice rack",
+    draw.text((22, 42), "pot + lid + ladle + steam + fire + prep + knife + seven-category seasoning rack",
               fill=(178, 172, 167, 255))
     image.save(path, optimize=True)
 

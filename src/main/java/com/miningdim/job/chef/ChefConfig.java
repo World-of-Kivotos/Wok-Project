@@ -154,9 +154,14 @@ public final class ChefConfig {
     public static final ForgeConfigSpec.IntValue QTE_MIN_GAP_TICKS;
     public static final ForgeConfigSpec.IntValue QTE_DIFFICULTY_TICKS_PER_QUALITY_TIER;
     public static final ForgeConfigSpec.IntValue QTE_EASE_TICKS_PER_CHEF_LEVEL;
+    public static final ForgeConfigSpec.IntValue QTE_RECOMMENDED_LEVELS_PER_QUALITY_TIER;
+    public static final ForgeConfigSpec.IntValue QTE_NOVICE_LEVELS_PER_EXTRA_CUE;
+    public static final ForgeConfigSpec.IntValue QTE_NOVICE_TIMING_PENALTY_TICKS_PER_LEVEL;
     public static final ForgeConfigSpec.IntValue QTE_COUNT;
     public static final ForgeConfigSpec.IntValue QTE_COUNT_PER_QUALITY_TIER;
     public static final ForgeConfigSpec.IntValue QTE_TABLE_TIERS_PER_REDUCTION;
+    public static final ForgeConfigSpec.IntValue QTE_EXTRA_CUES_PER_MISSING_TABLE_TIER;
+    public static final ForgeConfigSpec.IntValue QTE_TIMING_PENALTY_TICKS_PER_MISSING_TABLE_TIER;
     public static final ForgeConfigSpec.IntValue SEASONING_TABLE_MAX_TIER;
     public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_LOW_PER_MILLE;
     public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_MEDIUM_PER_MILLE;
@@ -366,11 +371,23 @@ public final class ChefConfig {
         QTE_DIFFICULTY_TICKS_PER_QUALITY_TIER = b.defineInRange(
                 "qteDifficultyTicksPerQualityTier", 4, 0, 300);
         QTE_EASE_TICKS_PER_CHEF_LEVEL = b.defineInRange("qteEaseTicksPerChefLevel", 1, 0, 300);
+        b.comment("recommended chef level rises by this amount per target-quality tier; selection remains unrestricted");
+        QTE_RECOMMENDED_LEVELS_PER_QUALITY_TIER = b.defineInRange(
+                "qteRecommendedLevelsPerQualityTier", 2, 1, 4);
+        b.comment("below the target's recommended level, each started group of missing levels adds one QTE cue");
+        QTE_NOVICE_LEVELS_PER_EXTRA_CUE = b.defineInRange("qteNoviceLevelsPerExtraCue", 2, 1, 10);
+        QTE_NOVICE_TIMING_PENALTY_TICKS_PER_LEVEL = b.defineInRange(
+                "qteNoviceTimingPenaltyTicksPerLevel", 1, 0, 20);
         QTE_COUNT = b.defineInRange("qteCount", 4, 4, 64);
         b.comment("additional QTE cues required by each target-quality tier above low");
         QTE_COUNT_PER_QUALITY_TIER = b.defineInRange("qteCountPerQualityTier", 1, 0, 16);
         b.comment("each complete group of table tiers removes one cue; default tiers 0/1/2/3/4 remove 0/0/1/1/2 cues");
         QTE_TABLE_TIERS_PER_REDUCTION = b.defineInRange("qteTableTiersPerReduction", 2, 2, 4);
+        b.comment("each target-quality tier above the table tier adds cues and shortens QTE timing without blocking selection");
+        QTE_EXTRA_CUES_PER_MISSING_TABLE_TIER = b.defineInRange(
+                "qteExtraCuesPerMissingTableTier", 1, 0, 16);
+        QTE_TIMING_PENALTY_TICKS_PER_MISSING_TABLE_TIER = b.defineInRange(
+                "qteTimingPenaltyTicksPerMissingTableTier", 1, 0, 20);
         SEASONING_TABLE_MAX_TIER = b.defineInRange("tableMaxTier", 4, 0, 4);
         b.pop();
 
@@ -658,6 +675,18 @@ public final class ChefConfig {
         return QTE_EASE_TICKS_PER_CHEF_LEVEL.get();
     }
 
+    public static int qteRecommendedLevelsPerQualityTier() {
+        return QTE_RECOMMENDED_LEVELS_PER_QUALITY_TIER.get();
+    }
+
+    public static int qteNoviceLevelsPerExtraCue() {
+        return QTE_NOVICE_LEVELS_PER_EXTRA_CUE.get();
+    }
+
+    public static int qteNoviceTimingPenaltyTicksPerLevel() {
+        return QTE_NOVICE_TIMING_PENALTY_TICKS_PER_LEVEL.get();
+    }
+
     public static int qteCount() {
         return QTE_COUNT.get();
     }
@@ -668,6 +697,14 @@ public final class ChefConfig {
 
     public static int qteTableTiersPerReduction() {
         return QTE_TABLE_TIERS_PER_REDUCTION.get();
+    }
+
+    public static int qteExtraCuesPerMissingTableTier() {
+        return QTE_EXTRA_CUES_PER_MISSING_TABLE_TIER.get();
+    }
+
+    public static int qteTimingPenaltyTicksPerMissingTableTier() {
+        return QTE_TIMING_PENALTY_TICKS_PER_MISSING_TABLE_TIER.get();
     }
 
     public static int seasoningTableMaxTier() {

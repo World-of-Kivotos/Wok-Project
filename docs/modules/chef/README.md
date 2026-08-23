@@ -15,7 +15,7 @@
 
 服务端配置文件为 `miningdim-chef.toml`，由 `ChefConfig.SPEC` 注册。配置分组包括：`xp`、`amplify`、`nourish_food`、`aftertaste_saturation`、`nourish_heal`、`shield`、`grease`、`aftertaste_regen`、`stable_aim`、`endurance`、`refresh`、`night_sight`、`satiation`、`exploration`、`effect_pool`、`minigame`、`quality_resolution`、`negatives` 和 `economy`。
 
-品质倍率、五档目标基础成功率、控火加成、单次 QTE 加成、高/超凡/闪耀目标难度倍率、低品质基础 QTE 数、每档品质增加的 QTE 数、台档 QTE 减免、QTE 可达窗口/间隔下限、每档品质 QTE 缩短 tick、每级厨师 QTE 放宽 tick、L1/L10 厨师熟练度倍率端点、台档成功率加成、战斗向效果的最大生命值比例、小游戏参数和信用点做菜成本均从此配置读取。所有厨师和台档均可选择全部品质；默认匹配台档 QTE 总数为低/中/高/超凡/闪耀 `4/5/5/6/6`。L1 使用低档台/闪耀台完美挑战闪耀约为 4.5%/5.4%，L10 使用匹配台档完美制作高/超凡/闪耀的上限约为 93.5%/74.8%/54.0%。客户端只读取同步状态，不参与服务端计时与概率结算。
+品质倍率、五档目标基础成功率、控火加成、单次 QTE 加成、高/超凡/闪耀目标难度倍率、低品质基础 QTE 数、每档品质增加的 QTE 数、推荐厨师等级步长、低等级额外 QTE 与时序惩罚、目标高于台档时的额外 QTE 与时序惩罚、台档 QTE 减免、QTE 可达窗口/间隔下限、每档品质 QTE 缩短 tick、每级厨师 QTE 放宽 tick、L1/L10 厨师熟练度倍率端点、台档成功率加成、战斗向效果的最大生命值比例、小游戏参数和信用点做菜成本均从此配置读取。所有厨师和台档均可选择全部品质；达到推荐等级并使用匹配台档时，默认 QTE 总数为低/中/高/超凡/闪耀 `4/5/5/6/6`。L1 使用低档台挑战高级为 10 次 QTE、6 tick 窗口，挑战闪耀为 16 次 QTE、4 tick 窗口；升级厨师等级和调味台会分别移除对应惩罚。客户端只读取同步状态，不参与服务端计时与概率结算。
 
 ## 注册清单
 

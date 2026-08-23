@@ -67,7 +67,7 @@ public final class SeasoningMenu extends AbstractMiningMenu {
         int chefLevel = ChefExperience.level(playerInv.player);
         ChefQuality tableTier = be.tierCap();
         for (ChefQuality quality : ChefQuality.values()) {
-            int cueCount = ChefQteTiming.cueCountFor(quality, tableTier);
+            int cueCount = ChefQteTiming.cueCountFor(quality, chefLevel, tableTier);
             targetPreviewChances[quality.tier()].set(ChefQualityResolver.successChancePerMille(
                     quality, 0.0D, 0, cueCount, chefLevel, tableTier));
             targetPreviewQteCounts[quality.tier()].set(cueCount);

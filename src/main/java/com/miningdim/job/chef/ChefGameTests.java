@@ -53,6 +53,21 @@ public final class ChefGameTests {
                 "level 1 chef is still capped to low quality");
         helper.assertTrue(ChefQualityResolver.selectableCap(ChefQuality.RADIANT, 9) == ChefQuality.RADIANT,
                 "level 9 chef can select radiant quality on a radiant table");
+        ChefQteTiming lowLevelOneTiming = ChefQteTiming.forChallenge(ChefQuality.LOW, 1);
+        ChefQteTiming mediumUnlockTiming = ChefQteTiming.forChallenge(ChefQuality.MEDIUM, 3);
+        ChefQteTiming highUnlockTiming = ChefQteTiming.forChallenge(ChefQuality.HIGH, 5);
+        ChefQteTiming extraordinaryUnlockTiming = ChefQteTiming.forChallenge(ChefQuality.EXTRAORDINARY, 7);
+        ChefQteTiming radiantUnlockTiming = ChefQteTiming.forChallenge(ChefQuality.RADIANT, 9);
+        ChefQteTiming radiantMaxLevelTiming = ChefQteTiming.forChallenge(ChefQuality.RADIANT, 10);
+        helper.assertTrue(lowLevelOneTiming.equals(new ChefQteTiming(20, 15, 35))
+                        && mediumUnlockTiming.equals(new ChefQteTiming(18, 13, 33))
+                        && highUnlockTiming.equals(new ChefQteTiming(16, 11, 31)),
+                "low through high target tiers progressively shorten QTE windows and cue gaps");
+        helper.assertTrue(extraordinaryUnlockTiming.equals(new ChefQteTiming(14, 9, 29))
+                        && radiantUnlockTiming.equals(new ChefQteTiming(12, 7, 27)),
+                "extraordinary and radiant targets retain their faster high-quality QTE pace");
+        helper.assertTrue(radiantMaxLevelTiming.equals(new ChefQteTiming(13, 8, 28)),
+                "one additional chef level visibly eases the same radiant challenge");
         int radiantBaseAtLevel9 = ChefQualityResolver.successChancePerMille(
                 ChefQuality.RADIANT, 0.0D, 0, cues, 9);
         int radiantOneHitAtLevel9 = ChefQualityResolver.successChancePerMille(

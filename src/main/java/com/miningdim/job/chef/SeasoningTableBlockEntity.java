@@ -87,6 +87,8 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
     @Nullable
     private ChefQuality targetQuality;
     private int chefLevelSnapshot = -1;
+    @Nullable
+    private ChefQteTiming qteTimingSnapshot;
     private int targetMet = -1;
     private int settlementChancePerMille = -1;
     private boolean greenZoneFeedbackPlayed;
@@ -212,7 +214,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
                 cueActive = true;
                 cuesSpawned++;
                 cueTarget = level.random.nextInt(4);
-                cueTimer = ChefConfig.qteWindowTicks();
+                cueTimer = activeQteTiming().windowTicks();
             }
         }
     }
@@ -252,9 +254,11 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
             reject(operator, "START", "目标品质超过调味台或厨师等级上限");
             return false;
         }
+        ChefQteTiming qteTiming = ChefQteTiming.forChallenge(requestedTarget, chefLevel);
         operatorUUID = operator.getUUID();
         targetQuality = requestedTarget;
         chefLevelSnapshot = chefLevel;
+        qteTimingSnapshot = qteTiming;
         targetMet = -1;
         settlementChancePerMille = -1;
         phase = PHASE_HEAT;
@@ -269,8 +273,9 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         heatGame.reset();
         setAnimationActive(true);
         setChanged();
-        LOGGER.info("Seasoning started player={} pos={} target={} cap={} chefLevel={}",
-                operator.getGameProfile().getName(), worldPosition, requestedTarget.id(), selectableCap.id(), chefLevel);
+        LOGGER.info("Seasoning started player={} pos={} target={} cap={} chefLevel={} qteWindow={} qteGap={}-{}",
+                operator.getGameProfile().getName(), worldPosition, requestedTarget.id(), selectableCap.id(), chefLevel,
+                qteTiming.windowTicks(), qteTiming.minGapTicks(), qteTiming.maxGapTicks());
         return true;
     }
 
@@ -444,6 +449,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         finalQuality = -1;
         targetQuality = null;
         chefLevelSnapshot = -1;
+        qteTimingSnapshot = null;
         targetMet = -1;
         settlementChancePerMille = -1;
         greenZoneFeedbackPlayed = false;
@@ -506,8 +512,15 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
     }
 
     private int randomCueGap() {
-        return ChefConfig.qteMinIntervalTicks()
-                + level.random.nextInt(ChefConfig.qteMaxIntervalTicks() - ChefConfig.qteMinIntervalTicks() + 1);
+        ChefQteTiming timing = activeQteTiming();
+        return timing.minGapTicks() + level.random.nextInt(timing.maxGapTicks() - timing.minGapTicks() + 1);
+    }
+
+    private ChefQteTiming activeQteTiming() {
+        if (qteTimingSnapshot == null) {
+            throw new IllegalStateException("Active seasoning transaction has no QTE timing at " + worldPosition);
+        }
+        return qteTimingSnapshot;
     }
 
     private void playFeedback(SoundEvent sound, float volume, float pitch, ParticleOptions particle, int count) {

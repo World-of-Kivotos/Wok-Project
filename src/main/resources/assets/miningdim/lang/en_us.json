@@ -432,7 +432,7 @@
   "effect.miningdim.chef_firefly": "Firefly",
   "screen.miningdim.chef.start": "Start seasoning",
   "screen.miningdim.chef.target_quality": "Target: %s",
-  "screen.miningdim.chef.success_chance": "Chance: %s",
+  "screen.miningdim.chef.success_chance": "Target chance: %s",
   "screen.miningdim.chef.selectable_cap": "Table tier: %s",
   "screen.miningdim.chef.target_missed": "Target missed; produced: %s",
   "screen.miningdim.chef.target_quality.short.low": "L",

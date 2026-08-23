@@ -120,12 +120,22 @@ public final class ChefGameTests {
                         ChefQuality.LOW, 0.0D, 0, lowLevelOneTiming.cueCount(), 1,
                         ChefQuality.LOW) == 1000,
                 "low quality remains the novice fallback and is not reduced by chef level");
-        helper.assertTrue(ChefQualityResolver.resolveTargetRoll(ChefQuality.RADIANT, 100, 99)
+        int[] qualityThresholds = {1000, 100, 85, 65, 29};
+        helper.assertTrue(ChefQualityResolver.resolveTargetRoll(
+                        ChefQuality.RADIANT, 28, quality -> qualityThresholds[quality.tier()])
                         == ChefQuality.RADIANT,
-                "a roll immediately below the success chance reaches the selected target");
-        helper.assertTrue(ChefQualityResolver.resolveTargetRoll(ChefQuality.RADIANT, 100, 100)
-                        == ChefQuality.EXTRAORDINARY,
-                "a roll at the failure boundary produces exactly one tier below the selected target");
+                "a roll immediately below the radiant threshold reaches the selected target");
+        helper.assertTrue(ChefQualityResolver.resolveTargetRoll(
+                        ChefQuality.RADIANT, 29, quality -> qualityThresholds[quality.tier()])
+                        == ChefQuality.EXTRAORDINARY
+                        && ChefQualityResolver.resolveTargetRoll(
+                        ChefQuality.RADIANT, 65, quality -> qualityThresholds[quality.tier()])
+                        == ChefQuality.HIGH,
+                "a missed target continues down the configured quality thresholds");
+        helper.assertTrue(ChefQualityResolver.resolveTargetRoll(
+                        ChefQuality.RADIANT, 100, quality -> qualityThresholds[quality.tier()])
+                        == ChefQuality.LOW,
+                "a roll missing every higher threshold falls back to low quality");
 
         List<ChefEffectType> lowPool = SeasoningEffectRoller.unlockedPool(10, ChefQuality.LOW);
         helper.assertTrue(lowPool.stream().noneMatch(ChefEffectType::isCombat),

@@ -432,7 +432,7 @@
   "effect.miningdim.chef_firefly": "流萤",
   "screen.miningdim.chef.start": "开始调味",
   "screen.miningdim.chef.target_quality": "目标：%s",
-  "screen.miningdim.chef.success_chance": "成功率：%s",
+  "screen.miningdim.chef.success_chance": "目标达成率：%s",
   "screen.miningdim.chef.selectable_cap": "调味台档位：%s",
   "screen.miningdim.chef.target_missed": "未达到目标，产出：%s",
   "screen.miningdim.chef.target_quality.short.low": "低",

@@ -2,10 +2,13 @@ package com.miningdim.job.chef;
 
 import net.minecraft.util.RandomSource;
 
+import java.util.function.ToIntFunction;
+
 /**
  * 目标品质挑战结算。所有台档均可选择全部品质；控火精度与正确 QTE 形成表现概率，
  * 再依次应用目标品质难度、厨师熟练度与调味台倍率，高档台只提供正向增益。
- * 服务端只掷一次；成功产出目标品质，未达成则降一档，避免完成小游戏后吞菜或空结算。
+ * 服务端只生成一个随机数，并从目标品质向下依次对照各档阈值；首个命中的档位成为成品品质，
+ * 全部高档阈值均未命中时回落到低品质，避免目标失败固定保底相邻高档。
  */
 public final class ChefQualityResolver {
 
@@ -50,14 +53,20 @@ public final class ChefQualityResolver {
 
     public static ChefQuality resolveTarget(RandomSource random, ChefQuality target, double heatAccuracy,
                                             int hits, int totalCues, int chefLevel, ChefQuality tableTier) {
-        int chance = successChancePerMille(target, heatAccuracy, hits, totalCues, chefLevel, tableTier);
-        return resolveTargetRoll(target, chance, random.nextInt(1000));
+        int roll = random.nextInt(1000);
+        return resolveTargetRoll(target, roll, candidate -> successChancePerMille(
+                candidate, heatAccuracy, hits, totalCues, chefLevel, tableTier));
     }
 
-    static ChefQuality resolveTargetRoll(ChefQuality target, int chancePerMille, int roll) {
-        if (chancePerMille == 1000 || roll < chancePerMille) {
-            return target;
+    static ChefQuality resolveTargetRoll(ChefQuality target, int roll,
+                                         ToIntFunction<ChefQuality> chancePerMille) {
+        ChefQuality candidate = target;
+        while (candidate != ChefQuality.LOW) {
+            if (roll < chancePerMille.applyAsInt(candidate)) {
+                return candidate;
+            }
+            candidate = ChefQuality.byTier(candidate.tier() - 1);
         }
-        return ChefQuality.byTier(target.tier() - 1);
+        return ChefQuality.LOW;
     }
 }

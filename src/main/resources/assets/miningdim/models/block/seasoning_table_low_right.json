@@ -1,0 +1,9 @@
+{
+  "parent": "miningdim:block/seasoning_table_template_right",
+  "textures": {
+    "top": "miningdim:block/seasoning_table_low_top",
+    "bottom": "miningdim:block/seasoning_table_low_bottom",
+    "side": "miningdim:block/seasoning_table_low_side",
+    "accent": "miningdim:block/seasoning_table_low_accent"
+  }
+}

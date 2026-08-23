@@ -1,5 +1,44 @@
 {
   "variants": {
-    "": { "model": "miningdim:block/seasoning_table_radiant" }
+    "facing=north,secondary=false": {
+      "model": "miningdim:block/seasoning_table_radiant_left",
+      "y": 0,
+      "uvlock": true
+    },
+    "facing=north,secondary=true": {
+      "model": "miningdim:block/seasoning_table_radiant_right",
+      "y": 0,
+      "uvlock": true
+    },
+    "facing=east,secondary=false": {
+      "model": "miningdim:block/seasoning_table_radiant_left",
+      "y": 90,
+      "uvlock": true
+    },
+    "facing=east,secondary=true": {
+      "model": "miningdim:block/seasoning_table_radiant_right",
+      "y": 90,
+      "uvlock": true
+    },
+    "facing=south,secondary=false": {
+      "model": "miningdim:block/seasoning_table_radiant_left",
+      "y": 180,
+      "uvlock": true
+    },
+    "facing=south,secondary=true": {
+      "model": "miningdim:block/seasoning_table_radiant_right",
+      "y": 180,
+      "uvlock": true
+    },
+    "facing=west,secondary=false": {
+      "model": "miningdim:block/seasoning_table_radiant_left",
+      "y": 270,
+      "uvlock": true
+    },
+    "facing=west,secondary=true": {
+      "model": "miningdim:block/seasoning_table_radiant_right",
+      "y": 270,
+      "uvlock": true
+    }
   }
 }

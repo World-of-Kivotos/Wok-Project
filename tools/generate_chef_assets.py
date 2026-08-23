@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "docs" / "assets" / "chef" / "chef_asset_style_source.png"
 TEXTURES = ROOT / "src" / "main" / "resources" / "assets" / "miningdim" / "textures"
 MODELS = ROOT / "src" / "main" / "resources" / "assets" / "miningdim" / "models" / "block"
+BLOCKSTATES = ROOT / "src" / "main" / "resources" / "assets" / "miningdim" / "blockstates"
 
 TIER_PALETTES = {
     "low": ((91, 62, 39), (51, 39, 32), (143, 132, 113)),
@@ -128,69 +129,126 @@ def model_box(start: tuple[float, float, float], end: tuple[float, float, float]
 
 
 def build_block_model() -> None:
-    """Build an identifiable one-block cooking station: stove, pot, board, rack and spice jars."""
+    """Build a true two-block-wide cooking station and split it into left/right block models."""
     MODELS.mkdir(parents=True, exist_ok=True)
+    BLOCKSTATES.mkdir(parents=True, exist_ok=True)
     elements = [
-        # Counter structure.
-        model_box((0, 8, 0), (16, 11, 16), "#side", "#top", "#bottom"),
-        model_box((2, 3, 2), (14, 4, 14), "#side", "#top", "#bottom"),
+        # Two-block counter structure with centre supports.
+        model_box((0, 8, 0), (32, 11, 16), "#side", "#top", "#bottom"),
+        model_box((2, 3, 2), (30, 4, 14), "#side", "#top", "#bottom"),
         model_box((1, 0, 1), (3, 8, 3), "#side", "#top", "#bottom"),
-        model_box((13, 0, 1), (15, 8, 3), "#side", "#top", "#bottom"),
         model_box((1, 0, 13), (3, 8, 15), "#side", "#top", "#bottom"),
-        model_box((13, 0, 13), (15, 8, 15), "#side", "#top", "#bottom"),
-        # Backboard and luminous tier strip.
-        model_box((0, 11, 14), (16, 16, 16), "#side", "#top", "#bottom"),
-        model_box((1, 13.5, 13.75), (15, 14.5, 14), "#accent"),
+        model_box((15, 0, 1), (17, 8, 3), "#side", "#top", "#bottom"),
+        model_box((15, 0, 13), (17, 8, 15), "#side", "#top", "#bottom"),
+        model_box((29, 0, 1), (31, 8, 3), "#side", "#top", "#bottom"),
+        model_box((29, 0, 13), (31, 8, 15), "#side", "#top", "#bottom"),
+        # Full-width backboard and tier strip.
+        model_box((0, 11, 14), (32, 16, 16), "#side", "#top", "#bottom"),
+        model_box((1, 13.5, 13.75), (31, 14.5, 14), "#accent"),
         # Left burner plate.
-        model_box((1, 11, 1), (9, 11.75, 9), "#metal", "#burner", "#metal"),
+        model_box((1.5, 11, 1), (14.5, 11.75, 12.5), "#metal", "#burner", "#metal"),
         # Hollow cooking pot and handles.
-        model_box((3, 11.75, 3), (7, 12.5, 7), "#pot"),
-        model_box((2.5, 12.5, 2.5), (3.25, 15, 7.5), "#pot"),
-        model_box((6.75, 12.5, 2.5), (7.5, 15, 7.5), "#pot"),
-        model_box((3.25, 12.5, 2.5), (6.75, 15, 3.25), "#pot"),
-        model_box((3.25, 12.5, 6.75), (6.75, 15, 7.5), "#pot"),
-        model_box((1.5, 13.25, 4.25), (2.5, 14, 5.75), "#metal"),
-        model_box((7.5, 13.25, 4.25), (8.5, 14, 5.75), "#metal"),
-        # Right cutting board and a slim knife.
-        model_box((9.5, 11, 1), (15, 11.4, 8.5), "#board", "#board", "#board"),
-        model_box((10.25, 11.4, 6.25), (14.5, 11.65, 6.75), "#metal"),
+        model_box((4, 11.75, 3), (12, 12.5, 10.5), "#pot"),
+        model_box((3.25, 12.5, 2.5), (4.25, 15.5, 11), "#pot"),
+        model_box((11.75, 12.5, 2.5), (12.75, 15.5, 11), "#pot"),
+        model_box((4.25, 12.5, 2.5), (11.75, 15.5, 3.5), "#pot"),
+        model_box((4.25, 12.5, 10), (11.75, 15.5, 11), "#pot"),
+        model_box((1.75, 13.25, 5.5), (3.25, 14.25, 8), "#metal"),
+        model_box((12.75, 13.25, 5.5), (14.25, 14.25, 8), "#metal"),
+        # Broad central cutting board and a slim knife.
+        model_box((17, 11, 1), (24, 11.4, 10.5), "#board", "#board", "#board"),
+        model_box((18, 11.4, 7.75), (23, 11.7, 8.35), "#metal"),
         # Raised seasoning shelf.
-        model_box((9.5, 11, 10), (15.5, 11.75, 14), "#side", "#accent", "#bottom"),
-        model_box((9.5, 11.75, 12.75), (15.5, 12.25, 14), "#accent"),
+        model_box((24, 11, 9), (31, 11.75, 14), "#side", "#accent", "#bottom"),
+        model_box((24, 11.75, 12.75), (31, 12.25, 14), "#accent"),
         # Three spice jars with metal lids.
-        model_box((10, 11.75, 10.5), (11.5, 14, 12), "#spice_red"),
-        model_box((10, 14, 10.5), (11.5, 14.4, 12), "#metal"),
-        model_box((12, 11.75, 10.5), (13.5, 14, 12), "#spice_yellow"),
-        model_box((12, 14, 10.5), (13.5, 14.4, 12), "#metal"),
-        model_box((14, 11.75, 10.5), (15.5, 14, 12), "#spice_green"),
-        model_box((14, 14, 10.5), (15.5, 14.4, 12), "#metal"),
+        model_box((24.5, 11.75, 10), (26.25, 14, 12), "#spice_red"),
+        model_box((24.5, 14, 10), (26.25, 14.4, 12), "#metal"),
+        model_box((26.75, 11.75, 10), (28.5, 14, 12), "#spice_yellow"),
+        model_box((26.75, 14, 10), (28.5, 14.4, 12), "#metal"),
+        model_box((29, 11.75, 10), (30.75, 14, 12), "#spice_green"),
+        model_box((29, 14, 10), (30.75, 14.4, 12), "#metal"),
     ]
-    model = {
+
+    textures = {
+        "particle": "#side",
+        "metal": "miningdim:block/seasoning_table_metal",
+        "pot": "miningdim:block/seasoning_table_pot",
+        "burner": "miningdim:block/seasoning_table_burner",
+        "board": "miningdim:block/seasoning_table_board",
+        "spice_red": "miningdim:block/seasoning_table_spice_red",
+        "spice_yellow": "miningdim:block/seasoning_table_spice_yellow",
+        "spice_green": "miningdim:block/seasoning_table_spice_green",
+    }
+    display = {
+        "gui": {"rotation": [30, 225, 0], "translation": [0, 0, 0], "scale": [0.55, 0.55, 0.55]},
+        "ground": {"translation": [0, 3, 0], "scale": [0.2, 0.2, 0.2]},
+        "fixed": {"scale": [0.35, 0.35, 0.35]},
+        "thirdperson_righthand": {"rotation": [75, 45, 0], "translation": [0, 2.5, 0],
+                                  "scale": [0.25, 0.25, 0.25]},
+        "firstperson_righthand": {"rotation": [0, 45, 0], "translation": [0, 0, 0],
+                                  "scale": [0.3, 0.3, 0.3]},
+    }
+
+    def shifted(element: dict, amount: float) -> dict:
+        copy = json.loads(json.dumps(element))
+        copy["from"][0] += amount
+        copy["to"][0] += amount
+        return copy
+
+    def clipped_half(element: dict, minimum: float, maximum: float) -> dict | None:
+        if element["to"][0] <= minimum or element["from"][0] >= maximum:
+            return None
+        copy = json.loads(json.dumps(element))
+        copy["from"][0] = max(copy["from"][0], minimum) - minimum
+        copy["to"][0] = min(copy["to"][0], maximum) - minimum
+        return copy
+
+    item_model = {
         "parent": "minecraft:block/block",
         "ambientocclusion": True,
-        "textures": {
-            "particle": "#side",
-            "metal": "miningdim:block/seasoning_table_metal",
-            "pot": "miningdim:block/seasoning_table_pot",
-            "burner": "miningdim:block/seasoning_table_burner",
-            "board": "miningdim:block/seasoning_table_board",
-            "spice_red": "miningdim:block/seasoning_table_spice_red",
-            "spice_yellow": "miningdim:block/seasoning_table_spice_yellow",
-            "spice_green": "miningdim:block/seasoning_table_spice_green",
-        },
-        "elements": elements,
-        "display": {
-            "gui": {"rotation": [30, 225, 0], "translation": [0, 0, 0], "scale": [0.75, 0.75, 0.75]},
-            "ground": {"translation": [0, 3, 0], "scale": [0.25, 0.25, 0.25]},
-            "fixed": {"scale": [0.5, 0.5, 0.5]},
-            "thirdperson_righthand": {"rotation": [75, 45, 0], "translation": [0, 2.5, 0],
-                                      "scale": [0.375, 0.375, 0.375]},
-            "firstperson_righthand": {"rotation": [0, 45, 0], "translation": [0, 0, 0],
-                                      "scale": [0.4, 0.4, 0.4]},
-        },
+        "textures": textures,
+        "elements": [shifted(element, -8) for element in elements],
+        "display": display,
     }
     (MODELS / "seasoning_table_template.json").write_text(
-        json.dumps(model, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        json.dumps(item_model, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    for half, bounds in (("left", (0, 16)), ("right", (16, 32))):
+        half_elements = [clipped_half(element, *bounds) for element in elements]
+        half_model = {
+            "parent": "minecraft:block/block",
+            "ambientocclusion": True,
+            "textures": textures,
+            "elements": [element for element in half_elements if element is not None],
+        }
+        (MODELS / f"seasoning_table_template_{half}.json").write_text(
+            json.dumps(half_model, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    tier_texture_keys = lambda tier: {
+        "top": f"miningdim:block/seasoning_table_{tier}_top",
+        "bottom": f"miningdim:block/seasoning_table_{tier}_bottom",
+        "side": f"miningdim:block/seasoning_table_{tier}_side",
+        "accent": f"miningdim:block/seasoning_table_{tier}_accent",
+    }
+    rotations = {"north": 0, "east": 90, "south": 180, "west": 270}
+    for tier in TIERS:
+        for suffix, parent in (("", "seasoning_table_template"),
+                               ("_left", "seasoning_table_template_left"),
+                               ("_right", "seasoning_table_template_right")):
+            child = {"parent": f"miningdim:block/{parent}", "textures": tier_texture_keys(tier)}
+            (MODELS / f"seasoning_table_{tier}{suffix}.json").write_text(
+                json.dumps(child, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        variants = {}
+        for facing, rotation in rotations.items():
+            for secondary, half in (("false", "left"), ("true", "right")):
+                variants[f"facing={facing},secondary={secondary}"] = {
+                    "model": f"miningdim:block/seasoning_table_{tier}_{half}",
+                    "y": rotation,
+                    "uvlock": True,
+                }
+        (BLOCKSTATES / f"seasoning_table_{tier}.json").write_text(
+            json.dumps({"variants": variants}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def slot(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:

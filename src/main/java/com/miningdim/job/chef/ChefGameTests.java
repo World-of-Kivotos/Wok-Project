@@ -1,8 +1,11 @@
 package com.miningdim.job.chef;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyServices;
+import com.miningdim.effect.ModJobEffects;
 import com.miningdim.progression.ExperienceServices;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
@@ -28,6 +31,9 @@ import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 import net.minecraftforge.registries.ForgeRegistries;
 
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Set;
 
@@ -150,6 +156,26 @@ public final class ChefGameTests {
                         && ChefConfig.seasoningNeutralWeight() == 1
                         && ChefConfig.complexVirtualHits() == 1,
                 "seasoning defaults keep 3:1 bias and one complex virtual hit");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void registeredWindowEffectsHaveClientTranslations(GameTestHelper helper) {
+        JsonObject zh = loadJsonResource("/assets/miningdim/lang/zh_cn.json");
+        JsonObject en = loadJsonResource("/assets/miningdim/lang/en_us.json");
+        List<MobEffect> effects = List.of(
+                ModJobEffects.CHEF_ENDURANCE.get(), ModJobEffects.CHEF_SATIATION.get(),
+                ModJobEffects.CHEF_SHIELD.get(), ModJobEffects.CHEF_GREASE.get(),
+                ModJobEffects.CHEF_AFTERTASTE_REGEN.get(), ModJobEffects.CHEF_STABLE_AIM.get(),
+                ModJobEffects.CHEF_FIRE_QUELL.get(), ModJobEffects.CHEF_GILLS.get(),
+                ModJobEffects.CHEF_FEATHER.get(), ModJobEffects.CHEF_FIREFLY.get());
+        for (MobEffect effect : effects) {
+            String key = effect.getDescriptionId();
+            helper.assertTrue(zh.has(key) && !zh.get(key).getAsString().isBlank(),
+                    "missing zh_cn translation for registered chef effect " + key);
+            helper.assertTrue(en.has(key) && !en.get(key).getAsString().isBlank(),
+                    "missing en_us translation for registered chef effect " + key);
+        }
         helper.succeed();
     }
 
@@ -594,6 +620,17 @@ public final class ChefGameTests {
     private static void finish(ChefConsumeHandler handler, net.minecraft.server.level.ServerPlayer player,
                                ItemStack stack) {
         handler.onFinishEating(new LivingEntityUseItemEvent.Finish(player, stack, 0, ItemStack.EMPTY));
+    }
+
+    private static JsonObject loadJsonResource(String path) {
+        try (InputStream in = ChefGameTests.class.getResourceAsStream(path)) {
+            if (in == null) {
+                throw new IllegalStateException("JSON resource not found on classpath: " + path);
+            }
+            return JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException("failed reading JSON resource: " + path, exception);
+        }
     }
 
     private record TableFixture(SeasoningTableBlockEntity table,

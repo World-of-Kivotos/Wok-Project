@@ -315,7 +315,7 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
     }
 
     private int displayedChancePerMille(int phase, ChefQuality target) {
-        return phase == 0 ? menu.targetBaseChancePerMille(target) : menu.successChancePerMille();
+        return phase == 0 ? menu.targetPreviewChancePerMille(target) : menu.successChancePerMille();
     }
 
     private static String formatChance(int perMille) {

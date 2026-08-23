@@ -53,15 +53,23 @@ public final class ChefGameTests {
                 "level 1 chef is still capped to low quality");
         helper.assertTrue(ChefQualityResolver.selectableCap(ChefQuality.RADIANT, 9) == ChefQuality.RADIANT,
                 "level 9 chef can select radiant quality on a radiant table");
-        int radiantBase = ChefQualityResolver.successChancePerMille(ChefQuality.RADIANT, 0.0D, 0, cues);
-        int radiantOneHit = ChefQualityResolver.successChancePerMille(ChefQuality.RADIANT, 0.0D, 1, cues);
-        int radiantPerfect = ChefQualityResolver.successChancePerMille(ChefQuality.RADIANT, 1.0D, cues, cues);
-        helper.assertTrue(radiantBase == 100 && radiantOneHit == 200,
-                "each correct QTE adds exactly ten percentage points to radiant success chance");
-        helper.assertTrue(radiantPerfect == 1000,
-                "perfect heat and all QTE hits guarantee the selected radiant target");
+        int radiantBaseAtLevel9 = ChefQualityResolver.successChancePerMille(
+                ChefQuality.RADIANT, 0.0D, 0, cues, 9);
+        int radiantOneHitAtLevel9 = ChefQualityResolver.successChancePerMille(
+                ChefQuality.RADIANT, 0.0D, 1, cues, 9);
+        int radiantPerfectAtLevel9 = ChefQualityResolver.successChancePerMille(
+                ChefQuality.RADIANT, 1.0D, cues, cues, 9);
+        int radiantPerfectAtLevel10 = ChefQualityResolver.successChancePerMille(
+                ChefQuality.RADIANT, 1.0D, cues, cues, 10);
+        helper.assertTrue(radiantBaseAtLevel9 == 94 && radiantOneHitAtLevel9 == 189,
+                "a correct QTE increases the level-adjusted radiant success chance");
+        helper.assertTrue(radiantPerfectAtLevel9 == 944 && radiantPerfectAtLevel10 == 1000,
+                "the same perfect performance succeeds more often as chef level rises");
+        helper.assertTrue(ChefQualityResolver.successChancePerMille(
+                        ChefQuality.LOW, 0.0D, 0, cues, 1) == 1000,
+                "low quality remains the novice fallback and is not reduced by chef level");
         helper.assertTrue(ChefQualityResolver.resolveTarget(
-                        RandomSource.create(0xC0FFEE12L), ChefQuality.RADIANT, 1.0D, cues, cues)
+                        RandomSource.create(0xC0FFEE12L), ChefQuality.RADIANT, 1.0D, cues, cues, 10)
                         == ChefQuality.RADIANT,
                 "a guaranteed target roll produces the selected quality");
         helper.assertTrue(ChefQualityResolver.resolveTargetRoll(ChefQuality.RADIANT, 100, 99)

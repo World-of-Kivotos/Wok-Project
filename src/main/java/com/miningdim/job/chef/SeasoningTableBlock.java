@@ -15,6 +15,7 @@ import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.EntityBlock;
+import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.BlockEntityType;
@@ -38,14 +39,16 @@ import java.util.Map;
  * 调味台方块 (Chef_Job_DesignSpec 第四章; 5 档实例 低/中/高/超凡/闪耀, 同工程师五档生产台思路)。
  *
  * 每档携带 {@link #tierCap()} = 本档能产出的最高品质上限 (做菜时与厨师等级取 min 双重封顶)。右键服务端开 GUI
- * (NetworkHooks.openScreen)。继承普通 {@link Block} 实现 {@link EntityBlock} (与 EntranceBlock 同范式, 保
- * RenderShape.MODEL 正常渲染)。服务端权威: 客户端 use 仅回 SUCCESS 触发挥手。
+ * (NetworkHooks.openScreen)。继承普通 {@link Block} 实现 {@link EntityBlock}，主格使用 GeckoLib 的
+ * ENTITYBLOCK_ANIMATED 渲染完整双格模型。服务端权威: 客户端 use 仅回 SUCCESS 触发挥手。
  */
 public final class SeasoningTableBlock extends Block implements EntityBlock {
 
     public static final DirectionProperty FACING = BlockStateProperties.HORIZONTAL_FACING;
     /** false=主台/左半，拥有方块实体；true=右半，只负责模型、碰撞和交互转发。 */
     public static final BooleanProperty SECONDARY = BooleanProperty.create("secondary");
+    /** 服务器权威烹饪状态；同步到两半，供 GeckoLib 客户端动画选择器读取。 */
+    public static final BooleanProperty ACTIVE = BlockStateProperties.LIT;
 
     private static final VoxelShape PRIMARY_NORTH_SHAPE = Shapes.or(
             Block.box(0.0D, 8.0D, 0.0D, 16.0D, 11.0D, 16.0D),
@@ -71,7 +74,8 @@ public final class SeasoningTableBlock extends Block implements EntityBlock {
         this.tierCap = tierCap;
         registerDefaultState(stateDefinition.any()
                 .setValue(FACING, Direction.NORTH)
-                .setValue(SECONDARY, false));
+                .setValue(SECONDARY, false)
+                .setValue(ACTIVE, false));
     }
 
     /** 本档调味台能产出的最高品质 (与厨师等级取 min)。 */
@@ -81,7 +85,7 @@ public final class SeasoningTableBlock extends Block implements EntityBlock {
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(FACING, SECONDARY);
+        builder.add(FACING, SECONDARY, ACTIVE);
     }
 
     @Nullable
@@ -116,6 +120,12 @@ public final class SeasoningTableBlock extends Block implements EntityBlock {
     public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos,
                                         CollisionContext context) {
         return getShape(state, level, pos, context);
+    }
+
+    @Override
+    public RenderShape getRenderShape(BlockState state) {
+        // 主台方块实体一次渲染完整双格 Geo 模型；右半仅保留碰撞与交互，避免重复绘制。
+        return state.getValue(SECONDARY) ? RenderShape.INVISIBLE : RenderShape.ENTITYBLOCK_ANIMATED;
     }
 
     @Override
@@ -201,6 +211,23 @@ public final class SeasoningTableBlock extends Block implements EntityBlock {
         BlockPos secondaryPos = connectedPos(primaryPos, primaryState);
         if (level.getBlockState(secondaryPos).isAir()) {
             level.setBlock(secondaryPos, primaryState.setValue(SECONDARY, true), Block.UPDATE_ALL);
+        }
+    }
+
+    void setStructureActive(Level level, BlockPos primaryPos, boolean active) {
+        BlockState primaryState = level.getBlockState(primaryPos);
+        // 方块拆除时 BlockEntity 的缓存状态仍可能是旧调味台；不得把新方块当成调味台读属性。
+        if (!primaryState.is(this) || primaryState.getValue(SECONDARY)) {
+            return;
+        }
+        if (primaryState.getValue(ACTIVE) != active) {
+            level.setBlock(primaryPos, primaryState.setValue(ACTIVE, active), Block.UPDATE_CLIENTS);
+            primaryState = level.getBlockState(primaryPos);
+        }
+        BlockPos secondaryPos = connectedPos(primaryPos, primaryState);
+        BlockState secondaryState = level.getBlockState(secondaryPos);
+        if (isMatchingHalf(primaryState, secondaryState) && secondaryState.getValue(ACTIVE) != active) {
+            level.setBlock(secondaryPos, secondaryState.setValue(ACTIVE, active), Block.UPDATE_CLIENTS);
         }
     }
 

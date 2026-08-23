@@ -7,6 +7,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from generate_chef_gecko_assets import build_gecko_assets
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "docs" / "assets" / "chef" / "chef_asset_style_source.png"
@@ -242,11 +244,12 @@ def build_block_model() -> None:
         variants = {}
         for facing, rotation in rotations.items():
             for secondary, half in (("false", "left"), ("true", "right")):
-                variants[f"facing={facing},secondary={secondary}"] = {
-                    "model": f"miningdim:block/seasoning_table_{tier}_{half}",
-                    "y": rotation,
-                    "uvlock": True,
-                }
+                for lit in ("false", "true"):
+                    variants[f"facing={facing},lit={lit},secondary={secondary}"] = {
+                        "model": f"miningdim:block/seasoning_table_{tier}_{half}",
+                        "y": rotation,
+                        "uvlock": True,
+                    }
         (BLOCKSTATES / f"seasoning_table_{tier}.json").write_text(
             json.dumps({"variants": variants}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -414,6 +417,7 @@ def main() -> None:
     source = Image.open(SOURCE).convert("RGBA")
     build_block_textures(source)
     build_block_model()
+    build_gecko_assets(ROOT, TIER_PALETTES)
     build_gui(source)
     build_icons(source)
     build_preview()

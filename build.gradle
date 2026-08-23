@@ -108,12 +108,24 @@ repositories {
     maven { url = 'https://maven.parchmentmc.org/' }
     maven { url = 'https://maven.blamejared.com/' }
     maven { url = 'https://api.modrinth.com/maven' }
+    maven {
+        name = 'GeckoLib'
+        url = 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/'
+        content {
+            includeGroupByRegex('software\\.bernie.*')
+            includeGroup('com.eliotlash.mclib')
+        }
+    }
     flatDir { dirs 'libs' }
 }
 
 dependencies {
     // Forge MDK 基础: forge 自带 Minecraft + 全部原版依赖
     minecraft "net.minecraftforge:forge:${forge_full_version}"
+
+    // 厨师双格料理工位使用 GeckoLib 4 的 GeoBlockEntity/GeoBlockRenderer。服务器最终环境统一安装
+    // GeckoLib，故这里采用正式强依赖并钉死 1.20.1 的 4.8.2 编译 API，不做反射降级路径。
+    implementation fg.deobf("software.bernie.geckolib:geckolib-forge-${mc_version}:${geckolib_version}")
 
     // 外部 mod 依赖 (本地 jar, 仅编译期 API): 军火商接 TACZ (com.tacz.guns.api.*),
     //   精英怪/特勤接 Champions (top.theillusivec4.champions.api.*)。用 compileOnly 不上 dev 运行期 classpath:

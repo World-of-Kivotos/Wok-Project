@@ -15,7 +15,7 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 | WOK-市场 | 市场 action、列表字段和市场语言键；当前与 WebUI 共用页面文件时按 action 区段维护 |
 | WOK-农夫 | `farmer_*`，`recipes/farmer/`，`tags/blocks/farmer_farmland.json` |
 | WOK-铸甲师 | `production_table_*`、`nano_plate_*`、`plate_armor_*`、`plasma_shield_*`、护甲/护盾声音与模型 |
-| WOK-厨师 | `seasoning_table_*` 方块状态/模型/物品模型；`recipes/chef/`；`tags/items/seasonings*.json`、`unseasonable.json`、`chef_amplify_item_blacklist.json`；`tags/mob_effects/chef_amplify_effect_blacklist.json`；共享语言文件中 `chef.*` 与 `screen.miningdim.chef.*` 键 |
+| WOK-厨师 | `seasoning_table_*` 方块状态/静态模型/物品模型/纹理；`geo/block/seasoning_table.geo.json`、`animations/block/seasoning_table.animation.json` 与五档 `seasoning_table_*_geo.png`；`gui/seasoning_table.png`；`mob_effect/chef_*.png`；`recipes/chef/`；`tags/items/seasonings*.json`、`unseasonable.json`、`chef_amplify_item_blacklist.json`；`tags/mob_effects/chef_amplify_effect_blacklist.json`；共享语言文件中 `chef.*` 与 `screen.miningdim.chef.*` 键 |
 | WOK-酿酒师 | `brewing_station*`、`wine_cellar*`、`wine_*`、`dried_wheat`、`recipes/brewer/` |
 | WOK-塔罗师 | `tarot_*`、`data/miningdim/tarot/`、`sounds/job/tarot/` |
 | WOK-军火商 | `munitions_*`、`gunsmith_*`、弹药/推进剂/底火/弹壳、`custom/miningdim_gunsmith/`、军械声音 |

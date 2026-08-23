@@ -68,6 +68,8 @@ public final class ChefGameTests {
                 ChefQuality.RADIANT, 1, ChefQuality.RADIANT);
         ChefQteTiming radiantOnLowTableTiming = ChefQteTiming.forChallenge(
                 ChefQuality.RADIANT, 1, ChefQuality.LOW);
+        ChefQteTiming highOnLowTableTiming = ChefQteTiming.forChallenge(
+                ChefQuality.HIGH, 1, ChefQuality.LOW);
         helper.assertTrue(lowLevelOneTiming.equals(new ChefQteTiming(4, 20, 15, 35, 10))
                         && mediumLevelThreeTiming.equals(new ChefQteTiming(5, 18, 13, 33, 9))
                         && highLevelFiveTiming.equals(new ChefQteTiming(5, 16, 11, 31, 8)),
@@ -76,10 +78,13 @@ public final class ChefGameTests {
                         && radiantLevelNineTiming.equals(new ChefQteTiming(6, 12, 7, 27, 6)),
                 "extraordinary and radiant matching tables remove one and two cues respectively");
         helper.assertTrue(radiantMaxLevelTiming.equals(new ChefQteTiming(6, 13, 8, 28, 7))
-                        && radiantLevelOneTiming.equals(new ChefQteTiming(6, 4, 3, 19, 4))
-                        && radiantOnLowTableTiming.equals(new ChefQteTiming(8, 4, 3, 19, 4)),
-                "low tables allow radiant challenges but provide no cue reduction");
-        helper.assertTrue(ChefQteTiming.cueCountFor(ChefQuality.HIGH, ChefQuality.RADIANT) == 4,
+                        && radiantLevelOneTiming.equals(new ChefQteTiming(10, 4, 3, 11, 4)),
+                "a level 1 chef receives four extra cues and tighter pacing on radiant quality");
+        helper.assertTrue(radiantOnLowTableTiming.equals(new ChefQteTiming(16, 4, 3, 7, 4))
+                        && highOnLowTableTiming.equals(new ChefQteTiming(10, 6, 3, 21, 4)),
+                "low tables compound missing-tier and novice penalties on advanced targets");
+        helper.assertTrue(ChefQteTiming.cueCountFor(
+                        ChefQuality.HIGH, 10, ChefQuality.RADIANT) == 4,
                 "a radiant table removes two cues from a high-quality target");
         int cues = radiantLevelNineTiming.cueCount();
         int radiantBaseAtLevel9 = ChefQualityResolver.successChancePerMille(
@@ -300,8 +305,8 @@ public final class ChefGameTests {
                 "low table exposes every target quality to a level 1 chef");
         helper.assertTrue(fixture.table.startCooking(fixture.player, ChefQuality.RADIANT.tier()),
                 "level 1 chef can request a radiant target on a low table");
-        helper.assertTrue(fixture.menu.qteCount() == 8 && fixture.menu.successChancePerMille() == 5,
-                "low-table novice radiant challenge keeps all eight cues and a very low initial chance");
+        helper.assertTrue(fixture.menu.qteCount() == 16 && fixture.menu.successChancePerMille() == 5,
+                "low-table novice radiant challenge compounds sixteen cues with a very low initial chance");
         fixture.table.cancelCooking(fixture.player, "test resets the accepted radiant challenge");
         helper.assertTrue(fixture.table.startCooking(fixture.player, ChefQuality.LOW.tier()),
                 "first operator locks the table");

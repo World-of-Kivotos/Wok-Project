@@ -97,7 +97,8 @@ public final class SeasoningTableGeoRenderer {
                 return;
             }
             poseStack.pushPose();
-            poseStack.translate(modelX / 16.0F, 12.08F / 16.0F, modelZ / 16.0F);
+            // Gecko 的 Bedrock 几何烘焙会镜像模型 X 轴，运行时叠加物也必须使用同一变换。
+            poseStack.translate(-modelX / 16.0F, 12.08F / 16.0F, modelZ / 16.0F);
             poseStack.mulPose(Axis.YP.rotationDegrees(yaw));
             poseStack.mulPose(Axis.XP.rotationDegrees(90.0F));
             poseStack.scale(scale, scale, scale);

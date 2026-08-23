@@ -159,6 +159,8 @@ public final class ChefConfig {
     public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_RADIANT_PER_MILLE;
     public static final ForgeConfigSpec.IntValue TARGET_HEAT_BONUS_PER_MILLE;
     public static final ForgeConfigSpec.IntValue TARGET_QTE_HIT_BONUS_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue LEVEL_1_SUCCESS_MULTIPLIER_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue LEVEL_10_SUCCESS_MULTIPLIER_PER_MILLE;
     public static final ForgeConfigSpec.IntValue QUALITY_MEDIUM_UNLOCK_LEVEL;
     public static final ForgeConfigSpec.IntValue QUALITY_HIGH_UNLOCK_LEVEL;
     public static final ForgeConfigSpec.IntValue QUALITY_EXTRAORDINARY_UNLOCK_LEVEL;
@@ -364,6 +366,9 @@ public final class ChefConfig {
         TARGET_BASE_CHANCE_RADIANT_PER_MILLE = b.defineInRange("targetBaseChanceRadiantPerMille", 100, 0, 1000);
         TARGET_HEAT_BONUS_PER_MILLE = b.defineInRange("targetHeatBonusPerMille", 500, 0, 1000);
         TARGET_QTE_HIT_BONUS_PER_MILLE = b.defineInRange("targetQteHitBonusPerMille", 100, 0, 1000);
+        b.comment("chef-level multiplier applied to MEDIUM and higher targets after performance bonuses; intermediate levels are linearly interpolated");
+        LEVEL_1_SUCCESS_MULTIPLIER_PER_MILLE = b.defineInRange("level1SuccessMultiplierPerMille", 500, 0, 1000);
+        LEVEL_10_SUCCESS_MULTIPLIER_PER_MILLE = b.defineInRange("level10SuccessMultiplierPerMille", 1000, 0, 1000);
         b.comment("chef level gates for medium/high/extraordinary/radiant quality");
         QUALITY_MEDIUM_UNLOCK_LEVEL = b.defineInRange("mediumUnlockLevel", 3, 1, 10);
         QUALITY_HIGH_UNLOCK_LEVEL = b.defineInRange("highUnlockLevel", 5, 1, 10);
@@ -637,6 +642,14 @@ public final class ChefConfig {
 
     public static int targetQteHitBonusPerMille() {
         return TARGET_QTE_HIT_BONUS_PER_MILLE.get();
+    }
+
+    public static int level1SuccessMultiplierPerMille() {
+        return LEVEL_1_SUCCESS_MULTIPLIER_PER_MILLE.get();
+    }
+
+    public static int level10SuccessMultiplierPerMille() {
+        return LEVEL_10_SUCCESS_MULTIPLIER_PER_MILLE.get();
     }
 
     public static int qualityMediumUnlockLevel() {

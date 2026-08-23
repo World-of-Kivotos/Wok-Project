@@ -9,13 +9,13 @@
 
 本模块负责任意 `ItemStack.getFoodProperties(entity)` 成品食物的品质盖章、五档调味台、火候与调味 QTE、调料方向标签和厨师效果结算契约。品质仍写在原食物的 NBT 上，不注册新的菜肴物品。
 
-客户端界面显示服务端 `ContainerData`：剩余时间、火候、台档/等级可选上限、目标品质、实时成功率、当前 QTE 目标、命中数、失败原因和最终品质。开始包为 `START(targetQualityTier)`，其余输入为 `HEAT_PRESS`、`HEAT_RELEASE`、`SEASON_HIT(target)`；服务端重新校验目标品质上限并独立掷结果，客户端不得自行决定品质或效果。
+客户端界面显示服务端 `ContainerData`：剩余时间、火候、台档/等级可选上限、目标品质、已计入厨师等级的实时成功率、当前 QTE 目标、命中数、失败原因和最终品质。开始包为 `START(targetQualityTier)`，其余输入为 `HEAT_PRESS`、`HEAT_RELEASE`、`SEASON_HIT(target)`；服务端重新校验目标品质上限、锁定开局厨师等级并独立掷结果，客户端不得自行决定品质或效果。
 
 ## 配置
 
 服务端配置文件为 `miningdim-chef.toml`，由 `ChefConfig.SPEC` 注册。配置分组包括：`xp`、`amplify`、`nourish_food`、`aftertaste_saturation`、`nourish_heal`、`shield`、`grease`、`aftertaste_regen`、`stable_aim`、`endurance`、`refresh`、`night_sight`、`satiation`、`exploration`、`effect_pool`、`minigame`、`quality_resolution`、`negatives` 和 `economy`。
 
-品质倍率、五档目标基础成功率、控火加成、单次 QTE 加成、战斗向效果的最大生命值比例、小游戏参数和信用点做菜成本均从此配置读取。客户端只读取同步状态，不参与服务端概率结算。
+品质倍率、五档目标基础成功率、控火加成、单次 QTE 加成、L1/L10 厨师熟练度倍率端点、战斗向效果的最大生命值比例、小游戏参数和信用点做菜成本均从此配置读取。L2-L9 的熟练度倍率由两个端点线性插值；低品质不应用熟练度削减。客户端只读取同步状态，不参与服务端概率结算。
 
 ## 注册清单
 

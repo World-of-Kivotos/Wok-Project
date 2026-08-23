@@ -45,16 +45,12 @@ public final class SeasoningMenu extends AbstractMiningMenu {
     public static final int DATA_TARGET_QUALITY = 14;
     public static final int DATA_SUCCESS_CHANCE_PER_MILLE = 15;
     public static final int DATA_TARGET_MET = 16;
-    public static final int DATA_BASE_CHANCE_LOW = 17;
-    public static final int DATA_BASE_CHANCE_MEDIUM = 18;
-    public static final int DATA_BASE_CHANCE_HIGH = 19;
-    public static final int DATA_BASE_CHANCE_EXTRAORDINARY = 20;
-    public static final int DATA_BASE_CHANCE_RADIANT = 21;
-    public static final int DATA_SIZE = 22;
+    public static final int DATA_SIZE = 17;
 
     private final ContainerData data;
     private final SeasoningTableBlockEntity blockEntity;
     private final DataSlot playerQualityCap = DataSlot.standalone();
+    private final DataSlot[] targetPreviewChances = createDataSlots(ChefQuality.values().length);
 
     /** 服务端构造 (由 BlockEntity.createMenu 调)。 */
     public SeasoningMenu(int windowId, Inventory playerInv, SeasoningTableBlockEntity be) {
@@ -67,8 +63,13 @@ public final class SeasoningMenu extends AbstractMiningMenu {
         addContainerSlots(be);
         addPlayerInventory(playerInv, 47, 140);
         addDataSlots(data);
-        playerQualityCap.set(ChefQualityResolver.qualityCapForLevel(ChefExperience.level(playerInv.player)).tier());
-        addDataSlot(playerQualityCap);
+        int chefLevel = ChefExperience.level(playerInv.player);
+        playerQualityCap.set(ChefQualityResolver.qualityCapForLevel(chefLevel).tier());
+        for (ChefQuality quality : ChefQuality.values()) {
+            targetPreviewChances[quality.tier()].set(ChefQualityResolver.successChancePerMille(
+                    quality, 0.0D, 0, ChefConfig.qteCount(), chefLevel));
+        }
+        addPlayerQualityDataSlots();
     }
 
     /** 客户端构造 (blockMenuType extraData 读 BlockPos 后调; 无 BlockEntity 引用, 用占位数据 + 远端槽)。 */
@@ -82,7 +83,22 @@ public final class SeasoningMenu extends AbstractMiningMenu {
         addContainerSlots(blockEntity);
         addPlayerInventory(playerInv, 47, 140);
         addDataSlots(data);
+        addPlayerQualityDataSlots();
+    }
+
+    private static DataSlot[] createDataSlots(int count) {
+        DataSlot[] slots = new DataSlot[count];
+        for (int i = 0; i < slots.length; i++) {
+            slots[i] = DataSlot.standalone();
+        }
+        return slots;
+    }
+
+    private void addPlayerQualityDataSlots() {
         addDataSlot(playerQualityCap);
+        for (DataSlot chance : targetPreviewChances) {
+            addDataSlot(chance);
+        }
     }
 
     private void addContainerSlots(SeasoningTableBlockEntity be) {
@@ -194,8 +210,8 @@ public final class SeasoningMenu extends AbstractMiningMenu {
         return data.get(DATA_TARGET_MET);
     }
 
-    public int targetBaseChancePerMille(ChefQuality quality) {
-        return data.get(DATA_BASE_CHANCE_LOW + quality.tier());
+    public int targetPreviewChancePerMille(ChefQuality quality) {
+        return targetPreviewChances[quality.tier()].get();
     }
 
     public ChefQuality tierCap() {

@@ -86,6 +86,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
     private int finalQuality = -1;
     @Nullable
     private ChefQuality targetQuality;
+    private int chefLevelSnapshot = -1;
     private int targetMet = -1;
     private int settlementChancePerMille = -1;
     private boolean greenZoneFeedbackPlayed;
@@ -113,11 +114,6 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
                 case SeasoningMenu.DATA_SUCCESS_CHANCE_PER_MILLE -> settlementChancePerMille >= 0
                         ? settlementChancePerMille : currentSuccessChancePerMille();
                 case SeasoningMenu.DATA_TARGET_MET -> targetMet;
-                case SeasoningMenu.DATA_BASE_CHANCE_LOW -> ChefConfig.targetBaseChancePerMille(ChefQuality.LOW);
-                case SeasoningMenu.DATA_BASE_CHANCE_MEDIUM -> ChefConfig.targetBaseChancePerMille(ChefQuality.MEDIUM);
-                case SeasoningMenu.DATA_BASE_CHANCE_HIGH -> ChefConfig.targetBaseChancePerMille(ChefQuality.HIGH);
-                case SeasoningMenu.DATA_BASE_CHANCE_EXTRAORDINARY -> ChefConfig.targetBaseChancePerMille(ChefQuality.EXTRAORDINARY);
-                case SeasoningMenu.DATA_BASE_CHANCE_RADIANT -> ChefConfig.targetBaseChancePerMille(ChefQuality.RADIANT);
                 default -> 0;
             };
         }
@@ -250,13 +246,15 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
             return false;
         }
         ChefQuality requestedTarget = ChefQuality.byTier(requestedTargetTier);
-        ChefQuality selectableCap = ChefQualityResolver.selectableCap(tierCap(), ChefExperience.level(operator));
+        int chefLevel = ChefExperience.level(operator);
+        ChefQuality selectableCap = ChefQualityResolver.selectableCap(tierCap(), chefLevel);
         if (requestedTarget.tier() > selectableCap.tier()) {
             reject(operator, "START", "目标品质超过调味台或厨师等级上限");
             return false;
         }
         operatorUUID = operator.getUUID();
         targetQuality = requestedTarget;
+        chefLevelSnapshot = chefLevel;
         targetMet = -1;
         settlementChancePerMille = -1;
         phase = PHASE_HEAT;
@@ -271,8 +269,8 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         heatGame.reset();
         setAnimationActive(true);
         setChanged();
-        LOGGER.info("Seasoning started player={} pos={} target={} cap={}",
-                operator.getGameProfile().getName(), worldPosition, requestedTarget.id(), selectableCap.id());
+        LOGGER.info("Seasoning started player={} pos={} target={} cap={} chefLevel={}",
+                operator.getGameProfile().getName(), worldPosition, requestedTarget.id(), selectableCap.id(), chefLevel);
         return true;
     }
 
@@ -360,13 +358,13 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
             return;
         }
 
-        if (targetQuality == null) {
-            throw new IllegalStateException("Active seasoning transaction has no target quality at " + worldPosition);
+        if (targetQuality == null || chefLevelSnapshot < 1) {
+            throw new IllegalStateException("Active seasoning transaction has incomplete target state at " + worldPosition);
         }
-        int chefLevel = ChefExperience.level(operator);
+        int chefLevel = chefLevelSnapshot;
         int successChance = currentSuccessChancePerMille();
         ChefQuality achieved = ChefQualityResolver.resolveTarget(
-                serverLevel.random, targetQuality, heatGame.accuracyScore(), hits, ChefConfig.qteCount());
+                serverLevel.random, targetQuality, heatGame.accuracyScore(), hits, ChefConfig.qteCount(), chefLevel);
 
         SeasoningBias bias = SeasoningTag.biasOf(inputSlots.getStackInSlot(SeasoningMenu.SLOT_SEASONING));
         List<ChefEffectInstance> effects = SeasoningEffectRoller.rollAll(
@@ -387,9 +385,9 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         finalQuality = achieved.tier();
         targetMet = achieved == targetQuality ? 1 : 0;
         settlementChancePerMille = successChance;
-        LOGGER.info("Seasoning settled player={} pos={} target={} achieved={} chancePerMille={} heatAccuracy={} hits={}/{}",
+        LOGGER.info("Seasoning settled player={} pos={} target={} achieved={} chancePerMille={} chefLevel={} heatAccuracy={} hits={}/{}",
                 operator.getGameProfile().getName(), worldPosition, targetQuality.id(), achieved.id(), successChance,
-                heatGame.accuracyScore(), hits, ChefConfig.qteCount());
+                chefLevel, heatGame.accuracyScore(), hits, ChefConfig.qteCount());
         playFeedback(SoundEvents.PLAYER_LEVELUP, 0.85F, 1.0F, ParticleTypes.HAPPY_VILLAGER, 14);
         setChanged();
     }
@@ -445,6 +443,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         failureReason = 0;
         finalQuality = -1;
         targetQuality = null;
+        chefLevelSnapshot = -1;
         targetMet = -1;
         settlementChancePerMille = -1;
         greenZoneFeedbackPlayed = false;
@@ -460,7 +459,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
 
     private int currentSuccessChancePerMille() {
         return targetQuality == null ? 0 : ChefQualityResolver.successChancePerMille(
-                targetQuality, heatGame.accuracyScore(), hits, ChefConfig.qteCount());
+                targetQuality, heatGame.accuracyScore(), hits, ChefConfig.qteCount(), chefLevelSnapshot);
     }
 
     /** Called by menu and block lifecycle paths; active inputs remain untouched. */

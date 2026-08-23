@@ -280,16 +280,17 @@ def animation_data() -> dict[str, Any]:
 
 def paint_region(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int],
                  base: tuple[int, int, int], dark: tuple[int, int, int],
-                 light: tuple[int, int, int], alpha: int = 255) -> None:
+                 light: tuple[int, int, int], alpha: int = 255, *, speckle: bool = True) -> None:
     left, top, right, bottom = box
     draw.rectangle(box, fill=(*base, alpha))
-    for y in range(top, bottom + 1):
-        for x in range(left, right + 1):
-            marker = (x * 17 + y * 31) % 29
-            if marker == 0:
-                draw.point((x, y), fill=(*light, alpha))
-            elif marker == 1:
-                draw.point((x, y), fill=(*dark, alpha))
+    if speckle:
+        for y in range(top, bottom + 1):
+            for x in range(left, right + 1):
+                marker = (x * 17 + y * 31) % 29
+                if marker == 0:
+                    draw.point((x, y), fill=(*light, alpha))
+                elif marker == 1:
+                    draw.point((x, y), fill=(*dark, alpha))
     draw.line((left, top, right, top), fill=(*light, alpha))
     draw.line((left, top, left, bottom), fill=(*light, alpha))
     draw.line((left, bottom, right, bottom), fill=(*dark, alpha))
@@ -300,9 +301,10 @@ def build_atlas(path: Path, palette: tuple[tuple[int, int, int], ...]) -> None:
     base, dark, accent = palette
     image = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    paint_region(draw, (0, 0, 95, 31), base, dark, accent)
-    paint_region(draw, (0, 40, 95, 71), dark, (20, 18, 20), base)
-    paint_region(draw, (0, 80, 63, 111), accent, dark, (255, 239, 188))
+    # 桌体三组材质使用整洁纯色，只靠边缘明暗表达体积；斑点仅用于金属、木材和食材细节。
+    paint_region(draw, (0, 0, 95, 31), base, dark, accent, speckle=False)
+    paint_region(draw, (0, 40, 95, 71), dark, (20, 18, 20), base, speckle=False)
+    paint_region(draw, (0, 80, 63, 111), accent, dark, (255, 239, 188), speckle=False)
     paint_region(draw, (104, 0, 167, 63), (112, 122, 124), (45, 51, 54), (204, 214, 214))
     paint_region(draw, (176, 0, 239, 63), (42, 47, 49), (15, 18, 20), (91, 101, 104))
     paint_region(draw, (104, 72, 167, 135), (54, 59, 61), (18, 21, 23), (117, 126, 128))

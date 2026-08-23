@@ -15,7 +15,7 @@
 
 服务端配置文件为 `miningdim-chef.toml`，由 `ChefConfig.SPEC` 注册。配置分组包括：`xp`、`amplify`、`nourish_food`、`aftertaste_saturation`、`nourish_heal`、`shield`、`grease`、`aftertaste_regen`、`stable_aim`、`endurance`、`refresh`、`night_sight`、`satiation`、`exploration`、`effect_pool`、`minigame`、`quality_resolution`、`negatives` 和 `economy`。
 
-品质倍率、五档目标基础成功率、控火加成、单次 QTE 加成、L1/L10 厨师熟练度倍率端点、战斗向效果的最大生命值比例、小游戏参数和信用点做菜成本均从此配置读取。L2-L9 的熟练度倍率由两个端点线性插值；低品质不应用熟练度削减。客户端只读取同步状态，不参与服务端概率结算。
+品质倍率、五档目标基础成功率、控火加成、单次 QTE 加成、高/超凡/闪耀目标难度倍率、L1/L10 厨师熟练度倍率端点、战斗向效果的最大生命值比例、小游戏参数和信用点做菜成本均从此配置读取。默认满级完美操作的高/超凡/闪耀成功率上限分别为 85%/65%/45%；L2-L9 的熟练度倍率由两个端点线性插值，低品质不应用熟练度削减。客户端只读取同步状态，不参与服务端概率结算。
 
 ## 注册清单
 

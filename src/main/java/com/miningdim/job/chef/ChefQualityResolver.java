@@ -3,7 +3,8 @@ package com.miningdim.job.chef;
 import net.minecraft.util.RandomSource;
 
 /**
- * 目标品质挑战结算。台档与厨师等级决定可选上限，控火精度与正确 QTE 形成表现概率，厨师等级再提供熟练度倍率。
+ * 目标品质挑战结算。台档与厨师等级决定可选上限；控火精度与正确 QTE 形成表现概率，
+ * 再依次应用目标品质难度与厨师熟练度倍率。
  * 服务端只掷一次；成功产出目标品质，未达成则降一档，避免完成小游戏后吞菜或空结算。
  */
 public final class ChefQualityResolver {
@@ -53,10 +54,13 @@ public final class ChefQualityResolver {
                 + (int) Math.round(heatAccuracy * ChefConfig.targetHeatBonusPerMille())
                 + hits * ChefConfig.targetQteHitBonusPerMille();
         performanceChance = Math.min(1000, performanceChance);
+        int qualityAdjustedChance = (int) Math.round(performanceChance
+                * ChefConfig.targetDifficultyMultiplierPerMille(target) / 1000.0D);
         if (target == ChefQuality.LOW) {
-            return performanceChance;
+            return qualityAdjustedChance;
         }
-        return (int) Math.round(performanceChance * levelSuccessMultiplierPerMille(chefLevel) / 1000.0D);
+        return (int) Math.round(qualityAdjustedChance
+                * levelSuccessMultiplierPerMille(chefLevel) / 1000.0D);
     }
 
     public static int levelSuccessMultiplierPerMille(int chefLevel) {

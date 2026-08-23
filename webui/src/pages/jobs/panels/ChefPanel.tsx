@@ -19,7 +19,7 @@ import { useMockAction } from '../../../mock'
  * 全部数值走 ForgeConfigSpec 运营可调, 服务端每次调用实时 ChefConfig.*.get() —— 本面板必须实时读这条
  * action, **严禁**抄一份静态副本进代码。
  *
- * 效果表是 (18 种效果 x 5 档品质) 的矩阵, 不是"一档一个值"的单列表: 各效果的 magnitude 语义还各不相同
+ * 效果表是 (23 种效果 x 5 档品质) 的矩阵, 不是"一档一个值"的单列表: 各效果的 magnitude 语义还各不相同
  * (倍率 x100 / 千分比 / 秒 / 1-based 等级 / 个数), 故按效果成行、品质成列, 数值按行自带的 unit 格式化。
  *
  * 做菜火候小游戏判定不进 MCEF (QTE 的游标是每 tick 变化的服务端时序权威值, 网络延迟直接影响手感),
@@ -159,7 +159,7 @@ export function ChefPanel(): ReactElement {
           <div className="grid grid-cols-3 gap-4">
             <Stat label="职业等级" value={`Lv.${String(data.level)}`} />
             <Stat
-              label="可做出的最高品质"
+              label="可挑战的最高目标"
               value={
                 capQuality === undefined
                   ? String(data.qualityCapTier)
@@ -172,7 +172,7 @@ export function ChefPanel(): ReactElement {
             />
           </div>
           <p className="text-muted-foreground text-xs">
-            下面所有数值都由服务端实时读配置回出, 运营改一次配置这里就跟着变, 不要照抄记忆里的旧数
+            全等级均可选择闪耀目标；低等级挑战高品质时成功率极低，且 QTE 更多、更快、晃动更强。下面数值由服务端实时读取配置
           </p>
         </div>
       </Panel>
@@ -185,14 +185,10 @@ export function ChefPanel(): ReactElement {
               key: 'name',
               render: (row) => (
                 <span className="flex items-center gap-1">
-                  <span
-                    className={row.tier <= data.qualityCapTier ? 'text-foreground' : 'text-muted-foreground'}
-                  >
-                    {names[row.nameKey] ?? row.nameKey}
-                  </span>
+                  <span className="text-foreground">{names[row.nameKey] ?? row.nameKey}</span>
                   {row.tier === data.qualityCapTier ? (
                     <Tag size="sm" tone="brand">
-                      当前上限
+                      最高目标
                     </Tag>
                   ) : null}
                 </span>

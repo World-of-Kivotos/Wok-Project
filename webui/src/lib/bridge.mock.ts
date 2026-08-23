@@ -2157,6 +2157,7 @@ const CHEF_EFFECT_ROWS: readonly ChefEffectSeed[] = [
     [150, 300, 500, 700, 900],
     [120, 180, 300, 480, 900],
   ],
+  ['satiation', false, false, true, 'none', [0, 0, 0, 0, 0], [60, 120, 240, 420, 720]],
   ['refresh', false, false, false, 'level', [1, 2, 3, 4, 5], [90, 150, 240, 360, 600]],
   [
     'night_sight',
@@ -2167,6 +2168,10 @@ const CHEF_EFFECT_ROWS: readonly ChefEffectSeed[] = [
     [60, 120, 240, 480, 900],
     [60, 120, 240, 480, 900],
   ],
+  ['fire_quell', true, false, true, 'seconds', [0, 0, 8, 12, 18], [0, 0, 8, 12, 18]],
+  ['gills', false, false, true, 'seconds', [30, 60, 120, 240, 480], [30, 60, 120, 240, 480]],
+  ['feather', false, false, true, 'seconds', [0, 20, 40, 80, 160], [0, 20, 40, 80, 160]],
+  ['firefly', false, false, true, 'seconds', [30, 60, 120, 240, 600], [30, 60, 120, 240, 600]],
   ['shield', true, false, true, 'permille', [0, 0, 40, 60, 80], [120, 120, 120, 120, 120]],
   ['grease', true, false, true, 'permille', [0, 0, 300, 450, 600], [120, 120, 120, 120, 120]],
   ['aftertaste_regen', true, false, true, 'permille', [0, 0, 50, 60, 100], [30, 30, 30, 30, 30]],
@@ -2176,23 +2181,6 @@ const CHEF_EFFECT_ROWS: readonly ChefEffectSeed[] = [
   ['scorched', false, true, false, 'permille', [80, 50, 30, 0, 0], [0, 0, 0, 0, 0]],
   ['nausea', false, true, false, 'level', [2, 1, 1, 0, 0], [8, 6, 4, 0, 0]],
 ]
-
-/** ChefQualityResolver 的等级 -> 品质上限门 (纯阶梯常量)。 */
-function chefQualityCapTier(level: number): number {
-  if (level >= 9) {
-    return 4
-  }
-  if (level >= 7) {
-    return 3
-  }
-  if (level >= 4) {
-    return 2
-  }
-  if (level >= 2) {
-    return 1
-  }
-  return 0
-}
 
 function mockChefState(): ChefStateResult {
   const level = mockJobLevel('chef')
@@ -2221,7 +2209,8 @@ function mockChefState(): ChefStateResult {
   )
   return {
     level,
-    qualityCapTier: chefQualityCapTier(level),
+    // 兼容字段名；全部等级均可选择闪耀目标，等级只影响服务端达成率与 QTE 难度。
+    qualityCapTier: 4,
     qualities,
     effects,
     // ChefConfig.TABLE_USE_COST_CREDIT 的默认值; 运营改 toml 即变, 面板不得抄这个数。

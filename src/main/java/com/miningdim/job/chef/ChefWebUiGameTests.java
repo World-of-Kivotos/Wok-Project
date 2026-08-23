@@ -25,7 +25,7 @@ import net.minecraftforge.gametest.PrefixGameTestTemplate;
  * {@link #chefStateReadsConfigLiveInsteadOfASnapshot} 在两次调用之间改 config, 回执不跟着变就挂 —— 抄一份
  * 静态副本的实现会让运营改完 toml 后面板永远停在进程启动那一刻的数值。
  *
- * 另锁矩阵形状: 效果是 18 行 x 5 档的矩阵而不是"一档一个值"的单列表, 且每行自带 unit ——
+ * 另锁矩阵形状: 效果是 23 行 x 5 档的矩阵而不是"一档一个值"的单列表, 且每行自带 unit ——
  * 各效果 magnitude 语义互不相同 (倍率 x100 / 千分比 / 1-based 等级 / 秒 / 个数), 发错量纲就是把玩家的
  * 数值观整个带偏 (120 会被显示成 "12.0%" 而不是 "x1.2")。
  */
@@ -76,9 +76,9 @@ public final class ChefWebUiGameTests {
         JsonObject state = handle(helper, player);
 
         helper.assertTrue(state.get("level").getAsInt() == 1, "新号厨师 1 级");
-        helper.assertTrue(state.get("qualityCapTier").getAsInt() == ChefQuality.LOW.tier()
-                        && state.get("qualityCapTier").getAsInt() == 0,
-                "L1 厨师只能做低级菜 (档位上限 tier 0), 实得 " + state.get("qualityCapTier").getAsInt());
+        helper.assertTrue(state.get("qualityCapTier").getAsInt() == ChefQuality.RADIANT.tier(),
+                "L1 厨师也可选择闪耀目标，等级只降低达成率；最高目标应为 tier 4，实得 "
+                        + state.get("qualityCapTier").getAsInt());
 
         JsonArray qualities = state.getAsJsonArray("qualities");
         helper.assertTrue(qualities.size() == ChefQuality.values().length && qualities.size() == 5,
@@ -103,8 +103,8 @@ public final class ChefWebUiGameTests {
         }
 
         JsonArray effects = state.getAsJsonArray("effects");
-        helper.assertTrue(effects.size() == ChefEffectType.values().length && effects.size() == 18,
-                "效果恒 18 行, 实得 " + effects.size());
+        helper.assertTrue(effects.size() == ChefEffectType.values().length && effects.size() == 23,
+                "效果恒 23 行, 实得 " + effects.size());
         for (int i = 0; i < ChefEffectType.values().length; i++) {
             ChefEffectType type = ChefEffectType.values()[i];
             JsonObject row = effects.get(i).getAsJsonObject();
@@ -126,7 +126,9 @@ public final class ChefWebUiGameTests {
         assertUnit(helper, effects, ChefEffectType.NOURISH_HEAL, "permille");
         assertUnit(helper, effects, ChefEffectType.REFRESH, "level");
         assertUnit(helper, effects, ChefEffectType.NIGHT_SIGHT, "seconds");
+        assertUnit(helper, effects, ChefEffectType.GILLS, "seconds");
         assertUnit(helper, effects, ChefEffectType.PURIFY, "count");
+        assertUnit(helper, effects, ChefEffectType.SATIATION, "none");
         // 多盐/失败品是固定语义, magnitude 不参与结算, 量纲必须明说是 none 而不是伪装成 flat 的 0。
         assertUnit(helper, effects, ChefEffectType.OVERSALT, "none");
 
@@ -143,7 +145,7 @@ public final class ChefWebUiGameTests {
                         && purify.get(4).getAsInt() == 99,
                 "回甘逐档应为 [0,0,3,4,99], 实得 " + purify);
 
-        // 时长: 进食一次性结算的效果发 0; 四个战斗向窗口效果 5 档同值 (ChefConfig 的既有形态, 不按档伪造差异)。
+        // 时长: 进食一次性结算的效果发 0; 固定窗口效果 5 档同值，其余窗口按品质读配置。
         JsonArray amplifyDurations = row(helper, effects, ChefEffectType.AMPLIFY).getAsJsonArray("durationSeconds");
         for (int tier = 0; tier < 5; tier++) {
             helper.assertTrue(amplifyDurations.get(tier).getAsInt() == 0,
@@ -153,6 +155,18 @@ public final class ChefWebUiGameTests {
         for (int tier = 0; tier < 5; tier++) {
             helper.assertTrue(shieldDurations.get(tier).getAsInt() == ChefConfig.SHIELD_WINDOW_SECONDS.get(),
                     "披甲窗口长度与品质无关, 5 档同发 " + ChefConfig.SHIELD_WINDOW_SECONDS.get());
+        }
+        JsonArray satiationDurations = row(helper, effects, ChefEffectType.SATIATION)
+                .getAsJsonArray("durationSeconds");
+        JsonArray fireflyDurations = row(helper, effects, ChefEffectType.FIREFLY)
+                .getAsJsonArray("durationSeconds");
+        for (ChefQuality quality : ChefQuality.values()) {
+            helper.assertTrue(satiationDurations.get(quality.tier()).getAsInt()
+                            == ChefConfig.satiationSeconds(quality),
+                    "饱腹 " + quality.id() + " 档时长必须实时读取配置");
+            helper.assertTrue(fireflyDurations.get(quality.tier()).getAsInt()
+                            == ChefConfig.fireflySeconds(quality),
+                    "流萤 " + quality.id() + " 档时长必须实时读取配置");
         }
         // 夜照两栏同值是它的语义 (magnitude 本身就是时长秒), 不是重复发送。
         JsonObject night = row(helper, effects, ChefEffectType.NIGHT_SIGHT);
@@ -168,20 +182,20 @@ public final class ChefWebUiGameTests {
         helper.succeed();
     }
 
-    /** 等级上限是算出来的: L9 起才能做闪耀菜。写死成常量或读错档位本条即挂。 */
+    /** 全等级开放全部目标品质；升级只改变服务端概率与 QTE 难度，不再形成选择硬上限。 */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void chefQualityCapFollowsPlayerLevel(GameTestHelper helper) {
+    public static void chefQualityTargetRangeIsOpenAtEveryLevel(GameTestHelper helper) {
         ChefConfig.ensureLoadedForTest();
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
 
         setChefLevel(player, 5);
-        helper.assertTrue(handle(helper, player).get("qualityCapTier").getAsInt() == ChefQuality.HIGH.tier(),
-                "L5-6 厨师封顶在高级 (tier 2)");
+        helper.assertTrue(handle(helper, player).get("qualityCapTier").getAsInt() == ChefQuality.RADIANT.tier(),
+                "L5 厨师仍可选择闪耀目标");
         setChefLevel(player, 9);
         JsonObject radiant = handle(helper, player);
         helper.assertTrue(radiant.get("level").getAsInt() == 9
                         && radiant.get("qualityCapTier").getAsInt() == ChefQuality.RADIANT.tier(),
-                "L9-10 厨师才解锁闪耀 (tier 4), 实得 " + radiant.get("qualityCapTier").getAsInt());
+                "L9 厨师的最高可选目标仍为闪耀 tier 4，实得 " + radiant.get("qualityCapTier").getAsInt());
         helper.succeed();
     }
 

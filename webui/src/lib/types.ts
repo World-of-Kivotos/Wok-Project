@@ -803,12 +803,12 @@ export interface ChefQualityRow {
 
 /**
  * 一种效果在 5 档品质下的数值行 (ChefEffectType x ChefQuality)。
- * 真实数据是 (18 种效果 x 5 档品质) 的矩阵, 压不进"一档一个值"的单列表, 故按效果成行、品质成列。
+ * 真实数据是 (23 种效果 x 5 档品质) 的矩阵, 压不进"一档一个值"的单列表, 故按效果成行、品质成列。
  */
 export interface ChefEffectRow {
   /** = ChefEffectType.id()。 */
   effectId: string
-  /** = `chef.effect.<effectId>`, lang 已有全 18 条。 */
+  /** = `chef.effect.<effectId>`, lang 已有全 23 条。 */
   labelKey: string
   /** = ChefEffectType.isCombat(); 战斗向 (仅高/超凡/闪耀解锁, 一菜最多 1 个)。 */
   combat: boolean
@@ -828,13 +828,13 @@ export interface ChefEffectRow {
  * 全部数值每次调用实时 ChefConfig.*.get() (运营可调), 服务端不缓存, 前端更不许抄静态副本。
  */
 export interface ChefStateResult {
-  /** = IJobService.level(player, CHEF)。 */
+  /** = IExperienceService.snapshot(player, miningdim:job/chef).level()。 */
   level: number
-  /** = ChefQualityResolver.qualityCapForLevel(level).tier(); 当前等级能做出的最高品质档的 0-based tier。 */
+  /** 兼容字段名；当前恒为 RADIANT tier，表示全等级可选择的最高目标档。等级只影响达成率和 QTE 难度。 */
   qualityCapTier: number
   /** 恒 5 条, 顺序 = ChefQuality.values()。 */
   qualities: ChefQualityRow[]
-  /** 恒 18 条, 顺序 = ChefEffectType.values()。 */
+  /** 恒 23 条, 顺序 = ChefEffectType.values()。 */
   effects: ChefEffectRow[]
   /** = ChefConfig.TABLE_USE_COST_CREDIT; 调味台每道菜的信用点花费 (sink); 0 = 运营把收费关了。 */
   seasoningCostCredit: number

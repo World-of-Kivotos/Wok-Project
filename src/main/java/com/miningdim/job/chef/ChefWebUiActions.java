@@ -3,8 +3,6 @@ package com.miningdim.job.chef;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.miningdim.job.JobId;
-import com.miningdim.job.JobServices;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
 
@@ -19,8 +17,8 @@ import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
  * 也不用在面板层重写一份 type -&gt; ChefConfig 的 switch (那份副本迟早与掷出时用的真值分叉)。
  *
  * 前端契约 (webui/src/lib/types.ts): job.chef.state -&gt;
- * {level,qualityCapTier,qualities[5],effects[18],seasoningCostCredit}。
- * effects 按"效果成行、品质成列": 真实数据是 18x5 的矩阵, 且各效果 magnitude 语义不同 (倍率 x100 / 千分比 /
+ * {level,qualityCapTier,qualities[5],effects[23],seasoningCostCredit}。
+ * effects 按"效果成行、品质成列": 真实数据是 23x5 的矩阵, 且各效果 magnitude 语义不同 (倍率 x100 / 千分比 /
  * 秒 / 1-based 等级 / 概率千分比), 既压不进"一档一个值"的单列表, 也就必须每行自带 unit。
  */
 public final class ChefWebUiActions {
@@ -36,11 +34,12 @@ public final class ChefWebUiActions {
     }
 
     static final WebUiAction STATE = (sender, payload) -> {
-        int level = JobServices.jobService().level(sender, JobId.CHEF);
+        int level = ChefExperience.level(sender);
 
         JsonObject result = new JsonObject();
         result.addProperty("level", level);
-        result.addProperty("qualityCapTier", ChefQualityResolver.qualityCapForLevel(level).tier());
+        // 兼容既有 WebUI 字段名；目标品质已经全面开放，等级只影响达成率，不再形成选择硬上限。
+        result.addProperty("qualityCapTier", ChefQuality.RADIANT.tier());
 
         JsonArray qualities = new JsonArray();
         for (ChefQuality quality : ChefQuality.values()) {
@@ -95,30 +94,36 @@ public final class ChefWebUiActions {
             case NOURISH_HEAL, SHIELD, GREASE, AFTERTASTE_REGEN, STABLE_AIM, ENDURANCE,
                  UNDERDONE, SCORCHED -> "permille";
             case PURIFY -> "count";
-            case NIGHT_SIGHT -> "seconds";
+            case NIGHT_SIGHT, FIRE_QUELL, GILLS, FEATHER, FIREFLY -> "seconds";
             // 多盐 (饱和减半) 与失败品 (销毁菜肴) 是固定语义, magnitude 恒 0 且不参与结算。
-            case OVERSALT, SPOILED -> "none";
+            case SATIATION, OVERSALT, SPOILED -> "none";
         };
     }
 
     /**
      * 该效果在该品质档下的独立持续时间 (秒); 0 = 进食一次性结算, 没有独立时长。
      *
-     * 四个战斗向窗口效果的窗口长度与品质无关 (5 档同值), 这是 ChefConfig 的既有形态, 不在此按档伪造差异。
+     * 披甲、凝脂、余韵和稳膛窗口长度与品质无关；其余窗口按品质实时读取配置。
      */
     private static int durationSeconds(ChefEffectType type, ChefQuality quality) {
         return switch (type) {
             case ENDURANCE -> ChefConfig.enduranceSeconds(quality);
+            case SATIATION -> ChefConfig.satiationSeconds(quality);
             case REFRESH -> ChefConfig.refreshSeconds(quality);
+            case SATED_JUMP -> ChefConfig.satedJumpSeconds();
             // 夜照的 magnitude 本身就是时长秒, 两栏同值是它的语义 (不是重复发送)。
             case NIGHT_SIGHT -> ChefConfig.nightSeconds(quality);
+            case FIRE_QUELL -> ChefConfig.fireQuellSeconds(quality);
+            case GILLS -> ChefConfig.gillsSeconds(quality);
+            case FEATHER -> ChefConfig.featherSeconds(quality);
+            case FIREFLY -> ChefConfig.fireflySeconds(quality);
             case SHIELD -> ChefConfig.SHIELD_WINDOW_SECONDS.get();
             case GREASE -> ChefConfig.GREASE_WINDOW_SECONDS.get();
             case AFTERTASTE_REGEN -> ChefConfig.REGEN_WINDOW_SECONDS.get();
             case STABLE_AIM -> ChefConfig.STABLE_AIM_WINDOW_SECONDS.get();
             case UNDERDONE -> ChefEffectMagnitude.underdoneSeconds(quality);
             case NAUSEA -> ChefEffectMagnitude.nauseaSeconds(quality);
-            case AMPLIFY, NOURISH_FOOD, AFTERTASTE_SAT, SATED_JUMP, NOURISH_HEAL, PURIFY,
+            case AMPLIFY, NOURISH_FOOD, AFTERTASTE_SAT, NOURISH_HEAL, PURIFY,
                  OVERSALT, SPOILED, SCORCHED -> 0;
         };
     }

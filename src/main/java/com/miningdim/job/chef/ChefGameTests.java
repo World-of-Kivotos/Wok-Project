@@ -47,15 +47,29 @@ public final class ChefGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void qualityCapsAndDeterministicPools(GameTestHelper helper) {
         int cues = ChefConfig.qteCount();
-        helper.assertTrue(ChefQualityResolver.resolve(1.0D, cues, cues, ChefQuality.LOW, 10)
-                        == ChefQuality.LOW,
+        helper.assertTrue(ChefQualityResolver.selectableCap(ChefQuality.LOW, 10) == ChefQuality.LOW,
                 "radiant-capable chef is still capped by a low table");
-        helper.assertTrue(ChefQualityResolver.resolve(1.0D, cues, cues, ChefQuality.RADIANT, 1)
-                        == ChefQuality.LOW,
+        helper.assertTrue(ChefQualityResolver.selectableCap(ChefQuality.RADIANT, 1) == ChefQuality.LOW,
                 "level 1 chef is still capped to low quality");
-        helper.assertTrue(ChefQualityResolver.resolve(1.0D, cues, cues, ChefQuality.RADIANT, 9)
+        helper.assertTrue(ChefQualityResolver.selectableCap(ChefQuality.RADIANT, 9) == ChefQuality.RADIANT,
+                "level 9 chef can select radiant quality on a radiant table");
+        int radiantBase = ChefQualityResolver.successChancePerMille(ChefQuality.RADIANT, 0.0D, 0, cues);
+        int radiantOneHit = ChefQualityResolver.successChancePerMille(ChefQuality.RADIANT, 0.0D, 1, cues);
+        int radiantPerfect = ChefQualityResolver.successChancePerMille(ChefQuality.RADIANT, 1.0D, cues, cues);
+        helper.assertTrue(radiantBase == 100 && radiantOneHit == 200,
+                "each correct QTE adds exactly ten percentage points to radiant success chance");
+        helper.assertTrue(radiantPerfect == 1000,
+                "perfect heat and all QTE hits guarantee the selected radiant target");
+        helper.assertTrue(ChefQualityResolver.resolveTarget(
+                        RandomSource.create(0xC0FFEE12L), ChefQuality.RADIANT, 1.0D, cues, cues)
                         == ChefQuality.RADIANT,
-                "level 9 chef can reach radiant quality at a perfect score");
+                "a guaranteed target roll produces the selected quality");
+        helper.assertTrue(ChefQualityResolver.resolveTargetRoll(ChefQuality.RADIANT, 100, 99)
+                        == ChefQuality.RADIANT,
+                "a roll immediately below the success chance reaches the selected target");
+        helper.assertTrue(ChefQualityResolver.resolveTargetRoll(ChefQuality.RADIANT, 100, 100)
+                        == ChefQuality.EXTRAORDINARY,
+                "a roll at the failure boundary produces exactly one tier below the selected target");
 
         List<ChefEffectType> lowPool = SeasoningEffectRoller.unlockedPool(10, ChefQuality.LOW);
         helper.assertTrue(lowPool.stream().noneMatch(ChefEffectType::isCombat),
@@ -127,7 +141,8 @@ public final class ChefGameTests {
         long xpBefore = ExperienceServices.experienceService()
                 .snapshot(fixture.player, ChefExperience.TRACK_ID).totalXp();
 
-        helper.assertTrue(fixture.table.startCooking(fixture.player), "valid bread starts seasoning");
+        helper.assertTrue(fixture.table.startCooking(fixture.player, ChefQuality.LOW.tier()),
+                "valid bread starts the selected low-quality challenge");
         BlockPos secondaryPos = fixture.absolute.relative(Direction.EAST);
         helper.assertTrue(helper.getLevel().getBlockState(fixture.absolute).getValue(SeasoningTableBlock.ACTIVE)
                         && helper.getLevel().getBlockState(secondaryPos).getValue(SeasoningTableBlock.ACTIVE),
@@ -174,7 +189,8 @@ public final class ChefGameTests {
         long xpBefore = ExperienceServices.experienceService()
                 .snapshot(fixture.player, ChefExperience.TRACK_ID).totalXp();
 
-        helper.assertTrue(fixture.table.startCooking(fixture.player), "valid transaction starts before fee check");
+        helper.assertTrue(fixture.table.startCooking(fixture.player, ChefQuality.LOW.tier()),
+                "valid transaction starts before fee check");
         drivePerfectHeat(helper, fixture);
         driveAllQteHits(helper, fixture);
 
@@ -194,22 +210,28 @@ public final class ChefGameTests {
     public static void seasoningValidationConcurrencyAndCloseCancel(GameTestHelper helper) {
         TableFixture fixture = tableFixture(helper);
         fixture.table.inputSlots().setStackInSlot(SeasoningMenu.SLOT_INPUT, new ItemStack(Items.DIAMOND));
-        helper.assertFalse(fixture.table.startCooking(fixture.player), "non-food input is rejected");
+        helper.assertFalse(fixture.table.startCooking(fixture.player, ChefQuality.LOW.tier()),
+                "non-food input is rejected");
 
         ItemStack alreadySeasoned = new ItemStack(Items.BREAD);
         ChefQualityNbt.stamp(alreadySeasoned, ChefQuality.LOW, List.of());
         fixture.table.inputSlots().setStackInSlot(SeasoningMenu.SLOT_INPUT, alreadySeasoned);
-        helper.assertFalse(fixture.table.startCooking(fixture.player), "already seasoned dish is rejected");
+        helper.assertFalse(fixture.table.startCooking(fixture.player, ChefQuality.LOW.tier()),
+                "already seasoned dish is rejected");
 
         fixture.table.inputSlots().setStackInSlot(SeasoningMenu.SLOT_INPUT, new ItemStack(Items.BREAD));
         fixture.table.inputSlots().setStackInSlot(SeasoningMenu.SLOT_SEASONING, new ItemStack(Items.SUGAR));
-        helper.assertTrue(fixture.table.startCooking(fixture.player), "first operator locks the table");
+        helper.assertFalse(fixture.table.startCooking(fixture.player, ChefQuality.RADIANT.tier()),
+                "level 1 chef cannot request a radiant target even on a radiant table");
+        helper.assertTrue(fixture.table.startCooking(fixture.player, ChefQuality.LOW.tier()),
+                "first operator locks the table");
         var second = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         second.setPos(fixture.absolute.getX() + 0.5D, fixture.absolute.getY() + 0.5D,
                 fixture.absolute.getZ() + 0.5D);
         SeasoningMenu secondMenu = new SeasoningMenu(2, second.getInventory(), fixture.table);
         second.containerMenu = secondMenu;
-        helper.assertFalse(fixture.table.startCooking(second), "second player cannot replace the operator");
+        helper.assertFalse(fixture.table.startCooking(second, ChefQuality.LOW.tier()),
+                "second player cannot replace the operator");
         helper.assertFalse(fixture.menu.getSlot(SeasoningMenu.SLOT_INPUT).mayPickup(fixture.player),
                 "active input slot is pickup-locked");
         helper.assertFalse(fixture.menu.getSlot(SeasoningMenu.SLOT_SEASONING).mayPlace(new ItemStack(Items.SUGAR)),

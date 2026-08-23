@@ -152,12 +152,13 @@ public final class ChefConfig {
     public static final ForgeConfigSpec.IntValue QTE_MAX_INTERVAL_TICKS;
     public static final ForgeConfigSpec.IntValue QTE_COUNT;
     public static final ForgeConfigSpec.IntValue SEASONING_TABLE_MAX_TIER;
-    public static final ForgeConfigSpec.IntValue QUALITY_HEAT_WEIGHT_PER_MILLE;
-    public static final ForgeConfigSpec.IntValue QUALITY_QTE_WEIGHT_PER_MILLE;
-    public static final ForgeConfigSpec.IntValue QUALITY_MEDIUM_THRESHOLD_PER_MILLE;
-    public static final ForgeConfigSpec.IntValue QUALITY_HIGH_THRESHOLD_PER_MILLE;
-    public static final ForgeConfigSpec.IntValue QUALITY_EXTRAORDINARY_THRESHOLD_PER_MILLE;
-    public static final ForgeConfigSpec.IntValue QUALITY_RADIANT_THRESHOLD_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_LOW_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_MEDIUM_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_HIGH_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_EXTRAORDINARY_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_RADIANT_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue TARGET_HEAT_BONUS_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue TARGET_QTE_HIT_BONUS_PER_MILLE;
     public static final ForgeConfigSpec.IntValue QUALITY_MEDIUM_UNLOCK_LEVEL;
     public static final ForgeConfigSpec.IntValue QUALITY_HIGH_UNLOCK_LEVEL;
     public static final ForgeConfigSpec.IntValue QUALITY_EXTRAORDINARY_UNLOCK_LEVEL;
@@ -355,13 +356,14 @@ public final class ChefConfig {
         b.pop();
 
         b.push("quality_resolution");
-        b.comment("quality score weights and thresholds in PER-MILLE; heat and QTE defaults are 50:50");
-        QUALITY_HEAT_WEIGHT_PER_MILLE = b.defineInRange("heatWeightPerMille", 500, 0, 1000);
-        QUALITY_QTE_WEIGHT_PER_MILLE = b.defineInRange("qteWeightPerMille", 500, 0, 1000);
-        QUALITY_MEDIUM_THRESHOLD_PER_MILLE = b.defineInRange("mediumThresholdPerMille", 350, 0, 1000);
-        QUALITY_HIGH_THRESHOLD_PER_MILLE = b.defineInRange("highThresholdPerMille", 550, 0, 1000);
-        QUALITY_EXTRAORDINARY_THRESHOLD_PER_MILLE = b.defineInRange("extraordinaryThresholdPerMille", 750, 0, 1000);
-        QUALITY_RADIANT_THRESHOLD_PER_MILLE = b.defineInRange("radiantThresholdPerMille", 900, 0, 1000);
+        b.comment("target-quality success chances in PER-MILLE; heat bonus scales with green-zone accuracy and each correct QTE adds the configured flat bonus");
+        TARGET_BASE_CHANCE_LOW_PER_MILLE = b.defineInRange("targetBaseChanceLowPerMille", 1000, 0, 1000);
+        TARGET_BASE_CHANCE_MEDIUM_PER_MILLE = b.defineInRange("targetBaseChanceMediumPerMille", 700, 0, 1000);
+        TARGET_BASE_CHANCE_HIGH_PER_MILLE = b.defineInRange("targetBaseChanceHighPerMille", 450, 0, 1000);
+        TARGET_BASE_CHANCE_EXTRAORDINARY_PER_MILLE = b.defineInRange("targetBaseChanceExtraordinaryPerMille", 250, 0, 1000);
+        TARGET_BASE_CHANCE_RADIANT_PER_MILLE = b.defineInRange("targetBaseChanceRadiantPerMille", 100, 0, 1000);
+        TARGET_HEAT_BONUS_PER_MILLE = b.defineInRange("targetHeatBonusPerMille", 500, 0, 1000);
+        TARGET_QTE_HIT_BONUS_PER_MILLE = b.defineInRange("targetQteHitBonusPerMille", 100, 0, 1000);
         b.comment("chef level gates for medium/high/extraordinary/radiant quality");
         QUALITY_MEDIUM_UNLOCK_LEVEL = b.defineInRange("mediumUnlockLevel", 3, 1, 10);
         QUALITY_HIGH_UNLOCK_LEVEL = b.defineInRange("highUnlockLevel", 5, 1, 10);
@@ -623,28 +625,18 @@ public final class ChefConfig {
         return SEASONING_TABLE_MAX_TIER.get();
     }
 
-    public static int qualityHeatWeightPerMille() {
-        return QUALITY_HEAT_WEIGHT_PER_MILLE.get();
+    public static int targetBaseChancePerMille(ChefQuality quality) {
+        return byTier(quality, TARGET_BASE_CHANCE_LOW_PER_MILLE, TARGET_BASE_CHANCE_MEDIUM_PER_MILLE,
+                TARGET_BASE_CHANCE_HIGH_PER_MILLE, TARGET_BASE_CHANCE_EXTRAORDINARY_PER_MILLE,
+                TARGET_BASE_CHANCE_RADIANT_PER_MILLE);
     }
 
-    public static int qualityQteWeightPerMille() {
-        return QUALITY_QTE_WEIGHT_PER_MILLE.get();
+    public static int targetHeatBonusPerMille() {
+        return TARGET_HEAT_BONUS_PER_MILLE.get();
     }
 
-    public static int qualityMediumThresholdPerMille() {
-        return QUALITY_MEDIUM_THRESHOLD_PER_MILLE.get();
-    }
-
-    public static int qualityHighThresholdPerMille() {
-        return QUALITY_HIGH_THRESHOLD_PER_MILLE.get();
-    }
-
-    public static int qualityExtraordinaryThresholdPerMille() {
-        return QUALITY_EXTRAORDINARY_THRESHOLD_PER_MILLE.get();
-    }
-
-    public static int qualityRadiantThresholdPerMille() {
-        return QUALITY_RADIANT_THRESHOLD_PER_MILLE.get();
+    public static int targetQteHitBonusPerMille() {
+        return TARGET_QTE_HIT_BONUS_PER_MILLE.get();
     }
 
     public static int qualityMediumUnlockLevel() {

@@ -52,7 +52,6 @@ public final class ChefGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void qualityCapsAndDeterministicPools(GameTestHelper helper) {
-        int cues = ChefConfig.qteCount();
         helper.assertTrue(ChefQualityResolver.selectableCap(ChefQuality.LOW, 10) == ChefQuality.LOW,
                 "radiant-capable chef is still capped by a low table");
         helper.assertTrue(ChefQualityResolver.selectableCap(ChefQuality.RADIANT, 1) == ChefQuality.LOW,
@@ -65,15 +64,16 @@ public final class ChefGameTests {
         ChefQteTiming extraordinaryUnlockTiming = ChefQteTiming.forChallenge(ChefQuality.EXTRAORDINARY, 7);
         ChefQteTiming radiantUnlockTiming = ChefQteTiming.forChallenge(ChefQuality.RADIANT, 9);
         ChefQteTiming radiantMaxLevelTiming = ChefQteTiming.forChallenge(ChefQuality.RADIANT, 10);
-        helper.assertTrue(lowLevelOneTiming.equals(new ChefQteTiming(20, 15, 35))
-                        && mediumUnlockTiming.equals(new ChefQteTiming(18, 13, 33))
-                        && highUnlockTiming.equals(new ChefQteTiming(16, 11, 31)),
-                "low through high target tiers progressively shorten QTE windows and cue gaps");
-        helper.assertTrue(extraordinaryUnlockTiming.equals(new ChefQteTiming(14, 9, 29))
-                        && radiantUnlockTiming.equals(new ChefQteTiming(12, 7, 27)),
-                "extraordinary and radiant targets retain their faster high-quality QTE pace");
-        helper.assertTrue(radiantMaxLevelTiming.equals(new ChefQteTiming(13, 8, 28)),
-                "one additional chef level visibly eases the same radiant challenge");
+        helper.assertTrue(lowLevelOneTiming.equals(new ChefQteTiming(4, 20, 15, 35, 10))
+                        && mediumUnlockTiming.equals(new ChefQteTiming(5, 18, 13, 33, 9))
+                        && highUnlockTiming.equals(new ChefQteTiming(6, 16, 11, 31, 8)),
+                "low through high targets progressively add cues, shorten windows, and speed up the hit bar");
+        helper.assertTrue(extraordinaryUnlockTiming.equals(new ChefQteTiming(7, 14, 9, 29, 7))
+                        && radiantUnlockTiming.equals(new ChefQteTiming(8, 12, 7, 27, 6)),
+                "extraordinary and radiant targets retain their higher count and faster QTE pace");
+        helper.assertTrue(radiantMaxLevelTiming.equals(new ChefQteTiming(8, 13, 8, 28, 7)),
+                "one additional chef level slows the same radiant challenge without removing its cues");
+        int cues = radiantUnlockTiming.cueCount();
         int radiantBaseAtLevel9 = ChefQualityResolver.successChancePerMille(
                 ChefQuality.RADIANT, 0.0D, 0, cues, 9);
         int radiantOneHitAtLevel9 = ChefQualityResolver.successChancePerMille(
@@ -194,6 +194,8 @@ public final class ChefGameTests {
 
         helper.assertTrue(fixture.table.startCooking(fixture.player, ChefQuality.LOW.tier()),
                 "valid bread starts the selected low-quality challenge");
+        helper.assertTrue(fixture.menu.qteCount() == 4 && fixture.menu.qteSwayPeriodTicks() == 10,
+                "menu sync exposes the active low-quality cue count and hit-bar speed");
         BlockPos secondaryPos = fixture.absolute.relative(Direction.EAST);
         helper.assertTrue(helper.getLevel().getBlockState(fixture.absolute).getValue(SeasoningTableBlock.ACTIVE)
                         && helper.getLevel().getBlockState(secondaryPos).getValue(SeasoningTableBlock.ACTIVE),

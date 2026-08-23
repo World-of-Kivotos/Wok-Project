@@ -45,12 +45,14 @@ public final class SeasoningMenu extends AbstractMiningMenu {
     public static final int DATA_TARGET_QUALITY = 14;
     public static final int DATA_SUCCESS_CHANCE_PER_MILLE = 15;
     public static final int DATA_TARGET_MET = 16;
-    public static final int DATA_SIZE = 17;
+    public static final int DATA_QTE_SWAY_PERIOD = 17;
+    public static final int DATA_SIZE = 18;
 
     private final ContainerData data;
     private final SeasoningTableBlockEntity blockEntity;
     private final DataSlot playerQualityCap = DataSlot.standalone();
     private final DataSlot[] targetPreviewChances = createDataSlots(ChefQuality.values().length);
+    private final DataSlot[] targetPreviewQteCounts = createDataSlots(ChefQuality.values().length);
 
     /** 服务端构造 (由 BlockEntity.createMenu 调)。 */
     public SeasoningMenu(int windowId, Inventory playerInv, SeasoningTableBlockEntity be) {
@@ -66,8 +68,10 @@ public final class SeasoningMenu extends AbstractMiningMenu {
         int chefLevel = ChefExperience.level(playerInv.player);
         playerQualityCap.set(ChefQualityResolver.qualityCapForLevel(chefLevel).tier());
         for (ChefQuality quality : ChefQuality.values()) {
+            int cueCount = ChefQteTiming.cueCountFor(quality);
             targetPreviewChances[quality.tier()].set(ChefQualityResolver.successChancePerMille(
-                    quality, 0.0D, 0, ChefConfig.qteCount(), chefLevel));
+                    quality, 0.0D, 0, cueCount, chefLevel));
+            targetPreviewQteCounts[quality.tier()].set(cueCount);
         }
         addPlayerQualityDataSlots();
     }
@@ -98,6 +102,9 @@ public final class SeasoningMenu extends AbstractMiningMenu {
         addDataSlot(playerQualityCap);
         for (DataSlot chance : targetPreviewChances) {
             addDataSlot(chance);
+        }
+        for (DataSlot count : targetPreviewQteCounts) {
+            addDataSlot(count);
         }
     }
 
@@ -198,6 +205,10 @@ public final class SeasoningMenu extends AbstractMiningMenu {
         return data.get(DATA_QTE_COUNT);
     }
 
+    public int qteSwayPeriodTicks() {
+        return data.get(DATA_QTE_SWAY_PERIOD);
+    }
+
     public int targetQualityTier() {
         return data.get(DATA_TARGET_QUALITY);
     }
@@ -212,6 +223,10 @@ public final class SeasoningMenu extends AbstractMiningMenu {
 
     public int targetPreviewChancePerMille(ChefQuality quality) {
         return targetPreviewChances[quality.tier()].get();
+    }
+
+    public int targetPreviewQteCount(ChefQuality quality) {
+        return targetPreviewQteCounts[quality.tier()].get();
     }
 
     public ChefQuality tierCap() {

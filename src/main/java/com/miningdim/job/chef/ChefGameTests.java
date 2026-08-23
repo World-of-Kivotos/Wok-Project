@@ -61,17 +61,19 @@ public final class ChefGameTests {
                 ChefQuality.RADIANT, 1.0D, cues, cues, 9);
         int radiantPerfectAtLevel10 = ChefQualityResolver.successChancePerMille(
                 ChefQuality.RADIANT, 1.0D, cues, cues, 10);
-        helper.assertTrue(radiantBaseAtLevel9 == 94 && radiantOneHitAtLevel9 == 189,
-                "a correct QTE increases the level-adjusted radiant success chance");
-        helper.assertTrue(radiantPerfectAtLevel9 == 944 && radiantPerfectAtLevel10 == 1000,
-                "the same perfect performance succeeds more often as chef level rises");
+        int highPerfectAtLevel10 = ChefQualityResolver.successChancePerMille(
+                ChefQuality.HIGH, 1.0D, cues, cues, 10);
+        int extraordinaryPerfectAtLevel10 = ChefQualityResolver.successChancePerMille(
+                ChefQuality.EXTRAORDINARY, 1.0D, cues, cues, 10);
+        helper.assertTrue(radiantBaseAtLevel9 == 42 && radiantOneHitAtLevel9 == 85,
+                "a correct QTE increases the quality-and-level-adjusted radiant success chance");
+        helper.assertTrue(radiantPerfectAtLevel9 == 425 && radiantPerfectAtLevel10 == 450,
+                "radiant quality remains difficult at both unlock level and maximum chef level");
+        helper.assertTrue(highPerfectAtLevel10 == 850 && extraordinaryPerfectAtLevel10 == 650,
+                "high and extraordinary quality difficulty caps perfect max-level success chance");
         helper.assertTrue(ChefQualityResolver.successChancePerMille(
                         ChefQuality.LOW, 0.0D, 0, cues, 1) == 1000,
                 "low quality remains the novice fallback and is not reduced by chef level");
-        helper.assertTrue(ChefQualityResolver.resolveTarget(
-                        RandomSource.create(0xC0FFEE12L), ChefQuality.RADIANT, 1.0D, cues, cues, 10)
-                        == ChefQuality.RADIANT,
-                "a guaranteed target roll produces the selected quality");
         helper.assertTrue(ChefQualityResolver.resolveTargetRoll(ChefQuality.RADIANT, 100, 99)
                         == ChefQuality.RADIANT,
                 "a roll immediately below the success chance reaches the selected target");

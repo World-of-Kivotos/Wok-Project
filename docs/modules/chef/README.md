@@ -9,13 +9,13 @@
 
 本模块负责任意 `ItemStack.getFoodProperties(entity)` 成品食物的品质盖章、五档调味台、火候与调味 QTE、调料方向标签和厨师效果结算契约。品质仍写在原食物的 NBT 上，不注册新的菜肴物品。
 
-客户端界面显示服务端 `ContainerData`：剩余时间、火候、调味台可选上限、目标品质、已计入厨师等级与台档的实时成功率、当前 QTE 目标、台档修正后的 QTE 总数、命中数、命中条速度、失败原因和最终品质。开始包为 `START(targetQualityTier)`，其余输入为 `HEAT_PRESS`、`HEAT_RELEASE`、`SEASON_HIT(target)`；服务端重新校验目标品质不超过台档，并锁定开局厨师等级、台档、目标品质及其动态 QTE 数量和节奏后独立掷结果，客户端不得自行决定计时、品质或效果。
+客户端界面显示服务端 `ContainerData`：剩余时间、火候、调味台档位、目标品质、已计入厨师等级与台档的实时成功率、当前 QTE 目标、台档修正后的 QTE 总数、命中数、命中条速度、失败原因和最终品质。开始包为 `START(targetQualityTier)`，其余输入为 `HEAT_PRESS`、`HEAT_RELEASE`、`SEASON_HIT(target)`；五种品质对所有台档开放，服务端只校验目标品质 ID，并锁定开局厨师等级、台档、目标品质及其动态 QTE 数量和节奏后独立掷结果，客户端不得自行决定计时、品质或效果。
 
 ## 配置
 
 服务端配置文件为 `miningdim-chef.toml`，由 `ChefConfig.SPEC` 注册。配置分组包括：`xp`、`amplify`、`nourish_food`、`aftertaste_saturation`、`nourish_heal`、`shield`、`grease`、`aftertaste_regen`、`stable_aim`、`endurance`、`refresh`、`night_sight`、`satiation`、`exploration`、`effect_pool`、`minigame`、`quality_resolution`、`negatives` 和 `economy`。
 
-品质倍率、五档目标基础成功率、控火加成、单次 QTE 加成、高/超凡/闪耀目标难度倍率、低品质基础 QTE 数、每档品质增加的 QTE 数、台档 QTE 减免、QTE 可达窗口/间隔下限、每档品质 QTE 缩短 tick、每级厨师 QTE 放宽 tick、L1/L10 厨师熟练度倍率端点、台档成功率加成、战斗向效果的最大生命值比例、小游戏参数和信用点做菜成本均从此配置读取。低级厨师可选择台档允许的全部品质；默认匹配台档 QTE 总数为低/中/高/超凡/闪耀 `4/5/5/6/6`。L1 闪耀完美操作约 5.4%，L10 使用匹配台档完美制作高/超凡/闪耀的上限约为 93.5%/74.8%/54.0%。客户端只读取同步状态，不参与服务端计时与概率结算。
+品质倍率、五档目标基础成功率、控火加成、单次 QTE 加成、高/超凡/闪耀目标难度倍率、低品质基础 QTE 数、每档品质增加的 QTE 数、台档 QTE 减免、QTE 可达窗口/间隔下限、每档品质 QTE 缩短 tick、每级厨师 QTE 放宽 tick、L1/L10 厨师熟练度倍率端点、台档成功率加成、战斗向效果的最大生命值比例、小游戏参数和信用点做菜成本均从此配置读取。所有厨师和台档均可选择全部品质；默认匹配台档 QTE 总数为低/中/高/超凡/闪耀 `4/5/5/6/6`。L1 使用低档台/闪耀台完美挑战闪耀约为 4.5%/5.4%，L10 使用匹配台档完美制作高/超凡/闪耀的上限约为 93.5%/74.8%/54.0%。客户端只读取同步状态，不参与服务端计时与概率结算。
 
 ## 注册清单
 

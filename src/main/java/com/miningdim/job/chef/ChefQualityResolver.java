@@ -3,8 +3,8 @@ package com.miningdim.job.chef;
 import net.minecraft.util.RandomSource;
 
 /**
- * 目标品质挑战结算。调味台档位决定可选上限；控火精度与正确 QTE 形成表现概率，
- * 再依次应用目标品质难度、厨师熟练度与调味台倍率。
+ * 目标品质挑战结算。所有台档均可选择全部品质；控火精度与正确 QTE 形成表现概率，
+ * 再依次应用目标品质难度、厨师熟练度与调味台倍率，高档台只提供正向增益。
  * 服务端只掷一次；成功产出目标品质，未达成则降一档，避免完成小游戏后吞菜或空结算。
  */
 public final class ChefQualityResolver {

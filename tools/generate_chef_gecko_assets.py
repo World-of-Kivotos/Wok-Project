@@ -75,6 +75,15 @@ def bottle_cubes(x: float, y: float, z: float, width: float, depth: float, heigh
         cube((x + 0.14, y + 0.55, z - 0.1), (width - 0.28, 0.68, 0.16), "cloth"),
         cube((x + 0.27, y + 0.79, z - 0.15), (width - 0.54, 0.18, 0.08), material),
         cube((x + 0.1, y + 0.3, z - 0.06), (0.12, height - 1.1, 0.1), "glass"),
+        cube((x - 0.02, y + 0.28, z + 0.16), (0.13, height - 1.08, depth - 0.32), "glass",
+             pivot=(x + 0.045, y + height / 2, z + depth / 2), rotation=(0, -18, 0)),
+        cube((x + width - 0.11, y + 0.28, z + 0.16), (0.13, height - 1.08, depth - 0.32), "glass",
+             pivot=(x + width - 0.045, y + height / 2, z + depth / 2), rotation=(0, 18, 0)),
+        cube((x + width * 0.24, shoulder_y + 0.8, z + depth * 0.22),
+             (width * 0.52, 0.1, depth * 0.56), "dark_metal"),
+        cube((x + width * 0.25, shoulder_y + 1.2, z + depth * 0.23),
+             (width * 0.5, 0.08, depth * 0.54), "glass"),
+        cube((x + width * 0.44, y + 0.64, z - 0.19), (width * 0.12, 0.42, 0.06), material),
     ]
 
 
@@ -111,6 +120,8 @@ def workstation_bones() -> list[dict[str, Any]]:
         cube((-0.5, 11.5, -8.25), (5.5, 0.25, 0.25), "metal"),
         cube((5, 8.5, -8.2), (6, 3.5, 0.3), "cloth"),
     ]
+    for index, material in enumerate(("savory", "sweet", "oily", "sour", "spicy", "aromatic", "complex")):
+        structure.append(cube((5.75 + index * 1.35, 15.15, 3.05), (0.55, 0.28, 0.12), material))
     burner = [
         cube((-14, 11, -6), (13, 0.7, 10), "dark_metal"),
         cube((-12.5, 11.65, -4.5), (10, 0.25, 7), "metal"),
@@ -177,16 +188,32 @@ def workstation_bones() -> list[dict[str, Any]]:
             cube((6.15, 16.03, 4.59), (0.44, 0.16, 0.08), "savory"),
             cube((6.92, 16.95, 5.18), (0.16, 1.1, 0.16), "metal",
                  pivot=(7, 16.95, 5.26), rotation=(0, 0, -24)),
+            cube((5.6, 15.7, 5.04), (0.12, 0.9, 0.98), "glass",
+                 pivot=(5.66, 16.15, 5.53), rotation=(0, -18, 0)),
+            cube((7.02, 15.7, 5.04), (0.12, 0.9, 0.98), "glass",
+                 pivot=(7.08, 16.15, 5.53), rotation=(0, 18, 0)),
+            cube((5.62, 17.05, 4.94), (1.5, 0.1, 1.22), "dark_metal"),
+            cube((6.31, 15.92, 4.53), (0.12, 0.42, 0.06), "dark_metal"),
         ], parent="workstation", pivot=(6.37, 15.35, 5.55)),
         bone("seasoning_sweet",
-             bottle_cubes(7.92, 15.35, 4.95, 1.42, 1.16, 2.15, "sweet", "wood"),
+             bottle_cubes(7.92, 15.35, 4.95, 1.42, 1.16, 2.15, "sweet", "wood") + [
+                 cube((8.53, 16.02, 4.74), (0.2, 0.2, 0.06), "sweet",
+                      pivot=(8.63, 16.12, 4.77), rotation=(0, 0, 45)),
+             ],
              parent="workstation", pivot=(8.63, 15.35, 5.53)),
         bone("seasoning_oily",
              bottle_cubes(10.32, 15.35, 4.98, 1.24, 1.1, 2.5, "oily", "wood") + [
                  cube((10.76, 18.33, 5.32), (0.36, 0.28, 0.34), "metal"),
+                 cube((10.76, 16.02, 4.77), (0.1, 0.36, 0.06), "oily"),
+                 cube((10.99, 15.9, 4.77), (0.1, 0.48, 0.06), "oily"),
              ], parent="workstation", pivot=(10.94, 15.35, 5.53)),
         bone("seasoning_sour",
-             bottle_cubes(12.68, 15.35, 4.95, 1.36, 1.16, 2.25, "sour", "metal"),
+             bottle_cubes(12.68, 15.35, 4.95, 1.36, 1.16, 2.25, "sour", "metal") + [
+                 cube((13.26, 15.96, 4.74), (0.12, 0.42, 0.06), "sour",
+                      pivot=(13.32, 16.17, 4.77), rotation=(0, 0, 35)),
+                 cube((13.26, 15.96, 4.73), (0.12, 0.42, 0.06), "sour",
+                      pivot=(13.32, 16.17, 4.76), rotation=(0, 0, -35)),
+             ],
              parent="workstation", pivot=(13.36, 15.35, 5.53)),
         bone("seasoning_spicy", [
             cube((6.68, 15, 3.53), (1.64, 0.18, 1.24), "glass"),
@@ -199,6 +226,12 @@ def workstation_bones() -> list[dict[str, Any]]:
             cube((6.92, 17.17, 3.75), (0.12, 0.08, 0.12), "dark_metal"),
             cube((7.18, 17.17, 4.08), (0.12, 0.08, 0.12), "dark_metal"),
             cube((7.7, 17.17, 3.82), (0.12, 0.08, 0.12), "dark_metal"),
+            cube((6.7, 15.35, 3.7), (0.12, 0.86, 0.9), "glass",
+                 pivot=(6.76, 15.78, 4.15), rotation=(0, -18, 0)),
+            cube((8.2, 15.35, 3.7), (0.12, 0.86, 0.9), "glass",
+                 pivot=(8.26, 15.78, 4.15), rotation=(0, 18, 0)),
+            cube((6.74, 16.74, 3.58), (1.52, 0.09, 1.14), "dark_metal"),
+            cube((7.48, 15.62, 3.24), (0.1, 0.38, 0.06), "dark_metal"),
         ], parent="workstation", pivot=(7.5, 15, 4.15)),
         bone("seasoning_aromatic", [
             cube((9.03, 15, 3.53), (1.64, 0.18, 1.24), "glass"),
@@ -212,6 +245,13 @@ def workstation_bones() -> list[dict[str, Any]]:
                  pivot=(9.55, 15.61, 3.55), rotation=(0, 0, 28)),
             cube((9.9, 15.8, 3.46), (0.24, 0.42, 0.18), "aromatic",
                  pivot=(10.02, 16.01, 3.55), rotation=(0, 0, -24)),
+            cube((9.05, 15.35, 3.7), (0.12, 0.9, 0.9), "glass",
+                 pivot=(9.11, 15.8, 4.15), rotation=(0, -18, 0)),
+            cube((10.55, 15.35, 3.7), (0.12, 0.9, 0.9), "glass",
+                 pivot=(10.61, 15.8, 4.15), rotation=(0, 18, 0)),
+            cube((9.14, 16.64, 3.58), (1.42, 0.1, 1.08), "cloth"),
+            cube((9.78, 15.68, 3.24), (0.18, 0.28, 0.06), "aromatic",
+                 pivot=(9.87, 15.82, 3.27), rotation=(0, 0, 45)),
         ], parent="workstation", pivot=(9.85, 15, 4.15)),
         bone("seasoning_complex", [
             cube((11.48, 15, 3.6), (1.74, 0.2, 1.1), "metal"),
@@ -228,6 +268,12 @@ def workstation_bones() -> list[dict[str, Any]]:
             cube((12.18, 16.46, 4.16), (0.34, 0.2, 0.28), "aromatic"),
             cube((12.78, 16.38, 4.08), (0.16, 1.38, 0.16), "metal",
                  pivot=(12.86, 16.38, 4.16), rotation=(0, 0, -31)),
+            cube((12.57, 17.48, 3.92), (0.46, 0.16, 0.42), "metal",
+                 pivot=(12.8, 17.56, 4.13), rotation=(0, 0, -31)),
+            cube((12.05, 16.47, 3.88), (0.5, 0.08, 0.1), "complex",
+                 pivot=(12.3, 16.51, 3.93), rotation=(0, 20, 0)),
+            cube((12.38, 16.47, 4.32), (0.46, 0.08, 0.1), "oily",
+                 pivot=(12.61, 16.51, 4.37), rotation=(0, -24, 0)),
         ], parent="workstation", pivot=(12.35, 15, 4.15)),
     ]
     fire_core = [
@@ -385,6 +431,17 @@ def paint_region(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int],
     draw.line((right, top, right, bottom), fill=(*dark, alpha))
 
 
+def paint_seasoning_region(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int],
+                           base: tuple[int, int, int], dark: tuple[int, int, int],
+                           light: tuple[int, int, int],
+                           strokes: tuple[tuple[int, int, int, int, bool], ...]) -> None:
+    paint_region(draw, box, base, dark, light, speckle=False)
+    left, top, _, _ = box
+    for x1, y1, x2, y2, bright in strokes:
+        color = light if bright else dark
+        draw.line((left + x1, top + y1, left + x2, top + y2), fill=(*color, 255))
+
+
 def build_atlas(path: Path, palette: tuple[tuple[int, int, int], ...]) -> None:
     base, dark, accent = palette
     image = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
@@ -404,14 +461,30 @@ def build_atlas(path: Path, palette: tuple[tuple[int, int, int], ...]) -> None:
     paint_region(draw, (148, 188, 183, 223), (216, 205, 172), (119, 91, 74), (248, 239, 206))
     paint_region(draw, (192, 188, 219, 223), (241, 92, 19), (170, 24, 9), (255, 213, 59), 220)
     paint_region(draw, (224, 188, 251, 243), (223, 232, 229), (134, 151, 151), (255, 255, 255), 92)
-    paint_region(draw, (0, 120, 19, 139), (225, 220, 200), (139, 127, 105), (255, 249, 226))
-    paint_region(draw, (24, 120, 43, 139), (190, 122, 36), (99, 58, 23), (244, 185, 70))
-    paint_region(draw, (48, 120, 67, 139), (213, 173, 45), (123, 91, 23), (255, 224, 103))
-    paint_region(draw, (72, 120, 91, 139), (130, 154, 78), (67, 88, 46), (194, 210, 123))
-    paint_region(draw, (0, 148, 19, 167), (181, 48, 30), (91, 24, 22), (242, 98, 52))
-    paint_region(draw, (24, 148, 43, 167), (67, 126, 61), (30, 67, 34), (126, 181, 90))
-    paint_region(draw, (48, 148, 67, 167), (122, 70, 42), (64, 35, 26), (188, 112, 61))
-    paint_region(draw, (72, 148, 91, 167), (168, 190, 194), (88, 115, 121), (229, 241, 239), speckle=False)
+    paint_seasoning_region(draw, (0, 120, 19, 139), (225, 220, 200), (139, 127, 105),
+                            (255, 249, 226), ((4, 4, 6, 6, True), (12, 3, 13, 5, True),
+                                              (6, 12, 8, 14, False), (14, 10, 16, 12, True)))
+    paint_seasoning_region(draw, (24, 120, 43, 139), (190, 122, 36), (99, 58, 23),
+                            (244, 185, 70), ((4, 3, 4, 15, True), (5, 3, 8, 3, True),
+                                            (10, 5, 15, 10, False), (9, 13, 15, 13, True)))
+    paint_seasoning_region(draw, (48, 120, 67, 139), (213, 173, 45), (123, 91, 23),
+                            (255, 224, 103), ((3, 5, 16, 5, True), (5, 9, 14, 9, False),
+                                             (3, 14, 16, 14, True)))
+    paint_seasoning_region(draw, (72, 120, 91, 139), (130, 154, 78), (67, 88, 46),
+                            (194, 210, 123), ((4, 15, 14, 4, True), (7, 15, 16, 7, False),
+                                              (3, 6, 6, 3, True)))
+    paint_seasoning_region(draw, (0, 148, 19, 167), (181, 48, 30), (91, 24, 22),
+                            (242, 98, 52), ((3, 4, 5, 5, False), (10, 3, 12, 5, True),
+                                           (6, 10, 8, 12, True), (13, 12, 16, 14, False)))
+    paint_seasoning_region(draw, (24, 148, 43, 167), (67, 126, 61), (30, 67, 34),
+                            (126, 181, 90), ((4, 14, 9, 5, True), (9, 5, 14, 9, False),
+                                            (8, 10, 13, 14, True)))
+    paint_seasoning_region(draw, (48, 148, 67, 167), (122, 70, 42), (64, 35, 26),
+                            (188, 112, 61), ((4, 5, 15, 5, True), (15, 5, 15, 13, False),
+                                            (7, 13, 15, 13, True), (7, 9, 11, 9, False)))
+    paint_seasoning_region(draw, (72, 148, 91, 167), (168, 190, 194), (88, 115, 121),
+                            (229, 241, 239), ((3, 2, 3, 16, True), (5, 2, 8, 2, True),
+                                             (12, 5, 16, 9, False), (14, 13, 16, 15, True)))
     image.save(path, optimize=True)
 
 

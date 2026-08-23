@@ -221,9 +221,6 @@ def workstation_bones() -> list[dict[str, Any]]:
              pivot=(3.54, 11.96, -2.42), rotation=(0, 31, 0)),
         cube((0.42, 10.94, -5.35), (1.2, 0.16, 1.1), "board_dark"),
         cube((8.38, 10.94, 0.25), (1.2, 0.16, 1.1), "board_dark"),
-        cube((0.5, 11.96, -5.5), (2.1, 1.2, 2.1), "red"),
-        cube((3.1, 11.96, -4.2), (1.7, 1.5, 1.7), "green"),
-        cube((5.2, 11.96, -5.1), (2.6, 0.7, 2), "food"),
         cube((10.7, 11, -5.5), (4.2, 0.45, 7), "metal"),
         cube((11.1, 11.45, -5.1), (3.4, 0.35, 6.2), "metal"),
         cube((11.5, 11.8, -4.7), (2.6, 0.3, 5.4), "metal"),
@@ -624,7 +621,7 @@ def build_preview(path: Path, bones: list[dict[str, Any]], palette: tuple[tuple[
         draw.polygon(front, fill=shade(-28), outline=(16, 15, 17, alpha))
         draw.polygon(top, fill=shade(20), outline=(16, 15, 17, alpha))
     draw.text((22, 20), "WOK CHEF / GECKOLIB TWO-BLOCK WORKSTATION", fill=(242, 224, 180, 255))
-    draw.text((22, 42), "framed cabinetry + grooved cutting board + riveted chef knife + seven-category rack",
+    draw.text((22, 42), "tomato + cabbage + potato prep / grooved board / riveted knife / seasoning rack",
               fill=(178, 172, 167, 255))
     image.save(path, optimize=True)
 

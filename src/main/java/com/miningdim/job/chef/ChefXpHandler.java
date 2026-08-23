@@ -1,7 +1,5 @@
 package com.miningdim.job.chef;
 
-import com.miningdim.job.JobId;
-import com.miningdim.job.JobServices;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
@@ -25,7 +23,7 @@ public final class ChefXpHandler {
      * @return 经衰减折算后实际入账的有效经验 (>=0; capability 未挂载返回 0)
      */
     public static long award(ServerPlayer operator, ChefQuality achieved) {
-        long rawXp = ChefConfig.rawXp(achieved);
-        return JobServices.jobService().grantXp(operator, JobId.CHEF, rawXp);
+        long rawXp = ChefConfig.xpForQuality(achieved);
+        return ChefExperience.awardSeasoningComplete(operator, rawXp);
     }
 }

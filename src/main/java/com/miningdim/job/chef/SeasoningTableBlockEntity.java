@@ -1,12 +1,16 @@
 package com.miningdim.job.chef;
 
 import com.miningdim.economy.EconomyServices;
-import com.miningdim.job.JobId;
-import com.miningdim.job.JobServices;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -19,6 +23,7 @@ import net.minecraftforge.items.ItemStackHandler;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.UUID;
 
 /**
@@ -34,13 +39,6 @@ import java.util.UUID;
  * 服务端按当前 heat 评分 + 校验 operator 是开界面者。
  */
 public final class SeasoningTableBlockEntity extends BlockEntity implements MenuProvider {
-
-    /** 调味时机点持续 tick (玩家须在窗口内点击命中)。 */
-    private static final int CUE_WINDOW_TICKS = 20;
-    /** 调味时机点之间的间隔 tick。 */
-    private static final int CUE_GAP_TICKS = 25;
-    /** 一道菜总调味时机点数 (命中比 = hits/此值)。 */
-    private static final int TOTAL_CUES = 4;
 
     private static final int PHASE_IDLE = 0;
     private static final int PHASE_HEAT = 1;
@@ -67,6 +65,11 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
     private int cueTimer;
     private boolean cueActive;
     private int cuesSpawned;
+    private int cueTarget = -1;
+    private int heatTicks;
+    private int failureReason;
+    private int finalQuality = -1;
+    private boolean greenZoneFeedbackPlayed;
 
     /** ContainerData: 服务端写, 客户端读渲染 (小游戏状态)。 */
     private final ContainerData dataAccess = new ContainerData() {
@@ -78,6 +81,15 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
                 case SeasoningMenu.DATA_HITS -> hits;
                 case SeasoningMenu.DATA_CUE_ACTIVE -> cueActive ? 1 : 0;
                 case SeasoningMenu.DATA_TIER_CAP -> tierCap().tier();
+                case SeasoningMenu.DATA_CUE_TARGET -> cueTarget;
+                case SeasoningMenu.DATA_HEATING -> heatGame.heating() ? 1 : 0;
+                case SeasoningMenu.DATA_REMAINING_TICKS -> remainingTicks();
+                case SeasoningMenu.DATA_FAILURE_REASON -> failureReason;
+                case SeasoningMenu.DATA_FINAL_QUALITY -> finalQuality;
+                case SeasoningMenu.DATA_HEAT_MAX -> ChefConfig.heatMax();
+                case SeasoningMenu.DATA_GREEN_START -> ChefConfig.heatGreenStart();
+                case SeasoningMenu.DATA_GREEN_END -> ChefConfig.heatGreenEnd();
+                case SeasoningMenu.DATA_QTE_COUNT -> ChefConfig.qteCount();
                 default -> 0;
             };
         }
@@ -105,10 +117,23 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         return dataAccess;
     }
 
+    /** Empties the two input slots for block-break drops after any active transaction is cancelled. */
+    public List<ItemStack> dropContents() {
+        List<ItemStack> drops = new ArrayList<>(SeasoningMenu.CONTAINER_SLOTS);
+        for (int slot = 0; slot < SeasoningMenu.CONTAINER_SLOTS; slot++) {
+            ItemStack stack = inputSlots.getStackInSlot(slot);
+            if (!stack.isEmpty()) {
+                drops.add(stack);
+                inputSlots.setStackInSlot(slot, ItemStack.EMPTY);
+            }
+        }
+        return drops;
+    }
+
     /** 本台品质上限 (从方块读取, 单一真源)。非调味台块挂本 BE 属装配错误, 自然抛 (C9 不掩盖)。 */
     public ChefQuality tierCap() {
         if (getBlockState().getBlock() instanceof SeasoningTableBlock table) {
-            return table.tierCap();
+            return ChefQuality.min(table.tierCap(), ChefQuality.byTier(ChefConfig.seasoningTableMaxTier()));
         }
         throw new IllegalStateException(
                 "SeasoningTableBlockEntity attached to non-table block at " + worldPosition);
@@ -117,14 +142,26 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
     // ---- 服务端 tick: 推进火候 + 调味时机点 ----
 
     public void serverTick() {
+        if (!isActive()) {
+            return;
+        }
+        ServerPlayer operator = currentOperator();
+        if (operator == null || !operatorStillControlsTable(operator)) {
+            cancelCooking(operator, "调味已取消：操作状态失效，材料已保留。");
+            return;
+        }
         if (phase == PHASE_HEAT) {
-            heatGame.tick();
-            // 火候锁定 (玩家点出锅) 或过火 -> 进入调味阶段。
-            if (heatGame.isLocked() || heatGame.overcooked()) {
+            heatTicks++;
+            heatGame.tick(heatTicks > ChefConfig.seasoningScoringStartTick());
+            if (!greenZoneFeedbackPlayed && heatGame.heat() >= ChefConfig.heatGreenStart()
+                    && heatGame.heat() <= ChefConfig.heatGreenEnd()) {
+                greenZoneFeedbackPlayed = true;
+                playFeedback(SoundEvents.EXPERIENCE_ORB_PICKUP, 0.65F, 1.25F,
+                        ParticleTypes.HAPPY_VILLAGER, 6);
+            }
+            if (heatTicks >= ChefConfig.seasoningDurationTicks()) {
                 phase = PHASE_SEASON;
-                cueTimer = CUE_GAP_TICKS;
-                cueActive = false;
-                cuesSpawned = 0;
+                cueTimer = randomCueGap();
             }
         } else if (phase == PHASE_SEASON) {
             tickSeason();
@@ -137,17 +174,19 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
             if (cueTimer <= 0) {
                 // 时机点窗口结束未命中: 关闭, 进入下一个间隔。
                 cueActive = false;
-                cueTimer = CUE_GAP_TICKS;
+                playFeedback(SoundEvents.FIRE_EXTINGUISH, 0.70F, 1.15F, ParticleTypes.SMOKE, 5);
+                cueTimer = randomCueGap();
             }
         } else {
             if (cueTimer <= 0) {
-                if (cuesSpawned >= TOTAL_CUES) {
+                if (cuesSpawned >= ChefConfig.qteCount()) {
                     finishCooking();
                     return;
                 }
                 cueActive = true;
                 cuesSpawned++;
-                cueTimer = CUE_WINDOW_TICKS;
+                cueTarget = level.random.nextInt(4);
+                cueTimer = ChefConfig.qteWindowTicks();
             }
         }
     }
@@ -155,45 +194,96 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
     // ---- C2S 输入入口 (服务端校验) ----
 
     /** 开始做菜 (玩家点 "开始" 按钮): 校验输入是食物 + 占用 operator + 进入火候阶段。 */
-    public void startCooking(ServerPlayer operator) {
+    public boolean startCooking(ServerPlayer operator) {
+        if (phase == PHASE_DONE) {
+            resetToIdle();
+        }
         if (phase != PHASE_IDLE) {
-            return; // 已在做: 忽略 (防并发/连点)。
+            reject(operator, "START", "调味台已被占用");
+            return false;
         }
         ItemStack input = inputSlots.getStackInSlot(SeasoningMenu.SLOT_INPUT);
         if (input.isEmpty() || input.getFoodProperties(operator) == null) {
-            return; // 非食物: 不开始。
+            reject(operator, "START", "输入不是可食用成品");
+            return false;
+        }
+        if (ChefQualityNbt.hasQuality(input)) {
+            reject(operator, "START", "该菜肴已有 MiningChef 品质");
+            return false;
+        }
+        if (SeasoningEligibility.isUnseasonable(input)) {
+            reject(operator, "START", "该菜肴被不可调味标签禁止");
+            return false;
         }
         operatorUUID = operator.getUUID();
         phase = PHASE_HEAT;
+        heatTicks = 0;
         hits = 0;
         cuesSpawned = 0;
         cueActive = false;
+        cueTarget = -1;
+        failureReason = 0;
+        finalQuality = -1;
+        greenZoneFeedbackPlayed = false;
         heatGame.reset();
         setChanged();
+        return true;
     }
 
     /** 玩家点击 "出锅" (火候阶段): 服务端按当前 heat 锁定。校验是 operator。 */
-    public void clickHeat(ServerPlayer player) {
+    public boolean pressHeat(ServerPlayer player) {
         if (phase != PHASE_HEAT || !isOperator(player)) {
-            return;
+            reject(player, "HEAT_PRESS", "阶段或操作者不匹配");
+            return false;
         }
-        heatGame.click(heatGame.heat());
+        if (!heatGame.press()) {
+            reject(player, "HEAT_PRESS", "控火已处于按下状态");
+            return false;
+        }
+        playFeedback(SoundEvents.LAVA_POP, 0.75F, 1.20F, ParticleTypes.FLAME, 4);
         setChanged();
+        return true;
     }
 
     /** 玩家点击命中调味时机点 (调味阶段): 仅当有活跃时机点时计命中。校验是 operator。 */
-    public void clickSeason(ServerPlayer player) {
-        if (phase != PHASE_SEASON || !isOperator(player) || !cueActive) {
-            return;
+    public boolean releaseHeat(ServerPlayer player) {
+        if (phase != PHASE_HEAT || !isOperator(player)) {
+            reject(player, "HEAT_RELEASE", "阶段或操作者不匹配");
+            return false;
+        }
+        if (!heatGame.release()) {
+            reject(player, "HEAT_RELEASE", "控火尚未按下");
+            return false;
+        }
+        setChanged();
+        return true;
+    }
+
+    public boolean hitSeason(ServerPlayer player, int target) {
+        if (phase != PHASE_SEASON || !isOperator(player) || !cueActive || target != cueTarget) {
+            reject(player, "SEASON_HIT", "阶段、操作者或目标不匹配");
+            return false;
         }
         hits++;
         cueActive = false;
-        cueTimer = CUE_GAP_TICKS;
+        cueTarget = -1;
+        playFeedback(SoundEvents.EXPERIENCE_ORB_PICKUP, 0.75F, 1.50F, ParticleTypes.CRIT, 6);
+        if (cuesSpawned == ChefConfig.qteCount()) {
+            finishCooking();
+            return true;
+        }
+        cueTimer = randomCueGap();
         setChanged();
+        return true;
     }
 
     private boolean isOperator(ServerPlayer player) {
         return operatorUUID != null && operatorUUID.equals(player.getUUID());
+    }
+
+    private static boolean isEligibleInput(ItemStack input, ServerPlayer operator) {
+        return !input.isEmpty() && input.getFoodProperties(operator) != null
+                && !ChefQualityNbt.hasQuality(input) && !SeasoningEligibility.isUnseasonable(input);
     }
 
     // ---- 完成做菜: 解析品质 + 掷效果 + 盖章 + 记经验 ----
@@ -210,21 +300,22 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         // isRemoved: 死亡到重生之间旧实体仍在 PlayerList 里但 capability 已失效, 下面读厨师等级会撞上
         // "capability 缺失"抛出并崩掉服务端 tick (2026-08-18 军火台同源崩服)。已移除即当离线处理。
         if (operator == null || operator.isRemoved()
-                || input.isEmpty() || input.getFoodProperties(operator) == null) {
-            resetToIdle();
+                || !isEligibleInput(input, operator)
+                || !heatGame.hasValidControlInput() || hits == 0) {
+            cancelCooking(operator, "调味失败：必须至少完成一次有效控火和一次调味命中，材料已保留。");
             return;
         }
 
         // 经济 sink (信用点扣费): 经 EconomyServices 定位器; 经济未注入时放行不扣 (不阻塞核心循环),
         // 已注入且余额不足时拒绝做菜 (菜不盖章, 返还 idle, 玩家保有未调味的原菜)。
-        if (!tryChargeTableUse(operator, ChefConfig.TABLE_USE_COST_CREDIT.get())) {
-            resetToIdle();
+        if (!tryChargeTableUse(operator, ChefConfig.seasoningCreditCost())) {
+            cancelCooking(operator, "调味失败：信用点不足，材料已保留。");
             return;
         }
 
-        int chefLevel = JobServices.jobService().level(operator, JobId.CHEF);
+        int chefLevel = ChefExperience.level(operator);
         ChefQuality achieved = ChefQualityResolver.resolve(
-                heatGame.accuracyScore(), hits, TOTAL_CUES, tierCap(), chefLevel);
+                heatGame.accuracyScore(), hits, ChefConfig.qteCount(), tierCap(), chefLevel);
 
         SeasoningBias bias = SeasoningTag.biasOf(inputSlots.getStackInSlot(SeasoningMenu.SLOT_SEASONING));
         List<ChefEffectInstance> effects = SeasoningEffectRoller.rollAll(
@@ -242,8 +333,9 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
 
         // 谁做谁得经验 (按达成品质; 经共享 LevelingService 每日衰减软上限入账, 厨师不自实现衰减)。
         ChefXpHandler.award(operator, achieved);
-
-        resetToIdle();
+        finalQuality = achieved.tier();
+        playFeedback(SoundEvents.PLAYER_LEVELUP, 0.85F, 1.0F, ParticleTypes.HAPPY_VILLAGER, 14);
+        setChanged();
     }
 
     /**
@@ -288,12 +380,90 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
 
     private void resetToIdle() {
         phase = PHASE_IDLE;
+        heatTicks = 0;
         hits = 0;
         cuesSpawned = 0;
         cueActive = false;
+        cueTarget = -1;
+        cueTimer = 0;
+        failureReason = 0;
+        finalQuality = -1;
+        greenZoneFeedbackPlayed = false;
         operatorUUID = null;
         heatGame.reset();
         setChanged();
+    }
+
+    public boolean isActive() {
+        return phase == PHASE_HEAT || phase == PHASE_SEASON;
+    }
+
+    /** Called by menu and block lifecycle paths; active inputs remain untouched. */
+    public void cancelCooking(@Nullable ServerPlayer operator, String message) {
+        if (!isActive() && phase != PHASE_DONE) {
+            return;
+        }
+        phase = PHASE_DONE;
+        heatTicks = 0;
+        cueActive = false;
+        cueTarget = -1;
+        cueTimer = 0;
+        failureReason = 1;
+        finalQuality = -1;
+        operatorUUID = null;
+        heatGame.reset();
+        setChanged();
+        if (operator != null) {
+            operator.displayClientMessage(Component.literal(message), true);
+        }
+    }
+
+    public void cancelForBlockBreak() {
+        cancelCooking(currentOperator(), "调味已取消：调味台被破坏，材料已掉落。");
+    }
+
+    private int remainingTicks() {
+        if (phase == PHASE_HEAT) {
+            return Math.max(0, ChefConfig.seasoningDurationTicks() - heatTicks);
+        }
+        return phase == PHASE_SEASON ? Math.max(0, cueTimer) : 0;
+    }
+
+    private int randomCueGap() {
+        return ChefConfig.qteMinIntervalTicks()
+                + level.random.nextInt(ChefConfig.qteMaxIntervalTicks() - ChefConfig.qteMinIntervalTicks() + 1);
+    }
+
+    private void playFeedback(SoundEvent sound, float volume, float pitch, ParticleOptions particle, int count) {
+        if (level instanceof ServerLevel serverLevel) {
+            double x = worldPosition.getX() + 0.5D;
+            double y = worldPosition.getY() + 1.0D;
+            double z = worldPosition.getZ() + 0.5D;
+            serverLevel.playSound(null, x, y, z, sound, SoundSource.BLOCKS, volume, pitch);
+            serverLevel.sendParticles(particle, x, y, z, count, 0.25D, 0.15D, 0.25D, 0.02D);
+        }
+    }
+
+    @Nullable
+    private ServerPlayer currentOperator() {
+        if (!(level instanceof net.minecraft.server.level.ServerLevel serverLevel) || operatorUUID == null) {
+            return null;
+        }
+        return serverLevel.getServer().getPlayerList().getPlayer(operatorUUID);
+    }
+
+    private boolean operatorStillControlsTable(ServerPlayer operator) {
+        return operator.distanceToSqr(worldPosition.getX() + 0.5D, worldPosition.getY() + 0.5D,
+                worldPosition.getZ() + 0.5D) <= 64.0D
+                && operator.containerMenu instanceof SeasoningMenu menu
+                && menu.blockEntity() == this;
+    }
+
+    void reject(ServerPlayer player, String action, String reason) {
+        org.slf4j.LoggerFactory.getLogger("miningdim/chef").warn(
+                "Rejected seasoning action {} from {} at {}: {}", action, player.getGameProfile().getName(),
+                worldPosition, reason);
+        player.displayClientMessage(Component.literal("调味操作被拒绝：" + reason), true);
     }
 
     // ---- MenuProvider ----

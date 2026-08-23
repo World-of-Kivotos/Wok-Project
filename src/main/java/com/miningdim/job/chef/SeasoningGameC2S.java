@@ -12,30 +12,35 @@ import java.util.function.Supplier;
  *
  * 包只携带 "做了哪个动作" 的枚举, 不携带任何热度/命中数/品质 (服务端按自己的权威状态结算, 防作弊):
  *  - START: 开始做菜 (校验输入是食物);
- *  - HEAT_CLICK: 火候出锅点击 (服务端按当前 heat 锁定);
- *  - SEASON_HIT: 调味命中点击 (服务端仅当有活跃时机点才计)。
+ *  - HEAT_PRESS / HEAT_RELEASE: 按住或松开控火;
+ *  - SEASON_HIT + target: 仅命中当前服务端生成的随机位置才计分。
  *
  * 服务端 handler 校验发送者正打开的是调味台菜单 (operator 即开界面者), 委派给 BlockEntity 的服务端方法。
  */
-public record SeasoningGameC2S(Action action) {
+public record SeasoningGameC2S(Action action, int target) {
 
     /** 小游戏动作 (越界 byte->enum 还原须兜底, 见 decode)。 */
     public enum Action {
         START,
-        HEAT_CLICK,
+        HEAT_PRESS,
+        HEAT_RELEASE,
         SEASON_HIT
+    }
+
+    public SeasoningGameC2S(Action action) {
+        this(action, -1);
     }
 
     public static void encode(SeasoningGameC2S msg, FriendlyByteBuf buf) {
         buf.writeByte(msg.action.ordinal());
+        buf.writeVarInt(msg.target);
     }
 
     public static SeasoningGameC2S decode(FriendlyByteBuf buf) {
         int ordinal = buf.readByte();
         Action[] all = Action.values();
-        // 越界兜底: 非法 ordinal 落回 START (最无害动作; 不构造世界状态, 服务端再校验 phase)。
-        Action action = (ordinal >= 0 && ordinal < all.length) ? all[ordinal] : Action.START;
-        return new SeasoningGameC2S(action);
+        Action action = (ordinal >= 0 && ordinal < all.length) ? all[ordinal] : null;
+        return new SeasoningGameC2S(action, buf.readVarInt());
     }
 
     /**
@@ -49,15 +54,31 @@ public record SeasoningGameC2S(Action action) {
             if (sender == null) {
                 return;
             }
+            if (msg.action == null) {
+                org.slf4j.LoggerFactory.getLogger("miningdim/chef").warn(
+                        "Rejected invalid seasoning packet from {}", sender.getGameProfile().getName());
+                sender.displayClientMessage(net.minecraft.network.chat.Component.literal("调味操作被拒绝：无效动作。"), true);
+                return;
+            }
             AbstractContainerMenu menu = sender.containerMenu;
             if (!(menu instanceof SeasoningMenu seasoningMenu)) {
+                org.slf4j.LoggerFactory.getLogger("miningdim/chef").warn(
+                        "Rejected seasoning action {} from {} without seasoning menu", msg.action,
+                        sender.getGameProfile().getName());
+                sender.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                        "调味操作被拒绝：未打开调味台。"), true);
                 return; // 没开调味台界面: 忽略 (防伪造)。
             }
             SeasoningTableBlockEntity be = seasoningMenu.blockEntity();
+            if (!seasoningMenu.stillValid(sender)) {
+                be.reject(sender, msg.action.name(), "距离过远或调味台已不存在");
+                return;
+            }
             switch (msg.action) {
                 case START -> be.startCooking(sender);
-                case HEAT_CLICK -> be.clickHeat(sender);
-                case SEASON_HIT -> be.clickSeason(sender);
+                case HEAT_PRESS -> be.pressHeat(sender);
+                case HEAT_RELEASE -> be.releaseHeat(sender);
+                case SEASON_HIT -> be.hitSeason(sender, msg.target);
             }
         });
         ctx.setPacketHandled(true);

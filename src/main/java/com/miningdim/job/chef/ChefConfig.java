@@ -104,6 +104,65 @@ public final class ChefConfig {
     public static final ForgeConfigSpec.IntValue NIGHT_SEC_EXTRAORDINARY;
     public static final ForgeConfigSpec.IntValue NIGHT_SEC_RADIANT;
 
+    // ---- 已选探索/后勤效果 (窗口秒；镇火中级只灭火，故时长为 0) ----
+    public static final ForgeConfigSpec.IntValue SATIATION_SEC_LOW;
+    public static final ForgeConfigSpec.IntValue SATIATION_SEC_MEDIUM;
+    public static final ForgeConfigSpec.IntValue SATIATION_SEC_HIGH;
+    public static final ForgeConfigSpec.IntValue SATIATION_SEC_EXTRAORDINARY;
+    public static final ForgeConfigSpec.IntValue SATIATION_SEC_RADIANT;
+    public static final ForgeConfigSpec.IntValue FIRE_QUELL_SEC_HIGH;
+    public static final ForgeConfigSpec.IntValue FIRE_QUELL_SEC_EXTRAORDINARY;
+    public static final ForgeConfigSpec.IntValue FIRE_QUELL_SEC_RADIANT;
+    public static final ForgeConfigSpec.IntValue GILLS_SEC_LOW;
+    public static final ForgeConfigSpec.IntValue GILLS_SEC_MEDIUM;
+    public static final ForgeConfigSpec.IntValue GILLS_SEC_HIGH;
+    public static final ForgeConfigSpec.IntValue GILLS_SEC_EXTRAORDINARY;
+    public static final ForgeConfigSpec.IntValue GILLS_SEC_RADIANT;
+    public static final ForgeConfigSpec.IntValue FEATHER_SEC_MEDIUM;
+    public static final ForgeConfigSpec.IntValue FEATHER_SEC_HIGH;
+    public static final ForgeConfigSpec.IntValue FEATHER_SEC_EXTRAORDINARY;
+    public static final ForgeConfigSpec.IntValue FEATHER_SEC_RADIANT;
+    public static final ForgeConfigSpec.IntValue FIREFLY_SEC_LOW;
+    public static final ForgeConfigSpec.IntValue FIREFLY_SEC_MEDIUM;
+    public static final ForgeConfigSpec.IntValue FIREFLY_SEC_HIGH;
+    public static final ForgeConfigSpec.IntValue FIREFLY_SEC_EXTRAORDINARY;
+    public static final ForgeConfigSpec.IntValue FIREFLY_SEC_RADIANT;
+    public static final ForgeConfigSpec.IntValue SATED_JUMP_SECONDS;
+    public static final ForgeConfigSpec.IntValue FIREFLY_PARTICLE_INTERVAL_TICKS;
+    public static final ForgeConfigSpec.IntValue FIREFLY_PARTICLE_COUNT;
+
+    // ---- 掷池门控/调料偏置 ----
+    public static final ForgeConfigSpec.IntValue ENDURANCE_UNLOCK_LEVEL;
+    public static final ForgeConfigSpec.IntValue COMBAT_UNLOCK_LEVEL;
+    public static final ForgeConfigSpec.IntValue ADVANCED_COMBAT_UNLOCK_LEVEL;
+    public static final ForgeConfigSpec.IntValue SEASONING_BIASED_WEIGHT;
+    public static final ForgeConfigSpec.IntValue SEASONING_NEUTRAL_WEIGHT;
+    public static final ForgeConfigSpec.IntValue COMPLEX_VIRTUAL_HITS;
+
+    // ---- 调味小游戏（服务端权威） ----
+    public static final ForgeConfigSpec.IntValue HEAT_MAX;
+    public static final ForgeConfigSpec.IntValue HEAT_RISE_PER_TICK;
+    public static final ForgeConfigSpec.IntValue HEAT_FALL_PER_TICK;
+    public static final ForgeConfigSpec.IntValue HEAT_GREEN_START;
+    public static final ForgeConfigSpec.IntValue HEAT_GREEN_END;
+    public static final ForgeConfigSpec.IntValue SEASONING_DURATION_TICKS;
+    public static final ForgeConfigSpec.IntValue SEASONING_SCORING_START_TICK;
+    public static final ForgeConfigSpec.IntValue QTE_WINDOW_TICKS;
+    public static final ForgeConfigSpec.IntValue QTE_MIN_INTERVAL_TICKS;
+    public static final ForgeConfigSpec.IntValue QTE_MAX_INTERVAL_TICKS;
+    public static final ForgeConfigSpec.IntValue QTE_COUNT;
+    public static final ForgeConfigSpec.IntValue SEASONING_TABLE_MAX_TIER;
+    public static final ForgeConfigSpec.IntValue QUALITY_HEAT_WEIGHT_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue QUALITY_QTE_WEIGHT_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue QUALITY_MEDIUM_THRESHOLD_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue QUALITY_HIGH_THRESHOLD_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue QUALITY_EXTRAORDINARY_THRESHOLD_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue QUALITY_RADIANT_THRESHOLD_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue QUALITY_MEDIUM_UNLOCK_LEVEL;
+    public static final ForgeConfigSpec.IntValue QUALITY_HIGH_UNLOCK_LEVEL;
+    public static final ForgeConfigSpec.IntValue QUALITY_EXTRAORDINARY_UNLOCK_LEVEL;
+    public static final ForgeConfigSpec.IntValue QUALITY_RADIANT_UNLOCK_LEVEL;
+
     // ---- 11 翻车负面 (仅低/中/高): 夹生概率千分比 + 时长秒, 烧焦自伤 %千分比, 倒胃中毒等级 ----
     public static final ForgeConfigSpec.IntValue UNDERDONE_CHANCE_LOW;
     public static final ForgeConfigSpec.IntValue UNDERDONE_CHANCE_MEDIUM;
@@ -232,6 +291,84 @@ public final class ChefConfig {
         NIGHT_SEC_RADIANT = b.defineInRange("radiant", 900, 1, 3600);
         b.pop();
 
+        b.push("satiation");
+        b.comment("fullness window seconds (60/120/240/420/720): immunity to Hunger plus saturation upkeep");
+        SATIATION_SEC_LOW = b.defineInRange("low", 60, 1, 3600);
+        SATIATION_SEC_MEDIUM = b.defineInRange("medium", 120, 1, 3600);
+        SATIATION_SEC_HIGH = b.defineInRange("high", 240, 1, 3600);
+        SATIATION_SEC_EXTRAORDINARY = b.defineInRange("extraordinary", 420, 1, 3600);
+        SATIATION_SEC_RADIANT = b.defineInRange("radiant", 720, 1, 3600);
+        b.pop();
+
+        b.push("exploration");
+        b.comment("fire_quell high/extra/radiant fire-resistance seconds (8/12/18); medium extinguishes only");
+        FIRE_QUELL_SEC_HIGH = b.defineInRange("fireQuellHighSeconds", 8, 0, 3600);
+        FIRE_QUELL_SEC_EXTRAORDINARY = b.defineInRange("fireQuellExtraordinarySeconds", 12, 0, 3600);
+        FIRE_QUELL_SEC_RADIANT = b.defineInRange("fireQuellRadiantSeconds", 18, 0, 3600);
+        b.comment("gills water breathing and dolphins grace seconds (30/60/120/240/480)");
+        GILLS_SEC_LOW = b.defineInRange("gillsLowSeconds", 30, 1, 3600);
+        GILLS_SEC_MEDIUM = b.defineInRange("gillsMediumSeconds", 60, 1, 3600);
+        GILLS_SEC_HIGH = b.defineInRange("gillsHighSeconds", 120, 1, 3600);
+        GILLS_SEC_EXTRAORDINARY = b.defineInRange("gillsExtraordinarySeconds", 240, 1, 3600);
+        GILLS_SEC_RADIANT = b.defineInRange("gillsRadiantSeconds", 480, 1, 3600);
+        b.comment("feather slow-falling seconds (medium/high/extraordinary/radiant = 20/40/80/160)");
+        FEATHER_SEC_MEDIUM = b.defineInRange("featherMediumSeconds", 20, 0, 3600);
+        FEATHER_SEC_HIGH = b.defineInRange("featherHighSeconds", 40, 0, 3600);
+        FEATHER_SEC_EXTRAORDINARY = b.defineInRange("featherExtraordinarySeconds", 80, 0, 3600);
+        FEATHER_SEC_RADIANT = b.defineInRange("featherRadiantSeconds", 160, 0, 3600);
+        b.comment("firefly glowing seconds (30/60/120/240/600)");
+        FIREFLY_SEC_LOW = b.defineInRange("fireflyLowSeconds", 30, 1, 3600);
+        FIREFLY_SEC_MEDIUM = b.defineInRange("fireflyMediumSeconds", 60, 1, 3600);
+        FIREFLY_SEC_HIGH = b.defineInRange("fireflyHighSeconds", 120, 1, 3600);
+        FIREFLY_SEC_EXTRAORDINARY = b.defineInRange("fireflyExtraordinarySeconds", 240, 1, 3600);
+        FIREFLY_SEC_RADIANT = b.defineInRange("fireflyRadiantSeconds", 600, 1, 3600);
+        SATED_JUMP_SECONDS = b.defineInRange("satedJumpSeconds", 60, 1, 3600);
+        FIREFLY_PARTICLE_INTERVAL_TICKS = b.defineInRange("fireflyParticleIntervalTicks", 20, 1, 1200);
+        FIREFLY_PARTICLE_COUNT = b.defineInRange("fireflyParticleCount", 3, 1, 64);
+        b.pop();
+
+        b.push("effect_pool");
+        b.comment("chef-level unlock thresholds for the seasoning pool");
+        ENDURANCE_UNLOCK_LEVEL = b.defineInRange("enduranceUnlockLevel", 3, 1, 10);
+        COMBAT_UNLOCK_LEVEL = b.defineInRange("combatUnlockLevel", 5, 1, 10);
+        ADVANCED_COMBAT_UNLOCK_LEVEL = b.defineInRange("advancedCombatUnlockLevel", 7, 1, 10);
+        b.comment("seasoning pool weights; matched direction is biased:neutral (default 3:1)");
+        SEASONING_BIASED_WEIGHT = b.defineInRange("biasedWeight", 3, 1, 100);
+        SEASONING_NEUTRAL_WEIGHT = b.defineInRange("neutralWeight", 1, 1, 100);
+        COMPLEX_VIRTUAL_HITS = b.defineInRange("complexVirtualHits", 1, 0, 3);
+        b.pop();
+
+        b.push("minigame");
+        b.comment("server-authoritative heat and QTE parameters");
+        HEAT_MAX = b.defineInRange("heatMax", 200, 1, 10000);
+        HEAT_RISE_PER_TICK = b.defineInRange("heatRisePerTick", 2, 1, 1000);
+        HEAT_FALL_PER_TICK = b.defineInRange("heatFallPerTick", 1, 1, 1000);
+        HEAT_GREEN_START = b.defineInRange("heatGreenStart", 120, 0, 10000);
+        HEAT_GREEN_END = b.defineInRange("heatGreenEnd", 160, 0, 10000);
+        SEASONING_DURATION_TICKS = b.defineInRange("durationTicks", 160, 20, 72000);
+        SEASONING_SCORING_START_TICK = b.defineInRange("scoringStartTick", 60, 0, 72000);
+        QTE_WINDOW_TICKS = b.defineInRange("qteWindowTicks", 20, 1, 1200);
+        QTE_MIN_INTERVAL_TICKS = b.defineInRange("qteMinIntervalTicks", 15, 1, 72000);
+        QTE_MAX_INTERVAL_TICKS = b.defineInRange("qteMaxIntervalTicks", 35, 1, 72000);
+        QTE_COUNT = b.defineInRange("qteCount", 4, 1, 64);
+        SEASONING_TABLE_MAX_TIER = b.defineInRange("tableMaxTier", 4, 0, 4);
+        b.pop();
+
+        b.push("quality_resolution");
+        b.comment("quality score weights and thresholds in PER-MILLE; heat and QTE defaults are 50:50");
+        QUALITY_HEAT_WEIGHT_PER_MILLE = b.defineInRange("heatWeightPerMille", 500, 0, 1000);
+        QUALITY_QTE_WEIGHT_PER_MILLE = b.defineInRange("qteWeightPerMille", 500, 0, 1000);
+        QUALITY_MEDIUM_THRESHOLD_PER_MILLE = b.defineInRange("mediumThresholdPerMille", 350, 0, 1000);
+        QUALITY_HIGH_THRESHOLD_PER_MILLE = b.defineInRange("highThresholdPerMille", 550, 0, 1000);
+        QUALITY_EXTRAORDINARY_THRESHOLD_PER_MILLE = b.defineInRange("extraordinaryThresholdPerMille", 750, 0, 1000);
+        QUALITY_RADIANT_THRESHOLD_PER_MILLE = b.defineInRange("radiantThresholdPerMille", 900, 0, 1000);
+        b.comment("chef level gates for medium/high/extraordinary/radiant quality");
+        QUALITY_MEDIUM_UNLOCK_LEVEL = b.defineInRange("mediumUnlockLevel", 3, 1, 10);
+        QUALITY_HIGH_UNLOCK_LEVEL = b.defineInRange("highUnlockLevel", 5, 1, 10);
+        QUALITY_EXTRAORDINARY_UNLOCK_LEVEL = b.defineInRange("extraordinaryUnlockLevel", 7, 1, 10);
+        QUALITY_RADIANT_UNLOCK_LEVEL = b.defineInRange("radiantUnlockLevel", 9, 1, 10);
+        b.pop();
+
         b.push("negatives");
         b.comment("11 failures (low/medium/high only). underdone: trigger chance PER-MILLE + debuff seconds; scorched: self-damage PER-MILLE maxHP");
         UNDERDONE_CHANCE_LOW = b.defineInRange("underdoneChanceLow", 800, 0, 1000);
@@ -349,9 +486,191 @@ public final class ChefConfig {
         return byTier(q, NIGHT_SEC_LOW, NIGHT_SEC_MEDIUM, NIGHT_SEC_HIGH, NIGHT_SEC_EXTRAORDINARY, NIGHT_SEC_RADIANT);
     }
 
+    public static int satiationSeconds(ChefQuality q) {
+        return byTier(q, SATIATION_SEC_LOW, SATIATION_SEC_MEDIUM, SATIATION_SEC_HIGH,
+                SATIATION_SEC_EXTRAORDINARY, SATIATION_SEC_RADIANT);
+    }
+
+    public static int fireQuellSeconds(ChefQuality q) {
+        return switch (q) {
+            case HIGH -> FIRE_QUELL_SEC_HIGH.get();
+            case EXTRAORDINARY -> FIRE_QUELL_SEC_EXTRAORDINARY.get();
+            case RADIANT -> FIRE_QUELL_SEC_RADIANT.get();
+            default -> 0;
+        };
+    }
+
+    public static int gillsSeconds(ChefQuality q) {
+        return byTier(q, GILLS_SEC_LOW, GILLS_SEC_MEDIUM, GILLS_SEC_HIGH, GILLS_SEC_EXTRAORDINARY, GILLS_SEC_RADIANT);
+    }
+
+    public static int featherSeconds(ChefQuality q) {
+        return switch (q) {
+            case MEDIUM -> FEATHER_SEC_MEDIUM.get();
+            case HIGH -> FEATHER_SEC_HIGH.get();
+            case EXTRAORDINARY -> FEATHER_SEC_EXTRAORDINARY.get();
+            case RADIANT -> FEATHER_SEC_RADIANT.get();
+            default -> 0;
+        };
+    }
+
+    public static int fireflySeconds(ChefQuality q) {
+        return byTier(q, FIREFLY_SEC_LOW, FIREFLY_SEC_MEDIUM, FIREFLY_SEC_HIGH,
+                FIREFLY_SEC_EXTRAORDINARY, FIREFLY_SEC_RADIANT);
+    }
+
+    public static int satedJumpSeconds() {
+        return SATED_JUMP_SECONDS.get();
+    }
+
+    public static int shieldWindowSeconds() {
+        return SHIELD_WINDOW_SECONDS.get();
+    }
+
+    public static int greaseWindowSeconds() {
+        return GREASE_WINDOW_SECONDS.get();
+    }
+
+    public static int regenWindowSeconds() {
+        return REGEN_WINDOW_SECONDS.get();
+    }
+
+    public static int stableAimWindowSeconds() {
+        return STABLE_AIM_WINDOW_SECONDS.get();
+    }
+
+    public static int fireflyParticleIntervalTicks() {
+        return FIREFLY_PARTICLE_INTERVAL_TICKS.get();
+    }
+
+    public static int fireflyParticleCount() {
+        return FIREFLY_PARTICLE_COUNT.get();
+    }
+
+    public static int enduranceUnlockLevel() {
+        return ENDURANCE_UNLOCK_LEVEL.get();
+    }
+
+    public static int combatUnlockLevel() {
+        return COMBAT_UNLOCK_LEVEL.get();
+    }
+
+    public static int advancedCombatUnlockLevel() {
+        return ADVANCED_COMBAT_UNLOCK_LEVEL.get();
+    }
+
+    public static int seasoningBiasedWeight() {
+        return SEASONING_BIASED_WEIGHT.get();
+    }
+
+    public static int seasoningNeutralWeight() {
+        return SEASONING_NEUTRAL_WEIGHT.get();
+    }
+
+    public static int complexVirtualHits() {
+        return COMPLEX_VIRTUAL_HITS.get();
+    }
+
+    public static int seasoningCreditCost() {
+        return TABLE_USE_COST_CREDIT.get();
+    }
+
+    public static int heatMax() {
+        return HEAT_MAX.get();
+    }
+
+    public static int heatRisePerTick() {
+        return HEAT_RISE_PER_TICK.get();
+    }
+
+    public static int heatFallPerTick() {
+        return HEAT_FALL_PER_TICK.get();
+    }
+
+    public static int heatGreenStart() {
+        return HEAT_GREEN_START.get();
+    }
+
+    public static int heatGreenEnd() {
+        return HEAT_GREEN_END.get();
+    }
+
+    public static int seasoningDurationTicks() {
+        return SEASONING_DURATION_TICKS.get();
+    }
+
+    public static int seasoningScoringStartTick() {
+        return SEASONING_SCORING_START_TICK.get();
+    }
+
+    public static int qteWindowTicks() {
+        return QTE_WINDOW_TICKS.get();
+    }
+
+    public static int qteMinIntervalTicks() {
+        return QTE_MIN_INTERVAL_TICKS.get();
+    }
+
+    public static int qteMaxIntervalTicks() {
+        return QTE_MAX_INTERVAL_TICKS.get();
+    }
+
+    public static int qteCount() {
+        return QTE_COUNT.get();
+    }
+
+    public static int seasoningTableMaxTier() {
+        return SEASONING_TABLE_MAX_TIER.get();
+    }
+
+    public static int qualityHeatWeightPerMille() {
+        return QUALITY_HEAT_WEIGHT_PER_MILLE.get();
+    }
+
+    public static int qualityQteWeightPerMille() {
+        return QUALITY_QTE_WEIGHT_PER_MILLE.get();
+    }
+
+    public static int qualityMediumThresholdPerMille() {
+        return QUALITY_MEDIUM_THRESHOLD_PER_MILLE.get();
+    }
+
+    public static int qualityHighThresholdPerMille() {
+        return QUALITY_HIGH_THRESHOLD_PER_MILLE.get();
+    }
+
+    public static int qualityExtraordinaryThresholdPerMille() {
+        return QUALITY_EXTRAORDINARY_THRESHOLD_PER_MILLE.get();
+    }
+
+    public static int qualityRadiantThresholdPerMille() {
+        return QUALITY_RADIANT_THRESHOLD_PER_MILLE.get();
+    }
+
+    public static int qualityMediumUnlockLevel() {
+        return QUALITY_MEDIUM_UNLOCK_LEVEL.get();
+    }
+
+    public static int qualityHighUnlockLevel() {
+        return QUALITY_HIGH_UNLOCK_LEVEL.get();
+    }
+
+    public static int qualityExtraordinaryUnlockLevel() {
+        return QUALITY_EXTRAORDINARY_UNLOCK_LEVEL.get();
+    }
+
+    public static int qualityRadiantUnlockLevel() {
+        return QUALITY_RADIANT_UNLOCK_LEVEL.get();
+    }
+
     /** 单菜原始经验 (按达成品质)。 */
     public static int rawXp(ChefQuality q) {
         return byTier(q, XP_LOW, XP_MEDIUM, XP_HIGH, XP_EXTRAORDINARY, XP_RADIANT);
+    }
+
+    /** gameplay 的品质经验读取合约；保留 rawXp 以兼容已经完成的厨师经验路径。 */
+    public static int xpForQuality(ChefQuality q) {
+        return rawXp(q);
     }
 
     private static int byTier(ChefQuality q, ForgeConfigSpec.IntValue low, ForgeConfigSpec.IntValue medium,

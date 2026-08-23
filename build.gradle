@@ -143,6 +143,13 @@ dependencies {
         runtimeOnly fg.deobf("local:FarmersDelight-1.20.1:1.3.2")
     }
 
+    // Optional in production; when the audited 1.1.0.3 jar is present, load it in dev so chef
+    // seasoning tags and the MobEffect blacklist are exercised against the real registry.
+    def flavorImmersedDailyDevJar = file("libs/flavor_immersed_daily-1.1.0.3-forge-1.20.1.jar")
+    if (flavorImmersedDailyDevJar.exists()) {
+        runtimeOnly fg.deobf("local:flavor_immersed_daily:1.1.0.3-forge-1.20.1")
+    }
+
     // 跳蚤市场 SQLite 运行期 JDBC 驱动 (org.xerial:sqlite-jdbc 3.45.3.0, 经核实存在于 Maven Central
     //   repo1.maven.org/maven2/org/xerial/sqlite-jdbc/3.45.3.0/)。分两条声明各司其职, 不冲突也不双重打包:
     //   - jarJar(...): 把驱动内嵌进最终产物 jar 的 META-INF/jarjar, 正式服由 FML JarJar 机制加载 (生产路径)。

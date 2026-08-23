@@ -1,0 +1,6 @@
+{
+  "replace": false,
+  "values": [
+    { "id": "flavor_immersed_daily:vinegar", "required": false }
+  ]
+}

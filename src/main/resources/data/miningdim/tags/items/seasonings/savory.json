@@ -1,0 +1,10 @@
+{
+  "replace": false,
+  "values": [
+    { "id": "flavor_immersed_daily:salt", "required": false },
+    { "id": "flavor_immersed_daily:soy", "required": false },
+    { "id": "flavor_immersed_daily:pepperedsalt", "required": false },
+    { "id": "flavor_immersed_daily:thickbroadbeansauce", "required": false },
+    { "id": "flavor_immersed_daily:sweetflourasuve", "required": false }
+  ]
+}

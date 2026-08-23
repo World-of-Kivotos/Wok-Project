@@ -51,6 +51,17 @@ public final class SeasoningTableBlock extends Block implements EntityBlock {
         return InteractionResult.CONSUME;
     }
 
+    @Override
+    public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean moved) {
+        if (!state.is(newState.getBlock()) && level.getBlockEntity(pos) instanceof SeasoningTableBlockEntity be) {
+            be.cancelForBlockBreak();
+            for (var stack : be.dropContents()) {
+                net.minecraft.world.Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), stack);
+            }
+        }
+        super.onRemove(state, level, pos, newState, moved);
+    }
+
     @Nullable
     @Override
     public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {

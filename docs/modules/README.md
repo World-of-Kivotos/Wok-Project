@@ -19,7 +19,7 @@
 | 职业 | WOK-矿工模块 | `wok-job-miner` | `job.miner.MinerSystem` |
 | 职业 | WOK-农夫模块 | `wok-job-farmer` | `job.farmer.FarmerModule` |
 | 职业 | WOK-铸甲师模块 | `wok-job-armorer` | `job.engineer.EngineerSystem` |
-| 职业 | WOK-厨师模块 | `wok-job-chef` | `job.chef.ChefSystem` |
+| 职业 | WOK-厨师模块 | `wok-job-chef` | `job.chef.ChefModule` |
 | 职业 | WOK-酿酒师模块 | `wok-job-brewer` | `job.brewer.BrewerSystem` |
 | 职业 | WOK-塔罗师模块 | `wok-job-tarot` | `job.tarot.TarotSystem` |
 | 职业 | WOK-军火商模块 | `wok-job-munitions` | `job.munitions.MunitionsSystem` |

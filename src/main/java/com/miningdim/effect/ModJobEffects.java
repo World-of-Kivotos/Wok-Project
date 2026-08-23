@@ -30,6 +30,28 @@ public final class ModJobEffects {
     public static final RegistryObject<MobEffect> VULNERABILITY =
             EFFECTS.register("vulnerability", VulnerabilityEffect::new);
 
+    /** 厨师窗口效果均为真实 MobEffect：客户端可见、存档随实体持久化，事件处理器只读取活动实例。 */
+    public static final RegistryObject<MobEffect> CHEF_ENDURANCE = EFFECTS.register("chef_endurance",
+            ChefWindowEffect::new);
+    public static final RegistryObject<MobEffect> CHEF_SATIATION = EFFECTS.register("chef_satiation",
+            ChefWindowEffect::new);
+    public static final RegistryObject<MobEffect> CHEF_SHIELD = EFFECTS.register("chef_shield",
+            ChefWindowEffect::new);
+    public static final RegistryObject<MobEffect> CHEF_GREASE = EFFECTS.register("chef_grease",
+            ChefWindowEffect::new);
+    public static final RegistryObject<MobEffect> CHEF_AFTERTASTE_REGEN = EFFECTS.register("chef_aftertaste_regen",
+            ChefWindowEffect::new);
+    public static final RegistryObject<MobEffect> CHEF_STABLE_AIM = EFFECTS.register("chef_stable_aim",
+            ChefWindowEffect::new);
+    public static final RegistryObject<MobEffect> CHEF_FIRE_QUELL = EFFECTS.register("chef_fire_quell",
+            ChefWindowEffect::new);
+    public static final RegistryObject<MobEffect> CHEF_GILLS = EFFECTS.register("chef_gills",
+            ChefWindowEffect::new);
+    public static final RegistryObject<MobEffect> CHEF_FEATHER = EFFECTS.register("chef_feather",
+            ChefWindowEffect::new);
+    public static final RegistryObject<MobEffect> CHEF_FIREFLY = EFFECTS.register("chef_firefly",
+            ChefWindowEffect::new);
+
     /** 接 modBus (在 JobFrameworkSystem.register 内调用一次)。 */
     public static void register(IEventBus modBus) {
         EFFECTS.register(modBus);

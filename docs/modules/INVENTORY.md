@@ -18,7 +18,7 @@
 | `wok-job-miner` | WOK-矿工模块 | 19 | 25 | `MinerSystem` | 核心、职业框架、矿区、经济、战斗框架 |
 | `wok-job-farmer` | WOK-农夫模块 | 23 | 23 | `FarmerModule` | 核心、全服经验、职业框架、经济；Farmer's Delight 可选 |
 | `wok-job-armorer` | WOK-铸甲师模块 | 121 | 67 | `EngineerSystem` | 核心、职业框架、精英怪；TaCZ 可选 |
-| `wok-job-chef` | WOK-厨师模块 | 33 | 26 | `ChefSystem` | 核心、职业框架、经济、战斗框架 |
+| `wok-job-chef` | WOK-厨师模块 | 38 | 11 | `ChefModule` | 核心、全服经验、职业框架、经济、战斗框架 |
 | `wok-job-brewer` | WOK-酿酒师模块 | 39 | 45 | `BrewerSystem` | 核心、职业框架、战斗框架 |
 | `wok-job-tarot` | WOK-塔罗师模块 | 52 | 45 | `TarotSystem` | 核心、职业框架、矿区、经济、精英怪 |
 | `wok-job-munitions` | WOK-军火商模块 | 52 | 65 | `MunitionsSystem` | 核心、职业框架、经济；TaCZ 可选 |

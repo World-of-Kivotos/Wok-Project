@@ -12,10 +12,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 厨师子系统入口 (Chef_Job_DesignSpec 第九章; 模块化铁律 3 自注册模式)。
+ * 厨师内部运行时装配器，由公开入口 {@link ChefModule} 唯一持有。
  *
- * 集成阶段把 {@code subsystems.add(new com.miningdim.job.chef.ChefSystem())} 加进
- * MiningDim.registerSubsystems() 一行即接入 (本任务不改 MiningDim.java)。
+ * MiningDim 只登记 {@link ChefModule}，避免外部调用方绕过经验来源注册。
  *
  * register 内自注册:
  *  - 自己 package 的 DeferredRegister: ChefBlocks/ChefItems/ChefBlockEntities/ChefTabs (modBus);
@@ -55,11 +54,10 @@ public final class ChefSystem implements Subsystem {
         // forge 事件订阅。
         forgeBus.register(new ChefConsumeHandler());
         forgeBus.register(new ChefTooltipHandler());
-        forgeBus.register(new ChefKnockbackHandler());
+        forgeBus.register(new ChefDamageHandler());
+        forgeBus.register(new ChefAimHandler());
         forgeBus.register(new ChefHungerHandler());
         forgeBus.register(windowState);
-        // 凝脂 (爆炸减伤): 迁入玩家减伤单点结算, 不再自挂 LivingHurtEvent (减伤统一, 见 ChefGreaseReduction)。
-        com.miningdim.combat.PlayerDamageReduction.register(new ChefGreaseReduction());
 
         // 平板厨师页的 job.chef.state (数值实时读 ChefConfig, 故与上面的 registerConfig 先后无关)。
         ChefWebUiActions.registerAll();

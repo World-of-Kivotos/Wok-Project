@@ -146,8 +146,56 @@
       "category": "job",
       "javaPackagePrefixes": ["com.miningdim.job.chef"],
       "currentPaths": ["job/chef"],
-      "dependencies": ["wok-core", "wok-job-core", "wok-combat-core", "wok-economy", "wok-webui"],
-      "optionalIntegrations": ["farmersdelight"]
+      "dependencies": ["wok-core", "wok-experience", "wok-job-core", "wok-combat-core", "wok-economy", "wok-webui"],
+      "optionalIntegrations": ["farmersdelight", "flavor_immersed_daily"],
+      "publicEntry": "com.miningdim.job.chef.ChefModule",
+      "config": "SERVER miningdim-chef.toml (ChefConfig.SPEC)",
+      "registrations": {
+        "blocks": [
+          "miningdim:seasoning_table_low",
+          "miningdim:seasoning_table_medium",
+          "miningdim:seasoning_table_high",
+          "miningdim:seasoning_table_extraordinary",
+          "miningdim:seasoning_table_radiant"
+        ],
+        "items": [
+          "miningdim:seasoning_table_low",
+          "miningdim:seasoning_table_medium",
+          "miningdim:seasoning_table_high",
+          "miningdim:seasoning_table_extraordinary",
+          "miningdim:seasoning_table_radiant"
+        ],
+        "blockEntities": ["miningdim:seasoning_table"],
+        "menus": ["miningdim:seasoning_table"],
+        "creativeTabs": ["miningdim:miningdim_chef"],
+        "networkChannel": "miningdim:chef",
+        "experienceTracks": ["miningdim:job/chef"],
+        "experienceSources": ["miningdim:chef/seasoning_complete"],
+        "mobEffects": [
+          "miningdim:chef_endurance",
+          "miningdim:chef_satiation",
+          "miningdim:chef_shield",
+          "miningdim:chef_grease",
+          "miningdim:chef_aftertaste_regen",
+          "miningdim:chef_stable_aim",
+          "miningdim:chef_fire_quell",
+          "miningdim:chef_gills",
+          "miningdim:chef_feather",
+          "miningdim:chef_firefly"
+        ]
+      },
+      "resourcePaths": [
+        "assets/miningdim/blockstates/seasoning_table_*.json",
+        "assets/miningdim/models/block/seasoning_table_*.json",
+        "assets/miningdim/models/item/seasoning_table_*.json",
+        "assets/miningdim/lang/* (chef keys only)",
+        "data/miningdim/recipes/chef/",
+        "data/miningdim/tags/items/seasonings.json",
+        "data/miningdim/tags/items/seasonings/*.json",
+        "data/miningdim/tags/items/unseasonable.json",
+        "data/miningdim/tags/items/chef_amplify_item_blacklist.json",
+        "data/miningdim/tags/mob_effects/chef_amplify_effect_blacklist.json"
+      ]
     },
     {
       "id": "wok-job-brewer",

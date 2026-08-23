@@ -31,6 +31,9 @@ public final class ChefQualityNbt {
 
     /** ItemStack tag 下的厨师品质子 compound 键。 */
     static final String ROOT_TAG = "MiningChef";
+    /** 根 compound 保持不变；无此键的历史菜按 schema v1 读取。 */
+    private static final String K_SCHEMA_VERSION = "schemaVersion";
+    private static final int CURRENT_SCHEMA_VERSION = 2;
     private static final String K_QUALITY = "quality";
     private static final String K_EFFECTS = "effects";
     /** 记录做这道菜的厨师 UUID (谁做谁得经验已在做菜阶段入账; 此键留作显示/审计, 非经验再结算源)。 */
@@ -52,6 +55,7 @@ public final class ChefQualityNbt {
             throw new IllegalArgumentException("quality must not be null");
         }
         CompoundTag root = new CompoundTag();
+        root.putInt(K_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION);
         root.putString(K_QUALITY, quality.id());
         ListTag list = new ListTag();
         for (ChefEffectInstance inst : effects) {
@@ -79,6 +83,19 @@ public final class ChefQualityNbt {
     /** 是否带厨师品质章 (快速判定, tooltip/结算入口用)。 */
     public static boolean hasQuality(ItemStack stack) {
         return readQuality(stack) != null;
+    }
+
+    /** 读取厨师数据 schema；旧菜从未写版本，按 v1 兼容。 */
+    public static int readSchemaVersion(ItemStack stack) {
+        if (!stack.hasTag()) {
+            return 0;
+        }
+        CompoundTag tag = stack.getTag();
+        if (tag == null || !tag.contains(ROOT_TAG, Tag.TAG_COMPOUND)) {
+            return 0;
+        }
+        CompoundTag root = tag.getCompound(ROOT_TAG);
+        return root.contains(K_SCHEMA_VERSION, Tag.TAG_INT) ? root.getInt(K_SCHEMA_VERSION) : 1;
     }
 
     /** 读效果列表 (无章返回空 list; 坏 NBT 条目跳过, 不掩盖为默认效果)。 */

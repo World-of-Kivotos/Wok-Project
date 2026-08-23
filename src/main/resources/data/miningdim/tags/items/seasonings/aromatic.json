@@ -1,0 +1,13 @@
+{
+  "replace": false,
+  "values": [
+    { "id": "flavor_immersed_daily:ginger", "required": false },
+    { "id": "flavor_immersed_daily:groundpowder", "required": false },
+    { "id": "flavor_immersed_daily:garlic", "required": false },
+    { "id": "flavor_immersed_daily:garlicpowder", "required": false },
+    { "id": "flavor_immersed_daily:cumin", "required": false },
+    { "id": "flavor_immersed_daily:cuminpowder", "required": false },
+    { "id": "flavor_immersed_daily:onionpowder", "required": false },
+    { "id": "flavor_immersed_daily:sesamepowder", "required": false }
+  ]
+}

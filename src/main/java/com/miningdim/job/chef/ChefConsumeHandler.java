@@ -9,10 +9,16 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.food.FoodData;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.entity.living.LivingEntityUseItemEvent;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 吃菜时结算 (Chef_Job_DesignSpec 第三/六章; 订阅 {@link LivingEntityUseItemEvent.Finish})。
@@ -36,6 +42,55 @@ public final class ChefConsumeHandler {
     /** 原版饱食条上限 (增量自限)。 */
     private static final int MAX_FOOD = 20;
 
+    /** 正在食用的一口菜事务；只在 Start->Finish 的短窗口存在，离开窗口一律清除。 */
+    private static final Map<UUID, ConsumptionSnapshot> CONSUMPTIONS = new ConcurrentHashMap<>();
+
+    record EffectSnapshot(int duration, int amplifier, boolean ambient, boolean visible, boolean showIcon) {
+        private MobEffectInstance restore(MobEffect effect) {
+            return new MobEffectInstance(effect, duration, amplifier, ambient, visible, showIcon);
+        }
+    }
+
+    private static final class ConsumptionSnapshot {
+        private final net.minecraft.world.item.Item item;
+        private final ChefQuality quality;
+        private final int food;
+        private final float saturation;
+        private final java.util.Set<MobEffect> declaredTypes;
+        private final Map<MobEffect, EffectSnapshot> declaredEffects;
+
+        private ConsumptionSnapshot(ItemStack stack, LivingEntity entity, ChefQuality quality) {
+            this.item = stack.getItem();
+            this.quality = quality;
+            if (entity instanceof net.minecraft.world.entity.player.Player player) {
+                FoodData data = player.getFoodData();
+                this.food = data.getFoodLevel();
+                this.saturation = data.getSaturationLevel();
+            } else {
+                this.food = 0;
+                this.saturation = 0.0F;
+            }
+            this.declaredTypes = declaredEffectTypes(stack, entity);
+            this.declaredEffects = declaredEffectsBefore(entity, declaredTypes);
+        }
+
+        private boolean matches(ItemStack stack, ChefQuality currentQuality) {
+            return item == stack.getItem() && quality == currentQuality;
+        }
+    }
+
+    @SubscribeEvent
+    public void onStartEating(LivingEntityUseItemEvent.Start event) {
+        LivingEntity entity = event.getEntity();
+        if (entity.level().isClientSide) {
+            return;
+        }
+        ChefQuality quality = ChefQualityNbt.readQuality(event.getItem());
+        if (quality != null) {
+            CONSUMPTIONS.put(entity.getUUID(), new ConsumptionSnapshot(event.getItem(), entity, quality));
+        }
+    }
+
     @SubscribeEvent
     public void onFinishEating(LivingEntityUseItemEvent.Finish event) {
         ItemStack stack = event.getItem();
@@ -47,29 +102,59 @@ public final class ChefConsumeHandler {
         if (entity.level().isClientSide) {
             return; // 服务端权威结算。
         }
+        ConsumptionSnapshot snapshot = CONSUMPTIONS.remove(entity.getUUID());
+        if (snapshot == null || !snapshot.matches(stack, quality)) {
+            return;
+        }
         List<ChefEffectInstance> effects = ChefQualityNbt.readEffects(stack);
 
         // 失败品: 销毁菜肴 (销毁已发生于物理消耗; 此处不返还任何饱食/不施加其它效果, 直接清空其余结算)。
         for (ChefEffectInstance inst : effects) {
             if (inst.type() == ChefEffectType.SPOILED) {
-                // 失败品意味着这口白吃: 把刚获得的进食回复扣回 (原版已加, 这里抵消该菜默认 food/sat)。
-                revertVanillaFood(entity, stack);
+                // 失败品只撤销此事务带来的资源和本菜实际写入/刷新的效果，绝不倒扣食用前旧资源。
+                restoreFailedConsumption(entity, snapshot);
                 return;
             }
         }
 
-        for (ChefEffectInstance inst : effects) {
-            applyEffect(entity, quality, inst, stack);
-        }
+        // 先扩饱食净增量，再扩饱和净增量，避免 NBT 效果顺序导致饱和提前被旧饱食值截断。
+        effects.stream().filter(inst -> inst.type() == ChefEffectType.NOURISH_FOOD)
+                .forEach(inst -> applyEffect(entity, quality, inst, stack, snapshot));
+        effects.stream().filter(inst -> inst.type() == ChefEffectType.AFTERTASTE_SAT)
+                .forEach(inst -> applyEffect(entity, quality, inst, stack, snapshot));
+        effects.stream().filter(inst -> inst.type() != ChefEffectType.NOURISH_FOOD
+                        && inst.type() != ChefEffectType.AFTERTASTE_SAT)
+                .forEach(inst -> applyEffect(entity, quality, inst, stack, snapshot));
     }
 
-    private void applyEffect(LivingEntity entity, ChefQuality quality, ChefEffectInstance inst, ItemStack stack) {
+    @SubscribeEvent
+    public void onStopEating(LivingEntityUseItemEvent.Stop event) {
+        CONSUMPTIONS.remove(event.getEntity().getUUID());
+    }
+
+    @SubscribeEvent
+    public void onDeath(LivingDeathEvent event) {
+        CONSUMPTIONS.remove(event.getEntity().getUUID());
+    }
+
+    @SubscribeEvent
+    public void onLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        CONSUMPTIONS.remove(event.getEntity().getUUID());
+    }
+
+    @SubscribeEvent
+    public void onChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
+        CONSUMPTIONS.remove(event.getEntity().getUUID());
+    }
+
+    private void applyEffect(LivingEntity entity, ChefQuality quality, ChefEffectInstance inst, ItemStack stack,
+                             ConsumptionSnapshot snapshot) {
         switch (inst.type()) {
-            case NOURISH_FOOD -> multiplyFood(entity, inst.magnitude());
-            case AFTERTASTE_SAT -> multiplySaturation(entity, inst.magnitude());
+            case NOURISH_FOOD -> multiplyFoodNetGain(entity, inst.magnitude(), snapshot.food);
+            case AFTERTASTE_SAT -> multiplySaturationNetGain(entity, inst.magnitude(), snapshot.saturation);
             case SATED_JUMP -> entity.addEffect(new MobEffectInstance(
-                    MobEffects.JUMP, 60 * 20, inst.magnitude() - 1, false, true));
-            case AMPLIFY -> amplifyExistingBuffs(entity, stack, inst.magnitude());
+                    MobEffects.JUMP, ChefConfig.satedJumpSeconds() * 20, inst.magnitude() - 1, false, true));
+            case AMPLIFY -> amplifyDeclaredBuffs(entity, stack, inst.magnitude(), snapshot.declaredEffects);
             case NOURISH_HEAL -> applyHeal(entity, inst.magnitude());
             case PURIFY -> purifyDebuffs(entity, inst.magnitude());
             case REFRESH -> applyRefresh(entity, quality, inst.magnitude());
@@ -77,13 +162,21 @@ public final class ChefConsumeHandler {
                     MobEffects.NIGHT_VISION, inst.magnitude() * 20, 0, false, true));
             case ENDURANCE -> stampWindow(entity, ChefEffectType.ENDURANCE, inst.magnitude(),
                     ChefConfig.enduranceSeconds(quality));
-            case SHIELD -> applyShield(entity, inst.magnitude(), ChefConfig.SHIELD_WINDOW_SECONDS.get());
+            case SATIATION -> stampWindow(entity, ChefEffectType.SATIATION, 0, ChefConfig.satiationSeconds(quality));
+            case SHIELD -> applyShield(entity, inst.magnitude(), ChefConfig.shieldWindowSeconds());
             case GREASE -> stampWindow(entity, ChefEffectType.GREASE, inst.magnitude(),
-                    ChefConfig.GREASE_WINDOW_SECONDS.get());
+                    ChefConfig.greaseWindowSeconds());
             case AFTERTASTE_REGEN -> stampWindow(entity, ChefEffectType.AFTERTASTE_REGEN, inst.magnitude(),
-                    ChefConfig.REGEN_WINDOW_SECONDS.get());
-            case STABLE_AIM -> stampWindow(entity, ChefEffectType.STABLE_AIM, inst.magnitude(),
-                    ChefConfig.STABLE_AIM_WINDOW_SECONDS.get());
+                    ChefConfig.regenWindowSeconds());
+            case STABLE_AIM -> {
+                entity.removeEffect(MobEffects.MOVEMENT_SLOWDOWN);
+                stampWindow(entity, ChefEffectType.STABLE_AIM, inst.magnitude(),
+                        ChefConfig.stableAimWindowSeconds());
+            }
+            case FIRE_QUELL -> applyFireQuell(entity, quality, inst.magnitude());
+            case GILLS -> applyGills(entity, inst.magnitude());
+            case FEATHER -> applyFeather(entity, inst.magnitude());
+            case FIREFLY -> applyFirefly(entity, inst.magnitude());
             case OVERSALT -> halveSaturation(entity);
             case UNDERDONE -> applyUnderdone(entity, quality, inst.magnitude());
             case SCORCHED -> applyScorched(entity, inst.magnitude());
@@ -94,23 +187,29 @@ public final class ChefConsumeHandler {
 
     // ---- 饱食/饱和 (增量/回味, 受 20 上限自限) ----
 
-    private void multiplyFood(LivingEntity entity, int mulX100) {
+    private void multiplyFoodNetGain(LivingEntity entity, int mulX100, int beforeFood) {
         if (!(entity instanceof net.minecraft.world.entity.player.Player player)) {
             return;
         }
         FoodData food = player.getFoodData();
-        int current = food.getFoodLevel();
-        int boosted = (int) Math.round(current * (mulX100 / 100.0D));
-        food.setFoodLevel(Math.min(MAX_FOOD, boosted)); // 自限 20。
+        int gained = food.getFoodLevel() - beforeFood;
+        if (gained <= 0) {
+            return;
+        }
+        int boostedGain = (int) Math.round(gained * (mulX100 / 100.0D));
+        food.setFoodLevel(Math.min(MAX_FOOD, beforeFood + boostedGain));
     }
 
-    private void multiplySaturation(LivingEntity entity, int mulX100) {
+    private void multiplySaturationNetGain(LivingEntity entity, int mulX100, float beforeSaturation) {
         if (!(entity instanceof net.minecraft.world.entity.player.Player player)) {
             return;
         }
         FoodData food = player.getFoodData();
-        float current = food.getSaturationLevel();
-        float boosted = current * (mulX100 / 100.0F);
+        float gained = food.getSaturationLevel() - beforeSaturation;
+        if (gained <= 0.0F) {
+            return;
+        }
+        float boosted = beforeSaturation + gained * (mulX100 / 100.0F);
         // 饱和 <= 饱食自限。
         food.setSaturation(Math.min(food.getFoodLevel(), boosted));
     }
@@ -158,68 +257,76 @@ public final class ChefConsumeHandler {
         }
     }
 
-    // ---- 提神: 清挖掘疲劳/缓慢 + 急速 ----
+    // ---- 提神: 清挖掘疲劳 + 急速 ----
 
     private void applyRefresh(LivingEntity entity, ChefQuality quality, int hasteLevel) {
         entity.removeEffect(MobEffects.DIG_SLOWDOWN);
-        entity.removeEffect(MobEffects.MOVEMENT_SLOWDOWN);
         // chef-02: 急速时长按品质逐级 (90/150/240/360/600s), 取代旧硬编码 240s (与同文件夜照/耐饥等按品质分级一致)。
         int seconds = ChefConfig.refreshSeconds(quality);
         entity.addEffect(new MobEffectInstance(MobEffects.DIG_SPEED, seconds * 20, hasteLevel - 1, false, true));
     }
 
+    private void applyFireQuell(LivingEntity entity, ChefQuality quality, int seconds) {
+        entity.clearFire();
+        stampWindow(entity, ChefEffectType.FIRE_QUELL, seconds, Math.max(1, seconds));
+        if (seconds > 0) {
+            entity.addEffect(new MobEffectInstance(MobEffects.FIRE_RESISTANCE, seconds * 20, 0, false, true));
+        }
+    }
+
+    private void applyGills(LivingEntity entity, int seconds) {
+        stampWindow(entity, ChefEffectType.GILLS, 0, seconds);
+        entity.addEffect(new MobEffectInstance(MobEffects.WATER_BREATHING, seconds * 20, 0, false, true));
+        entity.addEffect(new MobEffectInstance(MobEffects.DOLPHINS_GRACE, seconds * 20, 0, false, true));
+    }
+
+    private void applyFeather(LivingEntity entity, int seconds) {
+        if (seconds <= 0) {
+            return;
+        }
+        stampWindow(entity, ChefEffectType.FEATHER, 0, seconds);
+        entity.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, seconds * 20, 0, false, true));
+    }
+
+    private void applyFirefly(LivingEntity entity, int seconds) {
+        stampWindow(entity, ChefEffectType.FIREFLY, 0, seconds);
+        entity.addEffect(new MobEffectInstance(MobEffects.GLOWING, seconds * 20, 0, false, true));
+    }
+
     // ---- 增香: 乘 "本菜自带 buff" 时长 (黑名单跳过金苹果/FID 战斗效果, 只乘时长不乘等级) ----
 
-    private void amplifyExistingBuffs(LivingEntity entity, ItemStack stack, int mulX100) {
+    private void amplifyDeclaredBuffs(LivingEntity entity, ItemStack stack, int mulX100,
+                                     Map<MobEffect, EffectSnapshot> before) {
         if (SeasoningBlacklist.isItemBlacklisted(stack)) {
             return; // 物品级黑名单 (金苹果/附魔金苹果): 整菜不增香。
         }
-        // spec 6.1 / 第 20 行: 增香只放大 "别的 mod 菜自带的 buff", 即本菜 FoodProperties 声明的 food effects。
-        var props = stack.getFoodProperties(entity);
-        if (props == null) {
-            return; // 非食物 (理论不达, 盖章只在食物上): 无自带 buff 可放大。
-        }
-        // 本菜声明的 food effect 集合 (1.20.1 返回 List<Pair<MobEffectInstance, Float>>, Pair.first 为效果实例)。
-        java.util.Set<MobEffect> ownEffects = new java.util.HashSet<>();
-        for (com.mojang.datafixers.util.Pair<MobEffectInstance, Float> pair : props.getEffects()) {
-            MobEffectInstance declared = pair.getFirst();
-            if (declared != null) {
-                ownEffects.add(declared.getEffect());
-            }
-        }
-        amplifyDeclaredBuffs(entity, ownEffects, mulX100);
+        amplifyDeclaredBuffs(entity, declaredEffectTypes(stack, entity), mulX100, before);
     }
 
     /**
-     * 增香核心 (Chef_Job_DesignSpec 6.1 平衡红线): 仅放大 "本菜自带 buff" 的时长 (ownEffects = 本菜
-     * FoodProperties 声明的 MobEffect 集合)。严禁对身上任意活跃 BENEFICIAL 效果放大 —— 那会乘到原版战斗
-     * 药水 (力量/速度/抗性/再生/吸收)、信标 buff、前一道增香菜的残留窗外 buff, 直接破 "战斗向一律 %最大血量、
-     * 不破枪战 attrition" 红线, 且连吃两道增香菜会对前菜已放大时长再乘一次 (复利叠加, 无上限)。
-     *
-     * 抽出为包级 + 显式 ownEffects 入参: 生产路径 {@link #amplifyExistingBuffs} 从 FoodProperties 算出集合传入;
-     * GameTest 直接喂一个声明集合驱动同一逻辑 (无需注册带 buff 的测试食物即可断言 "外来 buff 不被改写")。
-     *
-     * @param entity     吃菜实体
-     * @param ownEffects 本菜 FoodProperties 声明的效果集合 (空集 = 本菜不自带 buff, 无可放大)
-     * @param mulX100    时长倍率 x100 (只乘时长不乘等级)
+     * 按进食前快照放大本菜真实新增/刷新的效果时长；显式传入声明集合便于在冻结注册表的 GameTest
+     * 中覆盖同一生产算法，无需运行时伪造或注册测试物品。
      */
-    void amplifyDeclaredBuffs(LivingEntity entity, java.util.Set<MobEffect> ownEffects, int mulX100) {
-        if (ownEffects.isEmpty()) {
-            return; // 本菜不自带任何 buff: 无可增香 (避免乘到外来增益)。
-        }
-        // 仅放大活跃效果中其 MobEffect 属于本菜声明集合的实例 (信标/药水/前菜残留 buff 不在集合内, 一律跳过)。
-        List<MobEffectInstance> snapshot = new ArrayList<>(entity.getActiveEffects());
-        for (MobEffectInstance inst : snapshot) {
-            if (!ownEffects.contains(inst.getEffect())) {
-                continue; // 非本菜自带 buff: 不放大 (外来增益/前菜残留不被乘)。
+    void amplifyDeclaredBuffs(LivingEntity entity, java.util.Set<MobEffect> ownEffects, int mulX100,
+                              Map<MobEffect, EffectSnapshot> before) {
+        for (MobEffect effect : ownEffects) {
+            MobEffectInstance after = entity.getEffect(effect);
+            if (after == null || SeasoningBlacklist.isEffectBlacklisted(after)) {
+                continue;
             }
-            if (SeasoningBlacklist.isEffectBlacklisted(inst)) {
-                continue; // 效果级黑名单 (FID 战斗向/HARMFUL): 不放大。
+            EffectSnapshot old = before.get(effect);
+            int oldDuration = old == null ? 0 : old.duration;
+            boolean amplifierRefreshed = old != null && after.getAmplifier() != old.amplifier;
+            int freshDuration = amplifierRefreshed
+                    ? after.getDuration()
+                    : after.getDuration() - oldDuration;
+            if (freshDuration <= 0) {
+                continue;
             }
-            int newDuration = (int) Math.min(Integer.MAX_VALUE, (long) inst.getDuration() * mulX100 / 100L);
-            // 重新施加同等级、放大时长的实例 (覆盖原实例; 只乘时长, amplifier 不变)。
-            entity.addEffect(new MobEffectInstance(inst.getEffect(), newDuration, inst.getAmplifier(),
-                    inst.isAmbient(), inst.isVisible(), inst.showIcon()));
+            long extra = (long) freshDuration * (mulX100 - 100) / 100L;
+            int duration = (int) Math.min(Integer.MAX_VALUE, after.getDuration() + extra);
+            entity.addEffect(new MobEffectInstance(effect, duration, after.getAmplifier(), after.isAmbient(),
+                    after.isVisible(), after.showIcon()));
         }
     }
 
@@ -256,27 +363,51 @@ public final class ChefConsumeHandler {
         }
     }
 
-    // ---- 失败品: 抵消该菜默认进食回复 ----
+    // ---- 失败品: 回滚本次进食事务 ----
 
-    private void revertVanillaFood(LivingEntity entity, ItemStack stack) {
+    private void restoreFailedConsumption(LivingEntity entity, ConsumptionSnapshot snapshot) {
         if (!(entity instanceof net.minecraft.world.entity.player.Player player)) {
             return;
         }
-        var props = stack.getFoodProperties(entity);
-        if (props == null) {
-            return;
-        }
         FoodData food = player.getFoodData();
-        // 抵消该菜默认进食回复 (失败品销毁 = 零回复语义): 先抵饱食, 再抵饱和。原版 eat() 同时加 food 与
-        // saturation (satGained = nutrition * saturationModifier * 2, 钳 <= foodLevel), 只回退 food 会白送饱和
-        // (隐藏续航), 与 "销毁菜肴" 语义不符。
-        int newFoodLevel = Math.max(0, food.getFoodLevel() - props.getNutrition());
-        food.setFoodLevel(newFoodLevel);
-        float satGained = props.getNutrition() * props.getSaturationModifier() * 2.0F;
-        // 饱和钳到 [0, 当前饱食]: 原版 saturation 不变量恒 <= foodLevel, 回退后维持此不变量。
-        float newSat = Math.min(newFoodLevel, Math.max(0.0F, food.getSaturationLevel() - satGained));
-        food.setSaturation(newSat);
+        food.setFoodLevel(snapshot.food);
+        food.setSaturation(Math.min(snapshot.food, snapshot.saturation));
+        for (MobEffect effect : snapshot.declaredTypes) {
+            entity.removeEffect(effect);
+            EffectSnapshot before = snapshot.declaredEffects.get(effect);
+            if (before != null) {
+                entity.addEffect(before.restore(effect));
+            }
+        }
     }
+
+    static Map<MobEffect, EffectSnapshot> declaredEffectsBefore(LivingEntity entity,
+                                                                 java.util.Set<MobEffect> types) {
+        Map<MobEffect, EffectSnapshot> out = new HashMap<>();
+        for (MobEffect effect : types) {
+            MobEffectInstance instance = entity.getEffect(effect);
+            if (instance != null) {
+                out.put(effect, new EffectSnapshot(instance.getDuration(), instance.getAmplifier(), instance.isAmbient(),
+                        instance.isVisible(), instance.showIcon()));
+            }
+        }
+        return out;
+    }
+
+    private static java.util.Set<MobEffect> declaredEffectTypes(ItemStack stack, LivingEntity entity) {
+        var props = stack.getFoodProperties(entity);
+        java.util.Set<MobEffect> out = new java.util.HashSet<>();
+        if (props == null) {
+            return out;
+        }
+        for (com.mojang.datafixers.util.Pair<MobEffectInstance, Float> pair : props.getEffects()) {
+            if (pair.getFirst() != null) {
+                out.add(pair.getFirst().getEffect());
+            }
+        }
+        return out;
+    }
+
 
     // ---- 窗口型统一盖章入口 ----
 

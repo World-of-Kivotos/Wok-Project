@@ -15,7 +15,7 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 | WOK-市场 | 市场 action、列表字段和市场语言键；当前与 WebUI 共用页面文件时按 action 区段维护 |
 | WOK-农夫 | `farmer_*`，`recipes/farmer/`，`tags/blocks/farmer_farmland.json` |
 | WOK-铸甲师 | `production_table_*`、`nano_plate_*`、`plate_armor_*`、`plasma_shield_*`、护甲/护盾声音与模型 |
-| WOK-厨师 | `seasoning_table_*`、`recipes/chef/` 及菜肴效果语言键 |
+| WOK-厨师 | `seasoning_table_*` 方块状态/模型/物品模型；`recipes/chef/`；`tags/items/seasonings*.json`、`unseasonable.json`、`chef_amplify_item_blacklist.json`；`tags/mob_effects/chef_amplify_effect_blacklist.json`；共享语言文件中 `chef.*` 与 `screen.miningdim.chef.*` 键 |
 | WOK-酿酒师 | `brewing_station*`、`wine_cellar*`、`wine_*`、`dried_wheat`、`recipes/brewer/` |
 | WOK-塔罗师 | `tarot_*`、`data/miningdim/tarot/`、`sounds/job/tarot/` |
 | WOK-军火商 | `munitions_*`、`gunsmith_*`、弹药/推进剂/底火/弹壳、`custom/miningdim_gunsmith/`、军械声音 |
@@ -28,6 +28,7 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 ## 2. 共享文件纪律
 
 - `assets/miningdim/lang/en_us.json` 与 `zh_cn.json` 是物理共享文件，但 key 必须使用模块前缀；职业至少使用 `*.miningdim.<job>.*`。
+- WOK-厨师的客户端界面键使用 `screen.miningdim.chef.*`；既有 `chef.*` 品质/效果键保留为兼容别名，不得删除或改作其他模块含义。
 - 同一次提交只能修改本模块拥有的语言 key。格式化工具不得重排整个共享文件制造跨模块 diff。
 - `assets/miningdim/web/index.html` 为物理共享页面。新增功能必须以 action 前缀区分：`market.*`、`case.*`、`system.*`。
 - `sounds.json` 或声音注册表中的条目与实际 `.ogg` 一并归属，不得只迁移其中一半。

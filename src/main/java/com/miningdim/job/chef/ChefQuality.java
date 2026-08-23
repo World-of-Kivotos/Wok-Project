@@ -77,12 +77,12 @@ public enum ChefQuality {
         return prefixKey;
     }
 
-    /** 本档是否高于/等于另一档 (台档 + 厨师等级双重封顶用)。 */
+    /** 本档是否高于/等于另一档。 */
     public boolean atLeast(ChefQuality other) {
         return this.tier >= other.tier;
     }
 
-    /** 取两档中较低者 (目标品质可选上限 = min(台档, 厨师等级上限))。 */
+    /** 取两档中较低者。 */
     public static ChefQuality min(ChefQuality a, ChefQuality b) {
         return a.tier <= b.tier ? a : b;
     }

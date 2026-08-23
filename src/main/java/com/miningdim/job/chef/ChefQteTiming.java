@@ -4,19 +4,23 @@ package com.miningdim.job.chef;
 record ChefQteTiming(int cueCount, int windowTicks, int minGapTicks, int maxGapTicks,
                      int swayPeriodTicks) {
 
-    static ChefQteTiming forChallenge(ChefQuality target, int chefLevel) {
+    static ChefQteTiming forChallenge(ChefQuality target, int chefLevel, ChefQuality tableTier) {
         if (chefLevel < 1 || chefLevel > 10) {
             throw new IllegalArgumentException("chefLevel must be in [1,10], got " + chefLevel);
         }
+        requireTableSupports(target, tableTier);
         int timingAdjustment = (chefLevel - 1) * ChefConfig.qteEaseTicksPerChefLevel()
                 - target.tier() * ChefConfig.qteDifficultyTicksPerQualityTier();
-        int window = ChefConfig.qteWindowTicks() + timingAdjustment;
-        int minGap = ChefConfig.qteMinIntervalTicks() + timingAdjustment;
-        int maxGap = ChefConfig.qteMaxIntervalTicks() + timingAdjustment;
-        int cueCount = cueCountFor(target);
-        if (window <= 0 || minGap <= 0 || maxGap < minGap) {
+        int window = Math.max(ChefConfig.qteMinWindowTicks(),
+                ChefConfig.qteWindowTicks() + timingAdjustment);
+        int minGap = Math.max(ChefConfig.qteMinGapTicks(),
+                ChefConfig.qteMinIntervalTicks() + timingAdjustment);
+        int maxGap = Math.max(ChefConfig.qteMinGapTicks(),
+                ChefConfig.qteMaxIntervalTicks() + timingAdjustment);
+        int cueCount = cueCountFor(target, tableTier);
+        if (maxGap < minGap) {
             throw new IllegalStateException("Invalid chef QTE timing target=" + target.id()
-                    + ", chefLevel=" + chefLevel + ", window=" + window
+                    + ", table=" + tableTier.id() + ", chefLevel=" + chefLevel + ", window=" + window
                     + ", gap=" + minGap + "-" + maxGap);
         }
         // 一个命中窗口内往返约两次；最低 4 tick 保证高难配置下仍能看清标记。
@@ -24,7 +28,17 @@ record ChefQteTiming(int cueCount, int windowTicks, int minGapTicks, int maxGapT
         return new ChefQteTiming(cueCount, window, minGap, maxGap, swayPeriod);
     }
 
-    static int cueCountFor(ChefQuality target) {
-        return ChefConfig.qteCount() + target.tier() * ChefConfig.qteCountPerQualityTier();
+    static int cueCountFor(ChefQuality target, ChefQuality tableTier) {
+        requireTableSupports(target, tableTier);
+        int tableReduction = tableTier.tier() / ChefConfig.qteTableTiersPerReduction();
+        return ChefConfig.qteCount() + target.tier() * ChefConfig.qteCountPerQualityTier()
+                - tableReduction;
+    }
+
+    private static void requireTableSupports(ChefQuality target, ChefQuality tableTier) {
+        if (target.tier() > tableTier.tier()) {
+            throw new IllegalArgumentException("table " + tableTier.id()
+                    + " cannot produce target quality " + target.id());
+        }
     }
 }

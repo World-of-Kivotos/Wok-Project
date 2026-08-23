@@ -150,10 +150,13 @@ public final class ChefConfig {
     public static final ForgeConfigSpec.IntValue QTE_WINDOW_TICKS;
     public static final ForgeConfigSpec.IntValue QTE_MIN_INTERVAL_TICKS;
     public static final ForgeConfigSpec.IntValue QTE_MAX_INTERVAL_TICKS;
+    public static final ForgeConfigSpec.IntValue QTE_MIN_WINDOW_TICKS;
+    public static final ForgeConfigSpec.IntValue QTE_MIN_GAP_TICKS;
     public static final ForgeConfigSpec.IntValue QTE_DIFFICULTY_TICKS_PER_QUALITY_TIER;
     public static final ForgeConfigSpec.IntValue QTE_EASE_TICKS_PER_CHEF_LEVEL;
     public static final ForgeConfigSpec.IntValue QTE_COUNT;
     public static final ForgeConfigSpec.IntValue QTE_COUNT_PER_QUALITY_TIER;
+    public static final ForgeConfigSpec.IntValue QTE_TABLE_TIERS_PER_REDUCTION;
     public static final ForgeConfigSpec.IntValue SEASONING_TABLE_MAX_TIER;
     public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_LOW_PER_MILLE;
     public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_MEDIUM_PER_MILLE;
@@ -165,12 +168,9 @@ public final class ChefConfig {
     public static final ForgeConfigSpec.IntValue TARGET_DIFFICULTY_HIGH_PER_MILLE;
     public static final ForgeConfigSpec.IntValue TARGET_DIFFICULTY_EXTRAORDINARY_PER_MILLE;
     public static final ForgeConfigSpec.IntValue TARGET_DIFFICULTY_RADIANT_PER_MILLE;
-    public static final ForgeConfigSpec.IntValue LEVEL_1_SUCCESS_MULTIPLIER_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue LEVEL_1_OPEN_QUALITY_SUCCESS_MULTIPLIER_PER_MILLE;
     public static final ForgeConfigSpec.IntValue LEVEL_10_SUCCESS_MULTIPLIER_PER_MILLE;
-    public static final ForgeConfigSpec.IntValue QUALITY_MEDIUM_UNLOCK_LEVEL;
-    public static final ForgeConfigSpec.IntValue QUALITY_HIGH_UNLOCK_LEVEL;
-    public static final ForgeConfigSpec.IntValue QUALITY_EXTRAORDINARY_UNLOCK_LEVEL;
-    public static final ForgeConfigSpec.IntValue QUALITY_RADIANT_UNLOCK_LEVEL;
+    public static final ForgeConfigSpec.IntValue TABLE_SUCCESS_BONUS_PER_TIER_PER_MILLE;
 
     // ---- 11 翻车负面 (仅低/中/高): 夹生概率千分比 + 时长秒, 烧焦自伤 %千分比, 倒胃中毒等级 ----
     public static final ForgeConfigSpec.IntValue UNDERDONE_CHANCE_LOW;
@@ -359,13 +359,18 @@ public final class ChefConfig {
         QTE_WINDOW_TICKS = b.defineInRange("qteWindowTicks", 20, 1, 1200);
         QTE_MIN_INTERVAL_TICKS = b.defineInRange("qteMinIntervalTicks", 15, 1, 72000);
         QTE_MAX_INTERVAL_TICKS = b.defineInRange("qteMaxIntervalTicks", 35, 1, 72000);
+        b.comment("reachable lower bounds when a low-level chef selects a high-quality target");
+        QTE_MIN_WINDOW_TICKS = b.defineInRange("qteMinWindowTicks", 4, 1, 1200);
+        QTE_MIN_GAP_TICKS = b.defineInRange("qteMinGapTicks", 3, 1, 72000);
         b.comment("each target-quality tier shortens both the QTE window and cue gap; each chef level above L1 adds time back");
         QTE_DIFFICULTY_TICKS_PER_QUALITY_TIER = b.defineInRange(
                 "qteDifficultyTicksPerQualityTier", 4, 0, 300);
         QTE_EASE_TICKS_PER_CHEF_LEVEL = b.defineInRange("qteEaseTicksPerChefLevel", 1, 0, 300);
-        QTE_COUNT = b.defineInRange("qteCount", 4, 1, 64);
+        QTE_COUNT = b.defineInRange("qteCount", 4, 4, 64);
         b.comment("additional QTE cues required by each target-quality tier above low");
         QTE_COUNT_PER_QUALITY_TIER = b.defineInRange("qteCountPerQualityTier", 1, 0, 16);
+        b.comment("each complete group of table tiers removes one cue; default tiers 0/1/2/3/4 remove 0/0/1/1/2 cues");
+        QTE_TABLE_TIERS_PER_REDUCTION = b.defineInRange("qteTableTiersPerReduction", 2, 2, 4);
         SEASONING_TABLE_MAX_TIER = b.defineInRange("tableMaxTier", 4, 0, 4);
         b.pop();
 
@@ -382,14 +387,13 @@ public final class ChefConfig {
         TARGET_DIFFICULTY_HIGH_PER_MILLE = b.defineInRange("targetDifficultyHighPerMille", 850, 0, 1000);
         TARGET_DIFFICULTY_EXTRAORDINARY_PER_MILLE = b.defineInRange("targetDifficultyExtraordinaryPerMille", 650, 0, 1000);
         TARGET_DIFFICULTY_RADIANT_PER_MILLE = b.defineInRange("targetDifficultyRadiantPerMille", 450, 0, 1000);
-        b.comment("chef-level multiplier applied to MEDIUM and higher targets after performance bonuses; intermediate levels are linearly interpolated");
-        LEVEL_1_SUCCESS_MULTIPLIER_PER_MILLE = b.defineInRange("level1SuccessMultiplierPerMille", 500, 0, 1000);
+        b.comment("chef-level multiplier applied to MEDIUM and higher targets after performance bonuses; all qualities are selectable within the table tier");
+        LEVEL_1_OPEN_QUALITY_SUCCESS_MULTIPLIER_PER_MILLE = b.defineInRange(
+                "level1OpenQualitySuccessMultiplierPerMille", 100, 0, 1000);
         LEVEL_10_SUCCESS_MULTIPLIER_PER_MILLE = b.defineInRange("level10SuccessMultiplierPerMille", 1000, 0, 1000);
-        b.comment("chef level gates for medium/high/extraordinary/radiant quality");
-        QUALITY_MEDIUM_UNLOCK_LEVEL = b.defineInRange("mediumUnlockLevel", 3, 1, 10);
-        QUALITY_HIGH_UNLOCK_LEVEL = b.defineInRange("highUnlockLevel", 5, 1, 10);
-        QUALITY_EXTRAORDINARY_UNLOCK_LEVEL = b.defineInRange("extraordinaryUnlockLevel", 7, 1, 10);
-        QUALITY_RADIANT_UNLOCK_LEVEL = b.defineInRange("radiantUnlockLevel", 9, 1, 10);
+        b.comment("multiplicative success bonus supplied by each seasoning-table tier, in PER-MILLE");
+        TABLE_SUCCESS_BONUS_PER_TIER_PER_MILLE = b.defineInRange(
+                "tableSuccessBonusPerTierPerMille", 50, 0, 250);
         b.pop();
 
         b.push("negatives");
@@ -638,6 +642,14 @@ public final class ChefConfig {
         return QTE_MAX_INTERVAL_TICKS.get();
     }
 
+    public static int qteMinWindowTicks() {
+        return QTE_MIN_WINDOW_TICKS.get();
+    }
+
+    public static int qteMinGapTicks() {
+        return QTE_MIN_GAP_TICKS.get();
+    }
+
     public static int qteDifficultyTicksPerQualityTier() {
         return QTE_DIFFICULTY_TICKS_PER_QUALITY_TIER.get();
     }
@@ -652,6 +664,10 @@ public final class ChefConfig {
 
     public static int qteCountPerQualityTier() {
         return QTE_COUNT_PER_QUALITY_TIER.get();
+    }
+
+    public static int qteTableTiersPerReduction() {
+        return QTE_TABLE_TIERS_PER_REDUCTION.get();
     }
 
     public static int seasoningTableMaxTier() {
@@ -681,28 +697,16 @@ public final class ChefConfig {
         };
     }
 
-    public static int level1SuccessMultiplierPerMille() {
-        return LEVEL_1_SUCCESS_MULTIPLIER_PER_MILLE.get();
+    public static int level1OpenQualitySuccessMultiplierPerMille() {
+        return LEVEL_1_OPEN_QUALITY_SUCCESS_MULTIPLIER_PER_MILLE.get();
     }
 
     public static int level10SuccessMultiplierPerMille() {
         return LEVEL_10_SUCCESS_MULTIPLIER_PER_MILLE.get();
     }
 
-    public static int qualityMediumUnlockLevel() {
-        return QUALITY_MEDIUM_UNLOCK_LEVEL.get();
-    }
-
-    public static int qualityHighUnlockLevel() {
-        return QUALITY_HIGH_UNLOCK_LEVEL.get();
-    }
-
-    public static int qualityExtraordinaryUnlockLevel() {
-        return QUALITY_EXTRAORDINARY_UNLOCK_LEVEL.get();
-    }
-
-    public static int qualityRadiantUnlockLevel() {
-        return QUALITY_RADIANT_UNLOCK_LEVEL.get();
+    public static int tableSuccessBonusPerTierPerMille() {
+        return TABLE_SUCCESS_BONUS_PER_TIER_PER_MILLE.get();
     }
 
     /** 单菜原始经验 (按达成品质)。 */

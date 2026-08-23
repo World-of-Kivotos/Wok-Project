@@ -32,7 +32,16 @@ public final class SeasoningMenu extends AbstractMiningMenu {
     public static final int DATA_HITS = 2;        // 调味命中数
     public static final int DATA_CUE_ACTIVE = 3;  // 当前是否有活跃调味时机点 (0/1)
     public static final int DATA_TIER_CAP = 4;    // 台档上限 tier (0-4)
-    public static final int DATA_SIZE = 5;
+    public static final int DATA_CUE_TARGET = 5;
+    public static final int DATA_HEATING = 6;
+    public static final int DATA_REMAINING_TICKS = 7;
+    public static final int DATA_FAILURE_REASON = 8;
+    public static final int DATA_FINAL_QUALITY = 9;
+    public static final int DATA_HEAT_MAX = 10;
+    public static final int DATA_GREEN_START = 11;
+    public static final int DATA_GREEN_END = 12;
+    public static final int DATA_QTE_COUNT = 13;
+    public static final int DATA_SIZE = 14;
 
     private final ContainerData data;
     private final SeasoningTableBlockEntity blockEntity;
@@ -68,13 +77,23 @@ public final class SeasoningMenu extends AbstractMiningMenu {
         this.addSlot(new SlotItemHandler(be.inputSlots(), SLOT_INPUT, 44, 35) {
             @Override
             public boolean mayPlace(ItemStack stack) {
-                return stack.getFoodProperties(null) != null;
+                return !be.isActive() && stack.getFoodProperties(null) != null;
+            }
+
+            @Override
+            public boolean mayPickup(net.minecraft.world.entity.player.Player player) {
+                return !be.isActive();
             }
         });
         this.addSlot(new SlotItemHandler(be.inputSlots(), SLOT_SEASONING, 80, 35) {
             @Override
             public boolean mayPlace(ItemStack stack) {
-                return SeasoningTag.isSeasoning(stack);
+                return !be.isActive() && SeasoningTag.isSeasoning(stack);
+            }
+
+            @Override
+            public boolean mayPickup(net.minecraft.world.entity.player.Player player) {
+                return !be.isActive();
             }
         });
     }
@@ -110,11 +129,68 @@ public final class SeasoningMenu extends AbstractMiningMenu {
         return data.get(DATA_CUE_ACTIVE) != 0;
     }
 
+    public int cueTarget() {
+        return data.get(DATA_CUE_TARGET);
+    }
+
+    public int targetIndex() {
+        return cueTarget();
+    }
+
+    public boolean heating() {
+        return data.get(DATA_HEATING) != 0;
+    }
+
+    public int remainingTicks() {
+        return data.get(DATA_REMAINING_TICKS);
+    }
+
+    public int failureReason() {
+        return data.get(DATA_FAILURE_REASON);
+    }
+
+    public int finalQuality() {
+        return data.get(DATA_FINAL_QUALITY);
+    }
+
+    public int heatMax() {
+        return data.get(DATA_HEAT_MAX);
+    }
+
+    public int greenStart() {
+        return data.get(DATA_GREEN_START);
+    }
+
+    public int greenEnd() {
+        return data.get(DATA_GREEN_END);
+    }
+
+    public int qteCount() {
+        return data.get(DATA_QTE_COUNT);
+    }
+
     public ChefQuality tierCap() {
         return ChefQuality.byTier(data.get(DATA_TIER_CAP));
     }
 
     public SeasoningTableBlockEntity blockEntity() {
         return blockEntity;
+    }
+
+    @Override
+    public void removed(net.minecraft.world.entity.player.Player player) {
+        super.removed(player);
+        if (!player.level().isClientSide && player instanceof net.minecraft.server.level.ServerPlayer serverPlayer
+                && blockEntity.isActive()) {
+            blockEntity.cancelCooking(serverPlayer, "调味已取消：关闭调味台不会消耗材料。");
+        }
+    }
+
+    @Override
+    public ItemStack quickMoveStack(net.minecraft.world.entity.player.Player player, int index) {
+        if (blockEntity.isActive() && index >= 0 && index < CONTAINER_SLOTS) {
+            return ItemStack.EMPTY;
+        }
+        return super.quickMoveStack(player, index);
     }
 }

@@ -26,11 +26,6 @@ public final class SeasoningEffectRoller {
     private SeasoningEffectRoller() {
     }
 
-    /** 厨师等级解锁门槛 (第七章 "高级才解锁强效果"): 战斗向效果需厨师等级 >= 此值才进池。 */
-    private static final int COMBAT_UNLOCK_LEVEL = 5;
-    /** 稳膛/披甲等高阶战斗向需更高等级 (避免低级就拿全套战斗向)。 */
-    private static final int ADVANCED_COMBAT_UNLOCK_LEVEL = 7;
-
     /**
      * 掷出一道菜的全部效果实例 (个数受 maxEffects 约束, 战斗向 <=1, 负面仅低/中/高)。
      *
@@ -43,7 +38,8 @@ public final class SeasoningEffectRoller {
      */
     public static List<ChefEffectInstance> rollAll(RandomSource random, int chefLevel, ChefQuality quality,
                                                    SeasoningBias bias, int hitCount) {
-        int target = Math.min(quality.maxEffects(), Math.max(1, hitCount));
+        int virtualHits = bias == SeasoningBias.COMPLEX ? ChefConfig.complexVirtualHits() : 0;
+        int target = Math.min(quality.maxEffects(), Math.max(1, hitCount + virtualHits));
         List<ChefEffectType> pool = unlockedPool(chefLevel, quality);
 
         List<ChefEffectInstance> result = new ArrayList<>();
@@ -86,18 +82,25 @@ public final class SeasoningEffectRoller {
         pool.add(ChefEffectType.SATED_JUMP);
         pool.add(ChefEffectType.REFRESH);
         pool.add(ChefEffectType.NIGHT_SIGHT);
+        pool.add(ChefEffectType.SATIATION);
+        pool.add(ChefEffectType.GILLS);
+        pool.add(ChefEffectType.FIREFLY);
+        if (quality.atLeast(ChefQuality.MEDIUM)) {
+            pool.add(ChefEffectType.FEATHER);
+        }
         // 续航窗口型 (等级 >=3 解锁耐饥, 给中期续航)。
-        if (chefLevel >= 3) {
+        if (chefLevel >= ChefConfig.enduranceUnlockLevel()) {
             pool.add(ChefEffectType.ENDURANCE);
         }
         // 战斗向 (品质 combatUnlocked + 等级双门控)。
-        if (quality.combatUnlocked() && chefLevel >= COMBAT_UNLOCK_LEVEL) {
+        if (quality.combatUnlocked() && chefLevel >= ChefConfig.combatUnlockLevel()) {
             pool.add(ChefEffectType.NOURISH_HEAL);
             pool.add(ChefEffectType.PURIFY);
             pool.add(ChefEffectType.GREASE);
             pool.add(ChefEffectType.AFTERTASTE_REGEN);
+            pool.add(ChefEffectType.FIRE_QUELL);
         }
-        if (quality.combatUnlocked() && chefLevel >= ADVANCED_COMBAT_UNLOCK_LEVEL) {
+        if (quality.combatUnlocked() && chefLevel >= ChefConfig.advancedCombatUnlockLevel()) {
             pool.add(ChefEffectType.SHIELD);
             pool.add(ChefEffectType.STABLE_AIM);
         }
@@ -145,10 +148,11 @@ public final class SeasoningEffectRoller {
     /** 加权抽取: bias 指向的效果在抽样里多占权重 (出现次数 x额外权重), 偏向但不排他。 */
     private static ChefEffectType weightedPick(RandomSource random, List<ChefEffectType> candidates,
                                                SeasoningBias bias) {
-        // 构造加权列表: 命中 bias 池方向的效果各 +2 权重 (共 3 份), 其余 1 份。
+        // 构造加权列表: 命中 bias 池方向的效果为配置的 3:1 默认权重；COMPLEX 用 virtual hit 而不收窄池。
         List<ChefEffectType> weighted = new ArrayList<>();
         for (ChefEffectType t : candidates) {
-            int weight = inBiasPool(t, bias) ? 3 : 1;
+            int weight = inBiasPool(t, bias) ? ChefConfig.seasoningBiasedWeight()
+                    : ChefConfig.seasoningNeutralWeight();
             for (int i = 0; i < weight; i++) {
                 weighted.add(t);
             }

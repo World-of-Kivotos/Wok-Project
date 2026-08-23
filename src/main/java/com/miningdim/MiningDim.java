@@ -124,7 +124,7 @@ public final class MiningDim {
         // 20. 塔罗师职业: 塔罗牌 datapack 牌效 + 卡包 gacha + 合成台 (依赖职业框架门面)。
         subsystems.add(new com.miningdim.job.tarot.TarotSystem());
         // 21. 厨师职业: 五档调味台 + 火候小游戏 + 菜肴效果 (依赖职业框架门面 + 共享 menu 脚手架)。
-        subsystems.add(new com.miningdim.job.chef.ChefSystem());
+        subsystems.add(new com.miningdim.job.chef.ChefModule());
         // 22. 军火商职业: 军火台被动产线 + 双推进剂弹药制造 + 工费 sink (依赖职业框架门面 + 货币门面 + TACZ compileOnly)。
         subsystems.add(new com.miningdim.job.munitions.MunitionsSystem());
         // 23. 精英怪星级词条 (2026-07-07 起自研, 零 top.theillusivec4.champions.* 依赖): 35 词条注册 + 按矿洞

@@ -1,0 +1,40 @@
+# WOK-厨师模块
+
+模块键：`wok-job-chef`
+技术 modId：`miningdim`
+公开入口：`com.miningdim.job.chef.ChefModule`
+内部运行时：`com.miningdim.job.chef.ChefSystem`
+
+## 功能边界
+
+本模块负责任意 `ItemStack.getFoodProperties(entity)` 成品食物的品质盖章、五档调味台、火候与调味 QTE、调料方向标签和厨师效果结算契约。品质仍写在原食物的 NBT 上，不注册新的菜肴物品。
+
+客户端界面只显示服务端 `ContainerData`：剩余时间、火候、台档上限、当前 QTE 目标、命中数、失败原因和最终品质。输入协议固定为 `START`、`HEAT_PRESS`、`HEAT_RELEASE`、`SEASON_HIT(target)`；客户端不得自行计算品质或效果。
+
+## 配置
+
+服务端配置文件为 `miningdim-chef.toml`，由 `ChefConfig.SPEC` 注册。配置分组包括：`xp`、`amplify`、`nourish_food`、`aftertaste_saturation`、`nourish_heal`、`shield`、`grease`、`aftertaste_regen`、`stable_aim`、`endurance`、`refresh`、`night_sight`、`satiation`、`exploration`、`effect_pool`、`minigame`、`negatives` 和 `economy`。
+
+品质倍率、战斗向效果的最大生命值比例、小游戏参数和信用点做菜成本均从此配置读取。客户端只读取同步状态，不读取服务端配置做结算。
+
+## 注册清单
+
+| 注册类别 | ID |
+| --- | --- |
+| 方块 | `miningdim:seasoning_table_low`、`medium`、`high`、`extraordinary`、`radiant` |
+| 方块实体 | `miningdim:seasoning_table` |
+| 方块物品 | 五个与方块同名的 `miningdim:seasoning_table_*` |
+| 菜单 | `miningdim:seasoning_table` |
+| 创造标签页 | `miningdim:miningdim_chef` |
+| 网络频道 | `miningdim:chef` |
+| 经验轨道 | `miningdim:job/chef` |
+| 经验来源 | `miningdim:chef/seasoning_complete` |
+| 窗口 MobEffect | `miningdim:chef_endurance`、`miningdim:chef_satiation`、`miningdim:chef_shield`、`miningdim:chef_grease`、`miningdim:chef_aftertaste_regen`、`miningdim:chef_stable_aim`、`miningdim:chef_fire_quell`、`miningdim:chef_gills`、`miningdim:chef_feather`、`miningdim:chef_firefly` |
+
+## 外部联动与资源所有权
+
+`farmersdelight` 和 `flavor_immersed_daily` 都是可选依赖。FD 的 `#farmersdelight:feasts` 通过 `unseasonable` 标签默认禁止调味；FID 调料使用可选 item tag 条目，缺失时不会阻止 WOK 启动。
+
+增香效果黑名单包含原版金苹果、附魔金苹果，以及 FID 1.1.0.3 官方 JAR 中核定的 32 个效果。该 JAR SHA-256 为 `C9CE8AFBC6FEBAB2A94AD45247A3D3FCEC32978516E3335134E46ECC0EEF7778`；资源中只放 32 个 optional 条目，`sesameglide` 与 `sesamedoor` 不列入黑名单。
+
+本模块拥有 `seasoning_table_*` blockstate/model、五档正式方块纹理 `assets/miningdim/textures/block/seasoning_table_*_{top,bottom,side}.png`、调味台 GUI `assets/miningdim/textures/gui/seasoning_table.png`、十个窗口效果图标 `assets/miningdim/textures/mob_effect/chef_*.png`、`recipes/chef/`、`tags/items/seasonings/*.json`、`tags/items/seasonings.json`、`tags/items/unseasonable.json`、`tags/items/chef_amplify_item_blacklist.json` 和 `tags/mob_effects/chef_amplify_effect_blacklist.json`。共享语言文件仅由本模块维护厨师前缀键；五档正式纹理由美术/主代理提供，本模块不生成或替换 PNG。

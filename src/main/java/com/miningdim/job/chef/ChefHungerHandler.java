@@ -32,8 +32,12 @@ public final class ChefHungerHandler {
         if (player.tickCount % INTERVAL_TICKS != 0) {
             return;
         }
-        int reducePerMille = ChefWindowEffectState.hungerReducePerMille(player.getUUID());
-        if (reducePerMille <= 0) {
+        int reducePerMille = ChefWindowEffectState.magnitudeOf(player, ChefEffectType.ENDURANCE);
+        boolean satiation = ChefWindowEffectState.active(player, ChefEffectType.SATIATION);
+        if (satiation) {
+            player.removeEffect(net.minecraft.world.effect.MobEffects.HUNGER);
+        }
+        if (reducePerMille <= 0 && !satiation) {
             return;
         }
         FoodData food = player.getFoodData();
@@ -41,7 +45,7 @@ public final class ChefHungerHandler {
         if (food.getFoodLevel() <= 0) {
             return;
         }
-        float refill = BASE_SATURATION_REFILL * (reducePerMille / 1000.0F);
+        float refill = satiation ? BASE_SATURATION_REFILL : BASE_SATURATION_REFILL * (reducePerMille / 1000.0F);
         // 饱和不得超过当前饱食值 (原版约束: saturation <= foodLevel)。
         float maxSat = food.getFoodLevel();
         float newSat = Math.min(maxSat, food.getSaturationLevel() + refill);

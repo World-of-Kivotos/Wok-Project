@@ -25,7 +25,7 @@ public final class ChefGreaseReduction implements PlayerDamageReduction.Reductio
         if (!isExplosion(source)) {
             return 0.0D;
         }
-        int reducePerMille = ChefWindowEffectState.greaseReducePerMille(victim.getUUID());
+        int reducePerMille = ChefWindowEffectState.magnitudeOf(victim, ChefEffectType.GREASE);
         if (reducePerMille <= 0) {
             return 0.0D;
         }

@@ -17,7 +17,7 @@ public final class ChefKnockbackHandler {
         if (!(event.getEntity() instanceof Player player)) {
             return;
         }
-        int resistPerMille = ChefWindowEffectState.knockbackResistPerMille(player.getUUID());
+        int resistPerMille = ChefWindowEffectState.magnitudeOf(player, ChefEffectType.STABLE_AIM);
         if (resistPerMille <= 0) {
             return;
         }

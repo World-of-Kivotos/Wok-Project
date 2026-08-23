@@ -1,0 +1,8 @@
+{
+  "replace": false,
+  "values": [
+    { "id": "flavor_immersed_daily:chillipowder", "required": false },
+    { "id": "flavor_immersed_daily:drysichuanpepper", "required": false },
+    { "id": "flavor_immersed_daily:chinesepicklyashpowder", "required": false }
+  ]
+}

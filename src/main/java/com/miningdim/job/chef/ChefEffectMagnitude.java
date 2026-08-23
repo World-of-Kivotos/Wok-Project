@@ -32,7 +32,12 @@ final class ChefEffectMagnitude {
             case AFTERTASTE_REGEN -> ChefConfig.regenPerMille(q);
             case STABLE_AIM -> ChefConfig.stableAimPerMille(q);
             case ENDURANCE -> ChefConfig.endurancePctPerMille(q);
+            case SATIATION -> 0;
             case NIGHT_SIGHT -> ChefConfig.nightSeconds(q);
+            case FIRE_QUELL -> ChefConfig.fireQuellSeconds(q);
+            case GILLS -> ChefConfig.gillsSeconds(q);
+            case FEATHER -> ChefConfig.featherSeconds(q);
+            case FIREFLY -> ChefConfig.fireflySeconds(q);
             // 负面: 夹生存触发概率千分比, 烧焦存自伤 %千分比, 倒胃存中毒等级, 多盐/失败品固定语义 (magnitude=0)。
             case UNDERDONE -> switch (q) {
                 case LOW -> ChefConfig.UNDERDONE_CHANCE_LOW.get();

@@ -19,16 +19,21 @@ public final class ChefQualityResolver {
      * L1-2 低, L3-4 中, L5-6 高, L7-8 超凡, L9-10 闪耀。
      */
     public static ChefQuality qualityCapForLevel(int chefLevel) {
-        if (chefLevel >= 9) {
+        int mediumUnlock = ChefConfig.qualityMediumUnlockLevel();
+        int highUnlock = ChefConfig.qualityHighUnlockLevel();
+        int extraordinaryUnlock = ChefConfig.qualityExtraordinaryUnlockLevel();
+        int radiantUnlock = ChefConfig.qualityRadiantUnlockLevel();
+        validateUnlockLevels(mediumUnlock, highUnlock, extraordinaryUnlock, radiantUnlock);
+        if (chefLevel >= radiantUnlock) {
             return ChefQuality.RADIANT;
         }
-        if (chefLevel >= 7) {
+        if (chefLevel >= extraordinaryUnlock) {
             return ChefQuality.EXTRAORDINARY;
         }
-        if (chefLevel >= 5) {
+        if (chefLevel >= highUnlock) {
             return ChefQuality.HIGH;
         }
-        if (chefLevel >= 3) {
+        if (chefLevel >= mediumUnlock) {
             return ChefQuality.MEDIUM;
         }
         return ChefQuality.LOW;
@@ -46,17 +51,25 @@ public final class ChefQualityResolver {
      */
     public static ChefQuality resolve(double heatAccuracy, int hits, int totalCues,
                                       ChefQuality tableCap, int chefLevel) {
+        int heatWeight = ChefConfig.qualityHeatWeightPerMille();
+        int qteWeight = ChefConfig.qualityQteWeightPerMille();
+        validateWeights(heatWeight, qteWeight);
+        int mediumThreshold = ChefConfig.qualityMediumThresholdPerMille();
+        int highThreshold = ChefConfig.qualityHighThresholdPerMille();
+        int extraordinaryThreshold = ChefConfig.qualityExtraordinaryThresholdPerMille();
+        int radiantThreshold = ChefConfig.qualityRadiantThresholdPerMille();
+        validateThresholds(mediumThreshold, highThreshold, extraordinaryThreshold, radiantThreshold);
         double hitRatio = totalCues > 0 ? Math.min(1.0D, (double) hits / totalCues) : 0.0D;
-        double composite = 0.5D * clamp01(heatAccuracy) + 0.5D * hitRatio;
+        double composite = (heatWeight * clamp01(heatAccuracy) + qteWeight * hitRatio) / 1000.0D;
         // 综合分 -> 原始档 (0-4): 阈值 [0,.35)->低 [.35,.55)->中 [.55,.75)->高 [.75,.9)->超凡 [.9,1]->闪耀。
         ChefQuality rawTier;
-        if (composite >= 0.90D) {
+        if (composite >= radiantThreshold / 1000.0D) {
             rawTier = ChefQuality.RADIANT;
-        } else if (composite >= 0.75D) {
+        } else if (composite >= extraordinaryThreshold / 1000.0D) {
             rawTier = ChefQuality.EXTRAORDINARY;
-        } else if (composite >= 0.55D) {
+        } else if (composite >= highThreshold / 1000.0D) {
             rawTier = ChefQuality.HIGH;
-        } else if (composite >= 0.35D) {
+        } else if (composite >= mediumThreshold / 1000.0D) {
             rawTier = ChefQuality.MEDIUM;
         } else {
             rawTier = ChefQuality.LOW;
@@ -72,5 +85,26 @@ public final class ChefQualityResolver {
             return 0.0D;
         }
         return Math.min(v, 1.0D);
+    }
+
+    private static void validateWeights(int heatWeight, int qteWeight) {
+        if (heatWeight < 0 || qteWeight < 0 || heatWeight + qteWeight != 1000) {
+            throw new IllegalStateException("Chef quality weights must be non-negative and sum to 1000: heat="
+                    + heatWeight + ", qte=" + qteWeight);
+        }
+    }
+
+    private static void validateThresholds(int medium, int high, int extraordinary, int radiant) {
+        if (medium < 0 || medium >= high || high >= extraordinary || extraordinary >= radiant || radiant > 1000) {
+            throw new IllegalStateException("Chef quality thresholds must be ordered in [0,1000]: medium="
+                    + medium + ", high=" + high + ", extraordinary=" + extraordinary + ", radiant=" + radiant);
+        }
+    }
+
+    private static void validateUnlockLevels(int medium, int high, int extraordinary, int radiant) {
+        if (medium < 1 || medium >= high || high >= extraordinary || extraordinary >= radiant) {
+            throw new IllegalStateException("Chef quality unlock levels must strictly increase: medium="
+                    + medium + ", high=" + high + ", extraordinary=" + extraordinary + ", radiant=" + radiant);
+        }
     }
 }

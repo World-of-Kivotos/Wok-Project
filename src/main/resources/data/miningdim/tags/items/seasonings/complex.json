@@ -1,0 +1,8 @@
+{
+  "replace": false,
+  "values": [
+    { "id": "flavor_immersed_daily:curry", "required": false },
+    { "id": "flavor_immersed_daily:spicy_hot_pot_base", "required": false },
+    { "id": "flavor_immersed_daily:pepper_hot_pot_base", "required": false }
+  ]
+}

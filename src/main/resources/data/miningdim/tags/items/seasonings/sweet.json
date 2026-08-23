@@ -1,0 +1,11 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:sugar",
+    "minecraft:honey_bottle",
+    { "id": "flavor_immersed_daily:brownsugar", "required": false },
+    { "id": "flavor_immersed_daily:crystalsugar", "required": false },
+    { "id": "flavor_immersed_daily:whitesugarsyrup", "required": false },
+    { "id": "flavor_immersed_daily:concentratedsyrup", "required": false }
+  ]
+}

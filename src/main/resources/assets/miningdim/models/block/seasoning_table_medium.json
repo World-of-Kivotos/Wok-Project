@@ -1,8 +1,8 @@
 {
   "parent": "minecraft:block/cube_bottom_top",
   "textures": {
-    "top": "minecraft:block/smithing_table_top",
-    "bottom": "minecraft:block/smithing_table_bottom",
-    "side": "minecraft:block/smithing_table_side"
+    "top": "miningdim:block/seasoning_table_medium_top",
+    "bottom": "miningdim:block/seasoning_table_medium_bottom",
+    "side": "miningdim:block/seasoning_table_medium_side"
   }
 }

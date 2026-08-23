@@ -1,278 +1,211 @@
 package com.miningdim.job.chef;
 
+import com.miningdim.effect.ModJobEffects;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.effect.MobEffect;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-
 /**
- * 窗口/周期/衰减型厨师效果的 per-player 状态机 (Chef_Job_DesignSpec 第十/十一章: "eat-time 盖章 +
- * tick/事件状态机", 非一次性)。承载: 耐饥 (减饥饿衰减)、披甲 (黄心护盾)、凝脂 (爆炸减伤)、余韵 (延迟再生)、
- * 稳膛 (抗击退)。
+ * 厨师窗口效果的持久化协调器。效果是否有效、剩余时间和数值快照均以实体上的真实
+ * {@link MobEffectInstance} 为唯一真源；服务器重启、登出和换维度不依赖进程内 UUID 计时表。
  *
- * 设计 (本工程暂无共享 ScheduledEffectManager, 见 foundationGaps): 自持一个 UUID->窗口表的全局 map, 经
- * 服务端 {@link TickEvent.ServerTickEvent} 全局推进; 各窗口记结束 tick (server game time) + 数值快照。
- * 反泄漏 (第十二章测试): 登出 ({@link PlayerEvent.PlayerLoggedOutEvent}) / 死亡 ({@link LivingDeathEvent}) /
- * 换维度 ({@link PlayerEvent.PlayerChangedDimensionEvent}) 清该玩家全部 pending。
- *
- * 稳膛抗击退 (第十章红线): 严禁 AttributeModifier; {@link ChefKnockbackHandler} 在 LivingKnockBackEvent
- * 读 {@link #knockbackResistPerMille(UUID)} 减比, 属性零修饰符。
- *
- * 周期回血 (余韵): tick 内按摊还速率 heal(%最大血量), 进食可打断由 eat-time 入口保证 (吃完才盖章)。
+ * <p>披甲额外保存本模块实际新增的黄心份额。玩家受到吸收伤害时优先消耗厨师份额；效果结束时只回收
+ * 尚未消耗的厨师份额，不会误扣金苹果或其他模组授予的黄心。</p>
  */
 public final class ChefWindowEffectState {
 
-    /**
-     * 包级构造: 仅 {@link ChefSystem} new 一个实例订阅 forge 事件 (tick 推进 + 反泄漏清理); 静态窗口表
-     * (stamp/active/clearAll 等) 无需实例。混合体 (静态注册表 + 实例事件订阅者) 故构造非 private。
-     */
+    private static final String SHIELD_TAG = "MiningChefShield";
+    private static final String SHIELD_REMAINING = "remaining";
+    private static final String SHIELD_LAST_ABSORPTION = "lastAbsorption";
+
     ChefWindowEffectState() {
     }
 
-    /** 单个窗口效果: 结束 server game tick + 数值快照 (千分比/百分比基点) + 余韵累计已回。 */
-    private static final class Window {
-        long endTick;
-        int magnitude;
-        /** 余韵专用: 已回血量累计 (绝对值), 防超过总额。 */
-        float regenHealed;
-        float regenTotal;
-        /** 披甲专用: 本窗口授予的护盾绝对值 (最大血 x 千分比), 过期回收 absorption 时减去这一份。 */
-        float shieldGranted;
-    }
-
-    /** 每玩家每种窗口效果一个 Window (同种刷新覆盖, 不叠)。仅服务端写, ConcurrentHashMap 防并发读写。 */
-    private static final Map<UUID, Map<ChefEffectType, Window>> STATE = new ConcurrentHashMap<>();
-
-    /** 余韵周期回血间隔 (tick): 每秒一次摊还。 */
-    private static final int REGEN_INTERVAL_TICKS = 20;
-
-    /**
-     * eat-time 盖一个窗口效果 (吃完才调, 保证进食可打断)。同种刷新覆盖 (不叠)。
-     *
-     * @param player    吃菜玩家 (服务端)
-     * @param type      窗口效果种类 (须 isWindowed)
-     * @param magnitude 数值快照 (千分比基点)
-     * @param windowSeconds 窗口时长秒
-     */
+    /** 吃完后盖真实窗口效果；同种效果的刷新与强度裁决交给原版 MobEffectInstance。 */
     public static void stamp(ServerPlayer player, ChefEffectType type, int magnitude, int windowSeconds) {
         if (!type.isWindowed()) {
             throw new IllegalArgumentException("stamp called for non-windowed effect: " + type);
         }
-        long now = player.serverLevel().getGameTime();
-        Window w = new Window();
-        w.endTick = now + (long) windowSeconds * 20L;
-        w.magnitude = magnitude;
-        if (type == ChefEffectType.AFTERTASTE_REGEN) {
-            // 余韵: magnitude=总回血千分比, 折算成绝对总额 (按当前最大血), 周期摊还。
-            w.regenTotal = player.getMaxHealth() * (magnitude / 1000.0F);
-            w.regenHealed = 0.0F;
+        if (type == ChefEffectType.SHIELD) {
+            throw new IllegalArgumentException("shield must be stamped through stampShield");
         }
-        STATE.computeIfAbsent(player.getUUID(), k -> new ConcurrentHashMap<>()).put(type, w);
+        player.addEffect(new MobEffectInstance(effectFor(type), windowSeconds * 20,
+                magnitude, false, false, true));
     }
 
-    /**
-     * eat-time 盖披甲 (黄心护盾) 窗口: 立即把 absorption 抬到 max(现值, 目标) 并记录本 mod 实际抬高的份额,
-     * 过期由 {@link #onServerTick} 回收 (与其它窗口同生命周期; 解决 "护盾窗口过期后绝不回收 absorption" 的
-     * 平衡红线)。max 语义与 TarotEffectEngine#addAbsorption/schedulePeriodicAbsorption 同一约定, 不与之
-     * 相加 (F083 复核: 厨师不得凭空叠加外来/塔罗来源的 absorption, 只负责把总量顶到自己的目标)。
-     *
-     * 刷新不叠 (Chef_Job_DesignSpec 第十一章): 同档/低档在窗口内重复吃, 目标不超过之前已抬到的高度, 不二次
-     * 加算。记账取"本次相对施加前 absorption 的差值"并按上一窗口的自留份额累加 (F083 建议: shieldGranted 应
-     * 记差值而非整体覆盖) —— 若不累加, 窗口内二次刷新时 delta=0 会把上一次已抬高的份额记丢, 过期永不回收。
-     *
-     * @param player        吃菜玩家 (服务端)
-     * @param perMille      护盾 %最大血量千分比基点 (写进 magnitude 供读)
-     * @param windowSeconds 护盾窗口时长秒
-     */
+    /** 授予披甲窗口并只登记实际新增的厨师黄心。刷新不会叠加；已有外来黄心会先计入目标总量。 */
     public static void stampShield(ServerPlayer player, int perMille, int windowSeconds) {
-        float shield = player.getMaxHealth() * (perMille / 1000.0F);
-        if (shield <= 0.0F) {
+        float requested = player.getMaxHealth() * (perMille / 1000.0F);
+        if (requested <= 0.0F) {
             return;
         }
-        Map<ChefEffectType, Window> existing = STATE.get(player.getUUID());
-        Window prev = existing == null ? null : existing.get(ChefEffectType.SHIELD);
-        float current = player.getAbsorptionAmount();
-        // 旧护盾可能已被伤害吃掉一部分, 账面绝不能超过玩家实际剩余的 absorption。
-        float prevOwned = prev == null ? 0.0F : Math.min(prev.shieldGranted, current);
-        // 本次相对当前总 absorption (含外来份额) 还能再抬高多少; 若外来来源已经更高, delta=0, 不动它。
-        float delta = Math.max(0.0F, shield - current);
-        if (delta > 0.0F) {
-            player.setAbsorptionAmount(current + delta);
+        settleShieldUse(player);
+        if (!active(player, ChefEffectType.SHIELD) && hasShieldState(player)) {
+            reclaimShield(player);
         }
-        long now = player.serverLevel().getGameTime();
-        Window w = new Window();
-        w.endTick = now + (long) windowSeconds * 20L;
-        w.magnitude = delta > 0.0F ? perMille : (prev != null ? prev.magnitude : perMille);
-        w.shieldGranted = prevOwned + delta;
-        STATE.computeIfAbsent(player.getUUID(), k -> new ConcurrentHashMap<>()).put(ChefEffectType.SHIELD, w);
-    }
 
-    /** 某玩家某窗口效果是否激活 (未过期)。 */
-    public static boolean active(UUID playerId, ChefEffectType type) {
-        Map<ChefEffectType, Window> m = STATE.get(playerId);
-        return m != null && m.containsKey(type);
-    }
-
-    /** 耐饥减饥饿衰减比例 (千分比基点; 0 = 无)。供 {@link ChefHungerHandler} 读。 */
-    public static int hungerReducePerMille(UUID playerId) {
-        return magnitudeOf(playerId, ChefEffectType.ENDURANCE);
-    }
-
-    /** 稳膛抗击退比例 (千分比基点; 0 = 无)。供 {@link ChefKnockbackHandler} 读 (LivingKnockBackEvent)。 */
-    public static int knockbackResistPerMille(UUID playerId) {
-        return magnitudeOf(playerId, ChefEffectType.STABLE_AIM);
-    }
-
-    /** 凝脂爆炸减伤比例 (千分比基点; 0 = 无)。供 {@link ChefGreaseReduction} 读 (玩家减伤单点结算的爆炸源)。 */
-    public static int greaseReducePerMille(UUID playerId) {
-        return magnitudeOf(playerId, ChefEffectType.GREASE);
-    }
-
-    private static int magnitudeOf(UUID playerId, ChefEffectType type) {
-        Map<ChefEffectType, Window> m = STATE.get(playerId);
-        if (m == null) {
-            return 0;
+        float currentAbsorption = player.getAbsorptionAmount();
+        float ownedBefore = shieldRemaining(player);
+        float foreignAbsorption = Math.max(0.0F, currentAbsorption - ownedBefore);
+        float requestedOwned = Math.max(0.0F, requested - foreignAbsorption);
+        float ownedAfter = Math.max(ownedBefore, requestedOwned);
+        float added = Math.max(0.0F, ownedAfter - ownedBefore);
+        if (added > 0.0F) {
+            player.setAbsorptionAmount(currentAbsorption + added);
         }
-        Window w = m.get(type);
-        return w == null ? 0 : w.magnitude;
+        writeShieldState(player, ownedAfter);
+        player.addEffect(new MobEffectInstance(effectFor(ChefEffectType.SHIELD), windowSeconds * 20,
+                perMille, false, false, true));
     }
 
-    /** 清某玩家全部 pending (反泄漏: 登出/死亡/换维度)。 */
-    public static void clearAll(UUID playerId) {
-        STATE.remove(playerId);
+    /** 生产逻辑只读取实体真实效果。 */
+    public static boolean active(LivingEntity entity, ChefEffectType type) {
+        return entity.hasEffect(effectFor(type));
     }
 
-    /**
-     * 在线回收: 在清表前, 把该玩家所有披甲窗口已 {@link #stampShield} 授予的 absorption 退还
-     * (与 {@link #advancePlayerWindows} 过期分支同口径 setAbsorptionAmount(max(0, current - shieldGranted)))。
-     *
-     * 红线 (stampShield 注释自称要解决的): changeDimension 复用实体不重置 absorption, 登出实体下线后
-     * 该 absorption 也不回收。若仅 STATE.remove 删窗口记录, 已授予的护盾将永不回收 -> 永久护盾。故凡能拿到
-     * 在线 ServerPlayer 的清理路径 (登出/换维度), 必须先按各窗口 shieldGranted 累计退还, 再清表。
-     *
-     * @param player 待回收的在线玩家 (服务端)
-     */
-    public static void reclaimOnline(ServerPlayer player) {
-        Map<ChefEffectType, Window> windows = STATE.get(player.getUUID());
-        if (windows != null) {
-            float reclaim = 0.0F;
-            for (Map.Entry<ChefEffectType, Window> entry : windows.entrySet()) {
-                if (entry.getKey() == ChefEffectType.SHIELD && entry.getValue().shieldGranted > 0.0F) {
-                    reclaim += entry.getValue().shieldGranted;
-                }
-            }
-            if (reclaim > 0.0F) {
-                player.setAbsorptionAmount(Math.max(0.0F, player.getAbsorptionAmount() - reclaim));
-            }
-        }
-        STATE.remove(player.getUUID());
+    /** MobEffect amplifier 保存配置快照的原始整数值，而不是传统的“等级减一”。 */
+    public static int magnitudeOf(LivingEntity entity, ChefEffectType type) {
+        MobEffectInstance instance = entity.getEffect(effectFor(type));
+        return instance == null ? 0 : instance.getAmplifier();
     }
 
-    // ---- 事件: 全局 tick 推进 + 反泄漏清理 (由 ChefSystem 注册到 forgeBus) ----
+    static MobEffect effectFor(ChefEffectType type) {
+        return switch (type) {
+            case ENDURANCE -> ModJobEffects.CHEF_ENDURANCE.get();
+            case SATIATION -> ModJobEffects.CHEF_SATIATION.get();
+            case SHIELD -> ModJobEffects.CHEF_SHIELD.get();
+            case GREASE -> ModJobEffects.CHEF_GREASE.get();
+            case AFTERTASTE_REGEN -> ModJobEffects.CHEF_AFTERTASTE_REGEN.get();
+            case STABLE_AIM -> ModJobEffects.CHEF_STABLE_AIM.get();
+            case FIRE_QUELL -> ModJobEffects.CHEF_FIRE_QUELL.get();
+            case GILLS -> ModJobEffects.CHEF_GILLS.get();
+            case FEATHER -> ModJobEffects.CHEF_FEATHER.get();
+            case FIREFLY -> ModJobEffects.CHEF_FIREFLY.get();
+            default -> throw new IllegalArgumentException("not a chef window effect: " + type);
+        };
+    }
 
-    /** 服务端 tick: 推进所有玩家窗口, 过期移除, 余韵周期摊还回血。 */
+    /** 在线时持续核销已被伤害消耗的厨师黄心，并在真实效果到期后回收剩余份额。 */
     @SubscribeEvent
-    public void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) {
+    public void onPlayerTick(TickEvent.PlayerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END || !(event.player instanceof ServerPlayer player)) {
             return;
         }
-        net.minecraft.server.MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
-        if (server == null) {
-            return;
+        settleShieldUse(player);
+        if (hasShieldState(player) && !active(player, ChefEffectType.SHIELD)) {
+            reclaimShield(player);
         }
-        long now = server.overworld().getGameTime();
-        for (Map.Entry<UUID, Map<ChefEffectType, Window>> e : STATE.entrySet()) {
-            UUID id = e.getKey();
-            ServerPlayer player = server.getPlayerList().getPlayer(id);
-            advancePlayerWindows(id, player, now);
-        }
+        tickAftertasteRegen(player);
+        tickFirefly(player);
     }
 
-    /**
-     * 推进单玩家全部窗口到 now: 过期移除 (披甲过期回收 absorption), 余韵周期摊还回血。空表清出 STATE。
-     * 抽出供 {@link #onServerTick} 遍历调用与 GameTest 直接驱动 (测试与生产同一回收代码路径, 不另写副本)。
-     */
-    static void advancePlayerWindows(UUID id, ServerPlayer player, long now) {
-        Map<ChefEffectType, Window> windows = STATE.get(id);
-        if (windows == null) {
-            return;
-        }
-        windows.entrySet().removeIf(entry -> {
-            Window w = entry.getValue();
-            if (now >= w.endTick) {
-                // 披甲过期: 回收本窗口授予的护盾 absorption (减去这一份, 钳到 0; 在线才回收)。
-                if (entry.getKey() == ChefEffectType.SHIELD && player != null && w.shieldGranted > 0.0F) {
-                    float remaining = Math.max(0.0F, player.getAbsorptionAmount() - w.shieldGranted);
-                    player.setAbsorptionAmount(remaining);
-                }
-                return true; // 过期移除。
+    /** 登录可恢复跨重启保存的效果与披甲所有权；失配的旧披甲记录会立即安全回收。 */
+    @SubscribeEvent
+    public void onLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            settleShieldUse(player);
+            if (hasShieldState(player) && !active(player, ChefEffectType.SHIELD)) {
+                reclaimShield(player);
             }
-            if (entry.getKey() == ChefEffectType.AFTERTASTE_REGEN && player != null
-                    && now % REGEN_INTERVAL_TICKS == 0L) {
-                tickRegen(player, w);
-            }
-            return false;
-        });
-        if (windows.isEmpty()) {
-            STATE.remove(id);
         }
     }
 
-    /** 余韵周期回血: 按剩余总额与剩余时间摊还, 不超过总额 (战斗向 %最大血量, 进食可打断由盖章入口保证)。 */
-    private static void tickRegen(ServerPlayer player, Window w) {
-        if (w.regenHealed >= w.regenTotal) {
-            return;
-        }
-        long remainTicks = Math.max(REGEN_INTERVAL_TICKS, w.endTick - player.serverLevel().getGameTime());
-        int remainIntervals = (int) Math.max(1L, remainTicks / REGEN_INTERVAL_TICKS);
-        float perTick = (w.regenTotal - w.regenHealed) / remainIntervals;
-        if (perTick <= 0.0F) {
-            return;
-        }
-        float before = player.getHealth();
-        player.heal(perTick);
-        w.regenHealed += Math.max(0.0F, player.getHealth() - before);
-    }
-
+    /** 登出只结算已消耗份额，真实效果和持久披甲记录随玩家 NBT 保存。 */
     @SubscribeEvent
     public void onLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
-        // 玩家仍在线 (本 tick 下线前): 回收披甲 absorption 再清表, 否则护盾随实体下线永不回收。
         if (event.getEntity() instanceof ServerPlayer player) {
-            reclaimOnline(player);
-        } else {
-            clearAll(event.getEntity().getUUID());
+            settleShieldUse(player);
         }
     }
 
+    /** 换维度不清除窗口；只同步一次吸收份额，效果由原版实体迁移。 */
     @SubscribeEvent
     public void onChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
-        // changeDimension 复用实体不重置 absorption: 必须主动回收本 mod 授予的护盾, 不能只删窗口记录。
         if (event.getEntity() instanceof ServerPlayer player) {
-            reclaimOnline(player);
-        } else {
-            clearAll(event.getEntity().getUUID());
+            settleShieldUse(player);
         }
     }
 
+    /** 死亡由原版清除效果和吸收值，本模块同步删除披甲所有权记录。 */
     @SubscribeEvent
     public void onDeath(LivingDeathEvent event) {
-        // 死亡: 实体已重置, absorption 已归零, 纯清表即可 (无须回收)。
         if (event.getEntity() instanceof Player player) {
-            clearAll(player.getUUID());
+            player.getPersistentData().remove(SHIELD_TAG);
         }
     }
 
-    /** 测试钩子: 直接盖一个窗口 (绕过 ServerPlayer 依赖, 供 GameTest 用 mock; 仅同包可见)。 */
-    static void stampRaw(UUID playerId, ChefEffectType type, long endTick, int magnitude) {
-        Window w = new Window();
-        w.endTick = endTick;
-        w.magnitude = magnitude;
-        STATE.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>()).put(type, w);
+    static void settleShieldUse(ServerPlayer player) {
+        if (!hasShieldState(player)) {
+            return;
+        }
+        CompoundTag tag = player.getPersistentData().getCompound(SHIELD_TAG);
+        float current = player.getAbsorptionAmount();
+        float previous = tag.getFloat(SHIELD_LAST_ABSORPTION);
+        if (current < previous) {
+            float consumed = previous - current;
+            tag.putFloat(SHIELD_REMAINING,
+                    Math.max(0.0F, tag.getFloat(SHIELD_REMAINING) - consumed));
+        }
+        tag.putFloat(SHIELD_LAST_ABSORPTION, current);
+        player.getPersistentData().put(SHIELD_TAG, tag);
+    }
+
+    static float shieldRemaining(ServerPlayer player) {
+        return hasShieldState(player)
+                ? player.getPersistentData().getCompound(SHIELD_TAG).getFloat(SHIELD_REMAINING)
+                : 0.0F;
+    }
+
+    static void reclaimShield(ServerPlayer player) {
+        settleShieldUse(player);
+        if (!hasShieldState(player)) {
+            return;
+        }
+        float owned = shieldRemaining(player);
+        if (owned > 0.0F) {
+            player.setAbsorptionAmount(Math.max(0.0F, player.getAbsorptionAmount() - owned));
+        }
+        player.getPersistentData().remove(SHIELD_TAG);
+    }
+
+    private static void writeShieldState(ServerPlayer player, float remaining) {
+        CompoundTag tag = new CompoundTag();
+        tag.putFloat(SHIELD_REMAINING, remaining);
+        tag.putFloat(SHIELD_LAST_ABSORPTION, player.getAbsorptionAmount());
+        player.getPersistentData().put(SHIELD_TAG, tag);
+    }
+
+    private static boolean hasShieldState(ServerPlayer player) {
+        return player.getPersistentData().contains(SHIELD_TAG, Tag.TAG_COMPOUND);
+    }
+
+    private static void tickAftertasteRegen(ServerPlayer player) {
+        if (player.tickCount % 20 != 0 || !active(player, ChefEffectType.AFTERTASTE_REGEN)) {
+            return;
+        }
+        int totalPerMille = magnitudeOf(player, ChefEffectType.AFTERTASTE_REGEN);
+        float heal = player.getMaxHealth() * (totalPerMille / 1000.0F) / ChefConfig.regenWindowSeconds();
+        if (heal > 0.0F) {
+            player.heal(heal);
+        }
+    }
+
+    private static void tickFirefly(ServerPlayer player) {
+        if (!active(player, ChefEffectType.FIREFLY)
+                || player.tickCount % ChefConfig.fireflyParticleIntervalTicks() != 0) {
+            return;
+        }
+        player.serverLevel().sendParticles(ParticleTypes.GLOW,
+                player.getX(), player.getY() + 0.8D, player.getZ(), ChefConfig.fireflyParticleCount(),
+                0.35D, 0.45D, 0.35D, 0.01D);
     }
 }

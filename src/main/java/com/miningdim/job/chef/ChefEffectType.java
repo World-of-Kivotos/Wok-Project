@@ -3,7 +3,7 @@ package com.miningdim.job.chef;
 /**
  * 厨师效果种类 (Chef_Job_DesignSpec 第六章已定 8 个 + 第十一章勾选的 "推荐" 候选)。
  *
- * 落地范围 (第十二章 PENDING 收口决定, 见 ChefSystem notes): 取第六章 8 个核心 + 第十一章标 "推荐" 且不破红线
+ * 落地范围 (第十二章 DECIDED, 见 ChefModule): 取第六章 8 个核心 + 第十一章已选且不破红线
  * 的候选 (耐饥/提神/夜照/披甲/凝脂/余韵/稳膛/夹生/烧焦/倒胃)。未取超模项 (沁脾 被审查官标 "砍或重砍") 与
  * "谨慎" 社交项 (盛宴/回礼 需结婚系统, 黑暗 赌博); 去重三决定: 余韵替代沁脾, 夜照独立 (不取温饱), 油腻并入夹生。
  *
@@ -43,10 +43,20 @@ public enum ChefEffectType {
 
     /** 耐饥 (减饥饿衰减, 窗口型): magnitude = 减衰减百分比基点 (千分比); 窗口时长见 ChefConfig。 */
     ENDURANCE("endurance", false, false, true),
+    /** 饱腹 (抗饥饿 debuff + 饱和维持, 窗口型)。 */
+    SATIATION("satiation", false, false, true),
     /** 提神 (清挖掘疲劳/缓慢 + 急速, eat-time): magnitude = 急速等级 (1-5 -> 急速 I-V)。 */
     REFRESH("refresh", false, false, false),
     /** 夜照 (纯夜视, eat-time addEffect): magnitude = 时长秒 (见 ChefConfig 逐级)。 */
     NIGHT_SIGHT("night_sight", false, false, false),
+    /** 镇火 (熄灭 + 短火抗, 战斗向窗口型)。 */
+    FIRE_QUELL("fire_quell", true, false, true),
+    /** 潜鳃 (水下呼吸 + 海豚之赐, 窗口型)。 */
+    GILLS("gills", false, false, true),
+    /** 轻羽 (缓降 + 坠落免伤, 窗口型)。 */
+    FEATHER("feather", false, false, true),
+    /** 流萤 (发光 + 萤火粒子, 窗口型)。 */
+    FIREFLY("firefly", false, false, true),
     /** 披甲 (黄心护盾, 战斗向窗口型): magnitude = %最大血量基点 (千分比); 刷新不叠。 */
     SHIELD("shield", true, false, true),
     /** 凝脂 (仅爆炸减伤, 战斗向窗口型): magnitude = 减伤百分比基点 (千分比); 经爆炸 Tag 限定。 */

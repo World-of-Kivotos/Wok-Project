@@ -13,7 +13,7 @@ import net.minecraftforge.registries.RegistryObject;
  * 厨师 5 档调味台方块的 DeferredRegister holder (Chef_Job_DesignSpec 第四章; 厨师包自有, 不碰中央 ModBlocks)。
  *
  * 5 档 (低/中/高/超凡/闪耀) 各一方块, 携带本档品质上限 ({@link SeasoningTableBlock#tierCap})。属性 copy 原版
- * SMITHING_TABLE (工作台观感, 不可活塞推动), 不需新 PNG, 模型 JSON 引用现有 vanilla 纹理。
+ * SMITHING_TABLE (工作台观感, 不可活塞推动)，模型使用本模块五档差异化正式纹理。
  */
 public final class ChefBlocks {
 

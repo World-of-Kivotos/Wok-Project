@@ -5,6 +5,8 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffectCategory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.TagKey;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,33 +37,32 @@ public final class SeasoningBlacklist {
 
     private static final String FID = "flavor_immersed_daily";
 
+    /** 整合包可通过数据包补充的增香物品黑名单。 */
+    public static final TagKey<net.minecraft.world.item.Item> AMPLIFY_ITEM_BLACKLIST = TagKey.create(
+            ForgeRegistries.ITEMS.getRegistryKey(), new ResourceLocation("miningdim", "chef_amplify_item_blacklist"));
+    /** 整合包可通过数据包补充的增香 MobEffect 黑名单。 */
+    public static final TagKey<MobEffect> AMPLIFY_EFFECT_BLACKLIST = TagKey.create(
+            ForgeRegistries.MOB_EFFECTS.getRegistryKey(), new ResourceLocation("miningdim", "chef_amplify_effect_blacklist"));
+
     /**
-     * FID 战斗向调味效果注册 id (jar lang 实核; spec 第八章样例: 装甲/狂攻/麻痹/流血/穿透/护盾/灼烧)。
-     * 不含纯增益续航向 (verdantvigor/marrownourishment/fennelserenity 等) 与纯负面已被 HARMFUL 兜底捕获。
+     * FID 1.1.0.3 官方 JAR 实核的 34 个 MobEffect 中，除纯探索/收益 sesameglide、sesamedoor 外的 32 项。
+     * HARMFUL 分类仍是独立兜底，因此新版本的负面效果不依赖这份静态表才会被拒绝。
      */
     private static final Set<String> FID_COMBAT_EFFECT_IDS = Set.of(
-            "sugararmor",          // 糖浆装甲 (护盾/吸收)
-            "syrupmania",          // 糖浆狂热 (攻击向)
-            "fieryfrenzy",         // 火爆狂攻
-            "numbingbind",         // 椒麻麻痹
-            "blooding",            // 流血
-            "acidicpenetration",   // 酸蚀穿透
-            "gingeraegis",         // 生姜护盾 (减伤)
-            "umbraguard",          // 暗影护盾
-            "amberglue",           // 琥珀胶 (束缚/控制)
-            "exoticscorch",        // 异域灼烧
-            "fermentedinferno",    // 发酵地狱火
-            "soulofthegrill",      // 烤魂 (攻击向)
-            "garlicbanishment",    // 大蒜驱散 (控制)
-            "tearfulmiasma",       // 催泪瘴气 (控制)
-            "crimsonwarmth"        // 绯红温热 (战斗续航/狂暴向)
+            "acidicpenetration", "amberglue", "aniseedward", "blooding", "butterymishap",
+            "cinnamonhearth", "clovefocus", "crimsonwarmth", "crystalchill", "currywhimsy",
+            "dualseasoning", "exoticscorch", "fennelserenity", "fermentedinferno", "fieryfrenzy",
+            "fiveessences", "foundation", "gabeng", "garlic_gas", "garlicbanishment", "gingeraegis",
+            "marrownourishment", "numbingbind", "nuttydynamo", "soulofthegrill", "sugararmor",
+            "sweetattract", "sweetmisoaura", "syrupmania", "tearfulmiasma", "umbraguard", "verdantvigor"
     );
 
     /**
      * 整个物品是否禁止增香 (物品级: 金苹果/附魔金苹果)。命中则该物品所有 buff 都不放大时长。
      */
     public static boolean isItemBlacklisted(ItemStack stack) {
-        return stack.is(Items.GOLDEN_APPLE) || stack.is(Items.ENCHANTED_GOLDEN_APPLE);
+        return stack.is(Items.GOLDEN_APPLE) || stack.is(Items.ENCHANTED_GOLDEN_APPLE)
+                || stack.is(AMPLIFY_ITEM_BLACKLIST);
     }
 
     /**
@@ -72,6 +73,9 @@ public final class SeasoningBlacklist {
         MobEffect effect = instance.getEffect();
         // 兜底: 任何 HARMFUL 效果不增香 (放大 debuff 时长无意义, 且 FID 战斗 debuff 放大破红线)。
         if (effect.getCategory() == MobEffectCategory.HARMFUL) {
+            return true;
+        }
+        if (ForgeRegistries.MOB_EFFECTS.tags().getTag(AMPLIFY_EFFECT_BLACKLIST).contains(effect)) {
             return true;
         }
         var key = ForgeRegistries.MOB_EFFECTS.getKey(effect);

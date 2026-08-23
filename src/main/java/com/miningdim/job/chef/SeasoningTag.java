@@ -34,6 +34,15 @@ public final class SeasoningTag {
             ForgeRegistries.ITEMS.getRegistryKey(),
             new ResourceLocation(com.miningdim.core.MiningConstants.MODID, SEASONINGS_TAG_PATH));
 
+    /** 七组可由整合包数据包扩展的调料 tag；内置映射只作为旧存档/默认调料兼容回退。 */
+    public static final TagKey<Item> SAVORY = tag("seasonings/savory");
+    public static final TagKey<Item> SWEET = tag("seasonings/sweet");
+    public static final TagKey<Item> OILY = tag("seasonings/oily");
+    public static final TagKey<Item> SOUR = tag("seasonings/sour");
+    public static final TagKey<Item> SPICY = tag("seasonings/spicy");
+    public static final TagKey<Item> AROMATIC = tag("seasonings/aromatic");
+    public static final TagKey<Item> COMPLEX = tag("seasonings/complex");
+
     /** 是否调料 (在 seasonings tag 内)。 */
     public static boolean isSeasoning(ItemStack stack) {
         return !stack.isEmpty() && stack.is(SEASONINGS);
@@ -68,6 +77,7 @@ public final class SeasoningTag {
             Map.entry("chinesepicklyashpowder", SeasoningBias.SPICY),
             // 辛香 -> AROMATIC (姜/蒜/孜然/葱/芝麻)
             Map.entry("ginger", SeasoningBias.AROMATIC),
+            Map.entry("groundpowder", SeasoningBias.AROMATIC),
             Map.entry("garlic", SeasoningBias.AROMATIC),
             Map.entry("garlicpowder", SeasoningBias.AROMATIC),
             Map.entry("cumin", SeasoningBias.AROMATIC),
@@ -91,6 +101,27 @@ public final class SeasoningTag {
             return SeasoningBias.NONE;
         }
         Item item = stack.getItem();
+        if (stack.is(SAVORY)) {
+            return SeasoningBias.SAVORY;
+        }
+        if (stack.is(SWEET)) {
+            return SeasoningBias.SWEET;
+        }
+        if (stack.is(OILY)) {
+            return SeasoningBias.OILY;
+        }
+        if (stack.is(SOUR)) {
+            return SeasoningBias.SOUR;
+        }
+        if (stack.is(SPICY)) {
+            return SeasoningBias.SPICY;
+        }
+        if (stack.is(AROMATIC)) {
+            return SeasoningBias.AROMATIC;
+        }
+        if (stack.is(COMPLEX)) {
+            return SeasoningBias.COMPLEX;
+        }
         if (VANILLA_SWEET.contains(item)) {
             return SeasoningBias.SWEET;
         }
@@ -105,5 +136,10 @@ public final class SeasoningTag {
             return SeasoningBias.SAVORY;
         }
         return SeasoningBias.NONE;
+    }
+
+    private static TagKey<Item> tag(String path) {
+        return TagKey.create(ForgeRegistries.ITEMS.getRegistryKey(),
+                new ResourceLocation(com.miningdim.core.MiningConstants.MODID, path));
     }
 }

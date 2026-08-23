@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    { "id": "flavor_immersed_daily:cookingoil", "required": false },
+    { "id": "flavor_immersed_daily:sesameoil", "required": false },
+    { "id": "flavor_immersed_daily:butter", "required": false },
+    { "id": "flavor_immersed_daily:cream", "required": false }
+  ]
+}

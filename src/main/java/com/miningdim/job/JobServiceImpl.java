@@ -2,6 +2,8 @@ package com.miningdim.job;
 
 import com.miningdim.entry.IMiningPlayerData;
 import com.miningdim.entry.MiningCapabilities;
+import com.miningdim.progression.ExperienceGrant;
+import com.miningdim.progression.ExperienceServices;
 import net.minecraft.world.entity.player.Player;
 
 import java.time.Instant;
@@ -32,6 +34,13 @@ public final class JobServiceImpl implements IJobService {
 
     @Override
     public long grantXp(Player player, JobId job, long rawXp) {
+        return ExperienceServices.experienceService().award(player,
+                new ExperienceGrant(JobExperienceTracks.track(job),
+                        JobExperienceTracks.legacySource(job), rawXp)).effectiveXp();
+    }
+
+    /** Track-handler entry that persists XP without recursively entering the global router. */
+    long grantXpDirect(Player player, JobId job, long rawXp) {
         // 负值非法在 JobProgress.grantXp 内抛, 自然冒泡 (异常纪律: 不在此生吞)。先解包 capability。
         return require(player, job).jobProgress(job).grantXp(job, rawXp, currentUtcDayStamp());
     }

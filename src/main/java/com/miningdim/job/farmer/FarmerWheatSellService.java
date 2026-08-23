@@ -13,7 +13,7 @@ import net.minecraft.world.item.ItemStack;
 /**
  * NPC 小麦动态收购结算 (FarmingXP_Mod_DesignSpec 第八节方案4)。把玩家库存里的 mod 小麦按动态收购价兑成信用点。
  *
- * 触发点 (审查 Critical 1): 由 {@link FarmerSystem} 自注册的 /farmer sell &lt;amount&gt; 命令调用本服务
+ * 触发点 (审查 Critical 1): 由 {@link FarmerModule} 装配的 /farmer sell &lt;amount&gt; 命令调用本服务
  * (包内闭合, 不改共享 JobCommands)。卖菜是整条经济龙头, 此前全库无任何调用方故卖菜功能形同不存在; 命令接通后可达。
  *
  * 经济接线 (审查 Critical 2 / Minor): 经济门面经 {@link EconomyServices#economyService()} 服务定位器取用

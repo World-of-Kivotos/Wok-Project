@@ -8,6 +8,10 @@ import com.miningdim.entry.MiningCapabilities;
 import com.miningdim.menu.ModMenus;
 import com.miningdim.network.JobSyncS2C;
 import com.miningdim.network.MiningNetwork;
+import com.miningdim.progression.ExperienceServices;
+import com.miningdim.progression.ExperienceSnapshot;
+import com.miningdim.progression.ExperienceTrackHandler;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -47,6 +51,14 @@ public final class JobFrameworkSystem implements Subsystem {
     public void register(IEventBus modBus, IEventBus forgeBus) {
         // 构造期注入门面 (引用绑定先于任何取用)。
         JobServices.registerJobService(jobService);
+
+        // 将现有八个职业进度注册为全服经验轨道。持久化仍沿用原 capability/NBT，旧存档无需迁移。
+        for (JobId job : JobId.values()) {
+            ExperienceServices.experienceService().registerTrack(
+                    JobExperienceTracks.track(job), new JobTrackHandler(jobService, job));
+            ExperienceServices.experienceService().registerSource(
+                    JobExperienceTracks.legacySource(job), JobExperienceTracks.track(job));
+        }
 
         // 职业进度存储已并入 entry 唯一权威 capability (第 2.3 节), 此处不再注册第二套玩家 capability。
 
@@ -105,5 +117,17 @@ public final class JobFrameworkSystem implements Subsystem {
     @Override
     public String name() {
         return "JobFrameworkSystem";
+    }
+
+    private record JobTrackHandler(JobServiceImpl service, JobId job) implements ExperienceTrackHandler {
+        @Override
+        public ExperienceSnapshot snapshot(Player player) {
+            return new ExperienceSnapshot(service.totalXp(player, job), service.level(player, job));
+        }
+
+        @Override
+        public long award(Player player, long rawXp) {
+            return service.grantXpDirect(player, job, rawXp);
+        }
     }
 }

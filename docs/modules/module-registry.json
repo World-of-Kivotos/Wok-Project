@@ -1,0 +1,258 @@
+{
+  "schemaVersion": 2,
+  "product": "WOK",
+  "deploymentModel": "single-forge-mod-single-jar",
+  "compatibilityModId": "miningdim",
+  "entryPoint": "com.miningdim.MiningDim",
+  "excludedProducts": [
+    "WOK步战核心",
+    "WOK步战附属-独立护甲",
+    "WOK步战附属-部位血量",
+    "WOK步战附属-创伤治疗",
+    "WOK-卡牌游戏独立MOD"
+  ],
+  "modules": [
+    {
+      "id": "wok-core",
+      "name": "WOK-核心模块",
+      "category": "foundation",
+      "javaPackagePrefixes": [
+        "com.miningdim.core",
+        "com.miningdim.config",
+        "com.miningdim.network",
+        "com.miningdim.registry",
+        "com.miningdim.menu",
+        "com.miningdim.effect",
+        "com.miningdim.entry",
+        "com.miningdim.error",
+        "com.miningdim.testutil"
+      ],
+      "currentPaths": ["core", "config", "network", "registry", "menu", "effect", "entry", "error", "testutil"],
+      "dependencies": [],
+      "optionalIntegrations": []
+    },
+    {
+      "id": "wok-experience",
+      "name": "WOK-全服经验模块",
+      "category": "foundation",
+      "javaPackagePrefixes": ["com.miningdim.progression"],
+      "currentPaths": ["progression"],
+      "dependencies": ["wok-core"],
+      "optionalIntegrations": [],
+      "publicEntry": "com.miningdim.progression.ExperienceModule",
+      "scope": "server-wide progression tracks and source-aware XP routing"
+    },
+    {
+      "id": "wok-job-core",
+      "name": "WOK-职业框架模块",
+      "category": "foundation",
+      "javaPackagePrefixes": ["com.miningdim.job"],
+      "currentPaths": ["job root package"],
+      "dependencies": ["wok-core", "wok-experience", "wok-economy"],
+      "optionalIntegrations": []
+    },
+    {
+      "id": "wok-mining",
+      "name": "WOK-矿区副本模块",
+      "category": "foundation",
+      "javaPackagePrefixes": [
+        "com.miningdim.worldgen",
+        "com.miningdim.instance",
+        "com.miningdim.chunk",
+        "com.miningdim.reset",
+        "com.miningdim.spawn",
+        "com.miningdim.ore",
+        "com.miningdim.trap",
+        "com.miningdim.pressure",
+        "com.miningdim.rules",
+        "com.miningdim.entrance",
+        "com.miningdim.persistence",
+        "com.miningdim.command"
+      ],
+      "currentPaths": ["worldgen", "instance", "chunk", "reset", "spawn", "ore", "trap", "pressure", "rules", "entrance", "persistence", "command"],
+      "dependencies": ["wok-core"],
+      "optionalIntegrations": []
+    },
+    {
+      "id": "wok-economy",
+      "name": "WOK-经济模块",
+      "category": "foundation",
+      "javaPackagePrefixes": ["com.miningdim.economy"],
+      "currentPaths": ["economy"],
+      "dependencies": ["wok-core"],
+      "optionalIntegrations": []
+    },
+    {
+      "id": "wok-combat-core",
+      "name": "WOK-战斗框架模块",
+      "category": "foundation",
+      "javaPackagePrefixes": ["com.miningdim.combat"],
+      "currentPaths": ["combat"],
+      "dependencies": ["wok-core"],
+      "optionalIntegrations": []
+    },
+    {
+      "id": "wok-webui",
+      "name": "WOK-WebUI 模块",
+      "category": "foundation",
+      "javaPackagePrefixes": ["com.miningdim.webui", "com.miningdim.client.webui"],
+      "currentPaths": ["webui", "client/webui"],
+      "dependencies": ["wok-core"],
+      "optionalIntegrations": ["mcef"]
+    },
+    {
+      "id": "wok-market",
+      "name": "WOK-市场模块",
+      "category": "gameplay",
+      "javaPackagePrefixes": ["com.miningdim.market"],
+      "currentPaths": ["market"],
+      "dependencies": ["wok-core", "wok-economy", "wok-webui"],
+      "optionalIntegrations": ["sqlite-jdbc"]
+    },
+    {
+      "id": "wok-job-miner",
+      "name": "WOK-矿工模块",
+      "category": "job",
+      "javaPackagePrefixes": ["com.miningdim.job.miner"],
+      "currentPaths": ["job/miner"],
+      "dependencies": ["wok-core", "wok-job-core", "wok-mining", "wok-economy", "wok-combat-core"],
+      "optionalIntegrations": []
+    },
+      {
+        "id": "wok-job-farmer",
+        "name": "WOK-农夫模块",
+        "category": "job",
+        "javaPackagePrefixes": ["com.miningdim.job.farmer"],
+        "currentPaths": ["job/farmer"],
+        "dependencies": ["wok-core", "wok-experience", "wok-job-core", "wok-economy"],
+        "optionalIntegrations": ["farmersdelight"],
+        "migrationPriority": 1,
+        "publicEntry": "com.miningdim.job.farmer.FarmerModule",
+        "migrationState": "module-entry-adopted"
+    },
+    {
+      "id": "wok-job-armorer",
+      "name": "WOK-铸甲师模块",
+      "category": "job",
+      "javaPackagePrefixes": ["com.miningdim.job.engineer"],
+      "currentPaths": ["job/engineer"],
+      "dependencies": ["wok-core", "wok-job-core", "wok-champion"],
+      "optionalIntegrations": ["tacz"],
+      "compatibilityNotes": ["WOK-本体护甲保留现有仓库身份、modId 与全部注册 ID"]
+    },
+    {
+      "id": "wok-job-chef",
+      "name": "WOK-厨师模块",
+      "category": "job",
+      "javaPackagePrefixes": ["com.miningdim.job.chef"],
+      "currentPaths": ["job/chef"],
+      "dependencies": ["wok-core", "wok-job-core", "wok-combat-core", "wok-economy"],
+      "optionalIntegrations": ["farmersdelight"]
+    },
+    {
+      "id": "wok-job-brewer",
+      "name": "WOK-酿酒师模块",
+      "category": "job",
+      "javaPackagePrefixes": ["com.miningdim.job.brewer"],
+      "currentPaths": ["job/brewer"],
+      "dependencies": ["wok-core", "wok-job-core", "wok-combat-core"],
+      "optionalIntegrations": [],
+      "migrationState": "protected-active-worktree-changes"
+    },
+    {
+      "id": "wok-job-tarot",
+      "name": "WOK-塔罗师模块",
+      "category": "job",
+      "javaPackagePrefixes": ["com.miningdim.job.tarot"],
+      "currentPaths": ["job/tarot", "data/miningdim/tarot"],
+      "dependencies": ["wok-core", "wok-job-core", "wok-mining", "wok-economy", "wok-champion"],
+      "optionalIntegrations": []
+    },
+    {
+      "id": "wok-job-munitions",
+      "name": "WOK-军火商模块",
+      "category": "job",
+      "javaPackagePrefixes": ["com.miningdim.job.munitions"],
+      "currentPaths": ["job/munitions"],
+      "dependencies": ["wok-core", "wok-job-core", "wok-economy"],
+      "optionalIntegrations": ["tacz"],
+      "internalDomains": ["production", "gunsmith"]
+    },
+    {
+      "id": "wok-job-agent",
+      "name": "WOK-特勤干员模块",
+      "category": "job",
+      "javaPackagePrefixes": ["com.miningdim.job.agent"],
+      "currentPaths": ["job/agent"],
+      "dependencies": ["wok-core", "wok-job-core", "wok-champion", "wok-economy"],
+      "optionalIntegrations": ["champions"]
+    },
+    {
+      "id": "wok-champion",
+      "name": "WOK-精英怪模块",
+      "category": "gameplay",
+      "javaPackagePrefixes": ["com.miningdim.champion"],
+      "currentPaths": ["champion"],
+      "dependencies": ["wok-core", "wok-economy"],
+      "optionalIntegrations": ["champions"]
+    },
+    {
+      "id": "wok-marriage",
+      "name": "WOK-婚姻社交模块",
+      "category": "gameplay",
+      "javaPackagePrefixes": ["com.miningdim.marriage"],
+      "currentPaths": ["marriage"],
+      "dependencies": ["wok-core", "wok-economy"],
+      "optionalIntegrations": []
+    },
+    {
+      "id": "wok-case-opening",
+      "name": "WOK-开箱模块",
+      "category": "gameplay",
+      "javaPackagePrefixes": ["com.miningdim.caseopening"],
+      "currentPaths": ["caseopening"],
+      "dependencies": ["wok-core", "wok-economy", "wok-webui"],
+      "optionalIntegrations": ["tacz", "sqlite-jdbc"]
+    },
+    {
+      "id": "wok-stacking",
+      "name": "WOK-实体堆叠模块",
+      "category": "support",
+      "javaPackagePrefixes": ["com.miningdim.stacking"],
+      "currentPaths": ["stacking"],
+      "dependencies": ["wok-core"],
+      "optionalIntegrations": []
+    },
+    {
+      "id": "wok-app",
+      "name": "WOK-综合装配模块",
+      "category": "assembly",
+      "javaPackagePrefixes": ["com.miningdim"],
+      "currentPaths": ["MiningDim.java"],
+      "dependencies": [
+        "wok-core", "wok-experience", "wok-job-core", "wok-mining", "wok-economy", "wok-combat-core",
+        "wok-webui", "wok-market", "wok-job-miner", "wok-job-farmer", "wok-job-armorer",
+        "wok-job-chef", "wok-job-brewer", "wok-job-tarot", "wok-job-munitions",
+        "wok-job-agent", "wok-champion", "wok-marriage", "wok-case-opening", "wok-stacking"
+      ],
+      "optionalIntegrations": []
+    }
+  ],
+  "boundaryExceptions": [
+    {"source": "wok-core", "target": "wok-job-core", "reason": "entry capability and the legacy main channel still carry job data", "exit": "move job packets and job progress storage behind module-owned adapters"},
+    {"source": "wok-core", "target": "wok-job-agent", "reason": "legacy main channel centrally registers agent packets", "exit": "let the agent module register fixed discriminator IDs through a channel registrar"},
+    {"source": "wok-core", "target": "wok-champion", "reason": "legacy main channel centrally registers champion size sync", "exit": "let the champion module register its fixed discriminator ID"},
+    {"source": "wok-core", "target": "wok-webui", "reason": "C2S WebUI request packet directly invokes the WebUI dispatcher", "exit": "bind a WebUI request handler into the network boundary"},
+    {"source": "wok-core", "target": "wok-job-miner", "reason": "EntryGateway directly imports MinerLevelGate", "exit": "move difficulty gate policy into a shared job contract"},
+    {"source": "wok-core", "target": "wok-job-tarot", "reason": "global vulnerability handler reads TarotCombatState directly", "exit": "bind a generic vulnerability-immunity provider"},
+    {"source": "wok-core", "target": "wok-marriage", "reason": "central ModItems still constructs marriage ring items", "exit": "move ring DeferredRegister ownership into the marriage module"},
+    {"source": "wok-core", "target": "wok-mining", "reason": "legacy registry and entry packages directly reference mining implementations", "exit": "move mining registrations into mining and split player data from entry orchestration"},
+    {"source": "wok-job-tarot", "target": "wok-job-miner", "reason": "Hermit shiny effect reuses miner scan and highlight implementations", "exit": "publish an ore-highlight capability from the mining API"},
+    {"source": "wok-job-brewer", "target": "wok-job-tarot", "reason": "gin maximum-health cap reads TarotRuntime directly", "exit": "publish a shared maximum-health contribution query through combat core"},
+    {"source": "wok-champion", "target": "wok-job-armorer", "reason": "Champion GameTest imports the armorer deterministic random test utility", "scope": "test-only", "exit": "move the deterministic random helper into shared testutil"},
+    {"source": "wok-mining", "target": "wok-champion", "reason": "pressure spawning directly calls ChampionSpawnSeam", "exit": "make the spawn promotion seam owned by mining and bind champion into it"},
+    {"source": "wok-webui", "target": "wok-case-opening", "reason": "WebUiBridge directly plays and stops CaseSounds", "exit": "register case-local actions through a generic WebUI client action registry"},
+    {"source": "wok-case-opening", "target": "wok-app", "reason": "TaCZ export bootstrap uses MiningDim.class as its resource anchor", "exit": "use the case bootstrap class as the same-JAR resource anchor"},
+    {"source": "wok-job-munitions", "target": "wok-app", "reason": "TaCZ export bootstrap uses MiningDim.class as its resource anchor", "exit": "use the gunsmith bootstrap class as the same-JAR resource anchor"}
+  ]
+}

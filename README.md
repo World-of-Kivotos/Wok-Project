@@ -1,8 +1,12 @@
-# Mining Dimension System (miningdim)
+# WOK 综合玩法 MOD（技术 ID：miningdim）
 
-Minecraft 1.20.1 + MinecraftForge 47.x + Java 17 的矿山副本维度 mod。单一 mod、单一 jar、单一 `mods.toml`，内部强模块化。
+WOK 服务器的综合玩法 MOD，运行于 Minecraft 1.20.1 + MinecraftForge 47.x + Java 17。第一阶段继续采用单一 MOD、单一 JAR、单一 `mods.toml`，在仓库内部按功能模块治理。
 
-可重复刷新的随机矿洞副本维度：单一独立维度内按 region 网格切分多实例，离线确定性生成，全连通矿洞，三难度垂直分层。
+`miningdim` 是当前兼容性技术 ID，不代表仓库只有矿区功能。现有注册 ID、资源命名空间、存档键和网络协议在模块整理期间保持不变。
+
+当前功能包括全服经验、矿区副本、职业体系、经济市场、精英战斗、开箱、社交及服务器支撑功能。仓库模块总表见 [`docs/modules/README.md`](docs/modules/README.md)，完整整理方案见 [`docs/WOK_Repository_Module_Plan.md`](docs/WOK_Repository_Module_Plan.md)。
+
+`WOK` 与 `WOK步战` 是两个不同产品边界。本仓库根工程是 WOK 本体；WOK步战核心及其可独立安装的附属 MOD 不得混入本体模块。
 
 ## 目标平台 (锁定, 不得套用其他版本语法)
 
@@ -66,7 +70,7 @@ Minecraft 1.20.1 + MinecraftForge 47.x + Java 17 的矿山副本维度 mod。单
    (IMiningConfig)(IMiningNetwork)(IOfflineGenerator)(IInstanceManager)
 ```
 
-子系统装配顺序（List 顺序 = 门面注入顺序，见 `MiningDim` 类注释的硬约束）：
+以下是最初矿区子系统的装配基线；当前 WOK 本体的完整 21 模块清单与所有权以 [`docs/modules/module-registry.json`](docs/modules/module-registry.json) 为准。List 顺序仍是门面注入顺序，见 `MiningDim` 类注释的硬约束。
 
 | 顺序 | 子系统入口 | 职责 | 注入的 core 门面 |
 | --- | --- | --- | --- |
@@ -84,7 +88,7 @@ Minecraft 1.20.1 + MinecraftForge 47.x + Java 17 的矿山副本维度 mod。单
 | 12 | `error.ErrorSystem` | 启动期维度自检 + 边界兜底文案 | —（事件型） |
 | 13 | `entry.EntrySystem` | 玩家 Capability + `/mining` 命令树 + 进入/离开/登录恢复编排 | —（玩家 Capability 经 `entry.MiningCapabilities` 对外） |
 
-跨子系统协作只经 `MiningServices` 取门面，从不 import 对方实现类。worldgen 的 `MiningChunkGenerator` 经 `worldgen.MiningVoxelLookup` 静态 seam 取冻结体素：集成层（`instance.InstanceSystem.onServerStarted`）把离线调度器的 `voxelsOf` 接进该 seam（单向依赖，无环）。
+目标架构要求跨模块协作只经公开门面或 seam。全量扫描确认当前仍有 15 组历史反向引用，已逐条登记在 [`docs/modules/DEPENDENCY_DEBT.md`](docs/modules/DEPENDENCY_DEBT.md) 并由构建阻止新增。全服经验统一经过 `progression.IExperienceService` 的“轨道 + 来源”路由，现有职业存档由兼容适配器继续承载。worldgen 的 `MiningChunkGenerator` 经 `worldgen.MiningVoxelLookup` 静态 seam 取冻结体素：集成层（`instance.InstanceSystem.onServerStarted`）把离线调度器的 `voxelsOf` 接进该 seam。
 
 ## 已知架构裁决 (阶段2 集成)
 
@@ -107,12 +111,13 @@ Minecraft 1.20.1 + MinecraftForge 47.x + Java 17 的矿山副本维度 mod。单
 
 ## 模块化约定
 
-- 单 `mods.toml`，单 jar。每个子系统是自包含 package，仅依赖 `com.miningdim.core` 契约。
-- 跨子系统交互只经 `core` 门面接口 + `MiningServices` 服务定位器，严禁子系统间硬编码 import 对方实现类，禁止循环依赖。
+- 单 `mods.toml`、单 JAR，按 `module-registry.json` 的最长 package 前缀确定模块所有权。
+- 所有玩法经验必须提交给 `IExperienceService`；模块声明稳定来源 ID，不得自行修改其他模块的经验存档或衰减计数。
+- 目标依赖必须在登记表中声明且保持无环；历史反向引用只能使用已有 `boundaryExceptions`，严禁新增未登记实现依赖。
 - 每个子系统实现 `com.miningdim.core.Subsystem`，在 `register(modBus, forgeBus)` 内完成自注册并把服务实例注入 `MiningServices`。
 - 世界写操作（setBlock/传送/刷怪/重置）必须在服务端主线程（`server.execute` 或 ServerTickEvent）；纯计算（体素生成/BFS）在独立工作线程。
 
-完整规格见 `docs/MiningDimension_Mod_DesignSpec.md`。
+矿区规格见 `docs/MiningDimension_Mod_DesignSpec.md`；WOK 全仓模块、资源和依赖治理见 `docs/modules/`。
 
 ## 许可
 

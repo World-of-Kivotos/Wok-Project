@@ -105,6 +105,9 @@ public final class MiningDim {
         // 15b. 发电系统一期: 三套 3x2x2 发电机外壳、物品与独立创造页。
         subsystems.add(new com.miningdim.power.PowerSystem());
 
+        // 15.5 全服经验系统: 所有玩法经验统一经过轨道 + 来源路由；具体数据域随后注册持久化适配器。
+        subsystems.add(new com.miningdim.progression.ExperienceModule());
+
         // 16. 职业框架地基 (JobFramework_Shared_Foundation): 职业进度 Capability + 共享效果/menu 脚手架
         //     + 易伤单一全局仲裁 + IJobService 门面注入 + /job 命令 + 登录同步。须排在所有具体职业之前:
         //     各职业在事件回调内经 JobServices.jobService() 读等级/给经验, 框架须先注入门面。
@@ -115,7 +118,7 @@ public final class MiningDim {
         // 17. 矿工职业: 挖速加成 / 谁挖谁得经验 / 连锁挖矿 / 矿物探测 / 便利技能 (依赖职业框架门面)。
         subsystems.add(new com.miningdim.job.miner.MinerSystem());
         // 18. 农夫职业: 分档耕地 + mod 小麦 + 收购闸门 (依赖职业框架门面)。
-        subsystems.add(new com.miningdim.job.farmer.FarmerSystem());
+        subsystems.add(new com.miningdim.job.farmer.FarmerModule());
         // 19. 铸甲师职业: 六档纳米护甲板 + 生产台 GUI/校准 QTE + 修复曲线 (依赖职业框架门面)。
         subsystems.add(new com.miningdim.job.engineer.EngineerSystem());
         // 20. 塔罗师职业: 塔罗牌 datapack 牌效 + 卡包 gacha + 合成台 (依赖职业框架门面)。

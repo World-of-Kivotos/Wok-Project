@@ -1,12 +1,8 @@
 package com.miningdim.job.farmer;
 
-import com.miningdim.core.Subsystem;
-import com.miningdim.job.JobId;
-import com.miningdim.job.JobServices;
 import com.miningdim.job.farmer.block.FarmerBlocks;
 import com.miningdim.job.farmer.block.FarmerCropBlock;
 import com.miningdim.job.farmer.block.FarmerFarmlandBlock;
-import com.miningdim.job.farmer.item.FarmerCreativeTab;
 import com.miningdim.job.farmer.item.FarmerItems;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -34,17 +30,13 @@ import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.eventbus.api.EventPriority;
-import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.registries.ForgeRegistries;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
- * 农夫职业子系统入口 (FarmingXP_Mod_DesignSpec; 模块化铁律 3: 自持 DeferredRegister + 自订阅事件)。
+ * 农夫职业运行时事件与命令处理器 (FarmingXP_Mod_DesignSpec)。
  *
- * 自注册:
- *  - 方块/物品/创造页 DeferredRegister ({@link FarmerBlocks}/{@link FarmerItems}/{@link FarmerCreativeTab}, modBus);
+ * 由 {@link FarmerModule} 统一创建和注册；WOK 综合入口不得直接实例化本类。本类负责：
  *  - 收获经验结算 ({@link #onCropHarvested}, forgeBus BreakEvent): 只认 mod 作物成熟态破坏;
  *  - 放置上限 + 档位门控 ({@link #onFarmlandPlace}, forgeBus EntityPlaceEvent): 超限/未解锁拒放;
  *  - 耕地破坏回收计数走 {@link com.miningdim.job.farmer.block.FarmerFarmlandBlock#onRemove}
@@ -56,29 +48,19 @@ import org.slf4j.LoggerFactory;
  *    F025 迁移口径修正的唯一对账/重算入口 (复核 Major, 见 {@link FarmerSavedData#legacyOverflow}) —— 迁移前存档
  *    的旧配额不再被静默丢弃, op 用这两条命令查询/清除, 是否清除是运营决策, 代码不预设自动豁免。
  *
- * 不持有玩家进度: 经验走共享 {@link JobServices#jobService()} 入账 (JobId.FARMER), 衰减/翻日/升级由框架裁决;
+ * 不持有玩家进度: 经验走全服 {@link com.miningdim.progression.IExperienceService} 路由，农夫只声明来源；
+ * 衰减/翻日/升级由注册在农夫经验轨道上的职业框架适配器裁决；
  * 耕地放置归属走 {@link FarmerSavedData} (overworld 持久层, 按 (维度, 坐标) 记归属, 已放置数是该归属索引的
  * 派生投影, F025)。
  *
- * 已在 {@code MiningDim.registerSubsystems()} 实装 (本子系统经 modBus/forgeBus 自注册其全部注册项与事件)。
+ * 注册项、经验策略与 Forge 事件装配均由 {@link FarmerModule} 持有。
  */
-public final class FarmerSystem implements Subsystem {
-
-    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/job/farmer");
+public final class FarmerSystem {
 
     /** /farmer admin 子根的 OP 门槛 (与 JobCommands/EconomyCommands 一致的管理操作等级)。 */
     private static final int OP_LEVEL = 2;
 
-    @Override
-    public void register(IEventBus modBus, IEventBus forgeBus) {
-        FarmerBlocks.register(modBus);
-        FarmerItems.register(modBus);
-        FarmerCreativeTab.register(modBus);
-        FarmerLootModifiers.register(modBus);
-        forgeBus.register(this);
-        // 平板农夫页的 job.farmer.state / job.farmer.sell (卖菜写路径复用 FarmerWheatSellService 同一入口)。
-        FarmerWebUiActions.registerAll();
-        LOGGER.info("[miningdim] farmer job subsystem registered (5 farmland tiers + crop yield + Farmer's Delight + harvest xp + placement cap + /farmer sell + /farmer admin legacy|recount + 2 job.farmer.* actions)");
+    FarmerSystem() {
     }
 
     // ============================================================
@@ -113,7 +95,7 @@ public final class FarmerSystem implements Subsystem {
 
     private int cropTableCommand(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
-        int farmerLevel = JobServices.jobService().level(player, JobId.FARMER);
+        int farmerLevel = FarmerExperience.level(player);
         ctx.getSource().sendSuccess(() -> Component.translatable("message.miningdim.farmer.crop_table_header")
                 .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
         ctx.getSource().sendSuccess(() -> Component.translatable("message.miningdim.farmer.crop_table_columns")
@@ -217,7 +199,7 @@ public final class FarmerSystem implements Subsystem {
      * mod 作物成熟态被玩家破坏时结算农夫经验。原始经验 = 单作物经验 × 该档耕地产量 (表B):
      *  - 仅 {@link FarmerCropBlock} 且处于成熟态 (isMaxAge) 才结算 (未成熟破坏经验 = 0);
      *  - 下方耕地档位决定产量 (高档产更多 -> 单次结算原始经验更高);
-     *  - 入账走框架 {@link JobServices#jobService()#grantXp}, 受每日有效经验软上限衰减 (2000 系) 约束。
+     *  - 入账走全服经验路由，受农夫轨道的每日有效经验软上限衰减约束。
      *
      * 经验与作物掉落解耦 (第二章): 本法只算经验, 不动掉落 (loot table 照常掉小麦), 故软上限只削经验不削小麦。
      *
@@ -255,7 +237,7 @@ public final class FarmerSystem implements Subsystem {
 
         // 经验入账 (表B: 单作物经验 × 产量), 受框架每日软上限衰减。
         long rawXp = (long) FarmerConstants.SINGLE_CROP_XP * yield;
-        JobServices.jobService().grantXp(player, JobId.FARMER, rawXp);
+        FarmerExperience.awardHarvest(player, rawXp);
 
         // 小麦掉落由本处单一权威发放 (loot table 只补种种子, 不掉小麦), 株数 = 该档产量, 与经验/经济计数严格一致
         // (第七章: 小麦产量纯由方块上限 × 单块速率 × 产量决定, 不受经验软上限削减)。
@@ -307,7 +289,7 @@ public final class FarmerSystem implements Subsystem {
                 SoundSource.BLOCKS, 1.0F, 0.8F + level.random.nextFloat() * 0.4F);
         level.setBlock(event.getPos(), state.setValue(BlockStateProperties.AGE_3, 0), 2);
 
-        JobServices.jobService().grantXp(player, JobId.FARMER,
+        FarmerExperience.awardPick(player,
                 (long) FarmerConstants.SINGLE_CROP_XP * yield);
         event.setCanceled(true);
         event.setCancellationResult(InteractionResult.SUCCESS);
@@ -359,7 +341,7 @@ public final class FarmerSystem implements Subsystem {
         }
         ServerLevel overworld = player.server.overworld();
         FarmerSavedData data = FarmerSavedData.get(overworld);
-        int currentLevel = JobServices.jobService().level(player, JobId.FARMER);
+        int currentLevel = FarmerExperience.level(player);
         int placed = data.placedCount(player.getUUID());
 
         FarmlandPlacementGuard.PlaceResult result =
@@ -402,8 +384,4 @@ public final class FarmerSystem implements Subsystem {
         }
     }
 
-    @Override
-    public String name() {
-        return "FarmerSystem";
-    }
 }

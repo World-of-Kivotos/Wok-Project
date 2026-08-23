@@ -217,3 +217,192 @@ tasks.matching { it.name == 'runGameTestServer' }.configureEach {
         }
     }
 }
+
+// WOK 仓库模块登记表校验。第一阶段仍交付单 JAR，但模块 ID、依赖引用和依赖方向必须保持可检查，
+// 防止文档式登记表在后续并行开发中静默漂移。该任务不读取或修改游戏注册 ID。
+tasks.register('verifyModuleRegistry') {
+    group = 'verification'
+    description = 'Validates docs/modules/module-registry.json module IDs and dependency graph.'
+
+    def registryFile = layout.projectDirectory.file('docs/modules/module-registry.json')
+    inputs.file(registryFile)
+
+    doLast {
+        def registry = new groovy.json.JsonSlurper().parse(registryFile.asFile)
+        if (registry.schemaVersion != 2) {
+            throw new GradleException("Unsupported WOK module registry schemaVersion: ${registry.schemaVersion}")
+        }
+        if (registry.product != 'WOK') {
+            throw new GradleException("Module registry product must be WOK, got: ${registry.product}")
+        }
+        if (registry.compatibilityModId != mod_id) {
+            throw new GradleException(
+                    "Module registry compatibilityModId ${registry.compatibilityModId} does not match mod_id ${mod_id}")
+        }
+
+        def modules = registry.modules ?: []
+        if (modules.isEmpty()) {
+            throw new GradleException('WOK module registry must contain at least one module')
+        }
+
+        def modulesById = [:]
+        modules.each { module ->
+            def id = module.id?.toString()
+            if (id == null || !(id ==~ /wok-[a-z0-9-]+/)) {
+                throw new GradleException("Invalid WOK module ID: ${id}")
+            }
+            if (modulesById.put(id, module) != null) {
+                throw new GradleException("Duplicate WOK module ID: ${id}")
+            }
+            if (!module.name || !module.category || !module.currentPaths || !module.javaPackagePrefixes) {
+                throw new GradleException(
+                        "Module ${id} must declare name, category, currentPaths and javaPackagePrefixes")
+            }
+        }
+
+        modulesById.each { id, module ->
+            (module.dependencies ?: []).each { dependency ->
+                def dependencyId = dependency.toString()
+                if (dependencyId == id) {
+                    throw new GradleException("Module ${id} cannot depend on itself")
+                }
+                if (!modulesById.containsKey(dependencyId)) {
+                    throw new GradleException("Module ${id} references unknown dependency ${dependencyId}")
+                }
+            }
+        }
+
+        def exceptionPairs = new HashSet<String>()
+        (registry.boundaryExceptions ?: []).each { exception ->
+            def source = exception.source?.toString()
+            def target = exception.target?.toString()
+            if (!modulesById.containsKey(source) || !modulesById.containsKey(target)) {
+                throw new GradleException("Boundary exception references unknown modules: ${source} -> ${target}")
+            }
+            if ((modulesById[source].dependencies ?: []).contains(target)) {
+                throw new GradleException(
+                        "Boundary exception ${source} -> ${target} is redundant because the dependency is declared")
+            }
+            if (!exception.reason || !exception.exit) {
+                throw new GradleException(
+                        "Boundary exception ${source} -> ${target} must declare reason and exit")
+            }
+            def pair = "${source}->${target}"
+            if (!exceptionPairs.add(pair)) {
+                throw new GradleException("Duplicate boundary exception: ${source} -> ${target}")
+            }
+        }
+
+        def visitState = [:].withDefault { 0 }
+        def visit
+        visit = { String id ->
+            if (visitState[id] == 1) {
+                throw new GradleException("WOK module dependency cycle detected at ${id}")
+            }
+            if (visitState[id] == 2) {
+                return
+            }
+            visitState[id] = 1
+            (modulesById[id].dependencies ?: []).each { dependency -> visit(dependency.toString()) }
+            visitState[id] = 2
+        }
+        modulesById.keySet().each { id -> visit(id) }
+
+        logger.lifecycle(
+                "Verified WOK module registry: ${modulesById.size()} modules, "
+                        + "${exceptionPairs.size()} tracked boundary exceptions, no missing dependencies or cycles")
+    }
+}
+
+// 扫描 Java package/import/代码中的全限定类名，按最长 package 前缀判断模块所有权。目标依赖图之外的引用
+// 必须逐条登记在 boundaryExceptions；现有债务可见、可退出，同时禁止并行开发继续增加新的反向耦合。
+tasks.register('verifyModuleBoundaries') {
+    group = 'verification'
+    description = 'Checks Java module ownership and rejects undeclared cross-module references.'
+    dependsOn tasks.named('verifyModuleRegistry')
+
+    def registryFile = layout.projectDirectory.file('docs/modules/module-registry.json')
+    inputs.file(registryFile)
+    inputs.files(fileTree('src/main/java') { include '**/*.java' })
+
+    doLast {
+        def registry = new groovy.json.JsonSlurper().parse(registryFile.asFile)
+        def modulesById = registry.modules.collectEntries { module -> [(module.id.toString()): module] }
+        def owners = []
+        registry.modules.each { module ->
+            module.javaPackagePrefixes.each { prefix ->
+                owners << [moduleId: module.id.toString(), prefix: prefix.toString()]
+            }
+        }
+        owners.sort { left, right -> right.prefix.length() <=> left.prefix.length() }
+
+        def ownerOf = { String qualifiedName ->
+            def match = owners.find { owner ->
+                qualifiedName == owner.prefix || qualifiedName.startsWith(owner.prefix + '.')
+            }
+            match == null ? null : match.moduleId
+        }
+
+        def allowedExceptions = (registry.boundaryExceptions ?: []).collect {
+            "${it.source}->${it.target}"
+        } as Set
+        def observedExceptions = new HashSet<String>()
+        def violations = []
+
+        fileTree('src/main/java').matching { include '**/*.java' }.files.sort().each { sourceFile ->
+            def raw = sourceFile.getText('UTF-8')
+            def packageMatcher = raw =~ /(?m)^\s*package\s+(com\.miningdim(?:\.[A-Za-z_][A-Za-z0-9_]*)*);/
+            if (!packageMatcher.find()) {
+                violations << "${sourceFile}: missing com.miningdim package declaration"
+                return
+            }
+            def sourcePackage = packageMatcher.group(1)
+            def sourceModule = ownerOf(sourcePackage)
+            if (sourceModule == null) {
+                violations << "${sourceFile}: package ${sourcePackage} has no module owner"
+                return
+            }
+
+            // 去掉块注释和行注释，既检查 import，也检查生产代码里直接书写的全限定类名。
+            def code = raw.replaceAll(/(?s)\/\*.*?\*\//, '')
+                    .replaceAll(/(?m)\/\/.*$/, '')
+            def references = code =~ /com\.miningdim(?:\.[A-Za-z_][A-Za-z0-9_]*)+/
+            def targetModules = new HashSet<String>()
+            references.each { match ->
+                def targetModule = ownerOf(match.toString())
+                if (targetModule != null && targetModule != sourceModule) {
+                    targetModules.add(targetModule)
+                }
+            }
+
+            def declared = (modulesById[sourceModule].dependencies ?: []).collect { it.toString() } as Set
+            targetModules.each { targetModule ->
+                if (declared.contains(targetModule)) {
+                    return
+                }
+                def pair = "${sourceModule}->${targetModule}"
+                if (allowedExceptions.contains(pair)) {
+                    observedExceptions.add(pair)
+                } else {
+                    violations << "${sourceFile}: ${sourceModule} references undeclared module ${targetModule}"
+                }
+            }
+        }
+
+        def staleExceptions = allowedExceptions - observedExceptions
+        staleExceptions.each { pair ->
+            violations << "boundary exception ${pair} is stale; remove it from module-registry.json"
+        }
+        if (!violations.isEmpty()) {
+            throw new GradleException("WOK module boundary violations:\n - " + violations.join('\n - '))
+        }
+        logger.lifecycle(
+                "Verified WOK Java boundaries: ${modulesById.size()} modules, "
+                        + "${observedExceptions.size()} known exceptions, no new cross-module references")
+    }
+}
+
+tasks.named('check').configure {
+    dependsOn tasks.named('verifyModuleRegistry')
+    dependsOn tasks.named('verifyModuleBoundaries')
+}

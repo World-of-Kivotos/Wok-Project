@@ -150,6 +150,8 @@ public final class ChefConfig {
     public static final ForgeConfigSpec.IntValue QTE_WINDOW_TICKS;
     public static final ForgeConfigSpec.IntValue QTE_MIN_INTERVAL_TICKS;
     public static final ForgeConfigSpec.IntValue QTE_MAX_INTERVAL_TICKS;
+    public static final ForgeConfigSpec.IntValue QTE_DIFFICULTY_TICKS_PER_QUALITY_TIER;
+    public static final ForgeConfigSpec.IntValue QTE_EASE_TICKS_PER_CHEF_LEVEL;
     public static final ForgeConfigSpec.IntValue QTE_COUNT;
     public static final ForgeConfigSpec.IntValue SEASONING_TABLE_MAX_TIER;
     public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_LOW_PER_MILLE;
@@ -356,6 +358,10 @@ public final class ChefConfig {
         QTE_WINDOW_TICKS = b.defineInRange("qteWindowTicks", 20, 1, 1200);
         QTE_MIN_INTERVAL_TICKS = b.defineInRange("qteMinIntervalTicks", 15, 1, 72000);
         QTE_MAX_INTERVAL_TICKS = b.defineInRange("qteMaxIntervalTicks", 35, 1, 72000);
+        b.comment("each target-quality tier shortens both the QTE window and cue gap; each chef level above L1 adds time back");
+        QTE_DIFFICULTY_TICKS_PER_QUALITY_TIER = b.defineInRange(
+                "qteDifficultyTicksPerQualityTier", 4, 0, 300);
+        QTE_EASE_TICKS_PER_CHEF_LEVEL = b.defineInRange("qteEaseTicksPerChefLevel", 1, 0, 300);
         QTE_COUNT = b.defineInRange("qteCount", 4, 1, 64);
         SEASONING_TABLE_MAX_TIER = b.defineInRange("tableMaxTier", 4, 0, 4);
         b.pop();
@@ -627,6 +633,14 @@ public final class ChefConfig {
 
     public static int qteMaxIntervalTicks() {
         return QTE_MAX_INTERVAL_TICKS.get();
+    }
+
+    public static int qteDifficultyTicksPerQualityTier() {
+        return QTE_DIFFICULTY_TICKS_PER_QUALITY_TIER.get();
+    }
+
+    public static int qteEaseTicksPerChefLevel() {
+        return QTE_EASE_TICKS_PER_CHEF_LEVEL.get();
     }
 
     public static int qteCount() {

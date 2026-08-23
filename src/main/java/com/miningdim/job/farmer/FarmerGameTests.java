@@ -13,7 +13,10 @@ import com.miningdim.job.IJobService;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobProgress;
 import com.miningdim.job.JobServices;
+import com.miningdim.job.JobExperienceTracks;
+import com.miningdim.job.JobXpPolicies;
 import com.miningdim.job.JobXpCurve;
+import com.miningdim.progression.ExperienceServices;
 import com.miningdim.job.farmer.block.FarmerBlocks;
 import com.miningdim.job.farmer.block.FarmerCropBlock;
 import com.miningdim.job.farmer.block.FarmerFarmlandBlock;
@@ -66,7 +69,7 @@ import java.util.function.Function;
  *  - 五档耕地参数表 (表B): 解锁等级/产量/成长间隔自洽。
  *
  * 纯逻辑断言不依赖结构, 用 template = "empty"。涉及 capability 挂载/世界写的端到端 (作物成长/破坏掉落)
- * 在 FarmerSystem 接入 MiningDim 后才生效 (本任务不接线), 故此处验证驱动这些事件的纯裁决/纯函数逻辑
+ * 在 FarmerModule 接入 MiningDim 后生效；此处同时验证模块装配契约与驱动事件的纯裁决/纯函数逻辑
  * (与挂载后玩家身上运行的同一份逻辑)。
  */
 @GameTestHolder(MiningConstants.MODID)
@@ -75,6 +78,28 @@ public final class FarmerGameTests {
 
     private static final String EMPTY = "empty";
     private static final String BATCH = "farmer";
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void farmerModuleRegistersItsXpPolicy(GameTestHelper helper) {
+        helper.assertTrue("wok-job-farmer".equals(FarmerModule.MODULE_ID),
+                "farmer module ID must remain stable");
+        helper.assertTrue(JobXpPolicies.hasCustomPolicy(JobId.FARMER),
+                "FarmerModule must register the farmer XP policy through job-core");
+        helper.assertTrue(ExperienceServices.experienceService().hasTrack(FarmerExperience.TRACK_ID),
+                "farmer progression must be registered in the server-wide experience service");
+        helper.assertTrue(ExperienceServices.experienceService().hasSource(FarmerExperience.HARVEST_SOURCE)
+                        && ExperienceServices.experienceService().hasSource(FarmerExperience.PICK_SOURCE),
+                "farmer XP sources must be registered before gameplay awards experience");
+        helper.assertTrue(FarmerExperience.TRACK_ID.equals(JobExperienceTracks.track(JobId.FARMER)),
+                "farmer source must target the compatible job/farmer track");
+        double expected = FarmerXpCurve.applyDailyDecayExact(1_490.0D, 100L);
+        double actual = JobXpPolicies.applyDailyDecayExact(JobId.FARMER, 1_490.0D, 100L);
+        helper.assertTrue(Math.abs(expected - actual) < 0.000_001D,
+                "job-core must route farmer XP through the registered policy");
+        helper.assertTrue(JobXpPolicies.dailySoftCap(JobId.FARMER) == FarmerXpCurve.DAILY_SOFTCAP,
+                "job-core must expose the registered farmer soft cap");
+        helper.succeed();
+    }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void farmersDelightTomatoRightClickUsesSupremeYield(GameTestHelper helper) {

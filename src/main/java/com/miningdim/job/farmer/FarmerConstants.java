@@ -6,7 +6,8 @@ package com.miningdim.job.farmer;
  * 数值对齐裁决 (FarmingXP spec 顶部 SUPERSEDED + JobFramework_Shared_Foundation 第四章):
  *  - 等级经验曲线 (表A) 与每日有效经验软上限衰减 (表C) 一律以 {@link com.miningdim.job.JobXpCurve} 为唯一真源
  *    (2000 系衰减, 总 61,900)。本类不再复制等级/衰减常量, 农夫经验入账一律走
- *    {@link com.miningdim.job.IJobService#grantXp} —— 职业侧只发原始经验, 衰减/翻日/升级由框架裁决。
+ *    {@link com.miningdim.progression.IExperienceService#award} —— 职业侧只发原始经验并声明来源,
+ *    衰减/翻日/升级由经验轨道处理器裁决。
  *    这消解了 FarmingXP 表C (T=1500 四档) 与共享地基 2000 系表的 Critical 冲突 (取共享地基为准, 见 notes)。
  *  - 本类只承载农夫专有的、框架不覆盖的数值: 表A 各级方块上限、表B 五档耕地参数 (成长间隔/产量/单作物经验)、
  *    经济收购曲线参数 (表C 经验衰减是经验侧, 与经济收购侧两条独立曲线, 见第八节)。

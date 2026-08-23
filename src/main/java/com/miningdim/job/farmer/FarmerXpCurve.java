@@ -1,11 +1,26 @@
 package com.miningdim.job.farmer;
 
+import com.miningdim.job.JobXpPolicy;
+
 /** Farmer daily XP decay from FarmingXP_Mod_DesignSpec table C. */
 public final class FarmerXpCurve {
     private static final long[] BOUNDS = {1_500L, 1_800L, 2_000L, 2_150L};
     private static final double[] MULTIPLIERS = {1.0D, 0.30D, 0.10D, 0.03D};
     private static final double DRIP_MULTIPLIER = 0.005D;
     public static final long DAILY_SOFTCAP = 2_150L;
+
+    /** Stable policy object registered by {@link FarmerModule} into the shared job framework. */
+    public static final JobXpPolicy POLICY = new JobXpPolicy() {
+        @Override
+        public double applyDailyDecayExact(double currentDailyXp, long rawXp) {
+            return FarmerXpCurve.applyDailyDecayExact(currentDailyXp, rawXp);
+        }
+
+        @Override
+        public long dailySoftCap() {
+            return DAILY_SOFTCAP;
+        }
+    };
 
     private FarmerXpCurve() {
     }

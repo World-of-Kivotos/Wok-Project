@@ -36,7 +36,7 @@ public final class FarmerWebUiActions {
     private FarmerWebUiActions() {
     }
 
-    /** 把两条 job.farmer.* action 注册进派发器 (由 {@link FarmerSystem#register} 调用一次)。 */
+    /** 把两条 job.farmer.* action 注册进派发器 (由 {@link FarmerModule#register} 调用一次)。 */
     public static void registerAll() {
         WebUiServerDispatcher.register("job.farmer.state", STATE);
         WebUiServerDispatcher.register("job.farmer.sell", SELL);

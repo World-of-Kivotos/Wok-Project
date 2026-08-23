@@ -82,12 +82,12 @@ public enum ChefQuality {
         return this.tier >= other.tier;
     }
 
-    /** 取两档中较低者 (封顶: min(台档, 厨师等级上限, 综合分档))。 */
+    /** 取两档中较低者 (目标品质可选上限 = min(台档, 厨师等级上限))。 */
     public static ChefQuality min(ChefQuality a, ChefQuality b) {
         return a.tier <= b.tier ? a : b;
     }
 
-    /** 按 0-based 档位索引取档 (越界向最近端钳制, 防小游戏综合分越界击穿)。 */
+    /** 按 0-based 档位索引取档 (越界向最近端钳制，仅用于可信的内部档位换算)。 */
     public static ChefQuality byTier(int tier) {
         ChefQuality[] all = values();
         if (tier < 0) {

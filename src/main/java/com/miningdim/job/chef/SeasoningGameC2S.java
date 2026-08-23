@@ -11,7 +11,7 @@ import java.util.function.Supplier;
  * 调味台小游戏输入 C2S (Chef_Job_DesignSpec 第四章; 服务端权威, 客户端只发意图)。
  *
  * 包只携带 "做了哪个动作" 的枚举, 不携带任何热度/命中数/品质 (服务端按自己的权威状态结算, 防作弊):
- *  - START: 开始做菜 (校验输入是食物);
+ *  - START + target: 选择目标品质并开始做菜;
  *  - HEAT_PRESS / HEAT_RELEASE: 按住或松开控火;
  *  - SEASON_HIT + target: 仅命中当前服务端生成的随机位置才计分。
  *
@@ -75,7 +75,7 @@ public record SeasoningGameC2S(Action action, int target) {
                 return;
             }
             switch (msg.action) {
-                case START -> be.startCooking(sender);
+                case START -> be.startCooking(sender, msg.target);
                 case HEAT_PRESS -> be.pressHeat(sender);
                 case HEAT_RELEASE -> be.releaseHeat(sender);
                 case SEASON_HIT -> be.hitSeason(sender, msg.target);

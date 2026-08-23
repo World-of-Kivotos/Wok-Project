@@ -10,6 +10,9 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
+import org.lwjgl.glfw.GLFW;
+
+import java.util.Locale;
 
 /**
  * 调味台客户端界面。服务端同步的菜单数据是唯一状态来源；本类只负责绘制和发送玩家输入意图。
@@ -31,7 +34,7 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
     private static final int HEAT_BUTTON_W = 164;
     private static final int HEAT_BUTTON_H = 20;
     private static final int START_X = 76;
-    private static final int START_Y = 72;
+    private static final int START_Y = 99;
     private static final int START_W = 164;
     private static final int START_H = 20;
     private static final int QTE_X = 76;
@@ -39,8 +42,14 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
     private static final int QTE_W = 38;
     private static final int QTE_H = 20;
     private static final int QTE_GAP = 4;
+    private static final int QUALITY_X = 76;
+    private static final int QUALITY_Y = 72;
+    private static final int QUALITY_W = 30;
+    private static final int QUALITY_H = 20;
+    private static final int QUALITY_GAP = 3;
 
     private boolean heatPressed;
+    private int selectedTargetTier = -1;
 
     public SeasoningScreen(SeasoningMenu menu, Inventory inv, Component title) {
         super(menu, inv, title, BG, WIDTH, HEIGHT);
@@ -71,14 +80,20 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
     protected void renderExtra(GuiGraphics graphics, int leftPos, int topPos,
                                int mouseX, int mouseY, float partialTick) {
         int phase = menu.phase();
+        if (phase == 0) {
+            ensureSelectedTarget();
+        }
         renderStatus(graphics, leftPos, topPos, phase);
         renderHeatBar(graphics, leftPos, topPos);
         if (phase == 2) {
             renderTargets(graphics, leftPos, topPos, mouseX, mouseY);
         } else if (phase == 0) {
+            renderQualityChoices(graphics, leftPos, topPos, mouseX, mouseY);
             renderButton(graphics, leftPos + START_X, topPos + START_Y,
                     START_W, START_H, Component.translatable("screen.miningdim.chef.start"),
                     0xFF2F7D4D);
+            graphics.drawString(font, Component.translatable("screen.miningdim.chef.selectable_cap",
+                            qualityText(menu.selectableCap())), leftPos + 12, topPos + 102, 0xFFE2BD6B, false);
         } else if (phase == 1) {
             renderButton(graphics, leftPos + HEAT_BUTTON_X, topPos + HEAT_BUTTON_Y,
                     HEAT_BUTTON_W, HEAT_BUTTON_H,
@@ -103,8 +118,31 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
                         menu.remainingTicks()), leftPos + 116, topPos + 26, 0xFFC8D1D4, false);
         graphics.drawString(font, Component.translatable("screen.miningdim.chef.hits",
                         menu.hits(), menu.qteCount()), leftPos + 200, topPos + 26, 0xFFC8D1D4, false);
-        graphics.drawString(font, Component.translatable("screen.miningdim.chef.tier_cap",
-                        menu.tierCap().id()), leftPos + 76, topPos + 42, 0xFFE2BD6B, false);
+        ChefQuality target = displayedTarget(phase);
+        if (target != null) {
+            graphics.drawString(font, Component.translatable("screen.miningdim.chef.target_quality",
+                            qualityText(target)), leftPos + 76, topPos + 42, 0xFFE2BD6B, false);
+            graphics.drawString(font, Component.translatable("screen.miningdim.chef.success_chance",
+                            formatChance(displayedChancePerMille(phase, target))),
+                    leftPos + 168, topPos + 42, 0xFF8ED7A7, false);
+        }
+    }
+
+    private void renderQualityChoices(GuiGraphics graphics, int leftPos, int topPos,
+                                      int mouseX, int mouseY) {
+        int cap = menu.selectableCap().tier();
+        for (ChefQuality quality : ChefQuality.values()) {
+            int x = leftPos + QUALITY_X + quality.tier() * (QUALITY_W + QUALITY_GAP);
+            boolean enabled = quality.tier() <= cap;
+            boolean selected = quality.tier() == selectedTargetTier;
+            boolean hovered = enabled && inRect(mouseX, mouseY, x, topPos + QUALITY_Y, QUALITY_W, QUALITY_H);
+            int color = !enabled ? 0xFF3B3B3B : selected ? 0xFF8A5B25 : 0xFF30434D;
+            if (hovered) {
+                color = selected ? 0xFFB47532 : 0xFF47616E;
+            }
+            renderButton(graphics, x, topPos + QUALITY_Y, QUALITY_W, QUALITY_H,
+                    Component.translatable("screen.miningdim.chef.target_quality.short." + quality.id()), color);
+        }
     }
 
     private void renderSlotLabels(GuiGraphics graphics, int leftPos, int topPos) {
@@ -132,6 +170,8 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
                 ? Component.translatable("screen.miningdim.chef.target", menu.targetIndex() + 1)
                 : Component.translatable("screen.miningdim.chef.target.wait");
         graphics.drawString(font, targetPrompt, leftPos + 12, topPos + 99, 0xFFF0CE72, false);
+        graphics.drawString(font, Component.translatable("screen.miningdim.chef.target.keyboard_hint"),
+                leftPos + 12, topPos + 112, 0xFFB8C6CE, false);
         for (int target = 0; target < 4; target++) {
             int x = leftPos + QTE_X + target * (QTE_W + QTE_GAP);
             int y = topPos + QTE_Y;
@@ -151,8 +191,10 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
             return;
         }
         if (menu.failureReason() == 0 && menu.finalQuality() >= 0) {
-            graphics.drawString(font, Component.translatable("screen.miningdim.chef.quality",
-                            qualityText()), leftPos + 12, topPos + 98, 0xFFF0CE72, false);
+            Component result = menu.targetMet() == 0
+                    ? Component.translatable("screen.miningdim.chef.target_missed", qualityText())
+                    : Component.translatable("screen.miningdim.chef.quality", qualityText());
+            graphics.drawString(font, result, leftPos + 12, topPos + 98, 0xFFF0CE72, false);
             graphics.drawWordWrap(font, Component.translatable("screen.miningdim.chef.done.take_output"),
                     leftPos + 12, topPos + 108, 232, 0xFFB8C6CE);
             return;
@@ -167,6 +209,10 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
 
     private Component qualityText() {
         ChefQuality quality = ChefQuality.byTier(menu.finalQuality());
+        return qualityText(quality);
+    }
+
+    private static Component qualityText(ChefQuality quality) {
         return Component.translatable(quality.prefixKey());
     }
 
@@ -188,8 +234,14 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
         int topPos = (height - HEIGHT) / 2;
         switch (menu.phase()) {
             case 0 -> {
+                int qualityTier = qualityAt(mouseX, mouseY, leftPos, topPos);
+                if (qualityTier >= 0 && qualityTier <= menu.selectableCap().tier()) {
+                    selectedTargetTier = qualityTier;
+                    return true;
+                }
                 if (inRect(mouseX, mouseY, leftPos + START_X, topPos + START_Y, START_W, START_H)) {
-                    send(SeasoningGameC2S.Action.START, -1);
+                    ensureSelectedTarget();
+                    send(SeasoningGameC2S.Action.START, selectedTargetTier);
                     return true;
                 }
             }
@@ -223,8 +275,61 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
         return super.mouseReleased(mouseX, mouseY, button);
     }
 
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        int target = qteTargetForKey(keyCode);
+        if (menu.phase() == 2 && menu.cueActive() && target == menu.targetIndex()) {
+            send(SeasoningGameC2S.Action.SEASON_HIT, target);
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    private static int qteTargetForKey(int keyCode) {
+        return switch (keyCode) {
+            case GLFW.GLFW_KEY_1, GLFW.GLFW_KEY_KP_1 -> 0;
+            case GLFW.GLFW_KEY_2, GLFW.GLFW_KEY_KP_2 -> 1;
+            case GLFW.GLFW_KEY_3, GLFW.GLFW_KEY_KP_3 -> 2;
+            case GLFW.GLFW_KEY_4, GLFW.GLFW_KEY_KP_4 -> 3;
+            default -> -1;
+        };
+    }
+
     private void send(SeasoningGameC2S.Action action, int target) {
         ChefNetwork.CHANNEL.sendToServer(new SeasoningGameC2S(action, target));
+    }
+
+    private void ensureSelectedTarget() {
+        int cap = menu.selectableCap().tier();
+        if (selectedTargetTier < 0 || selectedTargetTier > cap) {
+            selectedTargetTier = cap;
+        }
+    }
+
+    private ChefQuality displayedTarget(int phase) {
+        if (phase == 0) {
+            return selectedTargetTier < 0 ? null : ChefQuality.byTier(selectedTargetTier);
+        }
+        int syncedTier = menu.targetQualityTier();
+        return syncedTier < 0 ? null : ChefQuality.byTier(syncedTier);
+    }
+
+    private int displayedChancePerMille(int phase, ChefQuality target) {
+        return phase == 0 ? menu.targetBaseChancePerMille(target) : menu.successChancePerMille();
+    }
+
+    private static String formatChance(int perMille) {
+        return String.format(Locale.ROOT, "%.1f%%", perMille / 10.0D);
+    }
+
+    private int qualityAt(double mouseX, double mouseY, int leftPos, int topPos) {
+        for (ChefQuality quality : ChefQuality.values()) {
+            int x = leftPos + QUALITY_X + quality.tier() * (QUALITY_W + QUALITY_GAP);
+            if (inRect(mouseX, mouseY, x, topPos + QUALITY_Y, QUALITY_W, QUALITY_H)) {
+                return quality.tier();
+            }
+        }
+        return -1;
     }
 
     private int targetAt(double mouseX, double mouseY, int leftPos, int topPos) {

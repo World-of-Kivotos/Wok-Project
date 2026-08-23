@@ -111,11 +111,15 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
                 case SeasoningMenu.DATA_HEAT_MAX -> ChefConfig.heatMax();
                 case SeasoningMenu.DATA_GREEN_START -> ChefConfig.heatGreenStart();
                 case SeasoningMenu.DATA_GREEN_END -> ChefConfig.heatGreenEnd();
-                case SeasoningMenu.DATA_QTE_COUNT -> ChefConfig.qteCount();
+                case SeasoningMenu.DATA_QTE_COUNT -> qteTimingSnapshot == null
+                        ? ChefConfig.qteCount() : qteTimingSnapshot.cueCount();
                 case SeasoningMenu.DATA_TARGET_QUALITY -> targetQuality == null ? -1 : targetQuality.tier();
                 case SeasoningMenu.DATA_SUCCESS_CHANCE_PER_MILLE -> settlementChancePerMille >= 0
                         ? settlementChancePerMille : currentSuccessChancePerMille();
                 case SeasoningMenu.DATA_TARGET_MET -> targetMet;
+                case SeasoningMenu.DATA_QTE_SWAY_PERIOD -> qteTimingSnapshot == null
+                        ? Math.max(4, (ChefConfig.qteWindowTicks() + 1) / 2)
+                        : qteTimingSnapshot.swayPeriodTicks();
                 default -> 0;
             };
         }
@@ -207,7 +211,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
             }
         } else {
             if (cueTimer <= 0) {
-                if (cuesSpawned >= ChefConfig.qteCount()) {
+                if (cuesSpawned >= activeQteTiming().cueCount()) {
                     finishCooking();
                     return;
                 }
@@ -273,9 +277,9 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         heatGame.reset();
         setAnimationActive(true);
         setChanged();
-        LOGGER.info("Seasoning started player={} pos={} target={} cap={} chefLevel={} qteWindow={} qteGap={}-{}",
+        LOGGER.info("Seasoning started player={} pos={} target={} cap={} chefLevel={} qteCount={} qteWindow={} qteGap={}-{}",
                 operator.getGameProfile().getName(), worldPosition, requestedTarget.id(), selectableCap.id(), chefLevel,
-                qteTiming.windowTicks(), qteTiming.minGapTicks(), qteTiming.maxGapTicks());
+                qteTiming.cueCount(), qteTiming.windowTicks(), qteTiming.minGapTicks(), qteTiming.maxGapTicks());
         return true;
     }
 
@@ -317,7 +321,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         cueActive = false;
         cueTarget = -1;
         playFeedback(SoundEvents.EXPERIENCE_ORB_PICKUP, 0.75F, 1.50F, ParticleTypes.CRIT, 6);
-        if (cuesSpawned == ChefConfig.qteCount()) {
+        if (cuesSpawned == activeQteTiming().cueCount()) {
             finishCooking();
             return true;
         }
@@ -369,7 +373,8 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         int chefLevel = chefLevelSnapshot;
         int successChance = currentSuccessChancePerMille();
         ChefQuality achieved = ChefQualityResolver.resolveTarget(
-                serverLevel.random, targetQuality, heatGame.accuracyScore(), hits, ChefConfig.qteCount(), chefLevel);
+                serverLevel.random, targetQuality, heatGame.accuracyScore(), hits,
+                activeQteTiming().cueCount(), chefLevel);
 
         SeasoningBias bias = SeasoningTag.biasOf(inputSlots.getStackInSlot(SeasoningMenu.SLOT_SEASONING));
         List<ChefEffectInstance> effects = SeasoningEffectRoller.rollAll(
@@ -392,7 +397,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         settlementChancePerMille = successChance;
         LOGGER.info("Seasoning settled player={} pos={} target={} achieved={} chancePerMille={} chefLevel={} heatAccuracy={} hits={}/{}",
                 operator.getGameProfile().getName(), worldPosition, targetQuality.id(), achieved.id(), successChance,
-                chefLevel, heatGame.accuracyScore(), hits, ChefConfig.qteCount());
+                chefLevel, heatGame.accuracyScore(), hits, activeQteTiming().cueCount());
         playFeedback(SoundEvents.PLAYER_LEVELUP, 0.85F, 1.0F, ParticleTypes.HAPPY_VILLAGER, 14);
         setChanged();
     }
@@ -465,7 +470,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
 
     private int currentSuccessChancePerMille() {
         return targetQuality == null ? 0 : ChefQualityResolver.successChancePerMille(
-                targetQuality, heatGame.accuracyScore(), hits, ChefConfig.qteCount(), chefLevelSnapshot);
+                targetQuality, heatGame.accuracyScore(), hits, activeQteTiming().cueCount(), chefLevelSnapshot);
     }
 
     /** Called by menu and block lifecycle paths; active inputs remain untouched. */
@@ -482,7 +487,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         LOGGER.info("Seasoning cancelled pos={} player={} target={} heatAccuracy={} hits={}/{} reason={}",
                 worldPosition, operator == null ? "offline" : operator.getGameProfile().getName(),
                 targetQuality == null ? "none" : targetQuality.id(), heatAccuracy, hits,
-                ChefConfig.qteCount(), message);
+                activeQteTiming().cueCount(), message);
         phase = PHASE_DONE;
         heatTicks = 0;
         cueActive = false;

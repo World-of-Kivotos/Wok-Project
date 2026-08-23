@@ -86,7 +86,7 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
         renderStatus(graphics, leftPos, topPos, phase);
         renderHeatBar(graphics, leftPos, topPos);
         if (phase == 2) {
-            renderTargets(graphics, leftPos, topPos, mouseX, mouseY);
+            renderTargets(graphics, leftPos, topPos, mouseX, mouseY, partialTick);
         } else if (phase == 0) {
             renderQualityChoices(graphics, leftPos, topPos, mouseX, mouseY);
             renderButton(graphics, leftPos + START_X, topPos + START_Y,
@@ -116,9 +116,11 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
         graphics.drawString(font, state, leftPos + 12, topPos + 26, 0xFFE9E2D3, false);
         graphics.drawString(font, Component.translatable("screen.miningdim.chef.time",
                         menu.remainingTicks()), leftPos + 116, topPos + 26, 0xFFC8D1D4, false);
-        graphics.drawString(font, Component.translatable("screen.miningdim.chef.hits",
-                        menu.hits(), menu.qteCount()), leftPos + 200, topPos + 26, 0xFFC8D1D4, false);
         ChefQuality target = displayedTarget(phase);
+        int qteCount = phase == 0 && target != null
+                ? menu.targetPreviewQteCount(target) : menu.qteCount();
+        graphics.drawString(font, Component.translatable("screen.miningdim.chef.hits",
+                        menu.hits(), qteCount), leftPos + 200, topPos + 26, 0xFFC8D1D4, false);
         if (target != null) {
             graphics.drawString(font, Component.translatable("screen.miningdim.chef.target_quality",
                             qualityText(target)), leftPos + 76, topPos + 42, 0xFFE2BD6B, false);
@@ -165,7 +167,7 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
     }
 
     private void renderTargets(GuiGraphics graphics, int leftPos, int topPos,
-                               int mouseX, int mouseY) {
+                               int mouseX, int mouseY, float partialTick) {
         Component targetPrompt = menu.cueActive()
                 ? Component.translatable("screen.miningdim.chef.target", menu.targetIndex() + 1)
                 : Component.translatable("screen.miningdim.chef.target.wait");
@@ -183,7 +185,24 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
             }
             renderButton(graphics, x, y, QTE_W, QTE_H,
                     Component.translatable("screen.miningdim.chef.target.position", target + 1), color);
+            if (selected) {
+                renderSwayingHitBar(graphics, x, y, partialTick);
+            }
         }
+    }
+
+    private void renderSwayingHitBar(GuiGraphics graphics, int x, int y, float partialTick) {
+        int periodTicks = menu.qteSwayPeriodTicks();
+        if (periodTicks <= 0) {
+            return;
+        }
+        double cycle = (minecraft.player.tickCount + partialTick) % periodTicks / periodTicks;
+        double triangle = cycle < 0.5D ? cycle * 2.0D : (1.0D - cycle) * 2.0D;
+        int trackStart = x + 3;
+        int trackEnd = x + QTE_W - 3;
+        int markerX = trackStart + (int) Math.round(triangle * (trackEnd - trackStart - 3));
+        graphics.fill(trackStart, y + QTE_H - 5, trackEnd, y + QTE_H - 4, 0xFF5A3A1E);
+        graphics.fill(markerX, y + QTE_H - 6, markerX + 3, y + QTE_H - 2, 0xFFFFE5A0);
     }
 
     private void renderOutcome(GuiGraphics graphics, int leftPos, int topPos, int phase) {

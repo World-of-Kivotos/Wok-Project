@@ -153,6 +153,7 @@ public final class ChefConfig {
     public static final ForgeConfigSpec.IntValue QTE_DIFFICULTY_TICKS_PER_QUALITY_TIER;
     public static final ForgeConfigSpec.IntValue QTE_EASE_TICKS_PER_CHEF_LEVEL;
     public static final ForgeConfigSpec.IntValue QTE_COUNT;
+    public static final ForgeConfigSpec.IntValue QTE_COUNT_PER_QUALITY_TIER;
     public static final ForgeConfigSpec.IntValue SEASONING_TABLE_MAX_TIER;
     public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_LOW_PER_MILLE;
     public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_MEDIUM_PER_MILLE;
@@ -363,6 +364,8 @@ public final class ChefConfig {
                 "qteDifficultyTicksPerQualityTier", 4, 0, 300);
         QTE_EASE_TICKS_PER_CHEF_LEVEL = b.defineInRange("qteEaseTicksPerChefLevel", 1, 0, 300);
         QTE_COUNT = b.defineInRange("qteCount", 4, 1, 64);
+        b.comment("additional QTE cues required by each target-quality tier above low");
+        QTE_COUNT_PER_QUALITY_TIER = b.defineInRange("qteCountPerQualityTier", 1, 0, 16);
         SEASONING_TABLE_MAX_TIER = b.defineInRange("tableMaxTier", 4, 0, 4);
         b.pop();
 
@@ -645,6 +648,10 @@ public final class ChefConfig {
 
     public static int qteCount() {
         return QTE_COUNT.get();
+    }
+
+    public static int qteCountPerQualityTier() {
+        return QTE_COUNT_PER_QUALITY_TIER.get();
     }
 
     public static int seasoningTableMaxTier() {

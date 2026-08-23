@@ -421,6 +421,8 @@
   "effect.miningdim.chef.scorched": "烧焦(自伤)",
   "effect.miningdim.chef.nausea": "倒胃(中毒)",
   "screen.miningdim.chef.start": "开始调味",
+  "screen.miningdim.chef.slot.dish": "菜肴",
+  "screen.miningdim.chef.slot.seasoning": "调料",
   "screen.miningdim.chef.phase.idle": "准备就绪",
   "screen.miningdim.chef.phase.heat": "控火中",
   "screen.miningdim.chef.phase.season": "命中调味时机",

@@ -421,6 +421,8 @@
   "effect.miningdim.chef.scorched": "Scorched (self burn)",
   "effect.miningdim.chef.nausea": "Upset Stomach (poison)",
   "screen.miningdim.chef.start": "Start seasoning",
+  "screen.miningdim.chef.slot.dish": "Dish",
+  "screen.miningdim.chef.slot.seasoning": "Spice",
   "screen.miningdim.chef.phase.idle": "Ready",
   "screen.miningdim.chef.phase.heat": "Control the heat",
   "screen.miningdim.chef.phase.season": "Hit the seasoning cue",

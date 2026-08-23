@@ -23,7 +23,7 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 | WOK-附魔 | 附魔名与附魔提示语言键；当前无独占纹理 |
 | WOK-农夫 | `farmer_*`，`data/miningdim/recipes/farmer/` |
 | WOK-铸甲师 | `production_table_*`、`nano_*`、`plate_*`、`plasma_*`、`sounds/item/plasma_shield/`、`textures/models/armor/`、护盾穿透 damage_type 标签 |
-| WOK-厨师 | `seasoning*`、`chef_*`(菜肴效果图标)、`data/miningdim/recipes/chef/`、`tags/items/seasonings*.json`、`tags/items/seasonings/`、`tags/items/unseasonable.json`、`tags/items/chef_amplify_item_blacklist.json`、`tags/mob_effect/chef_amplify_effect_blacklist.json`;共享语言文件中 `chef.*` 与 `screen.miningdim.chef.*` 键 |
+| WOK-厨师 | `seasoning*`(含 `geo/block/seasoning_table.geo.json` 与 `animations/block/seasoning_table.animation.json`)、`chef_*`(菜肴效果图标)、`data/miningdim/recipes/chef/`、`tags/items/seasonings*.json`、`tags/items/seasonings/`、`tags/items/unseasonable.json`、`tags/items/chef_amplify_item_blacklist.json`、`tags/mob_effect/chef_amplify_effect_blacklist.json`;共享语言文件中 `chef.*` 与 `screen.miningdim.chef.*` 键 |
 | WOK-酿酒师 | `brewing_*`、`wine_*`、`dried_wheat`、`data/miningdim/recipes/brewer/` |
 | WOK-塔罗师 | `tarot_*`、`shiny_select`、`data/miningdim/tarot/`、`sounds/job/tarot/`、`textures/gui/tarot/`、`textures/item/tarot/` |
 | WOK-军火商 | `munitions_*`、`gunsmith_*`、`bullet_head`、`casing`、`primer`、`propellant`、`m4_assembly_template`、`custom/miningdim_gunsmith/`、`data/miningdim/recipes/munitions/` |

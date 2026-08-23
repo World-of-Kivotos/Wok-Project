@@ -19,8 +19,17 @@ import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraftforge.items.ItemStackHandler;
 import org.jetbrains.annotations.Nullable;
+import software.bernie.geckolib.animatable.GeoBlockEntity;
+import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
+import software.bernie.geckolib.core.animation.AnimatableManager;
+import software.bernie.geckolib.core.animation.AnimationController;
+import software.bernie.geckolib.core.animation.AnimationState;
+import software.bernie.geckolib.core.animation.RawAnimation;
+import software.bernie.geckolib.core.object.PlayState;
+import software.bernie.geckolib.util.GeckoLibUtil;
 
 import java.util.List;
 import java.util.ArrayList;
@@ -38,12 +47,14 @@ import java.util.UUID;
  * 防作弊 (第四章): 火候推进与命中评分全服务端; 客户端 C2S ({@link SeasoningGameC2S}) 只发 "点击" 意图,
  * 服务端按当前 heat 评分 + 校验 operator 是开界面者。
  */
-public final class SeasoningTableBlockEntity extends BlockEntity implements MenuProvider {
+public final class SeasoningTableBlockEntity extends BlockEntity implements MenuProvider, GeoBlockEntity {
 
     private static final int PHASE_IDLE = 0;
     private static final int PHASE_HEAT = 1;
     private static final int PHASE_SEASON = 2;
     private static final int PHASE_DONE = 3;
+    private static final RawAnimation IDLE_ANIMATION = RawAnimation.begin().thenLoop("chef.idle");
+    private static final RawAnimation COOKING_ANIMATION = RawAnimation.begin().thenLoop("chef.cooking");
 
     // 输入/调料槽仅由调味台菜单访问 (不经 getCapability 暴露 IItemHandler): 反挂机设计 (漏斗/机器刷不了菜,
     // Chef spec 第七章), 故不挂物品能力, 自动化无法注入/抽取。
@@ -55,6 +66,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
     };
 
     private final ChefHeatGame heatGame = new ChefHeatGame();
+    private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
 
     /** 谁在做 (开界面/打小游戏的厨师 UUID; 谁做谁得经验)。null = 无人占用。 */
     @Nullable
@@ -143,8 +155,10 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
 
     public void serverTick() {
         if (!isActive()) {
+            setAnimationActive(false);
             return;
         }
+        setAnimationActive(true);
         ServerPlayer operator = currentOperator();
         if (operator == null || !operatorStillControlsTable(operator)) {
             cancelCooking(operator, "调味已取消：操作状态失效，材料已保留。");
@@ -226,6 +240,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         finalQuality = -1;
         greenZoneFeedbackPlayed = false;
         heatGame.reset();
+        setAnimationActive(true);
         setChanged();
         return true;
     }
@@ -291,6 +306,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
     private void finishCooking() {
         phase = PHASE_DONE;
         cueActive = false;
+        setAnimationActive(false);
         if (!(level instanceof net.minecraft.server.level.ServerLevel serverLevel) || operatorUUID == null) {
             resetToIdle();
             return;
@@ -391,6 +407,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         greenZoneFeedbackPlayed = false;
         operatorUUID = null;
         heatGame.reset();
+        setAnimationActive(false);
         setChanged();
     }
 
@@ -412,6 +429,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         finalQuality = -1;
         operatorUUID = null;
         heatGame.reset();
+        setAnimationActive(false);
         setChanged();
         if (operator != null) {
             operator.displayClientMessage(Component.literal(message), true);
@@ -477,6 +495,45 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
     @Override
     public AbstractContainerMenu createMenu(int windowId, Inventory inv, Player player) {
         return new SeasoningMenu(windowId, inv, this);
+    }
+
+    public boolean isAnimationActive() {
+        return getBlockState().getValue(SeasoningTableBlock.ACTIVE);
+    }
+
+    private void setAnimationActive(boolean active) {
+        if (level != null && getBlockState().getBlock() instanceof SeasoningTableBlock table
+                && !getBlockState().getValue(SeasoningTableBlock.SECONDARY)) {
+            table.setStructureActive(level, worldPosition, active);
+        }
+    }
+
+    @Override
+    public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+        controllers.add(new AnimationController<>(this, "workstation", 4, this::selectAnimation));
+    }
+
+    private PlayState selectAnimation(AnimationState<SeasoningTableBlockEntity> state) {
+        return state.setAndContinue(isAnimationActive() ? COOKING_ANIMATION : IDLE_ANIMATION);
+    }
+
+    @Override
+    public AnimatableInstanceCache getAnimatableInstanceCache() {
+        return animationCache;
+    }
+
+    @Override
+    public AABB getRenderBoundingBox() {
+        BlockState state = getBlockState();
+        if (!(state.getBlock() instanceof SeasoningTableBlock) || state.getValue(SeasoningTableBlock.SECONDARY)) {
+            return super.getRenderBoundingBox();
+        }
+        BlockPos secondary = worldPosition.relative(state.getValue(SeasoningTableBlock.FACING).getClockWise());
+        return new AABB(
+                Math.min(worldPosition.getX(), secondary.getX()), worldPosition.getY(),
+                Math.min(worldPosition.getZ(), secondary.getZ()),
+                Math.max(worldPosition.getX(), secondary.getX()) + 1.0D, worldPosition.getY() + 2.0D,
+                Math.max(worldPosition.getZ(), secondary.getZ()) + 1.0D);
     }
 
     // ---- 持久化 (槽内容; 小游戏瞬时状态不存, 重载即回 IDLE) ----

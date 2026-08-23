@@ -477,6 +477,9 @@
       "optionalIntegrations": [
         "farmersdelight",
         "flavor_immersed_daily"
+      ],
+      "requiredRuntimeDependencies": [
+        "geckolib [4.8.2,4.9)"
       ]
     },
     {

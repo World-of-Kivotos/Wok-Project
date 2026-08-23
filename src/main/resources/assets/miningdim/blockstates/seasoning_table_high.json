@@ -1,41 +1,81 @@
 {
   "variants": {
-    "facing=north,secondary=false": {
+    "facing=north,lit=false,secondary=false": {
       "model": "miningdim:block/seasoning_table_high_left",
       "y": 0,
       "uvlock": true
     },
-    "facing=north,secondary=true": {
+    "facing=north,lit=true,secondary=false": {
+      "model": "miningdim:block/seasoning_table_high_left",
+      "y": 0,
+      "uvlock": true
+    },
+    "facing=north,lit=false,secondary=true": {
       "model": "miningdim:block/seasoning_table_high_right",
       "y": 0,
       "uvlock": true
     },
-    "facing=east,secondary=false": {
+    "facing=north,lit=true,secondary=true": {
+      "model": "miningdim:block/seasoning_table_high_right",
+      "y": 0,
+      "uvlock": true
+    },
+    "facing=east,lit=false,secondary=false": {
       "model": "miningdim:block/seasoning_table_high_left",
       "y": 90,
       "uvlock": true
     },
-    "facing=east,secondary=true": {
+    "facing=east,lit=true,secondary=false": {
+      "model": "miningdim:block/seasoning_table_high_left",
+      "y": 90,
+      "uvlock": true
+    },
+    "facing=east,lit=false,secondary=true": {
       "model": "miningdim:block/seasoning_table_high_right",
       "y": 90,
       "uvlock": true
     },
-    "facing=south,secondary=false": {
+    "facing=east,lit=true,secondary=true": {
+      "model": "miningdim:block/seasoning_table_high_right",
+      "y": 90,
+      "uvlock": true
+    },
+    "facing=south,lit=false,secondary=false": {
       "model": "miningdim:block/seasoning_table_high_left",
       "y": 180,
       "uvlock": true
     },
-    "facing=south,secondary=true": {
+    "facing=south,lit=true,secondary=false": {
+      "model": "miningdim:block/seasoning_table_high_left",
+      "y": 180,
+      "uvlock": true
+    },
+    "facing=south,lit=false,secondary=true": {
       "model": "miningdim:block/seasoning_table_high_right",
       "y": 180,
       "uvlock": true
     },
-    "facing=west,secondary=false": {
+    "facing=south,lit=true,secondary=true": {
+      "model": "miningdim:block/seasoning_table_high_right",
+      "y": 180,
+      "uvlock": true
+    },
+    "facing=west,lit=false,secondary=false": {
       "model": "miningdim:block/seasoning_table_high_left",
       "y": 270,
       "uvlock": true
     },
-    "facing=west,secondary=true": {
+    "facing=west,lit=true,secondary=false": {
+      "model": "miningdim:block/seasoning_table_high_left",
+      "y": 270,
+      "uvlock": true
+    },
+    "facing=west,lit=false,secondary=true": {
+      "model": "miningdim:block/seasoning_table_high_right",
+      "y": 270,
+      "uvlock": true
+    },
+    "facing=west,lit=true,secondary=true": {
       "model": "miningdim:block/seasoning_table_high_right",
       "y": 270,
       "uvlock": true

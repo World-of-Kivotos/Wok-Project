@@ -128,8 +128,15 @@ public final class ChefGameTests {
                 .snapshot(fixture.player, ChefExperience.TRACK_ID).totalXp();
 
         helper.assertTrue(fixture.table.startCooking(fixture.player), "valid bread starts seasoning");
+        BlockPos secondaryPos = fixture.absolute.relative(Direction.EAST);
+        helper.assertTrue(helper.getLevel().getBlockState(fixture.absolute).getValue(SeasoningTableBlock.ACTIVE)
+                        && helper.getLevel().getBlockState(secondaryPos).getValue(SeasoningTableBlock.ACTIVE),
+                "starting a cook synchronizes the GeckoLib cooking state across both halves");
         drivePerfectHeat(helper, fixture);
         driveAllQteHits(helper, fixture);
+        helper.assertTrue(!helper.getLevel().getBlockState(fixture.absolute).getValue(SeasoningTableBlock.ACTIVE)
+                        && !helper.getLevel().getBlockState(secondaryPos).getValue(SeasoningTableBlock.ACTIVE),
+                "successful settlement returns both halves to the idle animation state");
 
         ItemStack output = findStampedDish(fixture.player);
         helper.assertFalse(output.isEmpty(), "successful transaction gives one stamped dish");
@@ -214,6 +221,10 @@ public final class ChefGameTests {
                 .snapshot(fixture.player, ChefExperience.TRACK_ID).totalXp();
         fixture.menu.removed(fixture.player);
         helper.assertFalse(fixture.table.isActive(), "closing menu cancels the active transaction");
+        BlockPos secondaryPos = fixture.absolute.relative(Direction.EAST);
+        helper.assertTrue(!helper.getLevel().getBlockState(fixture.absolute).getValue(SeasoningTableBlock.ACTIVE)
+                        && !helper.getLevel().getBlockState(secondaryPos).getValue(SeasoningTableBlock.ACTIVE),
+                "cancellation clears the GeckoLib cooking state on both halves");
         helper.assertTrue(fixture.table.inputSlots().getStackInSlot(SeasoningMenu.SLOT_INPUT).is(Items.BREAD),
                 "close cancellation preserves the original dish");
         helper.assertTrue(fixture.table.inputSlots().getStackInSlot(SeasoningMenu.SLOT_SEASONING).is(Items.SUGAR),

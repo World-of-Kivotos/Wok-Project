@@ -469,7 +469,7 @@
             }
           }
         },
-        "spice_red": {
+        "seasoning_savory": {
           "position": {
             "0.0": {
               "vector": [
@@ -478,10 +478,37 @@
                 0
               ]
             },
-            "0.35": {
+            "0.2": {
               "vector": [
                 0,
-                1.1,
+                0.75,
+                0
+              ],
+              "easing": "easeOutBack"
+            },
+            "0.4": {
+              "vector": [
+                0,
+                0,
+                0
+              ],
+              "easing": "easeInQuad"
+            }
+          }
+        },
+        "seasoning_sweet": {
+          "position": {
+            "0.3": {
+              "vector": [
+                0,
+                0,
+                0
+              ]
+            },
+            "0.5": {
+              "vector": [
+                0,
+                0.75,
                 0
               ],
               "easing": "easeOutBack"
@@ -496,7 +523,7 @@
             }
           }
         },
-        "spice_yellow": {
+        "seasoning_oily": {
           "position": {
             "0.6": {
               "vector": [
@@ -505,10 +532,37 @@
                 0
               ]
             },
-            "0.95": {
+            "0.8": {
               "vector": [
                 0,
-                1.1,
+                0.75,
+                0
+              ],
+              "easing": "easeOutBack"
+            },
+            "1.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ],
+              "easing": "easeInQuad"
+            }
+          }
+        },
+        "seasoning_sour": {
+          "position": {
+            "0.9": {
+              "vector": [
+                0,
+                0,
+                0
+              ]
+            },
+            "1.1": {
+              "vector": [
+                0,
+                0.75,
                 0
               ],
               "easing": "easeOutBack"
@@ -523,7 +577,7 @@
             }
           }
         },
-        "spice_green": {
+        "seasoning_spicy": {
           "position": {
             "1.2": {
               "vector": [
@@ -532,15 +586,69 @@
                 0
               ]
             },
-            "1.55": {
+            "1.4": {
               "vector": [
                 0,
-                1.1,
+                0.75,
+                0
+              ],
+              "easing": "easeOutBack"
+            },
+            "1.6": {
+              "vector": [
+                0,
+                0,
+                0
+              ],
+              "easing": "easeInQuad"
+            }
+          }
+        },
+        "seasoning_aromatic": {
+          "position": {
+            "1.5": {
+              "vector": [
+                0,
+                0,
+                0
+              ]
+            },
+            "1.7": {
+              "vector": [
+                0,
+                0.75,
                 0
               ],
               "easing": "easeOutBack"
             },
             "1.9": {
+              "vector": [
+                0,
+                0,
+                0
+              ],
+              "easing": "easeInQuad"
+            }
+          }
+        },
+        "seasoning_complex": {
+          "position": {
+            "1.8": {
+              "vector": [
+                0,
+                0,
+                0
+              ]
+            },
+            "2.0": {
+              "vector": [
+                0,
+                0.75,
+                0
+              ],
+              "easing": "easeOutBack"
+            },
+            "2.2": {
               "vector": [
                 0,
                 0,

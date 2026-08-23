@@ -32,7 +32,7 @@ public final class SeasoningMenu extends AbstractMiningMenu {
     public static final int DATA_HEAT = 1;        // 当前火候 (0-HEAT_MAX)
     public static final int DATA_HITS = 2;        // 调味命中数
     public static final int DATA_CUE_ACTIVE = 3;  // 当前是否有活跃调味时机点 (0/1)
-    public static final int DATA_TIER_CAP = 4;    // 台档上限 tier (0-4)
+    public static final int DATA_TIER_CAP = 4;    // 调味台档位 tier (0-4)
     public static final int DATA_CUE_TARGET = 5;
     public static final int DATA_HEATING = 6;
     public static final int DATA_REMAINING_TICKS = 7;
@@ -67,9 +67,6 @@ public final class SeasoningMenu extends AbstractMiningMenu {
         int chefLevel = ChefExperience.level(playerInv.player);
         ChefQuality tableTier = be.tierCap();
         for (ChefQuality quality : ChefQuality.values()) {
-            if (quality.tier() > tableTier.tier()) {
-                continue;
-            }
             int cueCount = ChefQteTiming.cueCountFor(quality, tableTier);
             targetPreviewChances[quality.tier()].set(ChefQualityResolver.successChancePerMille(
                     quality, 0.0D, 0, cueCount, chefLevel, tableTier));
@@ -235,7 +232,7 @@ public final class SeasoningMenu extends AbstractMiningMenu {
     }
 
     public ChefQuality selectableCap() {
-        return tierCap();
+        return ChefQuality.RADIANT;
     }
 
     public SeasoningTableBlockEntity blockEntity() {

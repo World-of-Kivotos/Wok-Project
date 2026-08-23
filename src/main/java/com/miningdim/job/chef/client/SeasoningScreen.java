@@ -93,7 +93,7 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
                     START_W, START_H, Component.translatable("screen.miningdim.chef.start"),
                     0xFF2F7D4D);
             graphics.drawString(font, Component.translatable("screen.miningdim.chef.selectable_cap",
-                            qualityText(menu.selectableCap())), leftPos + 12, topPos + 102, 0xFFE2BD6B, false);
+                            qualityText(menu.tierCap())), leftPos + 12, topPos + 102, 0xFFE2BD6B, false);
         } else if (phase == 1) {
             renderButton(graphics, leftPos + HEAT_BUTTON_X, topPos + HEAT_BUTTON_Y,
                     HEAT_BUTTON_W, HEAT_BUTTON_H,
@@ -320,7 +320,9 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
 
     private void ensureSelectedTarget() {
         int cap = menu.selectableCap().tier();
-        if (selectedTargetTier < 0 || selectedTargetTier > cap) {
+        if (selectedTargetTier < 0) {
+            selectedTargetTier = ChefQuality.LOW.tier();
+        } else if (selectedTargetTier > cap) {
             selectedTargetTier = cap;
         }
     }

@@ -66,6 +66,8 @@ public final class ChefGameTests {
                 ChefQuality.RADIANT, 10, ChefQuality.RADIANT);
         ChefQteTiming radiantLevelOneTiming = ChefQteTiming.forChallenge(
                 ChefQuality.RADIANT, 1, ChefQuality.RADIANT);
+        ChefQteTiming radiantOnLowTableTiming = ChefQteTiming.forChallenge(
+                ChefQuality.RADIANT, 1, ChefQuality.LOW);
         helper.assertTrue(lowLevelOneTiming.equals(new ChefQteTiming(4, 20, 15, 35, 10))
                         && mediumLevelThreeTiming.equals(new ChefQteTiming(5, 18, 13, 33, 9))
                         && highLevelFiveTiming.equals(new ChefQteTiming(5, 16, 11, 31, 8)),
@@ -74,8 +76,9 @@ public final class ChefGameTests {
                         && radiantLevelNineTiming.equals(new ChefQteTiming(6, 12, 7, 27, 6)),
                 "extraordinary and radiant matching tables remove one and two cues respectively");
         helper.assertTrue(radiantMaxLevelTiming.equals(new ChefQteTiming(6, 13, 8, 28, 7))
-                        && radiantLevelOneTiming.equals(new ChefQteTiming(6, 4, 3, 19, 4)),
-                "chef level eases radiant timing while level 1 remains a valid but severe challenge");
+                        && radiantLevelOneTiming.equals(new ChefQteTiming(6, 4, 3, 19, 4))
+                        && radiantOnLowTableTiming.equals(new ChefQteTiming(8, 4, 3, 19, 4)),
+                "low tables allow radiant challenges but provide no cue reduction");
         helper.assertTrue(ChefQteTiming.cueCountFor(ChefQuality.HIGH, ChefQuality.RADIANT) == 4,
                 "a radiant table removes two cues from a high-quality target");
         int cues = radiantLevelNineTiming.cueCount();
@@ -278,7 +281,8 @@ public final class ChefGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void seasoningValidationConcurrencyAndCloseCancel(GameTestHelper helper) {
-        TableFixture fixture = tableFixture(helper);
+        TableFixture fixture = tableFixture(
+                helper, (SeasoningTableBlock) ChefBlocks.SEASONING_TABLE_LOW.get());
         fixture.table.inputSlots().setStackInSlot(SeasoningMenu.SLOT_INPUT, new ItemStack(Items.DIAMOND));
         helper.assertFalse(fixture.table.startCooking(fixture.player, ChefQuality.LOW.tier()),
                 "non-food input is rejected");
@@ -291,12 +295,13 @@ public final class ChefGameTests {
 
         fixture.table.inputSlots().setStackInSlot(SeasoningMenu.SLOT_INPUT, new ItemStack(Items.BREAD));
         fixture.table.inputSlots().setStackInSlot(SeasoningMenu.SLOT_SEASONING, new ItemStack(Items.SUGAR));
-        helper.assertTrue(fixture.menu.selectableCap() == ChefQuality.RADIANT,
-                "radiant table exposes radiant selection to a level 1 chef");
+        helper.assertTrue(fixture.menu.tierCap() == ChefQuality.LOW
+                        && fixture.menu.selectableCap() == ChefQuality.RADIANT,
+                "low table exposes every target quality to a level 1 chef");
         helper.assertTrue(fixture.table.startCooking(fixture.player, ChefQuality.RADIANT.tier()),
-                "level 1 chef can request a radiant target on a radiant table");
-        helper.assertTrue(fixture.menu.qteCount() == 6 && fixture.menu.successChancePerMille() == 6,
-                "novice radiant challenge keeps six cues and a very low initial success chance");
+                "level 1 chef can request a radiant target on a low table");
+        helper.assertTrue(fixture.menu.qteCount() == 8 && fixture.menu.successChancePerMille() == 5,
+                "low-table novice radiant challenge keeps all eight cues and a very low initial chance");
         fixture.table.cancelCooking(fixture.player, "test resets the accepted radiant challenge");
         helper.assertTrue(fixture.table.startCooking(fixture.player, ChefQuality.LOW.tier()),
                 "first operator locks the table");
@@ -569,8 +574,12 @@ public final class ChefGameTests {
     }
 
     private static TableFixture tableFixture(GameTestHelper helper) {
+        return tableFixture(helper, (SeasoningTableBlock) ChefBlocks.SEASONING_TABLE_RADIANT.get());
+    }
+
+    private static TableFixture tableFixture(GameTestHelper helper, SeasoningTableBlock tableBlock) {
         BlockPos absolute = helper.absolutePos(TABLE_RELATIVE);
-        BlockState primary = ChefBlocks.SEASONING_TABLE_RADIANT.get().defaultBlockState()
+        BlockState primary = tableBlock.defaultBlockState()
                 .setValue(SeasoningTableBlock.FACING, Direction.NORTH)
                 .setValue(SeasoningTableBlock.SECONDARY, false);
         helper.getLevel().setBlock(absolute, primary, Block.UPDATE_CLIENTS);

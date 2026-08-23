@@ -387,7 +387,7 @@ public final class ChefConfig {
         TARGET_DIFFICULTY_HIGH_PER_MILLE = b.defineInRange("targetDifficultyHighPerMille", 850, 0, 1000);
         TARGET_DIFFICULTY_EXTRAORDINARY_PER_MILLE = b.defineInRange("targetDifficultyExtraordinaryPerMille", 650, 0, 1000);
         TARGET_DIFFICULTY_RADIANT_PER_MILLE = b.defineInRange("targetDifficultyRadiantPerMille", 450, 0, 1000);
-        b.comment("chef-level multiplier applied to MEDIUM and higher targets after performance bonuses; all qualities are selectable within the table tier");
+        b.comment("chef-level multiplier applied to MEDIUM and higher targets after performance bonuses; all qualities are selectable on every table tier");
         LEVEL_1_OPEN_QUALITY_SUCCESS_MULTIPLIER_PER_MILLE = b.defineInRange(
                 "level1OpenQualitySuccessMultiplierPerMille", 100, 0, 1000);
         LEVEL_10_SUCCESS_MULTIPLIER_PER_MILLE = b.defineInRange("level10SuccessMultiplierPerMille", 1000, 0, 1000);

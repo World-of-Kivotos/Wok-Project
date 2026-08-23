@@ -38,7 +38,7 @@ import java.util.Map;
 /**
  * 调味台方块 (Chef_Job_DesignSpec 第四章; 5 档实例 低/中/高/超凡/闪耀, 同工程师五档生产台思路)。
  *
- * 每档携带 {@link #tierCap()} = 本档能产出的最高品质上限，并参与成功率和 QTE 数量修正。右键服务端开 GUI
+ * 每档携带 {@link #tierCap()} 表示台档等级，参与成功率和 QTE 数量修正，但不限制目标品质。右键服务端开 GUI
  * (NetworkHooks.openScreen)。继承普通 {@link Block} 实现 {@link EntityBlock}，主格使用 GeckoLib 的
  * ENTITYBLOCK_ANIMATED 渲染完整双格模型。服务端权威: 客户端 use 仅回 SUCCESS 触发挥手。
  */
@@ -78,7 +78,7 @@ public final class SeasoningTableBlock extends Block implements EntityBlock {
                 .setValue(ACTIVE, false));
     }
 
-    /** 本档调味台能产出的最高品质。 */
+    /** 调味台档位；为兼容现有内部调用保留 tierCap 命名。 */
     public ChefQuality tierCap() {
         return tierCap;
     }

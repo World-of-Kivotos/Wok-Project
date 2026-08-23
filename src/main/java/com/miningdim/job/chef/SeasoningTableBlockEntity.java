@@ -162,7 +162,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         return drops;
     }
 
-    /** 本台品质上限 (从方块读取, 单一真源)。非调味台块挂本 BE 属装配错误, 自然抛 (C9 不掩盖)。 */
+    /** 本台有效档位 (从方块读取, 单一真源)。非调味台块挂本 BE 属装配错误, 自然抛 (C9 不掩盖)。 */
     public ChefQuality tierCap() {
         if (getBlockState().getBlock() instanceof SeasoningTableBlock table) {
             return ChefQuality.min(table.tierCap(), ChefQuality.byTier(ChefConfig.seasoningTableMaxTier()));
@@ -256,10 +256,6 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         ChefQuality requestedTarget = ChefQuality.byTier(requestedTargetTier);
         int chefLevel = ChefExperience.level(operator);
         ChefQuality tableTier = tierCap();
-        if (requestedTarget.tier() > tableTier.tier()) {
-            reject(operator, "START", "目标品质超过调味台档位上限");
-            return false;
-        }
         ChefQteTiming qteTiming = ChefQteTiming.forChallenge(requestedTarget, chefLevel, tableTier);
         operatorUUID = operator.getUUID();
         targetQuality = requestedTarget;
@@ -280,7 +276,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         heatGame.reset();
         setAnimationActive(true);
         setChanged();
-        LOGGER.info("Seasoning started player={} pos={} target={} cap={} chefLevel={} qteCount={} qteWindow={} qteGap={}-{}",
+        LOGGER.info("Seasoning started player={} pos={} target={} tableTier={} chefLevel={} qteCount={} qteWindow={} qteGap={}-{}",
                 operator.getGameProfile().getName(), worldPosition, requestedTarget.id(), tableTier.id(), chefLevel,
                 qteTiming.cueCount(), qteTiming.windowTicks(), qteTiming.minGapTicks(), qteTiming.maxGapTicks());
         return true;

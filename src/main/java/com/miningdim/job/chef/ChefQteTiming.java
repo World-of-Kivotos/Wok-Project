@@ -8,7 +8,6 @@ record ChefQteTiming(int cueCount, int windowTicks, int minGapTicks, int maxGapT
         if (chefLevel < 1 || chefLevel > 10) {
             throw new IllegalArgumentException("chefLevel must be in [1,10], got " + chefLevel);
         }
-        requireTableSupports(target, tableTier);
         int timingAdjustment = (chefLevel - 1) * ChefConfig.qteEaseTicksPerChefLevel()
                 - target.tier() * ChefConfig.qteDifficultyTicksPerQualityTier();
         int window = Math.max(ChefConfig.qteMinWindowTicks(),
@@ -29,16 +28,8 @@ record ChefQteTiming(int cueCount, int windowTicks, int minGapTicks, int maxGapT
     }
 
     static int cueCountFor(ChefQuality target, ChefQuality tableTier) {
-        requireTableSupports(target, tableTier);
         int tableReduction = tableTier.tier() / ChefConfig.qteTableTiersPerReduction();
         return ChefConfig.qteCount() + target.tier() * ChefConfig.qteCountPerQualityTier()
                 - tableReduction;
-    }
-
-    private static void requireTableSupports(ChefQuality target, ChefQuality tableTier) {
-        if (target.tier() > tableTier.tier()) {
-            throw new IllegalArgumentException("table " + tableTier.id()
-                    + " cannot produce target quality " + target.id());
-        }
     }
 }

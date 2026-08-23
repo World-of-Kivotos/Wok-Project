@@ -52,48 +52,65 @@ public final class ChefGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void qualityCapsAndDeterministicPools(GameTestHelper helper) {
-        helper.assertTrue(ChefQualityResolver.selectableCap(ChefQuality.LOW, 10) == ChefQuality.LOW,
-                "radiant-capable chef is still capped by a low table");
-        helper.assertTrue(ChefQualityResolver.selectableCap(ChefQuality.RADIANT, 1) == ChefQuality.LOW,
-                "level 1 chef is still capped to low quality");
-        helper.assertTrue(ChefQualityResolver.selectableCap(ChefQuality.RADIANT, 9) == ChefQuality.RADIANT,
-                "level 9 chef can select radiant quality on a radiant table");
-        ChefQteTiming lowLevelOneTiming = ChefQteTiming.forChallenge(ChefQuality.LOW, 1);
-        ChefQteTiming mediumUnlockTiming = ChefQteTiming.forChallenge(ChefQuality.MEDIUM, 3);
-        ChefQteTiming highUnlockTiming = ChefQteTiming.forChallenge(ChefQuality.HIGH, 5);
-        ChefQteTiming extraordinaryUnlockTiming = ChefQteTiming.forChallenge(ChefQuality.EXTRAORDINARY, 7);
-        ChefQteTiming radiantUnlockTiming = ChefQteTiming.forChallenge(ChefQuality.RADIANT, 9);
-        ChefQteTiming radiantMaxLevelTiming = ChefQteTiming.forChallenge(ChefQuality.RADIANT, 10);
+        ChefQteTiming lowLevelOneTiming = ChefQteTiming.forChallenge(
+                ChefQuality.LOW, 1, ChefQuality.LOW);
+        ChefQteTiming mediumLevelThreeTiming = ChefQteTiming.forChallenge(
+                ChefQuality.MEDIUM, 3, ChefQuality.MEDIUM);
+        ChefQteTiming highLevelFiveTiming = ChefQteTiming.forChallenge(
+                ChefQuality.HIGH, 5, ChefQuality.HIGH);
+        ChefQteTiming extraordinaryLevelSevenTiming = ChefQteTiming.forChallenge(
+                ChefQuality.EXTRAORDINARY, 7, ChefQuality.EXTRAORDINARY);
+        ChefQteTiming radiantLevelNineTiming = ChefQteTiming.forChallenge(
+                ChefQuality.RADIANT, 9, ChefQuality.RADIANT);
+        ChefQteTiming radiantMaxLevelTiming = ChefQteTiming.forChallenge(
+                ChefQuality.RADIANT, 10, ChefQuality.RADIANT);
+        ChefQteTiming radiantLevelOneTiming = ChefQteTiming.forChallenge(
+                ChefQuality.RADIANT, 1, ChefQuality.RADIANT);
         helper.assertTrue(lowLevelOneTiming.equals(new ChefQteTiming(4, 20, 15, 35, 10))
-                        && mediumUnlockTiming.equals(new ChefQteTiming(5, 18, 13, 33, 9))
-                        && highUnlockTiming.equals(new ChefQteTiming(6, 16, 11, 31, 8)),
-                "low through high targets progressively add cues, shorten windows, and speed up the hit bar");
-        helper.assertTrue(extraordinaryUnlockTiming.equals(new ChefQteTiming(7, 14, 9, 29, 7))
-                        && radiantUnlockTiming.equals(new ChefQteTiming(8, 12, 7, 27, 6)),
-                "extraordinary and radiant targets retain their higher count and faster QTE pace");
-        helper.assertTrue(radiantMaxLevelTiming.equals(new ChefQteTiming(8, 13, 8, 28, 7)),
-                "one additional chef level slows the same radiant challenge without removing its cues");
-        int cues = radiantUnlockTiming.cueCount();
+                        && mediumLevelThreeTiming.equals(new ChefQteTiming(5, 18, 13, 33, 9))
+                        && highLevelFiveTiming.equals(new ChefQteTiming(5, 16, 11, 31, 8)),
+                "matching higher tables reduce cues while higher targets retain faster timing");
+        helper.assertTrue(extraordinaryLevelSevenTiming.equals(new ChefQteTiming(6, 14, 9, 29, 7))
+                        && radiantLevelNineTiming.equals(new ChefQteTiming(6, 12, 7, 27, 6)),
+                "extraordinary and radiant matching tables remove one and two cues respectively");
+        helper.assertTrue(radiantMaxLevelTiming.equals(new ChefQteTiming(6, 13, 8, 28, 7))
+                        && radiantLevelOneTiming.equals(new ChefQteTiming(6, 4, 3, 19, 4)),
+                "chef level eases radiant timing while level 1 remains a valid but severe challenge");
+        helper.assertTrue(ChefQteTiming.cueCountFor(ChefQuality.HIGH, ChefQuality.RADIANT) == 4,
+                "a radiant table removes two cues from a high-quality target");
+        int cues = radiantLevelNineTiming.cueCount();
         int radiantBaseAtLevel9 = ChefQualityResolver.successChancePerMille(
-                ChefQuality.RADIANT, 0.0D, 0, cues, 9);
+                ChefQuality.RADIANT, 0.0D, 0, cues, 9, ChefQuality.RADIANT);
         int radiantOneHitAtLevel9 = ChefQualityResolver.successChancePerMille(
-                ChefQuality.RADIANT, 0.0D, 1, cues, 9);
+                ChefQuality.RADIANT, 0.0D, 1, cues, 9, ChefQuality.RADIANT);
         int radiantPerfectAtLevel9 = ChefQualityResolver.successChancePerMille(
-                ChefQuality.RADIANT, 1.0D, cues, cues, 9);
+                ChefQuality.RADIANT, 1.0D, cues, cues, 9, ChefQuality.RADIANT);
         int radiantPerfectAtLevel10 = ChefQualityResolver.successChancePerMille(
-                ChefQuality.RADIANT, 1.0D, cues, cues, 10);
+                ChefQuality.RADIANT, 1.0D, cues, cues, 10, ChefQuality.RADIANT);
+        int radiantPerfectAtLevel1 = ChefQualityResolver.successChancePerMille(
+                ChefQuality.RADIANT, 1.0D, cues, cues, 1, ChefQuality.RADIANT);
         int highPerfectAtLevel10 = ChefQualityResolver.successChancePerMille(
-                ChefQuality.HIGH, 1.0D, cues, cues, 10);
+                ChefQuality.HIGH, 1.0D, highLevelFiveTiming.cueCount(),
+                highLevelFiveTiming.cueCount(), 10, ChefQuality.HIGH);
         int extraordinaryPerfectAtLevel10 = ChefQualityResolver.successChancePerMille(
-                ChefQuality.EXTRAORDINARY, 1.0D, cues, cues, 10);
-        helper.assertTrue(radiantBaseAtLevel9 == 42 && radiantOneHitAtLevel9 == 85,
-                "a correct QTE increases the quality-and-level-adjusted radiant success chance");
-        helper.assertTrue(radiantPerfectAtLevel9 == 425 && radiantPerfectAtLevel10 == 450,
-                "radiant quality remains difficult at both unlock level and maximum chef level");
-        helper.assertTrue(highPerfectAtLevel10 == 850 && extraordinaryPerfectAtLevel10 == 650,
-                "high and extraordinary quality difficulty caps perfect max-level success chance");
+                ChefQuality.EXTRAORDINARY, 1.0D, extraordinaryLevelSevenTiming.cueCount(),
+                extraordinaryLevelSevenTiming.cueCount(), 10, ChefQuality.EXTRAORDINARY);
+        int highBaseOnHighTable = ChefQualityResolver.successChancePerMille(
+                ChefQuality.HIGH, 0.0D, 0, highLevelFiveTiming.cueCount(), 10, ChefQuality.HIGH);
+        int highBaseOnRadiantTable = ChefQualityResolver.successChancePerMille(
+                ChefQuality.HIGH, 0.0D, 0, 4, 10, ChefQuality.RADIANT);
+        helper.assertTrue(radiantBaseAtLevel9 == 49 && radiantOneHitAtLevel9 == 97,
+                "a correct QTE and radiant table increase the level-adjusted radiant chance");
+        helper.assertTrue(radiantPerfectAtLevel1 == 54 && radiantPerfectAtLevel9 == 486
+                        && radiantPerfectAtLevel10 == 540,
+                "open radiant selection stays rare for novices and scales strongly with chef level");
+        helper.assertTrue(highPerfectAtLevel10 == 935 && extraordinaryPerfectAtLevel10 == 748,
+                "matching high-tier tables improve but do not erase target difficulty");
+        helper.assertTrue(highBaseOnHighTable == 421 && highBaseOnRadiantTable == 460,
+                "a better table visibly improves the same high-quality challenge");
         helper.assertTrue(ChefQualityResolver.successChancePerMille(
-                        ChefQuality.LOW, 0.0D, 0, cues, 1) == 1000,
+                        ChefQuality.LOW, 0.0D, 0, lowLevelOneTiming.cueCount(), 1,
+                        ChefQuality.LOW) == 1000,
                 "low quality remains the novice fallback and is not reduced by chef level");
         helper.assertTrue(ChefQualityResolver.resolveTargetRoll(ChefQuality.RADIANT, 100, 99)
                         == ChefQuality.RADIANT,
@@ -194,8 +211,8 @@ public final class ChefGameTests {
 
         helper.assertTrue(fixture.table.startCooking(fixture.player, ChefQuality.LOW.tier()),
                 "valid bread starts the selected low-quality challenge");
-        helper.assertTrue(fixture.menu.qteCount() == 4 && fixture.menu.qteSwayPeriodTicks() == 10,
-                "menu sync exposes the active low-quality cue count and hit-bar speed");
+        helper.assertTrue(fixture.menu.qteCount() == 2 && fixture.menu.qteSwayPeriodTicks() == 10,
+                "radiant table sync removes two cues from the active low-quality challenge");
         BlockPos secondaryPos = fixture.absolute.relative(Direction.EAST);
         helper.assertTrue(helper.getLevel().getBlockState(fixture.absolute).getValue(SeasoningTableBlock.ACTIVE)
                         && helper.getLevel().getBlockState(secondaryPos).getValue(SeasoningTableBlock.ACTIVE),
@@ -274,8 +291,13 @@ public final class ChefGameTests {
 
         fixture.table.inputSlots().setStackInSlot(SeasoningMenu.SLOT_INPUT, new ItemStack(Items.BREAD));
         fixture.table.inputSlots().setStackInSlot(SeasoningMenu.SLOT_SEASONING, new ItemStack(Items.SUGAR));
-        helper.assertFalse(fixture.table.startCooking(fixture.player, ChefQuality.RADIANT.tier()),
-                "level 1 chef cannot request a radiant target even on a radiant table");
+        helper.assertTrue(fixture.menu.selectableCap() == ChefQuality.RADIANT,
+                "radiant table exposes radiant selection to a level 1 chef");
+        helper.assertTrue(fixture.table.startCooking(fixture.player, ChefQuality.RADIANT.tier()),
+                "level 1 chef can request a radiant target on a radiant table");
+        helper.assertTrue(fixture.menu.qteCount() == 6 && fixture.menu.successChancePerMille() == 6,
+                "novice radiant challenge keeps six cues and a very low initial success chance");
+        fixture.table.cancelCooking(fixture.player, "test resets the accepted radiant challenge");
         helper.assertTrue(fixture.table.startCooking(fixture.player, ChefQuality.LOW.tier()),
                 "first operator locks the table");
         var second = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);

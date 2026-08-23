@@ -433,7 +433,7 @@
   "screen.miningdim.chef.start": "Start seasoning",
   "screen.miningdim.chef.target_quality": "Target: %s",
   "screen.miningdim.chef.success_chance": "Chance: %s",
-  "screen.miningdim.chef.selectable_cap": "Cap: %s",
+  "screen.miningdim.chef.selectable_cap": "Table cap: %s",
   "screen.miningdim.chef.target_missed": "Target missed; produced: %s",
   "screen.miningdim.chef.target_quality.short.low": "L",
   "screen.miningdim.chef.target_quality.short.medium": "M",

@@ -86,6 +86,8 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
     private int finalQuality = -1;
     @Nullable
     private ChefQuality targetQuality;
+    @Nullable
+    private ChefQuality tableTierSnapshot;
     private int chefLevelSnapshot = -1;
     @Nullable
     private ChefQteTiming qteTimingSnapshot;
@@ -253,14 +255,15 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         }
         ChefQuality requestedTarget = ChefQuality.byTier(requestedTargetTier);
         int chefLevel = ChefExperience.level(operator);
-        ChefQuality selectableCap = ChefQualityResolver.selectableCap(tierCap(), chefLevel);
-        if (requestedTarget.tier() > selectableCap.tier()) {
-            reject(operator, "START", "目标品质超过调味台或厨师等级上限");
+        ChefQuality tableTier = tierCap();
+        if (requestedTarget.tier() > tableTier.tier()) {
+            reject(operator, "START", "目标品质超过调味台档位上限");
             return false;
         }
-        ChefQteTiming qteTiming = ChefQteTiming.forChallenge(requestedTarget, chefLevel);
+        ChefQteTiming qteTiming = ChefQteTiming.forChallenge(requestedTarget, chefLevel, tableTier);
         operatorUUID = operator.getUUID();
         targetQuality = requestedTarget;
+        tableTierSnapshot = tableTier;
         chefLevelSnapshot = chefLevel;
         qteTimingSnapshot = qteTiming;
         targetMet = -1;
@@ -278,7 +281,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         setAnimationActive(true);
         setChanged();
         LOGGER.info("Seasoning started player={} pos={} target={} cap={} chefLevel={} qteCount={} qteWindow={} qteGap={}-{}",
-                operator.getGameProfile().getName(), worldPosition, requestedTarget.id(), selectableCap.id(), chefLevel,
+                operator.getGameProfile().getName(), worldPosition, requestedTarget.id(), tableTier.id(), chefLevel,
                 qteTiming.cueCount(), qteTiming.windowTicks(), qteTiming.minGapTicks(), qteTiming.maxGapTicks());
         return true;
     }
@@ -374,7 +377,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         int successChance = currentSuccessChancePerMille();
         ChefQuality achieved = ChefQualityResolver.resolveTarget(
                 serverLevel.random, targetQuality, heatGame.accuracyScore(), hits,
-                activeQteTiming().cueCount(), chefLevel);
+                activeQteTiming().cueCount(), chefLevel, activeTableTier());
 
         SeasoningBias bias = SeasoningTag.biasOf(inputSlots.getStackInSlot(SeasoningMenu.SLOT_SEASONING));
         List<ChefEffectInstance> effects = SeasoningEffectRoller.rollAll(
@@ -453,6 +456,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         failureReason = 0;
         finalQuality = -1;
         targetQuality = null;
+        tableTierSnapshot = null;
         chefLevelSnapshot = -1;
         qteTimingSnapshot = null;
         targetMet = -1;
@@ -470,7 +474,8 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
 
     private int currentSuccessChancePerMille() {
         return targetQuality == null ? 0 : ChefQualityResolver.successChancePerMille(
-                targetQuality, heatGame.accuracyScore(), hits, activeQteTiming().cueCount(), chefLevelSnapshot);
+                targetQuality, heatGame.accuracyScore(), hits, activeQteTiming().cueCount(), chefLevelSnapshot,
+                activeTableTier());
     }
 
     /** Called by menu and block lifecycle paths; active inputs remain untouched. */
@@ -526,6 +531,13 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
             throw new IllegalStateException("Active seasoning transaction has no QTE timing at " + worldPosition);
         }
         return qteTimingSnapshot;
+    }
+
+    private ChefQuality activeTableTier() {
+        if (tableTierSnapshot == null) {
+            throw new IllegalStateException("Active seasoning transaction has no table tier at " + worldPosition);
+        }
+        return tableTierSnapshot;
     }
 
     private void playFeedback(SoundEvent sound, float volume, float pitch, ParticleOptions particle, int count) {

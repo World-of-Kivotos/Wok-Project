@@ -163,7 +163,7 @@ public final class FarmerSystem {
         FarmerSavedData data = FarmerSavedData.get(target.server.overworld());
         int legacy = data.legacyOverflow(target.getUUID());
         int total = data.placedCount(target.getUUID());
-        int cap = FarmlandPlacementGuard.capForLevel(JobServices.jobService().level(target, JobId.FARMER));
+        int cap = FarmlandPlacementGuard.capForLevel(FarmerExperience.level(target));
         ctx.getSource().sendSuccess(() -> Component.translatable(
                 "message.miningdim.farmer.admin_legacy_query",
                 target.getGameProfile().getName(), legacy, total, cap), false);
@@ -233,7 +233,7 @@ public final class FarmerSystem {
         if (tier == null) {
             return; // 下方不是 mod 耕地 (原版耕地上的 mod 作物不产经验, 反扩建): 经验 = 0。
         }
-        int yield = tier.yieldFor(JobServices.jobService().level(player, JobId.FARMER));
+        int yield = tier.yieldFor(FarmerExperience.level(player));
 
         // 经验入账 (表B: 单作物经验 × 产量), 受框架每日软上限衰减。
         long rawXp = (long) FarmerConstants.SINGLE_CROP_XP * yield;
@@ -274,7 +274,7 @@ public final class FarmerSystem {
         }
         // 与 loot modifier / onCropHarvested 同一裁决 (F026): 未解锁本档退化为基准值, FD 番茄未解锁时
         // 退化为原生 1-2 个的表现, 不再无门放大。
-        int yield = tier.yieldFor(JobServices.jobService().level(player, JobId.FARMER));
+        int yield = tier.yieldFor(FarmerExperience.level(player));
 
         int nativeCount = 1 + level.random.nextInt(2);
         Block.popResource(level, event.getPos(),

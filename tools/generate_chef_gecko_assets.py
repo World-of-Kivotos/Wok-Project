@@ -31,6 +31,7 @@ UV = {
     "spicy": [0, 148],
     "aromatic": [24, 148],
     "complex": [48, 148],
+    "glass": [72, 148],
 }
 
 
@@ -59,6 +60,24 @@ def bone(name: str, cubes: list[dict[str, Any]], *, parent: str | None = None,
     return result
 
 
+def bottle_cubes(x: float, y: float, z: float, width: float, depth: float, height: float,
+                 material: str, cap_material: str) -> list[dict[str, Any]]:
+    shoulder_y = y + height - 0.72
+    return [
+        cube((x, y, z), (width, 0.18, depth), "glass"),
+        cube((x + 0.08, y + 0.18, z + 0.08), (width - 0.16, height - 0.9, depth - 0.16), material),
+        cube((x + 0.02, shoulder_y, z + 0.02), (width - 0.04, 0.28, depth - 0.04), "glass"),
+        cube((x + 0.16, shoulder_y + 0.08, z + 0.14), (width - 0.32, 0.35, depth - 0.28), material),
+        cube((x + width * 0.32, shoulder_y + 0.38, z + depth * 0.3),
+             (width * 0.36, 0.52, depth * 0.4), "glass"),
+        cube((x + width * 0.28, shoulder_y + 0.9, z + depth * 0.26),
+             (width * 0.44, 0.3, depth * 0.48), cap_material),
+        cube((x + 0.14, y + 0.55, z - 0.1), (width - 0.28, 0.68, 0.16), "cloth"),
+        cube((x + 0.27, y + 0.79, z - 0.15), (width - 0.54, 0.18, 0.08), material),
+        cube((x + 0.1, y + 0.3, z - 0.06), (0.12, height - 1.1, 0.1), "glass"),
+    ]
+
+
 def workstation_bones() -> list[dict[str, Any]]:
     structure = [
         cube((-15.5, 0, -7.25), (14.5, 8, 14.5), "tier_dark"),
@@ -80,6 +99,11 @@ def workstation_bones() -> list[dict[str, Any]]:
         cube((4, 5, -8.15), (8.5, 0.35, 0.35), "metal"),
         cube((-1, 0.75, -6), (2, 6.5, 12), "metal"),
         cube((5.5, 14, 3.5), (9.5, 1, 3), "tier_dark"),
+        cube((5.35, 14.9, 4.75), (9.8, 0.45, 1.65), "wood"),
+        cube((5.2, 14.9, 3.2), (10.1, 0.25, 0.3), "metal"),
+        cube((5.2, 15.15, 6.25), (10.1, 0.25, 0.3), "metal"),
+        cube((5.25, 15, 4.65), (0.25, 1.05, 1.9), "dark_metal"),
+        cube((15, 15, 4.65), (0.25, 1.05, 1.9), "dark_metal"),
         cube((5.5, 14, 3.1), (1, 3.5, 0.5), "metal"),
         cube((14, 14, 3.1), (1, 3.5, 0.5), "metal"),
         cube((-1, 12.2, 5.8), (2, 4.2, 0.35), "metal"),
@@ -144,47 +168,66 @@ def workstation_bones() -> list[dict[str, Any]]:
     ]
     seasoning_bones = [
         bone("seasoning_savory", [
-            cube((5.6, 15, 4.9), (1.55, 1.75, 1.3), "savory"),
-            cube((5.5, 16.75, 4.8), (1.75, 0.35, 1.5), "metal"),
-            cube((5.9, 15.5, 4.65), (0.95, 0.65, 0.25), "cloth"),
-        ], parent="workstation", pivot=(6.375, 15, 5.55)),
-        bone("seasoning_sweet", [
-            cube((7.95, 15, 4.9), (1.4, 1.85, 1.25), "sweet"),
-            cube((8.15, 16.85, 5.05), (1, 0.4, 0.95), "sweet"),
-            cube((8.32, 17.25, 5.2), (0.65, 0.55, 0.65), "sweet"),
-            cube((8.27, 17.8, 5.15), (0.75, 0.35, 0.75), "wood"),
-            cube((8.2, 15.55, 4.65), (0.9, 0.65, 0.25), "cloth"),
-        ], parent="workstation", pivot=(8.65, 15, 5.525)),
-        bone("seasoning_oily", [
-            cube((10.3, 15, 4.9), (1.3, 2.15, 1.2), "oily"),
-            cube((10.48, 17.15, 5.05), (0.94, 0.35, 0.9), "oily"),
-            cube((10.65, 17.5, 5.18), (0.6, 0.65, 0.64), "oily"),
-            cube((10.6, 18.15, 5.13), (0.7, 0.3, 0.74), "wood"),
-            cube((10.52, 15.65, 4.65), (0.86, 0.7, 0.25), "cloth"),
-        ], parent="workstation", pivot=(10.95, 15, 5.5)),
-        bone("seasoning_sour", [
-            cube((12.65, 15, 4.9), (1.4, 1.95, 1.25), "sour"),
-            cube((12.85, 16.95, 5.05), (1, 0.4, 0.95), "sour"),
-            cube((13.03, 17.35, 5.2), (0.64, 0.6, 0.65), "sour"),
-            cube((12.98, 17.95, 5.15), (0.74, 0.3, 0.75), "metal"),
-            cube((12.9, 15.6, 4.65), (0.9, 0.65, 0.25), "cloth"),
-        ], parent="workstation", pivot=(13.35, 15, 5.525)),
+            cube((5.58, 15.35, 4.88), (1.58, 0.18, 1.34), "glass"),
+            cube((5.68, 15.53, 4.98), (1.38, 1.18, 1.14), "savory"),
+            cube((5.56, 16.71, 4.86), (1.62, 0.22, 1.38), "glass"),
+            cube((5.72, 16.93, 5.02), (1.3, 0.22, 1.06), "savory"),
+            cube((5.48, 17.15, 4.8), (1.78, 0.3, 1.5), "metal"),
+            cube((5.92, 15.82, 4.63), (0.9, 0.62, 0.18), "cloth"),
+            cube((6.15, 16.03, 4.59), (0.44, 0.16, 0.08), "savory"),
+            cube((6.92, 16.95, 5.18), (0.16, 1.1, 0.16), "metal",
+                 pivot=(7, 16.95, 5.26), rotation=(0, 0, -24)),
+        ], parent="workstation", pivot=(6.37, 15.35, 5.55)),
+        bone("seasoning_sweet",
+             bottle_cubes(7.92, 15.35, 4.95, 1.42, 1.16, 2.15, "sweet", "wood"),
+             parent="workstation", pivot=(8.63, 15.35, 5.53)),
+        bone("seasoning_oily",
+             bottle_cubes(10.32, 15.35, 4.98, 1.24, 1.1, 2.5, "oily", "wood") + [
+                 cube((10.76, 18.33, 5.32), (0.36, 0.28, 0.34), "metal"),
+             ], parent="workstation", pivot=(10.94, 15.35, 5.53)),
+        bone("seasoning_sour",
+             bottle_cubes(12.68, 15.35, 4.95, 1.36, 1.16, 2.25, "sour", "metal"),
+             parent="workstation", pivot=(13.36, 15.35, 5.53)),
         bone("seasoning_spicy", [
-            cube((6.7, 15, 3.55), (1.6, 1.65, 1.2), "spicy"),
-            cube((6.62, 16.65, 3.47), (1.76, 0.42, 1.36), "metal"),
-            cube((7.02, 15.48, 3.3), (0.96, 0.68, 0.25), "cloth"),
+            cube((6.68, 15, 3.53), (1.64, 0.18, 1.24), "glass"),
+            cube((6.78, 15.18, 3.63), (1.44, 1.18, 1.04), "spicy"),
+            cube((6.7, 16.36, 3.55), (1.6, 0.22, 1.2), "glass"),
+            cube((6.85, 16.58, 3.67), (1.3, 0.25, 0.96), "spicy"),
+            cube((6.62, 16.83, 3.47), (1.76, 0.34, 1.36), "metal"),
+            cube((6.96, 15.52, 3.3), (1.08, 0.62, 0.18), "cloth"),
+            cube((7.2, 15.74, 3.26), (0.6, 0.16, 0.08), "spicy"),
+            cube((6.92, 17.17, 3.75), (0.12, 0.08, 0.12), "dark_metal"),
+            cube((7.18, 17.17, 4.08), (0.12, 0.08, 0.12), "dark_metal"),
+            cube((7.7, 17.17, 3.82), (0.12, 0.08, 0.12), "dark_metal"),
         ], parent="workstation", pivot=(7.5, 15, 4.15)),
         bone("seasoning_aromatic", [
-            cube((9.05, 15, 3.55), (1.6, 1.75, 1.2), "aromatic"),
-            cube((8.97, 16.75, 3.47), (1.76, 0.38, 1.36), "dark_metal"),
-            cube((9.37, 15.52, 3.3), (0.96, 0.68, 0.25), "cloth"),
+            cube((9.03, 15, 3.53), (1.64, 0.18, 1.24), "glass"),
+            cube((9.13, 15.18, 3.63), (1.44, 1.24, 1.04), "aromatic"),
+            cube((9.05, 16.42, 3.55), (1.6, 0.2, 1.2), "glass"),
+            cube((9.24, 16.62, 3.7), (1.22, 0.28, 0.9), "aromatic"),
+            cube((8.97, 16.9, 3.47), (1.76, 0.3, 1.36), "wood"),
+            cube((9.05, 16.78, 3.42), (1.6, 0.12, 0.12), "cloth"),
+            cube((9.33, 15.54, 3.3), (1.04, 0.62, 0.18), "cloth"),
+            cube((9.42, 15.42, 3.46), (0.26, 0.38, 0.18), "aromatic",
+                 pivot=(9.55, 15.61, 3.55), rotation=(0, 0, 28)),
+            cube((9.9, 15.8, 3.46), (0.24, 0.42, 0.18), "aromatic",
+                 pivot=(10.02, 16.01, 3.55), rotation=(0, 0, -24)),
         ], parent="workstation", pivot=(9.85, 15, 4.15)),
         bone("seasoning_complex", [
-            cube((11.4, 15, 3.5), (1.9, 1.25, 1.3), "complex"),
-            cube((11.3, 16.25, 3.4), (2.1, 0.25, 1.5), "metal"),
-            cube((11.55, 16.5, 3.65), (1.6, 0.18, 1), "complex"),
-            cube((11.78, 16.68, 3.82), (0.35, 0.22, 0.3), "spicy"),
-            cube((12.35, 16.68, 4.1), (0.4, 0.2, 0.32), "aromatic"),
+            cube((11.48, 15, 3.6), (1.74, 0.2, 1.1), "metal"),
+            cube((11.38, 15.2, 3.5), (1.94, 0.3, 1.3), "complex"),
+            cube((11.3, 15.5, 3.4), (2.1, 0.72, 0.22), "complex"),
+            cube((11.3, 15.5, 4.68), (2.1, 0.72, 0.22), "complex"),
+            cube((11.3, 15.5, 3.62), (0.22, 0.72, 1.06), "complex"),
+            cube((13.18, 15.5, 3.62), (0.22, 0.72, 1.06), "complex"),
+            cube((11.2, 16.22, 3.3), (2.3, 0.22, 1.7), "metal"),
+            cube((11.55, 16.3, 3.65), (1.6, 0.16, 1), "spicy"),
+            cube((11.02, 15.7, 3.82), (0.28, 0.28, 0.66), "metal"),
+            cube((13.4, 15.7, 3.82), (0.28, 0.28, 0.66), "metal"),
+            cube((11.72, 16.46, 3.82), (0.28, 0.18, 0.24), "oily"),
+            cube((12.18, 16.46, 4.16), (0.34, 0.2, 0.28), "aromatic"),
+            cube((12.78, 16.38, 4.08), (0.16, 1.38, 0.16), "metal",
+                 pivot=(12.86, 16.38, 4.16), rotation=(0, 0, -31)),
         ], parent="workstation", pivot=(12.35, 15, 4.15)),
     ]
     fire_core = [
@@ -368,6 +411,7 @@ def build_atlas(path: Path, palette: tuple[tuple[int, int, int], ...]) -> None:
     paint_region(draw, (0, 148, 19, 167), (181, 48, 30), (91, 24, 22), (242, 98, 52))
     paint_region(draw, (24, 148, 43, 167), (67, 126, 61), (30, 67, 34), (126, 181, 90))
     paint_region(draw, (48, 148, 67, 167), (122, 70, 42), (64, 35, 26), (188, 112, 61))
+    paint_region(draw, (72, 148, 91, 167), (168, 190, 194), (88, 115, 121), (229, 241, 239), speckle=False)
     image.save(path, optimize=True)
 
 
@@ -388,7 +432,7 @@ def build_preview(path: Path, bones: list[dict[str, Any]], palette: tuple[tuple[
         "food": (201, 101, 50), "cloth": (221, 210, 181), "fire": (247, 94, 18),
         "steam": (207, 222, 218), "savory": (225, 220, 200), "sweet": (190, 122, 36),
         "oily": (213, 173, 45), "sour": (130, 154, 78), "spicy": (181, 48, 30),
-        "aromatic": (67, 126, 61), "complex": (122, 70, 42),
+        "aromatic": (67, 126, 61), "complex": (122, 70, 42), "glass": (168, 190, 194),
     }
     image = Image.new("RGBA", (760, 470), (24, 21, 25, 255))
     draw = ImageDraw.Draw(image)

@@ -6,6 +6,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -14,6 +15,9 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraftforge.network.NetworkHooks;
 import org.jetbrains.annotations.Nullable;
 
@@ -26,6 +30,15 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class SeasoningTableBlock extends Block implements EntityBlock {
 
+    /** 与资源模型一致：厚台面、下层搁板及四根桌腿，不再使用整方块碰撞盒。 */
+    private static final VoxelShape TABLE_SHAPE = Shapes.or(
+            Block.box(0.0D, 12.0D, 0.0D, 16.0D, 16.0D, 16.0D),
+            Block.box(2.0D, 5.0D, 2.0D, 14.0D, 7.0D, 14.0D),
+            Block.box(1.0D, 0.0D, 1.0D, 4.0D, 12.0D, 4.0D),
+            Block.box(12.0D, 0.0D, 1.0D, 15.0D, 12.0D, 4.0D),
+            Block.box(1.0D, 0.0D, 12.0D, 4.0D, 12.0D, 15.0D),
+            Block.box(12.0D, 0.0D, 12.0D, 15.0D, 12.0D, 15.0D));
+
     private final ChefQuality tierCap;
 
     public SeasoningTableBlock(BlockBehaviour.Properties properties, ChefQuality tierCap) {
@@ -36,6 +49,17 @@ public final class SeasoningTableBlock extends Block implements EntityBlock {
     /** 本档调味台能产出的最高品质 (与厨师等级取 min)。 */
     public ChefQuality tierCap() {
         return tierCap;
+    }
+
+    @Override
+    public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        return TABLE_SHAPE;
+    }
+
+    @Override
+    public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos,
+                                        CollisionContext context) {
+        return TABLE_SHAPE;
     }
 
     @Override

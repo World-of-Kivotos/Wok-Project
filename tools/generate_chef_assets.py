@@ -67,25 +67,48 @@ def slot(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
     draw.rectangle((x + 2, y + 2, x + 15, y + 15), fill=(91, 72, 55, 255))
 
 
-def build_gui(source: Image.Image) -> None:
+def bevel_panel(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int],
+                fill: tuple[int, int, int, int]) -> None:
+    """Draw a one-pixel, Minecraft-style hard-edged panel without resampling."""
+    left, top, right, bottom = box
+    draw.rectangle(box, fill=(28, 24, 24, 255))
+    draw.line((left + 1, top + 1, right - 1, top + 1), fill=(174, 132, 76, 255))
+    draw.line((left + 1, top + 1, left + 1, bottom - 1), fill=(174, 132, 76, 255))
+    draw.line((left + 1, bottom - 1, right - 1, bottom - 1), fill=(15, 14, 16, 255))
+    draw.line((right - 1, top + 1, right - 1, bottom - 1), fill=(15, 14, 16, 255))
+    draw.rectangle((left + 2, top + 2, right - 2, bottom - 2), fill=fill)
+
+
+def build_gui(_source: Image.Image) -> None:
     gui_dir = TEXTURES / "gui"
     gui_dir.mkdir(parents=True, exist_ok=True)
-    panel_source = source.crop((380, 455, 1110, 755)).resize((256, 105), Image.Resampling.BOX)
-    panel_source = panel_source.convert("RGB").quantize(colors=64).convert("RGBA")
-    canvas = Image.new("RGBA", (256, 190), (38, 27, 25, 255))
-    canvas.paste(panel_source, (0, 0))
+    # UI 必须逐像素绘制，不能从概念图缩放：缩放图会产生模糊边缘，也无法与真实 Slot 坐标对齐。
+    canvas = Image.new("RGBA", (256, 232), (24, 21, 22, 255))
     draw = ImageDraw.Draw(canvas)
-    draw.rectangle((0, 82, 255, 189), fill=(55, 39, 31, 255))
-    draw.rectangle((3, 85, 252, 186), fill=(116, 83, 55, 255))
-    draw.rectangle((5, 87, 250, 184), fill=(61, 47, 40, 255))
-    for x, y in ((44, 35), (80, 35)):
+
+    # 外框、标题栏、操作区和背包区各自独立，运行时文字不再压在装饰图或物品槽上。
+    bevel_panel(draw, (0, 0, 255, 231), (57, 45, 39, 255))
+    bevel_panel(draw, (5, 5, 250, 21), (70, 48, 37, 255))
+    draw.line((8, 20, 247, 20), fill=(205, 147, 69, 255))
+    bevel_panel(draw, (7, 23, 248, 121), (43, 38, 37, 255))
+    bevel_panel(draw, (39, 125, 216, 224), (48, 42, 39, 255))
+
+    # 火候槽与动作区只提供清晰边框；颜色、文本和指针全部由 Screen 实时绘制。
+    draw.rectangle((75, 54, 241, 66), fill=(14, 19, 22, 255), outline=(147, 112, 67, 255))
+    draw.rectangle((75, 71, 241, 93), fill=(19, 27, 30, 255), outline=(147, 112, 67, 255))
+    draw.line((9, 37, 246, 37), fill=(81, 67, 57, 255))
+    draw.line((9, 95, 246, 95), fill=(81, 67, 57, 255))
+
+    # 成品菜与调料槽；参数为槽边框坐标，物品 Slot 坐标分别是 (18,55)/(44,55)。
+    for x, y in ((18, 55), (44, 55)):
         slot(draw, x - 1, y - 1)
+
+    # 玩家背包 Slot 坐标从 (47,140) 起，热键栏 y=198，与 SeasoningMenu 完全一致。
     for row in range(3):
         for column in range(9):
-            slot(draw, 7 + column * 18, 83 + row * 18)
+            slot(draw, 46 + column * 18, 139 + row * 18)
     for column in range(9):
-        slot(draw, 7 + column * 18, 141)
-    draw.rectangle((177, 87, 248, 181), fill=(42, 31, 31, 255), outline=(194, 139, 70, 255))
+        slot(draw, 46 + column * 18, 197)
     canvas.save(gui_dir / "seasoning_table.png", optimize=True)
 
 
@@ -118,7 +141,7 @@ def build_icons(source: Image.Image) -> None:
 
 def build_preview() -> None:
     """Assemble every runtime PNG into one enlarged QA sheet for visual inspection."""
-    preview = Image.new("RGBA", (1000, 700), (22, 18, 22, 255))
+    preview = Image.new("RGBA", (1000, 760), (22, 18, 22, 255))
     draw = ImageDraw.Draw(preview)
     block_dir = TEXTURES / "block"
     for index, tier in enumerate(TIERS):
@@ -131,7 +154,7 @@ def build_preview() -> None:
             draw.text((group_x + face_index * 60, 94), face, fill=(174, 169, 166, 255))
 
     gui = Image.open(TEXTURES / "gui" / "seasoning_table.png").convert("RGBA")
-    preview.paste(gui.resize((512, 380), Image.Resampling.NEAREST), (20, 145))
+    preview.paste(gui.resize((512, 464), Image.Resampling.NEAREST), (20, 145))
     draw.text((20, 125), "seasoning_table GUI 2x", fill=(238, 220, 176, 255))
 
     icon_dir = TEXTURES / "mob_effect"

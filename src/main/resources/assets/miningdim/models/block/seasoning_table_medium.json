@@ -1,5 +1,5 @@
 {
-  "parent": "minecraft:block/cube_bottom_top",
+  "parent": "miningdim:block/seasoning_table_template",
   "textures": {
     "top": "miningdim:block/seasoning_table_medium_top",
     "bottom": "miningdim:block/seasoning_table_medium_bottom",

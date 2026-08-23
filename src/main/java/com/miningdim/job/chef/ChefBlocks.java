@@ -40,7 +40,7 @@ public final class ChefBlocks {
                     () -> new SeasoningTableBlock(tableProps(), ChefQuality.RADIANT));
 
     private static BlockBehaviour.Properties tableProps() {
-        return BlockBehaviour.Properties.copy(Blocks.SMITHING_TABLE);
+        return BlockBehaviour.Properties.copy(Blocks.SMITHING_TABLE).noOcclusion();
     }
 
     public static void register(IEventBus modBus) {

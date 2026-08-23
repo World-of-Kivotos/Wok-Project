@@ -55,7 +55,7 @@ public final class SeasoningMenu extends AbstractMiningMenu {
         this.blockEntity = be;
         this.data = be.dataAccess();
         addContainerSlots(be);
-        addPlayerInventory(playerInv, 8, 84);
+        addPlayerInventory(playerInv, 47, 140);
         addDataSlots(data);
     }
 
@@ -68,13 +68,13 @@ public final class SeasoningMenu extends AbstractMiningMenu {
         this.blockEntity = clientBlockEntity(playerInv, pos);
         this.data = new SimpleContainerData(DATA_SIZE);
         addContainerSlots(blockEntity);
-        addPlayerInventory(playerInv, 8, 84);
+        addPlayerInventory(playerInv, 47, 140);
         addDataSlots(data);
     }
 
     private void addContainerSlots(SeasoningTableBlockEntity be) {
         // 输入槽 (仅食物) + 调料槽 (仅 seasonings)。坐标按界面布局。
-        this.addSlot(new SlotItemHandler(be.inputSlots(), SLOT_INPUT, 44, 35) {
+        this.addSlot(new SlotItemHandler(be.inputSlots(), SLOT_INPUT, 18, 55) {
             @Override
             public boolean mayPlace(ItemStack stack) {
                 return !be.isActive() && stack.getFoodProperties(null) != null;
@@ -85,7 +85,7 @@ public final class SeasoningMenu extends AbstractMiningMenu {
                 return !be.isActive();
             }
         });
-        this.addSlot(new SlotItemHandler(be.inputSlots(), SLOT_SEASONING, 80, 35) {
+        this.addSlot(new SlotItemHandler(be.inputSlots(), SLOT_SEASONING, 44, 55) {
             @Override
             public boolean mayPlace(ItemStack stack) {
                 return !be.isActive() && SeasoningTag.isSeasoning(stack);

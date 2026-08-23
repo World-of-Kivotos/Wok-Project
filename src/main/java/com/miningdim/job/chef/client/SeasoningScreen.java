@@ -20,30 +20,51 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
     private static final ResourceLocation BG =
             new ResourceLocation(MiningConstants.MODID, "textures/gui/seasoning_table.png");
     private static final int WIDTH = 256;
-    private static final int HEIGHT = 190;
+    private static final int HEIGHT = 232;
 
-    private static final int HEAT_BAR_X = 24;
-    private static final int HEAT_BAR_Y = 47;
-    private static final int HEAT_BAR_W = 208;
-    private static final int HEAT_BAR_H = 8;
-    private static final int HEAT_BUTTON_X = 24;
-    private static final int HEAT_BUTTON_Y = 64;
-    private static final int HEAT_BUTTON_W = 208;
-    private static final int HEAT_BUTTON_H = 18;
-    private static final int START_X = 24;
-    private static final int START_Y = 64;
-    private static final int START_W = 100;
-    private static final int START_H = 18;
-    private static final int QTE_X = 24;
-    private static final int QTE_Y = 64;
-    private static final int QTE_W = 46;
-    private static final int QTE_H = 18;
-    private static final int QTE_GAP = 8;
+    private static final int HEAT_BAR_X = 76;
+    private static final int HEAT_BAR_Y = 55;
+    private static final int HEAT_BAR_W = 164;
+    private static final int HEAT_BAR_H = 10;
+    private static final int HEAT_BUTTON_X = 76;
+    private static final int HEAT_BUTTON_Y = 72;
+    private static final int HEAT_BUTTON_W = 164;
+    private static final int HEAT_BUTTON_H = 20;
+    private static final int START_X = 76;
+    private static final int START_Y = 72;
+    private static final int START_W = 164;
+    private static final int START_H = 20;
+    private static final int QTE_X = 76;
+    private static final int QTE_Y = 72;
+    private static final int QTE_W = 38;
+    private static final int QTE_H = 20;
+    private static final int QTE_GAP = 4;
 
     private boolean heatPressed;
 
     public SeasoningScreen(SeasoningMenu menu, Inventory inv, Component title) {
         super(menu, inv, title, BG, WIDTH, HEIGHT);
+        this.titleLabelX = 12;
+        this.titleLabelY = 8;
+        this.inventoryLabelX = 47;
+        this.inventoryLabelY = 128;
+    }
+
+    @Override
+    protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
+        int leftPos = (this.width - WIDTH) / 2;
+        int topPos = (this.height - HEIGHT) / 2;
+        // 不能使用默认 256x256 UV 尺寸：本界面高 232px，否则背景会被纵向采样错位，槽位与文字全部叠在一起。
+        graphics.blit(BG, leftPos, topPos, WIDTH, HEIGHT,
+                0.0F, 0.0F, WIDTH, HEIGHT, WIDTH, HEIGHT);
+        renderExtra(graphics, leftPos, topPos, mouseX, mouseY, partialTick);
+    }
+
+    @Override
+    protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
+        graphics.drawString(font, title, titleLabelX, titleLabelY, 0xFFF4E3B6, false);
+        graphics.drawString(font, playerInventoryTitle,
+                inventoryLabelX, inventoryLabelY, 0xFFD5C8B5, false);
     }
 
     @Override
@@ -66,6 +87,7 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
                             : "screen.miningdim.chef.heat.press"),
                     heatPressed ? 0xFFB86B2B : 0xFF386B87);
         }
+        renderSlotLabels(graphics, leftPos, topPos);
         renderOutcome(graphics, leftPos, topPos, phase);
     }
 
@@ -76,13 +98,20 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
             case 3 -> Component.translatable("screen.miningdim.chef.phase.done");
             default -> Component.translatable("screen.miningdim.chef.phase.idle");
         };
-        graphics.drawString(font, state, leftPos + 24, topPos + 8, 0xFFE6EEF2, false);
+        graphics.drawString(font, state, leftPos + 12, topPos + 26, 0xFFE9E2D3, false);
         graphics.drawString(font, Component.translatable("screen.miningdim.chef.time",
-                        menu.remainingTicks()), leftPos + 24, topPos + 20, 0xFFB8C6CE, false);
+                        menu.remainingTicks()), leftPos + 116, topPos + 26, 0xFFC8D1D4, false);
         graphics.drawString(font, Component.translatable("screen.miningdim.chef.hits",
-                        menu.hits(), menu.qteCount()), leftPos + 126, topPos + 20, 0xFFB8C6CE, false);
+                        menu.hits(), menu.qteCount()), leftPos + 200, topPos + 26, 0xFFC8D1D4, false);
         graphics.drawString(font, Component.translatable("screen.miningdim.chef.tier_cap",
-                        menu.tierCap().id()), leftPos + 24, topPos + 34, 0xFFD7B86A, false);
+                        menu.tierCap().id()), leftPos + 76, topPos + 42, 0xFFE2BD6B, false);
+    }
+
+    private void renderSlotLabels(GuiGraphics graphics, int leftPos, int topPos) {
+        graphics.drawString(font, Component.translatable("screen.miningdim.chef.slot.dish"),
+                leftPos + 17, topPos + 42, 0xFFBFAF98, false);
+        graphics.drawString(font, Component.translatable("screen.miningdim.chef.slot.seasoning"),
+                leftPos + 43, topPos + 42, 0xFFBFAF98, false);
     }
 
     private void renderHeatBar(GuiGraphics graphics, int leftPos, int topPos) {
@@ -102,11 +131,11 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
         Component targetPrompt = menu.cueActive()
                 ? Component.translatable("screen.miningdim.chef.target", menu.targetIndex() + 1)
                 : Component.translatable("screen.miningdim.chef.target.wait");
-        graphics.drawString(font, targetPrompt, leftPos + QTE_X, topPos + 53, 0xFFF0CE72, false);
+        graphics.drawString(font, targetPrompt, leftPos + 12, topPos + 99, 0xFFF0CE72, false);
         for (int target = 0; target < 4; target++) {
             int x = leftPos + QTE_X + target * (QTE_W + QTE_GAP);
             int y = topPos + QTE_Y;
-            boolean selected = target == menu.targetIndex();
+            boolean selected = menu.cueActive() && target == menu.targetIndex();
             boolean hovered = inRect(mouseX, mouseY, x, y, QTE_W, QTE_H);
             int color = selected ? 0xFFB47532 : 0xFF30434D;
             if (hovered) {
@@ -123,13 +152,13 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
         }
         if (menu.failureReason() == 0 && menu.finalQuality() >= 0) {
             graphics.drawString(font, Component.translatable("screen.miningdim.chef.quality",
-                            qualityText()), leftPos + 24, topPos + 88, 0xFFF0CE72, false);
-            graphics.drawString(font, Component.translatable("screen.miningdim.chef.done.take_output"),
-                    leftPos + 24, topPos + 101, 0xFFB8C6CE, false);
+                            qualityText()), leftPos + 12, topPos + 98, 0xFFF0CE72, false);
+            graphics.drawWordWrap(font, Component.translatable("screen.miningdim.chef.done.take_output"),
+                    leftPos + 12, topPos + 108, 232, 0xFFB8C6CE);
             return;
         }
-        graphics.drawString(font, Component.translatable("screen.miningdim.chef.failure",
-                        failureText()), leftPos + 24, topPos + 88, 0xFFE58B8B, false);
+        graphics.drawWordWrap(font, Component.translatable("screen.miningdim.chef.failure",
+                        failureText()), leftPos + 12, topPos + 98, 232, 0xFFE58B8B);
     }
 
     private Component failureText() {
@@ -173,7 +202,7 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
                 }
             }
             case 2 -> {
-                int target = targetAt(mouseX, mouseY, leftPos, topPos);
+                int target = menu.cueActive() ? targetAt(mouseX, mouseY, leftPos, topPos) : -1;
                 if (target >= 0) {
                     send(SeasoningGameC2S.Action.SEASON_HIT, target);
                     return true;

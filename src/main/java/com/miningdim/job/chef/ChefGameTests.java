@@ -6,6 +6,7 @@ import com.miningdim.economy.EconomyServices;
 import com.miningdim.progression.ExperienceServices;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
@@ -16,7 +17,10 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingEntityUseItemEvent;
 import net.minecraftforge.event.entity.living.LivingKnockBackEvent;
@@ -391,6 +395,40 @@ public final class ChefGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void twoBlockTableKeepsSingleAuthoritativeBlockEntity(GameTestHelper helper) {
+        BlockPos primaryPos = helper.absolutePos(TABLE_RELATIVE);
+        BlockState primary = ChefBlocks.SEASONING_TABLE_RADIANT.get().defaultBlockState()
+                .setValue(SeasoningTableBlock.FACING, Direction.NORTH)
+                .setValue(SeasoningTableBlock.SECONDARY, false);
+        BlockPos secondaryPos = primaryPos.relative(Direction.EAST);
+        helper.getLevel().setBlock(primaryPos, primary, Block.UPDATE_CLIENTS);
+        ((SeasoningTableBlock) primary.getBlock()).setPlacedBy(
+                helper.getLevel(), primaryPos, primary, null, ItemStack.EMPTY);
+
+        helper.assertTrue(helper.getLevel().getBlockState(primaryPos).is(primary.getBlock())
+                        && !helper.getLevel().getBlockState(primaryPos).getValue(SeasoningTableBlock.SECONDARY),
+                "two-block table keeps the left half as its authoritative primary");
+        helper.assertTrue(helper.getLevel().getBlockState(secondaryPos).is(primary.getBlock())
+                        && helper.getLevel().getBlockState(secondaryPos).getValue(SeasoningTableBlock.SECONDARY),
+                "two-block table creates a matching right half");
+        helper.assertTrue(helper.getLevel().getBlockEntity(primaryPos) instanceof SeasoningTableBlockEntity
+                        && helper.getLevel().getBlockEntity(secondaryPos) == null,
+                "only the primary half owns inventory and cooking state");
+
+        helper.getLevel().setBlock(secondaryPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+        helper.assertTrue(helper.getLevel().getBlockState(primaryPos).isAir(),
+                "removing either half removes the whole table without leaving an orphan");
+
+        BlockState migratedPrimary = ((SeasoningTableBlock) primary.getBlock()).updateShape(
+                primary, Direction.EAST, Blocks.AIR.defaultBlockState(),
+                helper.getLevel(), primaryPos, secondaryPos);
+        helper.assertTrue(migratedPrimary.is(primary.getBlock())
+                        && !migratedPrimary.getValue(SeasoningTableBlock.SECONDARY),
+                "legacy one-block tables survive neighbor updates until their second half can be restored");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void farmersDelightAndFidCompatibilityUsesActualRegistries(GameTestHelper helper) {
         ResourceLocation stewId = new ResourceLocation("farmersdelight", "beef_stew");
         ResourceLocation feastId = new ResourceLocation("farmersdelight", "roast_chicken_block");
@@ -423,8 +461,13 @@ public final class ChefGameTests {
     }
 
     private static TableFixture tableFixture(GameTestHelper helper) {
-        helper.setBlock(TABLE_RELATIVE, ChefBlocks.SEASONING_TABLE_RADIANT.get());
         BlockPos absolute = helper.absolutePos(TABLE_RELATIVE);
+        BlockState primary = ChefBlocks.SEASONING_TABLE_RADIANT.get().defaultBlockState()
+                .setValue(SeasoningTableBlock.FACING, Direction.NORTH)
+                .setValue(SeasoningTableBlock.SECONDARY, false);
+        helper.getLevel().setBlock(absolute, primary, Block.UPDATE_CLIENTS);
+        ((SeasoningTableBlock) primary.getBlock()).setPlacedBy(
+                helper.getLevel(), absolute, primary, null, ItemStack.EMPTY);
         BlockEntity raw = helper.getLevel().getBlockEntity(absolute);
         helper.assertTrue(raw instanceof SeasoningTableBlockEntity,
                 "seasoning table creates its preserved block entity id");

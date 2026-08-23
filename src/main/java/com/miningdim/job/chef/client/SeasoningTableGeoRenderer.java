@@ -6,16 +6,23 @@ import com.miningdim.job.chef.SeasoningTableBlock;
 import com.miningdim.job.chef.SeasoningTableBlockEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemDisplayContext;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.registries.ForgeRegistries;
 import software.bernie.geckolib.cache.object.BakedGeoModel;
 import software.bernie.geckolib.cache.object.GeoBone;
 import software.bernie.geckolib.model.GeoModel;
@@ -34,6 +41,10 @@ public final class SeasoningTableGeoRenderer {
     }
 
     private static final class Renderer extends GeoBlockRenderer<SeasoningTableBlockEntity> {
+
+        private static final ItemStack TOMATO = icon("farmersdelight", "tomato");
+        private static final ItemStack CABBAGE = icon("farmersdelight", "cabbage");
+        private static final ItemStack POTATO = new ItemStack(Items.POTATO);
 
         private Renderer(BlockEntityRendererProvider.Context context) {
             super(new Model());
@@ -60,6 +71,44 @@ public final class SeasoningTableGeoRenderer {
             int boneLight = bone.getName().startsWith("fire_") ? LightTexture.FULL_BRIGHT : packedLight;
             super.renderRecursively(poseStack, table, bone, renderType, bufferSource, buffer,
                     isReRender, partialTick, boneLight, packedOverlay, red, green, blue, alpha);
+        }
+
+        @Override
+        public void postRender(PoseStack poseStack, SeasoningTableBlockEntity table, BakedGeoModel model,
+                               MultiBufferSource bufferSource, VertexConsumer buffer, boolean isReRender,
+                               float partialTick, int packedLight, int packedOverlay,
+                               float red, float green, float blue, float alpha) {
+            if (isReRender) {
+                return;
+            }
+            renderPrepIcon(poseStack, table, bufferSource, TOMATO,
+                    1.55F, -4.45F, -12.0F, 0.34F, packedLight, packedOverlay, 1);
+            renderPrepIcon(poseStack, table, bufferSource, CABBAGE,
+                    4.0F, -3.4F, 8.0F, 0.37F, packedLight, packedOverlay, 2);
+            renderPrepIcon(poseStack, table, bufferSource, POTATO,
+                    6.45F, -4.25F, -18.0F, 0.33F, packedLight, packedOverlay, 3);
+        }
+
+        private static void renderPrepIcon(PoseStack poseStack, SeasoningTableBlockEntity table,
+                                           MultiBufferSource bufferSource, ItemStack stack,
+                                           float modelX, float modelZ, float yaw, float scale,
+                                           int packedLight, int packedOverlay, int seed) {
+            if (stack.isEmpty()) {
+                return;
+            }
+            poseStack.pushPose();
+            poseStack.translate(modelX / 16.0F, 12.08F / 16.0F, modelZ / 16.0F);
+            poseStack.mulPose(Axis.YP.rotationDegrees(yaw));
+            poseStack.mulPose(Axis.XP.rotationDegrees(90.0F));
+            poseStack.scale(scale, scale, scale);
+            Minecraft.getInstance().getItemRenderer().renderStatic(stack, ItemDisplayContext.FIXED,
+                    packedLight, packedOverlay, poseStack, bufferSource, table.getLevel(), seed);
+            poseStack.popPose();
+        }
+
+        private static ItemStack icon(String namespace, String path) {
+            Item item = ForgeRegistries.ITEMS.getValue(new ResourceLocation(namespace, path));
+            return item == null || item == Items.AIR ? ItemStack.EMPTY : new ItemStack(item);
         }
     }
 

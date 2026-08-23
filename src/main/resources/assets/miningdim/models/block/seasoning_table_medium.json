@@ -3,6 +3,7 @@
   "textures": {
     "top": "miningdim:block/seasoning_table_medium_top",
     "bottom": "miningdim:block/seasoning_table_medium_bottom",
-    "side": "miningdim:block/seasoning_table_medium_side"
+    "side": "miningdim:block/seasoning_table_medium_side",
+    "accent": "miningdim:block/seasoning_table_medium_accent"
   }
 }

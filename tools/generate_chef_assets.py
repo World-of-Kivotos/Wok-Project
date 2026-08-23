@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -10,14 +11,16 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "docs" / "assets" / "chef" / "chef_asset_style_source.png"
 TEXTURES = ROOT / "src" / "main" / "resources" / "assets" / "miningdim" / "textures"
+MODELS = ROOT / "src" / "main" / "resources" / "assets" / "miningdim" / "models" / "block"
 
-TIERS = {
-    "low": (0, 0, 310, 470),
-    "medium": (305, 0, 625, 470),
-    "high": (615, 0, 935, 470),
-    "extraordinary": (925, 0, 1225, 470),
-    "radiant": (1215, 0, 1536, 470),
+TIER_PALETTES = {
+    "low": ((91, 62, 39), (51, 39, 32), (143, 132, 113)),
+    "medium": ((119, 61, 34), (60, 34, 28), (221, 112, 48)),
+    "high": ((43, 78, 76), (28, 46, 48), (77, 210, 188)),
+    "extraordinary": ((61, 42, 78), (31, 26, 43), (174, 79, 224)),
+    "radiant": ((142, 122, 71), (69, 60, 42), (255, 222, 91)),
 }
+TIERS = tuple(TIER_PALETTES)
 
 ICONS = {
     "chef_endurance": (0, 748, 218, 1024),
@@ -43,19 +46,151 @@ def pixel_asset(image: Image.Image, size: tuple[int, int], colors: int) -> Image
     return result
 
 
-def build_block_textures(source: Image.Image) -> None:
+def save_tile(path: Path, painter) -> None:
+    image = Image.new("RGBA", (16, 16), (0, 0, 0, 255))
+    painter(ImageDraw.Draw(image))
+    image.save(path, optimize=True)
+
+
+def build_block_textures(_source: Image.Image) -> None:
+    """Create crisp authored tiles; never downsample the concept sheet for in-world block faces."""
     block_dir = TEXTURES / "block"
     block_dir.mkdir(parents=True, exist_ok=True)
-    for tier, (left, top, right, bottom) in TIERS.items():
-        width = right - left
-        crops = {
-            "top": (left, top + 170, right, top + 330),
-            "side": (left, top + 285, right, bottom),
-            "bottom": (left + width // 8, top + 350, right - width // 8, bottom),
-        }
-        for face, box in crops.items():
-            texture = pixel_asset(source.crop(box), (16, 16), 20)
-            texture.save(block_dir / f"seasoning_table_{tier}_{face}.png", optimize=True)
+    for tier, (base, dark, accent) in TIER_PALETTES.items():
+        def top(draw: ImageDraw.ImageDraw) -> None:
+            draw.rectangle((0, 0, 15, 15), fill=(*base, 255))
+            draw.rectangle((0, 0, 15, 15), outline=(*dark, 255))
+            draw.rectangle((2, 2, 13, 13), outline=(*accent, 255))
+            draw.line((3, 7, 12, 7), fill=(*dark, 255))
+            draw.line((7, 3, 7, 12), fill=(*dark, 255))
+
+        def side(draw: ImageDraw.ImageDraw) -> None:
+            draw.rectangle((0, 0, 15, 15), fill=(*base, 255))
+            for y in (0, 5, 10, 15):
+                draw.line((0, y, 15, y), fill=(*dark, 255))
+            draw.line((5, 1, 5, 4), fill=(*dark, 255))
+            draw.line((11, 6, 11, 9), fill=(*dark, 255))
+            draw.line((7, 11, 7, 14), fill=(*dark, 255))
+
+        def bottom(draw: ImageDraw.ImageDraw) -> None:
+            draw.rectangle((0, 0, 15, 15), fill=(*dark, 255))
+            draw.rectangle((2, 2, 13, 13), outline=(*base, 255))
+
+        def accent_tile(draw: ImageDraw.ImageDraw) -> None:
+            draw.rectangle((0, 0, 15, 15), fill=(*dark, 255))
+            draw.rectangle((1, 1, 14, 14), outline=(*accent, 255))
+            draw.line((3, 8, 12, 8), fill=(*accent, 255), width=2)
+            draw.point((5, 4), fill=(255, 244, 210, 255))
+            draw.point((11, 12), fill=(255, 244, 210, 255))
+
+        save_tile(block_dir / f"seasoning_table_{tier}_top.png", top)
+        save_tile(block_dir / f"seasoning_table_{tier}_side.png", side)
+        save_tile(block_dir / f"seasoning_table_{tier}_bottom.png", bottom)
+        save_tile(block_dir / f"seasoning_table_{tier}_accent.png", accent_tile)
+
+    common_tiles = {
+        "metal": ((52, 59, 62), (131, 143, 145), (24, 29, 31)),
+        "pot": ((30, 34, 36), (89, 99, 102), (14, 17, 18)),
+        "burner": ((38, 31, 28), (226, 71, 26), (17, 17, 18)),
+        "board": ((153, 105, 56), (213, 161, 91), (91, 59, 35)),
+        "spice_red": ((142, 39, 31), (226, 92, 47), (74, 24, 24)),
+        "spice_yellow": ((171, 111, 28), (244, 191, 67), (92, 61, 23)),
+        "spice_green": ((52, 104, 57), (110, 164, 76), (29, 57, 34)),
+    }
+    for name, (base, light, dark) in common_tiles.items():
+        def common(draw: ImageDraw.ImageDraw, base=base, light=light, dark=dark) -> None:
+            draw.rectangle((0, 0, 15, 15), fill=(*base, 255))
+            draw.line((0, 0, 15, 0), fill=(*light, 255))
+            draw.line((0, 0, 0, 15), fill=(*light, 255))
+            draw.line((0, 15, 15, 15), fill=(*dark, 255))
+            draw.line((15, 0, 15, 15), fill=(*dark, 255))
+            for point in ((4, 4), (11, 6), (7, 12)):
+                draw.point(point, fill=(*light, 255))
+        save_tile(block_dir / f"seasoning_table_{name}.png", common)
+
+
+def model_box(start: tuple[float, float, float], end: tuple[float, float, float],
+              side: str, up: str | None = None, down: str | None = None) -> dict:
+    up = up or side
+    down = down or side
+    return {
+        "from": list(start),
+        "to": list(end),
+        "faces": {
+            "down": {"texture": down},
+            "up": {"texture": up},
+            "north": {"texture": side},
+            "south": {"texture": side},
+            "west": {"texture": side},
+            "east": {"texture": side},
+        },
+    }
+
+
+def build_block_model() -> None:
+    """Build an identifiable one-block cooking station: stove, pot, board, rack and spice jars."""
+    MODELS.mkdir(parents=True, exist_ok=True)
+    elements = [
+        # Counter structure.
+        model_box((0, 8, 0), (16, 11, 16), "#side", "#top", "#bottom"),
+        model_box((2, 3, 2), (14, 4, 14), "#side", "#top", "#bottom"),
+        model_box((1, 0, 1), (3, 8, 3), "#side", "#top", "#bottom"),
+        model_box((13, 0, 1), (15, 8, 3), "#side", "#top", "#bottom"),
+        model_box((1, 0, 13), (3, 8, 15), "#side", "#top", "#bottom"),
+        model_box((13, 0, 13), (15, 8, 15), "#side", "#top", "#bottom"),
+        # Backboard and luminous tier strip.
+        model_box((0, 11, 14), (16, 16, 16), "#side", "#top", "#bottom"),
+        model_box((1, 13.5, 13.75), (15, 14.5, 14), "#accent"),
+        # Left burner plate.
+        model_box((1, 11, 1), (9, 11.75, 9), "#metal", "#burner", "#metal"),
+        # Hollow cooking pot and handles.
+        model_box((3, 11.75, 3), (7, 12.5, 7), "#pot"),
+        model_box((2.5, 12.5, 2.5), (3.25, 15, 7.5), "#pot"),
+        model_box((6.75, 12.5, 2.5), (7.5, 15, 7.5), "#pot"),
+        model_box((3.25, 12.5, 2.5), (6.75, 15, 3.25), "#pot"),
+        model_box((3.25, 12.5, 6.75), (6.75, 15, 7.5), "#pot"),
+        model_box((1.5, 13.25, 4.25), (2.5, 14, 5.75), "#metal"),
+        model_box((7.5, 13.25, 4.25), (8.5, 14, 5.75), "#metal"),
+        # Right cutting board and a slim knife.
+        model_box((9.5, 11, 1), (15, 11.4, 8.5), "#board", "#board", "#board"),
+        model_box((10.25, 11.4, 6.25), (14.5, 11.65, 6.75), "#metal"),
+        # Raised seasoning shelf.
+        model_box((9.5, 11, 10), (15.5, 11.75, 14), "#side", "#accent", "#bottom"),
+        model_box((9.5, 11.75, 12.75), (15.5, 12.25, 14), "#accent"),
+        # Three spice jars with metal lids.
+        model_box((10, 11.75, 10.5), (11.5, 14, 12), "#spice_red"),
+        model_box((10, 14, 10.5), (11.5, 14.4, 12), "#metal"),
+        model_box((12, 11.75, 10.5), (13.5, 14, 12), "#spice_yellow"),
+        model_box((12, 14, 10.5), (13.5, 14.4, 12), "#metal"),
+        model_box((14, 11.75, 10.5), (15.5, 14, 12), "#spice_green"),
+        model_box((14, 14, 10.5), (15.5, 14.4, 12), "#metal"),
+    ]
+    model = {
+        "parent": "minecraft:block/block",
+        "ambientocclusion": True,
+        "textures": {
+            "particle": "#side",
+            "metal": "miningdim:block/seasoning_table_metal",
+            "pot": "miningdim:block/seasoning_table_pot",
+            "burner": "miningdim:block/seasoning_table_burner",
+            "board": "miningdim:block/seasoning_table_board",
+            "spice_red": "miningdim:block/seasoning_table_spice_red",
+            "spice_yellow": "miningdim:block/seasoning_table_spice_yellow",
+            "spice_green": "miningdim:block/seasoning_table_spice_green",
+        },
+        "elements": elements,
+        "display": {
+            "gui": {"rotation": [30, 225, 0], "translation": [0, 0, 0], "scale": [0.75, 0.75, 0.75]},
+            "ground": {"translation": [0, 3, 0], "scale": [0.25, 0.25, 0.25]},
+            "fixed": {"scale": [0.5, 0.5, 0.5]},
+            "thirdperson_righthand": {"rotation": [75, 45, 0], "translation": [0, 2.5, 0],
+                                      "scale": [0.375, 0.375, 0.375]},
+            "firstperson_righthand": {"rotation": [0, 45, 0], "translation": [0, 0, 0],
+                                      "scale": [0.4, 0.4, 0.4]},
+        },
+    }
+    (MODELS / "seasoning_table_template.json").write_text(
+        json.dumps(model, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def slot(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
@@ -139,6 +274,47 @@ def build_icons(source: Image.Image) -> None:
         icon.save(icon_dir / f"{name}.png", optimize=True)
 
 
+def build_model_preview() -> Image.Image:
+    """Render a small isometric QA view from the generated element bounds."""
+    model = json.loads((MODELS / "seasoning_table_template.json").read_text(encoding="utf-8"))
+    preview = Image.new("RGBA", (230, 180), (28, 24, 28, 255))
+    draw = ImageDraw.Draw(preview)
+    base, dark, accent = TIER_PALETTES["radiant"]
+    texture_colors = {
+        "#top": base, "#side": dark, "#bottom": dark, "#accent": accent,
+        "#metal": (92, 101, 104), "#pot": (42, 47, 49), "#burner": (202, 58, 24),
+        "#board": (181, 127, 67), "#spice_red": (191, 54, 39),
+        "#spice_yellow": (222, 156, 42), "#spice_green": (67, 132, 70),
+    }
+
+    def project(point: tuple[float, float, float]) -> tuple[int, int]:
+        x, y, z = point
+        return (115 + round((x - z) * 4.2), 135 + round((x + z) * 2.1 - y * 4.2))
+
+    def shade(color: tuple[int, int, int], amount: int) -> tuple[int, int, int, int]:
+        return tuple(max(0, min(255, channel + amount)) for channel in color) + (255,)
+
+    elements = sorted(model["elements"], key=lambda item: (
+        (item["from"][0] + item["to"][0]) / 2
+        + (item["from"][2] + item["to"][2]) / 2
+        + ((item["from"][1] + item["to"][1]) / 2) * 2.5
+    ))
+    for element in elements:
+        x1, y1, z1 = element["from"]
+        x2, y2, z2 = element["to"]
+        faces = element["faces"]
+        top_color = texture_colors.get(faces["up"]["texture"], base)
+        east_color = texture_colors.get(faces["east"]["texture"], dark)
+        south_color = texture_colors.get(faces["south"]["texture"], dark)
+        top = [project(p) for p in ((x1, y2, z1), (x2, y2, z1), (x2, y2, z2), (x1, y2, z2))]
+        east = [project(p) for p in ((x2, y1, z1), (x2, y2, z1), (x2, y2, z2), (x2, y1, z2))]
+        south = [project(p) for p in ((x1, y1, z2), (x1, y2, z2), (x2, y2, z2), (x2, y1, z2))]
+        draw.polygon(east, fill=shade(east_color, -6), outline=(18, 17, 18, 255))
+        draw.polygon(south, fill=shade(south_color, -22), outline=(18, 17, 18, 255))
+        draw.polygon(top, fill=shade(top_color, 22), outline=(18, 17, 18, 255))
+    return preview
+
+
 def build_preview() -> None:
     """Assemble every runtime PNG into one enlarged QA sheet for visual inspection."""
     preview = Image.new("RGBA", (1000, 760), (22, 18, 22, 255))
@@ -168,6 +344,10 @@ def build_preview() -> None:
         preview.alpha_composite(icon.resize((90, 90), Image.Resampling.NEAREST), (x, y))
         draw.text((x, y + 96), name.removeprefix("chef_"), fill=(210, 204, 198, 255))
 
+    model_preview = build_model_preview()
+    preview.alpha_composite(model_preview, (750, 550))
+    draw.text((750, 735), "radiant cooking workstation model", fill=(238, 220, 176, 255))
+
     preview_path = ROOT / "docs" / "assets" / "chef" / "chef_runtime_asset_preview.png"
     preview.save(preview_path, optimize=True)
 
@@ -175,6 +355,7 @@ def build_preview() -> None:
 def main() -> None:
     source = Image.open(SOURCE).convert("RGBA")
     build_block_textures(source)
+    build_block_model()
     build_gui(source)
     build_icons(source)
     build_preview()

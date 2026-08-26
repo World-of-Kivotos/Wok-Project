@@ -1,0 +1,17 @@
+{
+  "providers": [
+    {
+      "type": "bitmap",
+      "file": "miningdim:font/gunsmith_quality_names.png",
+      "ascent": 11,
+      "height": 12,
+      "chars": [
+        "\ue100",
+        "\ue101",
+        "\ue102",
+        "\ue103",
+        "\ue104"
+      ]
+    }
+  ]
+}

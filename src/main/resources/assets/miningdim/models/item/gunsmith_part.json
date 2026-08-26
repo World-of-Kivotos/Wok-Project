@@ -846,6 +846,36 @@
     },
     {
       "predicate": {
+        "custom_model_data": 441
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_grip_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 442
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_grip_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 443
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_grip_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 444
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_grip_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 445
+      },
+      "model": "miningdim:item/gunsmith_part_marksman_grip_legendary"
+    },
+    {
+      "predicate": {
         "custom_model_data": 451
       },
       "model": "miningdim:item/gunsmith_part_marksman_stock_common"
@@ -1146,32 +1176,402 @@
     },
     {
       "predicate": {
-        "custom_model_data": 1000001
+        "custom_model_data": 711
       },
+      "model": "miningdim:item/gunsmith_part_shotgun_barrel_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 712
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_barrel_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 713
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_barrel_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 714
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_barrel_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 715
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_barrel_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 721
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_bolt_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 722
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_bolt_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 723
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_bolt_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 724
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_bolt_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 725
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_bolt_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 731
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_handguard_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 732
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_handguard_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 733
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_handguard_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 734
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_handguard_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 735
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_handguard_legendary"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 751
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_stock_common"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 752
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_stock_improved"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 753
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_stock_milspec"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 754
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_stock_precision"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 755
+      },
+      "model": "miningdim:item/gunsmith_part_shotgun_stock_legendary"
+    },
+    {
+      "predicate": {"custom_model_data": 811},
+      "model": "miningdim:item/gunsmith_part_smg_barrel_common"
+    },
+    {
+      "predicate": {"custom_model_data": 812},
+      "model": "miningdim:item/gunsmith_part_smg_barrel_improved"
+    },
+    {
+      "predicate": {"custom_model_data": 813},
+      "model": "miningdim:item/gunsmith_part_smg_barrel_milspec"
+    },
+    {
+      "predicate": {"custom_model_data": 814},
+      "model": "miningdim:item/gunsmith_part_smg_barrel_precision"
+    },
+    {
+      "predicate": {"custom_model_data": 815},
+      "model": "miningdim:item/gunsmith_part_smg_barrel_legendary"
+    },
+    {
+      "predicate": {"custom_model_data": 831},
+      "model": "miningdim:item/gunsmith_part_smg_handguard_common"
+    },
+    {
+      "predicate": {"custom_model_data": 832},
+      "model": "miningdim:item/gunsmith_part_smg_handguard_improved"
+    },
+    {
+      "predicate": {"custom_model_data": 833},
+      "model": "miningdim:item/gunsmith_part_smg_handguard_milspec"
+    },
+    {
+      "predicate": {"custom_model_data": 834},
+      "model": "miningdim:item/gunsmith_part_smg_handguard_precision"
+    },
+    {
+      "predicate": {"custom_model_data": 835},
+      "model": "miningdim:item/gunsmith_part_smg_handguard_legendary"
+    },
+    {
+      "predicate": {"custom_model_data": 841},
+      "model": "miningdim:item/gunsmith_part_smg_grip_common"
+    },
+    {
+      "predicate": {"custom_model_data": 842},
+      "model": "miningdim:item/gunsmith_part_smg_grip_improved"
+    },
+    {
+      "predicate": {"custom_model_data": 843},
+      "model": "miningdim:item/gunsmith_part_smg_grip_milspec"
+    },
+    {
+      "predicate": {"custom_model_data": 844},
+      "model": "miningdim:item/gunsmith_part_smg_grip_precision"
+    },
+    {
+      "predicate": {"custom_model_data": 845},
+      "model": "miningdim:item/gunsmith_part_smg_grip_legendary"
+    },
+    {
+      "predicate": {"custom_model_data": 851},
+      "model": "miningdim:item/gunsmith_part_smg_stock_common"
+    },
+    {
+      "predicate": {"custom_model_data": 852},
+      "model": "miningdim:item/gunsmith_part_smg_stock_improved"
+    },
+    {
+      "predicate": {"custom_model_data": 853},
+      "model": "miningdim:item/gunsmith_part_smg_stock_milspec"
+    },
+    {
+      "predicate": {"custom_model_data": 854},
+      "model": "miningdim:item/gunsmith_part_smg_stock_precision"
+    },
+    {
+      "predicate": {"custom_model_data": 855},
+      "model": "miningdim:item/gunsmith_part_smg_stock_legendary"
+    },
+    {
+      "predicate": {"custom_model_data": 891},
+      "model": "miningdim:item/gunsmith_part_smg_receiver_common"
+    },
+    {
+      "predicate": {"custom_model_data": 892},
+      "model": "miningdim:item/gunsmith_part_smg_receiver_improved"
+    },
+    {
+      "predicate": {"custom_model_data": 893},
+      "model": "miningdim:item/gunsmith_part_smg_receiver_milspec"
+    },
+    {
+      "predicate": {"custom_model_data": 894},
+      "model": "miningdim:item/gunsmith_part_smg_receiver_precision"
+    },
+    {
+      "predicate": {"custom_model_data": 895},
+      "model": "miningdim:item/gunsmith_part_smg_receiver_legendary"
+    },
+    {
+      "predicate": {"custom_model_data": 10001},
+      "model": "miningdim:item/gunsmith_part_ar_core_gehenna_common"
+    },
+    {
+      "predicate": {"custom_model_data": 10002},
+      "model": "miningdim:item/gunsmith_part_ar_core_gehenna_improved"
+    },
+    {
+      "predicate": {"custom_model_data": 10003},
+      "model": "miningdim:item/gunsmith_part_ar_core_gehenna_milspec"
+    },
+    {
+      "predicate": {"custom_model_data": 10004},
+      "model": "miningdim:item/gunsmith_part_ar_core_gehenna_precision"
+    },
+    {
+      "predicate": {"custom_model_data": 10005},
+      "model": "miningdim:item/gunsmith_part_ar_core_gehenna_legendary"
+    },
+    {
+      "predicate": {"custom_model_data": 10101},
+      "model": "miningdim:item/gunsmith_part_ak_core_red_east_high_pressure_common"
+    },
+    {
+      "predicate": {"custom_model_data": 10102},
+      "model": "miningdim:item/gunsmith_part_ak_core_red_east_high_pressure_improved"
+    },
+    {
+      "predicate": {"custom_model_data": 10103},
+      "model": "miningdim:item/gunsmith_part_ak_core_red_east_high_pressure_milspec"
+    },
+    {
+      "predicate": {"custom_model_data": 10104},
+      "model": "miningdim:item/gunsmith_part_ak_core_red_east_high_pressure_precision"
+    },
+    {
+      "predicate": {"custom_model_data": 10105},
+      "model": "miningdim:item/gunsmith_part_ak_core_red_east_high_pressure_legendary"
+    },
+    {
+      "predicate": {"custom_model_data": 10201},
+      "model": "miningdim:item/gunsmith_part_ar_bolt_mk_ax_a_common"
+    },
+    {
+      "predicate": {"custom_model_data": 10202},
+      "model": "miningdim:item/gunsmith_part_ar_bolt_mk_ax_a_improved"
+    },
+    {
+      "predicate": {"custom_model_data": 10203},
+      "model": "miningdim:item/gunsmith_part_ar_bolt_mk_ax_a_milspec"
+    },
+    {
+      "predicate": {"custom_model_data": 10204},
+      "model": "miningdim:item/gunsmith_part_ar_bolt_mk_ax_a_precision"
+    },
+    {
+      "predicate": {"custom_model_data": 10205},
+      "model": "miningdim:item/gunsmith_part_ar_bolt_mk_ax_a_legendary"
+    },
+    {
+      "predicate": {"custom_model_data": 10301},
+      "model": "miningdim:item/gunsmith_part_ar_barrel_trinity_precision_graduated_common"
+    },
+    {
+      "predicate": {"custom_model_data": 10302},
+      "model": "miningdim:item/gunsmith_part_ar_barrel_trinity_precision_graduated_improved"
+    },
+    {
+      "predicate": {"custom_model_data": 10303},
+      "model": "miningdim:item/gunsmith_part_ar_barrel_trinity_precision_graduated_milspec"
+    },
+    {
+      "predicate": {"custom_model_data": 10304},
+      "model": "miningdim:item/gunsmith_part_ar_barrel_trinity_precision_graduated_precision"
+    },
+    {
+      "predicate": {"custom_model_data": 10305},
+      "model": "miningdim:item/gunsmith_part_ar_barrel_trinity_precision_graduated_legendary"
+    },
+    {
+      "predicate": {"custom_model_data": 10401},
+      "model": "miningdim:item/gunsmith_part_ar_bolt_three_round_burst_common"
+    },
+    {
+      "predicate": {"custom_model_data": 10402},
+      "model": "miningdim:item/gunsmith_part_ar_bolt_three_round_burst_improved"
+    },
+    {
+      "predicate": {"custom_model_data": 10403},
+      "model": "miningdim:item/gunsmith_part_ar_bolt_three_round_burst_milspec"
+    },
+    {
+      "predicate": {"custom_model_data": 10404},
+      "model": "miningdim:item/gunsmith_part_ar_bolt_three_round_burst_precision"
+    },
+    {
+      "predicate": {"custom_model_data": 10405},
+      "model": "miningdim:item/gunsmith_part_ar_bolt_three_round_burst_legendary"
+    },
+    {
+      "predicate": {"custom_model_data": 10501},
+      "model": "miningdim:item/gunsmith_part_sniper_firing_pin_common"
+    },
+    {
+      "predicate": {"custom_model_data": 10502},
+      "model": "miningdim:item/gunsmith_part_sniper_firing_pin_improved"
+    },
+    {
+      "predicate": {"custom_model_data": 10503},
+      "model": "miningdim:item/gunsmith_part_sniper_firing_pin_milspec"
+    },
+    {
+      "predicate": {"custom_model_data": 10504},
+      "model": "miningdim:item/gunsmith_part_sniper_firing_pin_precision"
+    },
+    {
+      "predicate": {"custom_model_data": 10505},
+      "model": "miningdim:item/gunsmith_part_sniper_firing_pin_legendary"
+    },
+    {
+      "predicate": {"custom_model_data": 10601},
+      "model": "miningdim:item/gunsmith_part_sniper_barrel_trinity_precision_graduated_common"
+    },
+    {
+      "predicate": {"custom_model_data": 10602},
+      "model": "miningdim:item/gunsmith_part_sniper_barrel_trinity_precision_graduated_improved"
+    },
+    {
+      "predicate": {"custom_model_data": 10603},
+      "model": "miningdim:item/gunsmith_part_sniper_barrel_trinity_precision_graduated_milspec"
+    },
+    {
+      "predicate": {"custom_model_data": 10604},
+      "model": "miningdim:item/gunsmith_part_sniper_barrel_trinity_precision_graduated_precision"
+    },
+    {
+      "predicate": {"custom_model_data": 10605},
+      "model": "miningdim:item/gunsmith_part_sniper_barrel_trinity_precision_graduated_legendary"
+    },
+    {
+      "predicate": {"custom_model_data": 10701},
+      "model": "miningdim:item/gunsmith_part_ak_bolt_red_winter_chixue_a_common"
+    },
+    {
+      "predicate": {"custom_model_data": 10702},
+      "model": "miningdim:item/gunsmith_part_ak_bolt_red_winter_chixue_a_improved"
+    },
+    {
+      "predicate": {"custom_model_data": 10703},
+      "model": "miningdim:item/gunsmith_part_ak_bolt_red_winter_chixue_a_milspec"
+    },
+    {
+      "predicate": {"custom_model_data": 10704},
+      "model": "miningdim:item/gunsmith_part_ak_bolt_red_winter_chixue_a_precision"
+    },
+    {
+      "predicate": {"custom_model_data": 10705},
+      "model": "miningdim:item/gunsmith_part_ak_bolt_red_winter_chixue_a_legendary"
+    },
+    {
+      "predicate": {"custom_model_data": 1000001},
       "model": "miningdim:item/gunsmith_part_ar_core_gehenna_high_speed_gas_common"
     },
     {
-      "predicate": {
-        "custom_model_data": 1000002
-      },
+      "predicate": {"custom_model_data": 1000002},
       "model": "miningdim:item/gunsmith_part_ar_core_gehenna_high_speed_gas_improved"
     },
     {
-      "predicate": {
-        "custom_model_data": 1000003
-      },
+      "predicate": {"custom_model_data": 1000003},
       "model": "miningdim:item/gunsmith_part_ar_core_gehenna_high_speed_gas_milspec"
     },
     {
-      "predicate": {
-        "custom_model_data": 1000004
-      },
+      "predicate": {"custom_model_data": 1000004},
       "model": "miningdim:item/gunsmith_part_ar_core_gehenna_high_speed_gas_precision"
     },
     {
-      "predicate": {
-        "custom_model_data": 1000005
-      },
+      "predicate": {"custom_model_data": 1000005},
       "model": "miningdim:item/gunsmith_part_ar_core_gehenna_high_speed_gas_legendary"
     }
   ]

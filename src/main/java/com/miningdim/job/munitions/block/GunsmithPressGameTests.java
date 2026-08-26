@@ -1,18 +1,6 @@
 package com.miningdim.job.munitions.block;
 
 import com.miningdim.core.MiningConstants;
-import com.miningdim.economy.AbuseGuard;
-import com.miningdim.economy.Currency;
-import com.miningdim.economy.EconomyLedger;
-import com.miningdim.economy.EconomyService;
-import com.miningdim.economy.EconomyServices;
-import com.miningdim.economy.IEconomyService;
-import com.miningdim.economy.PlayerAbuseState;
-import com.miningdim.economy.SqliteEconomyLedger;
-import com.miningdim.job.IJobService;
-import com.miningdim.job.JobId;
-import com.miningdim.job.JobProgress;
-import com.miningdim.job.JobServices;
 import com.miningdim.job.munitions.ModMunitionsBlocks;
 import com.miningdim.job.munitions.ModMunitionsItems;
 import com.miningdim.job.munitions.MunitionsConfig;
@@ -25,22 +13,16 @@ import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.Tag;
+import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.player.Player;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.EnumMap;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.UUID;
-import java.util.function.Function;
 
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -51,6 +33,12 @@ public final class GunsmithPressGameTests {
     private static final BlockPos PRESS_REL = new BlockPos(1, 1, 1);
 
     private GunsmithPressGameTests() {
+    }
+
+    @BeforeBatch(batch = BATCH)
+    public static void useIsolatedPressEconomyBaseline(ServerLevel level) {
+        MunitionsConfig.QUALITY_UNLOCK_COMMON.set(0);
+        MunitionsConfig.PRESS_WORK_FEE_CREDITS.set(0);
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
@@ -82,25 +70,17 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        IJobService prevJob = swapJob(new FixedLevelJobService(10));
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
-        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
-        try {
-            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
-            helper.assertTrue(press.tryStartPreview(player), "complete hammer materials must start the press");
-            helper.assertTrue(press.isPressing(), "pistol hammer production must put the press into its active state");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 62,
-                    "common hammer production must consume two generic gun parts");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 60,
-                    "common hammer production must consume four alloy units");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 64,
-                    "common hammer production must not consume polymer");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_OUTPUT).isEmpty(),
-                    "press output must remain empty until production finishes");
-        } finally {
-            restoreJob(prevJob);
-            restoreEconomy(prevEco);
-        }
+
+        helper.assertTrue(press.tryStartPreview(player), "complete hammer materials must start the press");
+        helper.assertTrue(press.isPressing(), "pistol hammer production must put the press into its active state");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 62,
+                "common hammer production must consume two generic gun parts");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 60,
+                "common hammer production must consume four alloy units");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 64,
+                "common hammer production must not consume polymer");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_OUTPUT).isEmpty(),
+                "press output must remain empty until production finishes");
         helper.succeed();
     }
 
@@ -138,42 +118,33 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        IJobService prevJob = swapJob(new FixedLevelJobService(10));
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
-        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
-        try {
-            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
-            helper.assertTrue(press.tryStartPreview(player), "complete receiver materials must start the press");
-            helper.assertTrue(press.isPressing(), "bullpup receiver production must put the press into its active state");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
-                    "common receiver production must consume six generic gun parts");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 58,
-                    "common receiver production must consume six alloy units");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 59,
-                    "common receiver production must consume five polymer units");
-        } finally {
-            restoreJob(prevJob);
-            restoreEconomy(prevEco);
-        }
+
+        helper.assertTrue(press.tryStartPreview(player), "complete receiver materials must start the press");
+        helper.assertTrue(press.isPressing(), "bullpup receiver production must put the press into its active state");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
+                "common receiver production must consume six generic gun parts");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 58,
+                "common receiver production must consume six alloy units");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 59,
+                "common receiver production must consume five polymer units");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void marksmanPlatformOffersOrderedFivePartsAndStartsHandguardProduction(GameTestHelper helper) {
+    public static void marksmanPlatformOffersOrderedSixPartsAndStartsHandguardProduction(GameTestHelper helper) {
         helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
         GunsmithPressBlockEntity press = requirePress(helper);
 
         helper.assertTrue(press.trySelectPlatform(GunsmithPlatform.MARKSMAN.index()),
                 "press must accept the marksman platform");
-        helper.assertTrue(GunsmithPlatform.MARKSMAN.supportedParts().size() == 5,
-                "marksman press selection must contain exactly five parts");
+        helper.assertTrue(GunsmithPlatform.MARKSMAN.supportedParts().size() == 6,
+                "marksman press selection must contain exactly six parts");
         helper.assertTrue(new java.util.ArrayList<>(GunsmithPlatform.MARKSMAN.supportedParts()).equals(java.util.List.of(
                         GunsmithPressPart.HANDGUARD, GunsmithPressPart.CORE, GunsmithPressPart.STOCK,
-                        GunsmithPressPart.BOLT, GunsmithPressPart.BARREL)),
+                        GunsmithPressPart.BOLT, GunsmithPressPart.BARREL, GunsmithPressPart.GRIP)),
                 "marksman parts must retain the configured compact-row order");
-        helper.assertFalse(GunsmithPlatform.MARKSMAN.supports(GunsmithPressPart.GRIP),
-                "marksman must not expose a grip slot");
-        assertIllegalCombination(helper, GunsmithPlatform.MARKSMAN, GunsmithPressPart.GRIP);
+        helper.assertTrue(GunsmithPlatform.MARKSMAN.supports(GunsmithPressPart.GRIP),
+                "marksman must expose a grip slot");
 
         helper.assertTrue(press.trySelectPart(0), "first marksman compact row must select handguard");
         helper.assertTrue(press.selectedPart() == GunsmithPressPart.HANDGUARD,
@@ -186,38 +157,30 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        IJobService prevJob = swapJob(new FixedLevelJobService(10));
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
-        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
-        try {
-            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
-            helper.assertTrue(press.tryStartPreview(player), "complete handguard materials must start the press");
-            helper.assertTrue(press.isPressing(), "marksman handguard production must put the press into its active state");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 61,
-                    "common handguard production must consume three generic gun parts");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 62,
-                    "common handguard production must consume two alloy units");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 60,
-                    "common handguard production must consume four polymer units");
-        } finally {
-            restoreJob(prevJob);
-            restoreEconomy(prevEco);
-        }
+
+        helper.assertTrue(press.tryStartPreview(player), "complete handguard materials must start the press");
+        helper.assertTrue(press.isPressing(), "marksman handguard production must put the press into its active state");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 61,
+                "common handguard production must consume three generic gun parts");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 62,
+                "common handguard production must consume two alloy units");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 60,
+                "common handguard production must consume four polymer units");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void sniperPlatformOffersOrderedFourPartsAndStartsReceiverProduction(GameTestHelper helper) {
+    public static void sniperPlatformOffersOrderedFivePartsAndStartsFiringPinProduction(GameTestHelper helper) {
         helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
         GunsmithPressBlockEntity press = requirePress(helper);
 
         helper.assertTrue(press.trySelectPlatform(GunsmithPlatform.SNIPER.index()),
                 "press must accept the sniper platform");
-        helper.assertTrue(GunsmithPlatform.SNIPER.supportedParts().size() == 4,
-                "sniper press selection must contain exactly four parts");
+        helper.assertTrue(GunsmithPlatform.SNIPER.supportedParts().size() == 5,
+                "sniper press selection must contain exactly five parts");
         helper.assertTrue(new java.util.ArrayList<>(GunsmithPlatform.SNIPER.supportedParts()).equals(java.util.List.of(
                         GunsmithPressPart.RECEIVER, GunsmithPressPart.STOCK, GunsmithPressPart.BARREL,
-                        GunsmithPressPart.HANDGUARD)),
+                        GunsmithPressPart.HANDGUARD, GunsmithPressPart.FIRING_PIN)),
                 "sniper parts must retain the configured compact-row order");
         helper.assertFalse(GunsmithPlatform.SNIPER.supports(GunsmithPressPart.CORE),
                 "sniper must not expose a core slot");
@@ -231,11 +194,13 @@ public final class GunsmithPressGameTests {
 
         helper.assertTrue(press.selectedPart() == GunsmithPressPart.RECEIVER,
                 "first sniper compact row must resolve to receiver");
-        helper.assertTrue(press.trySelectPart(0), "press must select the first sniper compact row");
-        helper.assertTrue(press.selectedPart() == GunsmithPressPart.RECEIVER,
-                "first sniper compact row must select receiver");
+        helper.assertTrue(press.trySelectPart(compactRow(GunsmithPlatform.SNIPER,
+                        GunsmithPressPart.FIRING_PIN)),
+                "press must select the sniper firing pin by compact row");
+        helper.assertTrue(press.selectedPart() == GunsmithPressPart.FIRING_PIN,
+                "sniper firing-pin compact row must select firing pin");
         helper.assertTrue(press.selectedQuality() == GunsmithPartQuality.COMMON,
-                "receiver production must start at common quality");
+                "firing-pin production must start at common quality");
 
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
                 new ItemStack(Items.IRON_INGOT, 64));
@@ -244,23 +209,15 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        IJobService prevJob = swapJob(new FixedLevelJobService(10));
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
-        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
-        try {
-            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
-            helper.assertTrue(press.tryStartPreview(player), "complete receiver materials must start the press");
-            helper.assertTrue(press.isPressing(), "sniper receiver production must put the press into its active state");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
-                    "common receiver production must consume six generic gun parts");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 58,
-                    "common receiver production must consume six alloy units");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 59,
-                    "common receiver production must consume five polymer units");
-        } finally {
-            restoreJob(prevJob);
-            restoreEconomy(prevEco);
-        }
+
+        helper.assertTrue(press.tryStartPreview(player), "complete firing-pin materials must start the press");
+        helper.assertTrue(press.isPressing(), "sniper firing-pin production must put the press into its active state");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 60,
+                "common firing-pin production must consume four generic gun parts");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 59,
+                "common firing-pin production must consume five alloy units");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 64,
+                "common firing-pin production must not consume polymer");
         helper.succeed();
     }
 
@@ -298,118 +255,42 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        IJobService prevJob = swapJob(new FixedLevelJobService(10));
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
-        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
-        try {
-            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
-            helper.assertTrue(press.tryStartPreview(player), "complete bipod materials must start the press");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 61,
-                    "common bipod production must consume three generic gun parts");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 60,
-                    "common bipod production must consume four alloy units");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 63,
-                    "common bipod production must consume one polymer unit");
-        } finally {
-            restoreJob(prevJob);
-            restoreEconomy(prevEco);
-        }
+
+        helper.assertTrue(press.tryStartPreview(player), "complete bipod materials must start the press");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 61,
+                "common bipod production must consume three generic gun parts");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 60,
+                "common bipod production must consume four alloy units");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 63,
+                "common bipod production must consume one polymer unit");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void arCoreOffersGehennaVariantAndRejectsOtherSlots(GameTestHelper helper) {
-        List<GunsmithPartVariant> variants =
-                GunsmithPartVariant.availableFor(GunsmithPlatform.AR, GunsmithPressPart.CORE);
-        helper.assertTrue(variants.equals(List.of(
-                        GunsmithPartVariant.BASIC, GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS)),
-                "AR core must expose basic gas first and Gehenna high-speed gas second");
-        helper.assertTrue(GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS.supports(
-                        GunsmithPlatform.AR, GunsmithPressPart.CORE),
-                "Gehenna high-speed gas must support the AR core slot");
-        helper.assertFalse(GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS.supports(
-                        GunsmithPlatform.AK, GunsmithPressPart.CORE),
-                "Gehenna high-speed gas must reject the AK core slot");
-        helper.assertFalse(GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS.supports(
-                        GunsmithPlatform.AR, GunsmithPressPart.BARREL),
-                "Gehenna high-speed gas must reject non-core AR slots");
-
-        ItemStack valid = GunsmithPartItem.createStack(
-                ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AR, GunsmithPressPart.CORE,
-                GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS, GunsmithPartQuality.COMMON, 0.96D);
-        helper.assertTrue(GunsmithPartItem.matches(valid, GunsmithPlatform.AR, GunsmithPressPart.CORE,
-                        GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS),
-                "a valid Gehenna AR core must decode with its special variant");
-        assertIllegalVariantCombination(helper, GunsmithPlatform.AK, GunsmithPressPart.CORE,
-                GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS);
-        assertIllegalVariantCombination(helper, GunsmithPlatform.AR, GunsmithPressPart.BARREL,
-                GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS);
-        helper.succeed();
-    }
-
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void partDataReadsLegacyAsBasicAndWritesExplicitVersionedVariant(GameTestHelper helper) {
-        ItemStack legacy = GunsmithPartItem.createStack(
-                ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AR, GunsmithPressPart.CORE,
-                GunsmithPartVariant.BASIC, GunsmithPartQuality.COMMON, 1.00D);
-        CompoundTag legacyTag = legacy.getOrCreateTag();
-        legacyTag.remove("GunsmithPartDataVersion");
-        legacyTag.remove("GunsmithVariant");
-
-        GunsmithPartItem.PartData legacyData = GunsmithPartItem.requirePartData(legacy);
-        helper.assertTrue(legacyData.variant() == GunsmithPartVariant.BASIC,
-                "an unversioned part without a variant must migrate logically to basic");
-        helper.assertFalse(legacyTag.contains("GunsmithPartDataVersion"),
-                "reading a legacy part must not mutate it with a data version");
-        helper.assertFalse(legacyTag.contains("GunsmithVariant"),
-                "reading a legacy part must not mutate it with a variant");
-
-        ItemStack current = GunsmithPartItem.createStack(
-                ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AR, GunsmithPressPart.CORE,
-                GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS, GunsmithPartQuality.LEGENDARY, 1.50D);
-        CompoundTag currentTag = current.getOrCreateTag();
-        helper.assertTrue(currentTag.contains("GunsmithPartDataVersion", Tag.TAG_INT),
-                "new parts must write an integer data version");
-        helper.assertTrue(currentTag.getInt("GunsmithPartDataVersion") == 2,
-                "new parts must write the current data version 2");
-        helper.assertTrue(currentTag.contains("GunsmithVariant", Tag.TAG_STRING),
-                "new parts must write an explicit string variant");
-        helper.assertTrue(currentTag.getString("GunsmithVariant").equals(
-                        GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS.id()),
-                "new special parts must persist the Gehenna variant id");
-        helper.assertTrue(GunsmithPartItem.requirePartData(current).variant()
-                        == GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS,
-                "new special parts must decode their explicit variant");
-        helper.succeed();
-    }
-
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 20)
-    public static void pressPersistsAndProducesSelectedGehennaVariant(GameTestHelper helper) {
+    public static void shotgunPlatformOffersOrderedFourPartsAndStartsBoltProduction(GameTestHelper helper) {
         helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
         GunsmithPressBlockEntity press = requirePress(helper);
 
-        helper.assertTrue(press.trySelectVariant(GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS.index()),
-                "AR core press selection must accept Gehenna high-speed gas");
-        helper.assertTrue(press.selectedVariant() == GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS,
-                "press must retain the selected special variant");
-        CompoundTag saved = new CompoundTag();
-        press.saveAdditional(saved);
-        helper.assertTrue(saved.getString("SelectedVariant").equals(
-                        GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS.id()),
-                "press save data must persist the selected special variant");
+        helper.assertTrue(press.trySelectPlatform(GunsmithPlatform.SHOTGUN.index()),
+                "press must accept the shotgun platform");
+        helper.assertTrue(press.selectedPart() == GunsmithPressPart.STOCK,
+                "switching to shotgun must normalize to the first configured part");
+        helper.assertTrue(new java.util.ArrayList<>(GunsmithPlatform.SHOTGUN.supportedParts()).equals(java.util.List.of(
+                        GunsmithPressPart.STOCK, GunsmithPressPart.BARREL,
+                        GunsmithPressPart.BOLT, GunsmithPressPart.HANDGUARD)),
+                "shotgun parts must retain stock, barrel, bolt, handguard order");
+        helper.assertFalse(GunsmithPlatform.SHOTGUN.supports(GunsmithPressPart.CORE),
+                "shotgun must not expose a gas-system slot");
+        helper.assertFalse(GunsmithPlatform.SHOTGUN.supports(GunsmithPressPart.GRIP),
+                "shotgun must not expose a grip slot");
+        helper.assertFalse(GunsmithPlatform.SHOTGUN.supports(GunsmithPressPart.RECEIVER),
+                "shotgun must not expose a separate receiver slot");
+        assertIllegalCombination(helper, GunsmithPlatform.SHOTGUN, GunsmithPressPart.CORE);
+        assertIllegalCombination(helper, GunsmithPlatform.SHOTGUN, GunsmithPressPart.GRIP);
+        assertIllegalCombination(helper, GunsmithPlatform.SHOTGUN, GunsmithPressPart.RECEIVER);
 
-        helper.assertTrue(press.trySelectPlatform(GunsmithPlatform.AK.index()),
-                "press must allow switching away from AR before the load round trip");
-        helper.assertTrue(press.selectedVariant() == GunsmithPartVariant.BASIC,
-                "switching to an incompatible platform must normalize the variant to basic");
-        press.load(saved);
-        helper.assertTrue(press.selectedPlatform() == GunsmithPlatform.AR,
-                "press load must restore the selected AR platform");
-        helper.assertTrue(press.selectedPart() == GunsmithPressPart.CORE,
-                "press load must restore the selected core slot");
-        helper.assertTrue(press.selectedVariant() == GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS,
-                "press load must restore the selected Gehenna variant");
-
+        helper.assertTrue(press.trySelectPart(compactRow(GunsmithPlatform.SHOTGUN, GunsmithPressPart.BOLT)),
+                "press must select the shotgun bolt by compact row");
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
                 new ItemStack(Items.IRON_INGOT, 64));
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
@@ -417,34 +298,55 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
                 new ItemStack(Items.SLIME_BLOCK, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        IJobService prevJob = swapJob(new FixedLevelJobService(10));
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
-        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
-        try {
-            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
-            helper.assertTrue(press.tryStartPreview(player),
-                    "complete materials must start Gehenna component production");
-        } finally {
-            restoreJob(prevJob);
-            restoreEconomy(prevEco);
-        }
 
-        CompoundTag inProgress = new CompoundTag();
-        press.saveAdditional(inProgress);
-        inProgress.putLong("ActiveUntilTick", Math.max(1L, helper.getLevel().getGameTime()));
-        press.load(inProgress);
-        helper.runAfterDelay(2, () -> {
-            ItemStack output = press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_OUTPUT);
-            helper.assertFalse(output.isEmpty(), "completed press run must create an output component");
-            GunsmithPartItem.PartData outputData = GunsmithPartItem.requirePartData(output);
-            helper.assertTrue(outputData.platform() == GunsmithPlatform.AR,
-                    "pressed Gehenna component must retain the AR platform");
-            helper.assertTrue(outputData.part() == GunsmithPressPart.CORE,
-                    "pressed Gehenna component must retain the core slot");
-            helper.assertTrue(outputData.variant() == GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS,
-                    "pressed output must retain the selected Gehenna variant");
-            helper.succeed();
-        });
+        helper.assertTrue(press.tryStartPreview(player), "complete bolt materials must start the shotgun press");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
+                "common shotgun bolt production must consume six generic gun parts");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 59,
+                "common shotgun bolt production must consume five alloy units");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 64,
+                "common shotgun bolt production must consume no polymer");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void smgPlatformOffersOrderedFivePartsAndStartsReceiverProduction(GameTestHelper helper) {
+        helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
+        GunsmithPressBlockEntity press = requirePress(helper);
+
+        helper.assertTrue(press.trySelectPlatform(GunsmithPlatform.SMG.index()),
+                "press must accept the SMG platform");
+        helper.assertTrue(press.selectedPart() == GunsmithPressPart.BARREL,
+                "switching to SMG must normalize to the first configured part");
+        helper.assertTrue(new java.util.ArrayList<>(GunsmithPlatform.SMG.supportedParts()).equals(java.util.List.of(
+                        GunsmithPressPart.BARREL, GunsmithPressPart.STOCK, GunsmithPressPart.RECEIVER,
+                        GunsmithPressPart.HANDGUARD, GunsmithPressPart.GRIP)),
+                "SMG parts must retain barrel, stock, receiver, handguard, grip order");
+        helper.assertFalse(GunsmithPlatform.SMG.supports(GunsmithPressPart.CORE),
+                "SMG must not expose a gas-system slot");
+        helper.assertFalse(GunsmithPlatform.SMG.supports(GunsmithPressPart.BOLT),
+                "SMG must not expose a separate bolt slot");
+        assertIllegalCombination(helper, GunsmithPlatform.SMG, GunsmithPressPart.CORE);
+        assertIllegalCombination(helper, GunsmithPlatform.SMG, GunsmithPressPart.BOLT);
+
+        helper.assertTrue(press.trySelectPart(compactRow(GunsmithPlatform.SMG, GunsmithPressPart.RECEIVER)),
+                "press must select the SMG receiver by compact row");
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
+                new ItemStack(Items.IRON_INGOT, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
+                new ItemStack(Items.COPPER_INGOT, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
+                new ItemStack(Items.SLIME_BLOCK, 64));
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+
+        helper.assertTrue(press.tryStartPreview(player), "complete receiver materials must start the SMG press");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
+                "common SMG receiver production must consume six generic gun parts");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 58,
+                "common SMG receiver production must consume six alloy units");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 59,
+                "common SMG receiver production must consume five polymer units");
+        helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
@@ -487,6 +389,7 @@ public final class GunsmithPressGameTests {
         marksmanBases.put(GunsmithPressPart.STOCK, 451);
         marksmanBases.put(GunsmithPressPart.BOLT, 421);
         marksmanBases.put(GunsmithPressPart.BARREL, 411);
+        marksmanBases.put(GunsmithPressPart.GRIP, 441);
         for (Map.Entry<GunsmithPressPart, Integer> entry : marksmanBases.entrySet()) {
             for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
                 assertModelData(helper, GunsmithPlatform.MARKSMAN, entry.getKey(), quality,
@@ -499,6 +402,7 @@ public final class GunsmithPressGameTests {
         sniperBases.put(GunsmithPressPart.HANDGUARD, 531);
         sniperBases.put(GunsmithPressPart.STOCK, 551);
         sniperBases.put(GunsmithPressPart.RECEIVER, 591);
+        sniperBases.put(GunsmithPressPart.FIRING_PIN, 10501);
         for (Map.Entry<GunsmithPressPart, Integer> entry : sniperBases.entrySet()) {
             for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
                 assertModelData(helper, GunsmithPlatform.SNIPER, entry.getKey(), quality,
@@ -515,6 +419,31 @@ public final class GunsmithPressGameTests {
         for (Map.Entry<GunsmithPressPart, Integer> entry : machineGunBases.entrySet()) {
             for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
                 assertModelData(helper, GunsmithPlatform.MACHINE_GUN, entry.getKey(), quality,
+                        entry.getValue() + quality.index());
+            }
+        }
+
+        Map<GunsmithPressPart, Integer> shotgunBases = new EnumMap<>(GunsmithPressPart.class);
+        shotgunBases.put(GunsmithPressPart.BARREL, 711);
+        shotgunBases.put(GunsmithPressPart.BOLT, 721);
+        shotgunBases.put(GunsmithPressPart.HANDGUARD, 731);
+        shotgunBases.put(GunsmithPressPart.STOCK, 751);
+        for (Map.Entry<GunsmithPressPart, Integer> entry : shotgunBases.entrySet()) {
+            for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
+                assertModelData(helper, GunsmithPlatform.SHOTGUN, entry.getKey(), quality,
+                        entry.getValue() + quality.index());
+            }
+        }
+
+        Map<GunsmithPressPart, Integer> smgBases = new EnumMap<>(GunsmithPressPart.class);
+        smgBases.put(GunsmithPressPart.BARREL, 811);
+        smgBases.put(GunsmithPressPart.HANDGUARD, 831);
+        smgBases.put(GunsmithPressPart.GRIP, 841);
+        smgBases.put(GunsmithPressPart.STOCK, 851);
+        smgBases.put(GunsmithPressPart.RECEIVER, 891);
+        for (Map.Entry<GunsmithPressPart, Integer> entry : smgBases.entrySet()) {
+            for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
+                assertModelData(helper, GunsmithPlatform.SMG, entry.getKey(), quality,
                         entry.getValue() + quality.index());
             }
         }
@@ -537,17 +466,111 @@ public final class GunsmithPressGameTests {
                 "machine gun platform index must be six");
         helper.assertTrue(GunsmithPlatform.byIndex(6) == GunsmithPlatform.MACHINE_GUN,
                 "machine gun platform must decode from index six");
+        helper.assertTrue(GunsmithPlatform.SHOTGUN.index() == 7,
+                "shotgun platform index must be seven");
+        helper.assertTrue(GunsmithPlatform.byIndex(7) == GunsmithPlatform.SHOTGUN,
+                "shotgun platform must decode from index seven");
+        helper.assertTrue(GunsmithPlatform.SMG.index() == 8,
+                "SMG platform index must be eight");
+        helper.assertTrue(GunsmithPlatform.byIndex(8) == GunsmithPlatform.SMG,
+                "SMG platform must decode from index eight");
+        helper.assertTrue(GunsmithPlatform.AR.supportedParts().size() == 6,
+                "AR platform must retain its original six component slots");
+        helper.assertFalse(GunsmithPlatform.AR.supports(GunsmithPressPart.RECEIVER),
+                "AR platform must not expose a separate receiver slot");
         assertModelData(helper, GunsmithPlatform.AR, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1);
         assertModelData(helper, GunsmithPlatform.AR, GunsmithPressPart.STOCK, GunsmithPartQuality.LEGENDARY, 55);
-        assertModelData(helper, GunsmithPlatform.AR, GunsmithPressPart.CORE,
-                GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS, GunsmithPartQuality.COMMON, 1_000_001);
-        assertModelData(helper, GunsmithPlatform.AR, GunsmithPressPart.CORE,
-                GunsmithPartVariant.GEHENNA_HIGH_SPEED_GAS, GunsmithPartQuality.LEGENDARY, 1_000_005);
         assertModelData(helper, GunsmithPlatform.AK, GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 101);
         assertModelData(helper, GunsmithPlatform.AK, GunsmithPressPart.STOCK, GunsmithPartQuality.LEGENDARY, 155);
+        for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
+            ItemStack gehenna = GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(),
+                    GunsmithPlatform.AR, GunsmithPressPart.CORE, quality, GunsmithPartVariant.GEHENNA_GAS);
+            helper.assertTrue(gehenna.getOrCreateTag().getInt("CustomModelData") == 10001 + quality.index(),
+                    "gehenna gas quality must use its reserved model code");
+            ItemStack redEast = GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(),
+                    GunsmithPlatform.AK, GunsmithPressPart.CORE, quality,
+                    GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS);
+            helper.assertTrue(redEast.getOrCreateTag().getInt("CustomModelData") == 10101 + quality.index(),
+                    "red east gas quality must use its reserved model code");
+            ItemStack mkAxA = GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(),
+                    GunsmithPlatform.AR, GunsmithPressPart.BOLT, quality,
+                    GunsmithPartVariant.MK_AX_A_BOLT);
+            helper.assertTrue(mkAxA.getOrCreateTag().getInt("CustomModelData") == 10201 + quality.index(),
+                    "MK-AX-A bolt quality must use its reserved model code");
+            ItemStack threeRoundBurst = GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(),
+                    GunsmithPlatform.AR, GunsmithPressPart.BOLT, quality,
+                    GunsmithPartVariant.AR_THREE_ROUND_BURST_BOLT);
+            helper.assertTrue(threeRoundBurst.getOrCreateTag().getInt("CustomModelData")
+                            == 10401 + quality.index(),
+                    "three-round-burst bolt quality must use its reserved model code");
+            ItemStack trinitySniperBarrel = GunsmithPartItem.createStack(
+                    ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.SNIPER,
+                    GunsmithPressPart.BARREL, quality,
+                    GunsmithPartVariant.TRINITY_PRECISION_GRADUATED_SNIPER_BARREL);
+            helper.assertTrue(trinitySniperBarrel.getOrCreateTag().getInt("CustomModelData")
+                            == 10601 + quality.index(),
+                    "Trinity sniper barrel quality must use its reserved model code");
+        }
+        ItemStack legacyMkAxA = GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(),
+                GunsmithPlatform.AR, GunsmithPressPart.BOLT, GunsmithPartQuality.COMMON,
+                GunsmithPartVariant.MK_AX_A_BOLT);
+        legacyMkAxA.getOrCreateTag().putString("GunsmithPart", "receiver");
+        legacyMkAxA.getOrCreateTag().putString("GunsmithVariant", "mk_ax_a_receiver");
+        GunsmithPartItem.PartData migrated = GunsmithPartItem.requirePartData(legacyMkAxA);
+        helper.assertTrue(migrated.part() == GunsmithPressPart.BOLT
+                        && migrated.variant() == GunsmithPartVariant.MK_AX_A_BOLT,
+                "legacy AR receiver item must migrate into the existing bolt slot");
+        helper.assertTrue("bolt".equals(legacyMkAxA.getOrCreateTag().getString("GunsmithPart"))
+                        && "mk_ax_a_bolt".equals(legacyMkAxA.getOrCreateTag().getString("GunsmithVariant")),
+                "legacy MK-AX-A item NBT must be rewritten to the corrected bolt ids");
         assertIllegalCombination(helper, GunsmithPlatform.PISTOL, GunsmithPressPart.CORE);
         assertIllegalCombination(helper, GunsmithPlatform.AR, GunsmithPressPart.SLIDE);
         assertIllegalCombination(helper, GunsmithPlatform.MACHINE_GUN, GunsmithPressPart.SLIDE);
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void pressOffersPlatformSpecificGasForArAndAkCore(GameTestHelper helper) {
+        helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
+        GunsmithPressBlockEntity press = requirePress(helper);
+        helper.assertTrue(press.trySelectVariant(GunsmithPartVariant.GEHENNA_GAS.index()),
+                "AR/M4 core must accept the Gehenna gas variant");
+        helper.assertTrue(press.selectedVariant() == GunsmithPartVariant.GEHENNA_GAS,
+                "press must retain selected Gehenna gas");
+        helper.assertTrue(press.trySelectPlatform(GunsmithPlatform.AK.index()),
+                "press must select AK platform");
+        helper.assertTrue(press.selectedVariant() == GunsmithPartVariant.BASE,
+                "switching from AR to AK must clear the AR-only Gehenna gas");
+        helper.assertTrue(press.trySelectVariant(GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS.index()),
+                "AK core must accept red east gas");
+        helper.assertTrue(press.selectedVariant() == GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS,
+                "press must retain selected red east gas");
+        helper.assertTrue(press.trySelectPart(compactRow(GunsmithPlatform.AK, GunsmithPressPart.BARREL)),
+                "press must select AK barrel");
+        helper.assertTrue(press.selectedVariant() == GunsmithPartVariant.BASE,
+                "changing away from AK core must normalize the component variant");
+        helper.assertTrue(press.trySelectPlatform(GunsmithPlatform.AR.index()),
+                "press must switch back to AR platform");
+        helper.assertTrue(press.trySelectPart(compactRow(GunsmithPlatform.AR, GunsmithPressPart.BOLT)),
+                "press must select the existing AR bolt slot");
+        helper.assertTrue(press.trySelectVariant(GunsmithPartVariant.MK_AX_A_BOLT.index()),
+                "AR bolt slot must accept MK-AX-A");
+        helper.assertTrue(press.selectedVariant() == GunsmithPartVariant.MK_AX_A_BOLT,
+                "press must retain selected MK-AX-A bolt");
+        helper.assertTrue(press.trySelectVariant(GunsmithPartVariant.AR_THREE_ROUND_BURST_BOLT.index()),
+                "the same AR bolt slot must accept the three-round-burst bolt");
+        helper.assertTrue(press.selectedVariant() == GunsmithPartVariant.AR_THREE_ROUND_BURST_BOLT,
+                "press must retain the selected three-round-burst bolt");
+        helper.assertTrue(press.trySelectPlatform(GunsmithPlatform.SNIPER.index()),
+                "press must select the bolt-action rifle platform");
+        helper.assertTrue(press.trySelectPart(compactRow(GunsmithPlatform.SNIPER, GunsmithPressPart.BARREL)),
+                "press must select the sniper barrel slot");
+        helper.assertTrue(press.trySelectVariant(
+                        GunsmithPartVariant.TRINITY_PRECISION_GRADUATED_SNIPER_BARREL.index()),
+                "sniper barrel slot must accept the Trinity precision-graduated variant");
+        helper.assertTrue(press.selectedVariant()
+                        == GunsmithPartVariant.TRINITY_PRECISION_GRADUATED_SNIPER_BARREL,
+                "press must retain the selected Trinity sniper barrel");
         helper.succeed();
     }
 
@@ -586,36 +609,27 @@ public final class GunsmithPressGameTests {
         press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
                 new ItemStack(Items.COBBLESTONE, 64));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        IJobService prevJob = swapJob(new FixedLevelJobService(10));
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
-        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
-        try {
-            ledger.credit(player.getUUID(), Currency.CREDIT, 100000L);
-            helper.assertFalse(press.tryStartPreview(player),
-                    "cobblestone stuffed into every slot must not start a real gun-part press");
-            helper.assertFalse(press.isPressing(), "rejected press must stay idle");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 64,
-                    "rejected press must not consume the fake gun-parts material");
+        helper.assertFalse(press.tryStartPreview(player),
+                "cobblestone stuffed into every slot must not start a real gun-part press");
+        helper.assertFalse(press.isPressing(), "rejected press must stay idle");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 64,
+                "rejected press must not consume the fake gun-parts material");
 
-            // 换成正确材料 -> 正常开工并按 6/6/5 消耗。
-            press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
-                    new ItemStack(Items.IRON_INGOT, 64));
-            press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
-                    new ItemStack(Items.COPPER_INGOT, 64));
-            press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
-                    new ItemStack(Items.SLIME_BLOCK, 64));
-            helper.assertTrue(press.tryStartPreview(player),
-                    "correct iron/copper/slime materials must start the receiver press");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
-                    "receiver press must consume six iron gun parts");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 58,
-                    "receiver press must consume six copper alloy");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 59,
-                    "receiver press must consume five slime polymer");
-        } finally {
-            restoreJob(prevJob);
-            restoreEconomy(prevEco);
-        }
+        // 换成正确材料 -> 正常开工并按 6/6/5 消耗。
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
+                new ItemStack(Items.IRON_INGOT, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
+                new ItemStack(Items.COPPER_INGOT, 64));
+        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
+                new ItemStack(Items.SLIME_BLOCK, 64));
+        helper.assertTrue(press.tryStartPreview(player),
+                "correct iron/copper/slime materials must start the receiver press");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 58,
+                "receiver press must consume six iron gun parts");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 58,
+                "receiver press must consume six copper alloy");
+        helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 59,
+                "receiver press must consume five slime polymer");
         helper.succeed();
     }
 
@@ -640,17 +654,10 @@ public final class GunsmithPressGameTests {
 
     private static void assertModelData(GameTestHelper helper, GunsmithPlatform platform,
                                         GunsmithPressPart part, GunsmithPartQuality quality, int expected) {
-        assertModelData(helper, platform, part, GunsmithPartVariant.BASIC, quality, expected);
-    }
-
-    private static void assertModelData(GameTestHelper helper, GunsmithPlatform platform,
-                                        GunsmithPressPart part, GunsmithPartVariant variant,
-                                        GunsmithPartQuality quality, int expected) {
         ItemStack stack = GunsmithPartItem.createStack(
-                ModMunitionsItems.GUNSMITH_PART.get(), platform, part, variant, quality);
+                ModMunitionsItems.GUNSMITH_PART.get(), platform, part, quality);
         helper.assertTrue(stack.getOrCreateTag().getInt("CustomModelData") == expected,
-                platform + " " + part + " " + variant + " " + quality
-                        + " model code must remain " + expected);
+                platform + " " + part + " " + quality + " model code must remain " + expected);
     }
 
     private static void assertIllegalCombination(GameTestHelper helper, GunsmithPlatform platform,
@@ -663,208 +670,5 @@ public final class GunsmithPressGameTests {
             threw = true;
         }
         helper.assertTrue(threw, platform + " must reject unsupported part " + part);
-    }
-
-    private static void assertIllegalVariantCombination(GameTestHelper helper, GunsmithPlatform platform,
-                                                        GunsmithPressPart part,
-                                                        GunsmithPartVariant variant) {
-        boolean threw = false;
-        try {
-            GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(), platform, part,
-                    variant, GunsmithPartQuality.COMMON);
-        } catch (IllegalArgumentException expected) {
-            threw = true;
-        }
-        helper.assertTrue(threw, variant + " must reject " + platform + "/" + part);
-    }
-
-    // ============================================================
-    // F048 冲压品质等级门: 拒绝时不留半吊子状态 + 服务端在开工帧权威重校 (不信客户端已选好的高品质)
-    // ============================================================
-
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void pressQualitySelectionRejectsLockedTierAndServerRechecksAtStart(GameTestHelper helper) {
-        helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
-        GunsmithPressBlockEntity press = requirePress(helper);
-        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        GunsmithPartQuality before = press.selectedQuality();
-
-        IJobService lowJob = swapJob(new FixedLevelJobService(1));
-        try {
-            helper.assertFalse(press.trySelectQuality(GunsmithPartQuality.LEGENDARY.index(), player),
-                    "L1 player must not select the LEGENDARY quality tier (F048 unlock L10)");
-            helper.assertTrue(press.selectedQuality() == before,
-                    "a rejected quality selection must leave the prior tier unchanged (no half-applied state)");
-        } finally {
-            restoreJob(lowJob);
-        }
-
-        IJobService highJob = swapJob(new FixedLevelJobService(10));
-        try {
-            helper.assertTrue(press.trySelectQuality(GunsmithPartQuality.LEGENDARY.index(), player),
-                    "L10 player must select the LEGENDARY quality tier");
-            helper.assertTrue(press.selectedQuality() == GunsmithPartQuality.LEGENDARY,
-                    "accepted selection must persist LEGENDARY");
-        } finally {
-            restoreJob(highJob);
-        }
-
-        // 服务端权威重校: 高等级玩家已选好 LEGENDARY 后, 换回低等级玩家开工必须仍被挡, 且拒绝帧零消耗 (不能靠
-        // 别人选好的高品质开工)。
-        stockPressMaterials(press);
-        IJobService reDowngraded = swapJob(new FixedLevelJobService(1));
-        try {
-            helper.assertFalse(press.tryStartPreview(player),
-                    "the server must re-check the quality gate at start time even though LEGENDARY is already selected");
-            helper.assertFalse(press.isPressing(), "a level-gate rejection must not start the press");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 64,
-                    "a rejected start must not consume gun parts (zero-cost rejection frame)");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 64,
-                    "a rejected start must not consume alloy");
-            helper.assertTrue(press.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 64,
-                    "a rejected start must not consume polymer");
-        } finally {
-            restoreJob(reDowngraded);
-        }
-        helper.succeed();
-    }
-
-    // ============================================================
-    // F048 冲压工费 sink: 按品质 materialMultiplier 精确扣款; 余额差 1 CP 时全额作废且零消耗 (先查后扣)
-    // ============================================================
-
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void pressWorkFeeScalesWithQualityAndForfeitsWhenUnaffordable(GameTestHelper helper) {
-        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
-        IEconomyService prevEco = swapEconomy(freshEconomy(ledger));
-        IJobService prevJob = swapJob(new FixedLevelJobService(10));
-        try {
-            // -- 场景 A: 余额恰好够付 PRECISION 工费 -> 精确扣款到 0。
-            helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
-            GunsmithPressBlockEntity affordable = requirePress(helper);
-            helper.assertTrue(affordable.trySelectQuality(GunsmithPartQuality.PRECISION.index(), player),
-                    "L10 player selects PRECISION quality");
-            stockPressMaterials(affordable);
-            long expectedFee = (long) MunitionsConfig.PRESS_WORK_FEE_CREDITS.get()
-                    * GunsmithPartQuality.PRECISION.materialMultiplier();
-            ledger.credit(player.getUUID(), Currency.CREDIT, expectedFee);
-
-            helper.assertTrue(affordable.tryStartPreview(player),
-                    "sufficient balance must start the press and charge the PRECISION work fee");
-            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 0L,
-                    "work fee sink must destroy exactly pressWorkFeeCredits x quality.materialMultiplier(), balance left "
-                            + ledger.balance(player.getUUID(), Currency.CREDIT));
-
-            // -- 场景 B: 余额比 MILSPEC 工费差 1 CP (边界值) -> 全额作废, 料槽/开工态/余额分文不动。
-            // 场景 A 的台还在 isPressing() 中 (同一 tick 未推进) —— 同一坐标重新 setBlock 同一方块类型不会真的
-            // 换出新 BE (vanilla 只在 Block 类型变化时才销毁重建), 故先落 AIR 强制销毁旧 BE, 再落回冲压机取一台
-            // 全新的、真正空闲的 BE, 否则 trySelectQuality/tryStartPreview 会被场景 A 遗留的 isPressing() 挡在
-            // 等级门/工费门之前, 本条断言就测不到真正要测的东西。
-            helper.setBlock(PRESS_REL, Blocks.AIR.defaultBlockState());
-            helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
-            GunsmithPressBlockEntity unaffordable = requirePress(helper);
-            helper.assertTrue(unaffordable.trySelectQuality(GunsmithPartQuality.MILSPEC.index(), player),
-                    "L10 player selects MILSPEC quality");
-            stockPressMaterials(unaffordable);
-            long milspecFee = (long) MunitionsConfig.PRESS_WORK_FEE_CREDITS.get()
-                    * GunsmithPartQuality.MILSPEC.materialMultiplier();
-            ledger.credit(player.getUUID(), Currency.CREDIT, milspecFee - 1L);
-
-            helper.assertFalse(unaffordable.tryStartPreview(player),
-                    "a balance one credit short of the MILSPEC work fee must reject the press run");
-            helper.assertFalse(unaffordable.isPressing(), "an unaffordable start must not enter the pressing state");
-            helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == milspecFee - 1L,
-                    "a failed fee charge must leave the balance untouched, got "
-                            + ledger.balance(player.getUUID(), Currency.CREDIT));
-            helper.assertTrue(unaffordable.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS).getCount() == 64,
-                    "a failed fee charge must not consume gun parts");
-            helper.assertTrue(unaffordable.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY).getCount() == 64,
-                    "a failed fee charge must not consume alloy");
-            helper.assertTrue(unaffordable.inventory().getStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER).getCount() == 64,
-                    "a failed fee charge must not consume polymer");
-        } finally {
-            restoreJob(prevJob);
-            restoreEconomy(prevEco);
-        }
-        helper.succeed();
-    }
-
-    private static void stockPressMaterials(GunsmithPressBlockEntity press) {
-        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_GUN_PARTS,
-                new ItemStack(Items.IRON_INGOT, 64));
-        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_ALLOY,
-                new ItemStack(Items.COPPER_INGOT, 64));
-        press.inventory().setStackInSlot(GunsmithPressBlockEntity.SLOT_POLYMER,
-                new ItemStack(Items.SLIME_BLOCK, 64));
-    }
-
-    private static IJobService swapJob(IJobService fake) {
-        IJobService prev;
-        try {
-            prev = JobServices.jobService();
-        } catch (IllegalStateException notRegistered) {
-            prev = null;
-        }
-        JobServices.registerJobService(fake);
-        return prev;
-    }
-
-    private static void restoreJob(IJobService prev) {
-        if (prev != null) {
-            JobServices.registerJobService(prev);
-        } else {
-            JobServices.reset();
-        }
-    }
-
-    private static IEconomyService swapEconomy(IEconomyService fake) {
-        IEconomyService prev = EconomyServices.isRegistered() ? EconomyServices.economyService() : null;
-        EconomyServices.registerEconomyService(fake);
-        return prev;
-    }
-
-    private static void restoreEconomy(IEconomyService prev) {
-        if (prev != null) {
-            EconomyServices.registerEconomyService(prev);
-        } else {
-            EconomyServices.reset();
-        }
-    }
-
-    /** 真 EconomyService (内存账本 + AbuseGuard + 惰性玩家态解析器); tryCharge 走真 sink 语义。 */
-    private static IEconomyService freshEconomy(EconomyLedger ledger) {
-        Map<UUID, PlayerAbuseState> states = new HashMap<>();
-        Function<UUID, PlayerAbuseState> resolver = id -> states.computeIfAbsent(id, k -> new PlayerAbuseState());
-        return new EconomyService(ledger, new AbuseGuard(), resolver);
-    }
-
-    /** 定级职业门面替身 (level/grantXp 不计数, 仅供枪匠等级门读取); 逐字照抄 MunitionsGameTests 同名类。 */
-    private static final class FixedLevelJobService implements IJobService {
-        private final int level;
-
-        FixedLevelJobService(int level) {
-            this.level = level;
-        }
-
-        @Override
-        public int level(Player player, JobId job) {
-            return level;
-        }
-
-        @Override
-        public long totalXp(Player player, JobId job) {
-            return 0L;
-        }
-
-        @Override
-        public long grantXp(Player player, JobId job, long rawXp) {
-            return rawXp;
-        }
-
-        @Override
-        public JobProgress progress(Player player, JobId job) {
-            throw new UnsupportedOperationException("not exercised by gunsmith press tests");
-        }
     }
 }

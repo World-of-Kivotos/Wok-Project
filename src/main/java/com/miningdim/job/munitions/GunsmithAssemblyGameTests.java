@@ -48,6 +48,15 @@ public final class GunsmithAssemblyGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void receiverSlotStaysAboveSmgBody(GameTestHelper helper) {
+        helper.assertTrue(GunsmithAssemblyMenu.partSlotX(GunsmithPressPart.RECEIVER) == 222,
+                "receiver slot must stay horizontally aligned above the SMG receiver body");
+        helper.assertTrue(GunsmithAssemblyMenu.partSlotY(GunsmithPressPart.RECEIVER) == 55,
+                "receiver slot must stay above the SMG preview instead of covering its stock");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void assemblyBenchCoordinatesRoundTripForEveryFacing(GameTestHelper helper) {
         GunsmithAssemblyBenchBlock block = assemblyBlock();
         BlockPos mainPos = new BlockPos(40, 8, 40);

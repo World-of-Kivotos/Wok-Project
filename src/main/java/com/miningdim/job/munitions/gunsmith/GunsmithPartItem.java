@@ -4,28 +4,33 @@ import com.miningdim.job.munitions.ModMunitionsItems;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.TextColor;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.inventory.tooltip.TooltipComponent;
 import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 
 public final class GunsmithPartItem extends Item {
 
     private static final String K_PLATFORM = "GunsmithPlatform";
     private static final String K_PART = "GunsmithPart";
-    private static final String K_VARIANT = "GunsmithVariant";
     private static final String K_QUALITY = "GunsmithQuality";
     private static final String K_COEFFICIENT = "GunsmithCoefficient";
-    private static final String K_DATA_VERSION = "GunsmithPartDataVersion";
-    private static final int CURRENT_DATA_VERSION = 2;
+    private static final String K_VARIANT = "GunsmithVariant";
+    private static final TextColor EFFECT_LABEL_COLOR = TextColor.fromRgb(0xD0D0D0);
+    private static final TextColor EFFECT_NEUTRAL_COLOR = TextColor.fromRgb(0xA0A0A0);
+    private static final TextColor EFFECT_BENEFIT_COLOR = TextColor.fromRgb(0x55D86A);
+    private static final TextColor EFFECT_PENALTY_COLOR = TextColor.fromRgb(0xE05A5A);
 
     public GunsmithPartItem(Properties properties) {
         super(properties);
@@ -33,43 +38,45 @@ public final class GunsmithPartItem extends Item {
 
     public static ItemStack createStack(Item item, GunsmithPlatform platform,
                                         GunsmithPressPart part, GunsmithPartQuality quality) {
-        return createStack(item, platform, part, GunsmithPartVariant.BASIC,
-                quality, quality.midpointCoefficient());
+        return createStack(item, platform, part, quality, GunsmithPartVariant.BASE,
+                quality.midpointCoefficient());
     }
 
     public static ItemStack createStack(Item item, GunsmithPlatform platform,
-                                        GunsmithPressPart part, GunsmithPartVariant variant,
-                                        GunsmithPartQuality quality) {
-        return createStack(item, platform, part, variant, quality, quality.midpointCoefficient());
+                                        GunsmithPressPart part, GunsmithPartQuality quality,
+                                        GunsmithPartVariant variant) {
+        return createStack(item, platform, part, quality, variant, quality.midpointCoefficient());
     }
 
     public static ItemStack createRolledStack(Item item, GunsmithPlatform platform,
                                               GunsmithPressPart part, GunsmithPartQuality quality,
                                               net.minecraft.util.RandomSource random) {
-        return createRolledStack(item, platform, part, GunsmithPartVariant.BASIC, quality, random);
+        return createRolledStack(item, platform, part, quality, GunsmithPartVariant.BASE, random);
     }
 
     public static ItemStack createRolledStack(Item item, GunsmithPlatform platform,
-                                              GunsmithPressPart part, GunsmithPartVariant variant,
-                                              GunsmithPartQuality quality,
+                                              GunsmithPressPart part, GunsmithPartQuality quality,
+                                              GunsmithPartVariant variant,
                                               net.minecraft.util.RandomSource random) {
-        return createStack(item, platform, part, variant, quality, quality.rollCoefficient(random));
+        double coefficient = variant == GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS
+                ? quality.midpointCoefficient() : quality.rollCoefficient(random);
+        return createStack(item, platform, part, quality, variant, coefficient);
     }
 
     public static ItemStack createStack(Item item, GunsmithPlatform platform,
                                         GunsmithPressPart part, GunsmithPartQuality quality,
                                         double coefficient) {
-        return createStack(item, platform, part, GunsmithPartVariant.BASIC, quality, coefficient);
+        return createStack(item, platform, part, quality, GunsmithPartVariant.BASE, coefficient);
     }
 
     public static ItemStack createStack(Item item, GunsmithPlatform platform,
-                                        GunsmithPressPart part, GunsmithPartVariant variant,
-                                        GunsmithPartQuality quality, double coefficient) {
+                                        GunsmithPressPart part, GunsmithPartQuality quality,
+                                        GunsmithPartVariant variant, double coefficient) {
         Objects.requireNonNull(item, "item");
         Objects.requireNonNull(platform, "platform");
         Objects.requireNonNull(part, "part");
-        Objects.requireNonNull(variant, "variant");
         Objects.requireNonNull(quality, "quality");
+        Objects.requireNonNull(variant, "variant");
         if (!platform.supports(part)) {
             throw new IllegalArgumentException("Gunsmith platform " + platform.id()
                     + " does not allow part " + part.id());
@@ -82,23 +89,25 @@ public final class GunsmithPartItem extends Item {
         requireCoefficient(roundedCoefficient, quality);
         ItemStack stack = new ItemStack(item);
         CompoundTag tag = stack.getOrCreateTag();
-        tag.putInt(K_DATA_VERSION, CURRENT_DATA_VERSION);
         tag.putString(K_PLATFORM, platform.id());
         tag.putString(K_PART, part.id());
-        tag.putString(K_VARIANT, variant.id());
         tag.putString(K_QUALITY, quality.id());
+        tag.putString(K_VARIANT, variant.id());
         tag.putDouble(K_COEFFICIENT, roundedCoefficient);
-        tag.putInt("CustomModelData", customModelData(platform, part, variant, quality));
+        tag.putInt("CustomModelData", variant.customModelData(platform, part, quality));
         return stack;
     }
 
     public static void addCreativeStacks(CreativeModeTab.Output output) {
         for (GunsmithPlatform platform : GunsmithPlatform.values()) {
             for (GunsmithPressPart part : platform.supportedParts()) {
-                for (GunsmithPartVariant variant : GunsmithPartVariant.availableFor(platform, part)) {
+                for (GunsmithPartVariant variant : GunsmithPartVariant.values()) {
+                    if (!variant.supports(platform, part)) {
+                        continue;
+                    }
                     for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
-                        output.accept(createStack(ModMunitionsItems.GUNSMITH_PART.get(),
-                                platform, part, variant, quality));
+                        output.accept(createStack(ModMunitionsItems.GUNSMITH_PART.get(), platform, part,
+                                quality, variant));
                     }
                 }
             }
@@ -109,8 +118,6 @@ public final class GunsmithPartItem extends Item {
     public static PartData tryPartData(ItemStack stack) {
         // 渲染线程 (getName/appendHoverText) 不能抛异常, 否则崩客户端; 服务端装配/冲压路径仍走
         // requirePartData 硬校验。裸/损坏 NBT 仅 op /give 可造。(审查 GS-2)
-        // 提为 public: WebUI 的物品详情同属只读展示路径, 它需要的正是"读不出来就降级"而不是把一件脏零件
-        // 变成点开即报错。严禁拿 isGunsmithPart 当探针 —— 那个方法内部就调 requirePartData, 它本身会抛。
         try {
             return requirePartData(stack);
         } catch (IllegalArgumentException invalid) {
@@ -124,14 +131,12 @@ public final class GunsmithPartItem extends Item {
         if (data == null) {
             return super.getName(stack);
         }
-        MutableComponent name = Component.empty();
-        if (data.variant() == GunsmithPartVariant.BASIC) {
-            name.append(Component.translatable(data.platform().labelKey()))
-                    .append(Component.translatable(data.part().labelKey()));
-        } else {
-            name.append(Component.translatable(data.variant().labelKey()));
-        }
-        name.append(Component.literal(" "))
+        MutableComponent name = Component.empty()
+                .append(Component.translatable(data.variant() == GunsmithPartVariant.BASE
+                        ? data.platform().labelKey() : data.variant().labelKey()))
+                .append(data.variant() == GunsmithPartVariant.BASE
+                        ? Component.translatable(data.part().labelKey()) : Component.empty())
+                .append(Component.literal(" "))
                 .append(Component.translatable(data.quality().labelKey()));
         return name.withStyle(qualityStyle(data.quality()));
     }
@@ -148,27 +153,70 @@ public final class GunsmithPartItem extends Item {
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.platform",
                 Component.translatable(data.platform().labelKey())).withStyle(ChatFormatting.GRAY));
         tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.part",
-                Component.translatable(data.part().slotKey())).withStyle(ChatFormatting.GRAY));
-        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.variant",
-                Component.translatable(data.variant().labelKey())).withStyle(ChatFormatting.GRAY));
-        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.quality",
-                Component.translatable(data.quality().labelKey())).withStyle(qualityStyle(data.quality())));
-        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.coefficient",
-                Component.literal(formatCoefficient(data.coefficient()))).withStyle(ChatFormatting.AQUA));
-        if (data.variant() != GunsmithPartVariant.BASIC) {
-            tooltip.add(Component.translatable(data.variant().descriptionKey()).withStyle(ChatFormatting.DARK_GRAY));
-            tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.fire_rate",
-                    Component.literal(formatPercentChange(data.variant().fireRateMultiplier(data.coefficient()) - 1.0D)))
-                    .withStyle(ChatFormatting.GREEN));
-            tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.vertical_recoil",
-                    Component.literal(formatPercentChange(
-                            data.variant().verticalRecoilMultiplier(data.coefficient()) - 1.0D)))
-                    .withStyle(ChatFormatting.RED));
-            tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.spread",
-                    Component.literal(formatPercentChange(
-                            data.variant().inaccuracyMultiplier(data.coefficient()) - 1.0D)))
-                    .withStyle(ChatFormatting.RED));
+                Component.translatable(data.part().labelKey())).withStyle(ChatFormatting.GRAY));
+        if (data.variant() != GunsmithPartVariant.BASE) {
+            tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.variant",
+                    Component.translatable(data.variant().labelKey())).withStyle(ChatFormatting.GOLD));
         }
+        String descriptionKey = data.variant() == GunsmithPartVariant.BASE
+                ? "tooltip.miningdim.gunsmith_part.description.base." + data.part().id()
+                : "tooltip.miningdim.gunsmith_part.description.variant." + data.variant().id();
+        tooltip.add(Component.translatable(descriptionKey).withStyle(ChatFormatting.DARK_GRAY));
+        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.quality",
+                styledQualityName(data.quality())).withStyle(ChatFormatting.GRAY));
+        tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.coefficient",
+                Component.literal(formatCoefficient(data.coefficient())))
+                .withStyle(coefficientStyle(data.coefficient())));
+        double durabilityMultiplier = data.variant().maximumDurabilityMultiplier();
+        if (data.variant().hasStatEffects(data.quality()) || data.variant().forcesBurstFireMode()
+                || Math.abs(durabilityMultiplier - 1.0D) > 0.0005D) {
+            tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.effects")
+                    .withStyle(ChatFormatting.GOLD));
+            if (data.variant().forcesBurstFireMode()) {
+                tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_part.effect.fire_mode",
+                                Component.translatable("gunsmith.fire_mode.three_round_burst")
+                                        .withStyle(ChatFormatting.GREEN))
+                        .withStyle(style -> style.withColor(EFFECT_LABEL_COLOR)));
+            }
+            addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.damage",
+                    data.variant().damageMultiplier(data.quality()), true);
+            addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.headshot",
+                    data.variant().headshotMultiplier(data.quality()), true);
+            addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.fire_rate",
+                    data.variant().fireRateMultiplier(data.quality()), true);
+            addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.range",
+                    data.variant().rangeMultiplier(data.quality()), true);
+            addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.ammo_speed",
+                    data.variant().ammoSpeedMultiplier(data.quality()), true);
+            addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.armor_ignore",
+                    data.variant().armorIgnoreMultiplier(data.quality()), true);
+            addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.spread",
+                    data.variant().spreadMultiplier(data.quality()), false);
+            addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.recoil",
+                    data.variant().recoilMultiplier(data.quality()), false);
+            addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.vertical_recoil",
+                    data.variant().verticalRecoilMultiplier(data.quality()), false);
+            addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.ads_speed",
+                    data.variant().adsSpeedMultiplier(data.quality()), true);
+            if (Math.abs(durabilityMultiplier - 1.0D) > 0.0005D) {
+                tooltip.add(Component.translatable(
+                                "tooltip.miningdim.gunsmith_part.effect.maximum_durability",
+                                Component.literal(String.format(Locale.ROOT, "%+.0f%%",
+                                                (durabilityMultiplier - 1.0D) * 100.0D))
+                                        .withStyle(durabilityMultiplier < 1.0D
+                                                ? ChatFormatting.RED : ChatFormatting.GREEN))
+                        .withStyle(style -> style.withColor(EFFECT_LABEL_COLOR)));
+            }
+        }
+    }
+
+    @Override
+    public Optional<TooltipComponent> getTooltipImage(ItemStack stack) {
+        PartData data = tryPartData(stack);
+        return data == null
+                ? Optional.empty()
+                : Optional.of(new GunsmithFactionTooltip(
+                        data.variant().rarity(), data.variant().faction()));
     }
 
     public static boolean isGunsmithPart(ItemStack stack) {
@@ -184,11 +232,6 @@ public final class GunsmithPartItem extends Item {
         return isGunsmithPart(stack) && platformOf(stack) == platform && partOf(stack) == part;
     }
 
-    public static boolean matches(ItemStack stack, GunsmithPlatform platform, GunsmithPressPart part,
-                                  GunsmithPartVariant variant) {
-        return matches(stack, platform, part) && variantOf(stack) == variant;
-    }
-
     public static GunsmithPlatform platformOf(ItemStack stack) {
         return requirePartData(stack).platform();
     }
@@ -201,12 +244,16 @@ public final class GunsmithPartItem extends Item {
         return requirePartData(stack).quality();
     }
 
+    public static double coefficientOf(ItemStack stack) {
+        return requirePartData(stack).coefficient();
+    }
+
     public static GunsmithPartVariant variantOf(ItemStack stack) {
         return requirePartData(stack).variant();
     }
 
-    public static double coefficientOf(ItemStack stack) {
-        return requirePartData(stack).coefficient();
+    public static GunsmithPartRarity rarityOf(ItemStack stack) {
+        return requirePartData(stack).variant().rarity();
     }
 
     public static PartData requirePartData(ItemStack stack) {
@@ -223,33 +270,38 @@ public final class GunsmithPartItem extends Item {
         }
         GunsmithPlatform platform = platform(tag);
         GunsmithPressPart part = part(tag);
+        GunsmithPartQuality quality = quality(tag);
+        // 旧枪匠部件没有型号字段，按普通组件读取，保持存量物品兼容。
+        GunsmithPartVariant variant = tag.contains(K_VARIANT, Tag.TAG_STRING)
+                ? GunsmithPartVariant.byId(tag.getString(K_VARIANT)) : GunsmithPartVariant.BASE;
+        if (tag.contains(K_VARIANT, Tag.TAG_STRING)
+                && !variant.id().equals(tag.getString(K_VARIANT))) {
+            tag.putString(K_VARIANT, variant.id());
+        }
+        // 曾错误发布为 AR/RECEIVER 的存量物品在首次读取时原地迁移到现有 BOLT 槽。
+        if (platform == GunsmithPlatform.AR && part == GunsmithPressPart.RECEIVER) {
+            part = GunsmithPressPart.BOLT;
+            tag.putString(K_PART, part.id());
+            tag.putString(K_VARIANT, variant.id());
+            tag.putInt("CustomModelData", variant.customModelData(platform, part, quality));
+        }
         if (!platform.supports(part)) {
             throw new IllegalArgumentException("Gunsmith platform " + platform.id()
                     + " does not allow part " + part.id());
         }
-        int dataVersion = dataVersion(tag);
-        GunsmithPartVariant variant = variant(tag, dataVersion);
         if (!variant.supports(platform, part)) {
-            throw new IllegalArgumentException("Gunsmith variant " + variant.id()
-                    + " does not allow " + platform.id() + "/" + part.id());
+            throw new IllegalArgumentException("Gunsmith variant does not support encoded platform/part");
         }
-        GunsmithPartQuality quality = quality(tag);
         if (!tag.contains(K_COEFFICIENT, Tag.TAG_DOUBLE)) {
             throw new IllegalArgumentException("Gunsmith part has no double coefficient");
         }
         double coefficient = tag.getDouble(K_COEFFICIENT);
         requireCoefficient(coefficient, quality);
-        return new PartData(platform, part, variant, quality, coefficient);
+        return new PartData(platform, part, quality, variant, coefficient);
     }
 
     public static String formatCoefficient(double coefficient) {
         return "x" + String.format(Locale.ROOT, "%.3f", coefficient);
-    }
-
-    private static int customModelData(GunsmithPlatform platform, GunsmithPressPart part,
-                                       GunsmithPartVariant variant, GunsmithPartQuality quality) {
-        int baseModelData = platform.index() * 100 + part.index() * 10 + quality.index() + 1;
-        return variant.index() * 1_000_000 + baseModelData;
     }
 
     private static double roundCoefficient(double coefficient) {
@@ -272,35 +324,6 @@ public final class GunsmithPartItem extends Item {
         return GunsmithPressPart.byId(id);
     }
 
-    private static int dataVersion(CompoundTag tag) {
-        if (!tag.contains(K_DATA_VERSION)) {
-            if (tag.contains(K_VARIANT)) {
-                throw new IllegalArgumentException("Legacy gunsmith part unexpectedly contains a variant id");
-            }
-            // Version 1 components predate the explicit data-version and variant fields.
-            return 1;
-        }
-        if (!tag.contains(K_DATA_VERSION, Tag.TAG_INT)) {
-            throw new IllegalArgumentException("Gunsmith part has no integer data version");
-        }
-        int version = tag.getInt(K_DATA_VERSION);
-        if (version != CURRENT_DATA_VERSION) {
-            throw new IllegalArgumentException("Unsupported gunsmith part data version: " + version);
-        }
-        return version;
-    }
-
-    private static GunsmithPartVariant variant(CompoundTag tag, int dataVersion) {
-        if (dataVersion == 1) {
-            // Every component created by the version 1 format was a basic component.
-            return GunsmithPartVariant.BASIC;
-        }
-        if (!tag.contains(K_VARIANT, Tag.TAG_STRING)) {
-            throw new IllegalArgumentException("Gunsmith part has no string variant id");
-        }
-        return GunsmithPartVariant.byId(tag.getString(K_VARIANT));
-    }
-
     private static GunsmithPartQuality quality(CompoundTag tag) {
         if (!tag.contains(K_QUALITY, Tag.TAG_STRING)) {
             throw new IllegalArgumentException("Gunsmith part has no quality id");
@@ -316,21 +339,48 @@ public final class GunsmithPartItem extends Item {
         }
     }
 
+    private static String formatPercent(double multiplier) {
+        return String.format(Locale.ROOT, "%+.0f%%", (multiplier - 1.0D) * 100.0D);
+    }
+
+    private static void addEffect(List<Component> tooltip, String translationKey,
+                                  double multiplier, boolean increaseIsBeneficial) {
+        boolean neutral = Math.abs(multiplier - 1.0D) <= 0.0005D;
+        boolean increased = multiplier > 1.0D;
+        boolean beneficial = increased == increaseIsBeneficial;
+        TextColor valueColor = neutral ? EFFECT_NEUTRAL_COLOR
+                : beneficial ? EFFECT_BENEFIT_COLOR : EFFECT_PENALTY_COLOR;
+        MutableComponent value = Component.literal(formatPercent(multiplier))
+                .withStyle(style -> style.withColor(valueColor));
+        tooltip.add(Component.translatable(translationKey, value)
+                .withStyle(style -> style.withColor(EFFECT_LABEL_COLOR)));
+    }
+
+    static Component styledQualityName(GunsmithPartQuality quality) {
+        return Component.translatable(quality.labelKey()).withStyle(qualityStyle(quality));
+    }
+
+    private static ChatFormatting coefficientStyle(double coefficient) {
+        if (coefficient > 1.0D) {
+            return ChatFormatting.GREEN;
+        }
+        if (coefficient < 1.0D) {
+            return ChatFormatting.RED;
+        }
+        return ChatFormatting.AQUA;
+    }
+
     private static ChatFormatting qualityStyle(GunsmithPartQuality quality) {
         return switch (quality) {
             case COMMON -> ChatFormatting.WHITE;
             case IMPROVED -> ChatFormatting.GREEN;
             case MILSPEC -> ChatFormatting.BLUE;
             case PRECISION -> ChatFormatting.LIGHT_PURPLE;
-            case LEGENDARY -> ChatFormatting.RED;
+            case LEGENDARY -> ChatFormatting.GOLD;
         };
     }
 
-    private static String formatPercentChange(double change) {
-        return String.format(Locale.ROOT, "%+.1f%%", change * 100.0D);
-    }
-
     public record PartData(GunsmithPlatform platform, GunsmithPressPart part,
-                           GunsmithPartVariant variant, GunsmithPartQuality quality, double coefficient) {
+                           GunsmithPartQuality quality, GunsmithPartVariant variant, double coefficient) {
     }
 }

@@ -8,6 +8,7 @@ import com.miningdim.job.engineer.NanoNbt;
 import com.miningdim.job.munitions.ModMunitionsItems;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartVariant;
 import com.miningdim.job.tarot.TarotCardItem;
 import net.minecraft.nbt.CompoundTag;
@@ -160,10 +161,11 @@ public final class WebUiItemDetailJson {
         double coefficient = part.coefficient();
         flat(attributes, "coefficient", coefficient);
         GunsmithPartVariant variant = part.variant();
-        if (variant != GunsmithPartVariant.BASIC) {
-            percent(attributes, "fireRate", variant.fireRateMultiplier(coefficient) - 1.0D);
-            percent(attributes, "verticalRecoil", variant.verticalRecoilMultiplier(coefficient) - 1.0D);
-            percent(attributes, "inaccuracy", variant.inaccuracyMultiplier(coefficient) - 1.0D);
+        if (variant != GunsmithPartVariant.BASE) {
+            GunsmithPartQuality quality = part.quality();
+            percent(attributes, "fireRate", variant.fireRateMultiplier(quality) - 1.0D);
+            percent(attributes, "verticalRecoil", variant.verticalRecoilMultiplier(quality) - 1.0D);
+            percent(attributes, "inaccuracy", variant.spreadMultiplier(quality) - 1.0D);
         }
 
         tags.add("part.platform:" + part.platform().id());

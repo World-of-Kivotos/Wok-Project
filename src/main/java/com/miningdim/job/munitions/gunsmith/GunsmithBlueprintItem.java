@@ -8,6 +8,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResultHolder;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -22,6 +23,7 @@ public final class GunsmithBlueprintItem extends Item {
 
     private static final String ROOT_KEY = "MiningDimGunsmithBlueprint";
     private static final String GUN_ID_KEY = "GunId";
+    private static final String ICON_MODEL_DATA_KEY = "CustomModelData";
 
     public GunsmithBlueprintItem(Properties properties) {
         super(properties);
@@ -33,7 +35,9 @@ public final class GunsmithBlueprintItem extends Item {
         ItemStack stack = new ItemStack(item);
         CompoundTag root = new CompoundTag();
         root.putString(GUN_ID_KEY, blueprint.gunId().toString());
-        stack.getOrCreateTag().put(ROOT_KEY, root);
+        CompoundTag tag = stack.getOrCreateTag();
+        tag.put(ROOT_KEY, root);
+        tag.putInt(ICON_MODEL_DATA_KEY, blueprint.iconModelData());
         return stack;
     }
 
@@ -97,6 +101,24 @@ public final class GunsmithBlueprintItem extends Item {
         player.displayClientMessage(
                 Component.translatable("message.miningdim.gunsmith_blueprint.use_assembly_bench"), true);
         return InteractionResultHolder.consume(held);
+    }
+
+    @Override
+    public void inventoryTick(ItemStack stack, Level level, Entity entity, int slotId, boolean isSelected) {
+        super.inventoryTick(stack, level, entity, slotId, isSelected);
+        if (level.isClientSide) {
+            return;
+        }
+        GunsmithBlueprint blueprint = tryBlueprint(stack);
+        if (blueprint == null) {
+            return;
+        }
+        CompoundTag tag = stack.getOrCreateTag();
+        int expectedModelData = blueprint.iconModelData();
+        if (!tag.contains(ICON_MODEL_DATA_KEY, Tag.TAG_INT)
+                || tag.getInt(ICON_MODEL_DATA_KEY) != expectedModelData) {
+            tag.putInt(ICON_MODEL_DATA_KEY, expectedModelData);
+        }
     }
 
     @Override

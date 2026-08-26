@@ -5,6 +5,9 @@ import com.miningdim.job.munitions.ModMunitionsMenus;
 import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlockEntity;
 import com.miningdim.job.munitions.gunsmith.GunsmithAssemblyRecipe;
 import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
+import com.miningdim.job.munitions.gunsmith.GunsmithGunDurability;
+import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
+import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.menu.AbstractMiningMenu;
 import com.miningdim.menu.MenuValidity;
@@ -92,6 +95,10 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
         return blockEntity.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT);
     }
 
+    public ItemStack input() {
+        return blueprint();
+    }
+
     public Map<GunsmithPressPart, ItemStack> partStacks() {
         Map<GunsmithPressPart, ItemStack> parts = new EnumMap<>(GunsmithPressPart.class);
         for (GunsmithPressPart part : GunsmithPressPart.values()) {
@@ -103,8 +110,22 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
 
     public boolean canAssemble() {
         if (blockEntity.isAnimating()
-                || !GunsmithAssemblyRecipe.isBlueprint(blueprint())
                 || !blockEntity.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty()) {
+            return false;
+        }
+        if (isRepairMode()) {
+            GunsmithGunDurability.RepairPreview preview = repairPreview();
+            if (!preview.available()) {
+                return false;
+            }
+            GunsmithPlatform platform = GunsmithGunStats.from(input()).blueprint().platform();
+            GunsmithPressPart repairPart = preview.requiredPart();
+            return GunsmithAssemblyRecipe.matchesPart(
+                    blockEntity.inventory().getStackInSlot(
+                            GunsmithAssemblyBenchBlockEntity.slotForPart(repairPart)),
+                    repairPart, platform);
+        }
+        if (!GunsmithAssemblyRecipe.isBlueprint(blueprint())) {
             return false;
         }
         GunsmithBlueprint blueprint = GunsmithAssemblyRecipe.blueprint(blueprint());
@@ -116,6 +137,17 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
             }
         }
         return true;
+    }
+
+    public boolean isRepairMode() {
+        return GunsmithGunDurability.isManagedGun(input());
+    }
+
+    public GunsmithGunDurability.RepairPreview repairPreview() {
+        if (!isRepairMode()) {
+            throw new IllegalStateException("Assembly menu is not in repair mode");
+        }
+        return GunsmithGunDurability.repairPreview(input());
     }
 
     public boolean isPartSlotVisible(GunsmithPressPart part) {
@@ -137,8 +169,9 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
             case SLIDE -> 168;
             case TRIGGER -> 166;
             case HAMMER -> 248;
-            case RECEIVER -> 242;
+            case RECEIVER -> 222;
             case BIPOD -> 174;
+            case FIRING_PIN -> 168;
         };
     }
 
@@ -150,8 +183,9 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
             case SLIDE -> 46;
             case TRIGGER -> 130;
             case HAMMER -> 50;
-            case RECEIVER -> 94;
+            case RECEIVER -> 55;
             case BIPOD -> 130;
+            case FIRING_PIN -> 50;
         };
     }
 

@@ -11,7 +11,8 @@ public enum GunsmithPressPart {
     TRIGGER("trigger", "gunsmith.part.trigger", "gunsmith.role.trigger", "TRIGGER", 2, 3, 1),
     HAMMER("hammer", "gunsmith.part.hammer", "gunsmith.role.hammer", "HAMMER", 2, 4, 0),
     RECEIVER("receiver", "gunsmith.part.receiver", "gunsmith.role.receiver", "RECEIVER", 6, 6, 5),
-    BIPOD("bipod", "gunsmith.part.bipod", "gunsmith.role.bipod", "BIPOD", 3, 4, 1);
+    BIPOD("bipod", "gunsmith.part.bipod", "gunsmith.role.bipod", "BIPOD", 3, 4, 1),
+    FIRING_PIN("firing_pin", "gunsmith.part.firing_pin", "gunsmith.role.firing_pin", "FIRING PIN", 4, 5, 0);
 
     private final String id;
     private final String labelKey;

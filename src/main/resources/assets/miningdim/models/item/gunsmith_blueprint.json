@@ -2,5 +2,49 @@
   "parent": "minecraft:item/generated",
   "textures": {
     "layer0": "miningdim:item/m4_assembly_template"
-  }
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "custom_model_data": 1
+      },
+      "model": "miningdim:item/gunsmith_blueprint_ar"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 2
+      },
+      "model": "miningdim:item/gunsmith_blueprint_ak"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 3
+      },
+      "model": "miningdim:item/gunsmith_blueprint_pistol"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 4
+      },
+      "model": "miningdim:item/gunsmith_blueprint_sniper"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 5
+      },
+      "model": "miningdim:item/gunsmith_blueprint_smg"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 6
+      },
+      "model": "miningdim:item/gunsmith_blueprint_shotgun"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 7
+      },
+      "model": "miningdim:item/gunsmith_blueprint_marksman"
+    }
+  ]
 }

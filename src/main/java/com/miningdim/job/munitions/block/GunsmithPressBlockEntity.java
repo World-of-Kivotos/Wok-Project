@@ -43,17 +43,17 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
     public static final int DATA_SELECTED_PLATFORM = 0;
     public static final int DATA_SELECTED_PART = 1;
     public static final int DATA_SELECTED_QUALITY = 2;
-    public static final int DATA_SELECTED_VARIANT = 3;
-    public static final int DATA_PROGRESS_TICKS = 4;
-    public static final int DATA_REQUIRED_TICKS = 5;
-    public static final int DATA_ACTIVE = 6;
+    public static final int DATA_PROGRESS_TICKS = 3;
+    public static final int DATA_REQUIRED_TICKS = 4;
+    public static final int DATA_ACTIVE = 5;
+    public static final int DATA_SELECTED_VARIANT = 6;
     public static final int DATA_COUNT = 7;
     private static final int HYDRAULIC_SOUND_INTERVAL = 34;
 
     private GunsmithPlatform selectedPlatform = GunsmithPlatform.AR;
     private GunsmithPressPart selectedPart = GunsmithPressPart.CORE;
     private GunsmithPartQuality selectedQuality = GunsmithPartQuality.COMMON;
-    private GunsmithPartVariant selectedVariant = GunsmithPartVariant.BASIC;
+    private GunsmithPartVariant selectedVariant = GunsmithPartVariant.BASE;
     private long activeStartTick;
     private long activeUntilTick;
     private long nextHydraulicSoundTick;
@@ -189,7 +189,7 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
         if (!variant.supports(selectedPlatform, selectedPart)) {
             return false;
         }
-        this.selectedVariant = variant;
+        selectedVariant = variant;
         setChanged();
         return true;
     }
@@ -271,9 +271,8 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
         }
         if (inventory.getStackInSlot(SLOT_OUTPUT).isEmpty()) {
             inventory.setStackInSlot(SLOT_OUTPUT, GunsmithPartItem.createRolledStack(
-                    ModMunitionsItems.GUNSMITH_PART.get(), selectedPlatform, selectedPart, selectedVariant,
-                    selectedQuality,
-                    level.random));
+                    ModMunitionsItems.GUNSMITH_PART.get(), selectedPlatform, selectedPart, selectedQuality,
+                    selectedVariant, level.random));
         }
         activeStartTick = 0L;
         activeUntilTick = 0L;
@@ -414,7 +413,7 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
         selectedQuality = tag.contains(K_QUALITY)
                 ? GunsmithPartQuality.byId(tag.getString(K_QUALITY)) : GunsmithPartQuality.COMMON;
         selectedVariant = tag.contains(K_VARIANT)
-                ? GunsmithPartVariant.byId(tag.getString(K_VARIANT)) : GunsmithPartVariant.BASIC;
+                ? GunsmithPartVariant.byId(tag.getString(K_VARIANT)) : GunsmithPartVariant.BASE;
         normalizeSelectedPart();
         normalizeSelectedVariant();
         activeStartTick = tag.getLong(K_ACTIVE_START);
@@ -433,9 +432,8 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
     }
 
     private void normalizeSelectedVariant() {
-        if (selectedVariant.supports(selectedPlatform, selectedPart)) {
-            return;
+        if (!selectedVariant.supports(selectedPlatform, selectedPart)) {
+            selectedVariant = GunsmithPartVariant.BASE;
         }
-        selectedVariant = GunsmithPartVariant.availableFor(selectedPlatform, selectedPart).get(0);
     }
 }

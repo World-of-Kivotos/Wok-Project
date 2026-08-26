@@ -9,6 +9,8 @@ import com.miningdim.job.munitions.MunitionsLevels;
 import com.miningdim.job.munitions.gunsmith.GunsmithAssemblyRecipe;
 import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunFactory;
+import com.miningdim.job.munitions.gunsmith.GunsmithGunDurability;
+import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.job.munitions.menu.GunsmithAssemblyMenu;
@@ -34,8 +36,9 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 
 public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implements MenuProvider {
 
@@ -53,6 +56,8 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
     private static final int LEGACY_PRE_RECEIVER_SLOT_COUNT = LEGACY_PRE_RECEIVER_SLOT_OUTPUT + 1;
     private static final int LEGACY_PRE_BIPOD_SLOT_OUTPUT = 11;
     private static final int LEGACY_PRE_BIPOD_SLOT_COUNT = LEGACY_PRE_BIPOD_SLOT_OUTPUT + 1;
+    private static final int LEGACY_PRE_FIRING_PIN_SLOT_OUTPUT = 12;
+    private static final int LEGACY_PRE_FIRING_PIN_SLOT_COUNT = LEGACY_PRE_FIRING_PIN_SLOT_OUTPUT + 1;
     private static final int WELD_SOUND_INTERVAL_TICKS = 24;
     private static final String K_INVENTORY = "Inventory";
     private static final String K_HANDLER_SIZE = "Size";
@@ -77,17 +82,23 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         @Override
         public boolean isItemValid(int slot, ItemStack stack) {
             if (slot == SLOT_BLUEPRINT) {
-                return GunsmithAssemblyRecipe.isBlueprint(stack);
+                return GunsmithAssemblyRecipe.isBlueprint(stack)
+                        || GunsmithGunDurability.isManagedGun(stack);
             }
             if (slot >= SLOT_PART_BASE && slot < SLOT_OUTPUT) {
-                ItemStack blueprintStack = getStackInSlot(SLOT_BLUEPRINT);
-                if (!GunsmithAssemblyRecipe.isBlueprint(blueprintStack)) {
-                    return false;
-                }
-                GunsmithBlueprint blueprint = GunsmithAssemblyRecipe.blueprint(blueprintStack);
+                ItemStack inputStack = getStackInSlot(SLOT_BLUEPRINT);
                 GunsmithPressPart part = partForSlot(slot);
-                return blueprint.requiredParts().contains(part)
-                        && GunsmithAssemblyRecipe.matchesPart(stack, part, blueprint.platform());
+                if (GunsmithAssemblyRecipe.isBlueprint(inputStack)) {
+                    GunsmithBlueprint blueprint = GunsmithAssemblyRecipe.blueprint(inputStack);
+                    return blueprint.requiredParts().contains(part)
+                            && GunsmithAssemblyRecipe.matchesPart(stack, part, blueprint.platform());
+                }
+                if (GunsmithGunDurability.isManagedGun(inputStack)) {
+                    GunsmithPlatform platform = GunsmithGunStats.from(inputStack).blueprint().platform();
+                    return part == GunsmithGunDurability.repairPart(platform)
+                            && GunsmithAssemblyRecipe.matchesPart(stack, part, platform);
+                }
+                return false;
             }
             return false;
         }
@@ -121,22 +132,95 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
 
     public boolean isPartSlotVisible(GunsmithPressPart part) {
         Objects.requireNonNull(part, "part");
-        ItemStack blueprintStack = inventory.getStackInSlot(SLOT_BLUEPRINT);
-        return GunsmithAssemblyRecipe.isBlueprint(blueprintStack)
-                && GunsmithAssemblyRecipe.blueprint(blueprintStack).requiredParts().contains(part);
+        ItemStack inputStack = inventory.getStackInSlot(SLOT_BLUEPRINT);
+        if (GunsmithAssemblyRecipe.isBlueprint(inputStack)) {
+            return GunsmithAssemblyRecipe.blueprint(inputStack).requiredParts().contains(part);
+        }
+        if (GunsmithGunDurability.isManagedGun(inputStack)) {
+            GunsmithPlatform platform = GunsmithGunStats.from(inputStack).blueprint().platform();
+            return GunsmithGunDurability.repairPart(platform) == part;
+        }
+        return false;
     }
 
     public boolean tryStartAssembly(ServerPlayer player) {
+        if (GunsmithGunDurability.isManagedGun(inventory.getStackInSlot(SLOT_BLUEPRINT))) {
+            return tryStartRepair(player, ASSEMBLY_DURATION_TICKS);
+        }
         return tryStartAssembly(player, GunsmithGunFactory::materialize, ASSEMBLY_DURATION_TICKS);
+    }
+
+    boolean tryStartRepair(ServerPlayer player, int durationTicks) {
+        Objects.requireNonNull(player, "player");
+        if (durationTicks <= 0) {
+            throw new IllegalArgumentException("durationTicks must be positive");
+        }
+        if (!MunitionsConfig.GUNSMITH_ENABLED.get()) {
+            player.displayClientMessage(Component.translatable("message.miningdim.gunsmith.disabled"), true);
+            return false;
+        }
+        if (isAnimating() || !pendingResult.isEmpty()) {
+            player.displayClientMessage(
+                    Component.translatable("message.miningdim.gunsmith_assembly_bench.busy"), true);
+            return false;
+        }
+        if (!inventory.getStackInSlot(SLOT_OUTPUT).isEmpty()) {
+            player.displayClientMessage(
+                    Component.translatable("message.miningdim.gunsmith_assembly_bench.output_blocked"), true);
+            return false;
+        }
+        ItemStack gun = inventory.getStackInSlot(SLOT_BLUEPRINT);
+        if (!GunsmithGunDurability.isManagedGun(gun)) {
+            player.displayClientMessage(
+                    Component.translatable("message.miningdim.gunsmith_repair.missing_gun"), true);
+            return false;
+        }
+
+        GunsmithGunDurability.ensureInitialized(gun);
+        GunsmithGunDurability.RepairPreview preview = GunsmithGunDurability.repairPreview(gun);
+        if (!preview.available()) {
+            player.displayClientMessage(Component.translatable(switch (preview.status()) {
+                case FULL -> "message.miningdim.gunsmith_repair.full";
+                case INSUFFICIENT_WEAR -> "message.miningdim.gunsmith_repair.insufficient_wear";
+                case EXHAUSTED -> "message.miningdim.gunsmith_repair.exhausted";
+                case AVAILABLE -> throw new IllegalStateException("available repair reached rejection branch");
+            }), true);
+            return false;
+        }
+
+        GunsmithPlatform platform = GunsmithGunStats.from(gun).blueprint().platform();
+        GunsmithPressPart repairPart = preview.requiredPart();
+        ItemStack replacement = inventory.getStackInSlot(slotForPart(repairPart));
+        if (!GunsmithAssemblyRecipe.matchesPart(replacement, repairPart, platform)) {
+            player.displayClientMessage(Component.translatable(
+                    "message.miningdim.gunsmith_repair.missing_part",
+                    Component.translatable(repairPart.labelKey())), true);
+            return false;
+        }
+
+        ItemStack result = gun.copyWithCount(1);
+        GunsmithGunDurability.RepairResult repaired = GunsmithGunDurability.repair(result);
+        if (!repaired.repaired()) {
+            throw new IllegalStateException("Validated gunsmith repair did not produce a repaired gun");
+        }
+        inventory.extractItem(SLOT_BLUEPRINT, 1, false);
+        inventory.extractItem(slotForPart(repairPart), 1, false);
+        pendingResult = result;
+        beginAnimation(durationTicks);
+        player.closeContainer();
+        player.displayClientMessage(Component.translatable(
+                "message.miningdim.gunsmith_repair.started",
+                repaired.after().maximum()), true);
+        return true;
     }
 
     boolean tryStartAssembly(ServerPlayer player, ItemStack baseGun, int durationTicks) {
         Objects.requireNonNull(baseGun, "baseGun");
-        return tryStartAssembly(player, blueprintStack -> baseGun, durationTicks);
+        return tryStartAssembly(player, (blueprintStack, parts) -> baseGun, durationTicks);
     }
 
     private boolean tryStartAssembly(ServerPlayer player,
-                                     Function<ItemStack, ItemStack> gunFactory,
+                                     BiFunction<ItemStack, Map<GunsmithPressPart, ItemStack>, ItemStack> gunFactory,
                                      int durationTicks) {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(gunFactory, "gunFactory");
@@ -180,7 +264,7 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
                 return false;
             }
         }
-        ItemStack baseGun = Objects.requireNonNull(gunFactory.apply(blueprintStack),
+        ItemStack baseGun = Objects.requireNonNull(gunFactory.apply(blueprintStack, parts),
                 "gunFactory returned null for " + blueprint.gunId());
         if (baseGun.isEmpty()) {
             player.displayClientMessage(
@@ -373,6 +457,12 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
             inventory.deserializeNBT(serializedInventory);
             return;
         }
+        if (serializedSize == LEGACY_PRE_FIRING_PIN_SLOT_COUNT) {
+            migratePreFiringPinInventory(serializedInventory);
+            LOGGER.info("Migrated pre-firing-pin gunsmith assembly inventory at {} from {} to {} slots",
+                    worldPosition, LEGACY_PRE_FIRING_PIN_SLOT_COUNT, SLOT_COUNT);
+            return;
+        }
         if (serializedSize == LEGACY_PRE_BIPOD_SLOT_COUNT) {
             migratePreBipodInventory(serializedInventory);
             LOGGER.info("Migrated pre-bipod gunsmith assembly inventory at {} from {} to {} slots",
@@ -394,8 +484,22 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         }
         throw new IllegalStateException("Unsupported gunsmith assembly inventory size " + serializedSize
                 + " at " + worldPosition + "; expected " + SLOT_COUNT + ", legacy "
-                + LEGACY_PRE_BIPOD_SLOT_COUNT + ", legacy " + LEGACY_PRE_RECEIVER_SLOT_COUNT
+                + LEGACY_PRE_FIRING_PIN_SLOT_COUNT + ", legacy " + LEGACY_PRE_BIPOD_SLOT_COUNT
+                + ", legacy " + LEGACY_PRE_RECEIVER_SLOT_COUNT
                 + " or legacy " + LEGACY_RIFLE_SLOT_COUNT);
+    }
+
+    private void migratePreFiringPinInventory(CompoundTag serializedInventory) {
+        ItemStackHandler legacyInventory = new ItemStackHandler(LEGACY_PRE_FIRING_PIN_SLOT_COUNT);
+        legacyInventory.deserializeNBT(serializedInventory);
+
+        ItemStackHandler migratedInventory = new ItemStackHandler(SLOT_COUNT);
+        for (int slot = SLOT_BLUEPRINT; slot < LEGACY_PRE_FIRING_PIN_SLOT_OUTPUT; slot++) {
+            migratedInventory.setStackInSlot(slot, legacyInventory.getStackInSlot(slot).copy());
+        }
+        migratedInventory.setStackInSlot(SLOT_OUTPUT,
+                legacyInventory.getStackInSlot(LEGACY_PRE_FIRING_PIN_SLOT_OUTPUT).copy());
+        inventory.deserializeNBT(migratedInventory.serializeNBT());
     }
 
     private void migratePreBipodInventory(CompoundTag serializedInventory) {

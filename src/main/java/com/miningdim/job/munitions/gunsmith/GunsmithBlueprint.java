@@ -17,11 +17,23 @@ public enum GunsmithBlueprint {
     M16A1("m16a1", GunsmithPlatform.AR),
     M16A4("m16a4", GunsmithPlatform.AR),
     HK416D("hk416d", GunsmithPlatform.AR),
-    SPR15HB("spr15hb", GunsmithPlatform.AR),
+    SPR15HB("spr15hb", GunsmithPlatform.MARKSMAN),
     AK47("ak47", GunsmithPlatform.AK),
     RPK("rpk", GunsmithPlatform.AK),
     TYPE_81("type_81", GunsmithPlatform.AK),
-    M1911("m1911", GunsmithPlatform.PISTOL);
+    M1911("m1911", GunsmithPlatform.PISTOL),
+    M870("m870", GunsmithPlatform.SHOTGUN),
+    M1887_LONG("ccrp", "m1887_long", "ccrp.gun.m1887_long.name", GunsmithPlatform.SHOTGUN),
+    KSG("hare", "ksg", "hare.gun.ksg.name", GunsmithPlatform.SHOTGUN),
+    M1014("m1014", GunsmithPlatform.SHOTGUN),
+    UZI("uzi", GunsmithPlatform.SMG),
+    UMP45("ump45", GunsmithPlatform.SMG),
+    HK_MP5A5("hk_mp5a5", GunsmithPlatform.SMG),
+    STERLING("wyyc1991", "stl", "wyyc.stl.name", GunsmithPlatform.SMG),
+    MPX("ccrp", "mpx", "ccrp.gun.mpx.name", GunsmithPlatform.SMG),
+    KAR98K("kar98", GunsmithPlatform.SNIPER),
+    SMLE_III("lavender", "smle_iii", "lavender.gun.smle_iii.name", GunsmithPlatform.SNIPER),
+    M700("m700", GunsmithPlatform.SNIPER);
 
     private static final Map<ResourceLocation, GunsmithBlueprint> BY_GUN_ID = Arrays.stream(values())
             .collect(Collectors.toUnmodifiableMap(GunsmithBlueprint::gunId, Function.identity()));
@@ -33,14 +45,22 @@ public enum GunsmithBlueprint {
     private final Set<GunsmithPressPart> requiredParts;
 
     GunsmithBlueprint(String templateId, GunsmithPlatform platform) {
-        this(templateId, platform, platform.supportedParts());
+        this("tacz", templateId, "tacz.gun." + templateId + ".name", platform, platform.supportedParts());
     }
 
-    GunsmithBlueprint(String templateId, GunsmithPlatform platform, Set<GunsmithPressPart> requiredParts) {
-        this.gunId = new ResourceLocation("tacz", templateId);
+    GunsmithBlueprint(String namespace, String templateId, String nameKey, GunsmithPlatform platform) {
+        this(namespace, templateId, nameKey, platform, platform.supportedParts());
+    }
+
+    GunsmithBlueprint(String namespace, String templateId, String nameKey, GunsmithPlatform platform,
+                      Set<GunsmithPressPart> requiredParts) {
+        this.gunId = new ResourceLocation(namespace, templateId);
         this.platform = platform;
         this.templateId = templateId;
-        this.nameKey = "tacz.gun." + templateId + ".name";
+        this.nameKey = Objects.requireNonNull(nameKey, "nameKey");
+        if (nameKey.isBlank()) {
+            throw new IllegalArgumentException("Gunsmith blueprint name key must not be blank: " + gunId);
+        }
         Objects.requireNonNull(requiredParts, "requiredParts");
         if (requiredParts.isEmpty()) {
             throw new IllegalArgumentException("Gunsmith blueprint must require at least one part: " + templateId);
@@ -70,6 +90,20 @@ public enum GunsmithBlueprint {
 
     public Set<GunsmithPressPart> requiredParts() {
         return requiredParts;
+    }
+
+    public int iconModelData() {
+        return switch (platform) {
+            case AR -> 1;
+            case AK -> 2;
+            case PISTOL -> 3;
+            case SNIPER -> 4;
+            case SMG -> 5;
+            case SHOTGUN -> 6;
+            case MARKSMAN -> 7;
+            case BULLPUP, MACHINE_GUN -> throw new IllegalStateException(
+                    "Gunsmith blueprint platform has no icon model: " + platform.id());
+        };
     }
 
     public static Optional<GunsmithBlueprint> find(ResourceLocation gunId) {

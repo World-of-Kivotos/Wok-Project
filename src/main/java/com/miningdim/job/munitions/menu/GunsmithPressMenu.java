@@ -35,10 +35,10 @@ public final class GunsmithPressMenu extends AbstractMiningMenu {
     private static final int SLOT_GUN_PARTS_X = 294;
     private static final int SLOT_ALLOY_X = 320;
     private static final int SLOT_POLYMER_X = 294;
-    private static final int SLOT_OUTPUT_X = 320;
+    private static final int SLOT_OUTPUT_X = 178;
     private static final int SLOT_TOP_Y = 84;
     private static final int SLOT_BOTTOM_Y = 110;
-    private static final int SLOT_OUTPUT_Y = 110;
+    private static final int SLOT_OUTPUT_Y = 92;
 
     private final GunsmithPressBlockEntity blockEntity;
     private final ContainerData data;
@@ -91,12 +91,12 @@ public final class GunsmithPressMenu extends AbstractMiningMenu {
         if (qualityIndex >= 0 && qualityIndex < GunsmithPartQuality.values().length) {
             return blockEntity.trySelectQuality(qualityIndex, serverPlayer);
         }
+        if (id == BUTTON_START_PREVIEW) {
+            return blockEntity.tryStartPreview(serverPlayer);
+        }
         int variantIndex = id - BUTTON_VARIANT_BASE;
         if (variantIndex >= 0 && variantIndex < GunsmithPartVariant.values().length) {
             return blockEntity.trySelectVariant(variantIndex);
-        }
-        if (id == BUTTON_START_PREVIEW) {
-            return blockEntity.tryStartPreview(serverPlayer);
         }
         return false;
     }
@@ -113,10 +113,6 @@ public final class GunsmithPressMenu extends AbstractMiningMenu {
         return data.get(GunsmithPressBlockEntity.DATA_SELECTED_QUALITY);
     }
 
-    public int selectedVariantIndex() {
-        return data.get(GunsmithPressBlockEntity.DATA_SELECTED_VARIANT);
-    }
-
     public GunsmithPlatform selectedPlatform() {
         return GunsmithPlatform.byIndex(selectedPlatformIndex());
     }
@@ -129,36 +125,12 @@ public final class GunsmithPressMenu extends AbstractMiningMenu {
         return GunsmithPartQuality.byIndex(selectedQualityIndex());
     }
 
+    public int selectedVariantIndex() {
+        return data.get(GunsmithPressBlockEntity.DATA_SELECTED_VARIANT);
+    }
+
     public GunsmithPartVariant selectedVariant() {
         return GunsmithPartVariant.byIndex(selectedVariantIndex());
-    }
-
-    public int requiredGunParts() {
-        return selectedPart().partsCost() * selectedQuality().materialMultiplier();
-    }
-
-    public int requiredAlloy() {
-        return selectedPart().alloyCost() * selectedQuality().materialMultiplier();
-    }
-
-    public int requiredPolymer() {
-        return selectedPart().polymerCost() * selectedQuality().materialMultiplier();
-    }
-
-    public int inputCount(int slot) {
-        if (slot < GunsmithPressBlockEntity.SLOT_GUN_PARTS
-                || slot > GunsmithPressBlockEntity.SLOT_POLYMER) {
-            throw new IllegalArgumentException("slot is not a gunsmith press input slot: " + slot);
-        }
-        return getSlot(slot).getItem().getCount();
-    }
-
-    public boolean canStart() {
-        return !isPressing()
-                && !getSlot(GunsmithPressBlockEntity.SLOT_OUTPUT).hasItem()
-                && inputCount(GunsmithPressBlockEntity.SLOT_GUN_PARTS) >= requiredGunParts()
-                && inputCount(GunsmithPressBlockEntity.SLOT_ALLOY) >= requiredAlloy()
-                && inputCount(GunsmithPressBlockEntity.SLOT_POLYMER) >= requiredPolymer();
     }
 
     public int productionProgressTicks() {

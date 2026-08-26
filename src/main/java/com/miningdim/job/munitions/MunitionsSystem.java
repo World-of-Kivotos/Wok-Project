@@ -7,18 +7,24 @@ import com.miningdim.job.munitions.block.MunitionsBenchBlock;
 import com.miningdim.job.munitions.client.GunsmithAssemblyScreen;
 import com.miningdim.job.munitions.client.GunsmithPressScreen;
 import com.miningdim.job.munitions.client.MunitionsBenchScreen;
+import com.miningdim.job.munitions.client.MunitionsClientSetup;
 import com.miningdim.job.munitions.gunsmith.GunsmithBaseStats;
+import com.miningdim.job.munitions.gunsmith.GunsmithComponentRuleLoader;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunTooltip;
 import com.miningdim.job.munitions.gunsmith.GunsmithTaczBridge;
+import com.miningdim.job.munitions.gunsmith.GunsmithTaczDurabilityHandler;
 import com.miningdim.job.munitions.gunsmith.GunsmithTaczResourceBootstrap;
 import com.miningdim.job.munitions.gunsmith.GunsmithTaczStatsHandler;
+import com.miningdim.job.munitions.gunsmith.network.GunsmithRulesNetwork;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.event.AddReloadListenerEvent;
+import net.minecraftforge.event.OnDatapackSyncEvent;
 import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -50,6 +56,8 @@ import java.util.Optional;
 public final class MunitionsSystem implements Subsystem {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/munitions");
+    private final GunsmithComponentRuleLoader gunsmithComponentRuleLoader =
+            new GunsmithComponentRuleLoader();
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
@@ -63,6 +71,10 @@ public final class MunitionsSystem implements Subsystem {
         ModMunitionsMenus.register(modBus);
         ModMunitionsTab.register(modBus);
 
+        if (MunitionsClientSetup.isClient()) {
+            MunitionsClientSetup.register(modBus);
+        }
+
         // SERVER 配置 spec (C6: 全部平衡数值进 ForgeConfigSpec)。
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER,
                 MunitionsConfig.SPEC, "miningdim-munitions.toml");
@@ -75,8 +87,10 @@ public final class MunitionsSystem implements Subsystem {
         forgeBus.register(this);
         modBus.addListener((FMLCommonSetupEvent event) ->
                 event.enqueueWork(() -> {
+                    GunsmithRulesNetwork.register();
                     if (MunitionsAmmoFactory.isTaczLoaded()) {
                         GunsmithTaczStatsHandler.register(forgeBus);
+                        GunsmithTaczDurabilityHandler.register(forgeBus);
                     }
                 }));
 
@@ -90,6 +104,21 @@ public final class MunitionsSystem implements Subsystem {
                         })));
 
         LOGGER.info("[miningdim] munitions subsystem registered (munitions bench + passive ammo production)");
+    }
+
+    @SubscribeEvent
+    public void onAddReloadListener(AddReloadListenerEvent event) {
+        event.addListener(gunsmithComponentRuleLoader);
+    }
+
+    @SubscribeEvent
+    public void onDatapackSync(OnDatapackSyncEvent event) {
+        for (ServerPlayer player : event.getPlayers()) {
+            if (MunitionsAmmoFactory.isTaczLoaded()) {
+                GunsmithTaczStatsHandler.refreshHeldGun(player);
+            }
+            GunsmithRulesNetwork.sync(player);
+        }
     }
 
     /**
@@ -141,6 +170,7 @@ public final class MunitionsSystem implements Subsystem {
             }
             return;
         }
+        GunsmithGunTooltip.appendDurability(event.getToolTip(), event.getItemStack());
         Optional<GunsmithBaseStats> baseStats = GunsmithTaczBridge.findBaseStats(stats.gunId());
         if (baseStats.isEmpty()) {
             event.getToolTip().add(Component.translatable(

@@ -10,7 +10,7 @@ import net.minecraft.world.item.ItemStack;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -30,30 +30,59 @@ public final class GunsmithGunFactory {
     public static ItemStack materialize(ItemStack blueprintStack) {
         GunsmithBlueprint blueprint = GunsmithAssemblyRecipe.blueprint(blueprintStack);
         ResourceLocation gunId = GunsmithAssemblyRecipe.assembledGunId(blueprintStack);
+        return materialize(blueprint, gunId, false);
+    }
+
+    public static ItemStack materialize(ItemStack blueprintStack,
+                                        Map<GunsmithPressPart, ItemStack> parts) {
+        GunsmithBlueprint blueprint = GunsmithAssemblyRecipe.blueprint(blueprintStack);
+        ResourceLocation gunId = GunsmithAssemblyRecipe.assembledGunId(blueprintStack, parts);
+        boolean forceThreeRoundBurst = blueprint.platform() == GunsmithPlatform.AR
+                && gunId.equals(burstGunId(blueprint));
+        return materialize(blueprint, gunId, forceThreeRoundBurst);
+    }
+
+    public static ResourceLocation burstGunId(GunsmithBlueprint blueprint) {
+        if (blueprint.platform() != GunsmithPlatform.AR) {
+            throw new IllegalArgumentException("Three-round-burst bolt only supports AR blueprints");
+        }
+        return new ResourceLocation(MiningConstants.MODID,
+                blueprint.templateId() + "_gunsmith_burst");
+    }
+
+    private static ItemStack materialize(GunsmithBlueprint blueprint, ResourceLocation gunId,
+                                         boolean forceThreeRoundBurst) {
         if (!MunitionsAmmoFactory.isTaczLoaded()) {
             return ItemStack.EMPTY;
         }
-        Optional<List<FireMode>> resolvedSourceFireModes = GunsmithTaczBridge.findFireModes(blueprint.gunId());
-        if (resolvedSourceFireModes.isEmpty()) {
+        Optional<GunsmithTaczBridge.FireModeProfile> resolvedSourceProfile =
+                GunsmithTaczBridge.findFireModeProfile(blueprint.gunId());
+        if (resolvedSourceProfile.isEmpty()) {
             return ItemStack.EMPTY;
         }
-        List<FireMode> sourceFireModes = resolvedSourceFireModes.get();
-        List<FireMode> assembledFireModes;
+        GunsmithTaczBridge.FireModeProfile sourceProfile = resolvedSourceProfile.get();
+        GunsmithTaczBridge.FireModeProfile assembledProfile;
         if (gunId.equals(blueprint.gunId())) {
-            assembledFireModes = sourceFireModes;
+            assembledProfile = sourceProfile;
         } else {
-            Optional<List<FireMode>> resolvedAssembledFireModes = GunsmithTaczBridge.findFireModes(gunId);
-            if (resolvedAssembledFireModes.isEmpty()) {
+            Optional<GunsmithTaczBridge.FireModeProfile> resolvedAssembledProfile =
+                    GunsmithTaczBridge.findFireModeProfile(gunId);
+            if (resolvedAssembledProfile.isEmpty()) {
                 return ItemStack.EMPTY;
             }
-            assembledFireModes = resolvedAssembledFireModes.get();
+            assembledProfile = resolvedAssembledProfile.get();
         }
         FireMode initialFireMode;
         try {
-            initialFireMode = GunsmithFireModePolicy.preserveAndSelectFirst(sourceFireModes, assembledFireModes);
+            initialFireMode = forceThreeRoundBurst
+                    ? GunsmithFireModePolicy.forceThreeRoundBurst(
+                            sourceProfile.fireModes(), assembledProfile.fireModes(), FireMode.BURST,
+                            assembledProfile.burstCount(), assembledProfile.continuousBurst())
+                    : GunsmithFireModePolicy.preserveAndSelectFirst(
+                            sourceProfile.fireModes(), assembledProfile.fireModes());
         } catch (IllegalArgumentException exception) {
-            LOGGER.error("Gunsmith blueprint gun {} fire modes {} do not match assembled gun {} fire modes {}; refusing assembly",
-                    blueprint.gunId(), sourceFireModes, gunId, assembledFireModes, exception);
+            LOGGER.error("Gunsmith blueprint gun {} fire-mode profile {} is incompatible with assembled gun {} profile {}; refusing assembly",
+                    blueprint.gunId(), sourceProfile, gunId, assembledProfile, exception);
             return ItemStack.EMPTY;
         }
         return build(gunId, blueprint, initialFireMode);

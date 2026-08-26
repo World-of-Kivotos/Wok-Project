@@ -342,8 +342,8 @@ public final class MunitionsWebUiGameTests {
         JsonObject result = blueprints(helper, player);
 
         JsonArray rows = result.getAsJsonArray("blueprints");
-        helper.assertTrue(rows.size() == GunsmithBlueprint.values().length && rows.size() == 9,
-                "图纸恒 9 款 (GunsmithBlueprint 全枚举), 实得 " + rows.size());
+        helper.assertTrue(rows.size() == GunsmithBlueprint.values().length,
+                "图纸数量必须与 GunsmithBlueprint 全枚举一致, 实得 " + rows.size());
         helper.assertTrue(result.get("blueprintCount").getAsInt() == rows.size(), "blueprintCount 必须与数组等长");
         helper.assertTrue("miningdim:gunsmith_part".equals(result.get("partItemId").getAsString()),
                 "195 种零件共用一个注册名, 顶层只发这一份, 实得 " + result.get("partItemId"));
@@ -353,11 +353,10 @@ public final class MunitionsWebUiGameTests {
             JsonObject row = rows.get(i).getAsJsonObject();
             helper.assertTrue(blueprint.templateId().equals(row.get("blueprintId").getAsString()),
                     "第 " + i + " 行必须是 " + blueprint.templateId() + ", 实得 " + row.get("blueprintId"));
-            helper.assertTrue(("tacz:" + blueprint.templateId()).equals(row.get("gunId").getAsString()),
-                    blueprint.templateId() + " 的枪 id 必须是 tacz 命名空间的, 实得 " + row.get("gunId"));
-            helper.assertTrue(("tacz.gun." + blueprint.templateId() + ".name")
-                            .equals(row.get("gunNameKey").getAsString()),
-                    blueprint.templateId() + " 发的是 TACZ 枪名翻译键而不是中文");
+            helper.assertTrue(blueprint.gunId().toString().equals(row.get("gunId").getAsString()),
+                    blueprint.templateId() + " 的枪 id 必须与蓝图静态表一致, 实得 " + row.get("gunId"));
+            helper.assertTrue(blueprint.nameKey().equals(row.get("gunNameKey").getAsString()),
+                    blueprint.templateId() + " 的枪名翻译键必须与蓝图静态表一致");
             helper.assertTrue(blueprint.platform().id().equals(row.get("platformId").getAsString()),
                     blueprint.templateId() + " 的平台必须是 " + blueprint.platform().id());
 

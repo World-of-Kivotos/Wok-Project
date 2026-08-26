@@ -79,8 +79,8 @@ public final class MunitionsConfig {
     public static final ForgeConfigSpec.BooleanValue GUNSMITH_ENABLED;
 
     /**
-     * 爆头等效伤害倍率总帽 (审查 TACZ-BAL-1): TACZ 爆头伤害 = 距离伤害 x 爆头倍率, 枪匠对二者各乘品质系数后,
-     * 爆头处复利最高 1.5 x 1.5 = 2.25。此帽把 damage x headshot 的复利钳住, 只压爆头不动躯干每-stat 帽。
+     * 爆头等效伤害倍率总帽 (审查 TACZ-BAL-1): 只钳枪机伤害品质系数 x 枪管爆头品质系数的复利。
+     * 势力组件伤害在帽外等比作用于躯干和爆头，避免高伤组件把爆头倍率反解到 1 以下。
      * 默认取保守初值, 待真服对 80 血目标实测致死阈值后调定。
      */
     public static final ForgeConfigSpec.DoubleValue GUNSMITH_HEADSHOT_DAMAGE_CAP;
@@ -98,6 +98,28 @@ public final class MunitionsConfig {
     public static final ForgeConfigSpec.IntValue ASSEMBLY_UNLOCK_LEVEL;
     /** 单次装配的信用点工费 (销毁型 sink, 与冲压工费独立结算)。 */
     public static final ForgeConfigSpec.IntValue ASSEMBLY_WORK_FEE_CREDITS;
+
+    // ---- 枪械耐久：按枪匠平台分类，每次维修永久降低最大耐久 ----
+    public static final ForgeConfigSpec.IntValue GUN_DURABILITY_AR;
+    public static final ForgeConfigSpec.IntValue GUN_DURABILITY_AK;
+    public static final ForgeConfigSpec.IntValue GUN_DURABILITY_PISTOL;
+    public static final ForgeConfigSpec.IntValue GUN_DURABILITY_BULLPUP;
+    public static final ForgeConfigSpec.IntValue GUN_DURABILITY_MARKSMAN;
+    public static final ForgeConfigSpec.IntValue GUN_DURABILITY_SNIPER;
+    public static final ForgeConfigSpec.IntValue GUN_DURABILITY_MACHINE_GUN;
+    public static final ForgeConfigSpec.IntValue GUN_DURABILITY_SHOTGUN;
+    public static final ForgeConfigSpec.IntValue GUN_DURABILITY_SMG;
+
+    public static final ForgeConfigSpec.DoubleValue GUN_REPAIR_LOSS_AR;
+    public static final ForgeConfigSpec.DoubleValue GUN_REPAIR_LOSS_AK;
+    public static final ForgeConfigSpec.DoubleValue GUN_REPAIR_LOSS_PISTOL;
+    public static final ForgeConfigSpec.DoubleValue GUN_REPAIR_LOSS_BULLPUP;
+    public static final ForgeConfigSpec.DoubleValue GUN_REPAIR_LOSS_MARKSMAN;
+    public static final ForgeConfigSpec.DoubleValue GUN_REPAIR_LOSS_SNIPER;
+    public static final ForgeConfigSpec.DoubleValue GUN_REPAIR_LOSS_MACHINE_GUN;
+    public static final ForgeConfigSpec.DoubleValue GUN_REPAIR_LOSS_SHOTGUN;
+    public static final ForgeConfigSpec.DoubleValue GUN_REPAIR_LOSS_SMG;
+    public static final ForgeConfigSpec.DoubleValue GUN_REPAIR_MINIMUM_RATIO;
 
     // ---- 九章: 工费 sink (1.5 CP/发, ×10 锚价整数化为 15/10 发) ----
     /** 每 10 发产弹扣的信用点工费 (整数化锚价; 实发 1.5/发 = 15/10 发, 销毁 = sink)。 */
@@ -210,8 +232,8 @@ public final class MunitionsConfig {
         GUNSMITH_ENABLED = b.comment("Enable the gunsmith press subsystem (WIP chapter 3A; keep false until"
                         + " material items, survival chain, gating, damage coefficients and economy sink pass review)")
                 .define("gunsmithEnabled", false);
-        GUNSMITH_HEADSHOT_DAMAGE_CAP = b.comment("Cap on the compounded headshot-equivalent damage multiplier"
-                        + " (damage coeff x headshot coeff). WIP conservative default pending live tuning against"
+        GUNSMITH_HEADSHOT_DAMAGE_CAP = b.comment("Cap on the bolt-quality x barrel-headshot-quality multiplier;"
+                        + " faction component damage remains outside this cap. Conservative default pending live tuning against"
                         + " the 80-HP server; 2.25 restores the uncapped legendary+legendary compound.")
                 .defineInRange("gunsmithHeadshotDamageCap", 1.8D, 1.0D, 2.25D);
         FE_PER_RIFLE_EQUIVALENT_ROUND = b.comment(
@@ -232,6 +254,35 @@ public final class MunitionsConfig {
                 .defineInRange("refinedRoundsPerBatch", 70, 1, 100000);
         REFINE_UNLOCK_LEVEL = b.comment("Munitions level that unlocks propellant refining (6.1: L6)")
                 .defineInRange("refineUnlockLevel", 6, 1, 10);
+        b.pop();
+
+        b.push("gunDurability");
+        b.comment("Maximum durability of a newly assembled gun, measured in successful shots."
+                + " Shotgun pellet count does not multiply wear; burst fire consumes one point per round.");
+        GUN_DURABILITY_AR = b.defineInRange("arMaximum", 2000, 1, 10000000);
+        GUN_DURABILITY_AK = b.defineInRange("akMaximum", 2400, 1, 10000000);
+        GUN_DURABILITY_PISTOL = b.defineInRange("pistolMaximum", 1400, 1, 10000000);
+        GUN_DURABILITY_BULLPUP = b.defineInRange("bullpupMaximum", 1900, 1, 10000000);
+        GUN_DURABILITY_MARKSMAN = b.defineInRange("marksmanMaximum", 1000, 1, 10000000);
+        GUN_DURABILITY_SNIPER = b.defineInRange("sniperMaximum", 800, 1, 10000000);
+        GUN_DURABILITY_MACHINE_GUN = b.defineInRange("machineGunMaximum", 3500, 1, 10000000);
+        GUN_DURABILITY_SHOTGUN = b.defineInRange("shotgunMaximum", 600, 1, 10000000);
+        GUN_DURABILITY_SMG = b.defineInRange("smgMaximum", 2500, 1, 10000000);
+
+        b.comment("Permanent maximum-durability loss per repair, expressed as a fraction of the gun's"
+                + " original maximum. The loss is deterministic and platform-specific.");
+        GUN_REPAIR_LOSS_AR = b.defineInRange("arRepairLoss", 0.10D, 0.001D, 0.90D);
+        GUN_REPAIR_LOSS_AK = b.defineInRange("akRepairLoss", 0.08D, 0.001D, 0.90D);
+        GUN_REPAIR_LOSS_PISTOL = b.defineInRange("pistolRepairLoss", 0.10D, 0.001D, 0.90D);
+        GUN_REPAIR_LOSS_BULLPUP = b.defineInRange("bullpupRepairLoss", 0.10D, 0.001D, 0.90D);
+        GUN_REPAIR_LOSS_MARKSMAN = b.defineInRange("marksmanRepairLoss", 0.12D, 0.001D, 0.90D);
+        GUN_REPAIR_LOSS_SNIPER = b.defineInRange("sniperRepairLoss", 0.08D, 0.001D, 0.90D);
+        GUN_REPAIR_LOSS_MACHINE_GUN = b.defineInRange("machineGunRepairLoss", 0.12D, 0.001D, 0.90D);
+        GUN_REPAIR_LOSS_SHOTGUN = b.defineInRange("shotgunRepairLoss", 0.08D, 0.001D, 0.90D);
+        GUN_REPAIR_LOSS_SMG = b.defineInRange("smgRepairLoss", 0.12D, 0.001D, 0.90D);
+        GUN_REPAIR_MINIMUM_RATIO = b.comment("Lowest maintainable maximum as a fraction of the original maximum."
+                        + " At this floor the gun can no longer be repaired.")
+                .defineInRange("minimumRemainingRatio", 0.30D, 0.01D, 1.0D);
         b.pop();
 
         b.push("workFee");

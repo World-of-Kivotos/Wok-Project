@@ -8,64 +8,77 @@ import java.util.Objects;
  * 刻意不依赖任何 TACZ 类型: dev GameTest 不加载 TACZ, 把"乘还是逆"的方向与爆头封顶留在这里就能直接断言;
  * GunsmithTaczStatsHandler 只负责把这些乘子落到 TACZ 属性缓存, 不再自己算方向。
  *
- * 爆头封顶: TACZ 最终爆头伤害 = 距离伤害 x 爆头倍率, 因此枪匠对二者各乘系数后, 爆头处等效倍率是
- * damage x headshot 的复利 (两个品质帽相乘最高 1.5 x 1.5 = 2.25)。此处把该复利钳到 headshotDamageCap,
- * 反解出可施加的 headshot 乘子, 只压爆头、不动躯干每-stat 帽。
+ * 爆头封顶只约束枪机伤害品质系数 x 基础枪管爆头品质系数的复利。势力组件自己的伤害与爆头倍率在帽外计算，
+ * 避免红冬伤害或圣三一枪管的明确特殊效果被基础品质封顶吞掉。
  */
-public record GunsmithStatMultipliers(double damage, double headshot, double effectiveRange,
-                                      double adsTime, double inaccuracy, double aimInaccuracy,
-                                      double verticalRecoil, double horizontalRecoil, double fireRate) {
+public record GunsmithStatMultipliers(double damage, double headshot, double effectiveRange, double ammoSpeed,
+                                      double armorIgnore, double adsTime, double inaccuracy, double aimInaccuracy,
+                                      double recoil, double verticalRecoil, double fireRate) {
 
     public static GunsmithStatMultipliers of(GunsmithGunStats stats, double headshotDamageCap) {
         Objects.requireNonNull(stats, "stats");
-        return ofResolved(stats.damage(), stats.headshot(), stats.range(), stats.handling(),
-                stats.inaccuracyMultiplier(), stats.verticalRecoilMultiplier(), stats.horizontalRecoilMultiplier(),
-                stats.fireRateMultiplier(), headshotDamageCap);
+        GunsmithStatMultipliers base = of(stats.damage(), stats.baseDamage(), stats.baseHeadshot(), stats.range(),
+                stats.handling(), stats.spread(), stats.recoil(), headshotDamageCap);
+        double recoil = base.recoil() * stats.specialRecoil();
+        return new GunsmithStatMultipliers(base.damage(), base.headshot() * stats.specialHeadshot(),
+                base.effectiveRange(), stats.ammoSpeed(), stats.armorIgnore(),
+                base.adsTime() * inverse(stats.specialAdsSpeed()),
+                base.inaccuracy() * stats.specialSpread(),
+                base.aimInaccuracy() * stats.specialSpread(), recoil,
+                recoil * stats.verticalRecoil(), stats.fireRate());
     }
 
     public static GunsmithStatMultipliers of(double damage, double headshot, double range,
                                              double handling, double spread, double recoil,
                                              double headshotDamageCap) {
-        requirePositive(recoil, "recoil");
-        requirePositive(spread, "spread");
-        return ofResolved(damage, headshot, range, handling, inverse(spread),
-                inverse(recoil), inverse(recoil), 1.0D, headshotDamageCap);
+        return of(damage, damage, headshot, range, handling, spread, recoil, headshotDamageCap);
     }
 
-    public double recoil() {
-        return verticalRecoil;
-    }
-
-    public int roundsPerMinute(int baseRoundsPerMinute) {
-        if (baseRoundsPerMinute <= 0) {
-            throw new IllegalArgumentException("Base rounds per minute must be positive: " + baseRoundsPerMinute);
-        }
-        return Math.toIntExact(Math.round(baseRoundsPerMinute * fireRate));
-    }
-
-    private static GunsmithStatMultipliers ofResolved(double damage, double headshot, double range,
-                                                       double handling, double inaccuracy,
-                                                       double verticalRecoil, double horizontalRecoil,
-                                                       double fireRate, double headshotDamageCap) {
+    static GunsmithStatMultipliers of(double damage, double headshotCapDamage, double headshot, double range,
+                                      double handling, double spread, double recoil,
+                                      double headshotDamageCap) {
         requirePositive(damage, "damage");
+        requirePositive(headshotCapDamage, "headshot cap damage");
         requirePositive(headshot, "headshot");
         requirePositive(range, "range");
         requirePositive(handling, "handling");
-        requirePositive(inaccuracy, "inaccuracy");
-        requirePositive(verticalRecoil, "verticalRecoil");
-        requirePositive(horizontalRecoil, "horizontalRecoil");
-        requirePositive(fireRate, "fireRate");
+        requirePositive(spread, "spread");
+        requirePositive(recoil, "recoil");
         requirePositive(headshotDamageCap, "headshotDamageCap");
-        double cappedHeadshot = damage * headshot > headshotDamageCap
-                ? headshotDamageCap / damage
+        double cappedHeadshot = headshotCapDamage * headshot > headshotDamageCap
+                ? headshotDamageCap / headshotCapDamage
                 : headshot;
-        return new GunsmithStatMultipliers(damage, cappedHeadshot, range,
-                inverse(handling), inaccuracy, inverse(handling),
-                verticalRecoil, horizontalRecoil, fireRate);
+        return new GunsmithStatMultipliers(damage, cappedHeadshot, range, 1.0D, 1.0D,
+                inverse(handling), inverse(spread), inverse(handling), inverse(recoil),
+                inverse(recoil), 1.0D);
     }
 
     private static double inverse(double coefficient) {
         return 1.0D / coefficient;
+    }
+
+    /**
+     * 把势力组件制造的额外后坐从原枪/外部配件修正中分离出来。
+     * 外部配件只修正受枪托控制后的原枪后坐，不能同比消除势力组件自身增加的部分。
+     */
+    static double nonReducibleRecoilExtra(double baseControl, double configuredTotal) {
+        requirePositive(baseControl, "base recoil control");
+        requirePositive(configuredTotal, "configured recoil total");
+        return configuredTotal > baseControl ? configuredTotal - baseControl : 0.0D;
+    }
+
+    static double attachmentScaledRecoilBase(double baseControl, double configuredTotal) {
+        requirePositive(baseControl, "base recoil control");
+        requirePositive(configuredTotal, "configured recoil total");
+        return configuredTotal < baseControl ? configuredTotal : baseControl;
+    }
+
+    static double recoilAfterAttachment(double attachmentMultiplier,
+                                        double baseControl,
+                                        double configuredTotal) {
+        requirePositive(attachmentMultiplier, "attachment recoil multiplier");
+        return attachmentMultiplier * attachmentScaledRecoilBase(baseControl, configuredTotal)
+                + nonReducibleRecoilExtra(baseControl, configuredTotal);
     }
 
     private static void requirePositive(double value, String name) {

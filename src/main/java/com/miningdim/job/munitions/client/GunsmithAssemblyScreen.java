@@ -3,6 +3,8 @@ package com.miningdim.job.munitions.client;
 import com.miningdim.job.munitions.gunsmith.GunsmithAssemblyRecipe;
 import com.miningdim.job.munitions.gunsmith.GunsmithBaseStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
+import com.miningdim.job.munitions.gunsmith.GunsmithGunDurability;
+import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
@@ -70,10 +72,27 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
         drawPlayerInventoryFrames(graphics, left, top);
 
         Map<GunsmithPressPart, ItemStack> partStacks = menu.partStacks();
+        boolean repairMode = menu.isRepairMode();
         boolean hasBlueprint = GunsmithAssemblyRecipe.isBlueprint(menu.blueprint());
-        if (hasBlueprint) {
+        if (repairMode) {
+            GunsmithGunStats gunStats = GunsmithGunStats.from(menu.input());
+            Optional<GunsmithTaczClientData> clientData = GunsmithTaczClientData.find(gunStats.gunId());
+            if (clientData.isPresent()) {
+                drawRightAlignedScaledText(graphics, clientData.get().gunName().getString(),
+                        left + W - 20, top + 19, 0xFFB9D7DE, 0.62F);
+                graphics.blit(clientData.get().hudTexture(), left + PREVIEW_X, top + PREVIEW_Y,
+                        PREVIEW_W, PREVIEW_H, 0.0F, 0.0F, PREVIEW_TEX_W, PREVIEW_TEX_H,
+                        PREVIEW_TEX_W, PREVIEW_TEX_H);
+            } else {
+                drawRightAlignedScaledText(graphics, gunStats.gunId().toString(),
+                        left + W - 20, top + 19, 0xFFE0525C, 0.62F);
+            }
+            renderRepairStats(graphics, left, top, menu.repairPreview());
+        } else if (hasBlueprint) {
             GunsmithBlueprint blueprint = GunsmithAssemblyRecipe.blueprint(menu.blueprint());
-            ResourceLocation previewGunId = GunsmithAssemblyRecipe.assembledGunId(menu.blueprint());
+            Map<GunsmithPressPart, ItemStack> previewParts =
+                    GunsmithAssemblyRecipe.previewCompatibleParts(blueprint, partStacks);
+            ResourceLocation previewGunId = GunsmithAssemblyRecipe.assembledGunId(menu.blueprint(), previewParts);
             Optional<GunsmithBaseStats> baseStats = GunsmithTaczBridge.findBaseStats(previewGunId);
             Optional<GunsmithTaczClientData> clientData = GunsmithTaczClientData.find(previewGunId);
             if (baseStats.isPresent() && clientData.isPresent()) {
@@ -83,7 +102,7 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
                         PREVIEW_W, PREVIEW_H, 0.0F, 0.0F, PREVIEW_TEX_W, PREVIEW_TEX_H,
                         PREVIEW_TEX_W, PREVIEW_TEX_H);
                 renderStats(graphics, left, top,
-                        GunsmithAssemblyRecipe.preview(blueprint, partStacks, baseStats.get()), baseStats.get());
+                        GunsmithAssemblyRecipe.preview(blueprint, previewParts, baseStats.get()), baseStats.get());
             } else {
                 drawRightAlignedScaledText(graphics, previewGunId.toString(),
                         left + W - 20, top + 19, 0xFFE0525C, 0.62F);
@@ -111,7 +130,9 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
         }
         drawSlotFrame(graphics, left + OUTPUT_X, top + OUTPUT_Y, 0xFFA66CE0);
 
-        drawScaledText(graphics, Component.translatable("screen.miningdim.gunsmith_assembly.blueprint").getString(),
+        drawScaledText(graphics, Component.translatable(repairMode
+                        ? "screen.miningdim.gunsmith_assembly.repair_gun"
+                        : "screen.miningdim.gunsmith_assembly.blueprint").getString(),
                 left + 18, top + 82, 0xFFB7C2C8, 0.62F);
         drawScaledText(graphics, Component.translatable("screen.miningdim.gunsmith_assembly.inventory").getString(),
                 left + 126, top + 153, 0xFF9DAAB2, 0.58F);
@@ -127,7 +148,9 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
         graphics.drawCenteredString(this.font,
                 Component.translatable(assembling
                         ? "screen.miningdim.gunsmith_assembly.assembling"
-                        : "screen.miningdim.gunsmith_assembly.assemble"),
+                        : repairMode
+                                ? "screen.miningdim.gunsmith_assembly.repair"
+                                : "screen.miningdim.gunsmith_assembly.assemble"),
                 left + ASSEMBLE_X + ASSEMBLE_W / 2, top + ASSEMBLE_Y + 6,
                 ready ? 0xFF171A1C : 0xFFA8B0B4);
     }
@@ -144,7 +167,9 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
         if (inRect(mouseX, mouseY, this.leftPos + ASSEMBLE_X, this.topPos + ASSEMBLE_Y,
                 ASSEMBLE_W, ASSEMBLE_H)) {
             graphics.renderTooltip(this.font,
-                    Component.translatable("screen.miningdim.gunsmith_assembly.assemble_tooltip"),
+                    Component.translatable(menu.isRepairMode()
+                            ? "screen.miningdim.gunsmith_assembly.repair_tooltip"
+                            : "screen.miningdim.gunsmith_assembly.assemble_tooltip"),
                     mouseX, mouseY);
         }
     }
@@ -185,6 +210,31 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
                 "x" + String.format(Locale.ROOT, "%.3f", preview.average()));
     }
 
+    private void renderRepairStats(GuiGraphics graphics, int left, int top,
+                                   GunsmithGunDurability.RepairPreview preview) {
+        int x = left + STATS_X + 6;
+        int y = top + STATS_Y + 6;
+        GunsmithGunDurability.State state = preview.before();
+        drawScaledText(graphics, Component.translatable(
+                        "screen.miningdim.gunsmith_assembly.repair_stats").getString(),
+                x, y, 0xFFB9D7DE, 0.68F);
+        drawStat(graphics, x, y + 17, "screen.miningdim.gunsmith_assembly.stat.durability",
+                state.current() + " / " + state.maximum());
+        drawStat(graphics, x, y + 33, "screen.miningdim.gunsmith_assembly.stat.repaired",
+                Integer.toString(state.repairs()));
+        drawStat(graphics, x, y + 49, "screen.miningdim.gunsmith_assembly.stat.next_maximum",
+                preview.available() ? Integer.toString(preview.nextMaximum()) : "-");
+        drawStat(graphics, x, y + 65, "screen.miningdim.gunsmith_assembly.stat.permanent_loss",
+                preview.available() ? Integer.toString(state.maximum() - preview.nextMaximum()) : "-");
+        drawScaledText(graphics, Component.translatable(switch (preview.status()) {
+                    case AVAILABLE -> "screen.miningdim.gunsmith_assembly.repair_ready";
+                    case FULL -> "screen.miningdim.gunsmith_assembly.repair_full";
+                    case INSUFFICIENT_WEAR -> "screen.miningdim.gunsmith_assembly.repair_wait";
+                    case EXHAUSTED -> "screen.miningdim.gunsmith_assembly.repair_exhausted";
+                }).getString(), x, y + 88,
+                preview.available() ? 0xFF54C879 : 0xFFE0525C, 0.58F);
+    }
+
     private void drawStat(GuiGraphics graphics, int x, int y, String key, String value) {
         drawScaledText(graphics, Component.translatable(key, value).getString(), x, y,
                 0xFFDFE8EF, 0.58F);
@@ -195,7 +245,7 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
         int slotX = GunsmithAssemblyMenu.partSlotX(part);
         int slotY = GunsmithAssemblyMenu.partSlotY(part);
         int y = switch (part) {
-            case BARREL, CORE, BOLT -> top + slotY - 10;
+            case BARREL, CORE, BOLT, FIRING_PIN -> top + slotY - 10;
             case STOCK, HANDGUARD, GRIP, TRIGGER, BIPOD -> top + slotY - 9;
             case SLIDE, HAMMER, RECEIVER -> top + slotY - 10;
         };
@@ -241,6 +291,7 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
             case HAMMER -> 238;
             case RECEIVER -> 224;
             case BIPOD -> 176;
+            case FIRING_PIN -> 210;
         };
     }
 
@@ -256,6 +307,7 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
             case HAMMER -> 95;
             case RECEIVER -> 104;
             case BIPOD -> 126;
+            case FIRING_PIN -> 94;
         };
     }
 

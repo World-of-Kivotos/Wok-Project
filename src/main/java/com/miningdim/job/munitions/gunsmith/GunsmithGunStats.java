@@ -17,7 +17,19 @@ public final class GunsmithGunStats {
     public static final String PARTS_KEY = "Parts";
     public static final String STATS_KEY = "Stats";
     public static final String VERSION_KEY = "version";
-    public static final int CURRENT_VERSION = 5;
+    public static final int CURRENT_VERSION = 7;
+
+    private static final Set<GunsmithPressPart> LEGACY_MARKSMAN_FIVE_PARTS = Set.of(
+            GunsmithPressPart.HANDGUARD,
+            GunsmithPressPart.CORE,
+            GunsmithPressPart.STOCK,
+            GunsmithPressPart.BOLT,
+            GunsmithPressPart.BARREL);
+    private static final Set<GunsmithPressPart> LEGACY_SNIPER_FOUR_PARTS = Set.of(
+            GunsmithPressPart.RECEIVER,
+            GunsmithPressPart.STOCK,
+            GunsmithPressPart.BARREL,
+            GunsmithPressPart.HANDGUARD);
 
     private final CompoundTag root;
     private final CompoundTag stats;
@@ -31,16 +43,44 @@ public final class GunsmithGunStats {
         this.version = version(root);
         String platform = requireString(root, "platform");
         this.blueprint = requireBlueprint(requireString(root, "template"));
-        if (!blueprint.platform().id().equals(platform)) {
+        boolean migratedSpr15hbPlatform = isLegacySpr15hbArData(root, blueprint);
+        if (!blueprint.platform().id().equals(platform) && !migratedSpr15hbPlatform) {
             throw new IllegalArgumentException("Gunsmith platform does not match template: " + platform);
         }
-        this.parts = readParts(root, blueprint, version);
+        boolean migratedArReceiver = isLegacyArReceiverData(root, blueprint, version);
+        boolean migratedMarksmanGrip = isLegacyFivePartMarksmanData(root, blueprint, version);
+        boolean migratedSniperFiringPin = isLegacyFourPartSniperData(root, blueprint, version);
+        if (migratedSpr15hbPlatform) {
+            this.parts = readParts(root, GunsmithPlatform.AR,
+                    GunsmithPlatform.AR.supportedParts(), migratedArReceiver);
+        } else if (migratedMarksmanGrip) {
+            List<PartSummary> migrated = new ArrayList<>(readParts(root, GunsmithPlatform.MARKSMAN,
+                    LEGACY_MARKSMAN_FIVE_PARTS, false));
+            migrated.add(new PartSummary(GunsmithPressPart.GRIP, GunsmithPartQuality.COMMON,
+                    GunsmithPartVariant.BASE, 1.0D));
+            this.parts = List.copyOf(migrated);
+        } else if (migratedSniperFiringPin) {
+            List<PartSummary> migrated = new ArrayList<>(readParts(root, GunsmithPlatform.SNIPER,
+                    LEGACY_SNIPER_FOUR_PARTS, false));
+            migrated.add(new PartSummary(GunsmithPressPart.FIRING_PIN, GunsmithPartQuality.COMMON,
+                    GunsmithPartVariant.BASE, 1.0D));
+            this.parts = List.copyOf(migrated);
+        } else {
+            this.parts = readParts(root, blueprint.platform(), blueprint.requiredParts(), migratedArReceiver);
+        }
         ResourceLocation encodedGunId = gunId();
-        if (!matchesBlueprintGunId(blueprint, encodedGunId)) {
+        if (!matchesBlueprintGunId(blueprint, encodedGunId, parts)) {
             throw new IllegalArgumentException("Gunsmith gun id does not match template: " + encodedGunId);
         }
-        if (version >= 2) {
+        if (migratedSpr15hbPlatform || migratedMarksmanGrip || migratedSniperFiringPin) {
+            validateMigratedPlatformStats();
+        } else if (version == CURRENT_VERSION || version == 3 || version == 5 || version == 6
+                || version == 4 && !migratedArReceiver) {
             validateCurrentStats();
+        } else if (version == 4) {
+            validateMigratedArReceiverStats();
+        } else if (version == 2) {
+            validateVersion2Stats();
         } else {
             value("damage");
             value("headshot");
@@ -69,14 +109,7 @@ public final class GunsmithGunStats {
     }
 
     /**
-     * 与 {@link #from(ItemStack)} 同源, 但把"这把枪的缓存数据读不出来"降级成 null 而不是抛。
-     *
-     * 存在的唯一理由是只读展示 (WebUI 的物品详情): {@link #validateCurrentStats()} 用 {@link Double#compare}
-     * 把 NBT 里缓存的 stats 与按<b>当前</b>平衡表重算的值精确比对, 于是每调一次平衡数值, 玩家背包里那批老枪
-     * 就会集体读不出来 —— 那是正常游玩产物, 不是畸形数据, 点开详情不该报错。
-     *
-     * 装配 / 冲压 / 伤害结算等写入与判定路径一律仍走 {@link #from(ItemStack)} 硬校验: 那里读不出来就该炸,
-     * 降级等于把错的 stats 落进新枪或按错的系数算伤害。
+     * 只读展示与第三方属性事件使用的容错入口；装配和写入路径仍使用 {@link #from(ItemStack)} 硬校验。
      */
     @Nullable
     public static GunsmithGunStats tryFrom(ItemStack stack) {
@@ -87,23 +120,21 @@ public final class GunsmithGunStats {
         }
     }
 
-    /**
-     * 只判"这是不是一把枪匠枪"——不解析、不校验、绝不抛。
-     *
-     * 存在的唯一理由是给 {@link #tryFrom} 的调用方 (只读展示) 区分两种截然不同的 null: "这个物品根本不是枪匠枪"
-     * (该静默跳过) 与"是枪匠枪但缓存数据读不出来" (该给玩家一条降级提示, 而不是当作普通物品一声不吭)。
-     */
     public static boolean hasGunsmithData(ItemStack stack) {
         CompoundTag tag = stack.getTag();
         return tag != null && tag.contains(ROOT_KEY);
     }
 
     public String platform() {
-        return root.getString("platform");
+        return blueprint.platform().id();
     }
 
     public String template() {
         return root.getString("template");
+    }
+
+    public GunsmithBlueprint blueprint() {
+        return blueprint;
     }
 
     public ResourceLocation gunId() {
@@ -116,17 +147,34 @@ public final class GunsmithGunStats {
     }
 
     public double damage() {
+        return version == 1 ? value("damage") : baseDamage() * variantProduct(VariantStat.DAMAGE);
+    }
+
+    double baseDamage() {
         return version == 1 ? value("damage") : coefficient(GunsmithStat.DAMAGE);
     }
 
     public double headshot() {
+        return version == 1 ? value("headshot") : baseHeadshot() * specialHeadshot();
+    }
+
+    double baseHeadshot() {
         return version == 1 ? value("headshot") : coefficient(GunsmithStat.HEADSHOT);
     }
 
+    public double specialHeadshot() {
+        return version == 1 ? 1.0D : variantProduct(VariantStat.HEADSHOT);
+    }
+
     public double range() {
-        return version == 1
-                ? requiredPart(GunsmithPressPart.CORE).coefficient()
-                : coefficient(GunsmithStat.RANGE);
+        if (version == 1) {
+            return requiredPart(GunsmithPressPart.CORE).coefficient();
+        }
+        double result = coefficient(GunsmithStat.RANGE);
+        for (PartSummary part : parts) {
+            result = part.variant().applyRangeMultiplier(result, part.quality());
+        }
+        return result;
     }
 
     public double recoil() {
@@ -147,8 +195,57 @@ public final class GunsmithGunStats {
         return version == 1 ? value("average") : averageCoefficient();
     }
 
+    public double fireRate() {
+        return version == 1 ? 1.0D : variantProduct(VariantStat.FIRE_RATE);
+    }
+
+    /** 兼容主线既有详情面板与测试使用的旧访问器名称。 */
+    public double fireRateMultiplier() {
+        return fireRate();
+    }
+
+    public double ammoSpeed() {
+        return version == 1 ? 1.0D : variantProduct(VariantStat.AMMO_SPEED);
+    }
+
+    public double armorIgnore() {
+        return version == 1 ? 1.0D : variantProduct(VariantStat.ARMOR_IGNORE);
+    }
+
+    public double specialSpread() {
+        return version == 1 ? 1.0D : variantProduct(VariantStat.SPREAD);
+    }
+
+    public double specialRecoil() {
+        return version == 1 ? 1.0D : variantProduct(VariantStat.RECOIL);
+    }
+
+    public double verticalRecoil() {
+        return version == 1 ? 1.0D : variantProduct(VariantStat.VERTICAL_RECOIL);
+    }
+
+    public double specialAdsSpeed() {
+        return version == 1 ? 1.0D : variantProduct(VariantStat.ADS_SPEED);
+    }
+
+    public double adsSpeed() {
+        return handling() * specialAdsSpeed();
+    }
+
     public List<PartSummary> parts() {
         return parts;
+    }
+
+    public boolean forcesBurstFireMode() {
+        return parts.stream().anyMatch(part -> part.variant().forcesBurstFireMode());
+    }
+
+    public double maximumDurabilityMultiplier() {
+        double multiplier = 1.0D;
+        for (PartSummary part : parts) {
+            multiplier *= part.variant().maximumDurabilityMultiplier();
+        }
+        return multiplier;
     }
 
     public double effectiveDamage(GunsmithBaseStats baseStats) {
@@ -164,38 +261,27 @@ public final class GunsmithGunStats {
     }
 
     public double effectiveAdsTime(GunsmithBaseStats baseStats) {
-        return effectiveAdsTime(Objects.requireNonNull(baseStats, "baseStats").adsTime(), handling());
+        return effectiveAdsTime(Objects.requireNonNull(baseStats, "baseStats").adsTime(), adsSpeed());
     }
 
     public double recoilChange() {
-        return verticalRecoilMultiplier() - 1.0D;
-    }
-
-    public double fireRateMultiplier() {
-        return version >= 3 ? value("fireRate") : 1.0D;
-    }
-
-    public double verticalRecoilMultiplier() {
-        if (version >= 5) {
-            return value("verticalRecoil");
-        }
-        if (version >= 3) {
-            // v3/v4 caches are validated against their historical recoil curves before current balance is derived.
-            return derivedVerticalRecoilMultiplier();
-        }
-        return inverse(recoil());
-    }
-
-    public double horizontalRecoilMultiplier() {
-        return inverse(recoil());
-    }
-
-    public double inaccuracyMultiplier() {
-        return version >= 5 ? value("inaccuracy") : derivedInaccuracyMultiplier();
+        return inverse(recoil()) * specialRecoil() - 1.0D;
     }
 
     public double spreadChange() {
-        return inaccuracyMultiplier() - 1.0D;
+        return inverse(spread()) * specialSpread() - 1.0D;
+    }
+
+    public double verticalRecoilMultiplier() {
+        return inverse(recoil()) * specialRecoil() * verticalRecoil();
+    }
+
+    public double horizontalRecoilMultiplier() {
+        return inverse(recoil()) * specialRecoil();
+    }
+
+    public double inaccuracyMultiplier() {
+        return inverse(spread()) * specialSpread();
     }
 
     private double value(String key) {
@@ -214,20 +300,6 @@ public final class GunsmithGunStats {
             throw new IllegalArgumentException("Base ADS time must be positive and finite");
         }
         return baseAdsTime * inverse(coefficient);
-    }
-
-    static double combineVerticalRecoil(double recoilCoefficient, double variantMultiplier) {
-        if (!Double.isFinite(variantMultiplier) || variantMultiplier <= 0.0D) {
-            throw new IllegalArgumentException("Variant recoil multiplier must be positive and finite");
-        }
-        return inverse(recoilCoefficient) * variantMultiplier;
-    }
-
-    static double combineInaccuracy(double spreadCoefficient, double variantMultiplier) {
-        if (!Double.isFinite(variantMultiplier) || variantMultiplier <= 0.0D) {
-            throw new IllegalArgumentException("Variant inaccuracy multiplier must be positive and finite");
-        }
-        return inverse(spreadCoefficient) * variantMultiplier;
     }
 
     private static double inverse(double coefficient) {
@@ -257,18 +329,23 @@ public final class GunsmithGunStats {
             throw new IllegalArgumentException("Gunsmith root data has no integer version");
         }
         int version = root.getInt(VERSION_KEY);
-        if (version < 2 || version > CURRENT_VERSION) {
+        if (version != 2 && version != 3 && version != 4 && version != 5 && version != 6
+                && version != CURRENT_VERSION) {
             throw new IllegalArgumentException("Unsupported gunsmith data version: " + version);
         }
         return version;
     }
 
-    private static List<PartSummary> readParts(CompoundTag root, GunsmithBlueprint blueprint, int version) {
-        Set<GunsmithPressPart> requiredParts = blueprint.requiredParts();
+    private static List<PartSummary> readParts(CompoundTag root, GunsmithPlatform platform,
+                                               Set<GunsmithPressPart> requiredParts,
+                                               boolean migrateArReceiver) {
         if (!root.contains(PARTS_KEY, Tag.TAG_COMPOUND)) {
             throw new IllegalArgumentException("Gunsmith root data has no parts compound");
         }
         CompoundTag encodedParts = root.getCompound(PARTS_KEY);
+        if (migrateArReceiver) {
+            encodedParts = migrateLegacyArReceiverParts(encodedParts);
+        }
         for (String key : encodedParts.getAllKeys()) {
             if (!isKnownPartId(key)) {
                 throw new IllegalArgumentException("Gunsmith parts contains an unknown part: " + key);
@@ -289,13 +366,6 @@ public final class GunsmithGunStats {
                 throw new IllegalArgumentException("Gunsmith part data is not a compound: " + part.id());
             }
             CompoundTag encodedPart = encodedParts.getCompound(part.id());
-            GunsmithPartVariant variant = version >= 3
-                    ? requireVariant(requireString(encodedPart, "variant"))
-                    : GunsmithPartVariant.BASIC;
-            if (!variant.supports(blueprint.platform(), part)) {
-                throw new IllegalArgumentException("Gunsmith part variant is incompatible with its slot: "
-                        + variant.id() + " for " + blueprint.platform().id() + "/" + part.id());
-            }
             String qualityId = requireString(encodedPart, "quality");
             GunsmithPartQuality quality = requireQuality(qualityId);
             if (!encodedPart.contains("coefficient", Tag.TAG_DOUBLE)) {
@@ -307,9 +377,64 @@ public final class GunsmithGunStats {
                     || coefficient > quality.maxCoefficient()) {
                 throw new IllegalArgumentException("Gunsmith part coefficient is outside the quality range: " + part.id());
             }
-            parts.add(new PartSummary(part, variant, quality, coefficient));
+            GunsmithPartVariant variant = encodedPart.contains("variant", Tag.TAG_STRING)
+                    ? GunsmithPartVariant.byId(encodedPart.getString("variant"))
+                    : GunsmithPartVariant.BASE;
+            if (!variant.supports(platform, part)) {
+                throw new IllegalArgumentException("Gunsmith part variant does not support encoded part: " + part.id());
+            }
+            parts.add(new PartSummary(part, quality, variant, coefficient));
         }
         return List.copyOf(parts);
+    }
+
+    private static boolean isLegacyArReceiverData(CompoundTag root, GunsmithBlueprint blueprint, int version) {
+        return version == 4
+                && (blueprint.platform() == GunsmithPlatform.AR || isLegacySpr15hbArData(root, blueprint))
+                && root.contains(PARTS_KEY, Tag.TAG_COMPOUND)
+                && root.getCompound(PARTS_KEY).contains(GunsmithPressPart.RECEIVER.id());
+    }
+
+    private static boolean isLegacySpr15hbArData(CompoundTag root, GunsmithBlueprint blueprint) {
+        return blueprint == GunsmithBlueprint.SPR15HB
+                && GunsmithPlatform.AR.id().equals(root.getString("platform"));
+    }
+
+    private static boolean isLegacyFivePartMarksmanData(CompoundTag root, GunsmithBlueprint blueprint,
+                                                         int version) {
+        return version == 5
+                && blueprint == GunsmithBlueprint.SPR15HB
+                && GunsmithPlatform.MARKSMAN.id().equals(root.getString("platform"))
+                && root.contains(PARTS_KEY, Tag.TAG_COMPOUND)
+                && !root.getCompound(PARTS_KEY).contains(GunsmithPressPart.GRIP.id());
+    }
+
+    private static boolean isLegacyFourPartSniperData(CompoundTag root, GunsmithBlueprint blueprint,
+                                                       int version) {
+        return version == 6
+                && blueprint.platform() == GunsmithPlatform.SNIPER
+                && root.contains(PARTS_KEY, Tag.TAG_COMPOUND)
+                && !root.getCompound(PARTS_KEY).contains(GunsmithPressPart.FIRING_PIN.id());
+    }
+
+    private static CompoundTag migrateLegacyArReceiverParts(CompoundTag encodedParts) {
+        String receiverId = GunsmithPressPart.RECEIVER.id();
+        if (!encodedParts.contains(receiverId, Tag.TAG_COMPOUND)) {
+            throw new IllegalArgumentException("Legacy AR receiver data is not a compound");
+        }
+        CompoundTag migrated = encodedParts.copy();
+        CompoundTag receiver = migrated.getCompound(receiverId);
+        GunsmithPartVariant variant = receiver.contains("variant", Tag.TAG_STRING)
+                ? GunsmithPartVariant.byId(receiver.getString("variant")) : GunsmithPartVariant.BASE;
+        if (variant == GunsmithPartVariant.MK_AX_A_BOLT) {
+            CompoundTag bolt = receiver.copy();
+            bolt.putString("variant", variant.id());
+            migrated.put(GunsmithPressPart.BOLT.id(), bolt);
+        } else if (variant != GunsmithPartVariant.BASE) {
+            throw new IllegalArgumentException("Legacy AR receiver contains an unsupported variant");
+        }
+        migrated.remove(receiverId);
+        return migrated;
     }
 
     private static boolean isKnownPartId(String id) {
@@ -330,7 +455,14 @@ public final class GunsmithGunStats {
         throw new IllegalArgumentException("Unknown gunsmith template: " + templateId);
     }
 
-    private static boolean matchesBlueprintGunId(GunsmithBlueprint blueprint, ResourceLocation gunId) {
+    private static boolean matchesBlueprintGunId(GunsmithBlueprint blueprint, ResourceLocation gunId,
+                                                 List<PartSummary> parts) {
+        if (parts.stream().anyMatch(part -> part.variant().forcesBurstFireMode())) {
+            if (blueprint == GunsmithBlueprint.SPR15HB) {
+                return new ResourceLocation("miningdim", "spr15hb_gunsmith_burst").equals(gunId);
+            }
+            return GunsmithGunFactory.burstGunId(blueprint).equals(gunId);
+        }
         return blueprint.gunId().equals(gunId)
                 || blueprint == GunsmithBlueprint.M4A1 && GunsmithGunFactory.M4A1_ID.equals(gunId);
     }
@@ -344,10 +476,6 @@ public final class GunsmithGunStats {
         throw new IllegalArgumentException("Unknown gunsmith part quality: " + qualityId);
     }
 
-    private static GunsmithPartVariant requireVariant(String variantId) {
-        return GunsmithPartVariant.byId(variantId);
-    }
-
     private PartSummary requiredPart(GunsmithPressPart part) {
         for (PartSummary summary : parts) {
             if (summary.part() == part) {
@@ -358,24 +486,60 @@ public final class GunsmithGunStats {
     }
 
     private void validateCurrentStats() {
-        validateCurrentStat("damage", damage());
-        validateCurrentStat("headshot", headshot());
-        validateCurrentStat("range", range());
+        // v3 起缓存值只验证部件品质的基础系数，组件平衡值由当前热重载规则实时计算。
+        validateCurrentStat("damage", coefficient(GunsmithStat.DAMAGE));
+        validateCurrentStat("headshot", baseHeadshot());
+        validateCurrentStat("range", coefficient(GunsmithStat.RANGE));
         validateCurrentStat("recoil", recoil());
         validateCurrentStat("spread", spread());
         validateCurrentStat("handling", handling());
         validateCurrentStat("average", average());
-        if (version >= 3) {
-            validateCurrentStat("fireRate", derivedFireRateMultiplier());
-            validateCurrentStat("verticalRecoil", switch (version) {
-                case 3 -> derivedLegacyV3VerticalRecoilMultiplier();
-                case 4 -> derivedLegacyV4VerticalRecoilMultiplier();
-                default -> derivedVerticalRecoilMultiplier();
-            });
+    }
+
+    private void validateMigratedArReceiverStats() {
+        // v4 曾错误地把 AR 机匣作为第七槽写入。结构已迁移到六件套；旧缓存只做类型和值域校验，
+        // 实际属性始终根据迁移后的枪机组件和当前热重载规则计算。
+        value("damage");
+        value("headshot");
+        value("range");
+        value("recoil");
+        value("spread");
+        value("handling");
+        value("average");
+    }
+
+    private void validateMigratedPlatformStats() {
+        // 平台扩槽迁移只对旧缓存做类型和值域校验。SPR15HB 的五槽 v5 数据补中性握把；
+        // 栓动式步枪的四槽 v6 数据补中性撞针，从而保留旧操控和其余真实组件属性。
+        value("damage");
+        value("headshot");
+        if (version == 1) {
+            range();
+            recoil();
+        } else {
+            value("range");
+            value("recoil");
         }
-        if (version >= 5) {
-            validateCurrentStat("inaccuracy", derivedInaccuracyMultiplier());
-        }
+        value("spread");
+        value("handling");
+        value("average");
+    }
+
+    private void validateVersion2Stats() {
+        validateCurrentStat("damage", legacyVersion2Damage());
+        validateCurrentStat("headshot", baseHeadshot());
+        validateCurrentStat("range", coreVariant() == GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS
+                ? 1.0D : coefficient(GunsmithStat.RANGE));
+        validateCurrentStat("recoil", recoil());
+        validateCurrentStat("spread", spread());
+        validateCurrentStat("handling", handling());
+        validateCurrentStat("average", average());
+    }
+
+    private double legacyVersion2Damage() {
+        double multiplier = coreVariant() == GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS
+                ? 1.20D + coreQuality().index() * 0.20D : 1.0D;
+        return coefficient(GunsmithStat.DAMAGE) * multiplier;
     }
 
     private void validateCurrentStat(String key, double expected) {
@@ -386,50 +550,59 @@ public final class GunsmithGunStats {
     }
 
     private double coefficient(GunsmithStat stat) {
-        return stat.coefficient(blueprint.platform(), part -> {
-            PartSummary summary = requiredPart(part);
-            return summary.variant().coefficientForStat(stat, summary.coefficient());
-        });
+        return stat.coefficient(blueprint.platform(), part -> requiredPart(part).coefficient());
     }
 
-    private double derivedFireRateMultiplier() {
-        double multiplier = 1.0D;
+    private GunsmithPartVariant coreVariant() {
         for (PartSummary part : parts) {
-            multiplier *= part.variant().fireRateMultiplier(part.coefficient());
+            if (part.part() == GunsmithPressPart.CORE) {
+                return part.variant();
+            }
         }
-        return multiplier;
+        return GunsmithPartVariant.BASE;
     }
 
-    private double derivedVerticalRecoilMultiplier() {
-        double variantMultiplier = 1.0D;
+    private GunsmithPartQuality coreQuality() {
         for (PartSummary part : parts) {
-            variantMultiplier *= part.variant().verticalRecoilMultiplier(part.coefficient());
+            if (part.part() == GunsmithPressPart.CORE) {
+                return part.quality();
+            }
         }
-        return combineVerticalRecoil(recoil(), variantMultiplier);
+        return GunsmithPartQuality.COMMON;
     }
 
-    private double derivedInaccuracyMultiplier() {
-        double variantMultiplier = 1.0D;
+    private double variantProduct(VariantStat stat) {
+        double result = 1.0D;
         for (PartSummary part : parts) {
-            variantMultiplier *= part.variant().inaccuracyMultiplier(part.coefficient());
+            result *= stat.multiplier(part.variant(), part.quality());
         }
-        return combineInaccuracy(spread(), variantMultiplier);
+        return result;
     }
 
-    private double derivedLegacyV3VerticalRecoilMultiplier() {
-        double variantMultiplier = 1.0D;
-        for (PartSummary part : parts) {
-            variantMultiplier *= part.variant().legacyV3VerticalRecoilMultiplier(part.coefficient());
-        }
-        return combineVerticalRecoil(recoil(), variantMultiplier);
-    }
+    private enum VariantStat {
+        DAMAGE,
+        HEADSHOT,
+        FIRE_RATE,
+        AMMO_SPEED,
+        ARMOR_IGNORE,
+        SPREAD,
+        RECOIL,
+        VERTICAL_RECOIL,
+        ADS_SPEED;
 
-    private double derivedLegacyV4VerticalRecoilMultiplier() {
-        double variantMultiplier = 1.0D;
-        for (PartSummary part : parts) {
-            variantMultiplier *= part.variant().legacyV4VerticalRecoilMultiplier(part.coefficient());
+        private double multiplier(GunsmithPartVariant variant, GunsmithPartQuality quality) {
+            return switch (this) {
+                case DAMAGE -> variant.damageMultiplier(quality);
+                case HEADSHOT -> variant.headshotMultiplier(quality);
+                case FIRE_RATE -> variant.fireRateMultiplier(quality);
+                case AMMO_SPEED -> variant.ammoSpeedMultiplier(quality);
+                case ARMOR_IGNORE -> variant.armorIgnoreMultiplier(quality);
+                case SPREAD -> variant.spreadMultiplier(quality);
+                case RECOIL -> variant.recoilMultiplier(quality);
+                case VERTICAL_RECOIL -> variant.verticalRecoilMultiplier(quality);
+                case ADS_SPEED -> variant.adsSpeedMultiplier(quality);
+            };
         }
-        return combineVerticalRecoil(recoil(), variantMultiplier);
     }
 
     private double averageCoefficient() {
@@ -440,7 +613,7 @@ public final class GunsmithGunStats {
         return total / parts.size();
     }
 
-    public record PartSummary(GunsmithPressPart part, GunsmithPartVariant variant,
-                              GunsmithPartQuality quality, double coefficient) {
+    public record PartSummary(GunsmithPressPart part, GunsmithPartQuality quality,
+                              GunsmithPartVariant variant, double coefficient) {
     }
 }

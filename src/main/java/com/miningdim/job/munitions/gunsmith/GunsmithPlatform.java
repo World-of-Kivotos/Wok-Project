@@ -40,18 +40,31 @@ public enum GunsmithPlatform {
             GunsmithPressPart.CORE,
             GunsmithPressPart.STOCK,
             GunsmithPressPart.BOLT,
-            GunsmithPressPart.BARREL)),
+            GunsmithPressPart.BARREL,
+            GunsmithPressPart.GRIP)),
     SNIPER("sniper", "gunsmith.platform.sniper", List.of(
             GunsmithPressPart.RECEIVER,
             GunsmithPressPart.STOCK,
             GunsmithPressPart.BARREL,
-            GunsmithPressPart.HANDGUARD)),
+            GunsmithPressPart.HANDGUARD,
+            GunsmithPressPart.FIRING_PIN)),
     MACHINE_GUN("machine_gun", "gunsmith.platform.machine_gun", List.of(
             GunsmithPressPart.HANDGUARD,
             GunsmithPressPart.BOLT,
             GunsmithPressPart.BARREL,
             GunsmithPressPart.STOCK,
-            GunsmithPressPart.BIPOD));
+            GunsmithPressPart.BIPOD)),
+    SHOTGUN("shotgun", "gunsmith.platform.shotgun", List.of(
+            GunsmithPressPart.STOCK,
+            GunsmithPressPart.BARREL,
+            GunsmithPressPart.BOLT,
+            GunsmithPressPart.HANDGUARD)),
+    SMG("smg", "gunsmith.platform.smg", List.of(
+            GunsmithPressPart.BARREL,
+            GunsmithPressPart.STOCK,
+            GunsmithPressPart.RECEIVER,
+            GunsmithPressPart.HANDGUARD,
+            GunsmithPressPart.GRIP));
 
     private final String id;
     private final String labelKey;

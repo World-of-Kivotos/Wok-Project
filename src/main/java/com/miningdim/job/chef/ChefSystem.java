@@ -6,6 +6,7 @@ import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.event.config.ModConfigEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import org.slf4j.Logger;
@@ -20,8 +21,9 @@ import org.slf4j.LoggerFactory;
  *  - 自己 package 的 DeferredRegister: ChefBlocks/ChefItems/ChefBlockEntities/ChefTabs (modBus);
  *    MenuType 经共享 ModMenus DeferredRegister (由 JobFrameworkSystem 接 modBus, 厨师只往其上登记, 故触类
  *    {@link ChefMenus} 确保静态登记被收集);
- *  - 厨师 SERVER 配置 SPEC (自己的 toml, 不碰中央 MiningServerConfig);
- *  - forge 事件订阅: 吃菜结算 / tooltip / 窗口效果状态机 / 抗击退 / 爆炸减伤 / 耐饥;
+ *  - 厨师 SERVER 配置 SPEC (自己的 toml, 不碰中央 MiningServerConfig) + 其加载/重载期的跨键不变量体检;
+ *  - forge 事件订阅: 吃菜结算 / tooltip / 窗口效果状态机 / 抗击退 / 耐饥;
+ *  - 凝脂爆炸减伤登记进 combat 的玩家减伤单点结算 (不自挂 LivingHurtEvent);
  *  - 厨师专属 SimpleChannel packet 注册 (FMLCommonSetupEvent.enqueueWork 线程安全窗口);
  *  - 客户端 MenuScreens.register (FMLClientSetupEvent.enqueueWork, 经 DistExecutor 隔离)。
  *
@@ -37,6 +39,11 @@ public final class ChefSystem implements Subsystem {
     public void register(IEventBus modBus, IEventBus forgeBus) {
         // 厨师 SERVER 配置 (自己的 toml; 不碰中央 MiningServerConfig)。
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, ChefConfig.SPEC, "miningdim-chef.toml");
+        // 载入与重载后立刻跑跨键不变量体检: 单键 defineInRange 拦得住越界, 拦不住 "四档目标成功率倒挂" 这类
+        // 组合错误。不在加载期炸, 服主要等到玩家点下 "开始调味" 才由结算链抛出, 现场表现是一台没反应的调味台,
+        // 排查成本被推给玩家。只认本 spec, 同总线上其它模组/子系统的配置事件一律放行。
+        modBus.addListener((ModConfigEvent.Loading event) -> validateOwnConfig(event.getConfig()));
+        modBus.addListener((ModConfigEvent.Reloading event) -> validateOwnConfig(event.getConfig()));
 
         // 自 package DeferredRegister。
         ChefBlocks.register(modBus);
@@ -54,15 +61,24 @@ public final class ChefSystem implements Subsystem {
         // forge 事件订阅。
         forgeBus.register(new ChefConsumeHandler());
         forgeBus.register(new ChefTooltipHandler());
-        forgeBus.register(new ChefDamageHandler());
         forgeBus.register(new ChefAimHandler());
         forgeBus.register(new ChefHungerHandler());
         forgeBus.register(windowState);
+        // 凝脂 (爆炸减伤): 走玩家减伤单点结算, 不自挂 LivingHurtEvent —— 各自 setAmount 会绕开
+        // PlayerDamageReduction 的连乘与全局帽 (凝脂先削一刀, 帽子只钳剩下的源), 总减伤会击穿上限。
+        com.miningdim.combat.PlayerDamageReduction.register(new ChefGreaseReduction());
 
         // 平板厨师页的 job.chef.state (数值实时读 ChefConfig, 故与上面的 registerConfig 先后无关)。
         ChefWebUiActions.registerAll();
 
         LOGGER.info("[miningdim] chef subsystem registered (5 seasoning tables + minigame + effects + amplify blacklist + job.chef.state action)");
+    }
+
+    /** 只校验厨师自己的 SERVER spec; 同总线上其它模组/子系统的配置事件一律放行。 */
+    private static void validateOwnConfig(ModConfig config) {
+        if (config.getSpec() == ChefConfig.SPEC) {
+            ChefConfig.validateBalanceConsistency();
+        }
     }
 
     private void onCommonSetup(FMLCommonSetupEvent event) {

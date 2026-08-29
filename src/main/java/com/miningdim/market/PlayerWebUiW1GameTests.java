@@ -34,6 +34,7 @@ import com.miningdim.job.munitions.gunsmith.GunsmithBlueprintItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartVariant;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.job.tarot.TarotCardItem;
@@ -257,28 +258,32 @@ public final class PlayerWebUiW1GameTests {
         helper.assertTrue("gun".equals(detail.get("kind").getAsString()),
                 "组装枪的大类是 gun, 实得 " + detail.get("kind").getAsString());
 
-        // 相对基准的增减量: 服务端已换算完 (系数 - 1.0), 前端不该再减一次。
-        JsonObject damage = attribute(detail, "damage");
-        helper.assertTrue(damage != null
-                        && Double.compare(damage.get("value").getAsDouble(), expected.damage() - 1.0D) == 0,
-                "damage 行必须是 (系数 - 1.0) 的增减量");
-        helper.assertTrue(damage != null && "percent".equals(damage.get("unit").getAsString()),
+        // 期望值一律按 assembledM4Gun 的六个零件系数手算成常量: 拿 expected.xxx() 当期望等于把被测实现
+        // 同时当成预言机 —— 换算公式写错时两边一起错, 断言照样绿。
+        JsonObject damage = requiredAttribute(helper, detail, "damage");
+        helper.assertTrue(Double.compare(damage.get("value").getAsDouble(), 1.20D - 1.0D) == 0,
+                "damage 行 = 枪机 MILSPEC 系数 1.20 换算成增减量, 实得 " + damage.get("value"));
+        helper.assertTrue("percent".equals(damage.get("unit").getAsString()),
                 "damage 行的单位是 percent");
 
-        // 这两条复用现成的 -1.0 口径方法, 自己再换算一遍就会与枪械 tooltip 漂移。
-        JsonObject verticalRecoil = attribute(detail, "verticalRecoil");
-        helper.assertTrue(verticalRecoil != null
-                        && Double.compare(verticalRecoil.get("value").getAsDouble(), expected.recoilChange()) == 0,
-                "verticalRecoil 必须逐位等于 recoilChange()");
-        JsonObject inaccuracy = attribute(detail, "inaccuracy");
-        helper.assertTrue(inaccuracy != null
-                        && Double.compare(inaccuracy.get("value").getAsDouble(), expected.spreadChange()) == 0,
-                "inaccuracy 必须逐位等于 spreadChange()");
+        // 全 BASE 零件的枪上垂直与水平后坐必然相等 (组件的额外垂直乘子恒 1.0); 两轴真正分道扬镳的形态由
+        // itemDetailSplitsVerticalAndHorizontalRecoilOnAFactionGun 守, 这里只钉死"两轴都取枪托控制的逆"。
+        JsonObject verticalRecoil = requiredAttribute(helper, detail, "verticalRecoil");
+        helper.assertTrue(Double.compare(verticalRecoil.get("value").getAsDouble(),
+                        1.0D / 1.08D - 1.0D) == 0,
+                "verticalRecoil = 枪托 IMPROVED 系数 1.08 的逆, 实得 " + verticalRecoil.get("value"));
+        JsonObject horizontalRecoil = requiredAttribute(helper, detail, "horizontalRecoil");
+        helper.assertTrue(Double.compare(horizontalRecoil.get("value").getAsDouble(),
+                        1.0D / 1.08D - 1.0D) == 0,
+                "horizontalRecoil = 枪托 IMPROVED 系数 1.08 的逆, 实得 " + horizontalRecoil.get("value"));
+        JsonObject inaccuracy = requiredAttribute(helper, detail, "inaccuracy");
+        helper.assertTrue(Double.compare(inaccuracy.get("value").getAsDouble(),
+                        1.0D / 1.30D - 1.0D) == 0,
+                "inaccuracy = 护木 PRECISION 系数 1.30 的逆, 实得 " + inaccuracy.get("value"));
 
-        JsonObject partCount = attribute(detail, "partCount");
-        helper.assertTrue(partCount != null
-                        && partCount.get("value").getAsInt() == expected.parts().size(),
-                "partCount 必须等于枪上真实零件数 " + expected.parts().size());
+        JsonObject partCount = requiredAttribute(helper, detail, "partCount");
+        helper.assertTrue(partCount.get("value").getAsInt() == 6,
+                "M4A1 是六槽平台, partCount 必须是 6, 实得 " + partCount.get("value"));
 
         helper.assertTrue(hasTag(detail, "gun.template:" + GunsmithBlueprint.M4A1.templateId()),
                 "标签必须带图纸 templateId");
@@ -287,6 +292,48 @@ public final class PlayerWebUiW1GameTests {
         helper.assertTrue(!hasTag(detail, "data.unreadable:gun"),
                 "读得出来的枪不得带降级标记");
 
+        helper.succeed();
+    }
+
+    /**
+     * 后坐两轴必须真的分开 (审查 26)。
+     *
+     * 全 BASE 零件的枪上 verticalRecoil 与 horizontalRecoil 恒相等 (组件的额外垂直乘子是 1.0), 拿那种夹具
+     * 断言"两轴等于同一个表达式"就是同源假绿: 把垂直那行改成 {@code recoilChange()} 也照样绿, 而真机上
+     * 红东高压导气的 +300% 垂直后坐会被显示成 +33%。本条用一把真的两轴不等的枪把这条路堵死。
+     *
+     * 期望值全部按零件系数手算: 枪托传奇系数 1.50, 红东高压导气在传奇档的全向后坐 2.00 / 额外垂直 3.00 /
+     * 散布惩罚 1.80, 护木 1.30。伤害那行不在本条断言范围内 —— 它要过整枪伤害总帽, 期望值随 config 走,
+     * 由军械组的用例守。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void itemDetailSplitsVerticalAndHorizontalRecoilOnAFactionGun(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        player.getInventory().clearContent();
+        player.getInventory().setItem(0, redEastAk47Gun());
+
+        JsonObject detail = handle(PlayerWebUiActions.ITEM_DETAIL, player, slotPayload(0));
+        helper.assertTrue("gun".equals(detail.get("kind").getAsString()),
+                "带势力组件的 AK 仍是 gun, 实得 " + detail.get("kind").getAsString());
+
+        JsonObject vertical = requiredAttribute(helper, detail, "verticalRecoil");
+        JsonObject horizontal = requiredAttribute(helper, detail, "horizontalRecoil");
+        helper.assertTrue(Double.compare(horizontal.get("value").getAsDouble(),
+                        1.0D / 1.50D * 2.00D - 1.0D) == 0,
+                "水平后坐 = 枪托控制的逆 x 全向后坐惩罚 2.00, 实得 " + horizontal.get("value"));
+        helper.assertTrue(Double.compare(vertical.get("value").getAsDouble(),
+                        1.0D / 1.50D * 2.00D * 3.00D - 1.0D) == 0,
+                "垂直后坐 = 水平那一路再乘组件的额外垂直乘子 3.00, 实得 " + vertical.get("value"));
+        helper.assertTrue(Double.compare(vertical.get("value").getAsDouble(),
+                        horizontal.get("value").getAsDouble()) != 0,
+                "红东高压导气枪上两轴必须不等; 相等说明垂直那行漏掉了组件的额外垂直乘子");
+
+        JsonObject inaccuracy = requiredAttribute(helper, detail, "inaccuracy");
+        helper.assertTrue(Double.compare(inaccuracy.get("value").getAsDouble(),
+                        1.0D / 1.30D * 1.80D - 1.0D) == 0,
+                "散布 = 护木控制的逆 x 组件散布惩罚 1.80, 实得 " + inaccuracy.get("value"));
+        helper.assertTrue(!hasTag(detail, "data.unreadable:gun"),
+                "带势力组件的枪读得出来, 不得带降级标记");
         helper.succeed();
     }
 
@@ -647,21 +694,21 @@ public final class PlayerWebUiW1GameTests {
                         requiredAttribute(helper, detail, "fireRate").get("value").getAsDouble(), 0.0D) == 0,
                 "v1 的射速增减量恒 0 (1.0 - 1.0), 实得 "
                         + requiredAttribute(helper, detail, "fireRate").get("value").getAsDouble());
+        // 期望值同样手算成常量: v1 的后坐由枪托部件反查 (1.08), 散布读缓存 (1.30), 伤害读缓存 (1.20)。
         helper.assertTrue(Double.compare(
                         requiredAttribute(helper, detail, "verticalRecoil").get("value").getAsDouble(),
-                        expected.recoilChange()) == 0,
-                "verticalRecoil 仍逐位等于 recoilChange() (v1 走 1/后座系数 的派生分支)");
+                        1.0D / 1.08D - 1.0D) == 0,
+                "v1 的 verticalRecoil 走枪托系数 1.08 的逆 (缓存里根本没有这一项)");
         helper.assertTrue(Double.compare(
                         requiredAttribute(helper, detail, "inaccuracy").get("value").getAsDouble(),
-                        expected.spreadChange()) == 0,
-                "inaccuracy 仍逐位等于 spreadChange()");
+                        1.0D / 1.30D - 1.0D) == 0,
+                "v1 的 inaccuracy 走缓存里的散布系数 1.30 的逆");
         helper.assertTrue(Double.compare(
                         requiredAttribute(helper, detail, "damage").get("value").getAsDouble(),
-                        expected.damage() - 1.0D) == 0,
-                "v1 的伤害读的是缓存值本身, 换算仍是 (系数 - 1.0)");
-        helper.assertTrue(requiredAttribute(helper, detail, "partCount").get("value").getAsInt()
-                        == expected.parts().size(),
-                "partCount 等于枪上真实零件数 " + expected.parts().size());
+                        1.20D - 1.0D) == 0,
+                "v1 的伤害读的是缓存值 1.20 本身, 换算仍是 (系数 - 1.0)");
+        helper.assertTrue(requiredAttribute(helper, detail, "partCount").get("value").getAsInt() == 6,
+                "M4A1 是六槽平台, partCount 必须是 6");
         helper.succeed();
     }
 
@@ -1122,6 +1169,33 @@ public final class PlayerWebUiW1GameTests {
     private static ItemStack arPart(GunsmithPressPart part, GunsmithPartQuality quality, double coefficient) {
         return GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(),
                 GunsmithPlatform.AR, part, quality, coefficient);
+    }
+
+    /**
+     * 一把两轴后坐必然不等的 AK: 传奇红东高压导气核心 (全向后坐 2.00 + 额外垂直 3.00) 配传奇枪托 (系数 1.50)。
+     * 枪托刻意取传奇档上界 1.50 而不是中值, 让期望值是一串好手算的常数。
+     */
+    private static ItemStack redEastAk47Gun() {
+        EnumMap<GunsmithPressPart, ItemStack> parts = new EnumMap<>(GunsmithPressPart.class);
+        parts.put(GunsmithPressPart.CORE, GunsmithPartItem.createStack(
+                ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AK, GunsmithPressPart.CORE,
+                GunsmithPartQuality.LEGENDARY, GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS));
+        parts.put(GunsmithPressPart.BARREL, akPart(GunsmithPressPart.BARREL, GunsmithPartQuality.IMPROVED, 1.10D));
+        parts.put(GunsmithPressPart.BOLT, akPart(GunsmithPressPart.BOLT, GunsmithPartQuality.MILSPEC, 1.20D));
+        parts.put(GunsmithPressPart.HANDGUARD,
+                akPart(GunsmithPressPart.HANDGUARD, GunsmithPartQuality.PRECISION, 1.30D));
+        parts.put(GunsmithPressPart.GRIP, akPart(GunsmithPressPart.GRIP, GunsmithPartQuality.LEGENDARY, 1.40D));
+        parts.put(GunsmithPressPart.STOCK, akPart(GunsmithPressPart.STOCK, GunsmithPartQuality.LEGENDARY, 1.50D));
+        return GunsmithAssemblyRecipe.assemble(
+                new ItemStack(Items.IRON_HOE),
+                GunsmithBlueprintItem.createStack(
+                        ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.AK47),
+                parts);
+    }
+
+    private static ItemStack akPart(GunsmithPressPart part, GunsmithPartQuality quality, double coefficient) {
+        return GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(),
+                GunsmithPlatform.AK, part, quality, coefficient);
     }
 
     private static IEconomyService swapEconomy(IEconomyService fake) {

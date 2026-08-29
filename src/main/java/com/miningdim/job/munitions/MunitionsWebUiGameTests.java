@@ -12,10 +12,13 @@ import com.miningdim.job.munitions.block.GunsmithPressBlockEntity;
 import com.miningdim.job.munitions.block.MunitionsBenchBlockEntity;
 import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
 import com.miningdim.job.munitions.gunsmith.GunsmithBlueprintItem;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartVariant;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.testutil.MockGameTestPlayers;
+import com.miningdim.webui.server.WebUiItemDetailJson;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
 import net.minecraft.core.BlockPos;
@@ -461,6 +464,82 @@ public final class MunitionsWebUiGameTests {
     }
 
     // ============================================================
+    // 4b. player.itemDetail 的枪匠零件那一段 (审查 33)
+    //
+    // 直接调 WebUiItemDetailJson.appendDetail 而不是走 player.itemDetail 派发: 那条 action 的处理器常量是
+    // com.miningdim.market 的包内私有成员, 本包拿不到; 而 kind / attributes / tags 三个字段的唯一产地就是
+    // appendDetail 自己, 槽位解析与背包读取由 market 那侧的用例负责, 本处不重复。
+    // ============================================================
+
+    /**
+     * 逐项判中性 (审查 33): 旧口径是"非 BASE 型号固定发 fireRate / verticalRecoil / inaccuracy 三行"。
+     * 红冬赤雪 A 型枪机恰好是那条近似判据的反例 —— 它的卖点是伤害 +25% / 穿甲 -25% / 后坐 +35%, 而
+     * fireRate、verticalRecoil、spread 三项在规则表里全是 1.0。按旧口径, 平板上这枚传奇组件只剩三行 +0%,
+     * 玩家会判定它"没有任何特殊属性"。
+     *
+     * 期望值直接抄 datapack 平衡表 (data/miningdim/gunsmith/components/red_winter_chixue_a_bolt.json),
+     * 不回调 variant.damageMultiplier 之类当预言机。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void itemDetailListsOnlyTheChixueABoltRowsThatActuallyDeviate(GameTestHelper helper) {
+        JsonObject detail = detailOf(GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(),
+                GunsmithPlatform.AK, GunsmithPressPart.BOLT, GunsmithPartQuality.LEGENDARY,
+                GunsmithPartVariant.RED_WINTER_CHIXUE_A_BOLT));
+
+        helper.assertTrue("gunsmith_part".equals(detail.get("kind").getAsString()),
+                "枪匠零件的大类是 gunsmith_part, 实得 " + detail.get("kind"));
+        // 传奇档的品质系数取档位中值 (1.36 + 1.50) / 2 = 1.43, 是绝对值不是增减量。
+        assertAttribute(helper, detail, "coefficient", 1.43D, "flat");
+        assertAttribute(helper, detail, "damage", 1.25D - 1.0D, "percent");
+        assertAttribute(helper, detail, "armorIgnore", 0.75D - 1.0D, "percent");
+        assertAttribute(helper, detail, "recoil", 1.35D - 1.0D, "percent");
+
+        for (String neutral : new String[]{"headshot", "fireRate", "range", "ammoSpeed",
+                "inaccuracy", "verticalRecoil", "adsSpeed", "maximumDurability"}) {
+            helper.assertTrue(attribute(detail, neutral) == null,
+                    "赤雪-A 在 " + neutral + " 上恰好是 1.0, 不得发出一行 +0% 的噪音");
+        }
+        for (JsonElement element : detail.getAsJsonArray("attributes")) {
+            JsonObject row = element.getAsJsonObject();
+            helper.assertTrue(Double.compare(row.get("value").getAsDouble(), 0.0D) != 0,
+                    "值为 0 的行一律不许发, 实得 " + row);
+        }
+        helper.assertTrue(detail.getAsJsonArray("attributes").size() == 4,
+                "赤雪-A 恰好发 品质系数 + 伤害 + 穿甲 + 后坐 四行, 实得 "
+                        + detail.getAsJsonArray("attributes"));
+
+        helper.assertTrue(hasTag(detail, "part.variant:" + GunsmithPartVariant.RED_WINTER_CHIXUE_A_BOLT.id())
+                        && hasTag(detail, "part.platform:" + GunsmithPlatform.AK.id())
+                        && hasTag(detail, "part.slot:" + GunsmithPressPart.BOLT.id())
+                        && hasTag(detail, "part.quality:" + GunsmithPartQuality.LEGENDARY.id()),
+                "标签必须带型号/平台/槽位/品质四个稳定 id, 实得 " + detail.getAsJsonArray("tags"));
+        helper.assertFalse(hasTag(detail, "part.burstFire"),
+                "赤雪-A 不强制火力模式, 不得带 part.burstFire");
+        helper.succeed();
+    }
+
+    /**
+     * 反向: BASE 型号在十维规则表上恒为单位值, 于是除品质系数外一行都不该发。
+     * 缺了这条, 把中性判据整个删掉 (改成"全部发") 时上一条仍会因为那四行都在而绿。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void itemDetailKeepsBaseComponentsToTheCoefficientRowAlone(GameTestHelper helper) {
+        JsonObject detail = detailOf(GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(),
+                GunsmithPlatform.AK, GunsmithPressPart.BOLT, GunsmithPartQuality.LEGENDARY,
+                GunsmithPartVariant.BASE));
+
+        helper.assertTrue("gunsmith_part".equals(detail.get("kind").getAsString()),
+                "基础组件的大类同样是 gunsmith_part, 实得 " + detail.get("kind"));
+        JsonArray attributes = detail.getAsJsonArray("attributes");
+        helper.assertTrue(attributes.size() == 1,
+                "基础组件只发品质系数一行, 实得 " + attributes);
+        assertAttribute(helper, detail, "coefficient", 1.43D, "flat");
+        helper.assertTrue(hasTag(detail, "part.variant:" + GunsmithPartVariant.BASE.id()),
+                "基础组件仍必须发型号标签 (前端靠它出名字), 实得 " + detail.getAsJsonArray("tags"));
+        helper.succeed();
+    }
+
+    // ============================================================
     // 5. 注册名
     // ============================================================
 
@@ -560,6 +639,45 @@ public final class MunitionsWebUiGameTests {
 
     private static int primerCount(MunitionsBenchBlockEntity bench) {
         return bench.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_PRIMER).getCount();
+    }
+
+    /** 只取 itemDetail 回执里由 {@link WebUiItemDetailJson} 追加的那三个字段 (基础四字段由调用方先填好)。 */
+    private static JsonObject detailOf(ItemStack stack) {
+        JsonObject detail = new JsonObject();
+        WebUiItemDetailJson.appendDetail(detail, stack);
+        return detail;
+    }
+
+    private static JsonObject attribute(JsonObject detail, String key) {
+        for (JsonElement element : detail.getAsJsonArray("attributes")) {
+            JsonObject row = element.getAsJsonObject();
+            if (key.equals(row.get("key").getAsString())) {
+                return row;
+            }
+        }
+        return null;
+    }
+
+    private static void assertAttribute(GameTestHelper helper, JsonObject detail, String key,
+                                        double expected, String unit) {
+        JsonObject row = attribute(detail, key);
+        if (row == null) {
+            helper.fail("回执缺少数值行 " + key + ", 实得 " + detail.getAsJsonArray("attributes"));
+            throw new IllegalStateException("unreachable: helper.fail already threw");
+        }
+        helper.assertTrue(Double.compare(row.get("value").getAsDouble(), expected) == 0,
+                key + " 必须逐位等于 " + expected + ", 实得 " + row.get("value"));
+        helper.assertTrue(unit.equals(row.get("unit").getAsString()),
+                key + " 的单位必须是 " + unit + ", 实得 " + row.get("unit"));
+    }
+
+    private static boolean hasTag(JsonObject detail, String tag) {
+        for (JsonElement element : detail.getAsJsonArray("tags")) {
+            if (tag.equals(element.getAsString())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ---- 世界搭建 ----

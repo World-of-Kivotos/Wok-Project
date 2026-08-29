@@ -1,6 +1,18 @@
 package com.miningdim.job.munitions.block;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.economy.AbuseGuard;
+import com.miningdim.economy.Currency;
+import com.miningdim.economy.EconomyLedger;
+import com.miningdim.economy.EconomyService;
+import com.miningdim.economy.EconomyServices;
+import com.miningdim.economy.IEconomyService;
+import com.miningdim.economy.PlayerAbuseState;
+import com.miningdim.economy.SqliteEconomyLedger;
+import com.miningdim.job.IJobService;
+import com.miningdim.job.JobId;
+import com.miningdim.job.JobProgress;
+import com.miningdim.job.JobServices;
 import com.miningdim.job.munitions.ModMunitionsBlocks;
 import com.miningdim.job.munitions.ModMunitionsItems;
 import com.miningdim.job.munitions.MunitionsAmmoFactory;
@@ -22,6 +34,7 @@ import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.job.munitions.gunsmith.GunsmithStatMultipliers;
 import com.miningdim.job.munitions.gunsmith.GunsmithTaczBridge;
 import com.miningdim.job.munitions.menu.GunsmithAssemblyMenu;
+import com.miningdim.testutil.ConfigBaseline;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -34,6 +47,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.state.BlockState;
@@ -43,7 +57,11 @@ import net.minecraftforge.items.ItemStackHandler;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
 
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -62,10 +80,21 @@ public final class GunsmithAssemblyBusinessGameTests {
     private GunsmithAssemblyBusinessGameTests() {
     }
 
+    /**
+     * 跨轮基线归位: 本批次会临时改下列配置项做探针, 先抹掉上一轮可能残留的值 (见 {@link ConfigBaseline})。
+     *
+     * 绝不能在这里把装配等级门与工费置 0 当"隔离基线": ForgeConfigSpec 的写入是落盘的, runGameTestServer 复用
+     * run/world 存档, assemblyWorkFeeCredits 的下界就是 0, SPEC.correct() 不会纠回, 探针值会留在
+     * run/world/serverconfig/miningdim-munitions.toml 里跨轮存活, 使装配工费 sink 在后续每一轮 (以及任何复用
+     * 该存档的手动开服) 全局失效且毫无告警。要真开工的用例一律自带够级别、够余额的玩家上下文
+     * ({@link #withGunsmithContext}), 而不是把生产配置改没。
+     */
     @BeforeBatch(batch = BATCH)
-    public static void useIsolatedAssemblyEconomyBaseline(ServerLevel level) {
-        MunitionsConfig.ASSEMBLY_UNLOCK_LEVEL.set(0);
-        MunitionsConfig.ASSEMBLY_WORK_FEE_CREDITS.set(0);
+    public static void resetConfigBaseline(ServerLevel level) {
+        ConfigBaseline.resetToDefaults(
+                MunitionsConfig.GUNSMITH_ENABLED,
+                MunitionsConfig.ASSEMBLY_UNLOCK_LEVEL,
+                MunitionsConfig.ASSEMBLY_WORK_FEE_CREDITS);
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 20)
@@ -75,10 +104,9 @@ public final class GunsmithAssemblyBusinessGameTests {
         GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
         fillCompleteRecipe(be, GunsmithBlueprint.M4A1);
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        boolean previousEnabled = MunitionsConfig.GUNSMITH_ENABLED.get();
+        GunsmithContext context = installGunsmithContext(player, 10, 100000L);
 
         try {
-            MunitionsConfig.GUNSMITH_ENABLED.set(true);
             helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
                     "complete recipe must start assembly");
             helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT)
@@ -116,7 +144,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                 helper.succeed();
             });
         } finally {
-            MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
+            restoreGunsmithContext(context);
         }
     }
 
@@ -126,10 +154,9 @@ public final class GunsmithAssemblyBusinessGameTests {
         GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
         fillCompleteRecipe(be, GunsmithBlueprint.M4A1);
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        boolean previousEnabled = MunitionsConfig.GUNSMITH_ENABLED.get();
+        GunsmithContext context = installGunsmithContext(player, 10, 100000L);
 
         try {
-            MunitionsConfig.GUNSMITH_ENABLED.set(true);
             helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
                     "complete recipe must start assembly");
 
@@ -152,7 +179,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                 helper.succeed();
             });
         } finally {
-            MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
+            restoreGunsmithContext(context);
         }
     }
 
@@ -164,10 +191,9 @@ public final class GunsmithAssemblyBusinessGameTests {
         be.inventory().setStackInSlot(
                 GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.GRIP), ItemStack.EMPTY);
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        boolean previousEnabled = MunitionsConfig.GUNSMITH_ENABLED.get();
+        GunsmithContext context = installGunsmithContext(player, 10, 100000L);
 
         try {
-            MunitionsConfig.GUNSMITH_ENABLED.set(true);
             helper.assertFalse(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
                     "missing grip must reject assembly");
             helper.assertFalse(be.isAnimating(), "rejected assembly must not animate");
@@ -179,7 +205,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                         "rejected assembly must preserve the exact input state for " + part);
             }
         } finally {
-            MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
+            restoreGunsmithContext(context);
         }
         helper.succeed();
     }
@@ -417,10 +443,9 @@ public final class GunsmithAssemblyBusinessGameTests {
         fillCompleteRecipe(be, GunsmithBlueprint.AK47);
         fillParts(be, GunsmithPlatform.AR);
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        boolean previousEnabled = MunitionsConfig.GUNSMITH_ENABLED.get();
+        GunsmithContext context = installGunsmithContext(player, 10, 100000L);
 
         try {
-            MunitionsConfig.GUNSMITH_ENABLED.set(true);
             helper.assertFalse(be.tryStartAssembly(player, new ItemStack(Items.DIAMOND_HOE), 4),
                     "AK blueprint must reject a complete AR part set");
             for (GunsmithPressPart part : GunsmithBlueprint.AK47.requiredParts()) {
@@ -446,7 +471,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                 helper.succeed();
             });
         } finally {
-            MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
+            restoreGunsmithContext(context);
         }
     }
 
@@ -456,10 +481,9 @@ public final class GunsmithAssemblyBusinessGameTests {
         GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
         fillCompleteRecipe(be, GunsmithBlueprint.M1911);
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        boolean previousEnabled = MunitionsConfig.GUNSMITH_ENABLED.get();
+        GunsmithContext context = installGunsmithContext(player, 10, 100000L);
 
         try {
-            MunitionsConfig.GUNSMITH_ENABLED.set(true);
             for (GunsmithPressPart part : GunsmithPressPart.values()) {
                 helper.assertTrue(be.isPartSlotVisible(part) == GunsmithBlueprint.M1911.requiredParts().contains(part),
                         "M1911 must expose exactly its five required slots: " + part);
@@ -495,7 +519,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                 helper.succeed();
             });
         } finally {
-            MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
+            restoreGunsmithContext(context);
         }
     }
 
@@ -773,10 +797,9 @@ public final class GunsmithAssemblyBusinessGameTests {
         GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
         fillCompleteRecipe(be, GunsmithBlueprint.M4A1);
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        boolean previousEnabled = MunitionsConfig.GUNSMITH_ENABLED.get();
+        GunsmithContext context = installGunsmithContext(player, 10, 100000L);
 
         try {
-            MunitionsConfig.GUNSMITH_ENABLED.set(true);
             helper.assertFalse(MunitionsAmmoFactory.isTaczLoaded(),
                     "GameTest profile must exercise the missing-TaCZ boundary");
             helper.assertTrue(GunsmithTaczBridge.findBaseStats(GunsmithBlueprint.M4A1.gunId()).isEmpty(),
@@ -797,7 +820,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                     "rejected assembly must not create output");
             helper.succeed();
         } finally {
-            MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
+            restoreGunsmithContext(context);
         }
     }
 
@@ -882,14 +905,17 @@ public final class GunsmithAssemblyBusinessGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void legendaryRedEastGasSurvivesAssemblyAndAppliesMultiplicativePenalty(GameTestHelper helper) {
+        assertDamageCapAnchor(helper);
         EnumMap<GunsmithPressPart, ItemStack> parts = previewParts(GunsmithPlatform.AK);
         parts.put(GunsmithPressPart.CORE, GunsmithPartItem.createStack(
                 ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AK, GunsmithPressPart.CORE,
                 GunsmithPartQuality.LEGENDARY, GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS));
         GunsmithAssemblyRecipe.Preview preview =
                 GunsmithAssemblyRecipe.preview(GunsmithBlueprint.AK47, parts, AK47_BASE_STATS);
-        assertClose(helper, preview.damage(), 21.60D,
-                "legendary red east gas must double the AK bolt-adjusted damage");
+        // 1.20 (MILSPEC 枪机品质系数) x 2.00 (传奇红东导气伤害乘数) = 2.40 已越过 2.25 总帽, 故预览伤害
+        // 手算为 9.0 (AK 基础伤害) x 2.25 = 20.25。预览与成品必须同帽, 否则装配台显示一套、到手另一套 (审查 27)。
+        assertClose(helper, preview.damage(), 20.25D,
+                "legendary red east gas preview damage must be clamped by the total damage cap");
         assertClose(helper, preview.range(), 0.858D,
                 "red east gas must reduce the legendary core range coefficient by 40 percent");
         assertClose(helper, preview.effectiveRange(), 44.616D,
@@ -906,7 +932,8 @@ public final class GunsmithAssemblyBusinessGameTests {
                 "current gun NBT must cache base damage instead of the hot-reload component bonus");
         GunsmithGunStats stats = GunsmithGunStats.from(output);
         helper.assertTrue(stats != null, "red east assembly must produce valid gunsmith stats");
-        assertClose(helper, stats.damage(), 2.40D, "assembled red east damage multiplier");
+        assertClose(helper, stats.damage(), 2.25D,
+                "assembled red east damage multiplier must be clamped to the 2.25 total cap");
         assertClose(helper, stats.range(), 0.858D, "assembled red east effective-range multiplier");
         assertClose(helper, stats.fireRate(), 0.75D, "assembled red east fire-rate multiplier");
         assertClose(helper, stats.specialSpread(), 1.80D, "assembled red east spread penalty");
@@ -923,6 +950,45 @@ public final class GunsmithAssemblyBusinessGameTests {
                         part.part() == GunsmithPressPart.CORE
                                 && part.variant() == GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS),
                 "assembled gun must retain the red east component variant");
+        helper.succeed();
+    }
+
+    /**
+     * 总帽必须真的咬得住最坏组合 (审查 27)。
+     *
+     * AK 平台上三件加伤互不排斥: 传奇枪机的品质系数上限 1.50 x 传奇红东高压导气核心的伤害 2.00 x
+     * 赤雪-A 枪机型号的伤害 1.25 = 3.75 倍, 对 AK47 基础伤害 9.0 折算单发躯干 33.75 点, 80 血公服三发致死。
+     * 期望值全部手算, 不回调 capDamageMultiplier / gunsmithDamageMultiplierCap 当预言机。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void damageMultiplierCapClampsTheAkDoubleSpecialCompound(GameTestHelper helper) {
+        assertDamageCapAnchor(helper);
+        EnumMap<GunsmithPressPart, ItemStack> parts = previewParts(GunsmithPlatform.AK);
+        parts.put(GunsmithPressPart.CORE, GunsmithPartItem.createStack(
+                ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AK, GunsmithPressPart.CORE,
+                GunsmithPartQuality.LEGENDARY, GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS));
+        parts.put(GunsmithPressPart.BOLT, GunsmithPartItem.createStack(
+                ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AK, GunsmithPressPart.BOLT,
+                GunsmithPartQuality.LEGENDARY, GunsmithPartVariant.RED_WINTER_CHIXUE_A_BOLT, 1.50D));
+
+        GunsmithAssemblyRecipe.Preview preview =
+                GunsmithAssemblyRecipe.preview(GunsmithBlueprint.AK47, parts, AK47_BASE_STATS);
+        assertClose(helper, preview.damage(), 20.25D,
+                "装配预览的伤害必须与成品同帽 (9.0 x 2.25), 不得显示未封顶的 9.0 x 3.75");
+
+        ItemStack output = GunsmithAssemblyRecipe.assemble(new ItemStack(Items.IRON_HOE),
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(),
+                        GunsmithBlueprint.AK47), parts);
+        GunsmithGunStats stats = GunsmithGunStats.from(output);
+        helper.assertTrue(stats != null, "双特殊组件的 AK 仍必须是合法数据");
+        assertClose(helper, stats.damage(), 2.25D,
+                "1.50 x 2.00 x 1.25 = 3.75 必须被钳到 2.25");
+        // 帽是读取期施加的: NBT 里缓存的仍是未封顶的品质系数, 封顶绝不能反写玩家的零件数值。
+        assertClose(helper, output.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY)
+                        .getCompound(GunsmithGunStats.STATS_KEY).getDouble("damage"), 1.50D,
+                "总帽不得改写 NBT 里缓存的枪机品质系数");
+        assertClose(helper, GunsmithStatMultipliers.of(stats, 10.0D).damage(), 2.25D,
+                "下发给 TaCZ 的伤害乘子必须取封顶后的值");
         helper.succeed();
     }
 
@@ -1093,40 +1159,150 @@ public final class GunsmithAssemblyBusinessGameTests {
         helper.assertTrue(durability.originalMaximum() == trinityMaximum
                         && durability.maximum() == durability.originalMaximum(),
                 "Trinity barrel must reduce a newly assembled AR maximum durability by 30 percent");
+        helper.succeed();
+    }
 
-        CompoundTag legacyDurability = output.getTag().getCompound(GunsmithGunStats.ROOT_KEY)
-                .getCompound(GunsmithGunDurability.DURABILITY_KEY);
-        legacyDurability.putInt("version", 1);
-        legacyDurability.putInt("originalMaximum", MunitionsConfig.GUN_DURABILITY_AR.get());
-        legacyDurability.putInt("maximum", MunitionsConfig.GUN_DURABILITY_AR.get());
-        legacyDurability.putInt("current", MunitionsConfig.GUN_DURABILITY_AR.get() - 100);
-        GunsmithGunDurability.State migrated = GunsmithGunDurability.ensureInitialized(output);
-        helper.assertTrue(migrated.originalMaximum() == trinityMaximum
-                        && migrated.maximum() == trinityMaximum
-                        && migrated.current() == (int) Math.floor(
-                                (MunitionsConfig.GUN_DURABILITY_AR.get() - 100) * 0.70D),
-                "legacy Trinity gun durability must migrate the cap while preserving wear ratio");
-        helper.assertTrue(output.getTag().getCompound(GunsmithGunStats.ROOT_KEY)
-                        .getCompound(GunsmithGunDurability.DURABILITY_KEY).getInt("version") == 2,
-                "authoritative Trinity durability migration must persist the current schema version");
+    /**
+     * 耐久段的版本号是硬校验, 不是迁移入口 (审查 70)。
+     *
+     * {@code write()} 恒写当前版本, 而耐久段与本子系统同批落地, 任何存档里都不会留下别的版本号 —— 出现别的
+     * 版本号只可能是外部改档。原先那段用例手写 {@code version=1} 再断言"迁移成功", 是拿伪造数据喂出来的绿灯:
+     * 被迁移的形态从未在世界里存在过。现在的契约是权威路径硬抛、只读路径降级成"非托管枪", 一律不替它编迁移。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void forgedDurabilityVersionIsRejectedInsteadOfSilentlyMigrated(GameTestHelper helper) {
+        helper.assertTrue(GunsmithGunDurability.isManagedGun(assembledM4Gun()),
+                "前提校验: 刚装配出来的枪本就是托管枪");
+
+        ItemStack forged = assembledM4Gun();
+        forged.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY)
+                .getCompound(GunsmithGunDurability.DURABILITY_KEY)
+                .putInt("version", 1);
+
+        boolean threw = false;
+        try {
+            GunsmithGunDurability.view(forged);
+        } catch (IllegalArgumentException expected) {
+            threw = true;
+        }
+        helper.assertTrue(threw,
+                "耐久段版本号对不上时权威读取路径必须抛, 而不是当成满耐久放行");
+        helper.assertTrue(GunsmithGunDurability.tryManaged(forged) == null,
+                "只读路径必须降级成非托管枪 (返回 null), 不得把异常放穿到包处理器");
+        helper.assertFalse(GunsmithGunDurability.isManagedGun(forged),
+                "版本号被改坏的枪不得再被判为可维修的托管枪");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void versionThreeSixPartArGunRemainsReadable(GameTestHelper helper) {
-        ItemStack legacy = assembledM4Gun();
-        CompoundTag root = legacy.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY);
-        root.putInt(GunsmithGunStats.VERSION_KEY, 3);
-        root.getCompound(GunsmithGunStats.STATS_KEY).putDouble("average",
-                (1.04D + 1.10D + 1.20D + 1.30D + 1.40D + 1.08D) / 6.0D);
+        // 主线 v3 六槽 M4 的真实形态: 型号 id 全是已发布的 "basic", Stats 里比本版多三个键。
+        ItemStack legacy = legacyGunStack(3, "m4a1", "ar", "tacz:m4a1",
+                legacyRiflePartTags("basic", "common", 1.04D),
+                legacyStatsTag(1.20D, 1.10D, 1.04D, 1.08D, 1.30D, 1.40D, 7.12D / 6.0D, 1.0D));
 
         GunsmithGunStats stats = GunsmithGunStats.from(legacy);
         helper.assertTrue(stats != null, "v3 six-part AR gun must remain readable");
         helper.assertTrue(stats.parts().size() == 6, "v3 AR gun must retain its six legacy parts");
-        assertClose(helper, stats.damage(), 1.20D, "v3 AR gun damage must remain unchanged");
+        helper.assertTrue(stats.parts().stream().allMatch(part -> part.variant() == GunsmithPartVariant.BASE),
+                "every published \"basic\" component id must resolve to the base component");
+        assertClose(helper, stats.damage(), 1.20D, "v3 AR gun damage must come from the bolt coefficient");
+        assertClose(helper, stats.headshot(), 1.10D, "v3 AR gun headshot must come from the barrel coefficient");
+        assertClose(helper, stats.range(), 1.04D, "v3 AR gun range must come from the core coefficient");
+        assertClose(helper, stats.recoil(), 1.08D, "v3 AR gun recoil must come from the stock coefficient");
+        assertClose(helper, stats.spread(), 1.30D, "v3 AR gun spread must come from the handguard coefficient");
+        assertClose(helper, stats.handling(), 1.40D, "v3 AR gun handling must come from the grip coefficient");
+        assertClose(helper, stats.average(), 7.12D / 6.0D, "v3 AR gun average must use all six coefficients");
         assertClose(helper, stats.fireRate(), 1.0D, "v3 AR gun must not gain an implicit special-part effect");
         assertClose(helper, stats.specialAdsSpeed(), 1.0D,
                 "v3 AR gun must not gain an implicit ADS penalty");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void versionFiveAllBaseArGunReadsBackEveryStatFromHandWrittenNbt(GameTestHelper helper) {
+        ItemStack legacy = legacyGunStack(5, "m4a1", "ar", "tacz:m4a1",
+                legacyRiflePartTags("basic", "common", 1.04D),
+                legacyStatsTag(1.20D, 1.10D, 1.04D, 1.08D, 1.30D, 1.40D, 7.12D / 6.0D, 1.0D));
+
+        GunsmithGunStats stats = GunsmithGunStats.from(legacy);
+        helper.assertTrue(stats != null && stats.parts().size() == 6,
+                "a real v5 six-part AR gun must stay readable");
+        assertClose(helper, stats.damage(), 1.20D, "v5 AR gun damage must come from the bolt coefficient");
+        assertClose(helper, stats.range(), 1.04D, "v5 AR gun range must come from the core coefficient");
+        assertClose(helper, stats.effectiveDamage(M4_BASE_STATS), 6.5D * 1.20D,
+                "v5 AR effective damage must apply the bolt coefficient to the base profile");
+        assertClose(helper, stats.effectiveRange(M4_BASE_STATS), 48.0D * 1.04D,
+                "v5 AR effective range must apply the core coefficient to the base profile");
+        assertClose(helper, stats.fireRate(), 1.0D, "an all-base v5 gun must have no fire-rate modifier");
+
+        // v3 起 variant 是必填字段: 缺失说明数据畸形, 必须硬抛而不是默默降级成普通组件把玩家的势力组件抹掉。
+        CompoundTag missingVariantParts = legacyRiflePartTags("basic", "common", 1.04D);
+        missingVariantParts.getCompound("bolt").remove("variant");
+        ItemStack malformed = legacyGunStack(5, "m4a1", "ar", "tacz:m4a1",
+                missingVariantParts,
+                legacyStatsTag(1.20D, 1.10D, 1.04D, 1.08D, 1.30D, 1.40D, 7.12D / 6.0D, 1.0D));
+        assertStatsRejected(helper, malformed,
+                "a v5 component without a stored variant id must be rejected as malformed data");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void versionFiveGehennaCoreArGunRecomputesRangeInsteadOfTrustingStaleCache(GameTestHelper helper) {
+        // 主线把格赫娜导气核心的 range 强制写成 1.0, 而部件表里核心的实际系数是 1.43。这份"缓存与部件对不上"
+        // 的数据正是世界里每一把 v3+ 格赫娜枪的真实形态: 拿它逐项精确比对就会把整批合法存量枪判成畸形。
+        ItemStack legacy = legacyGunStack(5, "m4a1", "ar", "tacz:m4a1",
+                legacyRiflePartTags("gehenna_high_speed_gas", "legendary", 1.43D),
+                legacyStatsTag(1.20D, 1.10D, 1.00D, 1.08D, 1.30D, 1.40D, 7.51D / 6.0D, 1.25D));
+
+        GunsmithGunStats stats = GunsmithGunStats.from(legacy);
+        helper.assertTrue(stats != null,
+                "a real v5 Gehenna gun must stay readable instead of throwing on its stale range cache");
+        GunsmithGunStats.PartSummary core = stats.parts().stream()
+                .filter(part -> part.part() == GunsmithPressPart.CORE)
+                .findFirst()
+                .orElseThrow();
+        helper.assertTrue(core.variant() == GunsmithPartVariant.GEHENNA_GAS,
+                "the published \"gehenna_high_speed_gas\" id must resolve to the Gehenna gas component");
+        helper.assertTrue(core.quality() == GunsmithPartQuality.LEGENDARY,
+                "a legacy Gehenna core must keep its stored legendary quality");
+        assertClose(helper, stats.range(), 1.43D,
+                "range must be recomputed from the installed core (1.43), not read back from the stale 1.0 cache");
+        assertClose(helper, stats.effectiveRange(M4_BASE_STATS), 48.0D * 1.43D,
+                "the recomputed range must reach the base profile unchanged");
+        assertClose(helper, stats.damage(), 1.20D,
+                "Gehenna gas must not touch damage; that still comes from the bolt");
+        assertClose(helper, stats.fireRate(), 1.25D,
+                "legendary Gehenna gas must keep its +25% fire rate");
+        assertClose(helper, stats.specialSpread(), 1.15D,
+                "legendary Gehenna gas must keep its +15% spread penalty");
+        assertClose(helper, stats.specialRecoil(), 2.00D,
+                "legendary Gehenna gas must keep its doubled recoil penalty");
+        assertClose(helper, stats.average(), 7.51D / 6.0D,
+                "the overall coefficient must average the six stored coefficients");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void versionThreeAllBaseAkGunReadsBackEveryStatFromHandWrittenNbt(GameTestHelper helper) {
+        ItemStack legacy = legacyGunStack(3, "ak47", "ak", "tacz:ak47",
+                legacyRiflePartTags("basic", "common", 1.04D),
+                legacyStatsTag(1.20D, 1.10D, 1.04D, 1.08D, 1.30D, 1.40D, 7.12D / 6.0D, 1.0D));
+
+        GunsmithGunStats stats = GunsmithGunStats.from(legacy);
+        helper.assertTrue(stats != null, "a real v3 AK gun must stay readable");
+        helper.assertTrue(stats.platform().equals(GunsmithPlatform.AK.id()),
+                "a v3 AK gun must keep reporting the AK platform");
+        helper.assertTrue(stats.parts().size() == 6 && stats.parts().stream()
+                        .allMatch(part -> part.variant() == GunsmithPartVariant.BASE),
+                "every published \"basic\" component id must resolve to the base component on AK too");
+        assertClose(helper, stats.damage(), 1.20D, "v3 AK gun damage must come from the bolt coefficient");
+        assertClose(helper, stats.range(), 1.04D, "v3 AK gun range must come from the core coefficient");
+        assertClose(helper, stats.effectiveDamage(AK47_BASE_STATS), 9.0D * 1.20D,
+                "v3 AK effective damage must apply the bolt coefficient to the AK base profile");
+        assertClose(helper, stats.effectiveRange(AK47_BASE_STATS), 52.0D * 1.04D,
+                "v3 AK effective range must apply the core coefficient to the AK base profile");
+        assertClose(helper, stats.fireRate(), 1.0D, "an all-base v3 AK gun must have no fire-rate modifier");
         helper.succeed();
     }
 
@@ -1156,13 +1332,11 @@ public final class GunsmithAssemblyBusinessGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void versionFiveMarksmanWithoutGripReceivesCompatibilityGrip(GameTestHelper helper) {
-        ItemStack legacy = assembledM4Gun();
-        CompoundTag root = legacy.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY);
-        root.putInt(GunsmithGunStats.VERSION_KEY, 5);
-        root.putString("platform", GunsmithPlatform.MARKSMAN.id());
-        root.putString("template", GunsmithBlueprint.SPR15HB.templateId());
-        root.putString("gunId", GunsmithBlueprint.SPR15HB.gunId().toString());
-        root.getCompound(GunsmithGunStats.PARTS_KEY).remove(GunsmithPressPart.GRIP.id());
+        // 五槽 marksman 的真实形态: 没有握把槽, 其余五件的型号 id 都是已发布的 "basic"。
+        CompoundTag parts = legacyRiflePartTags("basic", "common", 1.04D);
+        parts.remove("grip");
+        ItemStack legacy = legacyGunStack(5, "spr15hb", "marksman", "tacz:spr15hb", parts,
+                legacyStatsTag(1.20D, 1.10D, 1.04D, 1.08D, 1.30D, 1.00D, 5.72D / 5.0D, 1.0D));
 
         GunsmithGunStats stats = GunsmithGunStats.from(legacy);
         helper.assertTrue(stats != null && stats.parts().size() == 6,
@@ -1183,16 +1357,14 @@ public final class GunsmithAssemblyBusinessGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void versionSixSniperWithoutFiringPinReceivesCompatibilityFiringPin(GameTestHelper helper) {
-        EnumMap<GunsmithPressPart, ItemStack> parts = new EnumMap<>(GunsmithPressPart.class);
-        for (GunsmithPressPart part : GunsmithPlatform.SNIPER.supportedParts()) {
-            parts.put(part, part(GunsmithPlatform.SNIPER, part, GunsmithPartQuality.COMMON, 1.0D));
-        }
-        ItemStack legacy = GunsmithAssemblyRecipe.assemble(new ItemStack(Items.IRON_HOE),
-                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(),
-                        GunsmithBlueprint.KAR98K), parts);
-        CompoundTag root = legacy.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY);
-        root.putInt(GunsmithGunStats.VERSION_KEY, 6);
-        root.getCompound(GunsmithGunStats.PARTS_KEY).remove(GunsmithPressPart.FIRING_PIN.id());
+        // 四槽栓动步枪的真实形态: 没有撞针槽, 其余四件的型号 id 都是已发布的 "basic"。
+        CompoundTag parts = new CompoundTag();
+        parts.put("receiver", legacyPartTag("basic", "common", 1.00D));
+        parts.put("stock", legacyPartTag("basic", "common", 1.00D));
+        parts.put("barrel", legacyPartTag("basic", "common", 1.00D));
+        parts.put("handguard", legacyPartTag("basic", "common", 1.00D));
+        ItemStack legacy = legacyGunStack(6, "kar98", "sniper", "tacz:kar98", parts,
+                legacyStatsTag(1.00D, 1.00D, 1.00D, 1.00D, 1.00D, 1.00D, 1.00D, 1.00D));
 
         GunsmithGunStats stats = GunsmithGunStats.from(legacy);
         helper.assertTrue(stats != null && stats.parts().size() == 5,
@@ -1213,14 +1385,11 @@ public final class GunsmithAssemblyBusinessGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void versionFourArReceiverMistakeMigratesToSixPartBoltData(GameTestHelper helper) {
-        ItemStack legacy = assembledM4Gun();
-        CompoundTag root = legacy.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY);
-        root.putInt(GunsmithGunStats.VERSION_KEY, 4);
-        CompoundTag receiver = new CompoundTag();
-        receiver.putString("quality", GunsmithPartQuality.LEGENDARY.id());
-        receiver.putString("variant", "mk_ax_a_receiver");
-        receiver.putDouble("coefficient", 1.43D);
-        root.getCompound(GunsmithGunStats.PARTS_KEY).put(GunsmithPressPart.RECEIVER.id(), receiver);
+        // 中间版本误建的第七个机匣槽: 六件 "basic" 之外还挂着一件 "mk_ax_a_receiver"。
+        CompoundTag parts = legacyRiflePartTags("basic", "common", 1.04D);
+        parts.put("receiver", legacyPartTag("mk_ax_a_receiver", "legendary", 1.43D));
+        ItemStack legacy = legacyGunStack(4, "m4a1", "ar", "tacz:m4a1", parts,
+                legacyStatsTag(1.20D, 1.10D, 1.04D, 1.08D, 1.30D, 1.40D, 7.12D / 6.0D, 1.0D));
 
         GunsmithGunStats stats = GunsmithGunStats.from(legacy);
         helper.assertTrue(stats != null, "v4 accidental AR receiver data must remain readable");
@@ -1233,6 +1402,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                                 && part.variant() == GunsmithPartVariant.MK_AX_A_BOLT
                                 && part.quality() == GunsmithPartQuality.LEGENDARY),
                 "legacy MK-AX-A receiver data must become the AR bolt component");
+        // 1.43 (机匣带过来的系数) x 1.25 (MK-AX-A 传奇档伤害乘数) = 1.7875, 仍在 2.25 总帽之下。
         assertClose(helper, stats.damage(), 1.7875D,
                 "migrated MK-AX-A bolt must use its corrected bolt coefficient and variant bonus");
         helper.succeed();
@@ -1292,20 +1462,18 @@ public final class GunsmithAssemblyBusinessGameTests {
                         ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.AK47),
                 previewParts(GunsmithPlatform.AK));
 
+        assertDurabilityConfigAnchors(helper);
         GunsmithGunDurability.State arInitial = GunsmithGunDurability.view(ar);
         GunsmithGunDurability.State akInitial = GunsmithGunDurability.view(ak);
-        helper.assertTrue(arInitial.maximum() == MunitionsConfig.GUN_DURABILITY_AR.get(),
-                "new AR must use the AR platform durability config");
-        helper.assertTrue(akInitial.maximum() == MunitionsConfig.GUN_DURABILITY_AK.get(),
-                "new AK must use the AK platform durability config");
-        helper.assertTrue(arInitial.maximum() != akInitial.maximum(),
-                "AR and AK platform durability must remain independently configurable");
+        helper.assertTrue(arInitial.maximum() == 2000 && arInitial.current() == 2000
+                        && arInitial.originalMaximum() == 2000 && arInitial.repairs() == 0,
+                "a new AR must start at 2000/2000 with zero repairs, got " + arInitial);
+        helper.assertTrue(akInitial.maximum() == 2400 && akInitial.current() == 2400,
+                "a new AK must start at 2400/2400, got " + akInitial);
 
-        int expectedLoss = Math.max(1, (int) Math.ceil(
-                arInitial.originalMaximum() * MunitionsConfig.GUN_REPAIR_LOSS_AR.get()));
-        int expectedNextMaximum = Math.max(
-                GunsmithGunDurability.minimumMaximum(arInitial.originalMaximum()),
-                arInitial.maximum() - expectedLoss);
+        // 期望值全部手算, 不回调 minimumMaximum / repairLoss: 永久磨损 = ceil(2000 x 0.10) = 200, 故第一次
+        // 维修后的上限恒为 1800 (仍高于 30% 地板 600)。
+        int expectedNextMaximum = 1800;
         while (GunsmithGunDurability.view(ar).current() >= expectedNextMaximum) {
             helper.assertTrue(GunsmithGunDurability.consumeShot(ar).canFire(),
                     "wearing an intact AR must allow each shot");
@@ -1313,13 +1481,17 @@ public final class GunsmithAssemblyBusinessGameTests {
         GunsmithGunDurability.RepairPreview preview = GunsmithGunDurability.repairPreview(ar);
         helper.assertTrue(preview.available(), "sufficiently worn AR must become repairable");
         helper.assertTrue(preview.nextMaximum() == expectedNextMaximum,
-                "repair preview must apply the configured permanent AR maximum loss");
+                "repair preview must drop the AR maximum by exactly 200 to 1800, got " + preview.nextMaximum());
+        helper.assertTrue(preview.requiredPart() == GunsmithPressPart.BOLT,
+                "the AR service part must remain the bolt");
 
         GunsmithGunDurability.RepairResult repaired = GunsmithGunDurability.repair(ar);
         helper.assertTrue(repaired.repaired(), "validated durability repair must succeed");
         helper.assertTrue(repaired.after().current() == expectedNextMaximum
                         && repaired.after().maximum() == expectedNextMaximum,
                 "repair must refill to the newly reduced maximum");
+        helper.assertTrue(repaired.after().originalMaximum() == 2000,
+                "a repair must never move the original maximum");
         helper.assertTrue(repaired.after().repairs() == 1,
                 "successful repair must persist its repair count");
 
@@ -1340,52 +1512,339 @@ public final class GunsmithAssemblyBusinessGameTests {
     public static void assemblyBenchRepairConsumesGunAndPlatformServicePart(GameTestHelper helper) {
         placeStructure(helper, Direction.NORTH);
         GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
-        ItemStack gun = assembledM4Gun();
-        GunsmithGunDurability.State initial = GunsmithGunDurability.view(gun);
-        int repairLoss = Math.max(1, (int) Math.ceil(
-                initial.originalMaximum() * MunitionsConfig.GUN_REPAIR_LOSS_AR.get()));
-        int nextMaximum = Math.max(GunsmithGunDurability.minimumMaximum(initial.originalMaximum()),
-                initial.maximum() - repairLoss);
-        while (GunsmithGunDurability.view(gun).current() >= nextMaximum) {
-            GunsmithGunDurability.consumeShot(gun);
-        }
+        assertDurabilityConfigAnchors(helper);
+        helper.assertTrue(MunitionsConfig.REPAIR_WORK_FEE_CREDITS.get() == 1500,
+                "本用例按单次维修工费 1500 CP 手算余额期望值");
+        ItemStack gun = wornArGun(helper, 1800);
         be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT, gun);
-        GunsmithPressPart repairPart = GunsmithGunDurability.repairPart(GunsmithPlatform.AR);
-        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(repairPart),
-                part(GunsmithPlatform.AR, repairPart, GunsmithPartQuality.COMMON, 1.0D));
+        // AR 的维修件是枪机; 替换件品质不得低于枪上装着的那件 (assembledM4Gun 的枪机是 MILSPEC 1.20)。
+        be.inventory().setStackInSlot(
+                GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.BOLT),
+                part(GunsmithPlatform.AR, GunsmithPressPart.BOLT, GunsmithPartQuality.MILSPEC, 1.20D));
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        boolean previousEnabled = MunitionsConfig.GUNSMITH_ENABLED.get();
+        GunsmithContext context = installGunsmithContext(player, 10, 100000L);
         try {
-            MunitionsConfig.GUNSMITH_ENABLED.set(true);
             helper.assertTrue(be.tryStartRepair(player, 6),
                     "worn gun plus its platform service part must start bench repair");
+            helper.assertTrue(context.ledger().balance(player.getUUID(), Currency.CREDIT) == 98500L,
+                    "bench repair must destroy exactly the 1500 CP work fee, balance left "
+                            + context.ledger().balance(player.getUUID(), Currency.CREDIT));
             helper.assertTrue(be.inventory().getStackInSlot(
                             GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT).isEmpty(),
                     "repair must consume the input gun into the pending result");
             helper.assertTrue(be.inventory().getStackInSlot(
-                            GunsmithAssemblyBenchBlockEntity.slotForPart(repairPart)).isEmpty(),
+                            GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.BOLT)).isEmpty(),
                     "repair must consume exactly one matching platform service part");
             helper.runAfterDelay(8, () -> {
-                try {
-                    ItemStack output = be.inventory().getStackInSlot(
-                            GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT);
-                    helper.assertFalse(output.isEmpty(),
-                            "completed repair must deliver the gun to output");
-                    GunsmithGunDurability.State repaired = GunsmithGunDurability.view(output);
-                    helper.assertTrue(repaired.repairs() == 1,
-                            "bench repair output must record one repair");
-                    helper.assertTrue(repaired.maximum() < initial.maximum()
-                                    && repaired.current() == repaired.maximum(),
-                            "bench repair must refill the gun while permanently lowering its maximum");
-                } finally {
-                    MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
-                }
+                ItemStack output = be.inventory().getStackInSlot(
+                        GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT);
+                helper.assertFalse(output.isEmpty(),
+                        "completed repair must deliver the gun to output");
+                GunsmithGunDurability.State repaired = GunsmithGunDurability.view(output);
+                helper.assertTrue(repaired.repairs() == 1,
+                        "bench repair output must record one repair");
+                helper.assertTrue(repaired.maximum() == 1800 && repaired.current() == 1800
+                                && repaired.originalMaximum() == 2000,
+                        "bench repair must refill to the permanently reduced 1800 maximum, got " + repaired);
                 helper.succeed();
             });
-        } catch (RuntimeException exception) {
-            MunitionsConfig.GUNSMITH_ENABLED.set(previousEnabled);
-            throw exception;
+        } finally {
+            restoreGunsmithContext(context);
         }
+    }
+
+    // ============================================================
+    // 耐久三条核心业务规则 (打空停火 / 满耐久与磨损不足不可修 / 修到 30% 地板永不可修)。
+    // 期望值全部按配置默认值手算: AR 2000 发, 单次维修永久 -200 (10%), 地板 ceil(2000 x 0.30) = 600,
+    // 故第 7 次维修恰好落到 600, 第 8 次必须 EXHAUSTED。一律不回调 minimumMaximum / repairLoss 当预言机。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 40)
+    public static void emptyDurabilityStopsFiringAndNeverGoesNegative(GameTestHelper helper) {
+        assertDurabilityConfigAnchors(helper);
+        ItemStack ar = assembledM4Gun();
+        for (int shot = 1; shot <= 2000; shot++) {
+            GunsmithGunDurability.ShotWear wear = GunsmithGunDurability.consumeShot(ar);
+            helper.assertTrue(wear.canFire(), "shot " + shot + " of 2000 must be allowed");
+            helper.assertTrue(wear.state().current() == 2000 - shot,
+                    "shot " + shot + " must consume exactly one durability point");
+            helper.assertTrue(wear.becameBroken() == (shot == 2000),
+                    "the breaking edge must be reported on shot 2000 only, got shot " + shot);
+        }
+
+        GunsmithGunDurability.ShotWear dryFire = GunsmithGunDurability.consumeShot(ar);
+        helper.assertFalse(dryFire.canFire(),
+                "a gun at zero durability must refuse the next shot so the caller cancels the fire event");
+        helper.assertTrue(dryFire.state().current() == 0,
+                "a refused shot must not push durability below zero");
+        helper.assertFalse(dryFire.becameBroken(),
+                "the breaking edge must be reported exactly once, not on every later dry fire");
+        helper.assertTrue(GunsmithGunDurability.view(ar).current() == 0,
+                "a refused shot must not write a new durability value");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void repairIsRefusedWhileFullOrInsufficientlyWornWithoutTouchingState(GameTestHelper helper) {
+        assertDurabilityConfigAnchors(helper);
+
+        ItemStack pristine = assembledM4Gun();
+        GunsmithGunDurability.RepairPreview full = GunsmithGunDurability.repairPreview(pristine);
+        helper.assertTrue(full.status() == GunsmithGunDurability.RepairStatus.FULL,
+                "an unfired gun must preview as FULL, got " + full.status());
+        helper.assertFalse(full.available(), "a FULL preview must not be available");
+        helper.assertTrue(full.restored() == 0, "a FULL preview must promise no restored durability");
+        GunsmithGunDurability.RepairResult refusedFull = GunsmithGunDurability.repair(pristine);
+        helper.assertFalse(refusedFull.repaired(), "repairing a full gun must fail");
+        helper.assertTrue(refusedFull.status() == GunsmithGunDurability.RepairStatus.FULL,
+                "a refused repair must report why it was refused");
+        GunsmithGunDurability.State afterFull = GunsmithGunDurability.view(pristine);
+        helper.assertTrue(afterFull.originalMaximum() == 2000 && afterFull.maximum() == 2000
+                        && afterFull.current() == 2000 && afterFull.repairs() == 0,
+                "a refused repair must leave every durability field untouched, got " + afterFull);
+
+        // 只打 100 发: 下一次维修会把上限压到 1800, 而 current 还有 1900, 修了反而更差 -> 必须拒绝。
+        ItemStack lightlyWorn = assembledM4Gun();
+        for (int shot = 0; shot < 100; shot++) {
+            helper.assertTrue(GunsmithGunDurability.consumeShot(lightlyWorn).canFire(),
+                    "wearing an intact AR must allow each shot");
+        }
+        GunsmithGunDurability.RepairPreview insufficient = GunsmithGunDurability.repairPreview(lightlyWorn);
+        helper.assertTrue(insufficient.status() == GunsmithGunDurability.RepairStatus.INSUFFICIENT_WEAR,
+                "100 shots of wear must preview as INSUFFICIENT_WEAR, got " + insufficient.status());
+        helper.assertTrue(insufficient.nextMaximum() == 1800,
+                "the refused preview must still report the 1800 maximum a repair would impose");
+        helper.assertTrue(insufficient.restored() == 0,
+                "an INSUFFICIENT_WEAR preview must promise no restored durability");
+        GunsmithGunDurability.RepairResult refusedWear = GunsmithGunDurability.repair(lightlyWorn);
+        helper.assertFalse(refusedWear.repaired(), "repairing an insufficiently worn gun must fail");
+        GunsmithGunDurability.State afterWear = GunsmithGunDurability.view(lightlyWorn);
+        helper.assertTrue(afterWear.originalMaximum() == 2000 && afterWear.maximum() == 2000
+                        && afterWear.current() == 1900 && afterWear.repairs() == 0,
+                "a refused repair must leave every durability field untouched, got " + afterWear);
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 40)
+    public static void sevenRepairsReachTheFloorAndTheEighthIsPermanentlyExhausted(GameTestHelper helper) {
+        assertDurabilityConfigAnchors(helper);
+        ItemStack ar = assembledM4Gun();
+
+        int expectedMaximum = 2000;
+        for (int repairs = 1; repairs <= 7; repairs++) {
+            int nextMaximum = expectedMaximum - 200;
+            while (GunsmithGunDurability.view(ar).current() >= nextMaximum) {
+                helper.assertTrue(GunsmithGunDurability.consumeShot(ar).canFire(),
+                        "wearing a repairable AR must allow each shot");
+            }
+            GunsmithGunDurability.RepairPreview preview = GunsmithGunDurability.repairPreview(ar);
+            helper.assertTrue(preview.status() == GunsmithGunDurability.RepairStatus.AVAILABLE,
+                    "repair " + repairs + " must still be available, got " + preview.status());
+            helper.assertTrue(preview.nextMaximum() == nextMaximum,
+                    "repair " + repairs + " must drop the maximum to " + nextMaximum
+                            + ", got " + preview.nextMaximum());
+            GunsmithGunDurability.RepairResult result = GunsmithGunDurability.repair(ar);
+            helper.assertTrue(result.repaired(), "repair " + repairs + " must succeed");
+            helper.assertTrue(result.after().maximum() == nextMaximum
+                            && result.after().current() == nextMaximum
+                            && result.after().originalMaximum() == 2000
+                            && result.after().repairs() == repairs,
+                    "repair " + repairs + " must refill to " + nextMaximum + ", got " + result.after());
+            expectedMaximum = nextMaximum;
+        }
+        helper.assertTrue(expectedMaximum == 600,
+                "seven AR repairs must land exactly on the 30% floor of 600, got " + expectedMaximum);
+
+        GunsmithGunDurability.RepairPreview exhausted = GunsmithGunDurability.repairPreview(ar);
+        helper.assertTrue(exhausted.status() == GunsmithGunDurability.RepairStatus.EXHAUSTED,
+                "a gun already at the floor must preview as EXHAUSTED, got " + exhausted.status());
+        helper.assertTrue(exhausted.nextMaximum() == 600 && exhausted.restored() == 0,
+                "an EXHAUSTED preview must promise neither a lower maximum nor restored durability");
+
+        // 再磨一发, 证明 EXHAUSTED 不是"因为现在是满的"而是"因为已经修到底了"。
+        helper.assertTrue(GunsmithGunDurability.consumeShot(ar).canFire(),
+                "a gun at the floor must still be able to fire out its remaining durability");
+        GunsmithGunDurability.RepairPreview stillExhausted = GunsmithGunDurability.repairPreview(ar);
+        helper.assertTrue(stillExhausted.status() == GunsmithGunDurability.RepairStatus.EXHAUSTED,
+                "a worn gun at the floor must stay EXHAUSTED, got " + stillExhausted.status());
+        GunsmithGunDurability.RepairResult refused = GunsmithGunDurability.repair(ar);
+        helper.assertFalse(refused.repaired(), "a gun at the floor must never be repairable again");
+        GunsmithGunDurability.State finalState = GunsmithGunDurability.view(ar);
+        helper.assertTrue(finalState.originalMaximum() == 2000 && finalState.maximum() == 600
+                        && finalState.current() == 599 && finalState.repairs() == 7,
+                "a refused EXHAUSTED repair must leave every durability field untouched, got " + finalState);
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void assemblyBenchRefusesFullDurabilityRepairWithoutConsumingAnything(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        assertDurabilityConfigAnchors(helper);
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT, assembledM4Gun());
+        be.inventory().setStackInSlot(
+                GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.BOLT),
+                part(GunsmithPlatform.AR, GunsmithPressPart.BOLT, GunsmithPartQuality.MILSPEC, 1.20D));
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        GunsmithContext context = installGunsmithContext(player, 10, 100000L);
+        try {
+            // 零件与等级都合格, 唯一的拒绝理由是这把枪还是满耐久; 拒绝帧必须一件不吞、一分不扣。
+            helper.assertFalse(be.tryStartRepair(player, 6),
+                    "a full-durability gun must be refused by the assembly bench");
+            helper.assertFalse(be.isAnimating(), "a refused repair must not animate");
+            helper.assertTrue(context.ledger().balance(player.getUUID(), Currency.CREDIT) == 100000L,
+                    "a refused repair must not charge the repair work fee, balance left "
+                            + context.ledger().balance(player.getUUID(), Currency.CREDIT));
+            ItemStack keptGun = be.inventory().getStackInSlot(
+                    GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT);
+            helper.assertFalse(keptGun.isEmpty(), "a refused repair must leave the gun in the blueprint slot");
+            helper.assertTrue(GunsmithGunDurability.view(keptGun).repairs() == 0,
+                    "a refused repair must not stamp a repair onto the gun");
+            helper.assertFalse(be.inventory().getStackInSlot(
+                            GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.BOLT)).isEmpty(),
+                    "a refused repair must leave the service part in its slot");
+            helper.assertTrue(be.inventory().getStackInSlot(
+                            GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
+                    "a refused repair must not create output");
+        } finally {
+            restoreGunsmithContext(context);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 维修替换件的降级校验 (审查 30): {@link #assembledM4Gun()} 的枪机是 MILSPEC 1.20, 塞一件普通枪机必须被拒。
+     *
+     * 放行降级件的后果是最便宜的普通基础件就能给传奇 / 势力组件枪无限续命, 稀缺组件的成本退化成一次性投入。
+     * 两道防线都要守: 槽位谓词在放入那一刻拒, 权威侧在开工那一帧再拒一次 (换枪后留在槽里的旧件走的正是后者)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 40)
+    public static void assemblyBenchRefusesDowngradedServicePartWithoutConsumingAnything(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        assertDurabilityConfigAnchors(helper);
+        ItemStack gun = wornArGun(helper, 1800);
+        ItemStack downgraded = part(GunsmithPlatform.AR, GunsmithPressPart.BOLT,
+                GunsmithPartQuality.COMMON, 1.00D);
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT, gun);
+
+        helper.assertFalse(be.inventory().isItemValid(
+                        GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.BOLT), downgraded),
+                "低于原件品质的枪机必须连槽位谓词都过不了");
+        // 绕过槽位谓词直接落槽: 真实链路里"先放好合格件再把枪换成更高品质的那把"就会产生这个状态。
+        be.inventory().setStackInSlot(
+                GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.BOLT), downgraded);
+
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        GunsmithContext context = installGunsmithContext(player, 10, 100000L);
+        try {
+            helper.assertFalse(be.tryStartRepair(player, 6),
+                    "普通枪机不得给装着 MILSPEC 枪机的枪续命");
+            helper.assertFalse(be.isAnimating(), "被拒的维修不得开始动画");
+            helper.assertTrue(context.ledger().balance(player.getUUID(), Currency.CREDIT) == 100000L,
+                    "被拒的维修不得扣走维修工费, 余额实得 "
+                            + context.ledger().balance(player.getUUID(), Currency.CREDIT));
+            ItemStack keptGun = be.inventory().getStackInSlot(
+                    GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT);
+            helper.assertFalse(keptGun.isEmpty(), "被拒的维修必须把枪原样留在槽里");
+            GunsmithGunDurability.State kept = GunsmithGunDurability.view(keptGun);
+            // wornArGun 打到 current 刚好低于 1800 就停, 故这里恒为 1799: 逐字段都不许被拒绝帧改动。
+            helper.assertTrue(kept.repairs() == 0 && kept.maximum() == 2000
+                            && kept.originalMaximum() == 2000 && kept.current() == 1799,
+                    "被拒的维修不得在枪的耐久上留下任何痕迹, 实得 " + kept);
+            ItemStack keptPart = be.inventory().getStackInSlot(
+                    GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.BOLT));
+            helper.assertTrue(GunsmithPartItem.qualityOf(keptPart) == GunsmithPartQuality.COMMON
+                            && keptPart.getCount() == 1,
+                    "被拒的维修必须把那件普通枪机原样留在槽里");
+            helper.assertTrue(be.inventory().getStackInSlot(
+                            GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
+                    "被拒的维修不得产出");
+
+            // 正对照: 同一把枪、同一台机器, 只把替换件换成同型号同品质就必须立刻开工 —— 上面的拒绝
+            // 因此确实来自品质判定, 而不是等级门 / 工费 / 磨损度这些别的门。
+            be.inventory().setStackInSlot(
+                    GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.BOLT),
+                    part(GunsmithPlatform.AR, GunsmithPressPart.BOLT, GunsmithPartQuality.MILSPEC, 1.20D));
+            helper.assertTrue(be.tryStartRepair(player, 6),
+                    "正对照: 换成 MILSPEC 枪机后同一台必须能开工");
+        } finally {
+            restoreGunsmithContext(context);
+        }
+        helper.succeed();
+    }
+
+    // ============================================================
+    // F048 装配等级门 + 工费 sink: L1 拒且图纸/零件原封不动; L10 余额恰好够时精确销毁 5000 CP;
+    // L10 但余额差 1 CP (边界值) 全额作废且零件一件没扣 (先查后扣)。期望值按配置默认值手算成常量。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 20)
+    public static void assemblyEnforcesLevelGateAndWorkFeeSink(GameTestHelper helper) {
+        helper.assertTrue(MunitionsConfig.ASSEMBLY_UNLOCK_LEVEL.get() == 5,
+                "本用例按装配解锁等级 5 手算 (L1 拒 / L10 过); 配置默认值改了必须同步改本用例");
+        helper.assertTrue(MunitionsConfig.ASSEMBLY_WORK_FEE_CREDITS.get() == 5000,
+                "本用例按装配工费 5000 CP 手算余额期望值; 配置默认值改了必须同步改本用例");
+
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        fillCompleteRecipe(be, GunsmithBlueprint.M4A1);
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+
+        // -- L1: 装配等级门未解锁 -> 拒绝, 图纸与全部零件槽原封不动, 且一分工费都不扣。
+        GunsmithContext lowLevel = installGunsmithContext(player, 1, 5000L);
+        try {
+            helper.assertFalse(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
+                    "L1 player must not pass the assembly unlock gate (F048, unlock L5)");
+            helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT)
+                            .is(ModMunitionsItems.GUNSMITH_BLUEPRINT.get()),
+                    "a level-gate rejection must preserve the blueprint");
+            for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
+                helper.assertFalse(be.inventory().getStackInSlot(
+                                GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
+                        "a level-gate rejection must preserve " + part);
+            }
+            helper.assertTrue(lowLevel.ledger().balance(player.getUUID(), Currency.CREDIT) == 5000L,
+                    "a level-gate rejection must not charge the assembly work fee");
+        } finally {
+            restoreGunsmithContext(lowLevel);
+        }
+
+        // -- L10 但余额比工费差 1 CP (边界值) -> 全额作废, 图纸与零件分文不扣 (先查后扣)。
+        GunsmithContext oneShort = installGunsmithContext(player, 10, 4999L);
+        try {
+            helper.assertFalse(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
+                    "a balance one credit short of the assembly work fee must reject the start");
+            helper.assertFalse(be.isAnimating(), "a fee-rejected start must not animate");
+            for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
+                helper.assertFalse(be.inventory().getStackInSlot(
+                                GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
+                        "a fee-rejected start must not consume " + part);
+            }
+            helper.assertTrue(oneShort.ledger().balance(player.getUUID(), Currency.CREDIT) == 4999L,
+                    "a failed fee charge must leave the balance untouched, got "
+                            + oneShort.ledger().balance(player.getUUID(), Currency.CREDIT));
+        } finally {
+            restoreGunsmithContext(oneShort);
+        }
+
+        // -- L10 且余额恰好够付 -> 开工并把 5000 CP 精确销毁到 0。
+        GunsmithContext funded = installGunsmithContext(player, 10, 5000L);
+        try {
+            helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
+                    "L10 player with sufficient balance must start assembly");
+            helper.assertTrue(funded.ledger().balance(player.getUUID(), Currency.CREDIT) == 0L,
+                    "the assembly work fee sink must destroy exactly 5000 CP, balance left "
+                            + funded.ledger().balance(player.getUUID(), Currency.CREDIT));
+            for (GunsmithPressPart part : GunsmithBlueprint.M4A1.requiredParts()) {
+                helper.assertTrue(be.inventory().getStackInSlot(
+                                GunsmithAssemblyBenchBlockEntity.slotForPart(part)).isEmpty(),
+                        "a charged assembly must consume " + part);
+            }
+        } finally {
+            restoreGunsmithContext(funded);
+        }
+        helper.succeed();
     }
 
     private static void fillCompleteRecipe(GunsmithAssemblyBenchBlockEntity be, GunsmithBlueprint blueprint) {
@@ -1557,5 +2016,202 @@ public final class GunsmithAssemblyBusinessGameTests {
             threw = true;
         }
         helper.assertTrue(threw, message);
+    }
+
+    /**
+     * 手写一把存量成品枪的 NBT。
+     *
+     * 迁移用例的 fixture 必须与被测实现异源: 用 {@link GunsmithAssemblyRecipe#assemble} 造出来再把版本号改小,
+     * 等于拿本版写入器伪造旧版数据, 主线真实写出的形态 (Stats 里多 fireRate/verticalRecoil/inaccuracy 三个键、
+     * 型号 id 是已发布的 "basic"/"gehenna_high_speed_gas"、格赫娜核心的 range 被强制写成 1.0) 一条都进不了
+     * fixture, 于是整套迁移测试自证。
+     */
+    private static ItemStack legacyGunStack(int version, String templateId, String platformId,
+                                            String gunId, CompoundTag parts, CompoundTag stats) {
+        ItemStack stack = new ItemStack(Items.IRON_HOE);
+        CompoundTag root = new CompoundTag();
+        root.putInt(GunsmithGunStats.VERSION_KEY, version);
+        root.putString("template", templateId);
+        root.putString("platform", platformId);
+        root.putString("gunId", gunId);
+        root.put(GunsmithGunStats.PARTS_KEY, parts);
+        root.put(GunsmithGunStats.STATS_KEY, stats);
+        stack.getOrCreateTag().put(GunsmithGunStats.ROOT_KEY, root);
+        return stack;
+    }
+
+    /** 主线写出的单件部件摘要: variant / quality / coefficient 三个字段, 型号写当时已发布的 id。 */
+    private static CompoundTag legacyPartTag(String variantId, String qualityId, double coefficient) {
+        CompoundTag tag = new CompoundTag();
+        tag.putString("variant", variantId);
+        tag.putString("quality", qualityId);
+        tag.putDouble("coefficient", coefficient);
+        return tag;
+    }
+
+    /** 主线写出的六槽步枪部件表; 核心的型号 id 与品质由调用方给, 其余五件固定为已发布的 "basic"。 */
+    private static CompoundTag legacyRiflePartTags(String coreVariantId, String coreQualityId,
+                                                   double coreCoefficient) {
+        CompoundTag parts = new CompoundTag();
+        parts.put("core", legacyPartTag(coreVariantId, coreQualityId, coreCoefficient));
+        parts.put("barrel", legacyPartTag("basic", "improved", 1.10D));
+        parts.put("bolt", legacyPartTag("basic", "milspec", 1.20D));
+        parts.put("handguard", legacyPartTag("basic", "precision", 1.30D));
+        parts.put("grip", legacyPartTag("basic", "legendary", 1.40D));
+        parts.put("stock", legacyPartTag("basic", "improved", 1.08D));
+        return parts;
+    }
+
+    /**
+     * 主线写出的 Stats 缓存。除七个基础键外还多写 fireRate / verticalRecoil / inaccuracy 三个键 —— 当前读取器
+     * 完全不看它们; fixture 里保留是为了证明这三个多余键不会让存量枪读不出来。
+     */
+    private static CompoundTag legacyStatsTag(double damage, double headshot, double range, double recoil,
+                                              double spread, double handling, double average, double fireRate) {
+        CompoundTag stats = new CompoundTag();
+        stats.putDouble("damage", damage);
+        stats.putDouble("headshot", headshot);
+        stats.putDouble("range", range);
+        stats.putDouble("recoil", recoil);
+        stats.putDouble("spread", spread);
+        stats.putDouble("handling", handling);
+        stats.putDouble("average", average);
+        stats.putDouble("fireRate", fireRate);
+        stats.putDouble("verticalRecoil", 1.0D / recoil);
+        stats.putDouble("inaccuracy", 1.0D / spread);
+        return stats;
+    }
+
+    /**
+     * 耐久用例的期望值 (2000 / 2400 / 200 / 1800 / 600) 全是按下列配置默认值手算的常量。默认值一改这里先红,
+     * 直接指明原因, 而不是让下游一堆数字断言各自莫名其妙地挂掉。
+     */
+    private static void assertDurabilityConfigAnchors(GameTestHelper helper) {
+        helper.assertTrue(MunitionsConfig.GUN_DURABILITY_AR.get() == 2000,
+                "本组用例按 AR 最大耐久 2000 手算期望值");
+        helper.assertTrue(MunitionsConfig.GUN_DURABILITY_AK.get() == 2400,
+                "本组用例按 AK 最大耐久 2400 手算期望值");
+        helper.assertTrue(Math.abs(MunitionsConfig.GUN_REPAIR_LOSS_AR.get() - 0.10D) < 0.0000001D,
+                "本组用例按 AR 单次维修永久磨损 10% (=200 点) 手算期望值");
+        helper.assertTrue(Math.abs(MunitionsConfig.GUN_REPAIR_MINIMUM_RATIO.get() - 0.30D) < 0.0000001D,
+                "本组用例按 30% 维修地板 (=600 点, 恰好 7 次维修到底) 手算期望值");
+    }
+
+    /**
+     * 整枪伤害总帽的手算锚点 (审查 27)。20.25 / 2.25 这些封顶期望值全按它算; 配置默认值一改这里先红,
+     * 直接指明原因, 而不是让下游一串伤害断言各自莫名其妙地挂掉。
+     */
+    private static void assertDamageCapAnchor(GameTestHelper helper) {
+        helper.assertTrue(Math.abs(MunitionsConfig.GUNSMITH_DAMAGE_MULTIPLIER_CAP.get() - 2.25D) < 0.0000001D,
+                "本组用例按整枪伤害总帽 2.25 手算期望值");
+    }
+
+    /** 把一把新 AR 磨到 current 刚好低于 threshold, 使下一次维修落进 AVAILABLE。 */
+    private static ItemStack wornArGun(GameTestHelper helper, int threshold) {
+        ItemStack gun = assembledM4Gun();
+        while (GunsmithGunDurability.view(gun).current() >= threshold) {
+            helper.assertTrue(GunsmithGunDurability.consumeShot(gun).canFire(),
+                    "wearing an intact AR must allow each shot");
+        }
+        return gun;
+    }
+
+    /**
+     * 装/卸「枪匠开关 + 定级职业门面 + 内存账本经济」替身。
+     *
+     * 装配与维修的服务端权威路径都要过等级门与信用点工费 sink, 而批次基线把配置留在生产默认值 (装配 L5 /
+     * 5000 CP, 维修 L4 / 1500 CP), 所以每个真开工的用例都得自带够级别、够余额的玩家上下文。集中在这里装卸,
+     * 免得各用例各写一遍 finally 时漏还原, 污染同批次后续用例。
+     */
+    private static GunsmithContext installGunsmithContext(ServerPlayer player, int munitionsLevel, long credits) {
+        boolean previousEnabled = MunitionsConfig.GUNSMITH_ENABLED.get();
+        MunitionsConfig.GUNSMITH_ENABLED.set(true);
+        IJobService previousJob = swapJob(new FixedLevelJobService(munitionsLevel));
+        EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService previousEconomy = swapEconomy(freshEconomy(ledger));
+        if (credits > 0L) {
+            ledger.credit(player.getUUID(), Currency.CREDIT, credits);
+        }
+        return new GunsmithContext(previousJob, previousEconomy, ledger, previousEnabled);
+    }
+
+    private static void restoreGunsmithContext(GunsmithContext context) {
+        MunitionsConfig.GUNSMITH_ENABLED.set(context.previousEnabled());
+        restoreJob(context.previousJob());
+        restoreEconomy(context.previousEconomy());
+    }
+
+    private static IJobService swapJob(IJobService fake) {
+        IJobService previous;
+        try {
+            previous = JobServices.jobService();
+        } catch (IllegalStateException notRegistered) {
+            previous = null;
+        }
+        JobServices.registerJobService(fake);
+        return previous;
+    }
+
+    private static void restoreJob(IJobService previous) {
+        if (previous != null) {
+            JobServices.registerJobService(previous);
+        } else {
+            JobServices.reset();
+        }
+    }
+
+    private static IEconomyService swapEconomy(IEconomyService fake) {
+        IEconomyService previous = EconomyServices.isRegistered() ? EconomyServices.economyService() : null;
+        EconomyServices.registerEconomyService(fake);
+        return previous;
+    }
+
+    private static void restoreEconomy(IEconomyService previous) {
+        if (previous != null) {
+            EconomyServices.registerEconomyService(previous);
+        } else {
+            EconomyServices.reset();
+        }
+    }
+
+    /** 真 EconomyService (内存账本 + AbuseGuard + 惰性玩家态解析器); tryCharge 走真 sink 语义。 */
+    private static IEconomyService freshEconomy(EconomyLedger ledger) {
+        Map<UUID, PlayerAbuseState> states = new HashMap<>();
+        Function<UUID, PlayerAbuseState> resolver = id -> states.computeIfAbsent(id, key -> new PlayerAbuseState());
+        return new EconomyService(ledger, new AbuseGuard(), resolver);
+    }
+
+    /** 一次 {@link #installGunsmithContext} 装上的全部替身与被顶掉的原值, 供 finally 逐个还原。 */
+    private record GunsmithContext(IJobService previousJob, IEconomyService previousEconomy,
+                                   EconomyLedger ledger, boolean previousEnabled) {
+    }
+
+    /** 定级职业门面替身 (level/grantXp 不计数, 仅供枪匠等级门读取)。 */
+    private static final class FixedLevelJobService implements IJobService {
+        private final int level;
+
+        FixedLevelJobService(int level) {
+            this.level = level;
+        }
+
+        @Override
+        public int level(Player player, JobId job) {
+            return level;
+        }
+
+        @Override
+        public long totalXp(Player player, JobId job) {
+            return 0L;
+        }
+
+        @Override
+        public long grantXp(Player player, JobId job, long rawXp) {
+            return rawXp;
+        }
+
+        @Override
+        public JobProgress progress(Player player, JobId job) {
+            throw new UnsupportedOperationException("not exercised by gunsmith assembly business tests");
+        }
     }
 }

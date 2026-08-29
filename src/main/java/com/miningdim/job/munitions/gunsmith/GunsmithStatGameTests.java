@@ -2,12 +2,27 @@ package com.miningdim.job.munitions.gunsmith;
 
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.munitions.ModMunitionsItems;
+import com.miningdim.job.munitions.MunitionsSystem;
+import com.miningdim.testutil.MockGameTestPlayers;
+import io.netty.buffer.Unpooled;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.TooltipFlag;
+import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
 
@@ -544,6 +559,297 @@ public final class GunsmithStatGameTests {
                     "component rarity must remain variant-derived for quality " + quality.id());
         }
         helper.succeed();
+    }
+
+    // ============================================================
+    // 审查 68: 组件热重载规则的同步通道 (encode -> decode) 至今零测试。这张表是服务端权威、登录时整份下发给
+    // 客户端的; 编解码顺序错一位不会有任何报错, 症状是"客户端 tooltip 上的组件数值与服务端实际结算的不是同一张表"。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void componentRuleSurvivesEncodeDecodeRoundTripBitForBit(GameTestHelper helper) {
+        // 十个字段逐档取互不相同的值: 全填同一张表的话, 字段顺序写错也照样绿。
+        double[] damage = {1.11D, 1.12D, 1.13D, 1.14D, 1.15D};
+        double[] headshot = {1.21D, 1.22D, 1.23D, 1.24D, 1.25D};
+        double[] fireRate = {1.31D, 1.32D, 1.33D, 1.34D, 1.35D};
+        double[] effectiveRange = {1.41D, 1.42D, 1.43D, 1.44D, 1.45D};
+        double[] ammoSpeed = {1.51D, 1.52D, 1.53D, 1.54D, 1.55D};
+        double[] armorIgnore = {0.61D, 0.62D, 0.63D, 0.64D, 0.65D};
+        double[] spread = {0.71D, 0.72D, 0.73D, 0.74D, 0.75D};
+        double[] recoil = {0.81D, 0.82D, 0.83D, 0.84D, 0.85D};
+        double[] verticalRecoil = {0.91D, 0.92D, 0.93D, 0.94D, 0.95D};
+        double[] adsSpeed = {1.01D, 1.02D, 1.03D, 1.04D, 1.05D};
+
+        GunsmithComponentRule original = new GunsmithComponentRule(
+                qualityRow(damage), qualityRow(headshot), qualityRow(fireRate),
+                GunsmithComponentRule.RangeOperation.REPLACE,
+                qualityRow(effectiveRange), qualityRow(ammoSpeed), qualityRow(armorIgnore),
+                qualityRow(spread), qualityRow(recoil), qualityRow(verticalRecoil), qualityRow(adsSpeed));
+
+        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
+        original.encode(buf);
+        GunsmithComponentRule decoded = GunsmithComponentRule.decode(buf);
+        helper.assertTrue(buf.readableBytes() == 0,
+                "decode 必须把 encode 写进去的字节读干净, 剩 " + buf.readableBytes() + " 字节说明两侧长度对不上");
+        // replace 语义会把其余槽位累积的射程整体顶掉; 掉回 multiply 是"数值没错但语义反了"的静默事故。
+        helper.assertTrue(decoded.rangeOperation() == GunsmithComponentRule.RangeOperation.REPLACE,
+                "射程运算语义必须往返无损, 实得 " + decoded.rangeOperation());
+
+        for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
+            int tier = quality.index();
+            assertExact(helper, decoded.damage(quality), damage[tier], "damage " + quality.id());
+            assertExact(helper, decoded.headshot(quality), headshot[tier], "headshot " + quality.id());
+            assertExact(helper, decoded.fireRate(quality), fireRate[tier], "fireRate " + quality.id());
+            assertExact(helper, decoded.effectiveRange(quality), effectiveRange[tier],
+                    "effectiveRange " + quality.id());
+            assertExact(helper, decoded.ammoSpeed(quality), ammoSpeed[tier], "ammoSpeed " + quality.id());
+            assertExact(helper, decoded.armorIgnore(quality), armorIgnore[tier], "armorIgnore " + quality.id());
+            assertExact(helper, decoded.spread(quality), spread[tier], "spread " + quality.id());
+            assertExact(helper, decoded.recoil(quality), recoil[tier], "recoil " + quality.id());
+            assertExact(helper, decoded.verticalRecoil(quality), verticalRecoil[tier],
+                    "verticalRecoil " + quality.id());
+            assertExact(helper, decoded.adsSpeed(quality), adsSpeed[tier], "adsSpeed " + quality.id());
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 越界值必须在 decode 那一刻就被拒。规则表来自 datapack 又走网络下发, 放行一个 0 或 NaN 乘子等于让
+     * 一整类组件的伤害/散布静默变成 0 或 NaN, 而且是在客户端与服务端各自解码之后才发作。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void componentRuleDecodeRejectsOutOfRangeMultipliers(GameTestHelper helper) {
+        // 闭区间两端必须放行, 否则"全都拒"也能让下面四条通过。
+        assertExact(helper, decodeWithProbedDamage(0.05D).damage(GunsmithPartQuality.COMMON), 0.05D,
+                "下界 0.05 必须原样放行");
+        assertExact(helper, decodeWithProbedDamage(10.0D).damage(GunsmithPartQuality.COMMON), 10.0D,
+                "上界 10.0 必须原样放行");
+
+        assertDecodeRejects(helper, 0.04D, "低于下界 0.05 的乘子必须被 decode 拒掉");
+        assertDecodeRejects(helper, 10.1D, "高于上界 10.0 的乘子必须被 decode 拒掉");
+        assertDecodeRejects(helper, Double.NaN, "NaN 乘子必须被 decode 拒掉");
+        assertDecodeRejects(helper, Double.POSITIVE_INFINITY, "无穷大乘子必须被 decode 拒掉");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 审查 25: 护木(spread) 与握把(handling) 是散布的两个方向分量, TACZ 1.1.8 的 INACCURACY 与 AIM_INACCURACY
+    // 共用同一份缓存, 必须先合成再一次性写入 —— 分两次写会把势力组件的 spread 乘数平方。
+    // 本条不 import 任何 com.tacz.* 类型: dev GameTest 不加载 TACZ, 一 import 就 NoClassDefFoundError。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void combinedInaccuracyMultipliesBothAxesWithTheFactionSpreadPenalty(GameTestHelper helper) {
+        GunsmithGunStats stats = GunsmithGunStats.from(legendaryGehennaM4Gun());
+        helper.assertTrue(stats != null, "带传奇格赫娜导气核心的 M4 必须是合法数据");
+        // 前提校验: 三个输入分量各自来自不同零件, 值也互不相同, 合成表达式写错任一处都会偏离期望值。
+        assertClose(helper, stats.spread(), 1.30D, "护木 (spread) 品质系数");
+        assertClose(helper, stats.handling(), 1.40D, "握把 (handling) 品质系数");
+        assertClose(helper, stats.specialSpread(), 1.15D, "传奇格赫娜导气的散布惩罚");
+
+        GunsmithStatMultipliers multipliers = GunsmithStatMultipliers.of(stats, 10.0D);
+        assertClose(helper, multipliers.inaccuracy(), 1.0D / 1.30D * 1.15D,
+                "散布分量 = 护木控制的逆 x 势力组件散布惩罚");
+        assertClose(helper, multipliers.aimInaccuracy(), 1.0D / 1.40D,
+                "瞄准散布分量 = 握把控制的逆");
+        assertClose(helper, multipliers.combinedInaccuracy(), 1.0D / 1.30D * 1.15D * (1.0D / 1.40D),
+                "写进 TACZ 散布缓存的唯一乘子 = 两个方向分量的乘积");
+        helper.assertTrue(Math.abs(multipliers.combinedInaccuracy() - multipliers.inaccuracy()) > 0.0000001D
+                        && Math.abs(multipliers.combinedInaccuracy() - multipliers.aimInaccuracy()) > 0.0000001D,
+                "合成值必须真的是两者相乘: 只发其中一个分量本条即挂");
+        helper.succeed();
+    }
+
+    private static EnumMap<GunsmithPartQuality, Double> qualityRow(double[] values) {
+        EnumMap<GunsmithPartQuality, Double> row = new EnumMap<>(GunsmithPartQuality.class);
+        for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
+            row.put(quality, values[quality.index()]);
+        }
+        return row;
+    }
+
+    /**
+     * 编出一份合法规则后, 直接覆盖它的头 8 个字节 —— encode 写的第一项就是 damage 的 common 档。
+     * 这样探针既不必在测试里再抄一份字段顺序, 又能精确打在单个乘子上。
+     */
+    private static GunsmithComponentRule decodeWithProbedDamage(double damageCommon) {
+        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
+        GunsmithComponentRule.identity().encode(buf);
+        buf.setDouble(0, damageCommon);
+        return GunsmithComponentRule.decode(buf);
+    }
+
+    private static void assertDecodeRejects(GameTestHelper helper, double damageCommon, String message) {
+        boolean threw = false;
+        try {
+            decodeWithProbedDamage(damageCommon);
+        } catch (IllegalArgumentException expected) {
+            threw = true;
+        }
+        helper.assertTrue(threw, message);
+    }
+
+    private static ItemStack legendaryGehennaM4Gun() {
+        EnumMap<GunsmithPressPart, ItemStack> parts = new EnumMap<>(GunsmithPressPart.class);
+        parts.put(GunsmithPressPart.CORE, GunsmithPartItem.createStack(
+                ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AR, GunsmithPressPart.CORE,
+                GunsmithPartQuality.LEGENDARY, GunsmithPartVariant.GEHENNA_GAS));
+        parts.put(GunsmithPressPart.BARREL, arPart(GunsmithPressPart.BARREL, GunsmithPartQuality.IMPROVED, 1.10D));
+        parts.put(GunsmithPressPart.BOLT, arPart(GunsmithPressPart.BOLT, GunsmithPartQuality.MILSPEC, 1.20D));
+        parts.put(GunsmithPressPart.HANDGUARD,
+                arPart(GunsmithPressPart.HANDGUARD, GunsmithPartQuality.PRECISION, 1.30D));
+        parts.put(GunsmithPressPart.GRIP, arPart(GunsmithPressPart.GRIP, GunsmithPartQuality.LEGENDARY, 1.40D));
+        parts.put(GunsmithPressPart.STOCK, arPart(GunsmithPressPart.STOCK, GunsmithPartQuality.IMPROVED, 1.08D));
+        return GunsmithAssemblyRecipe.assemble(
+                new ItemStack(Items.IRON_HOE),
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1),
+                parts);
+    }
+
+    /** 线上通道的往返必须逐位无损, 故这里用 Double.compare 而不是容差比较。 */
+    private static void assertExact(GameTestHelper helper, double actual, double expected, String label) {
+        helper.assertTrue(Double.compare(actual, expected) == 0,
+                label + " 必须逐位等于 " + expected + ", 实得 " + actual);
+    }
+
+    // ============================================================
+    // F011 tooltip 不得因老枪读不出来而崩客户端: 缓存 stats 与当前平衡表算不出一致时 from() 仍必须硬抛
+    // (装配 / 冲压 / 伤害结算路径需要这份硬校验炸出畸形数据), 但 onItemTooltip 跑在客户端渲染线程、外层没有
+    // 任何 Controller 兜底, 只读展示必须降级成一条提示。反面同样要守: 主线真实写出的 v5 势力枪 (range 缓存
+    // 1.0 与 1.43 的核心对不上) 是合法存量数据, 绝不能被当成"读不出来"降级成一行红字。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void tooltipDegradesInsteadOfCrashingOnUnreadableStats(GameTestHelper helper) {
+        ItemStack legit = assembledM4Gun();
+        helper.assertTrue(GunsmithGunStats.from(legit) != null,
+                "a freshly assembled gun must be readable before corruption");
+
+        ItemStack corrupted = legit.copy();
+        CompoundTag corruptedStats = corrupted.getOrCreateTag()
+                .getCompound(GunsmithGunStats.ROOT_KEY)
+                .getCompound(GunsmithGunStats.STATS_KEY);
+        corruptedStats.putDouble("damage", corruptedStats.getDouble("damage") + 0.01D);
+
+        boolean fromThrew = false;
+        try {
+            GunsmithGunStats.from(corrupted);
+        } catch (IllegalArgumentException expected) {
+            fromThrew = true;
+        }
+        helper.assertTrue(fromThrew,
+                "a current-version stats cache inconsistent with its installed parts must still make from() throw");
+        helper.assertTrue(GunsmithGunStats.tryFrom(corrupted) == null,
+                "tryFrom must degrade an unreadable gunsmith gun to null instead of throwing");
+        helper.assertTrue(GunsmithGunStats.hasGunsmithData(corrupted),
+                "a corrupted gunsmith gun must still be recognized as carrying gunsmith data");
+
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        List<Component> tooltip = new ArrayList<>();
+        ItemTooltipEvent event = new ItemTooltipEvent(corrupted, player, tooltip, TooltipFlag.Default.NORMAL);
+        // 这里刻意不裹 try/catch: 处理器一旦抛异常, GameTest 直接判红, 这就是"不得崩渲染线程"的断言本身。
+        new MunitionsSystem().onItemTooltip(event);
+        helper.assertTrue(event.getToolTip().size() == 1,
+                "an unreadable gunsmith gun must append exactly one degraded tooltip row, got "
+                        + event.getToolTip().size());
+        helper.assertTrue(hasTooltipRow(event.getToolTip(), "tooltip.miningdim.gunsmith.stats_unreadable"),
+                "the single degraded row must be the unreadable-stats notice");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void tooltipKeepsRenderingLegacyGehennaGunsInsteadOfDegradingThem(GameTestHelper helper) {
+        ItemStack legacyGehenna = legacyV5GehennaGun();
+        helper.assertTrue(GunsmithGunStats.tryFrom(legacyGehenna) != null,
+                "a real v5 Gehenna gun (range cache 1.0 against a 1.43 core) must stay readable");
+
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        List<Component> tooltip = new ArrayList<>();
+        ItemTooltipEvent event = new ItemTooltipEvent(legacyGehenna, player, tooltip, TooltipFlag.Default.NORMAL);
+        new MunitionsSystem().onItemTooltip(event);
+        helper.assertFalse(event.getToolTip().isEmpty(),
+                "a readable gunsmith gun must still receive its tooltip rows");
+        helper.assertFalse(hasTooltipRow(event.getToolTip(), "tooltip.miningdim.gunsmith.stats_unreadable"),
+                "a legitimate legacy faction gun must never be shown as unreadable");
+        helper.succeed();
+    }
+
+    /** 按翻译键判定, 不比字面文本: 服务端不加载 mod 语言表, 文本会退化成键本身。 */
+    private static boolean hasTooltipRow(List<Component> tooltip, String translationKey) {
+        for (Component row : tooltip) {
+            if (row.getContents() instanceof TranslatableContents contents
+                    && translationKey.equals(contents.getKey())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static ItemStack assembledM4Gun() {
+        EnumMap<GunsmithPressPart, ItemStack> parts = new EnumMap<>(GunsmithPressPart.class);
+        parts.put(GunsmithPressPart.CORE, arPart(GunsmithPressPart.CORE, GunsmithPartQuality.COMMON, 1.04D));
+        parts.put(GunsmithPressPart.BARREL, arPart(GunsmithPressPart.BARREL, GunsmithPartQuality.IMPROVED, 1.10D));
+        parts.put(GunsmithPressPart.BOLT, arPart(GunsmithPressPart.BOLT, GunsmithPartQuality.MILSPEC, 1.20D));
+        parts.put(GunsmithPressPart.HANDGUARD,
+                arPart(GunsmithPressPart.HANDGUARD, GunsmithPartQuality.PRECISION, 1.30D));
+        parts.put(GunsmithPressPart.GRIP, arPart(GunsmithPressPart.GRIP, GunsmithPartQuality.LEGENDARY, 1.40D));
+        parts.put(GunsmithPressPart.STOCK, arPart(GunsmithPressPart.STOCK, GunsmithPartQuality.IMPROVED, 1.08D));
+        return GunsmithAssemblyRecipe.assemble(
+                new ItemStack(Items.IRON_HOE),
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1),
+                parts);
+    }
+
+    private static ItemStack arPart(GunsmithPressPart part, GunsmithPartQuality quality, double coefficient) {
+        return GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(),
+                GunsmithPlatform.AR, part, quality, GunsmithPartVariant.BASE, coefficient);
+    }
+
+    /**
+     * 手写一把主线 v5 格赫娜 M4 的 NBT: 型号 id 是当时发布的 "gehenna_high_speed_gas", 核心系数 1.43, 而
+     * Stats 里的 range 被主线的写入公式强制成 1.0。fixture 必须这样手写而不是拿当前写入器造再改版本号 ——
+     * 后者写不出这份"缓存与部件对不上"的形态, 而这正是本用例要守的那一类存量数据。
+     */
+    private static ItemStack legacyV5GehennaGun() {
+        CompoundTag parts = new CompoundTag();
+        parts.put("core", legacyPartTag("gehenna_high_speed_gas", "legendary", 1.43D));
+        parts.put("barrel", legacyPartTag("basic", "improved", 1.10D));
+        parts.put("bolt", legacyPartTag("basic", "milspec", 1.20D));
+        parts.put("handguard", legacyPartTag("basic", "precision", 1.30D));
+        parts.put("grip", legacyPartTag("basic", "legendary", 1.40D));
+        parts.put("stock", legacyPartTag("basic", "improved", 1.08D));
+
+        CompoundTag stats = new CompoundTag();
+        stats.putDouble("damage", 1.20D);
+        stats.putDouble("headshot", 1.10D);
+        stats.putDouble("range", 1.00D);
+        stats.putDouble("recoil", 1.08D);
+        stats.putDouble("spread", 1.30D);
+        stats.putDouble("handling", 1.40D);
+        stats.putDouble("average", 7.51D / 6.0D);
+        stats.putDouble("fireRate", 1.25D);
+        stats.putDouble("verticalRecoil", 1.0D / 1.08D);
+        stats.putDouble("inaccuracy", 1.0D / 1.30D);
+
+        CompoundTag root = new CompoundTag();
+        root.putInt(GunsmithGunStats.VERSION_KEY, 5);
+        root.putString("template", "m4a1");
+        root.putString("platform", "ar");
+        root.putString("gunId", "tacz:m4a1");
+        root.put(GunsmithGunStats.PARTS_KEY, parts);
+        root.put(GunsmithGunStats.STATS_KEY, stats);
+
+        ItemStack stack = new ItemStack(Items.IRON_HOE);
+        stack.getOrCreateTag().put(GunsmithGunStats.ROOT_KEY, root);
+        return stack;
+    }
+
+    private static CompoundTag legacyPartTag(String variantId, String qualityId, double coefficient) {
+        CompoundTag tag = new CompoundTag();
+        tag.putString("variant", variantId);
+        tag.putString("quality", qualityId);
+        tag.putDouble("coefficient", coefficient);
+        return tag;
     }
 
     private static void assertClose(GameTestHelper helper, double actual, double expected, String label) {

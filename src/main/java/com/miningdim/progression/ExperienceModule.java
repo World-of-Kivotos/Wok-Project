@@ -31,7 +31,13 @@ public final class ExperienceModule implements Subsystem {
         return MODULE_ID;
     }
 
-    private static final class ExperienceRouter implements IExperienceService {
+    /**
+     * 包内可见 (而非 private) 是为让 {@code ExperienceGameTests} 能另造一个隔离路由器, 在不往进程级正式
+     * 注册表塞测试用轨道的前提下驱动全部 fail-fast 分支 (重复轨道 / 来源改绑 / 未登记来源 / 来源与轨道
+     * 不匹配 / 轨道返回负有效经验)。正式实例仍只在本模块 register 时创建并交给 {@link ExperienceServices},
+     * 业务侧无处获取第二个实例。
+     */
+    static final class ExperienceRouter implements IExperienceService {
         private final Map<ResourceLocation, ExperienceTrackHandler> tracks = new ConcurrentHashMap<>();
         private final Map<ResourceLocation, ResourceLocation> sources = new ConcurrentHashMap<>();
 

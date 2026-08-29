@@ -48,8 +48,16 @@ public final class SeasoningMenu extends AbstractMiningMenu {
     public static final int DATA_QTE_SWAY_PERIOD = 17;
     public static final int DATA_SIZE = 18;
 
+    // ---- DATA_PHASE 取值 (调味台状态机的唯一编码; BlockEntity 与客户端 Screen 共用本组常量) ----
+    public static final int PHASE_IDLE = 0;
+    public static final int PHASE_HEAT = 1;
+    public static final int PHASE_SEASON = 2;
+    public static final int PHASE_DONE = 3;
+
     private final ContainerData data;
     private final SeasoningTableBlockEntity blockEntity;
+    /** 开这个菜单的玩家 (预览按其实时厨师等级重算; 服务端与客户端各自持自己那份)。 */
+    private final net.minecraft.world.entity.player.Player viewer;
     private final DataSlot[] targetPreviewChances = createDataSlots(ChefQuality.values().length);
     private final DataSlot[] targetPreviewQteCounts = createDataSlots(ChefQuality.values().length);
 
@@ -60,19 +68,13 @@ public final class SeasoningMenu extends AbstractMiningMenu {
                         ContainerLevelAccess.create(be.getLevel(), be.getBlockPos()),
                         be.getBlockState().getBlock()));
         this.blockEntity = be;
+        this.viewer = playerInv.player;
         this.data = be.dataAccess();
         addContainerSlots(be);
         addPlayerInventory(playerInv, 47, 140);
         addDataSlots(data);
-        int chefLevel = ChefExperience.level(playerInv.player);
-        ChefQuality tableTier = be.tierCap();
-        for (ChefQuality quality : ChefQuality.values()) {
-            int cueCount = ChefQteTiming.cueCountFor(quality, chefLevel, tableTier);
-            targetPreviewChances[quality.tier()].set(ChefQualityResolver.successChancePerMille(
-                    quality, 0.0D, 0, cueCount, chefLevel, tableTier));
-            targetPreviewQteCounts[quality.tier()].set(cueCount);
-        }
         addTargetPreviewDataSlots();
+        refreshTargetPreview();
     }
 
     /** 客户端构造 (blockMenuType extraData 读 BlockPos 后调; 无 BlockEntity 引用, 用占位数据 + 远端槽)。 */
@@ -82,6 +84,7 @@ public final class SeasoningMenu extends AbstractMiningMenu {
                         ContainerLevelAccess.create(playerInv.player.level(), pos),
                         clientBlock(playerInv, pos)));
         this.blockEntity = clientBlockEntity(playerInv, pos);
+        this.viewer = playerInv.player;
         this.data = new SimpleContainerData(DATA_SIZE);
         addContainerSlots(blockEntity);
         addPlayerInventory(playerInv, 47, 140);
@@ -111,25 +114,63 @@ public final class SeasoningMenu extends AbstractMiningMenu {
         this.addSlot(new SlotItemHandler(be.inputSlots(), SLOT_INPUT, 18, 55) {
             @Override
             public boolean mayPlace(ItemStack stack) {
-                return !be.isActive() && stack.getFoodProperties(null) != null;
+                return !transactionActive() && stack.getFoodProperties(null) != null;
             }
 
             @Override
             public boolean mayPickup(net.minecraft.world.entity.player.Player player) {
-                return !be.isActive();
+                return !transactionActive();
             }
         });
         this.addSlot(new SlotItemHandler(be.inputSlots(), SLOT_SEASONING, 44, 55) {
             @Override
             public boolean mayPlace(ItemStack stack) {
-                return !be.isActive() && SeasoningTag.isSeasoning(stack);
+                return !transactionActive() && SeasoningTag.isSeasoning(stack);
             }
 
             @Override
             public boolean mayPickup(net.minecraft.world.entity.player.Player player) {
-                return !be.isActive();
+                return !transactionActive();
             }
         });
+    }
+
+    /**
+     * 做菜进行中 (槽位锁的判据)。必须读菜单自己同步的 DATA_PHASE 而不是 BlockEntity.isActive():
+     * phase 只存在于服务端 (不进 saveAdditional, 也无 getUpdateTag), 客户端那份 BlockEntity 的 phase 恒为 0,
+     * 两端会得出相反结论, 客户端会预测出"食材可以取走"再被服务端纠正包拉回, 表现为物品闪烁回弹。
+     */
+    private boolean transactionActive() {
+        int phase = phase();
+        return phase == PHASE_HEAT || phase == PHASE_SEASON;
+    }
+
+    /**
+     * 刷新五个目标品质的预览槽 (达成率 + QTE 数)。
+     *
+     * 口径是"完美操作 (控火满精度 + 全部时机点命中) 下的可达值": 面板是选目标用的决策界面, 用零表现地板值会把
+     * 闪耀这类高目标显示成远低于实际可达的数字 (L1 低级台闪耀 0.5% vs 实际 4.5%), 玩家据此误判为不可能。
+     * 每 tick 重算而非开菜单时算死: 不关面板连续做菜升级后 (ChefXpHandler.award 即时结算), 服务端已按新等级
+     * 出题, 预览必须跟上。
+     */
+    private void refreshTargetPreview() {
+        int chefLevel = ChefExperience.level(viewer);
+        ChefQuality tableTier = blockEntity.tierCap();
+        for (ChefQuality quality : ChefQuality.values()) {
+            int cueCount = ChefQteTiming.cueCountFor(quality, chefLevel, tableTier);
+            targetPreviewChances[quality.tier()].set(ChefQualityResolver.successChancePerMille(
+                    quality, 1.0D, cueCount, cueCount, chefLevel, tableTier));
+            targetPreviewQteCounts[quality.tier()].set(cueCount);
+        }
+    }
+
+    @Override
+    public void broadcastChanges() {
+        // 只有服务端菜单持真 BlockEntity 与权威等级; 客户端那份只接收同步值 (且 blockEntity 可能是占位实例)。
+        if (!viewer.level().isClientSide) {
+            refreshTargetPreview();
+        }
+        super.broadcastChanges();
     }
 
     /** 客户端取方块 (用于 MenuValidity.ofBlock 的方块比对); 不在则回 SMITHING 占位仅供 stillValid 不崩。 */
@@ -231,26 +272,36 @@ public final class SeasoningMenu extends AbstractMiningMenu {
         return ChefQuality.byTier(data.get(DATA_TIER_CAP));
     }
 
-    public ChefQuality selectableCap() {
-        return ChefQuality.RADIANT;
+    /**
+     * 输入槽里的东西现在能不能开工 (与服务端 startCooking 的准入条件同源)。
+     * 服务端对不合格输入的拒绝已改为静默 (防改包客户端刷日志与回包放大), 所以界面必须在玩家点下去之前
+     * 就把"开始调味"按钮画成禁用并且不发包 —— 判据只读 stack, 两端结论一致。
+     */
+    public boolean inputSeasonable() {
+        return SeasoningTableBlockEntity.isEligibleInput(getSlot(SLOT_INPUT).getItem(), viewer);
     }
 
     public SeasoningTableBlockEntity blockEntity() {
         return blockEntity;
     }
 
+    /**
+     * 关界面即取消本人的调味事务 (材料不消耗)。必须先校验关闭者就是当前 operator: SeasoningTableBlock.use 对
+     * 任何玩家都开界面, 若不校验, 第二个人右键看一眼再按 Esc (或走远 8 格由 stillValid 自动关容器) 就会把真正
+     * 操作者的火候与命中进度全部打掉, 且取消提示还发到了旁观者屏幕上。
+     */
     @Override
     public void removed(net.minecraft.world.entity.player.Player player) {
         super.removed(player);
         if (!player.level().isClientSide && player instanceof net.minecraft.server.level.ServerPlayer serverPlayer
-                && blockEntity.isActive()) {
+                && blockEntity.isActive() && blockEntity.isOperator(serverPlayer)) {
             blockEntity.cancelCooking(serverPlayer, "调味已取消：关闭调味台不会消耗材料。");
         }
     }
 
     @Override
     public ItemStack quickMoveStack(net.minecraft.world.entity.player.Player player, int index) {
-        if (blockEntity.isActive() && index >= 0 && index < CONTAINER_SLOTS) {
+        if (transactionActive() && index >= 0 && index < CONTAINER_SLOTS) {
             return ItemStack.EMPTY;
         }
         return super.quickMoveStack(player, index);

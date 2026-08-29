@@ -4,6 +4,8 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraftforge.network.NetworkEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.function.Supplier;
 
@@ -18,6 +20,8 @@ import java.util.function.Supplier;
  * 服务端 handler 校验发送者正打开的是调味台菜单 (operator 即开界面者), 委派给 BlockEntity 的服务端方法。
  */
 public record SeasoningGameC2S(Action action, int target) {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/chef");
 
     /** 小游戏动作 (越界 byte->enum 还原须兜底, 见 decode)。 */
     public enum Action {
@@ -54,19 +58,16 @@ public record SeasoningGameC2S(Action action, int target) {
             if (sender == null) {
                 return;
             }
+            // 下面两条拒绝分支的触发权完全在客户端手里 (改包客户端能以每 tick 20 个的速率制造)。故只记 DEBUG
+            // 且不回发任何数据包: 记 WARN 会被单个玩家把日志与磁盘 IO 拉爆, 回消息等于让服务端自己放大出站带宽。
             if (msg.action == null) {
-                org.slf4j.LoggerFactory.getLogger("miningdim/chef").warn(
-                        "Rejected invalid seasoning packet from {}", sender.getGameProfile().getName());
-                sender.displayClientMessage(net.minecraft.network.chat.Component.literal("调味操作被拒绝：无效动作。"), true);
+                LOGGER.debug("Rejected invalid seasoning packet from {}", sender.getGameProfile().getName());
                 return;
             }
             AbstractContainerMenu menu = sender.containerMenu;
             if (!(menu instanceof SeasoningMenu seasoningMenu)) {
-                org.slf4j.LoggerFactory.getLogger("miningdim/chef").warn(
-                        "Rejected seasoning action {} from {} without seasoning menu", msg.action,
+                LOGGER.debug("Rejected seasoning action {} from {} without seasoning menu", msg.action,
                         sender.getGameProfile().getName());
-                sender.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                        "调味操作被拒绝：未打开调味台。"), true);
                 return; // 没开调味台界面: 忽略 (防伪造)。
             }
             SeasoningTableBlockEntity be = seasoningMenu.blockEntity();

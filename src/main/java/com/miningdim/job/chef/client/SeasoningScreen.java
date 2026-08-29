@@ -80,44 +80,55 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
     protected void renderExtra(GuiGraphics graphics, int leftPos, int topPos,
                                int mouseX, int mouseY, float partialTick) {
         int phase = menu.phase();
-        if (phase == 0) {
+        if (phase == SeasoningMenu.PHASE_IDLE || phase == SeasoningMenu.PHASE_DONE) {
             ensureSelectedTarget();
         }
         renderStatus(graphics, leftPos, topPos, phase);
         renderHeatBar(graphics, leftPos, topPos);
-        if (phase == 2) {
+        if (phase == SeasoningMenu.PHASE_SEASON) {
             renderTargets(graphics, leftPos, topPos, mouseX, mouseY, partialTick);
-        } else if (phase == 0) {
+        } else if (phase == SeasoningMenu.PHASE_IDLE) {
             renderQualityChoices(graphics, leftPos, topPos, mouseX, mouseY);
             renderButton(graphics, leftPos + START_X, topPos + START_Y,
                     START_W, START_H, Component.translatable("screen.miningdim.chef.start"),
-                    0xFF2F7D4D);
+                    startButtonColor());
             graphics.drawString(font, Component.translatable("screen.miningdim.chef.selectable_cap",
                             qualityText(menu.tierCap())), leftPos + 12, topPos + 102, 0xFFE2BD6B, false);
-        } else if (phase == 1) {
+        } else if (phase == SeasoningMenu.PHASE_HEAT) {
             renderButton(graphics, leftPos + HEAT_BUTTON_X, topPos + HEAT_BUTTON_Y,
                     HEAT_BUTTON_W, HEAT_BUTTON_H,
                     Component.translatable(heatPressed
                             ? "screen.miningdim.chef.heat.release"
                             : "screen.miningdim.chef.heat.press"),
                     heatPressed ? 0xFFB86B2B : 0xFF386B87);
+        } else if (phase == SeasoningMenu.PHASE_DONE) {
+            // 结算态必须给出回到空闲的入口, 否则这台调味台在服务端计时器兜底之前一直停在结算界面。
+            // 复用控火按钮的坐标: 该阶段不画控火按钮, 且不会压住下方 renderOutcome 的结算文字。
+            renderButton(graphics, leftPos + HEAT_BUTTON_X, topPos + HEAT_BUTTON_Y,
+                    HEAT_BUTTON_W, HEAT_BUTTON_H,
+                    Component.translatable("screen.miningdim.chef.start"), startButtonColor());
         }
         renderSlotLabels(graphics, leftPos, topPos);
         renderOutcome(graphics, leftPos, topPos, phase);
     }
 
+    /** 输入槽里没有可调味的菜时把开始按钮画成禁用: 服务端对这种请求是静默拒绝, 反馈必须落在点下去之前。 */
+    private int startButtonColor() {
+        return menu.inputSeasonable() ? 0xFF2F7D4D : 0xFF3B3B3B;
+    }
+
     private void renderStatus(GuiGraphics graphics, int leftPos, int topPos, int phase) {
         Component state = switch (phase) {
-            case 1 -> Component.translatable("screen.miningdim.chef.phase.heat");
-            case 2 -> Component.translatable("screen.miningdim.chef.phase.season");
-            case 3 -> Component.translatable("screen.miningdim.chef.phase.done");
+            case SeasoningMenu.PHASE_HEAT -> Component.translatable("screen.miningdim.chef.phase.heat");
+            case SeasoningMenu.PHASE_SEASON -> Component.translatable("screen.miningdim.chef.phase.season");
+            case SeasoningMenu.PHASE_DONE -> Component.translatable("screen.miningdim.chef.phase.done");
             default -> Component.translatable("screen.miningdim.chef.phase.idle");
         };
         graphics.drawString(font, state, leftPos + 12, topPos + 26, 0xFFE9E2D3, false);
         graphics.drawString(font, Component.translatable("screen.miningdim.chef.time",
                         menu.remainingTicks()), leftPos + 116, topPos + 26, 0xFFC8D1D4, false);
         ChefQuality target = displayedTarget(phase);
-        int qteCount = phase == 0 && target != null
+        int qteCount = phase == SeasoningMenu.PHASE_IDLE && target != null
                 ? menu.targetPreviewQteCount(target) : menu.qteCount();
         graphics.drawString(font, Component.translatable("screen.miningdim.chef.hits",
                         menu.hits(), qteCount), leftPos + 200, topPos + 26, 0xFFC8D1D4, false);
@@ -130,18 +141,19 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
         }
     }
 
+    /**
+     * 五档目标一律可选, 没有禁用态: 本 PR 的设计是职业等级与调味台档位只抬高难度 (QTE 数与达成率),
+     * 不再对可选目标封顶, 服务端 startCooking 也只校验 tier 落在 0..4。真正的劝退信号是状态栏那行达成率。
+     */
     private void renderQualityChoices(GuiGraphics graphics, int leftPos, int topPos,
                                       int mouseX, int mouseY) {
-        int cap = menu.selectableCap().tier();
         for (ChefQuality quality : ChefQuality.values()) {
             int x = leftPos + QUALITY_X + quality.tier() * (QUALITY_W + QUALITY_GAP);
-            boolean enabled = quality.tier() <= cap;
             boolean selected = quality.tier() == selectedTargetTier;
-            boolean hovered = enabled && inRect(mouseX, mouseY, x, topPos + QUALITY_Y, QUALITY_W, QUALITY_H);
-            int color = !enabled ? 0xFF3B3B3B : selected ? 0xFF8A5B25 : 0xFF30434D;
-            if (hovered) {
-                color = selected ? 0xFFB47532 : 0xFF47616E;
-            }
+            boolean hovered = inRect(mouseX, mouseY, x, topPos + QUALITY_Y, QUALITY_W, QUALITY_H);
+            int color = hovered
+                    ? (selected ? 0xFFB47532 : 0xFF47616E)
+                    : (selected ? 0xFF8A5B25 : 0xFF30434D);
             renderButton(graphics, x, topPos + QUALITY_Y, QUALITY_W, QUALITY_H,
                     Component.translatable("screen.miningdim.chef.target_quality.short." + quality.id()), color);
         }
@@ -206,7 +218,7 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
     }
 
     private void renderOutcome(GuiGraphics graphics, int leftPos, int topPos, int phase) {
-        if (phase != 3) {
+        if (phase != SeasoningMenu.PHASE_DONE) {
             return;
         }
         if (menu.failureReason() == 0 && menu.finalQuality() >= 0) {
@@ -252,19 +264,20 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
         int leftPos = (width - WIDTH) / 2;
         int topPos = (height - HEIGHT) / 2;
         switch (menu.phase()) {
-            case 0 -> {
+            case SeasoningMenu.PHASE_IDLE -> {
                 int qualityTier = qualityAt(mouseX, mouseY, leftPos, topPos);
-                if (qualityTier >= 0 && qualityTier <= menu.selectableCap().tier()) {
+                if (qualityTier >= 0) {
                     selectedTargetTier = qualityTier;
                     return true;
                 }
-                if (inRect(mouseX, mouseY, leftPos + START_X, topPos + START_Y, START_W, START_H)) {
+                if (inRect(mouseX, mouseY, leftPos + START_X, topPos + START_Y, START_W, START_H)
+                        && menu.inputSeasonable()) {
                     ensureSelectedTarget();
                     send(SeasoningGameC2S.Action.START, selectedTargetTier);
                     return true;
                 }
             }
-            case 1 -> {
+            case SeasoningMenu.PHASE_HEAT -> {
                 if (inRect(mouseX, mouseY, leftPos + HEAT_BUTTON_X, topPos + HEAT_BUTTON_Y,
                         HEAT_BUTTON_W, HEAT_BUTTON_H)) {
                     heatPressed = true;
@@ -272,10 +285,19 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
                     return true;
                 }
             }
-            case 2 -> {
+            case SeasoningMenu.PHASE_SEASON -> {
                 int target = menu.cueActive() ? targetAt(mouseX, mouseY, leftPos, topPos) : -1;
                 if (target >= 0) {
                     send(SeasoningGameC2S.Action.SEASON_HIT, target);
+                    return true;
+                }
+            }
+            case SeasoningMenu.PHASE_DONE -> {
+                // 服务端 startCooking 允许从结算态直接复位再开工, 所以这里发的仍是 START。
+                if (inRect(mouseX, mouseY, leftPos + HEAT_BUTTON_X, topPos + HEAT_BUTTON_Y,
+                        HEAT_BUTTON_W, HEAT_BUTTON_H) && menu.inputSeasonable()) {
+                    ensureSelectedTarget();
+                    send(SeasoningGameC2S.Action.START, selectedTargetTier);
                     return true;
                 }
             }
@@ -297,7 +319,7 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         int target = qteTargetForKey(keyCode);
-        if (menu.phase() == 2 && menu.cueActive() && target == menu.targetIndex()) {
+        if (menu.phase() == SeasoningMenu.PHASE_SEASON && menu.cueActive() && target == menu.targetIndex()) {
             send(SeasoningGameC2S.Action.SEASON_HIT, target);
             return true;
         }
@@ -319,16 +341,15 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
     }
 
     private void ensureSelectedTarget() {
-        int cap = menu.selectableCap().tier();
         if (selectedTargetTier < 0) {
-            selectedTargetTier = ChefQuality.LOW.tier();
-        } else if (selectedTargetTier > cap) {
-            selectedTargetTier = cap;
+            // 在结算态重开界面时选择还是空的, 沿用服务端同步的上一次目标, 免得"再做一道"静默掉回低级。
+            int syncedTier = menu.targetQualityTier();
+            selectedTargetTier = syncedTier < 0 ? ChefQuality.LOW.tier() : syncedTier;
         }
     }
 
     private ChefQuality displayedTarget(int phase) {
-        if (phase == 0) {
+        if (phase == SeasoningMenu.PHASE_IDLE) {
             return selectedTargetTier < 0 ? null : ChefQuality.byTier(selectedTargetTier);
         }
         int syncedTier = menu.targetQualityTier();
@@ -336,7 +357,8 @@ public final class SeasoningScreen extends AbstractMiningScreen<SeasoningMenu> {
     }
 
     private int displayedChancePerMille(int phase, ChefQuality target) {
-        return phase == 0 ? menu.targetPreviewChancePerMille(target) : menu.successChancePerMille();
+        return phase == SeasoningMenu.PHASE_IDLE
+                ? menu.targetPreviewChancePerMille(target) : menu.successChancePerMille();
     }
 
     private static String formatChance(int perMille) {

@@ -52,10 +52,18 @@ import java.util.UUID;
 public final class SeasoningTableBlockEntity extends BlockEntity implements MenuProvider, GeoBlockEntity {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/chef");
-    private static final int PHASE_IDLE = 0;
-    private static final int PHASE_HEAT = 1;
-    private static final int PHASE_SEASON = 2;
-    private static final int PHASE_DONE = 3;
+    // phase 编码的唯一真源在 SeasoningMenu (DATA_PHASE 的同步契约, 客户端 Screen 读的也是那一组), 这里只做别名。
+    private static final int PHASE_IDLE = SeasoningMenu.PHASE_IDLE;
+    private static final int PHASE_HEAT = SeasoningMenu.PHASE_HEAT;
+    private static final int PHASE_SEASON = SeasoningMenu.PHASE_SEASON;
+    private static final int PHASE_DONE = SeasoningMenu.PHASE_DONE;
+    /**
+     * 结算态 (PHASE_DONE) 的展示时长。到点自动回 IDLE, 否则调味台会永久停在结算界面:
+     * 唯一的复位路径是 startCooking, 而客户端在结算态若没点"开始调味"就再也发不出 START (关界面重开仍是结算态,
+     * phase 又不进 saveAdditional), 每台调味台做完第一道菜即报废。200 tick = 10 秒, 够看完结算文案;
+     * 玩家想立刻做下一道可以直接点按钮, 不必等这个兜底计时器。
+     */
+    private static final int SETTLEMENT_DISPLAY_TICKS = 200;
     private static final RawAnimation IDLE_ANIMATION = RawAnimation.begin().thenLoop("chef.idle");
     private static final RawAnimation COOKING_ANIMATION = RawAnimation.begin().thenLoop("chef.cooking");
 
@@ -94,6 +102,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
     private int targetMet = -1;
     private int settlementChancePerMille = -1;
     private boolean greenZoneFeedbackPlayed;
+    private int settlementDisplayTicks;
 
     /** ContainerData: 服务端写, 客户端读渲染 (小游戏状态)。 */
     private final ContainerData dataAccess = new ContainerData() {
@@ -176,6 +185,9 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
     public void serverTick() {
         if (!isActive()) {
             setAnimationActive(false);
+            if (phase == PHASE_DONE) {
+                tickSettlementDisplay();
+            }
             return;
         }
         setAnimationActive(true);
@@ -199,6 +211,14 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
             }
         } else if (phase == PHASE_SEASON) {
             tickSeason();
+        }
+    }
+
+    /** 结算态计时: 展示够 {@link #SETTLEMENT_DISPLAY_TICKS} 后自动交还空闲态, 保证调味台不会一次性用完就报废。 */
+    private void tickSettlementDisplay() {
+        settlementDisplayTicks++;
+        if (settlementDisplayTicks >= SETTLEMENT_DISPLAY_TICKS) {
+            resetToIdle();
         }
     }
 
@@ -329,12 +349,17 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         return true;
     }
 
-    private boolean isOperator(ServerPlayer player) {
+    /** 是否是当前占用本台的操作者。菜单关闭路径 ({@link SeasoningMenu#removed}) 据此拒绝旁观者取消他人事务。 */
+    boolean isOperator(ServerPlayer player) {
         return operatorUUID != null && operatorUUID.equals(player.getUUID());
     }
 
-    private static boolean isEligibleInput(ItemStack input, ServerPlayer operator) {
-        return !input.isEmpty() && input.getFoodProperties(operator) != null
+    /**
+     * 输入槽内容能否开工 (startCooking 三条准入的合取)。收成 Player 而非 ServerPlayer 是为了让客户端菜单
+     * 也能用同一份判据把"开始调味"按钮画成禁用 —— 判据只读 stack 的食物属性/NBT/物品标签, 两端结论一致。
+     */
+    static boolean isEligibleInput(ItemStack input, Player player) {
+        return !input.isEmpty() && input.getFoodProperties(player) != null
                 && !ChefQualityNbt.hasQuality(input) && !SeasoningEligibility.isUnseasonable(input);
     }
 
@@ -342,6 +367,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
 
     private void finishCooking() {
         phase = PHASE_DONE;
+        settlementDisplayTicks = 0;
         cueActive = false;
         setAnimationActive(false);
         if (!(level instanceof net.minecraft.server.level.ServerLevel serverLevel) || operatorUUID == null) {
@@ -458,6 +484,7 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         targetMet = -1;
         settlementChancePerMille = -1;
         greenZoneFeedbackPlayed = false;
+        settlementDisplayTicks = 0;
         operatorUUID = null;
         heatGame.reset();
         setAnimationActive(false);
@@ -474,12 +501,16 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
                 activeTableTier());
     }
 
-    /** Called by menu and block lifecycle paths; active inputs remain untouched. */
-    public void cancelCooking(@Nullable ServerPlayer operator, String message) {
-        cancelCooking(operator, message, 1);
+    /**
+     * Called by menu and block lifecycle paths; active inputs remain untouched.
+     *
+     * @param logReason 只进服务端日志的排障文本 (英文/中文皆可); 玩家看到的是 {@code reason} 对应的可翻译文案。
+     */
+    public void cancelCooking(@Nullable ServerPlayer operator, String logReason) {
+        cancelCooking(operator, logReason, 1);
     }
 
-    private void cancelCooking(@Nullable ServerPlayer operator, String message, int reason) {
+    private void cancelCooking(@Nullable ServerPlayer operator, String logReason, int reason) {
         if (!isActive() && phase != PHASE_DONE) {
             return;
         }
@@ -488,8 +519,9 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         LOGGER.info("Seasoning cancelled pos={} player={} target={} heatAccuracy={} hits={}/{} reason={}",
                 worldPosition, operator == null ? "offline" : operator.getGameProfile().getName(),
                 targetQuality == null ? "none" : targetQuality.id(), heatAccuracy, hits,
-                activeQteTiming().cueCount(), message);
+                activeQteTiming().cueCount(), logReason);
         phase = PHASE_DONE;
+        settlementDisplayTicks = 0;
         heatTicks = 0;
         cueActive = false;
         cueTarget = -1;
@@ -502,12 +534,21 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
         setAnimationActive(false);
         setChanged();
         if (operator != null) {
-            operator.displayClientMessage(Component.literal(message), true);
+            operator.displayClientMessage(failureComponent(reason), true);
         }
     }
 
     public void cancelForBlockBreak() {
         cancelCooking(currentOperator(), "调味已取消：调味台被破坏，材料已掉落。");
+    }
+
+    /**
+     * 失败原因统一走界面已有的可翻译文案 (screen.miningdim.chef.failure.reason.N), 不再把简体中文字面量塞进
+     * 数据包 —— 那条路径对 en_us 客户端无法本地化, 而同一套原因在结算界面本来就是走 lang key 渲染的。
+     */
+    private static Component failureComponent(int reason) {
+        return Component.translatable("screen.miningdim.chef.failure",
+                Component.translatable("screen.miningdim.chef.failure.reason." + reason));
     }
 
     private int remainingTicks() {
@@ -561,11 +602,15 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
                 && menu.blockEntity() == this;
     }
 
+    /**
+     * 记录一次被拒绝的客户端动作。只记 DEBUG 且不回发任何数据包: 这些分支能否触发 100% 由客户端决定
+     * (改包客户端每 tick 就能发 20 个包), 记 WARN 会被单个玩家把日志与磁盘 IO 拉爆, 回发消息还会让服务端
+     * 自己放大出站带宽。正常界面下它们只在关界面/换阶段的一 tick 竞态里出现; 玩家真正需要知道的"这份东西
+     * 不能调味"由客户端在点击之前就把开始按钮画成禁用 (见 {@link SeasoningMenu#inputSeasonable}), 无须回包。
+     */
     void reject(ServerPlayer player, String action, String reason) {
-        org.slf4j.LoggerFactory.getLogger("miningdim/chef").warn(
-                "Rejected seasoning action {} from {} at {}: {}", action, player.getGameProfile().getName(),
-                worldPosition, reason);
-        player.displayClientMessage(Component.literal("调味操作被拒绝：" + reason), true);
+        LOGGER.debug("Rejected seasoning action {} from {} at {}: {}", action,
+                player.getGameProfile().getName(), worldPosition, reason);
     }
 
     // ---- MenuProvider ----

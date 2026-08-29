@@ -2,36 +2,52 @@
 
 Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命名空间。本次不移动资源 ID，而是按路径和前缀确定业务所有权。
 
+所有权的唯一真源是 `module-registry.json`：每个模块用 `resourcePaths`（目录或单文件，路径相对 `src/main/resources`）和 `resourceNamePrefixes`（文件名前缀，可跨目录生效）声明自己的资源；物理共享文件登记在顶层 `sharedResources`。`verifyModuleBoundaries` 会遍历 `src/main/resources` 下的每一个文件，先按路径匹配、再按文件名前缀匹配，两者都不命中且不在共享清单里就直接判失败；同时反向检查每条 `resourceNamePrefixes` 至少命中一个文件，防止清单里留下已经没人用的死前缀。因此资源所有权不再是纯文档承诺——把贴图改名或新增一个无前缀的文件，构建会立刻红。
+
 ## 1. 所有权映射
+
+下表是登记表的可读渲染，字段以登记表为准。
 
 | 模块 | 资源路径或前缀 |
 | --- | --- |
-| WOK-综合装配 | `META-INF/mods.toml`、`pack.mcmeta`、`accesstransformer.cfg` |
-| WOK-核心 | 公共语言键、公共菜单/网络 GUI、GameTest 空模板；共享文件按 key 所有权拆分 |
+| WOK-综合装配 | `META-INF/mods.toml`、`META-INF/accesstransformer.cfg`、`pack.mcmeta`、`miningdim.mixins.json` |
+| WOK-核心 | `textures/mob_effect/`；公共语言键、公共菜单/网络 GUI、GameTest 空模板；共享文件按 key 所有权拆分 |
+| WOK-持久化存储 | 无独占资源文件；库文件是世界目录下的运行期产物，不进 JAR |
 | WOK-全服经验 | 经验轨道、来源 ID、经验提示/HUD 公共语言键；当前不新增独占纹理或存档文件 |
-| WOK-矿区副本 | `data/miningdim/dimension*`、`worldgen`、`structures`，以及 `entrance_*`、矿区入口和世界生成资源 |
+| WOK-矿区副本 | `data/miningdim/dimension`、`dimension_type`、`worldgen`、`structures`，以及 `entrance_*`、`trap_*`、`fake_ore*` |
 | WOK-经济 | 货币与经济提示语言键；不拥有市场页面和开箱资产 |
 | WOK-WebUI | `assets/miningdim/web/` 通用页面宿主与 WebUI 公共资源 |
 | WOK-市场 | 市场 action、列表字段和市场语言键；当前与 WebUI 共用页面文件时按 action 区段维护 |
-| WOK-农夫 | `farmer_*`，`recipes/farmer/`，`tags/blocks/farmer_farmland.json` |
-| WOK-铸甲师 | `production_table_*`、`nano_plate_*`、`plate_armor_*`、`plasma_shield_*`、护甲/护盾声音与模型 |
-| WOK-厨师 | `seasoning_table_*`、`recipes/chef/` 及菜肴效果语言键 |
-| WOK-酿酒师 | `brewing_station*`、`wine_cellar*`、`wine_*`、`dried_wheat`、`recipes/brewer/` |
-| WOK-塔罗师 | `tarot_*`、`data/miningdim/tarot/`、`sounds/job/tarot/` |
-| WOK-军火商 | `munitions_*`、`gunsmith_*`、弹药/推进剂/底火/弹壳、`custom/miningdim_gunsmith/`、军械声音 |
+| WOK-电力 | `models/block/generator/`、`textures/block/generator/`、`textures/gui/power/`、`data/fluxnetworks/recipes/`、`needs_stone_tool.json`；以及各级发电机/储电池（`coal_*`、`geothermal_*`、`industrial_*`、`modern_*`、`future_*`）、机器（`air_separation_unit_*`、`metallurgic_purifier_*`、`low_temperature_controller_*`）、12 级线缆与导体材料（`*_energy_cable`、`nbti_*`、`ybco_*`、`ofc_copper*`、`ofe_copper*`、`insulation_*`、`wire_base`、`ingot_base`、`raw_ore_base`、`ore_overlay`）、橡胶树链（`rubber*`、`latex`）与燃料核心 |
+| WOK-任务 | 任务板 action 与任务语言键；当前无独占纹理，奖励物品资源归发放该物品的模块 |
+| WOK-附魔 | 附魔名与附魔提示语言键；当前无独占纹理 |
+| WOK-农夫 | `farmer_*`，`data/miningdim/recipes/farmer/` |
+| WOK-铸甲师 | `production_table_*`、`nano_*`、`plate_*`、`plasma_*`、`sounds/item/plasma_shield/`、`textures/models/armor/`、护盾穿透 damage_type 标签 |
+| WOK-厨师 | `seasoning*`、`data/miningdim/recipes/chef/` 及菜肴效果语言键 |
+| WOK-酿酒师 | `brewing_*`、`wine_*`、`dried_wheat`、`data/miningdim/recipes/brewer/` |
+| WOK-塔罗师 | `tarot_*`、`shiny_select`、`data/miningdim/tarot/`、`sounds/job/tarot/`、`textures/gui/tarot/`、`textures/item/tarot/` |
+| WOK-军火商 | `munitions_*`、`gunsmith_*`、`bullet_head`、`casing`、`primer`、`propellant`、`m4_assembly_template`、`custom/miningdim_gunsmith/`、`data/miningdim/recipes/munitions/` |
 | WOK-特勤干员 | 特勤扫描面板、封印与悬赏相关语言键和客户端资源 |
-| WOK-精英怪 | `data/miningdim/affix_setting/`、精英词条/粒子/体型相关资源 |
+| WOK-精英怪 | `data/champions/affix_setting/`、`data/miningdim/damage_type/`、`data/minecraft/tags/damage_type/`，以及精英词条/粒子/体型相关资源 |
 | WOK-婚姻社交 | `engagement_ring`、`wedding_ring`、共享背包及婚姻语言键 |
-| WOK-开箱 | `custom/miningdim_cases/`、`sounds/ui/case/`、箱池/钥匙/开箱 UI 资源 |
+| WOK-开箱 | `custom/miningdim_cases/`、`sounds/ui/case/`、`web/case-opening.html`、箱池/钥匙/开箱 UI 资源 |
 | WOK-实体堆叠 | 堆叠配置与语言键；当前无独占模型纹理 |
 
 ## 2. 共享文件纪律
 
-- `assets/miningdim/lang/en_us.json` 与 `zh_cn.json` 是物理共享文件，但 key 必须使用模块前缀；职业至少使用 `*.miningdim.<job>.*`。
+以下文件物理上被多个模块共用，登记在 `sharedResources` 里；它们不属于任何单一模块，但每一条内容仍有主。
+
+- `assets/miningdim/lang/en_us.json` 与 `zh_cn.json`：key 必须使用模块前缀；职业至少使用 `*.miningdim.<job>.*`。
+- `assets/miningdim/sounds.json`：每个条目跟随对应 `.ogg` 的模块归属，不得只迁移其中一半。
+- `data/forge/loot_modifiers/global_loot_modifiers.json`：Forge 全局掉落修饰器索引，每个条目属于定义它的模块。
+- `data/minecraft/tags/blocks/mineable/pickaxe.json`：原版 tag，聚合铸甲师、军火商与电力的方块，每个值属于注册该方块的模块。
+
+其余纪律：
+
 - 同一次提交只能修改本模块拥有的语言 key。格式化工具不得重排整个共享文件制造跨模块 diff。
-- `assets/miningdim/web/index.html` 为物理共享页面。新增功能必须以 action 前缀区分：`market.*`、`case.*`、`system.*`。
-- `sounds.json` 或声音注册表中的条目与实际 `.ogg` 一并归属，不得只迁移其中一半。
+- `assets/miningdim/web/index.html` 若后续落地为物理共享页面，新增功能必须以 action 前缀区分：`market.*`、`case.*`、`system.*`。
 - 配方引用另一个模块的物品不改变配方所有权。例如 `recipes/brewer/dried_wheat.json` 属酿酒师，不属农夫。
+- 新增一类命名前缀时必须同步写进登记表，否则资源覆盖校验会把新文件判为无主。
 
 ## 3. 生成物与源素材
 

@@ -1,16 +1,10 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "product": "WOK",
   "deploymentModel": "single-forge-mod-single-jar",
   "compatibilityModId": "miningdim",
   "entryPoint": "com.miningdim.MiningDim",
-  "excludedProducts": [
-    "WOK步战核心",
-    "WOK步战附属-独立护甲",
-    "WOK步战附属-部位血量",
-    "WOK步战附属-创伤治疗",
-    "WOK-卡牌游戏独立MOD"
-  ],
+  "excludedProducts": ["WOK步战核心", "WOK步战附属-独立护甲", "WOK步战附属-部位血量", "WOK步战附属-创伤治疗", "WOK-卡牌游戏独立MOD"],
   "modules": [
     {
       "id": "wok-core",
@@ -25,11 +19,27 @@
         "com.miningdim.effect",
         "com.miningdim.entry",
         "com.miningdim.error",
+        "com.miningdim.mixin",
         "com.miningdim.testutil"
       ],
-      "currentPaths": ["core", "config", "network", "registry", "menu", "effect", "entry", "error", "testutil"],
+      "currentPaths": ["core", "config", "network", "registry", "menu", "effect", "entry", "error", "mixin", "testutil"],
+      "resourcePaths": ["assets/miningdim/textures/mob_effect"],
+      "resourceNamePrefixes": [],
       "dependencies": [],
       "optionalIntegrations": []
+    },
+    {
+      "id": "wok-store",
+      "name": "WOK-持久化存储模块",
+      "category": "foundation",
+      "javaPackagePrefixes": ["com.miningdim.store"],
+      "currentPaths": ["store"],
+      "resourcePaths": [],
+      "resourceNamePrefixes": [],
+      "dependencies": ["wok-core"],
+      "optionalIntegrations": ["sqlite-jdbc"],
+      "publicEntry": "com.miningdim.store.MiningStore",
+      "scope": "single world-level SQLite database, schema migration and transaction boundary"
     },
     {
       "id": "wok-experience",
@@ -37,6 +47,8 @@
       "category": "foundation",
       "javaPackagePrefixes": ["com.miningdim.progression"],
       "currentPaths": ["progression"],
+      "resourcePaths": [],
+      "resourceNamePrefixes": [],
       "dependencies": ["wok-core"],
       "optionalIntegrations": [],
       "publicEntry": "com.miningdim.progression.ExperienceModule",
@@ -47,7 +59,9 @@
       "name": "WOK-职业框架模块",
       "category": "foundation",
       "javaPackagePrefixes": ["com.miningdim.job"],
-      "currentPaths": ["job root package"],
+      "currentPaths": ["job"],
+      "resourcePaths": [],
+      "resourceNamePrefixes": [],
       "dependencies": ["wok-core", "wok-experience", "wok-economy", "wok-webui"],
       "optionalIntegrations": []
     },
@@ -70,6 +84,8 @@
         "com.miningdim.command"
       ],
       "currentPaths": ["worldgen", "instance", "chunk", "reset", "spawn", "ore", "trap", "pressure", "rules", "entrance", "persistence", "command"],
+      "resourcePaths": ["data/miningdim/worldgen", "data/miningdim/dimension", "data/miningdim/dimension_type", "data/miningdim/structures"],
+      "resourceNamePrefixes": ["entrance_", "trap_", "fake_ore"],
       "dependencies": ["wok-core"],
       "optionalIntegrations": []
     },
@@ -79,8 +95,10 @@
       "category": "foundation",
       "javaPackagePrefixes": ["com.miningdim.economy"],
       "currentPaths": ["economy"],
-      "dependencies": ["wok-core", "wok-webui"],
-      "optionalIntegrations": []
+      "resourcePaths": [],
+      "resourceNamePrefixes": [],
+      "dependencies": ["wok-core", "wok-store", "wok-webui"],
+      "optionalIntegrations": ["sqlite-jdbc"]
     },
     {
       "id": "wok-combat-core",
@@ -88,6 +106,8 @@
       "category": "foundation",
       "javaPackagePrefixes": ["com.miningdim.combat"],
       "currentPaths": ["combat"],
+      "resourcePaths": [],
+      "resourceNamePrefixes": [],
       "dependencies": ["wok-core"],
       "optionalIntegrations": []
     },
@@ -97,6 +117,8 @@
       "category": "foundation",
       "javaPackagePrefixes": ["com.miningdim.webui", "com.miningdim.client.webui"],
       "currentPaths": ["webui", "client/webui"],
+      "resourcePaths": [],
+      "resourceNamePrefixes": [],
       "dependencies": ["wok-core"],
       "optionalIntegrations": ["mcef"]
     },
@@ -106,8 +128,101 @@
       "category": "gameplay",
       "javaPackagePrefixes": ["com.miningdim.market"],
       "currentPaths": ["market"],
-      "dependencies": ["wok-core", "wok-economy", "wok-webui", "wok-job-core", "wok-job-tarot"],
+      "resourcePaths": [],
+      "resourceNamePrefixes": [],
+      "dependencies": ["wok-core", "wok-store", "wok-economy", "wok-webui", "wok-job-core", "wok-job-tarot"],
       "optionalIntegrations": ["sqlite-jdbc"]
+    },
+    {
+      "id": "wok-power",
+      "name": "WOK-电力模块",
+      "category": "gameplay",
+      "javaPackagePrefixes": ["com.miningdim.power"],
+      "currentPaths": ["power"],
+      "resourcePaths": [
+        "assets/miningdim/models/block/generator",
+        "assets/miningdim/textures/block/generator",
+        "assets/miningdim/textures/gui/power",
+        "data/fluxnetworks/recipes",
+        "data/minecraft/tags/blocks/needs_stone_tool.json"
+      ],
+      "resourceNamePrefixes": [
+        "coal_generator",
+        "geothermal_generator",
+        "industrial_generator",
+        "modern_generator",
+        "future_energy_generator",
+        "industrial_power_cell",
+        "modern_power_cell",
+        "future_power_cell",
+        "air_separation_unit",
+        "low_temperature_controller",
+        "metallurgic_purifier",
+        "aluminum_energy_cable",
+        "copper_energy_cable",
+        "gold_energy_cable",
+        "iron_energy_cable",
+        "silver_energy_cable",
+        "graphene_energy_cable",
+        "silver_plated_copper",
+        "tinned_copper",
+        "nbti_",
+        "ybco_",
+        "ofc_copper",
+        "ofe_copper",
+        "tungsten_heat_resistant_wire",
+        "insulation_",
+        "lead_sheath",
+        "nichrome_fuse",
+        "superconductor_precursor",
+        "wire_base",
+        "ingot_base",
+        "raw_ore_base",
+        "ore_overlay",
+        "copper_wire",
+        "deoxidized_copper_ingot",
+        "phosphorus_deoxidized_copper_ingot",
+        "gold_4n_ingot",
+        "silver_ingot",
+        "graphene_sheet",
+        "argon_canister",
+        "liquid_nitrogen_canister",
+        "future_fuel_core",
+        "industrial_fuel_core",
+        "modern_fuel_core",
+        "rubber",
+        "latex"
+      ],
+      "dependencies": ["wok-core"],
+      "optionalIntegrations": ["fluxnetworks", "jade", "jei"],
+      "publicEntry": "com.miningdim.power.PowerSystem",
+      "scope": "self-built energy grid: conductor materials, cables, generators, machines and storage"
+    },
+    {
+      "id": "wok-quest",
+      "name": "WOK-任务模块",
+      "category": "gameplay",
+      "javaPackagePrefixes": ["com.miningdim.quest"],
+      "currentPaths": ["quest"],
+      "resourcePaths": [],
+      "resourceNamePrefixes": [],
+      "dependencies": ["wok-core", "wok-economy", "wok-webui", "wok-enchant"],
+      "optionalIntegrations": ["tacz"],
+      "publicEntry": "com.miningdim.quest.QuestSystem",
+      "scope": "daily, weekly, special and hidden quest board sharing the credit faucet key"
+    },
+    {
+      "id": "wok-enchant",
+      "name": "WOK-附魔模块",
+      "category": "gameplay",
+      "javaPackagePrefixes": ["com.miningdim.enchant"],
+      "currentPaths": ["enchant"],
+      "resourcePaths": [],
+      "resourceNamePrefixes": [],
+      "dependencies": ["wok-core", "wok-economy"],
+      "optionalIntegrations": [],
+      "publicEntry": "com.miningdim.enchant.EnchantmentSystem",
+      "scope": "custom enchantments settled through the economy, currently money mending"
     },
     {
       "id": "wok-job-miner",
@@ -115,20 +230,24 @@
       "category": "job",
       "javaPackagePrefixes": ["com.miningdim.job.miner"],
       "currentPaths": ["job/miner"],
+      "resourcePaths": [],
+      "resourceNamePrefixes": [],
       "dependencies": ["wok-core", "wok-job-core", "wok-mining", "wok-economy", "wok-combat-core", "wok-webui"],
       "optionalIntegrations": []
     },
-      {
-        "id": "wok-job-farmer",
-        "name": "WOK-农夫模块",
-        "category": "job",
-        "javaPackagePrefixes": ["com.miningdim.job.farmer"],
-        "currentPaths": ["job/farmer"],
-        "dependencies": ["wok-core", "wok-experience", "wok-job-core", "wok-economy", "wok-webui"],
-        "optionalIntegrations": ["farmersdelight"],
-        "migrationPriority": 1,
-        "publicEntry": "com.miningdim.job.farmer.FarmerModule",
-        "migrationState": "module-entry-adopted"
+    {
+      "id": "wok-job-farmer",
+      "name": "WOK-农夫模块",
+      "category": "job",
+      "javaPackagePrefixes": ["com.miningdim.job.farmer"],
+      "currentPaths": ["job/farmer"],
+      "resourcePaths": ["data/miningdim/recipes/farmer"],
+      "resourceNamePrefixes": ["farmer_"],
+      "dependencies": ["wok-core", "wok-experience", "wok-job-core", "wok-economy", "wok-webui"],
+      "optionalIntegrations": ["farmersdelight"],
+      "migrationPriority": 1,
+      "publicEntry": "com.miningdim.job.farmer.FarmerModule",
+      "migrationState": "module-entry-adopted"
     },
     {
       "id": "wok-job-armorer",
@@ -136,6 +255,8 @@
       "category": "job",
       "javaPackagePrefixes": ["com.miningdim.job.engineer"],
       "currentPaths": ["job/engineer"],
+      "resourcePaths": ["assets/miningdim/sounds/item/plasma_shield", "assets/miningdim/textures/models/armor"],
+      "resourceNamePrefixes": ["plate_", "production_table", "plasma_", "nano_", "bypasses_nano_shield", "bypasses_plasma_shield"],
       "dependencies": ["wok-core", "wok-job-core", "wok-champion", "wok-webui"],
       "optionalIntegrations": ["tacz"],
       "compatibilityNotes": ["WOK-本体护甲保留现有仓库身份、modId 与全部注册 ID"]
@@ -146,6 +267,8 @@
       "category": "job",
       "javaPackagePrefixes": ["com.miningdim.job.chef"],
       "currentPaths": ["job/chef"],
+      "resourcePaths": ["data/miningdim/recipes/chef"],
+      "resourceNamePrefixes": ["seasoning"],
       "dependencies": ["wok-core", "wok-job-core", "wok-combat-core", "wok-economy", "wok-webui"],
       "optionalIntegrations": ["farmersdelight"]
     },
@@ -155,6 +278,8 @@
       "category": "job",
       "javaPackagePrefixes": ["com.miningdim.job.brewer"],
       "currentPaths": ["job/brewer"],
+      "resourcePaths": ["data/miningdim/recipes/brewer"],
+      "resourceNamePrefixes": ["wine_", "brewing_", "dried_wheat"],
       "dependencies": ["wok-core", "wok-job-core", "wok-combat-core", "wok-job-farmer", "wok-webui"],
       "optionalIntegrations": [],
       "migrationState": "protected-active-worktree-changes"
@@ -164,7 +289,14 @@
       "name": "WOK-塔罗师模块",
       "category": "job",
       "javaPackagePrefixes": ["com.miningdim.job.tarot"],
-      "currentPaths": ["job/tarot", "data/miningdim/tarot"],
+      "currentPaths": ["job/tarot"],
+      "resourcePaths": [
+        "data/miningdim/tarot",
+        "assets/miningdim/sounds/job/tarot",
+        "assets/miningdim/textures/gui/tarot",
+        "assets/miningdim/textures/item/tarot"
+      ],
+      "resourceNamePrefixes": ["tarot_", "shiny_select"],
       "dependencies": ["wok-core", "wok-job-core", "wok-mining", "wok-economy", "wok-combat-core", "wok-champion", "wok-webui"],
       "optionalIntegrations": []
     },
@@ -174,7 +306,9 @@
       "category": "job",
       "javaPackagePrefixes": ["com.miningdim.job.munitions"],
       "currentPaths": ["job/munitions"],
-      "dependencies": ["wok-core", "wok-job-core", "wok-economy", "wok-webui"],
+      "resourcePaths": ["assets/miningdim/custom/miningdim_gunsmith", "data/miningdim/recipes/munitions"],
+      "resourceNamePrefixes": ["gunsmith_", "munitions_", "bullet_head", "casing", "primer", "propellant", "m4_assembly_template"],
+      "dependencies": ["wok-core", "wok-job-core", "wok-economy", "wok-power", "wok-webui"],
       "optionalIntegrations": ["tacz"],
       "internalDomains": ["production", "gunsmith"]
     },
@@ -184,6 +318,8 @@
       "category": "job",
       "javaPackagePrefixes": ["com.miningdim.job.agent"],
       "currentPaths": ["job/agent"],
+      "resourcePaths": [],
+      "resourceNamePrefixes": [],
       "dependencies": ["wok-core", "wok-job-core", "wok-champion", "wok-economy", "wok-webui"],
       "optionalIntegrations": ["champions"]
     },
@@ -193,6 +329,8 @@
       "category": "gameplay",
       "javaPackagePrefixes": ["com.miningdim.champion"],
       "currentPaths": ["champion"],
+      "resourcePaths": ["data/champions/affix_setting", "data/miningdim/damage_type", "data/minecraft/tags/damage_type"],
+      "resourceNamePrefixes": [],
       "dependencies": ["wok-core", "wok-economy", "wok-webui"],
       "optionalIntegrations": ["champions"]
     },
@@ -202,6 +340,8 @@
       "category": "gameplay",
       "javaPackagePrefixes": ["com.miningdim.marriage"],
       "currentPaths": ["marriage"],
+      "resourcePaths": [],
+      "resourceNamePrefixes": ["engagement_ring", "wedding_ring"],
       "dependencies": ["wok-core", "wok-economy", "wok-webui"],
       "optionalIntegrations": []
     },
@@ -211,7 +351,9 @@
       "category": "gameplay",
       "javaPackagePrefixes": ["com.miningdim.caseopening"],
       "currentPaths": ["caseopening"],
-      "dependencies": ["wok-core", "wok-economy", "wok-webui"],
+      "resourcePaths": ["assets/miningdim/custom/miningdim_cases", "assets/miningdim/sounds/ui/case", "assets/miningdim/web/case-opening.html"],
+      "resourceNamePrefixes": [],
+      "dependencies": ["wok-core", "wok-store", "wok-economy", "wok-webui"],
       "optionalIntegrations": ["tacz", "sqlite-jdbc"]
     },
     {
@@ -220,6 +362,8 @@
       "category": "support",
       "javaPackagePrefixes": ["com.miningdim.stacking"],
       "currentPaths": ["stacking"],
+      "resourcePaths": [],
+      "resourceNamePrefixes": [],
       "dependencies": ["wok-core", "wok-champion"],
       "optionalIntegrations": []
     },
@@ -227,46 +371,381 @@
       "id": "wok-app",
       "name": "WOK-综合装配模块",
       "category": "assembly",
-      "javaPackagePrefixes": ["com.miningdim"],
+      "javaPackages": ["com.miningdim"],
+      "javaPackagePrefixes": [],
       "currentPaths": ["MiningDim.java"],
+      "resourcePaths": ["META-INF/mods.toml", "META-INF/accesstransformer.cfg", "pack.mcmeta", "miningdim.mixins.json"],
+      "resourceNamePrefixes": [],
       "dependencies": [
-        "wok-core", "wok-experience", "wok-job-core", "wok-mining", "wok-economy", "wok-combat-core",
-        "wok-webui", "wok-market", "wok-job-miner", "wok-job-farmer", "wok-job-armorer",
-        "wok-job-chef", "wok-job-brewer", "wok-job-tarot", "wok-job-munitions",
-        "wok-job-agent", "wok-champion", "wok-marriage", "wok-case-opening", "wok-stacking"
+        "wok-core",
+        "wok-store",
+        "wok-experience",
+        "wok-job-core",
+        "wok-mining",
+        "wok-economy",
+        "wok-combat-core",
+        "wok-webui",
+        "wok-market",
+        "wok-power",
+        "wok-quest",
+        "wok-enchant",
+        "wok-job-miner",
+        "wok-job-farmer",
+        "wok-job-armorer",
+        "wok-job-chef",
+        "wok-job-brewer",
+        "wok-job-tarot",
+        "wok-job-munitions",
+        "wok-job-agent",
+        "wok-champion",
+        "wok-marriage",
+        "wok-case-opening",
+        "wok-stacking"
       ],
       "optionalIntegrations": []
     }
   ],
   "boundaryExceptions": [
-    {"source": "wok-core", "target": "wok-job-core", "reason": "entry capability and the legacy main channel still carry job data", "exit": "move job packets and job progress storage behind module-owned adapters"},
-    {"source": "wok-core", "target": "wok-champion", "reason": "legacy main channel centrally registers champion size sync", "exit": "let the champion module register its fixed discriminator ID"},
-    {"source": "wok-core", "target": "wok-webui", "reason": "C2S WebUI request packet directly invokes the WebUI dispatcher", "exit": "bind a WebUI request handler into the network boundary"},
-    {"source": "wok-core", "target": "wok-job-miner", "reason": "EntryGateway directly imports MinerLevelGate", "exit": "move difficulty gate policy into a shared job contract"},
-    {"source": "wok-core", "target": "wok-job-tarot", "reason": "global vulnerability handler reads TarotCombatState directly", "exit": "bind a generic vulnerability-immunity provider"},
-    {"source": "wok-core", "target": "wok-marriage", "reason": "central ModItems still constructs marriage ring items", "exit": "move ring DeferredRegister ownership into the marriage module"},
-    {"source": "wok-core", "target": "wok-mining", "reason": "legacy registry and entry packages directly reference mining implementations", "exit": "move mining registrations into mining and split player data from entry orchestration"},
-    {"source": "wok-job-tarot", "target": "wok-job-miner", "reason": "Hermit shiny effect reuses miner scan and highlight implementations", "exit": "publish an ore-highlight capability from the mining API"},
-    {"source": "wok-job-brewer", "target": "wok-job-tarot", "reason": "gin maximum-health cap reads TarotRuntime directly", "exit": "publish a shared maximum-health contribution query through combat core"},
-    {"source": "wok-champion", "target": "wok-job-armorer", "reason": "Champion GameTest imports the armorer deterministic random test utility", "scope": "test-only", "exit": "move the deterministic random helper into shared testutil"},
-    {"source": "wok-mining", "target": "wok-champion", "reason": "pressure spawning directly calls ChampionSpawnSeam", "exit": "make the spawn promotion seam owned by mining and bind champion into it"},
-    {"source": "wok-webui", "target": "wok-case-opening", "reason": "WebUiBridge directly plays and stops CaseSounds", "exit": "register case-local actions through a generic WebUI client action registry"},
-    {"source": "wok-case-opening", "target": "wok-app", "reason": "TaCZ export bootstrap uses MiningDim.class as its resource anchor", "exit": "use the case bootstrap class as the same-JAR resource anchor"},
-    {"source": "wok-job-munitions", "target": "wok-app", "reason": "TaCZ export bootstrap uses MiningDim.class as its resource anchor", "exit": "use the gunsmith bootstrap class as the same-JAR resource anchor"},
-    {"source": "wok-core", "target": "wok-economy", "reason": "entry fee and shared entry WebUI paths still invoke the economy service directly", "exit": "bind entry charging and balance queries behind core-owned ports"},
-    {"source": "wok-economy", "target": "wok-app", "reason": "economy bootstrap and SQLite path resolution still use the application entry class", "exit": "move application paths behind an injected environment contract"},
-    {"source": "wok-mining", "target": "wok-app", "reason": "ore resource lookup still uses the application entry class as a same-JAR anchor", "exit": "use a mining-owned class as the resource anchor"},
-    {"source": "wok-mining", "target": "wok-job-miner", "reason": "trap GameTest directly exercises miner ownership", "scope": "test-only", "exit": "move the shared trap-miner fixture behind testutil"},
-    {"source": "wok-market", "target": "wok-app", "reason": "market persistence still reads application-owned runtime paths", "exit": "inject a storage path provider into the market module"},
-    {"source": "wok-market", "target": "wok-job-armorer", "reason": "player WebUI GameTest imports armorer fixtures", "scope": "test-only", "exit": "move cross-job player fixtures into shared testutil"},
-    {"source": "wok-market", "target": "wok-job-brewer", "reason": "player WebUI GameTest imports brewer fixtures", "scope": "test-only", "exit": "move cross-job player fixtures into shared testutil"},
-    {"source": "wok-market", "target": "wok-job-munitions", "reason": "market bridge and player WebUI GameTests import munitions fixtures", "scope": "test-only", "exit": "publish a market item-detail test fixture outside the munitions implementation"},
-    {"source": "wok-webui", "target": "wok-app", "reason": "hub status still reads application assembly state directly", "exit": "publish hub status through an application-neutral provider"},
-    {"source": "wok-webui", "target": "wok-job-armorer", "reason": "item detail serialization reads armorer-owned metadata", "exit": "register module-owned item detail contributors"},
-    {"source": "wok-webui", "target": "wok-job-tarot", "reason": "item detail serialization reads tarot-owned metadata", "exit": "register module-owned item detail contributors"},
-    {"source": "wok-webui", "target": "wok-job-brewer", "reason": "item detail serialization reads brewer-owned metadata", "exit": "register module-owned item detail contributors"},
-    {"source": "wok-webui", "target": "wok-job-munitions", "reason": "item detail serialization reads munitions-owned metadata", "exit": "register module-owned item detail contributors"},
-    {"source": "wok-webui", "target": "wok-market", "reason": "response-size GameTest imports market payload fixtures", "scope": "test-only", "exit": "move generic response fixtures into the WebUI module"},
-    {"source": "wok-core", "target": "wok-app", "reason": "temporary SQLite GameTest storage uses the application entry class as a resource anchor", "scope": "test-only", "exit": "use TempStoreDb itself as the same-JAR resource anchor"}
+    {
+      "debtId": "D001",
+      "source": "wok-core",
+      "target": "wok-job-core",
+      "reason": "entry player data, entry gateway and the entry WebUI actions still read and write job progress directly",
+      "exit": "move job packets and job progress storage behind module-owned adapters",
+      "evidence": [
+        "src/main/java/com/miningdim/entry/EntryGateway.java",
+        "src/main/java/com/miningdim/entry/IMiningPlayerData.java",
+        "src/main/java/com/miningdim/entry/MiningEntryFeeGameTests.java",
+        "src/main/java/com/miningdim/entry/MiningPlayerData.java",
+        "src/main/java/com/miningdim/entry/MiningWebUiActions.java",
+        "src/main/java/com/miningdim/entry/MiningWebUiGameTests.java",
+        "src/main/java/com/miningdim/network/JobSyncS2C.java"
+      ]
+    },
+    {
+      "debtId": "D003",
+      "source": "wok-core",
+      "target": "wok-champion",
+      "reason": "the legacy main channel centrally registers the champion size sync packet",
+      "exit": "let the champion module register its fixed discriminator ID",
+      "evidence": ["src/main/java/com/miningdim/network/MiningNetwork.java"]
+    },
+    {
+      "debtId": "D004",
+      "source": "wok-core",
+      "target": "wok-webui",
+      "reason": "the C2S WebUI request packet and the entry-owned admin actions invoke the WebUI dispatcher directly",
+      "exit": "bind a WebUI request handler into the network boundary",
+      "evidence": [
+        "src/main/java/com/miningdim/config/MiningClientConfig.java",
+        "src/main/java/com/miningdim/entry/MiningAdminWebUiActions.java",
+        "src/main/java/com/miningdim/entry/MiningAdminWebUiGameTests.java",
+        "src/main/java/com/miningdim/entry/MiningWebUiActions.java",
+        "src/main/java/com/miningdim/entry/MiningWebUiGameTests.java",
+        "src/main/java/com/miningdim/network/C2SWebUiRequest.java",
+        "src/main/java/com/miningdim/network/S2CWebUiEvent.java",
+        "src/main/java/com/miningdim/network/S2CWebUiResponse.java"
+      ]
+    },
+    {
+      "debtId": "D005",
+      "source": "wok-core",
+      "target": "wok-job-miner",
+      "reason": "EntryGateway and the entry WebUI actions call MinerLevelGate for the difficulty gate",
+      "exit": "move difficulty gate policy into a shared job contract",
+      "evidence": [
+        "src/main/java/com/miningdim/entry/EntryGateway.java",
+        "src/main/java/com/miningdim/entry/MiningEntryFeeGameTests.java",
+        "src/main/java/com/miningdim/entry/MiningWebUiActions.java",
+        "src/main/java/com/miningdim/entry/MiningWebUiGameTests.java"
+      ]
+    },
+    {
+      "debtId": "D006",
+      "source": "wok-core",
+      "target": "wok-job-tarot",
+      "reason": "the global vulnerability handler reads TarotCombatState directly",
+      "exit": "bind a generic vulnerability-immunity provider",
+      "evidence": ["src/main/java/com/miningdim/effect/VulnerabilityHurtHandler.java"]
+    },
+    {
+      "debtId": "D007",
+      "source": "wok-core",
+      "target": "wok-marriage",
+      "reason": "the central ModItems still constructs the marriage ring items",
+      "exit": "move ring DeferredRegister ownership into the marriage module",
+      "evidence": ["src/main/java/com/miningdim/registry/ModItems.java"]
+    },
+    {
+      "debtId": "D008",
+      "source": "wok-core",
+      "target": "wok-mining",
+      "reason": "the central registry and the entry packages directly reference mining blocks, chunk tickets and reset state",
+      "exit": "move mining registrations into mining and split player data from entry orchestration",
+      "evidence": [
+        "src/main/java/com/miningdim/entry/EntryGateway.java",
+        "src/main/java/com/miningdim/entry/EntrySystem.java",
+        "src/main/java/com/miningdim/entry/MiningEntryFeeGameTests.java",
+        "src/main/java/com/miningdim/entry/MiningWebUiActions.java",
+        "src/main/java/com/miningdim/registry/ModBlockEntities.java",
+        "src/main/java/com/miningdim/registry/ModBlocks.java",
+        "src/main/java/com/miningdim/registry/ModRegistration.java"
+      ]
+    },
+    {
+      "debtId": "D010",
+      "source": "wok-job-tarot",
+      "target": "wok-job-miner",
+      "reason": "the Hermit shiny effect reuses the miner ore scan, packet and highlight implementations",
+      "exit": "publish an ore-highlight capability from the mining API",
+      "evidence": ["src/main/java/com/miningdim/job/tarot/TarotEffectEngine.java"]
+    },
+    {
+      "debtId": "D011",
+      "source": "wok-job-brewer",
+      "target": "wok-job-tarot",
+      "reason": "the gin maximum-health cap reads TarotRuntime directly",
+      "exit": "publish a shared maximum-health contribution query through combat core",
+      "evidence": ["src/main/java/com/miningdim/job/brewer/BrewPermanentBuffs.java"]
+    },
+    {
+      "debtId": "D012",
+      "source": "wok-mining",
+      "target": "wok-champion",
+      "reason": "pressure spawning directly calls ChampionSpawnSeam",
+      "exit": "make the spawn promotion seam owned by mining and bind champion into it",
+      "evidence": ["src/main/java/com/miningdim/pressure/MobPressureSystem.java"]
+    },
+    {
+      "debtId": "D013",
+      "source": "wok-webui",
+      "target": "wok-case-opening",
+      "reason": "WebUiBridge directly plays and stops CaseSounds",
+      "exit": "register case-local actions through a generic WebUI client action registry",
+      "evidence": ["src/main/java/com/miningdim/client/webui/WebUiBridge.java"]
+    },
+    {
+      "debtId": "D014",
+      "source": "wok-champion",
+      "target": "wok-job-armorer",
+      "reason": "the champion foundation GameTest imports the armorer deterministic random test utility",
+      "scope": "test-only",
+      "exit": "move the deterministic random helper into shared testutil",
+      "evidence": ["src/main/java/com/miningdim/champion/ChampionFoundationGameTests.java"]
+    },
+    {
+      "debtId": "D015",
+      "source": "wok-case-opening",
+      "target": "wok-app",
+      "reason": "the TaCZ export bootstrap uses MiningDim.class as its same-JAR resource anchor",
+      "exit": "use the case bootstrap class as the same-JAR resource anchor",
+      "evidence": ["src/main/java/com/miningdim/caseopening/CaseTaczResourceBootstrap.java"]
+    },
+    {
+      "debtId": "D016",
+      "source": "wok-job-munitions",
+      "target": "wok-app",
+      "reason": "the gunsmith TaCZ export bootstrap uses MiningDim.class as its same-JAR resource anchor",
+      "exit": "use the gunsmith bootstrap class as the same-JAR resource anchor",
+      "evidence": ["src/main/java/com/miningdim/job/munitions/gunsmith/GunsmithTaczResourceBootstrap.java"]
+    },
+    {
+      "debtId": "D017",
+      "source": "wok-core",
+      "target": "wok-economy",
+      "reason": "the entry fee gateway and the entry WebUI actions call the economy service directly",
+      "exit": "bind entry charging and balance queries behind core-owned ports",
+      "evidence": [
+        "src/main/java/com/miningdim/entry/EntryGateway.java",
+        "src/main/java/com/miningdim/entry/MiningEntryFeeGameTests.java",
+        "src/main/java/com/miningdim/entry/MiningWebUiActions.java",
+        "src/main/java/com/miningdim/entry/MiningWebUiGameTests.java"
+      ]
+    },
+    {
+      "debtId": "D018",
+      "source": "wok-mining",
+      "target": "wok-job-miner",
+      "reason": "the trap GameTest directly exercises miner ownership",
+      "scope": "test-only",
+      "exit": "move the shared trap-miner fixture behind testutil",
+      "evidence": ["src/main/java/com/miningdim/trap/TrapGameTests.java"]
+    },
+    {
+      "debtId": "D019",
+      "source": "wok-market",
+      "target": "wok-job-armorer",
+      "reason": "the player WebUI GameTest imports armorer fixtures",
+      "scope": "test-only",
+      "exit": "move cross-job player fixtures into shared testutil",
+      "evidence": ["src/main/java/com/miningdim/market/PlayerWebUiW1GameTests.java"]
+    },
+    {
+      "debtId": "D020",
+      "source": "wok-market",
+      "target": "wok-job-brewer",
+      "reason": "the player WebUI GameTest imports brewer fixtures",
+      "scope": "test-only",
+      "exit": "move cross-job player fixtures into shared testutil",
+      "evidence": ["src/main/java/com/miningdim/market/PlayerWebUiW1GameTests.java"]
+    },
+    {
+      "debtId": "D021",
+      "source": "wok-market",
+      "target": "wok-job-munitions",
+      "reason": "the market bridge and player WebUI GameTests import munitions fixtures",
+      "scope": "test-only",
+      "exit": "publish a market item-detail test fixture outside the munitions implementation",
+      "evidence": [
+        "src/main/java/com/miningdim/market/MarketBridgeGameTests.java",
+        "src/main/java/com/miningdim/market/PlayerWebUiW1GameTests.java"
+      ]
+    },
+    {
+      "debtId": "D022",
+      "source": "wok-webui",
+      "target": "wok-job-armorer",
+      "reason": "item detail serialization reads armorer-owned metadata",
+      "exit": "register module-owned item detail contributors",
+      "evidence": ["src/main/java/com/miningdim/webui/server/WebUiItemDetailJson.java"]
+    },
+    {
+      "debtId": "D023",
+      "source": "wok-webui",
+      "target": "wok-job-tarot",
+      "reason": "item detail serialization reads tarot-owned metadata",
+      "exit": "register module-owned item detail contributors",
+      "evidence": ["src/main/java/com/miningdim/webui/server/WebUiItemDetailJson.java"]
+    },
+    {
+      "debtId": "D024",
+      "source": "wok-webui",
+      "target": "wok-job-brewer",
+      "reason": "item detail serialization reads brewer-owned metadata",
+      "exit": "register module-owned item detail contributors",
+      "evidence": ["src/main/java/com/miningdim/webui/server/WebUiItemDetailJson.java"]
+    },
+    {
+      "debtId": "D025",
+      "source": "wok-webui",
+      "target": "wok-job-munitions",
+      "reason": "item detail serialization reads munitions-owned metadata",
+      "exit": "register module-owned item detail contributors",
+      "evidence": ["src/main/java/com/miningdim/webui/server/WebUiItemDetailJson.java"]
+    },
+    {
+      "debtId": "D026",
+      "source": "wok-webui",
+      "target": "wok-market",
+      "reason": "the response-size GameTest imports market payload fixtures",
+      "scope": "test-only",
+      "exit": "move generic response fixtures into the WebUI module",
+      "evidence": ["src/main/java/com/miningdim/webui/server/WebUiResponseSizeGameTests.java"]
+    },
+    {
+      "debtId": "D027",
+      "source": "wok-core",
+      "target": "wok-store",
+      "reason": "the shared GameTest helper TempStoreDb builds a MiningDb and applies MiningSchema directly",
+      "scope": "test-only",
+      "exit": "move the temporary-database helper into a store-owned test support package",
+      "evidence": ["src/main/java/com/miningdim/testutil/TempStoreDb.java"]
+    },
+    {
+      "debtId": "D028",
+      "source": "wok-mining",
+      "target": "wok-power",
+      "reason": "OreType builds the mining ore table straight from PowerMineral definitions",
+      "exit": "let the power module register its minerals into a mining-owned mineral registry",
+      "evidence": ["src/main/java/com/miningdim/ore/OreType.java"]
+    },
+    {
+      "debtId": "D029",
+      "source": "wok-webui",
+      "target": "wok-quest",
+      "reason": "hub status reads QuestServices directly to report open quests",
+      "exit": "let the quest module register a hub status contributor with the WebUI module",
+      "evidence": [
+        "src/main/java/com/miningdim/webui/server/HubWebUiActions.java",
+        "src/main/java/com/miningdim/webui/server/WebUiHubStatusGameTests.java"
+      ]
+    },
+    {
+      "debtId": "D030",
+      "source": "wok-quest",
+      "target": "wok-job-farmer",
+      "reason": "the quest item reward GameTest takes a concrete farmer item as its reward payload",
+      "scope": "test-only",
+      "exit": "move cross-module item reward fixtures into shared testutil",
+      "evidence": ["src/main/java/com/miningdim/quest/QuestItemRewardGameTests.java"]
+    },
+    {
+      "debtId": "D031",
+      "source": "wok-power",
+      "target": "wok-mining",
+      "reason": "the power mineral GameTest asserts that power minerals reach the mining ore table",
+      "scope": "test-only",
+      "exit": "assert through the mineral registry contract once D028 is settled",
+      "evidence": ["src/main/java/com/miningdim/power/mineral/PowerMineralGameTests.java"]
+    },
+    {
+      "debtId": "D032",
+      "source": "wok-power",
+      "target": "wok-job-miner",
+      "reason": "the power mineral GameTest asserts that the miner ore scanner sees power minerals",
+      "scope": "test-only",
+      "exit": "assert through a mining-owned scan capability instead of the miner implementation",
+      "evidence": ["src/main/java/com/miningdim/power/mineral/PowerMineralGameTests.java"]
+    },
+    {
+      "debtId": "D033",
+      "source": "wok-experience",
+      "target": "wok-job-core",
+      "reason": "the experience GameTest drives job tracks through JobServices to cover the routing path end to end",
+      "scope": "test-only",
+      "exit": "expose a track fixture from the experience module so the test stops touching the job framework",
+      "evidence": ["src/main/java/com/miningdim/progression/ExperienceGameTests.java"]
+    }
+  ],
+  "settledDebts": [
+    {
+      "debtId": "D002",
+      "source": "wok-core",
+      "target": "wok-job-agent",
+      "result": "phantom entry: a full scan of every Java file plus a two-way grep shows no reference from com.miningdim.network, core or entry to com.miningdim.job.agent; the ID is retired and must not be reused"
+    },
+    {
+      "debtId": "D009",
+      "source": "wok-job-core",
+      "target": "wok-job-farmer",
+      "result": "JobXpPolicy and JobXpPolicies.register let FarmerModule register its own curve; the job framework no longer imports the farmer implementation"
+    }
+  ],
+  "sharedResources": [
+    {
+      "path": "assets/miningdim/lang/en_us.json",
+      "owners": "key-prefix",
+      "note": "one physical language file; every key carries a module prefix and a commit may only touch its own module's keys"
+    },
+    {
+      "path": "assets/miningdim/lang/zh_cn.json",
+      "owners": "key-prefix",
+      "note": "one physical language file; every key carries a module prefix and a commit may only touch its own module's keys"
+    },
+    {
+      "path": "assets/miningdim/sounds.json",
+      "owners": "entry",
+      "note": "single sound registry; each entry belongs to the module that owns the matching .ogg files"
+    },
+    {
+      "path": "data/forge/loot_modifiers/global_loot_modifiers.json",
+      "owners": "entry",
+      "note": "Forge global loot modifier index; each listed modifier belongs to the module that defines it"
+    },
+    {
+      "path": "data/minecraft/tags/blocks/mineable/pickaxe.json",
+      "owners": "entry",
+      "note": "vanilla tag aggregating armorer, munitions and power blocks; each value belongs to the module that registers the block"
+    }
   ]
 }

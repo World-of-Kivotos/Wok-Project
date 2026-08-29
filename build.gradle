@@ -220,24 +220,32 @@ tasks.matching { it.name == 'runGameTestServer' }.configureEach {
 
 // WOK 仓库模块登记表校验。第一阶段仍交付单 JAR，但模块 ID、依赖引用和依赖方向必须保持可检查，
 // 防止文档式登记表在后续并行开发中静默漂移。该任务不读取或修改游戏注册 ID。
+//
+// 两个任务都在配置期把 registry 路径、mod_id、源码树和资源树捕获成局部变量，doLast 只用局部变量：
+// 执行期再碰 Project (fileTree/mod_id) 会让 --configuration-cache 直接报错。同时各自声明一个成功戳记
+// 作为 outputs——Gradle 对没有 outputs 的任务一律判定 out-of-date，缺了戳记那两条 inputs 声明不会
+// 产生任何跳过效果，每次 build 都要重扫全部源码。
 tasks.register('verifyModuleRegistry') {
     group = 'verification'
-    description = 'Validates docs/modules/module-registry.json module IDs and dependency graph.'
+    description = 'Validates docs/modules/module-registry.json module IDs, dependency graph and debt bookkeeping.'
 
     def registryFile = layout.projectDirectory.file('docs/modules/module-registry.json')
+    def expectedModId = mod_id
+    def stampFile = layout.buildDirectory.file('module-registry-verified.txt')
     inputs.file(registryFile)
+    outputs.file(stampFile)
 
     doLast {
         def registry = new groovy.json.JsonSlurper().parse(registryFile.asFile)
-        if (registry.schemaVersion != 2) {
+        if (registry.schemaVersion != 3) {
             throw new GradleException("Unsupported WOK module registry schemaVersion: ${registry.schemaVersion}")
         }
         if (registry.product != 'WOK') {
             throw new GradleException("Module registry product must be WOK, got: ${registry.product}")
         }
-        if (registry.compatibilityModId != mod_id) {
+        if (registry.compatibilityModId != expectedModId) {
             throw new GradleException(
-                    "Module registry compatibilityModId ${registry.compatibilityModId} does not match mod_id ${mod_id}")
+                    "Module registry compatibilityModId ${registry.compatibilityModId} does not match mod_id ${expectedModId}")
         }
 
         def modules = registry.modules ?: []
@@ -246,6 +254,8 @@ tasks.register('verifyModuleRegistry') {
         }
 
         def modulesById = [:]
+        def claimedPrefixes = [:]
+        def claimedPackages = [:]
         modules.each { module ->
             def id = module.id?.toString()
             if (id == null || !(id ==~ /wok-[a-z0-9-]+/)) {
@@ -254,9 +264,35 @@ tasks.register('verifyModuleRegistry') {
             if (modulesById.put(id, module) != null) {
                 throw new GradleException("Duplicate WOK module ID: ${id}")
             }
-            if (!module.name || !module.category || !module.currentPaths || !module.javaPackagePrefixes) {
+            if (!module.name || !module.category || !module.currentPaths) {
+                throw new GradleException("Module ${id} must declare name, category and currentPaths")
+            }
+            def prefixes = module.javaPackagePrefixes ?: []
+            def packages = module.javaPackages ?: []
+            if (prefixes.isEmpty() && packages.isEmpty()) {
+                throw new GradleException("Module ${id} must declare javaPackagePrefixes or javaPackages")
+            }
+            // 资源归属两个字段允许为空数组，但必须显式写出来：漏写会让资源覆盖校验默默放行整个模块。
+            if (module.resourcePaths == null || module.resourceNamePrefixes == null) {
+                throw new GradleException("Module ${id} must declare resourcePaths and resourceNamePrefixes")
+            }
+            prefixes.each { prefix ->
+                def owner = claimedPrefixes.put(prefix.toString(), id)
+                if (owner != null) {
+                    throw new GradleException("Java package prefix ${prefix} is claimed by both ${owner} and ${id}")
+                }
+            }
+            packages.each { pkg ->
+                def owner = claimedPackages.put(pkg.toString(), id)
+                if (owner != null) {
+                    throw new GradleException("Java package ${pkg} is claimed by both ${owner} and ${id}")
+                }
+            }
+        }
+        claimedPackages.keySet().each { pkg ->
+            if (claimedPrefixes.containsKey(pkg)) {
                 throw new GradleException(
-                        "Module ${id} must declare name, category, currentPaths and javaPackagePrefixes")
+                        "Package ${pkg} cannot be an exact owner of ${claimedPackages[pkg]} and a prefix of ${claimedPrefixes[pkg]}")
             }
         }
 
@@ -273,6 +309,7 @@ tasks.register('verifyModuleRegistry') {
         }
 
         def exceptionPairs = new HashSet<String>()
+        def debtIds = new HashSet<String>()
         (registry.boundaryExceptions ?: []).each { exception ->
             def source = exception.source?.toString()
             def target = exception.target?.toString()
@@ -287,9 +324,45 @@ tasks.register('verifyModuleRegistry') {
                 throw new GradleException(
                         "Boundary exception ${source} -> ${target} must declare reason and exit")
             }
+            // 每条例外都必须持有债务编号：债务表是登记表的渲染结果，没有编号就无法被清偿流程闭合。
+            def debtId = exception.debtId?.toString()
+            if (debtId == null || !(debtId ==~ /D[0-9]{3}/)) {
+                throw new GradleException("Boundary exception ${source} -> ${target} must declare a D### debtId")
+            }
+            if (!debtIds.add(debtId)) {
+                throw new GradleException("Duplicate WOK dependency debt ID: ${debtId}")
+            }
+            if (!exception.evidence) {
+                throw new GradleException(
+                        "Boundary exception ${source} -> ${target} must list the source files that trigger it in evidence")
+            }
             def pair = "${source}->${target}"
             if (!exceptionPairs.add(pair)) {
                 throw new GradleException("Duplicate boundary exception: ${source} -> ${target}")
+            }
+        }
+
+        (registry.settledDebts ?: []).each { settled ->
+            def debtId = settled.debtId?.toString()
+            if (debtId == null || !(debtId ==~ /D[0-9]{3}/)) {
+                throw new GradleException("Settled debt must declare a D### debtId, got: ${debtId}")
+            }
+            if (!debtIds.add(debtId)) {
+                throw new GradleException("Debt ID ${debtId} is both active and settled")
+            }
+            if (!settled.result) {
+                throw new GradleException("Settled debt ${debtId} must declare result")
+            }
+        }
+
+        def sharedPaths = new HashSet<String>()
+        (registry.sharedResources ?: []).each { shared ->
+            def path = shared.path?.toString()
+            if (path == null || !shared.note) {
+                throw new GradleException("Shared resource entries must declare path and note, got: ${path}")
+            }
+            if (!sharedPaths.add(path)) {
+                throw new GradleException("Duplicate shared resource entry: ${path}")
             }
         }
 
@@ -308,58 +381,124 @@ tasks.register('verifyModuleRegistry') {
         }
         modulesById.keySet().each { id -> visit(id) }
 
-        logger.lifecycle(
-                "Verified WOK module registry: ${modulesById.size()} modules, "
-                        + "${exceptionPairs.size()} tracked boundary exceptions, no missing dependencies or cycles")
+        def summary = "Verified WOK module registry: ${modulesById.size()} modules, " +
+                "${exceptionPairs.size()} tracked boundary exceptions, " +
+                "${sharedPaths.size()} shared resource files, no missing dependencies or cycles"
+        def stamp = stampFile.get().asFile
+        stamp.parentFile.mkdirs()
+        stamp.setText(summary + '\n', 'UTF-8')
+        logger.lifecycle(summary)
     }
 }
 
 // 扫描 Java package/import/代码中的全限定类名，按最长 package 前缀判断模块所有权。目标依赖图之外的引用
 // 必须逐条登记在 boundaryExceptions；现有债务可见、可退出，同时禁止并行开发继续增加新的反向耦合。
+// 同一任务还负责登记表与磁盘的一致性：currentPaths/resourcePaths 必须真实存在，src/main/resources 下
+// 每个文件都要落到某个模块或共享文件纪律上，避免资源所有权只存在于文档里而无人校验。
 tasks.register('verifyModuleBoundaries') {
     group = 'verification'
-    description = 'Checks Java module ownership and rejects undeclared cross-module references.'
+    description = 'Checks Java and resource module ownership and rejects undeclared cross-module references.'
     dependsOn tasks.named('verifyModuleRegistry')
 
     def registryFile = layout.projectDirectory.file('docs/modules/module-registry.json')
+    def debtDocFile = layout.projectDirectory.file('docs/modules/DEPENDENCY_DEBT.md')
+    def javaRootDir = layout.projectDirectory.dir('src/main/java').asFile
+    def javaPackageRootDir = layout.projectDirectory.dir('src/main/java/com/miningdim').asFile
+    def resourceRootDir = layout.projectDirectory.dir('src/main/resources').asFile
+    def javaSources = fileTree('src/main/java') { include '**/*.java' }
+    def resourceFiles = fileTree('src/main/resources')
+    def stampFile = layout.buildDirectory.file('module-boundaries-verified.txt')
     inputs.file(registryFile)
-    inputs.files(fileTree('src/main/java') { include '**/*.java' })
+    inputs.file(debtDocFile)
+    inputs.files(javaSources)
+    inputs.files(resourceFiles)
+    outputs.file(stampFile)
 
     doLast {
         def registry = new groovy.json.JsonSlurper().parse(registryFile.asFile)
         def modulesById = registry.modules.collectEntries { module -> [(module.id.toString()): module] }
-        def owners = []
+
+        def exactOwners = []
+        def prefixOwners = []
+        def resourcePathOwners = []
+        def resourceNameOwners = []
         registry.modules.each { module ->
-            module.javaPackagePrefixes.each { prefix ->
-                owners << [moduleId: module.id.toString(), prefix: prefix.toString()]
-            }
+            def moduleId = module.id.toString()
+            (module.javaPackages ?: []).each { pkg -> exactOwners << [moduleId: moduleId, pkg: pkg.toString()] }
+            (module.javaPackagePrefixes ?: []).each { prefix -> prefixOwners << [moduleId: moduleId, prefix: prefix.toString()] }
+            (module.resourcePaths ?: []).each { path -> resourcePathOwners << [moduleId: moduleId, path: path.toString()] }
+            (module.resourceNamePrefixes ?: []).each { name -> resourceNameOwners << [moduleId: moduleId, prefix: name.toString()] }
         }
-        owners.sort { left, right -> right.prefix.length() <=> left.prefix.length() }
+        prefixOwners.sort { left, right -> right.prefix.length() <=> left.prefix.length() }
+        resourcePathOwners.sort { left, right -> right.path.length() <=> left.path.length() }
+        resourceNameOwners.sort { left, right -> right.prefix.length() <=> left.prefix.length() }
 
-        def ownerOf = { String qualifiedName ->
-            def match = owners.find { owner ->
-                qualifiedName == owner.prefix || qualifiedName.startsWith(owner.prefix + '.')
-            }
-            match == null ? null : match.moduleId
-        }
-
-        def allowedExceptions = (registry.boundaryExceptions ?: []).collect {
-            "${it.source}->${it.target}"
-        } as Set
-        def observedExceptions = new HashSet<String>()
         def violations = []
 
-        fileTree('src/main/java').matching { include '**/*.java' }.files.sort().each { sourceFile ->
+        // javaPackages 是"只拥有这一个包本身"的精确所有权，装配模块靠它只认领根包里的入口类。若继续用
+        // "com.miningdim" 做前缀，任何新建的顶层包都会被兜底吞进装配模块，下面那条"没有模块所有者"永远
+        // 不可能触发；引用侧则要求前缀之后紧跟大写字母，才认定该全限定名直接位于这个包内。
+        def ownerOfPackage = { String pkg ->
+            def exact = exactOwners.find { it.pkg == pkg }
+            if (exact != null) {
+                return exact.moduleId
+            }
+            def match = prefixOwners.find { pkg == it.prefix || pkg.startsWith(it.prefix + '.') }
+            return match == null ? null : match.moduleId
+        }
+        def ownerOfReference = { String qualifiedName ->
+            def exact = exactOwners.find {
+                qualifiedName.length() > it.pkg.length() + 1 &&
+                        qualifiedName.startsWith(it.pkg + '.') &&
+                        Character.isUpperCase(qualifiedName.charAt(it.pkg.length() + 1))
+            }
+            if (exact != null) {
+                return exact.moduleId
+            }
+            def match = prefixOwners.find { qualifiedName == it.prefix || qualifiedName.startsWith(it.prefix + '.') }
+            return match == null ? null : match.moduleId
+        }
+
+        registry.modules.each { module ->
+            def moduleId = module.id.toString()
+            (module.currentPaths ?: []).each { path ->
+                if (!new File(javaPackageRootDir, path.toString()).exists()) {
+                    violations << "module ${moduleId}: currentPaths entry ${path} does not exist under src/main/java/com/miningdim"
+                }
+            }
+            (module.resourcePaths ?: []).each { path ->
+                if (!new File(resourceRootDir, path.toString()).exists()) {
+                    violations << "module ${moduleId}: resourcePaths entry ${path} does not exist under src/main/resources"
+                }
+            }
+        }
+        (registry.sharedResources ?: []).each { shared ->
+            if (!new File(resourceRootDir, shared.path.toString()).exists()) {
+                violations << "shared resource ${shared.path} does not exist under src/main/resources"
+            }
+        }
+
+        def allowedExceptions = [:]
+        (registry.boundaryExceptions ?: []).each { exception ->
+            allowedExceptions["${exception.source}->${exception.target}".toString()] =
+                    (exception.evidence ?: []).collect { it.toString() } as Set
+        }
+        def observedExceptions = [:]
+
+        def javaRootPath = javaRootDir.toPath()
+        javaSources.files.sort().each { sourceFile ->
+            def relativePath = javaRootPath.relativize(sourceFile.toPath()).toString().replace('\\', '/')
+            def reportedPath = "src/main/java/${relativePath}"
             def raw = sourceFile.getText('UTF-8')
             def packageMatcher = raw =~ /(?m)^\s*package\s+(com\.miningdim(?:\.[A-Za-z_][A-Za-z0-9_]*)*);/
             if (!packageMatcher.find()) {
-                violations << "${sourceFile}: missing com.miningdim package declaration"
+                violations << "${reportedPath}: missing com.miningdim package declaration"
                 return
             }
             def sourcePackage = packageMatcher.group(1)
-            def sourceModule = ownerOf(sourcePackage)
+            def sourceModule = ownerOfPackage(sourcePackage)
             if (sourceModule == null) {
-                violations << "${sourceFile}: package ${sourcePackage} has no module owner"
+                violations << "${reportedPath}: package ${sourcePackage} has no module owner"
                 return
             }
 
@@ -369,7 +508,7 @@ tasks.register('verifyModuleBoundaries') {
             def references = code =~ /com\.miningdim(?:\.[A-Za-z_][A-Za-z0-9_]*)+/
             def targetModules = new HashSet<String>()
             references.each { match ->
-                def targetModule = ownerOf(match.toString())
+                def targetModule = ownerOfReference(match.toString())
                 if (targetModule != null && targetModule != sourceModule) {
                     targetModules.add(targetModule)
                 }
@@ -380,25 +519,85 @@ tasks.register('verifyModuleBoundaries') {
                 if (declared.contains(targetModule)) {
                     return
                 }
-                def pair = "${sourceModule}->${targetModule}"
-                if (allowedExceptions.contains(pair)) {
-                    observedExceptions.add(pair)
+                def pair = "${sourceModule}->${targetModule}".toString()
+                if (allowedExceptions.containsKey(pair)) {
+                    def observed = observedExceptions[pair]
+                    if (observed == null) {
+                        observed = new TreeSet<String>()
+                        observedExceptions[pair] = observed
+                    }
+                    observed.add(reportedPath)
                 } else {
-                    violations << "${sourceFile}: ${sourceModule} references undeclared module ${targetModule}"
+                    violations << "${reportedPath}: ${sourceModule} references undeclared module ${targetModule}"
                 }
             }
         }
 
-        def staleExceptions = allowedExceptions - observedExceptions
-        staleExceptions.each { pair ->
-            violations << "boundary exception ${pair} is stale; remove it from module-registry.json"
+        // evidence 必须与实际触发文件完全一致。只要求"列出的文件仍然触发"是不够的：那样一条已存在的例外
+        // 会把同一对模块之间后续新增的任意耦合一并放行，等于给这对模块开了永久通行证。
+        allowedExceptions.each { pair, evidence ->
+            def observed = observedExceptions[pair]
+            if (observed == null) {
+                violations << "boundary exception ${pair} is stale; remove it from module-registry.json"
+                return
+            }
+            (evidence - observed).each { path ->
+                violations << "boundary exception ${pair}: evidence ${path} no longer triggers it"
+            }
+            (observed - evidence).each { path ->
+                violations << "boundary exception ${pair}: ${path} triggers it but is missing from evidence"
+            }
         }
+
+        def sharedResourcePaths = (registry.sharedResources ?: []).collect { it.path.toString() } as Set
+        def usedNamePrefixes = new HashSet<String>()
+        def resourceRootPath = resourceRootDir.toPath()
+        resourceFiles.files.sort().each { resourceFile ->
+            def relativePath = resourceRootPath.relativize(resourceFile.toPath()).toString().replace('\\', '/')
+            if (sharedResourcePaths.contains(relativePath)) {
+                return
+            }
+            if (resourcePathOwners.any { relativePath == it.path || relativePath.startsWith(it.path + '/') }) {
+                return
+            }
+            def fileName = relativePath.substring(relativePath.lastIndexOf('/') + 1)
+            def nameOwner = resourceNameOwners.find { fileName.startsWith(it.prefix) }
+            if (nameOwner != null) {
+                usedNamePrefixes.add(nameOwner.prefix)
+                return
+            }
+            violations << "src/main/resources/${relativePath}: resource has no module owner"
+        }
+        resourceNameOwners.each { owner ->
+            if (!usedNamePrefixes.contains(owner.prefix)) {
+                violations << "module ${owner.moduleId}: resourceNamePrefixes entry ${owner.prefix} matches no file"
+            }
+        }
+
+        // 债务表是登记表的渲染结果。允许两边措辞不同，但编号集合必须逐个对上，否则又会出现
+        // "文档里有编号、登记表里查无此条"的幽灵债务。
+        def registryDebtIds = new TreeSet<String>()
+        (registry.boundaryExceptions ?: []).each { registryDebtIds.add(it.debtId.toString()) }
+        (registry.settledDebts ?: []).each { registryDebtIds.add(it.debtId.toString()) }
+        def documentDebtIds = new TreeSet<String>()
+        (debtDocFile.asFile.getText('UTF-8') =~ /\bD[0-9]{3}\b/).each { documentDebtIds.add(it.toString()) }
+        (registryDebtIds - documentDebtIds).each { debtId ->
+            violations << "dependency debt ${debtId} is registered but missing from docs/modules/DEPENDENCY_DEBT.md"
+        }
+        (documentDebtIds - registryDebtIds).each { debtId ->
+            violations << "dependency debt ${debtId} is documented but absent from module-registry.json"
+        }
+
         if (!violations.isEmpty()) {
             throw new GradleException("WOK module boundary violations:\n - " + violations.join('\n - '))
         }
-        logger.lifecycle(
-                "Verified WOK Java boundaries: ${modulesById.size()} modules, "
-                        + "${observedExceptions.size()} known exceptions, no new cross-module references")
+        def summary = "Verified WOK boundaries: ${javaSources.files.size()} Java files across ${modulesById.size()} modules, " +
+                "${observedExceptions.size()} known exceptions, ${resourceFiles.files.size()} resource files owned, " +
+                "no new cross-module references"
+        def stamp = stampFile.get().asFile
+        stamp.parentFile.mkdirs()
+        stamp.setText(summary + '\n', 'UTF-8')
+        logger.lifecycle(summary)
     }
 }
 

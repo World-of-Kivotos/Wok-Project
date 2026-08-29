@@ -10,6 +10,7 @@ import com.miningdim.job.munitions.client.MunitionsBenchScreen;
 import com.miningdim.job.munitions.client.MunitionsClientSetup;
 import com.miningdim.job.munitions.gunsmith.GunsmithBaseStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithComponentRuleLoader;
+import com.miningdim.job.munitions.gunsmith.GunsmithGunDurability;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunTooltip;
 import com.miningdim.job.munitions.gunsmith.GunsmithTaczBridge;
@@ -22,6 +23,7 @@ import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.event.AddReloadListenerEvent;
 import net.minecraftforge.event.OnDatapackSyncEvent;
@@ -159,18 +161,32 @@ public final class MunitionsSystem implements Subsystem {
      * (同类 :81-88 的降级读, GunsmithBlueprintItem.java:69-79 的渲染钩子已立过同款规矩): 读不出来时先用
      * {@link GunsmithGunStats#hasGunsmithData} 区分"根本不是枪匠枪" (静默跳过) 与"是枪匠枪但读不出来"
      * (追加一条降级提示, 而不是让异常冒到渲染线程)。
+     *
+     * 耐久同理: {@link GunsmithGunDurability#tryManaged} 一次给出部件视图与耐久快照, 两段都容错。
+     * 转手把 ItemStack 交给 tooltip 再解析一遍就等于把刚绕开的严格入口重新踩回去 (审查 2)。
      */
     @SubscribeEvent
     public void onItemTooltip(ItemTooltipEvent event) {
-        GunsmithGunStats stats = GunsmithGunStats.tryFrom(event.getItemStack());
+        ItemStack stack = event.getItemStack();
+        GunsmithGunDurability.Managed managed = GunsmithGunDurability.tryManaged(stack);
+        GunsmithGunStats stats = managed != null ? managed.stats() : GunsmithGunStats.tryFrom(stack);
         if (stats == null) {
-            if (GunsmithGunStats.hasGunsmithData(event.getItemStack())) {
+            if (GunsmithGunStats.hasGunsmithData(stack)) {
                 event.getToolTip().add(Component.translatable("tooltip.miningdim.gunsmith.stats_unreadable")
                         .withStyle(ChatFormatting.RED));
             }
             return;
         }
-        GunsmithGunTooltip.appendDurability(event.getToolTip(), event.getItemStack());
+        if (managed == null) {
+            // 部件读得出来但耐久段畸形: 这把枪在 isManagedGun 眼里已经不是托管枪 (不可维修/不扣耐久),
+            // 沉默地少一行会让玩家以为耐久无限, 所以照实说读不出来。
+            event.getToolTip().add(Component.translatableWithFallback(
+                            "tooltip.miningdim.gunsmith.durability_unreadable",
+                            "Gunsmith durability data is unreadable")
+                    .withStyle(ChatFormatting.RED));
+        } else {
+            GunsmithGunTooltip.appendDurability(event.getToolTip(), managed.state());
+        }
         Optional<GunsmithBaseStats> baseStats = GunsmithTaczBridge.findBaseStats(stats.gunId());
         if (baseStats.isEmpty()) {
             event.getToolTip().add(Component.translatable(

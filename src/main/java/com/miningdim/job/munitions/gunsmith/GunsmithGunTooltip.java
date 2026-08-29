@@ -3,7 +3,6 @@ package com.miningdim.job.munitions.gunsmith;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
 import java.util.Locale;
@@ -13,8 +12,12 @@ public final class GunsmithGunTooltip {
     private GunsmithGunTooltip() {
     }
 
-    public static void appendDurability(List<Component> tooltip, ItemStack stack) {
-        GunsmithGunDurability.State durability = GunsmithGunDurability.view(stack);
+    /**
+     * 只收已经解析好的耐久快照, 不接 ItemStack。原实现在这里再调一次严格入口
+     * {@code GunsmithGunDurability.view(stack)}, 于是一把 Durability 子标签被改坏的枪会在客户端 tooltip
+     * 线程上抛异常 —— 调用方 (MunitionsSystem.onItemTooltip) 明明已经用容错入口解析过一遍了 (审查 2)。
+     */
+    public static void appendDurability(List<Component> tooltip, GunsmithGunDurability.State durability) {
         ChatFormatting durabilityColor = durability.current() <= 0
                 ? ChatFormatting.RED
                 : durability.remainingRatio() <= 0.25D ? ChatFormatting.GOLD : ChatFormatting.GREEN;

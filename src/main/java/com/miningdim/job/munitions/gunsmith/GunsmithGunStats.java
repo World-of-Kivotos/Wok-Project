@@ -1,16 +1,29 @@
 package com.miningdim.job.munitions.gunsmith;
 
+import com.miningdim.job.munitions.MunitionsConfig;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
+/**
+ * 枪匠成品枪的 NBT 数据视图。
+ *
+ * 校验分档 (审查 M3): 只有 {@link #CURRENT_VERSION} 的缓存才与当前公式逐项精确比对, 更旧的版本一律只验
+ * 类型与值域。理由是缓存里的 stats 从 v2 起就不再参与任何对外数值 —— damage/range/recoil 等全部由
+ * Parts 实时重算, 缓存只是写入当时的展示副本。而写入公式每改一次 (例: 主线把格赫娜导气核心的 range
+ * 强制写成 1.0, 本版改成写核心系数再乘组件系数), 精确比对就会把一整批完全合法的存量枪判成畸形数据从
+ * {@link #from(ItemStack)} 抛出。真正的防篡改在 {@code readParts}: 部件集合、品质、系数值域、型号与槽位
+ * 的兼容性照常硬校验。
+ */
 public final class GunsmithGunStats {
 
     public static final String ROOT_KEY = "MiningDimGunsmith";
@@ -18,6 +31,8 @@ public final class GunsmithGunStats {
     public static final String STATS_KEY = "Stats";
     public static final String VERSION_KEY = "version";
     public static final int CURRENT_VERSION = 7;
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/gunsmith_gun_stats");
 
     private static final Set<GunsmithPressPart> LEGACY_MARKSMAN_FIVE_PARTS = Set.of(
             GunsmithPressPart.HANDGUARD,
@@ -52,43 +67,31 @@ public final class GunsmithGunStats {
         boolean migratedSniperFiringPin = isLegacyFourPartSniperData(root, blueprint, version);
         if (migratedSpr15hbPlatform) {
             this.parts = readParts(root, GunsmithPlatform.AR,
-                    GunsmithPlatform.AR.supportedParts(), migratedArReceiver);
+                    GunsmithPlatform.AR.supportedParts(), migratedArReceiver, version);
         } else if (migratedMarksmanGrip) {
             List<PartSummary> migrated = new ArrayList<>(readParts(root, GunsmithPlatform.MARKSMAN,
-                    LEGACY_MARKSMAN_FIVE_PARTS, false));
+                    LEGACY_MARKSMAN_FIVE_PARTS, false, version));
             migrated.add(new PartSummary(GunsmithPressPart.GRIP, GunsmithPartQuality.COMMON,
                     GunsmithPartVariant.BASE, 1.0D));
             this.parts = List.copyOf(migrated);
         } else if (migratedSniperFiringPin) {
             List<PartSummary> migrated = new ArrayList<>(readParts(root, GunsmithPlatform.SNIPER,
-                    LEGACY_SNIPER_FOUR_PARTS, false));
+                    LEGACY_SNIPER_FOUR_PARTS, false, version));
             migrated.add(new PartSummary(GunsmithPressPart.FIRING_PIN, GunsmithPartQuality.COMMON,
                     GunsmithPartVariant.BASE, 1.0D));
             this.parts = List.copyOf(migrated);
         } else {
-            this.parts = readParts(root, blueprint.platform(), blueprint.requiredParts(), migratedArReceiver);
+            this.parts = readParts(root, blueprint.platform(), blueprint.requiredParts(),
+                    migratedArReceiver, version);
         }
         ResourceLocation encodedGunId = gunId();
         if (!matchesBlueprintGunId(blueprint, encodedGunId, parts)) {
             throw new IllegalArgumentException("Gunsmith gun id does not match template: " + encodedGunId);
         }
-        if (migratedSpr15hbPlatform || migratedMarksmanGrip || migratedSniperFiringPin) {
-            validateMigratedPlatformStats();
-        } else if (version == CURRENT_VERSION || version == 3 || version == 5 || version == 6
-                || version == 4 && !migratedArReceiver) {
+        if (version == CURRENT_VERSION) {
             validateCurrentStats();
-        } else if (version == 4) {
-            validateMigratedArReceiverStats();
-        } else if (version == 2) {
-            validateVersion2Stats();
         } else {
-            value("damage");
-            value("headshot");
-            value("spread");
-            value("handling");
-            value("average");
-            range();
-            recoil();
+            validateLegacyStats();
         }
     }
 
@@ -146,8 +149,27 @@ public final class GunsmithGunStats {
         return gunId;
     }
 
+    /**
+     * 整枪伤害乘子 = 单件品质系数 x 各槽组件伤害乘数连乘, 封顶到
+     * {@link MunitionsConfig#gunsmithDamageMultiplierCap()} (审查 27)。
+     *
+     * 全链连乘原本无上限: AK 平台的红东高压导气核心 (2.00) 与赤雪-A 枪机 (1.25) 互不排斥,
+     * 叠传奇枪机品质 (1.50) 可达 3.75 倍, 对 80 血公服单发躯干 27 点即三发致死。帽必须落在这里而不是
+     * TACZ 接入层: tooltip / WebUI 详情 / 伤害曲线 全都读本方法, 分开封顶就会出现"面板显示 3.75 实际只有
+     * 2.25"的不一致。爆头帽 {@link MunitionsConfig#GUNSMITH_HEADSHOT_DAMAGE_CAP} 只钳品质复利, 与本帽串联生效。
+     */
     public double damage() {
-        return version == 1 ? value("damage") : baseDamage() * variantProduct(VariantStat.DAMAGE);
+        double uncapped = version == 1 ? value("damage") : baseDamage() * variantProduct(VariantStat.DAMAGE);
+        return capDamageMultiplier(uncapped);
+    }
+
+    /**
+     * 伤害总帽的唯一入口。装配台预览 ({@code GunsmithAssemblyRecipe.preview}) 是独立于 {@link #damage()}
+     * 的第二条计算链, 必须调本方法而不是自己再写一遍 Math.min: 两边各封各的顶, 玩家就会在装配台看到
+     * 3.75 倍伤害、付完工费拿到手却只有 2.25 倍 (审查 27)。
+     */
+    public static double capDamageMultiplier(double uncapped) {
+        return Math.min(uncapped, MunitionsConfig.gunsmithDamageMultiplierCap());
     }
 
     double baseDamage() {
@@ -338,7 +360,7 @@ public final class GunsmithGunStats {
 
     private static List<PartSummary> readParts(CompoundTag root, GunsmithPlatform platform,
                                                Set<GunsmithPressPart> requiredParts,
-                                               boolean migrateArReceiver) {
+                                               boolean migrateArReceiver, int version) {
         if (!root.contains(PARTS_KEY, Tag.TAG_COMPOUND)) {
             throw new IllegalArgumentException("Gunsmith root data has no parts compound");
         }
@@ -377,6 +399,11 @@ public final class GunsmithGunStats {
                     || coefficient > quality.maxCoefficient()) {
                 throw new IllegalArgumentException("Gunsmith part coefficient is outside the quality range: " + part.id());
             }
+            // v3 起 variant 是必填字段: 缺失说明数据已经畸形, 必须炸出来; 默认成普通组件会把玩家的势力
+            // 组件效果无声抹掉, 而基础系数校验又与型号无关, 玩家只会觉得"枪突然变弱了"。
+            if (version >= 3 && !encodedPart.contains("variant", Tag.TAG_STRING)) {
+                throw new IllegalArgumentException("Gunsmith part has no string variant: " + part.id());
+            }
             GunsmithPartVariant variant = encodedPart.contains("variant", Tag.TAG_STRING)
                     ? GunsmithPartVariant.byId(encodedPart.getString("variant"))
                     : GunsmithPartVariant.BASE;
@@ -400,40 +427,68 @@ public final class GunsmithGunStats {
                 && GunsmithPlatform.AR.id().equals(root.getString("platform"));
     }
 
+    /**
+     * 五槽 marksman (无握把) 与四槽 sniper (无撞针) 都按结构判定, 不锁版本号 (审查 63)。
+     *
+     * 主线发布版里 SPR15HB 挂在 AR、没有任何 sniper 图纸, 所以这两种形态只可能出自测试服上
+     * 中间版本产出的枪。原实现把触发条件锁在 version == 5 / 6 上, 而中间版本的版本号本就会再变,
+     * 一变就漏接; 改成 "图纸平台对得上、但缺了新增的那个槽" 后对任何旧版本都生效。保留
+     * {@code version < CURRENT_VERSION} 下界是为了不放过当前版本的缺件数据 —— 那是真畸形, 应该抛。
+     */
     private static boolean isLegacyFivePartMarksmanData(CompoundTag root, GunsmithBlueprint blueprint,
                                                          int version) {
-        return version == 5
-                && blueprint == GunsmithBlueprint.SPR15HB
-                && GunsmithPlatform.MARKSMAN.id().equals(root.getString("platform"))
+        return version < CURRENT_VERSION
+                && blueprint.platform() == GunsmithPlatform.MARKSMAN
                 && root.contains(PARTS_KEY, Tag.TAG_COMPOUND)
                 && !root.getCompound(PARTS_KEY).contains(GunsmithPressPart.GRIP.id());
     }
 
     private static boolean isLegacyFourPartSniperData(CompoundTag root, GunsmithBlueprint blueprint,
                                                        int version) {
-        return version == 6
+        return version < CURRENT_VERSION
                 && blueprint.platform() == GunsmithPlatform.SNIPER
                 && root.contains(PARTS_KEY, Tag.TAG_COMPOUND)
                 && !root.getCompound(PARTS_KEY).contains(GunsmithPressPart.FIRING_PIN.id());
     }
 
+    /**
+     * 把中间版本误建的 AR 第七个机匣槽归位回六槽结构 (审查 64)。
+     *
+     * 两个取舍都有代价, 这里选择保留玩家花大代价做出的特殊组件: MK-AX-A 机匣与原枪机撞槽时只能
+     * 留一件, 被顶掉的那件写 WARN 日志留痕, 事后可按日志给当事人补件; 普通 (BASE) 机匣没有任何组件
+     * 效果, 已有枪机时直接丢弃即可, 但它顶替了枪机槽时必须降级成同品质的普通枪机 —— 直接 remove
+     * 会让这把枪缺件, 从此永远读不出来。
+     */
     private static CompoundTag migrateLegacyArReceiverParts(CompoundTag encodedParts) {
         String receiverId = GunsmithPressPart.RECEIVER.id();
         if (!encodedParts.contains(receiverId, Tag.TAG_COMPOUND)) {
             throw new IllegalArgumentException("Legacy AR receiver data is not a compound");
         }
+        String boltId = GunsmithPressPart.BOLT.id();
         CompoundTag migrated = encodedParts.copy();
         CompoundTag receiver = migrated.getCompound(receiverId);
+        boolean hasBolt = migrated.contains(boltId, Tag.TAG_COMPOUND);
         GunsmithPartVariant variant = receiver.contains("variant", Tag.TAG_STRING)
                 ? GunsmithPartVariant.byId(receiver.getString("variant")) : GunsmithPartVariant.BASE;
-        if (variant == GunsmithPartVariant.MK_AX_A_BOLT) {
-            CompoundTag bolt = receiver.copy();
-            bolt.putString("variant", variant.id());
-            migrated.put(GunsmithPressPart.BOLT.id(), bolt);
-        } else if (variant != GunsmithPartVariant.BASE) {
+        if (variant != GunsmithPartVariant.MK_AX_A_BOLT && variant != GunsmithPartVariant.BASE) {
             throw new IllegalArgumentException("Legacy AR receiver contains an unsupported variant");
         }
         migrated.remove(receiverId);
+        if (variant == GunsmithPartVariant.MK_AX_A_BOLT) {
+            if (hasBolt) {
+                CompoundTag replaced = migrated.getCompound(boltId);
+                LOGGER.warn("Legacy AR receiver migration dropped the original bolt (quality={}, coefficient={})"
+                                + " in favour of the MK-AX-A component that shared the same gun",
+                        replaced.getString("quality"), replaced.getDouble("coefficient"));
+            }
+            CompoundTag bolt = receiver.copy();
+            bolt.putString("variant", variant.id());
+            migrated.put(boltId, bolt);
+        } else if (!hasBolt) {
+            CompoundTag bolt = receiver.copy();
+            bolt.putString("variant", GunsmithPartVariant.BASE.id());
+            migrated.put(boltId, bolt);
+        }
         return migrated;
     }
 
@@ -458,9 +513,8 @@ public final class GunsmithGunStats {
     private static boolean matchesBlueprintGunId(GunsmithBlueprint blueprint, ResourceLocation gunId,
                                                  List<PartSummary> parts) {
         if (parts.stream().anyMatch(part -> part.variant().forcesBurstFireMode())) {
-            if (blueprint == GunsmithBlueprint.SPR15HB) {
-                return new ResourceLocation("miningdim", "spr15hb_gunsmith_burst").equals(gunId);
-            }
+            // 三连发枪机只挂 AR/BOLT (GunsmithPartVariant.supports), 所以带着它的图纸必然是 AR 平台;
+            // 非 AR 平台带三连发枪机是不可能存在的数据, 由 burstGunId 照常抛出来, 不在这里替它编造 gunId。
             return GunsmithGunFactory.burstGunId(blueprint).equals(gunId);
         }
         return blueprint.gunId().equals(gunId)
@@ -486,7 +540,7 @@ public final class GunsmithGunStats {
     }
 
     private void validateCurrentStats() {
-        // v3 起缓存值只验证部件品质的基础系数，组件平衡值由当前热重载规则实时计算。
+        // 缓存值只验证部件品质的基础系数，组件平衡值由当前热重载规则实时计算，故热更新不会让本校验失效。
         validateCurrentStat("damage", coefficient(GunsmithStat.DAMAGE));
         validateCurrentStat("headshot", baseHeadshot());
         validateCurrentStat("range", coefficient(GunsmithStat.RANGE));
@@ -496,50 +550,27 @@ public final class GunsmithGunStats {
         validateCurrentStat("average", average());
     }
 
-    private void validateMigratedArReceiverStats() {
-        // v4 曾错误地把 AR 机匣作为第七槽写入。结构已迁移到六件套；旧缓存只做类型和值域校验，
-        // 实际属性始终根据迁移后的枪机组件和当前热重载规则计算。
+    /**
+     * 旧版本缓存只验类型与值域, 不与当前公式精确比对 (审查 M3)。
+     *
+     * 迁移路径 (平台改槽、AR 机匣纠错) 与写入公式变更 (主线把格赫娜导气核心的 range 强制写成 1.0)
+     * 都会让旧缓存与重算值对不上; 而 v2 起缓存早已不参与任何对外数值, 拿它做防篡改校验只会把正常
+     * 玩家的存量枪判死。
+     */
+    private void validateLegacyStats() {
         value("damage");
         value("headshot");
-        value("range");
-        value("recoil");
         value("spread");
         value("handling");
         value("average");
-    }
-
-    private void validateMigratedPlatformStats() {
-        // 平台扩槽迁移只对旧缓存做类型和值域校验。SPR15HB 的五槽 v5 数据补中性握把；
-        // 栓动式步枪的四槽 v6 数据补中性撞针，从而保留旧操控和其余真实组件属性。
-        value("damage");
-        value("headshot");
         if (version == 1) {
+            // v1 缓存里没有 range/recoil, 改由核心与枪托部件反查, 顺带确认这两件部件存在。
             range();
             recoil();
         } else {
             value("range");
             value("recoil");
         }
-        value("spread");
-        value("handling");
-        value("average");
-    }
-
-    private void validateVersion2Stats() {
-        validateCurrentStat("damage", legacyVersion2Damage());
-        validateCurrentStat("headshot", baseHeadshot());
-        validateCurrentStat("range", coreVariant() == GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS
-                ? 1.0D : coefficient(GunsmithStat.RANGE));
-        validateCurrentStat("recoil", recoil());
-        validateCurrentStat("spread", spread());
-        validateCurrentStat("handling", handling());
-        validateCurrentStat("average", average());
-    }
-
-    private double legacyVersion2Damage() {
-        double multiplier = coreVariant() == GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS
-                ? 1.20D + coreQuality().index() * 0.20D : 1.0D;
-        return coefficient(GunsmithStat.DAMAGE) * multiplier;
     }
 
     private void validateCurrentStat(String key, double expected) {
@@ -551,24 +582,6 @@ public final class GunsmithGunStats {
 
     private double coefficient(GunsmithStat stat) {
         return stat.coefficient(blueprint.platform(), part -> requiredPart(part).coefficient());
-    }
-
-    private GunsmithPartVariant coreVariant() {
-        for (PartSummary part : parts) {
-            if (part.part() == GunsmithPressPart.CORE) {
-                return part.variant();
-            }
-        }
-        return GunsmithPartVariant.BASE;
-    }
-
-    private GunsmithPartQuality coreQuality() {
-        for (PartSummary part : parts) {
-            if (part.part() == GunsmithPressPart.CORE) {
-                return part.quality();
-            }
-        }
-        return GunsmithPartQuality.COMMON;
     }
 
     private double variantProduct(VariantStat stat) {

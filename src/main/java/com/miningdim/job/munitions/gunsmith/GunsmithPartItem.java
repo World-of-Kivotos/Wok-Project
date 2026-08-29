@@ -184,8 +184,7 @@ public final class GunsmithPartItem extends Item {
                     data.variant().headshotMultiplier(data.quality()), true);
             addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.fire_rate",
                     data.variant().fireRateMultiplier(data.quality()), true);
-            addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.range",
-                    data.variant().rangeMultiplier(data.quality()), true);
+            addRangeEffect(tooltip, data.variant(), data.quality());
             addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.ammo_speed",
                     data.variant().ammoSpeedMultiplier(data.quality()), true);
             addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.armor_ignore",
@@ -274,16 +273,12 @@ public final class GunsmithPartItem extends Item {
         // 旧枪匠部件没有型号字段，按普通组件读取，保持存量物品兼容。
         GunsmithPartVariant variant = tag.contains(K_VARIANT, Tag.TAG_STRING)
                 ? GunsmithPartVariant.byId(tag.getString(K_VARIANT)) : GunsmithPartVariant.BASE;
-        if (tag.contains(K_VARIANT, Tag.TAG_STRING)
-                && !variant.id().equals(tag.getString(K_VARIANT))) {
-            tag.putString(K_VARIANT, variant.id());
-        }
-        // 曾错误发布为 AR/RECEIVER 的存量物品在首次读取时原地迁移到现有 BOLT 槽。
+        // 曾错误发布为 AR/RECEIVER 的存量组件在这里归一到现有 BOLT 槽。别名归一 (含 byId 的型号别名)
+        // 一律只作用于返回的 PartData, 不回写 NBT: 本方法经 tryPartData 被 getName/appendHoverText 与
+        // WebUI 物品详情等只读路径调用, 其中 tooltip 跑在客户端渲染线程。在只读路径上改 tag 会让客户端
+        // 副本单方面偏离服务端, 落在方块实体里时又不会 setChanged 标脏, 读档后重复改写。
         if (platform == GunsmithPlatform.AR && part == GunsmithPressPart.RECEIVER) {
             part = GunsmithPressPart.BOLT;
-            tag.putString(K_PART, part.id());
-            tag.putString(K_VARIANT, variant.id());
-            tag.putInt("CustomModelData", variant.customModelData(platform, part, quality));
         }
         if (!platform.supports(part)) {
             throw new IllegalArgumentException("Gunsmith platform " + platform.id()
@@ -345,15 +340,38 @@ public final class GunsmithPartItem extends Item {
 
     private static void addEffect(List<Component> tooltip, String translationKey,
                                   double multiplier, boolean increaseIsBeneficial) {
-        boolean neutral = Math.abs(multiplier - 1.0D) <= 0.0005D;
-        boolean increased = multiplier > 1.0D;
-        boolean beneficial = increased == increaseIsBeneficial;
-        TextColor valueColor = neutral ? EFFECT_NEUTRAL_COLOR
-                : beneficial ? EFFECT_BENEFIT_COLOR : EFFECT_PENALTY_COLOR;
         MutableComponent value = Component.literal(formatPercent(multiplier))
-                .withStyle(style -> style.withColor(valueColor));
+                .withStyle(style -> style.withColor(effectColor(multiplier, increaseIsBeneficial)));
         tooltip.add(Component.translatable(translationKey, value)
                 .withStyle(style -> style.withColor(EFFECT_LABEL_COLOR)));
+    }
+
+    /**
+     * 射程是唯一带 REPLACE 语义的分量 ({@link GunsmithComponentRule.RangeOperation})。REPLACE 态下配置值
+     * 是"替换后的绝对射程系数", 会把其余槽位累积的射程整体顶掉, 按 +x% 相对倍率展示是错的: 一条把射程
+     * 钉死在 1.0 的规则会被显示成 "+0%", 玩家读成"这件组件对射程没影响", 实际上它废掉了枪管的加成 (审查 67)。
+     */
+    private static void addRangeEffect(List<Component> tooltip, GunsmithPartVariant variant,
+                                       GunsmithPartQuality quality) {
+        double configured = variant.rangeMultiplier(quality);
+        if (GunsmithComponentRules.get(variant).rangeOperation()
+                != GunsmithComponentRule.RangeOperation.REPLACE) {
+            addEffect(tooltip, "tooltip.miningdim.gunsmith_part.effect.range", configured, true);
+            return;
+        }
+        MutableComponent value = Component.literal(formatCoefficient(configured))
+                .withStyle(style -> style.withColor(effectColor(configured, true)));
+        tooltip.add(Component.translatableWithFallback(
+                        "tooltip.miningdim.gunsmith_part.effect.range_replace",
+                        "  Effective range: set to %s", value)
+                .withStyle(style -> style.withColor(EFFECT_LABEL_COLOR)));
+    }
+
+    private static TextColor effectColor(double multiplier, boolean increaseIsBeneficial) {
+        if (Math.abs(multiplier - 1.0D) <= 0.0005D) {
+            return EFFECT_NEUTRAL_COLOR;
+        }
+        return (multiplier > 1.0D) == increaseIsBeneficial ? EFFECT_BENEFIT_COLOR : EFFECT_PENALTY_COLOR;
     }
 
     static Component styledQualityName(GunsmithPartQuality quality) {

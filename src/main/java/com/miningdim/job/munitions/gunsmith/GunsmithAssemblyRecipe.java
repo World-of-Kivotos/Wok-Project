@@ -4,6 +4,7 @@ import com.miningdim.job.munitions.ModMunitionsItems;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.EnumMap;
 import java.util.Map;
@@ -71,21 +72,30 @@ public final class GunsmithAssemblyRecipe {
     }
 
     public static boolean matchesPart(ItemStack stack, GunsmithPressPart part) {
-        Objects.requireNonNull(stack, "stack");
-        Objects.requireNonNull(part, "part");
-        if (stack.isEmpty() || !stack.is(ModMunitionsItems.GUNSMITH_PART.get())) {
-            return false;
-        }
-        GunsmithPartItem.PartData data = GunsmithPartItem.requirePartData(stack);
-        return data.part() == part;
+        return matchingPartData(stack, part) != null;
     }
 
     public static boolean matchesPart(ItemStack stack, GunsmithPressPart part, GunsmithPlatform platform) {
         Objects.requireNonNull(platform, "platform");
-        if (!matchesPart(stack, part)) {
-            return false;
+        GunsmithPartItem.PartData data = matchingPartData(stack, part);
+        return data != null && data.platform() == platform;
+    }
+
+    /**
+     * 槽位谓词的共用解析。走容错的 {@link GunsmithPartItem#tryPartData} 而非会抛的 requirePartData:
+     * 本方法挂在装配台/维修台的 {@code Slot.mayPlace} 上, 玩家把一个 NBT 被改坏的枪匠部件拖进槽位就会
+     * 触发, 解析异常会直接穿透包处理器崩服 —— 与审查 2 是同一条崩溃链, 只是从零件那一侧进来。
+     * 畸形部件在这里只应判为"不合法", 硬校验留在真正写入成品枪的 {@link #assemble} 路径上。
+     */
+    @Nullable
+    private static GunsmithPartItem.PartData matchingPartData(ItemStack stack, GunsmithPressPart part) {
+        Objects.requireNonNull(stack, "stack");
+        Objects.requireNonNull(part, "part");
+        if (stack.isEmpty() || !stack.is(ModMunitionsItems.GUNSMITH_PART.get())) {
+            return null;
         }
-        return GunsmithPartItem.requirePartData(stack).platform() == platform;
+        GunsmithPartItem.PartData data = GunsmithPartItem.tryPartData(stack);
+        return data != null && data.part() == part ? data : null;
     }
 
     public static ItemStack assemble(ItemStack baseGun, ItemStack blueprintStack,
@@ -126,17 +136,29 @@ public final class GunsmithAssemblyRecipe {
         double spreadMultiplier = variantProduct(blueprint, parts, variants, VariantStat.SPREAD);
         double adsSpeedMultiplier = variantProduct(blueprint, parts, variants, VariantStat.ADS_SPEED);
         double fireRateMultiplier = variantProduct(blueprint, parts, variants, VariantStat.FIRE_RATE);
+        // 装配前的预览必须与成品枪 tooltip 同口径, 否则玩家看不到穿甲/弹速/额外垂直后坐就付了工费。
+        // 这三项在成品侧 (GunsmithGunTooltip) 各占独立一行, 值就是组件型号乘子本身, 不与品质浮动系数
+        // 合并 —— 这里照搬同一口径, 避免"预览一套算法、成品另一套算法"。
+        double verticalRecoilMultiplier = variantProduct(blueprint, parts, variants, VariantStat.VERTICAL_RECOIL);
+        double ammoSpeedMultiplier = variantProduct(blueprint, parts, variants, VariantStat.AMMO_SPEED);
+        double armorIgnoreMultiplier = variantProduct(blueprint, parts, variants, VariantStat.ARMOR_IGNORE);
+        // 预览的伤害必须过成品枪那一个总帽, 否则装配台显示 3.75 倍、成品实际 2.25 倍 (审查 27)。
+        double damageMultiplier = GunsmithGunStats.capDamageMultiplier(
+                coefficient(blueprint, coefficients, GunsmithStat.DAMAGE)
+                        * variantProduct(blueprint, parts, variants, VariantStat.DAMAGE));
         double average = average(coefficients, blueprint.requiredParts());
         return new Preview(
-                baseStats.damage() * coefficient(blueprint, coefficients, GunsmithStat.DAMAGE)
-                        * variantProduct(blueprint, parts, variants, VariantStat.DAMAGE),
+                baseStats.damage() * damageMultiplier,
                 baseStats.headshot() * coefficient(blueprint, coefficients, GunsmithStat.HEADSHOT)
                         * variantProduct(blueprint, parts, variants, VariantStat.HEADSHOT),
                 range,
                 baseStats.effectiveRange() * range,
                 (1.0D / recoil * recoilMultiplier - 1.0D) * 100.0D,
+                (verticalRecoilMultiplier - 1.0D) * 100.0D,
                 (1.0D / spread * spreadMultiplier - 1.0D) * 100.0D,
                 (fireRateMultiplier - 1.0D) * 100.0D,
+                (ammoSpeedMultiplier - 1.0D) * 100.0D,
+                (armorIgnoreMultiplier - 1.0D) * 100.0D,
                 GunsmithGunStats.effectiveAdsTime(baseStats.adsTime(), handling * adsSpeedMultiplier),
                 average);
     }
@@ -264,8 +286,11 @@ public final class GunsmithAssemblyRecipe {
                 case HEADSHOT -> variant.headshotMultiplier(quality);
                 case SPREAD -> variant.spreadMultiplier(quality);
                 case RECOIL -> variant.recoilMultiplier(quality);
+                case VERTICAL_RECOIL -> variant.verticalRecoilMultiplier(quality);
                 case ADS_SPEED -> variant.adsSpeedMultiplier(quality);
                 case FIRE_RATE -> variant.fireRateMultiplier(quality);
+                case AMMO_SPEED -> variant.ammoSpeedMultiplier(quality);
+                case ARMOR_IGNORE -> variant.armorIgnoreMultiplier(quality);
             };
         }
         return result;
@@ -290,12 +315,32 @@ public final class GunsmithAssemblyRecipe {
         HEADSHOT,
         SPREAD,
         RECOIL,
+        VERTICAL_RECOIL,
         ADS_SPEED,
-        FIRE_RATE
+        FIRE_RATE,
+        AMMO_SPEED,
+        ARMOR_IGNORE
     }
 
+    /**
+     * 装配预览的完整属性表, 与成品枪 tooltip ({@link GunsmithGunTooltip#append}) 逐行同口径。
+     *
+     * 量纲分三类, 别混用:
+     * damage / headshot / effectiveRange / adsTime 是已乘过基础枪数值的绝对量 (伤害点数、爆头倍率、
+     * 米、秒); range 与 average 是无量纲系数; 所有 {@code ...Change} 分量是百分点 (已乘 100), 负号表示
+     * 该项数值变小。
+     *
+     * 后坐两轴的划分容易读错, 在此固定口径: {@code recoilChange} 是两轴共用的后坐变化 (品质后坐系数
+     * 与组件 recoil 乘子的合并结果), 对水平轴它就是全部结论; {@code verticalRecoilChange} 是在
+     * 前者之上、只作用于垂直轴的组件额外乘子, 不含品质分量。想得到垂直轴总变化要把两者按倍率相乘,
+     * 不是相加 —— 这与 {@link GunsmithGunStats#horizontalRecoilMultiplier()} 和
+     * {@link GunsmithGunStats#verticalRecoilMultiplier()} 的关系一致。
+     *
+     * {@code damage} 已过 {@link GunsmithGunStats#capDamageMultiplier(double)} 总帽, 与成品枪一致。
+     */
     public record Preview(double damage, double headshot, double range, double effectiveRange, double recoilChange,
-                          double spreadChange, double fireRateChange, double adsTime, double average) {
+                          double verticalRecoilChange, double spreadChange, double fireRateChange,
+                          double ammoSpeedChange, double armorIgnoreChange, double adsTime, double average) {
 
         public double recoil() {
             return recoilChange;

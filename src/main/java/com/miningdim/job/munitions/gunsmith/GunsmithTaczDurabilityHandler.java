@@ -31,8 +31,10 @@ public final class GunsmithTaczDurabilityHandler {
         if (!MunitionsConfig.GUNSMITH_ENABLED.get()) {
             return;
         }
-        if (!GunsmithGunDurability.isManagedGun(event.getGunItemStack())
-                || !GunsmithGunDurability.isBroken(event.getGunItemStack())) {
+        // 开火链每发只解析一次枪 NBT, 且必须走不抛的入口: 事件总线里冒出来的解析异常会直接打断开火并崩客户端 (审查 40)。
+        GunsmithGunDurability.Managed managed =
+                GunsmithGunDurability.tryManaged(event.getGunItemStack());
+        if (managed == null || managed.state().current() > 0) {
             return;
         }
         event.setCanceled(true);
@@ -43,12 +45,16 @@ public final class GunsmithTaczDurabilityHandler {
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onGunFire(GunFireEvent event) {
         if (!MunitionsConfig.GUNSMITH_ENABLED.get()
-                || event.getLogicalSide() != LogicalSide.SERVER
-                || !GunsmithGunDurability.isManagedGun(event.getGunItemStack())) {
+                || event.getLogicalSide() != LogicalSide.SERVER) {
+            return;
+        }
+        GunsmithGunDurability.Managed managed =
+                GunsmithGunDurability.tryManaged(event.getGunItemStack());
+        if (managed == null) {
             return;
         }
         GunsmithGunDurability.ShotWear wear =
-                GunsmithGunDurability.consumeShot(event.getGunItemStack());
+                GunsmithGunDurability.consumeShot(managed, event.getGunItemStack());
         if (!wear.canFire()) {
             event.setCanceled(true);
             warn(event.getShooter() instanceof Player player ? player : null,

@@ -1,6 +1,8 @@
 package com.miningdim.job.munitions;
 
 import com.electronwill.nightconfig.core.CommentedConfig;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartRarity;
 import net.minecraftforge.common.ForgeConfigSpec;
 
 /**
@@ -85,6 +87,14 @@ public final class MunitionsConfig {
      */
     public static final ForgeConfigSpec.DoubleValue GUNSMITH_HEADSHOT_DAMAGE_CAP;
 
+    /**
+     * 整枪伤害乘子总帽 (审查 27): GunsmithGunStats.damage() = 单件品质系数 (上限 1.50) x 各组件伤害乘数连乘,
+     * 全链原本无上限 —— AK 平台叠红东高压导气核心 (2.00) + 赤雪-A 枪机 (1.25) + 传奇品质 (1.50) 可达 3.75 倍,
+     * 对 80 血公服单发躯干 27 点即三发致死。本帽钳最终伤害乘子; {@link #GUNSMITH_HEADSHOT_DAMAGE_CAP} 只钳
+     * 品质复利, 两帽各管一段串联生效, 调参时须同盘看。
+     */
+    public static final ForgeConfigSpec.DoubleValue GUNSMITH_DAMAGE_MULTIPLIER_CAP;
+
     // ---- 3A 章: 枪匠品质等级门 + 装配等级门 + 经济 sink (F048 补齐, 数值随 6.1 口径解锁曲线初定, 待主控事后调) ----
     /** 各品质档的军火商解锁等级 (对齐 6.1 口径解锁曲线: 手枪 L1 ... 特种弹 L10 毕业; 传奇零件与特种弹同为 L10 毕业档)。 */
     public static final ForgeConfigSpec.IntValue QUALITY_UNLOCK_COMMON;
@@ -98,6 +108,24 @@ public final class MunitionsConfig {
     public static final ForgeConfigSpec.IntValue ASSEMBLY_UNLOCK_LEVEL;
     /** 单次装配的信用点工费 (销毁型 sink, 与冲压工费独立结算)。 */
     public static final ForgeConfigSpec.IntValue ASSEMBLY_WORK_FEE_CREDITS;
+    /** 解锁枪械维修的军火商等级 (审查 24: 维修与装配同在装配台但门槛独立, 维修是低阶服务先于装配开放)。 */
+    public static final ForgeConfigSpec.IntValue REPAIR_UNLOCK_LEVEL;
+    /** 单次维修的信用点工费 (销毁型 sink, 与装配工费独立结算; 维修还额外吃掉一件替换零件与永久最大耐久)。 */
+    public static final ForgeConfigSpec.IntValue REPAIR_WORK_FEE_CREDITS;
+
+    // ---- 3A 章: 组件稀有度加价与等级门 (审查 29: 冲压原本只看部件类型与品质, 势力/特殊组件与基础组件同价) ----
+    /** 各稀有度档的冲压工费加价倍率 (乘在品质工费之上; STANDARD 即基础组件, 保持 1.0 基准)。 */
+    public static final ForgeConfigSpec.DoubleValue PRESS_RARITY_FEE_MULTIPLIER_STANDARD;
+    public static final ForgeConfigSpec.DoubleValue PRESS_RARITY_FEE_MULTIPLIER_MODIFIED;
+    public static final ForgeConfigSpec.DoubleValue PRESS_RARITY_FEE_MULTIPLIER_SPECIAL;
+    public static final ForgeConfigSpec.DoubleValue PRESS_RARITY_FEE_MULTIPLIER_ADVANCED;
+    public static final ForgeConfigSpec.DoubleValue PRESS_RARITY_FEE_MULTIPLIER_PROTOTYPE;
+    /** 各稀有度档组件解锁冲压所需的军火商等级 (与品质门同一条 1/4/6/8/10 曲线, 不新增锚点)。 */
+    public static final ForgeConfigSpec.IntValue RARITY_UNLOCK_STANDARD;
+    public static final ForgeConfigSpec.IntValue RARITY_UNLOCK_MODIFIED;
+    public static final ForgeConfigSpec.IntValue RARITY_UNLOCK_SPECIAL;
+    public static final ForgeConfigSpec.IntValue RARITY_UNLOCK_ADVANCED;
+    public static final ForgeConfigSpec.IntValue RARITY_UNLOCK_PROTOTYPE;
 
     // ---- 枪械耐久：按枪匠平台分类，每次维修永久降低最大耐久 ----
     public static final ForgeConfigSpec.IntValue GUN_DURABILITY_AR;
@@ -236,6 +264,11 @@ public final class MunitionsConfig {
                         + " faction component damage remains outside this cap. Conservative default pending live tuning against"
                         + " the 80-HP server; 2.25 restores the uncapped legendary+legendary compound.")
                 .defineInRange("gunsmithHeadshotDamageCap", 1.8D, 1.0D, 2.25D);
+        GUNSMITH_DAMAGE_MULTIPLIER_CAP = b.comment("整枪伤害乘子总帽 (无量纲倍率): 钳住 品质系数 x 各组件伤害乘数",
+                        "的连乘结果。默认 2.25 = 品质上限 1.50 x 单件强力组件 1.50, 对 AK47 基础伤害 7.2 折算单发躯干",
+                        "16.2 (80 血公服五发致死); 不设帽时同一套配置可达 3.75 倍即三发致死。上界 4.0 高于当前链路",
+                        "可达的 3.75, 设到上界等于关掉总帽。")
+                .defineInRange("gunsmithDamageMultiplierCap", 2.25D, 1.0D, 4.0D);
         FE_PER_RIFLE_EQUIVALENT_ROUND = b.comment(
                         "FE charged per rifle-equivalent round. Power is billed on the rifle-equivalent",
                         "count rather than the actual round count, so a batch costs the same regardless of",
@@ -306,6 +339,27 @@ public final class MunitionsConfig {
                 .defineInRange("pressWorkFeeCredits", 200, 0, 1000000);
         ASSEMBLY_UNLOCK_LEVEL = b.defineInRange("assemblyUnlockLevel", 5, 1, 10);
         ASSEMBLY_WORK_FEE_CREDITS = b.defineInRange("assemblyWorkFeeCredits", 5000, 0, 100000000);
+        REPAIR_UNLOCK_LEVEL = b.comment("解锁枪械维修的军火商等级 (1-10)。默认 4, 比装配 (L5) 早一级开放:",
+                        "维修是修别人的枪的低阶服务, 但仍须有门, 否则 L1 号就能开免费修枪铺架空耐久 sink。")
+                .defineInRange("repairUnlockLevel", 4, 1, 10);
+        REPAIR_WORK_FEE_CREDITS = b.comment("单次维修销毁的信用点工费。默认 1500: 一次维修另吃一件替换零件与永久最大",
+                        "耐久 (8%-12%), 总代价须明显低于重造整枪 (装配 5000 + 六件零件), 否则玩家宁可弃枪重造,",
+                        "耐久系统失去意义; 设 0 等于关掉维修 sink。")
+                .defineInRange("repairWorkFeeCredits", 1500, 0, 100000000);
+        b.comment("3A. 组件稀有度加价倍率 (无量纲): 实扣冲压工费 = pressWorkFeeCredits x 品质材料倍率 x 本倍率,",
+                "向上取整。势力/特殊组件与基础组件同价即定价缺陷 (审查 29); 材料侧不加价, 因为料槽单槽 64 上限",
+                "已被传奇品质吃满, 再乘倍率会让高稀有度组件直接无法冲压。");
+        PRESS_RARITY_FEE_MULTIPLIER_STANDARD = b.defineInRange("pressRarityFeeMultiplierStandard", 1.0D, 1.0D, 20.0D);
+        PRESS_RARITY_FEE_MULTIPLIER_MODIFIED = b.defineInRange("pressRarityFeeMultiplierModified", 1.5D, 1.0D, 20.0D);
+        PRESS_RARITY_FEE_MULTIPLIER_SPECIAL = b.defineInRange("pressRarityFeeMultiplierSpecial", 2.5D, 1.0D, 20.0D);
+        PRESS_RARITY_FEE_MULTIPLIER_ADVANCED = b.defineInRange("pressRarityFeeMultiplierAdvanced", 4.0D, 1.0D, 20.0D);
+        PRESS_RARITY_FEE_MULTIPLIER_PROTOTYPE = b.defineInRange("pressRarityFeeMultiplierPrototype", 6.0D, 1.0D, 20.0D);
+        b.comment("3A. 各稀有度档组件解锁冲压所需的军火商等级 (1-10), 与品质门共用 1/4/6/8/10 曲线。");
+        RARITY_UNLOCK_STANDARD = b.defineInRange("rarityUnlockStandard", 1, 1, 10);
+        RARITY_UNLOCK_MODIFIED = b.defineInRange("rarityUnlockModified", 4, 1, 10);
+        RARITY_UNLOCK_SPECIAL = b.defineInRange("rarityUnlockSpecial", 6, 1, 10);
+        RARITY_UNLOCK_ADVANCED = b.defineInRange("rarityUnlockAdvanced", 8, 1, 10);
+        RARITY_UNLOCK_PROTOTYPE = b.defineInRange("rarityUnlockPrototype", 10, 1, 10);
         b.pop();
 
         b.push("timing");
@@ -365,6 +419,53 @@ public final class MunitionsConfig {
         b.pop();
 
         SPEC = b.build();
+    }
+
+    /** 整枪伤害乘子总帽 (审查 27; 钳 GunsmithGunStats.damage() 的连乘结果)。 */
+    public static double gunsmithDamageMultiplierCap() {
+        return GUNSMITH_DAMAGE_MULTIPLIER_CAP.get();
+    }
+
+    /** 解锁枪械维修的军火商等级 (审查 24)。 */
+    public static int repairUnlockLevel() {
+        return REPAIR_UNLOCK_LEVEL.get();
+    }
+
+    /** 单次维修销毁的信用点工费 (审查 24)。 */
+    public static long repairWorkFeeCredits() {
+        return REPAIR_WORK_FEE_CREDITS.get();
+    }
+
+    /** 某稀有度档的冲压工费加价倍率 (审查 29)。 */
+    public static double pressRarityFeeMultiplier(GunsmithPartRarity rarity) {
+        return switch (rarity) {
+            case STANDARD -> PRESS_RARITY_FEE_MULTIPLIER_STANDARD.get();
+            case MODIFIED -> PRESS_RARITY_FEE_MULTIPLIER_MODIFIED.get();
+            case SPECIAL -> PRESS_RARITY_FEE_MULTIPLIER_SPECIAL.get();
+            case ADVANCED -> PRESS_RARITY_FEE_MULTIPLIER_ADVANCED.get();
+            case PROTOTYPE -> PRESS_RARITY_FEE_MULTIPLIER_PROTOTYPE.get();
+        };
+    }
+
+    /** 某稀有度档组件解锁冲压所需的军火商等级 (审查 29)。 */
+    public static int rarityUnlockLevel(GunsmithPartRarity rarity) {
+        return switch (rarity) {
+            case STANDARD -> RARITY_UNLOCK_STANDARD.get();
+            case MODIFIED -> RARITY_UNLOCK_MODIFIED.get();
+            case SPECIAL -> RARITY_UNLOCK_SPECIAL.get();
+            case ADVANCED -> RARITY_UNLOCK_ADVANCED.get();
+            case PROTOTYPE -> RARITY_UNLOCK_PROTOTYPE.get();
+        };
+    }
+
+    /**
+     * 单次冲压实扣的信用点工费 = 基数 x 品质材料倍率 x 稀有度加价倍率。工费是销毁型 sink, 浮点零头一律向上取整,
+     * 免得玩家靠倍率档位白拿折扣。冲压台与展示面板共用本方法, 防两处各算一套后漂移。
+     */
+    public static long pressWorkFeeCredits(GunsmithPartQuality quality, GunsmithPartRarity rarity) {
+        double fee = (double) PRESS_WORK_FEE_CREDITS.get() * quality.materialMultiplier()
+                * pressRarityFeeMultiplier(rarity);
+        return (long) Math.ceil(fee);
     }
 
     /**

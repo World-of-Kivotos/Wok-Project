@@ -1,5 +1,13 @@
 package com.miningdim.job.munitions.gunsmith;
 
+import com.miningdim.core.MiningConstants;
+import net.minecraft.util.GsonHelper;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
@@ -9,7 +17,14 @@ import java.util.Objects;
  */
 public final class GunsmithComponentRules {
 
-    private static volatile Map<GunsmithPartVariant, GunsmithComponentRule> current = defaults();
+    /**
+     * 内置默认值直接解析 jar 里的 data/miningdim/gunsmith/components/*.json, 不在 Java 里另抄一份平衡表。
+     * 两份真源没有任何用例比对时必然漂移: 只改 Java 时全库 GameTest 仍全绿(断言跑在 datapack 快照上),
+     * 玩家却会在收到登录同步前的 tooltip 与装配预览里看到另一套数值。
+     */
+    private static final Map<GunsmithPartVariant, GunsmithComponentRule> BUILT_IN = readBuiltIn();
+
+    private static volatile Map<GunsmithPartVariant, GunsmithComponentRule> current = BUILT_IN;
 
     private GunsmithComponentRules() {
     }
@@ -42,21 +57,36 @@ public final class GunsmithComponentRules {
         current = Map.copyOf(checked);
     }
 
+    /** jar 内置规则; 也是 datapack 覆盖文件不可用时的回退来源。 */
     public static Map<GunsmithPartVariant, GunsmithComponentRule> defaults() {
-        EnumMap<GunsmithPartVariant, GunsmithComponentRule> defaults = new EnumMap<>(GunsmithPartVariant.class);
-        defaults.put(GunsmithPartVariant.BASE, GunsmithComponentRule.identity());
-        defaults.put(GunsmithPartVariant.GEHENNA_GAS, GunsmithComponentRule.gehennaDefaults());
-        defaults.put(GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS,
-                GunsmithComponentRule.redWinterDefaults());
-        defaults.put(GunsmithPartVariant.MK_AX_A_BOLT, GunsmithComponentRule.mkAxADefaults());
-        defaults.put(GunsmithPartVariant.TRINITY_PRECISION_GRADUATED_BARREL,
-                GunsmithComponentRule.trinityPrecisionGraduatedBarrelDefaults());
-        defaults.put(GunsmithPartVariant.AR_THREE_ROUND_BURST_BOLT,
-                GunsmithComponentRule.arThreeRoundBurstBoltDefaults());
-        defaults.put(GunsmithPartVariant.TRINITY_PRECISION_GRADUATED_SNIPER_BARREL,
-                GunsmithComponentRule.trinityPrecisionGraduatedSniperBarrelDefaults());
-        defaults.put(GunsmithPartVariant.RED_WINTER_CHIXUE_A_BOLT,
-                GunsmithComponentRule.redWinterChixueABoltDefaults());
-        return Map.copyOf(defaults);
+        return BUILT_IN;
+    }
+
+    private static Map<GunsmithPartVariant, GunsmithComponentRule> readBuiltIn() {
+        EnumMap<GunsmithPartVariant, GunsmithComponentRule> builtIn =
+                new EnumMap<>(GunsmithPartVariant.class);
+        // BASE 是"无特殊组件"的单位规则, 没有也不允许有对应 JSON。
+        builtIn.put(GunsmithPartVariant.BASE, GunsmithComponentRule.identity());
+        for (GunsmithPartVariant variant : GunsmithPartVariant.values()) {
+            if (variant != GunsmithPartVariant.BASE) {
+                builtIn.put(variant, readBuiltIn(variant));
+            }
+        }
+        return Map.copyOf(builtIn);
+    }
+
+    private static GunsmithComponentRule readBuiltIn(GunsmithPartVariant variant) {
+        String path = "/data/" + MiningConstants.MODID + "/gunsmith/components/" + variant.id() + ".json";
+        try (InputStream stream = GunsmithComponentRules.class.getResourceAsStream(path)) {
+            if (stream == null) {
+                throw new IllegalStateException("Missing built-in gunsmith component rule: " + path);
+            }
+            try (Reader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
+                return GunsmithComponentRule.fromJson(GsonHelper.parse(reader));
+            }
+        } catch (IOException failure) {
+            // 内置资源读不出来属打包事故, 静态初始化阶段无法抛受检异常, 原样带因由上抛。
+            throw new IllegalStateException("Failed to read built-in gunsmith component rule: " + path, failure);
+        }
     }
 }

@@ -92,7 +92,9 @@ public record GunsmithComponentRule(Map<GunsmithPartQuality, Double> damage,
     }
 
     public boolean hasEffects(GunsmithPartQuality quality) {
-        return damage(quality) != 1.0D
+        // replace 语义下即使十组倍率全为 1.0, 射程系数仍会被整体替换, 属于必须让玩家看见的效果。
+        return rangeOperation != RangeOperation.MULTIPLY
+                || damage(quality) != 1.0D
                 || headshot(quality) != 1.0D
                 || fireRate(quality) != 1.0D
                 || effectiveRange(quality) != 1.0D
@@ -108,111 +110,6 @@ public record GunsmithComponentRule(Map<GunsmithPartQuality, Double> damage,
         EnumMap<GunsmithPartQuality, Double> identity = filled(1.0D);
         return new GunsmithComponentRule(identity, identity, identity, RangeOperation.MULTIPLY,
                 identity, identity, identity, identity, identity, identity, identity);
-    }
-
-    public static GunsmithComponentRule gehennaDefaults() {
-        return new GunsmithComponentRule(
-                filled(1.0D),
-                filled(1.0D),
-                qualityValues(1.05D, 1.10D, 1.15D, 1.20D, 1.25D),
-                RangeOperation.MULTIPLY,
-                filled(1.0D),
-                filled(1.0D),
-                filled(1.0D),
-                qualityValues(1.03D, 1.06D, 1.09D, 1.12D, 1.15D),
-                filled(2.0D),
-                filled(1.0D),
-                filled(1.0D));
-    }
-
-    public static GunsmithComponentRule redWinterDefaults() {
-        return new GunsmithComponentRule(
-                qualityValues(1.20D, 1.40D, 1.60D, 1.80D, 2.00D),
-                filled(1.0D),
-                filled(0.75D),
-                RangeOperation.MULTIPLY,
-                filled(0.60D),
-                filled(1.0D),
-                filled(1.0D),
-                qualityValues(1.20D, 1.35D, 1.50D, 1.65D, 1.80D),
-                filled(2.00D),
-                filled(3.00D),
-                filled(1.0D));
-    }
-
-    public static GunsmithComponentRule mkAxADefaults() {
-        return new GunsmithComponentRule(
-                qualityValues(1.05D, 1.10D, 1.15D, 1.20D, 1.25D),
-                filled(1.0D),
-                filled(1.05D),
-                RangeOperation.MULTIPLY,
-                qualityValues(1.05D, 1.10D, 1.15D, 1.20D, 1.25D),
-                filled(1.0D),
-                filled(1.0D),
-                qualityValues(0.95D, 0.90D, 0.85D, 0.80D, 0.75D),
-                qualityValues(0.95D, 0.90D, 0.85D, 0.80D, 0.75D),
-                filled(1.0D),
-                filled(0.70D));
-    }
-
-    public static GunsmithComponentRule trinityPrecisionGraduatedBarrelDefaults() {
-        return new GunsmithComponentRule(
-                filled(1.0D),
-                filled(1.50D),
-                filled(1.0D),
-                RangeOperation.MULTIPLY,
-                filled(1.50D),
-                filled(1.0D),
-                filled(1.0D),
-                filled(0.70D),
-                filled(1.0D),
-                filled(1.0D),
-                filled(0.50D));
-    }
-
-    public static GunsmithComponentRule arThreeRoundBurstBoltDefaults() {
-        return new GunsmithComponentRule(
-                filled(1.0D),
-                filled(1.0D),
-                filled(1.0D),
-                RangeOperation.MULTIPLY,
-                filled(1.0D),
-                filled(1.0D),
-                filled(1.0D),
-                filled(0.75D),
-                filled(0.65D),
-                filled(1.0D),
-                filled(1.0D));
-    }
-
-    public static GunsmithComponentRule trinityPrecisionGraduatedSniperBarrelDefaults() {
-        return new GunsmithComponentRule(
-                filled(1.0D),
-                filled(2.0D),
-                filled(1.0D),
-                RangeOperation.MULTIPLY,
-                filled(1.0D),
-                filled(1.50D),
-                filled(1.0D),
-                filled(0.67D),
-                filled(1.0D),
-                filled(1.0D),
-                filled(0.70D));
-    }
-
-    public static GunsmithComponentRule redWinterChixueABoltDefaults() {
-        return new GunsmithComponentRule(
-                filled(1.25D),
-                filled(1.0D),
-                filled(1.0D),
-                RangeOperation.MULTIPLY,
-                filled(1.0D),
-                filled(1.0D),
-                filled(0.75D),
-                filled(1.0D),
-                filled(1.35D),
-                filled(1.0D),
-                filled(1.0D));
     }
 
     public static GunsmithComponentRule fromJson(JsonObject json) {

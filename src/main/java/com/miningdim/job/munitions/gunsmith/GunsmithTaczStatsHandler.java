@@ -36,9 +36,26 @@ public final class GunsmithTaczStatsHandler {
     }
 
     public static void register(IEventBus forgeBus) {
+        requireSharedInaccuracyCacheKey();
         installSpreadsheetBaseModifiers();
         installRecoilModifier();
         forgeBus.register(new GunsmithTaczStatsHandler());
+    }
+
+    /**
+     * 启动期钉死"两个散布键其实是一个"这一前提 (审查发现 25)。
+     *
+     * TaCZ 1.1.8 里 AIM_INACCURACY 与 INACCURACY 都是 GunProperty.of("inaccuracy", ...),
+     * AttachmentCacheProperty 以 property.name() 作键, 所以散布只能写一次。若 TaCZ 升级后把两个键拆开,
+     * 单写会静默丢掉 ADS 分量, 玩家在服上吃到错误散布却无人察觉 —— 宁可在这里炸掉。
+     */
+    private static void requireSharedInaccuracyCacheKey() {
+        String hipKey = GunProperties.INACCURACY.name();
+        String aimKey = GunProperties.AIM_INACCURACY.name();
+        if (!hipKey.equals(aimKey)) {
+            throw new IllegalStateException("TaCZ no longer shares one inaccuracy cache key (" + hipKey
+                    + " vs " + aimKey + "); gunsmith must write the aim entry separately again");
+        }
     }
 
     /** 规则热重载后立即重建持枪实体的 TaCZ 属性缓存。 */
@@ -111,8 +128,8 @@ public final class GunsmithTaczStatsHandler {
         multiplyFloat(cache, GunProperties.AMMO_SPEED, multipliers.ammoSpeed());
         multiplyFloat(cache, GunProperties.ARMOR_IGNORE, multipliers.armorIgnore());
         multiplyFloat(cache, GunProperties.ADS_TIME, multipliers.adsTime());
-        multiplyInaccuracy(cache, GunProperties.INACCURACY, multipliers.inaccuracy());
-        multiplyInaccuracy(cache, GunProperties.AIM_INACCURACY, multipliers.aimInaccuracy());
+        // 只写一次: AIM_INACCURACY 与 INACCURACY 共用同一份缓存, 写两次等于把散布乘数平方。
+        multiplyInaccuracy(cache, GunProperties.INACCURACY, multipliers.combinedInaccuracy());
         multiplyInteger(cache, GunProperties.ROUNDS_PER_MINUTE, multipliers.fireRate());
     }
 
@@ -190,9 +207,14 @@ public final class GunsmithTaczStatsHandler {
         @Override
         public CacheValue<ParameterizedCachePair<Float, Float>> initCache(ItemStack gun, GunData gunData) {
             CacheValue<ParameterizedCachePair<Float, Float>> initialized = delegate.initCache(gun, gunData);
+            RecoilFormula formula = recoilFormula(gun);
+            // 非枪匠枪 / 枪匠关闭 / 系数恰好为 1 时公式恒等, 原样交回 TaCZ 缓存 (审查发现 72)。
+            // 否则全服每一把 TaCZ 枪都会被塞进恒等式脚本, 每次开火白跑一次 LuaJ 编译。
+            if (formula.isIdentity()) {
+                return initialized;
+            }
             ParameterizedCachePair<Float, Float> value = Objects.requireNonNull(initialized.getValue(),
                     "TaCZ recoil modifier initialized an empty cache");
-            RecoilFormula formula = recoilFormula(gun);
             // TaCZ 仅在至少存在一个原生配件修正时调用 modifier.eval()。枪械没有后坐配件时，
             // 空修正列表会被 AttachmentCacheProperty 提前跳过，因此枪匠倍率必须先写入初始缓存；
             // 有原生配件时 eval() 会用“原生修正 + 枪匠修正”重建缓存，不会重复计算本倍率。
@@ -205,15 +227,22 @@ public final class GunsmithTaczStatsHandler {
         @Override
         public void eval(List<Pair<Modifier, Modifier>> attachmentModifiers,
                          CacheValue<ParameterizedCachePair<Float, Float>> cacheValue) {
-            GunsmithRecoilCacheValue gunsmithCache = (GunsmithRecoilCacheValue) cacheValue;
+            // 恒等公式下 initCache 交回的是 TaCZ 原始 CacheValue, 这里不能强转。
+            if (!(cacheValue instanceof GunsmithRecoilCacheValue gunsmithCache)) {
+                delegate.eval(attachmentModifiers, cacheValue);
+                return;
+            }
+            RecoilFormula formula = gunsmithCache.formula();
             List<Pair<Modifier, Modifier>> combined = new ArrayList<>(attachmentModifiers);
             // TaCZ RecoilModifier 的 Pair 顺序是 pitch(垂直)、yaw(水平)。
-            combined.add(Pair.of(new ScalingModifier(gunsmithCache.formula().pitchBase()),
-                    new ScalingModifier(gunsmithCache.formula().yawBase())));
+            combined.add(Pair.of(new ScalingModifier(formula.pitchBase()),
+                    new ScalingModifier(formula.yawBase())));
             // 势力组件额外制造的后坐在 TaCZ 原生配件/脚本之后相加，避免先锋 A3 一类
             // 极端制退器把红冬导气的自身惩罚同比压掉。
-            combined.add(Pair.of(new AdditiveRecoilModifier(gunsmithCache.formula().pitchExtra()),
-                    new AdditiveRecoilModifier(gunsmithCache.formula().yawExtra())));
+            if (formula.pitchExtra() > 0.0D || formula.yawExtra() > 0.0D) {
+                combined.add(Pair.of(RecoilFormula.extraModifier(formula.pitchExtra()),
+                        RecoilFormula.extraModifier(formula.yawExtra())));
+            }
             delegate.eval(combined, cacheValue);
         }
 
@@ -332,12 +361,34 @@ public final class GunsmithTaczStatsHandler {
 
         private static final RecoilFormula IDENTITY = new RecoilFormula(1.0D, 0.0D, 1.0D, 0.0D);
 
+        private boolean isIdentity() {
+            return IDENTITY.equals(this);
+        }
+
         private List<Modifier> pitchModifiers() {
-            return List.of(new ScalingModifier(pitchBase), new AdditiveRecoilModifier(pitchExtra));
+            return axisModifiers(pitchBase, pitchExtra);
         }
 
         private List<Modifier> yawModifiers() {
-            return List.of(new ScalingModifier(yawBase), new AdditiveRecoilModifier(yawExtra));
+            return axisModifiers(yawBase, yawExtra);
+        }
+
+        /**
+         * extra 为 0 时不挂 AdditiveRecoilModifier: 它的 getFunction() 恒非空, TaCZ 的 ParameterizedCache
+         * 只按 isNotEmpty 收脚本, 于是恒等式 "x + r * 0.0" 会进脚本表, 每次开火都白跑一次 LuaJ 字符串编译。
+         */
+        private static List<Modifier> axisModifiers(double base, double extra) {
+            return extra > 0.0D
+                    ? List.of(new ScalingModifier(base), new AdditiveRecoilModifier(extra))
+                    : List.of(new ScalingModifier(base));
+        }
+
+        /**
+         * pitch/yaw 在 eval() 里必须成对提交, 单轴没有额外后坐时交一个中性 Modifier
+         * (addend 0 / percent 0 / multiplier 1 / function null), 避免为它单独编译一段恒等脚本。
+         */
+        private static Modifier extraModifier(double extra) {
+            return extra > 0.0D ? new AdditiveRecoilModifier(extra) : new Modifier();
         }
     }
 

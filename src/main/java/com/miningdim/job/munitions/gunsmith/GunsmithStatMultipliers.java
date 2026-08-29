@@ -10,6 +10,9 @@ import java.util.Objects;
  *
  * 爆头封顶只约束枪机伤害品质系数 x 基础枪管爆头品质系数的复利。势力组件自己的伤害与爆头倍率在帽外计算，
  * 避免红冬伤害或圣三一枪管的明确特殊效果被基础品质封顶吞掉。
+ *
+ * inaccuracy 与 aimInaccuracy 是散布的两个方向分量 (护木 spread / 握把 handling)，不是两条可以分别下发的
+ * TACZ 属性; 写进缓存的永远是 {@link #combinedInaccuracy()}，原因见该方法。
  */
 public record GunsmithStatMultipliers(double damage, double headshot, double effectiveRange, double ammoSpeed,
                                       double armorIgnore, double adsTime, double inaccuracy, double aimInaccuracy,
@@ -24,7 +27,7 @@ public record GunsmithStatMultipliers(double damage, double headshot, double eff
                 base.effectiveRange(), stats.ammoSpeed(), stats.armorIgnore(),
                 base.adsTime() * inverse(stats.specialAdsSpeed()),
                 base.inaccuracy() * stats.specialSpread(),
-                base.aimInaccuracy() * stats.specialSpread(), recoil,
+                base.aimInaccuracy(), recoil,
                 recoil * stats.verticalRecoil(), stats.fireRate());
     }
 
@@ -51,6 +54,18 @@ public record GunsmithStatMultipliers(double damage, double headshot, double eff
         return new GunsmithStatMultipliers(damage, cappedHeadshot, range, 1.0D, 1.0D,
                 inverse(handling), inverse(spread), inverse(handling), inverse(recoil),
                 inverse(recoil), 1.0D);
+    }
+
+    /**
+     * 落到 TACZ 散布缓存的唯一乘子 (审查发现 25)。
+     *
+     * TACZ 1.1.8 的 GunProperties.AIM_INACCURACY 与 INACCURACY 都是 GunProperty.of("inaccuracy", ...),
+     * AttachmentCacheProperty 又以 property.name() 作键, 两者其实共用同一份 Map&lt;InaccuracyType, Float&gt;。
+     * 分两次写会把势力组件的 spread 乘数平方 (0.75 变 0.5625, 1.15 变 1.3225), 所以护木(spread)与
+     * 握把(handling)两个方向必须在这里先合成, 再由 handler 一次性写进缓存。
+     */
+    public double combinedInaccuracy() {
+        return inaccuracy * aimInaccuracy;
     }
 
     private static double inverse(double coefficient) {

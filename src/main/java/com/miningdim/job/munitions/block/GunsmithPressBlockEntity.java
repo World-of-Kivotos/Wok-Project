@@ -9,6 +9,7 @@ import com.miningdim.job.munitions.MunitionsConfig;
 import com.miningdim.job.munitions.MunitionsLevels;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
+import com.miningdim.job.munitions.gunsmith.GunsmithPartRarity;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartVariant;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
@@ -49,6 +50,13 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
     public static final int DATA_SELECTED_VARIANT = 6;
     public static final int DATA_COUNT = 7;
     private static final int HYDRAULIC_SOUND_INTERVAL = 34;
+
+    /**
+     * 势力/特殊组件的等级门文案 (审查 29)。lang 归属方尚未收录该键, 故经 translatableWithFallback 兜底,
+     * 保证键落地前玩家看到的是可读句子而不是裸键; 界面侧的锁定提示复用同一对常量, 防两处文案漂移。
+     */
+    public static final String RARITY_LOCKED_KEY = "message.miningdim.gunsmith_press.rarity_locked";
+    public static final String RARITY_LOCKED_FALLBACK = "该组件型号需要军火商 %s 级。";
 
     private GunsmithPlatform selectedPlatform = GunsmithPlatform.AR;
     private GunsmithPressPart selectedPart = GunsmithPressPart.CORE;
@@ -218,7 +226,17 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
                     MunitionsLevels.partQualityUnlockLevel(selectedQuality)), true);
             return false;
         }
-        long fee = (long) MunitionsConfig.PRESS_WORK_FEE_CREDITS.get() * selectedQuality.materialMultiplier();
+        // 势力/特殊组件不能与基础组件同门同价 (审查 29): 等级门按型号稀有度收, 工费按稀有度加价。
+        // 选中态不设门 (trySelectVariant 拿不到玩家), 服务端在此做唯一权威判定, 界面只做提前提示。
+        GunsmithPartRarity rarity = selectedVariant.rarity();
+        int rarityUnlockLevel = MunitionsConfig.rarityUnlockLevel(rarity);
+        if (level < rarityUnlockLevel) {
+            player.displayClientMessage(
+                    Component.translatableWithFallback(RARITY_LOCKED_KEY, RARITY_LOCKED_FALLBACK, rarityUnlockLevel),
+                    true);
+            return false;
+        }
+        long fee = MunitionsConfig.pressWorkFeeCredits(selectedQuality, rarity);
         if (!tryChargeWorkFee(player, fee)) {
             player.displayClientMessage(
                     Component.translatable("message.miningdim.gunsmith.work_fee_unaffordable", fee), true);
@@ -320,6 +338,9 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
         consume(SLOT_POLYMER, requiredPolymer());
     }
 
+    // 料量只按部件与品质算, 不再按型号稀有度加价 (审查 29 的定价缺口改由信用点工费与等级门承担):
+    // 料槽是单槽 ItemStackHandler, 上限 64, 而 hasMaterial 要求单槽一次凑够; 传奇品质的 x10 倍率已把
+    // 枪管合金推到 70 顶穿上限, 再乘稀有度倍率会让高稀有度组件直接冲不出来, 变成隐性封禁而不是定价。
     private int requiredGunParts() {
         return selectedPart.partsCost() * selectedQuality.materialMultiplier();
     }

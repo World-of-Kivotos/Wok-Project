@@ -54,6 +54,8 @@ WOK 服务器的综合玩法 MOD，运行于 Minecraft 1.20.1 + MinecraftForge 4
 | `gradlew runClient` | 启动带 mod 的客户端 |
 | `gradlew runServer` | 启动带 mod 的专用服务端 |
 | `gradlew runGameTestServer` | 运行 GameTest（命名空间 `miningdim`） |
+| `gradlew verifyModuleRegistry` | 校验 `module-registry.json` 的模块 ID、目标依赖图、债务编号与循环依赖，并打印当期模块数与例外数 |
+| `gradlew verifyModuleBoundaries` | 按 package/资源所有权扫描全部源码，拒绝未登记的跨模块引用，并核对债务表与登记表编号一致 |
 
 ## 架构总览
 
@@ -70,7 +72,7 @@ WOK 服务器的综合玩法 MOD，运行于 Minecraft 1.20.1 + MinecraftForge 4
    (IMiningConfig)(IMiningNetwork)(IOfflineGenerator)(IInstanceManager)
 ```
 
-以下是最初矿区子系统的装配基线；当前 WOK 本体的完整 21 模块清单与所有权以 [`docs/modules/module-registry.json`](docs/modules/module-registry.json) 为准。List 顺序仍是门面注入顺序，见 `MiningDim` 类注释的硬约束。
+以下是最初矿区子系统的装配基线；当前 WOK 本体的完整模块清单与所有权以 [`docs/modules/module-registry.json`](docs/modules/module-registry.json) 为准，渲染成表见 [`docs/modules/README.md`](docs/modules/README.md)。模块数量不在本文重复钉死，`gradlew verifyModuleRegistry` 会打印当期实数。List 顺序仍是门面注入顺序，见 `MiningDim` 类注释的硬约束。
 
 | 顺序 | 子系统入口 | 职责 | 注入的 core 门面 |
 | --- | --- | --- | --- |
@@ -88,7 +90,7 @@ WOK 服务器的综合玩法 MOD，运行于 Minecraft 1.20.1 + MinecraftForge 4
 | 12 | `error.ErrorSystem` | 启动期维度自检 + 边界兜底文案 | —（事件型） |
 | 13 | `entry.EntrySystem` | 玩家 Capability + `/mining` 命令树 + 进入/离开/登录恢复编排 | —（玩家 Capability 经 `entry.MiningCapabilities` 对外） |
 
-目标架构要求跨模块协作只经公开门面或 seam。全量扫描确认当前仍有 15 组历史反向引用，已逐条登记在 [`docs/modules/DEPENDENCY_DEBT.md`](docs/modules/DEPENDENCY_DEBT.md) 并由构建阻止新增。全服经验统一经过 `progression.IExperienceService` 的“轨道 + 来源”路由，现有职业存档由兼容适配器继续承载。worldgen 的 `MiningChunkGenerator` 经 `worldgen.MiningVoxelLookup` 静态 seam 取冻结体素：集成层（`instance.InstanceSystem.onServerStarted`）把离线调度器的 `voxelsOf` 接进该 seam。
+目标架构要求跨模块协作只经公开门面或 seam。历史反向引用逐条带 `D###` 编号登记在登记表的 `boundaryExceptions`，渲染结果与清偿进度见 [`docs/modules/DEPENDENCY_DEBT.md`](docs/modules/DEPENDENCY_DEBT.md)；活跃条数、已清偿条数和每条例外的触发文件清单（`evidence`）都由 `gradlew verifyModuleBoundaries` 逐条核对，该任务同时拒绝新增未登记的跨模块引用，故本文不再抄写会过期的条数。全服经验统一经过 `progression.IExperienceService` 的“轨道 + 来源”路由，现有职业存档由兼容适配器继续承载。worldgen 的 `MiningChunkGenerator` 经 `worldgen.MiningVoxelLookup` 静态 seam 取冻结体素：集成层（`instance.InstanceSystem.onServerStarted`）把离线调度器的 `voxelsOf` 接进该 seam。
 
 ## 已知架构裁决 (阶段2 集成)
 
@@ -111,7 +113,7 @@ WOK 服务器的综合玩法 MOD，运行于 Minecraft 1.20.1 + MinecraftForge 4
 
 ## 模块化约定
 
-- 单 `mods.toml`、单 JAR，按 `module-registry.json` 的最长 package 前缀确定模块所有权。
+- 单 `mods.toml`、单 JAR。Java 所有权按 `module-registry.json` 的 `javaPackages`（精确包）与 `javaPackagePrefixes`（最长前缀）判定，资源所有权按 `resourcePaths` 与 `resourceNamePrefixes` 判定；两边都落不到的文件会被 `verifyModuleBoundaries` 判为无主并失败，共享文件必须显式登记在 `sharedResources`。
 - 所有玩法经验必须提交给 `IExperienceService`；模块声明稳定来源 ID，不得自行修改其他模块的经验存档或衰减计数。
 - 目标依赖必须在登记表中声明且保持无环；历史反向引用只能使用已有 `boundaryExceptions`，严禁新增未登记实现依赖。
 - 每个子系统实现 `com.miningdim.core.Subsystem`，在 `register(modBus, forgeBus)` 内完成自注册并把服务实例注入 `MiningServices`。

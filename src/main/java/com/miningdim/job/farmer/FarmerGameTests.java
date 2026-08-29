@@ -9,14 +9,14 @@ import com.miningdim.economy.EconomyServices;
 import com.miningdim.economy.EconomyLedger;
 import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.economy.PlayerAbuseState;
-import com.miningdim.job.IJobService;
 import com.miningdim.job.JobId;
-import com.miningdim.job.JobProgress;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.JobExperienceTracks;
 import com.miningdim.job.JobXpPolicies;
 import com.miningdim.job.JobXpCurve;
+import com.miningdim.progression.ExperienceGrant;
 import com.miningdim.progression.ExperienceServices;
+import com.miningdim.progression.ExperienceSnapshot;
 import com.miningdim.job.farmer.block.FarmerBlocks;
 import com.miningdim.job.farmer.block.FarmerCropBlock;
 import com.miningdim.job.farmer.block.FarmerFarmlandBlock;
@@ -32,7 +32,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.item.ItemEntity;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block;
@@ -79,6 +78,14 @@ public final class FarmerGameTests {
     private static final String EMPTY = "empty";
     private static final String BATCH = "farmer";
 
+    /**
+     * 农夫模块装配契约 + 表C 衰减折算的真值锚。
+     *
+     * 期望值一律手算常量, 不得回调被测函数: 旧写法 {@code expected = FarmerXpCurve.applyDailyDecayExact(...)}
+     * 与 actual 同源, 把表C 四段系数整体改错也照样绿, 只测出了"路由没断", 测不出"折算对不对"。
+     * 手算依据 (FarmingXP 表C): 段界 1500/1800/2000/2150 划在有效经验轴上, 各段系数 1.0/0.30/0.10/0.03,
+     * 越过 2150 之后按 0.005 涓流。
+     */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void farmerModuleRegistersItsXpPolicy(GameTestHelper helper) {
         helper.assertTrue("wok-job-farmer".equals(FarmerModule.MODULE_ID),
@@ -92,12 +99,116 @@ public final class FarmerGameTests {
                 "farmer XP sources must be registered before gameplay awards experience");
         helper.assertTrue(FarmerExperience.TRACK_ID.equals(JobExperienceTracks.track(JobId.FARMER)),
                 "farmer source must target the compatible job/farmer track");
-        double expected = FarmerXpCurve.applyDailyDecayExact(1_490.0D, 100L);
-        double actual = JobXpPolicies.applyDailyDecayExact(JobId.FARMER, 1_490.0D, 100L);
-        helper.assertTrue(Math.abs(expected - actual) < 0.000_001D,
-                "job-core must route farmer XP through the registered policy");
-        helper.assertTrue(JobXpPolicies.dailySoftCap(JobId.FARMER) == FarmerXpCurve.DAILY_SOFTCAP,
-                "job-core must expose the registered farmer soft cap");
+
+        // 轨道 ID 决定这笔经验落进哪份职业存档, 来源 ID 是跨模块审计口径: 两者都是对外契约, 用字面量钉死,
+        // 不引用被测常量 —— 引用常量的话, 改名时断言跟着一起改, 契约破裂反而无人察觉。
+        helper.assertTrue(FarmerExperience.TRACK_ID.equals(
+                        new ResourceLocation(MiningConstants.MODID, "job/farmer")),
+                "farmer track ID must stay miningdim:job/farmer, 实得 " + FarmerExperience.TRACK_ID);
+        helper.assertTrue(FarmerExperience.HARVEST_SOURCE.equals(
+                        new ResourceLocation(MiningConstants.MODID, "farmer/harvest")),
+                "harvest source ID must stay miningdim:farmer/harvest, 实得 " + FarmerExperience.HARVEST_SOURCE);
+        helper.assertTrue(FarmerExperience.PICK_SOURCE.equals(
+                        new ResourceLocation(MiningConstants.MODID, "farmer/pick")),
+                "pick source ID must stay miningdim:farmer/pick, 实得 " + FarmerExperience.PICK_SOURCE);
+
+        // 手算 1: 当日已有 1490 有效经验时再入 100 原始。1490 -> 1500 那 10 点有效容量按 x1.0 吃掉 10 原始,
+        // 余下 90 原始落 [1500,1800) 的 x0.30 得 27 有效。合计 10 + 27 = 37。
+        double nearFirstBound = JobXpPolicies.applyDailyDecayExact(JobId.FARMER, 1_490.0D, 100L);
+        helper.assertTrue(Math.abs(nearFirstBound - 37.0D) < 0.000_001D,
+                "表C: 1490 有效起入 100 原始 = 10*1.0 + 90*0.30 = 37 有效, 实得 " + nearFirstBound);
+
+        // 手算 2: 当日 0 起入 11100 原始。填满四段有效容量需 1500/1.0 + 300/0.30 + 200/0.10 + 150/0.03
+        // = 1500 + 1000 + 2000 + 5000 = 9500 原始 (得 2150 有效 = 软上限); 余 1600 原始走 x0.005 涓流得 8 有效。
+        double acrossSoftCap = JobXpPolicies.applyDailyDecayExact(JobId.FARMER, 0.0D, 11_100L);
+        helper.assertTrue(Math.abs(acrossSoftCap - 2_158.0D) < 0.000_001D,
+                "表C: 0 起入 11100 原始 = 2150 有效 + 1600*0.005 = 2158 有效, 实得 " + acrossSoftCap);
+
+        // 判别锚: 同样两组输入走共享默认 2000 系曲线是 100 与 3728, 与农夫表C 差得极远。农夫策略一旦漏注册,
+        // job-core 会静默回退默认曲线, 上面两条断言立刻挂 —— 这是"农夫用的是自己那份衰减"的唯一证据。
+        helper.assertTrue(Math.abs(JobXpCurve.applyDailyDecayExact(1_490.0D, 100L) - 100.0D) < 0.000_001D,
+                "对照真值: 默认曲线 1490 起入 100 原始全在 [0,2000) x1.0 = 100 有效");
+        helper.assertTrue(Math.abs(JobXpCurve.applyDailyDecayExact(0.0D, 11_100L) - 3_728.0D) < 0.000_001D,
+                "对照真值: 默认曲线 0 起入 11100 原始 = 2000 + 800 + 600 + 4100*0.08 = 3728 有效");
+
+        helper.assertTrue(JobXpPolicies.dailySoftCap(JobId.FARMER) == 2_150L,
+                "表C 每日软上限固定 2150 有效经验, 实得 " + JobXpPolicies.dailySoftCap(JobId.FARMER));
+        helper.assertTrue(JobXpCurve.DAILY_SOFTCAP == 3_800L,
+                "默认软上限 3800 与农夫 2150 必须不同, 否则上一条断言没有判别力");
+        helper.succeed();
+    }
+
+    /**
+     * 收获来源经全服经验路由入账后, 真正落进玩家存档的有效经验必须按农夫表C 折算。
+     *
+     * 本 PR 把入账从 {@code JobServices.jobService().grantXp} 换成经验路由后, 只剩
+     * {@code onCropHarvestedSettlesXpForMatureModCrop} 那条 "0 起入 4 原始得 4 有效" 在跑 —— 而 4 落在
+     * 任何一条曲线的 x1.0 首段, 两条曲线给的是同一个数, 换句话说折算这一维在 PR 之后无覆盖。此处刻意把
+     * 当日经验推过软上限, 让两条曲线分叉 (2158 vs 3728 / 5 vs 400) 才有判别力。期望值全部手算。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void farmerHarvestAwardUsesTheFarmerDailyTable(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        long before = ExperienceServices.experienceService()
+                .snapshot(player, FarmerExperience.TRACK_ID).totalXp();
+        helper.assertTrue(before == 0L, "新 mock 玩家农夫轨道基线必须是 0, 实得 " + before);
+
+        // 手算: 11100 原始 = 9500 原始填满表C 四段 (2150 有效) + 1600 原始 x0.005 (8 有效) = 2158 有效。
+        long first = FarmerExperience.awardHarvest(player, 11_100L);
+        helper.assertTrue(first == 2_158L,
+                "11100 原始经农夫表C 应入账 2158 有效经验 (默认曲线会给 3728), 实得 " + first);
+
+        // 手算: 当日有效经验已越过 2150 软上限, 再入 1000 原始整笔走 x0.005 涓流 = 5 有效。
+        // 若当日指针没被上一笔推进 (每笔都从 0 起算), 这里会得到 1000。
+        long second = FarmerExperience.awardHarvest(player, 1_000L);
+        helper.assertTrue(second == 5L,
+                "越过软上限后 1000 原始只涓流出 5 有效经验 (默认曲线会给 400, 指针没推进会给 1000), 实得 " + second);
+
+        ExperienceSnapshot after = ExperienceServices.experienceService()
+                .snapshot(player, FarmerExperience.TRACK_ID);
+        helper.assertTrue(after.totalXp() == 2_163L,
+                "两笔累计 2158 + 5 = 2163 有效经验, 实得 " + after.totalXp());
+        // 表A: 升到 L2 需累计 3300, 2163 还差得远, 等级必须仍是 1 (等级由累计经验派生, 不由入账次数派生)。
+        helper.assertTrue(after.level() == 1,
+                "累计 2163 未达 L2 门槛 3300, 等级必须仍为 1, 实得 " + after.level());
+        helper.succeed();
+    }
+
+    /**
+     * 采摘来源 (PICK_SOURCE) 的入账路径覆盖 + 来源与轨道的绑定关系。
+     *
+     * 生产侧唯一调用点 {@code FarmerSystem.onCropPicked} 要求装了 Farmer's Delight, dev GameTest 环境下
+     * 整条方法在 {@code isPickableFarmersDelightTomato} 处直接 return, 于是这个来源自 PR 引入起一次也
+     * 没被执行过 (注册断言只证明它登记了, 没证明它发得出经验)。此处直接驱动入账, 并用一条反向断言钉住
+     * "采摘来源只认农夫轨道"。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void farmerPickSourceAwardsOnlyOnTheFarmerTrack(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        ResourceLocation chefTrack = JobExperienceTracks.track(JobId.CHEF);
+        long chefBefore = ExperienceServices.experienceService().snapshot(player, chefTrack).totalXp();
+        helper.assertTrue(chefBefore == 0L, "新 mock 玩家厨师轨道基线必须是 0, 实得 " + chefBefore);
+
+        // 手算: 超凡地一次采摘 = SINGLE_CROP_XP(2) x SUPREME 产量(6) = 12 原始; 当日 0 起全在表C 首段 x1.0 -> 12 有效。
+        long gained = FarmerExperience.awardPick(player, 12L);
+        helper.assertTrue(gained == 12L, "当日 0 起入 12 原始应全额折算 12 有效经验, 实得 " + gained);
+        long farmerAfter = ExperienceServices.experienceService()
+                .snapshot(player, FarmerExperience.TRACK_ID).totalXp();
+        helper.assertTrue(farmerAfter == 12L, "采摘经验必须落在农夫轨道上, 实得 " + farmerAfter);
+        helper.assertTrue(ExperienceServices.experienceService().snapshot(player, chefTrack).totalXp() == 0L,
+                "采摘经验不得溢到别的职业轨道");
+
+        // 反向: 采摘来源只登记在农夫轨道上, 拿它去发厨师轨道必须 fail-fast, 不许静默改投。
+        boolean rejected = false;
+        try {
+            ExperienceServices.experienceService().award(player,
+                    new ExperienceGrant(chefTrack, FarmerExperience.PICK_SOURCE, 12L));
+        } catch (IllegalStateException expected) {
+            rejected = true;
+        }
+        helper.assertTrue(rejected, "采摘来源绑定在农夫轨道, 用它发厨师轨道必须抛异常");
+        helper.assertTrue(ExperienceServices.experienceService().snapshot(player, chefTrack).totalXp() == 0L,
+                "被拒的跨轨道入账不得留下副作用");
         helper.succeed();
     }
 
@@ -664,8 +775,10 @@ public final class FarmerGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
         EconomyLedger ledger = registerFreshEconomy();
-        // 精通门前置 (新增): 卖家须达农夫 SELL_MIN_MASTERY_LEVEL(2)。换入固定 L2 职业门面替身 (mock 玩家无 capability, 真门面恒 L1)。
-        IJobService prevJob = swapJob(new FixedLevelJobService(FarmerConstants.SELL_MIN_MASTERY_LEVEL));
+        // 精通门前置: 卖家须达农夫 SELL_MIN_MASTERY_LEVEL(2)。等级写玩家真实 capability, 不换 JobServices 门面替身 ——
+        // 替身只挡得住"读定位器"这一条路径, 生产侧一旦像收获那样改读 FarmerExperience.level 就会绕开它, 用例
+        // 退化成恒真 (与下方档位门那条踩的是同一个坑)。真 capability 是两条读法共同的底, 换哪条都测得准。
+        setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
         try {
             // 给 100 株 mod 小麦 (远低于收购 softCap 2160, 故全价 base=1 -> 毛收 100)。
             int amount = 100;
@@ -703,7 +816,6 @@ public final class FarmerGameTests {
                     "wallet credit balance reflects the granted 100 via the economy locator");
             helper.succeed();
         } finally {
-            restoreJob(prevJob);
             EconomyServices.reset();
         }
     }
@@ -741,8 +853,8 @@ public final class FarmerGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
         EconomyLedger ledger = registerFreshEconomy();
-        // 精通门前置 (新增): 换入固定 L2 职业门面替身, 使卖家过农夫售卖门 (本测聚焦 faucet 共享, 非门控)。
-        IJobService prevJob = swapJob(new FixedLevelJobService(FarmerConstants.SELL_MIN_MASTERY_LEVEL));
+        // 精通门前置: 直接把等级写进玩家真实 capability 让卖家过农夫售卖门 (本测聚焦 faucet 共享, 非门控)。
+        setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
         try {
             long tier = FarmerConstants.DAILY_CREDIT_FAUCET_CAP;            // 60000 (= 全服统一主闸档值)
             String sharedKey = FarmerConstants.WHEAT_SELL_FAUCET_KEY;       // credit_faucet
@@ -788,7 +900,6 @@ public final class FarmerGameTests {
                             + ledger.balance(player.getUUID(), Currency.CREDIT));
             helper.succeed();
         } finally {
-            restoreJob(prevJob);
             EconomyServices.reset();
         }
     }
@@ -803,8 +914,9 @@ public final class FarmerGameTests {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
         EconomyLedger ledger = registerFreshEconomy();
-        // 固定 L1 职业门面替身 = 白板农夫 (从没升过级), 应被精通门 (>=2) 拒绝。
-        IJobService prevJob = swapJob(new FixedLevelJobService(1));
+        // 白板农夫 (从没升过级) 应被精通门 (>=2) 拒绝。等级显式写进真实 capability 而不是靠 mock 玩家默认恰好
+        // 是 L1 —— 默认值只是巧合, 一旦默认值变了这条用例会静默失去它要测的那个输入。
+        setFarmerLevel(player, JobXpCurve.MIN_LEVEL);
         try {
             player.getInventory().add(new ItemStack(FarmerItems.FARMER_WHEAT.get(), 50));
             long today = FarmerClock.currentUtcDayStamp();
@@ -828,18 +940,13 @@ public final class FarmerGameTests {
             helper.assertTrue(ledger.balance(player.getUUID(), Currency.CREDIT) == 0L,
                     "below-mastery rejection grants no credits");
 
-            // 对照: 同一玩家换 L2 替身即可正常卖 (证明拦截确由精通门, 非其它原因)。
-            IJobService prevJob2 = swapJob(new FixedLevelJobService(FarmerConstants.SELL_MIN_MASTERY_LEVEL));
-            try {
-                FarmerWheatSellService.SellResult ok = FarmerWheatSellService.sell(player, 50);
-                helper.assertFalse(ok.belowMastery(), "L2 seller passes the mastery gate");
-                helper.assertTrue(ok.soldCount() == 50, "L2 seller sells all 50 wheat once mastery is met");
-            } finally {
-                restoreJob(prevJob2);
-            }
+            // 对照: 同一玩家升到 L2 即可正常卖 (证明拦截确由精通门, 非其它原因)。
+            setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
+            FarmerWheatSellService.SellResult ok = FarmerWheatSellService.sell(player, 50);
+            helper.assertFalse(ok.belowMastery(), "L2 seller passes the mastery gate");
+            helper.assertTrue(ok.soldCount() == 50, "L2 seller sells all 50 wheat once mastery is met");
             helper.succeed();
         } finally {
-            restoreJob(prevJob);
             EconomyServices.reset();
         }
     }
@@ -861,8 +968,14 @@ public final class FarmerGameTests {
         BlockState matureCrop = cropBlock.getStateForAge(cropBlock.getMaxAge());
         long xpBefore = ExperienceServices.experienceService()
                 .snapshot(player, FarmerExperience.TRACK_ID).totalXp();
+        // 迁到经验路由后, "这笔经验发给了谁" 不再由替身的 lastJob 记录, 只能靠邻居轨道对照。取矿工作参照:
+        // 轨道选错 (例如误用 legacySource 或写死别的 JobId) 时农夫轨道不涨, 矿工轨道反而涨, 两条断言同时挂。
+        ResourceLocation minerTrack = JobExperienceTracks.track(JobId.MINER);
+        long minerBefore = ExperienceServices.experienceService()
+                .snapshot(player, minerTrack).totalXp();
 
-        // 成熟 mod 作物 + 下方 LOW mod 耕地 -> 通过全服经验路由结算 4 点 FARMER 经验。
+        // 成熟 mod 作物 + 下方 LOW mod 耕地 -> 通过全服经验路由结算 4 点 FARMER 经验
+        // (手算: SINGLE_CROP_XP(2) x LOW 对 L1 玩家的产量 2 = 4 原始; 当日 0 起落表C 首段 x1.0 -> 4 有效)。
         helper.setBlock(farmlandRel, FarmerBlocks.farmland(FarmerTier.LOW).get());
         helper.setBlock(cropRel, matureCrop);
         sys.onCropHarvested(new BlockEvent.BreakEvent(helper.getLevel(), cropAbs, matureCrop, player));
@@ -870,6 +983,9 @@ public final class FarmerGameTests {
                 .snapshot(player, FarmerExperience.TRACK_ID).totalXp();
         helper.assertTrue(xpAfterMature - xpBefore == 4L,
                 "mature mod crop over LOW mod farmland settles exactly 4 FARMER XP through wok-experience");
+        helper.assertTrue(ExperienceServices.experienceService()
+                        .snapshot(player, minerTrack).totalXp() == minerBefore,
+                "收获经验只能落农夫轨道, 矿工轨道必须纹丝不动");
 
         // 未成熟作物 (age 0) 破坏: 不结算 (第十章只认成熟态)。
         sys.onCropHarvested(new BlockEvent.BreakEvent(
@@ -923,17 +1039,33 @@ public final class FarmerGameTests {
         helper.succeed();
     }
 
+    /**
+     * 档位门的等级维度覆盖: 同一玩家在解锁线两侧各放一次 HIGH, 一拒一放。
+     *
+     * 等级只能写玩家真实 capability, 不能换 {@link JobServices} 门面替身: onFarmlandPlace 读的是
+     * {@link FarmerExperience#level} -> 全服经验轨道 -> {@code JobFrameworkSystem} 构造期就捕获的那个
+     * {@code JobServiceImpl} 实例, 整条路径不经过 JobServices 定位器, 换进去的替身一次也不会被调用
+     * (旧写法 swapJob(FixedLevelJobService(1)) 早已失效, 只因 mock 玩家默认恰好 L1 才一直假绿)。
+     */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void onFarmlandPlaceEnforcesTierGateAndCounts(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         FarmerSavedData data = FarmerSavedData.get(player.server.overworld());
+        ResourceLocation dim = helper.getLevel().dimension().location();
         int before = data.placedCount(player.getUUID());
         BlockPos rel = new BlockPos(0, 1, 0);
         BlockPos abs = helper.absolutePos(rel);
+        // 解锁对照组必须另占一格: claimFarmland 以 (维度, 坐标) 为键, 同坐标二次认领会先给旧 owner 减 1
+        // 再给新 owner 加 1, 净增 0, 会把下方 "计数 +2" 的断言变成恒真假绿。
+        BlockPos unlockedRel = new BlockPos(2, 1, 0);
+        BlockPos unlockedAbs = helper.absolutePos(unlockedRel);
 
-        // L1 玩家放 HIGH 档 (解锁 L5): 档位未解锁 -> 事件取消 + 计数不变。
-        IJobService prevJob = swapJob(new FixedLevelJobService(1));
         try {
+            setFarmerLevel(player, JobXpCurve.MIN_LEVEL);
+            helper.assertTrue(FarmerExperience.level(player) == JobXpCurve.MIN_LEVEL,
+                    "precondition: 等级必须经生产代码同一条读取路径生效, 实得 " + FarmerExperience.level(player));
+
+            // L1 玩家放 HIGH 档 (解锁 L5): 档位未解锁 -> 事件取消 + 计数不变。
             helper.setBlock(rel, FarmerBlocks.farmland(FarmerTier.HIGH).get());
             BlockEvent.EntityPlaceEvent locked = new BlockEvent.EntityPlaceEvent(
                     BlockSnapshot.create(helper.getLevel().dimension(), helper.getLevel(), abs),
@@ -944,13 +1076,8 @@ public final class FarmerGameTests {
             new FarmerSystem().onFarmlandPlace(locked);
             helper.assertTrue(locked.isCanceled(), "L1 placing HIGH (unlocks at L5) is canceled by the tier gate");
             helper.assertTrue(data.placedCount(player.getUUID()) - before == 0, "tier-locked place does not count");
-        } finally {
-            restoreJob(prevJob);
-        }
 
-        // L1 玩家放 LOW 档 (已解锁, 未到上限): 允许 + 计数 +1。
-        IJobService prevJob2 = swapJob(new FixedLevelJobService(1));
-        try {
+            // L1 玩家放 LOW 档 (已解锁, 未到上限): 允许 + 计数 +1。
             helper.setBlock(rel, FarmerBlocks.farmland(FarmerTier.LOW).get());
             BlockEvent.EntityPlaceEvent allowed = new BlockEvent.EntityPlaceEvent(
                     BlockSnapshot.create(helper.getLevel().dimension(), helper.getLevel(), abs),
@@ -958,78 +1085,36 @@ public final class FarmerGameTests {
             new FarmerSystem().onFarmlandPlace(allowed);
             helper.assertFalse(allowed.isCanceled(), "L1 placing LOW (unlocked, under cap) is allowed");
             helper.assertTrue(data.placedCount(player.getUUID()) - before == 1, "allowed place increments the count by 1");
+
+            // 同一玩家升到 HIGH 解锁线 (L5) 后重放 HIGH: 必须放行 + 再计一次数 + 登记归属。
+            // 没有这条对照, 上面那条 "取消" 无法区分 "档位门按等级裁决" 与 "HIGH 档恒被拒"。
+            setFarmerLevel(player, FarmerTier.HIGH.unlockLevel());
+            helper.setBlock(unlockedRel, FarmerBlocks.farmland(FarmerTier.HIGH).get());
+            BlockEvent.EntityPlaceEvent unlocked = new BlockEvent.EntityPlaceEvent(
+                    BlockSnapshot.create(helper.getLevel().dimension(), helper.getLevel(), unlockedAbs),
+                    Blocks.AIR.defaultBlockState(), player);
+            new FarmerSystem().onFarmlandPlace(unlocked);
+            helper.assertFalse(unlocked.isCanceled(),
+                    "L" + FarmerTier.HIGH.unlockLevel() + " placing HIGH must pass the tier gate");
+            helper.assertTrue(data.placedCount(player.getUUID()) - before == 2,
+                    "解锁后放行的那块必须再计一次数, 实得 " + (data.placedCount(player.getUUID()) - before));
+            helper.assertTrue(player.getUUID().equals(data.ownerOf(dim, unlockedAbs)),
+                    "解锁放行的耕地必须登记放置者归属, 实得 " + data.ownerOf(dim, unlockedAbs));
         } finally {
-            restoreJob(prevJob2);
+            // 归属索引按 (维度, 坐标) 常驻且 runGameTestServer 复用 run/world: 不还回去会给下一轮留孤儿条目,
+            // 下一轮在同坐标 claim 时会连带把本轮玩家的派生计数减 1。
+            data.releaseFarmland(dim, abs);
+            data.releaseFarmland(dim, unlockedAbs);
         }
         helper.succeed();
     }
 
     // ---- 测试辅助 (与 FarmerSystem.onCropHarvested 的原始经验公式同源) ----
-
-    /** 换入测试职业门面替身, 返回原门面 (未注册则 null); 与 finally 的 {@link #restoreJob} 配对。 */
-    private static IJobService swapJob(IJobService fake) {
-        IJobService prev;
-        try {
-            prev = JobServices.jobService();
-        } catch (IllegalStateException notRegistered) {
-            prev = null;
-        }
-        JobServices.registerJobService(fake);
-        return prev;
-    }
-
-    /** 还原 {@link #swapJob} 换出的门面 (原为 null 则 reset)。 */
-    private static void restoreJob(IJobService prev) {
-        if (prev != null) {
-            JobServices.registerJobService(prev);
-        } else {
-            JobServices.reset();
-        }
-    }
-
-    /**
-     * 测试用职业门面替身: {@link #level} 返回固定值 (精通门用), {@link #grantXp} 记录调用 (收获结算断言用);
-     * {@link #progress} 不被本文件测试触达。仿 MinerGameTests.RecordingJobService 范式。
-     */
-    private static final class FixedLevelJobService implements IJobService {
-        private final int level;
-        int grantXpCalls = 0;
-        JobId lastJob = null;
-        long lastRawXp = Long.MIN_VALUE;
-
-        FixedLevelJobService(int level) {
-            this.level = level;
-        }
-
-        void reset() {
-            grantXpCalls = 0;
-            lastJob = null;
-            lastRawXp = Long.MIN_VALUE;
-        }
-
-        @Override
-        public int level(Player player, JobId job) {
-            return level;
-        }
-
-        @Override
-        public long totalXp(Player player, JobId job) {
-            return 0L;
-        }
-
-        @Override
-        public long grantXp(Player player, JobId job, long rawXp) {
-            grantXpCalls++;
-            lastJob = job;
-            lastRawXp = rawXp;
-            return rawXp;
-        }
-
-        @Override
-        public JobProgress progress(Player player, JobId job) {
-            throw new UnsupportedOperationException("not exercised by farmer tests");
-        }
-    }
+    //
+    // 这里曾有一套 swapJob/restoreJob/FixedLevelJobService 的 JobServices 门面替身。它已随本 PR 把等级读取
+    // 迁到 FarmerExperience.level 而部分失效, 且替身只覆盖"读定位器"一条路径, 留着必然被下一个人照抄成恒真
+    // 或恒假的用例。等级一律经 setFarmerLevel 写玩家真实 capability —— 那是两条读法共同的底。
+    // 顺带消掉了测试对进程级 JobServices 定位器的写入: GameTest 共用一个服务器, 换门面本身就是跨用例污染源。
 
     /**
      * 新建一套内存经济门面 (账本 + AbuseGuard + 惰性 PlayerAbuseState 解析器) 注册进 {@link EconomyServices} 定位器,
@@ -1298,9 +1383,13 @@ public final class FarmerGameTests {
 
     /**
      * 收获经验入账与小麦掉落同门 (F026): FarmerSystem.onCropHarvested 的 rawXp = SINGLE_CROP_XP *
-     * tier.yieldFor(level), 未解锁 (yield=1) 与已解锁 (yield=6) 折算出的当日有效经验必须不同且分别匹配
-     * 衰减引擎在当日 0 起入 2 / 12 原始经验的结果。删掉 yieldFor(...) 换回恒定产量会让两分支入账相同,
-     * 下方 "两者必须不等" 的断言挂。
+     * tier.yieldFor(level), 未解锁 (yield=1) 与已解锁 (yield=6) 折算出的当日有效经验必须不同。
+     * 删掉 yieldFor(...) 换回恒定产量会让两分支入账相同, 下方 "两者必须不等" 的断言挂。
+     *
+     * 期望值 2 / 12 是手算常量, 不再回调 {@code JobXpCurve.applyDailyDecay}: 本 PR 之后收获入账走的是
+     * 农夫表C (JobXpPolicies -> FarmerXpCurve), 拿共享默认曲线算期望等于让 "农夫策略漏注册" 这种回归
+     * 在断言两侧同时生效而永远测不出来 —— 两条曲线只在当日 0 起的 x1.0 首段恰好同值, 这条用例正好落在
+     * 那个盲区里。当日 0 起、2 与 12 原始都在首段 x1.0, 故有效经验就等于原始经验本身。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void modCropHarvestXpFollowsTheSameGate(GameTestHelper helper) {
@@ -1315,9 +1404,8 @@ public final class FarmerGameTests {
                 "locked mock 玩家当日经验基线必须为 0, 实得 " + lockedXpBefore);
         lockedPlayer.gameMode.destroyBlock(helper.absolutePos(lockedCrop));
         long lockedGained = farmerProgress(lockedPlayer).dailyXp(com.miningdim.job.JobId.FARMER) - lockedXpBefore;
-        long expectedLocked = JobXpCurve.applyDailyDecay(0L, 2L);
-        helper.assertTrue(lockedGained == expectedLocked,
-                "未解锁收获原始经验 2 (1x 产量) 折算有效经验应为 " + expectedLocked + ", 实得 " + lockedGained);
+        helper.assertTrue(lockedGained == 2L,
+                "未解锁收获原始经验 2 (1x 产量) 在表C 首段 x1.0 折算有效经验应为 2, 实得 " + lockedGained);
 
         BlockPos unlockedSoil = new BlockPos(5, 1, 1);
         helper.setBlock(unlockedSoil, FarmerBlocks.farmland(FarmerTier.SUPREME).get().defaultBlockState());
@@ -1331,9 +1419,8 @@ public final class FarmerGameTests {
         unlockedPlayer.gameMode.destroyBlock(helper.absolutePos(unlockedCrop));
         long unlockedGained =
                 farmerProgress(unlockedPlayer).dailyXp(com.miningdim.job.JobId.FARMER) - unlockedXpBefore;
-        long expectedUnlocked = JobXpCurve.applyDailyDecay(0L, 12L);
-        helper.assertTrue(unlockedGained == expectedUnlocked,
-                "已解锁收获原始经验 12 (6x 产量) 折算有效经验应为 " + expectedUnlocked + ", 实得 " + unlockedGained);
+        helper.assertTrue(unlockedGained == 12L,
+                "已解锁收获原始经验 12 (6x 产量) 在表C 首段 x1.0 折算有效经验应为 12, 实得 " + unlockedGained);
 
         helper.assertTrue(lockedGained != unlockedGained,
                 "未解锁与已解锁收获的有效经验必须不同 (两者都得 " + lockedGained + " 说明产量门未接进经验结算)");

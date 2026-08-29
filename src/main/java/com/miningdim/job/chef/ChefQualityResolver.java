@@ -9,6 +9,8 @@ import java.util.function.ToIntFunction;
  * 再依次应用目标品质难度、厨师熟练度与调味台倍率，高档台只提供正向增益。
  * 服务端只生成一个随机数，并从目标品质向下依次对照各档阈值；首个命中的档位成为成品品质，
  * 全部高档阈值均未命中时回落到低品质，避免目标失败固定保底相邻高档。
+ * 下探每跌一档都要再乘一次衰减系数：这是「瞄更高」的代价，没有它时任一档的到手概率与所选目标无关，
+ * 中/高/超凡三个目标就成了永远不该点的死选项。
  */
 public final class ChefQualityResolver {
 
@@ -24,9 +26,12 @@ public final class ChefQualityResolver {
             throw new IllegalArgumentException("QTE hits must be in [0,totalCues], got hits=" + hits
                     + ", totalCues=" + totalCues);
         }
+        ChefConfig.validateBalanceConsistency();
+        // QTE 加成按命中率而非命中数计: cue 数会随台档不足/等级不足上浮, 若按命中数发固定加成,
+        // 多派的 cue 就成了净收益, 低一档的台子反而比高档台更容易出高品质 (台档倒挂)。
         int performanceChance = ChefConfig.targetBaseChancePerMille(target)
                 + (int) Math.round(heatAccuracy * ChefConfig.targetHeatBonusPerMille())
-                + hits * ChefConfig.targetQteHitBonusPerMille();
+                + (int) Math.round((double) hits / totalCues * ChefConfig.targetQtePerfectBonusPerMille());
         performanceChance = Math.min(1000, performanceChance);
         int qualityAdjustedChance = (int) Math.round(performanceChance
                 * ChefConfig.targetDifficultyMultiplierPerMille(target) / 1000.0D);
@@ -60,9 +65,16 @@ public final class ChefQualityResolver {
 
     static ChefQuality resolveTargetRoll(ChefQuality target, int roll,
                                          ToIntFunction<ChefQuality> chancePerMille) {
+        int decayPerMille = ChefConfig.targetDowngradeDecayPerMille();
         ChefQuality candidate = target;
         while (candidate != ChefQuality.LOW) {
-            if (roll < chancePerMille.applyAsInt(candidate)) {
+            // 每比目标低一档就把该档阈值再乘一次衰减。不收这份代价时 P(成品>=Q) 只由 Q 决定、与所选目标无关,
+            // 于是永远该点最高目标, 中间三档目标退化成死选项。
+            int effective = chancePerMille.applyAsInt(candidate);
+            for (int step = target.tier() - candidate.tier(); step > 0; step--) {
+                effective = (int) Math.round(effective * decayPerMille / 1000.0D);
+            }
+            if (roll < effective) {
                 return candidate;
             }
             candidate = ChefQuality.byTier(candidate.tier() - 1);

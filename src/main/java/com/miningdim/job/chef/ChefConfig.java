@@ -163,13 +163,14 @@ public final class ChefConfig {
     public static final ForgeConfigSpec.IntValue QTE_EXTRA_CUES_PER_MISSING_TABLE_TIER;
     public static final ForgeConfigSpec.IntValue QTE_TIMING_PENALTY_TICKS_PER_MISSING_TABLE_TIER;
     public static final ForgeConfigSpec.IntValue SEASONING_TABLE_MAX_TIER;
-    public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_LOW_PER_MILLE;
+    // 低品质是下探链的无条件保底档, 结算永远不比对它的阈值, 故不给旋钮 (见 targetBaseChancePerMille)。
     public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_MEDIUM_PER_MILLE;
     public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_HIGH_PER_MILLE;
     public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_EXTRAORDINARY_PER_MILLE;
     public static final ForgeConfigSpec.IntValue TARGET_BASE_CHANCE_RADIANT_PER_MILLE;
     public static final ForgeConfigSpec.IntValue TARGET_HEAT_BONUS_PER_MILLE;
-    public static final ForgeConfigSpec.IntValue TARGET_QTE_HIT_BONUS_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue TARGET_QTE_PERFECT_BONUS_PER_MILLE;
+    public static final ForgeConfigSpec.IntValue TARGET_DOWNGRADE_DECAY_PER_MILLE;
     public static final ForgeConfigSpec.IntValue TARGET_DIFFICULTY_HIGH_PER_MILLE;
     public static final ForgeConfigSpec.IntValue TARGET_DIFFICULTY_EXTRAORDINARY_PER_MILLE;
     public static final ForgeConfigSpec.IntValue TARGET_DIFFICULTY_RADIANT_PER_MILLE;
@@ -392,15 +393,23 @@ public final class ChefConfig {
         b.pop();
 
         b.push("quality_resolution");
-        b.comment("target-quality success chances in PER-MILLE; heat bonus scales with green-zone accuracy and each correct QTE adds the configured flat bonus");
-        TARGET_BASE_CHANCE_LOW_PER_MILLE = b.defineInRange("targetBaseChanceLowPerMille", 1000, 0, 1000);
+        b.comment("target-quality success chances in PER-MILLE (low is the unconditional fallback and has no knob); "
+                + "these four MUST stay non-increasing or the downgrade ladder inverts");
         TARGET_BASE_CHANCE_MEDIUM_PER_MILLE = b.defineInRange("targetBaseChanceMediumPerMille", 700, 0, 1000);
         TARGET_BASE_CHANCE_HIGH_PER_MILLE = b.defineInRange("targetBaseChanceHighPerMille", 450, 0, 1000);
         TARGET_BASE_CHANCE_EXTRAORDINARY_PER_MILLE = b.defineInRange("targetBaseChanceExtraordinaryPerMille", 250, 0, 1000);
         TARGET_BASE_CHANCE_RADIANT_PER_MILLE = b.defineInRange("targetBaseChanceRadiantPerMille", 100, 0, 1000);
+        b.comment("heat bonus scales with green-zone accuracy; the QTE bonus scales with the HIT RATE (hits/totalCues), "
+                + "so handing out extra cues raises difficulty without raising the expected bonus");
         TARGET_HEAT_BONUS_PER_MILLE = b.defineInRange("targetHeatBonusPerMille", 500, 0, 1000);
-        TARGET_QTE_HIT_BONUS_PER_MILLE = b.defineInRange("targetQteHitBonusPerMille", 100, 0, 1000);
-        b.comment("quality difficulty multiplier applied after performance bonuses: high 85%, extraordinary 65%, radiant 45%; low/medium remain 100%");
+        TARGET_QTE_PERFECT_BONUS_PER_MILLE = b.defineInRange("targetQtePerfectBonusPerMille", 500, 0, 1000);
+        // 平衡待定: 下探每跌一档就把该档阈值再乘一次本系数, 使 "瞄更高" 付出代价。
+        // 1000 等于没有代价 (缺陷本身), 低于最大相邻档比 (默认约 0.85) 会让相邻下一档变成不可达死档。
+        b.comment("balance pending review: per-tier decay applied while falling back below the selected target; "
+                + "1000 restores the degenerate 'always aim highest' behaviour");
+        TARGET_DOWNGRADE_DECAY_PER_MILLE = b.defineInRange("targetDowngradeDecayPerMille", 900, 0, 999);
+        b.comment("quality difficulty multiplier applied after performance bonuses: high 85%, extraordinary 65%, radiant 45%; "
+                + "low/medium remain 100%; these three MUST stay non-increasing");
         TARGET_DIFFICULTY_HIGH_PER_MILLE = b.defineInRange("targetDifficultyHighPerMille", 850, 0, 1000);
         TARGET_DIFFICULTY_EXTRAORDINARY_PER_MILLE = b.defineInRange("targetDifficultyExtraordinaryPerMille", 650, 0, 1000);
         TARGET_DIFFICULTY_RADIANT_PER_MILLE = b.defineInRange("targetDifficultyRadiantPerMille", 450, 0, 1000);
@@ -447,6 +456,43 @@ public final class ChefConfig {
     public static void ensureLoadedForTest() {
         if (!SPEC.isLoaded()) {
             SPEC.setConfig(CommentedConfig.inMemory());
+        }
+        validateBalanceConsistency();
+    }
+
+    /**
+     * 跨键不变量体检。这些键各自 defineInRange 合法, 组合起来却会破坏结算前提, 单键范围校验拦不住:
+     *  - 四档目标基础成功率必须非递增, 否则 {@link ChefQualityResolver#resolveTargetRoll} 的下探链倒挂
+     *    (瞄低档反而更容易失手), 且没有任何日志;
+     *  - 三档品质难度倍率同理, 它与基础成功率共同决定各档阈值的单调性;
+     *  - QTE 最小间隔必须 <= 最大间隔, 否则 {@link ChefQteTiming#forChallenge} 每次开局都抛异常,
+     *    在玩家侧表现为 "开始按钮没反应"。
+     * 由概率链入口 {@link ChefQualityResolver#successChancePerMille} 与节奏链入口
+     * {@link ChefQteTiming#forChallenge} 调用: 二者是调味流程仅有的两个前置, 先到者即报错。
+     */
+    public static void validateBalanceConsistency() {
+        int medium = TARGET_BASE_CHANCE_MEDIUM_PER_MILLE.get();
+        int high = TARGET_BASE_CHANCE_HIGH_PER_MILLE.get();
+        int extraordinary = TARGET_BASE_CHANCE_EXTRAORDINARY_PER_MILLE.get();
+        int radiant = TARGET_BASE_CHANCE_RADIANT_PER_MILLE.get();
+        if (medium < high || high < extraordinary || extraordinary < radiant) {
+            throw new IllegalStateException("quality_resolution targetBaseChance*PerMille must be non-increasing:"
+                    + " medium=" + medium + ", high=" + high + ", extraordinary=" + extraordinary
+                    + ", radiant=" + radiant);
+        }
+        int difficultyHigh = TARGET_DIFFICULTY_HIGH_PER_MILLE.get();
+        int difficultyExtraordinary = TARGET_DIFFICULTY_EXTRAORDINARY_PER_MILLE.get();
+        int difficultyRadiant = TARGET_DIFFICULTY_RADIANT_PER_MILLE.get();
+        if (difficultyHigh < difficultyExtraordinary || difficultyExtraordinary < difficultyRadiant) {
+            throw new IllegalStateException("quality_resolution targetDifficulty*PerMille must be non-increasing:"
+                    + " high=" + difficultyHigh + ", extraordinary=" + difficultyExtraordinary
+                    + ", radiant=" + difficultyRadiant);
+        }
+        int minInterval = QTE_MIN_INTERVAL_TICKS.get();
+        int maxInterval = QTE_MAX_INTERVAL_TICKS.get();
+        if (minInterval > maxInterval) {
+            throw new IllegalStateException("minigame qteMinIntervalTicks must not exceed qteMaxIntervalTicks:"
+                    + " min=" + minInterval + ", max=" + maxInterval);
         }
     }
 
@@ -711,18 +757,33 @@ public final class ChefConfig {
         return SEASONING_TABLE_MAX_TIER.get();
     }
 
+    /**
+     * 目标品质基础成功率千分比。低品质恒为 1000: 它是下探链走到底的无条件保底档,
+     * {@link ChefQualityResolver#resolveTargetRoll} 从不比对它的阈值, 留一个可调却不影响结算的旋钮
+     * 只会让面板显示一个骗人的数字。
+     */
     public static int targetBaseChancePerMille(ChefQuality quality) {
-        return byTier(quality, TARGET_BASE_CHANCE_LOW_PER_MILLE, TARGET_BASE_CHANCE_MEDIUM_PER_MILLE,
-                TARGET_BASE_CHANCE_HIGH_PER_MILLE, TARGET_BASE_CHANCE_EXTRAORDINARY_PER_MILLE,
-                TARGET_BASE_CHANCE_RADIANT_PER_MILLE);
+        return switch (quality) {
+            case LOW -> 1000;
+            case MEDIUM -> TARGET_BASE_CHANCE_MEDIUM_PER_MILLE.get();
+            case HIGH -> TARGET_BASE_CHANCE_HIGH_PER_MILLE.get();
+            case EXTRAORDINARY -> TARGET_BASE_CHANCE_EXTRAORDINARY_PER_MILLE.get();
+            case RADIANT -> TARGET_BASE_CHANCE_RADIANT_PER_MILLE.get();
+        };
     }
 
     public static int targetHeatBonusPerMille() {
         return TARGET_HEAT_BONUS_PER_MILLE.get();
     }
 
-    public static int targetQteHitBonusPerMille() {
-        return TARGET_QTE_HIT_BONUS_PER_MILLE.get();
+    /** 全部 QTE 命中时提供的表现加成千分比 (部分命中按 hits/totalCues 线性折算)。 */
+    public static int targetQtePerfectBonusPerMille() {
+        return TARGET_QTE_PERFECT_BONUS_PER_MILLE.get();
+    }
+
+    /** 成品每比所选目标低一档, 该档阈值再乘一次的衰减千分比。 */
+    public static int targetDowngradeDecayPerMille() {
+        return TARGET_DOWNGRADE_DECAY_PER_MILLE.get();
     }
 
     public static int targetDifficultyMultiplierPerMille(ChefQuality quality) {

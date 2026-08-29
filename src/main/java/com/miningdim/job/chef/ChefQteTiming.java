@@ -5,6 +5,7 @@ record ChefQteTiming(int cueCount, int windowTicks, int minGapTicks, int maxGapT
                      int swayPeriodTicks) {
 
     static ChefQteTiming forChallenge(ChefQuality target, int chefLevel, ChefQuality tableTier) {
+        ChefConfig.validateBalanceConsistency();
         int chefLevelDeficit = chefLevelDeficit(target, chefLevel);
         int tableTierDeficit = tableTierDeficit(target, tableTier);
         int timingAdjustment = (chefLevel - 1) * ChefConfig.qteEaseTicksPerChefLevel()

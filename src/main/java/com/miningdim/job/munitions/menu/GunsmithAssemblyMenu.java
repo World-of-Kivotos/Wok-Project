@@ -6,8 +6,6 @@ import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlockEntity;
 import com.miningdim.job.munitions.gunsmith.GunsmithAssemblyRecipe;
 import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunDurability;
-import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
-import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.menu.AbstractMiningMenu;
 import com.miningdim.menu.MenuValidity;
@@ -19,6 +17,7 @@ import net.minecraft.world.inventory.ContainerLevelAccess;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.items.SlotItemHandler;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.EnumMap;
 import java.util.Map;
@@ -113,17 +112,16 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
                 || !blockEntity.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty()) {
             return false;
         }
-        if (isRepairMode()) {
-            GunsmithGunDurability.RepairPreview preview = repairPreview();
+        GunsmithGunDurability.Managed repairTarget = repairTarget();
+        if (repairTarget != null) {
+            GunsmithGunDurability.RepairPreview preview =
+                    GunsmithGunDurability.repairPreview(repairTarget);
             if (!preview.available()) {
                 return false;
             }
-            GunsmithPlatform platform = GunsmithGunStats.from(input()).blueprint().platform();
-            GunsmithPressPart repairPart = preview.requiredPart();
-            return GunsmithAssemblyRecipe.matchesPart(
+            return GunsmithGunDurability.isRepairReplacement(repairTarget.stats(),
                     blockEntity.inventory().getStackInSlot(
-                            GunsmithAssemblyBenchBlockEntity.slotForPart(repairPart)),
-                    repairPart, platform);
+                            GunsmithAssemblyBenchBlockEntity.slotForPart(preview.requiredPart())));
         }
         if (!GunsmithAssemblyRecipe.isBlueprint(blueprint())) {
             return false;
@@ -140,14 +138,16 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
     }
 
     public boolean isRepairMode() {
-        return GunsmithGunDurability.isManagedGun(input());
+        return repairTarget() != null;
     }
 
-    public GunsmithGunDurability.RepairPreview repairPreview() {
-        if (!isRepairMode()) {
-            throw new IllegalStateException("Assembly menu is not in repair mode");
-        }
-        return GunsmithGunDurability.repairPreview(input());
+    /**
+     * 图纸槽里那把待维修枪的单次解析结果, 非维修态返回 null。菜单谓词与客户端渲染每帧都会问几次,
+     * 必须走不抛的入口, 且不要为同一把枪反复重解析整套部件 (审查 2/40)。
+     */
+    @Nullable
+    public GunsmithGunDurability.Managed repairTarget() {
+        return GunsmithGunDurability.tryManaged(input());
     }
 
     public boolean isPartSlotVisible(GunsmithPressPart part) {

@@ -10,7 +10,6 @@ import com.miningdim.job.munitions.gunsmith.GunsmithAssemblyRecipe;
 import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunFactory;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunDurability;
-import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.job.munitions.menu.GunsmithAssemblyMenu;
@@ -93,10 +92,12 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
                     return blueprint.requiredParts().contains(part)
                             && GunsmithAssemblyRecipe.matchesPart(stack, part, blueprint.platform());
                 }
-                if (GunsmithGunDurability.isManagedGun(inputStack)) {
-                    GunsmithPlatform platform = GunsmithGunStats.from(inputStack).blueprint().platform();
-                    return part == GunsmithGunDurability.repairPart(platform)
-                            && GunsmithAssemblyRecipe.matchesPart(stack, part, platform);
+                // 容器谓词跑在玩家点击链上, 只能走不抛的 tryManaged: 读不出来的枪一律判"不可放入" (审查 2)。
+                GunsmithGunDurability.Managed managed = GunsmithGunDurability.tryManaged(inputStack);
+                if (managed != null) {
+                    return part == GunsmithGunDurability.repairPart(
+                                    managed.stats().blueprint().platform())
+                            && GunsmithGunDurability.isRepairReplacement(managed.stats(), stack);
                 }
                 return false;
             }
@@ -136,9 +137,9 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         if (GunsmithAssemblyRecipe.isBlueprint(inputStack)) {
             return GunsmithAssemblyRecipe.blueprint(inputStack).requiredParts().contains(part);
         }
-        if (GunsmithGunDurability.isManagedGun(inputStack)) {
-            GunsmithPlatform platform = GunsmithGunStats.from(inputStack).blueprint().platform();
-            return GunsmithGunDurability.repairPart(platform) == part;
+        GunsmithGunDurability.Managed managed = GunsmithGunDurability.tryManaged(inputStack);
+        if (managed != null) {
+            return GunsmithGunDurability.repairPart(managed.stats().blueprint().platform()) == part;
         }
         return false;
     }
@@ -159,6 +160,14 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
             player.displayClientMessage(Component.translatable("message.miningdim.gunsmith.disabled"), true);
             return false;
         }
+        // 维修与装配是同一台机器上的两条产线, 各自都得有等级门和工费 sink。少了这两道, 1 级号
+        // (甚至没有军火商职业的号) 就能开免费修枪铺, 把装配侧的 L5 门和 5000 CP 销毁一起架空 (审查 24)。
+        int unlockLevel = MunitionsConfig.repairUnlockLevel();
+        if (MunitionsLevels.munitionsLevel(player) < unlockLevel) {
+            player.displayClientMessage(Component.translatable(
+                    "message.miningdim.gunsmith_repair.level_locked", unlockLevel), true);
+            return false;
+        }
         if (isAnimating() || !pendingResult.isEmpty()) {
             player.displayClientMessage(
                     Component.translatable("message.miningdim.gunsmith_assembly_bench.busy"), true);
@@ -170,14 +179,14 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
             return false;
         }
         ItemStack gun = inventory.getStackInSlot(SLOT_BLUEPRINT);
-        if (!GunsmithGunDurability.isManagedGun(gun)) {
+        GunsmithGunDurability.Managed managed = GunsmithGunDurability.tryManaged(gun);
+        if (managed == null) {
             player.displayClientMessage(
                     Component.translatable("message.miningdim.gunsmith_repair.missing_gun"), true);
             return false;
         }
 
-        GunsmithGunDurability.ensureInitialized(gun);
-        GunsmithGunDurability.RepairPreview preview = GunsmithGunDurability.repairPreview(gun);
+        GunsmithGunDurability.RepairPreview preview = GunsmithGunDurability.repairPreview(managed);
         if (!preview.available()) {
             player.displayClientMessage(Component.translatable(switch (preview.status()) {
                 case FULL -> "message.miningdim.gunsmith_repair.full";
@@ -188,12 +197,19 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
             return false;
         }
 
-        GunsmithPlatform platform = GunsmithGunStats.from(gun).blueprint().platform();
         GunsmithPressPart repairPart = preview.requiredPart();
         ItemStack replacement = inventory.getStackInSlot(slotForPart(repairPart));
-        if (!GunsmithAssemblyRecipe.matchesPart(replacement, repairPart, platform)) {
+        if (!GunsmithAssemblyRecipe.matchesPart(replacement, repairPart,
+                managed.stats().blueprint().platform())) {
             player.displayClientMessage(Component.translatable(
                     "message.miningdim.gunsmith_repair.missing_part",
+                    Component.translatable(repairPart.labelKey())), true);
+            return false;
+        }
+        // 槽位谓词只在放入那一刻校验, 换枪后留在槽里的旧件仍会走到这里, 故权威侧必须再判一次降级 (审查 30)。
+        if (!GunsmithGunDurability.isRepairReplacement(managed.stats(), replacement)) {
+            player.displayClientMessage(Component.translatable(
+                    "message.miningdim.gunsmith_repair.part_downgrade",
                     Component.translatable(repairPart.labelKey())), true);
             return false;
         }
@@ -202,6 +218,12 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         GunsmithGunDurability.RepairResult repaired = GunsmithGunDurability.repair(result);
         if (!repaired.repaired()) {
             throw new IllegalStateException("Validated gunsmith repair did not produce a repaired gun");
+        }
+        long fee = MunitionsConfig.repairWorkFeeCredits();
+        if (!tryChargeWorkFee(player, fee)) {
+            player.displayClientMessage(
+                    Component.translatable("message.miningdim.gunsmith.work_fee_unaffordable", fee), true);
+            return false;
         }
         inventory.extractItem(SLOT_BLUEPRINT, 1, false);
         inventory.extractItem(slotForPart(repairPart), 1, false);

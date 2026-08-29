@@ -2142,7 +2142,8 @@ const CHEF_EFFECT_ROWS: readonly ChefEffectSeed[] = [
   ['amplify', false, false, false, 'mul_x100', [120, 150, 200, 300, 500], [0, 0, 0, 0, 0]],
   ['nourish_food', false, false, false, 'mul_x100', [150, 200, 300, 400, 800], [0, 0, 0, 0, 0]],
   ['aftertaste_sat', false, false, false, 'mul_x100', [150, 200, 300, 400, 500], [0, 0, 0, 0, 0]],
-  ['sated_jump', false, false, false, 'level', [1, 2, 3, 4, 5], [0, 0, 0, 0, 0]],
+  // sated_jump 时长与品质无关 (ChefConfig.satedJumpSeconds 单一配置项), 五档同值 60, 对齐 ChefWebUiActions.durationSeconds。
+  ['sated_jump', false, false, false, 'level', [1, 2, 3, 4, 5], [60, 60, 60, 60, 60]],
   // 战斗向只在高/超凡/闪耀解锁, 低/中两档是真值 0 而不是缺数据。
   ['nourish_heal', true, false, false, 'permille', [0, 0, 75, 100, 1000], [0, 0, 0, 0, 0]],
   ['purify', true, false, false, 'count', [0, 0, 3, 4, 99], [0, 0, 0, 0, 0]],

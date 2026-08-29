@@ -56,6 +56,11 @@ public final class ChefWebUiGameTests {
     private static final int[] QUALITY_MAX_EFFECTS = {1, 1, 2, 2, 3};
     private static final boolean[] QUALITY_NO_FAILURE = {false, false, false, true, true};
     private static final boolean[] QUALITY_COMBAT_UNLOCKED = {false, false, true, true, true};
+    /**
+     * 单菜原始经验逐档硬钉值。只断言 {@code row.rawXp == ChefConfig.rawXp(quality)} 锁的是"实时读配置",
+     * 锁不住数值本身 —— 把整张表改成 0 或 40000, 那条等式仍恒真。数值这一半必须由本常量表看守。
+     */
+    private static final int[] QUALITY_RAW_XP = {50, 80, 130, 220, 400};
 
     // ============================================================
     // 1. 形状与数值
@@ -76,7 +81,8 @@ public final class ChefWebUiGameTests {
         JsonObject state = handle(helper, player);
 
         helper.assertTrue(state.get("level").getAsInt() == 1, "新号厨师 1 级");
-        helper.assertTrue(state.get("qualityCapTier").getAsInt() == ChefQuality.RADIANT.tier(),
+        // 字面量 4 而不是 ChefQuality.RADIANT.tier(): 后者与被测实现是同一个常量表达式, 等号恒真。
+        helper.assertTrue(state.get("qualityCapTier").getAsInt() == 4,
                 "L1 厨师也可选择闪耀目标，等级只降低达成率；最高目标应为 tier 4，实得 "
                         + state.get("qualityCapTier").getAsInt());
 
@@ -98,8 +104,10 @@ public final class ChefWebUiGameTests {
                     quality.id() + " 的零翻车位错了 (超凡/闪耀才是 true)");
             helper.assertTrue(row.get("combatUnlocked").getAsBoolean() == QUALITY_COMBAT_UNLOCKED[i],
                     quality.id() + " 的战斗向解锁位错了 (第六章红线: 仅高/超凡/闪耀)");
-            helper.assertTrue(row.get("rawXp").getAsInt() == ChefConfig.rawXp(quality),
-                    quality.id() + " 的单菜原始经验取 config 实时值");
+            helper.assertTrue(row.get("rawXp").getAsInt() == ChefConfig.rawXp(quality)
+                            && row.get("rawXp").getAsInt() == QUALITY_RAW_XP[i],
+                    quality.id() + " 的单菜原始经验既要实时取 config, 又必须是契约值 " + QUALITY_RAW_XP[i]
+                            + ", 实得 " + row.get("rawXp").getAsInt());
         }
 
         JsonArray effects = state.getAsJsonArray("effects");
@@ -168,6 +176,16 @@ public final class ChefWebUiGameTests {
                             == ChefConfig.fireflySeconds(quality),
                     "流萤 " + quality.id() + " 档时长必须实时读取配置");
         }
+        // 饱食 (跳跃提升) 的时长是单一配置项 satedJumpSeconds, 五档同值。前端 mock 一度把这一栏写成
+        // [0,0,0,0,0] (= "没有独立持续时间"), 而那份漂移在 TS 侧无人看守; 这条把它钉成 Java 侧可挂的契约。
+        // 60 写成字面量而不是只比 ChefConfig: 只比 config 锁得住"实时读", 锁不住数值本身。
+        JsonArray satedJumpDurations = row(helper, effects, ChefEffectType.SATED_JUMP)
+                .getAsJsonArray("durationSeconds");
+        for (ChefQuality quality : ChefQuality.values()) {
+            int actual = satedJumpDurations.get(quality.tier()).getAsInt();
+            helper.assertTrue(actual == 60 && actual == ChefConfig.satedJumpSeconds(),
+                    "饱食时长与品质无关, 5 档同发契约值 60 秒, " + quality.id() + " 档实得 " + actual);
+        }
         // 夜照两栏同值是它的语义 (magnitude 本身就是时长秒), 不是重复发送。
         JsonObject night = row(helper, effects, ChefEffectType.NIGHT_SIGHT);
         for (ChefQuality quality : ChefQuality.values()) {
@@ -182,20 +200,48 @@ public final class ChefWebUiGameTests {
         helper.succeed();
     }
 
-    /** 全等级开放全部目标品质；升级只改变服务端概率与 QTE 难度，不再形成选择硬上限。 */
+    /**
+     * 全等级开放全部目标品质；升级只改变服务端达成率与 QTE 难度，不再形成选择硬上限。
+     *
+     * 上限那一半必须用字面量 4 断言，不能写 {@code ChefQuality.RADIANT.tier()} —— 被测实现填的正是同一个
+     * 常量表达式，等号两边同源时把整段等级逻辑删光测试照样绿。
+     *
+     * 更要命的是「等级到底还影响什么」原本零覆盖：取消硬上限后，等级的唯一去处是达成率倍率。这里把倍率梯子
+     * 与端到端概率都钉成手算常量，删掉等级倍率或把它拍平成定值都会让本条变红。
+     */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void chefQualityTargetRangeIsOpenAtEveryLevel(GameTestHelper helper) {
+    public static void chefLevelOnlyMovesAchievementRateNotSelectableRange(GameTestHelper helper) {
         ChefConfig.ensureLoadedForTest();
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
 
-        setChefLevel(player, 5);
-        helper.assertTrue(handle(helper, player).get("qualityCapTier").getAsInt() == ChefQuality.RADIANT.tier(),
-                "L5 厨师仍可选择闪耀目标");
-        setChefLevel(player, 9);
-        JsonObject radiant = handle(helper, player);
-        helper.assertTrue(radiant.get("level").getAsInt() == 9
-                        && radiant.get("qualityCapTier").getAsInt() == ChefQuality.RADIANT.tier(),
-                "L9 厨师的最高可选目标仍为闪耀 tier 4，实得 " + radiant.get("qualityCapTier").getAsInt());
+        for (int level : new int[]{1, 5, 9, 10}) {
+            setChefLevel(player, level);
+            JsonObject state = handle(helper, player);
+            helper.assertTrue(state.get("level").getAsInt() == level,
+                    "面板等级必须实时取自玩家职业进度, 期望 " + level + " 实得 " + state.get("level").getAsInt());
+            helper.assertTrue(state.get("qualityCapTier").getAsInt() == 4,
+                    "L" + level + " 厨师的最高可选目标恒为闪耀 tier 4, 实得 "
+                            + state.get("qualityCapTier").getAsInt());
+        }
+
+        // 等级倍率梯子: 千分比 100 (L1) 线性升到 1000 (L10); L5 = 100 + round(900*4/9) = 500。
+        helper.assertTrue(ChefQualityResolver.levelSuccessMultiplierPerMille(1) == 100
+                        && ChefQualityResolver.levelSuccessMultiplierPerMille(5) == 500
+                        && ChefQualityResolver.levelSuccessMultiplierPerMille(10) == 1000,
+                "等级成功率倍率梯子应为 100/500/1000 千分比, 实得 "
+                        + ChefQualityResolver.levelSuccessMultiplierPerMille(1) + "/"
+                        + ChefQualityResolver.levelSuccessMultiplierPerMille(5) + "/"
+                        + ChefQualityResolver.levelSuccessMultiplierPerMille(10));
+
+        // 端到端: 同一个闪耀目标 + 满控火 + 全 QTE 命中 + 闪耀台, L1 只有 54 而 L10 有 540 (整十倍)。
+        // 100 基础 -> 表现封顶 1000 -> x450 难度 = 450 -> 乘等级倍率 -> 乘台档 1200。
+        int radiantAtLevel1 = ChefQualityResolver.successChancePerMille(
+                ChefQuality.RADIANT, 1.0D, 6, 6, 1, ChefQuality.RADIANT);
+        int radiantAtLevel10 = ChefQualityResolver.successChancePerMille(
+                ChefQuality.RADIANT, 1.0D, 6, 6, 10, ChefQuality.RADIANT);
+        helper.assertTrue(radiantAtLevel1 == 54 && radiantAtLevel10 == 540,
+                "闪耀目标的达成率应随等级从 54 涨到 540 千分比, 实得 "
+                        + radiantAtLevel1 + "/" + radiantAtLevel10);
         helper.succeed();
     }
 

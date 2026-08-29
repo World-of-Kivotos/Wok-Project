@@ -9,6 +9,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.food.FoodData;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.entity.living.LivingEntityUseItemEvent;
+import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -56,7 +57,7 @@ public final class ChefConsumeHandler {
         private final ChefQuality quality;
         private final int food;
         private final float saturation;
-        private final java.util.Set<MobEffect> declaredTypes;
+        private final Map<MobEffect, Integer> declaredDurations;
         private final Map<MobEffect, EffectSnapshot> declaredEffects;
 
         private ConsumptionSnapshot(ItemStack stack, LivingEntity entity, ChefQuality quality) {
@@ -70,8 +71,8 @@ public final class ChefConsumeHandler {
                 this.food = 0;
                 this.saturation = 0.0F;
             }
-            this.declaredTypes = declaredEffectTypes(stack, entity);
-            this.declaredEffects = declaredEffectsBefore(entity, declaredTypes);
+            this.declaredDurations = declaredEffectDurations(stack, entity);
+            this.declaredEffects = declaredEffectsBefore(entity, declaredDurations.keySet());
         }
 
         private boolean matches(ItemStack stack, ChefQuality currentQuality) {
@@ -127,24 +128,58 @@ public final class ChefConsumeHandler {
                 .forEach(inst -> applyEffect(entity, quality, inst, stack, snapshot));
     }
 
+    /**
+     * 四个清理入口都必须与 {@link #onStartEating} 对称地挡住客户端线程: CONSUMPTIONS 是按 UUID 索引的
+     * static 表, 单人存档/局域网里客户端 LocalPlayer 与服务端 ServerPlayer 是同一个 UUID, 客户端事件
+     * 会抹掉服务端刚写进去的事务, 结果是菜被吃掉而一个效果都不结算, 玩家还看不到任何提示。
+     */
     @SubscribeEvent
     public void onStopEating(LivingEntityUseItemEvent.Stop event) {
+        if (event.getEntity().level().isClientSide) {
+            return;
+        }
         CONSUMPTIONS.remove(event.getEntity().getUUID());
     }
 
     @SubscribeEvent
     public void onDeath(LivingDeathEvent event) {
+        if (event.getEntity().level().isClientSide) {
+            return;
+        }
         CONSUMPTIONS.remove(event.getEntity().getUUID());
     }
 
     @SubscribeEvent
     public void onLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity().level().isClientSide) {
+            return;
+        }
         CONSUMPTIONS.remove(event.getEntity().getUUID());
     }
 
     @SubscribeEvent
     public void onChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
+        if (event.getEntity().level().isClientSide) {
+            return;
+        }
         CONSUMPTIONS.remove(event.getEntity().getUUID());
+    }
+
+    /**
+     * 不依赖 Stop 事件的兜底清理: 1.20.1 只有 releaseUsingItem() 会发 Forge 的 Stop 事件, 而换快捷栏槽位
+     * (handleSetCarriedItem) 与 updatingUsingItem 走的是 stopUsingItem() —— 不发事件。没有这条兜底,
+     * "吃到一半按数字键换槽" 的快照会一直残留在 static 表里; 对随区块卸载的非玩家实体更是永不清除。
+     */
+    @SubscribeEvent
+    public void onLivingTick(LivingEvent.LivingTickEvent event) {
+        if (CONSUMPTIONS.isEmpty()) {
+            return;
+        }
+        LivingEntity entity = event.getEntity();
+        if (entity.level().isClientSide || entity.isUsingItem()) {
+            return;
+        }
+        CONSUMPTIONS.remove(entity.getUUID());
     }
 
     private void applyEffect(LivingEntity entity, ChefQuality quality, ChefEffectInstance inst, ItemStack stack,
@@ -160,23 +195,24 @@ public final class ChefConsumeHandler {
             case REFRESH -> applyRefresh(entity, quality, inst.magnitude());
             case NIGHT_SIGHT -> entity.addEffect(new MobEffectInstance(
                     MobEffects.NIGHT_VISION, inst.magnitude() * 20, 0, false, true));
-            case ENDURANCE -> stampWindow(entity, ChefEffectType.ENDURANCE, inst.magnitude(),
+            case ENDURANCE -> stampWindow(entity, ChefEffectType.ENDURANCE, quality,
                     ChefConfig.enduranceSeconds(quality));
-            case SATIATION -> stampWindow(entity, ChefEffectType.SATIATION, 0, ChefConfig.satiationSeconds(quality));
+            case SATIATION -> stampWindow(entity, ChefEffectType.SATIATION, quality,
+                    ChefConfig.satiationSeconds(quality));
             case SHIELD -> applyShield(entity, inst.magnitude(), ChefConfig.shieldWindowSeconds());
-            case GREASE -> stampWindow(entity, ChefEffectType.GREASE, inst.magnitude(),
+            case GREASE -> stampWindow(entity, ChefEffectType.GREASE, quality,
                     ChefConfig.greaseWindowSeconds());
-            case AFTERTASTE_REGEN -> stampWindow(entity, ChefEffectType.AFTERTASTE_REGEN, inst.magnitude(),
+            case AFTERTASTE_REGEN -> stampWindow(entity, ChefEffectType.AFTERTASTE_REGEN, quality,
                     ChefConfig.regenWindowSeconds());
             case STABLE_AIM -> {
                 entity.removeEffect(MobEffects.MOVEMENT_SLOWDOWN);
-                stampWindow(entity, ChefEffectType.STABLE_AIM, inst.magnitude(),
+                stampWindow(entity, ChefEffectType.STABLE_AIM, quality,
                         ChefConfig.stableAimWindowSeconds());
             }
             case FIRE_QUELL -> applyFireQuell(entity, quality, inst.magnitude());
-            case GILLS -> applyGills(entity, inst.magnitude());
-            case FEATHER -> applyFeather(entity, inst.magnitude());
-            case FIREFLY -> applyFirefly(entity, inst.magnitude());
+            case GILLS -> applyGills(entity, quality, inst.magnitude());
+            case FEATHER -> applyFeather(entity, quality, inst.magnitude());
+            case FIREFLY -> applyFirefly(entity, quality, inst.magnitude());
             case OVERSALT -> halveSaturation(entity);
             case UNDERDONE -> applyUnderdone(entity, quality, inst.magnitude());
             case SCORCHED -> applyScorched(entity, inst.magnitude());
@@ -266,30 +302,32 @@ public final class ChefConsumeHandler {
         entity.addEffect(new MobEffectInstance(MobEffects.DIG_SPEED, seconds * 20, hasteLevel - 1, false, true));
     }
 
+    /** 镇火的实际免火由原版 FIRE_RESISTANCE 承担 (原版 hurt 在最前面就对火伤直接 return false); 窗口只作标记与计时。 */
     private void applyFireQuell(LivingEntity entity, ChefQuality quality, int seconds) {
         entity.clearFire();
-        stampWindow(entity, ChefEffectType.FIRE_QUELL, seconds, Math.max(1, seconds));
+        stampWindow(entity, ChefEffectType.FIRE_QUELL, quality, Math.max(1, seconds));
         if (seconds > 0) {
             entity.addEffect(new MobEffectInstance(MobEffects.FIRE_RESISTANCE, seconds * 20, 0, false, true));
         }
     }
 
-    private void applyGills(LivingEntity entity, int seconds) {
-        stampWindow(entity, ChefEffectType.GILLS, 0, seconds);
+    private void applyGills(LivingEntity entity, ChefQuality quality, int seconds) {
+        stampWindow(entity, ChefEffectType.GILLS, quality, seconds);
         entity.addEffect(new MobEffectInstance(MobEffects.WATER_BREATHING, seconds * 20, 0, false, true));
         entity.addEffect(new MobEffectInstance(MobEffects.DOLPHINS_GRACE, seconds * 20, 0, false, true));
     }
 
-    private void applyFeather(LivingEntity entity, int seconds) {
+    /** 轻羽的坠落免伤由原版 SLOW_FALLING 承担 (下落时逐 tick resetFallDistance); 窗口只作标记与计时。 */
+    private void applyFeather(LivingEntity entity, ChefQuality quality, int seconds) {
         if (seconds <= 0) {
             return;
         }
-        stampWindow(entity, ChefEffectType.FEATHER, 0, seconds);
+        stampWindow(entity, ChefEffectType.FEATHER, quality, seconds);
         entity.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, seconds * 20, 0, false, true));
     }
 
-    private void applyFirefly(LivingEntity entity, int seconds) {
-        stampWindow(entity, ChefEffectType.FIREFLY, 0, seconds);
+    private void applyFirefly(LivingEntity entity, ChefQuality quality, int seconds) {
+        stampWindow(entity, ChefEffectType.FIREFLY, quality, seconds);
         entity.addEffect(new MobEffectInstance(MobEffects.GLOWING, seconds * 20, 0, false, true));
     }
 
@@ -300,7 +338,7 @@ public final class ChefConsumeHandler {
         if (SeasoningBlacklist.isItemBlacklisted(stack)) {
             return; // 物品级黑名单 (金苹果/附魔金苹果): 整菜不增香。
         }
-        amplifyDeclaredBuffs(entity, declaredEffectTypes(stack, entity), mulX100, before);
+        amplifyDeclaredBuffs(entity, declaredEffectDurations(stack, entity).keySet(), mulX100, before);
     }
 
     /**
@@ -372,9 +410,24 @@ public final class ChefConsumeHandler {
         FoodData food = player.getFoodData();
         food.setFoodLevel(snapshot.food);
         food.setSaturation(Math.min(snapshot.food, snapshot.saturation));
-        for (MobEffect effect : snapshot.declaredTypes) {
-            entity.removeEffect(effect);
+        for (Map.Entry<MobEffect, Integer> declared : snapshot.declaredDurations.entrySet()) {
+            MobEffect effect = declared.getKey();
+            MobEffectInstance after = entity.getEffect(effect);
+            if (after == null) {
+                continue;
+            }
             EffectSnapshot before = snapshot.declaredEffects.get(effect);
+            if (before == null) {
+                // 进食前没有该效果: 只有"剩余时长不超过本菜声明值"才可能是本菜刚写的; 更长的一定来自
+                // 第三方 (队友喷溅药水等在这 32 tick 内新加), 失败品无权删别人给的增益。
+                if (after.getDuration() > declared.getValue()) {
+                    continue;
+                }
+            } else if (after.getDuration() <= before.duration() && after.getAmplifier() <= before.amplifier()) {
+                // 进食前已有且既没被延长也没被提级: 本菜的声明被原版 MobEffectInstance.update 判负, 什么都没写。
+                continue;
+            }
+            entity.removeEffect(effect);
             if (before != null) {
                 entity.addEffect(before.restore(effect));
             }
@@ -394,15 +447,20 @@ public final class ChefConsumeHandler {
         return out;
     }
 
-    private static java.util.Set<MobEffect> declaredEffectTypes(ItemStack stack, LivingEntity entity) {
+    /**
+     * 这道菜 FoodProperties 声明的效果 -> 声明时长 (同一效果被声明多次时取最长)。失败品回滚要靠时长
+     * 区分"本菜刚写进去的"与"进食这几十 tick 里由第三方来源新加的同名效果"。
+     */
+    private static Map<MobEffect, Integer> declaredEffectDurations(ItemStack stack, LivingEntity entity) {
         var props = stack.getFoodProperties(entity);
-        java.util.Set<MobEffect> out = new java.util.HashSet<>();
+        Map<MobEffect, Integer> out = new HashMap<>();
         if (props == null) {
             return out;
         }
         for (com.mojang.datafixers.util.Pair<MobEffectInstance, Float> pair : props.getEffects()) {
-            if (pair.getFirst() != null) {
-                out.add(pair.getFirst().getEffect());
+            MobEffectInstance declared = pair.getFirst();
+            if (declared != null) {
+                out.merge(declared.getEffect(), declared.getDuration(), Math::max);
             }
         }
         return out;
@@ -411,9 +469,9 @@ public final class ChefConsumeHandler {
 
     // ---- 窗口型统一盖章入口 ----
 
-    private void stampWindow(LivingEntity entity, ChefEffectType type, int magnitude, int windowSeconds) {
+    private void stampWindow(LivingEntity entity, ChefEffectType type, ChefQuality quality, int windowSeconds) {
         if (entity instanceof ServerPlayer player) {
-            ChefWindowEffectState.stamp(player, type, magnitude, windowSeconds);
+            ChefWindowEffectState.stamp(player, type, quality, windowSeconds);
         }
     }
 }

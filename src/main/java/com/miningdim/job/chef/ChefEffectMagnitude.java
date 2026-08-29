@@ -6,6 +6,9 @@ package com.miningdim.job.chef;
  *
  * magnitude 语义随 type 不同 (见 {@link ChefEffectType} 各项): 倍率类存 x100, 战斗向 %血/减伤存千分比,
  * 等级类存 1-based 等级, 时长类存秒, 概率类存千分比。吃时由 {@link ChefConsumeHandler} 按 type 还原解释。
+ *
+ * 窗口型效果 (耐饥/凝脂/余韵/稳膛…) 另有一条读回路径: 窗口的 MobEffect amplifier 只能装下 byte, 故只存品质档,
+ * {@link ChefWindowEffectState#magnitudeOf} 在读取时用 (type, 档) 回查本表还原真实数值。
  */
 final class ChefEffectMagnitude {
 

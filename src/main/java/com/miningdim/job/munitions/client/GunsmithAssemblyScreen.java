@@ -36,6 +36,7 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
     private static final int STATS_Y = 45;
     private static final int STATS_W = 97;
     private static final int STATS_H = 124;
+    private static final int STAT_LINE_HEIGHT = 10;
     private static final int OUTPUT_X = 366;
     private static final int OUTPUT_Y = 177;
     private static final int ASSEMBLE_X = 310;
@@ -72,10 +73,12 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
         drawPlayerInventoryFrames(graphics, left, top);
 
         Map<GunsmithPressPart, ItemStack> partStacks = menu.partStacks();
-        boolean repairMode = menu.isRepairMode();
+        // 渲染线程没有外层兜底, 待维修枪一律经菜单的不抛入口读一次, 读不出来就退回"等待图纸"提示 (审查 2)。
+        GunsmithGunDurability.Managed repairTarget = menu.repairTarget();
+        boolean repairMode = repairTarget != null;
         boolean hasBlueprint = GunsmithAssemblyRecipe.isBlueprint(menu.blueprint());
-        if (repairMode) {
-            GunsmithGunStats gunStats = GunsmithGunStats.from(menu.input());
+        if (repairTarget != null) {
+            GunsmithGunStats gunStats = repairTarget.stats();
             Optional<GunsmithTaczClientData> clientData = GunsmithTaczClientData.find(gunStats.gunId());
             if (clientData.isPresent()) {
                 drawRightAlignedScaledText(graphics, clientData.get().gunName().getString(),
@@ -87,7 +90,7 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
                 drawRightAlignedScaledText(graphics, gunStats.gunId().toString(),
                         left + W - 20, top + 19, 0xFFE0525C, 0.62F);
             }
-            renderRepairStats(graphics, left, top, menu.repairPreview());
+            renderRepairStats(graphics, left, top, GunsmithGunDurability.repairPreview(repairTarget));
         } else if (hasBlueprint) {
             GunsmithBlueprint blueprint = GunsmithAssemblyRecipe.blueprint(menu.blueprint());
             Map<GunsmithPressPart, ItemStack> previewParts =
@@ -192,21 +195,43 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
         int y = top + STATS_Y + 6;
         drawScaledText(graphics, Component.translatable("screen.miningdim.gunsmith_assembly.stats").getString(),
                 x, y, 0xFFB9D7DE, 0.68F);
-        drawStat(graphics, x, y + 15, "screen.miningdim.gunsmith_assembly.stat.damage",
+        // 预览行数由 8 涨到 11 (后坐拆成水平与额外垂直, 再补弹速与穿甲), 而属性面板下沿被成品槽面板
+        // (top + 171) 卡死不能加高, 故把行距从 13 压到 STAT_LINE_HEIGHT: 末行底边落在 top + 166.6,
+        // 面板内沿在 top + 168, 尚余一像素余量。
+        int line = y + 11;
+        drawStat(graphics, x, line, "screen.miningdim.gunsmith_assembly.stat.damage",
                 formatTwo(baseStats.damage()) + " > " + formatTwo(preview.damage()));
-        drawStat(graphics, x, y + 28, "screen.miningdim.gunsmith_assembly.stat.headshot",
+        line += STAT_LINE_HEIGHT;
+        drawStat(graphics, x, line, "screen.miningdim.gunsmith_assembly.stat.headshot",
                 formatTwo(baseStats.headshot()) + " > " + formatTwo(preview.headshot()));
-        drawStat(graphics, x, y + 41, "screen.miningdim.gunsmith_assembly.stat.range",
+        line += STAT_LINE_HEIGHT;
+        drawStat(graphics, x, line, "screen.miningdim.gunsmith_assembly.stat.range",
                 formatRange(baseStats.effectiveRange()) + " > " + formatRange(preview.effectiveRange()));
-        drawStat(graphics, x, y + 54, "screen.miningdim.gunsmith_assembly.stat.semi_auto_fire_rate",
+        line += STAT_LINE_HEIGHT;
+        drawStat(graphics, x, line, "screen.miningdim.gunsmith_assembly.stat.semi_auto_fire_rate",
                 formatSignedPercent(preview.fireRateChange()));
-        drawStat(graphics, x, y + 67, "screen.miningdim.gunsmith_assembly.stat.vertical_recoil",
+        line += STAT_LINE_HEIGHT;
+        // recoilChange 是 yaw 轴 (水平) 的乘子变化, 同时也是 pitch 轴的基底; verticalRecoilChange 是型号
+        // 在此基底之上额外叠的垂直分量。原先把 recoilChange 挂在 vertical_recoil 键下是纯粹的错标。
+        drawStat(graphics, x, line, "screen.miningdim.gunsmith_assembly.stat.recoil",
                 formatSignedPercent(preview.recoilChange()));
-        drawStat(graphics, x, y + 80, "screen.miningdim.gunsmith_assembly.stat.spread",
+        line += STAT_LINE_HEIGHT;
+        drawStat(graphics, x, line, "screen.miningdim.gunsmith_assembly.stat.vertical_recoil_extra",
+                formatSignedPercent(preview.verticalRecoilChange()));
+        line += STAT_LINE_HEIGHT;
+        drawStat(graphics, x, line, "screen.miningdim.gunsmith_assembly.stat.spread",
                 formatSignedPercent(preview.spreadChange()));
-        drawStat(graphics, x, y + 93, "screen.miningdim.gunsmith_assembly.stat.ads",
+        line += STAT_LINE_HEIGHT;
+        drawStat(graphics, x, line, "screen.miningdim.gunsmith_assembly.stat.ammo_speed",
+                formatSignedPercent(preview.ammoSpeedChange()));
+        line += STAT_LINE_HEIGHT;
+        drawStat(graphics, x, line, "screen.miningdim.gunsmith_assembly.stat.armor_ignore",
+                formatSignedPercent(preview.armorIgnoreChange()));
+        line += STAT_LINE_HEIGHT;
+        drawStat(graphics, x, line, "screen.miningdim.gunsmith_assembly.stat.ads",
                 formatSeconds(baseStats.adsTime()) + " > " + formatSeconds(preview.adsTime()));
-        drawStat(graphics, x, y + 106, "screen.miningdim.gunsmith_assembly.stat.overall",
+        line += STAT_LINE_HEIGHT;
+        drawStat(graphics, x, line, "screen.miningdim.gunsmith_assembly.stat.overall",
                 "x" + String.format(Locale.ROOT, "%.3f", preview.average()));
     }
 
@@ -312,10 +337,14 @@ public final class GunsmithAssemblyScreen extends AbstractContainerScreen<Gunsmi
     }
 
     private static int qualityColor(ItemStack stack) {
-        if (stack.isEmpty()) {
+        // 维修态与"等待图纸"态都不会走装配预览, 品质描边是这两条渲染路径上唯一会解析组件 NBT 的地方。
+        // qualityOf 遇到损坏 NBT 会抛, 而渲染线程没有外层兜底, 抛出去就是崩客户端, 故走不抛入口,
+        // 读不出来的组件按空槽的中性描边处理 (不用红色, 免得与传奇品质撞色)。
+        GunsmithPartItem.PartData data = stack.isEmpty() ? null : GunsmithPartItem.tryPartData(stack);
+        if (data == null) {
             return 0xFF53636D;
         }
-        GunsmithPartQuality quality = GunsmithPartItem.qualityOf(stack);
+        GunsmithPartQuality quality = data.quality();
         return switch (quality) {
             case COMMON -> 0xFFD7DEE1;
             case IMPROVED -> 0xFF54C879;

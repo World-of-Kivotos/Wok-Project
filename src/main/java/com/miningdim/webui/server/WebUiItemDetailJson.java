@@ -53,6 +53,9 @@ public final class WebUiItemDetailJson {
     /** 降级标签前缀; 后缀是"它本来该是哪一类", 而不是笼统的一句"数据坏了"。 */
     private static final String TAG_UNREADABLE = "data.unreadable:";
 
+    /** 乘子距 1.0 多远才算"真有效果"; 与 {@code GunsmithPartItem.addEffect} 的中性判据取同一个数。 */
+    private static final double NEUTRAL_MULTIPLIER_EPSILON = 0.0005D;
+
     private WebUiItemDetailJson() {
     }
 
@@ -131,8 +134,11 @@ public final class WebUiItemDetailJson {
      * 全部 getter 在 {@code tryFrom} 返回非 null 之后都是安全的: 构造器已按 version 分档把要用到的 stats 校验
      * 过一遍, version&lt;3 的 fireRate 与 version&lt;5 的 verticalRecoil / inaccuracy 走的是派生分支而不是读缺键。
      *
-     * verticalRecoil 与 inaccuracy 刻意复用现成的 {@code recoilChange()} / {@code spreadChange()} —— 它们本身
-     * 就已经是 -1.0 口径, 自己再换算一遍等于在枪械 tooltip 之外开第二份口径。
+     * 后坐与散布三行取的是 {@code verticalRecoilMultiplier() / horizontalRecoilMultiplier() /
+     * inaccuracyMultiplier()}: 这三个表达式与 {@code GunsmithStatMultipliers.of} 真正下发给 TaCZ 的
+     * verticalRecoil / recoil / inaccuracy 三个分量逐位相同, 面板与枪械实际手感因此不可能漂移。
+     * 垂直那行不能用 {@code recoilChange()} —— 它只含全向后坐, 势力组件的额外垂直加成 (红东高压导气 x3.0)
+     * 不在里面, 拿它当垂直行会把真实的 +300% 显示成 +33%。
      *
      * 刻意不做: 不调 TaCZ 桥换算绝对伤害 / 射程。那依赖 TaCZ 加载与索引命中, empty 分支会让详情面板的行时有
      * 时无; 本批只发相对基准的增减量。
@@ -144,9 +150,9 @@ public final class WebUiItemDetailJson {
         percent(attributes, "handling", gun.handling() - 1.0D);
         percent(attributes, "average", gun.average() - 1.0D);
         percent(attributes, "fireRate", gun.fireRateMultiplier() - 1.0D);
-        percent(attributes, "verticalRecoil", gun.recoilChange());
+        percent(attributes, "verticalRecoil", gun.verticalRecoilMultiplier() - 1.0D);
         percent(attributes, "horizontalRecoil", gun.horizontalRecoilMultiplier() - 1.0D);
-        percent(attributes, "inaccuracy", gun.spreadChange());
+        percent(attributes, "inaccuracy", gun.inaccuracyMultiplier() - 1.0D);
         flat(attributes, "partCount", gun.parts().size());
 
         tags.add("gun.platform:" + gun.platform());
@@ -154,24 +160,41 @@ public final class WebUiItemDetailJson {
     }
 
     /**
-     * 零件的品质系数, 以及非基础变体额外带的三条属性偏移 (与零件 tooltip 逐字同源, 换算方式一致)。
-     * 基础变体的三个乘数恒为 1.0, 发三行 +0% 只是噪音, 故不发。
+     * 零件的品质系数 + 该型号在这一品质下的全部属性偏移 (与零件 tooltip 逐条同源, 顺序也一致)。
+     *
+     * <h2>为什么按"偏离中性才发"而不是按变体分档</h2>
+     * 旧口径是"BASE 不发, 非 BASE 固定发 fireRate / verticalRecoil / inaccuracy 三行"。组件规则表扩到十维之后
+     * 这条近似判据两头都错: 红冬赤雪 A 型枪机的卖点是伤害 +25% / 穿甲 -25% / 后坐 +35%, 而它的 fireRate、
+     * verticalRecoil、spread 恰好全是 1.0 —— 平板上于是只剩三行 +0%, 玩家会判定这枚传奇组件"没有任何特殊属性"。
+     * 改成逐项判中性: 阈值与 {@code GunsmithPartItem.addEffect} 的中性判据同一个数, 平板上不出现的行在物品
+     * tooltip 上一定也是灰的 +0%, 两套展示不可能再各说各话。
+     *
+     * 强制火力模式与最大耐久修正没有"乘子"形态可判, 前者发成标签, 后者按乘子同规格发一行百分比。
      */
     private static void appendGunsmithPart(GunsmithPartItem.PartData part, JsonArray attributes, JsonArray tags) {
-        double coefficient = part.coefficient();
-        flat(attributes, "coefficient", coefficient);
+        flat(attributes, "coefficient", part.coefficient());
         GunsmithPartVariant variant = part.variant();
-        if (variant != GunsmithPartVariant.BASE) {
-            GunsmithPartQuality quality = part.quality();
-            percent(attributes, "fireRate", variant.fireRateMultiplier(quality) - 1.0D);
-            percent(attributes, "verticalRecoil", variant.verticalRecoilMultiplier(quality) - 1.0D);
-            percent(attributes, "inaccuracy", variant.spreadMultiplier(quality) - 1.0D);
-        }
+        GunsmithPartQuality quality = part.quality();
+        effect(attributes, "damage", variant.damageMultiplier(quality));
+        effect(attributes, "headshot", variant.headshotMultiplier(quality));
+        effect(attributes, "fireRate", variant.fireRateMultiplier(quality));
+        effect(attributes, "range", variant.rangeMultiplier(quality));
+        effect(attributes, "ammoSpeed", variant.ammoSpeedMultiplier(quality));
+        effect(attributes, "armorIgnore", variant.armorIgnoreMultiplier(quality));
+        effect(attributes, "inaccuracy", variant.spreadMultiplier(quality));
+        effect(attributes, "recoil", variant.recoilMultiplier(quality));
+        effect(attributes, "verticalRecoil", variant.verticalRecoilMultiplier(quality));
+        effect(attributes, "adsSpeed", variant.adsSpeedMultiplier(quality));
+        effect(attributes, "maximumDurability", variant.maximumDurabilityMultiplier());
 
         tags.add("part.platform:" + part.platform().id());
         tags.add("part.slot:" + part.part().id());
         tags.add("part.variant:" + variant.id());
         tags.add("part.quality:" + part.quality().id());
+        if (variant.forcesBurstFireMode()) {
+            // 火力模式是"有/无", 不是可乘的数值; 与 tarot.bound / wine.spoiled 同规格发成无值标签。
+            tags.add("part.burstFire");
+        }
     }
 
     /** 牌面身份。正逆位发成两个互斥标签而不是一个布尔, 与其余标签同一形态, 前端一张码表全解完。 */
@@ -226,6 +249,18 @@ public final class WebUiItemDetailJson {
         }
         if (NanoNbt.isProductionXpPending(stack)) {
             tags.add("nano.xpPending");
+        }
+    }
+
+    /**
+     * 乘子偏离中性才发一行, 否则整行不发。
+     *
+     * 阈值 0.0005 不是随手取的: 它就是 {@code GunsmithPartItem.addEffect} 判"这一行是灰的中性值"用的那个数,
+     * 抄同一个常量才能保证平板与物品 tooltip 的显隐完全同步。
+     */
+    private static void effect(JsonArray attributes, String key, double multiplier) {
+        if (Math.abs(multiplier - 1.0D) > NEUTRAL_MULTIPLIER_EPSILON) {
+            percent(attributes, key, multiplier - 1.0D);
         }
     }
 

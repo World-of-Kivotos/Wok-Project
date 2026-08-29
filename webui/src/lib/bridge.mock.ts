@@ -318,8 +318,9 @@ const MOCK_ITEMS: readonly MockItemDef[] = [
   },
   {
     /*
-     * NBT 变体件。195 种零件共用这一个 itemId 与这一个翻译键, 故它必须登记 —— 背包里那两件零件挂上市场时
-     * makeListing 要按 itemId 查这张表, 查不到就是一句 "mock 数据缺陷" 的硬抛。
+     * NBT 变体件。270 种零件 (9 平台的部位集共 47 种基础组件 + 7 种特殊型号, 各 5 档品质) 共用这一个
+     * itemId 与这一个翻译键, 故它必须登记 —— 背包里那几件零件挂上市场时 makeListing 要按 itemId 查这张表,
+     * 查不到就是一句 "mock 数据缺陷" 的硬抛。
      */
     itemId: 'miningdim:gunsmith_part',
     registered: true,
@@ -452,12 +453,15 @@ const I18N_NAMES: Readonly<Record<string, string>> = {
   'block.minecraft.iron_ore': '铁矿石',
   // 超长中文名边界 (45 字), 取自 lang/zh_cn.json 的真实条目。
   'item.miningdim.plate_armor_banshee_atacs_au': 'Shellback Tactical Banshee 防弹背心（A-Tacs AU 迷彩）',
-  // NBT 变体件: Item 级键解出来是"枪匠零件"(195 种共用), 真正区分它们的是下面 nameParts 用的两个键。
+  // NBT 变体件: Item 级键解出来是"枪匠零件"(270 种共用), 真正区分它们的是下面 nameParts 用的那几个键。
   'item.miningdim.gunsmith_part': '枪匠零件',
-  // BASIC 变体的名字不带变体键: GunsmithPartItem.getName 对它拼的是 平台键 + 部位键 + 空格 + 品质键。
+  // BASE 型号的名字不带型号键: GunsmithPartItem.getName 对它拼的是 平台键 + 部位键 + 空格 + 品质键;
+  // 非 BASE 拼的是 型号键 + 空格 + 品质键, 平台与部位只出现在 tooltip 里, 故这里两套键都要备。
   'gunsmith.platform.ar': 'AR',
   'gunsmith.part.core': '基础导气',
-  'gunsmith.variant.gehenna_high_speed_gas': '格赫娜高速导气',
+  'gunsmith.variant.gehenna_gas': '格赫娜高速导气',
+  'gunsmith.variant.trinity_precision_graduated_barrel': '圣三一精密刻度枪管',
+  'gunsmith.variant.ar_three_round_burst_bolt': 'AR三连发枪机',
   'gunsmith.quality.legendary': '传奇',
   'item.tacz.modern_kinetic_gun': '现代动能枪械',
   // 塔罗牌: Item 级键 (220 张牌面共用), 牌面与品质在真服由 NBT 决定, 不进翻译键。
@@ -692,19 +696,27 @@ const inventory: PlayerInventoryItem[] = [
     count: 16,
   },
   /*
-   * 两件枪匠零件: 同平台 (AR) 同部位 (core) 同品质 (传奇), 只差变体。
+   * 四件枪匠零件: 同平台 (AR) 同品质 (传奇), 只差型号与部位。NBT 那一半 (型号/部位/系数) 在
+   * MOCK_GUNSMITH_PART_BY_SLOT 里, 这里只放真服会随 player.inventory 一起下发的展示字段。
    *
-   * 必须是两件而不是一件 —— 真服对 BASIC 变体只发 coefficient 一行, 非 BASIC 才另加三行
-   * (WebUiItemDetailJson.appendGunsmithPart:159-167)。只放一件的话另一种行集在假数据模式下永远走不到,
-   * 照着 mock 写详情面板的人就会假定那三行恒存在, 接真服后基础零件上出现三个 undefined 行。
+   * 必须是四件而不是一件 —— WebUiItemDetailJson.appendGunsmithPart 是**逐项判中性才发行**, 于是同一个
+   * itemId 在真服能给出四种形状截然不同的行集/标签集, 一件也不能省:
+   *  slot 20 BASE          : 只有 coefficient 一行, 零效果行 (identity 规则十维全 1.0)
+   *  slot 21 格赫娜高速导气 : 三行有增有减 (射速 +25% / 散布 +15% / 后坐 +100%), 其余七维与耐久恒 1.0 整行缺席
+   *  slot 22 圣三一精密刻度枪管: 五行 (爆头 / 射程 / 散布 / 开镜 / 耐久), 其中 maximumDurability 是唯一不在
+   *                           datapack 平衡表里的一维, 取自 GunsmithPartVariant.maximumDurabilityMultiplier
+   *  slot 23 AR三连发枪机   : 唯一带 part.burstFire 标签的型号 (火力模式是有/无, 没有乘子形态)
+   * 只放一件的话另外三种形状在假数据模式下永远走不到, 照着 mock 写详情面板的人就会假定行集恒定。
    *
-   * customModelData 按 GunsmithPartItem.customModelData:249-253 逐位算:
-   * variant.index()*1_000_000 + platform.index()*100 + part.index()*10 + quality.index() + 1。
-   * AR=0 / core=0 / legendary=4, 故 BASIC (变体序号 0) 得 5, 格赫娜高速导气 (变体序号 1) 得 1_000_005
-   * —— 后者与 mock/seed.ts 的 ITEM_GAS_CORE 是同一件, 那条已核对过 /mc/variants.json。
+   * customModelData 按 GunsmithPartVariant.customModelData 算, BASE 与特殊型号是两套算式:
+   *  BASE     : platform.index()*100 + part.index()*10 + quality.index() + 1
+   *             (AR=0 / core=0 / legendary=4 -> 5)
+   *  非 BASE  : 型号自带的 customModelDataBase + quality.index() + 1
+   *             (格赫娜 10000 -> 10005 / 圣三一枪管 10300 -> 10305 / 三连发枪机 10400 -> 10405)
+   * 四个值都已对着 assets/miningdim/models/item/gunsmith_part.json 的 overrides 核过, 各自有模型分支。
    *
-   * nameParts 的两种形状也不同 (GunsmithPartItem.getName:122-137): BASIC 拼 平台键 + 部位键,
-   * 非 BASIC 拼变体键, 之后才是空格与品质键。
+   * nameParts 的两种形状也不同 (GunsmithPartItem.getName): BASE 拼 平台键 + 部位键, 非 BASE 只拼型号键,
+   * 之后才是空格与品质键。
    */
   {
     slot: 20,
@@ -724,9 +736,33 @@ const inventory: PlayerInventoryItem[] = [
     itemId: 'miningdim:gunsmith_part',
     descriptionId: 'item.miningdim.gunsmith_part',
     count: 1,
-    customModelData: 1_000_005,
+    customModelData: 10_005,
     nameParts: [
-      { k: 'gunsmith.variant.gehenna_high_speed_gas' },
+      { k: 'gunsmith.variant.gehenna_gas' },
+      { t: ' ' },
+      { k: 'gunsmith.quality.legendary' },
+    ],
+  },
+  {
+    slot: 22,
+    itemId: 'miningdim:gunsmith_part',
+    descriptionId: 'item.miningdim.gunsmith_part',
+    count: 1,
+    customModelData: 10_305,
+    nameParts: [
+      { k: 'gunsmith.variant.trinity_precision_graduated_barrel' },
+      { t: ' ' },
+      { k: 'gunsmith.quality.legendary' },
+    ],
+  },
+  {
+    slot: 23,
+    itemId: 'miningdim:gunsmith_part',
+    descriptionId: 'item.miningdim.gunsmith_part',
+    count: 1,
+    customModelData: 10_405,
+    nameParts: [
+      { k: 'gunsmith.variant.ar_three_round_burst_bolt' },
       { t: ' ' },
       { k: 'gunsmith.quality.legendary' },
     ],
@@ -1623,21 +1659,163 @@ function mockItemKind(itemId: string): ItemDetailKind {
 }
 
 /**
- * 这件零件是不是 BASIC 变体。
+ * 组件效果行的键与顺序, 逐条对齐 WebUiItemDetailJson.appendGunsmithPart 的写入序 (attributes 是数组,
+ * 顺序本身就是契约的一部分)。
  *
- * 真服判的是 NBT 里的 variant (PartData.variant), mock 手里只有 customModelData —— 而按
- * GunsmithPartItem.customModelData:249-253 的算式, 它的百万位就是 variant.index(), 0 即 BASIC
- * (GunsmithPartVariant 的首个常量)。缺这一位的零件在真服不存在 (算式带 +1, 恒非 0), 故直接抛,
- * 不给一个"当作 BASIC"的默认值把 mock 数据缺陷盖过去。
+ * 键名是**契约键不是 datapack 键**: 平衡表 JSON 里叫 spread / effective_range, 下发到面板的叫
+ * inaccuracy / range —— 服务端在写这一行时改了名, 前端只认后者。
  */
-function mockPartIsBasic(item: PlayerInventoryItem): boolean {
-  if (item.customModelData === undefined) {
-    throw new Error(`mock 数据缺陷: 槽位 ${String(item.slot)} 的枪匠零件缺 customModelData, 变体无从判定`)
-  }
-  return Math.floor(item.customModelData / 1_000_000) === 0
+const GUNSMITH_EFFECT_KEYS = [
+  'damage',
+  'headshot',
+  'fireRate',
+  'range',
+  'ammoSpeed',
+  'armorIgnore',
+  'inaccuracy',
+  'recoil',
+  'verticalRecoil',
+  'adsSpeed',
+  'maximumDurability',
+] as const
+
+type GunsmithEffectKey = (typeof GUNSMITH_EFFECT_KEYS)[number]
+
+/**
+ * 乘子离 1.0 多远才算"真有效果"。
+ *
+ * 这不是 mock 自定的显示阈值, 是逐字抄 WebUiItemDetailJson.NEUTRAL_MULTIPLIER_EPSILON —— 服务端就是靠它
+ * 决定一行发不发。抄错这个数, 假数据模式与真服的行集就会在某些型号上差一整行。
+ */
+const GUNSMITH_NEUTRAL_EPSILON = 0.0005
+
+interface MockGunsmithVariant {
+  /** 十维乘子 + 最大耐久乘子; 值抄自各型号 JSON 的 legendary 一列 (最大耐久那项抄 Java 常量)。 */
+  effects: Readonly<Record<GunsmithEffectKey, number>>
+  /** = GunsmithPartVariant.forcesBurstFireMode(); 火力模式是有/无, 没有乘子形态, 故走标签不走数值行。 */
+  forcesBurstFire: boolean
 }
 
-/** 各 kind 的数值行。key 与 unit 逐字对齐真契约的行表, 数值本身是占位 (mock 无 NBT 可解)。 */
+/** 十维全中性 + 耐久不改。BASE 用它 (真服给 BASE 的就是 GunsmithComponentRule.identity()), 其余型号在它上面覆盖差异项。 */
+const GUNSMITH_NEUTRAL_EFFECTS: Readonly<Record<GunsmithEffectKey, number>> = {
+  damage: 1,
+  headshot: 1,
+  fireRate: 1,
+  range: 1,
+  ammoSpeed: 1,
+  armorIgnore: 1,
+  inaccuracy: 1,
+  recoil: 1,
+  verticalRecoil: 1,
+  adsSpeed: 1,
+  maximumDurability: 1,
+}
+
+/**
+ * 组件型号表 (只收 mock 背包里出现的那几个型号, 不是真服 8 个型号的全集)。
+ *
+ * 乘子逐字抄 data/miningdim/gunsmith/components/<型号 id>.json 的 legendary 一列; maximumDurability 不在
+ * datapack 里, 抄的是 GunsmithPartVariant.maximumDurabilityMultiplier 那个 Java 常量。这里刻意存"乘子"而不是
+ * 存算好的百分比: 服务端的显隐判据是对乘子做的 (|m - 1| > 阈值), 存百分比就没法在 mock 里复刻同一条判据,
+ * 只能靠人手工挑哪几行该出现 —— 那正是这轮要修掉的漂移成因。
+ */
+const MOCK_GUNSMITH_VARIANTS: Readonly<Record<string, MockGunsmithVariant>> = {
+  base: { effects: GUNSMITH_NEUTRAL_EFFECTS, forcesBurstFire: false },
+  gehenna_gas: {
+    effects: { ...GUNSMITH_NEUTRAL_EFFECTS, fireRate: 1.25, inaccuracy: 1.15, recoil: 2 },
+    forcesBurstFire: false,
+  },
+  trinity_precision_graduated_barrel: {
+    effects: {
+      ...GUNSMITH_NEUTRAL_EFFECTS,
+      headshot: 1.5,
+      range: 1.5,
+      inaccuracy: 0.7,
+      adsSpeed: 0.5,
+      maximumDurability: 0.7,
+    },
+    forcesBurstFire: false,
+  },
+  ar_three_round_burst_bolt: {
+    effects: { ...GUNSMITH_NEUTRAL_EFFECTS, inaccuracy: 0.75, recoil: 0.65 },
+    forcesBurstFire: true,
+  },
+}
+
+interface MockGunsmithPartNbt {
+  /** GunsmithPlatform.id() */
+  platformId: string
+  /** GunsmithPressPart.id() —— 真服发的是部位 id 而不是短标签 ("GAS" 只是 CORE 的短标签)。 */
+  partId: string
+  /** GunsmithPartVariant.id() */
+  variantId: string
+  /** GunsmithPartQuality.id() */
+  qualityId: string
+  /** PartData.coefficient(); 必须落在该品质的 [min, max] 内, 否则真服 requireCoefficient 当场拒。 */
+  coefficient: number
+}
+
+/**
+ * 枪匠零件的 NBT (按槽位声明), 与 MOCK_TAROT_QUALITY_BY_SLOT 同一套办法。
+ *
+ * mock 背包只有 itemId/count/customModelData 几个字段, 而真服判型号读的是 NBT 里的 GunsmithVariant。
+ * 旧实现拿 customModelData 反推型号 (百万位 = variant.index()), 那条算式在组件体系扩张后已经不成立 ——
+ * 现在特殊型号是 10000/10100/10200... 各自的固定基数, 且 10501-10505 还留给了 SNIPER/FIRING_PIN 的 BASE 件,
+ * 单看数值根本分不出 BASE 与型号件。故不再反推, 直接把"哪一格里是哪件"写下来。
+ *
+ * 四个系数都落在 GunsmithPartQuality.LEGENDARY 的 [1.36, 1.50] 内, 与下面 tags 里的 part.quality 自洽。
+ */
+const MOCK_GUNSMITH_PART_BY_SLOT: ReadonlyMap<number, MockGunsmithPartNbt> = new Map([
+  [20, { platformId: 'ar', partId: 'core', variantId: 'base', qualityId: 'legendary', coefficient: 1.42 }],
+  [
+    21,
+    { platformId: 'ar', partId: 'core', variantId: 'gehenna_gas', qualityId: 'legendary', coefficient: 1.42 },
+  ],
+  [
+    22,
+    {
+      platformId: 'ar',
+      partId: 'barrel',
+      variantId: 'trinity_precision_graduated_barrel',
+      qualityId: 'legendary',
+      coefficient: 1.47,
+    },
+  ],
+  [
+    23,
+    {
+      platformId: 'ar',
+      partId: 'bolt',
+      variantId: 'ar_three_round_burst_bolt',
+      qualityId: 'legendary',
+      coefficient: 1.38,
+    },
+  ],
+])
+
+function requireMockGunsmithPart(slot: number): MockGunsmithPartNbt {
+  const part = MOCK_GUNSMITH_PART_BY_SLOT.get(slot)
+  if (part === undefined) {
+    // 不给"当作 BASE"的默认值: 那会把 mock 数据缺陷盖成一件看起来正常的零件。
+    throw new Error(`mock 数据缺陷: 槽位 ${String(slot)} 放着枪匠零件, 却没有声明它的 NBT`)
+  }
+  return part
+}
+
+function requireMockGunsmithVariant(variantId: string): MockGunsmithVariant {
+  const variant = MOCK_GUNSMITH_VARIANTS[variantId]
+  if (variant === undefined) {
+    throw new Error(`mock 数据缺陷: 型号 ${variantId} 没有对应的组件规则`)
+  }
+  return variant
+}
+
+/**
+ * 各 kind 的数值行。key / unit / 顺序逐字对齐真契约的行表。
+ *
+ * gun 那一支的数值是占位 (mock 没有组装枪的零件构成可算); gunsmith_part 那一支不是 —— 它的每一行都从
+ * 抄自平衡表的乘子现算, 连"哪几行该出现"都走服务端同一条判据, 故行集与真服逐条可对。
+ */
 function mockItemAttributes(kind: ItemDetailKind, item: PlayerInventoryItem): ItemDetailStat[] {
   if (kind === 'gun') {
     return [
@@ -1656,21 +1834,23 @@ function mockItemAttributes(kind: ItemDetailKind, item: PlayerInventoryItem): It
   }
   if (kind === 'gunsmith_part') {
     /*
-     * 行集随变体走, 与 WebUiItemDetailJson.appendGunsmithPart:159-167 逐条对齐:
-     * coefficient 恒发一行, 后三行**只有非 BASIC 变体才有** (BASIC 的三个乘数恒为 1.0, 发三行 +0% 是噪音)。
-     * 无条件发四行的写法会让照 mock 写的渲染层假定后三行恒存在, 接真服后基础零件上出现三个 undefined 行。
+     * 行集**逐项**随型号走, 与 WebUiItemDetailJson.appendGunsmithPart 同一条判据: coefficient 恒发一行,
+     * 其后十一项各自判"偏离中性了才发", 恒 1.0 的项整行缺席。
+     *
+     * 旧口径 (BASE 一行, 非 BASE 固定加射速/垂直后坐/散布三行) 两头都错: 传奇圣三一枪管这三项里有两项恒 1.0,
+     * 却另有爆头/射程/开镜/耐久四项非中性。前端必须按"任何一行都可能不存在"渲染, 而不是按固定行数排版。
      */
-    // 1.42 落在 GunsmithPartQuality.LEGENDARY 的 [1.36, 1.50] 内 —— 必须与下面 tags 里的 part.quality 自洽,
-    // 否则这份假数据在真服的 requireCoefficient 那里会被当场拒, 而 mock 存在的意义就是与真服同口径。
-    const stats: ItemDetailStat[] = [{ key: 'coefficient', value: 1.42, unit: 'flat' }]
-    if (!mockPartIsBasic(item)) {
-      stats.push(
-        { key: 'fireRate', value: 0.06, unit: 'percent' },
-        { key: 'verticalRecoil', value: -0.12, unit: 'percent' },
-        { key: 'inaccuracy', value: -0.08, unit: 'percent' },
-      )
+    const part = requireMockGunsmithPart(item.slot)
+    const rows: ItemDetailStat[] = [{ key: 'coefficient', value: part.coefficient, unit: 'flat' }]
+    const effects = requireMockGunsmithVariant(part.variantId).effects
+    for (const key of GUNSMITH_EFFECT_KEYS) {
+      const multiplier = effects[key]
+      if (Math.abs(multiplier - 1) > GUNSMITH_NEUTRAL_EPSILON) {
+        // 服务端发的就是 (乘子 - 1.0) 这个减法的双精度结果, 这里同样现算, 不预先写成十进制字面量。
+        rows.push({ key, value: multiplier - 1, unit: 'percent' })
+      }
     }
-    return stats
+    return rows
   }
   return []
 }
@@ -1681,13 +1861,18 @@ function mockItemTags(kind: ItemDetailKind, item: PlayerInventoryItem): string[]
     return ['gun.platform:ar', 'gun.template:m4a1']
   }
   if (kind === 'gunsmith_part') {
-    return [
-      'part.platform:ar',
-      // 部位 id 是 core: 真服发的是 part().id() (GunsmithPressPart.CORE), "GAS" 只是它的短标签。
-      'part.slot:core',
-      `part.variant:${mockPartIsBasic(item) ? 'basic' : 'gehenna_high_speed_gas'}`,
-      'part.quality:legendary',
+    const part = requireMockGunsmithPart(item.slot)
+    const tags = [
+      `part.platform:${part.platformId}`,
+      `part.slot:${part.partId}`,
+      `part.variant:${part.variantId}`,
+      `part.quality:${part.qualityId}`,
     ]
+    if (requireMockGunsmithVariant(part.variantId).forcesBurstFire) {
+      // 第五条标签只在强制三连发的型号上出现, 前端不得假定这一类恒四条。
+      tags.push('part.burstFire')
+    }
+    return tags
   }
   return []
 }
@@ -3132,7 +3317,7 @@ function mockBlueprints(): BlueprintsResult {
   return {
     blueprints,
     blueprintCount: blueprints.length,
-    // 195 种零件共用这一个 itemId 与一个翻译键, 故只在顶层发一份。
+    // 270 种零件共用这一个 itemId 与一个翻译键, 故只在顶层发一份。
     partItemId: 'miningdim:gunsmith_part',
     partDescriptionId: 'item.miningdim.gunsmith_part',
     // 与 job.munitions.state 的同名字段读同一个 config 值, 两处不许分叉。
@@ -3490,9 +3675,10 @@ let marriageSharedItems: PlayerInventoryItem[] = [
     itemId: 'miningdim:gunsmith_part',
     descriptionId: 'item.miningdim.gunsmith_part',
     count: 1,
-    customModelData: 1_000_005,
+    // 与主背包 slot 21 是同一件 (传奇格赫娜高速导气 AR 导气组), 三个展示字段逐字同源。
+    customModelData: 10_005,
     nameParts: [
-      { k: 'gunsmith.variant.gehenna_high_speed_gas' },
+      { k: 'gunsmith.variant.gehenna_gas' },
       { t: ' ' },
       { k: 'gunsmith.quality.legendary' },
     ],

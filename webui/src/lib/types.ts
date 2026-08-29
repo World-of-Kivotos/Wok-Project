@@ -319,10 +319,16 @@ export interface PlayerItemDetailResult {
   /**
    * 数值行, 顺序即服务端写入顺序。各 kind 的行表 (key : unit : 来源):
    *  gun          : damage/headshot/range/handling/average/fireRate/verticalRecoil/horizontalRecoil/inaccuracy : percent :
-   *                 GunsmithGunStats 同名 getter 减 1.0 (verticalRecoil 用现成的 recoilChange(), inaccuracy 用
-   *                 spreadChange(), 二者本身已是 -1.0 口径); 另有 partCount : flat : parts().size()。
-   *  gunsmith_part: coefficient : flat : PartData.coefficient(); 非 BASIC 变体另加
-   *                 fireRate/verticalRecoil/inaccuracy : percent : variant().xxxMultiplier(coefficient) - 1.0。
+   *                 GunsmithGunStats 同名 getter 减 1.0; 后坐/散布三行取 verticalRecoilMultiplier() /
+   *                 horizontalRecoilMultiplier() / inaccuracyMultiplier(), 与真正下发 TaCZ 的三个分量逐位同式。
+   *                 verticalRecoil 是**垂直总倍率**(含势力组件的额外垂直加成), 不等于 horizontalRecoil;
+   *                 两者曾一度恒等, 那是 bug。另有 partCount : flat : parts().size()。
+   *  gunsmith_part: coefficient : flat : PartData.coefficient(); 另按"偏离中性才发"逐项追加型号效果
+   *                 damage/headshot/fireRate/range/ammoSpeed/armorIgnore/inaccuracy/recoil/verticalRecoil/
+   *                 adsSpeed/maximumDurability : percent : variant().xxxMultiplier(quality) - 1.0。
+   *                 判据是 |乘子 - 1| > 0.0005 逐项判, 不是"BASE 就一行不发" —— 恒 1.0 的项整行缺席, 故这十一
+   *                 行**任何一行都可能不存在**, 前端必须按缺席处理而不是按 0 渲染。这里的 recoil 是全向后坐,
+   *                 verticalRecoil 是该型号额外叠在垂直轴上的部分 (与 gun 的同名键口径不同, 别共用文案)。
    *  tarot        : cardId : flat : TarotCardItem.cardId(stack)。
    *  wine         : vintage : flat : WineNbt.readVintage; strength : flat : WineNbt.strength (变质恒 0)。
    *  nano         : shieldCharges/shieldRegenTick/shieldWindowTick : flat : NanoNbt 同名 getter (单位是 tick,
@@ -335,7 +341,8 @@ export interface PlayerItemDetailResult {
    * 形态: 'ns.name' 或带参 'ns.name:<稳定id>'。当前全集:
    *  gun          : 'gun.platform:<platform()>' / 'gun.template:<template()>'
    *  gunsmith_part: 'part.platform:<platform().id()>' / 'part.slot:<part().id()>' /
-   *                 'part.variant:<variant().id()>' / 'part.quality:<quality().id()>'
+   *                 'part.variant:<variant().id()>' / 'part.quality:<quality().id()>' /
+   *                 'part.burstFire' (仅强制三连发的型号; 火力模式是有/无, 没有乘子形态故走标签不走数值行)
    *  tarot        : 'tarot.quality:<quality().id()>' / 'tarot.upright' 或 'tarot.reversed' / 'tarot.bound'
    *  wine         : 'wine.quality:<readQuality().id()>' / 'wine.spoiled'
    *  nano         : 'nano.effect:<NanoEffect.id()>' (逐个) / 'nano.xpPending'

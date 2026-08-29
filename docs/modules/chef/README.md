@@ -15,7 +15,13 @@
 
 服务端配置文件为 `miningdim-chef.toml`，由 `ChefConfig.SPEC` 注册。配置分组包括：`xp`、`amplify`、`nourish_food`、`aftertaste_saturation`、`nourish_heal`、`shield`、`grease`、`aftertaste_regen`、`stable_aim`、`endurance`、`refresh`、`night_sight`、`satiation`、`exploration`、`effect_pool`、`minigame`、`quality_resolution`、`negatives` 和 `economy`。
 
-品质倍率、五档目标基础成功率、控火加成、单次 QTE 加成、高/超凡/闪耀目标难度倍率、低品质基础 QTE 数、每档品质增加的 QTE 数、推荐厨师等级步长、低等级额外 QTE 与时序惩罚、目标高于台档时的额外 QTE 与时序惩罚、台档 QTE 减免、QTE 可达窗口/间隔下限、每档品质 QTE 缩短 tick、每级厨师 QTE 放宽 tick、L1/L10 厨师熟练度倍率端点、台档成功率加成、战斗向效果的最大生命值比例、小游戏参数和信用点做菜成本均从此配置读取。所有厨师和台档均可选择全部品质；达到推荐等级并使用匹配台档时，默认 QTE 总数为低/中/高/超凡/闪耀 `4/5/5/6/6`。L1 使用低档台挑战高级为 10 次 QTE、6 tick 窗口，挑战闪耀为 16 次 QTE、4 tick 窗口；升级厨师等级和调味台会分别移除对应惩罚。客户端只读取同步状态，不参与服务端计时与概率结算。
+品质倍率、四档目标基础成功率（中/高/超凡/闪耀）、控火加成、QTE 全中加成、目标下探衰减系数、高/超凡/闪耀目标难度倍率、低品质基础 QTE 数、每档品质增加的 QTE 数、推荐厨师等级步长、低等级额外 QTE 与时序惩罚、目标高于台档时的额外 QTE 与时序惩罚、台档 QTE 减免、QTE 可达窗口/间隔下限、每档品质 QTE 缩短 tick、每级厨师 QTE 放宽 tick、L1/L10 厨师熟练度倍率端点、台档成功率加成、战斗向效果的最大生命值比例、小游戏参数和信用点做菜成本均从此配置读取。
+
+单档达成率由 `ChefQualityResolver.successChancePerMille` 按固定口径算出：先取该档基础成功率，加上 `控火绿区精度 x targetHeatBonusPerMille`，再加上 `命中率(命中数/时机点总数) x targetQtePerfectBonusPerMille`，截到 1000‰；随后乘该档难度倍率（低/中恒为 1000‰），再乘厨师熟练度倍率（`level1OpenQualitySuccessMultiplierPerMille` 与 `level10SuccessMultiplierPerMille` 之间按等级线性插值，低品质目标不受其影响），最后乘 `1 + 台档 tier x tableSuccessBonusPerTierPerMille` 并再次截到 1000‰。QTE 加成按命中率而非命中数折算：越级做菜多派的时机点因此只抬难度、不抬期望加成，否则低档台反而比高档台更容易出高品质。低品质没有基础成功率旋钮，它恒为 1000‰ 且是下探链的无条件保底档，结算从不比对它的阈值。
+
+结算取一个 `[0,1000)` 随机数，从所选目标向低档逐档比对；每比目标低一档就把该档阈值再乘一次 `targetDowngradeDecayPerMille`（默认 900‰），这是「瞄更高」的代价——不收这份代价时任一档的到手概率与所选目标无关，中/高/超凡三个目标会退化成永远不该点的死选项。四档基础成功率与三档难度倍率都必须保持非递增，否则 `ChefConfig.validateBalanceConsistency` 在开工前抛错而不是让下探链静默倒挂。
+
+所有厨师和台档均可选择全部品质；达到推荐等级并使用匹配台档时，默认 QTE 总数为低/中/高/超凡/闪耀 `4/5/5/6/6`。L1 使用低档台挑战高级为 10 次 QTE、6 tick 窗口，挑战闪耀为 16 次 QTE、4 tick 窗口；升级厨师等级和调味台会分别移除对应惩罚。空闲选目标阶段面板显示的达成率与 QTE 总数是服务端每 tick 逐档重算的「完美操作」预览（控火满精度且时机点全中），开工后切换为服务端当次的实时值。客户端只读取同步状态，不参与服务端计时与概率结算。
 
 ## 注册清单
 
@@ -39,6 +45,6 @@ GeckoLib 是客户端与服务端都必须安装的运行时依赖，锁定 `4.8
 
 增香效果黑名单包含原版金苹果、附魔金苹果，以及 FID 1.1.0.3 官方 JAR 中核定的 32 个效果。该 JAR SHA-256 为 `C9CE8AFBC6FEBAB2A94AD45247A3D3FCEC32978516E3335134E46ECC0EEF7778`；资源中只放 32 个 optional 条目，`sesameglide` 与 `sesamedoor` 不列入黑名单。
 
-本模块拥有 `seasoning_table_*` blockstate/model、`geo/block/seasoning_table.geo.json`、`animations/block/seasoning_table.animation.json`、五档静态方块纹理与五档 `seasoning_table_*_geo.png` 动态模型图集、调味台 GUI、十个窗口效果图标、`recipes/chef/`、`tags/items/seasonings/*.json`、`tags/items/seasonings.json`、`tags/items/unseasonable.json`、`tags/items/chef_amplify_item_blacklist.json` 和 `tags/mob_effects/chef_amplify_effect_blacklist.json`。共享语言文件仅由本模块维护厨师前缀键。
+本模块拥有 `seasoning_table_*` blockstate/model、`geo/block/seasoning_table.geo.json`、`animations/block/seasoning_table.animation.json`、五档静态方块纹理与五档 `seasoning_table_*_geo.png` 动态模型图集、调味台 GUI、十个窗口效果图标、`recipes/chef/`、`tags/items/seasonings/*.json`、`tags/items/seasonings.json`、`tags/items/unseasonable.json`、`tags/items/chef_amplify_item_blacklist.json` 和 `tags/mob_effect/chef_amplify_effect_blacklist.json`。共享语言文件仅由本模块维护厨师前缀键。
 
 运行期 PNG 和 GeckoLib JSON 由 `tools/generate_chef_assets.py` 与 `tools/generate_chef_gecko_assets.py` 可复现生成；挑选后的模型说明预览保存在 `docs/assets/chef/`，不得把 `tools/__pycache__` 或本地发布 JAR 纳入资源提交。

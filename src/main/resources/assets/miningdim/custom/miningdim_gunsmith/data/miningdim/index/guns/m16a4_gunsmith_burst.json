@@ -1,8 +1,8 @@
 {
-  "name": "tacz.gun.m16a4.name",
+  "name": "gun.miningdim.m16a4_gunsmith_burst.name",
   "display": "tacz:m16a4_display",
   "data": "miningdim:m16a4_gunsmith_burst_data",
   "type": "rifle",
-  "tooltip": "tacz.gun.m16a4.desc",
+  "tooltip": "gun.miningdim.m16a4_gunsmith_burst.desc",
   "sort": 8
 }

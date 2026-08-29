@@ -1,8 +1,8 @@
 {
-  "name": "tacz.gun.hk416d.name",
+  "name": "gun.miningdim.hk416d_gunsmith_burst.name",
   "display": "tacz:hk416d_display",
   "data": "miningdim:hk416d_gunsmith_burst_data",
   "type": "rifle",
-  "tooltip": "tacz.gun.hk416d.desc",
+  "tooltip": "gun.miningdim.hk416d_gunsmith_burst.desc",
   "sort": 9
 }

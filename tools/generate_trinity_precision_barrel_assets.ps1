@@ -38,7 +38,7 @@ foreach ($entry in $sourceMap.GetEnumerator()) {
 
 $barrelSource = Join-Path $assetRoot 'trinity_precision_graduated_barrel_source.png'
 $trinitySource = Join-Path $assetRoot 'trinity_faction_logo_source.png'
-$blueSource = Join-Path $itemRoot 'gunsmith_faction_blue_heavy_industries.png'
+$blueSource = Join-Path $assetRoot 'blue_heavy_industries_faction_logo_source.png'
 foreach ($required in @($barrelSource, $trinitySource, $blueSource)) {
     if (!(Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Missing required supplied asset: $required"

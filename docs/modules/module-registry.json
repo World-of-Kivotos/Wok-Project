@@ -463,8 +463,7 @@
         "data/miningdim/tags/mob_effect/chef_amplify_effect_blacklist.json"
       ],
       "resourceNamePrefixes": [
-        "seasoning",
-        "chef_"
+        "seasoning"
       ],
       "dependencies": [
         "wok-core",

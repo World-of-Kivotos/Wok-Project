@@ -26,7 +26,7 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 | WOK-厨师 | `seasoning*`(含 `geo/block/seasoning_table.geo.json` 与 `animations/block/seasoning_table.animation.json`)、`data/miningdim/recipes/chef/`、`tags/items/seasonings*.json`、`tags/items/seasonings/`、`tags/items/unseasonable.json`、`tags/items/chef_amplify_item_blacklist.json`、`tags/mob_effect/chef_amplify_effect_blacklist.json`;共享语言文件中 `chef.*` 与 `screen.miningdim.chef.*` 键。菜肴效果图标 `textures/mob_effect/chef_*.png` 物理归 WOK-核心: 它们与 `ModJobEffects` 这个跨职业共享效果注册表同处一个目录, 按目录整体登记 |
 | WOK-酿酒师 | `brewing_*`、`wine_*`、`dried_wheat`、`data/miningdim/recipes/brewer/` |
 | WOK-塔罗师 | `tarot_*`、`shiny_select`、`data/miningdim/tarot/`、`sounds/job/tarot/`、`textures/gui/tarot/`、`textures/item/tarot/` |
-| WOK-军火商 | `munitions_*`、`gunsmith_*`、`bullet_head`、`casing`、`primer`、`propellant`、`m4_assembly_template`、`custom/miningdim_gunsmith/`、`data/miningdim/recipes/munitions/` |
+| WOK-军火商 | `munitions_*`、`gunsmith_*`、`bullet_head`、`casing`、`primer`、`propellant`、`m4_assembly_template`、`custom/miningdim_gunsmith/`、`data/miningdim/recipes/munitions/`、`textures/gui/gunsmith/`(稀有度铭牌与阵营 LOGO)、`data/miningdim/gunsmith/components/`(组件平衡规则数据包) |
 | WOK-特勤干员 | 特勤扫描面板、封印与悬赏相关语言键和客户端资源 |
 | WOK-精英怪 | `data/champions/affix_setting/`、`data/miningdim/damage_type/`、`data/minecraft/tags/damage_type/`，以及精英词条/粒子/体型相关资源 |
 | WOK-婚姻社交 | `engagement_ring`、`wedding_ring`、共享背包及婚姻语言键 |

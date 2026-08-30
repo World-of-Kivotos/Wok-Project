@@ -552,7 +552,9 @@
       ],
       "resourcePaths": [
         "assets/miningdim/custom/miningdim_gunsmith",
-        "data/miningdim/recipes/munitions"
+        "data/miningdim/recipes/munitions",
+        "assets/miningdim/textures/gui/gunsmith",
+        "data/miningdim/gunsmith/components"
       ],
       "resourceNamePrefixes": [
         "gunsmith_",

@@ -1,6 +1,6 @@
 {
   "parent": "minecraft:item/generated",
   "textures": {
-    "layer0": "miningdim:item/ingot_base"
+    "layer0": "miningdim:item/tin_ingot"
   }
 }

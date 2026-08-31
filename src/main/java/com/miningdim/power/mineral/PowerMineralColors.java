@@ -3,7 +3,7 @@ package com.miningdim.power.mineral;
 import net.minecraftforge.client.event.RegisterColorHandlersEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 
-/** 客户端矿脉覆盖层与矿物物品的 tint 处理。 */
+/** 客户端矿脉覆盖层与矿石方块物品的 tint 处理。 */
 public final class PowerMineralColors {
 
     private PowerMineralColors() {
@@ -26,12 +26,7 @@ public final class PowerMineralColors {
         for (PowerMineral mineral : PowerMineral.values()) {
             event.register((stack, tintIndex) -> tintIndex == 0 ? mineral.tintColor() : -1,
                     PowerMineralRegistry.oreItem(mineral).get(),
-                    PowerMineralRegistry.deepslateOre(mineral).get().asItem(),
-                    PowerMineralRegistry.rawMaterial(mineral).get());
-            if (mineral.hasIngot()) {
-                event.register((stack, tintIndex) -> tintIndex == 0 ? mineral.tintColor() : -1,
-                        PowerMineralRegistry.ingot(mineral).get());
-            }
+                    PowerMineralRegistry.deepslateOre(mineral).get().asItem());
         }
     }
 }

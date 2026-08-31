@@ -19,7 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.Set;
 
-/** 矿物方块模型、物品模型与破坏粒子纹理继承链的资源回归。 */
+/** 矿物方块模型、独立物品纹理与破坏粒子纹理继承链的资源回归。 */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
 public final class PowerMineralAssetGameTests {
@@ -83,6 +83,22 @@ public final class PowerMineralAssetGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void everyMaterialItemUsesOwnArtwork(GameTestHelper helper) {
+        int itemCount = 0;
+        for (PowerMineral mineral : PowerMineral.values()) {
+            assertMaterialItem(helper, mineral.rawMaterialId());
+            itemCount++;
+            if (mineral.hasIngot()) {
+                assertMaterialItem(helper, mineral.ingotId());
+                itemCount++;
+            }
+        }
+        helper.assertTrue(itemCount == 13,
+                "能源矿物必须精确覆盖 13 张独立物品纹理，实得 " + itemCount);
+        helper.succeed();
+    }
+
     private static void assertCulledCubeElement(GameTestHelper helper, JsonElement element,
                                                 String expectedTexture, boolean tinted, String layerName) {
         if (!element.isJsonObject()) {
@@ -137,6 +153,18 @@ public final class PowerMineralAssetGameTests {
         JsonObject itemModel = loadJson(itemModelPath);
         helper.assertTrue(expectedBlockModel.equals(requireString(itemModel, "parent", itemModelPath)),
                 blockId + " 物品模型必须继承同名方块模型");
+    }
+
+    private static void assertMaterialItem(GameTestHelper helper, String itemId) {
+        String itemModelPath = ASSET_ROOT + "models/item/" + itemId + ".json";
+        JsonObject itemModel = loadJson(itemModelPath);
+        helper.assertTrue("minecraft:item/generated".equals(requireString(itemModel, "parent", itemModelPath)),
+                itemId + " 必须继承标准生成物品模型");
+        JsonObject textures = requireObject(itemModel, "textures", itemModelPath);
+        String expectedTexture = "miningdim:item/" + itemId;
+        helper.assertTrue(expectedTexture.equals(requireString(textures, "layer0", itemModelPath)),
+                itemId + " 必须引用同名独立纹理 " + expectedTexture);
+        assertPngResource(helper, ASSET_ROOT + "textures/item/" + itemId + ".png");
     }
 
     private static void assertLegacyFakeOreAssets(GameTestHelper helper) {

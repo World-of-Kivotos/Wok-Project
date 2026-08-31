@@ -7,7 +7,7 @@ import net.minecraft.data.PackOutput;
 import net.minecraftforge.client.model.generators.ItemModelProvider;
 import net.minecraftforge.common.data.ExistingFileHelper;
 
-/** 原矿与锭共用灰度底图，色相由物品颜色处理器按矿种提供。 */
+/** 原矿与锭分别引用同名手绘物品纹理。 */
 final class PowerMineralItemModelProvider extends ItemModelProvider {
 
     PowerMineralItemModelProvider(PackOutput output, ExistingFileHelper existingFiles) {
@@ -18,10 +18,10 @@ final class PowerMineralItemModelProvider extends ItemModelProvider {
     protected void registerModels() {
         for (PowerMineral mineral : PowerMineral.values()) {
             withExistingParent(mineral.rawMaterialId(), mcLoc("item/generated"))
-                    .texture("layer0", modLoc("item/raw_ore_base"));
+                    .texture("layer0", modLoc("item/" + mineral.rawMaterialId()));
             if (mineral.hasIngot()) {
                 withExistingParent(mineral.ingotId(), mcLoc("item/generated"))
-                        .texture("layer0", modLoc("item/ingot_base"));
+                        .texture("layer0", modLoc("item/" + mineral.ingotId()));
             }
         }
     }

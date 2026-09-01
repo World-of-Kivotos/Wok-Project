@@ -44,6 +44,7 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
 
     public static final DirectionProperty FACING = BlockStateProperties.HORIZONTAL_FACING;
     public static final EnumProperty<Part> PART = EnumProperty.create("part", Part.class);
+    public static final EnumProperty<Layout> LAYOUT = EnumProperty.create("layout", Layout.class);
     public static final BooleanProperty ACTIVE = BooleanProperty.create("active");
 
     private final Supplier<BlockEntityType<MunitionsBenchBlockEntity>> beType;
@@ -61,6 +62,7 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
         registerDefaultState(stateDefinition.any()
                 .setValue(FACING, Direction.NORTH)
                 .setValue(PART, Part.MAIN)
+                .setValue(LAYOUT, Layout.LEGACY_DEPTH)
                 .setValue(ACTIVE, false));
     }
 
@@ -85,28 +87,38 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
     }
 
     public static BlockPos mainPos(BlockPos pos, BlockState state) {
-        return isMain(state) ? pos : pos.relative(state.getValue(FACING));
+        return isMain(state) ? pos : pos.relative(extensionDirection(state).getOpposite());
     }
 
     public static BlockPos extensionPos(BlockPos mainPos, BlockState mainState) {
-        return mainPos.relative(mainState.getValue(FACING).getOpposite());
+        return mainPos.relative(extensionDirection(mainState));
+    }
+
+    private static Direction extensionDirection(BlockState state) {
+        Direction facing = state.getValue(FACING);
+        return state.getValue(LAYOUT) == Layout.WIDE
+                ? facing.getClockWise()
+                : facing.getOpposite();
     }
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(FACING, PART, ACTIVE);
+        builder.add(FACING, PART, LAYOUT, ACTIVE);
     }
 
     @Override
     public RenderShape getRenderShape(BlockState state) {
-        return RenderShape.MODEL;
+        if (state.getValue(LAYOUT) == Layout.LEGACY_DEPTH) {
+            return RenderShape.MODEL;
+        }
+        return isMain(state) ? RenderShape.ENTITYBLOCK_ANIMATED : RenderShape.INVISIBLE;
     }
 
     @Nullable
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {
         Direction facing = context.getHorizontalDirection().getOpposite();
-        BlockPos extensionPos = context.getClickedPos().relative(facing.getOpposite());
+        BlockPos extensionPos = context.getClickedPos().relative(facing.getClockWise());
         if (!context.getLevel().getBlockState(extensionPos).canBeReplaced(context)
                 || !context.getLevel().getWorldBorder().isWithinBounds(extensionPos)) {
             return null;
@@ -114,6 +126,7 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
         return defaultBlockState()
                 .setValue(FACING, facing)
                 .setValue(PART, Part.MAIN)
+                .setValue(LAYOUT, Layout.WIDE)
                 .setValue(ACTIVE, false);
     }
 
@@ -185,7 +198,8 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
     @Override
     public BlockState updateShape(BlockState state, Direction direction, BlockState neighborState,
                                   LevelAccessor level, BlockPos pos, BlockPos neighborPos) {
-        Direction linkDirection = isMain(state) ? state.getValue(FACING).getOpposite() : state.getValue(FACING);
+        Direction extensionDirection = extensionDirection(state);
+        Direction linkDirection = isMain(state) ? extensionDirection : extensionDirection.getOpposite();
         if (direction == linkDirection
                 && (neighborState.getBlock() != this || neighborState.getValue(PART) == state.getValue(PART))) {
             return Blocks.AIR.defaultBlockState();
@@ -294,6 +308,22 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
         private final String name;
 
         Part(String name) {
+            this.name = name;
+        }
+
+        @Override
+        public String getSerializedName() {
+            return name;
+        }
+    }
+
+    public enum Layout implements StringRepresentable {
+        LEGACY_DEPTH("legacy_depth"),
+        WIDE("wide");
+
+        private final String name;
+
+        Layout(String name) {
             this.name = name;
         }
 

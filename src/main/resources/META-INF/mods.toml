@@ -33,7 +33,7 @@ versionRange = "[1.20.1,1.20.2)"
 ordering = "NONE"
 side = "BOTH"
 
-# 厨师双格料理工位采用 GeckoLib GeoBlockEntity 动态模型；最终客户端与服务端环境统一安装。
+# 厨师双格料理工位与六档军火台采用 GeckoLib GeoBlockEntity 动态模型；最终客户端与服务端环境统一安装。
 [[dependencies.miningdim]]
 modId = "geckolib"
 mandatory = true

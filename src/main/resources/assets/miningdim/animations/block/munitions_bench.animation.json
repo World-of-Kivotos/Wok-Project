@@ -1,0 +1,162 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "machine.idle": {
+      "loop": true,
+      "animation_length": 4.0,
+      "bones": {
+        "carousel": {
+          "rotation": {
+            "0.0": [
+              0,
+              0,
+              0
+            ],
+            "4.0": [
+              0,
+              45,
+              0
+            ]
+          }
+        },
+        "press": {
+          "position": {
+            "0.0": [
+              0,
+              0,
+              0
+            ],
+            "2.0": [
+              0,
+              -0.15,
+              0
+            ],
+            "4.0": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    },
+    "machine.production": {
+      "loop": true,
+      "animation_length": 1.2,
+      "bones": {
+        "press": {
+          "position": {
+            "0.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ]
+            },
+            "0.24": {
+              "vector": [
+                0,
+                -3.2,
+                0
+              ],
+              "easing": "easeInQuad"
+            },
+            "0.38": {
+              "vector": [
+                0,
+                -3.2,
+                0
+              ]
+            },
+            "0.62": {
+              "vector": [
+                0,
+                0,
+                0
+              ],
+              "easing": "easeOutBack"
+            },
+            "1.2": {
+              "vector": [
+                0,
+                0,
+                0
+              ]
+            }
+          }
+        },
+        "carousel": {
+          "rotation": {
+            "0.0": [
+              0,
+              0,
+              0
+            ],
+            "0.38": [
+              0,
+              0,
+              0
+            ],
+            "0.72": {
+              "vector": [
+                0,
+                45,
+                0
+              ],
+              "easing": "easeInOutSine"
+            },
+            "1.2": [
+              0,
+              45,
+              0
+            ]
+          }
+        },
+        "belt": {
+          "position": {
+            "0.0": [
+              0,
+              0,
+              0
+            ],
+            "1.2": [
+              2.4,
+              0,
+              0
+            ]
+          }
+        },
+        "drawer": {
+          "position": {
+            "0.0": [
+              0,
+              0,
+              0
+            ],
+            "0.72": [
+              0,
+              0,
+              0
+            ],
+            "0.9": {
+              "vector": [
+                0,
+                0,
+                -1.4
+              ],
+              "easing": "easeOutSine"
+            },
+            "1.2": {
+              "vector": [
+                0,
+                0,
+                0
+              ],
+              "easing": "easeInSine"
+            }
+          }
+        }
+      }
+    }
+  }
+}

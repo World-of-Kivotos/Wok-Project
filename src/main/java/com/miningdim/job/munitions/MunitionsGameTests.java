@@ -29,6 +29,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
@@ -70,6 +71,34 @@ public final class MunitionsGameTests {
     @BeforeBatch(batch = BATCH)
     public static void beforeMunitionsBatch(ServerLevel level) {
         MunitionsConfig.ensureLoadedForTest();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchLayoutKeepsLegacyDepthAndUsesWideForNewModel(GameTestHelper helper) {
+        MunitionsBenchBlock bench = (MunitionsBenchBlock) ModMunitionsBlocks.MUNITIONS_BENCH.get();
+        BlockPos origin = new BlockPos(4, 1, 4);
+
+        BlockState legacyMain = bench.defaultBlockState().setValue(MunitionsBenchBlock.FACING, Direction.NORTH);
+        helper.assertTrue(legacyMain.getValue(MunitionsBenchBlock.LAYOUT)
+                        == MunitionsBenchBlock.Layout.LEGACY_DEPTH,
+                "missing layout property must deserialize to legacy depth for existing worlds");
+        helper.assertTrue(MunitionsBenchBlock.extensionPos(origin, legacyMain).equals(origin.south()),
+                "legacy north-facing bench keeps its extension behind the main block");
+        helper.assertTrue(legacyMain.getRenderShape() == RenderShape.MODEL,
+                "legacy layout keeps the original static model");
+
+        BlockState wideMain = legacyMain.setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE);
+        BlockPos wideExtensionPos = origin.east();
+        BlockState wideExtension = wideMain.setValue(MunitionsBenchBlock.PART, MunitionsBenchBlock.Part.EXTENSION);
+        helper.assertTrue(MunitionsBenchBlock.extensionPos(origin, wideMain).equals(wideExtensionPos),
+                "new north-facing bench occupies two horizontal blocks from left to right");
+        helper.assertTrue(MunitionsBenchBlock.mainPos(wideExtensionPos, wideExtension).equals(origin),
+                "wide extension resolves back to its main block");
+        helper.assertTrue(wideMain.getRenderShape() == RenderShape.ENTITYBLOCK_ANIMATED,
+                "wide main block is rendered by GeckoLib");
+        helper.assertTrue(wideExtension.getRenderShape() == RenderShape.INVISIBLE,
+                "wide extension does not duplicate the GeckoLib model");
+        helper.succeed();
     }
 
     // ============================================================

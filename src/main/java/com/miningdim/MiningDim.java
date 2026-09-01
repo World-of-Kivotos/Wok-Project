@@ -10,6 +10,7 @@ import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.bernie.geckolib.GeckoLib;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -44,6 +45,7 @@ public final class MiningDim {
     private final List<Subsystem> subsystems = new ArrayList<>();
 
     public MiningDim() {
+        GeckoLib.initialize();
         IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
         IEventBus forgeBus = MinecraftForge.EVENT_BUS;
 

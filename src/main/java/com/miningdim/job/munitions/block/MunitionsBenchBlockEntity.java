@@ -40,6 +40,12 @@ import net.minecraftforge.registries.ForgeRegistries;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.bernie.geckolib.animatable.GeoBlockEntity;
+import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
+import software.bernie.geckolib.core.animation.AnimatableManager;
+import software.bernie.geckolib.core.animation.AnimationController;
+import software.bernie.geckolib.core.animation.RawAnimation;
+import software.bernie.geckolib.util.GeckoLibUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -68,9 +74,11 @@ import java.util.UUID;
  * 暴露, 保证 "必须人手取" 的结算前提。RangedWrapper 本身同时代理 insert 与 extract, 不覆写 extract 时漏斗能把
  * 底火/弹壳/弹头/发射药反抽走, 产线静默停摆; InsertOnlyRangedWrapper 只覆写 extractItem 恒返空。
  */
-public final class MunitionsBenchBlockEntity extends BlockEntity implements MenuProvider {
+public final class MunitionsBenchBlockEntity extends BlockEntity implements MenuProvider, GeoBlockEntity {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/munitions/bench");
+    private static final RawAnimation IDLE_ANIMATION = RawAnimation.begin().thenLoop("machine.idle");
+    private static final RawAnimation PRODUCTION_ANIMATION = RawAnimation.begin().thenLoop("machine.production");
 
     /** 槽位: 0=底火, 1=弹壳, 2=弹头, 3=发射药, 4=输出缓冲展示 (四件套见 MunitionsConfig recipe 组)。 */
     public static final int SLOT_PRIMER = 0;
@@ -135,6 +143,7 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     /** 首帧锚定标志: false = lastSettleTick 尚未锚定 (首次结算只记 now 不补产); 由 NBT 持久化跨重载保持。 */
     private boolean settleInitialized;
     private long nextWeldSoundTick;
+    private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
 
     /**
      * 4->5 槽迁移 (F015) 待掉落队列: 旧档 legacy slot 0/1 (类型无关) 与非发射药的 legacy slot 2 内容无处安放,
@@ -224,6 +233,19 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
 
     public MunitionsBenchBlockEntity(BlockPos pos, BlockState state) {
         super(ModMunitionsBlockEntities.MUNITIONS_BENCH.get(), pos, state);
+    }
+
+    @Override
+    public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+        controllers.add(new AnimationController<>(this, "machine", 4, state ->
+                state.setAndContinue(getBlockState().getValue(MunitionsBenchBlock.ACTIVE)
+                        ? PRODUCTION_ANIMATION
+                        : IDLE_ANIMATION)));
+    }
+
+    @Override
+    public AnimatableInstanceCache getAnimatableInstanceCache() {
+        return animationCache;
     }
 
     public ContainerData dataAccess() {

@@ -50,6 +50,7 @@ public final class PowerCableAssetGameTests {
             helper.assertTrue(PowerRegistry.CABLES.containsKey(material),
                     "缺少已声明导体的线缆注册: " + material.blockId());
             verifyCableAssets(helper, material.blockId());
+            verifyWireAssets(helper, material.id() + "_wire");
         }
 
         String tungsten = SpecialCableMaterial.TUNGSTEN.blockId();
@@ -110,6 +111,35 @@ public final class PowerCableAssetGameTests {
         BufferedImage itemImage = loadImage("/assets/miningdim/textures/item/" + cableId + ".png");
         helper.assertTrue(itemImage.getWidth() == 16 && itemImage.getHeight() == 16,
                 cableId + " 物品贴图必须保持 16x16 像素");
+    }
+
+    private static void verifyWireAssets(GameTestHelper helper, String wireId) {
+        JsonObject item = loadJson("/assets/miningdim/models/item/" + wireId + ".json");
+        helper.assertTrue("minecraft:item/generated".equals(item.get("parent").getAsString())
+                        && ("miningdim:item/" + wireId).equals(
+                        item.getAsJsonObject("textures").get("layer0").getAsString()),
+                wireId + " 必须绑定同名独立彩色导线图标");
+
+        BufferedImage image = loadImage("/assets/miningdim/textures/item/" + wireId + ".png");
+        helper.assertTrue(image.getWidth() == 16 && image.getHeight() == 16,
+                wireId + " 导线贴图必须保持 16x16 像素");
+
+        boolean hasTransparentPixel = false;
+        boolean hasVisiblePixel = false;
+        boolean hasPartialAlpha = false;
+        boolean hasHiddenColor = false;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int argb = image.getRGB(x, y);
+                int alpha = (argb >>> 24) & 0xFF;
+                hasTransparentPixel |= alpha == 0;
+                hasVisiblePixel |= alpha == 255;
+                hasPartialAlpha |= alpha > 0 && alpha < 255;
+                hasHiddenColor |= alpha == 0 && (argb & 0x00FFFFFF) != 0;
+            }
+        }
+        helper.assertTrue(hasTransparentPixel && hasVisiblePixel && !hasPartialAlpha && !hasHiddenColor,
+                wireId + " 必须使用透明黑硬边像素，且不得含半透明、隐藏底色或空白贴图");
     }
 
     private static void verifyTextureBindings(GameTestHelper helper, String cableId,

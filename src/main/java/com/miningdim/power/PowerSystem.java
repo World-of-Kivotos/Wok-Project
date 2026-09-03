@@ -4,7 +4,6 @@ import com.miningdim.core.Subsystem;
 import com.miningdim.power.client.PowerGeneratorClient;
 import com.miningdim.power.client.PowerMachineClient;
 import com.miningdim.power.client.PowerEndgameClient;
-import com.miningdim.power.cable.PowerCableColors;
 import com.miningdim.power.data.PowerDataGeneration;
 import com.miningdim.power.grid.EnergyNetworkManager;
 import com.miningdim.power.mineral.PowerMineralColors;
@@ -33,7 +32,6 @@ public final class PowerSystem implements Subsystem {
         PowerDataGeneration.register(modBus);
         DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> {
             PowerMineralColors.register(modBus);
-            PowerCableColors.register(modBus);
         });
         modBus.addListener((FMLClientSetupEvent event) ->
                 event.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,

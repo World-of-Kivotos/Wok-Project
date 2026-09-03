@@ -36,7 +36,7 @@ public final class MunitionsBenchGeoModel extends GeoModel<MunitionsBenchBlockEn
 
     @Override
     public RenderType getRenderType(MunitionsBenchBlockEntity animatable, ResourceLocation texture) {
-        return RenderType.entityTranslucent(texture);
+        return RenderType.entitySolid(texture);
     }
 
     private static String benchId(MunitionsBenchBlockEntity animatable) {

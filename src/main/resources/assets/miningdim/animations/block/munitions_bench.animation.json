@@ -5,21 +5,7 @@
       "loop": true,
       "animation_length": 4.0,
       "bones": {
-        "carousel": {
-          "rotation": {
-            "0.0": [
-              0,
-              0,
-              0
-            ],
-            "4.0": [
-              0,
-              45,
-              0
-            ]
-          }
-        },
-        "press": {
+        "ram": {
           "position": {
             "0.0": [
               0,
@@ -28,7 +14,7 @@
             ],
             "2.0": [
               0,
-              -0.15,
+              -0.08,
               0
             ],
             "4.0": [
@@ -40,11 +26,31 @@
         }
       }
     },
+    "machine.carousel": {
+      "loop": true,
+      "animation_length": 12.0,
+      "bones": {
+        "carousel": {
+          "rotation": {
+            "0.0": [
+              0,
+              0,
+              0
+            ],
+            "12.0": [
+              0,
+              360,
+              0
+            ]
+          }
+        }
+      }
+    },
     "machine.production": {
       "loop": true,
       "animation_length": 1.2,
       "bones": {
-        "press": {
+        "ram": {
           "position": {
             "0.0": {
               "vector": [
@@ -56,7 +62,7 @@
             "0.24": {
               "vector": [
                 0,
-                -3.2,
+                -1.95,
                 0
               ],
               "easing": "easeInQuad"
@@ -64,7 +70,7 @@
             "0.38": {
               "vector": [
                 0,
-                -3.2,
+                -1.95,
                 0
               ]
             },
@@ -83,47 +89,6 @@
                 0
               ]
             }
-          }
-        },
-        "carousel": {
-          "rotation": {
-            "0.0": [
-              0,
-              0,
-              0
-            ],
-            "0.38": [
-              0,
-              0,
-              0
-            ],
-            "0.72": {
-              "vector": [
-                0,
-                45,
-                0
-              ],
-              "easing": "easeInOutSine"
-            },
-            "1.2": [
-              0,
-              45,
-              0
-            ]
-          }
-        },
-        "belt": {
-          "position": {
-            "0.0": [
-              0,
-              0,
-              0
-            ],
-            "1.2": [
-              2.4,
-              0,
-              0
-            ]
           }
         },
         "drawer": {

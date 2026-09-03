@@ -98,6 +98,25 @@ public final class MunitionsGameTests {
                 "wide main block is rendered by GeckoLib");
         helper.assertTrue(wideExtension.getRenderShape() == RenderShape.INVISIBLE,
                 "wide extension does not duplicate the GeckoLib model");
+        helper.assertTrue(legacyMain.getCollisionShape(helper.getLevel(), origin).max(Direction.Axis.Y) == 1.0D,
+                "legacy bench keeps its original one-block collision height");
+        helper.assertTrue(wideMain.getCollisionShape(helper.getLevel(), origin).max(Direction.Axis.Y) == 25.5D / 16.0D,
+                "wide bench collision reaches the top of the GeckoLib enclosure");
+        helper.assertTrue(wideMain.getCollisionShape(helper.getLevel(), origin)
+                        .min(Direction.Axis.Z) == -4.0D / 16.0D,
+                "north-facing output drawer collision projects four pixels in front of the main block");
+        helper.assertTrue(wideMain.setValue(MunitionsBenchBlock.FACING, Direction.EAST)
+                        .getCollisionShape(helper.getLevel(), origin).max(Direction.Axis.X) == 20.0D / 16.0D,
+                "east-facing output drawer collision rotates with the machine");
+        helper.assertTrue(wideMain.setValue(MunitionsBenchBlock.FACING, Direction.SOUTH)
+                        .getCollisionShape(helper.getLevel(), origin).max(Direction.Axis.Z) == 20.0D / 16.0D,
+                "south-facing output drawer collision rotates with the machine");
+        helper.assertTrue(wideMain.setValue(MunitionsBenchBlock.FACING, Direction.WEST)
+                        .getCollisionShape(helper.getLevel(), origin).min(Direction.Axis.X) == -4.0D / 16.0D,
+                "west-facing output drawer collision rotates with the machine");
+        helper.assertTrue(wideExtension.getCollisionShape(helper.getLevel(), wideExtensionPos)
+                        .min(Direction.Axis.Z) == 0.0D,
+                "extension collision has no geometry on the empty side of the machine");
         helper.succeed();
     }
 

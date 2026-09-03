@@ -15,6 +15,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
@@ -34,6 +35,9 @@ import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraftforge.network.NetworkHooks;
 import org.jetbrains.annotations.Nullable;
 
@@ -46,6 +50,16 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
     public static final EnumProperty<Part> PART = EnumProperty.create("part", Part.class);
     public static final EnumProperty<Layout> LAYOUT = EnumProperty.create("layout", Layout.class);
     public static final BooleanProperty ACTIVE = BooleanProperty.create("active");
+    private static final VoxelShape LEGACY_SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 16.0D, 16.0D);
+    private static final VoxelShape WIDE_BODY_SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 25.5D, 16.0D);
+    private static final VoxelShape WIDE_MAIN_NORTH_SHAPE = Shapes.or(WIDE_BODY_SHAPE,
+            Block.box(0.5D, 2.5D, -4.0D, 8.0D, 8.0D, 1.0D));
+    private static final VoxelShape WIDE_MAIN_EAST_SHAPE = Shapes.or(WIDE_BODY_SHAPE,
+            Block.box(15.0D, 2.5D, 0.5D, 20.0D, 8.0D, 8.0D));
+    private static final VoxelShape WIDE_MAIN_SOUTH_SHAPE = Shapes.or(WIDE_BODY_SHAPE,
+            Block.box(8.0D, 2.5D, 15.0D, 15.5D, 8.0D, 20.0D));
+    private static final VoxelShape WIDE_MAIN_WEST_SHAPE = Shapes.or(WIDE_BODY_SHAPE,
+            Block.box(-4.0D, 2.5D, 8.0D, 1.0D, 8.0D, 15.5D));
 
     private final Supplier<BlockEntityType<MunitionsBenchBlockEntity>> beType;
     private final int unlockLevel;
@@ -94,7 +108,7 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
         return mainPos.relative(extensionDirection(mainState));
     }
 
-    private static Direction extensionDirection(BlockState state) {
+    public static Direction extensionDirection(BlockState state) {
         Direction facing = state.getValue(FACING);
         return state.getValue(LAYOUT) == Layout.WIDE
                 ? facing.getClockWise()
@@ -112,6 +126,33 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
             return RenderShape.MODEL;
         }
         return isMain(state) ? RenderShape.ENTITYBLOCK_ANIMATED : RenderShape.INVISIBLE;
+    }
+
+    @Override
+    public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        return machineShape(state);
+    }
+
+    @Override
+    public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos,
+                                        CollisionContext context) {
+        return machineShape(state);
+    }
+
+    private static VoxelShape machineShape(BlockState state) {
+        if (state.getValue(LAYOUT) == Layout.LEGACY_DEPTH) {
+            return LEGACY_SHAPE;
+        }
+        if (!isMain(state)) {
+            return WIDE_BODY_SHAPE;
+        }
+        return switch (state.getValue(FACING)) {
+            case NORTH -> WIDE_MAIN_NORTH_SHAPE;
+            case EAST -> WIDE_MAIN_EAST_SHAPE;
+            case SOUTH -> WIDE_MAIN_SOUTH_SHAPE;
+            case WEST -> WIDE_MAIN_WEST_SHAPE;
+            default -> throw new IllegalStateException("Wide munitions bench has non-horizontal facing");
+        };
     }
 
     @Nullable

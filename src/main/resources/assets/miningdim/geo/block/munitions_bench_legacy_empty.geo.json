@@ -4,8 +4,8 @@
     {
       "description": {
         "identifier": "geometry.miningdim.munitions_bench_legacy_empty",
-        "texture_width": 256,
-        "texture_height": 256,
+        "texture_width": 512,
+        "texture_height": 512,
         "visible_bounds_width": 1.0,
         "visible_bounds_height": 1.0,
         "visible_bounds_offset": [

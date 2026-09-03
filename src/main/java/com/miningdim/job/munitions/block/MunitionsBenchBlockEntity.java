@@ -11,6 +11,7 @@ import com.miningdim.job.munitions.ModMunitionsBlockEntities;
 import com.miningdim.job.munitions.ModMunitionsItems;
 import com.miningdim.job.munitions.ModMunitionsSounds;
 import com.miningdim.job.munitions.menu.MunitionsBenchMenu;
+import com.miningdim.power.machine.MachineEnergyStorage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
@@ -28,7 +29,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import com.miningdim.power.machine.MachineEnergyStorage;
+import net.minecraft.world.phys.AABB;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.common.util.LazyOptional;
@@ -79,6 +80,7 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/munitions/bench");
     private static final RawAnimation IDLE_ANIMATION = RawAnimation.begin().thenLoop("machine.idle");
     private static final RawAnimation PRODUCTION_ANIMATION = RawAnimation.begin().thenLoop("machine.production");
+    private static final RawAnimation CAROUSEL_ANIMATION = RawAnimation.begin().thenLoop("machine.carousel");
 
     /** 槽位: 0=底火, 1=弹壳, 2=弹头, 3=发射药, 4=输出缓冲展示 (四件套见 MunitionsConfig recipe 组)。 */
     public static final int SLOT_PRIMER = 0;
@@ -241,11 +243,34 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
                 state.setAndContinue(getBlockState().getValue(MunitionsBenchBlock.ACTIVE)
                         ? PRODUCTION_ANIMATION
                         : IDLE_ANIMATION)));
+        controllers.add(new AnimationController<>(this, "carousel", 0, state -> {
+            state.setControllerSpeed(getBlockState().getValue(MunitionsBenchBlock.ACTIVE) ? 1.0F : 0.0F);
+            return state.setAndContinue(CAROUSEL_ANIMATION);
+        }));
     }
 
     @Override
     public AnimatableInstanceCache getAnimatableInstanceCache() {
         return animationCache;
+    }
+
+    @Override
+    public AABB getRenderBoundingBox() {
+        BlockState state = getBlockState();
+        if (!(state.getBlock() instanceof MunitionsBenchBlock)
+                || state.getValue(MunitionsBenchBlock.LAYOUT) != MunitionsBenchBlock.Layout.WIDE) {
+            return super.getRenderBoundingBox();
+        }
+
+        BlockPos extensionPos = MunitionsBenchBlock.extensionPos(worldPosition, state);
+        double minX = Math.min(worldPosition.getX(), extensionPos.getX());
+        double minZ = Math.min(worldPosition.getZ(), extensionPos.getZ());
+        double maxX = Math.max(worldPosition.getX(), extensionPos.getX()) + 1.0D;
+        double maxZ = Math.max(worldPosition.getZ(), extensionPos.getZ()) + 1.0D;
+        AABB machineBounds = new AABB(minX, worldPosition.getY(), minZ,
+                maxX, worldPosition.getY() + 25.5D / 16.0D, maxZ).inflate(1.0D / 16.0D, 0.0D, 1.0D / 16.0D);
+        Direction facing = state.getValue(MunitionsBenchBlock.FACING);
+        return machineBounds.expandTowards(facing.getStepX() * 0.25D, 0.0D, facing.getStepZ() * 0.25D);
     }
 
     public ContainerData dataAccess() {

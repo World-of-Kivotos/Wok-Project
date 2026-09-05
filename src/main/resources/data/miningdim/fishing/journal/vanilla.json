@@ -1,0 +1,32 @@
+{
+  "entries": [
+    {
+      "item": "minecraft:cod",
+      "category": "saltwater",
+      "description": "fishing.miningdim.description.cod",
+      "habitat": "fishing.miningdim.habitat.water",
+      "conditions": "fishing.miningdim.conditions.loot"
+    },
+    {
+      "item": "minecraft:salmon",
+      "category": "freshwater",
+      "description": "fishing.miningdim.description.salmon",
+      "habitat": "fishing.miningdim.habitat.water",
+      "conditions": "fishing.miningdim.conditions.loot"
+    },
+    {
+      "item": "minecraft:pufferfish",
+      "category": "saltwater",
+      "description": "fishing.miningdim.description.pufferfish",
+      "habitat": "fishing.miningdim.habitat.water",
+      "conditions": "fishing.miningdim.conditions.loot"
+    },
+    {
+      "item": "minecraft:tropical_fish",
+      "category": "saltwater",
+      "description": "fishing.miningdim.description.tropical_fish",
+      "habitat": "fishing.miningdim.habitat.water",
+      "conditions": "fishing.miningdim.conditions.loot"
+    }
+  ]
+}

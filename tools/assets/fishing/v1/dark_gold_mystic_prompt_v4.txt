@@ -1,0 +1,20 @@
+生成方式：内置 image_gen。
+设计方向：最高品级暗金鱼；紫黑鳞甲、虹彩金属反光、暗金矿脉，强调迷幻质感。
+用途：深紫背景美术预览，不是透明游戏贴图。
+
+最终提示词：
+Use case: stylized-concept.
+Edit target/reference: the existing left-facing purple-and-gold ore fish.
+The user rejected its dull brown/bronze gold. They want a breathtaking, psychedelic DARK GOLD material worthy of the highest-grade fish. This needs a substantial MATERIAL ART REDESIGN, not another simple brown recolor.
+
+Retain the recognizable stout left-facing fish silhouette, complete forked tail, dorsal and belly fins, three major flank ore deposits, and Minecraft item-art readability. Repaint its materials as a rare mystical purple-black and dark-gold fish:
+- Body: very deep obsidian-violet armor scales, rich purple shadows, selected luminous amethyst edge planes, strong dark/light contrast. More mysterious and jewel-like, less uniformly bright purple.
+- The gold: polished BLACKENED GOLD with deep near-black gold cores and rich honey-gold reflective edges. Light appears trapped inside the mineral. Across each ore deposit, angular nested bands of dark gold, amber-gold and violet interference reflections create a mesmerizing liquid-metal / iridescent geode appearance. A few tiny champagne highlights can be very bright, but broad gold surfaces remain deep and rich. NO dull bronze, muddy brown, copper, flat mustard or plain bright yellow lumps.
+- Connect some ore deposits with slender branching golden mineral veins following the scales, like luminous gold moving beneath a purple-black shell. Restrained magenta-violet reflections at the gold/purple transitions give a psychedelic color-shifting quality.
+- Eye: a vivid gold-violet jewel-like catchlight inside the familiar large dark eye; elegant gold eye rim.
+- Carry small gold/violet iridescent accents into the existing fins and tail. The premium impression comes from material contrast, controlled inner radiance, and bold readable pattern design, not extra accessories.
+
+STYLE: strong Minecraft-inspired pixel-art item sprite concept, large hard square pixel clusters, stepped silhouette, limited deliberately grouped colors, crisp edge highlights, simplified readable planes. At small size, dark purple body + enchanted dark gold should remain immediately recognizable. Do not make a photorealistic fish, a 3D model, a soft painting, a mosaic of beveled tiles or high-frequency glitter noise.
+FRAMING: a single complete fish centered in landscape format, generous margin, no crop.
+PRESENTATION: replace the baked checkerboard with a clean flat deep ink-violet background for this concept preview. Keep all decorative effects within the fish silhouette; no scene, no outer aura cloud, no floating particles, no water, no rocks, no other fish.
+No text, no labels, no crown, no jewelry, no symbols, no watermark.

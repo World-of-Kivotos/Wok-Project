@@ -1,0 +1,17 @@
+生成方式：内置 image_gen。
+设计方向：最高品级暗金鱼；保留紫黑与暗金，增加蓝紫、玫红、青绿的虹彩变化。
+用途：深紫背景美术预览，不是透明游戏贴图。
+
+最终提示词：
+Use case: precise-object-edit.
+Edit the attached mystical dark-gold ore fish. User request: MORE COLOR VARIATION, with a dazzling psychedelic iridescent appearance.
+
+Preserve its existing complete left-facing fish silhouette, pose, large eye, forked tail, fin arrangement, three major dark-gold ore deposits, gold veins, Minecraft pixel-art treatment, framing, and deep ink-violet background.
+
+Enrich the fish's materials with clearly visible, coherent color shifting. Keep purple-black and dark enchanted gold as the foundation, but introduce substantial areas of sapphire blue, peacock teal, emerald-jade, magenta, rose-violet and small rose-gold reflections. Let these colors travel in flowing grouped bands across the scale plates and fins, like the iridescence of black opal or labradorite. This is a noticeable color upgrade, not just a few tiny colored specks.
+
+The three ore deposits should also show beautiful color variation: dark amber-gold central faces, polished warm gold edges, and changing violet, teal and rose reflections along selected facets. Preserve dark gold as the dominant metal identity. Retain shadow-rich interiors and very selective champagne highlights. The eye catches multiple jewel-like colors.
+
+Organize the colors into readable clusters following the fish's form: blue-violet and rose on the head and shoulder; violet-teal iridescence along the belly and fins; magenta-blue and gold changes toward the tail. Blend through stepped pixel color bands, not smooth airbrush gradients. Aim for luxurious, rare, hypnotic material depth, worthy of the highest-grade fish.
+
+Keep crisp hard pixel edges, a strong readable silhouette, and controlled contrast. Avoid random confetti speckles, rainbow stripes, fluorescent flat color fills, glitter noise, added decorations, particles, outer glow clouds, scenery, text or watermark. One standalone concept image.

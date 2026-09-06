@@ -1,0 +1,13 @@
+builtin image_gen mode
+
+Use case: stylized-concept
+Asset type: Minecraft mining-dimension ore-fish game asset.
+Input image: reference image; use it only as the exact visual-series, silhouette, pose, scale, and composition reference.
+Primary request: Generate one diamond ore fish only.
+Scene/backdrop: genuinely transparent background (real alpha), no scene or backdrop.
+Subject: a full left-facing side-view fish, head on the left and tail on the right, same broad complete fish body and forked tail arrangement as the reference. It must clearly read as the same ore-fish series but as diamond fish.
+Style/medium: Minecraft-style coarse pixel art with hard square edges, large blocky color regions, limited color steps.
+Color palette: dark charcoal and deep deepslate-gray scales, replacing the reference fish's copper-brown ore spots with vivid cyan-blue diamond ore inclusions and icy pale-blue cut-face highlights. Add only small cyan-blue inlaid edging on fins.
+Composition/framing: match the reference's canvas proportion, centered full fish, full silhouette visible.
+Materials/textures: layered blocky deepslate plates, angular embedded diamond facets, sharp pixel highlights.
+Constraints: preserve the reference fish's leftward profile, complete body, fins, forked tail, and visual weight. No external glow, halo, smoky shadow, outline aura, checkerboard, text, watermark, extra fish, objects, or scenery. Real transparency outside the fish.

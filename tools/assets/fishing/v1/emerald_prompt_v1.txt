@@ -1,0 +1,16 @@
+Built-in image_gen mode; no CLI, code drawing, retouching, or color adjustment.
+
+Use case: stylized-concept
+Asset type: Minecraft WOK mining-dimension item art, a single ore-fish series specimen
+Input image: Image 1 is a style and composition reference only; preserve its visual language and framing, but create a new emerald ore fish.
+Primary request: Generate one complete emerald ore fish in the same series as the reference. The fish is a left-facing side profile, head on the left and tail on the right, with a fully visible body and clearly forked tail. Maintain the same square pixel-art scale, centered composition, proportions, and silhouette language as the iron fish reference.
+Scene/backdrop: genuinely transparent background only; no scene, no ground, no water, no shadow, no glow, no halo, no checkerboard.
+Subject: a dark-gray deep-slate-scaled fish with saturated emerald/grass-green emerald-ore patches distributed through the body, thin green accents on a few fins, and pale mint-green faceted mineral highlights. It must read immediately as an emerald ore fish, while unmistakably belonging to the same fish series.
+Style/medium: Minecraft-inspired coarse pixel art, hard edges, large block color regions, limited discrete color steps, no photo texture, no anti-aliasing, no text.
+Composition/framing: exactly one fish only, left-facing horizontal side view, full fish body and all fins inside the canvas, forked tail to the right; match the reference’s large centered sprite composition.
+Color palette: charcoal and deep slate gray base scales; vivid saturated emerald green mineral seams; pale mint green gemstone facets and highlights; no copper/orange ore patches.
+Materials/textures: blocky deep-slate scales with angular embedded emerald mineral patches.
+Constraints: actual transparent alpha background; no surrounding glow or diffuse dark backdrop; no text, watermark, frame, scenery, extra fish, or loose gems.
+Avoid: black background, baked checkerboard, blur, soft gradients, glossy 3D render, photorealism, outline halo.
+
+Final artifact came from a built-in image_gen background-extraction pass on the generated candidate. It retained the fish and obtained Alpha 0 at all four corners.

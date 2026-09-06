@@ -1,0 +1,6 @@
+builtin image_gen background-extraction correction
+
+Use case: background-extraction. This is a strict alpha-channel export correction.
+Remove the fully baked pale white checkerboard background around the diamond ore fish. Return a PNG with an RGBA alpha channel: every pixel outside the fish must be exactly transparent (alpha 0), especially all four corner pixels. Do not draw, simulate, paint, or retain a checkerboard; it must not exist as RGB image content.
+Keep the fish itself exactly unchanged: one complete Minecraft coarse pixel-art diamond ore fish, left-facing side profile, head left, tail right, forked tail, dark deepslate gray scales and bright cyan-blue diamond inclusions. Preserve canvas dimensions, crop, color, silhouette and hard pixel blocks.
+Avoid all background, white pixels around the silhouette, shadows, glow, halo, text, and any other changes.

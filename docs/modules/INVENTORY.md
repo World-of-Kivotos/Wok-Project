@@ -25,6 +25,7 @@
 | `wok-job-farmer` | WOK-农夫模块 | 25 | 51 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI；Farmer's Delight 可选 |
 | `wok-job-armorer` | WOK-铸甲师模块 | 124 | 82 | `EngineerSystem` | 核心、职业框架、精英怪、WebUI；TaCZ 可选 |
 | `wok-job-chef` | WOK-厨师模块 | 35 | 34 | `ChefModule` | 核心、全服经验、职业框架、战斗框架、经济、WebUI；Farmer's Delight、Flavor Immersed Daily 可选 |
+| `wok-job-fisher` | WOK-渔夫模块（2026-09-06） | 23 | 15 | `FishingSystem` | 核心、经济、厨师；Farmer's Delight、Tide 可选 |
 | `wok-job-brewer` | WOK-酿酒师模块 | 41 | 59 | `BrewerSystem` | 核心、职业框架、战斗框架、农夫、WebUI |
 | `wok-job-tarot` | WOK-塔罗师模块 | 56 | 67 | `TarotSystem` | 核心、职业框架、矿区、经济、战斗框架、精英怪、WebUI |
 | `wok-job-munitions` | WOK-军火商模块 | 55 | 103 | `MunitionsSystem` | 核心、职业框架、经济、电力、WebUI；TaCZ 可选 |

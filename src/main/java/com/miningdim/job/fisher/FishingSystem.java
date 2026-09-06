@@ -6,6 +6,10 @@ import com.miningdim.job.fisher.journal.FishingJournalCatalog;
 import com.miningdim.job.fisher.journal.FishingJournalItem;
 import com.miningdim.job.fisher.journal.FishingJournalNetwork;
 import com.miningdim.job.fisher.journal.FishingJournalService;
+import com.miningdim.job.fisher.ore.OreFishingItems;
+import com.miningdim.job.fisher.ore.OreFishingConfig;
+import com.miningdim.job.fisher.ore.OreFishSellService;
+import com.miningdim.job.fisher.soup.OreSoupEffects;
 import net.minecraft.commands.Commands;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.CreativeModeTabs;
@@ -21,11 +25,14 @@ import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.event.config.ModConfigEvent;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
 
-/** WOK 本体渔业入口。图鉴阶段只管理目录和收藏，后续职业成长独立接入统一经验服务。 */
+/** WOK 本体渔业入口：目录收藏、矿石鱼和料理联动；职业成长后续接入统一经验服务。 */
 public final class FishingSystem implements Subsystem {
     private static final DeferredRegister<Item> ITEMS = DeferredRegister.create(ForgeRegistries.ITEMS, MiningConstants.MODID);
     public static final RegistryObject<Item> JOURNAL = ITEMS.register("fishing_journal", FishingJournalItem::new);
@@ -33,6 +40,11 @@ public final class FishingSystem implements Subsystem {
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
         ITEMS.register(modBus);
+        OreFishingItems.register(modBus);
+        OreSoupEffects.register(modBus, forgeBus);
+        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, OreFishingConfig.SPEC, "miningdim-fishing.toml");
+        modBus.addListener((ModConfigEvent.Loading event) -> validateConfig(event.getConfig()));
+        modBus.addListener((ModConfigEvent.Reloading event) -> validateConfig(event.getConfig()));
         modBus.addListener(this::onCommonSetup);
         modBus.addListener(this::onCreativeTab);
         forgeBus.register(this);
@@ -42,9 +54,19 @@ public final class FishingSystem implements Subsystem {
         event.enqueueWork(FishingJournalNetwork::register);
     }
 
+    private void validateConfig(ModConfig config) {
+        if (config.getSpec() == OreFishingConfig.SPEC) {
+            OreFishingConfig.validate();
+        }
+    }
+
     private void onCreativeTab(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey().equals(CreativeModeTabs.TOOLS_AND_UTILITIES)) {
             event.accept(JOURNAL);
+        }
+        if (event.getTabKey().equals(CreativeModeTabs.FOOD_AND_DRINKS)) {
+            OreFishingItems.FISH.values().forEach(event::accept);
+            OreFishingItems.SOUPS.values().forEach(event::accept);
         }
     }
 
@@ -56,6 +78,7 @@ public final class FishingSystem implements Subsystem {
     @SubscribeEvent
     public void onCommands(RegisterCommandsEvent event) {
         event.getDispatcher().register(Commands.literal("fishing")
+                .then(Commands.literal("sell").executes(OreFishSellService::executeSell))
                 .then(Commands.literal("journal").executes(context -> {
                     FishingJournalService.open(context.getSource().getPlayerOrException());
                     return 1;

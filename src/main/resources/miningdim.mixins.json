@@ -5,7 +5,12 @@
   "compatibilityLevel": "JAVA_17",
   "refmap": "miningdim.refmap.json",
   "mixins": [
-    "MoveSpeedCheckMixin"
+    "MoveSpeedCheckMixin",
+    "VanillaOreFishMixin",
+    "PlayerFoodExhaustionMixin",
+    "PlayerOreSoupStateMixin",
+    "ItemStackMiningDurabilityMixin",
+    "compat.TideOreFishMixin"
   ],
   "client": [],
   "server": [],

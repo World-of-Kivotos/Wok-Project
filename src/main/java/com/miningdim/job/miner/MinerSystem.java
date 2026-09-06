@@ -7,6 +7,7 @@ import com.miningdim.core.Subsystem;
 import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
+import com.miningdim.job.fisher.soup.OreSoupEffects;
 import com.miningdim.job.miner.network.MinerNetwork;
 import com.miningdim.job.miner.network.MinerStatusS2C;
 import net.minecraft.server.level.ServerLevel;
@@ -156,7 +157,11 @@ public final class MinerSystem implements Subsystem {
     @SubscribeEvent
     public void onBreakSpeed(PlayerEvent.BreakSpeed event) {
         Player player = event.getEntity();
+        int soupBonus = OreSoupEffects.miningSpeedBonusPercent(player);
         if (!inMiningRegion(player)) {
+            if (soupBonus > 0) {
+                event.setNewSpeed(event.getNewSpeed() * (1.0F + soupBonus / 100.0F));
+            }
             return;
         }
         int level = minerLevel(player);
@@ -167,7 +172,7 @@ public final class MinerSystem implements Subsystem {
                 && player.hasEffect(net.minecraft.world.effect.MobEffects.DIG_SLOWDOWN)) {
             speed = Math.max(speed, event.getOriginalSpeed());
         }
-        double mult = MinerSkills.digSpeedMultiplier(level);
+        double mult = MinerSkills.digSpeedMultiplier(level) + soupBonus / 100.0D;
         event.setNewSpeed((float) (speed * mult));
     }
 

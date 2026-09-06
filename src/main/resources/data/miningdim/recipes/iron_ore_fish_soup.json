@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "miningdim:iron_ore_fish" },
+    [
+      { "item": "minecraft:brown_mushroom" },
+      { "item": "minecraft:red_mushroom" }
+    ],
+    [
+      { "item": "minecraft:carrot" },
+      { "item": "minecraft:potato" },
+      { "item": "minecraft:beetroot" }
+    ],
+    { "item": "minecraft:bowl" }
+  ],
+  "result": { "item": "miningdim:iron_ore_fish_soup", "count": 1 }
+}

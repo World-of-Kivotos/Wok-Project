@@ -46,8 +46,8 @@ public final class FishingJournalGameTests {
         }
         boolean supportedTide = ModList.get().getModContainerById("tide")
                 .map(mod -> mod.getModInfo().getVersion().toString().equals("1.6.5")).orElse(false);
-        helper.assertTrue(FishingJournalCatalog.INSTANCE.entries().size() == (supportedTide ? 70 : 4),
-                "Supported Tide must add its 66 fish; absent Tide must keep the four vanilla fish");
+        helper.assertTrue(FishingJournalCatalog.INSTANCE.entries().size() == (supportedTide ? 75 : 9),
+                "Journal must include five ore fish and four vanilla fish, plus 66 fish with Tide 1.6.5");
         ResourceLocation recipeId = new ResourceLocation(MiningConstants.MODID, "fishing_journal");
         var recipe = helper.getLevel().getRecipeManager().byKey(recipeId).orElseThrow();
         helper.assertTrue(recipe.getResultItem(helper.getLevel().registryAccess()).is(FishingSystem.JOURNAL.get()),

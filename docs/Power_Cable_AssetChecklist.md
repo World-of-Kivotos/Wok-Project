@@ -53,15 +53,17 @@
 
 ```powershell
 python tools\build_power_cable_block_textures.py
+python tools\build_power_cable_wire_textures.py
 .\gradlew.bat --no-daemon runData
 .\gradlew.bat --no-daemon compileJava processResources
 .\gradlew.bat --no-daemon runGameTestServer
 ```
 
-- 只修改 13 张摆放态纹理的调色或纹样时运行首条命令; 修改模型几何或 UV 时还必须运行 `runData`, 以更新 `src/generated/resources/assets/miningdim/models/block/`。
+- 只修改 13 张摆放态纹理的调色或纹样时运行首条命令; 只修改 12 张导线中间物图标时运行第二条; 修改模型几何或 UV 时还必须运行 `runData`, 以更新 `src/generated/resources/assets/miningdim/models/block/`。
+- 导线图标的色值不单独维护: `build_power_cable_wire_textures.py` 从 `build_power_cable_block_textures.py` 的 `STYLES[<id>_energy_cable].conductor_*` 三停插值出五级色阶, 所以"导线中间物"与"它合成出的线缆"共用同一份材料色真源, 改线缆导体色会连带改导线图标。
 - `PowerCableAssetGameTests.everyRegisteredCableUsesNonOverlappingModelsAndValidTextures` 遍历 12 档 `ConductorMaterial` 和钨耐热线, 验证 13 个注册、每个 blockstate 的 1 个中心部件加 6 个方向端口、旋转、几何、UV、贴图绑定、32x32 BLOCK 尺寸及模型采样实体带完全不透明。
-- 同一测试还验证每个 ITEM 模型绑定同名扁平图标；12 张导线 PNG 必须保持 16x16、只含 0/255 Alpha，并将透明区 RGB 清零。
-- 自动测试守住尺寸、引用和采样区不透明性; 透明区 RGB 必须为黑以及 nearest-neighbor 放大仍由确定性生成脚本和像素级目检共同守住。
+- 同一测试还验证每个 ITEM 模型绑定同名扁平图标; 12 张导线 PNG 必须保持 16x16、只含 0/255 Alpha、透明区 RGB 清零、可见像素数落在 48-72, 且逐档断言两件事: 均值色与该材料的线缆导体色相差不超过 25 度色相, 12 档可见像素两两不相同。后两条是为了守住"每档各自着色"这个交付契约本身 —— 只查 Alpha 的断言对 12 张同图或整批错色完全无感。
+- 自动测试守住尺寸、引用、采样区不透明性与材料配色; nearest-neighbor 放大观感仍由确定性生成脚本和像素级目检共同守住。
 
 ---
 
@@ -91,22 +93,22 @@ P1 的目标范围固定为 T1 铁、T2 铝、T3 铜, 并把橡胶、PVC、PE �
 
 | 资源族 | 实际矿物 / 建议 id | 分期 | 数据驱动资产 | 状态 |
 |---|---|---|---|---|
-| 铝土 | `bauxite_ore` -> `raw_aluminum` -> `aluminum_ingot` -> T2 铝导线 | P1 | T2 导线使用独立 `aluminum_wire.png` | [x] 导线图标已生成并接入 |
-| 硼砂 | `borax_ore` -> `borax` | P2 前置 | 矿脉覆盖层 + 原矿/矿物基底; 不生成导体线材贴图 | [ ] 未生成 |
-| 银 | `silver_ore` -> `raw_silver` -> `silver_ingot` -> T7/T9 导线 | P2 | T7/T9 导线使用各自独立彩色 PNG | [x] 导线图标已生成并接入 |
-| 锡 | `tin_ore` -> `raw_tin` -> `tin_ingot` -> T4 导线 | P2 | T4 导线使用独立 `tinned_copper_wire.png` | [x] 导线图标已生成并接入 |
-| 镍 | `nickel_ore` -> `raw_nickel` -> `nickel_ingot` -> 镍铬保险丝 | P3 | 复用灰度矿脉覆盖层、原矿/锭基底 | [ ] 未生成 |
-| 铬 | `chromium_ore` -> `raw_chromium` -> `chromium_ingot` -> 镍铬保险丝 | P3 | 复用灰度矿脉覆盖层、原矿/锭基底 | [ ] 未生成 |
-| 钨 | `tungsten_ore` -> `raw_tungsten` -> `tungsten_ingot` -> 耐热线 tint | P3 | 复用灰度矿脉覆盖层、原矿/锭/线材基底 | [ ] 未生成 |
+| 铝土 | `bauxite_ore` -> `raw_aluminum` -> `aluminum_ingot` -> T2 铝导线 | P1 | 原矿/锭独立 PNG; T2 导线 `aluminum_wire.png` | 原矿/锭 [x] · 导线图标 [x] · 矿石方块与 worldgen [ ] |
+| 硼砂 | `borax_ore` -> `borax` | P2 前置 | 矿物独立 PNG; 不生成导体线材贴图 | 矿物图标 [x] · 矿石方块与 worldgen [ ] |
+| 银 | `silver_ore` -> `raw_silver` -> `silver_ingot` -> T7/T9 导线 | P2 | 原矿/锭独立 PNG; T7/T9 导线各自独立 PNG | 原矿/锭 [x] · 导线图标 [x] · 矿石方块与 worldgen [ ] |
+| 锡 | `tin_ore` -> `raw_tin` -> `tin_ingot` -> T4 导线 | P2 | 原矿/锭独立 PNG; T4 导线 `tinned_copper_wire.png` | 原矿/锭 [x] · 导线图标 [x] · 矿石方块与 worldgen [ ] |
+| 镍 | `nickel_ore` -> `raw_nickel` -> `nickel_ingot` -> 镍铬保险丝 | P3 | 原矿/锭独立 PNG | 原矿/锭 [x] · 保险丝与 worldgen [ ] |
+| 铬 | `chromium_ore` -> `raw_chromium` -> `chromium_ingot` -> 镍铬保险丝 | P3 | 原矿/锭独立 PNG | 原矿/锭 [x] · 保险丝与 worldgen [ ] |
+| 钨 | `tungsten_ore` -> `raw_tungsten` -> `tungsten_ingot` -> 耐热线 | P3 | 原矿/锭独立 PNG; 耐热线独立图标 | 原矿/锭 [x] · 耐热线图标 [x] · 矿石方块与 worldgen [ ] |
 
 共享基底文件登记:
 
 | 资源类型 | 建议路径 / 文件名 | 用途 | 状态 |
 |---|---|---|---|
-| BLOCK | textures/block/ore_vein_overlay.png | 七个资源族共用的灰度矿脉覆盖层, 叠加石质/深板岩基底 | [ ] 未生成 |
-| ITEM | textures/item/raw_ore_base.png | 原矿共用灰度形状 | [ ] 未生成 |
-| ITEM | textures/item/ingot_base.png | 锭共用灰度形状 | [ ] 未生成 |
-| ITEM | textures/item/wire_base.png | 旧导线共享灰度形状 | 退役保留；现有导线模型不再引用 |
+| BLOCK | textures/block/ore_overlay.png | 七个资源族共用的灰度矿脉覆盖层, 叠加石质/深板岩基底 | [x] 已生成, 由 `tinted_ore` 共享模型采样 |
+| ITEM | textures/item/raw_ore_base.png | 原矿共用灰度形状 | [x] 已生成 |
+| ITEM | textures/item/ingot_base.png | 锭共用灰度形状 | [x] 已生成 |
+| ITEM | textures/item/wire_base.png | 旧导线共享灰度形状 | 已删除; 12 档导线改绑同名独立彩色 PNG 后该文件零引用, 不随 JAR 分发 |
 
 上述资源族的文件存在性、矿物 worldgen 注册、物品注册和 tint 数据接线分别验收; 任何一项未落地都不能把整条资源链标为完成。
 

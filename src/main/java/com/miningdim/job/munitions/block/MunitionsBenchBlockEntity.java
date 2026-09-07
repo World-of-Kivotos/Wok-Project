@@ -26,6 +26,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -80,7 +81,8 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/munitions/bench");
     private static final RawAnimation IDLE_ANIMATION = RawAnimation.begin().thenLoop("machine.idle");
     private static final RawAnimation PRODUCTION_ANIMATION = RawAnimation.begin().thenLoop("machine.production");
-    private static final RawAnimation CAROUSEL_ANIMATION = RawAnimation.begin().thenLoop("machine.carousel");
+    /** 弹盘转速: 12 秒一圈, 与旧 machine.carousel 关键帧一致。 */
+    public static final float CAROUSEL_DEGREES_PER_TICK = 360.0F / 240.0F;
 
     /** 槽位: 0=底火, 1=弹壳, 2=弹头, 3=发射药, 4=输出缓冲展示 (四件套见 MunitionsConfig recipe 组)。 */
     public static final int SLOT_PRIMER = 0;
@@ -146,6 +148,9 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     private boolean settleInitialized;
     private long nextWeldSoundTick;
     private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
+    /** 弹盘当前角度与上次取样的游戏时刻; 纯渲染态, 不进 NBT, 重载后从 0 度重新起转即可。 */
+    private float carouselAngleDegrees;
+    private float carouselSampleTick = Float.MIN_VALUE;
 
     /**
      * 4->5 槽迁移 (F015) 待掉落队列: 旧档 legacy slot 0/1 (类型无关) 与非发射药的 legacy slot 2 内容无处安放,
@@ -243,10 +248,37 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
                 state.setAndContinue(getBlockState().getValue(MunitionsBenchBlock.ACTIVE)
                         ? PRODUCTION_ANIMATION
                         : IDLE_ANIMATION)));
-        controllers.add(new AnimationController<>(this, "carousel", 0, state -> {
-            state.setControllerSpeed(getBlockState().getValue(MunitionsBenchBlock.ACTIVE) ? 1.0F : 0.0F);
-            return state.setAndContinue(CAROUSEL_ANIMATION);
-        }));
+    }
+
+    /**
+     * 弹盘的连续旋转不走 GeckoLib 动画通道, 由渲染器直接驱动 carousel 骨骼。
+     *
+     * 原因是 GeckoLib 4.8.2 的 {@code AnimationController.adjustTick} 返回
+     * {@code speed * max(0, tick - tickOffset)} 而 {@code tickOffset} 只在切换 RawAnimation 时重锚:
+     * 用 {@code setControllerSpeed(0)} 当暂停并不会"停在原地", 而是让 adjustedTick 恒为 0, 也就是把弹盘
+     * 瞬间复位到动画第 0 帧的 0 度; 恢复速度时又立刻跳到 {@code 经过 tick} 对应的任意相位。停机一次弹一次,
+     * 开机一次再弹一次。改速度、改过渡长度都绕不开这个乘法, 只能把角度自己管起来。
+     *
+     * @param elapsedTicks 距上次取值经过的 tick 数, 由调用方按游戏时间给出
+     * @return 累加后的角度, 停机时原地保持
+     */
+    public float advanceCarouselAngle(float elapsedTicks) {
+        if (getBlockState().getValue(MunitionsBenchBlock.ACTIVE)) {
+            carouselAngleDegrees = (carouselAngleDegrees + elapsedTicks * CAROUSEL_DEGREES_PER_TICK) % 360.0F;
+        }
+        return carouselAngleDegrees;
+    }
+
+    /** 供渲染器按帧推进弹盘角度; 停机时 elapsed 照常推进但角度不变, 复工后从停下的角度继续。 */
+    public float carouselAngleDegrees(float partialTick) {
+        Level level = getLevel();
+        if (level == null) {
+            return carouselAngleDegrees;
+        }
+        float now = level.getGameTime() + partialTick;
+        float elapsed = carouselSampleTick == Float.MIN_VALUE ? 0.0F : Math.max(0.0F, now - carouselSampleTick);
+        carouselSampleTick = now;
+        return advanceCarouselAngle(elapsed);
     }
 
     @Override

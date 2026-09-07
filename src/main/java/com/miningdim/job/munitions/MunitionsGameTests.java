@@ -24,14 +24,22 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -96,27 +104,237 @@ public final class MunitionsGameTests {
                 "wide extension resolves back to its main block");
         helper.assertTrue(wideMain.getRenderShape() == RenderShape.ENTITYBLOCK_ANIMATED,
                 "wide main block is rendered by GeckoLib");
-        helper.assertTrue(wideExtension.getRenderShape() == RenderShape.INVISIBLE,
-                "wide extension does not duplicate the GeckoLib model");
-        helper.assertTrue(legacyMain.getCollisionShape(helper.getLevel(), origin).max(Direction.Axis.Y) == 1.0D,
-                "legacy bench keeps its original one-block collision height");
-        helper.assertTrue(wideMain.getCollisionShape(helper.getLevel(), origin).max(Direction.Axis.Y) == 25.5D / 16.0D,
-                "wide bench collision reaches the top of the GeckoLib enclosure");
-        helper.assertTrue(wideMain.getCollisionShape(helper.getLevel(), origin)
-                        .min(Direction.Axis.Z) == -4.0D / 16.0D,
-                "north-facing output drawer collision projects four pixels in front of the main block");
+        helper.assertTrue(wideExtension.getRenderShape() == RenderShape.ENTITYBLOCK_ANIMATED,
+                "wide extension must not be INVISIBLE: vanilla ParticleEngine skips crack and destroy "
+                        + "particles for invisible blocks, and the extension has no block entity anyway");
+
+        // 期望值取自 geo 模型这个独立真相源, 而不是照抄实现里的常数 —— 后者只是把实现复述一遍。
+        double[] geoBounds = MunitionsBenchAssets.bodyBoundsPixels("munitions_bench");
+        double geoTopPixels = geoBounds[4];
+        double geoFrontPixels = geoBounds[2] + 8.0D;
+
+        VoxelShape legacyCollision = legacyMain.getCollisionShape(helper.getLevel(), origin);
+        assertBounds(helper, legacyCollision, 0.0D, 0.0D, 0.0D, 1.0D, 1.0D, 1.0D,
+                "legacy bench keeps its original one-block collision box");
+
+        VoxelShape wideCollision = wideMain.getCollisionShape(helper.getLevel(), origin);
+        double collisionTopPixels = wideCollision.max(Direction.Axis.Y) * 16.0D;
+        helper.assertTrue(collisionTopPixels >= geoTopPixels && collisionTopPixels - geoTopPixels <= 0.5D,
+                "wide collision top " + collisionTopPixels + "px must cover the geo body top "
+                        + geoTopPixels + "px without overshooting half a pixel");
+        assertBounds(helper, wideCollision, 0.0D, 0.0D, 0.0D, 1.0D, collisionTopPixels / 16.0D, 1.0D,
+                "wide collision must stay inside its own cell on every horizontal axis; the output drawer "
+                        + "sticks out toward the placer and BlockItem.canPlace would reject placement");
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            VoxelShape rotated = wideMain.setValue(MunitionsBenchBlock.FACING, facing)
+                    .getCollisionShape(helper.getLevel(), origin);
+            assertBounds(helper, rotated, 0.0D, 0.0D, 0.0D, 1.0D, collisionTopPixels / 16.0D, 1.0D,
+                    facing + "-facing wide collision must stay inside its own cell");
+        }
+        assertBounds(helper, wideExtension.getCollisionShape(helper.getLevel(), wideExtensionPos),
+                0.0D, 0.0D, 0.0D, 1.0D, collisionTopPixels / 16.0D, 1.0D,
+                "extension collision matches the main body box");
+
+        // 轮廓形状(选择框)保留外伸抽屉, 且必须跟 geo 的机身正面对得上, 四个朝向各转一次。
+        double outlineFront = wideMain.getShape(helper.getLevel(), origin).min(Direction.Axis.Z) * 16.0D;
+        helper.assertTrue(outlineFront < 0.0D && Math.abs(outlineFront - geoFrontPixels) <= 0.5D,
+                "north-facing outline must project the drawer to the geo front " + geoFrontPixels
+                        + "px, got " + outlineFront + "px");
         helper.assertTrue(wideMain.setValue(MunitionsBenchBlock.FACING, Direction.EAST)
-                        .getCollisionShape(helper.getLevel(), origin).max(Direction.Axis.X) == 20.0D / 16.0D,
-                "east-facing output drawer collision rotates with the machine");
+                        .getShape(helper.getLevel(), origin).max(Direction.Axis.X) > 1.0D,
+                "east-facing outline drawer rotates with the machine");
         helper.assertTrue(wideMain.setValue(MunitionsBenchBlock.FACING, Direction.SOUTH)
-                        .getCollisionShape(helper.getLevel(), origin).max(Direction.Axis.Z) == 20.0D / 16.0D,
-                "south-facing output drawer collision rotates with the machine");
+                        .getShape(helper.getLevel(), origin).max(Direction.Axis.Z) > 1.0D,
+                "south-facing outline drawer rotates with the machine");
         helper.assertTrue(wideMain.setValue(MunitionsBenchBlock.FACING, Direction.WEST)
-                        .getCollisionShape(helper.getLevel(), origin).min(Direction.Axis.X) == -4.0D / 16.0D,
-                "west-facing output drawer collision rotates with the machine");
-        helper.assertTrue(wideExtension.getCollisionShape(helper.getLevel(), wideExtensionPos)
-                        .min(Direction.Axis.Z) == 0.0D,
-                "extension collision has no geometry on the empty side of the machine");
+                        .getShape(helper.getLevel(), origin).min(Direction.Axis.X) < 0.0D,
+                "west-facing outline drawer rotates with the machine");
+        helper.succeed();
+    }
+
+    private static void assertBounds(GameTestHelper helper, VoxelShape shape,
+                                     double minX, double minY, double minZ,
+                                     double maxX, double maxY, double maxZ, String label) {
+        AABB bounds = shape.bounds();
+        boolean matches = Math.abs(bounds.minX - minX) < 1.0E-6D && Math.abs(bounds.minY - minY) < 1.0E-6D
+                && Math.abs(bounds.minZ - minZ) < 1.0E-6D && Math.abs(bounds.maxX - maxX) < 1.0E-6D
+                && Math.abs(bounds.maxY - maxY) < 1.0E-6D && Math.abs(bounds.maxZ - maxZ) < 1.0E-6D;
+        helper.assertTrue(matches, label + "; expected [" + minX + "," + minY + "," + minZ + "]-["
+                + maxX + "," + maxY + "," + maxZ + "] but got " + bounds);
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void wideBenchPlacementClaimsClockwiseCellAndRejectsBlockedFootprint(GameTestHelper helper) {
+        MunitionsBenchBlock bench = (MunitionsBenchBlock) ModMunitionsBlocks.MUNITIONS_BENCH.get();
+        BlockItem item = (BlockItem) ModMunitionsItems.MUNITIONS_BENCH_ITEM.get();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        player.setYRot(0.0F);
+
+        BlockPos mainRelative = new BlockPos(2, 1, 2);
+        BlockPlaceContext context = benchPlacementContext(helper, player, item, mainRelative);
+        BlockState placement = bench.getStateForPlacement(context);
+        helper.assertTrue(placement != null, "clear footprint must produce a placement state");
+        helper.assertTrue(placement.getValue(MunitionsBenchBlock.LAYOUT) == MunitionsBenchBlock.Layout.WIDE,
+                "player placement must use the wide layout, not the legacy compatibility layout");
+
+        helper.assertTrue(item.place(context).consumesAction(), "BlockItem placement must succeed");
+        BlockPos mainAbsolute = helper.absolutePos(mainRelative);
+        Direction facing = placement.getValue(MunitionsBenchBlock.FACING);
+        BlockPos extensionAbsolute = mainAbsolute.relative(facing.getClockWise());
+        BlockState mainState = helper.getLevel().getBlockState(mainAbsolute);
+        BlockState extensionState = helper.getLevel().getBlockState(extensionAbsolute);
+        helper.assertTrue(mainState.getBlock() == bench
+                        && mainState.getValue(MunitionsBenchBlock.PART) == MunitionsBenchBlock.Part.MAIN,
+                "clicked cell must hold the main half");
+        helper.assertTrue(extensionState.getBlock() == bench
+                        && extensionState.getValue(MunitionsBenchBlock.PART) == MunitionsBenchBlock.Part.EXTENSION
+                        && extensionState.getValue(MunitionsBenchBlock.FACING) == facing
+                        && extensionState.getValue(MunitionsBenchBlock.LAYOUT) == MunitionsBenchBlock.Layout.WIDE,
+                "the clockwise neighbour must hold a matching extension half");
+        helper.assertTrue(helper.getLevel().getBlockEntity(mainAbsolute) instanceof MunitionsBenchBlockEntity,
+                "only the main half owns a block entity");
+        helper.assertTrue(helper.getLevel().getBlockEntity(extensionAbsolute) == null,
+                "the extension half must not own a block entity");
+
+        helper.getLevel().removeBlock(mainAbsolute, false);
+        helper.getLevel().removeBlock(extensionAbsolute, false);
+
+        // 副格被占时必须整体拒绝, 而不是把占位方块覆盖掉。这一条正是能杀掉 getClockWise -> getOpposite
+        // 变异的断言: 方向写错时占位检查会去看另一侧的空气, 然后 setPlacedBy 把箱子直接抹掉。
+        BlockPos blockedRelative = mainRelative.relative(facing.getClockWise());
+        helper.setBlock(blockedRelative, Blocks.CHEST);
+        BlockPlaceContext blockedContext = benchPlacementContext(helper, player, item, mainRelative);
+        helper.assertTrue(bench.getStateForPlacement(blockedContext) == null,
+                "an occupied clockwise cell must abort placement");
+        helper.assertTrue(!item.place(blockedContext).consumesAction(),
+                "BlockItem placement must fail when the extension cell is occupied");
+        helper.assertBlockPresent(Blocks.CHEST, blockedRelative);
+        helper.assertBlockPresent(Blocks.AIR, mainRelative);
+        helper.succeed();
+    }
+
+    private static BlockPlaceContext benchPlacementContext(GameTestHelper helper, ServerPlayer player,
+                                                           BlockItem item, BlockPos mainRelative) {
+        helper.setBlock(mainRelative.below(), Blocks.STONE);
+        BlockPos supportAbsolute = helper.absolutePos(mainRelative.below());
+        BlockHitResult hit = new BlockHitResult(
+                Vec3.atCenterOf(supportAbsolute).add(0.0D, 0.5D, 0.0D),
+                Direction.UP, supportAbsolute, false);
+        return new BlockPlaceContext(helper.getLevel(), player, InteractionHand.MAIN_HAND,
+                new ItemStack(item), hit);
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void wideBenchDropsExactlyOnceFromEitherHalf(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        MunitionsBenchBlock bench = (MunitionsBenchBlock) ModMunitionsBlocks.MUNITIONS_BENCH_HIGH.get();
+        BlockPos mainPos = helper.absolutePos(new BlockPos(0, 1, 0));
+        BlockState mainState = bench.defaultBlockState()
+                .setValue(MunitionsBenchBlock.FACING, Direction.NORTH)
+                .setValue(MunitionsBenchBlock.PART, MunitionsBenchBlock.Part.MAIN)
+                .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE)
+                .setValue(MunitionsBenchBlock.ACTIVE, false);
+        BlockPos extensionPos = MunitionsBenchBlock.extensionPos(mainPos, mainState);
+        helper.assertTrue(extensionPos.equals(mainPos.east()),
+                "north-facing wide bench must put its extension on the clockwise side");
+
+        placeBenchPair(level, mainPos, extensionPos, mainState);
+        level.destroyBlock(extensionPos, true);
+        assertBenchRemoved(helper, level, mainPos, extensionPos, "wide extension-first destruction");
+        assertSingleBenchDrop(helper, level, mainPos, extensionPos, "wide extension-first destruction");
+        clearBenchDrops(level, mainPos, extensionPos);
+
+        placeBenchPair(level, mainPos, extensionPos, mainState);
+        level.destroyBlock(mainPos, true);
+        assertBenchRemoved(helper, level, mainPos, extensionPos, "wide main-first destruction");
+        assertSingleBenchDrop(helper, level, mainPos, extensionPos, "wide main-first destruction");
+        clearBenchDrops(level, mainPos, extensionPos);
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void wideBenchMirrorKeepsBothHalvesLinked(GameTestHelper helper) {
+        MunitionsBenchBlock bench = (MunitionsBenchBlock) ModMunitionsBlocks.MUNITIONS_BENCH.get();
+        BlockPos origin = new BlockPos(4, 1, 4);
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            BlockState wide = bench.defaultBlockState()
+                    .setValue(MunitionsBenchBlock.FACING, facing)
+                    .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE);
+            for (Mirror mirror : Mirror.values()) {
+                BlockState mirrored = wide.mirror(mirror);
+                Direction expected = mirror.mirror(MunitionsBenchBlock.extensionDirection(wide));
+                helper.assertTrue(MunitionsBenchBlock.extensionDirection(mirrored) == expected,
+                        "mirroring " + facing + " with " + mirror + " must map the extension side to "
+                                + expected + ", got " + MunitionsBenchBlock.extensionDirection(mirrored)
+                                + "; a chirality mismatch makes updateShape delete both halves");
+                BlockState mirroredExtension = mirrored.setValue(MunitionsBenchBlock.PART,
+                        MunitionsBenchBlock.Part.EXTENSION);
+                BlockPos mirroredExtensionPos = MunitionsBenchBlock.extensionPos(origin, mirrored);
+                helper.assertTrue(MunitionsBenchBlock.mainPos(mirroredExtensionPos, mirroredExtension)
+                                .equals(origin),
+                        "mirrored halves must still resolve back to each other");
+            }
+            BlockState legacy = wide.setValue(MunitionsBenchBlock.LAYOUT,
+                    MunitionsBenchBlock.Layout.LEGACY_DEPTH);
+            helper.assertTrue(MunitionsBenchBlock.extensionDirection(legacy.mirror(Mirror.LEFT_RIGHT))
+                            == Mirror.LEFT_RIGHT.mirror(MunitionsBenchBlock.extensionDirection(legacy)),
+                    "legacy depth layout is mirror symmetric and must keep its plain behaviour");
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void carouselAngleHoldsWhileIdleAndAdvancesWhileActive(GameTestHelper helper) {
+        ServerPlayer owner = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        MunitionsBenchBlockEntity bench = newBench(helper, owner);
+        BlockPos absolute = bench.getBlockPos();
+        BlockState wide = bench.getBlockState()
+                .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE)
+                .setValue(MunitionsBenchBlock.ACTIVE, true);
+        helper.getLevel().setBlock(absolute, wide, Block.UPDATE_CLIENTS);
+
+        float first = bench.advanceCarouselAngle(20.0F);
+        helper.assertTrue(Math.abs(first - 20.0F * MunitionsBenchBlockEntity.CAROUSEL_DEGREES_PER_TICK) < 1.0E-3F,
+                "an active bench must advance the carousel by the configured rate, got " + first);
+
+        helper.getLevel().setBlock(absolute, wide.setValue(MunitionsBenchBlock.ACTIVE, false),
+                Block.UPDATE_CLIENTS);
+        float held = bench.advanceCarouselAngle(120.0F);
+        helper.assertTrue(Math.abs(held - first) < 1.0E-3F,
+                "an idle bench must hold the carousel where it stopped, not snap back to zero; got "
+                        + held + " after holding at " + first);
+
+        helper.getLevel().setBlock(absolute, wide, Block.UPDATE_CLIENTS);
+        float resumed = bench.advanceCarouselAngle(4.0F);
+        helper.assertTrue(resumed > held && resumed - held < 360.0F,
+                "resuming must continue from the held angle instead of jumping to an arbitrary phase");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void wideBenchRenderBoundingBoxCoversBothCellsAndTheFront(GameTestHelper helper) {
+        ServerPlayer owner = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        MunitionsBenchBlockEntity bench = newBench(helper, owner);
+        BlockPos absolute = bench.getBlockPos();
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            BlockState wide = bench.getBlockState()
+                    .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE)
+                    .setValue(MunitionsBenchBlock.FACING, facing);
+            helper.getLevel().setBlock(absolute, wide, Block.UPDATE_CLIENTS);
+            AABB box = bench.getRenderBoundingBox();
+            BlockPos extension = MunitionsBenchBlock.extensionPos(absolute, wide);
+            helper.assertTrue(box.contains(Vec3.atCenterOf(absolute)) && box.contains(Vec3.atCenterOf(extension)),
+                    facing + " render bounds must cover both halves of the machine");
+            helper.assertTrue(box.maxY - absolute.getY() >= 25.5D / 16.0D,
+                    facing + " render bounds must reach the top of the enclosure");
+            double frontOvershoot = facing.getStepX() < 0 || facing.getStepZ() < 0
+                    ? (facing.getAxis() == Direction.Axis.X ? absolute.getX() - box.minX : absolute.getZ() - box.minZ)
+                    : (facing.getAxis() == Direction.Axis.X ? box.maxX - (absolute.getX() + 1)
+                            : box.maxZ - (absolute.getZ() + 1));
+            helper.assertTrue(frontOvershoot >= 0.25D,
+                    facing + " render bounds must extend past the front face for the output drawer, got "
+                            + frontOvershoot);
+        }
         helper.succeed();
     }
 

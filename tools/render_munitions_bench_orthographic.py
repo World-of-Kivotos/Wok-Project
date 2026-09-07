@@ -23,18 +23,14 @@ def shifted(color, amount, alpha=None):
 
 
 def rendered_cube(source):
-    cube = dict(source)
-    x, y, z = source["origin"]
-    dx, dy, dz = source["size"]
-    cube["origin"] = [16 - x - dx, y, z]
-    return cube
+    # 镜像换算与生成器共用一份, 避免两处约定分叉后三视图与实际产物对不上。
+    return assets.rendered_cube(source)
 
 
 def all_cubes():
     return ([('body', rendered_cube(cube)) for cube in assets.BODY]
             + [('press', rendered_cube(cube)) for cube in assets.PRESS]
             + [('carousel', rendered_cube(cube)) for cube in assets.CAROUSEL]
-            + [('belt', rendered_cube(cube)) for cube in assets.BELT]
             + [('drawer', rendered_cube(cube)) for cube in assets.DRAWER])
 
 

@@ -68,12 +68,17 @@ TIERS = (
 )
 
 
+def stretched_height(y):
+    """机身在 y=2 以上整体拉高。分段函数必须同时作用于底面和顶面, 否则跨越 y=2 的件只有底面被映射,
+    顶面停在原位, 与紧邻其上的件之间裂出一条缝 (底座第二级与第三级之间原本就有 0.13 单位的缝)。"""
+    return y if y <= 2 else 2 + (y - 2) * BODY_HEIGHT_SCALE
+
+
 def cube(origin, size, material, *, rotation=None, pivot=None):
     ox, oy, oz = origin
     sx, sy, sz = size
-    if oy >= 2:
-        oy = 2 + (oy - 2) * BODY_HEIGHT_SCALE
-        sy *= BODY_HEIGHT_SCALE
+    bottom = stretched_height(oy)
+    oy, sy = bottom, stretched_height(oy + sy) - bottom
     result = {"origin": [ox, oy, oz], "size": [sx, sy, sz], "uv": list(UV[material])}
     if rotation is not None:
         result["rotation"] = list(rotation)
@@ -345,8 +350,6 @@ CAROUSEL.extend((
     cube((8.64, 5.93, 0.92), (0.72, 0.21, 0.40), "edge"),
 ))
 
-BELT = []
-
 DRAWER = [
     cube((16.3, 2.55, -11.4), (6.5, 0.65, 2.6), "dark"),
     cube((17.1, 3.0, -8.8), (0.45, 0.3, 1.7), "dark"),
@@ -390,7 +393,7 @@ UPGRADES = {
         cube((-0.15, 14.65, 6.7), (18.3, 0.42, 0.55), "accent")],
     5: [cube((-7.25, 2.7, -8.25), (30.0, 0.3, 0.45), "brass"),
         cube((-0.1, 15.3, -7.25), (18.2, 0.32, 0.48), "brass"),
-        cube((23.77, 3.6, -5.5), (0.35, 9.1, 10.8), "brass")],
+        cube((23.74, 3.6, -5.5), (0.26, 9.1, 10.8), "brass")],
 }
 
 
@@ -449,20 +452,17 @@ def animation_definition():
     return {
         "format_version": "1.8.0",
         "animations": {
+            # 待机呼吸幅度必须够肉眼分辨: 原值 -0.08 模型单位 = 1/200 格, 连一个像素都不到, 等于没有。
+            # 取生产行程 (-1.95) 的四分之一, 既能看出机器在待机又不会像在工作。
             "machine.idle": {
                 "loop": True,
                 "animation_length": 4.0,
                 "bones": {
-                    "ram": {"position": {"0.0": [0, 0, 0], "2.0": [0, -0.08, 0], "4.0": [0, 0, 0]}},
+                    "ram": {"position": {"0.0": [0, 0, 0], "2.0": [0, -0.5, 0], "4.0": [0, 0, 0]}},
                 },
             },
-            "machine.carousel": {
-                "loop": True,
-                "animation_length": 12.0,
-                "bones": {
-                    "carousel": {"rotation": {"0.0": [0, 0, 0], "12.0": [0, 360, 0]}},
-                },
-            },
+            # 弹盘的连续旋转不在这里定义: 见 MunitionsBenchBlockEntity.advanceCarouselAngle,
+            # GeckoLib 的 speed 开关会让弹盘在开停机时瞬间归零, 角度改由渲染器直接驱动骨骼。
             "machine.production": {
                 "loop": True,
                 "animation_length": 1.2,
@@ -635,35 +635,160 @@ def build_texture(palette):
     return image
 
 
+def mirrored_origin_x(origin_x, size_x, plane):
+    """GeckoLib 的 BakedModelFactory 把每个 cube 的 X 取负 (origin.x -> -(origin.x + size.x)), 所以世界里
+    的机器沿 X 轴是镜像的。凡是要还原"玩家实际看到的样子"的地方都必须过一次这个换算, 否则会左右颠倒。
+    plane 是镜像轴在目标坐标系里的位置乘 2: 物品模型坐标取 8 (原版 0-16 一格 + GeckoLib 的 0.5 格平移),
+    评审预览沿用 16 以保持原有构图。"""
+    return plane - origin_x - size_x
+
+
+def mirrored_box(source):
+    """把 bedrock 立方体换算成原版物品模型坐标 (含 GeckoLib 的 X 镜像与 z 的 +8 平移)。"""
+    origin, size = source["origin"], source["size"]
+    x1 = mirrored_origin_x(origin[0], size[0], 8.0)
+    y1 = origin[1]
+    z1 = origin[2] + 8
+    return [x1, y1, z1], [x1 + size[0], y1 + size[1], z1 + size[2]]
+
+
+def rendered_cube(source):
+    """评审预览与正交三视图共用的镜像换算, 保持原有构图中心不变。"""
+    cube = dict(source)
+    cube["origin"] = [mirrored_origin_x(source["origin"][0], source["size"][0], 16.0),
+                      source["origin"][1], source["origin"][2]]
+    return cube
+
+
+FACE_AXIS = {
+    "west": (0, False), "east": (0, True),
+    "down": (1, False), "up": (1, True),
+    "north": (2, False), "south": (2, True),
+}
+
+
+def rectangles_cover(target, rectangles):
+    """判断若干矩形的并集是否完整覆盖 target。坐标压缩后逐格检查, 单个面的候选矩形只有几十个, 够快。"""
+    (a1, b1), (a2, b2) = target
+    xs = sorted({a1, a2} | {value for rect in rectangles for value in (rect[0][0], rect[1][0])
+                            if a1 < value < a2})
+    ys = sorted({b1, b2} | {value for rect in rectangles for value in (rect[0][1], rect[1][1])
+                            if b1 < value < b2})
+    for xi in range(len(xs) - 1):
+        for yi in range(len(ys) - 1):
+            cx = (xs[xi] + xs[xi + 1]) / 2
+            cy = (ys[yi] + ys[yi + 1]) / 2
+            if not any(rect[0][0] <= cx <= rect[1][0] and rect[0][1] <= cy <= rect[1][1]
+                       for rect in rectangles):
+                return False
+    return True
+
+
+def face_is_hidden(box, others, face):
+    """某个面是否被别的立方体挡住。挡住它的可以是若干个立方体的并集 —— 机身内部的件大多是被四五块外壳
+    合起来盖住的, 只做单块包含判定几乎剪不掉东西。全部材质都是不透明色块, 所以删掉被挡的面观感无损。"""
+    axis, positive = FACE_AXIS[face]
+    lo, hi = box
+    plane = hi[axis] if positive else lo[axis]
+    first, second = [index for index in range(3) if index != axis]
+    blockers = []
+    for other_lo, other_hi in others:
+        if positive:
+            covers_plane = other_lo[axis] <= plane + 1e-6 < other_hi[axis] - 1e-6
+        else:
+            covers_plane = other_lo[axis] + 1e-6 < plane <= other_hi[axis] + 1e-6
+        if not covers_plane:
+            continue
+        if other_hi[first] <= lo[first] or other_lo[first] >= hi[first]:
+            continue
+        if other_hi[second] <= lo[second] or other_lo[second] >= hi[second]:
+            continue
+        blockers.append(((other_lo[first], other_lo[second]), (other_hi[first], other_hi[second])))
+    if not blockers:
+        return False
+    return rectangles_cover(((lo[first], lo[second]), (hi[first], hi[second])), blockers)
+
+
+def rotate_xyz(point, degrees):
+    """复现原版 ItemTransform.apply 的 Quaternionf.rotationXYZ, 即 Rx * Ry * Rz。"""
+    x, y, z = point
+    for axis, angle in reversed(list(enumerate(degrees))):
+        radians = math.radians(angle)
+        cos, sin = math.cos(radians), math.sin(radians)
+        if axis == 0:
+            y, z = y * cos - z * sin, y * sin + z * cos
+        elif axis == 1:
+            x, z = x * cos + z * sin, -x * sin + z * cos
+        else:
+            x, y = x * cos - y * sin, x * sin + y * cos
+    return x, y, z
+
+
+def display_transform(bounds, rotation, scale=None, slot_pixels=15.0):
+    """按包围盒解出 display 变换, 而不是手调常数。
+
+    原版 GUI 渲染链是 translate(x+8,y+8) -> scale(16,-16,16) -> ItemTransform(translate/rotate/scale)
+    -> translate(-0.5,-0.5,-0.5) -> 模型坐标 /16。所以屏幕像素 = 16 * (translation + R * scale * (p/16 - 0.5))。
+    这里把 8 个角点代进去求投影包围盒, 解出让图标正好落在 slot_pixels 内的 scale 与居中用的 translation。
+    机身横跨两格, 几何中心远离模型空间中心 (8,8,8), 手调常数必然溢出槽位。
+    """
+    lo, hi = bounds
+    corners = [rotate_xyz(
+        [(value / 16.0) - 0.5 for value in (x, y, z)], rotation)
+        for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
+    spans = [(min(corner[axis] for corner in corners), max(corner[axis] for corner in corners))
+             for axis in range(3)]
+    if scale is None:
+        widest = max(spans[0][1] - spans[0][0], spans[1][1] - spans[1][0])
+        scale = round(slot_pixels / (16.0 * widest), 3)
+    translation = [round(-scale * (spans[axis][0] + spans[axis][1]) / 2 * 16, 3) for axis in range(2)]
+    transform = {"translation": translation + [0.0], "scale": [scale, scale, scale]}
+    if any(rotation):
+        transform["rotation"] = list(rotation)
+    return transform
+
+
 def item_model(texture_name, tier_index):
     cubes = BODY + [item for level in range(tier_index + 1) for item in UPGRADES[level]]
-    cubes += PRESS + CAROUSEL + BELT + DRAWER
+    cubes += PRESS + CAROUSEL + DRAWER
+    boxes = [mirrored_box(source) for source in cubes]
+    safe_span = PATCH_SIZE - UV_GUTTER * 2
+    uv_scale = ATLAS_SIZE / 16
     elements = []
-    for source in cubes:
-        origin = source["origin"]
-        size = source["size"]
-        x1, y1, z1 = origin[0] + 8, origin[1], origin[2] + 8
-        x2, y2, z2 = x1 + size[0], y1 + size[1], z1 + size[2]
+    for source, box in zip(cubes, boxes):
+        others = [candidate for candidate in boxes if candidate is not box]
         patch_x, patch_y = UV[source["material"]]
-        safe_span = PATCH_SIZE - UV_GUTTER * 2
-        uv_scale = ATLAS_SIZE / 16
         uv = [patch_x / uv_scale, patch_y / uv_scale,
               (patch_x + safe_span) / uv_scale, (patch_y + safe_span) / uv_scale]
         faces = {face: {"texture": "#atlas", "uv": uv}
-                 for face in ("north", "south", "east", "west", "up", "down")}
-        elements.append({"from": [x1, y1, z1], "to": [x2, y2, z2], "faces": faces})
+                 for face in FACE_AXIS if not face_is_hidden(box, others, face)}
+        if not faces:
+            continue
+        elements.append({"from": box[0], "to": box[1], "faces": faces})
+
+    for element in elements:
+        for key in ("from", "to"):
+            for value in element[key]:
+                if not -16.0 <= value <= 32.0:
+                    raise ValueError(
+                        f"{texture_name} 的 element {key}={element[key]} 越出原版 BlockElement 的 "
+                        f"[-16, 32] 边界; 原版会抛 JsonParseException 并把整个物品模型降级成缺失模型")
+
+    lo = [min(element["from"][axis] for element in elements) for axis in range(3)]
+    hi = [max(element["to"][axis] for element in elements) for axis in range(3)]
+    bounds = (lo, hi)
     return {
         "parent": "minecraft:block/block",
         "texture_size": [ATLAS_SIZE, ATLAS_SIZE],
         "textures": {"atlas": f"miningdim:block/{texture_name}", "particle": f"miningdim:block/{texture_name}"},
         "display": {
-            "gui": {"rotation": [28, 225, 0], "translation": [-1.5, -2.5, 0], "scale": [0.42, 0.42, 0.42]},
-            "ground": {"translation": [-4, 2, 4], "scale": [0.3, 0.3, 0.3]},
-            "fixed": {"translation": [-4, 0, 0], "scale": [0.4, 0.4, 0.4]},
-            "firstperson_righthand": {"rotation": [0, 225, 0], "scale": [0.28, 0.28, 0.28]},
-            "firstperson_lefthand": {"rotation": [0, 45, 0], "scale": [0.28, 0.28, 0.28]},
-            "thirdperson_righthand": {"rotation": [65, 225, 0], "scale": [0.24, 0.24, 0.24]},
-            "thirdperson_lefthand": {"rotation": [65, 45, 0], "scale": [0.24, 0.24, 0.24]},
+            "gui": display_transform(bounds, (28, 225, 0)),
+            "ground": display_transform(bounds, (0, 0, 0), 0.3),
+            "fixed": display_transform(bounds, (0, 0, 0), 0.4),
+            "firstperson_righthand": display_transform(bounds, (0, 225, 0), 0.28),
+            "firstperson_lefthand": display_transform(bounds, (0, 45, 0), 0.28),
+            "thirdperson_righthand": display_transform(bounds, (65, 225, 0), 0.24),
+            "thirdperson_lefthand": display_transform(bounds, (65, 45, 0), 0.24),
         },
         "elements": elements,
     }
@@ -676,7 +801,8 @@ def project(point, ox, oy, scale):
 
 
 def preview_faces(source, palette, ox, oy, scale):
-    x, y, z = source["origin"]
+    # 过一次 rendered_cube 的 X 镜像, 否则评审预览图与游戏里的实际观感左右颠倒。
+    x, y, z = rendered_cube(source)["origin"]
     dx, dy, dz = source["size"]
     color = palette[source["material"]]
     rgb = color[:3]
@@ -717,7 +843,7 @@ def build_preview():
         col, row = tier_index % 3, tier_index // 3
         ox, oy = 210 + col * 510, 465 + row * 440
         cubes = BODY + [item for level in range(tier_index + 1) for item in UPGRADES[level]]
-        cubes += PRESS + CAROUSEL + BELT + DRAWER
+        cubes += PRESS + CAROUSEL + DRAWER
         layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(layer, "RGBA")
         draw.ellipse((ox - 125, oy + 20, ox + 280, oy + 92), fill=(0, 0, 0, 115))

@@ -16,7 +16,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -41,16 +43,49 @@ public final class PowerCableAssetGameTests {
             new PortState("up", 270, 0),
             new PortState("down", 90, 0));
 
+    /**
+     * 每档导线图标的期望材料色。真源是同材料线缆的导体色阶中停, 即
+     * {@code tools/build_power_cable_block_textures.py} 里 {@code STYLES["<id>_energy_cable"].conductor}
+     * ——"导线中间物"与"它合成出的线缆"必须是同一种金属, 所以这里逐字转抄那份表而不是从导线 PNG 反推。
+     *
+     * 立这张表的直接原因: 旧图标里镀锡铜、镀银铜、NbTi、YBCO 四档被画成了铜棕/橙红色系, 与材料语义和
+     * 同材料线缆贴图相差 147-175 度色相, 而当时的断言只看 Alpha, 错色一路静默通过。
+     */
+    private static final Map<String, Integer> EXPECTED_WIRE_COLORS = Map.ofEntries(
+            Map.entry("iron", 0x888D91),
+            Map.entry("aluminum", 0xB8C1C8),
+            Map.entry("copper", 0xC45E36),
+            Map.entry("tinned_copper", 0xB7A89F),
+            Map.entry("ofc_copper", 0xD1602F),
+            Map.entry("ofe_copper", 0xE3793E),
+            Map.entry("silver_plated_copper", 0xC6D0D7),
+            Map.entry("gold", 0xD9A32D),
+            Map.entry("silver", 0xC8D1D6),
+            Map.entry("graphene", 0x3F434A),
+            Map.entry("nbti_superconductor", 0x82B6D0),
+            Map.entry("ybco_superconductor", 0x315164));
+
+    /** 导线图标可见像素数的容许区间。线卷轮廓固定 58 像素, 留一点余量以便微调形状而不必改测试。 */
+    private static final int MIN_WIRE_VISIBLE_PIXELS = 48;
+    private static final int MAX_WIRE_VISIBLE_PIXELS = 72;
+
+    /** 图标均值色与材料色的最大容许色相差(度)。当前 12 档实测最大 5.8 度, 超过 25 度必是画错了材料。 */
+    private static final double MAX_WIRE_HUE_DRIFT_DEGREES = 25.0D;
+
     private PowerCableAssetGameTests() {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void everyRegisteredCableUsesNonOverlappingModelsAndValidTextures(GameTestHelper helper) {
+        Map<String, ConductorMaterial> wireSignatures = new HashMap<>();
         for (ConductorMaterial material : ConductorMaterial.values()) {
             helper.assertTrue(PowerRegistry.CABLES.containsKey(material),
                     "缺少已声明导体的线缆注册: " + material.blockId());
             verifyCableAssets(helper, material.blockId());
-            verifyWireAssets(helper, material.id() + "_wire");
+            String signature = verifyWireAssets(helper, material);
+            ConductorMaterial clash = wireSignatures.putIfAbsent(signature, material);
+            helper.assertTrue(clash == null, material.id() + "_wire 与 " + (clash == null ? "" : clash.id())
+                    + "_wire 的可见像素完全相同; 12 档导线必须各自着色, 不能复用同一张图");
         }
 
         String tungsten = SpecialCableMaterial.TUNGSTEN.blockId();
@@ -113,7 +148,11 @@ public final class PowerCableAssetGameTests {
                 cableId + " 物品贴图必须保持 16x16 像素");
     }
 
-    private static void verifyWireAssets(GameTestHelper helper, String wireId) {
+    /**
+     * 校验单档导线中间物的图标资产, 返回可见像素签名供调用方做跨材料互异性断言。
+     */
+    private static String verifyWireAssets(GameTestHelper helper, ConductorMaterial material) {
+        String wireId = material.id() + "_wire";
         JsonObject item = loadJson("/assets/miningdim/models/item/" + wireId + ".json");
         helper.assertTrue("minecraft:item/generated".equals(item.get("parent").getAsString())
                         && ("miningdim:item/" + wireId).equals(
@@ -124,22 +163,81 @@ public final class PowerCableAssetGameTests {
         helper.assertTrue(image.getWidth() == 16 && image.getHeight() == 16,
                 wireId + " 导线贴图必须保持 16x16 像素");
 
-        boolean hasTransparentPixel = false;
-        boolean hasVisiblePixel = false;
-        boolean hasPartialAlpha = false;
-        boolean hasHiddenColor = false;
+        StringBuilder signature = new StringBuilder();
+        int transparentPixels = 0;
+        int visiblePixels = 0;
+        long red = 0;
+        long green = 0;
+        long blue = 0;
         for (int y = 0; y < image.getHeight(); y++) {
             for (int x = 0; x < image.getWidth(); x++) {
                 int argb = image.getRGB(x, y);
                 int alpha = (argb >>> 24) & 0xFF;
-                hasTransparentPixel |= alpha == 0;
-                hasVisiblePixel |= alpha == 255;
-                hasPartialAlpha |= alpha > 0 && alpha < 255;
-                hasHiddenColor |= alpha == 0 && (argb & 0x00FFFFFF) != 0;
+                helper.assertTrue(alpha == 0 || alpha == 255,
+                        wireId + " 必须使用硬边 Alpha，半透明像素 x=" + x + ", y=" + y + ", alpha=" + alpha);
+                if (alpha == 0) {
+                    helper.assertTrue((argb & 0x00FFFFFF) == 0,
+                            wireId + " 透明区必须清零 RGB，隐藏底色像素 x=" + x + ", y=" + y
+                                    + ", rgb=" + Integer.toHexString(argb & 0x00FFFFFF));
+                    transparentPixels++;
+                    continue;
+                }
+                visiblePixels++;
+                red += (argb >> 16) & 0xFF;
+                green += (argb >> 8) & 0xFF;
+                blue += argb & 0xFF;
+                signature.append(x).append(':').append(y).append(':')
+                        .append(Integer.toHexString(argb & 0x00FFFFFF)).append(';');
             }
         }
-        helper.assertTrue(hasTransparentPixel && hasVisiblePixel && !hasPartialAlpha && !hasHiddenColor,
-                wireId + " 必须使用透明黑硬边像素，且不得含半透明、隐藏底色或空白贴图");
+
+        helper.assertTrue(transparentPixels > 0,
+                wireId + " 导线图标必须留出透明区，当前整张不透明");
+        helper.assertTrue(visiblePixels >= MIN_WIRE_VISIBLE_PIXELS && visiblePixels <= MAX_WIRE_VISIBLE_PIXELS,
+                wireId + " 可见像素数必须落在 " + MIN_WIRE_VISIBLE_PIXELS + "-" + MAX_WIRE_VISIBLE_PIXELS
+                        + "，实得 " + visiblePixels + "，线卷轮廓已退化");
+
+        int expected = EXPECTED_WIRE_COLORS.get(material.id());
+        int actual = (int) ((red / visiblePixels) << 16 | (green / visiblePixels) << 8 | (blue / visiblePixels));
+        double drift = hueDistanceDegrees(expected, actual);
+        helper.assertTrue(drift <= MAX_WIRE_HUE_DRIFT_DEGREES,
+                wireId + " 图标均值色 #" + String.format("%06X", actual) + " 与材料色 #"
+                        + String.format("%06X", expected) + " 相差 " + Math.round(drift)
+                        + " 度色相，超过 " + (int) MAX_WIRE_HUE_DRIFT_DEGREES + " 度；这一档画成了别的金属");
+        return signature.toString();
+    }
+
+    /** HSL 色相环上的最短夹角(度)。灰度色(饱和度为 0)没有色相, 一律记 0 度以免噪声误报。 */
+    private static double hueDistanceDegrees(int left, int right) {
+        double leftHue = hueDegrees(left);
+        double rightHue = hueDegrees(right);
+        if (leftHue < 0.0D || rightHue < 0.0D) {
+            return 0.0D;
+        }
+        double delta = Math.abs(leftHue - rightHue);
+        return Math.min(delta, 360.0D - delta);
+    }
+
+    /** 返回 RGB 的色相角, 无彩色返回 -1。 */
+    private static double hueDegrees(int rgb) {
+        double r = ((rgb >> 16) & 0xFF) / 255.0D;
+        double g = ((rgb >> 8) & 0xFF) / 255.0D;
+        double b = (rgb & 0xFF) / 255.0D;
+        double max = Math.max(r, Math.max(g, b));
+        double min = Math.min(r, Math.min(g, b));
+        double span = max - min;
+        if (span < 1.0E-6D) {
+            return -1.0D;
+        }
+        double hue;
+        if (max == r) {
+            hue = 60.0D * (((g - b) / span) % 6.0D);
+        } else if (max == g) {
+            hue = 60.0D * ((b - r) / span + 2.0D);
+        } else {
+            hue = 60.0D * ((r - g) / span + 4.0D);
+        }
+        return hue < 0.0D ? hue + 360.0D : hue;
     }
 
     private static void verifyTextureBindings(GameTestHelper helper, String cableId,

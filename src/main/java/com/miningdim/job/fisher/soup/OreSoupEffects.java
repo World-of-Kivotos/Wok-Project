@@ -1,0 +1,281 @@
+package com.miningdim.job.fisher.soup;
+
+import com.miningdim.core.MiningConstants;
+import com.miningdim.job.chef.ChefEffectInstance;
+import com.miningdim.job.chef.ChefEffectType;
+import com.miningdim.job.chef.ChefQualityNbt;
+import com.miningdim.job.chef.ChefWindowEffectState;
+import com.miningdim.job.fisher.ore.OreFishType;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.eventbus.api.IEventBus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.function.BooleanSupplier;
+
+/** Runtime state and server-side effect settlement for ore-fish soups. */
+public final class OreSoupEffects {
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/job/fisher/soup");
+    private static final String STATE_TAG = "MiningOreFishSoup";
+    private static final String TYPE_TAG = "type";
+    private static final String EXPIRES_AT_TAG = "expiresAt";
+    private static final String NIGHT_VISION_UNTIL_TAG = "nightVisionUntil";
+    private static final int BASE_DURATION_TICKS = 300 * 20;
+    private static final int MAX_DURATION_TICKS = 1500 * 20;
+    private static final int NIGHT_VISION_TICKS = 400;
+    private static final ThreadLocal<MiningDurabilityAttempt> MINING_DURABILITY_ATTEMPT = new ThreadLocal<>();
+
+    private OreSoupEffects() {
+    }
+
+    public static void register(IEventBus modBus, IEventBus forgeBus) {
+        forgeBus.addListener((TickEvent.PlayerTickEvent event) -> {
+            if (event.phase == TickEvent.Phase.END && event.player instanceof ServerPlayer player) {
+                onPlayerTick(player);
+            }
+        });
+        // 刻意不在 PlayerLoggedInEvent 里同步汤态。原先那条监听会在第一个 tick 之前就把同步值写成
+        // type.ordinal()+1, 于是 onPlayerTick 的 justBecameActive 在"带着汤重登矿洞"这条路径上恒为 false,
+        // 夜视仍要等错峰巡查最多 79 tick —— 正是它自己声称修掉的现象。交给第一个 onPlayerTick 统一处理:
+        // 同步值从实体数据默认的 0 起步, justBecameActive 自然成立, 夜视当 tick 补发,
+        // 客户端挖速预测只晚一 tick(玩家登录当 tick 本来也挖不了方块)。
+        forgeBus.addListener((PlayerEvent.Clone event) ->
+                carryAcrossRespawn(event.getOriginal(), event.getEntity(), event.isWasDeath()));
+        forgeBus.addListener((PlayerEvent.PlayerLoggedOutEvent event) -> {
+            if (event.getEntity() instanceof ServerPlayer player) {
+                // 离线时药水时长暂停而世界时钟继续，先撤掉汤夜视，重登后按剩余汤时间授予。
+                removeOwnedNightVision(player, player.serverLevel().getGameTime());
+            }
+        });
+    }
+
+    /**
+     * 玩家实体被重建时搬运汤状态。
+     *
+     * 从末地主出口回主世界走的是 {@code PlayerList.respawn}: ServerPlayer 被整个重建, 而 Forge 的
+     * {@code restoreFrom} 只复制 {@code getPersistentData()} 里的 PlayerPersisted 子标签, 挂在根节点的汤状态
+     * 会被丢掉 —— 那不是死亡, 时长不该归零。死亡仍按设计清空 (wasDeath 时什么都不搬)。
+     */
+    public static void carryAcrossRespawn(Player original, Entity clone, boolean wasDeath) {
+        if (wasDeath || !(clone instanceof ServerPlayer player)) {
+            return;
+        }
+        CompoundTag previous = original.getPersistentData();
+        if (!previous.contains(STATE_TAG, Tag.TAG_COMPOUND)) {
+            return;
+        }
+        CompoundTag carried = previous.getCompound(STATE_TAG).copy();
+        // 夜视归属标记不跟着搬: 重建出来的玩家身上一个效果都没有(restoreFrom 不复制 MobEffect),
+        // 搬过去只会留下一个指向旧时刻的归属记录, 万一玩家自己喝的夜视剩余时长恰好撞上这个值,
+        // removeOwnedNightVision 会把别人的药水当成汤夜视删掉。下一 tick 的 refreshNightVision
+        // 会在 current == null 这一支重新授予并重新记归属。
+        carried.remove(NIGHT_VISION_UNTIL_TAG);
+        player.getPersistentData().put(STATE_TAG, carried);
+    }
+
+    public static void applyConsumedSoup(ServerPlayer player, OreFishType type, ItemStack consumedStack) {
+        if (isSpoiled(consumedStack)) {
+            return;
+        }
+        long now = player.serverLevel().getGameTime();
+        removeOwnedNightVision(player, now);
+        CompoundTag state = new CompoundTag();
+        state.putString(TYPE_TAG, type.id());
+        state.putLong(EXPIRES_AT_TAG, now + durationTicks(consumedStack));
+        player.getPersistentData().put(STATE_TAG, state);
+        syncClientState(player, type);
+        if (player.level().dimension().equals(MiningConstants.MINING_LEVEL)) {
+            refreshNightVision(player, now);
+        }
+    }
+
+    public static OreFishType activeType(ServerPlayer player) {
+        CompoundTag data = player.getPersistentData();
+        if (!data.contains(STATE_TAG, Tag.TAG_COMPOUND)) {
+            return null;
+        }
+        CompoundTag state = data.getCompound(STATE_TAG);
+        if (!state.contains(TYPE_TAG, Tag.TAG_STRING) || !state.contains(EXPIRES_AT_TAG, Tag.TAG_LONG)) {
+            LOGGER.warn("Removing malformed ore soup state for player {}", player.getUUID());
+            data.remove(STATE_TAG);
+            return null;
+        }
+        if (state.getLong(EXPIRES_AT_TAG) <= player.serverLevel().getGameTime()) {
+            clearExpiredState(player);
+            return null;
+        }
+        String id = state.getString(TYPE_TAG);
+        for (OreFishType type : OreFishType.values()) {
+            if (type.id().equals(id)) {
+                return type;
+            }
+        }
+        LOGGER.warn("Removing ore soup state with unknown type '{}' for player {}", id, player.getUUID());
+        data.remove(STATE_TAG);
+        return null;
+    }
+
+    public static boolean activeInMining(ServerPlayer player) {
+        return player.level().dimension().equals(MiningConstants.MINING_LEVEL) && activeType(player) != null;
+    }
+
+    public static int miningSpeedBonusPercent(ServerPlayer player) {
+        OreFishType type = activeInMining(player) ? activeType(player) : null;
+        return miningSpeedBonusPercent(type);
+    }
+
+    public static int miningSpeedBonusPercent(Player player) {
+        if (player instanceof ServerPlayer serverPlayer) {
+            return miningSpeedBonusPercent(serverPlayer);
+        }
+        if (!player.level().dimension().equals(MiningConstants.MINING_LEVEL)) {
+            return 0;
+        }
+        return miningSpeedBonusPercent(typeFromSyncedState(((OreSoupPlayerStateAccess) player).miningdim$getOreSoupState()));
+    }
+
+    public static int exhaustionReductionPerMille(Player player) {
+        if (!(player instanceof ServerPlayer serverPlayer) || !activeInMining(serverPlayer)) {
+            return 0;
+        }
+        OreFishType type = activeType(serverPlayer);
+        int soupReduction = type == OreFishType.IRON || type == OreFishType.DARK_GOLD ? 250 : 0;
+        int chefReduction = ChefWindowEffectState.magnitudeOf(serverPlayer, ChefEffectType.ENDURANCE);
+        return Math.max(soupReduction, chefReduction);
+    }
+
+    public static float reduceExhaustion(Player player, float exhaustion) {
+        int reduction = exhaustionReductionPerMille(player);
+        return reduction == 0 ? exhaustion : exhaustion * (1000 - reduction) / 1000.0F;
+    }
+
+    public static boolean withMiningDurabilityAttempt(ItemStack stack, Player player, BooleanSupplier action) {
+        if (!(player instanceof ServerPlayer serverPlayer) || !activeInMining(serverPlayer)
+                || !hasDurabilityReduction(activeType(serverPlayer))) {
+            return action.getAsBoolean();
+        }
+        MINING_DURABILITY_ATTEMPT.set(new MiningDurabilityAttempt(stack, serverPlayer));
+        try {
+            return action.getAsBoolean();
+        } finally {
+            MINING_DURABILITY_ATTEMPT.remove();
+        }
+    }
+
+    public static int reduceMiningDamageAfterUnbreaking(ItemStack stack, int damageAfterUnbreaking) {
+        MiningDurabilityAttempt attempt = MINING_DURABILITY_ATTEMPT.get();
+        if (attempt == null || attempt.stack != stack || damageAfterUnbreaking != stack.getDamageValue() + 1) {
+            return damageAfterUnbreaking;
+        }
+        int reduction = durabilityReductionPerMille(activeType(attempt.player));
+        return attempt.player.getRandom().nextInt(1000) < reduction ? stack.getDamageValue() : damageAfterUnbreaking;
+    }
+
+    public static void onPlayerTick(ServerPlayer player) {
+        long now = player.serverLevel().getGameTime();
+        OreFishType type = activeType(player);
+        if (!player.level().dimension().equals(MiningConstants.MINING_LEVEL) || type == null) {
+            removeOwnedNightVision(player, now);
+            syncClientState(player, null);
+            return;
+        }
+        // 状态刚变成"矿洞内有汤"的那一 tick 立刻补一次夜视: 只靠 80 tick 的错峰巡查, 传送进矿洞或重登之后
+        // 最多要黑 79 tick 才亮, 而玩家在矿洞里第一眼看到的就是漆黑。之后仍按错峰续期, 不增加常态开销。
+        boolean justBecameActive = ((OreSoupPlayerStateAccess) player).miningdim$getOreSoupState()
+                != type.ordinal() + 1;
+        syncClientState(player, type);
+        if (justBecameActive || (now + player.getId()) % 80 == 0) {
+            refreshNightVision(player, now);
+        }
+    }
+
+    private static int durationTicks(ItemStack stack) {
+        int multiplier = ChefQualityNbt.readEffects(stack).stream()
+                .filter(effect -> effect.type() == ChefEffectType.AMPLIFY)
+                .mapToInt(ChefEffectInstance::magnitude)
+                .max()
+                .orElse(100);
+        return Math.min(MAX_DURATION_TICKS, BASE_DURATION_TICKS * multiplier / 100);
+    }
+
+    private static boolean isSpoiled(ItemStack stack) {
+        return ChefQualityNbt.readEffects(stack).stream().anyMatch(effect -> effect.type() == ChefEffectType.SPOILED);
+    }
+
+    private static boolean hasDurabilityReduction(OreFishType type) {
+        return type == OreFishType.EMERALD || type == OreFishType.DARK_GOLD;
+    }
+
+    private static int durabilityReductionPerMille(OreFishType type) {
+        return type == OreFishType.EMERALD ? 200 : type == OreFishType.DARK_GOLD ? 250 : 0;
+    }
+
+    private static int miningSpeedBonusPercent(OreFishType type) {
+        return type == OreFishType.DIAMOND ? 15 : type == OreFishType.DARK_GOLD ? 20 : 0;
+    }
+
+    private static OreFishType typeFromSyncedState(int state) {
+        int ordinal = state - 1;
+        return ordinal >= 0 && ordinal < OreFishType.values().length ? OreFishType.values()[ordinal] : null;
+    }
+
+    private static void syncClientState(ServerPlayer player, OreFishType type) {
+        ((OreSoupPlayerStateAccess) player).miningdim$setOreSoupState(type == null ? 0 : type.ordinal() + 1);
+    }
+
+    private static void refreshNightVision(ServerPlayer player, long now) {
+        OreFishType type = activeType(player);
+        if (type != OreFishType.GOLD && type != OreFishType.DARK_GOLD) {
+            removeOwnedNightVision(player, now);
+            return;
+        }
+        CompoundTag state = player.getPersistentData().getCompound(STATE_TAG);
+        MobEffectInstance current = player.getEffect(MobEffects.NIGHT_VISION);
+        long ownedUntil = state.getLong(NIGHT_VISION_UNTIL_TAG);
+        int expected = (int) (ownedUntil - now);
+        if (current == null) {
+            player.addEffect(new MobEffectInstance(MobEffects.NIGHT_VISION, NIGHT_VISION_TICKS, 0, false, false, true));
+            state.putLong(NIGHT_VISION_UNTIL_TAG, now + NIGHT_VISION_TICKS);
+            return;
+        }
+        if (ownedUntil != 0L && Math.abs(current.getDuration() - expected) <= 3 && expected <= 320) {
+            player.addEffect(new MobEffectInstance(MobEffects.NIGHT_VISION, NIGHT_VISION_TICKS, 0, false, false, true));
+            state.putLong(NIGHT_VISION_UNTIL_TAG, now + NIGHT_VISION_TICKS);
+        } else if (ownedUntil != 0L && Math.abs(current.getDuration() - expected) > 3) {
+            state.remove(NIGHT_VISION_UNTIL_TAG);
+        }
+    }
+
+    private static void clearExpiredState(ServerPlayer player) {
+        long now = player.serverLevel().getGameTime();
+        removeOwnedNightVision(player, now);
+        player.getPersistentData().remove(STATE_TAG);
+        syncClientState(player, null);
+    }
+
+    private static void removeOwnedNightVision(ServerPlayer player, long now) {
+        if (!player.getPersistentData().contains(STATE_TAG, Tag.TAG_COMPOUND)) {
+            return;
+        }
+        CompoundTag state = player.getPersistentData().getCompound(STATE_TAG);
+        long ownedUntil = state.getLong(NIGHT_VISION_UNTIL_TAG);
+        MobEffectInstance current = player.getEffect(MobEffects.NIGHT_VISION);
+        if (current != null && ownedUntil != 0L && Math.abs(current.getDuration() - (ownedUntil - now)) <= 3) {
+            player.removeEffect(MobEffects.NIGHT_VISION);
+        }
+        state.remove(NIGHT_VISION_UNTIL_TAG);
+    }
+
+    private record MiningDurabilityAttempt(ItemStack stack, ServerPlayer player) {
+    }
+}

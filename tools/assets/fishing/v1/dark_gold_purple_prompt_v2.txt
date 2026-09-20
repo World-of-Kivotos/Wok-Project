@@ -1,0 +1,12 @@
+生成方式：内置 image_gen。
+用途：暗金鱼紫金配色美术样稿，沿用首版造型。
+
+最终提示词：
+Use case: precise-object-edit.
+Edit target: the provided dark gold ore fish concept image.
+User request: change this fish to a PURPLE AND GOLD color scheme (紫金色).
+Change the palette of the fish only. Recolor the charcoal-black and gray armored fish body into clearly visible rich deep royal-purple scales: almost-black plum outlines and shadows, saturated amethyst-purple midtones, and restrained lavender hard-edged highlights. Purple must be prominent across the head, flank, dorsal fin, belly fins and tail. Keep the existing three embedded metallic gold ore clusters, gold seams, gold mouth accents and amber-gold eye ring, using warm antique gold and small pale-gold highlights. The result should read unmistakably as purple-gold, with a luxurious dark violet metallic body and contrasting gold mineral inclusions.
+Preserve the original fish's full silhouette, left-facing orientation, stout rounded proportions, large eye, mouth, fin arrangement, forked tail, composition, scale and coarse Minecraft pixel-art style. Keep large square pixel clusters and stepped edges. Do not add objects, symbols, decorations, additional fins, gradients, bloom or smooth rendering.
+Keep this a single standalone item-art concept. Use a genuinely transparent background if possible; never paint a new checkerboard or decorative background. No text, captions or watermark.
+
+文件检查：{"Width":1536,"Height":1024,"PixelFormat":"Format24bppRgb","CornerAlpha":[255,255,255,255]}

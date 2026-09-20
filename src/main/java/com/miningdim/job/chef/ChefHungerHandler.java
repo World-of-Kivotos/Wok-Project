@@ -1,5 +1,6 @@
 package com.miningdim.job.chef;
 
+import com.miningdim.job.fisher.soup.OreSoupEffects;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.food.FoodData;
 import net.minecraftforge.event.TickEvent;
@@ -36,6 +37,10 @@ public final class ChefHungerHandler {
         boolean satiation = ChefWindowEffectState.active(player, ChefEffectType.SATIATION);
         if (satiation) {
             player.removeEffect(net.minecraft.world.effect.MobEffects.HUNGER);
+        }
+        // 矿洞羹生效时，耐饥改由 Player.causeFoodExhaustion 的真实疲劳缩减统一结算；这里不再额外回补饱和。
+        if (OreSoupEffects.activeInMining(player) && !satiation) {
+            return;
         }
         if (reducePerMille <= 0 && !satiation) {
             return;

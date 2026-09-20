@@ -1,0 +1,10 @@
+{
+  "replace": false,
+  "values": [
+    "miningdim:iron_ore_fish",
+    "miningdim:gold_ore_fish",
+    "miningdim:diamond_ore_fish",
+    "miningdim:emerald_ore_fish",
+    "miningdim:dark_gold_ore_fish"
+  ]
+}

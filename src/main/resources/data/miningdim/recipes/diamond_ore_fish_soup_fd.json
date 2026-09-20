@@ -1,0 +1,13 @@
+{
+  "conditions": [{ "type": "forge:mod_loaded", "modid": "farmersdelight" }],
+  "type": "farmersdelight:cooking",
+  "ingredients": [
+    { "item": "miningdim:diamond_ore_fish" },
+    { "tag": "forge:mushrooms" },
+    { "tag": "forge:vegetables" }
+  ],
+  "result": { "item": "miningdim:diamond_ore_fish_soup", "count": 1 },
+  "container": { "item": "minecraft:bowl" },
+  "experience": 1.0,
+  "cookingtime": 200
+}

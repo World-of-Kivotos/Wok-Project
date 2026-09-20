@@ -1,0 +1,468 @@
+{
+  "required_mod": "tide",
+  "required_version": "1.6.5",
+  "entries": [
+    {
+      "item": "tide:trout",
+      "category": "freshwater",
+      "description": "profile.item.tide.trout",
+      "habitat": "profile.info.location.freshwater",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:bass",
+      "category": "freshwater",
+      "description": "profile.item.tide.bass",
+      "habitat": "profile.info.location.freshwater",
+      "conditions": "profile.info.climate.normal"
+    },
+    {
+      "item": "tide:yellow_perch",
+      "category": "freshwater",
+      "description": "profile.item.tide.yellow_perch",
+      "habitat": "profile.info.location.freshwater",
+      "conditions": "profile.info.climate.normal"
+    },
+    {
+      "item": "tide:bluegill",
+      "category": "freshwater",
+      "description": "profile.item.tide.bluegill",
+      "habitat": "profile.info.location.freshwater",
+      "conditions": "profile.info.climate.normal"
+    },
+    {
+      "item": "tide:mint_carp",
+      "category": "freshwater",
+      "description": "profile.item.tide.mint_carp",
+      "habitat": "profile.info.location.freshwater",
+      "conditions": "profile.info.climate.warm"
+    },
+    {
+      "item": "tide:pike",
+      "category": "freshwater",
+      "description": "profile.item.tide.pike",
+      "habitat": "profile.info.location.freshwater",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:guppy",
+      "category": "freshwater",
+      "description": "profile.item.tide.guppy",
+      "habitat": "profile.info.location.freshwater",
+      "conditions": "profile.info.climate.warm"
+    },
+    {
+      "item": "tide:catfish",
+      "category": "freshwater",
+      "description": "profile.item.tide.catfish",
+      "habitat": "profile.info.location.freshwater",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:clayfish",
+      "category": "freshwater",
+      "description": "profile.item.tide.clayfish",
+      "habitat": "profile.info.location.freshwater",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:tuna",
+      "category": "saltwater",
+      "description": "profile.item.tide.tuna",
+      "habitat": "profile.info.location.saltwater",
+      "conditions": "profile.info.climate.normal"
+    },
+    {
+      "item": "tide:ocean_perch",
+      "category": "saltwater",
+      "description": "profile.item.tide.ocean_perch",
+      "habitat": "profile.info.location.saltwater",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:mackerel",
+      "category": "saltwater",
+      "description": "profile.item.tide.mackerel",
+      "habitat": "profile.info.location.saltwater",
+      "conditions": "profile.info.climate.normal"
+    },
+    {
+      "item": "tide:angelfish",
+      "category": "saltwater",
+      "description": "profile.item.tide.angelfish",
+      "habitat": "profile.info.location.saltwater",
+      "conditions": "profile.info.climate.warm"
+    },
+    {
+      "item": "tide:barracuda",
+      "category": "saltwater",
+      "description": "profile.item.tide.barracuda",
+      "habitat": "profile.info.location.saltwater",
+      "conditions": "profile.info.climate.normal"
+    },
+    {
+      "item": "tide:sailfish",
+      "category": "saltwater",
+      "description": "profile.item.tide.sailfish",
+      "habitat": "profile.info.location.saltwater",
+      "conditions": "profile.info.climate.warm"
+    },
+    {
+      "item": "tide:cave_eel",
+      "category": "underground",
+      "description": "profile.item.tide.cave_eel",
+      "habitat": "profile.info.location.underground",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:crystal_shrimp",
+      "category": "underground",
+      "description": "profile.item.tide.crystal_shrimp",
+      "habitat": "profile.info.location.underground",
+      "conditions": "profile.info.climate.any"
+    },
+    {
+      "item": "tide:iron_tetra",
+      "category": "underground",
+      "description": "profile.item.tide.iron_tetra",
+      "habitat": "profile.info.location.underground",
+      "conditions": "profile.info.climate.any"
+    },
+    {
+      "item": "tide:glowfish",
+      "category": "underground",
+      "description": "profile.item.tide.glowfish",
+      "habitat": "profile.info.location.underground",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:anglerfish",
+      "category": "underground",
+      "description": "profile.item.tide.anglerfish",
+      "habitat": "profile.info.location.underground",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:cave_crawler",
+      "category": "underground",
+      "description": "profile.item.tide.cave_crawler",
+      "habitat": "profile.info.location.underground",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:gilded_minnow",
+      "category": "underground",
+      "description": "profile.item.tide.gilded_minnow",
+      "habitat": "profile.info.location.underground",
+      "conditions": "profile.info.climate.any"
+    },
+    {
+      "item": "tide:deep_grouper",
+      "category": "depths",
+      "description": "profile.item.tide.deep_grouper",
+      "habitat": "profile.info.location.depths",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:shadow_snapper",
+      "category": "depths",
+      "description": "profile.item.tide.shadow_snapper",
+      "habitat": "profile.info.location.depths",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:abyss_angler",
+      "category": "depths",
+      "description": "profile.item.tide.abyss_angler",
+      "habitat": "profile.info.location.depths",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:lapis_lanternfish",
+      "category": "depths",
+      "description": "profile.item.tide.lapis_lanternfish",
+      "habitat": "profile.info.location.depths",
+      "conditions": "profile.info.climate.any"
+    },
+    {
+      "item": "tide:luminescent_jellyfish",
+      "category": "depths",
+      "description": "profile.item.tide.luminescent_jellyfish",
+      "habitat": "profile.info.location.depths",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:crystalline_carp",
+      "category": "depths",
+      "description": "profile.item.tide.crystalline_carp",
+      "habitat": "profile.info.location.depths",
+      "conditions": "profile.info.climate.any"
+    },
+    {
+      "item": "tide:bedrock_tetra",
+      "category": "depths",
+      "description": "profile.item.tide.bedrock_tetra",
+      "habitat": "profile.info.location.depths",
+      "conditions": "profile.info.climate.any"
+    },
+    {
+      "item": "tide:prarie_pike",
+      "category": "biome",
+      "description": "profile.item.tide.prarie_pike",
+      "habitat": "profile.info.location.plains",
+      "conditions": "profile.info.climate.normal"
+    },
+    {
+      "item": "tide:sandskipper",
+      "category": "biome",
+      "description": "profile.item.tide.sandskipper",
+      "habitat": "profile.info.location.desert",
+      "conditions": "profile.info.climate.warm"
+    },
+    {
+      "item": "tide:blossom_bass",
+      "category": "biome",
+      "description": "profile.item.tide.blossom_bass",
+      "habitat": "profile.info.location.cherry",
+      "conditions": "profile.info.climate.normal"
+    },
+    {
+      "item": "tide:oakfish",
+      "category": "biome",
+      "description": "profile.item.tide.oakfish",
+      "habitat": "profile.info.location.forest",
+      "conditions": "profile.info.climate.normal"
+    },
+    {
+      "item": "tide:frostbite_flounder",
+      "category": "biome",
+      "description": "profile.item.tide.frostbite_flounder",
+      "habitat": "profile.info.location.frozen",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:mirage_catfish",
+      "category": "biome",
+      "description": "profile.item.tide.mirage_catfish",
+      "habitat": "profile.info.location.badlands",
+      "conditions": "profile.info.climate.warm"
+    },
+    {
+      "item": "tide:echofin_snapper",
+      "category": "biome",
+      "description": "profile.item.tide.echofin_snapper",
+      "habitat": "profile.info.location.deep_dark",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:sunspike_goby",
+      "category": "biome",
+      "description": "profile.item.tide.sunspike_goby",
+      "habitat": "profile.info.location.savanna",
+      "conditions": "profile.info.climate.warm"
+    },
+    {
+      "item": "tide:birch_trout",
+      "category": "biome",
+      "description": "profile.item.tide.birch_trout",
+      "habitat": "profile.info.location.birch",
+      "conditions": "profile.info.climate.normal"
+    },
+    {
+      "item": "tide:stonefish",
+      "category": "biome",
+      "description": "profile.item.tide.stonefish",
+      "habitat": "profile.info.location.mountain",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:dripstone_darter",
+      "category": "biome",
+      "description": "profile.item.tide.dripstone_darter",
+      "habitat": "profile.info.location.dripstone",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:slimefin_snapper",
+      "category": "biome",
+      "description": "profile.item.tide.slimefin_snapper",
+      "habitat": "profile.info.location.swamp",
+      "conditions": "profile.info.climate.normal"
+    },
+    {
+      "item": "tide:sporestalker",
+      "category": "biome",
+      "description": "profile.item.tide.sporestalker",
+      "habitat": "profile.info.location.mushroom",
+      "conditions": "profile.info.climate.normal"
+    },
+    {
+      "item": "tide:leafback",
+      "category": "biome",
+      "description": "profile.item.tide.leafback",
+      "habitat": "profile.info.location.jungle",
+      "conditions": "profile.info.climate.warm"
+    },
+    {
+      "item": "tide:fluttergill",
+      "category": "biome",
+      "description": "profile.item.tide.fluttergill",
+      "habitat": "profile.info.location.lush_caves",
+      "conditions": "profile.info.climate.normal"
+    },
+    {
+      "item": "tide:pine_perch",
+      "category": "biome",
+      "description": "profile.item.tide.pine_perch",
+      "habitat": "profile.info.location.taiga",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:ember_koi",
+      "category": "lava",
+      "description": "profile.item.tide.ember_koi",
+      "habitat": "profile.info.location.lava",
+      "conditions": "profile.info.climate.very_hot"
+    },
+    {
+      "item": "tide:inferno_guppy",
+      "category": "lava",
+      "description": "profile.item.tide.inferno_guppy",
+      "habitat": "profile.info.location.lava",
+      "conditions": "profile.info.climate.very_hot"
+    },
+    {
+      "item": "tide:obsidian_pike",
+      "category": "lava",
+      "description": "profile.item.tide.obsidian_pike",
+      "habitat": "profile.info.location.lava",
+      "conditions": "profile.info.climate.very_hot"
+    },
+    {
+      "item": "tide:volcano_tuna",
+      "category": "lava",
+      "description": "profile.item.tide.volcano_tuna",
+      "habitat": "profile.info.location.lava",
+      "conditions": "profile.info.climate.very_hot"
+    },
+    {
+      "item": "tide:magma_mackerel",
+      "category": "nether",
+      "description": "profile.item.tide.magma_mackerel",
+      "habitat": "profile.info.location.nether",
+      "conditions": "profile.info.climate.very_hot"
+    },
+    {
+      "item": "tide:ashen_perch",
+      "category": "nether",
+      "description": "profile.item.tide.ashen_perch",
+      "habitat": "profile.info.location.nether",
+      "conditions": "profile.info.climate.very_hot"
+    },
+    {
+      "item": "tide:soulscaler",
+      "category": "nether",
+      "description": "profile.item.tide.soulscaler",
+      "habitat": "profile.info.location.nether",
+      "conditions": "profile.info.climate.very_hot"
+    },
+    {
+      "item": "tide:warped_guppy",
+      "category": "nether",
+      "description": "profile.item.tide.warped_guppy",
+      "habitat": "profile.info.location.nether",
+      "conditions": "profile.info.climate.very_hot"
+    },
+    {
+      "item": "tide:crimson_fangjaw",
+      "category": "nether",
+      "description": "profile.item.tide.crimson_fangjaw",
+      "habitat": "profile.info.location.nether",
+      "conditions": "profile.info.climate.very_hot"
+    },
+    {
+      "item": "tide:witherfin",
+      "category": "nether",
+      "description": "profile.item.tide.witherfin",
+      "habitat": "profile.info.location.nether",
+      "conditions": "profile.info.climate.very_hot"
+    },
+    {
+      "item": "tide:blazing_swordfish",
+      "category": "nether",
+      "description": "profile.item.tide.blazing_swordfish",
+      "habitat": "profile.info.location.nether",
+      "conditions": "profile.info.climate.very_hot"
+    },
+    {
+      "item": "tide:endstone_perch",
+      "category": "end",
+      "description": "profile.item.tide.endstone_perch",
+      "habitat": "profile.info.location.end",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:enderfin",
+      "category": "end",
+      "description": "profile.item.tide.enderfin",
+      "habitat": "profile.info.location.end",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:endergazer",
+      "category": "end",
+      "description": "profile.item.tide.endergazer",
+      "habitat": "profile.info.location.end",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:purpur_pike",
+      "category": "end",
+      "description": "profile.item.tide.purpur_pike",
+      "habitat": "profile.info.location.end",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:chorus_cod",
+      "category": "end",
+      "description": "profile.item.tide.chorus_cod",
+      "habitat": "profile.info.location.end",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:elytrout",
+      "category": "end",
+      "description": "profile.item.tide.elytrout",
+      "habitat": "profile.info.location.end",
+      "conditions": "profile.info.climate.cold"
+    },
+    {
+      "item": "tide:aquathorn",
+      "category": "structure",
+      "description": "profile.item.tide.aquathorn",
+      "habitat": "profile.info.location.monument",
+      "conditions": "profile.info.climate.any"
+    },
+    {
+      "item": "tide:midas_fish",
+      "category": "legendary",
+      "description": "profile.item.tide.midas_fish",
+      "habitat": "profile.info.location.any",
+      "conditions": "profile.info.climate.lucky"
+    },
+    {
+      "item": "tide:voidseeker",
+      "category": "legendary",
+      "description": "profile.item.tide.voidseeker",
+      "habitat": "profile.info.location.end",
+      "conditions": "profile.info.climate.full_new_moon"
+    },
+    {
+      "item": "tide:shooting_starfish",
+      "category": "legendary",
+      "description": "profile.item.tide.shooting_starfish",
+      "habitat": "profile.info.location.saltwater",
+      "conditions": "profile.info.climate.night_full_moon"
+    }
+  ]
+}

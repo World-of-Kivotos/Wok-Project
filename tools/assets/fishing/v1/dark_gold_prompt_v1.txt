@@ -1,0 +1,30 @@
+暗金鱼首版美术样稿
+生成方式：内置 image_gen。
+参考：同系列 gold_ore_fish_v1.png。
+交付：dark_gold_ore_fish_concept_v1.png；1536×1024 RGB 美术预览。
+透明度检查：生成工具两次背景修正仍输出不透明棋盘格。当前仅为造型与配色样稿，不作为游戏透明贴图使用。
+
+初次生成提示词：
+Use case: stylized-concept.
+Asset type: a single Minecraft-style pixel-art item sprite concept for the WOK ore-fish series, named Dark Gold Fish (暗金鱼).
+Input image 1 is the EXISTING GOLD FISH, used only as a style, orientation, scale, and family-silhouette reference. Create a NEW dark-gold fish variant, leaving the reference file unchanged.
+Subject: one stout left-facing side-view fish, large readable eye, thick armored stone-like scales, complete dorsal and belly fins and a complete forked tail. Match the reference's very coarse square pixel clusters, block-stepped outline, and compact chunky anatomy.
+Palette and material: replace the light gray stone body with near-black charcoal and dark gunmetal scale plates. Embedded ore patches should be aged dark gold: deep bronze shadows, rich antique-gold faces, and a few sharp warm pale-gold highlight pixels. Use three prominent angular dark-gold ore clusters along the flank plus restrained gold seams in the dorsal fin and tail. The dark body must remain readable through controlled charcoal midtones. Amber-gold eye ring. Dark gold should feel dense, metallic, and mysterious; clearly distinct from the existing bright yellow Gold Fish. No blue, green, purple, or fiery red accents.
+Style: deliberately low-resolution Minecraft item art enlarged for review; broad solid pixel clusters, limited palette, hard edges, no fine texture noise, no painterly shading, no smooth gradients, no rounded vector contours, no photorealism, no 3D rendered scene.
+Composition: single fish centered, horizontal landscape canvas, full head and tail visible, generous clear margin, same facing direction and comparable overall proportions to the reference.
+Background: ACTUAL transparent RGBA alpha, every empty area fully transparent. The reference preview may show black behind the fish; this is not a background to reproduce. No black rectangle, no checkerboard drawn into the picture, no paper texture, no floor shadow, no halo or bloom outside the sprite.
+No text, no label, no border, no watermark, no other fish or objects. Output one standalone transparent PNG concept image.
+
+第一次背景修正提示词：
+Use case: background-extraction.
+Edit target: the attached Dark Gold Fish pixel-art image.
+Make ONE change: remove all of the white/light-gray checkerboard background and export a PNG with a genuine RGBA alpha channel. Every background pixel, including the holes between the belly fins and around the forked tail, must have alpha 0. The checkerboard must not be represented by RGB pixels.
+Preserve the entire fish exactly: left-facing pose, shape, black charcoal armored scales, antique-gold ore patches, amber eye, pixelated mouth, dorsal fin, belly fins, complete forked tail, dimensions, framing, and all opaque fish artwork. Do not redesign, recolor, brighten, soften, add detail, or crop the fish. No glow, halo, shadows, floor, labels, text, or new background.
+This is a technical transparent-background extraction of the same sprite, not a new illustration. Output the preserved fish on actual transparency.
+
+第二次背景修正提示词（选定图）：
+Use case: background-extraction. This is a strict alpha-channel export correction.
+Remove the fully baked pale white checkerboard background around the dark gold ore fish. Return a PNG with an RGBA alpha channel: every pixel outside the fish must be exactly transparent (alpha 0), especially all four corner pixels. Do not draw, simulate, paint, or retain a checkerboard; it must not exist as RGB image content.
+Keep the fish itself unchanged: one complete Minecraft coarse pixel-art dark gold ore fish, left-facing side profile, head left, tail right, forked tail, charcoal-black scales and antique-gold mineral inclusions. Preserve canvas dimensions, crop, colors, silhouette and hard pixel blocks.
+Avoid all background, white pixels around the silhouette, shadows, glow, halo, text, and any other changes.
+The last output was RGB with opaque alpha 255 at the corners; the required output is an actual transparent cutout with alpha 0 at the corners, not a visual depiction of transparency.

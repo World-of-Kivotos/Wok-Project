@@ -1,0 +1,7 @@
+builtin image_gen background-extraction correction
+
+Use case: background-extraction
+Asset type: game sprite.
+Primary request: Remove only the entire white checkerboard-like baked background and any faint background artifacts, producing a genuinely transparent background with real alpha.
+Subject: preserve the one diamond ore fish pixel-art sprite exactly as it is: same pose, full left-facing body, head left, tail right, fins, forked tail, dark deepslate scales, vivid cyan-blue diamond inclusions, and hard pixel edges.
+Constraints: The image must have real transparency outside the fish, including alpha 0 in all four corners. No checkerboard pixels, no white or gray backdrop, no halo, no glow, no shadow, no fringe, no text, no extra objects. Do not alter the fish's appearance, dimensions, crop, colors, silhouette, or pixel-art blocks.

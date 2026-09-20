@@ -498,6 +498,41 @@
       ]
     },
     {
+      "id": "wok-job-fisher",
+      "name": "WOK-渔夫模块",
+      "category": "job",
+      "javaPackagePrefixes": [
+        "com.miningdim.job.fisher"
+      ],
+      "currentPaths": [
+        "job/fisher"
+      ],
+      "resourcePaths": [
+        "data/miningdim/fishing",
+        "data/miningdim/tags/items/ore_fish.json"
+      ],
+      "resourceNamePrefixes": [
+        "fishing_journal",
+        "iron_ore_fish",
+        "gold_ore_fish",
+        "diamond_ore_fish",
+        "emerald_ore_fish",
+        "dark_gold_ore_fish"
+      ],
+      "dependencies": [
+        "wok-core",
+        "wok-store",
+        "wok-economy",
+        "wok-job-chef"
+      ],
+      "optionalIntegrations": [
+        "farmersdelight",
+        "tide"
+      ],
+      "publicEntry": "com.miningdim.job.fisher.FishingSystem",
+      "scope": "fishing journal, ore-fish catches and sales, and mining-dimension ore-fish soups"
+    },
+    {
       "id": "wok-job-brewer",
       "name": "WOK-酿酒师模块",
       "category": "job",
@@ -726,7 +761,8 @@
         "META-INF/mods.toml",
         "META-INF/accesstransformer.cfg",
         "pack.mcmeta",
-        "miningdim.mixins.json"
+        "miningdim.mixins.json",
+        "miningdim.compat.mixins.json"
       ],
       "resourceNamePrefixes": [],
       "dependencies": [
@@ -746,6 +782,7 @@
         "wok-job-farmer",
         "wok-job-armorer",
         "wok-job-chef",
+        "wok-job-fisher",
         "wok-job-brewer",
         "wok-job-tarot",
         "wok-job-munitions",
@@ -1105,6 +1142,40 @@
       "exit": "expose a track fixture from the experience module so the test stops touching the job framework",
       "evidence": [
         "src/main/java/com/miningdim/progression/ExperienceGameTests.java"
+      ]
+    },
+    {
+      "debtId": "D034",
+      "source": "wok-job-miner",
+      "target": "wok-job-fisher",
+      "reason": "MinerSystem directly reads OreSoupEffects to apply mining-speed bonuses from ore-fish soup",
+      "exit": "publish a shared mining-speed contribution query so miner does not depend on fisher implementation",
+      "evidence": [
+        "src/main/java/com/miningdim/job/miner/MinerSystem.java"
+      ]
+    },
+    {
+      "debtId": "D035",
+      "source": "wok-job-chef",
+      "target": "wok-job-fisher",
+      "reason": "ChefHungerHandler directly reads OreSoupEffects to defer hunger handling while an ore-fish soup is active",
+      "exit": "publish a shared food-effect state query so chef does not depend on fisher implementation",
+      "evidence": [
+        "src/main/java/com/miningdim/job/chef/ChefHungerHandler.java"
+      ]
+    },
+    {
+      "debtId": "D036",
+      "source": "wok-core",
+      "target": "wok-job-fisher",
+      "reason": "Core-owned mixins and the optional Tide compatibility mixin directly call ore-fish soup or catch implementation",
+      "exit": "move the soup state and fishing compatibility seams behind core-owned interfaces or module bindings",
+      "evidence": [
+        "src/main/java/com/miningdim/mixin/ItemStackMiningDurabilityMixin.java",
+        "src/main/java/com/miningdim/mixin/PlayerFoodExhaustionMixin.java",
+        "src/main/java/com/miningdim/mixin/PlayerOreSoupStateMixin.java",
+        "src/main/java/com/miningdim/mixin/VanillaOreFishMixin.java",
+        "src/main/java/com/miningdim/mixin/compat/TideOreFishMixin.java"
       ]
     }
   ],

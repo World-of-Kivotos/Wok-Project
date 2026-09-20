@@ -1,0 +1,39 @@
+{
+  "entries": [
+    {
+      "item": "miningdim:iron_ore_fish",
+      "category": "ore_fish",
+      "description": "fishing.miningdim.description.iron_ore_fish",
+      "habitat": "fishing.miningdim.habitat.mining_dimension_water",
+      "conditions": "fishing.miningdim.conditions.ore_fish"
+    },
+    {
+      "item": "miningdim:gold_ore_fish",
+      "category": "ore_fish",
+      "description": "fishing.miningdim.description.gold_ore_fish",
+      "habitat": "fishing.miningdim.habitat.mining_dimension_water",
+      "conditions": "fishing.miningdim.conditions.ore_fish"
+    },
+    {
+      "item": "miningdim:diamond_ore_fish",
+      "category": "ore_fish",
+      "description": "fishing.miningdim.description.diamond_ore_fish",
+      "habitat": "fishing.miningdim.habitat.mining_dimension_water",
+      "conditions": "fishing.miningdim.conditions.ore_fish"
+    },
+    {
+      "item": "miningdim:emerald_ore_fish",
+      "category": "ore_fish",
+      "description": "fishing.miningdim.description.emerald_ore_fish",
+      "habitat": "fishing.miningdim.habitat.mining_dimension_water",
+      "conditions": "fishing.miningdim.conditions.ore_fish"
+    },
+    {
+      "item": "miningdim:dark_gold_ore_fish",
+      "category": "ore_fish",
+      "description": "fishing.miningdim.description.dark_gold_ore_fish",
+      "habitat": "fishing.miningdim.habitat.mining_dimension_water",
+      "conditions": "fishing.miningdim.conditions.ore_fish"
+    }
+  ]
+}

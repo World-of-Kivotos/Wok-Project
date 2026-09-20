@@ -1,0 +1,14 @@
+生成方式：内置 image_gen。
+设计确认：暗金鱼按最高品级表现，深紫鳞甲配古铜暗金矿斑，保留原有鱼形。
+用途：配色美术样稿。
+
+最终提示词：
+Use case: precise-object-edit.
+Edit target: the provided purple-and-gold Minecraft ore fish concept.
+User correction: this is the HIGHEST-GRADE fish in the series. Its gold must feel like deep, refined DARK ANTIQUE GOLD, not bright yellow gold.
+Make a precise material/palette edit to ONLY the currently yellow/gold parts: the three large ore inclusions, the gold seams in the fins and tail, the eye ring, gill trim, and mouth trim.
+Replace all lemon-yellow, vivid orange-yellow and cream-white gold highlights with a restrained burnished dark-gold palette. Suggested material palette: very deep warm metallic shadows #302315, dark bronze-gold base #654A26, antique-gold main planes #8B6A34, muted aged-gold light planes #AD8C50, and only a very few small polished highlights #C6AE77. Most gold pixels should be dark-to-medium antique gold, with small directional hard-edge highlights. The ore must still read as valuable METAL, not mud, rust, wood or flat brown. No bright yellow, no neon, no white-hot shine, no emissive glow.
+Preserve the existing deep purple/amethyst body and violet scale highlights, fish silhouette, large eye, expression, left-facing side profile, stout proportions, dorsal and belly fins, forked tail, coarse square pixel clusters, and exact framing. Do not add crowns, gems, ornaments, symbols, wings, particle effects, text or new anatomy. Its premium status should come from refined dark-purple and antique-gold material contrast.
+Maintain the existing coarse Minecraft pixel-art aesthetic. No smooth shading, no photorealism, no bloom. Output one standalone concept image, with actual transparent alpha if supported; do not paint any new background.
+
+文件检查：{"Width":1536,"Height":1024,"PixelFormat":"Format24bppRgb","CornerAlpha":[255,255,255,255]}

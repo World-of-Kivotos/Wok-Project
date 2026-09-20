@@ -28,6 +28,7 @@
 | 职业 | WOK-农夫模块 | `wok-job-farmer` | `job/farmer` |
 | 职业 | WOK-铸甲师模块 | `wok-job-armorer` | `job/engineer` |
 | 职业 | WOK-厨师模块 | `wok-job-chef` | `job/chef` |
+| 职业 | WOK-渔夫模块 | `wok-job-fisher` | `job/fisher` |
 | 职业 | WOK-酿酒师模块 | `wok-job-brewer` | `job/brewer` |
 | 职业 | WOK-塔罗师模块 | `wok-job-tarot` | `job/tarot` |
 | 职业 | WOK-军火商模块 | `wok-job-munitions` | `job/munitions` |

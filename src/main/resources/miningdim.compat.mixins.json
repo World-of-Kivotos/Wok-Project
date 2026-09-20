@@ -1,0 +1,15 @@
+{
+  "required": false,
+  "minVersion": "0.8.5",
+  "package": "com.miningdim.mixin.compat",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "miningdim.refmap.json",
+  "mixins": [
+    "TideOreFishMixin"
+  ],
+  "client": [],
+  "server": [],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

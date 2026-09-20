@@ -235,6 +235,32 @@ public final class PowerCableAssetGameTests {
         assertShade(helper, wireId, "最暗级", ramp.get(0), expected.shadow());
         assertShade(helper, wireId, "中停", ramp.get(2), expected.base());
         assertShade(helper, wireId, "最亮级", ramp.get(4), expected.light());
+
+        // 上面三条比的是"图标 vs 手抄的三停表", 只要没人动那张表就恒绿 —— 但改 STYLES 后只跑
+        // build_power_cable_block_textures.py(清单第 62 行明写这是允许的做法)会让线缆方块贴图换新色,
+        // 而导线图标与这张表一起停在旧色, 三条断言一条都不响。再加一条跨产物比对: 导线图标的中停与最亮级
+        // 必须同时出现在同材料线缆方块贴图的像素里。实测 12 档的 32x32 方块贴图都逐字含 conductor 与
+        // conductor_light(conductor_shadow 只有 graphene 直接出现, 故不纳入), 这样"导线与它合成出的线缆
+        // 是同一种金属"就由两份产物互证, 不再依赖任何一张手抄表。
+        Set<Integer> cableColors = visibleColors(
+                loadImage("/assets/miningdim/textures/block/" + material.blockId() + ".png"));
+        helper.assertTrue(cableColors.contains(ramp.get(2)) && cableColors.contains(ramp.get(4)),
+                wireId + " 的中停 #" + String.format("%06X", ramp.get(2)) + " 与最亮级 #"
+                        + String.format("%06X", ramp.get(4)) + " 没有同时出现在 " + material.blockId()
+                        + ".png 里; 导线图标与同材料线缆贴图已经不是同一份材料色了");
+    }
+
+    private static Set<Integer> visibleColors(BufferedImage image) {
+        Set<Integer> colors = new HashSet<>();
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int argb = image.getRGB(x, y);
+                if (((argb >>> 24) & 0xFF) != 0) {
+                    colors.add(argb & 0x00FFFFFF);
+                }
+            }
+        }
+        return colors;
     }
 
     private static void assertShade(GameTestHelper helper, String wireId, String label, int actual, int expected) {

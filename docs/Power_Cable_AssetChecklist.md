@@ -93,21 +93,21 @@ P1 的目标范围固定为 T1 铁、T2 铝、T3 铜, 并把橡胶、PVC、PE �
 
 | 资源族 | 实际矿物 / 建议 id | 分期 | 数据驱动资产 | 状态 |
 |---|---|---|---|---|
-| 铝土 | `bauxite_ore` -> `raw_aluminum` -> `aluminum_ingot` -> T2 铝导线 | P1 | 原矿/锭独立 PNG; T2 导线 `aluminum_wire.png` | 原矿/锭 [x] · 导线图标 [x] · 矿石方块与 worldgen [ ] |
-| 硼砂 | `borax_ore` -> `borax` | P2 前置 | 矿物独立 PNG; 不生成导体线材贴图 | 矿物图标 [x] · 矿石方块与 worldgen [ ] |
-| 银 | `silver_ore` -> `raw_silver` -> `silver_ingot` -> T7/T9 导线 | P2 | 原矿/锭独立 PNG; T7/T9 导线各自独立 PNG | 原矿/锭 [x] · 导线图标 [x] · 矿石方块与 worldgen [ ] |
-| 锡 | `tin_ore` -> `raw_tin` -> `tin_ingot` -> T4 导线 | P2 | 原矿/锭独立 PNG; T4 导线 `tinned_copper_wire.png` | 原矿/锭 [x] · 导线图标 [x] · 矿石方块与 worldgen [ ] |
-| 镍 | `nickel_ore` -> `raw_nickel` -> `nickel_ingot` -> 镍铬保险丝 | P3 | 原矿/锭独立 PNG | 原矿/锭 [x] · 保险丝与 worldgen [ ] |
-| 铬 | `chromium_ore` -> `raw_chromium` -> `chromium_ingot` -> 镍铬保险丝 | P3 | 原矿/锭独立 PNG | 原矿/锭 [x] · 保险丝与 worldgen [ ] |
-| 钨 | `tungsten_ore` -> `raw_tungsten` -> `tungsten_ingot` -> 耐热线 | P3 | 原矿/锭独立 PNG; 耐热线独立图标 | 原矿/锭 [x] · 耐热线图标 [x] · 矿石方块与 worldgen [ ] |
+| 铝土 | `bauxite_ore` -> `raw_aluminum` -> `aluminum_ingot` -> T2 铝导线 | P1 | 原矿/锭独立 PNG; T2 导线 `aluminum_wire.png` | 原矿/锭 [x] · 导线图标 [x] · 矿石方块 [x] · worldgen [x](easy/medium/hard) |
+| 硼砂 | `borax_ore` -> `borax` | P2 前置 | 矿物独立 PNG; 不生成导体线材贴图 | 矿物图标 [x] · 矿石方块 [x] · worldgen [x](medium/hard) |
+| 银 | `silver_ore` -> `raw_silver` -> `silver_ingot` -> T7/T9 导线 | P2 | 原矿/锭独立 PNG; T7/T9 导线各自独立 PNG | 原矿/锭 [x] · 导线图标 [x] · 矿石方块 [x] · worldgen [x](medium/hard) |
+| 锡 | `tin_ore` -> `raw_tin` -> `tin_ingot` -> T4 导线 | P2 | 原矿/锭独立 PNG; T4 导线 `tinned_copper_wire.png` | 原矿/锭 [x] · 导线图标 [x] · 矿石方块 [x] · worldgen [x](medium/hard) |
+| 镍 | `nickel_ore` -> `raw_nickel` -> `nickel_ingot` -> 镍铬保险丝 | P3 | 原矿/锭独立 PNG | 原矿/锭 [x] · 矿石方块 [x] · worldgen [x](hard) · 保险丝图标 [x] |
+| 铬 | `chromium_ore` -> `raw_chromium` -> `chromium_ingot` -> 镍铬保险丝 | P3 | 原矿/锭独立 PNG | 原矿/锭 [x] · 矿石方块 [x] · worldgen [x](hard) · 保险丝图标 [x] |
+| 钨 | `tungsten_ore` -> `raw_tungsten` -> `tungsten_ingot` -> 耐热线 | P3 | 原矿/锭独立 PNG; 耐热线独立图标 | 原矿/锭 [x] · 耐热线图标 [x] · 矿石方块 [x] · worldgen [x](hard) |
 
 共享基底文件登记:
 
 | 资源类型 | 建议路径 / 文件名 | 用途 | 状态 |
 |---|---|---|---|
 | BLOCK | textures/block/ore_overlay.png | 七个资源族共用的灰度矿脉覆盖层, 叠加石质/深板岩基底 | [x] 已生成, 由 `tinted_ore` 共享模型采样 |
-| ITEM | textures/item/raw_ore_base.png | 原矿共用灰度形状 | [x] 已生成 |
-| ITEM | textures/item/ingot_base.png | 锭共用灰度形状 | [x] 已生成 |
+| ITEM | textures/item/raw_ore_base.png | 原矿共用灰度形状 | [x] 已生成, 但七矿原矿改独立彩色 PNG 后全库零引用, 处置待定(同 `wire_base` 情形) |
+| ITEM | textures/item/ingot_base.png | 锭共用灰度形状 | [x] 已生成, 但七矿锭改独立彩色 PNG 后全库零引用, 处置待定(同 `wire_base` 情形) |
 | ITEM | textures/item/wire_base.png | 旧导线共享灰度形状 | 已删除; 12 档导线改绑同名独立彩色 PNG 后该文件零引用, 不随 JAR 分发 |
 
 上述资源族的文件存在性、矿物 worldgen 注册、物品注册和 tint 数据接线分别验收; 任何一项未落地都不能把整条资源链标为完成。

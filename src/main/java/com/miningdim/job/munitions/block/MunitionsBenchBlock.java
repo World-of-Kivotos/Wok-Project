@@ -121,10 +121,11 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
     }
 
     /**
-     * WIDE 副格用 ENTITYBLOCK_ANIMATED 而不是 INVISIBLE: 两者都不会让区块网格画方块模型 (副格没有
-     * BlockEntity, {@link #newBlockEntity} 对它返 null, 所以也不会多渲染一份骨骼模型), 但原版
-     * {@code ParticleEngine.crack} 与 {@code destroy} 对 INVISIBLE 直接跳过 —— 挖副格会没有碎屑粒子,
-     * 破坏进度裂纹也画不出来。
+     * WIDE 副格用 ENTITYBLOCK_ANIMATED 而不是 INVISIBLE: 两者都不会让区块网格画方块模型 (ChunkRenderDispatcher
+     * 只画 RenderShape.MODEL; 副格没有 BlockEntity, {@link #newBlockEntity} 对它返 null, 所以也不会多渲染
+     * 一份骨骼模型), 但原版 {@code ParticleEngine.crack} 第一件事就是判 {@code getRenderShape() == INVISIBLE}
+     * 并直接 return —— 挖副格连破坏进度的裂纹粒子都画不出来。({@code destroy} 那条路只判 isAir 再走 Forge 的
+     * IClientBlockExtensions, 不看 RenderShape, 碎屑粒子两种取值都有。)
      */
     @Override
     public RenderShape getRenderShape(BlockState state) {

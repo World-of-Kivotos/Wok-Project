@@ -148,9 +148,17 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     private boolean settleInitialized;
     private long nextWeldSoundTick;
     private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
-    /** 弹盘当前角度与上次取样的游戏时刻; 纯渲染态, 不进 NBT, 重载后从 0 度重新起转即可。 */
+    /**
+     * 弹盘当前角度与上次取样的游戏时刻; 纯渲染态, 不进 NBT, 重载后从 0 度重新起转即可。
+     *
+     * 取样时刻必须是 long 的 gameTime 加一个独立的 partialTick, 不能把两者相加塞进一个 float:
+     * float 只有 24 位尾数, gameTime 过了 2^24 tick (约 9.7 天世界运行时间) 之后相邻整数就表示不下,
+     * 再过些日子间隔会涨到 2、4、8 tick。那时每帧算出的 elapsed 会在 0 和一个整跳之间摆动,
+     * 弹盘从匀速转变成一顿一跳 —— 正是这次改动想消掉的那种视觉毛病, 只是延迟几天才发作。
+     */
     private float carouselAngleDegrees;
-    private float carouselSampleTick = Float.MIN_VALUE;
+    private long carouselSampleTick = Long.MIN_VALUE;
+    private float carouselSamplePartial;
 
     /**
      * 4->5 槽迁移 (F015) 待掉落队列: 旧档 legacy slot 0/1 (类型无关) 与非发射药的 legacy slot 2 内容无处安放,
@@ -275,9 +283,13 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         if (level == null) {
             return carouselAngleDegrees;
         }
-        float now = level.getGameTime() + partialTick;
-        float elapsed = carouselSampleTick == Float.MIN_VALUE ? 0.0F : Math.max(0.0F, now - carouselSampleTick);
+        long now = level.getGameTime();
+        // 整 tick 差走 long 相减后再转 float (差值恒在个位数, 精度无损), 小数部分单独作差。
+        float elapsed = carouselSampleTick == Long.MIN_VALUE
+                ? 0.0F
+                : Math.max(0.0F, (float) (now - carouselSampleTick) + (partialTick - carouselSamplePartial));
         carouselSampleTick = now;
+        carouselSamplePartial = partialTick;
         return advanceCarouselAngle(elapsed);
     }
 

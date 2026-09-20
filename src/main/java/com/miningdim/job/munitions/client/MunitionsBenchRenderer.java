@@ -16,20 +16,16 @@ import software.bernie.geckolib.renderer.GeoBlockRenderer;
 public final class MunitionsBenchRenderer extends GeoBlockRenderer<MunitionsBenchBlockEntity> {
 
     private static final String CAROUSEL_BONE = "carousel";
-    /**
-     * 一台机器 386-398 个 cube, GeckoLib 逐顶点分配 Vector4f, 单台每帧约 9264 个顶点。默认 64 格视距下
-     * 远处的机器连一个像素都占不满却仍然全量绘制, 这里收到 32 格 —— 仍远超机身两格的体量。
-     */
-    private static final int VIEW_DISTANCE = 32;
 
     public MunitionsBenchRenderer() {
         super(new MunitionsBenchGeoModel());
     }
 
-    @Override
-    public int getViewDistance() {
-        return VIEW_DISTANCE;
-    }
+    /*
+     * 这里刻意不覆写 getViewDistance()。曾经为省顶点收到 32 格, 但 WIDE 台子的 getRenderShape 是
+     * ENTITYBLOCK_ANIMATED —— 区块网格一个面都不画, 整台机器只由本渲染器出图。视距一收, 玩家走到 33 格外
+     * 两格大的机器就凭空消失, 只剩碰撞箱, 比多画几千个顶点严重得多。沿用原版 BlockEntityRenderer 的 64 格。
+     */
 
     /**
      * 存量存档里的 LEGACY 台子仍由区块网格画老方块模型, 这里对应的是零 cube 的空骨骼模型, 整条 GeckoLib

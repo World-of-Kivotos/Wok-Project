@@ -15,6 +15,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
@@ -34,6 +35,9 @@ import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraftforge.network.NetworkHooks;
 import org.jetbrains.annotations.Nullable;
 
@@ -44,7 +48,18 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
 
     public static final DirectionProperty FACING = BlockStateProperties.HORIZONTAL_FACING;
     public static final EnumProperty<Part> PART = EnumProperty.create("part", Part.class);
+    public static final EnumProperty<Layout> LAYOUT = EnumProperty.create("layout", Layout.class);
     public static final BooleanProperty ACTIVE = BooleanProperty.create("active");
+    private static final VoxelShape LEGACY_SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 16.0D, 16.0D);
+    private static final VoxelShape WIDE_BODY_SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 25.5D, 16.0D);
+    private static final VoxelShape WIDE_MAIN_NORTH_SHAPE = Shapes.or(WIDE_BODY_SHAPE,
+            Block.box(0.5D, 2.5D, -4.0D, 8.0D, 8.0D, 1.0D));
+    private static final VoxelShape WIDE_MAIN_EAST_SHAPE = Shapes.or(WIDE_BODY_SHAPE,
+            Block.box(15.0D, 2.5D, 0.5D, 20.0D, 8.0D, 8.0D));
+    private static final VoxelShape WIDE_MAIN_SOUTH_SHAPE = Shapes.or(WIDE_BODY_SHAPE,
+            Block.box(8.0D, 2.5D, 15.0D, 15.5D, 8.0D, 20.0D));
+    private static final VoxelShape WIDE_MAIN_WEST_SHAPE = Shapes.or(WIDE_BODY_SHAPE,
+            Block.box(-4.0D, 2.5D, 8.0D, 1.0D, 8.0D, 15.5D));
 
     private final Supplier<BlockEntityType<MunitionsBenchBlockEntity>> beType;
     private final int unlockLevel;
@@ -61,6 +76,7 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
         registerDefaultState(stateDefinition.any()
                 .setValue(FACING, Direction.NORTH)
                 .setValue(PART, Part.MAIN)
+                .setValue(LAYOUT, Layout.LEGACY_DEPTH)
                 .setValue(ACTIVE, false));
     }
 
@@ -85,28 +101,78 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
     }
 
     public static BlockPos mainPos(BlockPos pos, BlockState state) {
-        return isMain(state) ? pos : pos.relative(state.getValue(FACING));
+        return isMain(state) ? pos : pos.relative(extensionDirection(state).getOpposite());
     }
 
     public static BlockPos extensionPos(BlockPos mainPos, BlockState mainState) {
-        return mainPos.relative(mainState.getValue(FACING).getOpposite());
+        return mainPos.relative(extensionDirection(mainState));
+    }
+
+    public static Direction extensionDirection(BlockState state) {
+        Direction facing = state.getValue(FACING);
+        return state.getValue(LAYOUT) == Layout.WIDE
+                ? facing.getClockWise()
+                : facing.getOpposite();
     }
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(FACING, PART, ACTIVE);
+        builder.add(FACING, PART, LAYOUT, ACTIVE);
+    }
+
+    /**
+     * WIDE 副格用 ENTITYBLOCK_ANIMATED 而不是 INVISIBLE: 两者都不会让区块网格画方块模型 (ChunkRenderDispatcher
+     * 只画 RenderShape.MODEL; 副格没有 BlockEntity, {@link #newBlockEntity} 对它返 null, 所以也不会多渲染
+     * 一份骨骼模型), 但原版 {@code ParticleEngine.crack} 第一件事就是判 {@code getRenderShape() == INVISIBLE}
+     * 并直接 return —— 挖副格连破坏进度的裂纹粒子都画不出来。({@code destroy} 那条路只判 isAir 再走 Forge 的
+     * IClientBlockExtensions, 不看 RenderShape, 碎屑粒子两种取值都有。)
+     */
+    @Override
+    public RenderShape getRenderShape(BlockState state) {
+        if (state.getValue(LAYOUT) == Layout.LEGACY_DEPTH) {
+            return RenderShape.MODEL;
+        }
+        return RenderShape.ENTITYBLOCK_ANIMATED;
     }
 
     @Override
-    public RenderShape getRenderShape(BlockState state) {
-        return RenderShape.MODEL;
+    public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        return outlineShape(state);
+    }
+
+    /**
+     * 碰撞箱不能带上外伸的出料抽屉。{@link #getStateForPlacement} 取 {@code getHorizontalDirection().getOpposite()},
+     * 也就是机器正面恒对着放置者, 抽屉那 4/16 恰好伸进放置者所站的那一格; 而原版 {@code BlockItem.canPlace}
+     * 会调 {@code Level.isUnobstructed}, 只要待放置状态的碰撞形状与任何 {@code blocksBuilding} 实体相交
+     * 就返回 false —— 玩家贴身往脚前一格放台子会被静默拒绝, 没有任何提示。抽屉只留在轮廓形状里做选择框。
+     */
+    @Override
+    public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos,
+                                        CollisionContext context) {
+        return state.getValue(LAYOUT) == Layout.LEGACY_DEPTH ? LEGACY_SHAPE : WIDE_BODY_SHAPE;
+    }
+
+    private static VoxelShape outlineShape(BlockState state) {
+        if (state.getValue(LAYOUT) == Layout.LEGACY_DEPTH) {
+            return LEGACY_SHAPE;
+        }
+        if (!isMain(state)) {
+            return WIDE_BODY_SHAPE;
+        }
+        return switch (state.getValue(FACING)) {
+            case NORTH -> WIDE_MAIN_NORTH_SHAPE;
+            case EAST -> WIDE_MAIN_EAST_SHAPE;
+            case SOUTH -> WIDE_MAIN_SOUTH_SHAPE;
+            case WEST -> WIDE_MAIN_WEST_SHAPE;
+            default -> throw new IllegalStateException("Wide munitions bench has non-horizontal facing");
+        };
     }
 
     @Nullable
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {
         Direction facing = context.getHorizontalDirection().getOpposite();
-        BlockPos extensionPos = context.getClickedPos().relative(facing.getOpposite());
+        BlockPos extensionPos = context.getClickedPos().relative(facing.getClockWise());
         if (!context.getLevel().getBlockState(extensionPos).canBeReplaced(context)
                 || !context.getLevel().getWorldBorder().isWithinBounds(extensionPos)) {
             return null;
@@ -114,6 +180,7 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
         return defaultBlockState()
                 .setValue(FACING, facing)
                 .setValue(PART, Part.MAIN)
+                .setValue(LAYOUT, Layout.WIDE)
                 .setValue(ACTIVE, false);
     }
 
@@ -185,7 +252,8 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
     @Override
     public BlockState updateShape(BlockState state, Direction direction, BlockState neighborState,
                                   LevelAccessor level, BlockPos pos, BlockPos neighborPos) {
-        Direction linkDirection = isMain(state) ? state.getValue(FACING).getOpposite() : state.getValue(FACING);
+        Direction extensionDirection = extensionDirection(state);
+        Direction linkDirection = isMain(state) ? extensionDirection : extensionDirection.getOpposite();
         if (direction == linkDirection
                 && (neighborState.getBlock() != this || neighborState.getValue(PART) == state.getValue(PART))) {
             return Blocks.AIR.defaultBlockState();
@@ -236,10 +304,17 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
         }
         Direction facing = state.getValue(FACING);
         Direction side = facing.getClockWise();
-        double forward = isMain(state) ? 0.18D : -0.18D;
+        boolean wide = state.getValue(LAYOUT) == Layout.WIDE;
+        // LEGACY 机身只有一格高, 主副格前后排列, 火花贴着正面 0.18 格发。WIDE 机身高 25.5/16 且两半左右
+        // 排列, 沿用老参数会把大半火花埋进模型实体里, 所以按新机身的工作面取高度: 压头骨骼在 y 0.72-1.28,
+        // 出料抽屉在 y 0.18-0.50, 两处轮流发。
+        double forward = wide ? 0.30D : (isMain(state) ? 0.18D : -0.18D);
         double lateral = (random.nextDouble() - 0.5D) * 0.62D;
+        boolean atDrawer = wide && random.nextInt(3) == 0;
         double x = pos.getX() + 0.5D + facing.getStepX() * forward + side.getStepX() * lateral;
-        double y = pos.getY() + 0.72D + random.nextDouble() * 0.28D;
+        double y = pos.getY() + (wide
+                ? (atDrawer ? 0.20D + random.nextDouble() * 0.28D : 0.78D + random.nextDouble() * 0.52D)
+                : 0.72D + random.nextDouble() * 0.28D);
         double z = pos.getZ() + 0.5D + facing.getStepZ() * forward + side.getStepZ() * lateral;
         double vx = side.getStepX() * (random.nextDouble() - 0.5D) * 0.06D;
         double vy = 0.02D + random.nextDouble() * 0.045D;
@@ -259,9 +334,20 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
         return state.setValue(FACING, rotation.rotate(state.getValue(FACING)));
     }
 
+    /**
+     * WIDE 双格是手性的: 副格恒在 {@code facing.getClockWise()} 一侧。镜像不是旋转, 只翻 FACING 会让两半
+     * 的相对位置与 {@link #extensionDirection} 对不上, 结构方块镜像放置出来的台子在下一次邻居更新时被
+     * {@link #updateShape} 判定成断链, 两半一起变成空气。所以镜像后必须再把 FACING 翻一次以换回手性
+     * (顺时针侧变逆时针侧)。手性结构无法在镜像下同时保住朝向和占位, 这里选择保住占位: 镜像后的台子
+     * 会朝向反面, 但两半仍然连着。LEGACY 的副格在 {@code facing.getOpposite()}, 本身镜像对称, 保持原样。
+     */
     @Override
     public BlockState mirror(BlockState state, Mirror mirror) {
-        return state.rotate(mirror.getRotation(state.getValue(FACING)));
+        BlockState mirrored = state.rotate(mirror.getRotation(state.getValue(FACING)));
+        if (mirror == Mirror.NONE || mirrored.getValue(LAYOUT) != Layout.WIDE) {
+            return mirrored;
+        }
+        return mirrored.setValue(FACING, mirrored.getValue(FACING).getOpposite());
     }
 
     @Nullable
@@ -294,6 +380,22 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
         private final String name;
 
         Part(String name) {
+            this.name = name;
+        }
+
+        @Override
+        public String getSerializedName() {
+            return name;
+        }
+    }
+
+    public enum Layout implements StringRepresentable {
+        LEGACY_DEPTH("legacy_depth"),
+        WIDE("wide");
+
+        private final String name;
+
+        Layout(String name) {
             this.name = name;
         }
 

@@ -123,8 +123,8 @@ dependencies {
     // Forge MDK 基础: forge 自带 Minecraft + 全部原版依赖
     minecraft "net.minecraftforge:forge:${forge_full_version}"
 
-    // 厨师双格料理工位使用 GeckoLib 4 的 GeoBlockEntity/GeoBlockRenderer。服务器最终环境统一安装
-    // GeckoLib，故这里采用正式强依赖并钉死 1.20.1 的 4.8.2 编译 API，不做反射降级路径。
+    // 厨师双格料理工位与六档军火台均使用 GeckoLib 4 的方块实体骨骼渲染。
+    // 正式包不内嵌该库，由 mods.toml 声明为 BOTH 硬前置并钉死 1.20.1 的 4.8.2 编译 API。
     implementation fg.deobf("software.bernie.geckolib:geckolib-forge-${mc_version}:${geckolib_version}")
 
     // 外部 mod 依赖 (本地 jar, 仅编译期 API): 军火商接 TACZ (com.tacz.guns.api.*),

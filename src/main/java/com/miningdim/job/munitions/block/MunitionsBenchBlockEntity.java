@@ -11,6 +11,7 @@ import com.miningdim.job.munitions.ModMunitionsBlockEntities;
 import com.miningdim.job.munitions.ModMunitionsItems;
 import com.miningdim.job.munitions.ModMunitionsSounds;
 import com.miningdim.job.munitions.menu.MunitionsBenchMenu;
+import com.miningdim.power.machine.MachineEnergyStorage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
@@ -25,10 +26,11 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import com.miningdim.power.machine.MachineEnergyStorage;
+import net.minecraft.world.phys.AABB;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.common.util.LazyOptional;
@@ -40,6 +42,12 @@ import net.minecraftforge.registries.ForgeRegistries;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.bernie.geckolib.animatable.GeoBlockEntity;
+import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
+import software.bernie.geckolib.core.animation.AnimatableManager;
+import software.bernie.geckolib.core.animation.AnimationController;
+import software.bernie.geckolib.core.animation.RawAnimation;
+import software.bernie.geckolib.util.GeckoLibUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -68,9 +76,13 @@ import java.util.UUID;
  * 暴露, 保证 "必须人手取" 的结算前提。RangedWrapper 本身同时代理 insert 与 extract, 不覆写 extract 时漏斗能把
  * 底火/弹壳/弹头/发射药反抽走, 产线静默停摆; InsertOnlyRangedWrapper 只覆写 extractItem 恒返空。
  */
-public final class MunitionsBenchBlockEntity extends BlockEntity implements MenuProvider {
+public final class MunitionsBenchBlockEntity extends BlockEntity implements MenuProvider, GeoBlockEntity {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/munitions/bench");
+    private static final RawAnimation IDLE_ANIMATION = RawAnimation.begin().thenLoop("machine.idle");
+    private static final RawAnimation PRODUCTION_ANIMATION = RawAnimation.begin().thenLoop("machine.production");
+    /** 弹盘转速: 12 秒一圈, 与旧 machine.carousel 关键帧一致。 */
+    public static final float CAROUSEL_DEGREES_PER_TICK = 360.0F / 240.0F;
 
     /** 槽位: 0=底火, 1=弹壳, 2=弹头, 3=发射药, 4=输出缓冲展示 (四件套见 MunitionsConfig recipe 组)。 */
     public static final int SLOT_PRIMER = 0;
@@ -135,6 +147,18 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     /** 首帧锚定标志: false = lastSettleTick 尚未锚定 (首次结算只记 now 不补产); 由 NBT 持久化跨重载保持。 */
     private boolean settleInitialized;
     private long nextWeldSoundTick;
+    private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
+    /**
+     * 弹盘当前角度与上次取样的游戏时刻; 纯渲染态, 不进 NBT, 重载后从 0 度重新起转即可。
+     *
+     * 取样时刻必须是 long 的 gameTime 加一个独立的 partialTick, 不能把两者相加塞进一个 float:
+     * float 只有 24 位尾数, gameTime 过了 2^24 tick (约 9.7 天世界运行时间) 之后相邻整数就表示不下,
+     * 再过些日子间隔会涨到 2、4、8 tick。那时每帧算出的 elapsed 会在 0 和一个整跳之间摆动,
+     * 弹盘从匀速转变成一顿一跳 —— 正是这次改动想消掉的那种视觉毛病, 只是延迟几天才发作。
+     */
+    private float carouselAngleDegrees;
+    private long carouselSampleTick = Long.MIN_VALUE;
+    private float carouselSamplePartial;
 
     /**
      * 4->5 槽迁移 (F015) 待掉落队列: 旧档 legacy slot 0/1 (类型无关) 与非发射药的 legacy slot 2 内容无处安放,
@@ -224,6 +248,73 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
 
     public MunitionsBenchBlockEntity(BlockPos pos, BlockState state) {
         super(ModMunitionsBlockEntities.MUNITIONS_BENCH.get(), pos, state);
+    }
+
+    @Override
+    public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+        controllers.add(new AnimationController<>(this, "machine", 4, state ->
+                state.setAndContinue(getBlockState().getValue(MunitionsBenchBlock.ACTIVE)
+                        ? PRODUCTION_ANIMATION
+                        : IDLE_ANIMATION)));
+    }
+
+    /**
+     * 弹盘的连续旋转不走 GeckoLib 动画通道, 由渲染器直接驱动 carousel 骨骼。
+     *
+     * 原因是 GeckoLib 4.8.2 的 {@code AnimationController.adjustTick} 返回
+     * {@code speed * max(0, tick - tickOffset)} 而 {@code tickOffset} 只在切换 RawAnimation 时重锚:
+     * 用 {@code setControllerSpeed(0)} 当暂停并不会"停在原地", 而是让 adjustedTick 恒为 0, 也就是把弹盘
+     * 瞬间复位到动画第 0 帧的 0 度; 恢复速度时又立刻跳到 {@code 经过 tick} 对应的任意相位。停机一次弹一次,
+     * 开机一次再弹一次。改速度、改过渡长度都绕不开这个乘法, 只能把角度自己管起来。
+     *
+     * @param elapsedTicks 距上次取值经过的 tick 数, 由调用方按游戏时间给出
+     * @return 累加后的角度, 停机时原地保持
+     */
+    public float advanceCarouselAngle(float elapsedTicks) {
+        if (getBlockState().getValue(MunitionsBenchBlock.ACTIVE)) {
+            carouselAngleDegrees = (carouselAngleDegrees + elapsedTicks * CAROUSEL_DEGREES_PER_TICK) % 360.0F;
+        }
+        return carouselAngleDegrees;
+    }
+
+    /** 供渲染器按帧推进弹盘角度; 停机时 elapsed 照常推进但角度不变, 复工后从停下的角度继续。 */
+    public float carouselAngleDegrees(float partialTick) {
+        Level level = getLevel();
+        if (level == null) {
+            return carouselAngleDegrees;
+        }
+        long now = level.getGameTime();
+        // 整 tick 差走 long 相减后再转 float (差值恒在个位数, 精度无损), 小数部分单独作差。
+        float elapsed = carouselSampleTick == Long.MIN_VALUE
+                ? 0.0F
+                : Math.max(0.0F, (float) (now - carouselSampleTick) + (partialTick - carouselSamplePartial));
+        carouselSampleTick = now;
+        carouselSamplePartial = partialTick;
+        return advanceCarouselAngle(elapsed);
+    }
+
+    @Override
+    public AnimatableInstanceCache getAnimatableInstanceCache() {
+        return animationCache;
+    }
+
+    @Override
+    public AABB getRenderBoundingBox() {
+        BlockState state = getBlockState();
+        if (!(state.getBlock() instanceof MunitionsBenchBlock)
+                || state.getValue(MunitionsBenchBlock.LAYOUT) != MunitionsBenchBlock.Layout.WIDE) {
+            return super.getRenderBoundingBox();
+        }
+
+        BlockPos extensionPos = MunitionsBenchBlock.extensionPos(worldPosition, state);
+        double minX = Math.min(worldPosition.getX(), extensionPos.getX());
+        double minZ = Math.min(worldPosition.getZ(), extensionPos.getZ());
+        double maxX = Math.max(worldPosition.getX(), extensionPos.getX()) + 1.0D;
+        double maxZ = Math.max(worldPosition.getZ(), extensionPos.getZ()) + 1.0D;
+        AABB machineBounds = new AABB(minX, worldPosition.getY(), minZ,
+                maxX, worldPosition.getY() + 25.5D / 16.0D, maxZ).inflate(1.0D / 16.0D, 0.0D, 1.0D / 16.0D);
+        Direction facing = state.getValue(MunitionsBenchBlock.FACING);
+        return machineBounds.expandTowards(facing.getStepX() * 0.25D, 0.0D, facing.getStepZ() * 0.25D);
     }
 
     public ContainerData dataAccess() {

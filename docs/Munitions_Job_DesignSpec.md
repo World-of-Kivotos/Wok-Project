@@ -30,7 +30,7 @@
 
 - TACZ 弹药 = 单一 `tacz:ammo` 物品,口径存 `AmmoId` NBT。**用公共 API `AmmoItemBuilder.create().setId(口径).setCount(N).build()` 直接产出合法弹药 ItemStack**,无需 mixin、无需 TACZ 配方系统。
 - 服务器禁用 TACZ 默认 `gun_smith_table_crafting` 弹药/枪械配方(维持买断),军火商的**军火台**是唯一搓弹入口。
-- **GUI 复用 TACZ 制枪台贴图**(我方 Screen 引用 `tacz:textures/...`,不拷贝其 PNG → 不触再分发协议;TACZ 客户端硬依赖,资源恒在)。世界方块走自建 block+BE,模型可借纹理简单做或借其 BER(见架构章)。
+- **GUI 复用 TACZ 制枪台贴图**(我方 Screen 引用 `tacz:textures/...`,不拷贝其 PNG → 不触再分发协议;TACZ 客户端硬依赖,资源恒在)。世界方块走自建 block+BE。世界模型已改为自研 GeckoLib 骨骼模型(六档各一套 geo + 512x512 调色板图集,由 `tools/generate_munitions_bench_geckolib_assets.py` 确定性生成),不再借 TACZ 纹理;GUI 仍引用 TACZ 贴图。
 
 ### 3A. 枪械配件冲压补充（WIP）
 
@@ -169,7 +169,7 @@
 
 ## 十、架构与实现（DECIDED）
 
-1. **军火台**:自建 block + BlockEntity(料槽/进度/缓冲输出);GUI 走 JobFramework 公共 menu 脚手架 + 引用 TACZ 制枪台 GUI 贴图;世界模型借 TACZ 纹理简单做(或借其 BER 还原精致台,见 ChampionStarAffix 9A 表现层同理)。
+1. **军火台**:自建 block + BlockEntity(料槽/进度/缓冲输出);GUI 走 JobFramework 公共 menu 脚手架 + 引用 TACZ 制枪台 GUI 贴图;世界模型为自研 GeckoLib 骨骼模型, 经 `MunitionsBenchRenderer`(GeoBlockRenderer)渲染。占地为**水平两格**: 主格在玩家点击的那一格, 副格恒在 `facing.getClockWise()` 一侧, 机身高 25.5/16 格。老存档里 PR 之前放置的台子带 `layout=legacy_depth`, 保持"副格在身后"的旧占位与旧静态模型不变, 只有新放置的台子走 `layout=wide`。
 2. **产弹**:`onServerUpdate`/时间戳追算消耗料 → `AmmoItemBuilder.create().setId(口径).setCount(N).build()` 入缓冲;缓冲满停产。
 3. **提炼(L6+)**:火药+铜 → 发射药(中间物品);发射药 → 弹(高产)。
 4. **工费**:产弹时扣信用点(经 `IEconomyService`/`AbuseGuard` 事务,销毁)。

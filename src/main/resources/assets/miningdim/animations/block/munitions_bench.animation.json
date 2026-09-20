@@ -1,0 +1,107 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "machine.idle": {
+      "loop": true,
+      "animation_length": 4.0,
+      "bones": {
+        "ram": {
+          "position": {
+            "0.0": [
+              0,
+              0,
+              0
+            ],
+            "2.0": [
+              0,
+              -0.5,
+              0
+            ],
+            "4.0": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    },
+    "machine.production": {
+      "loop": true,
+      "animation_length": 1.2,
+      "bones": {
+        "ram": {
+          "position": {
+            "0.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ]
+            },
+            "0.24": {
+              "vector": [
+                0,
+                -1.95,
+                0
+              ],
+              "easing": "easeInQuad"
+            },
+            "0.38": {
+              "vector": [
+                0,
+                -1.95,
+                0
+              ]
+            },
+            "0.62": {
+              "vector": [
+                0,
+                0,
+                0
+              ],
+              "easing": "easeOutBack"
+            },
+            "1.2": {
+              "vector": [
+                0,
+                0,
+                0
+              ]
+            }
+          }
+        },
+        "drawer": {
+          "position": {
+            "0.0": [
+              0,
+              0,
+              0
+            ],
+            "0.72": [
+              0,
+              0,
+              0
+            ],
+            "0.9": {
+              "vector": [
+                0,
+                0,
+                -1.4
+              ],
+              "easing": "easeOutSine"
+            },
+            "1.2": {
+              "vector": [
+                0,
+                0,
+                0
+              ],
+              "easing": "easeInSine"
+            }
+          }
+        }
+      }
+    }
+  }
+}

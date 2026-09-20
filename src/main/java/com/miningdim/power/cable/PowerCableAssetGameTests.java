@@ -16,7 +16,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -41,15 +46,58 @@ public final class PowerCableAssetGameTests {
             new PortState("up", 270, 0),
             new PortState("down", 90, 0));
 
+    /**
+     * 每档导线图标的期望导体色阶三停 (暗 / 中 / 亮)。真源是同材料线缆的导体色, 即
+     * {@code tools/build_power_cable_block_textures.py} 里
+     * {@code STYLES["<id>_energy_cable"].conductor_shadow / conductor / conductor_light}
+     * ——"导线中间物"与"它合成出的线缆"必须是同一种金属, 所以这里逐字转抄那份表而不是从导线 PNG 反推。
+     *
+     * 立这张表的直接原因: 旧图标里镀锡铜、镀银铜、NbTi、YBCO 四档被画成了铜棕/橙红色系, 而当时的断言只看
+     * Alpha, 错色一路静默通过。
+     *
+     * 为什么记三停而不是只记中停: 只比"均值色的色相"挡不住同色系互换 —— 十二档里有六档是灰/银/冷蓝系,
+     * 银与 NbTi 的色相差 1.4 度、银与 YBCO 差 0.9 度、铁与铝差 0.4 度, 132 种两两互换里有 62 种色相差不到
+     * 25 度, 把银的图标换成 YBCO 的照样全绿。三停是每档各不相同的指纹 (实测 12 档三停两两互异),
+     * 逐档比对后 132 种互换一种都跑不掉。
+     */
+    private record ConductorRamp(int shadow, int base, int light) {
+    }
+
+    private static final Map<String, ConductorRamp> EXPECTED_WIRE_RAMPS = Map.ofEntries(
+            Map.entry("iron", new ConductorRamp(0x44484C, 0x888D91, 0xC0C4C5)),
+            Map.entry("aluminum", new ConductorRamp(0x6D747C, 0xB8C1C8, 0xEDF3F5)),
+            Map.entry("copper", new ConductorRamp(0x7B2F1F, 0xC45E36, 0xF2A06A)),
+            Map.entry("tinned_copper", new ConductorRamp(0x665E58, 0xB7A89F, 0xE4DBD4)),
+            Map.entry("ofc_copper", new ConductorRamp(0x812B18, 0xD1602F, 0xFFAA64)),
+            Map.entry("ofe_copper", new ConductorRamp(0x953B20, 0xE3793E, 0xFFC080)),
+            Map.entry("silver_plated_copper", new ConductorRamp(0x747B82, 0xC6D0D7, 0xF7FCFF)),
+            Map.entry("gold", new ConductorRamp(0x8E5C14, 0xD9A32D, 0xFFE17A)),
+            Map.entry("silver", new ConductorRamp(0x737A80, 0xC8D1D6, 0xFFFFFF)),
+            Map.entry("graphene", new ConductorRamp(0x16171B, 0x3F434A, 0x858D98)),
+            Map.entry("nbti_superconductor", new ConductorRamp(0x376788, 0x82B6D0, 0xE4FBFF)),
+            Map.entry("ybco_superconductor", new ConductorRamp(0x14232C, 0x315164, 0x79C8D7)));
+
+    /** 导线图标可见像素数的容许区间。线卷轮廓固定 58 像素, 留一点余量以便微调形状而不必改测试。 */
+    private static final int MIN_WIRE_VISIBLE_PIXELS = 48;
+    private static final int MAX_WIRE_VISIBLE_PIXELS = 72;
+
+    /** 线卷的五级明暗色阶数。三停里的暗/中/亮分别落在第 0/2/4 级, 另两级是插值出来的中间色。 */
+    private static final int WIRE_SHADE_LEVELS = 5;
+
     private PowerCableAssetGameTests() {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void everyRegisteredCableUsesNonOverlappingModelsAndValidTextures(GameTestHelper helper) {
+        Map<String, ConductorMaterial> wireSignatures = new HashMap<>();
         for (ConductorMaterial material : ConductorMaterial.values()) {
             helper.assertTrue(PowerRegistry.CABLES.containsKey(material),
                     "缺少已声明导体的线缆注册: " + material.blockId());
             verifyCableAssets(helper, material.blockId());
+            String signature = verifyWireAssets(helper, material);
+            ConductorMaterial clash = wireSignatures.putIfAbsent(signature, material);
+            helper.assertTrue(clash == null, material.id() + "_wire 与 " + (clash == null ? "" : clash.id())
+                    + "_wire 的可见像素完全相同; 12 档导线必须各自着色, 不能复用同一张图");
         }
 
         String tungsten = SpecialCableMaterial.TUNGSTEN.blockId();
@@ -110,6 +158,120 @@ public final class PowerCableAssetGameTests {
         BufferedImage itemImage = loadImage("/assets/miningdim/textures/item/" + cableId + ".png");
         helper.assertTrue(itemImage.getWidth() == 16 && itemImage.getHeight() == 16,
                 cableId + " 物品贴图必须保持 16x16 像素");
+    }
+
+    /**
+     * 校验单档导线中间物的图标资产, 返回可见像素签名供调用方做跨材料互异性断言。
+     */
+    private static String verifyWireAssets(GameTestHelper helper, ConductorMaterial material) {
+        String wireId = material.id() + "_wire";
+        JsonObject item = loadJson("/assets/miningdim/models/item/" + wireId + ".json");
+        helper.assertTrue("minecraft:item/generated".equals(item.get("parent").getAsString())
+                        && ("miningdim:item/" + wireId).equals(
+                        item.getAsJsonObject("textures").get("layer0").getAsString()),
+                wireId + " 必须绑定同名独立彩色导线图标");
+
+        BufferedImage image = loadImage("/assets/miningdim/textures/item/" + wireId + ".png");
+        helper.assertTrue(image.getWidth() == 16 && image.getHeight() == 16,
+                wireId + " 导线贴图必须保持 16x16 像素");
+
+        StringBuilder signature = new StringBuilder();
+        int transparentPixels = 0;
+        int visiblePixels = 0;
+        // 用 HashSet 按 RGB 去重, 排序留到后面: 若拿亮度当 TreeSet 的比较键, 两个亮度相同的不同颜色会被
+        // 当成同一级悄悄吞掉一个, 色阶数断言就会给出误导性的读数。
+        Set<Integer> shades = new HashSet<>();
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int argb = image.getRGB(x, y);
+                int alpha = (argb >>> 24) & 0xFF;
+                helper.assertTrue(alpha == 0 || alpha == 255,
+                        wireId + " 必须使用硬边 Alpha，半透明像素 x=" + x + ", y=" + y + ", alpha=" + alpha);
+                if (alpha == 0) {
+                    helper.assertTrue((argb & 0x00FFFFFF) == 0,
+                            wireId + " 透明区必须清零 RGB，隐藏底色像素 x=" + x + ", y=" + y
+                                    + ", rgb=" + Integer.toHexString(argb & 0x00FFFFFF));
+                    transparentPixels++;
+                    continue;
+                }
+                visiblePixels++;
+                shades.add(argb & 0x00FFFFFF);
+                signature.append(x).append(':').append(y).append(':')
+                        .append(Integer.toHexString(argb & 0x00FFFFFF)).append(';');
+            }
+        }
+
+        helper.assertTrue(transparentPixels > 0,
+                wireId + " 导线图标必须留出透明区，当前整张不透明");
+        helper.assertTrue(visiblePixels >= MIN_WIRE_VISIBLE_PIXELS && visiblePixels <= MAX_WIRE_VISIBLE_PIXELS,
+                wireId + " 可见像素数必须落在 " + MIN_WIRE_VISIBLE_PIXELS + "-" + MAX_WIRE_VISIBLE_PIXELS
+                        + "，实得 " + visiblePixels + "，线卷轮廓已退化");
+
+        verifyWireRamp(helper, wireId, material, shades);
+        return signature.toString();
+    }
+
+    /**
+     * 按亮度排序后逐级比对导线图标的五级色阶。
+     *
+     * 第 0/2/4 级必须逐字等于该材料线缆的暗/中/亮三停 —— 生成器对这三级取的是插值端点与中点, 结果就是三停
+     * 本身, 不存在取整误差, 所以这里敢用相等而不是容差。第 1/3 级是插值出来的, 只要求亮度严格夹在相邻两级
+     * 之间 (取整规则变了也不会误报, 但色阶塌成两级或顺序错乱会被抓住)。
+     */
+    private static void verifyWireRamp(GameTestHelper helper, String wireId, ConductorMaterial material,
+                                       Set<Integer> shades) {
+        helper.assertTrue(shades.size() == WIRE_SHADE_LEVELS,
+                wireId + " 线卷必须正好用 " + WIRE_SHADE_LEVELS + " 级明暗色阶，实得 " + shades.size() + " 级");
+
+        List<Integer> ramp = shades.stream()
+                .sorted(Comparator.comparingDouble(PowerCableAssetGameTests::luminance))
+                .toList();
+        for (int level = 1; level < ramp.size(); level++) {
+            helper.assertTrue(luminance(ramp.get(level)) > luminance(ramp.get(level - 1)),
+                    wireId + " 的色阶第 " + level + " 级不比第 " + (level - 1) + " 级更亮，明暗关系已塌陷");
+        }
+
+        ConductorRamp expected = EXPECTED_WIRE_RAMPS.get(material.id());
+        assertShade(helper, wireId, "最暗级", ramp.get(0), expected.shadow());
+        assertShade(helper, wireId, "中停", ramp.get(2), expected.base());
+        assertShade(helper, wireId, "最亮级", ramp.get(4), expected.light());
+
+        // 上面三条比的是"图标 vs 手抄的三停表", 只要没人动那张表就恒绿 —— 但改 STYLES 后只跑
+        // build_power_cable_block_textures.py(清单第 62 行明写这是允许的做法)会让线缆方块贴图换新色,
+        // 而导线图标与这张表一起停在旧色, 三条断言一条都不响。再加一条跨产物比对: 导线图标的中停与最亮级
+        // 必须同时出现在同材料线缆方块贴图的像素里。实测 12 档的 32x32 方块贴图都逐字含 conductor 与
+        // conductor_light(conductor_shadow 只有 graphene 直接出现, 故不纳入), 这样"导线与它合成出的线缆
+        // 是同一种金属"就由两份产物互证, 不再依赖任何一张手抄表。
+        Set<Integer> cableColors = visibleColors(
+                loadImage("/assets/miningdim/textures/block/" + material.blockId() + ".png"));
+        helper.assertTrue(cableColors.contains(ramp.get(2)) && cableColors.contains(ramp.get(4)),
+                wireId + " 的中停 #" + String.format("%06X", ramp.get(2)) + " 与最亮级 #"
+                        + String.format("%06X", ramp.get(4)) + " 没有同时出现在 " + material.blockId()
+                        + ".png 里; 导线图标与同材料线缆贴图已经不是同一份材料色了");
+    }
+
+    private static Set<Integer> visibleColors(BufferedImage image) {
+        Set<Integer> colors = new HashSet<>();
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int argb = image.getRGB(x, y);
+                if (((argb >>> 24) & 0xFF) != 0) {
+                    colors.add(argb & 0x00FFFFFF);
+                }
+            }
+        }
+        return colors;
+    }
+
+    private static void assertShade(GameTestHelper helper, String wireId, String label, int actual, int expected) {
+        helper.assertTrue(actual == expected,
+                wireId + " 的" + label + "是 #" + String.format("%06X", actual) + "，同材料线缆的导体色是 #"
+                        + String.format("%06X", expected) + "；这一档画成了别的金属");
+    }
+
+    /** Rec.709 相对亮度, 只用来给五级色阶定序。 */
+    private static double luminance(int rgb) {
+        return 0.2126D * ((rgb >> 16) & 0xFF) + 0.7152D * ((rgb >> 8) & 0xFF) + 0.0722D * (rgb & 0xFF);
     }
 
     private static void verifyTextureBindings(GameTestHelper helper, String cableId,

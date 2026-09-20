@@ -20,8 +20,8 @@
 
 - 代码已注册: T1-T12 全部 `ConductorMaterial` 线缆, 以及 `tungsten_heat_resistant_wire`, 共 13 种摆放态。
 - 摆放态资源: 13 张同名 32x32 PNG 独立着色, 由中心本体和六向端口模型采样; 方块模型没有 `tintindex`, 客户端也没有为线缆方块注册 block color handler。
-- 物品资源: 13 张同名线缆物品图标继续保持 16x16; `PowerCableColors` 的材料 tint 只服务导线中间物 `WIRE_ITEMS`, 不参与摆放态方块着色。
-- 本轮闭环只覆盖上述摆放态线缆升级; 矿物、绝缘料、燃料芯和机器等其他清单项仍按各自状态独立验收。
+- 物品资源: 13 张同名线缆物品图标继续保持 16x16; 12 档导线中间物 `WIRE_ITEMS` 也各自绑定一张 16x16 彩色 PNG，不再使用 `PowerCableColors` 二次染色。
+- 本轮闭环覆盖上述摆放态线缆升级与 12 张导线中间物图标替换; 矿物、绝缘料、燃料芯和机器等其他清单项仍按各自状态独立验收。
 
 ### 本轮摆放态线缆成品
 
@@ -53,15 +53,17 @@
 
 ```powershell
 python tools\build_power_cable_block_textures.py
+python tools\build_power_cable_wire_textures.py
 .\gradlew.bat --no-daemon runData
 .\gradlew.bat --no-daemon compileJava processResources
 .\gradlew.bat --no-daemon runGameTestServer
 ```
 
-- 只修改 13 张摆放态纹理的调色或纹样时运行首条命令; 修改模型几何或 UV 时还必须运行 `runData`, 以更新 `src/generated/resources/assets/miningdim/models/block/`。
+- 只修改 13 张摆放态纹理的调色或纹样时运行首条命令; 只修改 12 张导线中间物图标时运行第二条; 修改模型几何或 UV 时还必须运行 `runData`, 以更新 `src/generated/resources/assets/miningdim/models/block/`。
+- 导线图标的色值不单独维护: `build_power_cable_wire_textures.py` 从 `build_power_cable_block_textures.py` 的 `STYLES[<id>_energy_cable].conductor_*` 三停插值出五级色阶, 所以"导线中间物"与"它合成出的线缆"共用同一份材料色真源, 改线缆导体色会连带改导线图标。
 - `PowerCableAssetGameTests.everyRegisteredCableUsesNonOverlappingModelsAndValidTextures` 遍历 12 档 `ConductorMaterial` 和钨耐热线, 验证 13 个注册、每个 blockstate 的 1 个中心部件加 6 个方向端口、旋转、几何、UV、贴图绑定、32x32 BLOCK 尺寸及模型采样实体带完全不透明。
-- 同一测试还验证每个 ITEM 模型绑定同名扁平图标, 且 ITEM PNG 保持 16x16。
-- 自动测试守住尺寸、引用和采样区不透明性; 透明区 RGB 必须为黑以及 nearest-neighbor 放大仍由确定性生成脚本和像素级目检共同守住。
+- 同一测试还验证每个 ITEM 模型绑定同名扁平图标; 12 张导线 PNG 必须保持 16x16、只含 0/255 Alpha、透明区 RGB 清零、可见像素数落在 48-72, 且逐档断言两件事: 线卷正好五级明暗色阶、按亮度排序后第 0/2/4 级逐字等于该材料线缆导体色的暗/中/亮三停 (三停表逐字转抄自 build_power_cable_block_textures.STYLES), 12 档可见像素两两不相同。后两条是为了守住"每档各自着色"这个交付契约本身 —— 只查 Alpha 的断言对 12 张同图或整批错色完全无感; 只比均值色的色相同样不够, 十二档里六档是灰/银/冷蓝系, 132 种两两互换里有 62 种色相差不到 25 度, 比三停才能把这 132 种全挡住。
+- 自动测试守住尺寸、引用、采样区不透明性与材料配色; nearest-neighbor 放大观感仍由确定性生成脚本和像素级目检共同守住。
 
 ---
 
@@ -72,7 +74,7 @@ P1 的目标范围固定为 T1 铁、T2 铝、T3 铜, 并把橡胶、PVC、PE �
 | 资源类型 | 资源路径 / 文件名 | 用途 | 状态 | 说明 |
 |---|---|---|---|---|
 | BLOCK | textures/block/energy_cable_base.png | 旧共享灰度基底方案 | 不适用 | 当前改为 13 张独立 32x32 彩色摆放态 PNG, 不再需要此共享文件 |
-| ITEM | textures/item/energy_cable_base.png | 旧共享扁平基底方案 | 不适用 | 当前线缆 BlockItem 使用各自同名 16x16 图标; 导线中间物的共享 tint 管线不等于此文件 |
+| ITEM | textures/item/energy_cable_base.png | 旧共享扁平基底方案 | 不适用 | 当前线缆 BlockItem 与 12 档导线中间物均使用各自同名 16x16 彩色图标 |
 | BLOCK / MODEL | `iron_energy_cable`(T1) | 铁线缆六向细管放置态 | [x] 已生成并接线 | 独立 32x32 彩色 PNG + multipart 中心/端口模型 |
 | BLOCK / MODEL | `aluminum_energy_cable`(T2) | 铝线缆六向细管放置态 | [x] 已生成并接线 | 已注册, 独立 32x32 彩色 PNG + multipart 中心/端口模型 |
 | BLOCK / MODEL | `copper_energy_cable`(T3) | 铜线缆六向细管放置态 | [x] 已生成并接线 | 独立 32x32 彩色 PNG + multipart 中心/端口模型, 不依赖 block tint |
@@ -87,26 +89,26 @@ P1 的目标范围固定为 T1 铁、T2 铝、T3 铜, 并把橡胶、PVC、PE �
 
 ## 三、七矿共享资产方案(新增覆盖范围)
 
-铝土、硼砂、银、锡、镍、铬、钨七种实际矿物采用同一套数据驱动资产管线: 矿脉使用一张灰度覆盖层叠加石质/深板岩基底, 原矿、锭、导线/线材使用共享灰度基底, 颜色与材质差异由矿物数据 tint 注入。共享基底不改变七种矿物各自拥有独立注册 id、掉落物与 worldgen 数据的事实。
+铝土、硼砂、银、锡、镍、铬、钨七种实际矿物采用同一套数据驱动资产管线。导线/线材原先使用共享灰度基底与材料 tint；现有 12 档导线已经改为各自同名的独立彩色 PNG，不改变各材料独立注册 id、配方与导体阶梯的事实。
 
 | 资源族 | 实际矿物 / 建议 id | 分期 | 数据驱动资产 | 状态 |
 |---|---|---|---|---|
-| 铝土 | `bauxite_ore` -> `raw_aluminum` -> `aluminum_ingot` -> T2 线材 tint | P1 | 复用灰度矿脉覆盖层、原矿/锭/线材基底 | [ ] 共享基底与新矿资源尚未生成/接入 |
-| 硼砂 | `borax_ore` -> `borax` | P2 前置 | 矿脉覆盖层 + 原矿/矿物基底; 不生成导体线材贴图 | [ ] 未生成 |
-| 银 | `silver_ore` -> `raw_silver` -> `silver_ingot` -> T7/T9 线材 tint | P2 | 复用灰度矿脉覆盖层、原矿/锭/线材基底 | [ ] 未生成 |
-| 锡 | `tin_ore` -> `raw_tin` -> `tin_ingot` -> T4 线材 tint | P2 | 复用灰度矿脉覆盖层、原矿/锭/线材基底 | [ ] 未生成 |
-| 镍 | `nickel_ore` -> `raw_nickel` -> `nickel_ingot` -> 镍铬保险丝 | P3 | 复用灰度矿脉覆盖层、原矿/锭基底 | [ ] 未生成 |
-| 铬 | `chromium_ore` -> `raw_chromium` -> `chromium_ingot` -> 镍铬保险丝 | P3 | 复用灰度矿脉覆盖层、原矿/锭基底 | [ ] 未生成 |
-| 钨 | `tungsten_ore` -> `raw_tungsten` -> `tungsten_ingot` -> 耐热线 tint | P3 | 复用灰度矿脉覆盖层、原矿/锭/线材基底 | [ ] 未生成 |
+| 铝土 | `bauxite_ore` -> `raw_aluminum` -> `aluminum_ingot` -> T2 铝导线 | P1 | 原矿/锭独立 PNG; T2 导线 `aluminum_wire.png` | 原矿/锭 [x] · 导线图标 [x] · 矿石方块 [x] · worldgen [x](easy/medium/hard) |
+| 硼砂 | `borax_ore` -> `borax` | P2 前置 | 矿物独立 PNG; 不生成导体线材贴图 | 矿物图标 [x] · 矿石方块 [x] · worldgen [x](medium/hard) |
+| 银 | `silver_ore` -> `raw_silver` -> `silver_ingot` -> T7/T9 导线 | P2 | 原矿/锭独立 PNG; T7/T9 导线各自独立 PNG | 原矿/锭 [x] · 导线图标 [x] · 矿石方块 [x] · worldgen [x](medium/hard) |
+| 锡 | `tin_ore` -> `raw_tin` -> `tin_ingot` -> T4 导线 | P2 | 原矿/锭独立 PNG; T4 导线 `tinned_copper_wire.png` | 原矿/锭 [x] · 导线图标 [x] · 矿石方块 [x] · worldgen [x](medium/hard) |
+| 镍 | `nickel_ore` -> `raw_nickel` -> `nickel_ingot` -> 镍铬保险丝 | P3 | 原矿/锭独立 PNG | 原矿/锭 [x] · 矿石方块 [x] · worldgen [x](hard) · 保险丝图标 [x] |
+| 铬 | `chromium_ore` -> `raw_chromium` -> `chromium_ingot` -> 镍铬保险丝 | P3 | 原矿/锭独立 PNG | 原矿/锭 [x] · 矿石方块 [x] · worldgen [x](hard) · 保险丝图标 [x] |
+| 钨 | `tungsten_ore` -> `raw_tungsten` -> `tungsten_ingot` -> 耐热线 | P3 | 原矿/锭独立 PNG; 耐热线独立图标 | 原矿/锭 [x] · 耐热线图标 [x] · 矿石方块 [x] · worldgen [x](hard) |
 
 共享基底文件登记:
 
 | 资源类型 | 建议路径 / 文件名 | 用途 | 状态 |
 |---|---|---|---|
-| BLOCK | textures/block/ore_vein_overlay.png | 七个资源族共用的灰度矿脉覆盖层, 叠加石质/深板岩基底 | [ ] 未生成 |
-| ITEM | textures/item/raw_ore_base.png | 原矿共用灰度形状 | [ ] 未生成 |
-| ITEM | textures/item/ingot_base.png | 锭共用灰度形状 | [ ] 未生成 |
-| ITEM | textures/item/wire_base.png | 导线与耐热线共用灰度形状 | [ ] 未生成 |
+| BLOCK | textures/block/ore_overlay.png | 七个资源族共用的灰度矿脉覆盖层, 叠加石质/深板岩基底 | [x] 已生成, 由 `tinted_ore` 共享模型采样 |
+| ITEM | textures/item/raw_ore_base.png | 原矿共用灰度形状 | [x] 已生成, 但七矿原矿改独立彩色 PNG 后全库零引用, 处置待定(同 `wire_base` 情形) |
+| ITEM | textures/item/ingot_base.png | 锭共用灰度形状 | [x] 已生成, 但七矿锭改独立彩色 PNG 后全库零引用, 处置待定(同 `wire_base` 情形) |
+| ITEM | textures/item/wire_base.png | 旧导线共享灰度形状 | 已删除; 12 档导线改绑同名独立彩色 PNG 后该文件零引用, 不随 JAR 分发 |
 
 上述资源族的文件存在性、矿物 worldgen 注册、物品注册和 tint 数据接线分别验收; 任何一项未落地都不能把整条资源链标为完成。
 
@@ -133,7 +135,7 @@ P1 的目标范围固定为 T1 铁、T2 铝、T3 铜, 并把橡胶、PVC、PE �
 | ITEM | item/ofc_copper_ingot.png | 无氧铜锭 OFC(P2) | 洁净亮红铜锭, 镜面高光, 无氧化斑 |
 | ITEM | item/ofe_copper_ingot.png | 无氧高导铜锭 OFE(P2) | 最亮最纯的粉红铜锭, 边缘冷白高光, 顶级质感 |
 | ITEM | item/argon_canister.png | 氩气罐(P2, OFE 顶级灌注料) | 加压钢瓶, 惰性气标识 / 冷白瓶身 + 阀头 |
-| ITEM | item/copper_wire.png | 导线·中间物(P2 起, 拉丝退火产物) | 一小卷细铜导线; 各金属级沿共享基底注入 tint |
+| ITEM | item/copper_wire.png | 导线·中间物(P2 起, 拉丝退火产物) | 铜导线独立彩色图标；其余 11 档也绑定各自同名 PNG |
 | BLOCK | block/ofc_copper_energy_cable.png | 无氧铜线缆(T5)放置态 | 亮红铜芯 + EPR 绝缘皮, 独立 32x32 彩色 PNG 已接入细管模型 |
 | ITEM | item/ofc_copper_energy_cable.png | 无氧铜线缆物品图标 | 独立同名 16x16 图标 |
 | BLOCK | block/ofe_copper_energy_cable.png | 无氧高导铜线缆(T6)放置态 | 顶级铜芯 + XLPE 交联绝缘皮, 独立 32x32 彩色 PNG 已接入细管模型 |
@@ -205,7 +207,7 @@ P3 补充说明: 镍矿、铬矿、钨矿的 worldgen 走当前生效的 datapac
 - P3 覆盖 T10-T12、镍铬保险丝、钨耐热线、低温控制器和未来燃料芯。缺少独立组件图标时, 不得用线缆或机器贴图代替。
 - 细管六向连接模型已定稿; 13 张方块贴图按材料独立着色并直接烘色, 13 张 BlockItem 图标继续保持独立 16x16, 不依赖 block tint。
 - 机器工作态 `front_on`、`rubber_log_tapped` 与 `rubber_planks` 均属于本轮正式交付, 不能作为可选项后补。
-- 七矿矿脉覆盖层、原矿/锭/线材共享基底和 tint 数据属于本次清单新增覆盖范围, 不再排除在外。
+- 七矿矿脉覆盖层与原矿/锭资产仍按各自链路验收；12 档导线已脱离共享 `wire_base` 与 tint，改为同名独立彩色图标。
 
 ---
 
@@ -217,6 +219,6 @@ P3 补充说明: 镍矿、铬矿、钨矿的 worldgen 走当前生效的 datapac
 | P1 目标 | T1-T3 + 橡胶/PVC/PE | T1-T3 摆放态已完成; 其余绝缘与材料链按独立条目核对 |
 | P2 目标 | T4-T9 + 七矿 P2 内容 + 提纯/空分前置 | T4-T9 摆放态已完成; worldgen、物品、机器和配方仍分别验收 |
 | P3 目标 | T10-T12 + 支援组件 | T10-T12 与钨耐热线摆放态已完成; 低温控制器、燃料芯等独立组件不得据此冲抵 |
-| 新增独立资产 | 灰度矿脉覆盖层、原矿/锭/线材基底、三档燃料芯、液氮罐、低温控制器 | 按各自文件与注册状态逐项验收, 不从本轮 13 张摆放态线缆冲抵 |
+| 新增独立资产 | 灰度矿脉覆盖层、原矿/锭资产、12 张独立导线图标、三档燃料芯、液氮罐、低温控制器 | 按各自文件与注册状态逐项验收, 不从本轮 13 张摆放态线缆冲抵 |
 
-统计口径: 本轮只把 13 张已注册、已接线并满足 32x32/UV 契约的摆放态线缆记为完成。16x16 ITEM、导线中间物 tint、矿物共享基底、机器与独立组件仍按各自条目统计, 不用线缆成品状态互相冲抵。
+统计口径: 13 张已注册、已接线并满足 32x32/UV 契约的摆放态线缆，与 12 张已绑定同名模型并满足 16x16/硬边 Alpha 契约的导线中间物分别记账；矿物、机器与独立组件仍按各自条目统计，不用线缆或导线成品状态互相冲抵。

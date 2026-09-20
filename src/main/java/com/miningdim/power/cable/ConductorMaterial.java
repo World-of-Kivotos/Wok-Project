@@ -19,22 +19,21 @@ import com.miningdim.power.grid.VoltageClass;
  */
 public enum ConductorMaterial implements CableProfile {
 
-    //                    id                      色值       额定FE  floor 绝缘                     耐压                    热学模式       线阻  可raw搓
-    IRON(                "iron",                  0xA7A7A7,    256, 0.35, InsulationGrade.PVC,      VoltageClass.LOW,     ThermalMode.STANDARD, 961, true),
-    ALUMINUM(            "aluminum",              0xD6DEE5,    768, 0.42, InsulationGrade.PVC,      VoltageClass.LOW,     ThermalMode.STANDARD, 265, true),
-    COPPER(              "copper",                0xC46B3C,   1280, 0.45, InsulationGrade.PE,       VoltageClass.LOW,     ThermalMode.STANDARD, 168, true),
-    TINNED_COPPER(       "tinned_copper",         0xC1C9CF,   1536, 0.45, InsulationGrade.PE,       VoltageClass.MEDIUM,  ThermalMode.STANDARD, 168, false),
-    OFC_COPPER(          "ofc_copper",            0xD47B45,   2048, 0.46, InsulationGrade.EPR,      VoltageClass.MEDIUM,  ThermalMode.STANDARD, 166, false),
-    OFE_COPPER(          "ofe_copper",            0xE08A50,   3072, 0.46, InsulationGrade.XLPE,     VoltageClass.MEDIUM,  ThermalMode.STANDARD, 165, false),
-    SILVER_PLATED_COPPER("silver_plated_copper",  0xD8E0E8,   4096, 0.47, InsulationGrade.XLPE,     VoltageClass.HIGH,    ThermalMode.STANDARD, 160, false),
-    GOLD(                "gold",                  0xE6B84A,   3200, 0.50, InsulationGrade.XLPE,     VoltageClass.HIGH,    ThermalMode.STANDARD, 221, false),
-    SILVER(              "silver",                0xC7D1D8,   5120, 0.46, InsulationGrade.SILICONE, VoltageClass.HIGH,    ThermalMode.STANDARD, 159, false),
-    GRAPHENE(            "graphene",              0x4A4A50,   8192, 1.00, InsulationGrade.SILICONE, VoltageClass.EXTREME, ThermalMode.GRAPHENE, 80, false),
-    NBTI_SUPERCONDUCTOR( "nbti_superconductor",   0x8A9CAF,  16384, 1.00, InsulationGrade.SILICONE, VoltageClass.EXTREME, ThermalMode.NBTI, 168, false),
-    YBCO_SUPERCONDUCTOR( "ybco_superconductor",   0x6E7E9C,  32768, 1.00, InsulationGrade.SILICONE, VoltageClass.EXTREME, ThermalMode.YBCO, 1, false);
+    //                    id                     额定FE  floor 绝缘                     耐压                    热学模式       线阻  可raw搓
+    IRON(                "iron",                    256, 0.35, InsulationGrade.PVC,      VoltageClass.LOW,     ThermalMode.STANDARD, 961, true),
+    ALUMINUM(            "aluminum",                768, 0.42, InsulationGrade.PVC,      VoltageClass.LOW,     ThermalMode.STANDARD, 265, true),
+    COPPER(              "copper",                 1280, 0.45, InsulationGrade.PE,       VoltageClass.LOW,     ThermalMode.STANDARD, 168, true),
+    TINNED_COPPER(       "tinned_copper",          1536, 0.45, InsulationGrade.PE,       VoltageClass.MEDIUM,  ThermalMode.STANDARD, 168, false),
+    OFC_COPPER(          "ofc_copper",             2048, 0.46, InsulationGrade.EPR,      VoltageClass.MEDIUM,  ThermalMode.STANDARD, 166, false),
+    OFE_COPPER(          "ofe_copper",             3072, 0.46, InsulationGrade.XLPE,     VoltageClass.MEDIUM,  ThermalMode.STANDARD, 165, false),
+    SILVER_PLATED_COPPER("silver_plated_copper",   4096, 0.47, InsulationGrade.XLPE,     VoltageClass.HIGH,    ThermalMode.STANDARD, 160, false),
+    GOLD(                "gold",                   3200, 0.50, InsulationGrade.XLPE,     VoltageClass.HIGH,    ThermalMode.STANDARD, 221, false),
+    SILVER(              "silver",                 5120, 0.46, InsulationGrade.SILICONE, VoltageClass.HIGH,    ThermalMode.STANDARD, 159, false),
+    GRAPHENE(            "graphene",               8192, 1.00, InsulationGrade.SILICONE, VoltageClass.EXTREME, ThermalMode.GRAPHENE, 80, false),
+    NBTI_SUPERCONDUCTOR( "nbti_superconductor",   16384, 1.00, InsulationGrade.SILICONE, VoltageClass.EXTREME, ThermalMode.NBTI, 168, false),
+    YBCO_SUPERCONDUCTOR( "ybco_superconductor",   32768, 1.00, InsulationGrade.SILICONE, VoltageClass.EXTREME, ThermalMode.YBCO, 1, false);
 
     private final String id;
-    private final int tintColor;
     private final int ratedCapacityFe;
     private final double degradeFloor;
     private final InsulationGrade insulation;
@@ -43,11 +42,10 @@ public enum ConductorMaterial implements CableProfile {
     private final int baseLineResistanceUnits;
     private final boolean craftableRaw;
 
-    ConductorMaterial(String id, int tintColor, int ratedCapacityFe, double degradeFloor,
+    ConductorMaterial(String id, int ratedCapacityFe, double degradeFloor,
                       InsulationGrade insulation, VoltageClass voltageClass, ThermalMode thermalMode,
                       int baseLineResistanceUnits, boolean craftableRaw) {
         this.id = id;
-        this.tintColor = tintColor;
         this.ratedCapacityFe = ratedCapacityFe;
         this.degradeFloor = degradeFloor;
         this.insulation = insulation;
@@ -59,11 +57,6 @@ public enum ConductorMaterial implements CableProfile {
 
     public String id() {
         return id;
-    }
-
-    /** 灰度导线基底的客户端 tint；与物理网络剖面无关，故不进入 {@link CableProfile}。 */
-    public int tintColor() {
-        return tintColor;
     }
 
     /** 注册 id / 资源键, 与 blockstate/model/loot/lang 一致 (如 iron_energy_cable)。 */

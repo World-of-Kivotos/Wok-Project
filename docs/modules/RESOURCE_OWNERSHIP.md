@@ -18,7 +18,7 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 | WOK-经济 | 货币与经济提示语言键；不拥有市场页面和开箱资产 |
 | WOK-WebUI | `assets/miningdim/web/` 通用页面宿主与 WebUI 公共资源 |
 | WOK-市场 | 市场 action、列表字段和市场语言键；当前与 WebUI 共用页面文件时按 action 区段维护 |
-| WOK-电力 | `models/block/generator/`、`textures/block/generator/`、`textures/gui/power/`、`data/fluxnetworks/recipes/`、`needs_stone_tool.json`；以及各级发电机/储电池（`coal_*`、`geothermal_*`、`industrial_*`、`modern_*`、`future_*`）、机器（`air_separation_unit_*`、`metallurgic_purifier_*`、`low_temperature_controller_*`）、12 级线缆与导体材料（`*_energy_cable`、`nbti_*`、`ybco_*`、`ofc_copper*`、`ofe_copper*`、`insulation_*`、`wire_base`、`ingot_base`、`raw_ore_base`、`ore_overlay`）、橡胶树链（`rubber*`、`latex`）与燃料核心 |
+| WOK-电力 | `models/block/generator/`、`textures/block/generator/`、`textures/gui/power/`、`data/fluxnetworks/recipes/`、`needs_stone_tool.json`；以及各级发电机/储电池（`coal_*`、`geothermal_*`、`industrial_*`、`modern_*`、`future_*`）、机器（`air_separation_unit_*`、`metallurgic_purifier_*`、`low_temperature_controller_*`）、12 级线缆与导体材料（`*_energy_cable`、`nbti_*`、`ybco_*`、`ofc_copper*`、`ofe_copper*`、`insulation_*`、`*_wire`、`ingot_base`、`raw_ore_base`、`ore_overlay`）、七矿原矿与锭图标（`raw_aluminum`、`raw_chromium`、`raw_nickel`、`raw_silver`、`raw_tin`、`raw_tungsten`、`borax`、`aluminum_ingot`、`chromium_ingot`、`nickel_ingot`、`silver_ingot`、`tin_ingot`、`tungsten_ingot`）、橡胶树链（`rubber*`、`latex`）与燃料核心 |
 | WOK-任务 | 任务板 action 与任务语言键；当前无独占纹理，奖励物品资源归发放该物品的模块 |
 | WOK-附魔 | 附魔名与附魔提示语言键；当前无独占纹理 |
 | WOK-农夫 | `farmer_*`，`data/miningdim/recipes/farmer/` |

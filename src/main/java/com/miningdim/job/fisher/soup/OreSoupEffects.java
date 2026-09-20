@@ -71,9 +71,16 @@ public final class OreSoupEffects {
             return;
         }
         CompoundTag previous = original.getPersistentData();
-        if (previous.contains(STATE_TAG, Tag.TAG_COMPOUND)) {
-            player.getPersistentData().put(STATE_TAG, previous.getCompound(STATE_TAG).copy());
+        if (!previous.contains(STATE_TAG, Tag.TAG_COMPOUND)) {
+            return;
         }
+        CompoundTag carried = previous.getCompound(STATE_TAG).copy();
+        // 夜视归属标记不跟着搬: 重建出来的玩家身上一个效果都没有(restoreFrom 不复制 MobEffect),
+        // 搬过去只会留下一个指向旧时刻的归属记录, 万一玩家自己喝的夜视剩余时长恰好撞上这个值,
+        // removeOwnedNightVision 会把别人的药水当成汤夜视删掉。下一 tick 的 refreshNightVision
+        // 会在 current == null 这一支重新授予并重新记归属。
+        carried.remove(NIGHT_VISION_UNTIL_TAG);
+        player.getPersistentData().put(STATE_TAG, carried);
     }
 
     public static void applyConsumedSoup(ServerPlayer player, OreFishType type, ItemStack consumedStack) {

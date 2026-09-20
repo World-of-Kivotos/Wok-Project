@@ -18,7 +18,7 @@
 | `src/dev/assertPixelGrid.ts` | 运行期守卫：`--px` 必须是整数 px |
 | `tools/gen-nineslice.mjs` | 9-slice 边框资产生成器 |
 | `tools/gen-icons.mjs` | 16×16 功能图标生成器（与 `PixelIcon` 的名字表双向校验） |
-| `public/ui/` | 三张 9-slice 边框 PNG + 26 张 16×16 图标 PNG |
+| `public/ui/` | 三张 9-slice 边框 PNG + 24 张 16×16 图标 PNG（真源是 `src/components/pixel/PixelIcon.tsx` 的 `PIXEL_ICON_NAMES`，与 `public/ui/icons/` 的 PNG 数一致） |
 | `VISUAL_REVIEW.md` | 对这一版的机械化批判。**重启前必读**，1.1 节的语义色使用率统计与 1.5 节的度量问题是最有价值的部分 |
 
 ## 重启像素风时怎么做

@@ -1,6 +1,11 @@
 # WebUI 服务端推送设计规格 — W12
 
-状态: **DEFERRED (已推迟, 未实现)**
+> ## 全文状态: DEFERRED (已推迟, 未实现)
+>
+> **本规格未作废, 仍是计划之内的工作**, 只是排在接线批次之后 (理由见第二章)。
+> 通道整条已建好, 但**生产侧至今零调用方** (2026-09-20 复核: 全库搜 `sendWebUiEvent` 仍只命中门面定义处),
+> 故本文的"三个发送方""事件名常量表"全是待做项, 不是现状描述。
+
 所属: WebUI 全量接线 W12 横切分支
 前置文档: `WebUI_Architecture_DesignSpec.md` 第 5.1 节、`WebUI_Wiring_Execution_Scope.md` 第四章 W12
 
@@ -8,22 +13,28 @@
 
 ## 一、现状: 通道整条建好, 生产侧零调用方
 
-推送链路的每一环都已存在且已接线, 唯独没有任何业务代码去发。全链路核对如下:
+推送链路的每一环都已存在且已接线, 唯独没有任何业务代码去发。全链路核对如下
+(本表一律按类名 + 方法名定位, 不写行号——三份文档此前因抄行号而集体失真, 见本节末注):
 
 | 环节 | 落点 | 状态 |
 |---|---|---|
 | S2C 包定义 | `network/S2CWebUiEvent.java` (`record(String eventName, String dataJson)`) | 已实现 |
-| 包注册 | `MiningNetwork.java:77-78` | 已注册 |
-| 服务端发送门面 | `MiningNetwork.sendWebUiEvent(ServerPlayer, S2CWebUiEvent)` (`:142`) | 已实现, **零生产调用方** |
+| 包注册 | `MiningNetwork.register()` 里 Web UI 三包的 `registerMessage(nextId(), S2CWebUiEvent.class, ...)` | 已注册 |
+| 服务端发送门面 | `MiningNetwork.sendWebUiEvent(ServerPlayer, S2CWebUiEvent)` | 已实现, **零生产调用方** |
 | 断连守卫 | 同上, 内部 `canReceive(player)` 短路 | 已实现 |
 | 客户端接收 | `client/webui/WebUiClientReceiver.onEvent` | 已实现 |
 | 桥未就绪处置 | 同上, 静默 `LOGGER.debug` 后丢弃 | 已实现 (刻意丢弃, 见第五章) |
 | JS 派发 | 页面预置 `window.miningdimOnEvent(name, dataJsonString)` | 已实现 |
-| 前端订阅 | `webui/src/lib/bridge.ts:360` `on(eventName, handler)` | 已实现 |
+| 前端订阅 | `webui/src/lib/bridge.ts` 的 `export function on(eventName, handler)` | 已实现 |
 
-前端 `bridge.ts:349-354` 把 handler 的 data 定成 `unknown` 而非具体类型, 理由原文写着
+前端 `bridge.ts` 在 `on()` 的 javadoc 里把 handler 的 data 定成 `unknown` 而非具体类型, 理由原文写着
 "服务端 sendWebUiEvent 至今零业务调用方, 现在给事件定字段名就是凭空发明契约"。
 **W12 的全部内容就是把这句话变成过去式**: 定事件名、定载荷、补三个发送方。
+
+> 行号纪律 (2026-09-20 起): 本表原先写的 `MiningNetwork.java:77-78` / `:142` 与 `bridge.ts:360` / `:349-354`
+> 全部已漂到别处 (`:142` 指向的已是另一个方法, `bridge.ts:349-354` 指向的是错误 JSON 解析分支), 且被
+> `WebUI_Wiring_Execution_Scope.md` 与 `WebUI_Frontend_Wiring_Checklist.md` 照抄扩散。
+> **本文档及其下游引用一律只写类名 + 方法名, 不写行号或 GitHub 行锚。**
 
 ---
 
@@ -64,13 +75,13 @@
 
 ## 四、三个发送方
 
-以下落点均已核对过真实代码位置, 但**动工时须重新读码复核**(本文档写于接线批次之前, 行号会漂)。
+以下落点均已核对过真实代码位置, 但**动工时须重新读码复核**。按第一章的行号纪律, 一律只写类名 + 方法名。
 
 ### 4.1 市场成交 — `market.sold`
 
-落点: `market/MarketEngine.java` 的 `buy(...)` (约 `:176`) 内卖家结算分支 (约 `:227`)。
+落点: `market/MarketEngine.java` 的 `buy(...)` 内卖家结算分支。
 
-该处已区分两条路径: 卖家在线即时 `grant`, 离线落 `pending_payout` 待登录结算 (约 `:294-311`)。
+该处已区分两条路径: 卖家在线即时 `grant`, 离线落 `pending_payout` 待登录结算。
 **推送只挂在线分支**——离线路径的玩家连接都不存在, `canReceive` 必然短路, 挂上去是死代码。
 
 离线卖家怎么知道自己卖掉了? 登录结算那条路 (`drainPendingPayout`) 本来就会把钱打进去,
@@ -81,22 +92,22 @@
 
 ### 4.2 求婚收到 — `marriage.proposalReceived`
 
-落点: `marriage/MarriageProposals.java` 的 `propose(UUID proposer, UUID target)` (`:32`) 的调用方。
+落点: `marriage/MarriageProposals.java` 的 `propose(UUID proposer, UUID target)` 的调用方。
 
 **注意不要挂在 `MarriageProposals.propose` 本身**: 它的入参是两个 `UUID`, 拿不到 `ServerPlayer`,
 硬要拿就得在数据结构层反查玩家列表——把网络下发塞进一个纯数据结构里, 是架构污点。
 正确落点是上层 `MarriageEngine` 中调用它的那个方法 (该处持有 `ServerPlayer`)。
 
-W6 接线新增的 `marriage.respond` 反查索引与本事件是同一份数据的两个出口, 应一并复核口径。
+W6 接线已上线的 `marriage.respond` (反查走 `MarriageProposals.proposersFor`, **是对正向表的 O(n) 扫描,
+刻意不建第二张 target -> proposer 索引表**) 与本事件是同一份数据的两个出口, 应一并复核口径。
 
 为什么必须推送: 对方当前只收到一条聊天栏消息 (清单 E4), 面板上不刷新。
 
 ### 4.3 精英怪击杀结算 — `champion.rewardSettled`
 
-落点: `champion/integration/ChampionRewardHandler.java` 的 `onChampionDeath` (`:88`),
-逐玩家 `grantDaily` 那一处 (约 `:146`)。
+落点: `champion/integration/ChampionRewardHandler.java` 的 `onChampionDeath`, 逐玩家 `grantDaily` 那一处。
 
-现状核对无误: 该方法只在 `:122` 打了一行 `LOGGER.info`, 然后逐玩家 `grantDaily` 入账,
+现状核对无误: 该方法只打了一行 `LOGGER.info`, 然后逐玩家 `grantDaily` 入账,
 **没有任何 S2C 告诉玩家自己分到了多少** (清单 G4)。玩家的观感是"打完了, 钱好像多了点, 不知道多少"。
 
 载荷需要点数据才有意义 (见 5.2), 但仍以"提示有变化"为主。

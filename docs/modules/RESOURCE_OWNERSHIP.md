@@ -4,6 +4,8 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 
 所有权的唯一真源是 `module-registry.json`：每个模块用 `resourcePaths`（目录或单文件，路径相对 `src/main/resources`）和 `resourceNamePrefixes`（文件名前缀，可跨目录生效）声明自己的资源；物理共享文件登记在顶层 `sharedResources`。`verifyModuleBoundaries` 会遍历 `src/main/resources` 下的每一个文件，先按路径匹配、再按文件名前缀匹配，两者都不命中且不在共享清单里就直接判失败；同时反向检查每条 `resourceNamePrefixes` 至少命中一个文件，防止清单里留下已经没人用的死前缀。因此资源所有权不再是纯文档承诺——把贴图改名或新增一个无前缀的文件，构建会立刻红。
 
+校验范围只到 `src/main/resources`：`build.gradle` 把 `src/generated/resources` 也挂进了 main 资源源集、会一并打进 JAR，但校验器的资源根写死在 `src/main/resources`，不遍历这棵生成树。按本表现有规则回算，生成树的 328 个文件里有 80 个（七矿的方块状态、方块模型与物品模型等）既不匹配任何 `resourcePaths`/`resourceNamePrefixes`，也不在 `sharedResources` 里，处于无主且构建不会变红的状态。datagen 产出的资源目前只能人工归口；把校验器的资源根扩成两棵树、或补齐电力模块缺失的矿石前缀，都要单独立项，不在本文承诺范围内。
+
 ## 1. 所有权映射
 
 下表是登记表的可读渲染，字段以登记表为准。
@@ -16,7 +18,7 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 | WOK-全服经验 | 经验轨道、来源 ID、经验提示/HUD 公共语言键；当前不新增独占纹理或存档文件 |
 | WOK-矿区副本 | `data/miningdim/dimension`、`dimension_type`、`worldgen`、`structures`，以及 `entrance_*`、`trap_*`、`fake_ore*` |
 | WOK-经济 | 货币与经济提示语言键；不拥有市场页面和开箱资产 |
-| WOK-WebUI | `assets/miningdim/web/` 通用页面宿主与 WebUI 公共资源 |
+| WOK-WebUI | 当前无独占资源文件：登记表里 `resourcePaths` 与 `resourceNamePrefixes` 都是空数组，`assets/miningdim/web/` 下唯一的 `case-opening.html` 归 WOK-开箱。通用页面宿主落地时必须先把目录或文件写进 `wok-webui` 的 `resourcePaths`，否则新文件会被判为无主 |
 | WOK-市场 | 市场 action、列表字段和市场语言键；当前与 WebUI 共用页面文件时按 action 区段维护 |
 | WOK-电力 | `models/block/generator/`、`textures/block/generator/`、`textures/gui/power/`、`data/fluxnetworks/recipes/`、`needs_stone_tool.json`；以及各级发电机/储电池（`coal_*`、`geothermal_*`、`industrial_*`、`modern_*`、`future_*`）、机器（`air_separation_unit_*`、`metallurgic_purifier_*`、`low_temperature_controller_*`）、12 级线缆与导体材料（`*_energy_cable`、`nbti_*`、`ybco_*`、`ofc_copper*`、`ofe_copper*`、`insulation_*`、`*_wire`、`ingot_base`、`raw_ore_base`、`ore_overlay`）、七矿原矿与锭图标（`raw_aluminum`、`raw_chromium`、`raw_nickel`、`raw_silver`、`raw_tin`、`raw_tungsten`、`borax`、`aluminum_ingot`、`chromium_ingot`、`nickel_ingot`、`silver_ingot`、`tin_ingot`、`tungsten_ingot`）、橡胶树链（`rubber*`、`latex`）与燃料核心 |
 | WOK-任务 | 任务板 action 与任务语言键；当前无独占纹理，奖励物品资源归发放该物品的模块 |
@@ -54,15 +56,17 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 
 - `src/main/resources` 只放最终会进入 JAR 的运行期资源。
 - `tools/` 放可复现生成脚本，不放 `__pycache__`。
-- `docs/assets/<module>/` 放设计稿和经过挑选的说明预览。
-- `artifacts/`、`outputs/`、`tmp/` 放本地生成物并由 Git 忽略。
-- `dist/` 的 156 个历史跟踪文件需逐个判断是源素材、文档预览还是发布产物；在完成审查前不批量删除。
+- `docs/assets/<module>/` 放设计稿和经过挑选的说明预览；这一层不在 `verifyModuleBoundaries` 的扫描范围内（它只遍历 `src/main/resources`），所以每个文件都要么是生成脚本的输入、要么被某份文档或资源引用，归属只能人工维持。
+- `artifacts/`、`outputs/`、`tmp/` 约定用于本地生成物，但 `.gitignore` 目前并未覆盖这三条；提交前需用 `git status` 或 `git check-ignore` 人工核实，别把它们误带进版本控制。
+- `dist/` 的两百余个历史跟踪文件（当期实测以 `git ls-files dist | wc -l` 为准，基线 `bd0c4588` 上是 205 个）需逐个判断是源素材、文档预览还是发布产物；在完成审查前不批量删除。
 - 发布 JAR 不进入新提交；历史已跟踪 JAR 另开清理提交处理。
 
 ## 4. WOK步战隔离
 
-`standalone/wok-infantry-armor` 及其资源属于 `WOK步战附属-独立护甲`，正式 modId 为 `wok_infantry_armor`，不与本表中的 `WOK-本体护甲` 资源互相覆盖或回灌。
+`WOK步战附属-独立护甲` 及其余 WOK步战产品线在本仓库内没有源码或资源目录，只在 `module-registry.json` 的 `excludedProducts` 中声明排除；它们的资源不与本表中的 `WOK-本体护甲` 互相覆盖或回灌。
+
+`standalone/` 下当前唯一的子工程是 `standalone/kivotos-armorer`（modId `kivotos_armorer`，包根 `com.kivotos.armorer`），它自带独立资源命名空间，不属于本表任何一行。它归哪条产品线尚未裁定（见 [`INVENTORY.md`](INVENTORY.md) 第 2 节），裁定前不得把它的资源回灌进 `miningdim` 命名空间。
 
 ## 5. 独立卡牌 MOD 隔离
 
-`standalone/wok-cardgame` 属于 `WOK-卡牌游戏独立MOD`，正式 modId 为 `wok_cardgame`、Java 包根为 `com.wok.cardgame`。根目录的 `docs/cardgame` 与 `outputs/cardgame` 是历史遗留位置，后续应在卡牌 MOD 自己的仓库迁移；不得因此把卡牌代码或资源登记进 WOK 本体。
+`WOK-卡牌游戏独立MOD` 不在本仓库内：`standalone/wok-cardgame`、`docs/cardgame`、`outputs/cardgame` 三个路径在工作树里都不存在，该产品只由 `module-registry.json` 的 `excludedProducts` 声明排除。它的 modId `wok_cardgame` 与包根 `com.wok.cardgame` 是命名保留，代码落地在卡牌 MOD 自己的仓库；不得因任何理由把卡牌代码或资源登记进 WOK 本体。

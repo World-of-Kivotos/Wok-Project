@@ -1,20 +1,22 @@
-# 千年工程师 职业 Mod — 设计规格文档
+# 铸甲师 职业 Mod — 纳米生产与维修规格文档
 
 ## 文档元信息
 
-- 用途: 千年工程师职业实现阶段的唯一架构、数值与机制参考。所有常量以本文档为准, 不得凭记忆改写。
+- 用途: 铸甲师职业中 "纳米维修套件 + 生产台 + 等级经验 + 纳米特效" 这一部分的架构、数值与机制参考。这些段落的常量以本文档为准, 不得凭记忆改写。
+- 文档分工: 护甲种类本身 (插板护甲 54 件、电浆护盾 18 件、R/Q/G/T 与材料修正、穿戴资源、战斗磨损、枪匠联动) 见 docs/Armorer_Armor_System_DesignSpec.md。两份文档互为补集, 各自对自己的段落负责; 代码同属一个子系统 com.miningdim.job.engineer.EngineerSystem (name() 返回 "ArmorerSystem"), 不是两个职业。
+- 名称现状: 玩家可见名、创造页签名与 /job 系列命令输出统一为 "铸甲师" (翻译键 job.miningdim.engineer, 见 lang/zh_cn.json); "千年工程师" 是本文档初稿时的旧称, 现仅作历史别名保留。JobId.ENGINEER、engineer 注册 ID、包名 com.miningdim.job.engineer、NBT 键与配置文件名 miningdim-engineer.toml 一律不动, 以兼容旧存档与既有模块; docs/modules/module-registry.json 中对应的模块 id 为 wok-job-armorer。命名是否进一步统一属主控裁决范围, 本文档只如实记录现状。
 - 目标平台: Minecraft 1.20.1 + Forge 47.x + Java 17。所有 API 名称以此版本为准, 不得套用其他版本语法 (与 MiningDimension 规格第一章同源约束)。
 - 部署环境 (硬约束, 影响全部战斗向数值): 目标公服人均初始最大血量 80 (原版 20 的 4 倍); 装有 TACZ 枪械 mod, DPS 远高于原版, 全自动每秒多次命中、狙/霰弹单发可超 80 且常带穿甲, 击杀时间以秒计; 死亡不掉落。一切战斗向数值一律用 "最大血量百分比 / 拦截致死" 建模, 严禁套用原版 20 血常量。
 - 状态图例: DECIDED 已定稿 / PENDING 待拍板 / TODO 实现期补全。
 - 数值状态: 等级曲线沿用农夫职业已交叉验证曲线; 每日衰减曲线与达标天数已实算验证 (见第八章)。
-- 阻塞项: 进入编码前须先解决第十二章列出的全部 PENDING。
+- 实现状态: 第十三章三批工作已全部落码并接进 `MiningDim.registerSubsystems()`, 唯一未做项是第三批第 11 项 (纳米特效 HUD 叠层 + S2C 状态包)。第十二章已由 "进入 Code 前的阻塞清单" 改为实现期取舍记录, 逐条标注 DECIDED / PENDING。
 
 ---
 
 ## 一、职业定位与设计目标 (DECIDED)
 
-1. 定位: 仿 FF14 生产职业。玩家无需专职, 可同时持有并体验全部职业; 工程师只是其一。
-2. 核心卖点: 在工程师工作台用 "纳米护甲板" 修复一切原本无法维修的护甲 (公服存在大量无原材料修复路径的模组护甲)。
+1. 定位: 仿 FF14 生产职业。玩家无需专职, 可同时持有并体验全部职业; 铸甲师只是其一。
+2. 核心卖点: 在铸甲师工作台用 "纳米护甲板" 修复一切原本无法维修的护甲 (公服存在大量无原材料修复路径的模组护甲)。
 3. 经济定位: 纳米修复 = 贵但万能。即使最低级护甲板, 一个铁锭也做不出 (成本高于铁砧+铁锭), 修复效果也不如铁砧; 唯一优势是 "能修一切"。纳米修复不与原版铁砧/原材料修复抢常规护甲的生意, 只补 "原版修不了" 的空缺。
 4. 特效定位: 修复护甲时掷出的 **一次性副产品**, 不是永久词条; 再次用纳米护甲板维修会丢弃全部旧特效。永久词条系统留给未来其他职业, 本职业不做永久词条。
 5. 等级范围: 1 - 10, L10 毕业。正常玩家约一个月毕业; 肝满党有上限地更快 (约 16 天, 见第八章)。
@@ -34,6 +36,13 @@
 | 特效 | 高级板起掷出的一次性副产品, 按件生效, 再次维修清空 | 六 |
 | 等级 | 1-10, 独立经验池, 每日软上限+衰减, 谁产谁得 | 七、八 |
 | 上锁 | 工作台 owner 锁 + 护甲板 producer 盖章, 双层反代练 | 九 |
+
+同一个 `EngineerSystem` 还注册了铸甲师的护甲主体, 不在本文档覆盖范围内, 按下表跳转:
+
+| 机制 | 一句话 | 出处 |
+| --- | --- | --- |
+| 插板护甲 | 54 件可穿戴胸甲, 六等级 x 轻中重 x 七种材料, R/Q/G/T 四属性 + FE 电力层 | docs/Armorer_Armor_System_DesignSpec.md 一至十 |
+| 电浆护盾 | 18 件可穿戴能量护盾 (nano/standard/quantum 三系列 x I-VI), 能量池 + 过热重启 | docs/Armorer_Armor_System_DesignSpec.md 11.1 |
 
 ---
 
@@ -76,10 +85,10 @@
 | 门 | 规则 |
 | --- | --- |
 | 矿石档位 | 3.2 表, 低矿造不了高板 |
-| 工程师等级 | 等级未解锁该档则置灰 (解锁表见 7.2) |
+| 铸甲师等级 | 等级未解锁该档则置灰 (解锁表见 7.2) |
 | 生产台档位 | 机器档不够则置灰; 机器档同时决定生成耗时 |
 
-服务端权威: 客户端置灰仅为提示, 服务端在消耗矿石/产出前重新校验矿石档位、工程师等级、生产台档位、输入数量、输出槽、锁状态、主人/操作者一致性, 绝不信客户端选择 (C5)。选档走原版 `AbstractContainerMenu.clickMenuButton(tierIndex)`, 不新开网络包。各档生成耗时在开工时从 config 快照；即使 QTE 进度已满，也必须达到最低耗时才可结算。
+服务端权威: 客户端置灰仅为提示, 服务端在消耗矿石/产出前重新校验矿石档位、铸甲师等级、生产台档位、输入数量、输出槽、锁状态、主人/操作者一致性, 绝不信客户端选择 (C5)。选档走原版 `AbstractContainerMenu.clickMenuButton(tierIndex)`, 不新开网络包。各档生成耗时在开工时从 config 快照；即使 QTE 进度已满，也必须达到最低耗时才可结算。
 
 ### 4.2 纳米校准 (主动生产, 反挂机) (DECIDED 主方案)
 
@@ -121,11 +130,11 @@
 ### 5.2 与原版修复的关系
 
 - 禁用经验修补 (Mending): 仅对带纳米特效的护甲禁用，防止原版回耐久偷偷越过特效的耐久门槛；写入纳米特效时立即移除 Mending，旧存档物品在拾取经验球前自动纠正。普通装备不受影响。
-- 铁砧旁路: 带特效护甲多为 "原版修不了才用纳米修" 的那类, 铁砧本就修不了, 旁路在实战里多不成立; 仅 "本可修的甲特意纳米修来拿特效" 才碰得到。**建议不拦** (省一层 `AnvilUpdateEvent`), 让铁砧修这类甲保留特效。PENDING 你拍板。
+- 铁砧旁路: **已拦并已实装** (`NanoAnvilGuard` 订阅 `AnvilUpdateEvent`, 由 `EngineerSystem` 注册)。左侧带任意纳米特效、且铁砧输出会回耐久 (`output.getDamageValue() < event.getLeft().getDamageValue()`) 时取消输出, 挡住经验修补 / 同物合并修 / 材料修越过特效耐久门槛的路径; 纯改名与附魔书附魔不改变耐久值, 照常放行, 不连带禁掉带特效甲的正常改名与附魔。不带纳米特效的普通物品完全不受干预。与第十二章第 1 条结论一致, 本条不再 PENDING。
 
 ### 5.3 可实现性
 
-直接改 `ItemStack.setDamageValue / getDamageValue` 对任意 `Damageable` 物品 (含模组护甲、无原版修复配方者) 均生效, 这是 "修一切" 的技术基础; Unbreakable NBT 物品的处理策略实现期定 (TODO)。
+直接改 `ItemStack.setDamageValue / getDamageValue` 对任意 `Damageable` 物品 (含模组护甲、无原版修复配方者) 均生效, 这是 "修一切" 的技术基础; Unbreakable NBT 物品已定案 (第十二章第 4 条): 无耐久可修, 直接拒绝并返回失败, 不消耗护甲板。
 
 ---
 
@@ -141,14 +150,14 @@
 
 | 特效 | 机制 | 失效条件 | 按件叠加处理 |
 | --- | --- | --- | --- |
-| 纳米重塑 | 缓慢回护甲自身耐久 | 损失 > 25% 耐久 (阈值可配, 建议可放宽到 40%, 否则枪火下立即触发) | 按件 (耐久逐件, 不汇聚), 安全 |
+| 纳米重塑 | 缓慢回护甲自身耐久 | 损失 > 40% 耐久 (config `reshape.failDamagePct`, 默认 0.40; 早期草案的 25% 在 TACZ 高 DPS 下会立即触发, 已弃用) | 按件 (耐久逐件, 不汇聚), 安全 |
 | 纳米机能修复 | 缓慢回穿戴者血量 (按最大血量百分比, 单件如 2%/s) | 护甲耐久 < 50% | 按件 + 递减安全阀: 100% / 50% / 25% / 12.5% (四件合计约 1.875 倍, 非 4 倍), 防 PvP 间隙滚雪球 |
 | 纳米多重护盾 | 受击消耗 1 格能量并开启 X 秒 (可配) 全伤害免疫窗；最大 5 格，每 60 秒回充 1 格 | 0 电时暂时停用，充电后恢复 | 按件独立充能；耗尽不移除特效、不销毁护甲，也不能用纳米维修套件补能 |
 | 纳米末影心肺反应器 | 拦截本将致死的一击 (非血量阈值, 防高爆发 overshoot), 复活到 % 最大血量 (如 50% = 40 血) + 短伤害免疫窗 | CD 中 | **共享 CD** (人级, 30 min); 耐久代价 = 每件带此效果的甲各扣 % 最大耐久; 叠穿 = 冗余保险 (一件碎了有备份) 非额外命数 |
 
 设计原则: 作用于 "护甲自身" 的效果 (重塑、护盾) 按件生效安全; 作用于 "玩家本体" 的效果 (机能修复、图腾) 按件会线性放大成无敌/多命, 故机能修复加递减、图腾共享 CD。
 
-**待主控拍板 (docs/Full_Repo_Audit_2026-08.md F047, 复核定性为设计复议项、已降 Minor 但未结案)**: 护盾的"全伤害免疫窗"按上一段的分类判据实际作用于玩家本体 (拦免疫伤害), 而非单纯护甲自身耐久, 与"归入护甲自身按件安全"的分类矛盾; 80 血 + TACZ 高 DPS 部署环境下四件套 = 20 次共 40 秒硬免疫, 是否需要比照图腾收敛到人级共享 CD、或加装与机能修复同形的递减安全阀 (含具体阀值), 尚未定案, 代码 (NanoEffects.java tryReactiveShield) 现状忠实实现本表既有记录, 不臆造收敛数值。
+**待主控拍板 (`docs/archive/reviews/Full_Repo_Audit_2026-08.md` F047 冻结快照, 复核定性为设计复议项、已降 Minor 但未结案)**: 护盾的"全伤害免疫窗"按上一段的分类判据实际作用于玩家本体 (拦免疫伤害), 而非单纯护甲自身耐久, 与"归入护甲自身按件安全"的分类矛盾; 80 血 + TACZ 高 DPS 部署环境下四件套 = 20 次共 40 秒硬免疫, 是否需要比照图腾收敛到人级共享 CD、或加装与机能修复同形的递减安全阀 (含具体阀值), 尚未定案, 代码 (NanoEffects.java tryReactiveShield) 现状忠实实现本表既有记录, 不臆造收敛数值。
 
 ### 6.3 状态存放
 
@@ -216,7 +225,7 @@
 | 生产护甲板 | 生产者本人, 取出时结算 | 取出者 UUID == 板子 `producerUUID`, 且 `productionXpPending == true` (取走即清, 防塞回再取重复刷) |
 | 用护甲板修甲 | 板子生产者本人 | 消耗板子 `producerUUID` == 修复者 UUID; 不匹配照样能修, 但无经验 |
 
-单档原始经验 (示例, 进 config): 低级 15 / 中级 30 / 高级 60 / 极品 110 / 超凡 200; 用自己板修甲额外 +50%。真正的天花板是 7.3 每日软上限, 单板经验只决定 "今天要产多少块打满全速段"。
+单档原始经验 (示例, 进 config): 低级 15 / 中级 30 / 高级 60 / 极品 110 / 超凡 200 / 闪耀 待标定, 实现期暂等于超凡 200 (config 键 `xp.rawRadiant`, 见第十二章第 5 条)。闪耀是 L10 毕业档、成本最高 (2 下界合金锭概率产出), 定稿值不应低于超凡。用自己板修甲额外 +50%。真正的天花板是 7.3 每日软上限, 单板经验只决定 "今天要产多少块打满全速段"。
 
 ---
 
@@ -242,7 +251,7 @@
 
 - BE 存 `ownerUUID` (`Block.setPlacedBy` 记录放置者)。
 - 潜行右键空手切换 锁/不锁 (仅主人); 普通右键开 GUI。锁状态用 actionbar + 粒子反馈。锁切换走 `clickMenuButton` 或轻量 C2S, 不新开网络包。
-- 锁定时: 非主人 (OP / 信任名单除外) 拒绝开 GUI；输出槽无论是否上锁都只允许主人或 OP 取物。已打开界面在权限失效后由 `stillValid` 关闭。
+- 锁定时: 非主人 (仅 OP 除外, 即 `hasPermissions(2)`) 拒绝开 GUI；输出槽无论是否上锁都只允许主人或 OP 取物。已打开界面在权限失效后由 `stillValid` 关闭。当前没有信任名单机制: `ProductionTableBlockEntity` 只持一个 `ownerUUID`, `canAccess` 与 `canTakeOutput` 都只判 "是主人或 OP" 两级, 无法给队友单独开权限 (信任名单作为待拍板项见第十二章第 6 条)。
 - 输出槽不对漏斗暴露 (`getCapability(ITEM_HANDLER, side)` 只暴露输入或输出只读包装): 挡自动化 farm + 保证 "必须人手取" 这条结算前提。
 
 ### 9.2 双层归属
@@ -266,19 +275,22 @@
 
 ### 10.1 子系统接线
 
-- 新建 `com.miningdim.engineer` 子系统, 提供一个 `EngineerSystem implements Subsystem`, 在 `register` 内完成自己的 DeferredRegister (Block/Item/BlockEntity/MenuType) + 事件订阅 + 服务注册。
-- 在 `MiningDim.registerSubsystems()` 追加一行 `new EngineerSystem()`。跨子系统协作只经 core 门面 + MiningServices, 不硬 import 他系统实现类 (铁律 2/3)。
+- 已建成 `com.miningdim.job.engineer` 子系统 (收在 `job` 一级包下, 与其余职业同构; 不是最初设想的 `com.miningdim.engineer`, 后者不存在), 提供一个 `EngineerSystem implements Subsystem`, 在 `register` 内完成自己的 DeferredRegister (Block/Item/BlockEntity/MenuType/Sound/Tab) + 事件订阅 + config 注册 + 客户端 `MenuScreens.register`。
+- 已在 `MiningDim.registerSubsystems()` 接线完成 (`subsystems.add(new com.miningdim.job.engineer.EngineerSystem());`)。跨子系统协作只经 core 门面 + MiningServices, 不硬 import 他系统实现类 (铁律 2/3)。
 
 ### 10.2 玩家职业数据 (关键裁决: 不新挂 capability)
 
-- 工程师等级数据 (`engineerLevel` / `engineerXp` / `dailyEngineerXp` + 翻日戳 / `nanoReactorCdEndTick`) 作为字段并入 `entry.MiningPlayerData` (`IMiningPlayerData` 接口扩方法), 复用其已有的 attach / `PlayerEvent.Clone` (reviveCaps/invalidateCaps) / serialize / copyFrom 全套管线。
+- 铸甲师等级与经验由共享职业框架承载, 不落成本职业的专属字段: `entry.MiningPlayerData` 内部持一个 `JobData` (封装 `EnumMap<JobId, JobProgress>`), 复用 entry 已有的 attach / `PlayerEvent.Clone` (reviveCaps/invalidateCaps) / serialize / copyFrom 全套管线。等级曲线与每日衰减由 `JobXpCurve` 与 `JobProgress.grantXp` 统一裁决, 铸甲师侧只经 `EngineerLevels` 薄封装读写 (`JobServices.jobService().level/grantXp`, 传 `JobId.ENGINEER`)。
+- 职业私有字段只有 `nanoReactorCdEndTick` 一个, 声明并存储在 `JobProgress` 上, 不是 `MiningPlayerData` 的直属字段; `IMiningPlayerData` 上也只有通用的 `jobProgress(JobId)`, 没有 `engineerLevel` / `engineerXp` / `dailyEngineerXp` 这三个专属扩展方法 (全库不存在同名字段)。
 - 严禁照搬农夫 spec 字面新建独立 capability + 新 `AttachCapabilitiesEvent<Entity>`: 工程已有 "双 capability 重复 attach -> 双重传送/双重引用计数" 既裁隐患 (entry 为唯一权威), 第三套 Provider 会放大隐患。
-- 多职业方向 (FF14 已确认 N >> 1): 玩家职业数据应朝 "一个 capability 持 `Map<JobId, JobProgress>`" 演进 (一次到位成多职业形状), 重的数据驱动框架 (等级曲线/每日衰减表) 可增量补。
-- `deserializeNBT` 对旧存档缺新键给默认值 (level=1, xp=0, cd=0); 扩 `IMiningPlayerData` 后多维 grep 找全实现/mock 补新方法。
+- 多职业方向 (FF14 已确认 N >> 1) 已按 "一个 capability 持 `Map<JobId, JobProgress>`" 落地 (见 JobFramework_Shared_Foundation_DesignSpec 第 2.2 / 2.3 节), 不再是待演进方向。
+- `JobData` 按需懒建 `JobProgress` 默认值 (level=1, xp=0, cd=0), 旧存档缺键自然走默认, 无需本职业另写迁移。
 
 ### 10.3 数值配置 (C6 硬约束)
 
-全部平衡数值 (等级曲线 / 每日衰减档 / 单板经验 / 矿石绑档 / 各档生成耗时 / 修复曲线 / 特效阈值与系数 / 图腾 CD 与复活百分比 / 护盾免疫窗与次数 / 机能修复递减系数 / 闪耀概率) 进 `MiningServerConfig` 的 `ForgeConfigSpec`。BlockEntity / 业务类内出现硬编码字面量即缺陷。config 实时 get 不缓存; 进行中任务的耗时建议起算时快照。
+全部平衡数值 (单板经验 / 矿石绑档 / 各档生成耗时 / 修复曲线 / 特效阈值与系数 / 图腾 CD 与复活百分比 / 护盾免疫窗与次数 / 机能修复递减系数 / 闪耀概率) 进铸甲师自有的 `EngineerConfig` `ForgeConfigSpec` (服务端文件 `miningdim-engineer.toml`), **不进**中央 `MiningServerConfig` —— 后者归别的子系统所有, 本子系统一个键都不往里加。同一份 toml 还承载插板护甲的 `plateArmor` 段与电浆护盾的 `plasmaShield` 段 (见 Armorer_Armor_System_DesignSpec.md 第九章)。BlockEntity / 业务类内出现硬编码字面量即缺陷。config 实时 get 不缓存; 进行中任务的耗时在开工时快照。
+
+等级曲线与每日衰减档不在此: 它们由共享职业框架的 `JobXpCurve` 常量承载。框架 spec 第十章的 config 化已被显式推迟 (该类常量是定稿硬值的唯一拷贝), 属既有决定而非遗漏。
 
 ### 10.4 BE 无玩家上下文
 
@@ -286,7 +298,7 @@ BlockEntity tick 内无玩家引用。读玩家等级的判定收敛到有玩家
 
 ### 10.5 容器 GUI 基础设施 (从零搭)
 
-工程现状零 menu/screen 基础设施。需新建: `DeferredRegister<MenuType<?>>` + `IForgeMenuType.create((id, inv, buf) -> ...)` (用 `buf.writeBlockPos` 传坐标); `AbstractContainerMenu` (必须正确实现 `quickMoveStack` 防 Shift 点击吞物/死循环, 与 `stillValid`); 进度走 `ContainerData` (int-only, 自动同步给开 GUI 者); BE `implements MenuProvider` + `NetworkHooks.openScreen`; `AbstractContainerScreen`; 客户端 `FMLClientSetupEvent.enqueueWork(() -> MenuScreens.register(...))`; gui png + 槽位坐标 + lang。注意全为 1.20.1 写法, 严禁套 1.20.4+ custom payload / 1.20.5+ MapCodec。
+本子系统落地前工程内零 menu/screen 基础设施, 下面这一套全部从零搭成, 现已建成 (`job/engineer/menu/ProductionTableMenu.java` 与 `job/engineer/client/ProductionTableScreen.java`): `DeferredRegister<MenuType<?>>` + `IForgeMenuType.create((id, inv, buf) -> ...)` (用 `buf.writeBlockPos` 传坐标); `AbstractContainerMenu` (必须正确实现 `quickMoveStack` 防 Shift 点击吞物/死循环, 与 `stillValid`); 进度走 `ContainerData` (int-only, 自动同步给开 GUI 者); BE `implements MenuProvider` + `NetworkHooks.openScreen`; `AbstractContainerScreen`; 客户端 `FMLClientSetupEvent.enqueueWork(() -> MenuScreens.register(...))`; gui png + 槽位坐标 + lang。注意全为 1.20.1 写法, 严禁套 1.20.4+ custom payload / 1.20.5+ MapCodec。
 
 ---
 
@@ -297,7 +309,7 @@ BlockEntity tick 内无玩家引用。读玩家等级的判定收敛到有玩家
 | 模块 | 可实现性 | 关键 API | 工作量 |
 | --- | --- | --- | --- |
 | 六种护甲板物品 | 可实现 | DeferredRegister Item | 小 |
-| 等级/经验/CD 数据 | 可实现 | 并入 entry.MiningPlayerData (NBT) | 小 |
+| 等级/经验/CD 数据 | 可实现 | 经 entry.MiningPlayerData 内部的 JobData/JobProgress (EnumMap&lt;JobId,JobProgress&gt;, NBT) | 小 |
 | 修复 (改耐久) | 可实现 | ItemStack.setDamageValue 对任意 Damageable | 小 |
 | 特效 tick (重塑/机能修复) | 可实现 | PlayerTickEvent 遍历护甲槽 + 自定义 NBT | 中 |
 | 多重护盾 (免疫窗) | 可实现 | LivingAttackEvent/LivingHurtEvent + NBT 计时 | 中 |
@@ -309,35 +321,51 @@ BlockEntity tick 内无玩家引用。读玩家等级的判定收敛到有玩家
 
 ---
 
-## 十二、待确认实现项 — 进入 Code 前须拍板 (PENDING)
+## 十二、实现期取舍记录 (含未结案项)
 
-1. 铁砧修纳米特效甲是否保留特效 (当前实现：仅阻止铁砧恢复耐久，改名/附魔不回耐久时放行)。
-2. 闪耀是否增加 N 次失败必出的保底（当前成本、概率与失败返还均已进入 config）。
-3. 多人共用机器主人离线时的产出策略 (10.4)。
-4. Unbreakable NBT 护甲的修复处理 (5.3)。
-5. 实现期继续标定的 config 真值: 各档生成耗时 / 修复固定值与百分比 / 特效阈值与系数 / 图腾 CD 与复活百分比 / 护盾免疫窗秒数 / 单板经验 / "日投原始经验" 与在线时长换算。
+本章曾是 "进入 Code 前须拍板" 的阻塞清单, 现已随实现落地改为取舍记录。
+
+**编号注意**: 本章条目数被压缩过而没有重编号, 代码注释里的 `PENDING 12.x` 用的仍是压缩前的旧编号。按代码注释查本章时, 用下表的 "代码内旧编号" 列对照, 不要直接按现编号数数。
+
+| 现编号 | 代码内旧编号 | 事项 | 状态 |
+| --- | --- | --- | --- |
+| 1 | 未被代码引用 | 铁砧修纳米特效甲是否保留特效 | DECIDED |
+| 2 | 12.4 | 闪耀是否增加 N 次失败必出的保底 | PENDING |
+| 3 | 未被代码引用 | 多人共用机器主人离线时的产出策略 | PENDING |
+| 4 | 12.6 | Unbreakable NBT 护甲的修复处理 | DECIDED |
+| 5 | 12.7 | 实现期继续标定的 config 真值 | PENDING |
+| 6 | — | 是否引入工作台信任名单 | PENDING (本次新增) |
+
+1. 铁砧修纳米特效甲是否保留特效 —— **DECIDED**: 仅阻止铁砧恢复耐久, 改名与附魔书附魔在不回耐久时放行, 普通物品完全不受干预。实现见 `NanoAnvilGuard`, 结论已写进 5.2 正文。
+2. (代码内 12.4) 闪耀是否增加 N 次失败必出的保底 —— **PENDING**: 当前成本、概率与失败返还均已进入 config (`radiant.successChance` 默认 0.50, `radiant.failRefund` 默认返还 1 个下界合金碎片), 但没有任何保底计数器; 是否加保底仍待拍板。
+3. 多人共用机器主人离线时的产出策略 (10.4) —— **PENDING**: 暂按主人 `ownerUUID` 的等级判定, "暂停高档" 与 "按记录等级" 两案未选。
+4. (代码内 12.6) Unbreakable NBT 护甲的修复处理 (5.3) —— **DECIDED**: 不可破坏物品无耐久可修, `NanoRepair` 直接返回失败 (`message.miningdim.engineer.repair.unbreakable`), 不消耗护甲板、也不静默假装修好。该取舍已是既定行为, 代码注释里残留的 PENDING 标记只是尚未清理。
+5. (代码内 12.7) 实现期继续标定的 config 真值 —— **PENDING**: 各档生成耗时 / 修复固定值与百分比 / 特效阈值与系数 / 图腾 CD 与复活百分比 / 护盾免疫窗秒数 / 单板经验 / "日投原始经验" 与在线时长换算。其中**闪耀档原始经验是唯一连 spec 值都没有的一档**: 7.4 只给到超凡 200, 实现暂以 `xp.rawRadiant = 200` 顶上, 等标定。
+6. 是否引入工作台信任名单 —— **PENDING**: 9.1 现状只有 "主人 / OP" 两级 (`ProductionTableBlockEntity` 只持一个 `ownerUUID`), 无法给队友单独开权限。若要做, 需同时决定它与 10.2 "不新挂 capability" 的存储取舍、以及与第 3 条主人离线策略的关系。
+
+另有一条**不属于本章**的旧引用: `NanoAnvilGuard` 里的 `PENDING 12.1` 指的是 "经验修补禁用范围" 之争, 该决策早已在 5.2 定稿为正文 (仅纳米特效甲禁用, 不全服禁用), 不在本章任何一条之列, 不要拿本表去对。
 
 ---
 
-## 十三、实现期工作分解 (确认上述 PENDING 后展开)
+## 十三、实现期工作分解 (已完成, 留档)
 
-按单文件原子提交、每模块配 TDD 断言具体数值与边界推进。
+按单文件原子提交、每模块配 TDD 断言具体数值与边界推进。十一项里只剩第三批第 11 项未做。
 
 第一批 (零风险, 与交互/数值解耦, 可独立跑通):
-1. `entry.MiningPlayerData` 扩字段 (`engineerLevel/engineerXp/dailyEngineerXp+翻日戳/nanoReactorCdEndTick`) + `IMiningPlayerData` 扩接口 + serialize/deserialize/copyFrom + 全实现/mock 补齐。
-2. `EngineerSystem` 子系统骨架 + 接进 `MiningDim.registerSubsystems()` 一行。
-3. 服务端粒子特效 + 图腾 "拦截致死" 动画钩子 (LivingDeathEvent)。
-4. `MiningServerConfig` 加全部数值 spec (第七、八章曲线 + 第五、六章示例值 + 第三章绑档)。
+1. [x] 玩家职业数据接入 —— 未按原计划给 `entry.MiningPlayerData` 扩三个铸甲师专属字段, 而是确认共享框架的 `JobData` / `JobProgress` 已覆盖所需字段 (含 `nanoReactorCdEndTick`), `IMiningPlayerData` 只保留通用的 `jobProgress(JobId)`, 不再另扩接口 (见 10.2)。
+2. [x] `EngineerSystem` 子系统骨架 + 接进 `MiningDim.registerSubsystems()` 一行。
+3. [x] 服务端粒子特效 + 图腾 "拦截致死" 动画钩子 (LivingDeathEvent)。
+4. [x] `EngineerConfig` (`miningdim-engineer.toml`) 加全部数值 spec (第七、八章曲线 + 第五、六章示例值 + 第三章绑档); 等级曲线与每日衰减档沿用 `JobXpCurve` 硬编码常量, 不在本项范围内 (见 10.3)。
 
-第二批 (依赖第一批 + PENDING):
-5. 六种护甲板物品 + `NanoTier` 枚举。
-6. 六种工作台方块 + BlockEntity + 容器 GUI 基础设施 (10.5)。
-7. 投矿选档 + 三道门校验 + 矿石绑档 + 生成耗时。
-8. 上锁 (ownerUUID + 潜行切换 + 输出防漏斗) + producer 盖章 + 两个经验结算点 + 每日衰减入账。
-9. 修复曲线 + 特效掷出/清空 + 四个特效完整逻辑 (含机能修复递减、图腾共享 CD、护盾免疫窗)。
+第二批:
+5. [x] 六种护甲板物品 + `NanoTier` 枚举。
+6. [x] 六种工作台方块 + BlockEntity + 容器 GUI 基础设施 (10.5)。
+7. [x] 投矿选档 + 三道门校验 + 矿石绑档 + 生成耗时。
+8. [x] 上锁 (ownerUUID + 潜行切换 + 输出防漏斗) + producer 盖章 + 两个经验结算点 + 每日衰减入账。
+9. [x] 修复曲线 + 特效掷出/清空 + 四个特效完整逻辑 (含机能修复递减、图腾共享 CD、护盾免疫窗)。
 
 第三批:
-10. 纳米校准 QTE (服务端时序 + 客户端渲染) + 品质条结算。
-11. 自定义 HUD 叠层 (护盾层数 / 图腾 CD / 特效图标) + S2C 状态包。
+10. [x] 纳米校准 QTE (服务端时序 + 客户端渲染) + 品质条结算。
+11. [ ] 自定义 HUD 叠层 (护盾层数 / 图腾 CD / 特效图标) + S2C 状态包。**唯一未做项**: 纳米特效侧至今没有任何 GUI overlay, 也没有对应的 S2C 状态包 (电浆护盾另有自己的一套 HUD 与同步包, 不覆盖纳米特效)。
 
 测试断言示例: 总需求 61,900; 日投 12,000 原始经验入账 3,800 有效, 满级 16.3 天; 铁锭只能选到低级板, 选高级板被服务端拒; 小号产的板给大号修甲不结算修复经验; 图腾 30min 内仅触发一次 (人级 CD)。

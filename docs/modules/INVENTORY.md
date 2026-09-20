@@ -25,7 +25,7 @@
 | `wok-job-farmer` | WOK-农夫模块 | 25 | 51 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI；Farmer's Delight 可选 |
 | `wok-job-armorer` | WOK-铸甲师模块 | 124 | 82 | `EngineerSystem` | 核心、职业框架、精英怪、WebUI；TaCZ 可选 |
 | `wok-job-chef` | WOK-厨师模块 | 35 | 34 | `ChefModule` | 核心、全服经验、职业框架、战斗框架、经济、WebUI；Farmer's Delight、Flavor Immersed Daily 可选 |
-| `wok-job-fisher` | WOK-渔夫模块（2026-09-06） | 23 | 15 | `FishingSystem` | 核心、经济、厨师；Farmer's Delight、Tide 可选 |
+| `wok-job-fisher` | WOK-渔夫模块 † | 23 | 15 | `FishingSystem` | 核心、存储、经济、厨师；Farmer's Delight、Tide 可选 |
 | `wok-job-brewer` | WOK-酿酒师模块 | 41 | 59 | `BrewerSystem` | 核心、职业框架、战斗框架、农夫、WebUI |
 | `wok-job-tarot` | WOK-塔罗师模块 | 56 | 67 | `TarotSystem` | 核心、职业框架、矿区、经济、战斗框架、精英怪、WebUI |
 | `wok-job-munitions` | WOK-军火商模块 | 55 | 103 | `MunitionsSystem` | 核心、职业框架、经济、电力、WebUI；TaCZ 可选 |
@@ -35,19 +35,20 @@
 | `wok-case-opening` | WOK-开箱模块 | 25 | 24 | `CaseOpeningSystem` | 核心、存储、经济、WebUI；TaCZ、SQLite 可选 |
 | `wok-stacking` | WOK-实体堆叠模块 | 11 | 33 | `StackingSystem` | 核心、精英怪 |
 
+† `wok-job-fisher` 这一行是 2026-09-06 单独补测的，其余 25 行仍是第一段声明的 2026-08-30 基线。另外它在登记表里的 `category` 虽然是 `job`，但这只是业务归类：`job/JobId.java` 的枚举至今只有八个常量、没有 `FISHER`，因此渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门；它对 `wok-store` 的依赖同样只出现在 GameTest 里，图鉴本身走原版 `FishingJournalSavedData` 而不落 SQLite。
+
 GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包含测试类。`wok-champion` 的测试数量较高，是精英词条和红线组合测试形成的结果。
 
 ## 2. 产品边界
 
 - 根工程只登记 WOK 本体模块。
 - `WOK-本体护甲` 由 `wok-job-armorer` 管理，但不改变现有仓库身份、modId、注册 ID 或存档数据。
-- `standalone/wok-infantry-armor` 是 `WOK步战附属-独立护甲` 源码位置，不属于任何 WOK 本体模块。
-- `standalone/wok-cardgame` 是 `WOK-卡牌游戏独立MOD`，正式 modId 为 `wok_cardgame`，同样不进入本体模块登记。
+- `standalone/kivotos-armorer` 是本仓库内唯一的独立子工程，已跟踪入库，modId 为 `kivotos_armorer`、包根为 `com.kivotos.armorer`；按其自带 README，它是从本项目独立出去的纯护甲 MOD（六档插板护甲与电浆护盾），不属于任何 WOK 本体模块。它与 `WOK-本体护甲` 的产品线归属尚未由仓库所有者裁定，登记前不要据此改动本体资源。
+- `WOK步战附属-独立护甲` 与 `WOK-卡牌游戏独立MOD`（modId `wok_cardgame`）在本仓库内没有源码目录，只在 `module-registry.json` 的 `excludedProducts` 中声明排除，不进入本体模块登记。
 - `WOK步战核心`、部位血量和创伤治疗均不进入本库存。
 
 ## 3. 当前保护状态
 
-- `wok-job-brewer` 存在活动工作区改动，整理过程只登记所有权，不移动或重写其源码和资源。
 - `wok-job-armorer` 资源量最大，并承担 `WOK-本体护甲` 兼容责任，物理迁移排在后段。
 - `wok-champion` 文件和测试最多，必须先拆清纯逻辑、Champions 兼容层、客户端表现和 GameTest。
 - `wok-market` 已从经济核心独立登记，避免基础货币模块对 WebUI 和 SQLite 挂单实现形成反向依赖。

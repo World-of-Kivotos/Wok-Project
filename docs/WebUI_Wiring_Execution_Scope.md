@@ -14,7 +14,7 @@
 | # | 议题 | 裁定 | 影响 |
 |---|---|---|---|
 | S1 | 接线深度 | **50 条 planned action 一次到底** | 含 11 条需写真业务代码的 BACKEND（新 DAO 查询 / 新反查索引 / 私有字段暴露），不留 mock 尾巴 |
-| S2 | 中文输入（A14） | **本轮解掉** | `WebUiScreen` 叠隐藏 EditBox 接 GLFW IME 组字事件，市场搜索 / admin 过滤 / 按名找人三处交互按"可输入"设计 |
+| S2 | 中文输入（A14） | ~~本轮解掉~~ → **改判 DEFERRED** | 原定"`WebUiScreen` 叠隐藏 EditBox 接 GLFW IME 组字事件"的**前提已被推翻**：LWJGL 3.3.1 的 GLFW 绑定零 preedit/composition API（javap 实测），叠 EditBox 也拿不到组字事件。技术路线待定，见 [WebUI_ChineseIME_DesignSpec.md](WebUI_ChineseIME_DesignSpec.md)。约束仍在：市场搜索 / admin 过滤 / 按名找人三处**必须各自提供免输入的替代路径**（按名找人已由 `player.roster` 点选名册解决） |
 | S3 | 服务端推送（A11） | **补三个生产发送方** | 市场成交、求婚收到、精英怪击杀结算。同时建立受控事件名常量表 |
 
 **"一次到底"指范围覆盖，不指交付批次。** 交付仍严格遵守「一个模块一个分支 / 一个 PR 只承载一个模块」，
@@ -33,19 +33,20 @@
 | market | `market.list`、`.place`、`.buy`、`.cancel`、`.mine`、`.history`、`.baseValue`、`.categories` |
 | admin | `admin.setBaseValue`、`admin.listItems` |
 | case | `case.state`、`case.open`、`case.apply` |
-| 客户端本地 | `client.i18n`、`client.playCaseSound` |
+| 客户端本地 | 真源是 `webui/src/lib/actions.ts` 的 `CLIENT_LOCAL_ACTIONS`（`WebUiBridge.handleClientLocal` 就地处理，不走服务端往返）。本文写作时是 `client.i18n`、`client.playCaseSound` 两条；现已扩至六条，另含 `client.closePanel`、`client.textFocus`、`client.display.get`、`client.display.set` |
 
 ### 2.2 清单的过期项（复核发现）
 
-接线清单第四章把**开箱列为"全库零实现"**，该判定已过期：`CaseWebUiActions` 已注册
+接线清单第四章原把**开箱列为"全库零实现"**，该判定已过期：`CaseWebUiActions` 已注册
 `case.state` / `case.open` / `case.apply` 三条，是盘点（08-12）之后落地的。开箱不在本轮接线范围内。
+（该清单第四章已于 2026-09-20 按代码改准，不必再靠本节纠偏；本节保留作复核记录。）
 
 ### 2.3 两条横切阻塞仍然成立（逐个验过，未信清单）
 
 | 项 | 复核方式 | 结论 |
 |---|---|---|
-| A11 服务端推送 | 全库搜 `sendWebUiEvent` | 仍**只有 `MiningNetwork:142` 定义处一处匹配**，零业务调用方。推送面至今是空管道 |
-| A14 中文输入 | 读 `WebUiScreen:24-26,181-189` | 仍是 step2 接口位。`charTyped` 只直接转发 BMP 字符，组字态（preedit）中文未做 |
+| A11 服务端推送 | 全库搜 `sendWebUiEvent` | 仍**只有 `MiningNetwork.sendWebUiEvent` 定义处一处匹配**（2026-09-20 复核依旧），零业务调用方。推送面至今是空管道 |
+| A14 中文输入 | 读 `WebUiScreen` 的类头注释与 `charTyped` | `charTyped` 只直接转发 BMP 字符，组字态（preedit）中文未做。**但代码里那两处"step2 接口位"注释本身是错的**——它写的 GLFW 组字事件不存在，见 [WebUI_ChineseIME_DesignSpec.md](WebUI_ChineseIME_DesignSpec.md) 2.1 / 2.4 |
 
 ### 2.4 前端接线成本已被设计成接近零
 
@@ -142,7 +143,7 @@
 | `marriage.wed` | WRAP | E2 | 失败原因六态，需映射前端文案 |
 | `marriage.divorce` | WRAP | E2 | 失败原因四态，需映射前端文案；**后续 fix/marriage-escrow 分支已把语义从"立即解除"改成"提交进公示期"**（回执追加 pending/alreadyPending/effectiveAtTick/escrowTicks，真源见 `MarriageWebUiActions.DIVORCE` 与 `webui/src/lib/types.ts` 的 `MarriageDivorceResult`），本表格是分支 W6 落地时的历史快照，不代表当前契约 |
 | `marriage.sharedInv` | WRAP | E5 | 仿 `PlayerWebUiActions.INVENTORY` 逐槽转 JSON；白名单已在容器层强制，前端只读展示 |
-| `marriage.respond` | BACKEND | E3 | `MarriageProposals` 只有 byProposer 单向表，**无反查索引**，须新增反查 |
+| `marriage.respond` | BACKEND | E3 | **已完成**：`MarriageProposals.proposersFor(UUID)` 提供反查，**刻意用对正向表的 O(n) 扫描而不新建第二张 target -> proposer 索引表**（那张表须在 propose 覆盖旧意向 / clear / 典礼后双方 clear 三处同步失效，漏一处就永远挂着一条不存在的求婚）。结果并入 `marriage.state` 的 `incomingProposals` |
 
 ### 分支 W7 · 矿洞（4 条）
 
@@ -150,7 +151,7 @@
 |---|---|---|---|
 | `mining.overview` | WRAP | F1 | **R1 模型：全服仅 3 个常驻共享固定实例（每难度 1 个），不是私有副本** —— UI 设计的前提认知偏差点 |
 | `mining.myStatus` | WRAP | F2 | `regionAt(x,z)` + 维度校验，纯读 |
-| `mining.enter` | WRAP | F3 | **必须复用 `EntryGateway.requestEnter` 权威路径**。现存三条不一致路径中，`/mining enter` 与 SelectZoneC2S 都跳过 gateCheck 且从不实际传送 |
+| `mining.enter` | WRAP | F3 | **必须复用 `EntryGateway.requestEnter` 权威路径**（gateCheck + 入场费 + 传送）。历史上曾有的两条旁路都已不是现在时事实：`com.miningdim.command.MiningCommands`（allocate-only、不传送）未接入主类 `MiningDim` 的子系统列表，其命令注册监听器不会生效，属死代码；`SelectZoneC2S` 已整包删除（见 `MiningNetwork` 的 F087 注释）。活跃的 `/mining enter`（`entry.MiningCommands`）走的就是 `requestEnter` |
 | `mining.leave` | WRAP | F4 | 委派 `EntrySystem.leaveToFallback` |
 
 ### 分支 W8 · 精英怪图鉴（2 条）
@@ -180,13 +181,22 @@
 | `admin.job.setLevel` | WRAP | I3 | 权限校验 / setLevel / 改级后 syncTo 全就绪 |
 | `admin.mining.reset` | WRAP | I4 | 活跃版 `/mining reset` **无二次确认**，面板按钮必须自行加确认弹窗 |
 
-### 分支 W11 · 中文输入 IME（横切，客户端）
+### 分支 W11 · 中文输入 IME（横切，客户端）—— 状态 DEFERRED
 
-裁定 S2。`WebUiScreen` 叠一个不可见原版 `EditBox` 捕获 GLFW IME 组字事件（preedit / commit），
-已上屏字符经 `WebBrowser.sendKeyTyped` 注入 CEF。接口位已在 `WebUiScreen:24-26,181-189` 留好。
+**本节已改由 [WebUI_ChineseIME_DesignSpec.md](WebUI_ChineseIME_DesignSpec.md) 承载，动工前必须先读那份。**
 
-**只能真客户端验**（见 `test-server-access`：固定测试服 shinoyuki@192.168.10.139）。验收必须覆盖：
+原文写的"`WebUiScreen` 叠一个不可见原版 `EditBox` 捕获 GLFW IME 组字事件（preedit / commit）"
+**前提已被撤销**：对 LWJGL 3.3.1 的 `lwjgl-glfw` 做 javap 符号检查，`preedit` / `composition` 零命中，
+GLFW 只把**已上屏**的字符经 `glfwSetCharCallback` 交给应用；组字中间态、候选词列表、组字光标位置一概不经过它。
+叠 EditBox 同样拿不到组字事件，**照原文动工会直接进死胡同**。
+
+实际方案待该文第三章的真机实验协议（E1-E8）跑完后，依 E1/E2 结果在路线 A（只修边角）/ B（候选窗定位）/
+C（旁路输入，EditBox 真当输入框用而非捕获 preedit）三者中选一。**只能真客户端验**，验收必须覆盖：
 拼音组字中途的候选窗、组字态回退键、中英切换、粘贴、以及**焦点在 CEF 内 input 与在 MC 界面之间切换**。
+
+遗留项（挂在此处避免再被遗忘）：`WebUiScreen` 的类头注释与 `charTyped` 方法体内仍各留着一条同源的错误说法
+（"完整 IME 需叠加一个不可见原版 EditBox 捕获 GLFW IME 组字事件"）。按 ChineseIME 规格 2.4 节的处置要求，
+**W11 真正动工时的第一个提交必须是删掉这两处注释**；在此之前不单独改动——它属 W11 范围，不夹带进别的分支。
 
 ### 分支 W12 · 服务端推送（横切）
 
@@ -198,7 +208,7 @@
 | 求婚收到 | `propose` 成功 | 同上，且对方当前只收聊天栏消息（E4） |
 | 精英怪击杀结算 | 分赃入账 | 现在只打 LOGGER + grantDaily，**没有任何 S2C 告诉玩家分到了多少**（G4） |
 
-**红线（承自 `lib/bridge.ts:264-269`）**：任何功能都不得依赖本通道到达才能工作。进度类数据一律轮询。
+**红线（承自 `lib/bridge.ts` 的 `on()` 注释，按 W12 规格的行号纪律只写方法名）**：任何功能都不得依赖本通道到达才能工作。进度类数据一律轮询。
 事件只做"提示有变化"，前端收到后重新拉取权威数据，**不得把事件 payload 当权威值直接展示**。
 
 ---
@@ -256,7 +266,7 @@
 
 | 项 | 口径 |
 |---|---|
-| Java 侧 | `runGameTestServer` 全绿（当前基线 817），新增 action 必须有 GameTest 断言**具体业务结果**（金额、状态码、副作用），删掉被测逻辑测试必须挂 |
+| Java 侧 | `runGameTestServer` 全绿（**基线不在本文写死**：以合入前在 `main` 上实跑一次、日志行 `All N required tests passed` 的 N 为准；要一个可读参考值时查 [docs/modules/INVENTORY.md](modules/INVENTORY.md) 的当期基线，口径是 `@GameTest` 注解出现次数、不含 `@GameTestHolder` / `@GameTestGenerator`。原写的 817 是 2026-08 的旧数，2026-09-20 实测注解数已是它的近两倍，照 817 判"全绿"会把大批用例缺席当成正常），新增 action 必须有 GameTest 断言**具体业务结果**（金额、状态码、副作用），删掉被测逻辑测试必须挂 |
 | 前端侧 | `tsc --noEmit` / `eslint` / `stylelint` / `vite build` 全绿 |
 | 契约一致 | `system.handshake` 自检 `missingOnServer` 为空 |
 | 核销完整 | `PLANNED_ACTIONS` 相应变短，编译期双向核对锁通过 |
@@ -271,14 +281,14 @@
 
 | # | 决策 | 卡住 | 现状 |
 |---|---|---|---|
-| J9 | **特勤扫描的触发入口** | `job.agent.scan`（W4） | 三件套齐全但零调用点。选项：专用道具 / 键位 / 平板内按钮 / 手持特定物品右键 |
-| J8 | **可交易标的白名单** | `market.tradable`（W2） | 塔罗禁交易、青辉石绑定、婚戒绑定在设计里存在但挂单路径无过滤。注：`miningdim:azurite` 不是注册物品（纯账本货币），绑定规则永远匹配不到真实物品 |
+| J9 | **特勤扫描的触发入口** | ~~`job.agent.scan`（W4）~~ 已不卡 | **已拍板落地 = 平板内按钮**。`job.agent.scan` / `.seal` / `.state` 已注册，`AgentWebUiActions` 类注释明写"扫描与封印的唯一入口是本类的三条 WebUI action"，原生 `AgentScanMenu` 那条面板路径已整条删除（统一 UI 入口走平板 hub，不为特勤单开 ad-hoc 原生入口） |
+| J8 | **可交易标的白名单** | 仅剩婚戒子项卡 `market.tradable`（W2） | **塔罗子项已落地**：`MarketTradeWhitelist.judge` 是 `MarketEngine#place` 挂单拒绝与 `market.tradable` 只读预判的共用唯一真源（只有最低品质 R 可挂，并对容器内容物下钻一层防潜影盒夹带）。**青辉石子项属刻意不写分支而非遗漏**：AZURE 是纯账本余额，`miningdim:azurite` 不是注册物品，规则永远匹配不到真实 ItemStack。**婚戒子项仍待拍板**：该类注释原话"婚戒的转移限制归共享背包黑名单管，市场侧未获授权，不擅自加"，即"市场侧要不要接管婚戒转移限制"这一条还没定 |
 | — | **`shop.buy` 隔空下单规格** | `shop.buy`（W9） | 现有 buy/sell 内嵌 reach/tamper/冷却校验，隔空下单要重新定义这三者 |
 | J5 | **QTE 类交互进不进 MCEF** | `job.engineer.state` 的完整度（W4） | 建议**不进**：游标是每 tick 变化的服务端时序权威值，网络延迟直接影响判定手感。平板内只做数值预览与配方查询 |
 | J6 | **挂单过期做不做** | 市场页要不要留倒计时 UI | `ListingRow` 无 `expire_at` 列。不做则挂单永久有效，托管物品长期占用 |
 | J7 | **离线成交交付落点** | 收件箱面板（不在本轮 50 条内） | `drainPendingPayout` 只覆盖货款不覆盖退回物品 |
 
-前三条**直接卡住本轮的 W2/W4/W9**，须在对应分支开工前拍板。后三条不卡本轮。
+J9 与 J8 的塔罗子项已落地，不再卡本轮；**仍卡的是 J8 的婚戒子项与 `shop.buy`（W9）**，须在对应分支开工前拍板。后三条不卡本轮。
 
 ---
 
@@ -291,8 +301,8 @@
 | 全服 M0 总量（D8）、排行榜 | 全库无跨玩家遍历查询，是纯新建 |
 | 收件箱（B13）、挂单过期（B14） | 依赖决策 J6/J7 |
 | 组队 party、日常任务、皮肤库存、物品百科、成就 | 接线清单第四章的零后端系统，前端不做或留占位 |
-| 电力 / 线缆（C22） | 代码在未合并分支 `feat/generator-shell`，且 12 级中仅 IRON/COPPER 两级真实注册，现在展示是假数据 |
+| 电力 / 线缆（C22） | 仍不在本轮：派发表里没有任何 `power.*` action。（注：原写的"代码在未合并分支、12 级中仅 IRON/COPPER 两级真实注册"已过期——`com.miningdim.power` 已在主线，`ConductorMaterial` 12 级已全部经 `PowerRegistry.REGISTERED_MATERIALS` 注册） |
 | 空军（第 9 职业） | 无 spec。职业列表按数据驱动写，加第 9 个不用改前端 |
 | 厨师火候 / 纳米校准 QTE | 决策 J5 建议不进 MCEF，保留原生 Container GUI |
 | 物品取放拖拽 | 一律走 vanilla Container 协议，搬进 MCEF 只增延迟无收益 |
-| 第三方 mod 图标（J1） | 本 mod 自己的 303 张贴图已同 monorepo 构建期 copy；第三方（TACZ/Champions/farmersdelight）落中性占位块。倾向方案 (a) 新增 `client.itemIcon` 客户端本地 action，与 `client.i18n` 同构 |
+| 第三方 mod 图标（J1） | 本 mod 自己的贴图已同 monorepo 构建期 copy（实数见接线清单 A13，不在本文写死）；第三方（TACZ/Champions/farmersdelight）落中性占位块。倾向方案 (a) 新增 `client.itemIcon` 客户端本地 action，与 `client.i18n` 同构 |

@@ -1,13 +1,15 @@
 # 农夫经验等级 Mod — 设计规格文档
 
-> SUPERSEDED 对齐说明(完整性审计补): 本文档早于多职业框架决策。其持久化 / ModLoader / MC 版本 / 经济(第十一章 A/B/C PENDING)一律以 `JobFramework_Shared_Foundation_DesignSpec.md` 为准——FARMER 进度并入统一 `EnumMap<JobId,JobProgress>` capability(**作废本文档的独立 capability 方案**),平台锁 1.20.1 / Forge,经济用信用点。本文档的等级曲线、每日衰减表、耕地数值仍有效,作为农夫职业的数值参考。
+> SUPERSEDED 对齐说明(完整性审计补): 本文档早于多职业框架决策。其持久化 / ModLoader / MC 版本 / 经济(原第十一节 A/B/C 三项)一律以 `JobFramework_Shared_Foundation_DesignSpec.md` 为准——FARMER 进度并入统一 `EnumMap<JobId,JobProgress>` capability(**作废本文档的独立 capability 方案**),平台锁 1.20.1 / Forge,经济用信用点。本文档的等级曲线、每日衰减表、耕地数值仍有效,作为农夫职业的数值参考。
+>
+> 衰减表冲突已裁决(以运行代码为准): 农夫在 `FarmerModule` 里经 `JobXpPolicies.register(FARMER, FarmerXpCurve.POLICY)` 注册了**独立 XP 策略**,故**第五节表 C(T=1500 四档 + 末档 x0.005)才是农夫实际生效的每日衰减表**;`JobFramework_Shared_Foundation_DesignSpec.md` 的 2000 系表(`JobXpCurve`)只是**未注册独立策略**的职业所落回的默认值,不是农夫的真源。注意代码侧 `FarmerConstants` 与 `FarmerWheatBuyback` 的类注释仍声称农夫经验已统一到 2000 系,与同模块的注册行自相矛盾,属待改口的注释——**不要据其撤销该注册或删除 `FarmerXpCurve`**,那会同时废掉已验证通过的表 C 断言与第六节的 30 天毕业推演。
 
 ## 文档元信息
 
 - 用途: Claude Code 实现阶段的唯一数值与机制参考。所有常量以本文档为准,不得凭记忆改写。
 - 数值状态: 数值层已交叉验证自洽,30 天毕业目标已通过推演确认(见第六节)。
 - 状态图例: DECIDED 已定稿 / PENDING 待你拍板 / TODO 实现期补全。
-- 阻塞项: 进入编码前必须先解决第十一节列出的全部 PENDING。
+- 阻塞项: 已清空。第十一节原列的 PENDING 除"触顶反馈文案"一条外均已拍板并落码,逐条落点见第十一节。
 
 ---
 
@@ -15,7 +17,7 @@
 
 1. 节奏目标: 每天主动游玩 6 小时的正常玩家,约 30 天毕业(达到 L10)。
 2. 反扩建强制点: mod 作物只能长在 mod 耕地上;mod 耕地放置数量按玩家等级硬性封顶,超限直接拒绝放置。原版耕地对 mod 作物不可用、不产经验。
-3. 独立经验池: 本 mod 等级经验与原版 XP 完全分离,按玩家持久化。仅"在 mod 耕地上收获成熟 mod 作物"时结算。
+3. 独立经验池: 本 mod 等级经验与原版 XP 完全分离,按玩家持久化。仅"在 mod 耕地上收获成熟作物"时结算——作物范围含 mod 原生作物与兼容的原版 / Farmer's Delight 作物,见第二节。
 4. 每日经验软上限: 按玩家记录当日已结算有效经验,每日服务器固定时间清零;超过阈值后多档递减,实现"不断削减"。
 5. 升级解锁: 每次升级抬高方块上限;每两级解锁一档更高效耕地。
 6. 等级范围: 1 - 10,L10 为毕业。
@@ -26,10 +28,17 @@
 
 ## 二、机制总览 (DECIDED)
 
-- 经验结算事件: 仅认"作物方块从成熟态被破坏并掉落"这一事件,避免重复刷取。
+- 经验结算事件有**两条**,共用"单作物经验 × 档位产量"公式与同一每日软上限衰减:
+  1. **作物成熟态被破坏并掉落**(`FarmerSystem.onCropHarvested`,经验来源 `farmer/harvest`);
+  2. **Farmer's Delight 番茄右键采摘**(`FarmerSystem.onCropPicked`,经验来源 `farmer/pick`;采摘后把作物年龄重置回 0,并接管 FD 原生 1-2 掉落路径)。
+  两条都只认成熟态,避免重复刷取。
+- **兼容作物**: 结算范围不止 mod 作物。凡种在 **mod 耕地**上的下列作物,都按档位倍率放大掉落并按同一公式发经验:
+  - 本 mod 原生作物(`FarmerCropBlock`):小麦由收获事件单发,株数 = 该档产量,loot table 只负责补种种子;
+  - 兼容作物(表见 `FarmerHarvests.PRODUCE_BY_CROP`,由 loot modifier 放大产出):原版四种小麦 / 胡萝卜 / 马铃薯 / 甜菜,Farmer's Delight 五种卷心菜 / 洋葱 / 番茄 / 挂绳番茄 / 稻穗。
+  档位判据是"作物正下方是 mod 耕地"(`FarmerHarvests.tierFor`);FD 的纵向作物(稻穗 / 番茄柱)允许穿过同株作物列最多向下探 4 格。未解锁该档位的玩家退化为**基准产量 1**(与 loot modifier 同一裁决 F026),不享 2/3/4/5/6 倍放大。
 - 经验与作物掉落解耦: 每日软上限只削减经验,不削减作物掉落量(这是经济隐患来源,见第八节)。
 - 骨粉/加速器: 对 mod 作物禁用或不触发经验结算,否则软上限形同虚设。
-- 自动收割: 每日软上限已封顶单日经验产出,自动农场只省手不增经验。是否允许自动收割见第十节决策。
+- 自动收割: 每日软上限已封顶单日经验产出,自动农场只省手不增经验。档位倍率对自动机的排除现状见第十节。
 
 ---
 
@@ -54,7 +63,7 @@
 
 ---
 
-## 四、表 B — 耕地等级表 (DECIDED 主方案 / PENDING 档位间距是否再调)
+## 四、表 B — 耕地等级表 (DECIDED 主方案 / 档位间距已定为不调)
 
 吞吐量(原始经验/块/时)是平衡关键量。主方案: 单作物经验固定为 2,靠成长速度 + 产量拉开档位(高级地肉眼可见更快、产更多,利好卖菜经济)。
 
@@ -72,7 +81,7 @@
 
 ---
 
-## 五、表 C — 每日经验软上限衰减表 (DECIDED 主方案 / PENDING 末档取值)
+## 五、表 C — 每日经验软上限衰减表 (DECIDED,末档已定为 x0.005)
 
 按"当日已结算有效经验"判定当前档位,对新收获的原始经验乘以对应系数。满额段阈值 T = 1500。
 
@@ -88,7 +97,7 @@
 - 末档 x0.005 是"涓流",忠实于"不断削减"。
 - 经验硬顶触发点: 当日原始经验累计达 9,500(= 收获 4,750 株作物)时进入末档,此后经验近乎归零。该 9,500 是经济隐患的关键分界(第八节)。
 
-防肝硬选项 (PENDING,强烈建议公服开启): 末档 x0.005 改为 x0,即 2150 有效经验后当天彻底归零。效果对比:
+防肝硬选项 (**未采用**,保留作公服可选旋钮): 末档 x0.005 改为 x0,即 2150 有效经验后当天彻底归零。当前代码取涓流 x0.005(`FarmerXpCurve.DRIP_MULTIPLIER`),要切换只改这一处。效果对比:
 
 - 保留涓流(x0.005): 铁杆通宵党理论最快约 21 天。
 - 改为硬归零(x0): 任何人单日有效经验硬顶 2150,全员毕业 >= 28 天,彻底锁死通宵党。
@@ -174,7 +183,7 @@
 
 ---
 
-## 八、经济侧隐患与方案 (PENDING — 必须现在决策)
+## 八、经济侧隐患与方案 (DECIDED — 方案 4 已实现)
 
 产量数表已自洽,但毕业玩家会持续向市场灌入小麦,通胀风险在经验系统之外。四个方向:
 
@@ -183,7 +192,34 @@
 3. 小麦掉落跟经验同步衰减: 封顶后掉落按比例减少。能根治但摧毁"为经济种田"乐趣,机制怪异,不推荐。
 4. 动态收购价(推荐): NPC 收购单价随当日/全服小麦供给衰减,与经验软上限同构。不惩罚种田本身,只给货币注入量封顶,玩家照样能种能卖、边际收益递减。
 
-倾向: 方案 4。与现有经验软上限设计语言一致,不破坏种田手感,只掐住通胀源头。若选 4,收获事件结算时同时算"经验衰减档"与"经济衰减档",两条曲线独立持久化。
+倾向: 方案 4。与现有经验软上限设计语言一致,不破坏种田手感,只掐住通胀源头。若选 4,收获事件结算时同时算"经验衰减档"与"经济衰减档",两条曲线独立持久化。以上四个方向保留作决策背景。
+
+### 8.1 方案 4 的落地实现 (已交付)
+
+- **收购衰减曲线**: `FarmerWheatBuyback`,形态与矿物收购同构 —— `price(n) = basePrice × max(floorRatio, decayBase^max(0, n - softCap))`。`wheatBuyPrice` 给单株价,`totalBuyPrice` **逐株求和**,保证跨 `WHEAT_DAILY_SOFTCAP` 边界时收益连续(与"一株一株卖"结果一致,无边界跳变)。
+- **结算与先扣后发闭环**: `FarmerWheatSellService.sell` —— 先扣小麦、再经 `grantDaily` 入账;`grantDaily` 抛出(库被锁 / 磁盘满)时走 `refundWheat` 回滚已扣小麦,不做"扣了货没给钱"。
+- **触发点**: `/farmer sell <amount>` 命令(`FarmerSystem`)与 WebUI 动作 `job.farmer.sell`(`FarmerWebUiActions`)。
+- **两条曲线独立持久化**: 经济衰减按**当日卖出株数**,落 `FarmerSavedData.wheatSoldToday`;经验衰减按**当日有效经验**,落 `JobProgress` 的 dailyXp。两者互不影响,UTC 翻日同步清零(见第十一节 C)。
+
+### 8.2 收购曲线参数表 (代码真值)
+
+| 参数 | 值 | 常量 | 说明 |
+|---|---|---|---|
+| basePrice | 1 信用点/株 | `FarmerConstants.WHEAT_BASE_PRICE` | 农夫定位为基础 faucet,单价低靠量;经济文档 8.6 仍待校准 |
+| softCap | 2,160 株/日 | `FarmerConstants.WHEAT_DAILY_SOFTCAP` | = 单块超凡地 24h 满产(第七节表 1),作"正常单块全天产出"的不衰减额度基准 |
+| decayBase | 0.97 | `FarmerConstants.WHEAT_DECAY_BASE` | 与矿物收购同构 |
+| floorRatio | 1% | `FarmerConstants.WHEAT_PRICE_FLOOR_RATIO` | 直接转引 `EconomyConstants.ECONOMY_PRICE_FLOOR_RATIO` 单一真源,不持字面量副本 |
+
+**量纲与并档规则(改数前必读)**: `WHEAT_DAILY_SOFTCAP` 是**株**量纲,只喂收购曲线 `FarmerWheatBuyback`;`FarmerConstants.DAILY_CREDIT_FAUCET_CAP`(转引 `EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER`,60,000)是**信用点**量纲,只喂 `grantDaily`。两者量纲不同,**不可混用**。更关键的跨职业耦合: 卖菜与矿工卖矿(`settleOreSale` 内部同键)**共用全服同一 `(playerId, credit_faucet)` 每日累计计数器**(`FarmerConstants.WHEAT_SELL_FAUCET_KEY` 转引 `EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY`),各 faucet **并入同一衰减主闸天花板**,而非各算独立日上限。故调农夫单价前必须回 `docs/Economy_BalanceSheet_DesignSpec.md` 过一遍全局净流入,单独按农夫算会算错全服货币注入量。
+
+### 8.3 售卖身份门 (已实现)
+
+卖出 mod 小麦要求农夫精通等级 >= `FarmerConstants.SELL_MIN_MASTERY_LEVEL`(当前 **2**),未达门槛**不扣物品、不发币**,直接返回 `SellResult.masteryDenied()`。
+
+- 判据在 **service 层**(`FarmerWheatSellService.sell`)而非命令层,保证未来 GUI / 网络包直调也过同一门;命令层 `FarmerSystem` 只转述该结果做玩家提示。
+- 设计意图: 本项目无"当前激活职业"概念(每人对所有职业恒 level >= 1),故用精通等级作身份代理 —— `level >= 2` 即"确实练过农夫、升过至少一级",排除纯靠 `/give` 或跨账号交易拿到小麦就直接套现的白板小号(L1 默认态)。这是 `economy-laundering-vulnerability` 在农夫侧的堵口。
+- **诚实局限**: 玩家真升到 L2 后仍可倒卖交易来的小麦,非结构级杜绝(结构级需改成收获即时结算,会废掉"小麦可交易给厨师"的厨师原料链)。
+- 交叉引用: `SELL_MIN_MASTERY_LEVEL` 已被 `docs/Economy_BalanceSheet_DesignSpec.md` 与 `docs/Ore_Fish_And_Soup.md` 引作渔夫职业的对比参照 —— **渔夫 `/fishing sell` 目前没有同类身份门**,其余职业亦未跟进。
 
 ---
 
@@ -199,19 +235,20 @@
 ## 十、反作弊要求 (实现期落地)
 
 - 骨粉/作物加速器对 mod 作物禁用或不触发经验结算。
-- 自动收割是否允许由你定;无论是否允许,每日软上限已封顶单日经验,自动农场只省手不增经验。建议至少对 mod 作物禁用观察者自动机以保留手动手感。PENDING。
-- 经验结算只认"作物方块从成熟态被破坏并掉落"事件,防重复刷取。
+- 自动收割(**部分落地,仍有口子**): 不物理禁止自动机,但**走 loot modifier 的产出路径已剥夺其档位倍率**——`FarmerHarvestLootModifier` 显式排除 `FakePlayer`(它是 `ServerPlayer` 子类且 `getType()` 同样返回 `minecraft:player`,`instanceof` 与 loot json 的 `entity_properties` 条件都拦不住它;自动化模组正是借它伪装成玩家驱动收割,放行等于把增产直接送给机器农场)。受耕地加成的原版 / Farmer's Delight 作物因此只拿基准产量 1。
+  - **尚未闭合(PENDING)**: 本 mod 原生作物 `FarmerCropBlock` 走的是 `FarmerSystem.onCropHarvested` 分支,该分支只判 `event.getPlayer() instanceof ServerPlayer`,**没有同款 `FakePlayer` 排除**,故自动机收割原生作物仍能拿满档倍率与经验,是一个自动化套利口子。需在该分支补齐同款排除、并配一条"以 `FakePlayer` 破坏成熟 `farmer_crop`,断言产量退化为基准值且不结算经验"的 GameTest 后,本条方可整体改 DECIDED。
+  - 无论是否允许,每日软上限已封顶单日经验,自动农场只省手不增经验。
+- 经验结算只认成熟态的两条事件(成熟破坏并掉落 / FD 番茄右键采摘,见第二节),防重复刷取。
 
 ---
 
-## 十一、待确认实现项 — 进入 Code 前必须拍板
+## 十一、待确认实现项 — 决策的最终落点
 
-按架构先行原则,以下三类共需先决策,否则无法开始编码:
+原按架构先行原则列的三类决策,除下面明确标 PENDING 的一条外均已拍板并落码(编码已完成):
 
-### A. 技术栈与版本 (PENDING)
-- ModLoader: Forge / NeoForge / Fabric。
-- MC 版本号。
-- 影响: 等级数据存储 API、方块状态、事件钩子差异较大。
+### A. 技术栈与版本 (DECIDED)
+- Forge 1.20.1 / Java 17(与文首 SUPERSEDED 注记一致)。
+- 等级数据存储走 entry 玩家 capability 的 `EnumMap<JobId,JobProgress>`,见 B。
 
 ### B. 玩家数据持久化 (已定: 方案一)
 - 方案一(已采用): mod 自带 capability/attachment 落盘(单服自包含)。职业进度落在 entry 的玩家 capability 上,
@@ -220,28 +257,30 @@
   (jarJar 内嵌 org.xerial:sqlite-jdbc, 单库 miningdim.db 落世界存档目录), 现已收编跳蚤市场、开箱、钱包、
   双币幂等账本与每日计数。跨服与后台看板若日后要做, 应基于该 SQLite 另议导出/同步边界, 不要按 PG 设计。
 
-### C. 上限触发反馈与时区 (PENDING)
-- 触顶后是"经验显示为 0 灰字提示"还是"actionbar 提示进入衰减档"。
-- 每日清零时区与具体时刻(建议 04:00)。
+### C. 上限触发反馈与时区
 
-### D. 数值层遗留决策 (PENDING)
-- 表 B 主方案 vs 替代方案(默认主方案)。
-- 表 B 档位间距是否再调(默认不调)。
-- 表 C 末档 x0.005 vs x0 硬归零(公服建议 x0)。
-- 第八节经济方案四选一(倾向方案 4)。
-- 自动机是否禁用。
+- **时区与时刻 (DECIDED)**: 一律 **UTC 自然日 `epochDay` 翻日**,不是原先建议的 04:00。由 `FarmerClock.currentUtcDayStamp()` 提供(`Instant.now().atZone(UTC).toLocalDate().toEpochDay()`),与 `JobServiceImpl.currentUtcDayStamp`(职业经验翻日)、`economy.AbuseGuard.currentPlayerDayStamp`(信用点 faucet 翻日)**三处同口径,改一处必须同步三处**;同一表达式还被 agent / munitions / tarot 等职业时钟复用,属跨模块既定架构决策。原"建议 04:00"作废。
+- **触顶反馈 (PENDING)**: "经验显示为 0 灰字提示" 与 "actionbar 提示进入衰减档" 二选一,尚未定。
+
+### D. 数值层遗留决策 (全部 DECIDED)
+- 表 B **取主方案**: 单作物经验固定 2,靠成长速度 + 产量拉档。落点 `FarmerTier` 五档常量(解锁 L1/3/5/7/9,成长间隔 10/8/6/5/4 分,产量 2/3/4/5/6)+ `FarmerConstants.SINGLE_CROP_XP = 2`。替代方案不采用。
+- 表 B **档位间距不再调**(取默认),同落点 `FarmerTier`,已固化。
+- 表 C 末档**取 x0.005 涓流,不硬归零**。落点 `FarmerXpCurve.DRIP_MULTIPLIER = 0.005`(`BOUNDS = {1500, 1800, 2000, 2150}` / `MULTIPLIERS = {1.0, 0.30, 0.10, 0.03}` / `DAILY_SOFTCAP = 2150`)。公服若要改硬归零,改这一处并同步第五节与第六节推演。
+- 第八节经济**取方案 4**,已完整实现,落点见 8.1 / 8.2。
+- **自动机不整体禁用**,但 `FakePlayer` 在 loot modifier 路径被排除、不享档位倍率;原生作物路径尚未排除,详见第十节。
 
 ---
 
-## 实现期工作分解 (确认上述后展开)
+## 实现期工作分解
 
 按串行/单 Agent、单文件原子提交推进,每个模块配 TDD 断言具体经验数值与边界:
 
 1. 方块注册与五档耕地档位(表 B 常量)。
-2. 收获事件结算(成熟破坏 -> 掉落 -> 经验入账)。
-3. 每日经验衰减档计算 + 每日清零任务(表 C)。
+2. 收获事件结算(成熟破坏 -> 掉落 -> 经验入账;含 FD 番茄右键采摘第二条经验源)。
+3. 每日经验衰减档计算 + 每日清零任务(表 C,UTC `epochDay` 翻日)。
 4. 等级与方块上限校验(表 A,放置拒绝逻辑)。
-5. (若选经济方案 4)经济衰减档计算与持久化。
+5. 经济方案 4: 收购衰减曲线计算与持久化(见 8.1 / 8.2)。
 6. 反作弊钩子(骨粉/自动机)。
+7. 售卖等级门: service 层 `SELL_MIN_MASTERY_LEVEL` 身份门(见 8.3)。
 
 测试断言示例: L5 满 25 块高级地 6h 入账 = 2163 经验;单日原始经验 9500 时进入末档;放置第 13 块低级地在 L1 被拒绝。

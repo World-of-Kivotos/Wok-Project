@@ -5,7 +5,8 @@
 - 用途: 电力"线材(导体/线缆)"子系统实现阶段的唯一架构与机制参考。所有规则以本文档为准, 不得凭记忆改写。
 - 目标平台: Minecraft 1.20.1 + Forge 47.x + Java 17 + Parchment。所属包 `com.miningdim.power`。
 - 部署环境(硬约束): 公服 80 人在线、初始血量 80、TACZ 枪械、死亡不掉落。任何爆炸/伤害一律按 %最大血量, 不套原版 TNT 定值(见 `docs/MiningDimension_Mod_DesignSpec.md` 与经济总表)。
-- 系统定位: 电力系统分三层 —— 发电(自研, 另立文档)、储能/传输(线缆=本文档)、用电(逐台另行立项)。本文档只覆盖"有线线材"这一层, 不接入 Flux Networks 无线传输。
+- 系统定位: 电力系统分四层 —— 发电(自研, 另立文档)、传输(线缆=本文档, 只有一次额定吞吐的瞬态缓冲, 不持久存电)、储电(`com.miningdim.power.storage.PowerCell*`, 独立包, 见 `docs/Power_Economy_Rebalance_DesignSpec.md` 第三章与七之二)、用电(逐台另行立项)。本文档只覆盖"有线线材"这一层; 线材系统自身不实现无线传输机制, 与 Flux Networks 的互操作边界与终局定位见 `docs/Power_Economy_Rebalance_DesignSpec.md` 第 3.3 节。
+- 交叉引用(双向): `docs/Power_Economy_Rebalance_DesignSpec.md` 修订本文的金导体档位并新增储电层与消费层; 凡与本文冲突之处以该文为准。
 - 强依赖: 传输层已落码的网络引擎(见第二章); 反洗钱经济总表 `docs/Economy_BalanceSheet_DesignSpec.md`(任何产能/损耗都是隐性 faucet/sink, 须过账); 矿物世界 `docs/MiningDimension_Mod_DesignSpec.md` 的当前生效 datapack(新矿 worldgen 以它为唯一执行路径)。
 - 设计北极星: 参考现实电缆制造与材料学做"风味", 不做 1:1 工艺仿真; 分级门槛=矿物稀有度 + 提纯次数/灌注料稀有度, 不堆机器。
 - 状态图例: DECIDED 已定稿 / IMPLEMENTATION_REQUIRED 已定机制尚待落码。
@@ -15,7 +16,7 @@
 
 ## 一、系统定位与设计目标 (DECIDED)
 
-1. 定位: 有线 FE(Forge Energy) 线材系统, 是"可获取的前中期主力传输层"; 本系统不实现或依赖 Flux Networks 无线传输。
+1. 定位: 有线 FE(Forge Energy) 线材系统, 是"可获取的前中期主力传输层"; 本系统自身不实现无线传输机制, 也不在运行期依赖 Flux Networks —— 两者只经 Forge Energy capability 通用互操作, 该边界见第二章与 `docs/Power_Economy_Rebalance_DesignSpec.md` 第 3.3 节。
 2. 12 级导体阶梯, 用四条真实轴叠出(见第四章), 非"12 种金属各一级"(现实里多数金属不是导体线芯)。
 3. 生矿不能直接用: 至少经合成加工, 高级导体经"提纯机"多次提纯(灌注料逐级升级); T1-T3 保留 raw 合成以 bootstrap(见第五、八章)。
 4. 热学: 过载升温、升温降效, 温度是每张网一个值; 绝缘等级=耐温档; 导体温度系数=降效 floor(见第三章)。
@@ -28,18 +29,20 @@
 
 ## 二、传输网络引擎 (DECIDED, 已落码)
 
-网络引擎已落码，包为 `com.miningdim.power.cable` / `com.miningdim.power.grid`。当前实际注册的线缆只有铁、铜两种；`EnergyCableGameTests` 现有 3 个用例，覆盖并网/拆网、receive-only 共享缓冲和过载升温后冷却回升。本文不保留会过时的全项目 GameTest 总数。
+网络引擎已落码，包为 `com.miningdim.power.cable` / `com.miningdim.power.grid`。当前实际注册的线缆为 12 档 `ConductorMaterial` 全量加阶梯外的钨耐热线，共 13 种摆放态。`EnergyCableGameTests` 覆盖并网/拆网与容量比例守恒、合网守恒与超额只计一次、末根弃电审计、receive-only 共享缓冲、过载升温与冷却回升、过压拒抽、P3 距离电阻与温度契约、NbTi 64 段冷却边界、十二档材料注册契约等；具体用例数量与清单以该类源码为准，本文不登记会过时的数字，也不保留会过时的全项目 GameTest 总数。
 
 - `EnergyNetwork`: 一张连通网的运行时状态(成员线缆 map、端点 map、瞬态缓冲 stored、木桶吞吐帽)。全部驻内存, 不进 NBT(Powah #169 死因: 单块 NBT 存全网坐标致指数膨胀崩服)。
-- `EnergyNetworkManager`: 每 ServerLevel 一实例。`addCable` 并网(merge)、`removeCable` 拆网(reflood 分量)、`markEndpointsDirty` 邻居变化标脏; `LevelTickEvent` END 每 tick 结算: 端点惰性重算 + 从生产端(canExtract)拉入缓冲 + 推给消费端(canReceive 且非 canExtract)。线缆方块实体**无 ticker**, per-cable 每 tick 成本=0。
+- `EnergyNetworkManager`: 每 ServerLevel 一实例。`addCable` 并网(merge)、`removeCable` 拆网(reflood 分量)、`markEndpointsDirty` 邻居变化标脏; `LevelTickEvent` END 每 tick 结算: 端点惰性重算 + 从生产端(canExtract)拉入缓冲 + 推给消费端(canReceive)。线缆方块实体**无 ticker**, per-cable 每 tick 成本=0。拉、推两阶段各分两轮: 纯生产端/纯消费端走第一轮, 储电这类 canExtract 且 canReceive 的双向端点单开第二轮并排在后面(语义="先用发电机的电、先满足真实负载, 储电两头兜底")。分轮是硬要求: 双向端点若与发电机同轮参与, 会在同一 settlement 内取出又充回地 churn, 白吃吞吐并推高网温。储电层的完整落地状态见 `docs/Power_Economy_Rebalance_DesignSpec.md` 七之二。
 - `EnergyCableBlockEntity`: 暴露 `ForgeCapabilities.ENERGY` 的 **receive-only** 能力(canReceive=true, canExtract=false), 挂网络缓冲。receive-only 杜绝"端点自拉 + manager push"双计。
 - `EnergyCableBlock`: EntityBlock, `neighborChanged` 标脏端点。
-- 反双计边界: 端点分类 canExtract=生产端(拉), canReceive 且非 canExtract=消费端(推); 两者皆真的电池 v1 当生产端(避免 churn)。
+- 反双计边界: 端点分类 只能发(canExtract)的是生产端(拉), 只能收(canReceive)的是消费端(推); 两者皆真的是储电, 按上条在拉、推两阶段各自单开一轮结算(避免 churn), 不再像电网 v1 那样一律当生产端。
 - 网络硬化契约: 端点键固定为 `(BlockPos, Direction)`，同一方块多面接线不得互相覆盖；生产端和消费端均按稳定键排序并持久轮转游标，低容量竞争时不得因 `HashMap` 顺序长期饥饿。拆网时瞬态 FE 按各连通分量缓冲容量比例守恒分配；合网时两网存量直接相加，高于新木桶容量的部分记为待消化超额并连同完整网络上下文写日志，由随后 settlement 的推阶段（按 stored 而非 bufferCap 计量）消化回落，绝不裁剪丢弃 —— 玩家接一根线缆不得蒸发任何 FE，超额期间拉阶段整体停拉、注入路径安全拒收。唯一例外：整张网的最后一根线缆被拆除时没有任何幸存分量能承接瞬态缓冲，导体没了缓冲随之消失；这条路径必须按维度累计弃电量并打 WARN 日志（含维度、末根坐标、弃电量），绝不静默 return。合网超额只在**新产生**的那一刻计一次事件量：拓扑变更前就已存在的超额属于结转量，必须扣除后只记增量，否则往仍在超编的网上再放一根线缆（或区块重载时逐根 `onLoad` 并网）会把同一笔 FE 反复计入累计账。
 - 只读观测契约: manager 只向外提供不可变 `EnergyNetworkSnapshot`，字段至少包括额定容量、有效容量、温度、上次负载、损耗、全网最弱 `VoltageClass`、故障和冷却/失超状态；禁止把可变 `EnergyNetwork` 暴露给发电机、Jade 或其他调用方。
 - 电压抽取边界: 第三方 `ForgeCapabilities.ENERGY` 能源源默认 `LOW`。自研发电机显式报告输出 `VoltageClass`; 当源端电压高于该网所有成员中的最弱耐压时，manager 不从该源抽取，并向源端/日志报告超压拒绝，绝不把超压偷偷折算成热量或损耗。
 
-实现注记: `ConductorMaterial` 承载 12 级材料数据；方块注册按分期逐级开放，当前仅铁、铜。网络引擎本身(合并/拆分/结算)不受材料层影响，直接复用，材料扩展不得重写该引擎。
+实现注记: `ConductorMaterial` 承载 12 级材料数据；方块已按该表全量注册，不再分期开放注册动作，分期含义改指配方/贴图/UI 曝光节奏。网络引擎本身(合并/拆分/结算)不受材料层影响，直接复用，材料扩展不得重写该引擎。
+
+Flux 兼容性契约: `com.miningdim.power.grid` 包内的 `FluxInteropGameTests` 用与 Flux Networks 1.20.1-7.2.1.15 逐位一致的 capability 形状钉住了双方的互操作方向(Point 主动推入线缆、Plug 被动等我方 push)。重构该包时必须保留这层契约，不得在不知情的情况下改掉端点分类或 push/pull 方向。
 
 ---
 
@@ -79,14 +82,16 @@ P3 距离损耗采用固定整数技术账，避免浮点累计漂移。每段�
 | 8 | 金 | 99.99% 4N | 3200 | 0.50 | HIGH | — | XLPE(120°C) | 原版金·提纯 | 温度系数最低=最耐热稳定(现实反差); 吞吐 2026-08-19 由 2560 上调至 3200 以消除倒挂 |
 | 9 | 银 | IACS ~107%(最高常规) | 5120 | 0.46 | HIGH | — | 硅橡胶(180°C) | 新矿·银 | 顶级常规导体 |
 | 10 | 石墨烯 | CVD 合成 | 8192 | 1.00 | EXTREME | — | 硅橡胶(180°C) | 合成科技 | P3；不使用 floor 热降容，线路电阻从环境温度起随温度线性降至 50% |
-| 11 | 超导 NbTi | 低温超导, 铜基 | 16384 | 1.00 | EXTREME | — | 特殊 | 合成·低温控制器 | P3；控制器覆盖时超导 |
-| 12 | 超导 YBCO | 高温超导涂层导体 | 32768 | 1.00 | EXTREME | 涂层 | 特殊 | 合成·终极 | P3；无需控制器，热效率恒定，距离损耗近零 |
+| 11 | 超导 NbTi | 低温超导, 铜基 | 16384 | 1.00 | EXTREME | — | 硅橡胶(180°C) | 合成·低温控制器 | P3；控制器覆盖时超导 |
+| 12 | 超导 YBCO | 高温超导涂层导体 | 32768 | 1.00 | EXTREME | 涂层 | 硅橡胶(180°C) | 合成·终极 | P3；无需控制器，热效率恒定，距离损耗近零 |
 
 绝缘 5 档持续耐温固定为: PVC 70°C、PE 80°C、EPR 105°C、XLPE 120°C、硅橡胶 180°C。
 
 T10 特殊热学: 石墨烯不使用常规 `eff(T)` 热降容；从环境温度到其耐温上限，线路电阻乘子随温度线性由 1.0 降至 0.5，超过该范围钳在 0.5。它仍受 P3 的 `EXTREME` 耐压门槛，不能作为普通线缆的替代品。
 
 T11 低温控制器边界: 每台控制器最多覆盖 64 段 NbTi 线缆；每罐液氮连续工作 24,000 tick。控制器关闭、液氮耗尽或覆盖不足时，整张 NbTi 网的有效容量强制为额定的 10%，由超导恢复到有阻态的损耗计入网温升温。控制器不作用于 T12、普通线缆、发电机或仓储机器，不提供通用制冷、发电或储能能力；不引入水冷、冷却液或管线。T10-T12 均为 P3 内容，不能提前作为 P1/P2 的替代传输方案。
+
+T11/T12 的硅橡胶绝缘档只决定建造配方原料: 两档线缆各需 3 个 `miningdim:insulation_silicone`(见 `PowerCableRecipeProvider` 的 `insulationId()` 与生成产物 `nbti_superconductor_energy_cable.json` / `ybco_superconductor_energy_cable.json`)。它不参与混级网的耐温木桶: `EnergyNetwork.recomputeProfile()` 只把 `thermalMode()` 为 `STANDARD` 的导体纳入 `insulationMaxTempC` 与 `degradeFloor` 的取值，NbTi/YBCO 的热学模式分别是 `NBTI` / `YBCO`，因此不会压低整网的降效起始点；T11 的降容改由控制器覆盖段数单独判定，T12 按本表"热效率恒定"不受影响。
 
 非线芯金属的归宿(现实里多数金属不是导体线芯, 但可作镀层/保护件, 矿洞照挖; 详见第九章总表):
 - **导体镀层(已接进阶梯)**: 锡→镀锡铜(T4); 银→镀银铜(T7) + 银芯(T9)。此二者非"劣质矿", 是有归宿的正经料。
@@ -164,7 +169,7 @@ T1-T12 容量、floor、电压等级及 T10-T12 专属机制均已固定；常�
 
 ---
 
-## 八、加工链与配方 (DECIDED 结构 / IMPLEMENTATION_REQUIRED 具体配方)
+## 八、加工链与配方 (DECIDED)
 
 全走合成表 + 一台提纯机, 不堆专用机器。生矿不能直接用。
 
@@ -178,7 +183,7 @@ P1 基础档(T1-T3: 铁/铝/铜): 锭 →[合成] 导线 →[合成] 导线+基�
 - 分级门槛: 提纯次数 + 灌注料稀有度 + 矿物稀有度(高级矿限产=天然限高级线缆量)。
 - 基础产量公式固定为 3 份导体材料合成 6 根导线；3 根导线 + 3 份对应绝缘合成 6 根线缆。镀层配方固定为 8 根基础导线 + 1 锡锭或银锭合成 8 根镀层导线；各阶段只通过材料与配方解锁门槛控制，不改变基础产量公式。
 
-具体配方在实现期从 `ConductorMaterial` 表生成。
+具体配方由 `PowerCableRecipeProvider` 从 `ConductorMaterial` 表生成; 12 张导线、12 张线缆与钨耐热线共 25 条产物已入库, 见 `src/generated/resources/data/miningdim/recipes/`。
 
 ---
 
@@ -193,7 +198,7 @@ P1 基础档(T1-T3: 铁/铝/铜): 锭 →[合成] 导线 →[合成] 导线+基�
 | 矿物 | 用途(级/配方) | Easy 尝试/区块 | Medium 尝试/区块 | Hard 尝试/区块 | 矿脉尺寸 | 配方开放 |
 |---|---|---:|---:|---:|---:|---|
 | 铝土 | T2 导体芯 | 10 | 6 | 3 | 9 | P1 |
-| 硼砂 | 提纯灌注料(铜锭→脱氧铜→OFC) | — | 4 | 3 | 5 | P1.5 |
+| 硼砂 | 提纯灌注料(铜锭→脱氧铜→OFC) | — | 4 | 3 | 5 | P2 前置(原 P1.5) |
 | 锡 | T4 镀锡 | — | 5 | 3 | 8 | P2 |
 | 银 | T9 导体芯 + T7 镀银 | — | 3 | 5 | 5 | P2 |
 | 镍 | 镍铬保险丝 | — | — | 4 | 6 | P3 |
@@ -228,7 +233,7 @@ CableProfile {
 }
 ```
 
-由 profile 表生成: 各阶段已开放的线缆方块、中间物品、合成/提纯配方、blockstate/model/loot/lang。当前仅注册铁、铜；P1 注册 T1-T3，后续按分期开放，禁止预注册未落地的 T4-T12。网络引擎(第二章)与热学层只读 `CableProfile` 的 R / floor / 绝缘 / `VoltageClass`，不区分十二级导体和钨特殊线的具体实现类。
+由 profile 表生成: 已开放的线缆方块、中间物品、合成/提纯配方、blockstate/model/loot/lang。T1-T12 与钨耐热线均已全量注册；新增材料仍须先进 `ConductorMaterial` / `SpecialCableMaterial` 表再注册，禁止绕开该表硬编码方块。网络引擎(第二章)与热学层只读 `CableProfile` 的 R / floor / 绝缘 / `VoltageClass`，不区分十二级导体和钨特殊线的具体实现类。
 
 ---
 
@@ -237,7 +242,7 @@ CableProfile {
 - 传输损耗中，过载降效在 P1 起计入隐性 sink；距离损耗仅在 P3 启用后计入，均须过 `docs/Economy_BalanceSheet_DesignSpec.md`。
 - 高级导体的提纯/空分 FE 成本是电力 sink, 同样过账。
 - 发电机(另立文档)将有内置 FE buffer=峰值×10 秒; 电网排不出→buffer 满过充→发电机升温→过热熔毁。线缆过热降效↔发电机过热是致爆闭环。本文档只需保证线缆侧接口(receive-only cap + 网温 + 有效吞吐)对发电机可见。
-- 不接入 Flux Networks；本线缆系统的范围止于有线 FE 传输。
+- 本线缆系统自身不实现无线传输机制，范围止于有线 FE 传输；与 Flux Networks 的互操作边界(`FluxInteropGameTests`)与终局定位见 `docs/Power_Economy_Rebalance_DesignSpec.md` 第 3.3 节，本文不重复定义。
 
 ---
 
@@ -246,7 +251,7 @@ CableProfile {
 | 期 | 内容 | 验收 |
 |---|---|---|
 | P1 | `CableProfile` 契约与 `ConductorMaterial` 数据表；T1-T3(铁/铝/铜, raw 合成)接上既有网络引擎；橡胶树、基础橡胶及 PVC/PE；热学层(网温+绝缘耐温+降效) | GameTest 覆盖 T1-T3 与热学过载降效端到端 |
-| P1.5 | 提纯机；铜锭 + 硼砂 → 脱氧铜 → 再次硼砂 → OFC → 氩气 → OFE；独立空分装置 | GameTest 覆盖完整提纯链 |
+| P2 前置(原 P1.5) | 提纯机；铜锭 + 硼砂 → 脱氧铜 → 再次硼砂 → OFC → 氩气 → OFE；独立空分装置 | GameTest 覆盖完整提纯链 |
 | P2 | T4 镀锡铜；T7-T9(银/金/镀银)；高级绝缘分档 | 数据填充 + 验收 |
 | P3 | T10-T12(石墨烯、NbTi、YBCO)与低温控制器；镍铬保险丝、钨耐热线；距离/线阻叠加 | 终局 |
 | 最终集成 | JEI 15.20.0.135 与 Jade 11.13.2+forge 可选显示 | 有依赖和无依赖两组启动均通过 |

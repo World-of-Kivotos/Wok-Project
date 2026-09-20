@@ -34,4 +34,17 @@
 | 护木 | 731 | 732 | 733 | 734 | 735 |
 | 枪托 | 751 | 752 | 753 | 754 | 755 |
 
-本规格只登记霰弹枪平台与基础组件，不在此阶段创建霰弹枪图纸或成品枪。
+## 五、图纸绑定
+
+霰弹枪图纸已随基础组件同一版本落地，共四张，全部在 `GunsmithBlueprint` 中定义：
+
+| 图纸 | gunId | 名称键 |
+| --- | --- | --- |
+| M870 | `tacz:m870` | `tacz.gun.m870.name` |
+| M1887 LONG | `ccrp:m1887_long` | `ccrp.gun.m1887_long.name` |
+| KSG | `hare:ksg` | `hare.gun.ksg.name` |
+| M1014 | `tacz:m1014` | `tacz.gun.m1014.name` |
+
+每张图纸要求第二节的四类组件全集，图纸图标使用 `gunsmith_blueprint_shotgun`，`iconModelData` 为 `6`。成品保留各源枪原有的完整、有序射击模式列表，不得增删或重排。
+
+图纸目录由 GameTest `blueprintCatalogUsesPlatformSpecificPartSets`（断言本平台恰有四张图纸、每张恰需四类组件）与 `firstWaveBlueprintsMatchGunPackIdsAndNameKeys`（逐张断言 gunId 与名称键）覆盖，新增或改动图纸必须同步这两处断言。

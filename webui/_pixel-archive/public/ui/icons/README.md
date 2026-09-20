@@ -4,7 +4,8 @@
 （关闭、排序、筛选、刷新一类）。物品与方块图标**不在这里**，一律复用 MC 原版贴图走 `ItemIcon`。
 
 真源规格：`docs/PixelUI_DesignSystem_DesignSpec.md` 第八章（图标）、6.1（单色蒙版上色）、4.4（资产规格）。
-消费侧组件：`webui/src/components/pixel/PixelIcon.tsx`。
+消费侧组件：`webui/_pixel-archive/src/components/pixel/PixelIcon.tsx`（2026-08-13 换皮时随像素风整体封存，
+原位置 `webui/src/components/pixel/` 已不存在）。
 
 ## 一、资产契约
 
@@ -23,7 +24,7 @@
 
 ## 二、图形的真源是字符矩阵，不是这些 PNG
 
-所有图形以 16x16 字符矩阵（`'.'` 透明 / `'#'` 实心）写在 `webui/tools/gen-icons.mjs` 的 `ICONS` 表里，
+所有图形以 16x16 字符矩阵（`'.'` 透明 / `'#'` 实心）写在 `webui/_pixel-archive/tools/gen-icons.mjs` 的 `ICONS` 表里（封存时随像素风一并搬入本归档，原位置 `webui/tools/` 已不存在），
 PNG 由它生成。**要调形请改矩阵**：矩阵在编辑器里就是图本身，改哪个像素一目了然，而直接用图像编辑器
 覆盖 PNG 会让两边脱节（下次重跑生成器就把手改的图覆盖掉）。
 
@@ -52,12 +53,14 @@ DEFLATE 允许多种合法编码，此时 `--check` 报 STALE，重跑写盘即�
 ## 三、美术替换规则
 
 按同尺寸（16x16）、同名覆盖即可，前端零改动——但覆盖前请先把新形状写回 `gen-icons.mjs` 的矩阵表
-（见第二节）。若确实要脱离生成器改为纯手绘资产，删掉生成器时必须同时把上述六层自检搬到
-`scripts/verify-pixel-guards.mjs`，否则 alpha 二值性与 1px 边距这两条就再没有人守。
+（见第二节）。若确实要脱离生成器改为纯手绘资产，删掉生成器时必须同时把上述六层自检搬进重启像素风时
+恢复的那份构建期守卫（见本节末的说明），否则 alpha 二值性与 1px 边距这两条就再没有人守。
 
 新增图标需要三处同步：矩阵表（`gen-icons.mjs`）、`PIXEL_ICON_NAMES` 与 `PIXEL_ICON_SOURCES`
 （`PixelIcon.tsx`，后者由 `Record<PixelIconName, string>` 的类型在 tsc 阶段强制补全）。漏掉任何一处都会被
 生成器的跨文件校验或 tsc 拦住。
 
-构建期尺寸守卫已覆盖本目录：`scripts/verify-pixel-guards.mjs` 递归扫描 `public`，要求每张 PNG 边长在
-16/24 白名单内且能完整解码（走完 PNG 分块并逐块校验 CRC）。
+构建期尺寸守卫**当前不存在**：`scripts/verify-pixel-guards.mjs` 已随 2026-08-13 换皮删除（`webui/scripts/`
+下现只剩 `check-frontend-contract.mjs`），本节以下描述在重启像素风、把该脚本从 git 历史取回之前不成立
+（取回办法见 `webui/_pixel-archive/README.md` 的重启步骤第 3 步）。该守卫原本递归扫描 `public`，要求每张
+PNG 边长在 16/24 白名单内且能完整解码（走完 PNG 分块并逐块校验 CRC）。

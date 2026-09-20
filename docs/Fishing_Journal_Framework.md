@@ -3,6 +3,7 @@
 ## 产品边界
 
 本模块并入 WOK 本体，保持 `modId=miningdim`、Java 包根 `com.miningdim` 和单 JAR 交付。入口为 `com.miningdim.job.fisher.FishingSystem`，源码归属 `job/fisher`。它不属于 WOK步战及其附属，也不修改 Tide 的 JAR。
+模块级的唯一主设计入口是 [渔夫职业设计规格](Fisher_Job_DesignSpec.md)，本文是其图鉴框架专题；与之并列的专题是 [矿石鱼与鱼羹](Ore_Fish_And_Soup.md)。
 
 当前提供鱼种目录、查阅界面和收藏进度，并接入五种矿石鱼的钓获、出售与厨师鱼羹，详见 [矿石鱼与鱼羹](Ore_Fish_And_Soup.md)。渔夫经验、职业能力和委托由后续功能接入；收藏记录不冒充亲手钓获，也不发放经验。
 
@@ -22,7 +23,7 @@
 
 默认目录包括 4 种原版鱼、5 种 WOK 矿石鱼和 66 种 Tide 1.6.5 自有鱼种。Tide 元数据引用其现有描述、地点、条件翻译键及物品模型，不复制其代码、贴图或描述正文。缺少 Tide 时加载 9 种原版与 WOK 鱼；Tide 版本不等于 1.6.5 时跳过该兼容目录并记录版本提示。
 
-分类沿用淡水、海水、地下、深层、群系、结构、岩浆、下界、末地、传说鱼。分类是查阅组织方式，不是 WOK 自定义稀有度或钓获概率。
+分类共 11 个：矿石鱼（`ore_fish`，WOK 自建，五种矿石鱼专属），以及沿用 Tide 组织方式的淡水、海水、地下、深渊、生物群系、结构、熔岩、下界、末地、传说。译名以 `assets/miningdim/lang/zh_cn.json` 的 `fishing.miningdim.category.*` 为准（`depths` 是深渊、`lava` 是熔岩、`biome` 是生物群系、`legendary` 是传说）。分类是查阅组织方式，不是 WOK 自定义稀有度或钓获概率。
 
 数据格式示例：
 
@@ -69,7 +70,9 @@ Context7 在本次环境不可用，Forge/Minecraft API 依据工程锁定的 Fo
 
 运行 `runGameTestServer` 后必须确认日志出现 `All N required tests passed`，不能仅以 Gradle 退出码判断。Tide 实例的游戏内图鉴渲染、中文排版、拾取反馈与重连仍需对应客户端实测。
 
-2026-09-05 验证结果：
+2026-09-05 验证结果（**历史快照，口径已过期**）：下列 4 / 70 条目录与 782 条测试是图鉴框架单独存在、矿石鱼尚未加入时的数字。
+矿石鱼于 2026-09-06 加入后，目录变为无 Tide 9 条、装 Tide 1.6.5 共 75 条，测试总数变为 1457，
+现行有效口径以 [矿石鱼与鱼羹](Ore_Fish_And_Soup.md) 的 2026-09-06 验证记录为准，不要把本块数字当成现行结论。
 
 - 隔离功能工作树 `compileJava` 通过。
 - 未安装 Tide：加载 4 条目录，完整 GameTest 日志确认 `All 782 required tests passed`。

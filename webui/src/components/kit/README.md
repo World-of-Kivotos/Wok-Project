@@ -13,7 +13,8 @@ src/pages/            业务页。只从 '@/components/kit' 导入, 不直接碰
 旧实现封存在 `webui/_pixel-archive/`), 届时要改的只是 kit 的内部实现。
 
 **唯一例外**: 功能图标直接 `import { XxxIcon } from 'lucide-react'`。图标是内容不是控件, 收进 kit
-只会得到一张永远补不全的名字白名单 —— 上一版的 `PixelIcon` 就是这么卡住的 (26 个名字, 首页/矿洞/
+只会得到一张永远补不全的名字白名单 —— 上一版的 `PixelIcon` 就是这么卡住的 (24 个名字, 真源是
+`webui/_pixel-archive/src/components/pixel/PixelIcon.tsx` 的 `PIXEL_ICON_NAMES`; 首页/矿洞/
 图鉴/开箱/职业五个入口因为没有对应图标, 整条导航只好一个图标都不给)。
 
 ## 两条与视觉无关、换皮后依然成立的硬约束
@@ -23,7 +24,8 @@ src/pages/            业务页。只从 '@/components/kit' 导入, 不直接碰
    fragment。页面一旦改 hash, 此后所有 `cefQuery` 被以 -3 拒绝 —— 症状是"界面能翻页但所有数据请求全废"。
    详见 `src/router.ts` 文件头。
 2. **`callMock` 的 planned 分流必须在生产构建下硬失败**。见 `src/mock/handlers.ts`。缺了这道门,
-   50 条尚未接线的假 action 会在真客户端里由内存世界作答。
+   `planned.ts` 里剩下的假 action 会在真客户端里由内存世界作答 (当前只剩 `shop.catalog` / `shop.detail`
+   两条, 后端在 WOK-ChestShop 跨仓; 条数以 `src/mock/planned.ts` 的 `PLANNED_ACTIONS` 为准, 别在此写死数字)。
 
 ## 导入方式
 

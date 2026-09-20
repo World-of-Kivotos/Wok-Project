@@ -15,7 +15,7 @@
 
 游戏内玩家 UI 套件的技术地基。旗舰是**跳蚤市场**（玩家间 P2P 交易，铜/铁等材料矿的唯一消耗出口，见定价台账），后续复用同一地基扩展：系统商店、开箱、特勤面板、职业总菜单/HUD。
 
-渲染走 **MCEF（把 Chromium 浏览器内嵌进 MC 客户端，渲染远端 React 应用）**，不走原生 MC Screen 手搓控件。理由：跳蚤市场是数据密集型交互（订单簿/搜索/排序/图表），HTML/CSS/React 写起来比原生控件轻一个数量级；且与已定的 Astro Wiki（见 [[wiki-architecture-decision]]）**共一套 web 技术栈/设计系统/真源数据**，一份前端代码同时喂 Wiki 与游戏内 UI。
+渲染走 **MCEF（把 Chromium 浏览器内嵌进 MC 客户端，渲染远端 React 应用）**，不走原生 MC Screen 手搓控件。理由：跳蚤市场是数据密集型交互（订单簿/搜索/排序/图表），HTML/CSS/React 写起来比原生控件轻一个数量级；且与已定的 Astro Wiki **共一套 web 技术栈/设计系统/真源数据**，一份前端代码同时喂 Wiki 与游戏内 UI。
 
 ---
 
@@ -24,7 +24,8 @@
 1. **渲染基座 = MCEF 2.1.6-1.20.1**。已核实是 Forge 1.20.1 线最新稳定版（CinemaMod，2024-10-20），不升级。MCEF 作为**客户端必需前置 mod**（玩家装），我方 `compileOnly` 取 API + `ModList.isLoaded("mcef")` 守卫 + `Dist.CLIENT` 隔离。
 
 2. **前端按美术资源走，不打包进 jar = 只走远端 `devServerUrl` 模式**。React 构建产物托管在远端站点，MCEF 直接加载远端 URL。更新 UI = 重部署网站，mod 一行不动（用户要的"后期更新简单"由此成立）。
-   - 推论：旧作的 `EmbeddedWebServer`（JDK HttpServer，只为 serve jar 内 `/assets/.../web` 而存在）**整个丢弃**，连带消除其 localhost 端口 + `CORS:*` 攻击面。jar 内只剩 bridge 地基 + 一个指向远端的 config 值。
+   - 推论：旧作的 `EmbeddedWebServer`（JDK HttpServer，只为 serve jar 内 `/assets/.../web` 而存在）**整个丢弃**，连带消除其 localhost 端口 + `CORS:*` 攻击面。jar 内只剩 bridge 地基 + 一个指向远端的 config 值（开箱页例外，见下条）。
+   - **已落地的唯一例外：开箱页走路线 C。** `src/main/resources/assets/miningdim/web/case-opening.html` 随 jar 分发，由客户端读成 `data:` URI 内联加载（真源 `WebUiClient.CASE_PAGE_RESOURCE` / `WebUiClient.openCaseScreen`），即 10.3 表里的路线 C。这是单点破例而非路线改弦，边界与理由：开箱动画是一次性展示、无需持久 SPA 状态、更新频率远低于旗舰跳蚤市场，因此"随 mod 版本走、玩家须更新客户端"的代价可接受。平板 hub、跳蚤市场等主面板仍走 A。
    - **本条约束的是产物分发方式，不约束源码仓库位置。** 前端源码落本仓库 monorepo 与本条并行不悖，且分发方式本身可切换——展开见第十章。
 
 3. **服务端权威重写**：旧作的入站数据面（JS→Java）全是客户端本地回假数据、服务端往返链路是断的死代码（见第三章）。跳蚤市场必须新写一条干净的"客户端只发意图 → 服务端 SQLite 事务校验 → 回执"链路。服务端是交易状态的唯一写入方。
@@ -33,7 +34,7 @@
 
 5. **中文输入 = 原生 EditBox 叠加注入**。MCEF 单 char API 无 CEF IME 桥，搜索/输价的中文走 MC 原生 `EditBox` 接收、提交后经客户端桥把字符串送进页面（不在浏览器里直接打中文）。完整 CEF IME 桥列后期可选项。
 
-6. **零 mixin**。旧作 `miraclebridge.mixins.json` 的 mixins 数组为空——纯 Forge 事件 + MCEF API，无 TACZ 那种 SRG mixin 崩服风险（对比 [[external-mod-deps-gap]]）。我方并入同样零 mixin。
+6. **零 mixin**。旧作 `miraclebridge.mixins.json` 的 mixins 数组为空——纯 Forge 事件 + MCEF API，无 TACZ 那种 SRG mixin 崩服风险（TACZ/Champions 是本工程另外两个外部 mod 依赖，只走 `compileOnly` 本地 jar 就是为了躲开 SRG mixin）。我方并入同样零 mixin。
 
 ---
 
@@ -81,13 +82,22 @@
         | C2S 请求（requestId）/ S2C 回执（requestId）/ S2C 事件推送
         | 接入现有 MiningNetwork 通道（避免多通道），ChannelBuilder 范式
 ========|==================== 服务端进程 ====================
+[webui.server 网关]  com.miningdim.core.Subsystem.register(modBus, forgeBus)
+  - WebUiServerDispatcher：全局 action 派发表（条数不在本文写死，真源是 registeredActions()）+ requestId 去重防重放 + 自省下发
+  - WebUiRateLimiter：每玩家令牌桶限流（F008）
+  - WebUiPermissions（权限门）/ WebUiErrorCodes（错误码）/ WebUiBusinessException（业务异常）
+  - WebUiBatchAction：只读批量通道 system.batch（白名单即安全边界，见 5.4）
+  - HubWebUiActions：平板 hub 面板目录
+        | 各业务子系统经 WebUiServerDispatcher.register(action, handler) 挂载到本网关
 [market 子系统]  com.miningdim.core.Subsystem.register(modBus, forgeBus)
   - MarketService（撮合/托管/手续费/留存），注入 MiningServices 定位器
   - SQLite（jarJar sqlite-jdbc，WAL）：listings / escrow / transactions
   - 复用 EconomyService（信用点/青辉石转账）、entry.MiningPlayerData（玩家权威数据）
 ```
 
-子系统拆分铁律：**客户端 webui 全 `Dist.CLIENT` + `ModList` 守卫，服务端 GameTest 不加载它**——现有 243/243 GameTest 不受影响（见 [[jobs-implementation-state]]）。服务端 market 子系统的纯逻辑（撮合/托管/SQLite 事务）可 dev GameTest 全覆盖。
+子系统拆分铁律：**客户端 webui 全 `Dist.CLIENT` + `ModList` 守卫，服务端 GameTest 不加载它**——现有 GameTest 全量不受影响（基线数字不在本文钉死，当期实测见 [docs/modules/INVENTORY.md](modules/INVENTORY.md)）。服务端 market 子系统的纯逻辑（撮合/托管/SQLite 事务）可 dev GameTest 全覆盖。
+
+网关与业务子系统的注册顺序有依赖：`MiningDim.registerSubsystems()` 里 `webui.server.WebUiServerSubsystem` 排在 `market.MarketSubsystem` 等业务子系统之前，后者在自己的 `register` 里往前者的派发表塞 action handler，派发器须先就绪（该顺序约束在 `MiningDim` 的子系统列表注释里逐条写明）。
 
 ---
 
@@ -95,12 +105,12 @@
 
 ### 5.1 请求-回执流（带 requestId 关联）
 
-1. JS：`MiracleBridge.callServer('market.placeOrder', {itemRef, count, unitPrice, currency})`。
+1. JS：`window.miningdimQuery({request: JSON.stringify({action: 'market.place', requestId, payload}), onSuccess, onFailure})`（全局入口名由 `WebUiClient.QUERY_FUNCTION` 定为 `miningdimQuery`，非旧作的 `MiracleBridge`；挂单 action 名为 `market.place`，真源 `MarketActions.registerAll`）。
 2. 客户端 BridgeRouter：判定为权威动作 → 生成 `requestId`(UUID) → 发 `C2SWebUiRequest(requestId, action, payloadJson)` → 登记 pending `CompletableFuture`，带超时。
 3. 服务端 MarketService：**发送者身份 = `ctx.getSender()`（不可伪造卖家）** → 参数校验 → SQLite 单事务（BEGIN/COMMIT）执行状态转移 → 产出结果 JSON。
 4. 服务端 → `S2CWebUiResponse(requestId, success, resultJson)`。
 5. 客户端：按 `requestId` 取出 future → resolve 对应 JS Promise（经 router 回填，不用字符串拼 `executeJavaScript`）。
-6. 实时联动（他人挂单/成交）：服务端 → `S2CWebUiEvent(eventName, dataJson)` → JS `MiracleBridge.on('market:update', ...)`。
+6. 实时联动（他人挂单/成交）：服务端 → `S2CWebUiEvent(eventName, dataJson)` → 客户端桥调页面预置的 `window.miningdimOnEvent(name, dataJson)` 分发（不拼 `executeJavaScript`，见 `WebUiBridge`）→ 前端订阅入口是 `webui/src/lib/bridge.ts` 的 `on('market.sold', ...)`。事件名遵循 [WebUI_ServerPush_DesignSpec.md](WebUI_ServerPush_DesignSpec.md) 第三章的 `域.事件` 小驼峰规范（`market.sold`），不用 `market:update` 这种冒号写法。
 
 ### 5.2 JS→Java 传输（DECIDED，已 javap 核实）
 
@@ -116,13 +126,25 @@
 - 客户端只发**意图**，绝不写权威状态。卖家身份取 `ctx.getSender()`，不信前端传的 uuid。
 - 资金/库存校验、扣款托管、成交转移全在服务端单事务内；前端拿到的余额/库存仅供显示。
 - 无 `executeJs` 原语。服务端→客户端只推**结构化数据**，由页面安全解析（React 默认转义文本，物品名/留言不经字符串拼 JS）。
-- 每个 C2S 请求的 `requestId` 服务端去重，防重复提交/重放。
+- 每个 C2S 请求的 `requestId` 服务端去重，防重复提交/重放（`WebUiServerDispatcher.markRequestProcessed`）。**例外：`system.batch` 批内子 action 不受这道保护，见 5.4。**
+
+### 5.4 只读批量通道（system.batch）
+
+平板冷启动实测要打 11 条 action（外壳 4 + 首页 7），代价不在带宽而在**次数**：每条各排一遍主线程任务队列，客户端那 11 个 Promise 各自到达，于是同一屏的数字是逐个跳出来的。`system.batch` 把它们合成一次往返：批内 handler 在同一个主线程任务里跑完，一起回，一起上屏。真源 `webui.server.WebUiBatchAction`。
+
+三条不可让步的约束：
+
+1. **批内所有子 action 共享外层那一个 `requestId`。** 派发器的"同 requestId 只执行一次"只挡得住整批重放，挡不住批内单条 —— 批内 handler 拿不到这道防重放保护。
+2. **`BATCHABLE` 白名单只准收纯只读 handler。** 判据只有一条：该 handler 不得改变任何玩家可见的持久状态；幂等的惰性初始化不算（如 `quest.board` 的当日任务板按天生成，调两次得同一块板）。
+3. **白名单是安全边界，不是性能清单。** 往里加名字等于宣称"这条 action 重放无副作用"。加错一条写 action 的代价是二次扣款、二次发货 —— 资金漏洞，不是性能回退。
+
+另有两条协议形状约束：单批条数有上限（超限整批拒，前端批量调度器按同一个数切批）；批内逐条 handler 的异常翻成该条自己的失败信封，不让一条坏 action 炸掉整屏，而批本身的结构性错误（`calls` 不是数组、条目缺键）一律自然抛、由派发器兜底整批拒。
 
 ---
 
 ## 六、跳蚤市场后端（v1 已落地 2026-06-19，DRAFT 数值待标定）
 
-> 落地状态：`com.miningdim.market`（17 类）+ 6 个 `market.*` action + 252/252 GameTest 全绿（6 项真连 SQLite）。托管物品折叠进 listings 行的 `item_nbt` BLOB（v1 不单列 escrow 表）。手续费已定稿为**挂单时收取**的 `FEE_RATE=0.20`（平价基础费率）+ 偏离费二次系数 `DEVIATION_K=0.04`（高税重摩擦市场，强反通胀/反洗钱；真源 `market.MarketConstants`/`market.MarketFee`，非早期 0.05 成交额比例）；铜铁日 P2P cap `COPPER_IRON_DAILY_P2P_CAP=512` 仍为 DRAFT 待标定。崩溃原子性**已于 2026-08-12 闭合**：钱包与市场表并入统一库 `miningdim.db`，买家扣款 / 挂单状态 / 流水 / 卖家收款收进单个事务（`IEconomyService.inTransaction`）。此前该窗口被描述为「极小」并不准确 —— 钱当时在 SavedData，最长 5 分钟才落一次盘（`MinecraftServer.tickServer` 每 6000 tick 触发 `saveEverything`），而 SQLite 提交即落盘。仍未闭合的是**物品交付**：背包是无法并入事务的第三个存储，交付放在提交之后，最坏情况是「钱货两清但物品没进包」，需邮箱式领取才能真正闭合。30 天流水清理、偏离/反洗钱价格校验 deferred。
+> 落地状态（2026-06-19 v1 首次落地，其后多次续订；以下计数不再写死，以代码为真源）：`com.miningdim.market` 包（当前 18 个源文件，另含 `store/` 子包 7 个）+ `market.*` action 当前 13 条（list / place / buy / cancel / mine / history / baseValue / categories / categoryItems / feePreview / p2pCap / pendingPayout / tradable，真源 `MarketActions.registerAll`）+ 对应 GameTest 全绿（条数随迭代增长，不在本文钉死，当期基线见 [docs/modules/INVENTORY.md](modules/INVENTORY.md)）。托管物品折叠进 listings 行的 `item_nbt` BLOB（v1 不单列 escrow 表）。手续费已定稿为**挂单时收取**的 `FEE_RATE=0.20`（平价基础费率）+ 偏离费二次系数 `DEVIATION_K=0.04`（高税重摩擦市场，强反通胀/反洗钱；真源 `market.MarketConstants`/`market.MarketFee`，非早期 0.05 成交额比例）；铜铁日 P2P cap `COPPER_IRON_DAILY_P2P_CAP=512` 仍为 DRAFT 待标定。崩溃原子性**已于 2026-08-12 闭合**：钱包与市场表并入统一库 `miningdim.db`，买家扣款 / 挂单状态 / 流水 / 卖家收款收进单个事务（`IEconomyService.inTransaction`）。此前该窗口被描述为「极小」并不准确 —— 钱当时在 SavedData，最长 5 分钟才落一次盘（`MinecraftServer.tickServer` 每 6000 tick 触发 `saveEverything`），而 SQLite 提交即落盘。仍未闭合的是**物品交付**：背包是无法并入事务的第三个存储，交付放在提交之后，最坏情况是「钱货两清但物品没进包」，需邮箱式领取才能真正闭合。30 天流水清理、偏离/反洗钱价格校验 deferred。
 
 ### 6.1 表结构草案
 
@@ -156,16 +178,17 @@ MC 原生 `EditBox` 浮在 WebUiScreen 上接收键盘（含中文 IME，因为�
 3. 无远程 JS 执行：删 `executeJs`，服务端只推结构化数据。
 4. 输入即不可信：玩家物品名/留言等渲染为文本（React 转义），严禁经字符串拼 `executeJavaScript`。
 5. 无 localhost 端口：远端模式不起 `EmbeddedWebServer`，消除本机 HTTP 攻击面。
-6. requestId 去重防重放；交易事务原子，失败回滚不留半成品。
+6. requestId 去重防重放（**`system.batch` 批内子 action 除外，见 5.4**：整批只占一个 requestId，故白名单只收只读 handler）；交易事务原子，失败回滚不留半成品。
+7. 每玩家令牌桶限流（`webui.server.WebUiRateLimiter`，F008）：派发前先过限流门，挡住单客户端刷 action 打爆服务端主线程。
 
 ---
 
 ## 九、与现有架构接线
 
-- 子系统范式：客户端 `com.miningdim.client.webui` + 服务端 `com.miningdim.market`，各 `Subsystem.register(modBus, forgeBus)`、各自管 DeferredRegister、门面注入 `MiningServices`、在 `MiningDim.registerSubsystems()` 接线。
+- 子系统范式：客户端 `com.miningdim.client.webui` + 服务端 `com.miningdim.webui.server`（action 网关）+ 服务端 `com.miningdim.market`（业务），各 `Subsystem.register(modBus, forgeBus)`、各自管 DeferredRegister、门面注入 `MiningServices`、在 `MiningDim.registerSubsystems()` 接线。
 - 网络：接入现有 `MiningNetwork.CHANNEL`（新增 `C2SWebUiRequest`/`S2CWebUiResponse`/`S2CWebUiEvent` 三包），**照搬现有 `register()` 的 `registerMessage(nextId(), ...)` 追加范式**（与既有职业包 `JobSyncS2C` 同序追加，不另起通道——一致性优先；现有工程刻意用 `NetworkRegistry.newSimpleChannel` 并注释为"1.20.1 正确 API"，故第三章关于迁 `ChannelBuilder` 的建议在本工程不采纳）。发包带现有 `canReceive` 守卫。
-- 构建：`compileOnly files("libs/mcef-forge-2.1.6-1.20.1.jar")`（同 TACZ/Champions 范式，见 [[external-mod-deps-gap]]）。SQLite 驱动 `org.xerial:sqlite-jdbc` 的 **三连坑**（嵌任何 JDBC/纯 java 库到 Forge 1.20.1 dev 运行期必踩）：(1) `jarJar` 内嵌进产物 jar 的 `META-INF/jarjar`（生产，需 `jarJar.enable()` 先调）；(2) dev run classpath 必须用 FG6 的 `minecraftLibrary` 配置——`runtimeOnly`/`implementation` 都进不了 `build/classpath/run*_minecraftClasspath.txt`，否则 GameTest 抛 `No suitable driver found`；(3) 还需显式 `Class.forName("org.sqlite.JDBC")`——FML 模块层 ServiceLoader 在 boot 层早跑一次、game 层 jar 没赶上，不显式注册即便在 classpath 也找不到驱动。gradle 必须 JDK17（改 build.gradle 才暴露，见 [[build-toolchain]]）。
-- 前端共栈：React 应用与 Astro Wiki 共设计系统/组件/真源 JSON，托管在同一基础设施（见 [[wiki-architecture-decision]]）。
+- 构建：`compileOnly files("libs/mcef-forge-2.1.6-1.20.1.jar")`（同 TACZ/Champions 的本地 jar 范式）。SQLite 驱动 `org.xerial:sqlite-jdbc` 的 **三连坑**（嵌任何 JDBC/纯 java 库到 Forge 1.20.1 dev 运行期必踩）：(1) `jarJar` 内嵌进产物 jar 的 `META-INF/jarjar`（生产，需 `jarJar.enable()` 先调）；(2) dev run classpath 必须用 FG6 的 `minecraftLibrary` 配置——`runtimeOnly`/`implementation` 都进不了 `build/classpath/run*_minecraftClasspath.txt`，否则 GameTest 抛 `No suitable driver found`；(3) 还需显式 `Class.forName("org.sqlite.JDBC")`——FML 模块层 ServiceLoader 在 boot 层早跑一次、game 层 jar 没赶上，不显式注册即便在 classpath 也找不到驱动。gradle 必须 JDK17（改 build.gradle 才暴露：本机默认 JDK 版本更高，JDK17 要由 Gradle toolchain 解析到 `~/.gradle/jdks` 下那份，直接用默认 JDK 跑构建会失败）。
+- 前端共栈：React 应用与 Astro Wiki 共设计系统/组件/真源 JSON，托管在同一基础设施。
 
 ---
 
@@ -204,11 +227,16 @@ MC 原生 `EditBox` 浮在 WebUiScreen 上接收键盘（含中文 IME，因为�
 |---|---|---|---|
 | A 远端站点托管（当前） | 重部署站点，MC 服务端不动 | 弱：站点与服务端 mod 各自部署，可能错配 | 依赖外部站点可用性 |
 | B 服务端 mod 内嵌静态 serve | 更新服务端 mod + 重启服务端，玩家客户端不动 | **强：页面与服务端业务同 jar，物理上不可能错配** | 需开一个只吐静态文件的端口 |
-| C 随客户端 mod 本地加载 | 重发客户端 mod，玩家须更新 | 强 | 已否决，见 10.4 |
+| C 随客户端 mod 本地加载 | 重发客户端 mod，玩家须更新 | 强 | 作为整体路线已否决，见 10.4。**唯一例外：开箱页已走 C**（`assets/miningdim/web/case-opening.html` 随 jar，`WebUiClient.openCaseScreen` 读成 `data:` URI 内联）。理由与边界：开箱动画为一次性展示、无需持久 SPA 状态、更新频率低于旗舰跳蚤市场 |
 
 **关键认知：A 与 B 不是架构分叉，只是一个 config 值的差异。** mod 侧无论哪条都是 `MCEF.createBrowser(url, ...)` 加载一个 `http(s)://` 地址，`WebBrowser` 一行不改；唯一实际差异是要不要在 mod 里带一个 serve 静态资源的类。故本决策切换成本极低，可随时重选。
 
-选 A 的当前理由：像素 UI 首步验证尚未跑通，对 MCEF 实际表现与 UI 迭代频率均无手感；B 的唯一实质代价（更新 UI 须重启 MC 服务端、玩家掉线）值不值，取决于迭代频率，现在没有判断依据。
+选 A 的当前理由：UI 迭代频率仍不明朗，B 的唯一实质代价（更新 UI 须重启 MC 服务端、玩家掉线）值不值取决于迭代频率，现在没有判断依据。
+
+此处原写的两条理由均已不成立，一并注销：
+
+- "像素 UI 首步验证尚未跑通"——该验证批次随像素风于 2026-08-13 整体 DEFERRED 一并作废（见 [PixelUI_DesignSystem_DesignSpec.md](PixelUI_DesignSystem_DesignSpec.md) 全文状态栏与 [WebUI_Frontend_Wiring_Checklist.md](WebUI_Frontend_Wiring_Checklist.md) 的作废登记），不会再以原定形式发生，因此不再是重选 A/B 的前置条件。
+- "对 MCEF 实际表现无手感"——CEF 离屏渲染已有实测数据：出帧上限 30fps、整张表面在 CPU 上栅格合成且成本随像素数线性上涨、4K 单帧约 60ms（见 `WebUiScreen` 的离屏降采样段与 `MiningClientConfig.WEBUI_MAX_RENDER_WIDTH` 注释）。MCEF 性能认知已不是决策缺口。
 
 ### 10.4 路线 B 的安全面界定（重要）
 
@@ -228,15 +256,19 @@ B 的实际攻击面（逐条界定）：
 
 - 现状 `WebUiClient` 为懒创建 + 实例复用：仅首次打开慢，其后复用同一 browser。
 - 优化 = 把 `create` 提前到玩家进世界后后台执行，打开时直接 `setScreen` 显示已加载实例。
-- 叠加 Chromium 静态资源缓存；像素 UI 资产为 KB 量级（见 [[pixel-ui-design-decision]]），本身加载即快。
+- 叠加 Chromium 静态资源缓存；像素 UI 资产为 KB 量级（见 [PixelUI_DesignSystem_DesignSpec.md](PixelUI_DesignSystem_DesignSpec.md)，该规格 2026-08-13 起 DEFERRED），本身加载即快。
 
-### 10.6 页面版本与 action 契约对齐（DRAFT，新立案）
+### 10.6 页面版本与 action 契约对齐（已落地，机制与原 DRAFT 方向相反）
 
-路线 A 下存在一个当前无机制覆盖的坑：服务端升级了 action 契约，玩家浏览器却缓存着旧页面，会调用已不存在的 action，且**运行期才暴露**。
+路线 A 下有一个坑：服务端升级了 action 契约，玩家浏览器却缓存着旧页面，会调用已不存在的 action，且**运行期才暴露**——未知 action 由服务端回 failure，`WebUiBridge` 不崩溃，但对玩家表现为功能逐个静默失效。
 
-现有行为：未知 action 由服务端回 failure，`WebUiBridge` 不崩溃，但对玩家表现为功能静默失效——无法自我诊断。
+原 DRAFT 方向是"页面上报自身构建版本，服务端比对"。**实际落地取了反方向，由前端做对账**：`system.handshake` 回 `{modVersion, actions[]}`（服务端侧 `WebUiServerDispatcher.registeredActions()` 自省），前端 `webui/src/lib/bridge.ts` 的 `handshake()` 拿它与自己声明的 `SERVER_ACTIONS` 对账，产出结构化的 `HandshakeReport`：
 
-建议方向（DRAFT）：页面加载后经桥上报自身构建版本，服务端比对，不兼容时下发明确提示，而非放任 action 逐个静默失败。路线 B 天然免疫此问题。
+- `missingOnServer` 非空即判不兼容（`compatible === false`）——页面要调服务端根本没注册的 action；
+- `unknownToClient` 不算不兼容，只说明服务端跑在更新的构建上；
+- **刻意不抛异常**：契约漂移是要展示给运维/玩家看的诊断信息，不是一次调用失败，由调用方决定整页拦截还是只挂条警告。
+
+选这个方向的实际好处是服务端不必认识任何前端构建号；代价是两边的 action 清单仍靠手工同步（同 `SERVER_ACTIONS` 表本身的老问题）。路线 B 天然免疫此问题。
 
 ---
 
@@ -255,5 +287,5 @@ B 的实际攻击面（逐条界定）：
 - 远端 https 页面 + `bridge://`/cefQuery 的 CORS/混合内容实际表现：真客户端验。
 - 手续费率、铜/铁 P2P 单人 cap 具体数值：标定（DRAFT）。
 - 离线成交交付（邮箱/暂存）落点：设计（DRAFT）。
-- 页面构建版本与 action 契约的对齐机制：设计（DRAFT，见 10.6）。
-- 分发方式是否由 A 切换至 B（服务端内嵌静态 serve）：待像素 UI 首步验证跑通、UI 迭代频率明朗后重选（见 10.3；切换成本为一个 config 值 + 一个静态 serve 类）。
+- ~~页面构建版本与 action 契约的对齐机制~~：已落地，改由前端对账（`system.handshake` + `bridge.ts` 的 `handshake()`），见 10.6（RESOLVED）。
+- 分发方式：当前为 **A 为主 + 开箱页走 C**（后者已实现，见 `WebUiClient.openCaseScreen`）。是否把主面板由 A 切换至 B（服务端内嵌静态 serve）：待 UI 迭代频率明朗后重选（见 10.3；切换成本为一个 config 值 + 一个静态 serve 类）。原定的"待像素 UI 首步验证跑通"前置已随像素风 DEFERRED 作废，不再是触发条件。

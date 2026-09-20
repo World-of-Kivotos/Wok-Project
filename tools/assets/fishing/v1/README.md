@@ -14,6 +14,11 @@
 
 铁鱼、金鱼、绿宝石鱼采用已选 v1，钻石鱼采用真实透明的 v3；暗金鱼源样选用户确认的虹彩 v5，保存为 `dark_gold_selected_v5.png`。最终暗金鱼通过内置工具提取背景，保留暗金矿片与蓝紫、玫红、青绿虹彩。
 
+提示词留档并不完整：本目录有 `gold_prompt_v1.txt`、`emerald_prompt_v1.txt`、`diamond_prompt_v1..v3.txt`、
+`dark_gold_*_prompt_v1..v5.txt`，README 正文另存最终暗金鱼与五种鱼羹的提示词；**铁鱼（`iron_ore_fish`）原画的
+生成提示词未留档**——既没有 `iron_prompt_v1.txt`，正文里也没有对应段落（下面那条「基础铁羹提示词」是鱼羹，不是鱼）。
+重做铁鱼原画时按本目录 `source/iron_ore_fish.png` 的成品风格另拟提示词，不要当成能按原样复现。
+
 最终暗金鱼提示词：Use case: background-extraction. Edit target: the selected dark gold ore fish pixel illustration. Prepare it as a Minecraft inventory sprite PNG. Preserve the identical whole fish, left-facing silhouette, the dark indigo-purple scales, ancient dark gold mineral panels, blue-purple-magenta-cyan iridescent highlights and original pixel geometry. Only remove the entire deep purple backdrop outside the fish to actual RGBA alpha=0 transparency, including gaps around fins and tail. Keep opaque pixels within fish intact. Whole fish centered with clean hard pixel stepped outline and margin. No frame, no shadow, no text. Output a single game-ready square transparent PNG asset.
 
 基础铁羹提示词：Use case: stylized-concept. Asset type: Minecraft pixel-art inventory icon, iron ore fish soup. Draw a single small chunky wooden bowl viewed from slightly above, filled with creamy ivory fish chowder, a few silver-grey fish flesh chunks with tiny iron-grey mineral accents, mushrooms and a little green herb. Appetizing cooked food, no whole fish, no ore ingots. Coarse crisp pixel-art texture, stepped silhouette, broad light/dark clusters, limited colors, Minecraft item illustration. Centered square, fills most canvas with safe margin. True transparent RGBA background alpha=0, no checkerboard, no background, no cast shadow, no text or frame.

@@ -2,8 +2,9 @@
 
 > 状态标记：DECIDED = 已拍板；PENDING = 待定；[红队] = 经多 agent 对抗校验加入/修正的条款。
 > 平台：Forge 1.20.1 / Forge 47.x / Java 17。modid：`miningdim`。公服 PvE+PvP，死亡不掉落。
-> 深度改造对象：Champions Unofficial（`champions-forge-1.20.1-2.1.x`，开源，config + IAffix API + KubeJS 可扩展）。
+> 实现底座：自研 Forge capability（`MiningChampionData` / `MiningChampions`）承载星级与词条；Champions Unofficial（`libs/champions-forge-1.20.1-2.1.10.2.jar`）仅 compileOnly、在 mods.toml 里声明为可选伴生依赖（`mandatory=false`），**已不是本词条系统的实现底座**（`com.miningdim.champion` 包零 `top.theillusivec4.champions.*` 运行期依赖）。
 > 前置真源：[JobFramework_Shared_Foundation_DesignSpec.md](JobFramework_Shared_Foundation_DesignSpec.md)（共享地基）、[服务器经济系统设计文档.md](服务器经济系统设计文档.md)（货币/盖章/产出闸）、[Miner_Job_DesignSpec.md](Miner_Job_DesignSpec.md)（矿洞难度分档）。
+> 玩家侧同主题手册：[Champion_Effects_Guide.md](Champion_Effects_Guide.md)（面向玩家与服主，讲"已做出来的效果"与反制手段）。本文是开发侧规格，两份文档更新节奏不同，数值一律以代码为准。
 
 ---
 
@@ -17,7 +18,7 @@
 - 6-7★：团队 BOSS（2-4 人）。
 - 8-10★：世界 BOSS（约 10 人），需自定义血池 + 分阶段。
 
-本系统是在 Champions Unofficial 开放接口上加的"点数分配器 + 自定义词条 + 安全守卫"层，不 fork 其底层数学。词条由四类组成：生存 / 战斗 / 机动 / 技能（见第七章）。
+本系统是自研的"点数分配器 + 自定义词条 + 安全守卫"整套实现：星级、词条、品质、血池、受击结算全部落在自研 capability（`MiningChampionData`）与 Forge 事件上，不依赖 Champions Unofficial 的 rank/词条数学（2026-07-07 起自研脱离，详见第九章）。词条由四类组成：生存 / 战斗 / 机动 / 技能（见第七章）。
 
 ---
 
@@ -160,7 +161,9 @@ AKM/M4A1 是地板枪，实际枪械梯度远高于这俩（含狙击/反器材/
 
 ### 7.4 技能（10，主动/有 CD/须预兆特效，占技能数上限）
 
-> **批3 落地（DECIDED 2026-07-07 用户拍板）**：视觉干扰/自我修复/反击单元/支援召唤/命定之死 五条已实现入 roll 白名单（各自独立 handler + 纯逻辑状态机 GameTest）。落地参数：视觉干扰周期 12/10.5/9/8/7s（端点 spec、中间插值）、**失明时长真服二调全档 3s**（原 1~2.5s 体感太短，品质差异保留在周期；60tick 仍 < 红线5 受控帽 70tick）；自我修复 触发血≤50%、读条 6s、CD 25s、**v2 真服二调：读条期免伤 90%（用户拍板；红线1 的时限例外：6s 窗 + 近战打断硬反制 + 25s CD，非被动常驻减伤）+ 跳血无条件（v1"受伤停跳 1.5s"删除——与免伤互斥矛盾，持续火力下永远零回血）+ 真定身 = 移速归零修饰（v1 停导航法与 MoveControl 互搏只减速不定身）**；反击单元 每 15s 锁 5s 窗、本源次级 ≤20% attacker maxHP/s、**窗内递增"越反越疼"（真服二调用户定向）：第 n 笔名义 ×(1+0.3×(n-1)) 封顶 3 倍、逐窗重置，三层红线封顶仍压轴——递增主要惩罚往窗里砸大额单发**；命定之死 窗口 8s、CD 45s、仅可标记近 10s 有输出的玩家（防藏 DPS 白嫖）、**采样 DPS 按开火跨度折算（真服二调：固定 10s 除数会把点射 1~2s 的强度稀释十倍致阈值形同虚设；跨度=首末采样时距钳 [2,10]s）**、处决 = 100% maxHP `champion_execution` 真伤（bypasses_armor+enchantments，不入 bypasses_invulnerability 留不死图腾一线）；支援召唤按本表原值。命定/反击跨冠军同玩家互斥走 `ChampionTargetLocks`（一玩家一锁）。电磁蓄力/天雷/小男孩/凯撒/利刃 仍哑（批4 待 KnockbackSafetyGuard）。
+> **批3 落地（DECIDED 2026-07-07 用户拍板）**：视觉干扰/自我修复/反击单元/支援召唤/命定之死 五条已实现入 roll 白名单（各自独立 handler + 纯逻辑状态机 GameTest）。落地参数：视觉干扰周期 12/10.5/9/8/7s（端点 spec、中间插值）、**失明时长真服二调全档 3s**（原 1~2.5s 体感太短，品质差异保留在周期；60tick 仍 < 红线5 受控帽 70tick）；自我修复 触发血≤50%、读条 6s、CD 25s、**v2 真服二调：读条期免伤 90%（用户拍板；红线1 的时限例外：6s 窗 + 近战打断硬反制 + 25s CD，非被动常驻减伤）+ 跳血无条件（v1"受伤停跳 1.5s"删除——与免伤互斥矛盾，持续火力下永远零回血）+ 真定身 = 移速归零修饰（v1 停导航法与 MoveControl 互搏只减速不定身）**；反击单元 每 15s 锁 5s 窗、本源次级 ≤20% attacker maxHP/s、**窗内递增"越反越疼"（真服二调用户定向）：第 n 笔名义 ×(1+0.3×(n-1)) 封顶 3 倍、逐窗重置，三层红线封顶仍压轴——递增主要惩罚往窗里砸大额单发**；命定之死 窗口 8s、CD 45s、仅可标记近 10s 有输出的玩家（防藏 DPS 白嫖）、**采样 DPS 按开火跨度折算（真服二调：固定 10s 除数会把点射 1~2s 的强度稀释十倍致阈值形同虚设；跨度=首末采样时距钳 [2,10]s）**、处决 = 100% maxHP `champion_execution` 真伤（bypasses_armor+enchantments，不入 bypasses_invulnerability 留不死图腾一线）；支援召唤按本表原值。命定/反击跨冠军同玩家互斥走 `ChampionTargetLocks`（一玩家一锁）。
+>
+> **批4 收官（2026-07-08）**：分三波落地——波0 位移安全共享基建（`KnockbackSafetyGuard` / `SafeLandingRules` / `PlayerLandingProtection` / `AoeImmunityBuffer` / `SizeAffixEligibility`）→ 波1 分跳与击飞（双倍/四倍按跳拆分、混沌重击真 push）+ 传送家族（闪光/战术传送）→ 波2+波3 电磁蓄力/天雷/小男孩（均走 `champion_skill_aoe` 判决伤害 + 命中后 2s 免疫缓冲）、凯撒实验型转换器（双向守卫换位）、利刃华尔兹（连段 60% 帽按段均分）、灵体移动与体型渲染。至此 **35/35 全部词条均有运行期 handler，`AffixRoller.IMPLEMENTED_AFFIXES` 白名单 = 全集**（白名单语义保留：未来新增词条默认不可 roll，实现后显式登记）。
 
 | 词条 | 成本/★ | 数值 | 互斥/红线 |
 |---|---|---|---|
@@ -192,13 +195,14 @@ AKM/M4A1 是地板枪，实际枪械梯度远高于这俩（含狙击/反器材/
 
 ## 九、架构与实现（DECIDED）
 
-### 9.1 Champions 接入
-- 1-10★ = 10 条自定义 rank（`champions-ranks.toml` 支持无限 rank）。
-- 自定义词条走 `IAffixBase/IAffixCombatHandler/IAffixLifecycle/IAffixSyncable`（或 KubeJS 注册）。
-- **接管 spawn 期词条分配**：不用原版随机 roller，按四池预算 + 互斥 + 品质解锁 + 软上限自行挑词条并定基础膨胀，再用其 API 盖章到怪物。**spawn 热路径不跑重型背包算法**：离线为每星预计算候选词条集模板，spawn 时抽模板（性能）。
+### 9.1 星级与词条接入（自研 capability）
+- 1-10★ 由 `StarRank` 枚举承载数据（四池预算 / 词条与技能数上限 / 最高品质 / 基础有效HP / 单击上限 / 血条配色），**不依赖 `champions-ranks.toml` 驱动 rank 或词条数量/权重**。
+- 词条由 `AffixDef` 枚举（35 条，纯数据）+ integration 层各 handler 实现（`ChampionAttackHandler` / `ChampionBloodPoolHandler` / `ChampionDotTickHandler` / `ChampionSelfEffectHandler` 及 10 条主动技能各自的 handler），**不走 `IAffixBase/IAffixCombatHandler/IAffixLifecycle/IAffixSyncable`，也不走 KubeJS 注册**。
+- **spawn 期词条分配自理**：`AffixRoller` 按四池预算 + 互斥 + 品质解锁 + 软上限掷词条（`PointBudget` 终校验），再由 `ChampionPromoter` 把星级/词条/品质/血池盖章进 `MiningChampionData` capability。**spawn 热路径不跑重型背包算法**：逐池贪心掷取，非全排列搜索。
+- 伴生兼容：Champions Unofficial 仍可作为可选伴生 mod 部署（mods.toml `[[dependencies.miningdim]] modId="champions" mandatory=false`）。仓库内 `data/champions/affix_setting/` 的 16 个 `enable:false` 覆盖是唯一活链路（装了 Champions 时禁用其原版词条，避免与本系统词条叠加）；`deploy/champions-ranks.toml` 与 `data/miningdim/affix_setting/` 下的 35 个 JSON 属历史遗留兼容文件，不驱动本系统的星级/词条逻辑（`ModDependencyDeclarationGameTests` 有断言锁定这两组文件的归属）。
 
 ### 9.2 净减伤单一拦截点（红线 1）
-6★+ 血池的 `LivingHurtEvent` 与子弹的 `EntityHurtByGunEvent` 为同一受击结算点：求 `keep = ∏(1 - rᵢ)`（bullet_resistance + 复合同源适应层折率 + 偏斜 EV + 刚毅折算 + 缩小化体型折算），`keep = max(keep, 0.25)`（帽 75%，2026-07-07 随复合同源适应抬帽）。TDD：8★(子弹0.30+复合满0.65+偏斜0.25)、9★(重型0.49+复合满0.75+偏斜0.35+缩小化0.275) 对基准子弹最终伤害必须 ≥ 原始 ×0.25，删 clamp 必挂。
+6★+ 血池与子弹**共用同一个 `LivingHurtEvent` 受击结算点**（子弹按伤害类型 id 的 `tacz:bullet*` 前缀分桶识别，见 `ChampionDamageReduction.isBulletDamage` / `ChampionBloodPoolHandler`），**不额外监听 TACZ 的 `EntityHurtByGunEvent`**（该事件全库唯一用于工程师板甲耐久判定，与精英怪减伤链无关），以免对子弹伤害重复结算：求 `keep = ∏(1 - rᵢ)`（bullet_resistance + 复合同源适应层折率 + 偏斜 EV + 刚毅折算 + 缩小化体型折算），`keep = max(keep, 0.25)`（帽 75%，2026-07-07 随复合同源适应抬帽）。TDD：8★(子弹0.30+复合满0.65+偏斜0.25)、9★(重型0.49+复合满0.75+偏斜0.35+缩小化0.275) 对基准子弹最终伤害必须 ≥ 原始 ×0.25，删 clamp 必挂。
 
 ### 9.3 KnockbackSafetyGuard（红线 6）
 所有产生位移/击退/击飞/换位的效果（凯撒/闪光/战术传送/灵体/利刃/反震/混沌/巨大化 blink）统一接入服务端权威守卫，**预测向量末端落点而非瞬间落点**：
@@ -219,7 +223,7 @@ AKM/M4A1 是地板枪，实际枪械梯度远高于这俩（含狙击/反器材/
 - DoT 聚合：同玩家所有 DoT 每秒合计 ≤15% maxHP，按贡献比例衰减。
 
 ### 9.6 TACZ 接入（已核实）
-- 抗枪减伤走 `tacz:bullet_resistance` 属性（0-1，syncable，挂全实体），瞬态 AttributeModifier，封顶 <0.5 并入净减伤钳制。
+- 抗枪减伤**不挂任何 TACZ 属性修饰**：在受击结算点（`LivingHurtEvent`）按伤害类型 ResourceLocation 判定是否子弹伤害（`ChampionDamageReduction.isBulletDamage`：namespace = `tacz` 且 path 以 `bullet` 起），命中后把超高分子/重型护甲对应档位的抗性率作为 rᵢ 直接传入 `ChampionRedlines.clampNetKeepFactor` 参与 keep 连乘，不注册/操作实体 Attribute，也不产生 AttributeModifier。
 - 公共事件可用：`GunShootEvent/GunFireEvent/EntityHurtByGunEvent/AttachmentPropertyEvent`；KubeJS。无需 mixin。
 - 后坐力客户端独占，不做服务端修改（故"武器干扰"不走后坐力）。
 
@@ -228,9 +232,11 @@ AKM/M4A1 是地板枪，实际枪械梯度远高于这俩（含狙击/反器材/
 
 ---
 
-## 九·附 Champions 接入可行性与表现层审查（DECIDED；[审查]）
+## 九·附 Champions 接入可行性与表现层审查（[审查]）
 
-对照 Champions Unofficial 1.20.1 源（[PickAID/Champions](https://github.com/PickAID/Champions)）逐项核可行性。结论：除"服务端改玩家后坐力"（早已放弃）外，无真正做不到的功能。
+> **状态：历史可行性论证（2026-07-07 自研脱离之前）。9A.1-9A.6 描述的是"若在 Champions Unofficial 接口上实现该怎么做"，已被第九章的自研方案取代，不再是当前实现说明**——现行实现里没有任何 `IAffixCombatHandler/IAffixLifecycle/IChampion.getData` 调用，词条状态一律读写自研 `MiningChampionData` capability，钩子一律是 Forge 事件。保留本节是因为其中的"须自建 / 平台限"判定（聚合器、血池、安全守卫、1.20.1 无 `generic.scale`）与最终实现一致，可追溯设计取舍。9A.7（词条品质显示）不属此列，仍是现行要求。
+
+当年的审查口径：对照 Champions Unofficial 1.20.1 源（[PickAID/Champions](https://github.com/PickAID/Champions)）逐项核可行性。结论：除"服务端改玩家后坐力"（早已放弃）外，无真正做不到的功能。
 
 ### 9A.1 可用接入钩子（已核源）
 
@@ -242,7 +248,7 @@ AKM/M4A1 是地板枪，实际枪械梯度远高于这俩（含狙击/反器材/
 
 **Champions 只提供"单怪、单词条"钩子。** 所有封顶/聚合/跨玩家/血池/安全守卫红线**必须自建在 Forge 层**（一个统一受击 `LivingHurtEvent` 单点 + 一套玩家侧 capability），不得依赖 Champions 的逐词条钩子：
 
-- **禁止用 Champions 逐词条 `onHurt` 实现减伤**：逐词条 onHurt 是串行 newAmount，无全局 clamp，多源相乘必穿透净减伤 49%（红队已证）。减伤一律走第 9.2 节单点聚合。
+- **禁止用 Champions 逐词条 `onHurt` 实现减伤**：逐词条 onHurt 是串行 newAmount，无全局 clamp，多源相乘必穿透红线 1（第 9.2 节）规定的净减伤硬封顶（红队已证；该封顶 2026-07-07 由 49% 抬到 75%，此处不重复具体数值，以红线 1 为准）。减伤一律走第 9.2 节单点聚合。
 - 跨多怪、跨玩家的聚合（DoT 每秒≤15%、控制 7s 窗≤50%、反伤多源秒窗）Champions 数据是 per-champion，覆盖不到 → 全部落在玩家侧 capability（红线 4/5 + 红线 2 的 9.5 聚合器）。
 
 ### 9A.3 可行性审查表
@@ -253,7 +259,7 @@ AKM/M4A1 是地板枪，实际枪械梯度远高于这俩（含狙击/反器材/
 |---|---|---|---|
 | 1 | 1-10 星 + 基础膨胀 | 直接 | HP 撞 1024 → 见 #9 |
 | 2 | 词条注册/分配/盖章 | 直接 | 四池预算分配器自写 |
-| 3 | 被动减伤（复合/超高分子/刚毅/偏斜） | 须自建 | 不能各词条独立 onHurt；走 9.2 单点聚合 + 净减伤 49% clamp |
+| 3 | 被动减伤（复合/超高分子/刚毅/偏斜） | 须自建 | 不能各词条独立 onHurt；走 9.2 单点聚合 + 红线 1 净减伤硬封顶 clamp |
 | 4 | 重型护甲 B（子弹抗性 + 近战/爆炸 T 免疫） | 直接 | 子弹由 TACZ 先减，聚合重建顺序 |
 | 5 | on-hit（燃烧/穿甲/撕裂/寒霜/强酸/混沌/双倍/四倍） | 直接 | `onAttack` 内对 target 施 rider |
 | 6 | 怪伤按 %maxHP + 单击 40% 上限 | 须自建 | onAttack 改不了 amount；玩家侧 `LivingHurtEvent` 重写冠军近战为 %maxHP 并钳 40% |
@@ -316,10 +322,10 @@ AKM/M4A1 是地板枪，实际枪械梯度远高于这俩（含狙击/反器材/
 
 - **配色**（MMO 稀有度梯度）：普通=灰白 / 中级=绿 / 高级=蓝 / 超凡=紫 / 闪耀=金（signature，可加微光），与塔罗 R/SR/SSR/UR/闪耀 体系视觉一致。
 - **显示位置**：
-  - 冠军头顶名牌：Champions 原生 rank 颜色 + 词条名/图标按品质着色；
-  - 特勤干员探测词条列表（L7+）：逐条 `词条名 [品质]`，按品质着色；
+  - 冠军头顶名牌/BOSS 血条：星级配色取自研 `StarRank.barColorRgb()`（已取代 Champions 原生 rank 颜色）+ 词条名/图标按品质着色；
+  - 特勤干员探测词条列表（L8+，见 [SpecialAgent_Job_DesignSpec.md](SpecialAgent_Job_DesignSpec.md) 第四章总表与 `AgentScanField.QUALITY_TABLE(8)`；L7 只解锁技能机制 `SKILL_MECHANICS`）：逐条 `词条名 [品质]`，按品质着色；
   - 8★+ 世界 BOSS 血条下可附词条品质摘要。
-- **数据**：品质已在词条实例上（spawn 时定），经 `IAffixSyncable` 同步客户端即可读取渲染，无需额外存储。
+- **数据**：品质已在词条实例上（spawn 时定，存 `MiningChampionData` capability），经自研通道下发客户端即可读取渲染，无需额外存储——WebUI 面板走 `ChampionWebUiActions`（`champion.codex` / `champion.inspect`）与特勤的 `job.agent.scan`，原生渲染走既有 `MiningNetwork.CHANNEL` 包（如 `ChampionSizeS2C` 同范式）；**不存在 `IAffixSyncable` 这条路径**。
 - **原版退路**：无我方客户端时，用名牌文本/`text_display` 以原版颜色代码（§-color）输出品质，纯原版客户端也能看出档位。
 
 ---
@@ -330,11 +336,11 @@ AKM/M4A1 是地板枪，实际枪械梯度远高于这俩（含狙击/反器材/
 |---|---|
 | 主世界 | 0★ 为主，低概率 1-2★，极低 3★ |
 | 矿洞 易（L1-3） | 1-3★ |
-| 矿洞 中（L4-7） | 3-5★ 保底 |
-| 矿洞 困难（L8+） | 5-8★，深层保底高星 |
+| 矿洞 中（L4-7） | 3-6★ |
+| 矿洞 困难（L8+） | 5-10★，深层保底高星 |
 | 世界 BOSS（8-10★） | 定点/事件触发，约 10 人挑战 |
 
-绑定 Miner spec 的难度分档（`Danger.evaluate` / L4 中等 / L8 困难）。
+绑定 Miner spec 的难度分档（`Danger.evaluate` / L4 中等 / L8 困难）。升格概率按难度档：易 6% / 中 10% / 困难 15%（星级区间与升格率的唯一权威是 `ChampionSpawnPolicy`，区间相邻档刻意重叠以平滑难度梯度）。
 
 ---
 
@@ -343,9 +349,9 @@ AKM/M4A1 是地板枪，实际枪械梯度远高于这俩（含狙击/反器材/
 - 星级 → 掉落倍率 + 信用点产出。
 - **盖章双门槛**[红队]：个人有效伤害 ≥ BOSS 总有效血 0.5% **或** ≥ 团队人均 15%（取一）；记录首次有效伤害时间戳防补刀刷入；**固定总池**（按星级与巨大化后实际有效血标定）→ 仅合格者按个人有效伤害**加权瓜分**，严禁按人头复制。（核：★10 巨大化 ≈204000HP，0.5% ≈1020 伤，AKM 单发 9 ≈0.0044% 被排除；正规 10 人队每人 ≈10% 正常入账。）
 - **召唤物排除**[红队]：`summonedByAffix=true`，掉落/货币/经验结算入口直接排除，`LivingDropsEvent` 清空掉落表。经济文档反作弊新增"affix 召唤物不参与货币/经验结算"。
-- **青辉石下限 ≥6★**[红队]（config 暴露，默认 6）；1-5★ 只掉信用点。刷怪信用点并入 `EconomyConstants economy.daily.*` 软上限 + AbuseGuard mob-kill faucet（复用 `decayBase=0.97/floorRatio=0.25` 与 UTC 翻日，当前代码未接线属缺口）；青辉石单设日产软上限。
+- **青辉石下限 ≥6★**[红队]（config 暴露，默认 6）；1-5★ 只掉信用点。**刷怪信用点已接线**：逐合格玩家经 `ChampionRewardHandler` 调 `grantDaily` 并入 `EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY`（`credit_faucet`）衰减主闸，与矿工卖矿/农夫卖菜共享同一每人每日天花板（单档 60,000 信用点毛收入 `GLOBAL_DAILY_CREDIT_FAUCET_TIER`，跨档系数 `FAUCET_DECAY_BASE=0.6`，地板 `ECONOMY_PRICE_FLOOR_RATIO=0.01`，UTC 翻日）。注意 `ECONOMY_DECAY_BASE=0.97` 是逐矿收购价 steering 的递减底数，与主闸语义不同、不可混用；`economy.daily.*` 是钻石/下界残骸/金的逐矿种日上限，与信用点主闸无关。青辉石经 `grantAzureDaily` 并入 `AZURE_DAILY_FAUCET_KEY`（`azure_faucet`）每人每日**硬上限 30**（`AZURE_DAILY_FAUCET_CAP`，硬截断非衰减），该上限**与特勤周常悬赏（`AgentRewardHandler.grantWeeklyBountyAzure`）共享**，非本系统单设。
 - 命定之死动态阈值同时使其无法被团队 DPS 无痛满足而沦为"farming 节奏器"。
-- **已细化**：[特勤干员](SpecialAgent_Job_DesignSpec.md) 直接挂钩本系统——其探测/封印/贡献分赃/悬赏均基于本词条体系；击杀精英按星级×贡献占比给其经验，扫描/封印通过 Champions API（getAffixes/getData seal 标记）作用于本系统词条。
+- **已细化**：[特勤干员](SpecialAgent_Job_DesignSpec.md) 直接挂钩本系统——其探测/封印/贡献分赃/悬赏均基于本词条体系；击杀精英按星级×贡献占比给其经验，扫描/封印直接读写自研 `MiningChampionData` capability（封印 = `removeAffix` 临时摘词条 + 到期增量恢复，不走 Champions API，详见该文档 10.2）。
 
 ---
 
@@ -376,18 +382,18 @@ AKM/M4A1 是地板枪，实际枪械梯度远高于这俩（含狙击/反器材/
 2. 召唤星级绝对天花板：默认 4★，是否压到 3★。
 3. 控制/机制类（视觉干扰/小男孩/命定）是否从技能里再细分一个"机制轴"——目前并在技能。
 4. 混沌重击归类（当前战斗轴，边界态）。
-5. 各 config 默认值（青辉石日产软上限、faucet 接线参数、生成权重表）。
+5. 各 config 默认值（青辉石每人每日硬上限当前硬编码 30 属 DRAFT 待标定、faucet 档位参数、生成权重表）。
 6. 挂钩职业经验接口已细化为[特勤干员](SpecialAgent_Job_DesignSpec.md)；剩余联调见该文档 PENDING。
 
 ---
 
 ## 十四、实现拆分
 
-1. 接入层：10 rank 配置 + 自定义词条注册（IAffix/KubeJS）+ spawn 期分配器（四池预算 + 互斥 + 软上限 + 预计算模板）。
+1. 接入层：`StarRank` 10 星数据表 + `AffixDef` 35 词条定义 + spawn 期分配器（`AffixRoller`/`PointBudget`：四池预算 + 互斥 + 软上限）+ `ChampionPromoter` 盖章进自研 capability。
 2. 血池子系统：6★+ 自定义 currentHp/maxHp 权威 + 渲染镜像 + 拦死 + TDD 四条。
 3. 受击结算单点：净减伤钳制 + DoT 聚合 + 单击/连段/瞬时多源上限 + 2s 免疫缓冲。
 4. KnockbackSafetyGuard + 形态守卫（巨大化容纳/灵体回退）+ 每玩家控制聚合器 + per-attacker 反伤累加器。
-5. TACZ 接入：bullet_resistance 修饰器 + 公共事件监听。
+5. TACZ 接入：按伤害类型 id（namespace = `tacz`、path 以 `bullet` 起）在受击结算点识别子弹伤害，抗性档位折算率并入净减伤连乘（`ChampionDamageReduction` / `ChampionBloodPoolHandler` / `ChampionRedlines`，已实现）；不涉及属性修饰器，也不额外监听 TACZ 公共事件（`EntityHurtByGunEvent`/`AttachmentPropertyEvent` 只用于工程师护甲耐久与枪匠属性两个不相关模块）。
 6. 表现层：蓄力/锁定/换位/核弹特效 + 指示 + 警告音 + 自定义 BOSS 血条。
 7. 刷怪/维度绑定（接 Danger.evaluate/矿洞难度）。
 8. 奖励/经济闸（盖章双门槛 + 召唤排除 + 青辉石下限 + faucet 接线）。

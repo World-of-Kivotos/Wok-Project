@@ -4,6 +4,7 @@
 技术 modId：`miningdim`
 公开入口：`com.miningdim.job.chef.ChefModule`
 内部运行时：`com.miningdim.job.chef.ChefSystem`
+设计规格：[docs/Chef_Job_Mod_DesignSpec.md](../../Chef_Job_Mod_DesignSpec.md)（设计意图与数值口径；本文件是模块交付清单，管注册 ID、资源归属与外部依赖）
 
 ## 功能边界
 
@@ -45,6 +46,6 @@ GeckoLib 是客户端与服务端都必须安装的运行时依赖，锁定 `4.8
 
 增香效果黑名单包含原版金苹果、附魔金苹果，以及 FID 1.1.0.3 官方 JAR 中核定的 32 个效果。该 JAR SHA-256 为 `C9CE8AFBC6FEBAB2A94AD45247A3D3FCEC32978516E3335134E46ECC0EEF7778`；资源中只放 32 个 optional 条目，`sesameglide` 与 `sesamedoor` 不列入黑名单。
 
-本模块拥有 `seasoning_table_*` blockstate/model、`geo/block/seasoning_table.geo.json`、`animations/block/seasoning_table.animation.json`、五档静态方块纹理与五档 `seasoning_table_*_geo.png` 动态模型图集、调味台 GUI、十个窗口效果图标、`recipes/chef/`、`tags/items/seasonings/*.json`、`tags/items/seasonings.json`、`tags/items/unseasonable.json`、`tags/items/chef_amplify_item_blacklist.json` 和 `tags/mob_effect/chef_amplify_effect_blacklist.json`。共享语言文件仅由本模块维护厨师前缀键。
+本模块拥有 `seasoning_table_*` blockstate/model、`geo/block/seasoning_table.geo.json`、`animations/block/seasoning_table.animation.json`、五档静态方块纹理与五档 `seasoning_table_*_geo.png` 动态模型图集、调味台 GUI、十个窗口效果图标的行为定义与 `chef.*` 注册键（这十个 PNG 文件本身按目录整体归 WOK-核心的 `assets/miningdim/textures/mob_effect/`，与跨职业共享的 `ModJobEffects` 同目录，见 RESOURCE_OWNERSHIP.md 的厨师行与 module-registry.json 中 wok-core 的 `resourcePaths`；本模块不拥有这些 PNG）、`recipes/chef/`、`tags/items/seasonings/*.json`、`tags/items/seasonings.json`、`tags/items/unseasonable.json`、`tags/items/chef_amplify_item_blacklist.json` 和 `tags/mob_effect/chef_amplify_effect_blacklist.json`。共享语言文件仅由本模块维护厨师前缀键。
 
-运行期 PNG 和 GeckoLib JSON 由 `tools/generate_chef_assets.py` 与 `tools/generate_chef_gecko_assets.py` 可复现生成；挑选后的模型说明预览保存在 `docs/assets/chef/`，不得把 `tools/__pycache__` 或本地发布 JAR 纳入资源提交。
+运行期 PNG 和 GeckoLib JSON 由 `tools/generate_chef_assets.py` 与 `tools/generate_chef_gecko_assets.py` 可复现生成；挑选后的模型说明预览保存在 `docs/assets/chef/`：`chef_asset_style_source.png`（配色与笔触风格母本）与 `chef_runtime_asset_preview.png`（运行期 PNG 产出预览）由 `tools/generate_chef_assets.py` 引用，`chef_gecko_workstation_preview.png`（横跨两格的 GeckoLib 工位预览）由 `tools/generate_chef_gecko_assets.py` 引用。不得把 `tools/__pycache__` 或本地发布 JAR 纳入资源提交。

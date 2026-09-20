@@ -1,9 +1,9 @@
-# 电力系统美术资源清单（前期发电机 + 三级储电）
+# 电力系统美术资源清单（发电机 + 三级储电）
 
 ## 一、文档说明
 
-- 用途：记录煤炭发电机、地热发电机与三级储电的 20 张方块贴图和 2 张界面底图。逻辑与数值以 [Power_Economy_Rebalance_DesignSpec.md](Power_Economy_Rebalance_DesignSpec.md) 第二章为真源，本文只定义美术资产与渲染契约。
-- 当前状态：本清单中的 22 张 PNG 均按最终资产管理，采用原版 Minecraft 的硬边像素语言；它们不是临时稿，也不保留后续美术替换依赖。
+- 用途：记录五台发电机与三级储电的方块资产和界面底图。第二、三章覆盖煤炭发电机、地热发电机与三级储电的 20 张方块贴图和 2 张界面底图；第四章覆盖后期三档燃料芯发电机（工业 / 现代 / 未来）的 29 张方块贴图与 36 个部件模型。前期两台与储电的逻辑与数值以 [Power_Economy_Rebalance_DesignSpec.md](Power_Economy_Rebalance_DesignSpec.md) 第二章为真源，后期三档以 [Power_Generator_DesignSpec.md](Power_Generator_DesignSpec.md) 第二章为真源；本文只定义美术资产与渲染契约。
+- 当前状态：第二、三章的 22 张 PNG 均按最终资产管理，采用原版 Minecraft 的硬边像素语言；它们不是临时稿，也不保留后续美术替换依赖。第四章的 29 张贴图同样按最终资产管理，但其生成脚本真源与自动验收均缺位，状态口径见该章。
 - 方块资产真源：`tools/build_preheat_generator_textures.py`，可复现生成 8 张煤炭／地热发电机贴图与 12 张三级储电贴图。
 - 界面资产真源：`tools/build_power_ui_assets.py`，可复现生成 `generator.png`、`preheat_generator.png`、`power_cell.png`、`metallurgic_purifier.png`、`air_separation.png`、`low_temperature_controller.png` 六张 power 界面；本文只登记其中 `preheat_generator.png` 与 `power_cell.png`。
 - 命名铁律：文件名一律使用小写下划线，并与注册 id、模型引用完全一致。大小写或拼写不符会导致材质丢失。
@@ -13,7 +13,8 @@
 
 - `PreheatGeneratorGameTests.blockAssetsExistAndMatchModels` 覆盖五台设备的 20 张唯一方块贴图，核对 blockstate、待机／工作模型、`orientable` 父模型、贴图引用、物品模型、16x16 尺寸、全不透明、无纯白像素，以及 `front`／`front_on` 的变化范围。
 - `PowerUiContractGameTests` 覆盖六张 power 界面；其中本清单的 2 张界面会接受 256x256 RGBA、218x222 逻辑边界、槽位坐标、alpha、透明像素 RGB 与 `.mcmeta` 禁用检查。
-- 因此本清单的直接资产覆盖量为 20 张方块贴图加 2 张界面底图。测试负责守住格式和引用，不替代 1:1 游戏内视觉检查。
+- 因此本清单受自动验收保护的资产量为 20 张方块贴图加 2 张界面底图。测试负责守住格式和引用，不替代 1:1 游戏内视觉检查。
+- 第四章的 29 张燃料芯发电机贴图与 36 个部件模型**不在任何自动验收范围内**：`GeneratorRuntimeGameTests` 的 9 个用例全部是多方块放置与运行时逻辑，零贴图/模型断言。该缺口见第四章末。
 
 ## 二、方块贴图（20 张，已定稿）
 
@@ -112,13 +113,59 @@
 4. 禁止生成对应的 `.png.mcmeta`，尤其禁止 `blur` 线性过滤；所有轮廓、倒角、槽框与刻度保持 1 像素硬边。
 5. 槽框左上像素必须保持钢框色 `#FF4D606F`，且底图槽框坐标必须与 Menu 槽位坐标完全一致。
 
-## 四、不需要的资产
+## 四、后期三档燃料芯发电机（29 张方块贴图 + 36 个部件模型）
 
-- 物品图标：五台设备的物品模型直接复用各自方块模型，不需要独立 2D 图标。
-- 燃料物品图标：煤炭机使用原版可燃物，没有自有燃料物品。
+工业、现代、未来能源发电机均为 3x2x2 的 12 部件多方块，注册 id 依次为 `industrial_generator`、`modern_generator`、`future_energy_generator`。与前两章不同，这三档不使用 `orientable` 单方块模型，而是每个部件一份带 `elements` 的自研模型，贴图按档位分目录。
+
+### 4.1 方块贴图（29 张）
+
+全部为 **16x16 RGBA PNG**，放置于 `src/main/resources/assets/miningdim/textures/block/generator/<档位>/`。文件名是模型 `textures` 键的取值，不与注册 id 同名，因此不受第一章"文件名与注册 id 一致"那条命名铁律约束，但仍须与模型内的引用逐字一致。
+
+| 档位 | 目录 | 张数 | 文件名 |
+| --- | --- | ---: | --- |
+| 工业 | `block/generator/industrial/` | 11 | `base_steel.png`、`dark_steel.png`、`edge_steel.png`、`panel_steel.png`、`rivet_steel.png`、`frame_black.png`、`vent_dark.png`、`exhaust_soot.png`、`control_panel.png`、`indicator_red.png`、`warning_stripe.png` |
+| 现代 | `block/generator/modern/` | 9 | `frame.png`、`panel.png`、`panel_dark.png`、`panel_light.png`、`grille.png`、`vent.png`、`exhaust_inner.png`、`display_cyan.png`、`display_amber.png` |
+| 未来 | `block/generator/future/` | 9 | `frame.png`、`frame_edge.png`、`armor.png`、`armor_edge.png`、`control.png`、`glass.png`、`vent.png`、`cyan_core.png`、`cyan_glow.png` |
+
+三个目录互不共用文件，`frame.png` / `vent.png` 在现代与未来目录下是两张不同的图，靠目录而非文件名区分。
+
+### 4.2 部件模型与 blockstate（36 个模型）
+
+| 档位 | 模型目录 | 模型数 | 命名 |
+| --- | --- | ---: | --- |
+| 工业 | `models/block/generator/industrial/` | 12 | `part_x{0,1,2}_z{0,1}_y{0,1}.json` |
+| 现代 | `models/block/generator/modern/` | 12 | 同上 |
+| 未来 | `models/block/generator/future/` | 12 | 同上 |
+
+- 每份部件模型 `parent` 为 `minecraft:block/block`，自带 `elements`，`textures` 段用逻辑键（工业为 `base` / `dark` / `panel` / `frame` / `edge` / `vent` / `warning` / `control` / `indicator` / `exhaust` / `rivet`，现代与未来各有自己的键名）绑到 4.1 同档目录内的贴图，并额外指定 `particle`。
+- blockstate 为 `src/main/resources/assets/miningdim/blockstates/{industrial_generator,modern_generator,future_energy_generator}.json`，各 48 个 variant（12 个 `part` × 4 个 `facing`），四个朝向复用同一份部件模型，只改 `y` 旋转 0 / 90 / 180 / 270。
+- 物品模型 `models/item/{industrial_generator,modern_generator,future_energy_generator}.json` 各自 `parent` 到本档的一个代表部件：工业取 `part_x2_z0_y0`、现代取 `part_x0_z0_y0`、未来取 `part_x1_z0_y0`。与第五章"物品模型复用方块模型"的口径一致，不需要独立 2D 图标。
+- 上述贴图、模型与 blockstate 全部位于 `src/main/resources`，是手工维护的资产，不由 `runData` 生成，改动后不会被数据生成覆盖，也不会被数据生成修正。
+
+### 4.3 状态与已知缺口
+
+| 项 | 状态 |
+| --- | --- |
+| 29 张贴图文件存在且均为 16x16 RGBA | [x] 已生成 |
+| 36 个部件模型存在并被 blockstate 逐项引用 | [x] 已接线 |
+| 三档物品模型复用部件模型 | [x] 已接线 |
+| 生成脚本真源 | [ ] 缺位 —— `tools/` 下没有对应脚本，无法像前期五台那样一键复现 |
+| 自动资产验收 | [ ] 缺位 —— 见下 |
+
+两条缺口按 Major 记账，不得用"文件存在"冲抵：
+
+1. **无生成脚本真源。** 前期五台由 `tools/build_preheat_generator_textures.py` 复现，这三档没有等价脚本，改稿只能直接改 PNG，脚本与成品分叉的风险在本组不存在，但"可复现"这条保障同样不存在。
+2. **无资产层 GameTest。** `GeneratorRuntimeGameTests` 的 9 个用例覆盖菜单 int32 契约、三档输出/时长/NBT 契约、满缓冲拒收转热、保险丝 SCRAM、端口与过压、熔毁剖面、输出裕度等，全部是运行时逻辑，没有任何贴图或模型断言。结果是 29 张贴图或 36 个模型的静默损坏（文件丢失、尺寸改变、引用拼错）不会被质量门 `runGameTestServer` 拦截。补法应参照 `PreheatGeneratorGameTests.blockAssetsExistAndMatchModels` 与 `PowerCableAssetGameTests`，为三档发电机补一个存在性与引用校验用例。
+
+## 五、不需要的资产
+
+- 物品图标：前期两台发电机与三档储电的物品模型直接复用各自方块模型，不需要独立 2D 图标；后期三档发电机同样复用部件模型，见 4.2。
+- 燃料物品图标：煤炭机使用原版可燃物，没有自有燃料物品。三档燃料芯的图标属于线材清单，见 `docs/Power_Cable_AssetChecklist.md` 第四章"独立组件资产"。
 - 粒子与音效：本清单不定义这两类资源。
 
-## 五、改稿与复现流程
+## 六、改稿与复现流程
+
+本章只适用于第二、三章的 22 张脚本化资产。第四章的 29 张贴图没有生成脚本，改稿直接改 PNG，改后须自行核对仍为 16x16 且模型引用未断（见 4.3）。
 
 1. 方块改稿先修改 `tools/build_preheat_generator_textures.py` 中对应设备的生成逻辑；界面改稿分别修改 `tools/build_power_ui_assets.py` 的 `build_preheat_generator()` 或 `build_power_cell()`。
 2. 运行两份真源脚本重新生成 PNG。未来若从外部绘图工具导入同名 PNG，无需修改 JSON 或 Java，但必须把最终像素同步回生成脚本，避免下一次复现覆盖成旧稿。

@@ -2,36 +2,49 @@
 
 - 版本:v1.0
 - 适用环境:Forge 1.20.1,纯 Forge 服务端(无 Bukkit/Spigot API 依赖)
-- 文档用途:(1) 评估候选 mod 的验收清单;(2) 自建 Forge mod 的实现规格,两者通用
+- 文档用途:自建 Forge 实现(`com.miningdim.stacking`,模块 `wok-stacking`)的需求与验收规格
 - 约束语义:MUST = 强制,SHOULD = 建议,MAY = 可选;状态用纯文本(PASS/FAIL/待实测)
-- 核心机制:范围内同种同状态实体合并为单实体,显示名标注堆叠数 N;主动产出(击杀掉落)与被动产出(剪毛/挤奶/产蛋)均按 N 倍结算
+- 核心机制:范围内同种同状态实体合并为单实体,显示名标注堆叠数 N;主动产出(击杀掉落)与被动产出(剪毛/挤奶/产蛋)均按 N 倍结算。**合并候选是白名单制,当前只有猪/鸡/羊/牛四种,见下节适用范围**
+
+## 零、适用范围(决策 D1)
+
+合并候选准入为**白名单式**,只有 `StackMerge.STACKABLE_TYPES` 里的 `PIG` / `CHICKEN` / `SHEEP` / `COW` 四种低价值农场动物才可能参与堆叠;其余一切 `LivingEntity`——玩家、村民、盔甲架、铁傀儡、僵尸骷髅苦力怕等怪物、马/狼等驯服宠物、自研精英怪——**一律不合并**。
+
+- 白名单是**硬编码常量,不是 config 键**:D1 是产品决策而非运维旋钮。旧版曾是"默认放行一切 `LivingEntity` + 靠排除项收口"的黑名单式,后果是玩家被 discard 成幽灵号、村民/盔甲架/铁傀儡的装备与交易表被永久销毁、矿洞刷怪与自研精英怪被误并。任何允许服主往外扩白名单的旋钮都会重新打开同一类资产损毁风险,故**扩白名单必须改代码、走 code review**。
+- `exclusions.*`(命名/驯服/Boss/blacklist)是**白名单内的二次过滤**,不是准入判据;判定顺序上白名单闸在它们之前。
+- 本规格全部 FR/NFR/AC 均只在上述四种实体上有效;凡以怪物、村民、宠物为被测对象的条目,在当前实现下恒不成立。
 
 ## 一、默认参数表(量化基线)
 
+落盘文件:`<world>/serverconfig/miningdim-stacking.toml`(由 `StackingSystem` 单独 `registerConfig` 到 SERVER 级,不进中央 `miningdim-server.toml`)。键名一律 camelCase,分组层级只有一层 section——**nightconfig 对未知键静默忽略,写错键名不会报错,只会不生效**。
+
 | 配置键 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
-| merge.radius.horizontal | int(格) | 5 | 水平合并半径 |
-| merge.radius.vertical | int(格) | 3 | 垂直合并半径 |
-| merge.trigger | enum | on_move | on_move(跨方块时检测)/ interval |
-| merge.scan_interval | int(tick) | 100 | 兜底周期扫描(5s);trigger=interval 时为主扫描周期 |
-| merge.max_stack_size | int | 64 | 单实体最大堆叠数,超出另起新堆叠 |
-| merge.require_moved | bool | true | 仅对移动过的实体尝试合并,降低静止农场扫描开销 |
-| drops.death_mode | enum | instant_all | instant_all(整堆瞬死掉全部)/ one_per_kill(每次击杀剥离 1) |
-| drops.loot_roll_mode | enum | per_individual | per_individual(逐个独立 roll)/ multiply_base(base×N,不推荐) |
-| drops.multiply_xp | bool | true | 经验按堆叠数倍增 |
-| passive.shear.enabled | bool | true | 剪毛倍增 |
-| passive.milk.enabled | bool | true | 挤奶倍增 |
-| passive.egg.enabled | bool | true | 产蛋倍增 |
+| enabled | bool | true | 子系统总开关(运维一键止血);false 停止一切新合并,已成堆叠仍正常结算掉落/被动/拆分,不丢个体 |
+| merge.radiusHorizontal | int(格) | 5 | 水平合并半径 |
+| merge.radiusVertical | int(格) | 3 | 垂直合并半径 |
+| merge.trigger | enum | ON_MOVE | ON_MOVE(仅对移动过的实体尝试合并)/ INTERVAL(纯周期全量扫描) |
+| merge.scanIntervalTicks | int(tick) | 100 | 兜底周期扫描(5s);trigger=INTERVAL 时为主扫描周期 |
+| merge.maxStackSize | int | 64 | 单实体最大堆叠数,超出另起新堆叠 |
+| merge.requireMoved | bool | true | 仅对移动过的实体尝试合并,降低静止农场扫描开销 |
+| drops.deathMode | enum | INSTANT_ALL | INSTANT_ALL(整堆瞬死掉全部)/ ONE_PER_KILL(每次击杀剥离 1) |
+| drops.lootRollMode | enum | PER_INDIVIDUAL | PER_INDIVIDUAL(逐个独立 roll)/ MULTIPLY_BASE(base×N,不推荐) |
+| drops.multiplyXp | bool | true | 经验按堆叠数倍增 |
+| passive.shearEnabled | bool | true | 剪毛倍增 |
+| passive.milkEnabled | bool | true | 挤奶倍增 |
+| passive.eggEnabled | bool | true | 产蛋倍增 |
 | exclusions.named | bool | true | 命名(name tag)实体不参与堆叠 |
-| exclusions.tamed | bool | true | 驯服实体(狼/猫/马/鹦鹉等)不参与堆叠 |
+| exclusions.tamed | bool | true | 驯服实体不参与堆叠(白名单内仅对可驯服类型有意义) |
 | exclusions.boss | bool | true | Boss 不参与堆叠 |
-| exclusions.blacklist | list | [] | 按 entity id 排除的实体类型 |
+| exclusions.blacklist | list | [] | 按 entity id 排除的实体类型(白名单内的二次过滤) |
+| interaction.leashMode | enum | SPLIT_ONE | SPLIT_ONE(拴绳先拆 1 个再拴)/ WHOLE_STACK(拴整堆,原版行为) |
+| interaction.splitGraceTicks | int(tick) | 600 | 刚拆出的个体在此期间不被重新吸收,供玩家牵走 |
 
 ## 二、功能需求(FR)
 
 ### FR-1 实体合并
 
-- FR-1.1 (MUST) 合并条件须同时满足:同 entity type、同年龄段(成年/幼年)、同变体维度(羊毛颜色、苦力怕充能态、马花色等)、处于 merge.radius 范围内。
+- FR-1.1 (MUST) 合并条件须同时满足:实体类型在白名单内(第零章 D1)、同 entity type、同年龄段(成年/幼年)、同变体维度(白名单内当前只有羊毛颜色这一项实际可达)、处于 merge.radius 范围内。注:`StackMatchKey` 里另写了苦力怕充能态与马花色的变体签名,但白名单闸在 `canStack` 中前置短路,这两段逻辑当前**永远不会被触达**,属未激活的预留扩展点,**不得作为验收依据**。
 - FR-1.2 (MUST) 年龄隔离:幼年仅与幼年合并,成年仅与成年合并;幼年长大后并入对应成年堆叠。
 - FR-1.3 (MUST) 堆叠上限:任一实体堆叠数 ≤ merge.max_stack_size,超出部分形成新堆叠实体。
 - FR-1.4 (MUST) 显示名格式 `<本地化实体名> xN`,通过独立显示层(packet 或附加 tag)呈现,不得覆盖玩家 name tag 自定义名。
@@ -64,7 +77,7 @@
 ### FR-5 拆分与交互
 
 - FR-5.1 (MUST) 提供从堆叠中分离单个个体的手段(分离工具 / 指定交互),分离后原堆叠数减 1。
-- FR-5.2 (MUST) 拴绳语义须固化:默认作用于整堆或先拆出 1 个,二选一写入配置。
+- FR-5.2 (MUST) 拴绳语义已固化为 config `interaction.leashMode`:默认 **SPLIT_ONE**——对堆叠用拴绳会先拆出 1 个个体并单独拴住它;可选 **WHOLE_STACK**——拴绳直接作用于整堆实体本身(原版行为)。两种模式下被拴住的堆叠都因 `StackMerge.canMerge` 的 `isLeashed` 闸停止吸收其它个体;但它仍是 `canStack` 认可的合法堆叠个体,死亡/被动产出/繁殖/拆分照常结算,**不因被拴住而丢失 N-1 份战利品**。
 - FR-5.3 (SHOULD) 传送、推动、矿车/船载具的堆叠语义须定义,避免堆叠数在载具交互中丢失或翻倍。
 
 ## 三、非功能需求(NFR)
@@ -85,24 +98,26 @@
 
 ## 五、验收标准(AC)
 
-每条均须可断言、可自动化;删除被测核心逻辑后对应用例必须 FAIL。
+每条均须可断言、可自动化;删除被测核心逻辑后对应用例必须 FAIL。对应的自动化用例落在 `StackingGameTests` 与 `StackingInteractionGameTests`。被测对象一律取白名单内的四种动物(第零章 D1),以怪物/村民/宠物为被测对象的用例在当前实现下恒 FAIL,且会被误判成"倍增逻辑坏了"。
 
 | 编号 | 场景 | 断言(预期) |
 |---|---|---|
 | AC-1 | 半径内 spawn 20 只成年羊,等待合并 | 该种实体计数 = 1,显示名 = "Sheep x20" |
 | AC-2 | 同点 spawn 10 成年 + 5 幼年羊 | 形成 2 个堆叠(x10、x5),互不合并 |
 | AC-3 | 击杀 "Cow x8"(instant_all) | 生牛肉总数 = Σ(8 次独立 roll);ItemEntity 按 ≤64 分批;经验 = 8 × 单牛 |
-| AC-4 | 击杀 "Zombie x100",统计概率掉落 | 稀有掉落频次符合 100 次独立 roll 的期望(统计容差内),证明非 base×N |
+| AC-4 | 击杀 "Cow x100",统计随机数量掉落(皮革 0~2 / 生牛肉 1~3) | 掉落总数分布符合 100 次独立 roll 的期望(统计容差内),证明非 base×N |
 | AC-5 | 对 "Sheep x16" 剪毛一次 | 羊毛数 = Σ(16 次 1~3 随机);16 只全部进入已剪冷却 |
 | AC-6 | "Chicken x10" 在时间窗 T 内产蛋 | 蛋数 = 10 × 单鸡速率(容差内) |
 | AC-7 | 设 max_stack=16,持续聚集/繁殖 | 任一实体堆叠数 ≤ 16,超出另起新堆叠 |
 | AC-8 | stack=12 的牛,卸载区块重载 + 重启服务端 | 堆叠数仍 = 12 |
 | AC-9 | 1000 只动物农场,stack ≥ 16 | 世界实体数 ≤ 100;合并扫描 MSPT 贡献 < 0.5ms(spark 实测);TPS ≥ 19.5 |
-| AC-10 | 给 1 只羊挂 name tag;另置 1 只驯服狼 | 二者均不参与堆叠 |
+| AC-10 | 给 1 只羊挂 name tag;另置 1 只驯服狼 | 二者均不参与堆叠。注:羊验的是 exclusions.named;狼**不在白名单内**,在 canStack 判定顺序中先于 exclusions.tamed 即被挡,故本用例并未验证驯服排除逻辑——要验 exclusions.tamed 须另找白名单内可驯服的类型 |
 
-## 六、候选 mod 覆盖度核对表
+## 六、候选 mod 覆盖度核对表(HISTORICAL — 已作废,仅作选型过程存档)
 
-针对两个 Forge mod 按本规格逐项核对。"待实测"项须在测试服实际验证,严禁凭描述判定通过。
+> 本节已作废,**不再维护**。选型结论 = 自建:实现已落地为 `com.miningdim.stacking`(11 个类,入口 `StackingSystem`,模块 `wok-stacking`,配套 `StackingGameTests` / `StackingInteractionGameTests`),覆盖合并/主动掉落/被动产出/繁殖/拆分/持久化全部 FR。表内所有"待实测"项**无需再验证**,表中对两个候选 mod 的判断也不再更新。仍在生效的是第零至五章。
+
+以下为当时针对两个 Forge mod 按本规格逐项核对的记录。
 
 | 需求 | Mob Stacker Ind. (frikinjay) | Mob & Item Stacker (DevDr0ggy) |
 |---|---|---|
@@ -117,4 +132,6 @@
 | NFR-6 持久化 | 待实测 | 待实测 |
 | API 可扩展(自定义合并/死亡) | 提供 API | 待实测 |
 
-核对结论:两者的"击杀掉落 × N"基本覆盖(Mob & Item Stacker 描述更明确),但 FR-3 被动产出倍增 与 FR-2.2 概率掉落正确性 两项,两个 mod 的公开描述均未承诺,须在测试服实测;若不达标,即为自建 mod 的核心理由。
+当时的核对结论:两者的"击杀掉落 × N"基本覆盖(Mob & Item Stacker 描述更明确),但 FR-3 被动产出倍增 与 FR-2.2 概率掉落正确性 两项,两个 mod 的公开描述均未承诺——这两项正是自建的核心理由。
+
+最终裁决:**自建**,不采用任何候选 mod。除上述两项外,白名单准入(决策 D1)这类"只堆四种低价值农场动物、扩白名单须改代码"的产品约束,现成 mod 也无从提供。

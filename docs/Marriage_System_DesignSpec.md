@@ -13,7 +13,7 @@
 
 ## 一、系统定位与设计目标 (DECIDED)
 
-1. 两玩家可结婚: 买"订婚戒指" -> 去"预约场地"办典礼 -> 典礼后订婚戒指变"结婚戒指"。
+1. 两玩家可结婚: 买"订婚戒指" -> 求婚并被接受 -> 双方在场办典礼 -> 典礼后订婚戒指变"结婚戒指"(场地预约见第三章, DEFERRED)。
 2. 结婚后解锁: 共享背包(1-5 级, 婚龄解锁)、传送到伴侣(1-5 级)、及选定的情侣功能。
 3. 配套离婚系统。
 4. 全系统零战斗力增益(社交/便利/外观), 与 80 血枪服的硬核战斗解耦。
@@ -24,7 +24,7 @@
 ## 二、核心流程总览 (DECIDED)
 
 ```
-买订婚戒指(信用点) -> 预约场地 -> 双方到场办典礼(各付一半结婚成本)
+买订婚戒指(信用点) -> propose + accept 确立意向 -> 双方在场办典礼(各付一半结婚成本)
   -> 订婚戒指 NBT 改写为结婚戒指 + MarriageRegistry 登记 MarriageState
   -> 解锁: 共享背包 / 传送 / 情侣功能(按婚龄阶梯)
   -> (离婚) 冷却 + 清算 + escrow 公示期 -> 解除关系、回收夫妻态
@@ -32,11 +32,39 @@
 
 ---
 
+## 二之二、交互入口与玩家命令表 (DECIDED)
+
+玩家侧入口共三套, 三套读写同一份服务端权威状态:
+
+**(1) `/marriage` 命令树**(真源 `marriage/MarriageCommands.java`)——买戒指/求婚/典礼/离婚的主入口:
+
+| 命令 | 参数 | 作用 | 前置与成本 |
+| --- | --- | --- | --- |
+| `/marriage buyring` | 无 | 买一枚订婚戒指 | 扣 config `engagementCost` |
+| `/marriage propose <target>` | `EntityArgument.player()` | 向对方登记订婚意向 | 双方均未婚 |
+| `/marriage accept <proposer>` | `EntityArgument.player()` | 接受对方的求婚 | 对方须先 propose 你 |
+| `/marriage reject <proposer>` | `EntityArgument.player()` | 拒绝指向自己的求婚 | 存在该 incoming 意向 |
+| `/marriage withdraw` | 无 | 撤回自己发出的 outgoing 意向 | 存在自己发出的意向 |
+| `/marriage wed <partner>` | `EntityArgument.player()` | 双方在场办典礼 | 意向已被接受 + 双方各持订婚戒指 + 各付一半 `weddingCost`(事务性) |
+| `/marriage divorce` | 无 | 提交离婚, 进 escrow 公示期 | 扣 config `divorceCost`; 已在公示期中则幂等回执, 不二次扣费 |
+| `/marriage divorce cancel` | 无 | 发起方在公示期内撤回 | 全额退款 |
+| `/marriage divorce confirm` | 无 | 配偶提前确认, 使离婚立即生效 | 到期不确认也会自动生效 |
+
+`divorce` / `cancel` / `confirm` 是**父子层级**(`divorce` 节点自身可执行, `cancel`/`confirm` 挂在它下面), 不是三条并列子命令。
+
+**(2) WebUI 婚姻面板**(`marriage/MarriageWebUiActions.java` + `webui/src/pages/MarriagePage.tsx`)——7 条 action: `marriage.state` / `marriage.buyRing` / `marriage.propose` / `marriage.respond` / `marriage.wed` / `marriage.divorce` / `marriage.sharedInv`。
+
+> **架构不变量(接线正确性的唯一判据)**: 面板与命令**必须共用同一份** `MarriageProposals` 与 `MarriageBackpackSessions` 实例(由 `MarriageSystem` 构造注入下发)。这条只能用**实例同一性**断言证伪——各自 `new` 一份时 action 照样注册成功、用例照样全绿(两侧都读同一份错表, 自洽), 而真服后果是"命令行求的婚在面板上永远看不见""离婚时关不掉对方正开着的共享背包窗口"(即第四章要堵死的并发 dupe 窗口)。
+
+**(3) 戒指物品交互**(`PlayerInteractEvent.RightClickItem`, 仅主手)——只覆盖两项: 蹲下右键 = 远程开共享背包(第四章); 不潜行右键 = 起传送蓄力(第五章)。买戒指/求婚/接受/拒绝/撤回/办典礼/离婚三段**一律不能**由戒指交互发起, 只能走命令或面板。
+
+---
+
 ## 三、戒指与典礼 (DECIDED)
 
 - 戒指为自定义 `Item`。订婚/结婚态、身份防伪全靠 ItemStack NBT 盖章(仿塔罗 ownerUUID): `spouseUUID` / `marriageId` / `weddingDay` / `officiantId`(可选证婚人)。`appendHoverText` 显示双方身份, 防倒卖戒指给小号白嫖婚姻福利。
-- 预约场地: `SavedData` 登记场地坐标 + 时段, 典礼期间占用。
-- 典礼成本(反小号闸之一): **双方各付一半信用点**(走 `economy.AbuseGuard.chargeItem` 同款扣费销毁, 防单方刷)。成本数值进 config(PENDING 标定, 建议偏高以提高小号联姻成本)。
+- 场地预约: **DEFERRED(未实现)**。当前典礼不绑定任何场地, 也没有登记场地坐标/时段的 `SavedData`; 典礼前置只有"意向已被接受 + 双方在场"。订婚意向表 `MarriageProposals` 是**瞬态不持久化**的内存表(服务端重启或任一方登出即作废, 重新 propose 即可), 刻意不给瞬态意向做 SavedData。
+- 典礼成本(反小号闸之一): **双方各付一半信用点**, 走 `IEconomyService.tryCharge(player, Currency.CREDIT, amount)` 扣 Capability 余额。**严禁用 `economy.AbuseGuard.chargeItem`**——那扣的是物理物品(默认钻石), 语义完全不同(职业框架 spec 第三章已把"复用 chargeItem 花信用点"的说法点名为语义错位)。扣费须事务性: 先扣发起方那一半, 伴侣余额不足时把已扣的那一半 `grant` 退回、整单失败, 不留半成品。总价 config 键 `weddingCost`(默认 20000), 奇数总价由发起方多付 1(ceil), 伴侣付 floor; 数值本身仍待标定(第十二章条目 1), 建议偏高以提高小号联姻成本。
 - 典礼成功: 服务端把双方戒指 NBT 从订婚改写为结婚, 在 `MarriageRegistry` 登记 `MarriageState`, 双方 Capability 写 `marriageId` 指针。
 
 ---
@@ -50,7 +78,9 @@
   - 高级矿物(钻石/绿宝石/下界合金/远古残骸及其矿石方块);
   - 可上架皮肤(TACz 皮肤凭证);
   - 绑定装备(任何带 ownerUUID/绑定的装备, 杜绝互借神装)。
-  - 允许: 消耗品、普通材料、食物、任务道具、情书/纪念物。黑名单走 tag + config, 服主可调。
+  - 允许: 黑名单未命中即放行(消耗品、普通材料、食物、任务道具、情书/纪念物)。
+  - **判定形态**: 黑名单是硬编码静态谓词 `SharedBackpackWhitelist`(服务端权威, menu 的 `canPlaceItem` 与取放路径调用), **既不走 ItemTag 也不走 config, 服主不可调** —— 三类判据: 高级矿物的固定 `Item`/`Block` 集合(`BLOCKED_ITEMS`/`BLOCKED_BLOCKS`)、命名空间属 TACZ 系(tacz/cgm 等)且 id 含 `skin` 的皮肤凭证(以 id 子串识别, 不硬 import TACZ)、带 `OwnerUUID`/`SpouseUUID`/`MarriageId` 盖章 NBT 的绑定装备(按 NBT 键识别, 新增绑定物自动覆盖)。
+  - **容器下钻**: 只判顶层物品的话, 把钻石/绑定装备整包塞进潜影盒即可绕过全部黑名单。故对容器内容物递归判一层(`MAX_CONTAINER_DEPTH = 1`: 容器本体判一次 + 内容物判一次; 原版禁止潜影盒套潜影盒, 一层即覆盖真实可达嵌套), 下钻额度用尽后视为放行。该逻辑与 `market.MarketTradeWhitelist#judgeContents` 是两份独立实现, 尚未收口成共用工具。
 - **防 dupe(关键)**:
   - 服务端唯一权威 `Container` 实例; 内容唯一权威落 `MarriageState` 的 `NonNullList<ItemStack>`(NBT 编解码, 仿 `InstanceState` 的 ListTag)。
   - 所有远程开背包/取放经 `server.execute` 回主线程**串行**(对齐 `InstanceState` 注释: 并发集合不替代主线程串行写)。
@@ -62,7 +92,7 @@
 
 ## 五、传送到伴侣 (DECIDED)
 
-发起方 A 长按结婚戒指 -> 服务端校验(双方在线、同维度可达、不在 CD、双方当前静止) -> 进入蓄力 T 秒:
+发起方 A **右键(不潜行, 仅主手)**结婚戒指 -> 服务端校验(双方在线、同维度、不在 CD、双方当前静止) -> 进入蓄力 T 秒。蓄力是服务端状态机按 tick 推进(交互回调起、`ServerTickEvent` 推进), **与玩家是否按住按键无关**, 松手不取消; 只有下表三类事件会取消:
 
 | 时点 | 发起方 A | 伴侣 B |
 | --- | --- | --- |
@@ -75,9 +105,9 @@
 - **可打断**: 蓄力期间任一方受到伤害即取消(等于天然战斗锁: 挨枪传不掉)。
 - **CD**: 成功后进冷却。
 - 等级 1-5(婚龄): 只缩短蓄力 T / CD, **绝不取消"双方不动 + 可打断"**。
-- 跨维度传送(进矿洞维度): 须先过 `economy.AbuseGuard.checkReentryGate`。
-- 可实现性: B 提示用服务端 `serverPlayerB.displayClientMessage(component, actionBar=true)` + `level.playSound`, 基础版无需自定义网络包; 实时倒计时条可走现有 `MiningNetwork` S2C(仿 `TeleportResultS2C`)。传送用 `ServerPlayer.teleportTo` / `changeDimension`(仿矿洞回退态写法)。
-- T / CD / 各级数值进 config(PENDING 标定)。
+- 跨维度传送: **不支持**。发起时双方不在同一维度直接拒绝(`StartResult.DIFFERENT_DIMENSION`); 蓄力中任一方换维度立即取消(原因码 `dimension`); 伴侣处在矿洞维度时蓄力直接拒绝(`StartResult.SPOUSE_IN_MINING_DIM`), 提示走 `/mining enter`。理由: 直接把玩家传进矿洞维度实例会绕过 `EntryGateway` 的实例引用计数/重入闸/落点安全, 比单纯重入更严重。故本系统全程只在同维度内传送, 不调 `changeDimension`。
+- 可实现性: B 提示用服务端 `serverPlayerB.displayClientMessage(component, actionBar=true)` + `level.playSound`, 基础版无需自定义网络包; 实时倒计时条可走现有 `MiningNetwork` S2C(仿 `TeleportResultS2C`)。传送用 `ServerPlayer.teleportTo`(同维度传到伴侣身边)。
+- T / CD / 各级数值已接入 config(`teleportChargeSeconds` / `teleportCooldownSeconds`, 按等级 1..5 各一张列表, 见第九章键位对照表); 具体数值仍待标定(第十二章条目 1)。
 
 ---
 
@@ -88,7 +118,7 @@
   1. 再婚冷却: `divorceCount` 递增 + `lastWeddingTick`(仿 `AbuseGuard` untilTick), 离婚后 N 天禁再婚, 冷却随离婚次数递增。
   2. 离婚成本 + escrow 公示期: 延迟生效、期间可撤销(仿取款 escrow)。
   3. 清算: 共享背包按"谁放入谁取回"流水分割; 一次性福利以"**双方 UUID 对 + 里程碑**"为去重键(换 marriageId 也不重发同一里程碑); 全程写审计日志。
-- 数值(冷却天数/成本/公示期)进 config(PENDING)。
+- 数值(冷却天数/成本/公示期)已接入 config(`remarryCooldownDays` / `divorceCost` / `divorceEscrowHours`, 见第九章键位对照表); 具体数值仍待标定(第十二章条目 1), 其中公示期时长代码里仍明确标着待定。
 
 ---
 
@@ -115,10 +145,33 @@
 婚姻是"双人关系"(两 UUID 绑定), 不能只靠 per-player Capability。仿现有 `InstanceState` 模式:
 
 - `MarriageRegistry extends SavedData`(挂主世界 `DimensionDataStorage`): 持 `Map<marriageId, MarriageState>`, 启动重建, 保存序列化。
-- `MarriageState`(数据载体): `marriageId` / `partnerA`,`partnerB` UUID / `marriedSinceTick` / `sharedInvLevel` / `teleportLevel` / 共享背包 `NonNullList<ItemStack>` / `divorceCount` / 里程碑领取记录。
+- `MarriageState`(数据载体): `marriageId` / `partnerA`,`partnerB` UUID(无序对, 谁先 propose 谁是 A, 业务上对等) / `marriedSinceTick` / 共享背包 `NonNullList<ItemStack>` + 按槽归属 `slotDepositors`(离婚"谁放入谁取回"清算用) / `claimedMilestones` 里程碑领取记录 / 离婚公示期三元组 `pendingDivorceInitiator`、`pendingDivorceFiledTick`、`pendingDivorceCost`。以下两类值**刻意不在本类存储**, 勿按旧版字段清单重新引入:
+  - **`sharedInvLevel` / `teleportLevel` 不入库**: 二者是婚龄的纯函数, 由 `MarriageTuning.backpackLevel` / `teleportLevel` 按 `marriedSinceTick` 现算, 不落盘也不缓存。本文档早期版本确实列过这两个持久字段, 实现后证实它们全库零写入方——即"存档里躺着、自洽但错误的数据", 已删除。把等级重新存盘会让 config 阶梯调整对老存档失效, 属已修复缺陷, **严禁回潮**。
+  - **`divorceCount` 不在本类**: 它落 `MarriageHistory`, 按**玩家**而非按关系持有——再婚冷却必须在关系解除之后继续生效, 存进 `MarriageState` 会随关系一起消失。原 `lastWeddingTick` 同理零写入方, 已删除。
 - 玩家 Capability(并入 entry 的 `MiningPlayerData`, 不新挂 capability): `marriageId` 指针(`NO_MARRIAGE` 哨兵)+ `spouseUUID`。`PlayerEvent.Clone` 复制以跨死亡/换维度保留。
 - `MarriageSystem implements Subsystem`, `MiningDim.registerSubsystems()` 追加一行; 跨子系统经 core 门面 + MiningServices, 不硬 import 他系统实现类。
 - 所有规则数值进 `MiningServerConfig` ForgeConfigSpec(C6)。
+
+### 9.1 config 键位对照表
+
+落盘文件 `<world>/serverconfig/miningdim-server.toml` 的 `[marriage]` 段(真源 `config/MiningServerConfig.java`)。`MarriageTuning` **实时读取、严禁缓存**, 故改 config 即时生效:
+
+| 键 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `engagementCost` | int(信用点) | 5000 | `/marriage buyring` 买订婚戒指的花费 |
+| `weddingCost` | int(信用点) | 20000 | 典礼总价, 双方各付一半(奇数时发起方多付 1) |
+| `backpackUnlockDays` | int 列表 | [0, 3, 7, 14, 30] | 第 i 项 = 解锁共享背包第 i+1 级所需婚龄天数; 1 级 0 天 |
+| `backpackSlots` | int 列表 | [9, 18, 27, 45, 54] | 1..5 级各自暴露的格数; 容器恒 54 格, 等级只控可见子集(升级不丢物) |
+| `backpackOpenRangeBlocks` | int(格) | 64 | 共享背包保持打开时伴侣的最大距离; 超距或跨维度自动关闭 |
+| `teleportChargeSeconds` | int 列表 | [8, 7, 6, 5, 4] | 1..5 级各自的蓄力 T 秒 |
+| `teleportCooldownSeconds` | int 列表 | [300, 240, 180, 120, 60] | 1..5 级各自的成功后 CD 秒 |
+| `divorceCost` | int(信用点) | 10000 | 提交离婚的花费, 由发起方付 |
+| `divorceEscrowHours` | int(小时) | 24 | 离婚公示期; 0 = 立即生效。**代码内仍标注数值待定** |
+| `remarryCooldownDays` | int(天) | 7 | 再婚冷却基数; 实际冷却 = 基数 x (1 + `divorceCount`), 随离婚次数递增 |
+
+- **传送等级与共享背包等级本期共用同一组婚龄阈值**(`backpackUnlockDays`), 即婚龄是唯一解锁尺度、两功能同步成长; 若日后要独立阶梯, 在 `MarriageTuning.teleportLevel` 分叉读独立 config。
+- **婚龄口径**: `TICKS_PER_DAY = 20 * 86400`(服务器运行 tick, 非游戏日), `TICKS_PER_HOUR = 20 * 3600`; 婚龄、再婚冷却、离婚公示期同挂一条 overworld `getGameTime()` 轴。
+- 上表登记的是**键与机制已落地**; 具体数值的最终标定仍是第十二章条目 1 的 PENDING。
 
 ---
 
@@ -126,9 +179,9 @@
 
 | 模块 | 可实现性 | 关键 API | 工作量 |
 | --- | --- | --- | --- |
-| 戒指物品 + NBT 盖章 + 典礼 | 可实现 | Item + NBT(spouseUUID/marriageId) + appendHoverText; 场地 SavedData | 中 |
-| 共享背包 | 可实现但最高危 | 公共 menu 脚手架 + 服务端权威 Container + 主线程串行 + 白名单 tag | 大 |
-| 传送(含提示) | 可实现 | 长按蓄力 + ServerPlayer.teleportTo/changeDimension + displayClientMessage/playSound + 可选 S2C | 中 |
+| 戒指物品 + NBT 盖章 + 典礼 | 可实现 | Item + NBT(spouseUUID/marriageId) + appendHoverText; 典礼经 `/marriage wed`(场地预约 DEFERRED, 无 SavedData) | 中 |
+| 共享背包 | 可实现但最高危 | 公共 menu 脚手架 + 服务端权威 Container + 主线程串行 + 硬编码黑名单谓词(含容器下钻) | 大 |
+| 传送(含提示) | 可实现 | 右键起蓄力(服务端 tick 状态机)+ ServerPlayer.teleportTo(仅同维度)+ displayClientMessage/playSound + 可选 S2C | 中 |
 | 离婚 + 清算 + escrow | 可实现 | MarriageRegistry 移除 + 清算流水 + 审计 | 中 |
 | 婚戒距离共鸣 | 可实现 | 纯客户端粒子/微光按伴侣实体距离 | 小 |
 | 数据架构(Registry+指针) | 可实现 | SavedData + entry Capability 指针, 仿 InstanceState | 中 |
@@ -187,25 +240,27 @@
 
 ## 十二、待确认实现项 (PENDING)
 
-1. 各项 config 数值标定: 结婚成本/离婚成本/再婚冷却天数/escrow 公示期/共享背包各级容量与解锁婚龄/传送 T 与 CD 与各级。
+1. 各项 config 数值标定: 结婚成本/离婚成本/再婚冷却天数/escrow 公示期/共享背包各级容量与解锁婚龄/传送 T 与 CD 与各级。(**键与机制均已落地**, 见 9.1 键位对照表并已带默认值; 此处 PENDING 的是**数值的最终标定**——`MiningServerConfig` 的 marriage 段注释亦仍标着待定, 公示期时长尤其明确写了 exact value PENDING。)
 2. 候选功能菜单(第十一章)勾选。
-3. 共享背包黑名单的精确 tag 集合(高级矿物/皮肤凭证/绑定装备的判定)。
+3. ~~共享背包黑名单的精确 tag 集合(高级矿物/皮肤凭证/绑定装备的判定)。~~ **已实现, 移出待确认**: 落为 `SharedBackpackWhitelist` 的硬编码 `BLOCKED_ITEMS`/`BLOCKED_BLOCKS` 常量集合 + 盖章 NBT 键 + TACZ 皮肤 id 子串三类判据, 外加容器下钻一层(见第四章), **未走原版 Tag**。若日后要迁到 Tag 体系以便服主可调, 另开议题。
 4. 是否引入玩家动画库(决定"情侣互动动作"能否做真姿势)。
 5. 证婚人(NPC/管理员)机制是否启用(典礼盖 officiantId)。
 
 ---
 
-## 十三、实现期工作分解 (确认 PENDING 后展开)
+## 十三、实现期工作分解 (核心机制已交付)
 
-前置(与职业共享): `EnumMap<JobId,JobProgress>` 所在 entry Capability 扩 marriage 指针; 公共 menu 脚手架。
+前置(与职业共享): `EnumMap<JobId,JobProgress>` 所在 entry Capability 扩 marriage 指针; 公共 menu 脚手架。二者均已就绪。
 
-结婚系统本体:
-1. `MarriageRegistry`(SavedData)+ `MarriageState` + Capability 指针 + Clone 复制。
-2. `MarriageSystem` 子系统 + 戒指 Item(NBT 盖章)+ 场地预约 SavedData + 典礼流程 + 信用点扣费。
-3. 共享背包(公共 menu + 服务端权威 Container + 主线程串行 + 白名单 + 掉线结算 + 审计)。
-4. 传送(长按蓄力 + 双方不动校验 + 伴侣提示 + 受伤/移动/潜行打断 + CD + 跨维度 reentry gate)。
-5. 离婚(移除 Registry + 再婚冷却 + 清算流水 + escrow + 审计)。
-6. 婚戒距离共鸣(客户端粒子/微光)。
-7. (按勾选)候选功能逐项。
+结婚系统本体(现状: 核心已落地于 `com.miningdim.marriage` 包与 `webui/src/pages/MarriagePage.tsx`; 仍待拍板的只有第十二章条目 1/2/4/5):
+1. [x] `MarriageRegistry`(SavedData)+ `MarriageState` + Capability 指针 + Clone 复制。
+2. [x] `MarriageSystem` 子系统 + 戒指 Item(NBT 盖章)+ 典礼流程 + 信用点扣费。场地预约 SavedData **DEFERRED, 未实现**(见第三章)。
+3. [x] 共享背包(公共 menu + 服务端权威 Container + 主线程串行 + 黑名单谓词 + 掉线结算)。**第四章要求的"大宗物品移动写审计日志"尚未落地**(离婚清算侧已有审计日志, 背包取放侧还没有)。
+4. [x] 传送(右键起蓄力 + 双方不动校验 + 伴侣提示 + 受伤/移动/潜行打断 + CD)。跨维度按"直接拒绝"落地, **不是**原计划的过 reentry gate(见第五章)。
+5. [x] 离婚(移除 Registry + 再婚冷却 + 清算流水 + escrow + 审计)。
+6. [ ] 婚戒距离共鸣(客户端粒子/微光)——**未实现**, `marriage/client` 目前只有共享背包的 Screen/Client 两个类。
+7. [ ] (按勾选)候选功能逐项 —— 第十一章尚未勾选, 未展开。
+8. [x] `/marriage` 命令树(见二之二), 是买戒指/求婚/接受/拒绝/撤回/典礼/离婚三段的主入口。
+9. [x] WebUI 婚姻面板(`MarriageWebUiActions` 的 7 条 `marriage.*` action + `MarriagePage.tsx`), 与命令**共用同一份**瞬态表(实例同一性, 见二之二)。
 
 测试断言示例: 共享背包并发同 slot 取放只出一份(无 dupe); 高级矿物/绑定装备放入被拒; 传送蓄力中受伤即取消; 伴侣移动/潜行即取消并双方收到提示; 离婚后 N 天内再婚被拒; 同一对 UUID 离婚再婚不重发同一里程碑礼盒。

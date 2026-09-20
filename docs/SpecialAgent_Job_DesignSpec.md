@@ -35,11 +35,14 @@
 
 1. **固定奖励总池**：每只精英一个池，大小由它**出生盖章的初始星级**决定（即使被封印削弱也不变——封印不影响"值多少钱"）。
 2. **按合格贡献者的伤害占比瓜分**（占比加权，非领奖台排名）：`份额 = 池 × 个人伤害 / 合格总伤害`。占比制让合作严格更优、无 denial 动机；可附最高贡献者一个小幅 top bonus（量级 PENDING）。**严禁按人头复制**。
-3. **入池门槛（防蹭枪）**：个人贡献需 ≥ 该精英总有效血的 **0.5%** 才进分配，一发枪蹭不进。
+3. **入池门槛（防蹭枪，盖章双门槛、取一即合格）**：个人贡献 ≥ 该精英总有效血的 **0.5%** **或** ≥ 团队人均有效伤害的 **15%**，满足其一即进分配（`ContributionPool.STAMP_THRESHOLD_BOSS_HP_RATIO` / `STAMP_THRESHOLD_TEAM_AVG_RATIO`，与 ChampionStarAffix 第十一章、Champion_Effects_Guide 2.6 同口径）。正规多人团队每人份额远超两道门槛，单发蹭伤两道都进不去；但人少、团队总伤害低的场景下第二道门会被拉低，届时未达 0.5% 的玩家也可能入池。
 4. **掉线作废回池**：死亡结算时不在线的贡献者，其份额作废、回池重分给在场合格者。
 5. **封印不计贡献**（纯伤害论）：封印不是伤害，封了也得自己打才分得到钱——防"封一下就躺分"的恶意蹭怪。
 
-伤害账本挂在精英体系的**单一受击拦截点**（见 ChampionStarAffix 9.2 净减伤单点）：每次受击按攻击者累计"减伤后实际伤害"，死亡时读账本结算。
+伤害账本挂在精英体系的**单一受击拦截点**（见 ChampionStarAffix 9.2 净减伤单点）：每次受击按攻击者累计"有效伤害"，死亡时读账本结算。记账口径按星级分两支（`ChampionRewardHandler` 在 LOWEST 读 `event.getAmount()`）：
+
+- **1-5★（无自定义血池）**：`ChampionBloodPoolHandler` 把净减伤后的值 `setAmount` 回写 event，账本记的就是经 9.2 净减伤单点算出的净伤。
+- **6★+（有血池）**：血池 handler 只 `pool.applyDamage(净伤) + setCanceled(true)`，**不回写 event**，故账本读到的是净减伤**前**的名义入伤（玩家实际打出的有效输出口径）。这是刻意与血池扣血口径分离的（代码原话："贡献是输出统计，不是扣血量"），目的是不让高减伤精英压低玩家的贡献占比。
 
 ---
 
@@ -61,6 +64,8 @@
 | 10 | 全属性实时 · 跨区块 | 机制5s·≤10★·CD(被动18s/机制45s) | ×3.0 | 日5 · 周3 · ≤10★ | +15% |
 
 每支线有效阶数：探测 10 阶、封印 8 阶（L3 起）、加强奖励 10 阶、日常周常权限（关键解锁 L4 周常/青辉石、L8 世界BOSS悬赏 + 槽位 10 阶渐增）、伤害加成 10 阶。
+
+**脚注（加强奖励 / 伤害加成两列的前置条件）**：这两列受 7.0 的入职标志（activeAgent）门约束，当前唯一置位入口是封印申请成功，而封印 L3 才解锁——故 L1/L2 两行标注的系数与加成**实际不可达**，详见 7.0。
 
 ---
 
@@ -94,18 +99,26 @@
 
 ## 七、加强奖励 / 日常周常权限 / 伤害加成（DECIDED）
 
+### 7.0 入职标志（activeAgent）门
+
+加强奖励（7.1）与对精英伤害放大（7.3）这两笔**特勤专属福利**，只对 `AgentBountySavedData.isActiveAgent` 标记为"做过特勤活计"的玩家生效。
+
+- **为什么要这道门**：职业框架的 `IJobService.level` 对任何玩家（含从没碰过特勤的人）都恒返 1 级默认值，用等级作门等于把额外信用点和伤害放大泄漏给全服每个打死精英的人（`AgentDamageBonusHandler` / `AgentRewardHandler` 注释原文）。
+- **当前唯一置位入口是封印申请成功**（`AgentSealHandler` 调 `markActiveAgent`，全库唯一生产调用点），而封印（被动类）硬性要求 `AgentSkillTable.SEAL_UNLOCK_LEVEL=3`。**结论：L1/L2 干员结构性拿不到第四章总表里那两列的 ×1.0/×1.25 加强奖励与 +5%/+6% 伤害加成**，要消除这段入职空窗，需把 `AgentSealHandler` 注释列出的待接线入口（扫描探测脉冲 / 接悬赏 / 悬赏击杀记账）之一提前到 L1 触发。
+- **经验刻意不受此门约束**（`AgentRewardHandler.grantAgentKillXp`，F016 死锁修复）：经验是玩家升到 L3、进而封印、进而入职的唯一通路，共用这道门会形成"没入职→没经验→升不了级→封不了→进不了职"的死锁。经验不产货币且走职业框架经验软上限，与两笔真福利性质不同。
+
 ### 7.1 加强奖励（额外击杀信用点）
 - **击杀精英怪本身额外给你个人信用点**——与悬赏奖励无关、**不含青辉石**。
 - 数值：`额外信用点 = f(初始星级) × 加强奖励系数（×1.0 → ×3.0）`，绝对底值随星级、留经济 config。
-- **从池外给的个人 faucet**：不挤占他人贡献占比；**受经济每日软上限约束**（防印钞），并入 `EconomyConstants economy.daily.*` + AbuseGuard mob-kill faucet。
+- **从池外给的个人 faucet**：不挤占他人贡献占比；**受经济每日衰减主闸约束**（防印钞），经 `grantDaily` 并入 `EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_KEY`（`credit_faucet`）/ `GLOBAL_DAILY_CREDIT_FAUCET_TIER`（60,000 CP 一档，跨档系数 0.6、1% 地板），与矿工卖矿/农夫卖菜共享同一每人每日天花板（`AgentRewardHandler.grantAgentKillBonus`）。注意 `economy.daily.*` 是钻石/下界残骸/金的逐矿种软上限，与本机制无关；AbuseGuard 里也没有 mob-kill faucet 这个东西。
 
 ### 7.2 日常周常权限
 - 悬赏槽位：日 1→5、周 0→3（周常 L4 解锁）。
 - 可接悬赏星级随级抬到 ≤10★；L8 起开放世界 BOSS 悬赏。
-- **青辉石仅来自周常悬赏**（≥L4），单设日产软上限。
+- **青辉石仅来自周常悬赏**（≥L4），产出经双轴门控：每玩家每周软上限 50（`AgentBountySavedData.WEEKLY_AZURE_SOFT_CAP`，撞顶只发剩余额度）+ **与精英怪 6★+ 掉落共享**的每人每日硬上限 30（`EconomyConstants.AZURE_DAILY_FAUCET_CAP`，经同一 `azure_faucet` 键的 `grantAzureDaily` 硬截断、非衰减）。该日上限不是本职业单设的。
 
 ### 7.3 伤害加成
-- 仅对**精英/冠军怪** +5% → +15%（线性，随级 +1%）。纯帮干员够到入池门槛，**不做战力核心**（FF14 哲学）。
+- 仅对**精英/冠军怪** +5% → +15%（L1-L9 每级 +1%，L10 多跳 1 个百分点到 +15%；`AgentSkillTable.DAMAGE_BONUS_PERCENT`）。纯帮干员够到入池门槛，**不做战力核心**（FF14 哲学）。受 7.0 入职标志门约束。
 
 ---
 
@@ -115,10 +128,12 @@
 
 | 来源 | XP（示例·可调） | 说明 |
 |---|---|---|
-| 首次扫描发现精英 | 星级 × 8（1★=8 … 10★=80） | 每只仅首次，奖励"找"，防重复扫刷 |
-| 击杀精英（达入池门槛） | 星级 × 60 × 你的贡献占比 | 主力来源，和分赃同口径 |
+| 首次扫描发现精英 | 星级 × 8（1★=8 … 10★=80） | 每只仅首次，奖励"找"，防重复扫刷。**【未实现，DEFERRED】** 见下方说明 |
+| 击杀精英（达入池门槛） | 星级 × 60 × 你的贡献占比 | 主力来源，和分赃同口径。**已实现**（`AgentKillXp.XP_BASE_PER_STAR=60` → `AgentRewardHandler.grantAgentKillXp` → `AgentLevels.grantRawXp`） |
 | 完成日常悬赏 | 400 ~ 1,500（随目标星级） | 结构化稳定来源 |
-| 完成周常悬赏 | 2,500 ~ 6,000（随星级） | 大块，每周一次 |
+| 完成周常悬赏 | 2,500 ~ 6,000（随星级） | 大块，每周一次。**【未实现，DEFERRED】** 随悬赏系统一并延后，见 12.0 |
+
+**XP 来源的实现状态（勿按上表当成全部已生效）**：当前全库唯一的特勤经验入账点是击杀结算里的 `AgentLevels.grantRawXp`（由 `AgentRewardHandler.grantAgentKillXp` 按"星级 × 60 × 贡献占比"调用）。"首次扫描发现精英"这一条**没有任何代码**——既无发经验的调用，也没有"已扫描过的精英"去重集合；日常/周常悬赏 XP 随悬赏系统一并 DEFERRED（12.0）。三条缺口均登记在第十三章。
 
 ### 8.2 1-10 级 XP 曲线（总量沿用框架 61,900）
 
@@ -167,32 +182,35 @@
 ## 十、架构与实现（DECIDED）
 
 ### 10.1 探测/扫描
-- 维护我方 Champion 索引（`EntityJoinLevelEvent` + `IChampion` capability 检测 / `onInitialSpawn` 注册）。
-- 扫描脉冲：按干员等级把该精英的 星级/词条/品质/血池/属性/技能CD（全是我们自己存的 `getData` + 词条实例）**分级推送**到干员客户端面板。
+- 目标识别走自研冠军 capability（`MiningChampions.get(target)` → `MiningChampionData.isChampion()`，见 `AgentScanProbe`）：非本工程盖章的精英直接不扫。
+- 扫描脉冲：按干员等级把该精英的 星级/词条/品质/血池/属性/技能CD（全是我们自己存在 capability 里的数据）**分级推送**到干员面板；分级解密与可封门裁决落在纯逻辑 `AgentScanSnapshotBuilder`（GameTest 可断言）。
 - 高亮走原版 `Glowing`（穿墙可见）。
 
 ### 10.2 封印
-- 封印 = 在 `IChampion.getData/setData` 写"sealed 集合"；我方所有词条钩子（onServerUpdate/onAttack/onHurt）生效前先判 sealed → 因为 35 个词条都是我们自己写的，加判定即可临时压制。
-- 对**施加了常驻 AttributeModifier 的词条**（如超高分子的 `tacz:bullet_resistance`），封印时按固定 UUID 撤掉修饰、解封时重加（Champions 无 `onRemove` 钩子，teardown 自写）。
-- 计时到期恢复；`IAffixSyncable` 重同步客户端使面板/名牌刷新。
+- 封印 = 服务端权威调 `MiningChampionData.removeAffix`，把被封的那几条**直接从自研 capability 摘掉**（不写 sealed 标记、不逐钩子判 sealed——词条数据已被摘空，各 handler 自然读不到，效果即时失效）。
+- 到期由 `AgentSealExecutor` 按**增量快照**（只记本次封印摘掉的那几条）合并回当前词条表，**刻意不做整份词条集覆盖**：窗口内小男孩（`LITTLE_BOY`）起手时会自摘这条一次性词条，整份还原会把它重新装回去，变成可重复触发的漏洞。
+- 对**挂了常驻 MOVEMENT_SPEED AttributeModifier 的词条**——高速移动 / 超速移动 / 自我修复单元三条——`removeAffix` 只清 capability、摘不掉实体身上那条修饰，故封印时还须额外摘除，否则封印只是观感（面板回 OK 但精英移速一格没变）。因这三个修饰的固定 UUID 是 `champion.integration` 包私有常量、`job.agent` 侧跨包引用不到，当前按 modifier 的公开 name 字符串匹配摘除（`champion_sprint` / `champion_overdrive` / `champion_self_repair_root`）。这是字符串耦合而非类型安全引用，对侧改字面量会静默失效且无编译期告警，彻底修法是把这三个 UUID 提到双方都能引用的公共位置。解封无需对称补挂：词条一回到 capability，对应 handler 每秒扫描时会自动重挂修饰。
+- 超高分子的子弹抗性**不是**常驻 AttributeModifier（它是受击时按比例折算的减伤率，见 ChampionStarAffix 9.6），不涉及本机制。
+- 计时到期恢复；面板/名牌刷新走既有扫描推送与网络同步通道（全仓无 `IAffixSyncable` 这一接口）。
 
 ### 10.3 贡献账本与分赃
-- 账本挂 ChampionStarAffix 9.2 的**单一受击拦截点**：`playerUUID → 累计减伤后伤害`（枪伤走 TACZ `EntityHurtByGunEvent` attacker、DoT 走伤害源 owner）。
+- 账本挂 ChampionStarAffix 9.2 的**单一受击拦截点**：`playerUUID → 累计有效伤害`（口径按星级分两支，见第三章）。枪伤、近战、DoT 统一走 `LivingHurtEvent` 这一个入口，攻击者用 `event.getSource().getEntity() instanceof ServerPlayer` 判定；子弹另按伤害类型 id `tacz:bullet*` 识别以计减伤。**全程不监听 TACZ 的 `EntityHurtByGunEvent`**（该事件全库只被工程师板甲耐久用），也**暂无**按伤害源 owner 归因的代码（召唤物/弹射物归因待细化，见 `ChampionRewardHandler.resolvePlayerAttacker`）。
 - `onDeath`/`LivingDeathEvent` 读账本 → 入池门槛过滤 → 占比瓜分 → 掉线作废回池 → `IEconomyService.grant`。
 - 加强奖励在结算时对达门槛的干员额外发个人信用点（受日软上限）。
 
-### 10.4 面板 UI
-- 自定义 Screen / 容器式 menu（走 JobFramework 公共 menu 脚手架，支持非方块菜单）；点击词条 → 服务端封印封包。需我方客户端（modpack 服可行；无 mod 时退结构化 `text_display`/名牌 + 原版颜色码）。
+### 10.4 面板 UI（走 WebUI，非原生 Screen）
+- 面板走 WebUI（MCEF 渲染远端 React）：服务端在 `AgentWebUiActions.registerAll` 注册 `job.agent.state` / `job.agent.scan` / `job.agent.seal` 三条 WebUiAction，分级解密与封印九态裁决一律服务端权威（`AgentSealSeam.buildScanSnapshot` / `requestSealResult`），客户端只渲染只读态；点击词条 → `job.agent.seal`。
+- 原 `AgentScanMenu` / 原生 Screen 那条路径**已整条删除**（决策 J9：统一 UI 入口走平板 hub，不为特勤单开 ad-hoc 原生入口），`com.miningdim.menu` 包内已无任何 Agent 相关项。**故本节不再走 JobFramework 公共 menu 脚手架**，12.0 表格"载体"一行同此口径。
 
 ### 10.5 悬赏
-- 每日/周常悬赏 = 个人任务清单；目标按星级/词条生成；完成判定走击杀盖章 + 入池门槛；UTC 翻日 + ISO 周重置；悬赏板用公共 menu。
+- 每日/周常悬赏 = 个人任务清单；目标按星级/词条生成；完成判定走击杀盖章 + 入池门槛；UTC 翻日 + ISO 周重置；悬赏板载体待定，方向应对齐 10.4 的 WebUI action + 平板 hub。
 
 ---
 
 ## 十一、货币与经济接入（DECIDED）
 
 - **信用点**三来源：① 通用贡献池（人人按伤害分）② 加强奖励（击杀精英额外个人）③ 悬赏。均经 `IEconomyService.grant`，并入经济每日软上限 + faucet。
-- **青辉石**唯一来源：周常悬赏（≥L4），单设日产软上限。**注意：本条与代码现状不符**——`ChampionRewardHandler` 的 6★+ 掉落（2→10，随星级 +2）当前是活的产出口，一直在发。两者必须对齐，见十二章第 4 条。
+- **青辉石**唯一来源：周常悬赏（≥L4），产出经"每人每周软上限 50（`AgentBountySavedData.WEEKLY_AZURE_SOFT_CAP`）+ 与精英怪 6★+ 掉落共享的每人每日硬上限 30（`EconomyConstants.AZURE_DAILY_FAUCET_CAP`，同一 `azure_faucet` 键）"双轴门控，日上限不是本职业单设的。**注意：本条"唯一来源"与代码现状不符**——`ChampionRewardHandler` 的 6★+ 掉落（2→10，随星级 +2）当前是活的产出口，一直在发。两者必须对齐，见十二章第 4 条。
 - 沿用经济红队条款：盖章双门槛、召唤物 `summonedByAffix` 不计结算、固定池加权瓜分严禁按人头复制。
 
 ---
@@ -216,7 +234,7 @@ PR #38（`feat/agent-bounty`）**只做了诚实标注**，不含任何业务实
 | 重置节奏 | UTC 翻日 + ISO 周重置 | 10.5 |
 | 完成判定 | 击杀盖章 + 入池门槛 | 10.5 |
 | XP 奖励 | 日常 400~1,500、周常 2,500~6,000（随星级） | 8.1 |
-| 载体 | 悬赏板走 JobFramework 公共 menu 脚手架 | 10.4 / 10.5 |
+| 载体 | 待定：方向对齐 WebUI action + 平板 hub（原生 menu 脚手架已废弃，见 10.4 决策 J9） | 10.4 / 10.5 |
 | 经济接线 | 走 `IEconomyService.grant`，并入每日软上限 + faucet；召唤物 `summonedByAffix` 不计结算 | 十一章 |
 
 **关键事实澄清**：「世界 BOSS」不是独立实体类型，`design_mindmap.md:197` 定义为精英怪的高星档（1-5★单人 / 6-7★团队 / **8-10★世界BOSS(~10人)**）。因此三种模板形态本质都是「星级区间 + 词条类别 + 数量」的约束组合，第三种只是第一种加 L8 门。
@@ -239,8 +257,8 @@ PR #38（`feat/agent-bounty`）**只做了诚实标注**，不含任何业务实
 ## 十三、实现拆分
 
 1. 进度接入：并入 JobFramework 统一 EnumMap 进度 + 1-10 级 + 共享 XP 曲线 + 每日软上限（地板 10%）。
-2. Champion 索引 + 分级扫描推送 + 扫描面板 menu/Screen + Glowing 高亮。
-3. 封印子系统：sealed 集合 + 词条钩子判定 + 常驻修饰 teardown/重加 + IAffixSyncable 重同步 + 面板点击封包 + 每精英槽位/星级/类型校验。
+2. Champion 索引 + 分级扫描推送 + 扫描面板（WebUI action，见 10.4）+ Glowing 高亮。**缺口：8.1 的"首次扫描发现精英"XP 零实现**（无发经验调用、无已扫描去重集合），与悬赏 XP 同属待接线。
+3. 封印子系统：`removeAffix` 摘除 + 增量快照恢复 + 常驻 MOVEMENT_SPEED 修饰 teardown（解封由 handler 每秒扫描自动补挂）+ 面板点击封包 + 每精英槽位/星级/类型校验。
 4. 贡献账本（挂单一受击拦截点）+ onDeath 分赃（门槛/占比/掉线回池/top bonus）+ 加强奖励个人 faucet。
 5. 悬赏系统：日/周清单生成（按星级/词条）+ 完成判定 + UTC/ISO 重置 + 悬赏板 + 青辉石周产软上限。**【DEFERRED，见 12.0】**
 6. 经济接入：三来源信用点 + 周常青辉石，全并入软上限 + faucet；复用经济盖章条款。

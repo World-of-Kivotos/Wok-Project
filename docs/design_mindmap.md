@@ -11,7 +11,7 @@
 - danger 压力:停留累积 + 区域难度 + 矿富集 → 后方刷怪
 - 陷阱:静态布点 + 动态触发
 - 经济反滥用:每日高价矿上限 / AFK 冻结 / 收购价递减 / 重置成本
-- 进入与回退:EntryGateway,死亡不掉落回退进入前坐标
+- 进入与回退:EntryGateway;复活点恒为进入前坐标;死亡物品规则按难度分档 —— EASY/MEDIUM 不掉落,HARD 强制掉落全部背包物品(rules/MiningDeathRules,进入时红字明示,难度表见 docs/archive/delivered/TaskSpec_Mining_DeathRules.md,已交付冻结件)
 
 ## 职业
 
@@ -37,11 +37,19 @@
 - 难度门控:L4 开 Medium / L8 开 Hard
 - 经验:谁挖谁得(BreakEvent 落在实例内),复用 61900 曲线
 
-### 农夫(原有)
-- 种菜攒经验(成熟破坏结算)
+### 农夫(种田 · 经济向 · 1-10)
+- 五档耕地:低/中/高/极品/超凡,解锁 L1/3/5/7/9,成长间隔 10/8/6/5/4 分,产量 2/3/4/5/6,单作物经验固定 2
+- 耕地放置上限按级硬封顶(反扩建):9→12→16→20→25→30→36→42→48→64
+- 兼容作物:mod 原生作物 + 原版四种(小麦/胡萝卜/马铃薯/甜菜)+ FD 五种(卷心菜/洋葱/番茄/挂绳番茄/稻穗),须种在 mod 耕地上;未解锁该档退化为基准产量 1
+- 经验:成熟破坏结算 + FD 番茄右键采摘(两条经验源);农夫注册独立 XP 策略,走自己的表 C 每日衰减(1500 系),非共享地基 2000 系
 - 每日软上限多档衰减,约一个月毕业
+- 卖菜经济链
+  - 精通 L2 身份门(反洗钱,未达门槛不扣物品不发币)
+  - 动态收购价:基础 1 CP/株,日软上限 2160 株,递减底数 0.97,价格地板 1%
+  - 与矿工卖矿共用全服同一每日信用点 faucet 计数器与衰减主闸(不是各算独立日上限)
+- 自动机:loot modifier 路径已排除 FakePlayer 不享倍率;原生作物路径尚未排除(待补)
 
-### 千年工程师
+### 铸甲师(原千年工程师 · 稳定 id engineer)
 - 纳米护甲板:低/中/高/极品/超凡 + 闪耀
 - 生产台:5 档,矿石绑档(铁→低…下界合金→极品),投矿选档 + 纳米校准小游戏
 - 修复曲线:低档固定值 → 极品/超凡按 %最大耐久 → 闪耀 100%
@@ -167,6 +175,15 @@
 - 调料(FID 真实 ID):salt/soy/cookingoil/sesameoil/vinegar/brownsugar/crystalsugar/chillipowder/ginger/garlic/cumin/thickbroadbeansauce/curry…
 - 经验:谁做谁得,按品质 低50/中80/高130/超凡220/闪耀400
 
+### 酿酒师(制造 · 长周期 · 1-10)
+- 九种酒:白兰地/伏特加/金酒/朗姆/龙舌兰/茅台/威士忌/香槟/月光酒
+- 品质五档:低/中/高/超凡/闪耀(倍率 1.0/1.5/2.0/3.0/5.0)
+- 两段产线(合计"至少七天周期"):酿酒台酿基酒 → 酒窖箱陈酿年份
+- 年份时钟走现实挂钟(离线/区块卸载照样陈酿,服务端权威);月相加成同读原版 moon phase
+- 喝酒给永久层数增益(BrewBuffStore 持久化,每种酒有层数上限):白兰地急迫、伏特加钝感(减伤)、金酒最大生命、茅台经验倍率等
+- 跨职业耦合:金酒最大生命只读塔罗侧总帽(单向),并入全局减伤/maxHP 帽
+- 对应 job/brewer(含 station / cellar 两子包),注册于 MiningDim 的 BrewerSystem
+
 ### 特勤干员(PVE 经济/情报 · 1-10)
 - 核心循环:找精英 → 战术扫描 → 临时封印 → 参与击杀 → 完成悬赏
 - 五支线
@@ -190,6 +207,15 @@
 - 售价 = 商店 75%(抢市场);高阶弹(狙/反器材/爆炸)军火商独占
 - 散户火药市场:收购散户火药,扩产抬价 → 利润自限
 - 满级 ~17.5 万/日(半被动);接精英怪(8★+ 必须大狙/反器材)
+
+### 渔夫(钓鱼 · 经济向)
+- 矿物鱼(ore):钓鱼产出成功捕获列表后按权重整体替换为矿物鱼(OreFishCatchHandler.replaceDrops + OreFishType 权重表);权重与开关走独立服务端配置 miningdim-fishing.toml
+- Tide 桥接为可选:运行期存在 Tide 才接其 TideFishingHook,不硬依赖
+- 鱼类图鉴(journal):自建条目/目录/收藏快照 + 专用 SimpleChannel + 客户端面板,不复用 Tide 的图鉴解锁数据
+- 鱼汤(soup):矿物鱼汤物品 + 饮用效果
+- 出售:/fishing sell 卖主手整摞鱼,先扣后发(先扣鱼再入账,入账抛异常原样退回),并入全服信用点 faucet
+- 反洗钱缺口:/fishing sell 无身份门(农夫的精通 L2 门未跟进,见 Economy_BalanceSheet 第 6 条)
+- 对应 job/fisher 三子包,注册于 MiningDim 的 FishingSystem
 
 ## 系统
 
@@ -226,11 +252,30 @@
 - 候选功能:战地拉起/婚姻称号/纪念日/守护标记/亲密度/情侣皮肤/共同宠物/回忆录/公开求婚…
 - 反小号 4 闸:小号联姻 / dupe / 传送集火 / 结离再婚刷取
 
+### 电力系统
+- 线缆(cable):12 级导体材料表 ConductorMaterial(铁/铝/铜/镀锡铜/无氧铜 OFC/单晶铜 OFE/镀银铜/金/银/石墨烯/NbTi 超导/YBCO 超导),每级带容量、损耗、绝缘等级(PVC/PE/EPR/XLPE/硅橡胶)、电压档(LOW/MEDIUM/HIGH/EXTREME)与热学模式
+- 电网(grid):EnergyNetwork 输配 + 网温热学 CableThermics + 电压档校验 + 故障态;与 Flux 储能互通
+- 储能(storage):PowerCell 方块 + 电池组 PowerCellGroup 聚合
+- 发电(generator):预热发电机 + 多燃料核心 + 熔毁/保险丝状态机(非核电)
+- 用电设备(machine):冶金提纯机 + 空分装置(含分离模式与配方)
+- 电力矿物(mineral):PowerMineral 注册表(铝土/硼砂/锡/银/镍/铬/钨等,矿工探矿 L3/L6/L8 分档可探)
+- 橡胶产线(rubber):橡胶树 + 割胶原木方块,供绝缘层
+- 后期(endgame):低温控制器(超导线缆的冷却前置)
+- 对应 power/ 十余子包,注册于 MiningDim 的 PowerSystem;线材设计真源 docs/Power_Cable_DesignSpec.md
+
+### 任务系统(四来源共用单一任务板)
+- 四来源:DAILY / WEEKLY / SPECIAL / HIDDEN(悬赏将作第五来源 BOUNTY 并入)
+- 槽位:日常 4 槽(其中 1 个硬槽从 difficulty>=2 抽)、周常 1 槽、特殊同时激活上限 2;重摇在本槽自己的档内重抽,不能花钱把硬槽换成软槽
+- 重摇 sink:日常 500 CP / 周常 2500 CP,销毁而非转移
+- 发奖:独立 quest_faucet 计数器,不并入全服 credit_faucet 软上限 —— 任务供给由"发了几个槽"硬封顶而非由肝度封顶,故是槽位封顶不是衰减封顶;默认档值远高于一天任务的总额,实际从不衰减
+- 组成:QuestBoard 任务板 / QuestPool 内容池 / QuestChain 任务线 / QuestClock 周期翻转 / QuestRewards + QuestItemRewards 奖励 / QuestSavedData 持久化 / QuestTaczHooks(TACZ 可选)
+- 对应 quest/ 全包,注册于 MiningDim 的 QuestSystem;尚无主设计文档(仅 docs/archive/delivered/TaskSpec_Quest_WebUI_Panel.md 覆盖 WebUI 面板接线,已交付冻结件)
+
 ## 共享地基(贯穿所有职业/系统)
-- 数据架构:单 capability 持 EnumMap&lt;JobId,JobProgress&gt;(不每职业新挂);JobId = 矿工/农夫/工程师/塔罗/厨师/特勤干员/军火商
+- 数据架构:单 capability 持 EnumMap&lt;JobId,JobProgress&gt;(不每职业新挂);JobId = 矿工/农夫/铸甲师(稳定 id engineer)/塔罗/厨师/特勤干员/军火商/酿酒师 —— 共 8 个,酿酒师在原 7 职业尾部追加以守 JobSyncS2C 按 values() 顺序读写的同序契约
 - 公共 menu 脚手架:容器 GUI 各职业复用
 - 共享 ModEffects:自定义效果(易伤 …)跨职业复用
 - 经验框架:总 61900 曲线 + 每日软上限衰减(休闲 ~30 天 / 肝满 ~16)
 - 反代练:谁产/打/挖谁得,UUID 盖章
-- 平衡基准:80 血 / TACZ / 死亡不掉落 → %最大血量 / 抗性≤III / 不破 attrition
+- 平衡基准:80 血 / TACZ / 死亡不掉落(该"不掉落"仅覆盖 EASY/MEDIUM;HARD 矿区强制掉落全部背包,另计,权威口径见 rules/MiningDeathRules,难度表原始出处 docs/archive/delivered/TaskSpec_Mining_DeathRules.md)→ %最大血量 / 抗性≤III / 不破 attrition
 - Subsystem 框架:每职业一行接入 MiningDim.registerSubsystems()

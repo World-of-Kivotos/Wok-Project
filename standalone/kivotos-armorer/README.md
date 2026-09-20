@@ -16,9 +16,12 @@
 - Minecraft 1.20.1
 - Forge 47.3.0
 - Java 17
-- TaCZ 1.1.8 hotfix（可选运行依赖；仅编译 API）
+- TaCZ 1.1.8 hotfix（运行期可选降级，但编译期必需：`armor/integration` 包直接 import `com.tacz.guns.api`，缺 jar 一定编译失败）
 
 ## 构建
+
+1. 从官方渠道获取 `tacz-1.20.1-1.1.8-hotfix.jar`。它是第三方 jar，不随本仓库分发，需自行创建 `standalone/kivotos-armorer/libs/` 目录并把 jar 放进去（`build.gradle` 以 `compileOnly files('libs/tacz-1.20.1-1.1.8-hotfix.jar')` 引用它，路径与文件名必须完全一致）。
+2. 执行构建：
 
 ```powershell
 ./gradlew.bat build

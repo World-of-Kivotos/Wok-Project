@@ -73,7 +73,9 @@ MCEF 客户端不在本机时把该配置改成开发机的局域网地址即可
 
 - 入站：`window.miningdimQuery({request, onSuccess, onFailure})`，封装见 `src/bridge/query.ts`
 - 下行事件：页面预置 `window.miningdimOnEvent(name, dataJson)`，由 `src/bridge/events.ts` 在 React 挂载时注册
-- 客户端本地 action：`client.i18n`（翻译键 -> 显示名），不走服务端往返
+- 客户端本地 action（`WebUiBridge.handleClientLocal` 就地处理，不走服务端往返；真源是 `src/lib/actions.ts` 的 `CLIENT_LOCAL_ACTIONS`，新增时改那里而不是抄这份清单）：
+  `client.i18n`（翻译键 -> 显示名）/ `client.playCaseSound` / `client.closePanel`（页面请求关闭平板 UI）/
+  `client.textFocus`（上报当前焦点是否可编辑，用于 ESC 与开关键让位打字）/ `client.display.get` / `client.display.set`
 
 ## 两条与视觉无关、换皮后依然成立的硬约束
 
@@ -81,7 +83,8 @@ MCEF 客户端不在本机时把该配置改成开发机的局域网地址即可
    （`WebUiBridge.onQuery`），而 CEF 的 `getURL()` 带 fragment。页面一旦改 hash，此后所有 cefQuery
    会被以 -3 拒绝——症状是"界面能翻页但所有数据请求全废"。路由实现见 `src/router.ts` 的头注释。
 2. **`callMock` 的 planned 分流在生产构建下必须硬失败。** 见 `src/mock/handlers.ts`。缺了这道门，
-   50 条尚未接线的假 action 会在真客户端里由内存世界作答。
+   尚未接线的 planned action 会在真客户端里由内存世界作答（当前只剩 `shop.catalog` / `shop.detail`
+   两条——后端在 WOK-ChestShop 跨仓；条数以 `src/mock/planned.ts` 的 `PLANNED_ACTIONS` 为准，别在此写死数字）。
 
 ## mod 贴图挂载
 

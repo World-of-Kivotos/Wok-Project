@@ -1,6 +1,11 @@
 # WebUI 中文输入 (IME) 设计规格 — W11
 
-状态: **DEFERRED (已推迟, 未实现)**
+> ## 全文状态: DEFERRED (已推迟, 未实现)
+>
+> **本规格未作废, 仍是计划之内的工作**, 只是尚未动工: 方案选型依赖第三章的真机实测结果,
+> 在实测跑完之前不定方案、不动代码 (理由见第一章)。读到本文任何"实现要点", 都不要当成已落地的现状。
+> 代码侧对应的现状只有一条: `WebUiScreen.charTyped` 直接转发 BMP 字符, 组字态中文未做。
+
 所属: WebUI 全量接线 W11 横切分支
 前置文档: `WebUI_Architecture_DesignSpec.md`、`WebUI_Wiring_Execution_Scope.md` 第四章 W11
 
@@ -58,7 +63,7 @@ Minecraft 的 `KeyboardHandler` 再转给当前 `Screen.charTyped`。
 
 ### 2.3 现有代码已经在转发 charTyped
 
-[`WebUiScreen.charTyped`](../src/main/java/com/miningdim/client/webui/WebUiScreen.java#L181-L190) 现状:
+[`WebUiScreen.charTyped`](../src/main/java/com/miningdim/client/webui/WebUiScreen.java) 现状 (本节一律按方法名定位, 不写行号或 GitHub 行锚——该文件仍在活跃迭代, 行号必漂):
 
 ```java
 public boolean charTyped(char codePoint, int modifiers) {
@@ -74,7 +79,7 @@ public boolean charTyped(char codePoint, int modifiers) {
 
 ### 2.4 必须同步修正的错误注释
 
-`WebUiScreen` 类头注释第 24-26 行与 `charTyped` 内第 183-185 行, 均写着:
+`WebUiScreen` 类头注释里那段"中文 IME (step2 接口位)"与 `charTyped` 方法体内的同名注释, 均写着:
 
 > 完整 IME 需叠加一个不可见原版 EditBox 捕获 GLFW IME 组字事件 (preedit / commit)
 
@@ -98,7 +103,7 @@ public boolean charTyped(char codePoint, int modifiers) {
 | E1 | 面板内 `<input>` 聚焦, 切中文输入法, 敲 `nihao` 再选词 | 汉字是否上屏到 input | FAIL 则整条 charTyped 路不通, 需查 CEF 焦点; PASS 则只剩体验问题 |
 | E2 | 同上, 观察候选窗出现在屏幕什么位置 | 候选窗是否跟随网页内光标 | 几乎必然不跟随 (见第四章), 决定要不要做定位 |
 | E3 | 组字中途按退格 | 是删组字缓冲还是删已上屏字符 | 决定要不要拦 `keyPressed` 的 BACKSPACE |
-| E4 | 组字中途按 ESC | 是取消组字还是**关掉整个面板** | 高危: `keyPressed` 第 158 行 ESC 无条件 `onClose()` |
+| E4 | 组字中途按 ESC | 是取消组字还是**关掉整个面板** | 高危: `keyPressed` 的第一个分支就是 `GLFW_KEY_ESCAPE` 无条件 `onClose()` |
 | E5 | 中英切换 (Shift / Ctrl+Space) | 切换键有没有被当普通按键喂给 CEF | 决定修饰键过滤范围 |
 | E6 | 剪贴板粘贴中文 (Ctrl+V) | 是否粘进去、有没有乱码 | 粘贴不经 IME, 是中文输入的兜底通道 |
 | E7 | 焦点在 CEF 内 input 与 MC 原生界面之间来回切 | 切回来后还能不能继续输入 | 决定 `setFocus` 时机 |

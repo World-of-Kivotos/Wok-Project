@@ -65,7 +65,8 @@ node tools/gen-nineslice.mjs          # 写盘并自检
 node tools/gen-nineslice.mjs --check  # 只校验一致性, 不写盘
 ```
 
-生成器（`webui/tools/gen-nineslice.mjs`）零第三方依赖（`node:zlib` + 手写 PNG 分块），在出图前后做四层自检：
+生成器（`webui/_pixel-archive/tools/gen-nineslice.mjs`，封存时随像素风一并搬入本归档，原位置 `webui/tools/`
+已不存在）零第三方依赖（`node:zlib` + 手写 PNG 分块），在出图前后做四层自检：
 
 1. alpha 二值性，且**只有四角允许透明**（别处 alpha=0 就是边框上破了个洞）；
 2. 边条沿延展轴均匀、中心块单值——均匀性按 `[灰度, alpha]` 整对比较，只比灰度挡不住"同色但透明"的缝；
@@ -76,19 +77,35 @@ node tools/gen-nineslice.mjs --check  # 只校验一致性, 不写盘
 DEFLATE 允许多种合法编码，换实现后解出的像素完全一样、字节流却可能变，此时 `--check` 会报 STALE；
 那不是资产坏了，重跑写盘即可。正确性的真判据是上面四层像素级自检，不是字节相等。
 
-## 五、publicDir 冲突的处置（已闭环）
+## 五、publicDir 方案的放弃记录（早期设计，未进入最终代码）
 
-`webui/vite.config.ts` 把 `publicDir` 指向了 `../src/main/resources/assets/miningdim/textures`
-（为的是让 mod 物品贴图直接映射为静态资源，避免复制副本造成双源漂移）。Vite 只支持一个 publicDir，
-因此**本目录不是站点静态根**：按 `/ui/frame-window.png` 取图在 dev 下拿到的是 SPA 回退的 index.html。
+本节原先描述的方案是把 `webui/vite.config.ts` 的 `publicDir` 指向 mod 的 `textures` 目录，
+以此让 mod 物品贴图直接映射为静态资源、避免复制副本造成双源漂移；并由此推出"Vite 只支持一个 publicDir，
+故本目录不是站点静态根"。**该方案已被放弃，`vite.config.ts` 里并不存在 `publicDir` 设置**，
+本节的前提与结论都不再成立。
 
-现行处置是"引用方式"而非"搬家"：`PixelFrame.tsx` 以 ESM `import` 引用这三张 PNG
+现行机制是自写插件 `modTexturesPlugin`：把 mod 的 `item/` 与 `block/` 贴图挂到 `/mc/` 前缀下
+（dev 走中间件，build 期复制进 `dist/mc/`），`webui/public/` 保持正常的 public 语义。
+放弃 publicDir 的理由写在 `vite.config.ts` 该插件的头注释里：publicDir 全局唯一，指过去会让
+`webui/public/` 变成一个"看着像 public 实际不被服务"的假目录，后来人按直觉写 URL 会静默 404，
+而 `border-image` 取不到图是无边框且不报错，排查成本极高。另见 `webui/README.md` 的"mod 贴图挂载"一节。
+
+本节仅作设计过程记录保留。重启像素风时，`public/ui/` 该怎么接入按现行机制重新评估，不要照本节的 publicDir
+前提推导。下面这一段关于引用方式的做法与 publicDir 是否存在无关，仍然有效：
+
+`PixelFrame.tsx` 以 ESM `import` 引用这三张 PNG
 （`import frameWindowUrl from '../../../public/ui/frame-window.png'`），由 Vite 当普通资产打包，
 自动带 hash 与正确的相对基址，dev 与 build 两端都不依赖 publicDir 的归属。文件仍留在本目录，
 美术"按同名覆盖"的替换流程因此完全不受影响；`dist` 里也不会出现本 README。
 
-构建期尺寸守卫已同步覆盖本目录：`scripts/verify-pixel-guards.mjs` 的扫描根为 `src/assets` 与
-`public` 两处，且扫到 0 张 PNG 即判失败——避免资产迁移后守卫退化成静默的"PASS（0 张）"。
+## 六、构建期尺寸守卫（当前不存在，重启时须先取回）
+
+`scripts/verify-pixel-guards.mjs` 已随 2026-08-13 换皮删除（`webui/scripts/` 下现只剩
+`check-frontend-contract.mjs`），因此**本节以下全部描述在重启像素风、把该脚本从 git 历史取回之前都不成立**
+（取回办法见 `webui/_pixel-archive/README.md` 的重启步骤第 3 步）。以下是它被删除前的行为，供恢复时照做：
+
+该守卫的扫描根为 `src/assets` 与 `public` 两处，且扫到 0 张 PNG 即判失败——避免资产迁移后守卫退化成
+静默的"PASS（0 张）"。
 
 守卫另有两道专为 9-slice 加的检查，替换资产时会直接撞上，请照它的报错改：
 

@@ -2,11 +2,11 @@
 
 ## 文档元信息
 
-- 用途: **全部职业(矿工/农夫/工程师/塔罗师/厨师)与结婚系统共享的地基的唯一真源**。各职业 spec 反复引用的"前置/共享地基"在此定义,职业 spec 的"前置"小节应**引用本文档而非各自复述**。本文档由完整性审计补建(此前这套地基被切碎散落在 5 份职业 spec 的"架构/前置"节,且 `JobId` 成员各 spec 互相矛盾)。
+- 用途: **全部职业(矿工/农夫/铸甲师/塔罗师/厨师/特勤干员/军火商/酿酒师,见 2.1 权威枚举)与结婚系统共享的地基的唯一真源**。各职业 spec 反复引用的"前置/共享地基"在此定义,职业 spec 的"前置"小节应**引用本文档而非各自复述**。本文档由完整性审计补建(此前这套地基被切碎散落在 5 份职业 spec 的"架构/前置"节,且 `JobId` 成员各 spec 互相矛盾)。
 - 目标平台: Minecraft 1.20.1 + Forge 47.x + Java 17。
 - 部署环境(硬约束): 公服初始血量 80、TACZ 枪械、死亡不掉落、PvP+PvE;一切战斗向数值用 %最大血量、抗性≤III、**不破枪战 attrition**(此红线对"全职业合并后的总效果"生效,见第八章)。
 - 状态图例: DECIDED 已定稿 / PENDING 待拍板(已给推荐) / TODO 实现期补全。
-- 编码前阻塞: 本文档第二、三章(JobId/JobProgress capability 收敛迁移)是**所有职业的硬前置**,必须先于任何职业实现落地。
+- 当前状态: 第二/三/四/五/六/九章均已落地(EnumMap 收敛见 `job/JobData.java`,货币门面见 `economy/IEconomyService.java`,经验曲线与每日衰减见 `job/JobXpCurve.java`,共享效果见 `effect/ModJobEffects.java`,menu 脚手架见 `com.miningdim.menu`,`/job` 命令见 `job/JobCommands.java`)。本文档已由"编码前阻塞"转为**职业地基的现状真源与回归依据**;仍未闭合的只有第 2.3 节迁移步骤 (3)(`economy`/`pressure` 内存态迁入 capability)与第十一章"现有文档待补丁登记"表中的各项缺口。
 
 ---
 
@@ -19,7 +19,9 @@
 ## 二、JobId 与 JobProgress (DECIDED)
 
 ### 2.1 JobId 权威枚举
-`enum JobId { MINER, FARMER, ENGINEER, TAROT, CHEF }`(5 个)。**结婚不是 JobId**——它是系统,数据走 `MarriageRegistry`(见结婚 spec),不进 `JobProgress`。各 spec 此前互相矛盾的成员清单一律以此为准。
+`enum JobId { MINER, FARMER, ENGINEER, TAROT, CHEF, AGENT, MUNITIONS, BREWER }`(8 个,真值见 `job/JobId.java`)。成员顺序即 `JobSyncS2C` 按 `values()` 读写的同序契约,**新增职业只能尾部追加**(AGENT/MUNITIONS 依 mindmap 与特勤/军火两份 spec 收编为 7 个,BREWER 据同序契约追加为第 8 个)。`ENGINEER` 的玩家可见名已改为"铸甲师",但稳定 id 保留 `engineer`,以免旧存档进度与旧命令参数失效。**结婚不是 JobId**——它是系统,数据走 `MarriageRegistry`(见结婚 spec),不进 `JobProgress`。各 spec 此前互相矛盾的成员清单一律以此为准。
+
+**不占 JobId 的 job 子包**: `com.miningdim.job.fisher`(模块 `wok-job-fisher`"渔夫",见 `docs/modules/module-registry.json` 与 `docs/Ore_Fish_And_Soup.md`)位于 `job` 包下并有独立模块身份,但**不进 JobId、不持 `JobProgress`、不进 `/job` 命令**(该包对 `JobId` 零引用)——它是围绕钓鱼的内容模块而非等级职业。此形态合法但须显式登记:新增此类"挂在 `job` 包下却不入 EnumMap"的模块,必须在本节补一行并写明不入 EnumMap 的理由,避免与 JobId 成员混淆。
 
 ### 2.2 JobProgress 字段全集
 ```
@@ -39,15 +41,20 @@ class JobProgress {
 玩家数据 = `entry.MiningPlayerData` 持 `EnumMap<JobId,JobProgress>` 一处 `serializeNBT/deserializeNBT/copyFrom`(遍历 Map),`IMiningPlayerData` 扩 `JobProgress jobProgress(JobId)` 一个方法取代"每职业一组 getter/setter"。新职业 = Map 多一个 key,零结构改动。`deserializeNBT` 对旧存档缺键给默认(level=1,xp=0)。
 
 ### 2.3 三套并存数据存储的收敛裁决(Critical)
-代码现存三套玩家级存储,必须收敛(否则复活既裁的"双 capability 重复 attach → 双重传送/双重引用计数"隐患):
+代码曾并存三套玩家级存储,必须收敛(否则复活既裁的"双 capability 重复 attach → 双重传送/双重引用计数"隐患):
 
 | 存储 | 现状 | 裁决 |
 | --- | --- | --- |
 | `entry.MiningPlayerData`(capability) | 既裁唯一权威 | **保留为唯一权威**,扩 `EnumMap<JobId,JobProgress>` |
-| `persistence.PlayerMiningData`(+Provider/Events) | 等价的第二套 capability+attach+Clone,仅在 InstanceSystem 接线层被裁撤,类仍在 | **删除整包**(留着就会被误 attach;`MiningDim.java` 注释已警告,但仅在代码注释、未进任何文档) |
+| `persistence.PlayerMiningData`(+Provider/Events) | **已删除(收敛完成)**,类与 Provider/Events 均不复存在 | **裁决已执行完毕,本行转为历史记录**。现 `com.miningdim.persistence` 包内仅剩 `MiningSavedData`(矿区实例注册表 + 全局计数器持久层,挂矿山维度 `DimensionDataStorage`,承载实例 Map/`nextInstanceId`/`globalSeed`/`resetGeneration`/region 位图),与玩家 capability 无关,**严禁再按"删整包"执行**。另:`pressure.PlayerMiningData` 是同名的压力子系统内存态纯数据(非 capability),`economy.PlayerAbuseState` 类注释里提到的"Capability/PlayerMiningData"只是历史设计引用,两者都不是本行裁撤的旧 capability,勿误伤 |
 | `economy.PlayerAbuseState` / `pressure` 内存态 | UUID 内存态,无持久化(注释:"Capability 子系统就绪后从持久层 load") | **并入 entry capability 持久化**(或明确保留内存态的理由) |
 
-迁移步骤(独立原子提交,遵循第 0 步法则):(1) entry 扩 `EnumMap`;(2) 删 `persistence` 死包 + 多维 grep 确认无引用;(3) `economy/pressure` 内存态迁入 capability;(4) 扩 `IMiningPlayerData` 后多维 grep 补全所有实现/mock。
+迁移步骤(独立原子提交,遵循第 0 步法则)与当前状态:
+
+- [x] (1) entry 扩 `EnumMap` —— 已落地,`job/JobData.java` 持 `EnumMap<JobId,JobProgress>`,作为 `entry.MiningPlayerData` 的内部委派。
+- [x] (2) 删 `persistence` 死包 + 多维 grep 确认无引用 —— 已完成。**该步骤严禁再次执行**:`persistence` 包内现仅存的 `MiningSavedData` 是矿区实例持久化的现役代码,不是待删死代码。
+- [ ] (3) `economy/pressure` 内存态迁入 capability —— **未完成**:`economy.PlayerAbuseState` 仍由 `EconomySystem` 以 `Map<UUID,PlayerAbuseState>` 在内存维护、登入重建(其 NBT 读写已备好但无持久层接管),`pressure` 运行态同样不跨重启持久化。
+- [x] (4) 扩 `IMiningPlayerData` 后多维 grep 补全所有实现/mock —— 已落地,见 `entry/IMiningPlayerData.java` 的 `JobProgress jobProgress(JobId job)`。
 
 ### 2.4 死亡/换维度 Clone 与登出纪律(DECIDED)
 复用 MiningDimension 12.5/14.6 已规格化的 `PlayerEvent.Clone`(reviveCaps/invalidateCaps 1.20.1 强制写法)与登录恢复。**新增**:所有 `JobProgress` 字段在 Clone 时全量复制;**临时属性修饰符/CD/效果**(工程师 nanoReactor、塔罗强增益、厨师窗口效果、矿工充能)在死亡/登出/**换维度**时按各自 spec 清理(本 mod 反复进出矿洞维度=最高频泄漏路径,统一在第五章 ModEffects 纪律兜底)。
@@ -60,23 +67,25 @@ class JobProgress {
 
 ```
 interface IEconomyService {            // 注入 MiningServices, 职业子系统按接口取用
-  long creditBalance(Player p);
-  long heartstoneBalance(Player p);    // 青辉石
-  boolean tryCharge(Player p, Currency c, long amount);   // 事务安全, 不足返 false
-  void grant(Player p, Currency c, long amount);
-  boolean tryChargeDaily(Player p, Currency c, long amount, String dailyKey, long dailyCap); // 含每日限购计数器
+  long creditBalance(ServerPlayer player);
+  long heartstoneBalance(ServerPlayer player);    // 青辉石
+  boolean tryCharge(ServerPlayer player, Currency currency, long amount);   // 事务安全, 不足返 false
+  void grant(ServerPlayer player, Currency currency, long amount);
+  boolean tryChargeDaily(ServerPlayer player, Currency currency, long amount, String dailyKey, long dailyCap); // 含每日限购计数器
 }
 ```
+参数一律是 `ServerPlayer` 而非 `Player`(服务端权威,客户端侧无余额真值)。实现另含 `settleOreSale` / `recordMinedOreDrops` / `grantDaily` / `grantAzureDaily` / `isAfkFrozen` 五个经济侧结算方法,不属职业地基门面的最小集,详见经济文档与 `economy/IEconomyService.java`。
+
 塔罗买卡包、结婚典礼成本、矿山重置成本一律走 `IEconomyService.tryCharge(信用点)`,**不再说"复用 chargeItem"**(那是扣物品)。余额字段并入 entry capability,序列化/Clone 纳入第二章。
 
 ---
 
-## 四、统一经验与每日衰减框架 (DECIDED + 1 PENDING)
+## 四、统一经验与每日衰减框架 (DECIDED)
 
-总 61,900 曲线 + 每日有效经验软上限衰减表(0-2000 ×1.0 / 2000-2800 ×0.4 / 2800-3400 ×0.2 / 3400-3800 ×0.08 / 3800+ ×0.02)是**唯一数据源**(现被工程师/塔罗/厨师/矿工逐字复制 4-5 份 → spec 漂移温床)。实现为共享 `LevelingService`(或 `JobProgress` 方法),各职业 spec 经验章改为引用本表。
+总 61,900 曲线 + 每日有效经验软上限衰减表(0-2000 ×1.0 / 2000-2800 ×0.4 / 2800-3400 ×0.2 / 3400-3800 ×0.08 / 3800+ ×0.02)是**唯一数据源**(现被工程师/塔罗/厨师/矿工逐字复制 4-5 份 → spec 漂移温床)。已实现为共享的 `job/JobXpCurve.java`(曲线表 + 衰减分段 + `DAILY_SOFTCAP` 单一权威)配合 `JobProgress.grantXp`,各职业 spec 经验章改为引用本表。
 
 - **翻日口径统一为 UTC**(`AbuseGuard.currentPlayerDayStamp` 已是 UTC;废弃 `gameTime/24000` 口径)。信用点每日 faucet 上限与职业经验软上限**共用同一 UTC 翻日时钟**。
-- **跨职业日预算(PENDING,推荐 per-job)**: FF14 式同时持有全部职业,一天能否在 5 个职业各刷满?**推荐 per-job 独立衰减**——理由:挖矿/做菜/打牌/种田**竞争同一份真实在线时间**(一次只能干一件),per-job 天然被真实时间封顶,无需再设全局上限;且各职业有独立反通胀闸。若运营发现总产出过高,再上一个"全职业总有效经验/日"的硬顶。需你拍板。
+- **跨职业日预算(DECIDED = per-job 独立衰减,已落地)**: 每职业各持一份 `dailyXp`/`dayStamp` 游标(`JobData` 的 `EnumMap<JobId,JobProgress>` 每个 key 一份 `JobProgress` 实例),`JobXpCurve` 的分段折算只吃该职业当日的有效经验标量、不聚合其它职业,**不存在任何全职业总额约束**。理由:挖矿/做菜/打牌/种田**竞争同一份真实在线时间**(一次只能干一件),per-job 天然被真实时间封顶,无需再设全局上限;且各职业有独立反通胀闸。若运营发现总产出过高,再追加一个"全职业总有效经验/日"的硬顶——那是存档结构改动,须单独评估成本,不能当调参处理。
 
 ---
 
@@ -91,7 +100,7 @@ interface IEconomyService {            // 注入 MiningServices, 职业子系统
 
 ## 六、公共 menu 脚手架 (DECIDED)
 
-工程师(生产台/校准)、塔罗(开包自选/合成)、厨师(调味台/小游戏)、结婚(共享背包/誓言墙)全部依赖它。代码现 0 个 Menu/Screen(`MiningNetwork.openGui` 直接 throw)。把工程师 10.5 的清单提升为**共享规格**:
+工程师(生产台/校准)、塔罗(开包自选/合成)、厨师(调味台/小游戏)、结婚(共享背包/誓言墙)全部依赖它。共享脚手架已建成于 `com.miningdim.menu`(`ModMenus` / `AbstractMiningMenu` / `AbstractMiningScreen` / `MenuValidity`),含方块 menu 与远程 menu(`remoteMenuType`,extraData 不带 `BlockPos`)两种工厂:结婚共享背包(`MarriageRegistration`)与塔罗闪耀开包自选(`TarotRegistry`)已复用 `remoteMenuType`,工程师生产台、厨师调味台、酿酒台/酒窖、军械台与冲压台、塔罗合成、电力机械等均已落地各自的 `AbstractMiningMenu`/`AbstractMiningScreen` 子类。`MiningNetwork.openGui` 仍抛 `UnsupportedOperationException`,那是网络子系统的历史残留、早已不是开窗入口(其方法注释已写明真实开窗走 `NetworkHooks.openScreen`),应择机清理或删除以免误导。下列清单(源自工程师 10.5)即该脚手架的**共享规格**:
 
 - `com.miningdim.menu` 包: `DeferredRegister<MenuType<?>>` + `IForgeMenuType.create((id,inv,buf)->…)`(传 `BlockPos`) + `AbstractMiningMenu` 基类(**正确 `quickMoveStack`/`stillValid`**,防 Shift 吞物/死循环) + `ContainerData` 同步约定 + 客户端 `MenuScreens.register`(`FMLClientSetupEvent.enqueueWork`)。全 1.20.1 写法(严禁 1.20.4+ custom payload / 1.20.5+ MapCodec)。
 - **非方块 menu 场景**(工程师 10.5 仅覆盖方块 menu): 结婚共享背包是**戒指远程开**(非方块)且是"最高危 dupe"模块——脚手架须提供"无 BlockPos、以 `MarriageId`/虚拟 owner 为 stillValid 依据"的工厂变体。
@@ -121,7 +130,7 @@ interface IEconomyService {            // 注入 MiningServices, 职业子系统
 ## 九、/job 命令 (DECIDED)
 
 - 新建一棵 `/job` 根(**不挂 `/mining` 下**,避免 Brigadier 双根冲突——`MiningDim.java` 已对 `/mining` 双根有过裁决),由职业框架子系统统一 `register`(`RegisterCommandsEvent`)。
-- 子命令: `/job list`(各职业等级/经验/当日剩余衰减额度)、`/job info <job>`、`/job top <job>`(可选排行);OP: `/job set <player> <job> <level>`。权限沿用 `MiningPermissions`。
+- 子命令(实际注册见 `job/JobCommands.java`): `/job list`(各职业等级/经验/当日剩余衰减额度)、`/job info <job>`、`/job wallet`(查信用点与青辉石余额);OP(permission level 2): `/job set <player> <job> <level>`。`/job top <job>`(可选排行)**至今未实现**,属可选项不是缺口。权限沿用 `MiningPermissions` 的 OP 等级口径(`JobCommands` 内以 `OP_LEVEL = 2` 常量落地,与 `entry` 命令一致)。
 
 ---
 
@@ -145,19 +154,19 @@ interface IEconomyService {            // 注入 MiningServices, 职业子系统
 | --- | --- | --- |
 | 服务器经济系统设计文档 | "货币 capability 数据模型 + 扣费 API"专章(余额字段/序列化/Clone/每日限购计数器/`tryCharge`实现,落地本文档第三章接口);方案 B"产出物计数口径 + 非高价矿是否纳入 cap";全服**玩家间转移通道清单 + 反 RMT 一致性**(跳蚤/结婚共享背包/未来交易,统一定哪些落审计、哪些禁高价值物);全职业 faucet/sink 登记表 | Critical/Major |
 | FarmingXP_Mod_DesignSpec | 顶部加 **superseded 注记**:持久化/ModLoader/版本/经济以本框架文档为准(覆盖其第十一章 PENDING),capability 并入 `EnumMap`(作废其独立 capability 方案),衰减表对齐统一 2000 系 | Major(本轮已加注记) |
-| MiningDimension_Mod_DesignSpec | 登记矿工要求的**本体改动**:`Danger.evaluate` 加 job 系数入参(第十章)、`EntryGateway.gateCheck` 难度门控源改矿工等级(14.4)、`TrapSystem` 陷阱伤打专属 DamageSource、经济计数口径改"产出物"、persistence 死包待删(12.5);消除"双权威" | Critical/Major |
+| MiningDimension_Mod_DesignSpec | 登记矿工要求的**本体改动**:`Danger.evaluate` 加 job 系数入参(第十章)、`EntryGateway.gateCheck` 难度门控源改矿工等级(14.4)、`TrapSystem` 陷阱伤打专属 DamageSource、经济计数口径改"产出物"、persistence 死包**已删除**(12.5;该包现仅剩现役的 `MiningSavedData`,勿再按"删整包"执行,见本文档 2.3);消除"双权威" | Critical/Major |
 | Chef_Job_Mod_DesignSpec | 第八/九章补一张 **FID 34 个状态效果逐个"战斗向/可增香"判定表**(从仓库根 `flavor_immersed_daily-1.1.0.3-forge-1.20.1.jar` 核 effect id 全集),给"增香黑名单"据可依 | Major |
 | Miner_Job_DesignSpec | 按真实 `Danger.evaluate` 签名/pressure 包结构校正 hook 描述;与上面 MiningDimension 本体改动交叉引用 | Minor |
 | 各职业 spec "前置"节 | 改为引用本文档,删除各自复述的 EnumMap/menu/ModEffects 细节 | Minor |
 
 ---
 
-## 十二、实现顺序 (DECIDED)
+## 十二、实现顺序 (历史记录 — 五步已全部走完)
 
-1. **本框架第二章**(JobId/JobProgress + 三套存储收敛迁移)——所有职业硬前置,先做。
-2. 第三章货币接口 + 经济文档余额模型补丁(塔罗/结婚/矿山扣费都等它)。
-3. 第五章共享 ModEffects + 第六章公共 menu 脚手架(谁先用谁建,后者复用)。
-4. 第四章 LevelingService + 第七章网络/HUD 框架 + 第九章 /job。
-5. 各职业本体(按各自 spec)。
+- [x] 1. **本框架第二章**(JobId/JobProgress + 三套存储收敛迁移)——所有职业硬前置,先做。已完成:`job/JobData.java` 的 EnumMap 委派 + `entry/IMiningPlayerData.jobProgress`;唯一残留是 2.3 迁移步骤 (3) 的 `economy`/`pressure` 内存态。
+- [x] 2. 第三章货币接口 + 经济文档余额模型补丁(塔罗/结婚/矿山扣费都等它)。接口侧已完成:`economy/IEconomyService.java`;经济文档的余额模型专章仍挂在第十一章缺口表。
+- [x] 3. 第五章共享 ModEffects + 第六章公共 menu 脚手架(谁先用谁建,后者复用)。已完成:`effect/ModJobEffects.java`(含易伤单一仲裁 `VulnerabilityHurtHandler`)与 `com.miningdim.menu`。
+- [x] 4. 第四章 LevelingService(落为 `job/JobXpCurve.java`)+ 第七章网络/HUD 框架 + 第九章 `/job`(`job/JobCommands.java`)。已完成。
+- [x] 5. 各职业本体(按各自 spec)。已完成:`com.miningdim.job` 下 8 个 JobId 职业各有子包(另有不占 JobId 的 `fisher` 内容模块,见 2.1)。
 
-测试断言示例: `JobId` 全 5 成员一致;扩 `IMiningPlayerData` 后全实现/mock 编译通过;删 `persistence` 包后无悬空引用;多职业易伤来源叠加后总值 ≤+100%(单一仲裁);临时最大生命修饰符登出再登入恢复基线(无泄漏);`/job` 与 `/mining` 无 Brigadier 双根冲突。
+测试断言示例: `JobId` 全 8 成员一致且顺序不变(守 `JobSyncS2C` 按 `values()` 读写的同序契约);扩 `IMiningPlayerData` 后全实现/mock 编译通过;`persistence` 包内除现役 `MiningSavedData` 外无玩家 capability 残留;多职业易伤来源叠加后总值 ≤+100%(单一仲裁);临时最大生命修饰符登出再登入恢复基线(无泄漏);`/job` 与 `/mining` 无 Brigadier 双根冲突。

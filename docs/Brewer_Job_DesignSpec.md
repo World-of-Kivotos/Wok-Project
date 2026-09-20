@@ -1,6 +1,8 @@
 # 酿酒师职业 设计规范 (Brewer Job DesignSpec)
 
-状态: 设计锁定, 分阶段实现中。分支 `feat/brewer-profession`。
+状态: 设计锁定, 第六节六期已全部实现并合入 main。代码真源为 `src/main/java/com/miningdim/job/brewer/`
+(含 `cellar/` 与 `station/` 两个子包), 模块登记见 `docs/modules/module-registry.json` 的 `wok-job-brewer`;
+不再以功能分支为准。
 
 ## 一、定位
 
@@ -55,7 +57,10 @@
 
 干小麦由小麦烘制 (要求量大, 长线职业的小麦 sink, 联动农夫经济):
 
-- **耗量随年份递增**: 一瓶酒每陈酿 1 年份的耗量 = `DRIED_WHEAT_PER_BOTTLE_YEAR` 基础 × (1 + 年份/比例)。
+- **耗量随年份递增**: 一瓶酒每陈酿 1 年份的耗量 = `BrewerConfig.DRIED_WHEAT_PER_BOTTLE_YEAR`
+  (toml 键 `driedWheatPerBottleYear`, 默认 16, 即年份 0 时的基础量) + `BrewerConfig.FUEL_QUAD_COEF`
+  (toml 键 `quadCoef`, 默认 5.0) × 年份² —— 加式二次递增, 不是线性乘式 (取证: `CellarSettle` 的
+  `demandPerYear` 累加式与 `BrewerConfig`)。默认值下年份 10 的单瓶单年应耗 = 16 + 5×100 = 516, 是基础量的 32 倍。
   老酒烧钱凶 → 自然经济封顶 (推高年份的边际收益被干小麦成本吃掉, 这是软上限的经济一面)。
 - **断粮 = 损坏**: 缺燃料结算时年份开始衰退 (倒扣); 短宽限期内补上可救; 衰退到 0 / 超宽限 → **变质**
   (打 spoiled 标记, buff 归零、不可再陈、卖不上价)。给"必须不断填充"真正的牙齿, 也封死燃料外免费陈酿。
@@ -92,10 +97,15 @@
 | 茅台 maotai | 给经验值 | 职业经验加成 | 小麦·稻米 |
 | 威士忌 whiskey | 瞬间恢复 | 周期性瞬间恢复 | 小麦 |
 | 香槟 champagne | 生命恢复 | 常驻生命恢复 | 小麦 |
-| 月光 moonshine | 赌博 (随机好/坏) | 赌博 (永久随机好/坏) | 烈酒·小麦 |
+| 月光 moonshine | 赌博 (随机好/坏) | 永久随机良性词条 ×5 (满 5 层首次固化) | 烈酒·小麦 |
 
-月光为赌博性质: 加权随机表, 好结果 (强随机增益) vs 坏结果 (中毒/反胃/虚弱); S 越高好结果概率与强度越高;
-闪耀月光把结果变永久 (高赌注)。落地: `WineType` + 后续 `BrewEffectEngine` / `BrewMoonshineTable`。
+月光的"赌博"只存在于非闪耀的临时效果档: 按 `moonshineGoodProb(S)` (基础概率 + 每点强度增量, 带上限) 掷一次,
+好结果从 `BrewEffectEngine.MOONSHINE_GOOD_POOL` (急迫/速度/力量/生命恢复/抗性提升) 抽一个并按软化强度给等级与时长,
+坏结果从 `MOONSHINE_BAD_POOL` (中毒/反胃/虚弱/饥饿/缓慢) 抽一个, S 越高好结果概率越高。
+闪耀档**不参与赌博**: 该酒类层数攒满 `BrewerConstants.MAX_LAYERS_PER_TYPE = 5` 后一次性固化 —— 用玩家 UUID
+派生的确定性种子从 `MoonshinePerk` 的 8 条良性词条 (击退抗性 +0.2 / 护甲 +2 / 护甲韧性 +2 / 幸运 +1 / 移速 +4% /
+攻击击退 +0.5 / 近战攻击 +1 / 永久夜视) 里不重复抽 5 条, 永久生效、死亡清零; 未满 5 层不固化任何东西, 也没有坏结果。
+落地: `WineType` + `BrewEffectEngine` (临时好/坏效果池与掷取) + `MoonshinePerk` (闪耀永久良性词条池)。
 
 ## 五、闪耀永久增益 (一条命)
 
@@ -106,8 +116,10 @@
 - 上限 `MAX_PERMANENT_BUFFS = 3`: 同时在身的永久增益封顶 3 个, 满则 FIFO 替换最旧。
 - 死亡丢失: `LivingDeathEvent` 清空该玩家全部永久增益 + 摘除属性修饰/效果。
 - 跨下线保留: 永久增益持久化 (`BrewBuffStore extends SavedData`), `PlayerLoggedInEvent` 重挂; 仅死亡清。
-- 单项数值帽: 金酒永久生命上限有硬帽 (`GIN_MAX_HEALTH_CAP`, 经 `MaxHealthModifierManager.capUp` 执行);
-  伏特加永久减伤 `VODKA_DAMAGE_REDUCTION = 0.20` (与当前实现 0.05x5=0.25 不一致, 见五之补)。
+- 单项数值帽: 金酒永久生命上限有硬帽 `BrewerConfig.GLOBAL_BONUS_MAX_HEALTH_CAP_PCT` (toml 键
+  `globalBonusMaxHealthCapPct`, 默认 1.0 = base 最大生命的 100%), 由 `GinMaxHealthManager.clampToGlobalCap`
+  执行, 与塔罗共享同一跨职业帽; 伏特加永久减伤为 `BrewerConfig.VODKA_REDUCTION_PER_LAYER` (toml 键
+  `vodkaReductionPerLayer`, 默认 0.05/层, 满 5 层 0.25) —— 设计原稿的 0.20 与之分叉, 见五之补。
 
 落地: `BrewBuffStore` + `BrewPermanentBuffs` (后续阶段)。
 
@@ -133,7 +145,8 @@ F028 全库审计复核确认: 九种闪耀永久层可同时叠满, 无职业�
 - 朗姆移速 / 龙舌兰近战 / 威士忌与香槟周期回血 各自的单项数值帽;
 - 周期回血 (威士忌/香槟) 是否改为脱战才生效, 若是则脱战判据取哪个 (与厨师/其它职业已有的脱战判定复用还是
   另立);
-- 本文档第 96 行遗留的 `VODKA_DAMAGE_REDUCTION=0.20` 与代码现状 `0.05×5=0.25` 的分叉, 以哪个为准。
+- 第五节「单项数值帽」一条遗留的设计原稿值 `0.20` 与代码现状 `VODKA_REDUCTION_PER_LAYER 0.05×5=0.25`
+  的分叉, 以哪个为准。
 
 **(3) 本轮已做的过渡措施**:
 

@@ -3,7 +3,7 @@
 ## 一、文档说明
 
 - 用途: 线材(导体/线缆)子系统的美术需求与资产状态清单。列出分期成品所需的方块贴图、物品图标和共享基底, 供美术与实现逐项对账。所有机制/分级依据以 `docs/Power_Cable_DesignSpec.md` 为唯一真源, 本文档只做美术资产映射与状态记录, 不改机制。
-- 关联真源: 导体阶梯与材料 id 见设计文档第四章 12 级导体表及 `ConductorMaterial` 枚举; 绝缘 5 档见 `InsulationGrade` 枚举; 分期路线见设计文档第十三章。
+- 关联真源: 导体阶梯与材料 id 见设计文档第四章 12 级导体表及 `ConductorMaterial` 枚举; 绝缘 5 档见 `InsulationGrade` 枚举; 分期路线见设计文档第十二章"分期落地路线"(第十三章是 JEI/Jade 最终集成, 不是分期表)。分期标签若与设计文档冲突, 一律以设计文档最新版为准。
 - 贴图规格通用约定:
   - 方块贴图: 一般方块仍为 16x16 PNG; 本轮摆放态线缆是明确例外, 使用 32x32 RGBA PNG, 放置于 `src/main/resources/assets/miningdim/textures/block/`。
   - 物品图标: 16x16 PNG(扁平 2D sprite), 放置于 `src/main/resources/assets/miningdim/textures/item/`。
@@ -78,8 +78,8 @@ P1 的目标范围固定为 T1 铁、T2 铝、T3 铜, 并把橡胶、PVC、PE �
 | BLOCK / MODEL | `iron_energy_cable`(T1) | 铁线缆六向细管放置态 | [x] 已生成并接线 | 独立 32x32 彩色 PNG + multipart 中心/端口模型 |
 | BLOCK / MODEL | `aluminum_energy_cable`(T2) | 铝线缆六向细管放置态 | [x] 已生成并接线 | 已注册, 独立 32x32 彩色 PNG + multipart 中心/端口模型 |
 | BLOCK / MODEL | `copper_energy_cable`(T3) | 铜线缆六向细管放置态 | [x] 已生成并接线 | 独立 32x32 彩色 PNG + multipart 中心/端口模型, 不依赖 block tint |
-| ITEM | item/rubber_tapping_knife.png | 割胶刀 | [x] 已生成 | 文件存在; 独立物品注册与配方仍需代码侧对账 |
-| ITEM | item/latex.png | 生胶乳 | [x] 已生成 | 文件存在; 不代表物品已注册 |
+| ITEM | item/rubber_tapping_knife.png | 割胶刀 | [x] 已生成 | 文件存在; 物品已在 `PowerRubberRegistry` 注册(耐久 128)并有合成配方(`PowerRubberRecipeProvider.tappingKnife` -> `rubber_tapping_knife.json`) |
+| ITEM | item/latex.png | 生胶乳 | [x] 已生成 | 文件存在; 物品已在 `PowerRubberRegistry` 注册, 并有熔炼为橡胶的配方(`rubber_from_latex_smelting.json`) |
 | ITEM | item/rubber.png | 天然橡胶 | [x] 已生成 | P1 基础绝缘原料 |
 | ITEM | item/insulation_pvc.png | PVC 绝缘料(70°C 档) | [x] 已生成 | P1 基础绝缘档 |
 | ITEM | item/insulation_pe.png | PE 绝缘料(80°C 档) | [x] 已生成 | P1 基础绝缘档 |
@@ -93,13 +93,13 @@ P1 的目标范围固定为 T1 铁、T2 铝、T3 铜, 并把橡胶、PVC、PE �
 
 | 资源族 | 实际矿物 / 建议 id | 分期 | 数据驱动资产 | 状态 |
 |---|---|---|---|---|
-| 铝土 | `bauxite_ore` -> `raw_aluminum` -> `aluminum_ingot` -> T2 铝导线 | P1 | 原矿/锭独立 PNG; T2 导线 `aluminum_wire.png` | 原矿/锭 [x] · 导线图标 [x] · 矿石方块 [x] · worldgen [x](easy/medium/hard) |
-| 硼砂 | `borax_ore` -> `borax` | P2 前置 | 矿物独立 PNG; 不生成导体线材贴图 | 矿物图标 [x] · 矿石方块 [x] · worldgen [x](medium/hard) |
-| 银 | `silver_ore` -> `raw_silver` -> `silver_ingot` -> T7/T9 导线 | P2 | 原矿/锭独立 PNG; T7/T9 导线各自独立 PNG | 原矿/锭 [x] · 导线图标 [x] · 矿石方块 [x] · worldgen [x](medium/hard) |
-| 锡 | `tin_ore` -> `raw_tin` -> `tin_ingot` -> T4 导线 | P2 | 原矿/锭独立 PNG; T4 导线 `tinned_copper_wire.png` | 原矿/锭 [x] · 导线图标 [x] · 矿石方块 [x] · worldgen [x](medium/hard) |
-| 镍 | `nickel_ore` -> `raw_nickel` -> `nickel_ingot` -> 镍铬保险丝 | P3 | 原矿/锭独立 PNG | 原矿/锭 [x] · 矿石方块 [x] · worldgen [x](hard) · 保险丝图标 [x] |
-| 铬 | `chromium_ore` -> `raw_chromium` -> `chromium_ingot` -> 镍铬保险丝 | P3 | 原矿/锭独立 PNG | 原矿/锭 [x] · 矿石方块 [x] · worldgen [x](hard) · 保险丝图标 [x] |
-| 钨 | `tungsten_ore` -> `raw_tungsten` -> `tungsten_ingot` -> 耐热线 | P3 | 原矿/锭独立 PNG; 耐热线独立图标 | 原矿/锭 [x] · 耐热线图标 [x] · 矿石方块 [x] · worldgen [x](hard) |
+| 铝土 | `bauxite_ore` -> `raw_aluminum` -> `aluminum_ingot` -> T2 铝导线 | P1 | 原矿/锭独立 PNG; T2 导线 `aluminum_wire.png` | 原矿/锭 [x] · 导线图标 [x] · 矿石方块 [x] · worldgen [x] (easy/medium/hard) |
+| 硼砂 | `borax_ore` -> `borax` | P2 前置 | 矿物独立 PNG; 不生成导体线材贴图 | 矿物图标 [x] · 矿石方块 [x] · worldgen [x] (medium/hard) |
+| 银 | `silver_ore` -> `raw_silver` -> `silver_ingot` -> T7/T9 导线 | P2 | 原矿/锭独立 PNG; T7/T9 导线各自独立 PNG | 原矿/锭 [x] · 导线图标 [x] · 矿石方块 [x] · worldgen [x] (medium/hard) |
+| 锡 | `tin_ore` -> `raw_tin` -> `tin_ingot` -> T4 导线 | P2 | 原矿/锭独立 PNG; T4 导线 `tinned_copper_wire.png` | 原矿/锭 [x] · 导线图标 [x] · 矿石方块 [x] · worldgen [x] (medium/hard) |
+| 镍 | `nickel_ore` -> `raw_nickel` -> `nickel_ingot` -> 镍铬保险丝 | P3 | 原矿/锭独立 PNG | 原矿/锭 [x] · 矿石方块 [x] · worldgen [x] (hard) · 保险丝图标 [x] |
+| 铬 | `chromium_ore` -> `raw_chromium` -> `chromium_ingot` -> 镍铬保险丝 | P3 | 原矿/锭独立 PNG | 原矿/锭 [x] · 矿石方块 [x] · worldgen [x] (hard) · 保险丝图标 [x] |
+| 钨 | `tungsten_ore` -> `raw_tungsten` -> `tungsten_ingot` -> 耐热线 | P3 | 原矿/锭独立 PNG; 耐热线独立图标 | 原矿/锭 [x] · 耐热线图标 [x] · 矿石方块 [x] · worldgen [x] (hard) |
 
 共享基底文件登记:
 
@@ -166,21 +166,23 @@ P2 前置补充说明:
 
 P2 补充说明: PVC/PE 基础档已前移 P1; EPR/XLPE/硅橡胶为 P2 额外合成步产物(设计文档第七章), 图标观感建议按"天然褐 -> 合成灰 -> 高端红棕"梯度区分耐温档。锡矿与银矿由本清单第三节的灰度矿脉覆盖层与数据 tint 方案覆盖。本轮不增加铅矿或铅护套。
 
-### 跨分期缺失的独立组件资产
+### 独立组件资产(燃料芯 / 液氮罐 / 低温控制器)
 
-以下独立组件不能以本轮完成的 13 张摆放态线缆、其他机器或锭图标代替。燃料芯属于发电机的独立输入物; 低温控制器是 NbTi 超导线缆的独立机器方块, 同时登记四张方块面贴图与物品图标。
+以下独立组件不能以本轮完成的 13 张摆放态线缆、其他机器或锭图标代替。燃料芯属于发电机的独立输入物; 低温控制器是 NbTi 超导线缆的独立机器方块, 同时登记四张方块面贴图与物品图标。九项文件均已存在, 并已完成注册与模型接线: 三档燃料芯由 `PowerRegistry` 注册为 `GeneratorFuelCoreItem`, 液氮罐由空分装置液氮工序产出, 低温控制器方块/物品/方块实体/菜单齐备; 物品图标经 `PowerGeneratorItemModelProvider` / `PowerMachineItemModelProvider` / `PowerEndgameItemModelProvider` 绑定 `item/generated` 同名 layer0, 四张控制器方块面贴图由 `PowerEndgameBlockStateProvider` 的 `orientable` 待机/工作模型采样。
 
 | 资源类型 | 建议路径 / 文件名 | 用途 | 分期 | 状态 |
 |---|---|---|---|---|
-| ITEM | item/industrial_fuel_core.png | 工业发电机燃料芯 | P1 | [ ] 未生成 |
-| ITEM | item/modern_fuel_core.png | 现代发电机燃料芯 | P2 | [ ] 未生成 |
-| ITEM | item/future_fuel_core.png | 未来发电机燃料芯 | P3 | [ ] 未生成 |
-| ITEM | item/liquid_nitrogen_canister.png | 低温控制器每 24,000 tick 消耗的液氮罐 | P3 | [ ] 未生成 |
-| BLOCK | block/low_temperature_controller_top.png | NbTi 低温控制器顶面 | P3 | [ ] 未生成 |
-| BLOCK | block/low_temperature_controller_side.png | NbTi 低温控制器侧面 | P3 | [ ] 未生成 |
-| BLOCK | block/low_temperature_controller_front.png | NbTi 低温控制器待机正面 | P3 | [ ] 未生成 |
-| BLOCK | block/low_temperature_controller_front_on.png | NbTi 低温控制器工作正面 | P3 | [ ] 未生成 |
-| ITEM | item/low_temperature_controller.png | NbTi 低温控制器物品图标 | P3 | [ ] 未生成 |
+| ITEM | item/industrial_fuel_core.png | 工业发电机燃料芯 | P1 | [x] 已生成 |
+| ITEM | item/modern_fuel_core.png | 现代发电机燃料芯 | P2 | [x] 已生成 |
+| ITEM | item/future_fuel_core.png | 未来发电机燃料芯 | P3 | [x] 已生成 |
+| ITEM | item/liquid_nitrogen_canister.png | 低温控制器每 24,000 tick 消耗的液氮罐 | P3 | [x] 已生成 |
+| BLOCK | block/low_temperature_controller_top.png | NbTi 低温控制器顶面 | P3 | [x] 已生成 |
+| BLOCK | block/low_temperature_controller_side.png | NbTi 低温控制器侧面 | P3 | [x] 已生成 |
+| BLOCK | block/low_temperature_controller_front.png | NbTi 低温控制器待机正面 | P3 | [x] 已生成 |
+| BLOCK | block/low_temperature_controller_front_on.png | NbTi 低温控制器工作正面 | P3 | [x] 已生成 |
+| ITEM | item/low_temperature_controller.png | NbTi 低温控制器物品图标 | P3 | [x] 已生成 |
+
+这九张 PNG 目前没有像素级自动验收: `PowerUiContractGameTests` 只覆盖 `low_temperature_controller.png` 这张界面底图, 不校验上表任何一张方块/物品贴图的尺寸与引用。
 
 ### P3 — 石墨烯 + 超导终局(T10-T12) + 镍铬保险丝 + 钨耐热线
 

@@ -16,6 +16,7 @@
 - 农夫小麦动态收购、每日累计和信用点发放。
 - Farmer's Delight 作物种植、成熟收获和番茄右键采摘软联动。
 - `/farmer crops` 与 `/farmer sell <amount>` 命令。
+- `/farmer admin legacy <target>` 与 `/farmer admin recount <target>`（`requires(hasPermission(OP_LEVEL))`）：F025 归属迁移的对账与清零入口，读写 `FarmerSavedData#legacyOverflow` / `#clearLegacyOverflow`，是运营侧的补救通道。
 - `job.farmer.state` 与 `job.farmer.sell` 两条 WebUI action（注册进 `WebUiServerDispatcher`）。
 
 本模块不负责：

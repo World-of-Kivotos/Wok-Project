@@ -82,7 +82,9 @@ interface IEconomyService {            // 注入 MiningServices, 职业子系统
 
 ## 四、统一经验与每日衰减框架 (DECIDED)
 
-总 61,900 曲线 + 每日有效经验软上限衰减表(0-2000 ×1.0 / 2000-2800 ×0.4 / 2800-3400 ×0.2 / 3400-3800 ×0.08 / 3800+ ×0.02)是**唯一数据源**(现被工程师/塔罗/厨师/矿工逐字复制 4-5 份 → spec 漂移温床)。已实现为共享的 `job/JobXpCurve.java`(曲线表 + 衰减分段 + `DAILY_SOFTCAP` 单一权威)配合 `JobProgress.grantXp`,各职业 spec 经验章改为引用本表。
+总 61,900 曲线 + 每日有效经验软上限衰减表(0-2000 ×1.0 / 2000-2800 ×0.4 / 2800-3400 ×0.2 / 3400-3800 ×0.08 / 3800+ ×0.02)是**默认数据源**(此前被工程师/塔罗/厨师/矿工逐字复制 4-5 份 → spec 漂移温床)。已实现为共享的 `job/JobXpCurve.java`(曲线表 + 衰减分段 + `DAILY_SOFTCAP`)配合 `JobProgress.grantXp`,各职业 spec 经验章改为引用本表。
+
+**但它不是唯一数据源**: 职业可经 `JobXpPolicies.register(JobId, 策略)` 登记独立 XP 策略覆盖本表, `JobXpPolicies.policy()` 只对未登记的职业落回本表。农夫已如此 —— `FarmerModule` 注册了 `FarmerXpCurve.POLICY`, 故**农夫实际生效的是 `FarmingXP_Mod_DesignSpec` 第五节表 C 的 1500 系衰减表, 不是这里的 2000 系**。新增职业若要自定曲线, 走 `JobXpPolicies.register` 并在自己的 spec 里写明, 不要改本表。
 
 - **翻日口径统一为 UTC**(`AbuseGuard.currentPlayerDayStamp` 已是 UTC;废弃 `gameTime/24000` 口径)。信用点每日 faucet 上限与职业经验软上限**共用同一 UTC 翻日时钟**。
 - **跨职业日预算(DECIDED = per-job 独立衰减,已落地)**: 每职业各持一份 `dailyXp`/`dayStamp` 游标(`JobData` 的 `EnumMap<JobId,JobProgress>` 每个 key 一份 `JobProgress` 实例),`JobXpCurve` 的分段折算只吃该职业当日的有效经验标量、不聚合其它职业,**不存在任何全职业总额约束**。理由:挖矿/做菜/打牌/种田**竞争同一份真实在线时间**(一次只能干一件),per-job 天然被真实时间封顶,无需再设全局上限;且各职业有独立反通胀闸。若运营发现总产出过高,再追加一个"全职业总有效经验/日"的硬顶——那是存档结构改动,须单独评估成本,不能当调参处理。
@@ -153,7 +155,7 @@ interface IEconomyService {            // 注入 MiningServices, 职业子系统
 | 文档 | 要补 | 严重度 |
 | --- | --- | --- |
 | 服务器经济系统设计文档 | "货币 capability 数据模型 + 扣费 API"专章(余额字段/序列化/Clone/每日限购计数器/`tryCharge`实现,落地本文档第三章接口);方案 B"产出物计数口径 + 非高价矿是否纳入 cap";全服**玩家间转移通道清单 + 反 RMT 一致性**(跳蚤/结婚共享背包/未来交易,统一定哪些落审计、哪些禁高价值物);全职业 faucet/sink 登记表 | Critical/Major |
-| FarmingXP_Mod_DesignSpec | 顶部加 **superseded 注记**:持久化/ModLoader/版本/经济以本框架文档为准(覆盖其第十一章 PENDING),capability 并入 `EnumMap`(作废其独立 capability 方案),衰减表对齐统一 2000 系 | Major(本轮已加注记) |
+| FarmingXP_Mod_DesignSpec | 顶部加 **superseded 注记**:持久化/ModLoader/版本/经济以本框架文档为准(覆盖其第十一章 PENDING),capability 并入 `EnumMap`(作废其独立 capability 方案)。**衰减表不并入**: 农夫经 `JobXpPolicies.register` 登记了独立策略 `FarmerXpCurve.POLICY`,其表 C(1500 系)才是农夫的真源,本文档的 2000 系只是未登记独立策略者的默认值 | Major(本轮已加注记) |
 | MiningDimension_Mod_DesignSpec | 登记矿工要求的**本体改动**:`Danger.evaluate` 加 job 系数入参(第十章)、`EntryGateway.gateCheck` 难度门控源改矿工等级(14.4)、`TrapSystem` 陷阱伤打专属 DamageSource、经济计数口径改"产出物"、persistence 死包**已删除**(12.5;该包现仅剩现役的 `MiningSavedData`,勿再按"删整包"执行,见本文档 2.3);消除"双权威" | Critical/Major |
 | Chef_Job_Mod_DesignSpec | 第八/九章补一张 **FID 34 个状态效果逐个"战斗向/可增香"判定表**(从仓库根 `flavor_immersed_daily-1.1.0.3-forge-1.20.1.jar` 核 effect id 全集),给"增香黑名单"据可依 | Major |
 | Miner_Job_DesignSpec | 按真实 `Danger.evaluate` 签名/pressure 包结构校正 hook 描述;与上面 MiningDimension 本体改动交叉引用 | Minor |

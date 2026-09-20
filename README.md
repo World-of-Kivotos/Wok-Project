@@ -86,7 +86,7 @@ WOK 服务器的综合玩法 MOD，运行于 Minecraft 1.20.1 + MinecraftForge 4
 | 5 | `chunk.ChunkSystem` | 玩家为心的滑动 ticket 窗口、空置 TTL 释放 | —（组内门面 `ChunkServices`） |
 | 6 | `reset.ResetSystem` | 单实例 region 级重置（分帧状态机）/撤离 | `IResetService` |
 | 7 | `spawn.SpawnSystem` | 安全出生点池/谓词/兜底平台 | `ISpawnService` |
-| 8 | `ore.OreSystem` | 离线铺矿 + 查表（静态 `get()`） | —（无 core 门面） |
+| 8 | `ore.OreSystem` | 仍在 `MiningDim` 装配，但其核心用途（供已下线的 `MiningChunkGenerator` 查铺矿表）已随 F021/F032 消失；现行矿石铺放走 worldgen 的 `placed_feature`，`OreScanService` 也已改扫真实世界而不再读它的体素表。类注释尚未改口 | —（无 core 门面） |
 | 9 | `trap.TrapSystem` | 静态陷阱布点查表 + 动态陷阱 tick 引擎 | —（无 core 门面） |
 | 10 | `pressure.PressureSystem` | 动态压力评估/身后刷怪/HUD danger 下发 | —（经 `IMiningNetwork` 推 HUD） |
 | 11 | `economy.EconomySystem` | 反滥用闸门（重置冷却/矿物软上限/AFK/死亡惩罚） | —（事件型） |

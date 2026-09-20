@@ -230,7 +230,7 @@ const TONE_TEXT_CLASS: Record<PixelFrameTone, string> = {
 ### 5.3 不引入 `cn()` / `clsx` 一类 helper
 
 理由同上：`eslint-plugin-tailwindcss` 只扫 `className` 属性和它认识的少数 callees，
-`scripts/verify-pixel-guards.mjs` 的正则同样只匹配 `className=`。套一层自绘 helper 会让
+`scripts/verify-pixel-guards.mjs`（该守卫已随 2026-08-13 换皮删除，见本归档区 README；下文提到它时一律指重启像素风后需要恢复的那个脚本）的正则同样只匹配 `className=`。套一层自绘 helper 会让
 `no-custom-classname` 与 `no-arbitrary-value` 对整个组件库静默失效。
 
 条件类名写成模板字符串里的三元，两个分支都是完整字面量：
@@ -419,10 +419,10 @@ MCEF 内嵌浏览器里鼠标定位可能不精准（DPI 与 GUI Scale 叠加，
 | `package.json` | 并行批次会冲突；且矢量图标库与非点阵字体包已被守卫封死，本来也加不进来 |
 | `src/router.ts` / `src/App.tsx` | 路由表由 hub 统一维护 |
 | `src/mock/` | 由 mock 批次统一维护 |
-| `PixelFrame.tsx` / `PixelIcon.tsx` | L0 原语是全部控件的地基；且 `verify-pixel-guards.mjs` 用正则读 `PIXEL_FRAME_ASSETS`，改写法会让守卫直接判失败 |
+| `PixelFrame.tsx` / `PixelIcon.tsx` | L0 原语是全部控件的地基；且 `verify-pixel-guards.mjs`（已删，恢复后同理）用正则读 `PIXEL_FRAME_ASSETS`，改写法会让守卫直接判失败 |
 
 六条硬红线的工程保证（Tailwind theme 覆盖、`corePlugins` 关停、stylelint 规则、
-`scripts/verify-pixel-guards.mjs`）一律不许绕过。**严禁**用 `eslint-disable` / `stylelint-disable`
+`scripts/verify-pixel-guards.mjs`，已删待恢复）一律不许绕过。**严禁**用 `eslint-disable` / `stylelint-disable`
 去关这些规则——`index.css` 里那三处 `stylelint-disable` 是登记在案的例外，例外的总数是可数的，
 新增一处就是破线。
 
@@ -440,7 +440,7 @@ MCEF 内嵌浏览器里鼠标定位可能不精准（DPI 与 GUI Scale 叠加，
 ```
 pnpm exec tsc --noEmit
 pnpm exec eslint .
-node scripts/verify-pixel-guards.mjs
+node scripts/verify-pixel-guards.mjs     # 该脚本已随换皮删除, 重启像素风时需先从 git 历史取回
 pnpm exec stylelint "src/**/*.css"     # 仅当改了 CSS
 ```
 

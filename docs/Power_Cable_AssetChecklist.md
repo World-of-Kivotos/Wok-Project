@@ -62,7 +62,7 @@ python tools\build_power_cable_wire_textures.py
 - 只修改 13 张摆放态纹理的调色或纹样时运行首条命令; 只修改 12 张导线中间物图标时运行第二条; 修改模型几何或 UV 时还必须运行 `runData`, 以更新 `src/generated/resources/assets/miningdim/models/block/`。
 - 导线图标的色值不单独维护: `build_power_cable_wire_textures.py` 从 `build_power_cable_block_textures.py` 的 `STYLES[<id>_energy_cable].conductor_*` 三停插值出五级色阶, 所以"导线中间物"与"它合成出的线缆"共用同一份材料色真源, 改线缆导体色会连带改导线图标。
 - `PowerCableAssetGameTests.everyRegisteredCableUsesNonOverlappingModelsAndValidTextures` 遍历 12 档 `ConductorMaterial` 和钨耐热线, 验证 13 个注册、每个 blockstate 的 1 个中心部件加 6 个方向端口、旋转、几何、UV、贴图绑定、32x32 BLOCK 尺寸及模型采样实体带完全不透明。
-- 同一测试还验证每个 ITEM 模型绑定同名扁平图标; 12 张导线 PNG 必须保持 16x16、只含 0/255 Alpha、透明区 RGB 清零、可见像素数落在 48-72, 且逐档断言两件事: 均值色与该材料的线缆导体色相差不超过 25 度色相, 12 档可见像素两两不相同。后两条是为了守住"每档各自着色"这个交付契约本身 —— 只查 Alpha 的断言对 12 张同图或整批错色完全无感。
+- 同一测试还验证每个 ITEM 模型绑定同名扁平图标; 12 张导线 PNG 必须保持 16x16、只含 0/255 Alpha、透明区 RGB 清零、可见像素数落在 48-72, 且逐档断言两件事: 线卷正好五级明暗色阶、按亮度排序后第 0/2/4 级逐字等于该材料线缆导体色的暗/中/亮三停 (三停表逐字转抄自 build_power_cable_block_textures.STYLES), 12 档可见像素两两不相同。后两条是为了守住"每档各自着色"这个交付契约本身 —— 只查 Alpha 的断言对 12 张同图或整批错色完全无感; 只比均值色的色相同样不够, 十二档里六档是灰/银/冷蓝系, 132 种两两互换里有 62 种色相差不到 25 度, 比三停才能把这 132 种全挡住。
 - 自动测试守住尺寸、引用、采样区不透明性与材料配色; nearest-neighbor 放大观感仍由确定性生成脚本和像素级目检共同守住。
 
 ---

@@ -9,6 +9,7 @@ import com.miningdim.job.fisher.ore.OreFishType;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.player.Player;
@@ -48,12 +49,31 @@ public final class OreSoupEffects {
                 syncClientState(player, activeInMining(player) ? activeType(player) : null);
             }
         });
+        forgeBus.addListener((PlayerEvent.Clone event) ->
+                carryAcrossRespawn(event.getOriginal(), event.getEntity(), event.isWasDeath()));
         forgeBus.addListener((PlayerEvent.PlayerLoggedOutEvent event) -> {
             if (event.getEntity() instanceof ServerPlayer player) {
                 // 离线时药水时长暂停而世界时钟继续，先撤掉汤夜视，重登后按剩余汤时间授予。
                 removeOwnedNightVision(player, player.serverLevel().getGameTime());
             }
         });
+    }
+
+    /**
+     * 玩家实体被重建时搬运汤状态。
+     *
+     * 从末地主出口回主世界走的是 {@code PlayerList.respawn}: ServerPlayer 被整个重建, 而 Forge 的
+     * {@code restoreFrom} 只复制 {@code getPersistentData()} 里的 PlayerPersisted 子标签, 挂在根节点的汤状态
+     * 会被丢掉 —— 那不是死亡, 时长不该归零。死亡仍按设计清空 (wasDeath 时什么都不搬)。
+     */
+    public static void carryAcrossRespawn(Player original, Entity clone, boolean wasDeath) {
+        if (wasDeath || !(clone instanceof ServerPlayer player)) {
+            return;
+        }
+        CompoundTag previous = original.getPersistentData();
+        if (previous.contains(STATE_TAG, Tag.TAG_COMPOUND)) {
+            player.getPersistentData().put(STATE_TAG, previous.getCompound(STATE_TAG).copy());
+        }
     }
 
     public static void applyConsumedSoup(ServerPlayer player, OreFishType type, ItemStack consumedStack) {
@@ -162,8 +182,12 @@ public final class OreSoupEffects {
             syncClientState(player, null);
             return;
         }
+        // 状态刚变成"矿洞内有汤"的那一 tick 立刻补一次夜视: 只靠 80 tick 的错峰巡查, 传送进矿洞或重登之后
+        // 最多要黑 79 tick 才亮, 而玩家在矿洞里第一眼看到的就是漆黑。之后仍按错峰续期, 不增加常态开销。
+        boolean justBecameActive = ((OreSoupPlayerStateAccess) player).miningdim$getOreSoupState()
+                != type.ordinal() + 1;
         syncClientState(player, type);
-        if ((now + player.getId()) % 80 == 0) {
+        if (justBecameActive || (now + player.getId()) % 80 == 0) {
             refreshNightVision(player, now);
         }
     }

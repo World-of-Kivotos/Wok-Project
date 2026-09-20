@@ -745,7 +745,8 @@
         "META-INF/mods.toml",
         "META-INF/accesstransformer.cfg",
         "pack.mcmeta",
-        "miningdim.mixins.json"
+        "miningdim.mixins.json",
+        "miningdim.compat.mixins.json"
       ],
       "resourceNamePrefixes": [],
       "dependencies": [

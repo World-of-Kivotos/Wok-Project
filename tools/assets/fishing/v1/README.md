@@ -1,6 +1,12 @@
 # 矿石鱼与鱼羹图标首版
 
-生成模式：内置 image_gen。最终 PNG 位于 `src/main/resources/assets/miningdim/textures/item/fishing/`，均保留生成器的原始分辨率和真实 Alpha。没有使用参考图直接裁切或程序调色制作新鱼羹。
+生成模式：内置 image_gen。生成器出的原画保留在本目录 `source/`，不进 JAR；
+`src/main/resources/assets/miningdim/textures/item/fishing/` 下的最终 PNG 由 `tools/fishing/build_ore_fish_icons.py`
+从 `source/` 派生（按 Alpha 包围盒裁切 + 等比缩放到 256x256 居中）。没有使用参考图直接裁切或程序调色制作新鱼羹。
+
+原画分辨率（1536x1024 与 1254x1254）不能直接当物品贴图：前者不是帧尺寸的整数倍，原版 `SpriteLoader` 会拒绝拼图、
+该物品退化成缺失贴图；后者只能被 2 整除一次，会把整张方块/物品图集的 mipmap 从 4 级拉到 1 级。
+改美术时请改 `source/` 再重跑脚本，不要直接往资源目录塞原画。
 
 铁鱼、金鱼、绿宝石鱼采用已选 v1，钻石鱼采用真实透明的 v3；暗金鱼源样选用户确认的虹彩 v5，保存为 `dark_gold_selected_v5.png`。最终暗金鱼通过内置工具提取背景，保留暗金矿片与蓝紫、玫红、青绿虹彩。
 

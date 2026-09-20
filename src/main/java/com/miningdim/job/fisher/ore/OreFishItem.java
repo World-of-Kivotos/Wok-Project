@@ -24,6 +24,7 @@ public final class OreFishItem extends Item {
     public void appendHoverText(ItemStack stack, Level level, List<Component> lines, TooltipFlag flag) {
         lines.add(Component.translatable("tooltip.miningdim.ore_fish.habitat"));
         lines.add(Component.translatable("tooltip.miningdim.ore_fish.uses"));
+        lines.add(Component.translatable("tooltip.miningdim.ore_fish.collection"));
         if (type == OreFishType.DARK_GOLD) {
             lines.add(Component.translatable("tooltip.miningdim.ore_fish.highest"));
         }

@@ -35,23 +35,49 @@ import java.util.function.Function;
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
 public final class OreFishGameTests {
+
+    /**
+     * 首测权重与售价的期望值, 逐字转抄 {@code docs/Ore_Fish_And_Soup.md} 的两张表 (20%/8%/2%/1%/0.2%,
+     * 20/80/400/600/2000), 不从 {@link OreFishingConfig} 反取。
+     *
+     * 理由: 从被测配置反取期望值等于把实现复述一遍 —— 整张权重表或售价表被改错时断言会跟着一起改, 永远为绿。
+     * 数值是首测方案, 调平衡时应当同时改配置默认值与设计文档, 这张表跟着文档走, 改单边就会红。
+     */
+    private static final Map<OreFishType, Integer> DOCUMENTED_CATCH_WEIGHTS = Map.of(
+            OreFishType.IRON, 2000,
+            OreFishType.GOLD, 800,
+            OreFishType.DIAMOND, 200,
+            OreFishType.EMERALD, 100,
+            OreFishType.DARK_GOLD, 20);
+    private static final Map<OreFishType, Long> DOCUMENTED_SELL_PRICES = Map.of(
+            OreFishType.IRON, 20L,
+            OreFishType.GOLD, 80L,
+            OreFishType.DIAMOND, 400L,
+            OreFishType.EMERALD, 600L,
+            OreFishType.DARK_GOLD, 2000L);
+
     private OreFishGameTests() {
     }
 
     @GameTest(template = "empty", batch = "ore_fish")
     public static void weightedRollKeepsTheOriginalCatchRemainder(GameTestHelper helper) {
-        helper.assertTrue(OreFishCatchHandler.typeForRoll(0) == OreFishType.IRON,
-                "首个万分位必须命中铁矿鱼");
-        helper.assertTrue(OreFishCatchHandler.typeForRoll(OreFishingConfig.catchWeight(OreFishType.IRON)) == OreFishType.GOLD,
-                "铁矿鱼权重后的首个万分位必须命中金矿鱼");
-        int total = 0;
+        int cumulative = 0;
         for (OreFishType type : OreFishType.values()) {
-            total += OreFishingConfig.catchWeight(type);
+            int weight = DOCUMENTED_CATCH_WEIGHTS.get(type);
+            helper.assertTrue(OreFishingConfig.catchWeight(type) == weight,
+                    type.id() + " 的默认钓获权重是 " + OreFishingConfig.catchWeight(type)
+                            + ", 设计文档写的是 " + weight + "; 配置与文档必须同改");
+            helper.assertTrue(OreFishCatchHandler.typeForRoll(cumulative) == type,
+                    "第 " + cumulative + " 个万分位必须落在 " + type.id() + " 区间的首位");
+            helper.assertTrue(OreFishCatchHandler.typeForRoll(cumulative + weight - 1) == type,
+                    "第 " + (cumulative + weight - 1) + " 个万分位必须落在 " + type.id() + " 区间的末位");
+            cumulative += weight;
         }
-        if (total < 10_000) {
-            helper.assertTrue(OreFishCatchHandler.typeForRoll(total) == null,
-                    "未分配的万分位必须保留原渔获池");
-        }
+        helper.assertTrue(cumulative == 3120,
+                "五种矿石鱼的总权重必须是文档写的 3120/10000, 实得 " + cumulative);
+        helper.assertTrue(OreFishCatchHandler.typeForRoll(cumulative) == null
+                        && OreFishCatchHandler.typeForRoll(9_999) == null,
+                "未分配的万分位必须保留原渔获池");
         helper.succeed();
     }
 
@@ -125,10 +151,15 @@ public final class OreFishGameTests {
             player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, fish);
             long before = EconomyServices.economyService().creditBalance(player);
             OreFishSellService.SellResult sold = OreFishSellService.sellMainHand(player);
-            long expected = OreFishingConfig.sellPrice(OreFishType.GOLD) * 3L;
+            // 期望值取设计文档的售价表 (金矿鱼 80/条), 不取被测配置; 售价表改错时这一条必须红。
+            long expected = DOCUMENTED_SELL_PRICES.get(OreFishType.GOLD) * 3L;
+            helper.assertTrue(OreFishingConfig.sellPrice(OreFishType.GOLD)
+                            == DOCUMENTED_SELL_PRICES.get(OreFishType.GOLD),
+                    "金矿鱼默认收购价与设计文档不一致: 配置 " + OreFishingConfig.sellPrice(OreFishType.GOLD)
+                            + ", 文档 " + DOCUMENTED_SELL_PRICES.get(OreFishType.GOLD));
             helper.assertTrue(sold.soldCount() == 3 && sold.creditsGranted() == expected && fish.isEmpty()
                             && EconomyServices.economyService().creditBalance(player) == before + expected,
-                    "卖主手整组金矿鱼必须扣尽三条并按配置价入账");
+                    "卖主手整组金矿鱼必须扣尽三条并按文档售价入账");
 
             ItemStack soup = new ItemStack(OreFishingItems.SOUPS.get(OreFishType.GOLD).get(), 2);
             player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, soup);
@@ -141,9 +172,14 @@ public final class OreFishGameTests {
                     com.miningdim.economy.EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER);
             ItemStack iron = new ItemStack(OreFishingItems.FISH.get(OreFishType.IRON).get());
             player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, iron);
+            long beforeZero = EconomyServices.economyService().creditBalance(player);
             OreFishSellService.SellResult zero = OreFishSellService.sellMainHand(player);
-            helper.assertTrue(zero.soldCount() == 0 && zero.creditsGranted() == 0L && iron.getCount() == 1,
-                    "统一 faucet 深档实发归零时必须保留矿石鱼");
+            // 深档实发归零照样成交 (与卖菜"收购曲线到底仍算卖出"同口径): 鱼必须真离手, 余额一分不动。
+            // 若退回"保留鱼"的老行为, grantDaily 已经把毛收入记进当日 faucet 计数器, 计数器会记下一笔
+            // 从未发生的销售 —— 这一条断言正是拦那个回退的。
+            helper.assertTrue(zero.soldCount() == 1 && zero.creditsGranted() == 0L && iron.isEmpty()
+                            && EconomyServices.economyService().creditBalance(player) == beforeZero,
+                    "统一 faucet 深档实发归零时必须照常扣鱼且余额不变");
             helper.succeed();
         } finally {
             restoreEconomy(previous);

@@ -76,11 +76,17 @@ minecraft {
     }
 }
 
-// Mixin: 目前只有 MoveSpeedCheckMixin (放宽创造飞行的原版移动校验)。refmap 供生产 SRG 环境解析目标,
-// dev run 由上面的 mixin.env.remapRefMap 反向映射回官方名。
+// Mixin: refmap 供生产 SRG 环境解析目标, dev run 由上面的 mixin.env.remapRefMap 反向映射回官方名。
+//
+// 两份配置不是分类洁癖, 是崩服与否的区别: 主配置 required=true, 里面任一 mixin 应用失败直接抛
+// MixinApplyError 崩启动; 可选 mod 的兼容 mixin 必须进 required=false 的配置 —— 那边应用失败只降级成
+// WARN 并停用该 mixin (Mixin 0.8.5 MixinProcessor.handleMixinError: isRequired() ? ERROR : WARN)。
+// TideOreFishMixin 按 Tide 1.6.5 的 retrieve 签名与私有字段写死, 玩家换个 Tide 版本就会对不上,
+// 放在主配置里等于让整个服务端陪葬。
 mixin {
     add sourceSets.main, "${mod_id}.refmap.json"
     config "${mod_id}.mixins.json"
+    config "${mod_id}.compat.mixins.json"
 }
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
@@ -194,7 +200,7 @@ tasks.named('jar', Jar).configure {
             'Implementation-Title'    : project.name,
             'Implementation-Version'  : project.jar.archiveVersion,
             'Implementation-Vendor'   : mod_authors,
-            'MixinConfigs'            : "${mod_id}.mixins.json",
+            'MixinConfigs'            : "${mod_id}.mixins.json,${mod_id}.compat.mixins.json",
         ])
     }
     finalizedBy 'reobfJar'

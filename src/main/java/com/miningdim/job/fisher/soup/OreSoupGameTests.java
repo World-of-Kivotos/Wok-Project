@@ -37,15 +37,54 @@ public final class OreSoupGameTests {
     public static void finishUsingReturnsBowlAndAmplifiesTimer(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
         OreFishSoupItem soup = (OreFishSoupItem) OreFishingItems.SOUPS.get(OreFishType.IRON).get();
-        ItemStack stack = new ItemStack(soup);
-        ChefQualityNbt.stamp(stack, ChefQuality.RADIANT,
-                List.of(new ChefEffectInstance(ChefEffectType.AMPLIFY, 500)));
-        long before = player.serverLevel().getGameTime();
-        ItemStack result = soup.finishUsingItem(stack, player.level(), player);
+
+        // 封顶之下: 增香 x2 把 300 秒拉到 600 秒。原先只测了恰好等于上限的一档, 期望值与上限同值,
+        // 删掉 durationTicks 里的 Math.min 照样绿 —— 必须一档在封顶之下、一档超过封顶才拦得住。
+        ItemStack amplified = new ItemStack(soup);
+        ChefQualityNbt.stamp(amplified, ChefQuality.RADIANT,
+                List.of(new ChefEffectInstance(ChefEffectType.AMPLIFY, 200)));
+        long beforeAmplified = player.serverLevel().getGameTime();
+        ItemStack result = soup.finishUsingItem(amplified, player.level(), player);
         helper.assertTrue(result.is(Items.BOWL) && OreSoupEffects.activeType(player) == OreFishType.IRON,
                 "真实食用必须返还碗并写入铁羹状态");
-        helper.assertTrue(player.getPersistentData().getCompound(STATE).getLong(EXPIRES_AT) - before == 30_000L,
-                "增香 x5 必须把 300 秒羹时长封顶为 1500 秒");
+        helper.assertTrue(player.getPersistentData().getCompound(STATE).getLong(EXPIRES_AT) - beforeAmplified
+                        == 12_000L,
+                "增香 x2 必须把 300 秒羹时长拉长到 600 秒");
+
+        // 封顶之上: 增香 x9 算出来是 2700 秒, 必须被削到 1500 秒。
+        ItemStack overCap = new ItemStack(soup);
+        ChefQualityNbt.stamp(overCap, ChefQuality.RADIANT,
+                List.of(new ChefEffectInstance(ChefEffectType.AMPLIFY, 900)));
+        long beforeOverCap = player.serverLevel().getGameTime();
+        soup.finishUsingItem(overCap, player.level(), player);
+        helper.assertTrue(player.getPersistentData().getCompound(STATE).getLong(EXPIRES_AT) - beforeOverCap
+                        == 30_000L,
+                "增香 x9 算出的 2700 秒必须被封顶到 1500 秒");
+        helper.succeed();
+    }
+
+    /**
+     * 铁羹的耐饥分支单独覆盖。暗金羹那条用例走的是同一个 {@code type == IRON || type == DARK_GOLD} 判断,
+     * 只删掉 IRON 那一半时暗金用例照样绿, 铁羹的唯一效果就没人守。
+     */
+    @GameTest(template = "empty", batch = "ore_fish_soup")
+    public static void ironSoupReducesExhaustionButNotMiningSpeed(GameTestHelper helper) {
+        ServerPlayer player = miningPlayer(helper);
+        ServerPlayer control = miningPlayer(helper);
+        OreSoupEffects.applyConsumedSoup(player, OreFishType.IRON, new ItemStack(Items.BOWL));
+        for (ServerPlayer each : List.of(player, control)) {
+            each.getFoodData().setFoodLevel(20);
+            each.getFoodData().setSaturation(0.0F);
+            each.getFoodData().setExhaustion(0.0F);
+        }
+        player.causeFoodExhaustion(4.0F);
+        control.causeFoodExhaustion(4.0F);
+        helper.assertTrue(Math.abs(player.getFoodData().getExhaustionLevel() - 3.0F) < 0.001F
+                        && Math.abs(control.getFoodData().getExhaustionLevel() - 4.0F) < 0.001F,
+                "铁羹在矿洞内必须通过真实 causeFoodExhaustion 缩减 25% 疲劳, 实得 "
+                        + player.getFoodData().getExhaustionLevel());
+        helper.assertTrue(OreSoupEffects.miningSpeedBonusPercent(player) == 0,
+                "铁羹只管耐饥, 不得附带挖速加成");
         helper.succeed();
     }
 
@@ -136,6 +175,31 @@ public final class OreSoupGameTests {
         }
         helper.assertTrue(pickaxe.getDamageValue() > 0 && pickaxe.getDamageValue() < controlPickaxe.getDamageValue(),
                 "同 seed 的 Unbreaking III 工具经真实 ItemStack.mineBlock 后，翠羹必须少于无羹对照的磨损");
+        helper.succeed();
+    }
+
+    /**
+     * 死亡与"末地回主世界"都会重建 ServerPlayer 并走 PlayerEvent.Clone, 但只有前者该清汤。
+     * Forge 的 restoreFrom 只搬 PlayerPersisted 子标签, 汤状态挂在根节点上, 不自己接 Clone 就会两种情况一起丢。
+     */
+    @GameTest(template = "empty", batch = "ore_fish_soup")
+    public static void nonDeathCloneKeepsSoupWhileDeathClearsIt(GameTestHelper helper) {
+        ServerPlayer original = miningPlayer(helper);
+        OreSoupEffects.applyConsumedSoup(original, OreFishType.DIAMOND, new ItemStack(Items.BOWL));
+        long expiresAt = original.getPersistentData().getCompound(STATE).getLong(EXPIRES_AT);
+
+        // 直接调 PlayerEvent.Clone 的处理方法, 不往全局总线发事件: 职业框架等子系统也监听 Clone,
+        // 拿 mock 玩家去走它们的 capability 读写会直接崩掉服务端 tick 循环。
+        ServerPlayer returned = miningPlayer(helper);
+        OreSoupEffects.carryAcrossRespawn(original, returned, false);
+        helper.assertTrue(OreSoupEffects.activeType(returned) == OreFishType.DIAMOND
+                        && returned.getPersistentData().getCompound(STATE).getLong(EXPIRES_AT) == expiresAt,
+                "非死亡重建(末地出口回主世界)必须原样带走汤状态与到期时刻, 倒计时不得重置");
+
+        ServerPlayer respawned = miningPlayer(helper);
+        OreSoupEffects.carryAcrossRespawn(original, respawned, true);
+        helper.assertTrue(OreSoupEffects.activeType(respawned) == null,
+                "死亡重生必须清除汤状态");
         helper.succeed();
     }
 

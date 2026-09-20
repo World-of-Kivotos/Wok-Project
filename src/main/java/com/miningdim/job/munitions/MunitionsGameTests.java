@@ -105,8 +105,10 @@ public final class MunitionsGameTests {
         helper.assertTrue(wideMain.getRenderShape() == RenderShape.ENTITYBLOCK_ANIMATED,
                 "wide main block is rendered by GeckoLib");
         helper.assertTrue(wideExtension.getRenderShape() == RenderShape.ENTITYBLOCK_ANIMATED,
-                "wide extension must not be INVISIBLE: vanilla ParticleEngine skips crack and destroy "
-                        + "particles for invisible blocks, and the extension has no block entity anyway");
+                "wide extension must not be INVISIBLE: vanilla ParticleEngine.crack returns immediately "
+                        + "for RenderShape.INVISIBLE, so mining the extension would show no breaking "
+                        + "progress particles at all (destroy does not look at RenderShape), and the "
+                        + "extension has no block entity anyway");
 
         // 期望值取自 geo 模型这个独立真相源, 而不是照抄实现里的常数 —— 后者只是把实现复述一遍。
         double[] geoBounds = MunitionsBenchAssets.geometryBoundsPixels("munitions_bench");
@@ -314,6 +316,50 @@ public final class MunitionsGameTests {
         helper.assertTrue(resumed > held && resumed - held < 360.0F,
                 "resuming must continue from the held angle instead of jumping to an arbitrary phase");
         helper.succeed();
+    }
+
+    /**
+     * 直接驱动渲染器每帧真正调用的 {@code carouselAngleDegrees(float)}。
+     *
+     * 上面那条用例走的是 {@code advanceCarouselAngle(float)}, 也就是"给多少 tick 转多少度"这一半;
+     * 本次修复动的其实是另一半 —— 从上次取样到这一帧到底过了多少 tick。原写法把
+     * {@code gameTime + partialTick} 整个塞进一个 float, 世界跑过 2^24 tick 后相邻整数就表示不下,
+     * 平滑旋转会退化成成块跳变。改成整 tick 走 long 相减、小数部分单独作差之后, 必须有一条用例
+     * 真的跨一个 tick 且让 partialTick 回绕(0.5 -> 0.1), 否则把小数项删掉全套测试照样绿。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void carouselSamplingCountsPartialTicksAcrossTickBoundaries(GameTestHelper helper) {
+        ServerPlayer owner = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        MunitionsBenchBlockEntity bench = newBench(helper, owner);
+        BlockPos absolute = bench.getBlockPos();
+        helper.getLevel().setBlock(absolute, bench.getBlockState()
+                .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE)
+                .setValue(MunitionsBenchBlock.ACTIVE, true), Block.UPDATE_CLIENTS);
+
+        float first = bench.carouselAngleDegrees(0.0F);
+        helper.assertTrue(Math.abs(first) < 1.0E-3F,
+                "首帧取样只锚定时刻不推进角度, 实得 " + first);
+        helper.assertTrue(Math.abs(bench.carouselAngleDegrees(0.0F)) < 1.0E-3F,
+                "同一帧同 partialTick 再取一次不得重复推进");
+
+        // 同一 tick 内 partialTick 0.0 -> 0.5: 只该推进半个 tick。
+        float halfTick = bench.carouselAngleDegrees(0.5F);
+        helper.assertTrue(Math.abs(halfTick - 0.5F * MunitionsBenchBlockEntity.CAROUSEL_DEGREES_PER_TICK) < 1.0E-3F,
+                "同 tick 内推进必须按 partialTick 的增量算, 实得 " + halfTick);
+
+        helper.runAfterDelay(1L, () -> {
+            // 台子的服务端 tick 会按有没有活干重算 ACTIVE 并写回 blockstate, 空载一 tick 就被复位成 false,
+            // 而停机时 advanceCarouselAngle 按设计原地保持角度 —— 不重新置位就测不到本用例要测的 elapsed。
+            helper.getLevel().setBlock(absolute, helper.getLevel().getBlockState(absolute)
+                    .setValue(MunitionsBenchBlock.ACTIVE, true), Block.UPDATE_CLIENTS);
+            // 跨一个 tick 且 partialTick 从 0.5 回绕到 0.1: 真实经过 0.6 个 tick, 不是 1 个。
+            float wrapped = bench.carouselAngleDegrees(0.1F);
+            float expected = 1.1F * MunitionsBenchBlockEntity.CAROUSEL_DEGREES_PER_TICK;
+            helper.assertTrue(Math.abs(wrapped - expected) < 1.0E-3F,
+                    "跨 tick 且 partialTick 回绕时必须算 0.6 个 tick(累计 1.1), 实得 "
+                            + wrapped + ", 期望 " + expected);
+            helper.succeed();
+        });
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)

@@ -9,11 +9,21 @@ image_gen 出的原画是 1536x1024 / 1254x1254 这类任意尺寸, 直接当物
    ("Texture {} with size {}x{} limits mip level from {} to {}"), 1254 只被 2 整除一次, 4 级直接掉到 1 级,
    全服所有远景贴图跟着糊。
 
-所以图集里只放 256x256 的派生图 (与本仓塔罗牌、枪匠蓝图这些高精度物品图标同规格: 正方形、2 的幂、
-能被 2^4 整除故保住 4 级 mipmap), 原画留在 tools/assets/fishing/v1/source/ 不进 JAR。
+所以图集里只放 64x64 的派生图 (正方形、2 的幂、能被 2^4 整除故保住 4 级 mipmap), 原画留在
+tools/assets/fishing/v1/source/ 不进 JAR。
 
-派生规则: 按 alpha 包围盒裁掉四周空白 -> 等比缩放到长边 256 -> 居中贴到 256x256 全透明画布。
-等比缩放保证鱼不被拉扁; 先裁包围盒保证 16x16 渲染出来的主体尽可能占满格子。
+为什么是 64 而不是更高: 原版 GUI 缩放最大 4 档, 一个物品格恰好 64 真实像素, 64x64 已经是 1:1,
+再高只是白占图集。更要命的是 ItemModelGenerator 会按贴图的 Alpha 轮廓生成侧面几何 ——
+每个 (方向, 锚行/锚列) 组合一个 BlockElement, 单张上限 2 + 2 x 宽 + 2 x 高。实测同一条暗金鱼:
+1254x1254 原画 3474 个 element, 256x256 是 373, 64x64 只要 135 (本仓既有的塔罗牌/枪匠蓝图是
+规整矩形轮廓, 256x256 也只有 38-44 个, 不可类比)。物品栏里摆满一箱这种图标时多画的面是实打实的掉帧。
+
+ALPHA_FLOOR 存在的理由同上: LANCZOS 缩放会在鱼鳍边缘留一圈 alpha 只有个位数的碎屑, 肉眼看不见,
+但 SpriteContents.isTransparent 只把 alpha == 0 当透明, 这圈碎屑会被当成实体轮廓,
+把 element 数从 135 抬到 221。低于该阈值的像素一律清成全透明。
+
+派生规则: 按 alpha 包围盒裁掉四周空白 -> 等比缩放到长边 64 -> 居中贴到 64x64 全透明画布 -> 清理碎屑。
+等比缩放保证鱼不被拉扁; 先裁包围盒保证物品栏里主体尽可能占满格子。
 """
 
 from __future__ import annotations
@@ -25,7 +35,9 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_DIR = ROOT / "tools/assets/fishing/v1/source"
 OUTPUT_DIR = ROOT / "src/main/resources/assets/miningdim/textures/item/fishing"
-ICON_SIZE = 256
+ICON_SIZE = 64
+# 低于这个 Alpha 的像素视为缩放碎屑, 一律清零(理由见模块 docstring)。
+ALPHA_FLOOR = 8
 
 FISH_TYPES = ("iron", "gold", "diamond", "emerald", "dark_gold")
 
@@ -51,6 +63,11 @@ def build(source: Path) -> Image.Image:
     )
     canvas = Image.new("RGBA", (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
     canvas.paste(scaled, ((ICON_SIZE - scaled.width) // 2, (ICON_SIZE - scaled.height) // 2))
+    pixels = canvas.load()
+    for y in range(ICON_SIZE):
+        for x in range(ICON_SIZE):
+            if pixels[x, y][3] < ALPHA_FLOOR:
+                pixels[x, y] = (0, 0, 0, 0)
     return canvas
 
 

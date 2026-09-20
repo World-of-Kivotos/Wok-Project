@@ -50,10 +50,13 @@
 
 ## 资源与验证
 
-图标保存在 `assets/miningdim/textures/item/fishing/`，统一 256x256（与塔罗牌、枪匠蓝图同规格：正方形、2 的幂、
-保住 4 级 mipmap）；由 `tools/fishing/build_ore_fish_icons.py` 从 `tools/assets/fishing/v1/source/` 的原画派生，
-原画不进 JAR。选图和内置 image_gen 提示词记录见 `tools/assets/fishing/v1/README.md`。十张均核验真实透明背景。
-尺寸契约由 `FishingAssetGameTests` 按原版图集的两条硬规则守住，不是照抄 256 这个数。
+图标保存在 `assets/miningdim/textures/item/fishing/`，统一 64x64（正方形、2 的幂、保住 4 级 mipmap，
+且恰好等于 GUI 缩放 4 档下一个物品格的真实像素数）；由 `tools/fishing/build_ore_fish_icons.py`
+从 `tools/assets/fishing/v1/source/` 的原画派生，原画不进 JAR，十张合计 76 KB。
+选图和内置 image_gen 提示词记录见 `tools/assets/fishing/v1/README.md`。十张均核验真实透明背景。
+`FishingAssetGameTests` 立三条契约，判据全部取原版算法本身而非脚本参数：帧尺寸整除规则、mipmap 可整除次数、
+以及 `ItemModelGenerator` 沿 Alpha 轮廓烘出的 element 数上限（当前十张最大 135，十张合计 959，红线 200；
+本模块最初提交的原画分辨率下这一项是单张 3474、十张 17739）。
 
 当前环境无 Context7，第三方接口依据锁定 Minecraft 1.20.1 / Forge 47.3.0、Tide 1.6.5 和 Farmer's Delight 1.3.2 的本地映射 JAR、源码及字节码核验。不得将其它 Tide 版本视为已验证兼容。
 

@@ -46,6 +46,24 @@ public final class FishingAssetGameTests {
     private static final int REQUIRED_MIPMAP_LEVELS = 4;
     /** 本仓高精度物品图标的规格上限(塔罗牌与枪匠蓝图即为此值); 再大只是白占图集与 JAR。 */
     private static final int MAX_ICON_EDGE = 256;
+    /**
+     * 单张图标允许 {@code ItemModelGenerator} 烘出的 BlockElement 上限。
+     *
+     * {@code item/generated} 不是贴一张平面图: 原版沿贴图的 Alpha 轮廓扫四个方向, 每个
+     * (方向, 锚) 组合生成一个 element 的侧面几何 —— 上下方向按像素行取锚、左右方向按像素列取锚,
+     * 同一行/列上再碎的轮廓也只合成一个 span ({@code createOrExpandSpan} 只看 facing 与 anchor,
+     * 不要求连续)。所以单张上限是 {@code 2 + 2 x 宽 + 2 x 高}, 代价同时随"图多大"和"轮廓占了多少行列"涨。
+     *
+     * 实测同一条暗金鱼: 本模块最初提交的 1254x1254 原画是 3474 个 element, 256x256 是 373,
+     * 64x64 是 135; 若不清掉缩放留下的 Alpha 碎屑, 64x64 会涨到 221。十张最初合计 17739 个 element,
+     * 现在 959。物品栏里摆满一箱这种图标时多画的面是实打实的掉帧, 而服务端 GameTest 永远看不到。
+     *
+     * 200 这条红线的挑法: 当前十张最大 135, 64x64 的理论上限是 258, 取 200 既留得下美术微调的余量,
+     * 又刚好卡住两种最可能的回退 —— 去掉 Alpha 清理(221)或把尺寸退回 256x256(373)。
+     * 本仓既有的塔罗牌/枪匠蓝图虽然也是 256x256, 但轮廓是规整矩形, 只有 38-44 个 element,
+     * 不能拿来给不规则轮廓的图标背书。
+     */
+    private static final int MAX_GENERATED_ELEMENTS = 200;
 
     private FishingAssetGameTests() {
     }
@@ -82,6 +100,74 @@ public final class FishingAssetGameTests {
                     icon + " 整张没有一个全透明像素, 背景没抠干净");
         }
         helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void everyFishingIconStaysCheapForItemModelGeneration(GameTestHelper helper) {
+        for (String icon : iconNames()) {
+            BufferedImage image = loadImage("/assets/miningdim/textures/item/fishing/" + icon + ".png");
+            int elements = generatedElementCount(image);
+            helper.assertTrue(elements <= MAX_GENERATED_ELEMENTS,
+                    icon + " 的 Alpha 轮廓会让 ItemModelGenerator 烘出 " + elements + " 个 element, 超过红线 "
+                            + MAX_GENERATED_ELEMENTS + "; 降分辨率或清掉缩放留下的 Alpha 碎屑");
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 按原版 {@code ItemModelGenerator} 的规则数 element: 正反两面各一个, 再加每一个真正产生了轮廓的
+     * (方向, 锚) 组合一个。四个方向的邻居偏移取自原版 {@code SpanFacing}: UP(0,-1)、DOWN(0,+1)、
+     * LEFT(-1,0)、RIGHT(+1,0); 上下按像素行取锚、左右按像素列取锚, 与 {@code createOrExpandSpan}
+     * "同 facing 同 anchor 就合并, 不要求连续"的写法一致。判据取原版算法本身, 不取生成脚本里的任何参数。
+     *
+     * 透明的判据是 {@code alpha == 0} —— 原版 {@code SpriteContents.isTransparent} 就是这么判的,
+     * 所以缩放留下的 alpha 只有个位数的碎屑会被当成实体轮廓, 这正是要守的东西。
+     */
+    private static int generatedElementCount(BufferedImage image) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        boolean[] upRows = new boolean[height];
+        boolean[] downRows = new boolean[height];
+        boolean[] leftColumns = new boolean[width];
+        boolean[] rightColumns = new boolean[width];
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                if (!opaque(image, x, y)) {
+                    continue;
+                }
+                if (!opaque(image, x, y - 1)) {
+                    upRows[y] = true;
+                }
+                if (!opaque(image, x, y + 1)) {
+                    downRows[y] = true;
+                }
+                if (!opaque(image, x - 1, y)) {
+                    leftColumns[x] = true;
+                }
+                if (!opaque(image, x + 1, y)) {
+                    rightColumns[x] = true;
+                }
+            }
+        }
+        int spans = count(upRows) + count(downRows) + count(leftColumns) + count(rightColumns);
+        return spans + 2;
+    }
+
+    private static int count(boolean[] flags) {
+        int total = 0;
+        for (boolean flag : flags) {
+            if (flag) {
+                total++;
+            }
+        }
+        return total;
+    }
+
+    private static boolean opaque(BufferedImage image, int x, int y) {
+        if (x < 0 || y < 0 || x >= image.getWidth() || y >= image.getHeight()) {
+            return false;
+        }
+        return ((image.getRGB(x, y) >>> 24) & 0xFF) != 0;
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)

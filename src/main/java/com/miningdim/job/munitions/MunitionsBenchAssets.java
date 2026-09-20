@@ -64,11 +64,15 @@ public final class MunitionsBenchAssets {
     }
 
     /**
-     * body 骨骼所有 cube 的包围盒, 单位是模型像素, 坐标系是 Bedrock 的 (一格 = 16, 原点在方块中心)。
+     * 整台机器 (geo 里全部骨骼的全部 cube) 的包围盒, 单位是模型像素, 坐标系是 Bedrock 的
+     * (一格 = 16, 原点在方块中心)。
+     *
+     * 刻意取全部骨骼而不是只取 body: 调用方要的是碰撞箱与轮廓形状该覆盖到哪里, 而外伸的出料抽屉
+     * (drawer 骨骼) 正是轮廓必须包住的那一截。只统计 body 会让轮廓断言少算这一截, 抽屉再伸出去也没人拦。
      *
      * @return {@code [minX, minY, minZ, maxX, maxY, maxZ]}
      */
-    public static double[] bodyBoundsPixels(String benchId) {
+    public static double[] geometryBoundsPixels(String benchId) {
         JsonArray bones = geometry(benchId).getAsJsonArray("bones");
         double[] bounds = {Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE,
                 -Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE};

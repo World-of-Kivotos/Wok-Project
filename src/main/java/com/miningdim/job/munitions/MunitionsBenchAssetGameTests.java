@@ -8,6 +8,10 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -125,6 +129,14 @@ public final class MunitionsBenchAssetGameTests {
 
             int textureWidth = description.get("texture_width").getAsInt();
             int textureHeight = description.get("texture_height").getAsInt();
+
+            // geo 声明的贴图尺寸是 uv 的分母, 与 PNG 实际像素对不上时整台机器的贴图会整体错位, 而这种错位
+            // 在服务端一个字节都看不出来。这一条是本组断言里唯一一个跟真实 PNG 比的, 不比对就只是 JSON 自比 JSON。
+            BufferedImage image = loadImage(texture);
+            helper.assertTrue(image.getWidth() == textureWidth && image.getHeight() == textureHeight,
+                    benchId + " 的 geo 声明贴图 " + textureWidth + "x" + textureHeight + ", 实际 PNG 是 "
+                            + image.getWidth() + "x" + image.getHeight() + "; uv 会整体错位");
+
             JsonObject itemModel = MunitionsBenchAssets.itemModel(benchId);
             JsonArray itemTextureSize = itemModel.getAsJsonArray("texture_size");
             helper.assertTrue(itemTextureSize.get(0).getAsInt() == textureWidth
@@ -181,5 +193,20 @@ public final class MunitionsBenchAssetGameTests {
 
     private static double[] triple(JsonArray array) {
         return new double[]{array.get(0).getAsDouble(), array.get(1).getAsDouble(), array.get(2).getAsDouble()};
+    }
+
+    private static BufferedImage loadImage(String path) {
+        try (InputStream input = MunitionsBenchAssetGameTests.class.getResourceAsStream(path)) {
+            if (input == null) {
+                throw new IllegalStateException("找不到军火台贴图: " + path);
+            }
+            BufferedImage image = ImageIO.read(input);
+            if (image == null) {
+                throw new IllegalStateException("无法解码军火台贴图: " + path);
+            }
+            return image;
+        } catch (IOException exception) {
+            throw new IllegalStateException("读取军火台贴图失败: " + path, exception);
+        }
     }
 }

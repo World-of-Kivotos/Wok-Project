@@ -109,7 +109,7 @@ public final class MunitionsGameTests {
                         + "particles for invisible blocks, and the extension has no block entity anyway");
 
         // 期望值取自 geo 模型这个独立真相源, 而不是照抄实现里的常数 —— 后者只是把实现复述一遍。
-        double[] geoBounds = MunitionsBenchAssets.bodyBoundsPixels("munitions_bench");
+        double[] geoBounds = MunitionsBenchAssets.geometryBoundsPixels("munitions_bench");
         double geoTopPixels = geoBounds[4];
         double geoFrontPixels = geoBounds[2] + 8.0D;
 
@@ -293,8 +293,13 @@ public final class MunitionsGameTests {
                 .setValue(MunitionsBenchBlock.ACTIVE, true);
         helper.getLevel().setBlock(absolute, wide, Block.UPDATE_CLIENTS);
 
+        // 期望值取设计口径本身(弹盘 12 秒一圈 = 240 tick 转 360 度, 故 20 tick 转 30 度), 不乘实现常量 ——
+        // 乘 CAROUSEL_DEGREES_PER_TICK 的写法把转速写错也照样绿。
+        helper.assertTrue(Math.abs(MunitionsBenchBlockEntity.CAROUSEL_DEGREES_PER_TICK * 240.0F - 360.0F) < 1.0E-3F,
+                "弹盘转速必须是 12 秒一圈(240 tick 转满 360 度), 实得每 tick "
+                        + MunitionsBenchBlockEntity.CAROUSEL_DEGREES_PER_TICK + " 度");
         float first = bench.advanceCarouselAngle(20.0F);
-        helper.assertTrue(Math.abs(first - 20.0F * MunitionsBenchBlockEntity.CAROUSEL_DEGREES_PER_TICK) < 1.0E-3F,
+        helper.assertTrue(Math.abs(first - 30.0F) < 1.0E-3F,
                 "an active bench must advance the carousel by the configured rate, got " + first);
 
         helper.getLevel().setBlock(absolute, wide.setValue(MunitionsBenchBlock.ACTIVE, false),

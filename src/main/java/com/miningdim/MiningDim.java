@@ -1,5 +1,6 @@
 package com.miningdim;
 
+import com.miningdim.core.GameTestConfigWatchGuard;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.Subsystem;
 import com.miningdim.registry.ModBlocks;
@@ -55,6 +56,10 @@ public final class MiningDim {
 
         // ChunkGenerator / BiomeSource 的 Codec 直注 (RegisterEvent): 由 WorldgenSystem 在其 register 内
         // 订阅 RegisterEvent 完成 (注册逻辑随子系统走, 见 worldgen.WorldgenSystem.onRegister)。
+
+        // 必须在任何子系统 registerConfig 之前挂上: 它靠 ModConfigEvent.Loading 收集配置文件路径,
+        // 漏掉哪一份, GameTest 里那一份的热重载就还在自写自重载。
+        GameTestConfigWatchGuard.register(modBus, forgeBus);
 
         registerSubsystems();
         for (Subsystem sub : subsystems) {

@@ -256,7 +256,7 @@ public final class MiningServerConfig {
         ENTRY_LABEL_MEDIUM = b.define("labelMedium", "Medium 矿洞 / 右键进入");
         ENTRY_LABEL_HARD = b.define("labelHard", "Hard 矿洞 / 右键进入");
         b.comment("Entry fees in CREDIT. 0 = free; values await yield measurement before tuning. "
-                + "See docs/TaskSpec_Mining_EntryFee.md.");
+                + "See docs/archive/delivered/TaskSpec_Mining_EntryFee.md.");
         ENTRY_FEE_EASY = b.defineInRange("entryFeeEasy", 0L, 0L, Long.MAX_VALUE);
         ENTRY_FEE_MEDIUM = b.defineInRange("entryFeeMedium", 0L, 0L, Long.MAX_VALUE);
         ENTRY_FEE_HARD = b.defineInRange("entryFeeHard", 0L, 0L, Long.MAX_VALUE);

@@ -4,7 +4,8 @@ package com.miningdim.quest;
  * 一条任务的静态定义 (内容, 非进度)。定义池是全服共享的不可变数据, 每个玩家的进度另见 {@link QuestProgress}。
  *
  * <b>定义里刻意不含奖励金额。</b> 奖励由 {@link QuestRewards} 按 {@code source + difficulty} 从配置算出 ——
- * 把数值从内容里剥离有两个理由: 一是经济尚未完成全局净流入核对 (见 docs/Economy_Completeness_Audit.md,
+ * 把数值从内容里剥离有两个理由: 一是经济尚未完成全局净流入核对 (见 docs/Economy_BalanceSheet_DesignSpec.md,
+ * 原始论证出自冻结快照 docs/archive/reviews/Economy_Completeness_Audit.md;
  * 信用点 sink 当前全线失效), 奖励数值必须能在一个 TOML 文件里集中调而不是散落在几十条定义里; 二是内容池
  * 将来要扩到上百条, 逐条写死金额必然漂移出不一致的档位。
  *

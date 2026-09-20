@@ -143,7 +143,8 @@ public final class NanoEffects {
      * 按件独立充能, 无跨件安全阀: MillenniumEngineer_Mod_DesignSpec 6.2 表格对护盾当前的记录是件级独立资源池,
      * 与机能修复的递减安全阀、图腾的人级共享 CD 分属不同类; 本方法忠实实现该记录, 未擅自加装阀门数值。
      *
-     * 未拍板事项 (docs/Full_Repo_Audit_2026-08.md F047 复核标记为设计复议项, 已降级为 Minor 但未结案):
+     * 未拍板事项 (docs/archive/reviews/Full_Repo_Audit_2026-08.md F047 冻结快照, 复核标记为设计复议项, 已降级为 Minor 但未结案;
+     * 该条已搬进 docs/Armorer_Armor_System_DesignSpec.md 跟踪):
      * 149 行的分类原则是"作用于护甲自身的效果按件安全, 作用于玩家本体的效果需收敛", 但全伤害免疫窗按该判据
      * 实际作用于玩家本体 (四件套 = 20 次共 40 秒硬免疫), 与"归入护甲自身"的分类自相矛盾, 在 80 血 + 高 DPS
      * 枪战 + 生产职业哲学下值得回炉。是否把护盾免疫窗/充能收敛到人级共享 (参照图腾) 或加装与机能修复同形的

@@ -9,7 +9,8 @@ import net.minecraft.server.level.ServerPlayer;
  * 任务系统与货币层之间的唯一接缝: 算奖励金额、发奖、收重摇费。
  *
  * 收成一个类而不是让 {@link QuestService} 直接调货币门面, 是为了让"任务这个 faucet 到底往全服注入了多少钱"
- * 只有一处可查、一处可改 —— 经济尚未做过全局净流入核对 (docs/Economy_Completeness_Audit.md), 将来要么改档位
+ * 只有一处可查、一处可改 —— 本 faucet 的登记与口径见 docs/Economy_BalanceSheet_DesignSpec.md
+ * (原始论证出自冻结快照 docs/archive/reviews/Economy_Completeness_Audit.md), 将来要么改档位
  * 要么整体下调, 散落调用点会漏。
  *
  * <b>faucet 口径</b>: 发奖走 {@link EconomyConstants#QUEST_DAILY_CREDIT_FAUCET_KEY} 这个独立计数键 +

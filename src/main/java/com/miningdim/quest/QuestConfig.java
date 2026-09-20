@@ -5,7 +5,8 @@ import net.minecraftforge.common.ForgeConfigSpec;
 /**
  * 任务系统服务端配置 (miningdim-quest.toml)。
  *
- * <b>全部经济数值都在这里, 一条都不写死在内容池里。</b> 原因见 docs/Economy_Completeness_Audit.md: 信用点的
+ * <b>全部经济数值都在这里, 一条都不写死在内容池里。</b> 原因见 docs/Economy_BalanceSheet_DesignSpec.md
+ * (本任务 faucet 已在其中登记; 原始论证出自 2026-08-05 的冻结快照 docs/archive/reviews/Economy_Completeness_Audit.md): 信用点的
  * 三大 sink 当前全线失效, 全服净流入尚未做过核对, 任务奖励是一个新增 faucet, 数值必然要随经济总表反复调。
  * 把它们集中在一个 TOML 里, 调平衡不需要改代码更不需要重新编译。
  *

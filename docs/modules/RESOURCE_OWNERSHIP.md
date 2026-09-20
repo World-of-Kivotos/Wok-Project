@@ -10,7 +10,7 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 
 | 模块 | 资源路径或前缀 |
 | --- | --- |
-| WOK-综合装配 | `META-INF/mods.toml`、`META-INF/accesstransformer.cfg`、`pack.mcmeta`、`miningdim.mixins.json` |
+| WOK-综合装配 | `META-INF/mods.toml`、`META-INF/accesstransformer.cfg`、`pack.mcmeta`、`miningdim.mixins.json`、`miningdim.compat.mixins.json` |
 | WOK-核心 | `textures/mob_effect/`；公共语言键、公共菜单/网络 GUI、GameTest 空模板；共享文件按 key 所有权拆分 |
 | WOK-持久化存储 | 无独占资源文件；库文件是世界目录下的运行期产物，不进 JAR |
 | WOK-全服经验 | 经验轨道、来源 ID、经验提示/HUD 公共语言键；当前不新增独占纹理或存档文件 |

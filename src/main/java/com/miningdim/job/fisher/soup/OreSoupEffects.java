@@ -44,11 +44,11 @@ public final class OreSoupEffects {
                 onPlayerTick(player);
             }
         });
-        forgeBus.addListener((PlayerEvent.PlayerLoggedInEvent event) -> {
-            if (event.getEntity() instanceof ServerPlayer player) {
-                syncClientState(player, activeInMining(player) ? activeType(player) : null);
-            }
-        });
+        // 刻意不在 PlayerLoggedInEvent 里同步汤态。原先那条监听会在第一个 tick 之前就把同步值写成
+        // type.ordinal()+1, 于是 onPlayerTick 的 justBecameActive 在"带着汤重登矿洞"这条路径上恒为 false,
+        // 夜视仍要等错峰巡查最多 79 tick —— 正是它自己声称修掉的现象。交给第一个 onPlayerTick 统一处理:
+        // 同步值从实体数据默认的 0 起步, justBecameActive 自然成立, 夜视当 tick 补发,
+        // 客户端挖速预测只晚一 tick(玩家登录当 tick 本来也挖不了方块)。
         forgeBus.addListener((PlayerEvent.Clone event) ->
                 carryAcrossRespawn(event.getOriginal(), event.getEntity(), event.isWasDeath()));
         forgeBus.addListener((PlayerEvent.PlayerLoggedOutEvent event) -> {

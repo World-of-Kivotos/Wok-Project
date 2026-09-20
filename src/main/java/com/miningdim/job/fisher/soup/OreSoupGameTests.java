@@ -29,6 +29,7 @@ import java.util.Map;
 public final class OreSoupGameTests {
     private static final String STATE = "MiningOreFishSoup";
     private static final String EXPIRES_AT = "expiresAt";
+    private static final String NIGHT_VISION_UNTIL = "nightVisionUntil";
 
     private OreSoupGameTests() {
     }
@@ -187,6 +188,9 @@ public final class OreSoupGameTests {
         ServerPlayer original = miningPlayer(helper);
         OreSoupEffects.applyConsumedSoup(original, OreFishType.DIAMOND, new ItemStack(Items.BOWL));
         long expiresAt = original.getPersistentData().getCompound(STATE).getLong(EXPIRES_AT);
+        // 夜视归属标记指向旧玩家身上那一份效果实例, 重建出来的玩家一个效果都没有, 搬过去就是个空头记录 ——
+        // 万一玩家自己喝的夜视剩余时长撞上它, removeOwnedNightVision 会把别人的药水删掉。这里先写一个进去。
+        original.getPersistentData().getCompound(STATE).putLong(NIGHT_VISION_UNTIL, 987654L);
 
         // 直接调 PlayerEvent.Clone 的处理方法, 不往全局总线发事件: 职业框架等子系统也监听 Clone,
         // 拿 mock 玩家去走它们的 capability 读写会直接崩掉服务端 tick 循环。
@@ -195,11 +199,59 @@ public final class OreSoupGameTests {
         helper.assertTrue(OreSoupEffects.activeType(returned) == OreFishType.DIAMOND
                         && returned.getPersistentData().getCompound(STATE).getLong(EXPIRES_AT) == expiresAt,
                 "非死亡重建(末地出口回主世界)必须原样带走汤状态与到期时刻, 倒计时不得重置");
+        helper.assertTrue(!returned.getPersistentData().getCompound(STATE).contains(NIGHT_VISION_UNTIL),
+                "夜视归属标记不得跟着搬, 否则会误删玩家自己的夜视药水");
 
         ServerPlayer respawned = miningPlayer(helper);
         OreSoupEffects.carryAcrossRespawn(original, respawned, true);
         helper.assertTrue(OreSoupEffects.activeType(respawned) == null,
                 "死亡重生必须清除汤状态");
+        helper.succeed();
+    }
+
+    /**
+     * 最后一点耐久的边界: 磨损减免命中时工具必须真的活下来。
+     *
+     * {@code ItemStack.hurt} 的返回值取的是局部变量 {@code damage + amount}, 不是刚写回去的 damage ——
+     * 只挡住 setDamageValue 的入参, 工具仍会被 {@code hurtAndBreak} 判定成损坏并 shrink 掉, 减免反倒把
+     * 工具赔进去。既有的 emeraldMineBlockReducesPostUnbreakingDamage 用的是满耐久钻石镐, 100 次挖掘连零头
+     * 都磨不掉, 永远走不到这条边界, 删掉那条 RETURN 重算它照样绿。
+     */
+    @GameTest(template = "empty", batch = "ore_fish_soup")
+    public static void durabilityReductionKeepsToolAliveOnItsLastPoint(GameTestHelper helper) {
+        ServerPlayer player = miningPlayer(helper);
+        ServerPlayer control = miningPlayer(helper);
+        OreSoupEffects.applyConsumedSoup(player, OreFishType.EMERALD, new ItemStack(Items.BOWL));
+        player.getRandom().setSeed(0x0E5EEDL);
+
+        int survived = 0;
+        for (int attempt = 0; attempt < 60; attempt++) {
+            ItemStack pickaxe = new ItemStack(Items.DIAMOND_PICKAXE);
+            int maxDamage = pickaxe.getMaxDamage();
+            pickaxe.setDamageValue(maxDamage - 1);
+            pickaxe.mineBlock(player.serverLevel(), Blocks.STONE.defaultBlockState(), BlockPos.ZERO, player);
+            if (pickaxe.isEmpty()) {
+                continue;
+            }
+            survived++;
+            helper.assertTrue(pickaxe.getDamageValue() == maxDamage - 1,
+                    "减免命中时耐久不该前进, 实得 " + pickaxe.getDamageValue() + "/" + maxDamage);
+        }
+        helper.assertTrue(survived > 0,
+                "翠玉羹 20% 的磨损减免必须能在最后一点耐久上真的保住工具, 60 次尝试一次都没保住");
+
+        // 对照: 没喝汤时最后一点耐久必碎, 证明上面的存活不是"工具本来就不会碎"。
+        int controlSurvived = 0;
+        for (int attempt = 0; attempt < 20; attempt++) {
+            ItemStack pickaxe = new ItemStack(Items.DIAMOND_PICKAXE);
+            pickaxe.setDamageValue(pickaxe.getMaxDamage() - 1);
+            pickaxe.mineBlock(control.serverLevel(), Blocks.STONE.defaultBlockState(), BlockPos.ZERO, control);
+            if (!pickaxe.isEmpty()) {
+                controlSurvived++;
+            }
+        }
+        helper.assertTrue(controlSurvived == 0,
+                "无羹对照在最后一点耐久上必须每次都碎, 实得存活 " + controlSurvived + " 次");
         helper.succeed();
     }
 

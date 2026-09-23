@@ -167,7 +167,7 @@ public final class QuestMiningVisits {
      * 玩家不在矿洞维度时返回 null —— 这是正常情形 (本方法会被每次维度切换调用, 绝大多数切换与矿洞无关)。
      *
      * 不对实例门面加"是否已注入"的守卫: 玩家人已经站在矿洞维度里而实例门面没注入, 那是装配顺序破了,
-     * 按 CLAUDE.md "异常必须痛" 就该在这里炸出来, 而不是静默地让所有撤离任务永远不计数。
+     * 按 C9 就该在这里炸出来, 而不是静默地让所有撤离任务永远不计数。
      */
     private static Difficulty difficultyAt(ServerPlayer player) {
         if (!player.level().dimension().equals(MiningConstants.MINING_LEVEL)) {

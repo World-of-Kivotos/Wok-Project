@@ -32,7 +32,7 @@ import java.util.Map;
  *
  * 服务端权威 (架构铁律 1, 同 {@link MarketActions}): 取经服务端校验过的 sender (不信前端 uuid), 背包读 sender 自己的
  * {@link Inventory}, 余额经 {@link IEconomyService} 只读账本 (SavedData 仅服务端存在)。坏输入/业务错误自然抛冒泡到
- * {@link WebUiServerDispatcher#dispatchAndRespond} 的 Gateway 统一兜底, 本类严禁 try-catch 生吞 (CLAUDE.md C9)。
+ * {@link WebUiServerDispatcher#dispatchAndRespond} 的 Gateway 统一兜底, 本类严禁 try-catch 生吞 (C9)。
  *
  * 前端契约 (webui/src/lib/types.ts):
  *  - player.inventory -&gt; {items:[{slot,itemId,descriptionId,count,displayName?,customModelData?,nameParts?}]}

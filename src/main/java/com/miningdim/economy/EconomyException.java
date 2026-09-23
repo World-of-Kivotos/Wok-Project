@@ -1,7 +1,7 @@
 package com.miningdim.economy;
 
 /**
- * 货币层领域异常 (CLAUDE.md 异常纪律 / 任务约束 "余额不足/非法转账必须抛领域异常自然冒泡, 不静默返回")。
+ * 货币层领域异常 (任务约束 "余额不足/非法转账必须抛领域异常自然冒泡, 不静默返回")。
  *
  * 非受检 (RuntimeException), 遵循 C9 自然冒泡: {@link IEconomyService} 扣费/转账校验失败时直接抛出,
  * 业务层 (职业代码) 不得本地 try/catch 生吞, 仅在最外层 (命令 / 网络 handler / 子系统) 经

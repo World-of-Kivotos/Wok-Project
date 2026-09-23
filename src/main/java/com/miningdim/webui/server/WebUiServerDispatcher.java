@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * action 注册表由各子系统 (WebUiServerSubsystem 及后续业务子系统) 在 register 期经 {@link #register} 填充;
  * 用 ConcurrentHashMap 容忍多子系统注册期写入与网络线程读取的可见性 (注册期一次性写, 运行期只读)。
  *
- * 异常纪律 (CLAUDE.md C9 / 契约第 6 节): {@link #dispatchAndRespond} 是最外层 Gateway 边界, 是本子系统
+ * 异常纪律 (C9 / 契约第 6 节): {@link #dispatchAndRespond} 是最外层 Gateway 边界, 是本子系统
  * 唯一允许 try-catch 的位置。action handler 内异常自然抛出, 在此统一捕获 -> 回执 success=false。预期业务拒绝
  * 用 {@link WebUiBusinessException} 返回稳定 errorCode 且不打印堆栈；其余异常保留 WARN 现场。handler 内部严禁吞异常。
  */

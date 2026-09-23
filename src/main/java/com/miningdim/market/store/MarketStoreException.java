@@ -3,7 +3,7 @@ package com.miningdim.market.store;
 /**
  * 跳蚤市场存储层领域异常 (契约第 4 节: DAO 所有方法的 SQLException 包装成本非受检异常自然冒泡, 不吞)。
  *
- * 为什么非受检 (RuntimeException): 遵循 CLAUDE.md / 契约第 0 节异常纪律 —— 存储层错误必须自然冒泡到
+ * 为什么非受检 (RuntimeException): 遵循 C9 / 契约第 0 节异常纪律 —— 存储层错误必须自然冒泡到
  * 最外层 Gateway ({@code WebUiServerDispatcher.dispatchAndRespond}) 统一兜底, 中间业务层 (交易引擎 B)
  * 不得本地 try/catch 生吞。DAO 内部允许 catch {@link java.sql.SQLException} 的唯一目的是把受检异常
  * 转译成本类重抛 (资源边界包装, 非吞异常), 保留原始 SQLException 为 cause 以不丢失底层诊断现场。

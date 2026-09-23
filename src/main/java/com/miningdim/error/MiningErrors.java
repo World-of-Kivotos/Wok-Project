@@ -13,13 +13,13 @@ import org.slf4j.LoggerFactory;
  *
  * 1) 顶层兜底包裹 ({@link #guard}): 命令 handler / 网络 packet handler / 进入 Gateway 把业务逻辑放进
  *    一个 {@code Runnable}, 异常自然冒泡到这里被捕获, 记 ERROR 日志并 (可选) 给玩家友好文案,
- *    绝不让异常崩服 (20.1)。业务函数内部严禁本地 try/catch 生吞 (CLAUDE.md 异常纪律 + 20.1)。
+ *    绝不让异常崩服 (20.1)。业务函数内部严禁本地 try/catch 生吞 (C9 + 20.1)。
  *
  * 2) 确定性降级与玩家提示常量 ({@link #connectivityDegrade} 等返回值 + {@link #notify} 文案下发):
  *    算法"失败"不是异常而是降级 (20.1), 这里给出降级判定阈值与降级路径标识, 供生成/出生/实例
  *    各子系统在其降级分支调用, 保证全库降级口径一致。
  *
- * 全部静态: 无状态, 仅依赖 {@link MiningServices} 取网络门面下发文案。日志用 org.slf4j (CLAUDE.md)。
+ * 全部静态: 无状态, 仅依赖 {@link MiningServices} 取网络门面下发文案。日志用 org.slf4j。
  */
 public final class MiningErrors {
 

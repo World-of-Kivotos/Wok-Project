@@ -9,7 +9,7 @@ import net.minecraft.nbt.CompoundTag;
  * 余额变更只经 {@link #tryDebit}/{@link #tryDebitBundle} (先校验后扣, 杜绝双花/透支) 与
  * {@link #credit}/{@link #creditBundle} (入账, 溢出抛领域异常),
  * 不在内部 try/catch 生吞 —— 非法金额/溢出自然冒泡, 由调用方 (EconomyService -> 最外层) 兜底
- * (CLAUDE.md 异常纪律)。NBT 读写范式照抄 {@link PlayerAbuseState#save()} / {@link PlayerAbuseState#load}。
+ * (C9)。NBT 读写范式照抄 {@link PlayerAbuseState#save()} / {@link PlayerAbuseState#load}。
  *
  * 线程: 仅服务端主线程读写 (持有它的 {@link EconomyWalletData} 是 SavedData, 只在主线程访问)。
  */

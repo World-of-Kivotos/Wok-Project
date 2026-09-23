@@ -42,7 +42,7 @@ import java.util.UUID;
  * (32767 字符下行硬闸 + 注册表规模) —— 骨架恒小, 叶子按需按页取, 两条 action 合起来才顶替原来那条会超限的
  * market.categories。
  *
- * 异常纪律 (契约第 6 节 / CLAUDE.md C9): handler 内坏输入 (缺字段/类型错) 经 Gson 的 getAsX 自然抛, 引擎的越权/业务
+ * 异常纪律 (契约第 6 节 / C9): handler 内坏输入 (缺字段/类型错) 经 Gson 的 getAsX 自然抛, 引擎的越权/业务
  * 错误 (余额不足/挂单不存在/铜铁超 cap) 自然抛, 一律冒泡到 {@link WebUiServerDispatcher#dispatchAndRespond} 的 Gateway
  * 边界统一兜底 (转 success=false + {"error":...})。本类严禁 try-catch 生吞。
  *

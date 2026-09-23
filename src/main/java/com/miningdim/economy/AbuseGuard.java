@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 反滥用经济闸门核心裁决与副作用执行 (设计文档第十八章 18.2-18.6)。
  *
- * 职责边界 (CLAUDE.md 异常纪律): 本类只做裁决 (返回 {@link GateResult} / 计数) 与玩家库存扣费等
+ * 职责边界 (C9): 本类只做裁决 (返回 {@link GateResult} / 计数) 与玩家库存扣费等
  * 确定性副作用; 不在内部 try/catch 生吞异常, 非法状态自然冒泡, 由 {@link EconomySystem} 在事件
  * 最外层兜底 (经 com.miningdim.error.MiningErrors)。
  *

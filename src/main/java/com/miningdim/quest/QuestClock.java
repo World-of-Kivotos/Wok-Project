@@ -51,7 +51,7 @@ public final class QuestClock {
     /**
      * 取指定来源当前的周期戳。
      *
-     * 非周期来源 (SPECIAL / HIDDEN) 没有周期戳, 调用即装配缺陷 —— 按 CLAUDE.md "异常必须痛" 直接抛, 不返回
+     * 非周期来源 (SPECIAL / HIDDEN) 没有周期戳, 调用即装配缺陷 —— 按 C9 直接抛, 不返回
      * 0 或 -1 之类的哨兵值: 哨兵值会让"特殊任务被当成 1970-01-01 的日常任务"这种错误一路静默传到存档层。
      */
     public static long currentStampOf(QuestSource source) {

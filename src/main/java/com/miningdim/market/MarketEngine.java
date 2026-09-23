@@ -35,7 +35,7 @@ import java.util.UUID;
  *
  * 服务端权威 (架构铁律 1): 卖家/买家身份取 action 的 sender (ServerPlayer), 不信前端 uuid。坏输入/越权 (currency
  * 非 CREDIT / 槽位空 / 数量不足 / 买自己挂单 / 余额不足 / 背包满) 一律自然抛 IllegalArgumentException/IllegalStateException
- * 冒泡到 {@link com.miningdim.webui.server.WebUiServerDispatcher} 的 Gateway 边界, 引擎内不 try-catch 生吞 (CLAUDE.md C9)。
+ * 冒泡到 {@link com.miningdim.webui.server.WebUiServerDispatcher} 的 Gateway 边界, 引擎内不 try-catch 生吞 (C9)。
  * 例外走带稳定错误码的 {@link WebUiBusinessException}, 现有两条: 标的白名单拒绝 ({@link MarketTradeWhitelist}),
  * 因为面板要在按钮上提前把同一条规则显示出来, 需要一个前端能认的码而不是一句裸文本 (先例: CaseOpeningService);
  * 以及托管物不可解析拒绝 ({@link com.miningdim.webui.server.WebUiErrorCodes#ESCROW_UNRESOLVABLE}), 因为它是

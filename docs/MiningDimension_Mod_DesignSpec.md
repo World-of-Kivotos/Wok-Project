@@ -3100,7 +3100,7 @@ DECIDED: InstanceState 只保留 `seed`+`regionBox`+`genState` 等元数据,不�
 
 ## 二十、错误处理与边界情况
 
-本章逐场景定义处理策略、日志级别与玩家可见提示文案。遵循 CLAUDE.md 异常纪律: 业务层异常自然冒泡,仅在最外层(命令 Controller / 网络 handler / 进入流程 Gateway)统一兜底;不在业务函数内 try/catch 生吞。本章描述的"兜底"均指最外层兜底或确定性降级路径(非吞异常)。
+本章逐场景定义处理策略、日志级别与玩家可见提示文案。遵循硬约束 C9(2.2 节): 业务层异常自然冒泡,仅在最外层(命令 Controller / 网络 handler / 进入流程 Gateway)统一兜底;不在业务函数内 try/catch 生吞。本章描述的"兜底"均指最外层兜底或确定性降级路径(非吞异常)。
 
 ### 20.1 错误处理总则
 
@@ -3110,7 +3110,7 @@ DECIDED: InstanceState 只保留 `seed`+`regionBox`+`genState` 等元数据,不�
 | 最外层兜底 | 进入流程 Gateway、命令 handler、网络 packet handler 各设一个 try/catch,记 ERROR 日志并向玩家回友好文案,绝不让异常崩服 |
 | 确定性降级 | 算法层"失败"(如连通性未达标)不是异常,而是返回降级结果(见 20.2),走预定义 fallback |
 | 玩家文案 | 所有拒绝/失败经网络下发可本地化文案(translation key `miningdim.msg.*`),不暴露堆栈 |
-| 日志规范 | 保留诊断日志(CLAUDE.md);级别见各场景表 |
+| 日志规范 | 保留诊断日志,不随缺陷修复顺手删除;级别见各场景表 |
 
 ### 20.2 逐场景处理
 
@@ -3142,16 +3142,16 @@ DECIDED: 启动清理只读 SavedData 与玩家数据做内存重建与孤儿标
 
 ## 二十一、测试策略
 
-测试分三层: 纯算法 JUnit 单测(工作线程可独立运行的体素/图算法)、Forge GameTest 集成测试(维度/生成/传送等需 server 环境)、性能基准测试。遵循 CLAUDE.md: 断言具体业务结果,严禁 `is not None` 类弱校验(判据: 删掉被测核心逻辑测试必须 FAIL);测试数据含边界值与随机化。
+测试分三层: 纯算法断言、Forge GameTest 集成测试(维度/生成/传送等需 server 环境)、性能基准测试。现状: 仓库未引入 JUnit(`src/test` 为空)也没有 CI,已落地的自动化测试全部是 Forge GameTest,纯算法断言同样写成 GameTest 在服务端进程里跑,共用脚手架在 `com.miningdim.testutil`。用例纪律: 断言具体业务结果,严禁 `is not None` 类弱校验(判据: 删掉被测核心逻辑测试必须 FAIL);用例只取线上可达的输入,边界取业务契约(config 上下界、等级临界、栈上限、余额为零等),不为上游已保证不会出现的状态写用例。
 
-### 21.1 纯算法单元测试(JUnit 5)
+### 21.1 纯算法断言
 
-体素生成与图算法不依赖 MC server,可纯 JVM 跑,是测试主战场。
+本表是设计期清单,原计划以 JUnit 5 纯 JVM 承载;仓库未引入 JUnit,已落地的断言以 GameTest 形式存在(如 danger 时间因子下限、spawn 回退平台),其余行的覆盖情况未逐行核对。标 SUPERSEDED 的行,其被测实现已下线。
 
-| 测试 | 断言(具体业务结果) | 边界/随机化 |
+| 测试 | 断言(具体业务结果) | 边界/取样 |
 |------|---------------------|-------------|
-| 连通性 100% | 生成后对主连通分量 BFS,断言 `可达空气体素 / 总空气体素 == 1.0`(降级路径下亦必为 1.0) | 100 个随机 seed,覆盖最小/最大 region 尺寸 |
-| 确定性可复现 | 同 instanceSeed 跑两次,断言两次 bitset 逐位相等(D3) | 随机 50 个 seed,各跑两遍比对 |
+| 连通性 100% | SUPERSEDED:`ConnectivityFix` 已下线(7.0.5),现行版本不对连通率作任何断言 | — |
+| 确定性可复现 | SUPERSEDED:离线体素 bitset 随离线管线下线(7.0),确定性由原版 `minecraft:noise` 自身保证(C3) | — |
 | 矿物权重分布 | 大样本(10^5 次抽样)统计各矿物占比,断言落在期望区间 `expected +- 3*stderr`(卡方检验 p>0.05) | 三难度各测;含权重为 0 的矿物必不出现 |
 | danger 公式边界 | `danger=f(zoneDifficulty,timeSpent,oreRichness)`: 断言封顶 `f(...)==DANGER_MAX`(超大入参)、衰减单调、离区衰减后值精确等于公式值(D7) | timeSpent=0 / 饱和 / 超饱和;负输入应抛或钳制 |
 | trapChance 公式 | `trapChance=difficulty*localRisk`: 断言 difficulty=0 -> 0、上限钳制到 [0,1]、单调 | 边界 0 / 1 / 越界输入 |
@@ -3159,7 +3159,7 @@ DECIDED: 启动清理只读 SavedData 与玩家数据做内存重建与孤儿标
 | 配额递减 | oreBudget 并发递减 N 次后断言精确等于 `initial-N` 且不为负 | 多线程并发递减压测原子性 |
 | danger 重入冷却(18.5) | 模拟离区->冷却内重入,断言 danger == `max(衰减值, 离开值*retainRatio)`;冷却外重入断言 == 衰减值 | 冷却边界 tick±1 |
 
-DECIDED: "矿洞 100% 连通"做成生成后置自动断言(`assertFullyConnected(bitset, regionBox)`),每次生成(含生产路径,debug 配置开启时)后调用;CI 必跑。
+SUPERSEDED(7.0.5): 原 DECIDED「矿洞 100% 连通做成生成后置自动断言,CI 必跑」随 `ConnectivityFix` 一并下线,现行版本不对连通率作断言。
 
 ### 21.2 Forge GameTest 集成测试
 
@@ -3191,8 +3191,8 @@ DECIDED: 性能基准断言"异步不卡主线程"——具体化为"生成期�
 
 | 门禁 | 要求 |
 |------|------|
-| 边界覆盖 | 必须覆盖: 找不到 spawn(走 3x3 平台 fallback)、实例满(拒绝/排队)、连通性降级、重置时有玩家、扣费失败 |
-| CI 必跑 | JUnit 全量 + GameTest 全量 + 连通性 100% 断言;任一 FAIL 阻断合并 |
+| 边界覆盖 | 必须覆盖: 找不到 spawn(走 3x3 平台 fallback)、实例满(拒绝/排队)、重置时有玩家、扣费失败 |
+| 合并门 | 仓库无 CI,由合并人本地执行 `compileJava` + `verifyModuleBoundaries` + `runGameTestServer`,判据是日志行而非退出码(见仓库根 `分支协作.md` 第四节);任一 FAIL 阻断合并 |
 | 弱校验禁止 | 评审拒绝 `assertNotNull` 作为唯一断言的测试;每个测试必须有"删核心逻辑则 FAIL"的强断言 |
 | 随机种子留存 | 随机化测试失败时打印触发 seed,保证可复现(对应 D3 确定性) |
 
@@ -3224,9 +3224,9 @@ DECIDED: 三个 Spike 全 PASS 才进入 M2 之后的正式实现;任一 FAIL �
 | M3 [已作废] 离线生成核心 | Skeleton/NoiseCarving/ConnectivityFix + BFS + 分帧提交 + JUnit 连通性/确定性断言 | — | — | — | 随 F021/F032 整体删除,能力由原版 carver + placed_feature 承接 |
 | M4 实例管理与持久化 | InstanceManager + SavedData(实例注册表/计数器)+ 玩家 Capability(prior 数据/instanceId/danger)+ 启动重建/孤儿清理 | 实例增删查持久化,重启后恢复 | M2 | 是 | 与 M5 部分并行 |
 | M5 出生与传送 | spawn 扫描 + 3x3 fallback + 进入流程 Gateway(等 force-load)+ ChunkTicket 生命周期 | 安全出生、传送前生成完成、TTL 卸载 | M2,M4 | 是 | - |
-| M6 矿区分层与矿物 | 三难度 region 分层、矿物权重分布、oreBudget 配额 | 矿物分布落期望区间(JUnit) | M3 | 否 | 与 M7 并行 |
-| M7 陷阱与压力系统 | 静态/动态陷阱、danger 模型(封顶+衰减)、动态刷怪(hardCap)、坍塌(分帧 setBlock)、岩浆限流 | danger 公式 JUnit 绿、刷怪不超 hardCap | M5 | 否 | 与 M6 并行 |
-| M8 反滥用经济闸门 | 重置冷却/成本/每日上限、产出软上限、AFK、重入冷却、死亡惩罚(第十八章) | 各闸门 JUnit + GameTest 绿 | M4,M7 | 否 | - |
+| M6 矿区分层与矿物 | 三难度 region 分层、矿物权重分布、oreBudget 配额 | 矿物分布落期望区间(原计划 JUnit 大样本统计;仓库未引入 JUnit,此项未自动化) | M3 | 否 | 与 M7 并行 |
+| M7 陷阱与压力系统 | 静态/动态陷阱、danger 模型(封顶+衰减)、动态刷怪(hardCap)、坍塌(分帧 setBlock)、岩浆限流 | danger 公式 GameTest 绿、刷怪不超 hardCap | M5 | 否 | 与 M6 并行 |
+| M8 反滥用经济闸门 | 重置冷却/成本/每日上限、产出软上限、AFK、重入冷却、死亡惩罚(第十八章) | 各闸门 GameTest 绿 | M4,M7 | 否 | - |
 | M9 预生成池与性能 | warm 池、模板缓存、并发限流、ChunkTicket 调优、压测达 19.5 指标 | 19.5 量化门槛全 PASS | M5,M3 | 是 | - |
 | M10 命令/网络/UI | Brigadier 命令、SimpleChannel 进入 GUI/文案下发、配置完善 | 命令可用、进入 GUI 可选难度 | M5,M8 | 否 | 与 M11 并行 |
 | M11 测试与硬化 | GameTest 全量、边界用例、CI 门禁、错误处理文案(第二十/二十一章) | CI 全绿、20.2 场景全覆盖 | M5,M8 | 否 | - |
@@ -3309,7 +3309,7 @@ DECIDED: 三个 Spike 全 PASS 才进入 M2 之后的正式实现;任一 FAIL �
 [x] ChunkTicket 生命周期(第十九章;ForgeChunkManager 滑动 ticket + 空置 TTL 释放;`tickRadius` 由 `perf.loadRadiusChunks` 派生,非独立配置)
 [ ] 异步生成池与量化容量指标(第十九章;warm 池/模板缓存/并发限流)—— 随离线管线一并作废(19.4);压测验收门槛保留并按 R1/D3 重写(19.5)
 [x] 错误处理与边界兜底(第二十章;spawn fallback、传送等待超时、重置踢人)
-[x] 完整测试策略(第二十一章;JUnit 算法断言 + Forge GameTest 集成 + 性能基准 + CI 门禁)
+[x] 完整测试策略(第二十一章;Forge GameTest 承载算法断言与集成测试 + 性能基准 + 本地合并门;无 JUnit、无 CI)
 [x] 实现路线图与风险登记(第二十二章;M0-M11 里程碑 + R1-R12 风险表)
 
 本轮架构修订新增的决策项:
@@ -3325,4 +3325,4 @@ DECIDED: 三个 Spike 全 PASS 才进入 M2 之后的正式实现;任一 FAIL �
 
 ### 24.3 交付边界声明
 
-本文档为实现规格,所有标注 PENDING待校验 的平衡数值(冷却/成本/上限/danger 系数/性能门槛初值)均给出建议初值,须在目标硬件压测与玩法测试后定稿;所有 Forge/MC API 名以 1.20.1 + Forge 47.x 为准,实现前按 CLAUDE.md 纪律逐一核实,不得套用其他版本语法。标注 DECIDED 的跨章设计决策(D1-D8 及本章列出项)为架构基线,不得在实现期擅自另立方案;如需变更须走方案复审。
+本文档为实现规格,所有标注 PENDING待校验 的平衡数值(冷却/成本/上限/danger 系数/性能门槛初值)均给出建议初值,须在目标硬件压测与玩法测试后定稿;所有 Forge/MC API 名以 1.20.1 + Forge 47.x 为准,实现前以本地反编译源码或 javap 逐一核实,不得套用其他版本语法。标注 DECIDED 的跨章设计决策(D1-D8 及本章列出项)为架构基线,不得在实现期擅自另立方案;如需变更须走方案复审。

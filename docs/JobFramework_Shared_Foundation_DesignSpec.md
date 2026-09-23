@@ -49,7 +49,7 @@ class JobProgress {
 | `persistence.PlayerMiningData`(+Provider/Events) | **已删除(收敛完成)**,类与 Provider/Events 均不复存在 | **裁决已执行完毕,本行转为历史记录**。现 `com.miningdim.persistence` 包内仅剩 `MiningSavedData`(矿区实例注册表 + 全局计数器持久层,挂矿山维度 `DimensionDataStorage`,承载实例 Map/`nextInstanceId`/`globalSeed`/`resetGeneration`/region 位图),与玩家 capability 无关,**严禁再按"删整包"执行**。另:`pressure.PlayerMiningData` 是同名的压力子系统内存态纯数据(非 capability),`economy.PlayerAbuseState` 类注释里提到的"Capability/PlayerMiningData"只是历史设计引用,两者都不是本行裁撤的旧 capability,勿误伤 |
 | `economy.PlayerAbuseState` / `pressure` 内存态 | UUID 内存态,无持久化(注释:"Capability 子系统就绪后从持久层 load") | **并入 entry capability 持久化**(或明确保留内存态的理由) |
 
-迁移步骤(独立原子提交,遵循第 0 步法则)与当前状态:
+迁移步骤(每步独立原子提交)与当前状态:
 
 - [x] (1) entry 扩 `EnumMap` —— 已落地,`job/JobData.java` 持 `EnumMap<JobId,JobProgress>`,作为 `entry.MiningPlayerData` 的内部委派。
 - [x] (2) 删 `persistence` 死包 + 多维 grep 确认无引用 —— 已完成。**该步骤严禁再次执行**:`persistence` 包内现仅存的 `MiningSavedData` 是矿区实例持久化的现役代码,不是待删死代码。

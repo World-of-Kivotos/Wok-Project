@@ -26,7 +26,7 @@
 | `wok-job-farmer` | WOK-农夫模块 | 25 | 51 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI；Farmer's Delight 可选 |
 | `wok-job-armorer` | WOK-铸甲师模块 | 124 | 82 | `EngineerSystem` | 核心、职业框架、精英怪、WebUI；TaCZ 可选 |
 | `wok-job-chef` | WOK-厨师模块 | 35 | 34 | `ChefModule` | 核心、全服经验、职业框架、战斗框架、经济、WebUI；Farmer's Delight、Flavor Immersed Daily 可选 |
-| `wok-job-fisher` | WOK-渔夫模块 † | 23 | 15 | `FishingSystem` | 核心、存储、经济、厨师；Farmer's Delight、Tide 可选 |
+| `wok-job-fisher` | WOK-渔夫模块 † | 39 | 37 | `FishingSystem` | 核心、存储、经济、厨师；Farmer's Delight、Tide 可选 |
 | `wok-job-brewer` | WOK-酿酒师模块 | 41 | 59 | `BrewerSystem` | 核心、职业框架、战斗框架、农夫、WebUI |
 | `wok-job-tarot` | WOK-塔罗师模块 | 56 | 67 | `TarotSystem` | 核心、职业框架、矿区、经济、战斗框架、精英怪、WebUI |
 | `wok-job-munitions` | WOK-军火商模块 | 55 | 103 | `MunitionsSystem` | 核心、职业框架、经济、电力、WebUI；TaCZ 可选 |
@@ -38,7 +38,7 @@
 | `wok-achievement` | WOK-成就模块 § | 84 | 81 | `AchievementSystem` | 核心、存储、称号、矿区、精英怪、经济、全服经验、职业框架、铸甲师、厨师、酿酒师、塔罗师、军火商、特勤干员、市场、开箱、任务、婚姻、WebUI；TaCZ、SQLite 可选 |
 | `wok-district` | WOK-自管区模块 ¶ | 184 | 312 | `DistrictSystem` | 核心、存储、经济、WebUI；SQLite、Flan、机械动力可选 |
 
-† `wok-job-fisher` 这一行是 2026-09-06 单独补测的，其余 25 行仍是第一段声明的 2026-08-30 基线。另外它在登记表里的 `category` 虽然是 `job`，但这只是业务归类：`job/JobId.java` 的枚举至今只有八个常量、没有 `FISHER`，因此渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门；它对 `wok-store` 的依赖同样只出现在 GameTest 里，图鉴本身走原版 `FishingJournalSavedData` 而不落 SQLite。
+† `wok-job-fisher` 这一行是 2026-09-24 在 `feat/fish-quality-size` 分支上按同一口径单独重测的（新增 `quality`、`size` 两个子包；2026-09-06 首次补测时为 23 / 15），其余 25 行仍是第一段声明的 2026-08-30 基线。同一分支给 `wok-core` 新增了 `core/ItemRarityOverrides` 与 `mixin/ItemRarityOverrideMixin` 两个文件，该行未重测。另外它在登记表里的 `category` 虽然是 `job`，但这只是业务归类：`job/JobId.java` 的枚举至今只有八个常量、没有 `FISHER`，因此渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门；它对 `wok-store` 的依赖同样只出现在 GameTest 里，图鉴本身走原版 `FishingJournalSavedData`、个人钓获记录走玩家 `PlayerPersisted` NBT，都不落 SQLite。
 
 ‡ `wok-title` 这一行是 2026-09-26 称号系统 P1 落地时新增的实测值。它登记的依赖只有核心与存储：设计文档里预留的 WebUI 依赖要等 P2 的"我的称号"页签注册 `title.*` 动作时才真正产生引用，届时再补进登记表。2026-09-26 合并 G 面板 P2 后补测为 35 个文件、38 条 GameTest：P1 之后的赞助专属称号 12 个文件、22 条，G 面板的 `TitleWebUiActions` 与 `TitleWebUiGameTests` 2 个文件、5 条 (batch `title_webui`)；WebUI 依赖已随 `title.*` 动作补进登记表。
 

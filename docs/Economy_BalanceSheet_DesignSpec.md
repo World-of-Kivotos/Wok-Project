@@ -191,7 +191,7 @@
 
 冻结快照原文见 `docs/archive/reviews/Economy_Laundering_Review.md` —— 该快照只登记了农夫那一侧（Tier 0 第 1 条），渔夫这一侧它一个字没提，故在本节正式登记并与 C-1 挂钩。本条的原始决策记录在第六章第 6 条（保留原文，不重复搬运）；后续状态变化两处同步改。
 
-代码实况（复核确认）：`FishingSystem` 注册 `/fishing sell` 时没有任何 `.requires(...)`，`OreFishSellService.sellMainHand` 也不查职业或等级，只判手上是不是矿石鱼，随后直接 `grantDaily(…, GLOBAL_DAILY_CREDIT_FAUCET_KEY, …)` 入主闸。对照组：农夫卖菜有 `SELL_MIN_MASTERY_LEVEL` 这道反洗钱身份门。
+代码实况（复核确认）：`FishingSystem` 注册 `/fishing sell` 与 `/fishing sell all` 时都没有任何 `.requires(...)`，`OreFishSellService.sell` 也不查职业或等级，只挑出背包主栏里要卖的矿石鱼（`/fishing sell` 要求主手是矿石鱼并连带同鱼种的其它非奖杯栈，`sell all` 卖全部非奖杯矿石鱼），随后每条命令一笔 `grantDaily(…, GLOBAL_DAILY_CREDIT_FAUCET_KEY, …)` 入主闸。收购价仍是基础价乘条数，与体型无关。对照组：农夫卖菜有 `SELL_MIN_MASTERY_LEVEL` 这道反洗钱身份门。
 
 为什么它与 C-1 同源：衰减按卖家账号计，而矿石鱼可自由堆叠转移，白板小号数量直接放大全服总注入。渔夫职业身份本阶段尚未落地，故暂时无等级可依（渔夫也不在 `JobId` 枚举里，见第二章 † 注）。
 

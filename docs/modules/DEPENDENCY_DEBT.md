@@ -20,7 +20,7 @@
 | D007 | 核心 -> 婚姻 | 中央 `ModItems` 构造婚姻戒指 | 婚姻模块自持物品 DeferredRegister，保持原 ID |
 | D008 | 核心 -> 矿区 | 中央注册与入场包直接引用矿区方块、区块票和重置状态 | 注册项归还矿区；玩家数据与入场编排拆开 |
 | D017 | 核心 -> 经济 | 入场收费网关与入场 WebUI 动作直接调用经济服务 | 入场扣费与余额查询走核心自持的端口 |
-| D036 | 核心 -> 渔夫 | 核心拥有的 `ItemStackMiningDurabilityMixin`、`PlayerFoodExhaustionMixin`、`PlayerOreSoupStateMixin` 三个羹效果 Mixin，以及 `VanillaOreFishMixin` 与可选的 `mixin/compat/TideOreFishMixin` 直接调用渔夫实现 | 将羹状态和钓鱼兼容接缝收敛为核心接口或模块绑定 |
+| D036 | 核心 -> 渔夫 | 核心拥有的 `ItemStackMiningDurabilityMixin`、`PlayerFoodExhaustionMixin`、`PlayerOreSoupStateMixin` 三个羹效果 Mixin，以及 `VanillaOreFishMixin` 与可选的 `mixin/compat/TideOreFishMixin` 直接调用渔夫实现 | 将羹状态和钓鱼兼容接缝收敛为核心接口或模块绑定。鱼种品质的名字颜色接缝已按此方向落地（`mixin/ItemRarityOverrideMixin` 只调用核心自有的 `core/ItemRarityOverrides`，渔夫注册解析器），不属于本条 `evidence` |
 
 ## P1：玩法与基础模块横向依赖
 

@@ -13,17 +13,19 @@
 - 右键图鉴打开界面；也可执行 `/fishing journal`，普通玩家可用。
 - 创造模式在原版“工具与实用物品”分类查找“渔业图鉴”。
 - 界面支持分类、名称/注册 ID 搜索、全部/已收录/未收录筛选、分页、鱼种详情和收藏完成度。
+- 列表里已收录条目的名字按鱼种品质着色（未收录仍用暗淡色），详情页标题同样按品质着色，并显示"鱼种品质"与"钓获记录"两节：钓获记录写"亲手钓获 N 次"与"最大个体：长度 · 重量"，没有记录时写"尚无钓获记录"。品质来自物品标签，钓获记录来自体型结算写入的玩家个人记录，两者的定义见 [渔夫职业设计规格](Fisher_Job_DesignSpec.md) 第四、五章。
 - 获得并持有目录中的鱼物品即可收录，交易得到的鱼同样有效。拾取、合成和容器操作即时记录；同一 tick 拿起又放回也会收录，仅查看箱子或交易展示槽不会收录。每秒错峰检查背包与鼠标持物，补充其它 MOD 直接写入背包等路径。打开图鉴和登录也检查持物。
 - 出售、食用或存入箱子后保留已经记下的收藏。鱼桶、鱼实体和背包外的箱子不按鱼物品自动收录。
+- 收录与钓获记录互不影响：交易或捡来的鱼会收录，但不产生钓获记录；钓获记录只来自成功钓获路径。
 - 图鉴查阅本身不暂停游戏。自动同步只刷新已经打开的图鉴，不抢占其它界面。
 
 ## 目录与 Tide 软联动
 
 服务端通过 `SimpleJsonResourceReloadListener` 读取 `data/<namespace>/fishing/journal/*.json`，在登录、打开图鉴、收藏变化及 `/reload` 后下发快照。客户端只渲染服务端目录，不上传收藏状态。
 
-默认目录包括 4 种原版鱼、5 种 WOK 矿石鱼和 66 种 Tide 1.6.5 自有鱼种。Tide 元数据引用其现有描述、地点、条件翻译键及物品模型，不复制其代码、贴图或描述正文。缺少 Tide 时加载 9 种原版与 WOK 鱼；Tide 版本不等于 1.6.5 时跳过该兼容目录并记录版本提示。
+默认目录包括 4 种原版鱼、5 种 WOK 矿石鱼和 66 种 Tide 1.6.5 自有鱼种。Tide 元数据引用其现有描述、地点、条件翻译键及物品模型，不复制其代码、贴图或描述正文。缺少 Tide 时加载 9 种原版与 WOK 鱼；Tide 版本不等于 1.6.5 时跳过该兼容目录并记一条 WARN。
 
-分类共 11 个：矿石鱼（`ore_fish`，WOK 自建，五种矿石鱼专属），以及沿用 Tide 组织方式的淡水、海水、地下、深渊、生物群系、结构、熔岩、下界、末地、传说。译名以 `assets/miningdim/lang/zh_cn.json` 的 `fishing.miningdim.category.*` 为准（`depths` 是深渊、`lava` 是熔岩、`biome` 是生物群系、`legendary` 是传说）。分类是查阅组织方式，不是 WOK 自定义稀有度或钓获概率。
+分类共 11 个：矿石鱼（`ore_fish`，WOK 自建，五种矿石鱼专属），以及沿用 Tide 组织方式的淡水、海水、地下、深渊、生物群系、结构、熔岩、下界、末地、传说。译名以 `assets/miningdim/lang/zh_cn.json` 的 `fishing.miningdim.category.*` 为准（`depths` 是深渊、`lava` 是熔岩、`biome` 是生物群系、`legendary` 是传说）。分类是查阅组织方式，与鱼种品质、钓获概率都无关：WOK 自定义的鱼种品质（普通 / 优良 / 稀有 / 史诗 / 传说 / 神话六档）由物品标签 `#miningdim:fish_quality/*` 决定，不由分类推出，分类"传说"也不等于品质"传说"。
 
 数据格式示例：
 
@@ -43,7 +45,7 @@
 }
 ```
 
-`required_mod` 和 `required_version` 可省略；版本限制必须伴随 MOD 限制。`description`、`habitat`、`conditions` 为客户端资源包翻译键，支持中英文切换。数据包可以增加新的文件；覆盖内置条目时应覆盖原文件，重复的物品 ID 会明确报错。新增分类使用 `fishing.miningdim.category.<category>` 翻译键。
+`required_mod` 和 `required_version` 可省略；版本限制必须伴随 MOD 限制。这道门由 `FishingDataGate.isAvailable` 判定，体型档案 `data/<namespace>/fishing/sizes/*.json` 共用同一套字段与门控：目标 MOD 未安装则整份跳过；版本字符串不完全相等时记 WARN `Skipping fishing compatibility data for {mod} {required}: installed {installed}` 后整份跳过。`description`、`habitat`、`conditions` 为客户端资源包翻译键，支持中英文切换。数据包可以增加新的文件；覆盖内置条目时应覆盖原文件，重复的物品 ID 会明确报错。新增分类使用 `fishing.miningdim.category.<category>` 翻译键。
 
 目录最多 512 条，分类键为 1–32 位小写字母、数字或下划线，文本键非空且最多 128 字符。已加载 MOD 内出现不存在的物品、重复鱼种或错误字段时拒绝发布这次目录，保留此前完整目录。依赖缺失的兼容文件整体跳过。
 
@@ -53,7 +55,10 @@
 - 数据版本：1；字段为 `Version`、`Players`，每位玩家记录 UUID `Player` 与物品 ID 列表 `Fish`。
 - 收藏以 UUID 归属，跨死亡、重生、维度切换和服务端重启保留；没有记录表示尚未收藏。
 - 卸载 MOD/数据包后保留历史鱼种 ID，当前完成度只统计仍在目录中的交集。
-- 网络通道：`miningdim:fishing_journal`，协议版本 1，唯一消息为服务端到客户端的目录/收藏快照，含是否主动打开界面的标志。
+- 亲手钓获记录不存在这份 SavedData 里，而是挂在玩家自己的 `PlayerPersisted` 数据下（`MiningFishingRecords`，见 [渔夫职业设计规格](Fisher_Job_DesignSpec.md) 第五章）；下发快照时只带当前目录里有的鱼种。
+- 网络通道：`miningdim:fishing_journal`，协议版本 2，唯一消息为服务端到客户端的目录/收藏/钓获记录快照，含是否主动打开界面的标志。
+- 快照字段顺序：打开标志、目录条目数与各条目、收藏数与各物品 ID；协议 2 在其后追加钓获记录数（varint，不超过目录条目数）与逐条记录（物品 ID、varint 次数、varint 最大个体体长毫米、varlong 该个体体重毫克）。记录必须指向本次目录里的条目且不得重复，数值必须为正，否则整包拒绝，不会带着半份记录进界面。
+- 两端协议版本必须相等，旧客户端连新服务端会在握手时被拒，不会读到错位的字段。
 - 本阶段不增加 `JobId`，不修改现有职业同步包或经验轨道。
 
 ## 来源和生成
@@ -66,13 +71,13 @@ Context7 在本次环境不可用，Forge/Minecraft API 依据工程锁定的 Fo
 
 ## 验证入口
 
-使用本工程 Gradle Wrapper 与 JDK 17 编译。`FishingJournalGameTests` 提供五条可达业务用例：目录和合成入口、持有收录及幂等、存档与玩家隔离、网络往返、失败热重载保留旧目录。
+使用本工程 Gradle Wrapper 与 JDK 17 编译。`FishingJournalGameTests` 提供五条可达业务用例：目录和合成入口、持有收录及幂等、存档与玩家隔离、网络往返（含钓获记录，指向目录外物品的记录整包拒绝）、失败热重载保留旧目录。
 
-运行 `runGameTestServer` 后必须确认日志出现 `All N required tests passed`，不能仅以 Gradle 退出码判断。Tide 实例的游戏内图鉴渲染、中文排版、拾取反馈与重连仍需对应客户端实测。
+运行 `runGameTestServer` 后必须确认日志出现 `All N required tests passed`，不能仅以 Gradle 退出码判断。Tide 实例的游戏内图鉴渲染、中文排版、品质着色与钓获记录区、拾取反馈与重连仍需对应客户端实测。
 
 2026-09-05 验证结果（**历史快照，口径已过期**）：下列 4 / 70 条目录与 782 条测试是图鉴框架单独存在、矿石鱼尚未加入时的数字。
-矿石鱼于 2026-09-06 加入后，目录变为无 Tide 9 条、装 Tide 1.6.5 共 75 条，测试总数变为 1457，
-现行有效口径以 [矿石鱼与鱼羹](Ore_Fish_And_Soup.md) 的 2026-09-06 验证记录为准，不要把本块数字当成现行结论。
+矿石鱼于 2026-09-06 加入后，目录变为无 Tide 9 条、装 Tide 1.6.5 共 75 条，测试总数变为 1457（见 [矿石鱼与鱼羹](Ore_Fish_And_Soup.md) 的 2026-09-06 验证记录）；
+鱼种品质与体型加入后的现行口径以 [渔夫职业设计规格](Fisher_Job_DesignSpec.md) 的测试覆盖章为准，不要把本块数字当成现行结论。
 
 - 隔离功能工作树 `compileJava` 通过。
 - 未安装 Tide：加载 4 条目录，完整 GameTest 日志确认 `All 782 required tests passed`。

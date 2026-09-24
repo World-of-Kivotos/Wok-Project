@@ -1,0 +1,8 @@
+{
+  "replace": false,
+  "values": [
+    { "id": "tide:midas_fish", "required": false },
+    { "id": "tide:shooting_starfish", "required": false },
+    { "id": "tide:voidseeker", "required": false }
+  ]
+}

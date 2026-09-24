@@ -10,7 +10,8 @@
     "PlayerFoodExhaustionMixin",
     "PlayerOreSoupStateMixin",
     "ItemStackMiningDurabilityMixin",
-    "PlayerAdvancementsSilenceMixin"
+    "PlayerAdvancementsSilenceMixin",
+    "ItemRarityOverrideMixin"
   ],
   "client": [],
   "server": [],

@@ -1,0 +1,18 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:pufferfish",
+    "miningdim:gold_ore_fish",
+    { "id": "tide:abyss_angler", "required": false },
+    { "id": "tide:angelfish", "required": false },
+    { "id": "tide:crystal_shrimp", "required": false },
+    { "id": "tide:deep_grouper", "required": false },
+    { "id": "tide:ember_koi", "required": false },
+    { "id": "tide:inferno_guppy", "required": false },
+    { "id": "tide:iron_tetra", "required": false },
+    { "id": "tide:luminescent_jellyfish", "required": false },
+    { "id": "tide:obsidian_pike", "required": false },
+    { "id": "tide:pike", "required": false },
+    { "id": "tide:shadow_snapper", "required": false }
+  ]
+}

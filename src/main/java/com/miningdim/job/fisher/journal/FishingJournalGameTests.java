@@ -3,6 +3,7 @@ package com.miningdim.job.fisher.journal;
 import com.google.gson.JsonParser;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.fisher.FishingSystem;
+import com.miningdim.job.fisher.size.FishRecord;
 import com.miningdim.testutil.MockGameTestPlayers;
 import io.netty.buffer.Unpooled;
 import net.minecraft.gametest.framework.GameTest;
@@ -111,18 +112,34 @@ public final class FishingJournalGameTests {
 
     @GameTest(template = "empty", batch = "fishing_journal")
     public static void networkRoundTripPreservesDirectoryAndProgress(GameTestHelper helper) {
-        // 打开图鉴/自动刷新共用快照协议，客户端必须收到同一份目录与个人收藏。
-        FishingJournalSnapshot snapshot = new FishingJournalSnapshot(FishingJournalCatalog.INSTANCE.entries(), Set.of(SALMON));
+        // 打开图鉴/自动刷新共用快照协议，客户端必须收到同一份目录、个人收藏与亲手钓获记录。
+        FishingJournalSnapshot snapshot = new FishingJournalSnapshot(FishingJournalCatalog.INSTANCE.entries(), Set.of(SALMON),
+                Map.of(SALMON, new FishRecord(3, 1187, 18_450_000L), COD, new FishRecord(1, 612, 2_300_000L)));
         FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
         try {
             var original = new FishingJournalNetwork.SnapshotPacket(snapshot, true);
             FishingJournalNetwork.encode(original, buffer);
             var decoded = FishingJournalNetwork.decode(buffer);
-            helper.assertTrue(decoded.equals(original), "Journal metadata and collection must round-trip exactly");
+            helper.assertTrue(decoded.equals(original), "Journal metadata, collection and records must round-trip exactly");
             helper.assertTrue(buffer.readableBytes() == 0, "Journal packet must consume all encoded fields");
         } finally {
             buffer.release();
         }
+        // 记录只允许指向本次目录里的条目: 指向目录外物品的记录必须整包拒绝。
+        FishingJournalSnapshot foreign = new FishingJournalSnapshot(
+                List.of(FishingJournalCatalog.INSTANCE.entries().get(0)), Set.of(),
+                Map.of(new ResourceLocation("minecraft", "stick"), new FishRecord(1, 100, 1_000L)));
+        FriendlyByteBuf foreignBuffer = new FriendlyByteBuf(Unpooled.buffer());
+        boolean rejected = false;
+        try {
+            FishingJournalNetwork.encode(new FishingJournalNetwork.SnapshotPacket(foreign, false), foreignBuffer);
+            FishingJournalNetwork.decode(foreignBuffer);
+        } catch (IllegalArgumentException expected) {
+            rejected = true;
+        } finally {
+            foreignBuffer.release();
+        }
+        helper.assertTrue(rejected, "A record for an item outside the directory must reject the whole snapshot");
         helper.succeed();
     }
 

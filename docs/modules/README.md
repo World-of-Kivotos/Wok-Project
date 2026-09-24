@@ -43,8 +43,8 @@
 
 - `wok-job-core` 登记 `job`，但所有权按最长前缀判定，因此 `job/miner`、`job/farmer` 等子包归各自的职业模块，职业框架只拥有 `job` 根包下的框架类本身。
 - `wok-app` 是唯一用精确包（`javaPackages`）而非前缀登记的模块，它只拥有根包里的装配入口；这样未登记的新顶层包会被判为无主而失败，不会被兜底吞进装配模块。
-- `wok-job-fisher` 的 `category=job` 只是业务归类：`job/JobId.java` 的枚举至今仍是八个常量、没有 `FISHER`，所以渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门，当前只有图鉴、矿石鱼和鱼羹三条内容线。
-- `mixin` 归 `wok-core` 而不单列模块：`com.miningdim.mixin` 下现有五个类，另有 `required=false` 的 `com.miningdim.mixin.compat.TideOreFishMixin`。其中 `MoveSpeedCheckMixin` 混入原版 `ServerGamePacketListenerImpl`、只读核心配置门面，属于核心装配的基础设施；`ItemStackMiningDurabilityMixin`（混 `ItemStack`）、`PlayerFoodExhaustionMixin` 与 `PlayerOreSoupStateMixin`（混 `Player`）、`VanillaOreFishMixin`（混 `FishingHook`）以及 compat 里的 Tide 版都直接调用渔夫实现，这五处正是 D036 这条运行期债务的全部触发点。收敛 D036 前不再新增同向 mixin。
+- `wok-job-fisher` 的 `category=job` 只是业务归类：`job/JobId.java` 的枚举至今仍是八个常量、没有 `FISHER`，所以渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门，当前内容线是图鉴、矿石鱼、鱼羹，以及挂在钓获与图鉴上的鱼种品质和体型/个人钓获记录。
+- `mixin` 归 `wok-core` 而不单列模块：`com.miningdim.mixin` 下现有六个类，另有 `required=false` 的 `com.miningdim.mixin.compat.TideOreFishMixin`。其中 `MoveSpeedCheckMixin` 混入原版 `ServerGamePacketListenerImpl`、只读核心配置门面，`ItemRarityOverrideMixin` 混入 `Item.getRarity(ItemStack)`、只调用核心自有的 `core/ItemRarityOverrides` 接缝（渔夫在装配期注册鱼种品质解析器），这两个属于核心基础设施；`ItemStackMiningDurabilityMixin`（混 `ItemStack`）、`PlayerFoodExhaustionMixin` 与 `PlayerOreSoupStateMixin`（混 `Player`）、`VanillaOreFishMixin`（混 `FishingHook`）以及 compat 里的 Tide 版都直接调用渔夫实现，这五处正是 D036 这条运行期债务的全部触发点。收敛 D036 前不再新增同向 mixin；新接缝一律走"核心接口 + 模块注册"的形态。
 - 模块数、活跃例外数和共享资源文件数不在本文重复钉死，`gradlew verifyModuleRegistry` 每次运行都会打印当期实数。
 
 ## 整理规则

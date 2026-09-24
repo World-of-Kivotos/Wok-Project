@@ -1,8 +1,8 @@
 # 渔夫模块初步制作：图鉴、矿石鱼与鱼羹
 
-本功能属于 WOK 本体，沿用 `modId=miningdim` 与单 JAR。入口为 `FishingSystem`，不另建强制安装的附属 MOD。矿石鱼种类的档次与厨师料理品质章相互独立；暗金鱼是当前最高鱼种档次。模块级的唯一主设计入口是 [渔夫职业设计规格](Fisher_Job_DesignSpec.md)，本文是其矿石鱼与鱼羹专题。
+本功能属于 WOK 本体，沿用 `modId=miningdim` 与单 JAR。入口为 `FishingSystem`，不另建强制安装的附属 MOD。矿石鱼的鱼种品质与厨师料理品质章相互独立；暗金鱼是矿石鱼里的最高档（传说）。模块级的唯一主设计入口是 [渔夫职业设计规格](Fisher_Job_DesignSpec.md)，本文是其矿石鱼与鱼羹专题；全鱼种的六档鱼种品质见其第四章，每次钓获的体型与个人钓获记录见其第五章，本文不重复。
 
-本阶段定位为渔夫模块的初步制作，先打通图鉴持有收录、矿洞钓获、原鱼出售及厨师鱼羹联动。尚未新增渔夫职业身份、等级、经验或技能，也未记录独立的亲手钓获统计；这些属于后续职业成长阶段。以下概率、售价与料理数值均为首测方案，仍需游戏内体验和经济平衡验证。
+本阶段定位为渔夫模块的初步制作，先打通图鉴持有收录、矿洞钓获、原鱼出售及厨师鱼羹联动。尚未新增渔夫职业身份、等级、经验或技能，这些属于后续职业成长阶段；独立的亲手钓获统计已随体型功能加入（个人钓获记录），但同样不发经验。以下概率、售价与料理数值均为首测方案，仍需游戏内体验和经济平衡验证。
 
 ## 获取与出售
 
@@ -10,30 +10,30 @@
 
 以下为可调整的首测值，配置文件 `world/serverconfig/miningdim-fishing.toml`。概率以每次成功钓获为分母，总权重不得超过 10000。
 
-| 鱼种 | 物品 ID（miningdim） | 配置键 | Rarity | 概率 | 单条基础信用点 |
+| 鱼种 | 物品 ID（miningdim） | 配置键 | 鱼种品质 | 概率 | 单条基础信用点 |
 | --- | --- | --- | --- | --- | --- |
-| 铁鱼 | iron_ore_fish | iron | COMMON | 20% | 20 |
-| 金鱼 | gold_ore_fish | gold | UNCOMMON | 8% | 80 |
-| 钻石鱼 | diamond_ore_fish | diamond | RARE | 2% | 400 |
-| 绿宝石鱼 | emerald_ore_fish | emerald | RARE | 1% | 600 |
-| 暗金鱼 | dark_gold_ore_fish | dark_gold | EPIC | 0.2% | 2000 |
+| 铁鱼 | iron_ore_fish | iron | 普通 | 20% | 20 |
+| 金鱼 | gold_ore_fish | gold | 优良 | 8% | 80 |
+| 钻石鱼 | diamond_ore_fish | diamond | 稀有 | 2% | 400 |
+| 绿宝石鱼 | emerald_ore_fish | emerald | 史诗 | 1% | 600 |
+| 暗金鱼 | dark_gold_ore_fish | dark_gold | 传说 | 0.2% | 2000 |
 
 首列是游戏内简中显示名，取自 `assets/miningdim/lang/zh_cn.json`，五条都没有“矿”字；英文显示名反而带 Ore（`Iron Ore Fish` 等，见 `en_us.json`）。简中统称仍是“矿石鱼”，对应分类键 `ore_fish`。
 
-Rarity 取自 `OreFishType`，鱼与对应鱼羹共用同一档（`OreFishingItems`），直接决定物品名在游戏内的显示颜色。绿宝石鱼比钻石鱼更稀有（权重 100 对 200）也更贵（600 对 400），却同为 RARE：Rarity 只提供四档显示色，档次差由权重与售价承担，本文的“鱼种档次”序列与 Rarity 序列不是线性同构。
+鱼种品质取自 `OreFishType.quality()`，与品质标签 `data/miningdim/tags/items/fish_quality/` 里的归档一致，决定物品名在游戏内的显示颜色。五种鱼各占一档（普通到传说），品质、权重与售价三个序列同向：绿宝石鱼比钻石鱼更稀有（权重 100 对 200）、更贵（600 对 400），品质也高一档（史诗对稀有）。鱼羹不进品质标签，`OreFishingItems` 注册时让鱼羹的名字颜色跟随原料鱼的品质。传说档是运行期扩展的稀有度（金色），渲染接缝与分档模型见 [渔夫职业设计规格](Fisher_Job_DesignSpec.md) 第四章。
 
 配置分节与键名由 `OreFishingConfig` 定义，服主改 toml 认的是上表第三列的配置键，**不是**第二列的物品 ID：
 
 - `[catch_weights]`：`iron` / `gold` / `diamond` / `emerald` / `dark_gold` 五个万分权重键，单键取值范围 0–10000。五者之和超过 10000 时，`ModConfigEvent.Loading` 与 `ModConfigEvent.Reloading` 直接抛 `IllegalArgumentException`，配置拒绝加载。
 - `[sell_prices]`：同名五个单条基础收购价键，单键取值范围 1–1000000。
 
-剩余 68.8% 保留原渔获。普通玩家执行 `/fishing sell` 出售主手整组矿石鱼，实发走既有全局每日信用点衰减。
+剩余 68.8% 保留原渔获。普通玩家执行 `/fishing sell` 出售主手整组矿石鱼，并连带背包主栏里同鱼种的其它非奖杯栈（体型档会把同一鱼种拆成几组互不堆叠的栈）；`/fishing sell all` 出售背包主栏里全部非奖杯矿石鱼。奖杯个体只在拿在主手执行 `/fishing sell` 时出售，副手不参与。收购价为基础价乘条数，与体型无关；一条命令合并成一笔入账，实发走既有全局每日信用点衰减。完整口径见 [Fisher_Job_DesignSpec.md](Fisher_Job_DesignSpec.md) 的玩家命令章。
 结算顺序与卖菜一致：**先扣鱼再入账**。`grantDaily` 的第一步就是把毛收入写进当日 faucet 计数器，
 所以「实发为零就保留鱼」会给计数器记下一笔从未成交的销售、并把衰减档位白推一格；现在深档实发为零也照常扣鱼，
-与卖菜「收购曲线到底仍算卖出」同口径，命令回执单独提示实发为零。入账抛异常时把鱼原样退回再重抛。
+与卖菜「收购曲线到底仍算卖出」同口径，命令回执单独提示实发为零。入账抛异常时把扣下的各栈连同体型标签原样退回再重抛。
 经济系统不可用时不扣不发、明确失败。鱼羹不参加该收购。
 
-待决（未闭合）：`/fishing sell` 目前**没有身份门**。卖菜有 `SELL_MIN_MASTERY_LEVEL` 这道反洗钱门，
+待决（未闭合）：`/fishing sell`（含 `/fishing sell all`）目前**没有身份门**。卖菜有 `SELL_MIN_MASTERY_LEVEL` 这道反洗钱门，
 本阶段渔夫职业身份尚未落地故无等级可依，矿石鱼又可自由堆叠转移 —— 跨账号把鱼集中给一人出售即可摊薄每日衰减。
 这与既有的跨账号洗额度结构性问题同源，须与经济总表一并定夺，不在本模块单独决策。
 该条已于 2026-09-19 登记为 PENDING 并裁决按现状合入，权威记录与后续处理路线（方向 A 职业门 / 方向 B 全服供给定价）
@@ -81,7 +81,7 @@ Rarity 取自 `OreFishType`，鱼与对应鱼羹共用同一档（`OreFishingIte
 
 当前环境无 Context7，第三方接口依据锁定 Minecraft 1.20.1 / Forge 47.3.0、Tide 1.6.5 和 Farmer's Delight 1.3.2 的本地映射 JAR、源码及字节码核验。不得将其它 Tide 版本视为已验证兼容。
 
-`TideOreFishMixin` 按 Tide 1.6.5 的 `retrieve` 签名与私有字段写死，故不放主 mixin 配置，单独进 `miningdim.compat.mixins.json`（`required=false`）。Mixin 0.8.5 的 `MixinProcessor.handleMixinError` 按配置的 `isRequired()` 决定抛 `MixinApplyError` 还是只记 WARN —— 玩家装上别的 Tide 版本时，非必需配置只会停用这一个 mixin（矿洞钓鱼退回原版路径），不会让整个服务端启动崩掉。
+`TideOreFishMixin` 按 Tide 1.6.5 的 `retrieve` 签名与私有字段写死，故不放主 mixin 配置，单独进 `miningdim.compat.mixins.json`（`required=false`）。Mixin 0.8.5 的 `MixinProcessor.handleMixinError` 按配置的 `isRequired()` 决定抛 `MixinApplyError` 还是只记 WARN —— 玩家装上别的 Tide 版本时，非必需配置只会停用这一个 mixin（Tide 自己的钓鱼流程照常工作，只是 Tide 钓竿的渔获既不替换出矿石鱼、也不做体型结算，因为 Tide 不发 `ItemFishedEvent`；原版钓竿路径不受影响），不会让整个服务端启动崩掉。
 
 测试使用根工程 Wrapper 与 JDK 17，分别验证未安装 Tide 和已安装 Tide/Cloth Config 两种服务端组合。只有日志明确出现 `All N required tests passed` 才可宣布通过。客户端物品显示、图鉴操作和完整钓鱼小游戏另需实机验收。
 

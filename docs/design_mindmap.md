@@ -213,9 +213,10 @@
 - Tide 桥接为可选:运行期存在 Tide 才接其 TideFishingHook,不硬依赖
 - 鱼类图鉴(journal):自建条目/目录/收藏快照 + 专用 SimpleChannel + 客户端面板,不复用 Tide 的图鉴解锁数据
 - 鱼汤(soup):矿物鱼汤物品 + 饮用效果
-- 出售:/fishing sell 卖主手整摞鱼,先扣后发(先扣鱼再入账,入账抛异常原样退回),并入全服信用点 faucet
+- 鱼种品质(quality):每个鱼种固定六档之一(普通/优良/稀有/史诗/传说/神话),由物品标签决定名字颜色;体型(size):每次成功钓获随机掷体长体重,分小/标准/大/奖杯四档,记个人钓获记录;两者都不改售价
+- 出售:/fishing sell 卖主手整摞鱼并连带背包里同鱼种的非奖杯栈,/fishing sell all 卖背包全部非奖杯矿石鱼;先扣后发(先扣鱼再入账,入账抛异常原样退回),并入全服信用点 faucet
 - 反洗钱缺口:/fishing sell 无身份门(农夫的精通 L2 门未跟进,见 Economy_BalanceSheet 第 6 条)
-- 对应 job/fisher 三子包,注册于 MiningDim 的 FishingSystem
+- 对应 job/fisher 五子包(journal/ore/soup/quality/size),注册于 MiningDim 的 FishingSystem
 
 ## 系统
 

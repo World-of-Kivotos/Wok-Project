@@ -23,10 +23,11 @@ public final class OreFishingItems {
         Map<OreFishType, RegistryObject<Item>> fish = new EnumMap<>(OreFishType.class);
         Map<OreFishType, RegistryObject<Item>> soups = new EnumMap<>(OreFishType.class);
         for (OreFishType type : OreFishType.values()) {
+            // 鱼羹不进品质标签, 名字颜色只来自这里: 跟随原料鱼的鱼种品质。
             fish.put(type, ITEMS.register(type.fishId(), () -> new OreFishItem(type,
-                    new Item.Properties().rarity(type.rarity()))));
+                    new Item.Properties().rarity(type.quality().rarity()))));
             soups.put(type, ITEMS.register(type.soupId(), () -> new OreFishSoupItem(type,
-                    new Item.Properties().stacksTo(16).craftRemainder(Items.BOWL).rarity(type.rarity())
+                    new Item.Properties().stacksTo(16).craftRemainder(Items.BOWL).rarity(type.quality().rarity())
                             .food(new FoodProperties.Builder().nutrition(8).saturationMod(0.6F).alwaysEat().build()))));
         }
         FISH = Collections.unmodifiableMap(fish);

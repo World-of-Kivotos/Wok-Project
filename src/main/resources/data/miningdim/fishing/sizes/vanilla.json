@@ -1,0 +1,8 @@
+{
+  "entries": [
+    { "item": "minecraft:cod", "min_cm": 30, "common_cm": 60, "max_cm": 130, "a": 0.0077, "b": 3.07 },
+    { "item": "minecraft:salmon", "min_cm": 40, "common_cm": 75, "max_cm": 120, "a": 0.0107, "b": 3.0 },
+    { "item": "minecraft:pufferfish", "min_cm": 10, "common_cm": 25, "max_cm": 45, "a": 0.03, "b": 2.95 },
+    { "item": "minecraft:tropical_fish", "min_cm": 5, "common_cm": 12, "max_cm": 30, "a": 0.02, "b": 3.0 }
+  ]
+}

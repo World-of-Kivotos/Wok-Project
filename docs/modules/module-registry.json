@@ -509,6 +509,7 @@
       ],
       "resourcePaths": [
         "data/miningdim/fishing",
+        "data/miningdim/tags/items/fish_quality",
         "data/miningdim/tags/items/ore_fish.json"
       ],
       "resourceNamePrefixes": [
@@ -530,7 +531,7 @@
         "tide"
       ],
       "publicEntry": "com.miningdim.job.fisher.FishingSystem",
-      "scope": "fishing journal, ore-fish catches and sales, and mining-dimension ore-fish soups"
+      "scope": "fishing journal, fish species quality tiers, per-catch fish size and catch records, ore-fish catches and sales, and mining-dimension ore-fish soups"
     },
     {
       "id": "wok-job-brewer",

@@ -2,6 +2,10 @@ package com.miningdim.job.fisher.journal.client;
 
 import com.miningdim.job.fisher.journal.FishingJournalEntry;
 import com.miningdim.job.fisher.journal.FishingJournalSnapshot;
+import com.miningdim.job.fisher.quality.FishQuality;
+import com.miningdim.job.fisher.size.FishRecord;
+import com.miningdim.job.fisher.size.FishSizeFormat;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -223,7 +227,7 @@ public final class FishingJournalScreen extends Screen {
             graphics.fill(layout.listX + 27, y + 5, layout.listX + 30, y + 17, statusColor);
             int available = Math.max(20, layout.listWidth - 41);
             String name = this.font.plainSubstrByWidth(stack.getHoverName().getString(), available);
-            graphics.drawString(this.font, name, layout.listX + 34, y + 3, known ? CREAM : MUTED, false);
+            graphics.drawString(this.font, name, layout.listX + 34, y + 3, known ? qualityColor(stack) : MUTED, false);
             Component status = Component.translatable(known
                     ? "screen.miningdim.fishing_journal.collected"
                     : "screen.miningdim.fishing_journal.missing");
@@ -245,7 +249,7 @@ public final class FishingJournalScreen extends Screen {
         ItemStack stack = stackFor(entry);
         graphics.renderItem(stack, x, y);
         graphics.drawString(this.font, this.font.plainSubstrByWidth(stack.getHoverName().getString(), width - 23),
-                x + 22, y + 3, CREAM, false);
+                x + 22, y + 3, qualityColor(stack), false);
         int contentY = y + (layout.compact ? 19 : 28);
         int bottom = layout.detailY + layout.detailHeight - 3;
         List<DetailLine> lines = detailLines(entry, width, layout.compact);
@@ -263,10 +267,45 @@ public final class FishingJournalScreen extends Screen {
         if (!compact) {
             lines.add(new DetailLine(Component.translatable("fishing.miningdim.category." + entry.category()).getVisualOrderText(), ACCENT));
         }
+        FishQuality quality = FishQuality.of(stackFor(entry));
+        if (quality != null) {
+            lines.add(new DetailLine(Component.translatable("screen.miningdim.fishing_journal.quality").getVisualOrderText(), ACCENT));
+            lines.add(new DetailLine(quality.displayName().getVisualOrderText(), argb(quality.color())));
+        }
         appendDetailSection(lines, width, "screen.miningdim.fishing_journal.description", entry.descriptionKey());
         appendDetailSection(lines, width, "screen.miningdim.fishing_journal.habitat", entry.habitatKey());
         appendDetailSection(lines, width, "screen.miningdim.fishing_journal.conditions", entry.conditionsKey());
+        appendRecordSection(lines, width, entry);
         return lines;
+    }
+
+    /** 亲手钓获记录; 与"已收录"无关 —— 交易或捡来的鱼会收录, 但没有钓获记录。 */
+    private void appendRecordSection(List<DetailLine> lines, int width, FishingJournalEntry entry) {
+        lines.add(new DetailLine(Component.translatable("screen.miningdim.fishing_journal.records").getVisualOrderText(), ACCENT));
+        FishRecord record = this.snapshot.records().get(entry.itemId());
+        if (record == null) {
+            lines.add(new DetailLine(Component.translatable("screen.miningdim.fishing_journal.records.none").getVisualOrderText(), MUTED));
+            return;
+        }
+        appendWrapped(lines, width, Component.translatable("screen.miningdim.fishing_journal.records.count", record.count()));
+        appendWrapped(lines, width, Component.translatable("screen.miningdim.fishing_journal.records.best",
+                FishSizeFormat.length(record.bestLengthMm()), FishSizeFormat.weight(record.bestWeightMg())));
+    }
+
+    private void appendWrapped(List<DetailLine> lines, int width, Component text) {
+        for (net.minecraft.util.FormattedCharSequence line : this.font.split(text, Math.max(20, width))) {
+            lines.add(new DetailLine(line, CREAM));
+        }
+    }
+
+    private static int qualityColor(ItemStack stack) {
+        FishQuality quality = FishQuality.of(stack);
+        return quality == null ? CREAM : argb(quality.color());
+    }
+
+    private static int argb(ChatFormatting formatting) {
+        Integer rgb = formatting.getColor();
+        return rgb == null ? CREAM : 0xFF000000 | rgb;
     }
 
     private void appendDetailSection(List<DetailLine> lines, int width, String labelKey, String valueKey) {

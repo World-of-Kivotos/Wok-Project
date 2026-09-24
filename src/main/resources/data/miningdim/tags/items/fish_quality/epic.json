@@ -1,0 +1,22 @@
+{
+  "replace": false,
+  "values": [
+    "miningdim:emerald_ore_fish",
+    { "id": "tide:aquathorn", "required": false },
+    { "id": "tide:birch_trout", "required": false },
+    { "id": "tide:crimson_fangjaw", "required": false },
+    { "id": "tide:dripstone_darter", "required": false },
+    { "id": "tide:fluttergill", "required": false },
+    { "id": "tide:frostbite_flounder", "required": false },
+    { "id": "tide:leafback", "required": false },
+    { "id": "tide:oakfish", "required": false },
+    { "id": "tide:pine_perch", "required": false },
+    { "id": "tide:prarie_pike", "required": false },
+    { "id": "tide:sandskipper", "required": false },
+    { "id": "tide:slimefin_snapper", "required": false },
+    { "id": "tide:soulscaler", "required": false },
+    { "id": "tide:stonefish", "required": false },
+    { "id": "tide:sunspike_goby", "required": false },
+    { "id": "tide:warped_guppy", "required": false }
+  ]
+}

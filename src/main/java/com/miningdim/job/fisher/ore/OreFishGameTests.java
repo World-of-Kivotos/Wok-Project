@@ -7,6 +7,9 @@ import com.miningdim.economy.EconomyServices;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.economy.SqliteEconomyLedger;
+import com.miningdim.job.fisher.size.FishMeasurement;
+import com.miningdim.job.fisher.size.FishSizeClass;
+import com.miningdim.job.fisher.size.FishSizeNbt;
 import com.miningdim.store.MiningDb;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
@@ -164,7 +167,7 @@ public final class OreFishGameTests {
             ItemStack soup = new ItemStack(OreFishingItems.SOUPS.get(OreFishType.GOLD).get(), 2);
             player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, soup);
             OreFishSellService.SellResult rejected = OreFishSellService.sellMainHand(player);
-            helper.assertTrue(rejected.invalidHeldItem() && soup.getCount() == 2,
+            helper.assertTrue(rejected.nothingToSell() && soup.getCount() == 2,
                     "鱼羹不得出售且主手物品不得被吞掉");
 
             EconomyServices.economyService().grantDaily(player, 600_000L,
@@ -184,6 +187,146 @@ public final class OreFishGameTests {
         } finally {
             restoreEconomy(previous);
             MiningDb.close(ledger.connection());
+        }
+    }
+
+    @GameTest(template = "empty", batch = "ore_fish")
+    public static void sellSweepsSizeClassesButLeavesTrophiesToTheMainHand(GameTestHelper helper) {
+        IEconomyService previous = currentEconomy();
+        SqliteEconomyLedger ledger = registerFreshEconomy();
+        try {
+            ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            player.getInventory().clearContent();
+            player.getInventory().selected = 0;
+            var inventory = player.getInventory();
+            inventory.setItem(0, sized(OreFishType.GOLD, 2, FishSizeClass.SMALL));
+            inventory.setItem(5, sized(OreFishType.GOLD, 3, FishSizeClass.STANDARD));
+            inventory.setItem(6, sized(OreFishType.GOLD, 1, FishSizeClass.LARGE));
+            inventory.setItem(7, sized(OreFishType.GOLD, 1, FishSizeClass.TROPHY));
+            inventory.setItem(8, sized(OreFishType.IRON, 4, FishSizeClass.STANDARD));
+            inventory.offhand.set(0, sized(OreFishType.GOLD, 5, FishSizeClass.STANDARD));
+
+            OreFishSellService.SellResult held = OreFishSellService.sellMainHand(player);
+            long goldPrice = DOCUMENTED_SELL_PRICES.get(OreFishType.GOLD);
+            helper.assertTrue(held.soldCount() == 6 && held.creditsGranted() == goldPrice * 6,
+                    "/fishing sell 卖主手鱼种的小/标准/大三档共 6 条, 实得 " + held.soldCount());
+            helper.assertTrue(inventory.getItem(0).isEmpty() && inventory.getItem(5).isEmpty() && inventory.getItem(6).isEmpty()
+                            && inventory.getItem(7).getCount() == 1 && inventory.getItem(8).getCount() == 4
+                            && inventory.offhand.get(0).getCount() == 5,
+                    "奖杯、其它鱼种与副手都不得被连带卖掉");
+
+            OreFishSellService.SellResult all = OreFishSellService.sellAll(player);
+            helper.assertTrue(all.soldCount() == 4 && inventory.getItem(8).isEmpty() && inventory.getItem(7).getCount() == 1,
+                    "/fishing sell all 卖全部非奖杯矿石鱼, 奖杯留在背包");
+            helper.assertTrue(OreFishSellService.sellAll(player).nothingToSell(),
+                    "只剩奖杯时批量出售无鱼可卖");
+
+            inventory.selected = 7;
+            OreFishSellService.SellResult trophy = OreFishSellService.sellMainHand(player);
+            helper.assertTrue(trophy.soldCount() == 1 && inventory.getItem(7).isEmpty(),
+                    "奖杯拿在主手上执行 /fishing sell 才会卖掉");
+            helper.succeed();
+        } finally {
+            restoreEconomy(previous);
+            MiningDb.close(ledger.connection());
+        }
+    }
+
+    @GameTest(template = "empty", batch = "ore_fish")
+    public static void failedPayoutRefundsTheExactSizedStacks(GameTestHelper helper) {
+        IEconomyService previous = currentEconomy();
+        EconomyServices.reset();
+        EconomyServices.registerEconomyService(new PayoutFailingEconomy());
+        try {
+            ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            player.getInventory().clearContent();
+            player.getInventory().selected = 0;
+            ItemStack large = sized(OreFishType.DIAMOND, 2, FishSizeClass.LARGE);
+            ItemStack standard = sized(OreFishType.DIAMOND, 3, FishSizeClass.STANDARD);
+            player.getInventory().setItem(0, large.copy());
+            player.getInventory().setItem(1, standard.copy());
+            boolean thrown = false;
+            try {
+                OreFishSellService.sellMainHand(player);
+            } catch (IllegalStateException expected) {
+                thrown = true;
+            }
+            int largeBack = 0;
+            int standardBack = 0;
+            for (ItemStack stack : player.getInventory().items) {
+                if (ItemStack.isSameItemSameTags(stack, large)) {
+                    largeBack += stack.getCount();
+                } else if (ItemStack.isSameItemSameTags(stack, standard)) {
+                    standardBack += stack.getCount();
+                }
+            }
+            helper.assertTrue(thrown && largeBack == 2 && standardBack == 3,
+                    "入账失败必须重抛, 并把扣下的栈连同体型标签原样退回");
+            helper.succeed();
+        } finally {
+            restoreEconomy(previous);
+        }
+    }
+
+    private static ItemStack sized(OreFishType type, int count, FishSizeClass sizeClass) {
+        ItemStack stack = new ItemStack(OreFishingItems.FISH.get(type).get(), count);
+        FishSizeNbt.stamp(stack, new FishMeasurement(400 + count, 900_000L + count, sizeClass),
+                UUID.randomUUID(), "Angler", count);
+        return stack;
+    }
+
+    /** 只在 grantDaily 上失败的替身, 用来走退款分支; 其余方法本用例不会调用。 */
+    private static final class PayoutFailingEconomy implements IEconomyService {
+        @Override
+        public long creditBalance(ServerPlayer player) {
+            return 0L;
+        }
+
+        @Override
+        public long heartstoneBalance(ServerPlayer player) {
+            return 0L;
+        }
+
+        @Override
+        public boolean tryCharge(ServerPlayer player, com.miningdim.economy.Currency currency, long amount) {
+            return false;
+        }
+
+        @Override
+        public void grant(ServerPlayer player, com.miningdim.economy.Currency currency, long amount) {
+            throw new IllegalStateException("grant is not expected in this test");
+        }
+
+        @Override
+        public boolean tryChargeDaily(ServerPlayer player, com.miningdim.economy.Currency currency, long amount,
+                                      String dailyKey, long dailyCap) {
+            return false;
+        }
+
+        @Override
+        public long settleOreSale(ServerPlayer player, com.miningdim.economy.EconomyConstants.HighValueOre ore,
+                                  int countSoFar, double basePrice) {
+            return 0L;
+        }
+
+        @Override
+        public int recordMinedOreDrops(ServerPlayer player, net.minecraft.world.level.block.Block block, int producedCount) {
+            return -1;
+        }
+
+        @Override
+        public long grantDaily(ServerPlayer player, long rawCredit, String faucetKey, long dailyCap) {
+            throw new IllegalStateException("simulated payout failure");
+        }
+
+        @Override
+        public long grantAzureDaily(ServerPlayer player, long amount, long dailyCap) {
+            return 0L;
+        }
+
+        @Override
+        public boolean isAfkFrozen(ServerPlayer player) {
+            return false;
         }
     }
 
@@ -262,7 +405,7 @@ public final class OreFishGameTests {
         return player;
     }
 
-    static Map<OreFishType, Integer> forceIronOnlyCatchWeight() {
+    public static Map<OreFishType, Integer> forceIronOnlyCatchWeight() {
         Map<OreFishType, Integer> original = new java.util.EnumMap<>(OreFishType.class);
         for (OreFishType type : OreFishType.values()) {
             original.put(type, OreFishingConfig.CATCH_WEIGHTS.get(type).get());
@@ -271,7 +414,7 @@ public final class OreFishGameTests {
         return original;
     }
 
-    static void restoreCatchWeights(Map<OreFishType, Integer> original) {
+    public static void restoreCatchWeights(Map<OreFishType, Integer> original) {
         for (OreFishType type : OreFishType.values()) {
             OreFishingConfig.CATCH_WEIGHTS.get(type).set(original.get(type));
         }

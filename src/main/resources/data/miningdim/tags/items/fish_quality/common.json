@@ -1,0 +1,22 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:cod",
+    "minecraft:salmon",
+    "minecraft:tropical_fish",
+    "miningdim:iron_ore_fish",
+    { "id": "tide:anglerfish", "required": false },
+    { "id": "tide:bass", "required": false },
+    { "id": "tide:bluegill", "required": false },
+    { "id": "tide:cave_crawler", "required": false },
+    { "id": "tide:cave_eel", "required": false },
+    { "id": "tide:glowfish", "required": false },
+    { "id": "tide:guppy", "required": false },
+    { "id": "tide:mackerel", "required": false },
+    { "id": "tide:mint_carp", "required": false },
+    { "id": "tide:ocean_perch", "required": false },
+    { "id": "tide:trout", "required": false },
+    { "id": "tide:tuna", "required": false },
+    { "id": "tide:yellow_perch", "required": false }
+  ]
+}

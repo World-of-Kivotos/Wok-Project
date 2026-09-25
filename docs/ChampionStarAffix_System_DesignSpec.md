@@ -340,6 +340,8 @@ AKM/M4A1 是地板枪，实际枪械梯度远高于这俩（含狙击/反器材/
 | 矿洞 困难（L8+） | 5-10★，深层保底高星 |
 | 世界 BOSS（8-10★） | 定点/事件触发，约 10 人挑战 |
 
+> 2026-09-26 服主拍板：**10★ 只由世界 BOSS 事件产生**，困难矿区自然刷出的上限改为 9★。代码尚未修改（当前 `ChampionSpawnPolicy` 会在困难难度随机刷出 10★，约占 2.5%），事件机制待另行设计。成就系统依赖这项改动，见 [Achievement_System_DesignSpec](Achievement_System_DesignSpec.md) 9.2 节。
+
 绑定 Miner spec 的难度分档（`Danger.evaluate` / L4 中等 / L8 困难）。升格概率按难度档：易 6% / 中 10% / 困难 15%（星级区间与升格率的唯一权威是 `ChampionSpawnPolicy`，区间相邻档刻意重叠以平滑难度梯度）。
 
 ---

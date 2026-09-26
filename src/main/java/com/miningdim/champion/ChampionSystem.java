@@ -26,6 +26,7 @@ import com.miningdim.champion.integration.ChampionTacticalBlinkHandler;
 import com.miningdim.champion.integration.ChampionThunderHandler;
 import com.miningdim.champion.integration.ChampionVisualDisruptionHandler;
 import com.miningdim.champion.integration.PlayerLandingProtection;
+import com.miningdim.champion.integration.WorldBossHandler;
 import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.core.Subsystem;
 import net.minecraft.world.entity.Entity;
@@ -102,11 +103,14 @@ public final class ChampionSystem implements Subsystem {
         // 批4 波3 压轴: 体型渲染/AABB (S2C 同步) + 灵体穿墙 (回退链实体化)。
         forgeBus.register(new ChampionSizeHandler());             // 体型: AABB 缩放 + 移速补偿 + 巨大化卡墙 blink
         forgeBus.register(new ChampionPhaseWalkHandler());        // 灵体移动: noPhysics 漂移 + 四级回退链
+        // 世界 BOSS: 被玩家击倒时全服公告输出排行 (HIGH 上 peek, 早于奖励 drain), 其余离场只写日志。
+        forgeBus.register(new WorldBossHandler());
 
         // 平板精英怪图鉴的 champion.codex / champion.inspect (进程级静态注册, 与事件总线无关)。
         ChampionWebUiActions.registerAll();
 
-        // 调试命令 /mchampion summon (取代已移除的 Champions /champions summon; OP 真服按需召唤指定星级+词条冠军)。
+        // /mchampion summon (取代已移除的 Champions /champions summon; OP 真服按需召唤指定星级+词条冠军) 与
+        // /mchampion worldboss (世界 BOSS 暂用指令刷, 出现时全服公告)。
         forgeBus.addListener(this::onRegisterCommands);
 
         LOGGER.info("[champion] self-hosted champion system registered (capability + spawn promoter + effect handlers, no Champions dependency)");
@@ -117,7 +121,7 @@ public final class ChampionSystem implements Subsystem {
         return "ChampionSystem";
     }
 
-    /** 注册 /mchampion 调试命令 (自研冠军按需召唤; 取代已移除的 Champions /champions summon)。 */
+    /** 注册 /mchampion 命令 (自研冠军按需召唤 summon + 世界 BOSS 召唤 worldboss)。 */
     private void onRegisterCommands(RegisterCommandsEvent event) {
         ChampionCommands.register(event.getDispatcher());
     }

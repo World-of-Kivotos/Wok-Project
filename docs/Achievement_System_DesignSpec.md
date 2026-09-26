@@ -225,6 +225,7 @@ com.miningdim.achievement
 - 发生在矿区维度内
 - 被击杀者带有 `MobInstanceTag`（由矿区实例生成）。这一条同时排除了 `/mchampion` 召唤的、刷怪笼刷出的怪
 - 精英类还要求 `isChampion()` 为真、`isSummonedByAffix()` 为假
+- **世界 BOSS 例外**（2026-09-26）：由 `/mchampion worldboss` 召唤的世界 BOSS（`WorldBoss.isWorldBoss`）在**任意维度**都计入精英击杀类统计和触发器，不要求 `MobInstanceTag`；其余判据（`isChampion`、非词条召唤物、在线的有效贡献者、挂机规则）照旧。普通 `/mchampion summon` 召唤的精英仍被排除。枪械击杀不适用这条例外，`gun_kills` 的口径仍是矿区怪物
 - 只统计在线的有效贡献者，读取 `ContributionTracker` 时只用 `peek()`，**不能用 `drain()`**，否则会抢走精英奖励处理器的数据
 - 挂机过滤只作用于计数类统计，不作用于一次性的成就
 
@@ -234,7 +235,8 @@ com.miningdim.achievement
 
 - 精英击杀钩子 `trigger.ChampionKillHooks` 挂在 `LivingDeathEvent` 的 `@HIGH`，不收已取消的事件。账本的所有者是精英模块的贡献池主结算 `ChampionRewardHandler`，它在默认优先级 `drain`；特勤奖励在 `@HIGHEST` 只 `peek`。`@HIGH` 正好晚于可能取消死亡的最高优先级处理，又早于清账。GameTest 在事件总线上验证：结算后账本已空，统计与成就却已经发出。
 - 有效贡献者按 `ContributionPool.isQualified` 判定，团队人均伤害取 `teamAverageEffectiveDamage`；在线判定用的是贡献池同一套"是否在玩家列表里"。精英的有效血量缺失（≤ 0）时整只跳过。
-- "攻击过的玩家"由钩子自己在 `LivingHurtEvent` 上记录，同样是 `@HIGHEST`、`receiveCanceled=true`，攻击方须是带实例标记的精英。精英死亡时摘掉这条记录；没死就消失的精英靠上限（1024 只）按最久未更新淘汰。精英一次没出手就被打死，也算独自击杀。
+- "攻击过的玩家"由钩子自己在 `LivingHurtEvent` 上记录，同样是 `@HIGHEST`、`receiveCanceled=true`，攻击方须是计入精英击杀的精英（带实例标记的矿区精英，或任意维度的世界 BOSS）。精英死亡时摘掉这条记录；没死就消失的精英靠上限（1024 只）按最久未更新淘汰。精英一次没出手就被打死，也算独自击杀。
+- 精英击杀的被击杀者判据是 `KillFilter.countsForChampionKills`：先查实例标记（含一次维度比较），再查世界 BOSS 标记（一次 capability 读取）。因为世界 BOSS 可能死在任何维度，精英击杀的两个钩子不再先按矿区维度早退；枪械击杀仍只用 `KillFilter.isInstanceMob`。
 - 输出占比的分母含全部贡献记录，离线者和不合格者也算在内。`fightTicks` 是死亡时刻减去账本里最早的首伤 tick，两者都取精英所在维度的 gameTime。
 - 枪械击杀的判定在 `trigger.GunKillHooks`，不引用 TaCZ。TaCZ 的 `EntityKillByGunEvent` 由 `trigger.TaczGunKillHooks` 翻译过来，只在 `ModList.isLoaded("tacz")` 时注册。射手是 FakePlayer 时不计。
 - 挂机判据读 `EconomyServices.economyService().isAfkFrozen`，经济门面尚未注入时按未冻结处理，与任务模块一致。
@@ -432,12 +434,12 @@ CREATE TABLE achievement_point_ledger (
 | `combat/star_6` | 首领讨伐 | 击倒 6 星及以上精英怪 | 金 | first_champion | `champion_kill{min_star=6}` | P1 | `minecraft:golden_sword` |
 | `combat/long_shot` | 百米狙杀 | 在水平距离 100 格以外用枪爆头击杀敌对生物 | 金 · 隐藏 | headshot_100 | `gun_kill{min_horizontal_distance=100, headshot=true}` | P1（TaCZ） | `minecraft:spyglass` |
 | `combat/star_7` | 星辰陨落 | 击倒 7 星及以上精英怪 | 白金 | star_6 | `champion_kill{min_star=7}` | P1 | `minecraft:netherite_sword` |
-| `combat/star_10` | 十星弑神 | 参与击倒 10 星**世界 BOSS**，个人输出不少于全队的 5% | 钻石（PENDING，按事件频率重新标定） | star_7 | `champion_kill{min_star=10, min_share=0.05}` | P1 触发器，**随世界 BOSS 事件开放** | `minecraft:dragon_head` |
+| `combat/star_10` | 十星弑神 | 参与击倒 10 星**世界 BOSS**，个人输出不少于全队的 5% | 钻石（PENDING，按事件频率重新标定） | star_7 | `champion_kill{min_star=10, min_share=0.05}` | P1，**已开放**（世界 BOSS 由 `/mchampion worldboss` 召唤） | `minecraft:dragon_head` |
 | `combat/solo_star_9` | 一人成军 | 15 分钟内**独自**击倒一只 9 星精英怪 | 传说 | star_7 | `champion_kill{min_star=9, solo=true, max_fight_ticks=18000}` | P1 | `minecraft:end_crystal` |
 
 **10 星改为事件触发的影响（2026-09-26 拍板）**：
-- 10 星精英只由世界 BOSS 事件产生（精英文档里的设计是约 10 人挑战），困难矿区自然刷出的上限改为 9 星。这是 `wok-champion` 的改动，**不在本模块范围内**，另立任务。
-- "十星弑神"改成"参与讨伐世界 BOSS 并贡献不少于 5% 输出"。在事件机制上线前这条成就无法达成，档位要等事件频率定下来后再重新标定。
+- 10 星精英只由世界 BOSS 产生（精英文档里的设计是约 10 人挑战），困难矿区自然刷出的上限改为 9 星。`wok-champion` 已实现（2026-09-26）：世界 BOSS 暂由管理员指令 `/mchampion worldboss` 召唤，出现和被玩家击倒时都会全服公告，详见精英文档第十章。
+- "十星弑神"改成"参与讨伐世界 BOSS 并贡献不少于 5% 输出"，已随指令召唤的世界 BOSS 开放：击杀过滤在任意维度接受世界 BOSS（6.4）。档位暂定钻石，等世界 BOSS 的出现频率定下来后再重新标定（第十四章第 8 项）。
 - 原先的"一人成军"要求独自击倒 10 星，世界 BOSS 本来就是按约 10 人设计的，一个人基本打不了，所以改为独自击倒 9 星，也就是自然刷出的最高星级。id 相应从 `solo_star_10` 改为 `solo_star_9`。
 
 ### 9.3 职业（21 条）
@@ -698,7 +700,7 @@ GameTest 放在 `com.miningdim.achievement`，使用 `testutil.TempStoreDb` 提�
 | 7 | 有效撤离的阈值：停留 6000 tick、至少 32 块、每日上限 5 次和 2 次（困难）（6.3 节） | DECIDED（2026-09-26） |
 | 8 | "十星弑神"的档位（取决于世界 BOSS 事件的频率） | PENDING |
 | 8b | "一人成军"改为独自击倒 9 星，传说档 | DECIDED（2026-09-26） |
-| 9 | 世界 BOSS 事件机制，以及困难矿区自然刷出上限改为 9 星，属于 `wok-champion` 的改动 | PENDING，另立任务 |
+| 9 | 世界 BOSS 事件机制，以及困难矿区自然刷出上限改为 9 星，属于 `wok-champion` 的改动 | DONE（2026-09-26）：自然上限 9 星；世界 BOSS 暂由 `/mchampion worldboss` 指令召唤，出现与被击倒都全服公告。定时或自动刷新的事件机制待定 |
 | 10 | `tide:midas_fish` 在生存模式下能否获得（决定是否计入图鉴大全） | TODO（实现期核实） |
 | 11 | 上线初期所有人的 `credits_earned` 都是 0，会压低市场计数成交额：是用账本历史预填，还是上线满 N 天后才启用买家封顶 | PENDING |
 | 12 | 离线模式下玩家 UUID 由用户名生成，改名等于换号，成就、成就点、称号都会丢失，和服务器上其他数据一样。需要运维方面的迁移方案 | PENDING（运维） |

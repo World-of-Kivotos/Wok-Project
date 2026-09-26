@@ -32,12 +32,14 @@ public final class MiningChampionData {
     private static final String NBT_AFFIXES = "affixes";
     private static final String NBT_SUMMONED = "summoned_by_affix";
     private static final String NBT_CURRENT_HP = "current_hp";
+    private static final String NBT_WORLD_BOSS = "world_boss";
 
     private int star = NOT_CHAMPION;
     private final EnumMap<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
     private double effectiveHp = 0.0D;
     private boolean summonedByAffix = false;
     private double currentHp = 0.0D;
+    private boolean worldBoss = false;
 
     /** 是否已被盖章为冠军 (star ∈ [1,10])。非冠军的默认 capability 恒 false。 */
     public boolean isChampion() {
@@ -93,6 +95,25 @@ public final class MiningChampionData {
     }
 
     /**
+     * 是否管理员召唤的世界 BOSS (ChampionStarAffix spec 第十章; 对外经 {@link WorldBoss#isWorldBoss} 读)。随 NBT
+     * 持久 —— 区块卸载重载、服务端重启后身份不丢, 击倒公告与成就的击杀过滤都认这个标记。
+     */
+    public boolean isWorldBoss() {
+        return worldBoss;
+    }
+
+    /**
+     * 盖章为世界 BOSS ({@link WorldBoss#spawn} 在 promote 之后调用; clear/重新 promote 会复位)。只有已盖章的冠军
+     * 才能标记: 非冠军不写 NBT, 标了也存不下来。
+     */
+    public void markWorldBoss() {
+        if (!isChampion()) {
+            throw new IllegalStateException("only a promoted champion can be marked as a world boss");
+        }
+        this.worldBoss = true;
+    }
+
+    /**
      * spawn 期盖章 (promoter 调用): 设星级 + 词条→品质 + 有效血。覆盖旧态 (重生/重复盖章防残留)。
      *
      * @param star           星级 (须 ∈ [1,10])
@@ -114,6 +135,7 @@ public final class MiningChampionData {
         this.affixes.putAll(newAffixes);
         this.effectiveHp = effectiveHp;
         this.summonedByAffix = false; // 重新盖章即普通冠军; 召唤物身份由 markSummonedByAffix 在 promote 后补盖。
+        this.worldBoss = false; // 世界 BOSS 身份同理, 由 markWorldBoss 在 promote 后补盖。
         this.currentHp = effectiveHp; // 新盖章的冠军恒为满血 (spawn 期/命令召唤同一入口, 无旧血量可延续)。
     }
 
@@ -124,6 +146,7 @@ public final class MiningChampionData {
         this.effectiveHp = 0.0D;
         this.summonedByAffix = false;
         this.currentHp = 0.0D;
+        this.worldBoss = false;
     }
 
     /**
@@ -156,6 +179,9 @@ public final class MiningChampionData {
         if (summonedByAffix) {
             tag.putBoolean(NBT_SUMMONED, true); // 仅召唤物写键 (普通冠军不膨胀 NBT)。
         }
+        if (worldBoss) {
+            tag.putBoolean(NBT_WORLD_BOSS, true); // 仅世界 BOSS 写键, 同上。
+        }
         CompoundTag affixTag = new CompoundTag();
         for (Map.Entry<AffixDef, AffixQuality> e : affixes.entrySet()) {
             affixTag.putInt(e.getKey().name(), e.getValue().ordinal());
@@ -184,6 +210,7 @@ public final class MiningChampionData {
         // 的"脏则整体回退非冠军/单条跳过"不同, 因为旧存档的冠军本身是合法态, 只是缺一个新引入的字段。
         this.currentHp = tag.contains(NBT_CURRENT_HP) ? tag.getDouble(NBT_CURRENT_HP) : this.effectiveHp;
         this.summonedByAffix = tag.getBoolean(NBT_SUMMONED);
+        this.worldBoss = tag.getBoolean(NBT_WORLD_BOSS);
         CompoundTag affixTag = tag.getCompound(NBT_AFFIXES);
         AffixQuality[] qualities = AffixQuality.values();
         for (String key : affixTag.getAllKeys()) {

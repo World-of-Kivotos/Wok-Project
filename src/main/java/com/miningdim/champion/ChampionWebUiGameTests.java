@@ -306,8 +306,8 @@ public final class ChampionWebUiGameTests {
                         && Math.abs(distribution.get(1).getAsJsonObject().get("promoteChance").getAsDouble() - 0.10D) < EPS
                         && Math.abs(distribution.get(2).getAsJsonObject().get("promoteChance").getAsDouble() - 0.15D) < EPS,
                 "三档升格率必须是 6% / 10% / 15%");
-        helper.assertTrue(distribution.get(2).getAsJsonObject().get("maxStar").getAsInt() == 10,
-                "HARD 才刷得出 10★ 世界 BOSS");
+        helper.assertTrue(distribution.get(2).getAsJsonObject().get("maxStar").getAsInt() == 9,
+                "HARD 自然刷出的上限是 9★ (10★ 只来自管理员召唤的世界 BOSS)");
         helper.succeed();
     }
 

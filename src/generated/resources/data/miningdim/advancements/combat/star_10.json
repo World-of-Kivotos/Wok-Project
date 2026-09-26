@@ -1,0 +1,55 @@
+{
+  "parent": "miningdim:combat/star_7",
+  "criteria": {
+    "defeated": {
+      "conditions": {
+        "min_share": 0.05,
+        "min_star": 10
+      },
+      "trigger": "miningdim:champion_kill"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.combat.star_10.desc"
+    },
+    "frame": "challenge",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:dragon_head"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#6FF2FF",
+          "text": "十"
+        },
+        {
+          "bold": true,
+          "color": "#7AC6FF",
+          "text": "星"
+        },
+        {
+          "bold": true,
+          "color": "#9CA9FF",
+          "text": "弑"
+        },
+        {
+          "bold": true,
+          "color": "#D59CFF",
+          "text": "神"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "defeated"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

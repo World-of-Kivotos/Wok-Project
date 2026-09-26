@@ -95,8 +95,8 @@ import java.util.UUID;
  * 不从 datagen 的声明表或 {@link AchievementTier} 反推 —— 否则声明写错、档位表写错时, 测试会跟着一起错。
  * 强断言 (删被测核心逻辑必挂):
  * <ol>
- *   <li>P1 的 29 条成就与 6 个页签根都按规格加载: 父节点、框体、公告、隐藏、Toast、图标、背景、触发器与标题颜色;
- *       依赖 TaCZ 的三条随加载条件出现或缺席; 随后续阶段开放的三条不存在;</li>
+ *   <li>P1 的 30 条成就与 6 个页签根都按规格加载: 父节点、框体、公告、隐藏、Toast、图标、背景、触发器与标题颜色;
+ *       依赖 TaCZ 的三条随加载条件出现或缺席; 随 P2 开放的两条不存在;</li>
  *   <li>每一条都有元数据, 点数取档位默认值, 附带称号与 9.8 一致;</li>
  *   <li>一致性校验在真实服务端上无问题, 并能逐条报出框体不符、隐藏却不公告、缺元数据、称号不存在四类构造出的错误;</li>
  *   <li>成就数量候选不含页签根与 meta 页签、含隐藏成就; 真实触发器经 mock 玩家的原版监听授予真实进度, 计数随之而变;</li>
@@ -123,7 +123,7 @@ public final class AchievementFoundationGameTests {
             "master", new TierSpec(FrameType.CHALLENGE, true, 400, 0xA55CFF, 0xE05CFF, 0xFF5CB8),
             "legend", new TierSpec(FrameType.CHALLENGE, true, 800, 0xFF3D3D, 0xFF8A1F, 0xFFD23F));
 
-    /** 第九章 P1 的 29 条与 9.7 的 6 个页签根; 称号按 9.8 (称号 id 与成就 id 相同)。 */
+    /** 第九章 P1 的 30 条与 9.7 的 6 个页签根; 称号按 9.8 (称号 id 与成就 id 相同)。 */
     private static final List<Expected> EXPECTED = List.of(
             root("mining", "minecraft:deepslate_iron_ore", "deepslate"),
             root("combat", "minecraft:shield", "blackstone"),
@@ -172,6 +172,8 @@ public final class AchievementFoundationGameTests {
             row("combat/long_shot", "gold", "combat/headshot_100", "minecraft:spyglass", "miningdim:gun_kill")
                     .hidden().tacz().titled(),
             row("combat/star_7", "platinum", "combat/star_6", "minecraft:netherite_sword", "miningdim:champion_kill"),
+            row("combat/star_10", "diamond", "combat/star_7", "minecraft:dragon_head", "miningdim:champion_kill")
+                    .titled(),
             row("combat/solo_star_9", "legend", "combat/star_7", "minecraft:end_crystal", "miningdim:champion_kill")
                     .titled(),
             row("profession/ore_soup_in_mine", "bronze", "profession/root", "miningdim:iron_ore_fish_soup",
@@ -183,8 +185,8 @@ public final class AchievementFoundationGameTests {
                     "miningdim:open_shared_backpack"),
             row("meta/count_10", "silver", "meta/root", "minecraft:amethyst_shard", "miningdim:achievement_count"));
 
-    /** 规格里有、但不在 P1 里生成的成就 (随世界 BOSS 事件、随 P2 开放)。 */
-    private static final List<String> NOT_YET_OPEN = List.of("combat/star_10", "meta/count_25", "meta/count_40");
+    /** 规格里有、但不在 P1 里生成的成就 (随 P2 开放)。 */
+    private static final List<String> NOT_YET_OPEN = List.of("meta/count_25", "meta/count_40");
 
     private AchievementFoundationGameTests() {
     }
@@ -196,8 +198,8 @@ public final class AchievementFoundationGameTests {
         MinecraftServer server = helper.getLevel().getServer();
         boolean tacz = ModList.get().isLoaded(TACZ);
         JsonObject zh = readLang("zh_cn");
-        helper.assertTrue(EXPECTED.size() == 35 && EXPECTED.stream().filter(e -> e.tier != null).count() == 29,
-                "期望表应为 29 条 P1 成就 + 6 个页签根");
+        helper.assertTrue(EXPECTED.size() == 36 && EXPECTED.stream().filter(e -> e.tier != null).count() == 30,
+                "期望表应为 30 条 P1 成就 + 6 个页签根");
 
         for (Expected expected : EXPECTED) {
             ResourceLocation id = AchievementIds.id(expected.path);
@@ -254,7 +256,7 @@ public final class AchievementFoundationGameTests {
         }
         long loaded = server.getAdvancements().getAllAdvancements().stream()
                 .filter(advancement -> AchievementIds.isAchievement(advancement.getId())).count();
-        int expectedLoaded = tacz ? 35 : 32;
+        int expectedLoaded = tacz ? 36 : 33;
         helper.assertTrue(loaded == expectedLoaded,
                 "miningdim 命名空间下 (配方以外) 应恰好加载 " + expectedLoaded + " 个进度, 实为 " + loaded);
         helper.succeed();
@@ -290,8 +292,8 @@ public final class AchievementFoundationGameTests {
             helper.assertTrue(catalog.isRewarding(id), id + " 有成就点, 获得后应产生待领取奖励");
             totalPoints += points;
         }
-        // 铜 10 条 x10 + 银 8 条 x25 + 金 6 条 x50 + 白金 2 条 x100 + 钻石、大师、传说各 1 条 = 2200。
-        helper.assertTrue(totalPoints == 2200, "P1 29 条成就的默认点数合计应为 2200, 实为 " + totalPoints);
+        // 铜 10 条 x10 + 银 8 条 x25 + 金 6 条 x50 + 白金 2 条 x100 + 钻石 2 条 x200 + 大师、传说各 1 条 = 2400。
+        helper.assertTrue(totalPoints == 2400, "P1 30 条成就的默认点数合计应为 2400, 实为 " + totalPoints);
         helper.assertTrue(catalog.metas().size() == EXPECTED.size(),
                 "数据包里应恰好有 " + EXPECTED.size() + " 份成就元数据, 实为 " + catalog.metas().size());
         helper.succeed();
@@ -331,7 +333,7 @@ public final class AchievementFoundationGameTests {
         ConsistencyReport live = AchievementConsistency.check(server.getAdvancements().getAllAdvancements(),
                 AchievementServices.catalog().metas(), AchievementConsistency::titleDefined);
         helper.assertTrue(live.isClean(), "真实服务端上的成就应当一致, 实报 " + live.problems());
-        helper.assertTrue(live.checked() == (tacz ? 35 : 32), "应核对全部本模块进度, 实为 " + live.checked());
+        helper.assertTrue(live.checked() == (tacz ? 36 : 33), "应核对全部本模块进度, 实为 " + live.checked());
         List<ResourceLocation> gated = tacz ? List.of() : List.of(AchievementIds.id("combat/gun_100"),
                 AchievementIds.id("combat/headshot_100"), AchievementIds.id("combat/long_shot"));
         helper.assertTrue(live.metaWithoutAdvancement().equals(gated),
@@ -401,7 +403,7 @@ public final class AchievementFoundationGameTests {
         }
         helper.assertTrue(new TreeSet<>(countable).equals(expected),
                 "成就数量候选应为 P1 里页签根与 meta 页签以外、已加载的成就 (" + expected.size() + " 条), 实为 " + countable);
-        helper.assertTrue(countable.size() == (tacz ? 28 : 25), "计数池应为 " + (tacz ? 28 : 25) + " 条");
+        helper.assertTrue(countable.size() == (tacz ? 29 : 26), "计数池应为 " + (tacz ? 29 : 26) + " 条");
         helper.assertTrue(countable.contains(AchievementIds.id("mining/trap_sprung")), "隐藏成就应计入成就数量");
         helper.assertTrue(countable.stream().noneMatch(id -> id.getPath().startsWith("recipes/")
                         || id.getPath().endsWith("/root") || id.getPath().startsWith("meta/")),
@@ -449,6 +451,7 @@ public final class AchievementFoundationGameTests {
                 assertDone(helper, player, path, true);
             }
             assertDone(helper, player, "combat/giant_slayer", false);
+            assertDone(helper, player, "combat/star_10", false);
 
             // 处决: 真实的伤害标签 + entity_killed_player。反震伤害不在标签里, 不能算处决。
             Zombie champion = helper.spawn(EntityType.ZOMBIE, 1, 2, 1);

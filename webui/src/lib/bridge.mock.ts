@@ -5004,7 +5004,7 @@ function mockChampionCodex(): ChampionCodexResult {
   const distribution: ChampionDistributionRow[] = [
     { difficulty: 'EASY', configName: 'easy', promoteChance: 0.06, minStar: 1, maxStar: 3 },
     { difficulty: 'MEDIUM', configName: 'medium', promoteChance: 0.1, minStar: 3, maxStar: 6 },
-    { difficulty: 'HARD', configName: 'hard', promoteChance: 0.15, minStar: 5, maxStar: 10 },
+    { difficulty: 'HARD', configName: 'hard', promoteChance: 0.15, minStar: 5, maxStar: 9 },
   ]
   return {
     customBloodPoolMinStar: 6,

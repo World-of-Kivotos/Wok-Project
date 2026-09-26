@@ -27,12 +27,16 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 自研精英怪调试命令 (取代已移除的 Champions {@code /champions summon})。OP (level 2) 专用, 供真服测试按需召唤指定
- * 星级 + 词条的自研冠军 (自然刷靠矿洞 {@code MobPressureSystem} 难度掷取, 命令则精准点名)。
+ * 自研精英怪命令 (取代已移除的 Champions {@code /champions summon})。OP (level 2) 专用: 真服测试按需召唤指定星级 +
+ * 词条的自研冠军 (自然刷靠矿洞 {@code MobPressureSystem} 难度掷取, 命令则精准点名), 以及召唤世界 BOSS。
  *
  * {@code /mchampion summon <entity> <star>} —— 召唤该实体升格为该星冠军, 词条按 {@link AffixRoller} 四池预算掷取。
  * {@code /mchampion summon <entity> <star> <affixes>} —— 词条显式指定 (空格分隔枚举名, 大小写不敏感, 支持
  *   {@code champions:} 前缀历史写法), 品质按星兜底 ({@link ChampionAffixState#defaultQualityFor}); 调试可越互斥/预算。
+ *   summon 必须由玩家执行, 落在玩家前方 2 格。
+ * {@code /mchampion worldboss <entity> <star 8-10> [affixes]} —— 召唤世界 BOSS ({@link WorldBoss}; 服主 2026-09-26
+ *   拍板世界 BOSS 暂用指令刷, 出现时全服提示)。词条参数与 summon 同一套解析; 落在命令源的位置与维度, 不要求执行者是
+ *   玩家: 控制台用 {@code execute in <维度> positioned <x y z> run mchampion worldboss ...}, 命令方块落在方块处。
  *
  * 盖章唯一入口 {@link ChampionPromoter#applyChampion} (与自然升格共用: 写 {@link MiningChampions} capability + 接管
  * 基础血量, 6★+ 建血池)。命令只做参数解析 + 建实体 + 委派, 不碰任何 Champions 类。
@@ -55,6 +59,14 @@ public final class ChampionCommands {
                                         .executes(ctx -> summon(ctx, null))
                                         .then(Commands.argument("affixes", StringArgumentType.greedyString())
                                                 .executes(ctx -> summon(ctx,
+                                                        StringArgumentType.getString(ctx, "affixes")))))))
+                .then(Commands.literal("worldboss")
+                        .then(Commands.argument("entity", ResourceLocationArgument.id())
+                                .then(Commands.argument("star",
+                                                IntegerArgumentType.integer(WorldBoss.MIN_STAR, StarRank.MAX_STAR))
+                                        .executes(ctx -> worldBoss(ctx, null))
+                                        .then(Commands.argument("affixes", StringArgumentType.greedyString())
+                                                .executes(ctx -> worldBoss(ctx,
                                                         StringArgumentType.getString(ctx, "affixes")))))));
         dispatcher.register(root);
     }
@@ -65,42 +77,16 @@ public final class ChampionCommands {
         ServerPlayer player = src.getPlayerOrException();
         ServerLevel level = (ServerLevel) player.level();
         int star = IntegerArgumentType.getInteger(ctx, "star");
-        StarRank rank = StarRank.ofStar(star);
-
         ResourceLocation id = ResourceLocationArgument.getId(ctx, "entity");
-        EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(id);
-        if (type == null) {
-            src.sendFailure(Component.literal("未知实体类型: " + id));
-            return 0;
+        Mob mob = createMob(src, level, id);
+        if (mob == null) {
+            return 0; // 已 sendFailure。
         }
-        Entity entity = type.create(level);
-        if (!(entity instanceof Mob mob)) {
-            if (entity != null) {
-                entity.discard();
-            }
-            src.sendFailure(Component.literal("该实体不是 Mob, 无法升格为冠军: " + id));
-            return 0;
-        }
-
-        Map<AffixDef, AffixQuality> affixMap;
-        if (affixArg == null || affixArg.isBlank()) {
-            // 自动掷取与自然生成同口径 (spec 9A.4 审查修复): 非白名单异形实体剔除 SIZE 族改抽同池,
-            // 不给末影龙/蜘蛛这类实体静默掷出体型词条 (显式指定路径才是调试特权, 见下分支)。
-            affixMap = rollAffixes(rank, level.getRandom(), SizeAffixEligibility.isEligible(id.toString()));
-        } else {
-            affixMap = parseAffixes(affixArg, rank, src);
-            if (affixMap == null) {
-                mob.discard();
-                return 0; // 解析失败已 sendFailure。
-            }
-            // spec 9A.4: 体型词条仅白名单人形碰撞箱实体可 roll。命令显式路径可越白名单 (与越互斥/预算同属调试特权,
-            // 见类 javadoc), 但对非白名单实体回执提示 —— 自然生成时该体型词条会被 roller 剔除改抽同池等成本词条,
-            // 不会真附身异形; 命令强制附加仅供调试观察。
-            if (!SizeAffixEligibility.isEligible(id.toString()) && containsSizeAffix(affixMap)) {
-                src.sendSuccess(() -> Component.literal(
-                        "提示: " + id + " 非体型词条白名单实体 (spec 9A.4), 自然生成会改抽同池等成本词条; 命令已强制附加仅供调试"),
-                        false);
-            }
+        Map<AffixDef, AffixQuality> affixMap = resolveAffixes(src, id, StarRank.ofStar(star), level.getRandom(),
+                affixArg);
+        if (affixMap == null) {
+            mob.discard();
+            return 0; // 解析失败已 sendFailure。
         }
 
         // 落点: 玩家前方 2 格 (同高度)。
@@ -113,10 +99,78 @@ public final class ChampionCommands {
         // 盖章 (自然升格共用入口: cap + 血量 + 6★+ 血池)。
         ChampionPromoter.applyChampion(mob, star, affixMap);
 
-        Map<AffixDef, AffixQuality> shown = affixMap;
         src.sendSuccess(() -> Component.literal(
-                "已召唤 " + star + "star 冠军 " + id + " 词条=" + shown.keySet()), true);
+                "已召唤 " + star + "star 冠军 " + id + " 词条=" + affixMap.keySet()), true);
         return 1;
+    }
+
+    /**
+     * 召唤世界 BOSS: 落在命令源的位置与维度 (玩家、控制台 execute positioned、命令方块都行), 盖章 + 打世界 BOSS 标记 +
+     * 全服公告全部交给 {@link WorldBoss#spawn}。affixArg=null 走 roll, 非空走解析指定。
+     */
+    private static int worldBoss(CommandContext<CommandSourceStack> ctx, String affixArg) {
+        CommandSourceStack src = ctx.getSource();
+        ServerLevel level = src.getLevel();
+        int star = IntegerArgumentType.getInteger(ctx, "star");
+        ResourceLocation id = ResourceLocationArgument.getId(ctx, "entity");
+        Mob mob = createMob(src, level, id);
+        if (mob == null) {
+            return 0; // 已 sendFailure。
+        }
+        Map<AffixDef, AffixQuality> affixMap = resolveAffixes(src, id, StarRank.ofStar(star), level.getRandom(),
+                affixArg);
+        if (affixMap == null) {
+            mob.discard();
+            return 0; // 解析失败已 sendFailure。
+        }
+        if (!WorldBoss.spawn(level, mob, src.getPosition(), src.getRotation().y, star, affixMap)) {
+            src.sendFailure(Component.literal("世界 BOSS 未能进入世界 (入世被拒), 未发全服公告: " + id));
+            return 0;
+        }
+        String where = level.dimension().location() + " " + mob.blockPosition().toShortString();
+        src.sendSuccess(() -> Component.literal(
+                "已召唤 " + star + "star 世界 BOSS " + id + " 于 " + where + " 词条=" + affixMap.keySet()), true);
+        return 1;
+    }
+
+    /** 按实体 id 建一只尚未入世的 Mob; 未知类型 / 非 Mob 时 sendFailure 并返回 null。 */
+    private static Mob createMob(CommandSourceStack src, ServerLevel level, ResourceLocation id) {
+        EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(id);
+        if (type == null) {
+            src.sendFailure(Component.literal("未知实体类型: " + id));
+            return null;
+        }
+        Entity entity = type.create(level);
+        if (!(entity instanceof Mob mob)) {
+            if (entity != null) {
+                entity.discard();
+            }
+            src.sendFailure(Component.literal("该实体不是 Mob, 无法升格为冠军: " + id));
+            return null;
+        }
+        return mob;
+    }
+
+    /**
+     * 定词条: affixArg 为 null/空白时按星四池预算掷取, 否则按名字解析 (解析失败已 sendFailure, 返回 null)。
+     */
+    private static Map<AffixDef, AffixQuality> resolveAffixes(CommandSourceStack src, ResourceLocation id,
+                                                              StarRank rank, RandomSource rng, String affixArg) {
+        if (affixArg == null || affixArg.isBlank()) {
+            // 自动掷取与自然生成同口径 (spec 9A.4 审查修复): 非白名单异形实体剔除 SIZE 族改抽同池,
+            // 不给末影龙/蜘蛛这类实体静默掷出体型词条 (显式指定路径才是调试特权, 见下分支)。
+            return rollAffixes(rank, rng, SizeAffixEligibility.isEligible(id.toString()));
+        }
+        Map<AffixDef, AffixQuality> affixMap = parseAffixes(affixArg, rank, src);
+        // spec 9A.4: 体型词条仅白名单人形碰撞箱实体可 roll。命令显式路径可越白名单 (与越互斥/预算同属调试特权,
+        // 见类 javadoc), 但对非白名单实体回执提示 —— 自然生成时该体型词条会被 roller 剔除改抽同池等成本词条,
+        // 不会真附身异形; 命令强制附加仅供调试观察。
+        if (affixMap != null && !SizeAffixEligibility.isEligible(id.toString()) && containsSizeAffix(affixMap)) {
+            src.sendSuccess(() -> Component.literal(
+                    "提示: " + id + " 非体型词条白名单实体 (spec 9A.4), 自然生成会改抽同池等成本词条; 命令已强制附加仅供调试"),
+                    false);
+        }
+        return affixMap;
     }
 
     /** 按星四池预算掷取词条 -> def→品质 (sizeEligible=false 剔除 SIZE 族, 与自然生成同口径)。 */

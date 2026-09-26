@@ -53,8 +53,8 @@ import static com.miningdim.achievement.tier.AchievementTier.SILVER;
  * 首批成就的 P1 部分 (Achievement_System_DesignSpec 第九章、第十三章 P1 行) 与六个页签根 (9.7), 是 datagen 的唯一
  * 声明表。
  *
- * <p>不在本表里的: {@code combat/star_10} 随世界 BOSS 事件开放 (触发器已能表达), {@code meta/count_25} 与
- * {@code meta/count_40} 随 P2 开放, 其余 P2 成就等各模块的监听接口 (9.10) 落地后再加。
+ * <p>不在本表里的: {@code meta/count_25} 与 {@code meta/count_40} 随 P2 开放, 其余 P2 成就等各模块的监听接口 (9.10)
+ * 落地后再加。
  *
  * <p>物品图标与条件里的物品按 id 从注册表取, 不直接引用各职业模块的物品类, 免得为了一个图标在模块间多出一条依赖;
  * 取不到时 datagen 直接失败。
@@ -141,7 +141,10 @@ final class AchievementDeclarations {
                         AchievementStats.MINING_HARD_ACTIVE_TICKS.get(), 7_200_000)).build());
     }
 
-    /** 9.2 战斗, 除随世界 BOSS 事件开放的 combat/star_10 以外的 10 条。 */
+    /**
+     * 9.2 战斗, 11 条。{@code combat/star_10} 只能在世界 BOSS 身上达成: 10 星精英只由管理员命令
+     * {@code /mchampion worldboss} 召唤, 困难矿区自然刷出的上限是 9 星。
+     */
     private static void addCombat(List<AchievementDeclaration> all) {
         all.add(achievement("combat/first_champion", BRONZE, "combat/root", Items.IRON_SWORD)
                 .criterion("defeated", ChampionKillTrigger.TriggerInstance.minStar(1)).build());
@@ -167,6 +170,8 @@ final class AchievementDeclarations {
                 .criterion("shot", GunKillTrigger.TriggerInstance.headshotBeyond(100.0D)).build());
         all.add(achievement("combat/star_7", PLATINUM, "combat/star_6", Items.NETHERITE_SWORD)
                 .criterion("defeated", ChampionKillTrigger.TriggerInstance.minStar(7)).build());
+        all.add(achievement("combat/star_10", DIAMOND, "combat/star_7", Items.DRAGON_HEAD).withTitle()
+                .criterion("defeated", ChampionKillTrigger.TriggerInstance.minStarWithShare(10, 0.05D)).build());
         all.add(achievement("combat/solo_star_9", LEGEND, "combat/star_7", Items.END_CRYSTAL).withTitle()
                 .criterion("defeated", ChampionKillTrigger.TriggerInstance.soloWithin(9, 18_000L)).build());
     }

@@ -13,11 +13,11 @@ import net.minecraftforge.gametest.PrefixGameTestTemplate;
 import java.util.EnumMap;
 
 /**
- * 枪匠属性缓存守卫 (V04)。
+ * 枪匠属性缓存守卫 (V04) 与连发末轮耐久 (V20)。
  *
  * dev GameTest 不加载 TaCZ, 本类不 import 任何 com.tacz.* 类型: 缓存对象用普通 Object 代替 (守卫只按对象身份认它),
- * 枪用铁锄装配出的枪匠 NBT 代替, TaCZ 的枪 NBT 键直接写字面量。TaCZ 开火链本身 (GunShootEvent 触发重建)
- * 在真服手测。
+ * 枪用铁锄装配出的枪匠 NBT 代替, TaCZ 的枪 NBT 键直接写字面量。TaCZ 开火链本身 (GunShootEvent 触发重建、
+ * GunFireEvent 逐轮结算) 在真服手测。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -139,6 +139,103 @@ public final class GunsmithStatsCacheGameTests {
         helper.assertTrue(GunsmithTaczCacheGuard.needsRebuild(cache, skinned, true),
                 "客户端: 皮肤不同的枪不在逐发字段之列, 必须重建");
         helper.succeed();
+    }
+
+    // ============================================================
+    // V20: TaCZ 连发每一轮先抛 GunFireEvent、后 reduceAmmoOnce, 弹匣打空后的那一轮也会抛事件。
+    // 耐久只按真正射出的发数扣。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void roundFeedsFollowsTaczReduceAmmoOnce(GameTestHelper helper) {
+        GunsmithTaczDurabilityHandler.BoltAction closed = GunsmithTaczDurabilityHandler.BoltAction.CLOSED_BOLT;
+        GunsmithTaczDurabilityHandler.BoltAction open = GunsmithTaczDurabilityHandler.BoltAction.OPEN_BOLT;
+        GunsmithTaczDurabilityHandler.BoltAction manual = GunsmithTaczDurabilityHandler.BoltAction.MANUAL_ACTION;
+
+        // 闭膛: 弹匣有弹吃弹匣, 弹匣空了打膛内那一发, 都空才是空转轮。
+        helper.assertTrue(GunsmithTaczDurabilityHandler.roundFeeds(true, closed, true, false, false, 1),
+                "闭膛: 弹匣 1 + 膛内 1 能射出");
+        helper.assertTrue(GunsmithTaczDurabilityHandler.roundFeeds(true, closed, false, false, false, 1),
+                "闭膛: 只剩弹匣 1 发也能射出");
+        helper.assertTrue(GunsmithTaczDurabilityHandler.roundFeeds(true, closed, true, false, false, 0),
+                "闭膛: 弹匣空但膛内有弹能射出");
+        helper.assertFalse(GunsmithTaczDurabilityHandler.roundFeeds(true, closed, false, false, false, 0),
+                "闭膛: 弹匣与膛内都空是空转轮");
+        // 开膛: 只看弹匣, 膛内标记不算数。
+        helper.assertTrue(GunsmithTaczDurabilityHandler.roundFeeds(true, open, false, false, false, 1),
+                "开膛: 弹匣有弹能射出");
+        helper.assertFalse(GunsmithTaczDurabilityHandler.roundFeeds(true, open, true, false, false, 0),
+                "开膛: 弹匣空时膛内标记不算数");
+        // 手动枪机: 只看膛内。
+        helper.assertTrue(GunsmithTaczDurabilityHandler.roundFeeds(true, manual, true, false, false, 0),
+                "手动枪机: 膛内有弹能射出");
+        helper.assertFalse(GunsmithTaczDurabilityHandler.roundFeeds(true, manual, false, false, false, 5),
+                "手动枪机: 膛内没弹时弹匣有弹也打不出");
+        // 背包供弹: 看背包有没有弹, 不看弹匣余量。
+        helper.assertTrue(GunsmithTaczDurabilityHandler.roundFeeds(true, closed, false, true, true, 0),
+                "背包供弹闭膛: 背包有弹能射出");
+        helper.assertFalse(GunsmithTaczDurabilityHandler.roundFeeds(true, closed, false, true, false, 30),
+                "背包供弹闭膛: 背包没弹、膛内也空时弹匣数字不算数");
+        helper.assertTrue(GunsmithTaczDurabilityHandler.roundFeeds(true, closed, true, true, false, 0),
+                "背包供弹闭膛: 背包没弹但膛内有弹仍能射出");
+        helper.assertFalse(GunsmithTaczDurabilityHandler.roundFeeds(true, open, false, true, false, 30),
+                "背包供弹开膛: 背包没弹是空转轮");
+        // 不消耗弹药 (创造模式等): TaCZ 不调 reduceAmmoOnce, 每轮都射出。
+        helper.assertTrue(GunsmithTaczDurabilityHandler.roundFeeds(false, closed, false, false, false, 0),
+                "不消耗弹药时每一轮都会射出");
+        helper.assertTrue(GunsmithTaczDurabilityHandler.roundFeeds(false, null, false, false, false, 0),
+                "不消耗弹药时连枪机类型都不看");
+        // 查不到枪机类型: TaCZ reduceAmmoOnce 直接返回 false。
+        helper.assertFalse(GunsmithTaczDurabilityHandler.roundFeeds(true, null, true, false, false, 30),
+                "消耗弹药但查不到枪机类型时 TaCZ 不会射出");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void burstTailOnlyWearsTheRoundsThatActuallyFire(GameTestHelper helper) {
+        // 弹匣 1 + 膛内 1: 三连发只射出 2 发, 修复前扣 3 点。
+        assertBurstWear(helper, 1, true, 2, "弹匣 1 + 膛内 1");
+        // 只剩膛内 1 发: 射出 1 发, 修复前扣 2 点 (第 3 轮不会执行)。
+        assertBurstWear(helper, 0, true, 1, "只剩膛内 1 发");
+        // 弹药充足: 三发都射出, 照常扣 3 点。
+        assertBurstWear(helper, 29, true, 3, "弹药充足");
+        helper.succeed();
+    }
+
+    private static void assertBurstWear(GameTestHelper helper, int magazine, boolean barrel,
+                                        int expectedFired, String label) {
+        ItemStack gun = m4WithAllParts(GunsmithPartQuality.COMMON);
+        int before = GunsmithGunDurability.view(gun).current();
+        int fired = closedBoltBurst(gun, magazine, barrel, 3);
+        int worn = before - GunsmithGunDurability.view(gun).current();
+        helper.assertTrue(fired == expectedFired,
+                label + ": 三连发应射出 " + expectedFired + " 发, 实得 " + fired);
+        helper.assertTrue(worn == fired,
+                label + ": 耐久必须按实际射出的发数扣, 射出 " + fired + " 发却扣了 " + worn + " 点");
+    }
+
+    /**
+     * 按 TaCZ 1.1.8 ModernKineticGunScriptAPI.lambda$shootOnce$2 的顺序走一次闭膛连发: 每一轮先抛 GunFireEvent
+     * (处理器在这里判定本轮能否射出并结算耐久), 再 reduceAmmoOnce (闭膛先吃弹匣、弹匣空了打膛内、都空返回 false
+     * 结束循环)。弹药推进在这里按 TaCZ 独立手写, 不复用被测判定, 以免自证。
+     */
+    private static int closedBoltBurst(ItemStack gun, int magazine, boolean barrel, int burstCount) {
+        int fired = 0;
+        for (int round = 0; round < burstCount; round++) {
+            if (GunsmithTaczDurabilityHandler.roundFeeds(true,
+                    GunsmithTaczDurabilityHandler.BoltAction.CLOSED_BOLT, barrel, false, false, magazine)) {
+                GunsmithGunDurability.consumeShot(gun);
+            }
+            if (magazine > 0) {
+                magazine--;
+            } else if (barrel) {
+                barrel = false;
+            } else {
+                break;
+            }
+            fired++;
+        }
+        return fired;
     }
 
     /** 补上 TaCZ 枪 NBT 的几个键 (GunItemDataAccessor 的键名), 让比对面对的是真实形态的枪。 */

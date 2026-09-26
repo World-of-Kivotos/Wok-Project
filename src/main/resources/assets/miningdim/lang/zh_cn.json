@@ -724,6 +724,7 @@
   "message.miningdim.gunsmith_press.output_blocked": "请先取走中间的成品。",
   "message.miningdim.gunsmith_press.missing_materials": "材料不足，无法开始冲压。",
   "message.miningdim.gunsmith_press.unsupported_part": "当前平台不支持所选部件。",
+  "message.miningdim.gunsmith_press.platform_no_blueprint": "%s平台还没有可装配的图纸，暂不开放冲压。",
   "message.miningdim.gunsmith_press.quality_locked": "该零件品质需要军火商 %s 级。",
   "message.miningdim.gunsmith_press.rarity_locked": "该组件型号需要军火商 %s 级。",
   "message.miningdim.m4_template.use_assembly_bench": "请将图纸放入枪械装配台。",

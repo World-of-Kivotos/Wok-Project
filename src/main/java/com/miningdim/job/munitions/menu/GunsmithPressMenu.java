@@ -105,12 +105,12 @@ public final class GunsmithPressMenu extends AbstractMiningMenu {
                     && blockEntity.trySelectQuality(qualityIndex, serverPlayer);
         }
         if (id == BUTTON_START_PREVIEW) {
-            return blockEntity.tryStartPreview(serverPlayer);
+            return blockEntity.tryStartPress(serverPlayer);
         }
         if (inRange(id, BUTTON_PLATFORM_BASE, BUTTON_PLATFORM_CAPACITY)) {
             int platformIndex = id - BUTTON_PLATFORM_BASE;
             return platformIndex < GunsmithPlatform.values().length
-                    && blockEntity.trySelectPlatform(platformIndex);
+                    && blockEntity.trySelectPlatform(platformIndex, serverPlayer);
         }
         if (inRange(id, BUTTON_VARIANT_BASE, BUTTON_VARIANT_CAPACITY)) {
             int variantIndex = id - BUTTON_VARIANT_BASE;

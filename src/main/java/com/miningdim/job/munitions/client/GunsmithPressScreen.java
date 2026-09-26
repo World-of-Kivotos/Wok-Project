@@ -639,12 +639,20 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
         return platformPartName(platform, part) + " " + tr(quality.labelKey());
     }
 
+    /**
+     * 没有任何图纸的平台 (BULLPUP/MACHINE_GUN 等) 服务端会拒 (裁决 24), 箭头直接跳过它们,
+     * 否则玩家会卡在拒绝提示上翻不到后面的平台。
+     */
     private int shiftedPlatformIndex(int delta) {
         int count = GunsmithPlatform.values().length;
-        if (count <= 1) {
-            return menu.selectedPlatformIndex();
+        int index = menu.selectedPlatformIndex();
+        for (int step = 0; step < count; step++) {
+            index = Math.floorMod(index + delta, count);
+            if (GunsmithPressBlockEntity.platformHasBlueprint(GunsmithPlatform.byIndex(index))) {
+                return index;
+            }
         }
-        return Math.floorMod(menu.selectedPlatformIndex() + delta, count);
+        return menu.selectedPlatformIndex();
     }
 
     private void drawScaledText(GuiGraphics graphics, String value, float x, float y, int argb, float scale) {

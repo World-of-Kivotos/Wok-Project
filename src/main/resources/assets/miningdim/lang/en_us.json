@@ -723,6 +723,7 @@
   "message.miningdim.gunsmith_press.output_blocked": "Take the finished part from the center first.",
   "message.miningdim.gunsmith_press.missing_materials": "Not enough materials to start stamping.",
   "message.miningdim.gunsmith_press.unsupported_part": "The selected part is not supported by this platform.",
+  "message.miningdim.gunsmith_press.platform_no_blueprint": "No blueprint uses the %s platform yet, so its parts cannot be pressed.",
   "message.miningdim.gunsmith_press.quality_locked": "This part quality requires Munitions level %s.",
   "message.miningdim.gunsmith_press.rarity_locked": "This component model requires Munitions level %s.",
   "message.miningdim.m4_template.use_assembly_bench": "Insert this blueprint into the firearm assembly bench.",

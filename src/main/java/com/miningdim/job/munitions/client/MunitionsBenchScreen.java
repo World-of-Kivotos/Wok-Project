@@ -970,6 +970,9 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
     private static int ammoProfileRow(MunitionsCaliber caliber) {
         return switch (caliber) {
             case RIFLE_556 -> 9;
+            // 贴图只有 10 行 (index 0-9); 追加的口径借同档弹型那一行, 不落到 min(8) 兜底的特种弹行。
+            case PISTOL_45ACP -> MunitionsCaliber.PISTOL.index();
+            case SNIPER_3006, SNIPER_792, SNIPER_303 -> MunitionsCaliber.SNIPER.index();
             default -> Math.max(0, Math.min(8, caliber.index()));
         };
     }
@@ -1028,6 +1031,10 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
             case EXPLOSIVE -> "40mm 40 m 爆炸 榴弹 火箭弹 rpg explosive grenade";
             case SPECIAL -> "68x51 68x51fury 特种 特种弹 special fury";
             case RIFLE_556 -> "556 556x45 5.56 5.56x45 步枪 步枪弹 rifle";
+            case PISTOL_45ACP -> "45 45acp .45 acp 手枪 冲锋枪 手枪弹 m1911 ump45 pistol smg";
+            case SNIPER_3006 -> "3006 30-06 30_06 .30-06 狙击 狙击弹 m700 sniper";
+            case SNIPER_792 -> "792 792x57 7.92 7.92x57 毛瑟 狙击 狙击弹 kar98k kar98 sniper mauser";
+            case SNIPER_303 -> "303 .303 british0x303 英制 狙击 狙击弹 smle lee enfield sniper";
         };
     }
 

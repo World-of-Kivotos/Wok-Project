@@ -18,12 +18,14 @@ import net.minecraftforge.fml.ModList;
  *  - GameTest 经 {@link #registerMaterializer} 注入替身后可安全调用 {@link #materialize} (不再落进 com.tacz.* 路径);
  *    未注入替身时仍不得调用本类任何方法, 真造弹在正式服 (TACZ 已加载) 验。
  *
- * 真 AmmoId: ResourceLocation(tacz, &lt;caliber path&gt;), path 取自 {@link MunitionsCaliber#defaultAmmoPath()}
- * (来源 TACZ 默认枪包 data/tacz/index/ammo/*.json, 24 口径 javap+unzip 核实)。
+ * 真 AmmoId: ResourceLocation(&lt;caliber namespace&gt;, &lt;caliber path&gt;), 命名空间取自
+ * {@link MunitionsCaliber#ammoNamespace()} (默认 tacz, .303 为 lavender), path 取自
+ * {@link MunitionsCaliber#defaultAmmoPath()} (来源 TACZ 默认枪包 data/tacz/index/ammo/*.json, 24 口径 javap+unzip 核实;
+ * lavender 枪包 data/lavender/index/ammo/british0x303.json)。
  */
 public final class MunitionsAmmoFactory {
 
-    /** TACZ modid (ModList isLoaded 短路 + recipe_filter datapack 命名空间)。 */
+    /** TACZ modid (ModList isLoaded 短路; 也是 data/tacz/recipe_filters/default.json 并入 tacz:default 过滤器的命名空间)。 */
     public static final String TACZ_MODID = "tacz";
 
     /**
@@ -52,7 +54,7 @@ public final class MunitionsAmmoFactory {
      * {@link #materializer} (默认 {@link #materializeWithTacz}), GameTest 可经 {@link #registerMaterializer}
      * 替换成返回原版物品的替身。
      *
-     * @param caliber 目标口径 (取 defaultAmmoPath 构造 AmmoId; null 返回 EMPTY)
+     * @param caliber 目标口径 (取 ammoNamespace + defaultAmmoPath 构造 AmmoId; null 返回 EMPTY)
      * @param count   产出发数 (>=1; 受弹药 stack_size 上限约束, 调用方按需分栈)
      * @return 物化后的 ItemStack; TACZ 未加载 / 非法入参返回 EMPTY
      */
@@ -83,7 +85,7 @@ public final class MunitionsAmmoFactory {
         if (caliber == null || count <= 0 || !isTaczLoaded()) {
             return ItemStack.EMPTY;
         }
-        ResourceLocation ammoId = new ResourceLocation(MunitionsCaliber.TACZ_NAMESPACE, caliber.defaultAmmoPath());
+        ResourceLocation ammoId = new ResourceLocation(caliber.ammoNamespace(), caliber.defaultAmmoPath());
         return buildTaczAmmo(ammoId, count);
     }
 

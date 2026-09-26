@@ -12,11 +12,13 @@ import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
@@ -358,7 +360,8 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
     /**
      * 上锁的台只许台主或 OP 拆 (V09): 锁原先只拦 GUI, 谁都能一斧头把别人的台连料带弹拆掉。
      * 生存挖掘在这里把进度压成 0 (服务端判不到挖完, 客户端预测的破坏随包确认回滚, 也不白耗工具耐久);
-     * 创造模式不看挖掘进度, 由 {@link #onDestroyedByPlayer} 兜住。爆炸/指令等非玩家移除不受影响。
+     * 创造模式不看挖掘进度, 由 {@link #onDestroyedByPlayer} 兜住。爆炸与实体破坏由 {@link #getExplosionResistance}
+     * 和 {@link #canEntityDestroy} 兜住; 指令 (/setblock、/fill) 本就要 OP, 不拦。
      */
     @Override
     public float getDestroyProgress(BlockState state, Player player, BlockGetter level, BlockPos pos) {
@@ -377,12 +380,45 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
         return super.onDestroyedByPlayer(state, level, pos, player, willHarvest, fluid);
     }
 
+    /**
+     * 上锁的台同样扛住爆炸 (V09 复审): 锁若只拦玩家挖掘, TNT、苦力怕、HE 弹药 (测试端 ExplosiveAmmoDestroysBlock=true)、
+     * 发电机熔毁 (复用同一套抗爆判定) 照样能把台炸掉, 而 {@link #onRemove} 会把料和缓冲弹药撒在原地 —— 新生成的
+     * 掉落物不吃本次爆炸的伤害, 爆炸就成了绕过锁偷料偷弹。所以上锁时两半都报基岩级抗爆: 只炸副格也不行, 副格没了
+     * 主格会经 {@link #updateShape} 级联变 AIR, 照样走 onRemove 掉落。抗爆跟着主格 BE 的锁走, 解锁即回到锻造台原值,
+     * 照常可炸可掉落。代价: 上锁的台对身后方块有基岩同等的挡爆效果。
+     */
+    @Override
+    public float getExplosionResistance(BlockState state, BlockGetter level, BlockPos pos, Explosion explosion) {
+        if (lockedBench(state, level, pos) != null) {
+            return Blocks.BEDROCK.getExplosionResistance();
+        }
+        return super.getExplosionResistance(state, level, pos, explosion);
+    }
+
+    /**
+     * 凋灵本体撞方块、末影龙穿墙走的是这条判定而不是抗爆; 蓝色凋灵头颅更是在这里放行时把抗爆直接压到 0.8
+     * ({@code WitherSkull.getBlockExplosionResistance}), 只改 {@link #getExplosionResistance} 拦不住。上锁时一律不许。
+     */
+    @Override
+    public boolean canEntityDestroy(BlockState state, BlockGetter level, BlockPos pos, Entity entity) {
+        if (lockedBench(state, level, pos) != null) {
+            return false;
+        }
+        return super.canEntityDestroy(state, level, pos, entity);
+    }
+
     /** 未上锁 (或找不到主格 BE) 时人人可拆; 上锁时仅台主或 OP。锁状态只在服务端权威, 客户端侧恒放行。 */
     private static boolean mayPlayerBreak(BlockState state, BlockGetter level, BlockPos pos, Player player) {
-        if (!(level.getBlockEntity(mainPos(pos, state)) instanceof MunitionsBenchBlockEntity be) || !be.isLocked()) {
-            return true;
-        }
-        return be.isOwner(player) || player.hasPermissions(2);
+        MunitionsBenchBlockEntity be = lockedBench(state, level, pos);
+        return be == null || be.isOwner(player) || player.hasPermissions(2);
+    }
+
+    /** 按主格 BE 查锁 (副格经 {@link #mainPos} 指回主格): 已上锁返回该 BE; 未上锁或找不到主格 BE 返回 null。 */
+    @Nullable
+    private static MunitionsBenchBlockEntity lockedBench(BlockState state, BlockGetter level, BlockPos pos) {
+        return level.getBlockEntity(mainPos(pos, state)) instanceof MunitionsBenchBlockEntity be && be.isLocked()
+                ? be
+                : null;
     }
 
     @Override

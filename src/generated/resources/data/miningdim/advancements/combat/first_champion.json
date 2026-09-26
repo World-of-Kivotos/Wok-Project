@@ -1,0 +1,35 @@
+{
+  "parent": "miningdim:combat/root",
+  "criteria": {
+    "defeated": {
+      "conditions": {
+        "min_star": 1
+      },
+      "trigger": "miningdim:champion_kill"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.combat.first_champion.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:iron_sword",
+      "nbt": "{Damage:0}"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#C8834A",
+      "translate": "achievement.miningdim.combat.first_champion.title"
+    }
+  },
+  "requirements": [
+    [
+      "defeated"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

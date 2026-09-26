@@ -263,8 +263,51 @@ public final class MiningSchema {
                     + "locked INTEGER NOT NULL DEFAULT 0, "
                     + "locked_by TEXT)");
 
+    /**
+     * 版本 7: 成就模块 (wok-achievement) 的待领取奖励、成就点余额、成就点流水 (结构见
+     * docs/Achievement_System_DesignSpec.md 7.2) 与统计项每日上限计数 (6.1)。
+     *
+     * achievement_reward 以 (player_uuid, advancement_id) 为主键, 这条主键就是防重键: 管理员撤销进度后再次授予,
+     * 写入按主键忽略, 不会重复发奖; claimed_at 为 NULL 表示待领取。tier / points / title_id 是获得那一刻的元数据
+     * 快照, 之后调整数值不影响已产生的记录。achievement_points 一人一行, lifetime 只增不减。
+     * achievement_point_ledger 只追加、不删改 (撤销进度也不收回已领取的奖励, 流水里保留原记录)。
+     *
+     * achievement_daily_counter 记"某玩家某计数键在某个 UTC 纪元日已经计了几次", 主键 (玩家, 键, 天), 结构参照 V2 的
+     * daily_counters, 但把日期放进主键: 每天一行, 判断上限与加一可以在一条 upsert 里完成, 不需要先读后写。
+     *
+     * 奖励、余额与每日计数的读取全部按 player_uuid 过滤, 主键的最左列即覆盖这条访问路径; 流水当前只写不读 (审计用),
+     * 因此都不另建索引。与 V6 同理, 只能在末尾追加。
+     */
+    private static final List<String> V7 = List.of(
+            "CREATE TABLE achievement_reward ("
+                    + "player_uuid TEXT NOT NULL, "
+                    + "advancement_id TEXT NOT NULL, "
+                    + "tier TEXT NOT NULL, "
+                    + "points INTEGER NOT NULL, "
+                    + "title_id TEXT, "
+                    + "earned_at INTEGER NOT NULL, "
+                    + "claimed_at INTEGER, "
+                    + "PRIMARY KEY (player_uuid, advancement_id))",
+            "CREATE TABLE achievement_points ("
+                    + "player_uuid TEXT PRIMARY KEY, "
+                    + "balance INTEGER NOT NULL, "
+                    + "lifetime INTEGER NOT NULL)",
+            "CREATE TABLE achievement_point_ledger ("
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    + "player_uuid TEXT NOT NULL, "
+                    + "delta INTEGER NOT NULL, "
+                    + "reason TEXT NOT NULL, "
+                    + "ref TEXT, "
+                    + "at INTEGER NOT NULL)",
+            "CREATE TABLE achievement_daily_counter ("
+                    + "player_uuid TEXT NOT NULL, "
+                    + "counter_key TEXT NOT NULL, "
+                    + "day INTEGER NOT NULL, "
+                    + "count INTEGER NOT NULL, "
+                    + "PRIMARY KEY (player_uuid, counter_key, day))");
+
     /** 全部迁移, 下标 + 1 即其版本号。 */
-    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3, V4, V5, V6);
+    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3, V4, V5, V6, V7);
 
     /** 把连接上的库推进到本版代码支持的最新结构。 */
     public static void apply(Connection conn) {

@@ -192,6 +192,11 @@ public final class MiningDim {
         // 26c. 自研附魔: 金钱修补 (装备在身自动花信用点补耐久, 与原版经济修补互斥, 只由任务奖励发书)。
         //      维修费经 EconomyServices 门面扣, 但只在玩家 tick 触达, register 期不碰经济层, 对顺序不敏感。
         subsystems.add(new com.miningdim.enchant.EnchantmentSystem());
+        // 26d. 成就系统 (成就即原版进度): 七档档位 + 自定义统计项与触发器 + 元数据加载与一致性校验 + 查询快照
+        //      (AchievementServices, 开服完成与每次 /reload 后重建) + 统一库奖励 / 成就点 / 每日计数 (MiningSchema V7)
+        //      + 进度与元数据的 datagen。依赖称号门面发放称号, 须排在 TitleSystem 与 QuestSystem 之后、Web UI 客户端
+        //      外壳之前 (Achievement_System_DesignSpec 第二章)。
+        subsystems.add(new com.miningdim.achievement.AchievementSystem());
         // 27. Web UI 客户端外壳 (MCEF 浏览器/Screen/路由): register 内全部客户端逻辑用 DistExecutor.unsafeRunWhenOn
         //     (Dist.CLIENT) + 双箭头 () -> () -> ... 关进 client-only lambda, 故主类无条件加入列表即可 (服务端 GameTest
         //     进程不 classload MCEF, 不崩)。注意必须是 unsafeRunWhenOn 而非 safeRunWhenOn —— 后者触 SafeReferent

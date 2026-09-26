@@ -1,0 +1,41 @@
+{
+  "parent": "miningdim:combat/first_champion",
+  "criteria": {
+    "executed": {
+      "conditions": {
+        "killing_blow": {
+          "tags": [
+            {
+              "expected": true,
+              "id": "miningdim:is_champion_execution"
+            }
+          ]
+        }
+      },
+      "trigger": "minecraft:entity_killed_player"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.combat.executed.desc"
+    },
+    "frame": "task",
+    "hidden": true,
+    "icon": {
+      "item": "minecraft:wither_skeleton_skull"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#C8834A",
+      "translate": "achievement.miningdim.combat.executed.title"
+    }
+  },
+  "requirements": [
+    [
+      "executed"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

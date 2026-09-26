@@ -1,0 +1,45 @@
+{
+  "parent": "miningdim:mining/first_entry",
+  "criteria": {
+    "opened": {
+      "conditions": {
+        "loot_table": "minecraft:chests/simple_dungeon",
+        "player": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "location": {
+                "dimension": "miningdim:mining"
+              }
+            }
+          }
+        ]
+      },
+      "trigger": "minecraft:player_generates_container_loot"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.mining.dungeon_chest.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:chest"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#D0D7DE",
+      "translate": "achievement.miningdim.mining.dungeon_chest.title"
+    }
+  },
+  "requirements": [
+    [
+      "opened"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

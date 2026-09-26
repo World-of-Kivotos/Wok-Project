@@ -773,6 +773,44 @@
       "optionalIntegrations": []
     },
     {
+      "id": "wok-achievement",
+      "name": "WOK-成就模块",
+      "category": "gameplay",
+      "javaPackagePrefixes": [
+        "com.miningdim.achievement"
+      ],
+      "currentPaths": [
+        "achievement"
+      ],
+      "resourcePaths": [
+        "data/miningdim/tags/damage_type/is_champion_execution.json"
+      ],
+      "resourceNamePrefixes": [],
+      "generatedResourcePaths": [
+        "data/miningdim/advancements/mining",
+        "data/miningdim/advancements/combat",
+        "data/miningdim/advancements/profession",
+        "data/miningdim/advancements/economy",
+        "data/miningdim/advancements/social",
+        "data/miningdim/advancements/meta",
+        "data/miningdim/achievement_meta"
+      ],
+      "dependencies": [
+        "wok-core",
+        "wok-store",
+        "wok-title",
+        "wok-mining",
+        "wok-champion",
+        "wok-economy"
+      ],
+      "optionalIntegrations": [
+        "tacz",
+        "sqlite-jdbc"
+      ],
+      "publicEntry": "com.miningdim.achievement.AchievementServices",
+      "scope": "achievements as vanilla advancements: seven tiers driving frame, announcement and title colour via datagen, achievement meta with runtime consistency check, custom stats and criterion triggers fed by mining trip, counted break, trap, champion kill, gun kill, marriage and achievement count hooks, SQLite pending rewards, point balance, point ledger and daily stat caps, atomic reward claiming with achievement titles, and the /machievement player and admin commands"
+    },
+    {
       "id": "wok-app",
       "name": "WOK-综合装配模块",
       "category": "assembly",
@@ -817,7 +855,8 @@
         "wok-champion",
         "wok-marriage",
         "wok-case-opening",
-        "wok-stacking"
+        "wok-stacking",
+        "wok-achievement"
       ],
       "optionalIntegrations": []
     }

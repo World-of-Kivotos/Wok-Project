@@ -1,0 +1,41 @@
+{
+  "parent": "miningdim:combat/gun_100",
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "tacz"
+    }
+  ],
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "stat": "miningdim:gun_headshot_kills",
+        "value": 100
+      },
+      "trigger": "miningdim:stat_at_least"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.combat.headshot_100.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:target"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#D0D7DE",
+      "translate": "achievement.miningdim.combat.headshot_100.title"
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

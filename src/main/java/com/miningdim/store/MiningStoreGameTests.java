@@ -151,7 +151,9 @@ public final class MiningStoreGameTests {
             for (String table : List.of("meta", "listings", "transactions", "pending_payout",
                     "base_values", "case_openings", "skin_assets",
                     "wallets", "bundle_operations", "daily_counters",
-                    "title_owned", "title_equipped", "title_sponsor", "title_custom")) {
+                    "title_owned", "title_equipped", "title_sponsor", "title_custom",
+                    "achievement_reward", "achievement_points", "achievement_point_ledger",
+                    "achievement_daily_counter")) {
                 helper.assertTrue(SchemaMigrator.tableExists(conn, table), "统一库缺表: " + table);
             }
         } finally {
@@ -570,6 +572,79 @@ public final class MiningStoreGameTests {
                     "升级不得改动既有持有行");
             helper.assertTrue("miningdim:mining/ore_codex".equals(
                     singleText(conn, "SELECT title_id FROM title_equipped" + playerFilter)), "升级不得改动既有佩戴行");
+        } finally {
+            MiningDb.close(conn);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 停在 V6 的库 (称号模块 P1.5 落地时的最新版) 升级时补跑 V7, 建出成就模块的四张表, 既有称号行逐值保留。
+     * 新表的约束逐条钉住: achievement_reward 的 (玩家, 进度) 主键是"撤销后再授予不重复发奖"的全部依据;
+     * claimed_at 与 title_id 可为 NULL (待领取、无称号); achievement_points 一人一行;
+     * achievement_point_ledger 的 id 自增; achievement_daily_counter 以 (玩家, 键, 天) 为主键, 不同的天各占一行。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void databaseStoppedAtV6GetsAchievementTablesOnUpgradeWithoutLosingTitleRows(GameTestHelper helper) {
+        Connection conn = MiningDb.openInMemory();
+        try {
+            SchemaMigrator.migrate(conn, MiningSchema.MIGRATIONS.subList(0, 6));
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == 6,
+                    "停在 V6 的库 user_version 必须是 6, 实为 " + SchemaMigrator.userVersion(conn));
+            List<String> achievementTables = List.of("achievement_reward", "achievement_points",
+                    "achievement_point_ledger", "achievement_daily_counter");
+            for (String table : achievementTables) {
+                helper.assertTrue(!SchemaMigrator.tableExists(conn, table), "V6 库里不应已有 " + table + " 表");
+            }
+            exec(conn, "INSERT INTO title_sponsor (player_uuid, granted_by, granted_at, expires_at) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 'op', 42, NULL)");
+
+            MiningSchema.apply(conn);
+
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == MiningSchema.MIGRATIONS.size(),
+                    "升级后 user_version 必须推进到迁移总数 " + MiningSchema.MIGRATIONS.size()
+                            + ", 实为 " + SchemaMigrator.userVersion(conn));
+            for (String table : achievementTables) {
+                helper.assertTrue(SchemaMigrator.tableExists(conn, table), "升级后必须建出 " + table);
+            }
+            String playerFilter = " WHERE player_uuid='" + LEGACY_PAYOUT_SELLER_ID + "'";
+            helper.assertTrue(singleLong(conn, "SELECT granted_at FROM title_sponsor" + playerFilter) == 42L,
+                    "升级不得改动既有赞助资格行");
+
+            exec(conn, "INSERT INTO achievement_reward (player_uuid, advancement_id, tier, points, title_id, earned_at)"
+                    + " VALUES ('" + LEGACY_PAYOUT_SELLER_ID + "', 'miningdim:mining/first_entry', 'bronze', 10, "
+                    + "NULL, 1)");
+            helper.assertTrue(singleText(conn, "SELECT claimed_at FROM achievement_reward" + playerFilter) == null
+                            && singleText(conn, "SELECT title_id FROM achievement_reward" + playerFilter) == null,
+                    "待领取奖励的 claimed_at 与无称号时的 title_id 必须能存 NULL");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO achievement_reward "
+                            + "(player_uuid, advancement_id, tier, points, earned_at) VALUES ('"
+                            + LEGACY_PAYOUT_SELLER_ID + "', 'miningdim:mining/first_entry', 'bronze', 10, 2)"),
+                    "achievement_reward 的 (player_uuid, advancement_id) 主键必须拒绝重复奖励");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO achievement_reward "
+                            + "(player_uuid, advancement_id, points, earned_at) VALUES ('other', 'x:y', 10, 2)"),
+                    "achievement_reward.tier 必须 NOT NULL");
+
+            exec(conn, "INSERT INTO achievement_points (player_uuid, balance, lifetime) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 10, 10)");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO achievement_points (player_uuid, balance, lifetime) "
+                    + "VALUES ('" + LEGACY_PAYOUT_SELLER_ID + "', 1, 1)"), "achievement_points 一人一行");
+
+            exec(conn, "INSERT INTO achievement_point_ledger (player_uuid, delta, reason, ref, at) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 10, 'claim', 'miningdim:mining/first_entry', 3)");
+            exec(conn, "INSERT INTO achievement_point_ledger (player_uuid, delta, reason, ref, at) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', -5, 'admin', NULL, 4)");
+            helper.assertTrue(singleLong(conn, "SELECT MAX(id) FROM achievement_point_ledger") == 2L,
+                    "流水 id 应自增");
+
+            exec(conn, "INSERT INTO achievement_daily_counter (player_uuid, counter_key, day, count) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 'mining_extraction', 100, 1)");
+            exec(conn, "INSERT INTO achievement_daily_counter (player_uuid, counter_key, day, count) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 'mining_extraction', 101, 1)");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO achievement_daily_counter "
+                            + "(player_uuid, counter_key, day, count) VALUES ('" + LEGACY_PAYOUT_SELLER_ID
+                            + "', 'mining_extraction', 100, 2)"),
+                    "achievement_daily_counter 的 (玩家, 键, 天) 主键必须拒绝同一天的第二行");
         } finally {
             MiningDb.close(conn);
         }

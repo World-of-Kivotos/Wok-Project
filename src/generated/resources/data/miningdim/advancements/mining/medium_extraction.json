@@ -1,0 +1,34 @@
+{
+  "parent": "miningdim:mining/first_extraction",
+  "criteria": {
+    "extracted": {
+      "conditions": {
+        "difficulty": "medium"
+      },
+      "trigger": "miningdim:mining_extraction"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.mining.medium_extraction.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:entrance_medium"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#D0D7DE",
+      "translate": "achievement.miningdim.mining.medium_extraction.title"
+    }
+  },
+  "requirements": [
+    [
+      "extracted"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

@@ -4,7 +4,7 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 
 所有权的唯一真源是 `module-registry.json`：每个模块用 `resourcePaths`（目录或单文件，路径相对 `src/main/resources`）和 `resourceNamePrefixes`（文件名前缀，可跨目录生效）声明自己的资源；物理共享文件登记在顶层 `sharedResources`。`verifyModuleBoundaries` 会遍历 `src/main/resources` 下的每一个文件，先按路径匹配、再按文件名前缀匹配，两者都不命中且不在共享清单里就直接判失败；同时反向检查每条 `resourceNamePrefixes` 至少命中一个文件，防止清单里留下已经没人用的死前缀。因此资源所有权不再是纯文档承诺——把贴图改名或新增一个无前缀的文件，构建会立刻红。
 
-校验范围只到 `src/main/resources`：`build.gradle` 把 `src/generated/resources` 也挂进了 main 资源源集、会一并打进 JAR，但校验器的资源根写死在 `src/main/resources`，不遍历这棵生成树。按本表现有规则回算，生成树的 328 个文件里有 80 个（七矿的方块状态、方块模型与物品模型等）既不匹配任何 `resourcePaths`/`resourceNamePrefixes`，也不在 `sharedResources` 里，处于无主且构建不会变红的状态。datagen 产出的资源目前只能人工归口；把校验器的资源根扩成两棵树、或补齐电力模块缺失的矿石前缀，都要单独立项，不在本文承诺范围内。
+校验范围只到 `src/main/resources`：`build.gradle` 把 `src/generated/resources` 也挂进了 main 资源源集、会一并打进 JAR，但校验器的资源根写死在 `src/main/resources`，不遍历这棵生成树。按本表现有规则回算，生成树的 398 个跟踪文件里有 150 个既不匹配任何 `resourcePaths`/`resourceNamePrefixes`，也不在 `sharedResources` 里：其中 70 个是成就模块的进度与元数据（归属见下文的 `generatedResourcePaths`），其余 80 个（七矿的方块状态、方块模型与物品模型等）处于无主且构建不会变红的状态。datagen 产出的资源目前只能人工归口；把校验器的资源根扩成两棵树、或补齐电力模块缺失的矿石前缀，都要单独立项，不在本文承诺范围内。成就模块是第一个在登记表里写明生成物归属的模块：它的条目多一个 `generatedResourcePaths` 字段，列出 datagen 写进 `src/generated/resources` 的目录。这个字段只是机器可读的归属声明，两个校验任务都不读它（`resourcePaths` 要求路径存在于 `src/main/resources`，生成物写不进去），改动生成器的输出目录时要人工同步。
 
 ## 1. 所有权映射
 
@@ -36,6 +36,7 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 | WOK-婚姻社交 | `engagement_ring`、`wedding_ring`、共享背包及婚姻语言键 |
 | WOK-开箱 | `custom/miningdim_cases/`、`sounds/ui/case/`、`web/case-opening.html`、箱池/钥匙/开箱 UI 资源 |
 | WOK-实体堆叠 | 堆叠配置与语言键；当前无独占模型纹理 |
+| WOK-成就 | `data/miningdim/tags/damage_type/is_champion_execution.json`（"在劫难逃"读取的处决伤害标签）；共享语言文件中 `achievement.miningdim.*`（成就与页签根的标题、说明，以及 `reward.`、`claim.`、`command.` 段下的待领取提示与 `/machievement` 反馈）与 `AchievementStats` 注册的九个自定义统计项的名称键 `stat.miningdim.<统计项>`（只有一段，即 `mining_entries`、`mining_extractions`、`mining_extractions_hard`、`mining_blocks_mined`、`mining_traps_sprung`、`mining_hard_active_ticks`、`champion_kills`、`gun_kills`、`gun_headshot_kills`；同前缀下的 `stat.miningdim.miner.*` 归 WOK-矿工、`stat.miningdim.engineer.*` 归 WOK-铸甲师，不归成就模块）。datagen 产出（见下方说明，不在校验范围内）：`data/miningdim/advancements/` 下 `mining`、`combat`、`profession`、`economy`、`social`、`meta` 六个页签目录与 `data/miningdim/achievement_meta/`；同一命名空间的 `advancements/recipes/` 是电力模块的配方进度，不归成就模块 |
 
 ## 2. 共享文件纪律
 

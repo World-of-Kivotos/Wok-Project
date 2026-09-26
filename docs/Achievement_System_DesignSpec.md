@@ -95,6 +95,14 @@ com.miningdim.achievement
 
    不一致的在日志里报错。缺少元数据的进度一律按"0 点、无称号"处理，**宁可少发，不可错发**。
 
+实现口径（P1 地基）：
+
+- 生成器 `datagen.AchievementAdvancementProvider` 是一个普通的 `DataProvider`，没有直接继承 `ForgeAdvancementProvider`：后者的回调只收 `Advancement` 对象、自己序列化，挂不上 `forge:mod_loaded` 加载条件，也生成不了元数据。进度 JSON 仍由原版 `Advancement.Builder` 序列化，带条件的在顶层加 `conditions` 数组（Forge 读取条件进度的格式）。声明表是 `datagen.AchievementDeclarations`。生成的进度一律 `sends_telemetry_event: false`。
+- 渐变档（白金起）的标题在生成时从模组自带的 `zh_cn` 语言表取文字、按 `TierPalette.gradient` 逐字上色；语言表缺键时生成直接失败。单色档保留 translate 并整段套档位主色。
+- 页签根也有元数据，写成 `{ "root": true }`（0 点、无称号），校验要求它没有父进度、不公告、不发 Toast、不隐藏。有档位的成就另外核对隐藏标记与元数据一致、发 Toast、挂在父进度下。
+- "`miningdim:` 命名空间下的进度"不含 `recipes/` 下的配方进度（电力模块的 datagen 产出）。有元数据而服务端没有对应进度（加载条件不满足，如没装 TaCZ）不算错误，只在日志里列出。
+- 校验要查称号定义，而称号门面在 ServerStarting 才注入，所以查询快照的重建与校验放在 ServerStarted 与每次 `/reload` 完成后；查询快照经 `AchievementServices.catalog()` 取得。
+
 ---
 
 ## 五、进度页签 (DECIDED)
@@ -173,6 +181,8 @@ com.miningdim.achievement
 | `quest_complete` | `source`（可选：daily / weekly / special / hidden）；`quest_id`（可选）；`chain`（可选）；`chain_finished`（可选） | P2 |
 | `spouse_teleport` | `min_distance`（可选，同维度水平距离） | P2 |
 
+实现口径：触发器实例集中在 `trigger.AchievementTriggers`，在 FMLCommonSetup 里登记进原版触发器表。`married` 与 `open_shared_backpack` 没有条件字段，直接复用原版 `PlayerTrigger` 的形态。`champion_kill` 的 `min_star` 缺省为 1，`solo` 只在写 `true` 时生效。条件写错（未知难度、矿种、词条或统计项，数值越界）时整条进度加载失败，不退化成"不限"。统计项的递增一律经 `AchievementStats.award`，它随后重新核对 `stat_at_least`。
+
 另外直接使用原版触发器（纯数据，不需要代码）：
 - `minecraft:tick`：根进度
 - `minecraft:inventory_changed`：获得订婚戒指
@@ -200,6 +210,15 @@ com.miningdim.achievement
 
 以上阈值写在本模块自己的配置文件 `miningdim-achievement.toml` 里，不读任务模块的配置。
 
+实现口径（P1 钩子）：
+
+- 行程状态机是 `trigger.MiningTrips`，事件接线是 `trigger.MiningTripHooks`。进入矿区时按玩家所在区域（`regionAt`）记难度；落在缓冲带等区域以外时不开行程，也不加 `mining_entries`。在矿区里上线会重开行程，并补触发一次 `enter_mining`，但不加 `mining_entries`。补触发是因为本模块上线前就留在矿区里的玩家从没走过维度切换，不补的话 `mining/first_entry` 下面的子成就会先于它到手；`first_entry` 是一次性条件，已获得时原版直接忽略这次触发。死后在矿区以外重生，直接丢弃这一趟（重生不发维度切换事件）。
+- "被怪物或陷阱打过"在 `LivingHurtEvent` 上以 `@HIGHEST`、`receiveCanceled=true` 记录。怪物指带 `MobInstanceTag` 的怪，含它射出的弹射物；陷阱指非玩家造成的 `explosion`、`lava`、`falling_block` 伤害，与陷阱系统实际使用的伤害类型一致。撤离时的血量比例取维度切换那一刻的 当前血量 / 最大血量。
+- 每日上限按"全部有效撤离"和"困难有效撤离"两个计数键分别计：一次困难撤离两个键各占一次，全部撤离的上限满了不影响困难撤离计数。`mining_hard_active_ticks` 不受每日上限约束，每次有效的困难撤离都会结算。相邻计数挖掘的间隔以主世界 gameTime 计，时钟倒退的那一段记 0。
+- 每日计数写库失败时只记错误日志，不加两项撤离统计（宁可少发），`mining_extraction` 触发器照常触发。维度切换发生在传送流程末尾，异常不能冒出去打断传送。
+- 流体生成位置表上限 4096 个，超出后丢掉最早记下的位置。同一位置被挖一次就消费掉，不论那次破坏是否计数。
+- 陷阱计数：`BreakEvent` 以 `@LOWEST`、`receiveCanceled=true` 收到已取消的事件，同时满足三个条件：被挖的方块是伪装矿石、事件已取消、该位置已成空气。陷阱系统在 `@HIGHEST` 取消玩家的破坏，并自行把方块清掉。FakePlayer 不计。
+
 ### 6.4 击杀过滤 (DECIDED)
 
 击杀类统计和触发器都先经过同一组过滤：
@@ -211,11 +230,22 @@ com.miningdim.achievement
 
 `solo`（独自击杀）的定义：伤害账本里只有这一名玩家、他的记录伤害不少于精英的有效血量（1.0 倍），且这只精英攻击过的玩家只有他一人。
 
+实现口径（P1 钩子）：
+
+- 精英击杀钩子 `trigger.ChampionKillHooks` 挂在 `LivingDeathEvent` 的 `@HIGH`，不收已取消的事件。账本的所有者是精英模块的贡献池主结算 `ChampionRewardHandler`，它在默认优先级 `drain`；特勤奖励在 `@HIGHEST` 只 `peek`。`@HIGH` 正好晚于可能取消死亡的最高优先级处理，又早于清账。GameTest 在事件总线上验证：结算后账本已空，统计与成就却已经发出。
+- 有效贡献者按 `ContributionPool.isQualified` 判定，团队人均伤害取 `teamAverageEffectiveDamage`；在线判定用的是贡献池同一套"是否在玩家列表里"。精英的有效血量缺失（≤ 0）时整只跳过。
+- "攻击过的玩家"由钩子自己在 `LivingHurtEvent` 上记录，同样是 `@HIGHEST`、`receiveCanceled=true`，攻击方须是带实例标记的精英。精英死亡时摘掉这条记录；没死就消失的精英靠上限（1024 只）按最久未更新淘汰。精英一次没出手就被打死，也算独自击杀。
+- 输出占比的分母含全部贡献记录，离线者和不合格者也算在内。`fightTicks` 是死亡时刻减去账本里最早的首伤 tick，两者都取精英所在维度的 gameTime。
+- 枪械击杀的判定在 `trigger.GunKillHooks`，不引用 TaCZ。TaCZ 的 `EntityKillByGunEvent` 由 `trigger.TaczGunKillHooks` 翻译过来，只在 `ModList.isLoaded("tacz")` 时注册。射手是 FakePlayer 时不计。
+- 挂机判据读 `EconomyServices.economyService().isAfkFrozen`，经济门面尚未注入时按未冻结处理，与任务模块一致。
+
 ### 6.5 成就数量的计数规则 (DECIDED)
 
 - 计入：已获得的 `miningdim:` 进度，**不计**各页签的 `*/root` 和 `meta/*` 本身，**计入**隐藏成就。
 - 候选列表在数据包重载时重建并缓存，不去扫描全部进度（全部进度里包括大量配方进度）。
 - 加载条件不满足的进度（比如没装 TaCZ）直接不存在，不影响计数。
+
+实现口径（P1 钩子）：`trigger.PlayerProgressHooks` 监听 `AdvancementEvent.AdvancementEarnEvent`，只在获得的进度属于候选列表时，用查询快照重新数一遍并触发 `achievement_count`。玩家登录时再补查一次，同时补查 `stat_at_least`（数据包新增阈值成就后，已达标的玩家上线即可获得）。
 
 ### 6.6 市场成就的防刷规则 (DECIDED)
 
@@ -242,6 +272,17 @@ com.miningdim.achievement
   · G 面板成就点商店页顶部的"待领取"栏 → 单条领取 / 一键全部领取
   → 在同一事务内：标记已领取 + 成就点入账 + 通过 grantInTransaction 发放称号
 ```
+
+实现口径（P1 奖励与领取）：
+
+- 业务入口是 `reward.AchievementRewardService`：`recordEarned`（由 `reward.AchievementRewardSystem` 挂在 `AdvancementEarnEvent` 上调用）、`claim` / `claimAll`、管理员用的 `addPoints` / `removePoints`。命令和以后的 G 面板都调它，不直接碰仓库。奖励与命令的监听全部由 `AchievementRewardSystem.register` 挂载。
+- 获得成就：按查询快照的 `isRewarding` 判断，页签根、缺元数据的进度、0 点且无称号的进度什么都不做。待领取奖励记下获得那一刻快照里的档位、点数和称号。只有新写入时才给玩家本人发提示，撤销后再授予被主键挡下，既不重复生成，也不再提示。写库失败只记错误日志（写明玩家、进度、点数和称号，供人工补发），异常不冒进原版的授予流程。
+- 领取：单条领取和"全部领取"都只开 `MiningStore` 上的**一个**事务，逐条执行：标记已领取 → 点数大于 0 时入账（余额和累计获得）并写一条 `claim` 流水，ref 为进度 id（0 点的奖励不写流水）→ 附带的称号经 `grantInTransaction` 发放，来源 `ACHIEVEMENT`，source_ref 为进度 id。玩家原本就拥有该称号（`ALREADY_OWNED`）不算失败。
+- **任何一步失败，整个事务回滚，这次一条都不发**，结果里指出是哪一条。失败包括：称号发不出去（称号门面未注入、定义已删除、id 不可发放）、写库出错、这条奖励已被领取。所以"全部领取"时只要有一条的称号发不出去，其余奖励也都留在待领取；玩家仍可单条领取别的，出问题的那一条要等管理员修好称号定义再领（称号定义随 `/reload` 重新加载，待领取记录里存的称号 id 不变，修好后即可领取）。全部领取因此失败时，反馈用单独的文案 `claim.title_unavailable_all`，写明其余奖励不受影响、可以在 `/machievement pending` 里逐条领取。
+- 事务提交后，只给这次新得到的称号调用 `notifyGranted`，再给出领取结果（本次入账点数、当前余额）。
+- 领取（`claim` / `claimAll`）和管理员调整（`addPoints` / `removePoints`）都不能在调用方已开着的事务里调用。入口先查共享连接，已处在事务中就直接抛 `IllegalStateException`，与称号模块写穿操作的 `requireNoOpenTransaction` 口径相同。原因是 `StoreTx` 并入外层事务时既不提交也不回滚：领取自己的回滚会被外层吞掉，排在前面的标记、入账与称号随外层提交，结果却报"已全部撤销"；提示也会先于真正落盘发出。
+- 领取结果 `reward.ClaimResult.Status`：`CLAIMED`、`NOT_FOUND`（没有这条奖励记录）、`ALREADY_CLAIMED`（对应 WebUI 错误码 `REWARD_ALREADY_CLAIMED`）、`NOTHING_PENDING`（全部领取时没有待领取的）、`TITLE_UNAVAILABLE`、`STORE_FAILED`。
+- 提示与命令反馈的文案键在 `achievement.miningdim.reward.*`、`achievement.miningdim.claim.*`、`achievement.miningdim.command.*` 下，与进度的标题、说明键分开。
 
 ### 7.2 存储
 
@@ -273,6 +314,7 @@ CREATE TABLE achievement_point_ledger (
 );
 ```
 
+- 以上三张表与 6.1 的 `achievement_daily_counter(player_uuid, counter_key, day, count)`（主键 玩家 + 键 + UTC 纪元日）一起追加为 `MiningSchema` 的 **V7**（V5、V6 是称号模块的）。每日计数经 `trigger.DailyCounterRepository`，判断上限与加一在一条 upsert 里完成；开服时删掉今天以前的计数行。
 - 数据库访问经过 `AchievementRewardRepository`、`PointShopRepository` 两个接口，当前实现为 SQLite，为多子服预留。
 - `achievement_reward` 的主键就是防重键：管理员用 `/advancement revoke` 撤销后再次授予，**不会重复发奖**。撤销进度也**不收回**已领取的奖励，流水里保留原记录。
 - 待领取的奖励只记录"当时的点数和称号"。之后调整数值，不影响已经产生的记录。
@@ -462,7 +504,12 @@ CREATE TABLE achievement_point_ledger (
 | `social/shared_backpack` | 两人的口袋 | 第一次打开和伴侣的共享背包 | 铜 | married | `open_shared_backpack{}` | P1 | `minecraft:pink_shulker_box` |
 | `social/long_distance` | 千里赴约 | 从 1,000 格以外传送到伴侣身边（同一维度） | 铜 · 隐藏 | married | `spouse_teleport{min_distance=1000}` | P2 | `minecraft:ender_pearl` |
 
-- `social/married` 在 P1 靠读取玩家 Capability 里的婚姻指针实现：登录时检查，另外在自动保存时补查一次。P2 加了婚礼监听接口后改成当场触发。
+- `social/married` 在 P1 靠读取玩家 Capability 里的婚姻指针实现：登录时检查，另外在自动保存时、打开共享背包时各补查一次。P2 加了婚礼监听接口后改成当场触发。
+- 实现口径（P1 钩子，`trigger.PlayerProgressHooks`）：
+  - 婚姻指针读的是核心模块的 `IMiningPlayerData`，`marriageId` 不为 `NO_MARRIAGE` 或配偶 UUID 非空即算已婚。
+  - "自动保存"取主世界的 `LevelEvent.Save`，所以 `/save-all` 也会补查一次；其他维度的存档事件忽略。
+  - 共享背包按菜单的注册名 `miningdim:marriage_backpack` 识别（`PlayerContainerEvent.Open`）。婚姻模块只在核实了有效婚姻之后才打开这个菜单，所以先补查 `married` 再触发 `open_shared_backpack`：刚办完婚礼、登录与存档的补查都还没轮到的玩家（`/save-off` 时要等到下次登录），不会在父成就"执子之手"之前拿到"两人的口袋"。
+  - 这两条都不引用婚姻模块。
 
 ### 9.6 成就（3 条）
 
@@ -567,16 +614,25 @@ P1 只有 30 条成就（扣掉 meta 本身，计数池里只有 29 条），"�
 
 ## 十一、管理员命令 (DECIDED)
 
-命令根为 `/machievement`，普通玩家只能用 `claim`，其余需要权限等级 2。以后可能会统一成 `/wok` 指令集，届时迁移到那里；现阶段先用独立的命令根。
+命令根为 `/machievement`。普通玩家可以用 `claim`，以及不带玩家参数的 `pending`、`points`（只看自己的）；其余需要权限等级 2。命令根本身不设权限，由各子命令分别判断（与 `/mtitle` 相同）。以后可能会统一成 `/wok` 指令集，届时迁移到那里；现阶段先用独立的命令根。
 
-| 命令 | 作用 |
-|---|---|
-| `/machievement claim <进度id\|all>` | 玩家领取自己的奖励（聊天里的 [领取] 按钮会调用这条） |
-| `/machievement points <玩家> [add\|remove <数量>]` | 查看或调整成就点，流水 reason 记为 `admin` |
-| `/machievement pending <玩家>` | 查看该玩家的待领取奖励 |
-| `/machievement check` | 重新执行第 4.1 节的一致性校验并输出结果 |
+| 命令 | 权限 | 作用 |
+|---|---|---|
+| `/machievement claim <进度id\|all>` | 玩家 | 领取自己的奖励（聊天里的 [领取] 按钮会调用这条）。进度 id 的补全候选是自己的待领取奖励 |
+| `/machievement pending` | 玩家 | 查看自己的待领取奖励，每条带 [领取]，表头带 [全部领取] |
+| `/machievement points` | 玩家 | 查看自己的成就点余额和累计获得 |
+| `/machievement pending <玩家>` | 2 | 查看该玩家的待领取奖励 |
+| `/machievement points <玩家> [add\|remove <数量>]` | 2 | 查看或调整成就点，流水 reason 记为 `admin` |
+| `/machievement check` | 2 | 重新执行第 4.1 节的一致性校验并输出结果 |
 
 授予或撤销进度本身用原版的 `/advancement` 命令，本模块不重复实现。
+
+实现口径（P1）：
+
+- 命令类是 `command.AchievementCommands`，由 `reward.AchievementRewardSystem` 在 `RegisterCommandsEvent` 里注册。
+- 管理员子命令的玩家参数按 GameProfile 解析，用户缓存里查得到的离线玩家同样可以查看和调整。
+- `points add` 同时增加余额和累计获得（仓库只有这一种入账）。`points remove` 最多扣到 0，不会出现负余额，累计获得不变；实际扣了多少，流水就记多少，余额已经是 0 时不写流水。两者的流水 ref 都记执行者名字，每次调整另写管理日志 `miningdim/achievement/admin`。
+- `check` 拿当前的元数据快照和服务端实际加载的进度重新校验，逐条列出问题；没有问题时返回 1，有问题时返回 0。"有元数据、没有对应进度"的单独列一行，不算问题（加载条件不满足时属于正常情况，见 4.1 节实现口径）。
 
 ---
 
@@ -591,6 +647,31 @@ GameTest 放在 `com.miningdim.achievement`，使用 `testutil.TempStoreDb` 提�
 - 统计项与 `stat_at_least` 触发器的阈值判定
 - 非矿区维度破坏方块不递增统计项
 - WebUI 契约：`achievement.pointShop`、`achievement.pointShopBuy`、`achievement.claimRewards`（仿照 `QuestWebUiGameTests`）
+
+事件钩子的 GameTest 在 `trigger.AchievementHookGameTests`（batch `achievement_hooks`），覆盖以下内容：
+
+- 有效撤离：停留不足、挖掘不足、途中阵亡都不算；被更高优先级取消的死亡不作废行程。进出矿区用真实的跨维度传送。
+- 行程生命周期：下线作废、在矿区里上线重开（补触发 `enter_mining`，不加 `mining_entries`）、死后重生丢弃。
+- 每日上限：两个计数键各自独立计。
+- 困难作业时长：单段间隔封顶与总量封顶。
+- 死里逃生的威胁判据。
+- 计数挖掘的全部排除条件。
+- 陷阱：经事件总线由陷阱系统先取消，本模块后接收。
+- 精英击杀：经事件总线验证本模块读账本早于主结算清账；另测击杀过滤与挂机。
+- 独自击杀、输出占比与战斗时长的计算。
+- 枪械击杀的过滤。
+- 成就数量只随计数成就变化。
+- 婚姻指针在登录与存档时触发。
+- 共享背包菜单；打开时先补 `married`，父成就不落在子成就之后。
+
+奖励与领取的 GameTest 在 `reward.AchievementRewardGameTests`（batch `achievement_rewards`），覆盖以下内容：
+
+- 获得成就写一条快照奖励并提示；撤销后再授予不重复生成；页签根、别的命名空间、缺元数据、0 点无称号的进度不产生奖励。
+- 单条领取与全部领取：标记、入账、流水、称号一并提交，提交后只为新得到的称号提示。
+- 任何一步失败整次回滚，包括事务里已经发出（`GRANTED`）的称号：库里与在线持有集合都没有它，也不发提示。全部领取失败的命令反馈写明其余奖励仍可逐条领取。
+- 领取与管理员调整在调用方已开着的事务里一律拒绝，事务外照常可用。
+- 重复领取、不存在的奖励、没有待领取。
+- 真实命令分发器下的权限、补全、反馈与落库。
 
 ---
 

@@ -1,0 +1,55 @@
+{
+  "parent": "miningdim:mining/hard_extraction",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "stat": "miningdim:mining_extractions_hard",
+        "value": 25
+      },
+      "trigger": "miningdim:stat_at_least"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.mining.hard_veteran.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:deepslate_diamond_ore"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#FFFFFF",
+          "text": "深"
+        },
+        {
+          "bold": true,
+          "color": "#FFF6DB",
+          "text": "层"
+        },
+        {
+          "bold": true,
+          "color": "#FFE8AA",
+          "text": "老"
+        },
+        {
+          "bold": true,
+          "color": "#FFD66B",
+          "text": "手"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

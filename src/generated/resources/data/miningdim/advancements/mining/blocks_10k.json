@@ -1,0 +1,36 @@
+{
+  "parent": "miningdim:mining/blocks_1k",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "stat": "miningdim:mining_blocks_mined",
+        "value": 10000
+      },
+      "trigger": "miningdim:stat_at_least"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.mining.blocks_10k.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:diamond_pickaxe",
+      "nbt": "{Damage:0}"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#FFCC33",
+      "translate": "achievement.miningdim.mining.blocks_10k.title"
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

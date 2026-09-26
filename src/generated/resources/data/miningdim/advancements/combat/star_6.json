@@ -1,0 +1,35 @@
+{
+  "parent": "miningdim:combat/first_champion",
+  "criteria": {
+    "defeated": {
+      "conditions": {
+        "min_star": 6
+      },
+      "trigger": "miningdim:champion_kill"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.combat.star_6.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:golden_sword",
+      "nbt": "{Damage:0}"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#FFCC33",
+      "translate": "achievement.miningdim.combat.star_6.title"
+    }
+  },
+  "requirements": [
+    [
+      "defeated"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

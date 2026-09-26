@@ -35,10 +35,18 @@
 | `wok-marriage` | WOK-婚姻社交模块 | 21 | 35 | `MarriageSystem` | 核心、经济、WebUI |
 | `wok-case-opening` | WOK-开箱模块 | 25 | 24 | `CaseOpeningSystem` | 核心、存储、经济、WebUI；TaCZ、SQLite 可选 |
 | `wok-stacking` | WOK-实体堆叠模块 | 11 | 33 | `StackingSystem` | 核心、精英怪 |
+| `wok-achievement` | WOK-成就模块 § | 49 | 38 | `AchievementSystem` | 核心、存储、称号、矿区、精英怪、经济；TaCZ、SQLite 可选 |
 
 † `wok-job-fisher` 这一行是 2026-09-06 单独补测的，其余 25 行仍是第一段声明的 2026-08-30 基线。另外它在登记表里的 `category` 虽然是 `job`，但这只是业务归类：`job/JobId.java` 的枚举至今只有八个常量、没有 `FISHER`，因此渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门；它对 `wok-store` 的依赖同样只出现在 GameTest 里，图鉴本身走原版 `FishingJournalSavedData` 而不落 SQLite。
 
 ‡ `wok-title` 这一行是 2026-09-26 称号系统 P1 落地时新增的实测值。它登记的依赖只有核心与存储：设计文档里预留的 WebUI 依赖要等 P2 的"我的称号"页签注册 `title.*` 动作时才真正产生引用，届时再补进登记表。
+
+§ `wok-achievement` 这一行是 2026-09-26 成就系统 P1 三部分合并后的实测值：地基 (模块骨架、档位、统计项与触发器、元数据与一致性校验、datagen、存储)、事件钩子 (矿区行程与计数挖掘、陷阱、精英与枪械击杀、婚姻、成就数量)，以及奖励与命令 (待领取奖励、与称号同一事务的原子领取、成就点账本与管理员调整、`/machievement`)。GameTest 按类分布：地基 12、触发器 4、事件钩子 14、奖励与命令 8。同理只登记真实引用到的模块：
+- 经济依赖随事件钩子补进，只读挂机过滤 `isAfkFrozen`。
+- 奖励与命令只用到已登记的称号 (`grantInTransaction`、`notifyGranted`)、存储与核心，没有新增依赖。
+- 设计文档第二章列出的 WebUI 依赖 (成就点商店页)，要等商店页真正引用时再补。
+- 婚姻相关的两条成就读核心模块的婚姻指针、按菜单注册名识别共享背包，不依赖婚姻模块。
+- TaCZ 出现在两处：进度 JSON 上的 `forge:mod_loaded` 加载条件；只在 TaCZ 已加载时才注册的边界类 `TaczGunKillHooks`。
 
 GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包含测试类。`wok-champion` 的测试数量较高，是精英词条和红线组合测试形成的结果。
 

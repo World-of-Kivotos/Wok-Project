@@ -1,0 +1,55 @@
+{
+  "parent": "miningdim:combat/star_6",
+  "criteria": {
+    "defeated": {
+      "conditions": {
+        "min_star": 7
+      },
+      "trigger": "miningdim:champion_kill"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.combat.star_7.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:netherite_sword",
+      "nbt": "{Damage:0}"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#FFFFFF",
+          "text": "星"
+        },
+        {
+          "bold": true,
+          "color": "#FFF6DB",
+          "text": "辰"
+        },
+        {
+          "bold": true,
+          "color": "#FFE8AA",
+          "text": "陨"
+        },
+        {
+          "bold": true,
+          "color": "#FFD66B",
+          "text": "落"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "defeated"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

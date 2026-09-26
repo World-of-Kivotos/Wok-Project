@@ -1,0 +1,56 @@
+{
+  "parent": "miningdim:mining/blocks_10k",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "stat": "miningdim:mining_blocks_mined",
+        "value": 100000
+      },
+      "trigger": "miningdim:stat_at_least"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.mining.blocks_100k.desc"
+    },
+    "frame": "challenge",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:netherite_pickaxe",
+      "nbt": "{Damage:0}"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#6FF2FF",
+          "text": "地"
+        },
+        {
+          "bold": true,
+          "color": "#7AC6FF",
+          "text": "脉"
+        },
+        {
+          "bold": true,
+          "color": "#9CA9FF",
+          "text": "行"
+        },
+        {
+          "bold": true,
+          "color": "#D59CFF",
+          "text": "者"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

@@ -1,0 +1,169 @@
+{
+  "parent": "miningdim:mining/hard_extraction",
+  "criteria": {
+    "ancient_debris": {
+      "conditions": {
+        "ore": "ancient_debris"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "bauxite": {
+      "conditions": {
+        "ore": "bauxite"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "borax": {
+      "conditions": {
+        "ore": "borax"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "chromium": {
+      "conditions": {
+        "ore": "chromium"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "coal": {
+      "conditions": {
+        "ore": "coal"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "copper": {
+      "conditions": {
+        "ore": "copper"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "diamond": {
+      "conditions": {
+        "ore": "diamond"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "emerald": {
+      "conditions": {
+        "ore": "emerald"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "gold": {
+      "conditions": {
+        "ore": "gold"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "iron": {
+      "conditions": {
+        "ore": "iron"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "lapis": {
+      "conditions": {
+        "ore": "lapis"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "nickel": {
+      "conditions": {
+        "ore": "nickel"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "redstone": {
+      "conditions": {
+        "ore": "redstone"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "silver": {
+      "conditions": {
+        "ore": "silver"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "tin": {
+      "conditions": {
+        "ore": "tin"
+      },
+      "trigger": "miningdim:mine_ore"
+    },
+    "tungsten": {
+      "conditions": {
+        "ore": "tungsten"
+      },
+      "trigger": "miningdim:mine_ore"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.mining.ore_codex.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:raw_tungsten"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#FFCC33",
+      "translate": "achievement.miningdim.mining.ore_codex.title"
+    }
+  },
+  "requirements": [
+    [
+      "coal"
+    ],
+    [
+      "copper"
+    ],
+    [
+      "iron"
+    ],
+    [
+      "gold"
+    ],
+    [
+      "redstone"
+    ],
+    [
+      "lapis"
+    ],
+    [
+      "emerald"
+    ],
+    [
+      "diamond"
+    ],
+    [
+      "ancient_debris"
+    ],
+    [
+      "bauxite"
+    ],
+    [
+      "borax"
+    ],
+    [
+      "silver"
+    ],
+    [
+      "tin"
+    ],
+    [
+      "nickel"
+    ],
+    [
+      "chromium"
+    ],
+    [
+      "tungsten"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

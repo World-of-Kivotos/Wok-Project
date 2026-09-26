@@ -1,0 +1,34 @@
+{
+  "parent": "miningdim:mining/medium_extraction",
+  "criteria": {
+    "extracted": {
+      "conditions": {
+        "difficulty": "hard"
+      },
+      "trigger": "miningdim:mining_extraction"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.mining.hard_extraction.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:entrance_hard"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#FFCC33",
+      "translate": "achievement.miningdim.mining.hard_extraction.title"
+    }
+  },
+  "requirements": [
+    [
+      "extracted"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

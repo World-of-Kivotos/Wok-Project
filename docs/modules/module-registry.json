@@ -215,6 +215,32 @@
       ]
     },
     {
+      "id": "wok-title",
+      "name": "WOK-称号模块",
+      "category": "foundation",
+      "javaPackagePrefixes": [
+        "com.miningdim.title",
+        "com.miningdim.client.title"
+      ],
+      "currentPaths": [
+        "title",
+        "client/title"
+      ],
+      "resourcePaths": [
+        "data/miningdim/titles"
+      ],
+      "resourceNamePrefixes": [],
+      "dependencies": [
+        "wok-core",
+        "wok-store"
+      ],
+      "optionalIntegrations": [
+        "sqlite-jdbc"
+      ],
+      "publicEntry": "com.miningdim.title.ITitleService",
+      "scope": "cosmetic player titles: datapack definitions, SQLite ownership and equip state, chat/tab/nametag display, /mtitle admin command"
+    },
+    {
       "id": "wok-market",
       "name": "WOK-市场模块",
       "category": "gameplay",
@@ -774,6 +800,7 @@
         "wok-economy",
         "wok-combat-core",
         "wok-webui",
+        "wok-title",
         "wok-market",
         "wok-power",
         "wok-quest",

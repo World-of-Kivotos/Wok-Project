@@ -19,6 +19,7 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 | WOK-矿区副本 | `data/miningdim/dimension`、`dimension_type`、`worldgen`、`structures`，以及 `entrance_*`、`trap_*`、`fake_ore*` |
 | WOK-经济 | 货币与经济提示语言键；不拥有市场页面和开箱资产 |
 | WOK-WebUI | 当前无独占资源文件：登记表里 `resourcePaths` 与 `resourceNamePrefixes` 都是空数组，`assets/miningdim/web/` 下唯一的 `case-opening.html` 归 WOK-开箱。通用页面宿主落地时必须先把目录或文件写进 `wok-webui` 的 `resourcePaths`，否则新文件会被判为无主 |
+| WOK-称号 | `data/miningdim/titles/`（称号定义数据包）；共享语言文件中 `title.miningdim.*` 键（称号文字、说明、获得提示与 `/mtitle` 反馈） |
 | WOK-市场 | 市场 action、列表字段和市场语言键；当前与 WebUI 共用页面文件时按 action 区段维护 |
 | WOK-电力 | `models/block/generator/`、`textures/block/generator/`、`textures/gui/power/`、`data/fluxnetworks/recipes/`、`needs_stone_tool.json`；以及各级发电机/储电池（`coal_*`、`geothermal_*`、`industrial_*`、`modern_*`、`future_*`）、机器（`air_separation_unit_*`、`metallurgic_purifier_*`、`low_temperature_controller_*`）、12 级线缆与导体材料（`*_energy_cable`、`nbti_*`、`ybco_*`、`ofc_copper*`、`ofe_copper*`、`insulation_*`、`*_wire`、`ingot_base`、`raw_ore_base`、`ore_overlay`）、七矿原矿与锭图标（`raw_aluminum`、`raw_chromium`、`raw_nickel`、`raw_silver`、`raw_tin`、`raw_tungsten`、`borax`、`aluminum_ingot`、`chromium_ingot`、`nickel_ingot`、`silver_ingot`、`tin_ingot`、`tungsten_ingot`）、橡胶树链（`rubber*`、`latex`）与燃料核心 |
 | WOK-任务 | 任务板 action 与任务语言键；当前无独占纹理，奖励物品资源归发放该物品的模块 |

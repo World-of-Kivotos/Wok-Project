@@ -211,8 +211,33 @@ public final class MiningSchema {
     private static final List<String> V4 = List.of(
             "CREATE INDEX idx_pending_payout_seller ON pending_payout(seller_uuid)");
 
+    /**
+     * 版本 5: 称号模块 (wok-title) 的持有表与佩戴表, 结构见 docs/Title_System_DesignSpec.md 第四章。
+     *
+     * title_owned 以 (player_uuid, title_id) 为主键: 发放按主键幂等 (INSERT OR IGNORE), 重复发放既不报错也不
+     * 覆盖最早的 source / source_ref / granted_at —— "这个称号最初是怎么来的"是审计事实, 后来的重复发放不该改写它。
+     * 所有读取都按 player_uuid 过滤, 复合主键的最左列即覆盖这条访问路径, 因此不另建索引。
+     *
+     * title_equipped 一人一行 (player_uuid 主键), 不佩戴即无行。刻意不对 title_owned 加外键: 回收称号时由称号
+     * 模块在同一事务里一并卸下, 而"定义被数据包删除"只影响显示、不删任何行 (定义恢复后自动复原), 外键表达不了
+     * 这层语义, 反而会让将来的批量修复脚本多一道顺序约束。
+     *
+     * 与 V4 同理只能新开一版而不能并进旧版本: 老存档的 user_version 已越过旧版本, 不会重跑其中的 CREATE 语句。
+     */
+    private static final List<String> V5 = List.of(
+            "CREATE TABLE title_owned ("
+                    + "player_uuid TEXT NOT NULL, "
+                    + "title_id TEXT NOT NULL, "
+                    + "source TEXT NOT NULL, "
+                    + "source_ref TEXT, "
+                    + "granted_at INTEGER NOT NULL, "
+                    + "PRIMARY KEY (player_uuid, title_id))",
+            "CREATE TABLE title_equipped ("
+                    + "player_uuid TEXT PRIMARY KEY, "
+                    + "title_id TEXT NOT NULL)");
+
     /** 全部迁移, 下标 + 1 即其版本号。 */
-    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3, V4);
+    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3, V4, V5);
 
     /** 把连接上的库推进到本版代码支持的最新结构。 */
     public static void apply(Connection conn) {

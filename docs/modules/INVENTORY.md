@@ -17,6 +17,7 @@
 | `wok-economy` | WOK-经济模块 | 23 | 46 | `EconomySystem` | 核心、存储、WebUI；SQLite 可选 |
 | `wok-combat-core` | WOK-战斗框架模块 | 4 | 5 | `CombatSystem` | 核心 |
 | `wok-webui` | WOK-WebUI 模块 | 27 | 35 | `WebUiServerSubsystem`、`WebUiClientSubsystem` | 核心；MCEF 可选 |
+| `wok-title` | WOK-称号模块 ‡ | 21 | 11 | `TitleSystem` | 核心、存储；SQLite 可选 |
 | `wok-market` | WOK-市场模块 | 25 | 62 | `MarketSubsystem` | 核心、存储、经济、WebUI、职业框架、塔罗师；SQLite 可选 |
 | `wok-power` | WOK-电力模块 | 133 | 100 | `PowerSystem` | 核心；Flux Networks、Jade、JEI 可选 |
 | `wok-quest` | WOK-任务模块 | 35 | 49 | `QuestSystem` | 核心、经济、WebUI、附魔；TaCZ 可选 |
@@ -36,6 +37,8 @@
 | `wok-stacking` | WOK-实体堆叠模块 | 11 | 33 | `StackingSystem` | 核心、精英怪 |
 
 † `wok-job-fisher` 这一行是 2026-09-06 单独补测的，其余 25 行仍是第一段声明的 2026-08-30 基线。另外它在登记表里的 `category` 虽然是 `job`，但这只是业务归类：`job/JobId.java` 的枚举至今只有八个常量、没有 `FISHER`，因此渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门；它对 `wok-store` 的依赖同样只出现在 GameTest 里，图鉴本身走原版 `FishingJournalSavedData` 而不落 SQLite。
+
+‡ `wok-title` 这一行是 2026-09-26 称号系统 P1 落地时新增的实测值。它登记的依赖只有核心与存储：设计文档里预留的 WebUI 依赖要等 P2 的"我的称号"页签注册 `title.*` 动作时才真正产生引用，届时再补进登记表。
 
 GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包含测试类。`wok-champion` 的测试数量较高，是精英词条和红线组合测试形成的结果。
 

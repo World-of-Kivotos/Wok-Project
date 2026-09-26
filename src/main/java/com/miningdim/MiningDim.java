@@ -168,6 +168,12 @@ public final class MiningDim {
         //     经 MiningNetwork.CHANNEL 收 C2S 意图并下发 S2C 响应/事件。须排在 NetworkSystem (第 2) 之后,
         //     依赖其 CHANNEL 已注册三包 (构造期注入即满足)。服务端安全, 不 classload 任何 MCEF。
         subsystems.add(new com.miningdim.webui.server.WebUiServerSubsystem());
+        // 25a. 称号系统 (foundation, 纯外观): 数据包称号定义 + 统一库持有/佩戴 (MiningSchema V5) + ITitleService
+        //      门面 (TitleServices 定位器, ServerStarting 注入) + 聊天/Tab/名牌三处显示 + 自有通道 miningdim:title
+        //      的名牌同步包 + /mtitle 管理命令。不引用任何玩法模块, 成就/婚姻/活动等调用方经门面发放称号。
+        //      排在 WebUiServerSubsystem (第 25) 之后、任何称号调用方之前 (Title_System_DesignSpec 第二章):
+        //      "我的称号"页签 (P2) 将在 register 期向派发器登记 title.* action。
+        subsystems.add(new com.miningdim.title.TitleSystem());
         // 25b. CS2 式开箱服务端: 双货币幂等扣款 + SQLite Saga/皮肤归属 + case.* WebUI action + TaCZ 主手授权。
         //      须排在 EconomySystem 与 WebUiServerSubsystem 之后, 运行期只经两者公开门面协作。
         subsystems.add(new com.miningdim.caseopening.CaseOpeningSystem());

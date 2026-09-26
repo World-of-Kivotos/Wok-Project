@@ -44,7 +44,15 @@ public final class MockGameTestPlayers {
      * @return 已登记进 PlayerList 的 mock ServerPlayer
      */
     public static ServerPlayer makeMockServerPlayerWithChannel(GameTestHelper helper) {
-        return makeMockServerPlayerWithChannel(helper, true);
+        return makeMockServerPlayerWithChannel(helper, randomProfile(), true);
+    }
+
+    /**
+     * 与 {@link #makeMockServerPlayerWithChannel(GameTestHelper)} 相同, 但使用调用方给定的 GameProfile。
+     * 用于需要"登录前先按 UUID 备好数据"或"同一玩家登出后再登录"的用例。
+     */
+    public static ServerPlayer makeMockServerPlayerWithChannel(GameTestHelper helper, GameProfile profile) {
+        return makeMockServerPlayerWithChannel(helper, profile, true);
     }
 
     /**
@@ -52,15 +60,20 @@ public final class MockGameTestPlayers {
      * 用于需要走生存破坏/工具门路径的用例 (如枪匠组装台从属格破坏的工具门校验)。
      */
     public static ServerPlayer makeMockSurvivalServerPlayerWithChannel(GameTestHelper helper) {
-        return makeMockServerPlayerWithChannel(helper, false);
+        return makeMockServerPlayerWithChannel(helper, randomProfile(), false);
     }
 
-    private static ServerPlayer makeMockServerPlayerWithChannel(GameTestHelper helper, boolean creative) {
+    private static GameProfile randomProfile() {
+        return new GameProfile(UUID.randomUUID(), "test-mock-player");
+    }
+
+    private static ServerPlayer makeMockServerPlayerWithChannel(GameTestHelper helper, GameProfile profile,
+                                                                boolean creative) {
         ServerLevel level = helper.getLevel();
         ServerPlayer serverPlayer = new ServerPlayer(
                 level.getServer(),
                 level,
-                new GameProfile(UUID.randomUUID(), "test-mock-player")) {
+                profile) {
             @Override
             public boolean isSpectator() {
                 return false;

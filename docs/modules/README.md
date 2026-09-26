@@ -20,6 +20,7 @@
 | 基础 | WOK-经济模块 | `wok-economy` | `economy` |
 | 基础 | WOK-战斗框架模块 | `wok-combat-core` | `combat` |
 | 基础 | WOK-WebUI 模块 | `wok-webui` | `webui`、`client/webui` |
+| 基础 | WOK-称号模块 | `wok-title` | `title`、`client/title` |
 | 玩法 | WOK-市场模块 | `wok-market` | `market` |
 | 玩法 | WOK-电力模块 | `wok-power` | `power` |
 | 玩法 | WOK-任务模块 | `wok-quest` | `quest` |

@@ -20,7 +20,7 @@ import net.minecraftforge.items.SlotItemHandler;
 
 /**
  * 军火台容器 (Munitions_Job_DesignSpec 五/十章)。继承共享 {@link AbstractMiningMenu} (正确 quickMoveStack +
- * stillValid 已由基类经 {@link MenuValidity#ofBlock} 实现)。
+ * stillValid 已由基类经 {@link MenuValidity#ofBlock} 实现; 本类在其上再叠一道上锁访问门, 见 {@link #stillValid})。
  *
  * 槽位: 料槽 底火/弹壳/弹头/发射药 (可放可取, isItemValid 限料种) + 输出缓冲槽 (只取不放, 取出经
  * {@link MunitionsBenchBlockEntity#onOutputTaken} 回收缓冲计数) + 玩家 36 槽。选中口径/缓冲发数/缓冲上限/锁/提炼
@@ -156,6 +156,21 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
             return blockEntity.setContinuousCrafting(serverPlayer, id == BUTTON_SET_CONTINUOUS);
         }
         return false;
+    }
+
+    /**
+     * 上锁即时生效 (V18): 基类只校验方块还在、玩家在 8 格内。锁只在开界面那一刻查过一次, 台主上锁时已经开着
+     * 界面的访客会一直留在里面取弹取料; 这里每次都重查 canAccess, 原版 ServerPlayer.tick 判 false 即关界面,
+     * 点击包与按钮包也因 stillValid 为 false 被原版拒收。对齐 ProductionTableMenu 的同名覆写。
+     */
+    @Override
+    public boolean stillValid(Player player) {
+        if (!super.stillValid(player)) {
+            return false;
+        }
+        return !(player instanceof ServerPlayer serverPlayer)
+                || blockEntity == null
+                || blockEntity.canAccess(serverPlayer);
     }
 
     /**

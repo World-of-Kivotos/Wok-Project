@@ -18,9 +18,11 @@ import java.util.Set;
  * @param bannedWords        违禁词原文 (归一化在匹配时进行)
  * @param minLuminance       每个色标的 WCAG 相对亮度下限
  * @param editCooldownMillis 两次成功修改之间的冷却 (毫秒)
+ * @param selfServiceEnabled 赞助玩家能否自己提交 ({@code custom set}); 关闭时只能由管理员代设置, 预览与查看不受影响
  */
 public record CustomTitleRules(int maxLength, int maxContentChars, Set<Integer> allowedSymbols,
-                               List<String> bannedWords, double minLuminance, long editCooldownMillis) {
+                               List<String> bannedWords, double minLuminance, long editCooldownMillis,
+                               boolean selfServiceEnabled) {
 
     public CustomTitleRules {
         allowedSymbols = Set.copyOf(allowedSymbols);
@@ -38,7 +40,8 @@ public record CustomTitleRules(int maxLength, int maxContentChars, Set<Integer> 
                 symbols(TitleConfig.CUSTOM_ALLOWED_SYMBOLS.get()),
                 List.copyOf(TitleConfig.CUSTOM_BANNED_WORDS.get()),
                 TitleConfig.CUSTOM_MIN_LUMINANCE.get(),
-                Duration.ofDays(TitleConfig.CUSTOM_EDIT_COOLDOWN_DAYS.get()).toMillis());
+                Duration.ofDays(TitleConfig.CUSTOM_EDIT_COOLDOWN_DAYS.get()).toMillis(),
+                TitleConfig.CUSTOM_SELF_SERVICE_ENABLED.get());
     }
 
     /** 把白名单字符串拆成码点集合; 空白字符不算白名单 (半角空格有自己的首尾与连续规则)。 */

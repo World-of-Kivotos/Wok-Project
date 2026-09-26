@@ -21,12 +21,16 @@ public final class TitleConfig {
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> CUSTOM_BANNED_WORDS;
     public static final ForgeConfigSpec.DoubleValue CUSTOM_MIN_LUMINANCE;
     public static final ForgeConfigSpec.IntValue CUSTOM_EDIT_COOLDOWN_DAYS;
+    public static final ForgeConfigSpec.BooleanValue CUSTOM_SELF_SERVICE_ENABLED;
 
     /** 默认符号白名单 (13.3): 各种括号与常用装饰符号, 供玩家自己写外框。 */
     static final String DEFAULT_ALLOWED_SYMBOLS = "[]【】〔〕「」『』《》〈〉()（）<>★☆◆◇♦♥♠♣✦✧·・~-_!?！？";
 
-    /** 默认违禁词 (13.3); 完整词表待服主补充 (第十二章待定项 4)。 */
-    static final List<String> DEFAULT_BANNED_WORDS = List.of("管理", "服主", "官方", "客服", "OP", "GM", "admin", "owner");
+    /**
+     * 默认违禁词 (13.3), 只挡冒充服务器身份的词。服主有人工审查, 词表从宽: 不收 OP、GM 这类两字母短词, 它们归一化后
+     * 会连带挡掉 shop 之类的正常写法。完整词表待服主补充 (第十二章待定项 4)。
+     */
+    static final List<String> DEFAULT_BANNED_WORDS = List.of("管理", "服主", "官方", "客服", "admin", "owner");
 
     private TitleConfig() {
     }
@@ -54,9 +58,9 @@ public final class TitleConfig {
         CUSTOM_BANNED_WORDS = builder.comment(
                         "Banned words. Before matching, both the title and each word are normalized: NFKC (fullwidth "
                                 + "to halfwidth), lower case, and every space and symbol removed; then a substring "
-                                + "match is used. Short Latin words such as 'op' or 'gm' therefore also block words "
-                                + "that merely contain those letters (e.g. 'shop'); adjust the list if that is too "
-                                + "strict. Admin-set titles skip this check")
+                                + "match is used. Short Latin words (e.g. 'op') would therefore also block words that "
+                                + "merely contain those letters (e.g. 'shop'), which is why the default list leaves "
+                                + "them out. Admin-set titles skip this check")
                 .defineListAllowEmpty(List.of("bannedWords"), () -> DEFAULT_BANNED_WORDS,
                         word -> word instanceof String);
         CUSTOM_MIN_LUMINANCE = builder.comment(
@@ -67,6 +71,11 @@ public final class TitleConfig {
                         "Days a player has to wait after a successful change before changing the custom title "
                                 + "again. The first setting is always free; previews never consume the cooldown")
                 .defineInRange("customEditCooldownDays", 7, 0, 365);
+        CUSTOM_SELF_SERVICE_ENABLED = builder.comment(
+                        "Whether sponsors may submit their own custom title with '/mtitle custom set'. Off by default: "
+                                + "sponsors tell staff what they want and staff apply it with "
+                                + "'/mtitle custom admin set'. Sponsors can always preview and view info")
+                .define("selfServiceEnabled", false);
         builder.pop();
 
         SPEC = builder.build();

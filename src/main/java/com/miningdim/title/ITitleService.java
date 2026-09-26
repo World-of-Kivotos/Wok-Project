@@ -131,12 +131,18 @@ public interface ITitleService {
     /** 全部赞助资格行 (含已过期的) 的状态, 按最近发放时间升序。 */
     List<CustomTitleInfo> sponsors();
 
-    /** 预览 (13.4): 要求资格有效, 按玩家口径完整校验 (含违禁词); 不写库, 不消耗冷却。 */
+    /** 玩家能否自己提交专属称号 (配置 selfServiceEnabled, 默认关闭, 13.1)。关闭时由管理员代设置。 */
+    boolean customSelfServiceEnabled();
+
+    /**
+     * 预览 (13.4): 要求资格有效, 按玩家口径完整校验 (含违禁词); 不写库, 不消耗冷却。自助提交关闭时照常可用,
+     * 玩家据此把想要的效果告诉管理员。
+     */
     CustomTitleResult previewCustomTitle(UUID player, CustomTitleDraft draft);
 
     /**
-     * 玩家提交专属称号: 先做到期检查, 再依次判资格、锁定、冷却、校验, 通过即写库并立即生效 (正在佩戴时三处
-     * 显示立即刷新)。第一次设置不受冷却限制; 被拒时不写库、不消耗冷却。
+     * 玩家提交专属称号: 先做到期检查, 再依次判资格、自助提交是否开启、锁定、冷却、校验, 通过即写库并立即生效
+     * (正在佩戴时三处显示立即刷新)。第一次设置不受冷却限制; 被拒时不写库、不消耗冷却。
      */
     CustomTitleResult setCustomTitle(ServerPlayer player, CustomTitleDraft draft);
 

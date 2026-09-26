@@ -86,7 +86,11 @@ import java.util.stream.Collectors;
  *   <li>生产构造器的阈值与冷却实时取自配置;</li>
  *   <li>佩戴与提交修改时自己先做到期检查, 不等巡检;</li>
  *   <li>登录时卸下写库失败留下的失效专属称号由巡检重试;</li>
- *   <li>玩家命令不渲染他人的专属称号、不暴露对方有没有记录, 也不向被锁定的玩家点名执行锁定的管理员。</li>
+ *   <li>玩家命令不渲染他人的专属称号、不暴露对方有没有记录, 也不向被锁定的玩家点名执行锁定的管理员;</li>
+ *   <li>自助提交关闭 (默认口径): 玩家提交被拒且不落库、预览照常并附可复制参数, 资格发放、未设置、custom info
+ *       的提示都指向"预览后找管理员"而不是 custom set; 管理员代设置后玩家可佩戴, 对没有资格的玩家代设置时提醒
+ *       补发资格;</li>
+ *   <li>默认违禁词从宽: 不收 OP、GM 这类短词, Shop 之类的正常写法不误伤。</li>
  * </ol>
  */
 @GameTestHolder(MiningConstants.MODID)
@@ -103,7 +107,7 @@ public final class CustomTitleGameTests {
 
     /** 设计文档 13.3 的默认符号白名单与违禁词, 逐字抄录。 */
     private static final String SPEC_SYMBOLS = "[]【】〔〕「」『』《》〈〉()（）<>★☆◆◇♦♥♠♣✦✧·・~-_!?！？";
-    private static final List<String> SPEC_BANNED = List.of("管理", "服主", "官方", "客服", "OP", "GM", "admin", "owner");
+    private static final List<String> SPEC_BANNED = List.of("管理", "服主", "官方", "客服", "admin", "owner");
 
     private static final ResourceLocation GOLD = new ResourceLocation(MiningConstants.MODID, "test/custom_gold");
 
@@ -125,6 +129,8 @@ public final class CustomTitleGameTests {
                 "违禁词默认值必须与 13.3 一致, 实为 " + TitleConfig.CUSTOM_BANNED_WORDS.getDefault());
         helper.assertTrue(TitleConfig.CUSTOM_MIN_LUMINANCE.getDefault() == 0.18D, "亮度下限默认应为 0.18");
         helper.assertTrue(TitleConfig.CUSTOM_EDIT_COOLDOWN_DAYS.getDefault() == 7, "修改冷却默认应为 7 天");
+        helper.assertTrue(!TitleConfig.CUSTOM_SELF_SERVICE_ENABLED.getDefault(),
+                "玩家自助提交默认应关闭 (由管理员代设置, 13.1)");
         helper.assertTrue(CustomTitleRules.symbols("[ ] ★").equals(Set.of((int) '[', (int) ']', (int) '★')),
                 "白名单拆分必须按码点且忽略空白");
         helper.succeed();
@@ -155,7 +161,7 @@ public final class CustomTitleGameTests {
         expectValid(helper, rules, "ＭＩＮＥＲ１");
 
         CustomTitleRules tight = new CustomTitleRules(4, 2, CustomTitleRules.symbols(SPEC_SYMBOLS), SPEC_BANNED,
-                0.18D, WEEK);
+                0.18D, WEEK, true);
         expectValid(helper, tight, "【矿工】");
         expectExactly(helper, tight, "【矿工人】", Rule.TOO_LONG, Rule.CONTENT_TOO_MANY);
         helper.succeed();
@@ -210,7 +216,7 @@ public final class CustomTitleGameTests {
                 Rule.FORMAT_CODE, Rule.INVISIBLE_CHAR, Rule.EMOJI, Rule.CHAR_NOT_ALLOWED);
 
         CustomTitleRules widened = new CustomTitleRules(10, 8,
-                CustomTitleRules.symbols(SPEC_SYMBOLS + "#§" + zeroWidth), SPEC_BANNED, 0.18D, WEEK);
+                CustomTitleRules.symbols(SPEC_SYMBOLS + "#§" + zeroWidth), SPEC_BANNED, 0.18D, WEEK, true);
         expectValid(helper, widened, "字#字");
         expectExactly(helper, widened, "字§", Rule.FORMAT_CODE);
         expectExactly(helper, widened, "字" + zeroWidth, Rule.INVISIBLE_CHAR);
@@ -222,22 +228,26 @@ public final class CustomTitleGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void validatorBannedWordsSeeThroughNormalization(GameTestHelper helper) {
         CustomTitleRules rules = specRules();
-        for (String bypass : List.of("管理", "管 理", "管·理", "【管_理】", "ＯＰ大佬", "Op大佬", "Ａｄｍｉｎ",
-                "G-M", "服★主", "官方认证", "客服", "Owner")) {
+        for (String bypass : List.of("管理", "管 理", "管·理", "【管_理】", "ＡＤＭＩＮ大佬", "Admin大佬", "Ａｄｍｉｎ",
+                "ad-min", "服★主", "官方认证", "客服", "Owner")) {
             expectExactly(helper, rules, bypass, Rule.BANNED_WORD);
         }
-        helper.assertTrue(firstViolation(rules, "ＯＰ大佬").args().equals(List.of("OP")),
-                "违禁词提示应给出配置里的原词, 实为 " + firstViolation(rules, "ＯＰ大佬").args());
+        helper.assertTrue(firstViolation(rules, "ＡＤＭＩＮ大佬").args().equals(List.of("admin")),
+                "违禁词提示应给出配置里的原词, 实为 " + firstViolation(rules, "ＡＤＭＩＮ大佬").args());
+        // 默认词表从宽 (服主有人工审查): 不收 OP、GM 这类两字母短词, 含这些字母的正常写法不再被误伤。
+        for (String loosened : List.of("OP大佬", "GM", "Shop", "Hope")) {
+            expectValid(helper, rules, loosened);
+        }
         // 本身算内容字符、看上去却只是一笔横竖撇点或一个重复记号的字, 夹进违禁词当分隔符用 —— 与"管 理"同一类绕过。
         for (String strokeSeparated : List.of("管ー理", "服一主", "官丨方", "客丶服", "管丿理", "服乀主", "管ノ理",
-                "管々理", "客ゝ服", "官ヽ方", "OーP", "GーM", "ad一min")) {
+                "管々理", "客ゝ服", "官ヽ方", "adーmin", "own一er", "ad一min")) {
             expectExactly(helper, rules, strokeSeparated, Rule.BANNED_WORD);
         }
         // 这些字本身照常可用, 只是匹配时不算隔开; 词表里含这些字的词仍按原样匹配, 不会被放宽成更短的词。
         expectValid(helper, rules, "第一矿工");
         expectValid(helper, rules, "ラーメン");
         CustomTitleRules strokeWord = new CustomTitleRules(10, 8, CustomTitleRules.symbols(SPEC_SYMBOLS),
-                List.of("一哥"), 0.18D, WEEK);
+                List.of("一哥"), 0.18D, WEEK, true);
         expectExactly(helper, strokeWord, "一 哥", Rule.BANNED_WORD);
         expectValid(helper, strokeWord, "哥们");
         expectValid(helper, rules, "矿工");
@@ -258,11 +268,11 @@ public final class CustomTitleGameTests {
                 "管理员代设置仍须校验字符集, 实为 " + adminCharset.violations());
 
         CustomTitleRules ownList = new CustomTitleRules(10, 8, CustomTitleRules.symbols(SPEC_SYMBOLS), List.of("矿工"),
-                0.18D, WEEK);
+                0.18D, WEEK, true);
         expectExactly(helper, ownList, "矿 工", Rule.BANNED_WORD);
         expectValid(helper, ownList, "管理");
         CustomTitleRules noList = new CustomTitleRules(10, 8, CustomTitleRules.symbols(SPEC_SYMBOLS), List.of(),
-                0.18D, WEEK);
+                0.18D, WEEK, true);
         expectValid(helper, noList, "管理");
         helper.succeed();
     }
@@ -318,10 +328,10 @@ public final class CustomTitleGameTests {
         helper.assertTrue(gray > 0.180D && gray < 0.182D, "#767676 的 WCAG 相对亮度约 0.181, 实为 " + gray);
 
         CustomTitleRules anyColor = new CustomTitleRules(10, 8, CustomTitleRules.symbols(SPEC_SYMBOLS), SPEC_BANNED,
-                0.0D, WEEK);
+                0.0D, WEEK, true);
         expectColors(helper, anyColor, List.of("#000000"));
         CustomTitleRules bright = new CustomTitleRules(10, 8, CustomTitleRules.symbols(SPEC_SYMBOLS), SPEC_BANNED,
-                0.5D, WEEK);
+                0.5D, WEEK, true);
         expectColors(helper, bright, List.of("#767676"), Rule.COLOR_TOO_DARK);
 
         CustomTitleValidator.Validation both = CustomTitleValidator.validate(draft("", false, "#000000"), rules, true);
@@ -1041,8 +1051,10 @@ public final class CustomTitleGameTests {
         helper.assertTrue(live.minLuminance() == TitleConfig.CUSTOM_MIN_LUMINANCE.get()
                         && live.editCooldownMillis() == cooldown,
                 "亮度下限与冷却 (天数换算成毫秒) 必须取自配置, 实为 " + live);
+        helper.assertTrue(live.selfServiceEnabled() == TitleConfig.CUSTOM_SELF_SERVICE_ENABLED.get(),
+                "自助提交开关必须取自配置, 实为 " + live);
 
-        // 生产构造器不注入规则与时钟: 提交时的校验阈值与冷却都经 fromConfig 实时读取。
+        // 生产构造器不注入规则与时钟: 预览 / 提交时的校验阈值、自助开关与冷却都经 fromConfig 实时读取。
         Path dir = TempStoreDb.createTempDir();
         Connection connection = TempStoreDb.openUnified(dir.resolve("titles.db"));
         MinecraftServer server = helper.getLevel().getServer();
@@ -1051,17 +1063,26 @@ public final class CustomTitleGameTests {
             TitleService service = new TitleService(new SqliteTitleRepository(connection), definitionsWithGold(), server);
             player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             service.grantSponsor(player.getUUID(), null, "op");
-            CustomTitleResult tooMany = service.setCustomTitle(player,
+            CustomTitleResult tooMany = service.previewCustomTitle(player.getUUID(),
                     draft("字".repeat(live.maxContentChars() + 1), false, "#FFFFFF"));
             helper.assertTrue(tooMany.status() == CustomTitleResult.Status.INVALID
                             && ruleSet(tooMany.violations()).contains(Rule.CONTENT_TOO_MANY),
                     "超过配置的内容字符上限必须被拒, 实为 " + tooMany);
+            helper.assertTrue(service.customSelfServiceEnabled() == live.selfServiceEnabled(),
+                    "门面报告的自助开关必须与配置一致");
             long before = System.currentTimeMillis();
-            CustomTitleResult applied = service.setCustomTitle(player, draft("字", false, "#FFFFFF"));
+            CustomTitleResult submitted = service.setCustomTitle(player, draft("字", false, "#FFFFFF"));
             long after = System.currentTimeMillis();
-            helper.assertTrue(applied.status() == CustomTitleResult.Status.APPLIED
-                            && applied.nextEditAt() >= before + cooldown && applied.nextEditAt() <= after + cooldown,
-                    "生产环境的冷却应为配置的天数, 实为 " + applied);
+            if (live.selfServiceEnabled()) {
+                helper.assertTrue(submitted.status() == CustomTitleResult.Status.APPLIED
+                                && submitted.nextEditAt() >= before + cooldown
+                                && submitted.nextEditAt() <= after + cooldown,
+                        "生产环境的冷却应为配置的天数, 实为 " + submitted);
+            } else {
+                helper.assertTrue(submitted.status() == CustomTitleResult.Status.SELF_SERVICE_DISABLED
+                                && service.customTitleInfo(player.getUUID()).custom() == null,
+                        "自助提交关闭时玩家提交必须被拒且不落库, 实为 " + submitted);
+            }
         } finally {
             if (player != null) {
                 server.getPlayerList().remove(player);
@@ -1248,11 +1269,107 @@ public final class CustomTitleGameTests {
         helper.succeed();
     }
 
+    // ---- 20. 自助提交关闭 (默认口径): 玩家只能预览, 专属称号由管理员代设置 ----
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void selfServiceOffLetsSponsorsPreviewButOnlyStaffSet(GameTestHelper helper) {
+        Path dir = TempStoreDb.createTempDir();
+        Connection connection = TempStoreDb.openUnified(dir.resolve("titles.db"));
+        MinecraftServer server = helper.getLevel().getServer();
+        ITitleService previous = currentFacade();
+        ServerPlayer player = null;
+        try {
+            CustomTitleRules staffOnly = new CustomTitleRules(10, 8, CustomTitleRules.symbols(SPEC_SYMBOLS),
+                    SPEC_BANNED, 0.18D, WEEK, false);
+            AtomicLong clock = new AtomicLong(T0);
+            TitleService service = new TitleService(new SqliteTitleRepository(connection), definitionsWithGold(),
+                    server, clock::get, () -> staffOnly);
+            TitleServices.registerTitleService(service);
+            String name = "title-staffonly";
+            player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper,
+                    new GameProfile(UUID.randomUUID(), name));
+            UUID uuid = player.getUUID();
+            CustomTitleDraft wanted = draft("【矿工】", false, "#FFD23F");
+            List<String> problems = new ArrayList<>();
+
+            if (service.setCustomTitle(player, wanted).status() != CustomTitleResult.Status.NOT_SPONSOR) {
+                problems.add("没有资格时仍应先答 NOT_SPONSOR");
+            }
+            EmbeddedChannel channel = channelOf(player);
+            systemChatKeys(channel);
+            service.grantSponsor(uuid, null, "op");
+            List<String> grantKeys = systemChatKeys(channel);
+            if (!grantKeys.contains("title.miningdim.sponsor.granted_permanent_notice_staff")
+                    || grantKeys.contains("title.miningdim.sponsor.granted_permanent_notice")) {
+                problems.add("发放资格的提示应让玩家预览后找管理员, 不能指向会被拒的 custom set, 实为 " + grantKeys);
+            }
+            if (service.customSelfServiceEnabled()) {
+                problems.add("门面应报告自助提交已关闭");
+            }
+            CustomTitleResult refused = service.setCustomTitle(player, wanted);
+            if (refused.status() != CustomTitleResult.Status.SELF_SERVICE_DISABLED
+                    || service.customTitleInfo(uuid).custom() != null) {
+                problems.add("自助提交关闭时赞助玩家的提交必须被拒且不落库, 实为 " + refused);
+            }
+            if (service.previewCustomTitle(uuid, wanted).status() != CustomTitleResult.Status.VALID) {
+                problems.add("自助提交关闭时预览仍应可用");
+            }
+
+            CommandDispatcher<CommandSourceStack> dispatcher = server.getCommands().getDispatcher();
+            CapturingSource playerOut = new CapturingSource();
+            CommandSourceStack asPlayer = player.createCommandSourceStack().withSource(playerOut).withPermission(0);
+            expectCommand(helper, dispatcher, asPlayer, playerOut, "mtitle custom set #FFD23F false 【矿工】", 0,
+                    "title.miningdim.custom.self_service_disabled");
+            List<String> previewKeys = expectCommand(helper, dispatcher, asPlayer, playerOut,
+                    "mtitle custom preview #FFD23F false 【矿工】", 1, "title.miningdim.custom.preview_admin_hint");
+            if (previewKeys.contains("title.miningdim.custom.preview_cooldown")) {
+                problems.add("自助提交关闭时预览不该再提修改冷却, 实为 " + previewKeys);
+            }
+            expectCommand(helper, dispatcher, asPlayer, playerOut, "mtitle wear " + CustomTitle.idOf(uuid), 0,
+                    "title.miningdim.custom.not_set_staff");
+            List<String> infoKeys = expectCommand(helper, dispatcher, asPlayer, playerOut, "mtitle custom info", 1,
+                    "title.miningdim.custom.info.staff_managed");
+            if (infoKeys.contains("title.miningdim.custom.info.next_edit")) {
+                problems.add("自助提交关闭时玩家的 custom info 不该再报下次可修改时间, 实为 " + infoKeys);
+            }
+
+            // 管理员代设置照常生效, 有资格时不附带提醒, 玩家随即可以佩戴。
+            CapturingSource adminOut = new CapturingSource();
+            CommandSourceStack asAdmin = server.createCommandSourceStack().withSource(adminOut);
+            String adminSet = "mtitle custom admin set @a[name=" + name + "] #FFD23F false 【矿工】";
+            List<String> setKeys = expectCommand(helper, dispatcher, asAdmin, adminOut, adminSet, 1,
+                    "title.miningdim.command.custom.admin.set");
+            if (setKeys.contains("title.miningdim.command.custom.admin.not_sponsor_warning")) {
+                problems.add("对有资格的玩家代设置不该提醒补发资格, 实为 " + setKeys);
+            }
+            if (service.equip(player, CustomTitle.idOf(uuid)) != EquipResult.EQUIPPED) {
+                problems.add("管理员代设置后赞助玩家应能佩戴专属称号");
+            }
+
+            // 资格失效后再代设置: 照样保存, 但提醒管理员称号暂不生效。
+            service.revokeSponsor(uuid, "op");
+            List<String> warnedKeys = expectCommand(helper, dispatcher, asAdmin, adminOut, adminSet, 1,
+                    "title.miningdim.command.custom.admin.set");
+            if (!warnedKeys.contains("title.miningdim.command.custom.admin.not_sponsor_warning")) {
+                problems.add("对没有有效资格的玩家代设置应提醒补发资格, 实为 " + warnedKeys);
+            }
+            helper.assertTrue(problems.isEmpty(), "自助提交关闭口径不对: " + problems);
+        } finally {
+            if (player != null) {
+                server.getPlayerList().remove(player);
+            }
+            restoreFacade(previous);
+            MiningDb.close(connection);
+            TempStoreDb.deleteQuietly(dir);
+        }
+        helper.succeed();
+    }
+
     // ---- 工具 ----
 
     /** 设计文档 13.3 / 13.4 的默认阈值。 */
     private static CustomTitleRules specRules() {
-        return new CustomTitleRules(10, 8, CustomTitleRules.symbols(SPEC_SYMBOLS), SPEC_BANNED, 0.18D, WEEK);
+        return new CustomTitleRules(10, 8, CustomTitleRules.symbols(SPEC_SYMBOLS), SPEC_BANNED, 0.18D, WEEK, true);
     }
 
     /** 由码点拼出字符串: 不可见字符、私用区字符与 emoji 不直接写进源码, 一律按码点构造。 */

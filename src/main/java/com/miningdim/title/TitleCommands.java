@@ -266,7 +266,8 @@ public final class TitleCommands {
                     : Component.translatable("title.miningdim.command.wear.not_owned",
                     othersCustom ? Component.literal(titleId.toString()) : shown(titles, titleId)));
             case UNKNOWN_TITLE -> source.sendFailure(ownCustom
-                    ? Component.translatable("title.miningdim.custom.not_set")
+                    ? Component.translatable(titles.customSelfServiceEnabled()
+                    ? "title.miningdim.custom.not_set" : "title.miningdim.custom.not_set_staff")
                     : Component.translatable("title.miningdim.command.unknown_title", String.valueOf(titleId)));
         }
         return result.success() ? 1 : 0;

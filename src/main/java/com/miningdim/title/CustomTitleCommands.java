@@ -28,7 +28,9 @@ import java.util.UUID;
  *
  * <ul>
  *   <li>玩家: {@code custom preview|set <颜色> <粗体> <文字>}、{@code custom info}。预览与提交要求赞助资格有效,
- *       由服务端在执行时判断并给出明确提示; info 对所有玩家开放, 资格失效的玩家也能看到到期时间与保留的称号。</li>
+ *       由服务端在执行时判断并给出明确提示; 提交另受配置 selfServiceEnabled 控制 (默认关闭, 由管理员代设置,
+ *       此时预览会附上可复制的参数供玩家发给管理员); info 对所有玩家开放, 资格失效的玩家也能看到到期时间与
+ *       保留的称号。</li>
  *   <li>管理员 (权限等级 2): {@code custom admin set|reset|lock|unlock|cooldown <玩家>} 与
  *       {@code sponsor grant <玩家> [天数] | revoke | info <玩家> | list}。</li>
  * </ul>
@@ -116,7 +118,16 @@ final class CustomTitleCommands {
                 result.style())).prefix();
         Component shown = Component.empty().append(prefix).append(player.getName());
         source.sendSuccess(() -> Component.translatable("title.miningdim.custom.preview", shown), false);
-        if (result.nextEditAt() != 0L) {
+        if (!titles.customSelfServiceEnabled()) {
+            // 自助提交关闭: 由管理员代设置, 给出可一键复制的参数, 玩家发给管理员即可。
+            String spec = StringArgumentType.getString(context, "spec");
+            Component copyable = Component.literal(spec).withStyle(style -> style
+                    .withClickEvent(new ClickEvent(ClickEvent.Action.COPY_TO_CLIPBOARD, spec))
+                    .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+                            Component.translatable("title.miningdim.custom.click_to_copy"))));
+            source.sendSuccess(() -> Component.translatable("title.miningdim.custom.preview_admin_hint", copyable),
+                    false);
+        } else if (result.nextEditAt() != 0L) {
             source.sendSuccess(() -> Component.translatable("title.miningdim.custom.preview_cooldown",
                     TitleText.time(result.nextEditAt())), false);
         }
@@ -187,6 +198,11 @@ final class CustomTitleCommands {
                 Component shown = TitleCommands.shown(titles, CustomTitle.idOf(target.getId()));
                 source.sendSuccess(() -> Component.translatable("title.miningdim.command.custom.admin.set",
                         target.getName(), shown), true);
+                if (!titles.customTitleInfo(target.getId()).sponsorActive()) {
+                    // 代设置不看资格 (可以提前备好), 但没有有效资格时称号不算拥有, 提醒管理员补发资格。
+                    source.sendFailure(Component.translatable(
+                            "title.miningdim.command.custom.admin.not_sponsor_warning", target.getName()));
+                }
             } else {
                 reportRejection(source, result, Component.translatable(
                         "title.miningdim.command.custom.admin.invalid", target.getName()));
@@ -323,12 +339,14 @@ final class CustomTitleCommands {
     }
 
     /**
-     * 预览 / 提交 / 代设置被拒时的反馈 (只处理四种拒绝结果); 校验不合格时先发 invalidHeader, 再逐条列出
+     * 预览 / 提交 / 代设置被拒时的反馈 (只处理五种拒绝结果); 校验不合格时先发 invalidHeader, 再逐条列出
      * 不合格项。
      */
     private static void reportRejection(CommandSourceStack source, CustomTitleResult result, Component invalidHeader) {
         switch (result.status()) {
             case NOT_SPONSOR -> source.sendFailure(Component.translatable("title.miningdim.custom.not_sponsor"));
+            case SELF_SERVICE_DISABLED -> source.sendFailure(
+                    Component.translatable("title.miningdim.custom.self_service_disabled"));
             case LOCKED -> source.sendFailure(Component.translatable("title.miningdim.custom.locked"));
             case ON_COOLDOWN -> source.sendFailure(Component.translatable("title.miningdim.custom.cooldown",
                     TitleText.time(result.nextEditAt())));
@@ -345,7 +363,8 @@ final class CustomTitleCommands {
      * custom info 与 sponsor info 共用的状态行: 赞助资格、专属称号、锁定、下次可修改时间。
      *
      * @param staffView 管理员视角 (sponsor info) 才写出锁定的执行者; 玩家看自己时只说"已被管理员锁定", 与其他
-     *                  面向玩家的处置提示一样不点名管理员
+     *                  面向玩家的处置提示一样不点名管理员。自助提交关闭时, 玩家视角不报"下次可修改时间" (玩家
+     *                  本来就不能自己改), 改为说明由管理员设置; 管理员视角照报, 以便日后打开自助时心里有数
      */
     private static void sendInfoLines(CommandSourceStack source, ITitleService titles, CustomTitleInfo info,
                                       boolean staffView) {
@@ -362,7 +381,9 @@ final class CustomTitleCommands {
                     ? Component.translatable("title.miningdim.custom.info.locked", lockedBy)
                     : Component.translatable("title.miningdim.custom.info.locked_self"), false);
         }
-        if (info.sponsorActive()) {
+        if (info.sponsorActive() && !staffView && !titles.customSelfServiceEnabled()) {
+            source.sendSuccess(() -> Component.translatable("title.miningdim.custom.info.staff_managed"), false);
+        } else if (info.sponsorActive()) {
             Component nextEdit = info.nextEditAt() == 0L
                     ? Component.translatable("title.miningdim.custom.info.editable_now")
                     : Component.literal(TitleText.time(info.nextEditAt()));

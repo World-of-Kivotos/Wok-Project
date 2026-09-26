@@ -48,6 +48,8 @@ public record CustomTitleResult(Status status, List<CustomTitleViolation> violat
         INVALID,
         /** 没有有效的赞助资格。 */
         NOT_SPONSOR,
+        /** 玩家自助提交已关闭 (配置 selfServiceEnabled), 专属称号由管理员代设置。 */
+        SELF_SERVICE_DISABLED,
         /** 已被管理员锁定, 玩家不能修改。 */
         LOCKED,
         /** 距上次成功修改未满冷却期, 见 nextEditAt。 */

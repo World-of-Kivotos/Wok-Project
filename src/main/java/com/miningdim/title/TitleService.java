@@ -358,9 +358,11 @@ public final class TitleService implements ITitleService {
         }
         ServerPlayer onlinePlayer = server.getPlayerList().getPlayer(player);
         if (onlinePlayer != null) {
+            // 自助提交关闭时 (默认) 由管理员代设置, 提示改为"预览后发给管理员", 不把玩家指向会被拒的 custom set。
+            String suffix = customRules.get().selfServiceEnabled() ? "" : "_staff";
             onlinePlayer.sendSystemMessage(expiresAt == null
-                    ? Component.translatable("title.miningdim.sponsor.granted_permanent_notice")
-                    : Component.translatable("title.miningdim.sponsor.granted_until_notice",
+                    ? Component.translatable("title.miningdim.sponsor.granted_permanent_notice" + suffix)
+                    : Component.translatable("title.miningdim.sponsor.granted_until_notice" + suffix,
                     TitleText.time(expiresAt)));
         }
         return granted;
@@ -412,6 +414,11 @@ public final class TitleService implements ITitleService {
     // ---- 专属称号 ----
 
     @Override
+    public boolean customSelfServiceEnabled() {
+        return customRules.get().selfServiceEnabled();
+    }
+
+    @Override
     public CustomTitleResult previewCustomTitle(UUID player, CustomTitleDraft draft) {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(draft, "draft");
@@ -442,11 +449,14 @@ public final class TitleService implements ITitleService {
         if (!sponsorActive(sponsorOf(uuid), now)) {
             return CustomTitleResult.rejected(CustomTitleResult.Status.NOT_SPONSOR);
         }
+        CustomTitleRules rules = customRules.get();
+        if (!rules.selfServiceEnabled()) {
+            return CustomTitleResult.rejected(CustomTitleResult.Status.SELF_SERVICE_DISABLED);
+        }
         CustomTitle current = customTitleOf(uuid);
         if (current != null && current.locked()) {
             return CustomTitleResult.rejected(CustomTitleResult.Status.LOCKED);
         }
-        CustomTitleRules rules = customRules.get();
         long cooldownEnd = nextEditAt(current, now, rules);
         if (cooldownEnd != 0L) {
             return CustomTitleResult.onCooldown(cooldownEnd);

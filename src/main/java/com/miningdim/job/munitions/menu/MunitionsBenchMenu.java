@@ -192,10 +192,15 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
 
     /**
      * 输出缓冲槽: 只取不放; 取出时回收缓冲计数 (谁产谁得经验已在产出帧入主人)。
-     * 取弹计量走 {@link #remove} 精确累计 (审查 M-8): remove 是鼠标路径 (safeTake/tryRemove) 物品离槽的唯一
-     * 入口, 整取/半取天然精确, 且每个 menu 实例独立计量 —— 替换旧的 getItem 快照机制 (vanilla 每 tick
-     * broadcastChanges 会虚调 getItem, 把第二名观看者的快照钉在历史最大值, 多人同开交错取弹时按旧快照差值
-     * 超额扣缓冲)。Shift 路径不经 remove, 由外层 quickMoveStack 差值结算, 此处消费 0 不双计。
+     * 取弹计量按离槽路径分三条入口累计, 统一在 {@link #onTake} 交给 BE (审查 M-8 / V01), 每个 menu 实例独立计量
+     * —— 替换旧的 getItem 快照机制 (vanilla 每 tick broadcastChanges 会虚调 getItem, 把第二名观看者的快照钉在
+     * 历史最大值, 多人同开交错取弹时按旧快照差值超额扣缓冲):
+     *  - {@link #remove}: 鼠标路径 (PICKUP 左/右键、THROW、PICKUP_ALL 都经 safeTake/tryRemove 落到这里);
+     *  - {@link #onSwapCraft}: 数字键 1-9 / 副手键 F 的 SWAP 路径。原版 doClick 的 SWAP 分支不调 remove, 而是
+     *    Inventory.setItem 把活栈整个塞给玩家 -> onSwapCraft(count) -> setByPlayer(EMPTY) -> onTake (javap 核实
+     *    1.20.1 字节码顺序), 漏计时缓冲不扣而输出槽已空, 重开界面 onAccess 按原缓冲重新物化一整栈 = 无限复制;
+     *  - Shift 路径不经 remove 也不经 onSwapCraft, 由外层 quickMoveStack 差值结算, 此处消费 0 不双计。
+     * CLONE (创造中键) 只复制不离槽, 不涉及缓冲。
      */
     private static final class OutputSlot extends SlotItemHandler {
         private final MunitionsBenchBlockEntity be;
@@ -216,6 +221,12 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
             ItemStack removed = super.remove(amount);
             pendingTaken += removed.getCount();
             return removed;
+        }
+
+        @Override
+        protected void onSwapCraft(int count) {
+            // SWAP 整栈换出: 原版在 setByPlayer(EMPTY) 与 onTake 之前以换出数量调用, 正好接上 onTake 的结算。
+            pendingTaken += count;
         }
 
         @Override

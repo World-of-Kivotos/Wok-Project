@@ -207,6 +207,16 @@ public interface ITitleService {
 - 错误码在 `WebUiErrorCodes` 中新增 `TITLE_NOT_OWNED`、`TITLE_UNKNOWN`，并在 `webui/src/lib/errorText.ts` 中映射成玩家可读的提示。
 - Java 侧在 `TitleWebUiActions.registerAll()` 中注册，由 `TitleSystem.register()` 调用。`title.list` 同时登记进 `WebUiBatchAction.BATCHABLE` 和 `webui/src/lib/batch.ts`。
 
+实现口径（P2，2026-09-26）：
+
+- `wok-title` 的依赖加上 `wok-webui`（第二章表格原先就预告了这一步）。
+- `title.list` 回 `{equipped, palette, titles, custom}`：`titles` 是全部数据包定义（含未拥有的），按 `definitions()` 的展示顺序，每行带 `rarity`、`sort`、`owned`、`equipped`、`badge` 与 `description`；`palette` 是 `TierPalette` 七档的色标与粗体（编辑器的"套用档位配色"用它，前端不另抄色值）；`custom` 见 13.8 的实现口径。持有记录还在、定义已被删除的称号不出现（第三章口径）。
+- 徽记与说明经 `webui.server.WebUiTextJson` 拍平成"片段 + 颜色 + 粗体"：单色档是 `[` + 翻译键 + `]` 整段上色（客户端经 client.i18n 按自己的语言解），渐变档是服务端已经逐字上色的中文，与聊天、Tab、名牌里的样子逐字相同。前端照着画，不自己算渐变。
+- "注明获取途径"取定义里的 `description`（来自隐藏成就的称号本来就写成"由一项隐藏成就获得"，不泄露成就名）；称号若在成就点商店上架，页面再从 `achievement.pointShop` 的商品里查出价格一并显示。称号模块不因此引用成就模块，第六章说的"由落库 id 反查来源枚举"也仍未需要。
+- `title.equip {titleId: string | null}`：`null` 卸下；`TITLE_NOT_OWNED`（含别人的专属称号 id）、`TITLE_UNKNOWN` 带 params `titleId`；缺键、写不成资源 id 的回 `INVALID_REQUEST`（field=titleId）。回执 `{equipped}`。
+- 页面：成就点商店页的"我的称号"页签，卡片网格，每张卡片是一条深底的"游戏内效果"预览（徽记 + 空格 + 玩家名，即 `TitleRenderer` 的 prefix），另有一张"不佩戴"卡片；当前佩戴的卡片高亮，未拥有的压灰并写明获取途径。
+- GameTest：`TitleWebUiGameTests`（batch `title_webui`，5 条），覆盖列表形状与两档徽记、佩戴与每一种拒绝、预览、提交跟随自助开关、只有 `title.list` 能进批。
+
 ---
 
 ## 八、管理员命令 (DECIDED)
@@ -277,7 +287,7 @@ P2 再补：`title.list` / `title.equip` 的 WebUI 契约（仿照 `QuestWebUiGa
 
 | # | 事项 | 状态 |
 |---|---|---|
-| 1 | G 面板浅色主题下七档加深色的具体色值 | PENDING |
+| 1 | G 面板浅色主题下七档加深色的具体色值 | DECIDED（2026-09-26）：`webui/src/styles/index.css` 的 `.light` 块。每个色标在 OKLCH 里保持色相、压低亮度（超出 sRGB 时收一点彩度），直到对 `#FFFFFF` / `#FAFAFA` / `#F0F0F0` 三种亮色表面的 WCAG 对比度都不低于 4.5:1（实测 4.50 ~ 5.18）。铜 `#9F5D21`；银 `#686E74`；金 `#876903`；白金 `#6D6D6D → #796C49 → #886901`；钻石 `#087982 → #406DB7 → #8D55B2`；大师 `#8F42E5 → #B227D0 → #C92289`；传说 `#DB051E → #AA5702 → #866A00`。变量名 `--tier-<档>`，渐变档另有 `--tier-<档>-from` / `-via` / `-to`，单值变量取中间色标。暗色档直接用 3.1 节的游戏内色值。只用于页面装饰（档位名、卡片色带）；"游戏内效果"预览恒为深底并用服务端下发的原值 |
 | 2 | 名牌流光动画是否要做 | PENDING |
 | 3 | 多子服架构下称号数据的共享方案 | PENDING（接口已预留） |
 | 4 | 赞助专属称号违禁词表的初始内容 | TODO（服主补充到 `miningdim-title.toml` 的 `custom.bannedWords`，可热改；当前默认值即 13.3 列出的六个词） |
@@ -426,6 +436,16 @@ CREATE TABLE title_custom (
 - 显示下次可修改的时间和赞助到期时间
 
 预览在前端本地渲染，提交时服务端按 13.3 重新校验。需要的接口：`title.customPreview`（只读，返回校验结果）、`title.customSet`（写）。
+
+实现口径（P2，2026-09-26）：
+
+- 只有赞助资格行存在（有效或已过期）时才显示这张卡片。`title.list` 的 `custom` 块：`titleId`（`miningdim:custom/<uuid>`）、`selfServiceEnabled`、`sponsor`（`permanent` / `expiresAt` / `active`，从未发放或已撤销为 null）、`record`（`text` / `colors` / `bold` / `locked` / `badge`，未设置为 null；锁定只说"已被管理员锁定"，不点名管理员）、`owned`、`equipped`、`nextEditAt`。
+- 编辑器：文字、1~3 个 `#RRGGBB` 色标、粗体开关，另可一键套用七档色板。本地预览按 `TierPalette.gradientColors` 同一份插值（float 精度）逐字上色，停手 400 ms 后调 `title.customPreview` 取权威结论。
+- `title.customPreview {colors, bold, text}`：没有有效资格回 `CUSTOM_TITLE_NOT_SPONSOR`；否则回 `status`（`VALID` / `INVALID`）、`violations`（规则名 + 参数，前端按 `title.miningdim.custom.invalid.*` 的中文逐条显示）、`badge`（渲染好的徽记）、`spec`（规范化后的 `<颜色> <粗体> <文字>`，与 `/mtitle custom preview` 同写法）、`adminCommand`（`/mtitle custom admin set <玩家名> <spec>`）、`nextEditAt`、`selfServiceEnabled`。不写库、不消耗冷却。入参形状错（colors 不是字符串数组、文字超过 256 个码元、色标多于 8 个或单个长于 32 个字符）回 `INVALID_REQUEST`。
+- 页面跟随 `selfServiceEnabled`：关闭（当前默认，管理员代设置）时不给提交按钮，改为"复制参数发给管理员"，复制的就是 `adminCommand`（异步剪贴板失败时退回选区复制，命令本身始终显示在页面上可以手动选中），且不展示下次可修改时间；打开时给"提交"，显示下次可修改时间。
+- `title.customSet` 与命令同一条服务路径（`setCustomTitle`），拒绝各有稳定码：`CUSTOM_TITLE_NOT_SPONSOR`、`CUSTOM_TITLE_SELF_SERVICE_DISABLED`（自助提交关闭时的明确拒绝）、`CUSTOM_TITLE_LOCKED`、`CUSTOM_TITLE_ON_COOLDOWN`（params nextEditAt）、`CUSTOM_TITLE_INVALID`（params count 与逗号分隔的 rules）。成功回 `{status: APPLIED, titleId, badge, nextEditAt}`。
+- 赞助资格已失效时卡片仍显示保留的记录与到期时间，但编辑器换成一句说明（失效期间不能佩戴也不能修改，续期后恢复）。
+- 中文输入：MCEF 里的页面输入框拿不到游戏的输入法（WebUI 中文输入方案仍未定，见 WebUI_ChineseIME_DesignSpec），编辑器的文字框目前只能粘贴或打英文；预览与复制参数不受影响。
 
 ### 13.9 测试
 

@@ -18,6 +18,12 @@ import type { WebUiActionName } from './actions'
 import { SERVER_ACTIONS } from './actions'
 import { enqueueBatched, installBatchTransport, isBatchableAction } from './batch'
 import type {
+  AchievementClaimRewardsPayload,
+  AchievementClaimRewardsResult,
+  AchievementPointShopBuyPayload,
+  AchievementPointShopBuyResult,
+  AchievementPointShopPayload,
+  AchievementPointShopResult,
   EconomyPriceTablePayload,
   EconomyPriceTableResult,
   EconomyStatusPayload,
@@ -167,6 +173,13 @@ import type {
   SystemHandshakeResult,
   SystemServerStatusPayload,
   SystemServerStatusResult,
+  TitleCustomDraftPayload,
+  TitleCustomPreviewResult,
+  TitleCustomSetResult,
+  TitleEquipPayload,
+  TitleEquipResult,
+  TitleListPayload,
+  TitleListResult,
 } from './types'
 
 /**
@@ -249,6 +262,13 @@ type WebUiContractMap = {
   'admin.job.setLevel': { payload: AdminJobSetLevelPayload; result: AdminJobSetLevelResult }
   'admin.mining.reset': { payload: AdminMiningResetPayload; result: AdminMiningResetResult }
   'player.roster': { payload: PlayerRosterPayload; result: PlayerRosterResult }
+  'achievement.pointShop': { payload: AchievementPointShopPayload; result: AchievementPointShopResult }
+  'achievement.pointShopBuy': { payload: AchievementPointShopBuyPayload; result: AchievementPointShopBuyResult }
+  'achievement.claimRewards': { payload: AchievementClaimRewardsPayload; result: AchievementClaimRewardsResult }
+  'title.list': { payload: TitleListPayload; result: TitleListResult }
+  'title.equip': { payload: TitleEquipPayload; result: TitleEquipResult }
+  'title.customPreview': { payload: TitleCustomDraftPayload; result: TitleCustomPreviewResult }
+  'title.customSet': { payload: TitleCustomDraftPayload; result: TitleCustomSetResult }
 }
 
 /**

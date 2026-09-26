@@ -232,13 +232,14 @@
       "resourceNamePrefixes": [],
       "dependencies": [
         "wok-core",
-        "wok-store"
+        "wok-store",
+        "wok-webui"
       ],
       "optionalIntegrations": [
         "sqlite-jdbc"
       ],
       "publicEntry": "com.miningdim.title.ITitleService",
-      "scope": "cosmetic player titles: datapack definitions, SQLite ownership and equip state, chat/tab/nametag display, admin-granted sponsorships with one player-defined custom title each (validation, edit cooldown, expiry), /mtitle player and admin commands"
+      "scope": "cosmetic player titles: datapack definitions, SQLite ownership and equip state, chat/tab/nametag display, admin-granted sponsorships with one player-defined custom title each (validation, edit cooldown, expiry), /mtitle player and admin commands, and the title.* WebUI actions"
     },
     {
       "id": "wok-market",
@@ -813,14 +814,15 @@
         "wok-market",
         "wok-case-opening",
         "wok-quest",
-        "wok-marriage"
+        "wok-marriage",
+        "wok-webui"
       ],
       "optionalIntegrations": [
         "tacz",
         "sqlite-jdbc"
       ],
       "publicEntry": "com.miningdim.achievement.AchievementServices",
-      "scope": "achievements as vanilla advancements: seven tiers driving frame, announcement and title colour via datagen, achievement meta with runtime consistency check, custom stats and criterion triggers fed by mining trip, counted break, trap, champion kill, gun kill, marriage and achievement count hooks, by the experience award and job listener seams (job level, farmer harvest, chef dish, brew, tarot play, agent seal, nano plate, munitions batch), and by the faucet, market trade, case opening, quest claim, wedding and spouse teleport listener seams of the gameplay modules, market anti-abuse partner ledger, silent login backfill, SQLite pending rewards, point balance, point ledger and daily stat caps, atomic reward claiming with achievement titles, and the /machievement player and admin commands"
+      "scope": "achievements as vanilla advancements: seven tiers driving frame, announcement and title colour via datagen, achievement meta with runtime consistency check, custom stats and criterion triggers fed by mining trip, counted break, trap, champion kill, gun kill, marriage and achievement count hooks, by the experience award and job listener seams (job level, farmer harvest, chef dish, brew, tarot play, agent seal, nano plate, munitions batch), and by the faucet, market trade, case opening, quest claim, wedding and spouse teleport listener seams of the gameplay modules, market anti-abuse partner ledger, silent login backfill, SQLite pending rewards, point balance, point ledger and daily stat caps, atomic reward claiming with achievement titles, the achievement point shop (datapack goods, atomic purchases with owner-bound items), the achievement.* WebUI actions, and the /machievement player and admin commands"
     },
     {
       "id": "wok-app",

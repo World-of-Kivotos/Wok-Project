@@ -26,9 +26,10 @@ import java.util.Set;
  * 另造 handler), 故删掉被测的注册行或 handler 逻辑本类必挂。
  *
  * 强断言 (删被测核心逻辑必挂):
- *  1. hub.panels 恒发 11 条且顺序固定, 域与前端路由表逐条对齐 (quests 已接入, champion 必须叫 codex);
+ *  1. hub.panels 恒发 12 条且顺序固定, 域与前端路由表逐条对齐 (quests 已接入, champion 必须叫 codex,
+ *     成就点商店叫 achievementShop);
  *  2. admin 面板的 enabled 随真实 OP 状态翻转, 且锁上时带 lockCode=NOT_OP、开着时整键缺席;
- *  3. 默认启用任务系统时除 admin 外 10 条恒开且一律不带 lockCode (本批不做等级门/婚姻门);
+ *  3. 默认启用任务系统时除 admin 外 11 条恒开且一律不带 lockCode (本批不做等级门/婚姻门);
  *  4. 面板只发 panelId/enabled/lockCode 三个键, route/label/iconItemId 一律不下发 (展示层真源在前端);
  *  5. QuestServices inactive 时 quests 独立锁为 QUEST_DISABLED, 不串改其它面板的锁;
  *  6. system.serverStatus 的五个字段取真实服务器数值, 且 tps 由 mspt 派生并被钳在 20 以内。
@@ -43,7 +44,7 @@ public final class WebUiHubStatusGameTests {
     /** 面板 id 的期望全集与顺序。写死在测试里而不是引用被测常量, 否则改错了域两边一起改还是绿的。 */
     private static final String[] EXPECTED_PANEL_IDS = {
             "home", "market", "shop", "jobs", "mining",
-            "quests", "codex", "marriage", "case", "settings", "admin"};
+            "quests", "achievementShop", "codex", "marriage", "case", "settings", "admin"};
 
     /** 单个面板允许出现的全部键 (lockCode 仅锁上时出现)。多一个键都是往服务端搬前端的活。 */
     private static final Set<String> ALLOWED_PANEL_KEYS = Set.of("panelId", "enabled", "lockCode");
@@ -73,7 +74,7 @@ public final class WebUiHubStatusGameTests {
     }
 
     // ============================================================
-    // 2/3. hub.panels: admin 门随真实 OP 翻转, 其余 10 条在默认配置下恒开
+    // 2/3. hub.panels: admin 门随真实 OP 翻转, 其余 11 条在默认配置下恒开
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)

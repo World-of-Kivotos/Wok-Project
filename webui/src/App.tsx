@@ -8,6 +8,7 @@ import { installPanelVisibility } from '@/lib/panel-visibility'
 import { invalidateAll } from '@/lib/refresh'
 import { installWheelNormalizer } from '@/lib/wheel'
 import { TooltipProvider } from './components/ui/tooltip'
+import { AchievementShopPage } from './pages/AchievementShopPage'
 import { AdminPage } from './pages/admin/AdminPage'
 import { CasePage } from './pages/CasePage'
 import { CodexPage } from './pages/CodexPage'
@@ -27,6 +28,7 @@ import { SettingsPage } from './pages/SettingsPage'
 import { ShopPage } from './pages/ShopPage'
 import type { RouteMatch, RoutePattern } from './router'
 import {
+  ROUTE_ACHIEVEMENT_SHOP,
   ROUTE_ADMIN,
   ROUTE_CASE,
   ROUTE_CODEX,
@@ -66,6 +68,7 @@ const ROUTE_ELEMENTS: Record<RoutePattern, () => ReactElement> = {
   [ROUTE_JOB_DETAIL]: () => <JobDetailPage />,
   [ROUTE_MINING]: () => <MiningPage />,
   [ROUTE_QUESTS]: () => <QuestsPage />,
+  [ROUTE_ACHIEVEMENT_SHOP]: () => <AchievementShopPage />,
   [ROUTE_CODEX]: () => <CodexPage />,
   [ROUTE_MARRIAGE]: () => <MarriagePage />,
   [ROUTE_CASE]: () => <CasePage />,

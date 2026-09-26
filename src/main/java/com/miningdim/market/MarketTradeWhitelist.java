@@ -16,9 +16,14 @@ import net.minecraft.world.item.ItemStack;
  * {@link #judge}**, 不允许任何第二处再写一遍品质判断。只在 tradable 里判而 place 不判, 等于前端灰掉了按钮、
  * 玩家却能用命令行或自造请求挂上去 —— 那时页面显示的规则是假的, 比不做更糟。
  *
- * 当前唯一规则 (用户拍板): 塔罗牌只有最低品质 R 可以挂单, 其余 (SR/SSR/UR/闪耀) 一律禁止。产品意图是保留低品质
+ * 塔罗规则 (用户拍板): 塔罗牌只有最低品质 R 可以挂单, 其余 (SR/SSR/UR/闪耀) 一律禁止。产品意图是保留低品质
  * 牌的流通给新手入门渠道, 高品质必须自己合成, 不让合成玩法的价值被倒卖稀释。与既有的 ownerUUID 绑定 (倒卖来的
  * 牌打不出效果) 并存: 绑定管的是"买到手能不能用", 本规则管的是"能不能挂上去"。
+ *
+ * 成就点商店规则 (Achievement_System_DesignSpec 8.4 经济隔离硬约束): 成就点兑换出的物品一律不能上架。识别的是成就
+ * 模块兑换时盖的商品 id 键 {@value #POINT_SHOP_GOODS_TAG} (同时还盖了 OwnerUUID), 而不是泛泛地按 OwnerUUID 拦截 ——
+ * R 品质塔罗牌与卡包也带 OwnerUUID, 按它拦会顺手把用户明确放行的 R 牌一起禁掉。市场不引用成就模块 (玩法模块不得反向
+ * 依赖成就模块), 键名在两边各写一份, 由成就模块的 GameTest 经真实的 market.tradable / market.place 锁住。
  *
  * 依赖代价 (必须记一笔): market 核心交易逻辑从此对 {@link TarotQuality} 枚举产生编译期依赖。将来给塔罗加档位、
  * 改成员顺序或改最低档语义, 必须同步排查 market 包 —— 否则市场会静默按旧的"最低档"放行。
@@ -42,6 +47,12 @@ public final class MarketTradeWhitelist {
     /** 塔罗牌身份 NBT 缺失/越界 (创造模式直给的裸牌), 无法证明是 R, 故被拒。{@link Verdict#rule()} 取值。 */
     public static final String RULE_TAROT_IDENTITY_UNREADABLE = "TAROT_IDENTITY_UNREADABLE";
 
+    /** 成就点商店兑换出的绑定物品, 一律不能上架。{@link Verdict#rule()} 取值。 */
+    public static final String RULE_POINT_SHOP_BOUND = "POINT_SHOP_BOUND";
+
+    /** 成就点商店的商品 id 盖章键 (与成就模块 {@code shop.PointShopGoods.GOODS_TAG} 同名, 见类注释)。 */
+    private static final String POINT_SHOP_GOODS_TAG = "PointShopGoods";
+
     /**
      * 一次裁决结果。可交易时 reasonCode/reason/rule 三者均为 null (前端据 tradable 判分支, 不靠字符串判空)。
      *
@@ -63,7 +74,8 @@ public final class MarketTradeWhitelist {
     private static final int MAX_CONTAINER_DEPTH = 1;
 
     /**
-     * 该物品栈能否挂上市场。deny-by-default 只作用于已知受管标的: 非塔罗牌 (且容器内也无受管标的) 一律放行。
+     * 该物品栈能否挂上市场。deny-by-default 只作用于已知受管标的: 非塔罗牌、非成就点商店绑定物 (且容器内也无受管标的)
+     * 一律放行。
      */
     public static Verdict judge(ItemStack stack) {
         return judge(stack, MAX_CONTAINER_DEPTH);
@@ -79,6 +91,11 @@ public final class MarketTradeWhitelist {
      * @param remainingDepth 还允许下钻的层数; 0 表示只判本层, 不再看内容物
      */
     private static Verdict judge(ItemStack stack, int remainingDepth) {
+        CompoundTag tag = stack.getTag();
+        if (tag != null && tag.contains(POINT_SHOP_GOODS_TAG)) {
+            return new Verdict(false, WebUiErrorCodes.ITEM_NOT_TRADABLE,
+                    "成就点商店兑换的物品已绑定, 不能上架", RULE_POINT_SHOP_BOUND);
+        }
         if (stack.getItem() instanceof TarotCardItem) {
             if (!TarotCardItem.hasReadableCardIdentity(stack)) {
                 // 拒绝而不是放行: 无法证明它是 R 品质, 就不满足"只有最低品质可挂"的放行条件。

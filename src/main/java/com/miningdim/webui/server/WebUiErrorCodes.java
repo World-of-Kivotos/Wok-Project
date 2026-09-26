@@ -40,9 +40,9 @@ public final class WebUiErrorCodes {
     public static final String SLOT_EMPTY = "SLOT_EMPTY";
 
     /**
-     * 该标的被市场白名单禁止挂单 (当前唯一规则: 塔罗牌只有最低品质 R 可挂)。
-     * params: {@code itemId} 与 {@code rule} ({@code TAROT_QUALITY_ABOVE_R} / {@code TAROT_IDENTITY_UNREADABLE},
-     * 前端据此把一条码分成两句话)。
+     * 该标的被市场白名单禁止挂单 (塔罗牌只有最低品质 R 可挂; 成就点商店兑换的绑定物品一律不可挂)。
+     * params: {@code itemId} 与 {@code rule} ({@code TAROT_QUALITY_ABOVE_R} / {@code TAROT_IDENTITY_UNREADABLE} /
+     * {@code POINT_SHOP_BOUND}, 前端据此把一条码分成几句话)。
      *
      * 抛出点只有一个: {@code MarketEngine.place} (判定源自 {@code MarketTradeWhitelist.judge})。
      * {@code market.tradable} 回执的 reasonCode 回的是同一个值但**不抛** —— 灰按钮与硬提交被拒因此共用一条文案,
@@ -190,4 +190,86 @@ public final class WebUiErrorCodes {
      * 任何扣款/改状态之前拦下, 拒绝时状态干净。
      */
     public static final String ESCROW_UNRESOLVABLE = "ESCROW_UNRESOLVABLE";
+
+    /**
+     * 数据库读写失败, 这次写操作整体回滚、什么都没有改动。无 params。抛出点: {@code AchievementWebUiActions}
+     * 的 achievement.claimRewards 与 achievement.pointShopBuy (服务层已记错误日志并回滚, 对应其结果的 STORE_FAILED)。
+     *
+     * 做成业务码而不是让它落进通用异常: 服务层已经把失败收口成一个结果并记好了日志, 再抛裸异常只会让派发器
+     * 多打一条 WARN 堆栈, 前端也拿不到"本次没有扣点"这句关键的话。
+     */
+    public static final String STORE_FAILED = "STORE_FAILED";
+
+    // ---- 成就点商店与奖励领取 (Achievement_System_DesignSpec 8.2) ----
+
+    /** 成就点余额不足。params: {@code goodsId} / {@code price} / {@code balance}。抛出点: achievement.pointShopBuy。 */
+    public static final String POINTS_INSUFFICIENT = "POINTS_INSUFFICIENT";
+
+    /**
+     * 已达每人限购 (限购按成就点流水里该商品的兑换记录计数)。params: {@code goodsId} / {@code limit} /
+     * {@code purchased}; 称号类商品而玩家已经拥有该称号 (比如管理员发过) 时另带 {@code reason=TITLE_OWNED}。
+     * 抛出点: achievement.pointShopBuy。
+     */
+    public static final String GOODS_LIMIT_REACHED = "GOODS_LIMIT_REACHED";
+
+    /**
+     * 商品不存在或当前不可兑换 (数据包里没有这个 id, 或称号类商品引用的称号定义未加载)。params: {@code goodsId}。
+     * 抛出点: achievement.pointShopBuy。
+     */
+    public static final String GOODS_UNKNOWN = "GOODS_UNKNOWN";
+
+    /**
+     * 商品要求先获得某个成就 (requires_advancement) 而玩家尚未获得。params: {@code goodsId} / {@code advancementId}。
+     * 抛出点: achievement.pointShopBuy。
+     */
+    public static final String GOODS_REQUIREMENT_UNMET = "GOODS_REQUIREMENT_UNMET";
+
+    /**
+     * 物品类商品: 背包放不下, 未扣点。背包空间在扣点前检查 (8.4)。params: {@code goodsId}。
+     * 抛出点: achievement.pointShopBuy。
+     */
+    public static final String INVENTORY_FULL = "INVENTORY_FULL";
+
+    /** 这条奖励已经领取过。params: {@code advancementId}。抛出点: achievement.claimRewards。 */
+    public static final String REWARD_ALREADY_CLAIMED = "REWARD_ALREADY_CLAIMED";
+
+    /** "全部领取"时没有待领取的奖励。无 params。抛出点: achievement.claimRewards。 */
+    public static final String REWARD_NONE_PENDING = "REWARD_NONE_PENDING";
+
+    /**
+     * 奖励附带的称号发不出去 (称号定义缺失等), 整次领取已回滚。params: {@code advancementId} / {@code titleId} /
+     * {@code scope} ({@code all} 表示"全部领取"因这一条失败, 其余奖励仍可逐条领取; {@code selected} 为指定的几条)。
+     * 抛出点: achievement.claimRewards。
+     */
+    public static final String REWARD_TITLE_UNAVAILABLE = "REWARD_TITLE_UNAVAILABLE";
+
+    // ---- 称号 (Title_System_DesignSpec 第七章、13.8) ----
+
+    /** 佩戴的称号自己没有 (含别人的专属称号 id)。params: {@code titleId}。抛出点: title.equip。 */
+    public static final String TITLE_NOT_OWNED = "TITLE_NOT_OWNED";
+
+    /** 佩戴的称号没有加载的定义。params: {@code titleId}。抛出点: title.equip。 */
+    public static final String TITLE_UNKNOWN = "TITLE_UNKNOWN";
+
+    /** 没有有效的赞助资格, 不能预览或提交专属称号。无 params。抛出点: title.customPreview / title.customSet。 */
+    public static final String CUSTOM_TITLE_NOT_SPONSOR = "CUSTOM_TITLE_NOT_SPONSOR";
+
+    /**
+     * 玩家自助提交已关闭 (配置 selfServiceEnabled, 默认关闭), 专属称号由管理员代设置。无 params。
+     * 抛出点: title.customSet。
+     */
+    public static final String CUSTOM_TITLE_SELF_SERVICE_DISABLED = "CUSTOM_TITLE_SELF_SERVICE_DISABLED";
+
+    /** 专属称号已被管理员锁定。无 params。抛出点: title.customSet。 */
+    public static final String CUSTOM_TITLE_LOCKED = "CUSTOM_TITLE_LOCKED";
+
+    /** 修改冷却中。params: {@code nextEditAt} (毫秒时间戳)。抛出点: title.customSet。 */
+    public static final String CUSTOM_TITLE_ON_COOLDOWN = "CUSTOM_TITLE_ON_COOLDOWN";
+
+    /**
+     * 提交的专属称号没通过校验 (13.3)。params: {@code count} (不合格项条数) 与 {@code rules} (逗号分隔的规则名,
+     * 即 {@code CustomTitleViolation.Rule} 的枚举名)。逐条带参数的明细由 title.customPreview 的回执给出。
+     * 抛出点: title.customSet。
+     */
+    public static final String CUSTOM_TITLE_INVALID = "CUSTOM_TITLE_INVALID";
 }

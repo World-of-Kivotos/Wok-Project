@@ -382,8 +382,20 @@ CREATE TABLE achievement_point_ledger (
 
 - 在同一个 `MiningStore` 事务里完成：检查余额和限购 → 扣点 → 写流水 → 发称号（`grantInTransaction`）。
 - 物品类商品**在扣点前**先检查背包空间，没有空间就返回 `INVENTORY_FULL`，不扣点。事务提交后在主线程把物品放进背包。因为服务端单线程，检查和发放之间不会有其他操作插进来。
-- **经济隔离（DECIDED，硬约束）**：成就点商店的物品必须是装饰物或纯外观/趣味小道具，不得是可以出售换信用点的物品。兑换出的物品**必须**打上 `OwnerUUID` 绑定 NBT，**一律不能上架市场**。婚姻共享背包的黑名单已经按 `OwnerUUID` 拦截，会自动覆盖这些物品。市场侧要在 `market.MarketTradeWhitelist` 中确认已拦截，没有就补上，并加一条 GameTest 锁住（TODO）。
+- **经济隔离（DECIDED，硬约束）**：成就点商店的物品必须是装饰物或纯外观/趣味小道具，不得是可以出售换信用点的物品。兑换出的物品**必须**打上 `OwnerUUID` 绑定 NBT，**一律不能上架市场**。婚姻共享背包的黑名单已经按 `OwnerUUID` 拦截，会自动覆盖这些物品。市场侧原先**没有**拦截（`MarketTradeWhitelist` 只管塔罗品质），已补上规则 `POINT_SHOP_BOUND` 并由 GameTest 锁住，见下方实现口径。
 - 按 [文档索引](README.md) 的规矩，要在 [经济收支总表](Economy_BalanceSheet_DesignSpec.md) 登记一条说明："成就点是经济外的独立点数，不是 faucet"（TODO）。
+
+实现口径（P2 成就点商店框架，2026-09-26）：
+
+- **商品先不上架**（服主："商品先放着不管 先制做框架"）。模组本身不带任何 `achievement_point_shop` 文件，目录为空时页面显示"商品即将上架"；首批商品仍是第十四章待定项 3。
+- 商品定义在 `shop.PointShopGoods`，加载器 `shop.PointShopLoader`（`SimpleJsonResourceReloadListener`，`/reload` 热重载）把结果整表装进 `AchievementServices.installPointShop`。逐条校验、写坏的跳过并告警：`type` 只收 `item` / `title` 且与 `item` / `title` 字段一一对应；`price` 至少 1；`limit_per_player` 至少 1，称号类只能缺省或写 1（按 8.3 恒为 1）；物品须是已注册的非空气物品，`count` 在 1 ~ 最大堆叠数之间，可选 `nbt` 写 SNBT 字符串；称号不得是 `miningdim:custom/` 专属称号；`requires_advancement` 须是合法资源 id。`sort` 缺省 0，与称号同一语义：越大越靠前，同 sort 按 id 升序。称号定义此刻是否已加载不在加载时判断（两个加载器先后没有保证），引用未加载称号的商品在列表里不出现、兑换回 `GOODS_UNKNOWN`。
+- 兑换入口是 `shop.AchievementPointShop.buy`，G 面板与以后的其他入口都调它。事务外的前置检查都在扣点之前、且不写库：商品存在 → 调用方没开着事务（开着就抛 `IllegalStateException`，与领取同一口径）→ 前置成就已获得 → 称号类：称号定义已加载、玩家还没有这个称号（已有就回 `TITLE_OWNED`，不收点）/ 物品类：主背包 36 格放得下（空格按最大堆叠数、同物品同 NBT 的格子按剩余空间计，不算副手）。然后是 `MiningStore` 共享连接上的**一个**事务：按流水数出已兑换次数 → 查限购 → `debit` 扣点（余额不足即失败）→ 写一条 `shop_buy` 流水（ref 为商品 id）→ 称号类经 `grantInTransaction` 发放（来源 `point_shop`，source_ref 为商品 id）。任何一步失败整个事务回滚。提交后才发东西：称号类 `notifyGranted`；物品类在主线程放进背包，理论上不会放不下（单线程，刚检查过），万一放不下，剩余部分掉在玩家脚下，不吞掉已付过点的物品。
+- **限购只数流水**，不另建表：`shop.PointShopRepository`（`SqlitePointShopRepository`）按 `achievement_point_ledger` 里 reason=`shop_buy`、ref=商品 id 的行数计，在奖励仓库的事务里调用即读到同一事务里的数据。流水表没有按玩家的索引，按当前规模全表扫描在毫秒以内，不为此追加一版 schema 迁移。
+- **绑定盖章**：物品类商品兑换出的每一件，NBT 根上写 `OwnerUUID`（兑换者，`putUUID`，与塔罗牌、共享背包黑名单同一个键）与 `PointShopGoods`（商品 id）。市场白名单按 `PointShopGoods` 键拒绝（`MarketTradeWhitelist` 的 `RULE_POINT_SHOP_BOUND = "POINT_SHOP_BOUND"`，对潜影盒内容物同样下钻一层）；**不**泛泛地按 `OwnerUUID` 拦，因为 R 品质塔罗牌与卡包也带 `OwnerUUID`，那样会把服主明确放行的 R 牌一起禁掉。市场模块不引用成就模块，键名两边各写一份，由 `web.AchievementWebUiGameTests` 经真实的 `market.tradable` / `market.place` 锁住。
+- WebUI 动作在 `web.AchievementWebUiActions`（8.2 三条），由 `AchievementSystem.register` 注册；`achievement.pointShop` 登记进 `WebUiBatchAction.BATCHABLE` 与前端 `lib/batch.ts`，两条写操作不进批。回执里的成就标题与称号徽记经 `webui.server.WebUiTextJson` 拍平成"片段 + 颜色 + 粗体"（渐变档服务端已逐字上色，前端照着画）。隐藏的前置成就在玩家获得之前不发名字（`name: null`、`hidden: true`）。
+- 错误码（`WebUiErrorCodes`）：兑换 `POINTS_INSUFFICIENT`（params price / balance）、`GOODS_LIMIT_REACHED`（params limit / purchased；已拥有该称号时另带 `reason=TITLE_OWNED`）、`GOODS_UNKNOWN`、`GOODS_REQUIREMENT_UNMET`（8.3 的 `requires_advancement` 未满足，params advancementId）、`INVENTORY_FULL`；领取 `REWARD_ALREADY_CLAIMED`、`REWARD_NONE_PENDING`（"全部领取"时没有待领取）、`REWARD_TITLE_UNAVAILABLE`（params scope=`all` / `selected`，前者提示其余奖励仍可逐条领取）；没有这条奖励、入参写错一律 `INVALID_REQUEST`（field=advancementIds / goodsId）；写库失败两边共用 `STORE_FAILED`。
+- `achievement.claimRewards` 传 id 数组时走新增的 `AchievementRewardService.claimSelected`（同一个事务、重复 id 只算一次、先逐条核对再领取），单条 `claim` 改为委托给它，行为不变；`"all"` 仍走 `claimAll`。
+- GameTest：`web.AchievementWebUiGameTests`（batch `achievement_webui`，11 条）覆盖列表形状与空目录、隐藏前置成就、兑换扣点与盖章、限购按流水计（预先写进流水的一条也算）、每一种拒绝都不扣点、称号类同事务发放并只提示一次、写流水失败与发称号失败（SQLite 触发器模拟）后的整体回滚、嵌套事务拒绝、绑定物不能上架（含潜影盒）、两种领取与每一种领取拒绝、只有读操作能进批、商品加载器逐条跳过写坏的定义。
 
 ### 8.5 前端接线清单
 
@@ -397,6 +409,14 @@ CREATE TABLE achievement_point_ledger (
 6. 页面文件 `pages/AchievementShopPage.tsx`，写法参照 `QuestsPage`：只用 `@/components/kit` 里的组件，读数据用 `useMockAction`，写操作用 `callMock` 后调用 `invalidateAll`，操作结果用 `FeedbackAlert` 展示
 7. 档位颜色在前端定义为 CSS 变量 `--tier-*`，浅色主题使用加深版
 8. 验收：`pnpm build`、`pnpm check:contract`
+
+实现口径（前端，2026-09-26）：
+
+- 以上八步已全部落地。面板 id `achievementShop` 排在 `quests` 之后（`HubWebUiActions.PANEL_IDS` 恒 12 条），首页磁贴图标 `minecraft:knowledge_book`，侧边栏用 lucide 的 `AwardIcon`，悬停预取 `achievement.pointShop` 与 `title.list`。
+- 页面 `pages/AchievementShopPage.tsx`：顶部"成就点"分区（余额、累计获得、待领取条数，有待领取时显示单条领取与"全部领取"），下面两个页签"成就点商店"与"我的称号"。写操作后一律 `invalidateAll()`，结果用 `FeedbackAlert` 展示，失败文案走 `lib/errorText.ts`。
+- 文字颜色分两套：卡片里的"游戏内效果"预览条恒为深底（`--ingame-surface`），字色取服务端下发的原值，亮暗档都不换；档位名、称号卡片顶部的色带这类页面装饰走 `--tier-*`（各档单值变量，白金起另有 `-from` / `-via` / `-to` 三个色标变量），亮色档的加深值见称号文档第十二章第 1 条。
+- 称号类商品的价格会显示在"我的称号"里对应的未拥有卡片上（获取途径之二），称号模块本身不引用成就模块。
+- 假数据（`lib/bridge.mock.ts`）：一名带渐变专属称号的赞助玩家、四条待领取奖励（含传说档渐变标题与称号）、商品目录为空。开发预览：`webui` 目录下 `pnpm dev`，浏览器打开 `http://localhost:5173/#/achievement-shop`。普通浏览器里没有宿主注入的桥，开发构建自动走假数据（`lib/bridge.ts` 的 `isMockActive`）；初始路由取自地址里的 hash（路由只读 hash，页面自己从不写），也可以先打开首页再点侧边栏的"成就点商店"。
 
 ---
 

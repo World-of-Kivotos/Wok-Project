@@ -1,4 +1,5 @@
 import {
+  AwardIcon,
   BookOpenIcon,
   ClipboardListIcon,
   BriefcaseIcon,
@@ -30,6 +31,7 @@ import {
   useMockWorld,
 } from '@/mock'
 import {
+  ROUTE_ACHIEVEMENT_SHOP,
   ROUTE_ADMIN,
   ROUTE_CASE,
   ROUTE_CODEX,
@@ -86,6 +88,13 @@ const SHELL_NAV_ENTRIES: readonly ShellNavEntry[] = [
   { icon: BriefcaseIcon, id: 'jobs', label: '职业', opOnly: false, route: ROUTE_JOBS },
   { icon: PickaxeIcon, id: 'mining', label: '矿洞', opOnly: false, route: ROUTE_MINING },
   { icon: ClipboardListIcon, id: 'quests', label: '任务', opOnly: false, route: ROUTE_QUESTS },
+  {
+    icon: AwardIcon,
+    id: 'achievementShop',
+    label: '成就点商店',
+    opOnly: false,
+    route: ROUTE_ACHIEVEMENT_SHOP,
+  },
   { icon: BookOpenIcon, id: 'codex', label: '图鉴', opOnly: false, route: ROUTE_CODEX },
   { icon: HeartIcon, id: 'marriage', label: '婚姻', opOnly: false, route: ROUTE_MARRIAGE },
   { icon: GiftIcon, id: 'case', label: '开箱', opOnly: false, route: ROUTE_CASE },
@@ -120,6 +129,7 @@ const NAV_PREFETCH: Readonly<Record<string, readonly EmptyPayloadAction[]>> = {
   [ROUTE_JOBS]: ['job.progress'],
   [ROUTE_MINING]: ['mining.overview', 'mining.myStatus'],
   [ROUTE_QUESTS]: ['quest.board'],
+  [ROUTE_ACHIEVEMENT_SHOP]: ['achievement.pointShop', 'title.list'],
   [ROUTE_CODEX]: ['champion.codex'],
   [ROUTE_MARRIAGE]: ['marriage.state', 'marriage.sharedInv', 'player.roster', 'player.profile'],
   [ROUTE_CASE]: ['case.state'],
@@ -128,6 +138,7 @@ const NAV_PREFETCH: Readonly<Record<string, readonly EmptyPayloadAction[]>> = {
 
 /** 预取表里的 action 名 —— 只收无入参的那些, 好让下面一行 EMPTY_PAYLOAD 对所有条目都成立。 */
 type EmptyPayloadAction =
+  | 'achievement.pointShop'
   | 'case.state'
   | 'champion.codex'
   | 'economy.status'
@@ -144,6 +155,7 @@ type EmptyPayloadAction =
   | 'player.profile'
   | 'player.roster'
   | 'quest.board'
+  | 'title.list'
 
 /**
  * 预热某个一级入口的首屏数据。已新鲜的键直接跳过 (prefetchQuery 自己判), 故反复划过侧栏不会重复发请求。

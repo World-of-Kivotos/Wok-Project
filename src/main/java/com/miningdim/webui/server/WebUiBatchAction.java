@@ -69,7 +69,7 @@ final class WebUiBatchAction {
      * 160 由 {@code WebUiBatchActionGameTests.overflowMarkerFitsItsReservedBudget} 对全部白名单 action 名逐个
      * 核过, 不是估的 —— 第一版把它写成 160 而标记实测 181 (message 写长了), 那条用例当场挂, 于是有了下面
      * 那句短 message: 标记的语义全在 errorCode 里, message 每多一个字都要在预留里乘以条数。
-     * 当前最长的白名单名 (admin.economy.balance, 21 字符) 对应标记 147 字符, 余 13 字符裕量。
+     * 当前最长的白名单名 (admin.economy.balance 与 achievement.pointShop, 各 21 字符) 对应标记 147 字符, 余 13 字符裕量。
      */
     static final int MAX_OVERFLOW_MARKER_LENGTH = 160;
 
@@ -87,6 +87,7 @@ final class WebUiBatchAction {
      * 嵌套批量不需要专门的守卫, 白名单天然把它挡在外面。
      */
     private static final Set<String> BATCHABLE = Set.of(
+            "achievement.pointShop",
             "admin.economy.balance",
             "admin.listItems",
             "case.state",
@@ -127,7 +128,8 @@ final class WebUiBatchAction {
             "player.roster",
             "player.wallet",
             "quest.board",
-            "system.serverStatus");
+            "system.serverStatus",
+            "title.list");
 
     private WebUiBatchAction() {
     }

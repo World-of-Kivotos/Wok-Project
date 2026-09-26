@@ -12,7 +12,7 @@
 /**
  * 全部服务端 action 名 (system.handshake 回执 actions 字段的镜像, 不含 client.* 本地 action)。
  *
- * 二十三个注册点 (每个 *WebUiActions 类的 registerAll 各占一个):
+ * 二十五个注册点 (每个 *WebUiActions 类的 registerAll 各占一个):
  *   system.*            WebUiServerSubsystem
  *   player.*            PlayerWebUiActions
  *   hub.*               HubWebUiActions
@@ -36,8 +36,13 @@
  *   quest.*             QuestWebUiActions
  *   admin.mining.reset  MiningAdminWebUiActions
  *   champion.*          ChampionWebUiActions
+ *   achievement.*       AchievementWebUiActions
+ *   title.*             TitleWebUiActions
  */
 export const SERVER_ACTIONS = [
+  'achievement.claimRewards',
+  'achievement.pointShop',
+  'achievement.pointShopBuy',
   'admin.economy.balance',
   'admin.economy.set',
   'admin.job.setLevel',
@@ -107,6 +112,10 @@ export const SERVER_ACTIONS = [
   'system.echo',
   'system.handshake',
   'system.serverStatus',
+  'title.customPreview',
+  'title.customSet',
+  'title.equip',
+  'title.list',
 ] as const
 
 /**

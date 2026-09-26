@@ -504,8 +504,9 @@ export type PlayerPrefsSetResult = PlayerPrefs
 export type HubPanelsPayload = EmptyPayload
 
 /**
- * 稳定面板 id。域按 router.ts 的实际路由定死, 恒 11 条, 顺序即服务端写入顺序。
- * quests 已接入真实任务板路由; 精英怪图鉴的稳定 id 是 codex (真实路由 ROUTE_CODEX)。前端的
+ * 稳定面板 id。域按 router.ts 的实际路由定死, 恒 12 条, 顺序即服务端写入顺序。
+ * quests 已接入真实任务板路由; 成就点商店是 achievementShop (路由 ROUTE_ACHIEVEMENT_SHOP);
+ * 精英怪图鉴的稳定 id 是 codex (真实路由 ROUTE_CODEX)。前端的
  * panelId -> {route,label,iconItemId} 映射表 (lib/panels.ts 的 HUB_PANEL_META) 是这份 id 的唯一消费方。
  */
 export type HubPanelId =
@@ -515,6 +516,7 @@ export type HubPanelId =
   | 'jobs'
   | 'mining'
   | 'quests'
+  | 'achievementShop'
   | 'codex'
   | 'marriage'
   | 'case'
@@ -3255,4 +3257,294 @@ export interface AdminMiningResetResult {
   evictedPlayers: number
   accepted: boolean
   reasonCode: AdminMiningResetReasonCode | null
+}
+
+// ============================================================
+// achievement.* — com.miningdim.achievement.web.AchievementWebUiActions (Gson serializeNulls)
+// title.*       — com.miningdim.title.TitleWebUiActions (Gson serializeNulls)
+//
+// 两组共用 TextSegment: 称号徽记与成就标题在服务端已经按游戏内的样子渲染好 (渐变档逐字上色),
+// 由 WebUiTextJson 拍平下发。前端照着画, 不自己再算一遍渐变 —— 那是第二份实现, 首尾色标差一位四舍五入
+// 就与聊天框里对不上。
+// ============================================================
+
+/** 七档稀有度 / 成就档位 (TierPalette.id(), 小写)。声明序即档位由低到高。 */
+export type TierId = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'master' | 'legend'
+
+/**
+ * 一段带样式的游戏内文字 (Java 落点: webui.server.WebUiTextJson)。文字写法与物品 nameParts 相同:
+ * 要么 t (字面量) 要么 k (翻译键, 单色档称号与成就标题保留 translate, 由 client.i18n 按玩家自己的语言解)。
+ */
+export interface TextSegment extends ItemNamePart {
+  /** 翻译键自带的 fallback; 只有 k 且声明了 fallback 时出现。 */
+  f?: string
+  /** `#RRGGBB`。整条链上都没有颜色时缺席, 展示方取场景默认色 (聊天里是白色)。 */
+  color?: string
+  bold: boolean
+}
+
+/** achievement.pointShop 入参 —— 不读 payload。 */
+export type AchievementPointShopPayload = EmptyPayload
+
+/** 一条待领取奖励 (AchievementWebUiActions.POINT_SHOP 的 pending 行)。 */
+export interface AchievementPendingReward {
+  advancementId: string
+  tier: TierId
+  /** 获得那一刻的点数快照。 */
+  points: number
+  /** Java long, epoch millis。 */
+  earnedAt: number
+  /** 进度标题 (带档位颜色); 服务端没有加载该进度时 null, 页面退回显示 advancementId。 */
+  name: TextSegment[] | null
+  titleId: string | null
+  /** 附带称号的徽记 `[称号]`; 没有称号或定义缺失时 null。 */
+  titleBadge: TextSegment[] | null
+}
+
+/** 物品类商品的物品 (与 quest.claim 的物品行同形)。 */
+export interface AchievementGoodsItem extends ItemVariantFields {
+  itemId: string
+  descriptionId: string
+  count: number
+}
+
+/** 称号类商品的称号。 */
+export interface AchievementGoodsTitle {
+  titleId: string
+  badge: TextSegment[] | null
+  /** 已拥有即不能再兑换 (remaining 同时为 0)。 */
+  owned: boolean
+}
+
+/**
+ * 商品的前置成就。隐藏成就在获得之前 name 为 null、hidden 为 true (不在成就点商店里提前泄露隐藏成就),
+ * 服务端没有加载该进度时 name 同样为 null。
+ */
+export interface AchievementGoodsRequirement {
+  advancementId: string
+  met: boolean
+  hidden: boolean
+  name: TextSegment[] | null
+}
+
+/** 一件上架商品 (Achievement_System_DesignSpec 8.3)。 */
+export interface AchievementGoods {
+  goodsId: string
+  type: 'item' | 'title'
+  price: number
+  /** 越大越靠前; 数组已按展示顺序排好。 */
+  sort: number
+  /** 每人限购; null 为不限。称号类恒为 1。 */
+  limit: number | null
+  /** 本人已兑换次数 (按成就点流水计)。 */
+  purchased: number
+  /** 本人剩余可兑换次数; null 为不限。 */
+  remaining: number | null
+  /** 余额够不够这一件 (不考虑限购与前置成就)。 */
+  affordable: boolean
+  requirement: AchievementGoodsRequirement | null
+  /** type='item' 时有值。 */
+  item: AchievementGoodsItem | null
+  /** type='title' 时有值。 */
+  title: AchievementGoodsTitle | null
+}
+
+/** achievement.pointShop 回执。goods 在还没有上架任何商品时是空数组 (不是缺键)。 */
+export interface AchievementPointShopResult {
+  /** Java long。 */
+  balance: number
+  /** 累计获得, 只增不减。Java long。 */
+  lifetime: number
+  pending: AchievementPendingReward[]
+  goods: AchievementGoods[]
+}
+
+/** achievement.pointShopBuy 入参。 */
+export interface AchievementPointShopBuyPayload {
+  goodsId: string
+}
+
+/**
+ * achievement.pointShopBuy 回执。失败一律是业务拒绝: POINTS_INSUFFICIENT / GOODS_LIMIT_REACHED /
+ * GOODS_UNKNOWN / GOODS_REQUIREMENT_UNMET / INVENTORY_FULL / STORE_FAILED (文案见 lib/errorText.ts)。
+ */
+export interface AchievementPointShopBuyResult {
+  goodsId: string
+  type: 'item' | 'title'
+  price: number
+  balance: number
+  lifetime: number
+  /** 含本次在内的兑换次数。 */
+  purchased: number
+  remaining: number | null
+}
+
+/** achievement.claimRewards 入参: 指定几条进度 id, 或 "all" 一键全部领取。 */
+export interface AchievementClaimRewardsPayload {
+  advancementIds: string[] | 'all'
+}
+
+/** 本次领取的一条奖励。 */
+export interface AchievementClaimedReward {
+  advancementId: string
+  tier: TierId
+  points: number
+  titleId: string | null
+}
+
+/**
+ * achievement.claimRewards 回执。领取要么整体成功, 要么一条都不领: REWARD_ALREADY_CLAIMED /
+ * REWARD_NONE_PENDING / REWARD_TITLE_UNAVAILABLE / STORE_FAILED / INVALID_REQUEST 均为业务拒绝。
+ */
+export interface AchievementClaimRewardsResult {
+  claimed: AchievementClaimedReward[]
+  /** 本次入账的成就点合计。 */
+  points: number
+  balance: number
+  lifetime: number
+  /** 本次领取附带的称号 id (含原本就拥有的)。 */
+  titles: string[]
+}
+
+/** title.list 入参 —— 不读 payload。 */
+export type TitleListPayload = EmptyPayload
+
+/** 一档色板 (TierPalette): 编辑器的"套用档位配色"用它, 不在前端另抄一份色值。 */
+export interface TitlePaletteTier {
+  rarity: TierId
+  /** 1 个 (单色档) 或 3 个 (渐变档) `#RRGGBB`。 */
+  stops: string[]
+  bold: boolean
+}
+
+/** 一条数据包称号 (含未拥有的)。 */
+export interface TitleRow {
+  titleId: string
+  rarity: TierId
+  sort: number
+  owned: boolean
+  equipped: boolean
+  /** 徽记 `[称号]`, 与聊天、Tab、名牌里的样式完全相同。 */
+  badge: TextSegment[]
+  /**
+   * 获取说明 (来源提示)。来自隐藏成就的称号, 说明本身就写成"由一项隐藏成就获得", 不泄露成就名。
+   * 定义里没写说明时为 null。
+   */
+  description: TextSegment[] | null
+}
+
+/** 赞助资格 (Title_System_DesignSpec 13.5)。 */
+export interface TitleSponsorState {
+  permanent: boolean
+  /** epoch millis; 永久资格为 null。 */
+  expiresAt: number | null
+  active: boolean
+}
+
+/** 已保存的专属称号记录。 */
+export interface TitleCustomRecord {
+  text: string
+  colors: string[]
+  bold: boolean
+  /** 被管理员锁定时不能再改 (不点名执行锁定的管理员)。 */
+  locked: boolean
+  /** 原样显示, 不加方括号。 */
+  badge: TextSegment[]
+}
+
+/** 本人的赞助与专属称号状态。 */
+export interface TitleCustomState {
+  /** 专属称号 id `miningdim:custom/<uuid>`, 佩戴时用它。 */
+  titleId: string
+  /** 玩家能否自己提交 (服务端配置, 默认关闭, 关闭时由管理员代设置)。 */
+  selfServiceEnabled: boolean
+  /** 从未发放或已撤销为 null。 */
+  sponsor: TitleSponsorState | null
+  /** 还没有设置为 null。 */
+  record: TitleCustomRecord | null
+  /** 有记录且资格有效即拥有。 */
+  owned: boolean
+  equipped: boolean
+  /** 下次可修改时间 (epoch millis); 0 表示现在即可修改。自助提交关闭时页面不展示它。 */
+  nextEditAt: number
+}
+
+/** title.list 回执。 */
+export interface TitleListResult {
+  equipped: string | null
+  palette: TitlePaletteTier[]
+  /** 全部数据包称号, 按 sort 降序、id 升序; 不含专属称号 (见 custom)。 */
+  titles: TitleRow[]
+  custom: TitleCustomState
+}
+
+/** title.equip 入参: titleId 为 null 表示卸下。 */
+export interface TitleEquipPayload {
+  titleId: string | null
+}
+
+/** title.equip 回执。拒绝码: TITLE_NOT_OWNED / TITLE_UNKNOWN / INVALID_REQUEST。 */
+export interface TitleEquipResult {
+  equipped: string | null
+}
+
+/** title.customPreview / title.customSet 入参 (专属称号草稿, 与 /mtitle custom preview 的三段参数一一对应)。 */
+export interface TitleCustomDraftPayload {
+  /** 1~3 个 `#RRGGBB`; 写法与个数交给服务端逐条报告。 */
+  colors: string[]
+  bold: boolean
+  text: string
+}
+
+/** 专属称号校验规则名 (CustomTitleViolation.Rule 枚举名)。 */
+export type TitleCustomRule =
+  | 'EMPTY'
+  | 'TOO_LONG'
+  | 'CONTENT_MISSING'
+  | 'CONTENT_TOO_MANY'
+  | 'FORMAT_CODE'
+  | 'INVISIBLE_CHAR'
+  | 'PRIVATE_USE'
+  | 'EMOJI'
+  | 'CHAR_NOT_ALLOWED'
+  | 'SPACE_EDGE'
+  | 'SPACE_DOUBLE'
+  | 'BANNED_WORD'
+  | 'COLOR_FORMAT'
+  | 'COLOR_COUNT'
+  | 'COLOR_TOO_DARK'
+  | 'GRADIENT_TOO_DARK'
+
+/** 一条不合格项。args 已格式化为字符串 (位置从 1 数、码点十六进制、颜色原文、亮度等), 顺序与中文文案的占位符一致。 */
+export interface TitleCustomViolation {
+  rule: TitleCustomRule
+  args: string[]
+}
+
+/**
+ * title.customPreview 回执: 权威校验结果。没有有效赞助资格时是业务拒绝 CUSTOM_TITLE_NOT_SPONSOR。
+ * VALID 时 badge / spec / adminCommand 有值; INVALID 时三者为 null、violations 非空。
+ */
+export interface TitleCustomPreviewResult {
+  status: 'VALID' | 'INVALID'
+  violations: TitleCustomViolation[]
+  badge: TextSegment[] | null
+  /** 规范化后的 `<颜色> <粗体> <文字>`, 与 /mtitle custom preview 的写法相同。 */
+  spec: string | null
+  /** 发给管理员的整条命令 `/mtitle custom admin set <玩家名> <spec>`。 */
+  adminCommand: string | null
+  nextEditAt: number
+  selfServiceEnabled: boolean
+}
+
+/**
+ * title.customSet 回执。拒绝码: CUSTOM_TITLE_NOT_SPONSOR / CUSTOM_TITLE_SELF_SERVICE_DISABLED (自助提交关闭,
+ * 默认口径) / CUSTOM_TITLE_LOCKED / CUSTOM_TITLE_ON_COOLDOWN / CUSTOM_TITLE_INVALID。
+ */
+export interface TitleCustomSetResult {
+  status: 'APPLIED'
+  titleId: string
+  badge: TextSegment[]
+  /** 此后下次可修改的时间 (epoch millis)。 */
+  nextEditAt: number
 }

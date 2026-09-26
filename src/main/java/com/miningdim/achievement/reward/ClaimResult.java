@@ -6,7 +6,8 @@ import org.jetbrains.annotations.Nullable;
 import java.util.List;
 
 /**
- * 一次领取 ({@link AchievementRewardService#claim} / {@link AchievementRewardService#claimAll}) 的结果。
+ * 一次领取 ({@link AchievementRewardService#claim} / {@link AchievementRewardService#claimSelected} /
+ * {@link AchievementRewardService#claimAll}) 的结果。
  *
  * 领取要么整体成功, 要么什么都没有发生: 失败的各种情况下库里没有任何改动 (事务已回滚), {@link #claimed()} 为空。
  *

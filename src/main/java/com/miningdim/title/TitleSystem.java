@@ -29,12 +29,12 @@ import java.util.List;
 
 /**
  * 称号子系统 (wok-title, foundation): 定义加载、SQLite 持有/佩戴、{@link ITitleService} 门面、三处显示、
- * 名牌同步包、赞助专属称号与 /mtitle 命令。详见 docs/Title_System_DesignSpec.md。
+ * 名牌同步包、赞助专属称号、/mtitle 命令与 G 面板的 title.* action。详见 docs/Title_System_DesignSpec.md。
  *
  * <p>生命周期:
  * <ul>
- *   <li>mod 构造期: 注册服务端配置 miningdim-title.toml (专属称号的校验阈值与冷却), 挂 forge 总线;
- *       FMLCommonSetup 注册自有网络通道。</li>
+ *   <li>mod 构造期: 注册服务端配置 miningdim-title.toml (专属称号的校验阈值与冷却), 挂 forge 总线, 把
+ *       {@link TitleWebUiActions} 注册进 WebUI 派发器; FMLCommonSetup 注册自有网络通道。</li>
  *   <li>AddReloadListenerEvent: 挂定义加载器 (开服与每次 /reload 都整表替换)。</li>
  *   <li>ServerStarting: 在存储子系统已开好的共享连接上绑定仓库与门面, 注入 {@link TitleServices}。</li>
  *   <li>ServerStopping: 清定位器、清定义; 连接由存储子系统在 ServerStopped 关闭, 此处不碰。
@@ -63,8 +63,9 @@ public final class TitleSystem implements Subsystem {
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, TitleConfig.SPEC, "miningdim-title.toml");
         forgeBus.register(this);
         modBus.addListener((FMLCommonSetupEvent event) -> event.enqueueWork(TitleNetwork::register));
+        TitleWebUiActions.registerAll();
         LOGGER.info("[miningdim] title subsystem registered (datapack titles, sponsor custom titles, "
-                + "SQLite ownership, /mtitle)");
+                + "SQLite ownership, /mtitle, title.* WebUI actions)");
     }
 
     @SubscribeEvent

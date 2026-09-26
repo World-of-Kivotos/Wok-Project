@@ -15,9 +15,11 @@ import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.job.munitions.menu.GunsmithPressMenu;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.NonNullList;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.ContainerHelper;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -32,6 +34,10 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.items.ItemStackHandler;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 public final class GunsmithPressBlockEntity extends BlockEntity implements MenuProvider {
 
@@ -65,6 +71,13 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
     private long activeStartTick;
     private long activeUntilTick;
     private long nextHydraulicSoundTick;
+
+    /**
+     * 本轮开工时实扣的三料 (V09), 下标即料槽号 (料槽恰是输出槽之前的 0..2, 故长度取 SLOT_OUTPUT)。
+     * 冲压途中被拆时按原样退还, 不给成品 (否则拆机即可跳过工期), 工费不退; 收工即清空; 随存档持久化,
+     * 重启后被拆照样能退。
+     */
+    private final NonNullList<ItemStack> pressedMaterials = NonNullList.withSize(SLOT_OUTPUT, ItemStack.EMPTY);
 
     private final ItemStackHandler inventory = new ItemStackHandler(SLOT_COUNT) {
         @Override
@@ -292,6 +305,7 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
                     ModMunitionsItems.GUNSMITH_PART.get(), selectedPlatform, selectedPart, selectedQuality,
                     selectedVariant, level.random));
         }
+        clearPressedMaterials();
         activeStartTick = 0L;
         activeUntilTick = 0L;
         nextHydraulicSoundTick = 0L;
@@ -375,11 +389,43 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
 
     private void consume(int slot, int amount) {
         if (amount <= 0) {
+            pressedMaterials.set(slot, ItemStack.EMPTY);
             return;
         }
         ItemStack stack = inventory.getStackInSlot(slot);
+        pressedMaterials.set(slot, stack.copyWithCount(amount));
         stack.shrink(amount);
         inventory.setStackInSlot(slot, stack.isEmpty() ? ItemStack.EMPTY : stack);
+    }
+
+    private void clearPressedMaterials() {
+        Collections.fill(pressedMaterials, ItemStack.EMPTY);
+    }
+
+    /**
+     * 方块被拆时的掉落清单 (V09, 对照装配台 onRemove): 4 个槽原样掉出; 本轮还没收工就退还开工时实扣的材料,
+     * 不给成品, 工费不退。取出即清空, 同一 tick 里仍开着的菜单掏不出第二份。
+     */
+    public List<ItemStack> dropContents() {
+        List<ItemStack> drops = new ArrayList<>();
+        for (int slot = 0; slot < inventory.getSlots(); slot++) {
+            ItemStack stack = inventory.getStackInSlot(slot);
+            if (!stack.isEmpty()) {
+                drops.add(stack.copy());
+                inventory.setStackInSlot(slot, ItemStack.EMPTY);
+            }
+        }
+        for (ItemStack refund : pressedMaterials) {
+            if (!refund.isEmpty()) {
+                drops.add(refund.copy());
+            }
+        }
+        clearPressedMaterials();
+        activeStartTick = 0L;
+        activeUntilTick = 0L;
+        nextHydraulicSoundTick = 0L;
+        setChanged();
+        return drops;
     }
 
     private void setActiveState(boolean active) {
@@ -420,11 +466,13 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
     private static final String K_VARIANT = "SelectedVariant";
     private static final String K_ACTIVE_START = "ActiveStartTick";
     private static final String K_ACTIVE_UNTIL = "ActiveUntilTick";
+    private static final String K_PRESSED_MATERIALS = "PressedMaterials";
 
     @Override
     protected void saveAdditional(CompoundTag tag) {
         super.saveAdditional(tag);
         tag.put(K_INV, inventory.serializeNBT());
+        tag.put(K_PRESSED_MATERIALS, ContainerHelper.saveAllItems(new CompoundTag(), pressedMaterials));
         tag.putString(K_PLATFORM, selectedPlatform.id());
         tag.putString(K_PART, selectedPart.id());
         tag.putString(K_QUALITY, selectedQuality.id());
@@ -438,6 +486,11 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
         super.load(tag);
         if (tag.contains(K_INV)) {
             inventory.deserializeNBT(tag.getCompound(K_INV));
+        }
+        // 旧存档没有这一段: 升级前已开工的那一轮无从得知实扣多少, 只能按"无可退"处理。
+        clearPressedMaterials();
+        if (tag.contains(K_PRESSED_MATERIALS)) {
+            ContainerHelper.loadAllItems(tag.getCompound(K_PRESSED_MATERIALS), pressedMaterials);
         }
         selectedPlatform = tag.contains(K_PLATFORM)
                 ? GunsmithPlatform.byId(tag.getString(K_PLATFORM)) : GunsmithPlatform.AR;

@@ -7,17 +7,21 @@ import net.minecraftforge.common.ForgeConfigSpec;
  *  - 稳定序号 index()/byIndex() (ContainerData int 同步 + NBT 持久化稳定);
  *  - 解锁等级 unlockLevel() (6.1 等级门: 手枪 L1 / 步枪 L3 / 霰弹 L4 / 战斗机枪 L5 / 狙击 L6 / 大口径手枪 L7 /
  *    反器材 L8 / 爆炸 L9 / 特种 L10);
- *  - defaultAmmoPath(): 该档默认绑定的 TACZ 默认枪包弹药 id 的 path 段 (命名空间恒 tacz; 真值取自
- *    jar 内 data/tacz/index/ammo/*.json 文件名, javap+unzip 核实 24 个; 仅 path 字符串, 不在本枚举构造
- *    ResourceLocation/触 TACZ 类, 保持纯逻辑层无 TACZ 依赖);
+ *  - ammoNamespace() + defaultAmmoPath(): 该档绑定的枪包弹药 id 的命名空间与 path 段 (绝大多数为 tacz, 真值取自
+ *    TACZ jar 内 data/tacz/index/ammo/*.json 文件名, javap+unzip 核实 24 个; .303 取自 lavender 枪包
+ *    data/lavender/index/ammo/british0x303.json; 仅字符串, 不在本枚举构造 ResourceLocation/触 TACZ 类,
+ *    保持纯逻辑层无 TACZ 依赖);
  *  - 商店价/售价/缩产系数经 {@link MunitionsConfig} 实时 get (6.3; 步枪基准缩产系数 1.0, 高阶弹 < 1.0)。
  *
  * compileOnly 铁律: 本枚举不引用 com.tacz.* 任何类。口径 -> 真 AmmoId 的 ResourceLocation 构造只在物化层
  * {@link MunitionsAmmoFactory} 发生 (那里才被 ModList isLoaded 守卫)。
  *
- * 默认弹药 id 来源标注: TACZ 默认枪包 tacz_default_gun (data/tacz/index/ammo/), 命名空间 tacz。玩家若装第三方
- * 枪包会注册更多 id, 本工程无法编译期穷举; 故仅内置默认 24 口径中代表档的 id, 未来扩档经 config 覆盖
- * (PENDING 11.2 逐口径细化)。
+ * 默认弹药 id 来源标注: TACZ 默认枪包 tacz_default_gun (data/tacz/index/ammo/), 命名空间 tacz。TACZ 自带的枪械/弹药
+ * 配方已由 data/tacz/recipe_filters/default.json 拉黑, 军火台是唯一弹源, 所以每张枪匠图纸用到的弹药都必须在本枚举有档
+ * (TaczRecipeFilterGameTests 逐张核对)。玩家若装第三方枪包会注册更多 id, 本工程无法编译期穷举; 故只内置图纸与
+ * 代表档用到的 id, 未来扩档经 config 覆盖 (PENDING 11.2 逐口径细化)。
+ *
+ * 序号只追加不重排: NBT (BufferedCaliber 等) 与 ContainerData 都存 index, 中间插档会让存量军火台读错口径。
  */
 public enum MunitionsCaliber {
 
@@ -49,7 +53,22 @@ public enum MunitionsCaliber {
     SPECIAL(8, 10, "68x51fury", Prices.SPECIAL, Category.RIFLE, "68X"),
 
     /** 步枪弹: 5.56x45, TACZ 默认枪包 path 为 556x45。 */
-    RIFLE_556(9, 3, "556x45", Prices.RIFLE, Category.RIFLE, "5.56");
+    RIFLE_556(9, 3, "556x45", Prices.RIFLE, Category.RIFLE, "5.56"),
+
+    /** 手枪/SMG: .45 ACP (M1911 / UMP45 图纸), L1; TACZ 默认枪包 path 为 45acp。价格与缩产沿用手枪档。 */
+    PISTOL_45ACP(10, 1, "45acp", Prices.PISTOL, Category.PISTOL, ".45"),
+
+    /** 狙击: .30-06 (M700 图纸), L6; TACZ 默认枪包 path 为 30_06。价格与缩产沿用狙击档。 */
+    SNIPER_3006(11, 6, "30_06", Prices.SNIPER, Category.SNIPER, "3006"),
+
+    /** 狙击: 7.92x57 (KAR98K 图纸), L6; TACZ 默认枪包 path 为 792x57。价格与缩产沿用狙击档。 */
+    SNIPER_792(12, 6, "792x57", Prices.SNIPER, Category.SNIPER, "7.92"),
+
+    /**
+     * 狙击: .303 British (SMLE_III 图纸), L6; 价格与缩产沿用狙击档。TACZ 默认枪包没有这发弹,
+     * 取 lavender 枪包的 lavender:british0x303 (该枪包自身不带任何配方, 军火台是它唯一的弹源)。
+     */
+    SNIPER_303(13, 6, MunitionsCaliber.LAVENDER_NAMESPACE, "british0x303", Prices.SNIPER, Category.SNIPER, ".303");
 
     public enum Category {
         PISTOL("pistol"),
@@ -93,11 +112,15 @@ public enum MunitionsCaliber {
                 MunitionsConfig.SHOP_PRICE_SPECIAL, MunitionsConfig.SELL_PRICE_SPECIAL, MunitionsConfig.YIELD_FACTOR_SPECIAL);
     }
 
-    /** TACZ 弹药命名空间 (恒 tacz; data/ 后那段, javap 核实非 tacz_default_gun)。 */
+    /** TACZ 默认枪包弹药命名空间 (data/ 后那段, javap 核实非 tacz_default_gun); 未显式指定命名空间的档都用它。 */
     public static final String TACZ_NAMESPACE = "tacz";
+
+    /** lavender 枪包弹药命名空间 (测试端 lavender_converted.zip 的 data/lavender/index/ammo/)。 */
+    public static final String LAVENDER_NAMESPACE = "lavender";
 
     private final int index;
     private final int unlockLevel;
+    private final String ammoNamespace;
     private final String defaultAmmoPath;
     private final Prices prices;
     private final Category category;
@@ -105,8 +128,14 @@ public enum MunitionsCaliber {
 
     MunitionsCaliber(int index, int unlockLevel, String defaultAmmoPath, Prices prices,
                      Category category, String shortLabel) {
+        this(index, unlockLevel, TACZ_NAMESPACE, defaultAmmoPath, prices, category, shortLabel);
+    }
+
+    MunitionsCaliber(int index, int unlockLevel, String ammoNamespace, String defaultAmmoPath, Prices prices,
+                     Category category, String shortLabel) {
         this.index = index;
         this.unlockLevel = unlockLevel;
+        this.ammoNamespace = ammoNamespace;
         this.defaultAmmoPath = defaultAmmoPath;
         this.prices = prices;
         this.category = category;
@@ -124,8 +153,16 @@ public enum MunitionsCaliber {
     }
 
     /**
-     * 该档默认 TACZ 弹药 id 的 path 段 (命名空间恒 {@link #TACZ_NAMESPACE})。来源: TACZ 默认枪包
-     * data/tacz/index/ammo/&lt;path&gt;.json 文件名 (核实于 jar)。仅纯字符串, 不构造 ResourceLocation。
+     * 该档弹药 id 的命名空间 (默认 {@link #TACZ_NAMESPACE}; .303 为 {@link #LAVENDER_NAMESPACE})。
+     * 仅纯字符串, 物化层 {@link MunitionsAmmoFactory} 拿它与 {@link #defaultAmmoPath()} 拼 AmmoId。
+     */
+    public String ammoNamespace() {
+        return ammoNamespace;
+    }
+
+    /**
+     * 该档默认弹药 id 的 path 段 (命名空间见 {@link #ammoNamespace()})。来源: 对应枪包
+     * data/&lt;命名空间&gt;/index/ammo/&lt;path&gt;.json 文件名 (核实于 jar / 测试端枪包)。仅纯字符串, 不构造 ResourceLocation。
      */
     public String defaultAmmoPath() {
         return defaultAmmoPath;

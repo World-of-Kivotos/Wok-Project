@@ -191,6 +191,28 @@ public final class MunitionsProduction {
     }
 
     /**
+     * settle 返回 NONE 时区分 "只差时间" 与 "真阻塞" (V06)。其余入参原样, 只把流逝时间换成足够多再算一次 settle:
+     * 仍不出弹说明卡在料 / 缓冲 / 电 / 口径 (真阻塞); 能出弹说明唯一缺的就是时间。
+     *
+     * BE 据此决定是否推进 lastSettleTick: 台主在线时 serverTick 每 tick 都结算一次, 若 "只差时间" 也推进时间戳,
+     * elapsed 永远只有 1 tick, 一整批 (上万 tick) 永远攒不够, 在线挂机一发都出不来。复用 settle 本身而不另写一套
+     * 门判据, 保证两处对 "能不能出一整批" 的判定始终同源。
+     *
+     * @return true = 料/缓冲/电/口径都够至少一整批, 仅流逝时间不足
+     */
+    public static boolean waitingOnTimeOnly(MunitionsCaliber caliber, int level, int tableCount,
+                                            int bufferRemaining, int availablePrimer, int availableCasing,
+                                            int availableBulletHead, int availablePropellant, int availableFe) {
+        if (tableCount <= 0) {
+            return false;
+        }
+        // theoreticalRounds 内部是 (elapsed / 每发 tick) × 台数, 先按台数除一次, 乘回去不会溢出 long。
+        long ampleElapsed = Long.MAX_VALUE / tableCount;
+        return settle(caliber, level, tableCount, ampleElapsed, bufferRemaining, availablePrimer, availableCasing,
+                availableBulletHead, availablePropellant, availableFe).produced();
+    }
+
+    /**
      * 产 N 发的聚合工费 (九章 sink): 1.5 CP/发 经 ×10 锚价整数化为 15/10 发 -> floor(N × 15 / 10)。
      * 在批结算点整数聚合扣 (永不对单发传 1.5; tryCharge 收 long)。
      *

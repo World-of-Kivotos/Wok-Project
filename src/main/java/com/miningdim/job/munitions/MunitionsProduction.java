@@ -101,8 +101,20 @@ public final class MunitionsProduction {
         int baseRounds = MunitionsLevels.isRefineUnlocked(level)
                 ? MunitionsConfig.REFINED_ROUNDS_PER_BATCH.get()
                 : MunitionsConfig.DIRECT_ROUNDS_PER_BATCH.get();
-        return Math.max(1, Math.multiplyExact(baseRounds,
+        return Math.max(1, saturatedProduct(baseRounds,
                 MunitionsConfig.FE_PER_RIFLE_EQUIVALENT_ROUND.get()));
+    }
+
+    /**
+     * 电费乘法的饱和版本 (V17): 在 long 上乘完再夹到 int 上限。两个乘数都来自配置, 允许区间内就能乘爆 int
+     * (fePerRifleEquivalentRound 上限 1e8 × 每批 40 发, 或默认单价 × 每批 21475 发以上); 旧写法
+     * Math.multiplyExact 在这里抛 ArithmeticException, 而调用链挂在方块实体 tick 上
+     * (serverTick -> settleForOwner -> settle), 服主一次误配就是崩服, 台主每次上线再崩一次。饱和到
+     * Integer.MAX_VALUE 后电力门自然判 "一批都付不起" 而停产 (缓冲上限配置区间本就存不下这么多电), 与这种
+     * 配置的实际效果一致。入参恒非负 (两处配置下界都 >= 0)。
+     */
+    static int saturatedProduct(int a, int b) {
+        return (int) Math.min(Integer.MAX_VALUE, (long) a * b);
     }
 
     public static int roundsPerBatch(MunitionsCaliber caliber, int level) {
@@ -184,7 +196,9 @@ public final class MunitionsProduction {
         int propellantConsumed = batchesInt * propellantPerBatch;
         long workFee = workFee(rounds);
         long rawXp = produceXp(rounds);
-        int feConsumed = Math.multiplyExact(batchesInt, feCostPerBatch);
+        // 批数已被电力门 (availableFe / feCostPerBatch) 夹过, 乘积不会超过 availableFe; 仍走饱和乘, 不在 tick
+        // 路径上留任何会抛 ArithmeticException 的算术 (V17)。
+        int feConsumed = saturatedProduct(batchesInt, feCostPerBatch);
 
         return new Result(rounds, batchesInt, primerConsumed, casingConsumed,
                 bulletHeadConsumed, propellantConsumed, workFee, rawXp, feConsumed);

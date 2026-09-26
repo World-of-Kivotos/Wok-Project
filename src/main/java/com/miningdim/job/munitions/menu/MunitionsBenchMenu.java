@@ -175,7 +175,10 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
         if (stackInSlot.isEmpty()) {
             slot.set(ItemStack.EMPTY);
         } else {
-            slot.setChanged();
+            // 部分移出必须经 handler 回写 (与公共基类同一修复): SlotItemHandler 的 setChanged 落在空占位容器上,
+            // 什么都不做; moveItemStackTo 又是直改活栈, 只调 setChanged 时 BE 不标脏, 区块卸载/关服跳过存盘,
+            // 重载后料槽回到原数, 玩家手里却多出这批料。set 走 setStackInSlot -> onContentsChanged -> BE.setChanged。
+            slot.set(stackInSlot);
         }
         if (takenFromOutput > 0 && blockEntity != null && player instanceof ServerPlayer serverPlayer) {
             blockEntity.onOutputTaken(serverPlayer, takenFromOutput);

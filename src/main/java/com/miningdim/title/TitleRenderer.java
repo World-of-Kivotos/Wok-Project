@@ -25,11 +25,15 @@ import java.util.Map;
  * 称号的显示用 Component, 聊天前缀、Tab 列表、头顶名牌三处共用 (Title_System_DesignSpec 第五章)。
  *
  * <ul>
- *   <li>{@link #badge}: {@code [称号]}, 名牌单独一行与各类提示消息使用;</li>
- *   <li>{@link #prefix}: {@code [称号] }, 拼在显示名前面 (聊天、Tab)。</li>
+ *   <li>badge: {@code [称号]}, 名牌单独一行与各类提示消息使用;</li>
+ *   <li>prefix: {@code [称号] }, 拼在显示名前面 (聊天、Tab)。</li>
  * </ul>
- * 两者按称号 id 缓存; 定义集合每次被数据包重载替换 ({@link TitleDefinitions#generation()} 变化) 即整表作废。
- * 显示路径因此只读内存, 不查库也不重复拆字。缓存只在服务端主线程读写, 用普通 HashMap。
+ * 数据包称号的这一对按称号 id 缓存; 定义集合每次被数据包重载替换 ({@link TitleDefinitions#generation()} 变化)
+ * 即整表作废。显示路径因此只读内存, 不查库也不重复拆字。缓存只在服务端主线程读写, 用普通 HashMap。
+ *
+ * <p>专属称号 (第十三章) 不经本类的 id 缓存: 它的定义随玩家修改而变, 由 {@link TitleService} 在该玩家的在线
+ * 缓存里保存渲染结果 ({@link Rendered#of}), 修改或重新登录时重算。专属称号原样显示, 不加方括号: 徽记是
+ * {@code 文字}, 前缀是 {@code 文字 }。
  *
  * <p>渐变档的文字解析: 逐字上色要求服务端先拿到称号的纯文本, 而 translate 文本本来是由各客户端按自己的语言
  * 解析的。专用服务端不加载 {@code assets/} 下的语言文件, 所以这里按以下顺序解析:
@@ -56,13 +60,6 @@ public final class TitleRenderer {
         this.definitions = definitions;
     }
 
-    /** {@code [称号] }; 定义缺失 (被删除或拼错) 返回 null, 调用方据此不显示任何前缀。 */
-    @Nullable
-    public Component prefix(ResourceLocation titleId) {
-        Rendered rendered = rendered(titleId);
-        return rendered == null ? null : rendered.prefix();
-    }
-
     /** {@code [称号]}; 定义缺失返回 null。 */
     @Nullable
     public Component badge(ResourceLocation titleId) {
@@ -70,8 +67,9 @@ public final class TitleRenderer {
         return rendered == null ? null : rendered.badge();
     }
 
+    /** 数据包称号的徽记与前缀; 定义缺失 (被删除或拼错) 返回 null, 调用方据此不显示任何前缀。 */
     @Nullable
-    private Rendered rendered(ResourceLocation titleId) {
+    Rendered rendered(ResourceLocation titleId) {
         int generation = definitions.generation();
         if (generation != cachedGeneration) {
             cache.clear();
@@ -86,23 +84,29 @@ public final class TitleRenderer {
             // 不缓存"缺失": 定义集合一换代就会整表作废, 这里也没有需要防御的高频缺失查询。
             return null;
         }
-        Component badge = renderBadge(definition);
-        Rendered rendered = new Rendered(badge, Component.empty().append(badge).append(" "));
+        Rendered rendered = Rendered.of(definition);
         cache.put(titleId, rendered);
         return rendered;
     }
 
     /**
-     * 渲染 {@code [称号]}。渐变档把方括号连同文字一起逐字上色 (首尾括号恰为首尾色标);
+     * 渲染徽记。数据包称号是 {@code [称号]}: 渐变档把方括号连同文字一起逐字上色 (首尾括号恰为首尾色标);
      * 单色档整段一个样式, 文字保留原 Component (translate 仍由客户端按其语言解析)。
+     * 专属称号原样显示玩家写的文字 (外框由玩家自己写), 不加方括号; 渐变同样复用 {@link TierPalette#gradient}。
      */
     public static MutableComponent renderBadge(TitleDefinition definition) {
         int[] colors = definition.colors();
         boolean bold = definition.bold();
+        Style style = Style.EMPTY.withColor(TextColor.fromRgb(colors[0])).withBold(bold);
+        if (definition.isCustom()) {
+            String text = definition.text().getString();
+            return definition.isGradient()
+                    ? TierPalette.gradient(text, colors, bold)
+                    : Component.literal(text).withStyle(style);
+        }
         if (definition.isGradient()) {
             return TierPalette.gradient("[" + resolveText(definition.text()) + "]", colors, bold);
         }
-        Style style = Style.EMPTY.withColor(TextColor.fromRgb(colors[0])).withBold(bold);
         return Component.literal("[").append(definition.text().copy()).append("]").withStyle(style);
     }
 
@@ -128,7 +132,13 @@ public final class TitleRenderer {
         return text.getString();
     }
 
-    private record Rendered(Component badge, Component prefix) {
+    /** 同一称号的徽记 (名牌、提示) 与前缀 (聊天、Tab, 徽记加一个尾随空格), 两者样式完全相同。 */
+    record Rendered(Component badge, Component prefix) {
+
+        static Rendered of(TitleDefinition definition) {
+            Component badge = renderBadge(definition);
+            return new Rendered(badge, Component.empty().append(badge).append(" "));
+        }
     }
 
     /** 模组自带语言表里的称号键, 首次用到时从 JAR 读一次 (惰性持有者)。 */

@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
  * 加载 {@code data/<ns>/titles/**.json} 的称号定义, 在 AddReloadListenerEvent 注册, 支持 /reload 热重载。
  *
  * 校验口径 (Title_System_DesignSpec 第三章): 未知 rarity、渐变色标不足 2 个或多于 3 个、颜色格式非法、
- * 缺少 text, 一律跳过该条并在日志告警, 不影响其余定义。刻意不整包抛错: 一个第三方数据包里的笔误不该让
+ * 缺少 text、占用专属称号保留的 id 前缀, 一律跳过该条并在日志告警, 不影响其余定义。刻意不整包抛错: 一个第三方数据包里的笔误不该让
  * 服务端连同全部内置称号一起加载失败。JSON 语法错误的文件在更早的 vanilla scanDirectory 阶段就已被
  * LOGGER.error 并丢弃, 到不了这里。
  */
@@ -74,8 +74,16 @@ public final class TitleDefinitionLoader extends SimpleJsonResourceReloadListene
         return loaded;
     }
 
-    /** 解析单条定义; 任何不合格都抛 {@link JsonParseException} 并带上原因。 */
+    /**
+     * 解析单条定义; 任何不合格都抛 {@link JsonParseException} 并带上原因。
+     * {@code miningdim:custom/} 前缀保留给赞助专属称号 (Title_System_DesignSpec 13.2), 数据包不得占用,
+     * 否则就能借数据包定义冒出一个可发放的"专属称号"。
+     */
     static TitleDefinition parse(ResourceLocation id, JsonElement json) {
+        if (CustomTitle.isCustomId(id)) {
+            throw new JsonParseException("id prefix " + id.getNamespace() + ":" + CustomTitle.ID_PREFIX
+                    + " is reserved for sponsor custom titles");
+        }
         JsonObject root = GsonHelper.convertToJsonObject(json, "title definition");
 
         if (!root.has("text")) {

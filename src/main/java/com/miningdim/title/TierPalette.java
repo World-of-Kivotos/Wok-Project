@@ -122,13 +122,27 @@ public enum TierPalette {
         }
         MutableComponent root = Component.empty();
         int[] codePoints = text.codePoints().toArray();
-        int count = codePoints.length;
-        for (int i = 0; i < count; i++) {
-            float position = count == 1 ? 0.0F : (float) i / (count - 1);
-            Style style = Style.EMPTY.withColor(TextColor.fromRgb(colorAt(stops, position))).withBold(bold);
+        int[] colors = gradientColors(stops, codePoints.length);
+        for (int i = 0; i < codePoints.length; i++) {
+            Style style = Style.EMPTY.withColor(TextColor.fromRgb(colors[i])).withBold(bold);
             root.append(Component.literal(new String(Character.toChars(codePoints[i]))).withStyle(style));
         }
         return root;
+    }
+
+    /**
+     * {@link #gradient} 给 count 个字逐个分配的颜色: 第 i 个字取渐变轴上 i/(count-1) 处的颜色。专属称号的亮度校验
+     * 用它核对实际会渲染出来的每一个颜色, 与渲染共用同一份插值, 两边不会算得不一样。
+     *
+     * @param stops 1 ~ {@value #MAX_GRADIENT_STOPS} 个 0xRRGGBB 色标 (由调用方保证)
+     */
+    static int[] gradientColors(int[] stops, int count) {
+        int[] colors = new int[count];
+        for (int i = 0; i < count; i++) {
+            float position = count == 1 ? 0.0F : (float) i / (count - 1);
+            colors[i] = colorAt(stops, position);
+        }
+        return colors;
     }
 
     /** 渐变轴上 position (0..1) 处的颜色; 多色标时在相邻两个色标之间线性插值。 */

@@ -238,7 +238,7 @@
         "sqlite-jdbc"
       ],
       "publicEntry": "com.miningdim.title.ITitleService",
-      "scope": "cosmetic player titles: datapack definitions, SQLite ownership and equip state, chat/tab/nametag display, /mtitle admin command"
+      "scope": "cosmetic player titles: datapack definitions, SQLite ownership and equip state, chat/tab/nametag display, admin-granted sponsorships with one player-defined custom title each (validation, edit cooldown, expiry), /mtitle player and admin commands"
     },
     {
       "id": "wok-market",

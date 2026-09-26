@@ -236,8 +236,35 @@ public final class MiningSchema {
                     + "player_uuid TEXT PRIMARY KEY, "
                     + "title_id TEXT NOT NULL)");
 
+    /**
+     * 版本 6: 赞助专属称号 (设计文档第十三章) 的资格表与记录表, 结构见 docs/Title_System_DesignSpec.md 13.6,
+     * 各一人一行 (player_uuid 主键)。
+     *
+     * title_sponsor.expires_at 为 NULL 表示永久资格。资格到期或被撤销时 title_custom 的记录保留 (续期后原样恢复),
+     * 因此两表之间不加外键。title_custom.updated_at 是最近一次由玩家本人成功修改的时间, 即修改冷却的起点
+     * (管理员清除冷却时置 0); locked / locked_by 记录管理员的修改锁定。
+     *
+     * 为什么另开 V6 而不并进 V5: V5 已随称号模块 P1 的提交落地, 跑过那一版的库停在 user_version=5、只有持有与
+     * 佩戴两表。并进 V5 的话这些库永远不会补建这两张表, 称号系统会在每次登录读赞助资格时因缺表失败 —— 与本文件
+     * 顶部的铁律同理, 已应用过的迁移只能追加、不能改。
+     */
+    private static final List<String> V6 = List.of(
+            "CREATE TABLE title_sponsor ("
+                    + "player_uuid TEXT PRIMARY KEY, "
+                    + "granted_by TEXT NOT NULL, "
+                    + "granted_at INTEGER NOT NULL, "
+                    + "expires_at INTEGER)",
+            "CREATE TABLE title_custom ("
+                    + "player_uuid TEXT PRIMARY KEY, "
+                    + "text TEXT NOT NULL, "
+                    + "colors TEXT NOT NULL, "
+                    + "bold INTEGER NOT NULL, "
+                    + "updated_at INTEGER NOT NULL, "
+                    + "locked INTEGER NOT NULL DEFAULT 0, "
+                    + "locked_by TEXT)");
+
     /** 全部迁移, 下标 + 1 即其版本号。 */
-    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3, V4, V5);
+    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3, V4, V5, V6);
 
     /** 把连接上的库推进到本版代码支持的最新结构。 */
     public static void apply(Connection conn) {

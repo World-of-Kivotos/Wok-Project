@@ -18,18 +18,23 @@ import net.minecraftforge.event.server.ServerStartingEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
+
 /**
  * 称号子系统 (wok-title, foundation): 定义加载、SQLite 持有/佩戴、{@link ITitleService} 门面、三处显示、
- * 名牌同步包与 /mtitle 管理命令。详见 docs/Title_System_DesignSpec.md。
+ * 名牌同步包、赞助专属称号与 /mtitle 命令。详见 docs/Title_System_DesignSpec.md。
  *
  * <p>生命周期:
  * <ul>
- *   <li>mod 构造期: 挂 forge 总线; FMLCommonSetup 注册自有网络通道。</li>
+ *   <li>mod 构造期: 注册服务端配置 miningdim-title.toml (专属称号的校验阈值与冷却), 挂 forge 总线;
+ *       FMLCommonSetup 注册自有网络通道。</li>
  *   <li>AddReloadListenerEvent: 挂定义加载器 (开服与每次 /reload 都整表替换)。</li>
  *   <li>ServerStarting: 在存储子系统已开好的共享连接上绑定仓库与门面, 注入 {@link TitleServices}。</li>
  *   <li>ServerStopping: 清定位器、清定义; 连接由存储子系统在 ServerStopped 关闭, 此处不碰。
@@ -37,9 +42,9 @@ import org.slf4j.LoggerFactory;
  * </ul>
  *
  * <p>全部钩子一律经 {@link TitleServices} 取当前注入的门面, 本类不另持引用: 显示 (NameFormat / TabListNameFormat /
- * 开始追踪) 只读门面的内存缓存, 不查库; 登录加载、登出移出、重载后刷新、队伍变化兜底需要门面之外的生命周期方法,
- * 取到的实现是本模块的 {@link TitleService} 时才执行。GameTest 因此可以注入临时库上的实现, 经真实的登录、登出、
- * 重生事件验证这些钩子。
+ * 开始追踪) 只读门面的内存缓存, 不查库; 登录加载、登出移出、重载后刷新、队伍变化兜底、赞助到期巡检需要门面之外的
+ * 生命周期方法, 取到的实现是本模块的 {@link TitleService} 时才执行。GameTest 因此可以注入临时库上的实现, 经真实的
+ * 登录、登出、重生事件验证这些钩子。
  */
 public final class TitleSystem implements Subsystem {
 
@@ -47,15 +52,19 @@ public final class TitleSystem implements Subsystem {
 
     /** Tab 名队伍兜底重算的间隔 (tick): 每秒一次, 结果不变时不发包。 */
     private static final int TEAM_RECHECK_INTERVAL_TICKS = 20;
+    /** 在线赞助玩家到期巡检的间隔 (tick): 每 60 秒一次 (Title_System_DesignSpec 13.5), 只读缓存。 */
+    private static final int SPONSOR_EXPIRY_CHECK_INTERVAL_TICKS = 60 * 20;
 
     private final TitleDefinitions definitions = new TitleDefinitions();
     private final TitleDefinitionLoader loader = new TitleDefinitionLoader(definitions);
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
+        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, TitleConfig.SPEC, "miningdim-title.toml");
         forgeBus.register(this);
         modBus.addListener((FMLCommonSetupEvent event) -> event.enqueueWork(TitleNetwork::register));
-        LOGGER.info("[miningdim] title subsystem registered (datapack titles, SQLite ownership, /mtitle)");
+        LOGGER.info("[miningdim] title subsystem registered (datapack titles, sponsor custom titles, "
+                + "SQLite ownership, /mtitle)");
     }
 
     @SubscribeEvent
@@ -65,7 +74,8 @@ public final class TitleSystem implements Subsystem {
 
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
-        // 称号表在统一库 miningdim.db (MiningSchema V5); 连接由存储子系统在 ServerAboutToStart 开好并完成迁移。
+        // 称号表在统一库 miningdim.db (MiningSchema V5 持有与佩戴、V6 赞助资格与专属称号); 连接由存储子系统在
+        // ServerAboutToStart 开好并完成迁移。
         TitleServices.registerTitleService(new TitleService(new SqliteTitleRepository(MiningStore.connection()),
                 definitions, event.getServer()));
         LOGGER.info("[miningdim] title service bound ({} definition(s) loaded)", definitions.size());
@@ -118,18 +128,39 @@ public final class TitleSystem implements Subsystem {
         service.refreshOnlineDisplays(event.getPlayerList().getPlayers());
     }
 
-    /** 队伍变化兜底: 原版改队伍不触发 Tab 名重算, 这里每秒对佩戴着称号的玩家重算一次 (详见 TitleService)。 */
+    /**
+     * 两项低频巡检, 都只读缓存: 队伍变化兜底 (原版改队伍不触发 Tab 名重算, 每秒对佩戴着称号的玩家重算一次) 与
+     * 在线赞助玩家的到期检查 (每 60 秒一次)。详见 TitleService 对应方法。
+     */
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) {
             return;
         }
         MinecraftServer server = event.getServer();
-        if (server.getTickCount() % TEAM_RECHECK_INTERVAL_TICKS != 0) {
+        int tick = server.getTickCount();
+        boolean teamRecheck = tick % TEAM_RECHECK_INTERVAL_TICKS == 0;
+        boolean sponsorCheck = tick % SPONSOR_EXPIRY_CHECK_INTERVAL_TICKS == 0;
+        if (!teamRecheck && !sponsorCheck) {
             return;
         }
         TitleService service = boundService();
-        if (service != null) {
+        if (service == null) {
+            return;
+        }
+        if (sponsorCheck) {
+            // 逐人巡检、逐人兜住异常: 巡检只有在真的卸下时才写库, 某名玩家写库失败只让他的卸下推迟到下一轮, 既不拖累
+            // 排在他后面的玩家, 也不能让外观功能打断服务端 tick。
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                try {
+                    service.checkSponsorExpiry(List.of(player));
+                } catch (RuntimeException exception) {
+                    LOGGER.error("[miningdim] sponsor expiry check failed for {}", player.getGameProfile().getName(),
+                            exception);
+                }
+            }
+        }
+        if (teamRecheck) {
             service.refreshTitledTabNames(server.getPlayerList().getPlayers());
         }
     }

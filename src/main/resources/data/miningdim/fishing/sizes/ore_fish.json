@@ -1,0 +1,9 @@
+{
+  "entries": [
+    { "item": "miningdim:iron_ore_fish", "min_cm": 25, "common_cm": 40, "max_cm": 70, "a": 0.00924, "b": 3.07 },
+    { "item": "miningdim:gold_ore_fish", "min_cm": 25, "common_cm": 40, "max_cm": 70, "a": 0.01232, "b": 3.07 },
+    { "item": "miningdim:diamond_ore_fish", "min_cm": 20, "common_cm": 35, "max_cm": 60, "a": 0.00847, "b": 3.07 },
+    { "item": "miningdim:emerald_ore_fish", "min_cm": 20, "common_cm": 35, "max_cm": 60, "a": 0.00847, "b": 3.07 },
+    { "item": "miningdim:dark_gold_ore_fish", "min_cm": 35, "common_cm": 60, "max_cm": 100, "a": 0.0154, "b": 3.07 }
+  ]
+}

@@ -26,7 +26,7 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 | WOK-农夫 | `farmer_*`，`data/miningdim/recipes/farmer/` |
 | WOK-铸甲师 | `production_table_*`、`nano_*`、`plate_*`、`plasma_*`、`sounds/item/plasma_shield/`、`textures/models/armor/`、护盾穿透 damage_type 标签 |
 | WOK-厨师 | `seasoning*`(含 `geo/block/seasoning_table.geo.json` 与 `animations/block/seasoning_table.animation.json`)、`data/miningdim/recipes/chef/`、`tags/items/seasonings*.json`、`tags/items/seasonings/`、`tags/items/unseasonable.json`、`tags/items/chef_amplify_item_blacklist.json`、`tags/mob_effect/chef_amplify_effect_blacklist.json`;共享语言文件中 `chef.*` 与 `screen.miningdim.chef.*` 键。菜肴效果图标 `textures/mob_effect/chef_*.png` 物理归 WOK-核心: 它们与 `ModJobEffects` 这个跨职业共享效果注册表同处一个目录, 按目录整体登记 |
-| WOK-渔夫 | `job/fisher` 对应的 `data/miningdim/fishing/`、`fishing_journal`、`ore_fish` 标签、`iron_ore_fish`/`gold_ore_fish`/`diamond_ore_fish`/`emerald_ore_fish`/`dark_gold_ore_fish` 前缀资源；共享语言文件中的渔业图鉴、矿石鱼、鱼羹和出售消息键 |
+| WOK-渔夫 | `job/fisher` 对应的 `data/miningdim/fishing/`（图鉴目录 `journal/` 与体型档案 `sizes/`）、`data/miningdim/tags/items/fish_quality/`（六档鱼种品质标签）、`fishing_journal`、`ore_fish` 标签、`iron_ore_fish`/`gold_ore_fish`/`diamond_ore_fish`/`emerald_ore_fish`/`dark_gold_ore_fish` 前缀资源；共享语言文件中的渔业图鉴、矿石鱼、鱼羹、出售、鱼种品质、体型与钓获回报键 |
 | WOK-酿酒师 | `brewing_*`、`wine_*`、`dried_wheat`、`data/miningdim/recipes/brewer/` |
 | WOK-塔罗师 | `tarot_*`、`shiny_select`、`data/miningdim/tarot/`、`sounds/job/tarot/`、`textures/gui/tarot/`、`textures/item/tarot/` |
 | WOK-军火商 | `munitions_*`、`gunsmith_*`、`bullet_head`、`casing`、`primer`、`propellant`、`m4_assembly_template`、`custom/miningdim_gunsmith/`、`data/miningdim/recipes/munitions/`、`textures/gui/gunsmith/`(稀有度铭牌与阵营 LOGO)、`data/miningdim/gunsmith/components/`(组件平衡规则数据包) |

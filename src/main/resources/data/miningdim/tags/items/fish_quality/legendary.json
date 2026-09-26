@@ -1,0 +1,13 @@
+{
+  "replace": false,
+  "values": [
+    "miningdim:dark_gold_ore_fish",
+    { "id": "tide:blazing_swordfish", "required": false },
+    { "id": "tide:blossom_bass", "required": false },
+    { "id": "tide:echofin_snapper", "required": false },
+    { "id": "tide:elytrout", "required": false },
+    { "id": "tide:mirage_catfish", "required": false },
+    { "id": "tide:sporestalker", "required": false },
+    { "id": "tide:witherfin", "required": false }
+  ]
+}

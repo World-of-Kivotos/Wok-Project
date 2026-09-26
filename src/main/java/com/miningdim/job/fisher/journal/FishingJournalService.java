@@ -1,5 +1,7 @@
 package com.miningdim.job.fisher.journal;
 
+import com.miningdim.job.fisher.size.FishRecord;
+import com.miningdim.job.fisher.size.FishingRecords;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -7,7 +9,9 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerListener;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 public final class FishingJournalService {
@@ -58,7 +62,9 @@ public final class FishingJournalService {
                 FishingJournalSavedData.get(player.serverLevel()).collected(player.getUUID()));
         // 已移除数据包或可选 MOD 的历史记录仍存盘，但不计入当前可见目录的进度。
         collected.removeIf(id -> !FishingJournalCatalog.INSTANCE.contains(id));
-        return new FishingJournalSnapshot(entries, collected);
+        Map<ResourceLocation, FishRecord> records = new HashMap<>(FishingRecords.all(player));
+        records.keySet().removeIf(id -> !FishingJournalCatalog.INSTANCE.contains(id));
+        return new FishingJournalSnapshot(entries, collected, records);
     }
 
     public static void open(ServerPlayer player) {

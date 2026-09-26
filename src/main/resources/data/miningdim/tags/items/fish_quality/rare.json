@@ -1,0 +1,22 @@
+{
+  "replace": false,
+  "values": [
+    "miningdim:diamond_ore_fish",
+    { "id": "tide:ashen_perch", "required": false },
+    { "id": "tide:barracuda", "required": false },
+    { "id": "tide:bedrock_tetra", "required": false },
+    { "id": "tide:catfish", "required": false },
+    { "id": "tide:chorus_cod", "required": false },
+    { "id": "tide:clayfish", "required": false },
+    { "id": "tide:crystalline_carp", "required": false },
+    { "id": "tide:enderfin", "required": false },
+    { "id": "tide:endergazer", "required": false },
+    { "id": "tide:endstone_perch", "required": false },
+    { "id": "tide:gilded_minnow", "required": false },
+    { "id": "tide:lapis_lanternfish", "required": false },
+    { "id": "tide:magma_mackerel", "required": false },
+    { "id": "tide:purpur_pike", "required": false },
+    { "id": "tide:sailfish", "required": false },
+    { "id": "tide:volcano_tuna", "required": false }
+  ]
+}

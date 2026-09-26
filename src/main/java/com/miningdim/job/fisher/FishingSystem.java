@@ -1,5 +1,6 @@
 package com.miningdim.job.fisher;
 
+import com.miningdim.core.ItemRarityOverrides;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.Subsystem;
 import com.miningdim.job.fisher.journal.FishingJournalCatalog;
@@ -9,6 +10,9 @@ import com.miningdim.job.fisher.journal.FishingJournalService;
 import com.miningdim.job.fisher.ore.OreFishingItems;
 import com.miningdim.job.fisher.ore.OreFishingConfig;
 import com.miningdim.job.fisher.ore.OreFishSellService;
+import com.miningdim.job.fisher.quality.FishQuality;
+import com.miningdim.job.fisher.size.FishCatchService;
+import com.miningdim.job.fisher.size.FishSizeCatalog;
 import com.miningdim.job.fisher.soup.OreSoupEffects;
 import net.minecraft.commands.Commands;
 import net.minecraft.server.level.ServerPlayer;
@@ -19,9 +23,11 @@ import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
 import net.minecraftforge.event.OnDatapackSyncEvent;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.player.ItemFishedEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerContainerEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
@@ -32,13 +38,16 @@ import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
 
-/** WOK 本体渔业入口：目录收藏、矿石鱼和料理联动；职业成长后续接入统一经验服务。 */
+/** WOK 本体渔业入口：目录收藏、鱼种品质、钓获体型、矿石鱼和料理联动；职业成长后续接入统一经验服务。 */
 public final class FishingSystem implements Subsystem {
     private static final DeferredRegister<Item> ITEMS = DeferredRegister.create(ForgeRegistries.ITEMS, MiningConstants.MODID);
     public static final RegistryObject<Item> JOURNAL = ITEMS.register("fishing_journal", FishingJournalItem::new);
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
+        // 扩展稀有度必须建在任何物品注册与稀有度查询之前, 两个物理端都在 mod 构造期走到这里。
+        FishQuality.bootstrap();
+        ItemRarityOverrides.register(FishQuality::rarityOverride);
         ITEMS.register(modBus);
         OreFishingItems.register(modBus);
         OreSoupEffects.register(modBus, forgeBus);
@@ -48,6 +57,7 @@ public final class FishingSystem implements Subsystem {
         modBus.addListener(this::onCommonSetup);
         modBus.addListener(this::onCreativeTab);
         forgeBus.register(this);
+        forgeBus.register(new FishingTooltipHandler());
     }
 
     private void onCommonSetup(FMLCommonSetupEvent event) {
@@ -73,12 +83,25 @@ public final class FishingSystem implements Subsystem {
     @SubscribeEvent
     public void onReload(AddReloadListenerEvent event) {
         event.addListener(FishingJournalCatalog.INSTANCE);
+        event.addListener(FishSizeCatalog.INSTANCE);
+    }
+
+    /**
+     * 原版钓竿的体型结算。最低优先级且不接收已取消事件: 只测量真正会落地的渔获, 别的 MOD 取消掉的那一竿
+     * 不会留下个人记录。事件里的列表是副本, 但元素与实际生成掉落物的 ItemStack 是同一批引用, 原地打标签即生效。
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public void onItemFished(ItemFishedEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            FishCatchService.onSuccessfulCatch(player, event.getDrops());
+        }
     }
 
     @SubscribeEvent
     public void onCommands(RegisterCommandsEvent event) {
         event.getDispatcher().register(Commands.literal("fishing")
-                .then(Commands.literal("sell").executes(OreFishSellService::executeSell))
+                .then(Commands.literal("sell").executes(OreFishSellService::executeSell)
+                        .then(Commands.literal("all").executes(OreFishSellService::executeSellAll)))
                 .then(Commands.literal("journal").executes(context -> {
                     FishingJournalService.open(context.getSource().getPlayerOrException());
                     return 1;
@@ -154,5 +177,6 @@ public final class FishingSystem implements Subsystem {
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         FishingJournalCatalog.INSTANCE.clear();
+        FishSizeCatalog.INSTANCE.clear();
     }
 }

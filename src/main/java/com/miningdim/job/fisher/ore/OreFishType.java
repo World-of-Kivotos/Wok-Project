@@ -1,21 +1,25 @@
 package com.miningdim.job.fisher.ore;
 
-import net.minecraft.world.item.Rarity;
+import com.miningdim.job.fisher.quality.FishQuality;
 
-/** 鱼种档次独立于厨师给成品菜盖出的加工品质。 */
+/**
+ * 矿石鱼五档。鱼种品质与 {@code data/miningdim/tags/items/fish_quality/*.json} 里的归档一致 (由 GameTest 核对):
+ * 物品注册时先按这里的品质给默认稀有度, 标签绑定后由品质标签统一覆盖名字颜色, 两者不得分叉。
+ * 鱼种品质独立于厨师给成品菜盖出的加工品质。
+ */
 public enum OreFishType {
-    IRON("iron", Rarity.COMMON),
-    GOLD("gold", Rarity.UNCOMMON),
-    DIAMOND("diamond", Rarity.RARE),
-    EMERALD("emerald", Rarity.RARE),
-    DARK_GOLD("dark_gold", Rarity.EPIC);
+    IRON("iron", FishQuality.COMMON),
+    GOLD("gold", FishQuality.FINE),
+    DIAMOND("diamond", FishQuality.RARE),
+    EMERALD("emerald", FishQuality.EPIC),
+    DARK_GOLD("dark_gold", FishQuality.LEGENDARY);
 
     private final String id;
-    private final Rarity rarity;
+    private final FishQuality quality;
 
-    OreFishType(String id, Rarity rarity) {
+    OreFishType(String id, FishQuality quality) {
         this.id = id;
-        this.rarity = rarity;
+        this.quality = quality;
     }
 
     public String id() {
@@ -30,7 +34,7 @@ public enum OreFishType {
         return fishId() + "_soup";
     }
 
-    public Rarity rarity() {
-        return rarity;
+    public FishQuality quality() {
+        return quality;
     }
 }

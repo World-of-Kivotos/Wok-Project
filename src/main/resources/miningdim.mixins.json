@@ -9,7 +9,8 @@
     "VanillaOreFishMixin",
     "PlayerFoodExhaustionMixin",
     "PlayerOreSoupStateMixin",
-    "ItemStackMiningDurabilityMixin"
+    "ItemStackMiningDurabilityMixin",
+    "ItemRarityOverrideMixin"
   ],
   "client": [],
   "server": [],

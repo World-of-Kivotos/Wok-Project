@@ -19,6 +19,8 @@ import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -31,7 +33,8 @@ import java.util.UUID;
  *   <li>获得成就 ({@link #recordEarned}): 只处理会产生奖励的进度 (7.1: miningdim 命名空间、非配方, 点数 &gt; 0 或附带
  *       称号), 页签根与缺元数据的进度什么都不做。按 (玩家, 进度 id) 主键写一条待领取奖励, 点数、档位与称号取获得那一刻的
  *       查询快照; 撤销后再次授予被主键挡下, 不重复生成, 也不再提示。只有新写入时才给玩家本人发带 [领取] 的聊天提示。</li>
- *   <li>领取 ({@link #claim} / {@link #claimAll}): 一次领取 (单条或全部) 是 MiningStore 上的<b>一个</b>事务: 逐条标记已领取,
+ *   <li>领取 ({@link #claim} / {@link #claimSelected} / {@link #claimAll}): 一次领取 (单条、指定几条或全部) 是
+ *       MiningStore 上的<b>一个</b>事务: 逐条标记已领取,
  *       点数 &gt; 0 时入账 (余额与累计获得) 并写一条 claim 流水, 附带称号经 {@code ITitleService#grantInTransaction}
  *       写在同一条连接上。任何一步失败 (含称号发不出去) 整个事务回滚, 一条也不发; 提交之后才给新得到的称号补发
  *       "获得称号"提示。玩家原本就拥有的称号 (ALREADY_OWNED) 不算失败。</li>
@@ -87,21 +90,38 @@ public final class AchievementRewardService {
      * @throws IllegalStateException 共享连接上正开着调用方的事务
      */
     public static ClaimResult claim(ServerPlayer player, ResourceLocation advancementId) {
+        return claimSelected(player, List.of(advancementId));
+    }
+
+    /**
+     * 一次领取指定的几条奖励 (G 面板的 achievement.claimRewards 按 id 领取时调用), 同一个事务, 一条失败则全部不发。
+     * 重复的 id 只算一次。先逐条核对: 任何一条没有记录或已经领取过, 就报那一条, 什么都不做。
+     *
+     * @throws IllegalArgumentException advancementIds 为空
+     * @throws IllegalStateException    共享连接上正开着调用方的事务
+     */
+    public static ClaimResult claimSelected(ServerPlayer player, Collection<ResourceLocation> advancementIds) {
+        if (advancementIds.isEmpty()) {
+            throw new IllegalArgumentException("claimSelected needs at least one advancement id");
+        }
         AchievementRewardRepository repository = AchievementServices.rewards();
-        Optional<AchievementReward> reward;
+        List<AchievementReward> rewards = new ArrayList<>();
         try {
             requireNoOpenTransaction(repository, "claim");
-            reward = repository.reward(player.getUUID(), advancementId);
+            for (ResourceLocation advancementId : new LinkedHashSet<>(advancementIds)) {
+                Optional<AchievementReward> reward = repository.reward(player.getUUID(), advancementId);
+                if (reward.isEmpty()) {
+                    return ClaimResult.rejected(ClaimResult.Status.NOT_FOUND, advancementId, null);
+                }
+                if (reward.get().isClaimed()) {
+                    return ClaimResult.rejected(ClaimResult.Status.ALREADY_CLAIMED, advancementId, null);
+                }
+                rewards.add(reward.get());
+            }
         } catch (AchievementStoreException failure) {
             return storeFailed(player, failure);
         }
-        if (reward.isEmpty()) {
-            return ClaimResult.rejected(ClaimResult.Status.NOT_FOUND, advancementId, null);
-        }
-        if (reward.get().isClaimed()) {
-            return ClaimResult.rejected(ClaimResult.Status.ALREADY_CLAIMED, advancementId, null);
-        }
-        return claimInOneTransaction(player, List.of(reward.get()));
+        return claimInOneTransaction(player, rewards);
     }
 
     /**

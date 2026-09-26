@@ -4,6 +4,7 @@ import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.MiningChampionData;
 import com.miningdim.champion.MiningChampions;
 import com.miningdim.job.agent.AgentBountySavedData;
+import com.miningdim.job.agent.AgentEvents;
 import com.miningdim.job.agent.AgentLevels;
 import com.miningdim.job.agent.AgentSealSeam;
 import com.miningdim.job.agent.SealCategory;
@@ -107,6 +108,8 @@ public final class AgentSealHandler {
         // (扫描探测脉冲 / 接悬赏 / 悬赏击杀记账) 属 b 阶段面板接线, 待接线时在各入口同样 markActiveAgent (见交付 notes)。
         AgentBountySavedData.get(agent.server.overworld()).markActiveAgent(agent.getUUID());
 
+        // 占槽、真改与入职标志都已落定, 最后才广播 (成就等只读消费方, 见 AgentEvents)。
+        AgentEvents.fireSeal(agent, star, def, category);
         return Result.success(apply.expiryTick(), category);
     }
 

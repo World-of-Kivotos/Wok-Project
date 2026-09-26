@@ -1,0 +1,35 @@
+{
+  "parent": "miningdim:profession/farmer_first_harvest",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "stat": "miningdim:farmer_harvests",
+        "value": 500
+      },
+      "trigger": "miningdim:stat_at_least"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.profession.farmer_harvest_500.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:farmer_wheat"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#D0D7DE",
+      "translate": "achievement.miningdim.profession.farmer_harvest_500.title"
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

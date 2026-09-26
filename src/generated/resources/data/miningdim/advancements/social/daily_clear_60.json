@@ -1,0 +1,45 @@
+{
+  "parent": "miningdim:social/quest_10",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "stat": "miningdim:quest_daily_clears",
+        "value": 60
+      },
+      "trigger": "miningdim:stat_at_least"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.social.daily_clear_60.desc"
+    },
+    "frame": "challenge",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:clock"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#6FF2FF",
+          "text": "全"
+        },
+        {
+          "bold": true,
+          "color": "#D59CFF",
+          "text": "勤"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

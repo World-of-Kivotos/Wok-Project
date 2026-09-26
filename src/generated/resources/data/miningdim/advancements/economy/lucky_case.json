@@ -1,0 +1,60 @@
+{
+  "parent": "miningdim:economy/first_case",
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "tacz"
+    }
+  ],
+  "criteria": {
+    "opened": {
+      "conditions": {
+        "min_rarity": "gold"
+      },
+      "trigger": "miningdim:case_open"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.economy.lucky_case.desc"
+    },
+    "frame": "challenge",
+    "hidden": true,
+    "icon": {
+      "item": "minecraft:enchanted_golden_apple"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#6FF2FF",
+          "text": "欧"
+        },
+        {
+          "bold": true,
+          "color": "#7AC6FF",
+          "text": "皇"
+        },
+        {
+          "bold": true,
+          "color": "#9CA9FF",
+          "text": "降"
+        },
+        {
+          "bold": true,
+          "color": "#D59CFF",
+          "text": "临"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "opened"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

@@ -225,6 +225,7 @@ com.miningdim.achievement
 - 发生在矿区维度内
 - 被击杀者带有 `MobInstanceTag`（由矿区实例生成）。这一条同时排除了 `/mchampion` 召唤的、刷怪笼刷出的怪
 - 精英类还要求 `isChampion()` 为真、`isSummonedByAffix()` 为假
+- **世界 BOSS 例外**（2026-09-26）：由 `/mchampion worldboss` 召唤的世界 BOSS（`WorldBoss.isWorldBoss`）在**任意维度**都计入精英击杀类统计和触发器，不要求 `MobInstanceTag`；其余判据（`isChampion`、非词条召唤物、在线的有效贡献者、挂机规则）照旧。世界 BOSS 还须**被玩家击倒**，口径与精英文档第十章的击倒公告相同：致死伤害是 `/kill`、虚空这类无视无敌的伤害（`WorldBoss.isPlayerDefeat` 为假）时，整只不计击杀、不触发 `champion_kill`，管理员中止事件不会发出"十星弑神"。普通 `/mchampion summon` 召唤的精英仍被排除。枪械击杀不适用这条例外，`gun_kills` 的口径仍是矿区怪物
 - 只统计在线的有效贡献者，读取 `ContributionTracker` 时只用 `peek()`，**不能用 `drain()`**，否则会抢走精英奖励处理器的数据
 - 挂机过滤只作用于计数类统计，不作用于一次性的成就
 
@@ -234,7 +235,8 @@ com.miningdim.achievement
 
 - 精英击杀钩子 `trigger.ChampionKillHooks` 挂在 `LivingDeathEvent` 的 `@HIGH`，不收已取消的事件。账本的所有者是精英模块的贡献池主结算 `ChampionRewardHandler`，它在默认优先级 `drain`；特勤奖励在 `@HIGHEST` 只 `peek`。`@HIGH` 正好晚于可能取消死亡的最高优先级处理，又早于清账。GameTest 在事件总线上验证：结算后账本已空，统计与成就却已经发出。
 - 有效贡献者按 `ContributionPool.isQualified` 判定，团队人均伤害取 `teamAverageEffectiveDamage`；在线判定用的是贡献池同一套"是否在玩家列表里"。精英的有效血量缺失（≤ 0）时整只跳过。
-- "攻击过的玩家"由钩子自己在 `LivingHurtEvent` 上记录，同样是 `@HIGHEST`、`receiveCanceled=true`，攻击方须是带实例标记的精英。精英死亡时摘掉这条记录；没死就消失的精英靠上限（1024 只）按最久未更新淘汰。精英一次没出手就被打死，也算独自击杀。
+- "攻击过的玩家"由钩子自己在 `LivingHurtEvent` 上记录，同样是 `@HIGHEST`、`receiveCanceled=true`，攻击方须是计入精英击杀的精英（带实例标记的矿区精英，或任意维度的世界 BOSS）。精英死亡时摘掉这条记录；没死就消失的精英靠上限（1024 只）按最久未更新淘汰。精英一次没出手就被打死，也算独自击杀。
+- 精英击杀的被击杀者判据是 `KillFilter.countsForChampionKills`：先查实例标记（含一次维度比较），再查世界 BOSS 标记（一次 capability 读取）。因为世界 BOSS 可能死在任何维度，精英击杀的两个钩子不再先按矿区维度早退；枪械击杀仍只用 `KillFilter.isInstanceMob`。死亡钩子对世界 BOSS 另查一次致死伤害：`WorldBoss.isPlayerDefeat(event.getSource())` 为假（`/kill`、虚空）即整只跳过，与 `WorldBossHandler` 的击倒公告共用这一个判据，两边不会各说各话。GameTest `WorldBossKillGameTests.worldBossEndedByBypassDamageGrantsNoKill` 锁住。
 - 输出占比的分母含全部贡献记录，离线者和不合格者也算在内。`fightTicks` 是死亡时刻减去账本里最早的首伤 tick，两者都取精英所在维度的 gameTime。
 - 枪械击杀的判定在 `trigger.GunKillHooks`，不引用 TaCZ。TaCZ 的 `EntityKillByGunEvent` 由 `trigger.TaczGunKillHooks` 翻译过来，只在 `ModList.isLoaded("tacz")` 时注册。射手是 FakePlayer 时不计。
 - 挂机判据读 `EconomyServices.economyService().isAfkFrozen`，经济门面尚未注入时按未冻结处理，与任务模块一致。
@@ -256,6 +258,16 @@ com.miningdim.achievement
 4. **配偶之间不计**：买卖双方是夫妻时不计入。
 5. 按买家分别记账，存在新表 `achievement_market_partner(seller_uuid, buyer_uuid, trades, counted_volume)`，在 `MarketEngine#buy` 事务提交后写入。
 6. 上线初期所有人的 `credits_earned` 都从 0 开始，会让计数成交额偏低。处理方式见第十四章待定项。
+
+实现口径（P2）：
+
+- 计数在 `trigger.MarketTradeHooks`，挂在市场模块的成交监听上（9.10），每笔成交在 `MarketEngine#buy` 的事务提交后到达，带买家、卖家 UUID、标的、数量与成交额。买家是 FakePlayer 时整笔跳过。
+- 同 IP 只比较两边此刻连接的远端地址：双方都在线、且都是网络地址（`InetSocketAddress`）时比较 IP；卖家不在线就没有可比的连接，按不同处理；本地连接不参与比较。IP 不落库、不进日志。服务器前面挂代理而没有转发真实 IP 时，所有人的连接地址都是代理的地址，市场成就会全部不计，改多子服架构时要确认 IP 转发。
+- 夫妻读核心模块的婚姻指针：买家的配偶是卖家，或在线卖家的配偶是买家，即不计。
+- `achievement_market_partner` 是 `MiningSchema` 的 **V8**，主键（卖家，买家），另建 `buyer_uuid` 索引。一笔合格交易用一条 upsert 把这一对的笔数加一，计数成交额取 `max(原值, min(原值 + 本笔成交额, 1,000,000, 买家此刻的 credits_earned))`。表里不存原始累计成交额，用"原值 + 本笔"代替第 2 条里的累计成交额，结果仍在第 2 条的上限之内；小号先对刷、后来才有收入时，之前对刷的成交额也不会被一次追认。计数成交额只增不减。
+- 记账后对买家、在线的卖家各触发一次 `market_trade`；离线卖家在下次登录时按记账表补查，不静默（那是他离线期间新成交的，不是上线前的历史）。写库失败只记错误日志，这笔不计，成交本身不受影响。
+- `market_trade` 的条件：`role` 缺省 any，`count` 缺省 1；`volume`、`partners` 描述卖方，只能配 `role=seller`；`partner_min` 只能配 `partners`，不写时凡是做过合格交易的买家都算一个对手。卖方计数成交额是各买家计数成交额之和。
+- 市场收入走 `grant()`，本来就不进 `credits_earned`（6.1）。
 
 ---
 
@@ -360,7 +372,7 @@ CREATE TABLE achievement_point_ledger (
 | 字段 | 说明 |
 |---|---|
 | `type` | `item` 或 `title` |
-| `item` / `title` | 物品（id、数量、可选 NBT）或称号 id |
+| `item` / `title` | 物品（id、数量、可选 NBT）或称号 id。放置进世界会丢掉绑定盖章的物品不收，见 8.4 |
 | `price` | 成就点价格 |
 | `limit_per_player` | 每人限购数量，缺省不限。称号自动视为 1 |
 | `requires_advancement` | 可选：需要先获得某个成就才能兑换 |
@@ -370,8 +382,21 @@ CREATE TABLE achievement_point_ledger (
 
 - 在同一个 `MiningStore` 事务里完成：检查余额和限购 → 扣点 → 写流水 → 发称号（`grantInTransaction`）。
 - 物品类商品**在扣点前**先检查背包空间，没有空间就返回 `INVENTORY_FULL`，不扣点。事务提交后在主线程把物品放进背包。因为服务端单线程，检查和发放之间不会有其他操作插进来。
-- **经济隔离（DECIDED，硬约束）**：成就点商店的物品必须是装饰物或纯外观/趣味小道具，不得是可以出售换信用点的物品。兑换出的物品**必须**打上 `OwnerUUID` 绑定 NBT，**一律不能上架市场**。婚姻共享背包的黑名单已经按 `OwnerUUID` 拦截，会自动覆盖这些物品。市场侧要在 `market.MarketTradeWhitelist` 中确认已拦截，没有就补上，并加一条 GameTest 锁住（TODO）。
+- **经济隔离（DECIDED，硬约束）**：成就点商店的物品必须是装饰物或纯外观/趣味小道具，不得是可以出售换信用点的物品。兑换出的物品**必须**打上 `OwnerUUID` 绑定 NBT，**一律不能上架市场**。婚姻共享背包的黑名单已经按 `OwnerUUID` 拦截，会自动覆盖这些物品。市场侧原先**没有**拦截（`MarketTradeWhitelist` 只管塔罗品质），已补上规则 `POINT_SHOP_BOUND` 并由 GameTest 锁住，见下方实现口径。
 - 按 [文档索引](README.md) 的规矩，要在 [经济收支总表](Economy_BalanceSheet_DesignSpec.md) 登记一条说明："成就点是经济外的独立点数，不是 faucet"（TODO）。
+
+实现口径（P2 成就点商店框架，2026-09-26）：
+
+- **商品先不上架**（服主："商品先放着不管 先制做框架"）。模组本身不带任何 `achievement_point_shop` 文件，目录为空时页面显示"商品即将上架"；首批商品仍是第十四章待定项 3。
+- 商品定义在 `shop.PointShopGoods`，加载器 `shop.PointShopLoader`（`SimpleJsonResourceReloadListener`，`/reload` 热重载）把结果整表装进 `AchievementServices.installPointShop`。逐条校验、写坏的跳过并告警：`type` 只收 `item` / `title` 且与 `item` / `title` 字段一一对应；`price` 至少 1；`limit_per_player` 至少 1，称号类只能缺省或写 1（按 8.3 恒为 1）；物品须是已注册的非空气物品、不属于放置后会丢盖章的几类（见下方"盖章只在物品堆上"），`count` 在 1 ~ 最大堆叠数之间，可选 `nbt` 写 SNBT 字符串；称号不得是 `miningdim:custom/` 专属称号；`requires_advancement` 须是合法资源 id。`sort` 缺省 0，与称号同一语义：越大越靠前，同 sort 按 id 升序。称号定义此刻是否已加载不在加载时判断（两个加载器先后没有保证），引用未加载称号的商品在列表里不出现、兑换回 `GOODS_UNKNOWN`。
+- 兑换入口是 `shop.AchievementPointShop.buy`，G 面板与以后的其他入口都调它。事务外的前置检查都在扣点之前、且不写库：商品存在 → 调用方没开着事务（开着就抛 `IllegalStateException`，与领取同一口径）→ 前置成就已获得 → 称号类：称号定义已加载、玩家还没有这个称号（已有就回 `TITLE_OWNED`，不收点）/ 物品类：主背包 36 格放得下（空格按最大堆叠数、同物品同 NBT 的格子按剩余空间计，不算副手）。然后是 `MiningStore` 共享连接上的**一个**事务：按流水数出已兑换次数 → 查限购 → `debit` 扣点（余额不足即失败）→ 写一条 `shop_buy` 流水（ref 为商品 id）→ 称号类经 `grantInTransaction` 发放（来源 `point_shop`，source_ref 为商品 id）。任何一步失败整个事务回滚。提交后才发东西：称号类 `notifyGranted`；物品类在主线程放进背包，理论上不会放不下（单线程，刚检查过），万一放不下，剩余部分掉在玩家脚下，不吞掉已付过点的物品。
+- **限购只数流水**，不另建表：`shop.PointShopRepository`（`SqlitePointShopRepository`）按 `achievement_point_ledger` 里 reason=`shop_buy`、ref=商品 id 的行数计，在奖励仓库的事务里调用即读到同一事务里的数据。流水表没有按玩家的索引，按当前规模全表扫描在毫秒以内，不为此追加一版 schema 迁移。
+- **绑定盖章**：物品类商品兑换出的每一件，NBT 根上写 `OwnerUUID`（兑换者，`putUUID`，与塔罗牌、共享背包黑名单同一个键）与 `PointShopGoods`（商品 id）。市场白名单按 `PointShopGoods` 键拒绝（`MarketTradeWhitelist` 的 `RULE_POINT_SHOP_BOUND = "POINT_SHOP_BOUND"`，对潜影盒内容物同样下钻一层）；**不**泛泛地按 `OwnerUUID` 拦，因为 R 品质塔罗牌与卡包也带 `OwnerUUID`，那样会把服主明确放行的 R 牌一起禁掉。市场模块不引用成就模块，键名两边各写一份，由 `web.AchievementWebUiGameTests` 经真实的 `market.tradable` / `market.place` 锁住。
+- **盖章只在物品堆上**：放置进世界、再取回时按类型新造物品堆的物品会丢掉 `OwnerUUID` / `PointShopGoods`，市场与共享背包都认不出来，经济隔离就被绕过（例如一盏兑换来的灯笼放下再挖掉，掉回来的是一盏干净的灯笼，可以直接上架）。所以加载器在 `PointShopGoods.fromJson` 里整类拒收这几类物品，并在告警里写明原因：方块物品（`BlockItem`，含告示牌、种子这类子类）、挂画与展示框（`HangingEntityItem`）、盔甲架、刷怪蛋、船、矿车、桶（倒出流体后换回的是新桶）。8.3 示例里的装饰奖杯若做成方块，得先给它配一个把这两个键存进方块实体、并用 `copy_nbt` 掉落表带回掉落物的专用方块，再放开这条限制。其余会被消耗后换回别的物品的东西（鞍、拴绳、牛奶桶之类）加载器按类型认不出来，由选品把关：成就点商品应是只在背包、展示与装备栏里流转的纯外观物品。
+- WebUI 动作在 `web.AchievementWebUiActions`（8.2 三条），由 `AchievementSystem.register` 注册；`achievement.pointShop` 登记进 `WebUiBatchAction.BATCHABLE` 与前端 `lib/batch.ts`，两条写操作不进批。回执里的成就标题与称号徽记经 `webui.server.WebUiTextJson` 拍平成"片段 + 颜色 + 粗体"（渐变档服务端已逐字上色，前端照着画）。隐藏的前置成就在玩家获得之前不发名字（`name: null`、`hidden: true`）。
+- 错误码（`WebUiErrorCodes`）：兑换 `POINTS_INSUFFICIENT`（params price / balance）、`GOODS_LIMIT_REACHED`（params limit / purchased；已拥有该称号时另带 `reason=TITLE_OWNED`）、`GOODS_UNKNOWN`、`GOODS_REQUIREMENT_UNMET`（8.3 的 `requires_advancement` 未满足，params advancementId）、`INVENTORY_FULL`；领取 `REWARD_ALREADY_CLAIMED`、`REWARD_NONE_PENDING`（"全部领取"时没有待领取）、`REWARD_TITLE_UNAVAILABLE`（params scope=`all` / `selected`，前者提示其余奖励仍可逐条领取）；没有这条奖励、入参写错一律 `INVALID_REQUEST`（field=advancementIds / goodsId）；写库失败两边共用 `STORE_FAILED`。
+- `achievement.claimRewards` 传 id 数组时走新增的 `AchievementRewardService.claimSelected`（同一个事务、重复 id 只算一次、先逐条核对再领取），单条 `claim` 改为委托给它，行为不变；`"all"` 仍走 `claimAll`。
+- GameTest：`web.AchievementWebUiGameTests`（batch `achievement_webui`，11 条）覆盖列表形状与空目录、隐藏前置成就、兑换扣点与盖章、限购按流水计（预先写进流水的一条也算）、每一种拒绝都不扣点、称号类同事务发放并只提示一次、写流水失败与发称号失败（SQLite 触发器模拟）后的整体回滚、嵌套事务拒绝、绑定物不能上架（含潜影盒）、两种领取与每一种领取拒绝、只有读操作能进批、商品加载器逐条跳过写坏的定义并整类拒收放置后会丢盖章的物品。
 
 ### 8.5 前端接线清单
 
@@ -385,6 +410,14 @@ CREATE TABLE achievement_point_ledger (
 6. 页面文件 `pages/AchievementShopPage.tsx`，写法参照 `QuestsPage`：只用 `@/components/kit` 里的组件，读数据用 `useMockAction`，写操作用 `callMock` 后调用 `invalidateAll`，操作结果用 `FeedbackAlert` 展示
 7. 档位颜色在前端定义为 CSS 变量 `--tier-*`，浅色主题使用加深版
 8. 验收：`pnpm build`、`pnpm check:contract`
+
+实现口径（前端，2026-09-26）：
+
+- 以上八步已全部落地。面板 id `achievementShop` 排在 `quests` 之后（`HubWebUiActions.PANEL_IDS` 恒 12 条），首页磁贴图标 `minecraft:knowledge_book`，侧边栏用 lucide 的 `AwardIcon`，悬停预取 `achievement.pointShop` 与 `title.list`。
+- 页面 `pages/AchievementShopPage.tsx`：顶部"成就点"分区（余额、累计获得、待领取条数，有待领取时显示单条领取与"全部领取"），下面两个页签"成就点商店"与"我的称号"。写操作后一律 `invalidateAll()`，结果用 `FeedbackAlert` 展示，失败文案走 `lib/errorText.ts`。
+- 文字颜色分两套：卡片里的"游戏内效果"预览条恒为深底（`--ingame-surface`），字色取服务端下发的原值，亮暗档都不换；档位名、称号卡片顶部的色带这类页面装饰走 `--tier-*`（各档单值变量，白金起另有 `-from` / `-via` / `-to` 三个色标变量），亮色档的加深值见称号文档第十二章第 1 条。
+- 称号类商品的价格会显示在"我的称号"里对应的未拥有卡片上（获取途径之二），称号模块本身不引用成就模块。
+- 假数据（`lib/bridge.mock.ts`）：一名带渐变专属称号的赞助玩家、四条待领取奖励（含传说档渐变标题与称号）、商品目录为空。开发预览：`webui` 目录下 `pnpm dev`，浏览器打开 `http://localhost:5173/#/achievement-shop`。普通浏览器里没有宿主注入的桥，开发构建自动走假数据（`lib/bridge.ts` 的 `isMockActive`）；初始路由取自地址里的 hash（路由只读 hash，页面自己从不写），也可以先打开首页再点侧边栏的"成就点商店"。
 
 ---
 
@@ -432,12 +465,12 @@ CREATE TABLE achievement_point_ledger (
 | `combat/star_6` | 首领讨伐 | 击倒 6 星及以上精英怪 | 金 | first_champion | `champion_kill{min_star=6}` | P1 | `minecraft:golden_sword` |
 | `combat/long_shot` | 百米狙杀 | 在水平距离 100 格以外用枪爆头击杀敌对生物 | 金 · 隐藏 | headshot_100 | `gun_kill{min_horizontal_distance=100, headshot=true}` | P1（TaCZ） | `minecraft:spyglass` |
 | `combat/star_7` | 星辰陨落 | 击倒 7 星及以上精英怪 | 白金 | star_6 | `champion_kill{min_star=7}` | P1 | `minecraft:netherite_sword` |
-| `combat/star_10` | 十星弑神 | 参与击倒 10 星**世界 BOSS**，个人输出不少于全队的 5% | 钻石（PENDING，按事件频率重新标定） | star_7 | `champion_kill{min_star=10, min_share=0.05}` | P1 触发器，**随世界 BOSS 事件开放** | `minecraft:dragon_head` |
+| `combat/star_10` | 十星弑神 | 参与击倒 10 星**世界 BOSS**，个人输出不少于全队的 5% | 钻石（PENDING，按事件频率重新标定） | star_7 | `champion_kill{min_star=10, min_share=0.05}` | P1，**已开放**（世界 BOSS 由 `/mchampion worldboss` 召唤） | `minecraft:dragon_head` |
 | `combat/solo_star_9` | 一人成军 | 15 分钟内**独自**击倒一只 9 星精英怪 | 传说 | star_7 | `champion_kill{min_star=9, solo=true, max_fight_ticks=18000}` | P1 | `minecraft:end_crystal` |
 
 **10 星改为事件触发的影响（2026-09-26 拍板）**：
-- 10 星精英只由世界 BOSS 事件产生（精英文档里的设计是约 10 人挑战），困难矿区自然刷出的上限改为 9 星。这是 `wok-champion` 的改动，**不在本模块范围内**，另立任务。
-- "十星弑神"改成"参与讨伐世界 BOSS 并贡献不少于 5% 输出"。在事件机制上线前这条成就无法达成，档位要等事件频率定下来后再重新标定。
+- 10 星精英只由世界 BOSS 产生（精英文档里的设计是约 10 人挑战），困难矿区自然刷出的上限改为 9 星。`wok-champion` 已实现（2026-09-26）：世界 BOSS 暂由管理员指令 `/mchampion worldboss` 召唤，出现和被玩家击倒时都会全服公告，详见精英文档第十章。
+- "十星弑神"改成"参与讨伐世界 BOSS 并贡献不少于 5% 输出"，已随指令召唤的世界 BOSS 开放：击杀过滤在任意维度接受世界 BOSS（6.4）。档位暂定钻石，等世界 BOSS 的出现频率定下来后再重新标定（第十四章第 8 项）。
 - 原先的"一人成军"要求独自击倒 10 星，世界 BOSS 本来就是按约 10 人设计的，一个人基本打不了，所以改为独自击倒 9 星，也就是自然刷出的最高星级。id 相应从 `solo_star_10` 改为 `solo_star_9`。
 
 ### 9.3 职业（21 条）
@@ -469,6 +502,19 @@ CREATE TABLE achievement_point_ledger (
 - 职业满级是 **10 级**，共 **8 个**职业 id：工程师和铸甲师是同一个职业，`JobId` 里只有一个。
 - Tide 模组**常驻**（2026-09-26 确认），装上后图鉴共 75 种，所以 `min_catalog=75`。其中 `tide:midas_fish` 需要鱼竿幸运 7 以上，要在实现期确认生存模式下能否达到；达不到就把它排除出"图鉴大全"的统计范围（TODO）。
 
+实现口径（P2 职业）：
+
+- 声明在 `datagen.AchievementDeclarations.p2Jobs()`，共 17 条。钓鱼三条（`fishing_trophy`、`journal_50`、`journal_100`）依赖渔夫模块的监听接口，随它另行开放。职业的触发器与统计项分别集中在 `trigger.JobTriggers`、`trigger.JobStats`，与 P1 的 `AchievementTriggers`、`AchievementStats` 并列，同样在 FMLCommonSetup 里登记；监听器的接线在 `trigger.JobHooks`（接口见 9.10 实现口径）。
+- `job_level`：只在某条职业经验轨道**升级**的那一刻判定（经验发放监听里发放后等级高于发放前），判定时读全部 8 个职业轨道的当前等级（经验模块的轨道快照），所以"任意职业"和"全部 8 个职业"不论最后升级的是哪个职业都判得出来。`/job set` 与管理员改级不经经验路由，不当场触发，要等下一次任意职业升级，或上线追溯时补查（9.9，补查入口是 `JobHooks.checkJobLevels`）。`job` 与大于 1 的 `jobs_count` 同时写时按写错处理。
+- `farmer_harvests`：每笔来源为 `miningdim:farmer/harvest` 或 `miningdim:farmer/pick` 的经验发放加 1，与这笔经验多少、是否被每日衰减削到接近 0 无关；农夫的兼容来源 `miningdim:legacy/job/farmer` 不算。按来源 id 识别，不依赖农夫模块。
+- `chef_dish`：`min_quality` 按品质档位"不低于"；`target` 是开工时选定的挑战目标品质，精确匹配。
+- `brew_complete`：只在线操作者那一支会触发，与酿酒经验同一口径；操作者离线时酒照常产出但不计。`min_quality` 按 low → brilliant 的顺序比较。
+- `tarot_play`：揭牌结算、出牌经验入账之后触发。演出被打断而退牌的不算；测试模式（`TarotConfig` 的 testMode）下打牌不扣牌、不给经验，也不算。`min_quality` 按 r → shiny 的顺序比较。
+- `agent_seal`：只在封印申请成功时触发。`affixes` 是词条名数组，封印的词条属于其中之一即成立，空数组按写错处理；`min_star` 看目标精英的星级。
+- `nano_plate_produced`：生产台结算出板（产出大于 0）时触发，不是取板时；闪耀档失败出 0 板不计。`min_tier` 取 `NanoTier` 名的小写（low / medium / high / superior / transcendent / radiant）。
+- `munitions_batch`：军火台的两个经验落账点——手动批次完成、被动挂机结算——各触发一次；一次被动结算可能追算出多批，只算一次。
+- 职业等级的上线追溯（9.9）由静默补发设施调用 `JobHooks.checkJobLevels(ServerPlayer)`：`AchievementBackfill` 的步骤表里"职业等级"一步，排在婚姻指针之后、成就数量之前。GameTest `JobAchievementGameTests.loginBackfillCatchesUpSilentJobLevelChanges` 锁住：静默改到 7 级后跑一次登录追溯，2/4/7 级三条到手、生成待领取奖励、不做全服公告。
+
 ### 9.4 经济（11 条，全部 P2）
 
 | id | 名称 | 条件 | 档位 | 父 | 触发器 | 图标 |
@@ -488,6 +534,12 @@ CREATE TABLE achievement_point_ledger (
 - 市场成就的计数规则见 6.6。
 - 开箱类成就依赖 TaCZ（加 `forge:mod_loaded` 加载条件）。开箱概率属于服务器配置，档位按默认概率标定。
 - "富甲一方"**不附带称号**：所有 faucet 共用同一个 key，挂机卖矿石鱼的收入也会计入 `credits_earned`，没法在不改 `IEconomyService` 签名的前提下把它过滤掉。
+
+实现口径（P2）：
+
+- 本节 11 条与 9.5 的 7 条 P2 行、9.6 的两条一起声明在 `datagen.AchievementDeclarations.p2Social()`。开箱三条带 `forge:mod_loaded`（tacz）加载条件，没装 TaCZ 时只剩元数据，一致性校验把它们列为"有元数据、没有对应进度"，不算问题。
+- `credits_earned` 由 `trigger.EconomyHooks` 挂在经济模块的 faucet 入账监听上（9.10）：只有 `grantDaily` 触发，在账本事务（含外层的批量结算事务）提交后通知，加衰减后的实际入账额；衰减后不足 1 点的入账不通知；FakePlayer 不计。统计值随原版统计封顶在 int 上限。
+- `case_open` 由开箱结算监听触发。"正常开箱"（`fresh`）指扣款与落结算锚在同一个事务里完成的那一次，提交后读到的余额就是开箱后余额（登录恢复时把停在 RESERVED 的行一路做完，也属于这一种）；已提交未落锚的补扣款、提交结果不明后的对账、启动期对账以及上线追溯都不是正常开箱，只满足 `min_rarity`，不满足 `max_credit_after`。开箱人不在线（启动期对账）时不触发，等他登录时由上线追溯（9.9）补上。
 
 ### 9.5 社交（10 条）
 
@@ -510,6 +562,12 @@ CREATE TABLE achievement_point_ledger (
   - "自动保存"取主世界的 `LevelEvent.Save`，所以 `/save-all` 也会补查一次；其他维度的存档事件忽略。
   - 共享背包按菜单的注册名 `miningdim:marriage_backpack` 识别（`PlayerContainerEvent.Open`）。婚姻模块只在核实了有效婚姻之后才打开这个菜单，所以先补查 `married` 再触发 `open_shared_backpack`：刚办完婚礼、登录与存档的补查都还没轮到的玩家（`/save-off` 时要等到下次登录），不会在父成就"执子之手"之前拿到"两人的口袋"。
   - 这两条都不引用婚姻模块。
+- 实现口径（P2）：
+  - `social/married` 改由婚礼监听当场触发：婚礼成功返回前对双方各通知一次（`trigger.MarriageHooks`）。登录时读婚姻指针的补查保留，归入上线追溯（9.9，静默）；自动保存与打开共享背包时的补查也保留，对已经拿到成就的玩家是空操作。
+  - `quests_completed` 与 `quest_daily_clears`（6.1）在 `trigger.QuestClaimHooks`，挂在任务模块的领奖监听上（9.10）。每日上限写在 `miningdim-achievement.toml` 的 `quest.dailyQuestCap`（默认 6），当天已计次数存 `achievement_daily_counter` 的 `quests_completed` 键（天 = UTC 纪元日）；全勤用 `quest_daily_clear` 键，"天"取任务板的日常周期戳、上限 1，所以同一天重摇出新日常再领完也不会多计。领的必须是每日任务、且领完之后当天的每日任务全部已领取（当天一条日常都没有时不算）。统计项先于触发器递增，"初次委托"总在它下面的子成就之前到手。每日计数写库失败只记日志、这次不加统计，`quest_complete` 照常触发。
+  - `quest_complete` 带上任务来源、任务 id、所属任务线与这次领奖是否走完整条线；只有任务线最后一个阶段的领奖 `chain_finished` 为真。
+  - "神射手"依赖 TaCZ（加载条件与 `combat/long_shot` 相同）；上线追溯经任务模块的只读接口 `chainFinished` 补发。
+  - "千里赴约"由传送监听触发，距离取蓄力开始时双方的水平距离（蓄力期间双方必须静止，与传送前一刻相同），只给被传送的一方；触发前先补查一次 `married`，父成就不会落在它之后。
 
 ### 9.6 成就（3 条）
 
@@ -521,6 +579,8 @@ CREATE TABLE achievement_point_ledger (
 
 P1 只有 30 条成就（扣掉 meta 本身，计数池里只有 29 条），"获得 25 个 / 40 个"在 P2 上线前几乎无法达成，所以这两条随 P2 一起开放（2026-09-26 拍板）。
 "完成整个页签"这类成就不做：目标会随每次更新变化。
+
+实现口径（P2）：`meta/count_25`、`meta/count_40` 随 `AchievementDeclarations.p2Social()` 声明，计数仍按 6.5（两条自己不计入）。上线后已经够数的玩家在登录追溯（9.9）里补发，静默。
 
 ### 9.7 页签根进度
 
@@ -559,12 +619,21 @@ P1 只有 30 条成就（扣掉 meta 本身，计数池里只有 29 条），"�
 - **查得到的历史进度，登录时静默补发**：
   - 职业等级：读取 `wok-job-core`
   - 婚姻状态：读取 Capability 中的婚姻指针
-  - 开箱记录：通过开箱模块新增的只读接口 `settledOpenings(owner)` 查询
+  - 开箱记录：通过开箱模块新增的只读接口 `bestSettledRarity(owner)`（已结算开箱里的最高品质）查询
   - 钓鱼记录：`FishingRecords` 中亲手钓到的鱼种
   - "神射手"任务线：通过只读接口 `chainFinished(UUID, chainId)` 查询
-- **静默**的意思是：补发时不做全服公告，也不弹 Toast，但照常生成待领取奖励。实现方式是补发期间设置一个线程局部标志，在原版公告处检查它，具体在实现期确定（TODO）。
+- **静默**的意思是：补发时不做全服公告，也不弹 Toast，但照常生成待领取奖励。实现方式是补发期间设置一个线程局部标志，在原版公告处检查它。
 - **从零开始计**：挖方块、撤离、击杀、收获、`credits_earned`、任务领取次数。这些计数没有可靠的历史数据。
 - `/job set` 或管理员直接改等级也会触发职业成就，不做区分。
+
+实现口径（P2）：
+
+- 静默的底层在核心模块：`core.AdvancementSilence.run(body)` 打开线程局部开关（按深度计，可嵌套），`mixin.PlayerAdvancementsSilenceMixin` 混入原版 `PlayerAdvancements`，只读这个开关、不引用成就模块。依据的原版路径（1.20.1，javap 核实）：
+  - 公告：`PlayerAdvancements#award` 在进度刚完成、显示信息要求公告、游戏规则 `announceAdvancements` 为真时调 `PlayerList#broadcastSystemMessage`；开关打开时跳过这一次调用。
+  - Toast：客户端只对**非重置**的 `ClientboundUpdateAdvancementsPacket` 里已完成且要求 Toast 的进度弹 Toast（`ClientAdvancements#update`），重置包从不弹。玩家登录后的第一个进度包就是重置包，登录事件又早于它，所以登录时补出的进度本来就随重置包下发。开关打开期间若有进度完成、而这名玩家的第一个包已经发过，下一次 `flushDirty` 改发一个完整的重置包（清空已下发的可见集合，把全部相关树根交给原版重算可见性），内容与登录时的第一个包相同。代价是同一 tick 里别的非静默完成也不再弹 Toast（公告照常）。
+  - 奖励、奖励函数与 `AdvancementEarnEvent` 不受影响，待领取奖励和给本人的 [领取] 提示照常生成；由补发连带触发的授予（比如成就数量达标）同样静默。
+- 登录补查由 `trigger.AchievementBackfill.runSilently` 执行（`PlayerProgressHooks` 在登录时调用），步骤依次是：统计项阈值（数据包新增阈值成就的情形）、婚姻指针、职业等级（`JobHooks.checkJobLevels`，读 `wok-experience` 里八条职业轨道的等级触发 `job_level`）、已结算的开箱（开箱模块的只读接口 `bestSettledRarity`，按最高品质补一次 `case_open`，不算正常开箱）、"神射手"任务线（任务模块的只读接口 `chainFinished`）、成就数量。每一步都幂等（原版忽略已完成的条件，奖励按主键去重），每次登录完整跑一遍，不记"已追溯过"；某一步抛出只记日志，不影响后面的步骤。市场成就的登录补查不在这里：离线期间卖出的货是新的成交，照常公告（6.6）。
+- 新增一类追溯时在 `AchievementBackfill` 的步骤表里加一行，步骤只管触发自己的条件，静默由它统一包住。职业等级这一步已随 `job_level` 触发器接入（见 9.3 实现口径）；钓鱼记录随钓鱼成就接入。登录以外的时刻需要静默授予时，直接用 `AdvancementSilence.run` 包住授予即可。
 
 ### 9.10 P2 需要的监听接口
 
@@ -575,7 +644,7 @@ P1 只有 30 条成就（扣掉 meta 本身，计数池里只有 29 条），"�
 | `wok-experience` | `ExperienceServices.registerAwardListener` | `ExperienceRouter#award` 末尾，携带发放前后的等级 | 职业等级、农夫收获 |
 | `wok-economy` | `EconomyServices.registerFaucetListener` | `EconomyService#grantDaily` 账本事务提交后（嵌套在批量事务里时，需要一个提交后队列） | `credits_earned` |
 | `wok-market` | `MarketServices.registerTradeListener` | `MarketEngine#buy` 的事务提交后 | 市场成就 |
-| `wok-case-opening` | `CaseServices.registerOpeningListener` 和只读接口 `settledOpenings` | `markEconomySettled` 所在事务提交后，每个开箱 id 只触发一次（正常流程和两条恢复流程都要覆盖） | 开箱成就、追溯 |
+| `wok-case-opening` | `CaseServices.registerOpeningListener` 和只读接口 `bestSettledRarity` | `markEconomySettled` 所在事务提交后，每个开箱 id 只触发一次（正常流程和两条恢复流程都要覆盖） | 开箱成就、追溯 |
 | `wok-quest` | `QuestServices.registerClaimListener` 和只读接口 `chainFinished` | `QuestService#claim` 最后一条语句。监听器列表不能在 `QuestServices.reset()` 时被清空 | 任务成就 |
 | `wok-marriage` | `MarriageEvents.registerWeddingListener` / `registerTeleportListener` | 婚礼成功返回前；传送完成时 | 婚姻、千里赴约 |
 | `wok-job-fisher` | `FishingEvents.addCatchListener` 和亲手钓到鱼种的只读接口 | `FishCatchService#onSuccessfulCatch` 中记录之后 | 钓鱼成就 |
@@ -585,6 +654,24 @@ P1 只有 30 条成就（扣掉 meta 本身，计数池里只有 29 条），"�
 | `wok-job-agent` | `AgentEvents` 封印监听 | `AgentSealHandler#requestSeal` 成功分支 | 特勤成就 |
 | `wok-job-armorer` | `EngineerEvents` 生产监听 | `ProductionTableBlockEntity#finishProduction`，产出大于 0 时 | 工程师成就 |
 | `wok-job-munitions` | `MunitionsEvents` 批次监听 | `MunitionsBenchBlockEntity` 两个经验结算点 | 军火成就 |
+
+实现口径（P2 职业相关的七个接口）：
+
+- 接口：`progression.ExperienceServices.registerAwardListener(ExperienceAwardListener)`，回调 `onAward(player, award, levelBefore)`；`job.chef.ChefEvents.addDishListener`（成品品质、挑战目标）；`job.brewer.BrewerEvents.addBrewListener`（酒类型、品质）；`job.tarot.TarotEvents.addPlayListener`（牌号、品质）；`job.agent.AgentEvents.addSealListener`（星级、词条、封印类别）；`job.engineer.EngineerEvents.addPlateListener`（档位、板数）；`job.munitions.MunitionsEvents.addBatchListener`（口径、发数）。都是多播，按注册顺序通知；监听表随进程存在，生产方自己的停服、重置钩子都不清它。
+- 触发点：经验在 `ExperienceRouter#award` 末尾，轨道落账、发放后快照读回之后，路由拒收的发放不通知；厨师在 `finishCooking` 成功分支的最后；酿酒在 `grantBrewXp` 给在线操作者记完经验之后；塔罗在 `tryPlay` 排进演出队列的揭牌回调里、`grantPlayXp` 之后；特勤在 `requestSeal` 成功分支、置位入职标志之后；铸甲师在 `finishProduction` 把板放进输出槽之后；军火在被动结算的末尾与 `finishActiveCraft` 结清之后。
+- 生产方不吞监听器异常（与 `MiningServices.fireInstanceReset` 一致）。成就侧 `trigger.JobHooks` 把每个监听器都包在 `guarded` 里：运行期异常就地捕获并记错误日志（写明接口与玩家），FakePlayer 一律跳过。
+- 各生产方的 `fire*` 方法是 public 的。生产代码里各自只有上面列出的调用点；GameTest 用它模拟结果带随机性的场景（闪耀料理、九种酒、闪耀酒）。
+- `wok-achievement` 为此追加依赖 `wok-experience`、`wok-job-core`、`wok-job-armorer`、`wok-job-chef`、`wok-job-brewer`、`wok-job-tarot`、`wok-job-munitions`、`wok-job-agent`，这些模块都不引用成就模块。GameTest 在 `trigger.JobAchievementGameTests`（batch `achievement_p2_jobs`）。
+
+实现口径（P2，经济、市场、开箱、任务、婚姻五行）：
+
+- 监听器列表都是生产方包里的 `CopyOnWriteArrayList`，在 mod 构造期注册（成就侧的装配点是 `trigger.SocialEconomyHooks`），生产方自己的 `reset()` / 停服钩子不清它们。与 `fireInstanceReset` 相反，这几路广播都发生在事实落定之后，所以生产方逐个捕获监听器的异常并记日志，一个监听器的失败不会把已经完成的入账、成交、开箱、领奖、婚礼或传送报成失败，也不挡后面的监听器；成就侧的监听器另外自己捕获、带上下文记日志。
+- 提交后队列在存储模块：`StoreTx.afterCommit(conn, action)` 在事务中时把动作排进该连接的队列，等 `StoreTx` 开启的最外层事务提交、autoCommit 复原之后按登记顺序执行，最外层回滚则整批丢弃；不在事务中时立即执行。经济层经 `EconomyLedger#afterCommit` / `IEconomyService#afterCommit` 暴露（无持久层的测试替身默认立即执行），开箱经 `CaseEconomyOperations#afterCommit`。
+- 经济：`EconomyServices.registerFaucetListener(FaucetListener)`，`onFaucetCredited(player, faucetKey, credited)`。`grantDaily` 在事务体里入账之后登记提交后通知，所以嵌在 `recordMinedOreDrops` 批量事务里的每一笔都等整批提交才通知。
+- 市场：`MarketServices.registerTradeListener(TradeListener)`，参数 `MarketTrade(buyer, seller, itemId, count, total)`，在 `buy` 事务体的最后一步登记，调用方开着的外层事务回滚时同样不通知。
+- 开箱：`CaseServices.registerOpeningListener(CaseOpeningListener)`，参数 `SettledOpening(openingId, ownerId, rarity, fresh)`。四处落结算锚（正常开箱、已提交未落锚的补扣款、提交结果不明后的对账、启动期对账）都经同一个私有方法：落锚前先读锚，只在锚从无到有时登记通知，所以每个开箱 id 只通知一次。只读接口 `CaseOpeningService#bestSettledRarity(owner)` 返回该玩家已结算开箱（COMMITTED 且已落锚）里的最高品质，没有则为空，走 `CaseDao#settledRarities`：SQL 侧 `SELECT DISTINCT rarity`，最多五行，不读整行（整行带 40 格转盘的 `reel_json`），所以每次登录都跑也不随开箱历史变长。
+- 任务：`QuestServices.registerClaimListener(QuestClaimListener)`，参数 `QuestClaim(player, definition, chainId, chainFinished, dailyStamp, dailiesAllClaimed)`，在 `claim` 返回 CLAIMED 之前的最后一步通知，其余结果不通知。只读接口是 `QuestService#chainFinished(server, playerId, chainId)`：`QuestService` 不持有服务端引用，所以比文档原先的写法多一个 `MinecraftServer` 参数；它经 `QuestSavedData#existingBoard` 读已有的任务板，不经 `boardOf`（不翻转周期、不标脏、不给没有板的玩家建空板）。
+- 婚姻：新增 `marriage.MarriageEvents`，`registerWeddingListener` 的 `onWedding(player, spouse)` 在 `WeddingResult.ok` 返回前对双方各调用一次；`registerTeleportListener` 的 `onSpouseTeleport(traveller, spouse, horizontalDistance)` 在 `MarriageTeleport` 完成传送的最后一步调用，距离在蓄力开始时记下。
 
 ### 9.11 第二批候选（已评审，暂缓）
 
@@ -698,7 +785,7 @@ GameTest 放在 `com.miningdim.achievement`，使用 `testutil.TempStoreDb` 提�
 | 7 | 有效撤离的阈值：停留 6000 tick、至少 32 块、每日上限 5 次和 2 次（困难）（6.3 节） | DECIDED（2026-09-26） |
 | 8 | "十星弑神"的档位（取决于世界 BOSS 事件的频率） | PENDING |
 | 8b | "一人成军"改为独自击倒 9 星，传说档 | DECIDED（2026-09-26） |
-| 9 | 世界 BOSS 事件机制，以及困难矿区自然刷出上限改为 9 星，属于 `wok-champion` 的改动 | PENDING，另立任务 |
+| 9 | 世界 BOSS 事件机制，以及困难矿区自然刷出上限改为 9 星，属于 `wok-champion` 的改动 | DONE（2026-09-26）：自然上限 9 星；世界 BOSS 暂由 `/mchampion worldboss` 指令召唤，出现与被击倒都全服公告。定时或自动刷新的事件机制待定 |
 | 10 | `tide:midas_fish` 在生存模式下能否获得（决定是否计入图鉴大全） | TODO（实现期核实） |
 | 11 | 上线初期所有人的 `credits_earned` 都是 0，会压低市场计数成交额：是用账本历史预填，还是上线满 N 天后才启用买家封顶 | PENDING |
 | 12 | 离线模式下玩家 UUID 由用户名生成，改名等于换号，成就、成就点、称号都会丢失，和服务器上其他数据一样。需要运维方面的迁移方案 | PENDING（运维） |

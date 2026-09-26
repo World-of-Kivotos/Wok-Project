@@ -1,0 +1,54 @@
+{
+  "parent": "miningdim:profession/level_7",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "level": 10
+      },
+      "trigger": "miningdim:job_level"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.profession.max_level.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:enchanting_table"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#FFFFFF",
+          "text": "行"
+        },
+        {
+          "bold": true,
+          "color": "#FFF6DB",
+          "text": "业"
+        },
+        {
+          "bold": true,
+          "color": "#FFE8AA",
+          "text": "专"
+        },
+        {
+          "bold": true,
+          "color": "#FFD66B",
+          "text": "家"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

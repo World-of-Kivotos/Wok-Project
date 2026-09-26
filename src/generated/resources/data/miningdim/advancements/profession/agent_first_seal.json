@@ -1,0 +1,32 @@
+{
+  "parent": "miningdim:profession/root",
+  "criteria": {
+    "sealed": {
+      "conditions": {},
+      "trigger": "miningdim:agent_seal"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.profession.agent_first_seal.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:chain"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#D0D7DE",
+      "translate": "achievement.miningdim.profession.agent_first_seal.title"
+    }
+  },
+  "requirements": [
+    [
+      "sealed"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

@@ -262,6 +262,14 @@
   --frame-bezel: 10px;
   --radius-frame: 22px;
   --radius-screen: calc(var(--radius-frame) - var(--frame-bezel) - var(--frame-border));
+
+  /*
+   * "游戏内效果"预览条 (成就点商店页的称号卡片)。与亮暗档无关, 两档都是深底白字: 预览要画的是聊天框、Tab
+   * 列表里的真实样子, 而游戏内那些颜色 (银档 #D0D7DE、白金档的纯白首色标) 本来就是为深色底设计的,
+   * 跟着亮色档换成白底就既不像游戏、也看不清。预览条里的文字颜色取服务端下发的原值, 不走下面的 --tier-*。
+   */
+  --ingame-surface: oklch(0.2 0 0);
+  --ingame-text: #fff;
 }
 
 /*
@@ -560,6 +568,32 @@
   --sidebar-accent-foreground: oklch(0.975 0 0);
   --sidebar-border: oklch(0.3 0 0);
   --sidebar-ring: var(--brand);
+
+  /*
+   * 七档稀有度 / 成就档位色 (真源 Java 侧 com.miningdim.title.TierPalette, Title_System_DesignSpec 3.1)。
+   * 暗色档直接用游戏内色值 —— 它们本来就是为深色聊天底设计的, 在本档的卡片底上对比度都在 4.5:1 以上。
+   * 渐变档另给三个色标 (-from / -via / -to), 单值变量取中间色标, 用于边框、圆点这类只能单色的位置。
+   * 这些变量只服务于界面装饰 (档位名、卡片描边); "游戏内效果"预览一律用服务端下发的原值, 见 --ingame-*。
+   */
+  --tier-bronze: #c8834a;
+  --tier-silver: #d0d7de;
+  --tier-gold: #fc3;
+  --tier-platinum-from: #fff;
+  --tier-platinum-via: #fff1c9;
+  --tier-platinum-to: #ffd66b;
+  --tier-platinum: var(--tier-platinum-via);
+  --tier-diamond-from: #6ff2ff;
+  --tier-diamond-via: #7fb0ff;
+  --tier-diamond-to: #d59cff;
+  --tier-diamond: var(--tier-diamond-via);
+  --tier-master-from: #a55cff;
+  --tier-master-via: #e05cff;
+  --tier-master-to: #ff5cb8;
+  --tier-master: var(--tier-master-via);
+  --tier-legend-from: #ff3d3d;
+  --tier-legend-via: #ff8a1f;
+  --tier-legend-to: #ffd23f;
+  --tier-legend: var(--tier-legend-via);
 }
 
 /*
@@ -614,6 +648,31 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.885 0 0);
   --sidebar-ring: var(--brand);
+
+  /*
+   * 七档色的亮色档加深版。游戏内色值放到白底上大半看不清 (银档、白金档的首色标几乎是白色), 故每个色标在
+   * OKLCH 里保持色相、压低亮度 (超出 sRGB 时收一点彩度), 直到对 #FFF / #FAFAFA / #F0F0F0 三种亮色表面的
+   * WCAG 对比度都不低于 4.5:1 (实测 4.50 ~ 5.18)。色值登记在 Title_System_DesignSpec 第十二章第 1 条。
+   */
+  --tier-bronze: #9f5d21;
+  --tier-silver: #686e74;
+  --tier-gold: #876903;
+  --tier-platinum-from: #6d6d6d;
+  --tier-platinum-via: #796c49;
+  --tier-platinum-to: #886901;
+  --tier-platinum: var(--tier-platinum-via);
+  --tier-diamond-from: #087982;
+  --tier-diamond-via: #406db7;
+  --tier-diamond-to: #8d55b2;
+  --tier-diamond: var(--tier-diamond-via);
+  --tier-master-from: #8f42e5;
+  --tier-master-via: #b227d0;
+  --tier-master-to: #c92289;
+  --tier-master: var(--tier-master-via);
+  --tier-legend-from: #db051e;
+  --tier-legend-via: #aa5702;
+  --tier-legend-to: #866a00;
+  --tier-legend: var(--tier-legend-via);
 }
 
 @layer base {

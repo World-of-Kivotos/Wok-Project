@@ -8,14 +8,19 @@ import com.miningdim.achievement.meta.AchievementMetas;
 import com.miningdim.achievement.meta.ConsistencyReport;
 import com.miningdim.achievement.reward.AchievementRewardSystem;
 import com.miningdim.achievement.reward.SqliteAchievementRewardRepository;
+import com.miningdim.achievement.shop.PointShopLoader;
+import com.miningdim.achievement.shop.SqlitePointShopRepository;
 import com.miningdim.achievement.trigger.AchievementStats;
 import com.miningdim.achievement.trigger.AchievementTriggers;
 import com.miningdim.achievement.trigger.ChampionKillHooks;
 import com.miningdim.achievement.trigger.DailyCounterRepository;
+import com.miningdim.achievement.trigger.JobHooks;
 import com.miningdim.achievement.trigger.MiningTripHooks;
 import com.miningdim.achievement.trigger.PlayerProgressHooks;
+import com.miningdim.achievement.trigger.SocialEconomyHooks;
 import com.miningdim.achievement.trigger.SqliteDailyCounterRepository;
 import com.miningdim.achievement.trigger.TaczGunKillHooks;
+import com.miningdim.achievement.web.AchievementWebUiActions;
 import com.miningdim.core.Subsystem;
 import com.miningdim.store.MiningStore;
 import net.minecraft.server.MinecraftServer;
@@ -38,15 +43,18 @@ import java.sql.Connection;
 
 /**
  * 成就子系统 (wok-achievement, gameplay): 成就就是原版进度 (Achievement_System_DesignSpec 第一章)。本类负责模块骨架:
- * 七档档位、自定义统计项与触发器的注册、事件钩子的挂载、元数据加载与一致性校验、查询快照、存储边界的绑定, 以及 datagen 入口。
+ * 七档档位、自定义统计项与触发器的注册、事件钩子的挂载、元数据与成就点商店商品的加载、一致性校验、查询快照、存储边界的
+ * 绑定、G 面板 achievement.* action 的注册, 以及 datagen 入口。
  *
  * <p>生命周期:
  * <ul>
  *   <li>mod 构造期: 注册服务端配置 miningdim-achievement.toml, 挂自定义统计项的 DeferredRegister, 把矿区、精英怪击杀与
- *       玩家层面的事件钩子挂上 Forge 总线; FMLCommonSetup 里 (主线程, 早于任何数据包加载) 把触发器登记进原版触发器表、
+ *       玩家层面的事件钩子挂上 Forge 总线, 把 {@link AchievementWebUiActions} 注册进 WebUI 派发器;
+ *       FMLCommonSetup 里 (主线程, 早于任何数据包加载) 把触发器登记进原版触发器表、
  *       为统计项绑定格式器, 装了 TaCZ 时再挂枪械击杀的边界层; GatherDataEvent 挂进度与元数据的生成器。</li>
- *   <li>AddReloadListenerEvent: 挂元数据加载器 (开服与每次 /reload 都整表替换)。</li>
- *   <li>ServerStarting: 在存储子系统已开好的共享连接上绑定奖励与每日计数两个仓库, 清掉昨天及更早的每日计数行。</li>
+ *   <li>AddReloadListenerEvent: 挂元数据加载器与成就点商店商品加载器 (开服与每次 /reload 都整表替换)。</li>
+ *   <li>ServerStarting: 在存储子系统已开好的共享连接上绑定奖励、每日计数与成就点商店三个仓库, 清掉昨天及更早的
+ *       每日计数行。</li>
  *   <li>ServerStarted 与每次 /reload 完成后: 用服务端实际加载的进度与当前元数据重建查询快照并做一致性校验 (4.1)。
  *       放在这两个时刻是因为校验要查称号定义, 而称号门面在 ServerStarting 才注入。</li>
  *   <li>ServerStopping: 清快照与仓库、清元数据, 清钩子的进程内状态 (在途行程、流体生成位置、精英攻击记录);
@@ -60,6 +68,7 @@ public final class AchievementSystem implements Subsystem {
 
     private final AchievementMetas metas = new AchievementMetas();
     private final AchievementMetaLoader loader = new AchievementMetaLoader(metas);
+    private final PointShopLoader pointShopLoader = new PointShopLoader();
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
@@ -79,10 +88,13 @@ public final class AchievementSystem implements Subsystem {
                 new AchievementAdvancementProvider(event.getGenerator().getPackOutput(),
                         event.getExistingFileHelper())));
         AchievementRewardSystem.register(forgeBus);
+        AchievementWebUiActions.registerAll();
         forgeBus.register(this);
         forgeBus.register(new MiningTripHooks());
         forgeBus.register(new ChampionKillHooks());
         forgeBus.register(new PlayerProgressHooks());
+        JobHooks.register(modBus);
+        SocialEconomyHooks.register(forgeBus);
         LOGGER.info("[miningdim] achievement subsystem registered ({} triggers, {} custom stats)",
                 AchievementTriggers.all().size(), AchievementStats.all().size());
     }
@@ -90,6 +102,7 @@ public final class AchievementSystem implements Subsystem {
     @SubscribeEvent
     public void onAddReloadListener(AddReloadListenerEvent event) {
         event.addListener(loader);
+        event.addListener(pointShopLoader);
     }
 
     @SubscribeEvent
@@ -98,6 +111,7 @@ public final class AchievementSystem implements Subsystem {
         Connection connection = MiningStore.connection();
         DailyCounterRepository dailyCounters = new SqliteDailyCounterRepository(connection);
         AchievementServices.bindRepositories(new SqliteAchievementRewardRepository(connection), dailyCounters);
+        AchievementServices.bindPointShopRepository(new SqlitePointShopRepository(connection));
         int pruned = dailyCounters.deleteBefore(DailyCounterRepository.today());
         LOGGER.info("[miningdim] achievement repositories bound (pruned {} stale daily counter row(s))", pruned);
     }

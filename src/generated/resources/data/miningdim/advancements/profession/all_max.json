@@ -1,0 +1,55 @@
+{
+  "parent": "miningdim:profession/max_level",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "jobs_count": 8,
+        "level": 10
+      },
+      "trigger": "miningdim:job_level"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.profession.all_max.desc"
+    },
+    "frame": "challenge",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:beacon"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#A55CFF",
+          "text": "全"
+        },
+        {
+          "bold": true,
+          "color": "#CC5CFF",
+          "text": "职"
+        },
+        {
+          "bold": true,
+          "color": "#EA5CE7",
+          "text": "精"
+        },
+        {
+          "bold": true,
+          "color": "#FF5CB8",
+          "text": "通"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

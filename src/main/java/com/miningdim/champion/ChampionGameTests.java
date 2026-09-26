@@ -491,7 +491,7 @@ public final class ChampionGameTests {
         helper.assertTrue(ChampionSpawnPolicy.minStar(Difficulty.MEDIUM) == 3, "MEDIUM min star 3");
         helper.assertTrue(ChampionSpawnPolicy.maxStar(Difficulty.MEDIUM) == 6, "MEDIUM max star 6");
         helper.assertTrue(ChampionSpawnPolicy.minStar(Difficulty.HARD) == 5, "HARD min star 5");
-        helper.assertTrue(ChampionSpawnPolicy.maxStar(Difficulty.HARD) == 10, "HARD max star 10");
+        helper.assertTrue(ChampionSpawnPolicy.maxStar(Difficulty.HARD) == 9, "HARD max star 9 (10star only from world bosses)");
 
         // 升格概率随难度升 (EASY < MEDIUM < HARD)。
         helper.assertTrue(ChampionSpawnPolicy.promoteChance(Difficulty.EASY)

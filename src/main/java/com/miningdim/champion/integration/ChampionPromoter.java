@@ -41,7 +41,7 @@ import java.util.UUID;
  *
  * 升格链路:
  *  1. {@link ChampionSpawnPolicy#shouldPromote} 掷是否升格 (杂兵海点缀精英); 不升格直接返回普通怪。
- *  2. {@link ChampionSpawnPolicy#rollStar} 按难度档掷星 (EASY[1,3]/MEDIUM[3,6]/HARD[5,10])。
+ *  2. {@link ChampionSpawnPolicy#rollStar} 按难度档掷星 (EASY[1,3]/MEDIUM[3,6]/HARD[5,9]; 10★ 只来自世界 BOSS)。
  *  3. {@link AffixRoller#roll} 四池点数预算内掷合法词条选择 (纯逻辑, PointBudget 终校验)。
  *  4. {@link MiningChampionData#promote} 盖章 capability (星级 + def→品质映射 + 有效血)。
  *  5. {@link #applyBaseHealth} 接管基础血量 (取代 Champions rank growthFactor)。

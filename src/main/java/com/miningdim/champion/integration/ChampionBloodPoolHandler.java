@@ -11,7 +11,6 @@ import com.miningdim.champion.MiningChampions;
 import com.miningdim.champion.StarRank;
 import com.miningdim.champion.bloodpool.BloodPool;
 import com.miningdim.champion.bloodpool.BloodPoolRegistry;
-import com.miningdim.core.MiningConstants;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -162,9 +161,8 @@ public final class ChampionBloodPoolHandler {
 
     /**
      * 把影子血池当前血落账进冠军 capability (F040: 供服务端重启/区块重载后 {@link #onEntityJoinLevel} 按此重建血池)。
-     * 受击是唯一与维度无关且逐次精确的落账点 —— 每 tick 镜像 ({@link #onServerTick}) 只覆盖矿洞维度在册实体,
-     * 命令传送到其它维度的冠军受击后仍能经此落账, 不依赖 tick 镜像覆盖范围。取不到 capability (非 Mob/未挂载)
-     * 静默跳过, 不影响血池本身权威。
+     * 落账点三处: 受击 (逐次精确)、每 tick 镜像 ({@link #onServerTick}, 覆盖全部维度的在册实体, 兜住只走回血的路径)、
+     * 离开世界 ({@link #onEntityLeaveLevel})。取不到 capability (非 Mob/未挂载) 静默跳过, 不影响血池本身权威。
      */
     private static void flushCurrentHp(LivingEntity victim, BloodPool pool) {
         MiningChampions.get(victim).ifPresent(data -> data.setCurrentHp(pool.currentHp()));
@@ -352,8 +350,9 @@ public final class ChampionBloodPoolHandler {
      * {@code ChampionSelfEffectHandler}/{@code ChampionSelfRepairHandler} 调 {@link BloodPool#heal}) 而不经受击
      * 落账口径的漂移 (F040)。
      *
-     * 遍历只在 {@link MiningConstants#MINING_LEVEL} 维度查实体是既有行为, 命令召唤到其它维度的冠军拿不到 tick
-     * 镜像是另一个已知问题, 本次不动。
+     * 在册实体按 UUID 逐个维度查找 ({@link #findAlive}): 血池冠军不只在矿区 —— 管理员召唤的世界 BOSS 可以落在任何
+     * 维度 (8★+ 恒建血池), 只查矿区维度会让矿区外的血池冠军回血不进血条、currentHp 不落账。在册条目通常极少, 每条
+     * 最多查一遍已加载维度 (按 UUID 的哈希查找), 开销可以忽略。
      *
      * F039 修复: 原实现每 tick 无条件 {@code snapshot()} (LinkedHashMap 全表复制) 再判空, 空表也照样分配一份
      * 拷贝纯属浪费; 服务端主线程串行, 本循环遍历期间不会有 install/remove 插队, 故改走 {@link BloodPoolRegistry#live()}
@@ -368,17 +367,23 @@ public final class ChampionBloodPoolHandler {
             return;
         }
         MinecraftServer server = event.getServer();
-        ServerLevel mining = server.getLevel(MiningConstants.MINING_LEVEL);
-        if (mining == null) {
-            return; // 维度未加载 (启动早期/配置异常): 本 tick 跳过镜像, 不刷屏。
-        }
         for (Map.Entry<UUID, BloodPool> entry : BloodPoolRegistry.live().entrySet()) {
-            Entity entity = mining.getEntity(entry.getKey());
-            if (entity instanceof LivingEntity living && living.isAlive()) {
+            LivingEntity living = findAlive(server, entry.getKey());
+            if (living != null) {
                 mirrorToVanilla(living, entry.getValue());
                 flushCurrentHp(living, entry.getValue());
             }
         }
+    }
+
+    /** 在全部已加载维度里按 UUID 找一只活着的生物; 不在任何维度 (已卸载/已死) 返回 null。 */
+    private static LivingEntity findAlive(MinecraftServer server, UUID id) {
+        for (ServerLevel level : server.getAllLevels()) {
+            if (level.getEntity(id) instanceof LivingEntity living && living.isAlive()) {
+                return living;
+            }
+        }
+        return null;
     }
 
     /**

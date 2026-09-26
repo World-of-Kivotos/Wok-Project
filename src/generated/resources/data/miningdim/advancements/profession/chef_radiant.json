@@ -1,0 +1,34 @@
+{
+  "parent": "miningdim:profession/chef_first_dish",
+  "criteria": {
+    "cooked": {
+      "conditions": {
+        "min_quality": "radiant"
+      },
+      "trigger": "miningdim:chef_dish"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.profession.chef_radiant.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:seasoning_table_radiant"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#D0D7DE",
+      "translate": "achievement.miningdim.profession.chef_radiant.title"
+    }
+  },
+  "requirements": [
+    [
+      "cooked"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

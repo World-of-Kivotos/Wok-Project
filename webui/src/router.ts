@@ -42,6 +42,7 @@ export const ROUTE_JOBS = '/jobs'
 export const ROUTE_JOB_DETAIL = '/jobs/:id'
 export const ROUTE_MINING = '/mining'
 export const ROUTE_QUESTS = '/quests'
+export const ROUTE_ACHIEVEMENT_SHOP = '/achievement-shop'
 export const ROUTE_CODEX = '/codex'
 export const ROUTE_MARRIAGE = '/marriage'
 export const ROUTE_CASE = '/case'
@@ -67,6 +68,7 @@ export const ROUTE_PATTERNS = [
   ROUTE_JOBS,
   ROUTE_MINING,
   ROUTE_QUESTS,
+  ROUTE_ACHIEVEMENT_SHOP,
   ROUTE_CODEX,
   ROUTE_MARRIAGE,
   ROUTE_CASE,
@@ -91,12 +93,13 @@ const ROUTE_TRANSITION_RANK: Record<RoutePattern, number> = {
   [ROUTE_JOB_DETAIL]: 8,
   [ROUTE_MINING]: 9,
   [ROUTE_QUESTS]: 10,
-  [ROUTE_CODEX]: 11,
-  [ROUTE_MARRIAGE]: 12,
-  [ROUTE_CASE]: 13,
-  [ROUTE_SETTINGS]: 14,
-  [ROUTE_ADMIN]: 15,
-  [ROUTE_COMPONENTS]: 16,
+  [ROUTE_ACHIEVEMENT_SHOP]: 11,
+  [ROUTE_CODEX]: 12,
+  [ROUTE_MARRIAGE]: 13,
+  [ROUTE_CASE]: 14,
+  [ROUTE_SETTINGS]: 15,
+  [ROUTE_ADMIN]: 16,
+  [ROUTE_COMPONENTS]: 17,
 }
 
 /**
@@ -117,6 +120,7 @@ export const ROUTE_TITLES: Record<RoutePattern, string> = {
   [ROUTE_JOB_DETAIL]: '单职业详情',
   [ROUTE_MINING]: '矿洞',
   [ROUTE_QUESTS]: '任务板',
+  [ROUTE_ACHIEVEMENT_SHOP]: '成就点商店',
   [ROUTE_CODEX]: '精英怪图鉴',
   [ROUTE_MARRIAGE]: '婚姻',
   [ROUTE_CASE]: '开箱',

@@ -97,14 +97,18 @@ public final class ExperienceModule implements Subsystem {
                         + " belongs to " + sourceTrack + ", not " + grant.trackId());
             }
             ExperienceTrackHandler handler = requiredTrack(grant.trackId());
+            int levelBefore = handler.snapshot(player).level();
             long effectiveXp = handler.award(player, grant.rawXp());
             if (effectiveXp < 0L) {
                 throw new IllegalStateException(
                         "Experience track returned negative effective XP: " + grant.trackId());
             }
             ExperienceSnapshot snapshot = handler.snapshot(player);
-            return new ExperienceAward(grant.trackId(), grant.sourceId(), grant.rawXp(),
+            ExperienceAward award = new ExperienceAward(grant.trackId(), grant.sourceId(), grant.rawXp(),
                     effectiveXp, snapshot);
+            // 轨道已落账、发放后快照已读回, 才通知监听器 (Achievement_System_DesignSpec 9.10: 职业等级、农夫收获)。
+            ExperienceServices.fireAward(player, award, levelBefore);
+            return award;
         }
 
         private ExperienceTrackHandler requiredTrack(ResourceLocation trackId) {

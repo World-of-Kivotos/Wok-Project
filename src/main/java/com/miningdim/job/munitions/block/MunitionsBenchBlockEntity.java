@@ -5,6 +5,7 @@ import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.munitions.MunitionsAmmoFactory;
 import com.miningdim.job.munitions.MunitionsCaliber;
 import com.miningdim.job.munitions.MunitionsConfig;
+import com.miningdim.job.munitions.MunitionsEvents;
 import com.miningdim.job.munitions.MunitionsLevels;
 import com.miningdim.job.munitions.MunitionsProduction;
 import com.miningdim.job.munitions.ModMunitionsBlockEntities;
@@ -620,6 +621,8 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         // 料/缓冲/口径三道静态门, 供玩家判断台子是否还需要补料, 对应 F049 原始诉求 ("出弹却熄火")。
         setMachineActive(canAccumulateProduction());
         setChanged();
+        // 被动结算的经验落账点: 本次追算的全部状态已落定, 最后才广播 (成就等只读消费方, 见 MunitionsEvents)。
+        MunitionsEvents.fireBatch(owner, selectedCaliber, result.roundsProduced());
     }
 
     /**
@@ -691,12 +694,15 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         consume(SLOT_BULLET_HEAD, MunitionsConfig.RECIPE_BULLET_HEAD_COST.get());
         consume(SLOT_PROPELLANT, MunitionsConfig.RECIPE_PROPELLANT_COST.get());
 
+        MunitionsCaliber caliber = craftingCaliber;
         bufferedRounds += rounds;
-        bufferedCaliber = craftingCaliber;
+        bufferedCaliber = caliber;
         MunitionsLevels.grantRawXp(owner, MunitionsProduction.produceXp(rounds));
         clearActiveCraft();
         refreshOutputStack();
         setMachineActive(false);
+        // 手动批次的经验落账点: 本批已结清、开工状态已翻页, 最后才广播 (成就等只读消费方, 见 MunitionsEvents)。
+        MunitionsEvents.fireBatch(owner, caliber, rounds);
         return true;
     }
 

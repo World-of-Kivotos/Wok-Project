@@ -1,12 +1,14 @@
 package com.miningdim.quest;
 
 import com.miningdim.quest.objective.TurnInItemObjective;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 任务子系统的唯一业务门面。事件钩子、命令、(后续的) Web UI action 全部只经本类, 不直接碰
@@ -111,6 +113,8 @@ public final class QuestService {
      * "已发钱、存档尚未落盘"之间硬崩时, 重启后该任务仍显示未领, 可以再领一次。彻底解决需要把领取动作也纳入
      * 货币层的幂等事务 (开箱系统的 Saga 就是这么做的), 代价是给任务系统引入一张 SQLite 表 —— 当前奖励量级
      * (单条千级信用点) 不值这个复杂度, 记录在此以备将来重估。
+     *
+     * 领奖成功时, 最后一步经 {@link QuestServices} 通知领奖监听 ({@link QuestClaimListener}); 其余结果不通知。
      */
     public ClaimResult claim(ServerPlayer player, String definitionId) {
         QuestBoard board = boardOf(player);
@@ -146,7 +150,27 @@ public final class QuestService {
         giveOrDrop(player, items);
 
         QuestSavedData.get(player.server.overworld(), pool).setDirty();
-        return new ClaimResult(ClaimOutcome.CLAIMED, definition, credit, items);
+        ClaimResult result = new ClaimResult(ClaimOutcome.CLAIMED, definition, credit, items);
+        // 领奖通知 (成就) 是最后一步: 此时钱、领取标记、阶段推进、摘牌与标脏都已完成, 监听器看到的是领奖后的任务板。
+        List<QuestProgress> dailies = board.daily();
+        QuestServices.fireClaimed(new QuestClaim(player, definition,
+                chainState == null ? null : chainState.chain().id(),
+                chainState != null && chainState.finished(), board.dailyStamp(),
+                !dailies.isEmpty() && dailies.stream().allMatch(QuestProgress::claimed)));
+        return result;
+    }
+
+    /**
+     * 该玩家是否已走完某条隐藏任务线。只读: 不经 {@link #boardOf} (那会翻转周期并标脏存档, 还要求玩家在线),
+     * 没有任务板或没解锁过这条线都答 false。供成就上线追溯 (Achievement 9.9) 查询"神射手"这类历史进度。
+     */
+    public boolean chainFinished(MinecraftServer server, UUID playerId, String chainId) {
+        QuestBoard board = QuestSavedData.get(server.overworld(), pool).existingBoard(playerId);
+        if (board == null) {
+            return false;
+        }
+        QuestChainState state = board.chain(chainId);
+        return state != null && state.finished();
     }
 
     /**

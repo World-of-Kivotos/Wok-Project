@@ -42,6 +42,8 @@ public final class MarriageTeleport {
         final double partnerX;
         final double partnerY;
         final double partnerZ;
+        /** 蓄力开始时双方的水平距离 (dx、dz; 传送监听用, 双方全程静止, 与传送前一刻的距离一致)。 */
+        final double horizontalDistance;
 
         Channel(UUID initiator, UUID partner, int totalTicks,
                 ServerPlayer initiatorPlayer, ServerPlayer partnerPlayer) {
@@ -55,6 +57,9 @@ public final class MarriageTeleport {
             this.partnerX = partnerPlayer.getX();
             this.partnerY = partnerPlayer.getY();
             this.partnerZ = partnerPlayer.getZ();
+            double dx = this.partnerX - this.initX;
+            double dz = this.partnerZ - this.initZ;
+            this.horizontalDistance = Math.sqrt(dx * dx + dz * dz);
         }
     }
 
@@ -188,7 +193,7 @@ public final class MarriageTeleport {
 
             ch.elapsedTicks++;
             if (ch.elapsedTicks >= ch.totalTicks) {
-                complete(initiator, partner, overworld, now);
+                complete(initiator, partner, overworld, now, ch.horizontalDistance);
                 it.remove();
             } else if (ch.elapsedTicks % 20 == 0) {
                 // 每秒刷新发起方剩余秒数提示 (轻量进度反馈; 实时进度条可后续走 S2C 仿 TeleportResultS2C)。
@@ -236,7 +241,8 @@ public final class MarriageTeleport {
 
     // ---- 内部 ----
 
-    private void complete(ServerPlayer initiator, ServerPlayer partner, ServerLevel overworld, long now) {
+    private void complete(ServerPlayer initiator, ServerPlayer partner, ServerLevel overworld, long now,
+                          double horizontalDistance) {
         // 同维度传送到伴侣身边 (跨维度直传已在 tryStart 拒绝; 此处恒同维度)。
         initiator.teleportTo(partner.serverLevel(),
                 partner.getX(), partner.getY(), partner.getZ(),
@@ -258,6 +264,8 @@ public final class MarriageTeleport {
         partner.displayClientMessage(Component.translatable(
                 "message.miningdim.marriage.teleport.partner_arrived",
                 initiator.getGameProfile().getName()), true);
+        // 传送通知 (成就"千里赴约") 是最后一步: 传送与冷却都已落定。
+        MarriageEvents.fireSpouseTeleport(initiator, partner, horizontalDistance);
     }
 
     private void cancel(ServerPlayer initiator, ServerPlayer partner, String reasonSuffix) {

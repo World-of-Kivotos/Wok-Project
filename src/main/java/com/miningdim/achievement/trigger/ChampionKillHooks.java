@@ -3,11 +3,10 @@ package com.miningdim.achievement.trigger;
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.MiningChampionData;
 import com.miningdim.champion.MiningChampions;
+import com.miningdim.champion.WorldBoss;
 import com.miningdim.champion.reward.ContributionPool;
 import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.champion.reward.DamageContribution;
-import com.miningdim.core.MiningConstants;
-import com.miningdim.core.MobInstanceTag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -34,8 +33,11 @@ import java.util.function.Predicate;
  * 本类挂 {@link EventPriority#HIGH}: 晚于 HIGHEST 上可能取消死亡的处理, 早于 NORMAL 的清账, 而且只用
  * {@link ContributionTracker#peek}, 永远不 drain、不 discard —— 多一个 drain 调用方, 症状就是某份奖励静默不发。
  *
- * <p><b>过滤</b> (6.4): 死在矿区维度、带实例标记、是精英、不是词条召唤物; 统计只给在线的有效贡献者
- * ({@link ContributionPool#isQualified}, 离线即不合格), 挂机冻结的贡献者不加计数类统计, 但一次性成就照常判定。
+ * <p><b>过滤</b> (6.4): 计入精英击杀的怪 ({@link KillFilter#countsForChampionKills}: 矿区实例的怪, 或任意维度的世界
+ * BOSS)、是精英、不是词条召唤物; 统计只给在线的有效贡献者 ({@link ContributionPool#isQualified}, 离线即不合格), 挂机冻结的
+ * 贡献者不加计数类统计, 但一次性成就照常判定。世界 BOSS 可能死在任何维度, 所以两个钩子都不先按矿区维度早退。世界 BOSS
+ * 还须被玩家击倒: 致死伤害是 {@code /kill}、虚空这类无视无敌的伤害时 ({@link WorldBoss#isPlayerDefeat} 为假) 整只跳过,
+ * 与世界 BOSS 击倒公告共用这一个判据 —— 管理员中止事件不会发出"十星弑神"。
  *
  * <p><b>独自击杀</b> (6.4 solo): 伤害账本里只有这一名玩家、他的记录伤害不少于精英的有效血量, 且这只精英攻击过的玩家里
  * 没有别人。"攻击过"由本类在 {@link LivingHurtEvent} 上记录 (HIGHEST、收已取消的事件: 被减伤或免疫取消的一下也是攻击过)。
@@ -46,7 +48,7 @@ public final class ChampionKillHooks {
     /** 攻击记录表的上限。精英死亡时摘掉自己那一条; 没死就消失的 (自然消失、区块卸载) 靠上限按最久未更新淘汰。 */
     private static final int ATTACK_LOG_CAPACITY = 1024;
 
-    /** 精英 UUID -> 它在矿区攻击过的玩家。访问序, 只在主线程读写。 */
+    /** 精英 UUID -> 它攻击过的玩家。访问序, 只在主线程读写。 */
     private static final Map<UUID, Set<UUID>> ATTACKED_PLAYERS = new LinkedHashMap<UUID, Set<UUID>>(64, 0.75F, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<UUID, Set<UUID>> eldest) {
@@ -54,14 +56,13 @@ public final class ChampionKillHooks {
         }
     };
 
-    /** 精英在矿区里打了玩家: 记进攻击记录。 */
+    /** 计入精英击杀的精英 (矿区实例精英或世界 BOSS) 打了玩家: 记进攻击记录。 */
     @SubscribeEvent(priority = EventPriority.HIGHEST, receiveCanceled = true)
     public void onChampionAttack(LivingHurtEvent event) {
-        if (!(event.getEntity() instanceof ServerPlayer victim)
-                || !victim.level().dimension().equals(MiningConstants.MINING_LEVEL)) {
+        if (!(event.getEntity() instanceof ServerPlayer victim)) {
             return;
         }
-        if (event.getSource().getEntity() instanceof Mob attacker && MobInstanceTag.isTagged(attacker)
+        if (event.getSource().getEntity() instanceof Mob attacker && KillFilter.countsForChampionKills(attacker)
                 && MiningChampions.isChampion(attacker)) {
             ATTACKED_PLAYERS.computeIfAbsent(attacker.getUUID(), id -> new HashSet<>()).add(victim.getUUID());
         }
@@ -70,17 +71,19 @@ public final class ChampionKillHooks {
     /** 精英死亡: 读账本 (peek), 给在线的有效贡献者加统计、触发 champion_kill。优先级见类注释。 */
     @SubscribeEvent(priority = EventPriority.HIGH)
     public void onChampionDeath(LivingDeathEvent event) {
-        if (!(event.getEntity() instanceof Mob victim) || !(victim.level() instanceof ServerLevel level)
-                || !level.dimension().equals(MiningConstants.MINING_LEVEL)) {
+        if (!(event.getEntity() instanceof Mob victim) || !(victim.level() instanceof ServerLevel level)) {
             return;
         }
         Set<UUID> attacked = ATTACKED_PLAYERS.remove(victim.getUUID());
-        if (!KillFilter.isInstanceMob(victim)) {
+        if (!KillFilter.countsForChampionKills(victim)) {
             return;
         }
         MiningChampionData champion = MiningChampions.get(victim).orElse(null);
         if (champion == null || !champion.isChampion() || champion.isSummonedByAffix()) {
             return;
+        }
+        if (champion.isWorldBoss() && !WorldBoss.isPlayerDefeat(event.getSource())) {
+            return; // /kill、虚空结束的世界 BOSS 不算被玩家击倒 (与击倒公告同一判据, 见类注释)。
         }
         settle(level.getServer(), victim, champion, attacked == null ? Set.of() : attacked, KillFilter::isAfkFrozen);
     }

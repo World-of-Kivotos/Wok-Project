@@ -1,0 +1,35 @@
+{
+  "parent": "miningdim:profession/farmer_harvest_500",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "stat": "miningdim:farmer_harvests",
+        "value": 5000
+      },
+      "trigger": "miningdim:stat_at_least"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.profession.farmer_harvest_5000.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:hay_block"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#FFCC33",
+      "translate": "achievement.miningdim.profession.farmer_harvest_5000.title"
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

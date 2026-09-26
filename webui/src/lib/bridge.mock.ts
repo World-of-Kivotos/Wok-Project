@@ -7,19 +7,22 @@
  * 它不是什么: 服务端业务规则的第二实现。手续费率、开箱概率、等级门、OP 门控一律不复刻 ——
  * 复刻一份必然与 Java 侧漂移, 而漂移的假规则比没有规则更误导设计判断。
  *
- * 这条原则有五处**已知且刻意**的近似, 读数时不要当真值:
+ * 这条原则有六处**已知且刻意**的近似, 读数时不要当真值:
  *   1. market.place / market.feePreview 的 listFee 用同一个固定比例占位。真费率由服务端 MarketFee 按挂价
  *      对 V0 的偏离度算, 量级可以差好几倍; 前端任何时候都以回执里的 listFee 为准, 不得照这个比例自己算。
  *   2. case.open 的中奖皮肤按 openingId 哈希在皮肤表里均匀取, 不按 weights 抽。于是回执里的
  *      weights 是线上真值, 而 reel 与中奖结果的稀有度分布不是 —— 拿这一页评估"金色出现得多不多"必然错。
  *   3. market.tradable / market.place 的可交易判定是服务端 MarketTradeWhitelist 的等价复刻 (塔罗牌只有
  *      最低品质 R 可挂)。它比前两条更接近真值 (规则本身只有三条分支), 但仍是第二份实现: 服务端改白名单时
- *      本文件必须跟着改, 否则设计评审会照着一套过期规则做界面。
+ *      本文件必须跟着改, 否则设计评审会照着一套过期规则做界面。白名单另有一条"成就点商店兑换的绑定物一律
+ *      不可挂"(rule=POINT_SHOP_BOUND), 假背包里没有这类物品 (商品目录本身就是空的), 故这条分支不复刻。
  *   4. economy.today / economy.priceTable 的 creditFaucetNextFactor 是**固定占位系数**, 不是衰减主闸那条
  *      按档递减的几何主项。它只保证落在 (0.01, 1.0) 内 (即"已衰减未触底"), 拿这一页反推主闸曲线必然错。
  *   5. economy.status 的 afkFrozen 只按挖掘侧一条判据算, 而真服要求"无挖掘 && 无显著位移"两条同时成立
  *      (mock 手里没有位移侧数据)。于是 mock 会比真服更早显示冻结 —— 面板文案仍要按真服的两条判据写。
- * 五处都不改成"更真"的实现: 真实现会与 Java 侧无声漂移, 而漂移的假规则比明写的近似危险得多。
+ *   6. title.customPreview 只复刻空文字、色标写法与色标个数三条校验, 长度、字符集、违禁词与亮度下限一律放行;
+ *      那几条的阈值住在服务端配置 miningdim-title.toml 里, 编辑器要看的权威结论只能来自真服。
+ * 六处都不改成"更真"的实现: 真实现会与 Java 侧无声漂移, 而漂移的假规则比明写的近似危险得多。
  *
  * 与上面五条不同的另一类东西 (不是近似, 照抄即真值): 各 config / 枚举的**常量表** (塔罗定价与 CD、
  * 干员分级表、纳米板档表、军火台数量、婚姻五项定价、精英星表与词条表)。它们是定长常量而不是曲线,
@@ -39,7 +42,14 @@ import type { WebUiActionName } from './actions'
 import { SERVER_ACTIONS } from './actions'
 import type { PayloadOf, ResultOf } from './bridge'
 import { SERVER_FAILURE_CODE, WebUiCallError } from './bridge'
+import { customTitleSegments } from './title'
 import type {
+  AchievementClaimRewardsPayload,
+  AchievementClaimRewardsResult,
+  AchievementPendingReward,
+  AchievementPointShopBuyPayload,
+  AchievementPointShopBuyResult,
+  AchievementPointShopResult,
   AdminEconomyBalancePayload,
   AdminEconomyBalanceResult,
   AdminEconomySetPayload,
@@ -199,6 +209,17 @@ import type {
   TarotQualityId,
   TarotQualityRow,
   TarotStateResult,
+  TextSegment,
+  TierId,
+  TitleCustomDraftPayload,
+  TitleCustomPreviewResult,
+  TitleCustomSetResult,
+  TitleCustomViolation,
+  TitleEquipPayload,
+  TitleEquipResult,
+  TitleListResult,
+  TitlePaletteTier,
+  TitleRow,
   WebUiBlockPos,
   WebUiCurrency,
   WebUiJobId,
@@ -633,6 +654,30 @@ const I18N_NAMES: Readonly<Record<string, string>> = {
   'entity.minecraft.zombie': '僵尸',
   'entity.minecraft.skeleton': '骷髅',
   'entity.minecraft.wither_skeleton': '凋灵骷髅',
+  /*
+   * 成就点商店页: 首批 14 个称号与它们的获取说明、待领取奖励里单色档成就的标题, 逐字抄自 lang/zh_cn.json。
+   * 渐变档的称号与成就标题不需要键 (服务端已经把中文逐字上色发下来)。
+   */
+  'title.miningdim.mining.ore_codex': '矿物学者',
+  'title.miningdim.mining.ore_codex.desc': '由成就「矿脉图鉴」获得',
+  'title.miningdim.mining.blocks_100k.desc': '由成就「地脉行者」获得',
+  'title.miningdim.mining.hard_active_100h.desc': '由成就「深渊守望者」获得',
+  'title.miningdim.combat.long_shot': '鹰眼',
+  'title.miningdim.combat.long_shot.desc': '由一项隐藏成就获得',
+  'title.miningdim.combat.star_10.desc': '由成就「十星弑神」获得',
+  'title.miningdim.combat.solo_star_9.desc': '由成就「一人成军」获得',
+  'title.miningdim.profession.max_level.desc': '由成就「行业专家」获得',
+  'title.miningdim.profession.journal_100.desc': '由成就「图鉴大全」获得',
+  'title.miningdim.profession.all_max.desc': '由成就「全职精通」获得',
+  'title.miningdim.economy.tycoon.desc': '由成就「商业大亨」获得',
+  'title.miningdim.economy.lucky_case.desc': '由一项隐藏成就获得',
+  'title.miningdim.economy.all_in': '大人的卡',
+  'title.miningdim.economy.all_in.desc': '由一项隐藏成就获得',
+  'title.miningdim.social.daily_clear_60.desc': '由成就「全勤」获得',
+  'title.miningdim.meta.count_40.desc': '由成就「功勋卓著」获得',
+  'achievement.miningdim.mining.ore_codex.title': '矿脉图鉴',
+  'achievement.miningdim.mining.blocks_10k.title': '矿工之魂',
+  'achievement.miningdim.mining.first_extraction.title': '平安归来',
 }
 
 // ============================================================
@@ -1994,7 +2039,8 @@ function mockPrefsSet(payload: PlayerPrefsSetPayload): PlayerPrefsSetResult {
 }
 
 /**
- * 面板域与顺序 = 服务端 HubWebUiActions 的 11 项硬编码表 (任务叫 quests, 精英怪图鉴叫 codex)。
+ * 面板域与顺序 = 服务端 HubWebUiActions 的 12 项硬编码表 (任务叫 quests, 成就点商店叫 achievementShop,
+ * 精英怪图鉴叫 codex)。
  * 这里只发 panelId/enabled/lockCode, 展示层三项 (route/label/iconItemId) 归前端 lib/panels.ts。
  */
 const HUB_PANEL_IDS: readonly HubPanelId[] = [
@@ -2004,6 +2050,7 @@ const HUB_PANEL_IDS: readonly HubPanelId[] = [
   'jobs',
   'mining',
   'quests',
+  'achievementShop',
   'codex',
   'marriage',
   'case',
@@ -5004,7 +5051,7 @@ function mockChampionCodex(): ChampionCodexResult {
   const distribution: ChampionDistributionRow[] = [
     { difficulty: 'EASY', configName: 'easy', promoteChance: 0.06, minStar: 1, maxStar: 3 },
     { difficulty: 'MEDIUM', configName: 'medium', promoteChance: 0.1, minStar: 3, maxStar: 6 },
-    { difficulty: 'HARD', configName: 'hard', promoteChance: 0.15, minStar: 5, maxStar: 10 },
+    { difficulty: 'HARD', configName: 'hard', promoteChance: 0.15, minStar: 5, maxStar: 9 },
   ]
   return {
     customBloodPoolMinStar: 6,
@@ -5294,6 +5341,305 @@ function mockAdminMiningReset(payload: AdminMiningResetPayload): AdminMiningRese
 }
 
 // ============================================================
+// achievement.* / title.* (成就点商店页; 商品按服主拍板暂不上架, 目录恒为空)
+// ============================================================
+
+/** 七档色板 (照抄 TierPalette 常量表, 与本文件头"常量表照抄即真值"同一条纪律)。 */
+const MOCK_TIER_PALETTE: Readonly<Record<TierId, TitlePaletteTier>> = {
+  bronze: { rarity: 'bronze', stops: ['#C8834A'], bold: false },
+  silver: { rarity: 'silver', stops: ['#D0D7DE'], bold: false },
+  gold: { rarity: 'gold', stops: ['#FFCC33'], bold: false },
+  platinum: { rarity: 'platinum', stops: ['#FFFFFF', '#FFF1C9', '#FFD66B'], bold: true },
+  diamond: { rarity: 'diamond', stops: ['#6FF2FF', '#7FB0FF', '#D59CFF'], bold: true },
+  master: { rarity: 'master', stops: ['#A55CFF', '#E05CFF', '#FF5CB8'], bold: true },
+  legend: { rarity: 'legend', stops: ['#FF3D3D', '#FF8A1F', '#FFD23F'], bold: true },
+}
+
+/** 档位默认排序 (TierPalette.defaultSort)。 */
+const MOCK_TIER_SORT: Readonly<Record<TierId, number>> = {
+  bronze: 100,
+  silver: 200,
+  gold: 300,
+  platinum: 400,
+  diamond: 500,
+  master: 600,
+  legend: 700,
+}
+
+function requireSegments(segments: TextSegment[] | null, what: string): TextSegment[] {
+  if (segments === null) {
+    throw new Error(`mock 数据缺陷: ${what} 的色标写法不对`)
+  }
+  return segments
+}
+
+/**
+ * 按服务端同一口径渲染: 单色档保留翻译键整段上色 (wrap 时套方括号), 渐变档用中文原文逐字渐变 —— 真服渐变档的
+ * 文字就是服务端从 zh_cn 语言表取出来的中文, 单色档才交给客户端按语言解。
+ */
+function mockTierText(tier: TierId, key: string, text: string, wrap: boolean): TextSegment[] {
+  const palette = MOCK_TIER_PALETTE[tier]
+  const [only] = palette.stops
+  if (palette.stops.length === 1 && only !== undefined) {
+    const inner: TextSegment = { k: key, color: only, bold: palette.bold }
+    return wrap
+      ? [{ t: '[', color: only, bold: palette.bold }, inner, { t: ']', color: only, bold: palette.bold }]
+      : [inner]
+  }
+  return requireSegments(customTitleSegments(wrap ? `[${text}]` : text, palette.stops, palette.bold), key)
+}
+
+/** 首批 14 个称号 (成就文档 9.8): [称号 id 路径, 中文名, 稀有度]。说明键一律是 `<键>.desc`。 */
+const MOCK_TITLE_SEEDS: readonly (readonly [string, string, TierId])[] = [
+  ['mining/ore_codex', '矿物学者', 'gold'],
+  ['mining/blocks_100k', '地脉行者', 'diamond'],
+  ['mining/hard_active_100h', '深渊守望者', 'master'],
+  ['combat/long_shot', '鹰眼', 'gold'],
+  ['combat/star_10', '弑神者', 'diamond'],
+  ['combat/solo_star_9', '一人成军', 'legend'],
+  ['profession/max_level', '行业专家', 'platinum'],
+  ['profession/journal_100', '钓遍基沃托斯', 'diamond'],
+  ['profession/all_max', '万事通', 'master'],
+  ['economy/tycoon', '商业大亨', 'master'],
+  ['economy/lucky_case', '欧皇', 'diamond'],
+  ['economy/all_in', '大人的卡', 'bronze'],
+  ['social/daily_clear_60', '全勤老师', 'diamond'],
+  ['meta/count_40', '功勋卓著', 'platinum'],
+]
+
+function mockTitleKey(path: string): string {
+  return `title.miningdim.${path.replace('/', '.')}`
+}
+
+function requireTitleSeed(titleId: string): readonly [string, string, TierId] {
+  const seed = MOCK_TITLE_SEEDS.find(([path]) => `miningdim:${path}` === titleId)
+  if (seed === undefined) {
+    throw new Error(`mock 数据缺陷: 没有称号 ${titleId}`)
+  }
+  return seed
+}
+
+function mockTitleBadge(titleId: string): TextSegment[] {
+  const [path, name, tier] = requireTitleSeed(titleId)
+  return mockTierText(tier, mockTitleKey(path), name, true)
+}
+
+/** 本人的赞助资格与专属称号: 30 天后到期、渐变粗体、正在佩戴 (假数据刻意铺出"赞助玩家"这一整套形态)。 */
+const MOCK_CUSTOM_TITLE_ID = `miningdim:custom/${requireCounterpartyUuid(MOCK_PLAYER_NAME)}`
+const MOCK_SPONSOR_EXPIRES_AT = NOW + 30 * 24 * 3_600_000
+const mockCustomRecord = { text: '【星海旅人】', colors: ['#6FF2FF', '#D59CFF'], bold: true, locked: false }
+
+/** 已拥有的数据包称号 (其余在"我的称号"里画成灰色 + 获取途径)。 */
+const ownedTitles = new Set<string>([
+  'miningdim:mining/blocks_100k',
+  'miningdim:profession/max_level',
+  'miningdim:economy/all_in',
+])
+let equippedTitle: string | null = MOCK_CUSTOM_TITLE_ID
+
+let achievementPoints = { balance: 1_260, lifetime: 2_310 }
+
+type MockPendingSeed = {
+  advancementId: string
+  tier: TierId
+  points: number
+  /** 渐变档标题用的中文原文 (单色档走翻译键)。 */
+  name: string
+  titleId: string | null
+  hoursAgo: number
+}
+
+/** 待领取奖励: 两条纯成就点、一条金档带称号、一条传说档带渐变称号。 */
+const pendingRewards: MockPendingSeed[] = [
+  { advancementId: 'miningdim:combat/solo_star_9', tier: 'legend', points: 800, name: '一人成军',
+    titleId: 'miningdim:combat/solo_star_9', hoursAgo: 1 },
+  { advancementId: 'miningdim:mining/ore_codex', tier: 'gold', points: 50, name: '矿脉图鉴',
+    titleId: 'miningdim:mining/ore_codex', hoursAgo: 5 },
+  { advancementId: 'miningdim:mining/blocks_10k', tier: 'gold', points: 50, name: '矿工之魂', titleId: null,
+    hoursAgo: 26 },
+  { advancementId: 'miningdim:mining/first_extraction', tier: 'bronze', points: 10, name: '平安归来',
+    titleId: null, hoursAgo: 49 },
+]
+
+function pendingRow(seed: MockPendingSeed): AchievementPendingReward {
+  const key = `achievement.${seed.advancementId.replace(':', '.').replace('/', '.')}.title`
+  return {
+    advancementId: seed.advancementId,
+    tier: seed.tier,
+    points: seed.points,
+    earnedAt: NOW - seed.hoursAgo * 3_600_000,
+    name: mockTierText(seed.tier, key, seed.name, false),
+    titleId: seed.titleId,
+    titleBadge: seed.titleId === null ? null : mockTitleBadge(seed.titleId),
+  }
+}
+
+/**
+ * 商品目录恒为空: 服主拍板"商品先放着不管, 先做框架"(成就文档第十四章待定项 3), 真服同样一件都没有。
+ * 假数据刻意不造商品 —— 设计评审要看的正是空目录那一态。
+ */
+function mockPointShop(): AchievementPointShopResult {
+  return {
+    balance: achievementPoints.balance,
+    lifetime: achievementPoints.lifetime,
+    pending: pendingRewards.map(pendingRow),
+    goods: [],
+  }
+}
+
+function mockPointShopBuy(payload: AchievementPointShopBuyPayload): AchievementPointShopBuyResult {
+  throw businessFailure('achievement.pointShopBuy', 'GOODS_UNKNOWN', `商品不存在或已下架: ${payload.goodsId}`,
+    false, { goodsId: truncateValue(String(payload.goodsId)) })
+}
+
+function mockClaimRewards(payload: AchievementClaimRewardsPayload): AchievementClaimRewardsResult {
+  let picked: MockPendingSeed[]
+  if (payload.advancementIds === 'all') {
+    if (pendingRewards.length === 0) {
+      throw businessFailure('achievement.claimRewards', 'REWARD_NONE_PENDING', '没有待领取的奖励', false)
+    }
+    picked = [...pendingRewards]
+  } else {
+    picked = []
+    for (const id of new Set(payload.advancementIds)) {
+      const seed = pendingRewards.find((candidate) => candidate.advancementId === id)
+      if (seed === undefined) {
+        // 真服区分"已领过"(REWARD_ALREADY_CLAIMED) 与"根本没有"(INVALID_REQUEST); mock 不留已领记录, 一律按后者。
+        throw businessFailure('achievement.claimRewards', 'INVALID_REQUEST', `没有这条奖励: ${id}`, false, {
+          field: 'advancementIds',
+          value: truncateValue(id),
+        })
+      }
+      picked.push(seed)
+    }
+  }
+  const points = picked.reduce((sum, seed) => sum + seed.points, 0)
+  achievementPoints = { balance: achievementPoints.balance + points, lifetime: achievementPoints.lifetime + points }
+  for (const seed of picked) {
+    pendingRewards.splice(pendingRewards.indexOf(seed), 1)
+    if (seed.titleId !== null) {
+      ownedTitles.add(seed.titleId)
+    }
+  }
+  return {
+    claimed: picked.map((seed) => ({
+      advancementId: seed.advancementId,
+      tier: seed.tier,
+      points: seed.points,
+      titleId: seed.titleId,
+    })),
+    points,
+    balance: achievementPoints.balance,
+    lifetime: achievementPoints.lifetime,
+    titles: picked.flatMap((seed) => (seed.titleId === null ? [] : [seed.titleId])),
+  }
+}
+
+function mockCustomBadge(): TextSegment[] {
+  return requireSegments(
+    customTitleSegments(mockCustomRecord.text, mockCustomRecord.colors, mockCustomRecord.bold),
+    MOCK_CUSTOM_TITLE_ID,
+  )
+}
+
+function mockTitleList(): TitleListResult {
+  const titles: TitleRow[] = MOCK_TITLE_SEEDS.map(([path, , tier]) => {
+    const titleId = `miningdim:${path}`
+    return {
+      titleId,
+      rarity: tier,
+      sort: MOCK_TIER_SORT[tier],
+      owned: ownedTitles.has(titleId),
+      equipped: equippedTitle === titleId,
+      badge: mockTitleBadge(titleId),
+      description: [{ k: `${mockTitleKey(path)}.desc`, bold: false }],
+    }
+  }).sort((left, right) => right.sort - left.sort || compareIds(left.titleId, right.titleId))
+  return {
+    equipped: equippedTitle,
+    palette: Object.values(MOCK_TIER_PALETTE).map((tier) => ({ ...tier, stops: [...tier.stops] })),
+    titles,
+    custom: {
+      titleId: MOCK_CUSTOM_TITLE_ID,
+      selfServiceEnabled: false,
+      sponsor: { permanent: false, expiresAt: MOCK_SPONSOR_EXPIRES_AT, active: true },
+      record: { ...mockCustomRecord, colors: [...mockCustomRecord.colors], badge: mockCustomBadge() },
+      owned: true,
+      equipped: equippedTitle === MOCK_CUSTOM_TITLE_ID,
+      nextEditAt: 0,
+    },
+  }
+}
+
+function mockTitleEquip(payload: TitleEquipPayload): TitleEquipResult {
+  const titleId = payload.titleId
+  if (titleId === null) {
+    equippedTitle = null
+    return { equipped: null }
+  }
+  if (titleId !== MOCK_CUSTOM_TITLE_ID && !MOCK_TITLE_SEEDS.some(([path]) => `miningdim:${path}` === titleId)) {
+    throw businessFailure('title.equip', 'TITLE_UNKNOWN', `称号不存在或已下架: ${titleId}`, false, {
+      titleId: truncateValue(titleId),
+    })
+  }
+  if (titleId !== MOCK_CUSTOM_TITLE_ID && !ownedTitles.has(titleId)) {
+    throw businessFailure('title.equip', 'TITLE_NOT_OWNED', `你还没有这个称号: ${titleId}`, false, { titleId })
+  }
+  equippedTitle = titleId
+  return { equipped: titleId }
+}
+
+/**
+ * 专属称号预览。**只复刻三条最基础的校验** (空文字、色标写法、色标个数), 长度、字符集、违禁词与亮度一律放行 ——
+ * 那几条的判据全在服务端配置里, 抄一份必然漂移 (本文件头第 6 条近似)。
+ */
+function mockTitleCustomPreview(payload: TitleCustomDraftPayload): TitleCustomPreviewResult {
+  const violations: TitleCustomViolation[] = []
+  if (payload.text === '') {
+    violations.push({ rule: 'EMPTY', args: [] })
+  }
+  for (const color of payload.colors) {
+    if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
+      violations.push({ rule: 'COLOR_FORMAT', args: [truncateValue(color)] })
+      break
+    }
+  }
+  if (payload.colors.length < 1 || payload.colors.length > 3) {
+    violations.push({ rule: 'COLOR_COUNT', args: [String(payload.colors.length)] })
+  }
+  const segments = violations.length === 0
+    ? customTitleSegments(payload.text, payload.colors, payload.bold)
+    : null
+  if (segments === null) {
+    return {
+      status: 'INVALID',
+      violations,
+      badge: null,
+      spec: null,
+      adminCommand: null,
+      nextEditAt: 0,
+      selfServiceEnabled: false,
+    }
+  }
+  const spec = `${payload.colors.map((color) => color.toUpperCase()).join(',')} ${String(payload.bold)} ${payload.text}`
+  return {
+    status: 'VALID',
+    violations: [],
+    badge: segments,
+    spec,
+    adminCommand: `/mtitle custom admin set ${MOCK_PLAYER_NAME} ${spec}`,
+    nextEditAt: 0,
+    selfServiceEnabled: false,
+  }
+}
+
+/** 自助提交在假数据里与真服默认口径一致: 关闭, 由管理员代设置。 */
+function mockTitleCustomSet(): TitleCustomSetResult {
+  throw businessFailure('title.customSet', 'CUSTOM_TITLE_SELF_SERVICE_DISABLED',
+    '专属称号目前由管理员设置, 请把预览满意的参数发给管理员', false)
+}
+
+// ============================================================
 // 派发
 // ============================================================
 
@@ -5451,6 +5797,20 @@ function resolveMock(action: WebUiActionName, payload: unknown): unknown {
       return mockCaseOpen(payload as CaseOpenPayload)
     case 'case.apply':
       return mockCaseApply(payload as CaseApplyPayload)
+    case 'achievement.pointShop':
+      return mockPointShop()
+    case 'achievement.pointShopBuy':
+      return mockPointShopBuy(payload as AchievementPointShopBuyPayload)
+    case 'achievement.claimRewards':
+      return mockClaimRewards(payload as AchievementClaimRewardsPayload)
+    case 'title.list':
+      return mockTitleList()
+    case 'title.equip':
+      return mockTitleEquip(payload as TitleEquipPayload)
+    case 'title.customPreview':
+      return mockTitleCustomPreview(payload as TitleCustomDraftPayload)
+    case 'title.customSet':
+      return mockTitleCustomSet()
     case 'client.i18n':
       return mockI18n(payload as ClientI18nPayload)
     case 'client.playCaseSound':

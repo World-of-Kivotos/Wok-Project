@@ -97,10 +97,10 @@ public final class AchievementTriggerGameTests {
                 "无条件的 mining_extraction 除原版的 player 外不应写出任何字段, 实为 " + bare);
 
         List<ResourceLocation> ids = AchievementTriggers.all().stream().map(CriterionTrigger::getId).toList();
-        helper.assertTrue(ids.equals(List.of(id("enter_mining"), id("mining_extraction"), id("mine_ore"),
+        helper.assertTrue(ids.containsAll(List.of(id("enter_mining"), id("mining_extraction"), id("mine_ore"),
                         id("stat_at_least"), id("champion_kill"), id("gun_kill"), id("achievement_count"),
-                        id("married"), id("open_shared_backpack"))),
-                "P1 触发器应恰好是 6.2 的九个 miningdim: 触发器, 实为 " + ids);
+                        id("married"), id("open_shared_backpack"))) && Set.copyOf(ids).size() == ids.size(),
+                "应包含 6.2 的九个 P1 触发器且 id 不重复, 实为 " + ids);
         for (CriterionTrigger<?> trigger : AchievementTriggers.all()) {
             helper.assertTrue(CriteriaTriggers.getCriterion(trigger.getId()) == trigger,
                     trigger.getId() + " 必须已登记进原版触发器表 (FMLCommonSetup 注册)");

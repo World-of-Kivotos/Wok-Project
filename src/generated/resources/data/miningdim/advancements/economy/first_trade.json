@@ -1,0 +1,35 @@
+{
+  "parent": "miningdim:economy/root",
+  "criteria": {
+    "traded": {
+      "conditions": {
+        "count": 1,
+        "role": "any"
+      },
+      "trigger": "miningdim:market_trade"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.economy.first_trade.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:barrel"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#C8834A",
+      "translate": "achievement.miningdim.economy.first_trade.title"
+    }
+  },
+  "requirements": [
+    [
+      "traded"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

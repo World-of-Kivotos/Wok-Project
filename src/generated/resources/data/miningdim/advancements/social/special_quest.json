@@ -1,0 +1,34 @@
+{
+  "parent": "miningdim:social/quest_first",
+  "criteria": {
+    "completed": {
+      "conditions": {
+        "source": "special"
+      },
+      "trigger": "miningdim:quest_complete"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.social.special_quest.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:map"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#C8834A",
+      "translate": "achievement.miningdim.social.special_quest.title"
+    }
+  },
+  "requirements": [
+    [
+      "completed"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

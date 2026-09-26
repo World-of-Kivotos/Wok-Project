@@ -25,7 +25,8 @@ import java.util.Locale;
  *   <li>{@code solo}: 为 true 时要求独自击杀 (6.4);</li>
  *   <li>{@code max_fight_ticks}: 死亡时间 - 首次命中时间 的上限。</li>
  * </ul>
- * 十星世界 BOSS 的"参与讨伐且输出不少于 5%"即 {@code min_star=10, min_share=0.05}, 本触发器已能表达, 进度随事件开放。
+ * 十星世界 BOSS 的"参与讨伐且输出不少于 5%"即 {@code min_star=10, min_share=0.05} ({@link TriggerInstance#minStarWithShare});
+ * 10 星精英只由管理员召唤的世界 BOSS 产生, 击杀过滤在任意维度接受世界 BOSS (6.4)。
  */
 public final class ChampionKillTrigger extends SimpleCriterionTrigger<ChampionKillTrigger.TriggerInstance> {
 
@@ -97,6 +98,11 @@ public final class ChampionKillTrigger extends SimpleCriterionTrigger<ChampionKi
         /** 击倒死亡时持有该词条的精英怪 (任意星级)。 */
         public static TriggerInstance withAffix(AffixDef affix) {
             return new TriggerInstance(ContextAwarePredicate.ANY, MIN_STAR, affix, null, false, null);
+        }
+
+        /** 参与击倒 minStar 星及以上的精英怪, 且自己的记录伤害占全部记录伤害不少于 minShare。 */
+        public static TriggerInstance minStarWithShare(int minStar, double minShare) {
+            return new TriggerInstance(ContextAwarePredicate.ANY, minStar, null, minShare, false, null);
         }
 
         /** 在 maxFightTicks 内独自击倒 minStar 星及以上的精英怪。 */

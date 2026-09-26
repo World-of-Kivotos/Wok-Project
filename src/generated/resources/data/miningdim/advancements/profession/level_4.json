@@ -1,0 +1,34 @@
+{
+  "parent": "miningdim:profession/level_2",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "level": 4
+      },
+      "trigger": "miningdim:job_level"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.profession.level_4.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:book"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#D0D7DE",
+      "translate": "achievement.miningdim.profession.level_4.title"
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

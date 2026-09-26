@@ -15,6 +15,7 @@
 
 import type { HubPanelId } from './types'
 import {
+  ROUTE_ACHIEVEMENT_SHOP,
   ROUTE_ADMIN,
   ROUTE_CASE,
   ROUTE_CODEX,
@@ -44,6 +45,11 @@ export const HUB_PANEL_META: Record<HubPanelId, HubPanelMeta> = {
   jobs: { label: '职业', route: ROUTE_JOBS, iconItemId: 'minecraft:iron_pickaxe' },
   mining: { label: '矿洞', route: ROUTE_MINING, iconItemId: 'minecraft:deepslate' },
   quests: { label: '任务', route: ROUTE_QUESTS, iconItemId: 'minecraft:writable_book' },
+  achievementShop: {
+    label: '成就点商店',
+    route: ROUTE_ACHIEVEMENT_SHOP,
+    iconItemId: 'minecraft:knowledge_book',
+  },
   codex: { label: '精英怪图鉴', route: ROUTE_CODEX, iconItemId: 'minecraft:wither_skeleton_skull' },
   marriage: { label: '婚姻', route: ROUTE_MARRIAGE, iconItemId: 'minecraft:golden_apple' },
   case: { label: '开箱', route: ROUTE_CASE, iconItemId: 'minecraft:ender_chest' },

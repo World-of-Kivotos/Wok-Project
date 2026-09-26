@@ -119,11 +119,13 @@ final class AgentSealExecutor {
 
     /**
      * 全部封印到期后增量恢复某精英被封词条 (在 {@link com.miningdim.job.agent.SealRegistry#activeSeals} 判该精英
-     * 已无活跃封印时调用)。把快照记录的 (词条->品质) 合并回当前词条表, 重新 {@code promote}。
+     * 已无活跃封印时调用)。把快照记录的 (词条->品质) 合并回当前词条表, 经 {@link MiningChampionData#replaceAffixes}
+     * 只换词条表。
      *
-     * 【必须照做, 严禁漏掉】{@link MiningChampionData#promote} 的最后一行会把 summonedByAffix 复位成 false ——
-     * 漏掉"先读 isSummonedByAffix() 后在 promote 后补 markSummonedByAffix()"这两步, 就会把一只被封印过的支援
-     * 召唤物变成正常冠军, 从而变成可反复召唤的战斗印钞口 (spec 红线 8-a)。
+     * 【严禁改回 promote】{@link MiningChampionData#promote} 是重新盖章: 会把 summonedByAffix 与 worldBoss 两个身份
+     * 标记复位成 false、把当前血量回满。拿它做恢复, 被封印过的支援召唤物会变成可反复召唤的发奖冠军 (spec 红线 8-a),
+     * 被封印过的世界 BOSS 会丢掉世界 BOSS 身份 (击倒公告、成就击杀过滤与 NBT 标记从此失效; 封印窗口远短于一场世界
+     * BOSS 战, 第一次封印到期即触发)。
      *
      * @param target     目标精英实体
      * @param champ      非 null 的 {@link MiningChampionData}
@@ -141,11 +143,7 @@ final class AgentSealExecutor {
         EnumMap<AffixDef, AffixQuality> merged = new EnumMap<>(AffixDef.class);
         merged.putAll(champ.affixes());
         merged.putAll(rec.removed());
-        boolean summoned = champ.isSummonedByAffix();
-        champ.promote(champ.star(), merged, champ.effectiveHp());
-        if (summoned) {
-            champ.markSummonedByAffix(); // 见上方警告: promote 恒复位 summonedByAffix, 此处补盖防召唤物身份丢失。
-        }
+        champ.replaceAffixes(merged); // 见上方警告: 只换词条表, 身份标记与当前血量原样保留。
         return true;
     }
 

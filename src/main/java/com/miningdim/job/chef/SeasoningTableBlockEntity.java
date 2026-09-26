@@ -425,6 +425,8 @@ public final class SeasoningTableBlockEntity extends BlockEntity implements Menu
                 chefLevel, heatGame.accuracyScore(), hits, activeQteTiming().cueCount());
         playFeedback(SoundEvents.PLAYER_LEVELUP, 0.85F, 1.0F, ParticleTypes.HAPPY_VILLAGER, 14);
         setChanged();
+        // 出菜、扣调料、记经验与结算展示都已落定, 最后才广播 (成就等只读消费方, 见 ChefEvents)。
+        ChefEvents.fireDish(operator, achieved, targetQuality);
     }
 
     /**

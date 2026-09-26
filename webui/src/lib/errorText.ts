@@ -19,6 +19,7 @@
 
 import type { WebUiBusinessError } from './bridge'
 import { WebUiCallError } from './bridge'
+import type { TitleCustomRule, TitleCustomViolation } from './types'
 
 interface ErrorCodeText {
   /** 服务端没给 params (或 params 缺必需键) 时用的那一句。 */
@@ -114,10 +115,193 @@ const ERROR_CODE_TEXT: Readonly<Record<string, ErrorCodeText>> = {
       if (rule === 'TAROT_IDENTITY_UNREADABLE') {
         return '这张塔罗牌的数据不完整, 无法上架'
       }
+      if (rule === 'POINT_SHOP_BOUND') {
+        return '成就点商店兑换的物品已绑定, 不能在市场挂单'
+      }
       // 未知 rule (服务端加了新分支而前端没跟上) 退回不带参那句, 不把机器码顶给玩家看。
       return null
     },
   },
+  STORE_FAILED: {
+    text: '数据库读写失败, 本次没有任何改动',
+  },
+  // ---- 成就点商店与奖励领取 (achievement.*) ----
+  POINTS_INSUFFICIENT: {
+    text: '成就点不足',
+    withParams: (params) => {
+      const price = required(params, 'price')
+      const balance = required(params, 'balance')
+      return price === null || balance === null ? null : `成就点不足: 需要 ${price}, 当前只有 ${balance}`
+    },
+  },
+  GOODS_LIMIT_REACHED: {
+    text: '已达每人限购',
+    withParams: (params) => {
+      // 称号类商品而玩家已经拥有该称号 (比如管理员发过): 说"已拥有"比说"限购 1 件"更贴近事实。
+      if (params.reason === 'TITLE_OWNED') {
+        return '你已经拥有这个称号, 不用再兑换'
+      }
+      const limit = required(params, 'limit')
+      return limit === null ? null : `已达每人限购 (${limit} 件)`
+    },
+  },
+  GOODS_UNKNOWN: {
+    text: '商品不存在或已下架',
+  },
+  GOODS_REQUIREMENT_UNMET: {
+    // advancementId 不进文案: 商品卡片上已经写着需要哪个成就 (隐藏成就还刻意不写名字)。
+    text: '还没有获得兑换这件商品所需的成就',
+  },
+  INVENTORY_FULL: {
+    text: '背包已满, 没有扣成就点; 腾出空位后再兑换',
+  },
+  REWARD_ALREADY_CLAIMED: {
+    text: '这条奖励已经领取过了',
+  },
+  REWARD_NONE_PENDING: {
+    text: '没有待领取的奖励',
+  },
+  REWARD_TITLE_UNAVAILABLE: {
+    text: '奖励附带的称号暂时无法发放, 本次领取已全部撤销',
+    withParams: (params) =>
+      params.scope === 'all'
+        ? '有一条奖励附带的称号暂时无法发放, 这次"全部领取"已全部撤销; 其余奖励不受影响, 可以逐条领取'
+        : null,
+  },
+  // ---- 称号 (title.*) ----
+  TITLE_NOT_OWNED: {
+    text: '你还没有这个称号',
+  },
+  TITLE_UNKNOWN: {
+    text: '称号不存在或已下架',
+  },
+  CUSTOM_TITLE_NOT_SPONSOR: {
+    text: '你没有有效的赞助资格, 不能使用专属称号',
+  },
+  CUSTOM_TITLE_SELF_SERVICE_DISABLED: {
+    text: '专属称号目前由管理员设置: 预览满意后, 复制参数发给管理员',
+  },
+  CUSTOM_TITLE_LOCKED: {
+    text: '你的专属称号已被管理员锁定, 暂时不能修改',
+  },
+  CUSTOM_TITLE_ON_COOLDOWN: {
+    text: '专属称号修改冷却中',
+    withParams: (params) => {
+      const nextEditAt = required(params, 'nextEditAt')
+      if (nextEditAt === null || !Number.isFinite(Number(nextEditAt))) {
+        return null
+      }
+      return `专属称号修改冷却中, 下次可修改时间: ${new Date(Number(nextEditAt)).toLocaleString('zh-CN', { hour12: false })}`
+    },
+  },
+  CUSTOM_TITLE_INVALID: {
+    text: '专属称号不合格',
+    withParams: (params) => {
+      const rules = required(params, 'rules')
+      if (rules === null) {
+        return null
+      }
+      const reasons = rules.split(',').map((rule) => (isCustomRule(rule) ? CUSTOM_RULE_TEXT[rule].text : rule))
+      return `专属称号不合格: ${reasons.join('; ')}`
+    },
+  },
+}
+
+/**
+ * 专属称号校验规则 -> 中文 (Title_System_DesignSpec 13.3)。措辞与服务端语言表 title.miningdim.custom.invalid.*
+ * 的中文逐条对应; text 是不带参的一句 (CUSTOM_TITLE_INVALID 只给规则名时用), withArgs 按 args 的顺序填占位符,
+ * 缺参时返回 null 退回 text。
+ */
+const CUSTOM_RULE_TEXT: Readonly<
+  Record<TitleCustomRule, { text: string; withArgs?: (args: readonly string[]) => string | null }>
+> = {
+  EMPTY: { text: '称号文字不能为空' },
+  TOO_LONG: {
+    text: '总长度超出上限 (外框与符号也算在内)',
+    withArgs: (args) =>
+      args.length < 2 ? null : `总长 ${String(args[0])} 个字符, 最多 ${String(args[1])} 个 (外框与符号也算在内)`,
+  },
+  CONTENT_MISSING: { text: '至少要有 1 个内容字符 (汉字、假名、字母或数字)' },
+  CONTENT_TOO_MANY: {
+    text: '内容字符 (汉字、假名、字母、数字) 超出上限',
+    withArgs: (args) =>
+      args.length < 2
+        ? null
+        : `内容字符 (汉字、假名、字母、数字) 有 ${String(args[0])} 个, 最多 ${String(args[1])} 个`,
+  },
+  FORMAT_CODE: {
+    text: '含格式码 (U+00A7), 不能使用',
+    withArgs: (args) => (args.length < 1 ? null : `第 ${String(args[0])} 个字符是格式码 (U+00A7), 不能使用`),
+  },
+  INVISIBLE_CHAR: {
+    text: '含换行、控制字符或零宽字符, 不能使用',
+    withArgs: (args) =>
+      args.length < 2
+        ? null
+        : `第 ${String(args[0])} 个字符是换行、控制字符或零宽字符 (U+${String(args[1])}), 不能使用`,
+  },
+  PRIVATE_USE: {
+    text: '含私用区字符, 不能使用',
+    withArgs: (args) =>
+      args.length < 2 ? null : `第 ${String(args[0])} 个字符是私用区字符 (U+${String(args[1])}), 不能使用`,
+  },
+  EMOJI: {
+    text: '含 emoji, 原版字体显示不了',
+    withArgs: (args) =>
+      args.length < 2 ? null : `第 ${String(args[0])} 个字符是 emoji (U+${String(args[1])}), 原版字体显示不了`,
+  },
+  CHAR_NOT_ALLOWED: {
+    text: '含不在允许范围内的字符',
+    withArgs: (args) =>
+      args.length < 2 ? null : `第 ${String(args[0])} 个字符「${String(args[1])}」不在允许范围内`,
+  },
+  SPACE_EDGE: { text: '开头和结尾不能是空格' },
+  SPACE_DOUBLE: {
+    text: '出现了连续空格',
+    withArgs: (args) => (args.length < 1 ? null : `第 ${String(args[0])} 个字符处出现了连续空格`),
+  },
+  BANNED_WORD: {
+    text: '含违禁词',
+    withArgs: (args) => (args.length < 1 ? null : `含违禁词「${String(args[0])}」`),
+  },
+  COLOR_FORMAT: {
+    text: '颜色写法不对, 应为 #RRGGBB',
+    withArgs: (args) => (args.length < 1 ? null : `颜色 ${String(args[0])} 写法不对, 应为 #RRGGBB`),
+  },
+  COLOR_COUNT: {
+    text: '颜色要写 1 个 (单色) 或 2~3 个 (渐变)',
+    withArgs: (args) =>
+      args.length < 1 ? null : `颜色要写 1 个 (单色) 或 2~3 个 (渐变), 现在是 ${String(args[0])} 个`,
+  },
+  COLOR_TOO_DARK: {
+    text: '颜色太暗',
+    withArgs: (args) =>
+      args.length < 3
+        ? null
+        : `颜色 ${String(args[0])} 太暗 (相对亮度 ${String(args[1])}, 最低 ${String(args[2])})`,
+  },
+  GRADIENT_TOO_DARK: {
+    text: '渐变的过渡色太暗, 请换更亮或色相更接近的色标',
+    withArgs: (args) =>
+      args.length < 4
+        ? null
+        : `渐变到第 ${String(args[0])} 个字符时过渡成 ${String(args[1])}, 太暗 (相对亮度 ${String(args[2])}, 最低 ${String(args[3])}); 请换更亮或色相更接近的色标`,
+  },
+}
+
+function isCustomRule(rule: string): rule is TitleCustomRule {
+  return Object.hasOwn(CUSTOM_RULE_TEXT, rule)
+}
+
+/** 专属称号的一条不合格项 (title.customPreview 回执的 violations) 的中文说明。 */
+export function customTitleViolationText(violation: TitleCustomViolation): string {
+  // rule 来自服务端: 前端比服务端旧时可能收到不认识的规则名, 原样带出而不是编一句话 (与本文件的回退纪律一致)。
+  if (!isCustomRule(violation.rule)) {
+    return String(violation.rule)
+  }
+  const entry = CUSTOM_RULE_TEXT[violation.rule]
+  const withArgs = entry.withArgs?.(violation.args) ?? null
+  return withArgs ?? entry.text
 }
 
 /** 表里有没有这个码。errorCode 来自服务端, 直接索引会命中原型链 (见 businessErrorText 的说明)。 */

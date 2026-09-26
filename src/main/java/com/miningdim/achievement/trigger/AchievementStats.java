@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 成就用的自定义统计项 (Achievement_System_DesignSpec 6.1, P1 各行)。
+ * 成就用的自定义统计项 (Achievement_System_DesignSpec 6.1)。
  *
  * 经 {@code DeferredRegister<ResourceLocation>(Registries.CUSTOM_STAT)} 注册, 数值随原版统计文件按玩家保存
  * ({@code world/stats/<uuid>.json}), 原版"统计信息"界面里也看得到。计数类成就不自己另存计数, 一律用
@@ -59,6 +59,15 @@ public final class AchievementStats {
     /** 同上且爆头 (需 TaCZ)。 */
     public static final RegistryObject<ResourceLocation> GUN_HEADSHOT_KILLS =
             stat("gun_headshot_kills", StatFormatter.DEFAULT);
+    /** grantDaily 的 faucet 入账提交后, 加上衰减后的实际入账额 (所有 faucet 键; 市场收入等 grant 不算)。 */
+    public static final RegistryObject<ResourceLocation> CREDITS_EARNED =
+            stat("credits_earned", StatFormatter.DEFAULT);
+    /** 领取一份任务奖励, 每人每天 (UTC) 最多计 dailyQuestCap 份。 */
+    public static final RegistryObject<ResourceLocation> QUESTS_COMPLETED =
+            stat("quests_completed", StatFormatter.DEFAULT);
+    /** 领完当天全部每日任务, 每个日常周期戳最多计 1 次。 */
+    public static final RegistryObject<ResourceLocation> QUEST_DAILY_CLEARS =
+            stat("quest_daily_clears", StatFormatter.DEFAULT);
 
     private AchievementStats() {
     }

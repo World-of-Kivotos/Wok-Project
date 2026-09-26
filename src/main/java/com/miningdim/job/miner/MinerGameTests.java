@@ -345,6 +345,15 @@ public final class MinerGameTests {
         BlockPos center = helper.absolutePos(new BlockPos(0, 1, 0));
         int radius = 4;
 
+        // 半径 4 的球超出了空模板和框架清场的范围, 测试网格换行时会压到先前批次测试留下的方块上 (测试总数一变, 排布就变)。
+        // 下面 L6 那条断言的前提是"球内只有这里放的钻石", 所以先把球内一切能还原成矿种的方块清成空气; 只动矿块, 不碰别的。
+        for (BlockPos pos : BlockPos.betweenClosed(center.offset(-radius, -radius, -radius),
+                center.offset(radius, radius, radius))) {
+            if (pos.distSqr(center) <= radius * radius && OreType.fromBlock(level.getBlockState(pos).getBlock()) != null) {
+                level.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+            }
+        }
+
         // 球内放 3 颗钻石矿 (含深板岩变体, 验证 fromBlock 两变体都映射 DIAMOND), 全在半径内。
         BlockPos in1 = center.offset(1, 0, 0);
         BlockPos in2 = center.offset(0, 1, -1);

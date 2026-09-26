@@ -170,7 +170,8 @@ public final class MarketEngine {
     /**
      * 买入 (契约第 5 节)。支持部分购买: requestedCount &lt;= 0 买下整单剩余; &gt; 0 买 1..剩余 中指定量, 不足整单时拆分托管
      * (交付买走部分, 余量留挂单继续 ACTIVE)。扣买家 total=单价×买入量, 卖家实收全额 total (手续费已在挂单时 place 收过,
-     * 买入不二次收费; BuyResult.fee=0)。卖家在线即时入账、离线落 pending_payout 待登录结算。
+     * 买入不二次收费; BuyResult.fee=0)。卖家在线即时入账、离线落 pending_payout 待登录结算。事务提交之后经
+     * {@link MarketServices} 通知成交监听 ({@link TradeListener}), 回滚则不通知。
      *
      * @param requestedCount 买入数量; &lt;= 0 表示买下整单剩余
      * @return 成交回执 (供 action 构 resultJson; count = 实际买入量)
@@ -243,6 +244,9 @@ public final class MarketEngine {
                 dao.insertPendingPayout(row.sellerUuid(), total,
                         MarketConstants.CURRENCY_CREDIT, System.currentTimeMillis());
             }
+            // 成交通知 (成就) 排进提交后队列, 登记在事务最后一步: 本事务 (或调用方开着的外层事务) 回滚时不通知。
+            MarketTrade trade = new MarketTrade(buyer, row.sellerUuid(), row.itemId(), buyCount, total);
+            economy.afterCommit(() -> MarketServices.fireTrade(trade));
             return null;
         });
 

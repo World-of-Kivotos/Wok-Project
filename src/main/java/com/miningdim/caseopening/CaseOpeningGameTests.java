@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -932,6 +933,11 @@ public final class CaseOpeningGameTests {
             }
 
             @Override
+            public void afterCommit(Runnable action) {
+                delegate.afterCommit(action);
+            }
+
+            @Override
             public long creditBalance(ServerPlayer player) {
                 return delegate.creditBalance(player);
             }
@@ -1269,6 +1275,11 @@ public final class CaseOpeningGameTests {
         @Override
         public List<SkinAssetRow> settledOwnedAssets(UUID ownerId) {
             return delegate.settledOwnedAssets(ownerId);
+        }
+
+        @Override
+        public Set<CaseRarity> settledRarities(UUID ownerId) {
+            return delegate.settledRarities(ownerId);
         }
     }
 

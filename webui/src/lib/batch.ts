@@ -58,6 +58,7 @@ const UNKNOWN_ACTION = 'UNKNOWN_ACTION'
  * 判据与服务端同一条: 该 handler 不改变任何玩家可见的持久状态 (按天生成的任务板一类幂等惰性初始化不算)。
  */
 const BATCHABLE_ACTIONS: ReadonlySet<string> = new Set<WebUiActionName>([
+  'achievement.pointShop',
   'admin.economy.balance',
   'admin.listItems',
   'case.state',
@@ -99,6 +100,7 @@ const BATCHABLE_ACTIONS: ReadonlySet<string> = new Set<WebUiActionName>([
   'player.wallet',
   'quest.board',
   'system.serverStatus',
+  'title.list',
 ])
 
 export function isBatchableAction(action: string): boolean {

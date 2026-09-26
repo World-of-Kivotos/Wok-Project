@@ -306,8 +306,23 @@ public final class MiningSchema {
                     + "count INTEGER NOT NULL, "
                     + "PRIMARY KEY (player_uuid, counter_key, day))");
 
+    /**
+     * 版本 8: 成就模块市场成就的按买家记账 (docs/Achievement_System_DesignSpec.md 6.6), 每一对 (卖家, 买家) 一行:
+     * trades 是合格交易笔数, counted_volume 是这位买家贡献给这位卖家的计数成交额 (受 1,000,000 与买家当时系统收入封顶,
+     * 只增不减)。成交时一条 upsert 按主键更新; 卖家侧的汇总按主键最左列 seller_uuid 查, 买家侧的笔数按 buyer_uuid 查,
+     * 后者另建索引。不存 IP: 同 IP 判定只在交易瞬间比较当时的连接。与 V7 同理只能在末尾追加。
+     */
+    private static final List<String> V8 = List.of(
+            "CREATE TABLE achievement_market_partner ("
+                    + "seller_uuid TEXT NOT NULL, "
+                    + "buyer_uuid TEXT NOT NULL, "
+                    + "trades INTEGER NOT NULL, "
+                    + "counted_volume INTEGER NOT NULL, "
+                    + "PRIMARY KEY (seller_uuid, buyer_uuid))",
+            "CREATE INDEX idx_achievement_market_partner_buyer ON achievement_market_partner(buyer_uuid)");
+
     /** 全部迁移, 下标 + 1 即其版本号。 */
-    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3, V4, V5, V6, V7);
+    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3, V4, V5, V6, V7, V8);
 
     /** 把连接上的库推进到本版代码支持的最新结构。 */
     public static void apply(Connection conn) {

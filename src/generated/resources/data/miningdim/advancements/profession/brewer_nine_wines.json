@@ -1,0 +1,106 @@
+{
+  "parent": "miningdim:profession/brewer_first_brew",
+  "criteria": {
+    "brandy": {
+      "conditions": {
+        "wine_type": "brandy"
+      },
+      "trigger": "miningdim:brew_complete"
+    },
+    "champagne": {
+      "conditions": {
+        "wine_type": "champagne"
+      },
+      "trigger": "miningdim:brew_complete"
+    },
+    "gin": {
+      "conditions": {
+        "wine_type": "gin"
+      },
+      "trigger": "miningdim:brew_complete"
+    },
+    "maotai": {
+      "conditions": {
+        "wine_type": "maotai"
+      },
+      "trigger": "miningdim:brew_complete"
+    },
+    "moonshine": {
+      "conditions": {
+        "wine_type": "moonshine"
+      },
+      "trigger": "miningdim:brew_complete"
+    },
+    "rum": {
+      "conditions": {
+        "wine_type": "rum"
+      },
+      "trigger": "miningdim:brew_complete"
+    },
+    "tequila": {
+      "conditions": {
+        "wine_type": "tequila"
+      },
+      "trigger": "miningdim:brew_complete"
+    },
+    "vodka": {
+      "conditions": {
+        "wine_type": "vodka"
+      },
+      "trigger": "miningdim:brew_complete"
+    },
+    "whiskey": {
+      "conditions": {
+        "wine_type": "whiskey"
+      },
+      "trigger": "miningdim:brew_complete"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.profession.brewer_nine_wines.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:wine_cellar"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#D0D7DE",
+      "translate": "achievement.miningdim.profession.brewer_nine_wines.title"
+    }
+  },
+  "requirements": [
+    [
+      "brandy"
+    ],
+    [
+      "vodka"
+    ],
+    [
+      "gin"
+    ],
+    [
+      "rum"
+    ],
+    [
+      "tequila"
+    ],
+    [
+      "maotai"
+    ],
+    [
+      "whiskey"
+    ],
+    [
+      "champagne"
+    ],
+    [
+      "moonshine"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

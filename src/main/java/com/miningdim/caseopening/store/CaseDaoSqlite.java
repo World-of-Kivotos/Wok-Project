@@ -8,7 +8,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /** Single-connection SQLite implementation. Each opening commit and ownership insert share one SQL transaction. */
@@ -288,6 +290,26 @@ public final class CaseDaoSqlite implements CaseDao {
             return rows;
         } catch (SQLException exception) {
             throw new CaseStoreException("failed to list settled owned skin assets for " + ownerId, exception);
+        }
+    }
+
+    @Override
+    public Set<CaseRarity> settledRarities(UUID ownerId) {
+        // 按 owner_uuid 过滤, 走 idx_case_openings_owner_status 的最左列。只取 rarity 一列并在 SQL 侧去重: 每次登录的
+        // 成就追溯都会调一次, 不能把整行 (含 40 格转盘的 reel_json) 逐条读进主线程。
+        String sql = "SELECT DISTINCT rarity FROM case_openings WHERE owner_uuid=? AND status='COMMITTED' "
+                + "AND economy_settled=1";
+        Set<CaseRarity> rarities = EnumSet.noneOf(CaseRarity.class);
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, ownerId.toString());
+            try (ResultSet result = statement.executeQuery()) {
+                while (result.next()) {
+                    rarities.add(CaseRarity.valueOf(result.getString("rarity")));
+                }
+            }
+            return rarities;
+        } catch (SQLException exception) {
+            throw new CaseStoreException("failed to list settled case opening rarities for " + ownerId, exception);
         }
     }
 

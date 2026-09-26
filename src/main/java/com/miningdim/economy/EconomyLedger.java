@@ -30,6 +30,12 @@ public interface EconomyLedger {
     <T> T inTransaction(Supplier<T> body);
 
     /**
+     * 登记一个在当前账本事务 (含调用方开在同一连接上的外层事务) 提交之后才执行的动作; 不在事务中时立即执行,
+     * 最外层回滚时丢弃。语义见 {@link com.miningdim.store.StoreTx#afterCommit}。
+     */
+    void afterCommit(Runnable action);
+
+    /**
      * 回收创建时间早于 createdBefore 的【终态】双币操作记录, 返回删除条数。
      *
      * 终态记录只用于幂等重放, 而重放窗口是有限的; 不回收就会随开箱次数无限累积。

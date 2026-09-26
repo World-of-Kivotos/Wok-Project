@@ -337,10 +337,17 @@ AKM/M4A1 是地板枪，实际枪械梯度远高于这俩（含狙击/反器材/
 | 主世界 | 0★ 为主，低概率 1-2★，极低 3★ |
 | 矿洞 易（L1-3） | 1-3★ |
 | 矿洞 中（L4-7） | 3-6★ |
-| 矿洞 困难（L8+） | 5-10★，深层保底高星 |
-| 世界 BOSS（8-10★） | 定点/事件触发，约 10 人挑战 |
+| 矿洞 困难（L8+） | 5-9★，深层保底高星 |
+| 世界 BOSS（8-10★） | 管理员指令召唤（`/mchampion worldboss`），约 10 人挑战；10★ 只出自这里 |
 
-> 2026-09-26 服主拍板：**10★ 只由世界 BOSS 事件产生**，困难矿区自然刷出的上限改为 9★。代码尚未修改（当前 `ChampionSpawnPolicy` 会在困难难度随机刷出 10★，约占 2.5%），事件机制待另行设计。成就系统依赖这项改动，见 [Achievement_System_DesignSpec](Achievement_System_DesignSpec.md) 9.2 节。
+> 2026-09-26 服主拍板，已实现：**10★ 只由世界 BOSS 产生**，困难矿区自然刷出的上限为 9★（`ChampionSpawnPolicy.HARD_MAX_STAR = 9`，任何自然档都不含 10★）。世界 BOSS 暂时用指令刷，出现时提示全服玩家；定时或自动刷新的事件机制以后再定。
+>
+> - **指令**：`/mchampion worldboss <实体> <星级 8-10> [词条…]`，权限等级 2。BOSS 落在命令源的位置与维度，不要求执行者是玩家：玩家执行时落在脚下，控制台用 `execute in <维度> positioned <x y z> run mchampion worldboss …`，命令方块落在方块处。省略词条时按星级四池预算掷取（与自然生成同口径），给出时按名字解析、品质按星级兜底，与 `/mchampion summon` 共用同一套解析。与 summon 一样不调原版 finalizeSpawn：不会随机出幼年、装备或首领血量倍率，因此骷髅类 BOSS 没有弓，需要时由管理员另行给装备。
+> - **标记**：盖章走与自然升格共用的 `ChampionPromoter.applyChampion`，另在精英 capability 上记 `world_boss`（随实体 NBT 保存，区块卸载、重启后仍在），对外经 `WorldBoss.isWorldBoss` 读取。实体设为常驻（`setPersistenceRequired`），不会自然消失。普通 `/mchampion summon` 召唤的精英没有这个标记。特勤封印到期恢复经 `MiningChampionData.replaceAffixes` 只把被封的词条放回词条表，不像 `promote` 那样重新盖章，所以这个标记（以及召唤物标记、当前血量）不会被封印洗掉。
+> - **出现公告**：全部在线玩家（不分维度）各收到一行聊天公告，写明星级、实体名、维度、坐标和词条名（词条名按品质着色），并各自听到一声凋灵生成音效（每名玩家自己的 `playNotifySound`，与距离无关）。
+> - **击倒公告**：死亡时伤害账本里有玩家的记录、且致死伤害不是 `/kill`、虚空这类无视无敌的伤害，才算被玩家击倒（致死伤害这一半是 `WorldBoss.isPlayerDefeat(source)`，击倒公告与成就的击杀结算共用它）：全服公告输出前三名及其占全部记录伤害的比例，并播放挑战完成音效。最后一下是燃烧、中毒这类没有攻击者的伤害也算。读账本在 `LivingDeathEvent` 的 `@HIGH` 上只 `peek`，早于贡献池主结算在默认优先级上的 `drain`。没有玩家输出、`/kill`、被直接移除（discard）都不公告，只写日志 `miningdim/champion/worldboss`。
+> - **奖励与成就**：贡献池奖励与普通精英相同，不限维度。成就的精英击杀过滤在任意维度接受世界 BOSS（见 [Achievement_System_DesignSpec](Achievement_System_DesignSpec.md) 6.4 节），"十星弑神"由此可以达成（9.2 节）；成就只认被玩家击倒的世界 BOSS，`/kill`、虚空结束的不计击杀、不给战斗成就。
+> - **血池镜像**：6★+ 影子血池的每 tick 渲染镜像与当前血落账覆盖全部已加载维度（此前只查矿区维度），矿区外的世界 BOSS 回血也能同步到血条，重启后按正确的当前血重建。
 
 绑定 Miner spec 的难度分档（`Danger.evaluate` / L4 中等 / L8 困难）。升格概率按难度档：易 6% / 中 10% / 困难 15%（星级区间与升格率的唯一权威是 `ChampionSpawnPolicy`，区间相邻档刻意重叠以平滑难度梯度）。
 

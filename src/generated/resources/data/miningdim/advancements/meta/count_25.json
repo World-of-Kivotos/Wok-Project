@@ -1,0 +1,34 @@
+{
+  "parent": "miningdim:meta/count_10",
+  "criteria": {
+    "earned": {
+      "conditions": {
+        "count": 25
+      },
+      "trigger": "miningdim:achievement_count"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.meta.count_25.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:diamond"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#FFCC33",
+      "translate": "achievement.miningdim.meta.count_25.title"
+    }
+  },
+  "requirements": [
+    [
+      "earned"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

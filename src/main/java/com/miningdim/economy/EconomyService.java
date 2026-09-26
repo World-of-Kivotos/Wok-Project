@@ -59,6 +59,11 @@ public final class EconomyService implements IEconomyService {
     }
 
     @Override
+    public void afterCommit(Runnable action) {
+        ledger.afterCommit(action);
+    }
+
+    @Override
     public long creditBalance(ServerPlayer player) {
         return ledger.balance(player.getUUID(), Currency.CREDIT);
     }
@@ -189,6 +194,9 @@ public final class EconomyService implements IEconomyService {
             if (effective > 0L) {
                 // faucet 是最大货币注入口, grant 内部 Math.addExact 防溢出击穿 M0 (经济文档 7.3)。
                 ledger.credit(player.getUUID(), Currency.CREDIT, effective);
+                // 入账通知 (成就 credits_earned) 排进提交后队列: 本方法常被并进批量结算的外层事务
+                // (recordMinedOreDrops), 那时本层 inTransaction 返回并不代表已经落盘, 整批回滚则一笔都不通知。
+                ledger.afterCommit(() -> EconomyServices.fireFaucetCredited(player, faucetKey, effective));
             }
             return effective;
         });

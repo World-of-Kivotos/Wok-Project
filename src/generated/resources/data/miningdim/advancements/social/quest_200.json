@@ -1,0 +1,55 @@
+{
+  "parent": "miningdim:social/quest_10",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "stat": "miningdim:quests_completed",
+        "value": 200
+      },
+      "trigger": "miningdim:stat_at_least"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.social.quest_200.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:bookshelf"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#FFFFFF",
+          "text": "任"
+        },
+        {
+          "bold": true,
+          "color": "#FFF6DB",
+          "text": "务"
+        },
+        {
+          "bold": true,
+          "color": "#FFE8AA",
+          "text": "狂"
+        },
+        {
+          "bold": true,
+          "color": "#FFD66B",
+          "text": "人"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

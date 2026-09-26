@@ -5,6 +5,7 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.saveddata.SavedData;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -61,6 +62,12 @@ public final class QuestSavedData extends SavedData {
     /** 取该玩家的任务板; 首次访问自动建一块空板 (不标脏 —— 空板没有需要落盘的内容)。 */
     public QuestBoard board(UUID playerId) {
         return boards.computeIfAbsent(playerId, key -> new QuestBoard());
+    }
+
+    /** 该玩家已有的任务板; 从未建过板返回 null, 不建空板 (只读查询用)。 */
+    @Nullable
+    public QuestBoard existingBoard(UUID playerId) {
+        return boards.get(playerId);
     }
 
     @Override

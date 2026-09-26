@@ -8,7 +8,7 @@ import net.minecraft.advancements.critereon.PlayerTrigger;
 import java.util.List;
 
 /**
- * 本模块全部自定义触发器 (Achievement_System_DesignSpec 6.2 的 P1 各行) 的唯一实例与注册入口。
+ * 本模块全部自定义触发器 (Achievement_System_DesignSpec 6.2) 的唯一实例与注册入口。
  *
  * 钩子一律经这里的静态实例触发, 例如 {@code AchievementTriggers.MINE_ORE.trigger(player, ore, difficulty)}。
  * 原版只给玩家尚未完成的条件挂监听, 完成即摘除, 各 trigger 方法里只做轻量比较, 不查库 (第十章)。
@@ -26,14 +26,19 @@ public final class AchievementTriggers {
     public static final ChampionKillTrigger CHAMPION_KILL = new ChampionKillTrigger();
     public static final GunKillTrigger GUN_KILL = new GunKillTrigger();
     public static final AchievementCountTrigger ACHIEVEMENT_COUNT = new AchievementCountTrigger();
-    /** 与伴侣完成婚礼 (P1 由登录与自动保存时读婚姻指针补查)。 */
+    /** 与伴侣完成婚礼 (婚礼监听当场触发; 登录、自动保存与打开共享背包时再读婚姻指针补查)。 */
     public static final PlayerTrigger MARRIED = new PlayerTrigger(AchievementIds.id("married"));
     /** 第一次打开和伴侣的共享背包。 */
     public static final PlayerTrigger OPEN_SHARED_BACKPACK =
             new PlayerTrigger(AchievementIds.id("open_shared_backpack"));
+    public static final MarketTradeTrigger MARKET_TRADE = new MarketTradeTrigger();
+    public static final CaseOpenTrigger CASE_OPEN = new CaseOpenTrigger();
+    public static final QuestCompleteTrigger QUEST_COMPLETE = new QuestCompleteTrigger();
+    public static final SpouseTeleportTrigger SPOUSE_TELEPORT = new SpouseTeleportTrigger();
 
     private static final List<CriterionTrigger<?>> ALL = List.of(ENTER_MINING, MINING_EXTRACTION, MINE_ORE,
-            STAT_AT_LEAST, CHAMPION_KILL, GUN_KILL, ACHIEVEMENT_COUNT, MARRIED, OPEN_SHARED_BACKPACK);
+            STAT_AT_LEAST, CHAMPION_KILL, GUN_KILL, ACHIEVEMENT_COUNT, MARRIED, OPEN_SHARED_BACKPACK,
+            MARKET_TRADE, CASE_OPEN, QUEST_COMPLETE, SPOUSE_TELEPORT);
 
     private AchievementTriggers() {
     }

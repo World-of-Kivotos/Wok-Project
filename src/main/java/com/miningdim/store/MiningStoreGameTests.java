@@ -652,6 +652,58 @@ public final class MiningStoreGameTests {
     }
 
     /**
+     * 停在 V7 的库 (成就系统 P1 落地时的最新版) 升级时补跑 V8, 建出市场成就的按买家记账表, 既有成就行逐值保留。
+     * (卖家, 买家) 主键是"一对一行、成交时 upsert"的依据, 同一卖家的不同买家各占一行; 买家侧的笔数查询走
+     * buyer_uuid 索引, 不做全表扫描。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void databaseStoppedAtV7GetsMarketPartnerTableOnUpgradeWithoutLosingAchievementRows(
+            GameTestHelper helper) {
+        Connection conn = MiningDb.openInMemory();
+        try {
+            SchemaMigrator.migrate(conn, MiningSchema.MIGRATIONS.subList(0, 7));
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == 7,
+                    "停在 V7 的库 user_version 必须是 7, 实为 " + SchemaMigrator.userVersion(conn));
+            helper.assertTrue(!SchemaMigrator.tableExists(conn, "achievement_market_partner"),
+                    "V7 库里不应已有 achievement_market_partner 表");
+            exec(conn, "INSERT INTO achievement_reward (player_uuid, advancement_id, tier, points, title_id, earned_at)"
+                    + " VALUES ('" + LEGACY_PAYOUT_SELLER_ID + "', 'miningdim:mining/first_entry', 'bronze', 10, "
+                    + "NULL, 7)");
+
+            MiningSchema.apply(conn);
+
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == MiningSchema.MIGRATIONS.size(),
+                    "升级后 user_version 必须推进到迁移总数 " + MiningSchema.MIGRATIONS.size()
+                            + ", 实为 " + SchemaMigrator.userVersion(conn));
+            helper.assertTrue(SchemaMigrator.tableExists(conn, "achievement_market_partner"),
+                    "升级后必须建出 achievement_market_partner");
+            helper.assertTrue(singleLong(conn, "SELECT earned_at FROM achievement_reward WHERE player_uuid='"
+                    + LEGACY_PAYOUT_SELLER_ID + "'") == 7L, "升级不得改动既有成就奖励行");
+
+            exec(conn, "INSERT INTO achievement_market_partner (seller_uuid, buyer_uuid, trades, counted_volume) "
+                    + "VALUES ('" + LEGACY_SELLER_ID + "', '" + LEGACY_BUYER_ID + "', 1, 1000)");
+            exec(conn, "INSERT INTO achievement_market_partner (seller_uuid, buyer_uuid, trades, counted_volume) "
+                    + "VALUES ('" + LEGACY_SELLER_ID + "', '" + LEGACY_PAYOUT_SELLER_ID + "', 2, 0)");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO achievement_market_partner "
+                            + "(seller_uuid, buyer_uuid, trades, counted_volume) VALUES ('" + LEGACY_SELLER_ID
+                            + "', '" + LEGACY_BUYER_ID + "', 1, 5)"),
+                    "achievement_market_partner 的 (卖家, 买家) 主键必须拒绝同一对的第二行");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO achievement_market_partner "
+                            + "(seller_uuid, buyer_uuid, trades) VALUES ('x', 'y', 1)"),
+                    "achievement_market_partner.counted_volume 必须 NOT NULL");
+            helper.assertTrue(singleLong(conn, "SELECT SUM(trades) FROM achievement_market_partner WHERE seller_uuid='"
+                    + LEGACY_SELLER_ID + "'") == 3L, "同一卖家的不同买家应各占一行");
+            String plan = explainQueryPlanDetail(conn,
+                    "SELECT SUM(trades) FROM achievement_market_partner WHERE buyer_uuid='" + LEGACY_BUYER_ID + "'");
+            helper.assertTrue(plan.contains("idx_achievement_market_partner_buyer"),
+                    "买家侧的笔数查询应走 buyer_uuid 索引, 实为 " + plan);
+        } finally {
+            MiningDb.close(conn);
+        }
+        helper.succeed();
+    }
+
+    /**
      * 导入带显式主键的行之后, 新挂单的自增 id 必须越过已导入的最大值。
      * 若自增序列没跟上, 第一笔新挂单就会撞上导入行的主键, 表现为开服后无人能挂单。
      */

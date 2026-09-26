@@ -1,0 +1,35 @@
+{
+  "parent": "miningdim:economy/income_300k",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "stat": "miningdim:credits_earned",
+        "value": 1500000
+      },
+      "trigger": "miningdim:stat_at_least"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.economy.income_1500k.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:gold_block"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#FFCC33",
+      "translate": "achievement.miningdim.economy.income_1500k.title"
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

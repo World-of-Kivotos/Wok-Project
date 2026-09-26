@@ -31,13 +31,14 @@ public final class HubWebUiActions {
      * 面板 id 全集, 顺序即下发顺序 (决策 D7)。
      *
      * 取值逐条对齐前端 {@code router.ts} 的路由常量与 {@code TabletShell} 的一级导航 id。任务面板已经接入
-     * {@code /quests}; 精英怪图鉴的稳定 id 是 codex (真实路由是 ROUTE_CODEX)。前端的
+     * {@code /quests}; 成就点商店的 id 是 achievementShop (路由 ROUTE_ACHIEVEMENT_SHOP, 页面含"我的称号"页签, 不设锁);
+     * 精英怪图鉴的稳定 id 是 codex (真实路由是 ROUTE_CODEX)。前端的
      * panelId -&gt; {route,label,icon} 映射表是这份 id 的唯一消费方; 服务端多发一个前端不认识的 id 时前端应
      * 安全跳过。
      */
     private static final List<String> PANEL_IDS = List.of(
             "home", "market", "shop", "jobs", "mining",
-            "quests", "codex", "marriage", "case", "settings", "admin");
+            "quests", "achievementShop", "codex", "marriage", "case", "settings", "admin");
 
     private static final String PANEL_ADMIN = "admin";
     private static final String PANEL_QUESTS = "quests";

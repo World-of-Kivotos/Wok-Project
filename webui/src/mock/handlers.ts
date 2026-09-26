@@ -128,6 +128,8 @@ const MIRROR_AFTER_INVENTORY = new Set<string>([
   'marriage.divorce',
   // OP 调账只动钱包, 不动背包; 留在表里见上方判据说明。
   'admin.economy.set',
+  // 物品类商品兑换后直接放进背包 (称号类不进背包, 多刷一次无害)。
+  'achievement.pointShopBuy',
 ])
 
 /**

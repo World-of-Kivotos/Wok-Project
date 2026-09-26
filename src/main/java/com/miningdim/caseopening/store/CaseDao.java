@@ -1,6 +1,9 @@
 package com.miningdim.caseopening.store;
 
+import com.miningdim.caseopening.CaseRarity;
+
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /** SQLite contract for durable openings and non-item skin ownership. */
@@ -45,4 +48,10 @@ public interface CaseDao {
 
     /** 只返回结算锚已落定 (economy_settled=1) 的资产；过滤在 SQL 侧完成，不把点查留给 Java 流。 */
     List<SkinAssetRow> settledOwnedAssets(UUID ownerId);
+
+    /**
+     * 该玩家结算锚已落定的开箱 (COMMITTED 且 economy_settled=1) 开出过的品质, 去重; 没有则为空集。只读, SQL 侧去重,
+     * 不读整行 (整行带转盘 JSON), 结果最多 {@link CaseRarity} 的档数那么多。
+     */
+    Set<CaseRarity> settledRarities(UUID ownerId);
 }

@@ -1,0 +1,54 @@
+{
+  "parent": "miningdim:meta/count_25",
+  "criteria": {
+    "earned": {
+      "conditions": {
+        "count": 40
+      },
+      "trigger": "miningdim:achievement_count"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.meta.count_40.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:nether_star"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#FFFFFF",
+          "text": "功"
+        },
+        {
+          "bold": true,
+          "color": "#FFF6DB",
+          "text": "勋"
+        },
+        {
+          "bold": true,
+          "color": "#FFE8AA",
+          "text": "卓"
+        },
+        {
+          "bold": true,
+          "color": "#FFD66B",
+          "text": "著"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "earned"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

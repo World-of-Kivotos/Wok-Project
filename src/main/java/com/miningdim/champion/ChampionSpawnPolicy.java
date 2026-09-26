@@ -11,11 +11,14 @@ import net.minecraft.util.RandomSource;
  *  (2) 升格后掷几星 ({@link #rollStar}): 按难度档给一个 [minStar, maxStar] 区间均匀掷星。
  *
  * 难度->星级映射 (spec 第十三章标 PENDING, config 暴露前本表为唯一权威硬值, 与设计哲学对齐: EASY 矿洞只出
- * 低星强化杂兵, HARD 矿洞才有高星世界 BOSS 量级):
+ * 低星强化杂兵, HARD 矿洞才有 8-9★ 世界 BOSS 量级):
  *   EASY   : 升格率 6%,  星级 [1, 3]
  *   MEDIUM : 升格率 10%, 星级 [3, 6]
- *   HARD   : 升格率 15%, 星级 [5, 10]
+ *   HARD   : 升格率 15%, 星级 [5, 9]
  * 区间相邻档有重叠 (难度梯度平滑, 非硬跳)。一旦 ConfigSystem 暴露 champion.* 键应改为读配置 (留待接线)。
+ *
+ * 10★ 不在任何自然档里 (2026-09-26 服主拍板): 10★ 只由管理员召唤的世界 BOSS 产生 ({@link WorldBoss},
+ * {@code /mchampion worldboss}), 自然刷出的上限是 HARD 的 9★。
  *
  * 概率/区间硬值落本类 (非 EconomyConstants/ChampionRedlines): 它们是生成接入的策略量, 不是红线阈值,
  * 与八红线 (封顶) 语义不同, 故独立成表。
@@ -33,7 +36,7 @@ public final class ChampionSpawnPolicy {
     /** MEDIUM 矿洞升格率。 */
     public static final double PROMOTE_CHANCE_MEDIUM = 0.10D;
 
-    /** HARD 矿洞升格率 (高星世界 BOSS 量级)。 */
+    /** HARD 矿洞升格率 (8-9★ 世界 BOSS 量级)。 */
     public static final double PROMOTE_CHANCE_HARD = 0.15D;
 
     // ---- 难度档星级区间 [min, max] (含两端) ----
@@ -43,7 +46,8 @@ public final class ChampionSpawnPolicy {
     public static final int MEDIUM_MIN_STAR = 3;
     public static final int MEDIUM_MAX_STAR = 6;
     public static final int HARD_MIN_STAR = 5;
-    public static final int HARD_MAX_STAR = 10;
+    /** 自然刷出的星级上限: 10★ 只来自世界 BOSS ({@link WorldBoss}), 不进任何自然档。 */
+    public static final int HARD_MAX_STAR = 9;
 
     /** 某难度档的升格概率 [0,1]。 */
     public static double promoteChance(Difficulty difficulty) {

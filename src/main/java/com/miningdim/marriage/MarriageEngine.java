@@ -171,6 +171,8 @@ public final class MarriageEngine {
             state.claimMilestone(MILESTONE_FIRST_MARRIAGE);
         }
 
+        // 婚礼通知 (成就) 是成功返回前的最后一步: 关系、戒指与双方指针都已落定。
+        MarriageEvents.fireWedding(a, b);
         return WeddingResult.ok(state.marriageId());
     }
 

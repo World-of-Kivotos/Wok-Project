@@ -633,7 +633,8 @@
         "assets/miningdim/custom/miningdim_gunsmith",
         "data/miningdim/recipes/munitions",
         "assets/miningdim/textures/gui/gunsmith",
-        "data/miningdim/gunsmith/components"
+        "data/miningdim/gunsmith/components",
+        "data/tacz/recipe_filters"
       ],
       "resourceNamePrefixes": [
         "gunsmith_",

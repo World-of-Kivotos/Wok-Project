@@ -7,6 +7,7 @@ import com.miningdim.job.munitions.ModMunitionsItems;
 import com.miningdim.job.munitions.ModMunitionsSounds;
 import com.miningdim.job.munitions.MunitionsConfig;
 import com.miningdim.job.munitions.MunitionsLevels;
+import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartItem;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartRarity;
@@ -37,7 +38,9 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 public final class GunsmithPressBlockEntity extends BlockEntity implements MenuProvider {
 
@@ -63,6 +66,15 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
      */
     public static final String RARITY_LOCKED_KEY = "message.miningdim.gunsmith_press.rarity_locked";
     public static final String RARITY_LOCKED_FALLBACK = "该组件型号需要军火商 %s 级。";
+
+    /** 平台没有任何图纸时的拒绝文案 (参数: 平台名)。 */
+    public static final String PLATFORM_NO_BLUEPRINT_KEY = "message.miningdim.gunsmith_press.platform_no_blueprint";
+
+    /**
+     * 至少被一张图纸引用的平台, 以 {@link GunsmithBlueprint} 实际登记为准 (裁决 24)。BULLPUP/MACHINE_GUN 这类
+     * 没有图纸的平台, 冲出来的组件装不上任何枪, 工费照收就是给玩家挖坑; 以后给它们补了图纸会自动放行。
+     */
+    private static final Set<GunsmithPlatform> BLUEPRINT_PLATFORMS = blueprintPlatforms();
 
     private GunsmithPlatform selectedPlatform = GunsmithPlatform.AR;
     private GunsmithPressPart selectedPart = GunsmithPressPart.CORE;
@@ -165,6 +177,46 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
         normalizeSelectedVariant();
         setChanged();
         return true;
+    }
+
+    /**
+     * 玩家入口 (菜单按钮) 的选平台: 先过图纸门再落到 {@link #trySelectPlatform(int)} (裁决 24)。
+     * 裸的 trySelectPlatform / tryStartPreview 仍是不带图纸门的机制层 (GunsmithPressGameTests 借它们覆盖无图纸
+     * 平台的部件表与料量), 生产代码只经菜单走这两个带门入口。
+     */
+    public boolean trySelectPlatform(int index, ServerPlayer player) {
+        GunsmithPlatform platform = GunsmithPlatform.byIndex(index);
+        if (!platformHasBlueprint(platform)) {
+            rejectPlatformWithoutBlueprint(player, platform);
+            return false;
+        }
+        return trySelectPlatform(index);
+    }
+
+    /** 玩家入口的开工: 选中态可能来自旧存档里的无图纸平台, 开工帧再拦一次, 拒绝帧零扣费零扣料 (裁决 24)。 */
+    public boolean tryStartPress(ServerPlayer player) {
+        if (!isPressing() && !platformHasBlueprint(selectedPlatform)) {
+            rejectPlatformWithoutBlueprint(player, selectedPlatform);
+            return false;
+        }
+        return tryStartPreview(player);
+    }
+
+    public static boolean platformHasBlueprint(GunsmithPlatform platform) {
+        return BLUEPRINT_PLATFORMS.contains(platform);
+    }
+
+    private static Set<GunsmithPlatform> blueprintPlatforms() {
+        EnumSet<GunsmithPlatform> platforms = EnumSet.noneOf(GunsmithPlatform.class);
+        for (GunsmithBlueprint blueprint : GunsmithBlueprint.values()) {
+            platforms.add(blueprint.platform());
+        }
+        return Collections.unmodifiableSet(platforms);
+    }
+
+    private static void rejectPlatformWithoutBlueprint(ServerPlayer player, GunsmithPlatform platform) {
+        player.displayClientMessage(Component.translatable(PLATFORM_NO_BLUEPRINT_KEY,
+                Component.translatable(platform.labelKey())), true);
     }
 
     public boolean trySelectPart(int compactIndex) {

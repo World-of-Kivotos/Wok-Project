@@ -795,15 +795,22 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
                 selectedCaliber, level0, 1, elapsed, bufferRemaining,
                 primers, casings, bulletHeads, propellant, energy.getEnergyStored());
         // 复核 (major, F049 同源): active 必须与 settle 的判定同源 (含它的时间门), 不能只看料/缓冲/口径三道
-        // 静态门 —— 台主持续在线时 serverTick 每 tick 都追算一次, elapsed 恒为 1 tick, 单 tick 换算的理论发数
-        // 几乎恒不够一整批; 静态门此时恒真, 会把机器点成常亮/持续焊接音却一发都出不来。result.produced() 是
+        // 静态门 —— 台主持续在线时 serverTick 每 tick 都追算一次, 攒够一整批 (上万 tick) 之前 settle 恒返回
+        // NONE; 静态门此时恒真, 会把机器点成常亮/持续焊接音却迟迟不出弹。result.produced() 是
         // settle 本次是否真出弹的唯一真源, 直接复用, 不再另算一套可能与它不一致的判据。
         boolean active = result.produced();
         setMachineActive(active);
         playWeldSoundIfActive(now, active);
 
         if (!result.produced()) {
-            lastSettleTick = now;
+            // V06: 只在料/缓冲/电/口径真阻塞时推进时间戳 ("没料时不补历史时间" 语义不变)。仅仅是流逝时间还不够
+            // 一整批时必须保留时间戳让 elapsed 跨 tick 累积 —— 台主在线时本方法每 tick 都跑, 旧写法每次都推进,
+            // elapsed 恒为 1 tick, 在线挂机一发都出不来, 只有下线或走远冻结时间戳后回来才补产。灯与音效仍按上面的
+            // result.produced() 走, 保留时间戳不改 F049 的判据, 也不新增方块状态翻转。
+            if (!MunitionsProduction.waitingOnTimeOnly(selectedCaliber, level0, 1, bufferRemaining,
+                    primers, casings, bulletHeads, propellant, energy.getEnergyStored())) {
+                lastSettleTick = now;
+            }
             setChanged();
             return;
         }
@@ -1009,9 +1016,9 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     /**
      * 机器是否 "仍有余粮" (供 settleForOwner 产出落账后判定要不要继续点灯; 与逐 tick 的 active 不是同一件事)。
      * 复核 (major, F049): 这是一道粗粒度静态门 (选中口径 + 攒够一批材料 + 缓冲还有空间), 刻意不含
-     * {@link MunitionsProduction#settle} 的时间门 —— 台主持续在线时 serverTick 每 tick 都追算一次, elapsed
-     * 恒为 1 tick, 时间门几乎永远不够一整批; 若拿这三道静态门驱动逐 tick 的 "在产" 显示, 会把机器点成常亮却
-     * 一发都出不来。故逐 tick 的 active 已改用 {@link MunitionsProduction.Result#produced()} (settle 本次是否
+     * {@link MunitionsProduction#settle} 的时间门 —— 台主持续在线时 serverTick 每 tick 都追算一次, 攒够一整批
+     * 之前时间门都不放行; 若拿这三道静态门驱动逐 tick 的 "在产" 显示, 会把机器点成常亮却迟迟不出弹。
+     * 故逐 tick 的 active 已改用 {@link MunitionsProduction.Result#produced()} (settle 本次是否
      * 真出弹的唯一真源), 本方法只在产出落账之后调用一次, 表达 "这批产完了, 还要不要继续亮着等下一批"。
      */
     private boolean canAccumulateProduction() {

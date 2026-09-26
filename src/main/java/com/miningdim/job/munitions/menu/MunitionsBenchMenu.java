@@ -29,17 +29,42 @@ import net.minecraftforge.items.SlotItemHandler;
  * 打开即触发一次离线追算结算 (主人在线时一次性补产; 见 {@link MunitionsBenchBlockEntity#onAccess})。
  *
  * 按钮路由 (clickMenuButton; 走原版通道, 不新开网络包):
- *  - [0, caliber count): 选口径 caliberIndex (服务端权威重校等级门);
- *  - 200: 切锁 (仅主人)。
+ *  - [0, {@link #CALIBER_BUTTON_LIMIT}): 选口径 caliberIndex (服务端权威重校等级门; 口径扩档预留到 100 个);
+ *  - 100: 切锁 (仅主人; 界面不发, 上锁走方块 Shift+右键);
+ *  - 101 / 102 / 103: 开工 / 取消 / 切连续模式。
+ *
+ * 按钮 id 一律落在 [0, 127] (V05): 原版 ServerboundContainerButtonClickPacket 用 writeByte/readByte 收发 buttonId
+ * (javap 核实), 大于 127 的 id 在专用服和局域网访客那里被截成有符号字节 (旧值 210 -> -46), 手动开工整条链路失效;
+ * 单机集成服走本地通道不经编解码, 测不出来。
  */
 public final class MunitionsBenchMenu extends AbstractMiningMenu {
 
     private static final int CONTAINER_SLOTS = 5;
 
-    public static final int BUTTON_TOGGLE_LOCK = 200;
-    public static final int BUTTON_START_CRAFT = 210;
-    public static final int BUTTON_CANCEL_CRAFT = 211;
-    public static final int BUTTON_TOGGLE_CONTINUOUS = 212;
+    /** 口径按钮保留区间上界 (不含): 口径序号直接当按钮 id, 功能按钮从这里往后排。 */
+    public static final int CALIBER_BUTTON_LIMIT = 100;
+    /** 原版按钮包单字节可无损往返的最大 id。 */
+    public static final int MAX_BUTTON_ID = Byte.MAX_VALUE;
+
+    public static final int BUTTON_TOGGLE_LOCK = 100;
+    public static final int BUTTON_START_CRAFT = 101;
+    public static final int BUTTON_CANCEL_CRAFT = 102;
+    public static final int BUTTON_TOGGLE_CONTINUOUS = 103;
+
+    static {
+        // 类加载期区间断言 (V05): 口径扩档不得挤进功能按钮区, 功能按钮不得越过按钮包的单字节上限。
+        if (MunitionsCaliber.values().length > CALIBER_BUTTON_LIMIT) {
+            throw new IllegalStateException("munitions caliber count " + MunitionsCaliber.values().length
+                    + " overflows the caliber button range [0, " + CALIBER_BUTTON_LIMIT + ")");
+        }
+        for (int id : new int[] {BUTTON_TOGGLE_LOCK, BUTTON_START_CRAFT, BUTTON_CANCEL_CRAFT,
+                BUTTON_TOGGLE_CONTINUOUS}) {
+            if (id < CALIBER_BUTTON_LIMIT || id > MAX_BUTTON_ID) {
+                throw new IllegalStateException("munitions bench button id " + id + " must stay within ["
+                        + CALIBER_BUTTON_LIMIT + ", " + MAX_BUTTON_ID + "]");
+            }
+        }
+    }
 
     private final MunitionsBenchBlockEntity blockEntity;
     private final ContainerData data;

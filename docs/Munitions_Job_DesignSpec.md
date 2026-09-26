@@ -30,6 +30,10 @@
 
 - TACZ 弹药 = 单一 `tacz:ammo` 物品,口径存 `AmmoId` NBT。**用公共 API `AmmoItemBuilder.create().setId(口径).setCount(N).build()` 直接产出合法弹药 ItemStack**,无需 mixin、无需 TACZ 配方系统。
 - 服务器禁用 TACZ 默认 `gun_smith_table_crafting` 弹药/枪械配方(维持买断),军火商的**军火台**是唯一搓弹入口。
+  - **落点**:本 mod 内置 `data/tacz/recipe_filters/default.json`。TACZ 1.1.8 的 `RecipeFilterManager` 按 `recipe_filters/` 下的文件路径取过滤器 id,同 id 的多份文件把白/黑名单各自追加合并(javap 核实),所以这份文件并进 `tacz:default`;枪械台、弹药台、配件台三份方块数据的 `filter` 字段写的都是 `tacz:default`。判定是"白名单任一命中放行、黑名单任一命中否决",以 `^` 开头的条目按全串正则匹配,其余按字面配方 id。
+  - **规则**:只拉黑 `^tacz:gun/.+$` 与 `^tacz:ammo/.+$`(配方 id 形如 `tacz:gun/ak47`、`tacz:ammo/9mm`,对应默认枪包 `recipes/gun/` 53 条、`recipes/ammo/` 24 条);`recipes/attachments/` 的 95 条配件配方(含 `ammo_mod_he` 等弹头改装)照常可造。不写白名单,默认枪包自带的 `^.*$` 仍然生效。
+  - **历史**:此前的 `data/miningdim/recipe_filters/munitions_disable_tacz.json` 注册成 `miningdim:munitions_disable_tacz`,没有任何工作台引用它,黑名单从未生效(审计 V03),已删除。`TaczRecipeFilterGameTests` 按 TACZ 同一套扫描与合并语义核对:服务端数据里的文件确实落在 `tacz:default` 下,枪械/弹药配方被拒、配件配方放行。
+  - **前提与边界**:`tacz-server.toml` 的 `EnableDefaultGunSmithTableFilter` 必须保持默认的 `true`,关掉后枪械台 `tacz:gun_smith_table` 会跳过过滤器(弹药台与配件台不受这个开关影响)。第三方枪包自带的工作台若使用自己命名空间的过滤器(例如 `ccrp:default`、`cib:cib_printer_bullet`),不在本文件管辖范围内;上线的枪包组合变化时要复核它们会不会放出 `tacz:gun/*`、`tacz:ammo/*` 配方。
 - **GUI 为自研贴图**(`MunitionsBenchScreen` 引用 `miningdim:textures/gui/container/` 下的 munitions_bench.png、munitions_ui_font.png、munitions_titles.png、munitions_ammo_profiles.png 共四张)。世界方块走自建 block+BE。世界模型同为自研 GeckoLib 骨骼模型(六档各一套 geo + 512x512 调色板图集,由 `tools/generate_munitions_bench_geckolib_assets.py` 确定性生成)。GUI 与世界模型均不再引用任何 TACZ 资源,对 TACZ 的依赖只剩运行期弹药物化 API(`AmmoItemBuilder`);原先"复用 TACZ 制枪台贴图 → 不触再分发协议"的论据已随自研贴图落地而失效。
 
 ### 3A. 枪械配件冲压补充（WIP）
@@ -190,6 +194,27 @@
 
 高阶弹军火商独占 + 商店标价高 → 单发利厚,满级军火商主力靠步枪弹走量 + 高阶弹吃肥差。
 
+**口径档与弹药 id 对照**(`MunitionsCaliber`;序号存进 NBT 与 ContainerData,只追加不重排)。TACZ 自带的枪械/弹药配方已禁用(见三章),所以每张枪匠图纸用到的弹药都必须在这里有一档,`TaczRecipeFilterGameTests` 逐张图纸核对:
+
+| 序号 | 枚举 | 等级门 | 弹药 id | 价格档 | 对应图纸 |
+|---|---|---|---|---|---|
+| 0 | `PISTOL` | L1 | `tacz:9mm` | 手枪/SMG | UZI、HK_MP5A5、STERLING、MPX |
+| 1 | `RIFLE` | L3 | `tacz:762x39` | 步枪 | AK47、RPK、TYPE_81 |
+| 2 | `SHOTGUN` | L4 | `tacz:12g` | 霰弹 | M870、M1887_LONG、KSG、M1014 |
+| 3 | `BATTLE` | L5 | `tacz:762x54` | 战斗/机枪 | — |
+| 4 | `SNIPER` | L6 | `tacz:338` | 狙击 | — |
+| 5 | `BIG_PISTOL` | L7 | `tacz:50ae` | 大口径手枪 | — |
+| 6 | `ANTI_MATERIEL` | L8 | `tacz:50bmg` | 反器材 | — |
+| 7 | `EXPLOSIVE` | L9 | `tacz:40mm` | 爆炸 | — |
+| 8 | `SPECIAL` | L10 | `tacz:68x51fury` | 特种(暂沿用狙击价) | — |
+| 9 | `RIFLE_556` | L3 | `tacz:556x45` | 步枪 | M4A1、M16A1、M16A4、HK416D、SPR15HB |
+| 10 | `PISTOL_45ACP` | L1 | `tacz:45acp` | 手枪/SMG | M1911、UMP45 |
+| 11 | `SNIPER_3006` | L6 | `tacz:30_06` | 狙击 | M700 |
+| 12 | `SNIPER_792` | L6 | `tacz:792x57` | 狙击 | KAR98K |
+| 13 | `SNIPER_303` | L6 | `lavender:british0x303` | 狙击 | SMLE_III |
+
+后四档是随禁用 TACZ 配方一起补的:原先这五张图纸在生存中没有弹源。`.303` 不在 TACZ 默认枪包里,弹药命名空间取 lavender 枪包(`MunitionsCaliber.ammoNamespace()`,其余档都是 `tacz`),服务器没装 lavender 枪包时这一档产出的弹药 id 无效,SMLE_III 图纸本身也用不了。
+
 ---
 
 ## 七、升级线（DECIDED）
@@ -258,6 +283,6 @@
 4. 产出倍增(L6+):四件套配方全等级通用,L6+ 只切换产出基数(40→70),不存在独立的提炼子系统。
 5. 工费 sink + 散户火药收购通道(P2P)。
 6. 进度接入(EnumMap)+ 产弹经验(谁产谁得)+ 每日软上限。
-7. 禁用 TACZ 默认弹药/枪械配方(datapack 覆盖)。
+7. 禁用 TACZ 默认弹药/枪械配方(mod 内置 `data/tacz/recipe_filters/default.json` 并入 `tacz:default`,细节见三章;`TaczRecipeFilterGameTests` 守护)。
 8. 全链路 TDD。
 9. WebUI 只读面板:`job.munitions.state` / `job.blueprints` 两条 action + "面板刷新绝不触发结算"的铁律(见十章第 11 条)。

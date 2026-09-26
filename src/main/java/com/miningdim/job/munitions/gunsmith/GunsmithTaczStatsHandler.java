@@ -2,9 +2,13 @@ package com.miningdim.job.munitions.gunsmith;
 
 import com.miningdim.job.munitions.MunitionsConfig;
 import com.tacz.guns.api.GunProperties;
+import com.tacz.guns.api.TimelessAPI;
 import com.tacz.guns.api.entity.IGunOperator;
 import com.tacz.guns.api.event.common.AttachmentPropertyEvent;
+import com.tacz.guns.api.event.common.GunFireEvent;
 import com.tacz.guns.api.event.common.GunShootEvent;
+import com.tacz.guns.api.item.IGun;
+import com.tacz.guns.api.item.gun.FireMode;
 import com.tacz.guns.api.modifier.CacheValue;
 import com.tacz.guns.api.modifier.IAttachmentModifier;
 import com.tacz.guns.api.modifier.JsonProperty;
@@ -17,6 +21,7 @@ import com.tacz.guns.resource.pojo.data.gun.GunData;
 import com.tacz.guns.resource.pojo.data.gun.InaccuracyType;
 import com.tacz.guns.resource.pojo.data.attachment.Modifier;
 import it.unimi.dsi.fastutil.Pair;
+import net.minecraft.Util;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -32,9 +37,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.WeakHashMap;
 import java.util.function.Function;
 
 public final class GunsmithTaczStatsHandler {
+
+    /** 每个射手上一发放行 (服务端 GunShootEvent 未被取消) 的服务端时间, 供射速复核; 只在服务端线程读写。 */
+    private static final Map<LivingEntity, Long> LAST_SHOT_MILLIS = new WeakHashMap<>();
 
     private GunsmithTaczStatsHandler() {
     }
@@ -128,6 +137,10 @@ public final class GunsmithTaczStatsHandler {
      * postChangeEvent 同步重建, 本发子弹 (伤害曲线、爆头、穿甲、射程、散布、弹速) 读到的就是这把枪的属性。
      * 客户端同样处理, 让本机后坐与开镜表现与服务端一致; 其他玩家开火经 ServerMessageGunShoot 转发到本机的那份
      * 事件带的是解包出来的副本, 其缓存也不归本机结算, 不碰。
+     *
+     * 服务端另有一项射速复核: TaCZ 的服务端射击冷却在本事件之前就按旧缓存的射速判过了, 重建后若旧缓存的间隔更短,
+     * 按新缓存再判一次, 不够就作废本发 (判定见 {@link GunsmithTaczCacheGuard#rebuiltCacheRejectsShot})。
+     * 作废的一发不丢弹: 闭膛枪在本事件之前只是把弹匣里的一发推上膛, 弹仍在膛内。
      */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onGunShoot(GunShootEvent event) {
@@ -140,10 +153,68 @@ public final class GunsmithTaczStatsHandler {
             return;
         }
         ItemStack gun = event.getGunItemStack();
+        AttachmentCacheProperty staleCache = IGunOperator.fromLivingEntity(shooter).getCacheProperty();
+        if (!GunsmithTaczCacheGuard.needsRebuild(staleCache, gun, clientSide)) {
+            return;
+        }
+        // 客户端的冷却本来就归客户端自己, 只在服务端复核; 射手原本没有缓存时 TaCZ 按 gunData 判冷却, 无从放宽。
+        long staleInterval = !clientSide && staleCache != null ? cachedShootIntervalMillis(shooter, gun) : -1L;
+        AttachmentPropertyManager.postChangeEvent(shooter, gun);
+        if (staleInterval > 0L && GunsmithTaczCacheGuard.rebuiltCacheRejectsShot(staleInterval,
+                cachedShootIntervalMillis(shooter, gun), LAST_SHOT_MILLIS.get(shooter), Util.getMillis())) {
+            event.setCanceled(true);
+        }
+    }
+
+    /**
+     * 记下每个射手上一发真正放行的服务端时间, 对应 TaCZ 在 GunShootEvent 之后写 shootTimestamp 的时机。
+     * LOWEST 且不收已取消的事件: 被任何一方拦下的一发都不算。不看功能门, 门在运行期打开后复核仍有准确记录。
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public void onGunShootAllowed(GunShootEvent event) {
+        if (event.getLogicalSide() == LogicalSide.SERVER) {
+            LAST_SHOT_MILLIS.put(event.getShooter(), Util.getMillis());
+        }
+    }
+
+    /**
+     * V04 连发后续各轮: 三连发只有第 1 轮紧跟 GunShootEvent 同步执行, 第 2、3 轮推迟到之后的服务端 tick
+     * (TaCZ CycleTaskHelper), 每轮构造子弹时重新读射手缓存 (伤害曲线、爆头、穿甲、有效射程、穿透、爆炸)。
+     * 两轮之间 TaCZ 只核对主手仍是同一个 ItemStack 对象: 改包客户端可以把 A 换进槽里发一次切射击模式 (缓存重建为 A,
+     * 该包没有冷却), 再把同一个 B 换回去, 身份核对照样通过。GunFireEvent 每轮都在 reduceAmmoOnce 与子弹构造之前抛出,
+     * 带的正是 TaCZ 刚核对过的主手对象, 所以逐轮在这里再核对一次。正常连射对象不变, 只是一次查表, 不会重建。
+     * 连发各轮的间隔取 gunData 的 burst 数据, 不读缓存, 这里不必复核射速。
+     */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onGunFire(GunFireEvent event) {
+        if (!MunitionsConfig.GUNSMITH_ENABLED.get() || event.getLogicalSide() != LogicalSide.SERVER) {
+            return;
+        }
+        LivingEntity shooter = event.getShooter();
+        ItemStack gun = event.getGunItemStack();
         if (GunsmithTaczCacheGuard.needsRebuild(
-                IGunOperator.fromLivingEntity(shooter).getCacheProperty(), gun, clientSide)) {
+                IGunOperator.fromLivingEntity(shooter).getCacheProperty(), gun, false)) {
             AttachmentPropertyManager.postChangeEvent(shooter, gun);
         }
+    }
+
+    /**
+     * TaCZ 1.1.8 LivingEntityShoot.getShootCoolDown 按射手当下缓存算出的射击间隔 (毫秒), 与 GunData.getShootInterval 同一口径
+     * (缓存射速钳在 1..1200, 再乘枪温系数)。返回 -1 表示这一发的服务端冷却不读缓存, 无需复核:
+     * 服务端冷却检查被关掉、三连发 (冷却取 gunData 的连发最小间隔)、或查不到枪数据。
+     */
+    private static long cachedShootIntervalMillis(LivingEntity shooter, ItemStack gun) {
+        IGun iGun = IGun.getIGunOrNull(gun);
+        if (iGun == null || !SyncConfig.SERVER_SHOOT_COOLDOWN_V.get()) {
+            return -1L;
+        }
+        FireMode fireMode = iGun.getFireMode(gun);
+        if (fireMode == FireMode.BURST) {
+            return -1L;
+        }
+        return TimelessAPI.getCommonGunIndex(iGun.getGunId(gun))
+                .map(index -> index.getGunData().getShootInterval(shooter, fireMode, gun))
+                .orElse(-1L);
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)

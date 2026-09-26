@@ -81,7 +81,8 @@ public final class GunsmithAssemblyMenu extends AbstractMiningMenu {
         if (stackInSlot.isEmpty()) {
             slot.set(ItemStack.EMPTY);
         } else {
-            slot.setChanged();
+            // 与基类同口径 (V02): 残留活栈经 set 写回, 让 handler 触发 onContentsChanged 标脏 BE。
+            slot.set(stackInSlot);
         }
         if (stackInSlot.getCount() == moved.getCount()) {
             return ItemStack.EMPTY;

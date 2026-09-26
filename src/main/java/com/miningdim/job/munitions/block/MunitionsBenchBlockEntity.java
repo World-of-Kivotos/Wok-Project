@@ -939,6 +939,56 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         }
     }
 
+    /**
+     * 拆除掉落 (V09): 方块被移除时由 {@link MunitionsBenchBlock#onRemove} 调一次, 交出应返还世界的全部物品并清空
+     * 自身, 同一批物品不会被交出第二次。
+     *  - 四个料槽原样返还;
+     *  - 缓冲弹药: 输出槽只是 bufferedRounds 的可视物化 (输出槽 ⊆ 缓冲), 先原样交出输出槽那一栈, 再把缓冲余量
+     *    按 min(物品自报上限, NBT 存盘安全上限) 拆栈物化 —— 合计恰为玩家手取能拿到的总量 max(输出槽, 缓冲),
+     *    不多不少。前提是取弹各路径 (含 SWAP, V01) 都已按取走量扣缓冲, 否则早被取走的弹会在这里再吐一遍。
+     *    TACZ 未加载时物化返回 EMPTY, 余量无法成弹 (与 refreshOutputStack 同一降级), 只记日志不抛;
+     *  - pendingLegacyDrops (F015 迁移后、首个 tick 前的待吐队列) 一并返还。
+     * 内部 FE 无实体形态, 不返还。
+     */
+    public List<ItemStack> dropContents() {
+        List<ItemStack> drops = new ArrayList<>();
+        for (int slot = SLOT_PRIMER; slot < INPUT_SLOT_END; slot++) {
+            ItemStack stack = inventory.getStackInSlot(slot);
+            if (!stack.isEmpty()) {
+                drops.add(stack.copy());
+                inventory.setStackInSlot(slot, ItemStack.EMPTY);
+            }
+        }
+        int remainingRounds = bufferedRounds;
+        ItemStack shown = inventory.getStackInSlot(SLOT_OUTPUT);
+        if (!shown.isEmpty()) {
+            drops.add(shown.copy());
+            remainingRounds -= shown.getCount();
+            inventory.setStackInSlot(SLOT_OUTPUT, ItemStack.EMPTY);
+        }
+        if (remainingRounds > 0 && bufferedCaliber != null) {
+            ItemStack template = MunitionsAmmoFactory.materialize(bufferedCaliber, 1);
+            if (template.isEmpty()) {
+                LOGGER.warn("[miningdim] munitions bench at {} removed with {} buffered {} rounds that cannot be "
+                        + "materialized (TACZ not loaded); they are lost", worldPosition, remainingRounds,
+                        bufferedCaliber);
+            } else {
+                int cap = Math.max(1, Math.min(template.getMaxStackSize(), PERSISTENCE_SAFE_MAX_COUNT));
+                while (remainingRounds > 0) {
+                    int chunk = Math.min(remainingRounds, cap);
+                    drops.add(template.copyWithCount(chunk));
+                    remainingRounds -= chunk;
+                }
+            }
+        }
+        bufferedRounds = 0;
+        bufferedCaliber = null;
+        drops.addAll(pendingLegacyDrops);
+        pendingLegacyDrops.clear();
+        setChanged();
+        return drops;
+    }
+
     // ---- 反漏斗 capability ----
 
     @Override

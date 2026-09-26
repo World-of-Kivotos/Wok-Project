@@ -9,6 +9,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.StringRepresentable;
+import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
@@ -34,6 +35,7 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
+import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
@@ -236,6 +238,9 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
      *     setCanceled), 若这里照常 decrement 就会把台数计数刷到比实际已放置台数还低, 相当于每撞一次上限就
      *     白送一格额度, 可无限刷台。vanilla 自己的 {@code Block.popResource}/{@code popExperience} 就是靠这个
      *     字段跳过快照回滚期的副作用 (forge-1.20.1-47.4.20 sources 核实), 这里对齐同一套纪律。
+     *
+     * 同一处也是内容物掉落的唯一出口 (V09): 料槽、缓冲弹药、迁移待吐队列经 {@link MunitionsBenchBlockEntity#dropContents}
+     * 交出后按容器惯例撒在原位, 覆盖与台数回收相同的全部移除路径; 快照回滚期同样跳过 (那台是刚被撤销放置的空台)。
      */
     @Override
     public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean isMoving) {
@@ -245,8 +250,41 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
             if (owner != null && level instanceof ServerLevel serverLevel) {
                 MunitionsSavedData.get(serverLevel.getServer().overworld()).decrement(owner);
             }
+            for (ItemStack stack : be.dropContents()) {
+                Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), stack);
+            }
         }
         super.onRemove(state, level, pos, newState, isMoving);
+    }
+
+    /**
+     * 上锁的台只许台主或 OP 拆 (V09): 锁原先只拦 GUI, 谁都能一斧头把别人的台连料带弹拆掉。
+     * 生存挖掘在这里把进度压成 0 (服务端判不到挖完, 客户端预测的破坏随包确认回滚, 也不白耗工具耐久);
+     * 创造模式不看挖掘进度, 由 {@link #onDestroyedByPlayer} 兜住。爆炸/指令等非玩家移除不受影响。
+     */
+    @Override
+    public float getDestroyProgress(BlockState state, Player player, BlockGetter level, BlockPos pos) {
+        if (!mayPlayerBreak(state, level, pos, player)) {
+            return 0.0F;
+        }
+        return super.getDestroyProgress(state, player, level, pos);
+    }
+
+    @Override
+    public boolean onDestroyedByPlayer(BlockState state, Level level, BlockPos pos, Player player,
+                                       boolean willHarvest, FluidState fluid) {
+        if (!mayPlayerBreak(state, level, pos, player)) {
+            return false;
+        }
+        return super.onDestroyedByPlayer(state, level, pos, player, willHarvest, fluid);
+    }
+
+    /** 未上锁 (或找不到主格 BE) 时人人可拆; 上锁时仅台主或 OP。锁状态只在服务端权威, 客户端侧恒放行。 */
+    private static boolean mayPlayerBreak(BlockState state, BlockGetter level, BlockPos pos, Player player) {
+        if (!(level.getBlockEntity(mainPos(pos, state)) instanceof MunitionsBenchBlockEntity be) || !be.isLocked()) {
+            return true;
+        }
+        return be.isOwner(player) || player.hasPermissions(2);
     }
 
     @Override

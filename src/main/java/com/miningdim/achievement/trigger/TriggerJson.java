@@ -69,6 +69,32 @@ final class TriggerJson {
         return value;
     }
 
+    /** 可选的长整数, 不小于 min; 缺省为 null。 */
+    @Nullable
+    static Long optionalLongAtLeast(JsonObject json, String field, long min) {
+        if (!json.has(field)) {
+            return null;
+        }
+        long value = GsonHelper.getAsLong(json, field);
+        if (value < min) {
+            throw new JsonSyntaxException("'" + field + "' must be at least " + min + ", got " + value);
+        }
+        return value;
+    }
+
+    /** 可选的非空白字符串; 缺省为 null, 写成空白串直接拒收 (空串若按"不限"处理, 等于把条件悄悄删掉)。 */
+    @Nullable
+    static String optionalNonBlank(JsonObject json, String field) {
+        if (!json.has(field)) {
+            return null;
+        }
+        String value = GsonHelper.getAsString(json, field);
+        if (value.isBlank()) {
+            throw new JsonSyntaxException("'" + field + "' must not be blank");
+        }
+        return value;
+    }
+
     /** 范围内的整数; 字段缺省时取 fallback (fallback 本身不校验, 由调用方保证在范围内)。 */
     static int intInRange(JsonObject json, String field, int fallback, int min, int max) {
         if (!json.has(field)) {

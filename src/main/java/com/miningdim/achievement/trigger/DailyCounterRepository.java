@@ -17,6 +17,10 @@ public interface DailyCounterRepository {
     String EXTRACTION_KEY = "mining_extraction";
     /** 困难有效撤离的每日计数键 (上限 dailyHardExtractionCap), 与上一项分开计。 */
     String HARD_EXTRACTION_KEY = "mining_extraction_hard";
+    /** 任务领取的每日计数键 (上限 dailyQuestCap)。 */
+    String QUESTS_COMPLETED_KEY = "quests_completed";
+    /** 领完当天每日任务的计数键; "天"取任务板的日常周期戳, 上限 1。 */
+    String QUEST_DAILY_CLEAR_KEY = "quest_daily_clear";
 
     /** 今天的 UTC 纪元日。 */
     static long today() {

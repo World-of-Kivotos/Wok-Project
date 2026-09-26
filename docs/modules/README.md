@@ -46,7 +46,7 @@
 - `wok-job-core` 登记 `job`，但所有权按最长前缀判定，因此 `job/miner`、`job/farmer` 等子包归各自的职业模块，职业框架只拥有 `job` 根包下的框架类本身。
 - `wok-app` 是唯一用精确包（`javaPackages`）而非前缀登记的模块，它只拥有根包里的装配入口；这样未登记的新顶层包会被判为无主而失败，不会被兜底吞进装配模块。
 - `wok-job-fisher` 的 `category=job` 只是业务归类：`job/JobId.java` 的枚举至今仍是八个常量、没有 `FISHER`，所以渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门，当前只有图鉴、矿石鱼和鱼羹三条内容线。
-- `mixin` 归 `wok-core` 而不单列模块：`com.miningdim.mixin` 下现有五个类，另有 `required=false` 的 `com.miningdim.mixin.compat.TideOreFishMixin`。其中 `MoveSpeedCheckMixin` 混入原版 `ServerGamePacketListenerImpl`、只读核心配置门面，属于核心装配的基础设施；`ItemStackMiningDurabilityMixin`（混 `ItemStack`）、`PlayerFoodExhaustionMixin` 与 `PlayerOreSoupStateMixin`（混 `Player`）、`VanillaOreFishMixin`（混 `FishingHook`）以及 compat 里的 Tide 版都直接调用渔夫实现，这五处正是 D036 这条运行期债务的全部触发点。收敛 D036 前不再新增同向 mixin。
+- `mixin` 归 `wok-core` 而不单列模块：`com.miningdim.mixin` 下现有六个类，另有 `required=false` 的 `com.miningdim.mixin.compat.TideOreFishMixin`。其中 `MoveSpeedCheckMixin` 混入原版 `ServerGamePacketListenerImpl`、只读核心配置门面，`PlayerAdvancementsSilenceMixin` 混入原版 `PlayerAdvancements`、只读核心模块的静默授予开关 `core.AdvancementSilence`（成就上线追溯用，见成就文档 9.9），两者属于核心装配的基础设施；`ItemStackMiningDurabilityMixin`（混 `ItemStack`）、`PlayerFoodExhaustionMixin` 与 `PlayerOreSoupStateMixin`（混 `Player`）、`VanillaOreFishMixin`（混 `FishingHook`）以及 compat 里的 Tide 版都直接调用渔夫实现，这五处正是 D036 这条运行期债务的全部触发点。收敛 D036 前不再新增同向 mixin。
 - 模块数、活跃例外数和共享资源文件数不在本文重复钉死，`gradlew verifyModuleRegistry` 每次运行都会打印当期实数。
 
 ## 整理规则
@@ -105,6 +105,6 @@
 | `miningdim-tarot.toml` | `wok-job-tarot` | `job/tarot/TarotSystem` | [`../TarotReader_Mod_DesignSpec.md`](../TarotReader_Mod_DesignSpec.md) 第七、八章（gacha 与 craft 两段出率） |
 | `miningdim-munitions.toml` | `wok-job-munitions` | `job/munitions/MunitionsSystem` | [`../Munitions_Job_DesignSpec.md`](../Munitions_Job_DesignSpec.md) |
 | `miningdim-title.toml` | `wok-title` | `title/TitleSystem` | [`../Title_System_DesignSpec.md`](../Title_System_DesignSpec.md) 13.3、13.4（赞助专属称号的校验阈值与修改冷却） |
-| `miningdim-achievement.toml` | `wok-achievement` | `achievement/AchievementSystem` | [`../Achievement_System_DesignSpec.md`](../Achievement_System_DesignSpec.md) 6.1、6.3（有效撤离的停留与挖掘门槛、每日计数上限、困难作业时长的封顶） |
+| `miningdim-achievement.toml` | `wok-achievement` | `achievement/AchievementSystem` | [`../Achievement_System_DesignSpec.md`](../Achievement_System_DesignSpec.md) 6.1、6.3（有效撤离的停留与挖掘门槛、每日计数上限、困难作业时长的封顶）与 9.5 实现口径（任务领取计数的每日上限） |
 
 这张表也是本文「文档所有权与子 README」第 2 条的判定依据：新增一份配置文件而不在这里登记，等同于交付了一组服主调不明白的旋钮。

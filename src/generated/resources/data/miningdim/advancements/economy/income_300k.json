@@ -1,0 +1,35 @@
+{
+  "parent": "miningdim:economy/first_paycheck",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "stat": "miningdim:credits_earned",
+        "value": 300000
+      },
+      "trigger": "miningdim:stat_at_least"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.economy.income_300k.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:gold_ingot"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#D0D7DE",
+      "translate": "achievement.miningdim.economy.income_300k.title"
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

@@ -1,0 +1,58 @@
+{
+  "parent": "miningdim:economy/market_1m",
+  "criteria": {
+    "sold": {
+      "conditions": {
+        "count": 1,
+        "partner_min": 10000,
+        "partners": 20,
+        "role": "seller",
+        "volume": 20000000
+      },
+      "trigger": "miningdim:market_trade"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.economy.tycoon.desc"
+    },
+    "frame": "challenge",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:netherite_block"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#A55CFF",
+          "text": "商"
+        },
+        {
+          "bold": true,
+          "color": "#CC5CFF",
+          "text": "业"
+        },
+        {
+          "bold": true,
+          "color": "#EA5CE7",
+          "text": "大"
+        },
+        {
+          "bold": true,
+          "color": "#FF5CB8",
+          "text": "亨"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "sold"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

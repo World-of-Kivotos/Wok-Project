@@ -45,4 +45,7 @@ public interface CaseDao {
 
     /** 只返回结算锚已落定 (economy_settled=1) 的资产；过滤在 SQL 侧完成，不把点查留给 Java 流。 */
     List<SkinAssetRow> settledOwnedAssets(UUID ownerId);
+
+    /** 该玩家结算锚已落定的开箱行 (COMMITTED 且 economy_settled=1), 按创建时间排序; 只读。 */
+    List<CaseOpeningRow> settledOpenings(UUID ownerId);
 }

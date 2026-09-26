@@ -1,0 +1,38 @@
+{
+  "parent": "miningdim:economy/market_100k",
+  "criteria": {
+    "sold": {
+      "conditions": {
+        "count": 1,
+        "partner_min": 10000,
+        "partners": 3,
+        "role": "seller",
+        "volume": 1000000
+      },
+      "trigger": "miningdim:market_trade"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.economy.market_1m.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:diamond_block"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#FFCC33",
+      "translate": "achievement.miningdim.economy.market_1m.title"
+    }
+  },
+  "requirements": [
+    [
+      "sold"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

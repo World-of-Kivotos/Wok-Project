@@ -1,0 +1,55 @@
+{
+  "parent": "miningdim:economy/income_1500k",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "stat": "miningdim:credits_earned",
+        "value": 5000000
+      },
+      "trigger": "miningdim:stat_at_least"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.economy.income_5m.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:netherite_ingot"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#FFFFFF",
+          "text": "富"
+        },
+        {
+          "bold": true,
+          "color": "#FFF6DB",
+          "text": "甲"
+        },
+        {
+          "bold": true,
+          "color": "#FFE8AA",
+          "text": "一"
+        },
+        {
+          "bold": true,
+          "color": "#FFD66B",
+          "text": "方"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

@@ -1,0 +1,35 @@
+{
+  "parent": "miningdim:economy/root",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "stat": "miningdim:credits_earned",
+        "value": 10000
+      },
+      "trigger": "miningdim:stat_at_least"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.economy.first_paycheck.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:gold_nugget"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#C8834A",
+      "translate": "achievement.miningdim.economy.first_paycheck.title"
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

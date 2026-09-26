@@ -809,14 +809,18 @@
         "wok-job-brewer",
         "wok-job-tarot",
         "wok-job-munitions",
-        "wok-job-agent"
+        "wok-job-agent",
+        "wok-market",
+        "wok-case-opening",
+        "wok-quest",
+        "wok-marriage"
       ],
       "optionalIntegrations": [
         "tacz",
         "sqlite-jdbc"
       ],
       "publicEntry": "com.miningdim.achievement.AchievementServices",
-      "scope": "achievements as vanilla advancements: seven tiers driving frame, announcement and title colour via datagen, achievement meta with runtime consistency check, custom stats and criterion triggers fed by mining trip, counted break, trap, champion kill, gun kill, marriage and achievement count hooks, SQLite pending rewards, point balance, point ledger and daily stat caps, atomic reward claiming with achievement titles, and the /machievement player and admin commands"
+      "scope": "achievements as vanilla advancements: seven tiers driving frame, announcement and title colour via datagen, achievement meta with runtime consistency check, custom stats and criterion triggers fed by mining trip, counted break, trap, champion kill, gun kill, marriage and achievement count hooks, by the experience award and job listener seams (job level, farmer harvest, chef dish, brew, tarot play, agent seal, nano plate, munitions batch), and by the faucet, market trade, case opening, quest claim, wedding and spouse teleport listener seams of the gameplay modules, market anti-abuse partner ledger, silent login backfill, SQLite pending rewards, point balance, point ledger and daily stat caps, atomic reward claiming with achievement titles, and the /machievement player and admin commands"
     },
     {
       "id": "wok-app",

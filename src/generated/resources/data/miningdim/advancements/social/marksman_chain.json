@@ -1,0 +1,41 @@
+{
+  "parent": "miningdim:social/quest_first",
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "tacz"
+    }
+  ],
+  "criteria": {
+    "completed": {
+      "conditions": {
+        "chain": "marksman",
+        "chain_finished": true
+      },
+      "trigger": "miningdim:quest_complete"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.social.marksman_chain.desc"
+    },
+    "frame": "goal",
+    "hidden": true,
+    "icon": {
+      "item": "minecraft:spectral_arrow"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#FFCC33",
+      "translate": "achievement.miningdim.social.marksman_chain.title"
+    }
+  },
+  "requirements": [
+    [
+      "completed"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

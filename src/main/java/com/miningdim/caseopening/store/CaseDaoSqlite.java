@@ -291,6 +291,25 @@ public final class CaseDaoSqlite implements CaseDao {
         }
     }
 
+    @Override
+    public List<CaseOpeningRow> settledOpenings(UUID ownerId) {
+        // 按 owner_uuid 过滤, 走 idx_case_openings_owner_status 的最左列。
+        String sql = "SELECT * FROM case_openings WHERE owner_uuid=? AND status='COMMITTED' AND economy_settled=1 "
+                + "ORDER BY created_at ASC";
+        List<CaseOpeningRow> rows = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, ownerId.toString());
+            try (ResultSet result = statement.executeQuery()) {
+                while (result.next()) {
+                    rows.add(opening(result));
+                }
+            }
+            return rows;
+        } catch (SQLException exception) {
+            throw new CaseStoreException("failed to list settled case openings for " + ownerId, exception);
+        }
+    }
+
     private void insertAsset(SkinAssetRow asset) throws SQLException {
         String sql = "INSERT OR IGNORE INTO skin_assets "
                 + "(asset_id,owner_uuid,skin_id,rarity,gun_id,display_id,source_opening_id,acquired_at,trade_locked_until) "

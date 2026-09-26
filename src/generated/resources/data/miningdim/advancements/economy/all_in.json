@@ -1,0 +1,40 @@
+{
+  "parent": "miningdim:economy/first_case",
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "tacz"
+    }
+  ],
+  "criteria": {
+    "opened": {
+      "conditions": {
+        "max_credit_after": 999
+      },
+      "trigger": "miningdim:case_open"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.economy.all_in.desc"
+    },
+    "frame": "task",
+    "hidden": true,
+    "icon": {
+      "item": "minecraft:bowl"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#C8834A",
+      "translate": "achievement.miningdim.economy.all_in.title"
+    }
+  },
+  "requirements": [
+    [
+      "opened"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

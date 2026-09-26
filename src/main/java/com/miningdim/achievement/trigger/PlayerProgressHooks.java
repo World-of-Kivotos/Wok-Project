@@ -24,13 +24,13 @@ import net.minecraftforge.registries.ForgeRegistries;
  * <ul>
  *   <li>成就数量: {@link AdvancementEvent.AdvancementEarnEvent} 里只处理成就数量候选 (查询快照里的 countableIds, 数据包
  *       重载时重建), 用快照重新数一遍再触发 achievement_count。配方解锁也发这个事件, 一次集合查找就放过去了。</li>
- *   <li>婚姻: P1 读玩家 Capability 里的婚姻指针 (核心模块的 {@link IMiningPlayerData}, 不引用婚姻模块), 登录时查一次,
- *       每次存档 (自动保存、/save-all) 时对在线玩家补查一次, 打开共享背包时也先补查一次; 结过婚的玩家拿到成就后原版就摘掉了
- *       监听, 之后的补查是空操作。P2 有了婚礼监听接口后改成当场触发。</li>
+ *   <li>婚姻: 婚礼监听当场触发 ({@link MarriageHooks}); 这里读玩家 Capability 里的婚姻指针 (核心模块的
+ *       {@link IMiningPlayerData}, 不引用婚姻模块) 补查: 登录时 (上线追溯, 静默) 查一次, 每次存档 (自动保存、/save-all)
+ *       时对在线玩家补查一次, 打开共享背包时也先补查一次; 结过婚的玩家拿到成就后原版就摘掉了监听, 之后的补查是空操作。</li>
  *   <li>共享背包: 玩家打开注册名为 {@code miningdim:marriage_backpack} 的菜单。按注册名认, 不引用婚姻模块的菜单类。
  *       婚姻模块只在核实了有效婚姻之后才打开这个菜单, 所以先补 married 再触发: 刚办完婚礼、登录与存档的补查都还没轮到的
  *       玩家, 不会在父成就 social/married 之前拿到 social/shared_backpack。</li>
- *   <li>登录补查: 统计项阈值 (数据包新增了阈值成就时, 已经达标的玩家上线即得)、成就数量、婚姻。</li>
+ *   <li>登录补查: 交给 {@link AchievementBackfill} 静默执行 (统计项阈值、婚姻、开箱记录、"神射手"任务线、成就数量)。</li>
  * </ul>
  */
 public final class PlayerProgressHooks {
@@ -40,13 +40,9 @@ public final class PlayerProgressHooks {
 
     @SubscribeEvent
     public void onLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
-        if (!(event.getEntity() instanceof ServerPlayer player)) {
-            return;
+        if (event.getEntity() instanceof ServerPlayer player) {
+            AchievementBackfill.runSilently(player);
         }
-        AchievementTriggers.STAT_AT_LEAST.trigger(player);
-        AchievementTriggers.ACHIEVEMENT_COUNT.trigger(player,
-                AchievementServices.catalog().countEarned(player.getAdvancements()));
-        checkMarried(player);
     }
 
     /** 每次存档对在线玩家补查婚姻。每个维度各发一次存档事件, 只认主世界那一次。 */

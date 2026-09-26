@@ -241,6 +241,36 @@ public final class CaseOpeningService {
         ownershipCache.forget(ownerId);
     }
 
+    /**
+     * 该玩家全部已结算的开箱 (结算锚已落定), 按开箱时间排序; 只读, 不触发恢复。供成就上线追溯 (Achievement 9.9)
+     * 查询历史开箱, 每条的 {@link SettledOpening#fresh()} 都是 false —— 那时的余额早已不是"开箱后余额"。
+     */
+    public List<SettledOpening> settledOpenings(UUID ownerId) {
+        return dao.settledOpenings(ownerId).stream()
+                .map(row -> new SettledOpening(row.openingId(), row.ownerId(), row.rarity(), false))
+                .toList();
+    }
+
+    /**
+     * 落结算锚, 必须在调用方的 {@code economy.inTransaction} 里调用。锚从无到有时向 {@link CaseServices} 登记一条
+     * 提交后的结算通知, 所以每个开箱 id 只通知一次: 提交结果不明后的对账可能对已经落锚的行再标一次, 那一次不再通知;
+     * 事务回滚时通知随之作废。
+     *
+     * @param fresh 是否是本次正常开箱的那个事务 (见 {@link SettledOpening#fresh()})
+     * @return {@link CaseDao#markEconomySettled} 的结果: 行不是 COMMITTED 时为 false, 由调用方按不可能状态处理
+     */
+    private boolean settle(CaseOpeningRow row, boolean fresh) {
+        boolean alreadySettled = dao.isOpeningSettled(row.openingId());
+        if (!dao.markEconomySettled(row.openingId(), System.currentTimeMillis())) {
+            return false;
+        }
+        if (!alreadySettled) {
+            SettledOpening settled = new SettledOpening(row.openingId(), row.ownerId(), row.rarity(), fresh);
+            economy.afterCommit(() -> CaseServices.fireOpeningSettled(settled));
+        }
+        return true;
+    }
+
     private boolean integrationAvailable() {
         return taczLoaded.getAsBoolean() && caseResourcesAvailable.getAsBoolean();
     }
@@ -290,7 +320,7 @@ public final class CaseOpeningService {
                     throw new IllegalStateException("开箱账本已提交但货币操作不是 COMPLETED: "
                             + row.openingId() + " -> " + finalized);
                 }
-                if (!dao.markEconomySettled(row.openingId(), System.currentTimeMillis())) {
+                if (!settle(row, false)) {
                     throw new IllegalStateException("无法标记开箱结算锚: " + row.openingId());
                 }
                 return existing;
@@ -326,7 +356,7 @@ public final class CaseOpeningService {
                     throw new IllegalStateException("货币操作无法完成: " + row.openingId() + " -> " + finalState);
                 }
                 // 扣款、发资产、推进终态、落结算锚要么全成要么全滚 —— 与上面几步同一个 inTransaction。
-                if (!dao.markEconomySettled(row.openingId(), System.currentTimeMillis())) {
+                if (!settle(row, true)) {
                     throw new IllegalStateException("无法标记开箱结算锚: " + row.openingId());
                 }
                 return committed;
@@ -366,7 +396,7 @@ public final class CaseOpeningService {
                 if (state != CaseEconomyOperations.State.COMPLETED) {
                     return Boolean.FALSE;
                 }
-                if (!dao.markEconomySettled(after.openingId(), System.currentTimeMillis())) {
+                if (!settle(after, false)) {
                     throw new IllegalStateException("无法标记开箱结算锚: " + after.openingId());
                 }
                 return Boolean.TRUE;
@@ -472,7 +502,7 @@ public final class CaseOpeningService {
                 if (economy.complete(row.ownerId(), row.openingId()) != CaseEconomyOperations.State.COMPLETED) {
                     return Boolean.FALSE;
                 }
-                if (!dao.markEconomySettled(row.openingId(), System.currentTimeMillis())) {
+                if (!settle(row, false)) {
                     throw new IllegalStateException("无法标记开箱结算锚: " + row.openingId());
                 }
                 return Boolean.TRUE;

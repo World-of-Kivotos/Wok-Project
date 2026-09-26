@@ -46,6 +46,17 @@ public interface IEconomyService {
         return body.get();
     }
 
+    /**
+     * 登记一个在当前经济事务提交之后才执行的动作: 调用方在 {@link #inTransaction} 里 (或在并入的更外层事务里) 登记,
+     * 最外层提交后执行, 回滚则丢弃; 不在事务中时立即执行。用来在"扣钱 + 发资产"真正落盘之后再向别的模块广播结果,
+     * 广播不能早于提交, 否则听众会看到随后被回滚的交易。
+     *
+     * 默认实现立即执行, 理由同 {@link #inTransaction}: 无持久层的测试替身没有事务可等。
+     */
+    default void afterCommit(Runnable action) {
+        action.run();
+    }
+
     /** 某玩家信用点余额 (服务端权威)。 */
     long creditBalance(ServerPlayer player);
 

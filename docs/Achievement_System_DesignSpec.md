@@ -259,6 +259,16 @@ com.miningdim.achievement
 5. 按买家分别记账，存在新表 `achievement_market_partner(seller_uuid, buyer_uuid, trades, counted_volume)`，在 `MarketEngine#buy` 事务提交后写入。
 6. 上线初期所有人的 `credits_earned` 都从 0 开始，会让计数成交额偏低。处理方式见第十四章待定项。
 
+实现口径（P2）：
+
+- 计数在 `trigger.MarketTradeHooks`，挂在市场模块的成交监听上（9.10），每笔成交在 `MarketEngine#buy` 的事务提交后到达，带买家、卖家 UUID、标的、数量与成交额。买家是 FakePlayer 时整笔跳过。
+- 同 IP 只比较两边此刻连接的远端地址：双方都在线、且都是网络地址（`InetSocketAddress`）时比较 IP；卖家不在线就没有可比的连接，按不同处理；本地连接不参与比较。IP 不落库、不进日志。服务器前面挂代理而没有转发真实 IP 时，所有人的连接地址都是代理的地址，市场成就会全部不计，改多子服架构时要确认 IP 转发。
+- 夫妻读核心模块的婚姻指针：买家的配偶是卖家，或在线卖家的配偶是买家，即不计。
+- `achievement_market_partner` 是 `MiningSchema` 的 **V8**，主键（卖家，买家），另建 `buyer_uuid` 索引。一笔合格交易用一条 upsert 把这一对的笔数加一，计数成交额取 `max(原值, min(原值 + 本笔成交额, 1,000,000, 买家此刻的 credits_earned))`。表里不存原始累计成交额，用"原值 + 本笔"代替第 2 条里的累计成交额，结果仍在第 2 条的上限之内；小号先对刷、后来才有收入时，之前对刷的成交额也不会被一次追认。计数成交额只增不减。
+- 记账后对买家、在线的卖家各触发一次 `market_trade`；离线卖家在下次登录时按记账表补查，不静默（那是他离线期间新成交的，不是上线前的历史）。写库失败只记错误日志，这笔不计，成交本身不受影响。
+- `market_trade` 的条件：`role` 缺省 any，`count` 缺省 1；`volume`、`partners` 描述卖方，只能配 `role=seller`；`partner_min` 只能配 `partners`，不写时凡是做过合格交易的买家都算一个对手。卖方计数成交额是各买家计数成交额之和。
+- 市场收入走 `grant()`，本来就不进 `credits_earned`（6.1）。
+
 ---
 
 ## 七、成就点与奖励领取 (DECIDED)
@@ -504,6 +514,12 @@ CREATE TABLE achievement_point_ledger (
 - 开箱类成就依赖 TaCZ（加 `forge:mod_loaded` 加载条件）。开箱概率属于服务器配置，档位按默认概率标定。
 - "富甲一方"**不附带称号**：所有 faucet 共用同一个 key，挂机卖矿石鱼的收入也会计入 `credits_earned`，没法在不改 `IEconomyService` 签名的前提下把它过滤掉。
 
+实现口径（P2）：
+
+- 本节 11 条与 9.5 的 7 条 P2 行、9.6 的两条一起声明在 `datagen.AchievementDeclarations.p2Social()`。开箱三条带 `forge:mod_loaded`（tacz）加载条件，没装 TaCZ 时只剩元数据，一致性校验把它们列为"有元数据、没有对应进度"，不算问题。
+- `credits_earned` 由 `trigger.EconomyHooks` 挂在经济模块的 faucet 入账监听上（9.10）：只有 `grantDaily` 触发，在账本事务（含外层的批量结算事务）提交后通知，加衰减后的实际入账额；衰减后不足 1 点的入账不通知；FakePlayer 不计。统计值随原版统计封顶在 int 上限。
+- `case_open` 由开箱结算监听触发。"正常开箱"（`fresh`）指扣款与落结算锚在同一个事务里完成的那一次，提交后读到的余额就是开箱后余额（登录恢复时把停在 RESERVED 的行一路做完，也属于这一种）；已提交未落锚的补扣款、提交结果不明后的对账、启动期对账以及上线追溯都不是正常开箱，只满足 `min_rarity`，不满足 `max_credit_after`。开箱人不在线（启动期对账）时不触发，等他登录时由上线追溯（9.9）补上。
+
 ### 9.5 社交（10 条）
 
 | id | 名称 | 条件 | 档位 | 父 | 触发器 | 期 | 图标 |
@@ -525,6 +541,12 @@ CREATE TABLE achievement_point_ledger (
   - "自动保存"取主世界的 `LevelEvent.Save`，所以 `/save-all` 也会补查一次；其他维度的存档事件忽略。
   - 共享背包按菜单的注册名 `miningdim:marriage_backpack` 识别（`PlayerContainerEvent.Open`）。婚姻模块只在核实了有效婚姻之后才打开这个菜单，所以先补查 `married` 再触发 `open_shared_backpack`：刚办完婚礼、登录与存档的补查都还没轮到的玩家（`/save-off` 时要等到下次登录），不会在父成就"执子之手"之前拿到"两人的口袋"。
   - 这两条都不引用婚姻模块。
+- 实现口径（P2）：
+  - `social/married` 改由婚礼监听当场触发：婚礼成功返回前对双方各通知一次（`trigger.MarriageHooks`）。登录时读婚姻指针的补查保留，归入上线追溯（9.9，静默）；自动保存与打开共享背包时的补查也保留，对已经拿到成就的玩家是空操作。
+  - `quests_completed` 与 `quest_daily_clears`（6.1）在 `trigger.QuestClaimHooks`，挂在任务模块的领奖监听上（9.10）。每日上限写在 `miningdim-achievement.toml` 的 `quest.dailyQuestCap`（默认 6），当天已计次数存 `achievement_daily_counter` 的 `quests_completed` 键（天 = UTC 纪元日）；全勤用 `quest_daily_clear` 键，"天"取任务板的日常周期戳、上限 1，所以同一天重摇出新日常再领完也不会多计。领的必须是每日任务、且领完之后当天的每日任务全部已领取（当天一条日常都没有时不算）。统计项先于触发器递增，"初次委托"总在它下面的子成就之前到手。每日计数写库失败只记日志、这次不加统计，`quest_complete` 照常触发。
+  - `quest_complete` 带上任务来源、任务 id、所属任务线与这次领奖是否走完整条线；只有任务线最后一个阶段的领奖 `chain_finished` 为真。
+  - "神射手"依赖 TaCZ（加载条件与 `combat/long_shot` 相同）；上线追溯经任务模块的只读接口 `chainFinished` 补发。
+  - "千里赴约"由传送监听触发，距离取蓄力开始时双方的水平距离（蓄力期间双方必须静止，与传送前一刻相同），只给被传送的一方；触发前先补查一次 `married`，父成就不会落在它之后。
 
 ### 9.6 成就（3 条）
 
@@ -536,6 +558,8 @@ CREATE TABLE achievement_point_ledger (
 
 P1 只有 30 条成就（扣掉 meta 本身，计数池里只有 29 条），"获得 25 个 / 40 个"在 P2 上线前几乎无法达成，所以这两条随 P2 一起开放（2026-09-26 拍板）。
 "完成整个页签"这类成就不做：目标会随每次更新变化。
+
+实现口径（P2）：`meta/count_25`、`meta/count_40` 随 `AchievementDeclarations.p2Social()` 声明，计数仍按 6.5（两条自己不计入）。上线后已经够数的玩家在登录追溯（9.9）里补发，静默。
 
 ### 9.7 页签根进度
 
@@ -577,9 +601,18 @@ P1 只有 30 条成就（扣掉 meta 本身，计数池里只有 29 条），"�
   - 开箱记录：通过开箱模块新增的只读接口 `settledOpenings(owner)` 查询
   - 钓鱼记录：`FishingRecords` 中亲手钓到的鱼种
   - "神射手"任务线：通过只读接口 `chainFinished(UUID, chainId)` 查询
-- **静默**的意思是：补发时不做全服公告，也不弹 Toast，但照常生成待领取奖励。实现方式是补发期间设置一个线程局部标志，在原版公告处检查它，具体在实现期确定（TODO）。
+- **静默**的意思是：补发时不做全服公告，也不弹 Toast，但照常生成待领取奖励。实现方式是补发期间设置一个线程局部标志，在原版公告处检查它。
 - **从零开始计**：挖方块、撤离、击杀、收获、`credits_earned`、任务领取次数。这些计数没有可靠的历史数据。
 - `/job set` 或管理员直接改等级也会触发职业成就，不做区分。
+
+实现口径（P2）：
+
+- 静默的底层在核心模块：`core.AdvancementSilence.run(body)` 打开线程局部开关（按深度计，可嵌套），`mixin.PlayerAdvancementsSilenceMixin` 混入原版 `PlayerAdvancements`，只读这个开关、不引用成就模块。依据的原版路径（1.20.1，javap 核实）：
+  - 公告：`PlayerAdvancements#award` 在进度刚完成、显示信息要求公告、游戏规则 `announceAdvancements` 为真时调 `PlayerList#broadcastSystemMessage`；开关打开时跳过这一次调用。
+  - Toast：客户端只对**非重置**的 `ClientboundUpdateAdvancementsPacket` 里已完成且要求 Toast 的进度弹 Toast（`ClientAdvancements#update`），重置包从不弹。玩家登录后的第一个进度包就是重置包，登录事件又早于它，所以登录时补出的进度本来就随重置包下发。开关打开期间若有进度完成、而这名玩家的第一个包已经发过，下一次 `flushDirty` 改发一个完整的重置包（清空已下发的可见集合，把全部相关树根交给原版重算可见性），内容与登录时的第一个包相同。代价是同一 tick 里别的非静默完成也不再弹 Toast（公告照常）。
+  - 奖励、奖励函数与 `AdvancementEarnEvent` 不受影响，待领取奖励和给本人的 [领取] 提示照常生成；由补发连带触发的授予（比如成就数量达标）同样静默。
+- 登录补查由 `trigger.AchievementBackfill.runSilently` 执行（`PlayerProgressHooks` 在登录时调用），步骤依次是：统计项阈值（数据包新增阈值成就的情形）、婚姻指针、已结算的开箱（开箱模块的只读接口 `settledOpenings`，取最高品质补一次 `case_open`，不算正常开箱）、"神射手"任务线（任务模块的只读接口 `chainFinished`）、成就数量。每一步都幂等（原版忽略已完成的条件，奖励按主键去重），每次登录完整跑一遍，不记"已追溯过"；某一步抛出只记日志，不影响后面的步骤。市场成就的登录补查不在这里：离线期间卖出的货是新的成交，照常公告（6.6）。
+- 新增一类追溯时在 `AchievementBackfill` 的步骤表里加一行，步骤只管触发自己的条件，静默由它统一包住。职业等级这一步随 `job_level` 触发器一起接入（读 `wok-job-core` 的等级触发 `job_level`）；钓鱼记录随钓鱼成就接入。登录以外的时刻需要静默授予时，直接用 `AdvancementSilence.run` 包住授予即可。
 
 ### 9.10 P2 需要的监听接口
 
@@ -608,6 +641,16 @@ P1 只有 30 条成就（扣掉 meta 本身，计数池里只有 29 条），"�
 - 生产方不吞监听器异常（与 `MiningServices.fireInstanceReset` 一致）。成就侧 `trigger.JobHooks` 把每个监听器都包在 `guarded` 里：运行期异常就地捕获并记错误日志（写明接口与玩家），FakePlayer 一律跳过。
 - 各生产方的 `fire*` 方法是 public 的。生产代码里各自只有上面列出的调用点；GameTest 用它模拟结果带随机性的场景（闪耀料理、九种酒、闪耀酒）。
 - `wok-achievement` 为此追加依赖 `wok-experience`、`wok-job-core`、`wok-job-armorer`、`wok-job-chef`、`wok-job-brewer`、`wok-job-tarot`、`wok-job-munitions`、`wok-job-agent`，这些模块都不引用成就模块。GameTest 在 `trigger.JobAchievementGameTests`（batch `achievement_p2_jobs`）。
+
+实现口径（P2，经济、市场、开箱、任务、婚姻五行）：
+
+- 监听器列表都是生产方包里的 `CopyOnWriteArrayList`，在 mod 构造期注册（成就侧的装配点是 `trigger.SocialEconomyHooks`），生产方自己的 `reset()` / 停服钩子不清它们。与 `fireInstanceReset` 相反，这几路广播都发生在事实落定之后，所以生产方逐个捕获监听器的异常并记日志，一个监听器的失败不会把已经完成的入账、成交、开箱、领奖、婚礼或传送报成失败，也不挡后面的监听器；成就侧的监听器另外自己捕获、带上下文记日志。
+- 提交后队列在存储模块：`StoreTx.afterCommit(conn, action)` 在事务中时把动作排进该连接的队列，等 `StoreTx` 开启的最外层事务提交、autoCommit 复原之后按登记顺序执行，最外层回滚则整批丢弃；不在事务中时立即执行。经济层经 `EconomyLedger#afterCommit` / `IEconomyService#afterCommit` 暴露（无持久层的测试替身默认立即执行），开箱经 `CaseEconomyOperations#afterCommit`。
+- 经济：`EconomyServices.registerFaucetListener(FaucetListener)`，`onFaucetCredited(player, faucetKey, credited)`。`grantDaily` 在事务体里入账之后登记提交后通知，所以嵌在 `recordMinedOreDrops` 批量事务里的每一笔都等整批提交才通知。
+- 市场：`MarketServices.registerTradeListener(TradeListener)`，参数 `MarketTrade(buyer, seller, itemId, count, total)`，在 `buy` 事务体的最后一步登记，调用方开着的外层事务回滚时同样不通知。
+- 开箱：`CaseServices.registerOpeningListener(CaseOpeningListener)`，参数 `SettledOpening(openingId, ownerId, rarity, fresh)`。四处落结算锚（正常开箱、已提交未落锚的补扣款、提交结果不明后的对账、启动期对账）都经同一个私有方法：落锚前先读锚，只在锚从无到有时登记通知，所以每个开箱 id 只通知一次。只读接口 `CaseOpeningService#settledOpenings(owner)` 返回已结算的开箱（`fresh` 一律为 false），走 `CaseDao#settledOpenings`。
+- 任务：`QuestServices.registerClaimListener(QuestClaimListener)`，参数 `QuestClaim(player, definition, chainId, chainFinished, dailyStamp, dailiesAllClaimed)`，在 `claim` 返回 CLAIMED 之前的最后一步通知，其余结果不通知。只读接口是 `QuestService#chainFinished(server, playerId, chainId)`：`QuestService` 不持有服务端引用，所以比文档原先的写法多一个 `MinecraftServer` 参数；它经 `QuestSavedData#existingBoard` 读已有的任务板，不经 `boardOf`（不翻转周期、不标脏、不给没有板的玩家建空板）。
+- 婚姻：新增 `marriage.MarriageEvents`，`registerWeddingListener` 的 `onWedding(player, spouse)` 在 `WeddingResult.ok` 返回前对双方各调用一次；`registerTeleportListener` 的 `onSpouseTeleport(traveller, spouse, horizontalDistance)` 在 `MarriageTeleport` 完成传送的最后一步调用，距离在蓄力开始时记下。
 
 ### 9.11 第二批候选（已评审，暂缓）
 

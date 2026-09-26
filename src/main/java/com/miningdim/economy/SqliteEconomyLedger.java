@@ -71,6 +71,11 @@ public final class SqliteEconomyLedger implements EconomyLedger {
         return StoreTx.call(conn, body);
     }
 
+    @Override
+    public void afterCommit(Runnable action) {
+        StoreTx.afterCommit(conn, action);
+    }
+
     // ---- 余额 ----
 
     @Override

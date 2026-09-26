@@ -932,6 +932,11 @@ public final class CaseOpeningGameTests {
             }
 
             @Override
+            public void afterCommit(Runnable action) {
+                delegate.afterCommit(action);
+            }
+
+            @Override
             public long creditBalance(ServerPlayer player) {
                 return delegate.creditBalance(player);
             }
@@ -1269,6 +1274,11 @@ public final class CaseOpeningGameTests {
         @Override
         public List<SkinAssetRow> settledOwnedAssets(UUID ownerId) {
             return delegate.settledOwnedAssets(ownerId);
+        }
+
+        @Override
+        public List<CaseOpeningRow> settledOpenings(UUID ownerId) {
+            return delegate.settledOpenings(ownerId);
         }
     }
 

@@ -28,6 +28,11 @@ public final class EconomyCaseOperations implements CaseEconomyOperations {
     }
 
     @Override
+    public void afterCommit(Runnable action) {
+        economy().afterCommit(action);
+    }
+
+    @Override
     public long creditBalance(ServerPlayer player) {
         return economy().creditBalance(player);
     }

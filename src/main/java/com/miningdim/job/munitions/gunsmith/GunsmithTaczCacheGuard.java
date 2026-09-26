@@ -18,7 +18,8 @@ import java.util.WeakHashMap;
  * 同图纸、无皮肤的两把枪在同一快捷栏槽原地互换时, TaCZ 客户端的 isSame 只比 GunId 与 GunDisplayId, 不发 draw,
  * 服务端缓存就停在上一把枪上: 开火用 A 的伤害、射速、散布, 扣的却是 B 的耐久, A 报废了也照样打出传奇性能。
  *
- * 这里记下每一份缓存是用哪一个 ItemStack 对象构建的, 开火前核对。AttachmentPropertyEvent 本身不带实体, 但 TaCZ
+ * 这里记下每一份缓存是用哪一个 ItemStack 对象构建的, 开火前核对: 每次扣扳机 (GunShootEvent) 核一次, 连发推迟到
+ * 后续 tick 的各轮 (GunFireEvent) 逐轮再核一次。AttachmentPropertyEvent 本身不带实体, 但 TaCZ
  * 写射手缓存只有 AttachmentPropertyManager.postChangeEvent 一条路: 先拿新建的缓存对象抛该事件, 紧接着把同一个
  * 对象 updateCacheProperty 挂到实体上。所以"实体当前的缓存 -> 构建它的那把枪"就是该实体最近一次构建缓存所用的枪,
  * 不必逐个去挂 draw、改装、卸配件、登录、热重载这些入口。缓存 (键) 与枪 (值) 都只弱引用, 实体换缓存、实体或枪
@@ -35,6 +36,9 @@ public final class GunsmithTaczCacheGuard {
      */
     private static final List<String> PER_SHOT_TACZ_KEYS = List.of(
             "GunCurrentAmmoCount", "HasBulletInBarrel", "DummyAmmo", "HeatAmount", "OverHeated");
+
+    /** TaCZ 1.1.8 服务端射击冷却的余量: 冷却 = 间隔 - 距上一发 - 5ms, 大于 0 才拦。 */
+    private static final long TACZ_SHOOT_COOLDOWN_SLACK_MILLIS = 5L;
 
     private static final Map<Object, WeakReference<ItemStack>> BUILT_WITH = new WeakHashMap<>();
 
@@ -76,6 +80,24 @@ public final class GunsmithTaczCacheGuard {
             BUILT_WITH.put(cache, new WeakReference<>(firing));
             return false;
         }
+    }
+
+    /**
+     * 射速嫁接复核, 返回 true 表示本发作废。TaCZ 服务端射击冷却 (LivingEntityShoot.getShootCoolDown) 在 GunShootEvent
+     * 之前就按射手身上的旧缓存算间隔。改包客户端可以先把快枪 A 换进槽里发一次切射击模式 (缓存重建为 A, 该包没有冷却),
+     * 再把 B 换回来开火, B 就按 A 的射速过了冷却; 守卫随后才把缓存重建成 B, 只纠正得了子弹属性。
+     *
+     * 所以重建之后: 旧缓存的间隔比新缓存短, 说明刚才的冷却判定被放宽过, 按新间隔复核一次, 距该射手上一发放行的服务端时间
+     * 不足新间隔 (与 TaCZ 同样让 5ms) 就作废。旧缓存不比新缓存宽 (间隔相同或更长) 时 TaCZ 已经判得够严, 不复核,
+     * 免得 TaCZ 用的客户端时间轴与这里的服务端时钟之间的抖动误伤; 没有上一发记录 (刚进服、实体刚生成) 时放行。
+     * 原版玩家同槽原地换枪要开背包, 早就过了新间隔, 不受影响。纯函数, 供 GameTest 直接驱动。
+     */
+    public static boolean rebuiltCacheRejectsShot(long staleIntervalMillis, long rebuiltIntervalMillis,
+                                                  @Nullable Long lastShotMillis, long nowMillis) {
+        if (staleIntervalMillis >= rebuiltIntervalMillis || lastShotMillis == null) {
+            return false;
+        }
+        return nowMillis - lastShotMillis < rebuiltIntervalMillis - TACZ_SHOOT_COOLDOWN_SLACK_MILLIS;
     }
 
     /** 两把枪喂给 TaCZ 属性缓存的输入是否相同: 同一物品, 且去掉逐发变化的字段 (弹药、枪温、枪匠耐久) 后 NBT 全同。 */

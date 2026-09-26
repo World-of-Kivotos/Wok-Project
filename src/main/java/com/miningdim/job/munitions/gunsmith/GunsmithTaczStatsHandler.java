@@ -2,7 +2,9 @@ package com.miningdim.job.munitions.gunsmith;
 
 import com.miningdim.job.munitions.MunitionsConfig;
 import com.tacz.guns.api.GunProperties;
+import com.tacz.guns.api.entity.IGunOperator;
 import com.tacz.guns.api.event.common.AttachmentPropertyEvent;
+import com.tacz.guns.api.event.common.GunShootEvent;
 import com.tacz.guns.api.modifier.CacheValue;
 import com.tacz.guns.api.modifier.IAttachmentModifier;
 import com.tacz.guns.api.modifier.JsonProperty;
@@ -17,9 +19,11 @@ import com.tacz.guns.resource.pojo.data.attachment.Modifier;
 import it.unimi.dsi.fastutil.Pair;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.LogicalSide;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -103,6 +107,43 @@ public final class GunsmithTaczStatsHandler {
         IAttachmentModifier<T, K> delegate = (IAttachmentModifier<T, K>) Objects.requireNonNull(
                 modifiers.get(property.name()), "TaCZ has no registered " + property.name() + " modifier");
         modifiers.put(property.name(), new GunsmithBaseProfileModifier<>(delegate, baseValue));
+    }
+
+    /**
+     * 记下每一份 TaCZ 属性缓存由哪一把枪构建, 供开火前核对 (V04, 见 {@link GunsmithTaczCacheGuard})。
+     * 不看功能门: 门在运行期翻转后, 开火前的核对仍要拿到准确记录。
+     */
+    @SubscribeEvent
+    public void onAttachmentPropertyBuilt(AttachmentPropertyEvent event) {
+        AttachmentCacheProperty cache = event.getCacheProperty();
+        if (cache != null) {
+            GunsmithTaczCacheGuard.recordBuild(cache, event.getGunItem());
+        }
+    }
+
+    /**
+     * V04: 开火前核对射手身上的属性缓存是否由本次开火的这把枪构建, 不是就先重建再放行。
+     * 同图纸、无皮肤的两把枪在同一快捷栏槽原地互换时 TaCZ 客户端不发 draw, 改版客户端更可以干脆不发,
+     * 所以服务端必须自己核对。GunShootEvent 在 LivingEntityShoot 里早于 logicGun.shoot 抛出,
+     * postChangeEvent 同步重建, 本发子弹 (伤害曲线、爆头、穿甲、射程、散布、弹速) 读到的就是这把枪的属性。
+     * 客户端同样处理, 让本机后坐与开镜表现与服务端一致; 其他玩家开火经 ServerMessageGunShoot 转发到本机的那份
+     * 事件带的是解包出来的副本, 其缓存也不归本机结算, 不碰。
+     */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onGunShoot(GunShootEvent event) {
+        if (!MunitionsConfig.GUNSMITH_ENABLED.get()) {
+            return;
+        }
+        LivingEntity shooter = event.getShooter();
+        boolean clientSide = event.getLogicalSide() == LogicalSide.CLIENT;
+        if (clientSide && !(shooter instanceof Player player && player.isLocalPlayer())) {
+            return;
+        }
+        ItemStack gun = event.getGunItemStack();
+        if (GunsmithTaczCacheGuard.needsRebuild(
+                IGunOperator.fromLivingEntity(shooter).getCacheProperty(), gun, clientSide)) {
+            AttachmentPropertyManager.postChangeEvent(shooter, gun);
+        }
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)

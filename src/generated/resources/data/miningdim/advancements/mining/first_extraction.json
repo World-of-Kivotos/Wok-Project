@@ -1,0 +1,32 @@
+{
+  "parent": "miningdim:mining/first_entry",
+  "criteria": {
+    "extracted": {
+      "conditions": {},
+      "trigger": "miningdim:mining_extraction"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.mining.first_extraction.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:lantern"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#C8834A",
+      "translate": "achievement.miningdim.mining.first_extraction.title"
+    }
+  },
+  "requirements": [
+    [
+      "extracted"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

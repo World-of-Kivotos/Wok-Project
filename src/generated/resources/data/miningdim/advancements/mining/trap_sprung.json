@@ -1,0 +1,35 @@
+{
+  "parent": "miningdim:mining/first_entry",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "stat": "miningdim:mining_traps_sprung",
+        "value": 1
+      },
+      "trigger": "miningdim:stat_at_least"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.mining.trap_sprung.desc"
+    },
+    "frame": "task",
+    "hidden": true,
+    "icon": {
+      "item": "miningdim:fake_ore"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#C8834A",
+      "translate": "achievement.miningdim.mining.trap_sprung.title"
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

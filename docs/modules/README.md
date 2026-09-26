@@ -20,6 +20,7 @@
 | 基础 | WOK-经济模块 | `wok-economy` | `economy` |
 | 基础 | WOK-战斗框架模块 | `wok-combat-core` | `combat` |
 | 基础 | WOK-WebUI 模块 | `wok-webui` | `webui`、`client/webui` |
+| 基础 | WOK-称号模块 | `wok-title` | `title`、`client/title` |
 | 玩法 | WOK-市场模块 | `wok-market` | `market` |
 | 玩法 | WOK-电力模块 | `wok-power` | `power` |
 | 玩法 | WOK-任务模块 | `wok-quest` | `quest` |
@@ -37,6 +38,7 @@
 | 玩法 | WOK-婚姻社交模块 | `wok-marriage` | `marriage` |
 | 玩法 | WOK-开箱模块 | `wok-case-opening` | `caseopening` |
 | 支撑 | WOK-实体堆叠模块 | `wok-stacking` | `stacking` |
+| 玩法 | WOK-成就模块 | `wok-achievement` | `achievement` |
 | 装配 | WOK-综合装配模块 | `wok-app` | `MiningDim.java` |
 
 读表须知：
@@ -85,7 +87,7 @@
 
 ## 配置文件登记表
 
-代码共注册 13 份配置文件（注册点即 `ModLoadingContext.registerConfig` 的调用处）。除 `miningdim-client.toml` 是 CLIENT 类型外，其余都是 SERVER 类型，落在存档的 `serverconfig` 目录下。服主拿到一份 toml 要先能查到它归哪个模块、参数写在哪，所以这张表按文件名而不是按模块排。
+代码共注册 15 份配置文件（注册点即 `ModLoadingContext.registerConfig` 的调用处）。除 `miningdim-client.toml` 是 CLIENT 类型外，其余都是 SERVER 类型，落在存档的 `serverconfig` 目录下。服主拿到一份 toml 要先能查到它归哪个模块、参数写在哪，所以这张表按文件名而不是按模块排。
 
 | 配置文件 | 归属模块 | 注册点 | 可对照的文档 |
 | --- | --- | --- | --- |
@@ -102,5 +104,7 @@
 | `miningdim-brewer.toml` | `wok-job-brewer` | `job/brewer/BrewerSystem` | [`../Brewer_Job_DesignSpec.md`](../Brewer_Job_DesignSpec.md) |
 | `miningdim-tarot.toml` | `wok-job-tarot` | `job/tarot/TarotSystem` | [`../TarotReader_Mod_DesignSpec.md`](../TarotReader_Mod_DesignSpec.md) 第七、八章（gacha 与 craft 两段出率） |
 | `miningdim-munitions.toml` | `wok-job-munitions` | `job/munitions/MunitionsSystem` | [`../Munitions_Job_DesignSpec.md`](../Munitions_Job_DesignSpec.md) |
+| `miningdim-title.toml` | `wok-title` | `title/TitleSystem` | [`../Title_System_DesignSpec.md`](../Title_System_DesignSpec.md) 13.3、13.4（赞助专属称号的校验阈值与修改冷却） |
+| `miningdim-achievement.toml` | `wok-achievement` | `achievement/AchievementSystem` | [`../Achievement_System_DesignSpec.md`](../Achievement_System_DesignSpec.md) 6.1、6.3（有效撤离的停留与挖掘门槛、每日计数上限、困难作业时长的封顶） |
 
 这张表也是本文「文档所有权与子 README」第 2 条的判定依据：新增一份配置文件而不在这里登记，等同于交付了一组服主调不明白的旋钮。

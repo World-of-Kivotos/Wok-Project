@@ -28,6 +28,7 @@
 | WOK-经济模块 | `wok-economy` | `economy` | 双货币、收支闸门、审计与反通胀接口，不持有具体交易 UI |
 | WOK-战斗框架模块 | `wok-combat-core` | `combat` | 玩家受击结算与各职业共享的命名减伤源注册，不持有具体职业或精英词条 |
 | WOK-WebUI 模块 | `wok-webui` | `webui`、`client/webui` | 服务端动作派发、客户端 MCEF 外壳、页面路由；不得持有经济或职业业务规则 |
+| WOK-称号模块 | `wok-title` | `title`、`client/title` | 纯外观称号：数据包定义、七档色板真源 `TierPalette`、持有与佩戴存储、聊天/Tab/名牌三处显示、`/mtitle`；不引用任何玩法模块，成就、婚姻等调用方经 `ITitleService` 发放 |
 
 ### 3.2 职业玩法模块
 

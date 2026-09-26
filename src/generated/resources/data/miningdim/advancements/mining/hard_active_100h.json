@@ -1,0 +1,60 @@
+{
+  "parent": "miningdim:mining/hard_veteran",
+  "criteria": {
+    "reached": {
+      "conditions": {
+        "stat": "miningdim:mining_hard_active_ticks",
+        "value": 7200000
+      },
+      "trigger": "miningdim:stat_at_least"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.mining.hard_active_100h.desc"
+    },
+    "frame": "challenge",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:ancient_debris"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#A55CFF",
+          "text": "深"
+        },
+        {
+          "bold": true,
+          "color": "#C35CFF",
+          "text": "渊"
+        },
+        {
+          "bold": true,
+          "color": "#E05CFF",
+          "text": "守"
+        },
+        {
+          "bold": true,
+          "color": "#F05CDC",
+          "text": "望"
+        },
+        {
+          "bold": true,
+          "color": "#FF5CB8",
+          "text": "者"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "reached"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

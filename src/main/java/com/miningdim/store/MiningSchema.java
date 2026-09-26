@@ -211,8 +211,103 @@ public final class MiningSchema {
     private static final List<String> V4 = List.of(
             "CREATE INDEX idx_pending_payout_seller ON pending_payout(seller_uuid)");
 
+    /**
+     * 版本 5: 称号模块 (wok-title) 的持有表与佩戴表, 结构见 docs/Title_System_DesignSpec.md 第四章。
+     *
+     * title_owned 以 (player_uuid, title_id) 为主键: 发放按主键幂等 (INSERT OR IGNORE), 重复发放既不报错也不
+     * 覆盖最早的 source / source_ref / granted_at —— "这个称号最初是怎么来的"是审计事实, 后来的重复发放不该改写它。
+     * 所有读取都按 player_uuid 过滤, 复合主键的最左列即覆盖这条访问路径, 因此不另建索引。
+     *
+     * title_equipped 一人一行 (player_uuid 主键), 不佩戴即无行。刻意不对 title_owned 加外键: 回收称号时由称号
+     * 模块在同一事务里一并卸下, 而"定义被数据包删除"只影响显示、不删任何行 (定义恢复后自动复原), 外键表达不了
+     * 这层语义, 反而会让将来的批量修复脚本多一道顺序约束。
+     *
+     * 与 V4 同理只能新开一版而不能并进旧版本: 老存档的 user_version 已越过旧版本, 不会重跑其中的 CREATE 语句。
+     */
+    private static final List<String> V5 = List.of(
+            "CREATE TABLE title_owned ("
+                    + "player_uuid TEXT NOT NULL, "
+                    + "title_id TEXT NOT NULL, "
+                    + "source TEXT NOT NULL, "
+                    + "source_ref TEXT, "
+                    + "granted_at INTEGER NOT NULL, "
+                    + "PRIMARY KEY (player_uuid, title_id))",
+            "CREATE TABLE title_equipped ("
+                    + "player_uuid TEXT PRIMARY KEY, "
+                    + "title_id TEXT NOT NULL)");
+
+    /**
+     * 版本 6: 赞助专属称号 (设计文档第十三章) 的资格表与记录表, 结构见 docs/Title_System_DesignSpec.md 13.6,
+     * 各一人一行 (player_uuid 主键)。
+     *
+     * title_sponsor.expires_at 为 NULL 表示永久资格。资格到期或被撤销时 title_custom 的记录保留 (续期后原样恢复),
+     * 因此两表之间不加外键。title_custom.updated_at 是最近一次由玩家本人成功修改的时间, 即修改冷却的起点
+     * (管理员清除冷却时置 0); locked / locked_by 记录管理员的修改锁定。
+     *
+     * 为什么另开 V6 而不并进 V5: V5 已随称号模块 P1 的提交落地, 跑过那一版的库停在 user_version=5、只有持有与
+     * 佩戴两表。并进 V5 的话这些库永远不会补建这两张表, 称号系统会在每次登录读赞助资格时因缺表失败 —— 与本文件
+     * 顶部的铁律同理, 已应用过的迁移只能追加、不能改。
+     */
+    private static final List<String> V6 = List.of(
+            "CREATE TABLE title_sponsor ("
+                    + "player_uuid TEXT PRIMARY KEY, "
+                    + "granted_by TEXT NOT NULL, "
+                    + "granted_at INTEGER NOT NULL, "
+                    + "expires_at INTEGER)",
+            "CREATE TABLE title_custom ("
+                    + "player_uuid TEXT PRIMARY KEY, "
+                    + "text TEXT NOT NULL, "
+                    + "colors TEXT NOT NULL, "
+                    + "bold INTEGER NOT NULL, "
+                    + "updated_at INTEGER NOT NULL, "
+                    + "locked INTEGER NOT NULL DEFAULT 0, "
+                    + "locked_by TEXT)");
+
+    /**
+     * 版本 7: 成就模块 (wok-achievement) 的待领取奖励、成就点余额、成就点流水 (结构见
+     * docs/Achievement_System_DesignSpec.md 7.2) 与统计项每日上限计数 (6.1)。
+     *
+     * achievement_reward 以 (player_uuid, advancement_id) 为主键, 这条主键就是防重键: 管理员撤销进度后再次授予,
+     * 写入按主键忽略, 不会重复发奖; claimed_at 为 NULL 表示待领取。tier / points / title_id 是获得那一刻的元数据
+     * 快照, 之后调整数值不影响已产生的记录。achievement_points 一人一行, lifetime 只增不减。
+     * achievement_point_ledger 只追加、不删改 (撤销进度也不收回已领取的奖励, 流水里保留原记录)。
+     *
+     * achievement_daily_counter 记"某玩家某计数键在某个 UTC 纪元日已经计了几次", 主键 (玩家, 键, 天), 结构参照 V2 的
+     * daily_counters, 但把日期放进主键: 每天一行, 判断上限与加一可以在一条 upsert 里完成, 不需要先读后写。
+     *
+     * 奖励、余额与每日计数的读取全部按 player_uuid 过滤, 主键的最左列即覆盖这条访问路径; 流水当前只写不读 (审计用),
+     * 因此都不另建索引。与 V6 同理, 只能在末尾追加。
+     */
+    private static final List<String> V7 = List.of(
+            "CREATE TABLE achievement_reward ("
+                    + "player_uuid TEXT NOT NULL, "
+                    + "advancement_id TEXT NOT NULL, "
+                    + "tier TEXT NOT NULL, "
+                    + "points INTEGER NOT NULL, "
+                    + "title_id TEXT, "
+                    + "earned_at INTEGER NOT NULL, "
+                    + "claimed_at INTEGER, "
+                    + "PRIMARY KEY (player_uuid, advancement_id))",
+            "CREATE TABLE achievement_points ("
+                    + "player_uuid TEXT PRIMARY KEY, "
+                    + "balance INTEGER NOT NULL, "
+                    + "lifetime INTEGER NOT NULL)",
+            "CREATE TABLE achievement_point_ledger ("
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    + "player_uuid TEXT NOT NULL, "
+                    + "delta INTEGER NOT NULL, "
+                    + "reason TEXT NOT NULL, "
+                    + "ref TEXT, "
+                    + "at INTEGER NOT NULL)",
+            "CREATE TABLE achievement_daily_counter ("
+                    + "player_uuid TEXT NOT NULL, "
+                    + "counter_key TEXT NOT NULL, "
+                    + "day INTEGER NOT NULL, "
+                    + "count INTEGER NOT NULL, "
+                    + "PRIMARY KEY (player_uuid, counter_key, day))");
+
     /** 全部迁移, 下标 + 1 即其版本号。 */
-    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3, V4);
+    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3, V4, V5, V6, V7);
 
     /** 把连接上的库推进到本版代码支持的最新结构。 */
     public static void apply(Connection conn) {

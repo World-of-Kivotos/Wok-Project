@@ -1,0 +1,41 @@
+{
+  "parent": "miningdim:combat/headshot_100",
+  "conditions": [
+    {
+      "type": "forge:mod_loaded",
+      "modid": "tacz"
+    }
+  ],
+  "criteria": {
+    "shot": {
+      "conditions": {
+        "headshot": true,
+        "min_horizontal_distance": 100.0
+      },
+      "trigger": "miningdim:gun_kill"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.combat.long_shot.desc"
+    },
+    "frame": "goal",
+    "hidden": true,
+    "icon": {
+      "item": "minecraft:spyglass"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#FFCC33",
+      "translate": "achievement.miningdim.combat.long_shot.title"
+    }
+  },
+  "requirements": [
+    [
+      "shot"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

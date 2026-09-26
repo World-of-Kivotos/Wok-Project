@@ -150,7 +150,10 @@ public final class MiningStoreGameTests {
                             + ", 实为 " + SchemaMigrator.userVersion(conn));
             for (String table : List.of("meta", "listings", "transactions", "pending_payout",
                     "base_values", "case_openings", "skin_assets",
-                    "wallets", "bundle_operations", "daily_counters")) {
+                    "wallets", "bundle_operations", "daily_counters",
+                    "title_owned", "title_equipped", "title_sponsor", "title_custom",
+                    "achievement_reward", "achievement_points", "achievement_point_ledger",
+                    "achievement_daily_counter")) {
                 helper.assertTrue(SchemaMigrator.tableExists(conn, table), "统一库缺表: " + table);
             }
         } finally {
@@ -465,6 +468,190 @@ public final class MiningStoreGameTests {
     }
 
     /**
+     * 停在 V4 的老库升级时补跑 V5 (称号持有、佩戴) 与 V6 (赞助资格、专属称号), 既有钱包行逐值保留;
+     * 新表的主键必须真的约束 (player_uuid, title_id) 唯一 —— 称号发放的幂等全靠这条主键, 建成无主键的表会让
+     * 重复发放悄悄插出第二行。赞助两表: expires_at 必须可为 NULL (永久资格就靠它表达), title_custom.locked
+     * 省略时默认 0 (未锁定), 两表都一人一行。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void legacyDatabaseStoppedAtV4GetsTitleTablesOnUpgradeWithoutLosingRows(GameTestHelper helper) {
+        Connection conn = MiningDb.openInMemory();
+        try {
+            SchemaMigrator.migrate(conn, MiningSchema.MIGRATIONS.subList(0, 4));
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == 4,
+                    "停在 V4 的老库 user_version 必须是 4, 实为 " + SchemaMigrator.userVersion(conn));
+            for (String titleTable : List.of("title_owned", "title_equipped", "title_sponsor", "title_custom")) {
+                helper.assertTrue(!SchemaMigrator.tableExists(conn, titleTable), "V4 老库里不应已有 " + titleTable + " 表");
+            }
+            exec(conn, "INSERT INTO wallets (player_id, credit, azure) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 777, 5)");
+
+            MiningSchema.apply(conn);
+
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == MiningSchema.MIGRATIONS.size(),
+                    "老库升级后 user_version 必须推进到迁移总数 " + MiningSchema.MIGRATIONS.size()
+                            + ", 实为 " + SchemaMigrator.userVersion(conn));
+            for (String titleTable : List.of("title_owned", "title_equipped", "title_sponsor", "title_custom")) {
+                helper.assertTrue(SchemaMigrator.tableExists(conn, titleTable), "升级后必须建出 " + titleTable);
+            }
+            long credit = singleLong(conn, "SELECT credit FROM wallets WHERE player_id='"
+                    + LEGACY_PAYOUT_SELLER_ID + "'");
+            helper.assertTrue(credit == 777L, "升级不得改动既有钱包行, credit 必须仍是 777, 实为 " + credit);
+
+            exec(conn, "INSERT INTO title_owned (player_uuid, title_id, source, source_ref, granted_at) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 'miningdim:mining/ore_codex', 'admin', NULL, 1)");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO title_owned "
+                            + "(player_uuid, title_id, source, source_ref, granted_at) VALUES ('"
+                            + LEGACY_PAYOUT_SELLER_ID + "', 'miningdim:mining/ore_codex', 'event', NULL, 2)"),
+                    "title_owned 的 (player_uuid, title_id) 主键必须拒绝重复行");
+            helper.assertTrue(countRows(conn, "title_owned") == 1,
+                    "重复插入被拒后 title_owned 只能有 1 行, 实为 " + countRows(conn, "title_owned"));
+
+            String playerFilter = " WHERE player_uuid='" + LEGACY_PAYOUT_SELLER_ID + "'";
+            exec(conn, "INSERT INTO title_sponsor (player_uuid, granted_by, granted_at, expires_at) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 'op', 1, NULL)");
+            helper.assertTrue(singleText(conn, "SELECT expires_at FROM title_sponsor" + playerFilter) == null,
+                    "title_sponsor.expires_at 必须能存 NULL (永久资格)");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO title_sponsor (player_uuid, granted_by, granted_at)"
+                            + " VALUES ('" + LEGACY_PAYOUT_SELLER_ID + "', 'op', 2)"),
+                    "title_sponsor 以 player_uuid 为主键, 同一玩家不能有第二行资格");
+
+            exec(conn, "INSERT INTO title_custom (player_uuid, text, colors, bold, updated_at) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', '【矿工】', '#FFD23F', 1, 3)");
+            helper.assertTrue(singleLong(conn, "SELECT locked FROM title_custom" + playerFilter) == 0L,
+                    "title_custom.locked 省略时必须默认 0 (未锁定)");
+            helper.assertTrue(singleText(conn, "SELECT locked_by FROM title_custom" + playerFilter) == null,
+                    "title_custom.locked_by 省略时必须为 NULL");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO title_custom "
+                            + "(player_uuid, text, colors, bold, updated_at) VALUES ('"
+                            + LEGACY_PAYOUT_SELLER_ID + "', 'x', '#FFFFFF', 0, 4)"),
+                    "title_custom 以 player_uuid 为主键, 同一玩家只能有一个专属称号");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO title_custom (player_uuid, colors, bold, updated_at)"
+                            + " VALUES ('other', '#FFFFFF', 0, 4)"),
+                    "title_custom.text 必须 NOT NULL");
+        } finally {
+            MiningDb.close(conn);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 停在 V5 的库 (称号模块 P1 只建了持有、佩戴两表) 升级时补跑 V6, 建出赞助专属称号两表, 既有的持有与佩戴行
+     * 逐值保留。两表若并进 V5, 这类库的 user_version 已经是 5, 永远不会再补建, 称号系统在每次登录读赞助资格时
+     * 就会因缺表失败 —— 这正是"已应用的迁移不得修改、只能追加"要防的情形。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void databaseStoppedAtV5GetsSponsorTablesOnUpgradeWithoutLosingTitleRows(GameTestHelper helper) {
+        Connection conn = MiningDb.openInMemory();
+        try {
+            SchemaMigrator.migrate(conn, MiningSchema.MIGRATIONS.subList(0, 5));
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == 5,
+                    "停在 V5 的库 user_version 必须是 5, 实为 " + SchemaMigrator.userVersion(conn));
+            helper.assertTrue(SchemaMigrator.tableExists(conn, "title_owned")
+                    && SchemaMigrator.tableExists(conn, "title_equipped"), "V5 库里应已有称号持有与佩戴两表");
+            for (String sponsorTable : List.of("title_sponsor", "title_custom")) {
+                helper.assertTrue(!SchemaMigrator.tableExists(conn, sponsorTable),
+                        "V5 库里不应已有 " + sponsorTable + " 表 (P1 发布的 V5 只有持有与佩戴两表)");
+            }
+            exec(conn, "INSERT INTO title_owned (player_uuid, title_id, source, source_ref, granted_at) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 'miningdim:mining/ore_codex', 'admin', 'op', 42)");
+            exec(conn, "INSERT INTO title_equipped (player_uuid, title_id) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 'miningdim:mining/ore_codex')");
+
+            MiningSchema.apply(conn);
+
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == MiningSchema.MIGRATIONS.size(),
+                    "升级后 user_version 必须推进到迁移总数 " + MiningSchema.MIGRATIONS.size()
+                            + ", 实为 " + SchemaMigrator.userVersion(conn));
+            for (String sponsorTable : List.of("title_sponsor", "title_custom")) {
+                helper.assertTrue(SchemaMigrator.tableExists(conn, sponsorTable), "升级后必须建出 " + sponsorTable);
+            }
+            String playerFilter = " WHERE player_uuid='" + LEGACY_PAYOUT_SELLER_ID + "'";
+            helper.assertTrue(singleLong(conn, "SELECT granted_at FROM title_owned" + playerFilter) == 42L
+                            && "op".equals(singleText(conn, "SELECT source_ref FROM title_owned" + playerFilter)),
+                    "升级不得改动既有持有行");
+            helper.assertTrue("miningdim:mining/ore_codex".equals(
+                    singleText(conn, "SELECT title_id FROM title_equipped" + playerFilter)), "升级不得改动既有佩戴行");
+        } finally {
+            MiningDb.close(conn);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 停在 V6 的库 (称号模块 P1.5 落地时的最新版) 升级时补跑 V7, 建出成就模块的四张表, 既有称号行逐值保留。
+     * 新表的约束逐条钉住: achievement_reward 的 (玩家, 进度) 主键是"撤销后再授予不重复发奖"的全部依据;
+     * claimed_at 与 title_id 可为 NULL (待领取、无称号); achievement_points 一人一行;
+     * achievement_point_ledger 的 id 自增; achievement_daily_counter 以 (玩家, 键, 天) 为主键, 不同的天各占一行。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void databaseStoppedAtV6GetsAchievementTablesOnUpgradeWithoutLosingTitleRows(GameTestHelper helper) {
+        Connection conn = MiningDb.openInMemory();
+        try {
+            SchemaMigrator.migrate(conn, MiningSchema.MIGRATIONS.subList(0, 6));
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == 6,
+                    "停在 V6 的库 user_version 必须是 6, 实为 " + SchemaMigrator.userVersion(conn));
+            List<String> achievementTables = List.of("achievement_reward", "achievement_points",
+                    "achievement_point_ledger", "achievement_daily_counter");
+            for (String table : achievementTables) {
+                helper.assertTrue(!SchemaMigrator.tableExists(conn, table), "V6 库里不应已有 " + table + " 表");
+            }
+            exec(conn, "INSERT INTO title_sponsor (player_uuid, granted_by, granted_at, expires_at) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 'op', 42, NULL)");
+
+            MiningSchema.apply(conn);
+
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == MiningSchema.MIGRATIONS.size(),
+                    "升级后 user_version 必须推进到迁移总数 " + MiningSchema.MIGRATIONS.size()
+                            + ", 实为 " + SchemaMigrator.userVersion(conn));
+            for (String table : achievementTables) {
+                helper.assertTrue(SchemaMigrator.tableExists(conn, table), "升级后必须建出 " + table);
+            }
+            String playerFilter = " WHERE player_uuid='" + LEGACY_PAYOUT_SELLER_ID + "'";
+            helper.assertTrue(singleLong(conn, "SELECT granted_at FROM title_sponsor" + playerFilter) == 42L,
+                    "升级不得改动既有赞助资格行");
+
+            exec(conn, "INSERT INTO achievement_reward (player_uuid, advancement_id, tier, points, title_id, earned_at)"
+                    + " VALUES ('" + LEGACY_PAYOUT_SELLER_ID + "', 'miningdim:mining/first_entry', 'bronze', 10, "
+                    + "NULL, 1)");
+            helper.assertTrue(singleText(conn, "SELECT claimed_at FROM achievement_reward" + playerFilter) == null
+                            && singleText(conn, "SELECT title_id FROM achievement_reward" + playerFilter) == null,
+                    "待领取奖励的 claimed_at 与无称号时的 title_id 必须能存 NULL");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO achievement_reward "
+                            + "(player_uuid, advancement_id, tier, points, earned_at) VALUES ('"
+                            + LEGACY_PAYOUT_SELLER_ID + "', 'miningdim:mining/first_entry', 'bronze', 10, 2)"),
+                    "achievement_reward 的 (player_uuid, advancement_id) 主键必须拒绝重复奖励");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO achievement_reward "
+                            + "(player_uuid, advancement_id, points, earned_at) VALUES ('other', 'x:y', 10, 2)"),
+                    "achievement_reward.tier 必须 NOT NULL");
+
+            exec(conn, "INSERT INTO achievement_points (player_uuid, balance, lifetime) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 10, 10)");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO achievement_points (player_uuid, balance, lifetime) "
+                    + "VALUES ('" + LEGACY_PAYOUT_SELLER_ID + "', 1, 1)"), "achievement_points 一人一行");
+
+            exec(conn, "INSERT INTO achievement_point_ledger (player_uuid, delta, reason, ref, at) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 10, 'claim', 'miningdim:mining/first_entry', 3)");
+            exec(conn, "INSERT INTO achievement_point_ledger (player_uuid, delta, reason, ref, at) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', -5, 'admin', NULL, 4)");
+            helper.assertTrue(singleLong(conn, "SELECT MAX(id) FROM achievement_point_ledger") == 2L,
+                    "流水 id 应自增");
+
+            exec(conn, "INSERT INTO achievement_daily_counter (player_uuid, counter_key, day, count) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 'mining_extraction', 100, 1)");
+            exec(conn, "INSERT INTO achievement_daily_counter (player_uuid, counter_key, day, count) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 'mining_extraction', 101, 1)");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO achievement_daily_counter "
+                            + "(player_uuid, counter_key, day, count) VALUES ('" + LEGACY_PAYOUT_SELLER_ID
+                            + "', 'mining_extraction', 100, 2)"),
+                    "achievement_daily_counter 的 (玩家, 键, 天) 主键必须拒绝同一天的第二行");
+        } finally {
+            MiningDb.close(conn);
+        }
+        helper.succeed();
+    }
+
+    /**
      * 导入带显式主键的行之后, 新挂单的自增 id 必须越过已导入的最大值。
      * 若自增序列没跟上, 第一笔新挂单就会撞上导入行的主键, 表现为开服后无人能挂单。
      */
@@ -642,6 +829,16 @@ public final class MiningStoreGameTests {
             return rs.next() ? rs.getString(1) : null;
         } catch (SQLException e) {
             throw new MiningStoreException("查询失败: " + sql, e);
+        }
+    }
+
+    /** 执行一条预期被约束 (主键、NOT NULL) 拒绝的语句, 返回它是否真的被拒。 */
+    private static boolean rejectsStatement(Connection conn, String sql) {
+        try (Statement st = conn.createStatement()) {
+            st.execute(sql);
+            return false;
+        } catch (SQLException expected) {
+            return true;
         }
     }
 

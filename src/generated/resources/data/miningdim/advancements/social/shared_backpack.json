@@ -1,0 +1,32 @@
+{
+  "parent": "miningdim:social/married",
+  "criteria": {
+    "opened": {
+      "conditions": {},
+      "trigger": "miningdim:open_shared_backpack"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.social.shared_backpack.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:pink_shulker_box"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#C8834A",
+      "translate": "achievement.miningdim.social.shared_backpack.title"
+    }
+  },
+  "requirements": [
+    [
+      "opened"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

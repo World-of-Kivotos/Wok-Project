@@ -1,6 +1,6 @@
 # 文档索引
 
-WOK 主 mod（`modid=miningdim`）的全部设计文档入口。截至 2026-09-20，`docs/` 下现役 50 份、归档 12 份。
+WOK 主 mod（`modid=miningdim`）的全部设计文档入口。截至 2026-09-26，`docs/` 下现役 52 份、归档 12 份。
 
 本索引是 2026-09-20 全量文档审查的产物。审查前 `docs/` 没有任何索引，78 份文档里 34 份没有被任何其它
 文档引用过，冻结的审查快照与现役规格平铺在同一层目录——这些是这次建索引要解决的问题。
@@ -75,6 +75,8 @@ WOK 主 mod（`modid=miningdim`）的全部设计文档入口。截至 2026-09-2
 | WebUI · 前端接线清单 | [WebUI_Frontend_Wiring_Checklist](WebUI_Frontend_Wiring_Checklist.md) | `webui/src` |
 | WebUI · 接线范围裁定 | [WebUI_Wiring_Execution_Scope](WebUI_Wiring_Execution_Scope.md) | 同上 |
 | 婚姻社交 | [Marriage_System_DesignSpec](Marriage_System_DesignSpec.md) | `marriage` |
+| 成就 · 原版进度 + 成就点商店 | [Achievement_System_DesignSpec](Achievement_System_DesignSpec.md)（2026-09-26 起草，未实现） | `achievement` |
+| 称号 | [Title_System_DesignSpec](Title_System_DesignSpec.md)（2026-09-26 起草，未实现） | `title` `client/title` |
 | 实体堆叠 | [Minecraft实体堆叠_需求规格说明书](Minecraft实体堆叠_需求规格说明书.md) | `stacking` |
 | 全局脑图 | [design_mindmap](design_mindmap.md) — 各系统的一页纸概览，细节以各自主规格为准 | 全部 |
 

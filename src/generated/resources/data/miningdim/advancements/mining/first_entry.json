@@ -1,0 +1,32 @@
+{
+  "parent": "miningdim:mining/root",
+  "criteria": {
+    "entered": {
+      "conditions": {},
+      "trigger": "miningdim:enter_mining"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.mining.first_entry.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:entrance_easy"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#C8834A",
+      "translate": "achievement.miningdim.mining.first_entry.title"
+    }
+  },
+  "requirements": [
+    [
+      "entered"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

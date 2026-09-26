@@ -1,0 +1,35 @@
+{
+  "parent": "miningdim:combat/first_champion",
+  "criteria": {
+    "defeated": {
+      "conditions": {
+        "affix": "GIGANTISM",
+        "min_star": 1
+      },
+      "trigger": "miningdim:champion_kill"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.combat.giant_slayer.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "minecraft:zombie_head"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#D0D7DE",
+      "translate": "achievement.miningdim.combat.giant_slayer.title"
+    }
+  },
+  "requirements": [
+    [
+      "defeated"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

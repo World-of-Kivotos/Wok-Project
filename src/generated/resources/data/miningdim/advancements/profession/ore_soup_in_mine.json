@@ -1,0 +1,53 @@
+{
+  "parent": "miningdim:profession/root",
+  "criteria": {
+    "consumed": {
+      "conditions": {
+        "item": {
+          "items": [
+            "miningdim:iron_ore_fish_soup",
+            "miningdim:gold_ore_fish_soup",
+            "miningdim:diamond_ore_fish_soup",
+            "miningdim:emerald_ore_fish_soup",
+            "miningdim:dark_gold_ore_fish_soup"
+          ]
+        },
+        "player": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "location": {
+                "dimension": "miningdim:mining"
+              }
+            }
+          }
+        ]
+      },
+      "trigger": "minecraft:consume_item"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.profession.ore_soup_in_mine.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:iron_ore_fish_soup"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#C8834A",
+      "translate": "achievement.miningdim.profession.ore_soup_in_mine.title"
+    }
+  },
+  "requirements": [
+    [
+      "consumed"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

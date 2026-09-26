@@ -1,0 +1,32 @@
+{
+  "parent": "miningdim:social/engagement_ring",
+  "criteria": {
+    "married": {
+      "conditions": {},
+      "trigger": "miningdim:married"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.social.married.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:wedding_ring"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#D0D7DE",
+      "translate": "achievement.miningdim.social.married.title"
+    }
+  },
+  "requirements": [
+    [
+      "married"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

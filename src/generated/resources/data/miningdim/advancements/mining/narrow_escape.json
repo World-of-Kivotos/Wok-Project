@@ -1,0 +1,35 @@
+{
+  "parent": "miningdim:mining/first_extraction",
+  "criteria": {
+    "extracted": {
+      "conditions": {
+        "max_health_ratio": 0.1,
+        "threat_hit_within_ticks": 600
+      },
+      "trigger": "miningdim:mining_extraction"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.mining.narrow_escape.desc"
+    },
+    "frame": "task",
+    "hidden": true,
+    "icon": {
+      "item": "minecraft:golden_apple"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#D0D7DE",
+      "translate": "achievement.miningdim.mining.narrow_escape.title"
+    }
+  },
+  "requirements": [
+    [
+      "extracted"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

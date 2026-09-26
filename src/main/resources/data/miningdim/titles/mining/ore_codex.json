@@ -1,0 +1,5 @@
+{
+  "text": { "translate": "title.miningdim.mining.ore_codex" },
+  "rarity": "gold",
+  "description": { "translate": "title.miningdim.mining.ore_codex.desc" }
+}

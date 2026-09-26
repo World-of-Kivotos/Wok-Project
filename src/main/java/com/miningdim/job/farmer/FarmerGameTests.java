@@ -238,17 +238,11 @@ public final class FarmerGameTests {
         BlockPos cropPos = helper.absolutePos(relativeCrop);
         BlockHitResult hit = new BlockHitResult(
                 Vec3.atCenterOf(cropPos), Direction.UP, cropPos, false);
+        int before = tomatoCount(helper, cropPos);
         player.gameMode.useItemOn(player, helper.getLevel(), ItemStack.EMPTY,
                 InteractionHand.MAIN_HAND, hit);
 
-        net.minecraft.world.item.Item tomato = ForgeRegistries.ITEMS.getValue(
-                new ResourceLocation("farmersdelight", "tomato"));
-        int count = helper.getLevel().getEntitiesOfClass(
-                        ItemEntity.class, new AABB(cropPos).inflate(3.0D)).stream()
-                .map(ItemEntity::getItem)
-                .filter(stack -> stack.is(tomato))
-                .mapToInt(ItemStack::getCount)
-                .sum();
+        int count = tomatoCount(helper, cropPos) - before;
         helper.assertTrue(count >= 6 && count <= 12,
                 "SUPREME right-click tomato harvest must drop 6 or 12, got " + count);
         helper.assertTrue(crop.getAge(helper.getLevel().getBlockState(cropPos)) == 0,
@@ -278,17 +272,11 @@ public final class FarmerGameTests {
         BlockPos cropPos = helper.absolutePos(relativeCrop);
         BlockHitResult hit = new BlockHitResult(
                 Vec3.atCenterOf(cropPos), Direction.UP, cropPos, false);
+        int before = tomatoCount(helper, cropPos);
         player.gameMode.useItemOn(player, helper.getLevel(), ItemStack.EMPTY,
                 InteractionHand.MAIN_HAND, hit);
 
-        net.minecraft.world.item.Item tomato = ForgeRegistries.ITEMS.getValue(
-                new ResourceLocation("farmersdelight", "tomato"));
-        int count = helper.getLevel().getEntitiesOfClass(
-                        ItemEntity.class, new AABB(cropPos).inflate(3.0D)).stream()
-                .map(ItemEntity::getItem)
-                .filter(stack -> stack.is(tomato))
-                .mapToInt(ItemStack::getCount)
-                .sum();
+        int count = tomatoCount(helper, cropPos) - before;
         helper.assertTrue(count == 6 || count == 12,
                 "SUPREME right-click hanging tomato harvest must drop 6 or 12, got " + count);
         helper.assertTrue(crop.getAge(helper.getLevel().getBlockState(cropPos)) == 0,
@@ -1322,6 +1310,22 @@ public final class FarmerGameTests {
                         ItemEntity.class, new AABB(absolutePos).inflate(1.0D)).stream()
                 .map(ItemEntity::getItem)
                 .filter(stack -> stack.is(FarmerItems.FARMER_WHEAT.get()))
+                .mapToInt(ItemStack::getCount)
+                .sum();
+    }
+
+    /**
+     * 数指定方块处当前存在的 Farmer's Delight 番茄掉落物 (绝对数量)。理由与 {@link #farmerWheatCount} 相同: 调用方
+     * 必须取右键采摘前后的差值 —— 上一轮采下的番茄还躺在同一组绝对坐标上 (实测 12 -> 24 -> 36, 以及 12 + 6 = 18)。
+     * 右键采摘经 popResource 同步掉在被采的那一格内, 半径同样收到 1 格, 不探进隔壁用例。
+     */
+    private static int tomatoCount(GameTestHelper helper, BlockPos absolutePos) {
+        net.minecraft.world.item.Item tomato = ForgeRegistries.ITEMS.getValue(
+                new ResourceLocation("farmersdelight", "tomato"));
+        return helper.getLevel().getEntitiesOfClass(
+                        ItemEntity.class, new AABB(absolutePos).inflate(1.0D)).stream()
+                .map(ItemEntity::getItem)
+                .filter(stack -> stack.is(tomato))
                 .mapToInt(ItemStack::getCount)
                 .sum();
     }

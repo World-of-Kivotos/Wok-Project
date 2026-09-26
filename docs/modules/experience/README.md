@@ -60,9 +60,12 @@ progression/
   ExperienceAward.java         实际入账结果
   ExperienceSnapshot.java      当前总经验与等级
   ExperienceTrackHandler.java  轨道持久化适配契约
+  ExperienceAwardListener.java 发放完成后的多播监听 (只读消费方, 如成就)
 ```
 
 职业框架通过 `JobExperienceTracks` 和 `JobTrackHandler` 接入，不反向要求经验模块理解 `JobId` 或 `JobProgress`。
+
+只读消费方经 `ExperienceServices.registerAwardListener` 在装配期注册：路由器在一笔经验落到轨道、读回发放后快照之后通知，带发放前的等级；被拒收的发放不通知。经验模块不吞监听器异常，捕获与记录是消费方自己的责任（成就模块的接法见 [成就设计文档](../../Achievement_System_DesignSpec.md) 9.10）。
 
 ## 5. 验证要求
 

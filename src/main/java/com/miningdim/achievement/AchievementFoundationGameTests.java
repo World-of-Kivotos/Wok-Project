@@ -95,8 +95,9 @@ import java.util.UUID;
  * 不从 datagen 的声明表或 {@link AchievementTier} 反推 —— 否则声明写错、档位表写错时, 测试会跟着一起错。
  * 强断言 (删被测核心逻辑必挂):
  * <ol>
- *   <li>P1 的 30 条成就与 6 个页签根都按规格加载: 父节点、框体、公告、隐藏、Toast、图标、背景、触发器与标题颜色;
- *       依赖 TaCZ 的三条随加载条件出现或缺席; 随 P2 开放的两条不存在;</li>
+ *   <li>P1 的 30 条 (含随世界 BOSS 事件开放的 star_10)、P2 职业的 17 条成就与 6 个页签根都按规格加载:
+ *       父节点、框体、公告、隐藏、Toast、图标、背景、触发器与标题颜色;
+ *       依赖 TaCZ 的三条随加载条件出现或缺席; 随后续阶段开放的两条不存在;</li>
  *   <li>每一条都有元数据, 点数取档位默认值, 附带称号与 9.8 一致;</li>
  *   <li>一致性校验在真实服务端上无问题, 并能逐条报出框体不符、隐藏却不公告、缺元数据、称号不存在四类构造出的错误;</li>
  *   <li>成就数量候选不含页签根与 meta 页签、含隐藏成就; 真实触发器经 mock 玩家的原版监听授予真实进度, 计数随之而变;</li>
@@ -123,7 +124,10 @@ public final class AchievementFoundationGameTests {
             "master", new TierSpec(FrameType.CHALLENGE, true, 400, 0xA55CFF, 0xE05CFF, 0xFF5CB8),
             "legend", new TierSpec(FrameType.CHALLENGE, true, 800, 0xFF3D3D, 0xFF8A1F, 0xFFD23F));
 
-    /** 第九章 P1 的 30 条与 9.7 的 6 个页签根; 称号按 9.8 (称号 id 与成就 id 相同)。 */
+    /**
+     * 第九章 P1 的 30 条 (含 star_10)、9.3 职业已开放的 P2 17 条与 9.7 的 6 个页签根;
+     * 称号按 9.8 (称号 id 与成就 id 相同)。
+     */
     private static final List<Expected> EXPECTED = List.of(
             root("mining", "minecraft:deepslate_iron_ore", "deepslate"),
             root("combat", "minecraft:shield", "blackstone"),
@@ -178,6 +182,37 @@ public final class AchievementFoundationGameTests {
                     .titled(),
             row("profession/ore_soup_in_mine", "bronze", "profession/root", "miningdim:iron_ore_fish_soup",
                     "minecraft:consume_item"),
+            row("profession/level_2", "bronze", "profession/root", "minecraft:experience_bottle",
+                    "miningdim:job_level"),
+            row("profession/level_4", "silver", "profession/level_2", "minecraft:book", "miningdim:job_level"),
+            row("profession/level_7", "gold", "profession/level_4", "minecraft:enchanted_book", "miningdim:job_level"),
+            row("profession/max_level", "platinum", "profession/level_7", "minecraft:enchanting_table",
+                    "miningdim:job_level").titled(),
+            row("profession/all_max", "master", "profession/max_level", "minecraft:beacon", "miningdim:job_level")
+                    .titled(),
+            row("profession/farmer_first_harvest", "bronze", "profession/root", "miningdim:farmer_seed",
+                    "miningdim:stat_at_least"),
+            row("profession/farmer_harvest_500", "silver", "profession/farmer_first_harvest", "miningdim:farmer_wheat",
+                    "miningdim:stat_at_least"),
+            row("profession/farmer_harvest_5000", "gold", "profession/farmer_harvest_500", "minecraft:hay_block",
+                    "miningdim:stat_at_least"),
+            row("profession/chef_first_dish", "bronze", "profession/root", "miningdim:seasoning_table_low",
+                    "miningdim:chef_dish"),
+            row("profession/chef_radiant", "silver", "profession/chef_first_dish", "miningdim:seasoning_table_radiant",
+                    "miningdim:chef_dish"),
+            row("profession/brewer_first_brew", "bronze", "profession/root", "miningdim:brewing_station",
+                    "miningdim:brew_complete"),
+            row("profession/brewer_nine_wines", "silver", "profession/brewer_first_brew", "miningdim:wine_cellar",
+                    "miningdim:brew_complete").criteria(9),
+            row("profession/brewer_brilliant", "platinum", "profession/brewer_nine_wines", "miningdim:wine_maotai",
+                    "miningdim:brew_complete"),
+            row("profession/first_tarot", "bronze", "profession/root", "miningdim:tarot_pack_common",
+                    "miningdim:tarot_play"),
+            row("profession/agent_first_seal", "silver", "profession/root", "minecraft:chain", "miningdim:agent_seal"),
+            row("profession/first_nano_plate", "bronze", "profession/root", "miningdim:nano_plate_low",
+                    "miningdim:nano_plate_produced"),
+            row("profession/first_ammo", "bronze", "profession/root", "miningdim:munitions_bench",
+                    "miningdim:munitions_batch"),
             row("social/engagement_ring", "bronze", "social/root", "miningdim:engagement_ring",
                     "minecraft:inventory_changed"),
             row("social/married", "silver", "social/engagement_ring", "miningdim:wedding_ring", "miningdim:married"),
@@ -198,8 +233,8 @@ public final class AchievementFoundationGameTests {
         MinecraftServer server = helper.getLevel().getServer();
         boolean tacz = ModList.get().isLoaded(TACZ);
         JsonObject zh = readLang("zh_cn");
-        helper.assertTrue(EXPECTED.size() == 36 && EXPECTED.stream().filter(e -> e.tier != null).count() == 30,
-                "期望表应为 30 条 P1 成就 + 6 个页签根");
+        helper.assertTrue(EXPECTED.size() == 53 && EXPECTED.stream().filter(e -> e.tier != null).count() == 47,
+                "期望表应为 30 条 P1 成就 (含 star_10) + 17 条 P2 职业成就 + 6 个页签根");
 
         for (Expected expected : EXPECTED) {
             ResourceLocation id = AchievementIds.id(expected.path);
@@ -256,7 +291,7 @@ public final class AchievementFoundationGameTests {
         }
         long loaded = server.getAdvancements().getAllAdvancements().stream()
                 .filter(advancement -> AchievementIds.isAchievement(advancement.getId())).count();
-        int expectedLoaded = tacz ? 36 : 33;
+        int expectedLoaded = tacz ? 53 : 50;
         helper.assertTrue(loaded == expectedLoaded,
                 "miningdim 命名空间下 (配方以外) 应恰好加载 " + expectedLoaded + " 个进度, 实为 " + loaded);
         helper.succeed();
@@ -292,8 +327,10 @@ public final class AchievementFoundationGameTests {
             helper.assertTrue(catalog.isRewarding(id), id + " 有成就点, 获得后应产生待领取奖励");
             totalPoints += points;
         }
-        // 铜 10 条 x10 + 银 8 条 x25 + 金 6 条 x50 + 白金 2 条 x100 + 钻石 2 条 x200 + 大师、传说各 1 条 = 2400。
-        helper.assertTrue(totalPoints == 2400, "P1 30 条成就的默认点数合计应为 2400, 实为 " + totalPoints);
+        // 铜 17 条 x10 + 银 13 条 x25 + 金 8 条 x50 + 白金 4 条 x100 + 钻石 2 条 x200 + 大师 2 条 x400 + 传说 1 条 x800
+        // = 3295 (P1 的 2200、star_10 的 200 加上 P2 职业的 895)。
+        helper.assertTrue(totalPoints == 3295,
+                "P1 30 条 (含 star_10) 与 P2 职业 17 条成就的默认点数合计应为 3295, 实为 " + totalPoints);
         helper.assertTrue(catalog.metas().size() == EXPECTED.size(),
                 "数据包里应恰好有 " + EXPECTED.size() + " 份成就元数据, 实为 " + catalog.metas().size());
         helper.succeed();
@@ -333,7 +370,7 @@ public final class AchievementFoundationGameTests {
         ConsistencyReport live = AchievementConsistency.check(server.getAdvancements().getAllAdvancements(),
                 AchievementServices.catalog().metas(), AchievementConsistency::titleDefined);
         helper.assertTrue(live.isClean(), "真实服务端上的成就应当一致, 实报 " + live.problems());
-        helper.assertTrue(live.checked() == (tacz ? 36 : 33), "应核对全部本模块进度, 实为 " + live.checked());
+        helper.assertTrue(live.checked() == (tacz ? 53 : 50), "应核对全部本模块进度, 实为 " + live.checked());
         List<ResourceLocation> gated = tacz ? List.of() : List.of(AchievementIds.id("combat/gun_100"),
                 AchievementIds.id("combat/headshot_100"), AchievementIds.id("combat/long_shot"));
         helper.assertTrue(live.metaWithoutAdvancement().equals(gated),
@@ -402,8 +439,8 @@ public final class AchievementFoundationGameTests {
             }
         }
         helper.assertTrue(new TreeSet<>(countable).equals(expected),
-                "成就数量候选应为 P1 里页签根与 meta 页签以外、已加载的成就 (" + expected.size() + " 条), 实为 " + countable);
-        helper.assertTrue(countable.size() == (tacz ? 29 : 26), "计数池应为 " + (tacz ? 29 : 26) + " 条");
+                "成就数量候选应为期望表里页签根与 meta 页签以外、已加载的成就 (" + expected.size() + " 条), 实为 " + countable);
+        helper.assertTrue(countable.size() == (tacz ? 46 : 43), "计数池应为 " + (tacz ? 46 : 43) + " 条");
         helper.assertTrue(countable.contains(AchievementIds.id("mining/trap_sprung")), "隐藏成就应计入成就数量");
         helper.assertTrue(countable.stream().noneMatch(id -> id.getPath().startsWith("recipes/")
                         || id.getPath().endsWith("/root") || id.getPath().startsWith("meta/")),

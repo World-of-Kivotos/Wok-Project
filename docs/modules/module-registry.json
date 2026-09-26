@@ -801,7 +801,15 @@
         "wok-title",
         "wok-mining",
         "wok-champion",
-        "wok-economy"
+        "wok-economy",
+        "wok-experience",
+        "wok-job-core",
+        "wok-job-armorer",
+        "wok-job-chef",
+        "wok-job-brewer",
+        "wok-job-tarot",
+        "wok-job-munitions",
+        "wok-job-agent"
       ],
       "optionalIntegrations": [
         "tacz",

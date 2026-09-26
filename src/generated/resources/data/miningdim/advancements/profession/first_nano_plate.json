@@ -1,0 +1,32 @@
+{
+  "parent": "miningdim:profession/root",
+  "criteria": {
+    "produced": {
+      "conditions": {},
+      "trigger": "miningdim:nano_plate_produced"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.profession.first_nano_plate.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:nano_plate_low"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#C8834A",
+      "translate": "achievement.miningdim.profession.first_nano_plate.title"
+    }
+  },
+  "requirements": [
+    [
+      "produced"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

@@ -83,6 +83,7 @@ public final class TarotPlayHandler {
                             data, quality, upright);
                     if (!testMode) {
                         TarotLeveling.grantPlayXp(resolvingPlayer, quality);
+                        TarotEvents.firePlay(resolvingPlayer, cardId, quality);
                     }
                 },
                 discardedPlayer -> refundCast(discardedPlayer, cardId, quality, upright, shiny));

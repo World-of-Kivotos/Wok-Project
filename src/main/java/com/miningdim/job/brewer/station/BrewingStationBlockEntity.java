@@ -3,6 +3,7 @@ package com.miningdim.job.brewer.station;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.brewer.BrewerConstants;
+import com.miningdim.job.brewer.BrewerEvents;
 import com.miningdim.job.brewer.BrewerItems;
 import com.miningdim.job.brewer.WineNbt;
 import com.miningdim.job.brewer.WineQuality;
@@ -198,7 +199,7 @@ public final class BrewingStationBlockEntity extends BlockEntity implements Menu
         WineNbt.stamp(output, quality, operatorUuid);
         mergeIntoOutput(output);
 
-        grantBrewXp();
+        grantBrewXp(type, quality);
         setChanged();
     }
 
@@ -236,11 +237,14 @@ public final class BrewingStationBlockEntity extends BlockEntity implements Menu
         }
     }
 
-    /** operator 在线时给其酿酒经验 (离线则 operator==null 短路, 不入账; 品质已在开始帧锁定不受影响)。 */
-    private void grantBrewXp() {
+    /**
+     * operator 在线时给其酿酒经验, 入账后广播这一轮酿成 ({@link BrewerEvents}); 离线则 operator==null 短路, 既不入账
+     * 也不广播 (品质已在开始帧锁定不受影响)。
+     */
+    private void grantBrewXp(WineType type, WineQuality quality) {
         ServerPlayer operator = onlineOperator();
         if (operator == null) {
-            return; // 离线: 跳过经验 (酒仍产出, 见 finishBrew)。
+            return; // 离线: 跳过经验与广播 (酒仍产出, 见 finishBrew)。
         }
         // 茅台闪耀永久特殊: 职业经验加成 (+10%/层, 满 5 层 +50%)。在 brewer 包内的发放点乘原始经验, 不改框架。
         int maotaiLayers = com.miningdim.job.brewer.BrewBuffStore.get(operator.server.overworld())
@@ -249,6 +253,7 @@ public final class BrewingStationBlockEntity extends BlockEntity implements Menu
                 * com.miningdim.job.brewer.BrewPermanentBuffs.maotaiXpMultiplier(maotaiLayers));
         // 原始酿酒经验 (经框架每日衰减软上限入账, 酿酒师不自折算)。
         JobServices.jobService().grantXp(operator, JobId.BREWER, rawXp);
+        BrewerEvents.fireBrew(operator, type, quality);
     }
 
     /** 每完成一轮酿造给 operator 的原始酿酒经验 (制造职业的产出经验; 框架统一衰减)。 */

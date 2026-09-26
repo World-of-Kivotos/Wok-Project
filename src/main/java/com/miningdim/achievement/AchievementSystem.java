@@ -12,6 +12,7 @@ import com.miningdim.achievement.trigger.AchievementStats;
 import com.miningdim.achievement.trigger.AchievementTriggers;
 import com.miningdim.achievement.trigger.ChampionKillHooks;
 import com.miningdim.achievement.trigger.DailyCounterRepository;
+import com.miningdim.achievement.trigger.JobHooks;
 import com.miningdim.achievement.trigger.MiningTripHooks;
 import com.miningdim.achievement.trigger.PlayerProgressHooks;
 import com.miningdim.achievement.trigger.SqliteDailyCounterRepository;
@@ -83,6 +84,7 @@ public final class AchievementSystem implements Subsystem {
         forgeBus.register(new MiningTripHooks());
         forgeBus.register(new ChampionKillHooks());
         forgeBus.register(new PlayerProgressHooks());
+        JobHooks.register(modBus);
         LOGGER.info("[miningdim] achievement subsystem registered ({} triggers, {} custom stats)",
                 AchievementTriggers.all().size(), AchievementStats.all().size());
     }

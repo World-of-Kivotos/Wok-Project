@@ -1,0 +1,32 @@
+{
+  "parent": "miningdim:profession/root",
+  "criteria": {
+    "brewed": {
+      "conditions": {},
+      "trigger": "miningdim:brew_complete"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.profession.brewer_first_brew.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:brewing_station"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#C8834A",
+      "translate": "achievement.miningdim.profession.brewer_first_brew.title"
+    }
+  },
+  "requirements": [
+    [
+      "brewed"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

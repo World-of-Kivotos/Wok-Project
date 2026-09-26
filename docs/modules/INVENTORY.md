@@ -35,7 +35,7 @@
 | `wok-marriage` | WOK-婚姻社交模块 | 21 | 35 | `MarriageSystem` | 核心、经济、WebUI |
 | `wok-case-opening` | WOK-开箱模块 | 25 | 24 | `CaseOpeningSystem` | 核心、存储、经济、WebUI；TaCZ、SQLite 可选 |
 | `wok-stacking` | WOK-实体堆叠模块 | 11 | 33 | `StackingSystem` | 核心、精英怪 |
-| `wok-achievement` | WOK-成就模块 § | 49 | 38 | `AchievementSystem` | 核心、存储、称号、矿区、精英怪、经济；TaCZ、SQLite 可选 |
+| `wok-achievement` | WOK-成就模块 § | 60 | 51 | `AchievementSystem` | 核心、存储、称号、矿区、精英怪、经济、全服经验、职业框架、铸甲师、厨师、酿酒师、塔罗师、军火商、特勤干员；TaCZ、SQLite 可选 |
 
 † `wok-job-fisher` 这一行是 2026-09-06 单独补测的，其余 25 行仍是第一段声明的 2026-08-30 基线。另外它在登记表里的 `category` 虽然是 `job`，但这只是业务归类：`job/JobId.java` 的枚举至今只有八个常量、没有 `FISHER`，因此渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门；它对 `wok-store` 的依赖同样只出现在 GameTest 里，图鉴本身走原版 `FishingJournalSavedData` 而不落 SQLite。
 
@@ -47,6 +47,7 @@
 - 设计文档第二章列出的 WebUI 依赖 (成就点商店页)，要等商店页真正引用时再补。
 - 婚姻相关的两条成就读核心模块的婚姻指针、按菜单注册名识别共享背包，不依赖婚姻模块。
 - TaCZ 出现在两处：进度 JSON 上的 `forge:mod_loaded` 加载条件；只在 TaCZ 已加载时才注册的边界类 `TaczGunKillHooks`。
+- P2 职业部分 (2026-09-26) 新增 11 个类与 13 条 GameTest (batch `achievement_p2_jobs`)，依赖补进全服经验、职业框架和六个提供监听接口的职业模块；各职业模块与经验模块自己包里的监听接口各多一个类，它们都不引用成就模块。
 
 GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包含测试类。`wok-champion` 的测试数量较高，是精英词条和红线组合测试形成的结果。
 

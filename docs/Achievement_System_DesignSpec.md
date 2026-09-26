@@ -471,6 +471,19 @@ CREATE TABLE achievement_point_ledger (
 - 职业满级是 **10 级**，共 **8 个**职业 id：工程师和铸甲师是同一个职业，`JobId` 里只有一个。
 - Tide 模组**常驻**（2026-09-26 确认），装上后图鉴共 75 种，所以 `min_catalog=75`。其中 `tide:midas_fish` 需要鱼竿幸运 7 以上，要在实现期确认生存模式下能否达到；达不到就把它排除出"图鉴大全"的统计范围（TODO）。
 
+实现口径（P2 职业）：
+
+- 声明在 `datagen.AchievementDeclarations.p2Jobs()`，共 17 条。钓鱼三条（`fishing_trophy`、`journal_50`、`journal_100`）依赖渔夫模块的监听接口，随它另行开放。职业的触发器与统计项分别集中在 `trigger.JobTriggers`、`trigger.JobStats`，与 P1 的 `AchievementTriggers`、`AchievementStats` 并列，同样在 FMLCommonSetup 里登记；监听器的接线在 `trigger.JobHooks`（接口见 9.10 实现口径）。
+- `job_level`：只在某条职业经验轨道**升级**的那一刻判定（经验发放监听里发放后等级高于发放前），判定时读全部 8 个职业轨道的当前等级（经验模块的轨道快照），所以"任意职业"和"全部 8 个职业"不论最后升级的是哪个职业都判得出来。`/job set` 与管理员改级不经经验路由，不当场触发，要等下一次任意职业升级，或上线追溯时补查（9.9，补查入口是 `JobHooks.checkJobLevels`）。`job` 与大于 1 的 `jobs_count` 同时写时按写错处理。
+- `farmer_harvests`：每笔来源为 `miningdim:farmer/harvest` 或 `miningdim:farmer/pick` 的经验发放加 1，与这笔经验多少、是否被每日衰减削到接近 0 无关；农夫的兼容来源 `miningdim:legacy/job/farmer` 不算。按来源 id 识别，不依赖农夫模块。
+- `chef_dish`：`min_quality` 按品质档位"不低于"；`target` 是开工时选定的挑战目标品质，精确匹配。
+- `brew_complete`：只在线操作者那一支会触发，与酿酒经验同一口径；操作者离线时酒照常产出但不计。`min_quality` 按 low → brilliant 的顺序比较。
+- `tarot_play`：揭牌结算、出牌经验入账之后触发。演出被打断而退牌的不算；测试模式（`TarotConfig` 的 testMode）下打牌不扣牌、不给经验，也不算。`min_quality` 按 r → shiny 的顺序比较。
+- `agent_seal`：只在封印申请成功时触发。`affixes` 是词条名数组，封印的词条属于其中之一即成立，空数组按写错处理；`min_star` 看目标精英的星级。
+- `nano_plate_produced`：生产台结算出板（产出大于 0）时触发，不是取板时；闪耀档失败出 0 板不计。`min_tier` 取 `NanoTier` 名的小写（low / medium / high / superior / transcendent / radiant）。
+- `munitions_batch`：军火台的两个经验落账点——手动批次完成、被动挂机结算——各触发一次；一次被动结算可能追算出多批，只算一次。
+- 职业等级的上线追溯（9.9）由静默补发设施调用 `JobHooks.checkJobLevels(ServerPlayer)`，本部分不做登录补查。
+
 ### 9.4 经济（11 条，全部 P2）
 
 | id | 名称 | 条件 | 档位 | 父 | 触发器 | 图标 |
@@ -587,6 +600,14 @@ P1 只有 30 条成就（扣掉 meta 本身，计数池里只有 29 条），"�
 | `wok-job-agent` | `AgentEvents` 封印监听 | `AgentSealHandler#requestSeal` 成功分支 | 特勤成就 |
 | `wok-job-armorer` | `EngineerEvents` 生产监听 | `ProductionTableBlockEntity#finishProduction`，产出大于 0 时 | 工程师成就 |
 | `wok-job-munitions` | `MunitionsEvents` 批次监听 | `MunitionsBenchBlockEntity` 两个经验结算点 | 军火成就 |
+
+实现口径（P2 职业相关的七个接口）：
+
+- 接口：`progression.ExperienceServices.registerAwardListener(ExperienceAwardListener)`，回调 `onAward(player, award, levelBefore)`；`job.chef.ChefEvents.addDishListener`（成品品质、挑战目标）；`job.brewer.BrewerEvents.addBrewListener`（酒类型、品质）；`job.tarot.TarotEvents.addPlayListener`（牌号、品质）；`job.agent.AgentEvents.addSealListener`（星级、词条、封印类别）；`job.engineer.EngineerEvents.addPlateListener`（档位、板数）；`job.munitions.MunitionsEvents.addBatchListener`（口径、发数）。都是多播，按注册顺序通知；监听表随进程存在，生产方自己的停服、重置钩子都不清它。
+- 触发点：经验在 `ExperienceRouter#award` 末尾，轨道落账、发放后快照读回之后，路由拒收的发放不通知；厨师在 `finishCooking` 成功分支的最后；酿酒在 `grantBrewXp` 给在线操作者记完经验之后；塔罗在 `tryPlay` 排进演出队列的揭牌回调里、`grantPlayXp` 之后；特勤在 `requestSeal` 成功分支、置位入职标志之后；铸甲师在 `finishProduction` 把板放进输出槽之后；军火在被动结算的末尾与 `finishActiveCraft` 结清之后。
+- 生产方不吞监听器异常（与 `MiningServices.fireInstanceReset` 一致）。成就侧 `trigger.JobHooks` 把每个监听器都包在 `guarded` 里：运行期异常就地捕获并记错误日志（写明接口与玩家），FakePlayer 一律跳过。
+- 各生产方的 `fire*` 方法是 public 的。生产代码里各自只有上面列出的调用点；GameTest 用它模拟结果带随机性的场景（闪耀料理、九种酒、闪耀酒）。
+- `wok-achievement` 为此追加依赖 `wok-experience`、`wok-job-core`、`wok-job-armorer`、`wok-job-chef`、`wok-job-brewer`、`wok-job-tarot`、`wok-job-munitions`、`wok-job-agent`，这些模块都不引用成就模块。GameTest 在 `trigger.JobAchievementGameTests`（batch `achievement_p2_jobs`）。
 
 ### 9.11 第二批候选（已评审，暂缓）
 

@@ -1,0 +1,32 @@
+{
+  "parent": "miningdim:profession/root",
+  "criteria": {
+    "produced": {
+      "conditions": {},
+      "trigger": "miningdim:munitions_batch"
+    }
+  },
+  "display": {
+    "announce_to_chat": false,
+    "description": {
+      "translate": "achievement.miningdim.profession.first_ammo.desc"
+    },
+    "frame": "task",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:munitions_bench"
+    },
+    "show_toast": true,
+    "title": {
+      "bold": false,
+      "color": "#C8834A",
+      "translate": "achievement.miningdim.profession.first_ammo.title"
+    }
+  },
+  "requirements": [
+    [
+      "produced"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

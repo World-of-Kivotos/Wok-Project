@@ -5,15 +5,28 @@ import com.miningdim.achievement.tier.AchievementTier;
 import com.miningdim.achievement.trigger.AchievementCountTrigger;
 import com.miningdim.achievement.trigger.AchievementStats;
 import com.miningdim.achievement.trigger.AchievementTriggers;
+import com.miningdim.achievement.trigger.AgentSealTrigger;
+import com.miningdim.achievement.trigger.BrewCompleteTrigger;
 import com.miningdim.achievement.trigger.ChampionKillTrigger;
+import com.miningdim.achievement.trigger.ChefDishTrigger;
 import com.miningdim.achievement.trigger.EnterMiningTrigger;
 import com.miningdim.achievement.trigger.GunKillTrigger;
+import com.miningdim.achievement.trigger.JobLevelTrigger;
+import com.miningdim.achievement.trigger.JobStats;
+import com.miningdim.achievement.trigger.JobTriggers;
 import com.miningdim.achievement.trigger.MineOreTrigger;
 import com.miningdim.achievement.trigger.MiningExtractionTrigger;
+import com.miningdim.achievement.trigger.NanoPlateProducedTrigger;
 import com.miningdim.achievement.trigger.StatAtLeastTrigger;
+import com.miningdim.achievement.trigger.TarotPlayTrigger;
 import com.miningdim.champion.AffixDef;
 import com.miningdim.core.Difficulty;
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.JobId;
+import com.miningdim.job.JobXpCurve;
+import com.miningdim.job.brewer.WineQuality;
+import com.miningdim.job.brewer.WineType;
+import com.miningdim.job.chef.ChefQuality;
 import com.miningdim.ore.OreType;
 import net.minecraft.advancements.CriterionTriggerInstance;
 import net.minecraft.advancements.critereon.ConsumeItemTrigger;
@@ -82,6 +95,7 @@ final class AchievementDeclarations {
         addMining(all);
         addCombat(all);
         addProfession(all);
+        all.addAll(p2Jobs());
         addSocial(all);
         addMeta(all);
         return all;
@@ -182,6 +196,62 @@ final class AchievementDeclarations {
         all.add(achievement("profession/ore_soup_in_mine", BRONZE, "profession/root", modItem("iron_ore_fish_soup"))
                 .criterion("consumed", new ConsumeItemTrigger.TriggerInstance(inMiningDimension(),
                         ItemPredicate.Builder.item().of(soups).build())).build());
+    }
+
+    /**
+     * 9.3 职业的 P2 部分, 17 条: 职业等级五条、农夫收获三条, 以及厨师、酿酒、塔罗、特勤、纳米板、弹药。钓鱼三条
+     * ({@code fishing_trophy}、{@code journal_50}、{@code journal_100}) 等渔夫模块的监听接口落地后再加。
+     */
+    private static List<AchievementDeclaration> p2Jobs() {
+        List<AchievementDeclaration> jobs = new ArrayList<>();
+        jobs.add(achievement("profession/level_2", BRONZE, "profession/root", Items.EXPERIENCE_BOTTLE)
+                .criterion("reached", JobLevelTrigger.TriggerInstance.anyJob(2)).build());
+        jobs.add(achievement("profession/level_4", SILVER, "profession/level_2", Items.BOOK)
+                .criterion("reached", JobLevelTrigger.TriggerInstance.anyJob(4)).build());
+        jobs.add(achievement("profession/level_7", GOLD, "profession/level_4", Items.ENCHANTED_BOOK)
+                .criterion("reached", JobLevelTrigger.TriggerInstance.anyJob(7)).build());
+        jobs.add(achievement("profession/max_level", PLATINUM, "profession/level_7", Items.ENCHANTING_TABLE)
+                .withTitle().criterion("reached", JobLevelTrigger.TriggerInstance.anyJob(JobXpCurve.MAX_LEVEL))
+                .build());
+        jobs.add(achievement("profession/all_max", MASTER, "profession/max_level", Items.BEACON).withTitle()
+                .criterion("reached", JobLevelTrigger.TriggerInstance.jobsAtLeast(JobXpCurve.MAX_LEVEL,
+                        JobId.values().length)).build());
+        jobs.add(achievement("profession/farmer_first_harvest", BRONZE, "profession/root", modItem("farmer_seed"))
+                .criterion("reached", StatAtLeastTrigger.TriggerInstance.of(JobStats.FARMER_HARVESTS.get(), 1))
+                .build());
+        jobs.add(achievement("profession/farmer_harvest_500", SILVER, "profession/farmer_first_harvest",
+                modItem("farmer_wheat"))
+                .criterion("reached", StatAtLeastTrigger.TriggerInstance.of(JobStats.FARMER_HARVESTS.get(), 500))
+                .build());
+        jobs.add(achievement("profession/farmer_harvest_5000", GOLD, "profession/farmer_harvest_500", Items.HAY_BLOCK)
+                .criterion("reached", StatAtLeastTrigger.TriggerInstance.of(JobStats.FARMER_HARVESTS.get(), 5_000))
+                .build());
+        jobs.add(achievement("profession/chef_first_dish", BRONZE, "profession/root", modItem("seasoning_table_low"))
+                .criterion("cooked", ChefDishTrigger.TriggerInstance.any()).build());
+        jobs.add(achievement("profession/chef_radiant", SILVER, "profession/chef_first_dish",
+                modItem("seasoning_table_radiant"))
+                .criterion("cooked", ChefDishTrigger.TriggerInstance.atLeast(ChefQuality.RADIANT)).build());
+        jobs.add(achievement("profession/brewer_first_brew", BRONZE, "profession/root", modItem("brewing_station"))
+                .criterion("brewed", BrewCompleteTrigger.TriggerInstance.any()).build());
+        Builder nineWines = achievement("profession/brewer_nine_wines", SILVER, "profession/brewer_first_brew",
+                modItem("wine_cellar"));
+        for (WineType type : WineType.values()) {
+            nineWines.criterion(type.id(), BrewCompleteTrigger.TriggerInstance.ofType(type));
+        }
+        jobs.add(nineWines.build());
+        jobs.add(achievement("profession/brewer_brilliant", PLATINUM, "profession/brewer_nine_wines",
+                modItem("wine_maotai"))
+                .criterion("brewed", BrewCompleteTrigger.TriggerInstance.atLeast(WineQuality.BRILLIANT)).build());
+        jobs.add(achievement("profession/first_tarot", BRONZE, "profession/root", modItem("tarot_pack_common"))
+                .criterion("played", TarotPlayTrigger.TriggerInstance.any()).build());
+        jobs.add(achievement("profession/agent_first_seal", SILVER, "profession/root", Items.CHAIN)
+                .criterion("sealed", AgentSealTrigger.TriggerInstance.any()).build());
+        jobs.add(achievement("profession/first_nano_plate", BRONZE, "profession/root", modItem("nano_plate_low"))
+                .criterion("produced", NanoPlateProducedTrigger.TriggerInstance.any()).build());
+        jobs.add(achievement("profession/first_ammo", BRONZE, "profession/root", modItem("munitions_bench"))
+                .criterion("produced", new PlayerTrigger.TriggerInstance(JobTriggers.MUNITIONS_BATCH.getId(),
+                        ContextAwarePredicate.ANY)).build());
+        return jobs;
     }
 
     /** 9.5 社交里的婚姻三条。 */

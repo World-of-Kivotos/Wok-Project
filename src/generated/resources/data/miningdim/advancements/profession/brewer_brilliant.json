@@ -1,0 +1,54 @@
+{
+  "parent": "miningdim:profession/brewer_nine_wines",
+  "criteria": {
+    "brewed": {
+      "conditions": {
+        "min_quality": "brilliant"
+      },
+      "trigger": "miningdim:brew_complete"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.profession.brewer_brilliant.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:wine_maotai"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#FFFFFF",
+          "text": "闪"
+        },
+        {
+          "bold": true,
+          "color": "#FFF6DB",
+          "text": "耀"
+        },
+        {
+          "bold": true,
+          "color": "#FFE8AA",
+          "text": "佳"
+        },
+        {
+          "bold": true,
+          "color": "#FFD66B",
+          "text": "酿"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "brewed"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

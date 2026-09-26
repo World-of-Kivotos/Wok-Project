@@ -1,6 +1,7 @@
 package com.miningdim.job.engineer.block;
 
 import com.miningdim.job.engineer.EngineerConfig;
+import com.miningdim.job.engineer.EngineerEvents;
 import com.miningdim.job.engineer.EngineerLevels;
 import com.miningdim.job.engineer.ModEngineerBlockEntities;
 import com.miningdim.job.engineer.NanoCalibration;
@@ -283,6 +284,8 @@ public final class ProductionTableBlockEntity extends BlockEntity implements Men
         if (result.platesProduced() > 0) {
             ItemStack plates = NanoProduction.makePlate(tier, result.platesProduced(), player.getUUID(), qualityHits);
             inventory.setStackInSlot(SLOT_OUTPUT, plates);
+            // 扣矿、退碎片、出板都已落定, 最后才广播 (成就等只读消费方, 见 EngineerEvents)。
+            EngineerEvents.firePlates(player, tier, result.platesProduced());
         }
     }
 

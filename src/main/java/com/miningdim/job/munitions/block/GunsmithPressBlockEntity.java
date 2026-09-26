@@ -340,17 +340,29 @@ public final class GunsmithPressBlockEntity extends BlockEntity implements MenuP
 
     // 料量只按部件与品质算, 不再按型号稀有度加价 (审查 29 的定价缺口改由信用点工费与等级门承担):
     // 料槽是单槽 ItemStackHandler, 上限 64, 而 hasMaterial 要求单槽一次凑够; 传奇品质的 x10 倍率已把
-    // 枪管合金推到 70 顶穿上限, 再乘稀有度倍率会让高稀有度组件直接冲不出来, 变成隐性封禁而不是定价。
+    // 最贵的单料推到 60 贴着上限 (枪管合金原先是 70, 直接顶穿, 传奇枪管永远冲不出来, V10 已压回 6x10),
+    // 再乘稀有度倍率会让高稀有度组件直接冲不出来, 变成隐性封禁而不是定价。
     private int requiredGunParts() {
-        return selectedPart.partsCost() * selectedQuality.materialMultiplier();
+        return requiredAmount(selectedPart, selectedQuality, SLOT_GUN_PARTS);
     }
 
     private int requiredAlloy() {
-        return selectedPart.alloyCost() * selectedQuality.materialMultiplier();
+        return requiredAmount(selectedPart, selectedQuality, SLOT_ALLOY);
     }
 
     private int requiredPolymer() {
-        return selectedPart.polymerCost() * selectedQuality.materialMultiplier();
+        return requiredAmount(selectedPart, selectedQuality, SLOT_POLYMER);
+    }
+
+    /** 某部件某品质在某料槽的单次需求; GameTest 据此遍历全部组合核对不超过单槽上限 (V10)。 */
+    static int requiredAmount(GunsmithPressPart part, GunsmithPartQuality quality, int slot) {
+        int unitCost = switch (slot) {
+            case SLOT_GUN_PARTS -> part.partsCost();
+            case SLOT_ALLOY -> part.alloyCost();
+            case SLOT_POLYMER -> part.polymerCost();
+            default -> throw new IllegalArgumentException("slot is not a gunsmith press input slot: " + slot);
+        };
+        return unitCost * quality.materialMultiplier();
     }
 
     /** 工费 sink: 经 {@link EconomyServices} 定位器先查后扣; 经济未注入或 cost<=0 放行 (不阻塞核心循环)。 */

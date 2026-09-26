@@ -2,7 +2,8 @@ package com.miningdim.job.munitions.gunsmith;
 
 public enum GunsmithPressPart {
     CORE("core", "gunsmith.part.core", "gunsmith.role.core", "GAS", 4, 6, 0),
-    BARREL("barrel", "gunsmith.part.barrel", "gunsmith.role.barrel", "BARREL", 3, 7, 0),
+    // 枪管合金 7 -> 6 (V10): 冲压料槽单槽上限 64 且要求一次凑够, 传奇 x10 时 7 会要 70 个铜锭, 传奇枪管永远冲不出来。
+    BARREL("barrel", "gunsmith.part.barrel", "gunsmith.role.barrel", "BARREL", 3, 6, 0),
     BOLT("bolt", "gunsmith.part.bolt", "gunsmith.role.bolt", "BOLT", 6, 5, 0),
     HANDGUARD("handguard", "gunsmith.part.handguard", "gunsmith.role.handguard", "HG", 3, 2, 4),
     GRIP("grip", "gunsmith.part.grip", "gunsmith.role.grip", "GRIP", 2, 1, 3),

@@ -113,10 +113,12 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -683,8 +685,8 @@ public final class AchievementP2SocialGameTests {
     // ---- 8. 开箱条件与追溯 ----
 
     /**
-     * 开出的品质按 CaseRarity 的顺序判定; "倾家荡产"读正常开箱提交后的余额, 恢复流程补结算的不算; 上线追溯按已结算的
-     * 开箱补 case_open, 同样不满足"倾家荡产"。开箱成就依赖 TaCZ, 这里把条件挂成临时进度, 走真实的监听器与触发器。
+     * 开出的品质按 CaseRarity 的顺序判定; "倾家荡产"读正常开箱提交后的余额, 恢复流程补结算的不算; 上线追溯按已结算
+     * 开箱里的最高品质 (不是最后一次; 开箱模块在 SQL 侧按品质去重) 补 case_open, 同样不满足"倾家荡产"。开箱成就依赖 TaCZ, 这里把条件挂成临时进度, 走真实的监听器与触发器。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void caseConditionsFollowTheSettledOpeningAndBackfill(GameTestHelper helper) {
@@ -735,9 +737,21 @@ public final class AchievementP2SocialGameTests {
                     "恢复流程补结算的开箱: 算开过箱, 但余额 500 也不算倾家荡产");
 
             ServerPlayer veteran = logged(helper, online, "p2s-case-old");
-            economy.grant(veteran, Currency.CREDIT, 50_100L);
-            economy.grant(veteran, Currency.AZURE, 10L);
-            caseService(dao, HIGHEST_ROLL).open(veteran, UUID.randomUUID(), CaseCatalog.CASE_ID);
+            economy.grant(veteran, Currency.CREDIT, 150_100L);
+            economy.grant(veteran, Currency.AZURE, 30L);
+            // 先金后蓝再蓝: 追溯要的是最高品质而不是最后一次, 重复的品质在 SQL 侧去重。
+            CaseRarity top = caseService(dao, HIGHEST_ROLL).open(veteran, UUID.randomUUID(), CaseCatalog.CASE_ID)
+                    .opening().rarity();
+            CaseRarity last = caseService(dao, LOWEST_ROLL).open(veteran, UUID.randomUUID(), CaseCatalog.CASE_ID)
+                    .opening().rarity();
+            caseService(dao, LOWEST_ROLL).open(veteran, UUID.randomUUID(), CaseCatalog.CASE_ID);
+            helper.assertTrue(top == CaseRarity.GOLD && last == CaseRarity.BLUE, "前提: 先开出金色, 后两次蓝色");
+            helper.assertTrue(dao.settledRarities(veteran.getUUID()).equals(EnumSet.of(CaseRarity.BLUE, CaseRarity.GOLD)),
+                    "已结算开箱的品质按品质去重, 实为 " + dao.settledRarities(veteran.getUUID()));
+            helper.assertTrue(caseService(dao, LOWEST_ROLL).bestSettledRarity(veteran.getUUID())
+                            .equals(Optional.of(CaseRarity.GOLD))
+                            && caseService(dao, LOWEST_ROLL).bestSettledRarity(UUID.randomUUID()).isEmpty(),
+                    "最高品质取金色 (不是最后一次的蓝色); 没开过箱的玩家为空");
             Advancement oldGold = watch(veteran, AchievementTriggers.CASE_OPEN,
                     CaseOpenTrigger.TriggerInstance.atLeast(CaseRarity.GOLD), "case_gold");
             Advancement oldAllIn = watch(veteran, AchievementTriggers.CASE_OPEN,

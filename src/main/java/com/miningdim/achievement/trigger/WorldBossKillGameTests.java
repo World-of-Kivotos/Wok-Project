@@ -40,7 +40,7 @@ import java.util.List;
  *
  * <p>BOSS 一律经真实的 {@code /mchampion} 命令召唤到测试结构所在的主世界 (矿区以外、不带实例标记), 死亡走事件总线与贡献池
  * 主结算同场, 或直接派发给钩子以喂确定的攻击记录。期望值按设计文档独立写在测试里: 十星弑神卡在 5% 占比两侧, 普通
- * summon 的精英在主世界照旧被过滤, 世界 BOSS 打过别人就不算独自击杀。
+ * summon 的精英在主世界照旧被过滤, 世界 BOSS 打过别人就不算独自击杀, /kill 与虚空结束的世界 BOSS 不算被玩家击倒。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -159,6 +159,47 @@ public final class WorldBossKillGameTests {
             cleanUp(spawned);
             logout(server, soloist);
             logout(server, bystander);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 管理员 /kill 与掉进虚空 (无视无敌的伤害) 结束的世界 BOSS 不算被玩家击倒 (精英文档第十章, 与击倒公告同一判据
+     * {@link WorldBoss#isPlayerDefeat}): 账本里的贡献者即便全部合格, 也不计 champion_kills、不给任何战斗成就。
+     * 对照组: 同一名玩家、同样的账本, 玩家致死的世界 BOSS 照常发放, 说明前两次拿不到不是因为不合格。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void worldBossEndedByBypassDamageGrantsNoKill(GameTestHelper helper) {
+        MinecraftServer server = helper.getLevel().getServer();
+        ServerLevel level = helper.getLevel();
+        ServerPlayer raider = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        List<Mob> spawned = new ArrayList<>();
+        try {
+            Mob aborted = summonWorldBoss(helper, spot(helper, 1, 2, 1), spawned);
+            ContributionTracker.record(aborted.getUUID(), raider.getUUID(), 90_000.0D, level.getGameTime());
+            MinecraftForge.EVENT_BUS.post(new LivingDeathEvent(aborted, level.damageSources().genericKill()));
+            helper.assertTrue(stat(raider, AchievementStats.CHAMPION_KILLS) == 0,
+                    "/kill 掉的世界 BOSS 不算被玩家击倒, 不计 champion_kills");
+            assertDone(helper, raider, "combat/first_champion", false);
+            assertDone(helper, raider, "combat/star_10", false);
+
+            Mob fell = summonWorldBoss(helper, spot(helper, 3, 2, 3), spawned);
+            ContributionTracker.record(fell.getUUID(), raider.getUUID(), 90_000.0D, level.getGameTime());
+            MinecraftForge.EVENT_BUS.post(new LivingDeathEvent(fell, level.damageSources().fellOutOfWorld()));
+            helper.assertTrue(stat(raider, AchievementStats.CHAMPION_KILLS) == 0,
+                    "掉进虚空的世界 BOSS 同样不算被玩家击倒");
+            assertDone(helper, raider, "combat/star_10", false);
+
+            Mob defeated = summonWorldBoss(helper, spot(helper, 1, 2, 3), spawned);
+            ContributionTracker.record(defeated.getUUID(), raider.getUUID(), 90_000.0D, level.getGameTime());
+            MinecraftForge.EVENT_BUS.post(new LivingDeathEvent(defeated, level.damageSources().playerAttack(raider)));
+            helper.assertTrue(stat(raider, AchievementStats.CHAMPION_KILLS) == 1,
+                    "对照组: 玩家致死的世界 BOSS 照常计 champion_kills");
+            assertDone(helper, raider, "combat/first_champion", true);
+            assertDone(helper, raider, "combat/star_10", true);
+        } finally {
+            cleanUp(spawned);
+            logout(server, raider);
         }
         helper.succeed();
     }

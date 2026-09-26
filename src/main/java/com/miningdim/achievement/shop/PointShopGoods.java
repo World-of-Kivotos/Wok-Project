@@ -9,9 +9,16 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.GsonHelper;
+import net.minecraft.world.item.ArmorStandItem;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.BoatItem;
+import net.minecraft.world.item.BucketItem;
+import net.minecraft.world.item.HangingEntityItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.MinecartItem;
+import net.minecraft.world.item.SpawnEggItem;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,7 +37,9 @@ import java.util.UUID;
  * </pre>
  *
  * 物品类商品兑换出的每一件都打上绑定盖章 ({@link #createStack}): {@value #OWNER_UUID_TAG} 记兑换者 (婚姻共享背包的
- * 黑名单按这个键拦截绑定物), {@value #GOODS_TAG} 记商品 id (市场白名单按这个键拒绝上架, 8.4 的经济隔离硬约束)。
+ * 黑名单按这个键拦截绑定物), {@value #GOODS_TAG} 记商品 id (市场白名单按这个键拒绝上架, 8.4 的经济隔离硬约束)。盖章只在
+ * 物品堆上, 所以放置进世界就会丢章的物品 (方块、挂画、盔甲架等, 见 {@link #losesStampWhenPlaced}) 加载时即拒收 ——
+ * 上面示例里的装饰奖杯若做成方块, 要先有能把盖章带回掉落物的专用方块。
  *
  * @param id                  商品 id
  * @param type                物品或称号
@@ -108,7 +117,8 @@ public record PointShopGoods(ResourceLocation id, Type type, @Nullable Item item
      * 解析一件商品; 任何不合格都抛 {@link JsonParseException} 并说明原因 (加载器据此跳过该条)。
      *
      * 校验: type 只收 item / title, 且与 item / title 字段一一对应; price 至少 1; limit_per_player 至少 1, 称号类只能
-     * 缺省或写 1; 物品必须是已注册的非空气物品, 数量在 1 ~ 最大堆叠数之间, NBT 必须是合法 SNBT; 称号不得是专属称号
+     * 缺省或写 1; 物品必须是已注册的非空气物品, 且不是放置进世界就会丢掉绑定盖章的那几类 ({@link #losesStampWhenPlaced}),
+     * 数量在 1 ~ 最大堆叠数之间, NBT 必须是合法 SNBT; 称号不得是专属称号
      * (专属称号不可发放, Title_System_DesignSpec 13.2)。称号定义此刻是否已加载不在这里判断 —— 两个数据包加载器的
      * 先后没有保证, 兑换与列表在用到时才查。
      */
@@ -159,6 +169,10 @@ public record PointShopGoods(ResourceLocation id, Type type, @Nullable Item item
         if (item == null || item == Items.AIR) {
             throw new JsonParseException("unknown item " + itemId);
         }
+        if (losesStampWhenPlaced(item)) {
+            throw new JsonParseException("item " + itemId + " is placed into the world as a block or entity and drops a"
+                    + " fresh stack without the binding stamp, so it could be listed on the market");
+        }
         int count = GsonHelper.getAsInt(itemJson, "count", 1);
         int maxStack = new ItemStack(item).getMaxStackSize();
         if (count < 1 || count > maxStack) {
@@ -173,6 +187,18 @@ public record PointShopGoods(ResourceLocation id, Type type, @Nullable Item item
             }
         }
         return new PointShopGoods(id, type, item, count, nbt, null, price, limit, sort, requires);
+    }
+
+    /**
+     * 放置进世界就会丢掉绑定盖章的物品 (8.4 经济隔离): 方块物品放下再挖掉、挂画 / 展示框 / 盔甲架 / 刷怪蛋 / 船 / 矿车放出
+     * 的实体被打掉、桶倒出或装进流体之后, 回到背包的都是按类型新造的物品堆, 不带 {@value #OWNER_UUID_TAG} 与
+     * {@value #GOODS_TAG}, 市场白名单与婚姻共享背包黑名单都认不出来。这几类按物品类型就能认出, 加载时整类拒收, 直到有能把
+     * 盖章带回掉落物的专用方块 / 实体; 其余会被消耗后换回别的物品的东西 (鞍、拴绳之类) 按类型认不出来, 由选品把关。
+     */
+    static boolean losesStampWhenPlaced(Item item) {
+        return item instanceof BlockItem || item instanceof HangingEntityItem || item instanceof ArmorStandItem
+                || item instanceof SpawnEggItem || item instanceof BoatItem || item instanceof MinecartItem
+                || item instanceof BucketItem;
     }
 
     private static ResourceLocation parseId(String raw, String field) {

@@ -139,6 +139,27 @@ public final class MiningChampionData {
         this.currentHp = effectiveHp; // 新盖章的冠军恒为满血 (spawn 期/命令召唤同一入口, 无旧血量可延续)。
     }
 
+    /**
+     * 只换掉词条→品质映射, 星级、有效血、当前血量、召唤物标记与世界 BOSS 标记一律不动 (特勤封印到期恢复用: 把被封的词条
+     * 合并回当前词条表)。与 {@link #promote} 的区别正在这里 —— promote 是重新盖章, 会复位两个身份标记并回满当前血量,
+     * 拿它做恢复会把被封印过的世界 BOSS 变回普通冠军。
+     *
+     * @param newAffixes 词条→品质映射 (拷入, 不持外部引用)
+     * @throws IllegalStateException 尚未盖章 (非冠军没有可替换的词条表, 也不写 NBT)
+     */
+    public void replaceAffixes(Map<AffixDef, AffixQuality> newAffixes) {
+        if (newAffixes == null) {
+            throw new IllegalArgumentException("affixes must not be null");
+        }
+        if (!isChampion()) {
+            throw new IllegalStateException("only a promoted champion has affixes to replace");
+        }
+        EnumMap<AffixDef, AffixQuality> copy = new EnumMap<>(AffixDef.class);
+        copy.putAll(newAffixes);
+        this.affixes.clear();
+        this.affixes.putAll(copy);
+    }
+
     /** 清为非冠军态 (deserialize 前重置 / 显式清除)。 */
     public void clear() {
         this.star = NOT_CHAMPION;

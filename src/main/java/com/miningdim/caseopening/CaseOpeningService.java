@@ -18,6 +18,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
@@ -242,13 +243,18 @@ public final class CaseOpeningService {
     }
 
     /**
-     * 该玩家全部已结算的开箱 (结算锚已落定), 按开箱时间排序; 只读, 不触发恢复。供成就上线追溯 (Achievement 9.9)
-     * 查询历史开箱, 每条的 {@link SettledOpening#fresh()} 都是 false —— 那时的余额早已不是"开箱后余额"。
+     * 该玩家已结算的开箱 (COMMITTED 且结算锚已落定) 里开出过的最高品质 (按 {@link CaseRarity} 声明序); 一次都没有则为空。
+     * 只读, 不触发恢复。供成就上线追溯 (Achievement 9.9) 按历史开箱补一次 case_open: 追溯只需要最高品质, 所以 DAO 在 SQL
+     * 侧按品质去重, 不把整段开箱历史 (每行带转盘 JSON) 读进主线程 —— 这条每次登录都会跑。
      */
-    public List<SettledOpening> settledOpenings(UUID ownerId) {
-        return dao.settledOpenings(ownerId).stream()
-                .map(row -> new SettledOpening(row.openingId(), row.ownerId(), row.rarity(), false))
-                .toList();
+    public Optional<CaseRarity> bestSettledRarity(UUID ownerId) {
+        CaseRarity best = null;
+        for (CaseRarity rarity : dao.settledRarities(ownerId)) {
+            if (best == null || rarity.ordinal() > best.ordinal()) {
+                best = rarity;
+            }
+        }
+        return Optional.ofNullable(best);
     }
 
     /**

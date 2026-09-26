@@ -4,6 +4,7 @@ import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixQuality;
 import com.miningdim.champion.MiningChampionData;
 import com.miningdim.champion.MiningChampions;
+import com.miningdim.champion.WorldBoss;
 import com.miningdim.champion.integration.ChampionPromoter;
 import com.miningdim.champion.reward.ChampionReward;
 import com.miningdim.champion.reward.ContributionTracker;
@@ -21,6 +22,7 @@ import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.EntityType;
@@ -28,6 +30,7 @@ import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.monster.Zombie;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.gametest.GameTestHolder;
@@ -35,6 +38,7 @@ import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -45,7 +49,7 @@ import java.util.UUID;
  * 里全程装桩不解绑, 走接缝会受批次顺序影响)。全部断言直接命中集成层与自研冠军 capability 本身, 不经 WebUI
  * 派发器。
  *
- * 七条主线 (删掉被测那段生产逻辑必挂):
+ * 八条主线 (删掉被测那段生产逻辑必挂):
  *  1. F024 扫描: {@link AgentScanProbe#buildSnapshot} 必须读自研 {@link MiningChampions} 而非某个恒 null 的
  *     第三方桩; 生存池 (纯防御) 词条不进候选表; 技能池词条归类为 {@link SealCategory#MECHANIC}。
  *  2. F024 封印: {@link AgentSealHandler#requestSeal} 必须真从 capability 移除目标词条并置位入职标志; 重复
@@ -59,6 +63,8 @@ import java.util.UUID;
  *  7. F024 复核 (SPRINT/OVERDRIVE 移速常驻 modifier): 封印必须真摘除 champion.integration 侧挂在实体上的常驻
  *     MOVEMENT_SPEED {@link AttributeModifier}, 只清 capability 不够 —— 否则封印对这两条词条是纯观感 (面板回
  *     OK, 移速一格未变)。
+ *  8. 世界 BOSS 封印到期恢复: 恢复只动词条表, 不得像整份重新盖章那样洗掉世界 BOSS 标记 (击倒公告与十星弑神从此失效)
+ *     或改写当前血量。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -212,8 +218,8 @@ public final class AgentChampionIntegrationGameTests {
 
         helper.assertTrue(champ.has(AffixDef.BURNING), "前提校验: 恢复流程必须真把词条还回去");
         helper.assertTrue(champ.isSummonedByAffix(),
-                "MiningChampionData.promote 的最后一行恒把 summonedByAffix 复位; 恢复流程必须先读后补盖, 否则"
-                        + "被封印过的支援召唤物会变成可反复召唤的正常发奖冠军 (spec 红线 8-a)");
+                "恢复流程只能换词条表, 不得复位 summonedByAffix (改回 MiningChampionData.promote 整份重新盖章就会复位),"
+                        + " 否则被封印过的支援召唤物会变成可反复召唤的正常发奖冠军 (spec 红线 8-a)");
 
         helper.succeed();
     }
@@ -401,6 +407,59 @@ public final class AgentChampionIntegrationGameTests {
                 "封印 OVERDRIVE 后常驻 MOVEMENT_SPEED modifier 必须被真摘除, 否则若封印发生在 SURGE 相位, 加速"
                         + "修饰会冻结在封印当刻的值直到窗口结束 (封印反而是净增益; F024 复核发现)");
 
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 8. 世界 BOSS 被封印后到期恢复: 恢复只动词条表, 世界 BOSS 身份与当前血量不被改写
+    // ============================================================
+
+    /**
+     * 世界 BOSS (ChampionStarAffix spec 第十章) 可以被 L8+ 干员封印被动词条 (maxSealableStar(L)=L, 8★+ 有两个槽), 而封印
+     * 窗口远短于一场约 10 人的世界 BOSS 战, 所以第一次封印到期就会走恢复。恢复若经 {@link MiningChampionData#promote}
+     * 整份重新盖章, promote 会把 worldBoss 复位成 false: 击倒公告、成就的击杀过滤 (combat/star_10) 与 NBT 里的
+     * world_boss 键从此全部失效。恢复必须只把被封的词条放回词条表, 星级、有效血、当前血量与身份标记一律不动。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void expiredSealRestoreKeepsWorldBossIdentityAndCurrentHp(GameTestHelper helper) {
+        ServerPlayer agent = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setAgentLevel(agent, 10);
+        ServerLevel level = helper.getLevel();
+        Zombie boss = Objects.requireNonNull(EntityType.ZOMBIE.create(level));
+        Map<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
+        affixes.put(AffixDef.BURNING, AffixQuality.COMMON);
+        affixes.put(AffixDef.REGEN_TISSUE, AffixQuality.LEGENDARY);
+        try {
+            helper.assertTrue(WorldBoss.spawn(level, boss, Vec3.atBottomCenterOf(helper.absolutePos(new BlockPos(1, 1, 1))),
+                    0.0F, 10, affixes), "前提: 10★ 世界 BOSS 应能落地");
+            MiningChampionData champ = MiningChampions.get(boss).orElseThrow();
+            helper.assertTrue(champ.isWorldBoss() && champ.star() == 10, "前提: 落地后应是 10★ 世界 BOSS");
+            double wounded = champ.effectiveHp() * 0.4D;
+            champ.setCurrentHp(wounded);
+
+            AgentSealHandler.Result sealed = AgentSealHandler.requestSeal(agent, boss, "BURNING");
+            helper.assertTrue(sealed.ok(), "前提: 10 级干员封 10★ 世界 BOSS 的被动词条应成功, 实得 " + sealed.reason());
+            helper.assertTrue(!champ.has(AffixDef.BURNING), "前提: 封印后 BURNING 应已移除");
+
+            // 等价于封印窗口到期。
+            SealRegistry.discard(boss.getUUID());
+            AgentSealHandler.processExpiredSeals(level.getServer());
+
+            helper.assertTrue(champ.quality(AffixDef.BURNING) == AffixQuality.COMMON
+                            && champ.quality(AffixDef.REGEN_TISSUE) == AffixQuality.LEGENDARY,
+                    "前提: 恢复应把 BURNING 按原品质放回, 其余词条不动, 实得 " + champ.affixes());
+            helper.assertTrue(champ.isWorldBoss() && WorldBoss.isWorldBoss(boss),
+                    "封印到期恢复后仍须是世界 BOSS, 否则击倒公告与十星弑神从此失效");
+            helper.assertTrue(champ.serializeNBT().getBoolean("world_boss"),
+                    "世界 BOSS 标记必须仍随 NBT 写出, 否则区块重载或重启后身份丢失");
+            helper.assertTrue(champ.star() == 10 && Math.abs(champ.currentHp() - wounded) < 1.0E-6,
+                    "恢复只动词条表: 星级与当前血量保持封印前的值, 实得 star=" + champ.star() + " currentHp="
+                            + champ.currentHp() + " (应为 " + wounded + ")");
+        } finally {
+            SealRegistry.discard(boss.getUUID());
+            AgentSealExecutor.discard(boss.getUUID());
+            boss.discard();
+        }
         helper.succeed();
     }
 

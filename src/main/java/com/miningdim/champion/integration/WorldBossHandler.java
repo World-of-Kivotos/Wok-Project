@@ -8,7 +8,6 @@ import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.champion.reward.DamageContribution;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -29,7 +28,8 @@ import java.util.List;
  * {@link ContributionTracker#peek}, 从不 drain —— 多一个 drain 调用方, 就会有一份奖励静默不发 (见 peek 的注释)。
  * 不收已取消的死亡事件: 被更高优先级救下的 BOSS 没有死。
  *
- * <p><b>什么算"被玩家击倒"</b>: 死亡时账本里有玩家的伤害记录, 并且致死伤害不是无视无敌的那一类 ({@code /kill}、虚空)。
+ * <p><b>什么算"被玩家击倒"</b>: 死亡时账本里有玩家的伤害记录, 并且致死伤害不是无视无敌的那一类 ({@code /kill}、虚空;
+ * 判据 {@link WorldBoss#isPlayerDefeat}, 与成就的击杀结算共用)。
  * 最后一下是燃烧、中毒这类没有攻击者的伤害也算 —— 输出是玩家打出来的。账本为空 (没有玩家打过它)、管理员 {@code /kill}
  * 或被直接移除 (discard, 不发死亡事件) 都不公告, 只写日志。
  */
@@ -52,7 +52,7 @@ public final class WorldBossHandler {
         List<DamageContribution> ledger = ContributionTracker.peek(boss.getUUID(),
                 playerId -> server.getPlayerList().getPlayer(playerId) != null);
         DamageSource source = event.getSource();
-        if (ledger.isEmpty() || source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+        if (ledger.isEmpty() || !WorldBoss.isPlayerDefeat(source)) {
             LOGGER.info("world boss {} star{} died in {} at {} without a player defeat (damage={}, contributors={}),"
                             + " not announced", boss.getType().getDescriptionId(), data.star(),
                     level.dimension().location(), boss.blockPosition(), source.getMsgId(), ledger.size());

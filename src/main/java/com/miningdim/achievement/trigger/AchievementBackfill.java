@@ -20,8 +20,8 @@ import java.util.function.Consumer;
  * <p>每一步都是幂等的: 原版对已完成的条件直接忽略触发, 待领取奖励按 (玩家, 进度) 主键去重, 所以每次登录都完整跑一遍,
  * 不记"已追溯过"。某一步抛出只记日志, 不影响后面的步骤, 也不影响登录。
  *
- * <p>新增一类追溯 (比如职业等级读 {@code wok-job-core}) 时在 {@link #STEPS} 里加一行: 步骤只管触发自己的条件,
- * 静默由这里统一包住; 登录以外的时刻需要静默授予时, 直接用 {@link AdvancementSilence#run} 包住授予即可。
+ * <p>新增一类追溯 (职业等级就是这样经 {@link JobHooks#checkJobLevels} 接入的) 时在 {@link #STEPS} 里加一行:
+ * 步骤只管触发自己的条件, 静默由这里统一包住; 登录以外的时刻需要静默授予时, 直接用 {@link AdvancementSilence#run} 包住授予即可。
  * 挖方块、撤离、击杀、收获、credits_earned、任务领取次数这类计数没有可靠的历史数据, 一律从零开始, 不在追溯之列。
  */
 public final class AchievementBackfill {
@@ -38,7 +38,9 @@ public final class AchievementBackfill {
             new Step("stat thresholds", AchievementTriggers.STAT_AT_LEAST::trigger),
             // 婚姻指针 (核心模块的 Capability)。
             new Step("marriage pointer", PlayerProgressHooks::checkMarried),
-            // 开箱模块的只读接口 settledOpenings。
+            // 职业等级 (wok-experience 里八条职业轨道的快照): /job set 与管理员改级不经经验路由, 在这里补判 job_level。
+            new Step("job levels", JobHooks::checkJobLevels),
+            // 开箱模块的只读接口 bestSettledRarity (已结算开箱的最高品质)。
             new Step("settled case openings", EconomyHooks::backfillSettledOpenings),
             // 任务模块的只读接口 chainFinished。
             new Step("marksman chain", QuestClaimHooks::backfillMarksmanChain),

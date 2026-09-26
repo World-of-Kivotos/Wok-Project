@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -1277,8 +1278,8 @@ public final class CaseOpeningGameTests {
         }
 
         @Override
-        public List<CaseOpeningRow> settledOpenings(UUID ownerId) {
-            return delegate.settledOpenings(ownerId);
+        public Set<CaseRarity> settledRarities(UUID ownerId) {
+            return delegate.settledRarities(ownerId);
         }
     }
 

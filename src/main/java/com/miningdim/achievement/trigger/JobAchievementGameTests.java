@@ -4,6 +4,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.miningdim.achievement.AchievementIds;
+import com.miningdim.achievement.AchievementServices;
+import com.miningdim.achievement.reward.AchievementReward;
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixQuality;
 import com.miningdim.champion.MiningChampions;
@@ -55,6 +57,9 @@ import com.miningdim.progression.ExperienceGrant;
 import com.miningdim.progression.ExperienceServices;
 import com.miningdim.progression.IExperienceService;
 import com.miningdim.testutil.MockGameTestPlayers;
+import com.mojang.authlib.GameProfile;
+import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.util.ReferenceCountUtil;
 import net.minecraft.advancements.Advancement;
 import net.minecraft.advancements.CriteriaTriggers;
 import net.minecraft.advancements.CriterionTrigger;
@@ -69,6 +74,9 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
+import net.minecraft.network.protocol.game.ClientboundSystemChatPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.stats.Stats;
@@ -112,6 +120,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *       监听器照常收到。</li>
  *   <li>17 条成就都经真实的接口路径授予: 能驱动生产代码的直接驱动; 结果带随机性的 (闪耀料理、九种酒、闪耀酒) 调
  *       广播方的 fire 方法。</li>
+ *   <li>上线追溯 (9.9) 的职业等级一步: 静默改级在登录追溯时补判, 生成奖励但不公告。</li>
  * </ol>
  *
  * <p>测试注册进各广播方的监听器随进程存在 (广播方刻意没有注销入口), 所以一律按本用例的玩家过滤, 用例结束后即成惰性。
@@ -363,6 +372,45 @@ public final class JobAchievementGameTests {
             }
             assertDone(helper, player, "profession/max_level", false);
             assertDone(helper, player, "profession/all_max", false);
+        } finally {
+            removePlayer(helper, player);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 上线追溯 (9.9) 的"职业等级"一步: 静默改级 (/job set、管理员改级) 不经经验路由, 当场不判; 登录时
+     * {@link AchievementBackfill#runSilently} 读八个职业的等级一并补上, 照常生成待领取奖励, 但不做全服公告 (业内骨干是
+     * 金档, 普通授予会公告)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void loginBackfillCatchesUpSilentJobLevelChanges(GameTestHelper helper) {
+        // 独有的名字: 公告按玩家名认, 默认 mock 玩家大家同名。
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper,
+                new GameProfile(UUID.randomUUID(), "job-backfill"));
+        try {
+            Advancement levelSeven = player.getServer().getAdvancements()
+                    .getAdvancement(AchievementIds.id("profession/level_7"));
+            helper.assertTrue(levelSeven != null && levelSeven.getDisplay() != null
+                            && levelSeven.getDisplay().shouldAnnounceChat(),
+                    "前提: 业内骨干是会全服公告的金档, 静默与否才看得出来");
+            setLevel(player, JobId.MINER, 7);
+            assertDone(helper, player, "profession/level_2", false);
+            drainOutbound(player);
+
+            AchievementBackfill.runSilently(player);
+
+            List<ResourceLocation> expected = List.of(AchievementIds.id("profession/level_2"),
+                    AchievementIds.id("profession/level_4"), AchievementIds.id("profession/level_7"));
+            for (ResourceLocation id : expected) {
+                assertDone(helper, player, id.getPath(), true);
+            }
+            assertDone(helper, player, "profession/max_level", false);
+            List<ResourceLocation> pending = AchievementServices.rewards().pending(player.getUUID()).stream()
+                    .map(AchievementReward::advancementId).toList();
+            helper.assertTrue(pending.containsAll(expected), "追溯补出的职业成就照常生成待领取奖励, 实为 " + pending);
+            int announced = advancementAnnouncements(drainOutbound(player), player.getGameProfile().getName());
+            helper.assertTrue(announced == 0, "追溯补出的职业成就不做全服公告, 实为 " + announced + " 条");
         } finally {
             removePlayer(helper, player);
         }
@@ -878,6 +926,34 @@ public final class JobAchievementGameTests {
         helper.assertTrue(advancement != null, "进度未加载: " + path);
         boolean actual = player.getAdvancements().getOrStartProgress(advancement).isDone();
         helper.assertTrue(actual == done, path + (done ? " 此时应已获得" : " 此时不应获得"));
+    }
+
+    /** 读空 mock 连接的出站队列, 按顺序返回其中的封包。 */
+    private static List<Object> drainOutbound(ServerPlayer player) {
+        EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
+        List<Object> packets = new ArrayList<>();
+        Object outbound;
+        while ((outbound = channel.readOutbound()) != null) {
+            packets.add(outbound);
+            ReferenceCountUtil.release(outbound);
+        }
+        return packets;
+    }
+
+    /** 点名该玩家的原版进度公告 (chat.type.advancement.*) 条数。 */
+    private static int advancementAnnouncements(List<Object> packets, String playerName) {
+        int count = 0;
+        for (Object packet : packets) {
+            if (packet instanceof ClientboundSystemChatPacket chat
+                    && chat.content().getContents() instanceof TranslatableContents translatable
+                    && translatable.getKey().startsWith("chat.type.advancement.")
+                    && translatable.getArgs().length > 0
+                    && translatable.getArgs()[0] instanceof Component who
+                    && who.getString().contains(playerName)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private static void removePlayer(GameTestHelper helper, ServerPlayer player) {

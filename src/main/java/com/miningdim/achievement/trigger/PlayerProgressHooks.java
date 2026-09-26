@@ -30,7 +30,8 @@ import net.minecraftforge.registries.ForgeRegistries;
  *   <li>共享背包: 玩家打开注册名为 {@code miningdim:marriage_backpack} 的菜单。按注册名认, 不引用婚姻模块的菜单类。
  *       婚姻模块只在核实了有效婚姻之后才打开这个菜单, 所以先补 married 再触发: 刚办完婚礼、登录与存档的补查都还没轮到的
  *       玩家, 不会在父成就 social/married 之前拿到 social/shared_backpack。</li>
- *   <li>登录补查: 交给 {@link AchievementBackfill} 静默执行 (统计项阈值、婚姻、开箱记录、"神射手"任务线、成就数量)。</li>
+ *   <li>登录补查: 交给 {@link AchievementBackfill} 静默执行, 步骤与顺序以它的步骤表为准 (目前是统计项阈值、婚姻、
+ *       职业等级、开箱记录、"神射手"任务线、成就数量)。</li>
  * </ul>
  */
 public final class PlayerProgressHooks {

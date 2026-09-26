@@ -3,6 +3,7 @@ package com.miningdim.achievement.web;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.miningdim.achievement.AchievementIds;
 import com.miningdim.achievement.AchievementServices;
@@ -87,7 +88,8 @@ import java.util.UUID;
  *   <li>achievement.claimRewards: 指定 id 与 "all" 两种领取, 已领取 / 没有待领取 / 称号发不出去 (区分 all 与 selected) /
  *       写库失败 / 入参非法逐条回稳定码, 失败时一条都不领;</li>
  *   <li>只有 achievement.pointShop 能进 system.batch, 两条写操作在批内被逐条拒且不产生副作用;</li>
- *   <li>商品加载器逐条跳过写坏的定义, 目录按 sort 降序、id 升序。</li>
+ *   <li>商品加载器逐条跳过写坏的定义, 目录按 sort 降序、id 升序; 放置进世界会丢盖章的物品 (方块、挂画、盔甲架、
+ *       刷怪蛋、船、矿车、桶) 整类拒收。</li>
  * </ol>
  */
 @GameTestHolder(MiningConstants.MODID)
@@ -109,7 +111,7 @@ public final class AchievementWebUiGameTests {
     private static final ResourceLocation ORE_CODEX_TITLE = AchievementIds.id("mining/ore_codex");
 
     private static final ResourceLocation AMETHYST = id("test/amethyst");
-    private static final ResourceLocation LANTERN = id("test/lantern");
+    private static final ResourceLocation FEATHER = id("test/feather");
     private static final ResourceLocation SECRET = id("test/secret");
     private static final ResourceLocation CODEX = id("test/codex_title");
     private static final ResourceLocation MISSING_TITLE = id("test/missing_title");
@@ -179,7 +181,7 @@ public final class AchievementWebUiGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void pointShopListsGoodsWithLimitsAffordabilityAndRequirements(GameTestHelper helper) {
-        ShopEnv env = new ShopEnv(helper, List.of(amethystGoods(), lanternGoods(), secretGoods(), codexGoods(),
+        ShopEnv env = new ShopEnv(helper, List.of(amethystGoods(), featherGoods(), secretGoods(), codexGoods(),
                 missingTitleGoods()), Set.of());
         try {
             ServerPlayer player = env.player("ach-web-list");
@@ -187,7 +189,7 @@ public final class AchievementWebUiGameTests {
             JsonArray goods = handle(helper, POINT_SHOP, player, new JsonObject()).getAsJsonArray("goods");
             List<String> order = new ArrayList<>();
             goods.forEach(element -> order.add(element.getAsJsonObject().get("goodsId").getAsString()));
-            helper.assertTrue(order.equals(List.of(CODEX.toString(), AMETHYST.toString(), LANTERN.toString(),
+            helper.assertTrue(order.equals(List.of(CODEX.toString(), AMETHYST.toString(), FEATHER.toString(),
                             SECRET.toString())),
                     "商品按 sort 降序、id 升序; 引用未加载称号的商品不列出, 实为 " + order);
 
@@ -217,13 +219,13 @@ public final class AchievementWebUiGameTests {
                             && !title.get("owned").getAsBoolean() && title.getAsJsonArray("badge").size() == 3,
                     "称号行带 titleId、未拥有、单色徽记 [ + 键 + ], 实为 " + title);
 
-            JsonObject lantern = rowWith(goods, "goodsId", LANTERN.toString());
-            JsonObject requirement = lantern.getAsJsonObject("requirement");
-            helper.assertTrue(lantern.get("limit").isJsonNull() && lantern.get("remaining").isJsonNull()
+            JsonObject feather = rowWith(goods, "goodsId", FEATHER.toString());
+            JsonObject requirement = feather.getAsJsonObject("requirement");
+            helper.assertTrue(feather.get("limit").isJsonNull() && feather.get("remaining").isJsonNull()
                             && FIRST_ENTRY.toString().equals(requirement.get("advancementId").getAsString())
                             && !requirement.get("met").getAsBoolean() && !requirement.get("hidden").getAsBoolean()
                             && requirement.get("name").isJsonArray(),
-                    "不限购的商品 limit/remaining 为 null; 前置成就未获得但不隐藏时照发名字, 实为 " + lantern);
+                    "不限购的商品 limit/remaining 为 null; 前置成就未获得但不隐藏时照发名字, 实为 " + feather);
             JsonObject secret = rowWith(goods, "goodsId", SECRET.toString()).getAsJsonObject("requirement");
             helper.assertTrue(secret.get("hidden").getAsBoolean() && !secret.get("met").getAsBoolean()
                             && secret.get("name").isJsonNull(),
@@ -232,7 +234,7 @@ public final class AchievementWebUiGameTests {
             grant(env.server, player, FIRST_ENTRY);
             grant(env.server, player, TRAP_SPRUNG);
             JsonArray after = handle(helper, POINT_SHOP, player, new JsonObject()).getAsJsonArray("goods");
-            helper.assertTrue(rowWith(after, "goodsId", LANTERN.toString()).getAsJsonObject("requirement")
+            helper.assertTrue(rowWith(after, "goodsId", FEATHER.toString()).getAsJsonObject("requirement")
                             .get("met").getAsBoolean(),
                     "获得前置成就后 met=true");
             JsonObject revealed = rowWith(after, "goodsId", SECRET.toString()).getAsJsonObject("requirement");
@@ -248,7 +250,7 @@ public final class AchievementWebUiGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void buyItemDebitsOnceStampsTheItemAndCountsTheLimitFromTheLedger(GameTestHelper helper) {
-        ShopEnv env = new ShopEnv(helper, List.of(amethystGoods(), lanternGoods()), Set.of());
+        ShopEnv env = new ShopEnv(helper, List.of(amethystGoods(), featherGoods()), Set.of());
         try {
             ServerPlayer player = env.player("ach-web-buy");
             UUID uuid = player.getUUID();
@@ -281,12 +283,12 @@ public final class AchievementWebUiGameTests {
             helper.assertTrue(env.rewards.points(uuid).balance() == 260L && shopRows(env.connection, uuid) == 2,
                     "限购拒绝不扣点、不写流水");
 
-            // 限购只数流水: 预先写进流水的一条兑换记录同样占掉灯笼的限购 (限购 1 的灯笼改成夹具 limit=1)。
-            ShopEnv.install(List.of(amethystGoods(), limitedLanternGoods()));
+            // 限购只数流水: 预先写进流水的一条兑换记录同样占掉羽毛的限购 (限购 1 的羽毛改成夹具 limit=1)。
+            ShopEnv.install(List.of(amethystGoods(), limitedFeatherGoods()));
             execute(env.connection, "INSERT INTO achievement_point_ledger (player_uuid, delta, reason, ref, at) VALUES ('"
-                    + uuid + "', -10, 'shop_buy', '" + LANTERN + "', 1)");
+                    + uuid + "', -10, 'shop_buy', '" + FEATHER + "', 1)");
             grant(env.server, player, FIRST_ENTRY);
-            WebUiBusinessException fromLedger = rejection(helper, BUY, player, goodsPayload(LANTERN));
+            WebUiBusinessException fromLedger = rejection(helper, BUY, player, goodsPayload(FEATHER));
             helper.assertTrue(WebUiErrorCodes.GOODS_LIMIT_REACHED.equals(fromLedger.errorCode())
                             && "1".equals(fromLedger.params().get("purchased")),
                     "限购按流水计: 流水里已有一条兑换即达上限, 实为 " + fromLedger.params());
@@ -298,7 +300,7 @@ public final class AchievementWebUiGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void buyRefusesWithoutChargingWhenAnyPreconditionFails(GameTestHelper helper) {
-        ShopEnv env = new ShopEnv(helper, List.of(amethystGoods(), lanternGoods(), missingTitleGoods()), Set.of());
+        ShopEnv env = new ShopEnv(helper, List.of(amethystGoods(), featherGoods(), missingTitleGoods()), Set.of());
         try {
             ServerPlayer player = env.player("ach-web-refuse");
             UUID uuid = player.getUUID();
@@ -323,7 +325,7 @@ public final class AchievementWebUiGameTests {
                     "背包已满: 扣点之前就拒绝, 不扣点不写流水");
             player.getInventory().clearContent();
 
-            WebUiBusinessException locked = rejection(helper, BUY, player, goodsPayload(LANTERN));
+            WebUiBusinessException locked = rejection(helper, BUY, player, goodsPayload(FEATHER));
             helper.assertTrue(WebUiErrorCodes.GOODS_REQUIREMENT_UNMET.equals(locked.errorCode())
                             && FIRST_ENTRY.toString().equals(locked.params().get("advancementId")),
                     "前置成就未获得回 GOODS_REQUIREMENT_UNMET 并指出是哪个成就, 实为 " + locked.params());
@@ -613,9 +615,9 @@ public final class AchievementWebUiGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void pointShopLoaderSkipsInvalidGoodsAndOrdersTheCatalog(GameTestHelper helper) {
         Map<ResourceLocation, JsonElement> files = new LinkedHashMap<>();
-        files.put(id("valid/b"), json("{\"type\":\"item\",\"item\":{\"id\":\"minecraft:lantern\"},\"price\":5,"
+        files.put(id("valid/b"), json("{\"type\":\"item\",\"item\":{\"id\":\"minecraft:feather\"},\"price\":5,"
                 + "\"sort\":10}"));
-        files.put(id("valid/a"), json("{\"type\":\"item\",\"item\":{\"id\":\"minecraft:lantern\"},\"price\":5,"
+        files.put(id("valid/a"), json("{\"type\":\"item\",\"item\":{\"id\":\"minecraft:feather\"},\"price\":5,"
                 + "\"sort\":10}"));
         files.put(id("valid/top"), json("{\"type\":\"title\",\"title\":\"miningdim:mining/ore_codex\",\"price\":9,"
                 + "\"sort\":99,\"limit_per_player\":1}"));
@@ -623,15 +625,15 @@ public final class AchievementWebUiGameTests {
                 + "\"nbt\":\"{CustomModelData:7}\"},\"price\":1}"));
         List<String> invalid = List.of(
                 "{\"type\":\"food\",\"price\":5}",
-                "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:lantern\"},\"price\":0}",
+                "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:feather\"},\"price\":0}",
                 "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:no_such_item\"},\"price\":5}",
-                "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:lantern\",\"count\":65},\"price\":5}",
-                "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:lantern\",\"nbt\":\"{broken\"},\"price\":5}",
-                "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:lantern\"},\"price\":5,\"limit_per_player\":0}",
-                "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:lantern\"},\"title\":\"miningdim:x\",\"price\":5}",
+                "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:feather\",\"count\":65},\"price\":5}",
+                "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:feather\",\"nbt\":\"{broken\"},\"price\":5}",
+                "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:feather\"},\"price\":5,\"limit_per_player\":0}",
+                "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:feather\"},\"title\":\"miningdim:x\",\"price\":5}",
                 "{\"type\":\"title\",\"title\":\"miningdim:mining/ore_codex\",\"price\":5,\"limit_per_player\":3}",
                 "{\"type\":\"title\",\"title\":\"miningdim:custom/00000000-0000-0000-0000-000000000000\",\"price\":5}",
-                "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:lantern\"},\"price\":5,\"requires_advancement\":\"Bad Id\"}");
+                "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:feather\"},\"price\":5,\"requires_advancement\":\"Bad Id\"}");
         for (int index = 0; index < invalid.size(); index++) {
             files.put(id("invalid/" + index), json(invalid.get(index)));
         }
@@ -651,6 +653,25 @@ public final class AchievementWebUiGameTests {
         helper.assertTrue(Objects.requireNonNull(loaded.get(id("valid/top")).effectiveLimit()) == 1
                         && loaded.get(id("valid/a")).effectiveLimit() == null,
                 "称号商品限购恒为 1, 物品商品不写限购即不限");
+
+        // 8.4 经济隔离: 放置进世界后掉回来的是按类型新造、不带盖章的物品堆, 市场认不出来 —— 加载器整类拒收, 并说明原因。
+        Map<ResourceLocation, JsonElement> placeables = new LinkedHashMap<>();
+        for (String item : List.of("minecraft:lantern", "minecraft:oak_sign", "minecraft:painting",
+                "minecraft:item_frame", "minecraft:armor_stand", "minecraft:pig_spawn_egg", "minecraft:oak_boat",
+                "minecraft:minecart", "minecraft:water_bucket")) {
+            ResourceLocation goodsId = id("placeable/" + new ResourceLocation(item).getPath());
+            JsonElement definition = json("{\"type\":\"item\",\"item\":{\"id\":\"" + item + "\"},\"price\":5}");
+            placeables.put(goodsId, definition);
+            String reason = null;
+            try {
+                PointShopGoods.fromJson(goodsId, definition);
+            } catch (JsonParseException refused) {
+                reason = refused.getMessage();
+            }
+            helper.assertTrue(reason != null && reason.contains("binding stamp"),
+                    item + " 放置后会丢掉绑定盖章, 加载时必须拒收并写明原因, 实为 " + reason);
+        }
+        helper.assertTrue(PointShopLoader.parseAll(placeables).isEmpty(), "放置类物品商品一条都不加载");
         helper.succeed();
     }
 
@@ -736,15 +757,15 @@ public final class AchievementWebUiGameTests {
                 + "\"price\":120,\"limit_per_player\":2,\"sort\":50}");
     }
 
-    /** 灯笼, 10 点, 不限购, 要求先获得"初入矿区"。 */
-    private static PointShopGoods lanternGoods() {
-        return goods(LANTERN, "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:lantern\"},\"price\":10,"
+    /** 羽毛, 10 点, 不限购, 要求先获得"初入矿区"。 */
+    private static PointShopGoods featherGoods() {
+        return goods(FEATHER, "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:feather\"},\"price\":10,"
                 + "\"requires_advancement\":\"" + FIRST_ENTRY + "\"}");
     }
 
-    /** 同一件灯笼, 改成限购 1 (验证限购按流水计)。 */
-    private static PointShopGoods limitedLanternGoods() {
-        return goods(LANTERN, "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:lantern\"},\"price\":10,"
+    /** 同一件羽毛, 改成限购 1 (验证限购按流水计)。 */
+    private static PointShopGoods limitedFeatherGoods() {
+        return goods(FEATHER, "{\"type\":\"item\",\"item\":{\"id\":\"minecraft:feather\"},\"price\":10,"
                 + "\"limit_per_player\":1,\"requires_advancement\":\"" + FIRST_ENTRY + "\"}");
     }
 

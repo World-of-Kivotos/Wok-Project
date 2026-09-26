@@ -17,7 +17,7 @@
 | `wok-economy` | WOK-经济模块 | 23 | 46 | `EconomySystem` | 核心、存储、WebUI；SQLite 可选 |
 | `wok-combat-core` | WOK-战斗框架模块 | 4 | 5 | `CombatSystem` | 核心 |
 | `wok-webui` | WOK-WebUI 模块 | 27 | 35 | `WebUiServerSubsystem`、`WebUiClientSubsystem` | 核心；MCEF 可选 |
-| `wok-title` | WOK-称号模块 ‡ | 21 | 11 | `TitleSystem` | 核心、存储；SQLite 可选 |
+| `wok-title` | WOK-称号模块 ‡ | 35 | 38 | `TitleSystem` | 核心、存储、WebUI；SQLite 可选 |
 | `wok-market` | WOK-市场模块 | 25 | 62 | `MarketSubsystem` | 核心、存储、经济、WebUI、职业框架、塔罗师；SQLite 可选 |
 | `wok-power` | WOK-电力模块 | 133 | 100 | `PowerSystem` | 核心；Flux Networks、Jade、JEI 可选 |
 | `wok-quest` | WOK-任务模块 | 35 | 49 | `QuestSystem` | 核心、经济、WebUI、附魔；TaCZ 可选 |
@@ -35,22 +35,24 @@
 | `wok-marriage` | WOK-婚姻社交模块 | 21 | 35 | `MarriageSystem` | 核心、经济、WebUI |
 | `wok-case-opening` | WOK-开箱模块 | 25 | 24 | `CaseOpeningSystem` | 核心、存储、经济、WebUI；TaCZ、SQLite 可选 |
 | `wok-stacking` | WOK-实体堆叠模块 | 11 | 33 | `StackingSystem` | 核心、精英怪 |
-| `wok-achievement` | WOK-成就模块 § | 75 | 68 | `AchievementSystem` | 核心、存储、称号、矿区、精英怪、经济、全服经验、职业框架、铸甲师、厨师、酿酒师、塔罗师、军火商、特勤干员、市场、开箱、任务、婚姻；TaCZ、SQLite 可选 |
+| `wok-achievement` | WOK-成就模块 § | 84 | 81 | `AchievementSystem` | 核心、存储、称号、矿区、精英怪、经济、全服经验、职业框架、铸甲师、厨师、酿酒师、塔罗师、军火商、特勤干员、市场、开箱、任务、婚姻、WebUI；TaCZ、SQLite 可选 |
 
 † `wok-job-fisher` 这一行是 2026-09-06 单独补测的，其余 25 行仍是第一段声明的 2026-08-30 基线。另外它在登记表里的 `category` 虽然是 `job`，但这只是业务归类：`job/JobId.java` 的枚举至今只有八个常量、没有 `FISHER`，因此渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门；它对 `wok-store` 的依赖同样只出现在 GameTest 里，图鉴本身走原版 `FishingJournalSavedData` 而不落 SQLite。
 
-‡ `wok-title` 这一行是 2026-09-26 称号系统 P1 落地时新增的实测值。它登记的依赖只有核心与存储：设计文档里预留的 WebUI 依赖要等 P2 的"我的称号"页签注册 `title.*` 动作时才真正产生引用，届时再补进登记表。
+‡ `wok-title` 这一行是 2026-09-26 称号系统 P1 落地时新增的实测值。它登记的依赖只有核心与存储：设计文档里预留的 WebUI 依赖要等 P2 的"我的称号"页签注册 `title.*` 动作时才真正产生引用，届时再补进登记表。2026-09-26 合并 G 面板 P2 后补测为 35 个文件、38 条 GameTest：P1 之后的赞助专属称号 12 个文件、22 条，G 面板的 `TitleWebUiActions` 与 `TitleWebUiGameTests` 2 个文件、5 条 (batch `title_webui`)；WebUI 依赖已随 `title.*` 动作补进登记表。
 
 § `wok-achievement` 这一行是 2026-09-26 成就系统 P1 三部分合并后的实测值：地基 (模块骨架、档位、统计项与触发器、元数据与一致性校验、datagen、存储)、事件钩子 (矿区行程与计数挖掘、陷阱、精英与枪械击杀、婚姻、成就数量)，以及奖励与命令 (待领取奖励、与称号同一事务的原子领取、成就点账本与管理员调整、`/machievement`)。GameTest 按类分布：地基 12、触发器 4、事件钩子 14、奖励与命令 8。同理只登记真实引用到的模块：
 - 经济依赖随事件钩子补进，只读挂机过滤 `isAfkFrozen`。
 - 奖励与命令只用到已登记的称号 (`grantInTransaction`、`notifyGranted`)、存储与核心，没有新增依赖。
-- 设计文档第二章列出的 WebUI 依赖 (成就点商店页)，要等商店页真正引用时再补。
+- 设计文档第二章列出的 WebUI 依赖 (成就点商店页)，要等商店页真正引用时再补。G 面板部分 (2026-09-26) 已补上：成就点商店页注册了 `achievement.*` 动作。
 - 婚姻相关的两条成就读核心模块的婚姻指针、按菜单注册名识别共享背包，不依赖婚姻模块。
 - TaCZ 出现在两处：进度 JSON 上的 `forge:mod_loaded` 加载条件；只在 TaCZ 已加载时才注册的边界类 `TaczGunKillHooks`。
 - 世界 BOSS 部分 (2026-09-26) 在本模块新增 1 个测试类 `trigger.WorldBossKillGameTests` (3 条 GameTest)，`combat/star_10` 随之开放，没有新增依赖。
 - P2 职业部分 (2026-09-26) 新增 11 个类与 13 条 GameTest (batch `achievement_p2_jobs`)，依赖补进全服经验、职业框架和六个提供监听接口的职业模块；各职业模块与经验模块自己包里的监听接口各多一个类，它们都不引用成就模块。
 - 2026-09-26 P2 经济与社交部分之后的实测值：新增 13 个类与 1 个测试类 (14 条 GameTest, batch `achievement_p2_social`)。市场、开箱、任务、婚姻四个依赖来自成就侧注册进这些模块监听接口的监听器与只读接口 (成就文档 9.10)，方向是成就依赖它们，它们不引用成就模块。静默追溯的开关 `core.AdvancementSilence` 与混入原版 `PlayerAdvancements` 的 `PlayerAdvancementsSilenceMixin` 归核心模块。
-- 表中 75 个文件、68 条 GameTest 是 P1、世界 BOSS、P2 职业与 P2 经济社交合并后的实测值 (49 + 1 + 11 + 14 个文件，38 + 3 + 13 + 14 条 GameTest)。
+- G 面板部分 (2026-09-26) 新增 9 个类 (`shop` 包 7 个、`web` 包 2 个) 与 11 条 GameTest (batch `achievement_webui`)，依赖补进 WebUI。成就点商店的兑换次数取自成就点流水，没有新表。
+- 合并后的复核修正 (2026-09-26) 没有新增文件，在已有测试类里加了 2 条 GameTest：`WorldBossKillGameTests` 锁住 `/kill`、虚空结束的世界 BOSS 不计击杀 (3 条变 4 条)，`JobAchievementGameTests` 锁住登录追溯补判职业等级 (13 条变 14 条)。
+- 表中 84 个文件、81 条 GameTest 是 P1、世界 BOSS、P2 职业、P2 经济社交与 G 面板合并并经复核修正后的实测值 (49 + 1 + 11 + 14 + 9 个文件，38 + 4 + 14 + 14 + 11 条 GameTest)。
 
 GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包含测试类。`wok-champion` 的测试数量较高，是精英词条和红线组合测试形成的结果。
 

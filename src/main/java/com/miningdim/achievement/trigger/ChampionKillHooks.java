@@ -3,6 +3,7 @@ package com.miningdim.achievement.trigger;
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.MiningChampionData;
 import com.miningdim.champion.MiningChampions;
+import com.miningdim.champion.WorldBoss;
 import com.miningdim.champion.reward.ContributionPool;
 import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.champion.reward.DamageContribution;
@@ -34,7 +35,9 @@ import java.util.function.Predicate;
  *
  * <p><b>过滤</b> (6.4): 计入精英击杀的怪 ({@link KillFilter#countsForChampionKills}: 矿区实例的怪, 或任意维度的世界
  * BOSS)、是精英、不是词条召唤物; 统计只给在线的有效贡献者 ({@link ContributionPool#isQualified}, 离线即不合格), 挂机冻结的
- * 贡献者不加计数类统计, 但一次性成就照常判定。世界 BOSS 可能死在任何维度, 所以两个钩子都不先按矿区维度早退。
+ * 贡献者不加计数类统计, 但一次性成就照常判定。世界 BOSS 可能死在任何维度, 所以两个钩子都不先按矿区维度早退。世界 BOSS
+ * 还须被玩家击倒: 致死伤害是 {@code /kill}、虚空这类无视无敌的伤害时 ({@link WorldBoss#isPlayerDefeat} 为假) 整只跳过,
+ * 与世界 BOSS 击倒公告共用这一个判据 —— 管理员中止事件不会发出"十星弑神"。
  *
  * <p><b>独自击杀</b> (6.4 solo): 伤害账本里只有这一名玩家、他的记录伤害不少于精英的有效血量, 且这只精英攻击过的玩家里
  * 没有别人。"攻击过"由本类在 {@link LivingHurtEvent} 上记录 (HIGHEST、收已取消的事件: 被减伤或免疫取消的一下也是攻击过)。
@@ -78,6 +81,9 @@ public final class ChampionKillHooks {
         MiningChampionData champion = MiningChampions.get(victim).orElse(null);
         if (champion == null || !champion.isChampion() || champion.isSummonedByAffix()) {
             return;
+        }
+        if (champion.isWorldBoss() && !WorldBoss.isPlayerDefeat(event.getSource())) {
+            return; // /kill、虚空结束的世界 BOSS 不算被玩家击倒 (与击倒公告同一判据, 见类注释)。
         }
         settle(level.getServer(), victim, champion, attacked == null ? Set.of() : attacked, KillFilter::isAfkFrozen);
     }

@@ -1,6 +1,5 @@
 package com.miningdim.achievement.trigger;
 
-import com.miningdim.caseopening.CaseRarity;
 import com.miningdim.caseopening.CaseServices;
 import com.miningdim.caseopening.SettledOpening;
 import com.miningdim.economy.EconomyServices;
@@ -61,21 +60,14 @@ final class EconomyHooks {
     }
 
     /**
-     * 上线追溯 (9.9): 按开箱模块的只读接口查该玩家已结算的开箱, 以其中最高的品质触发一次 case_open (都不算正常开箱,
-     * 所以"倾家荡产"不会因此达成)。开箱服务未就绪时跳过。
+     * 上线追溯 (9.9): 按开箱模块的只读接口取该玩家已结算开箱里的最高品质, 触发一次 case_open (不算正常开箱, 所以
+     * "倾家荡产"不会因此达成)。这一步每次登录都跑, 接口在 SQL 侧按品质去重, 不随开箱历史变长。开箱服务未就绪时跳过。
      */
     static void backfillSettledOpenings(ServerPlayer player) {
         if (!CaseServices.isRegistered()) {
             return;
         }
-        CaseRarity best = null;
-        for (SettledOpening opening : CaseServices.service().settledOpenings(player.getUUID())) {
-            if (best == null || opening.rarity().ordinal() > best.ordinal()) {
-                best = opening.rarity();
-            }
-        }
-        if (best != null) {
-            AchievementTriggers.CASE_OPEN.trigger(player, best, false, 0L);
-        }
+        CaseServices.service().bestSettledRarity(player.getUUID())
+                .ifPresent(best -> AchievementTriggers.CASE_OPEN.trigger(player, best, false, 0L));
     }
 }

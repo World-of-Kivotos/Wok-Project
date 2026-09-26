@@ -2,6 +2,8 @@ package com.miningdim.champion;
 
 import com.miningdim.champion.integration.ChampionPromoter;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.DamageTypeTags;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.phys.Vec3;
@@ -12,7 +14,7 @@ import java.util.Map;
 
 /**
  * 世界 BOSS (ChampionStarAffix spec 第十章; 2026-09-26 服主拍板: 10★ 只由世界 BOSS 产生, 世界 BOSS 暂用指令刷,
- * 出现时提示全服玩家)。对外的唯一入口: 判定 {@link #isWorldBoss} + 落地 {@link #spawn}。
+ * 出现时提示全服玩家)。对外的唯一入口: 判定 {@link #isWorldBoss} + 落地 {@link #spawn} + 击倒判据 {@link #isPlayerDefeat}。
  *
  * <p><b>标记</b>: 世界 BOSS 是一只普通盖章的冠军, 外加冠军 capability 上的 {@code world_boss} 字段
  * ({@link MiningChampionData#isWorldBoss}), 随实体 NBT 持久 —— 区块卸载重载、服务端重启后身份不丢。它不带矿区实例标记,
@@ -36,6 +38,16 @@ public final class WorldBoss {
     /** 该实体是否世界 BOSS (有冠军 capability 且带世界 BOSS 标记); 非 Mob / null 返回 false。 */
     public static boolean isWorldBoss(LivingEntity entity) {
         return MiningChampions.get(entity).map(MiningChampionData::isWorldBoss).orElse(false);
+    }
+
+    /**
+     * 这次致死伤害能否算"被玩家击倒" (spec 第十章击倒公告): 不是 {@code /kill}、虚空这类无视无敌的伤害。最后一下是燃烧、
+     * 中毒这类没有攻击者的伤害也算 —— 输出是玩家打出来的。"账本里有玩家的伤害记录"是另一半条件, 由调用方各自按自己的
+     * 账本读法判定。击倒公告 ({@code integration.WorldBossHandler}) 与成就的击杀结算共用这一个判据, 管理员中止事件时
+     * 两边都不认。
+     */
+    public static boolean isPlayerDefeat(DamageSource killingBlow) {
+        return !killingBlow.is(DamageTypeTags.BYPASSES_INVULNERABILITY);
     }
 
     /**

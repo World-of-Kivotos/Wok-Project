@@ -30,8 +30,10 @@ public final class MiningNetwork implements IMiningNetwork {
      * 1 -> 2 因删除特勤原生扫描面板的 AgentScanSyncS2C/AgentSealRequestC2S 两包 (F065, 整条原生面板下线),
      * 其后的 ChampionSizeS2C discriminator 随之从 10 变为 8。若新旧版本混用而协议版本不变, 握手会通过但包体
      * 被错位解码 (静默数据损坏); 提版本让不匹配的客户端在握手期直接被拒, 而非放行后崩在解码阶段。
+     * 2 -> 3 因枪匠冲压机菜单按钮 ID 整体重排进 0..127 (V05, 原版按钮包按有符号 byte 编解码)。原版按钮包不走
+     * 任何 mod 频道, 自身没有版本约束, 新旧 jar 混用时按钮语义会错位; 只能借本频道握手把旧客户端挡在门外。
      */
-    private static final String PROTOCOL_VERSION = "2";
+    private static final String PROTOCOL_VERSION = "3";
 
     /** danger 视觉档阈值 (相对 dangerMax 的占比): >=0.66 高危, >=0.33 警戒, 否则安全。便捷重载用。 */
     private static final float TIER_HIGH_RATIO = 0.66f;

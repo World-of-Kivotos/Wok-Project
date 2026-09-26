@@ -23,6 +23,14 @@ public interface MenuValidity {
     /** 玩家当前是否仍可保持该 menu 打开 (false 时原版自动关闭界面)。 */
     boolean isValid(Player player);
 
+    /**
+     * 背后方块的访问器, 供 {@link AbstractMiningMenu#removed(Player)} 关窗时对方块实体兜底标脏 (V02)。
+     * 远程 menu 没有方块, 默认 {@link ContainerLevelAccess#NULL} (execute 为空操作)。
+     */
+    default ContainerLevelAccess blockAccess() {
+        return ContainerLevelAccess.NULL;
+    }
+
     /** 方块 menu 交互距离平方上界 (原版 AbstractContainerMenu.stillValid 同值: 8 格 -> 64)。 */
     double BLOCK_REACH_SQR = 64.0D;
 
@@ -35,12 +43,23 @@ public interface MenuValidity {
         if (access == null || block == null) {
             throw new IllegalArgumentException("ContainerLevelAccess and Block must not be null");
         }
-        return player -> access.evaluate((level, pos) -> {
-            if (!level.getBlockState(pos).is(block)) {
-                return false;
+        return new MenuValidity() {
+            @Override
+            public boolean isValid(Player player) {
+                return access.evaluate((level, pos) -> {
+                    if (!level.getBlockState(pos).is(block)) {
+                        return false;
+                    }
+                    return player.distanceToSqr(pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D)
+                            <= BLOCK_REACH_SQR;
+                }, true);
             }
-            return player.distanceToSqr(pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D) <= BLOCK_REACH_SQR;
-        }, true);
+
+            @Override
+            public ContainerLevelAccess blockAccess() {
+                return access;
+            }
+        };
     }
 
     /**

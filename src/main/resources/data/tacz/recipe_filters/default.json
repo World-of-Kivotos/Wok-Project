@@ -1,0 +1,7 @@
+{
+  "_comment": "Munitions_Job_DesignSpec section 3 and section 12 item 7: guns and ammo are buy-only, the munitions bench is the sole ammo source. TACZ 1.1.8 RecipeFilterManager scans data/<ns>/recipe_filters/*.json and uses the file path as the filter id, so this file IS tacz:default and gets merged (whitelist/blacklist addAll) with the default gun pack's copy. gun_smith_table, ammo_workbench and attachment_workbench all point at tacz:default. contains() = any whitelist hit, then any blacklist hit wins; entries starting with ^ are full-match regexes, the rest are literal recipe ids. Only the gun/ and ammo/ recipe directories of the tacz namespace are blocked (recipe ids look like tacz:gun/ak47, tacz:ammo/9mm); attachments/ (including ammo_mod_he) stay craftable. No whitelist on purpose: the default pack already whitelists ^.*$.",
+  "blacklist": [
+    "^tacz:gun/.+$",
+    "^tacz:ammo/.+$"
+  ]
+}

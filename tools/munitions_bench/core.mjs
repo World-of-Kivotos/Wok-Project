@@ -439,12 +439,21 @@ export function planAtlas(scenes) {
         }
     }
     const items = [...regions.values(), ...swatches.values()].sort((a, b) => b.h - a.h || b.w - a.w || a.key.localeCompare(b.key));
+    // 天际线 (skyline) 排布: 从高到低, 每块放到当前天际线上最低 (同高取最左) 的位置。
+    // 原来的一行一行排 (shelf) 在弹药道具改成 4 texel/px 之后 128² 放不下 (82% 占用), 天际线排到 117 行。
     for (const size of [128, 256]) {
-        let x = 0, y = 0, rowH = 0, fail = false;
+        const sky = new Array(size).fill(0);
+        let fail = false;
         for (const it of items) {
-            if (x + it.w > size) { x = 0; y += rowH; rowH = 0; }
-            if (y + it.h > size || it.w > size) { fail = true; break; }
-            it.x = x; it.y = y; x += it.w; rowH = Math.max(rowH, it.h);
+            let best = null;
+            for (let x = 0; x + it.w <= size; x++) {
+                let y = 0;
+                for (let i = x; i < x + it.w; i++) y = Math.max(y, sky[i]);
+                if (y + it.h <= size && (!best || y < best.y)) best = { x, y };
+            }
+            if (!best) { fail = true; break; }
+            it.x = best.x; it.y = best.y;
+            for (let i = best.x; i < best.x + it.w; i++) sky[i] = best.y + it.h;
         }
         if (!fail) return { size, items, regions: regions.size, swatches: swatches.size };
     }

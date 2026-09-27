@@ -53,9 +53,34 @@ const BELT_Y = 9;                                    // 皮带面
 const RZ = 7.5;                                      // 弹位中心 z (皮带 z 5.5..9.5)
 const SLOT = { in: 26.5, prime: 22.5, powder: 18.5, seat: 14.5, inspect: 10.5 };   // 弹位中心 x, 节距 4
 const PITCH = 4;
-// 皮带上的弹: 2 x 2 x 3.5 黄铜壳 + 1.5 宽 x 1.25 高被甲 + 1 宽 x 1 高弹尖, 全高 5.75 (底 9, 口 12.5, 顶 14.75)
-const R = { dia: 2, caseH: 3.5, bodyW: 1.5, bodyH: 1.25, noseW: 1, noseH: 1 };
-const BULLET_H = R.bodyH + R.noseH;                 // 2.25
+// 一发弹 (2026-09 用户嫌"子弹显得太大", 整体缩到约 2/3; 方案 B v2 原来是 2 x 2 x 3.5 壳 + 1.5 x 1.25 被甲 + 1 x 1 弹尖, 全高 5.75):
+// 1.5 x 1.5 x 2.5 黄铜壳 + 1 宽 x 0.75 高被甲 + 0.5 宽 x 0.75 高弹尖, 全高 4 (皮带上: 底 9, 口 11.5, 顶 13)。
+// 宽度只能取 0.5 的整数倍 (弹位中心在 .5 上, 半宽要落在 0.25 网格上), 所以壳 1.5 / 被甲 1 / 弹尖 0.5。
+// 所有弹药道具共用这一个比例: 皮带上的弹、出弹、冲头夹着的弹头、弹药箱里冒出的弹头 (静态 JSON, 最薄 0.5 px 正好是弹尖),
+// 以及箱顶 / 托盘 / 料斗顶画出来的弹 (贴图密度 RD: 1 贴图像素 = 0.25 px, 与运动件盒式 UV 的 4 texel/px 同一个分辨率)。
+const R = { dia: 1.5, caseH: 2.5, bodyW: 1, bodyH: 0.75, noseW: 0.5, noseH: 0.75 };
+const BULLET_H = R.bodyH + R.noseH;                 // 1.5
+const ROUND_H = R.caseH + BULLET_H;                 // 4
+const MOUTH_Y = BELT_Y + R.caseH;                   // 皮带上的壳口 = 11.5 (冲压火花的 y)
+const RD = 4;                                       // 弹药道具的贴图密度 (贴图像素 / 模型像素)
+const q4 = (v) => Math.round(v * 4) / 4;            // 取到 0.25 网格
+// 弹药箱 (DISPLAY.stencil.el = 箱身 [1,3,1]-[8,8.5,10]) 敞口的顶面画一格格紧挨着直立的整发弹 (4 列 x 5 行, 中心间距 = 壳径 1.5),
+// 其中 CAN_3D 这几格是立体的弹头 (被甲 + 弹尖, 静态 JSON)。
+const CAN_TOP = DISPLAY.stencil.el.to[1];            // 8.5
+const CAN_GRID = { x: [2.25, 3.75, 5.25, 6.75], z: [2.5, 4, 5.5, 7, 8.5] };
+const CAN_3D = [[0, 0], [2, 0], [1, 1], [3, 1], [0, 2], [2, 3]];   // [列, 行]
+
+// ---- 装填塔横梁上的底火冲杆 / 装药管 (横梁 charge_arm y 15..16): 顶端 16.5 (露出横梁顶 0.5), 静止时下端停在壳口上方 ROD_GAP,
+//      下探 ROD_GAP 正好顶到壳口。弹缩小后壳口低了 1 px, 两根杆随之往下加长 1 px (行程不变; 只加大行程的话杆顶会离开横梁悬空)。
+const ROD_TOP = 16.5;
+const ROD_GAP = 1.5;
+const ROD_REST_BOTTOM = MOUTH_Y + ROD_GAP;          // 13
+// ---- 压弹头冲头: 压模静止时顶面贴着压机横梁底 (18.5), 夹着的弹头挂在压模底 (弹尖顶 = 压模底 16.75);
+//      冲头下行 RAM_STROKE 正好把弹头放到压弹头位那只壳的壳口上 (f2 = STRIKE_TICK)。连杆长 = 行程: 压到底时连杆顶正好还在横梁底面,
+//      静止时整根藏在横梁 / 法兰 / 液压缸里 (弹缩小后行程从 2 变成 3.75, 连杆从 2 加长到 3.75)。
+const DIE = { from: [13.25, 16.75, 6.25], to: [15.75, 18.5, 8.75] };
+const RAM_REST = DIE.from[1] - BULLET_H;             // 冲头夹着的弹头底面 (静止位) = 15.25
+const RAM_STROKE = MOUTH_Y - RAM_REST;               // -3.75
 
 // ---- 一个生产循环 8 帧 (40 tick = 2 s): f0 底火冲一下, f1 装药管下探, f1-f2 压弹头 (f2 到底, 压模发热),
 //      f3-f5 皮带步进一个节距, f5-f7 末端那发掉进弹药箱。f5-f7 与下一轮 f0 的皮带位置等价 (差一整个节距)。
@@ -63,10 +88,11 @@ const BULLET_H = R.bodyH + R.noseH;                 // 2.25
 const CYCLE = 8;
 const TICKS_PER_FRAME = 5;
 const BELT = [0, 0, 0, -1, -2.5, -4, -4, -4];        // 皮带上的弹 x 偏移
-const PRIME = [-1.5, 0, 0, 0, 0, 0, 0, 0];           // 底火冲杆 y 偏移 (-1.5 = 顶到壳口)
-const POWDER = [0, -1.5, 0, 0, 0, 0, 0, 0];          // 装药管 y 偏移
-const RAM = [0, -1, -2, 0, 0, 0, 0, 0];              // 压弹头冲头 y 偏移 (-2 = 弹头落到壳口上)
-const DROP_Y = [0, 0, 0, 0, 0, -1.5, -3.5, -6.5];    // 出弹 y 偏移 (f5 已沉进箱口, f7 完全没入箱里; 避开与箱顶 y 8.5 共面)
+const PRIME = [-ROD_GAP, 0, 0, 0, 0, 0, 0, 0];       // 底火冲杆 y 偏移 (-1.5 = 顶到壳口)
+const POWDER = [0, -ROD_GAP, 0, 0, 0, 0, 0, 0];      // 装药管 y 偏移
+const RAM = [0, q4(RAM_STROKE / 2), RAM_STROKE, 0, 0, 0, 0, 0];   // 压弹头冲头 y 偏移 (0 / -1.75 / -3.75 = 弹头落到壳口上)
+// 出弹 y 偏移: f5 沉进箱口约 1/4 弹高, f6 约 3/5, f7 整发没入 (弹尖顶比箱顶低 0.25, 避开与箱顶共面) = 0 / -1 / -2.5 / -4.75
+const DROP_Y = [0, 0, 0, 0, 0, -1, -2.5, CAN_TOP - 0.25 - (BELT_Y + ROUND_H)];
 const RAM_BULLET = [1, 1, 1, 0, 0, 1, 1, 1];         // 冲头夹着弹头吗 (评审 must 3: 刚回位的 f3-f4 不夹, 不再和刚压好的那发叠成两截铜头)
 const POWDER_CHARGED = [0, 0, 1, 1, 1, 1, 1, 1];     // 装药位那只壳已装药 (f1 装药管下探之后)
 const SEATED = [0, 0, 0, 1, 1, 1, 1, 1];             // 压弹头位那发已压上弹头 (f2 冲头到底之后)
@@ -74,7 +100,6 @@ const DIE_HEAT = [0, 0, 1, 0, 0, 0, 0, 0];           // 压模热度 (f2 到底�
 const ACTIVE_FRAME = 2;                              // 方案预览的静态 *_active 模型取 f2 (冲头到底); 游戏里的工作态静态模型不含运动件
 const HOT_THRESHOLD = 0.5;                           // 压模热度到这个值就画热压模
 const HOT_LIGHT = 12;                                // 热压模的自发光等级
-const RAM_REST = BELT_Y + R.caseH + 2;               // 冲头夹着的弹头底面 (静止位) = 14.5
 const FRAME_LABELS = [
     'f0 底火冲杆下探, 入口位落下一只新壳',
     'f1 装药管下探, 冲头下行',
@@ -95,31 +120,41 @@ const PRESS = {
 };
 
 // ================================================================ 贴图 (模块级, 纯函数; 用参数 P)
-const CASE_SIDE = { key: 'rcase', fn: (c) => {
+// 弹壳侧面 (1.5 x 2.5 px, RD = 4: 6 x 10): 左亮右暗的圆柱感, 壳口唇 / 肩线 / 抽壳槽 / 底缘各一行
+const CASE_SIDE = { key: 'rcase3', fn: (c) => {
     const m = M.brass;
-    c.fill(m.base);
-    c.vline(0, 0, c.h, m.hi); c.vline(c.w - 1, 0, c.h, m.lo);
-    c.hline(0, 0, c.w, m.hi);                          // 壳口唇
+    const ramp = [m.hi, mix(m.hi, m.base, 0.5), m.base, m.base, mix(m.base, m.lo, 0.5), m.lo];
+    for (let x = 0; x < c.w; x++) c.vline(x, 0, c.h, ramp[Math.min(ramp.length - 1, Math.floor((x * ramp.length) / c.w))]);
+    c.hline(0, 0, c.w - 1, m.hi);                      // 壳口唇
+    c.hline(1, 2, c.w - 2, mix(m.base, m.lo, 0.45));   // 肩线 (瓶颈形弹壳的收口)
     c.hline(0, c.h - 2, c.w, m.dk);                    // 抽壳槽
     c.hline(0, c.h - 1, c.w, m.lo);                    // 底缘
-    c.px(c.w - 1, 0, m.base);
 } };
-const TIP_SIDE = { key: 'rtip2', fn: (c) => {
+// 被甲侧面 (1 x 0.75 px: 4 x 3): 受光侧亮带, 底下一行收口线
+const TIP_SIDE = { key: 'rtip3', fn: (c) => {
     const m = JACKET;
     c.fill(m.base);
-    c.vline(0, 0, c.h, m.hi); c.vline(1, 0, c.h, m.hi); c.vline(c.w - 1, 0, c.h, m.lo);   // 受光侧两格亮带
-    c.hline(0, c.h - 1, c.w, m.lo); c.px(0, c.h - 1, m.base);                           // 收口线
+    c.vline(0, 0, c.h, m.hi); c.vline(1, 0, c.h, mix(m.hi, m.base, 0.5)); c.vline(c.w - 1, 0, c.h, m.lo);
+    c.hline(1, c.h - 1, c.w - 1, m.lo);                                                   // 收口线
 } };
-const NOSE_SIDE = { key: 'rnose2', fn: (c) => {
+// 弹尖侧面 (0.5 x 0.75 px: 2 x 3)
+const NOSE_SIDE = { key: 'rnose3', fn: (c) => {
     const m = JACKET;
     c.fill(m.base); c.vline(0, 0, c.h, m.hi); c.px(c.w - 1, c.h - 1, m.lo);
 } };
+/** 壳口 (俯视, 6 x 6 贴图像素 = 1.5 px 的壳顶): 肩 (上/左亮、下/右暗) → 瓶颈一圈亮唇 → 中间 0.5 px 的口 (空 = 黑, 已装药 = 灰色发射药)。 */
+function mouthTop(c, x, y, charged) {
+    const m = M.brass;
+    c.rect(x, y, 6, 6, m.base);
+    c.hline(x, y, 5, m.hi); c.vline(x, y, 5, m.hi);
+    c.hline(x + 1, y + 5, 5, m.lo); c.vline(x + 5, y + 1, 5, m.lo);
+    c.rect(x + 1, y + 1, 4, 4, mix(m.hi, m.base, 0.4));
+    c.px(x + 4, y + 4, m.base);
+    if (charged) { c.rect(x + 2, y + 2, 2, 2, GPOWDER.base); c.px(x + 2, y + 2, GPOWDER.hi); }
+    else { c.rect(x + 2, y + 2, 2, 2, M.dark.dk); }
+}
 function mouthFn(charged) {
-    return (c) => {
-        c.fill(M.brass.hi); c.hline(0, c.h - 1, c.w, M.brass.base); c.vline(c.w - 1, 0, c.h, M.brass.base);
-        if (charged) { c.rect(1, 1, c.w - 2, c.h - 2, GPOWDER.base); c.px(1, 1, GPOWDER.hi); c.px(c.w - 2, c.h - 2, GPOWDER.dk); }
-        else c.rect(1, 1, c.w - 2, c.h - 2, M.dark.dk);
-    };
+    return (c) => mouthTop(c, 0, 0, charged);
 }
 
 /** 皮带上的一发 (直立): 壳 (+ 被甲 + 弹尖)。tip=false 时是未压弹头的壳, mouth 'empty' | 'charged'。 */
@@ -128,8 +163,8 @@ function roundAt(ctx, name, x, y, z, o = {}) {
     const h = R.dia / 2;
     const opt = { move: o.move, item: o.item };
     const tip = o.tip !== false;
-    const side = paint(CASE_SIDE.key, CASE_SIDE.fn, { m: M.brass, d: 2 });
-    const up = tip ? flat(M.brass.hi) : paint(o.mouth === 'charged' ? 'mouth_charged2' : 'mouth_empty', mouthFn(o.mouth === 'charged'), { m: M.brass, d: 2 });
+    const side = paint(CASE_SIDE.key, CASE_SIDE.fn, { m: M.brass, d: RD });
+    const up = tip ? flat(M.brass.hi) : paint(o.mouth === 'charged' ? 'mouth_charged3' : 'mouth_empty3', mouthFn(o.mouth === 'charged'), { m: M.brass, d: RD });
     box(name + '_case', [x - h, y, z - h], [x + h, y + R.caseH, z + h], { all: side, up, down: null }, opt);
     if (tip) bulletAt(ctx, name, x, y + R.caseH, z, opt);
 }
@@ -137,8 +172,26 @@ function roundAt(ctx, name, x, y, z, o = {}) {
 function bulletAt(ctx, name, x, y, z, opt = {}, base = null) {
     const { box, paint, flat } = ctx;
     const b = R.bodyW / 2, n = R.noseW / 2;
-    box(name + '_tip', [x - b, y, z - b], [x + b, y + R.bodyH, z + b], { all: paint(TIP_SIDE.key, TIP_SIDE.fn, { m: JACKET, d: 4 }), up: flat(JACKET.hi), down: base }, opt);
-    box(name + '_nose', [x - n, y + R.bodyH, z - n], [x + n, y + BULLET_H, z + n], { all: paint(NOSE_SIDE.key, NOSE_SIDE.fn, { m: JACKET, d: 2 }), up: flat(JACKET.hi), down: null }, opt);
+    box(name + '_tip', [x - b, y, z - b], [x + b, y + R.bodyH, z + b], { all: paint(TIP_SIDE.key, TIP_SIDE.fn, { m: JACKET, d: RD }), up: flat(JACKET.hi), down: base }, opt);
+    box(name + '_nose', [x - n, y + R.bodyH, z - n], [x + n, y + BULLET_H, z + n], { all: paint(NOSE_SIDE.key, NOSE_SIDE.fn, { m: JACKET, d: RD }), up: flat(JACKET.hi), down: null }, opt);
+}
+/**
+ * 俯视的一发 (6 x 6 贴图像素 = 1.5 px, RD = 4), 左上角在 (x, y), 四角压成 gap 色 (看上去是圆的):
+ * full = 整发弹 (黄铜壳口一圈 + 1 px 被甲 + 0.5 px 亮弹尖), 否则空壳 (与皮带上空壳的壳口同一画法)。料斗顶、弹药箱顶用。
+ */
+function roundTop(c, x, y, full, gap) {
+    const m = M.brass;
+    if (full) {
+        const J = JACKET;
+        c.rect(x, y, 6, 6, m.base);
+        c.hline(x, y, 5, m.hi); c.vline(x, y, 5, m.hi);
+        c.hline(x + 1, y + 5, 5, m.lo); c.vline(x + 5, y + 1, 5, m.lo);
+        c.rect(x + 1, y + 1, 4, 4, J.base);
+        c.px(x + 1, y + 1, J.hi); c.px(x + 2, y + 1, J.hi); c.px(x + 1, y + 2, J.hi);
+        c.px(x + 4, y + 4, J.lo); c.px(x + 3, y + 4, J.lo); c.px(x + 4, y + 3, J.lo);
+        c.rect(x + 2, y + 2, 2, 2, J.hi); c.px(x + 3, y + 3, J.base);
+    } else mouthTop(c, x, y, false);
+    for (const [i, j] of [[0, 0], [5, 0], [0, 5], [5, 5]]) c.px(x + i, y + j, gap);
 }
 
 // ---- 大面贴图
@@ -207,20 +260,21 @@ function hopperSide(c) {
     c.hazard(2, c.h - 4, c.w - 4, 2, 4);
 }
 function hopperTop(c) {
-    // 料斗敞口顶面, d = 2 (14 x 10): 3 x 2 只直立的空弹壳 (黄铜圈 + 黑壳口), 格与格之间留 1 格暗缝
+    // 料斗敞口顶面 (7 x 5 px), d = RD (28 x 20): 三排直立的空弹壳 (与皮带上的壳同径 1.5 px), 4 / 3 / 4 只错开半格, 挤在一起
     const m = M.panel;
     c.fill(M.dark.base);
-    for (let r = 0; r < 2; r++) for (let k = 0; k < 3; k++) {
-        const x = 2 + k * 4, y = 2 + r * 4;
-        c.rect(x, y, 3, 3, M.brass.base); c.hline(x, y, 3, M.brass.hi); c.px(x, y + 1, M.brass.hi); c.px(x + 2, y + 2, M.brass.lo); c.px(x + 2, y + 1, M.brass.lo);
-        c.px(x + 1, y + 1, M.dark.dk);
+    for (let r = 0; r < 3; r++) {
+        const n = r === 1 ? 3 : 4, x0 = r === 1 ? 5 : 2;
+        for (let k = 0; k < n; k++) roundTop(c, x0 + k * 6, 1 + r * 6, false, M.dark.base);
     }
     c.bevel(m);
 }
 function caseTube(c) {
+    // 玻璃落壳管侧面: 上下各一道镀铬管箍, 中间一叠两行一只的黄铜壳。叠壳只画到管箍上方 (两行都要落在管箍之上,
+    // 否则管子一加长, 最后一只壳的暗行会盖掉下管箍, 管子直接以一道暗铜色撞进下面的壳)。
     c.fill(M.glass.dk);
     c.hline(0, 0, c.w, M.chrome.hi); c.hline(0, c.h - 1, c.w, M.chrome.lo);
-    for (let y = 1; y < c.h - 1; y += 3) { c.hline(0, y, c.w, M.brass.base); c.hline(0, y + 1, c.w, M.brass.lo); }
+    for (let y = 1; y + 1 < c.h - 1; y += 3) { c.hline(0, y, c.w, M.brass.base); c.hline(0, y + 1, c.w, M.brass.lo); }
     c.vline(0, 1, c.h - 2, mix(M.glass.hi, M.glass.base, 0.3));
 }
 function turretFront(c) {
@@ -325,14 +379,10 @@ function canSide(c) {
     c.hline(2, c.h - 3, c.w - 4, HAZ_Y);
 }
 function canTop(c) {
-    // 敞口箱顶, d = 2: 14 x 18。一格一格直立的整发弹 (黄铜圈 + 亮铜弹尖)
-    const m = M.olive;
+    // 敞口箱顶 (7 x 9 px), d = RD: 28 x 36。CAN_GRID 4 x 5 格紧挨着直立的整发弹 (与皮带上的弹同一比例, 俯视: 壳口圈 + 被甲 + 弹尖)
+    const m = M.olive, F = DISPLAY.stencil.el.from;
     c.fill(m.dk); c.bevel(m);
-    for (let r = 0; r < 4; r++) for (let k = 0; k < 3; k++) {
-        const x = 1 + k * 4, y = 1 + r * 4;
-        c.rect(x, y, 4, 4, M.brass.base); c.hline(x, y, 4, M.brass.hi); c.vline(x, y, 4, M.brass.hi); c.hline(x, y + 3, 4, M.brass.lo); c.vline(x + 3, y, 4, M.brass.lo);
-        c.rect(x + 1, y + 1, 2, 2, JACKET.base); c.px(x + 1, y + 1, JACKET.hi);
-    }
+    for (const z of CAN_GRID.z) for (const x of CAN_GRID.x) roundTop(c, Math.round((x - R.dia / 2 - F[0]) * RD), Math.round((z - R.dia / 2 - F[2]) * RD), true, m.dk);
 }
 // ---- 计数屏 (方案 C): 箱盖内面的静态底板 (d = 4, 1 贴图像素 = 1 qt, 布局常量全在 counter.mjs 的 DISPLAY)
 // 屏底 (带档位色调 + 扫描线) / 满度条的槽 / 框是静态贴图; 数字与满度条由方块实体渲染器画 (MunitionsBenchCounter.rects)。
@@ -401,25 +451,32 @@ function lidFull(on) {
     };
 }
 function bulletTray(c) {
-    // 弹头托盘顶面 (7 x 3.5, d = 2: 14 x 7)。朝玩家倾斜, 屏幕上方 = v 大。3 颗 3 格宽的亮铜弹头, 尖 (居中 1 格) 朝屏幕上方
-    const m = M.steel;
+    // 弹头托盘顶面 (7 x 3.5 px), d = RD: 28 x 14。朝玩家倾斜, 屏幕上方 = v 大。两排平躺的弹头 (5 + 4 颗错开), 与皮带上的弹同一比例:
+    // 被甲 1 px 宽 x 0.75 长 (4 x 3, 第一行是底缘) + 弹尖 0.5 px 宽 x 0.75 长 (2 x 3, 最后一格收尖), 尖朝屏幕上方
+    const m = M.steel, J = JACKET;
     c.fill(M.dark.base); c.bevel(m);
-    for (let k = 0; k < 3; k++) {
-        const x = 1 + k * 4;
-        c.hline(x, 1, 3, JACKET.dk);
-        for (let y = 2; y < 5; y++) { c.px(x, y, JACKET.hi); c.px(x + 1, y, JACKET.base); c.px(x + 2, y, JACKET.lo); }
-        c.px(x + 1, 5, JACKET.hi);
-    }
+    const bullet = (x, y) => {
+        c.hline(x, y, 4, J.dk);
+        for (let r = 1; r < 3; r++) { c.px(x, y + r, J.hi); c.px(x + 1, y + r, mix(J.hi, J.base, 0.5)); c.px(x + 2, y + r, J.base); c.px(x + 3, y + r, J.lo); }
+        for (let r = 3; r < 5; r++) { c.px(x + 1, y + r, J.hi); c.px(x + 2, y + r, J.base); }
+        c.px(x + 1, y + 5, J.hi);
+    };
+    for (let k = 0; k < 5; k++) bullet(2 + k * 5, 1);
+    for (let k = 0; k < 4; k++) bullet(4 + k * 5, 7);
 }
 function caseTray(c) {
-    // 弹壳托盘顶面 (6.5 x 3.5, d = 2: 13 x 7), 朝玩家倾斜: 屏幕上方 = v 大。3 只 3 格宽的空弹壳, 壳口 (黑) 朝屏幕上方
-    const m = M.steel;
+    // 弹壳托盘顶面 (6.5 x 3.5 px), d = RD: 26 x 14, 朝玩家倾斜: 屏幕上方 = v 大。3 只平躺的空弹壳 (与皮带上的壳同一比例 1.5 x 2.5 px = 6 x 10):
+    // 底缘 / 抽壳槽 / 壳身 / 肩 / 瓶颈, 壳口 (黑) 朝屏幕上方
+    const m = M.steel, b = M.brass;
     c.fill(M.dark.base); c.bevel(m);
+    const ramp = [b.hi, mix(b.hi, b.base, 0.5), b.base, b.base, mix(b.base, b.lo, 0.5), b.lo];
     for (let k = 0; k < 3; k++) {
-        const x = 1 + k * 4;
-        c.hline(x, 1, 3, M.brass.lo); c.hline(x, 2, 3, M.brass.dk);
-        for (let y = 3; y < 6; y++) { c.px(x, y, M.brass.hi); c.px(x + 1, y, M.brass.base); c.px(x + 2, y, M.brass.lo); }
-        c.px(x + 1, 5, M.dark.dk);
+        const x = 2 + k * 8, y = 2;
+        c.hline(x, y, 6, b.lo); c.hline(x, y + 1, 6, b.dk);
+        for (let r = 2; r < 7; r++) for (let i = 0; i < 6; i++) c.px(x + i, y + r, ramp[i]);
+        for (let r = 7; r < 10; r++) for (let i = 1; i < 5; i++) c.px(x + i, y + r, ramp[i]);
+        c.hline(x + 1, y + 7, 4, mix(b.base, b.lo, 0.45));
+        c.px(x + 2, y + 9, M.dark.dk); c.px(x + 3, y + 9, M.dark.dk);
     }
 }
 function screenFn(on) {
@@ -568,11 +625,12 @@ function scene(ctx) {
         north: forItem ? plate(M.panel) : paint('hopper_n2', hopperFront, { m: M.panel, d: 2 }),
         east: paint('hopper_side', hopperSide, { m: M.panel, d: 2 }),
         west: paint('hopper_side', hopperSide, { m: M.panel, d: 2 }),
-        up: forItem ? plate(M.brass) : paint('hopper_top2', hopperTop, { m: M.brass, d: 2 }),
+        up: forItem ? plate(M.brass) : paint('hopper_top3', hopperTop, { m: M.brass, d: RD }),
     });
     box('hopper_light', [25, 15, 10], [31, 15.5, 10.5], { all: lightFace(), south: null });
     box('case_chute', [25.75, 15.5, 8.25], [27.25, 16, 10.5], { all: plate(M.panel), up: flat(M.panelB.base), down: flat(M.panel.lo), south: null }, { item: false });
-    box('case_tube', [25.75, 12.5, 6.75], [27.25, 16, 8.25], { all: paint('case_tube', caseTube, { m: M.glass, d: 2 }), up: flat(M.chrome.base), down: flat(M.chrome.lo), south: null }, { item: false });
+    // 玻璃落壳管 (与壳同径 1.5 px): 下口正好落在入口位那只壳的壳口上, 循环接缝时新壳像是从管里落出来的
+    box('case_tube', [25.75, MOUTH_Y, 6.75], [27.25, 16, 8.25], { all: paint('case_tube', caseTube, { m: M.glass, d: 2 }), up: flat(M.chrome.base), down: flat(M.chrome.lo), south: null }, { item: false });
 
     // ---------------- extension: 装填塔 (底火 x 22.5 + 装药 x 18.5 合成一座), 一根横梁同时带底火冲杆和装药管
     box('turret', [17.5, 8, 10.5], [24, 16, 14], {
@@ -589,8 +647,8 @@ function scene(ctx) {
     }, { item: false });
     // 横梁前沿通长灯条
     box('arm_light', [18, 15.5, 5.75], [23, 16, 6.25], { all: lightFace(13), south: null, down: flat(M.frame.lo) }, { item: false });
-    box('prime_rod', [22, 14 + at(PRIME), 7], [23, 16.5 + at(PRIME), 8], { all: paint('rod2', rodSide, { m: M.chrome, d: 2 }), up: flat(M.chrome.base), down: flat(M.steel.hi) }, { move: 'prime', item: false });
-    box('powder_tube', [18, 14 + at(POWDER), 7], [19, 16.5 + at(POWDER), 8], {
+    box('prime_rod', [22, ROD_REST_BOTTOM + at(PRIME), 7], [23, ROD_TOP + at(PRIME), 8], { all: paint('rod2', rodSide, { m: M.chrome, d: 2 }), up: flat(M.chrome.base), down: flat(M.steel.hi) }, { move: 'prime', item: false });
+    box('powder_tube', [18, ROD_REST_BOTTOM + at(POWDER), 7], [19, ROD_TOP + at(POWDER), 8], {
         all: paint('powder_tube', (c) => { c.vline(0, 0, c.h, M.dark.hi); c.vline(1, 0, c.h, M.dark.base); c.hline(0, c.h - 2, c.w, M.brass.base); }, { m: M.dark, d: 2 }),
         up: flat(M.dark.hi), down: flat(GPOWDER.base),
     }, { move: 'powder', item: false });
@@ -612,17 +670,17 @@ function scene(ctx) {
     box('cyl', [13.5, 21, 6], [15.5, 22.5, 9], { all: paint('cyl_side', cylSide, { m: M.frame, d: 2 }), up: plate(M.frame), down: null });
     // 绿色 OK 灯 (压机横梁顶的前角); 工作时常亮
     box('pass_lamp', [12, 20.5, 4.25], [13, 21.25, 5.25], { all: on ? glow(flat(M.green.hi), 12) : flat(OFF.green), down: null }, { item: false });
-    // 冲头 (运动件 'ram'): 压模 + 连杆。静止时连杆整根藏在横梁里, 压模顶贴横梁底
+    // 冲头 (运动件 'ram'): 压模 + 连杆。静止时压模顶贴横梁底, 连杆 (长 = 行程 3.75) 整根藏在横梁 / 法兰 / 液压缸里
     // 压模要有顶面 (实装评审): 方案里静止时顶面贴着横梁底面、省掉了, 但冲头下行时 (f1-f2) 顶面露在横梁下的缝里;
     // 游戏里运动件用不剔除背面的渲染类型, 没有顶面就会从缝里看进压模、看到内壁。静止时它被横梁整个盖住, 看不到。
     const rm = at(RAM);
-    box('ram_die', [13.25, 16.75 + rm, 6.25], [15.75, 18.5 + rm, 8.75], {
+    box('ram_die', [DIE.from[0], DIE.from[1] + rm, DIE.from[2]], [DIE.to[0], DIE.to[1] + rm, DIE.to[2]], {
         all: hot ? glow(paint('die_hot', dieFn(true), { m: M.hot, d: 2 }), HOT_LIGHT) : paint('die', dieFn(false), { m: M.chrome, d: 2 }),
         up: hot ? glow(flat(M.chrome.lo), HOT_LIGHT) : flat(M.chrome.lo), down: flat(M.steel.lo),
     }, { move: 'ram', item: false });
-    box('ram_rod', [14, 18.5 + rm, 7], [15, 20.5 + rm, 8], { all: paint('rod2', rodSide, { m: M.chrome, d: 2 }), up: null, down: null }, { move: 'ram', item: false });
+    box('ram_rod', [14, DIE.to[1] + rm, 7], [15, DIE.to[1] - RAM_STROKE + rm, 8], { all: paint('rod2', rodSide, { m: M.chrome, d: 2 }), up: null, down: null }, { move: 'ram', item: false });
     // 冲头夹着的下一颗弹头 (运动件 'ram_bullet' = 随冲头平移 + 显隐): f3-f4 冲头刚回位, 不夹弹头。
-    // 它悬在壳口上方 2 px, 要有底面 (实装评审: 台子放在高处、眼睛低于它时会看到空心的弹头)。
+    // 静止时弹尖顶贴着压模底, 悬在壳口上方 -RAM_STROKE (3.75 px); 要有底面 (实装评审: 台子放在高处、眼睛低于它时会看到空心的弹头)。
     if (f === null || RAM_BULLET[f]) bulletAt(ctx, 'ram_bullet', SLOT.seat, RAM_REST + rm, RZ, { move: 'ram_bullet', item: false }, flat(JACKET.lo));
 
     // ---------------- main: 弹药箱 (敞口, 满箱整发弹) + 掀开靠后的箱盖 + 箱后备用弹药箱
@@ -631,7 +689,7 @@ function scene(ctx) {
         all: plate(M.olive),
         north: paint('can_nC', canFront, { m: M.olive, d: 4 }),
         west: paint('can_side', canSide, { m: M.olive, d: 2 }),
-        up: paint('can_top2', canTop, { m: M.olive, d: 2 }),
+        up: paint('can_top3', canTop, { m: M.olive, d: RD }),
         east: flat(M.olive.lo), south: flat(M.olive.lo),
     });
     box('can_latch', [3.5, 7, 0.5], [5.5, 8.5, 1], { all: flat(M.chrome.lo), north: flat(M.chrome.base), up: flat(M.chrome.hi), south: null }, { item: false });
@@ -653,7 +711,8 @@ function scene(ctx) {
             }),
         });
     }
-    [[2.5, 2.5], [6.5, 2.5], [4.5, 4.5], [2.5, 6.5], [4.5, 8.5]].forEach(([x, z], i) => bulletAt(ctx, 'can_b' + i, x, 8.5, z, { item: false }));
+    // 箱顶几格画出来的整发弹换成立体的弹头 (被甲 + 弹尖, 坐在箱顶上, 与皮带上的弹同一尺寸; 弹尖 0.5 px 正好是模型规则的最薄)
+    CAN_3D.forEach(([i, j], k) => bulletAt(ctx, 'can_b' + k, CAN_GRID.x[i], CAN_TOP, CAN_GRID.z[j], { item: false }));
     // 备用弹药箱 (合着盖), 箱盖正好靠在它上沿
     box('spare_can', [1, 8, 12], [7.5, 11.5, 15.5], {
         all: plate(M.olive), east: flat(M.olive.lo),
@@ -667,12 +726,12 @@ function scene(ctx) {
     box('ctray_stand', [25, 8, 2.5], [30.5, 9, 4], { all: flat(M.frame.lo), up: null, down: null }, { item: false });
     box('ctray', [24.5, 8, 1], [31, 8.5, 4.5], {
         all: flat(M.steel.lo), north: flat(M.steel.base),
-        up: paint('ctray_top2', caseTray, { m: M.steel, d: 2 }),
+        up: paint('ctray_top3', caseTray, { m: M.steel, d: RD }),
     }, { rot: { origin: [27.75, 8, 1], axis: 'x', angle: -22.5 } });
     box('btray_stand', [9.5, 8, 2.5], [15.5, 9, 4], { all: flat(M.frame.lo), up: null, down: null }, { item: false });
     box('btray', [9, 8, 1], [16, 8.5, 4.5], {
         all: flat(M.steel.lo), north: flat(M.steel.base),
-        up: paint('btray_top2', bulletTray, { m: M.steel, d: 2 }),
+        up: paint('btray_top3', bulletTray, { m: M.steel, d: RD }),
     }, { rot: { origin: [12.5, 8, 1], axis: 'x', angle: -22.5 } });
     box('console', [17, 8, 1], [23.5, 9, 4.5], {
         all: plate(M.frame),
@@ -852,6 +911,132 @@ function partShapeBoxes(sweeps) {
     return out;
 }
 
+// ================================================================ 接触核对 (弹的尺寸或帧表一改, 这里保证杆 / 冲头 / 出弹仍与弹对得上)
+const nearly = (a, b) => Math.abs(a - b) < 1e-6;
+const elOf = (E, n) => E.find((e) => e.name === n);
+/** inner 的 x / z 截面在 outer 的截面里。 */
+const insideXZ = (inner, outer) => [0, 2].every((a) => inner.from[a] >= outer.from[a] - 1e-6 && inner.to[a] <= outer.to[a] + 1e-6);
+const boxesOverlap = (a, b) => [0, 1, 2].every((k) => Math.min(a.hi[k], b.hi[k]) - Math.max(a.lo[k], b.lo[k]) > 1e-6);
+
+/**
+ * 流水线的设计尺寸 (写进 MunitionsBenchGeometry, GameTest 用它们核对程序与轮廓), 全部从待机场景的元素量出来, 不另写一份数字:
+ * 皮带面、各弹位 x、弹位中心 z、壳高、弹头高、静止位时冲头夹着的弹头底 / 底火冲杆底 / 装药管底。
+ */
+function lineDesign(idle, errors) {
+    const get = (n) => { const e = elOf(idle, n); if (!e) throw new Error('lineDesign: ' + n + ' not in the idle scene'); return e; };
+    const cases = ['r_in_case', 'r_prime_case', 'r_powder_case', 'r_seat_case', 'r_out_case'].map(get);
+    const cx = (e) => (e.from[0] + e.to[0]) / 2, cz = (e) => (e.from[2] + e.to[2]) / 2;
+    const d = {
+        beltTop: cases[0].from[1], slotX: cases.map(cx), slotZ: cz(cases[0]),
+        caseH: cases[0].to[1] - cases[0].from[1], bulletH: get('r_out_nose').to[1] - get('r_out_tip').from[1],
+        ramBulletRestBottom: get('ram_bullet_tip').from[1], primeRodRestBottom: get('prime_rod').from[1], powderTubeRestBottom: get('powder_tube').from[1],
+    };
+    if (cases.some((e) => !nearly(e.from[1], d.beltTop) || !nearly(cz(e), d.slotZ))) errors.push('line design: the belt rounds do not share one belt top / slot z');
+    if (!d.slotX.every((x, i) => i === 0 || nearly(d.slotX[i - 1] - x, PITCH))) errors.push(`line design: slot x ${d.slotX} are not one pitch (${PITCH}) apart`);
+    if (!nearly(d.beltTop + d.caseH, MOUTH_Y) || !nearly(d.caseH, R.caseH) || !nearly(d.bulletH, BULLET_H)) errors.push('line design: case / bullet heights do not match R');
+    return d;
+}
+
+/**
+ * 运动件与静态件允许的穿插 (其余一律报错): [运动件, 静态件, 说明, 限深 (x/y/z 方向穿进去的深度上限, 不给 = 不限)]。
+ * 杆 / 连杆本来就在横梁、法兰、液压缸里滑动, 出弹沉进弹药箱 (没入深度另有最后一帧的核对);
+ * 出弹从皮带末端翻下去的头两 tick (f4 → f5, 皮带与出弹都按线性插值) 壳底的东角会擦进皮带末端的角: 只许弹的中心已过皮带末端
+ * (x 向深度 < 半个壳径) 且下沉不到 0.5 px。
+ */
+const MOVING_VS_STATIC = [
+    [/^(prime_rod|powder_tube)$/, /^charge_arm$/, '杆在装填塔横梁里滑动'],
+    [/^ram_rod$/, /^(crown|flange|cyl)$/, '冲头连杆在压机横梁 / 法兰 / 液压缸里滑动'],
+    [/^drop$/, /^can$/, '出弹沉进弹药箱'],
+    [/^drop$/, /^conveyor$/, '出弹从皮带末端翻下去时擦过末端的角', [R.dia / 2, 0.5, Infinity]],
+];
+
+/**
+ * 场景逐帧 (与待机) 核对:
+ *   皮带上的壳站在皮带面上, 出弹在 皮带面 + dropY; 两根杆顶一直在装填塔横梁里、杆底从不低于壳口; 连杆顶一直在压机横梁里、连杆底 = 压模顶;
+ *   冲头夹着的弹头挂在压模底; 底火冲杆 (f0) / 装药管 (f1) 正好顶到壳口、落在壳的截面里; 冲压时刻夹着的弹头正好在装药壳的壳口上,
+ *   与下一帧那发压好的弹头 (平移回同一皮带位置) 完全相同; 落壳管下口正好在入口位那只壳的壳口上; 最后一帧出弹整发没入弹药箱;
+ *   出弹掉进箱子的一路 (相邻两帧的包围盒) 不碰箱里立着的弹头。
+ * 再按写出的 Java (解析回来 + JS 镜像) 每 0.25 tick 摆一遍运动件 (连同待机): 两两只许贴面, 不许穿插;
+ * 与 statics (各档待机 / 工作的静态件, 旋转件取包围盒) 也只许贴面, 除了 MOVING_VS_STATIC 列出的几对 (且不超过限深)。
+ */
+function contactChecks(idle, frames, partsJava, programJava, statics, errors) {
+    const arm = elOf(idle, 'charge_arm'), crown = elOf(idle, 'crown'), can = elOf(idle, 'can');
+    const beltCases = ['r_in_case', 'r_prime_case', 'r_powder_case', 'r_seat_case'];
+    [...frames.map((E, f) => [E, `f${f}`, f]), [idle, 'idle', null]].forEach(([E, label, f]) => {
+        for (const n of beltCases) { const e = elOf(E, n); if (!e || !nearly(e.from[1], BELT_Y)) errors.push(`contact ${label}: ${n} does not stand on the belt`); }
+        const out = elOf(E, 'r_out_case');
+        if (!out || !nearly(out.from[1], BELT_Y + (f === null ? 0 : DROP_Y[f]))) errors.push(`contact ${label}: r_out_case is not at the belt top + dropY`);
+        for (const n of ['prime_rod', 'powder_tube']) {
+            const rod = elOf(E, n);
+            if (rod.to[1] < arm.from[1] - 1e-6) errors.push(`contact ${label}: ${n} top ${rod.to[1]} leaves the charge arm (bottom ${arm.from[1]}): the rod would float`);
+            if (rod.from[1] < MOUTH_Y - 1e-6) errors.push(`contact ${label}: ${n} bottom ${rod.from[1]} dips below the case mouth ${MOUTH_Y}`);
+        }
+        const die = elOf(E, 'ram_die'), rod = elOf(E, 'ram_rod'), nose = elOf(E, 'ram_bullet_nose');
+        if (f === null && !nearly(die.to[1], crown.from[1])) errors.push(`contact idle: the die top ${die.to[1]} is not flush with the press crown bottom ${crown.from[1]}`);
+        if (rod.to[1] < crown.from[1] - 1e-6) errors.push(`contact ${label}: the ram rod top ${rod.to[1]} leaves the press crown (bottom ${crown.from[1]})`);
+        if (!nearly(rod.from[1], die.to[1])) errors.push(`contact ${label}: the ram rod does not sit on the die`);
+        if (nose && !nearly(nose.to[1], die.from[1])) errors.push(`contact ${label}: the held bullet (top ${nose.to[1]}) does not hang from the die (bottom ${die.from[1]})`);
+    });
+    for (const [n, arr, cn] of [['prime_rod', PRIME, 'r_prime_case'], ['powder_tube', POWDER, 'r_powder_case']]) {
+        const f = arr.findIndex((v) => v !== 0);
+        const rod = elOf(frames[f], n), c = elOf(frames[f], cn);
+        if (!nearly(rod.from[1], c.to[1]) || !insideXZ(rod, c)) errors.push(`contact f${f}: ${n} (${rod.from} .. ${rod.to}) does not land on the mouth of ${cn} (${c.from} .. ${c.to})`);
+    }
+    {
+        const S = frames[ACTIVE_FRAME], N = frames[ACTIVE_FRAME + 1], shift = BELT[ACTIVE_FRAME + 1] - BELT[ACTIVE_FRAME];
+        const c = elOf(S, 'r_seat_case'), tip = elOf(S, 'ram_bullet_tip');
+        if (!tip || !nearly(tip.from[1], c.to[1]) || !insideXZ(tip, c)) errors.push('contact strike: the held bullet does not land on the charged case mouth');
+        for (const [a, b] of [['ram_bullet_tip', 'r_seat_tip'], ['ram_bullet_nose', 'r_seat_nose']]) {
+            const x = elOf(S, a), y = elOf(N, b);
+            const same = x && y && [0, 1, 2].every((i) => nearly(x.from[i], y.from[i] - (i === 0 ? shift : 0)) && nearly(x.to[i], y.to[i] - (i === 0 ? shift : 0)));
+            if (!same) errors.push(`contact strike: ${a} at f${ACTIVE_FRAME} is not where ${b} sits right after the strike`);
+        }
+    }
+    {
+        const t = elOf(idle, 'case_tube'), c = elOf(idle, 'r_in_case');
+        if (!nearly(t.from[1], c.to[1]) || !insideXZ(t, c) || !insideXZ(c, t)) errors.push('contact: the case tube does not end exactly on the entry-slot case mouth');
+    }
+    {
+        const last = frames[CYCLE - 1];
+        for (const n of ['r_out_case', 'r_out_tip', 'r_out_nose']) {
+            const e = elOf(last, n);
+            if (!insideXZ(e, can) || e.to[1] > can.to[1] - 0.25 + 1e-6 || e.from[1] < can.from[1] - 1e-6) errors.push(`contact f${CYCLE - 1}: ${n} (${e.from} .. ${e.to}) is not sunk fully inside the ammo can`);
+        }
+        const standing = idle.filter((e) => /^can_b\d+_(tip|nose)$/.test(e.name)).map((e) => ({ lo: e.from, hi: e.to, name: e.name }));
+        for (let f = 0; f < CYCLE; f++) for (const n of ['r_out_case', 'r_out_tip', 'r_out_nose']) {
+            const a = elOf(frames[f], n), b = elOf(frames[(f + 1) % CYCLE], n);
+            const bx = f === CYCLE - 1 ? { lo: a.from, hi: a.to } : { lo: [0, 1, 2].map((k) => Math.min(a.from[k], b.from[k])), hi: [0, 1, 2].map((k) => Math.max(a.to[k], b.to[k])) };
+            for (const s of standing) if (boxesOverlap(bx, s)) errors.push(`contact f${f}: the drop round (${n}) runs into ${s.name} on its way into the can`);
+        }
+    }
+    {
+        const parsed = parsePartsJava(partsJava), prog = parseProgramJava(programJava);
+        const poses = [['idle', idlePose(prog)]];
+        for (let t = 0; t < prog.cycleTicks; t += 0.25) poses.push([`t ${t}`, sampleProgram(prog, t)]);
+        // 静态件: 各档待机 / 工作按名字 + 盒子去重 (档位加件只在高档里有)
+        const solids = new Map();
+        for (const E of statics) for (const e of E) {
+            const b = worldBox(e), k = e.name + JSON.stringify([b.lo, b.hi]);
+            if (!solids.has(k)) solids.set(k, { name: e.name, lo: b.lo, hi: b.hi });
+        }
+        const bad = new Set(), deep = new Map();
+        for (const [at, pose] of poses) {
+            const bs = placedBoxes(parsed, applyPoseMirror(parsed, pose)).filter((b) => b.visible);
+            for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) if (bs[i].part !== bs[j].part && boxesOverlap(bs[i], bs[j])) bad.add(`${bs[i].part} / ${bs[j].part}`);
+            for (const b of bs) for (const s of solids.values()) {
+                if (!boxesOverlap(b, s)) continue;
+                const rule = MOVING_VS_STATIC.find(([p, st]) => p.test(b.part) && st.test(s.name));
+                if (!rule) { bad.add(`${b.part} / static ${s.name}`); continue; }
+                if (!rule[3]) continue;
+                const depth = [0, 1, 2].map((k) => Math.min(b.hi[k], s.hi[k]) - Math.max(b.lo[k], s.lo[k]));
+                if (depth.some((d, k) => d >= rule[3][k] - 1e-6)) deep.set(`${b.part} / static ${s.name}`, `${rule[2]}: depth ${depth.map(r4)} at ${at} reaches the limit ${rule[3]}`);
+            }
+        }
+        for (const s of bad) errors.push(`moving parts interpenetrate somewhere in the cycle: ${s}`);
+        for (const [k, v] of deep) errors.push(`moving part sinks too deep into a static part: ${k} (${v})`);
+    }
+}
+
 // ================================================================ 方块状态
 const FACING_Y = { north: 0, east: 90, south: 180, west: 270 };
 /** 旧 (LEGACY_DEPTH) 变体的规则: 与当年 dist/_make_munitions_factory_model.py (已删) 写出的一致 (北不写 y)。 */
@@ -954,6 +1139,23 @@ function geometryJava(g) {
         `    public static final float SPARK_X = ${f1(g.spark[0])};`,
         `    public static final float SPARK_Y = ${f1(g.spark[1])};`,
         `    public static final float SPARK_Z = ${f1(g.spark[2])};`,
+        '',
+        '    /** 皮带面 (px): 皮带上的弹都站在这个高度上。 */',
+        `    public static final float BELT_TOP_PX = ${f1(g.line.beltTop)};`,
+        '    /** 弹位中心 x (整台坐标, px), 从入口到出弹: 入口 / 底火 / 装药 / 压弹头 / 出弹, 相邻两位差一个 MunitionsBenchProgram.BELT_PITCH。 */',
+        `    public static final float[] SLOT_X_PX = ${arr(g.line.slotX)};`,
+        '    /** 弹位中心 z (px)。 */',
+        `    public static final float SLOT_Z_PX = ${f1(g.line.slotZ)};`,
+        '    /** 一发弹的壳高 / 弹头 (被甲 + 弹尖) 高 (px); 壳口 = BELT_TOP_PX + ROUND_CASE_HEIGHT_PX = SPARK_Y。 */',
+        `    public static final float ROUND_CASE_HEIGHT_PX = ${f1(g.line.caseH)};`,
+        `    public static final float ROUND_BULLET_HEIGHT_PX = ${f1(g.line.bulletH)};`,
+        '    /**',
+        '     * 静止位 (程序的 y 偏移为 0) 时运动件的下端 (px): 冲头夹着的弹头底、底火冲杆底、装药管底;',
+        '     * 加上 MunitionsBenchProgram 的 ramY / primeY / powderY 就是当时的位置 (冲压时刻弹头底 = 壳口, 两根杆下探到底 = 壳口)。',
+        '     */',
+        `    public static final float RAM_BULLET_REST_BOTTOM_PX = ${f1(g.line.ramBulletRestBottom)};`,
+        `    public static final float PRIME_ROD_REST_BOTTOM_PX = ${f1(g.line.primeRodRestBottom)};`,
+        `    public static final float POWDER_TUBE_REST_BOTTOM_PX = ${f1(g.line.powderTubeRestBottom)};`,
         '',
         '    /** 运动件贴图 textures/entity/munitions_bench_parts.png 的尺寸 (与 MunitionsBenchParts 的 LayerDefinition 相同)。 */',
         `    public static final int PARTS_TEXTURE_WIDTH = ${g.texW};`,
@@ -1231,9 +1433,11 @@ function main() {
         if (b.box[0] < 0 || b.box[2] < 0 || b.box[1] < 0 || b.box[3] > 16 || b.box[5] > 16) errors.push(`part outline box ${cell}/${b.group} leaves the cell: ${b.box}`);
     }
     const worktop = byTier[0].idle.find((e) => e.name === 'worktop');
-    const spark = [SLOT.seat, BELT_Y + R.caseH, RZ];
+    const spark = [SLOT.seat, MOUTH_Y, RZ];
     const bulletAtStrike = frames[ACTIVE_FRAME].find((e) => e.name === 'ram_bullet_tip');
     if (!bulletAtStrike || Math.abs(bulletAtStrike.from[1] - spark[1]) > 1e-6) errors.push('spark: the ram bullet does not meet the case mouth at the strike');
+    const line = lineDesign(byTier[0].idle, errors);
+    contactChecks(byTier[0].idle, frames, partsJava, program, byTier.flatMap((s) => [stat(s.idle), stat(s.active)]), errors);
     // ---- 8b. 计数屏 (方案 C): 布局 + 每档颜色写进 Geometry 的 COUNTER_*; 核对场景里的箱盖 / 箱身与布局一致、顶点绕序、字放得下、待机对比度
     const counter = { layout: layoutFromDisplay(), colours: colourTable(TIERS) };
     {
@@ -1280,7 +1484,7 @@ function main() {
     }
     const geo = {
         bodyTop: worktop.to[1], modelTops, shapeTop: Math.max(...[...boxes.main, ...boxes.extension].map((b) => b.box[4])), boxes, partBoxes,
-        partsMin: partsLo.map(r4), partsMax: partsHi.map(r4), spark, texW: layer.texW, texH: layer.texH, counter,
+        partsMin: partsLo.map(r4), partsMax: partsHi.map(r4), spark, line, texW: layer.texW, texH: layer.texH, counter,
     };
     const geometrySrc = geometryJava(geo);
     {

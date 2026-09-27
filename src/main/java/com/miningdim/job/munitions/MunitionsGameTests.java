@@ -202,13 +202,20 @@ public final class MunitionsGameTests {
             }
         }
 
-        // 运动件点得中台子: 待机布局里皮带上各弹位 (x 26.5 / 22.5 / 18.5 / 14.5 / 10.5) 那发弹高出皮带的部分 (y 12)
-        // 与冲头夹着的弹头 (y 15.5), 四个朝向下都要落在它所在那一格的轮廓里, 否则右键会穿过它打到后面的方块。
-        // 这些位置取自设计口径 (弹位、皮带面 9 + 壳高), 不取生成的盒子。
-        float[][] movingPartPoints = {
-                {26.5F, 12.0F, 7.5F}, {22.5F, 12.0F, 7.5F}, {18.5F, 12.0F, 7.5F}, {14.5F, 12.0F, 7.5F},
-                {10.5F, 12.0F, 7.5F}, {14.5F, 15.5F, 7.5F},
-        };
+        // 运动件点得中台子: 待机布局里皮带上各弹位那发弹的壳身正中 (皮带面 + 半个壳高) 与冲头夹着的弹头正中,
+        // 四个朝向下都要落在它所在那一格的轮廓里, 否则右键会穿过它打到后面的方块。
+        // 这些位置取自设计尺寸 (MunitionsBenchGeometry 的弹位、皮带面、弹高), 不取生成的轮廓盒子。
+        float caseMiddle = MunitionsBenchGeometry.BELT_TOP_PX + MunitionsBenchGeometry.ROUND_CASE_HEIGHT_PX / 2.0F;
+        float[][] movingPartPoints = new float[MunitionsBenchGeometry.SLOT_X_PX.length + 1][];
+        for (int slot = 0; slot < MunitionsBenchGeometry.SLOT_X_PX.length; slot++) {
+            movingPartPoints[slot] = new float[]{MunitionsBenchGeometry.SLOT_X_PX[slot], caseMiddle, MunitionsBenchGeometry.SLOT_Z_PX};
+        }
+        movingPartPoints[MunitionsBenchGeometry.SLOT_X_PX.length] = new float[]{MunitionsBenchGeometry.SPARK_X,
+                MunitionsBenchGeometry.RAM_BULLET_REST_BOTTOM_PX + MunitionsBenchGeometry.ROUND_BULLET_HEIGHT_PX / 2.0F,
+                MunitionsBenchGeometry.SPARK_Z};
+        helper.assertTrue(MunitionsBenchGeometry.SLOT_X_PX[0] > 16.0F
+                        && MunitionsBenchGeometry.SLOT_X_PX[MunitionsBenchGeometry.SLOT_X_PX.length - 1] < 16.0F,
+                "the belt runs from the entry slot over the extension to the exit slot over the main cell");
         for (Direction facing : Direction.Plane.HORIZONTAL) {
             BlockState main = wideMain.setValue(MunitionsBenchBlock.FACING, facing);
             BlockPos extensionPos = MunitionsBenchBlock.extensionPos(origin, main);
@@ -438,9 +445,13 @@ public final class MunitionsGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void wideBenchPartsRotationMatchesTheBlockstate(GameTestHelper helper) {
         MunitionsBenchBlock bench = (MunitionsBenchBlock) ModMunitionsBlocks.MUNITIONS_BENCH.get();
+        // 副格入口位那发的壳身正中 (设计尺寸: 第一个弹位、皮带面 + 半个壳高)
+        float[] entryRound = {MunitionsBenchGeometry.SLOT_X_PX[0],
+                MunitionsBenchGeometry.BELT_TOP_PX + MunitionsBenchGeometry.ROUND_CASE_HEIGHT_PX / 2.0F,
+                MunitionsBenchGeometry.SLOT_Z_PX};
         float[][] points = {
                 {MunitionsBenchGeometry.SPARK_X, MunitionsBenchGeometry.SPARK_Y, MunitionsBenchGeometry.SPARK_Z},
-                {26.5F, 12.0F, 7.5F}, // 副格入口位那发
+                entryRound,
                 {1.0F, 20.0F, 15.0F}, // 主格西南角上方
         };
         for (Direction facing : Direction.Plane.HORIZONTAL) {
@@ -459,7 +470,8 @@ public final class MunitionsGameTests {
             // 副格那一发必须画在副格里 (副格恒在 facing.getClockWise() 一侧)。
             BlockState wide = bench.defaultBlockState().setValue(MunitionsBenchBlock.FACING, facing)
                     .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE);
-            Vector3f inExtension = renderer.transformPosition(new Vector3f(26.5F / 16.0F, 12.0F / 16.0F, 7.5F / 16.0F));
+            Vector3f inExtension = renderer.transformPosition(
+                    new Vector3f(entryRound[0] / 16.0F, entryRound[1] / 16.0F, entryRound[2] / 16.0F));
             helper.assertTrue(BlockPos.containing(inExtension.x, 0.0D, inExtension.z)
                             .equals(MunitionsBenchBlock.extensionPos(BlockPos.ZERO, wide)),
                     facing + ": the entry-slot round must be drawn over the extension cell, got " + inExtension);
@@ -507,6 +519,38 @@ public final class MunitionsGameTests {
                 "the ram must reach its single lowest point at tick 10, lowest " + lowest + " at " + lowestAt);
         helper.assertTrue(pose.dieHeat >= 0.5F && pose.ramBulletVisible && pose.powderCharged && !pose.seated,
                 "at the strike the die glows and still holds the bullet over the charged case");
+
+        // 帧表与弹的尺寸对得上 (弹缩小时重调过冲程): 期望关系取设计本身 —— 冲压时刻夹着的弹头底正好落在壳口 (火花处),
+        // 底火冲杆 / 装药管下探到底正好顶到壳口、从不插进壳里; 位置 = MunitionsBenchGeometry 的静止位下端 + 程序的 y 偏移。
+        float mouth = MunitionsBenchGeometry.BELT_TOP_PX + MunitionsBenchGeometry.ROUND_CASE_HEIGHT_PX;
+        helper.assertTrue(Math.abs(mouth - MunitionsBenchGeometry.SPARK_Y) < 1.0E-5F,
+                "the strike sparks at the case mouth (belt top + case height = " + mouth + "), got SPARK_Y "
+                        + MunitionsBenchGeometry.SPARK_Y);
+        float seatedAt = MunitionsBenchGeometry.RAM_BULLET_REST_BOTTOM_PX + pose.ramY;
+        helper.assertTrue(Math.abs(seatedAt - mouth) < 1.0E-5F,
+                "at the strike the held bullet must sit exactly on the case mouth " + mouth + ", its bottom is at " + seatedAt);
+        float primeLowest = Float.MAX_VALUE;
+        float powderLowest = Float.MAX_VALUE;
+        float bulletLowest = Float.MAX_VALUE;
+        for (int step = 0; step < 160; step++) {
+            MunitionsBenchProgram.sample(step * 0.25F, pose);
+            primeLowest = Math.min(primeLowest, MunitionsBenchGeometry.PRIME_ROD_REST_BOTTOM_PX + pose.primeY);
+            powderLowest = Math.min(powderLowest, MunitionsBenchGeometry.POWDER_TUBE_REST_BOTTOM_PX + pose.powderY);
+            if (pose.ramBulletVisible) {
+                bulletLowest = Math.min(bulletLowest, MunitionsBenchGeometry.RAM_BULLET_REST_BOTTOM_PX + pose.ramY);
+            }
+        }
+        helper.assertTrue(Math.abs(primeLowest - mouth) < 1.0E-5F && Math.abs(powderLowest - mouth) < 1.0E-5F,
+                "the primer rod and the powder tube must reach down exactly to the case mouth " + mouth + ", got "
+                        + primeLowest + " / " + powderLowest);
+        helper.assertTrue(Math.abs(bulletLowest - mouth) < 1.0E-5F,
+                "the held bullet never dips below the case mouth, lowest " + bulletLowest);
+        MunitionsBenchProgram.sample(0.0F, pose);
+        helper.assertTrue(Math.abs(MunitionsBenchGeometry.PRIME_ROD_REST_BOTTOM_PX + pose.primeY - mouth) < 1.0E-5F,
+                "f0: the primer rod sits on the case mouth");
+        MunitionsBenchProgram.sample(5.0F, pose);
+        helper.assertTrue(Math.abs(MunitionsBenchGeometry.POWDER_TUBE_REST_BOTTOM_PX + pose.powderY - mouth) < 1.0E-5F,
+                "f1: the powder tube sits on the case mouth");
 
         MunitionsBenchProgram.sample(0.0F, pose);
         helper.assertTrue(pose.primeY < 0.0F && !pose.powderCharged && !pose.seated && pose.dieHeat < 0.5F,

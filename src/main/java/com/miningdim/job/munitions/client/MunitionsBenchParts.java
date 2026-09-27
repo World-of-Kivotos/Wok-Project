@@ -109,61 +109,61 @@ public final class MunitionsBenchParts {
         PartDefinition root = mesh.getRoot();
         root.addOrReplaceChild(ROUND_IN,
                 CubeListBuilder.create()
-                        .texOffs(64, 0).addBox(-4.0F, -14.0F, -4.0F, 8.0F, 14.0F, 8.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
+                        .texOffs(48, 19).addBox(-3.0F, -10.0F, -3.0F, 6.0F, 10.0F, 6.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
                 PartPose.offset(106.0F, -36.0F, 30.0F));
         root.addOrReplaceChild(ROUND_PRIME,
                 CubeListBuilder.create()
-                        .texOffs(64, 0).addBox(-4.0F, -14.0F, -4.0F, 8.0F, 14.0F, 8.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
+                        .texOffs(48, 19).addBox(-3.0F, -10.0F, -3.0F, 6.0F, 10.0F, 6.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
                 PartPose.offset(90.0F, -36.0F, 30.0F));
         root.addOrReplaceChild(ROUND_POWDER,
                 CubeListBuilder.create()
-                        .texOffs(64, 0).addBox(-4.0F, -14.0F, -4.0F, 8.0F, 14.0F, 8.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
+                        .texOffs(48, 19).addBox(-3.0F, -10.0F, -3.0F, 6.0F, 10.0F, 6.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
                 PartPose.offset(74.0F, -36.0F, 30.0F));
         root.addOrReplaceChild(ROUND_POWDER_CHARGED,
                 CubeListBuilder.create()
-                        .texOffs(32, 0).addBox(-4.0F, -14.0F, -4.0F, 8.0F, 14.0F, 8.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
+                        .texOffs(24, 19).addBox(-3.0F, -10.0F, -3.0F, 6.0F, 10.0F, 6.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
                 PartPose.offset(74.0F, -36.0F, 30.0F));
         root.addOrReplaceChild(ROUND_SEAT,
                 CubeListBuilder.create()
-                        .texOffs(32, 0).addBox(-4.0F, -14.0F, -4.0F, 8.0F, 14.0F, 8.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
+                        .texOffs(24, 19).addBox(-3.0F, -10.0F, -3.0F, 6.0F, 10.0F, 6.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
                 PartPose.offset(58.0F, -36.0F, 30.0F));
         root.addOrReplaceChild(ROUND_SEAT_TIPPED,
                 CubeListBuilder.create()
-                        .texOffs(0, 0).addBox(-4.0F, -14.0F, -4.0F, 8.0F, 14.0F, 8.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH))
-                        .texOffs(24, 39).addBox(-3.0F, -19.0F, -3.0F, 6.0F, 5.0F, 6.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH))
-                        .texOffs(48, 39).addBox(-2.0F, -23.0F, -2.0F, 4.0F, 4.0F, 4.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
+                        .texOffs(0, 19).addBox(-3.0F, -10.0F, -3.0F, 6.0F, 10.0F, 6.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH))
+                        .texOffs(88, 19).addBox(-2.0F, -13.0F, -2.0F, 4.0F, 3.0F, 4.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH))
+                        .texOffs(104, 19).addBox(-1.0F, -16.0F, -1.0F, 2.0F, 3.0F, 2.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
                 PartPose.offset(58.0F, -36.0F, 30.0F));
         root.addOrReplaceChild(DROP,
                 CubeListBuilder.create()
-                        .texOffs(0, 0).addBox(-4.0F, -14.0F, -4.0F, 8.0F, 14.0F, 8.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH))
-                        .texOffs(24, 39).addBox(-3.0F, -19.0F, -3.0F, 6.0F, 5.0F, 6.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH))
-                        .texOffs(48, 39).addBox(-2.0F, -23.0F, -2.0F, 4.0F, 4.0F, 4.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
+                        .texOffs(0, 19).addBox(-3.0F, -10.0F, -3.0F, 6.0F, 10.0F, 6.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH))
+                        .texOffs(88, 19).addBox(-2.0F, -13.0F, -2.0F, 4.0F, 3.0F, 4.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH))
+                        .texOffs(104, 19).addBox(-1.0F, -16.0F, -1.0F, 2.0F, 3.0F, 2.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
                 PartPose.offset(42.0F, -36.0F, 30.0F));
         root.addOrReplaceChild(RAM_ROD,
                 CubeListBuilder.create()
-                        .texOffs(112, 22).addBox(-2.0F, -8.0F, -2.0F, 4.0F, 8.0F, 4.0F, EnumSet.of(Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
+                        .texOffs(0, 0).addBox(-2.0F, -15.0F, -2.0F, 4.0F, 15.0F, 4.0F, EnumSet.of(Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
                 PartPose.offset(58.0F, -74.0F, 30.0F));
         root.addOrReplaceChild(RAM_DIE,
                 CubeListBuilder.create()
-                        .texOffs(0, 22).addBox(-5.0F, -7.0F, -5.0F, 10.0F, 7.0F, 10.0F, EnumSet.of(Direction.DOWN, Direction.UP, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
+                        .texOffs(48, 0).addBox(-5.0F, -7.0F, -5.0F, 10.0F, 7.0F, 10.0F, EnumSet.of(Direction.DOWN, Direction.UP, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
                 PartPose.offset(58.0F, -67.0F, 30.0F));
         root.addOrReplaceChild(RAM_DIE_HOT,
                 CubeListBuilder.create()
-                        .texOffs(40, 22).addBox(-5.0F, -7.0F, -5.0F, 10.0F, 7.0F, 10.0F, EnumSet.of(Direction.DOWN, Direction.UP, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
+                        .texOffs(88, 0).addBox(-5.0F, -7.0F, -5.0F, 10.0F, 7.0F, 10.0F, EnumSet.of(Direction.DOWN, Direction.UP, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
                 PartPose.offset(58.0F, -67.0F, 30.0F));
         root.addOrReplaceChild(RAM_BULLET,
                 CubeListBuilder.create()
-                        .texOffs(0, 39).addBox(-3.0F, -5.0F, -3.0F, 6.0F, 5.0F, 6.0F, EnumSet.of(Direction.DOWN, Direction.UP, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH))
-                        .texOffs(48, 39).addBox(-2.0F, -9.0F, -2.0F, 4.0F, 4.0F, 4.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
-                PartPose.offset(58.0F, -58.0F, 30.0F));
+                        .texOffs(72, 19).addBox(-2.0F, -3.0F, -2.0F, 4.0F, 3.0F, 4.0F, EnumSet.of(Direction.DOWN, Direction.UP, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH))
+                        .texOffs(104, 19).addBox(-1.0F, -6.0F, -1.0F, 2.0F, 3.0F, 2.0F, EnumSet.of(Direction.DOWN, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
+                PartPose.offset(58.0F, -61.0F, 30.0F));
         root.addOrReplaceChild(PRIME_ROD,
                 CubeListBuilder.create()
-                        .texOffs(80, 22).addBox(-2.0F, -10.0F, -2.0F, 4.0F, 10.0F, 4.0F, EnumSet.of(Direction.DOWN, Direction.UP, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
-                PartPose.offset(90.0F, -56.0F, 30.0F));
+                        .texOffs(16, 0).addBox(-2.0F, -14.0F, -2.0F, 4.0F, 14.0F, 4.0F, EnumSet.of(Direction.DOWN, Direction.UP, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
+                PartPose.offset(90.0F, -52.0F, 30.0F));
         root.addOrReplaceChild(POWDER_TUBE,
                 CubeListBuilder.create()
-                        .texOffs(96, 22).addBox(-2.0F, -10.0F, -2.0F, 4.0F, 10.0F, 4.0F, EnumSet.of(Direction.DOWN, Direction.UP, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
-                PartPose.offset(74.0F, -56.0F, 30.0F));
+                        .texOffs(32, 0).addBox(-2.0F, -14.0F, -2.0F, 4.0F, 14.0F, 4.0F, EnumSet.of(Direction.DOWN, Direction.UP, Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)),
+                PartPose.offset(74.0F, -52.0F, 30.0F));
         return LayerDefinition.create(mesh, 128, 64);
     }
 

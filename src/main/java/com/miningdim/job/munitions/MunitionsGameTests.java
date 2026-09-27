@@ -15,13 +15,18 @@ import com.miningdim.job.JobProgress;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.munitions.block.MunitionsBenchBlock;
 import com.miningdim.job.munitions.block.MunitionsBenchBlockEntity;
+import com.miningdim.job.munitions.block.MunitionsBenchGeometry;
+import com.miningdim.job.munitions.block.MunitionsBenchProgram;
 import com.miningdim.job.munitions.menu.MunitionsBenchMenu;
 import com.miningdim.testutil.MockGameTestPlayers;
+import com.mojang.math.Axis;
+import io.netty.channel.embedded.EmbeddedChannel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.network.protocol.game.ClientboundSoundPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
@@ -39,13 +44,18 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.BooleanOp;
+import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemStackHandler;
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,6 +81,8 @@ public final class MunitionsGameTests {
 
     private static final String EMPTY = "empty";
     private static final String BATCH = "munitions";
+    /** 军火台冲压音节拍用例独占的批 (要把职业门面替身挂一百多 tick, 见 wideBenchStrikeSoundFollowsTheProgramPhase)。 */
+    private static final String TIMING_BATCH = "munitions_bench_timing";
 
     /**
      * 批前钩子: 绑定 MunitionsConfig 默认值 (本子系统集成阶段才接进 MiningDim, runGameTestServer 时其 SERVER spec
@@ -78,6 +90,11 @@ public final class MunitionsGameTests {
      */
     @BeforeBatch(batch = BATCH)
     public static void beforeMunitionsBatch(ServerLevel level) {
+        MunitionsConfig.ensureLoadedForTest();
+    }
+
+    @BeforeBatch(batch = TIMING_BATCH)
+    public static void beforeMunitionsBenchTimingBatch(ServerLevel level) {
         MunitionsConfig.ensureLoadedForTest();
     }
 
@@ -102,56 +119,136 @@ public final class MunitionsGameTests {
                 "new north-facing bench occupies two horizontal blocks from left to right");
         helper.assertTrue(MunitionsBenchBlock.mainPos(wideExtensionPos, wideExtension).equals(origin),
                 "wide extension resolves back to its main block");
-        helper.assertTrue(wideMain.getRenderShape() == RenderShape.ENTITYBLOCK_ANIMATED,
-                "wide main block is rendered by GeckoLib");
-        helper.assertTrue(wideExtension.getRenderShape() == RenderShape.ENTITYBLOCK_ANIMATED,
-                "wide extension must not be INVISIBLE: vanilla ParticleEngine.crack returns immediately "
-                        + "for RenderShape.INVISIBLE, so mining the extension would show no breaking "
-                        + "progress particles at all (destroy does not look at RenderShape), and the "
-                        + "extension has no block entity anyway");
-
-        // 期望值取自 geo 模型这个独立真相源, 而不是照抄实现里的常数 —— 后者只是把实现复述一遍。
-        double[] geoBounds = MunitionsBenchAssets.geometryBoundsPixels("munitions_bench");
-        double geoTopPixels = geoBounds[4];
-        double geoFrontPixels = geoBounds[2] + 8.0D;
+        helper.assertTrue(wideMain.getRenderShape() == RenderShape.MODEL,
+                "wide main block draws its static line model in the chunk mesh; only the moving parts come "
+                        + "from the block entity renderer");
+        helper.assertTrue(wideExtension.getRenderShape() == RenderShape.MODEL,
+                "wide extension draws its static line model too; MODEL also keeps vanilla's breaking crack "
+                        + "overlay and crack particles (ParticleEngine.crack skips RenderShape.INVISIBLE)");
 
         VoxelShape legacyCollision = legacyMain.getCollisionShape(helper.getLevel(), origin);
         assertBounds(helper, legacyCollision, 0.0D, 0.0D, 0.0D, 1.0D, 1.0D, 1.0D,
                 "legacy bench keeps its original one-block collision box");
+        assertBounds(helper, legacyMain.getShape(helper.getLevel(), origin), 0.0D, 0.0D, 0.0D, 1.0D, 1.0D, 1.0D,
+                "legacy bench keeps its original one-block outline");
 
-        VoxelShape wideCollision = wideMain.getCollisionShape(helper.getLevel(), origin);
-        double collisionTopPixels = wideCollision.max(Direction.Axis.Y) * 16.0D;
-        helper.assertTrue(collisionTopPixels >= geoTopPixels && collisionTopPixels - geoTopPixels <= 0.5D,
-                "wide collision top " + collisionTopPixels + "px must cover the geo body top "
-                        + geoTopPixels + "px without overshooting half a pixel");
-        assertBounds(helper, wideCollision, 0.0D, 0.0D, 0.0D, 1.0D, collisionTopPixels / 16.0D, 1.0D,
-                "wide collision must stay inside its own cell on every horizontal axis; the output drawer "
-                        + "sticks out toward the placer and BlockItem.canPlace would reject placement");
-        for (Direction facing : Direction.Plane.HORIZONTAL) {
-            VoxelShape rotated = wideMain.setValue(MunitionsBenchBlock.FACING, facing)
-                    .getCollisionShape(helper.getLevel(), origin);
-            assertBounds(helper, rotated, 0.0D, 0.0D, 0.0D, 1.0D, collisionTopPixels / 16.0D, 1.0D,
-                    facing + "-facing wide collision must stay inside its own cell");
+        for (MunitionsBenchBlock.Part part : MunitionsBenchBlock.Part.values()) {
+            boolean isMain = part == MunitionsBenchBlock.Part.MAIN;
+            float[][] staticBoxes = isMain ? MunitionsBenchGeometry.MAIN_BOXES : MunitionsBenchGeometry.EXTENSION_BOXES;
+            float[][] partBoxes = isMain ? MunitionsBenchGeometry.MAIN_PART_BOXES : MunitionsBenchGeometry.EXTENSION_PART_BOXES;
+            // 顶面的期望值取自基础档静态模型 JSON 这个独立真相源, 而不是照抄实现里的常数。
+            double modelTopPixels = MunitionsBenchAssets.blockModelBoundsPixels(
+                    MunitionsBenchAssets.lineModelName("munitions_bench", part.getSerializedName(), false))[4];
+            for (Direction facing : Direction.Plane.HORIZONTAL) {
+                BlockState state = wideMain.setValue(MunitionsBenchBlock.PART, part)
+                        .setValue(MunitionsBenchBlock.FACING, facing);
+                String label = facing + "-facing wide " + part.getSerializedName();
+                VoxelShape collision = state.getCollisionShape(helper.getLevel(), origin);
+                VoxelShape outline = state.getShape(helper.getLevel(), origin);
+                int turns = MunitionsBenchBlock.quarterTurns(facing);
+
+                // 碰撞: 整格一块实心柱, 高到这一格静态模型的最高点。台面只有 8 px (低于 9.6 px 的跨步高度), 贴着模型的碰撞
+                // 会让玩家一步走上台面、站进运动件中间; 柱子也高过起跳高度, 跳不上去。
+                helper.assertFalse(Shapes.joinIsNotEmpty(collision,
+                                Block.box(0.0D, 0.0D, 0.0D, 16.0D, modelTopPixels, 16.0D), BooleanOp.NOT_SAME),
+                        label + " collision must be one solid column up to the static model top " + modelTopPixels
+                                + "px, got " + collision.toAabbs());
+                helper.assertTrue(modelTopPixels > 20.04D,
+                        label + " collision column must be taller than a player's jump (about 20.03px), got "
+                                + modelTopPixels + "px");
+
+                // 轮廓 (选择框 / 右键命中): 静态件的大块 + 运动件扫过的范围, 按方块状态转过去; 都在碰撞柱里。
+                helper.assertFalse(Shapes.joinIsNotEmpty(outline,
+                                Shapes.or(geometryShape(staticBoxes, turns), geometryShape(partBoxes, turns)),
+                                BooleanOp.NOT_SAME),
+                        label + " outline must be the MunitionsBenchGeometry static + moving-part boxes turned with "
+                                + "the blockstate");
+                helper.assertFalse(Shapes.joinIsNotEmpty(outline, collision, BooleanOp.ONLY_FIRST),
+                        label + " outline must stay inside the collision column");
+                AABB bounds = outline.bounds();
+                helper.assertTrue(bounds.minX >= 0.0D && bounds.minZ >= 0.0D && bounds.minY == 0.0D
+                                && bounds.maxX <= 1.0D && bounds.maxZ <= 1.0D,
+                        label + " outline must stay inside its own cell, got " + bounds);
+                helper.assertFalse(Shapes.joinIsNotEmpty(
+                                Block.box(0.0D, 0.0D, 0.0D, 16.0D, MunitionsBenchGeometry.BODY_TOP_PX, 16.0D),
+                                outline, BooleanOp.ONLY_FIRST),
+                        label + " outline must fill the whole cabinet up to the worktop at "
+                                + MunitionsBenchGeometry.BODY_TOP_PX + "px");
+                double topPixels = bounds.maxY * 16.0D;
+                helper.assertTrue(Math.abs(topPixels - modelTopPixels) <= 0.5D,
+                        label + " outline top " + topPixels + "px must follow the static model top "
+                                + modelTopPixels + "px");
+                // 支撑面按轮廓算: 碰撞柱的整面不能让火把贴在台面上方的空气里。
+                helper.assertFalse(Shapes.joinIsNotEmpty(state.getBlockSupportShape(helper.getLevel(), origin),
+                                outline, BooleanOp.NOT_SAME),
+                        label + " support shape must follow the visible outline, not the collision column");
+            }
         }
-        assertBounds(helper, wideExtension.getCollisionShape(helper.getLevel(), wideExtensionPos),
-                0.0D, 0.0D, 0.0D, 1.0D, collisionTopPixels / 16.0D, 1.0D,
-                "extension collision matches the main body box");
 
-        // 轮廓形状(选择框)保留外伸抽屉, 且必须跟 geo 的机身正面对得上, 四个朝向各转一次。
-        double outlineFront = wideMain.getShape(helper.getLevel(), origin).min(Direction.Axis.Z) * 16.0D;
-        helper.assertTrue(outlineFront < 0.0D && Math.abs(outlineFront - geoFrontPixels) <= 0.5D,
-                "north-facing outline must project the drawer to the geo front " + geoFrontPixels
-                        + "px, got " + outlineFront + "px");
-        helper.assertTrue(wideMain.setValue(MunitionsBenchBlock.FACING, Direction.EAST)
-                        .getShape(helper.getLevel(), origin).max(Direction.Axis.X) > 1.0D,
-                "east-facing outline drawer rotates with the machine");
-        helper.assertTrue(wideMain.setValue(MunitionsBenchBlock.FACING, Direction.SOUTH)
-                        .getShape(helper.getLevel(), origin).max(Direction.Axis.Z) > 1.0D,
-                "south-facing outline drawer rotates with the machine");
-        helper.assertTrue(wideMain.setValue(MunitionsBenchBlock.FACING, Direction.WEST)
-                        .getShape(helper.getLevel(), origin).min(Direction.Axis.X) < 0.0D,
-                "west-facing outline drawer rotates with the machine");
+        // 运动件点得中台子: 待机布局里皮带上各弹位 (x 26.5 / 22.5 / 18.5 / 14.5 / 10.5) 那发弹高出皮带的部分 (y 12)
+        // 与冲头夹着的弹头 (y 15.5), 四个朝向下都要落在它所在那一格的轮廓里, 否则右键会穿过它打到后面的方块。
+        // 这些位置取自设计口径 (弹位、皮带面 9 + 壳高), 不取生成的盒子。
+        float[][] movingPartPoints = {
+                {26.5F, 12.0F, 7.5F}, {22.5F, 12.0F, 7.5F}, {18.5F, 12.0F, 7.5F}, {14.5F, 12.0F, 7.5F},
+                {10.5F, 12.0F, 7.5F}, {14.5F, 15.5F, 7.5F},
+        };
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            BlockState main = wideMain.setValue(MunitionsBenchBlock.FACING, facing);
+            BlockPos extensionPos = MunitionsBenchBlock.extensionPos(origin, main);
+            for (float[] point : movingPartPoints) {
+                Vec3 at = MunitionsBenchBlock.benchPixelToWorld(origin, facing, point[0], point[1], point[2]);
+                BlockPos cell = BlockPos.containing(at.x, origin.getY(), at.z);
+                helper.assertTrue(cell.equals(origin) || cell.equals(extensionPos),
+                        facing + "-facing: moving part at " + point[0] + "px must sit in one of the two cells, got " + cell);
+                BlockState cellState = cell.equals(origin) ? main
+                        : main.setValue(MunitionsBenchBlock.PART, MunitionsBenchBlock.Part.EXTENSION);
+                Vec3 local = at.subtract(cell.getX(), cell.getY(), cell.getZ());
+                boolean hit = false;
+                for (AABB box : cellState.getShape(helper.getLevel(), cell).toAabbs()) {
+                    hit |= box.contains(local);
+                }
+                helper.assertTrue(hit, facing + "-facing: the moving part at bench pixel (" + point[0] + ", " + point[1]
+                        + ", " + point[2] + ") must be inside the outline so a right click on it opens the bench");
+            }
+        }
+
+        // 手性: 压机 (主格最高的那块) 立在主格靠副格的一侧, 四个朝向都要跟着转过去。
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            BlockState main = wideMain.setValue(MunitionsBenchBlock.FACING, facing);
+            VoxelShape shape = main.getShape(helper.getLevel(), origin);
+            double top = shape.max(Direction.Axis.Y);
+            AABB press = null;
+            for (AABB box : shape.toAabbs()) {
+                if (Math.abs(box.maxY - top) < 1.0E-6D) {
+                    press = press == null ? box : press.minmax(box);
+                }
+            }
+            Direction toward = MunitionsBenchBlock.extensionDirection(main);
+            helper.assertTrue(press != null && touchesCellFace(press, toward)
+                            && !touchesCellFace(press, toward.getOpposite()),
+                    facing + "-facing outline must rotate with the machine: the press head belongs against the "
+                            + toward + " face (towards the extension), got " + press);
+        }
         helper.succeed();
+    }
+
+    private static VoxelShape geometryShape(float[][] northBoxes, int quarterTurns) {
+        VoxelShape shape = Shapes.empty();
+        for (float[] northBox : northBoxes) {
+            float[] box = MunitionsBenchGeometry.rotated(northBox, quarterTurns);
+            shape = Shapes.or(shape, Block.box(box[0], box[1], box[2], box[3], box[4], box[5]));
+        }
+        return shape;
+    }
+
+    private static boolean touchesCellFace(AABB box, Direction face) {
+        return switch (face) {
+            case EAST -> box.maxX >= 1.0D - 1.0E-6D;
+            case WEST -> box.minX <= 1.0E-6D;
+            case SOUTH -> box.maxZ >= 1.0D - 1.0E-6D;
+            case NORTH -> box.minZ <= 1.0E-6D;
+            default -> false;
+        };
     }
 
     private static void assertBounds(GameTestHelper helper, VoxelShape shape,
@@ -286,84 +383,7 @@ public final class MunitionsGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void carouselAngleHoldsWhileIdleAndAdvancesWhileActive(GameTestHelper helper) {
-        ServerPlayer owner = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        MunitionsBenchBlockEntity bench = newBench(helper, owner);
-        BlockPos absolute = bench.getBlockPos();
-        BlockState wide = bench.getBlockState()
-                .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE)
-                .setValue(MunitionsBenchBlock.ACTIVE, true);
-        helper.getLevel().setBlock(absolute, wide, Block.UPDATE_CLIENTS);
-
-        // 期望值取设计口径本身(弹盘 12 秒一圈 = 240 tick 转 360 度, 故 20 tick 转 30 度), 不乘实现常量 ——
-        // 乘 CAROUSEL_DEGREES_PER_TICK 的写法把转速写错也照样绿。
-        helper.assertTrue(Math.abs(MunitionsBenchBlockEntity.CAROUSEL_DEGREES_PER_TICK * 240.0F - 360.0F) < 1.0E-3F,
-                "弹盘转速必须是 12 秒一圈(240 tick 转满 360 度), 实得每 tick "
-                        + MunitionsBenchBlockEntity.CAROUSEL_DEGREES_PER_TICK + " 度");
-        float first = bench.advanceCarouselAngle(20.0F);
-        helper.assertTrue(Math.abs(first - 30.0F) < 1.0E-3F,
-                "an active bench must advance the carousel by the configured rate, got " + first);
-
-        helper.getLevel().setBlock(absolute, wide.setValue(MunitionsBenchBlock.ACTIVE, false),
-                Block.UPDATE_CLIENTS);
-        float held = bench.advanceCarouselAngle(120.0F);
-        helper.assertTrue(Math.abs(held - first) < 1.0E-3F,
-                "an idle bench must hold the carousel where it stopped, not snap back to zero; got "
-                        + held + " after holding at " + first);
-
-        helper.getLevel().setBlock(absolute, wide, Block.UPDATE_CLIENTS);
-        float resumed = bench.advanceCarouselAngle(4.0F);
-        helper.assertTrue(resumed > held && resumed - held < 360.0F,
-                "resuming must continue from the held angle instead of jumping to an arbitrary phase");
-        helper.succeed();
-    }
-
-    /**
-     * 直接驱动渲染器每帧真正调用的 {@code carouselAngleDegrees(float)}。
-     *
-     * 上面那条用例走的是 {@code advanceCarouselAngle(float)}, 也就是"给多少 tick 转多少度"这一半;
-     * 本次修复动的其实是另一半 —— 从上次取样到这一帧到底过了多少 tick。原写法把
-     * {@code gameTime + partialTick} 整个塞进一个 float, 世界跑过 2^24 tick 后相邻整数就表示不下,
-     * 平滑旋转会退化成成块跳变。改成整 tick 走 long 相减、小数部分单独作差之后, 必须有一条用例
-     * 真的跨一个 tick 且让 partialTick 回绕(0.5 -> 0.1), 否则把小数项删掉全套测试照样绿。
-     */
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void carouselSamplingCountsPartialTicksAcrossTickBoundaries(GameTestHelper helper) {
-        ServerPlayer owner = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        MunitionsBenchBlockEntity bench = newBench(helper, owner);
-        BlockPos absolute = bench.getBlockPos();
-        helper.getLevel().setBlock(absolute, bench.getBlockState()
-                .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE)
-                .setValue(MunitionsBenchBlock.ACTIVE, true), Block.UPDATE_CLIENTS);
-
-        float first = bench.carouselAngleDegrees(0.0F);
-        helper.assertTrue(Math.abs(first) < 1.0E-3F,
-                "首帧取样只锚定时刻不推进角度, 实得 " + first);
-        helper.assertTrue(Math.abs(bench.carouselAngleDegrees(0.0F)) < 1.0E-3F,
-                "同一帧同 partialTick 再取一次不得重复推进");
-
-        // 同一 tick 内 partialTick 0.0 -> 0.5: 只该推进半个 tick。
-        float halfTick = bench.carouselAngleDegrees(0.5F);
-        helper.assertTrue(Math.abs(halfTick - 0.5F * MunitionsBenchBlockEntity.CAROUSEL_DEGREES_PER_TICK) < 1.0E-3F,
-                "同 tick 内推进必须按 partialTick 的增量算, 实得 " + halfTick);
-
-        helper.runAfterDelay(1L, () -> {
-            // 台子的服务端 tick 会按有没有活干重算 ACTIVE 并写回 blockstate, 空载一 tick 就被复位成 false,
-            // 而停机时 advanceCarouselAngle 按设计原地保持角度 —— 不重新置位就测不到本用例要测的 elapsed。
-            helper.getLevel().setBlock(absolute, helper.getLevel().getBlockState(absolute)
-                    .setValue(MunitionsBenchBlock.ACTIVE, true), Block.UPDATE_CLIENTS);
-            // 跨一个 tick 且 partialTick 从 0.5 回绕到 0.1: 真实经过 0.6 个 tick, 不是 1 个。
-            float wrapped = bench.carouselAngleDegrees(0.1F);
-            float expected = 1.1F * MunitionsBenchBlockEntity.CAROUSEL_DEGREES_PER_TICK;
-            helper.assertTrue(Math.abs(wrapped - expected) < 1.0E-3F,
-                    "跨 tick 且 partialTick 回绕时必须算 0.6 个 tick(累计 1.1), 实得 "
-                            + wrapped + ", 期望 " + expected);
-            helper.succeed();
-        });
-    }
-
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void wideBenchRenderBoundingBoxCoversBothCellsAndTheFront(GameTestHelper helper) {
+    public static void wideBenchRenderBoundingBoxCoversBothCellsUpToTheMovingParts(GameTestHelper helper) {
         ServerPlayer owner = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         MunitionsBenchBlockEntity bench = newBench(helper, owner);
         BlockPos absolute = bench.getBlockPos();
@@ -376,17 +396,310 @@ public final class MunitionsGameTests {
             BlockPos extension = MunitionsBenchBlock.extensionPos(absolute, wide);
             helper.assertTrue(box.contains(Vec3.atCenterOf(absolute)) && box.contains(Vec3.atCenterOf(extension)),
                     facing + " render bounds must cover both halves of the machine");
-            helper.assertTrue(box.maxY - absolute.getY() >= 25.5D / 16.0D,
-                    facing + " render bounds must reach the top of the enclosure");
-            double frontOvershoot = facing.getStepX() < 0 || facing.getStepZ() < 0
-                    ? (facing.getAxis() == Direction.Axis.X ? absolute.getX() - box.minX : absolute.getZ() - box.minZ)
-                    : (facing.getAxis() == Direction.Axis.X ? box.maxX - (absolute.getX() + 1)
-                            : box.maxZ - (absolute.getZ() + 1));
-            helper.assertTrue(frontOvershoot >= 0.25D,
-                    facing + " render bounds must extend past the front face for the output drawer, got "
-                            + frontOvershoot);
+            helper.assertTrue(box.minY <= absolute.getY()
+                            && box.maxY - absolute.getY() >= MunitionsBenchGeometry.RENDER_TOP_PX / 16.0D,
+                    facing + " render bounds must reach the top of the moving parts ("
+                            + MunitionsBenchGeometry.RENDER_TOP_PX + "px), got " + box);
+            // 运动件扫过的整个范围 (整台像素, 朝北) 按朝向转到世界里, 八个角都得在包围盒里, 否则转身时会被视锥裁掉。
+            for (int corner = 0; corner < 8; corner++) {
+                Vec3 at = MunitionsBenchBlock.benchPixelToWorld(absolute, facing,
+                        (corner & 1) == 0 ? MunitionsBenchGeometry.PARTS_MIN[0] : MunitionsBenchGeometry.PARTS_MAX[0],
+                        (corner & 2) == 0 ? MunitionsBenchGeometry.PARTS_MIN[1] : MunitionsBenchGeometry.PARTS_MAX[1],
+                        (corner & 4) == 0 ? MunitionsBenchGeometry.PARTS_MIN[2] : MunitionsBenchGeometry.PARTS_MAX[2]);
+                helper.assertTrue(box.inflate(1.0E-6D).contains(at),
+                        facing + " render bounds must contain the moving-part sweep corner " + at + ", got " + box);
+            }
         }
         helper.succeed();
+    }
+
+    /**
+     * 运动件渲染器的朝向角 ({@link MunitionsBenchBlock#partsYRotationDegrees}) 必须与方块状态的 y 旋转 / 冲压点换算
+     * ({@link MunitionsBenchBlock#benchPixelToWorld}) 同向: 渲染器对朝北的整台坐标做 translate(.5, 0, .5) · Axis.YP · translate(-.5, 0, -.5),
+     * 这里用同一串变换把几个点转过去, 与 benchPixelToWorld 逐点比较; 只改其中一边 (角度表写反、或换算方向改了) 这条就挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void wideBenchPartsRotationMatchesTheBlockstate(GameTestHelper helper) {
+        MunitionsBenchBlock bench = (MunitionsBenchBlock) ModMunitionsBlocks.MUNITIONS_BENCH.get();
+        float[][] points = {
+                {MunitionsBenchGeometry.SPARK_X, MunitionsBenchGeometry.SPARK_Y, MunitionsBenchGeometry.SPARK_Z},
+                {26.5F, 12.0F, 7.5F}, // 副格入口位那发
+                {1.0F, 20.0F, 15.0F}, // 主格西南角上方
+        };
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            Matrix4f renderer = new Matrix4f()
+                    .translate(0.5F, 0.0F, 0.5F)
+                    .rotate(Axis.YP.rotationDegrees(MunitionsBenchBlock.partsYRotationDegrees(facing)))
+                    .translate(-0.5F, 0.0F, -0.5F);
+            for (float[] point : points) {
+                Vector3f drawn = renderer.transformPosition(new Vector3f(point[0] / 16.0F, point[1] / 16.0F, point[2] / 16.0F));
+                Vec3 expected = MunitionsBenchBlock.benchPixelToWorld(BlockPos.ZERO, facing, point[0], point[1], point[2]);
+                helper.assertTrue(Math.abs(drawn.x - expected.x) < 1.0E-4D && Math.abs(drawn.y - expected.y) < 1.0E-4D
+                                && Math.abs(drawn.z - expected.z) < 1.0E-4D,
+                        facing + ": the renderer draws bench pixel (" + point[0] + ", " + point[1] + ", " + point[2]
+                                + ") at " + drawn + " but benchPixelToWorld puts it at " + expected);
+            }
+            // 副格那一发必须画在副格里 (副格恒在 facing.getClockWise() 一侧)。
+            BlockState wide = bench.defaultBlockState().setValue(MunitionsBenchBlock.FACING, facing)
+                    .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE);
+            Vector3f inExtension = renderer.transformPosition(new Vector3f(26.5F / 16.0F, 12.0F / 16.0F, 7.5F / 16.0F));
+            helper.assertTrue(BlockPos.containing(inExtension.x, 0.0D, inExtension.z)
+                            .equals(MunitionsBenchBlock.extensionPos(BlockPos.ZERO, wide)),
+                    facing + ": the entry-slot round must be drawn over the extension cell, got " + inExtension);
+        }
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 弹药流水线运动程序 (MunitionsBenchProgram): 服务端冲压音与客户端运动件共用的帧表
+    // ============================================================
+
+    /**
+     * 期望值取设计口径本身 (8 帧 × 5 tick = 40 tick 一个循环, 冲头在第 3 帧 f2 = tick 10 压到底), 不照抄实现常量 ——
+     * 常量写错也照样绿的断言测不出东西。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchProgramStrikesOncePerCycleAndIdlesAtRest(GameTestHelper helper) {
+        helper.assertTrue(MunitionsBenchProgram.CYCLE_TICKS == 40,
+                "the munitions line cycle is 8 frames x 5 ticks = 40 ticks, got " + MunitionsBenchProgram.CYCLE_TICKS);
+        helper.assertTrue(MunitionsBenchProgram.STRIKE_TICK == 10,
+                "the ram bottoms out on frame f2 = tick 10, got " + MunitionsBenchProgram.STRIKE_TICK);
+
+        MunitionsBenchProgram.Pose idle = MunitionsBenchProgram.idle(new MunitionsBenchProgram.Pose());
+        helper.assertTrue(idle.beltX == 0.0F && idle.primeY == 0.0F && idle.powderY == 0.0F && idle.ramY == 0.0F
+                        && idle.dropY == 0.0F && idle.dieHeat == 0.0F,
+                "the idle pose is the rest layout: every moving part at its zero offset and a cold die");
+        helper.assertTrue(idle.ramBulletVisible && !idle.powderCharged && !idle.seated,
+                "idle: the ram holds the next bullet, the powder slot is still empty and the round under the ram "
+                        + "is not seated yet");
+
+        // 冲头的最低点必须恰在 STRIKE_TICK, 且那一刻压模是热的、还夹着弹头 (弹头正落在壳口上)。
+        MunitionsBenchProgram.Pose pose = new MunitionsBenchProgram.Pose();
+        float lowest = Float.MAX_VALUE;
+        float lowestAt = -1.0F;
+        for (int step = 0; step < 160; step++) {
+            float t = step * 0.25F;
+            MunitionsBenchProgram.sample(t, pose);
+            if (pose.ramY < lowest - 1.0E-6F) {
+                lowest = pose.ramY;
+                lowestAt = t;
+            }
+        }
+        MunitionsBenchProgram.sample(10.0F, pose);
+        helper.assertTrue(lowestAt == 10.0F && pose.ramY < 0.0F,
+                "the ram must reach its single lowest point at tick 10, lowest " + lowest + " at " + lowestAt);
+        helper.assertTrue(pose.dieHeat >= 0.5F && pose.ramBulletVisible && pose.powderCharged && !pose.seated,
+                "at the strike the die glows and still holds the bullet over the charged case");
+
+        MunitionsBenchProgram.sample(0.0F, pose);
+        helper.assertTrue(pose.primeY < 0.0F && !pose.powderCharged && !pose.seated && pose.dieHeat < 0.5F,
+                "f0: the primer rod is down on a fresh case, nothing charged or seated, die cold");
+        MunitionsBenchProgram.sample(12.5F, pose);
+        helper.assertTrue(!pose.ramBulletVisible && pose.seated && pose.powderCharged,
+                "right after the strike the ram rises empty and the round below is seated");
+        MunitionsBenchProgram.sample(25.0F, pose);
+        helper.assertTrue(pose.ramBulletVisible && pose.beltX < 0.0F && pose.dropY < 0.0F,
+                "f5: the belt has advanced, the ram holds the next bullet and the finished round sinks into the can");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchProgramLoopsSeamlesslyAndWrapsLongClocks(GameTestHelper helper) {
+        MunitionsBenchProgram.Pose a = new MunitionsBenchProgram.Pose();
+        MunitionsBenchProgram.Pose b = new MunitionsBenchProgram.Pose();
+        // 循环内连续: 每 1/4 tick 任何一个运动件最多挪 0.5 px (帧表是线性插值, 不该有跳变)。
+        for (int step = 0; step < 159; step++) {
+            MunitionsBenchProgram.sample(step * 0.25F, a);
+            MunitionsBenchProgram.sample((step + 1) * 0.25F, b);
+            float jump = Math.max(Math.max(Math.abs(a.beltX - b.beltX), Math.abs(a.primeY - b.primeY)),
+                    Math.max(Math.max(Math.abs(a.powderY - b.powderY), Math.abs(a.ramY - b.ramY)),
+                            Math.abs(a.dropY - b.dropY)));
+            helper.assertTrue(jump <= 0.5F, "the program jumps " + jump + "px between ticks " + step * 0.25F
+                    + " and " + (step + 1) * 0.25F);
+        }
+
+        // 循环接缝: 机器姿态首尾相接; 皮带上的弹差整一个节距 (到下一轮弹位整体换号, 画面不变)。
+        MunitionsBenchProgram.sample(39.999F, a);
+        MunitionsBenchProgram.sample(0.0F, b);
+        helper.assertTrue(Math.abs(a.primeY - b.primeY) < 1.0E-2F && Math.abs(a.powderY - b.powderY) < 1.0E-2F
+                        && Math.abs(a.ramY - b.ramY) < 1.0E-2F && Math.abs(a.dieHeat - b.dieHeat) < 1.0E-2F
+                        && a.ramBulletVisible == b.ramBulletVisible,
+                "the machine pose at the end of a cycle must match the start of the next one");
+        helper.assertTrue(Math.abs((a.beltX + MunitionsBenchProgram.BELT_PITCH) - b.beltX) < 1.0E-2F,
+                "the belt must end a cycle exactly one pitch past where it starts, got " + a.beltX + " -> " + b.beltX);
+        helper.assertTrue(MunitionsBenchProgram.BELT_PITCH == 4.0F,
+                "one belt step is one cartridge slot (4 px), got " + MunitionsBenchProgram.BELT_PITCH);
+
+        // 取模: 负数折回, 多转几圈同一相位; long 版先在 long 里取模, 台子连开几天也不抖。
+        for (float t : new float[]{0.0F, 3.5F, 12.5F, 27.75F}) {
+            MunitionsBenchProgram.sample(t, a);
+            MunitionsBenchProgram.sample(t + 80.0F, b);
+            helper.assertTrue(samePose(a, b), "sample must repeat every cycle (t = " + t + ")");
+            MunitionsBenchProgram.sample(t - 40.0F, b);
+            helper.assertTrue(samePose(a, b), "negative times must fold back into the cycle (t = " + t + ")");
+        }
+        MunitionsBenchProgram.sample(12.5F, a);
+        MunitionsBenchProgram.sample(40L * 1_000_000_007L + 12L, 0.5F, b);
+        helper.assertTrue(samePose(a, b),
+                "a clock billions of ticks old must sample the same phase as its remainder, got beltX "
+                        + b.beltX + " vs " + a.beltX);
+
+        helper.assertTrue(MunitionsBenchProgram.isStrikeTick(10L) && MunitionsBenchProgram.isStrikeTick(50L)
+                        && MunitionsBenchProgram.isStrikeTick(40L * 1_000_000L + 10L),
+                "the strike repeats at start + 10 + 40n");
+        helper.assertTrue(!MunitionsBenchProgram.isStrikeTick(0L) && !MunitionsBenchProgram.isStrikeTick(11L)
+                        && !MunitionsBenchProgram.isStrikeTick(-30L),
+                "no strike off the beat, and none before the program started");
+        helper.assertTrue(MunitionsBenchProgram.nextStrikeTickAfter(0L) == 10L
+                        && MunitionsBenchProgram.nextStrikeTickAfter(9L) == 10L
+                        && MunitionsBenchProgram.nextStrikeTickAfter(10L) == 50L
+                        && MunitionsBenchProgram.nextStrikeTickAfter(49L) == 50L,
+                "nextStrikeTickAfter must return the first strike strictly after the given tick");
+        helper.succeed();
+    }
+
+    private static boolean samePose(MunitionsBenchProgram.Pose a, MunitionsBenchProgram.Pose b) {
+        return Math.abs(a.beltX - b.beltX) < 1.0E-4F && Math.abs(a.primeY - b.primeY) < 1.0E-4F
+                && Math.abs(a.powderY - b.powderY) < 1.0E-4F && Math.abs(a.ramY - b.ramY) < 1.0E-4F
+                && Math.abs(a.dropY - b.dropY) < 1.0E-4F && Math.abs(a.dieHeat - b.dieHeat) < 1.0E-4F
+                && a.ramBulletVisible == b.ramBulletVisible && a.powderCharged == b.powderCharged
+                && a.seated == b.seated;
+    }
+
+    /**
+     * 服务端冲压音与客户端运动件同拍: 程序起点是 ACTIVE 由假变真的 tick, 冲压音恰在起点 + 10 + 40n 播, 从 WIDE 台子的冲压点出声;
+     * 同一 tick 里先灭后亮 (连续模式换批, 客户端只看得到 "一直亮着") 不重置相位, 隔 tick 重新点亮才重来;
+     * 发给客户端的区块更新标签带着这个起点 (玩家走远再回来也能对上拍); 区块加载时已在工作、没经过翻转的台子在组区块包的
+     * 那一刻就定下起点, 冲压音也按它走。
+     * <p>
+     * 单独一个 batch: 本用例要把职业门面替身挂 100 多 tick, 不能与同批其他用例的同步替换互相覆盖。
+     * 冲压音从 mock 玩家的 EmbeddedChannel 出站队列里读 (ServerLevel.playSound 按距离广播 ClientboundSoundPacket)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = TIMING_BATCH, timeoutTicks = 200)
+    public static void wideBenchStrikeSoundFollowsTheProgramPhase(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        IJobService prevJob = swapJob(new FixedLevelJobService(5));
+        boolean handedOff = false;
+        try {
+            ServerLevel level = helper.getLevel();
+            MunitionsBenchBlockEntity be = newBench(helper, player);
+            BlockPos mainPos = be.getBlockPos();
+            BlockState wide = be.getBlockState()
+                    .setValue(MunitionsBenchBlock.FACING, Direction.NORTH)
+                    .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE);
+            placeBenchPair(level, mainPos, MunitionsBenchBlock.extensionPos(mainPos, wide), wide);
+            player.moveTo(mainPos.getX() + 0.5D, mainPos.getY(), mainPos.getZ() - 2.5D);
+            EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
+            Vec3 strikeAt = MunitionsBenchBlock.benchPixelToWorld(mainPos, Direction.NORTH,
+                    MunitionsBenchGeometry.SPARK_X, MunitionsBenchGeometry.SPARK_Y, MunitionsBenchGeometry.SPARK_Z);
+            List<Long> strikes = new ArrayList<>();
+            collectStrikeSounds(channel, Long.MIN_VALUE, Map.of());
+
+            helper.assertTrue(be.trySelectCaliber(MunitionsCaliber.RIFLE, player), "select RIFLE at L5");
+            stockParts(be, 1);
+            helper.assertTrue(be.tryStartCraft(player), "owner starts a manual craft");
+            long start = level.getGameTime();
+            helper.assertTrue(be.programStartTick() == start,
+                    "the program starts on the tick ACTIVE turns on, got " + be.programStartTick() + " vs " + start);
+            helper.assertTrue(be.getUpdateTag().getLong("ProgramStartTick") == start,
+                    "the chunk update tag must carry the program start for clients that load the chunk later");
+            MunitionsBenchBlockEntity clientCopy = new MunitionsBenchBlockEntity(mainPos, level.getBlockState(mainPos));
+            clientCopy.handleUpdateTag(be.getUpdateTag());
+            helper.assertTrue(clientCopy.programStartTick() == start && clientCopy.owner() == null,
+                    "a client copy reads only the program start from the update tag");
+
+            // 区块加载时台子已在工作 (读档后状态本来就是 ACTIVE, 没经过翻转, 服务端也还没 tick 过它): 区块包早于这台机器的
+            // 第一次 tick (视距边缘的区块根本不 tick), 所以发区块的那一刻服务端就要把起点定下, 更新标签带着它, 冲压音也按它走。
+            BlockPos loadedPos = mainPos.south(2);
+            BlockState loadedState = wide.setValue(MunitionsBenchBlock.ACTIVE, true);
+            placeBenchPair(level, loadedPos, MunitionsBenchBlock.extensionPos(loadedPos, loadedState), loadedState);
+            MunitionsBenchBlockEntity loaded = (MunitionsBenchBlockEntity) level.getBlockEntity(loadedPos);
+            helper.assertTrue(loaded != null && loaded.programStartTick() == MunitionsBenchBlockEntity.NO_PROGRAM_START,
+                    "a bench that comes up already ACTIVE has seen no flip yet");
+            long loadedStart = level.getGameTime();
+            helper.assertTrue(loaded.getUpdateTag().getLong("ProgramStartTick") == loadedStart
+                            && loaded.programStartTick() == loadedStart,
+                    "the first chunk packet of an already-running bench must fix the program start on the spot, got tag "
+                            + loaded.getUpdateTag() + " / start " + loaded.programStartTick());
+            loaded.setOwner(player.getUUID());
+            loaded.getCapability(ForgeCapabilities.ENERGY).ifPresent(storage -> storage.receiveEnergy(Integer.MAX_VALUE, false));
+            helper.assertTrue(loaded.trySelectCaliber(MunitionsCaliber.RIFLE, player), "select RIFLE at L5 (loaded bench)");
+            stockParts(loaded, 1);
+            helper.assertTrue(loaded.tryStartCraft(player) && loaded.programStartTick() == loadedStart,
+                    "crafting on a bench that is already lit is no flip: the phase the chunk packet announced stays");
+            Vec3 loadedStrikeAt = MunitionsBenchBlock.benchPixelToWorld(loadedPos, Direction.NORTH,
+                    MunitionsBenchGeometry.SPARK_X, MunitionsBenchGeometry.SPARK_Y, MunitionsBenchGeometry.SPARK_Z);
+            List<Long> loadedStrikes = new ArrayList<>();
+            Map<Vec3, List<Long>> listeners = Map.of(strikeAt, strikes, loadedStrikeAt, loadedStrikes);
+
+            helper.onEachTick(() -> collectStrikeSounds(channel, level.getGameTime(), listeners));
+            handedOff = true;
+            helper.runAfterDelay(100L, () -> {
+                try {
+                    collectStrikeSounds(channel, level.getGameTime(), listeners);
+                    helper.assertTrue(strikes.equals(List.of(start + 10L, start + 50L, start + 90L)),
+                            "the press sound must play exactly at start + 10 + 40n (start " + start + "), got "
+                                    + strikes);
+                    helper.assertTrue(loadedStrikes.equals(
+                                    List.of(loadedStart + 10L, loadedStart + 50L, loadedStart + 90L)),
+                            "a bench that was already running when its chunk was sent must strike at the start its "
+                                    + "update tag announced + 10 + 40n (start " + loadedStart + "), got " + loadedStrikes);
+                    loaded.cancelCraft(player);
+                    BlockState lit = level.getBlockState(mainPos);
+                    helper.assertTrue(lit.getValue(MunitionsBenchBlock.ACTIVE), "the craft keeps the bench ACTIVE");
+
+                    // 同一 tick 里灭了又亮: 客户端看来一直亮着, 相位不能重来。
+                    level.setBlock(mainPos, lit.setValue(MunitionsBenchBlock.ACTIVE, false), Block.UPDATE_CLIENTS);
+                    level.setBlock(mainPos, lit, Block.UPDATE_CLIENTS);
+                    helper.assertTrue(be.programStartTick() == start,
+                            "relighting within the same tick must keep the phase, got " + be.programStartTick());
+
+                    // 这一 tick 灭掉, 下一 tick 由手动制作重新点亮: 客户端看得到两次翻转, 相位从重新点亮的 tick 重来。
+                    long stoppedAt = level.getGameTime();
+                    level.setBlock(mainPos, lit.setValue(MunitionsBenchBlock.ACTIVE, false), Block.UPDATE_CLIENTS);
+                    helper.runAfterDelay(2L, () -> {
+                        try {
+                            helper.assertTrue(level.getBlockState(mainPos).getValue(MunitionsBenchBlock.ACTIVE)
+                                            && be.programStartTick() == stoppedAt + 1L,
+                                    "a relight on a later tick restarts the program there, got "
+                                            + be.programStartTick() + " (stopped at " + stoppedAt + ")");
+                            be.cancelCraft(player);
+                            helper.succeed();
+                        } finally {
+                            restoreJob(prevJob);
+                        }
+                    });
+                } catch (RuntimeException | Error failure) {
+                    restoreJob(prevJob);
+                    throw failure;
+                }
+            });
+        } finally {
+            if (!handedOff) {
+                restoreJob(prevJob);
+            }
+        }
+    }
+
+    /**
+     * 把出站队列里的包读空; 本 tick 在某个冲压点 (strikesAt 的键) 播出的冲压音记进对应的列表 (别的声音、别处一律忽略;
+     * 传空表就是只读空队列)。
+     */
+    private static void collectStrikeSounds(EmbeddedChannel channel, long now, Map<Vec3, List<Long>> strikesAt) {
+        Object message;
+        while ((message = channel.readOutbound()) != null) {
+            if (!(message instanceof ClientboundSoundPacket sound)
+                    || sound.getSound().value() != ModMunitionsSounds.MUNITIONS_BENCH_WELD.get()) {
+                continue;
+            }
+            for (Map.Entry<Vec3, List<Long>> entry : strikesAt.entrySet()) {
+                Vec3 strikeAt = entry.getKey();
+                if (Math.abs(sound.getX() - strikeAt.x) < 0.2D && Math.abs(sound.getY() - strikeAt.y) < 0.2D
+                        && Math.abs(sound.getZ() - strikeAt.z) < 0.2D) {
+                    entry.getValue().add(now);
+                }
+            }
+        }
     }
 
     // ============================================================
@@ -1569,14 +1882,14 @@ public final class MunitionsGameTests {
     }
 
     /**
-     * 复核 (major, F049 同源): 扣费失败分支曾经每次都 {@code nextWeldSoundTick = 0L; setMachineActive(false);},
+     * 复核 (major, F049 同源): 扣费失败分支曾经每次都清零焊接音节流 (当年的随机计时器) 并 {@code setMachineActive(false)},
      * 而工费失败不推进 lastSettleTick (先查后扣, 扣不动则本批作废但保留流逝窗口), 于是台主持续在线、始终缺钱时,
      * 每 tick 都会重演 "重新点亮 -> 立刻拉黑" 的循环, 音效节流被清零后每 tick 都重新达标, 造成音效轰炸 + 方块
-     * 更新包风暴。本用例模拟连续两次 "料/缓冲/时间都够, 唯独差信用点" 的结算, 断言 ACTIVE 在两次失败结算之间
+     * 更新包风暴 (现在的冲压音跟着运动程序走, 每 tick 重新点亮则程序每 tick 从头来、永远到不了冲压点)。本用例模拟连续两次 "料/缓冲/时间都够, 唯独差信用点" 的结算, 断言 ACTIVE 在两次失败结算之间
      * 保持不变 (不闪烁), 且材料/缓冲分文不动 (扣不动则本批真的作废); 随后补上信用点, 断言产出最终按
      * "下次再追" 的契约正常完成, 证明这不是简单粗暴地让失败分支永久生效, 而是保留了正确的重试语义。
      *
-     * 删掉本轮修复 (在扣费失败分支重新加回 nextWeldSoundTick=0L / setMachineActive(false)) -> 第二次结算后的
+     * 删掉本轮修复 (在扣费失败分支重新加回 setMachineActive(false)) -> 第二次结算后的
      * ACTIVE 稳定性断言必挂 (会先被拉黑, 与第一次的 ACTIVE=true 矛盾, 断言即为"两次读到的状态相同"因而失败)。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)

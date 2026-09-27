@@ -129,7 +129,7 @@ dependencies {
     // Forge MDK 基础: forge 自带 Minecraft + 全部原版依赖
     minecraft "net.minecraftforge:forge:${forge_full_version}"
 
-    // 厨师双格料理工位与六档军火台均使用 GeckoLib 4 的方块实体骨骼渲染。
+    // 厨师双格料理工位使用 GeckoLib 4 的方块实体骨骼渲染 (军火台已改为静态方块模型 + 原版方块实体渲染器)。
     // 正式包不内嵌该库，由 mods.toml 声明为 BOTH 硬前置并钉死 1.20.1 的 4.8.2 编译 API。
     implementation fg.deobf("software.bernie.geckolib:geckolib-forge-${mc_version}:${geckolib_version}")
 

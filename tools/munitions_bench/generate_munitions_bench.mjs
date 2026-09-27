@@ -1,0 +1,1190 @@
+#!/usr/bin/env node
+// 军火台 (munitions_bench) WIDE 布局「弹药流水线」的全部资源与生成的 Java (方案 B v2 的生产版)。
+// 用法: node tools/munitions_bench/generate_munitions_bench.mjs --out <仓库根> [--check]
+//   先在内存里生成并校验全部文件, 全部通过才写盘 (--check 只校验不写); 内容没变的文件不重写, 最后报告 "wrote X of Y"。
+//
+// 一条横跨两格的低矮流水线: 皮带沿 -x (从玩家左手的 extension 流向右手的 main) 一步一个弹位 (4 px),
+// 弹壳依次经过 底火 → 装药 (合成一座"装填塔") → 压弹头 (一台小四柱压机, 全机唯一的高点 22.5 px), 最后从皮带末端掉进弹药箱。
+//   extension (x 16..32, 玩家左手): 弹壳料斗 + 落壳管, 装填塔 (底火窗 + 药窗, 一根横梁带底火冲杆和装药管), 台前弹壳托盘 + 控制台
+//   main (x 0..16, 玩家右手):       四柱压弹头机, 台前弹头托盘, 敞口弹药箱 (满箱子弹 + 掀开的箱盖), 箱后备用弹药箱
+// 场景 (scene) 与方案评选时的方案 B v2 相同 (候选脚本只在本机 .candidates/munitions_b/, 不进版本库); 设计要点见同目录 README.md。
+//
+// 写出 (全部在 --out 下):
+//   src/main/resources/assets/miningdim/
+//     models/block/munitions_bench{档}_line_{main|extension}[_active].json   静态件 (运动件不进 JSON), 待机 / 工作
+//     models/item/munitions_bench{档}.json                                    物品模型
+//     textures/block/munitions_bench{档}_atlas.png / _particle.png            每档一张 128² 图集 + 破坏粒子
+//     textures/entity/munitions_bench_parts.png                               运动件贴图 (六档共用)
+//     blockstates/munitions_bench{档}.json                                    layout=legacy_depth → 旧 JSON 模型 (原样), layout=wide → 上面的新模型
+//   src/main/java/com/miningdim/job/munitions/
+//     block/MunitionsBenchProgram.java    只替换 "<generated>" 与 "</generated>" 两行注释之间 (循环常量 + 关键帧表 + 待机行)
+//     block/MunitionsBenchGeometry.java   整个写出 (碰撞/轮廓箱、模型高度、运动件范围、火花位置)
+//     client/MunitionsBenchParts.java     整个写出 (运动件 ModelPart 层 + applyPose)
+// {档} = '' | _medium | _high | _superior | _transcendent | _radiant。
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+    M, HAZ_Y, HAZ_K, LABEL, INK, PLATE_BG, OFF, mix, C, TIERS, CELLS, WORLD, LEGAL_ANGLES, r4, worldBox,
+    runScene, cullHidden, autoShade, zfightCheck, planFace, planSignature, planAtlas, paintAtlas, cellElements,
+    validateModel, ITEM_DISPLAY, itemElements, defaultParticle, stringifyModel, encodePng, Canvas, palette,
+} from './core.mjs';
+import {
+    buildLayer, paintLayer, partsJavaSource, parsePartsJava, programBlock, parseProgramJava, RE_GENERATED,
+    PROGRAM_COLUMNS, sampleProgram, idlePose, applyPoseMirror, placedBoxes,
+} from './ber.mjs';
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+
+// ================================================================ 本方案专用中性材质 (每档相同)
+// 被甲: 比 core 的 copper 更亮更橙 (评审: 铜色在侧面阴影下发棕, 读成"棕色方块")
+const JACKET = { name: 'jacket', base: C('#D9874C'), hi: C('#F4B27E'), lo: C('#A65B2C'), dk: C('#6E3A1A') };
+// 发射药: 原版火药那种灰 (评审: 橄榄灰 + 抖动像脏迷彩窗)
+const GPOWDER = { name: 'gpowder', base: C('#7A7A7A'), hi: C('#9A9A9A'), lo: C('#565656'), dk: C('#343434') };
+
+// ================================================================ 流水线常量 (世界像素, 朝北: x 东, y 上, z 南, 正面 z = 0)
+const BELT_Y = 9;                                    // 皮带面
+const RZ = 7.5;                                      // 弹位中心 z (皮带 z 5.5..9.5)
+const SLOT = { in: 26.5, prime: 22.5, powder: 18.5, seat: 14.5, inspect: 10.5 };   // 弹位中心 x, 节距 4
+const PITCH = 4;
+// 皮带上的弹: 2 x 2 x 3.5 黄铜壳 + 1.5 宽 x 1.25 高被甲 + 1 宽 x 1 高弹尖, 全高 5.75 (底 9, 口 12.5, 顶 14.75)
+const R = { dia: 2, caseH: 3.5, bodyW: 1.5, bodyH: 1.25, noseW: 1, noseH: 1 };
+const BULLET_H = R.bodyH + R.noseH;                 // 2.25
+
+// ---- 一个生产循环 8 帧 (40 tick = 2 s): f0 底火冲一下, f1 装药管下探, f1-f2 压弹头 (f2 到底, 压模发热),
+//      f3-f5 皮带步进一个节距, f5-f7 末端那发掉进弹药箱。f5-f7 与下一轮 f0 的皮带位置等价 (差一整个节距)。
+// 这些表同时驱动场景 (方案预览的逐帧) 与 MunitionsBenchProgram 的关键帧表 (游戏里的运动件), 两边读同一份数值。
+const CYCLE = 8;
+const TICKS_PER_FRAME = 5;
+const BELT = [0, 0, 0, -1, -2.5, -4, -4, -4];        // 皮带上的弹 x 偏移
+const PRIME = [-1.5, 0, 0, 0, 0, 0, 0, 0];           // 底火冲杆 y 偏移 (-1.5 = 顶到壳口)
+const POWDER = [0, -1.5, 0, 0, 0, 0, 0, 0];          // 装药管 y 偏移
+const RAM = [0, -1, -2, 0, 0, 0, 0, 0];              // 压弹头冲头 y 偏移 (-2 = 弹头落到壳口上)
+const DROP_Y = [0, 0, 0, 0, 0, -1.5, -3.5, -6.5];    // 出弹 y 偏移 (f5 已沉进箱口, f7 完全没入箱里; 避开与箱顶 y 8.5 共面)
+const RAM_BULLET = [1, 1, 1, 0, 0, 1, 1, 1];         // 冲头夹着弹头吗 (评审 must 3: 刚回位的 f3-f4 不夹, 不再和刚压好的那发叠成两截铜头)
+const POWDER_CHARGED = [0, 0, 1, 1, 1, 1, 1, 1];     // 装药位那只壳已装药 (f1 装药管下探之后)
+const SEATED = [0, 0, 0, 1, 1, 1, 1, 1];             // 压弹头位那发已压上弹头 (f2 冲头到底之后)
+const DIE_HEAT = [0, 0, 1, 0, 0, 0, 0, 0];           // 压模热度 (f2 到底时发热)
+const ACTIVE_FRAME = 2;                              // 方案预览的静态 *_active 模型取 f2 (冲头到底); 游戏里的工作态静态模型不含运动件
+const HOT_THRESHOLD = 0.5;                           // 压模热度到这个值就画热压模
+const HOT_LIGHT = 12;                                // 热压模的自发光等级
+const RAM_REST = BELT_Y + R.caseH + 2;               // 冲头夹着的弹头底面 (静止位) = 14.5
+const FRAME_LABELS = [
+    'f0 底火冲杆下探, 入口位落下一只新壳',
+    'f1 装药管下探, 冲头下行',
+    'f2 冲头到底, 弹头落到壳口上 (压模发热)',
+    'f3 皮带步进, 冲头回位 (不夹弹头)',
+    'f4 皮带步进',
+    'f5 皮带到位, 冲头夹上下一颗弹头, 出弹沉进箱口',
+    'f6 出弹下沉',
+    'f7 出弹没入箱中',
+];
+
+// ---- 四柱压机 (以压弹头弹位 x 14.5 / z 7.5 为中心)
+const PRESS = {
+    postX: [[12, 13], [16, 17]],                     // 东边两根整根落在 extension 里 (x 16..17), 不跨缝
+    postZ: [[4.25, 5.25], [9.75, 10.75]],
+    postTop: 18.5,
+    crown: [[11.5, 18.5, 3.75], [17.5, 20.5, 11.25]],
+};
+
+// ================================================================ 贴图 (模块级, 纯函数; 用参数 P)
+const CASE_SIDE = { key: 'rcase', fn: (c) => {
+    const m = M.brass;
+    c.fill(m.base);
+    c.vline(0, 0, c.h, m.hi); c.vline(c.w - 1, 0, c.h, m.lo);
+    c.hline(0, 0, c.w, m.hi);                          // 壳口唇
+    c.hline(0, c.h - 2, c.w, m.dk);                    // 抽壳槽
+    c.hline(0, c.h - 1, c.w, m.lo);                    // 底缘
+    c.px(c.w - 1, 0, m.base);
+} };
+const TIP_SIDE = { key: 'rtip2', fn: (c) => {
+    const m = JACKET;
+    c.fill(m.base);
+    c.vline(0, 0, c.h, m.hi); c.vline(1, 0, c.h, m.hi); c.vline(c.w - 1, 0, c.h, m.lo);   // 受光侧两格亮带
+    c.hline(0, c.h - 1, c.w, m.lo); c.px(0, c.h - 1, m.base);                           // 收口线
+} };
+const NOSE_SIDE = { key: 'rnose2', fn: (c) => {
+    const m = JACKET;
+    c.fill(m.base); c.vline(0, 0, c.h, m.hi); c.px(c.w - 1, c.h - 1, m.lo);
+} };
+function mouthFn(charged) {
+    return (c) => {
+        c.fill(M.brass.hi); c.hline(0, c.h - 1, c.w, M.brass.base); c.vline(c.w - 1, 0, c.h, M.brass.base);
+        if (charged) { c.rect(1, 1, c.w - 2, c.h - 2, GPOWDER.base); c.px(1, 1, GPOWDER.hi); c.px(c.w - 2, c.h - 2, GPOWDER.dk); }
+        else c.rect(1, 1, c.w - 2, c.h - 2, M.dark.dk);
+    };
+}
+
+/** 皮带上的一发 (直立): 壳 (+ 被甲 + 弹尖)。tip=false 时是未压弹头的壳, mouth 'empty' | 'charged'。 */
+function roundAt(ctx, name, x, y, z, o = {}) {
+    const { box, paint, flat } = ctx;
+    const h = R.dia / 2;
+    const opt = { move: o.move, item: o.item };
+    const tip = o.tip !== false;
+    const side = paint(CASE_SIDE.key, CASE_SIDE.fn, { m: M.brass, d: 2 });
+    const up = tip ? flat(M.brass.hi) : paint(o.mouth === 'charged' ? 'mouth_charged2' : 'mouth_empty', mouthFn(o.mouth === 'charged'), { m: M.brass, d: 2 });
+    box(name + '_case', [x - h, y, z - h], [x + h, y + R.caseH, z + h], { all: side, up, down: null }, opt);
+    if (tip) bulletAt(ctx, name, x, y + R.caseH, z, opt);
+}
+/** 一颗弹头 (被甲 + 弹尖, 弹尖朝上), y = 弹头底。base = 被甲底面 (悬空的弹头才要; 坐在壳口或箱里的看不到底, 不建)。 */
+function bulletAt(ctx, name, x, y, z, opt = {}, base = null) {
+    const { box, paint, flat } = ctx;
+    const b = R.bodyW / 2, n = R.noseW / 2;
+    box(name + '_tip', [x - b, y, z - b], [x + b, y + R.bodyH, z + b], { all: paint(TIP_SIDE.key, TIP_SIDE.fn, { m: JACKET, d: 4 }), up: flat(JACKET.hi), down: base }, opt);
+    box(name + '_nose', [x - n, y + R.bodyH, z - n], [x + n, y + BULLET_H, z + n], { all: paint(NOSE_SIDE.key, NOSE_SIDE.fn, { m: JACKET, d: 2 }), up: flat(JACKET.hi), down: null }, opt);
+}
+
+// ---- 大面贴图
+function cabFront(c) {
+    // 柜体正面 cab [8,1,1.5]-[31.5,6.5,15], d = 2, u = (31.5 - x) * 2 (贴图左 = 东 = extension)
+    const m = M.frame;
+    c.fill(m.base); c.bevel(m);
+    for (const u of [13, 31]) { c.vline(u, 1, c.h - 2, m.dk); c.vline(u + 1, 1, c.h - 2, m.hi); }
+    c.vent(2, 2, 10, 5, m, 2);
+    c.rect(2, 8, 4, 2, HAZ_Y); c.px(3, 8, HAZ_K); c.px(4, 9, HAZ_K);
+    c.rect(7, 8, 5, 2, m.dk); c.px(8, 8, M.cyan.base); c.px(10, 8, M.orange.base);
+    c.rect(16, 2, 14, 8, m.dk); c.inset(m, 15, 1, 16, 10);
+    for (const y0 of [1, 6]) {
+        c.hline(34, y0, 12, m.hi); c.hline(34, y0 + 3, 12, m.dk); c.vline(34, y0, 4, m.hi); c.vline(45, y0, 4, m.lo);
+        c.rect(36, y0 + 1, 3, 2, LABEL); c.hline(37, y0 + 1, 1, INK);
+        c.hline(40, y0 + 2, 4, M.chrome.hi); c.px(43, y0 + 2, M.chrome.lo);
+    }
+}
+function nameplateFn(on) {
+    return (c, P) => {
+        // 铭牌 [17,2,1]-[23.5,5.5,1.5] 北面, d = 4: 26 x 14。三发直立子弹图标 + 右侧 2x3 档位刻痕 (每格 2x2 贴图像素)
+        c.fill(PLATE_BG);
+        c.bevel({ hi: P.band.hi, lo: P.band.lo, base: P.band.base });
+        c.hline(1, 1, c.w - 2, P.band.dk);
+        const rad = P.tierIndex === 5;
+        const ink = rad ? (on ? P.band.hi : P.band.base) : (on ? P.glow.on : P.light.dim);
+        const inkLo = rad ? (on ? P.band.base : P.band.lo) : (on ? P.light.mid : P.light.dk);
+        const im = { base: ink, hi: ink, lo: inkLo, dk: inkLo };
+        for (let k = 0; k < 3; k++) c.round(3 + k * 5, 3, 9, 3, 'up', { case: im, tip: im });
+        for (let i = 0; i < 6; i++) {
+            const x = 18 + (i % 2) * 3, y = 3 + Math.floor(i / 2) * 3;
+            c.rect(x, y, 2, 2, i <= P.tierIndex ? (on ? P.light.hi : (rad ? P.band.base : P.light.dim)) : P.band.dk);
+        }
+    };
+}
+function beltTop(c) {
+    const m = M.rubber;
+    c.fill(m.base);
+    c.hline(0, 1, c.w, m.dk); c.hline(0, 8, c.w, m.dk);
+    c.hline(0, 4, c.w, mix(m.base, m.hi, 0.35));
+    for (let u = 2; u < c.w; u += 4) c.px(u, 2, m.lo);
+}
+function convFront(c, P) {
+    // conveyor 北面 = 皮带侧板 (y 8..9), d = 2: 上行色带 (闪耀 = 金), 下行饰色 + 滚筒轴头
+    c.fill(P.trim.base); c.hline(0, 0, c.w, P.band.hi);
+    for (let u = 3; u < c.w - 1; u += 8) { c.px(u, 1, M.chrome.hi); c.px(u + 1, 1, M.dark.base); }
+}
+function hopperFront(c) {
+    // 弹壳料斗 [24.5,8,10.5]-[31.5,16,15.5] 北面, d = 2: 14 x 16。u = (31.5 - x) * 2, v = (16 - y) * 2
+    // 视窗在 u 1..6 (x 28.5..31), 不被落壳管挡住
+    const m = M.panel;
+    c.fill(m.base); c.bevel(m);
+    c.rect(1, 4, 6, 8, M.glass.dk); c.inset(m, 0, 3, 8, 10);
+    c.hline(1, 4, 6, mix(M.glass.hi, M.glass.dk, 0.4));
+    for (const y of [6, 8, 10]) {
+        c.rect(1, y, 6, 2, M.brass.base); c.hline(1, y, 6, M.brass.hi); c.px(6, y + 1, M.brass.lo);
+        c.px(1, y, M.brass.lo); c.px(1, y + 1, M.brass.dk);
+    }
+    c.rect(9, 5, 4, 5, LABEL); c.hline(10, 6, 2, INK); c.hline(10, 8, 2, INK);
+    c.hazard(8, 12, 5, 3, 4);
+}
+function hopperSide(c) {
+    const m = M.panel;
+    c.fill(m.base); c.bevel(m);
+    c.vent(2, 3, c.w - 4, 6, m, 2);
+    c.hazard(2, c.h - 4, c.w - 4, 2, 4);
+}
+function hopperTop(c) {
+    // 料斗敞口顶面, d = 2 (14 x 10): 3 x 2 只直立的空弹壳 (黄铜圈 + 黑壳口), 格与格之间留 1 格暗缝
+    const m = M.panel;
+    c.fill(M.dark.base);
+    for (let r = 0; r < 2; r++) for (let k = 0; k < 3; k++) {
+        const x = 2 + k * 4, y = 2 + r * 4;
+        c.rect(x, y, 3, 3, M.brass.base); c.hline(x, y, 3, M.brass.hi); c.px(x, y + 1, M.brass.hi); c.px(x + 2, y + 2, M.brass.lo); c.px(x + 2, y + 1, M.brass.lo);
+        c.px(x + 1, y + 1, M.dark.dk);
+    }
+    c.bevel(m);
+}
+function caseTube(c) {
+    c.fill(M.glass.dk);
+    c.hline(0, 0, c.w, M.chrome.hi); c.hline(0, c.h - 1, c.w, M.chrome.lo);
+    for (let y = 1; y < c.h - 1; y += 3) { c.hline(0, y, c.w, M.brass.base); c.hline(0, y + 1, c.w, M.brass.lo); }
+    c.vline(0, 1, c.h - 2, mix(M.glass.hi, M.glass.base, 0.3));
+}
+function turretFront(c) {
+    // 装填塔 [17.5,8,10.5]-[24,16,14] 北面, d = 2: 13 x 16。u = (24 - x) * 2, v = (16 - y) * 2
+    // 左窗 (u 1..5, x 21.5..23.5) = 一叠铜色底火; 右窗 (u 8..12, x 18..20) = 灰色发射药; 中间一条药量刻度
+    const m = M.frame;
+    c.fill(m.base); c.bevel(m);
+    c.vent(1, 1, c.w - 2, 3, m, 2);
+    c.rect(1, 5, 4, 7, M.glass.dk); c.inset(m, 0, 4, 6, 9);
+    for (let y = 6; y < 11; y++) c.hline(1, y, 4, y % 2 ? M.copper.base : M.copper.lo);
+    c.vline(1, 6, 5, M.copper.hi); c.hline(1, 5, 4, mix(M.glass.hi, M.glass.dk, 0.4));
+    c.rect(7, 5, 5, 7, M.glass.dk); c.inset(m, 6, 4, 7, 9);
+    for (let y = 7; y < 11; y++) for (let x = 7; x < 12; x++) c.px(x, y, (x * 2 + y * 3) % 7 === 0 ? GPOWDER.dk : (x + y) % 5 === 0 ? GPOWDER.hi : GPOWDER.base);
+    c.hline(7, 7, 5, GPOWDER.hi); c.hline(7, 5, 5, mix(M.glass.hi, M.glass.dk, 0.4));
+    for (let y = 5; y < 11; y += 2) c.px(12, y, m.hi);
+    c.px(12, 7, M.orange.base);
+    c.hazard(1, 13, c.w - 2, 2, 4);
+}
+function turretSide(c) {
+    const m = M.frameL;
+    c.fill(m.base); c.bevel(m);
+    c.vent(2, 3, c.w - 4, 6, m, 2);
+    c.hazard(1, c.h - 3, c.w - 2, 2, 4);
+}
+function turretTop(c) {
+    // 装填塔顶面, d = 2: 13 x 7 (u = (x - 17.5) * 2, v = (z - 10.5) * 2)。西半边压着黄铜药斗盖, 东半边是底火弹匣玻璃窗
+    const m = M.frame;
+    c.plate(m);
+    c.rect(8, 1, 4, 5, M.glass.dk); c.inset(m, 7, 0, 6, 7);
+    for (const [x, y] of [[8, 1], [10, 1], [9, 3], [8, 5], [10, 5], [11, 3]]) { c.px(x, y, M.copper.hi); c.px(x + 1, y, M.copper.base); }
+}
+function capTop(c) {
+    const m = M.brass;
+    c.fill(m.base); c.bevel(m); c.rect(2, 2, c.w - 4, c.h - 4, m.lo); c.rect(3, 3, c.w - 6, c.h - 6, m.base); c.px(3, 3, m.hi);
+}
+function postSide(c) {
+    // 压机立柱 (1 x 10.5 → 2 x 21): 镀铬两色 + 底部黄黑护套 + 顶部一道阴影
+    c.vline(0, 0, c.h, M.chrome.hi); c.vline(1, 0, c.h, M.chrome.base);
+    c.hline(0, 0, 2, M.chrome.lo);
+    c.rect(0, c.h - 4, 2, 1, HAZ_Y); c.rect(0, c.h - 3, 2, 1, HAZ_K); c.rect(0, c.h - 2, 2, 1, HAZ_Y); c.hline(0, c.h - 1, 2, M.frame.lo);
+}
+function crownFront(c) {
+    // 压机横梁正面 (6 x 2 → 12 x 4, u = (17.5 - x) * 2): 上半警示斜纹, 下半被档位灯条 crown_light 盖住
+    const m = M.panel;
+    c.fill(m.base);
+    c.hazard(0, 0, c.w, 2, 4);
+    c.hline(0, 2, c.w, m.lo); c.hline(0, 3, c.w, m.dk);
+}
+function crownTop(c) {
+    const m = M.panelB;
+    c.plate(m);
+    c.bolts(M.panel.lo);
+    c.vent(2, 11, c.w - 4, 3, m, 2);
+}
+function trimSide(c, P) {
+    c.plate(P.trim);
+    c.hline(1, 1, c.w - 2, P.trim.hi);
+    c.hline(2, c.h - 2, c.w - 4, P.band.base);
+}
+function cylSide(c) {
+    // 压机液压缸侧面: 枪灰圆柱感 + 底部一道黄铜环
+    const m = M.frame;
+    c.fill(m.base); c.vline(0, 0, c.h, m.hi); c.vline(c.w - 1, 0, c.h, m.lo);
+    c.hline(0, 0, c.w, m.hi);
+    c.hline(0, c.h - 1, c.w, M.brass.base);
+}
+function flangeTop(c) { const m = M.brass; c.plate(m); c.bolts(m.lo); }
+function dieFn(hot) {
+    return (c) => {
+        if (hot) { c.gradient(0, 0, c.w, c.h, [M.chrome.base, M.hot.base, M.hot.lo], 'v'); c.hline(0, c.h - 1, c.w, M.hot.hi); }
+        else { c.cyl(M.chrome, 'h'); c.hline(0, c.h - 1, c.w, M.steel.lo); }
+    };
+}
+function rodSide(c) { c.vline(0, 0, c.h, M.chrome.hi); for (let x = 1; x < c.w; x++) c.vline(x, 0, c.h, x === c.w - 1 ? M.chrome.lo : M.chrome.base); }
+function backlightFn(on) {
+    return (c, P) => {
+        // 皮带后护栏正面 (23 x 1.5 → 46 x 3): 顶上一行钢, 下面两行灯 (每 8 格一道分隔); 闪耀档每段中间嵌一块金
+        c.fill(on ? P.light.on : P.light.dim);
+        c.hline(0, 0, c.w, M.steel.hi);
+        c.hline(0, 1, c.w, on ? P.light.hi : P.light.mid);
+        for (let u = 7; u < c.w; u += 8) c.vline(u, 1, 2, on ? P.light.mid : P.light.dk);
+        if (P.tierIndex === 5) for (let u = 2; u < c.w - 2; u += 8) { c.hline(u, 1, 3, P.band.hi); c.hline(u, 2, 3, P.band.base); }
+    };
+}
+function canFront(c) {
+    // 弹药箱正面 [1,3,1]-[8,8.5,10], d = 4: 28 x 22。橄榄绿 + 黄漆字 "7.62"
+    const m = M.olive;
+    c.fill(m.base); c.bevel(m);
+    c.hline(1, 2, c.w - 2, m.lo); c.hline(1, 3, c.w - 2, m.hi);
+    c.text(7, 8, '7.62', HAZ_Y);
+    c.hline(4, 15, c.w - 8, HAZ_Y);
+    c.hline(4, 17, 9, mix(HAZ_Y, m.base, 0.4)); c.hline(4, 19, 6, mix(HAZ_Y, m.base, 0.4));
+    c.rect(c.w - 7, 16, 4, 4, m.dk); c.bolt(c.w - 6, 17, M.chrome);
+}
+function canSide(c) {
+    const m = M.olive;
+    c.fill(m.base); c.bevel(m);
+    c.hline(1, 1, c.w - 2, m.lo); c.hline(1, 2, c.w - 2, m.hi);
+    c.rect(4, 4, c.w - 8, 3, m.lo); c.hline(5, 5, c.w - 10, M.dark.base);
+    c.hline(2, c.h - 3, c.w - 4, HAZ_Y);
+}
+function canTop(c) {
+    // 敞口箱顶, d = 2: 14 x 18。一格一格直立的整发弹 (黄铜圈 + 亮铜弹尖)
+    const m = M.olive;
+    c.fill(m.dk); c.bevel(m);
+    for (let r = 0; r < 4; r++) for (let k = 0; k < 3; k++) {
+        const x = 1 + k * 4, y = 1 + r * 4;
+        c.rect(x, y, 4, 4, M.brass.base); c.hline(x, y, 4, M.brass.hi); c.vline(x, y, 4, M.brass.hi); c.hline(x, y + 3, 4, M.brass.lo); c.vline(x + 3, y, 4, M.brass.lo);
+        c.rect(x + 1, y + 1, 2, 2, JACKET.base); c.px(x + 1, y + 1, JACKET.hi);
+    }
+}
+function lidInside(c, P) {
+    // 掀开的箱盖内面 (7 x 9, d = 4: 28 x 36): 色带色 (band) 的密封框 + 橄榄绿 + 黄漆 AMMO 与一发子弹剪影
+    const m = M.olive, b = P.band;
+    c.fill(m.base);
+    c.bevel({ hi: b.hi, lo: b.dk, base: b.base });
+    c.rect(1, 1, c.w - 2, 2, b.base); c.rect(1, c.h - 3, c.w - 2, 2, b.base);
+    c.rect(1, 1, 2, c.h - 2, b.base); c.rect(c.w - 3, 1, 2, c.h - 2, b.base);
+    c.hline(1, 1, c.w - 2, b.hi); c.vline(1, 1, c.h - 2, b.hi);
+    c.hline(3, 3, c.w - 6, b.lo); c.vline(3, 3, c.h - 6, b.lo);
+    c.bevel(m, 4, 4, c.w - 8, c.h - 8);
+    c.text(7, 7, 'AMMO', HAZ_Y);
+    c.round(11, 14, 17, 6, 'up', { case: M.yellow, tip: M.yellow });
+    c.hline(11, 19, 6, m.base);
+}
+function bulletTray(c) {
+    // 弹头托盘顶面 (7 x 3.5, d = 2: 14 x 7)。朝玩家倾斜, 屏幕上方 = v 大。3 颗 3 格宽的亮铜弹头, 尖 (居中 1 格) 朝屏幕上方
+    const m = M.steel;
+    c.fill(M.dark.base); c.bevel(m);
+    for (let k = 0; k < 3; k++) {
+        const x = 1 + k * 4;
+        c.hline(x, 1, 3, JACKET.dk);
+        for (let y = 2; y < 5; y++) { c.px(x, y, JACKET.hi); c.px(x + 1, y, JACKET.base); c.px(x + 2, y, JACKET.lo); }
+        c.px(x + 1, 5, JACKET.hi);
+    }
+}
+function caseTray(c) {
+    // 弹壳托盘顶面 (6.5 x 3.5, d = 2: 13 x 7), 朝玩家倾斜: 屏幕上方 = v 大。3 只 3 格宽的空弹壳, 壳口 (黑) 朝屏幕上方
+    const m = M.steel;
+    c.fill(M.dark.base); c.bevel(m);
+    for (let k = 0; k < 3; k++) {
+        const x = 1 + k * 4;
+        c.hline(x, 1, 3, M.brass.lo); c.hline(x, 2, 3, M.brass.dk);
+        for (let y = 3; y < 6; y++) { c.px(x, y, M.brass.hi); c.px(x + 1, y, M.brass.base); c.px(x + 2, y, M.brass.lo); }
+        c.px(x + 1, 5, M.dark.dk);
+    }
+}
+function screenFn(on) {
+    return (c, P) => {
+        c.fill(C('#1b2027'));
+        const bg = on ? P.light.dk : mix(P.light.dk, [16, 21, 26], 0.5);
+        c.rect(1, 1, c.w - 2, c.h - 2, bg);
+        const fg = on ? P.light.on : P.light.dim;
+        c.hline(1, 3, 4, fg); c.hline(1, 4, 4, fg); c.px(5, 3, on ? P.light.hi : fg); c.px(5, 4, on ? P.light.hi : fg); c.px(6, 4, fg);
+        c.hline(1, 1, on ? 5 : 2, fg);
+        if (on) c.px(7, 3, M.green.hi);
+    };
+}
+function knobRed(c) { c.fill(M.red.base); c.px(0, 0, M.red.hi); c.px(1, 0, M.red.hi); c.hline(0, c.h - 1, c.w, M.red.lo); }
+function trimEnd(c, P) { c.plate(P.trim); c.vent(3, 3, c.w - 6, 5, P.trim, 2); c.hline(2, c.h - 2, c.w - 4, P.band.base); }
+function worktopTop(c) {
+    const m = M.steel;
+    c.fill(m.base);
+    for (let y = 3; y < c.h - 1; y += 4) c.hline(1, y, c.w - 2, mix(m.base, m.hi, 0.3));
+    c.bevel(m);
+    for (const [x, y] of [[1, 1], [c.w - 3, 1], [1, c.h - 3], [c.w - 3, c.h - 3]]) c.bolt(x, y, m);
+}
+function edgeFn(c) { const m = M.steel; c.fill(m.base); c.hline(0, 0, c.w, m.hi); c.hline(0, c.h - 1, c.w, m.lo); }
+function backPanel(c) {
+    const m = M.frame;
+    c.fill(m.base); c.bevel(m);
+    for (let x = 7; x < c.w - 3; x += 12) { c.vline(x, 1, c.h - 2, m.lo); c.vline(x + 1, 1, c.h - 2, m.hi); }
+    c.vent(18, 2, 12, 6, m, 2);
+    c.rect(3, 3, 3, 3, m.dk); c.px(4, 4, M.cyan.base);
+}
+function cabBack(c) {
+    // 柜体背面 cab [8..31.5] x [1..6.5], d = 2: 47 x 11, u = (x - 8) * 2 (背面贴图左 = 西)。电源口 + 黄漆子弹剪影 + AMMO 模板字
+    const m = M.frame;
+    c.fill(m.base); c.bevel(m);
+    c.rect(2, 3, 3, 3, m.dk); c.px(3, 4, M.cyan.base);
+    c.vline(7, 1, c.h - 2, m.lo); c.vline(8, 1, c.h - 2, m.hi);
+    c.round(11, 3, 14, 5, 'right', { case: M.yellow, tip: M.yellow });
+    c.vline(19, 3, 5, m.base);                                         // 模板字断笔
+    c.text(28, 3, 'AMMO', HAZ_Y);
+    c.hazard(1, c.h - 2, c.w - 2, 1, 4);
+}
+function shelfFront(c) { c.fill(M.frame.base); c.hline(0, 0, c.w, M.frame.hi); c.hazard(1, 1, c.w - 2, c.h - 2, 4); c.hline(0, c.h - 1, c.w, M.frame.lo); }
+function spareSouth(c) {
+    // 备用弹药箱背面 (6.5 x 3.5 → 13 x 7, 背面贴图左 = 西): 黄漆子弹 + 一道黄条
+    const m = M.olive;
+    c.plate(m);
+    c.hline(1, 1, c.w - 2, m.lo);
+    c.round(2, 3, 7, 3, 'right', { case: M.yellow, tip: M.yellow });
+    c.hline(10, 4, 2, HAZ_Y);
+}
+function spareWest(c) {
+    // 备用弹药箱西侧 (3.5 x 3.5 → 7 x 7): 提手
+    const m = M.olive;
+    c.plate(m);
+    c.hline(1, 1, c.w - 2, m.lo);
+    c.rect(2, 3, 3, 2, m.lo); c.hline(2, 3, 3, M.dark.base);
+}
+function spareTop(c) {
+    // 备用弹药箱顶 (6.5 x 3.5 → 13 x 7): 箱盖接缝 + 锁扣
+    const m = M.olive;
+    c.plate(m);
+    c.hline(1, 5, c.w - 2, m.lo);
+    c.rect(5, 1, 3, 2, M.chrome.lo); c.px(5, 1, M.chrome.hi);
+}
+
+// ================================================================ 场景
+// frame = null 是待机布局 (运动件停在静止位); 工作态逐帧按上面的帧表摆运动件。
+function scene(ctx) {
+    const { box, flat, paint, glow, plate, P, active, frame, addOns, forItem } = ctx;
+    const f = active ? frame : null;
+    const on = active;
+    const at = (arr) => (f === null ? 0 : arr[f]);
+    const lightFace = (lvl = 15) => (on ? glow(flat(P.light.on), lvl) : flat(P.light.dim));
+    const bx = at(BELT);
+    const hot = f !== null && DIE_HEAT[f] >= HOT_THRESHOLD;
+
+    // ---------------- 底座 / 柜体 / 台面
+    box('plinth', [0.5, 0, 1], [31.5, 1, 15.5], {
+        all: flat(M.dark.base),
+        north: paint('plinth_n', (c) => { c.fill(M.dark.base); c.hline(0, 0, c.w, M.dark.hi); c.hazard(2, 1, c.w - 4, 1, 4); }, { m: M.dark, d: 2 }),
+        up: flat(M.dark.base),
+    });
+    box('shelf', [0.5, 1, 1.5], [8, 3, 10], {
+        all: flat(M.frame.base),
+        north: paint('shelf_n', shelfFront, { m: M.frame, d: 2 }),
+        west: paint('shelf_w', (c) => { c.fill(M.frameL.base); c.bevel(M.frameL); }, { m: M.frameL, d: 2 }),
+        east: null,
+    });
+    box('cab_back_main', [0.5, 1, 10], [8, 6.5, 15], {
+        all: flat(M.frame.base),
+        north: null, east: null,
+        west: paint('cab_side_w', (c) => { c.fill(M.frameL.base); c.bevel(M.frameL); c.vent(2, 3, c.w - 4, 5, M.frameL, 2); }, { m: M.frameL, d: 2 }),
+        south: paint('cab_back_w', backPanel, { m: M.frame, d: 2 }),
+    });
+    box('cab', [8, 1, 1.5], [31.5, 6.5, 15], {
+        all: flat(M.frameL.base),
+        north: paint('cab_n', cabFront, { m: M.frame, d: 2 }),
+        south: paint('cab_back2', cabBack, { m: M.frame, d: 2 }),
+        west: null,
+    });
+    box('end_e', [31.5, 1, 2], [32, 6.5, 14.5], { all: flat(P.trim.lo), east: paint('trim_end', trimEnd, { m: P.trim, d: 2 }), up: flat(P.trim.hi), west: null });
+    box('end_w', [0, 1, 10.5], [0.5, 6.5, 14.5], { all: flat(P.trim.lo), west: paint('trim_end', trimEnd, { m: P.trim, d: 2 }), up: flat(P.trim.hi), east: null });
+    box('worktop', [8, 6.5, 0.5], [32, 8, 16], {
+        up: paint('wt_top', worktopTop, { m: M.steel, d: 2 }),
+        north: paint('wt_edge', edgeFn, { m: M.steel, d: 2 }),
+        east: paint('wt_edge', edgeFn, { m: M.steel, d: 2 }),
+        west: flat(M.steel.lo), south: flat(M.steel.lo), down: flat(M.frame.dk),
+    });
+    box('worktop_main', [0.5, 6.5, 10], [8, 8, 16], {
+        up: flat(M.steel.base), north: flat(M.steel.lo),
+        west: paint('wt_edge', edgeFn, { m: M.steel, d: 2 }), south: flat(M.steel.lo), down: flat(M.frame.dk), east: null,
+    });
+    box('strip', [8.5, 7, 0], [31.5, 7.5, 0.5], { all: lightFace(), south: null });
+    // 弹药箱底下货架前沿的一截灯带 (夜里箱子不再整块黑掉, 灯带横贯全宽)
+    box('can_strip', [0.5, 2.5, 1], [8, 3, 1.5], { all: lightFace(), south: null }, { item: false });
+    box('nameplate', [17, 2, 1], [23.5, 5.5, 1.5], {
+        all: flat(P.band.lo),
+        north: on ? glow(paint('nameplate2_on', nameplateFn(true), { m: M.dark, d: 4 }), 12) : paint('nameplate2', nameplateFn(false), { m: M.dark, d: 4 }),
+        south: null,
+    });
+
+    // ---------------- 皮带输送线 (x 8..31, 皮带面 y 9, z 5.5..9.5)
+    box('conveyor', [8, 8, 5], [31, 9, 10], {
+        all: flat(M.frame.lo),
+        up: paint('belt_top', beltTop, { m: M.rubber, d: 2 }),
+        north: paint('conv_n2', convFront, { m: P.trim, d: 2 }),
+        east: flat(M.frameL.base), west: flat(M.frameL.base), south: flat(M.frame.base),
+    });
+    box('rail_f', [8, 9, 5], [31, 9.5, 5.5], { all: flat(P.band.lo), north: flat(P.band.base), up: flat(P.band.hi), down: null });
+    box('rail_b', [8, 9, 9.5], [31, 10.5, 10], {
+        all: flat(M.steel.lo), up: flat(M.steel.hi), down: null,
+        north: on ? glow(paint('backlight2_on', backlightFn(true), { m: P.light, d: 2 }), 11) : paint('backlight2', backlightFn(false), { m: P.light, d: 2 }),
+    });
+
+    // ---------------- 皮带上的弹 (运动件 'rounds': 4 个弹位一起步进; 装药后壳口换成药面, 压弹头后那一发多出弹头)
+    roundAt(ctx, 'r_in', SLOT.in + bx, BELT_Y, RZ, { tip: false, mouth: 'empty', move: 'rounds', item: false });
+    roundAt(ctx, 'r_prime', SLOT.prime + bx, BELT_Y, RZ, { tip: false, mouth: 'empty', move: 'rounds', item: false });
+    roundAt(ctx, 'r_powder', SLOT.powder + bx, BELT_Y, RZ, { tip: false, mouth: f !== null && POWDER_CHARGED[f] ? 'charged' : 'empty', move: 'rounds', item: false });
+    roundAt(ctx, 'r_seat', SLOT.seat + bx, BELT_Y, RZ, { tip: f !== null && !!SEATED[f], mouth: 'charged', move: 'rounds', item: false });
+    // 皮带末端的整发弹 = 出弹 (运动件 'drop': 随皮带走到末端, 再掉进箱里)
+    roundAt(ctx, 'r_out', SLOT.inspect + bx, BELT_Y + at(DROP_Y), RZ, { move: 'drop' });
+
+    // ---------------- extension: 弹壳料斗 + 落壳管 (入口弹位 x 26.5), 顶面 16
+    box('hopper', [24.5, 8, 10.5], [31.5, 16, 15.5], {
+        all: plate(M.panel),
+        north: forItem ? plate(M.panel) : paint('hopper_n2', hopperFront, { m: M.panel, d: 2 }),
+        east: paint('hopper_side', hopperSide, { m: M.panel, d: 2 }),
+        west: paint('hopper_side', hopperSide, { m: M.panel, d: 2 }),
+        up: forItem ? plate(M.brass) : paint('hopper_top2', hopperTop, { m: M.brass, d: 2 }),
+    });
+    box('hopper_light', [25, 15, 10], [31, 15.5, 10.5], { all: lightFace(), south: null });
+    box('case_chute', [25.75, 15.5, 8.25], [27.25, 16, 10.5], { all: plate(M.panel), up: flat(M.panelB.base), down: flat(M.panel.lo), south: null }, { item: false });
+    box('case_tube', [25.75, 12.5, 6.75], [27.25, 16, 8.25], { all: paint('case_tube', caseTube, { m: M.glass, d: 2 }), up: flat(M.chrome.base), down: flat(M.chrome.lo), south: null }, { item: false });
+
+    // ---------------- extension: 装填塔 (底火 x 22.5 + 装药 x 18.5 合成一座), 一根横梁同时带底火冲杆和装药管
+    box('turret', [17.5, 8, 10.5], [24, 16, 14], {
+        all: plate(M.frame),
+        north: forItem ? plate(M.frame) : paint('turret_n', turretFront, { m: M.frame, d: 2 }),
+        east: paint('turret_side', turretSide, { m: M.frameL, d: 2 }),
+        west: paint('turret_side', turretSide, { m: M.frameL, d: 2 }),
+        up: paint('turret_top', turretTop, { m: M.frame, d: 2 }),
+        down: null,
+    });
+    box('turret_cap', [18, 16, 11], [21, 16.5, 13.5], { all: flat(M.brass.lo), north: flat(M.brass.base), up: paint('cap_top', capTop, { m: M.brass, d: 2 }), down: null });
+    box('charge_arm', [17.75, 15, 6.25], [23.25, 16, 10.5], {
+        all: plate(M.frame), east: flat(M.frameL.base), west: flat(M.frameL.base), up: plate(M.frame), down: flat(M.frame.lo), south: null,
+    }, { item: false });
+    // 横梁前沿通长灯条
+    box('arm_light', [18, 15.5, 5.75], [23, 16, 6.25], { all: lightFace(13), south: null, down: flat(M.frame.lo) }, { item: false });
+    box('prime_rod', [22, 14 + at(PRIME), 7], [23, 16.5 + at(PRIME), 8], { all: paint('rod2', rodSide, { m: M.chrome, d: 2 }), up: flat(M.chrome.base), down: flat(M.steel.hi) }, { move: 'prime', item: false });
+    box('powder_tube', [18, 14 + at(POWDER), 7], [19, 16.5 + at(POWDER), 8], {
+        all: paint('powder_tube', (c) => { c.vline(0, 0, c.h, M.dark.hi); c.vline(1, 0, c.h, M.dark.base); c.hline(0, c.h - 2, c.w, M.brass.base); }, { m: M.dark, d: 2 }),
+        up: flat(M.dark.hi), down: flat(GPOWDER.base),
+    }, { move: 'powder', item: false });
+
+    // ---------------- main: 四柱压弹头机 (x 11.5..17.5, 全机唯一高点: 缸顶 22.5)
+    for (const [i, [x0, x1]] of PRESS.postX.entries()) for (const [j, [z0, z1]] of PRESS.postZ.entries()) {
+        box(`post_${j ? 'b' : 'f'}${i ? 'e' : 'w'}`, [x0, 8, z0], [x1, PRESS.postTop, z1], { all: paint('post', postSide, { m: M.chrome, d: 2 }), up: null, down: null });
+    }
+    box('crown', PRESS.crown[0], PRESS.crown[1], {
+        all: plate(M.panel),
+        north: paint('crown_n', crownFront, { m: M.panel, d: 2 }),
+        east: paint('trim_crown', trimSide, { m: P.trim, d: 2 }),
+        west: paint('trim_crown', trimSide, { m: P.trim, d: 2 }),
+        up: paint('crown_top', crownTop, { m: M.panelB, d: 2 }),
+        down: flat(M.frame.dk),
+    });
+    box('crown_light', [12, 19, 3.25], [17, 19.5, 3.75], { all: lightFace(14), south: null });
+    box('flange', [13, 20.5, 5.5], [16, 21, 9.5], { all: flat(M.brass.lo), north: flat(M.brass.base), up: paint('flange_top', flangeTop, { m: M.brass, d: 2 }), down: null });
+    box('cyl', [13.5, 21, 6], [15.5, 22.5, 9], { all: paint('cyl_side', cylSide, { m: M.frame, d: 2 }), up: plate(M.frame), down: null });
+    // 绿色 OK 灯 (压机横梁顶的前角); 工作时常亮
+    box('pass_lamp', [12, 20.5, 4.25], [13, 21.25, 5.25], { all: on ? glow(flat(M.green.hi), 12) : flat(OFF.green), down: null }, { item: false });
+    // 冲头 (运动件 'ram'): 压模 + 连杆。静止时连杆整根藏在横梁里, 压模顶贴横梁底
+    // 压模要有顶面 (实装评审): 方案里静止时顶面贴着横梁底面、省掉了, 但冲头下行时 (f1-f2) 顶面露在横梁下的缝里;
+    // 游戏里运动件用不剔除背面的渲染类型, 没有顶面就会从缝里看进压模、看到内壁。静止时它被横梁整个盖住, 看不到。
+    const rm = at(RAM);
+    box('ram_die', [13.25, 16.75 + rm, 6.25], [15.75, 18.5 + rm, 8.75], {
+        all: hot ? glow(paint('die_hot', dieFn(true), { m: M.hot, d: 2 }), HOT_LIGHT) : paint('die', dieFn(false), { m: M.chrome, d: 2 }),
+        up: hot ? glow(flat(M.chrome.lo), HOT_LIGHT) : flat(M.chrome.lo), down: flat(M.steel.lo),
+    }, { move: 'ram', item: false });
+    box('ram_rod', [14, 18.5 + rm, 7], [15, 20.5 + rm, 8], { all: paint('rod2', rodSide, { m: M.chrome, d: 2 }), up: null, down: null }, { move: 'ram', item: false });
+    // 冲头夹着的下一颗弹头 (运动件 'ram_bullet' = 随冲头平移 + 显隐): f3-f4 冲头刚回位, 不夹弹头。
+    // 它悬在壳口上方 2 px, 要有底面 (实装评审: 台子放在高处、眼睛低于它时会看到空心的弹头)。
+    if (f === null || RAM_BULLET[f]) bulletAt(ctx, 'ram_bullet', SLOT.seat, RAM_REST + rm, RZ, { move: 'ram_bullet', item: false }, flat(JACKET.lo));
+
+    // ---------------- main: 弹药箱 (敞口, 满箱整发弹) + 掀开靠后的箱盖 + 箱后备用弹药箱
+    box('can', [1, 3, 1], [8, 8.5, 10], {
+        all: plate(M.olive),
+        north: paint('can_n', canFront, { m: M.olive, d: 4 }),
+        west: paint('can_side', canSide, { m: M.olive, d: 2 }),
+        up: paint('can_top2', canTop, { m: M.olive, d: 2 }),
+        east: flat(M.olive.lo), south: flat(M.olive.lo),
+    });
+    box('can_latch', [3.5, 7, 0.5], [5.5, 8.5, 1], { all: flat(M.chrome.lo), north: flat(M.chrome.base), up: flat(M.chrome.hi), south: null }, { item: false });
+    box('can_lid', [1, 8.5, 10], [8, 17.5, 10.5], {
+        all: flat(M.olive.lo),
+        north: paint('lid_in2', lidInside, { m: M.olive, d: 4 }),
+        south: plate(M.olive), up: flat(M.olive.hi),
+    }, { rot: { origin: [4.5, 8.5, 10.5], axis: 'x', angle: 22.5 } });
+    [[2.5, 2.5], [6.5, 2.5], [4.5, 4.5], [2.5, 6.5], [4.5, 8.5]].forEach(([x, z], i) => bulletAt(ctx, 'can_b' + i, x, 8.5, z, { item: false }));
+    // 备用弹药箱 (合着盖), 箱盖正好靠在它上沿
+    box('spare_can', [1, 8, 12], [7.5, 11.5, 15.5], {
+        all: plate(M.olive), east: flat(M.olive.lo),
+        south: paint('spare_s', spareSouth, { m: M.olive, d: 2 }),
+        west: paint('spare_w', spareWest, { m: M.olive, d: 2 }),
+        up: paint('spare_top', spareTop, { m: M.olive, d: 2 }),
+        down: null,
+    }, { item: false });
+
+    // ---------------- 台面前沿 (从玩家左到右 = 配方顺序): 弹壳托盘 (extension) · 控制台 (居中) · 弹头托盘 (main) · 弹药箱
+    box('ctray_stand', [25, 8, 2.5], [30.5, 9, 4], { all: flat(M.frame.lo), up: null, down: null }, { item: false });
+    box('ctray', [24.5, 8, 1], [31, 8.5, 4.5], {
+        all: flat(M.steel.lo), north: flat(M.steel.base),
+        up: paint('ctray_top2', caseTray, { m: M.steel, d: 2 }),
+    }, { rot: { origin: [27.75, 8, 1], axis: 'x', angle: -22.5 } });
+    box('btray_stand', [9.5, 8, 2.5], [15.5, 9, 4], { all: flat(M.frame.lo), up: null, down: null }, { item: false });
+    box('btray', [9, 8, 1], [16, 8.5, 4.5], {
+        all: flat(M.steel.lo), north: flat(M.steel.base),
+        up: paint('btray_top2', bulletTray, { m: M.steel, d: 2 }),
+    }, { rot: { origin: [12.5, 8, 1], axis: 'x', angle: -22.5 } });
+    box('console', [17, 8, 1], [23.5, 9, 4.5], {
+        all: plate(M.frame),
+        north: paint('console_n', (c) => { c.fill(M.frame.base); c.hline(0, 0, c.w, M.frame.hi); c.hline(0, c.h - 1, c.w, M.frame.lo); c.hazard(c.w - 5, 0, 4, 2, 4); }, { m: M.frame, d: 2 }),
+        up: flat(M.frame.base),
+    });
+    box('screen', [17.5, 9, 1.5], [22, 9.5, 4.5], {
+        all: flat(M.frame.lo), north: flat(M.frame.base),
+        up: glow(paint(on ? 'screen_on' : 'screen', screenFn(on), { m: M.dark, d: 2 }), on ? 12 : 6),
+    }, { rot: { origin: [19.75, 9, 1.5], axis: 'x', angle: -22.5 } });
+    box('estop', [22.25, 9, 2], [23.25, 10, 3], { all: flat(M.red.lo), north: flat(M.red.base), up: paint('knob_red', knobRed, { m: M.red, d: 2 }), down: null }, { item: false });
+    box('run_led', [17.75, 8.25, 0.5], [18.75, 8.75, 1], { all: on ? glow(flat(M.green.hi)) : flat(OFF.green), south: null }, { item: false });
+
+    // ---------------- 逐档累加的小件
+    addOns({
+        medium: () => box('hopper_band', [24.25, 15.25, 10.25], [31.75, 15.75, 15.75], { all: flat(P.band.base), up: flat(P.band.hi), down: flat(P.band.lo) }),
+        high: () => {
+            box('beacon_base', [29.25, 16, 13.25], [30.75, 16.5, 14.75], { all: flat(M.dark.base), up: flat(M.dark.hi), down: null });
+            box('beacon', [29.5, 16.5, 13.5], [30.5, 17.5, 14.5], { all: lightFace(), up: on ? glow(flat(P.light.hi)) : flat(P.light.mid), down: null });
+        },
+        superior: () => {
+            box('hopper_post_w', [24.5, 9, 10], [25, 15, 10.5], { all: lightFace(13), south: null, down: null });
+            box('hopper_post_e', [31, 9, 10], [31.5, 15, 10.5], { all: lightFace(13), south: null, down: null });
+        },
+        // 踢脚条用 band (超凡是红, 闪耀是深色底座上的一道金线)
+        transcendent: () => box('kick_band', [8, 1, 1], [31.5, 1.5, 1.5], { all: flat(P.band.lo), north: flat(P.band.base), up: flat(P.band.hi), south: null }),
+        // 闪耀: 压机缸顶的金座 + 发光宝石 (剪影和夜里都看得见)
+        radiant: () => {
+            box('gem_mount', [13.75, 22.5, 6.75], [15.25, 23, 8.25], { all: flat(P.band.lo), north: flat(P.band.base), up: flat(P.band.hi), down: null });
+            box('gem', [14, 23, 7], [15, 24, 8], { all: on ? glow(flat(P.light.on), 15) : flat(P.light.mid), up: on ? glow(flat(P.light.hi), 15) : flat(P.light.on), down: null });
+        },
+    });
+}
+
+// ================================================================ 物品模型主角: 一发细高的整发弹立在档位色底板上, 高出机器
+function hero(ctx) {
+    // 物品坐标 (0..16)。整台缩到 0.46 后正面在 z ≈ 4.3; 大弹立在台前偏左 (玩家看是 extension 一侧, 不挡右边的压机和弹药箱)
+    const { box, paint, flat, plate, P } = ctx;
+    box('hero_plate', [10.5, 0.5, 0.5], [15.5, 1, 4.5], { all: flat(P.band.lo), north: flat(P.band.base), up: plate(P.band) });
+    box('hero_case', [11.5, 1, 1], [14.5, 8, 4], { all: paint('hero_case2', (c) => {
+        const m = M.brass; c.fill(m.base); c.vline(0, 0, c.h, m.hi); c.vline(1, 0, c.h, m.hi); c.vline(c.w - 1, 0, c.h, m.lo); c.vline(c.w - 2, 0, c.h, mix(m.base, m.lo, 0.5));
+        c.hline(0, 0, c.w, m.hi); c.hline(0, 1, c.w, mix(m.base, m.lo, 0.35));
+        c.hline(0, c.h - 3, c.w, m.dk); c.hline(0, c.h - 2, c.w, m.lo); c.hline(0, c.h - 1, c.w, m.base);
+    }, { m: M.brass, d: 2 }), up: flat(M.brass.hi), down: null });
+    box('hero_tip', [11.75, 8, 1.25], [14.25, 10.5, 3.75], { all: paint('hero_tip2', (c) => {
+        const m = JACKET; c.fill(m.base); c.vline(0, 0, c.h, m.hi); c.vline(1, 0, c.h, m.hi); c.vline(c.w - 1, 0, c.h, m.lo); c.hline(0, c.h - 1, c.w, m.lo);
+    }, { m: JACKET, d: 2 }), up: flat(JACKET.hi), down: null });
+    box('hero_nose', [12.25, 10.5, 1.75], [13.75, 12.5, 3.25], { all: paint('hero_nose2', (c) => {
+        const m = JACKET; c.fill(m.base); c.vline(0, 0, c.h, m.hi); c.vline(c.w - 1, 0, c.h, m.lo); c.hline(0, 0, c.w, m.hi);
+    }, { m: JACKET, d: 2 }), up: flat(JACKET.hi), down: null });
+}
+const ITEM = {
+    scale: 0.46,
+    gui: { rotation: [26, 200, 0], translation: [0, 2, 0], scale: [0.9, 0.9, 0.9] },
+};
+
+// ================================================================ 运动件 (BER) 与关键帧程序
+// 每个件取某个场景 (待机或某一帧) 里的几个运动件元素, 平移回待机布局; drive = 这个件跟哪一路姿态走 (x / y) 与显隐规则 (见 ber.mjs SHOW_EXPR)。
+// 生成器逐帧核对: 按关键帧表摆好的件 == 那一帧场景里的运动件 (位置、尺寸、每个面的贴图完全相同)。
+const PART_DEFS = [
+    { name: 'round_in', doc: '入口位的空壳 (料斗落壳管正下方), 随皮带走。', src: 'idle', els: ['r_in_case'], drive: { x: 'beltX' } },
+    { name: 'round_prime', doc: '底火位的空壳, 随皮带走。', src: 'idle', els: ['r_prime_case'], drive: { x: 'beltX' } },
+    { name: 'round_powder', doc: '装药位的壳, 壳口还空着 (Pose.powderCharged 为假时画)。', src: 'idle', els: ['r_powder_case'], drive: { x: 'beltX', show: '!powderCharged' } },
+    { name: 'round_powder_charged', doc: '装药位的壳, 壳口已是灰色发射药 (Pose.powderCharged 为真时画)。', src: 2, els: ['r_powder_case'], drive: { x: 'beltX', show: 'powderCharged' } },
+    { name: 'round_seat', doc: '压弹头位的装药壳, 还没压弹头 (Pose.seated 为假时画)。', src: 'idle', els: ['r_seat_case'], drive: { x: 'beltX', show: '!seated' } },
+    { name: 'round_seat_tipped', doc: '压弹头位那发, 已压上弹头 (Pose.seated 为真时画)。', src: 3, els: ['r_seat_case', 'r_seat_tip', 'r_seat_nose'], drive: { x: 'beltX', show: 'seated' } },
+    { name: 'drop', doc: '皮带末端的整发弹 (出弹): 随皮带走到末端, 再沿 dropY 掉进弹药箱。', src: 'idle', els: ['r_out_case', 'r_out_tip', 'r_out_nose'], drive: { x: 'beltX', y: 'dropY' } },
+    { name: 'ram_rod', doc: '压弹头冲头的连杆 (静止时整根藏在压机横梁里)。', src: 'idle', els: ['ram_rod'], drive: { y: 'ramY' } },
+    { name: 'ram_die', doc: '压模, 冷 (镀铬)。', src: 'idle', els: ['ram_die'], drive: { y: 'ramY', show: 'cold' } },
+    { name: 'ram_die_hot', doc: '压模, 热 (自发光): 冲头到底前后代替冷压模。', src: 2, els: ['ram_die'], drive: { y: 'ramY', show: 'hot' }, fullBright: true },
+    { name: 'ram_bullet', doc: '冲头夹着的下一颗弹头 (被甲 + 弹尖), 刚压完回位的两帧不夹。', src: 'idle', els: ['ram_bullet_tip', 'ram_bullet_nose'], drive: { y: 'ramY', show: 'ramBulletVisible' } },
+    { name: 'prime_rod', doc: '底火冲杆 (装填塔横梁东端, 弹位 x 22.5)。', src: 'idle', els: ['prime_rod'], drive: { y: 'primeY' } },
+    { name: 'powder_tube', doc: '装药管 (装填塔横梁西端, 弹位 x 18.5)。', src: 'idle', els: ['powder_tube'], drive: { y: 'powderY' } },
+];
+// 循环接缝 (t = 40 → 0) 时画面只允许这些变化: 入口位落下一只新壳; 箱里那发 (已被箱体完全挡住) 消失。
+const SEAM_APPEARS = new Set(['round_in']);
+
+/** 关键帧表: f0..f7 各一行, 再加一行接缝 (tick 40)。接缝行 = 下一轮 f0 的机器姿态, 但皮带上的弹仍按这一轮编号。 */
+function programRows() {
+    const rows = [];
+    for (let f = 0; f < CYCLE; f++) {
+        rows.push({
+            tick: f * TICKS_PER_FRAME, beltX: BELT[f], primeY: PRIME[f], powderY: POWDER[f], ramY: RAM[f], dropY: DROP_Y[f], dieHeat: DIE_HEAT[f],
+            ramBulletVisible: !!RAM_BULLET[f], powderCharged: !!POWDER_CHARGED[f], seated: !!SEATED[f], label: FRAME_LABELS[f],
+        });
+    }
+    const last = CYCLE - 1;
+    rows.push({
+        tick: CYCLE * TICKS_PER_FRAME,
+        beltX: BELT[0] - PITCH, dropY: DROP_Y[last], powderCharged: !!POWDER_CHARGED[last], seated: !!SEATED[last],
+        primeY: PRIME[0], powderY: POWDER[0], ramY: RAM[0], dieHeat: DIE_HEAT[0], ramBulletVisible: !!RAM_BULLET[0],
+        label: '接缝 = 下一轮 f0 的机器姿态; 皮带上的弹仍按这一轮编号 (beltX = f0 - 节距, 箱里那发留在箱里)',
+    });
+    return rows;
+}
+const IDLE_POSE = { beltX: 0, primeY: 0, powderY: 0, ramY: 0, dropY: 0, dieHeat: 0, ramBulletVisible: true, powderCharged: false, seated: false };
+
+/** 一个件在某个姿态下的位移与显隐 (生成器侧, 与 Java applyPose / ber.mjs applyPoseMirror 同一规则)。 */
+function drivePart(def, pose) {
+    const hot = pose.dieHeat >= HOT_THRESHOLD;
+    const show = def.drive.show || 'always';
+    const visible = show === 'always' ? true : show === 'hot' ? hot : show === 'cold' ? !hot : show.startsWith('!') ? !pose[show.slice(1)] : !!pose[show];
+    return { dx: def.drive.x ? pose[def.drive.x] : 0, dy: def.drive.y ? pose[def.drive.y] : 0, visible };
+}
+
+// ================================================================ 轮廓箱 (碰撞是每格一整块实心柱, 由 MunitionsBenchBlock 按这些盒子的最高点取)
+// 每组取组内元素在该格里那一段的包围盒 (旋转件取旋转后的角点), 向外取整到 0.25 px; 各档共用 (加件都在组的范围里或是饰件)。
+// 饰件 (托盘、控制台、箱里冒出的弹头、各档加件的小灯/宝石) 不进轮廓箱; 新加的静态元素必须归进某一组或饰件, 否则校验失败。
+// 运动件另有一组轮廓箱 (partShapeBoxes), 只进轮廓。
+const SHAPE_GROUPS = [
+    ['body', /^(plinth|shelf|cab_back_main|cab|end_e|end_w|worktop|worktop_main|strip|can_strip|nameplate|kick_band)$/, '底座 + 柜体 + 台面'],
+    ['can', /^(can|can_latch)$/, '弹药箱'],
+    ['lid', /^can_lid$/, '掀开的箱盖'],
+    ['spare', /^spare_can$/, '备用弹药箱'],
+    ['belt', /^(conveyor|rail_f|rail_b)$/, '皮带 + 护栏'],
+    ['press_posts_front', /^post_f(w|e)$/, '压机前立柱'],
+    ['press_posts_back', /^post_b(w|e)$/, '压机后立柱'],
+    ['press_head', /^(crown|crown_light|flange|cyl|pass_lamp)$/, '压机横梁 + 法兰 + 液压缸'],
+    ['hopper', /^(hopper|hopper_light)$/, '弹壳料斗'],
+    ['chute', /^(case_chute|case_tube)$/, '落壳管'],
+    ['turret', /^(turret|turret_cap)$/, '装填塔'],
+    ['arm', /^(charge_arm|arm_light)$/, '装填塔横梁'],
+];
+const ORNAMENTS = /^(can_b\d_(tip|nose)|btray|btray_stand|ctray|ctray_stand|console|screen|estop|run_led|hopper_band|hopper_post_[we]|beacon_base|beacon|gem_mount|gem)$/;
+
+function shapeBoxes(tierScenes, errors) {
+    const q = (v, up) => (up ? Math.ceil(r4(v) * 4 - 1e-6) / 4 : Math.floor(r4(v) * 4 + 1e-6) / 4);
+    const out = { main: [], extension: [] };
+    const seen = new Set();
+    for (const E of tierScenes) for (const e of E) {
+        if (e.move || seen.has(e.name)) continue;
+        seen.add(e.name);
+        if (!SHAPE_GROUPS.some(([, re]) => re.test(e.name)) && !ORNAMENTS.test(e.name)) errors.push(`collision shape: static element ${e.name} is in no shape group and is not an ornament (add it to SHAPE_GROUPS or ORNAMENTS)`);
+    }
+    for (const [cell, [ox, oz]] of Object.entries(CELLS)) {
+        for (const [group, re, label] of SHAPE_GROUPS) {
+            const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+            for (const E of tierScenes) for (const e of E) {
+                if (e.move || !re.test(e.name)) continue;
+                const b = worldBox(e);
+                const x0 = Math.max(b.lo[0], ox), x1 = Math.min(b.hi[0], ox + 16);
+                if (x1 - x0 <= 1e-6) continue;
+                const cl = [x0 - ox, b.lo[1], Math.max(b.lo[2], oz) - oz], ch = [x1 - ox, b.hi[1], Math.min(b.hi[2], oz + 16) - oz];
+                for (let a = 0; a < 3; a++) { lo[a] = Math.min(lo[a], cl[a]); hi[a] = Math.max(hi[a], ch[a]); }
+            }
+            if (!Number.isFinite(lo[0])) continue;
+            const box = [q(lo[0], false), q(lo[1], false), q(lo[2], false), q(hi[0], true), q(hi[1], true), q(hi[2], true)];
+            if (box[0] < 0 || box[2] < 0 || box[1] < 0 || box[3] > 16 || box[5] > 16 || box[4] > 32) errors.push(`collision shape ${cell}/${group} leaves the cell: ${box}`);
+            out[cell].push({ group, label, box });
+        }
+    }
+    return out;
+}
+
+/**
+ * 运动件的轮廓箱 (只进轮廓, 不进碰撞): 每个件在整个循环与待机里扫过的包围盒, 切到各格、向外取整到 0.25 px;
+ * 被同格另一个盒子整个包住的并进那个盒子。关键帧之间是线性插值, 所以各关键帧 (含接缝行) 的包围盒就是整段的包围盒。
+ * sweeps: Map<件名, {lo, hi}> (整台像素, 朝北)。
+ */
+function partShapeBoxes(sweeps) {
+    const q = (v, up) => (up ? Math.ceil(r4(v) * 4 - 1e-6) / 4 : Math.floor(r4(v) * 4 + 1e-6) / 4);
+    const out = { main: [], extension: [] };
+    for (const [cell, [ox, oz]] of Object.entries(CELLS)) {
+        const list = [];
+        for (const [name, s] of sweeps) {
+            const x0 = Math.max(s.lo[0], ox), x1 = Math.min(s.hi[0], ox + 16);
+            if (x1 - x0 <= 1e-6) continue;
+            list.push({ names: [name], box: [q(x0 - ox, false), q(s.lo[1], false), q(Math.max(s.lo[2], oz) - oz, false), q(x1 - ox, true), q(s.hi[1], true), q(Math.min(s.hi[2], oz + 16) - oz, true)] });
+        }
+        const inside = (a, b) => [0, 1, 2].every((i) => a.box[i] >= b.box[i] - 1e-6 && a.box[i + 3] <= b.box[i + 3] + 1e-6);
+        for (const a of list) {
+            if (a.gone) continue;
+            for (const b of list) if (b !== a && !b.gone && inside(b, a)) { a.names.push(...b.names); b.gone = true; }
+        }
+        out[cell] = list.filter((x) => !x.gone).map((x) => ({ group: x.names.join(' + '), label: '运动件扫过的范围', box: x.box }));
+    }
+    return out;
+}
+
+// ================================================================ 方块状态
+const FACING_Y = { north: 0, east: 90, south: 180, west: 270 };
+/** 旧 (LEGACY_DEPTH) 变体的规则: 与当年 dist/_make_munitions_factory_model.py (已删) 写出的一致 (北不写 y)。 */
+function legacyVariant(sfx, active, facing, part) {
+    const v = { model: `miningdim:block/munitions_bench${sfx}_${part}${active ? '_active' : ''}` };
+    if (FACING_Y[facing]) v.y = FACING_Y[facing];
+    return v;
+}
+function blockstateJson(sfx, existing, errors, label) {
+    // 先核对仓库里现有的旧变体 (没有 layout 键的, 或 layout=legacy_depth 的) 与规则逐条相同, 保证旧台子的模型与朝向不变
+    if (existing && existing.variants) {
+        let n = 0;
+        for (const [key, v] of Object.entries(existing.variants)) {
+            const kv = Object.fromEntries(key.split(',').map((s) => s.split('=')));
+            if (kv.layout && kv.layout !== 'legacy_depth') continue;
+            n++;
+            const want = legacyVariant(sfx, kv.active === 'true', kv.facing, kv.part);
+            if (JSON.stringify(v) !== JSON.stringify(want)) errors.push(`${label}: existing legacy variant "${key}" = ${JSON.stringify(v)} differs from the legacy rule ${JSON.stringify(want)}`);
+        }
+        if (n !== 16) errors.push(`${label}: expected 16 existing legacy variants, found ${n}`);
+    }
+    const variants = {};
+    for (const layout of ['legacy_depth', 'wide']) for (const active of [false, true]) for (const facing of Object.keys(FACING_Y)) for (const part of Object.keys(CELLS)) {
+        const key = `active=${active},facing=${facing},layout=${layout},part=${part}`;
+        if (layout === 'legacy_depth') variants[key] = legacyVariant(sfx, active, facing, part);
+        else {
+            const v = { model: `miningdim:block/munitions_bench${sfx}_line_${part}${active ? '_active' : ''}` };
+            if (FACING_Y[facing]) v.y = FACING_Y[facing];
+            variants[key] = v;
+        }
+    }
+    return JSON.stringify({ variants }, null, 2) + '\n';
+}
+
+// ================================================================ Java 文本
+const f1 = (v) => { const s = (Math.round(v * 10000) / 10000).toString(); return (s.includes('.') ? s : s + '.0') + 'F'; };
+const PROGRAM_REL = path.join('src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'block', 'MunitionsBenchProgram.java');
+const GEOMETRY_REL = path.join('src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'block', 'MunitionsBenchGeometry.java');
+const PARTS_REL = path.join('src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'client', 'MunitionsBenchParts.java');
+
+function geometryJava(g) {
+    const arr = (v) => '{' + v.map(f1).join(', ') + '}';
+    const boxes = (list) => list.map((b) => `            ${arr(b.box)}, // ${b.group}: ${b.label}`);
+    return [
+        'package com.miningdim.job.munitions.block;',
+        '',
+        '/**',
+        ' * 军火台 WIDE 布局 (弹药流水线) 的几何常量: 轮廓箱 (静态件 + 运动件)、模型高度、运动件的活动范围、冲压火花的位置。',
+        ' * <p>',
+        ' * 由 tools/munitions_bench/generate_munitions_bench.mjs 按方块模型的同一份场景整个写出, 不要手改。',
+        ' * 刻意不依赖任何 Minecraft 类, 方块、方块实体、渲染器与 GameTest 都能直接用。',
+        ' * <p>',
+        ' * 坐标系: 朝北放置时的像素, x 东、y 上、z 南, 正面 z = 0。整台 (whole-machine) 坐标的原点在主格西北下角:',
+        ' * 主格 x 0..16 在站在正面的玩家右手边, 副格 x 16..32 在左手边。每格的碰撞箱用它自己的局部坐标 (0..16),',
+        ' * 副格局部 x = 整台 x - 16。别的朝向按 {@link #rotated} 绕格子中心转 (与方块状态的 y 旋转同向)。',
+        ' */',
+        'public final class MunitionsBenchGeometry {',
+        '',
+        '    /** 台面 (钢台面顶面) 的 y (px); 台面以上都是设备。 */',
+        `    public static final float BODY_TOP_PX = ${f1(g.bodyTop)};`,
+        '    /** 各档静态方块模型 (两格、待机与工作) 的最高点 (px), 下标 = 档位 0..5 (普通..闪耀), 与 MunitionsBenchAssets.TIER_IDS 同序。 */',
+        `    public static final float[] MODEL_TOP_PX = ${arr(g.modelTops)};`,
+        '    /** 静态轮廓箱 (两格) 的最高点 (px), 即主格碰撞柱的高度。 */',
+        `    public static final float SHAPE_TOP_PX = ${f1(g.shapeTop)};`,
+        '',
+        '    /**',
+        '     * 主格静态件的轮廓箱 (主格局部像素, 朝北), 每个 {x0, y0, z0, x1, y1, z1}。贴着静态的大块 (柜体台面、弹药箱与箱盖、皮带、',
+        '     * 压机、料斗、装填塔); 台面上的托盘、控制台、箱里冒出的弹头、各档加件的小灯与宝石是饰件, 不进轮廓。',
+        '     * 轮廓 (选择框 / 右键命中) = 这些盒子 + {@link #MAIN_PART_BOXES}; 碰撞是整格一块实心柱, 高到这些盒子的最高点',
+        '     * (见 MunitionsBenchBlock: 台面只有 8 px, 贴着模型的碰撞会让玩家一步跨上台面、站进运动件中间)。',
+        '     */',
+        '    public static final float[][] MAIN_BOXES = {',
+        ...boxes(g.boxes.main),
+        '    };',
+        '    /** 副格静态件的轮廓箱 (副格局部像素, 朝北; 副格局部 x = 整台 x - 16), 用法同 {@link #MAIN_BOXES}。 */',
+        '    public static final float[][] EXTENSION_BOXES = {',
+        ...boxes(g.boxes.extension),
+        '    };',
+        '',
+        '    /**',
+        '     * 运动件的轮廓箱 (主格局部像素, 朝北): 每个件在整个循环与待机里扫过的范围, 切到本格; 被别的盒子包住的已并进去。',
+        '     * 只进轮廓不进碰撞, 让皮带上的弹、冲头、底火冲杆与装药管都点得中台子 (否则右键会穿过它们打到后面的方块)。',
+        '     */',
+        '    public static final float[][] MAIN_PART_BOXES = {',
+        ...boxes(g.partBoxes.main),
+        '    };',
+        '    /** 副格的运动件轮廓箱 (副格局部像素, 朝北), 用法同 {@link #MAIN_PART_BOXES}。 */',
+        '    public static final float[][] EXTENSION_PART_BOXES = {',
+        ...boxes(g.partBoxes.extension),
+        '    };',
+        '',
+        '    /** 运动件 (方块实体渲染器画的件) 在整个循环与待机里扫过的范围, 整台坐标 {x, y, z} (px)。 */',
+        `    public static final float[] PARTS_MIN = ${arr(g.partsMin)};`,
+        `    public static final float[] PARTS_MAX = ${arr(g.partsMax)};`,
+        '    /** 运动件的最高点 (px), 方块实体渲染包围盒至少要到这里。 */',
+        `    public static final float RENDER_TOP_PX = ${f1(g.partsMax[1])};`,
+        '',
+        '    /** 冲压火花的位置 (整台坐标 = 主格局部坐标, px): 压弹头位那发的壳口, 冲头在 MunitionsBenchProgram.STRIKE_TICK 压到这里。 */',
+        `    public static final float SPARK_X = ${f1(g.spark[0])};`,
+        `    public static final float SPARK_Y = ${f1(g.spark[1])};`,
+        `    public static final float SPARK_Z = ${f1(g.spark[2])};`,
+        '',
+        '    /** 运动件贴图 textures/entity/munitions_bench_parts.png 的尺寸 (与 MunitionsBenchParts 的 LayerDefinition 相同)。 */',
+        `    public static final int PARTS_TEXTURE_WIDTH = ${g.texW};`,
+        `    public static final int PARTS_TEXTURE_HEIGHT = ${g.texH};`,
+        '',
+        '    private MunitionsBenchGeometry() {',
+        '    }',
+        '',
+        '    /**',
+        '     * 把一个格子局部的朝北盒子 {x0, y0, z0, x1, y1, z1} 转到别的朝向: quarterTurns = 俯视顺时针转的 90° 次数',
+        '     * (NORTH 0, EAST 1, SOUTH 2, WEST 3, 与方块状态的 "y": 90 / 180 / 270 相同), 绕格子中心 (8, 8) 转, 返回新数组。',
+        '     */',
+        '    public static float[] rotated(float[] box, int quarterTurns) {',
+        '        float x0 = box[0];',
+        '        float z0 = box[2];',
+        '        float x1 = box[3];',
+        '        float z1 = box[5];',
+        '        for (int i = 0; i < Math.floorMod(quarterTurns, 4); i++) {',
+        '            // (x, z) → (16 - z, x): 北面 (z = 0) 转到东面 (x = 16)',
+        '            float nx0 = 16.0F - z1;',
+        '            float nx1 = 16.0F - z0;',
+        '            z0 = x0;',
+        '            z1 = x1;',
+        '            x0 = nx0;',
+        '            x1 = nx1;',
+        '        }',
+        '        return new float[]{x0, box[1], z0, x1, box[4], z1};',
+        '    }',
+        '}',
+        '',
+    ].join('\n');
+}
+
+function findJavaBase(out, rel) {
+    for (const p of [path.join(out, rel), path.resolve(SCRIPT_DIR, '..', '..', rel)]) if (fs.existsSync(p)) { const raw = fs.readFileSync(p, 'utf8'); return { file: p, src: raw.replace(/\r\n/g, '\n'), crlf: raw.includes('\r\n') }; }
+    throw new Error(path.basename(rel) + ' not found (neither in --out nor in the repo next to this script)');
+}
+
+// ================================================================ 主流程
+function parseArgs(argv) {
+    const a = {};
+    for (let i = 0; i < argv.length; i++) if (argv[i].startsWith('--')) { const n = argv[i + 1]; if (n === undefined || n.startsWith('--')) a[argv[i].slice(2)] = true; else { a[argv[i].slice(2)] = n; i++; } }
+    return a;
+}
+
+function main() {
+    const args = parseArgs(process.argv.slice(2));
+    if (!args.out || args.out === true) { console.error('usage: node generate_munitions_bench.mjs --out <repo root> [--check]'); process.exit(2); }
+    const OUT = path.resolve(args.out);
+    const RES = path.join(OUT, 'src', 'main', 'resources', 'assets', 'miningdim');
+    const errors = [], warns = [];
+    const outputs = [];
+    const emit = (p, data) => outputs.push([p, data]);
+    const cfg = { scene, hero, cycleFrames: CYCLE };
+    const stat = (E) => E.filter((e) => !e.move);
+
+    // ---- 1. 场景: 每档 待机 / 工作 (f2) / 物品 / 主角; 普通档再逐帧 (只用来建运动件与核对, 不写逐帧模型)
+    const byTier = TIERS.map((T, t) => ({
+        idle: runScene(cfg, t, 'idle', null), active: runScene(cfg, t, 'active', ACTIVE_FRAME),
+        item: runScene(cfg, t, 'item', null), hero: runScene(cfg, t, 'hero', null),
+    }));
+    const frames = Array.from({ length: CYCLE }, (_, f) => runScene(cfg, 0, 'active', f));
+    const scenes = [];
+    TIERS.forEach((T, t) => { for (const k of ['idle', 'active', 'item', 'hero']) scenes.push({ E: byTier[t][k], label: `${T.key}/${k}`, kind: k }); });
+    frames.forEach((E, f) => scenes.push({ E, label: `base/f${f}`, kind: 'frame' }));
+
+    // ---- 2. 世界范围、剔除、共面 (运动件与静态件一起查: 任何一帧的运动件都不许和静态件同向共面)
+    for (const s of scenes) {
+        if (s.kind !== 'hero') {
+            for (const e of s.E) {
+                const b = worldBox(e);
+                for (let a = 0; a < 3; a++) {
+                    const range = [WORLD.x, WORLD.y, WORLD.z][a];
+                    if (b.lo[a] < range[0] - 1e-6 || b.hi[a] > range[1] + 1e-6) errors.push(`${s.label}: ${e.name} leaves the machine volume on ${'xyz'[a]} [${range}] (${r4(b.lo[a])}..${r4(b.hi[a])})`);
+                }
+                if (e.rot && !LEGAL_ANGLES.includes(e.rot.angle)) errors.push(`${s.label}: ${e.name} illegal rotation angle ${e.rot.angle}`);
+            }
+        }
+        cullHidden(s.E);
+        autoShade(s.E);
+        errors.push(...zfightCheck(s.E, s.label));
+    }
+
+    // ---- 3. 图集: 各档 待机静态件 + 工作静态件 + 物品 + 主角 共用一个布局, 每档一张
+    const layout = planAtlas(TIERS.flatMap((T, t) => [
+        { tier: t, E: stat(byTier[t].idle) }, { tier: t, E: stat(byTier[t].active) }, { tier: t, E: byTier[t].item }, { tier: t, E: byTier[t].hero },
+    ]));
+    const A = layout.size;
+    const atlases = TIERS.map((T, t) => paintAtlas(layout, t, errors));
+    for (let i = 0; i < layout.items.length; i++) {
+        const a = layout.items[i];
+        if (a.x < 0 || a.y < 0 || a.x + a.w > A || a.y + a.h > A) errors.push('atlas item out of bounds ' + a.key);
+        for (let j = i + 1; j < layout.items.length; j++) {
+            const b = layout.items[j];
+            if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) errors.push(`atlas overlap ${a.key} / ${b.key}`);
+        }
+    }
+    atlases.forEach((cv, t) => { for (let i = 3; i < cv.data.length; i += 4) if (cv.data[i] !== 255) { errors.push(`atlas ${TIERS[t].key} has non-opaque pixels`); break; } });
+    {
+        // 档位一致性: 同名元素的同一个面在各档应落在同一块图集区域
+        const key = (E) => { const seen = new Map(); return stat(E).map((e) => { const n = (seen.get(e.name) || 0) + 1; seen.set(e.name, n); return [e.name + '#' + n, e]; }); };
+        const refMap = new Map(key(byTier[0].idle));
+        let n = 0;
+        for (let t = 1; t < TIERS.length; t++) for (const [k, e] of key(byTier[t].idle)) {
+            const r = refMap.get(k);
+            if (!r) continue;
+            for (const face of Object.keys(e.plan)) if (r.plan[face] && r.plan[face].region !== e.plan[face].region && n++ < 8) warns.push(`${k.split('#')[0]}.${face}: tier ${TIERS[t].key} uses a different atlas item than tier base`);
+        }
+    }
+
+    // ---- 4. 方块模型 (静态件) + 物品模型 + 贴图
+    const stats = [];
+    const modelTops = [];
+    let offGrid = 0;
+    TIERS.forEach((T, t) => {
+        const sfx = T.suffix;
+        const textures = { atlas: `miningdim:block/munitions_bench${sfx}_atlas`, particle: `miningdim:block/munitions_bench${sfx}_particle` };
+        const st = { key: T.key, models: {}, addOns: byTier[t].idle.addOnsRan };
+        let top = 0;
+        for (const [state, E] of [['idle', byTier[t].idle], ['active', byTier[t].active]]) {
+            for (const cell of Object.keys(CELLS)) {
+                const name = `munitions_bench${sfx}_line_${cell}${state === 'active' ? '_active' : ''}`;
+                const json = { parent: 'minecraft:block/block', ambientocclusion: false, textures, elements: cellElements(stat(E), cell, A, errors, `${T.key}/${state}`) };
+                const v = validateModel(name, json, { A, items: layout.items });
+                errors.push(...v.errs);
+                top = Math.max(top, v.maxY); offGrid += v.offGrid;
+                st.models[name] = json.elements.length;
+                emit(path.join(RES, 'models', 'block', name + '.json'), stringifyModel(json));
+            }
+        }
+        modelTops.push(r4(top));
+        const { els, dropped } = itemElements(ITEM, byTier[t].item, byTier[t].hero, A);
+        const item = { parent: 'minecraft:block/block', ambientocclusion: false, textures, display: { ...ITEM_DISPLAY, gui: ITEM.gui }, elements: els };
+        const vi = validateModel(`item/munitions_bench${sfx}`, item, { A, items: layout.items, item: true });
+        errors.push(...vi.errs);
+        errors.push(...zfightCheck(els.map((el) => ({ name: el.name, from: el.from, to: el.to, rot: el.rotation || null, faces: el.faces })), `${T.key}/item`));
+        st.item = els.length; st.itemDropped = dropped;
+        emit(path.join(RES, 'models', 'item', `munitions_bench${sfx}.json`), stringifyModel(item));
+        emit(path.join(RES, 'textures', 'block', `munitions_bench${sfx}_atlas.png`), encodePng(A, A, atlases[t].data));
+        const pc = new Canvas(16, 16);
+        defaultParticle(pc, palette(t));
+        for (let i = 3; i < pc.data.length; i += 4) pc.data[i] = 255;
+        emit(path.join(RES, 'textures', 'block', `munitions_bench${sfx}_particle.png`), encodePng(16, 16, pc.data));
+        // 方块状态: 旧变体原样保留 (layout=legacy_depth), 新变体指向上面的模型
+        const bsPath = path.join(RES, 'blockstates', `munitions_bench${sfx}.json`);
+        const existing = fs.existsSync(bsPath) ? JSON.parse(fs.readFileSync(bsPath, 'utf8')) : null;
+        if (!existing) errors.push(`blockstates/munitions_bench${sfx}.json not found in --out (the legacy variants are kept from it)`);
+        for (const active of ['', '_active']) for (const cell of Object.keys(CELLS)) {
+            const legacy = path.join(RES, 'models', 'block', `munitions_bench${sfx}_${cell}${active}.json`);
+            if (!fs.existsSync(legacy)) errors.push(`legacy model ${path.basename(legacy)} is missing (layout=legacy_depth still points at it)`);
+        }
+        emit(bsPath, blockstateJson(sfx, existing, errors, `blockstates/munitions_bench${sfx}.json`));
+        stats.push(st);
+    });
+
+    // ---- 5. 关键帧程序
+    const rows = programRows();
+    const strikeRow = rows.slice(0, CYCLE).reduce((m, r) => (r.ramY < m.ramY ? r : m), rows[0]);
+    const strikeTick = strikeRow.tick;
+    if (rows.slice(0, CYCLE).filter((r) => r.ramY === strikeRow.ramY).length !== 1) errors.push('program: the ram bottoms out in more than one frame (STRIKE_TICK is ambiguous)');
+    if (strikeTick !== ACTIVE_FRAME * TICKS_PER_FRAME || DIE_HEAT[ACTIVE_FRAME] !== 1) errors.push(`program: the strike (tick ${strikeTick}) is not the hot frame f${ACTIVE_FRAME}`);
+    if (BELT[CYCLE - 1] !== BELT[0] - PITCH) errors.push('program: the belt must end the cycle exactly one pitch on (BELT[7] = BELT[0] - PITCH)');
+
+    // ---- 6. 运动件: 取场景里的运动件元素 → 平移回待机布局 → 4 倍 ModelPart 层 + 共用贴图
+    const planOf = (e, opt) => Object.fromEntries(Object.entries(e.faces).map(([face, desc]) => [face, planFace(e, face, desc, opt)]));
+    const defs = PART_DEFS.map((def) => {
+        const src = def.src === 'idle' ? byTier[0].idle : frames[def.src];
+        const pose = def.src === 'idle' ? IDLE_POSE : rows[def.src];
+        const { dx, dy, visible } = drivePart(def, pose);
+        if (!visible) errors.push(`part ${def.name}: not visible in its source scene ${def.src}`);
+        const els = def.els.map((n) => {
+            const e = src.find((x) => x.name === n && x.move);
+            if (!e) { errors.push(`part ${def.name}: moving element ${n} not found in scene ${def.src}`); return null; }
+            const from = [e.from[0] - dx, e.from[1] - dy, e.from[2]], to = [e.to[0] - dx, e.to[1] - dy, e.to[2]];
+            const moved = { name: e.name, from, to, faces: e.faces };
+            moved.plans = planOf(moved, { noCut: true });
+            return moved;
+        }).filter(Boolean);
+        const lo = [0, 1, 2].map((a) => Math.min(...els.map((e) => e.from[a]))), hi = [0, 1, 2].map((a) => Math.max(...els.map((e) => e.to[a])));
+        const pivot = [Math.round(((lo[0] + hi[0]) / 2) * 4) / 4, lo[1], Math.round(((lo[2] + hi[2]) / 2) * 4) / 4];
+        // BER 一个件只能用一种光照: 自发光件除了底面 (从上方看不到, 热压模的底面是钢色不发光) 都要发光, 其余件都不发光
+        for (const e of els) for (const [face, p] of Object.entries(e.plans)) {
+            const want = def.fullBright ? HOT_LIGHT : 0;
+            if ((p.emit || 0) !== want && !(def.fullBright && face === 'down')) errors.push(`part ${def.name}/${e.name}.${face}: face emission ${p.emit || 0}, expected ${want} (a part is either emissive or not)`);
+        }
+        return { ...def, pivot, els };
+    });
+    const layer = buildLayer(defs, errors);
+    const partsTex = paintLayer(layer, 0, errors);
+    for (let t = 1; t < TIERS.length; t++) {
+        const other = paintLayer(layer, t, null);
+        if (!Buffer.from(other.data.buffer).equals(Buffer.from(partsTex.data.buffer))) errors.push(`parts texture differs in tier ${TIERS[t].key}: moving parts must be tier-neutral (one shared texture)`);
+    }
+    emit(path.join(RES, 'textures', 'entity', 'munitions_bench_parts.png'), encodePng(layer.texW, layer.texH, partsTex.data));
+
+    // 逐帧核对: 按关键帧表摆好的件 (元素级: 位置、尺寸、每个面的贴图签名) == 那一帧场景里的运动件
+    const sigOf = (from, to, plans) => JSON.stringify([from.map(r4), to.map(r4), Object.keys(plans).sort().map((f) => f + '=' + planSignature(plans[f]))]);
+    const posedSigs = (pose) => {
+        const out = [];
+        defs.forEach((def) => {
+            const { dx, dy, visible } = drivePart(def, pose);
+            if (!visible) return;
+            for (const e of def.els) out.push({ part: def.name, el: e, sig: sigOf([e.from[0] + dx, e.from[1] + dy, e.from[2]], [e.to[0] + dx, e.to[1] + dy, e.to[2]], e.plans) });
+        });
+        return out;
+    };
+    const sceneSigs = (E) => E.filter((e) => e.move).map((e) => sigOf(e.from, e.to, planOf(e, {})));
+    const multisetDiff = (a, b) => { const m = new Map(); for (const s of b) m.set(s, (m.get(s) || 0) + 1); const out = []; for (const s of a) { const n = m.get(s) || 0; if (n) m.set(s, n - 1); else out.push(s); } return out; };
+    const compare = (label, want, got) => {
+        const miss = multisetDiff(want, got), extra = multisetDiff(got, want);
+        if (miss.length || extra.length) errors.push(`${label}: posed parts differ from the scene's moving elements (missing ${miss.length}: ${miss.slice(0, 3).join(' | ')}; extra ${extra.length}: ${extra.slice(0, 3).join(' | ')})`);
+    };
+    compare('idle', sceneSigs(byTier[0].idle), posedSigs(IDLE_POSE).map((x) => x.sig));
+    frames.forEach((E, f) => compare(`f${f}`, sceneSigs(E), posedSigs(rows[f]).map((x) => x.sig)));
+    // 循环接缝: 接缝行 (t → 40) 与首行 (t = 0) 画面只允许 SEAM_APPEARS 的件出现, 以及消失的件被静态件完全挡住
+    {
+        const endS = posedSigs(rows[CYCLE]), startS = posedSigs(rows[0]);
+        const gone = multisetDiff(endS.map((x) => x.sig), startS.map((x) => x.sig));
+        const came = multisetDiff(startS.map((x) => x.sig), endS.map((x) => x.sig));
+        for (const s of came) { const x = startS.find((y) => y.sig === s); if (!SEAM_APPEARS.has(x.part)) errors.push(`seam: ${x.part}/${x.el.name} pops in at the cycle seam`); }
+        const solid = stat(byTier[0].idle).filter((e) => !e.rot);
+        const inside = (p) => solid.some((e) => [0, 1, 2].every((a) => p[a] >= e.from[a] - 1e-6 && p[a] <= e.to[a] + 1e-6));
+        for (const s of gone) {
+            const [from, to] = JSON.parse(s);
+            let hidden = true;
+            for (let x = from[0]; x <= to[0] + 1e-6 && hidden; x += 0.25) for (let y = from[1]; y <= to[1] + 1e-6 && hidden; y += 0.25) for (let z = from[2]; z <= to[2] + 1e-6 && hidden; z += 0.25) if (!inside([x, y, z])) hidden = false;
+            const x = endS.find((y) => y.sig === s);
+            if (!hidden) errors.push(`seam: ${x.part}/${x.el.name} disappears at the cycle seam while still visible`);
+        }
+    }
+
+    // ---- 7. Java: 运动件 (整个写出) + 程序 (只换生成区块) + 几何 (整个写出), 写完再解析回来用 JS 镜像核对
+    const partsJava = partsJavaSource(layer, { hotThreshold: HOT_THRESHOLD, fullBrightLight: HOT_LIGHT });
+    emit(path.join(OUT, PARTS_REL), partsJava);
+    const pBase = findJavaBase(OUT, PROGRAM_REL);
+    if (!RE_GENERATED.test(pBase.src)) errors.push('MunitionsBenchProgram base: "// <generated>" ... "// </generated>" block not found');
+    for (const [cname] of PROGRAM_COLUMNS) {
+        const i = PROGRAM_COLUMNS.findIndex(([c]) => c === cname);
+        if (!new RegExp(`${cname} = ${i};`).test(pBase.src)) errors.push(`MunitionsBenchProgram base: hand-written ${cname} = ${i} not found (the table columns would be misread)`);
+    }
+    const program = pBase.src.replace(RE_GENERATED, (m, open, close) => open + programBlock({ frames: CYCLE, ticksPerFrame: TICKS_PER_FRAME, cycleTicks: CYCLE * TICKS_PER_FRAME, strikeTick, pitch: PITCH, rows, idle: IDLE_POSE }) + close);
+    if (program.replace(RE_GENERATED, '') !== pBase.src.replace(RE_GENERATED, '')) errors.push('program patch touched text outside the generated block');
+    emit(path.join(OUT, PROGRAM_REL), pBase.crlf ? program.replace(/\n/g, '\r\n') : program);
+    {
+        const prog = parseProgramJava(program);
+        const parsed = parsePartsJava(partsJava);
+        const boxesOf = (pose) => placedBoxes(parsed, applyPoseMirror(parsed, pose)).filter((b) => b.visible).map((b) => JSON.stringify([b.lo, b.hi])).sort();
+        const want = (E) => E.filter((e) => e.move).map((e) => JSON.stringify([e.from.map(r4), e.to.map(r4)])).sort();
+        const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+        if (!same(boxesOf(idlePose(prog)), want(byTier[0].idle))) errors.push('Java round trip: idle() + applyPose do not reproduce the idle layout');
+        frames.forEach((E, f) => { if (!same(boxesOf(sampleProgram(prog, f * TICKS_PER_FRAME)), want(E))) errors.push(`Java round trip: sample(${f * TICKS_PER_FRAME}) + applyPose do not reproduce frame f${f}`); });
+        if (prog.cycleTicks !== 40 || prog.strikeTick !== strikeTick || prog.rows.length !== rows.length) errors.push('Java round trip: program constants/rows');
+        if (parsed.texW !== layer.texW || parsed.texH !== layer.texH || parsed.parts.length !== layer.parts.length) errors.push('Java round trip: parts layer');
+    }
+
+    // ---- 8. 几何: 碰撞箱、高度、运动件范围、火花
+    const boxes = shapeBoxes(byTier.map((s) => s.idle), errors);
+    const partsLo = [Infinity, Infinity, Infinity], partsHi = [-Infinity, -Infinity, -Infinity];
+    const sweeps = new Map();
+    {
+        const parsed = parsePartsJava(partsJava);
+        for (const pose of [...rows, IDLE_POSE]) for (const b of placedBoxes(parsed, applyPoseMirror(parsed, pose))) {
+            if (!sweeps.has(b.part)) sweeps.set(b.part, { lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity] });
+            const s = sweeps.get(b.part);
+            for (let a = 0; a < 3; a++) {
+                partsLo[a] = Math.min(partsLo[a], b.lo[a]); partsHi[a] = Math.max(partsHi[a], b.hi[a]);
+                s.lo[a] = Math.min(s.lo[a], b.lo[a]); s.hi[a] = Math.max(s.hi[a], b.hi[a]);
+            }
+        }
+    }
+    const partBoxes = partShapeBoxes(sweeps);
+    for (const [cell, list] of Object.entries(partBoxes)) for (const b of list) {
+        if (b.box[0] < 0 || b.box[2] < 0 || b.box[1] < 0 || b.box[3] > 16 || b.box[5] > 16) errors.push(`part outline box ${cell}/${b.group} leaves the cell: ${b.box}`);
+    }
+    const worktop = byTier[0].idle.find((e) => e.name === 'worktop');
+    const spark = [SLOT.seat, BELT_Y + R.caseH, RZ];
+    const bulletAtStrike = frames[ACTIVE_FRAME].find((e) => e.name === 'ram_bullet_tip');
+    if (!bulletAtStrike || Math.abs(bulletAtStrike.from[1] - spark[1]) > 1e-6) errors.push('spark: the ram bullet does not meet the case mouth at the strike');
+    const geo = {
+        bodyTop: worktop.to[1], modelTops, shapeTop: Math.max(...[...boxes.main, ...boxes.extension].map((b) => b.box[4])), boxes, partBoxes,
+        partsMin: partsLo.map(r4), partsMax: partsHi.map(r4), spark, texW: layer.texW, texH: layer.texH,
+    };
+    emit(path.join(OUT, GEOMETRY_REL), geometryJava(geo));
+
+    // ---- 9. 汇报 + 写盘
+    console.log(`atlas ${A}x${A}: ${layout.regions} painted regions, ${layout.swatches} swatches; parts texture ${layer.texW}x${layer.texH} (${layer.blocks.length} box-UV blocks for ${layer.parts.reduce((n, p) => n + p.cubes.length, 0)} cubes in ${layer.parts.length} parts)`);
+    for (const s of stats) console.log(`  ${s.key.padEnd(13)} static ${Object.values(s.models).join('/')} elements (main/ext idle, main/ext active), item ${s.item}${s.itemDropped ? ` (${s.itemDropped} too thin, dropped)` : ''}, add-ons [${s.addOns.join(', ')}]`);
+    console.log(`  model tops ${modelTops.join(' / ')} px; outline main ${boxes.main.length} + ${partBoxes.main.length} part boxes, extension ${boxes.extension.length} + ${partBoxes.extension.length} part boxes, top ${geo.shapeTop} px; parts sweep ${geo.partsMin} .. ${geo.partsMax}`);
+    console.log(`  program: ${rows.length} keyframes / ${CYCLE * TICKS_PER_FRAME} ticks, strike at tick ${strikeTick}; parts: ${layer.parts.map((p) => p.name).join(', ')}`);
+    if (offGrid) console.log(`  note: ${offGrid} block-model coordinates on the 0.25 grid but not the 0.5 grid`);
+    for (const w of warns) console.warn('  WARN ' + w);
+    if (errors.length) {
+        const uniq = [...new Set(errors)];
+        console.error(`VALIDATION FAILED (nothing written), ${uniq.length} distinct problem(s):\n  ` + uniq.slice(0, 60).join('\n  ') + (uniq.length > 60 ? `\n  (+${uniq.length - 60} more)` : ''));
+        process.exit(1);
+    }
+    if (args.check) { console.log(`validation OK (--check: nothing written, ${outputs.length} files would be generated)`); return; }
+    let written = 0;
+    for (const [p, data] of outputs) {
+        const buf = Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf8');
+        if (fs.existsSync(p) && fs.readFileSync(p).equals(buf)) continue;
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, buf);
+        written++;
+    }
+    console.log(`validation OK, wrote ${written} of ${outputs.length} files (the rest were unchanged) -> ${OUT}`);
+}
+
+main();

@@ -26,11 +26,11 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.common.util.LazyOptional;
@@ -42,12 +42,6 @@ import net.minecraftforge.registries.ForgeRegistries;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import software.bernie.geckolib.animatable.GeoBlockEntity;
-import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
-import software.bernie.geckolib.core.animation.AnimatableManager;
-import software.bernie.geckolib.core.animation.AnimationController;
-import software.bernie.geckolib.core.animation.RawAnimation;
-import software.bernie.geckolib.util.GeckoLibUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -76,13 +70,11 @@ import java.util.UUID;
  * 暴露, 保证 "必须人手取" 的结算前提。RangedWrapper 本身同时代理 insert 与 extract, 不覆写 extract 时漏斗能把
  * 底火/弹壳/弹头/发射药反抽走, 产线静默停摆; InsertOnlyRangedWrapper 只覆写 extractItem 恒返空。
  */
-public final class MunitionsBenchBlockEntity extends BlockEntity implements MenuProvider, GeoBlockEntity {
+public final class MunitionsBenchBlockEntity extends BlockEntity implements MenuProvider {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/munitions/bench");
-    private static final RawAnimation IDLE_ANIMATION = RawAnimation.begin().thenLoop("machine.idle");
-    private static final RawAnimation PRODUCTION_ANIMATION = RawAnimation.begin().thenLoop("machine.production");
-    /** 弹盘转速: 12 秒一圈, 与旧 machine.carousel 关键帧一致。 */
-    public static final float CAROUSEL_DEGREES_PER_TICK = 360.0F / 240.0F;
+    /** {@link #programStartTick()} 的 "不知道": 不在工作, 或区块加载时已在工作而还没拿到起点。 */
+    public static final long NO_PROGRAM_START = Long.MIN_VALUE;
 
     /** 槽位: 0=底火, 1=弹壳, 2=弹头, 3=发射药, 4=输出缓冲展示 (四件套见 MunitionsConfig recipe 组)。 */
     public static final int SLOT_PRIMER = 0;
@@ -108,8 +100,6 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     public static final int DATA_CRAFTING_ACTIVE = 8;
     public static final int DATA_CONTINUOUS_CRAFTING = 9;
     private static final int DATA_COUNT = 10;
-    private static final int WELD_SOUND_MIN_INTERVAL = 26;
-    private static final int WELD_SOUND_INTERVAL_SPREAD = 18;
 
     /** ContainerData 槽数 (Menu 客户端侧建同尺寸 SimpleContainerData 用)。 */
     public static int DATA_COUNT() {
@@ -146,19 +136,16 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     private long lastSettleTick;
     /** 首帧锚定标志: false = lastSettleTick 尚未锚定 (首次结算只记 now 不补产); 由 NBT 持久化跨重载保持。 */
     private boolean settleInitialized;
-    private long nextWeldSoundTick;
-    private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
     /**
-     * 弹盘当前角度与上次取样的游戏时刻; 纯渲染态, 不进 NBT, 重载后从 0 度重新起转即可。
-     *
-     * 取样时刻必须是 long 的 gameTime 加一个独立的 partialTick, 不能把两者相加塞进一个 float:
-     * float 只有 24 位尾数, gameTime 过了 2^24 tick (约 9.7 天世界运行时间) 之后相邻整数就表示不下,
-     * 再过些日子间隔会涨到 2、4、8 tick。那时每帧算出的 elapsed 会在 0 和一个整跳之间摆动,
-     * 弹盘从匀速转变成一顿一跳 —— 正是这次改动想消掉的那种视觉毛病, 只是延迟几天才发作。
+     * 弹药流水线运动程序 ({@link MunitionsBenchProgram}) 的起点: ACTIVE 由假变真的那个游戏 tick, 两端各记各的。
+     * 服务端据它在起点 + STRIKE_TICK + n × CYCLE_TICKS 播冲压音, 客户端的渲染器据它摆运动件、放火花, 两边同拍。
+     * 纯运行态, 不进 NBT: 读档时 ACTIVE 已为真就从第一次用到它的那一 tick 起算 (见 {@link #programStartTickOr})。
      */
-    private float carouselAngleDegrees;
-    private long carouselSampleTick = Long.MIN_VALUE;
-    private float carouselSamplePartial;
+    private long programStartTick = NO_PROGRAM_START;
+    /** 最近一次 ACTIVE 由真变假的游戏 tick; 同一 tick 里又亮回来 (连续模式换批) 时据此保住相位。 */
+    private long programStoppedTick = NO_PROGRAM_START;
+    /** 服务端最近一次播冲压音的游戏 tick (同一 tick 只播一次)。 */
+    private long lastStrikeSoundTick = NO_PROGRAM_START;
 
     /**
      * 4->5 槽迁移 (F015) 待掉落队列: 旧档 legacy slot 0/1 (类型无关) 与非发射药的 legacy slot 2 内容无处安放,
@@ -250,54 +237,88 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         super(ModMunitionsBlockEntities.MUNITIONS_BENCH.get(), pos, state);
     }
 
+    // ---- 弹药流水线的运动程序相位 (服务端冲压音 + 客户端运动件) ----
+
+    /**
+     * 两端都在这里看 ACTIVE 由假变真: 服务端的 {@code setMachineActive} 与客户端收到的方块更新都经
+     * {@code LevelChunk.setBlockState} 把新状态交给已有的方块实体, 这是两边唯一能准确看到开工时刻的地方
+     * (与枪匠组装台相同)。
+     * <p>
+     * 服务端同一 tick 里先灭后亮 (连续模式: 本批落账后 setMachineActive(false), 紧接着 tryStartCraft 又点亮) 不算重新开工:
+     * 服务端每 tick 只把方块的最终状态发给客户端 (两次区块广播之间的变化合并成一次), 客户端看到的是 "一直亮着",
+     * 相位不会重来, 服务端也就不能重来, 否则冲压音从此与画面错拍。客户端每看到一次翻转都重新起算。
+     */
     @Override
-    public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
-        controllers.add(new AnimationController<>(this, "machine", 4, state ->
-                state.setAndContinue(getBlockState().getValue(MunitionsBenchBlock.ACTIVE)
-                        ? PRODUCTION_ANIMATION
-                        : IDLE_ANIMATION)));
+    @SuppressWarnings("deprecation")
+    public void setBlockState(BlockState state) {
+        boolean wasActive = isActive(getBlockState());
+        super.setBlockState(state);
+        if (level == null) {
+            return;
+        }
+        boolean active = isActive(state);
+        long now = level.getGameTime();
+        if (active && !wasActive) {
+            boolean relitWithinOneTick = !level.isClientSide
+                    && programStartTick != NO_PROGRAM_START && programStoppedTick == now;
+            if (!relitWithinOneTick) {
+                programStartTick = now;
+            }
+        } else if (!active && wasActive) {
+            programStoppedTick = now;
+        }
+    }
+
+    private static boolean isActive(BlockState state) {
+        return state.hasProperty(MunitionsBenchBlock.ACTIVE) && state.getValue(MunitionsBenchBlock.ACTIVE);
+    }
+
+    /** 运动程序的起点 (游戏 tick); 不知道时是 {@link #NO_PROGRAM_START}。只在 ACTIVE 为真时有意义。 */
+    public long programStartTick() {
+        return programStartTick;
     }
 
     /**
-     * 弹盘的连续旋转不走 GeckoLib 动画通道, 由渲染器直接驱动 carousel 骨骼。
-     *
-     * 原因是 GeckoLib 4.8.2 的 {@code AnimationController.adjustTick} 返回
-     * {@code speed * max(0, tick - tickOffset)} 而 {@code tickOffset} 只在切换 RawAnimation 时重锚:
-     * 用 {@code setControllerSpeed(0)} 当暂停并不会"停在原地", 而是让 adjustedTick 恒为 0, 也就是把弹盘
-     * 瞬间复位到动画第 0 帧的 0 度; 恢复速度时又立刻跳到 {@code 经过 tick} 对应的任意相位。停机一次弹一次,
-     * 开机一次再弹一次。改速度、改过渡长度都绕不开这个乘法, 只能把角度自己管起来。
-     *
-     * @param elapsedTicks 距上次取值经过的 tick 数, 由调用方按游戏时间给出
-     * @return 累加后的角度, 停机时原地保持
+     * 同 {@link #programStartTick()}, 但不知道起点时从 now 起算并记下: 读档时已在工作的服务端从第一次发区块
+     * ({@link #getUpdateTag}) 或第一次播音判定的那一 tick 开始; 客户端这边只是兜底 (更新标签总带着起点), 从渲染器第一次画它的那一帧开始。
      */
-    public float advanceCarouselAngle(float elapsedTicks) {
-        if (getBlockState().getValue(MunitionsBenchBlock.ACTIVE)) {
-            carouselAngleDegrees = (carouselAngleDegrees + elapsedTicks * CAROUSEL_DEGREES_PER_TICK) % 360.0F;
+    public long programStartTickOr(long now) {
+        if (programStartTick == NO_PROGRAM_START) {
+            programStartTick = now;
         }
-        return carouselAngleDegrees;
+        return programStartTick;
     }
 
-    /** 供渲染器按帧推进弹盘角度; 停机时 elapsed 照常推进但角度不变, 复工后从停下的角度继续。 */
-    public float carouselAngleDegrees(float partialTick) {
-        Level level = getLevel();
-        if (level == null) {
-            return carouselAngleDegrees;
-        }
-        long now = level.getGameTime();
-        // 整 tick 差走 long 相减后再转 float (差值恒在个位数, 精度无损), 小数部分单独作差。
-        float elapsed = carouselSampleTick == Long.MIN_VALUE
-                ? 0.0F
-                : Math.max(0.0F, (float) (now - carouselSampleTick) + (partialTick - carouselSamplePartial));
-        carouselSampleTick = now;
-        carouselSamplePartial = partialTick;
-        return advanceCarouselAngle(elapsed);
-    }
-
+    /**
+     * 区块发给客户端时带上程序起点: 玩家走远再回来、或台主上线时区块比 ACTIVE 翻转晚到, 客户端都看不到翻转,
+     * 没有起点就只能从第一帧起算, 之后的整批 (几十分钟) 画面都与冲压音错拍。只带这一个值, 背包、台主等都不外发。
+     * 默认 {@code getUpdatePacket()} 为 null, 方块更新不会带这个标签; 开停机的相位由 {@link #setBlockState} 管。
+     * <p>
+     * 起点不存盘, 读档时已在工作的台子要到第一次播音判定才定起点; 而区块包在区块能 tick 时就组好, 早于这台机器的第一次
+     * tick (视距大于模拟距离时, 视距边缘的区块根本不 tick)。所以还不知道起点时就在这里当场定下 (之后播音也按它),
+     * 发出去的标签总带着起点, 客户端不必自己从 "第一次看到" 起算。
+     */
     @Override
-    public AnimatableInstanceCache getAnimatableInstanceCache() {
-        return animationCache;
+    public CompoundTag getUpdateTag() {
+        CompoundTag tag = new CompoundTag();
+        if (level != null && isActive(getBlockState())) {
+            tag.putLong(K_PROGRAM_START, programStartTickOr(level.getGameTime()));
+        }
+        return tag;
     }
 
+    /** 不走默认的 {@code load(tag)}: 更新标签里只有程序起点, 按存档读会把客户端这份的其余字段清成默认值。 */
+    @Override
+    public void handleUpdateTag(CompoundTag tag) {
+        if (tag.contains(K_PROGRAM_START, Tag.TAG_LONG)) {
+            programStartTick = tag.getLong(K_PROGRAM_START);
+        }
+    }
+
+    /**
+     * 方块实体渲染器只画运动件 (静态机身在区块网格里), 包围盒只要两格、高到运动件的最高点
+     * ({@link MunitionsBenchGeometry#RENDER_TOP_PX}); 运动件扫过的范围都在两格之内。
+     */
     @Override
     public AABB getRenderBoundingBox() {
         BlockState state = getBlockState();
@@ -311,10 +332,8 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         double minZ = Math.min(worldPosition.getZ(), extensionPos.getZ());
         double maxX = Math.max(worldPosition.getX(), extensionPos.getX()) + 1.0D;
         double maxZ = Math.max(worldPosition.getZ(), extensionPos.getZ()) + 1.0D;
-        AABB machineBounds = new AABB(minX, worldPosition.getY(), minZ,
-                maxX, worldPosition.getY() + 25.5D / 16.0D, maxZ).inflate(1.0D / 16.0D, 0.0D, 1.0D / 16.0D);
-        Direction facing = state.getValue(MunitionsBenchBlock.FACING);
-        return machineBounds.expandTowards(facing.getStepX() * 0.25D, 0.0D, facing.getStepZ() * 0.25D);
+        return new AABB(minX, worldPosition.getY(), minZ,
+                maxX, worldPosition.getY() + MunitionsBenchGeometry.RENDER_TOP_PX / 16.0D, maxZ);
     }
 
     public ContainerData dataAccess() {
@@ -490,21 +509,18 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
             setChanged();
         }
         if (ownerUUID == null) {
-            nextWeldSoundTick = 0L;
             setMachineActive(false);
             return;
         }
         if (!settleInitialized) {
             settleInitialized = true;
             lastSettleTick = level.getGameTime();
-            nextWeldSoundTick = 0L;
             setMachineActive(false);
             return;
         }
         ServerPlayer owner = level.getServer() == null ? null
                 : level.getServer().getPlayerList().getPlayer(ownerUUID);
         if (owner == null) {
-            nextWeldSoundTick = 0L;
             setMachineActive(false);
             return; // 主人离线: 不追算 (时间戳保持, 回来时一次性补)。
         }
@@ -536,7 +552,6 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
             return;
         }
         if (selectedCaliber == null) {
-            nextWeldSoundTick = 0L;
             setMachineActive(false);
             return;
         }
@@ -557,7 +572,6 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         this.refineUnlockedForOwnerCache = MunitionsLevels.isRefineUnlocked(level0);
         if (!MunitionsLevels.isCaliberUnlocked(level0, selectedCaliber)) {
             selectedCaliber = null;
-            nextWeldSoundTick = 0L;
             setMachineActive(false);
             setChanged();
             return;
@@ -587,12 +601,12 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         }
 
         // Charge before advancing lastSettleTick so a failed fee keeps the production window.
-        // 复核 (major, F049 同源): 扣费失败不撤销本 tick 已点亮的 active/音效状态, 也不重置 nextWeldSoundTick。
+        // 复核 (major, F049 同源): 扣费失败不撤销本 tick 已点亮的 active 状态。
         // 本 tick 的产出条件本就成立 (料/缓冲/时间三门都过了), 只是差信用点, 不是"没在产"; lastSettleTick 未推进
         // 故下一 tick elapsed 继续累积、result.produced() 大概率仍为 true, 若这里强制拉黑再在下一 tick 重新点亮,
-        // 就是每 tick 一次熄灭再点亮 —— 音效节流被清零后每 tick 都重新达标, 造成 20 次/秒的音效轰炸 + 方块状态
-        // 每 tick 两次 (主+副半块) 的更新包风暴。保留当前 active/节流状态即可: setPartActive 本身按值变判据去重
-        // (已是 true 就不会重复发包), 音效则继续走 WELD_SOUND_MIN_INTERVAL 的正常节奏, 不因反复欠费而失效。
+        // 就是每 tick 一次熄灭再点亮 —— 运动程序每 tick 从头开始、冲压音永远到不了 STRIKE_TICK, 外加方块状态
+        // 每 tick 两次 (主+副半块) 的更新包风暴。保留当前 active 即可: setPartActive 本身按值变判据去重
+        // (已是 true 就不会重复发包), 冲压音则继续按程序相位的正常节奏播, 不因反复欠费而失效。
         if (!tryChargeWorkFee(owner, result.workFeeCredits())) {
             setChanged();
             return;
@@ -704,7 +718,6 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         craftingActive = false;
         craftingCaliber = null;
         craftingStartTick = 0L;
-        nextWeldSoundTick = 0L;
         // 双模式衔接 (审查 M-1): 制作期间被动结算被短路, 若不推进时间戳, 回到空闲后被动路径会把
         // 制作耗时当挂机流逝再结算一遍 (双重产出)。制作段的时间已兑现为手动批产物, 此处一并翻页。
         if (level != null) {
@@ -713,24 +726,32 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         }
     }
 
+    /**
+     * 冲压音跟着运动程序走: 只在程序起点 + {@link MunitionsBenchProgram#STRIKE_TICK} + n × CYCLE_TICKS 那一 tick 播,
+     * 正是客户端渲染器里冲头压到底、放火花的那一刻 (两边的起点都是各自看到 ACTIVE 由假变真的 tick, 见 {@link #setBlockState})。
+     * WIDE 从冲压点 ({@link MunitionsBenchGeometry#SPARK_X} ..) 出声; LEGACY 老模型没有冲头, 仍在主格中上方。
+     * 同一 tick 可能被结算调到两次 (tick 帧 + GUI 打开帧), 所以按 tick 去重。
+     */
     private void playWeldSoundIfActive(long now, boolean active) {
         if (!active || level == null || level.isClientSide) {
-            nextWeldSoundTick = 0L;
             return;
         }
-        if (nextWeldSoundTick > now) {
+        BlockState state = getBlockState();
+        if (!isActive(state) || lastStrikeSoundTick == now
+                || !MunitionsBenchProgram.isStrikeTick(now - programStartTickOr(now))) {
             return;
         }
+        lastStrikeSoundTick = now;
+        Vec3 at = state.getValue(MunitionsBenchBlock.LAYOUT) == MunitionsBenchBlock.Layout.WIDE
+                ? MunitionsBenchBlock.benchPixelToWorld(worldPosition, state.getValue(MunitionsBenchBlock.FACING),
+                MunitionsBenchGeometry.SPARK_X, MunitionsBenchGeometry.SPARK_Y, MunitionsBenchGeometry.SPARK_Z)
+                : new Vec3(worldPosition.getX() + 0.5D, worldPosition.getY() + 0.72D, worldPosition.getZ() + 0.5D);
         float pitch = 0.88F + level.random.nextFloat() * 0.24F;
-        level.playSound(null,
-                worldPosition.getX() + 0.5D,
-                worldPosition.getY() + 0.72D,
-                worldPosition.getZ() + 0.5D,
+        level.playSound(null, at.x, at.y, at.z,
                 ModMunitionsSounds.MUNITIONS_BENCH_WELD.get(),
                 SoundSource.BLOCKS,
                 0.38F,
                 pitch);
-        nextWeldSoundTick = now + WELD_SOUND_MIN_INTERVAL + level.random.nextInt(WELD_SOUND_INTERVAL_SPREAD + 1);
     }
 
     /** 工费 sink: 经 {@link EconomyServices} 定位器先查后扣; 经济未注入或 cost<=0 放行 (不阻塞核心循环)。 */
@@ -984,6 +1005,8 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     private static final String K_CRAFTING_START = "CraftingStartTick";
     private static final String K_PENDING_DROPS = "PendingLegacyDrops";
     private static final String K_INV_SIZE = "Size";
+    /** 只出现在发给客户端的更新标签里 ({@link #getUpdateTag}), 不存盘。 */
+    private static final String K_PROGRAM_START = "ProgramStartTick";
 
     @Override
     protected void saveAdditional(CompoundTag tag) {

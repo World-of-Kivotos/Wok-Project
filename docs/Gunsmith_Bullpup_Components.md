@@ -34,11 +34,11 @@ BULLPUP 的后坐力系数固定为 `1.0`，不受任何组件加成。RECEIVER 
 
 五类组件沿用机械冲压机的现有平台、品质和 CMD 输出流程。RECEIVER 的材料成本为 `6/6/5`，分别按该组件定义的三类成本材料计。BULLPUP 当前不新增图纸；等待用户指定 AUG、QBZ-95 等具体枪型后再增加对应图纸，严禁回退或 fallback 到其他枪型。
 
-## 装配台迁移
+## 组装台迁移
 
-装配台槽位数不是固定常量，而是随 `GunsmithPressPart` 枚举增长，权威来源是 `GunsmithAssemblyBenchBlockEntity` 中的 `SLOT_COUNT` 与各 `LEGACY_*_SLOT_COUNT` 常量。当前为 `Size=14`：图纸槽 `0`、十二个部件槽 `1-12`、输出槽 `13`。
+组装台槽位数不是固定常量，而是随 `GunsmithPressPart` 枚举增长，权威来源是 `GunsmithAssemblyBenchBlockEntity` 中的 `SLOT_COUNT` 与各 `LEGACY_*_SLOT_COUNT` 常量。当前为 `Size=14`：图纸槽 `0`、十二个部件槽 `1-12`、输出槽 `13`。
 
-引入 BULLPUP 平台和 RECEIVER 枚举时，当时的固定值是 `Size=12`；该值现已降为历史迁移路径之一。装配台当前接受并自动迁移以下五种存档尺寸：
+引入 BULLPUP 平台和 RECEIVER 枚举时，当时的固定值是 `Size=12`；该值现已降为历史迁移路径之一。组装台当前接受并自动迁移以下五种存档尺寸：
 
 | 存档 Size | 对应历史阶段 | 迁移方式 |
 | --- | --- | --- |

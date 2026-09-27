@@ -34,7 +34,7 @@
 
 ### 3A. 枪械配件冲压补充（WIP）
 
-> **运行状态：整条枪匠链默认关闭。** 冲压台与装配台右键、M4/图纸组枪、TACZ 加伤与耐久事件、创造模式页签全部由 `miningdim-munitions.toml` 的 `[recipe] gunsmithEnabled` 单一开关门控（代码为 `MunitionsConfig.GUNSMITH_ENABLED`，拦截点在 `GunsmithPressBlock.use`、`GunsmithAssemblyBenchBlock.use`、`GunsmithAssemblyBenchBlockEntity`、`GunsmithTaczDurabilityHandler`、`GunsmithTaczStatsHandler`、`ModMunitionsTab`），**当前默认值为 `false`**。真服开箱状态下右键装配台只会收到 `message.miningdim.gunsmith.disabled`（“枪匠系统尚未开放”）提示，本节的冲压产线与十章第 8、9 条的耐久扣减、维修结算一条都不会发生，`repairUnlockLevel` / `repairWorkFeeCredits` 等参数全部空转。本节与十章 8/9 描述的是**已落码但未开启**的行为，开启前必须先过数值与经济评审（开关注释所列门槛：材料物品、生存链、门控、伤害系数、经济 sink）。
+> **运行状态：整条枪匠链默认关闭。** 冲压台与组装台右键、M4/图纸组枪、TACZ 加伤与耐久事件、创造模式页签全部由 `miningdim-munitions.toml` 的 `[recipe] gunsmithEnabled` 单一开关门控（代码为 `MunitionsConfig.GUNSMITH_ENABLED`，拦截点在 `GunsmithPressBlock.use`、`GunsmithAssemblyBenchBlock.use`、`GunsmithAssemblyBenchBlockEntity`、`GunsmithTaczDurabilityHandler`、`GunsmithTaczStatsHandler`、`ModMunitionsTab`），**当前默认值为 `false`**。真服开箱状态下右键组装台只会收到 `message.miningdim.gunsmith.disabled`（“枪匠系统尚未开放”）提示，本节的冲压产线与十章第 8、9 条的耐久扣减、维修结算一条都不会发生，`repairUnlockLevel` / `repairWorkFeeCredits` 等参数全部空转。本节与十章 8/9 描述的是**已落码但未开启**的行为，开启前必须先过数值与经济评审（开关注释所列门槛：材料物品、生存链、门控、伤害系数、经济 sink）。
 
 - 命名口径与显示规则见 [枪匠组件命名计划](Gunsmith_Component_Naming_Plan.md)；属性平衡、射速禁区与后续稀有组件规则见 [枪匠组件平衡与后续扩展路线](Gunsmith_Component_Balance_Roadmap.md)。
 - **机械冲压机**用于制造枪械配件，不与弹药制造台混在同一产线。
@@ -228,15 +228,15 @@
 6. **进度**:并入统一 EnumMap;产弹经验谁产谁得 + 每日软上限。
 7. 全链路 TDD:产能=台数×速率、缓冲满停产、离线追算填到缓冲上限、工费销毁入账、台数上限校验。
 8. **枪械耐久**（已落码，默认关闭，见 3A 运行状态）:仅作用于 WOK 枪匠装配成品，在 `MiningDimGunsmith` 内保存独立耐久 NBT，不占用原版 Damage，不修改 TaCZ/枪包 JSON。初始耐久和每次维修永久损失按 AR、AK、霰弹枪、栓动步枪、精准射手、冲锋枪、手枪等平台分开配置；当前霰弹枪、栓动步枪、精准射手的默认初始耐久分别为 600、800、1000。组件可追加上限倍率修正：圣三一精密刻度枪管使 AR 最大耐久额外降低 30%。每次成功发射扣 1；霰弹枪一次扣扳机只扣 1，连发/三连发按实际发射子弹逐发扣除。归零时保留枪械但禁止开火。
-9. **枪械维修**（已落码，默认关闭，见 3A 运行状态）:枪械装配台兼作维修入口——图纸槽改放损耗枪后界面切到维修模式，只开放该平台的关键循环件槽位。维修受一道等级门与一条替换件校验约束，并付出三重代价（工费、替换件、永久最大耐久下降），全部数值落在 `miningdim-munitions.toml`：
+9. **枪械维修**（已落码，默认关闭，见 3A 运行状态）:枪械组装台兼作维修入口——图纸槽改放损耗枪后界面切到维修模式，只开放该平台的关键循环件槽位。维修受一道等级门与一条替换件校验约束，并付出三重代价（工费、替换件、永久最大耐久下降），全部数值落在 `miningdim-munitions.toml`：
    - **等级门** `[gunsmith] repairUnlockLevel`（默认 4）：维修是「替别人修枪」的低阶服务，比装配 `assemblyUnlockLevel`（默认 5）早一级开放；没有这道门，1 级号就能开免费修枪铺，把装配侧的等级门与工费一并架空。
    - **工费 sink** `[gunsmith] repairWorkFeeCredits`（默认 1500 CP，销毁）：与装配工费（默认 5000）独立结算，先扣费再消耗零件。它必须明显低于「弃枪重造」的总价（装配 5000 + 该平台整套组件的冲压工费），否则玩家宁可弃枪重造，耐久体系失去意义；设 0 等于关掉维修 sink。
    - **替换件**：消耗一件同平台关键循环件——AR / AK / 精准射手 / 机枪 / 霰弹枪取枪机，手枪取套筒，无托式步枪 / 冲锋枪取机匣，栓动式步枪取撞针。
    - **永久最大耐久下降**：按 `[gunDurability] <平台>RepairLoss` 扣掉原始上限的固定比例（AK、栓动式步枪、霰弹枪 0.08；AR、手枪、无托式步枪 0.10；精准射手、机枪、冲锋枪 0.12），向上取整且至少 1 点；最大耐久降到 `minimumRemainingRatio`（默认 0.30，即原始上限的 30%）即报废，不得再维修。
    - **替换件同型号且不降级校验**：替换件的组件型号（`variant`）必须与枪上该槽实际装着的组件一致，品质档不低于原件。维修只重写耐久子标签，不重算 Parts/Stats；若放行降级件，最便宜的普通基础件就能给传奇或势力组件枪无限续命，稀缺组件的成本退化成一次性投入。槽位谓词只在放入那一刻生效，换枪后残留在槽里的旧件仍会走到结算，故服务端开工前必须再判一次。
-   - 成功后当前耐久回满到**新的**最大耐久。损耗不足（新上限仍不高于当前耐久）时拒绝维修，免得白吃一次永久损失。维修为确定性结算，不设随机失败或直接销毁枪械；装配台在开工前给出维修预览（当前/最大耐久、已维修次数、维修后的新上限、本次永久损失，以及可维修/耐久已满/损耗不足/已报废四种状态）。
+   - 成功后当前耐久回满到**新的**最大耐久。损耗不足（新上限仍不高于当前耐久）时拒绝维修，免得白吃一次永久损失。维修为确定性结算，不设随机失败或直接销毁枪械；组装台在开工前给出维修预览（当前/最大耐久、已维修次数、维修后的新上限、本次永久损失，以及可维修/耐久已满/损耗不足/已报废四种状态）。
 10. **电力闸门与双模式**:`MunitionsProduction.settle` 把电力作为第四道闸与时间/缓冲/料一同取最小(电不足减产不停产);手动开工路径绕开 `settle`,故 `MunitionsBenchBlockEntity.tryStartCraft` 必须**独立再设一次同样的电力闸**,否则它就是电力限制的逃逸口。被动挂机与手动制作互斥:`settleManualCraft` 返回 true 即本帧不再放行被动结算;开工/取消/连续/上锁四个菜单按钮(210/211/212/200)一律限台主。数值与理由见五章。
-11. **WebUI 面板**:两条只读 action `job.munitions.state`(军火台/冲压机/装配台三台机器的远程只读镜像)与 `job.blueprints`(图纸静态全表),由 `MunitionsWebUiActions.registerAll()` 经 `MunitionsSystem.register` 注册进 `WebUiServerDispatcher`。**铁律**:面板刷新绝不调 `onAccess` / `settleForOwner`——那条路径会扣工费、扣料、发经验,挂上去等于"开着面板"变成产能加速器;数值一律经各 BE 的 `ContainerData` 读,与原生 GUI 同一份权威快照。台位按发送者所在维度、以其所在区块为心的 `SEARCH_CHUNK_RADIUS`(4)区块半径内**已加载**区块就近扫描,军火台额外过归属;故 `pos` 为 `null` 的语义是"这个半径内没扫到",不是"你没造过",全局台数以 `benchesPlaced` / `benchCap` 为准(SavedData 按 UUID 计,跨维度权威)。
+11. **WebUI 面板**:两条只读 action `job.munitions.state`(军火台/冲压机/组装台三台机器的远程只读镜像)与 `job.blueprints`(图纸静态全表),由 `MunitionsWebUiActions.registerAll()` 经 `MunitionsSystem.register` 注册进 `WebUiServerDispatcher`。**铁律**:面板刷新绝不调 `onAccess` / `settleForOwner`——那条路径会扣工费、扣料、发经验,挂上去等于"开着面板"变成产能加速器;数值一律经各 BE 的 `ContainerData` 读,与原生 GUI 同一份权威快照。台位按发送者所在维度、以其所在区块为心的 `SEARCH_CHUNK_RADIUS`(4)区块半径内**已加载**区块就近扫描,军火台额外过归属;故 `pos` 为 `null` 的语义是"这个半径内没扫到",不是"你没造过",全局台数以 `benchesPlaced` / `benchCap` 为准(SavedData 按 UUID 计,跨维度权威)。
 
 ---
 

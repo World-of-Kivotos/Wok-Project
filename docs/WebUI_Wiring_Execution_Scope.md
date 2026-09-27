@@ -118,7 +118,7 @@
 |---|---|---|---|
 | `job.agent.state` | WRAP | — | 清单无直接对应条目，档位待实现前复核 |
 | `job.agent.seal` | WRAP | C17 | SealOutcome 九态服务端裁决齐全，按 targetNetworkId + affixId 直转调 |
-| `job.munitions.state` | WRAP | C19 | 军火台/冲压机/装配台均是 ContainerData 驱动，按 blockPos + 按钮 id 薄封装 |
+| `job.munitions.state` | WRAP | C19 | 军火台/冲压机/组装台均是 ContainerData 驱动，按 blockPos + 按钮 id 薄封装 |
 | `job.blueprints` | WRAP | C20 | `GunsmithBlueprint` 枚举（9 款枪 + requiredParts），玩家最常查的静态表 |
 | `job.engineer.state` | WRAP | C21 | 档位表 / 护甲特效可封装；QTE 游标见决策 J5 |
 | `job.tarot.state` | WRAP+BACKEND | C14 | 等级/品质门/碎片兑换可薄封装；**战斗窗口聚合快照与 CD 只读 peek 都没有**（`tryUse` 是校验并占用的写方法），须新增只读方法 |

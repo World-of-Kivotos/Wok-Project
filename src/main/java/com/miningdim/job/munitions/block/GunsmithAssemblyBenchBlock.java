@@ -3,10 +3,8 @@ package com.miningdim.job.munitions.block;
 import com.miningdim.job.munitions.MunitionsConfig;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.util.RandomSource;
 import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -50,8 +48,9 @@ public final class GunsmithAssemblyBenchBlock extends Block implements EntityBlo
     public static final DirectionProperty FACING = BlockStateProperties.HORIZONTAL_FACING;
     public static final EnumProperty<Part> PART = EnumProperty.create("part", Part.class);
     public static final BooleanProperty ACTIVE = BooleanProperty.create("active");
-    // 各部位朝北时的体积, 跟随方块模型: 台面 y0..10 满格, 其上是斜置夹具、控制台、洞洞板后墙、工作灯与机械臂设备台。
-    // 机械臂由 BlockEntityRenderer 绘制, 不参与碰撞。模型改动后用 tools/gunsmith_workstation 重新核对这些数值。
+    // 各部位朝北时的体积, 跟随方块模型: 台面 y0..10 满格, 其上是斜置夹具、控制台、洞洞板后墙、工作灯与机械臂设备台 (含送料盘)。
+    // 机械臂由 BlockEntityRenderer 绘制, 不参与碰撞; 焊花也由它按机械臂程序在零件接触点生成, 方块本身不再放粒子。
+    // 模型改动后用 tools/gunsmith_workstation 重新核对这些数值。
     private static final Map<Part, Map<Direction, VoxelShape>> SHAPES = createShapes();
 
     private final Supplier<BlockEntityType<GunsmithAssemblyBenchBlockEntity>> beType;
@@ -142,7 +141,8 @@ public final class GunsmithAssemblyBenchBlock extends Block implements EntityBlo
                 Block.box(3.0D, 10.0D, 7.5D, 14.5D, 11.5D, 10.5D)));
         north.put(Part.BACK_SIDE, Shapes.or(worktop, backWall,
                 Block.box(3.5D, 10.0D, 1.0D, 15.0D, 11.5D, 13.0D),
-                Block.box(2.0D, 11.5D, 6.0D, 6.5D, 14.0D, 9.0D)));
+                Block.box(2.0D, 11.5D, 6.0D, 6.5D, 14.0D, 9.0D),
+                Block.box(3.75D, 11.5D, 1.25D, 13.75D, 14.0D, 3.75D)));
         Map<Part, Map<Direction, VoxelShape>> shapes = new EnumMap<>(Part.class);
         north.forEach((part, shape) -> shapes.put(part, rotatedShapes(shape.optimize())));
         return shapes;
@@ -272,29 +272,6 @@ public final class GunsmithAssemblyBenchBlock extends Block implements EntityBlo
             }
         }
         return InteractionResult.CONSUME;
-    }
-
-    @Override
-    public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {
-        if (!isMain(state) || !state.getValue(ACTIVE) || random.nextFloat() > 0.86F) {
-            return;
-        }
-        Direction facing = state.getValue(FACING);
-        Direction side = facing.getClockWise();
-        Direction back = facing.getOpposite();
-        double sideOffset = 0.5D + (random.nextDouble() - 0.5D) * 0.12D;
-        double backOffset = 0.5D + (random.nextDouble() - 0.5D) * 0.12D;
-        double x = pos.getX() + 0.5D + side.getStepX() * sideOffset + back.getStepX() * backOffset;
-        double y = pos.getY() + 0.40D + random.nextDouble() * 0.06D;
-        double z = pos.getZ() + 0.5D + side.getStepZ() * sideOffset + back.getStepZ() * backOffset;
-        double vx = (random.nextDouble() - 0.5D) * 0.08D;
-        double vy = 0.03D + random.nextDouble() * 0.06D;
-        double vz = (random.nextDouble() - 0.5D) * 0.08D;
-        level.addParticle(ParticleTypes.ELECTRIC_SPARK, x, y, z, vx, vy, vz);
-        level.addParticle(ParticleTypes.ELECTRIC_SPARK, x, y, z, -vx, vy * 0.7D, -vz);
-        if (random.nextInt(5) == 0) {
-            level.addParticle(ParticleTypes.SMOKE, x, y + 0.05D, z, 0.0D, 0.018D, 0.0D);
-        }
     }
 
     @Nullable

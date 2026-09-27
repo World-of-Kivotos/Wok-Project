@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readPng } from './png.mjs';
-import { bakeBlockModel, parseArmJava, bakeArm, armPose, armPhasePose } from './raster.mjs';
+import { bakeBlockModel, parseArmJava, parseArmProgram, bakeArm, armPose, armPhasePose, armProgramState, sparkQuads } from './raster.mjs';
 
 export const PART_OFFSETS = {
     // 朝北时: SIDE = 顺时针 = 东 (+x), BACK = 南 (+z)。见 GunsmithAssemblyBenchBlock.partPos。
@@ -75,13 +75,44 @@ export class AssetRoot {
         return this.find(path.join('src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'client', 'GunsmithAssemblyBenchRenderer.java'));
     }
 
+    /** 机械臂关键帧程序源码; 旧版 (HEAD 之前的时间窗动作) 没有这个文件, 返回 null。 */
+    armProgramPath() {
+        try {
+            return this.find(path.join('src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'block', 'GunsmithArmProgram.java'));
+        } catch (e) {
+            return null;
+        }
+    }
+
     arm() {
         const src = fs.readFileSync(this.armJavaPath(), 'utf8');
         const arm = parseArmJava(src);
         const tex = /new ResourceLocation\(\s*MiningConstants\.MODID\s*,\s*"textures\/([^"]+)\.png"\)/.exec(src);
         arm.textureId = 'miningdim:' + (tex ? tex[1] : 'entity/gunsmith_assembly_arm');
+        // 渲染器里还留着旧版姿态常量时 (改前的 Java) 走旧的时间窗动作, 否则读关键帧程序
+        const programFile = arm.consts.IDLE_UPPER_ARM_Z === undefined ? this.armProgramPath() : null;
+        arm.program = programFile ? parseArmProgram(fs.readFileSync(programFile, 'utf8')) : null;
         return arm;
     }
+}
+
+/**
+ * 机械臂在某一时刻的四边形 (含点焊火花)。armOpt: {tick} 为程序时间 0..160; 旧版 Java (无程序) 时 tick 按 80 tick 一轮
+ * 映射到旧的 phase, 与当时游戏里的循环一致。
+ */
+export function armQuads(root, arm, armOpt = {}) {
+    const image = root.image(arm.textureId);
+    if (arm.program) {
+        // 工作态但没给 tick: 取第一次点焊的时刻, 让静态组图也能看到零件、夹爪与火花
+        const firstWeld = arm.program.rows.find((r) => r.spark);
+        const tick = armOpt.tick !== undefined ? armOpt.tick : armOpt.work && firstWeld ? firstWeld.tick - 1 : 0;
+        const st = armProgramState(arm, tick);
+        const quads = bakeArm(arm, st.pose, image);
+        if (st.spark) quads.push(...sparkQuads(st.contact, tick));
+        return quads;
+    }
+    if (armOpt.tick === undefined) return bakeArm(arm, armPose(arm, armOpt.work || 0), image);
+    return bakeArm(arm, armPhasePose(arm, ((armOpt.tick % 80) + 80) % 80 / 80), image);
 }
 
 /** 机械冲压机: 单格。 */
@@ -90,16 +121,14 @@ export function pressQuads(root, active) {
     return bakeBlockModel(model, { textureLookup: (id) => root.image(id), tag: 'press' });
 }
 
-/** 枪械组装台: 2×2 四个部位 + 机械臂; armWork 0..1 为机械臂动作进度 (线性); armPhase 0..1 为 Java 真实时间线 (优先)。 */
-export function assemblyQuads(root, active, armWork = active ? 1 : 0, armPhase = undefined) {
+/** 枪械组装台: 2×2 四个部位 + 机械臂; armOpt.tick 为机械臂程序时间 (0..160, 省略 = 待机姿态)。 */
+export function assemblyQuads(root, active, armOpt = {}) {
     const quads = [];
     for (const [part, offset] of Object.entries(PART_OFFSETS)) {
         const model = root.model('miningdim:block/gunsmith_assembly_bench_' + part + (active ? '_active' : ''));
         quads.push(...bakeBlockModel(model, { offset, textureLookup: (id) => root.image(id), tag: part }));
     }
-    const arm = root.arm();
-    const pose = armPhase !== undefined ? armPhasePose(arm, armPhase) : armPose(arm, armWork);
-    quads.push(...bakeArm(arm, pose, root.image(arm.textureId)));
+    quads.push(...armQuads(root, root.arm(), armOpt));
     return quads;
 }
 

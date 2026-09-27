@@ -180,7 +180,9 @@ export function parseArmJava(src) {
             if (t[1] !== undefined) tex = [Number(t[1]), Number(t[2])];
             else if (t[3] !== undefined) {
                 const n = t[3].split(',').map((s) => parseFloat(s.replace(/[FfDd]/g, '')));
-                cubes.push({ u: tex[0], v: tex[1], x: n[0], y: n[1], z: n[2], w: n[3], h: n[4], d: n[5] });
+                // addBox(..., new CubeDeformation(g)): 几何外扩 g, UV 仍按原尺寸 (tokRe 在 CubeDeformation 的右括号处截断, 所以这里只有左半)
+                const grow = /CubeDeformation\(\s*(-?[\d.]+)/.exec(t[3]);
+                cubes.push({ u: tex[0], v: tex[1], x: n[0], y: n[1], z: n[2], w: n[3], h: n[4], d: n[5], grow: grow ? parseFloat(grow[1]) : 0 });
             }
         }
         const pose = { x: 0, y: 0, z: 0, xRot: 0, yRot: 0, zRot: 0 };
@@ -242,14 +244,17 @@ export function bakeArm(arm, poseOverrides, image, opts = {}) {
     const visit = (name, parentM) => {
         const part = arm.parts[name];
         const pose = { ...part.pose, ...(poseOverrides[name] || {}) };
+        // ModelPart.visible = false 时整棵子树都不画 (携带件)
+        if (pose.visible === false) return;
         let m = matMul(parentM, mTranslate(pose.x, pose.y, pose.z));
         if (pose.xRot || pose.yRot || pose.zRot) {
             // Quaternionf().rotationZYX(z, y, x) = Rz * Ry * Rx
             m = matMul(m, matMul(mRotZ(pose.zRot), matMul(mRotY(pose.yRot), mRotX(pose.xRot))));
         }
         for (const cube of part.cubes) {
-            const from = [cube.x, cube.y, cube.z];
-            const to = [cube.x + cube.w, cube.y + cube.h, cube.z + cube.d];
+            const g = cube.grow || 0;
+            const from = [cube.x - g, cube.y - g, cube.z - g];
+            const to = [cube.x + cube.w + g, cube.y + cube.h + g, cube.z + cube.d + g];
             const uvr = boxUv(cube);
             for (const face of FACE_NAMES) {
                 // ModelPart 的 y 朝下; 这里直接用同一套角点, 翻转由 rootM 的 scale(1,-1,1) 负责。
@@ -268,9 +273,124 @@ export function bakeArm(arm, poseOverrides, image, opts = {}) {
     return quads;
 }
 
-/** 与 GunsmithAssemblyBenchRenderer.applyPose 相同的姿态; work = 0 为待机, 1 为工作峰值。 */
+// ---------- 机械臂关键帧程序 (GunsmithArmProgram) ----------
+
+/**
+ * 从 GunsmithArmProgram.java 解析几何常量与关键帧表。每行尾部的 "// 动作名" 注释作为预览里的当前动作名。
+ * 返回 {geo, rows, payloadParts: {code: ModelPart 名}}。
+ */
+export function parseArmProgram(src) {
+    const num = (s) => parseFloat(String(s).replace(/[FfDd]/g, ''));
+    const c = {};
+    for (const m of src.matchAll(/static final (?:float|int) (\w+)\s*=\s*(-?[\d.]+)[FfDd]?;/g)) c[m[1]] = num(m[2]);
+    const block = /KEYFRAMES\s*=\s*\{([\s\S]*?)\n\s*\};/.exec(src);
+    if (!block) throw new Error('arm program parse: KEYFRAMES not found');
+    const rows = [];
+    for (const m of block[1].matchAll(/\{([^{}]*)\},?[ \t]*(?:\/\/[ \t]*([^\n]*))?/g)) {
+        const v = m[1].split(',').map(num);
+        rows.push({ tick: v[0], yaw: v[1], upper: v[2], fore: v[3], spin: v[4], claw: v[5], payload: v[6], spark: v[7] !== 0, linear: v[8] || 0, label: (m[2] || '').trim() });
+    }
+    if (rows.length < 2) throw new Error('arm program parse: fewer than two keyframes');
+    const payloadParts = {};
+    for (const [k, v] of Object.entries(c)) if (k.startsWith('PAYLOAD_') && k !== 'PAYLOAD_NONE') payloadParts[v] = 'payload_' + k.slice(8).toLowerCase();
+    return {
+        geo: { L1: c.UPPER_ARM_LENGTH, L2: c.FOREARM_LENGTH, jointUp: c.JOINT_UP, pivot: [c.PIVOT_X, c.PIVOT_Y, c.PIVOT_Z], tipDrop: c.TIP_DROP },
+        rows, payloadParts,
+    };
+}
+
+/** 平面两连杆反解 (肘朝上), 与 GunsmithArmProgram.solveCylindrical 同一算法。dx = -水平伸出, dy = 相对大臂关节的高度。 */
+export function planarIk(L1, L2, dx, dy) {
+    const D = Math.hypot(dx, dy);
+    if (D > L1 + L2 - 0.05 || D < Math.abs(L1 - L2) + 0.05) return null;
+    const a = (L1 * L1 - L2 * L2 + D * D) / (2 * D);
+    const hh = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+    const ux = dx / D, uy = dy / D;
+    const c1 = [a * ux - hh * uy, a * uy + hh * ux], c2 = [a * ux + hh * uy, a * uy - hh * ux];
+    const E = c1[1] > c2[1] ? c1 : c2;
+    const u = Math.atan2(E[0], E[1]);
+    let f = Math.atan2(E[0] - dx, E[1] - dy) - u;
+    while (f > Math.PI) f -= 2 * Math.PI;
+    while (f <= -Math.PI) f += 2 * Math.PI;
+    return { u, f };
+}
+
+/**
+ * 与 GunsmithArmProgram.sample 逐行对应: 超过一轮取模; 连续量 smoothstep 插值; 携带件/火花取到达的那一行;
+ * linear != 0 的段落在柱坐标里插值 (偏航、水平伸出、高度各自缓动) 并反解大臂/小臂角:
+ * linear = 1 偏航不变 → 竖直直线 (MoveL); linear = 2 高度不变 → 在安全高度平移。program: {geo: {L1, L2}, rows}。
+ */
+export function sampleArmProgram(program, tick) {
+    const rows = program.rows;
+    const T = rows[rows.length - 1].tick;
+    let t = tick % T;
+    if (t < 0) t += T;
+    if (t <= 0) return { ...rows[0], seg: 0 };
+    let i = 1;
+    while (rows[i].tick < t) i++;
+    const a = rows[i - 1], b = rows[i];
+    const s = (t - a.tick) / (b.tick - a.tick);
+    const e = s * s * (3 - 2 * s);
+    const L = (k) => a[k] + (b[k] - a[k]) * e;
+    let upper = L('upper'), fore = L('fore');
+    if (b.linear) {
+        const { L1, L2 } = program.geo;
+        const reach = (k) => -(L1 * Math.sin(k.upper) - L2 * Math.sin(k.upper + k.fore));
+        const height = (k) => L1 * Math.cos(k.upper) - L2 * Math.cos(k.upper + k.fore);
+        const k = planarIk(L1, L2, -(reach(a) + (reach(b) - reach(a)) * e), height(a) + (height(b) - height(a)) * e);
+        if (k) { upper = k.u; fore = k.f; }
+    }
+    return { tick: t, yaw: L('yaw'), upper, fore, spin: L('spin'), claw: L('claw'), payload: b.payload, spark: b.spark, linear: b.linear, label: b.label, seg: i };
+}
+
+/** 零件底面中心 (= 点焊接触点), 朝北整台像素。与 GunsmithArmProgram.contactPosition 相同。 */
+export function armProgramContact(geo, k) {
+    const reach = geo.L1 * Math.sin(k.upper) - geo.L2 * Math.sin(k.upper + k.fore);
+    const drop = -geo.jointUp - geo.L1 * Math.cos(k.upper) + geo.L2 * Math.cos(k.upper + k.fore);
+    return [geo.pivot[0] + Math.cos(k.yaw) * reach, geo.pivot[1] - drop - geo.tipDrop, geo.pivot[2] - Math.sin(k.yaw) * reach];
+}
+
+/** 程序时间 tick (0..160) 的完整状态: bakeArm 用的姿态覆盖 (含携带件 visible)、火花、动作名、接触点。 */
+export function armProgramState(arm, tick) {
+    const k = sampleArmProgram(arm.program, tick);
+    const pose = {
+        shoulder: { yRot: k.yaw }, upper_arm: { zRot: k.upper }, forearm: { zRot: k.fore },
+        wrist: { zRot: -(k.upper + k.fore) }, tool: { yRot: k.spin },
+        left_claw: { zRot: k.claw }, right_claw: { zRot: -k.claw },
+    };
+    for (const [code, part] of Object.entries(arm.program.payloadParts)) pose[part] = { visible: Number(code) === k.payload };
+    return { pose, spark: k.spark, label: k.label, payload: k.payload, contact: armProgramContact(arm.program.geo, k) };
+}
+
+export function armProgramPose(arm, tick) {
+    return armProgramState(arm, tick).pose;
+}
+
+const SPARK_COLORS = [[255, 250, 214], [255, 226, 122], [255, 186, 70]].map((c) => ({ width: 1, height: 1, data: new Uint8ClampedArray([...c, 255]) }));
+/** 点焊火花的近似: 接触点附近几颗自发光小方块, 位置按整 tick 变化 (与游戏里每 tick 一簇粒子同节奏)。 */
+export function sparkQuads(contact, tick) {
+    const quads = [];
+    let seed = (Math.floor(tick) * 2654435761) >>> 0;
+    const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    for (let i = 0; i < 6; i++) {
+        const c = [contact[0] + (rnd() - 0.5) * 2.2, contact[1] + rnd() * 1.6, contact[2] + (rnd() - 0.5) * 2.2];
+        const r = i === 0 ? 0.35 : 0.2;
+        const from = [c[0] - r, c[1] - r, c[2] - r], to = [c[0] + r, c[1] + r, c[2] + r];
+        const image = SPARK_COLORS[i % SPARK_COLORS.length];
+        for (const face of FACE_NAMES) {
+            quads.push({ pts: faceCorners(face, from, to), uvs: [[0, 0], [1, 0], [1, 1], [0, 1]], normal: FACE_NORMALS[face], image, uvScale: 1, cull: false, shade: 1, light: 15, tag: 'spark' });
+        }
+    }
+    return quads;
+}
+
+/**
+ * 旧版动作 (只为改前/改后对比保留): 与 HEAD 版 GunsmithAssemblyBenchRenderer.applyPose 相同的姿态; work = 0 为待机, 1 为工作峰值。
+ * 新版 Java 里没有这些常量时退回关键帧程序, work 映射到程序时间。
+ */
 export function armPose(arm, work) {
     const k = arm.consts;
+    if (k.IDLE_UPPER_ARM_Z === undefined && arm.program) return armProgramPose(arm, work * arm.program.rows[arm.program.rows.length - 1].tick);
     const lerp = (a, b, t) => a + (b - a) * t;
     const up = lerp(k.IDLE_UPPER_ARM_Z, k.WORK_UPPER_ARM_Z, work);
     const fore = lerp(k.IDLE_FOREARM_Z, k.WORK_FOREARM_Z, work);
@@ -285,9 +405,9 @@ export function armPose(arm, work) {
 }
 
 /**
- * 按 Java applyPose 的真实时间线取姿态 (phase 0..1, 一个 ASSEMBLY_CYCLE)。
- * 转向 / 伸出 / 夹紧 / 焊接各有自己的时间窗 (motionWindow), 不是 --arm 的线性插值。
- * 时间窗优先从 Java 源里解析 (arm.windows), 解析不到用当前仓库的默认值。
+ * 旧版动作 (只为改前/改后对比保留): 按 HEAD 版 Java applyPose 的时间线取姿态 (phase 0..1, 一个 80 tick 的 ASSEMBLY_CYCLE)。
+ * 转向 / 伸出 / 夹紧 / 焊接各有自己的时间窗 (motionWindow), 焊接时手腕按 12 次正弦来回抖。
+ * 时间窗优先从 Java 源里解析 (arm.windows), 解析不到用 HEAD 版的默认值。
  */
 export function armPhasePose(arm, phase) {
     const k = arm.consts;

@@ -1117,6 +1117,110 @@ public final class MunitionsGameTests {
         }
     }
 
+    // ============================================================
+    // 军火台缓冲同步: bufferL1..L10 配置上限 10,000,000, 缓冲发数 / 上限同样按 int16 过线。直发时上限 40000
+    // 过线变成 -25536 (界面钳成 0), 70000 变成 4464, 新界面据此把"开始制造"误判成"缓冲已满"挡掉。
+    // 两值都拆成两个 15 位半字; 本测把 L1 上限调到 40000、缓冲塞 35000 发, 按 short 过线后必须原样拼回。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchBufferSyncSurvivesInt16Wire(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        IJobService prevJob = swapJob(new FixedLevelJobService(1));
+        int originalBuffer = MunitionsConfig.BUFFER_L1.get();
+        try {
+            // 配置改动与还原都在本测同一次调用里完成, 同批其它用例看不到这个值。
+            MunitionsConfig.BUFFER_L1.set(40_000);
+            MunitionsBenchBlockEntity be = newBench(helper, player);
+            // 先开菜单 (onAccess 把台主等级缓存刷成 1 级 -> 上限读 BUFFER_L1), 再塞缓冲。
+            MunitionsBenchMenu menu = openBenchMenu(be, player);
+            seedBuffer(be, MunitionsCaliber.PISTOL, 35_000);
+            net.minecraft.world.inventory.ContainerData data = be.dataAccess();
+            helper.assertTrue(data.getCount() == MunitionsBenchBlockEntity.DATA_COUNT(),
+                    "bench ContainerData exposes DATA_COUNT slots, got " + data.getCount());
+            int[] bufferIndices = {
+                    MunitionsBenchBlockEntity.DATA_BUFFERED_ROUNDS,
+                    MunitionsBenchBlockEntity.DATA_BUFFERED_ROUNDS_HI,
+                    MunitionsBenchBlockEntity.DATA_BUFFER_CAP,
+                    MunitionsBenchBlockEntity.DATA_BUFFER_CAP_HI};
+            for (int index : bufferIndices) {
+                int value = data.get(index);
+                helper.assertTrue(value >= 0 && value <= 0x7FFF,
+                        "buffer data slot " + index + " must fit a non-negative int16, got " + value);
+            }
+
+            // 模拟过线: 原版按 short 写读 (符号扩展)。
+            int wireCap = MunitionsBenchBlockEntity.unpackHalves15(
+                    (short) data.get(MunitionsBenchBlockEntity.DATA_BUFFER_CAP),
+                    (short) data.get(MunitionsBenchBlockEntity.DATA_BUFFER_CAP_HI));
+            int wireBuffered = MunitionsBenchBlockEntity.unpackHalves15(
+                    (short) data.get(MunitionsBenchBlockEntity.DATA_BUFFERED_ROUNDS),
+                    (short) data.get(MunitionsBenchBlockEntity.DATA_BUFFERED_ROUNDS_HI));
+            helper.assertTrue(wireCap == 40_000, "buffer cap 40000 survives the int16 wire, got " + wireCap);
+            helper.assertTrue(wireBuffered == 35_000,
+                    "35000 buffered rounds survive the int16 wire, got " + wireBuffered);
+            helper.assertTrue(menu.bufferCap() == 40_000 && menu.bufferedRounds() == 35_000,
+                    "menu buffer accessors reassemble the halves, got " + menu.bufferedRounds() + " / "
+                            + menu.bufferCap());
+
+            // 配置上限 10,000,000 同样无损; 负值按 0, 超 30 位钳到 30 位上限而不是回绕。
+            int big = 10_000_000;
+            int lo = MunitionsBenchBlockEntity.lowHalf15(big);
+            int hi = MunitionsBenchBlockEntity.highHalf15(big);
+            helper.assertTrue(lo >= 0 && lo <= 0x7FFF && hi > 0 && hi <= 0x7FFF,
+                    "10,000,000 splits into two 15-bit halves, got lo=" + lo + " hi=" + hi);
+            helper.assertTrue(MunitionsBenchBlockEntity.unpackHalves15((short) lo, (short) hi) == big,
+                    "10,000,000 round-trips through the int16 wire");
+            helper.assertTrue(MunitionsBenchBlockEntity.lowHalf15(-5) == 0
+                            && MunitionsBenchBlockEntity.highHalf15(-5) == 0,
+                    "negative values sync as 0");
+            helper.assertTrue(MunitionsBenchBlockEntity.unpackHalves15(
+                            MunitionsBenchBlockEntity.lowHalf15(Integer.MAX_VALUE),
+                            MunitionsBenchBlockEntity.highHalf15(Integer.MAX_VALUE)) == 0x3FFFFFFF,
+                    "values above 30 bits clamp to the 30-bit maximum instead of wrapping");
+            helper.succeed();
+        } finally {
+            MunitionsConfig.BUFFER_L1.set(originalBuffer);
+            restoreJob(prevJob);
+        }
+    }
+
+    // ============================================================
+    // 单次 / 连续 的幂等"设为"按钮: 界面分段开关连点同一段时不能像切换那样被翻回去; 仍然只认台主。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchSetContinuousIsIdempotentAndOwnerOnly(GameTestHelper helper) {
+        ServerPlayer owner = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        ServerPlayer stranger = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        IJobService prevJob = swapJob(new FixedLevelJobService(5));
+        try {
+            MunitionsBenchBlockEntity be = newBench(helper, owner);
+            MunitionsBenchMenu menu = openBenchMenu(be, owner);
+            helper.assertFalse(menu.isContinuousCrafting(), "a fresh bench starts in single mode");
+
+            // 连点两次"连续": 结果仍是连续 (切换按钮在这里会翻回单次)。
+            helper.assertTrue(menu.clickMenuButton(owner, MunitionsBenchMenu.BUTTON_SET_CONTINUOUS),
+                    "owner sets continuous");
+            helper.assertTrue(menu.clickMenuButton(owner, MunitionsBenchMenu.BUTTON_SET_CONTINUOUS),
+                    "repeating set-continuous is accepted");
+            helper.assertTrue(menu.isContinuousCrafting(), "two set-continuous clicks leave the bench continuous");
+
+            // 往返期间先点连续再点单次: 停在最后点的单次。
+            helper.assertTrue(menu.clickMenuButton(owner, MunitionsBenchMenu.BUTTON_SET_SINGLE),
+                    "owner sets single");
+            helper.assertTrue(menu.clickMenuButton(owner, MunitionsBenchMenu.BUTTON_SET_SINGLE),
+                    "repeating set-single is accepted");
+            helper.assertFalse(menu.isContinuousCrafting(), "two set-single clicks leave the bench single");
+
+            helper.assertFalse(be.setContinuousCrafting(stranger, true), "stranger cannot set continuous mode");
+            helper.assertFalse(menu.isContinuousCrafting(), "rejected stranger call leaves the mode unchanged");
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void benchSettleNoMaterialNoProduction(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);

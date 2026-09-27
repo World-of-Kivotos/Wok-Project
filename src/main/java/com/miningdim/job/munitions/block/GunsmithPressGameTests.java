@@ -21,6 +21,7 @@ import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartVariant;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
+import com.miningdim.job.munitions.menu.GunsmithPressMenu;
 import com.miningdim.testutil.ConfigBaseline;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
@@ -786,6 +787,32 @@ public final class GunsmithPressGameTests {
                     "a rejected start must not consume polymer");
         } finally {
             restoreJob(reDowngraded);
+        }
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 冲压机界面的等级门读菜单同步的观看者等级 (服务端实时值), 不读只在登录时同步的 ClientJobState:
+    // 游戏中升级后, 新解锁的品质 / 稀有度必须在下一次同步里就放开, 而不是等重登。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void pressMenuSyncsViewerMunitionsLevelLive(GameTestHelper helper) {
+        helper.setBlock(PRESS_REL, ModMunitionsBlocks.GUNSMITH_PRESS.get().defaultBlockState());
+        GunsmithPressBlockEntity press = requirePress(helper);
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        IJobService previous = swapJob(new FixedLevelJobService(3));
+        try {
+            GunsmithPressMenu menu = new GunsmithPressMenu(1, player.getInventory(), press.getBlockPos());
+            helper.assertTrue(menu.ownerMunitionsLevel() == 3,
+                    "press menu exposes the viewer's current munitions level, got " + menu.ownerMunitionsLevel());
+            // 同一个菜单不重开: 等级变了, 下一次读 (broadcastChanges 每 tick 读一次) 就是新值。
+            swapJob(new FixedLevelJobService(8));
+            helper.assertTrue(menu.ownerMunitionsLevel() == 8,
+                    "press menu level follows an in-session level-up without reopening, got "
+                            + menu.ownerMunitionsLevel());
+        } finally {
+            restoreJob(previous);
         }
         helper.succeed();
     }

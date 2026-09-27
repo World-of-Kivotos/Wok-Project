@@ -20,8 +20,9 @@ import java.util.List;
  *   <li>每帧按玩家选的风格画底图、标题栏、右上角操作员块和风格按钮, 再交给子类 {@link #renderScreen} 画其余部分;</li>
  *   <li>风格面板 (浮层) 与子类自己的模态框 (如"取消制作"确认) 的输入规则: 浮层打开时在 mouseClicked 最顶部吞掉
  *       一切点击并记下, 吞掉与之配对的 mouseReleased (原版在松开时放下手持物品) 与拖拽; Esc 只关浮层,
- *       其余按键全部吞掉 (防 1-9 / Q 作用在下面的格子上); 滚轮吞掉; 传给 super.render 的鼠标换成
- *       (-10000, -10000), 下层格子不高亮、不出提示; isHovering 也兜底返回 false;</li>
+ *       其余按键全部吞掉 (防 1-9 / Q 作用在下面的格子上); 滚轮吞掉; 下层失焦: isHovering 返回 false
+ *       (格子不高亮、hoveredSlot 为 null), renderTooltip 不出提示, 主层画笔用失焦鼠标 (自绘控件不悬停);
+ *       super.render 仍拿真实鼠标, 手上拿着的物品照常跟着鼠标画;</li>
  *   <li>浮层画在 render 里 super.render 之后、z = 350 (物品约 z 150-250, 提示框 z 400);</li>
  *   <li>getSlotColor 返回当前风格的槽位高亮色 (浅色风格要看得见)。</li>
  * </ul>
@@ -145,13 +146,18 @@ public abstract class GunsmithStyledScreen<T extends AbstractMiningMenu> extends
         return frameTime != 0L ? frameTime : Util.getMillis();
     }
 
-    /** 给玩家背包 36 格画槽位框 (背包位置由 Menu 决定, 与风格无关)。 */
+    /**
+     * 给玩家背包 36 格画槽位框 (背包位置由 Menu 决定, 与风格无关)。三种风格的 slot() 都是纯矩形,
+     * 整片合成一次 draw (不合批时蓝图风格 36 格是 400 多次 draw call)。
+     */
     protected final void drawPlayerInventorySlots(GsPainter p, GunsmithTheme theme) {
-        for (Slot slot : menu.slots) {
-            if (slot.container instanceof Inventory && slot.isActive()) {
-                theme.slot(p, slot.x, slot.y);
+        p.batch(() -> {
+            for (Slot slot : menu.slots) {
+                if (slot.container instanceof Inventory && slot.isActive()) {
+                    theme.slot(p, slot.x, slot.y);
+                }
             }
-        }
+        });
     }
 
     // ================================================================== rendering
@@ -165,8 +171,10 @@ public abstract class GunsmithStyledScreen<T extends AbstractMiningMenu> extends
         boolean overlay = overlayOpen();
         int mx = overlay ? GsPainter.NO_MOUSE : mouseX;
         int my = overlay ? GsPainter.NO_MOUSE : mouseY;
-        // 失焦鼠标传给原版: 下层格子不高亮、不出物品提示, hoveredSlot 为 null。
-        super.render(graphics, mx, my, partialTick);
+        // 原版拿真实鼠标: 手上拿着的物品按鼠标位置画 (传假鼠标会把它画到屏幕外, 看起来像物品丢了)。
+        // 浮层期间的下层失焦由 isHovering (格子不高亮、hoveredSlot 为 null)、renderTooltip (不出提示)
+        // 和 renderBg 里失焦的画笔 (自绘控件不悬停) 负责。
+        super.render(graphics, mouseX, mouseY, partialTick);
 
         GunsmithTheme theme = theme();
         GsPainter front = new GsPainter(graphics, this.font, this.leftPos, this.topPos, mx, my, frameTime);
@@ -184,7 +192,10 @@ public abstract class GunsmithStyledScreen<T extends AbstractMiningMenu> extends
     @Override
     protected final void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
         GunsmithTheme theme = theme();
-        GsPainter p = new GsPainter(graphics, this.font, this.leftPos, this.topPos, mouseX, mouseY, frameTime());
+        // render() 传进来的是真实鼠标; 浮层打开时主层整体失焦 (render 已先关掉与模态框同开的风格面板, 这里判断一致)。
+        boolean overlay = overlayOpen();
+        GsPainter p = new GsPainter(graphics, this.font, this.leftPos, this.topPos,
+                overlay ? GsPainter.NO_MOUSE : mouseX, overlay ? GsPainter.NO_MOUSE : mouseY, frameTime());
         theme.bg(p);
         theme.header(p, header());
         Minecraft mc = Minecraft.getInstance();
@@ -242,6 +253,9 @@ public abstract class GunsmithStyledScreen<T extends AbstractMiningMenu> extends
     public final boolean mouseClicked(double mouseX, double mouseY, int button) {
         double relX = mouseX - this.leftPos;
         double relY = mouseY - this.topPos;
+        // 新的一次按下: 清掉该键残留的吞松开标记 (下面的吞点击分支会按需重新置位), 免得一次丢失的松开
+        // 让残留位吃掉之后某次交给原版的按下所配对的松开。
+        swallowedButtons &= ~buttonBit(button);
         // 浮层打开: 最顶部吞掉任意键的点击, 下层什么都收不到。
         if (stylePicker.isOpen()) {
             swallowRelease(button);
@@ -272,6 +286,11 @@ public abstract class GunsmithStyledScreen<T extends AbstractMiningMenu> extends
             return true;
         }
         if (overlayOpen()) {
+            // 走到这里的只能是浮层打开之前、由原版处理的那次按下 (浮层期间的按下都带吞松开标记)。
+            // 这次松开原版收不到, 它的拖拽分堆状态就永远不会收尾: 浮层关掉后残留的分堆预览还在,
+            // 下一次点格子被 isQuickCrafting 挡掉, 同键的下一次松开还会把手上的物品分进旧的那几格。这里替它清掉。
+            this.isQuickCrafting = false;
+            this.quickCraftSlots.clear();
             return true;
         }
         return super.mouseReleased(mouseX, mouseY, button);

@@ -2,6 +2,7 @@ package com.miningdim.job.munitions.menu;
 
 import com.miningdim.job.munitions.ModMunitionsBlocks;
 import com.miningdim.job.munitions.ModMunitionsMenus;
+import com.miningdim.job.munitions.MunitionsLevels;
 import com.miningdim.job.munitions.block.GunsmithPressBlock;
 import com.miningdim.job.munitions.block.GunsmithPressBlockEntity;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
@@ -17,6 +18,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.inventory.ContainerLevelAccess;
+import net.minecraft.world.inventory.DataSlot;
 import net.minecraft.world.inventory.SimpleContainerData;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
@@ -51,6 +53,7 @@ public final class GunsmithPressMenu extends AbstractMiningMenu {
 
     private final GunsmithPressBlockEntity blockEntity;
     private final ContainerData data;
+    private final DataSlot ownerLevelSlot;
 
     public GunsmithPressMenu(int windowId, Inventory inv, BlockPos pos) {
         super(ModMunitionsMenus.GUNSMITH_PRESS.get(), windowId, CONTAINER_SLOTS,
@@ -77,7 +80,32 @@ public final class GunsmithPressMenu extends AbstractMiningMenu {
             this.data = new SimpleContainerData(GunsmithPressBlockEntity.DATA_COUNT);
         }
         addDataSlots(this.data);
+        // 本菜单玩家自己的军火商等级 (每位观看者各一份, 不是方块实体的共享数据)。品质 / 稀有度门和开工门由服务端按
+        // 点击者的实时等级判定, 而客户端 ClientJobState 只在登录和 /job set 时同步, 游戏中升级后一直是旧值;
+        // 界面改读这一格, broadcastChanges 每 tick 推送。两个分支之后统一登记, 客户端与服务端槽位顺序一致。
+        this.ownerLevelSlot = inv.player.level().isClientSide
+                ? DataSlot.standalone()
+                : new DataSlot() {
+                    @Override
+                    public int get() {
+                        return MunitionsLevels.munitionsLevel(inv.player);
+                    }
+
+                    @Override
+                    public void set(int value) {
+                        // 服务端权威, 不接受写入。
+                    }
+                };
+        addDataSlot(this.ownerLevelSlot);
         addPlayerInventory(inv, PLAYER_INV_X, PLAYER_INV_Y);
+    }
+
+    /**
+     * 本菜单玩家的军火商等级 (服务端实时值, 经菜单数据槽同步)。客户端在首次整包同步之前读到 0,
+     * 调用方应退回本地镜像。
+     */
+    public int ownerMunitionsLevel() {
+        return ownerLevelSlot.get();
     }
 
     /** 容器槽 (按方块实体槽位下标) 的界面 x。 */

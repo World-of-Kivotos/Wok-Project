@@ -416,8 +416,14 @@ public final class MunitionsBenchScreen extends GunsmithStyledScreen<MunitionsBe
             }
             p.text(caliber.shortLabel(), x + w / 2.0F, CARD_Y + 18.5F, t.cardText(state), 0.6F, CENTER);
             if (!unlocked) {
-                t.lock(p, x + w - 8, CARD_Y + 3);
-                p.text(GunsmithUi.levelShort(caliber.unlockLevel()), x + 3, CARD_Y + 3, t.c.bad(), 0.5F, 0);
+                // 褪色图标的面纱在 z 200 且写深度, 横跨 x+8..x+24; 锁和 "L10" 画在 z 0 会被它挡掉右半截,
+                // 所以抬到面纱之上 (仍在原版槽位高亮 / 浮层 z 350 / 提示框之下)。
+                final int lockX = x + w - 8;
+                final int levelX = x + 3;
+                p.atZ(210.0F, () -> {
+                    t.lock(p, lockX, CARD_Y + 3);
+                    p.text(GunsmithUi.levelShort(caliber.unlockLevel()), levelX, CARD_Y + 3, t.c.bad(), 0.5F, 0);
+                });
             }
         }
     }
@@ -444,12 +450,17 @@ public final class MunitionsBenchScreen extends GunsmithStyledScreen<MunitionsBe
 
     private void renderMaterials(GsPainter p, GunsmithTheme t, Model m) {
         t.panel(p, SIDE_PANEL_X, MATERIAL_PANEL_Y, SIDE_PANEL_W, MATERIAL_PANEL_H, tr("panel.materials"));
+        // 两遍: 先把四个槽框 (纯矩形) 合成一次 draw, 再画剪影物品和文字 (物品渲染会 flush, 不能进合批)。
+        p.batch(() -> {
+            for (int i = 0; i < MATERIAL_COUNT; i++) {
+                t.slot(p, MATERIAL_X[i], MATERIAL_Y[i]);
+            }
+        });
         for (int i = 0; i < MATERIAL_COUNT; i++) {
             int sx = MATERIAL_X[i];
             int sy = MATERIAL_Y[i];
             int have = m.have()[i];
             int need = m.need()[i];
-            t.slot(p, sx, sy);
             if (have <= 0) {
                 // 空槽: 淡色剪影提示该放什么 (有料时原版在槽里画真物品)。
                 p.itemFaded(materialGhost(i), sx, sy, 0.3F, slotInner(t));
@@ -580,9 +591,11 @@ public final class MunitionsBenchScreen extends GunsmithStyledScreen<MunitionsBe
         int segment = segmentAt(relX, relY);
         if (segment >= 0) {
             boolean wantContinuous = segment == 1;
-            if (wantContinuous != m.continuous()) {
-                sendButton(MunitionsBenchMenu.BUTTON_TOGGLE_CONTINUOUS);
-            }
+            // 发"设为"而不是"切换": 同步值要一个服务端 tick 加一次往返才回来, 这段时间里再点一次同一段,
+            // 切换按钮会被服务端翻回去。设为按钮是幂等的, 所以每次点都发 (不拿还没同步回来的旧值做短路,
+            // 否则往返期间先点连续再点单次, 第二下会被旧值挡掉), 最终一定停在最后点的那一段。
+            sendButton(wantContinuous ? MunitionsBenchMenu.BUTTON_SET_CONTINUOUS
+                    : MunitionsBenchMenu.BUTTON_SET_SINGLE);
             return true;
         }
         return false;

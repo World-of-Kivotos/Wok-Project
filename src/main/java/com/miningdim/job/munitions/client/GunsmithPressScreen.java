@@ -177,6 +177,22 @@ public final class GunsmithPressScreen extends GunsmithStyledScreen<GunsmithPres
         super(menu, inv, title, BG);
     }
 
+    // ================================================================== level
+
+    /**
+     * 等级取服务端经菜单数据槽推来的实时值 (与服务端 trySelectQuality / tryStartPreview 判定同一个数),
+     * 而不是只在登录时同步的 ClientJobState —— 否则游戏中升级后, 新解锁的品质 / 稀有度在重登之前一直显示锁定、点了也不发。
+     * 首次整包同步之前 (读到 0) 退回本地镜像。
+     */
+    @Override
+    protected int ownerLevel() {
+        int synced = menu.ownerMunitionsLevel();
+        if (synced > 0) {
+            return MunitionsLevels.clampLevel(synced);
+        }
+        return super.ownerLevel();
+    }
+
     // ================================================================== header
 
     @Override
@@ -361,12 +377,17 @@ public final class GunsmithPressScreen extends GunsmithStyledScreen<GunsmithPres
         GunsmithTheme.Palette c = t.palette();
         t.panel(p, MAT_PANEL_X, MAT_PANEL_Y, MAT_PANEL_W, MAT_PANEL_H, Component.translatable(K + "panel.materials"));
         float textW = MAT_TEXT_R - MAT_TEXT_X;
+        // 两遍: 先把三个槽框 (纯矩形) 合成一次 draw, 再画剪影物品和文字 (物品渲染会 flush, 不能进合批)。
+        p.batch(() -> {
+            for (int i = 0; i < INPUT_SLOTS.length; i++) {
+                t.slot(p, inputSlotX(i), inputSlotY(i));
+            }
+        });
         for (int i = 0; i < INPUT_SLOTS.length; i++) {
             int sx = inputSlotX(i);
             int sy = inputSlotY(i);
             int need = requiredMaterial(part, quality, i);
             int have = inputCount(i);
-            t.slot(p, sx, sy);
             if (have <= 0) {
                 p.itemFaded(new ItemStack(inputItem(i)), sx, sy, 0.3F, slotInner(t));
             }

@@ -15,7 +15,7 @@ import net.minecraft.world.item.ItemStack;
  * 预览原语对应关系:
  * <ul>
  *   <li>R(x,y,w,h,c) -> {@link #rect}; 小数坐标 (按文字宽度算出来的底块) 用 {@link #rectF}</li>
- *   <li>box / dbox / corners / para / paraFit / paraR -> {@link GsCanvas} 默认方法</li>
+ *   <li>box / dbox / corners / para / paraFit / paraR / stripes -> {@link GsCanvas} 默认方法 (本类包进 {@link #batch}, 每个图形一次 draw)</li>
  *   <li>text(s,x,y,c,scale,{bold,align,shadow}) -> {@link #text}; tw -> {@link #textWidth}; fitSc -> {@link #fitScale}</li>
  *   <li>blit / 物品 / 玩家头像 -> {@link #blit} / {@link #item} / {@link #face}</li>
  *   <li>hov(x,y,w,h) -> {@link #hov} (鼠标已按"浮层打开时整层失焦"处理, 见 {@link GunsmithStyledScreen})</li>
@@ -130,11 +130,67 @@ public final class GsPainter implements GsCanvas {
     }
 
     /**
-     * 把一段"只有 fill"的绘制合批成一次 draw (GuiGraphics.drawManaged)。只能包纯矩形代码 ——
-     * 文字/物品/贴图混进来会被按渲染类型重新排序, 叠放顺序会乱。
+     * 把一段"只有 fill"的绘制合批成一次 draw (GuiGraphics.drawManaged)。1.20.1 的 fill / drawString 在非托管状态下
+     * 每调一次就 endBatch 一次 (一次上传 + 一次 draw call), 所以成片的矩形必须包进这里。
+     *
+     * <p>可重入: 只有最外层真的进 drawManaged, 内层直接执行 (drawManaged 本身不可嵌套 —— 内层结束时会把
+     * managed 置回 false, 外层剩下的 fill 又变回逐个 flush)。深度计数用静态字段: 渲染单线程, 而
+     * {@link #withMouse} 会复制出新画笔, 实例字段看不到跨画笔的嵌套。
+     *
+     * <p>只能包纯矩形代码。贴图 (blit / 头像) 走 Tesselator 立即绘制, 会插到还在排队的矩形前面;
+     * 物品渲染自己会 flush。文字混进来顺序仍对 (gui 与 text 都是非固定渲染类型, 换类型即结束上一批), 但一般留在外面。
      */
     public void batch(Runnable fillsOnly) {
-        graphics.drawManaged(fillsOnly);
+        if (batchDepth > 0) {
+            fillsOnly.run();
+            return;
+        }
+        batchDepth++;
+        try {
+            graphics.drawManaged(fillsOnly);
+        } finally {
+            batchDepth--;
+        }
+    }
+
+    /** 当前 {@link #batch} 嵌套深度 (0 = 不在合批里)。 */
+    private static int batchDepth;
+
+    // 多笔矩形的原语各自合批成一次 draw (嵌在外层 batch 里时并入外层)。
+
+    @Override
+    public void box(int x, int y, int w, int h, int argb) {
+        batch(() -> GsCanvas.super.box(x, y, w, h, argb));
+    }
+
+    @Override
+    public void dbox(int x, int y, int w, int h, int argb) {
+        batch(() -> GsCanvas.super.dbox(x, y, w, h, argb));
+    }
+
+    @Override
+    public void para(int x, int y, int w, int h, int argb) {
+        batch(() -> GsCanvas.super.para(x, y, w, h, argb));
+    }
+
+    @Override
+    public void paraFit(int x, int y, int w, int h, int argb) {
+        batch(() -> GsCanvas.super.paraFit(x, y, w, h, argb));
+    }
+
+    @Override
+    public void paraR(int x, int y, int w, int h, int argb) {
+        batch(() -> GsCanvas.super.paraR(x, y, w, h, argb));
+    }
+
+    @Override
+    public void corners(int x, int y, int w, int h, int argb, int n) {
+        batch(() -> GsCanvas.super.corners(x, y, w, h, argb, n));
+    }
+
+    @Override
+    public void stripes(int x, int y, int w, int h, int colorA, int colorB, int period, int on, int phase) {
+        batch(() -> GsCanvas.super.stripes(x, y, w, h, colorA, colorB, period, on, phase));
     }
 
     // ------------------------------------------------------------------ text
@@ -202,10 +258,17 @@ public final class GsPainter implements GsCanvas {
     /**
      * 贴图: 把贴图上 (u, v) 起 uW x vH 的一块缩放画到 GUI 矩形 (x, y, w, h)。
      * texW/texH 是整张贴图的像素尺寸。
+     *
+     * <p>显式开混合: 前面的 fill (RenderType.gui) 收尾时会关掉混合, 而 GuiGraphics.blit 不会再打开,
+     * position_tex 着色器只丢弃 alpha 恰为 0 的像素 —— 不开混合时半透明像素 (弹药展示图的地面阴影、
+     * 零件图标的抗锯齿边) 会被画成不透明。
      */
     public void blit(ResourceLocation texture, int x, int y, int w, int h,
                      float u, float v, int uW, int vH, int texW, int texH) {
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
         graphics.blit(texture, left + x, top + y, w, h, u, v, uW, vH, texW, texH);
+        RenderSystem.disableBlend();
     }
 
     /** 半透明贴图 (预览 blit(..., alpha))。 */

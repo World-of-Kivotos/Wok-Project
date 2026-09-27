@@ -103,25 +103,32 @@ final class IndustrialTheme extends GunsmithTheme {
         p.text(level < 10 ? "0" + level : String.valueOf(level), x + 91, y + 7, AMBER, 0.9F, BOLD | RIGHT);
         int segs = 12;
         int lit = Math.round(segs * clamp01(xp));
-        for (int i = 0; i < segs; i++) {
-            p.rect(x + 52 + i * 2, y + 15, 1, 2, i < lit ? AMBER : 0xFF2A2F36);
-        }
+        p.batch(() -> {
+            for (int i = 0; i < segs; i++) {
+                p.rect(x + 52 + i * 2, y + 15, 1, 2, i < lit ? AMBER : 0xFF2A2F36);
+            }
+        });
     }
 
     @Override
     public void panel(GsPainter p, int x, int y, int w, int h, @Nullable Component title) {
-        p.rect(x, y, w, h, 0xFF2E353F);
-        p.rect(x, y, w - 1, h - 1, 0xFF08090B);
-        p.rect(x + 1, y + 1, w - 2, h - 2, STEEL);
-        int[][] rivets = {{x + 2, y + 2}, {x + w - 4, y + 2}, {x + 2, y + h - 4}, {x + w - 4, y + h - 4}};
-        for (int[] r : rivets) {
-            p.rect(r[0], r[1], 2, 2, 0xFF48505C);
-            p.rect(r[0] + 1, r[1] + 1, 1, 1, 0xFF22272E);
-        }
+        float titleW = title != null ? p.textWidth(title, 0.6F, true) + 9.0F : 0.0F;
+        // 钢板 + 四颗铆钉 + 标题底 全是矩形, 合成一次 draw; 标题字留在合批外面。
+        p.batch(() -> {
+            p.rect(x, y, w, h, 0xFF2E353F);
+            p.rect(x, y, w - 1, h - 1, 0xFF08090B);
+            p.rect(x + 1, y + 1, w - 2, h - 2, STEEL);
+            int[][] rivets = {{x + 2, y + 2}, {x + w - 4, y + 2}, {x + 2, y + h - 4}, {x + w - 4, y + h - 4}};
+            for (int[] r : rivets) {
+                p.rect(r[0], r[1], 2, 2, 0xFF48505C);
+                p.rect(r[0] + 1, r[1] + 1, 1, 1, 0xFF22272E);
+            }
+            if (title != null) {
+                p.rectF(x + 6, y + 4, titleW, 9, 0xFF232830);
+                p.rect(x + 6, y + 4, 2, 9, AMBER);
+            }
+        });
         if (title != null) {
-            float w2 = p.textWidth(title, 0.6F, true) + 9.0F;
-            p.rectF(x + 6, y + 4, w2, 9, 0xFF232830);
-            p.rect(x + 6, y + 4, 2, 9, AMBER);
             p.text(title, x + 10, y + 4.8F, AMBER, 0.6F, BOLD);
         }
     }
@@ -263,7 +270,6 @@ final class IndustrialTheme extends GunsmithTheme {
 
     @Override
     public void bar(GsPainter p, int x, int y, int w, int h, float fraction, BarKind kind, boolean animate) {
-        p.rect(x, y, w, h, 0xFF0A0C0F);
         int col = switch (kind) {
             case PROG -> AMBER;
             case FE -> 0xFF4CD07A;
@@ -273,13 +279,17 @@ final class IndustrialTheme extends GunsmithTheme {
         int n = (w - 1) / 4;
         int lit = Math.round(n * clamp01(fraction));
         boolean flash = animate && blink(p.now(), 250L);
-        for (int i = 0; i < n; i++) {
-            int c = i < lit ? col : 0xFF1E232A;
-            if (flash && i == lit - 1) {
-                c = 0xFFFFFFFF;
+        // 底槽 + 十几格 LED, 合成一次 draw。
+        p.batch(() -> {
+            p.rect(x, y, w, h, 0xFF0A0C0F);
+            for (int i = 0; i < n; i++) {
+                int c = i < lit ? col : 0xFF1E232A;
+                if (flash && i == lit - 1) {
+                    c = 0xFFFFFFFF;
+                }
+                p.rect(x + 1 + i * 4, y + 1, 3, h - 2, c);
             }
-            p.rect(x + 1 + i * 4, y + 1, 3, h - 2, c);
-        }
+        });
     }
 
     @Override

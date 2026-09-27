@@ -30,12 +30,13 @@ public final class GunsmithAssemblyBenchRenderer
     private static final ResourceLocation TEXTURE = new ResourceLocation(
             MiningConstants.MODID, "textures/entity/gunsmith_assembly_arm.png");
     private static final float ASSEMBLY_CYCLE_TICKS = 80.0F;
-    private static final float IDLE_UPPER_ARM_Z = -0.78F;
-    private static final float IDLE_FOREARM_Z = 1.60F;
-    private static final float WORK_UPPER_ARM_Z = -0.9195F;
-    private static final float WORK_FOREARM_Z = 1.7825F;
-    // The pedestal center is (26.5, 24); the 2x2 work-bed center is (16, 16).
-    private static final float WORK_BASE_YAW = -(float) Math.atan2(8.0D, 10.5D);
+    // Idle: gripper parked above the tool-change pedestal at (20.25, 23.5). Work: gripper hovering over the rifle receiver.
+    private static final float IDLE_UPPER_ARM_Z = 0.1704F;
+    private static final float IDLE_FOREARM_Z = 1.023F;
+    private static final float WORK_UPPER_ARM_Z = -0.8362F;
+    private static final float WORK_FOREARM_Z = 2.5396F;
+    // The shoulder pivot is (26.5, 23.5); the work point above the rifle receiver is (18, 13.5).
+    private static final float WORK_BASE_YAW = -(float) Math.atan2(10D, 8.5D);
 
     private final ModelPart root;
     private final ModelPart shoulder;
@@ -65,52 +66,45 @@ public final class GunsmithAssemblyBenchRenderer
         PartDefinition root = mesh.getRoot();
         PartDefinition shoulder = root.addOrReplaceChild("shoulder",
                 CubeListBuilder.create()
-                        .texOffs(0, 32).addBox(-2.5F, -1.25F, -2.5F, 5.0F, 1.25F, 5.0F)
-                        .texOffs(32, 0).addBox(-2.0F, -3.0F, -2.0F, 4.0F, 1.75F, 4.0F)
-                        .texOffs(32, 32).addBox(-2.6F, -2.5F, -0.75F, 5.2F, 0.9F, 1.5F),
-                PartPose.offset(18.5F, 7.0F, 16.0F));
+                        .texOffs(0, 0).addBox(-2.5F, -1.0F, -2.5F, 5.0F, 1.0F, 5.0F)
+                        .texOffs(21, 0).addBox(-2.0F, -3.0F, -2.0F, 4.0F, 2.0F, 4.0F)
+                        .texOffs(38, 0).addBox(-1.5F, -5.0F, -2.0F, 3.0F, 2.0F, 1.0F)
+                        .texOffs(38, 0).addBox(-1.5F, -5.0F, 1.0F, 3.0F, 2.0F, 1.0F),
+                PartPose.offset(18.5F, 4.5F, 15.5F));
         PartDefinition upperArm = shoulder.addOrReplaceChild("upper_arm",
                 CubeListBuilder.create()
-                        .texOffs(0, 0).addBox(-1.25F, -8.0F, -1.25F, 2.5F, 8.0F, 2.5F)
-                        .texOffs(32, 0).addBox(-0.55F, -7.4F, -1.5F, 1.1F, 6.6F, 0.3F)
-                        .texOffs(32, 32).addBox(-1.5F, -7.0F, -0.45F, 0.3F, 5.8F, 0.9F),
-                PartPose.ZERO);
+                        .texOffs(47, 0).addBox(-1.0F, -1.0F, -1.0F, 2.0F, 2.0F, 2.0F)
+                        .texOffs(0, 7).addBox(-1.0F, -7.0F, -1.0F, 2.0F, 6.0F, 2.0F),
+                PartPose.offset(0.0F, -4.0F, 0.0F));
         PartDefinition elbow = upperArm.addOrReplaceChild("elbow",
                 CubeListBuilder.create()
-                        .texOffs(0, 0).addBox(-2.0F, -2.0F, -2.0F, 4.0F, 4.0F, 4.0F)
-                        .texOffs(32, 0).addBox(-1.2F, -2.2F, -2.35F, 2.4F, 4.4F, 4.7F),
-                PartPose.offset(0.0F, -8.0F, 0.0F));
+                        .texOffs(9, 7).addBox(-1.5F, -1.5F, -1.5F, 3.0F, 3.0F, 3.0F)
+                        .texOffs(22, 7).addBox(-1.0F, -1.0F, -2.0F, 2.0F, 2.0F, 4.0F),
+                PartPose.offset(0.0F, -7.0F, 0.0F));
         PartDefinition forearm = elbow.addOrReplaceChild("forearm",
                 CubeListBuilder.create()
-                        .texOffs(0, 0).addBox(-1.1F, 0.0F, -1.1F, 2.2F, 9.0F, 2.2F)
-                        .texOffs(32, 0).addBox(-1.4F, 0.65F, -0.45F, 0.3F, 7.7F, 0.9F)
-                        .texOffs(32, 32).addBox(-0.45F, 0.8F, 1.1F, 0.9F, 7.4F, 0.3F),
+                        .texOffs(35, 7).addBox(-1.0F, 1.0F, -1.0F, 2.0F, 6.0F, 2.0F),
                 PartPose.ZERO);
         PartDefinition wrist = forearm.addOrReplaceChild("wrist",
                 CubeListBuilder.create()
-                        .texOffs(0, 32).addBox(-1.5F, -0.7F, -1.5F, 3.0F, 1.4F, 3.0F)
-                        .texOffs(32, 0).addBox(-1.75F, -0.3F, -0.65F, 3.5F, 0.65F, 1.3F),
-                PartPose.offset(0.0F, 9.0F, 0.0F));
+                        .texOffs(47, 0).addBox(-1.0F, -1.0F, -1.0F, 2.0F, 2.0F, 2.0F),
+                PartPose.offset(0.0F, 8.0F, 0.0F));
         PartDefinition tool = wrist.addOrReplaceChild("tool",
                 CubeListBuilder.create()
-                        .texOffs(0, 32).addBox(-1.0F, 0.35F, -1.0F, 2.0F, 0.7F, 2.0F)
-                        .texOffs(32, 32).addBox(-1.25F, 0.95F, -1.25F, 2.5F, 0.35F, 2.5F)
-                        .texOffs(32, 0).addBox(-0.35F, 1.2F, -0.35F, 0.7F, 0.3F, 0.7F),
+                        .texOffs(44, 7).addBox(-1.5F, 1.0F, -1.5F, 3.0F, 1.0F, 3.0F),
                 PartPose.ZERO);
         PartDefinition gripper = tool.addOrReplaceChild("gripper",
-                CubeListBuilder.create().texOffs(0, 0)
-                        .addBox(-2.25F, 0.0F, -0.7F, 4.5F, 0.4F, 1.4F),
-                PartPose.offset(0.0F, 0.55F, 0.0F));
+                CubeListBuilder.create()
+                        .texOffs(0, 16).addBox(-2.0F, 0.0F, -1.0F, 4.0F, 1.0F, 2.0F),
+                PartPose.offset(0.0F, 2.0F, 0.0F));
         gripper.addOrReplaceChild("left_claw",
                 CubeListBuilder.create()
-                        .texOffs(32, 0).addBox(-0.35F, 0.0F, -0.5F, 0.7F, 0.52F, 1.0F)
-                        .texOffs(32, 32).addBox(-0.35F, 0.36F, -0.5F, 0.9F, 0.19F, 1.0F),
-                PartPose.offset(-1.7F, 0.25F, 0.0F));
+                        .texOffs(13, 16).addBox(-0.5F, 0.0F, -0.5F, 1.0F, 2.0F, 1.0F),
+                PartPose.offset(-1.5F, 1.0F, 0.0F));
         gripper.addOrReplaceChild("right_claw",
                 CubeListBuilder.create()
-                        .texOffs(32, 0).addBox(-0.35F, 0.0F, -0.5F, 0.7F, 0.52F, 1.0F)
-                        .texOffs(32, 32).addBox(-0.55F, 0.36F, -0.5F, 0.9F, 0.19F, 1.0F),
-                PartPose.offset(1.7F, 0.25F, 0.0F));
+                        .texOffs(13, 16).addBox(-0.5F, 0.0F, -0.5F, 1.0F, 2.0F, 1.0F),
+                PartPose.offset(1.5F, 1.0F, 0.0F));
         return LayerDefinition.create(mesh, 64, 64);
     }
 

@@ -36,10 +36,13 @@ import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraftforge.network.NetworkHooks;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.function.Supplier;
 
 public final class GunsmithAssemblyBenchBlock extends Block implements EntityBlock {
@@ -47,7 +50,9 @@ public final class GunsmithAssemblyBenchBlock extends Block implements EntityBlo
     public static final DirectionProperty FACING = BlockStateProperties.HORIZONTAL_FACING;
     public static final EnumProperty<Part> PART = EnumProperty.create("part", Part.class);
     public static final BooleanProperty ACTIVE = BooleanProperty.create("active");
-    private static final VoxelShape BASE_SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 5.25D, 16.0D);
+    // 各部位朝北时的体积, 跟随方块模型: 台面 y0..10 满格, 其上是斜置夹具、控制台、洞洞板后墙、工作灯与机械臂设备台。
+    // 机械臂由 BlockEntityRenderer 绘制, 不参与碰撞。模型改动后用 tools/gunsmith_workstation 重新核对这些数值。
+    private static final Map<Part, Map<Direction, VoxelShape>> SHAPES = createShapes();
 
     private final Supplier<BlockEntityType<GunsmithAssemblyBenchBlockEntity>> beType;
 
@@ -118,7 +123,50 @@ public final class GunsmithAssemblyBenchBlock extends Block implements EntityBlo
 
     @Override
     public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-        return BASE_SHAPE;
+        return SHAPES.get(state.getValue(PART)).get(state.getValue(FACING));
+    }
+
+    private static Map<Part, Map<Direction, VoxelShape>> createShapes() {
+        VoxelShape worktop = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 10.0D, 16.0D);
+        VoxelShape backWall = Block.box(0.0D, 10.0D, 12.5D, 16.0D, 16.0D, 16.0D);
+        Map<Part, VoxelShape> north = new EnumMap<>(Part.class);
+        north.put(Part.MAIN, Shapes.or(worktop,
+                Block.box(1.5D, 10.0D, 2.0D, 14.5D, 11.0D, 9.5D),
+                Block.box(4.0D, 10.0D, 9.0D, 16.0D, 16.0D, 16.0D)));
+        north.put(Part.SIDE, Shapes.or(worktop,
+                Block.box(0.0D, 10.0D, 9.0D, 12.0D, 16.0D, 16.0D),
+                Block.box(5.0D, 10.0D, 1.0D, 14.0D, 13.0D, 5.0D)));
+        north.put(Part.BACK, Shapes.or(worktop, backWall,
+                Block.box(0.5D, 10.0D, 2.5D, 6.0D, 16.0D, 7.0D),
+                Block.box(3.0D, 10.0D, 1.5D, 8.5D, 12.0D, 5.0D),
+                Block.box(3.0D, 10.0D, 7.5D, 14.5D, 11.5D, 10.5D)));
+        north.put(Part.BACK_SIDE, Shapes.or(worktop, backWall,
+                Block.box(3.5D, 10.0D, 1.0D, 15.0D, 11.5D, 13.0D),
+                Block.box(2.0D, 11.5D, 6.0D, 6.5D, 14.0D, 9.0D)));
+        Map<Part, Map<Direction, VoxelShape>> shapes = new EnumMap<>(Part.class);
+        north.forEach((part, shape) -> shapes.put(part, rotatedShapes(shape.optimize())));
+        return shapes;
+    }
+
+    private static Map<Direction, VoxelShape> rotatedShapes(VoxelShape north) {
+        Map<Direction, VoxelShape> shapes = new EnumMap<>(Direction.class);
+        shapes.put(Direction.NORTH, north);
+        VoxelShape current = north;
+        for (Direction direction : new Direction[]{Direction.EAST, Direction.SOUTH, Direction.WEST}) {
+            current = rotateClockwise(current);
+            shapes.put(direction, current);
+        }
+        return shapes;
+    }
+
+    // 与方块状态 "y": 90 的模型旋转一致: 俯视顺时针, 北 -> 东。
+    private static VoxelShape rotateClockwise(VoxelShape source) {
+        VoxelShape[] result = {Shapes.empty()};
+        source.forAllBoxes((minX, minY, minZ, maxX, maxY, maxZ) ->
+                result[0] = Shapes.or(result[0], Shapes.box(
+                        1.0D - maxZ, minY, minX,
+                        1.0D - minZ, maxY, maxX)));
+        return result[0].optimize();
     }
 
     @Nullable

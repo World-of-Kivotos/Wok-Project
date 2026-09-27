@@ -98,7 +98,7 @@ export class AssetRoot {
 
 /**
  * 机械臂在某一时刻的四边形 (含点焊火花)。armOpt: {tick} 为程序时间 0..160; 旧版 Java (无程序) 时 tick 按 80 tick 一轮
- * 映射到旧的 phase, 与当时游戏里的循环一致。
+ * 映射到旧的 phase, 与当时游戏里的循环一致。armOpt.drops: [枪机, 枪托件] 安装点的放件下沉量 (px), 省略 = 不下沉。
  */
 export function armQuads(root, arm, armOpt = {}) {
     const image = root.image(arm.textureId);
@@ -106,7 +106,7 @@ export function armQuads(root, arm, armOpt = {}) {
         // 工作态但没给 tick: 取第一次点焊的时刻, 让静态组图也能看到零件、夹爪与火花
         const firstWeld = arm.program.rows.find((r) => r.spark);
         const tick = armOpt.tick !== undefined ? armOpt.tick : armOpt.work && firstWeld ? firstWeld.tick - 1 : 0;
-        const st = armProgramState(arm, tick);
+        const st = armProgramState(arm, tick, armOpt.drops || null);
         const quads = bakeArm(arm, st.pose, image);
         if (st.spark) quads.push(...sparkQuads(st.contact, tick));
         return quads;
@@ -121,14 +121,24 @@ export function pressQuads(root, active) {
     return bakeBlockModel(model, { textureLookup: (id) => root.image(id), tag: 'press' });
 }
 
-/** 枪械组装台: 2×2 四个部位 + 机械臂; armOpt.tick 为机械臂程序时间 (0..160, 省略 = 待机姿态)。 */
-export function assemblyQuads(root, active, armOpt = {}) {
+/**
+ * 枪械组装台: 2×2 四个部位 + 机械臂; armOpt.tick 为机械臂程序时间 (0..160, 省略 = 待机姿态), armOpt.drops 为两个安装点的放件下沉量。
+ * gun: 台上的枪 (taczpack.bakeBenchGun / raster.bakeBedrockGeo 的结果, 已摆在枪床上); 省略 = 空台, 与游戏里空台不画枪一致。
+ */
+export function assemblyQuads(root, active, armOpt = {}, gun = null) {
+    const quads = benchQuads(root, active);
+    if (gun) quads.push(...gun.quads);
+    quads.push(...armQuads(root, root.arm(), armOpt));
+    return quads;
+}
+
+/** 枪械组装台的 2×2 方块模型部分 (不含台上的枪与机械臂)。 */
+export function benchQuads(root, active) {
     const quads = [];
     for (const [part, offset] of Object.entries(PART_OFFSETS)) {
         const model = root.model('miningdim:block/gunsmith_assembly_bench_' + part + (active ? '_active' : ''));
         quads.push(...bakeBlockModel(model, { offset, textureLookup: (id) => root.image(id), tag: part }));
     }
-    quads.push(...armQuads(root, root.arm(), armOpt));
     return quads;
 }
 

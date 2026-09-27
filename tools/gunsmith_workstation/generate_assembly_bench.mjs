@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 枪械组装台 · 方案 A「枪匠工坊工作台」生成脚本 (零依赖, Node 18+)。第 2 版 (按评审意见修改)。
-// 用法: node generate.mjs --out <根目录>
+// 用法: node generate.mjs --out <根目录> [--margins (另外打印各放件下沉组合下机械臂的最小间隙)]
 // 产物 (相对 <根目录>):
 //   src/main/resources/assets/miningdim/models/block/gunsmith_assembly_bench_{main,side,back,back_side}[_active].json
 //   src/main/resources/assets/miningdim/models/item/gunsmith_assembly_bench.json
@@ -12,22 +12,29 @@
 //   src/main/java/com/miningdim/job/munitions/block/GunsmithArmProgram.java
 //     (只替换 "<generated>" 与 "</generated>" 两行注释之间的几何常量与关键帧表)
 //     两个 Java 文件其余部分原样保留。底稿: <根目录> 里已有的该文件; 没有则取本脚本所在仓库 (../..) 里的; 都没有则报错。
+//   src/main/java/com/miningdim/job/munitions/block/GunsmithGunBed.java (整个文件由本脚本写出: 枪床常量, 见 GUN_BED)
 // 整台桌子先在 32x32 世界像素里建 (朝北, x 东, z 南, 正面 z=0), 再按格切成四个部位文件。
 // 每个可见面在图集里分到自己的矩形 (默认 1 贴图像素 / 模型像素, 细节件 2 倍), 程序化绘制。
-// 机械臂: 取放 + 点焊的关键帧程序由本脚本按真实几何反解 (料盘取件位、枪身安装点), 写进 GunsmithArmProgram;
+// 台上不再有静态的枪: 前排是一张平放的枪床, 运行时由 BlockEntityRenderer 把台里那把枪的真实 TACZ 模型侧躺在床面上
+// (摆放规则见 GUN_BED); 方块模型只负责给它留出空位。
+// 机械臂: 取放 + 点焊的关键帧程序由本脚本按真实几何反解 (料盘取件位、枪床上隐形枪体包络的安装点), 写进 GunsmithArmProgram;
 // 写出前按 Java 同一套插值逐 tick 细分扫描整个 160 tick 程序 (含携带件), 任何臂段进入方块元素即校验失败。
-// 全部校验通过后才落盘, 失败时仓库里的产物保持原样。
+// 运行时两个安装点再按台上的真枪下沉 (零件落到枪上而不是包络上): 扫描对两个安装点的下沉量各取 0 / MAX_PLACE_DROP 的四种组合
+// (外加两处都取一半) 各走一遍。渲染器 easeToDock 的缓回待机 (手写代码, 从渲染器底稿读 RETURN_TICKS 与下沉收回比例)
+// 也从两个安装点窗口内的每个时刻、各档下沉量扫一遍, 见 sweepEaseToDock。
+// 全部校验通过后才落盘, 失败时仓库里的产物保持原样; 内容没变的文件不重写。
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import { sampleArmProgram } from './raster.mjs';
+import { sampleArmProgram, ARM_STATION_BOLT, ARM_STATION_STOCK } from './raster.mjs';
 
 // ------------------------------------------------------------ 参数
 const IS_MAIN = !!process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 const argv = IS_MAIN ? process.argv.slice(2) : ['--out', '.'];
 let OUT = null;
-for (let i = 0; i < argv.length; i++) if (argv[i] === '--out') OUT = argv[++i];
+let REPORT_MARGINS = false;   // --margins: 另外二分出每种放件下沉组合下整段程序的最小间隙 (只打印, 不影响产物)
+for (let i = 0; i < argv.length; i++) { if (argv[i] === '--out') OUT = argv[++i]; else if (argv[i] === '--margins') REPORT_MARGINS = true; }
 if (!OUT) { console.error('usage: node generate.mjs --out <root>'); process.exit(2); }
 OUT = path.resolve(OUT);
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -35,6 +42,7 @@ const RES = path.join(OUT, 'src', 'main', 'resources', 'assets', 'miningdim');
 const JAVA_REL = path.join('src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'client', 'GunsmithAssemblyBenchRenderer.java');
 const JAVA_OUT = path.join(OUT, JAVA_REL);
 const PROGRAM_REL = path.join('src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'block', 'GunsmithArmProgram.java');
+const GUN_BED_REL = path.join('src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'block', 'GunsmithGunBed.java');
 const ATLAS_ID = 'miningdim:block/gunsmith_assembly_atlas';
 const PARTICLE_ID = 'miningdim:block/gunsmith_assembly_particle';
 
@@ -61,7 +69,6 @@ const mat = (name, base, hi, lo, dk) => ({ name, base: C(base), hi: C(hi), lo: C
 const M = {
     frame: mat('frame', '#56606d', '#77818e', '#3f4752', '#2c323a'),      // 枪灰钢架
     steel: mat('steel', '#a9b2bc', '#cfd6dd', '#838d98', '#626b76'),      // 浅钢台面
-    rack: mat('rack', '#6f7b87', '#8e99a5', '#56616c', '#414a54'),        // 中灰钢夹具板
     slate: mat('slate', '#5f7590', '#8198b2', '#475971', '#33404f'),      // 抽屉漆面
     orange: mat('orange', '#e8862c', '#ffb257', '#b8611b', '#7e3f10'),
     hot: mat('hot', '#ffa23c', '#ffe2a6', '#f07a1c', '#c85510'),          // 工作时发光的橙色
@@ -74,6 +81,7 @@ const M = {
     copper: mat('copper', '#c46f3a', '#e8955c', '#8f4a22', '#5e2e14'),
     olive: mat('olive', '#65733f', '#839357', '#4a552c', '#343c1f'),
     matg: mat('matg', '#2f5f4f', '#4f8a72', '#244a3d', '#183329'),        // 维修垫
+    bedmat: mat('bedmat', '#3e6b72', '#5a8e95', '#2f5359', '#203a3e'),    // 枪床胶垫 (比维修垫亮、偏青: 黑色枪身躺在上面要看得清)
     peg: mat('peg', '#cbc3ae', '#e2dcca', '#a39b86', '#6f6858'),          // 洞洞板
     chrome: mat('chrome', '#c9d1da', '#eef2f6', '#8e98a3', '#5f6873'),
     red: mat('red', '#d0482e', '#f07458', '#9a3020', '#651c12'),
@@ -127,13 +135,35 @@ function faceDims(face, from, to) {
     return [dx, dz];
 }
 
-// 枪架枢轴: 所有枪架/步枪元素绕 x 轴 +45° (剖面朝北上方)。枪内局部坐标: x 同世界, v = 剖面高度, w = 厚度 (+w 朝背板)。
-const GUN = { py: 13.5, pz: 12.5, angle: 45 };
-const GUN_ROT = { origin: [16, GUN.py, GUN.pz], axis: 'x', angle: GUN.angle };
-function gunToWorld(x, v, w) {
-    const a = GUN.angle * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
-    return [x, GUN.py + v * c - w * s, GUN.pz + v * s + w * c];
-}
+// 枪床: 运行时的真枪 (TACZ 模型) 侧躺在这里, 枪口朝西, 枪托抵住东端的托底挡块。
+// 这组数值原样写进 GunsmithGunBed.java (Java 渲染器与 GameTest 经 GunsmithBenchGunLayout 使用), JS 预览 import 同一个对象。
+// 摆放规则 (Java GunsmithBenchGunLayout 与 JS 预览逐条一致): 输入是枪在 TACZ FIXED 定位系里默认可见方块的包围盒 B
+// (未缩放 px; 枪口 -X, 枪顶 +Y, 枪的左侧 +Z) 与枪口参考点的 z0。
+//   1. L = B 的 x 长度; L <= 0 或非有限值 → 不画。
+//   2. 渲染长度 T = min(MAX_LENGTH, SIZE_A * L^SIZE_P), 缩放 k = T / L; 剖面高度 k * (B 的 y 长度) 超过 2 * HALF_WIDTH 时再压到正好。
+//   3. 枪口参考点两侧的厚度差 (B.maxZ - z0) - (z0 - B.minZ) > SIDE_UP_THRESHOLD → 左侧朝上, 否则右侧朝上。
+//   4. 右侧朝上 (X, Y, Z) → (X, -Z, Y): 枪顶朝 +z (机械臂), 握把/弹匣朝玩家; 左侧朝上 (X, Y, Z) → (X, Z, -Y)。
+//   5. 平移到: 包围盒最大 x = BUTT_X, 最小 y = TOP_Y, z 中心 = AXIS_Z。
+// 床面上 x ∈ [BUTT_X - MAX_LENGTH, BUTT_X]、z ∈ AXIS_Z ± HALF_WIDTH、y ∈ [TOP_Y, TOP_Y + GUN_CLEAR_UP] 不许有任何方块元素 (main() 校验)。
+// HALF_WIDTH 就是隐形枪体包络的 z 半宽: 第 2 步的宽度压缩保证任何枪都落在机械臂扫描时用的包络 z 范围里 (两者是同一个约定, 不许分开改)。
+const GUN_BED = {
+    BUTT_X: 27.5,              // 枪托端 (东) 抵住托底挡块胶垫的 x
+    TOP_Y: 11,                 // 床面 (胶垫顶面) 的 y
+    AXIS_Z: 11.75,             // 枪包围盒的 z 中心 (包络后沿 15.5: 再往后, 料盘取件时张开的爪子会擦到包络)
+    MAX_LENGTH: 23.2,          // 渲染长度上限 (px), 尺寸曲线的封顶值: 最长的枪枪口在 x = 4.3
+    HALF_WIDTH: 3.75,          // 平躺的枪 z 向可用的最大半宽 (枪的剖面高度的一半) = 隐形包络的 z 半宽
+    SIZE_A: 1.864, SIZE_P: 0.657,
+    SIDE_UP_THRESHOLD: 1.5,    // 未缩放 px
+    ENVELOPE_THICKNESS: 2.25,  // 机械臂放件用的隐形枪体包络厚度: 关键帧表的安装点按它的顶面反解 (运行时再按台上的枪下沉, 见 PLACE_CLEARANCE)
+};
+const GUN_CLEAR_UP = 6;        // 留空高度: 司登冲锋枪的侧插弹匣朝上时高出床面约 5 px
+const ENVELOPE_HALF_Z = GUN_BED.HALF_WIDTH;   // 隐形枪体包络的 z 半宽 (现有枪的剖面高度最大约 7.5 px)
+// 枪床各件 (世界坐标): 钢底板上铺一条刻度扫描灯带 (前沿, 紧挨维修垫后沿, 兼做维修垫的定位灯) + 防滑胶垫,
+// 东端是托底挡块 (胶垫朝西, 顶上一只状态灯)。底板与维修垫、柜体同宽 (x 1.5..30.5)。
+// 床面 (灯带 + 胶垫) 在 z 向比枪能占的范围 AXIS_Z ± HALF_WIDTH 前后各宽出 BED_MARGIN, 最宽的枪也不会伸出床沿 (gunBedChecks 校验)。
+// 后沿 15.75 仍在 y 11 以下, 料盘取件时爪子在 y >= 13 以上, 碰不到。
+const BED_MARGIN = 0.25;
+const BED = { x0: 1.5, x1: 30.5, z0: 7.75, z1: 15.75, y0: 10, base: 10.5, scanZ: 8.75, stop: { x1: 29.5, z0: 9.5, z1: 14.5, top: 13.5 } };
 
 // 机械臂主要尺寸 (世界像素)。shoulder = 肩座底面中心, 立在设备台 y=11.5 上。
 const ARM = {
@@ -160,7 +190,7 @@ const PAYLOADS = [
 // 夹爪开合 (左爪 zRot; 右爪取反): 负 = 爪尖内收 (空载待机), 0 = 两爪平行正好夹住 2 宽的零件, 正 = 张开。
 const CLAW = { pinch: -0.26, open: 0.22, hold: 0 };
 // 携带时工具的世界朝向 (yaw + 工具自转): -90° 让两爪沿 z 横跨枪身, 零件厚度方向沿枪管 (x),
-// 这样机匣上瞄具 (x<=19) 与压爪 (x>=21.5) 之间 2.5 格宽的空当也放得下; 料盘上的零件按同一朝向摆放。
+// 两爪都落在枪体包络的 z 范围内、不伸出枪床前后沿; 料盘上的零件按同一朝向摆放。
 const CARRY_THETA = -Math.PI / 2;
 // 送料盘: 设备台前沿一条浅盘, 一排零件。西端两个黄色角标格是送料位 (机械臂取件点), 东边是备件。
 // 送料位上也摆着一件静态零件: 爪子合拢时夹的是看得见的东西, 抬起后盘上仍留一件 (静态模型, 相当于送料机又补了一件)。
@@ -173,19 +203,26 @@ const TRAY_SLOTS = [
 ];
 const PICK_BODY = 'tray_pick_';   // 送料位静态零件的元素名前缀 (扫描时要区别对待, 见 sweepProgram)
 
+/** 六个面的描述: 没写的面取 all (down 默认是底色), 写成 null 的面不要。 */
+function faceSet(name, faces) {
+    const f = {};
+    for (const k of FACES) {
+        if (faces[k] !== undefined) f[k] = faces[k];
+        else if (k === 'down') f[k] = flat(BOTTOM);
+        else if (faces.all) f[k] = faces.all;
+        else throw new Error('face missing ' + name + ' ' + k);
+        if (f[k] === null) delete f[k];
+    }
+    return f;
+}
+
 /** 世界坐标建一台 (active: 工作态)。返回元素数组。 */
 function buildScene(active) {
     const E = [];
     const box = (name, from, to, faces, opt = {}) => {
-        const f = {};
-        for (const k of FACES) {
-            if (faces[k] !== undefined) f[k] = faces[k];
-            else if (k === 'down') f[k] = flat(BOTTOM);
-            else if (faces.all) f[k] = faces.all;
-            else throw new Error('face missing ' + name + ' ' + k);
-            if (f[k] === null) delete f[k];
-        }
-        const e = { name, from, to, faces: f, rot: opt.rot || null, item: opt.item !== false };
+        const f = faceSet(name, faces);
+        const e = { name, from, to, faces: f, rot: opt.rot || null, item: opt.item !== false, proxy: !!opt.proxy };
+        if (e.proxy && Object.keys(f).length) throw new Error('proxy element with visible faces: ' + name);
         E.push(e);
         return e;
     };
@@ -247,33 +284,30 @@ function buildScene(active) {
         down: flat(M.frame.dk),
     });
 
-    // ---------------- 左前: 维修垫与零件, 后沿一条贯通全宽的定位灯
-    const MAT = { x0: 1.5, x1: 14.5, z0: 2, z1: 8.5 };
-    const parts = {
+    // ---------------- 左前: 维修垫与零件 (后沿紧挨枪床前沿贯通全宽的刻度扫描灯带)
+    // 枪床前沿前移到 7.75 后, 维修垫连同垫上的零件整体北移 0.25 (零件相对垫面的位置不变, 贴图仍按 2 倍整像素对齐)
+    const MAT = { x0: 1.5, x1: 14.5, z0: 1.75, z1: BED.z0 };
+    const MZ = MAT.z0 - 2;   // 维修垫上各件相对原位置 (垫子从 z 2 起) 的 z 偏移
+    const parts = Object.fromEntries(Object.entries({
         bcg: [3, 3, 7, 4.5], spring: [3, 5.5, 8, 6.5], mag: [9, 3, 12.5, 4.5],
         slot: [3, 7, 6.5, 7.5], b1: [9, 6, 10.5, 6.5], b2: [11, 6, 12.5, 6.5], b3: [9, 7, 10.5, 7.5], b4: [11, 7, 12.5, 7.5],
-    };
+    }).map(([k, [x0, z0, x1, z1]]) => [k, [x0, z0 + MZ, x1, z1 + MZ]]));
     box('mat', [MAT.x0, 10, MAT.z0], [MAT.x1, 10.5, MAT.z1], {
         up: paint('mat_top', (c) => matTop(c, MAT, parts), { m: M.matg, d: 2 }),
         north: flat(M.matg.lo), east: flat(M.matg.lo), west: flat(M.matg.lo), south: null, down: null,
     });
-    box('mat_led', [MAT.x0, 10, MAT.z1], [MAT.x1, 10.5, MAT.z1 + 1], {
-        all: active ? glow(flat(CYAN_ON)) : flat(CYAN_OFF),
-        up: active ? glow(paint('mat_led_on', (c) => ledStrip(c, true), { m: M.cyan, d: 2 })) : paint('mat_led_off', (c) => ledStrip(c, false), { m: M.cyan, d: 2 }),
-        down: null,
-    });
-    box('bcg', [3, 10.5, 3], [7, 11.5, 4.5], {
+    box('bcg', [3, 10.5, 3 + MZ], [7, 11.5, 4.5 + MZ], {
         all: plate(M.black, 2),
         up: paint('bcg_top', (c) => { c.fill(M.black.base); c.bevel(M.black); c.hline(1, 1, c.w - 2, M.black.hi); c.rect(5, 1, 2, 1, M.brass.base); }, { m: M.black, d: 2 }),
         down: null,
     }, { item: false });
-    box('bcg_bolt', [2.5, 10.5, 3.5], [3, 11, 4], { all: flat(M.chrome.base), down: null }, { item: false });
-    box('spring', [3, 10.5, 5.5], [8, 11, 6.5], {
+    box('bcg_bolt', [2.5, 10.5, 3.5 + MZ], [3, 11, 4 + MZ], { all: flat(M.chrome.base), down: null }, { item: false });
+    box('spring', [3, 10.5, 5.5 + MZ], [8, 11, 6.5 + MZ], {
         all: flat(M.chrome.lo),
         up: paint('spring_top', (c) => { for (let x = 0; x < c.w; x++) c.vline(x, 0, c.h, x % 2 ? M.chrome.lo : M.chrome.hi); }, { m: M.chrome, d: 2 }),
         down: null,
     }, { item: false });
-    box('mat_mag', [9, 10.5, 3], [12.5, 11, 4.5], {
+    box('mat_mag', [9, 10.5, 3 + MZ], [12.5, 11, 4.5 + MZ], {
         all: flat(M.tan.lo),
         up: paint('mag_top', (c) => { c.fill(M.tan.base); c.bevel(M.tan); for (let x = 2; x < c.w - 1; x += 2) c.vline(x, 1, c.h - 2, M.tan.lo); }, { m: M.tan, d: 2 }),
         down: null,
@@ -302,12 +336,50 @@ function buildScene(active) {
         north: flat(M.frame.base),
     }, { rot: { origin: [25.5, 11, 1.5], axis: 'x', angle: -22.5 } });
 
-    // ---------------- 中央: 斜置夹具板 + 步枪
-    for (const p of gunParts(active)) {
-        const e = box(p.name, [p.x0, GUN.py + p.v0, GUN.pz + p.w0], [p.x1, GUN.py + p.v1, GUN.pz + p.w1], p.faces, { rot: GUN_ROT, item: false });
-        e.rifle = p.rifle;
-        e.gun = p;
+    // ---------------- 中央: 平放的枪床 (真枪由 BlockEntityRenderer 侧躺在胶垫上, 见 GUN_BED)
+    const G = GUN_BED, st = BED.stop;
+    box('bed_base', [BED.x0, BED.y0, BED.z0], [BED.x1, BED.base, BED.z1], {
+        all: flat(M.frame.lo),
+        up: plate(M.frame, 2),
+        north: paint('bed_base_n', (c) => { c.fill(M.frame.base); c.hline(0, 0, c.w, M.frame.hi); for (let x = 3; x < c.w - 2; x += 6) c.px(x, 0, M.orange.base); }, { m: M.frame, d: 2 }),
+        down: null,
+    }, { item: false });
+    // 前沿: 刻度扫描灯带 (零点在托底挡块, 每 1 px 一小格、每 4 px 一长格), 工作时发光
+    box('bed_scan', [BED.x0 + 0.5, BED.base, BED.z0], [G.BUTT_X, G.TOP_Y, BED.scanZ], {
+        all: active ? glow(flat(CYAN_ON)) : flat(CYAN_OFF),
+        up: active ? glow(paint('bed_scan_on', (c) => bedScale(c, true), { m: M.cyan, d: 2 })) : paint('bed_scan_off', (c) => bedScale(c, false), { m: M.cyan, d: 2 }),
+        down: null,
+    }, { item: false });
+    // 防滑胶垫: 网格 + 两端零位角标
+    box('bed_mat', [BED.x0 + 0.5, BED.base, BED.scanZ], [G.BUTT_X, G.TOP_Y, BED.z1], {
+        all: flat(M.bedmat.lo),
+        up: paint('bed_mat_top', bedMatTop, { m: M.bedmat, d: 2 }),
+        down: null,
+    }, { item: false });
+    // 托底挡块: 朝西的一面是胶垫 (枪托抵在 x = BUTT_X), 顶上一只状态灯 (工作时亮橙)
+    box('bed_stop', [G.BUTT_X, BED.base, st.z0], [st.x1, st.top, st.z1], {
+        all: plate(M.orange, 2),
+        west: paint('bed_stop_pad', stopPad, { m: M.rubber, d: 2 }),
+        north: paint('bed_stop_n', stopSide, { m: M.orange, d: 2 }),
+        south: paint('bed_stop_n', stopSide, { m: M.orange, d: 2 }),
+        up: paint('bed_stop_top', (c) => { c.fill(M.orange.base); c.bevel(M.orange); c.bolt(1, 1, M.orange); c.bolt(1, c.h - 3, M.orange); }, { m: M.orange, d: 2 }),
+        down: null,
+    }, { item: false });
+    const lz = (st.z0 + st.z1) / 2;
+    box('bed_stop_lamp', [G.BUTT_X + 0.5, st.top, lz - 0.5], [st.x1 - 0.5, st.top + 0.5, lz + 0.5], {
+        all: active ? glow(flat(M.hot.base)) : flat('#7a5a30'),
+        up: active ? glow(flat(M.hot.hi)) : flat('#8a6a3a'),
+        down: null,
+    }, { item: false });
+    // 西端一对定位销: 最长的枪 (封顶 MAX_LENGTH) 的枪口停在销前, 与东端挡块一起框出枪位
+    const pinX = Math.floor((G.BUTT_X - G.MAX_LENGTH - 0.5) * 2) / 2;   // 销的东面, 对齐 0.5 px, 离最长的枪口 >= 0.5 px
+    for (const [i, z] of [[0, G.AXIS_Z - 1.75], [1, G.AXIS_Z + 1.25]]) {
+        box('bed_pin' + i, [pinX - 0.5, G.TOP_Y, z], [pinX, G.TOP_Y + 1, z + 0.5], { all: flat(M.chrome.base), up: flat(M.orange.hi), west: flat(M.chrome.lo), down: null }, { item: false });
     }
+    // 隐形枪体包络: 不画、不进图集, 只当碰撞体。关键帧表里的安装点把零件放在它的顶面上 (见 PLACES), 其余段落按它避让台上的枪。
+    // 运行时的枪 (除司登的侧插弹匣外厚度都 < 2.25 px) 都在它下面; 渲染器再按台上的枪让安装点下沉, 零件落到真枪上 (见 placeStations)。
+    box('gun_envelope', [G.BUTT_X - G.MAX_LENGTH, G.TOP_Y, G.AXIS_Z - ENVELOPE_HALF_Z], [G.BUTT_X, G.TOP_Y + G.ENVELOPE_THICKNESS, G.AXIS_Z + ENVELOPE_HALF_Z],
+        { north: null, south: null, east: null, west: null, up: null, down: null }, { item: false, proxy: true });
 
     // ---------------- 后右: 机械臂设备台 + 换刀座
     const S = ARM.shoulder;
@@ -401,85 +473,57 @@ function buildScene(active) {
     return E;
 }
 
-/** 夹具板与步枪 (枪内局部坐标)。rifle: true 的是枪本体 (物品模型会单独取出放大)。 */
-function gunParts(active) {
+/**
+ * 物品图标里的步枪 (枪内局部坐标: x 同世界, v = 剖面高度, w = 厚度)。方块上的枪是运行时渲染的真枪, 这把只进物品模型,
+ * 由 itemModel 放大、斜立在台面前沿; 这里只登记面 (进图集), 不进任何方块模型, 也不当碰撞体。
+ */
+function itemRifle() {
     const P = [];
-    const g = (name, x0, x1, v0, v1, w0, w1, faces, rifle = false) => P.push({ name, x0, x1, v0, v1, w0, w1, faces, rifle });
+    const g = (name, x0, x1, v0, v1, w0, w1, faces) => P.push({
+        name, from: [x0, v0, w0], to: [x1, v1, w1], faces: faceSet(name, faces), rot: null, item: false, rifle: true, gun: { x0, x1, v0, v1, w0, w1 },
+    });
     const gp = (key, fn, m, d = 2) => paint(key, fn, { m, d });
-    const back = itemOnly(flat(M.black.lo));   // 枪背面: 方块里贴着夹具板看不见, 只给物品模型用
-
-    // 夹具板 (中灰钢, 网格 + 刻度), 橙色托沿, 前面一条全宽扫描灯带
-    g('gun_board', 4, 28, -3.5, 1.5, 1, 1.5, {
-        north: gp('gun_board_n', rackBoard, M.rack),
-        up: flat(M.rack.hi), down: flat(M.rack.lo), east: flat(M.rack.lo), west: flat(M.rack.lo), south: flat(M.frame.base),
-    });
-    g('gun_lip', 4, 28, -4, -3.5, -1, 1.5, { all: flat(M.orange.base), up: flat(M.orange.hi), north: flat(M.orange.lo), down: flat(M.orange.dk) });
-    g('gun_scan', 4, 28, -3.25, -2.25, 0.5, 1, {
-        all: active ? glow(flat(CYAN_ON)) : flat(CYAN_OFF), south: null,
-        north: active ? glow(gp('scan_on', (c) => scanBar(c, true), M.cyan)) : gp('scan_off', (c) => scanBar(c, false), M.cyan),
-    });
-    // V 形托块 (亮钢 + 橙色垫) 与压爪 (橙色; 工作时发光)
-    for (const [nm, x0, v1] of [['gun_cradle_a', 10.5, -0.25], ['gun_cradle_b', 21, 0]]) {
-        g(nm, x0, x0 + 2, v1 - 1, v1, -1, 1, {
-            all: flat(M.chrome.lo), up: flat(M.orange.hi), south: null,
-            north: gp('cradle_n', cradleFace, M.chrome, 4),
-        });
-    }
-    for (const [nm, x0, v0] of [['gun_clamp_a', 11, 1.25], ['gun_clamp_b', 21.5, 1]]) {
-        const m = active ? M.hot : M.orange;
-        const f = (d) => (active ? glow(d) : d);
-        g(nm, x0, x0 + 1.5, v0, v0 + 1, -1, 1, {
-            all: f(flat(m.base)), up: f(flat(m.hi)), down: flat(m.lo), south: null,
-            north: f(gp(active ? 'clamp_on' : 'clamp', (c) => clampFace(c, m), m, 4)),
-        });
-    }
-    for (const [nm, x0] of [['gun_leg_a', 6], ['gun_leg_b', 25]]) {
-        g(nm, x0, x0 + 1, -1.5, 1, 1.5, 3.4, { all: flat(M.frame.base), up: flat(M.frame.hi), north: null });
-    }
+    const back = flat(M.black.lo);   // 枪背面 (图标里朝南, 基本看不到)
 
     // 步枪 (枪口朝西)
-    g('g_muzzle', 4.5, 5.5, 0, 1, -0.5, 0.5, { all: flat(M.black.base), south: back, north: gp('g_muzzle_n', (c) => { c.fill(M.black.base); c.hline(0, 0, c.w, M.black.hi); c.px(0, 1, M.black.dk); c.px(1, 1, M.black.dk); }, M.black) }, true);
-    g('g_barrel', 5.5, 9, 0.25, 0.75, -0.25, 0.25, { all: flat(M.black.base), up: flat(M.black.hi), north: flat(M.black.hi), south: back }, true);
+    g('g_muzzle', 4.5, 5.5, 0, 1, -0.5, 0.5, { all: flat(M.black.base), south: back, north: gp('g_muzzle_n', (c) => { c.fill(M.black.base); c.hline(0, 0, c.w, M.black.hi); c.px(0, 1, M.black.dk); c.px(1, 1, M.black.dk); }, M.black) });
+    g('g_barrel', 5.5, 9, 0.25, 0.75, -0.25, 0.25, { all: flat(M.black.base), up: flat(M.black.hi), north: flat(M.black.hi), south: back });
     g('g_handguard', 9, 14.5, -0.25, 1.25, -0.75, 0.75, {
         all: flat(M.gunm.base), up: gp('g_hg_top', (c) => { c.fill(M.gunm.base); for (let x = 0; x < c.w; x += 2) c.vline(x, 0, c.h, M.gunm.hi); }, M.gunm), down: flat(M.gunm.lo), south: back,
         north: gp('g_hg_n', (c) => { c.fill(M.gunm.base); c.bevel(M.gunm); for (let x = 1; x < c.w - 1; x += 3) c.rect(x, 1, 2, 1, M.gunm.dk); }, M.gunm),
         west: flat(M.gunm.lo),
-    }, true);
-    g('g_fsight', 9.5, 10, 1.25, 2.25, -0.25, 0.25, { all: flat(M.black.base), south: back }, true);
+    });
+    g('g_fsight', 9.5, 10, 1.25, 2.25, -0.25, 0.25, { all: flat(M.black.base), south: back });
     g('g_receiver', 14.5, 20.5, -0.5, 1.5, -1, 1, {
         all: flat(M.black.base), up: flat(M.black.hi), down: flat(M.black.lo), south: back,
-        north: active ? glow(gp('g_rcv_hot', (c) => receiverFace(c, true), M.black)) : gp('g_rcv_n', (c) => receiverFace(c, false), M.black),
-    }, true);
+        north: gp('g_rcv_n', receiverFace, M.black),
+    });
     g('g_optic', 16, 19, 1.5, 2.5, -0.75, 0.75, {
         all: flat(M.black.base), up: flat(M.black.hi), south: back,
         north: gp('g_optic_n', (c) => { c.fill(M.black.base); c.hline(0, 0, c.w, M.black.hi); c.px(2, 1, M.cyan.base); c.px(3, 1, M.cyan.hi); }, M.black),
         west: flat(M.cyan.hi), east: flat(M.cyan.base),
-    }, true);
+    });
     g('g_mag_a', 15.5, 17.5, -2.5, -0.5, -0.5, 0.5, {
         all: flat(M.tan.base), south: back, down: flat(M.tan.lo),
         north: gp('g_mag_n', (c) => { c.fill(M.tan.base); c.bevel(M.tan); for (let y = 1; y < c.h - 1; y += 2) c.hline(1, y, c.w - 2, M.tan.lo); }, M.tan),
-    }, true);
+    });
     g('g_mag_b', 15, 17, -3.5, -2.5, -0.5, 0.5, {
         all: flat(M.tan.base), south: back, down: flat(M.tan.dk),
         north: gp('g_magb_n', (c) => { c.fill(M.tan.base); c.bevel(M.tan); c.hline(1, 1, c.w - 2, M.tan.lo); }, M.tan),
-    }, true);
-    g('g_grip_a', 19, 20, -1.5, -0.5, -0.5, 0.5, { all: flat(M.tan.base), south: back, north: gp('g_grip_n', (c) => { c.fill(M.tan.base); c.bevel(M.tan); }, M.tan) }, true);
-    g('g_grip_b', 19.5, 20.5, -2.5, -1.5, -0.5, 0.5, { all: flat(M.tan.base), south: back, north: gp('g_grip_n', (c) => { c.fill(M.tan.base); c.bevel(M.tan); }, M.tan) }, true);
-    g('g_guard', 17.5, 19, -1, -0.5, -0.25, 0.25, { all: flat(M.black.base), south: back }, true);
-    g('g_tube', 20.5, 23, 0, 1, -0.5, 0.5, { all: flat(M.black.base), up: flat(M.black.hi), south: back }, true);
+    });
+    g('g_grip_a', 19, 20, -1.5, -0.5, -0.5, 0.5, { all: flat(M.tan.base), south: back, north: gp('g_grip_n', (c) => { c.fill(M.tan.base); c.bevel(M.tan); }, M.tan) });
+    g('g_grip_b', 19.5, 20.5, -2.5, -1.5, -0.5, 0.5, { all: flat(M.tan.base), south: back, north: gp('g_grip_n', (c) => { c.fill(M.tan.base); c.bevel(M.tan); }, M.tan) });
+    g('g_guard', 17.5, 19, -1, -0.5, -0.25, 0.25, { all: flat(M.black.base), south: back });
+    g('g_tube', 20.5, 23, 0, 1, -0.5, 0.5, { all: flat(M.black.base), up: flat(M.black.hi), south: back });
     g('g_stock', 23, 27, 0, 1.5, -0.75, 0.75, {
         all: flat(M.tan.base), up: flat(M.tan.hi), down: flat(M.tan.lo), south: back,
         north: gp('g_stock_n', (c) => { c.fill(M.tan.base); c.bevel(M.tan); c.rect(3, 1, 3, 1, M.tan.dk); }, M.tan),
-    }, true);
+    });
     g('g_stock_toe', 25, 27, -1, 0, -0.75, 0.75, {
         all: flat(M.tan.base), down: flat(M.tan.lo), south: back,
         north: gp('g_stoe_n', (c) => { c.fill(M.tan.base); c.hline(0, c.h - 1, c.w, M.tan.lo); c.vline(c.w - 1, 0, c.h, M.tan.lo); c.vline(0, 0, c.h - 1, M.tan.hi); }, M.tan),
-    }, true);
-    g('g_buttpad', 27, 27.5, -1, 1.5, -0.75, 0.75, { all: flat(M.rubber.base), up: flat(M.rubber.hi), south: back }, true);
-    if (active) {
-        // 机匣顶面的焊点 (抓手下方), 2x1
-        g('g_weld', 19, 20.5, 1.5, 2, -0.5, 0.5, { all: glow(flat('#ffb25a')), up: glow(flat('#fff4d6')), south: null, down: null });
-    }
+    });
+    g('g_buttpad', 27, 27.5, -1, 1.5, -0.75, 0.75, { all: flat(M.rubber.base), up: flat(M.rubber.hi), south: back });
     return P;
 }
 
@@ -566,17 +610,11 @@ function matTop(c, MAT, parts) {
         for (let x = a0 - 1; x <= a1; x++) { if (!dashed || x % 2 === 0) { c.px(x, b0 - 1, line); c.px(x, b1, line); } }
         for (let y = b0 - 1; y <= b1; y++) { if (!dashed || y % 2 === 0) { c.px(a0 - 1, y, line); c.px(a1, y, line); } }
     };
-    outline([2.5, 3, 7, 4.5]); outline(parts.spring); outline(parts.mag);
-    outline([9, 6, 12.5, 7.5]);
+    outline([2.5, parts.bcg[1], parts.bcg[2], parts.bcg[3]]); outline(parts.spring); outline(parts.mag);   // 枪机框连同西端的枪机头
+    outline([parts.b1[0], parts.b1[1], parts.b4[2], parts.b4[3]]);   // 四发子弹一组
     outline(parts.slot, true);
     const [sa, sb] = tex(parts.slot[0], parts.slot[1]);
     c.hline(sa + 1, sb, 4, mix(line, m.base, 0.4));
-}
-function ledStrip(c, on) {
-    // 定位灯条: 全宽灯管, 每 4 格一个定位刻度
-    const a = on ? C('#b8fbff') : C('#35606a'), b = on ? CYAN_ON : CYAN_OFF, k = on ? C('#2fb8c8') : C('#1d3a40');
-    c.fill(b); c.hline(0, 0, c.w, a);
-    for (let x = 1; x < c.w; x += 4) c.px(x, 1, k);
 }
 function screen(c, on) {
     const bez = C('#1b2027');
@@ -600,34 +638,46 @@ function screen(c, on) {
         c.px(c.w - 2, c.h - 2, fg2);
     }
 }
-function rackBoard(c) {
-    const m = M.rack;
-    c.fill(m.base);
-    const gl = mix(m.base, m.hi, 0.45);
-    for (let x = 3; x < c.w - 1; x += 4) c.vline(x, 1, c.h - 2, gl);
-    for (let y = 3; y < c.h - 1; y += 4) c.hline(1, y, c.w - 2, gl);
-    for (let x = 2; x < c.w - 2; x += 2) c.px(x, 1, x % 8 === 2 ? M.cyan.lo : m.lo);
-    c.bevel(m);
-    c.bolt(1, c.h - 3, m); c.bolt(c.w - 3, c.h - 3, m);
-}
-function scanBar(c, on) {
-    const a = on ? C('#d8feff') : C('#3b6d77'), b = on ? CYAN_ON : CYAN_OFF;
+// 枪床前沿的刻度扫描灯带 (顶面贴图: u 沿 x 向东, v 沿 z 向南)。刻度零点在东端 (托底挡块, x = BUTT_X):
+// 每 1 px 一小格 (后一行)、每 4 px 一长格 (两行), 读数就是枪从托底量起的长度。
+function bedScale(c, on) {
+    const a = on ? C('#b8fbff') : C('#35606a'), b = on ? CYAN_ON : CYAN_OFF, k = on ? C('#2a9fb0') : C('#1d3a40');
     c.fill(b); c.hline(0, 0, c.w, a);
-    if (on) for (let x = 3; x < c.w; x += 6) c.px(x, 1, C('#ffffff'));
+    for (let u = 0; u < c.w; u++) {
+        const fromButt = c.w - 1 - u;
+        if (fromButt % 8 === 0) c.vline(u, 0, c.h, k);
+        else if (fromButt % 2 === 0) c.px(u, c.h - 1, k);
+    }
 }
-function cradleFace(c) {
-    const m = M.chrome;
-    c.fill(m.base); c.bevel(m);
-    c.hline(0, 0, c.w, M.orange.base);
-    // V 形槽
-    c.rect(2, 0, 4, 1, M.frame.dk); c.rect(3, 1, 2, 1, M.frame.dk);
-    c.px(1, c.h - 2, m.lo); c.px(c.w - 2, c.h - 2, m.lo);
+// 枪床胶垫顶面 (u 沿 x 向东, v 沿 z 向南): 淡色 2 px 网格, 竖线从托底端量起, 与前沿刻度尺的长格对齐;
+// 两端各一对零位角标 (东 = 托底, 西 = 最长的枪的枪口)
+function bedMatTop(c) {
+    const m = M.bedmat;
+    const x0 = BED.x0 + 0.5;
+    c.fill(m.base);
+    const grid = mix(m.base, m.hi, 0.22);
+    for (let u = 0; u < c.w; u++) if ((c.w - 1 - u) % 4 === 0) c.vline(u, 0, c.h, grid);
+    for (let y = 3; y < c.h - 1; y += 4) c.hline(0, y, c.w, grid);
+    c.bevel({ hi: m.hi, lo: m.dk });
+    const line = C('#9fe6d8');
+    const xe = c.w - 2, xw = Math.round((GUN_BED.BUTT_X - GUN_BED.MAX_LENGTH - x0) * 2);
+    for (const [xx, dir] of [[xe, -1], [xw, 1]]) {
+        c.px(xx, 1, line); c.px(xx, 2, line); c.px(xx + dir, 1, line);
+        c.px(xx, c.h - 2, line); c.px(xx, c.h - 3, line); c.px(xx + dir, c.h - 2, line);
+    }
 }
-function clampFace(c, m) {
-    c.fill(m.base); c.bevel(m);
-    c.rect(2, 1, 2, 2, m.dk); c.px(2, 1, m.lo);
+// 托底挡块朝西的胶垫: 橙色边框 + 黑色防滑棱
+function stopPad(c) {
+    c.fill(M.rubber.base);
+    for (let y = 1; y < c.h - 1; y += 2) c.hline(1, y, c.w - 2, M.rubber.hi);
+    c.hline(0, 0, c.w, M.orange.base); c.hline(0, c.h - 1, c.w, M.orange.lo);
+    c.vline(0, 0, c.h, M.orange.base); c.vline(c.w - 1, 0, c.h, M.orange.lo);
 }
-function receiverFace(c, hot) {
+function stopSide(c) {
+    c.fill(M.orange.base); c.bevel(M.orange);
+    c.hazard(1, c.h - 2, c.w - 2, 1, 2);
+}
+function receiverFace(c) {
     const m = M.black;
     c.fill(m.base); c.bevel(m);
     // 北面贴图左端 = 东 (x=20.5, 枪托侧)
@@ -636,14 +686,6 @@ function receiverFace(c, hot) {
     c.vline(7, 2, 2, m.dk);                   // 弹匣井前沿
     c.px(2, 2, m.hi); c.px(4, 2, m.hi);       // 销钉
     c.hline(1, 2, 1, M.cyan.base);            // 快慢机点缀
-    if (hot) {
-        // 激光刻印中的炽热区 (约 2.5x2 模型像素): 白芯 + 黄 + 橙边
-        const x0 = 3, w = 5;
-        c.rect(x0, 0, w, 4, C('#f07a1c'));
-        c.rect(x0 + 1, 0, w - 2, 4, C('#ffc24a'));
-        c.rect(x0 + 1, 1, w - 2, 2, C('#fff6de'));
-        c.px(x0 + 2, 1, C('#ffffff'));
-    }
 }
 function deckSide(c) {
     const m = M.frame;
@@ -820,7 +862,7 @@ function cullHidden(E) {
             if (e.rot) continue;
             const r = faceRect(face, e);
             for (const b of E) {
-                if (b === e || b.rot) continue;
+                if (b === e || b.rot || b.proxy) continue;   // 隐形碰撞体不遮挡任何面
                 const inside = r.sg > 0 ? (b.from[r.ax] <= r.v + eps && b.to[r.ax] > r.v + eps) : (b.from[r.ax] < r.v - eps && b.to[r.ax] >= r.v - eps);
                 if (!inside) continue;
                 if (b.from[r.a] <= r.a0 + eps && b.to[r.a] >= r.a1 - eps && b.from[r.b] <= r.b0 + eps && b.to[r.b] >= r.b1 - eps) { delete e.faces[face]; break; }
@@ -1084,7 +1126,7 @@ function collisionBodies(E) {
         const corners = [];
         for (const x of [e.from[0], e.to[0]]) for (const y of [e.from[1], e.to[1]]) for (const z of [e.from[2], e.to[2]]) corners.push(rotPoint(e.rot, [x, y, z], 1));
         const lo = [0, 1, 2].map((a) => Math.min(...corners.map((c) => c[a]))), hi = [0, 1, 2].map((a) => Math.max(...corners.map((c) => c[a])));
-        // 棱上的点 (每 0.05 px): 旋转元素的棱 (例如 45° 斜置的枪身脊线) 可能从臂段表面采样点之间穿过去, 只查角点查不出来
+        // 棱上的点 (每 0.05 px): 细长元素或旋转元素的棱 (例如斜置的工具、屏幕) 可能从臂段表面采样点之间穿过去, 只查角点查不出来
         const edgePts = [];
         for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) {
             if ([1, 2, 4].indexOf(i ^ j) < 0) continue;   // corners 按 x/y/z 三重循环排列: 下标只差一位的两个角共棱
@@ -1152,12 +1194,13 @@ function armHits(pose, bodies, margin, first = false, opts = {}) {
 }
 
 // ------------------------------------------------------------ 机械臂: 取放程序
-// 安装点 (世界坐标, 期望的腕部水平位置; 求解时在附近小范围内找最贴合的一点):
-//   枪机 → 机匣后段顶面 (瞄具 x<=19 与后压爪 x>=21.5 之间, 即工作态焊点 g_weld 所在处)
-//   枪托件 → 枪托顶面 (后压爪以东, 托底板以西)
+// 安装点 (世界坐标, 期望的腕部水平位置; 求解时在附近小范围内找最贴合的一点)。台上的枪是运行时按台里的枪换的,
+// 这里放在隐形枪体包络 gun_envelope 的顶面上 (所有枪都在它下面), 两处都靠枪顶一侧 (右侧朝上时枪顶朝 +z, 朝着机械臂):
+//   枪机 → 托底往西 7.5 px (步枪的机匣后段)
+//   枪托件 → 托底往西 2.5 px (枪托)
 const PLACES = {
-    bolt: { x: 20.25, z: 13.55, targets: ['g_receiver', 'g_weld'] },
-    stock: { x: 25, z: 13.55, targets: ['g_stock', 'g_buttpad', 'g_stock_toe'] },
+    bolt: { x: GUN_BED.BUTT_X - 7.5, z: GUN_BED.AXIS_Z + 1.5, targets: ['gun_envelope'] },
+    stock: { x: GUN_BED.BUTT_X - 2.5, z: GUN_BED.AXIS_Z + 1.5, targets: ['gun_envelope'] },
 };
 const DESCENT = 3;            // 悬停点比最低的接触点至少高这么多 (全部取放点共用一个安全高度)
 const CONTACT_GAP = 0.02;     // 接触时携带件与目标的间隙 (>0: 贴上但不穿入)
@@ -1213,9 +1256,9 @@ function solveStations(bodies) {
             if (!c || c.gap > 0.1 || !c.blockers.some((b) => P.targets.includes(b))) continue;
             cands.push({ xz, ...c, score: Math.abs(dx) + Math.abs(dz) });
         }
-        if (!cands.length) throw new Error(`arm: no contact point on the rifle for ${key} near (${P.x}, ${P.z})`);
+        if (!cands.length) throw new Error(`arm: no contact point on the gun envelope for ${key} near (${P.x}, ${P.z})`);
         cands.sort((a, b) => a.score - b.score || a.wy - b.wy);
-        st[key + '_place'] = { payload: p.code, label: p.label, ...cands[0] };
+        st[key + '_place'] = { payload: p.code, label: p.label, place: key, ...cands[0] };
     }
     return st;
 }
@@ -1232,9 +1275,13 @@ function solveIdle(bodies) {
 const MOVE_J = 0;         // 关节角直接插值: 只用于手臂不动的段落 (停顿、夹爪开合、点焊)
 const MOVE_VERTICAL = 1;  // 柱坐标插值且偏航不变 → 腕部竖直直线 (下探/抬起)
 const MOVE_TRANSFER = 2;  // 柱坐标插值且高度不变 → 在安全高度平移 (偏航与水平伸出同时缓动, 腕部不上浮)
+// 放件下沉 (Java 表里的 station 列, 取值与 GunsmithArmProgram.STATION_* / raster.mjs ARM_STATION_* 相同):
+// 安装点的低位行 (下探就位、停顿、点焊、松开) 标上所在安装点, 运行时这些行的腕部按该安装点的下沉量降低, 零件落到台上真枪的顶面。
+const PLACE_STATION = { bolt: ARM_STATION_BOLT, stock: ARM_STATION_STOCK };
+const PLACE_CLEARANCE = 0.02;   // 下沉后零件底面 (含外扩) 与真枪顶面的间隙 (同 CONTACT_GAP: 贴上但不穿入)
 
 /**
- * 关键帧程序。每行: tick、关节角、夹爪、携带件、火花、插值方式、动作名。
+ * 关键帧程序。每行: tick、关节角、夹爪、携带件、火花、插值方式、下沉安装点、动作名。
  * 连续量 (关节角、自转、夹爪) 在相邻两行之间缓动; 相同两行 = 停顿。
  * 节奏是 "动-停-做-动": 偏航只在安全高度改变 (MOVE_TRANSFER), 离开/落回任何低位 (换刀座、料盘、枪上) 都是竖直直线,
  * 每个动作前后停 2-3 tick。
@@ -1247,14 +1294,14 @@ function buildProgram(st, idle) {
         const W = [s.xz[0], level === 'low' ? s.wy : hoverY, s.xz[1]];
         const k = keyAt(W, CARRY_THETA, claw, payload);
         if (!k) throw new Error(`arm: ${s.label} ${level} (${W.map(r4)}) is out of reach`);
-        return { ...k, level, station: s };
+        return { ...k, level, site: s };
     };
     // 待机点贴着换刀座 (爪尖离座面不到 0.4 px), 也算低位: 先竖直抬到安全高度再转, 回来时在安全高度转正再竖直落下。
     const dock = { label: '换刀座', xz: [idle.W[0], idle.W[2]] };
-    const idleKey = { ...idle.k, level: 'idle', station: dock };
+    const idleKey = { ...idle.k, level: 'idle', site: dock };
     const hoverKey = keyAt([idle.W[0], hoverY, idle.W[2]], 0, CLAW.pinch, 0);
     if (!hoverKey) throw new Error('arm: the hover point above the tool-change pedestal is out of reach');
-    const idleHover = { ...hoverKey, level: 'hover', station: dock };
+    const idleHover = { ...hoverKey, level: 'hover', site: dock };
     const rows = [];
     let t = 0;
     const push = (label, key, extra = {}) => rows.push({ ...key, tick: t, label, spark: false, ...extra });
@@ -1298,6 +1345,8 @@ function buildProgram(st, idle) {
     vertical(4, '落回换刀座', idleKey);
     hold(160 - t);
     rows[rows.length - 1].label = '待机';
+    // 下沉安装点: 只标安装点的低位行 (停顿行是复制上一行来的, 所以最后统一按 level/site 重标, 不从上一行继承)
+    for (const r of rows) r.station = r.level === 'low' && r.site.place ? PLACE_STATION[r.site.place] : 0;
     return { rows, hoverY };
 }
 /** 写进 Java 的数值 (4 位小数) 与 Java 看到的完全一致: 预览、扫描都从这份取整后的表出发。 */
@@ -1309,9 +1358,10 @@ function roundRows(rows) {
  * MOVE_J: 各关节角直接 smoothstep 插值 (只用于手臂不动的段落)。
  * MOVE_VERTICAL / MOVE_TRANSFER: 偏航、水平伸出、高度各自 smoothstep 缓动, 每个时刻反解大臂/小臂角;
  * 偏航不变时腕部走竖直直线, 高度不变时腕部在同一高度上绕肩轴平移。
+ * boltDrop / stockDrop: 两个安装点的放件下沉量 (station 列非 0 的行腕部降低这么多), 夹到 [0, maxPlaceDrop]; 省略 = 不下沉。
  */
-function sampleProgram(rows, tick) {
-    return sampleArmProgram({ rows, geo: { L1: ARM.L1, L2: ARM.L2 } }, tick);
+function sampleProgram(rows, tick, boltDrop = 0, stockDrop = 0, maxPlaceDrop = Infinity) {
+    return sampleArmProgram({ rows, geo: { L1: ARM.L1, L2: ARM.L2, maxPlaceDrop } }, tick, boltDrop, stockDrop);
 }
 // 换刀座待机点也是低位 (爪尖贴着座面): 与料盘/枪上的接触点同样不许在这里转偏航。
 const isLow = (r) => r.level === 'low' || r.level === 'idle';
@@ -1335,7 +1385,7 @@ function checkProgram(rows, hoverY) {
         if (b.linear === MOVE_J && armMoves(a, b)) errs.push(`row ${i}: the arm moves on raw joint interpolation (use a vertical or transfer move)`);
         if (b.linear === MOVE_VERTICAL && (turns || Math.abs(a.spin - b.spin) > 1e-9)) errs.push(`row ${i}: a vertical move must not turn`);
         if (b.linear === MOVE_TRANSFER && (a.level !== 'hover' || b.level !== 'hover')) errs.push(`row ${i}: a transfer must start and end at the hover height`);
-        if (isLow(a) !== isLow(b) && a.station === b.station) {
+        if (isLow(a) !== isLow(b) && a.site === b.site) {
             if (b.linear !== MOVE_VERTICAL) errs.push(`row ${i}: vertical move is not a straight-line segment`);
             // 悬停点与接触点在同一竖线上; 量腕部离这条竖线最远多少 (直线段理论上为 0, 只剩取整误差)
             const W0 = wristOf(a);
@@ -1358,25 +1408,161 @@ function checkProgram(rows, hoverY) {
  * - 取放段 (任一端在料盘/枪上的低位) 携带件允许贴上目标 (间隙 >= 0, 不穿入);
  * - 送料位上的静态零件就是被夹的那一件: 在它自己的取件段里携带件与它重合 (本来就是同一件东西) 不算,
  *   爪子与它允许贴住 (>= 0, 容许 1e-3 的浮点误差), 其余时刻它和别的元素一样要 >= margin。
+ * drops = [枪机, 枪托件] 安装点的放件下沉量: 任一端带下沉的程序段里零件要落到比包络低的真枪上, 这些段不查隐形包络 gun_envelope
+ * (真枪由 check_bench_guns.mjs 逐把按各自的下沉量查), 只查台子本身的元素; 其余段落照旧按包络避让。
  */
-function sweepProgram(rows, bodies, margin, sub = 8) {
+function sweepProgram(rows, bodies, margin, sub = 8, drops = [0, 0], maxPlaceDrop = Infinity, onlyLowered = false) {
     const bad = [];
     const T = rows[rows.length - 1].tick;
-    const pickOf = (r) => (r.level === 'low' && r.station && r.station.pickSlot ? r.station.pickSlot : null);
+    const pickOf = (r) => (r.level === 'low' && r.site && r.site.pickSlot ? r.site.pickSlot : null);
+    const noEnvelope = bodies.filter((b) => b.name !== 'gun_envelope');
+    const lowered = (r) => (r.station === ARM_STATION_BOLT ? drops[0] : r.station === ARM_STATION_STOCK ? drops[1] : 0) > 0;
     for (let i = 0; i <= T * sub; i++) {
         const t = i / sub;
-        const k = sampleProgram(rows, t);
+        const k = sampleProgram(rows, t, drops[0], drops[1], maxPlaceDrop);
+        if (k.ikMiss) { bad.push(`tick ${r4(t)}: IK unreachable`); continue; }
         const seg = Math.max(1, k.seg);
         const contact = rows[seg - 1].level === 'low' || rows[seg].level === 'low';
+        const low = lowered(rows[seg - 1]) || lowered(rows[seg]);
+        if (onlyLowered && !low) continue;
+        const all = low ? noEnvelope : bodies;
         const slot = pickOf(rows[seg - 1]) || pickOf(rows[seg]);
-        const own = slot ? bodies.filter((b) => b.name.startsWith(PICK_BODY + slot + '_')) : [];
-        const rest = own.length ? bodies.filter((b) => !own.includes(b)) : bodies;
+        const own = slot ? all.filter((b) => b.name.startsWith(PICK_BODY + slot + '_')) : [];
+        const rest = own.length ? all.filter((b) => !own.includes(b)) : all;
         const pose = armPose(k);
         const h = armHits(pose, rest, margin, true, { payloadMargin: contact ? 0 : margin });
         if (own.length) h.push(...armHits(pose, own, -1e-3, true, { skipPayload: true }));
         if (h.length) bad.push(`tick ${r4(t)}: ${h.join(', ')}`);
     }
     return bad;
+}
+/**
+ * sweepProgram 干净的最大间隙 (二分到 0.005 px, 上限 hi); 取放接触段的携带件始终按 >= 0 算。只用于 --margins 报告。
+ * onlyLowered: 只看带下沉的程序段 (安装点的下探、停顿、点焊、松开、抬起)。
+ */
+function sweepMargin(rows, bodies, drops, maxPlaceDrop, onlyLowered = false, hi = 2) {
+    const clean = (m) => !sweepProgram(rows, bodies, m, 8, drops, maxPlaceDrop, onlyLowered).length;
+    let lo = 0;
+    if (!clean(lo)) return -1;
+    if (clean(hi)) return hi;
+    while (hi - lo > 0.005) { const mid = (lo + hi) / 2; if (clean(mid)) lo = mid; else hi = mid; }
+    return r4(lo);
+}
+
+// 渲染器 easeToDock 的手写代码 (不在生成区块里): 这几行的形状变了, 下面的缓回扫描就不再对应游戏里的算法, 必须一起改
+const EASE_RETURN_TICKS_RE = /private static final float RETURN_TICKS = (\d+(?:\.\d+)?)F;/;
+const EASE_LIFT_RE = /float lift = Math\.max\(0\.0F, 1\.0F - s \/ (\d+(?:\.\d+)?)F\);/;
+const EASE_SHAPE_RES = [
+    /GunsmithArmProgram\.sample\(back\.fromProgramTick\(\), boltDrop \* lift, stockDrop \* lift, pose\);/,
+    /float e = s \* s \* \(3\.0F - 2\.0F \* s\);/,
+    ...['yaw', 'upperArm', 'forearm', 'toolSpin', 'claw'].map((k) => new RegExp(`pose\\.${k} \\+= \\(idlePose\\.${k} - pose\\.${k}\\) \\* e;`)),
+];
+/** 从渲染器源码读 easeToDock 的 RETURN_TICKS 与下沉收回比例 (lift = max(0, 1 - s / LIFT)); 读不到或算法形状变了就报错。 */
+function easeToDockParams(src) {
+    const errs = [];
+    const ticks = EASE_RETURN_TICKS_RE.exec(src), lift = EASE_LIFT_RE.exec(src);
+    if (!ticks) errs.push('ease to dock: RETURN_TICKS not found in GunsmithAssemblyBenchRenderer (update EASE_RETURN_TICKS_RE)');
+    if (!lift) errs.push('ease to dock: the "float lift = Math.max(0.0F, 1.0F - s / <LIFT>F);" line not found in GunsmithAssemblyBenchRenderer.easeToDock');
+    for (const re of EASE_SHAPE_RES) if (!re.test(src)) errs.push(`ease to dock: easeToDock no longer contains "${re.source.replace(/\\/g, '')}"; update sweepEaseToDock to the new blend`);
+    return { returnTicks: ticks ? +ticks[1] : NaN, lift: lift ? +lift[1] : NaN, errs };
+}
+/**
+ * 服务端在客户端程序停回待机前结束组装时, 渲染器 easeToDock 从停下的程序时刻 from 在 RETURN_TICKS 内按关节角 smoothstep 缓回
+ * 待机 (与 idle 行逐个关节插值), 放件下沉在 s < LIFT 内线性收回。这段轨迹不在关键帧表里, sweepProgram 扫不到: 从下沉位置直接
+ * 按关节角缓回会让爪子扫过料盘上的枪托件。这里对两个安装点的下探起点..抬起终点 (与 station 行相邻的两行之间) 每 fromStep tick
+ * 一个 from、每档下沉量 (0..MAX 等分 dropLevels 档, 另一个安装点取 MAX, 不应起作用), 按每 tick sub 份扫整段缓回 (s = 0..1),
+ * 任何臂段进入台子的元素即失败 (隐形包络不算: 那里是真枪, 由 check_bench_guns.mjs 逐把查)。缓回时不带件 (payload 0)。
+ */
+function sweepEaseToDock(rows, bodies, maxPlaceDrop, returnTicks, lift, { fromStep = 0.5, sub = 8, dropLevels = 8 } = {}) {
+    const bad = [];
+    const idle = rows[0];
+    const noEnvelope = bodies.filter((b) => b.name !== 'gun_envelope');
+    const steps = Math.max(1, Math.ceil(returnTicks * sub));
+    const windows = [];
+    for (const [key, code] of Object.entries(PLACE_STATION)) {
+        const first = rows.findIndex((r) => r.station === code);
+        let last = -1;
+        rows.forEach((r, i) => { if (r.station === code) last = i; });
+        if (first < 1 || last < 0 || last + 1 >= rows.length) { bad.push(`${key}: station rows not found`); continue; }
+        windows.push({ key, code, lo: rows[first - 1].tick, hi: rows[last + 1].tick });
+    }
+    let samples = 0;
+    for (const w of windows) {
+        const n = Math.round((w.hi - w.lo) / fromStep);
+        for (let di = 0; di <= dropLevels; di++) {
+            const dv = maxPlaceDrop * di / dropLevels;
+            const d = w.code === ARM_STATION_BOLT ? [dv, maxPlaceDrop] : [maxPlaceDrop, dv];
+            let first = null, count = 0;
+            for (let fi = 0; fi <= n; fi++) {
+                const from = w.lo + (w.hi - w.lo) * fi / n;
+                for (let si = 0; si <= steps; si++) {
+                    const s = si / steps;
+                    const f = Math.max(0, 1 - s / lift);
+                    const k = sampleProgram(rows, from, d[0] * f, d[1] * f, maxPlaceDrop);
+                    const e = s * s * (3 - 2 * s);
+                    const L = (key) => k[key] + (idle[key] - k[key]) * e;
+                    const h = armHits(armPose({ yaw: L('yaw'), upper: L('upper'), fore: L('fore'), spin: L('spin'), claw: L('claw'), payload: 0 }), noEnvelope, 0, true);
+                    samples++;
+                    if (k.ikMiss || h.length) { count++; first = first || `from tick ${r4(from)} s ${r4(s)}: ${k.ikMiss ? 'IK unreachable' : h.join(', ')}`; }
+                }
+            }
+            if (count) bad.push(`${w.key} drop ${r4(dv)} (other station ${r4(maxPlaceDrop)}): ${count} poses, first ${first}`);
+        }
+    }
+    return { bad, windows, steps, samples, fromStep, dropLevels };
+}
+
+/**
+ * 两个安装点的放件下沉参数 (写进 GunsmithArmProgram 的 BOLT_PLACE_* / STOCK_PLACE_*): 未下沉的放件姿态下携带件 (含外扩) 的
+ * 底面范围 (朝北整台像素, 向外取整到 1e-4) 与底面 y (向下取整, 算出的下沉量只会偏小, 零件不会压进枪里)。
+ * 运行时: 台上的枪在这块范围里 (AABB 严格重叠) 的最高点 gunTop, 下沉量 = clamp(bottomY - gunTop - PLACE_CLEARANCE, 0, MAX_PLACE_DROP);
+ * 范围里没有枪的方块时 gunTop = TOP_Y; 台上不画枪时下沉量 = MAX_PLACE_DROP。
+ * MAX_PLACE_DROP = 空床时零件正好落在床面上方 PLACE_CLEARANCE 的下沉量 (两个安装点取小的那个)。
+ */
+function placeStations(rows) {
+    const errs = [];
+    const places = {};
+    const floor4 = (v) => Math.floor(v * 10000 + 1e-7) / 10000, ceil4 = (v) => Math.ceil(v * 10000 - 1e-7) / 10000;
+    for (const [key, code] of Object.entries(PLACE_STATION)) {
+        const tagged = rows.filter((r) => r.station === code);
+        if (!tagged.length) { errs.push(`place drop: no keyframe row carries station ${code} (${key})`); continue; }
+        // 同一安装点的低位行手臂不动 (只有夹爪开合), 底面范围才是一个固定的矩形
+        if (tagged.some((r) => ['yaw', 'upper', 'fore', 'spin'].some((k) => r[k] !== tagged[0][k]))) errs.push(`place drop: the ${key} station rows do not share one arm pose`);
+        const payload = PAYLOADS.find((p) => p.key === key).code;
+        const Mp = armMatrices(armPose({ ...tagged[0], payload }))['payload_' + key];
+        const pts = ARM_SAMPLES.filter((s) => s.payload === payload).flatMap((s) => s.corners.map((p) => mApply(Mp, p)));
+        const lo = [0, 1, 2].map((a) => Math.min(...pts.map((p) => p[a]))), hi = [0, 1, 2].map((a) => Math.max(...pts.map((p) => p[a])));
+        places[key] = { code, minX: floor4(lo[0]), maxX: ceil4(hi[0]), minZ: floor4(lo[2]), maxZ: ceil4(hi[2]), bottomY: floor4(lo[1]), rows: tagged.length, ticks: [tagged[0].tick, tagged[tagged.length - 1].tick] };
+    }
+    const maxDrop = Math.floor(Math.min(...Object.values(places).map((p) => p.bottomY - GUN_BED.TOP_Y - PLACE_CLEARANCE)) * 10000 + 1e-7) / 10000;
+    if (!(maxDrop >= GUN_BED.ENVELOPE_THICKNESS - 0.05)) errs.push(`place drop: MAX_PLACE_DROP ${maxDrop} cannot bring a part down to an empty bed (envelope thickness ${GUN_BED.ENVELOPE_THICKNESS})`);
+    for (const r of [rows[0], rows[rows.length - 1]]) if (r.station) errs.push(`place drop: the idle row at tick ${r.tick} carries a station`);
+    return { places, maxDrop, errs };
+}
+/** 带下沉的四种组合 (两个安装点各取 0 或 MAX_PLACE_DROP): 下探/抬起仍是竖直直线、低位行确实降低了下沉量、全程反解可达。 */
+function checkPlaceDrops(rows, hoverY, maxDrop, combos) {
+    const errs = [];
+    let maxDev = 0, maxFloat = 0, maxLowErr = 0;
+    for (const d of combos) {
+        const S = (t) => sampleProgram(rows, t, d[0], d[1], maxDrop);
+        for (let i = 0; i <= 160 * 8; i++) if (S(i / 8).ikMiss) { errs.push(`drops ${d}: IK unreachable at tick ${i / 8}`); break; }
+        for (let i = 1; i < rows.length; i++) {
+            const a = rows[i - 1], b = rows[i];
+            if (b.linear === MOVE_VERTICAL) {
+                const W0 = wristOf(S(a.tick));
+                for (let j = 1; j <= 32; j++) { const w = wristOf(S(a.tick + (b.tick - a.tick) * j / 32)); maxDev = Math.max(maxDev, Math.hypot(w[0] - W0[0], w[2] - W0[2])); }
+            }
+            if (b.linear === MOVE_TRANSFER) for (let j = 0; j <= 32; j++) maxFloat = Math.max(maxFloat, Math.abs(wristOf(S(a.tick + (b.tick - a.tick) * j / 32))[1] - hoverY));
+            if (b.station) {
+                const want = wristOf(b), got = wristOf(S(b.tick)), drop = b.station === ARM_STATION_BOLT ? d[0] : d[1];
+                maxLowErr = Math.max(maxLowErr, Math.hypot(got[0] - want[0], got[1] - (want[1] - drop), got[2] - want[2]));
+            }
+        }
+    }
+    if (maxDev > 0.2) errs.push(`place drop: vertical moves drift ${r4(maxDev)}px sideways (> 0.2)`);
+    if (maxFloat > 0.05) errs.push(`place drop: transfers leave the hover height by ${r4(maxFloat)}px (> 0.05)`);
+    if (maxLowErr > 0.002) errs.push(`place drop: lowered station rows miss their target by ${r4(maxLowErr)}px`);
+    return { errs, maxDev: r4(maxDev), maxFloat: r4(maxFloat), maxLowErr: r4(maxLowErr) };
 }
 /** 点焊开始的 tick (火花段起点), 服务端按这些偏移播放焊接音。 */
 function weldStarts(rows) {
@@ -1514,9 +1700,20 @@ function rendererPatch(base, offs) {
     if (!RE_LAYER.test(base)) throw new Error('renderer base: createBodyLayer() not found');
     return base.replace(RE_LAYER, layer);
 }
-function programPatch(base, rows) {
+function programPatch(base, rows, drop) {
     const S = ARM.shoulder;
     const pad = (s, n) => (s.length >= n ? s : ' '.repeat(n - s.length) + s);
+    const placeConsts = (key) => {
+        const p = drop.places[key], P = key.toUpperCase() + '_PLACE_', label = PAYLOADS.find((q) => q.key === key).label;
+        return [
+            `    /** ${label}安装点: 未下沉的放件姿态下携带件 (含外扩) 底面的范围与底面 y; 台上的枪在这块范围里的最高点决定下沉量。 */`,
+            `    public static final float ${P}MIN_X = ${f1(p.minX)};`,
+            `    public static final float ${P}MAX_X = ${f1(p.maxX)};`,
+            `    public static final float ${P}MIN_Z = ${f1(p.minZ)};`,
+            `    public static final float ${P}MAX_Z = ${f1(p.maxZ)};`,
+            `    public static final float ${P}BOTTOM_Y = ${f1(p.bottomY)};`,
+        ];
+    };
     const body = [
         `    static final float PIVOT_X = ${f1(S[0])};`,
         `    static final float PIVOT_Y = ${f1(S[1])};`,
@@ -1526,18 +1723,99 @@ function programPatch(base, rows) {
         `    static final float FOREARM_LENGTH = ${f1(ARM.L2)};`,
         `    static final float TIP_DROP = ${f1(TIP_DROP)};`,
         ...PAYLOADS.map((p) => `    public static final int PAYLOAD_${p.key.toUpperCase()} = ${p.code};`),
+        ...placeConsts('bolt'),
+        ...placeConsts('stock'),
+        '    /**',
+        '     * 放件下沉量的上限 (px): 空床时零件正好落在床面上方 PLACE_CLEARANCE; 生成器对两个安装点各取 0 / 它的四种组合扫过整段程序。',
+        '     * 下沉量 = clamp(BOTTOM_Y - 枪顶 - PLACE_CLEARANCE, 0, MAX_PLACE_DROP), 台上不画枪时取 MAX_PLACE_DROP。',
+        '     */',
+        `    public static final float MAX_PLACE_DROP = ${f1(drop.maxDrop)};`,
+        '    /** 下沉后零件底面与枪顶的间隙 (px)。 */',
+        `    public static final float PLACE_CLEARANCE = ${f1(PLACE_CLEARANCE)};`,
         '    private static final float[][] KEYFRAMES = {',
-        '            // tick,     yaw, upperArm,  forearm, toolSpin,     claw, payload, spark, linear',
-        ...rows.map((r) => `            {${pad(String(r.tick), 4)}, ${[r.yaw, r.upper, r.fore, r.spin, r.claw].map((v) => pad(f1(v), 8)).join(', ')}, ${pad(String(r.payload || 0), 7)}, ${pad(r.spark ? '1' : '0', 5)}, ${pad(String(r.linear || 0), 6)}}, // ${r.label}`),
+        '            // tick,     yaw, upperArm,  forearm, toolSpin,     claw, payload, spark, linear, station',
+        ...rows.map((r) => `            {${pad(String(r.tick), 4)}, ${[r.yaw, r.upper, r.fore, r.spin, r.claw].map((v) => pad(f1(v), 8)).join(', ')}, ${pad(String(r.payload || 0), 7)}, ${pad(r.spark ? '1' : '0', 5)}, ${pad(String(r.linear || 0), 6)}, ${pad(String(r.station || 0), 7)}}, // ${r.label}`),
         '    };',
     ].join('\n') + '\n';
     if (!RE_GENERATED.test(base)) throw new Error('GunsmithArmProgram base: "// <generated>" ... "// </generated>" block not found');
     return base.replace(RE_GENERATED, (m, open, close) => open + body + close);
 }
+/** GunsmithGunBed.java 全文 (整个文件由本脚本写出)。 */
+function gunBedJava() {
+    const G = GUN_BED;
+    const field = (doc, name) => [`    /** ${doc} */`, `    public static final float ${name} = ${f1(G[name])};`];
+    return [
+        'package com.miningdim.job.munitions.block;',
+        '',
+        '/**',
+        ' * 枪械组装台的枪床: 运行时把台里那把枪的真实 TACZ 模型侧躺在前排胶垫上, 这里是摆放它要用的几何常量与尺寸曲线常量。',
+        ' * <p>',
+        ' * 由 tools/gunsmith_workstation/generate_assembly_bench.mjs 整个写出 (与方块模型、机械臂程序同一份几何), 不要手改;',
+        ' * 生成器还把同一组数值导出给 JS 预览 (GUN_BED)。摆放规则在 {@link GunsmithBenchGunLayout}, 与 JS 预览逐条一致。',
+        ' * 刻意不依赖任何 Minecraft 类, 客户端渲染器与 GameTest 都能直接用。',
+        ' * <p>',
+        ' * 坐标系: 朝北放置时的整台 (2x2) 局部像素, x 东、y 上、z 南, 原点在主格西北下角 (与 {@link GunsmithArmProgram} 相同)。',
+        ` * 床面上 x ∈ [BUTT_X - MAX_LENGTH, BUTT_X]、z ∈ [AXIS_Z - HALF_WIDTH, AXIS_Z + HALF_WIDTH]、y ∈ [TOP_Y, TOP_Y + ${GUN_CLEAR_UP}]`,
+        ` * 不放任何方块元素, 床面 (y = TOP_Y) 在 z 向前后各比这个范围宽出 ${BED_MARGIN}, 都由生成器校验。`,
+        ' */',
+        'public final class GunsmithGunBed {',
+        '',
+        ...field('枪托端 (东, +x) 抵住托底挡块胶垫处的 x: 枪的包围盒最大 x 放在这里, 枪口朝西。', 'BUTT_X'),
+        ...field('床面 (胶垫顶面) 的 y: 枪的包围盒最小 y 放在这里。', 'TOP_Y'),
+        ...field('枪的包围盒在 z 向 (横跨枪床) 的中心。', 'AXIS_Z'),
+        ...field('渲染长度上限 (px), 即尺寸曲线的封顶值。', 'MAX_LENGTH'),
+        ...field('平躺的枪在 z 向可用的最大半宽 (即枪剖面高度的一半, px); 剖面高度超过 2 * HALF_WIDTH 时整把枪再按它缩小。'
+            + '等于机械臂扫描用的隐形枪体包络的 z 半宽, 所以任何枪都在包络的 z 范围里。', 'HALF_WIDTH'),
+        ...field('尺寸曲线: 渲染长度 = min(MAX_LENGTH, SIZE_A * L^SIZE_P), L 为枪在 TACZ FIXED 定位系里的长度 (未缩放 px)。', 'SIZE_A'),
+        ...field('尺寸曲线的指数, 见 {@link #SIZE_A}。', 'SIZE_P'),
+        ...field('枪口参考点左侧比右侧厚出这么多 (未缩放 px) 就左侧朝上 (例如侧插弹匣), 否则右侧朝上。', 'SIDE_UP_THRESHOLD'),
+        ...field('机械臂避让用的隐形枪体包络的厚度 (px): 关键帧表的安装点把零件放在 TOP_Y + ENVELOPE_THICKNESS 上,'
+            + ' 运行时再按台上的枪下沉 (见 {@link GunsmithArmProgram#MAX_PLACE_DROP})。', 'ENVELOPE_THICKNESS'),
+        '',
+        '    private GunsmithGunBed() {',
+        '    }',
+        '}',
+        '',
+    ].join('\n');
+}
+/**
+ * 枪床的不变量: 真枪要占的空间里没有任何可见元素, 枪躺的地方确实有床面托着、托底处确实有挡块, 隐形包络在留空范围内。
+ * 常量与几何对不上 (例如只改了 TOP_Y 没改胶垫) 就报错, 不写任何文件。
+ */
+function gunBedChecks(E, label) {
+    const G = GUN_BED, errs = [];
+    const eps = 1e-6;
+    const box = (e) => {
+        const cs = [];
+        for (const x of [e.from[0], e.to[0]]) for (const y of [e.from[1], e.to[1]]) for (const z of [e.from[2], e.to[2]]) cs.push(rotPoint(e.rot, [x, y, z], 1));
+        return { lo: [0, 1, 2].map((a) => Math.min(...cs.map((c) => c[a]))), hi: [0, 1, 2].map((a) => Math.max(...cs.map((c) => c[a]))) };
+    };
+    const clear = { lo: [G.BUTT_X - G.MAX_LENGTH, G.TOP_Y, G.AXIS_Z - G.HALF_WIDTH], hi: [G.BUTT_X, G.TOP_Y + GUN_CLEAR_UP, G.AXIS_Z + G.HALF_WIDTH] };
+    const overlaps = (b, r) => [0, 1, 2].every((a) => Math.min(b.hi[a], r.hi[a]) - Math.max(b.lo[a], r.lo[a]) > eps);
+    const visible = E.filter((e) => !e.proxy && Object.keys(e.faces).length);
+    for (const e of visible) if (overlaps(box(e), clear)) errs.push(`${label}: ${e.name} intrudes into the gun space ${JSON.stringify(clear)}`);
+    // 床面: 枪能占的整块范围 (z 向前后再各宽出 BED_MARGIN) 每 0.25 px 都有一个顶面正好在 TOP_Y 的元素托着, 最宽的枪也不伸出床沿
+    const holds = (x, z) => visible.some((e) => !e.rot && Math.abs(e.to[1] - G.TOP_Y) < eps && e.faces.up && e.from[0] <= x && e.to[0] >= x && e.from[2] <= z && e.to[2] >= z);
+    bed: for (let x = clear.lo[0]; x <= clear.hi[0] + eps; x += 0.25) {
+        for (let z = clear.lo[2] - BED_MARGIN; z <= clear.hi[2] + BED_MARGIN + eps; z += 0.25) {
+            if (!holds(Math.min(x, clear.hi[0]), z)) { errs.push(`${label}: nothing holds the gun at x ${r4(x)} z ${r4(z)} (no top face at y ${G.TOP_Y})`); break bed; }
+        }
+    }
+    if (ENVELOPE_HALF_Z !== G.HALF_WIDTH) errs.push(`${label}: the envelope half width ${ENVELOPE_HALF_Z} differs from HALF_WIDTH ${G.HALF_WIDTH}`);
+    // 托底挡块: 西面正好在 BUTT_X, 挡住枪轴上贴着床面的那一段
+    if (!visible.some((e) => !e.rot && Math.abs(e.from[0] - G.BUTT_X) < eps && e.faces.west && e.from[1] <= G.TOP_Y && e.to[1] >= G.TOP_Y + 1 && e.from[2] <= G.AXIS_Z && e.to[2] >= G.AXIS_Z)) {
+        errs.push(`${label}: no butt stop face at x ${G.BUTT_X}`);
+    }
+    const env = E.find((e) => e.name === 'gun_envelope');
+    if (!env || !env.proxy) errs.push(`${label}: gun_envelope proxy missing`);
+    else if (env.from[1] < G.TOP_Y - eps || [0, 2].some((a) => env.from[a] < clear.lo[a] - eps || env.to[a] > clear.hi[a] + eps)) errs.push(`${label}: gun_envelope leaves the gun space`);
+    return errs;
+}
 
 // ------------------------------------------------------------ 物品模型: 台子 (0.5 缩放) + 放大的步枪 (主角) + 小号机械臂替身
 // 32px 图标里要一眼认出枪: 去掉墙和小摆件, 台子只留柜体/台面/屏幕/维修垫作为浅色底座;
-// 步枪从夹具上取下, 剖面朝北立在台面前沿, 绕 z 轴 -22.5° 斜放 (枪口朝右上), 长度铺满整格。
+// 方块上的枪是运行时渲染的真枪 (空台没有枪), 图标里放一把固定的步枪 (itemRifle, 只进物品模型),
+// 剖面朝北立在台面前沿, 绕 z 轴 -22.5° 斜放 (枪口朝右上), 长度铺满整格。
 const ITEM_BENCH = /^(plinth|ped_l|ped_r|drawers_l|drawers_r|knee_back|worktop)$/;
 const ITEM_K = 0.45;   // 台子缩放 (0.45 而非 0.5: 给步枪留出主角的比例, 见 NOTES)
 const ITEM_RIFLE = { sx: 0.6875, sv: 0.85, yc: 8.35, zc: 2.25, angle: -22.5 };   // 剖面方向 (v/w) 略加粗, 32px 下更好认
@@ -1642,11 +1920,12 @@ function main() {
     const idle = buildScene(false);
     const active = buildScene(true);
     const stand = armStandIn();
+    const rifle = itemRifle();
     const errors = [];
     const outputs = [];   // 校验全部通过后才写盘
     const emit = (p, data) => outputs.push([p, data]);
-    for (const [E, label] of [[idle, 'idle'], [active, 'active']]) { cullHidden(E); errors.push(...zfightCheck(E, label)); }
-    const { size: A, atlas, items, regions, swatches } = buildAtlas([idle, active, stand]);
+    for (const [E, label] of [[idle, 'idle'], [active, 'active']]) { cullHidden(E); errors.push(...zfightCheck(E, label), ...gunBedChecks(E, label)); }
+    const { size: A, atlas, items, regions, swatches } = buildAtlas([idle, active, stand, rifle]);
 
     for (let i = 0; i < items.length; i++) {
         const a = items[i];
@@ -1674,7 +1953,7 @@ function main() {
         }
     }
     idle.find((e) => e.name === 'worktop').itemTop = { plan: stand.find((e) => e.swatchOnly).plan.up };
-    const itemEls = itemModel([...idle, ...stand], A);
+    const itemEls = itemModel([...idle, ...stand, ...rifle], A);
     const item = {
         parent: 'minecraft:block/block',
         ambientocclusion: false,
@@ -1712,13 +1991,29 @@ function main() {
     const rows = roundRows(prog.rows);
     const chk = checkProgram(rows, prog.hoverY);
     errors.push(...chk.errs);
-    const bad = sweepProgram(rows, bodiesAll, 0.3, 8);
-    if (bad.length) errors.push('arm sweep: ' + bad.slice(0, 6).join(' | ') + (bad.length > 6 ? ` (+${bad.length - 6})` : ''));
+    // 放件下沉: 安装点底面参数 → 两个安装点各取 0 / MAX_PLACE_DROP 的四种组合 (再加两处都取一半), 每种都查竖直直线与整段程序的穿模
+    const drop = placeStations(rows);
+    errors.push(...drop.errs);
+    const M_ = drop.maxDrop;
+    const combos = [[0, 0], [M_, M_], [0, M_], [M_, 0], [r4(M_ / 2), r4(M_ / 2)]];   // 末一组: 中间值, 防两端都干净而中途擦到
+    const dchk = checkPlaceDrops(rows, prog.hoverY, M_, combos);
+    errors.push(...dchk.errs);
+    const sweeps = combos.map((d) => ({ d, bad: sweepProgram(rows, bodiesAll, 0.3, 8, d, M_) }));
+    for (const s of sweeps) if (s.bad.length) errors.push(`arm sweep (drops ${s.d.join('/')}): ` + s.bad.slice(0, 6).join(' | ') + (s.bad.length > 6 ? ` (+${s.bad.length - 6})` : ''));
     const { cv: armCv, offs, errs: texErrs, used } = armTexture();
     errors.push(...texErrs);
     const rBase = findJavaBase(JAVA_REL), pBase = findJavaBase(PROGRAM_REL);
+    // 渲染器的缓回待机 (easeToDock): RETURN_TICKS 与下沉收回比例按渲染器底稿里的手写值扫, 改了哪个都按新值重扫
+    const easeParams = easeToDockParams(rBase.src);
+    errors.push(...easeParams.errs);
+    const ease = easeParams.errs.length ? null : sweepEaseToDock(rows, bodiesAll, M_, easeParams.returnTicks, easeParams.lift);
+    if (ease) for (const b of ease.bad) errors.push('ease to dock: ' + b);
     const renderer = rendererPatch(rBase.src, offs);
-    const program = programPatch(pBase.src, rows);
+    const program = programPatch(pBase.src, rows, drop);
+    // 手写的 sample() 按 station 列取下沉量: 列号与取值必须与生成器写的表一致
+    for (const [re, what] of [[/COL_STATION = 9;/, 'COL_STATION = 9'], [new RegExp(`STATION_BOLT = ${ARM_STATION_BOLT};`), `STATION_BOLT = ${ARM_STATION_BOLT}`], [new RegExp(`STATION_STOCK = ${ARM_STATION_STOCK};`), `STATION_STOCK = ${ARM_STATION_STOCK}`]]) {
+        if (!re.test(pBase.src)) errors.push(`GunsmithArmProgram base: hand-written ${what} not found (the station column would be misread)`);
+    }
     for (const nm of ARM_TREE.map(([p]) => p)) if (!renderer.includes(`addOrReplaceChild("${nm}"`)) errors.push('arm part missing ' + nm);
     // 除生成区块外, 其余文本必须与底稿一致
     if (renderer.replace(RE_LAYER, '') !== rBase.src.replace(RE_LAYER, '')) errors.push('renderer patch touched text outside createBodyLayer');
@@ -1726,6 +2021,7 @@ function main() {
     emit(path.join(RES, 'textures', 'entity', 'gunsmith_assembly_arm.png'), encodePng(64, 64, armCv.data));
     emit(JAVA_OUT, rBase.crlf ? renderer.replace(/\n/g, '\r\n') : renderer);
     emit(path.join(OUT, PROGRAM_REL), pBase.crlf ? program.replace(/\n/g, '\r\n') : program);
+    emit(path.join(OUT, GUN_BED_REL), gunBedJava());
 
     console.log(`atlas ${A}x${A}: ${regions} painted regions, ${swatches} swatches`);
     console.log('elements:', JSON.stringify(stats));
@@ -1738,11 +2034,30 @@ function main() {
         console.log(`  ${k.padEnd(12)} wrist (${r4(s.xz[0])}, ${s.wy}, ${r4(s.xz[1])}) part bottom y ${r4(s.wy - TIP_DROP)}, part gap ${s.gap}px on ${s.blockers.join('/')}; yaw ${deg(kk.yaw)}°, spin ${deg(kk.spin)}°`);
     }
     console.log(`program: ${rows.length} keyframes, ${rows[rows.length - 1].tick} ticks, end hold ${chk.tail}, weld starts ${JSON.stringify(weldStarts(rows))}, vertical drift ${chk.maxDev}px, transfer height drift ${chk.maxFloat}px`);
-    console.log(`arm sweep (${rows[rows.length - 1].tick * 8} samples, 0.3px margin, part contact >= 0): ${bad.length ? 'FAIL' : 'clean'}`);
+    for (const [k, p] of Object.entries(drop.places)) {
+        console.log(`  place drop ${k.padEnd(5)} station ${p.code}: ${p.rows} rows (ticks ${p.ticks[0]}..${p.ticks[1]}), part footprint x ${p.minX}..${p.maxX} z ${p.minZ}..${p.maxZ}, bottom y ${p.bottomY} (incl. CubeDeformation)`);
+    }
+    console.log(`place drop: MAX_PLACE_DROP ${M_}, PLACE_CLEARANCE ${PLACE_CLEARANCE}; with drops: vertical drift ${dchk.maxDev}px, transfer height drift ${dchk.maxFloat}px, lowered rows off target ${dchk.maxLowErr}px`);
+    for (const s of sweeps) console.log(`arm sweep drops ${s.d.join('/').padEnd(11)} (${rows[rows.length - 1].tick * 8} samples, 0.3px margin, part contact >= 0${s.d.some((v) => v > 0) ? ', envelope off in lowered segments' : ''}): ${s.bad.length ? 'FAIL' : 'clean'}`);
+    if (ease) console.log(`ease to dock (RETURN_TICKS ${easeParams.returnTicks}, drops lifted out over s < ${easeParams.lift}; from ticks ${ease.windows.map((w) => `${w.lo}..${w.hi}`).join(' / ')} every ${ease.fromStep}, ${ease.steps} steps per blend, drops 0..MAX in ${ease.dropLevels + 1} levels with the other station at MAX, ${ease.samples} samples, no envelope): ${ease.bad.length ? 'FAIL' : 'clean'}`);
+    if (REPORT_MARGINS && !errors.length) {
+        // 最小间隙 (二分): 全程 / 只看带下沉的段落; 取放接触段的携带件按 >= 0 算, 不计入
+        for (const s of sweeps) {
+            const low = s.d.some((v) => v > 0) ? `, lowered segments ${sweepMargin(rows, bodiesAll, s.d, M_, true)} px` : '';
+            console.log(`  margin drops ${s.d.join('/').padEnd(11)}: whole program ${sweepMargin(rows, bodiesAll, s.d, M_)} px${low}`);
+        }
+    }
+    console.log(`gun bed: ${Object.entries(GUN_BED).map(([k, v]) => `${k}=${v}`).join(' ')}; gun space x ${r4(GUN_BED.BUTT_X - GUN_BED.MAX_LENGTH)}..${GUN_BED.BUTT_X}, z ${GUN_BED.AXIS_Z - GUN_BED.HALF_WIDTH}..${GUN_BED.AXIS_Z + GUN_BED.HALF_WIDTH}, y ${GUN_BED.TOP_Y}..${GUN_BED.TOP_Y + GUN_CLEAR_UP}; bed surface x ${BED.x0 + 0.5}..${GUN_BED.BUTT_X}, z ${BED.z0}..${BED.z1}`);
     if (errors.length) { console.error('VALIDATION FAILED (nothing written):\n  ' + errors.join('\n  ')); process.exit(1); }
-    for (const [p, data] of outputs) { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, data); }
-    console.log(`validation OK, wrote ${outputs.length} files`);
+    // 内容没变的文件不重写 (渲染器/方块实体这些 Java 文件可能正被别人同时改, 少碰一次是一次)
+    let written = 0;
+    for (const [p, data] of outputs) {
+        const buf = Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf8');
+        if (fs.existsSync(p) && fs.readFileSync(p).equals(buf)) continue;
+        fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, buf); written++;
+    }
+    console.log(`validation OK, wrote ${written} of ${outputs.length} files (the rest were unchanged)`);
 }
 
 if (IS_MAIN) main();
-export { armMatrices, armPose, armBoxes, ARM_SAMPLES, mApply, collisionBodies, buildScene, armHits, insideBody, sampleProgram, wristOf, PAYLOADS, TIP_DROP };
+export { armMatrices, armPose, armBoxes, ARM_SAMPLES, mApply, collisionBodies, buildScene, armHits, insideBody, sampleProgram, wristOf, PAYLOADS, TIP_DROP, GUN_BED };

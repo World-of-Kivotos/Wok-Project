@@ -46,6 +46,10 @@ public final class GunsmithUi {
     public static final int AMMO_PROFILE_SRC_H = 120;
     public static final int AMMO_PROFILE_ROWS = 10;
 
+    /** TaCZ 枪械 HUD 图的标称尺寸 (默认包都是 384x128; 实际分辨率不同也按这个比例归一取源矩形)。 */
+    public static final int HUD_W = 384;
+    public static final int HUD_H = 128;
+
     /**
      * 口径 -> 展示图行号 (按枚举名映射, 这样合入更多口径的分支时不需要改这里的签名;
      * 表里没有的口径回退到旧逻辑 clamp(index, 0, 8))。
@@ -264,5 +268,22 @@ public final class GunsmithUi {
     /** 一行带颜色的提示 (颜色 0xRRGGBB, 例如 {@link #TIP_GRAY})。 */
     public static Component tip(Component text, int rgb) {
         return text.copy().withStyle(Style.EMPTY.withColor(rgb & 0xFFFFFF));
+    }
+
+    /**
+     * 缩到最小字号仍放不下时截断并补省略号 (英文名远长于中文)。放得下时原样返回同一个对象,
+     * 调用方据此判断"是否截断过"。
+     */
+    public static Component ellipsize(GsPainter p, Component text, float maxW, float scale, boolean bold) {
+        if (p.textWidth(text, scale, bold) <= maxW) {
+            return text;
+        }
+        String full = text.getString();
+        String ellipsis = "…";
+        int end = full.length();
+        while (end > 0 && p.textWidth(full.substring(0, end) + ellipsis, scale, bold) > maxW) {
+            end--;
+        }
+        return Component.literal(full.substring(0, end).trim() + ellipsis);
     }
 }

@@ -231,6 +231,46 @@ public abstract class GunsmithTheme {
     public void popBackground(GsPainter p, int x, int y, int w, int h) {
     }
 
+    // ================================================================== assembly bench
+
+    /**
+     * 组装台用色 (预览 T.dot / T.sweep / T.weld / T.dur)。
+     *
+     * @param dot        引线落在枪身上的点
+     * @param sweep      组装中扫过枪身的竖线
+     * @param weldA      点焊火花色 1
+     * @param weldB      点焊火花色 2
+     * @param durCurrent 耐久条: 当前耐久
+     * @param durTrack   耐久条: 当前上限以内的空槽
+     * @param durLose    耐久条: 本次维修要永久扣掉的上限 (斜线) 与修后上限刻线
+     * @param durGone    耐久条: 之前维修已经扣掉的上限
+     */
+    public record AssemblyColors(int dot, int sweep, int weldA, int weldB,
+                                 int durCurrent, int durTrack, int durLose, int durGone) {
+    }
+
+    /** 组装台中间的枪械展示窗 (预览 T.display), 剪影与引线画在它上面。 */
+    public abstract void gunDisplay(GsPainter p, int x, int y, int w, int h);
+
+    /**
+     * 枪械剪影 (预览 T.gun): TaCZ HUD 图 (按 {@link GunsmithUi#HUD_W} x {@link GunsmithUi#HUD_H} 归一) 的源矩形
+     * (u, 0, uW, HUD_H) 画到 (x, y, w, h)。alpha 为整体不透明度 (部件没放齐时是半透明的虚像)。
+     */
+    public abstract void gunSilhouette(GsPainter p, ResourceLocation hud, int x, int y, int w, int h,
+                                       int u, int uW, float alpha);
+
+    /** 部件槽到枪身的引线色; ok = 这一格放了匹配的部件 (此时 quality 非空), 否则画虚线。 */
+    public abstract int wire(@Nullable GunsmithPartQuality quality, boolean ok);
+
+    public abstract AssemblyColors assembly();
+
+    /** 共用: 剪影按 rgb 着色贴一次 (HUD 图本身是浅灰, 乘上主题色)。 */
+    protected static void tintedHud(GsPainter p, ResourceLocation hud, float x, float y, int w, int h,
+                                    int u, int uW, int rgb, float alpha) {
+        p.blitTinted(hud, x, y, w, h, u, 0.0F, uW, GunsmithUi.HUD_H, GunsmithUi.HUD_W, GunsmithUi.HUD_H,
+                rgb, alpha);
+    }
+
     // ================================================================== shared art
 
     /** 预览 lockIcon: 5x6 锁, key 为锁孔色 (0 = 不画)。 */

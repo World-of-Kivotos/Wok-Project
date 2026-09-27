@@ -1,5 +1,7 @@
 package com.miningdim.job.munitions.gunsmith;
 
+import org.jetbrains.annotations.Nullable;
+
 import java.util.Objects;
 import java.util.function.Function;
 
@@ -12,16 +14,26 @@ enum GunsmithStat {
     HANDLING;
 
     double coefficient(GunsmithPlatform platform, Function<GunsmithPressPart, Double> resolver) {
-        Objects.requireNonNull(platform, "platform");
         Objects.requireNonNull(resolver, "resolver");
+        GunsmithPressPart source = sourcePartOrNull(platform);
+        if (source == null) {
+            return 1.0D;
+        }
+        return Objects.requireNonNull(resolver.apply(source), "gunsmith part coefficient");
+    }
+
+    /** 该平台上决定这项属性的部件; 这项属性在该平台不受部件影响 (恒为 1.0) 时返回 null。 */
+    @Nullable
+    GunsmithPressPart sourcePartOrNull(GunsmithPlatform platform) {
+        Objects.requireNonNull(platform, "platform");
         if ((this == RANGE && (platform == GunsmithPlatform.PISTOL || platform == GunsmithPlatform.SNIPER
                 || platform == GunsmithPlatform.MACHINE_GUN || platform == GunsmithPlatform.SHOTGUN
                 || platform == GunsmithPlatform.SMG))
                 || (this == RECOIL && platform == GunsmithPlatform.BULLPUP)
                 || (this == HANDLING && platform == GunsmithPlatform.SHOTGUN)) {
-            return 1.0D;
+            return null;
         }
-        return Objects.requireNonNull(resolver.apply(sourcePart(platform)), "gunsmith part coefficient");
+        return sourcePart(platform);
     }
 
     private GunsmithPressPart sourcePart(GunsmithPlatform platform) {

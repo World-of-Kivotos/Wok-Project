@@ -455,4 +455,44 @@ final class BlueprintTheme extends GunsmithTheme {
     private static int ceilTo6(int v) {
         return Math.floorDiv(v + 5, 6) * 6;
     }
+
+    private static final AssemblyColors ASSEMBLY = new AssemblyColors(YELLOW, GsCanvas.rgba(255, 226, 122, 0.5D),
+            YELLOW, LN, 0xFF8FF0B2, 0xFF2C5E9E, 0xFFFF8A80, 0xFF0E3262);
+    private static final int CENTERLINE = GsCanvas.rgba(214, 230, 255, 0.22D);
+    private static final int OUTLINE_FILL = 0x1D5496;
+
+    @Override
+    public void gunDisplay(GsPainter p, int x, int y, int w, int h) {
+        p.batch(() -> {
+            p.rect(x, y, w, h, PANEL_FILL);
+            p.box(x, y, w, h, LD);
+            p.corners(x, y, w, h, LN, 4);
+            int cy = y + h / 2;
+            for (int i = x + 5; i < x + w - 5; i += 8) {
+                p.rect(i, cy, 4, 1, CENTERLINE);
+                p.rect(i + 5, cy, 1, 1, CENTERLINE);
+            }
+        });
+    }
+
+    @Override
+    public void gunSilhouette(GsPainter p, ResourceLocation hud, int x, int y, int w, int h, int u, int uW, float alpha) {
+        // 描边: 亮线色的剪影上下左右各错 1 个屏幕像素贴一次, 再在正中贴一层图纸蓝盖住内部, 只剩一圈轮廓。
+        float o = GsPainter.screenPixel();
+        tintedHud(p, hud, x - o, y, w, h, u, uW, LN & 0xFFFFFF, alpha);
+        tintedHud(p, hud, x + o, y, w, h, u, uW, LN & 0xFFFFFF, alpha);
+        tintedHud(p, hud, x, y - o, w, h, u, uW, LN & 0xFFFFFF, alpha);
+        tintedHud(p, hud, x, y + o, w, h, u, uW, LN & 0xFFFFFF, alpha);
+        tintedHud(p, hud, x, y, w, h, u, uW, OUTLINE_FILL, alpha);
+    }
+
+    @Override
+    public int wire(@Nullable GunsmithPartQuality quality, boolean ok) {
+        return ok ? YELLOW : LD;
+    }
+
+    @Override
+    public AssemblyColors assembly() {
+        return ASSEMBLY;
+    }
 }

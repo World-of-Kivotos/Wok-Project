@@ -180,6 +180,27 @@ public final class GunsmithGunDurability {
         };
     }
 
+    /** 新装配枪的出厂最大耐久: 平台配置 x 组件型号的耐久倍率, 与新枪写入耐久时同一算式 (装配台界面预估用)。 */
+    public static int initialMaximum(GunsmithPlatform platform, double durabilityMultiplier) {
+        return scalePositive(initialMaximum(platform), durabilityMultiplier);
+    }
+
+    /**
+     * 这把枪上当前装着的维修件 (换件要求以它为准: 同型号、品质不低于它)。枪的部件数据里缺这件时返回 null,
+     * 供界面在渲染线程上安全读取 (服务端判定仍走会抛的 {@link #isRepairReplacement})。
+     */
+    @Nullable
+    public static GunsmithGunStats.PartSummary installedRepairPart(GunsmithGunStats stats) {
+        Objects.requireNonNull(stats, "stats");
+        GunsmithPressPart part = repairPart(stats.blueprint().platform());
+        for (GunsmithGunStats.PartSummary summary : stats.parts()) {
+            if (summary.part() == part) {
+                return summary;
+            }
+        }
+        return null;
+    }
+
     public static int minimumMaximum(int originalMaximum) {
         if (originalMaximum <= 0) {
             throw new IllegalArgumentException("Original gun durability must be positive");

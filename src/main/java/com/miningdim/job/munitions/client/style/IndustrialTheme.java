@@ -410,4 +410,36 @@ final class IndustrialTheme extends GunsmithTheme {
     public int slotHighlight() {
         return GsCanvas.rgba(255, 255, 255, 0.45D);
     }
+
+    private static final AssemblyColors ASSEMBLY = new AssemblyColors(AMBER, GsCanvas.rgba(240, 163, 60, 0.5D),
+            0xFFFFC45C, 0xFFFF7447, 0xFF4CD07A, 0xFF1E232A, 0xFFFF5A4E, 0xFF0A0C0F);
+    private static final int DISPLAY_SCANLINE = GsCanvas.rgba(0, 0, 0, 0.25D);
+
+    @Override
+    public void gunDisplay(GsPainter p, int x, int y, int w, int h) {
+        p.batch(() -> {
+            p.rect(x, y, w, h, 0xFF2E353F);
+            p.rect(x, y, w - 1, h - 1, 0xFF08090B);
+            p.rect(x + 1, y + 1, w - 2, h - 2, 0xFF0E1318);
+            for (int r = y + 2; r < y + h - 1; r += 2) {
+                p.rect(x + 1, r, w - 2, 1, DISPLAY_SCANLINE);
+            }
+            p.corners(x + 2, y + 2, w - 4, h - 4, AMBER, 4);
+        });
+    }
+
+    @Override
+    public void gunSilhouette(GsPainter p, ResourceLocation hud, int x, int y, int w, int h, int u, int uW, float alpha) {
+        tintedHud(p, hud, x, y, w, h, u, uW, 0xF2EBDC, alpha);
+    }
+
+    @Override
+    public int wire(@Nullable GunsmithPartQuality quality, boolean ok) {
+        return ok && quality != null ? GunsmithUi.qualityColor(quality) : 0xFF3A424E;
+    }
+
+    @Override
+    public AssemblyColors assembly() {
+        return ASSEMBLY;
+    }
 }

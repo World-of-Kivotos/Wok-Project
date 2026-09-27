@@ -47,13 +47,43 @@ public final class GunsmithAssemblyGameTests {
     private GunsmithAssemblyGameTests() {
     }
 
+    /**
+     * 新界面里 12 种部件共用 8 个槽位 (上下两排各 4 个): 只有同一平台 / 图纸不会同时要求的部件才能叠在一个位置,
+     * 否则两件东西会塞进同一个可见格, 玩家只能看到一件。另外部件格不得压到图纸槽、成品槽和玩家背包的判定盒。
+     */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void receiverSlotStaysAboveSmgBody(GameTestHelper helper) {
-        helper.assertTrue(GunsmithAssemblyMenu.partSlotX(GunsmithPressPart.RECEIVER) == 222,
-                "receiver slot must stay horizontally aligned above the SMG receiver body");
-        helper.assertTrue(GunsmithAssemblyMenu.partSlotY(GunsmithPressPart.RECEIVER) == 55,
-                "receiver slot must stay above the SMG preview instead of covering its stock");
+    public static void assemblyPartSlotsNeverShareAPositionWithinAPlatform(GameTestHelper helper) {
+        for (GunsmithPlatform platform : GunsmithPlatform.values()) {
+            assertDistinctSlots(helper, platform.id(), platform.supportedParts());
+        }
+        for (GunsmithBlueprint blueprint : GunsmithBlueprint.values()) {
+            assertDistinctSlots(helper, blueprint.templateId(), blueprint.requiredParts());
+        }
+        int[][] fixed = {
+                {GunsmithAssemblyMenu.SLOT_BLUEPRINT_X - 1, GunsmithAssemblyMenu.SLOT_BLUEPRINT_Y - 1, 18, 18},
+                {GunsmithAssemblyMenu.SLOT_OUTPUT_X - 1, GunsmithAssemblyMenu.SLOT_OUTPUT_Y - 1, 18, 18},
+                // 3x9 主背包 + 隔 4px 的快捷栏, 整块外接矩形。
+                {GunsmithAssemblyMenu.PLAYER_INV_X - 1, GunsmithAssemblyMenu.PLAYER_INV_Y - 1, 9 * 18, 4 * 18 + 4}};
+        for (GunsmithPressPart part : GunsmithPressPart.values()) {
+            int x = GunsmithAssemblyMenu.partSlotX(part) - 1;
+            int y = GunsmithAssemblyMenu.partSlotY(part) - 1;
+            for (int[] box : fixed) {
+                boolean overlap = x < box[0] + box[2] && box[0] < x + 18 && y < box[1] + box[3] && box[1] < y + 18;
+                helper.assertTrue(!overlap, part.id() + " slot at (" + (x + 1) + "," + (y + 1)
+                        + ") overlaps a fixed slot area at (" + (box[0] + 1) + "," + (box[1] + 1) + ")");
+            }
+        }
         helper.succeed();
+    }
+
+    private static void assertDistinctSlots(GameTestHelper helper, String owner, Set<GunsmithPressPart> parts) {
+        Set<Long> taken = new HashSet<>();
+        for (GunsmithPressPart part : parts) {
+            long key = ((long) GunsmithAssemblyMenu.partSlotX(part) << 32) | GunsmithAssemblyMenu.partSlotY(part);
+            helper.assertTrue(taken.add(key), owner + " needs two parts on the same assembly slot, including "
+                    + part.id() + " at (" + GunsmithAssemblyMenu.partSlotX(part) + ","
+                    + GunsmithAssemblyMenu.partSlotY(part) + ")");
+        }
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)

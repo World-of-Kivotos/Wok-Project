@@ -395,6 +395,18 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         return animationEndTick > level.getGameTime();
     }
 
+    /**
+     * 服务端: 本次组装/维修还剩多少 tick (0 = 没在干活), 夹到 [0, ASSEMBLY_DURATION_TICKS]。
+     * 菜单经数据槽推给界面画进度; 客户端的方块实体不知道结束 tick, 不要在客户端调用。
+     */
+    public int animationRemainingTicks() {
+        if (level == null || level.isClientSide || animationEndTick <= 0L) {
+            return 0;
+        }
+        long remaining = animationEndTick - level.getGameTime();
+        return (int) Math.max(0L, Math.min(ASSEMBLY_DURATION_TICKS, remaining));
+    }
+
     private void setActiveState(boolean active) {
         if (level == null) {
             return;

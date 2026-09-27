@@ -1,6 +1,7 @@
 package com.miningdim.job.munitions.client.style;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.PlayerFaceRenderer;
@@ -287,6 +288,33 @@ public final class GsPainter implements GsCanvas {
         graphics.blit(texture, left + x, top + y, w, h, u, v, uW, vH, texW, texH);
         graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
         RenderSystem.disableBlend();
+    }
+
+    /**
+     * 着色贴图: 贴图颜色乘以 rgb (着色器颜色), 整体不透明度 alpha。(x, y) 可带小数 (蓝图风格描边要按 1 个屏幕像素错位)。
+     * 用于把 TaCZ 的灰色枪械剪影染成各风格的颜色。
+     */
+    public void blitTinted(ResourceLocation texture, float x, float y, int w, int h,
+                           float u, float v, int uW, int vH, int texW, int texH, int rgb, float alpha) {
+        if (alpha <= 0.0F || w <= 0 || h <= 0) {
+            return;
+        }
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        graphics.setColor(((rgb >> 16) & 0xFF) / 255.0F, ((rgb >> 8) & 0xFF) / 255.0F, (rgb & 0xFF) / 255.0F,
+                Math.min(1.0F, alpha));
+        graphics.pose().pushPose();
+        graphics.pose().translate(left + x, top + y, 0.0F);
+        graphics.blit(texture, 0, 0, w, h, u, v, uW, vH, texW, texH);
+        graphics.pose().popPose();
+        graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
+        RenderSystem.disableBlend();
+    }
+
+    /** 一个屏幕像素折合多少 GUI 像素 (1 / 界面缩放)。 */
+    public static float screenPixel() {
+        double scale = Minecraft.getInstance().getWindow().getGuiScale();
+        return scale > 0.0D ? (float) (1.0D / scale) : 1.0F;
     }
 
     /** 物品图标 (16x16, GUI 坐标)。 */

@@ -383,4 +383,38 @@ final class AcademyTheme extends GunsmithTheme {
         // 浅色槽底上原版的白色半透明高亮几乎看不见: 换成主题天蓝。
         return GsCanvas.rgba(46, 168, 242, 0.38D);
     }
+
+    private static final AssemblyColors ASSEMBLY = new AssemblyColors(SKY_DEEP, GsCanvas.rgba(46, 168, 242, 0.55D),
+            0xFFFFD94A, SKY, 0xFF35B86B, 0xFFE1E7EF, 0xFFE5484D, 0xFFC9D2DE);
+
+    @Override
+    public void gunDisplay(GsPainter p, int x, int y, int w, int h) {
+        p.batch(() -> {
+            p.rect(x, y, w, h, LINE);
+            p.rect(x + 1, y + 1, w - 2, h - 2, 0xFFF7F9FC);
+            for (int gx = x + 6; gx < x + w - 1; gx += 6) {
+                p.rect(gx, y + 1, 1, h - 2, 0xFFEEF2F7);
+            }
+            for (int gy = y + 6; gy < y + h - 1; gy += 6) {
+                p.rect(x + 1, gy, w - 2, 1, 0xFFEEF2F7);
+            }
+            p.para(x + 4, y + h - 7, 3, 4, SKY);
+        });
+    }
+
+    @Override
+    public void gunSilhouette(GsPainter p, ResourceLocation hud, int x, int y, int w, int h, int u, int uW, float alpha) {
+        // 浅底上灰色剪影看不清: 染成深蓝。
+        tintedHud(p, hud, x, y, w, h, u, uW, 0x34446C, alpha);
+    }
+
+    @Override
+    public int wire(@Nullable GunsmithPartQuality quality, boolean ok) {
+        return ok && quality != null ? GunsmithUi.qualityColorLight(quality) : 0xFFB7C2D2;
+    }
+
+    @Override
+    public AssemblyColors assembly() {
+        return ASSEMBLY;
+    }
 }

@@ -858,21 +858,8 @@ public final class GunsmithPressScreen extends GunsmithStyledScreen<GunsmithPres
         };
     }
 
-    /**
-     * 缩到最小字号仍放不下时截断并补省略号 (英文平台名/型号名远长于中文)。放得下时原样返回同一个对象,
-     * 调用方据此判断"是否截断过"。
-     */
     private static Component ellipsize(GsPainter p, Component text, float maxW, float scale, boolean bold) {
-        if (p.textWidth(text, scale, bold) <= maxW) {
-            return text;
-        }
-        String full = text.getString();
-        String ellipsis = "…";
-        int end = full.length();
-        while (end > 0 && p.textWidth(full.substring(0, end) + ellipsis, scale, bold) > maxW) {
-            end--;
-        }
-        return Component.literal(full.substring(0, end).trim() + ellipsis);
+        return GunsmithUi.ellipsize(p, text, maxW, scale, bold);
     }
 
     /** 倍率显示: 整数不带小数 (1, 4), 其余去掉尾零 (1.5, 2.5)。 */

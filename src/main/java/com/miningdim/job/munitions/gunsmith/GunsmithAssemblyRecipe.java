@@ -7,6 +7,8 @@ import net.minecraft.world.item.ItemStack;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -299,6 +301,23 @@ public final class GunsmithAssemblyRecipe {
     private static double coefficient(GunsmithBlueprint blueprint, EnumMap<GunsmithPressPart, Double> coefficients,
                                       GunsmithStat stat) {
         return stat.coefficient(blueprint.platform(), coefficients::get);
+    }
+
+    /**
+     * 该平台上每项基础属性由哪个部件的品质系数决定 (键: damage / headshot / range / recoil / spread / handling,
+     * 按此顺序)。不受部件影响的属性不在表里。与 {@link #preview} 的取值来源同一张表, 装配台界面据此写
+     * "这件管哪项属性"。
+     */
+    public static Map<String, GunsmithPressPart> statSourceParts(GunsmithPlatform platform) {
+        Objects.requireNonNull(platform, "platform");
+        Map<String, GunsmithPressPart> sources = new LinkedHashMap<>();
+        for (GunsmithStat stat : GunsmithStat.values()) {
+            GunsmithPressPart part = stat.sourcePartOrNull(platform);
+            if (part != null) {
+                sources.put(stat.name().toLowerCase(Locale.ROOT), part);
+            }
+        }
+        return sources;
     }
 
     private static double average(EnumMap<GunsmithPressPart, Double> coefficients,

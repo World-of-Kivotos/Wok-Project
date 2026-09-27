@@ -53,19 +53,19 @@ public final class GunsmithStatGameTests {
         assertProfile(helper, GunsmithBlueprint.HK_MP5A5, 0.00D, 1.50D,
                 12.0D, 25.0F, 9.0D, 40.0F, 6.0D);
         assertProfile(helper, GunsmithBlueprint.KAR98K, 0.40D, 1.50D,
-                25.0D, 80.0F, 20.0D, GunsmithWeaponBaseProfile.INFINITE_DISTANCE, 20.0D);
+                45.0D, 80.0F, 36.0D, GunsmithWeaponBaseProfile.INFINITE_DISTANCE, 36.0D);
         assertProfile(helper, GunsmithBlueprint.STERLING, 0.00D, 1.50D,
                 12.0D, 15.0F, 9.0D, 30.0F, 6.0D);
         assertProfile(helper, GunsmithBlueprint.M1887_LONG, 0.00D, 1.10D,
                 40.0D, 35.0F, 25.0D, 60.0F, 15.0D);
         assertProfile(helper, GunsmithBlueprint.SMLE_III, 0.40D, 1.50D,
-                25.0D, 80.0F, 20.0D, GunsmithWeaponBaseProfile.INFINITE_DISTANCE, 20.0D);
+                40.0D, 80.0F, 32.0D, GunsmithWeaponBaseProfile.INFINITE_DISTANCE, 32.0D);
         assertProfile(helper, GunsmithBlueprint.MPX, 0.00D, 1.50D,
                 12.0D, 25.0F, 9.0D, 40.0F, 6.0D);
         assertProfile(helper, GunsmithBlueprint.KSG, 0.00D, 1.10D,
                 40.0D, 35.0F, 25.0D, 60.0F, 15.0D);
         assertProfile(helper, GunsmithBlueprint.M700, 0.40D, 1.50D,
-                25.0D, 120.0F, 20.0D, GunsmithWeaponBaseProfile.INFINITE_DISTANCE, 20.0D);
+                40.0D, 120.0F, 32.0D, GunsmithWeaponBaseProfile.INFINITE_DISTANCE, 32.0D);
         assertProfile(helper, GunsmithBlueprint.M1014, 0.00D, 1.10D,
                 40.0D, 25.0F, 25.0D, 30.0F, 15.0D);
 
@@ -101,6 +101,9 @@ public final class GunsmithStatGameTests {
         helper.assertTrue(GunsmithWeaponBaseProfile.findByGunId(
                         new ResourceLocation(MiningConstants.MODID, "m16a4_gunsmith_burst")).isEmpty(),
                 "an unlisted burst gun must keep its gun-pack base data");
+        helper.assertTrue(GunsmithWeaponBaseProfile.findByGunId(
+                        new ResourceLocation("tacz", "glock_17")).isEmpty(),
+                "a workbook row without a gunsmith blueprint must keep its gun-pack base data");
         helper.succeed();
     }
 

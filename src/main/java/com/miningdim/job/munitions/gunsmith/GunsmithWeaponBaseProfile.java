@@ -14,6 +14,14 @@ import java.util.Optional;
  *
  * <p>These values are only applied to guns assembled by the WOK gunsmith. Regular TaCZ
  * guns keep the owning gun pack's data.</p>
+ *
+ * <p>Each value is the gun row's effective value in a recalculated workbook: the row's
+ * override when one is filled in, otherwise the default of the ammo it fires. Never
+ * transcribe cached cell values. The bolt-action rows (KAR98K, SMLE III, M700) carry the
+ * 2026-09 PvE overrides; a workbook that still shows 25/20 for them predates that change.
+ * Values apply to every fire mode: a pack's fire_mode_adjust damage, headshot and
+ * armor-ignore bonuses are replaced by the profile, while its RPM, bullet-speed, knockback
+ * and inaccuracy adjustments still apply.</p>
  */
 public record GunsmithWeaponBaseProfile(double armorIgnore, double headshotMultiplier,
                                         List<DamagePoint> damageCurve) {
@@ -103,18 +111,18 @@ public record GunsmithWeaponBaseProfile(double armorIgnore, double headshotMulti
         // Gehenna
         put(profiles, GunsmithBlueprint.HK416D, 0.30D, 1.50D, 8.0D, 25.0F, 7.0D, 60.0F, 6.0D);
         put(profiles, GunsmithBlueprint.HK_MP5A5, 0.00D, 1.50D, 12.0D, 25.0F, 9.0D, 40.0F, 6.0D);
-        put(profiles, GunsmithBlueprint.KAR98K, 0.40D, 1.50D, 25.0D, 80.0F, 20.0D,
-                INFINITE_DISTANCE, 20.0D);
+        put(profiles, GunsmithBlueprint.KAR98K, 0.40D, 1.50D, 45.0D, 80.0F, 36.0D,
+                INFINITE_DISTANCE, 36.0D);
         // Trinity
         put(profiles, GunsmithBlueprint.STERLING, 0.00D, 1.50D, 12.0D, 15.0F, 9.0D, 30.0F, 6.0D);
         put(profiles, GunsmithBlueprint.M1887_LONG, 0.00D, 1.10D, 40.0D, 35.0F, 25.0D, 60.0F, 15.0D);
-        put(profiles, GunsmithBlueprint.SMLE_III, 0.40D, 1.50D, 25.0D, 80.0F, 20.0D,
-                INFINITE_DISTANCE, 20.0D);
+        put(profiles, GunsmithBlueprint.SMLE_III, 0.40D, 1.50D, 40.0D, 80.0F, 32.0D,
+                INFINITE_DISTANCE, 32.0D);
         // Millennium
         put(profiles, GunsmithBlueprint.MPX, 0.00D, 1.50D, 12.0D, 25.0F, 9.0D, 40.0F, 6.0D);
         put(profiles, GunsmithBlueprint.KSG, 0.00D, 1.10D, 40.0D, 35.0F, 25.0D, 60.0F, 15.0D);
-        put(profiles, GunsmithBlueprint.M700, 0.40D, 1.50D, 25.0D, 120.0F, 20.0D,
-                INFINITE_DISTANCE, 20.0D);
+        put(profiles, GunsmithBlueprint.M700, 0.40D, 1.50D, 40.0D, 120.0F, 32.0D,
+                INFINITE_DISTANCE, 32.0D);
         // Abydos
         put(profiles, GunsmithBlueprint.M1014, 0.00D, 1.10D, 40.0D, 25.0F, 25.0D, 30.0F, 15.0D);
         return Map.copyOf(profiles);

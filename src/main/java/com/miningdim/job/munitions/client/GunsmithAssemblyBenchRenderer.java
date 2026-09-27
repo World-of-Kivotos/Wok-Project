@@ -29,6 +29,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Matrix3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -178,7 +179,12 @@ public final class GunsmithAssemblyBenchRenderer
         poseStack.translate(0.5D, 1.0D, 0.5D);
         poseStack.mulPose(Axis.YP.rotationDegrees(rotation));
         // ModelPart converts both joint offsets and cube vertices from model pixels to blocks.
+        // PoseStack.scale feeds the negative product 1·(-1)·1 to Mth.fastInvCubeRoot, which only handles positive
+        // input: the normal matrix comes out ~1e25 times too large, every vertex normal clamps to ±1 and the arm's
+        // shading jumps with the camera. diag(1,-1,1) is its own inverse transpose, so flip the saved normal instead.
+        Matrix3f normal = new Matrix3f(poseStack.last().normal());
         poseStack.scale(1.0F, -1.0F, 1.0F);
+        poseStack.last().normal().set(normal).scale(1.0F, -1.0F, 1.0F);
         VertexConsumer consumer = bufferSource.getBuffer(RenderType.entityCutoutNoCull(TEXTURE));
         root.render(poseStack, consumer, packedLight, OverlayTexture.NO_OVERLAY);
         poseStack.popPose();

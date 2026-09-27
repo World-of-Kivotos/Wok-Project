@@ -32,13 +32,22 @@ public final class GunsmithPressMenu extends AbstractMiningMenu {
     public static final int BUTTON_PLATFORM_BASE = 300;
     public static final int BUTTON_VARIANT_BASE = 400;
 
-    private static final int SLOT_GUN_PARTS_X = 294;
-    private static final int SLOT_ALLOY_X = 320;
-    private static final int SLOT_POLYMER_X = 294;
-    private static final int SLOT_OUTPUT_X = 178;
-    private static final int SLOT_TOP_Y = 84;
-    private static final int SLOT_BOTTOM_Y = 110;
-    private static final int SLOT_OUTPUT_Y = 92;
+    /*
+     * 槽位坐标 (GUI 像素, 以界面左上角为原点, 360x240)。三种界面风格共用同一套位置 (风格只换画法, 不动格子),
+     * GunsmithPressScreen 按这些常量画槽框并做"可点控件不压背包/容器槽判定盒"的类加载自检, 所以改这里要同步看那条自检。
+     * 右侧"原料"面板里三格竖排, 成品槽在中间液压机工位的正下方。
+     */
+    public static final int SLOT_GUN_PARTS_X = 276;
+    public static final int SLOT_GUN_PARTS_Y = 44;
+    public static final int SLOT_ALLOY_X = 276;
+    public static final int SLOT_ALLOY_Y = 68;
+    public static final int SLOT_POLYMER_X = 276;
+    public static final int SLOT_POLYMER_Y = 92;
+    public static final int SLOT_OUTPUT_X = 136;
+    public static final int SLOT_OUTPUT_Y = 95;
+    /** 玩家背包左上角 (3x9 主背包 + 快捷栏, 布局见 AbstractMiningMenu.addPlayerInventory)。 */
+    public static final int PLAYER_INV_X = 100;
+    public static final int PLAYER_INV_Y = 148;
 
     private final GunsmithPressBlockEntity blockEntity;
     private final ContainerData data;
@@ -51,23 +60,46 @@ public final class GunsmithPressMenu extends AbstractMiningMenu {
 
         if (blockEntity != null) {
             addSlot(new SlotItemHandler(blockEntity.inventory(),
-                    GunsmithPressBlockEntity.SLOT_GUN_PARTS, SLOT_GUN_PARTS_X, SLOT_TOP_Y));
+                    GunsmithPressBlockEntity.SLOT_GUN_PARTS, SLOT_GUN_PARTS_X, SLOT_GUN_PARTS_Y));
             addSlot(new SlotItemHandler(blockEntity.inventory(),
-                    GunsmithPressBlockEntity.SLOT_ALLOY, SLOT_ALLOY_X, SLOT_TOP_Y));
+                    GunsmithPressBlockEntity.SLOT_ALLOY, SLOT_ALLOY_X, SLOT_ALLOY_Y));
             addSlot(new SlotItemHandler(blockEntity.inventory(),
-                    GunsmithPressBlockEntity.SLOT_POLYMER, SLOT_POLYMER_X, SLOT_BOTTOM_Y));
+                    GunsmithPressBlockEntity.SLOT_POLYMER, SLOT_POLYMER_X, SLOT_POLYMER_Y));
             addSlot(new OutputSlot(blockEntity, GunsmithPressBlockEntity.SLOT_OUTPUT, SLOT_OUTPUT_X, SLOT_OUTPUT_Y));
             this.data = inv.player.level().isClientSide
                     ? new SimpleContainerData(GunsmithPressBlockEntity.DATA_COUNT)
                     : blockEntity.dataAccess();
         } else {
+            // 占位槽放在真槽的位置上 (原先堆在 (0,0), 新界面那里是标题栏, 悬停高亮会压在标题上)。
             for (int i = 0; i < CONTAINER_SLOTS; i++) {
-                addSlot(new EmptyPlaceholderSlot(i));
+                addSlot(new EmptyPlaceholderSlot(i, containerSlotX(i), containerSlotY(i)));
             }
             this.data = new SimpleContainerData(GunsmithPressBlockEntity.DATA_COUNT);
         }
         addDataSlots(this.data);
-        addPlayerInventory(inv, 100, 148);
+        addPlayerInventory(inv, PLAYER_INV_X, PLAYER_INV_Y);
+    }
+
+    /** 容器槽 (按方块实体槽位下标) 的界面 x。 */
+    public static int containerSlotX(int slot) {
+        return switch (slot) {
+            case GunsmithPressBlockEntity.SLOT_GUN_PARTS -> SLOT_GUN_PARTS_X;
+            case GunsmithPressBlockEntity.SLOT_ALLOY -> SLOT_ALLOY_X;
+            case GunsmithPressBlockEntity.SLOT_POLYMER -> SLOT_POLYMER_X;
+            case GunsmithPressBlockEntity.SLOT_OUTPUT -> SLOT_OUTPUT_X;
+            default -> throw new IllegalArgumentException("slot is not a gunsmith press container slot: " + slot);
+        };
+    }
+
+    /** 容器槽 (按方块实体槽位下标) 的界面 y。 */
+    public static int containerSlotY(int slot) {
+        return switch (slot) {
+            case GunsmithPressBlockEntity.SLOT_GUN_PARTS -> SLOT_GUN_PARTS_Y;
+            case GunsmithPressBlockEntity.SLOT_ALLOY -> SLOT_ALLOY_Y;
+            case GunsmithPressBlockEntity.SLOT_POLYMER -> SLOT_POLYMER_Y;
+            case GunsmithPressBlockEntity.SLOT_OUTPUT -> SLOT_OUTPUT_Y;
+            default -> throw new IllegalArgumentException("slot is not a gunsmith press container slot: " + slot);
+        };
     }
 
     private static Block blockAt(Inventory inv, BlockPos pos) {
@@ -159,8 +191,8 @@ public final class GunsmithPressMenu extends AbstractMiningMenu {
     private static final class EmptyPlaceholderSlot extends net.minecraft.world.inventory.Slot {
         private static final SimpleContainer DUMMY = new SimpleContainer(GunsmithPressBlockEntity.SLOT_COUNT);
 
-        EmptyPlaceholderSlot(int index) {
-            super(DUMMY, index, 0, 0);
+        EmptyPlaceholderSlot(int index, int x, int y) {
+            super(DUMMY, index, x, y);
         }
 
         @Override

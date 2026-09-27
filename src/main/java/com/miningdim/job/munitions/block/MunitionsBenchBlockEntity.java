@@ -108,13 +108,46 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     public static final int DATA_EFFECTIVE_LEVEL = 7;
     public static final int DATA_CRAFTING_ACTIVE = 8;
     public static final int DATA_CONTINUOUS_CRAFTING = 9;
-    private static final int DATA_COUNT = 10;
+    /**
+     * 内部电池存量与容量 (界面电力块用)。原版 ClientboundContainerSetDataPacket 把每个值按 int16 过线, FE 直发
+     * 必然符号回绕 (默认容量 32,000,000); 故以 kFE 为单位拆成两个 15 位半字: lo = kFE &amp; 0x7FFF,
+     * hi = (kFE &gt;&gt; 15) &amp; 0x7FFF。两半恒非负, 合计 30 位, 覆盖 int FE 全域 (约 214 万 kFE)。
+     * 编解码只走 {@link #kfeLowHalf} / {@link #kfeHighHalf} / {@link #unpackKfeToFe}。
+     */
+    public static final int DATA_ENERGY_KFE_LO = 10;
+    public static final int DATA_ENERGY_KFE_HI = 11;
+    public static final int DATA_ENERGY_CAPACITY_KFE_LO = 12;
+    public static final int DATA_ENERGY_CAPACITY_KFE_HI = 13;
+    private static final int DATA_COUNT = 14;
+    /** 电量同步粒度: 客户端读到的 FE 是向下取整到该值的倍数。 */
+    public static final int ENERGY_SYNC_UNIT_FE = 1000;
+    private static final int KFE_HALF_BITS = 15;
+    private static final int KFE_HALF_MASK = 0x7FFF;
     private static final int WELD_SOUND_MIN_INTERVAL = 26;
     private static final int WELD_SOUND_INTERVAL_SPREAD = 18;
 
     /** ContainerData 槽数 (Menu 客户端侧建同尺寸 SimpleContainerData 用)。 */
     public static int DATA_COUNT() {
         return DATA_COUNT;
+    }
+
+    /** FE -> kFE 的低 15 位 (int16 过线安全, 恒在 [0, 0x7FFF])。负值按 0 处理。 */
+    public static int kfeLowHalf(int fe) {
+        return (Math.max(0, fe) / ENERGY_SYNC_UNIT_FE) & KFE_HALF_MASK;
+    }
+
+    /** FE -> kFE 的高 15 位 (int16 过线安全, 恒在 [0, 0x7FFF])。负值按 0 处理。 */
+    public static int kfeHighHalf(int fe) {
+        return ((Math.max(0, fe) / ENERGY_SYNC_UNIT_FE) >> KFE_HALF_BITS) & KFE_HALF_MASK;
+    }
+
+    /**
+     * 两个 15 位半字拼回 FE (kFE × 1000)。入参按 &amp; 0x7FFF 取位, 客户端 SimpleContainerData 里被 short
+     * 符号扩展过的值也能正确还原。
+     */
+    public static long unpackKfeToFe(int low, int high) {
+        long kfe = ((long) (high & KFE_HALF_MASK) << KFE_HALF_BITS) | (low & KFE_HALF_MASK);
+        return kfe * ENERGY_SYNC_UNIT_FE;
     }
 
     @Nullable
@@ -229,6 +262,10 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
                 case DATA_EFFECTIVE_LEVEL -> ownerLevelCache;
                 case DATA_CRAFTING_ACTIVE -> craftingActive ? 1 : 0;
                 case DATA_CONTINUOUS_CRAFTING -> continuousCrafting ? 1 : 0;
+                case DATA_ENERGY_KFE_LO -> kfeLowHalf(energy.getEnergyStored());
+                case DATA_ENERGY_KFE_HI -> kfeHighHalf(energy.getEnergyStored());
+                case DATA_ENERGY_CAPACITY_KFE_LO -> kfeLowHalf(energy.getMaxEnergyStored());
+                case DATA_ENERGY_CAPACITY_KFE_HI -> kfeHighHalf(energy.getMaxEnergyStored());
                 default -> 0;
             };
         }

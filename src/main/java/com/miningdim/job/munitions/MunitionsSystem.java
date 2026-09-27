@@ -49,7 +49,8 @@ import java.util.Optional;
  * 集成阶段: 在 {@code MiningDim.registerSubsystems()} 追加 new MunitionsSystem() (本任务实现阶段单代理改一次)。
  * 军火商等级/经验数据走共享职业框架 capability (JobProgress, JobId.MUNITIONS), 不新挂 capability。
  *
- * 配置: 军火商自带 SERVER spec (miningdim-munitions.toml), 在此经 ModLoadingContext.registerConfig 注册。
+ * 配置: 军火商自带 SERVER spec (miningdim-munitions.toml) 与 CLIENT spec (miningdim-munitions-client.toml,
+ * 界面风格等本机偏好), 都在此经 ModLoadingContext.registerConfig 注册。
  *
  * 放置门控 (5/10.5 台数上限): forgeBus EntityPlaceEvent 校验军火商等级对应的台数上限 (6.1), 超限取消放置 +
  * actionbar 提示; 回收在 {@link MunitionsBenchBlock#onRemove} (覆盖玩家破坏/爆炸/活塞/级联/指令全部路径)。
@@ -80,6 +81,10 @@ public final class MunitionsSystem implements Subsystem {
         // SERVER 配置 spec (C6: 全部平衡数值进 ForgeConfigSpec)。
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER,
                 MunitionsConfig.SPEC, "miningdim-munitions.toml");
+        // CLIENT 配置: 本机显示偏好 (军火台/冲压机界面风格)。两端都注册, Forge 只在客户端加载 CLIENT 配置;
+        // spec 只引用纯数据枚举, 专用服务端类加载安全。
+        ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT,
+                MunitionsClientConfig.SPEC, "miningdim-munitions-client.toml");
 
         // 平板军火商页的 job.munitions.state 与图纸百科 job.blueprints (只读镜像/静态表, 进程级静态注册,
         // 数值实时读 MunitionsConfig, 故与上面的 registerConfig 先后无关)。

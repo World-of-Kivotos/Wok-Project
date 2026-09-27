@@ -99,6 +99,11 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
 
     /** ContainerData 索引 (开 GUI 者实时同步; int-only)。 */
     public static final int DATA_SELECTED_CALIBER = 0;
+    /**
+     * 缓冲发数 / 缓冲上限的低 15 位; 高 15 位在 {@link #DATA_BUFFERED_ROUNDS_HI} / {@link #DATA_BUFFER_CAP_HI}。
+     * 原版按 int16 过线, 而 bufferL1..L10 配置上限是 10,000,000, 直发超过 32767 即符号回绕 (界面会误判"缓冲已满"
+     * 挡住开工)。编解码只走 {@link #lowHalf15} / {@link #highHalf15} / {@link #unpackHalves15}。
+     */
     public static final int DATA_BUFFERED_ROUNDS = 1;
     public static final int DATA_BUFFER_CAP = 2;
     public static final int DATA_LOCKED = 3;
@@ -118,7 +123,10 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     public static final int DATA_ENERGY_KFE_HI = 11;
     public static final int DATA_ENERGY_CAPACITY_KFE_LO = 12;
     public static final int DATA_ENERGY_CAPACITY_KFE_HI = 13;
-    private static final int DATA_COUNT = 14;
+    /** 缓冲发数 / 缓冲上限的高 15 位 (低 15 位见 {@link #DATA_BUFFERED_ROUNDS} / {@link #DATA_BUFFER_CAP})。 */
+    public static final int DATA_BUFFERED_ROUNDS_HI = 14;
+    public static final int DATA_BUFFER_CAP_HI = 15;
+    private static final int DATA_COUNT = 16;
     /** 电量同步粒度: 客户端读到的 FE 是向下取整到该值的倍数。 */
     public static final int ENERGY_SYNC_UNIT_FE = 1000;
     private static final int KFE_HALF_BITS = 15;
@@ -148,6 +156,31 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     public static long unpackKfeToFe(int low, int high) {
         long kfe = ((long) (high & KFE_HALF_MASK) << KFE_HALF_BITS) | (low & KFE_HALF_MASK);
         return kfe * ENERGY_SYNC_UNIT_FE;
+    }
+
+    /** 30 位可表示的最大值 (两个 15 位半字)。 */
+    private static final int HALVES_15_MAX = (1 << (KFE_HALF_BITS * 2)) - 1;
+
+    /** 非负 int 的低 15 位 (int16 过线安全, 恒在 [0, 0x7FFF])。负值按 0, 超过 30 位按 30 位上限钳住 (不回绕)。 */
+    public static int lowHalf15(int value) {
+        return clampHalves15(value) & KFE_HALF_MASK;
+    }
+
+    /** 非负 int 的高 15 位 (int16 过线安全, 恒在 [0, 0x7FFF])。钳制规则同 {@link #lowHalf15}。 */
+    public static int highHalf15(int value) {
+        return (clampHalves15(value) >> KFE_HALF_BITS) & KFE_HALF_MASK;
+    }
+
+    /**
+     * 两个 15 位半字拼回原值。入参按 &amp; 0x7FFF 取位, 客户端 SimpleContainerData 里被 short 符号扩展过的值
+     * 也能正确还原。
+     */
+    public static int unpackHalves15(int low, int high) {
+        return ((high & KFE_HALF_MASK) << KFE_HALF_BITS) | (low & KFE_HALF_MASK);
+    }
+
+    private static int clampHalves15(int value) {
+        return Math.max(0, Math.min(value, HALVES_15_MAX));
     }
 
     @Nullable
@@ -251,8 +284,8 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         public int get(int index) {
             return switch (index) {
                 case DATA_SELECTED_CALIBER -> selectedCaliber == null ? -1 : selectedCaliber.index();
-                case DATA_BUFFERED_ROUNDS -> bufferedRounds;
-                case DATA_BUFFER_CAP -> bufferCap();
+                case DATA_BUFFERED_ROUNDS -> lowHalf15(bufferedRounds);
+                case DATA_BUFFER_CAP -> lowHalf15(bufferCap());
                 case DATA_LOCKED -> locked ? 1 : 0;
                 case DATA_REFINE_UNLOCKED -> refineUnlockedForOwnerCache ? 1 : 0;
                 // 以秒过线 (审查 M-9): vanilla ClientboundContainerSetDataPacket 的 value 是 int16, 默认配置
@@ -266,6 +299,8 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
                 case DATA_ENERGY_KFE_HI -> kfeHighHalf(energy.getEnergyStored());
                 case DATA_ENERGY_CAPACITY_KFE_LO -> kfeLowHalf(energy.getMaxEnergyStored());
                 case DATA_ENERGY_CAPACITY_KFE_HI -> kfeHighHalf(energy.getMaxEnergyStored());
+                case DATA_BUFFERED_ROUNDS_HI -> highHalf15(bufferedRounds);
+                case DATA_BUFFER_CAP_HI -> highHalf15(bufferCap());
                 default -> 0;
             };
         }
@@ -510,6 +545,21 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         }
         continuousCrafting = !continuousCrafting;
         setChanged();
+        return true;
+    }
+
+    /**
+     * 幂等地设为单次 / 连续 (界面分段开关用; 同一值重复发送无害, 不像 {@link #toggleContinuousCrafting} 会被连点翻回)。
+     * 与切换同一道归属门: 仅台主。
+     */
+    public boolean setContinuousCrafting(ServerPlayer player, boolean value) {
+        if (!isOwner(player)) {
+            return false;
+        }
+        if (continuousCrafting != value) {
+            continuousCrafting = value;
+            setChanged();
+        }
         return true;
     }
 

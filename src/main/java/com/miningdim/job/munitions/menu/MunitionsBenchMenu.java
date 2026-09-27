@@ -31,7 +31,9 @@ import net.minecraftforge.items.SlotItemHandler;
  *
  * 按钮路由 (clickMenuButton; 走原版通道, 不新开网络包):
  *  - [0, caliber count): 选口径 caliberIndex (服务端权威重校等级门);
- *  - 200: 切锁 (仅主人)。
+ *  - 200: 切锁 (仅主人);
+ *  - 210 / 211: 开工 / 取消 (仅主人);
+ *  - 212: 切换单次/连续; 213 / 214: 设为单次 / 设为连续 (幂等, 界面分段开关用; 均仅主人)。
  */
 public final class MunitionsBenchMenu extends AbstractMiningMenu {
 
@@ -41,6 +43,12 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
     public static final int BUTTON_START_CRAFT = 210;
     public static final int BUTTON_CANCEL_CRAFT = 211;
     public static final int BUTTON_TOGGLE_CONTINUOUS = 212;
+    /**
+     * 单次 / 连续 的幂等"设为"按钮 (界面的分段开关用)。切换按钮 212 在同步值回来之前连点会被翻回去,
+     * 设为按钮重复发送无害。与口径区间 [0, 口径数) 及 200/210/211/212 均不相交。
+     */
+    public static final int BUTTON_SET_SINGLE = 213;
+    public static final int BUTTON_SET_CONTINUOUS = 214;
 
     /** 槽位坐标 (GUI 像素, 槽内 16x16 左上角)。 */
     public static final int SLOT_PRIMER_X = 282;
@@ -119,6 +127,9 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
         }
         if (id == BUTTON_TOGGLE_CONTINUOUS) {
             return blockEntity.toggleContinuousCrafting(serverPlayer);
+        }
+        if (id == BUTTON_SET_SINGLE || id == BUTTON_SET_CONTINUOUS) {
+            return blockEntity.setContinuousCrafting(serverPlayer, id == BUTTON_SET_CONTINUOUS);
         }
         return false;
     }
@@ -217,12 +228,18 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
         return data.get(MunitionsBenchBlockEntity.DATA_SELECTED_CALIBER);
     }
 
+    /** 缓冲发数 (两个 15 位半字拼回, 配置上限 1000 万也不会在 int16 过线时回绕)。 */
     public int bufferedRounds() {
-        return data.get(MunitionsBenchBlockEntity.DATA_BUFFERED_ROUNDS);
+        return MunitionsBenchBlockEntity.unpackHalves15(
+                data.get(MunitionsBenchBlockEntity.DATA_BUFFERED_ROUNDS),
+                data.get(MunitionsBenchBlockEntity.DATA_BUFFERED_ROUNDS_HI));
     }
 
+    /** 缓冲上限 (同 {@link #bufferedRounds()} 的编码)。 */
     public int bufferCap() {
-        return data.get(MunitionsBenchBlockEntity.DATA_BUFFER_CAP);
+        return MunitionsBenchBlockEntity.unpackHalves15(
+                data.get(MunitionsBenchBlockEntity.DATA_BUFFER_CAP),
+                data.get(MunitionsBenchBlockEntity.DATA_BUFFER_CAP_HI));
     }
 
     public boolean isLocked() {

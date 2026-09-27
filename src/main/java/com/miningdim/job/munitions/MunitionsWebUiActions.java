@@ -192,7 +192,10 @@ public final class MunitionsWebUiActions {
             detail.addProperty("caliberId", MunitionsCaliber.byIndex(caliberIndex).name().toLowerCase());
         }
         // 缓冲发数才是产出权威: 输出槽的 TACZ 弹只是它的可视物化, TACZ 未装时槽恒空而缓冲照常累积。
-        detail.addProperty("bufferedRounds", data.get(MunitionsBenchBlockEntity.DATA_BUFFERED_ROUNDS));
+        // 这一格只是低 15 位 (int16 过线用的拆分), 要和高半字拼回完整发数。
+        detail.addProperty("bufferedRounds", MunitionsBenchBlockEntity.unpackHalves15(
+                data.get(MunitionsBenchBlockEntity.DATA_BUFFERED_ROUNDS),
+                data.get(MunitionsBenchBlockEntity.DATA_BUFFERED_ROUNDS_HI)));
         detail.addProperty("locked", data.get(MunitionsBenchBlockEntity.DATA_LOCKED) != 0);
 
         // 下面三个数按台主当前等级现算, 不读 BE 的 ContainerData。那三格背后是 ownerLevelCache /

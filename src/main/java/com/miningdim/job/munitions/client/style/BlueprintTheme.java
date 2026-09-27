@@ -41,6 +41,12 @@ final class BlueprintTheme extends GunsmithTheme {
     private static final int STOP_FILL = GsCanvas.rgba(255, 138, 128, 0.16D);
     private static final int RAM_FILL = GsCanvas.rgba(22, 66, 122, 0.9D);
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy.MM.dd");
+    /** 标题栏"等级"格: 档名起点、"L<n>" 的默认起点、格子右界 (234 起是风格按钮)。 */
+    private static final int GRADE_X = 200;
+    private static final int GRADE_LEVEL_X = 217;
+    private static final int GRADE_RIGHT = 233;
+    /** 档名按这个宽度缩字号 (= 默认等级起点前的空间)。 */
+    private static final float GRADE_NAME_FIT_W = GRADE_LEVEL_X - GRADE_X - 1;
 
     BlueprintTheme() {
         super(new Palette(0xFFE8F1FF, 0xFF9DBBE3, 0xFF5F86BD, YELLOW, 0xFF8FF0B2, 0xFFFF8A80));
@@ -81,9 +87,18 @@ final class BlueprintTheme extends GunsmithTheme {
         p.text(h.code(), 122, 15, 0xFFE8F1FF, p.fitScale(h.code(), 70.0F, 0.62F, 0.45F, false), 0);
         if (h.badge() != null) {
             p.text(Component.translatable("gui.miningdim.gunsmith_ui.blueprint.grade"), 200, 6, LD, 0.5F, 0);
-            p.text(h.badge().name(), 200, 14.5F, h.badge().color(),
-                    p.fitScale(h.badge().name(), 16.0F, 0.72F, 0.4F, true), BOLD);
-            p.text(GunsmithUi.levelShort(h.level()), 217, 15.5F, 0xFF9DBBE3, 0.55F, 0);
+            // 等级格 x 200..233 (234 起是风格按钮): 档名缩到 0.4 仍比 16px 宽时, "L<n>" 往右让, 但不越过 233;
+            // 还放不下 (更长的译名) 就截断档名, 不让两段字叠在一起。
+            Component level = GunsmithUi.levelShort(h.level());
+            float levelW = p.textWidth(level, 0.55F, false);
+            Component name = h.badge().name();
+            float nameScale = p.fitScale(name, GRADE_NAME_FIT_W, 0.72F, 0.4F, true);
+            float nameMax = GRADE_RIGHT - levelW - 1.0F - GRADE_X;
+            Component shownName = truncate(p, name, nameMax, nameScale);
+            float nameW = p.textWidth(shownName, nameScale, true);
+            p.text(shownName, GRADE_X, 14.5F, h.badge().color(), nameScale, BOLD);
+            float levelX = Math.min(GRADE_RIGHT - levelW, Math.max(GRADE_LEVEL_X, GRADE_X + nameW + 1.0F));
+            p.text(level, levelX, 15.5F, 0xFF9DBBE3, 0.55F, 0);
         } else {
             p.text(Component.translatable("gui.miningdim.gunsmith_ui.blueprint.date"), 200, 6, LD, 0.5F, 0);
             p.text(LocalDate.now().format(DATE), 200, 15.5F, 0xFFE8F1FF, 0.55F, 0);
@@ -116,9 +131,26 @@ final class BlueprintTheme extends GunsmithTheme {
 
     @Override
     public void sep(GsPainter p, int x, int y, int w) {
-        for (int i = 0; i < w; i += 3) {
-            p.rect(x + i, y, 2, 1, 0xFF2C5E9E);
+        // 虚线二十几段, 合成一次 draw。
+        p.batch(() -> {
+            for (int i = 0; i < w; i += 3) {
+                p.rect(x + i, y, 2, 1, 0xFF2C5E9E);
+            }
+        });
+    }
+
+    /** 缩到 scale 仍超过 maxW 时截断并补省略号; 放得下原样返回。 */
+    private static Component truncate(GsPainter p, Component text, float maxW, float scale) {
+        if (p.textWidth(text, scale, true) <= maxW) {
+            return text;
         }
+        String full = text.getString();
+        String ellipsis = "…";
+        int end = full.length();
+        while (end > 0 && p.textWidth(full.substring(0, end) + ellipsis, scale, true) > maxW) {
+            end--;
+        }
+        return Component.literal(full.substring(0, end).trim() + ellipsis);
     }
 
     @Override

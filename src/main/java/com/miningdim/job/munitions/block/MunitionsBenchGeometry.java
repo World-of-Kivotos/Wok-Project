@@ -44,7 +44,7 @@ public final class MunitionsBenchGeometry {
             {0.0F, 8.0F, 9.75F, 1.0F, 18.5F, 10.75F}, // press_posts_back: 压机后立柱
             {0.0F, 18.5F, 3.25F, 1.5F, 20.5F, 11.25F}, // press_head: 压机横梁 + 法兰 + 液压缸
             {8.5F, 8.0F, 10.0F, 15.5F, 16.0F, 15.5F}, // hopper: 弹壳料斗
-            {9.75F, 12.5F, 6.75F, 11.25F, 16.0F, 10.5F}, // chute: 落壳管
+            {9.75F, 11.5F, 6.75F, 11.25F, 16.0F, 10.5F}, // chute: 落壳管
             {1.5F, 8.0F, 10.5F, 8.0F, 16.5F, 14.0F}, // turret: 装填塔
             {1.75F, 15.0F, 5.75F, 7.25F, 16.0F, 10.5F}, // arm: 装填塔横梁
     };
@@ -54,32 +54,49 @@ public final class MunitionsBenchGeometry {
      * 只进轮廓不进碰撞, 让皮带上的弹、冲头、底火冲杆与装药管都点得中台子 (否则右键会穿过它们打到后面的方块)。
      */
     public static final float[][] MAIN_PART_BOXES = {
-            {13.5F, 9.0F, 6.5F, 16.0F, 12.5F, 8.5F}, // round_powder + round_powder_charged: 运动件扫过的范围
-            {9.5F, 9.0F, 6.5F, 15.5F, 14.75F, 8.5F}, // round_seat_tipped + round_seat: 运动件扫过的范围
-            {5.5F, 2.5F, 6.5F, 11.5F, 14.75F, 8.5F}, // drop: 运动件扫过的范围
-            {14.0F, 16.5F, 7.0F, 15.0F, 20.5F, 8.0F}, // ram_rod: 运动件扫过的范围
-            {13.25F, 14.75F, 6.25F, 15.75F, 18.5F, 8.75F}, // ram_die + ram_die_hot: 运动件扫过的范围
-            {13.75F, 12.5F, 6.75F, 15.25F, 16.75F, 8.25F}, // ram_bullet: 运动件扫过的范围
+            {13.75F, 9.0F, 6.75F, 16.0F, 11.5F, 8.25F}, // round_powder + round_powder_charged: 运动件扫过的范围
+            {9.75F, 9.0F, 6.75F, 15.25F, 13.0F, 8.25F}, // round_seat_tipped + round_seat: 运动件扫过的范围
+            {5.75F, 4.25F, 6.75F, 11.25F, 13.0F, 8.25F}, // drop: 运动件扫过的范围
+            {14.0F, 14.75F, 7.0F, 15.0F, 22.25F, 8.0F}, // ram_rod: 运动件扫过的范围
+            {13.25F, 13.0F, 6.25F, 15.75F, 18.5F, 8.75F}, // ram_die + ram_die_hot: 运动件扫过的范围
+            {14.0F, 11.5F, 7.0F, 15.0F, 16.75F, 8.0F}, // ram_bullet: 运动件扫过的范围
     };
     /** 副格的运动件轮廓箱 (副格局部像素, 朝北), 用法同 {@link #MAIN_PART_BOXES}。 */
     public static final float[][] EXTENSION_PART_BOXES = {
-            {5.5F, 9.0F, 6.5F, 11.5F, 12.5F, 8.5F}, // round_in: 运动件扫过的范围
-            {1.5F, 9.0F, 6.5F, 7.5F, 12.5F, 8.5F}, // round_prime: 运动件扫过的范围
-            {0.0F, 9.0F, 6.5F, 3.5F, 12.5F, 8.5F}, // round_powder + round_powder_charged: 运动件扫过的范围
-            {6.0F, 12.5F, 7.0F, 7.0F, 16.5F, 8.0F}, // prime_rod: 运动件扫过的范围
-            {2.0F, 12.5F, 7.0F, 3.0F, 16.5F, 8.0F}, // powder_tube: 运动件扫过的范围
+            {5.75F, 9.0F, 6.75F, 11.25F, 11.5F, 8.25F}, // round_in: 运动件扫过的范围
+            {1.75F, 9.0F, 6.75F, 7.25F, 11.5F, 8.25F}, // round_prime: 运动件扫过的范围
+            {0.0F, 9.0F, 6.75F, 3.25F, 11.5F, 8.25F}, // round_powder + round_powder_charged: 运动件扫过的范围
+            {6.0F, 11.5F, 7.0F, 7.0F, 16.5F, 8.0F}, // prime_rod: 运动件扫过的范围
+            {2.0F, 11.5F, 7.0F, 3.0F, 16.5F, 8.0F}, // powder_tube: 运动件扫过的范围
     };
 
     /** 运动件 (方块实体渲染器画的件) 在整个循环与待机里扫过的范围, 整台坐标 {x, y, z} (px)。 */
-    public static final float[] PARTS_MIN = {5.5F, 2.5F, 6.25F};
-    public static final float[] PARTS_MAX = {27.5F, 20.5F, 8.75F};
+    public static final float[] PARTS_MIN = {5.75F, 4.25F, 6.25F};
+    public static final float[] PARTS_MAX = {27.25F, 22.25F, 8.75F};
     /** 运动件的最高点 (px), 方块实体渲染包围盒至少要到这里。 */
-    public static final float RENDER_TOP_PX = 20.5F;
+    public static final float RENDER_TOP_PX = 22.25F;
 
     /** 冲压火花的位置 (整台坐标 = 主格局部坐标, px): 压弹头位那发的壳口, 冲头在 MunitionsBenchProgram.STRIKE_TICK 压到这里。 */
     public static final float SPARK_X = 14.5F;
-    public static final float SPARK_Y = 12.5F;
+    public static final float SPARK_Y = 11.5F;
     public static final float SPARK_Z = 7.5F;
+
+    /** 皮带面 (px): 皮带上的弹都站在这个高度上。 */
+    public static final float BELT_TOP_PX = 9.0F;
+    /** 弹位中心 x (整台坐标, px), 从入口到出弹: 入口 / 底火 / 装药 / 压弹头 / 出弹, 相邻两位差一个 MunitionsBenchProgram.BELT_PITCH。 */
+    public static final float[] SLOT_X_PX = {26.5F, 22.5F, 18.5F, 14.5F, 10.5F};
+    /** 弹位中心 z (px)。 */
+    public static final float SLOT_Z_PX = 7.5F;
+    /** 一发弹的壳高 / 弹头 (被甲 + 弹尖) 高 (px); 壳口 = BELT_TOP_PX + ROUND_CASE_HEIGHT_PX = SPARK_Y。 */
+    public static final float ROUND_CASE_HEIGHT_PX = 2.5F;
+    public static final float ROUND_BULLET_HEIGHT_PX = 1.5F;
+    /**
+     * 静止位 (程序的 y 偏移为 0) 时运动件的下端 (px): 冲头夹着的弹头底、底火冲杆底、装药管底;
+     * 加上 MunitionsBenchProgram 的 ramY / primeY / powderY 就是当时的位置 (冲压时刻弹头底 = 壳口, 两根杆下探到底 = 壳口)。
+     */
+    public static final float RAM_BULLET_REST_BOTTOM_PX = 15.25F;
+    public static final float PRIME_ROD_REST_BOTTOM_PX = 13.0F;
+    public static final float POWDER_TUBE_REST_BOTTOM_PX = 13.0F;
 
     /** 运动件贴图 textures/entity/munitions_bench_parts.png 的尺寸 (与 MunitionsBenchParts 的 LayerDefinition 相同)。 */
     public static final int PARTS_TEXTURE_WIDTH = 128;

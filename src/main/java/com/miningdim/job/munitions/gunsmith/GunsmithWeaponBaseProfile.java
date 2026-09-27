@@ -19,6 +19,9 @@ import java.util.Optional;
  * override when one is filled in, otherwise the default of the ammo it fires. Never
  * transcribe cached cell values. The bolt-action rows (KAR98K, SMLE III, M700) carry the
  * 2026-09 PvE overrides; a workbook that still shows 25/20 for them predates that change.
+ * The second 2026-09 batch overrides the SMG, pump/lever shotgun and M1911 rows and adds the
+ * M16A1, M16A4 and SPR15HB rows (DU rows 10-12 until their academy page is assigned); a
+ * workbook without those rows or overrides predates that batch.
  * Values apply to every fire mode: a pack's fire_mode_adjust damage, headshot and
  * armor-ignore bonuses are replaced by the profile, while its RPM, bullet-speed, knockback
  * and inaccuracy adjustments still apply.</p>
@@ -103,24 +106,29 @@ public record GunsmithWeaponBaseProfile(double armorIgnore, double headshotMulti
         EnumMap<GunsmithBlueprint, GunsmithWeaponBaseProfile> profiles =
                 new EnumMap<>(GunsmithBlueprint.class);
         // DU
-        put(profiles, GunsmithBlueprint.M1911, 0.10D, 1.50D, 12.0D, 19.0F, 9.0D, 40.0F, 6.0D);
-        put(profiles, GunsmithBlueprint.UZI, 0.00D, 1.50D, 12.0D, 15.0F, 9.0D, 30.0F, 6.0D);
-        put(profiles, GunsmithBlueprint.UMP45, 0.10D, 1.50D, 12.0D, 25.0F, 9.0D, 35.0F, 6.0D);
-        put(profiles, GunsmithBlueprint.M870, 0.00D, 1.10D, 40.0D, 18.0F, 25.0D, 32.0F, 15.0D);
+        put(profiles, GunsmithBlueprint.M1911, 0.20D, 1.50D, 19.0D, 19.0F, 14.5D, 40.0F, 9.5D);
+        put(profiles, GunsmithBlueprint.UZI, 0.15D, 1.50D, 13.0D, 15.0F, 10.0D, 30.0F, 6.5D);
+        put(profiles, GunsmithBlueprint.UMP45, 0.15D, 1.50D, 13.0D, 25.0F, 10.0D, 35.0F, 6.5D);
+        put(profiles, GunsmithBlueprint.M870, 0.25D, 1.10D, 67.0D, 18.0F, 42.0D, 32.0F, 25.0D);
         put(profiles, GunsmithBlueprint.M4A1, 0.30D, 1.50D, 8.0D, 35.0F, 7.0D, 60.0F, 6.0D);
+        // DU (rows 10-11, placement pending): academy page not yet assigned
+        put(profiles, GunsmithBlueprint.M16A1, 0.30D, 1.50D, 9.5D, 45.0F, 8.0D, 70.0F, 5.5D);
+        put(profiles, GunsmithBlueprint.M16A4, 0.30D, 1.50D, 10.5D, 45.0F, 8.5D, 70.0F, 8.0D);
+        // DU (row 12, placement pending): marksman row; values cover every fire mode
+        put(profiles, GunsmithBlueprint.SPR15HB, 0.30D, 2.00D, 16.5D, 40.0F, 13.0D, 72.0F, 11.5D);
         // Gehenna
         put(profiles, GunsmithBlueprint.HK416D, 0.30D, 1.50D, 8.0D, 25.0F, 7.0D, 60.0F, 6.0D);
-        put(profiles, GunsmithBlueprint.HK_MP5A5, 0.00D, 1.50D, 12.0D, 25.0F, 9.0D, 40.0F, 6.0D);
+        put(profiles, GunsmithBlueprint.HK_MP5A5, 0.15D, 1.50D, 10.0D, 25.0F, 7.5D, 40.0F, 5.0D);
         put(profiles, GunsmithBlueprint.KAR98K, 0.40D, 1.50D, 45.0D, 80.0F, 36.0D,
                 INFINITE_DISTANCE, 36.0D);
         // Trinity
-        put(profiles, GunsmithBlueprint.STERLING, 0.00D, 1.50D, 12.0D, 15.0F, 9.0D, 30.0F, 6.0D);
-        put(profiles, GunsmithBlueprint.M1887_LONG, 0.00D, 1.10D, 40.0D, 35.0F, 25.0D, 60.0F, 15.0D);
+        put(profiles, GunsmithBlueprint.STERLING, 0.15D, 1.50D, 16.0D, 15.0F, 12.0D, 30.0F, 8.0D);
+        put(profiles, GunsmithBlueprint.M1887_LONG, 0.25D, 1.10D, 79.0D, 35.0F, 49.5D, 60.0F, 29.5D);
         put(profiles, GunsmithBlueprint.SMLE_III, 0.40D, 1.50D, 40.0D, 80.0F, 32.0D,
                 INFINITE_DISTANCE, 32.0D);
         // Millennium
-        put(profiles, GunsmithBlueprint.MPX, 0.00D, 1.50D, 12.0D, 25.0F, 9.0D, 40.0F, 6.0D);
-        put(profiles, GunsmithBlueprint.KSG, 0.00D, 1.10D, 40.0D, 35.0F, 25.0D, 60.0F, 15.0D);
+        put(profiles, GunsmithBlueprint.MPX, 0.15D, 1.50D, 9.5D, 25.0F, 7.0D, 40.0F, 5.0D);
+        put(profiles, GunsmithBlueprint.KSG, 0.25D, 1.10D, 64.0D, 35.0F, 40.0D, 60.0F, 24.0D);
         put(profiles, GunsmithBlueprint.M700, 0.40D, 1.50D, 40.0D, 120.0F, 32.0D,
                 INFINITE_DISTANCE, 32.0D);
         // Abydos

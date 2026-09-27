@@ -38,36 +38,42 @@ public final class GunsmithStatGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void spreadsheetBaseProfilesMatchFirstWaveWeaponRows(GameTestHelper helper) {
-        assertProfile(helper, GunsmithBlueprint.M1911, 0.10D, 1.50D,
-                12.0D, 19.0F, 9.0D, 40.0F, 6.0D);
-        assertProfile(helper, GunsmithBlueprint.UZI, 0.00D, 1.50D,
-                12.0D, 15.0F, 9.0D, 30.0F, 6.0D);
-        assertProfile(helper, GunsmithBlueprint.UMP45, 0.10D, 1.50D,
-                12.0D, 25.0F, 9.0D, 35.0F, 6.0D);
-        assertProfile(helper, GunsmithBlueprint.M870, 0.00D, 1.10D,
-                40.0D, 18.0F, 25.0D, 32.0F, 15.0D);
+        assertProfile(helper, GunsmithBlueprint.M1911, 0.20D, 1.50D,
+                19.0D, 19.0F, 14.5D, 40.0F, 9.5D);
+        assertProfile(helper, GunsmithBlueprint.UZI, 0.15D, 1.50D,
+                13.0D, 15.0F, 10.0D, 30.0F, 6.5D);
+        assertProfile(helper, GunsmithBlueprint.UMP45, 0.15D, 1.50D,
+                13.0D, 25.0F, 10.0D, 35.0F, 6.5D);
+        assertProfile(helper, GunsmithBlueprint.M870, 0.25D, 1.10D,
+                67.0D, 18.0F, 42.0D, 32.0F, 25.0D);
         assertProfile(helper, GunsmithBlueprint.M4A1, 0.30D, 1.50D,
                 8.0D, 35.0F, 7.0D, 60.0F, 6.0D);
         assertProfile(helper, GunsmithBlueprint.HK416D, 0.30D, 1.50D,
                 8.0D, 25.0F, 7.0D, 60.0F, 6.0D);
-        assertProfile(helper, GunsmithBlueprint.HK_MP5A5, 0.00D, 1.50D,
-                12.0D, 25.0F, 9.0D, 40.0F, 6.0D);
+        assertProfile(helper, GunsmithBlueprint.HK_MP5A5, 0.15D, 1.50D,
+                10.0D, 25.0F, 7.5D, 40.0F, 5.0D);
         assertProfile(helper, GunsmithBlueprint.KAR98K, 0.40D, 1.50D,
                 45.0D, 80.0F, 36.0D, GunsmithWeaponBaseProfile.INFINITE_DISTANCE, 36.0D);
-        assertProfile(helper, GunsmithBlueprint.STERLING, 0.00D, 1.50D,
-                12.0D, 15.0F, 9.0D, 30.0F, 6.0D);
-        assertProfile(helper, GunsmithBlueprint.M1887_LONG, 0.00D, 1.10D,
-                40.0D, 35.0F, 25.0D, 60.0F, 15.0D);
+        assertProfile(helper, GunsmithBlueprint.STERLING, 0.15D, 1.50D,
+                16.0D, 15.0F, 12.0D, 30.0F, 8.0D);
+        assertProfile(helper, GunsmithBlueprint.M1887_LONG, 0.25D, 1.10D,
+                79.0D, 35.0F, 49.5D, 60.0F, 29.5D);
         assertProfile(helper, GunsmithBlueprint.SMLE_III, 0.40D, 1.50D,
                 40.0D, 80.0F, 32.0D, GunsmithWeaponBaseProfile.INFINITE_DISTANCE, 32.0D);
-        assertProfile(helper, GunsmithBlueprint.MPX, 0.00D, 1.50D,
-                12.0D, 25.0F, 9.0D, 40.0F, 6.0D);
-        assertProfile(helper, GunsmithBlueprint.KSG, 0.00D, 1.10D,
-                40.0D, 35.0F, 25.0D, 60.0F, 15.0D);
+        assertProfile(helper, GunsmithBlueprint.MPX, 0.15D, 1.50D,
+                9.5D, 25.0F, 7.0D, 40.0F, 5.0D);
+        assertProfile(helper, GunsmithBlueprint.KSG, 0.25D, 1.10D,
+                64.0D, 35.0F, 40.0D, 60.0F, 24.0D);
         assertProfile(helper, GunsmithBlueprint.M700, 0.40D, 1.50D,
                 40.0D, 120.0F, 32.0D, GunsmithWeaponBaseProfile.INFINITE_DISTANCE, 32.0D);
         assertProfile(helper, GunsmithBlueprint.M1014, 0.00D, 1.10D,
                 40.0D, 25.0F, 25.0D, 30.0F, 15.0D);
+        assertProfile(helper, GunsmithBlueprint.M16A1, 0.30D, 1.50D,
+                9.5D, 45.0F, 8.0D, 70.0F, 5.5D);
+        assertProfile(helper, GunsmithBlueprint.M16A4, 0.30D, 1.50D,
+                10.5D, 45.0F, 8.5D, 70.0F, 8.0D);
+        assertProfile(helper, GunsmithBlueprint.SPR15HB, 0.30D, 2.00D,
+                16.5D, 40.0F, 13.0D, 72.0F, 11.5D);
 
         Set<GunsmithBlueprint> synchronizedBlueprints = Set.of(
                 GunsmithBlueprint.M1911, GunsmithBlueprint.UZI, GunsmithBlueprint.UMP45,
@@ -75,9 +81,10 @@ public final class GunsmithStatGameTests {
                 GunsmithBlueprint.HK_MP5A5, GunsmithBlueprint.STERLING,
                 GunsmithBlueprint.M1887_LONG, GunsmithBlueprint.MPX,
                 GunsmithBlueprint.KSG, GunsmithBlueprint.M1014,
-                GunsmithBlueprint.KAR98K, GunsmithBlueprint.SMLE_III, GunsmithBlueprint.M700);
+                GunsmithBlueprint.KAR98K, GunsmithBlueprint.SMLE_III, GunsmithBlueprint.M700,
+                GunsmithBlueprint.M16A1, GunsmithBlueprint.M16A4, GunsmithBlueprint.SPR15HB);
         helper.assertTrue(GunsmithWeaponBaseProfile.all().keySet().equals(synchronizedBlueprints),
-                "only the 15 blueprints uniquely present in the workbook may receive synchronized values");
+                "only the 18 blueprints present in the workbook may receive synchronized values");
         helper.succeed();
     }
 
@@ -98,9 +105,14 @@ public final class GunsmithStatGameTests {
                 "HK416D burst id must use the HK416D spreadsheet row");
         helper.assertTrue(GunsmithWeaponBaseProfile.findByGunId(GunsmithBlueprint.AK47.gunId()).isEmpty(),
                 "a blueprint absent from the workbook must keep its gun-pack base data");
+        assertBurstUsesRow(helper, "m16a4_gunsmith_burst", GunsmithBlueprint.M16A4);
+        assertBurstUsesRow(helper, "m16a1_gunsmith_burst", GunsmithBlueprint.M16A1);
         helper.assertTrue(GunsmithWeaponBaseProfile.findByGunId(
-                        new ResourceLocation(MiningConstants.MODID, "m16a4_gunsmith_burst")).isEmpty(),
-                "an unlisted burst gun must keep its gun-pack base data");
+                        new ResourceLocation(MiningConstants.MODID, "ak47_gunsmith_burst")).isEmpty(),
+                "a non-AR blueprint never maps a burst id");
+        helper.assertTrue(GunsmithWeaponBaseProfile.findByGunId(
+                        new ResourceLocation(MiningConstants.MODID, "spr15hb_gunsmith_burst")).isEmpty(),
+                "MARKSMAN is not an AR burst template; an orphan index must not claim the SPR15HB row");
         helper.assertTrue(GunsmithWeaponBaseProfile.findByGunId(
                         new ResourceLocation("tacz", "glock_17")).isEmpty(),
                 "a workbook row without a gunsmith blueprint must keep its gun-pack base data");
@@ -885,6 +897,16 @@ public final class GunsmithStatGameTests {
             assertDamagePoint(helper, blueprint, profile.damageCurve().get(2),
                     GunsmithWeaponBaseProfile.INFINITE_DISTANCE, thirdDamage, 3);
         }
+    }
+
+    private static void assertBurstUsesRow(GameTestHelper helper, String burstPath,
+                                           GunsmithBlueprint blueprint) {
+        GunsmithWeaponBaseProfile expected = GunsmithWeaponBaseProfile.find(blueprint)
+                .orElseThrow(() -> new IllegalStateException("missing profile for " + blueprint.gunId()));
+        helper.assertTrue(GunsmithWeaponBaseProfile.findByGunId(
+                        new ResourceLocation(MiningConstants.MODID, burstPath))
+                        .filter(expected::equals).isPresent(),
+                burstPath + " must use the " + blueprint + " spreadsheet row");
     }
 
     private static void assertDamagePoint(GameTestHelper helper, GunsmithBlueprint blueprint,

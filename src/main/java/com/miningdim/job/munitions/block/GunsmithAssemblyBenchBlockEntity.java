@@ -57,17 +57,26 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
     private static final int LEGACY_PRE_BIPOD_SLOT_COUNT = LEGACY_PRE_BIPOD_SLOT_OUTPUT + 1;
     private static final int LEGACY_PRE_FIRING_PIN_SLOT_OUTPUT = 12;
     private static final int LEGACY_PRE_FIRING_PIN_SLOT_COUNT = LEGACY_PRE_FIRING_PIN_SLOT_OUTPUT + 1;
-    private static final int WELD_SOUND_INTERVAL_TICKS = 24;
     private static final String K_INVENTORY = "Inventory";
     private static final String K_HANDLER_SIZE = "Size";
     private static final String K_PENDING_RESULT = "PendingResult";
+    private static final String K_ANIMATION_START = "AnimationStartTick";
     private static final String K_ANIMATION_END = "AnimationEndTick";
     private static final String K_WELD_SOUND = "NextWeldSoundTick";
 
+    // 焊接音跟着机械臂程序 (GunsmithArmProgram) 的点焊时刻走, 需要知道动画从哪一 tick 开始。
+    private long animationStartTick;
     private long animationEndTick;
+    /** 下一声焊接音的绝对 tick; 0 = 不播。 */
     private long nextWeldSoundTick;
     private ItemStack pendingResult = ItemStack.EMPTY;
     private boolean pendingBlockedReported;
+    /**
+     * 仅客户端: 看到 ACTIVE 由假变真的那一 tick, 即机械臂程序的起点; 0 = 没看到翻转 (区块加载时已在装配中)。
+     * 开始/结束时刻不同步到客户端, 但方块状态的更新包本身就是开工信号, 在这里记下它比在渲染器首帧才开始计时准:
+     * 玩家开工时没看着组装台 (转头、从 Web UI 开工) 也不会让手臂落后, 到时刻被服务端切回待机时才不会从程序中途瞬移。
+     */
+    private long clientProgramStartTick;
 
     private final ItemStackHandler inventory = new ItemStackHandler(SLOT_COUNT) {
         @Override
@@ -333,11 +342,18 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
             throw new IllegalStateException("assembly can only start on the logical server");
         }
         long now = level.getGameTime();
+        animationStartTick = now;
         animationEndTick = now + durationTicks;
-        nextWeldSoundTick = now + WELD_SOUND_INTERVAL_TICKS;
+        // 不在开工瞬间播: 客户端机械臂此时还在去取件, 声音要等它真的在枪上点焊时才响。
+        nextWeldSoundTick = weldSoundTickAfter(now - 1L);
         setActiveState(true);
-        playWeldSound();
         setChanged();
+    }
+
+    /** 程序里晚于 after 的下一次点焊 (绝对 tick); 程序没有点焊时为 0。落在动画结束之后的自然不会播到。 */
+    private long weldSoundTickAfter(long after) {
+        long offset = GunsmithArmProgram.nextWeldTickAfter(after - animationStartTick);
+        return offset < 0L ? 0L : animationStartTick + offset;
     }
 
     public void serverTick() {
@@ -354,6 +370,7 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
 
         long now = level.getGameTime();
         if (now >= animationEndTick) {
+            animationStartTick = 0L;
             animationEndTick = 0L;
             nextWeldSoundTick = 0L;
             setActiveState(false);
@@ -362,9 +379,9 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
             return;
         }
         setActiveState(true);
-        if (now >= nextWeldSoundTick) {
+        if (nextWeldSoundTick > 0L && now >= nextWeldSoundTick) {
             playWeldSound();
-            nextWeldSoundTick = now + WELD_SOUND_INTERVAL_TICKS;
+            nextWeldSoundTick = weldSoundTickAfter(now);
         }
     }
 
@@ -393,6 +410,32 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
             return getBlockState().getValue(GunsmithAssemblyBenchBlock.ACTIVE);
         }
         return animationEndTick > level.getGameTime();
+    }
+
+    /** 客户端机械臂程序的起点 (游戏 tick); 0 = 未知, 渲染器退回到首帧计时。 */
+    public long clientProgramStartTick() {
+        return clientProgramStartTick;
+    }
+
+    // 客户端收到方块更新时 LevelChunk.setBlockState 会把新状态交给已有的方块实体, 这是客户端唯一能准确看到开工时刻的地方。
+    @Override
+    @SuppressWarnings("deprecation")
+    public void setBlockState(BlockState state) {
+        boolean wasActive = isActive(getBlockState());
+        super.setBlockState(state);
+        if (level == null || !level.isClientSide) {
+            return;
+        }
+        boolean active = isActive(state);
+        if (active && !wasActive) {
+            clientProgramStartTick = level.getGameTime();
+        } else if (!active) {
+            clientProgramStartTick = 0L;
+        }
+    }
+
+    private static boolean isActive(BlockState state) {
+        return state.hasProperty(GunsmithAssemblyBenchBlock.ACTIVE) && state.getValue(GunsmithAssemblyBenchBlock.ACTIVE);
     }
 
     private void setActiveState(boolean active) {
@@ -449,6 +492,7 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         if (!pendingResult.isEmpty()) {
             tag.put(K_PENDING_RESULT, pendingResult.save(new CompoundTag()));
         }
+        tag.putLong(K_ANIMATION_START, animationStartTick);
         tag.putLong(K_ANIMATION_END, animationEndTick);
         tag.putLong(K_WELD_SOUND, nextWeldSoundTick);
     }
@@ -464,8 +508,17 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
                 ? ItemStack.of(tag.getCompound(K_PENDING_RESULT))
                 : ItemStack.EMPTY;
         animationEndTick = tag.getLong(K_ANIMATION_END);
-        // 保留焊接音节拍, 避免重载后首个 serverTick 因 nextWeldSoundTick=0 恒真而补播一声离拍焊接音。(审查 m-4)
+        // 保留焊接音节拍, 避免重载后首个 serverTick 补播一声离拍焊接音。(审查 m-4)
         nextWeldSoundTick = tag.getLong(K_WELD_SOUND);
+        if (tag.contains(K_ANIMATION_START, Tag.TAG_LONG)) {
+            animationStartTick = tag.getLong(K_ANIMATION_START);
+        } else if (animationEndTick > 0L) {
+            // 旧存档没有开始时刻: 装配与维修都是固定时长, 由结束时刻倒推; 旧的定时节拍对齐到程序里不早于它的那次点焊。
+            animationStartTick = animationEndTick - ASSEMBLY_DURATION_TICKS;
+            nextWeldSoundTick = weldSoundTickAfter(Math.max(nextWeldSoundTick, animationStartTick) - 1L);
+        } else {
+            animationStartTick = 0L;
+        }
         pendingBlockedReported = false;
     }
 

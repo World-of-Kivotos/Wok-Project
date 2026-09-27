@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // 枪匠工作站多视角预览出图。
 // 用法: node render.mjs --repo <仓库或 worktree 根> --block press|assembly --state idle|active --out x.png
-//        [--overlay <候选方案根, 结构同仓库, 优先读取>] [--closeup FL|FR|BR|BL|F|S|T|EYE|NIGHT] [--views FL,FR,...] [--arm 0..1] [--phase 0..1]
+//        [--overlay <候选方案根, 结构同仓库, 优先读取>] [--closeup FL|FR|BR|BL|F|S|T|EYE|NIGHT] [--views FL,FR,...]
+//        [--tick 0..160 (组装台机械臂程序时间, 隐含工作态)] [--phase 0..1 (= tick / 160)]
+//        [--contact EYE|T|... [--every 8] (组装台机械臂连拍表: 每隔 every tick 一格, 标 tick)]
 // 组图 5×2: 左前 / 右前 / 右后 / 左后 / 玩家视角 / 正前 / 侧面(东) / 俯视 / 夜间(自发光) / 物品栏图标。
 import path from 'node:path';
 import { AssetRoot, pressQuads, assemblyQuads, itemQuads } from './scene.mjs';
@@ -37,6 +39,8 @@ const GROUND = (() => {
 const FRAMES = {
     press: { min: [-2, 0, -2], max: [18, 17, 18], ground: [-1, 2, -1, 2] },
     assembly: { min: [-2, 0, -2], max: [34, 22, 34], ground: [-1, 3, -1, 3] },
+    // 连拍表只取机械臂的活动范围 (步枪后半、送料盘、设备台), 放大看清零件与夹爪
+    assemblyArm: { min: [17, 10, 11], max: [31, 25, 27], ground: [-1, 3, -1, 3] },
 };
 
 export const VIEWS = {
@@ -121,16 +125,45 @@ function blit(target, src, x0, y0) {
     }
 }
 
+/** 组装台机械臂连拍表: ticks 里每个时刻一格 (工作态模型), 左上角标 tick, 点焊中的格子标 WELD。 */
+export function renderContactSheet(repo, viewKey, ticks, opts = {}) {
+    const root = new AssetRoot([...(opts.overlay ? [opts.overlay] : []), repo]);
+    const arm = root.arm();
+    const cols = opts.cols || 7, pw = opts.cellW || 360, ph = opts.cellH || 300;
+    const rows = Math.ceil(ticks.length / cols);
+    const target = { width: cols * pw, height: rows * ph + 18, data: new Uint8ClampedArray(cols * pw * (rows * ph + 18) * 4) };
+    fillBackground(target, [30, 32, 36]);
+    const view = VIEWS[viewKey] || VIEWS.EYE;
+    ticks.forEach((tick, i) => {
+        const quads = assemblyQuads(root, true, { tick });
+        const x0 = (i % cols) * pw + 1, y0 = Math.floor(i / cols) * ph + 1;
+        renderPanel(target, x0, y0, pw - 2, ph - 2, quads, FRAMES.assemblyArm, { ...view, label: 'T ' + tick });
+        const st = arm.program ? sampleLabel(arm, tick) : null;
+        if (st && st.spark) drawText(target, x0 + pw - 60, y0 + 5, 'WELD', [255, 200, 90]);
+        if (st && st.payload) drawText(target, x0 + pw - 60, y0 + 22, 'PART' + st.payload, [140, 230, 255]);
+    });
+    drawText(target, 6, rows * ph + 4, `ASSEMBLY ARM PROGRAM  VIEW=${view.label}  ${opts.tag || ''}`, [255, 220, 120]);
+    return target;
+}
+function sampleLabel(arm, tick) {
+    const r = arm.program.rows;
+    let i = 1;
+    const t = tick % r[r.length - 1].tick;
+    if (t <= 0) return r[0];
+    while (r[i].tick < t) i++;
+    return r[i];
+}
+
 export function renderSheet(repo, block, state, opts = {}) {
     const root = new AssetRoot([...(opts.overlay ? [opts.overlay] : []), repo]);
     const active = state === 'active';
-    const quads = block === 'press' ? pressQuads(root, active) : assemblyQuads(root, active, opts.armWork, opts.armPhase);
+    const quads = block === 'press' ? pressQuads(root, active) : assemblyQuads(root, active, opts.tick !== undefined ? { tick: opts.tick } : { work: active ? 1 : 0 });
     const frame = FRAMES[block];
     const itemId = block === 'press' ? 'gunsmith_press' : 'gunsmith_assembly_bench';
     if (opts.closeup) {
         const w = 1100, h = 860;
         const target = { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) };
-        renderPanel(target, 0, 0, w, h, quads, frame, VIEWS[opts.closeup] || VIEWS.FL);
+        renderPanel(target, 0, 0, w, h, quads, (opts.frame && FRAMES[opts.frame]) || frame, VIEWS[opts.closeup] || VIEWS.FL);
         drawText(target, 6, h - 14, `${block.toUpperCase()} ${state.toUpperCase()} ${opts.tag || ''}`, [255, 220, 120]);
         return target;
     }
@@ -149,17 +182,26 @@ export function renderSheet(repo, block, state, opts = {}) {
 if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}` || process.argv[1].endsWith('render.mjs')) {
     const args = parseArgs(process.argv.slice(2));
     if (!args.repo || !args.block || !args.out) {
-        console.error('usage: node render.mjs --repo <root> --block press|assembly [--state idle|active] --out file.png [--overlay <候选方案根>] [--closeup FL|FR|BR|BL|F|S|T|EYE] [--views FL,FR] [--tag text] [--arm 0..1] [--phase 0..1 (Java 时间线)]');
+        console.error('usage: node render.mjs --repo <root> --block press|assembly [--state idle|active] --out file.png [--overlay <候选方案根>] [--closeup FL|FR|BR|BL|F|S|T|EYE] [--views FL,FR] [--tag text] [--tick 0..160] [--phase 0..1] [--contact EYE|T [--every 8]]');
         process.exit(2);
     }
-    const img = renderSheet(args.repo, args.block, args.state || 'idle', {
-        closeup: args.closeup === true ? 'FL' : args.closeup,
-        views: args.views,
-        tag: args.tag,
-        overlay: args.overlay,
-        armWork: args.arm !== undefined ? parseFloat(args.arm) : undefined,
-        armPhase: args.phase !== undefined ? parseFloat(args.phase) : undefined,
-    });
+    const tick = args.tick !== undefined ? parseFloat(args.tick) : args.phase !== undefined ? parseFloat(args.phase) * 160 : undefined;
+    let img;
+    if (args.contact) {
+        const every = Number(args.every || 8);
+        const ticks = [];
+        for (let t = 0; t <= 160; t += every) ticks.push(t);
+        img = renderContactSheet(args.repo, args.contact === true ? 'EYE' : args.contact, ticks, { overlay: args.overlay, tag: args.tag });
+    } else {
+        img = renderSheet(args.repo, args.block, tick !== undefined ? 'active' : args.state || 'idle', {
+            closeup: args.closeup === true ? 'FL' : args.closeup,
+            views: args.views,
+            tag: args.tag !== undefined ? args.tag : tick !== undefined ? 'TICK ' + tick : '',
+            overlay: args.overlay,
+            frame: args.frame,
+            tick,
+        });
+    }
     writePng(args.out, img);
     console.log('wrote', args.out, img.width + 'x' + img.height);
 }

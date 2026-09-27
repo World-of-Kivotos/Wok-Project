@@ -1,6 +1,7 @@
 package com.miningdim.job.munitions.client;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.munitions.block.GunsmithArmProgram;
 import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlock;
 import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlockEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -8,6 +9,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
+import net.minecraft.client.model.geom.builders.CubeDeformation;
 import net.minecraft.client.model.geom.builders.CubeListBuilder;
 import net.minecraft.client.model.geom.builders.LayerDefinition;
 import net.minecraft.client.model.geom.builders.MeshDefinition;
@@ -17,9 +19,12 @@ import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
 import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.util.Mth;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.Level;
 
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -29,14 +34,6 @@ public final class GunsmithAssemblyBenchRenderer
 
     private static final ResourceLocation TEXTURE = new ResourceLocation(
             MiningConstants.MODID, "textures/entity/gunsmith_assembly_arm.png");
-    private static final float ASSEMBLY_CYCLE_TICKS = 80.0F;
-    // Idle: gripper parked above the tool-change pedestal at (20.25, 23.5). Work: gripper hovering over the rifle receiver.
-    private static final float IDLE_UPPER_ARM_Z = 0.1704F;
-    private static final float IDLE_FOREARM_Z = 1.023F;
-    private static final float WORK_UPPER_ARM_Z = -0.8362F;
-    private static final float WORK_FOREARM_Z = 2.5396F;
-    // The shoulder pivot is (26.5, 23.5); the work point above the rifle receiver is (18, 13.5).
-    private static final float WORK_BASE_YAW = -(float) Math.atan2(10D, 8.5D);
 
     private final ModelPart root;
     private final ModelPart shoulder;
@@ -46,7 +43,29 @@ public final class GunsmithAssemblyBenchRenderer
     private final ModelPart tool;
     private final ModelPart leftClaw;
     private final ModelPart rightClaw;
+    private final ModelPart payloadBolt;
+    private final ModelPart payloadStock;
+    // Ticks to ease back to the dock when the server ends the assembly before the client's program has parked the arm.
+    private static final float RETURN_TICKS = 6.0F;
+
+    // Fallback clock for benches that were already ACTIVE when their chunk loaded (no ACTIVE flip was seen, so the
+    // block entity has no start tick): the program then runs from the first frame this renderer sees.
     private final Map<GunsmithAssemblyBenchBlockEntity, Long> animationStartTicks = new WeakHashMap<>();
+    // Last program time drawn while running, so a stop mid-program can ease back from where the arm actually was.
+    private final Map<GunsmithAssemblyBenchBlockEntity, LastDrawn> lastDrawn = new WeakHashMap<>();
+    private final Map<GunsmithAssemblyBenchBlockEntity, ReturnToDock> returns = new WeakHashMap<>();
+    // render() runs every frame; sparks are world particles, so they are limited to one burst per game tick.
+    private final Map<GunsmithAssemblyBenchBlockEntity, Long> lastSparkTicks = new WeakHashMap<>();
+    private final GunsmithArmProgram.Pose pose = new GunsmithArmProgram.Pose();
+    private final GunsmithArmProgram.Pose idlePose = GunsmithArmProgram.idle(new GunsmithArmProgram.Pose());
+    private final float[] contact = new float[3];
+
+    // Game time stays a long: a float cannot hold sub-tick precision once a world is a few million ticks old.
+    private record ReturnToDock(float fromProgramTick, long startTick, float startPartial) {
+    }
+
+    private record LastDrawn(float programTick, long gameTick) {
+    }
 
     public GunsmithAssemblyBenchRenderer(BlockEntityRendererProvider.Context context) {
         root = createBodyLayer().bakeRoot();
@@ -59,6 +78,8 @@ public final class GunsmithAssemblyBenchRenderer
         ModelPart gripper = tool.getChild("gripper");
         leftClaw = gripper.getChild("left_claw");
         rightClaw = gripper.getChild("right_claw");
+        payloadBolt = gripper.getChild("payload_bolt");
+        payloadStock = gripper.getChild("payload_stock");
     }
 
     private static LayerDefinition createBodyLayer() {
@@ -105,6 +126,15 @@ public final class GunsmithAssemblyBenchRenderer
                 CubeListBuilder.create()
                         .texOffs(13, 16).addBox(-0.5F, 0.0F, -0.5F, 1.0F, 2.0F, 1.0F),
                 PartPose.offset(1.5F, 1.0F, 0.0F));
+        gripper.addOrReplaceChild("payload_bolt",
+                CubeListBuilder.create()
+                        .texOffs(18, 16).addBox(-1.0F, 2.0F, -0.5F, 2.0F, 2.0F, 1.0F, new CubeDeformation(0.05F)),
+                PartPose.ZERO);
+        gripper.addOrReplaceChild("payload_stock",
+                CubeListBuilder.create()
+                        .texOffs(25, 16).addBox(-1.0F, 2.0F, -1.0F, 2.0F, 2.0F, 1.0F, new CubeDeformation(0.08F))
+                        .texOffs(32, 16).addBox(-1.0F, 2.0F, 0.0F, 2.0F, 2.0F, 1.0F, new CubeDeformation(0.05F)),
+                PartPose.ZERO);
         return LayerDefinition.create(mesh, 64, 64);
     }
 
@@ -112,7 +142,7 @@ public final class GunsmithAssemblyBenchRenderer
     public void render(GunsmithAssemblyBenchBlockEntity blockEntity, float partialTick,
                        PoseStack poseStack, MultiBufferSource bufferSource,
                        int packedLight, int packedOverlay) {
-        applyPose(blockEntity, partialTick);
+        boolean running = applyPose(blockEntity, partialTick);
         Direction facing = blockEntity.getBlockState().getValue(GunsmithAssemblyBenchBlock.FACING);
         float rotation = switch (facing) {
             case EAST -> -90.0F;
@@ -129,59 +159,102 @@ public final class GunsmithAssemblyBenchRenderer
         VertexConsumer consumer = bufferSource.getBuffer(RenderType.entityCutoutNoCull(TEXTURE));
         root.render(poseStack, consumer, packedLight, OverlayTexture.NO_OVERLAY);
         poseStack.popPose();
+
+        if (running && pose.spark) {
+            emitWeldSparks(blockEntity, rotation);
+        }
     }
 
-    private void applyPose(GunsmithAssemblyBenchBlockEntity blockEntity, float partialTick) {
-        shoulder.xRot = 0.0F;
-        shoulder.yRot = 0.0F;
-        shoulder.zRot = 0.0F;
-        upperArm.xRot = 0.0F;
-        upperArm.yRot = 0.0F;
-        forearm.xRot = 0.0F;
-        forearm.yRot = 0.0F;
-        wrist.xRot = 0.0F;
-        wrist.yRot = 0.0F;
-        tool.xRot = 0.0F;
-        tool.yRot = 0.0F;
-        tool.y = 0.0F;
-
-        upperArm.zRot = IDLE_UPPER_ARM_Z;
-        forearm.zRot = IDLE_FOREARM_Z;
-        wrist.zRot = -(IDLE_UPPER_ARM_Z + IDLE_FOREARM_Z);
-        leftClaw.zRot = -0.26F;
-        rightClaw.zRot = 0.26F;
-        if (!blockEntity.isAnimating()) {
+    /** Poses the arm from the shared keyframe program; returns whether the assembly program is running. */
+    private boolean applyPose(GunsmithAssemblyBenchBlockEntity blockEntity, float partialTick) {
+        boolean running = blockEntity.isAnimating();
+        long now = blockEntity.getLevel().getGameTime();
+        if (running) {
+            returns.remove(blockEntity);
+            long startedAt = blockEntity.clientProgramStartTick();
+            if (startedAt <= 0L) {
+                startedAt = animationStartTicks.computeIfAbsent(blockEntity, ignored -> now);
+            }
+            float programTick = Math.max(0.0F, now - startedAt + partialTick);
+            lastDrawn.put(blockEntity, new LastDrawn(programTick, now));
+            GunsmithArmProgram.sample(programTick, pose);
+        } else {
             animationStartTicks.remove(blockEntity);
+            lastSparkTicks.remove(blockEntity);
+            LastDrawn stopped = lastDrawn.remove(blockEntity);
+            // Only ease if the arm was on screen when it stopped; a bench that finished out of view is simply docked.
+            if (stopped != null && now - stopped.gameTick() <= 2L
+                    && stopped.programTick() % GunsmithArmProgram.CYCLE_TICKS < GunsmithArmProgram.PARKED_TICK) {
+                returns.put(blockEntity, new ReturnToDock(stopped.programTick(), now, partialTick));
+            }
+            easeToDock(blockEntity, now, partialTick);
+        }
+        shoulder.yRot = pose.yaw;
+        upperArm.zRot = pose.upperArm;
+        forearm.zRot = pose.forearm;
+        // Cancelling both arm joints keeps the tool vertical, so picks and placements read as straight plunges.
+        wrist.zRot = -(pose.upperArm + pose.forearm);
+        tool.yRot = pose.toolSpin;
+        leftClaw.zRot = pose.claw;
+        rightClaw.zRot = -pose.claw;
+        payloadBolt.visible = pose.payload == GunsmithArmProgram.PAYLOAD_BOLT;
+        payloadStock.visible = pose.payload == GunsmithArmProgram.PAYLOAD_STOCK;
+        return running;
+    }
+
+    /**
+     * Idle pose, or a short joint-space blend towards it when the assembly ended while the client's program was still
+     * mid-move (its clock started late). Six ticks of blending is not collision-swept like the program itself, but a
+     * brief brush is far less jarring than the arm teleporting off the rifle with a part in its claws.
+     */
+    private void easeToDock(GunsmithAssemblyBenchBlockEntity blockEntity, long now, float partialTick) {
+        ReturnToDock back = returns.get(blockEntity);
+        float s = back == null ? 1.0F
+                : Math.max(0.0F, (now - back.startTick()) + partialTick - back.startPartial()) / RETURN_TICKS;
+        if (s >= 1.0F) {
+            returns.remove(blockEntity);
+            GunsmithArmProgram.idle(pose);
             return;
         }
-
-        long now = blockEntity.getLevel().getGameTime();
-        long startedAt = animationStartTicks.computeIfAbsent(blockEntity, ignored -> now);
-        float phase = ((now - startedAt + partialTick) % ASSEMBLY_CYCLE_TICKS) / ASSEMBLY_CYCLE_TICKS;
-        float turn = motionWindow(phase, 0.04F, 0.26F, 0.72F, 0.94F);
-        float reach = motionWindow(phase, 0.12F, 0.32F, 0.68F, 0.88F);
-        float grip = motionWindow(phase, 0.28F, 0.38F, 0.62F, 0.72F);
-        float weld = motionWindow(phase, 0.40F, 0.46F, 0.58F, 0.64F);
-        float precisionPulse = Mth.sin(phase * Mth.TWO_PI * 12.0F) * weld;
-
-        shoulder.yRot = WORK_BASE_YAW * turn;
-        upperArm.zRot = Mth.lerp(reach, IDLE_UPPER_ARM_Z, WORK_UPPER_ARM_Z);
-        forearm.zRot = Mth.lerp(reach, IDLE_FOREARM_Z, WORK_FOREARM_Z);
-        wrist.zRot = -(upperArm.zRot + forearm.zRot);
-        wrist.yRot = precisionPulse * 0.07F;
-        tool.yRot = -precisionPulse * 0.11F;
-        leftClaw.zRot = Mth.lerp(grip, -0.26F, -0.08F);
-        rightClaw.zRot = Mth.lerp(grip, 0.26F, 0.08F);
+        GunsmithArmProgram.sample(back.fromProgramTick(), pose);
+        float e = s * s * (3.0F - 2.0F * s);
+        pose.yaw += (idlePose.yaw - pose.yaw) * e;
+        pose.upperArm += (idlePose.upperArm - pose.upperArm) * e;
+        pose.forearm += (idlePose.forearm - pose.forearm) * e;
+        pose.toolSpin += (idlePose.toolSpin - pose.toolSpin) * e;
+        pose.claw += (idlePose.claw - pose.claw) * e;
+        // The part counts as fitted once the server has finished; sparks only belong to a running program.
+        pose.payload = GunsmithArmProgram.PAYLOAD_NONE;
+        pose.spark = false;
     }
 
-    private static float motionWindow(float phase, float moveStart, float moveEnd,
-                                      float returnStart, float returnEnd) {
-        return easedStep(phase, moveStart, moveEnd)
-                * (1.0F - easedStep(phase, returnStart, returnEnd));
-    }
-
-    private static float easedStep(float phase, float start, float end) {
-        float progress = Mth.clamp((phase - start) / (end - start), 0.0F, 1.0F);
-        return progress * progress * (3.0F - 2.0F * progress);
+    private void emitWeldSparks(GunsmithAssemblyBenchBlockEntity blockEntity, float rotationDegrees) {
+        Level level = blockEntity.getLevel();
+        long now = level.getGameTime();
+        Long last = lastSparkTicks.put(blockEntity, now);
+        if (last != null && last == now) {
+            return;
+        }
+        GunsmithArmProgram.contactPosition(pose, contact);
+        // North-facing bench pixels -> offset from the main block centre, turned the same way render() turns the model.
+        double localX = contact[0] / 16.0D - 0.5D;
+        double localZ = contact[2] / 16.0D - 0.5D;
+        double radians = Math.toRadians(rotationDegrees);
+        double cos = Math.cos(radians);
+        double sin = Math.sin(radians);
+        BlockPos pos = blockEntity.getBlockPos();
+        double x = pos.getX() + 0.5D + localX * cos + localZ * sin;
+        double y = pos.getY() + contact[1] / 16.0D;
+        double z = pos.getZ() + 0.5D - localX * sin + localZ * cos;
+        RandomSource random = level.random;
+        for (int i = 0; i < 2; i++) {
+            level.addParticle(ParticleTypes.ELECTRIC_SPARK, x, y, z,
+                    (random.nextDouble() - 0.5D) * 0.12D,
+                    0.02D + random.nextDouble() * 0.06D,
+                    (random.nextDouble() - 0.5D) * 0.12D);
+        }
+        if (random.nextInt(6) == 0) {
+            level.addParticle(ParticleTypes.SMOKE, x, y + 0.04D, z, 0.0D, 0.015D, 0.0D);
+        }
     }
 }

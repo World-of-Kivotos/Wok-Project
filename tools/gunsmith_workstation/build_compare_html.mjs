@@ -54,7 +54,8 @@ for (const [block, variants] of Object.entries(config.blocks)) {
             const arm = root.arm();
             const key = prefix + '|' + arm.textureId;
             data.images[key] = 'data:image/png;base64,' + encodePng(root.image(arm.textureId)).toString('base64');
-            entry.arm = { parts: arm.parts, texW: arm.texW, texH: arm.texH, consts: arm.consts, image: key };
+            // program: 新版关键帧程序 (旧版为 null); 对比页的机械臂滑块在新版上映射为程序时间 0..160
+            entry.arm = { parts: arm.parts, texW: arm.texW, texH: arm.texH, consts: arm.consts, program: arm.program, image: key };
         }
         data.blocks[block].push(entry);
     }

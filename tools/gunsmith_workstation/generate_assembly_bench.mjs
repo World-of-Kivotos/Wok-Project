@@ -8,15 +8,20 @@
 //   src/main/resources/assets/miningdim/textures/block/gunsmith_assembly_particle.png
 //   src/main/resources/assets/miningdim/textures/entity/gunsmith_assembly_arm.png
 //   src/main/java/com/miningdim/job/munitions/client/GunsmithAssemblyBenchRenderer.java
-//     (只替换 姿态常量块 与 createBodyLayer() 方法; 文件其余部分原样保留。
-//      底稿: <根目录> 里已有的该文件; 没有则取本脚本所在仓库 (../..) 里的; 都没有则报错。)
+//     (只替换 createBodyLayer() 方法)
+//   src/main/java/com/miningdim/job/munitions/block/GunsmithArmProgram.java
+//     (只替换 "<generated>" 与 "</generated>" 两行注释之间的几何常量与关键帧表)
+//     两个 Java 文件其余部分原样保留。底稿: <根目录> 里已有的该文件; 没有则取本脚本所在仓库 (../..) 里的; 都没有则报错。
 // 整台桌子先在 32x32 世界像素里建 (朝北, x 东, z 南, 正面 z=0), 再按格切成四个部位文件。
 // 每个可见面在图集里分到自己的矩形 (默认 1 贴图像素 / 模型像素, 细节件 2 倍), 程序化绘制。
-// 机械臂: 按 Java applyPose 的真实时间窗 (从底稿里解析) 扫整个动作周期, 任何臂段进入方块元素即校验失败。
+// 机械臂: 取放 + 点焊的关键帧程序由本脚本按真实几何反解 (料盘取件位、枪身安装点), 写进 GunsmithArmProgram;
+// 写出前按 Java 同一套插值逐 tick 细分扫描整个 160 tick 程序 (含携带件), 任何臂段进入方块元素即校验失败。
+// 全部校验通过后才落盘, 失败时仓库里的产物保持原样。
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+import { sampleArmProgram } from './raster.mjs';
 
 // ------------------------------------------------------------ 参数
 const IS_MAIN = !!process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
@@ -29,6 +34,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const RES = path.join(OUT, 'src', 'main', 'resources', 'assets', 'miningdim');
 const JAVA_REL = path.join('src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'client', 'GunsmithAssemblyBenchRenderer.java');
 const JAVA_OUT = path.join(OUT, JAVA_REL);
+const PROGRAM_REL = path.join('src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'block', 'GunsmithArmProgram.java');
 const ATLAS_ID = 'miningdim:block/gunsmith_assembly_atlas';
 const PARTICLE_ID = 'miningdim:block/gunsmith_assembly_particle';
 
@@ -138,6 +144,34 @@ const ARM = {
 };
 // 换刀座 (待机时抓手停在它上方), 立在设备台西侧, 与肩部同一 z (待机偏航角为 0)。
 const PED = { x: 20.25, z: ARM.shoulder[2], top: 14 };
+
+// 携带件 (gripper 局部坐标, ModelPart y 向下; 横梁 y 0..1, 两爪枢轴在 (±ARM.clawX, 1), 爪长 2, 爪尖 y 3)。
+// 零件夹在两爪之间 (x ±1, 正好贴住伸直的爪), 底面比爪尖低 1: 放下时先碰到的是零件, 爪子与台面/枪身始终留着间隙。
+// 盒子: [材质, 装饰, x, y, z, w, h, d]。颜色与台上/枪上的同类零件一致 (枪机 = 枪身黑钢, 枪托件 = 沙色聚合物 + 黑色橡胶托底)。
+// 盒子末尾可带一个外扩量 (Java 里是 CubeDeformation, 只放大几何不动 UV): 夹起的瞬间携带件与送料位上的静态零件同形同位,
+// 不外扩就是整面共面闪烁; 外扩 0.05 px 让携带件的面都在静态零件外面。枪托件两块外扩量不同, 免得两块在接缝处又互相共面。
+// 外扩计入穿模扫描与取放点反解 (ARM_SAMPLES 用外扩后的盒子)。
+const PAYLOAD_BOTTOM = 4;
+const TIP_DROP = ARM.gripY + PAYLOAD_BOTTOM;   // 腕部枢轴 → 携带件底面 (工具竖直时, 不含外扩)
+const PAYLOADS = [
+    { code: 1, key: 'bolt', part: 'payload_bolt', label: '枪机', boxes: [['black', 'bolt', -1, 2, -0.5, 2, 2, 1, 0.05]] },
+    { code: 2, key: 'stock', part: 'payload_stock', label: '枪托件', boxes: [['rubber', 'pad', -1, 2, -1, 2, 2, 1, 0.08], ['tan', 'stock', -1, 2, 0, 2, 2, 1, 0.05]] },
+];
+// 夹爪开合 (左爪 zRot; 右爪取反): 负 = 爪尖内收 (空载待机), 0 = 两爪平行正好夹住 2 宽的零件, 正 = 张开。
+const CLAW = { pinch: -0.26, open: 0.22, hold: 0 };
+// 携带时工具的世界朝向 (yaw + 工具自转): -90° 让两爪沿 z 横跨枪身, 零件厚度方向沿枪管 (x),
+// 这样机匣上瞄具 (x<=19) 与压爪 (x>=21.5) 之间 2.5 格宽的空当也放得下; 料盘上的零件按同一朝向摆放。
+const CARRY_THETA = -Math.PI / 2;
+// 送料盘: 设备台前沿一条浅盘, 一排零件。西端两个黄色角标格是送料位 (机械臂取件点), 东边是备件。
+// 送料位上也摆着一件静态零件: 爪子合拢时夹的是看得见的东西, 抬起后盘上仍留一件 (静态模型, 相当于送料机又补了一件)。
+// 两个送料位都放在西端: 离肩轴水平 >= 6 px, 取件发生在折起的大臂和肘外侧, 从台前看得见, 不会缩在肩座脚下。
+// 零件底面 = 盘面; 世界坐标里零件占 x (厚 1 或 2) × z 2 (TRAY.row ± 1)。
+const TRAY = { x0: 19.75, x1: 29.75, z0: 17.25, z1: 19.75, y0: 11.5, y1: 12, row: 18.5 };
+const TRAY_SLOTS = [
+    { payload: 'bolt', pick: 20.5, rest: [27.25, 28.75] },
+    { payload: 'stock', pick: 22.75, rest: [25.25] },
+];
+const PICK_BODY = 'tray_pick_';   // 送料位静态零件的元素名前缀 (扫描时要区别对待, 见 sweepProgram)
 
 /** 世界坐标建一台 (active: 工作态)。返回元素数组。 */
 function buildScene(active) {
@@ -284,11 +318,25 @@ function buildScene(active) {
         up: paint('deck_top', (c) => deckTop(c, (S[0] - 19.5) * 2, (S[2] - 17) * 2), { m: M.frame, d: 2 }),
         south: null, down: null,
     });
+    // 状态灯挂在设备台前立面上 (台顶前沿让给送料盘)
     const leds = active ? ['#6ff08e', '#ffb040', '#ffb040'] : ['#4fd070', null, null];
     leds.forEach((col, i) => {
-        const x0 = 23 + i;
-        box('deck_led' + i, [x0, 11.5, 17.5], [x0 + 0.5, 12, 18], { all: col ? glow(flat(col)) : flat('#3a3f46'), down: null }, { item: false });
+        const x0 = 28 + i;
+        box('deck_led' + i, [x0, 10.5, 16.5], [x0 + 0.5, 11, 17], { all: col ? glow(flat(col)) : flat('#3a3f46'), south: null }, { item: false });
     });
+    // 送料盘 + 盘上的零件 (与机械臂携带件同形同色)
+    box('tray', [TRAY.x0, TRAY.y0, TRAY.z0], [TRAY.x1, TRAY.y1, TRAY.z1], {
+        all: flat(M.steel.lo),
+        north: paint('tray_n', (c) => { c.fill(M.steel.lo); c.hline(0, 0, c.w, M.steel.hi); }, { m: M.steel, d: 2 }),
+        up: paint('tray_top', trayTop, { m: M.frame, d: 2 }),
+        down: null,
+    }, { item: false });
+    for (const g of TRAY_SLOTS) {
+        for (const e of trayPart(g.payload, g.pick)) box(`${PICK_BODY}${g.payload}_${e.tag}`, e.from, e.to, e.faces, { item: false });
+        g.rest.forEach((x, i) => {
+            for (const e of trayPart(g.payload, x)) box(`tray_${g.payload}${i}_${e.tag}`, e.from, e.to, e.faces, { item: false });
+        });
+    }
     box('tc_post', [PED.x - 0.75, 11.5, PED.z - 0.75], [PED.x + 0.75, PED.top - 0.5, PED.z + 0.75], {
         all: paint('tc_post', (c) => { c.fill(M.frame.base); c.bevel(M.frame); c.hline(0, 1, c.w, M.yellow.base); c.hline(0, 2, c.w, HAZ_K); }, { m: M.frame, d: 2 }),
         down: null, up: null,
@@ -613,6 +661,54 @@ function deckTop(c, cx, cy) {
         else if (r >= 7.4 && r < 8.1) c.px(x, y, m.dk);
     }
 }
+/** 料盘上的一件零件 (世界坐标, 朝向与 CARRY_THETA 下的携带件一致)。 */
+function trayPart(key, x) {
+    const y0 = TRAY.y1, y1 = TRAY.y1 + 2, z0 = TRAY.row - 1, z1 = TRAY.row + 1;
+    if (key === 'bolt') {
+        return [{
+            tag: 'body', from: [x - 0.5, y0, z0], to: [x + 0.5, y1, z1],
+            faces: {
+                all: flat(M.black.base), up: paint('tray_bolt_up', boltTop, { m: M.chrome, d: 2 }),
+                west: paint('tray_bolt_side', boltSide, { m: M.black, d: 2 }), east: paint('tray_bolt_side', boltSide, { m: M.black, d: 2 }), down: null,
+            },
+        }];
+    }
+    // 枪托件: 西半沙色托身, 东半黑色橡胶托底
+    return [
+        { tag: 'pad', from: [x, y0, z0], to: [x + 1, y1, z1], faces: { all: flat(M.rubber.base), up: flat(M.rubber.hi), down: null, west: null } },
+        {
+            tag: 'body', from: [x - 1, y0, z0], to: [x, y1, z1],
+            faces: { all: flat(M.tan.base), up: flat(M.tan.hi), west: paint('tray_stock_side', stockSide, { m: M.tan, d: 2 }), down: null, east: null },
+        },
+    ];
+}
+// 零件侧面花纹 (x 向的面, 贴图宽 = z 2 格): 枪机 = 黑钢 + 亮钢导轨线 + 黄铜抛壳挺; 枪托件 = 沙色 + 防滑纹
+function boltSide(c) { c.fill(M.black.base); c.hline(0, 0, c.w, M.chrome.lo); c.px(1, 1, M.brass.base); c.hline(0, c.h - 1, c.w, M.black.dk); }
+// 枪机顶面镀镍: 抓手横梁与爪子都是深色, 黑色枪机夹在中间认不出来, 亮顶面让 "爪里有件东西" 从上方和斜上方都一眼可见。
+// 贴图坐标里 x 沿零件厚度 (世界 x), y 沿夹持方向 (世界 z); 亮棱沿夹持方向。
+function boltTop(c) { c.fill(M.chrome.lo); for (let y = 0; y < c.h; y++) c.px(0, y, M.chrome.hi); }
+function stockSide(c) { c.fill(M.tan.base); c.bevel(M.tan); for (let x = 1; x < c.w - 1; x += 2) c.px(x, 2, M.tan.lo); }
+// 浅钢盘面: 黑色枪机与深色设备台之间要有反差, 一眼看出 "盘里摆着零件"
+function trayTop(c) {
+    const m = M.steel;
+    c.fill(m.base);
+    c.bevel(m);
+    // 取件位: 黄色角标 (与盘上零件同样大小的轮廓), 其余格位淡青色刻线
+    const tex = (x) => Math.round((x - TRAY.x0) * 2);
+    const zt = Math.round((TRAY.row - 1 - TRAY.z0) * 2), zb = Math.round((TRAY.row + 1 - TRAY.z0) * 2) - 1;
+    for (const g of TRAY_SLOTS) {
+        const half = g.payload === 'bolt' ? 0.5 : 1;
+        const slot = (x, col, corners) => {
+            const a = tex(x - half) - 1, b = tex(x + half);
+            if (corners) {
+                for (const [px, py] of [[a, zt - 1], [b, zt - 1], [a, zb + 1], [b, zb + 1]]) c.px(px, py, col);
+                c.px(a + 1, zt - 1, col); c.px(b - 1, zb + 1, col);
+            } else { c.hline(a, zb + 1, b - a + 1, col); }
+        };
+        slot(g.pick, HAZ_Y, true);
+        for (const x of g.rest) slot(x, m.lo, false);
+    }
+}
 function dockPad(c, on) {
     const m = M.frame;
     c.fill(m.lo); c.bevel({ hi: m.base, lo: m.dk });
@@ -867,8 +963,9 @@ function partElements(E, part, A) {
     return out;
 }
 
-// ------------------------------------------------------------ 机械臂: 盒子、正向运动学、反解、碰撞扫描
+// ------------------------------------------------------------ 机械臂: 盒子、正向运动学、反解
 // [部件, 材质, 装饰, x, y, z, w, h, d] (ModelPart 坐标, y 向下)。全部整数尺寸, 贴图按整像素绘制。
+// 携带件排在最后: 贴图按顺序装箱, 新增件只占用原有区域之后的空白, 不挪动已有盒子的 UV。
 function armBoxes() {
     return [
         ['shoulder', 'frame', 'base', -2.5, -1, -2.5, 5, 1, 5],
@@ -885,15 +982,20 @@ function armBoxes() {
         ['gripper', 'dark', 'bar', -2, 0, -1, 4, 1, 2],
         ['left_claw', 'steel', 'claw', -0.5, 0, -0.5, 1, 2, 1],
         ['right_claw', 'steel', 'claw', -0.5, 0, -0.5, 1, 2, 1],
+        ...PAYLOADS.flatMap((p) => p.boxes.map((b) => [p.part, ...b])),
     ];
 }
-const ARM_TREE = [['shoulder', 'root'], ['upper_arm', 'shoulder'], ['elbow', 'upper_arm'], ['forearm', 'elbow'], ['wrist', 'forearm'], ['tool', 'wrist'], ['gripper', 'tool'], ['left_claw', 'gripper'], ['right_claw', 'gripper']];
+const ARM_TREE = [['shoulder', 'root'], ['upper_arm', 'shoulder'], ['elbow', 'upper_arm'], ['forearm', 'elbow'], ['wrist', 'forearm'], ['tool', 'wrist'], ['gripper', 'tool'], ['left_claw', 'gripper'], ['right_claw', 'gripper'],
+    ...PAYLOADS.map((p) => [p.part, 'gripper'])];
+const PAYLOAD_OF_PART = Object.fromEntries(PAYLOADS.map((p) => [p.part, p.code]));
 function armOffsets() {
     const S = ARM.shoulder;
-    return {
+    const o = {
         shoulder: [S[0] - 8, 16 - S[1], S[2] - 8], upper_arm: [0, -ARM.jointUp, 0], elbow: [0, -ARM.L1, 0], forearm: [0, 0, 0],
         wrist: [0, ARM.L2, 0], tool: [0, 0, 0], gripper: [0, ARM.gripY, 0], left_claw: [-ARM.clawX, ARM.clawY, 0], right_claw: [ARM.clawX, ARM.clawY, 0],
     };
+    for (const p of PAYLOADS) o[p.part] = [0, 0, 0];
+    return o;
 }
 // 4x4 行主序仿射矩阵
 const mMul = (a, b) => { const r = new Array(16).fill(0); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) for (let k = 0; k < 4; k++) r[i * 4 + j] += a[i * 4 + k] * b[k * 4 + j]; return r; };
@@ -944,44 +1046,53 @@ function ik2(dx, dy) {
     while (f <= -Math.PI) f += 2 * Math.PI;
     return { u, f };
 }
-/** 腕部枢轴的世界位置 → 偏航 + 两个关节角。 */
+/** 腕部枢轴的世界位置 → 偏航 + 两个关节角 (肘朝上的解)。 */
 function solveWrist(W) {
     const S = ARM.shoulder, J = [S[0], S[1] + ARM.jointUp, S[2]];
     const tx = W[0] - J[0], tz = W[2] - J[2];
     const r = Math.hypot(tx, tz);
     const k = ik2(-r, W[1] - J[1]);
     if (!k) return null;
-    return { yaw: r < 1e-9 ? 0 : Math.atan2(tz, -tx), u: k.u, f: k.f, yawArgs: [-tz, -tx] };
+    return { yaw: r < 1e-9 ? 0 : Math.atan2(tz, -tx), u: k.u, f: k.f };
 }
-const easedStep = (p, a, b) => { const t = Math.min(1, Math.max(0, (p - a) / (b - a))); return t * t * (3 - 2 * t); };
-const lerp = (t, a, b) => a + (b - a) * t;
-/** 与 applyPose 相同: phase < 0 表示 isAnimating() == false 的静止待机。 */
-function javaPose(phase, K, WIN, over = {}) {
-    let turn = 0, reach = 0, grip = 0, pulse = 0;
-    if (phase >= 0) {
-        const mw = (w) => easedStep(phase, w[0], w[1]) * (1 - easedStep(phase, w[2], w[3]));
-        turn = mw(WIN.turn); reach = mw(WIN.reach); grip = mw(WIN.grip);
-        pulse = Math.sin(phase * Math.PI * 2 * 12) * mw(WIN.weld);
-    }
-    if (over.turn !== undefined) turn = over.turn;
-    if (over.reach !== undefined) reach = over.reach;
-    if (over.grip !== undefined) grip = over.grip;
-    if (over.pulse !== undefined) pulse = over.pulse;
-    const u = lerp(reach, K.IDLE_UPPER_ARM_Z, K.WORK_UPPER_ARM_Z), f = lerp(reach, K.IDLE_FOREARM_Z, K.WORK_FOREARM_Z);
+/** 关节角 → 腕部枢轴世界坐标 (与 GunsmithArmProgram.wristPosition 同一公式)。 */
+function wristOf(k) {
+    const px = ARM.L1 * Math.sin(k.upper) - ARM.L2 * Math.sin(k.upper + k.fore);
+    const py = -ARM.jointUp - ARM.L1 * Math.cos(k.upper) + ARM.L2 * Math.cos(k.upper + k.fore);
+    const S = ARM.shoulder;
+    return [S[0] + Math.cos(k.yaw) * px, S[1] - py, S[2] - Math.sin(k.yaw) * px];
+}
+/** 关键帧 → 各部件旋转。与 Java applyPose 同一推导: 手腕抵消大臂 + 小臂保持工具竖直, 右爪与左爪镜像, 只显示当前携带件。 */
+function armPose(k) {
     return {
-        shoulder: [0, K.WORK_BASE_YAW * turn, 0], upper_arm: [0, 0, u], forearm: [0, 0, f],
-        wrist: [0, pulse * 0.07, -(u + f)], tool: [0, -pulse * 0.11, 0],
-        left_claw: [0, 0, lerp(grip, -0.26, -0.08)], right_claw: [0, 0, lerp(grip, 0.26, 0.08)],
+        shoulder: [0, k.yaw, 0], upper_arm: [0, 0, k.upper], forearm: [0, 0, k.fore],
+        wrist: [0, 0, -(k.upper + k.fore)], tool: [0, k.spin, 0],
+        left_claw: [0, 0, k.claw], right_claw: [0, 0, -k.claw],
+        payload: k.payload || 0,
     };
 }
+/** 腕部世界坐标 + 工具世界朝向 → 关键帧关节角 (工具自转 = 世界朝向 - 底座偏航)。 */
+function keyAt(W, theta, claw, payload) {
+    const s = solveWrist(W);
+    if (!s) return null;
+    return { yaw: s.yaw, upper: s.u, fore: s.f, spin: theta - s.yaw, claw, payload };
+}
 
-// 方块元素的碰撞体 (世界坐标, 含旋转)
+// ------------------------------------------------------------ 机械臂: 碰撞
 function collisionBodies(E) {
     return E.map((e) => {
         const corners = [];
         for (const x of [e.from[0], e.to[0]]) for (const y of [e.from[1], e.to[1]]) for (const z of [e.from[2], e.to[2]]) corners.push(rotPoint(e.rot, [x, y, z], 1));
         const lo = [0, 1, 2].map((a) => Math.min(...corners.map((c) => c[a]))), hi = [0, 1, 2].map((a) => Math.max(...corners.map((c) => c[a])));
-        return { name: e.name, from: e.from, to: e.to, rot: e.rot, corners, lo, hi };
+        // 棱上的点 (每 0.05 px): 旋转元素的棱 (例如 45° 斜置的枪身脊线) 可能从臂段表面采样点之间穿过去, 只查角点查不出来
+        const edgePts = [];
+        for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) {
+            if ([1, 2, 4].indexOf(i ^ j) < 0) continue;   // corners 按 x/y/z 三重循环排列: 下标只差一位的两个角共棱
+            const a = corners[i], b = corners[j];
+            const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) / 0.05));
+            for (let k = 1; k < n; k++) edgePts.push([0, 1, 2].map((ax) => a[ax] + (b[ax] - a[ax]) * k / n));
+        }
+        return { name: e.name, from: e.from, to: e.to, rot: e.rot, corners, edgePts, lo, hi };
     });
 }
 function rotPoint(rot, p, sign) {
@@ -996,22 +1107,28 @@ function rotPoint(rot, p, sign) {
 }
 const insideBody = (b, p, m) => { const q = rotPoint(b.rot, p, -1); return q[0] > b.from[0] - m && q[0] < b.to[0] + m && q[1] > b.from[1] - m && q[1] < b.to[1] + m && q[2] > b.from[2] - m && q[2] < b.to[2] + m; };
 const STEP = 0.25;
+const FINE_PARTS = ['wrist', 'tool', 'gripper', 'left_claw', 'right_claw', ...PAYLOADS.map((p) => p.part)];
 const ARM_SAMPLES = armBoxes().map((b) => {
-    const [part, , , x, y, z, w, h, d] = b;
+    const g = b[9] || 0;   // 外扩 (CubeDeformation): 碰撞按实际画出来的几何算
+    const [part, , , x, y, z, w, h, d] = [b[0], b[1], b[2], b[3] - g, b[4] - g, b[5] - g, b[6] + 2 * g, b[7] + 2 * g, b[8] + 2 * g];
     const pts = [];
-    const st = ['wrist', 'tool', 'gripper', 'left_claw', 'right_claw'].includes(part) ? STEP / 2 : STEP;   // 抓手小件取更密的点
+    const st = FINE_PARTS.includes(part) ? STEP / 2 : STEP;   // 抓手与携带件取更密的点
     const n = [Math.ceil(w / st), Math.ceil(h / st), Math.ceil(d / st)];
     for (let i = 0; i <= n[0]; i++) for (let j = 0; j <= n[1]; j++) for (let k = 0; k <= n[2]; k++) pts.push([x + w * i / n[0], y + h * j / n[1], z + d * k / n[2]]);
     const corners = [];
     for (const cx of [x, x + w]) for (const cy of [y, y + h]) for (const cz of [z, z + d]) corners.push([cx, cy, cz]);
-    return { part, box: [x, y, z, w, h, d], pts, corners };
+    return { part, payload: PAYLOAD_OF_PART[part] || 0, box: [x, y, z, w, h, d], pts, corners };
 });
-/** 返回该姿态下所有穿入的 (臂段, 方块元素)。shoulder 允许贴面 (margin -0.02), 其余活动段要求 >= margin 的间隙。 */
-function armHits(pose, bodies, margin, first = false) {
+/**
+ * 返回该姿态下所有穿入的 (臂段, 方块元素)。只检查当前可见的携带件。
+ * shoulder 允许贴面 (margin -0.02); 携带件用 opts.payloadMargin (取放接触时为 0: 贴上但不穿入); 其余活动段要求 >= margin 的间隙。
+ */
+function armHits(pose, bodies, margin, first = false, opts = {}) {
     const Mx = armMatrices(pose);
     const hits = [];
     for (const s of ARM_SAMPLES) {
-        const m = s.part === 'shoulder' ? -0.02 : margin;
+        if (s.payload && (s.payload !== pose.payload || opts.skipPayload)) continue;
+        const m = s.part === 'shoulder' ? -0.02 : s.payload ? (opts.payloadMargin ?? margin) : margin;
         const Mp = Mx[s.part];
         const wc = s.corners.map((p) => mApply(Mp, p));
         // 粗筛: margin 在旋转元素的局部坐标里扩张, 世界 AABB 上最多放大 sqrt(3) 倍, 所以按 1.75m 放宽
@@ -1022,108 +1139,256 @@ function armHits(pose, bodies, margin, first = false) {
         const wp = s.pts.map((p) => mApply(Mp, p));
         const inv = mInv(Mp);
         const [bx, by, bz, bw, bh, bd] = s.box;
+        const inArm = (c) => { const q = mApply(inv, c); return q[0] > bx - m && q[0] < bx + bw + m && q[1] > by - m && q[1] < by + bh + m && q[2] > bz - m && q[2] < bz + bd + m; };
+        const nearArm = (c) => c[0] > lo[0] && c[0] < hi[0] && c[1] > lo[1] && c[1] < hi[1] && c[2] > lo[2] && c[2] < hi[2];
         for (const b of cand) {
             let hit = wp.some((p) => insideBody(b, p, m));
-            if (!hit) hit = b.corners.some((c) => { const q = mApply(inv, c); return q[0] > bx - m && q[0] < bx + bw + m && q[1] > by - m && q[1] < by + bh + m && q[2] > bz - m && q[2] < bz + bd + m; });
+            if (!hit) hit = b.corners.some(inArm);
+            if (!hit) hit = b.edgePts.some((c) => nearArm(c) && inArm(c));
             if (hit) { hits.push(`${s.part}->${b.name}`); if (first) return hits; }
         }
     }
     return hits;
 }
-/** 各部件在某姿态下离某组元素的最小间隙 (粗略: 逐 0.05 增大 margin 直到碰上)。 */
-function clearance(pose, bodies, parts) {
-    const S0 = ARM_SAMPLES.filter((s) => parts.includes(s.part));
-    for (let m = 0; m < 3; m += 0.05) {
-        const Mx = armMatrices(pose);
-        for (const s of S0) {
-            const wp = s.pts.map((p) => mApply(Mx[s.part], p));
-            if (bodies.some((b) => wp.some((p) => insideBody(b, p, m)))) return r4(m);
+
+// ------------------------------------------------------------ 机械臂: 取放程序
+// 安装点 (世界坐标, 期望的腕部水平位置; 求解时在附近小范围内找最贴合的一点):
+//   枪机 → 机匣后段顶面 (瞄具 x<=19 与后压爪 x>=21.5 之间, 即工作态焊点 g_weld 所在处)
+//   枪托件 → 枪托顶面 (后压爪以东, 托底板以西)
+const PLACES = {
+    bolt: { x: 20.25, z: 13.55, targets: ['g_receiver', 'g_weld'] },
+    stock: { x: 25, z: 13.55, targets: ['g_stock', 'g_buttpad', 'g_stock_toe'] },
+};
+const DESCENT = 3;            // 悬停点比最低的接触点至少高这么多 (全部取放点共用一个安全高度)
+const CONTACT_GAP = 0.02;     // 接触时携带件与目标的间隙 (>0: 贴上但不穿入)
+
+/** 在 (x, z) 处从可达上限往下找最低可行腕部高度: 三种夹爪状态 (空载张开 / 带件张开 / 带件夹紧) 都不穿模。 */
+function lowestWrist(xz, payload, bodies) {
+    const J = [ARM.shoulder[0], ARM.shoulder[1] + ARM.jointUp, ARM.shoulder[2]];
+    const r = Math.hypot(xz[0] - J[0], xz[1] - J[2]);
+    const reachMax = ARM.L1 + ARM.L2 - 0.1;
+    if (r >= reachMax) return null;
+    const combos = [[CLAW.open, 0], [CLAW.open, payload], [CLAW.hold, payload]];
+    const ok = (wy) => combos.every(([claw, pl]) => {
+        const k = keyAt([xz[0], wy, xz[1]], CARRY_THETA, claw, pl);
+        return k && !armHits(armPose(k), bodies, 0.3, true, { payloadMargin: CONTACT_GAP }).length;
+    });
+    const search = (pred) => {
+        let hi = J[1] + Math.sqrt(reachMax * reachMax - r * r) - 0.05, lo = 10;
+        if (!pred(hi)) return null;
+        for (let i = 0; i < 16; i++) { const mid = (lo + hi) / 2; if (pred(mid)) hi = mid; else lo = mid; }
+        let wy = Math.ceil(hi * 100) / 100;
+        while (!pred(wy)) wy += 0.01;
+        return r4(wy);
+    };
+    const wy = search((y) => ok(y));
+    if (wy === null) return null;
+    // 只看携带件时能到多低: 两者之差 = 零件离目标的实际间隙 (大了说明是爪子或别的臂段先碰到, 零件并没有贴上)
+    const payloadOnlyHits = (y) => {
+        const k = keyAt([xz[0], y, xz[1]], CARRY_THETA, CLAW.hold, payload);
+        return k ? armHits(armPose(k), bodies, 1e9, false, { payloadMargin: 0 }).filter((h) => h.startsWith('payload')) : ['unreachable'];
+    };
+    let yp = wy;
+    while (yp > wy - 3 && !payloadOnlyHits(yp - 0.01).length) yp -= 0.01;
+    const blockers = [...new Set(payloadOnlyHits(yp - 0.02).map((h) => h.split('->')[1]))];
+    return { wy, gap: r4(wy - yp), blockers };
+}
+function solveStations(bodies) {
+    const st = {};
+    for (const g of TRAY_SLOTS) {
+        const p = PAYLOADS.find((q) => q.key === g.payload);
+        const xz = [g.pick, TRAY.row];
+        // 送料位上的静态零件就是要夹的那一件 (携带件与它同形同位), 反解取件高度时把它当成不存在, 零件应当正好落在盘面上
+        const c = lowestWrist(xz, p.code, bodies.filter((b) => !b.name.startsWith(PICK_BODY + g.payload + '_')));
+        if (!c) throw new Error(`arm: tray pick slot for ${g.payload} at ${xz} is unreachable`);
+        if (c.gap > 0.1 || !c.blockers.includes('tray')) throw new Error(`arm: tray pick ${g.payload}: the part does not rest on the tray (gap ${c.gap}, blockers ${c.blockers})`);
+        st[g.payload + '_pick'] = { xz, payload: p.code, label: p.label, pickSlot: g.payload, ...c };
+    }
+    for (const [key, P] of Object.entries(PLACES)) {
+        const p = PAYLOADS.find((q) => q.key === key);
+        const cands = [];
+        for (let dx = -0.5; dx <= 0.5 + 1e-9; dx += 0.25) for (let dz = -1; dz <= 1 + 1e-9; dz += 0.25) {
+            const xz = [P.x + dx, P.z + dz];
+            const c = lowestWrist(xz, p.code, bodies);
+            if (!c || c.gap > 0.1 || !c.blockers.some((b) => P.targets.includes(b))) continue;
+            cands.push({ xz, ...c, score: Math.abs(dx) + Math.abs(dz) });
+        }
+        if (!cands.length) throw new Error(`arm: no contact point on the rifle for ${key} near (${P.x}, ${P.z})`);
+        cands.sort((a, b) => a.score - b.score || a.wy - b.wy);
+        st[key + '_place'] = { payload: p.code, label: p.label, ...cands[0] };
+    }
+    return st;
+}
+function solveIdle(bodies) {
+    for (let wy = PED.top + ARM.gripY + ARM.clawY + 2; wy < PED.top + 10; wy += 0.05) {
+        const W = [PED.x, r4(wy), PED.z];
+        const k = keyAt(W, 0, CLAW.pinch, 0);
+        if (k && !armHits(armPose(k), bodies, 0.35, true).length) return { W, k };
+    }
+    throw new Error('arm: no idle pose above the tool-change pedestal');
+}
+
+// 关键帧的插值方式 (Java 表里的 linear 列)。三种都按 smoothstep 缓动, 区别只在 "什么量走直线":
+const MOVE_J = 0;         // 关节角直接插值: 只用于手臂不动的段落 (停顿、夹爪开合、点焊)
+const MOVE_VERTICAL = 1;  // 柱坐标插值且偏航不变 → 腕部竖直直线 (下探/抬起)
+const MOVE_TRANSFER = 2;  // 柱坐标插值且高度不变 → 在安全高度平移 (偏航与水平伸出同时缓动, 腕部不上浮)
+
+/**
+ * 关键帧程序。每行: tick、关节角、夹爪、携带件、火花、插值方式、动作名。
+ * 连续量 (关节角、自转、夹爪) 在相邻两行之间缓动; 相同两行 = 停顿。
+ * 节奏是 "动-停-做-动": 偏航只在安全高度改变 (MOVE_TRANSFER), 离开/落回任何低位 (换刀座、料盘、枪上) 都是竖直直线,
+ * 每个动作前后停 2-3 tick。
+ * 离散量 (携带件、火花) 属于 "到达本行为止的这一段"。所以夹取分两行: 爪子合拢那一行不带件 (爪子合拢到位前零件不出现),
+ * 紧接着的停顿行才带上零件; 松开那一行不带件 → 爪子一张开零件就算装上了。
+ */
+function buildProgram(st, idle) {
+    const hoverY = Math.max(...Object.values(st).map((s) => s.wy)) + DESCENT;
+    const at = (s, level, claw, payload) => {
+        const W = [s.xz[0], level === 'low' ? s.wy : hoverY, s.xz[1]];
+        const k = keyAt(W, CARRY_THETA, claw, payload);
+        if (!k) throw new Error(`arm: ${s.label} ${level} (${W.map(r4)}) is out of reach`);
+        return { ...k, level, station: s };
+    };
+    // 待机点贴着换刀座 (爪尖离座面不到 0.4 px), 也算低位: 先竖直抬到安全高度再转, 回来时在安全高度转正再竖直落下。
+    const dock = { label: '换刀座', xz: [idle.W[0], idle.W[2]] };
+    const idleKey = { ...idle.k, level: 'idle', station: dock };
+    const hoverKey = keyAt([idle.W[0], hoverY, idle.W[2]], 0, CLAW.pinch, 0);
+    if (!hoverKey) throw new Error('arm: the hover point above the tool-change pedestal is out of reach');
+    const idleHover = { ...hoverKey, level: 'hover', station: dock };
+    const rows = [];
+    let t = 0;
+    const push = (label, key, extra = {}) => rows.push({ ...key, tick: t, label, spark: false, ...extra });
+    const step = (dur, label, key, extra) => { t += dur; push(label, key, { linear: MOVE_J, ...extra }); };
+    const hold = (dur, extra) => step(dur, extra && extra.spark ? '点焊' : '停顿', rows[rows.length - 1], extra);
+    const vertical = (dur, label, key) => step(dur, label, key, { linear: MOVE_VERTICAL });
+    const transfer = (dur, label, key) => step(dur, label, key, { linear: MOVE_TRANSFER });
+
+    push('待机', idleKey);
+    step(2, '待机', idleKey);
+    vertical(4, '抬离换刀座', idleHover);
+    hold(2);
+    const op = (pickKey, placeKey, placeLabel) => {
+        const pk = st[pickKey], pl = st[placeKey], code = pk.payload;
+        transfer(8, `转向送料盘 · ${pk.label}`, at(pk, 'hover', CLAW.open, 0));
+        hold(2);
+        vertical(4, '下探取件', at(pk, 'low', CLAW.open, 0));
+        hold(2);
+        step(3, `夹取${pk.label}`, at(pk, 'low', CLAW.hold, 0));
+        hold(2, { payload: code, label: `夹紧${pk.label}` });
+        vertical(4, '竖直抬起', at(pk, 'hover', CLAW.hold, code));
+        hold(2);
+        transfer(8, `转运到${placeLabel}上方`, at(pl, 'hover', CLAW.hold, code));
+        hold(3);
+        vertical(4, '下探就位', at(pl, 'low', CLAW.hold, code));
+        hold(2);
+        hold(4, { spark: true });
+        hold(2);
+        hold(4, { spark: true });
+        hold(2);
+        step(3, `松开 · ${pk.label}已装上`, at(pl, 'low', CLAW.open, 0));
+        hold(2);
+        vertical(4, '竖直抬起', at(pl, 'hover', CLAW.open, 0));
+    };
+    op('bolt_pick', 'bolt_place', '机匣');
+    hold(2);
+    op('stock_pick', 'stock_place', '枪托');
+    hold(2);
+    transfer(8, '返回换刀座上方', idleHover);
+    hold(2);
+    vertical(4, '落回换刀座', idleKey);
+    hold(160 - t);
+    rows[rows.length - 1].label = '待机';
+    return { rows, hoverY };
+}
+/** 写进 Java 的数值 (4 位小数) 与 Java 看到的完全一致: 预览、扫描都从这份取整后的表出发。 */
+function roundRows(rows) {
+    return rows.map((r) => ({ ...r, yaw: r4(r.yaw), upper: r4(r.upper), fore: r4(r.fore), spin: r4(r.spin), claw: r4(r.claw) }));
+}
+/**
+ * 与 GunsmithArmProgram.sample 相同的插值 (实现在 raster.mjs, 预览与本脚本共用一份; 与 Java 的 float 差异 < 1e-4 rad)。
+ * MOVE_J: 各关节角直接 smoothstep 插值 (只用于手臂不动的段落)。
+ * MOVE_VERTICAL / MOVE_TRANSFER: 偏航、水平伸出、高度各自 smoothstep 缓动, 每个时刻反解大臂/小臂角;
+ * 偏航不变时腕部走竖直直线, 高度不变时腕部在同一高度上绕肩轴平移。
+ */
+function sampleProgram(rows, tick) {
+    return sampleArmProgram({ rows, geo: { L1: ARM.L1, L2: ARM.L2 } }, tick);
+}
+// 换刀座待机点也是低位 (爪尖贴着座面): 与料盘/枪上的接触点同样不许在这里转偏航。
+const isLow = (r) => r.level === 'low' || r.level === 'idle';
+/** 程序合理性: 总长、首尾待机、低位不转、离开/落回低位必须竖直、偏航只在安全高度改变。返回错误与统计。 */
+function checkProgram(rows, hoverY) {
+    const errs = [];
+    const T = rows[rows.length - 1].tick;
+    if (T !== 160) errs.push(`program length ${T} != 160`);
+    for (let i = 1; i < rows.length; i++) if (rows[i].tick <= rows[i - 1].tick) errs.push(`program ticks not increasing at row ${i}`);
+    const same = (a, b) => ['yaw', 'upper', 'fore', 'spin', 'claw'].every((k) => a[k] === b[k]) && a.payload === b.payload;
+    if (!same(rows[0], rows[rows.length - 1])) errs.push('program does not end in the idle pose');
+    let tail = 0;
+    for (let i = rows.length - 1; i > 0 && same(rows[i], rows[i - 1]); i--) tail = T - rows[i - 1].tick;
+    if (tail < 4) errs.push(`program ends with only ${tail} idle ticks`);
+    let maxDev = 0, maxFloat = 0;
+    const armMoves = (a, b) => ['yaw', 'upper', 'fore'].some((k) => Math.abs(a[k] - b[k]) > 1e-9);
+    for (let i = 1; i < rows.length; i++) {
+        const a = rows[i - 1], b = rows[i];
+        const turns = Math.abs(a.yaw - b.yaw) > 1e-9;
+        if ((isLow(a) || isLow(b)) && turns) errs.push(`row ${i}: yaw changes while the gripper is low`);
+        if (b.linear === MOVE_J && armMoves(a, b)) errs.push(`row ${i}: the arm moves on raw joint interpolation (use a vertical or transfer move)`);
+        if (b.linear === MOVE_VERTICAL && (turns || Math.abs(a.spin - b.spin) > 1e-9)) errs.push(`row ${i}: a vertical move must not turn`);
+        if (b.linear === MOVE_TRANSFER && (a.level !== 'hover' || b.level !== 'hover')) errs.push(`row ${i}: a transfer must start and end at the hover height`);
+        if (isLow(a) !== isLow(b) && a.station === b.station) {
+            if (b.linear !== MOVE_VERTICAL) errs.push(`row ${i}: vertical move is not a straight-line segment`);
+            // 悬停点与接触点在同一竖线上; 量腕部离这条竖线最远多少 (直线段理论上为 0, 只剩取整误差)
+            const W0 = wristOf(a);
+            for (let j = 1; j < 32; j++) {
+                const w = wristOf(sampleProgram(rows, a.tick + (b.tick - a.tick) * j / 32));
+                maxDev = Math.max(maxDev, Math.hypot(w[0] - W0[0], w[2] - W0[2]));
+            }
+        }
+        if (b.linear === MOVE_TRANSFER) {
+            // 平移段腕部必须一直在安全高度 (关节插值时这里会先上浮再落回)
+            for (let j = 0; j <= 32; j++) maxFloat = Math.max(maxFloat, Math.abs(wristOf(sampleProgram(rows, a.tick + (b.tick - a.tick) * j / 32))[1] - hoverY));
         }
     }
-    return 3;
+    if (maxDev > 0.2) errs.push(`vertical moves drift ${r4(maxDev)}px sideways (> 0.2)`);
+    if (maxFloat > 0.05) errs.push(`transfers leave the hover height by ${r4(maxFloat)}px (> 0.05)`);
+    return { errs, maxDev: r4(maxDev), maxFloat: r4(maxFloat), tail };
 }
-
-function parseJavaBase(src) {
-    const W = {};
-    for (const nm of ['turn', 'reach', 'grip', 'weld']) {
-        const re = new RegExp(`float\\s+${nm}\\s*=\\s*motionWindow\\(phase,\\s*([\\d.]+)F,\\s*([\\d.]+)F,\\s*([\\d.]+)F,\\s*([\\d.]+)F\\)`);
-        const m = re.exec(src);
-        if (!m) throw new Error('Java base: cannot find motionWindow for ' + nm + ' (applyPose changed? update the sweep in generate.mjs)');
-        W[nm] = m.slice(1, 5).map(Number);
-    }
-    const must = ['wrist.yRot = precisionPulse * 0.07F', 'tool.yRot = -precisionPulse * 0.11F', 'Mth.lerp(grip, -0.26F, -0.08F)', 'Mth.lerp(grip, 0.26F, 0.08F)',
-        'shoulder.yRot = WORK_BASE_YAW * turn', 'wrist.zRot = -(upperArm.zRot + forearm.zRot)', 'Mth.sin(phase * Mth.TWO_PI * 12.0F) * weld'];
-    for (const s of must) if (!src.includes(s)) throw new Error('Java base: applyPose no longer contains "' + s + '" (update the sweep in generate.mjs)');
-    return W;
-}
-function findJavaBase() {
-    for (const p of [JAVA_OUT, path.resolve(SCRIPT_DIR, '..', '..', JAVA_REL)]) if (fs.existsSync(p)) { const raw = fs.readFileSync(p, 'utf8'); return { file: p, src: raw.replace(/\r\n/g, '\n'), crlf: raw.includes('\r\n') }; }
-    throw new Error('GunsmithAssemblyBenchRenderer.java not found (neither in --out nor in the repo next to this script)');
-}
-
-/** 选工作点 + 待机点, 生成常量, 并按真实时间窗扫全周期。 */
-function armSolve(sceneIdle, sceneActive, WIN) {
-    const bodiesAll = collisionBodies([...sceneIdle, ...sceneActive.filter((e) => !sceneIdle.some((f) => f.name === e.name))]);
-    const bodiesAct = collisionBodies(sceneActive);
-    const gunBodies = collisionBodies(sceneActive.filter((e) => e.gun));
-    const S = ARM.shoulder;
-    const tip = ARM.gripY + ARM.clawY + 2;   // 腕部枢轴到爪尖
-    const toK = (idle, work) => ({
-        IDLE_UPPER_ARM_Z: r4(idle.u), IDLE_FOREARM_Z: r4(idle.f), WORK_UPPER_ARM_Z: r4(work.u), WORK_FOREARM_Z: r4(work.f),
-        WORK_BASE_YAW: -Math.atan2(r4(work.yawArgs[0]), r4(work.yawArgs[1])),
-    });
-    // 待机: 抓手停在换刀座正上方 (偏航 0), 爪尖离座面 >= 0.35
-    let idle = null, idleW = null;
-    for (let wy = PED.top + tip; wy < PED.top + tip + 4; wy += 0.05) {
-        const W = [PED.x, wy, PED.z];
-        const sol = solveWrist(W);
-        if (!sol) continue;
-        const K = toK(sol, sol);
-        if (!armHits(javaPose(-1, K, WIN), bodiesAll, 0.35, true).length) { idle = sol; idleW = W; break; }
-    }
-    if (!idle) throw new Error('arm: no idle pose above the tool-change pedestal');
-    // 工作: 在机匣上方找最低可达点, 峰值姿态 (含 ±脉冲) 间隙 >= 0.35
-    const peak = (K) => [-1, -0.5, 0, 0.5, 1].map((pulse) => javaPose(0.5, K, WIN, { turn: 1, reach: 1, grip: 1, pulse }));
-    const cands = [];
-    // 只在机匣顶面 (v=1.5, w -1..1) 的俯视投影内找: z 12.85..14.27
-    const zTop = gunToWorld(0, 1.5, 0)[2];
-    for (let tx = 15; tx <= 20.5 + 1e-9; tx += 0.25) for (let tz = 12.75; tz <= 14.25 + 1e-9; tz += 0.25) {
-        const J = [S[0], S[1] + ARM.jointUp, S[2]];
-        const rr = Math.hypot(tx - J[0], tz - J[2]), reachMax = ARM.L1 + ARM.L2 - 0.06;
-        if (rr >= reachMax) continue;
-        let lo = 15, hi = Math.min(26, J[1] + Math.sqrt(reachMax * reachMax - rr * rr));
-        const okAt = (wy) => { const sol = solveWrist([tx, wy, tz]); if (!sol) return false; const K = toK(idle, sol); return peak(K).every((p) => !armHits(p, bodiesAct, 0.35, true).length); };
-        if (!okAt(hi)) continue;
-        for (let it = 0; it < 9; it++) { const mid = (lo + hi) / 2; if (okAt(mid)) hi = mid; else lo = mid; }
-        const wy = Math.ceil(hi * 20) / 20;
-        if (!okAt(wy)) continue;
-        // 评分: 越低越好, 且尽量对准机匣中段 (抛壳窗 / 瞄具之间)
-        cands.push({ W: [tx, wy, tz], score: wy + 0.25 * Math.abs(tx - 18) + 0.5 * Math.abs(tz - zTop) });
-    }
-    cands.sort((a, b) => a.score - b.score);
-    for (const c of cands.slice(0, 40)) {
-        const work = solveWrist(c.W);
-        const K = toK(idle, work);
-        const bad = sweep(K, WIN, bodiesAll, 0.3);
-        if (bad.length) continue;
-        const gunGap = Math.min(...peak(K).map((p) => clearance(p, gunBodies, ['gripper', 'left_claw', 'right_claw', 'tool', 'wrist'])));
-        return { K, idle, work, idleW, workW: c.W, gunGap, tries: cands.indexOf(c) + 1 };
-    }
-    throw new Error('arm: no work pose passes the full-cycle sweep (' + cands.length + ' candidates)');
-}
-function sweep(K, WIN, bodies, margin, steps = 800) {
+/**
+ * 全程序扫描: 每 tick 细分 sub 份。一律要求 >= margin, 例外只有取放的最终接触:
+ * - 取放段 (任一端在料盘/枪上的低位) 携带件允许贴上目标 (间隙 >= 0, 不穿入);
+ * - 送料位上的静态零件就是被夹的那一件: 在它自己的取件段里携带件与它重合 (本来就是同一件东西) 不算,
+ *   爪子与它允许贴住 (>= 0, 容许 1e-3 的浮点误差), 其余时刻它和别的元素一样要 >= margin。
+ */
+function sweepProgram(rows, bodies, margin, sub = 8) {
     const bad = [];
-    for (let i = -1; i <= steps; i++) {
-        const ph = i < 0 ? -1 : i / steps;
-        const h = armHits(javaPose(ph, K, WIN), bodies, margin, true);
-        if (h.length) bad.push(`phase ${ph < 0 ? 'static' : ph.toFixed(4)}: ${h.join(', ')}`);
+    const T = rows[rows.length - 1].tick;
+    const pickOf = (r) => (r.level === 'low' && r.station && r.station.pickSlot ? r.station.pickSlot : null);
+    for (let i = 0; i <= T * sub; i++) {
+        const t = i / sub;
+        const k = sampleProgram(rows, t);
+        const seg = Math.max(1, k.seg);
+        const contact = rows[seg - 1].level === 'low' || rows[seg].level === 'low';
+        const slot = pickOf(rows[seg - 1]) || pickOf(rows[seg]);
+        const own = slot ? bodies.filter((b) => b.name.startsWith(PICK_BODY + slot + '_')) : [];
+        const rest = own.length ? bodies.filter((b) => !own.includes(b)) : bodies;
+        const pose = armPose(k);
+        const h = armHits(pose, rest, margin, true, { payloadMargin: contact ? 0 : margin });
+        if (own.length) h.push(...armHits(pose, own, -1e-3, true, { skipPayload: true }));
+        if (h.length) bad.push(`tick ${r4(t)}: ${h.join(', ')}`);
     }
     return bad;
+}
+/** 点焊开始的 tick (火花段起点), 服务端按这些偏移播放焊接音。 */
+function weldStarts(rows) {
+    const out = [];
+    for (let i = 1; i < rows.length; i++) if (rows[i].spark && !rows[i - 1].spark) out.push(rows[i - 1].tick);
+    return out;
 }
 
 // ---- 机械臂贴图 (64x64 盒式 UV, 整像素面)
 const ARM_MATS = {
     frame: M.frame, orange: M.orange, dark: mat('dark', '#3a4049', '#58606b', '#2a2f36', '#1c2025'), cyan: M.cyan, steel: M.chrome,
+    black: M.black, tan: M.tan, rubber: M.rubber,
 };
 function armTexture() {
     const boxes = armBoxes();
@@ -1131,6 +1396,7 @@ function armTexture() {
     cv.fill(C('#3a4049'));
     let x = 0, y = 0, rowH = 0;
     const offs = [];
+    const rects = [];
     const shared = new Map();   // 同尺寸同装饰的盒子共用一块 (例如两片叉架、两只爪)
     for (const b of boxes) {
         const [, mname, deco, , , , w, h, d] = b;
@@ -1140,22 +1406,31 @@ function armTexture() {
         if (x + nw > 64) { x = 0; y += rowH; rowH = 0; }
         if (y + nh > 64) throw new Error('arm texture overflow');
         offs.push([x, y]); shared.set(sk, [x, y]);
+        rects.push({ key: sk, x, y, w: 2 * (d + w), h: d + h });
         const m = ARM_MATS[mname];
         const U = x, V = y;
-        const rects = {
+        const faces = {
             up: [U + d, V, w, d], down: [U + d + w, V, w, d],
             west: [U, V + d, d, h], north: [U + d, V + d, w, h], east: [U + d + w, V + d, d, h], south: [U + d + w + d, V + d, w, h],
         };
-        for (const [face, [rx, ry, rw, rh]] of Object.entries(rects)) {
+        for (const [face, [rx, ry, rw, rh]] of Object.entries(faces)) {
             const side = face !== 'up' && face !== 'down';
             cv.rect(rx, ry, rw, rh, face === 'up' ? m.hi : face === 'down' ? m.dk : m.base);
-            if (side && rh >= 2) { cv.hline(rx, ry, rw, m.hi); cv.hline(rx, ry + rh - 1, rw, m.lo); }
-            if (side && rw >= 3) { cv.vline(rx, ry + 1, rh - 2, m.hi); cv.vline(rx + rw - 1, ry + 1, rh - 2, m.lo); }
+            if (!['bolt', 'stock', 'pad'].includes(deco)) {
+                if (side && rh >= 2) { cv.hline(rx, ry, rw, m.hi); cv.hline(rx, ry + rh - 1, rw, m.lo); }
+                if (side && rw >= 3) { cv.vline(rx, ry + 1, rh - 2, m.hi); cv.vline(rx + rw - 1, ry + 1, rh - 2, m.lo); }
+            }
             armDeco(cv, deco, face, rx, ry, rw, rh, m);
         }
         x += nw; rowH = Math.max(rowH, nh);
     }
-    return { cv, offs };
+    // 盒式 UV 区域两两不重叠 (共用的盒子本来就指向同一块)
+    const errs = [];
+    for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) {
+        const a = rects[i], b = rects[j];
+        if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) errs.push(`arm texture overlap ${a.key} / ${b.key}`);
+    }
+    return { cv, offs, errs, used: rects };
 }
 function armDeco(c, deco, face, x, y, w, h, m) {
     const side = face !== 'up' && face !== 'down';
@@ -1192,30 +1467,31 @@ function armDeco(c, deco, face, x, y, w, h, m) {
         case 'claw':
             if (side) { c.vline(x, y, h, M.chrome.hi); c.px(x, y + h - 1, M.chrome.dk); }
             break;
+        // 携带件与料盘上的同款零件同一套花纹 (料盘零件的 x 向侧面 = 携带件的 z 向面 north/south)
+        case 'bolt':
+            if (big) { const t = new Canvas(w, h); boltSide(t); for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) c.px(x + i, y + j, t.get(i, j)); }
+            else if (face === 'up') { c.rect(x, y, w, h, M.chrome.lo); c.hline(x, y, w, M.chrome.hi); }   // 同 boltTop: 镀镍顶面
+            break;
+        case 'stock':
+            if (big) { c.hline(x, y, w, M.tan.hi); c.px(x + 1, y + 1, M.tan.lo); }
+            break;
+        case 'pad':
+            if (side) c.hline(x, y + h - 1, w, M.rubber.dk);
+            break;
     }
 }
 
 const f1 = (v) => { const s = (Math.round(v * 10000) / 10000).toString(); return (s.includes('.') ? s : s + '.0') + 'F'; };
-function armJavaPatch(base, sol, offs) {
+const RE_LAYER = /[ \t]*private static LayerDefinition createBodyLayer\(\) \{[\s\S]*?return LayerDefinition\.create\(mesh, \d+, \d+\);\n[ \t]*\}\n/;
+const RE_GENERATED = /([ \t]*\/\/ <generated>[^\n]*\n)[\s\S]*?([ \t]*\/\/ <\/generated>[^\n]*\n)/;
+function rendererPatch(base, offs) {
     const boxes = armBoxes();
-    const S = ARM.shoulder;
     const off = armOffsets();
     const cubes = (part) => boxes.map((b, i) => [b, i]).filter(([b]) => b[0] === part)
-        .map(([b, i]) => `.texOffs(${offs[i][0]}, ${offs[i][1]}).addBox(${[b[3], b[4], b[5], b[6], b[7], b[8]].map(f1).join(', ')})`);
+        .map(([b, i]) => `.texOffs(${offs[i][0]}, ${offs[i][1]}).addBox(${[b[3], b[4], b[5], b[6], b[7], b[8]].map(f1).join(', ')}${b[9] ? `, new CubeDeformation(${f1(b[9])})` : ''})`);
     const I = '                        ';
     const cl = (part) => 'CubeListBuilder.create()\n' + cubes(part).map((s) => I + s).join('\n');
     const pp = (v) => (v.every((x) => x === 0) ? 'PartPose.ZERO' : `PartPose.offset(${v.map(f1).join(', ')})`);
-    const K = sol.K;
-    const consts = [
-        `    // Idle: gripper parked above the tool-change pedestal at (${PED.x}, ${PED.z}). Work: gripper hovering over the rifle receiver.`,
-        `    private static final float IDLE_UPPER_ARM_Z = ${f1(K.IDLE_UPPER_ARM_Z)};`,
-        `    private static final float IDLE_FOREARM_Z = ${f1(K.IDLE_FOREARM_Z)};`,
-        `    private static final float WORK_UPPER_ARM_Z = ${f1(K.WORK_UPPER_ARM_Z)};`,
-        `    private static final float WORK_FOREARM_Z = ${f1(K.WORK_FOREARM_Z)};`,
-        `    // The shoulder pivot is (${S[0]}, ${S[2]}); the work point above the rifle receiver is (${r4(sol.workW[0])}, ${r4(sol.workW[2])}).`,
-        `    private static final float WORK_BASE_YAW = -(float) Math.atan2(${r4(sol.work.yawArgs[0])}D, ${r4(sol.work.yawArgs[1])}D);`,
-        '',
-    ].join('\n');
     const child = (v, parent, name) => `        ${v ? 'PartDefinition ' + v + ' = ' : ''}${parent}.addOrReplaceChild("${name}",\n                ${cl(name)},\n                ${pp(off[name])});`;
     const layer = [
         '    private static LayerDefinition createBodyLayer() {',
@@ -1230,21 +1506,33 @@ function armJavaPatch(base, sol, offs) {
         child('gripper', 'tool', 'gripper'),
         child(null, 'gripper', 'left_claw'),
         child(null, 'gripper', 'right_claw'),
+        ...PAYLOADS.map((p) => child(null, 'gripper', p.part)),
         '        return LayerDefinition.create(mesh, 64, 64);',
         '    }',
         '',
     ].join('\n');
-    const reC = /(?:[ \t]*\/\/[^\n]*\n)*[ \t]*private static final float IDLE_UPPER_ARM_Z[\s\S]*?private static final float WORK_BASE_YAW[^\n]*\n/;
-    const reL = /[ \t]*private static LayerDefinition createBodyLayer\(\) \{[\s\S]*?return LayerDefinition\.create\(mesh, \d+, \d+\);\n[ \t]*\}\n/;
-    if (!reC.test(base)) throw new Error('Java base: pose constant block not found');
-    if (!reL.test(base)) throw new Error('Java base: createBodyLayer() not found');
-    // 只保留紧贴在常量块前的、属于本脚本的注释; 其余原样
-    const out = base.replace(reC, (m) => {
-        const lead = m.match(/^(?:[ \t]*\/\/[^\n]*\n)*/)[0];
-        const keep = lead.split('\n').filter((l) => l && !/Idle: gripper|Idle:|pedestal|work point/.test(l)).map((l) => l + '\n').join('');
-        return keep + consts;
-    }).replace(reL, layer);
-    return out;
+    if (!RE_LAYER.test(base)) throw new Error('renderer base: createBodyLayer() not found');
+    return base.replace(RE_LAYER, layer);
+}
+function programPatch(base, rows) {
+    const S = ARM.shoulder;
+    const pad = (s, n) => (s.length >= n ? s : ' '.repeat(n - s.length) + s);
+    const body = [
+        `    static final float PIVOT_X = ${f1(S[0])};`,
+        `    static final float PIVOT_Y = ${f1(S[1])};`,
+        `    static final float PIVOT_Z = ${f1(S[2])};`,
+        `    static final float JOINT_UP = ${f1(ARM.jointUp)};`,
+        `    static final float UPPER_ARM_LENGTH = ${f1(ARM.L1)};`,
+        `    static final float FOREARM_LENGTH = ${f1(ARM.L2)};`,
+        `    static final float TIP_DROP = ${f1(TIP_DROP)};`,
+        ...PAYLOADS.map((p) => `    public static final int PAYLOAD_${p.key.toUpperCase()} = ${p.code};`),
+        '    private static final float[][] KEYFRAMES = {',
+        '            // tick,     yaw, upperArm,  forearm, toolSpin,     claw, payload, spark, linear',
+        ...rows.map((r) => `            {${pad(String(r.tick), 4)}, ${[r.yaw, r.upper, r.fore, r.spin, r.claw].map((v) => pad(f1(v), 8)).join(', ')}, ${pad(String(r.payload || 0), 7)}, ${pad(r.spark ? '1' : '0', 5)}, ${pad(String(r.linear || 0), 6)}}, // ${r.label}`),
+        '    };',
+    ].join('\n') + '\n';
+    if (!RE_GENERATED.test(base)) throw new Error('GunsmithArmProgram base: "// <generated>" ... "// </generated>" block not found');
+    return base.replace(RE_GENERATED, (m, open, close) => open + body + close);
 }
 
 // ------------------------------------------------------------ 物品模型: 台子 (0.5 缩放) + 放大的步枪 (主角) + 小号机械臂替身
@@ -1344,10 +1632,10 @@ function validateModel(file, json, A, opts = {}) {
 }
 
 // ------------------------------------------------------------ 主流程
-function writeJson(p, obj) {
-    fs.mkdirSync(path.dirname(p), { recursive: true });
-    const clean = JSON.parse(JSON.stringify(obj, (k, v) => (k === '__name' ? undefined : v)));
-    fs.writeFileSync(p, JSON.stringify(clean, null, 2) + '\n');
+const jsonText = (obj) => JSON.stringify(JSON.parse(JSON.stringify(obj, (k, v) => (k === '__name' ? undefined : v))), null, 2) + '\n';
+function findJavaBase(rel) {
+    for (const p of [path.join(OUT, rel), path.resolve(SCRIPT_DIR, '..', '..', rel)]) if (fs.existsSync(p)) { const raw = fs.readFileSync(p, 'utf8'); return { file: p, src: raw.replace(/\r\n/g, '\n'), crlf: raw.includes('\r\n') }; }
+    throw new Error(path.basename(rel) + ' not found (neither in --out nor in the repo next to this script)');
 }
 
 function main() {
@@ -1355,6 +1643,8 @@ function main() {
     const active = buildScene(true);
     const stand = armStandIn();
     const errors = [];
+    const outputs = [];   // 校验全部通过后才写盘
+    const emit = (p, data) => outputs.push([p, data]);
     for (const [E, label] of [[idle, 'idle'], [active, 'active']]) { cullHidden(E); errors.push(...zfightCheck(E, label)); }
     const { size: A, atlas, items, regions, swatches } = buildAtlas([idle, active, stand]);
 
@@ -1380,7 +1670,7 @@ function main() {
             maxY = Math.max(maxY, v.maxY);
             stats[name] = model.elements.length;
             if (model.elements.length > 90) errors.push(`${name}: ${model.elements.length} elements (> 90)`);
-            writeJson(path.join(RES, 'models', 'block', name + '.json'), model);
+            emit(path.join(RES, 'models', 'block', name + '.json'), jsonText(model));
         }
     }
     idle.find((e) => e.name === 'worktop').itemTop = { plan: stand.find((e) => e.swatchOnly).plan.up };
@@ -1405,46 +1695,54 @@ function main() {
     errors.push(...vi.errs);
     stats['item/gunsmith_assembly_bench'] = itemEls.length;
     if (itemEls.length > 90) errors.push(`item: ${itemEls.length} elements (> 90)`);
-    writeJson(path.join(RES, 'models', 'item', 'gunsmith_assembly_bench.json'), item);
+    emit(path.join(RES, 'models', 'item', 'gunsmith_assembly_bench.json'), jsonText(item));
 
     // 贴图
     const texDir = path.join(RES, 'textures', 'block');
-    fs.mkdirSync(texDir, { recursive: true });
-    fs.writeFileSync(path.join(texDir, 'gunsmith_assembly_atlas.png'), encodePng(A, A, atlas.data));
+    emit(path.join(texDir, 'gunsmith_assembly_atlas.png'), encodePng(A, A, atlas.data));
     for (let i = 3; i < atlas.data.length; i += 4) if (atlas.data[i] !== 255) { errors.push('atlas has non-opaque pixels'); break; }
     const pt = particleTex();
-    fs.writeFileSync(path.join(texDir, 'gunsmith_assembly_particle.png'), encodePng(16, 16, pt.data));
+    emit(path.join(texDir, 'gunsmith_assembly_particle.png'), encodePng(16, 16, pt.data));
 
-    // 机械臂: 按 Java 底稿的时间窗求解 + 全周期扫描, 再只替换常量块与 createBodyLayer
-    const base = findJavaBase();
-    const WIN = parseJavaBase(base.src);
-    const sol = armSolve(idle, active, WIN);
-    const { cv: armCv, offs } = armTexture();
-    const java = armJavaPatch(base.src, sol, offs);
-    for (const nm of ['shoulder', 'upper_arm', 'elbow', 'forearm', 'wrist', 'tool', 'gripper', 'left_claw', 'right_claw']) if (!java.includes(`addOrReplaceChild("${nm}"`)) errors.push('arm part missing ' + nm);
-    // 除两处替换外, 其余文本必须与底稿一致
-    const strip = (s) => s.replace(/(?:[ \t]*\/\/[^\n]*\n)*[ \t]*private static final float IDLE_UPPER_ARM_Z[\s\S]*?WORK_BASE_YAW[^\n]*\n/, '').replace(/[ \t]*private static LayerDefinition createBodyLayer\(\) \{[\s\S]*?return LayerDefinition\.create\(mesh, \d+, \d+\);\n[ \t]*\}\n/, '');
-    if (strip(java) !== strip(base.src)) errors.push('Java patch touched text outside the constants / createBodyLayer');
-    // 再按写出的常量 (4 位小数) 独立扫一遍
+    // 机械臂: 反解取放点 → 关键帧程序 → 按写出的 (4 位小数) 数值逐 tick 细分扫描 → 只替换两个 Java 文件里的生成区块
     const bodiesAll = collisionBodies([...idle, ...active.filter((e) => !idle.some((f) => f.name === e.name))]);
-    const bad = sweep(sol.K, WIN, bodiesAll, 0.3, 1600);
+    const idlePose = solveIdle(bodiesAll);
+    const stations = solveStations(bodiesAll);
+    const prog = buildProgram(stations, idlePose);
+    const rows = roundRows(prog.rows);
+    const chk = checkProgram(rows, prog.hoverY);
+    errors.push(...chk.errs);
+    const bad = sweepProgram(rows, bodiesAll, 0.3, 8);
     if (bad.length) errors.push('arm sweep: ' + bad.slice(0, 6).join(' | ') + (bad.length > 6 ? ` (+${bad.length - 6})` : ''));
-    const entDir = path.join(RES, 'textures', 'entity');
-    fs.mkdirSync(entDir, { recursive: true });
-    fs.writeFileSync(path.join(entDir, 'gunsmith_assembly_arm.png'), encodePng(64, 64, armCv.data));
-    fs.mkdirSync(path.dirname(JAVA_OUT), { recursive: true });
-    fs.writeFileSync(JAVA_OUT, base.crlf ? java.replace(/\n/g, '\r\n') : java);
+    const { cv: armCv, offs, errs: texErrs, used } = armTexture();
+    errors.push(...texErrs);
+    const rBase = findJavaBase(JAVA_REL), pBase = findJavaBase(PROGRAM_REL);
+    const renderer = rendererPatch(rBase.src, offs);
+    const program = programPatch(pBase.src, rows);
+    for (const nm of ARM_TREE.map(([p]) => p)) if (!renderer.includes(`addOrReplaceChild("${nm}"`)) errors.push('arm part missing ' + nm);
+    // 除生成区块外, 其余文本必须与底稿一致
+    if (renderer.replace(RE_LAYER, '') !== rBase.src.replace(RE_LAYER, '')) errors.push('renderer patch touched text outside createBodyLayer');
+    if (program.replace(RE_GENERATED, '') !== pBase.src.replace(RE_GENERATED, '')) errors.push('program patch touched text outside the generated block');
+    emit(path.join(RES, 'textures', 'entity', 'gunsmith_assembly_arm.png'), encodePng(64, 64, armCv.data));
+    emit(JAVA_OUT, rBase.crlf ? renderer.replace(/\n/g, '\r\n') : renderer);
+    emit(path.join(OUT, PROGRAM_REL), pBase.crlf ? program.replace(/\n/g, '\r\n') : program);
 
     console.log(`atlas ${A}x${A}: ${regions} painted regions, ${swatches} swatches`);
     console.log('elements:', JSON.stringify(stats));
     console.log(`max model height (block px): ${r4(maxY)}`);
     const deg = (r) => r4(r * 180 / Math.PI);
-    console.log(`java base: ${base.file}; windows ${JSON.stringify(WIN)}`);
-    console.log(`arm: idle wrist ${sol.idleW.map(r4)} (u ${deg(sol.K.IDLE_UPPER_ARM_Z)}°, f ${deg(sol.K.IDLE_FOREARM_Z)}°); work wrist ${sol.workW.map(r4)} (u ${deg(sol.K.WORK_UPPER_ARM_Z)}°, f ${deg(sol.K.WORK_FOREARM_Z)}°, yaw ${deg(sol.K.WORK_BASE_YAW)}°), candidate #${sol.tries}`);
-    console.log(`arm: gripper/claw clearance to the rifle fixture at peak (incl. weld pulse): ${sol.gunGap}px; full-cycle sweep (1600 steps, 0.3px margin): ${bad.length ? 'FAIL' : 'clean'}`);
-    if (errors.length) { console.error('VALIDATION FAILED:\n  ' + errors.join('\n  ')); process.exit(1); }
-    console.log('validation OK');
+    console.log(`arm texture: ${used.length} regions, lowest row ends at v=${Math.max(...used.map((u) => u.y + u.h))}`);
+    console.log(`arm idle wrist ${idlePose.W.map(r4)}; safe hover height (wrist) ${r4(prog.hoverY)}`);
+    for (const [k, s] of Object.entries(stations)) {
+        const kk = keyAt([s.xz[0], s.wy, s.xz[1]], CARRY_THETA, CLAW.hold, s.payload);
+        console.log(`  ${k.padEnd(12)} wrist (${r4(s.xz[0])}, ${s.wy}, ${r4(s.xz[1])}) part bottom y ${r4(s.wy - TIP_DROP)}, part gap ${s.gap}px on ${s.blockers.join('/')}; yaw ${deg(kk.yaw)}°, spin ${deg(kk.spin)}°`);
+    }
+    console.log(`program: ${rows.length} keyframes, ${rows[rows.length - 1].tick} ticks, end hold ${chk.tail}, weld starts ${JSON.stringify(weldStarts(rows))}, vertical drift ${chk.maxDev}px, transfer height drift ${chk.maxFloat}px`);
+    console.log(`arm sweep (${rows[rows.length - 1].tick * 8} samples, 0.3px margin, part contact >= 0): ${bad.length ? 'FAIL' : 'clean'}`);
+    if (errors.length) { console.error('VALIDATION FAILED (nothing written):\n  ' + errors.join('\n  ')); process.exit(1); }
+    for (const [p, data] of outputs) { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, data); }
+    console.log(`validation OK, wrote ${outputs.length} files`);
 }
 
 if (IS_MAIN) main();
-export { armMatrices, javaPose, armBoxes, ARM_SAMPLES, mApply, collisionBodies, buildScene, armHits, insideBody };
+export { armMatrices, armPose, armBoxes, ARM_SAMPLES, mApply, collisionBodies, buildScene, armHits, insideBody, sampleProgram, wristOf, PAYLOADS, TIP_DROP };

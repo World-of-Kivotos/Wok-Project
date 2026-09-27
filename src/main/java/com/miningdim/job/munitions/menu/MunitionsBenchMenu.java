@@ -24,7 +24,8 @@ import net.minecraftforge.items.SlotItemHandler;
  *
  * 槽位: 料槽 底火/弹壳/弹头/发射药 (可放可取, isItemValid 限料种) + 输出缓冲槽 (只取不放, 取出经
  * {@link MunitionsBenchBlockEntity#onOutputTaken} 回收缓冲计数) + 玩家 36 槽。选中口径/缓冲发数/缓冲上限/锁/提炼
- * 解锁 经 {@link ContainerData} 同步 (服务端用 BE 实时 dataAccess; 客户端用 SimpleContainerData)。
+ * 解锁/内部电池存量与容量 经 {@link ContainerData} 同步 (服务端用 BE 实时 dataAccess; 客户端用 SimpleContainerData)。
+ * 槽位坐标见 SLOT_*_X/Y 常量: 界面三种风格共用同一套坐标, 界面代码直接引用这些常量画槽位框。
  *
  * 打开即触发一次离线追算结算 (主人在线时一次性补产; 见 {@link MunitionsBenchBlockEntity#onAccess})。
  *
@@ -41,6 +42,20 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
     public static final int BUTTON_CANCEL_CRAFT = 211;
     public static final int BUTTON_TOGGLE_CONTINUOUS = 212;
 
+    /** 槽位坐标 (GUI 像素, 槽内 16x16 左上角)。 */
+    public static final int SLOT_PRIMER_X = 282;
+    public static final int SLOT_PRIMER_Y = 45;
+    public static final int SLOT_CASING_X = 324;
+    public static final int SLOT_CASING_Y = 45;
+    public static final int SLOT_BULLET_HEAD_X = 282;
+    public static final int SLOT_BULLET_HEAD_Y = 76;
+    public static final int SLOT_PROPELLANT_X = 324;
+    public static final int SLOT_PROPELLANT_Y = 76;
+    public static final int SLOT_OUTPUT_X = 303;
+    public static final int SLOT_OUTPUT_Y = 162;
+    public static final int PLAYER_INVENTORY_X = 100;
+    public static final int PLAYER_INVENTORY_Y = 148;
+
     private final MunitionsBenchBlockEntity blockEntity;
     private final ContainerData data;
 
@@ -56,14 +71,14 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
                 blockEntity.onAccess(serverPlayer);
             }
             addSlot(new SlotItemHandler(blockEntity.inventory(),
-                    MunitionsBenchBlockEntity.SLOT_PRIMER, 296, 158));
+                    MunitionsBenchBlockEntity.SLOT_PRIMER, SLOT_PRIMER_X, SLOT_PRIMER_Y));
             addSlot(new SlotItemHandler(blockEntity.inventory(),
-                    MunitionsBenchBlockEntity.SLOT_CASING, 322, 158));
+                    MunitionsBenchBlockEntity.SLOT_CASING, SLOT_CASING_X, SLOT_CASING_Y));
             addSlot(new SlotItemHandler(blockEntity.inventory(),
-                    MunitionsBenchBlockEntity.SLOT_BULLET_HEAD, 296, 184));
+                    MunitionsBenchBlockEntity.SLOT_BULLET_HEAD, SLOT_BULLET_HEAD_X, SLOT_BULLET_HEAD_Y));
             addSlot(new SlotItemHandler(blockEntity.inventory(),
-                    MunitionsBenchBlockEntity.SLOT_PROPELLANT, 322, 184));
-            addSlot(new OutputSlot(blockEntity, MunitionsBenchBlockEntity.SLOT_OUTPUT, 316, 84));
+                    MunitionsBenchBlockEntity.SLOT_PROPELLANT, SLOT_PROPELLANT_X, SLOT_PROPELLANT_Y));
+            addSlot(new OutputSlot(blockEntity, MunitionsBenchBlockEntity.SLOT_OUTPUT, SLOT_OUTPUT_X, SLOT_OUTPUT_Y));
             this.data = inv.player.level().isClientSide
                     ? new SimpleContainerData(MunitionsBenchBlockEntity.DATA_COUNT())
                     : blockEntity.dataAccess();
@@ -71,7 +86,7 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
             this.data = new SimpleContainerData(MunitionsBenchBlockEntity.DATA_COUNT());
         }
         addDataSlots(this.data);
-        addPlayerInventory(inv, 100, 148);
+        addPlayerInventory(inv, PLAYER_INVENTORY_X, PLAYER_INVENTORY_Y);
     }
 
     /** 取 pos 处方块作 stillValid 校验目标; 非军火台时退回军火台方块占位 (块不匹配判 false 关闭界面)。 */
@@ -237,5 +252,22 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
 
     public boolean isContinuousCrafting() {
         return data.get(MunitionsBenchBlockEntity.DATA_CONTINUOUS_CRAFTING) != 0;
+    }
+
+    /**
+     * 内部电池存量 (FE)。按 kFE 过线, 读到的是向下取整到
+     * {@link MunitionsBenchBlockEntity#ENERGY_SYNC_UNIT_FE} 倍数的值。
+     */
+    public long storedEnergyFe() {
+        return MunitionsBenchBlockEntity.unpackKfeToFe(
+                data.get(MunitionsBenchBlockEntity.DATA_ENERGY_KFE_LO),
+                data.get(MunitionsBenchBlockEntity.DATA_ENERGY_KFE_HI));
+    }
+
+    /** 内部电池容量 (FE), 粒度同 {@link #storedEnergyFe()}。 */
+    public long energyCapacityFe() {
+        return MunitionsBenchBlockEntity.unpackKfeToFe(
+                data.get(MunitionsBenchBlockEntity.DATA_ENERGY_CAPACITY_KFE_LO),
+                data.get(MunitionsBenchBlockEntity.DATA_ENERGY_CAPACITY_KFE_HI));
     }
 }

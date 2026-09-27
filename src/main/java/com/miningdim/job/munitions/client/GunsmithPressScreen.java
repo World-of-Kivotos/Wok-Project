@@ -1,452 +1,819 @@
 package com.miningdim.job.munitions.client;
 
 import com.miningdim.core.MiningConstants;
-import com.miningdim.job.ClientJobState;
-import com.miningdim.job.JobId;
-import com.miningdim.job.JobXpCurve;
 import com.miningdim.job.munitions.MunitionsConfig;
+import com.miningdim.job.munitions.MunitionsLevels;
 import com.miningdim.job.munitions.block.GunsmithPressBlockEntity;
+import com.miningdim.job.munitions.client.style.GsPainter;
+import com.miningdim.job.munitions.client.style.GunsmithStyledScreen;
+import com.miningdim.job.munitions.client.style.GunsmithTheme;
+import com.miningdim.job.munitions.client.style.GunsmithTheme.BarKind;
+import com.miningdim.job.munitions.client.style.GunsmithTheme.ButtonKind;
+import com.miningdim.job.munitions.client.style.GunsmithTheme.LampState;
+import com.miningdim.job.munitions.client.style.GunsmithTheme.State;
+import com.miningdim.job.munitions.client.style.GunsmithUi;
+import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartRarity;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartVariant;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.job.munitions.menu.GunsmithPressMenu;
-import com.miningdim.menu.AbstractMiningScreen;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.PlayerFaceRenderer;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.Style;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
+import javax.annotation.Nullable;
 import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
-public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPressMenu> {
+import static com.miningdim.job.munitions.client.style.GsPainter.BOLD;
+import static com.miningdim.job.munitions.client.style.GsPainter.CENTER;
+import static com.miningdim.job.munitions.client.style.GsPainter.RIGHT;
+
+/**
+ * 机械冲压机界面 (360x240), 逐项对应设计预览 drawPress。三种风格 (学园终端 / 产线工控 / 蓝图工程) 共用这一套布局,
+ * 只是交给 {@link GunsmithTheme} 用不同画法画; 风格由玩家在标题栏右侧的小按钮里自己选 (基类处理)。
+ *
+ * <p>布局 (GUI 像素):
+ * <ul>
+ *   <li>左 (8,30,84,112) "平台": 9 个平台一行一个, 没有任何图纸的平台显示"无图纸"、不可点;</li>
+ *   <li>中上 (99,30) 部件卡: 按平台 supportedParts() 的顺序居中排开, 点击发 BUTTON_PART_BASE + 行号 (与服务端遍历顺序一致);</li>
+ *   <li>中 (99,60,91,59) 液压机工位, 成品槽在 (136,95); (192,60,71,59) "组件型号"; (99,122) 五档品质;</li>
+ *   <li>右 (270,30,82,112) "原料": 三个料槽竖排 + 工费 / 耗时;</li>
+ *   <li>左下 (8,146,84,86) "成品预估" + 开始按钮; 右下 (270,146,82,86) "进度"; 中下是玩家背包 (100,148)。</li>
+ * </ul>
+ *
+ * <p>所有判定 (解锁等级、工费、料量) 与服务端读同一份配置 ({@link MunitionsConfig} / {@link MunitionsLevels},
+ * SERVER 配置会同步到客户端), 界面只做提前提示, 服务端 {@code GunsmithPressBlockEntity} 仍是唯一权威。
+ */
+public final class GunsmithPressScreen extends GunsmithStyledScreen<GunsmithPressMenu> {
 
     private static final ResourceLocation BG =
             new ResourceLocation(MiningConstants.MODID, "textures/gui/container/gunsmith_press.png");
+
+    private static final String K = "screen.miningdim.gunsmith_press.";
+    private static final String MATERIAL_KEY_GUN_PARTS = K + "material.gun_parts";
+    private static final String MATERIAL_KEY_ALLOY = K + "material.alloy";
+    private static final String MATERIAL_KEY_POLYMER = K + "material.polymer";
+
+    /** 零件贴图 textures/item/gunsmith_part_*.png 是 64x64。 */
     private static final int PART_ICON_TEX = 64;
-    private static final int PART_ICON_SIZE = 22;
 
-    private static final String MATERIAL_KEY_GUN_PARTS = "screen.miningdim.gunsmith_press.material.gun_parts";
-    private static final String MATERIAL_KEY_ALLOY = "screen.miningdim.gunsmith_press.material.alloy";
-    private static final String MATERIAL_KEY_POLYMER = "screen.miningdim.gunsmith_press.material.polymer";
+    // ------------------------------------------------------------------ layout (GUI px)
 
-    private static final int W = 360;
-    private static final int H = 240;
-    private static final int TEXTURE_SCALE = 3;
-    private static final int TEX_W = W * TEXTURE_SCALE;
-    private static final int TEX_H = H * TEXTURE_SCALE;
+    private static final int PLAT_PANEL_X = 8;
+    private static final int PLAT_PANEL_Y = 30;
+    private static final int PLAT_PANEL_W = 84;
+    private static final int PLAT_PANEL_H = 112;
+    private static final int PLAT_X = 12;
+    private static final int PLAT_Y = 42;
+    private static final int PLAT_W = 76;
+    private static final int PLAT_H = 10;
+    private static final int PLAT_STEP = 11;
 
-    private static final int PLAYER_FACE_X = 29;
-    private static final int PLAYER_FACE_Y = 39;
-    private static final int PLAYER_FACE_SIZE = 18;
-    private static final int PLAYER_LEVEL_X = 52;
-    private static final int PLAYER_LEVEL_Y = 43;
-    private static final int PLAYER_XP_BAR_X = 29;
-    private static final int PLAYER_XP_BAR_Y = 65;
-    private static final int PLAYER_XP_BAR_W = 46;
-    private static final int PLAYER_XP_BAR_H = 2;
-    private static final int PLAYER_XP_HOVER_PAD = 3;
+    private static final int PART_AREA_X = 99;
+    private static final int PART_AREA_W = 164;
+    private static final int PART_Y = 30;
+    private static final int PART_W = 26;
+    private static final int PART_H = 27;
+    private static final int PART_GAP = 1;
 
-    private static final int PLATFORM_X = 27;
-    private static final int PLATFORM_Y = 74;
-    private static final int PLATFORM_W = 52;
-    private static final int PLATFORM_H = 14;
-    private static final int PLATFORM_ARROW_W = 12;
+    private static final int STAGE_X = 99;
+    private static final int STAGE_Y = 60;
+    private static final int STAGE_W = 91;
+    private static final int STAGE_H = 59;
+    /** 冲头一个往复的时长 (毫秒): 前 25% 下压, 停 10%, 后 65% 回升。 */
+    private static final long RAM_CYCLE_MS = 900L;
 
-    private static final int PART_X = 27;
-    private static final int PART_Y = 92;
-    private static final int PART_W = 52;
-    private static final int PART_H = 14;
-    private static final int PART_GAP = 4;
+    private static final int VAR_PANEL_X = 192;
+    private static final int VAR_PANEL_Y = 60;
+    private static final int VAR_PANEL_W = 71;
+    private static final int VAR_PANEL_H = 59;
+    private static final int VAR_X = 195;
+    private static final int VAR_Y = 73;
+    private static final int VAR_W = 65;
+    private static final int VAR_H = 13;
+    private static final int VAR_STEP = 15;
 
-    private static final int QUALITY_X = 103;
-    private static final int QUALITY_Y = 124;
-    private static final int QUALITY_W = 32;
-    private static final int QUALITY_H = 13;
-    private static final int QUALITY_GAP = 4;
+    private static final int QUAL_X = 99;
+    private static final int QUAL_Y = 122;
+    private static final int QUAL_W = 32;
+    private static final int QUAL_H = 20;
+    private static final int QUAL_STEP = 33;
 
-    /**
-     * 型号选择条落在标题栏下方的空带 y [43,54) —— 上贴副标题 (35..42), 下抵预览框上边框 (54 起)。
-     *
-     * 这里必须与 {@link GunsmithPressMenu} 的 addPlayerInventory(100, 148) 铺出的 36 个槽判定盒零相交:
-     * 原版 AbstractContainerScreen.isHovering 的判定盒是 (槽 x-1 .. x+17, 槽 y-1 .. y+17), 换算成
-     * 屏幕坐标即 x [99,261) x y [147,201) 与 [205,223)。旧坐标 (103,160,168x14) 正压在前两行背包格上,
-     * 而 mouseClicked 又在 super 之前就用同一矩形吃掉点击, 玩家点背包格会被改成切换组件型号 (审查 32)。
-     * 改坐标前请照上面的判定盒重算一遍, 别只看底图。
-     */
-    private static final int VARIANT_X = 103;
-    private static final int VARIANT_Y = 43;
-    private static final int VARIANT_W = 168;
-    private static final int VARIANT_H = 11;
-    private static final int VARIANT_ARROW_W = 14;
+    private static final int MAT_PANEL_X = 270;
+    private static final int MAT_PANEL_Y = 30;
+    private static final int MAT_PANEL_W = 82;
+    private static final int MAT_PANEL_H = 112;
+    private static final int MAT_TEXT_X = 296;
+    private static final int MAT_TEXT_R = 346;
+    private static final int FEE_X = 270;
+    private static final int FEE_Y = 118;
+    private static final int FEE_W = 82;
+    private static final int FEE_H = 22;
 
-    // 玩家背包铺放参数, 必须与 GunsmithPressMenu 里的 addPlayerInventory(inv, 100, 148) 及
-    // AbstractMiningMenu 的 18px 槽距 / 快捷栏 +4px 间隙保持一致; 只服务下面那条几何自检。
-    private static final int PLAYER_INV_ORIGIN_X = 100;
-    private static final int PLAYER_INV_ORIGIN_Y = 148;
-    private static final int PLAYER_SLOT_PX = 18;
-    private static final int PLAYER_HOTBAR_GAP = 4;
-
-    private static final int START_X = 27;
+    private static final int PROD_PANEL_X = 8;
+    private static final int PROD_PANEL_Y = 146;
+    private static final int PROD_PANEL_W = 84;
+    private static final int PROD_PANEL_H = 86;
+    private static final int PROD_NAME_X = 14;
+    private static final int PROD_NAME_Y = 160;
+    private static final int PROD_NAME_W = 72;
+    private static final int START_X = 14;
     private static final int START_Y = 204;
-    private static final int START_W = 53;
-    private static final int START_H = 30;
+    private static final int START_W = 72;
+    private static final int START_H = 22;
 
-    private static final int PREVIEW_X = 103;
-    private static final int PREVIEW_Y = 66;
-    private static final int PREVIEW_W = 168;
-    private static final int PREVIEW_H = 48;
-    private static final int OUTPUT_SLOT_X = 178;
-    private static final int OUTPUT_SLOT_Y = 92;
-    private static final int TIME_PANEL_X = 292;
-    private static final int TIME_PANEL_Y = 184;
-    private static final int TIME_PANEL_W = 54;
-    private static final int TIME_PANEL_H = 36;
+    private static final int PROG_PANEL_X = 270;
+    private static final int PROG_PANEL_Y = 146;
+    private static final int PROG_PANEL_W = 82;
+    private static final int PROG_PANEL_H = 86;
+
+    /** 三个料槽 (方块实体槽位下标 = 菜单槽位下标) 与各自只认的材料。 */
+    private static final int[] INPUT_SLOTS = {
+            GunsmithPressBlockEntity.SLOT_GUN_PARTS,
+            GunsmithPressBlockEntity.SLOT_ALLOY,
+            GunsmithPressBlockEntity.SLOT_POLYMER};
+    private static final String[] INPUT_LABEL_KEYS = {MATERIAL_KEY_GUN_PARTS, MATERIAL_KEY_ALLOY, MATERIAL_KEY_POLYMER};
+
+    // 与 GunsmithPressBlockEntity.requiredMaterial 同一张表 (那边是包内方法, 界面拿不到); 换专用材料时两处一起改。
+    private static Item inputItem(int input) {
+        return switch (input) {
+            case 0 -> Items.IRON_INGOT;
+            case 1 -> Items.COPPER_INGOT;
+            default -> Items.SLIME_BLOCK;
+        };
+    }
+
+    /** 至少有一张图纸的平台才开放冲压 (预览 PLATS[].bp)。 */
+    private static final Set<GunsmithPlatform> PLATFORMS_WITH_BLUEPRINT = platformsWithBlueprint();
+
+    /** 每个平台的部件顺序 (= supportedParts() 的迭代顺序, 服务端 trySelectPart 按同一顺序数行号)。 */
+    private static final Map<GunsmithPlatform, List<GunsmithPressPart>> PARTS_BY_PLATFORM = partsByPlatform();
 
     static {
-        // 客户端 Screen 进不了 GameTest (GameTest 跑在专用服务端, 本类是客户端专属), 所以把"型号条与 36 个
-        // 背包槽判定盒零相交"做成类加载期自检: 这些坐标全是编译期常量, 谁改出相交, 客户端在注册 Screen
-        // 阶段就直接炸出来, 而不是等玩家发现背包点不动 (审查 32)。
-        assertVariantBarClearOfPlayerInventory();
+        // 客户端 Screen 进不了 GameTest (GameTest 跑在专用服务端), 所以"会在 super.mouseClicked 之前吞掉左键的控件
+        // 不压任何槽位判定盒"做成类加载期自检: 坐标全是常量, 谁改出相交, 客户端一打开界面就炸出来,
+        // 而不是等玩家发现背包格点不动 (审查 32 的同类问题)。
+        assertClickTargetsClearOfSlots();
     }
+
+    /** 本帧哪些平台行的名字被截断了 (截断的才补一条显示全名的提示)。 */
+    private final boolean[] platformNameCut = new boolean[GunsmithPlatform.values().length];
+    /** 本帧成品名是否被截断。 */
+    private boolean productNameCut;
 
     public GunsmithPressScreen(GunsmithPressMenu menu, Inventory inv, Component title) {
-        super(menu, inv, title, BG, W, H);
-        this.titleLabelX = 0;
-        this.titleLabelY = 0;
-        this.inventoryLabelX = 0;
-        this.inventoryLabelY = 0;
+        super(menu, inv, title, BG);
     }
+
+    // ================================================================== header
 
     @Override
-    protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
-        int left = (this.width - W) / 2;
-        int top = (this.height - H) / 2;
-        graphics.blit(BG, left, top, W, H, 0.0F, 0.0F, TEX_W, TEX_H, TEX_W, TEX_H);
-        renderDynamic(graphics, left, top, mouseX, mouseY);
+    protected GunsmithTheme.Header header() {
+        GunsmithPlatform platform = menu.selectedPlatform();
+        GunsmithPressPart part = menu.selectedPart();
+        String code = "WOK-GS-" + platform.id().toUpperCase(Locale.ROOT) + "-" + partCode(part);
+        return new GunsmithTheme.Header(
+                Component.translatable(K + "header.title"),
+                Component.translatable(K + "header.en"),
+                null,
+                Component.translatable(K + "subtitle"),
+                code,
+                menu.isPressing(),
+                ownerLevel());
     }
+
+    /** 图号里的部件代号: 取 shortLabel 的最后一个词 ("FIRING PIN" -> "PIN", 与预览一致)。 */
+    private static String partCode(GunsmithPressPart part) {
+        String label = part.shortLabel();
+        return label.substring(label.lastIndexOf(' ') + 1);
+    }
+
+    // ================================================================== main layer
 
     @Override
-    protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
-    }
-
-    @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        super.render(graphics, mouseX, mouseY, partialTick);
-        renderHoverTooltip(graphics, mouseX, mouseY);
-        renderMunitionsXpTooltip(graphics, mouseX, mouseY);
-    }
-
-    private void renderDynamic(GuiGraphics graphics, int left, int top, int mouseX, int mouseY) {
+    protected void renderScreen(GsPainter p, GunsmithTheme theme) {
+        int level = ownerLevel();
         GunsmithPlatform platform = menu.selectedPlatform();
         GunsmithPressPart part = menu.selectedPart();
         GunsmithPartQuality quality = menu.selectedQuality();
         GunsmithPartVariant variant = menu.selectedVariant();
-        int pulse = (int) ((System.currentTimeMillis() / 180L) % 6L);
+        boolean pressing = menu.isPressing();
+        boolean hasOutput = hasOutput();
+        float prog = pressing ? pressFraction() : hasOutput ? 1.0F : 0.0F;
 
-        // 副标题上移到 35: 原位置 43 让给了型号选择条 (审查 32 挪位后的新落点)。
-        drawScaledText(graphics, tr("block.miningdim.gunsmith_press"), left + 98, top + 20, 0xFFE9EDF7, 1.65F);
-        drawScaledText(graphics, tr("screen.miningdim.gunsmith_press.subtitle"), left + 99, top + 35,
-                0xFF8E98AA, 0.72F);
-        drawScaledText(graphics, tr("screen.miningdim.gunsmith_press.materials"), left + 292, top + 62,
-                0xFFDDE4F1, 0.86F);
-
-        renderPlayerInfo(graphics, left, top);
-        renderPlatformButtons(graphics, left, top);
-        renderPartButtons(graphics, left, top, platform);
-        renderPartPreview(graphics, left, top, platform, part, quality, variant, pulse,
-                menu.isPressing(), menu.getSlot(GunsmithPressBlockEntity.SLOT_OUTPUT).hasItem());
-        renderQualityButtons(graphics, left, top);
-        renderVariantSelector(graphics, left, top, platform, part, variant);
-        renderCostSummary(graphics, left, top, part, quality);
-        renderStartButton(graphics, left, top, mouseX, mouseY);
-        renderSlotHints(graphics, left, top);
-        renderTimePanel(graphics, left, top);
+        renderPlatforms(p, theme, platform);
+        renderParts(p, theme, platform, part, variant, quality);
+        renderStage(p, theme, platform, part, variant, quality, pressing, hasOutput, prog);
+        renderVariants(p, theme, platform, part, variant, level);
+        renderQualities(p, theme, quality, level);
+        renderMaterials(p, theme, part, quality, variant);
+        renderProduct(p, theme, platform, part, quality, variant, pressing, level);
+        renderProgress(p, theme, quality, pressing, hasOutput, prog);
+        drawPlayerInventorySlots(p, theme);
     }
 
-    private void renderPlatformButtons(GuiGraphics graphics, int left, int top) {
-        GunsmithPlatform selected = menu.selectedPlatform();
-        int x = left + PLATFORM_X;
-        int y = top + PLATFORM_Y;
-        boolean hover = inRect(this.minecraftMouseX(), this.minecraftMouseY(), x, y, PLATFORM_W, PLATFORM_H);
-        int edge = hover ? 0xFF62E6C8 : 0xFF333844;
-        graphics.fill(x, y, x + PLATFORM_W, y + PLATFORM_H, edge);
-        graphics.fill(x + 1, y + 1, x + PLATFORM_W - 1, y + PLATFORM_H - 1, 0xFF202631);
-        graphics.fill(x + PLATFORM_ARROW_W, y + 1, x + PLATFORM_ARROW_W + 1, y + PLATFORM_H - 1, 0xFF343B49);
-        graphics.fill(x + PLATFORM_W - PLATFORM_ARROW_W - 1, y + 1, x + PLATFORM_W - PLATFORM_ARROW_W, y + PLATFORM_H - 1,
-                0xFF343B49);
-        drawCenteredScaledText(graphics, "<", x + PLATFORM_ARROW_W / 2.0F, y + 3.0F,
-                0xFFB8C0CE, 0.62F);
-        drawCenteredScaledText(graphics, ">", x + PLATFORM_W - PLATFORM_ARROW_W / 2.0F, y + 3.0F,
-                0xFFB8C0CE, 0.62F);
-        drawFittedCenteredText(graphics, tr(selected.labelKey()),
-                x + PLATFORM_W / 2.0F, y + 3.0F, PLATFORM_W - PLATFORM_ARROW_W * 2 - 2,
-                0xFFBFFBEF, 0.68F, 0.48F);
-    }
-
-    private void renderPartButtons(GuiGraphics graphics, int left, int top, GunsmithPlatform platform) {
-        GunsmithPressPart selected = menu.selectedPart();
-        int row = 0;
-        for (GunsmithPressPart part : platform.supportedParts()) {
-            int x = left + PART_X;
-            int y = top + PART_Y + row * (PART_H + PART_GAP);
-            boolean current = part == selected;
-            boolean hover = inRect(this.minecraftMouseX(), this.minecraftMouseY(), x, y, PART_W, PART_H);
-            int outer = current ? 0xFFB98C4D : hover ? 0xFF586172 : 0xFF333844;
-            int inner = current ? 0xFF3A3128 : 0xFF232631;
-            graphics.fill(x, y, x + PART_W, y + PART_H, outer);
-            graphics.fill(x + 1, y + 1, x + PART_W - 1, y + PART_H - 1, inner);
-            if (current) {
-                graphics.fill(x + 2, y + PART_H - 2, x + PART_W - 2, y + PART_H - 1, 0xFFD9A854);
-            }
-            drawCenteredScaledText(graphics, platformPartName(platform, part), x + PART_W / 2.0F, y + 3.0F,
-                    current ? 0xFFF3D7A2 : 0xFFD1D8E4, 0.72F);
-            row++;
+    private void renderPlatforms(GsPainter p, GunsmithTheme t, GunsmithPlatform selected) {
+        t.panel(p, PLAT_PANEL_X, PLAT_PANEL_Y, PLAT_PANEL_W, PLAT_PANEL_H, Component.translatable(K + "panel.platform"));
+        GunsmithPlatform[] platforms = GunsmithPlatform.values();
+        for (int i = 0; i < platforms.length; i++) {
+            GunsmithPlatform platform = platforms[i];
+            int x = PLAT_X;
+            int y = platformRowY(i);
+            boolean sel = platform == selected;
+            boolean available = hasBlueprint(platform);
+            State state = sel ? State.SEL
+                    : !available ? State.LOCK
+                    : p.hov(x, y, PLAT_W, PLAT_H) ? State.HOVER : State.IDLE;
+            t.row(p, x, y, PLAT_W, PLAT_H, state);
+            Component sub = available
+                    ? Component.translatable(K + "platform.part_count", partsOf(platform).size())
+                    : Component.translatable(K + "platform.no_blueprint");
+            float subW = p.text(sub, x + PLAT_W - 5, y + 2.4F, t.rowSub(state), 0.5F, RIGHT);
+            Component name = Component.translatable(platform.labelKey());
+            float maxW = PLAT_W - 10 - subW - 3;
+            float sc = p.fitScale(name, maxW, 0.62F, 0.4F, sel);
+            Component shown = ellipsize(p, name, maxW, sc, sel);
+            platformNameCut[i] = shown != name;
+            p.text(shown, x + 5, y + 1.8F + (0.62F - sc) * 4.0F, t.rowText(state), sc, sel ? BOLD : 0);
         }
     }
 
-    private void renderPartPreview(GuiGraphics graphics, int left, int top,
-                                   GunsmithPlatform platform, GunsmithPressPart part,
-                                   GunsmithPartQuality quality, GunsmithPartVariant variant, int pulse,
-                                   boolean active, boolean hasOutput) {
-        int x = left + PREVIEW_X;
-        int y = top + PREVIEW_Y;
-        int slotX = left + OUTPUT_SLOT_X;
-        int slotY = top + OUTPUT_SLOT_Y;
-        int ramDrop = active ? 3 + pulse / 2 : 0;
-
-        graphics.fill(x + 6, y + 39, x + PREVIEW_W - 6, y + 43, 0xDD0B0E15);
-        graphics.fill(x + 14, y + 2, x + PREVIEW_W - 14, y + 5, 0xFF697384);
-        graphics.fill(x + 17, y + 5, x + PREVIEW_W - 17, y + 7, active ? 0xFF4EF4D9 : 0xFF2E8D83);
-        graphics.fill(x + 22, y + 6, x + 28, y + 35, 0xFF343B47);
-        graphics.fill(x + PREVIEW_W - 28, y + 6, x + PREVIEW_W - 22, y + 35, 0xFF343B47);
-        graphics.fill(x + 20, y + 34, x + PREVIEW_W - 20, y + 37, 0xFF222733);
-
-        graphics.fill(x + 61, y + 8, x + 85, y + 13, 0xFF767F8C);
-        graphics.fill(x + 67, y + 13, x + 79, y + 20 + ramDrop, 0xFF4F5865);
-        graphics.fill(x + 53, y + 20 + ramDrop, x + 93, y + 27 + ramDrop, 0xFF8A94A1);
-        graphics.fill(x + 59, y + 27 + ramDrop, x + 87, y + 31 + ramDrop, 0xFF3B424D);
-        graphics.fill(x + 55, y + 21 + ramDrop, x + 91, y + 22 + ramDrop, 0xFFB4BCC8);
-
-        graphics.fill(slotX - 10, slotY + 18, slotX + 28, slotY + 22, 0xFF141821);
-        graphics.fill(slotX - 6, slotY + 14, slotX + 24, slotY + 18, 0xFF2B303B);
-        graphics.fill(slotX - 8, slotY + 14, slotX - 4, slotY + 18, 0xFFB9853A);
-        graphics.fill(slotX + 20, slotY + 14, slotX + 24, slotY + 18, 0xFFB9853A);
-        graphics.fill(slotX - 1, slotY - 1, slotX + 19, slotY + 19, 0xFF485062);
-        graphics.fill(slotX + 1, slotY + 1, slotX + 17, slotY + 17, 0xFF151923);
-        graphics.fill(slotX + 3, slotY + 3, slotX + 15, slotY + 4, 0xFF313947);
-
-        if (!active && !hasOutput) {
-            drawPartIcon(graphics, slotX - 2, slotY - 3, platform, part, quality, variant);
+    private void renderParts(GsPainter p, GunsmithTheme t, GunsmithPlatform platform, GunsmithPressPart selected,
+                             GunsmithPartVariant variant, GunsmithPartQuality quality) {
+        List<GunsmithPressPart> parts = partsOf(platform);
+        int n = parts.size();
+        for (int i = 0; i < n; i++) {
+            GunsmithPressPart part = parts.get(i);
+            int x = partCardX(n, i);
+            int y = PART_Y;
+            boolean sel = part == selected;
+            State state = sel ? State.SEL : p.hov(x, y, PART_W, PART_H) ? State.HOVER : State.IDLE;
+            t.card(p, x, y, PART_W, PART_H, state);
+            GunsmithPartVariant cardVariant = sel ? iconVariant(variant, platform, part) : GunsmithPartVariant.BASE;
+            p.blit(partTexture(platform, part, cardVariant, quality), x + 5, y + 2, 16, 16,
+                    0.0F, 0.0F, PART_ICON_TEX, PART_ICON_TEX, PART_ICON_TEX, PART_ICON_TEX);
+            Component label = Component.translatable(part.slotKey());
+            float sc = p.fitScale(label, PART_W - 3, 0.6F, 0.35F, false);
+            p.text(label, x + 13, y + 19.5F + (0.6F - sc) * 4.0F, t.cardText(state), sc, CENTER);
         }
-        if (active) {
-            int sparkX = slotX + 9;
-            int sparkY = slotY + 18;
-            for (int i = 0; i < 6; i++) {
-                int sx = sparkX - 18 + ((pulse * 7 + i * 11) % 36);
-                int sy = sparkY - 4 + ((pulse + i * 3) % 9);
-                int color = (i & 1) == 0 ? 0xFFFFC45C : 0xFFFF7447;
-                graphics.fill(sx, sy, sx + 2, sy + 1, color);
-                graphics.fill(sx + 1, sy + 1, sx + 2, sy + 3, 0xAAFFD87A);
+    }
+
+    private void renderStage(GsPainter p, GunsmithTheme t, GunsmithPlatform platform, GunsmithPressPart part,
+                             GunsmithPartVariant variant, GunsmithPartQuality quality,
+                             boolean pressing, boolean hasOutput, float prog) {
+        float ram = pressing ? ramStroke(p.now()) : 0.0F;
+        t.stage(p, STAGE_X, STAGE_Y, STAGE_W, STAGE_H, pressing, ram);
+        int sx = GunsmithPressMenu.SLOT_OUTPUT_X;
+        int sy = GunsmithPressMenu.SLOT_OUTPUT_Y;
+        t.slot(p, sx, sy);
+        if (!hasOutput) {
+            // 空工位: 待机时是选中零件的淡影, 冲压中随进度逐渐显形; 成品出来后由原版槽位画真物品。
+            float alpha = pressing ? 0.15F + prog * 0.6F : 0.4F;
+            p.blit(partTexture(platform, part, iconVariant(variant, platform, part), quality), sx, sy, 16, 16,
+                    0.0F, 0.0F, PART_ICON_TEX, PART_ICON_TEX, PART_ICON_TEX, PART_ICON_TEX, alpha);
+        }
+    }
+
+    private void renderVariants(GsPainter p, GunsmithTheme t, GunsmithPlatform platform, GunsmithPressPart part,
+                                GunsmithPartVariant selected, int level) {
+        GunsmithTheme.Palette c = t.palette();
+        t.panel(p, VAR_PANEL_X, VAR_PANEL_Y, VAR_PANEL_W, VAR_PANEL_H, Component.translatable(K + "panel.variant"));
+        List<GunsmithPartVariant> variants = GunsmithPartVariant.availableFor(platform, part);
+        for (int i = 0; i < variants.size(); i++) {
+            GunsmithPartVariant variant = variants.get(i);
+            int x = VAR_X;
+            int y = variantRowY(i);
+            GunsmithPartRarity rarity = variant.rarity();
+            int unlock = rarityUnlockLevel(rarity);
+            boolean ok = level >= unlock;
+            boolean sel = variant == selected;
+            State state = sel ? State.SEL
+                    : !ok ? State.LOCK
+                    : p.hov(x, y, VAR_W, VAR_H) ? State.HOVER : State.IDLE;
+            t.row(p, x, y, VAR_W, VAR_H, state);
+            t.rarTag(p, x + 3, y + 2, rarity);
+            Component label = Component.translatable(variant.labelKey());
+            float maxW = ok ? VAR_W - 17 : VAR_W - 27;
+            float sc = p.fitScale(label, maxW, 0.55F, 0.4F, false);
+            p.text(ellipsize(p, label, maxW, sc, false), x + 13, y + (VAR_H - 8.0F * sc) / 2.0F,
+                    t.rowText(state), sc, 0);
+            if (!ok) {
+                p.text(GunsmithUi.levelShort(unlock), x + VAR_W - 3, y + 4, c.bad(), 0.5F, RIGHT);
             }
         }
+        if (variants.size() == 1) {
+            Component line1 = Component.translatable(K + "variant.only_one");
+            Component line2 = Component.translatable(GunsmithPartVariant.BASE.labelKey());
+            p.text(line1, 197, 94, c.dim(), p.fitScale(line1, 62.0F, 0.52F, 0.35F, false), 0);
+            p.text(line2, 197, 102, c.dim(), p.fitScale(line2, 62.0F, 0.52F, 0.35F, false), 0);
+        }
     }
 
-    private void renderQualityButtons(GuiGraphics graphics, int left, int top) {
-        GunsmithPartQuality selected = menu.selectedQuality();
-        for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
-            int x = left + QUALITY_X + quality.index() * (QUALITY_W + QUALITY_GAP);
-            int y = top + QUALITY_Y;
-            boolean current = quality == selected;
-            int qualityColor = qualityOutlineColor(quality);
-            int fill = current ? 0xFF252A34 : 0xFF222631;
-            int edge = current ? qualityColor : withAlpha(qualityColor, 0x80);
-            graphics.fill(x, y, x + QUALITY_W, y + QUALITY_H, edge);
-            graphics.fill(x + 1, y + 1, x + QUALITY_W - 1, y + QUALITY_H - 1, fill);
-            if (current) {
-                graphics.fill(x + 2, y + QUALITY_H - 2, x + QUALITY_W - 2, y + QUALITY_H - 1, qualityColor);
+    private void renderQualities(GsPainter p, GunsmithTheme t, GunsmithPartQuality selected, int level) {
+        GunsmithTheme.Palette c = t.palette();
+        GunsmithPartQuality[] qualities = GunsmithPartQuality.values();
+        for (int i = 0; i < qualities.length; i++) {
+            GunsmithPartQuality quality = qualities[i];
+            int x = qualityX(i);
+            int y = QUAL_Y;
+            int unlock = qualityUnlockLevel(quality);
+            boolean ok = level >= unlock;
+            boolean sel = quality == selected;
+            State state = sel ? State.SEL
+                    : !ok ? State.LOCK
+                    : p.hov(x, y, QUAL_W, QUAL_H) ? State.HOVER : State.IDLE;
+            t.qbtn(p, x, y, QUAL_W, QUAL_H, quality, state);
+            Component name = Component.translatable(quality.labelKey());
+            float sc = p.fitScale(name, QUAL_W - 3, 0.66F, 0.4F, sel);
+            float cx = x + 16.0F;
+            if (!ok && cx - p.textWidth(name, sc, sel) / 2.0F < x + 9) {
+                // 锁图标占左上角 (x+3..x+8): 放不下时把名字挪到锁右边再缩 (中文名本来就放得下, 不会走到这里)。
+                sc = p.fitScale(name, QUAL_W - 12, 0.66F, 0.4F, sel);
+                cx = x + 19.0F;
             }
-            drawCenteredScaledText(graphics, tr(quality.labelKey()), x + QUALITY_W / 2.0F, y + 3.0F,
-                    current ? qualityColor : 0xFFB8C0CE, 0.64F);
+            p.text(name, cx, y + 3.5F + (0.66F - sc) * 4.0F, ok ? t.qColor(quality) : c.dim(), sc,
+                    CENTER | (sel ? BOLD : 0));
+            Component sub = ok
+                    ? Component.literal("x" + quality.materialMultiplier() + " "
+                    + GunsmithUi.formatTicks(quality.requiredTicks()))
+                    : GunsmithUi.levelShort(unlock);
+            p.text(sub, x + 16, y + 12, ok ? c.muted() : c.bad(), 0.48F, CENTER);
+            if (!ok) {
+                t.lock(p, x + 3, y + 3);
+            }
         }
     }
 
-    private void renderVariantSelector(GuiGraphics graphics, int left, int top,
-                                       GunsmithPlatform platform, GunsmithPressPart part,
-                                       GunsmithPartVariant selected) {
-        if (GunsmithPartVariant.availableFor(platform, part).size() <= 1) {
-            return;
+    private void renderMaterials(GsPainter p, GunsmithTheme t, GunsmithPressPart part, GunsmithPartQuality quality,
+                                 GunsmithPartVariant variant) {
+        GunsmithTheme.Palette c = t.palette();
+        t.panel(p, MAT_PANEL_X, MAT_PANEL_Y, MAT_PANEL_W, MAT_PANEL_H, Component.translatable(K + "panel.materials"));
+        float textW = MAT_TEXT_R - MAT_TEXT_X;
+        for (int i = 0; i < INPUT_SLOTS.length; i++) {
+            int sx = inputSlotX(i);
+            int sy = inputSlotY(i);
+            int need = requiredMaterial(part, quality, i);
+            int have = inputCount(i);
+            t.slot(p, sx, sy);
+            if (have <= 0) {
+                p.itemFaded(new ItemStack(inputItem(i)), sx, sy, 0.3F, slotInner(t));
+            }
+            Component label = Component.translatable(INPUT_LABEL_KEYS[i]);
+            p.text(label, MAT_TEXT_X, sy + 1, c.muted(), p.fitScale(label, textW, 0.55F, 0.35F, false), 0);
+            if (need == 0) {
+                Component none = Component.translatable(K + "material.not_needed");
+                p.text(none, MAT_TEXT_X, sy + 9, c.dim(), p.fitScale(none, textW, 0.6F, 0.35F, false), 0);
+            } else {
+                p.text(have + " / " + need, MAT_TEXT_X, sy + 8.5F, have >= need ? c.text() : c.bad(), 0.66F, 0);
+            }
         }
-        int x = left + VARIANT_X;
-        int y = top + VARIANT_Y;
-        // 势力/特殊型号有等级门 (审查 29), 门未过时提前染红: 服务端 tryStartPreview 仍是唯一权威判定,
-        // 这里只是免得玩家备齐料点了才被打回。
-        boolean locked = !isSelectedVariantUnlocked();
-        int edge = locked ? 0xFF8A4A4A : 0xFF9D7440;
-        int arrow = locked ? 0xFFC08B8B : 0xFFE7C484;
-        int label = locked ? 0xFFC29A9A : (0xFF000000 | selected.rarity().textColor());
-        graphics.fill(x, y, x + VARIANT_W, y + VARIANT_H, edge);
-        graphics.fill(x + 1, y + 1, x + VARIANT_W - 1, y + VARIANT_H - 1, 0xFF252A34);
-        drawCenteredScaledText(graphics, "<", x + VARIANT_ARROW_W / 2.0F, y + 2.5F, arrow, 0.60F);
-        drawCenteredScaledText(graphics, ">", x + VARIANT_W - VARIANT_ARROW_W / 2.0F, y + 2.5F, arrow, 0.60F);
-        drawFittedCenteredText(graphics, tr(selected.labelKey()), x + VARIANT_W / 2.0F, y + 2.5F,
-                VARIANT_W - VARIANT_ARROW_W * 2 - 4, label, 0.66F, 0.46F);
+        t.sep(p, 276, 116, 70);
+        long fee = pressFee(quality, variant.rarity());
+        p.text(Component.translatable(K + "fee"), 276, 121, c.muted(), 0.6F, 0);
+        p.text(Component.translatable(K + "fee_value", GunsmithUi.formatCount(fee)), MAT_TEXT_R, 121, c.text(),
+                0.62F, RIGHT);
+        p.text(Component.translatable(K + "time"), 276, 131, c.muted(), 0.6F, 0);
+        p.text(GunsmithUi.formatTicks(quality.requiredTicks()), MAT_TEXT_R, 131, c.text(), 0.62F, RIGHT);
     }
 
-    /** 选中型号的稀有度解锁等级 (审查 29; 与服务端同读 MunitionsConfig, 不另立一套表)。 */
-    private int selectedVariantUnlockLevel() {
-        return MunitionsConfig.rarityUnlockLevel(menu.selectedVariant().rarity());
+    private void renderProduct(GsPainter p, GunsmithTheme t, GunsmithPlatform platform, GunsmithPressPart part,
+                               GunsmithPartQuality quality, GunsmithPartVariant variant, boolean pressing, int level) {
+        GunsmithTheme.Palette c = t.palette();
+        t.panel(p, PROD_PANEL_X, PROD_PANEL_Y, PROD_PANEL_W, PROD_PANEL_H, Component.translatable(K + "panel.product"));
+        Component name = productName(platform, part, variant);
+        float ns = p.fitScale(name, PROD_NAME_W, 0.66F, 0.42F, true);
+        Component shownName = ellipsize(p, name, PROD_NAME_W, ns, true);
+        productNameCut = shownName != name;
+        p.text(shownName, PROD_NAME_X, PROD_NAME_Y + (0.66F - ns) * 4.0F, c.text(), ns, BOLD);
+
+        GunsmithPartRarity rarity = variant.rarity();
+        t.rarTag(p, 14, 170, rarity);
+        float qw = p.text(Component.translatable(quality.labelKey()), 86, 171, t.qColor(quality), 0.62F, RIGHT | BOLD);
+        Component rarityName = Component.translatable(rarity.labelKey());
+        float rMax = 86 - 25 - qw - 3;
+        float rs = p.fitScale(rarityName, rMax, 0.55F, 0.35F, false);
+        p.text(ellipsize(p, rarityName, rMax, rs, false), 25, 171 + (0.55F - rs) * 4.0F, t.rarText(rarity), rs, 0);
+
+        p.text(Component.translatable(K + "product.coefficient"), 14, 183, c.muted(), 0.55F, 0);
+        p.text(GunsmithUi.format2(quality.minCoefficient()) + "–" + GunsmithUi.format2(quality.maxCoefficient()),
+                86, 183, c.text(), 0.58F, RIGHT);
+        p.text(Component.translatable(K + "product.material_mult"), 14, 192, c.muted(), 0.55F, 0);
+        p.text("x" + quality.materialMultiplier(), 86, 192, c.text(), 0.58F, RIGHT);
+
+        Component why = startBlockReason(level);
+        State state = why != null ? State.OFF
+                : p.hov(START_X, START_Y, START_W, START_H) ? State.HOVER : State.IDLE;
+        Component label = pressing
+                ? Component.translatable(K + "status.pressing")
+                : Component.translatable(K + "start");
+        t.btn(p, START_X, START_Y, START_W, START_H, label, ButtonKind.GO, state);
     }
 
-    private boolean isSelectedVariantUnlocked() {
-        return playerLevel() >= selectedVariantUnlockLevel();
+    private void renderProgress(GsPainter p, GunsmithTheme t, GunsmithPartQuality quality,
+                                boolean pressing, boolean hasOutput, float prog) {
+        GunsmithTheme.Palette c = t.palette();
+        t.panel(p, PROG_PANEL_X, PROG_PANEL_Y, PROG_PANEL_W, PROG_PANEL_H, Component.translatable(K + "panel.progress"));
+        t.lamp(p, 277, 161, pressing ? LampState.RUN : hasOutput ? LampState.DONE : LampState.IDLE);
+        Component status = Component.translatable(K + (pressing ? "status.pressing" : hasOutput ? "status.done" : "status.idle"));
+        int statusColor = pressing ? c.accent() : hasOutput ? c.good() : c.muted();
+        p.text(status, 286, 160.5F, statusColor, p.fitScale(status, 60.0F, 0.66F, 0.4F, true), BOLD);
+        Component label = Component.translatable(K + (pressing ? "remaining_time" : hasOutput ? "output_waiting" : "craft_time"));
+        p.text(label, 276, 173, c.muted(), p.fitScale(label, 70.0F, 0.55F, 0.35F, false), 0);
+        String time = hasOutput ? "0:00"
+                : GunsmithUi.formatTicks(pressing ? remainingTicks() : quality.requiredTicks());
+        p.text(time, 311, 182, c.text(), 1.25F, CENTER | BOLD);
+        t.bar(p, 276, 198, 70, 5, prog, hasOutput ? BarKind.FE : BarKind.PROG, pressing);
+        Component foot = Component.translatable(K + (hasOutput ? "footer.take_first" : "footer.output_here"));
+        p.text(foot, 276, 208, c.dim(), p.fitScale(foot, 70.0F, 0.48F, 0.35F, false), 0);
     }
 
-    private void renderCostSummary(GuiGraphics graphics, int left, int top,
-                                   GunsmithPressPart part, GunsmithPartQuality quality) {
-        int mult = quality.materialMultiplier();
-        // 三列改为按列宽自适应居中: 换回翻译键后英文材料名比中文长得多, 左对齐会串进下一列 (审查 80)。
-        drawMaterialCost(graphics, left + 128.0F, top + 142.0F, GunsmithPressBlockEntity.SLOT_GUN_PARTS,
-                MATERIAL_KEY_GUN_PARTS, part.partsCost() * mult, 47);
-        drawMaterialCost(graphics, left + 178.0F, top + 142.0F, GunsmithPressBlockEntity.SLOT_ALLOY,
-                MATERIAL_KEY_ALLOY, part.alloyCost() * mult, 45);
-        drawMaterialCost(graphics, left + 226.0F, top + 142.0F, GunsmithPressBlockEntity.SLOT_POLYMER,
-                MATERIAL_KEY_POLYMER, part.polymerCost() * mult, 44);
-        drawScaledText(graphics, formatTicks(quality.requiredTicks()), left + 251, top + 142,
-                0xFF83EAD2, 0.68F);
+    // ================================================================== front layer (z 300)
+
+    @Override
+    protected void renderFront(GsPainter p, GunsmithTheme theme) {
+        boolean pressing = menu.isPressing();
+        theme.stageFront(p, STAGE_X, STAGE_Y, STAGE_W, STAGE_H, pressing, pressing ? ramStroke(p.now()) : 0.0F);
     }
 
-    /** 料量不足染红: 重写时把 material_status 提示一并删掉后, 界面对"料够不够"完全没有反馈 (审查 80)。 */
-    private void drawMaterialCost(GuiGraphics graphics, float centerX, float y, int slot,
-                                  String materialKey, int required, int maxWidth) {
-        int color = inputCount(slot) >= required ? 0xFFC5CDD9 : 0xFFFF6B6B;
-        drawFittedCenteredText(graphics, tr(materialKey) + " x" + required, centerX, y, maxWidth,
-                color, 0.68F, 0.44F);
+    /** 预览 drawPress 的冲头行程: 前 25% 压下, 停 10%, 后 65% 回升 (0..1)。 */
+    private static float ramStroke(long now) {
+        float ph = Math.floorMod(now, RAM_CYCLE_MS) / (float) RAM_CYCLE_MS;
+        if (ph < 0.25F) {
+            return ph / 0.25F;
+        }
+        if (ph < 0.35F) {
+            return 1.0F;
+        }
+        return 1.0F - (ph - 0.35F) / 0.65F;
     }
 
-    private int inputCount(int slot) {
-        return menu.getSlot(slot).getItem().getCount();
-    }
+    // ================================================================== tooltips
 
-    private int requiredMaterial(int slot) {
-        int mult = menu.selectedQuality().materialMultiplier();
+    @Nullable
+    @Override
+    protected List<Component> screenTooltip(double mx, double my) {
+        int level = ownerLevel();
+        GunsmithPlatform platform = menu.selectedPlatform();
         GunsmithPressPart part = menu.selectedPart();
-        return switch (slot) {
-            case GunsmithPressBlockEntity.SLOT_GUN_PARTS -> part.partsCost() * mult;
-            case GunsmithPressBlockEntity.SLOT_ALLOY -> part.alloyCost() * mult;
-            case GunsmithPressBlockEntity.SLOT_POLYMER -> part.polymerCost() * mult;
-            default -> throw new IllegalArgumentException("slot is not a gunsmith press input slot: " + slot);
+        GunsmithPartQuality quality = menu.selectedQuality();
+        GunsmithPartVariant selectedVariant = menu.selectedVariant();
+        boolean carrying = !menu.getCarried().isEmpty();
+
+        GunsmithPlatform[] platforms = GunsmithPlatform.values();
+        for (int i = 0; i < platforms.length; i++) {
+            if (GunsmithUi.inRect(mx, my, PLAT_X, platformRowY(i), PLAT_W, PLAT_H)) {
+                GunsmithPlatform target = platforms[i];
+                Component name = Component.translatable(target.labelKey());
+                if (!hasBlueprint(target)) {
+                    return List.of(tip(name, GunsmithUi.TIP_TITLE),
+                            tip(Component.translatable(K + "platform.no_blueprint_tip"), GunsmithUi.TIP_RED));
+                }
+                if (platformNameCut[i]) {
+                    return List.of(tip(name, GunsmithUi.TIP_TITLE));
+                }
+                return null;
+            }
+        }
+
+        List<GunsmithPressPart> parts = partsOf(platform);
+        for (int i = 0; i < parts.size(); i++) {
+            if (GunsmithUi.inRect(mx, my, partCardX(parts.size(), i), PART_Y, PART_W, PART_H)) {
+                GunsmithPressPart target = parts.get(i);
+                return List.of(
+                        tip(Component.translatable(target.labelKey()), GunsmithUi.TIP_TITLE),
+                        tip(Component.translatable(target.roleKey()), GunsmithUi.TIP_GRAY),
+                        tip(Component.translatable(K + "part.base_cost",
+                                inputItem(0).getDescription(), target.partsCost(),
+                                inputItem(1).getDescription(), target.alloyCost(),
+                                inputItem(2).getDescription(), target.polymerCost()), GunsmithUi.TIP_GRAY));
+            }
+        }
+
+        if (GunsmithUi.inRect(mx, my, GunsmithPressMenu.SLOT_OUTPUT_X - 1, GunsmithPressMenu.SLOT_OUTPUT_Y - 1, 18, 18)) {
+            // 有成品时让原版物品提示 (带摇出的系数) 优先; 手上拿着东西时也不挡视线。
+            if (hasOutput() || carrying) {
+                return null;
+            }
+            return List.of(tip(Component.translatable(K + "station.title"), GunsmithUi.TIP_TITLE),
+                    tip(Component.translatable(K + "station.hint"), GunsmithUi.TIP_GRAY));
+        }
+
+        List<GunsmithPartVariant> variants = GunsmithPartVariant.availableFor(platform, part);
+        for (int i = 0; i < variants.size(); i++) {
+            if (GunsmithUi.inRect(mx, my, VAR_X, variantRowY(i), VAR_W, VAR_H)) {
+                GunsmithPartVariant variant = variants.get(i);
+                GunsmithPartRarity rarity = variant.rarity();
+                int unlock = rarityUnlockLevel(rarity);
+                Component last = level >= unlock
+                        ? tip(Component.translatable(K + "variant.fee_mult",
+                        formatMultiplier(MunitionsConfig.pressRarityFeeMultiplier(rarity))), GunsmithUi.TIP_GRAY)
+                        : tip(Component.translatable(K + "need_level", unlock), GunsmithUi.TIP_RED);
+                return List.of(tip(Component.translatable(variant.labelKey()), GunsmithUi.TIP_TITLE),
+                        tip(Component.translatable(rarity.labelKey()), GunsmithUi.rarityLight(rarity)),
+                        last);
+            }
+        }
+
+        GunsmithPartQuality[] qualities = GunsmithPartQuality.values();
+        for (int i = 0; i < qualities.length; i++) {
+            if (GunsmithUi.inRect(mx, my, qualityX(i), QUAL_Y, QUAL_W, QUAL_H)) {
+                GunsmithPartQuality target = qualities[i];
+                int unlock = qualityUnlockLevel(target);
+                Component name = Component.translatable(target.labelKey());
+                return List.of(
+                        tip(Component.translatable(K + "quality.title", name), GunsmithUi.TIP_TITLE),
+                        tip(Component.translatable(K + "quality.cost_time", target.materialMultiplier(),
+                                GunsmithUi.formatTicks(target.requiredTicks())), GunsmithUi.TIP_GRAY),
+                        tip(Component.translatable(K + "quality.coefficient",
+                                GunsmithUi.format2(target.minCoefficient()) + "–"
+                                        + GunsmithUi.format2(target.maxCoefficient())), GunsmithUi.TIP_GRAY),
+                        level >= unlock
+                                ? tip(Component.translatable(K + "quality.unlocked"), GunsmithUi.TIP_GRAY)
+                                : tip(Component.translatable(K + "need_level", unlock), GunsmithUi.TIP_RED));
+            }
+        }
+
+        for (int i = 0; i < INPUT_SLOTS.length; i++) {
+            if (GunsmithUi.inRect(mx, my, inputSlotX(i) - 1, inputSlotY(i) - 1, 18, 18)) {
+                if (carrying) {
+                    return null;
+                }
+                int need = requiredMaterial(part, quality, i);
+                int have = inputCount(i);
+                Slot slot = menu.getSlot(INPUT_SLOTS[i]);
+                return List.of(
+                        tip(Component.translatable(K + "material.tip_title",
+                                Component.translatable(INPUT_LABEL_KEYS[i]), inputItem(i).getDescription()),
+                                GunsmithUi.TIP_TITLE),
+                        tip(Component.translatable(K + "material.tip_need", need, have),
+                                have >= need ? GunsmithUi.TIP_GRAY : GunsmithUi.TIP_RED),
+                        tip(Component.translatable(K + "material.tip_cap", slot.getMaxStackSize()),
+                                GunsmithUi.TIP_GRAY));
+            }
+        }
+
+        if (GunsmithUi.inRect(mx, my, FEE_X, FEE_Y, FEE_W, FEE_H)) {
+            GunsmithPartRarity rarity = selectedVariant.rarity();
+            long fee = pressFee(quality, rarity);
+            return List.of(
+                    tip(Component.translatable(K + "fee_tip.title"), GunsmithUi.TIP_TITLE),
+                    tip(Component.translatable(K + "fee_tip.formula",
+                            MunitionsConfig.PRESS_WORK_FEE_CREDITS.get(),
+                            quality.materialMultiplier(),
+                            formatMultiplier(MunitionsConfig.pressRarityFeeMultiplier(rarity)),
+                            GunsmithUi.formatCount(fee)), GunsmithUi.TIP_GRAY),
+                    tip(Component.translatable(K + "fee_tip.charged"), GunsmithUi.TIP_GRAY));
+        }
+
+        if (productNameCut && GunsmithUi.inRect(mx, my, PROD_NAME_X, PROD_NAME_Y - 2, PROD_NAME_W, 10)) {
+            return List.of(tip(productName(platform, part, selectedVariant), GunsmithUi.TIP_TITLE));
+        }
+
+        if (GunsmithUi.inRect(mx, my, START_X, START_Y, START_W, START_H)) {
+            Component why = startBlockReason(level);
+            if (why != null) {
+                return List.of(tip(why, GunsmithUi.TIP_RED));
+            }
+            return List.of(tip(Component.translatable(K + "start"), GunsmithUi.TIP_TITLE),
+                    tip(Component.translatable(K + "start_tip"), GunsmithUi.TIP_GRAY));
+        }
+        return null;
+    }
+
+    private static Component tip(Component text, int rgb) {
+        return GunsmithUi.tip(text, rgb);
+    }
+
+    // ================================================================== input
+
+    /**
+     * 只处理左键 (与旧界面一致); 其它键与没点中控件的左键返回 false, 交给原版槽位逻辑。
+     * 这里所有矩形都在 {@link #assertClickTargetsClearOfSlots()} 里验过不压任何槽位判定盒。
+     */
+    @Override
+    protected boolean onScreenClick(double mx, double my, int button) {
+        if (button != 0) {
+            return false;
+        }
+        int level = ownerLevel();
+        GunsmithPlatform platform = menu.selectedPlatform();
+        GunsmithPressPart part = menu.selectedPart();
+
+        GunsmithPlatform[] platforms = GunsmithPlatform.values();
+        for (int i = 0; i < platforms.length; i++) {
+            if (GunsmithUi.inRect(mx, my, PLAT_X, platformRowY(i), PLAT_W, PLAT_H)) {
+                GunsmithPlatform target = platforms[i];
+                if (target != platform && hasBlueprint(target)) {
+                    sendButton(GunsmithPressMenu.BUTTON_PLATFORM_BASE + target.index());
+                }
+                return true;
+            }
+        }
+
+        List<GunsmithPressPart> parts = partsOf(platform);
+        for (int i = 0; i < parts.size(); i++) {
+            if (GunsmithUi.inRect(mx, my, partCardX(parts.size(), i), PART_Y, PART_W, PART_H)) {
+                if (parts.get(i) != part) {
+                    // 行号按 supportedParts() 顺序, 与服务端 trySelectPart 的遍历一致。
+                    sendButton(GunsmithPressMenu.BUTTON_PART_BASE + i);
+                }
+                return true;
+            }
+        }
+
+        List<GunsmithPartVariant> variants = GunsmithPartVariant.availableFor(platform, part);
+        for (int i = 0; i < variants.size(); i++) {
+            if (GunsmithUi.inRect(mx, my, VAR_X, variantRowY(i), VAR_W, VAR_H)) {
+                GunsmithPartVariant target = variants.get(i);
+                if (target != menu.selectedVariant() && level >= rarityUnlockLevel(target.rarity())) {
+                    sendButton(GunsmithPressMenu.BUTTON_VARIANT_BASE + target.index());
+                }
+                return true;
+            }
+        }
+
+        GunsmithPartQuality[] qualities = GunsmithPartQuality.values();
+        for (int i = 0; i < qualities.length; i++) {
+            if (GunsmithUi.inRect(mx, my, qualityX(i), QUAL_Y, QUAL_W, QUAL_H)) {
+                GunsmithPartQuality target = qualities[i];
+                if (target != menu.selectedQuality() && level >= qualityUnlockLevel(target)) {
+                    sendButton(GunsmithPressMenu.BUTTON_QUALITY_BASE + target.index());
+                }
+                return true;
+            }
+        }
+
+        if (GunsmithUi.inRect(mx, my, START_X, START_Y, START_W, START_H)) {
+            // 按钮置灰时不发 (原因在红字提示里); 服务端 tryStartPreview 仍会独立复核并扣工费。
+            if (startBlockReason(level) == null) {
+                sendButton(GunsmithPressMenu.BUTTON_START_PREVIEW);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // ================================================================== state helpers
+
+    /**
+     * 开工会被拒的原因 (预览 pressCanStart 的顺序), 可开工时返回 null。信用点是否够扣只有服务端知道,
+     * 不在这里判断 (不够时服务端照常回 work_fee_unaffordable)。
+     */
+    @Nullable
+    private Component startBlockReason(int level) {
+        if (menu.isPressing()) {
+            return Component.translatable(K + "why.busy");
+        }
+        if (hasOutput()) {
+            return Component.translatable(K + "why.output");
+        }
+        GunsmithPartQuality quality = menu.selectedQuality();
+        int qualityUnlock = qualityUnlockLevel(quality);
+        if (level < qualityUnlock) {
+            return Component.translatable(K + "why.quality", qualityUnlock);
+        }
+        int rarityUnlock = rarityUnlockLevel(menu.selectedVariant().rarity());
+        if (level < rarityUnlock) {
+            return Component.translatable(K + "why.rarity", rarityUnlock);
+        }
+        GunsmithPressPart part = menu.selectedPart();
+        for (int i = 0; i < INPUT_SLOTS.length; i++) {
+            int need = requiredMaterial(part, quality, i);
+            if (need > 0 && inputCount(i) < need) {
+                return Component.translatable(K + "why.materials");
+            }
+        }
+        return null;
+    }
+
+    private boolean hasOutput() {
+        return menu.getSlot(GunsmithPressBlockEntity.SLOT_OUTPUT).hasItem();
+    }
+
+    private int inputCount(int input) {
+        return menu.getSlot(INPUT_SLOTS[input]).getItem().getCount();
+    }
+
+    /** 本次冲压某料槽要多少 (与服务端 requiredGunParts/Alloy/Polymer 同式: 部件基础用料 x 品质材料倍率)。 */
+    private static int requiredMaterial(GunsmithPressPart part, GunsmithPartQuality quality, int input) {
+        int base = switch (input) {
+            case 0 -> part.partsCost();
+            case 1 -> part.alloyCost();
+            default -> part.polymerCost();
         };
+        return base * quality.materialMultiplier();
     }
 
-    private boolean hasAllMaterials() {
-        return inputCount(GunsmithPressBlockEntity.SLOT_GUN_PARTS)
-                >= requiredMaterial(GunsmithPressBlockEntity.SLOT_GUN_PARTS)
-                && inputCount(GunsmithPressBlockEntity.SLOT_ALLOY)
-                >= requiredMaterial(GunsmithPressBlockEntity.SLOT_ALLOY)
-                && inputCount(GunsmithPressBlockEntity.SLOT_POLYMER)
-                >= requiredMaterial(GunsmithPressBlockEntity.SLOT_POLYMER);
+    private float pressFraction() {
+        int required = menu.productionRequiredTicks();
+        if (required <= 0) {
+            return 0.0F;
+        }
+        return Math.max(0.0F, Math.min(1.0F, menu.productionProgressTicks() / (float) required));
     }
 
-    private void renderStartButton(GuiGraphics graphics, int left, int top, int mouseX, int mouseY) {
-        int x = left + START_X;
-        int y = top + START_Y;
-        boolean hover = inRect(mouseX, mouseY, x, y, START_W, START_H);
-        // 料不齐时按钮压暗 (仍可点, 服务端照旧回 missing_materials): 重写后按钮不分料够不够都是同一副亮相 (审查 80)。
-        boolean ready = hasAllMaterials();
-        int outer = ready ? (hover ? 0xFF35E2C2 : 0xFF2EC7AA) : 0xFF4C5A58;
-        int inner = ready ? (hover ? 0xFF185E55 : 0xFF144C46) : 0xFF232C2C;
-        graphics.fill(x, y, x + START_W, y + START_H, outer);
-        graphics.fill(x + 1, y + 1, x + START_W - 1, y + START_H - 1, inner);
-        graphics.fill(x + 3, y + 3, x + START_W - 3, y + 4,
-                ready ? (hover ? 0xFF83F7DE : 0xFF55DCC2) : 0xFF61706E);
-        graphics.fill(x + 3, y + START_H - 4, x + START_W - 3, y + START_H - 3,
-                ready ? 0xFFFFC866 : 0xFF7C6E51);
-        drawFittedCenteredText(graphics, tr("screen.miningdim.gunsmith_press.start"),
-                x + START_W / 2.0F, y + 11.0F, START_W - 6,
-                ready ? 0xFFEAFBF7 : 0xFF98A3A1, 0.68F, 0.46F);
-    }
-
-    private void renderSlotHints(GuiGraphics graphics, int left, int top) {
-        // 料槽横向只隔 26px, 英文材料名远宽于中文, 故按列宽自适应缩放, 免得两个标签互相压字。
-        drawFittedCenteredText(graphics, tr(MATERIAL_KEY_GUN_PARTS), left + 303.0F, top + 79.0F, 25,
-                0xFF7F8795, 0.55F, 0.36F);
-        drawFittedCenteredText(graphics, tr(MATERIAL_KEY_ALLOY), left + 329.0F, top + 79.0F, 25,
-                0xFF7F8795, 0.55F, 0.36F);
-        drawFittedCenteredText(graphics, tr(MATERIAL_KEY_POLYMER), left + 303.0F, top + 105.0F, 25,
-                0xFF7F8795, 0.55F, 0.36F);
-    }
-
-    private void renderTimePanel(GuiGraphics graphics, int left, int top) {
-        int x = left + TIME_PANEL_X;
-        int y = top + TIME_PANEL_Y;
+    private int remainingTicks() {
         int required = Math.max(0, menu.productionRequiredTicks());
         int progress = Math.max(0, Math.min(required, menu.productionProgressTicks()));
-        int shownTicks = menu.isPressing() ? Math.max(0, required - progress) : required;
-        int barW = TIME_PANEL_W - 10;
-        int fill = required <= 0 ? 0 : (int) ((long) progress * barW / required);
-
-        graphics.fill(x + 2, y + 3, x + TIME_PANEL_W + 2, y + TIME_PANEL_H + 3, 0xAA000000);
-        graphics.fill(x, y, x + TIME_PANEL_W, y + TIME_PANEL_H, 0xFF111620);
-        graphics.fill(x + 1, y + 1, x + TIME_PANEL_W - 1, y + TIME_PANEL_H - 1, 0xFF232938);
-        graphics.fill(x + 4, y + 4, x + TIME_PANEL_W - 4, y + 5, 0xFF556071);
-        graphics.fill(x + 5, y + TIME_PANEL_H - 8, x + TIME_PANEL_W - 5, y + TIME_PANEL_H - 5, 0xFF11141B);
-        graphics.fill(x + 5, y + TIME_PANEL_H - 8, x + 5 + fill, y + TIME_PANEL_H - 5,
-                menu.isPressing() ? 0xFF35D2A4 : 0xFF3D4658);
-        graphics.fill(x + 5, y + TIME_PANEL_H - 8, x + 5 + fill, y + TIME_PANEL_H - 7,
-                menu.isPressing() ? 0xFF78F4D1 : 0xFF657086);
-
-        drawFittedCenteredText(graphics, tr(menu.isPressing()
-                        ? "screen.miningdim.gunsmith_press.remaining_time"
-                        : "screen.miningdim.gunsmith_press.craft_time"),
-                x + TIME_PANEL_W / 2.0F, y + 8.0F, TIME_PANEL_W - 8, 0xFFAEB8C8, 0.55F, 0.38F);
-        drawCenteredScaledText(graphics, formatTicks(shownTicks),
-                x + TIME_PANEL_W / 2.0F, y + 19.0F, menu.isPressing() ? 0xFF83EAD2 : 0xFFE6ECF5, 0.82F);
+        return required - progress;
     }
 
-    private void renderPlayerInfo(GuiGraphics graphics, int left, int top) {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null) {
-            return;
+    private static int qualityUnlockLevel(GunsmithPartQuality quality) {
+        return MunitionsLevels.partQualityUnlockLevel(quality);
+    }
+
+    private static int rarityUnlockLevel(GunsmithPartRarity rarity) {
+        return MunitionsConfig.rarityUnlockLevel(rarity);
+    }
+
+    /** 与服务端扣费同一个方法 (向上取整)。 */
+    private static long pressFee(GunsmithPartQuality quality, GunsmithPartRarity rarity) {
+        return MunitionsConfig.pressWorkFeeCredits(quality, rarity);
+    }
+
+    private static Component productName(GunsmithPlatform platform, GunsmithPressPart part, GunsmithPartVariant variant) {
+        if (variant == GunsmithPartVariant.BASE) {
+            return Component.translatable(K + "product.name_base",
+                    Component.translatable(platform.labelKey()), Component.translatable(part.labelKey()));
         }
-        PlayerFaceRenderer.draw(graphics, mc.player.getSkinTextureLocation(),
-                left + PLAYER_FACE_X, top + PLAYER_FACE_Y, PLAYER_FACE_SIZE);
-        drawScaledText(graphics, "LV", left + PLAYER_LEVEL_X, top + PLAYER_LEVEL_Y, 0xFF8E98AA, 0.62F);
-        drawScaledText(graphics, String.valueOf(playerLevel()),
-                left + PLAYER_LEVEL_X + 13, top + PLAYER_LEVEL_Y - 1, 0xFFE9EDF7, 0.82F);
-        int fill = playerXpProgressPixels();
-        graphics.fill(left + PLAYER_XP_BAR_X, top + PLAYER_XP_BAR_Y,
-                left + PLAYER_XP_BAR_X + PLAYER_XP_BAR_W, top + PLAYER_XP_BAR_Y + PLAYER_XP_BAR_H,
-                0xFF1A2029);
-        graphics.fill(left + PLAYER_XP_BAR_X, top + PLAYER_XP_BAR_Y,
-                left + PLAYER_XP_BAR_X + fill, top + PLAYER_XP_BAR_Y + PLAYER_XP_BAR_H,
-                0xFF35D2A4);
-        graphics.fill(left + PLAYER_XP_BAR_X, top + PLAYER_XP_BAR_Y,
-                left + PLAYER_XP_BAR_X + fill, top + PLAYER_XP_BAR_Y + 1,
-                0xFF75F0CA);
+        return Component.translatable(variant.labelKey());
     }
 
-    private void renderMunitionsXpTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
-        int left = (this.width - W) / 2;
-        int top = (this.height - H) / 2;
-        if (!inRect(mouseX, mouseY, left + PLAYER_XP_BAR_X, top + PLAYER_XP_BAR_Y - PLAYER_XP_HOVER_PAD,
-                PLAYER_XP_BAR_W, PLAYER_XP_BAR_H + PLAYER_XP_HOVER_PAD * 2)) {
-            return;
+    private static boolean hasBlueprint(GunsmithPlatform platform) {
+        return PLATFORMS_WITH_BLUEPRINT.contains(platform);
+    }
+
+    private static List<GunsmithPressPart> partsOf(GunsmithPlatform platform) {
+        return PARTS_BY_PLATFORM.get(platform);
+    }
+
+    private static Set<GunsmithPlatform> platformsWithBlueprint() {
+        EnumSet<GunsmithPlatform> set = EnumSet.noneOf(GunsmithPlatform.class);
+        for (GunsmithBlueprint blueprint : GunsmithBlueprint.values()) {
+            set.add(blueprint.platform());
         }
-        graphics.renderTooltip(this.font,
-                Component.translatable("gui.miningdim.munitions.xp_tooltip",
-                        playerShownXp(), playerNextLevelXp()),
-                mouseX, mouseY);
+        return set;
     }
 
-    private void drawPartIcon(GuiGraphics graphics, int x, int y, GunsmithPlatform platform,
-                              GunsmithPressPart part, GunsmithPartQuality quality,
-                              GunsmithPartVariant variant) {
+    private static Map<GunsmithPlatform, List<GunsmithPressPart>> partsByPlatform() {
+        Map<GunsmithPlatform, List<GunsmithPressPart>> map = new EnumMap<>(GunsmithPlatform.class);
+        for (GunsmithPlatform platform : GunsmithPlatform.values()) {
+            map.put(platform, List.copyOf(platform.supportedParts()));
+        }
+        return map;
+    }
+
+    // ================================================================== geometry
+
+    private static int platformRowY(int i) {
+        return PLAT_Y + i * PLAT_STEP;
+    }
+
+    /** 部件卡在 (99, 164 宽) 的中栏里居中排开 (预览 px0 = 99 + floor((164 - total) / 2))。 */
+    private static int partCardX(int count, int i) {
+        int total = count * PART_W + (count - 1) * PART_GAP;
+        int x0 = PART_AREA_X + Math.floorDiv(PART_AREA_W - total, 2);
+        return x0 + i * (PART_W + PART_GAP);
+    }
+
+    private static int variantRowY(int i) {
+        return VAR_Y + i * VAR_STEP;
+    }
+
+    private static int qualityX(int i) {
+        return QUAL_X + i * QUAL_STEP;
+    }
+
+    private static int inputSlotX(int input) {
+        return GunsmithPressMenu.containerSlotX(INPUT_SLOTS[input]);
+    }
+
+    private static int inputSlotY(int input) {
+        return GunsmithPressMenu.containerSlotY(INPUT_SLOTS[input]);
+    }
+
+    // ================================================================== drawing helpers
+
+    /** 选中型号的贴图只在它确实适配这个部件时用 (菜单数据逐项同步, 切平台/部件的那一两帧可能不一致)。 */
+    private static GunsmithPartVariant iconVariant(GunsmithPartVariant variant, GunsmithPlatform platform,
+                                                   GunsmithPressPart part) {
+        return variant.supports(platform, part) ? variant : GunsmithPartVariant.BASE;
+    }
+
+    private static ResourceLocation partTexture(GunsmithPlatform platform, GunsmithPressPart part,
+                                                GunsmithPartVariant variant, GunsmithPartQuality quality) {
         String suffix = switch (variant) {
             case BASE -> "";
             case GEHENNA_GAS -> "_gehenna";
@@ -457,269 +824,97 @@ public final class GunsmithPressScreen extends AbstractMiningScreen<GunsmithPres
             case TRINITY_PRECISION_GRADUATED_SNIPER_BARREL -> "_trinity_precision_graduated";
             case RED_WINTER_CHIXUE_A_BOLT -> "_red_winter_chixue_a";
         };
-        ResourceLocation texture = new ResourceLocation(MiningConstants.MODID,
-                "textures/item/gunsmith_part_" + platform.id() + "_" + part.id()
-                        + suffix + "_" + quality.id() + ".png");
-        graphics.blit(texture, x, y, PART_ICON_SIZE, PART_ICON_SIZE,
-                0.0F, 0.0F, PART_ICON_TEX, PART_ICON_TEX, PART_ICON_TEX, PART_ICON_TEX);
+        return new ResourceLocation(MiningConstants.MODID,
+                "textures/item/gunsmith_part_" + platform.id() + "_" + part.id() + suffix + "_" + quality.id() + ".png");
     }
 
-    private static int qualityOutlineColor(GunsmithPartQuality quality) {
-        return switch (quality) {
-            case COMMON -> 0xFFE9EEF7;
-            case IMPROVED -> 0xFF47E37C;
-            case MILSPEC -> 0xFF56A8FF;
-            case PRECISION -> 0xFFC56CFF;
-            case LEGENDARY -> 0xFFFF4F5E;
+    /** 槽内 16x16 的底色 (空料槽里材料淡影的"面纱"色), 与各风格 slot() 的内底一致。 */
+    private static int slotInner(GunsmithTheme theme) {
+        return switch (theme.style()) {
+            case ACADEMY -> 0xE4E9F0;
+            case INDUSTRIAL -> 0x101318;
+            case BLUEPRINT -> 0x123A6C;
         };
     }
 
-    private static int withAlpha(int argb, int alpha) {
-        return (Math.max(0, Math.min(255, alpha)) << 24) | (argb & 0x00FFFFFF);
-    }
-
-    private void renderHoverTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
-        int left = (this.width - W) / 2;
-        int top = (this.height - H) / 2;
-        int platformX = left + PLATFORM_X;
-        int platformY = top + PLATFORM_Y;
-        if (inRect(mouseX, mouseY, platformX, platformY, PLATFORM_W, PLATFORM_H)) {
-            graphics.renderTooltip(this.font,
-                    Component.translatable("screen.miningdim.gunsmith_press.platform_tooltip",
-                            tr(menu.selectedPlatform().labelKey())),
-                    mouseX, mouseY);
-            return;
+    /**
+     * 缩到最小字号仍放不下时截断并补省略号 (英文平台名/型号名远长于中文)。放得下时原样返回同一个对象,
+     * 调用方据此判断"是否截断过"。
+     */
+    private static Component ellipsize(GsPainter p, Component text, float maxW, float scale, boolean bold) {
+        if (p.textWidth(text, scale, bold) <= maxW) {
+            return text;
         }
-        int row = 0;
-        for (GunsmithPressPart part : menu.selectedPlatform().supportedParts()) {
-            int x = left + PART_X;
-            int y = top + PART_Y + row * (PART_H + PART_GAP);
-            if (inRect(mouseX, mouseY, x, y, PART_W, PART_H)) {
-                graphics.renderTooltip(this.font,
-                        Component.translatable("screen.miningdim.gunsmith_press.slot_tooltip",
-                                partQualityName(menu.selectedPlatform(), part, menu.selectedQuality()),
-                                tr(part.roleKey())),
-                        mouseX, mouseY);
-                return;
-            }
-            row++;
+        String full = text.getString();
+        String ellipsis = "…";
+        int end = full.length();
+        while (end > 0 && p.textWidth(full.substring(0, end) + ellipsis, scale, bold) > maxW) {
+            end--;
         }
-        for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
-            int x = left + QUALITY_X + quality.index() * (QUALITY_W + QUALITY_GAP);
-            int y = top + QUALITY_Y;
-            if (inRect(mouseX, mouseY, x, y, QUALITY_W, QUALITY_H)) {
-                graphics.renderTooltip(this.font,
-                        Component.translatable("screen.miningdim.gunsmith_press.quality_tooltip",
-                                platformPartName(menu.selectedPlatform(), menu.selectedPart()),
-                                tr(quality.labelKey())),
-                        mouseX, mouseY);
-                return;
-            }
+        return Component.literal(full.substring(0, end).trim() + ellipsis);
+    }
+
+    /** 倍率显示: 整数不带小数 (1, 4), 其余去掉尾零 (1.5, 2.5)。 */
+    private static String formatMultiplier(double value) {
+        if (Math.abs(value - Math.rint(value)) < 1.0E-9D) {
+            return String.valueOf((long) Math.rint(value));
         }
-        if (GunsmithPartVariant.availableFor(menu.selectedPlatform(), menu.selectedPart()).size() > 1
-                && inRect(mouseX, mouseY, left + VARIANT_X, top + VARIANT_Y, VARIANT_W, VARIANT_H)) {
-            graphics.renderComponentTooltip(this.font, variantTooltipLines(), mouseX, mouseY);
-            return;
+        String s = String.format(Locale.ROOT, "%.2f", value);
+        while (s.endsWith("0")) {
+            s = s.substring(0, s.length() - 1);
         }
-        if (inRect(mouseX, mouseY, left + START_X, top + START_Y, START_W, START_H)) {
-            graphics.renderComponentTooltip(this.font, startTooltipLines(), mouseX, mouseY);
-        }
+        return s.endsWith(".") ? s.substring(0, s.length() - 1) : s;
     }
 
-    /** 型号提示: 名称 + 稀有度 + (未解锁时) 所需军火商等级, 让等级门在备料前就能看见 (审查 29)。 */
-    private List<Component> variantTooltipLines() {
-        GunsmithPartRarity rarity = menu.selectedVariant().rarity();
-        List<Component> lines = new ArrayList<>(3);
-        lines.add(Component.translatable(menu.selectedVariant().labelKey()));
-        lines.add(Component.translatable(rarity.labelKey())
-                .withStyle(Style.EMPTY.withColor(rarity.textColor())));
-        if (!isSelectedVariantUnlocked()) {
-            lines.add(Component.translatableWithFallback(GunsmithPressBlockEntity.RARITY_LOCKED_KEY,
-                            GunsmithPressBlockEntity.RARITY_LOCKED_FALLBACK, selectedVariantUnlockLevel())
-                    .withStyle(Style.EMPTY.withColor(0xFF6B6B)));
-        }
-        return lines;
-    }
+    // ================================================================== self-check
 
-    /** 开始按钮提示: 逐料列出"已有 / 需要", 复活被重写删掉的 material_status 反馈 (审查 80)。 */
-    private List<Component> startTooltipLines() {
-        List<Component> lines = new ArrayList<>(4);
-        lines.add(Component.translatable("tooltip.miningdim.gunsmith_press.start"));
-        appendMaterialStatus(lines, GunsmithPressBlockEntity.SLOT_GUN_PARTS, MATERIAL_KEY_GUN_PARTS);
-        appendMaterialStatus(lines, GunsmithPressBlockEntity.SLOT_ALLOY, MATERIAL_KEY_ALLOY);
-        appendMaterialStatus(lines, GunsmithPressBlockEntity.SLOT_POLYMER, MATERIAL_KEY_POLYMER);
-        return lines;
-    }
-
-    private void appendMaterialStatus(List<Component> lines, int slot, String materialKey) {
-        int required = requiredMaterial(slot);
-        if (required <= 0) {
-            return;
-        }
-        int present = inputCount(slot);
-        lines.add(Component.translatable("screen.miningdim.gunsmith_press.material_status",
-                        Component.translatable(materialKey), present, required)
-                .withStyle(Style.EMPTY.withColor(present >= required ? 0xB8C0CE : 0xFF6B6B)));
-    }
-
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == 0) {
-            int left = (this.width - W) / 2;
-            int top = (this.height - H) / 2;
-            int platformX = left + PLATFORM_X;
-            int platformY = top + PLATFORM_Y;
-            if (inRect(mouseX, mouseY, platformX, platformY, PLATFORM_W, PLATFORM_H)) {
-                int delta = mouseX < platformX + PLATFORM_ARROW_W ? -1 : 1;
-                sendButton(GunsmithPressMenu.BUTTON_PLATFORM_BASE + shiftedPlatformIndex(delta));
-                return true;
-            }
-            int row = 0;
-            for (GunsmithPressPart part : menu.selectedPlatform().supportedParts()) {
-                int x = left + PART_X;
-                int y = top + PART_Y + row * (PART_H + PART_GAP);
-                if (inRect(mouseX, mouseY, x, y, PART_W, PART_H)) {
-                    sendButton(GunsmithPressMenu.BUTTON_PART_BASE + row);
-                    return true;
-                }
-                row++;
-            }
-            for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
-                int x = left + QUALITY_X + quality.index() * (QUALITY_W + QUALITY_GAP);
-                int y = top + QUALITY_Y;
-                if (inRect(mouseX, mouseY, x, y, QUALITY_W, QUALITY_H)) {
-                    sendButton(GunsmithPressMenu.BUTTON_QUALITY_BASE + quality.index());
-                    return true;
-                }
-            }
-            if (GunsmithPartVariant.availableFor(menu.selectedPlatform(), menu.selectedPart()).size() > 1
-                    && inRect(mouseX, mouseY, left + VARIANT_X, top + VARIANT_Y, VARIANT_W, VARIANT_H)) {
-                java.util.List<GunsmithPartVariant> variants = GunsmithPartVariant.availableFor(
-                        menu.selectedPlatform(), menu.selectedPart());
-                int current = variants.indexOf(menu.selectedVariant());
-                int delta = mouseX < left + VARIANT_X + VARIANT_W / 2.0D ? -1 : 1;
-                GunsmithPartVariant next = variants.get(Math.floorMod(current + delta, variants.size()));
-                sendButton(GunsmithPressMenu.BUTTON_VARIANT_BASE + next.index());
-                return true;
-            }
-            if (inRect(mouseX, mouseY, left + START_X, top + START_Y, START_W, START_H)) {
-                sendButton(GunsmithPressMenu.BUTTON_START_PREVIEW);
-                return true;
-            }
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
-    }
-
-    private void sendButton(int id) {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.gameMode != null) {
-            mc.gameMode.handleInventoryButtonClick(menu.containerId, id);
-        }
-    }
-
-    private double minecraftMouseX() {
-        Minecraft mc = Minecraft.getInstance();
-        return mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
-    }
-
-    private double minecraftMouseY() {
-        Minecraft mc = Minecraft.getInstance();
-        return mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight();
-    }
-
-    private String tr(String key) {
-        return Component.translatable(key).getString();
-    }
-
-    private String platformPartName(GunsmithPlatform platform, GunsmithPressPart part) {
-        return tr(platform.labelKey()) + tr(part.labelKey());
-    }
-
-    private String partQualityName(GunsmithPlatform platform, GunsmithPressPart part, GunsmithPartQuality quality) {
-        return platformPartName(platform, part) + " " + tr(quality.labelKey());
-    }
-
-    private int shiftedPlatformIndex(int delta) {
-        int count = GunsmithPlatform.values().length;
-        if (count <= 1) {
-            return menu.selectedPlatformIndex();
-        }
-        return Math.floorMod(menu.selectedPlatformIndex() + delta, count);
-    }
-
-    private void drawScaledText(GuiGraphics graphics, String value, float x, float y, int argb, float scale) {
-        graphics.pose().pushPose();
-        graphics.pose().translate(x, y, 0.0F);
-        graphics.pose().scale(scale, scale, 1.0F);
-        graphics.drawString(this.font, value, 0, 0, argb, false);
-        graphics.pose().popPose();
-    }
-
-    private void drawCenteredScaledText(GuiGraphics graphics, String value, float centerX, float y,
-                                        int argb, float scale) {
-        int width = this.font.width(value);
-        drawScaledText(graphics, value, centerX - width * scale / 2.0F, y, argb, scale);
-    }
-
-    private void drawFittedCenteredText(GuiGraphics graphics, String value, float centerX, float y,
-                                        int maxWidth, int argb, float preferredScale, float minScale) {
-        int width = Math.max(1, this.font.width(value));
-        float scale = Math.min(preferredScale, Math.max(minScale, maxWidth / (float) width));
-        drawCenteredScaledText(graphics, value, centerX, y, argb, scale);
-    }
-
-    private static int playerXpProgressPixels() {
-        int level = playerLevel();
-        long xp = playerShownXp();
-        long levelStart = JobXpCurve.cumulativeXpForLevel(level);
-        long next = playerNextLevelXp();
-        if (level >= JobXpCurve.MAX_LEVEL || next <= levelStart) {
-            return PLAYER_XP_BAR_W;
-        }
-        long insideLevel = Math.max(0L, Math.min(next - levelStart, xp - levelStart));
-        return (int) Math.max(0L, Math.min(PLAYER_XP_BAR_W, insideLevel * PLAYER_XP_BAR_W / (next - levelStart)));
-    }
-
-    private static int playerLevel() {
-        return Math.max(JobXpCurve.MIN_LEVEL, Math.min(JobXpCurve.MAX_LEVEL, ClientJobState.level(JobId.MUNITIONS)));
-    }
-
-    private static long playerShownXp() {
-        return Math.max(0L, Math.min(JobXpCurve.GRADUATION_XP, ClientJobState.xp(JobId.MUNITIONS)));
-    }
-
-    private static long playerNextLevelXp() {
-        int level = playerLevel();
-        if (level >= JobXpCurve.MAX_LEVEL) {
-            return JobXpCurve.GRADUATION_XP;
-        }
-        return JobXpCurve.cumulativeXpForLevel(level + 1);
-    }
-
-    private static String formatTicks(int ticks) {
-        int seconds = Math.max(1, (ticks + 19) / 20);
-        int minutes = seconds / 60;
-        int remainSeconds = seconds % 60;
-        return minutes + ":" + (remainSeconds < 10 ? "0" : "") + remainSeconds;
-    }
-
-    private static boolean inRect(double mx, double my, int x, int y, int w, int h) {
-        return mx >= x && mx < x + w && my >= y && my < y + h;
-    }
-
-    /** 逐一比对 36 个背包槽的原版判定盒 (槽 x-1,y-1 起 18x18) 与型号条矩形, 相交即抛。 */
-    private static void assertVariantBarClearOfPlayerInventory() {
+    /**
+     * 逐一比对 onScreenClick 里所有可能出现的可点矩形 (9 个平台行、任一平台的部件卡、任一平台/部件组合的型号行、
+     * 5 个品质钮、开始按钮) 与 36 个背包槽 + 4 个容器槽的原版判定盒 (槽 x-1, y-1 起 18x18), 相交即抛。
+     * 这些矩形在 super.mouseClicked 之前就吞掉左键, 一旦压到槽位, 那个槽就点不动了。
+     */
+    private static void assertClickTargetsClearOfSlots() {
+        List<int[]> slotBoxes = new ArrayList<>();
         for (int row = 0; row < 4; row++) {
+            // 与 AbstractMiningMenu.addPlayerInventory 一致: 18px 槽距, 快捷栏在主背包下方再隔 4px。
             int slotY = row < 3
-                    ? PLAYER_INV_ORIGIN_Y + row * PLAYER_SLOT_PX
-                    : PLAYER_INV_ORIGIN_Y + 3 * PLAYER_SLOT_PX + PLAYER_HOTBAR_GAP;
+                    ? GunsmithPressMenu.PLAYER_INV_Y + row * 18
+                    : GunsmithPressMenu.PLAYER_INV_Y + 3 * 18 + 4;
             for (int col = 0; col < 9; col++) {
-                int slotX = PLAYER_INV_ORIGIN_X + col * PLAYER_SLOT_PX;
-                if (VARIANT_X < slotX + 17 && slotX - 1 < VARIANT_X + VARIANT_W
-                        && VARIANT_Y < slotY + 17 && slotY - 1 < VARIANT_Y + VARIANT_H) {
-                    throw new IllegalStateException(
-                            "gunsmith press variant bar overlaps the player inventory slot at ("
-                                    + slotX + "," + slotY + ")");
+                slotBoxes.add(new int[]{GunsmithPressMenu.PLAYER_INV_X + col * 18 - 1, slotY - 1, 18, 18});
+            }
+        }
+        for (int slot = 0; slot < GunsmithPressBlockEntity.SLOT_COUNT; slot++) {
+            slotBoxes.add(new int[]{GunsmithPressMenu.containerSlotX(slot) - 1,
+                    GunsmithPressMenu.containerSlotY(slot) - 1, 18, 18});
+        }
+
+        List<int[]> targets = new ArrayList<>();
+        int maxVariants = 0;
+        for (int i = 0; i < GunsmithPlatform.values().length; i++) {
+            targets.add(new int[]{PLAT_X, platformRowY(i), PLAT_W, PLAT_H});
+        }
+        for (GunsmithPlatform platform : GunsmithPlatform.values()) {
+            List<GunsmithPressPart> parts = List.copyOf(platform.supportedParts());
+            for (int i = 0; i < parts.size(); i++) {
+                targets.add(new int[]{partCardX(parts.size(), i), PART_Y, PART_W, PART_H});
+                maxVariants = Math.max(maxVariants, GunsmithPartVariant.availableFor(platform, parts.get(i)).size());
+            }
+        }
+        for (int i = 0; i < maxVariants; i++) {
+            targets.add(new int[]{VAR_X, variantRowY(i), VAR_W, VAR_H});
+        }
+        for (int i = 0; i < GunsmithPartQuality.values().length; i++) {
+            targets.add(new int[]{qualityX(i), QUAL_Y, QUAL_W, QUAL_H});
+        }
+        targets.add(new int[]{START_X, START_Y, START_W, START_H});
+
+        for (int[] t : targets) {
+            for (int[] s : slotBoxes) {
+                if (t[0] < s[0] + s[2] && s[0] < t[0] + t[2] && t[1] < s[1] + s[3] && s[1] < t[1] + t[3]) {
+                    throw new IllegalStateException("gunsmith press click target (" + t[0] + "," + t[1] + " "
+                            + t[2] + "x" + t[3] + ") overlaps the slot hit box at (" + (s[0] + 1) + ","
+                            + (s[1] + 1) + ")");
                 }
             }
         }

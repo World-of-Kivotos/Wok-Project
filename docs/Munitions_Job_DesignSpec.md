@@ -30,7 +30,7 @@
 
 - TACZ 弹药 = 单一 `tacz:ammo` 物品,口径存 `AmmoId` NBT。**用公共 API `AmmoItemBuilder.create().setId(口径).setCount(N).build()` 直接产出合法弹药 ItemStack**,无需 mixin、无需 TACZ 配方系统。
 - 服务器禁用 TACZ 默认 `gun_smith_table_crafting` 弹药/枪械配方(维持买断),军火商的**军火台**是唯一搓弹入口。
-- **GUI 为自研贴图**(`MunitionsBenchScreen` 引用 `miningdim:textures/gui/container/` 下的 munitions_bench.png、munitions_ui_font.png、munitions_titles.png、munitions_ammo_profiles.png 共四张)。世界方块走自建 block+BE。世界模型同为自研 GeckoLib 骨骼模型(六档各一套 geo + 512x512 调色板图集,由 `tools/generate_munitions_bench_geckolib_assets.py` 确定性生成)。GUI 与世界模型均不再引用任何 TACZ 资源,对 TACZ 的依赖只剩运行期弹药物化 API(`AmmoItemBuilder`);原先"复用 TACZ 制枪台贴图 → 不触再分发协议"的论据已随自研贴图落地而失效。
+- **GUI 为自研绘制**(军火台 `MunitionsBenchScreen` 与冲压机 `GunsmithPressScreen` 共用 `job/munitions/client/style` 的三种界面风格 学园终端 / 产线工控 / 蓝图工程, 底图运行时生成, 风格是每个玩家自己的客户端设置 `miningdim-munitions-client.toml` 的 `[gunsmith_ui] style`; 仍引用的自有贴图只有学园/工控风格口径展示用的 `miningdim:textures/gui/container/munitions_ammo_profiles.png`, munitions_bench.png 只作基类要求的占位底图, munitions_ui_font.png、munitions_titles.png 已无代码引用)。世界方块走自建 block+BE。世界模型同为自研 GeckoLib 骨骼模型(六档各一套 geo + 512x512 调色板图集,由 `tools/generate_munitions_bench_geckolib_assets.py` 确定性生成)。GUI 与世界模型均不再引用任何 TACZ 资源,对 TACZ 的依赖只剩运行期弹药物化 API(`AmmoItemBuilder`);原先"复用 TACZ 制枪台贴图 → 不触再分发协议"的论据已随自研贴图落地而失效。
 
 ### 3A. 枪械配件冲压补充（WIP）
 

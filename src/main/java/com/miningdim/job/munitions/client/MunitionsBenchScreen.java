@@ -1,61 +1,63 @@
 package com.miningdim.job.munitions.client;
 
 import com.miningdim.core.MiningConstants;
-import com.miningdim.job.ClientJobState;
-import com.miningdim.job.JobId;
-import com.miningdim.job.JobXpCurve;
+import com.miningdim.job.munitions.ModMunitionsItems;
+import com.miningdim.job.munitions.MunitionsAmmoFactory;
 import com.miningdim.job.munitions.MunitionsCaliber;
+import com.miningdim.job.munitions.MunitionsConfig;
 import com.miningdim.job.munitions.MunitionsLevels;
+import com.miningdim.job.munitions.MunitionsProduction;
+import com.miningdim.job.munitions.block.MunitionsBenchBlockEntity;
+import com.miningdim.job.munitions.client.style.GsPainter;
+import com.miningdim.job.munitions.client.style.GunsmithStyledScreen;
+import com.miningdim.job.munitions.client.style.GunsmithTheme;
+import com.miningdim.job.munitions.client.style.GunsmithTheme.BarKind;
+import com.miningdim.job.munitions.client.style.GunsmithTheme.ButtonKind;
+import com.miningdim.job.munitions.client.style.GunsmithTheme.State;
+import com.miningdim.job.munitions.client.style.GunsmithUi;
 import com.miningdim.job.munitions.menu.MunitionsBenchMenu;
-import com.miningdim.menu.AbstractMiningScreen;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.PlayerFaceRenderer;
-import net.minecraft.client.resources.language.I18n;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
-import org.lwjgl.glfw.GLFW;
+import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.ItemStack;
 
+import javax.annotation.Nullable;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
-public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBenchMenu> {
+import static com.miningdim.job.munitions.client.style.GsPainter.BOLD;
+import static com.miningdim.job.munitions.client.style.GsPainter.CENTER;
+import static com.miningdim.job.munitions.client.style.GsPainter.RIGHT;
+import static com.miningdim.job.munitions.client.style.GunsmithUi.inRect;
 
-    private static final ResourceLocation BG =
+/**
+ * 军火台 (弹药制造) 界面, 360x240, 按已定稿的设计预览 drawBench / drawCancelDialog 逐块移植:
+ * <ul>
+ *   <li>左上 产线参数: 产能 / 每批产出 / 单批耗时 / 缓冲上限 / 工费 / 电费 / 发射药 (直造 / 提炼);</li>
+ *   <li>中上 类别页签 + 该类口径卡 (图标是真弹药物品; 点页签只切换本地查看的类别, 点已解锁口径卡发选口径按钮);</li>
+ *   <li>中间 口径展示 + 名称 / 售价 + 本批进度;</li>
+ *   <li>右上 四种原料 (每批用量, 不够标红) + 内部电池;</li>
+ *   <li>左下 控制: 开始 / 停止 (停止先弹确认框) + 单次 / 连续 + 上锁状态;</li>
+ *   <li>右下 产出槽 + 缓冲。</li>
+ * </ul>
+ * 风格 (学园 / 工控 / 蓝图)、标题栏、操作员块、风格面板与浮层输入规则都在 {@link GunsmithStyledScreen}。
+ * 取消确认框走基类的模态框钩子: 打开时任何点击、按键、滚轮都到不了下面的格子和按钮。
+ *
+ * 所有数值来自 Menu 同步值与 {@link MunitionsConfig} (服务端配置, 已同步到客户端), 与服务端判定同一套公式;
+ * "为什么不能开工" 只是提示, 真正的门仍在服务端重校。
+ */
+public final class MunitionsBenchScreen extends GunsmithStyledScreen<MunitionsBenchMenu> {
+
+    /** 基类要求非空的底图 (新界面不画它, 底图由风格运行时生成)。 */
+    private static final ResourceLocation FALLBACK_BACKGROUND =
             new ResourceLocation(MiningConstants.MODID, "textures/gui/container/munitions_bench.png");
-    private static final ResourceLocation UI_FONT =
-            new ResourceLocation(MiningConstants.MODID, "textures/gui/container/munitions_ui_font.png");
-    private static final ResourceLocation TITLES =
-            new ResourceLocation(MiningConstants.MODID, "textures/gui/container/munitions_titles.png");
-    private static final ResourceLocation AMMO_PROFILES =
-            new ResourceLocation(MiningConstants.MODID, "textures/gui/container/munitions_ammo_profiles.png");
-
-    private static final int W = 360;
-    private static final int H = 240;
-    private static final int TEXTURE_SCALE = 3;
-    private static final int TEX_W = W * TEXTURE_SCALE;
-    private static final int TEX_H = H * TEXTURE_SCALE;
-    private static final int TITLE_W = 220;
-    private static final int TITLE_H = 32;
-    private static final int TITLE_SRC_W = TITLE_W * TEXTURE_SCALE;
-    private static final int TITLE_SRC_H = TITLE_H * TEXTURE_SCALE;
-    private static final int TITLE_TEX_W = TITLE_SRC_W;
-    private static final int TITLE_TEX_H = TITLE_SRC_H * 11;
-    private static final int AMMO_PROFILE_W = 154;
-    private static final int AMMO_PROFILE_H = 40;
-    private static final int AMMO_PROFILE_SRC_W = AMMO_PROFILE_W * TEXTURE_SCALE;
-    private static final int AMMO_PROFILE_SRC_H = AMMO_PROFILE_H * TEXTURE_SCALE;
-    private static final int AMMO_PROFILE_TEX_W = AMMO_PROFILE_SRC_W;
-    private static final int AMMO_PROFILE_TEX_H = AMMO_PROFILE_SRC_H * 10;
-    private static final String SMOOTH_GLYPHS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_/:.- ";
-    private static final int GLYPH_W = 6;
-    private static final int GLYPH_H = 8;
-    private static final int GLYPH_ADVANCE = 5;
-    private static final int GLYPH_TEXTURE_SCALE = 4;
-    private static final int GLYPH_SRC_W = GLYPH_W * GLYPH_TEXTURE_SCALE;
-    private static final int GLYPH_SRC_H = GLYPH_H * GLYPH_TEXTURE_SCALE;
-    private static final int GLYPH_TEX_W = SMOOTH_GLYPHS.length() * GLYPH_SRC_W;
-    private static final int GLYPH_TEX_H = GLYPH_SRC_H;
+    private static final String KEY = "screen.miningdim.munitions_bench.";
 
     private static final MunitionsCaliber.Category[] CATEGORY_ORDER = {
             MunitionsCaliber.Category.PISTOL,
@@ -64,1064 +66,773 @@ public final class MunitionsBenchScreen extends AbstractMiningScreen<MunitionsBe
             MunitionsCaliber.Category.SNIPER,
             MunitionsCaliber.Category.EXPLOSIVE
     };
-    private static final int SELECTOR_ROWS = 5;
-    private static final int CATEGORY_BTN_X = 30;
-    private static final int SUBCALIBER_BTN_X = 56;
-    private static final int CAL_BTN_Y = 102;
-    private static final int CAL_BTN_W = 22;
-    private static final int CAL_BTN_H = 12;
-    private static final int CAL_BTN_Y_GAP = 1;
+    /** 每个类别下的口径 (枚举顺序)。 */
+    private static final Map<MunitionsCaliber.Category, List<MunitionsCaliber>> CALIBERS = calibersByCategory();
 
-    private static final int PLAYER_FACE_X = 31;
-    private static final int PLAYER_FACE_Y = 46;
-    private static final int PLAYER_FACE_SIZE = 18;
-    private static final int PLAYER_XP_BAR_X = 31;
-    private static final int PLAYER_XP_BAR_Y = 74;
-    private static final int PLAYER_XP_BAR_W = 49;
-    private static final int PLAYER_XP_BAR_H = 3;
-    private static final int PLAYER_XP_HOVER_PAD = 3;
+    // ---- 左上: 产线参数
+    private static final int PARAM_X = 8;
+    private static final int PARAM_Y = 30;
+    private static final int PARAM_W = 84;
+    private static final int PARAM_H = 112;
+    private static final int PARAM_ROW_X = 14;
+    private static final int PARAM_ROW_Y = 45;
+    private static final int PARAM_ROW_PITCH = 13;
+    private static final int PARAM_ROW_W = 72;
+    /** 发射药那一行的提示命中区 (预览 hit(8, 30 + 13 + 6 * 13, 84, 13))。 */
+    private static final int PROPELLANT_TIP_Y = PARAM_Y + PARAM_ROW_PITCH + 6 * PARAM_ROW_PITCH;
 
-    private static final int SLOT_PRIMER_X = 296;
-    private static final int SLOT_PRIMER_Y = 158;
-    private static final int SLOT_CASING_X = 322;
-    private static final int SLOT_CASING_Y = 158;
-    private static final int SLOT_BULLET_HEAD_X = 296;
-    private static final int SLOT_BULLET_HEAD_Y = 184;
-    private static final int SLOT_PROPELLANT_X = 322;
-    private static final int SLOT_PROPELLANT_Y = 184;
+    // ---- 中上: 类别页签 + 口径卡
+    private static final int TAB_X = 99;
+    private static final int TAB_Y = 30;
+    private static final int TAB_W = 32;
+    private static final int TAB_H = 12;
+    private static final int TAB_PITCH = 33;
+    private static final int CARD_X = 99;
+    private static final int CARD_Y = 45;
+    private static final int CARD_H = 25;
+    private static final int CARD_PITCH = 33;
+    /** 一排最多按标准宽度放 5 张; 更多时按这块宽度均分 (合入更多口径后不重叠)。 */
+    private static final int CARDS_AT_FULL_WIDTH = 5;
+    private static final int CARD_AREA_W = 165;
 
-    private static final int BAR_X = 96;
-    private static final int BAR_Y = 139;
-    private static final int BAR_W = 172;
-    private static final int BAR_H = 5;
-    private static final int BUFFER_COUNT_X = 320;
-    private static final int BUFFER_COUNT_Y = 130;
-    private static final int CRAFT_CONTROL_BACKDROP_X = 24;
-    private static final int CRAFT_CONTROL_BACKDROP_Y = 190;
-    private static final int CRAFT_CONTROL_BACKDROP_W = 54;
-    private static final int CRAFT_CONTROL_BACKDROP_H = 38;
-    private static final int CRAFT_BUTTON_X = 29;
-    private static final int CRAFT_BUTTON_Y = 196;
-    private static final int CRAFT_BUTTON_W = 44;
-    private static final int CRAFT_BUTTON_H = 15;
-    private static final int CRAFT_MODE_BUTTON_X = 29;
-    private static final int CRAFT_MODE_BUTTON_Y = 214;
-    private static final int CRAFT_MODE_BUTTON_W = 44;
-    private static final int CRAFT_MODE_BUTTON_H = 10;
-    private static final int CANCEL_DIALOG_W = 150;
-    private static final int CANCEL_DIALOG_H = 72;
-    private static final int CANCEL_DIALOG_X = (W - CANCEL_DIALOG_W) / 2;
-    private static final int CANCEL_DIALOG_Y = 80;
-    private static final int CANCEL_CONFIRM_X = CANCEL_DIALOG_X + 18;
-    private static final int CANCEL_KEEP_X = CANCEL_DIALOG_X + 80;
-    private static final int CANCEL_BUTTON_Y = CANCEL_DIALOG_Y + 48;
-    private static final int CANCEL_BUTTON_W = 52;
-    private static final int CANCEL_BUTTON_H = 14;
-    private static final int STATUS_LAMP_Y = 20;
-    private static final int[] STATUS_LAMP_X = {28, 43, 58};
-    private static final int[] STATUS_LAMP_DIM = {0xFF7F3034, 0xFF7D5B2E, 0xFF2F6F4C};
-    private static final int[] STATUS_LAMP_BASE = {0xFFE05258, 0xFFE2A53F, 0xFF43BC6E};
-    private static final int[] STATUS_LAMP_BRIGHT = {0xFFFF747D, 0xFFFFD569, 0xFF74F79F};
-    private static final int[] STATUS_LAMP_GLOW = {0x44FF424C, 0x44FFC64D, 0x4455F091};
-    private static final int SEARCH_BUTTON_X = 314;
-    private static final int SEARCH_BUTTON_Y = 20;
-    private static final int SEARCH_BUTTON_W = 24;
-    private static final int SEARCH_BUTTON_H = 24;
-    private static final int SEARCH_PANEL_X = 205;
-    private static final int SEARCH_PANEL_Y = 45;
-    private static final int SEARCH_PANEL_W = 116;
-    private static final int SEARCH_PANEL_H = 87;
-    private static final int SEARCH_FIELD_X = SEARCH_PANEL_X + 7;
-    private static final int SEARCH_FIELD_Y = SEARCH_PANEL_Y + 8;
-    private static final int SEARCH_FIELD_W = SEARCH_PANEL_W - 14;
-    private static final int SEARCH_FIELD_H = 14;
-    private static final int SEARCH_RESULT_X = SEARCH_PANEL_X + 7;
-    private static final int SEARCH_RESULT_Y = SEARCH_PANEL_Y + 27;
-    private static final int SEARCH_RESULT_W = SEARCH_PANEL_W - 14;
-    private static final int SEARCH_RESULT_H = 11;
-    private static final int SEARCH_RESULT_GAP = 2;
-    private static final int SEARCH_MAX_RESULTS = 5;
-    private static final int SEARCH_QUERY_MAX = 18;
+    // ---- 中间: 口径展示 + 进度
+    private static final int SHOW_PANEL_X = 99;
+    private static final int SHOW_PANEL_Y = 73;
+    private static final int SHOW_PANEL_W = 164;
+    private static final int SHOW_PANEL_H = 69;
+    private static final int SHOWCASE_X = 100;
+    private static final int SHOWCASE_Y = 74;
+    private static final int SHOWCASE_W = 162;
+    private static final int SHOWCASE_H = 42;
+    private static final int INFO_X = 105;
+    private static final int INFO_RIGHT = 257;
+    private static final int INFO_W = INFO_RIGHT - INFO_X;
 
-    private MunitionsCaliber.Category selectedCategory;
+    // ---- 右侧两块面板共用的文字列
+    private static final int SIDE_PANEL_X = 270;
+    private static final int SIDE_PANEL_W = 82;
+    private static final int SIDE_TEXT_X = 276;
+    private static final int SIDE_TEXT_RIGHT = 346;
+    private static final int SIDE_TEXT_W = SIDE_TEXT_RIGHT - SIDE_TEXT_X;
+
+    // ---- 右上: 原料 + 电力
+    private static final int MATERIAL_PANEL_Y = 30;
+    private static final int MATERIAL_PANEL_H = 112;
+    private static final int MATERIAL_LABEL_W = 40;
+    private static final int POWER_TIP_Y = 104;
+    private static final int POWER_TIP_H = 36;
+
+    // ---- 左下: 控制
+    private static final int CONTROL_X = 8;
+    private static final int CONTROL_Y = 146;
+    private static final int CONTROL_W = 84;
+    private static final int CONTROL_H = 86;
+    private static final int START_X = 14;
+    private static final int START_Y = 160;
+    private static final int START_W = 72;
+    private static final int START_H = 22;
+    private static final int SEG_X = 14;
+    private static final int SEG_Y = 189;
+    private static final int SEG_W = 72;
+    private static final int SEG_H = 12;
+
+    // ---- 右下: 产出
+    private static final int OUTPUT_PANEL_Y = 146;
+    private static final int OUTPUT_PANEL_H = 86;
+
+    // ---- 取消确认框
+    private static final int DIALOG_X = 105;
+    private static final int DIALOG_Y = 80;
+    private static final int DIALOG_W = 150;
+    private static final int DIALOG_H = 72;
+    private static final int DIALOG_CONFIRM_X = 120;
+    private static final int DIALOG_KEEP_X = 184;
+    private static final int DIALOG_BUTTON_Y = 124;
+    private static final int DIALOG_BUTTON_W = 56;
+    private static final int DIALOG_BUTTON_H = 16;
+
+    // ---- 四种原料 (料槽下标与 BE 槽位一致; 坐标与 Menu 同源)
+    private static final int MATERIAL_COUNT = 4;
+    private static final int[] MATERIAL_SLOT = {
+            MunitionsBenchBlockEntity.SLOT_PRIMER,
+            MunitionsBenchBlockEntity.SLOT_CASING,
+            MunitionsBenchBlockEntity.SLOT_BULLET_HEAD,
+            MunitionsBenchBlockEntity.SLOT_PROPELLANT
+    };
+    private static final int[] MATERIAL_X = {
+            MunitionsBenchMenu.SLOT_PRIMER_X,
+            MunitionsBenchMenu.SLOT_CASING_X,
+            MunitionsBenchMenu.SLOT_BULLET_HEAD_X,
+            MunitionsBenchMenu.SLOT_PROPELLANT_X
+    };
+    private static final int[] MATERIAL_Y = {
+            MunitionsBenchMenu.SLOT_PRIMER_Y,
+            MunitionsBenchMenu.SLOT_CASING_Y,
+            MunitionsBenchMenu.SLOT_BULLET_HEAD_Y,
+            MunitionsBenchMenu.SLOT_PROPELLANT_Y
+    };
+    private static final String[] MATERIAL_KEY = {"primer", "casing", "bullet_head", "propellant"};
+
+    /** 玩家在本界面里看的类别 (纯客户端; null = 跟随选中口径的类别)。 */
+    @Nullable
+    private MunitionsCaliber.Category viewedCategory;
+    /** 点了"停止制造", 等玩家确认。 */
     private boolean confirmingCancel;
-    private boolean searchOpen;
-    private String searchQuery = "";
-    private int categoryScrollOffset;
-    private int caliberScrollOffset;
-    private int searchScrollOffset;
+    /** 口径卡图标: 真弹药物品 (TACZ 未加载时为空, 不画)。按口径缓存, 不每帧构造。 */
+    private final Map<MunitionsCaliber, ItemStack> ammoIcons = new EnumMap<>(MunitionsCaliber.class);
+    /** 空料槽里的淡色原料剪影。 */
+    @Nullable
+    private ItemStack[] materialGhosts;
 
     public MunitionsBenchScreen(MunitionsBenchMenu menu, Inventory inv, Component title) {
-        super(menu, inv, title, BG, W, H);
-        this.titleLabelX = 0;
-        this.titleLabelY = 0;
-        this.inventoryLabelX = 0;
-        this.inventoryLabelY = 0;
+        super(menu, inv, title, FALLBACK_BACKGROUND);
     }
 
-    @Override
-    protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
-        int x = (this.width - W) / 2;
-        int y = (this.height - H) / 2;
-        graphics.blit(BG, x, y, W, H, 0.0F, 0.0F, TEX_W, TEX_H, TEX_W, TEX_H);
-        renderDynamicContent(graphics, x, y);
+    // ================================================================== per-frame model
+
+    /**
+     * 一帧用到的全部数据 (渲染、提示、点击共用同一份计算)。
+     *
+     * @param selected 服务端选中的口径 (null = 还没选)
+     * @param shown    展示区显示的口径 (没选时退回手枪弹, 与旧界面一致)
+     * @param blocker  现在不能开工的原因 (null = 可以开工)
+     */
+    private record Model(int level, @Nullable MunitionsCaliber selected, MunitionsCaliber shown,
+                         MunitionsCaliber.Category viewed, int perBatch, long batchTicks,
+                         int buffered, int bufferCap, int feBatch, long fe, long feCap,
+                         boolean running, boolean continuous, int requiredTicks, int progressTicks,
+                         int[] have, int[] need, int materialBatches, @Nullable Component blocker) {
+
+        float progress() {
+            if (!running || requiredTicks <= 0) {
+                return 0.0F;
+            }
+            return Math.max(0.0F, Math.min(1.0F, progressTicks / (float) requiredTicks));
+        }
+
+        long remainingTicks() {
+            return Math.max(0L, (long) requiredTicks - progressTicks);
+        }
+
+        long powerBatches() {
+            return feBatch <= 0 ? 0L : fe / feBatch;
+        }
+
+        int batchesUntilFull() {
+            return perBatch <= 0 ? 0 : Math.max(0, bufferCap - buffered) / perBatch;
+        }
     }
 
-    @Override
-    protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
+    private Model model() {
+        int level = menu.effectiveMunitionsLevel();
+        MunitionsCaliber selected = selectedCaliber();
+        MunitionsCaliber shown = selected != null ? selected : MunitionsCaliber.PISTOL;
+        MunitionsCaliber.Category viewed = viewedCategory != null ? viewedCategory : shown.category();
+        int perBatch = MunitionsProduction.roundsPerBatch(shown, level);
+        long batchTicks = batchTicks(shown, level, perBatch);
+        int buffered = Math.max(0, menu.bufferedRounds());
+        int bufferCap = Math.max(0, menu.bufferCap());
+        int feBatch = MunitionsProduction.feCostPerBatch(level);
+        long fe = menu.storedEnergyFe();
+        long feCap = menu.energyCapacityFe();
+        boolean running = menu.isCraftingActive();
+        int required = Math.max(0, menu.productionRequiredTicks());
+        int progress = Math.max(0, Math.min(required, menu.productionProgressTicks()));
+        int[] have = new int[MATERIAL_COUNT];
+        int[] need = new int[MATERIAL_COUNT];
+        int materialBatches = Integer.MAX_VALUE;
+        for (int i = 0; i < MATERIAL_COUNT; i++) {
+            have[i] = materialCount(i);
+            need[i] = Math.max(1, materialCost(i));
+            materialBatches = Math.min(materialBatches, have[i] / need[i]);
+        }
+        Component blocker = startBlocker(level, selected, perBatch, buffered, bufferCap, feBatch, fe,
+                materialBatches);
+        return new Model(level, selected, shown, viewed, perBatch, batchTicks, buffered, bufferCap, feBatch, fe,
+                feCap, running, menu.isContinuousCrafting(), required, progress, have, need, materialBatches,
+                blocker);
     }
 
+    /**
+     * 与服务端 tryStartCraft 同序的开工门 (预览 benchCanStart), 只作按钮置灰与提示。
+     * 台主身份与缓冲口径是否一致客户端看不到, 仍由服务端把关。
+     */
+    @Nullable
+    private static Component startBlocker(int level, @Nullable MunitionsCaliber selected, int perBatch,
+                                          int buffered, int bufferCap, int feBatch, long fe, int materialBatches) {
+        if (selected == null) {
+            return tr("why.no_caliber");
+        }
+        if (!MunitionsLevels.isCaliberUnlocked(level, selected)) {
+            return tr("why.level", selected.unlockLevel());
+        }
+        if (materialBatches < 1) {
+            return tr("why.materials");
+        }
+        // 电量按 kFE 同步 (向下取整), 只有差出一个同步单位以上才算确定不够, 不误拦服务端会放行的开工。
+        if (fe + MunitionsBenchBlockEntity.ENERGY_SYNC_UNIT_FE - 1 < feBatch) {
+            return tr("why.power", GunsmithUi.formatMegaFe(feBatch));
+        }
+        if (buffered + perBatch > bufferCap) {
+            return tr("why.buffer");
+        }
+        return null;
+    }
+
+    /** 与 BE productionRequiredTicksFor 同一公式: ceil(每批发数 / 缩产系数) × 每发 tick。 */
+    private static long batchTicks(MunitionsCaliber caliber, int level, int perBatch) {
+        long rifleRounds = Math.max(1L, (long) Math.ceil(perBatch / caliber.yieldFactor()));
+        return rifleRounds * MunitionsProduction.ticksPerRound(level);
+    }
+
+    @Nullable
+    private MunitionsCaliber selectedCaliber() {
+        int index = menu.selectedCaliberIndex();
+        if (index < 0) {
+            return null;
+        }
+        for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
+            if (caliber.index() == index) {
+                return caliber;
+            }
+        }
+        return null;
+    }
+
+    /** 容器自己的槽 (BE 缺失时 Menu 不加容器槽, 此时返回 null, 不误读玩家背包槽)。 */
+    @Nullable
+    private Slot containerSlot(int index) {
+        if (index < 0 || index >= menu.slots.size()) {
+            return null;
+        }
+        Slot slot = menu.slots.get(index);
+        return slot.container instanceof Inventory ? null : slot;
+    }
+
+    private int materialCount(int i) {
+        Slot slot = containerSlot(MATERIAL_SLOT[i]);
+        return slot == null ? 0 : slot.getItem().getCount();
+    }
+
+    private static int materialCost(int i) {
+        return switch (i) {
+            case 0 -> MunitionsConfig.RECIPE_PRIMER_COST.get();
+            case 1 -> MunitionsConfig.RECIPE_CASING_COST.get();
+            case 2 -> MunitionsConfig.RECIPE_BULLET_HEAD_COST.get();
+            default -> MunitionsConfig.RECIPE_PROPELLANT_COST.get();
+        };
+    }
+
+    // ================================================================== header
+
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        super.render(graphics, mouseX, mouseY, partialTick);
-        renderMunitionsXpTooltip(graphics, mouseX, mouseY);
+    protected GunsmithTheme.Header header() {
+        int level = menu.effectiveMunitionsLevel();
+        MunitionsCaliber selected = selectedCaliber();
+        MunitionsCaliber shown = selected != null ? selected : MunitionsCaliber.PISTOL;
+        return new GunsmithTheme.Header(tr("title"), tr("title_en"), GunsmithUi.tierBadge(level), tr("subtitle"),
+                "WOK-MUN-" + shown.defaultAmmoPath().toUpperCase(Locale.ROOT), menu.isCraftingActive(), level);
+    }
+
+    // ================================================================== main layer
+
+    @Override
+    protected void renderScreen(GsPainter p, GunsmithTheme t) {
+        // 批次在确认框打开期间自己结束了: 收起确认, 下次开工不会凭旧状态直接弹框。
         if (!menu.isCraftingActive()) {
             confirmingCancel = false;
         }
-        if (confirmingCancel) {
-            renderCancelCraftDialog(graphics);
-        }
+        Model m = model();
+        renderParameters(p, t, m);
+        renderSelector(p, t, m);
+        renderShowcase(p, t, m);
+        renderMaterials(p, t, m);
+        renderControls(p, t, m);
+        renderOutput(p, t, m);
+        drawPlayerInventorySlots(p, t);
     }
 
-    private void renderDynamicContent(GuiGraphics graphics, int left, int top) {
-        renderRunningIndicators(graphics, left, top);
-        renderFactoryTitle(graphics, left, top);
-        renderPlayerInfo(graphics, left, top);
-        renderAmmoPreview(graphics, left, top);
-        renderCaliberTabs(graphics, left, top);
-        renderAmmoInfo(graphics, left, top);
-        renderProductionProgress(graphics, left, top);
-        renderOutputPanel(graphics, left, top);
-        renderMaterialInputs(graphics, left, top);
-        renderLockState(graphics, left, top);
-        renderCraftControls(graphics, left, top);
-        renderSearchPanel(graphics, left, top);
-    }
-
-    private void renderRunningIndicators(GuiGraphics graphics, int left, int top) {
-        if (!menu.isCraftingActive()) {
-            return;
-        }
-        long now = System.currentTimeMillis();
-        renderStatusLamps(graphics, left, top, now);
-        renderMovingStrip(graphics, left + 84, top + 8, 254, 2, now, 0);
-        renderMovingStrip(graphics, left + 96, top + 54, 184, 2, now, 70);
-        renderMovingStrip(graphics, left + 95, top + 126, 174, 2, now, 140);
-        renderMovingStrip(graphics, left + 95, top + 144, 174, 2, now, 210);
-        renderMovingStrip(graphics, left + 280, top + 228, 54, 2, now, 280);
-    }
-
-    private static void renderStatusLamps(GuiGraphics graphics, int left, int top, long now) {
-        int active = (int) ((now / 170L) % STATUS_LAMP_X.length);
-        int soft = (active + STATUS_LAMP_X.length - 1) % STATUS_LAMP_X.length;
-        for (int i = 0; i < STATUS_LAMP_X.length; i++) {
-            int color = i == active ? STATUS_LAMP_BRIGHT[i] : i == soft ? STATUS_LAMP_BASE[i] : STATUS_LAMP_DIM[i];
-            int glow = i == active ? STATUS_LAMP_GLOW[i] : 0x00000000;
-            renderStatusLamp(graphics, left + STATUS_LAMP_X[i], top + STATUS_LAMP_Y, color, glow, i == active);
-        }
-    }
-
-    private static void renderStatusLamp(GuiGraphics graphics, int cx, int cy, int color, int glow, boolean bright) {
-        if (bright) {
-            graphics.fill(cx - 7, cy - 5, cx + 8, cy + 6, glow);
-            graphics.fill(cx - 5, cy - 7, cx + 6, cy + 8, glow);
-        }
-        graphics.fill(cx - 3, cy - 5, cx + 4, cy + 6, 0x66000000);
-        graphics.fill(cx - 5, cy - 3, cx + 6, cy + 4, 0x66000000);
-        graphics.fill(cx - 3, cy - 4, cx + 4, cy + 5, color);
-        graphics.fill(cx - 4, cy - 3, cx + 5, cy + 4, color);
-        graphics.fill(cx - 2, cy - 4, cx + 2, cy - 3, bright ? 0xAAFFFFFF : 0x55FFFFFF);
-    }
-
-    private static void renderMovingStrip(GuiGraphics graphics, int x, int y, int w, int h, long now, int offset) {
-        graphics.fill(x, y, x + w, y + h, 0x332ED8BF);
-        int span = Math.max(18, w / 5);
-        int travel = w + span * 2;
-        int head = (int) (((now / 10L + offset) % travel) - span);
-        fillClipped(graphics, x + head - span / 2, y, span / 2, h, x, x + w, 0x4459FFE0);
-        fillClipped(graphics, x + head, y, span, h, x, x + w, 0xDD78FFE7);
-        fillClipped(graphics, x + head + span, y, span / 2, h, x, x + w, 0x6652E8D1);
-    }
-
-    private static void fillClipped(GuiGraphics graphics, int x, int y, int w, int h,
-                                    int minX, int maxX, int argb) {
-        int start = Math.max(x, minX);
-        int end = Math.min(x + w, maxX);
-        if (start < end) {
-            graphics.fill(start, y, end, y + h, argb);
-        }
-    }
-
-    private void renderCaliberTabs(GuiGraphics graphics, int left, int top) {
-        int level = menu.effectiveMunitionsLevel();
-        int selected = menu.selectedCaliberIndex();
-        MunitionsCaliber selectedCaliber = MunitionsCaliber.byIndex(selected);
-        MunitionsCaliber.Category category = visibleCategory(selectedCaliber);
-        categoryScrollOffset = clamp(categoryScrollOffset, 0, maxCategoryScroll());
-        caliberScrollOffset = clamp(caliberScrollOffset, 0, maxCaliberScroll(category));
-
-        for (int row = 0; row < SELECTOR_ROWS; row++) {
-            int y = top + CAL_BTN_Y + row * (CAL_BTN_H + CAL_BTN_Y_GAP);
-            drawChoiceButton(graphics, left + CATEGORY_BTN_X, y, "", false, true);
-            drawChoiceButton(graphics, left + SUBCALIBER_BTN_X, y, "", false, true);
-        }
-
-        for (int row = 0; row < CATEGORY_ORDER.length; row++) {
-            int optionIndex = row + categoryScrollOffset;
-            if (optionIndex >= CATEGORY_ORDER.length || row >= SELECTOR_ROWS) {
-                break;
+    private void renderParameters(GsPainter p, GunsmithTheme t, Model m) {
+        t.panel(p, PARAM_X, PARAM_Y, PARAM_W, PARAM_H, tr("panel.params"));
+        Component[] labels = {
+                tr("param.rate"),
+                tr("param.per_batch"),
+                tr("param.batch_time"),
+                tr("param.buffer_cap"),
+                tr("param.work_fee"),
+                tr("param.power_fee"),
+                tr("param.propellant")
+        };
+        Component[] values = {
+                tr("param.rate_value", MunitionsLevels.ratePerTable(m.level())),
+                tr("rounds", m.perBatch()),
+                Component.literal(GunsmithUi.formatTicks(m.batchTicks())),
+                tr("rounds", GunsmithUi.formatCount(m.bufferCap())),
+                tr("param.work_fee_value", workFeePerRound()),
+                tr("param.power_fee_value", GunsmithUi.formatMegaFe(m.feBatch())),
+                menu.isRefineUnlocked()
+                        ? tr("param.refine_value", MunitionsConfig.REFINED_ROUNDS_PER_BATCH.get())
+                        : tr("param.direct_value", MunitionsConfig.DIRECT_ROUNDS_PER_BATCH.get())
+        };
+        for (int i = 0; i < labels.length; i++) {
+            int y = PARAM_ROW_Y + i * PARAM_ROW_PITCH;
+            float labelW = p.text(labels[i], PARAM_ROW_X, y, t.c.muted(), 0.62F, 0);
+            fitText(p, values[i], PARAM_ROW_X + PARAM_ROW_W, y, t.c.text(), 0.62F,
+                    PARAM_ROW_W - labelW - 3.0F, RIGHT);
+            if (i < labels.length - 1) {
+                t.sep(p, PARAM_ROW_X, y + 9, PARAM_ROW_W);
             }
-            MunitionsCaliber.Category option = CATEGORY_ORDER[optionIndex];
-            int x = left + CATEGORY_BTN_X;
-            int y = top + CAL_BTN_Y + row * (CAL_BTN_H + CAL_BTN_Y_GAP);
-            boolean enabled = categoryHasUnlockedCaliber(level, option);
-            boolean current = option == category;
-            drawChoiceButton(graphics, x, y, I18n.get(option.labelKey()), current, enabled);
         }
-        drawTinyScrollbar(graphics, left + CATEGORY_BTN_X + CAL_BTN_W + 1, top + CAL_BTN_Y,
-                SELECTOR_ROWS * (CAL_BTN_H + CAL_BTN_Y_GAP) - CAL_BTN_Y_GAP,
-                categoryScrollOffset, CATEGORY_ORDER.length, SELECTOR_ROWS);
+    }
 
-        int row = 0;
-        int skipped = 0;
-        for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
-            if (caliber.category() != category) {
-                continue;
+    private void renderSelector(GsPainter p, GunsmithTheme t, Model m) {
+        for (int i = 0; i < CATEGORY_ORDER.length; i++) {
+            MunitionsCaliber.Category category = CATEGORY_ORDER[i];
+            int x = TAB_X + i * TAB_PITCH;
+            boolean reachable = m.level() >= minUnlockLevel(category);
+            State state = category == m.viewed() ? State.SEL
+                    : !reachable ? State.LOCK
+                    : p.hov(x, TAB_Y, TAB_W, TAB_H) ? State.HOVER : State.IDLE;
+            t.tab(p, x, TAB_Y, TAB_W, TAB_H, tabLabel(category), state);
+        }
+
+        List<MunitionsCaliber> calibers = calibersOf(m.viewed());
+        int pitch = cardPitch(calibers.size());
+        int w = pitch - 1;
+        for (int i = 0; i < calibers.size(); i++) {
+            MunitionsCaliber caliber = calibers.get(i);
+            int x = CARD_X + i * pitch;
+            boolean unlocked = MunitionsLevels.isCaliberUnlocked(m.level(), caliber);
+            State state = caliber == m.selected() ? State.SEL
+                    : !unlocked ? State.LOCK
+                    : p.hov(x, CARD_Y, w, CARD_H) ? State.HOVER : State.IDLE;
+            t.card(p, x, CARD_Y, w, CARD_H, state);
+            int iconX = x + (w - 16) / 2;
+            ItemStack icon = ammoIcon(caliber);
+            if (unlocked) {
+                p.item(icon, iconX, CARD_Y + 2);
+            } else {
+                p.itemFaded(icon, iconX, CARD_Y + 2, 0.35F, lockedCardInner(t));
             }
-            if (skipped++ < caliberScrollOffset) {
-                continue;
+            p.text(caliber.shortLabel(), x + w / 2.0F, CARD_Y + 18.5F, t.cardText(state), 0.6F, CENTER);
+            if (!unlocked) {
+                t.lock(p, x + w - 8, CARD_Y + 3);
+                p.text(GunsmithUi.levelShort(caliber.unlockLevel()), x + 3, CARD_Y + 3, t.c.bad(), 0.5F, 0);
             }
-            if (row >= SELECTOR_ROWS) {
-                break;
+        }
+    }
+
+    private void renderShowcase(GsPainter p, GunsmithTheme t, Model m) {
+        t.panel(p, SHOW_PANEL_X, SHOW_PANEL_Y, SHOW_PANEL_W, SHOW_PANEL_H, null);
+        t.showcase(p, m.shown(), SHOWCASE_X, SHOWCASE_Y, SHOWCASE_W, SHOWCASE_H);
+
+        Component sell = tr("sell_price", m.shown().sellPrice());
+        float sellW = p.textWidth(sell, 0.58F, false);
+        fitText(p, caliberName(m.shown()), INFO_X, 117, t.c.text(), 0.7F, INFO_W - sellW - 4.0F, BOLD);
+        p.text(sell, INFO_RIGHT, 117.5F, t.c.muted(), 0.58F, RIGHT);
+
+        boolean running = m.running();
+        Component status = running ? tr("status.running", m.perBatch()) : tr("status.idle", m.perBatch());
+        Component time = running
+                ? tr("time.remaining", GunsmithUi.formatTicks(m.remainingTicks()))
+                : tr("time.batch", GunsmithUi.formatTicks(m.batchTicks()));
+        float timeW = p.textWidth(time, 0.62F, false);
+        fitText(p, status, INFO_X, 127, running ? t.c.accent() : t.c.muted(), 0.58F, INFO_W - timeW - 4.0F, 0);
+        p.text(time, INFO_RIGHT, 126.5F, t.c.text(), 0.62F, RIGHT);
+        t.bar(p, INFO_X, 134, INFO_W, 4, m.progress(), BarKind.PROG, running);
+    }
+
+    private void renderMaterials(GsPainter p, GunsmithTheme t, Model m) {
+        t.panel(p, SIDE_PANEL_X, MATERIAL_PANEL_Y, SIDE_PANEL_W, MATERIAL_PANEL_H, tr("panel.materials"));
+        for (int i = 0; i < MATERIAL_COUNT; i++) {
+            int sx = MATERIAL_X[i];
+            int sy = MATERIAL_Y[i];
+            int have = m.have()[i];
+            int need = m.need()[i];
+            t.slot(p, sx, sy);
+            if (have <= 0) {
+                // 空槽: 淡色剪影提示该放什么 (有料时原版在槽里画真物品)。
+                p.itemFaded(materialGhost(i), sx, sy, 0.3F, slotInner(t));
             }
-            int x = left + SUBCALIBER_BTN_X;
-            int y = top + CAL_BTN_Y + row * (CAL_BTN_H + CAL_BTN_Y_GAP);
-            drawChoiceButton(graphics, x, y, displayCaliberLabel(caliber), caliber.index() == selected,
-                    MunitionsLevels.isCaliberUnlocked(level, caliber));
-            row++;
-        }
-        drawTinyScrollbar(graphics, left + SUBCALIBER_BTN_X + CAL_BTN_W + 1, top + CAL_BTN_Y,
-                SELECTOR_ROWS * (CAL_BTN_H + CAL_BTN_Y_GAP) - CAL_BTN_Y_GAP,
-                caliberScrollOffset, caliberCount(category), SELECTOR_ROWS);
-    }
-
-    private void renderPlayerInfo(GuiGraphics graphics, int left, int top) {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null) {
-            PlayerFaceRenderer.draw(graphics, mc.player.getSkinTextureLocation(),
-                    left + PLAYER_FACE_X, top + PLAYER_FACE_Y, PLAYER_FACE_SIZE);
-            int fill = playerXpProgressPixels();
-            graphics.fill(left + PLAYER_XP_BAR_X, top + PLAYER_XP_BAR_Y,
-                    left + PLAYER_XP_BAR_X + fill, top + PLAYER_XP_BAR_Y + PLAYER_XP_BAR_H, 0xFF35D2A4);
-            graphics.fill(left + PLAYER_XP_BAR_X, top + PLAYER_XP_BAR_Y,
-                    left + PLAYER_XP_BAR_X + fill, top + PLAYER_XP_BAR_Y + 1, 0xFF75F0CA);
-        }
-    }
-
-    private void renderMunitionsXpTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
-        int left = (this.width - W) / 2;
-        int top = (this.height - H) / 2;
-        if (!inRect(mouseX, mouseY, left + PLAYER_XP_BAR_X, top + PLAYER_XP_BAR_Y - PLAYER_XP_HOVER_PAD,
-                PLAYER_XP_BAR_W, PLAYER_XP_BAR_H + PLAYER_XP_HOVER_PAD * 2)) {
-            return;
-        }
-        long shownXp = playerShownXp();
-        long nextXp = playerNextLevelXp();
-        graphics.renderTooltip(this.font, Component.translatable("gui.miningdim.munitions.xp_tooltip", shownXp, nextXp), mouseX, mouseY);
-    }
-
-    private static int playerXpProgressPixels() {
-        int level = playerLevel();
-        long xp = playerShownXp();
-        long levelStart = JobXpCurve.cumulativeXpForLevel(level);
-        long next = playerNextLevelXp();
-        if (level >= JobXpCurve.MAX_LEVEL || next <= levelStart) {
-            return PLAYER_XP_BAR_W;
-        }
-        long insideLevel = Math.max(0L, Math.min(next - levelStart, xp - levelStart));
-        return (int) Math.max(0L, Math.min(PLAYER_XP_BAR_W, insideLevel * PLAYER_XP_BAR_W / (next - levelStart)));
-    }
-
-    private static int playerLevel() {
-        return Math.max(JobXpCurve.MIN_LEVEL, Math.min(JobXpCurve.MAX_LEVEL, ClientJobState.level(JobId.MUNITIONS)));
-    }
-
-    private static long playerShownXp() {
-        return Math.max(0L, Math.min(JobXpCurve.GRADUATION_XP, ClientJobState.xp(JobId.MUNITIONS)));
-    }
-
-    private static long playerNextLevelXp() {
-        int level = playerLevel();
-        if (level >= JobXpCurve.MAX_LEVEL) {
-            return JobXpCurve.GRADUATION_XP;
-        }
-        return JobXpCurve.cumulativeXpForLevel(level + 1);
-    }
-
-    private void renderFactoryTitle(GuiGraphics graphics, int left, int top) {
-        int level = Math.max(0, Math.min(10, menu.effectiveMunitionsLevel()));
-        graphics.blit(TITLES, left + 98, top + 22, TITLE_W, TITLE_H,
-                0.0F, level * TITLE_SRC_H, TITLE_SRC_W, TITLE_SRC_H, TITLE_TEX_W, TITLE_TEX_H);
-    }
-
-    private void renderAmmoPreview(GuiGraphics graphics, int left, int top) {
-        MunitionsCaliber caliber = MunitionsCaliber.byIndex(menu.selectedCaliberIndex());
-        int row = ammoProfileRow(caliber);
-        graphics.blit(AMMO_PROFILES, left + 108, top + 80, AMMO_PROFILE_W, AMMO_PROFILE_H,
-                0.0F, row * AMMO_PROFILE_SRC_H,
-                AMMO_PROFILE_SRC_W, AMMO_PROFILE_SRC_H, AMMO_PROFILE_TEX_W, AMMO_PROFILE_TEX_H);
-    }
-
-    private void renderAmmoInfo(GuiGraphics graphics, int left, int top) {
-        MunitionsCaliber caliber = MunitionsCaliber.byIndex(menu.selectedCaliberIndex());
-        drawSmoothTextCenteredScaled(graphics, displayCaliberLabel(caliber), left + 245, top + 68, 0xFF68C7AD, 0.9F);
-    }
-
-    private void renderProductionProgress(GuiGraphics graphics, int left, int top) {
-        int required = menu.productionRequiredTicks();
-        int progress = Math.max(0, Math.min(required, menu.productionProgressTicks()));
-        int remaining = required <= 0 ? 0 : Math.max(0, required - progress);
-        String time = formatTicks(remaining);
-        drawSmoothTextCenteredScaled(graphics, time, left + 236, top + 128, 0xFFD9DFEA, 0.9F);
-        int filled = required <= 0 ? 0 : (int) ((long) progress * BAR_W / required);
-        int innerFilled = Math.max(0, Math.min(BAR_W, filled));
-        graphics.fill(left + BAR_X, top + BAR_Y, left + BAR_X + innerFilled, top + BAR_Y + BAR_H, 0xFF30BE99);
-        graphics.fill(left + BAR_X, top + BAR_Y, left + BAR_X + innerFilled, top + BAR_Y + 1, 0xFF7AF4CF);
-    }
-
-    private void renderOutputPanel(GuiGraphics graphics, int left, int top) {
-        String count = menu.bufferedRounds() + "/" + menu.bufferCap();
-        float scale = count.length() > 6 ? 0.72F : 0.82F;
-        drawSmoothTextCenteredScaled(graphics, count, left + BUFFER_COUNT_X, top + BUFFER_COUNT_Y, 0xFFD6DCE7, scale);
-    }
-
-    private void renderMaterialInputs(GuiGraphics graphics, int left, int top) {
-        renderGhostPart(graphics, 0, 0, left + SLOT_PRIMER_X, top + SLOT_PRIMER_Y);
-        renderGhostPart(graphics, 1, 1, left + SLOT_CASING_X, top + SLOT_CASING_Y);
-        renderGhostPart(graphics, 2, 2, left + SLOT_BULLET_HEAD_X, top + SLOT_BULLET_HEAD_Y);
-        renderGhostPart(graphics, 3, 3, left + SLOT_PROPELLANT_X, top + SLOT_PROPELLANT_Y);
-    }
-
-    private void renderGhostPart(GuiGraphics graphics, int slotIndex, int kind, int x, int y) {
-        if (!menu.getSlot(slotIndex).hasItem()) {
-            drawGhostSilhouette(graphics, x, y, kind);
-        }
-    }
-
-    private void renderLockState(GuiGraphics graphics, int left, int top) {
-        if (menu.isLocked()) {
-            int x = left + 329;
-            int y = top + 27;
-            graphics.fill(x, y, x + 16, y + 16, 0xCC73242B);
-            drawLockIcon(graphics, x + 4, y + 4);
-        }
-    }
-
-    private void renderCraftControls(GuiGraphics graphics, int left, int top) {
-        int panelX = left + CRAFT_CONTROL_BACKDROP_X;
-        int panelY = top + CRAFT_CONTROL_BACKDROP_Y;
-        graphics.fill(panelX + 2, panelY + 3,
-                panelX + CRAFT_CONTROL_BACKDROP_W + 2, panelY + CRAFT_CONTROL_BACKDROP_H + 3, 0xAA000000);
-        graphics.fill(panelX, panelY,
-                panelX + CRAFT_CONTROL_BACKDROP_W, panelY + CRAFT_CONTROL_BACKDROP_H, 0xFF12141C);
-        graphics.fill(panelX + 1, panelY + 1,
-                panelX + CRAFT_CONTROL_BACKDROP_W - 1, panelY + CRAFT_CONTROL_BACKDROP_H - 1, 0xFF242633);
-        graphics.fill(panelX + 4, panelY + 4,
-                panelX + CRAFT_CONTROL_BACKDROP_W - 4, panelY + 5, 0xFF4E5368);
-        graphics.fill(panelX + 5, panelY + CRAFT_CONTROL_BACKDROP_H - 4,
-                panelX + CRAFT_CONTROL_BACKDROP_W - 5, panelY + CRAFT_CONTROL_BACKDROP_H - 3, 0xFF31D2B4);
-        boolean active = menu.isCraftingActive();
-        int x = left + CRAFT_BUTTON_X;
-        int y = top + CRAFT_BUTTON_Y;
-        int fill = active ? 0xFF6A2D39 : 0xFF1DAE96;
-        int inner = active ? 0xFF522832 : 0xFF24C7AA;
-        graphics.fill(x + 1, y + 2, x + CRAFT_BUTTON_W + 1, y + CRAFT_BUTTON_H + 2, 0xAA000000);
-        graphics.fill(x, y, x + CRAFT_BUTTON_W, y + CRAFT_BUTTON_H, 0xFF11131B);
-        graphics.fill(x + 1, y + 1, x + CRAFT_BUTTON_W - 1, y + CRAFT_BUTTON_H - 1, fill);
-        graphics.fill(x + 3, y + 2, x + CRAFT_BUTTON_W - 3, y + CRAFT_BUTTON_H - 3, inner);
-        graphics.fill(x + 4, y + 2, x + CRAFT_BUTTON_W - 4, y + 3, active ? 0xFFB66B78 : 0xFF73F4D5);
-        drawVanillaTextCenteredScaled(graphics, I18n.get(active ? "gui.miningdim.munitions.cancel" : "gui.miningdim.munitions.craft"),
-                x + CRAFT_BUTTON_W / 2.0F, y + 4.0F, 0xFFFFFFFF, 0.68F);
-
-        int mx = left + CRAFT_MODE_BUTTON_X;
-        int my = top + CRAFT_MODE_BUTTON_Y;
-        boolean continuous = menu.isContinuousCrafting();
-        graphics.fill(mx + 1, my + 2, mx + CRAFT_MODE_BUTTON_W + 1, my + CRAFT_MODE_BUTTON_H + 2, 0xAA000000);
-        graphics.fill(mx, my, mx + CRAFT_MODE_BUTTON_W, my + CRAFT_MODE_BUTTON_H, 0xFF11131B);
-        graphics.fill(mx + 1, my + 1, mx + CRAFT_MODE_BUTTON_W - 1, my + CRAFT_MODE_BUTTON_H - 1,
-                continuous ? 0xFF2B4856 : 0xFF2A2D38);
-        graphics.fill(mx + 3, my + CRAFT_MODE_BUTTON_H - 2, mx + CRAFT_MODE_BUTTON_W - 3, my + CRAFT_MODE_BUTTON_H - 1,
-                continuous ? 0xFF31D2B4 : 0xFF4B5061);
-        drawVanillaTextCenteredScaled(graphics, I18n.get(continuous ? "gui.miningdim.munitions.mode_continuous" : "gui.miningdim.munitions.mode_single"),
-                mx + CRAFT_MODE_BUTTON_W / 2.0F, my + 1.5F, continuous ? 0xFF80F0D0 : 0xFFD8DDE8, 0.58F);
-    }
-
-    private void renderSearchPanel(GuiGraphics graphics, int left, int top) {
-        if (!searchOpen) {
-            return;
-        }
-        int panelX = left + SEARCH_PANEL_X;
-        int panelY = top + SEARCH_PANEL_Y;
-        graphics.fill(panelX + 3, panelY + 4,
-                panelX + SEARCH_PANEL_W + 3, panelY + SEARCH_PANEL_H + 4, 0xAA000000);
-        graphics.fill(panelX, panelY, panelX + SEARCH_PANEL_W, panelY + SEARCH_PANEL_H, 0xFF10131B);
-        graphics.fill(panelX + 1, panelY + 1,
-                panelX + SEARCH_PANEL_W - 1, panelY + SEARCH_PANEL_H - 1, 0xFF242735);
-        graphics.fill(panelX + 6, panelY + 5, panelX + SEARCH_PANEL_W - 6, panelY + 6, 0xFF586074);
-        graphics.fill(panelX + 6, panelY + SEARCH_PANEL_H - 5,
-                panelX + SEARCH_PANEL_W - 6, panelY + SEARCH_PANEL_H - 3, 0xFF31D2B4);
-
-        int buttonX = left + SEARCH_BUTTON_X;
-        int buttonY = top + SEARCH_BUTTON_Y;
-        graphics.fill(buttonX - 1, buttonY - 1, buttonX + SEARCH_BUTTON_W + 1, buttonY + SEARCH_BUTTON_H + 1,
-                0x552FD7C1);
-        graphics.fill(buttonX + 3, buttonY + SEARCH_BUTTON_H - 3,
-                buttonX + SEARCH_BUTTON_W - 3, buttonY + SEARCH_BUTTON_H - 2, 0xFF31D2B4);
-
-        int fieldX = left + SEARCH_FIELD_X;
-        int fieldY = top + SEARCH_FIELD_Y;
-        graphics.fill(fieldX, fieldY, fieldX + SEARCH_FIELD_W, fieldY + SEARCH_FIELD_H, 0xFF111722);
-        graphics.fill(fieldX + 1, fieldY + 1, fieldX + SEARCH_FIELD_W - 1, fieldY + SEARCH_FIELD_H - 1,
-                0xFF1B2030);
-        graphics.fill(fieldX + 4, fieldY + SEARCH_FIELD_H - 3,
-                fieldX + SEARCH_FIELD_W - 4, fieldY + SEARCH_FIELD_H - 2, 0xFF31D2B4);
-
-        if (searchQuery.isEmpty()) {
-            drawSmoothTextScaled(graphics, "SEARCH", fieldX + 6, fieldY + 3, 0xFF707787, 0.62F);
-        } else {
-            drawSearchQuery(graphics, searchQuery, fieldX + 6, fieldY + 3, SEARCH_FIELD_W - 12);
+            fitText(p, tr("material.need", materialName(i), need), sx + 8, sy + 19,
+                    have >= need ? t.c.muted() : t.c.bad(), 0.55F, MATERIAL_LABEL_W, CENTER);
         }
 
-        int level = menu.effectiveMunitionsLevel();
-        int totalResults = searchResultCount();
-        searchScrollOffset = clamp(searchScrollOffset, 0, Math.max(0, totalResults - SEARCH_MAX_RESULTS));
-        int resultCount = 0;
-        int skipped = 0;
-        for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
-            if (!matchesSearch(caliber, searchQuery)) {
-                continue;
-            }
-            if (skipped++ < searchScrollOffset) {
-                continue;
-            }
-            if (resultCount >= SEARCH_MAX_RESULTS) {
-                break;
-            }
-            renderSearchResult(graphics, left, top, caliber, resultCount, level);
-            resultCount++;
-        }
-        drawTinyScrollbar(graphics, left + SEARCH_PANEL_X + SEARCH_PANEL_W - 5, top + SEARCH_RESULT_Y,
-                SEARCH_MAX_RESULTS * (SEARCH_RESULT_H + SEARCH_RESULT_GAP) - SEARCH_RESULT_GAP,
-                searchScrollOffset, totalResults, SEARCH_MAX_RESULTS);
-        if (totalResults == 0) {
-            drawSmoothTextScaled(graphics, "NO MATCH", left + SEARCH_RESULT_X + 8,
-                    top + SEARCH_RESULT_Y + 6, 0xFF747B8A, 0.62F);
-        }
+        t.sep(p, SIDE_TEXT_X, 103, SIDE_TEXT_W);
+        Component powerValue = Component.literal(GunsmithUi.formatMegaFe(m.fe()) + " / " + compactMega(m.feCap()));
+        float valueW = p.textWidth(powerValue, 0.56F, false);
+        fitText(p, tr("power.label"), SIDE_TEXT_X, 107, t.c.muted(), 0.62F, SIDE_TEXT_W - valueW - 3.0F, 0);
+        p.text(powerValue, SIDE_TEXT_RIGHT, 107.5F, t.c.text(), 0.56F, RIGHT);
+        long runs = m.powerBatches();
+        t.bar(p, SIDE_TEXT_X, 116, SIDE_TEXT_W, 5, fraction(m.fe(), m.feCap()),
+                runs > 0 ? BarKind.FE : BarKind.BAD, false);
+        fitText(p, runs > 0 ? tr("power.batches", runs) : tr("power.short"), SIDE_TEXT_X, 125,
+                runs > 0 ? t.c.muted() : t.c.bad(), 0.55F, SIDE_TEXT_W, 0);
+        fitText(p, tr("materials.batches", m.materialBatches()), SIDE_TEXT_X, 133,
+                m.materialBatches() > 0 ? t.c.muted() : t.c.bad(), 0.55F, SIDE_TEXT_W, 0);
     }
 
-    private void renderSearchResult(GuiGraphics graphics, int left, int top,
-                                    MunitionsCaliber caliber, int row, int level) {
-        int x = left + SEARCH_RESULT_X;
-        int y = top + SEARCH_RESULT_Y + row * (SEARCH_RESULT_H + SEARCH_RESULT_GAP);
-        boolean selected = caliber.index() == menu.selectedCaliberIndex();
-        boolean unlocked = MunitionsLevels.isCaliberUnlocked(level, caliber);
-        int frame = selected ? 0xFF735735 : 0xFF151821;
-        int fill = selected ? 0xFF3A3329 : unlocked ? 0xFF272B38 : 0xFF20222A;
-        int text = selected ? 0xFFFFDC8D : unlocked ? 0xFFDCE3EE : 0xFF737987;
-        graphics.fill(x, y, x + SEARCH_RESULT_W, y + SEARCH_RESULT_H, frame);
-        graphics.fill(x + 1, y + 1, x + SEARCH_RESULT_W - 1, y + SEARCH_RESULT_H - 1, fill);
-        graphics.fill(x + 4, y + SEARCH_RESULT_H - 2, x + SEARCH_RESULT_W - 4, y + SEARCH_RESULT_H - 1,
-                selected ? 0xFFC6974B : unlocked ? 0xFF31D2B4 : 0xFF4D5360);
-        drawSmoothTextScaled(graphics, displayCaliberLabel(caliber), x + 5, y + 2, text, 0.58F);
-        drawSmoothTextScaled(graphics, "L" + caliber.unlockLevel(), x + SEARCH_RESULT_W - 18, y + 2,
-                unlocked ? 0xFF7CE8CF : 0xFF777D8A, 0.55F);
+    private void renderControls(GsPainter p, GunsmithTheme t, Model m) {
+        t.panel(p, CONTROL_X, CONTROL_Y, CONTROL_W, CONTROL_H, tr("panel.control"));
+        boolean running = m.running();
+        State buttonState = !running && m.blocker() != null ? State.OFF
+                : p.hov(START_X, START_Y, START_W, START_H) ? State.HOVER : State.IDLE;
+        t.btn(p, START_X, START_Y, START_W, START_H, running ? tr("button.stop") : tr("button.start"),
+                running ? ButtonKind.STOP : ButtonKind.GO, buttonState);
+        t.seg(p, SEG_X, SEG_Y, SEG_W, SEG_H, new Component[]{modeLabel(false), modeLabel(true)},
+                m.continuous() ? 1 : 0);
+        t.lock(p, 14, 207);
+        fitText(p, menu.isLocked() ? tr("lock.locked") : tr("lock.unlocked"), 22, 207.5F, t.c.muted(), 0.52F,
+                64.0F, 0);
+        fitText(p, tr("lock.hint"), 14, 217, t.c.dim(), 0.48F, 72.0F, 0);
     }
 
-    private void drawSearchQuery(GuiGraphics graphics, String value, int x, int y, int maxWidth) {
-        float scale = 0.62F;
-        String visible = value;
-        while (!visible.isEmpty() && this.font.width(visible) * scale > maxWidth) {
-            visible = visible.substring(1);
-        }
-        graphics.pose().pushPose();
-        graphics.pose().translate(x, y, 0.0F);
-        graphics.pose().scale(scale, scale, 1.0F);
-        graphics.drawString(this.font, visible, 0, 0, 0xFFE8EDF5, false);
-        graphics.pose().popPose();
-        if ((System.currentTimeMillis() / 450L) % 2L == 0L) {
-            int cursorX = x + (int) (this.font.width(visible) * scale) + 2;
-            graphics.fill(cursorX, y, cursorX + 1, y + 8, 0xFF78FFE7);
-        }
+    private void renderOutput(GsPainter p, GunsmithTheme t, Model m) {
+        t.panel(p, SIDE_PANEL_X, OUTPUT_PANEL_Y, SIDE_PANEL_W, OUTPUT_PANEL_H, tr("panel.output"));
+        t.slotOut(p, MunitionsBenchMenu.SLOT_OUTPUT_X, MunitionsBenchMenu.SLOT_OUTPUT_Y);
+
+        Component value = Component.literal(GunsmithUi.formatCount(m.buffered()) + " / "
+                + GunsmithUi.formatCount(m.bufferCap()));
+        float valueW = p.textWidth(value, 0.56F, false);
+        fitText(p, tr("buffer.label"), SIDE_TEXT_X, 187, t.c.muted(), 0.62F, SIDE_TEXT_W - valueW - 3.0F, 0);
+        p.text(value, SIDE_TEXT_RIGHT, 187.5F, t.c.text(), 0.56F, RIGHT);
+        t.bar(p, SIDE_TEXT_X, 196, SIDE_TEXT_W, 5, fraction(m.buffered(), m.bufferCap()), BarKind.BUF, false);
+        int left = m.batchesUntilFull();
+        fitText(p, left > 0 ? tr("buffer.batches_left", left) : tr("buffer.full"), SIDE_TEXT_X, 206,
+                left > 0 ? t.c.muted() : t.c.bad(), 0.52F, SIDE_TEXT_W, 0);
+        fitText(p, tr("buffer.hint"), SIDE_TEXT_X, 216, t.c.dim(), 0.48F, SIDE_TEXT_W, 0);
     }
 
-    private void renderCancelCraftDialog(GuiGraphics graphics) {
-        int left = (this.width - W) / 2;
-        int top = (this.height - H) / 2;
-        int x = left + CANCEL_DIALOG_X;
-        int y = top + CANCEL_DIALOG_Y;
+    // ================================================================== cancel confirmation (modal)
 
-        graphics.fill(left, top, left + W, top + H, 0x99000000);
-        graphics.fill(x + 3, y + 4, x + CANCEL_DIALOG_W + 3, y + CANCEL_DIALOG_H + 4, 0xAA000000);
-        graphics.fill(x, y, x + CANCEL_DIALOG_W, y + CANCEL_DIALOG_H, 0xFF11131B);
-        graphics.fill(x + 1, y + 1, x + CANCEL_DIALOG_W - 1, y + CANCEL_DIALOG_H - 1, 0xFF252837);
-        graphics.fill(x + 8, y + 7, x + CANCEL_DIALOG_W - 8, y + 8, 0xFF596072);
-        graphics.fill(x + 8, y + CANCEL_DIALOG_H - 6, x + CANCEL_DIALOG_W - 8, y + CANCEL_DIALOG_H - 4, 0xFF31D2B4);
-
-        drawVanillaTextCenteredScaled(graphics, I18n.get("gui.miningdim.munitions.cancel_dialog_title"), x + CANCEL_DIALOG_W / 2.0F, y + 15.0F,
-                0xFFF2F5FA, 0.86F);
-        drawVanillaTextCenteredScaled(graphics, I18n.get("gui.miningdim.munitions.cancel_dialog_hint"), x + CANCEL_DIALOG_W / 2.0F, y + 31.0F,
-                0xFFAEB5C5, 0.66F);
-
-        drawDialogButton(graphics, left + CANCEL_CONFIRM_X, top + CANCEL_BUTTON_Y,
-                I18n.get("gui.miningdim.munitions.cancel_confirm"), 0xFF65313B, 0xFF8B3A47, 0xFFFFD6DD);
-        drawDialogButton(graphics, left + CANCEL_KEEP_X, top + CANCEL_BUTTON_Y,
-                I18n.get("gui.miningdim.munitions.cancel_keep"), 0xFF234B46, 0xFF2CBF9F, 0xFFE6FFF8);
-    }
-
-    private void drawDialogButton(GuiGraphics graphics, int x, int y, String label,
-                                  int fill, int accent, int text) {
-        graphics.fill(x + 1, y + 2, x + CANCEL_BUTTON_W + 1, y + CANCEL_BUTTON_H + 2, 0xAA000000);
-        graphics.fill(x, y, x + CANCEL_BUTTON_W, y + CANCEL_BUTTON_H, 0xFF11131B);
-        graphics.fill(x + 1, y + 1, x + CANCEL_BUTTON_W - 1, y + CANCEL_BUTTON_H - 1, fill);
-        graphics.fill(x + 4, y + CANCEL_BUTTON_H - 3, x + CANCEL_BUTTON_W - 4, y + CANCEL_BUTTON_H - 2, accent);
-        drawVanillaTextCenteredScaled(graphics, label, x + CANCEL_BUTTON_W / 2.0F, y + 4.0F, text, 0.58F);
+    @Override
+    protected boolean isModalOpen() {
+        return confirmingCancel && menu.isCraftingActive();
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // 取消确认对话框是模态: 任意键位都不得穿透到容器/按钮 (非左键直接吞掉, 左键走对话框命中判定)。
-        if (confirmingCancel && button != 0) {
-            return true;
-        }
-        // 自绘按钮只认左键 (审查 minor: 原版 AbstractWidget.isValidClickButton 同语义; 右/中/侧键放行给
-        // super, 防右键分堆等容器操作误触发开工/取消等真实服务端动作)。
+    protected void renderModal(GsPainter p, GunsmithTheme t) {
+        p.rect(0, 0, W, H, t.shade());
+        t.panel(p, DIALOG_X, DIALOG_Y, DIALOG_W, DIALOG_H, null);
+        float centerX = DIALOG_X + DIALOG_W / 2.0F;
+        fitText(p, Component.translatable("gui.miningdim.munitions.cancel_dialog_title"), centerX, 91,
+                t.c.text(), 0.86F, DIALOG_W - 12.0F, CENTER | BOLD);
+        fitText(p, tr("cancel.hint"), centerX, 105, t.c.muted(), 0.62F, DIALOG_W - 12.0F, CENTER);
+        t.btn(p, DIALOG_CONFIRM_X, DIALOG_BUTTON_Y, DIALOG_BUTTON_W, DIALOG_BUTTON_H,
+                Component.translatable("gui.miningdim.munitions.cancel_confirm"), ButtonKind.STOP,
+                p.hov(DIALOG_CONFIRM_X, DIALOG_BUTTON_Y, DIALOG_BUTTON_W, DIALOG_BUTTON_H)
+                        ? State.HOVER : State.IDLE);
+        t.btn(p, DIALOG_KEEP_X, DIALOG_BUTTON_Y, DIALOG_BUTTON_W, DIALOG_BUTTON_H,
+                Component.translatable("gui.miningdim.munitions.cancel_keep"), ButtonKind.ACC,
+                p.hov(DIALOG_KEEP_X, DIALOG_BUTTON_Y, DIALOG_BUTTON_W, DIALOG_BUTTON_H)
+                        ? State.HOVER : State.IDLE);
+    }
+
+    @Override
+    protected void onModalClick(double relX, double relY, int button) {
         if (button != 0) {
-            return super.mouseClicked(mouseX, mouseY, button);
+            return;
         }
-        int leftPos = (this.width - W) / 2;
-        int topPos = (this.height - H) / 2;
-        int level = menu.effectiveMunitionsLevel();
-        if (confirmingCancel) {
-            if (inRect(mouseX, mouseY, leftPos + CANCEL_CONFIRM_X, topPos + CANCEL_BUTTON_Y,
-                    CANCEL_BUTTON_W, CANCEL_BUTTON_H)) {
-                confirmingCancel = false;
-                sendButton(MunitionsBenchMenu.BUTTON_CANCEL_CRAFT);
+        if (inRect(relX, relY, DIALOG_CONFIRM_X, DIALOG_BUTTON_Y, DIALOG_BUTTON_W, DIALOG_BUTTON_H)) {
+            confirmingCancel = false;
+            sendButton(MunitionsBenchMenu.BUTTON_CANCEL_CRAFT);
+        } else if (inRect(relX, relY, DIALOG_KEEP_X, DIALOG_BUTTON_Y, DIALOG_BUTTON_W, DIALOG_BUTTON_H)) {
+            confirmingCancel = false;
+        }
+    }
+
+    @Override
+    protected void closeModal() {
+        confirmingCancel = false;
+    }
+
+    // ================================================================== input
+
+    @Override
+    protected boolean onScreenClick(double relX, double relY, int button) {
+        // 自绘控件只认左键; 右键 / 中键交给原版槽位逻辑 (分堆等容器操作不误触开工 / 取消)。
+        if (button != 0) {
+            return false;
+        }
+        Model m = model();
+        for (int i = 0; i < CATEGORY_ORDER.length; i++) {
+            if (inRect(relX, relY, TAB_X + i * TAB_PITCH, TAB_Y, TAB_W, TAB_H)) {
+                viewedCategory = CATEGORY_ORDER[i];
                 return true;
             }
-            if (inRect(mouseX, mouseY, leftPos + CANCEL_KEEP_X, topPos + CANCEL_BUTTON_Y,
-                    CANCEL_BUTTON_W, CANCEL_BUTTON_H)) {
-                confirmingCancel = false;
-                return true;
+        }
+        MunitionsCaliber card = cardAt(m.viewed(), relX, relY);
+        if (card != null) {
+            // 已选中的口径不重发: 服务端每次选口径都会把离线追产的时间戳推到当前。
+            if (MunitionsLevels.isCaliberUnlocked(m.level(), card) && card != m.selected()) {
+                sendButton(card.index());
             }
             return true;
         }
-        if (handleSearchClick(mouseX, mouseY, button, leftPos, topPos, level)) {
-            return true;
-        }
-        if (inRect(mouseX, mouseY, leftPos + CRAFT_BUTTON_X, topPos + CRAFT_BUTTON_Y,
-                CRAFT_BUTTON_W, CRAFT_BUTTON_H)) {
-            if (menu.isCraftingActive()) {
-                showCancelCraftConfirmation();
-            } else {
+        if (inRect(relX, relY, START_X, START_Y, START_W, START_H)) {
+            if (m.running()) {
+                confirmingCancel = true;
+            } else if (m.blocker() == null) {
                 sendButton(MunitionsBenchMenu.BUTTON_START_CRAFT);
             }
             return true;
         }
-        if (inRect(mouseX, mouseY, leftPos + CRAFT_MODE_BUTTON_X, topPos + CRAFT_MODE_BUTTON_Y,
-                CRAFT_MODE_BUTTON_W, CRAFT_MODE_BUTTON_H)) {
-            sendButton(MunitionsBenchMenu.BUTTON_TOGGLE_CONTINUOUS);
-            return true;
-        }
-        categoryScrollOffset = clamp(categoryScrollOffset, 0, maxCategoryScroll());
-        for (int row = 0; row < SELECTOR_ROWS; row++) {
-            int optionIndex = row + categoryScrollOffset;
-            if (optionIndex >= CATEGORY_ORDER.length) {
-                break;
-            }
-            int x = leftPos + CATEGORY_BTN_X;
-            int y = topPos + CAL_BTN_Y + row * (CAL_BTN_H + CAL_BTN_Y_GAP);
-            if (inRect(mouseX, mouseY, x, y, CAL_BTN_W, CAL_BTN_H)) {
-                selectedCategory = CATEGORY_ORDER[optionIndex];
-                caliberScrollOffset = 0;
-                return true;
-            }
-        }
-
-        MunitionsCaliber.Category category = visibleCategory(MunitionsCaliber.byIndex(menu.selectedCaliberIndex()));
-        caliberScrollOffset = clamp(caliberScrollOffset, 0, maxCaliberScroll(category));
-        int row = 0;
-        int skipped = 0;
-        for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
-            if (caliber.category() != category) {
-                continue;
-            }
-            if (skipped++ < caliberScrollOffset) {
-                continue;
-            }
-            if (row >= SELECTOR_ROWS) {
-                break;
-            }
-            int x = leftPos + SUBCALIBER_BTN_X;
-            int y = topPos + CAL_BTN_Y + row * (CAL_BTN_H + CAL_BTN_Y_GAP);
-            if (inRect(mouseX, mouseY, x, y, CAL_BTN_W, CAL_BTN_H)) {
-                selectedCategory = category;
-                if (MunitionsLevels.isCaliberUnlocked(level, caliber)) {
-                    sendButton(caliber.index());
-                }
-                return true;
-            }
-            row++;
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-        int left = (this.width - W) / 2;
-        int top = (this.height - H) / 2;
-        if (confirmingCancel) {
-            return true;
-        }
-        if (searchOpen && inRect(mouseX, mouseY, left + SEARCH_PANEL_X, top + SEARCH_PANEL_Y,
-                SEARCH_PANEL_W, SEARCH_PANEL_H)) {
-            searchScrollOffset = scrollOffset(searchScrollOffset, delta, maxSearchScroll());
-            return true;
-        }
-        int listY = top + CAL_BTN_Y;
-        int listH = SELECTOR_ROWS * (CAL_BTN_H + CAL_BTN_Y_GAP) - CAL_BTN_Y_GAP;
-        if (inRect(mouseX, mouseY, left + CATEGORY_BTN_X, listY, CAL_BTN_W, listH)) {
-            categoryScrollOffset = scrollOffset(categoryScrollOffset, delta, maxCategoryScroll());
-            return true;
-        }
-        MunitionsCaliber.Category category = visibleCategory(MunitionsCaliber.byIndex(menu.selectedCaliberIndex()));
-        if (inRect(mouseX, mouseY, left + SUBCALIBER_BTN_X, listY, CAL_BTN_W, listH)
-                || inRect(mouseX, mouseY, left + CATEGORY_BTN_X, listY,
-                SUBCALIBER_BTN_X + CAL_BTN_W - CATEGORY_BTN_X, listH)) {
-            caliberScrollOffset = scrollOffset(caliberScrollOffset, delta, maxCaliberScroll(category));
-            return true;
-        }
-        return super.mouseScrolled(mouseX, mouseY, delta);
-    }
-
-    @Override
-    public boolean charTyped(char codePoint, int modifiers) {
-        if (searchOpen) {
-            if (!Character.isISOControl(codePoint) && !Character.isSurrogate(codePoint)
-                    && searchQuery.length() < SEARCH_QUERY_MAX) {
-                searchQuery += codePoint;
-                searchScrollOffset = 0;
+        int segment = segmentAt(relX, relY);
+        if (segment >= 0) {
+            boolean wantContinuous = segment == 1;
+            if (wantContinuous != m.continuous()) {
+                sendButton(MunitionsBenchMenu.BUTTON_TOGGLE_CONTINUOUS);
             }
             return true;
-        }
-        return super.charTyped(codePoint, modifiers);
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (searchOpen) {
-            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-                searchOpen = false;
-                return true;
-            }
-            if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
-                if (!searchQuery.isEmpty()) {
-                    searchQuery = searchQuery.substring(0, searchQuery.length() - 1);
-                    searchScrollOffset = 0;
-                }
-                return true;
-            }
-            if (keyCode == GLFW.GLFW_KEY_DELETE) {
-                searchQuery = "";
-                searchScrollOffset = 0;
-                return true;
-            }
-            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
-                MunitionsCaliber first = firstSearchResult(menu.effectiveMunitionsLevel());
-                if (first != null && MunitionsLevels.isCaliberUnlocked(menu.effectiveMunitionsLevel(), first)) {
-                    selectSearchResult(first);
-                }
-                return true;
-            }
-            return true;
-        }
-        return super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    private boolean handleSearchClick(double mouseX, double mouseY, int button, int left, int top, int level) {
-        if (button != 0) {
-            return false;
-        }
-        if (inRect(mouseX, mouseY, left + SEARCH_BUTTON_X, top + SEARCH_BUTTON_Y,
-                SEARCH_BUTTON_W, SEARCH_BUTTON_H)) {
-            searchOpen = !searchOpen;
-            searchScrollOffset = 0;
-            return true;
-        }
-        if (!searchOpen) {
-            return false;
-        }
-        MunitionsCaliber result = searchResultAt(mouseX, mouseY, left, top);
-        if (result != null) {
-            if (MunitionsLevels.isCaliberUnlocked(level, result)) {
-                selectSearchResult(result);
-            }
-            return true;
-        }
-        if (inRect(mouseX, mouseY, left + SEARCH_PANEL_X, top + SEARCH_PANEL_Y,
-                SEARCH_PANEL_W, SEARCH_PANEL_H)) {
-            return true;
-        }
-        searchOpen = false;
-        return true;
-    }
-
-    private MunitionsCaliber searchResultAt(double mouseX, double mouseY, int left, int top) {
-        int resultCount = 0;
-        int skipped = 0;
-        searchScrollOffset = clamp(searchScrollOffset, 0, maxSearchScroll());
-        for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
-            if (!matchesSearch(caliber, searchQuery)) {
-                continue;
-            }
-            if (skipped++ < searchScrollOffset) {
-                continue;
-            }
-            if (resultCount >= SEARCH_MAX_RESULTS) {
-                return null;
-            }
-            int x = left + SEARCH_RESULT_X;
-            int y = top + SEARCH_RESULT_Y + resultCount * (SEARCH_RESULT_H + SEARCH_RESULT_GAP);
-            if (inRect(mouseX, mouseY, x, y, SEARCH_RESULT_W, SEARCH_RESULT_H)) {
-                return caliber;
-            }
-            resultCount++;
-        }
-        return null;
-    }
-
-    private MunitionsCaliber firstSearchResult(int level) {
-        for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
-            if (matchesSearch(caliber, searchQuery) && MunitionsLevels.isCaliberUnlocked(level, caliber)) {
-                return caliber;
-            }
-        }
-        return null;
-    }
-
-    private void selectSearchResult(MunitionsCaliber caliber) {
-        selectedCategory = caliber.category();
-        ensureCategoryVisible(selectedCategory);
-        caliberScrollOffset = 0;
-        searchScrollOffset = 0;
-        sendButton(caliber.index());
-        searchOpen = false;
-    }
-
-    private void sendButton(int id) {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.gameMode != null) {
-            mc.gameMode.handleInventoryButtonClick(menu.containerId, id);
-        }
-    }
-
-    private void showCancelCraftConfirmation() {
-        confirmingCancel = true;
-    }
-
-    private MunitionsCaliber.Category visibleCategory(MunitionsCaliber selectedCaliber) {
-        return selectedCategory != null ? selectedCategory : selectedCaliber.category();
-    }
-
-    private static boolean categoryHasUnlockedCaliber(int level, MunitionsCaliber.Category category) {
-        for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
-            if (caliber.category() == category && MunitionsLevels.isCaliberUnlocked(level, caliber)) {
-                return true;
-            }
         }
         return false;
     }
 
-    private static int maxCategoryScroll() {
-        return Math.max(0, CATEGORY_ORDER.length - SELECTOR_ROWS);
-    }
-
-    private static int maxCaliberScroll(MunitionsCaliber.Category category) {
-        return Math.max(0, caliberCount(category) - SELECTOR_ROWS);
-    }
-
-    private int maxSearchScroll() {
-        return Math.max(0, searchResultCount() - SEARCH_MAX_RESULTS);
-    }
-
-    private static int caliberCount(MunitionsCaliber.Category category) {
-        int count = 0;
-        for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
-            if (caliber.category() == category) {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    private int searchResultCount() {
-        int count = 0;
-        for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
-            if (matchesSearch(caliber, searchQuery)) {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    private static int scrollOffset(int current, double delta, int max) {
-        int next = current + (delta > 0.0D ? -1 : 1);
-        return clamp(next, 0, max);
-    }
-
-    private static int clamp(int value, int min, int max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    private void ensureCategoryVisible(MunitionsCaliber.Category category) {
-        int index = categoryIndex(category);
-        if (index < 0) {
-            return;
-        }
-        if (index < categoryScrollOffset) {
-            categoryScrollOffset = index;
-        } else if (index >= categoryScrollOffset + SELECTOR_ROWS) {
-            categoryScrollOffset = index - SELECTOR_ROWS + 1;
-        }
-        categoryScrollOffset = clamp(categoryScrollOffset, 0, maxCategoryScroll());
-    }
-
-    private static int categoryIndex(MunitionsCaliber.Category category) {
-        for (int i = 0; i < CATEGORY_ORDER.length; i++) {
-            if (CATEGORY_ORDER[i] == category) {
+    /** 单次 / 连续 的命中段 (0 / 1), 不在上面返回 -1。段宽与各风格 seg 的算法一致。 */
+    private int segmentAt(double relX, double relY) {
+        int gap = theme().segGap();
+        int bw = (SEG_W - gap) / 2;
+        for (int i = 0; i < 2; i++) {
+            if (inRect(relX, relY, SEG_X + i * (bw + gap), SEG_Y, bw, SEG_H)) {
                 return i;
             }
         }
         return -1;
     }
 
-    private static int choiceTextColor(boolean selected, boolean enabled) {
-        return selected ? 0xFFEAD6A6 : enabled ? 0xFFD2D7E1 : 0xFF707582;
-    }
-
-    private void drawChoiceButton(GuiGraphics graphics, int x, int y, String label, boolean selected, boolean enabled) {
-        int fill = selected ? 0xFF37332B : enabled ? 0xF0282A34 : 0xF022232B;
-        int text = choiceTextColor(selected, enabled);
-        graphics.fill(x, y, x + CAL_BTN_W, y + CAL_BTN_H, selected ? 0xFF5C4730 : 0xFF151720);
-        graphics.fill(x + 1, y + 1, x + CAL_BTN_W - 1, y + CAL_BTN_H - 1, fill);
-        graphics.fill(x + 3, y + 2, x + CAL_BTN_W - 4, y + 3, selected ? 0x669B7A44 : 0x334A4F5C);
-        if (selected) {
-            graphics.fill(x + 1, y + 2, x + 3, y + CAL_BTN_H - 2, 0xFFB48B4C);
-            graphics.fill(x + 3, y + CAL_BTN_H - 2, x + CAL_BTN_W - 3, y + CAL_BTN_H - 1, 0xFF96733D);
-        }
-        if (!label.isEmpty()) {
-            drawChoiceTextCentered(graphics, label, x, y, text);
-        }
-    }
-
-    private void drawChoiceTextCentered(GuiGraphics graphics, String value, int x, int y, int argb) {
-        float scale = supportsSmoothText(value) ? 0.78F : 0.68F;
-        int width = this.font.width(value);
-        float drawX = x + (CAL_BTN_W - width * scale) / 2.0F;
-        float drawY = y + (CAL_BTN_H - 8.0F * scale) / 2.0F - 0.5F;
-        graphics.pose().pushPose();
-        graphics.pose().translate(drawX, drawY, 0.0F);
-        graphics.pose().scale(scale, scale, 1.0F);
-        graphics.drawString(this.font, value, 0, 0, argb, false);
-        graphics.pose().popPose();
-    }
-
-    private static void drawTinyScrollbar(GuiGraphics graphics, int x, int y, int h,
-                                          int offset, int total, int visible) {
-        if (total <= visible) {
-            return;
-        }
-        int max = Math.max(1, total - visible);
-        int thumbH = Math.max(8, h * visible / total);
-        int thumbY = y + (h - thumbH) * clamp(offset, 0, max) / max;
-        graphics.fill(x, y, x + 1, y + h, 0x664B5061);
-        graphics.fill(x, thumbY, x + 1, thumbY + thumbH, 0xFF31D2B4);
-    }
-
-    private void drawVanillaTextCenteredScaled(GuiGraphics graphics, String value, float centerX, float y,
-                                               int argb, float scale) {
-        int width = this.font.width(value);
-        graphics.pose().pushPose();
-        graphics.pose().translate(centerX - width * scale / 2.0F, y, 0.0F);
-        graphics.pose().scale(scale, scale, 1.0F);
-        graphics.drawString(this.font, value, 0, 0, argb, false);
-        graphics.pose().popPose();
-    }
-
-    private static boolean supportsSmoothText(String value) {
-        String text = value.toUpperCase(Locale.ROOT);
-        for (int i = 0; i < text.length(); i++) {
-            if (SMOOTH_GLYPHS.indexOf(text.charAt(i)) < 0) {
-                return false;
+    @Nullable
+    private static MunitionsCaliber cardAt(MunitionsCaliber.Category category, double relX, double relY) {
+        List<MunitionsCaliber> calibers = calibersOf(category);
+        int pitch = cardPitch(calibers.size());
+        for (int i = 0; i < calibers.size(); i++) {
+            if (inRect(relX, relY, CARD_X + i * pitch, CARD_Y, pitch - 1, CARD_H)) {
+                return calibers.get(i);
             }
         }
-        return true;
+        return null;
     }
 
-    private static int ammoProfileRow(MunitionsCaliber caliber) {
-        return switch (caliber) {
-            case RIFLE_556 -> 9;
-            default -> Math.max(0, Math.min(8, caliber.index()));
+    // ================================================================== tooltips (preview hit() tips)
+
+    @Nullable
+    @Override
+    protected List<Component> screenTooltip(double relX, double relY) {
+        Model m = model();
+        if (inRect(relX, relY, PARAM_X, PROPELLANT_TIP_Y, PARAM_W, PARAM_ROW_PITCH)) {
+            return propellantTooltip(menu.isRefineUnlocked());
+        }
+        for (int i = 0; i < CATEGORY_ORDER.length; i++) {
+            if (inRect(relX, relY, TAB_X + i * TAB_PITCH, TAB_Y, TAB_W, TAB_H)) {
+                MunitionsCaliber.Category category = CATEGORY_ORDER[i];
+                int minLevel = minUnlockLevel(category);
+                if (m.level() >= minLevel) {
+                    return null;
+                }
+                return List.of(title(Component.translatable(category.labelKey())),
+                        red(tr("tip.need_level", minLevel)));
+            }
+        }
+        MunitionsCaliber card = cardAt(m.viewed(), relX, relY);
+        if (card != null) {
+            boolean unlocked = MunitionsLevels.isCaliberUnlocked(m.level(), card);
+            return List.of(title(caliberName(card)),
+                    GunsmithUi.tip(tr("tip.unlock_level", card.unlockLevel()),
+                            unlocked ? GunsmithUi.TIP_GRAY : GunsmithUi.TIP_RED),
+                    gray(tr("tip.card_yield", MunitionsProduction.roundsPerBatch(card, m.level()),
+                            card.sellPrice())));
+        }
+        // 手上拿着物品时原版不出格子提示, 料槽 / 产出槽的说明也跟着让路。
+        boolean carrying = !menu.getCarried().isEmpty();
+        if (!carrying) {
+            for (int i = 0; i < MATERIAL_COUNT; i++) {
+                if (inRect(relX, relY, MATERIAL_X[i] - 1, MATERIAL_Y[i] - 1, 18, 18)) {
+                    int have = m.have()[i];
+                    int need = m.need()[i];
+                    return List.of(title(materialName(i)),
+                            gray(tr("tip.material.per_batch", need)),
+                            GunsmithUi.tip(tr("tip.material.have", have, have / need),
+                                    have >= need ? GunsmithUi.TIP_GRAY : GunsmithUi.TIP_RED));
+                }
+            }
+        }
+        if (inRect(relX, relY, SIDE_PANEL_X, POWER_TIP_Y, SIDE_PANEL_W, POWER_TIP_H)) {
+            return List.of(title(tr("tip.battery.title")),
+                    gray(tr("tip.battery.value", GunsmithUi.formatCount(m.fe()), GunsmithUi.formatCount(m.feCap()))),
+                    gray(tr("tip.battery.desc", GunsmithUi.formatCount(m.feBatch()))));
+        }
+        if (inRect(relX, relY, START_X, START_Y, START_W, START_H)) {
+            return !m.running() && m.blocker() != null ? List.of(red(m.blocker())) : null;
+        }
+        int segment = segmentAt(relX, relY);
+        if (segment == 0) {
+            return List.of(title(modeLabel(false)), gray(tr("tip.single")));
+        }
+        if (segment == 1) {
+            return List.of(title(modeLabel(true)), gray(tr("tip.continuous")));
+        }
+        if (!carrying && inRect(relX, relY, MunitionsBenchMenu.SLOT_OUTPUT_X - 1, MunitionsBenchMenu.SLOT_OUTPUT_Y - 1,
+                18, 18)) {
+            List<Component> lines = new ArrayList<>();
+            lines.add(title(caliberName(m.shown())));
+            lines.add(gray(tr("tip.output.buffered", GunsmithUi.formatCount(m.buffered()))));
+            Slot output = containerSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT);
+            if (output != null && output.hasItem()) {
+                lines.add(gold(tr("tip.output.take", output.getItem().getCount())));
+            }
+            return lines;
+        }
+        return null;
+    }
+
+    private static List<Component> propellantTooltip(boolean refineUnlocked) {
+        int unlockLevel = MunitionsConfig.REFINE_UNLOCK_LEVEL.get();
+        int direct = MunitionsConfig.DIRECT_ROUNDS_PER_BATCH.get();
+        int refined = MunitionsConfig.REFINED_ROUNDS_PER_BATCH.get();
+        if (refineUnlocked) {
+            return List.of(title(tr("tip.refine.title")), gray(tr("tip.refine.desc", unlockLevel, refined)));
+        }
+        return List.of(title(tr("tip.direct.title")), gray(tr("tip.direct.desc", unlockLevel, direct, refined)));
+    }
+
+    // ================================================================== helpers
+
+    private static Component tr(String suffix, Object... args) {
+        return Component.translatable(KEY + suffix, args);
+    }
+
+    private static Component title(Component text) {
+        return GunsmithUi.tip(text, GunsmithUi.TIP_TITLE);
+    }
+
+    private static Component gray(Component text) {
+        return GunsmithUi.tip(text, GunsmithUi.TIP_GRAY);
+    }
+
+    private static Component red(Component text) {
+        return GunsmithUi.tip(text, GunsmithUi.TIP_RED);
+    }
+
+    private static Component gold(Component text) {
+        return GunsmithUi.tip(text, GunsmithUi.TIP_GOLD);
+    }
+
+    /** 口径全名 (如 "7.62×39mm 步枪弹"); 没收录的口径退回短代号。 */
+    private static Component caliberName(MunitionsCaliber caliber) {
+        return Component.translatableWithFallback(KEY + "caliber." + caliber.name().toLowerCase(Locale.ROOT),
+                caliber.shortLabel());
+    }
+
+    /** 页签上的短类别名 (页签只有 32px 宽; 提示框里用类别全名)。 */
+    private static Component tabLabel(MunitionsCaliber.Category category) {
+        return tr("tab." + category.name().toLowerCase(Locale.ROOT));
+    }
+
+    private static Component materialName(int i) {
+        return tr("material." + MATERIAL_KEY[i]);
+    }
+
+    private static Component modeLabel(boolean continuous) {
+        return Component.translatable(continuous
+                ? "gui.miningdim.munitions.mode_continuous"
+                : "gui.miningdim.munitions.mode_single");
+    }
+
+    /** 每发工费 = 每 10 发工费 / 10 (如 15 -> "1.5", 20 -> "2")。 */
+    private static String workFeePerRound() {
+        return BigDecimal.valueOf(MunitionsConfig.WORK_FEE_PER_TEN_ROUNDS.get(), 1)
+                .stripTrailingZeros().toPlainString();
+    }
+
+    /** 容量这类整百万的数显示成 "32M", 其余同 {@link GunsmithUi#formatMegaFe}。 */
+    private static String compactMega(long fe) {
+        if (fe > 0 && fe % 1_000_000L == 0) {
+            return (fe / 1_000_000L) + "M";
+        }
+        return GunsmithUi.formatMegaFe(fe);
+    }
+
+    private static float fraction(long value, long max) {
+        if (max <= 0) {
+            return 0.0F;
+        }
+        return Math.max(0.0F, Math.min(1.0F, value / (float) max));
+    }
+
+    /**
+     * 按首选字号画, 超出 maxW 时缩小 (最小 0.4), 并按字号差把字压回原来的垂直中线。
+     *
+     * @return 实际画出的宽度
+     */
+    private static float fitText(GsPainter p, Component text, float x, float y, int color, float scale,
+                                 float maxW, int flags) {
+        float fitted = p.fitScale(text, Math.max(1.0F, maxW), scale, 0.4F, (flags & BOLD) != 0);
+        return p.text(text, x, y + (scale - fitted) * 4.0F, color, fitted, flags);
+    }
+
+    private ItemStack ammoIcon(MunitionsCaliber caliber) {
+        return ammoIcons.computeIfAbsent(caliber, c -> MunitionsAmmoFactory.materialize(c, 1));
+    }
+
+    private ItemStack materialGhost(int i) {
+        if (materialGhosts == null) {
+            materialGhosts = new ItemStack[]{
+                    new ItemStack(ModMunitionsItems.PRIMER.get()),
+                    new ItemStack(ModMunitionsItems.CASING.get()),
+                    new ItemStack(ModMunitionsItems.BULLET_HEAD.get()),
+                    new ItemStack(ModMunitionsItems.PROPELLANT.get())
+            };
+        }
+        return materialGhosts[i];
+    }
+
+    /**
+     * 锁定口径卡的内底色 (褪色图标的面纱色): 学园 / 工控取 card(LOCK) 的实心内底, 蓝图的锁定卡只有虚线框,
+     * 取图纸底色。
+     */
+    private static int lockedCardInner(GunsmithTheme theme) {
+        return switch (theme.style()) {
+            case ACADEMY -> 0xF3F5F8;
+            case INDUSTRIAL -> 0x171A1F;
+            case BLUEPRINT -> 0x16427A;
         };
     }
 
-    private static String formatTicks(int ticks) {
-        if (ticks <= 0) {
-            return "--";
-        }
-        int seconds = Math.max(1, (ticks + 19) / 20);
-        int minutes = seconds / 60;
-        int remainSeconds = seconds % 60;
-        return minutes + ":" + (remainSeconds < 10 ? "0" : "") + remainSeconds;
-    }
-
-    private static String displayCaliberLabel(MunitionsCaliber caliber) {
-        return caliber.shortLabel();
-    }
-
-    private static boolean matchesSearch(MunitionsCaliber caliber, String query) {
-        String trimmed = query.trim();
-        if (trimmed.isEmpty()) {
-            return true;
-        }
-        String target = searchText(caliber).toLowerCase(Locale.ROOT);
-        String direct = trimmed.toLowerCase(Locale.ROOT);
-        String compact = compactSearchText(trimmed);
-        return target.contains(direct) || compactSearchText(target).contains(compact);
-    }
-
-    private static String searchText(MunitionsCaliber caliber) {
-        return displayCaliberLabel(caliber) + " "
-                + caliber.defaultAmmoPath() + " "
-                + caliber.category().name() + " "
-                + I18n.get(caliber.category().labelKey()) + " "
-                + caliberSearchName(caliber);
-    }
-
-    private static String compactSearchText(String value) {
-        return value.toLowerCase(Locale.ROOT)
-                .replace(" ", "")
-                .replace("/", "")
-                .replace("_", "")
-                .replace("-", "")
-                .replace(".", "");
-    }
-
-    private static String caliberSearchName(MunitionsCaliber caliber) {
-        return switch (caliber) {
-            case PISTOL -> "9mm 手枪 冲锋枪 手枪弹 冲锋枪弹 pistol smg";
-            case RIFLE -> "762 762x39 7.62 步枪 步枪弹 rifle";
-            case SHOTGUN -> "12g 12ga 霰弹 散弹 霰弹枪 shotgun";
-            case BATTLE -> "762x54 7.62x54 54r 战斗步枪 机枪 机枪弹 battle mg machinegun";
-            case SNIPER -> "338 .338 狙击 狙击弹 sniper";
-            case BIG_PISTOL -> "50ae 50 ae 大口径手枪 magnum pistol";
-            case ANTI_MATERIEL -> "50bmg 50 bmg 反器材 反器材弹 anti materiel antimateriel";
-            case EXPLOSIVE -> "40mm 40 m 爆炸 榴弹 火箭弹 rpg explosive grenade";
-            case SPECIAL -> "68x51 68x51fury 特种 特种弹 special fury";
-            case RIFLE_556 -> "556 556x45 5.56 5.56x45 步枪 步枪弹 rifle";
+    /** 各风格 slot() 的 16x16 槽内底色 (空料槽剪影的面纱色)。 */
+    private static int slotInner(GunsmithTheme theme) {
+        return switch (theme.style()) {
+            case ACADEMY -> 0xE4E9F0;
+            case INDUSTRIAL -> 0x101318;
+            case BLUEPRINT -> 0x123A6C;
         };
     }
 
-    private static void drawSmoothTextCenteredScaled(GuiGraphics graphics, String value, int centerX, int y,
-                                                     int argb, float scale) {
-        int width = smoothTextWidth(value);
-        drawSmoothTextScaled(graphics, value, centerX - width * scale / 2.0F, y, argb, scale);
+    private static int cardPitch(int count) {
+        return count <= CARDS_AT_FULL_WIDTH ? CARD_PITCH : Math.max(9, CARD_AREA_W / count);
     }
 
-    private static void drawSmoothTextScaled(GuiGraphics graphics, String value, float x, float y,
-                                             int argb, float scale) {
-        graphics.pose().pushPose();
-        graphics.pose().translate(x, y, 0.0F);
-        graphics.pose().scale(scale, scale, 1.0F);
-        drawSmoothText(graphics, value, 0, 0, argb);
-        graphics.pose().popPose();
+    private static List<MunitionsCaliber> calibersOf(MunitionsCaliber.Category category) {
+        return CALIBERS.getOrDefault(category, List.of());
     }
 
-    private static void drawSmoothText(GuiGraphics graphics, String value, int x, int y, int argb) {
-        float alpha = ((argb >>> 24) & 0xFF) / 255.0F;
-        float red = ((argb >>> 16) & 0xFF) / 255.0F;
-        float green = ((argb >>> 8) & 0xFF) / 255.0F;
-        float blue = (argb & 0xFF) / 255.0F;
-        graphics.setColor(red, green, blue, alpha);
-        int cursor = x;
-        String text = value.toUpperCase(Locale.ROOT);
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (c == ' ') {
-                cursor += GLYPH_ADVANCE;
-                continue;
+    private static int minUnlockLevel(MunitionsCaliber.Category category) {
+        int min = Integer.MAX_VALUE;
+        for (MunitionsCaliber caliber : calibersOf(category)) {
+            min = Math.min(min, caliber.unlockLevel());
+        }
+        return min;
+    }
+
+    private static Map<MunitionsCaliber.Category, List<MunitionsCaliber>> calibersByCategory() {
+        Map<MunitionsCaliber.Category, List<MunitionsCaliber>> map = new EnumMap<>(MunitionsCaliber.Category.class);
+        for (MunitionsCaliber.Category category : MunitionsCaliber.Category.values()) {
+            List<MunitionsCaliber> list = new ArrayList<>();
+            for (MunitionsCaliber caliber : MunitionsCaliber.values()) {
+                if (caliber.category() == category) {
+                    list.add(caliber);
+                }
             }
-            int idx = SMOOTH_GLYPHS.indexOf(c);
-            if (idx >= 0) {
-                graphics.blit(UI_FONT, cursor, y, GLYPH_W, GLYPH_H,
-                        idx * GLYPH_SRC_W, 0.0F, GLYPH_SRC_W, GLYPH_SRC_H, GLYPH_TEX_W, GLYPH_TEX_H);
-                cursor += GLYPH_ADVANCE;
-            }
+            map.put(category, Collections.unmodifiableList(list));
         }
-        graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
-    }
-
-    private static int smoothTextWidth(String value) {
-        int width = 0;
-        String text = value.toUpperCase(Locale.ROOT);
-        for (int i = 0; i < text.length(); i++) {
-            if (SMOOTH_GLYPHS.indexOf(text.charAt(i)) >= 0) {
-                width += GLYPH_ADVANCE;
-            }
-        }
-        return Math.max(0, width - 1);
-    }
-
-    private static void drawLockIcon(GuiGraphics graphics, int x, int y) {
-        graphics.fill(x + 2, y, x + 10, y + 2, 0xFFFFD8D0);
-        graphics.fill(x + 1, y + 2, x + 3, y + 6, 0xFFFFD8D0);
-        graphics.fill(x + 9, y + 2, x + 11, y + 6, 0xFFFFD8D0);
-        graphics.fill(x, y + 6, x + 12, y + 13, 0xFFFFD8D0);
-        graphics.fill(x + 5, y + 8, x + 7, y + 11, 0xCC73242B);
-    }
-
-    private static void drawGhostSilhouette(GuiGraphics graphics, int x, int y, int kind) {
-        int body = 0x40D8C37A;
-        int edge = 0x55806F3A;
-        if (kind == 0) {
-            graphics.fill(x + 5, y + 3, x + 11, y + 4, edge);
-            graphics.fill(x + 3, y + 5, x + 13, y + 11, body);
-            graphics.fill(x + 5, y + 12, x + 11, y + 13, edge);
-            graphics.fill(x + 7, y + 7, x + 10, y + 10, 0x55F4E7B8);
-            return;
-        }
-        if (kind == 1) {
-            graphics.fill(x + 7, y + 2, x + 11, y + 5, body);
-            graphics.fill(x + 5, y + 5, x + 13, y + 13, body);
-            graphics.fill(x + 4, y + 13, x + 14, y + 15, edge);
-            graphics.fill(x + 10, y + 5, x + 12, y + 13, 0x4CEED28C);
-            return;
-        }
-        if (kind == 2) {
-            graphics.fill(x + 7, y + 1, x + 10, y + 3, edge);
-            graphics.fill(x + 6, y + 3, x + 11, y + 7, body);
-            graphics.fill(x + 5, y + 7, x + 12, y + 14, body);
-            graphics.fill(x + 6, y + 14, x + 11, y + 15, edge);
-            return;
-        }
-        graphics.fill(x + 4, y + 9, x + 6, y + 11, body);
-        graphics.fill(x + 7, y + 5, x + 9, y + 7, body);
-        graphics.fill(x + 9, y + 10, x + 11, y + 12, body);
-        graphics.fill(x + 12, y + 7, x + 14, y + 9, body);
-        graphics.fill(x + 6, y + 13, x + 8, y + 15, body);
-        graphics.fill(x + 12, y + 13, x + 14, y + 15, body);
-    }
-
-    private static boolean inRect(double mx, double my, int x, int y, int w, int h) {
-        return mx >= x && mx < x + w && my >= y && my < y + h;
+        return map;
     }
 }

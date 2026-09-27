@@ -1056,6 +1056,67 @@ public final class MunitionsGameTests {
         }
     }
 
+    // ============================================================
+    // 军火台电量同步 (界面电力块): 原版 ClientboundContainerSetDataPacket 把 ContainerData 按 int16 过线,
+    // 电量/容量以 kFE 拆两个 15 位半字, 每个半字必须落在 [0, 0x7FFF]; 按 short 过线再拼回的 FE 与服务端一致。
+    // 退回 "直发 FE" 或只发一个 int16 时, 默认容量 32,000,000 FE 过线即回绕, 本测必挂。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchEnergySyncSurvivesInt16Wire(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        IJobService prevJob = swapJob(new FixedLevelJobService(5));
+        try {
+            // newBench 默认把内部缓冲充满 (= benchEnergyCapacity)。
+            MunitionsBenchBlockEntity be = newBench(helper, player);
+            net.minecraft.world.inventory.ContainerData data = be.dataAccess();
+            helper.assertTrue(data.getCount() == MunitionsBenchBlockEntity.DATA_COUNT(),
+                    "bench ContainerData exposes DATA_COUNT slots, got " + data.getCount());
+            int[] energyIndices = {
+                    MunitionsBenchBlockEntity.DATA_ENERGY_KFE_LO,
+                    MunitionsBenchBlockEntity.DATA_ENERGY_KFE_HI,
+                    MunitionsBenchBlockEntity.DATA_ENERGY_CAPACITY_KFE_LO,
+                    MunitionsBenchBlockEntity.DATA_ENERGY_CAPACITY_KFE_HI};
+            for (int index : energyIndices) {
+                int value = data.get(index);
+                helper.assertTrue(value >= 0 && value <= 0x7FFF,
+                        "energy data slot " + index + " must fit a non-negative int16, got " + value);
+            }
+
+            long unit = MunitionsBenchBlockEntity.ENERGY_SYNC_UNIT_FE;
+            long expectedFe = MunitionsConfig.BENCH_ENERGY_CAPACITY.get() / unit * unit;
+            // 模拟过线: 原版按 short 写读 (符号扩展)。
+            long storedFe = MunitionsBenchBlockEntity.unpackKfeToFe(
+                    (short) data.get(MunitionsBenchBlockEntity.DATA_ENERGY_KFE_LO),
+                    (short) data.get(MunitionsBenchBlockEntity.DATA_ENERGY_KFE_HI));
+            long capacityFe = MunitionsBenchBlockEntity.unpackKfeToFe(
+                    (short) data.get(MunitionsBenchBlockEntity.DATA_ENERGY_CAPACITY_KFE_LO),
+                    (short) data.get(MunitionsBenchBlockEntity.DATA_ENERGY_CAPACITY_KFE_HI));
+            helper.assertTrue(storedFe == expectedFe,
+                    "stored FE survives the int16 wire, expected " + expectedFe + " got " + storedFe);
+            helper.assertTrue(capacityFe == expectedFe,
+                    "capacity FE survives the int16 wire, expected " + expectedFe + " got " + capacityFe);
+
+            // Menu 访问器与 BE 同源 (服务端 menu 直接读 BE 的 dataAccess)。
+            MunitionsBenchMenu menu = openBenchMenu(be, player);
+            helper.assertTrue(menu.storedEnergyFe() == expectedFe && menu.energyCapacityFe() == expectedFe,
+                    "menu energy accessors match the bench, got " + menu.storedEnergyFe() + " / "
+                            + menu.energyCapacityFe());
+
+            // 大值: 配置上限级别 (2,000,000,000 FE) 的高半字非零, 两半仍在 15 位内, 拼回无损。
+            int big = 2_000_000_000;
+            int lo = MunitionsBenchBlockEntity.kfeLowHalf(big);
+            int hi = MunitionsBenchBlockEntity.kfeHighHalf(big);
+            helper.assertTrue(lo >= 0 && lo <= 0x7FFF && hi > 0 && hi <= 0x7FFF,
+                    "large FE splits into two 15-bit halves, got lo=" + lo + " hi=" + hi);
+            helper.assertTrue(MunitionsBenchBlockEntity.unpackKfeToFe((short) lo, (short) hi) == 2_000_000_000L,
+                    "large FE round-trips through the int16 wire");
+            helper.succeed();
+        } finally {
+            restoreJob(prevJob);
+        }
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void benchSettleNoMaterialNoProduction(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);

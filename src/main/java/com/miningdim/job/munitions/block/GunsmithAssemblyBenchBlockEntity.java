@@ -10,13 +10,19 @@ import com.miningdim.job.munitions.gunsmith.GunsmithAssemblyRecipe;
 import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunFactory;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunDurability;
+import com.miningdim.job.munitions.gunsmith.GunsmithGunStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
 import com.miningdim.job.munitions.menu.GunsmithAssemblyMenu;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.network.Connection;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.MenuProvider;
@@ -24,6 +30,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
@@ -63,6 +70,10 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
     private static final String K_ANIMATION_START = "AnimationStartTick";
     private static final String K_ANIMATION_END = "AnimationEndTick";
     private static final String K_WELD_SOUND = "NextWeldSoundTick";
+    /** 同步标签里唯一的键: 台面上摆哪把枪; "" = 不摆。只进 getUpdateTag, 不进存档。 */
+    private static final String K_DISPLAY_GUN = "DisplayGun";
+    /** TaCZ 枪械 NBT 根上的枪 id 键 (GunItemDataAccessor 的 "GunId"); 这里只按字符串读, 不引 TaCZ 类。 */
+    private static final String K_TACZ_GUN_ID = "GunId";
 
     // 焊接音跟着机械臂程序 (GunsmithArmProgram) 的点焊时刻走, 需要知道动画从哪一 tick 开始。
     private long animationStartTick;
@@ -77,6 +88,15 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
      * 玩家开工时没看着组装台 (转头、从 Web UI 开工) 也不会让手臂落后, 到时刻被服务端切回待机时才不会从程序中途瞬移。
      */
     private long clientProgramStartTick;
+    /**
+     * 仅服务端: 最近一次推给客户端的展示枪 ("" = 不摆枪); null = 本次加载后还没推过, 下一次检查必推。
+     * 只用来去重, 区块包带的是 getUpdateTag() 当场算的值, 不经过这里。每次 load() 都清回 null (见 load())。
+     */
+    @Nullable
+    private String syncedDisplayGun;
+    /** 仅客户端: 服务端经更新标签推来的展示枪 id; null = 台面不摆枪。 */
+    @Nullable
+    private ResourceLocation clientDisplayGunId;
 
     private final ItemStackHandler inventory = new ItemStackHandler(SLOT_COUNT) {
         @Override
@@ -85,6 +105,8 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
                 pendingBlockedReported = false;
             }
             setChanged();
+            // 客户端菜单同步写槽同样会走到这里 (load() 的反序列化走 onLoad, 不走这里), 服务端守卫在方法里。
+            syncDisplayIfChanged();
         }
 
         @Override
@@ -237,6 +259,7 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         inventory.extractItem(SLOT_BLUEPRINT, 1, false);
         inventory.extractItem(slotForPart(repairPart), 1, false);
         pendingResult = result;
+        syncDisplayIfChanged();
         beginAnimation(durationTicks);
         player.closeContainer();
         player.displayClientMessage(Component.translatable(
@@ -314,6 +337,7 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
             inventory.extractItem(slotForPart(part), 1, false);
         }
         pendingResult = result;
+        syncDisplayIfChanged();
         beginAnimation(durationTicks);
         player.closeContainer();
         player.displayClientMessage(
@@ -400,6 +424,7 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         pendingResult = ItemStack.EMPTY;
         pendingBlockedReported = false;
         setChanged();
+        syncDisplayIfChanged();
     }
 
     public boolean isAnimating() {
@@ -415,6 +440,94 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
     /** 客户端机械臂程序的起点 (游戏 tick); 0 = 未知, 渲染器退回到首帧计时。 */
     public long clientProgramStartTick() {
         return clientProgramStartTick;
+    }
+
+    /**
+     * 台面上该摆哪把枪 (服务端权威): pendingResult (装配/维修进行中, 或完工但成品槽被占) → 成品槽 →
+     * 图纸槽里待修的托管枪 → 图纸槽里的图纸 → 不摆。按格子占用定优先级, 占着的那格读不出来就不摆, 不往下退。
+     *
+     * 客户端的背包只经菜单同步且早已过期, 渲染器读的是同步过去的 {@link #clientDisplayGunId()}。
+     * 只推 id 不推整把枪: 零件与耐久 NBT 不外发给围观玩家, 展示用的 TaCZ 枪由客户端按 id 自己造。
+     * 本方法跑在玩家点击链上 (onContentsChanged), 容器谓词挡不住 setStackInSlot 与旧存档里的怪东西,
+     * 所以一律走不抛的解析入口, 读不出来就当没有枪 (审查 2 同一条崩溃链)。
+     */
+    @Nullable
+    public ResourceLocation displayGunId() {
+        if (!pendingResult.isEmpty()) {
+            return gunDisplayId(pendingResult);
+        }
+        ItemStack output = inventory.getStackInSlot(SLOT_OUTPUT);
+        if (!output.isEmpty()) {
+            return gunDisplayId(output);
+        }
+        ItemStack input = inventory.getStackInSlot(SLOT_BLUEPRINT);
+        if (GunsmithGunDurability.isManagedGun(input)) {
+            return gunDisplayId(input);
+        }
+        if (GunsmithAssemblyRecipe.isBlueprint(input)) {
+            // 只按图纸推算成品 id (旧 M4 模板 → miningdim:m4a1_gunsmith), 绝不为了展示去物化一把真枪。
+            return GunsmithAssemblyRecipe.assembledGunId(input);
+        }
+        return null;
+    }
+
+    /**
+     * 一把枪在台面上的展示 id, 不碰 TaCZ 类: 先认 TaCZ 自己的 GunId (TaCZ 按它挑模型, 枪匠三连发等
+     * miningdim 枪 id 也都挂着 TaCZ 的 display), 没有再退到枪匠 NBT 里的 gunId (GameTest 拿铁锄当基础枪, 只有后者)。
+     */
+    @Nullable
+    private static ResourceLocation gunDisplayId(ItemStack stack) {
+        CompoundTag tag = stack.getTag();
+        if (tag != null && tag.contains(K_TACZ_GUN_ID, Tag.TAG_STRING)) {
+            ResourceLocation taczGunId = parseGunId(tag.getString(K_TACZ_GUN_ID));
+            if (taczGunId != null) {
+                return taczGunId;
+            }
+        }
+        GunsmithGunStats stats = GunsmithGunStats.tryFrom(stack);
+        return stats == null ? null : stats.gunId();
+    }
+
+    /** "" 不能交给 tryParse: 它会解成 minecraft: 这个合法但空路径的 id。 */
+    @Nullable
+    private static ResourceLocation parseGunId(String encoded) {
+        return encoded.isEmpty() ? null : ResourceLocation.tryParse(encoded);
+    }
+
+    private static String encodeGunId(@Nullable ResourceLocation gunId) {
+        return gunId == null ? "" : gunId.toString();
+    }
+
+    /** 客户端渲染器读的展示枪 id, 来自服务端的更新标签; null = 台面不摆枪。 */
+    @Nullable
+    public ResourceLocation clientDisplayGunId() {
+        return clientDisplayGunId;
+    }
+
+    /**
+     * 展示枪变了才发一次方块更新: UPDATE_CLIENTS 只把这一格标脏, 本 tick 末合并成一个方块实体数据包,
+     * 包体取发送那一刻的 getUpdateTag(), 所以同一次点击里的中间态 (先抽走零件、后写 pendingResult) 不会各发一包。
+     * 仅服务端: 客户端菜单同步写槽也会触发 onContentsChanged, 还没挂进世界的实例没有 level, 都在这里挡掉。
+     * load() 不会走到这里 (背包反序列化走 onLoad), 但它并不总在 level 为 null 时发生: 区块读盘时是, 而
+     * /data merge block 是在带 level 的活实例上原地 load() 再由原版自己发更新, 所以 load() 末尾要清掉去重值。
+     */
+    private void syncDisplayIfChanged() {
+        if (level == null || level.isClientSide) {
+            return;
+        }
+        String displayGun = encodeGunId(displayGunId());
+        if (displayGun.equals(syncedDisplayGun)) {
+            return;
+        }
+        syncedDisplayGun = displayGun;
+        BlockState state = getBlockState();
+        level.sendBlockUpdated(worldPosition, state, state, Block.UPDATE_CLIENTS);
+    }
+
+    /** 仅供 GameTest 断言"展示枪变了确实推出去了": 最近一次推送的值, "" = 不摆枪, null = 本次加载后还没推过。 */
+    @Nullable
+    String syncedDisplayGunForTest() {
+        return syncedDisplayGun;
     }
 
     // 客户端收到方块更新时 LevelChunk.setBlockState 会把新状态交给已有的方块实体, 这是客户端唯一能准确看到开工时刻的地方。
@@ -471,6 +584,7 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
             pendingResult = ItemStack.EMPTY;
         }
         setChanged();
+        syncDisplayIfChanged();
         return drops;
     }
 
@@ -520,6 +634,9 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
             animationStartTick = 0L;
         }
         pendingBlockedReported = false;
+        // 原地 load() (如 /data merge block) 之后客户端拿到的是新内容, 旧去重值作废: 否则换回同一把枪时会被当成"没变"吞掉。
+        // 只清字段, 不碰 level, 也不在这里发包 (读盘时没有 level; 原地 load 的调用方自己会发更新)。
+        syncedDisplayGun = null;
     }
 
     private void loadInventory(CompoundTag serializedInventory) {
@@ -614,6 +731,41 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
         migratedInventory.setStackInSlot(SLOT_OUTPUT,
                 legacyInventory.getStackInSlot(LEGACY_RIFLE_SLOT_OUTPUT).copy());
         inventory.deserializeNBT(migratedInventory.serializeNBT());
+    }
+
+    /**
+     * 区块包与 {@link #getUpdatePacket()} 共用的同步标签, 只有展示枪一个键: 背包、pendingResult、动画时刻一概不发。
+     * 不摆枪时写 "" 而不是省掉键 —— 空标签在区块包和方块实体数据包里都会被压成 null 丢弃, 客户端就收不到"枪没了"。
+     */
+    @Override
+    public CompoundTag getUpdateTag() {
+        CompoundTag tag = new CompoundTag();
+        tag.putString(K_DISPLAY_GUN, encodeGunId(displayGunId()));
+        return tag;
+    }
+
+    @Override
+    public Packet<ClientGamePacketListener> getUpdatePacket() {
+        return ClientboundBlockEntityDataPacket.create(this);
+    }
+
+    // 两条客户端入口都只读展示枪。默认实现整段走 load(), 会拿这份只有 DisplayGun 的标签把 pendingResult
+    // 与动画时刻清成零值; 反过来把整份存档当同步标签发, 又会在客户端重跑存档迁移并覆盖打开着的菜单正在用的背包。
+    @Override
+    public void handleUpdateTag(CompoundTag tag) {
+        readDisplayGun(tag);
+    }
+
+    @Override
+    public void onDataPacket(Connection connection, ClientboundBlockEntityDataPacket packet) {
+        // 包里的空标签已被压成 null; 本方块实体的标签从不为空, 真收到 null 也按"不摆枪"清掉, 不能像默认实现那样忽略。
+        readDisplayGun(packet.getTag());
+    }
+
+    private void readDisplayGun(@Nullable CompoundTag tag) {
+        clientDisplayGunId = tag != null && tag.contains(K_DISPLAY_GUN, Tag.TAG_STRING)
+                ? parseGunId(tag.getString(K_DISPLAY_GUN))
+                : null;
     }
 
     @Override

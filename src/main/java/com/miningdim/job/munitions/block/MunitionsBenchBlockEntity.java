@@ -17,7 +17,11 @@ import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.network.Connection;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.MenuProvider;
@@ -146,6 +150,16 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     private long programStoppedTick = NO_PROGRAM_START;
     /** 服务端最近一次播冲压音的游戏 tick (同一 tick 只播一次)。 */
     private long lastStrikeSoundTick = NO_PROGRAM_START;
+    /**
+     * 服务端: 最近一次推给客户端的计数屏显示键 ({@link MunitionsBenchCounter#displayKey}); NO_KEY = 本次加载后还没推过
+     * (load() 会把它清回去: /data merge block 是在带 level 的活实例上原地 load())。纯运行态, 不存盘。
+     */
+    private long syncedCounterKey = MunitionsBenchCounter.NO_KEY;
+    /** 服务端: 最近一次查显示键时的四个值 (null = 本次加载后还没查过), 没变就连键都不算。与 syncedCounterKey 一起清。 */
+    @Nullable
+    private MunitionsBenchCounter.Shown syncedCounterShown;
+    /** 客户端: 更新标签带来的计数屏状态 (渲染器画箱盖窗里的字与箱身口径)。服务端这份不用。 */
+    private MunitionsBenchCounter.Shown clientCounter = MunitionsBenchCounter.Shown.EMPTY;
 
     /**
      * 4->5 槽迁移 (F015) 待掉落队列: 旧档 legacy slot 0/1 (类型无关) 与非发射药的 legacy slot 2 内容无处安放,
@@ -290,13 +304,17 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     }
 
     /**
-     * 区块发给客户端时带上程序起点: 玩家走远再回来、或台主上线时区块比 ACTIVE 翻转晚到, 客户端都看不到翻转,
-     * 没有起点就只能从第一帧起算, 之后的整批 (几十分钟) 画面都与冲压音错拍。只带这一个值, 背包、台主等都不外发。
-     * 默认 {@code getUpdatePacket()} 为 null, 方块更新不会带这个标签; 开停机的相位由 {@link #setBlockState} 管。
+     * 区块包与 {@link #getUpdatePacket()} 共用的同步标签: 程序起点 (工作时) + 弹药箱计数屏看得见的四个值
+     * (缓冲发数、缓冲口径序号或 -1、缓冲上限、满仓)。背包、台主、料槽等一概不外发。
      * <p>
-     * 起点不存盘, 读档时已在工作的台子要到第一次播音判定才定起点; 而区块包在区块能 tick 时就组好, 早于这台机器的第一次
-     * tick (视距大于模拟距离时, 视距边缘的区块根本不 tick)。所以还不知道起点时就在这里当场定下 (之后播音也按它),
-     * 发出去的标签总带着起点, 客户端不必自己从 "第一次看到" 起算。
+     * 程序起点: 玩家走远再回来、或台主上线时区块比 ACTIVE 翻转晚到, 客户端都看不到翻转, 没有起点就只能从第一帧起算, 之后的整批
+     * (几十分钟) 画面都与冲压音错拍。起点不存盘, 读档时已在工作的台子要到第一次播音判定才定起点; 而区块包在区块能 tick 时就组好,
+     * 早于这台机器的第一次 tick (视距大于模拟距离时, 视距边缘的区块根本不 tick)。所以还不知道起点时就在这里当场定下
+     * (之后播音也按它), 发出去的标签总带着起点, 客户端不必自己从 "第一次看到" 起算。开停机的相位仍由 {@link #setBlockState} 管,
+     * 方块更新随后带来的这份标签再把起点校成服务端的。
+     * <p>
+     * 计数屏: 上限随台主等级与 config 变, 客户端算不出来 (服务端 config), 所以连同满仓一起发。标签从不为空 (空标签在两种包里
+     * 都会被压成 null 丢掉)。
      */
     @Override
     public CompoundTag getUpdateTag() {
@@ -304,15 +322,109 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         if (level != null && isActive(getBlockState())) {
             tag.putLong(K_PROGRAM_START, programStartTickOr(level.getGameTime()));
         }
+        MunitionsBenchCounter.Shown counter = counterShown();
+        tag.putInt(K_BUFFERED, counter.rounds());
+        tag.putInt(K_BUFFERED_CAL, counter.caliberIndex());
+        tag.putInt(K_BUFFER_CAP, counter.cap());
+        tag.putBoolean(K_BUFFER_FULL, counter.full());
         return tag;
     }
 
-    /** 不走默认的 {@code load(tag)}: 更新标签里只有程序起点, 按存档读会把客户端这份的其余字段清成默认值。 */
+    /** 计数屏看得见的样子变了才发方块更新 ({@link #syncCounterIfChanged}), 包体就是 {@link #getUpdateTag()}。 */
+    @Override
+    public Packet<ClientGamePacketListener> getUpdatePacket() {
+        return ClientboundBlockEntityDataPacket.create(this);
+    }
+
+    /**
+     * 不走默认的 {@code load(tag)}: 同步标签里只有程序起点与计数屏的四个值, 按存档读会把客户端这份的其余字段清成默认值。
+     * 区块包 ({@code handleUpdateTag}) 与方块实体数据包 ({@link #onDataPacket}) 两条入口都到这里。
+     * <p>
+     * 计数屏只认带 {@code BufferCap} 的标签: 发数 / 口径两个键与存档同名, 别的模组发来整份存档 NBT 的方块实体数据包
+     * (如 WorldEdit / FAWE 粘贴) 也有它们, 却没有上限 (存档不存上限), 照读会得到上限 0 = 整条满度条。这种包不动计数屏。
+     */
     @Override
     public void handleUpdateTag(CompoundTag tag) {
         if (tag.contains(K_PROGRAM_START, Tag.TAG_LONG)) {
             programStartTick = tag.getLong(K_PROGRAM_START);
         }
+        if (tag.contains(K_BUFFERED, Tag.TAG_INT) && tag.contains(K_BUFFER_CAP, Tag.TAG_INT)) {
+            clientCounter = new MunitionsBenchCounter.Shown(
+                    tag.getInt(K_BUFFERED),
+                    tag.contains(K_BUFFERED_CAL, Tag.TAG_INT) ? tag.getInt(K_BUFFERED_CAL) : -1,
+                    tag.getInt(K_BUFFER_CAP),
+                    tag.getBoolean(K_BUFFER_FULL));
+        }
+    }
+
+    /** Forge 默认的 onDataPacket 走 {@code load()}, 会把客户端这份清空; 只读同步标签。本方块实体的标签从不为空, 真收到 null 就不动。 */
+    @Override
+    public void onDataPacket(Connection connection, ClientboundBlockEntityDataPacket packet) {
+        CompoundTag tag = packet.getTag();
+        if (tag != null) {
+            handleUpdateTag(tag);
+        }
+    }
+
+    /** 客户端: 渲染器画的计数屏状态 (来自服务端的同步标签)。 */
+    public MunitionsBenchCounter.Shown clientCounter() {
+        return clientCounter;
+    }
+
+    /**
+     * 计数屏此刻该显示什么 (服务端权威状态): 发数、缓冲口径 (空箱 = -1)、缓冲上限、满仓。满仓按下一批会用的口径算
+     * (选中的口径; 没选时按缓冲里的口径), 与开工门 / 结算用同一条 {@link #bufferCannotTakeBatch}。客户端这份直接返回同步来的值
+     * (客户端没有服务端 config, 算不出上限); 没有 level 的实例 (别的模组在客户端做的预览副本等) 也一样, 不去读 SERVER config
+     * (没加载时会抛)。服务端发出去的标签都来自已放进世界的实例。
+     */
+    private MunitionsBenchCounter.Shown counterShown() {
+        if (level == null || level.isClientSide) {
+            return clientCounter;
+        }
+        int rounds = Math.max(0, bufferedRounds);
+        int caliber = rounds > 0 && bufferedCaliber != null ? bufferedCaliber.index() : -1;
+        MunitionsCaliber nextBatch = selectedCaliber != null ? selectedCaliber : bufferedCaliber;
+        boolean full = rounds > 0 && nextBatch != null && bufferCannotTakeBatch(nextBatch, ownerLevelCache);
+        return new MunitionsBenchCounter.Shown(rounds, caliber, bufferCap(), full);
+    }
+
+    /**
+     * 计数屏看得见的样子变了才发一次方块更新 (显示键 = 屏上的字 + 箱身口径 + 满度条格数 + 满仓, 见
+     * {@link MunitionsBenchCounter#displayKey}): 1..9999 每发都变, 上万以后只在显示的那几位变时才发。UPDATE_CLIENTS 只把主格标脏,
+     * 本 tick 末合并成一个方块实体数据包, 包体取发送那一刻的 {@link #getUpdateTag()}, 所以同一 tick 里的几次变化只发一包。
+     * <p>
+     * 调用点 = 所有能改变显示的路径: {@link #settleForOwner} (tick 结算 / 开 GUI: 产出入缓冲、手动批完成、台主等级变了 → 上限、
+     * 选中口径被等级门清掉; 服主改了 config 的缓冲上限也在台主在线的下一次结算里看到), {@link #onOutputTaken} (取弹 / 清空口径),
+     * {@link #trySelectCaliber} (换口径 → 满仓按新口径算)、{@link #tryStartCraft} 的等级门 (清掉选中口径)。
+     * 台主离线时缓冲与上限都不会变 (不结算), 不用查。四个值与上次查时相同 (绝大多数 tick) 直接返回, 不排字。
+     * LEGACY 老台子没有计数屏, 不发。仅服务端。
+     */
+    private void syncCounterIfChanged() {
+        if (level == null || level.isClientSide) {
+            return;
+        }
+        BlockState state = getBlockState();
+        if (!(state.getBlock() instanceof MunitionsBenchBlock)
+                || state.getValue(MunitionsBenchBlock.LAYOUT) != MunitionsBenchBlock.Layout.WIDE) {
+            return;
+        }
+        // 台主在线时每 tick 都走到这里: 四个值与上次一样 (绝大多数 tick) 就不再排字算键
+        MunitionsBenchCounter.Shown shown = counterShown();
+        if (shown.equals(syncedCounterShown)) {
+            return;
+        }
+        syncedCounterShown = shown;
+        long key = shown.displayKey();
+        if (key == syncedCounterKey) {
+            return;
+        }
+        syncedCounterKey = key;
+        level.sendBlockUpdated(worldPosition, state, state, Block.UPDATE_CLIENTS);
+    }
+
+    /** 仅供 GameTest: 最近一次推给客户端的显示键 ({@link MunitionsBenchCounter#NO_KEY} = 本次加载后还没推过)。 */
+    public long syncedCounterKeyForTest() {
+        return syncedCounterKey;
     }
 
     /**
@@ -422,6 +534,7 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
             this.lastSettleTick = this.level.getGameTime();
         }
         setChanged();
+        syncCounterIfChanged(); // 满仓按下一批的口径算, 换口径可能改变它
         return true;
     }
 
@@ -447,13 +560,13 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         if (!MunitionsLevels.isCaliberUnlocked(level0, selectedCaliber)) {
             selectedCaliber = null;
             setChanged();
+            syncCounterIfChanged(); // 与 trySelectCaliber 对称: 满仓改按缓冲里的口径算, 上限也按刚刷新的等级
             return false;
         }
-        int rounds = MunitionsProduction.roundsPerBatch(selectedCaliber, level0);
         if (bufferedRounds > 0 && bufferedCaliber != null && bufferedCaliber != selectedCaliber) {
             return false;
         }
-        if (bufferCap() - bufferedRounds < rounds || !hasBatchMaterials()) {
+        if (bufferCannotTakeBatch(selectedCaliber, level0) || !hasBatchMaterials()) {
             return false;
         }
         // 手动路径完全绕开 MunitionsProduction.settle(), 若不在这里单独设闸, 它就是电力限制的逃逸口。
@@ -529,9 +642,15 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
 
     /**
      * 对在线主人做一次离线追算结算: 纯逻辑算应产 -> 先查后扣工费 -> 扣料 -> 入缓冲 -> 谁产谁得给经验 -> 刷输出展示。
-     * 在 GUI 打开帧 (Menu 构造) 与 tick 帧共用 (主人在线时都驱动)。
+     * 在 GUI 打开帧 (Menu 构造) 与 tick 帧共用 (主人在线时都驱动)。结算的每一条出口之后都查一次计数屏要不要推给客户端
+     * (缓冲、口径、台主等级 → 上限、选中口径 → 满仓都可能在这里变)。
      */
     public void settleForOwner(ServerPlayer owner) {
+        settle(owner);
+        syncCounterIfChanged();
+    }
+
+    private void settle(ServerPlayer owner) {
         /*
          * 已移除的玩家实体等同离线, 一律不结算。
          *
@@ -804,7 +923,16 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
             return craftingCaliber != null;
         }
         return selectedCaliber != null && hasBatchMaterials()
-                && bufferCap() - bufferedRounds >= MunitionsProduction.roundsPerBatch(selectedCaliber, ownerLevelCache);
+                && !bufferCannotTakeBatch(selectedCaliber, ownerLevelCache);
+    }
+
+    /**
+     * 缓冲装不下 caliber 在 level 下的一整批。开工门 ({@link #tryStartCraft})、产出后的持续指示灯 ({@link #canAccumulateProduction})
+     * 与计数屏的满仓条 ({@link #counterShown}) 共用这一条 ({@link MunitionsBenchCounter#cannotTakeBatch}), 屏上的琥珀色就是停产的原因。
+     */
+    private boolean bufferCannotTakeBatch(MunitionsCaliber caliber, int level) {
+        return MunitionsBenchCounter.cannotTakeBatch(bufferedRounds, bufferCap(),
+                MunitionsProduction.roundsPerBatch(caliber, level));
     }
 
     private int productionRequiredTicks() {
@@ -937,6 +1065,7 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         }
         refreshOutputStack();
         setChanged();
+        syncCounterIfChanged();
     }
 
     /** GUI 打开 / 访问帧: 刷新主人等级缓存 + 驱动一次结算 (主人在线时一次性补产)。 */
@@ -1007,6 +1136,9 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     private static final String K_INV_SIZE = "Size";
     /** 只出现在发给客户端的更新标签里 ({@link #getUpdateTag}), 不存盘。 */
     private static final String K_PROGRAM_START = "ProgramStartTick";
+    /** 同上, 计数屏的缓冲上限与满仓 (发数与口径沿用存档里的 BufferedRounds / BufferedCaliber 键名)。 */
+    private static final String K_BUFFER_CAP = "BufferCap";
+    private static final String K_BUFFER_FULL = "BufferFull";
 
     @Override
     protected void saveAdditional(CompoundTag tag) {
@@ -1090,6 +1222,9 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         if (craftingActive && craftingCaliber == null) {
             craftingActive = false;
         }
+        // 计数屏的去重值作废: 区块读盘时本来就没推过; /data merge block 在活实例上原地 load() 后, 下一次检查要照常推。
+        syncedCounterKey = MunitionsBenchCounter.NO_KEY;
+        syncedCounterShown = null;
     }
 
     /**

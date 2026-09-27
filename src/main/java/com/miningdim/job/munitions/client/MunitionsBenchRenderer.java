@@ -7,11 +7,13 @@ import com.miningdim.job.munitions.block.MunitionsBenchProgram;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
+import net.minecraft.client.Camera;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.blockentity.BlockEntityRenderDispatcher;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
 import net.minecraft.client.renderer.texture.OverlayTexture;
@@ -34,7 +36,8 @@ import java.util.WeakHashMap;
  * 姿态取自 {@link MunitionsBenchProgram}: 工作时按 "游戏 tick - 程序起点 + partialTick" 取样, 起点是这个客户端看到
  * ACTIVE 由假变真的 tick (或区块更新标签带来的服务端起点, 见 {@link MunitionsBenchBlockEntity#programStartTickOr}),
  * 与服务端播冲压音用的是同一张帧表; 冲头压到底 ({@link MunitionsBenchProgram#STRIKE_TICK}) 的那一 tick 从冲压点放火花。
- * 停机时直接回到待机布局 (中途停也一样, 不做缓动)。LEGACY 老台子没有运动件, 整个跳过。
+ * 停机时直接回到待机布局 (中途停也一样, 不做缓动)。运动件之后画弹药箱计数屏 ({@link MunitionsBenchCounterRenderer}:
+ * 箱盖窗里的发数 + 满度条, 箱身的口径模板字)。LEGACY 老台子没有运动件也没有计数屏, 整个跳过。
  */
 public final class MunitionsBenchRenderer implements BlockEntityRenderer<MunitionsBenchBlockEntity> {
 
@@ -49,8 +52,12 @@ public final class MunitionsBenchRenderer implements BlockEntityRenderer<Munitio
     private final MunitionsBenchProgram.Pose pose = new MunitionsBenchProgram.Pose();
     // render() 每帧都跑, 火花是世界粒子: 记下每台上一次画到的程序 tick, 每次冲压只放一次。
     private final Map<MunitionsBenchBlockEntity, Long> lastDrawnProgramTicks = new WeakHashMap<>();
+    /** 弹药箱计数屏 (箱盖窗里的发数 + 满度条, 箱身口径), 画在运动件之后。 */
+    private final MunitionsBenchCounterRenderer counter = new MunitionsBenchCounterRenderer();
+    private final BlockEntityRenderDispatcher dispatcher;
 
     public MunitionsBenchRenderer(BlockEntityRendererProvider.Context context) {
+        dispatcher = context.getBlockEntityRenderDispatcher();
         root = MunitionsBenchParts.createBodyLayer().bakeRoot();
         parts = new ModelPart[MunitionsBenchParts.PARTS.length];
         fullBright = new boolean[MunitionsBenchParts.PARTS.length];
@@ -110,6 +117,10 @@ public final class MunitionsBenchRenderer implements BlockEntityRenderer<Munitio
             parts[index].render(poseStack, consumer, fullBright[index] ? glow(light) : light, OverlayTexture.NO_OVERLAY);
         }
         poseStack.popPose();
+
+        Camera camera = dispatcher.camera;
+        counter.render(blockEntity, state, facing, running, poseStack, bufferSource, packedLight,
+                camera == null ? null : camera.getPosition());
     }
 
     /** 自发光件 (热压模) 至少按 {@link MunitionsBenchParts#FULL_BRIGHT_LIGHT} 的方块光 / 天空光画。 */

@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.munitions.block.MunitionsBenchBlock;
+import com.miningdim.job.munitions.block.MunitionsBenchCounter;
 import com.miningdim.job.munitions.block.MunitionsBenchGeometry;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
@@ -210,6 +211,109 @@ public final class MunitionsBenchAssetGameTests {
         assertImageSize(helper, "/assets/miningdim/textures/entity/munitions_bench_parts.png",
                 MunitionsBenchGeometry.PARTS_TEXTURE_WIDTH, MunitionsBenchGeometry.PARTS_TEXTURE_HEIGHT);
         helper.succeed();
+    }
+
+    /**
+     * 弹药箱计数屏 (方案 C) 的常量 {@link MunitionsBenchGeometry} COUNTER_* 与每一档、待机与工作的主格静态模型对得上:
+     * 箱盖窗后那块本体 (can_lid) 的北面就是 COUNTER_WINDOW_FACE_TOP_LEFT 起、COUNTER_WINDOW_QT 大的屏窗, 绕 x 转
+     * COUNTER_LID_ROTATION_X_DEGREES (原点 COUNTER_LID_ROTATION_ORIGIN); 四条框条 (can_lid_t/b/l/r) 从窗面往前
+     * COUNTER_RECESS_PX 起、同一个旋转, 合起来正好是 COUNTER_LID_FACE_QT; 箱身 (can) 的北面就是 COUNTER_STENCIL_FACE_*。
+     * 满度条与发数框都在窗里、互不重叠; 箱盖 8 px 宽、0.75 px 厚 (方案 C)。对不上说明渲染器会把字画到模型外面去。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void counterConstantsMatchTheLidWindowAndTheCanFront(GameTestHelper helper) {
+        double qt = MunitionsBenchGeometry.COUNTER_QT_PX;
+        float[] tl = MunitionsBenchGeometry.COUNTER_WINDOW_FACE_TOP_LEFT;
+        int[] window = MunitionsBenchGeometry.COUNTER_WINDOW_QT;
+        int[] face = MunitionsBenchGeometry.COUNTER_LID_FACE_QT;
+        float[] origin = MunitionsBenchGeometry.COUNTER_LID_ROTATION_ORIGIN;
+        float[] stencil = MunitionsBenchGeometry.COUNTER_STENCIL_FACE_TOP_LEFT;
+        int[] stencilSize = MunitionsBenchGeometry.COUNTER_STENCIL_FACE_QT;
+        for (String benchId : MunitionsBenchAssets.TIER_IDS) {
+            for (boolean active : new boolean[]{false, true}) {
+                String name = MunitionsBenchAssets.lineModelName(benchId, "main", active);
+                JsonObject model = MunitionsBenchAssets.blockModel(name);
+                JsonObject body = element(helper, model, name, "can_lid");
+                double[] from = triple(body.getAsJsonArray("from"));
+                double[] to = triple(body.getAsJsonArray("to"));
+                assertNear(helper, name + " can_lid (window body) north face", new double[]{
+                                tl[0] - (window[0] + window[2]) * qt, tl[1] - (window[1] + window[3]) * qt, tl[2],
+                                tl[0] - window[0] * qt, tl[1] - window[1] * qt},
+                        new double[]{from[0], from[1], from[2], to[0], to[1]});
+                assertLidRotation(helper, name + " can_lid", body, origin);
+                double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+                double back = -Double.MAX_VALUE;
+                for (String strip : new String[]{"can_lid_t", "can_lid_b", "can_lid_l", "can_lid_r"}) {
+                    JsonObject element = element(helper, model, name, strip);
+                    double[] sFrom = triple(element.getAsJsonArray("from"));
+                    double[] sTo = triple(element.getAsJsonArray("to"));
+                    helper.assertTrue(Math.abs(sFrom[2] - (tl[2] - MunitionsBenchGeometry.COUNTER_RECESS_PX)) < 1.0E-6D,
+                            name + " " + strip + " must start " + MunitionsBenchGeometry.COUNTER_RECESS_PX
+                                    + " px in front of the window face, got z " + sFrom[2]);
+                    assertLidRotation(helper, name + " " + strip, element, origin);
+                    minX = Math.min(minX, sFrom[0]);
+                    minY = Math.min(minY, sFrom[1]);
+                    maxX = Math.max(maxX, sTo[0]);
+                    maxY = Math.max(maxY, sTo[1]);
+                    back = Math.max(back, sTo[2]);
+                }
+                assertNear(helper, name + " lid face (frame strips)", new double[]{tl[0], tl[1], face[0], face[1]},
+                        new double[]{maxX, maxY, (maxX - minX) / qt, (maxY - minY) / qt});
+                helper.assertTrue(Math.abs((maxX - minX) - 8.0D) < 1.0E-6D
+                                && Math.abs(back - (tl[2] - MunitionsBenchGeometry.COUNTER_RECESS_PX) - 0.75D) < 1.0E-6D,
+                        name + " option C: the lid is 8 px wide and 0.75 px thick, got " + (maxX - minX) + " x "
+                                + (back - (tl[2] - MunitionsBenchGeometry.COUNTER_RECESS_PX)));
+
+                JsonObject can = element(helper, model, name, "can");
+                double[] cFrom = triple(can.getAsJsonArray("from"));
+                double[] cTo = triple(can.getAsJsonArray("to"));
+                helper.assertFalse(can.has("rotation"), name + " the can front must not turn");
+                assertNear(helper, name + " can north face (calibre stencil)",
+                        new double[]{stencil[0], stencil[1], stencil[2], stencilSize[0], stencilSize[1]},
+                        new double[]{cTo[0], cTo[1], cFrom[2], (cTo[0] - cFrom[0]) / qt, (cTo[1] - cFrom[1]) / qt});
+            }
+        }
+        int[] bar = MunitionsBenchGeometry.COUNTER_BAR_QT;
+        int[] count = MunitionsBenchGeometry.COUNTER_COUNT_QT;
+        int countHeight = MunitionsBenchCounter.FONT_4X7.height * MunitionsBenchGeometry.COUNTER_COUNT_TEXEL_QT;
+        helper.assertTrue(inside(bar[0], bar[1], bar[2], bar[3], window) && inside(count[0], count[1], count[2], countHeight, window)
+                        && bar[1] + bar[3] <= count[1],
+                "the fill bar (on top) and the count box must sit inside the window without overlapping");
+        helper.assertTrue(inside(window[0], window[1], window[2], window[3], new int[]{0, 0, face[0], face[1]}),
+                "the window must sit inside the lid face");
+        helper.succeed();
+    }
+
+    private static JsonObject element(GameTestHelper helper, JsonObject model, String modelName, String elementName) {
+        for (JsonElement element : model.getAsJsonArray("elements")) {
+            JsonObject object = element.getAsJsonObject();
+            if (object.has("name") && elementName.equals(object.get("name").getAsString())) {
+                return object;
+            }
+        }
+        helper.fail(modelName + " has no element named " + elementName);
+        throw new IllegalStateException("unreachable");
+    }
+
+    private static void assertLidRotation(GameTestHelper helper, String label, JsonObject element, float[] origin) {
+        JsonObject rotation = element.getAsJsonObject("rotation");
+        helper.assertTrue(rotation != null && "x".equals(rotation.get("axis").getAsString())
+                        && Math.abs(rotation.get("angle").getAsDouble() - MunitionsBenchGeometry.COUNTER_LID_ROTATION_X_DEGREES) < 1.0E-6D,
+                label + " must turn about x by COUNTER_LID_ROTATION_X_DEGREES, got " + rotation);
+        double[] at = triple(rotation.getAsJsonArray("origin"));
+        assertNear(helper, label + " rotation origin", new double[]{origin[0], origin[1], origin[2]}, at);
+    }
+
+    private static void assertNear(GameTestHelper helper, String label, double[] expected, double[] actual) {
+        for (int i = 0; i < expected.length; i++) {
+            helper.assertTrue(Math.abs(expected[i] - actual[i]) < 1.0E-6D,
+                    label + ": expected " + java.util.Arrays.toString(expected) + ", model has "
+                            + java.util.Arrays.toString(actual));
+        }
+    }
+
+    private static boolean inside(int x, int y, int w, int h, int[] box) {
+        return x >= box[0] && y >= box[1] && x + w <= box[0] + box[2] && y + h <= box[1] + box[3];
     }
 
     /** 军火台不再走 GeckoLib: 旧的骨骼模型、动画与调色板图集都不该再打进 JAR (GeckoLib 本身还留给厨师调味台)。 */

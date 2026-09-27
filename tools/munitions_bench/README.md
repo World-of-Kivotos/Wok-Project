@@ -6,8 +6,9 @@
 | 脚本 | 作用 |
 |---|---|
 | `generate_munitions_bench.mjs --out <仓库根> [--check]` | 生成全部资源与三份 Java (见下表)。先在内存里生成并校验, 全部通过才写盘 (`--check` 只校验); 内容没变的文件不重写, 最后打印 `wrote X of Y` |
-| `render_mb.mjs --out-dir <目录> [--repo <仓库根>] [--mode all\|sheets\|tiers\|motion\|closeup] [--tier ..] [--state ..] [--tick t] [--view V] [--block-light] [--mark]` | 游戏里样子的预览组图: 静态 JSON + 按 Java 摆好的运动件 (运动件默认实体光照; `--block-light` 改成方块面明暗)。工作态不给 `--tick` 取冲头到底的 `STRIKE_TICK` |
-| `check_parity.mjs --cand <候选输出目录> --out-dir <目录> [--repo <仓库根>] [--no-java]` | 与方案 B v2 逐像素对拍 + 四个朝向对齐检查 + Java/JS 程序对拍 (见下文) |
+| `render_mb.mjs --out-dir <目录> [--repo <仓库根>] [--mode all\|sheets\|tiers\|motion\|closeup\|counter] [--tier ..] [--state ..] [--tick t] [--view V] [--block-light] [--mark] [--counter rounds[,cap[,caliber[,full]]]]` | 游戏里样子的预览组图: 静态 JSON + 按 Java 摆好的运动件 (运动件默认实体光照; `--block-light` 改成方块面明暗)。工作态不给 `--tick` 取冲头到底的 `STRIKE_TICK`。`--counter` 按 Java 的 `COUNTER_*` 常量画计数屏的字; `--mode counter` 出 `mb-counter.png` (六个样例的箱盖特写) |
+| `check_parity.mjs [--cand <候选输出目录>] --out-dir <目录> [--repo <仓库根>] [--no-java]` | 与方案 B v2 逐像素对拍 (给了 `--cand` 才做) + 四个朝向对齐检查 + 背面检查 + Java/JS 程序对拍 + Java/JS 计数屏对拍 (见下文) |
+| `counter.mjs` | 弹药箱计数屏 (方案 C) 的布局真源 (`DISPLAY`)、颜色、Java 常量的写出与解析, 以及 `MunitionsBenchCounter.java` 的 JS 镜像 (格式、字形、排版、满度条、满仓、显示键、颜色、角的摆法 `facePoint` / `rectCorners` / `blockCorners`) 和预览四边形 |
 | `core.mjs` / `tiers.mjs` / `ber.mjs` | 生成核心 (材质、画布、面描述、剔除、共面检查、图集、切两格、校验) / 六档政策 / 运动件工具 (原版盒式 UV、Java 写出与解析、程序与 applyPose 的 JS 镜像) |
 
 ```powershell
@@ -24,13 +25,13 @@ node tools/munitions_bench/check_parity.mjs --cand <临时目录>\cand_b --out-d
 
 | 文件 | 内容 |
 |---|---|
-| `models/block/munitions_bench{档}_line_{main\|extension}[_active].json` | 静态件 (区块网格, `RenderShape.MODEL`), 待机 / 工作。运动件不进 JSON。普通档 35 + 27 = 62 个元素, 闪耀 71 |
+| `models/block/munitions_bench{档}_line_{main\|extension}[_active].json` | 静态件 (区块网格, `RenderShape.MODEL`), 待机 / 工作。运动件不进 JSON。普通档主格 39 + 副格 27 = 66 个元素, 闪耀 42 + 33 = 75 (箱盖 = 窗后本体 + 四条框条) |
 | `models/item/munitions_bench{档}.json` | 物品模型: 缩到 0.46 的整台 + 档位色底板上一发细高整发弹 |
 | `textures/block/munitions_bench{档}_atlas.png` / `_particle.png` | 每档一张 128² 图集 (六档布局相同, 只换颜色) + 16² 破坏粒子 |
 | `textures/entity/munitions_bench_parts.png` | 运动件贴图 128×64, 六档共用 (生成器逐档画一遍比对, 运动件必须与档位无关) |
 | `blockstates/munitions_bench{档}.json` | 32 个变体: `layout=legacy_depth` 原样指向旧 JSON (`munitions_bench{档}_{main\|extension}[_active]`, 生成前逐条核对仓库里现有的旧变体); `layout=wide` 指向上面的 `_line_` 模型。两种布局 y 旋转相同: 北 0 / 东 90 / 南 180 / 西 270 |
 | `block/MunitionsBenchProgram.java` | 只替换 `// <generated>` 与 `// </generated>` 之间: `CYCLE_TICKS`、`STRIKE_TICK`、`BELT_PITCH`、关键帧表、待机行。其余 (Pose、sample、idle、冲压时刻) 是手写的 |
-| `block/MunitionsBenchGeometry.java` | 整个写出: 轮廓箱 (静态件 + 运动件)、台面高度、各档模型高度、运动件扫过的范围、冲压火花位置、运动件贴图尺寸、`rotated()` |
+| `block/MunitionsBenchGeometry.java` | 整个写出: 轮廓箱 (静态件 + 运动件)、台面高度、各档模型高度、运动件扫过的范围、冲压火花位置、运动件贴图尺寸、`rotated()`, 以及计数屏的 `COUNTER_*` (显示面、布局、每档颜色, 见下文) |
 | `client/MunitionsBenchParts.java` | 整个写出: 运动件的 `createBodyLayer()` 与 `applyPose()` |
 
 `{档}` = `''` / `_medium` / `_high` / `_superior` / `_transcendent` / `_radiant`。场景 (`scene()`) 与方案 B v2 相同 (方案评选时的完整 NOTES 与评审记录只在本机 `gunsmith-bench-models` 工作树的 `.candidates/munitions_b/`, 不进版本库; 要点如下)。
@@ -39,7 +40,7 @@ node tools/munitions_bench/check_parity.mjs --cand <临时目录>\cand_b --out-d
 
 - 一条横跨两格的低矮流水线, 皮带沿 -x 从玩家左手 (副格) 流向右手 (主格), 每步一个弹位 (4 px)。弹位 x: 入口 26.5 / 底火 22.5 / 装药 18.5 / 压弹头 14.5 / 出弹 10.5, z 7.5, 皮带面 y 9。
 - 副格: 白色弹壳料斗 + 玻璃落壳管 (入口位正上方), 枪灰装填塔 (底火窗 + 药窗, 一根横梁带底火冲杆和装药管), 台前弹壳托盘 + 控制台。
-- 主格: 小四柱压弹头机 (全机唯一高点, 缸顶 22.5), 台前弹头托盘, 敞口橄榄绿弹药箱 (满箱整发弹 + 掀开的箱盖) 与箱后的备用弹药箱。
+- 主格: 小四柱压弹头机 (全机唯一高点, 缸顶 22.5), 台前弹头托盘, 敞口橄榄绿弹药箱 (满箱整发弹 + 掀开的箱盖 = 计数屏, 见下节) 与箱后的备用弹药箱。
 - 皮带上从左到右: 空壳、空壳、装药壳、整发弹; 台前一排: 弹壳、控制台、弹头、弹药箱, 即配方顺序。
 - 一个循环: f0 底火冲杆下探 / f1 装药管下探、冲头下行 / f2 冲头到底、弹头落到壳口、压模发热 / f3-f5 皮带步进一个节距 (冲头回位的 f3-f4 不夹弹头) / f5-f7 末端那发沉进弹药箱。
 - 档位: 机身每档中性; 饰色 (两端侧板、皮带侧板下行、压机横梁两侧)、色带 (前护栏、铭牌框、箱盖内的密封框, 闪耀 = 金)、灯色, 外加逐档累加的小件:
@@ -60,6 +61,8 @@ node tools/munitions_bench/check_parity.mjs --cand <临时目录>\cand_b --out-d
 - 方块状态: 仓库里现有的 16 个旧变体与旧规则逐条相同, 旧模型文件都在。
 - 运动件: 见下节的逐帧核对、接缝核对、档位无关、写出的 Java 解析回来再按 JS 镜像摆一遍与场景比对。
 - 轮廓箱: 每个静态元素要么归进 `SHAPE_GROUPS` 的某一组, 要么是 `ORNAMENTS` 里的饰件; 箱子不出格。
+- 计数屏: 各档待机 / 工作的 `can_lid` 本体、四条框条、`can` 与 `COUNTER_*` 一致; 两个显示面的顶点绕序朝外; 满度条与发数框在窗里; 各种格式形状里最宽的数与十种口径都放得下;
+  `COUNTER_*` 写出后解析回来与布局 / 颜色相同。待机字对比度 < 4.5:1 只报 WARN。
 
 ## 运动件 (方块实体渲染器)
 
@@ -102,6 +105,44 @@ node tools/munitions_bench/check_parity.mjs --cand <临时目录>\cand_b --out-d
 - 热压模的底面在方案里是不发光的钢色, 做成一个件后整块按自发光画 (底面从上方看不到)。
 - 游戏里运动件按实体光照 (两盏方向光), 侧面比方块面明暗略暗一点 (东西面约 0.50 对 0.60, 南北面 0.74 对 0.80); 对拍用方块面明暗, 预览默认实体光照。
 
+## 弹药箱计数屏 (方案 C "弹药箱计数")
+
+用户在三个方案里选定的 C (评选时的候选脚本在本工作树的 `.candidates/munitions_counter/`, 不进版本库; 生成器现在的静态资源与候选 `--variant C`
+的输出逐字节相同, 预览组图与候选的 `counter-C-*.png` 逐像素相同)。
+
+- **静态件** (生成器, 布局在 `counter.mjs` 的 `DISPLAY`): 箱盖放宽到 8 px、加厚到 0.75 px (`[0.5,8.5,10]-[8.5,17.5,10.75]`, 仍后仰 22.5°、原点 `[4.5,8.5,10.5]`),
+  内面 32 x 36 qt (1 qt = 0.25 px = 4 倍贴图的一个贴图像素): 档位色密封框 → 上 AMMO、中 凹窗 (x 4 y 10, 24 x 12 qt, 凹进 0.25 px)、下 黄漆子弹 + 黄条。
+  模型规则要求元素至少 0.5 px 厚, 所以凹窗 = 窗后一块本体 `can_lid` (北面 = 窗面) + 四条满厚框条 `can_lid_{t,b,l,r}`, 各块北面从同一张整面设计图裁出。
+  窗里的屏底 (带档位色调 + 扫描线)、满度条的槽是静态贴图, 工作时窗面自发光。箱身正面 (`can`, 28 x 22 qt) 原来写死的 "7.62" 换成一块深色空标签。
+- **渲染器画的** (`client/MunitionsBenchCounterRenderer`, 在运动件之后): 窗里上面一条满度条 (x 5 y 11, 22 x 2 qt), 下面 4x7 字的缓冲发数 (x 5 y 14, 22 qt 宽, 右对齐);
+  箱身正面第 8 行居中的 3x5 口径黄漆模板字 (`MunitionsCaliber.shortLabel`, 缓冲空时不写)。
+  - 数字格式 (`MunitionsBenchCounter.format` = `counter.mjs formatCount`): ≤ 9999 原样; `12.4K` / `123K`; `1.23M` / `3.2M`; `2.14G`; 只舍不入, 小数末尾的 0 去掉, 最多 5 个字; ≤ 0 = 暗色 `0`, 超过 999,999,999,999 按 `999G`。默认 config 的上限 500..4000, 正常只见 1–4 位数。
+  - 满度条 = floor(发数 × 22 / 上限), 有弹至少 1 格; **满仓** (缓冲装不下下一批 = 方块实体开工门同一条 `cannotTakeBatch`) 条变琥珀色。
+  - 颜色 (`COUNTER_COLOURS[档][角色 × 2 + 待机]`, 由 `tiers.mjs` 的灯色经 `counterColours` 推出): 工作 = 档位灯色 on, 待机 ≈ 0.7; 空箱的 0 暗; 满仓琥珀 `#FFB234`; 模板字 `#F4C22C`。
+    评审的目标是待机字对比度 ≥ 4.5:1, 超凡档只有 4.39:1 (生成器报 WARN, 颜色按认可的方案原样)。
+- **BER 契约** (Java 与 `counter.mjs` 的预览同一套)。下面的变换与顶点顺序都在纯 Java 的 `MunitionsBenchCounter.blockCorners(rects, partsYRotationDegrees(facing))`
+  (= `counter.mjs blockCorners`, 窗 / 箱身一点 = `facePoint`) 里算好, 渲染器只上色、把角原样交给 BER 的 poseStack, 按 (计数屏状态, 朝向) 缓存, 每帧不分配;
+  GameTest (`wideBenchCounterFacesLandOnTheLidWindowAndTheCanFront`) 与 `check_parity.mjs` 核对的就是这个方法:
+  ```java
+  // 相机离主格中心 > COUNTER_MAX_DISTANCE_BLOCKS (24) 格不画
+  translate(0.5, 0, 0.5); rotY(partsYRotationDegrees(facing)); translate(-0.5, 0, -0.5); scale(1 / 16f);   // 不要运动件的 (s, -s, s) y 翻转, 会把绕序再反一次
+  // 箱身: 不转; 窗: 绕 COUNTER_LID_ROTATION_ORIGIN 按 x 轴转 COUNTER_LID_ROTATION_X_DEGREES (右手系, 同 JSON / FaceBakery)
+  RenderType.textBackground()                             // POSITION_COLOR_LIGHTMAP: 没有贴图、不按法线打光、剔除背面
+  // 矩形 (qt): xl = tl.x - x0*QT, xr = tl.x - x1*QT, yt = tl.y - y0*QT, yb = tl.y - y1*QT, z = tl.z - COUNTER_LIFT_PX (0.125 px)
+  // 顶点 左上 → 左下 → 右下 → 右上 (从正面看逆时针 = 原版 FaceInfo.NORTH); 窗里 LightTexture.FULL_BRIGHT, 箱身 packedLight × level.getShade(facing, true)
+  ```
+  字浮在窗面外 0.125 px, 仍在 0.25 px 深的框条前沿之后; 不要换 entity* 渲染类型 (两盏方向光会让字的亮度随朝向变)。LEGACY 台子不画。
+  已知: `text_background` 按整级取光照图 (`texelFetch`), 方块面在两级之间线性取样, 所以箱身模板字在不满级的光照下会比箱面亮约半级 (评审估算: 夜里方块光 3 时约亮 20%; 预览两者同样打光, 看不出); 实机在火把旁看一眼, 太显眼就把模板字改进静态模型。
+- **同步** (`MunitionsBenchBlockEntity`): 更新标签 = `ProgramStartTick` (工作时) + `BufferedRounds` / `BufferedCaliber` (空 = -1) / `BufferCap` / `BufferFull`,
+  区块包与 `getUpdatePacket()` (= `ClientboundBlockEntityDataPacket.create(this)`) 同一份; `onDataPacket` 与 `handleUpdateTag` 只读这几个键, 从不 `load()`;
+  计数屏只认带 `BufferCap` 的标签 (发数 / 口径与存档同名, 别的模组发来的整份存档 NBT 没有上限, 不动计数屏)。没有 level 的实例 (客户端预览副本) 组标签时交出同步来的值, 不读 SERVER config。
+  服务端在 `settleForOwner` (tick 结算 / 开 GUI 的每条出口)、`onOutputTaken`、`trySelectCaliber`、`tryStartCraft` 的等级门之后比较显示键 (`MunitionsBenchCounter.displayKey` = 屏上的字 + 口径 + 格数 + 满仓),
+  变了才 `sendBlockUpdated(UPDATE_CLIENTS)`, 同一 tick 的几次变化合并成一包; 四个值与上次查时相同 (绝大多数 tick) 连键都不算; `load()` 清掉去重值。台主离线不结算, 显示不会变; 服主改 config 上限在台主在线的下一次结算里看到。
+  包不是 null 以后, ACTIVE 每次翻转的方块更新也带这份小标签 (客户端的程序起点随之校成服务端的), 读档后第一次结算也会把区块包里已有的值再推一次: 都只是 5 个键, 不去重
+  (不要在 `getUpdateTag` 里记键: 新进视距的玩家的区块包若恰好在变化与检查之间组好, 已在看的玩家就收不到那次变化)。
+- **改布局**: 改 `counter.mjs` 的 `DISPLAY` 重新生成 (生成器核对场景里的箱盖 / 箱身与布局一致、绕序朝外、最宽的数与各口径放得下, 写出的 `COUNTER_*` 解析回来必须相同);
+  改格式、字形、排版、满度条或显示键的规则, `MunitionsBenchCounter.java` 与 `counter.mjs` 两边一起改, 再跑 `check_parity.mjs` 的计数屏对拍。
+
 ## 关键帧程序 (`MunitionsBenchProgram`)
 
 - 一个循环 8 帧 × 5 tick = 40 tick。关键帧表每行: `tick, beltX, primeY, powderY, ramY, dropY, dieHeat, ramBulletVisible, powderCharged, seated`, 第 0..7 行是方案的 f0..f7, 第 8 行 (tick 40) 是接缝。
@@ -117,7 +158,7 @@ node tools/munitions_bench/check_parity.mjs --cand <临时目录>\cand_b --out-d
 
 - `MAIN_BOXES` / `EXTENSION_BOXES`: 静态件的轮廓箱, 各格局部像素、朝北, 每组元素在该格里那一段的包围盒 (旋转件取旋转后的角点), 向外取整到 0.25 px。组: 底座柜体台面、弹药箱、箱盖、备用弹药箱、皮带、压机前/后立柱、压机横梁与缸、料斗、落壳管、装填塔、装填塔横梁。
 - `MAIN_PART_BOXES` / `EXTENSION_PART_BOXES`: 运动件的轮廓箱, 每个件在关键帧表 (含接缝行) 与待机里扫过的包围盒, 切到各格; 被别的盒子包住的并进去。让皮带上的弹、冲头、两根杆都点得中台子。
-- 饰件不进轮廓: 台面上的托盘、控制台、急停、运行灯、箱里冒出的弹头, 以及各档加件 (料斗色带、信号灯、料斗灯框、宝石)。踢脚条在底座箱里。
+- 饰件不进轮廓: 台面上的托盘、控制台、急停、运行灯、箱里冒出的弹头, 以及各档加件 (料斗色带、信号灯、料斗灯框、宝石)。踢脚条在底座箱里。箱盖组 = 窗后本体 + 四条框条。
 - 轮廓 (选择框 / 右键命中 / 支撑面) = 静态件盒子 + 运动件盒子; **碰撞**不用这些盒子, 是每格一整块实心柱, 高到该格静态盒子的最高点 (主格 22.5, 副格 20.5): 台面只有 8 px, 低于跨步高度 9.6 px, 贴着模型的碰撞会让玩家走上台面站进运动件中间; 柱子也高过起跳高度 (约 20 px)。
 - 别的朝向用 `rotated(box, quarterTurns)` 绕格子中心 (8, 8) 转 (俯视顺时针, 与方块状态的 y 旋转同向)。
 - `BODY_TOP_PX` = 台面 8; `MODEL_TOP_PX[档]` = 22.5 (闪耀 24); `SHAPE_TOP_PX` = 22.5; 运动件扫过 `PARTS_MIN` .. `PARTS_MAX` (x 5.5..27.5, y 2.5..20.5, z 6.25..8.75), `RENDER_TOP_PX` = 20.5。
@@ -129,8 +170,13 @@ node tools/munitions_bench/check_parity.mjs --cand <临时目录>\cand_b --out-d
 - 相对方案有意补上的运动件面 (`DELIBERATE_FACES`: 压模顶面、冲头夹着的弹头底面) 在与方案对拍时不画: 方案按 JSON 的规矩剔除背面, 不画它们就是方案的样子。
 - 四个朝向: 各格模型按方块状态 y 旋转烘、副格放在顺时针一侧、运动件按渲染器朝向角烘, 与朝北的整台绕主格中心转过去的四边形集合必须相同。
 - **背面检查**: 游戏里运动件用 `entityCutoutNoCull`, 不剔除背面。普通档待机 + 一个循环每 1.25 tick, 7 个俯/平视角 + 2 个仰视角 (台子下面垫着它所在的那一格方块), 运动件各画一遍不剔除 / 剔除, 有一个像素不同就是件的背面露了出来 (`parity-backfaces.png`)。
-- 输出 `parity-report.md`、`parity-frames.png`、`parity-tiers.png`、`parity-items.png`, 以及游戏样子的参考图 (实体光照): `game-motion.png` (每 2.5 tick 一列)、`game-base-{active,idle}.png`、`game-tiers.png`、`game-shapes.png` (轮廓箱线框)。有差异时退出码 1。
-- 当前结果: 除有意补面外全部 0 像素差异, 没有背面露出, 四个朝向对齐, Java/JS 程序 621 个采样一致。
+- **计数屏对拍** (不需要 `--cand`): 单独编译 `MunitionsBenchCounter.java` + `MunitionsBenchGeometry.java`, 与 `counter.mjs` 逐值比较:
+  格式 (定点 + 各数量级 3000 个伪随机数)、两套字形与字宽、满度条、满仓、显示键、rects (发数 × 口径 × 上限 × 满仓)、颜色表 (`colourOf`, 含档位越界回退)、
+  渲染器摆角用的 `benchCorners` / `blockCorners` (四个朝向角, 容差 1e-5), 以及 Java 运行时的 `COUNTER_*` 与 `parseCounterJava` 从源码解析出的布局;
+  另外核对 `CALIBER_LABELS` 与 `MunitionsCaliber.java` 的 shortLabel。
+- 输出 `parity-report.md`、`parity-frames.png`、`parity-tiers.png`、`parity-items.png` (给了 `--cand` 时), 以及游戏样子的参考图 (实体光照): `game-motion.png` (每 2.5 tick 一列)、`game-base-{active,idle}.png`、`game-tiers.png`、`game-shapes.png` (轮廓箱线框)。有差异时退出码 1。
+- 当前结果: 换上计数屏方案 C 之前, 与方案 B v2 除有意补面外全部 0 像素差异 (之后箱盖与箱身正面按设计与 B v2 不同, 不再对拍);
+  没有背面露出, 四个朝向对齐, Java/JS 程序 621 个采样一致, 计数屏 6877 个值一致 (含四个朝向的 blockCorners 416 组、benchCorners 104 组)。
 
 ## 改模型
 

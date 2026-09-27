@@ -5,9 +5,11 @@
 // 用法 (PowerShell):
 //   $env:Path = 'D:\DevTools\node-v22.23.3-win-x64;' + $env:Path
 //   node tools/munitions_bench/render_mb.mjs --out-dir <目录> [--repo <仓库根, 默认本文件往上两级>]
-//        [--mode all|sheets|tiers|motion|closeup] [--tier base,high,...] [--state idle,active] [--mark] [--block-light]
+//        [--mode all|sheets|tiers|motion|closeup|counter] [--tier base,high,...] [--state idle,active] [--mark] [--block-light]
+//        [--counter rounds[,cap[,caliber[,full]]]]   (计数屏: 按 Java 的 COUNTER_* 常量画 BER 的字; 省略 = 不画)
 //        closeup: [--view EYE|FL|FR|F|BL|BR|T|S|W|NIGHT|NIGHT_EYE] [--tier base] [--state active] [--tick <循环时间>]
 //                 [--w 1400 --h 1000] [--box focus|machine|x0,y0,z0,x1,y1,z1] [--name <文件名>]
+//        counter: mb-counter.png, 方案 C 的六个样例 (空 / 347 / 4000 满 / 9999 / 12.4K / 3.2M) 工作 / 待机 / 夜间特写
 //   工作态不给 --tick 时取冲头到底的那一刻 (STRIKE_TICK)。运动件默认按实体光照画 (游戏里的样子); --block-light 改用方块面明暗
 //   (与方案预览的 JSON 逐帧模型逐像素可比, 对拍脚本 check_parity.mjs 用这个)。
 // 输出 (all): mb-<tier>-<idle|active>.png (5x2: FL FR EYE FRONT BL / TOP SIDE-E NIGHT-IDLE NIGHT-ACTIVE ITEM),
@@ -22,6 +24,7 @@ import { writePng } from '../gunsmith_workstation/png.mjs';
 import { drawText } from '../gunsmith_workstation/font.mjs';
 import { TIERS, tierIndex } from './tiers.mjs';
 import { parsePartsJava, parseProgramJava, sampleProgram, idlePose, applyPoseMirror, bakeParts } from './ber.mjs';
+import { parseCounterJava, counterQuads, CALIBER_LABELS } from './counter.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 function parseArgs(argv) {
@@ -74,20 +77,26 @@ const GROUND = (() => {
 export const CELL_OFFSETS = { main: [0, 0, 0], extension: [16, 0, 0] };
 const JAVA = (...p) => path.join('src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', ...p);
 
-/** 仓库里的游戏资源: 静态 JSON 模型 + 运动件 (Java 源为唯一真源)。 */
+/** 仓库里的游戏资源: 静态 JSON 模型 + 运动件 + 计数屏常量 (Java 源为唯一真源)。 */
 export function loadGame(repo = DEFAULT_REPO) {
     const root = new SCENE.AssetRoot([repo]);
     const parts = parsePartsJava(fs.readFileSync(path.join(repo, JAVA('client', 'MunitionsBenchParts.java')), 'utf8'));
     const program = parseProgramJava(fs.readFileSync(path.join(repo, JAVA('block', 'MunitionsBenchProgram.java')), 'utf8'));
-    return { repo, root, parts, program, partsImage: root.image(parts.textureId), id: 'game' };
+    const counter = parseCounterJava(fs.readFileSync(path.join(repo, JAVA('block', 'MunitionsBenchGeometry.java')), 'utf8'));
+    return { repo, root, parts, program, counter, partsImage: root.image(parts.textureId), id: 'game' };
 }
 
 /**
  * 游戏里某一档的整台四边形 (朝北)。state 'idle' = 待机静态模型 + 待机布局; 'active' = 工作静态模型 + 运动件摆在循环时间 tick
- * (省略 = STRIKE_TICK)。opts: {blockLight: 运动件用方块面明暗 (对拍), hideParts}
+ * (省略 = STRIKE_TICK)。opts: {blockLight: 运动件用方块面明暗 (对拍), hideParts,
+ *   counter: 计数屏 {rounds, caliber (MunitionsCaliber 序号, -1 = 空), cap, full} → 按 Java 的 COUNTER_* 常量画 BER 的字; 省略 = 不画}
  */
 export function gameQuads(game, tier, state, tick = null, opts = {}) {
     const sfx = TIERS[tierIndex(tier)].suffix;
+    if (opts.counter) {
+        const q = gameQuads(game, tier, state, tick, { ...opts, counter: null });
+        return q.concat(counterQuads(game.counter, tierIndex(tier), { ...opts.counter, working: state === 'active' }));
+    }
     const quads = [];
     for (const [cell, offset] of Object.entries(CELL_OFFSETS)) {
         const id = `miningdim:block/munitions_bench${sfx}_line_${cell}${state === 'active' ? '_active' : ''}`;
@@ -295,18 +304,54 @@ export function closeup(game, o = {}) {
     return target;
 }
 
+/** 计数屏样例 (与方案 C 评选时的样例同一组): 发数 / 上限 / 口径序号 / 满仓。 */
+export const COUNTER_SAMPLES = [
+    { label: 'EMPTY', rounds: 0, cap: 800, caliber: -1, full: false },
+    { label: '347', rounds: 347, cap: 800, caliber: 1, full: false },
+    { label: '4000 FULL', rounds: 4000, cap: 4000, caliber: 1, full: true },
+    { label: '9999', rounds: 9999, cap: 16000, caliber: 1, full: false },
+    { label: '12480', rounds: 12480, cap: 20000, caliber: 1, full: false },
+    { label: '3.2M', rounds: 3200000, cap: 4000000, caliber: 1, full: false },
+];
+/** --counter rounds[,cap[,caliber[,full 0/1]]]: 默认上限 800、口径 7.62 (序号 1)、满仓按步枪 L1 一批 40 发算。 */
+function counterArg(v) {
+    if (v === undefined || v === true) return null;
+    const a = String(v).split(',');
+    const rounds = Number(a[0]), cap = a[1] !== undefined ? Number(a[1]) : 800;
+    const caliber = a[2] !== undefined ? Number(a[2]) : 1;
+    return { rounds, cap, caliber, full: a[3] !== undefined ? a[3] === '1' : rounds > 0 && cap - rounds < 40 };
+}
+/** 计数屏特写: 每个样例 工作 / 待机, 箱盖与箱身 (玩家视角) + 夜间一行。 */
+export function counterSheet(game, tier = 0) {
+    const pw = 300, ph = 300;
+    const box = { min: [-0.5, 2, 0], max: [10, 20, 12], ground: [-1, 3, -1, 2] };
+    const target = newImage(COUNTER_SAMPLES.length * pw, 3 * ph + 20);
+    COUNTER_SAMPLES.forEach((s, i) => {
+        for (const [row, state, view] of [[0, 'active', VIEWS.EYE], [1, 'idle', VIEWS.EYE], [2, 'active', VIEWS.NIGHT_EYE]]) {
+            renderPanel(target, i * pw + 1, row * ph + 1, pw - 2, ph - 2, gameQuads(game, tier, state, null, { counter: s }), box, view,
+                { label: `${state === 'active' ? (row === 2 ? 'NIGHT WORK' : 'WORK') : 'IDLE'} ${s.label}${s.caliber >= 0 ? ' ' + CALIBER_LABELS[s.caliber] : ''}` });
+        }
+    });
+    footer(target, `IN-GAME COUNTER (OPTION C) ${TIERS[tier].en}: BER DIGITS FROM MunitionsBenchGeometry COUNTER_* + counter.mjs (MIRROR OF MunitionsBenchCounter)`);
+    return target;
+}
+
 // ================================================================ CLI
 async function main() {
     const mode = ARGS.mode || 'all';
-    if (!ARGS['out-dir']) { console.error('usage: node render_mb.mjs --out-dir <dir> [--repo <root>] [--mode all|sheets|tiers|motion|closeup] [--tier ..] [--state ..] [--tick t] [--view V] [--block-light] [--mark]'); process.exit(2); }
+    if (!ARGS['out-dir']) { console.error('usage: node render_mb.mjs --out-dir <dir> [--repo <root>] [--mode all|sheets|tiers|motion|closeup|counter] [--tier ..] [--state ..] [--tick t] [--view V] [--block-light] [--mark] [--counter rounds[,cap[,caliber[,full]]]]'); process.exit(2); }
     for (const o of orientationCheck()) if (!o.ok) throw new Error(`orientation: in view ${o.view} main (x 0..16) is not on the screen right of extension`);
     const game = loadGame(path.resolve(ARGS.repo || DEFAULT_REPO));
     const dir = path.resolve(ARGS['out-dir']);
     fs.mkdirSync(dir, { recursive: true });
     const save = (name, img) => { const p = path.join(dir, name); writePng(p, img); console.log('wrote', p, img.width + 'x' + img.height); };
-    const opts = { mark: !!ARGS.mark, blockLight: !!ARGS['block-light'] };
+    const opts = { mark: !!ARGS.mark, blockLight: !!ARGS['block-light'], counter: counterArg(ARGS.counter) };
     const tiers = ARGS.tier ? String(ARGS.tier).split(',').map(tierIndex) : [0, 1, 2, 3, 4, 5];
     const states = ARGS.state ? String(ARGS.state).split(',') : ['idle', 'active'];
+    if (mode === 'counter') {
+        save('mb-counter.png', counterSheet(game, tiers.length === 6 ? 0 : tiers[0]));
+        return;
+    }
     if (mode === 'closeup') {
         save(ARGS.name || `mb-${TIERS[tiers[0]].key}-${states[0]}-${String(ARGS.view || 'EYE').toLowerCase()}${ARGS.tick !== undefined ? '-t' + ARGS.tick : ''}.png`,
             closeup(game, { ...opts, tier: tiers[0], state: states[0], view: ARGS.view, tick: ARGS.tick, w: ARGS.w, h: ARGS.h, box: ARGS.box }));

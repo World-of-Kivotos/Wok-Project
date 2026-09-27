@@ -7,7 +7,9 @@
 // 弹壳依次经过 底火 → 装药 (合成一座"装填塔") → 压弹头 (一台小四柱压机, 全机唯一的高点 22.5 px), 最后从皮带末端掉进弹药箱。
 //   extension (x 16..32, 玩家左手): 弹壳料斗 + 落壳管, 装填塔 (底火窗 + 药窗, 一根横梁带底火冲杆和装药管), 台前弹壳托盘 + 控制台
 //   main (x 0..16, 玩家右手):       四柱压弹头机, 台前弹头托盘, 敞口弹药箱 (满箱子弹 + 掀开的箱盖), 箱后备用弹药箱
-// 场景 (scene) 与方案评选时的方案 B v2 相同 (候选脚本只在本机 .candidates/munitions_b/, 不进版本库); 设计要点见同目录 README.md。
+// 场景 (scene) 与方案评选时的方案 B v2 相同 (候选脚本只在本机 .candidates/munitions_b/, 不进版本库), 只有弹药箱换成了计数屏方案 C
+// "弹药箱计数" (候选 .candidates/munitions_counter/, 同样不进版本库): 箱盖内面一块凹窗 (满度条 + 发数由方块实体渲染器画),
+// 箱身正面留一块空标签给渲染器写口径; 布局与颜色在 counter.mjs, 写进 MunitionsBenchGeometry 的 COUNTER_* 常量。设计要点见同目录 README.md。
 //
 // 写出 (全部在 --out 下):
 //   src/main/resources/assets/miningdim/
@@ -18,7 +20,7 @@
 //     blockstates/munitions_bench{档}.json                                    layout=legacy_depth → 旧 JSON 模型 (原样), layout=wide → 上面的新模型
 //   src/main/java/com/miningdim/job/munitions/
 //     block/MunitionsBenchProgram.java    只替换 "<generated>" 与 "</generated>" 两行注释之间 (循环常量 + 关键帧表 + 待机行)
-//     block/MunitionsBenchGeometry.java   整个写出 (碰撞/轮廓箱、模型高度、运动件范围、火花位置)
+//     block/MunitionsBenchGeometry.java   整个写出 (碰撞/轮廓箱、模型高度、运动件范围、火花位置、计数屏的布局与颜色)
 //     client/MunitionsBenchParts.java     整个写出 (运动件 ModelPart 层 + applyPose)
 // {档} = '' | _medium | _high | _superior | _transcendent | _radiant。
 import fs from 'node:fs';
@@ -33,6 +35,10 @@ import {
     buildLayer, paintLayer, partsJavaSource, parsePartsJava, programBlock, parseProgramJava, RE_GENERATED,
     PROGRAM_COLUMNS, sampleProgram, idlePose, applyPoseMirror, placedBoxes,
 } from './ber.mjs';
+import {
+    DISPLAY, QT, counterColours, layoutFromDisplay, colourTable, counterJavaLines, parseCounterJava, windingProblems,
+    formatCount, textWidth, FONT_4x7, FONT_3x5, CALIBER_LABELS, MAX_ROUNDS, contrast,
+} from './counter.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -300,13 +306,15 @@ function backlightFn(on) {
     };
 }
 function canFront(c) {
-    // 弹药箱正面 [1,3,1]-[8,8.5,10], d = 4: 28 x 22。橄榄绿 + 黄漆字 "7.62"
-    const m = M.olive;
+    // 弹药箱正面 [1,3,1]-[8,8.5,10], d = 4: 28 x 22 (1 贴图像素 = 1 qt)。原来写死的 "7.62" 换成一块深一点的空标签区
+    // (DISPLAY.stencil.label): 口径由方块实体渲染器画成黄漆模板字 (缓冲是别的口径时不会和箱子对不上), 缓冲空时不写
+    const m = M.olive, L = DISPLAY.stencil.label;
     c.fill(m.base); c.bevel(m);
     c.hline(1, 2, c.w - 2, m.lo); c.hline(1, 3, c.w - 2, m.hi);
-    c.text(7, 8, '7.62', HAZ_Y);
-    c.hline(4, 15, c.w - 8, HAZ_Y);
-    c.hline(4, 17, 9, mix(HAZ_Y, m.base, 0.4)); c.hline(4, 19, 6, mix(HAZ_Y, m.base, 0.4));
+    c.rect(L.x, L.y, L.w, L.h, mix(m.base, m.lo, 0.55));
+    c.hline(L.x, L.y, L.w, m.lo); c.hline(L.x, L.y + L.h - 1, L.w, mix(m.base, m.hi, 0.5));
+    c.hline(4, 16, c.w - 8, HAZ_Y);
+    c.hline(4, 18, 9, mix(HAZ_Y, m.base, 0.4)); c.hline(4, 20, 6, mix(HAZ_Y, m.base, 0.4));
     c.rect(c.w - 7, 16, 4, 4, m.dk); c.bolt(c.w - 6, 17, M.chrome);
 }
 function canSide(c) {
@@ -326,19 +334,71 @@ function canTop(c) {
         c.rect(x + 1, y + 1, 2, 2, JACKET.base); c.px(x + 1, y + 1, JACKET.hi);
     }
 }
-function lidInside(c, P) {
-    // 掀开的箱盖内面 (7 x 9, d = 4: 28 x 36): 色带色 (band) 的密封框 + 橄榄绿 + 黄漆 AMMO 与一发子弹剪影
-    const m = M.olive, b = P.band;
-    c.fill(m.base);
-    c.bevel({ hi: b.hi, lo: b.dk, base: b.base });
-    c.rect(1, 1, c.w - 2, 2, b.base); c.rect(1, c.h - 3, c.w - 2, 2, b.base);
-    c.rect(1, 1, 2, c.h - 2, b.base); c.rect(c.w - 3, 1, 2, c.h - 2, b.base);
-    c.hline(1, 1, c.w - 2, b.hi); c.vline(1, 1, c.h - 2, b.hi);
-    c.hline(3, 3, c.w - 6, b.lo); c.vline(3, 3, c.h - 6, b.lo);
-    c.bevel(m, 4, 4, c.w - 8, c.h - 8);
-    c.text(7, 7, 'AMMO', HAZ_Y);
-    c.round(11, 14, 17, 6, 'up', { case: M.yellow, tip: M.yellow });
-    c.hline(11, 19, 6, m.base);
+// ---- 计数屏 (方案 C): 箱盖内面的静态底板 (d = 4, 1 贴图像素 = 1 qt, 布局常量全在 counter.mjs 的 DISPLAY)
+// 屏底 (带档位色调 + 扫描线) / 满度条的槽 / 框是静态贴图; 数字与满度条由方块实体渲染器画 (MunitionsBenchCounter.rects)。
+// 屏窗凹进 DISPLAY.recess (0.25 px): 箱盖 = 四条满厚的框条 + 窗后一块本体 (模型规则: 元素每向至少 0.5 px 厚, 所以不能用
+// 0.25 px 的薄框条); 各块北面都从同一张整面设计图里裁出来 (subPaint), 接缝处的图案连续。
+function screenWindow(c, W, col) {
+    c.rect(W.x, W.y, W.w, W.h, col.bg);
+    for (let y = W.y + 2; y < W.y + W.h; y += 2) c.hline(W.x, y, W.w, col.scan);   // 扫描线 (0.5 px 一周期): 待机也看得出是一块亮着的屏
+    c.hline(W.x, W.y, W.w, col.rim);                                                // 上沿框条的影子
+}
+/**
+ * 黄漆模板子弹 (横放, 弹头朝右, 高 5): 弹壳 caseLen 列 (左端底缘两角缺口), 1 列模板断笔, 弹头 tipLen 列 (尖头逐行收窄)。
+ * 比 Canvas.round 更像子弹: 小尺寸下 round 的弹头几乎不收窄, 看上去是一根黄条。
+ */
+function stencilBullet(c, x, y, caseLen, tipLen, col) {
+    for (let i = 0; i < caseLen; i++) for (let r = 0; r < 5; r++) if (!(i === 1 && (r === 0 || r === 4))) c.px(x + i, y + r, col);
+    const tx = x + caseLen + 1;
+    const w = [Math.ceil(tipLen * 0.34), Math.ceil(tipLen * 0.67), tipLen, Math.ceil(tipLen * 0.67), Math.ceil(tipLen * 0.34)];
+    for (let r = 0; r < 5; r++) c.hline(tx, y + r, w[r], col);
+}
+/** 从 W x H 的整面设计图里裁出 (x0, y0) 起、与当前面同大的一块。 */
+function subPaint(fullFn, W, H, x0, y0) {
+    return (c, P, info) => {
+        const full = new Canvas(W, H);
+        fullFn(full, P, info);
+        for (let j = 0; j < c.h; j++) for (let i = 0; i < c.w; i++) c.px(i, j, full.get(x0 + i, y0 + j));
+    };
+}
+/**
+ * 凹窗显示元素: 窗后本体 (窗面 → 窗面后 ≥ 0.5 px, 只占窗那一块) + 四条框条 (前沿 → el.to, 满厚)。
+ * 框条的 qt 范围 = 窗外的四块 (t 整宽在上, b 整宽在下, l / r 在窗的左右; 左 = 从正面看的左 = 东)。
+ */
+function recessedDisplay(ctx, D, name, o) {
+    const { box } = ctx;
+    const F = D.el.from, T = D.el.to, W = D.window, rot = D.el.rot;
+    const X = (u) => T[0] - u * QT, Y = (v) => T[1] - v * QT;          // 面上 qt → 世界像素 (北面: u 向 -x, v 向 -y)
+    const zF = F[2], zW = F[2] + D.recess, zB = Math.max(T[2], zW + 0.5);
+    const [SW, SH] = D.size;
+    box(name, [X(W.x + W.w), Y(W.y + W.h), zW], [X(W.x), Y(W.y), zB], o.body, { rot, item: o.item });
+    const strips = {
+        t: [0, 0, SW, W.y], b: [0, W.y + W.h, SW, SH],
+        l: [0, W.y, W.x, W.y + W.h], r: [W.x + W.w, W.y, SW, W.y + W.h],
+    };
+    for (const [k, [u0, v0, u1, v1]] of Object.entries(strips)) {
+        if (u1 <= u0 || v1 <= v0) continue;
+        box(`${name}_${k}`, [X(u1), Y(v1), zF], [X(u0), Y(v0), T[2]], o.strip(k, u0, v0, u1 - u0, v1 - v0), { rot, item: o.item });
+    }
+}
+function lidFull(on) {
+    return (c, P) => {
+        // 箱盖内面 32 x 36 (箱盖 8 px 宽): 2 qt 色带密封框 → 橄榄绿; 上 AMMO, 中 凹窗 (满度条 + 4x7 大字发数), 下 黄漆子弹 + 黄条
+        const D = DISPLAY, col = counterColours(P.light, on);
+        const m = M.olive, b = P.band, W = D.window;
+        c.fill(m.base);
+        c.rect(0, 0, c.w, 2, b.base); c.rect(0, c.h - 2, c.w, 2, b.base); c.rect(0, 0, 2, c.h, b.base); c.rect(c.w - 2, 0, 2, c.h, b.base);
+        c.bevel({ hi: b.hi, lo: b.dk, base: b.base });
+        c.hline(2, 2, c.w - 4, m.lo); c.vline(2, 2, c.h - 4, m.lo);
+        c.text(9, 3, 'AMMO', HAZ_Y);
+        c.rect(W.x - 1, W.y - 1, W.w + 2, W.h + 2, m.dk);                         // 窗口一圈暗边 (在框条上)
+        c.hline(W.x - 1, W.y + W.h, W.w + 2, m.hi);                                // 下沿受光
+        screenWindow(c, W, col);
+        c.rect(D.bar.x, D.bar.y, D.bar.w, D.bar.h, col.track);
+        stencilBullet(c, 7, W.y + W.h + 2, 11, 7, HAZ_Y);
+        c.hline(4, W.y + W.h + 8, 24, HAZ_Y);
+        c.hline(4, W.y + W.h + 10, 12, mix(HAZ_Y, m.base, 0.4));
+    };
 }
 function bulletTray(c) {
     // 弹头托盘顶面 (7 x 3.5, d = 2: 14 x 7)。朝玩家倾斜, 屏幕上方 = v 大。3 颗 3 格宽的亮铜弹头, 尖 (居中 1 格) 朝屏幕上方
@@ -566,19 +626,33 @@ function scene(ctx) {
     if (f === null || RAM_BULLET[f]) bulletAt(ctx, 'ram_bullet', SLOT.seat, RAM_REST + rm, RZ, { move: 'ram_bullet', item: false }, flat(JACKET.lo));
 
     // ---------------- main: 弹药箱 (敞口, 满箱整发弹) + 掀开靠后的箱盖 + 箱后备用弹药箱
-    box('can', [1, 3, 1], [8, 8.5, 10], {
+    // 箱身正面 = 计数屏的口径模板字面 (DISPLAY.stencil.el): 空标签, 口径由方块实体渲染器写
+    box('can', [...DISPLAY.stencil.el.from], [...DISPLAY.stencil.el.to], {
         all: plate(M.olive),
-        north: paint('can_n', canFront, { m: M.olive, d: 4 }),
+        north: paint('can_nC', canFront, { m: M.olive, d: 4 }),
         west: paint('can_side', canSide, { m: M.olive, d: 2 }),
         up: paint('can_top2', canTop, { m: M.olive, d: 2 }),
         east: flat(M.olive.lo), south: flat(M.olive.lo),
     });
     box('can_latch', [3.5, 7, 0.5], [5.5, 8.5, 1], { all: flat(M.chrome.lo), north: flat(M.chrome.base), up: flat(M.chrome.hi), south: null }, { item: false });
-    box('can_lid', [1, 8.5, 10], [8, 17.5, 10.5], {
-        all: flat(M.olive.lo),
-        north: paint('lid_in2', lidInside, { m: M.olive, d: 4 }),
-        south: plate(M.olive), up: flat(M.olive.hi),
-    }, { rot: { origin: [4.5, 8.5, 10.5], axis: 'x', angle: 22.5 } });
+    {
+        // 掀开的箱盖 = 计数屏 (DISPLAY.el, 8 px 宽、0.75 px 厚, 后仰 22.5°): 窗后本体 (凹窗, 工作时窗面自发光) + 四条框条
+        // (AMMO / 黄漆子弹在框条上)。窗里的满度条与发数由方块实体渲染器画在窗面外 LIFT。
+        const D = DISPLAY, [SW, SH] = D.size, W = D.window;
+        const LIP = { t: 'down', b: 'up', l: 'west', r: 'east' };
+        recessedDisplay(ctx, D, 'can_lid', {
+            body: {
+                south: flat(M.olive.base), east: null, west: null, up: null, down: null,
+                north: on ? glow(paint('lidC2_w_on', subPaint(lidFull(true), SW, SH, W.x, W.y), { m: M.olive, d: 4 }), 12)
+                    : paint('lidC2_w', subPaint(lidFull(false), SW, SH, W.x, W.y), { m: M.olive, d: 4 }),
+            },
+            strip: (k, x0, y0) => ({
+                all: flat(M.olive.lo), south: flat(M.olive.base), ...(k === 't' ? { up: flat(M.olive.hi) } : {}),
+                north: paint(`lidC2_${k}`, subPaint(lidFull(false), SW, SH, x0, y0), { m: M.olive, d: 4 }),
+                [LIP[k]]: flat(k === 'b' ? M.olive.lo : M.olive.dk),
+            }),
+        });
+    }
     [[2.5, 2.5], [6.5, 2.5], [4.5, 4.5], [2.5, 6.5], [4.5, 8.5]].forEach(([x, z], i) => bulletAt(ctx, 'can_b' + i, x, 8.5, z, { item: false }));
     // 备用弹药箱 (合着盖), 箱盖正好靠在它上沿
     box('spare_can', [1, 8, 12], [7.5, 11.5, 15.5], {
@@ -711,7 +785,7 @@ function drivePart(def, pose) {
 const SHAPE_GROUPS = [
     ['body', /^(plinth|shelf|cab_back_main|cab|end_e|end_w|worktop|worktop_main|strip|can_strip|nameplate|kick_band)$/, '底座 + 柜体 + 台面'],
     ['can', /^(can|can_latch)$/, '弹药箱'],
-    ['lid', /^can_lid$/, '掀开的箱盖'],
+    ['lid', /^can_lid(_[tblr])?$/, '掀开的箱盖 (计数屏)'],
     ['spare', /^spare_can$/, '备用弹药箱'],
     ['belt', /^(conveyor|rail_f|rail_b)$/, '皮带 + 护栏'],
     ['press_posts_front', /^post_f(w|e)$/, '压机前立柱'],
@@ -825,7 +899,8 @@ function geometryJava(g) {
         'package com.miningdim.job.munitions.block;',
         '',
         '/**',
-        ' * 军火台 WIDE 布局 (弹药流水线) 的几何常量: 轮廓箱 (静态件 + 运动件)、模型高度、运动件的活动范围、冲压火花的位置。',
+        ' * 军火台 WIDE 布局 (弹药流水线) 的几何常量: 轮廓箱 (静态件 + 运动件)、模型高度、运动件的活动范围、冲压火花的位置,',
+        ' * 以及弹药箱计数屏 (COUNTER_*) 的显示面、布局与每档颜色。',
         ' * <p>',
         ' * 由 tools/munitions_bench/generate_munitions_bench.mjs 按方块模型的同一份场景整个写出, 不要手改。',
         ' * 刻意不依赖任何 Minecraft 类, 方块、方块实体、渲染器与 GameTest 都能直接用。',
@@ -883,6 +958,8 @@ function geometryJava(g) {
         '    /** 运动件贴图 textures/entity/munitions_bench_parts.png 的尺寸 (与 MunitionsBenchParts 的 LayerDefinition 相同)。 */',
         `    public static final int PARTS_TEXTURE_WIDTH = ${g.texW};`,
         `    public static final int PARTS_TEXTURE_HEIGHT = ${g.texH};`,
+        '',
+        ...counterJavaLines(g.counter.layout, g.counter.colours, f1),
         '',
         '    private MunitionsBenchGeometry() {',
         '    }',
@@ -1157,17 +1234,73 @@ function main() {
     const spark = [SLOT.seat, BELT_Y + R.caseH, RZ];
     const bulletAtStrike = frames[ACTIVE_FRAME].find((e) => e.name === 'ram_bullet_tip');
     if (!bulletAtStrike || Math.abs(bulletAtStrike.from[1] - spark[1]) > 1e-6) errors.push('spark: the ram bullet does not meet the case mouth at the strike');
+    // ---- 8b. 计数屏 (方案 C): 布局 + 每档颜色写进 Geometry 的 COUNTER_*; 核对场景里的箱盖 / 箱身与布局一致、顶点绕序、字放得下、待机对比度
+    const counter = { layout: layoutFromDisplay(), colours: colourTable(TIERS) };
+    {
+        const L = counter.layout, W = L.window, S = L.stencil;
+        const near = (a, b) => Math.abs(a - b) < 1e-6;
+        const X = (u) => W.tl[0] - u * L.qt, Y = (v) => W.tl[1] - v * L.qt;
+        errors.push(...windingProblems(L));
+        for (const [t, T] of TIERS.entries()) for (const k of ['idle', 'active']) {
+            const E = byTier[t][k], label = `counter ${T.key}/${k}`;
+            const body = E.find((e) => e.name === 'can_lid');
+            if (!body || !near(body.from[2], W.tl[2]) || !near(body.from[0], X(W.rect.x + W.rect.w)) || !near(body.to[0], X(W.rect.x))
+                || !near(body.from[1], Y(W.rect.y + W.rect.h)) || !near(body.to[1], Y(W.rect.y))) errors.push(`${label}: the lid window body (can_lid) is not the window face of COUNTER_WINDOW_*`);
+            else if (!body.rot || body.rot.axis !== 'x' || !near(body.rot.angle, W.rot.angle) || !W.rot.origin.every((v, i) => near(v, body.rot.origin[i]))) errors.push(`${label}: can_lid does not turn like COUNTER_LID_ROTATION_*`);
+            const strips = E.filter((e) => /^can_lid_[tblr]$/.test(e.name));
+            if (strips.length !== 4 || strips.some((e) => !near(e.from[2], W.tl[2] - L.recess) || !e.rot || !near(e.rot.angle, W.rot.angle))) errors.push(`${label}: the lid frame strips must start ${L.recess} px in front of the window face and turn with it`);
+            else {
+                const lo = [0, 1].map((a) => Math.min(...strips.map((e) => e.from[a]))), hi = [0, 1].map((a) => Math.max(...strips.map((e) => e.to[a])));
+                if (!near((hi[0] - lo[0]) / L.qt, W.face[0]) || !near((hi[1] - lo[1]) / L.qt, W.face[1]) || !near(hi[0], W.tl[0]) || !near(hi[1], W.tl[1])) errors.push(`${label}: the lid face is not COUNTER_LID_FACE_QT from COUNTER_WINDOW_FACE_TOP_LEFT`);
+            }
+            const can = E.find((e) => e.name === 'can');
+            if (!can || can.rot || !near(can.from[2], S.tl[2]) || !near(can.to[0], S.tl[0]) || !near(can.to[1], S.tl[1])
+                || !near((can.to[0] - can.from[0]) / L.qt, S.face[0]) || !near((can.to[1] - can.from[1]) / L.qt, S.face[1])) errors.push(`${label}: the can front is not the stencil face of COUNTER_STENCIL_*`);
+        }
+        const inside = (r, R) => r.x >= R.x && r.y >= R.y && r.x + r.w <= R.x + R.w && r.y + r.h <= R.y + R.h;
+        if (!inside(L.bar, W.rect)) errors.push('counter: the fill bar leaves the window');
+        if (!inside({ x: L.count.x, y: L.count.y, w: L.count.w, h: FONT_4x7.h * L.count.texel }, W.rect)) errors.push('counter: the count box leaves the window');
+        if (L.bar.y + L.bar.h > L.count.y) errors.push('counter: the fill bar overlaps the digits');
+        // 每一种格式形状里最宽的那个都放得进发数框 (int 缓冲最多 "2.14G"; MAX_ROUNDS = "999G")
+        for (const n of [1, 88, 888, 8888, 9999, 10000, 12480, 88800, 99999, 123456, 888000, 999999, 1e6, 1230000, 8880000, 12345678, 88800000, 123456789, 888000000, 1e9, 1.23e9, 2147483647, 88.8e9, 888e9, MAX_ROUNDS, 1e15]) {
+            const t = formatCount(n), w = textWidth(FONT_4x7, t) * L.count.texel;
+            if (t.length > 5 || w > L.count.w) errors.push(`counter: "${t}" (${n} rounds) is ${w} qt wide / ${t.length} chars; the count box is ${L.count.w} qt, 5 chars`);
+        }
+        const lab = DISPLAY.stencil.label;
+        for (const label of CALIBER_LABELS) {
+            const w = textWidth(FONT_3x5, label) * S.texel, x = Math.floor((S.face[0] - w) / 2);
+            if (x < lab.x || x + w > lab.x + lab.w || S.y < lab.y || S.y + FONT_3x5.h * S.texel > lab.y + lab.h) errors.push(`counter: the calibre stencil "${label}" leaves the painted label on the can`);
+        }
+        // 评审的目标: 待机的字对比度 ≥ 4.5:1 (待机 ≈ 工作亮度的 0.7, 仍要读得出)。颜色是用户认可的方案原样, 只报警告
+        // (超凡档待机 4.39:1, 工作 5.57:1)。
+        TIERS.forEach((T) => {
+            const c = counterColours(T.roles.light, false), k = contrast(c.count, c.bg);
+            if (k < 4.5) warns.push(`counter: idle digits in tier ${T.key} have ${k.toFixed(2)}:1 contrast against the window (target 4.5:1)`);
+        });
+    }
     const geo = {
         bodyTop: worktop.to[1], modelTops, shapeTop: Math.max(...[...boxes.main, ...boxes.extension].map((b) => b.box[4])), boxes, partBoxes,
-        partsMin: partsLo.map(r4), partsMax: partsHi.map(r4), spark, texW: layer.texW, texH: layer.texH,
+        partsMin: partsLo.map(r4), partsMax: partsHi.map(r4), spark, texW: layer.texW, texH: layer.texH, counter,
     };
-    emit(path.join(OUT, GEOMETRY_REL), geometryJava(geo));
+    const geometrySrc = geometryJava(geo);
+    {
+        // 写出的 COUNTER_* 解析回来必须就是这份布局与颜色 (预览与对拍只读 Java)
+        const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
+        let parsed = null;
+        try { parsed = parseCounterJava(geometrySrc); } catch (e) { errors.push('Java round trip: ' + e.message); }
+        if (parsed && JSON.stringify(canon(parsed)) !== JSON.stringify(canon({ ...counter.layout, colours: counter.colours }))) errors.push('Java round trip: COUNTER_* constants do not parse back to the counter layout / colours');
+    }
+    emit(path.join(OUT, GEOMETRY_REL), geometrySrc);
 
     // ---- 9. 汇报 + 写盘
     console.log(`atlas ${A}x${A}: ${layout.regions} painted regions, ${layout.swatches} swatches; parts texture ${layer.texW}x${layer.texH} (${layer.blocks.length} box-UV blocks for ${layer.parts.reduce((n, p) => n + p.cubes.length, 0)} cubes in ${layer.parts.length} parts)`);
     for (const s of stats) console.log(`  ${s.key.padEnd(13)} static ${Object.values(s.models).join('/')} elements (main/ext idle, main/ext active), item ${s.item}${s.itemDropped ? ` (${s.itemDropped} too thin, dropped)` : ''}, add-ons [${s.addOns.join(', ')}]`);
     console.log(`  model tops ${modelTops.join(' / ')} px; outline main ${boxes.main.length} + ${partBoxes.main.length} part boxes, extension ${boxes.extension.length} + ${partBoxes.extension.length} part boxes, top ${geo.shapeTop} px; parts sweep ${geo.partsMin} .. ${geo.partsMax}`);
     console.log(`  program: ${rows.length} keyframes / ${CYCLE * TICKS_PER_FRAME} ticks, strike at tick ${strikeTick}; parts: ${layer.parts.map((p) => p.name).join(', ')}`);
+    {
+        const L = counter.layout;
+        console.log(`  counter (option C): window face ${L.window.tl} px turned ${L.window.rot.angle} deg about x at ${L.window.rot.origin}, window ${Object.values(L.window.rect)} qt, bar ${Object.values(L.bar)}, count ${L.count.x},${L.count.y} w ${L.count.w}; stencil face ${L.stencil.tl} px row ${L.stencil.y}; lift ${L.lift} px`);
+    }
     if (offGrid) console.log(`  note: ${offGrid} block-model coordinates on the 0.25 grid but not the 0.5 grid`);
     for (const w of warns) console.warn('  WARN ' + w);
     if (errors.length) {

@@ -6,10 +6,14 @@
 // (相对方案有意补上的几个运动件面 DELIBERATE_FACES 在对拍时不画, 见下);
 // 另外检查: 四个朝向下静态模型 (方块状态 y 旋转 + 副格在顺时针一侧) 与运动件 (渲染器的朝向角) 是否仍对齐;
 // 游戏里运动件不剔除背面, 一个循环里各视角 (含仰视) 都不许有件的背面露出来 (parity-backfaces.png);
-// 若本机有 JDK (JAVA_HOME 或 PATH 里的 javac), 单独编译 MunitionsBenchProgram.java, 逐 tick 与 JS 镜像对拍。
+// 若本机有 JDK (JAVA_HOME 或 PATH 里的 javac), 单独编译 MunitionsBenchProgram.java, 逐 tick 与 JS 镜像对拍;
+// 再单独编译 MunitionsBenchCounter.java + MunitionsBenchGeometry.java (计数屏), 数字格式、字形、排版、满度条、满仓、显示键、颜色
+// 与渲染器摆角用的 benchCorners / blockCorners (四个朝向) 与 counter.mjs 逐值对拍, 布局常量与 parseCounterJava 解析出来的对拍,
+// 口径标签与 MunitionsCaliber.java 对拍。
 // 用法:
-//   node tools/munitions_bench/check_parity.mjs --cand <候选输出目录 (generate.mjs --out 的目录)> --out-dir <目录> [--repo <仓库根>] [--no-java]
+//   node tools/munitions_bench/check_parity.mjs [--cand <候选输出目录 (generate.mjs --out 的目录)>] --out-dir <目录> [--repo <仓库根>] [--no-java]
 //   候选输出: cd .candidates; node munitions_b/generate.mjs --out <目录>
+//   不给 --cand 时跳过与方案 B v2 的逐像素对拍 (弹药箱换成计数屏方案 C 之后, 箱盖与箱身正面本来就与 B v2 不同), 其余照做。
 // 输出: parity-report.md、parity-frames.png、parity-tiers.png、parity-items.png, 以及游戏样子的参考图 (实体光照):
 //   game-motion.png (每 2.5 tick 一列)、game-base-active.png、game-base-idle.png、game-tiers.png、game-shapes.png (碰撞箱线框)。
 // 退出码: 有像素差异、朝向不对齐或 Java 对拍失败时为 1。
@@ -27,6 +31,8 @@ import {
     motionStrip, tierSheet, tierStrip, closeup, CELL_OFFSETS,
 } from './render_mb.mjs';
 import { drawText } from '../gunsmith_workstation/font.mjs';
+import * as C from './counter.mjs';
+import { CALIBER_LABELS } from './counter.mjs';
 
 function parseArgs(argv) {
     const a = {};
@@ -34,12 +40,12 @@ function parseArgs(argv) {
     return a;
 }
 const ARGS = parseArgs(process.argv.slice(2));
-if (!ARGS.cand || !ARGS['out-dir']) { console.error('usage: node check_parity.mjs --cand <candidate out dir> --out-dir <dir> [--repo <root>] [--no-java]'); process.exit(2); }
+if (!ARGS['out-dir'] || ARGS.cand === true) { console.error('usage: node check_parity.mjs [--cand <candidate out dir>] --out-dir <dir> [--repo <root>] [--no-java]'); process.exit(2); }
 const REPO = path.resolve(ARGS.repo || DEFAULT_REPO);
 const OUT = path.resolve(ARGS['out-dir']);
 fs.mkdirSync(OUT, { recursive: true });
 const game = loadGame(REPO);
-const cand = loadCandidate(ARGS.cand);
+const cand = ARGS.cand ? loadCandidate(ARGS.cand) : null;
 const problems = [];
 const report = [];
 
@@ -80,8 +86,11 @@ function compareCase(label, qa, qb, views = DIFF_VIEWS, frame = FRAMES.machine) 
 }
 const withLabel = (img, text) => { drawText(img, 6, 5, text, [235, 235, 235]); return img; };
 
-// ---- 普通档逐帧 + 运动件特写
+// ---- 普通档逐帧 + 运动件特写 (以下三节只在给了 --cand 时做)
 const frameRows = [];
+const tierRows = [];
+const itemRows = [];
+if (cand) {
 const frameSheet = newImage(6 * W, 8 * H + 20);
 for (let f = 0; f < 8; f++) {
     const tick = f * 5;
@@ -98,7 +107,6 @@ footer(frameSheet, 'PARITY BASE TIER F0..F7: CANDIDATE B V2 FRAME JSON  VS  STAT
 writePng(path.join(OUT, 'parity-frames.png'), frameSheet);
 
 // ---- 六档 待机 / 工作
-const tierRows = [];
 const tierSheetImg = newImage(6 * W, 6 * H + 20);
 for (let t = 0; t < 6; t++) {
     const ci = compareCase(`${TIERS[t].key} idle`, candQuads(cand, t, 'idle'), asCandidate(gameQuads(game, t, 'idle', null, { blockLight: true })));
@@ -112,7 +120,6 @@ footer(tierSheetImg, 'PARITY 6 TIERS: IDLE (EYE) AND ACTIVE AT THE STRIKE (NIGHT
 writePng(path.join(OUT, 'parity-tiers.png'), tierSheetImg);
 
 // ---- 物品图标 (32 px)
-const itemRows = [];
 const itemSheet = newImage(6 * 3 * 100, 140);
 for (let t = 0; t < 6; t++) {
     const icon = (item) => { const n = 32, img = newImage(n, n, [139, 139, 139]); R.rasterize(R.guiTransform(item.quads, item.display), img, { cam: R.cameraFromDir([0, 0, 1]), scale: n / 16, cx: n / 2, cy: n / 2 }); return img; };
@@ -126,6 +133,7 @@ for (let t = 0; t < 6; t++) {
 }
 footer(itemSheet, 'ITEM ICONS 32 PX: CANDIDATE / IN-GAME / DIFF');
 writePng(path.join(OUT, 'parity-items.png'), itemSheet);
+}
 
 // ================================================================ 四个朝向
 // 期望: 朝北的整台四边形绕主格中心 (8, 8) 按方块状态的 y 旋转 (俯视顺时针) 转过去; 实际: 各格模型按 y 旋转烘、副格放在
@@ -193,9 +201,10 @@ const backfaceRows = [];
 }
 
 // ================================================================ Java 对拍 (MunitionsBenchProgram 单独编译, 与 JS 镜像逐 tick 比较)
+const findJavac = () => [process.env.JAVA_HOME && path.join(process.env.JAVA_HOME, 'bin', os.platform() === 'win32' ? 'javac.exe' : 'javac'), 'javac'].find((p) => { try { execFileSync(p, ['-version'], { stdio: 'ignore' }); return true; } catch { return false; } });
 let javaResult = 'skipped (--no-java)';
 if (!ARGS['no-java']) {
-    const javac = [process.env.JAVA_HOME && path.join(process.env.JAVA_HOME, 'bin', os.platform() === 'win32' ? 'javac.exe' : 'javac'), 'javac'].find((p) => { try { execFileSync(p, ['-version'], { stdio: 'ignore' }); return true; } catch { return false; } });
+    const javac = findJavac();
     if (!javac) javaResult = 'skipped (no javac: set JAVA_HOME)';
     else {
         const java = path.join(path.dirname(javac), os.platform() === 'win32' ? 'java.exe' : 'java');
@@ -253,6 +262,144 @@ if (!ARGS['no-java']) {
     }
 }
 
+// ================================================================ Java 对拍 (计数屏: MunitionsBenchCounter + MunitionsBenchGeometry 单独编译, 与 counter.mjs 逐值比较)
+// 格式 (定点 + 各数量级 3000 个伪随机数)、两套字形、字宽、满度条、满仓、显示键、rects (发数 × 口径 × 上限 × 满仓)、颜色 (C.colourOf)、
+// 角 (benchCorners / blockCorners × 四个朝向角, 渲染器画的就是 blockCorners 的输出)、
+// 布局常量 (Java 运行时的值 vs parseCounterJava 从源码解析出来的值); 另外核对 CALIBER_LABELS 与 MunitionsCaliber.java 的 shortLabel。
+let counterJavaResult = 'skipped (--no-java)';
+{
+    const src = fs.readFileSync(path.join(REPO, 'src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'MunitionsCaliber.java'), 'utf8');
+    const labels = [];
+    for (const m of src.matchAll(/^\s*\w+\((\d+), \d+, "[^"]*", Prices\.\w+, Category\.\w+, "([^"]+)"\)/gm)) labels[Number(m[1])] = m[2];
+    if (labels.length !== CALIBER_LABELS.length || labels.some((l, i) => l !== CALIBER_LABELS[i])) problems.push(`counter.mjs CALIBER_LABELS ${JSON.stringify(CALIBER_LABELS)} differ from MunitionsCaliber.java shortLabels ${JSON.stringify(labels)}`);
+}
+if (!ARGS['no-java']) {
+    const javac = findJavac();
+    if (!javac) counterJavaResult = 'skipped (no javac: set JAVA_HOME)';
+    else {
+        const java = path.join(path.dirname(javac), os.platform() === 'win32' ? 'java.exe' : 'java');
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-counter-'));
+        const LABELS = ['-', '~', ...CALIBER_LABELS, '?Z9'];   // - = null, ~ = "", ?Z9 = 字表外的字 (按空格)
+        const harness = [
+            'import com.miningdim.job.munitions.block.MunitionsBenchCounter;',
+            'import com.miningdim.job.munitions.block.MunitionsBenchGeometry;',
+            'public class CounterHarness {',
+            '    static final StringBuilder SB = new StringBuilder();',
+            '    static void line(Object... parts) { for (int i = 0; i < parts.length; i++) { if (i > 0) SB.append(\' \'); SB.append(parts[i]); } SB.append(\'\\n\'); }',
+            '    static String join(int[] v) { StringBuilder s = new StringBuilder(); for (int i = 0; i < v.length; i++) { if (i > 0) s.append(\',\'); s.append(v[i]); } return s.length() == 0 ? "_" : s.toString(); }',
+            '    static String joinF(float[] v) { StringBuilder s = new StringBuilder(); for (int i = 0; i < v.length; i++) { if (i > 0) s.append(\',\'); s.append(v[i]); } return s.toString(); }',
+            '    static void glyphs(String id, MunitionsBenchCounter.Font f) {',
+            '        String cs = f.chars() + f.narrowChar() + "?";',
+            '        for (int i = 0; i < cs.length(); i++) { char c = cs.charAt(i); int[] rows = new int[f.height]; for (int r = 0; r < f.height; r++) rows[r] = f.glyphRow(c, r); line("G", id, (int) c, f.glyphWidth(c), join(rows)); }',
+            '    }',
+            '    public static void main(String[] a) {',
+            '        long[] fixed = {Long.MIN_VALUE, -1L, 0L, 1L, 9L, 10L, 99L, 347L, 999L, 1000L, 9999L, 10000L, 10001L, 10099L, 10100L, 12480L, 99999L, 100000L, 123456L, 999999L, 1000000L, 1000001L, 1009999L, 1010000L, 3200000L, 9999999L, 10000000L, 12345678L, 99999999L, 123456789L, 999999999L, 1000000000L, 2147483647L, 999999999999L, 1000000000000L, Long.MAX_VALUE};',
+            '        for (long n : fixed) line("F", n, MunitionsBenchCounter.format(n));',
+            '        long seed = 12345L;',
+            '        for (int i = 0; i < 3000; i++) { seed = seed * 6364136223846793005L + 1442695040888963407L; long m = 1L; for (int k = 0; k < 1 + i % 13; k++) m *= 10L; long n = Math.floorMod(seed >>> 20, m); line("F", n, MunitionsBenchCounter.format(n)); }',
+            '        glyphs("4x7", MunitionsBenchCounter.FONT_4X7); glyphs("3x5", MunitionsBenchCounter.FONT_3X5);',
+            `        String[] labels = {${LABELS.map((l) => JSON.stringify(l)).join(', ')}};`,
+            '        for (String t : new String[]{"0", "12.4K", "9999", "3.2M", "999G", "2.14G"}) line("T", "4x7", t, MunitionsBenchCounter.FONT_4X7.textWidth(t));',
+            '        for (int i = 2; i < labels.length; i++) line("T", "3x5", labels[i], MunitionsBenchCounter.FONT_3X5.textWidth(labels[i]));',
+            '        int[] rs = {-3, 0, 1, 2, 7, 21, 22, 23, 88, 347, 400, 460, 461, 500, 799, 800, 801, 4000, 9999, 10000, 12479, 12480, 123456, 1000000, 3200000, 2147483647};',
+            '        int[] caps = {-1, 0, 1, 22, 30, 500, 790, 800, 4000, 16000, 2147483647};',
+            '        for (int r : rs) for (int c : caps) line("B", r, c, MunitionsBenchCounter.barCells(r, c));',
+            '        for (int r : rs) for (int c : caps) for (int b : new int[]{1, 40, 70}) line("U", r, c, b, MunitionsBenchCounter.isFull(r, c, b), MunitionsBenchCounter.cannotTakeBatch(r, c, b));',
+            '        for (int r : rs) for (int cal : new int[]{-1, 0, 1, 9, 300, 2147483647}) for (int c : new int[]{0, 500, 800}) for (boolean f : new boolean[]{false, true}) line("K", r, cal, c, f, MunitionsBenchCounter.displayKey(r, cal, c, f));',
+            '        int[] rr = {-5, 0, 1, 7, 88, 347, 4000, 9999, 10000, 12480, 123456, 1000000, 3200000, 2147483647};',
+            '        for (int r : rr) for (String l : labels) for (int c : new int[]{0, 800, 4000}) for (boolean f : new boolean[]{false, true}) {',
+            '            String label = l.equals("-") ? null : l.equals("~") ? "" : l;',
+            '            line("R", r, l, c, f, join(MunitionsBenchCounter.rects(r, label, c, f)));',
+            '        }',
+            '        for (int r : new int[]{0, 347, 12480, 3200000}) for (String l : labels) for (boolean f : new boolean[]{false, true}) for (float rot : new float[]{0.0F, -90.0F, 180.0F, 90.0F}) {',
+            '            String label = l.equals("-") ? null : l.equals("~") ? "" : l;',
+            '            int[] rects = MunitionsBenchCounter.rects(r, label, 800, f);',
+            '            line("Q", r, l, f, rot, joinF(MunitionsBenchCounter.blockCorners(rects, rot)));',
+            '            if (rot == 0.0F) line("P", r, l, f, joinF(MunitionsBenchCounter.benchCorners(rects)));',
+            '        }',
+            '        for (int t = -1; t <= 6; t++) for (int role = 0; role < 5; role++) for (boolean w : new boolean[]{false, true}) line("C", t, role, w, MunitionsBenchCounter.colour(t, role, w));',
+            '        line("L", "qt", MunitionsBenchGeometry.COUNTER_QT_PX); line("L", "lift", MunitionsBenchGeometry.COUNTER_LIFT_PX);',
+            '        line("L", "recess", MunitionsBenchGeometry.COUNTER_RECESS_PX); line("L", "maxDist", MunitionsBenchGeometry.COUNTER_MAX_DISTANCE_BLOCKS);',
+            '        line("L", "window.tl", joinF(MunitionsBenchGeometry.COUNTER_WINDOW_FACE_TOP_LEFT)); line("L", "window.face", join(MunitionsBenchGeometry.COUNTER_LID_FACE_QT));',
+            '        line("L", "window.rot.origin", joinF(MunitionsBenchGeometry.COUNTER_LID_ROTATION_ORIGIN)); line("L", "window.rot.angle", MunitionsBenchGeometry.COUNTER_LID_ROTATION_X_DEGREES);',
+            '        line("L", "window.rect", join(MunitionsBenchGeometry.COUNTER_WINDOW_QT)); line("L", "bar", join(MunitionsBenchGeometry.COUNTER_BAR_QT));',
+            '        line("L", "count", join(MunitionsBenchGeometry.COUNTER_COUNT_QT)); line("L", "count.texel", MunitionsBenchGeometry.COUNTER_COUNT_TEXEL_QT);',
+            '        line("L", "stencil.tl", joinF(MunitionsBenchGeometry.COUNTER_STENCIL_FACE_TOP_LEFT)); line("L", "stencil.face", join(MunitionsBenchGeometry.COUNTER_STENCIL_FACE_QT));',
+            '        line("L", "stencil.y", MunitionsBenchGeometry.COUNTER_STENCIL_Y_QT); line("L", "stencil.texel", MunitionsBenchGeometry.COUNTER_STENCIL_TEXEL_QT);',
+            '        System.out.print(SB);',
+            '    }',
+            '}',
+        ].join('\n');
+        fs.writeFileSync(path.join(tmp, 'CounterHarness.java'), harness);
+        const J = (...p) => path.join(REPO, 'src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'block', ...p);
+        try {
+            execFileSync(javac, ['-encoding', 'UTF-8', '-d', tmp, J('MunitionsBenchCounter.java'), J('MunitionsBenchGeometry.java'), path.join(tmp, 'CounterHarness.java')], { stdio: 'pipe' });
+            const out = execFileSync(java, ['-cp', tmp, 'CounterHarness'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).trim().split(/\r?\n/);
+            const L = game.counter;   // 从 MunitionsBenchGeometry.java 源码解析出来的布局 (预览用的就是这份)
+            const counts = {};
+            let bad = 0;
+            const check = (kind, ok, what) => { counts[kind] = (counts[kind] || 0) + 1; if (!ok && bad++ < 8) problems.push(`counter java vs js ${kind}: ${what}`); };
+            const label = (l) => (l === '-' ? null : l === '~' ? '' : l);
+            const jsRects = (r, l, c, f) => {
+                const v = C.counterRects(L, { rounds: r, caliberLabel: label(l), cap: c, full: f }).flatMap((x) => [x.face, x.role, x.x0, x.y0, x.x1, x.y1]);
+                return v.length ? v.join(',') : '_';
+            };
+            // 预览用的就是 C.colourOf (含档位越界的回退), 直接对拍它
+            const jsColour = (t, role, w) => { const [r, g, b] = C.colourOf(L, t, role, w); return (r << 16) | (g << 8) | b; };
+            // 角 (MunitionsBenchCounter.benchCorners / blockCorners vs counter.mjs rectCorners / blockCorners): Java 是 float, 容差 1e-5
+            const cornersClose = (java, js) => java.length === js.length && java.every((v, i) => Math.abs(v - js[i]) < 1e-5 * Math.max(1, Math.abs(js[i])));
+            const jsRectList = (r, l, f) => C.counterRects(L, { rounds: r, caliberLabel: label(l), cap: 800, full: f });
+            const layoutValue = (k) => k.split('.').reduce((o, p) => o[p], L);
+            for (const line of out) {
+                const p = line.split(' ');
+                const B = (s) => s === 'true';
+                switch (p[0]) {
+                    case 'F': { const js = C.formatCount(Number(p[1])); check('format', js === p[2], `${p[1]}: java ${p[2]} / js ${js}`); break; }
+                    case 'G': {
+                        const font = C.FONTS[p[1]], ch = String.fromCharCode(Number(p[2]));
+                        const js = [C.glyphWidth(font, ch), C.glyphRows(font, ch).join(',')].join(' ');
+                        check('glyph', js === `${p[3]} ${p[4]}`, `${p[1]} '${ch}': java ${p[3]} ${p[4]} / js ${js}`); break;
+                    }
+                    case 'T': { const js = C.textWidth(C.FONTS[p[1]], p[2]); check('textWidth', String(js) === p[3], `${p[1]} "${p[2]}": java ${p[3]} / js ${js}`); break; }
+                    case 'B': { const js = C.barCells(L, Number(p[1]), Number(p[2])); check('barCells', String(js) === p[3], `${p[1]}/${p[2]}: java ${p[3]} / js ${js}`); break; }
+                    case 'U': {
+                        const [r, c, b] = [Number(p[1]), Number(p[2]), Number(p[3])];
+                        const js = `${C.isFull(r, c, b)} ${C.cannotTakeBatch(r, c, b)}`;
+                        check('full', js === `${p[4]} ${p[5]}`, `${r}/${c}/${b}: java ${p[4]} ${p[5]} / js ${js}`); break;
+                    }
+                    case 'K': { const js = C.displayKey(L, Number(p[1]), Number(p[2]), Number(p[3]), B(p[4])); check('displayKey', String(js) === p[5], `${p.slice(1, 5).join('/')}: java ${p[5]} / js ${js}`); break; }
+                    case 'R': { const js = jsRects(Number(p[1]), p[2], Number(p[3]), B(p[4])); check('rects', js === p[5], `${p.slice(1, 5).join('/')}: java ${p[5]} / js ${js}`); break; }
+                    case 'C': { const js = jsColour(Number(p[1]), Number(p[2]), B(p[3])); check('colour', String(js) === p[4], `${p.slice(1, 4).join('/')}: java ${p[4]} / js ${js}`); break; }
+                    case 'Q': {
+                        const js = C.blockCorners(L, jsRectList(Number(p[1]), p[2], B(p[3])), Number(p[4])).flat(2);
+                        const jv = (p[5] || '').split(',').filter((s) => s !== '').map(Number);
+                        check('blockCorners', cornersClose(jv, js), `${p.slice(1, 5).join('/')}: java ${jv.slice(0, 6).join(',')}.. (${jv.length}) / js ${js.slice(0, 6).map((v) => v.toFixed(6)).join(',')}.. (${js.length})`); break;
+                    }
+                    case 'P': {
+                        const js = jsRectList(Number(p[1]), p[2], B(p[3])).flatMap((r) => C.rectCorners(L, r).flat());
+                        const jv = (p[4] || '').split(',').filter((s) => s !== '').map(Number);
+                        check('benchCorners', cornersClose(jv, js), `${p.slice(1, 4).join('/')}: java ${jv.slice(0, 6).join(',')}.. (${jv.length}) / js ${js.slice(0, 6).map((v) => v.toFixed(5)).join(',')}.. (${js.length})`); break;
+                    }
+                    case 'L': {
+                        const v = layoutValue(p[1]);
+                        const js = Array.isArray(v) ? v.join(',') : v && typeof v === 'object' ? [v.x, v.y, v.w, v.h].filter((x) => x !== undefined).join(',') : String(v);
+                        const jv = p[2].split(',').map(Number).join(',');
+                        check('layout', js.split(',').map(Number).join(',') === jv, `${p[1]}: java ${p[2]} / parsed ${js}`); break;
+                    }
+                    default: check('unknown', false, line);
+                }
+            }
+            const total = Object.values(counts).reduce((a, b) => a + b, 0);
+            counterJavaResult = bad ? `FAIL (${bad} of ${total} values differ)` : `OK (${total} values: ${Object.entries(counts).map(([k, n]) => `${k} ${n}`).join(', ')})`;
+        } catch (e) {
+            counterJavaResult = 'FAIL (compile/run): ' + String(e.stderr || e.message).slice(0, 400);
+            problems.push('counter java harness: ' + counterJavaResult);
+        } finally {
+            fs.rmSync(tmp, { recursive: true, force: true });
+        }
+    }
+}
+
 // ================================================================ 参考图 (游戏样子: 运动件实体光照)
 writePng(path.join(OUT, 'game-motion.png'), motionStrip(game, Array.from({ length: 16 }, (_, i) => i * 2.5)));
 writePng(path.join(OUT, 'game-base-active.png'), tierSheet(game, 0, 'active'));
@@ -277,13 +424,15 @@ writePng(path.join(OUT, 'game-tiers.png'), tierStrip(game));
 // ================================================================ 报告
 const table = (head, rows) => ['| ' + head.join(' | ') + ' |', '|' + head.map(() => '---').join('|') + '|', ...rows.map((r) => '| ' + r.join(' | ') + ' |')].join('\n');
 report.push('# 军火台对拍报告', '');
-report.push(`- 仓库: \`${REPO}\``, `- 方案输出: \`${cand.out}\``, `- 比较: 每个视角 ${W}x${H} 像素, 任一通道有差即算不同; 运动件按方块面明暗画 (与 JSON 同一套)。`, '');
-report.push('## 普通档逐帧 (游戏 = 静态 line 模型 + 运动件摆在 t = 5f)', '');
-report.push(table(['帧', 't', ...frameRows[0].rows.map((r) => r.view)], frameRows.map((r) => [`f${r.f}`, r.tick, ...r.rows.map((x) => x.n)])), '');
-report.push('## 六档待机 / 工作 (工作 = STRIKE_TICK)', '');
-report.push(table(['档', '状态', ...DIFF_VIEWS], tierRows.flatMap((r) => [[TIERS[r.t].key, 'idle', ...r.idle.map((x) => x.n)], [TIERS[r.t].key, 'active', ...r.active.map((x) => x.n)]])), '');
-report.push('## 物品图标 (32 px)', '');
-report.push(table(['档', '不同像素'], itemRows.map((r) => [TIERS[r.t].key, r.n])), '');
+report.push(`- 仓库: \`${REPO}\``, `- 方案输出: ${cand ? '`' + cand.out + '`' : '(没给 --cand, 跳过与方案 B v2 的逐像素对拍)'}`, `- 比较: 每个视角 ${W}x${H} 像素, 任一通道有差即算不同; 运动件按方块面明暗画 (与 JSON 同一套)。`, '');
+if (cand) {
+    report.push('## 普通档逐帧 (游戏 = 静态 line 模型 + 运动件摆在 t = 5f)', '');
+    report.push(table(['帧', 't', ...frameRows[0].rows.map((r) => r.view)], frameRows.map((r) => [`f${r.f}`, r.tick, ...r.rows.map((x) => x.n)])), '');
+    report.push('## 六档待机 / 工作 (工作 = STRIKE_TICK)', '');
+    report.push(table(['档', '状态', ...DIFF_VIEWS], tierRows.flatMap((r) => [[TIERS[r.t].key, 'idle', ...r.idle.map((x) => x.n)], [TIERS[r.t].key, 'active', ...r.active.map((x) => x.n)]])), '');
+    report.push('## 物品图标 (32 px)', '');
+    report.push(table(['档', '不同像素'], itemRows.map((r) => [TIERS[r.t].key, r.n])), '');
+}
 report.push('## 四个朝向', '');
 report.push(table(['朝向', '四边形', '结果'], facingRows.map((r) => [r.facing, r.quads, r.ok ? 'OK' : 'MISMATCH'])), '');
 report.push('## 运动件背面检查 (游戏里不剔除背面)', '',
@@ -291,6 +440,7 @@ report.push('## 运动件背面检查 (游戏里不剔除背面)', '',
         : '普通档待机 + 一个循环每 1.25 tick, 7 个俯/平视角 + 2 个仰视角: 没有背面露出。', '');
 report.push(`与方案对拍时不画的有意补面: ${DELIBERATE_FACES.map(([p, f]) => p + '.' + f).join(', ')} (方案里省掉、游戏里不剔除背面时必须有的面)。`, '');
 report.push('## Java ↔ JS 程序对拍', '', javaResult, '');
+report.push('## Java ↔ JS 计数屏对拍 (MunitionsBenchCounter / MunitionsBenchGeometry COUNTER_* vs counter.mjs)', '', counterJavaResult, '');
 report.push('## 结论', '', problems.length ? `有 ${problems.length} 处问题:\n\n` + problems.map((p) => '- ' + p).join('\n') : '全部一致。', '');
 fs.writeFileSync(path.join(OUT, 'parity-report.md'), report.join('\n'));
 console.log(report.join('\n'));

@@ -1,6 +1,7 @@
 package com.miningdim.power;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.power.generator.GeneratorMenu;
 import com.miningdim.power.generator.GeneratorPortBlockEntity;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
@@ -152,6 +153,37 @@ public final class GeneratorGameTests {
         removeStructureByReplacement(helper, PowerRegistry.FUTURE_ENERGY_GENERATOR.get());
         helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
 
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void everyPartOpensTheControllerScreen(GameTestHelper helper) {
+        GeneratorMultiblockBlock block = PowerRegistry.INDUSTRIAL_GENERATOR.get();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        player.setYRot(0.0F);
+        movePlayerClearOfFootprint(helper, player);
+        clearFootprint(helper, Direction.NORTH);
+        placeAndAssert(helper, player, block, PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get());
+
+        BlockPos anchorAbsolute = helper.absolutePos(ANCHOR_REL);
+        Direction facing = helper.getLevel().getBlockState(anchorAbsolute).getValue(GeneratorMultiblockBlock.FACING);
+        BlockEntity controller = helper.getLevel().getBlockEntity(anchorAbsolute);
+        helper.assertTrue(controller != null, "placed generator must have its controller at the anchor");
+        for (GeneratorMultiblockBlock.Part part : GeneratorMultiblockBlock.Part.values()) {
+            BlockPos partAbsolute = GeneratorMultiblockBlock.partPos(anchorAbsolute, facing, part);
+            player.closeContainer();
+            BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(partAbsolute), facing, partAbsolute, false);
+            InteractionResult result = helper.getLevel().getBlockState(partAbsolute)
+                    .use(helper.getLevel(), player, InteractionHand.MAIN_HAND, hit);
+            helper.assertTrue(result.consumesAction(), part + " right-click must be consumed");
+            helper.assertTrue(player.containerMenu instanceof GeneratorMenu menu
+                            && menu.blockEntity() == controller,
+                    part + " must open the controller's screen, got " + player.containerMenu);
+        }
+        player.closeContainer();
+
+        removeStructureByReplacement(helper, block);
+        helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
         helper.succeed();
     }
 

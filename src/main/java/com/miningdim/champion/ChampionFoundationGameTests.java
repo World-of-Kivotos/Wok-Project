@@ -138,6 +138,9 @@ public final class ChampionFoundationGameTests {
     public static void registriesCreateReuseAndClear(GameTestHelper helper) {
         UUID player = UUID.randomUUID();
         UUID attacker = UUID.randomUUID();
+        // 注册表是全服静态表, 更早批次里的伤害事件经 Champion*Handler 会留下条目; 批次执行顺序随批次名的哈希变化,
+        // 不先清空的话下面的绝对计数 (== 3 / == 0) 会随别处新增批次时对时错。
+        ChampionEffectRegistries.reset();
         try {
             helper.assertTrue(!ChampionEffectRegistries.hasDot(player), "no dot accumulator before access");
             helper.assertTrue(!ChampionEffectRegistries.hasControl(player), "no control aggregator before access");
@@ -179,6 +182,7 @@ public final class ChampionFoundationGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void registriesResetClearsAll(GameTestHelper helper) {
+        ChampionEffectRegistries.reset(); // 同上: 先清掉别的批次留下的条目, 计数才有意义。
         ChampionEffectRegistries.dotFor(UUID.randomUUID());
         ChampionEffectRegistries.controlFor(UUID.randomUUID());
         ChampionEffectRegistries.retaliationFor(UUID.randomUUID(), 80.0D);

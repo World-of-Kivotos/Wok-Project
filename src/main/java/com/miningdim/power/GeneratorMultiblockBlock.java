@@ -198,9 +198,9 @@ public final class GeneratorMultiblockBlock extends Block implements EntityBlock
             }
             return InteractionResult.CONSUME;
         }
-        if (isAnchor(state)) {
-            NetworkHooks.openScreen(serverPlayer, controller, buf -> buf.writeBlockPos(controller.getBlockPos()));
-        }
+        // 12 格都打开同一台机器的界面: 原先只认锚点格, 右键其余 11 格客户端照样挥手、服务端却静默不开,
+        // 玩家看到的就是"有时打得开、有时打不开"。控制器已由任意一格反查得到, 这里不必再限定格位。
+        NetworkHooks.openScreen(serverPlayer, controller, buf -> buf.writeBlockPos(controller.getBlockPos()));
         return InteractionResult.CONSUME;
     }
 

@@ -69,7 +69,7 @@
 │   ├─ 酿酒师 9 酒永久层数 / 月光词条 / 配方表 / 酒窖陈酿
 │   ├─ 塔罗   卡组 / CD / 卡包 / 合成 / 碎片兑换
 │   ├─ 特勤   战术扫描 / 封印 / 悬赏板 / 五支线数值
-│   ├─ 军火商 军火台 / 冲压机 / 装配台 / 图纸百科
+│   ├─ 军火商 军火台 / 冲压机 / 组装台 / 图纸百科
 │   └─ 工程师 纳米生产台 / 档位表 / 护甲特效
 ├─ 矿洞                  三难度总览 / 进入 · 离开 / 等级门 / 重置倒计时 / danger
 ├─ 精英怪图鉴            35 词条表 / 10 星级表 / 难度分布 / 参团贡献
@@ -190,7 +190,7 @@ PixelLoading / PixelEmpty / PixelError / PixelConfirmDanger
 | C16 | `job.agent.scan` | READY | `AgentWebUiActions.SCAN`。**触发入口已按 J9 拍板落地 = 平板内按钮**，该类注释明写"扫描与封印的唯一入口是本类的三条 WebUI action"，原生 `AgentScanMenu` 路径已废除。本切片原来的最大缺口已闭合 |
 | C17 | `job.agent.seal` / `.state` | READY x2 | `AgentWebUiActions.SEAL` / `.STATE`。SealOutcome 九态裁决按 targetNetworkId+affixId 直转调 |
 | C18 | 特勤悬赏板 | BACKEND | 周期/目标类型骨架就绪，但模板库与持久化序列化未实现（`AgentBountySavedData` 类注释自标遗留待办），暂无可读数据源 |
-| C19 | `job.munitions.state` | READY | `MunitionsWebUiActions.STATE`。军火台/冲压机/装配台的 ContainerData 已 JSON 化 |
+| C19 | `job.munitions.state` | READY | `MunitionsWebUiActions.STATE`。军火台/冲压机/组装台的 ContainerData 已 JSON 化 |
 | C20 | `job.blueprints` | READY | `MunitionsWebUiActions.BLUEPRINTS`。`GunsmithBlueprint` 枚举（枪型 + requiredParts）静态表 dump |
 | C21 | `job.engineer.state` | READY(部分) + 待决策 | `EngineerWebUiActions.STATE` 已上线（档位表/护甲特效）；**纳米校准 QTE 游标仍不进 MCEF**，见 J5 |
 | C22 | 电力/线缆 | NONE(webui) | 原写的两条理由均已失效：`com.miningdim.power` 包已在本 checkout（cable / grid / generator / machine / storage 等子包齐全），`ConductorMaterial` 12 级也已全部经 `PowerRegistry.REGISTERED_MATERIALS` 真实注册为方块与物品。仍为 NONE 的是 **webui 侧**：派发表里没有任何 `power.*` action，前端要接得先设计这一层 |

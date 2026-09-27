@@ -184,8 +184,8 @@ export function MunitionsPanel(): ReactElement {
           {stationData.gunsmithEnabled ? null : (
             <Surface tone="warning">
               <p className="text-foreground text-sm">
-                枪匠冲压与装配整条链当前是关闭的 (服务端配置), 装配台点开工只会被拒绝 —— 下面的冲压机与
-                装配台仅供查看
+                枪匠冲压与装配整条链当前是关闭的 (服务端配置), 组装台点开工只会被拒绝 —— 下面的冲压机与
+                组装台仅供查看
               </p>
             </Surface>
           )}

@@ -113,7 +113,7 @@ WOK 服务器的综合玩法 MOD，运行于 Minecraft 1.20.1 + MinecraftForge 4
 - **跨子系统 danger 接线**：`pressure` 经 `IMiningNetwork` 推 HUD danger。其中 `trap` 的 danger 门控**已接完**——`PressureSystem.register` 末尾经 `TrapSystem.setDangerSource(...)` 注入 danger 读取适配器，`PressureGameTests` 以变异验证锁死（删掉该注入，引擎退回 0f stub，用例必挂）。**剩余缺口**：`pressure` 的 `oreTerm` 仍传 0（见 `pressure/MobPressureSystem.java` 与 `pressure/Danger.java` 的注释），待矿物子系统提供"局部富矿度"读取门面后补一行适配器。
 - **退役 region 磁盘回收（部分完成）**：重置走 D3 滑动方案——`ResetJob` 的 REGEN 阶段调 `IInstanceManager.slideRegion` 把实例整块滑到一块从未生成过的新坐标，不再有"按新 bitset 重填区块"这回事（离线生成已下线，维度按 `minecraft:noise` 按需生成）。被遗弃的旧坐标区块由 `reset.RetiredRegionGc` 逐区块 `ChunkStorage.write(pos, null)` 回收（每 100 tick 清一批，`RetiredRegionGcGameTests` 实测锁死这条路径）。**剩余缺口**：只清地形区块 `world/region/`，实体区块 `world/entities/` 未清（其存储句柄挂在 `ServerLevel.entityManager` 私有字段上）；`instance.InstanceManager.destroyInstance` 走的仍是纯逻辑回收路径（释放强加载 + free region + 标 RECYCLED），未接入该 GC。
 - **组队**：私有实例 `resolveOwnerKey` 现回退 `player.uuid`，组队 `teamId` 解析待组队子系统接入（14.5）。
-- **`IMiningNetwork.openGui` 门面悬空（待裁决，非待实现）**：`menu.ModMenus` 已是跨职业共享的 MenuType 注册中心，酒窖/酿造台/调味台/生产台/军械三台（装配台、冲压机、军火台）/塔罗制卡台与闪耀卡包/婚姻共享背包/发电机/预热机/空分/提纯/储能/低温控制器共 16 个方块实体或菜单类已实现 `MenuProvider`，并各自直接调用 `NetworkHooks.openScreen`；全仓对 `network.MiningNetwork.openGui` 的调用点为 0，该方法仍按 C9 抛 `UnsupportedOperationException`。待决：删掉这条 core 门面，还是把它改造成统一转发入口、收编现有的 `NetworkHooks.openScreen` 调用点。
+- **`IMiningNetwork.openGui` 门面悬空（待裁决，非待实现）**：`menu.ModMenus` 已是跨职业共享的 MenuType 注册中心，酒窖/酿造台/调味台/生产台/军械三台（组装台、冲压机、军火台）/塔罗制卡台与闪耀卡包/婚姻共享背包/发电机/预热机/空分/提纯/储能/低温控制器共 16 个方块实体或菜单类已实现 `MenuProvider`，并各自直接调用 `NetworkHooks.openScreen`；全仓对 `network.MiningNetwork.openGui` 的调用点为 0，该方法仍按 C9 抛 `UnsupportedOperationException`。待决：删掉这条 core 门面，还是把它改造成统一转发入口、收编现有的 `NetworkHooks.openScreen` 调用点。
 
 ## 模块化约定
 

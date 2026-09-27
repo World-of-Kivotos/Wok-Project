@@ -33,7 +33,7 @@ import net.minecraftforge.items.SlotItemHandler;
  *  - [0, caliber count): 选口径 caliberIndex (服务端权威重校等级门);
  *  - 200: 切锁 (仅主人);
  *  - 210 / 211: 开工 / 取消 (仅主人);
- *  - 212: 切换单次/连续; 213 / 214: 设为单次 / 设为连续 (幂等, 界面分段开关用; 均仅主人)。
+ *  - 212: 切换单次/连续; 104 / 105: 设为单次 / 设为连续 (幂等, 界面分段开关用; 均仅主人)。
  */
 public final class MunitionsBenchMenu extends AbstractMiningMenu {
 
@@ -46,9 +46,13 @@ public final class MunitionsBenchMenu extends AbstractMiningMenu {
     /**
      * 单次 / 连续 的幂等"设为"按钮 (界面的分段开关用)。切换按钮 212 在同步值回来之前连点会被翻回去,
      * 设为按钮重复发送无害。与口径区间 [0, 口径数) 及 200/210/211/212 均不相交。
+     *
+     * <p>必须落在 [0, 127]: 原版 ServerboundContainerButtonClickPacket 用单字节收发 buttonId, 更大的 id 在专用服
+     * 被截成负数 (单人游戏不走序列化, 看不出来)。取 104 / 105, 接在 fix/gunsmith-exploits 把上面四个旧按钮
+     * 压进单字节区间后的 100-103 之后, 两边合并时不撞号。
      */
-    public static final int BUTTON_SET_SINGLE = 213;
-    public static final int BUTTON_SET_CONTINUOUS = 214;
+    public static final int BUTTON_SET_SINGLE = 104;
+    public static final int BUTTON_SET_CONTINUOUS = 105;
 
     /** 槽位坐标 (GUI 像素, 槽内 16x16 左上角)。 */
     public static final int SLOT_PRIMER_X = 282;

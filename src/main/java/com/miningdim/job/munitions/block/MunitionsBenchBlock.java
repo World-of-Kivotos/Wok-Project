@@ -35,12 +35,15 @@ import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraftforge.network.NetworkHooks;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -51,15 +54,20 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
     public static final EnumProperty<Layout> LAYOUT = EnumProperty.create("layout", Layout.class);
     public static final BooleanProperty ACTIVE = BooleanProperty.create("active");
     private static final VoxelShape LEGACY_SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 16.0D, 16.0D);
-    private static final VoxelShape WIDE_BODY_SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 25.5D, 16.0D);
-    private static final VoxelShape WIDE_MAIN_NORTH_SHAPE = Shapes.or(WIDE_BODY_SHAPE,
-            Block.box(0.5D, 2.5D, -4.0D, 8.0D, 8.0D, 1.0D));
-    private static final VoxelShape WIDE_MAIN_EAST_SHAPE = Shapes.or(WIDE_BODY_SHAPE,
-            Block.box(15.0D, 2.5D, 0.5D, 20.0D, 8.0D, 8.0D));
-    private static final VoxelShape WIDE_MAIN_SOUTH_SHAPE = Shapes.or(WIDE_BODY_SHAPE,
-            Block.box(8.0D, 2.5D, 15.0D, 15.5D, 8.0D, 20.0D));
-    private static final VoxelShape WIDE_MAIN_WEST_SHAPE = Shapes.or(WIDE_BODY_SHAPE,
-            Block.box(-4.0D, 2.5D, 8.0D, 1.0D, 8.0D, 15.5D));
+    /**
+     * WIDE 两格的轮廓 (选择框 / 右键命中), 按格 (主 / 副) 和朝向各一份, 由 {@link MunitionsBenchGeometry} 的朝北盒子转出来
+     * (与方块状态的 y 旋转同向): 静态件的大块 ({@code MAIN_BOXES} / {@code EXTENSION_BOXES}) 加运动件扫过的范围
+     * ({@code *_PART_BOXES}), 皮带上的弹、冲头、两根杆都点得中台子。盒子全都在自己那一格里。
+     */
+    private static final Map<Part, Map<Direction, VoxelShape>> WIDE_OUTLINES = createWideOutlines();
+    /**
+     * WIDE 两格的碰撞: 每格一整块实心柱, 高到该格静态轮廓箱的最高点 (主格 22.5 px 的压机, 副格 20.5 px 的压机横梁),
+     * 与朝向无关。台面只有 8 px, 低于玩家 / 生物的跨步高度 (9.6 px), 贴着模型的碰撞会让人一步跨上台面、站进运动件中间;
+     * 柱子也高过起跳高度 (约 20 px), 跳不上去。与改版前 GeckoLib 机身的整格碰撞一样 (只是高度跟着新模型走)。
+     * 柱子不出格, 所以原版 {@code BlockItem.canPlace} 的实体遮挡检查不会拦下贴身放置 (旧 GeckoLib 机身的出料抽屉伸出
+     * 正面 4 px, 当年只能留在轮廓里, 不敢进碰撞箱)。
+     */
+    private static final Map<Part, VoxelShape> WIDE_COLLISIONS = createWideCollisions();
 
     private final Supplier<BlockEntityType<MunitionsBenchBlockEntity>> beType;
     private final int unlockLevel;
@@ -121,51 +129,120 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
     }
 
     /**
-     * WIDE 副格用 ENTITYBLOCK_ANIMATED 而不是 INVISIBLE: 两者都不会让区块网格画方块模型 (ChunkRenderDispatcher
-     * 只画 RenderShape.MODEL; 副格没有 BlockEntity, {@link #newBlockEntity} 对它返 null, 所以也不会多渲染
-     * 一份骨骼模型), 但原版 {@code ParticleEngine.crack} 第一件事就是判 {@code getRenderShape() == INVISIBLE}
-     * 并直接 return —— 挖副格连破坏进度的裂纹粒子都画不出来。({@code destroy} 那条路只判 isAir 再走 Forge 的
-     * IClientBlockExtensions, 不看 RenderShape, 碎屑粒子两种取值都有。)
+     * 两种布局都由区块网格画静态 JSON: LEGACY 是老的整格模型; WIDE 是弹药流水线的静态件
+     * ({@code munitions_bench*_line_*.json}), 皮带上的弹、冲头这些运动件由主格方块实体的渲染器
+     * ({@code MunitionsBenchRenderer}) 另画。MODEL 也让两格都有原版的破坏裂纹与碎屑粒子 (流水线的 JSON 关掉了环境光遮蔽)。
      */
     @Override
     public RenderShape getRenderShape(BlockState state) {
-        if (state.getValue(LAYOUT) == Layout.LEGACY_DEPTH) {
-            return RenderShape.MODEL;
-        }
-        return RenderShape.ENTITYBLOCK_ANIMATED;
+        return RenderShape.MODEL;
     }
 
+    /** 轮廓 (选择框 / 右键命中): WIDE 贴着静态件与运动件 (见 {@link #WIDE_OUTLINES}), LEGACY 仍是整格。 */
     @Override
     public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-        return outlineShape(state);
-    }
-
-    /**
-     * 碰撞箱不能带上外伸的出料抽屉。{@link #getStateForPlacement} 取 {@code getHorizontalDirection().getOpposite()},
-     * 也就是机器正面恒对着放置者, 抽屉那 4/16 恰好伸进放置者所站的那一格; 而原版 {@code BlockItem.canPlace}
-     * 会调 {@code Level.isUnobstructed}, 只要待放置状态的碰撞形状与任何 {@code blocksBuilding} 实体相交
-     * 就返回 false —— 玩家贴身往脚前一格放台子会被静默拒绝, 没有任何提示。抽屉只留在轮廓形状里做选择框。
-     */
-    @Override
-    public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos,
-                                        CollisionContext context) {
-        return state.getValue(LAYOUT) == Layout.LEGACY_DEPTH ? LEGACY_SHAPE : WIDE_BODY_SHAPE;
-    }
-
-    private static VoxelShape outlineShape(BlockState state) {
         if (state.getValue(LAYOUT) == Layout.LEGACY_DEPTH) {
             return LEGACY_SHAPE;
         }
-        if (!isMain(state)) {
-            return WIDE_BODY_SHAPE;
+        return WIDE_OUTLINES.get(state.getValue(PART)).get(state.getValue(FACING));
+    }
+
+    /** 碰撞: WIDE 每格一整块实心柱 (见 {@link #WIDE_COLLISIONS}), LEGACY 仍是整格。 */
+    @Override
+    public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        if (state.getValue(LAYOUT) == Layout.LEGACY_DEPTH) {
+            return LEGACY_SHAPE;
         }
-        return switch (state.getValue(FACING)) {
-            case NORTH -> WIDE_MAIN_NORTH_SHAPE;
-            case EAST -> WIDE_MAIN_EAST_SHAPE;
-            case SOUTH -> WIDE_MAIN_SOUTH_SHAPE;
-            case WEST -> WIDE_MAIN_WEST_SHAPE;
-            default -> throw new IllegalStateException("Wide munitions bench has non-horizontal facing");
+        return WIDE_COLLISIONS.get(state.getValue(PART));
+    }
+
+    /**
+     * 支撑面 (火把、按钮、告示牌能不能贴上去) 按看得见的轮廓算, 不按碰撞柱: 碰撞柱的侧面和顶面都是整面, 按它算会让
+     * 火把贴在台面上方的空气里、方块顶上的东西插进压机。
+     */
+    @Override
+    public VoxelShape getBlockSupportShape(BlockState state, BlockGetter level, BlockPos pos) {
+        return getShape(state, level, pos, CollisionContext.empty());
+    }
+
+    private static Map<Part, Map<Direction, VoxelShape>> createWideOutlines() {
+        Map<Part, Map<Direction, VoxelShape>> shapes = new EnumMap<>(Part.class);
+        shapes.put(Part.MAIN, rotatedShapes(MunitionsBenchGeometry.MAIN_BOXES, MunitionsBenchGeometry.MAIN_PART_BOXES));
+        shapes.put(Part.EXTENSION, rotatedShapes(MunitionsBenchGeometry.EXTENSION_BOXES,
+                MunitionsBenchGeometry.EXTENSION_PART_BOXES));
+        return shapes;
+    }
+
+    private static Map<Direction, VoxelShape> rotatedShapes(float[][]... northBoxLists) {
+        Map<Direction, VoxelShape> shapes = new EnumMap<>(Direction.class);
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            VoxelShape shape = Shapes.empty();
+            for (float[][] northBoxes : northBoxLists) {
+                for (float[] northBox : northBoxes) {
+                    float[] box = MunitionsBenchGeometry.rotated(northBox, quarterTurns(facing));
+                    shape = Shapes.or(shape, Block.box(box[0], box[1], box[2], box[3], box[4], box[5]));
+                }
+            }
+            shapes.put(facing, shape.optimize());
+        }
+        return shapes;
+    }
+
+    private static Map<Part, VoxelShape> createWideCollisions() {
+        Map<Part, VoxelShape> shapes = new EnumMap<>(Part.class);
+        shapes.put(Part.MAIN, Block.box(0.0D, 0.0D, 0.0D, 16.0D, topPixels(MunitionsBenchGeometry.MAIN_BOXES), 16.0D));
+        shapes.put(Part.EXTENSION,
+                Block.box(0.0D, 0.0D, 0.0D, 16.0D, topPixels(MunitionsBenchGeometry.EXTENSION_BOXES), 16.0D));
+        return shapes;
+    }
+
+    private static double topPixels(float[][] boxes) {
+        double top = 0.0D;
+        for (float[] box : boxes) {
+            top = Math.max(top, box[4]);
+        }
+        return top;
+    }
+
+    /** 朝向 → 俯视顺时针转的 90° 次数 (与方块状态的 y 旋转、{@link MunitionsBenchGeometry#rotated} 相同)。 */
+    public static int quarterTurns(Direction facing) {
+        return switch (facing) {
+            case EAST -> 1;
+            case SOUTH -> 2;
+            case WEST -> 3;
+            default -> 0;
         };
+    }
+
+    /**
+     * 运动件渲染器绕主格中心转的角度 ({@code Axis.YP.rotationDegrees}, 右手系, 俯视逆时针为正): 北 0 / 东 -90 / 南 180 / 西 90,
+     * 即俯视顺时针转 {@link #quarterTurns} 次, 与方块状态的 y 旋转、{@link #benchPixelToWorld} 同向。放在通用代码里,
+     * GameTest 才能拿它和 benchPixelToWorld 对上 (渲染器是客户端类)。
+     */
+    public static float partsYRotationDegrees(Direction facing) {
+        return switch (facing) {
+            case EAST -> -90.0F;
+            case SOUTH -> 180.0F;
+            case WEST -> 90.0F;
+            default -> 0.0F;
+        };
+    }
+
+    /**
+     * 朝北的整台像素 (主格局部: x 东、y 上、z 南, 原点主格西北下角, 副格在 x 16..32) → 世界坐标, 按朝向绕主格中心转,
+     * 与方块状态的 y 旋转、运动件渲染器的朝向角一致。服务端的冲压音与渲染器的火花都用它找冲压点。
+     */
+    public static Vec3 benchPixelToWorld(BlockPos mainPos, Direction facing, double pixelX, double pixelY,
+                                         double pixelZ) {
+        double x = pixelX;
+        double z = pixelZ;
+        for (int turn = 0; turn < quarterTurns(facing); turn++) {
+            // (x, z) → (16 - z, x): 与 MunitionsBenchGeometry.rotated 同向, 北面 (z = 0) 转到东面 (x = 16)
+            double turnedX = 16.0D - z;
+            z = x;
+            x = turnedX;
+        }
+        return new Vec3(mainPos.getX() + x / 16.0D, mainPos.getY() + pixelY / 16.0D, mainPos.getZ() + z / 16.0D);
     }
 
     @Nullable
@@ -297,24 +374,22 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
         return InteractionResult.CONSUME;
     }
 
+    /**
+     * 只给 LEGACY 老台子发随机火花 (老模型没有运动件, 保持原样)。WIDE 的火花由运动件渲染器在冲头压到底的那一刻
+     * ({@link MunitionsBenchProgram#STRIKE_TICK}) 从冲压点放, 与服务端的冲压音同拍, 这里不再按手调位置乱发。
+     */
     @Override
     public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {
-        if (!state.getValue(ACTIVE) || random.nextFloat() > 0.72F) {
+        if (!state.getValue(ACTIVE) || state.getValue(LAYOUT) == Layout.WIDE || random.nextFloat() > 0.72F) {
             return;
         }
         Direction facing = state.getValue(FACING);
         Direction side = facing.getClockWise();
-        boolean wide = state.getValue(LAYOUT) == Layout.WIDE;
-        // LEGACY 机身只有一格高, 主副格前后排列, 火花贴着正面 0.18 格发。WIDE 机身高 25.5/16 且两半左右
-        // 排列, 沿用老参数会把大半火花埋进模型实体里, 所以按新机身的工作面取高度: 压头骨骼在 y 0.72-1.28,
-        // 出料抽屉在 y 0.18-0.50, 两处轮流发。
-        double forward = wide ? 0.30D : (isMain(state) ? 0.18D : -0.18D);
+        // LEGACY 机身只有一格高, 主副格前后排列, 火花贴着正面 0.18 格发。
+        double forward = isMain(state) ? 0.18D : -0.18D;
         double lateral = (random.nextDouble() - 0.5D) * 0.62D;
-        boolean atDrawer = wide && random.nextInt(3) == 0;
         double x = pos.getX() + 0.5D + facing.getStepX() * forward + side.getStepX() * lateral;
-        double y = pos.getY() + (wide
-                ? (atDrawer ? 0.20D + random.nextDouble() * 0.28D : 0.78D + random.nextDouble() * 0.52D)
-                : 0.72D + random.nextDouble() * 0.28D);
+        double y = pos.getY() + 0.72D + random.nextDouble() * 0.28D;
         double z = pos.getZ() + 0.5D + facing.getStepZ() * forward + side.getStepZ() * lateral;
         double vx = side.getStepX() * (random.nextDouble() - 0.5D) * 0.06D;
         double vy = 0.02D + random.nextDouble() * 0.045D;

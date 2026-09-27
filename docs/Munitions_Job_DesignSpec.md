@@ -30,7 +30,7 @@
 
 - TACZ 弹药 = 单一 `tacz:ammo` 物品,口径存 `AmmoId` NBT。**用公共 API `AmmoItemBuilder.create().setId(口径).setCount(N).build()` 直接产出合法弹药 ItemStack**,无需 mixin、无需 TACZ 配方系统。
 - 服务器禁用 TACZ 默认 `gun_smith_table_crafting` 弹药/枪械配方(维持买断),军火商的**军火台**是唯一搓弹入口。
-- **GUI 为自研绘制**(军火台 `MunitionsBenchScreen` 与冲压机 `GunsmithPressScreen` 共用 `job/munitions/client/style` 的三种界面风格 学园终端 / 产线工控 / 蓝图工程, 底图运行时生成, 风格是每个玩家自己的客户端设置 `miningdim-munitions-client.toml` 的 `[gunsmith_ui] style`; 仍引用的自有贴图只有学园/工控风格口径展示用的 `miningdim:textures/gui/container/munitions_ammo_profiles.png`, munitions_bench.png 只作基类要求的占位底图, munitions_ui_font.png、munitions_titles.png 已无代码引用)。世界方块走自建 block+BE。世界模型同为自研 GeckoLib 骨骼模型(六档各一套 geo + 512x512 调色板图集,由 `tools/generate_munitions_bench_geckolib_assets.py` 确定性生成)。GUI 与世界模型均不再引用任何 TACZ 资源,对 TACZ 的依赖只剩运行期弹药物化 API(`AmmoItemBuilder`);原先"复用 TACZ 制枪台贴图 → 不触再分发协议"的论据已随自研贴图落地而失效。
+- **GUI 为自研绘制**(军火台 `MunitionsBenchScreen` 与冲压机 `GunsmithPressScreen` 共用 `job/munitions/client/style` 的三种界面风格 学园终端 / 产线工控 / 蓝图工程, 底图运行时生成, 风格是每个玩家自己的客户端设置 `miningdim-munitions-client.toml` 的 `[gunsmith_ui] style`; 仍引用的自有贴图只有学园/工控风格口径展示用的 `miningdim:textures/gui/container/munitions_ammo_profiles.png`, munitions_bench.png 只作基类要求的占位底图, munitions_ui_font.png、munitions_titles.png 已无代码引用)。世界方块走自建 block+BE。世界模型同为自研的「弹药流水线」:静态件是原版方块模型 JSON(六档 × 主/副格 × 待机/工作,各档一张 128x128 图集),皮带上的弹、冲头、底火冲杆、装药管等运动件由方块实体渲染器按共用帧表画(六档共用一张运动件贴图),全部由 `tools/munitions_bench/generate_munitions_bench.mjs` 确定性生成(说明见同目录 README)。GUI 与世界模型均不再引用任何 TACZ 资源,对 TACZ 的依赖只剩运行期弹药物化 API(`AmmoItemBuilder`);原先"复用 TACZ 制枪台贴图 → 不触再分发协议"的论据已随自研贴图落地而失效。
 
 ### 3A. 枪械配件冲压补充（WIP）
 
@@ -156,7 +156,7 @@
 
 旧注册名 `munitions_bench` 出于存量兼容保留全档 `(1,10)` 能力:它是 main 时代唯一的军火台(口径只由职业等级门控),而区块按注册名持久化,在役台若被降为低档会静默砍产能。新档位一律用新注册名。
 
-六档各有一套自研 GeckoLib 骨骼模型(见三章),但**档位差异不只是外观**:美术资产与上表的等级钳制一一对应,不要把三章的"六档"描述当成纯换皮。
+六档各有一套自研流水线模型(同一台机器按档位换饰色、灯色并逐档累加小件,见三章),但**档位差异不只是外观**:美术资产与上表的等级钳制一一对应,不要把三章的"六档"描述当成纯换皮。
 
 ### 6.2 价格/收益表（步枪弹,售价=商店 75%=15,铜28/火药15市场)
 
@@ -220,7 +220,7 @@
 
 ## 十、架构与实现（DECIDED）
 
-1. **军火台**:自建 block + BlockEntity(四件套料槽/进度/缓冲输出);GUI 走 JobFramework 公共 menu 脚手架 + 自研贴图(四张, 见三章);世界模型为自研 GeckoLib 骨骼模型, 经 `MunitionsBenchRenderer`(GeoBlockRenderer)渲染。按档位注册六个方块(见 6.1b), 各带 `unlockLevel` 与 `maxEffectiveLevel`, 结算前先把台主职业等级钳到该台有效等级。占地为**水平两格**: 主格在玩家点击的那一格, 副格恒在 `facing.getClockWise()` 一侧, 机身高 25.5/16 格。老存档里 PR 之前放置的台子带 `layout=legacy_depth`, 保持"副格在身后"的旧占位与旧静态模型不变, 只有新放置的台子走 `layout=wide`。
+1. **军火台**:自建 block + BlockEntity(四件套料槽/进度/缓冲输出);GUI 走 JobFramework 公共 menu 脚手架 + 自研贴图(四张, 见三章);世界模型为自研「弹药流水线」: 两格的静态件是方块模型 JSON(`models/block/munitions_bench{档}_line_{main|extension}[_active].json`, `RenderShape.MODEL` 进区块网格), 运动件由主格方块实体的 `MunitionsBenchRenderer`(原版 BlockEntityRenderer, 件定义在生成的 `MunitionsBenchParts`)按 `MunitionsBenchProgram` 的帧表画, 待机也画(停在待机布局)。一个循环 40 tick(8 帧 × 5), 冲头在 tick 10 压到底: 程序起点是 ACTIVE 由假变真的那一 tick, 服务端在起点 + 10 + 40n 播冲压音, 渲染器在同一刻从冲压点放火花(区块更新标签把起点带给后加载区块的客户端)。按档位注册六个方块(见 6.1b), 各带 `unlockLevel` 与 `maxEffectiveLevel`, 结算前先把台主职业等级钳到该台有效等级。占地为**水平两格**: 主格在玩家点击的那一格, 副格恒在 `facing.getClockWise()` 一侧; 模型最高 22.5/16 格(闪耀档宝石 24/16), 轮廓(选择框/右键命中)按生成的 `MunitionsBenchGeometry` 贴着静态大块与运动件扫过的范围走, 碰撞则是每格一整块实心柱(高到该格最高的静态块: 主格 22.5、副格 20.5, 台面只有 8 px, 贴着模型会被一步走上去), 都不出自己那一格。老存档里 PR 之前放置的台子带 `layout=legacy_depth`, 保持"副格在身后"的旧占位与旧静态模型不变(方块状态按 `layout` 分流, 没有运动件), 只有新放置的台子走 `layout=wide`。
 2. **产弹**:`MunitionsBenchBlockEntity.serverTick`/时间戳追算消耗料 → 缓冲只记发数与口径(`bufferedRounds` / `bufferedCaliber`, int 权威)。取弹、开界面等"主人在线访问帧"才由 `refreshOutputStack` 经 `MunitionsAmmoFactory.materialize`(内部 `AmmoItemBuilder.create().setId(口径).setCount(N).build()`)物化成真弹;缓冲满停产。**compileOnly 铁律**:tick 路径全程纯逻辑、不触 TACZ, 唯一物化点是 `refreshOutputStack`(带 `ModList.isLoaded` 守卫), 否则 dev GameTest 会被拖进 `com.tacz.*` 类加载。
 3. **产出加成(L6+)**:四件套(底火+弹壳+弹头+发射药)的投入不随等级变化;L6+ 仅把同一批料的产出基数从 40 发切到 70 发(`MunitionsProduction.roundsPerBatch` 查 `MunitionsLevels.isRefineUnlocked`)。不存在独立的提炼工序或提炼方块。
 4. **工费**:产弹时扣信用点(经 `IEconomyService`/`AbuseGuard` 事务,销毁)。

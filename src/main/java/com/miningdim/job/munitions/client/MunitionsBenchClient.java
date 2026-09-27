@@ -16,6 +16,6 @@ public final class MunitionsBenchClient {
     @SubscribeEvent
     public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerBlockEntityRenderer(ModMunitionsBlockEntities.MUNITIONS_BENCH.get(),
-                context -> new MunitionsBenchRenderer());
+                MunitionsBenchRenderer::new);
     }
 }

@@ -1,63 +1,123 @@
 {
   "variants": {
-    "active=false,facing=north,part=main": {
+    "active=false,facing=north,layout=legacy_depth,part=main": {
       "model": "miningdim:block/munitions_bench_main"
     },
-    "active=false,facing=north,part=extension": {
+    "active=false,facing=north,layout=legacy_depth,part=extension": {
       "model": "miningdim:block/munitions_bench_extension"
     },
-    "active=false,facing=east,part=main": {
+    "active=false,facing=east,layout=legacy_depth,part=main": {
       "model": "miningdim:block/munitions_bench_main",
       "y": 90
     },
-    "active=false,facing=east,part=extension": {
+    "active=false,facing=east,layout=legacy_depth,part=extension": {
       "model": "miningdim:block/munitions_bench_extension",
       "y": 90
     },
-    "active=false,facing=south,part=main": {
+    "active=false,facing=south,layout=legacy_depth,part=main": {
       "model": "miningdim:block/munitions_bench_main",
       "y": 180
     },
-    "active=false,facing=south,part=extension": {
+    "active=false,facing=south,layout=legacy_depth,part=extension": {
       "model": "miningdim:block/munitions_bench_extension",
       "y": 180
     },
-    "active=false,facing=west,part=main": {
+    "active=false,facing=west,layout=legacy_depth,part=main": {
       "model": "miningdim:block/munitions_bench_main",
       "y": 270
     },
-    "active=false,facing=west,part=extension": {
+    "active=false,facing=west,layout=legacy_depth,part=extension": {
       "model": "miningdim:block/munitions_bench_extension",
       "y": 270
     },
-    "active=true,facing=north,part=main": {
+    "active=true,facing=north,layout=legacy_depth,part=main": {
       "model": "miningdim:block/munitions_bench_main_active"
     },
-    "active=true,facing=north,part=extension": {
+    "active=true,facing=north,layout=legacy_depth,part=extension": {
       "model": "miningdim:block/munitions_bench_extension_active"
     },
-    "active=true,facing=east,part=main": {
+    "active=true,facing=east,layout=legacy_depth,part=main": {
       "model": "miningdim:block/munitions_bench_main_active",
       "y": 90
     },
-    "active=true,facing=east,part=extension": {
+    "active=true,facing=east,layout=legacy_depth,part=extension": {
       "model": "miningdim:block/munitions_bench_extension_active",
       "y": 90
     },
-    "active=true,facing=south,part=main": {
+    "active=true,facing=south,layout=legacy_depth,part=main": {
       "model": "miningdim:block/munitions_bench_main_active",
       "y": 180
     },
-    "active=true,facing=south,part=extension": {
+    "active=true,facing=south,layout=legacy_depth,part=extension": {
       "model": "miningdim:block/munitions_bench_extension_active",
       "y": 180
     },
-    "active=true,facing=west,part=main": {
+    "active=true,facing=west,layout=legacy_depth,part=main": {
       "model": "miningdim:block/munitions_bench_main_active",
       "y": 270
     },
-    "active=true,facing=west,part=extension": {
+    "active=true,facing=west,layout=legacy_depth,part=extension": {
       "model": "miningdim:block/munitions_bench_extension_active",
+      "y": 270
+    },
+    "active=false,facing=north,layout=wide,part=main": {
+      "model": "miningdim:block/munitions_bench_line_main"
+    },
+    "active=false,facing=north,layout=wide,part=extension": {
+      "model": "miningdim:block/munitions_bench_line_extension"
+    },
+    "active=false,facing=east,layout=wide,part=main": {
+      "model": "miningdim:block/munitions_bench_line_main",
+      "y": 90
+    },
+    "active=false,facing=east,layout=wide,part=extension": {
+      "model": "miningdim:block/munitions_bench_line_extension",
+      "y": 90
+    },
+    "active=false,facing=south,layout=wide,part=main": {
+      "model": "miningdim:block/munitions_bench_line_main",
+      "y": 180
+    },
+    "active=false,facing=south,layout=wide,part=extension": {
+      "model": "miningdim:block/munitions_bench_line_extension",
+      "y": 180
+    },
+    "active=false,facing=west,layout=wide,part=main": {
+      "model": "miningdim:block/munitions_bench_line_main",
+      "y": 270
+    },
+    "active=false,facing=west,layout=wide,part=extension": {
+      "model": "miningdim:block/munitions_bench_line_extension",
+      "y": 270
+    },
+    "active=true,facing=north,layout=wide,part=main": {
+      "model": "miningdim:block/munitions_bench_line_main_active"
+    },
+    "active=true,facing=north,layout=wide,part=extension": {
+      "model": "miningdim:block/munitions_bench_line_extension_active"
+    },
+    "active=true,facing=east,layout=wide,part=main": {
+      "model": "miningdim:block/munitions_bench_line_main_active",
+      "y": 90
+    },
+    "active=true,facing=east,layout=wide,part=extension": {
+      "model": "miningdim:block/munitions_bench_line_extension_active",
+      "y": 90
+    },
+    "active=true,facing=south,layout=wide,part=main": {
+      "model": "miningdim:block/munitions_bench_line_main_active",
+      "y": 180
+    },
+    "active=true,facing=south,layout=wide,part=extension": {
+      "model": "miningdim:block/munitions_bench_line_extension_active",
+      "y": 180
+    },
+    "active=true,facing=west,layout=wide,part=main": {
+      "model": "miningdim:block/munitions_bench_line_main_active",
+      "y": 270
+    },
+    "active=true,facing=west,layout=wide,part=extension": {
+      "model": "miningdim:block/munitions_bench_line_extension_active",
       "y": 270
     }
   }

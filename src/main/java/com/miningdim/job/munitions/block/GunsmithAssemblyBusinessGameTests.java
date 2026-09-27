@@ -43,13 +43,17 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.network.Connection;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.PacketFlow;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -60,6 +64,8 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -76,6 +82,7 @@ public final class GunsmithAssemblyBusinessGameTests {
             new GunsmithBaseStats(9.0D, 1.5D, 52.0D, 0.20D);
     private static final GunsmithBaseStats M1911_BASE_STATS =
             new GunsmithBaseStats(11.0D, 1.5D, 19.0D, 0.08D);
+    private static final ResourceLocation TACZ_M4A1 = new ResourceLocation("tacz", "m4a1");
 
     private GunsmithAssemblyBusinessGameTests() {
     }
@@ -1847,6 +1854,260 @@ public final class GunsmithAssemblyBusinessGameTests {
         helper.succeed();
     }
 
+    // ============================================================
+    // 台面展示枪: 服务端按 pendingResult → 成品槽 → 待修枪 → 图纸 的优先级算出一个枪 id, 经更新标签
+    // (只有 DisplayGun 一个键) 推给客户端渲染器。全程不碰 TaCZ, 期望 id 一律写成字面量而不回调被测实现。
+    // "变了确实推出去了"看 syncedDisplayGunForTest(): 删掉任何一处推送调用, 下面流程里总有一步的推送值对不上。
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchDisplayGunResolvesBlueprintsWithoutMaterializingAndIgnoresUnreadableStacks(
+            GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        helper.assertTrue(be.displayGunId() == null, "an empty bench must not show a gun");
+
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT,
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1));
+        assertDisplayGun(helper, be, TACZ_M4A1, "an M4 blueprint must preview the TaCZ M4A1 it assembles");
+        assertSyncedDisplayGun(helper, be, "tacz:m4a1", "inserting a blueprint must push its preview to clients");
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT,
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.AK47));
+        assertDisplayGun(helper, be, new ResourceLocation("tacz", "ak47"),
+                "an AK47 blueprint must preview the TaCZ AK47 it assembles");
+        assertSyncedDisplayGun(helper, be, "tacz:ak47", "swapping the blueprint must push the new preview");
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT,
+                new ItemStack(ModMunitionsItems.M4_ASSEMBLY_TEMPLATE.get()));
+        assertDisplayGun(helper, be, new ResourceLocation(MiningConstants.MODID, "m4a1_gunsmith"),
+                "the legacy M4 template must preview the legacy miningdim:m4a1_gunsmith gun it still produces");
+
+        // 容器谓词只拦玩家放入, 挡不住 setStackInSlot 与旧存档: 读不出来的图纸 / 枪 / 杂物一律不摆, 且不得抛。
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT,
+                new ItemStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get()));
+        helper.assertTrue(be.displayGunId() == null, "a blueprint without gun NBT must not show a gun");
+        assertSyncedDisplayGun(helper, be, "", "an unreadable blueprint must push an empty bench");
+        ItemStack brokenGun = assembledM4Gun();
+        brokenGun.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY)
+                .getCompound(GunsmithGunStats.PARTS_KEY).remove(GunsmithPressPart.STOCK.id());
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT, brokenGun);
+        helper.assertTrue(be.displayGunId() == null,
+                "a gunsmith gun whose parts no longer parse must not show a gun");
+
+        // 按格子占用定优先级: 成品槽占着却读不出来就不摆, 不得退回去摆下面图纸槽里那把 (台面会冒出一把不相干的枪)。
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT,
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1));
+        assertDisplayGun(helper, be, TACZ_M4A1, "precondition: the blueprint under the output previews its gun");
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT, new ItemStack(Items.IRON_HOE));
+        helper.assertTrue(be.displayGunId() == null,
+                "an output item with neither a TaCZ GunId nor gunsmith NBT must not show a gun, "
+                        + "nor fall through to the blueprint below it; got " + be.displayGunId());
+        assertSyncedDisplayGun(helper, be, "", "an unreadable output must push an empty bench");
+
+        // 带 TaCZ 自己 GunId 的枪按 GunId 摆 (TaCZ 按它挑模型), 哪怕枪匠 NBT 里记的是另一个 id。
+        ItemStack taczTagged = assembledM4Gun();
+        taczTagged.getOrCreateTag().putString("GunId", "miningdim:m4a1_gunsmith");
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT, taczTagged);
+        assertDisplayGun(helper, be, new ResourceLocation(MiningConstants.MODID, "m4a1_gunsmith"),
+                "a gun carrying a TaCZ GunId must show that id before its gunsmith gunId");
+        ItemStack plainTaczGun = new ItemStack(Items.IRON_HOE);
+        plainTaczGun.getOrCreateTag().putString("GunId", "tacz:hk416d");
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT, plainTaczGun);
+        assertDisplayGun(helper, be, new ResourceLocation("tacz", "hk416d"),
+                "a plain TaCZ gun without gunsmith NBT must still show its GunId");
+        assertSyncedDisplayGun(helper, be, "tacz:hk416d", "a gun placed in the output slot must be pushed");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 20)
+    public static void benchDisplayGunFollowsPendingAssemblyThenOutputThenBlueprint(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        fillCompleteRecipe(be, GunsmithBlueprint.M4A1);
+        // 三连发枪机让成品 id 与图纸 id 不同: 开工后图纸仍留在槽里, 台面摆三连发只可能来自 pendingResult。
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.BOLT),
+                arBurstBolt());
+        ResourceLocation burstGunId = new ResourceLocation(MiningConstants.MODID, "m4a1_gunsmith_burst");
+        assertDisplayGun(helper, be, TACZ_M4A1, "before assembly the bench must preview the blueprint's gun");
+        assertSyncedDisplayGun(helper, be, "tacz:m4a1", "the blueprint preview must have been pushed");
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        GunsmithContext context = installGunsmithContext(player, 10, 100000L);
+
+        try {
+            helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
+                    "complete burst-bolt recipe must start assembly");
+            helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT)
+                            .is(ModMunitionsItems.GUNSMITH_BLUEPRINT.get()),
+                    "precondition: the blueprint stays in its slot while assembling");
+            assertDisplayGun(helper, be, burstGunId,
+                    "an in-progress assembly must show its pending burst gun over the blueprint");
+            helper.assertTrue(burstGunId.toString().equals(be.getUpdateTag().getString("DisplayGun")),
+                    "the update tag must carry the pending gun while assembling");
+            // 抽零件不改展示 (图纸还在), 只有写 pendingResult 之后那一次检查能把三连发推出去。
+            assertSyncedDisplayGun(helper, be, "miningdim:m4a1_gunsmith_burst",
+                    "starting an assembly must push its pending gun");
+
+            // 动画中途重载: 区块读盘 (BlockEntity.loadStatic 新建实例, 尚无 level) 与原地 load() 都得接着摆 pendingResult。
+            BlockEntity reloaded = BlockEntity.loadStatic(be.getBlockPos(), be.getBlockState(), be.saveWithFullMetadata());
+            if (!(reloaded instanceof GunsmithAssemblyBenchBlockEntity reloadedBench)) {
+                throw new IllegalStateException("assembly bench must reload from its own save, got " + reloaded);
+            }
+            assertDisplayGun(helper, reloadedBench, burstGunId,
+                    "a bench reloaded from disk mid-assembly must still show its pending gun");
+            helper.assertTrue(burstGunId.toString().equals(reloadedBench.getUpdateTag().getString("DisplayGun")),
+                    "the chunk packet of a bench reloaded mid-assembly must carry the pending gun");
+            assertSyncedDisplayGun(helper, reloadedBench, null,
+                    "a bench reloaded from disk must not believe it already pushed anything");
+            be.load(be.saveWithoutMetadata());
+            assertDisplayGun(helper, be, burstGunId, "an in-place reload mid-assembly must keep the pending gun");
+            assertSyncedDisplayGun(helper, be, null, "an in-place load must forget the last pushed display gun");
+
+            // 完工但成品槽被占时 pendingResult 留在台上; 这里在动画中途占住成品槽, 验同一条优先级, 到点前再腾空。
+            be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT, assembledM4Gun());
+            assertDisplayGun(helper, be, burstGunId, "a pending result must outrank a gun occupying the output slot");
+            assertSyncedDisplayGun(helper, be, "miningdim:m4a1_gunsmith_burst",
+                    "the first check after a load must push the display gun again even though it did not change");
+            be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT, ItemStack.EMPTY);
+
+            helper.runAfterDelay(8, () -> {
+                helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT)
+                                .is(Items.IRON_HOE),
+                        "precondition: the finished gun reached the output slot");
+                assertDisplayGun(helper, be, burstGunId,
+                        "a finished gun in the output slot must outrank the blueprint");
+                assertSyncedDisplayGun(helper, be, "miningdim:m4a1_gunsmith_burst",
+                        "finishing moves the same gun to the output; the pushed display must stay on it");
+                be.inventory().extractItem(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT, 1, false);
+                assertDisplayGun(helper, be, TACZ_M4A1,
+                        "taking the finished gun must fall back to the blueprint preview");
+                assertSyncedDisplayGun(helper, be, "tacz:m4a1",
+                        "taking the finished gun must push the blueprint preview again");
+                helper.succeed();
+            });
+        } finally {
+            restoreGunsmithContext(context);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 30)
+    public static void benchDisplayGunFollowsRepairedGunFromInputThroughPendingToOutput(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT, wornArGun(helper, 1800));
+        be.inventory().setStackInSlot(
+                GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.BOLT),
+                part(GunsmithPlatform.AR, GunsmithPressPart.BOLT, GunsmithPartQuality.MILSPEC, 1.20D));
+        assertDisplayGun(helper, be, TACZ_M4A1, "a worn gun waiting for repair must show itself");
+        assertSyncedDisplayGun(helper, be, "tacz:m4a1", "inserting a worn gun must push it to clients");
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        GunsmithContext context = installGunsmithContext(player, 10, 100000L);
+
+        try {
+            helper.assertTrue(be.tryStartRepair(player, 6), "worn gun plus its service part must start repair");
+            helper.assertTrue(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT).isEmpty()
+                            && be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
+                    "precondition: during repair both the input and output slots are empty");
+            assertDisplayGun(helper, be, TACZ_M4A1, "the gun under repair must stay on the bench as the pending result");
+            // 抽走输入枪那一下展示先变成 "", 写 pendingResult 之后的检查必须把它推回来 (同 tick 合并成一包)。
+            assertSyncedDisplayGun(helper, be, "tacz:m4a1",
+                    "starting a repair must push the gun it moved into the pending result");
+
+            helper.runAfterDelay(8, () -> {
+                helper.assertFalse(be.inventory().getStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
+                        "precondition: the repaired gun reached the output slot");
+                assertDisplayGun(helper, be, TACZ_M4A1, "the repaired gun must stay on the bench from the output slot");
+                assertSyncedDisplayGun(helper, be, "tacz:m4a1",
+                        "finishing a repair must keep the pushed display on the repaired gun");
+                be.inventory().extractItem(GunsmithAssemblyBenchBlockEntity.SLOT_OUTPUT, 1, false);
+                helper.assertTrue(be.displayGunId() == null, "taking the repaired gun must clear the bench");
+                assertSyncedDisplayGun(helper, be, "", "taking the repaired gun must push an empty bench");
+                helper.succeed();
+            });
+        } finally {
+            restoreGunsmithContext(context);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchUpdateTagCarriesOnlyTheDisplayGunAndClearsExplicitly(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        fillCompleteRecipe(be, GunsmithBlueprint.M4A1);
+
+        CompoundTag withGun = be.getUpdateTag();
+        helper.assertTrue(withGun.getAllKeys().equals(Set.of("DisplayGun")),
+                "the update tag must carry DisplayGun only (no Inventory / PendingResult), got "
+                        + withGun.getAllKeys());
+        helper.assertTrue("tacz:m4a1".equals(withGun.getString("DisplayGun")),
+                "the update tag must name the previewed gun, got " + withGun.getString("DisplayGun"));
+        be.handleUpdateTag(withGun);
+        helper.assertTrue(TACZ_M4A1.equals(be.clientDisplayGunId()),
+                "handleUpdateTag must round-trip DisplayGun into the client field, got " + be.clientDisplayGunId());
+        if (!(be.getUpdatePacket() instanceof ClientboundBlockEntityDataPacket packet)) {
+            throw new IllegalStateException("assembly bench must send a block entity data packet");
+        }
+        helper.assertTrue(withGun.equals(packet.getTag()),
+                "the block entity data packet must carry the same tag as the chunk packet");
+
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT, ItemStack.EMPTY);
+        CompoundTag noGun = be.getUpdateTag();
+        helper.assertFalse(noGun.isEmpty(),
+                "a bench without a gun must still send a non-empty tag (empty tags are dropped as null)");
+        helper.assertTrue(noGun.contains("DisplayGun", Tag.TAG_STRING) && noGun.getString("DisplayGun").isEmpty(),
+                "a bench without a gun must send DisplayGun as an empty string");
+        be.handleUpdateTag(noGun);
+        helper.assertTrue(be.clientDisplayGunId() == null, "an empty DisplayGun must clear the client gun");
+
+        be.handleUpdateTag(withGun);
+        ClientboundBlockEntityDataPacket nullTagPacket =
+                ClientboundBlockEntityDataPacket.create(be, ignored -> new CompoundTag());
+        helper.assertTrue(nullTagPacket.getTag() == null, "precondition: vanilla turns an empty packet tag into null");
+        be.onDataPacket(new Connection(PacketFlow.CLIENTBOUND), nullTagPacket);
+        helper.assertTrue(be.clientDisplayGunId() == null,
+                "a data packet without a tag must clear the client gun instead of keeping the stale one");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchDisplaySyncForgetsItsDedupeOnInPlaceLoadAndClearsWhenDropped(GameTestHelper helper) {
+        placeStructure(helper, Direction.NORTH);
+        GunsmithAssemblyBenchBlockEntity be = requireBench(helper);
+        CompoundTag emptySave = be.saveWithoutMetadata();
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT,
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1));
+        assertSyncedDisplayGun(helper, be, "tacz:m4a1", "inserting a blueprint must push its preview");
+
+        // /data merge block 走的就是这条: 在带 level 的活实例上原地 load(), 原版随后自己发一份新的更新标签 ("")。
+        // 去重值若不跟着作废, 玩家把同一张图纸放回去时会被当成"没变"吞掉, 客户端一直摆着空台面。
+        be.load(emptySave);
+        helper.assertTrue(be.displayGunId() == null, "precondition: the merged-in empty inventory shows no gun");
+        assertSyncedDisplayGun(helper, be, null, "an in-place load must forget the last pushed display gun");
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT,
+                GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), GunsmithBlueprint.M4A1));
+        assertSyncedDisplayGun(helper, be, "tacz:m4a1",
+                "putting the same blueprint back after the load must be pushed again");
+
+        // 拆方块走 onRemove → dropContents: 抽空背包时 pendingResult 还压着展示, 清掉它之后必须再推一次空台面。
+        fillParts(be, GunsmithPlatform.AR);
+        be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.slotForPart(GunsmithPressPart.BOLT),
+                arBurstBolt());
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        GunsmithContext context = installGunsmithContext(player, 10, 100000L);
+        try {
+            helper.assertTrue(be.tryStartAssembly(player, new ItemStack(Items.IRON_HOE), 6),
+                    "complete burst-bolt recipe must start assembly");
+            assertSyncedDisplayGun(helper, be, "miningdim:m4a1_gunsmith_burst",
+                    "precondition: the pending burst gun was pushed");
+            List<ItemStack> drops = be.dropContents();
+            helper.assertTrue(drops.stream().anyMatch(stack -> stack.is(Items.IRON_HOE)),
+                    "precondition: dropping a busy bench drops its pending gun, got " + drops);
+            helper.assertTrue(be.displayGunId() == null, "a bench whose contents were dropped must not show a gun");
+            assertSyncedDisplayGun(helper, be, "", "dropping the pending gun must push an empty bench");
+        } finally {
+            restoreGunsmithContext(context);
+        }
+        helper.succeed();
+    }
+
     private static void fillCompleteRecipe(GunsmithAssemblyBenchBlockEntity be, GunsmithBlueprint blueprint) {
         be.inventory().setStackInSlot(GunsmithAssemblyBenchBlockEntity.SLOT_BLUEPRINT,
                 GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(), blueprint));
@@ -1948,6 +2209,25 @@ public final class GunsmithAssemblyBusinessGameTests {
                             .getValue(GunsmithAssemblyBenchBlock.ACTIVE) == expected,
                     part + " active state must be " + expected);
         }
+    }
+
+    private static void assertDisplayGun(GameTestHelper helper, GunsmithAssemblyBenchBlockEntity be,
+                                         ResourceLocation expected, String message) {
+        ResourceLocation actual = be.displayGunId();
+        helper.assertTrue(expected.equals(actual), message + ", got " + actual);
+    }
+
+    /** 断言最近一次推给客户端的展示枪: "" = 推过空台面, null = 本次加载后还没推过。 */
+    private static void assertSyncedDisplayGun(GameTestHelper helper, GunsmithAssemblyBenchBlockEntity be,
+                                               String expected, String message) {
+        String actual = be.syncedDisplayGunForTest();
+        helper.assertTrue(Objects.equals(expected, actual), message + ", last pushed " + actual);
+    }
+
+    /** 三连发枪机: 让成品 id (miningdim:m4a1_gunsmith_burst) 与图纸 id (tacz:m4a1) 不同。 */
+    private static ItemStack arBurstBolt() {
+        return GunsmithPartItem.createStack(ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AR,
+                GunsmithPressPart.BOLT, GunsmithPartQuality.COMMON, GunsmithPartVariant.AR_THREE_ROUND_BURST_BOLT);
     }
 
     private static void assertClose(GameTestHelper helper, double actual, double expected, String label) {

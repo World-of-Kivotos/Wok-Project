@@ -1,0 +1,303 @@
+<title>/*__TITLE__*/</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* 单一深色工作台风格: 这是看模型的取景工具, 视口本身就是深色, 页面随之定为深色。 */
+  :root {
+    color-scheme: dark;
+    --ground: #121519;
+    --panel: #1a1e24;
+    --panel-2: #20252d;
+    --line: #2b313b;
+    --text: #e3e7ed;
+    --muted: #8c95a3;
+    --cyan: #47d4cf;
+    --cyan-dim: #1d4f52;
+    --hot: #ff8b3d;
+    --viewport: #3a3f48;
+    --display: "Chakra Petch", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
+    --body: "IBM Plex Sans", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  }
+  [hidden] { display: none !important; }
+  html, body { background: var(--ground); color: var(--text); }
+  body { font: 14px/1.6 var(--body); padding-inline: 16px; padding-block: 20px 40px; }
+  .wrap { max-width: 1480px; margin: 0 auto; display: grid; gap: 18px; }
+  header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; }
+  h1 { font: 600 22px/1.2 var(--display); letter-spacing: 0.02em; margin: 0; text-wrap: balance; }
+  .sub { color: var(--muted); margin: 4px 0 0; max-width: 70ch; }
+  .tabs { display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px; }
+  .seg { display: inline-flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 3px; }
+  button { font: 500 13px/1 var(--body); color: var(--muted); background: transparent; border: 0; border-radius: 5px; padding: 8px 12px; cursor: pointer; }
+  button:hover { color: var(--text); background: var(--panel-2); }
+  button[aria-pressed="true"] { color: #0e1316; background: var(--cyan); }
+  .tabs button { font: 600 14px/1 var(--display); padding: 10px 16px; letter-spacing: 0.03em; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  #state-active[aria-pressed="true"] { background: var(--hot); }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .toolbar .label { font: 500 11px/1 var(--display); color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-right: 2px; }
+  .group { display: flex; align-items: center; gap: 6px; }
+  .arm { display: flex; align-items: center; gap: 8px; }
+  .arm input { width: 140px; accent-color: var(--cyan); }
+  .arm output { font: 12px var(--mono); color: var(--muted); min-width: 4ch; font-variant-numeric: tabular-nums; }
+  .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: grid; grid-template-rows: auto auto 1fr; }
+  .card.old { border-style: dashed; }
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .card-head h2 { font: 600 16px/1.3 var(--display); margin: 0; letter-spacing: 0.02em; }
+  .tag { font: 500 11px/1 var(--mono); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .view { position: relative; background: var(--viewport); aspect-ratio: 4 / 3; max-width: 100%; }
+  .view canvas.main { width: 100%; height: 100%; display: block; image-rendering: pixelated; cursor: grab; touch-action: none; }
+  .view canvas.main:active { cursor: grabbing; }
+  .icon { position: absolute; right: 8px; bottom: 8px; display: grid; justify-items: center; gap: 2px; background: #8b8b8b; border: 2px solid #373737; padding: 3px; border-radius: 2px; }
+  .icon canvas { width: 64px; height: 64px; image-rendering: pixelated; display: block; }
+  .icon span { font: 10px/1 var(--body); color: #1d1d1d; }
+  .card-body { padding: 12px 14px 14px; display: grid; gap: 8px; align-content: start; }
+  .card-body p { margin: 0; }
+  .card-body ul { margin: 0; padding-left: 1.1em; color: var(--muted); display: grid; gap: 3px; }
+  .card-body li::marker { color: var(--cyan); }
+  .loading { color: var(--muted); padding: 40px 0; text-align: center; }
+  @media (max-width: 560px) { .hint { margin-left: 0; width: 100%; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>/*__TITLE__*/</h1>
+      <p class="sub">每台机器三个视口：左边是现在游戏里的旧模型，右边是两个新方案。拖动任一视口旋转，滚轮缩放，三个视口同步。右下角是物品栏图标（32px 放大）。</p>
+    </div>
+    <nav class="tabs" aria-label="选择机器">
+      <button id="tab-press" data-block="press" aria-pressed="true">机械冲压机</button>
+      <button id="tab-assembly" data-block="assembly" aria-pressed="false">枪械组装台</button>
+    </nav>
+  </header>
+
+  <div class="toolbar" role="toolbar" aria-label="预览设置">
+    <div class="group"><span class="label">状态</span>
+      <div class="seg"><button id="state-idle" aria-pressed="true">待机</button><button id="state-active" aria-pressed="false">工作中</button></div>
+    </div>
+    <div class="group"><span class="label">光照</span>
+      <div class="seg"><button id="light-day" aria-pressed="true">白天</button><button id="light-night" aria-pressed="false">夜间</button></div>
+    </div>
+    <div class="group"><span class="label">视角</span>
+      <div class="seg" id="presets">
+        <button data-yaw="38" data-pitch="32">左前</button>
+        <button data-yaw="-38" data-pitch="32">右前</button>
+        <button data-yaw="0" data-pitch="4">正面</button>
+        <button data-yaw="200" data-pitch="30">背面</button>
+        <button data-yaw="22" data-pitch="40">玩家视角</button>
+        <button data-yaw="0" data-pitch="89.9">俯视</button>
+      </div>
+    </div>
+    <div class="arm" id="arm-wrap" hidden>
+      <label class="label" for="arm">机械臂</label>
+      <input id="arm" type="range" min="0" max="100" value="0">
+      <output id="arm-out" for="arm">0%</output>
+    </div>
+    <span class="hint">拖动旋转 · 滚轮缩放 · 双击复位</span>
+  </div>
+
+  <div class="grid" id="grid"><div class="loading">正在解码贴图…</div></div>
+</div>
+
+<script>
+/*__RASTER__*/
+
+const DATA = /*__DATA__*/;
+
+const FRAMES = {
+  press: { min: [-2, 0, -2], max: [18, 17, 18], ground: [-1, 2, -1, 2] },
+  assembly: { min: [-2, 0, -2], max: [34, 22, 34], ground: [-1, 3, -1, 3] },
+};
+const GROUND = (() => {
+  const data = new Uint8ClampedArray(16 * 16 * 4);
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const edge = x === 0 || y === 0;
+    const v = edge ? 150 : ((x + y) & 1 ? 196 : 190);
+    const o = (y * 16 + x) * 4;
+    data[o] = v; data[o + 1] = v + 2; data[o + 2] = v + 6; data[o + 3] = 255;
+  }
+  return { width: 16, height: 16, data };
+})();
+
+const ui = { block: 'press', state: 'idle', night: false, yaw: 38, pitch: 32, zoom: 1, arm: 0, dragging: false };
+try { const saved = JSON.parse(localStorage.getItem('gunsmith-compare') || '{}'); if (saved.block) ui.block = saved.block; } catch (e) { /* 无存储时用默认 */ }
+if (location.hash === '#assembly' || location.hash === '#press') ui.block = location.hash.slice(1);
+
+const IMAGES = {};
+const bakedCache = new Map();
+let views = [];
+
+function decodeImages() {
+  return Promise.all(Object.entries(DATA.images).map(([key, uri]) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0);
+      const d = g.getImageData(0, 0, img.width, img.height);
+      let h = img.height;
+      // 动画贴图只取第一帧。
+      if (h > img.width) h = img.width;
+      IMAGES[key] = { width: img.width, height: h, data: d.data.slice(0, img.width * h * 4) };
+      resolve();
+    };
+    img.onerror = reject;
+    img.src = uri;
+  })));
+}
+
+function bakeParts(parts) {
+  const quads = [];
+  for (const p of parts) {
+    quads.push(...bakeBlockModel(p.model, { offset: p.offset, textureLookup: (id) => IMAGES[p.model.prefix + '|' + id] }));
+  }
+  return quads;
+}
+
+function baked(entry, state) {
+  const key = ui.block + ':' + entry.id + ':' + state;
+  if (!bakedCache.has(key)) bakedCache.set(key, bakeParts(entry.states[state]));
+  return bakedCache.get(key);
+}
+
+function frameFit(cam, frame, w, h) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const x of [frame.min[0], frame.max[0]]) for (const y of [frame.min[1], frame.max[1]]) for (const z of [frame.min[2], frame.max[2]]) {
+    const sx = x * cam.right[0] + y * cam.right[1] + z * cam.right[2];
+    const sy = -(x * cam.up[0] + y * cam.up[1] + z * cam.up[2]);
+    minX = Math.min(minX, sx); maxX = Math.max(maxX, sx); minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
+  }
+  const scale = Math.min(w / (maxX - minX), h / (maxY - minY)) * 0.9 * ui.zoom;
+  return { scale, cx: w / 2 - ((minX + maxX) / 2) * scale, cy: h / 2 - ((minY + maxY) / 2) * scale };
+}
+
+function renderView(v) {
+  const canvas = v.canvas;
+  const quality = ui.dragging ? 0.5 : 1;
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  const w = Math.max(80, Math.round(canvas.clientWidth * dpr * quality));
+  const h = Math.max(60, Math.round(canvas.clientHeight * dpr * quality));
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  const target = { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) };
+  fillBackground(target, [58, 63, 72]);
+  const frame = FRAMES[ui.block];
+  const cam = cameraFromAngles(ui.yaw, ui.pitch);
+  let quads = baked(v.entry, ui.state).concat(groundQuads(frame.ground[0], frame.ground[1], frame.ground[2], frame.ground[3], GROUND));
+  if (v.entry.arm) {
+    const armWork = ui.arm / 100;
+    quads = quads.concat(bakeArm(v.entry.arm, armPose(v.entry.arm, armWork), IMAGES[v.entry.arm.image]));
+  }
+  const fit = frameFit(cam, frame, w, h);
+  rasterize(quads, target, { cam, scale: fit.scale, cx: fit.cx, cy: fit.cy, brightness: ui.night ? 0.18 : 1 });
+  const ctx = canvas.getContext('2d');
+  ctx.putImageData(new ImageData(target.data, w, h), 0, 0);
+}
+
+function renderIcon(v) {
+  const n = 32;
+  const target = { width: n, height: n, data: new Uint8ClampedArray(n * n * 4) };
+  fillBackground(target, [139, 139, 139]);
+  const quads = guiTransform(bakeParts([{ offset: [0, 0, 0], model: v.entry.item }]), v.entry.item.display);
+  rasterize(quads, target, { cam: cameraFromDir([0, 0, 1]), scale: n / 16, cx: n / 2, cy: n / 2 });
+  v.icon.getContext('2d').putImageData(new ImageData(target.data, n, n), 0, 0);
+}
+
+let pending = false;
+function requestRender() {
+  if (pending) return;
+  pending = true;
+  requestAnimationFrame(() => { pending = false; views.forEach(renderView); });
+}
+
+function el(tag, attrs = {}, children = []) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'text') e.textContent = v; else if (k === 'class') e.className = v; else e.setAttribute(k, v);
+  }
+  for (const c of children) e.appendChild(c);
+  return e;
+}
+
+function buildGrid() {
+  const grid = document.getElementById('grid');
+  grid.textContent = '';
+  views = DATA.blocks[ui.block].map((entry) => {
+    const canvas = el('canvas', { class: 'main', 'aria-label': entry.label + ' 的三维预览' });
+    const icon = el('canvas', { width: '32', height: '32', 'aria-label': entry.label + ' 的物品栏图标' });
+    const card = el('article', { class: 'card' + (entry.id === 'old' ? ' old' : '') }, [
+      el('div', { class: 'card-head' }, [el('h2', { text: entry.label }), el('span', { class: 'tag', text: entry.elementCount + ' 个元素' })]),
+      el('div', { class: 'view' }, [canvas, el('div', { class: 'icon' }, [icon, el('span', { text: '物品栏' })])]),
+      el('div', { class: 'card-body' }, [
+        el('p', { text: entry.summary }),
+        el('ul', {}, entry.points.map((p) => el('li', { text: p }))),
+      ]),
+    ]);
+    grid.appendChild(card);
+    const v = { entry, canvas, icon };
+    attachDrag(canvas);
+    renderIcon(v);
+    return v;
+  });
+  requestRender();
+}
+
+function attachDrag(canvas) {
+  let last = null;
+  canvas.addEventListener('pointerdown', (e) => { last = [e.clientX, e.clientY]; ui.dragging = true; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!last) return;
+    ui.yaw -= (e.clientX - last[0]) * 0.5;
+    ui.pitch = Math.max(-10, Math.min(89.9, ui.pitch + (e.clientY - last[1]) * 0.4));
+    last = [e.clientX, e.clientY];
+    requestRender();
+  });
+  const end = () => { if (last) { last = null; ui.dragging = false; requestRender(); } };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    ui.zoom = Math.max(0.6, Math.min(4, ui.zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+    requestRender();
+  }, { passive: false });
+  canvas.addEventListener('dblclick', () => { ui.yaw = 38; ui.pitch = 32; ui.zoom = 1; requestRender(); });
+}
+
+function setPressed(ids, activeId) {
+  ids.forEach((id) => document.getElementById(id).setAttribute('aria-pressed', String(id === activeId)));
+}
+
+function selectBlock(block) {
+  ui.block = block;
+  setPressed(['tab-press', 'tab-assembly'], 'tab-' + block);
+  document.getElementById('arm-wrap').hidden = block !== 'assembly';
+  try { localStorage.setItem('gunsmith-compare', JSON.stringify({ block })); } catch (e) { /* 忽略 */ }
+  buildGrid();
+}
+
+function setArmFromState() {
+  ui.arm = ui.state === 'active' ? 100 : 0;
+  document.getElementById('arm').value = String(ui.arm);
+  document.getElementById('arm-out').textContent = ui.arm + '%';
+}
+
+document.getElementById('tab-press').addEventListener('click', () => selectBlock('press'));
+document.getElementById('tab-assembly').addEventListener('click', () => selectBlock('assembly'));
+document.getElementById('state-idle').addEventListener('click', () => { ui.state = 'idle'; setPressed(['state-idle', 'state-active'], 'state-idle'); setArmFromState(); requestRender(); });
+document.getElementById('state-active').addEventListener('click', () => { ui.state = 'active'; setPressed(['state-idle', 'state-active'], 'state-active'); setArmFromState(); requestRender(); });
+document.getElementById('light-day').addEventListener('click', () => { ui.night = false; setPressed(['light-day', 'light-night'], 'light-day'); requestRender(); });
+document.getElementById('light-night').addEventListener('click', () => { ui.night = true; setPressed(['light-day', 'light-night'], 'light-night'); requestRender(); });
+document.getElementById('arm').addEventListener('input', (e) => { ui.arm = Number(e.target.value); document.getElementById('arm-out').textContent = ui.arm + '%'; requestRender(); });
+document.querySelectorAll('#presets button').forEach((b) => b.addEventListener('click', () => {
+  ui.yaw = Number(b.dataset.yaw); ui.pitch = Number(b.dataset.pitch); requestRender();
+}));
+window.addEventListener('resize', requestRender);
+
+decodeImages().then(() => selectBlock(ui.block)).catch(() => {
+  document.getElementById('grid').innerHTML = '<div class="loading">贴图解码失败，请刷新页面重试。</div>';
+});
+</script>

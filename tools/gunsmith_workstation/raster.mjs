@@ -277,7 +277,9 @@ export function bakeArm(arm, poseOverrides, image, opts = {}) {
 
 /**
  * 从 GunsmithArmProgram.java 解析几何常量与关键帧表。每行尾部的 "// 动作名" 注释作为预览里的当前动作名。
- * 返回 {geo, rows, payloadParts: {code: ModelPart 名}}。
+ * 返回 {geo, rows, payloadParts: {code: ModelPart 名}, places}。
+ * places: 两个安装点的放件下沉参数 (Java 的 BOLT_PLACE_* / STOCK_PLACE_*), {bolt|stock: {code, minX, maxX, minZ, maxZ, bottomY}};
+ * 旧版 Java 没有这些常量时为 null。geo.maxPlaceDrop / geo.placeClearance 即 MAX_PLACE_DROP / PLACE_CLEARANCE。
  */
 export function parseArmProgram(src) {
     const num = (s) => parseFloat(String(s).replace(/[FfDd]/g, ''));
@@ -288,14 +290,26 @@ export function parseArmProgram(src) {
     const rows = [];
     for (const m of block[1].matchAll(/\{([^{}]*)\},?[ \t]*(?:\/\/[ \t]*([^\n]*))?/g)) {
         const v = m[1].split(',').map(num);
-        rows.push({ tick: v[0], yaw: v[1], upper: v[2], fore: v[3], spin: v[4], claw: v[5], payload: v[6], spark: v[7] !== 0, linear: v[8] || 0, label: (m[2] || '').trim() });
+        rows.push({ tick: v[0], yaw: v[1], upper: v[2], fore: v[3], spin: v[4], claw: v[5], payload: v[6], spark: v[7] !== 0, linear: v[8] || 0, station: v[9] || 0, label: (m[2] || '').trim() });
     }
     if (rows.length < 2) throw new Error('arm program parse: fewer than two keyframes');
     const payloadParts = {};
     for (const [k, v] of Object.entries(c)) if (k.startsWith('PAYLOAD_') && k !== 'PAYLOAD_NONE') payloadParts[v] = 'payload_' + k.slice(8).toLowerCase();
+    let places = null;
+    if (c.MAX_PLACE_DROP !== undefined) {
+        places = {};
+        for (const [key, code] of [['bolt', ARM_STATION_BOLT], ['stock', ARM_STATION_STOCK]]) {
+            const p = key.toUpperCase() + '_PLACE_';
+            places[key] = { code, minX: c[p + 'MIN_X'], maxX: c[p + 'MAX_X'], minZ: c[p + 'MIN_Z'], maxZ: c[p + 'MAX_Z'], bottomY: c[p + 'BOTTOM_Y'] };
+            if (Object.values(places[key]).some((v) => v === undefined)) throw new Error(`arm program parse: ${p}* constants incomplete`);
+        }
+    }
     return {
-        geo: { L1: c.UPPER_ARM_LENGTH, L2: c.FOREARM_LENGTH, jointUp: c.JOINT_UP, pivot: [c.PIVOT_X, c.PIVOT_Y, c.PIVOT_Z], tipDrop: c.TIP_DROP },
-        rows, payloadParts,
+        geo: {
+            L1: c.UPPER_ARM_LENGTH, L2: c.FOREARM_LENGTH, jointUp: c.JOINT_UP, pivot: [c.PIVOT_X, c.PIVOT_Y, c.PIVOT_Z], tipDrop: c.TIP_DROP,
+            maxPlaceDrop: c.MAX_PLACE_DROP, placeClearance: c.PLACE_CLEARANCE,
+        },
+        rows, payloadParts, places,
     };
 }
 
@@ -315,32 +329,52 @@ export function planarIk(L1, L2, dx, dy) {
     return { u, f };
 }
 
+/** 关键帧表 station 列的取值 (与 GunsmithArmProgram.STATION_* 相同): 0 不下沉, 1 枪机安装点, 2 枪托件安装点。 */
+export const ARM_STATION_BOLT = 1;
+export const ARM_STATION_STOCK = 2;
+
+/**
+ * 某一行按所在安装点应下沉多少 (与 GunsmithArmProgram.stationDrop 相同): 不在安装点的行为 0;
+ * 调用方给的下沉量再夹到 [0, MAX_PLACE_DROP] (非正、NaN → 0), 不会沉到生成器扫描没验证过的深度。
+ */
+function armStationDrop(row, boltDrop, stockDrop, maxDrop) {
+    const drop = row.station === ARM_STATION_BOLT ? boltDrop : row.station === ARM_STATION_STOCK ? stockDrop : 0;
+    return drop > 0 ? Math.min(drop, maxDrop) : 0;
+}
+
 /**
  * 与 GunsmithArmProgram.sample 逐行对应: 超过一轮取模; 连续量 smoothstep 插值; 携带件/火花取到达的那一行;
  * linear != 0 的段落在柱坐标里插值 (偏航、水平伸出、高度各自缓动) 并反解大臂/小臂角:
- * linear = 1 偏航不变 → 竖直直线 (MoveL); linear = 2 高度不变 → 在安全高度平移。program: {geo: {L1, L2}, rows}。
+ * linear = 1 偏航不变 → 竖直直线 (MoveL); linear = 2 高度不变 → 在安全高度平移。program: {geo: {L1, L2, maxPlaceDrop}, rows}。
+ * 放件下沉: station 列非 0 的行 (安装点的低位行) 的腕部高度按该安装点的下沉量 (boltDrop / stockDrop, 像素) 降低;
+ * 两端各按自己的下沉量降低后再插值、反解, 所以 linear = 0 的行只要带下沉 (停顿、点焊、松开) 也走这条反解, 停在降低后的姿态。
+ * 下沉量都为 0 时与不带下沉的旧版逐位相同。ikMiss: 该时刻反解不可达、退回了关节角插值 (生成器要求全程为 false)。
  */
-export function sampleArmProgram(program, tick) {
+export function sampleArmProgram(program, tick, boltDrop = 0, stockDrop = 0) {
     const rows = program.rows;
     const T = rows[rows.length - 1].tick;
     let t = tick % T;
     if (t < 0) t += T;
-    if (t <= 0) return { ...rows[0], seg: 0 };
+    if (t <= 0) return { ...rows[0], seg: 0, ikMiss: false };
     let i = 1;
     while (rows[i].tick < t) i++;
     const a = rows[i - 1], b = rows[i];
     const s = (t - a.tick) / (b.tick - a.tick);
     const e = s * s * (3 - 2 * s);
     const L = (k) => a[k] + (b[k] - a[k]) * e;
-    let upper = L('upper'), fore = L('fore');
-    if (b.linear) {
+    let upper = L('upper'), fore = L('fore'), ikMiss = false;
+    const maxDrop = program.geo.maxPlaceDrop === undefined ? Infinity : program.geo.maxPlaceDrop;
+    const dropA = armStationDrop(a, boltDrop, stockDrop, maxDrop);
+    const dropB = armStationDrop(b, boltDrop, stockDrop, maxDrop);
+    if (b.linear || dropA !== 0 || dropB !== 0) {
         const { L1, L2 } = program.geo;
         const reach = (k) => -(L1 * Math.sin(k.upper) - L2 * Math.sin(k.upper + k.fore));
         const height = (k) => L1 * Math.cos(k.upper) - L2 * Math.cos(k.upper + k.fore);
-        const k = planarIk(L1, L2, -(reach(a) + (reach(b) - reach(a)) * e), height(a) + (height(b) - height(a)) * e);
-        if (k) { upper = k.u; fore = k.f; }
+        const heightA = height(a) - dropA, heightB = height(b) - dropB;
+        const k = planarIk(L1, L2, -(reach(a) + (reach(b) - reach(a)) * e), heightA + (heightB - heightA) * e);
+        if (k) { upper = k.u; fore = k.f; } else ikMiss = true;
     }
-    return { tick: t, yaw: L('yaw'), upper, fore, spin: L('spin'), claw: L('claw'), payload: b.payload, spark: b.spark, linear: b.linear, label: b.label, seg: i };
+    return { tick: t, yaw: L('yaw'), upper, fore, spin: L('spin'), claw: L('claw'), payload: b.payload, spark: b.spark, linear: b.linear, station: b.station || 0, label: b.label, seg: i, ikMiss };
 }
 
 /** 零件底面中心 (= 点焊接触点), 朝北整台像素。与 GunsmithArmProgram.contactPosition 相同。 */
@@ -350,9 +384,12 @@ export function armProgramContact(geo, k) {
     return [geo.pivot[0] + Math.cos(k.yaw) * reach, geo.pivot[1] - drop - geo.tipDrop, geo.pivot[2] - Math.sin(k.yaw) * reach];
 }
 
-/** 程序时间 tick (0..160) 的完整状态: bakeArm 用的姿态覆盖 (含携带件 visible)、火花、动作名、接触点。 */
-export function armProgramState(arm, tick) {
-    const k = sampleArmProgram(arm.program, tick);
+/**
+ * 程序时间 tick (0..160) 的完整状态: bakeArm 用的姿态覆盖 (含携带件 visible)、火花、动作名、接触点。
+ * drops: [枪机安装点, 枪托件安装点] 的放件下沉量 (px, 见 sampleArmProgram), 省略 = 不下沉。
+ */
+export function armProgramState(arm, tick, drops = null) {
+    const k = sampleArmProgram(arm.program, tick, drops ? drops[0] : 0, drops ? drops[1] : 0);
     const pose = {
         shoulder: { yRot: k.yaw }, upper_arm: { zRot: k.upper }, forearm: { zRot: k.fore },
         wrist: { zRot: -(k.upper + k.fore) }, tool: { yRot: k.spin },
@@ -362,8 +399,8 @@ export function armProgramState(arm, tick) {
     return { pose, spark: k.spark, label: k.label, payload: k.payload, contact: armProgramContact(arm.program.geo, k) };
 }
 
-export function armProgramPose(arm, tick) {
-    return armProgramState(arm, tick).pose;
+export function armProgramPose(arm, tick, drops = null) {
+    return armProgramState(arm, tick, drops).pose;
 }
 
 const SPARK_COLORS = [[255, 250, 214], [255, 226, 122], [255, 186, 70]].map((c) => ({ width: 1, height: 1, data: new Uint8ClampedArray([...c, 255]) }));
@@ -569,6 +606,337 @@ export function fillBackground(target, rgb) {
         data[i] = rgb[0]; data[i + 1] = rgb[1]; data[i + 2] = rgb[2]; data[i + 3] = 255;
     }
     if (target.depth) target.depth.fill(Infinity);
+}
+
+// ---------- 台上的 TACZ 枪 (Bedrock geo) ----------
+
+/** TACZ 1.1.8 在非第一人称 (FIXED) 下不画的节点, 整棵子树都不画: 两只手 (只在第一人称画) 与默认状态下隐藏的部件。 */
+export const TACZ_HAND_BONES = ['lefthand_pos', 'righthand_pos'];
+export const TACZ_HIDDEN_BONES = ['muzzle_flash', 'bullet_in_barrel', 'bullet_in_mag', 'bullet_chain', 'mount', 'sight_folded',
+    'mag_extended_1', 'mag_extended_2', 'mag_extended_3', 'handguard_tactical', 'additional_magazine', 'laser_beam'];
+/** 配件转接节点: BedrockGunModel.attachmentAdapterNodeRender 只显示枪上配件点名的子节点, 裸枪一个都不显示。 */
+export const TACZ_ADAPTER_BONE = 'attachment_adapter';
+/** 枪口参考点: 按顺序取第一个存在的节点。 */
+export const TACZ_MUZZLE_NODES = ['muzzle_pos', 'muzzle_flash', 'muzzle_default'];
+
+/**
+ * 裸枪显示 stack (台上的枪不带配件) 时 TACZ 1.1.8 画不画这个方块 —— 包围盒、枪口侧判定用的 B 与安装点枪顶都只算画出来的方块。
+ * 纯结构判定, 不读运行时的 visible (与 Java GunsmithBenchGunRenderer 同一条规则, 改一边必须改另一边)。不画:
+ *   (a) TACZ_HAND_BONES 的整棵子树; (b) TACZ_HIDDEN_BONES 的整棵子树;
+ *   (c) attachment_adapter 下: 它的每个具名子节点的整棵子树 (裸枪的 adapterToRender 为空, BedrockGunModel.java:141-155, 244, 265-267),
+ *       以及它自己带 rotation 的方块 (新格式加载时包成无名子节点, 无名子节点一律不显示; 旧格式不包, 照画)。
+ *   attachment_adapter 自己不带 rotation 的方块照画。
+ * @param anc [方块所在骨骼, 父, ..., 根] 的骨骼名
+ * @param cube geo 里的方块 JSON; legacy: 旧格式 (1.10.0) 模型
+ */
+export function taczBareDrawn(anc, cube, legacy) {
+    if (anc.some((n) => TACZ_HAND_BONES.includes(n) || TACZ_HIDDEN_BONES.includes(n))) return false;
+    const i = anc.indexOf(TACZ_ADAPTER_BONE);
+    if (i < 0) return true;
+    if (i > 0) return false;
+    return legacy || !cube.rotation;
+}
+
+/**
+ * 安装点 s 下方的枪顶 (与 GunsmithBenchGunLayout 同一规则): 台上画出来的方块里, 台上 AABB 与安装点底面范围严格重叠
+ * (aabb.maxX > MIN_X && aabb.minX < MAX_X && aabb.maxZ > MIN_Z && aabb.minZ < MAX_Z) 的那些的 AABB 最大 y; 没有重叠的方块时取 topY (= TOP_Y)。
+ * @param aabbs [{lo, hi}] 每个画出来的方块的台上 AABB (bakeBedrockGeo 的 cubes[].aabb: 原始角点, 不含 inflate)
+ * @param place 安装点 {minX, maxX, minZ, maxZ} (parseArmProgram 的 places.bolt / places.stock)
+ */
+export function gunStationTop(aabbs, place, topY) {
+    let top = -Infinity;
+    for (const b of aabbs) {
+        if (b.hi[0] > place.minX && b.lo[0] < place.maxX && b.hi[2] > place.minZ && b.lo[2] < place.maxZ) top = Math.max(top, b.hi[1]);
+    }
+    return top === -Infinity ? topY : top;
+}
+
+/** 放件下沉量 (与 GunsmithBenchGunLayout.placeDrop 相同): clamp(bottomY - gunTop - PLACE_CLEARANCE, 0, MAX_PLACE_DROP), NaN 按 0。geo: parseArmProgram 的 geo。 */
+export function placeDrop(bottomY, gunTop, geo) {
+    const d = bottomY - gunTop - geo.placeClearance;
+    return d > 0 ? Math.min(d, geo.maxPlaceDrop) : 0;
+}
+
+/**
+ * 台上这把枪的两个安装点下沉量 (机械臂 sample 的 boltDrop / stockDrop)。gun: bakeBedrockGeo (frame 'bench') 的结果;
+ * null、不画 (layout 为 null) 或没有画出来的方块 = 台上没枪 (空台、加载中、失败、没装 TaCZ), 两处都取 MAX_PLACE_DROP。
+ * 返回 {drops: [枪机, 枪托件], tops: [枪机, 枪托件] (台上没枪时为 null)}; 关键帧表没有下沉参数 (旧版 Java) 时返回 null。
+ */
+export function benchGunPlaceDrops(program, gun, bed) {
+    if (!program || !program.places) return null;
+    const g = program.geo;
+    if (!gun || !gun.layout || !gun.cubes || !gun.cubes.length) return { drops: [g.maxPlaceDrop, g.maxPlaceDrop], tops: [null, null] };
+    const aabbs = gun.cubes.map((c) => c.aabb);
+    const tops = [program.places.bolt, program.places.stock].map((p) => gunStationTop(aabbs, p, bed.TOP_Y));
+    return { drops: [placeDrop(program.places.bolt.bottomY, tops[0], g), placeDrop(program.places.stock.bottomY, tops[1], g)], tops };
+}
+
+/**
+ * 台上的枪的摆放规则 (POLICY)。与 Java com.miningdim.job.munitions.block.GunsmithBenchGunLayout 逐步对应, 改一边必须改另一边。
+ * @param B 枪在 TACZ FIXED 定位系里画出来的方块 (taczBareDrawn) 的包围盒 {min:[x,y,z], max:[x,y,z]} (未缩放 px; 枪口 -X, 枪顶 +Y, 枪的左侧 +Z)
+ * @param z0 枪口参考点 (TACZ_MUZZLE_NODES 中第一个存在的) 在同一坐标系里的 Z; 没有这些节点时传 null
+ * @param bed 枪床常量 (生成器的 GUN_BED, 即 GunsmithGunBed.java 的同一组数值)
+ * @returns null = 不画; 否则 {L, T, k, leftSideUp, R (3x3 行主序), t, benchMin, benchMax}, 台上坐标 bench = t + k * R * q
+ */
+export function layoutGunOnBed(B, z0, bed) {
+    // 1. 长度 L; 非正或非有限值 → 不画
+    const L = B.max[0] - B.min[0];
+    if (!(L > 0) || !Number.isFinite(L)) return null;
+    // 2. 渲染长度 T = min(MAX_LENGTH, SIZE_A * L^SIZE_P), k = T / L; 剖面高度 k * (B.maxY - B.minY) 超过 2 * HALF_WIDTH 时再压到正好
+    const T = Math.min(bed.MAX_LENGTH, bed.SIZE_A * Math.pow(L, bed.SIZE_P));
+    let k = T / L;
+    if (k * (B.max[1] - B.min[1]) > 2 * bed.HALF_WIDTH) k = 2 * bed.HALF_WIDTH / (B.max[1] - B.min[1]);
+    // 3. 朝上的一侧: 没有枪口节点时 z0 取 B 的 z 中心 (两侧厚度差为 0 → 右侧朝上)
+    const zRef = z0 === null || z0 === undefined ? (B.min[2] + B.max[2]) / 2 : z0;
+    const leftSideUp = (B.max[2] - zRef) - (zRef - B.min[2]) > bed.SIDE_UP_THRESHOLD;
+    // 4. 定位系 → 台上坐标的旋转 R: 右侧朝上 (X, Y, Z) → (X, -Z, Y) (枪顶朝 +z 即机械臂, 握把/弹匣朝玩家); 左侧朝上 (X, Y, Z) → (X, Z, -Y)
+    const R = leftSideUp ? [1, 0, 0, 0, 0, 1, 0, -1, 0] : [1, 0, 0, 0, 0, -1, 0, 1, 0];
+    // 5. 平移 t: 变换后的包围盒最大 x = BUTT_X、最小 y = TOP_Y、z 中心 = AXIS_Z
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (const x of [B.min[0], B.max[0]]) for (const y of [B.min[1], B.max[1]]) for (const z of [B.min[2], B.max[2]]) {
+        for (let a = 0; a < 3; a++) {
+            const v = k * (R[a * 3] * x + R[a * 3 + 1] * y + R[a * 3 + 2] * z);
+            lo[a] = Math.min(lo[a], v);
+            hi[a] = Math.max(hi[a], v);
+        }
+    }
+    const t = [bed.BUTT_X - hi[0], bed.TOP_Y - lo[1], bed.AXIS_Z - (lo[2] + hi[2]) / 2];
+    return { L, T, k, leftSideUp, R, t, benchMin: lo.map((v, a) => v + t[a]), benchMax: hi.map((v, a) => v + t[a]) };
+}
+
+function mInvAffine(m) {
+    const [a, b, c, , d, e, f, , g, h, i] = m;
+    const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    if (Math.abs(det) < 1e-12) throw new Error('singular matrix');
+    const r = [
+        (e * i - f * h) / det, (c * h - b * i) / det, (b * f - c * e) / det, 0,
+        (f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det, 0,
+        (d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det, 0,
+        0, 0, 0, 1,
+    ];
+    r[3] = -(r[0] * m[3] + r[1] * m[7] + r[2] * m[11]);
+    r[7] = -(r[4] * m[3] + r[5] * m[7] + r[6] * m[11]);
+    r[11] = -(r[8] * m[3] + r[9] * m[7] + r[10] * m[11]);
+    return r;
+}
+
+/** BedrockVersion: format_version 次版本 >= 12 走新格式 (minecraft:geometry), "1.10.0" 走旧格式 (geometry.model), 其它 TACZ 不加载。 */
+function readGeo(json) {
+    const ver = String(json.format_version || '');
+    const v = ver.split('.');
+    if (v.length === 3 && Number(v[1]) >= 12) {
+        const g = json['minecraft:geometry'] && json['minecraft:geometry'][0];
+        if (!g || !g.description) throw new Error(`geo ${ver}: no minecraft:geometry[0].description`);
+        return { legacy: false, bones: g.bones || [], texW: g.description.texture_width, texH: g.description.texture_height };
+    }
+    if (ver === '1.10.0') {
+        const g = json['geometry.model'];
+        if (!g) throw new Error('geo 1.10.0: no geometry.model');
+        return { legacy: true, bones: g.bones || [], texW: g.texturewidth, texH: g.textureheight };
+    }
+    throw new Error(`geo format_version "${ver}" is neither new (1.12+) nor legacy (1.10.0): TACZ does not load it`);
+}
+
+// BedrockPolygon: 顶点 0..3 依次取 (u2,v1) (u1,v1) (u1,v2) (u2,v2); 镜像时顶点顺序整体反转。
+function bedrockPolygon(verts, u1, v1, u2, v2, mirror) {
+    const uvs = [[u2, v1], [u1, v1], [u1, v2], [u2, v2]];
+    const vs = verts.map((p, i) => ({ p, uv: uvs[i] }));
+    return mirror ? vs.reverse() : vs;
+}
+
+/**
+ * 按 TACZ 1.1.8 BedrockModel 的加载约定, 把一个 Bedrock geo 枪模烘成光栅四边形 (Node 与浏览器共用)。
+ * 加载约定: 根骨骼位置 (px, 24 - py, pz), 子骨骼相对父骨骼 (px - ppx, ppy - py, pz - ppz); 变换 T · Rz · Ry · Rx, 角度按原值只换成弧度;
+ * 方块有 rotation 时包一层以方块 pivot 为原点的子节点; 盒式 UV (尺寸取整、mirror 交换 x 并反转顶点) 或逐面 UV
+ * (east/west、up/down 与 JSON 里的键互换, 与 FaceUVsItem.getFace 相同); inflate 只放大几何; UV 按 geo 的 texture_width/height 计。
+ * 然后是 TACZ FIXED 定位系 (scale(-1,-1,1) 再乘 fixed 骨骼链的逆: fixed 枢轴落在原点、它的旋转被抵消),
+ * frame = 'bench' 时再按 layoutGunOnBed 摆到枪床上 (朝北整台局部像素)。
+ * 画哪些方块: 裸枪显示 stack 下 TACZ 实际画的 (taczBareDrawn: 手、默认隐藏节点的子树与 attachment_adapter 的子节点不画);
+ * 包围盒 B、摆放与安装点枪顶都只算这些方块 (与 GunsmithBenchGunLayout / GunsmithBenchGunRenderer 同一集合)。LOD 模型同一规则。
+ * 名字以 _illuminated 结尾的骨骼 (含子树) 全亮, 与 BedrockPart 相同。
+ * @param json 已解析的 geo JSON
+ * @param image 贴图 {width, height, data} (可比 texture_width/height 大, 按比例采样); null = 只算几何, 不出四边形
+ * @param opts {frame: 'bench' (默认) | 'fixed', bed: GUN_BED (frame = 'bench' 时必需), bbox: 'raw' (默认) | 'inflated', tag}
+ *   bbox: 包围盒 B 取方块的原始边界 (BedrockCubeBox/PerFace 的 minX..maxZ 字段, 不含 inflate, Java 侧能读到的就是它) 还是含 inflate 的实际几何。
+ * @returns {quads, cubes: [{m (方块局部 px → 输出坐标), lo, hi (含 inflate 的局部盒), inflate, aabb: {lo, hi} (输出坐标系的 AABB: 8 个原始角点
+ *   (不含 inflate) 在 FIXED 定位系里的 AABB 经摆放变换后的像, 安装点枪顶用它), bone, illuminated}],
+ *   bbox: {raw, inflated} (FIXED 定位系), B (layout 用的那个), z0, muzzleNode, layout (bench) | null, texW, texH, legacy,
+ *   stats: {cubes (全部), hiddenCubes (手与默认隐藏子树), adapterCubes (attachment_adapter 下不画的), drawnCubes, quads}}
+ */
+export function bakeBedrockGeo(json, image, opts = {}) {
+    const geo = readGeo(json);
+    const frame = opts.frame || 'bench';
+    if (frame !== 'bench' && frame !== 'fixed') throw new Error('bakeBedrockGeo: bad frame ' + frame);
+    const bboxMode = opts.bbox || 'raw';
+    if (bboxMode !== 'raw' && bboxMode !== 'inflated') throw new Error('bakeBedrockGeo: bad bbox mode ' + bboxMode);
+    // 旧参数 adapterNodes: [] 就是现在唯一的画法 (裸枪), 照收; 点名转接件的画法已经去掉
+    if (opts.adapterNodes !== undefined && !(Array.isArray(opts.adapterNodes) && !opts.adapterNodes.length)) {
+        throw new Error('bakeBedrockGeo: adapterNodes was removed; the bench always draws the bare display stack (taczBareDrawn)');
+    }
+    if (!(geo.texW > 0) || !(geo.texH > 0)) throw new Error('geo: texture_width/height missing');
+    const byName = new Map();
+    for (const b of geo.bones) {
+        if (!b.name) throw new Error('geo: bone without a name');
+        // TACZ 用 putIfAbsent 按名字建部件, 同名骨骼会合并成一个部件并被挂到父节点两次; 预览不模拟这种情况
+        if (byName.has(b.name)) throw new Error('geo: duplicate bone name ' + b.name);
+        if (!Array.isArray(b.pivot)) throw new Error(`geo: bone ${b.name} has no pivot (TACZ fails to load such a model)`);
+        byName.set(b.name, b);
+    }
+    for (const b of geo.bones) if (b.parent && !byName.has(b.parent)) throw new Error(`geo: bone ${b.name} has unknown parent ${b.parent}`);
+    const DEG = Math.PI / 180;
+    const rot = (r) => (r ? matMul(mRotZ(r[2] * DEG), matMul(mRotY(r[1] * DEG), mRotX(r[0] * DEG))) : IDENT);
+    // 部件空间 (y 朝下, 单位 px) 的骨骼世界矩阵
+    const world = new Map();
+    const boneMatrix = (name, depth = 0) => {
+        if (world.has(name)) return world.get(name);
+        if (depth > 256) throw new Error('geo: bone parent loop at ' + name);
+        const b = byName.get(name), p = b.pivot;
+        let m;
+        if (b.parent) {
+            const pp = byName.get(b.parent).pivot;
+            m = matMul(boneMatrix(b.parent, depth + 1), matMul(mTranslate(p[0] - pp[0], pp[1] - p[1], p[2] - pp[2]), rot(b.rotation)));
+        } else {
+            m = matMul(mTranslate(p[0], 24 - p[1], p[2]), rot(b.rotation));
+        }
+        world.set(name, m);
+        return m;
+    };
+    const ancestors = (name) => {
+        const out = [];
+        for (let b = byName.get(name); b; b = b.parent ? byName.get(b.parent) : null) {
+            if (out.length > 256) throw new Error('geo: bone parent loop at ' + name);
+            out.push(b.name);
+        }
+        return out;
+    };
+    const hiddenSet = new Set([...TACZ_HAND_BONES, ...TACZ_HIDDEN_BONES]);
+
+    // FIXED 定位系: renderStatic 的 -0.5、TACZ 的 (0.5, 2, 0.5) 与 scale(-1,-1,1)、定位节点逆变换合起来 = scale(-1,-1,1) · fixed 世界矩阵的逆
+    // (没有 fixed 骨骼时 getPositioningNodeInverse 是单位阵, 化简后是 scale(-1,-1,1) · translate(0, -24, 0))
+    const toFixed = matMul(mScale(-1, -1, 1), byName.has('fixed') ? mInvAffine(boneMatrix('fixed')) : mTranslate(0, -24, 0));
+
+    // 方块: 局部盒 + 局部 → 部件空间矩阵 (只收裸枪显示 stack 下画出来的方块)
+    const cubes = [];
+    let total = 0, hiddenCubes = 0, adapterCubes = 0;
+    for (const b of geo.bones) {
+        if (!b.cubes || !b.cubes.length) continue;
+        total += b.cubes.length;
+        const anc = ancestors(b.name);
+        if (anc.some((n) => hiddenSet.has(n))) { hiddenCubes += b.cubes.length; continue; }
+        const illuminated = anc.some((n) => n.endsWith('_illuminated'));
+        const M = boneMatrix(b.name), bp = b.pivot;
+        for (const c of b.cubes) {
+            if (!Array.isArray(c.origin) || !Array.isArray(c.size)) throw new Error(`geo: cube in ${b.name} without origin/size`);
+            if (c.uv === undefined || c.uv === null) throw new Error(`geo: cube in ${b.name} without uv (TACZ fails to load such a model)`);
+            if (!taczBareDrawn(anc, c, geo.legacy)) { adapterCubes++; continue; }
+            const o = c.origin, s = c.size;
+            let m, lo;
+            if (!geo.legacy && c.rotation) {
+                if (!Array.isArray(c.pivot)) throw new Error(`geo: rotated cube in ${b.name} without pivot`);
+                const cp = c.pivot;
+                m = matMul(M, matMul(mTranslate(cp[0] - bp[0], bp[1] - cp[1], cp[2] - bp[2]), rot(c.rotation)));
+                lo = [o[0] - cp[0], cp[1] - o[1] - s[1], o[2] - cp[2]];
+            } else {
+                m = M;
+                lo = [o[0] - bp[0], bp[1] - o[1] - s[1], o[2] - bp[2]];
+            }
+            if (geo.legacy && !Array.isArray(c.uv)) throw new Error(`geo 1.10.0: cube in ${b.name} has per-face uv (the legacy loader only reads box uv)`);
+            cubes.push({ bone: b.name, illuminated, part: m, lo, size: s, inflate: c.inflate || 0,
+                mirror: typeof c.mirror === 'boolean' ? c.mirror : !!b.mirror, uv: c.uv });
+        }
+    }
+
+    // 包围盒 B (FIXED 定位系) 与枪口参考点; 每个方块另记原始角点 (不含 inflate) 的 FIXED 定位系 AABB
+    const emptyBox = () => ({ min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] });
+    const grow = (bb, p) => { for (let a = 0; a < 3; a++) { bb.min[a] = Math.min(bb.min[a], p[a]); bb.max[a] = Math.max(bb.max[a], p[a]); } };
+    const bbox = { raw: emptyBox(), inflated: emptyBox() };
+    for (const c of cubes) {
+        const mf = matMul(toFixed, c.part);
+        for (const [key, g] of [['raw', 0], ['inflated', c.inflate]]) {
+            const own = emptyBox();
+            for (const x of [c.lo[0] - g, c.lo[0] + c.size[0] + g]) for (const y of [c.lo[1] - g, c.lo[1] + c.size[1] + g]) for (const z of [c.lo[2] - g, c.lo[2] + c.size[2] + g]) {
+                const p = apply(mf, [x, y, z]);
+                grow(bbox[key], p);
+                grow(own, p);
+            }
+            if (key === 'raw') c.fixedAabb = own;
+        }
+    }
+    const muzzleNode = TACZ_MUZZLE_NODES.find((n) => byName.has(n)) || null;
+    const z0 = muzzleNode ? apply(matMul(toFixed, boneMatrix(muzzleNode)), [0, 0, 0])[2] : null;
+    const B = bbox[bboxMode];
+    const stats = { cubes: total, hiddenCubes, adapterCubes, drawnCubes: cubes.length, quads: 0 };
+
+    let out = toFixed, layout = null, place = null;
+    if (frame === 'bench') {
+        if (!opts.bed) throw new Error('bakeBedrockGeo: frame "bench" needs opts.bed (GUN_BED)');
+        layout = cubes.length ? layoutGunOnBed(B, z0, opts.bed) : null;
+        if (!layout) return { quads: [], cubes: [], bbox, B, z0, muzzleNode, layout: null, texW: geo.texW, texH: geo.texH, legacy: geo.legacy, stats: { ...stats, drawnCubes: 0 } };
+        const { R, t, k } = layout;
+        place = [k * R[0], k * R[1], k * R[2], t[0], k * R[3], k * R[4], k * R[5], t[1], k * R[6], k * R[7], k * R[8], t[2], 0, 0, 0, 1];
+        out = matMul(place, toFixed);
+    }
+    // 方块 AABB 在输出坐标系里: FIXED 定位系 AABB 的 8 个角经摆放变换 (R 只换轴/取反, 所以像仍是精确的 AABB)
+    const outAabb = (fa) => {
+        if (!place) return { lo: fa.min.slice(), hi: fa.max.slice() };
+        const bb = emptyBox();
+        for (const x of [fa.min[0], fa.max[0]]) for (const y of [fa.min[1], fa.max[1]]) for (const z of [fa.min[2], fa.max[2]]) grow(bb, apply(place, [x, y, z]));
+        return { lo: bb.min, hi: bb.max };
+    };
+
+    const quads = [];
+    const outCubes = [];
+    for (const c of cubes) {
+        const m = matMul(out, c.part);
+        const g = c.inflate;
+        let x = c.lo[0] - g, y = c.lo[1] - g, z = c.lo[2] - g;
+        let xE = c.lo[0] + c.size[0] + g;
+        const yE = c.lo[1] + c.size[1] + g, zE = c.lo[2] + c.size[2] + g;
+        outCubes.push({ m, lo: [x, y, z], hi: [xE, yE, zE], inflate: g, aabb: outAabb(c.fixedAabb), bone: c.bone, illuminated: c.illuminated });
+        if (!image) continue;
+        const box = Array.isArray(c.uv);
+        const mirror = box && c.mirror;   // BedrockCubePerFace 不做镜像
+        if (mirror) [x, xE] = [xE, x];
+        const V = [null, [x, y, z], [xE, y, z], [xE, yE, z], [x, yE, z], [x, y, zE], [xE, y, zE], [xE, yE, zE], [x, yE, zE]];
+        // [TACZ 方向, 顶点 (v1..v8 编号), 盒式 UV 矩形, 逐面 UV 用的 JSON 键]
+        let faces;
+        if (box) {
+            const [u0, v0] = c.uv, dx = Math.trunc(c.size[0]), dy = Math.trunc(c.size[1]), dz = Math.trunc(c.size[2]);
+            const p1 = u0 + dz, p2 = p1 + dx, p3 = p2 + dx, p4 = p2 + dz, p5 = p4 + dx, p6 = v0 + dz, p7 = p6 + dy;
+            faces = [
+                [[6, 5, 1, 2], [p1, v0, p2, p6]],   // DOWN
+                [[3, 4, 8, 7], [p2, p6, p3, v0]],   // UP
+                [[1, 5, 8, 4], [u0, p6, p1, p7]],   // WEST
+                [[2, 1, 4, 3], [p1, p6, p2, p7]],   // NORTH
+                [[6, 2, 3, 7], [p2, p6, p4, p7]],   // EAST
+                [[5, 6, 7, 8], [p4, p6, p5, p7]],   // SOUTH
+            ];
+        } else {
+            const rect = (key) => {
+                const f = c.uv[key];
+                if (!f) return null;   // FaceItem.EMPTY: 四个顶点都在原点, 不出面
+                if (!Array.isArray(f.uv) || !Array.isArray(f.uv_size)) throw new Error(`geo: per-face uv "${key}" in ${c.bone} needs uv and uv_size`);
+                return [f.uv[0], f.uv[1], f.uv[0] + f.uv_size[0], f.uv[1] + f.uv_size[1]];
+            };
+            faces = [[[6, 5, 1, 2], rect('up')], [[3, 4, 8, 7], rect('down')], [[1, 5, 8, 4], rect('east')], [[2, 1, 4, 3], rect('north')], [[6, 2, 3, 7], rect('west')], [[5, 6, 7, 8], rect('south')]];
+        }
+        for (const [idx, r] of faces) {
+            if (!r) continue;
+            const poly = bedrockPolygon(idx.map((i) => apply(m, V[i])), r[0], r[1], r[2], r[3], mirror);
+            const pts = poly.map((v) => v.p);
+            // 朝向取绕序 (游戏里剔除看的是屏幕绕序, 不看法线): 两条对角边的叉积, 零面积 (厚度为 0 的方块的侧面) 不出面
+            const d1 = [pts[2][0] - pts[0][0], pts[2][1] - pts[0][1], pts[2][2] - pts[0][2]];
+            const d2 = [pts[3][0] - pts[1][0], pts[3][1] - pts[1][1], pts[3][2] - pts[1][2]];
+            const n = [d1[1] * d2[2] - d1[2] * d2[1], d1[2] * d2[0] - d1[0] * d2[2], d1[0] * d2[1] - d1[1] * d2[0]];
+            const len = Math.hypot(n[0], n[1], n[2]);
+            if (len < 1e-9) continue;
+            quads.push({
+                pts, uvs: poly.map((v) => v.uv), normal: n.map((q) => q / len), image, uvScale: geo.texW, uvScaleV: geo.texH,
+                cull: true, shade: null, light: c.illuminated ? 15 : 0, entity: true, tag: opts.tag || 'gun',
+            });
+        }
+    }
+    return { quads, cubes: outCubes, bbox, B, z0, muzzleNode, layout, texW: geo.texW, texH: geo.texH, legacy: geo.legacy, stats: { ...stats, quads: quads.length } };
 }
 
 /** 物品栏图标: 按模型 display.gui 变换, 返回可直接光栅化的四边形 (中心在原点)。 */

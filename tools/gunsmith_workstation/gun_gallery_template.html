@@ -1,0 +1,625 @@
+<title>/*__TITLE__*/</title>
+<style>
+  /* 发布成 claude.ai Artifact: 外层文档结构 (doctype、html、head、body) 由发布时套上, 这里只写 title/style 与页面内容。
+     颜色全部是 :root 上的令牌 (浅色), 深色在 prefers-color-scheme 与 data-theme="dark" 两处重定义。 */
+  :root {
+    --ground: #e9edf0;
+    --panel: #f8fafb;
+    --panel-2: #e1e6ea;
+    --line: #cdd4da;
+    --text: #172026;
+    --muted: #56616b;
+    --accent: #0b7f7b;
+    --accent-ink: #ffffff;
+    --hot: #c95414;
+    --hot-ink: #ffffff;
+    --ok: #237a45;
+    --warn: #8a6200;
+    --bad: #b8322a;
+    --viewport: #aab3bc;
+    --seg-move: #5b86b8;
+    --seg-plunge: #2aa7a1;
+    --seg-grip: #d0a524;
+    --seg-weld: #e0712e;
+    --seg-hold: #c3cad1;
+    --cursor: #172026;
+    --display: "Chakra Petch", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
+    --body: "IBM Plex Sans", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Consolas, "Microsoft YaHei UI", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #121519; --panel: #1a1e24; --panel-2: #232932; --line: #2e3540; --text: #e3e7ed; --muted: #8f98a6;
+      --accent: #47d4cf; --accent-ink: #0e1316; --hot: #ff8b3d; --hot-ink: #16110d; --ok: #6fd08c; --warn: #e8c23a; --bad: #ff6b5b;
+      --viewport: #3a3f48; --seg-move: #4d7fb8; --seg-plunge: #47d4cf; --seg-grip: #e8c23a; --seg-weld: #ff8b3d; --seg-hold: #3a414c; --cursor: #ffffff;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #121519; --panel: #1a1e24; --panel-2: #232932; --line: #2e3540; --text: #e3e7ed; --muted: #8f98a6;
+    --accent: #47d4cf; --accent-ink: #0e1316; --hot: #ff8b3d; --hot-ink: #16110d; --ok: #6fd08c; --warn: #e8c23a; --bad: #ff6b5b;
+    --viewport: #3a3f48; --seg-move: #4d7fb8; --seg-plunge: #47d4cf; --seg-grip: #e8c23a; --seg-weld: #ff8b3d; --seg-hold: #3a414c; --cursor: #ffffff;
+  }
+  body { background: var(--ground); color: var(--text); font: 14px/1.6 var(--body); margin: 0; padding-inline: 16px; padding-block: 16px 40px; }
+  .wrap { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  /* 网格/弹性子项默认 min-width: auto, 会被横向滚动的动作条撑宽整页; 一律允许收窄 */
+  .wrap > *, .controls > *, .timeline > *, .row > *, .now > * { min-width: 0; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; }
+  h1 { font: 600 20px/1.25 var(--display); letter-spacing: 0.02em; margin: 0; text-wrap: balance; }
+  .sub { color: var(--muted); margin: 0; font-size: 13px; max-width: 72ch; }
+  button { font: 500 13px/1 var(--body); color: var(--muted); background: transparent; border: 0; border-radius: 5px; padding: 8px 11px; cursor: pointer; white-space: nowrap; }
+  button:hover { color: var(--text); background: var(--panel-2); }
+  button[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); }
+  button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  select { font: 500 14px/1.2 var(--body); color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; min-width: 0; max-width: 100%; }
+  .seg { display: inline-flex; flex-wrap: wrap; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 3px; max-width: 100%; }
+  .step { color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 7px 11px; font-size: 16px; }
+  .label { font: 600 11px/1 var(--display); color: var(--muted); letter-spacing: 0.08em; }
+  .group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+
+  /* 视口 */
+  .stage { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .stage-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; padding: 9px 14px; border-bottom: 1px solid var(--line); }
+  .stage-head h2 { font: 600 16px/1.3 var(--display); margin: 0; }
+  .tag { font: 400 12px/1.4 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .view { position: relative; background: var(--viewport); aspect-ratio: 16 / 9; max-width: 100%; }
+  @media (max-width: 640px) { .view { aspect-ratio: 4 / 3; } }
+  .view canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; cursor: grab; touch-action: pan-y; }
+  .view canvas:active { cursor: grabbing; }
+  .view .err { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; color: var(--bad); background: var(--panel); text-align: center; }
+  .view .hint { position: absolute; right: 8px; bottom: 6px; font: 400 11px/1.3 var(--body); color: var(--text); background: color-mix(in srgb, var(--panel) 78%, transparent); padding: 3px 7px; border-radius: 4px; pointer-events: none; }
+
+  /* 控件 */
+  .controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+  .gunpick { flex: 1 1 260px; flex-wrap: nowrap; }
+  .gunpick select { flex: 1 1 0; width: 0; min-width: 0; }
+  .timeline { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .timeline.off { opacity: 0.5; }
+  .now { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+  #play { min-width: 64px; color: var(--hot-ink); background: var(--hot); font-weight: 600; }
+  .readout { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+  .readout .tick { font: 500 16px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .readout .action { font: 600 16px/1.2 var(--display); color: var(--accent); }
+  .readout .action.weld { color: var(--hot); }
+  .bar { position: relative; height: 18px; border-radius: 4px; overflow: hidden; display: flex; cursor: pointer; }
+  .bar span { height: 100%; border-right: 1px solid var(--panel); }
+  .bar .cursor { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--cursor); pointer-events: none; }
+  #scrub { width: 100%; accent-color: var(--accent); margin: 0; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+  .chip { flex: 0 0 auto; display: inline-flex; align-items: baseline; gap: 6px; font: 500 12px/1 var(--body); color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; }
+  .chip b { font: 500 11px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .chip.weld { border-color: var(--seg-weld); }
+  .chip[aria-current="step"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+  .chip[aria-current="step"] b { color: var(--accent-ink); }
+  .legend { display: flex; flex-wrap: wrap; gap: 2px 14px; color: var(--muted); font-size: 12px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .keys { color: var(--muted); font-size: 12px; margin: 0; }
+
+  /* 这把枪 */
+  .gun { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .gun-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+  .gun-head h3 { font: 600 16px/1.3 var(--display); margin: 0; }
+  .gun-head .id { font: 400 12px/1.3 var(--mono); color: var(--muted); word-break: break-all; }
+  .pill { font: 600 11px/1 var(--display); letter-spacing: 0.06em; padding: 4px 8px; border-radius: 4px; border: 1px solid currentColor; margin-left: auto; }
+  .pill.ok { color: var(--ok); } .pill.warn { color: var(--warn); } .pill.bad { color: var(--bad); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; margin: 0; }
+  .stats div { display: grid; gap: 2px; min-width: 0; }
+  .stats dt { color: var(--muted); font-size: 12px; }
+  .stats dd { margin: 0; font: 500 14px/1.35 var(--mono); font-variant-numeric: tabular-nums; }
+  .stats dd small { color: var(--muted); font: 400 12px/1.35 var(--mono); }
+  details { border-top: 1px solid var(--line); padding-top: 8px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; width: fit-content; }
+  .more { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 10px 0 0; }
+  .more dt { color: var(--muted); font-size: 12px; }
+  .more dd { margin: 0; font: 400 12.5px/1.5 var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .notes { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+  @media (max-width: 480px) { .more { grid-template-columns: 1fr; } .more dd { margin-bottom: 4px; } }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+
+<div class="wrap">
+  <header>
+    <h1>/*__TITLE__*/</h1>
+    <p class="sub">组装台里那把枪的真实 TACZ 模型 (裸枪, 不带配件) 侧躺在枪床上: 枪托抵住东端挡块, 枪口朝西, 按尺寸曲线缩放 (封顶 <span id="max-len"></span> px)。机械臂在两个安装点按这把枪的高度下沉, 零件和焊花落在枪上。</p>
+  </header>
+
+  <section class="stage" aria-label="三维预览">
+    <div class="stage-head"><h2 id="view-title">组装台</h2><span class="tag" id="view-tag"></span></div>
+    <div class="view">
+      <canvas id="canvas" aria-label="组装台、台上的枪与机械臂的三维预览"></canvas>
+      <div class="err" id="err" hidden></div>
+      <span class="hint">拖动旋转 · 滚轮缩放 · 双击复位</span>
+    </div>
+  </section>
+
+  <section class="controls" aria-label="控制">
+    <div class="row">
+      <div class="group gunpick"><label class="label" for="gun">枪</label>
+        <button class="step" id="prev-gun" aria-label="上一把枪">‹</button>
+        <select id="gun"></select>
+        <button class="step" id="next-gun" aria-label="下一把枪">›</button>
+      </div>
+      <div class="group"><span class="label" id="state-label">状态</span>
+        <div class="seg" role="group" aria-labelledby="state-label"><button id="state-idle" aria-pressed="false">待机</button><button id="state-active" aria-pressed="true">工作</button></div>
+      </div>
+    </div>
+
+    <div class="timeline" id="timeline" role="group" aria-label="机械臂程序时间轴">
+      <div class="now">
+        <button id="play" aria-label="播放或暂停机械臂程序">播放</button>
+        <div class="seg" id="speed" role="group" aria-label="播放速度"><button data-speed="0.5" aria-pressed="false">0.5×</button><button data-speed="1" aria-pressed="true">1×</button></div>
+        <div class="readout" aria-live="off"><span class="tick" id="tick-out">tick 0</span><span class="action" id="action-out">待机</span></div>
+      </div>
+      <div class="bar" id="bar" aria-hidden="true"></div>
+      <input id="scrub" type="range" min="0" max="160" step="0.1" value="0" aria-label="程序时间 (tick)">
+      <div class="chips" id="chips" role="group" aria-label="关键帧动作, 点击跳到该时刻"></div>
+      <div class="legend">
+        <span><i style="background:var(--seg-move)"></i>转运 (安全高度)</span>
+        <span><i style="background:var(--seg-plunge)"></i>竖直下探 / 抬起</span>
+        <span><i style="background:var(--seg-grip)"></i>夹取 / 松开</span>
+        <span><i style="background:var(--seg-weld)"></i>点焊</span>
+        <span><i style="background:var(--seg-hold)"></i>停顿</span>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="group"><span class="label" id="view-label">视角</span><div class="seg" id="presets" role="group" aria-labelledby="view-label"></div></div>
+      <div class="group"><span class="label" id="frame-label">取景</span>
+        <div class="seg" id="frames" role="group" aria-labelledby="frame-label"><button data-frame="bed" aria-pressed="false">枪床</button><button data-frame="work" aria-pressed="true">枪床 + 机械臂</button><button data-frame="bench" aria-pressed="false">整台</button></div>
+      </div>
+      <div class="group"><span class="label" id="light-label">光照</span>
+        <div class="seg" role="group" aria-labelledby="light-label"><button id="light-day" aria-pressed="true">白天</button><button id="light-night" aria-pressed="false">夜间</button></div>
+      </div>
+    </div>
+    <p class="keys">键盘: [ ] 换枪 · 空格 播放/暂停 · ← → 单步 1 tick</p>
+  </section>
+
+  <section class="gun" aria-label="这把枪的摆放">
+    <div class="gun-head"><h3 id="gun-name"></h3><span class="id" id="gun-id"></span><span class="pill" id="verdict"></span></div>
+    <dl class="stats" id="stats"></dl>
+    <details id="details"><summary>摆放与间隙明细</summary><dl class="more" id="more"></dl><ul class="notes" id="notes"></ul></details>
+  </section>
+</div>
+
+<script>
+/*__RASTER__*/
+
+const DATA = /*__DATA__*/;
+const PROGRAM = DATA.arm.program;
+const TOTAL = PROGRAM.rows[PROGRAM.rows.length - 1].tick;
+const FRAMES = {
+  bed: { min: [1, 9, 7], max: [31, 16, 17] },
+  work: { min: [1, 9, 6], max: [31, 24, 26] },
+  bench: { min: [-2, 0, -2], max: [34, 22, 34] },
+};
+const GROUND = (() => {
+  const data = new Uint8ClampedArray(16 * 16 * 4);
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const v = x === 0 || y === 0 ? 150 : ((x + y) & 1 ? 196 : 190);
+    const o = (y * 16 + x) * 4;
+    data[o] = v; data[o + 1] = v + 2; data[o + 2] = v + 6; data[o + 3] = 255;
+  }
+  return { width: 16, height: 16, data };
+})();
+const GROUND_QUADS = groundQuads(-1, 3, -1, 3, GROUND);
+const REDUCED = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const ui = { tick: DATA.weldTick, playing: false, speed: 1, yaw: 0, pitch: 20, zoom: 1, frame: 'work', night: false, dragging: false, active: true, gun: 0, preset: 0 };
+const IMAGES = {};
+const BENCH = {};        // idle / active 台子四边形 (烘一次)
+const GUNS = new Map();  // 枪下标 → {baked, drops} (按需烘)
+let staticLayer = null;  // 台子 + 枪 + 地面 的颜色与深度, 视角/状态/枪/主题不变时复用, 每帧只光栅机械臂
+let viewportRgb = [58, 63, 72];
+
+function decodeImages() {
+  return Promise.all(Object.entries(DATA.images).map(([key, uri]) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0);
+      IMAGES[key] = { width: img.width, height: img.height, data: g.getImageData(0, 0, img.width, img.height).data };
+      resolve();
+    };
+    img.onerror = () => reject(new Error('贴图解码失败: ' + key));
+    img.src = uri;
+  })));
+}
+
+/** 视口底色跟着页面主题 (--viewport 令牌), 夜间模式固定深色。 */
+function readViewport() {
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--viewport').trim();
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(v);
+  return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [58, 63, 72];
+}
+function themeChanged() {
+  viewportRgb = readViewport();
+  staticLayer = null;
+  requestRender();
+}
+
+function benchQuads(active) {
+  const key = active ? 'active' : 'idle';
+  if (!BENCH[key]) {
+    const q = [];
+    for (const p of DATA.bench[key]) q.push(...bakeBlockModel(p.model, { offset: p.offset, textureLookup: (id) => IMAGES[p.model.prefix + '|' + id] }));
+    BENCH[key] = q;
+  }
+  return BENCH[key];
+}
+
+/**
+ * 与 Java 渲染器同一条链: TACZ 加载约定 → 裸枪显示 stack 画出来的方块 → FIXED 定位系 → 摆放规则 (layoutGunOnBed) → 台上坐标;
+ * 放件下沉量按同一规则 (benchGunPlaceDrops) 从台上的方块算。
+ */
+function gunEntry(i) {
+  if (!GUNS.has(i)) {
+    const g = DATA.guns[i];
+    const baked = bakeBedrockGeo(g.geo, IMAGES[g.image], { bed: DATA.bed });
+    const pd = benchGunPlaceDrops(PROGRAM, baked, DATA.bed);
+    GUNS.set(i, { baked, drops: pd ? pd.drops : null });
+  }
+  return GUNS.get(i);
+}
+
+/** 与 scene.mjs armQuads 相同: 工作态走关键帧程序 (按这把枪的下沉量, 含火花); 待机态停在程序第 0 tick (换刀座上方)。 */
+function armQuadsAt(tick) {
+  const arm = DATA.arm;
+  const st = armProgramState(arm, ui.active ? tick : 0, ui.active ? gunEntry(ui.gun).drops : null);
+  const q = bakeArm(arm, st.pose, IMAGES[arm.image]);
+  if (ui.active && st.spark) q.push(...sparkQuads(st.contact, tick));
+  return q;
+}
+
+function frameFit(cam, frame, w, h) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const x of [frame.min[0], frame.max[0]]) for (const y of [frame.min[1], frame.max[1]]) for (const z of [frame.min[2], frame.max[2]]) {
+    const sx = x * cam.right[0] + y * cam.right[1] + z * cam.right[2];
+    const sy = -(x * cam.up[0] + y * cam.up[1] + z * cam.up[2]);
+    minX = Math.min(minX, sx); maxX = Math.max(maxX, sx); minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
+  }
+  const scale = Math.min(w / (maxX - minX), h / (maxY - minY)) * 0.94 * ui.zoom;
+  return { scale, cx: w / 2 - ((minX + maxX) / 2) * scale, cy: h / 2 - ((minY + maxY) / 2) * scale };
+}
+
+function renderView() {
+  const canvas = document.getElementById('canvas');
+  const quality = ui.dragging ? 0.5 : 1;
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  const w = Math.max(80, Math.round(canvas.clientWidth * dpr * quality));
+  const h = Math.max(60, Math.round(canvas.clientHeight * dpr * quality));
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  const cam = cameraFromAngles(ui.yaw, ui.pitch);
+  const fit = frameFit(cam, FRAMES[ui.frame], w, h);
+  const view = { cam, scale: fit.scale, cx: fit.cx, cy: fit.cy, brightness: ui.night ? 0.18 : 1 };
+  const key = [w, h, ui.yaw, ui.pitch, ui.zoom, ui.frame, ui.night, ui.active, ui.gun, viewportRgb.join(',')].join('|');
+  if (!staticLayer || staticLayer.key !== key) {
+    const t = { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) };
+    fillBackground(t, ui.night ? [24, 27, 33] : viewportRgb);
+    t.depth = new Float32Array(w * h).fill(Infinity);
+    rasterize(benchQuads(ui.active).concat(GROUND_QUADS, gunEntry(ui.gun).baked.quads), t, view);
+    staticLayer = { key, data: t.data, depth: t.depth };
+  }
+  const target = { width: w, height: h, data: new Uint8ClampedArray(staticLayer.data), depth: new Float32Array(staticLayer.depth) };
+  rasterize(armQuadsAt(ui.tick), target, view);
+  canvas.getContext('2d').putImageData(new ImageData(target.data, w, h), 0, 0);
+}
+
+// 按关键帧数据分类, 不看动作名 (与 arm_anim_template.html 相同)
+function segmentKind(a, b) {
+  if (b.spark) return 'weld';
+  if (b.linear === 1) return 'plunge';
+  if (b.linear === 2) return 'move';
+  if (a.claw !== b.claw) return 'grip';
+  return 'hold';
+}
+
+const f2 = (v) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(2));
+const f3 = (v) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(3));
+const signed = (v) => (v == null || !Number.isFinite(v) ? '—' : (v >= 0 ? '+' : '') + v.toFixed(3));
+
+let lastChip = -1;
+function updateReadout() {
+  const t = ui.active ? ui.tick : 0;
+  document.getElementById('tick-out').textContent = ui.active ? 'tick ' + t.toFixed(1) : '待机';
+  const k = sampleArmProgram(PROGRAM, t);
+  const label = ui.active ? (k.label || '待机') : '机械臂停在换刀座上方';
+  const out = document.getElementById('action-out');
+  out.textContent = label;
+  out.classList.toggle('weld', ui.active && !!k.spark);
+  document.getElementById('scrub').value = String(t);
+  document.getElementById('cursor').style.left = (t / TOTAL * 100) + '%';
+  const g = DATA.guns[ui.gun];
+  document.getElementById('view-title').textContent = g.name || g.id;
+  document.getElementById('view-tag').textContent = (ui.active ? '工作 · tick ' + Math.floor(t) + ' / ' + TOTAL : '待机') + ' · ' + (ui.preset < 0 ? '自由视角' : DATA.presets[ui.preset].label);
+  // 当前所在的关键帧动作 (最后一个起点在 t 之前的)
+  let cur = -1;
+  CHIPS.forEach((c, i) => { if (ui.active && c.start < t) cur = i; });
+  if (cur !== lastChip) {
+    const strip = document.getElementById('chips');
+    strip.querySelectorAll('.chip').forEach((b, i) => { if (i === cur) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current'); });
+    if (cur >= 0) {
+      const b = strip.children[cur];
+      const want = b.offsetLeft - strip.offsetLeft - (strip.clientWidth - b.offsetWidth) / 2;
+      strip.scrollLeft = Math.max(0, want);
+    }
+    lastChip = cur;
+  }
+}
+
+// 时间轴下方的关键帧动作: 除 "停顿" 外每一行 (相邻两行同名只留一个), 点击跳到该行到达的时刻
+const CHIPS = [];
+function buildTimeline() {
+  const bar = document.getElementById('bar');
+  const rows = PROGRAM.rows;
+  for (let i = 1; i < rows.length; i++) {
+    const s = document.createElement('span');
+    s.style.width = ((rows[i].tick - rows[i - 1].tick) / TOTAL * 100) + '%';
+    s.style.background = 'var(--seg-' + segmentKind(rows[i - 1], rows[i]) + ')';
+    s.title = rows[i - 1].tick + '–' + rows[i].tick + ' ' + rows[i].label;
+    bar.appendChild(s);
+  }
+  const cursor = document.createElement('div');
+  cursor.className = 'cursor';
+  cursor.id = 'cursor';
+  bar.appendChild(cursor);
+  bar.addEventListener('click', (e) => {
+    if (!ui.active) setActive(true);
+    const r = bar.getBoundingClientRect();
+    if (ui.playing) setPlaying(false);
+    seek((e.clientX - r.left) / r.width * TOTAL);
+  });
+  const strip = document.getElementById('chips');
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r.label || r.label === '停顿' || r.label === rows[i - 1].label) continue;
+    CHIPS.push({ start: rows[i - 1].tick, tick: r.tick, label: r.label, weld: !!r.spark });
+  }
+  CHIPS.forEach((c) => {
+    const b = el('button', { class: 'chip' + (c.weld ? ' weld' : ''), title: `tick ${c.start}–${c.tick}` }, [el('b', { text: String(c.tick) }), c.label]);
+    b.addEventListener('click', () => { if (!ui.active) setActive(true); if (ui.playing) setPlaying(false); seek(c.tick); });
+    strip.appendChild(b);
+  });
+}
+
+function el(tag, attrs = {}, children = []) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'text') e.textContent = v; else if (k === 'class') e.className = v; else e.setAttribute(k, v);
+  }
+  for (const c of children) e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+  return e;
+}
+
+function buildGunSelect() {
+  const sel = document.getElementById('gun');
+  for (const p of DATA.platforms) {
+    const og = el('optgroup', { label: p.name });
+    DATA.guns.forEach((g, i) => { if (g.platform === p.key) og.appendChild(el('option', { value: String(i), text: g.name || g.id })); });
+    sel.appendChild(og);
+  }
+  sel.addEventListener('change', () => setGun(Number(sel.value)));
+  document.getElementById('prev-gun').addEventListener('click', () => stepGun(-1));
+  document.getElementById('next-gun').addEventListener('click', () => stepGun(1));
+}
+
+// 下拉框里的顺序 (按平台分组) 就是 [ ] 的顺序
+function gunOrder() { return [...document.querySelectorAll('#gun option')].map((o) => Number(o.value)); }
+function stepGun(d) { const o = gunOrder(); setGun(o[(o.indexOf(ui.gun) + d + o.length) % o.length]); }
+
+function renderInfo() {
+  const g = DATA.guns[ui.gun], c = g.check;
+  document.getElementById('gun-name').textContent = g.name || g.id;
+  document.getElementById('gun-id').textContent = g.id + ' · ' + g.platformName;
+  const verdict = document.getElementById('verdict');
+  verdict.className = 'pill ' + (c.fails.length ? 'bad' : c.warns.length ? 'warn' : 'ok');
+  verdict.textContent = c.fails.length ? '校验失败' : c.warns.length ? '有提醒' : '校验通过';
+  const stats = document.getElementById('stats'), more = document.getElementById('more'), notes = document.getElementById('notes');
+  stats.textContent = ''; more.textContent = ''; notes.textContent = '';
+  if (!c.render) { stats.appendChild(el('div', {}, [el('dt', { text: '台上' }), el('dd', { text: '不画 (包围盒为空)' })])); return; }
+  const drops = gunEntry(ui.gun).drops || c.drops;
+  const st = (k) => c.stations[k] || {};
+  const stat = (label, main, small) => stats.appendChild(el('div', {}, [el('dt', { text: label }), el('dd', {}, [main, ...(small ? [' ', el('small', { text: small })] : [])])]));
+  stat('台上长度', f2(c.length) + ' px', (c.length / 16).toFixed(2) + ' 格');
+  stat('朝上一侧', c.side === 'LEFT' ? '左侧朝上' : '右侧朝上', c.side === 'LEFT' ? '侧插弹匣朝上' : '');
+  stat('放件下沉', f2(drops[0]) + ' / ' + f2(drops[1]) + ' px', '枪机 / 枪托件');
+  stat('点焊间隙', signed(st('bolt').gap) + ' / ' + signed(st('stock').gap), '目标 ' + PROGRAM.geo.placeClearance + ' px');
+  stat('原始长度', f2(c.L) + ' px', '缩放 ' + c.k.toFixed(3));
+  const row = (k, v) => { more.appendChild(el('dt', { text: k })); more.appendChild(el('dd', { text: v })); };
+  const mn = (kind) => Math.min(c.arm[kind + '_out'].gap ?? Infinity, c.arm[kind + '_in'].gap ?? Infinity);
+  const gapText = (v) => (v >= 2 ? '≥ 2 px' : f3(v) + ' px');
+  row('台上 x', f2(c.box.lo[0]) + ' .. ' + f2(c.box.hi[0]) + ' (枪托端 = 托底挡块 ' + DATA.bed.BUTT_X + ')');
+  row('台上 y', f2(c.box.lo[1]) + ' .. ' + f2(c.box.hi[1]) + ' (厚 ' + f2(c.thickness) + ', 床面 ' + DATA.bed.TOP_Y + ')');
+  row('台上 z', f2(c.box.lo[2]) + ' .. ' + f2(c.box.hi[2]) + ' (包络 ' + (DATA.bed.AXIS_Z - DATA.bed.HALF_WIDTH) + ' .. ' + (DATA.bed.AXIS_Z + DATA.bed.HALF_WIDTH) + ')');
+  row('离台子元素', Math.abs(c.bench.gap) <= 1e-3 ? '贴合 (躺在床面、抵住挡块)' : f3(c.bench.gap) + ' px');
+  for (const [key, name] of [['bolt', '枪机安装点'], ['stock', '枪托件安装点']]) {
+    const s = st(key);
+    if (s.gap === undefined) continue;
+    const why = s.clamped === 'max' ? (s.gunUnder ? ', 下沉到上限' : ', 下方没有枪, 落在床面') : s.clamped === 'zero' ? ', 枪比包络高, 不下沉' : '';
+    row(name, '下沉 ' + f3(s.drop) + ' px, 零件底面离枪 ' + signed(s.gap) + ' px' + why);
+  }
+  row('零件离枪最近', gapText(mn('payload')) + ' (整段程序)');
+  row('夹爪离枪最近', gapText(mn('claw')));
+  row('其余臂段离枪最近', gapText(mn('arm')));
+  const list = [...c.fails.map((s) => '失败: ' + s), ...c.warns.map((s) => '提醒: ' + s), ...g.notes];
+  if (c.aboveEnvelope) list.push(`高出机械臂的隐形包络 (y ${f2(DATA.bed.TOP_Y + DATA.bed.ENVELOPE_THICKNESS)}): x ${f2(c.aboveEnvelope.lo[0])}..${f2(c.aboveEnvelope.hi[0])}, z ${f2(c.aboveEnvelope.lo[2])}..${f2(c.aboveEnvelope.hi[2])}, 最高 y ${f2(c.aboveEnvelope.hi[1])}; 不在安装点下方。`);
+  if (c.cubes && c.cubes.adapter) list.push(`attachment_adapter 下的 ${c.cubes.adapter} 个方块不画 (TACZ 只画枪上配件点名的转接件, 这里是裸枪)。`);
+  for (const n of list) notes.appendChild(el('li', { text: n }));
+  notes.hidden = !list.length;
+}
+
+function buildPresets() {
+  const box = document.getElementById('presets');
+  DATA.presets.forEach((p, i) => {
+    const b = el('button', { 'aria-pressed': String(i === ui.preset), title: p.title || p.label, text: p.label });
+    b.addEventListener('click', () => applyPreset(i));
+    box.appendChild(b);
+  });
+}
+function applyPreset(i) {
+  const p = DATA.presets[i];
+  ui.preset = i; ui.yaw = p.yaw; ui.pitch = p.pitch; ui.zoom = 1;
+  setPressed('#presets button', document.querySelectorAll('#presets button')[i]);
+  requestRender();
+}
+
+function attachDrag(canvas) {
+  let last = null;
+  canvas.addEventListener('pointerdown', (e) => { last = [e.clientX, e.clientY]; ui.dragging = true; try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 没有指针捕获也能拖 */ } });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!last) return;
+    ui.yaw -= (e.clientX - last[0]) * 0.5;
+    ui.pitch = Math.max(-10, Math.min(89.9, ui.pitch + (e.clientY - last[1]) * 0.4));
+    last = [e.clientX, e.clientY];
+    ui.preset = -1;
+    setPressed('#presets button', null);
+    requestRender();
+  });
+  const end = () => { if (last) { last = null; ui.dragging = false; requestRender(); } };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    ui.zoom = Math.max(0.6, Math.min(6, ui.zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+    requestRender();
+  }, { passive: false });
+  canvas.addEventListener('dblclick', () => applyPreset(0));
+}
+
+function setPressed(selector, active) {
+  document.querySelectorAll(selector).forEach((b) => b.setAttribute('aria-pressed', String(b === active)));
+}
+
+let pending = false;
+function requestRender() {
+  if (pending || ui.playing) return;
+  pending = true;
+  requestAnimationFrame(() => { pending = false; draw(); });
+}
+function draw() {
+  try {
+    renderView();
+    updateReadout();
+  } catch (e) {
+    showError(e);
+    ui.playing = false;
+  }
+}
+function showError(e) {
+  console.error(e);
+  const box = document.getElementById('err');
+  box.hidden = false;
+  box.textContent = '预览出错: ' + (e && e.message ? e.message : e);
+}
+
+function seek(t) {
+  ui.tick = Math.max(0, Math.min(TOTAL, t));
+  if (ui.playing) return;
+  requestRender();
+}
+
+function setPlaying(p) {
+  if (p && !ui.active) setActive(true);
+  ui.playing = p;
+  document.getElementById('play').textContent = p ? '暂停' : '播放';
+  if (p) { lastTime = null; requestAnimationFrame(loop); } else requestRender();
+}
+
+function setActive(a) {
+  ui.active = a;
+  setPressed('#state-idle, #state-active', document.getElementById(a ? 'state-active' : 'state-idle'));
+  document.getElementById('timeline').classList.toggle('off', !a);
+  if (!a && ui.playing) setPlaying(false);
+  requestRender();
+}
+
+// 地址栏只带一个裸 #记号 (枪 id 的路径部分, 如 #m4a1), 打开即选中这把枪
+function gunFromHash() {
+  let t = '';
+  try { t = decodeURIComponent(location.hash.slice(1)); } catch (e) { t = ''; }
+  return t ? DATA.guns.findIndex((g) => g.token === t) : -1;
+}
+function writeHash() {
+  try {
+    const h = '#' + DATA.guns[ui.gun].token;
+    if (location.hash !== h) history.replaceState(null, '', h);
+  } catch (e) { /* 框架里改不了地址栏也不影响预览 */ }
+}
+
+function setGun(i, updateHash = true) {
+  ui.gun = i;
+  document.getElementById('gun').value = String(i);
+  renderInfo();
+  if (updateHash) writeHash();
+  if (!ui.playing) requestRender();
+}
+
+// 游戏里 20 tick = 1 秒; 放完一轮停在待机姿态一小会儿再从头来
+let lastTime = null, restUntil = 0;
+function loop(now) {
+  if (!ui.playing) return;
+  if (lastTime !== null) {
+    const dt = Math.min(0.1, (now - lastTime) / 1000);
+    if (now >= restUntil) {
+      ui.tick += dt * 20 * ui.speed;
+      if (ui.tick >= TOTAL) { ui.tick = 0; restUntil = now + 700; }
+    }
+  }
+  lastTime = now;
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function wire() {
+  document.getElementById('max-len').textContent = String(DATA.bed.MAX_LENGTH);
+  document.getElementById('scrub').max = String(TOTAL);
+  document.getElementById('play').addEventListener('click', () => setPlaying(!ui.playing));
+  document.getElementById('scrub').addEventListener('input', (e) => { if (!ui.active) setActive(true); if (ui.playing) setPlaying(false); seek(Number(e.target.value)); });
+  document.querySelectorAll('#speed button').forEach((b) => b.addEventListener('click', () => { ui.speed = Number(b.dataset.speed); setPressed('#speed button', b); }));
+  document.querySelectorAll('#frames button').forEach((b) => b.addEventListener('click', () => { ui.frame = b.dataset.frame; setPressed('#frames button', b); requestRender(); }));
+  document.getElementById('state-idle').addEventListener('click', () => setActive(false));
+  document.getElementById('state-active').addEventListener('click', () => setActive(true));
+  document.getElementById('light-day').addEventListener('click', (e) => { ui.night = false; setPressed('#light-day, #light-night', e.currentTarget); requestRender(); });
+  document.getElementById('light-night').addEventListener('click', (e) => { ui.night = true; setPressed('#light-day, #light-night', e.currentTarget); requestRender(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.target.closest('select, summary')) return;
+    if (e.target.closest('input') && e.key !== ' ') return;
+    if (e.key === ' ' && e.target.closest('button')) return;   // 按钮上的空格就是点这个按钮
+    if (e.key === ' ') { e.preventDefault(); setPlaying(!ui.playing); }
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      if (e.target.closest('.chips')) return;
+      e.preventDefault();
+      if (!ui.active) setActive(true);
+      if (ui.playing) setPlaying(false);
+      seek(Math.round(ui.tick) + (e.key === 'ArrowRight' ? 1 : -1));
+    } else if (e.key === '[' || e.key === ']') { e.preventDefault(); stepGun(e.key === ']' ? 1 : -1); }
+  });
+  window.addEventListener('resize', requestRender);
+  window.addEventListener('hashchange', () => { const i = gunFromHash(); if (i >= 0 && i !== ui.gun) setGun(i, false); });
+  if (window.matchMedia) {
+    const mq = matchMedia('(prefers-color-scheme: dark)');
+    if (mq.addEventListener) mq.addEventListener('change', themeChanged);
+  }
+  new MutationObserver(themeChanged).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  attachDrag(document.getElementById('canvas'));
+}
+
+decodeImages().then(() => {
+  viewportRgb = readViewport();
+  buildGunSelect();
+  buildPresets();
+  buildTimeline();
+  wire();
+  applyPreset(0);
+  const fromHash = gunFromHash();
+  setGun(fromHash >= 0 ? fromHash : Math.max(0, DATA.guns.findIndex((g) => g.id === DATA.defaultGun)), false);
+  // 打开即是工作态: 默认播放机械臂程序; 系统要求减少动效时停在第一次点焊
+  ui.tick = DATA.weldTick;
+  if (REDUCED) { setPlaying(false); draw(); } else setPlaying(true);
+}).catch(showError);
+</script>

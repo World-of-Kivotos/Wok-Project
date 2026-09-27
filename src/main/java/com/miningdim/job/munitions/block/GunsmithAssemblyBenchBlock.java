@@ -48,8 +48,10 @@ public final class GunsmithAssemblyBenchBlock extends Block implements EntityBlo
     public static final DirectionProperty FACING = BlockStateProperties.HORIZONTAL_FACING;
     public static final EnumProperty<Part> PART = EnumProperty.create("part", Part.class);
     public static final BooleanProperty ACTIVE = BooleanProperty.create("active");
-    // 各部位朝北时的体积, 跟随方块模型: 台面 y0..10 满格, 其上是斜置夹具、控制台、洞洞板后墙、工作灯与机械臂设备台 (含送料盘)。
-    // 机械臂由 BlockEntityRenderer 绘制, 不参与碰撞; 焊花也由它按机械臂程序在零件接触点生成, 方块本身不再放粒子。
+    // 各部位朝北时的体积, 跟随方块模型: 台面 y0..10 满格, 其上是维修垫、平放的枪床 (东端托底挡块)、控制台、
+    // 洞洞板后墙、工作灯与机械臂设备台 (含送料盘)。
+    // 床面上的枪由 BlockEntityRenderer 绘制, 这里给它的空间 (x 3..27.5 含西端定位销, z 为 GunsmithGunBed.AXIS_Z ± HALF_WIDTH,
+    // 高到 y 13) 留一块碰撞/选取箱, 玩家不会站进枪里; 机械臂不参与碰撞。焊花也由渲染器按机械臂程序在零件接触点生成, 方块本身不放粒子。
     // 模型改动后用 tools/gunsmith_workstation 重新核对这些数值。
     private static final Map<Part, Map<Direction, VoxelShape>> SHAPES = createShapes();
 
@@ -130,10 +132,13 @@ public final class GunsmithAssemblyBenchBlock extends Block implements EntityBlo
         VoxelShape backWall = Block.box(0.0D, 10.0D, 12.5D, 16.0D, 16.0D, 16.0D);
         Map<Part, VoxelShape> north = new EnumMap<>(Part.class);
         north.put(Part.MAIN, Shapes.or(worktop,
-                Block.box(1.5D, 10.0D, 2.0D, 14.5D, 11.0D, 9.5D),
-                Block.box(4.0D, 10.0D, 9.0D, 16.0D, 16.0D, 16.0D)));
+                Block.box(1.5D, 10.0D, 1.75D, 14.5D, 11.0D, 7.75D),
+                Block.box(1.5D, 10.0D, 7.75D, 16.0D, 11.0D, 15.75D),
+                Block.box(3.0D, 11.0D, 8.0D, 16.0D, 13.0D, 15.5D)));
         north.put(Part.SIDE, Shapes.or(worktop,
-                Block.box(0.0D, 10.0D, 9.0D, 12.0D, 16.0D, 16.0D),
+                Block.box(0.0D, 10.0D, 7.75D, 14.5D, 11.0D, 15.75D),
+                Block.box(0.0D, 11.0D, 8.0D, 11.5D, 13.0D, 15.5D),
+                Block.box(11.5D, 10.0D, 9.5D, 13.5D, 14.0D, 14.5D),
                 Block.box(5.0D, 10.0D, 1.0D, 14.0D, 13.0D, 5.0D)));
         north.put(Part.BACK, Shapes.or(worktop, backWall,
                 Block.box(0.5D, 10.0D, 2.5D, 6.0D, 16.0D, 7.0D),

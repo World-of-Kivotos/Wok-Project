@@ -1,12 +1,15 @@
 package com.miningdim.job.munitions.client;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.munitions.MunitionsAmmoFactory;
 import com.miningdim.job.munitions.block.GunsmithArmProgram;
 import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlock;
 import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlockEntity;
+import com.miningdim.job.munitions.block.GunsmithGunBed;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
 import net.minecraft.client.model.geom.builders.CubeDeformation;
@@ -25,6 +28,9 @@ import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -47,6 +53,13 @@ public final class GunsmithAssemblyBenchRenderer
     private final ModelPart payloadStock;
     // Ticks to ease back to the dock when the server ends the assembly before the client's program has parked the arm.
     private static final float RETURN_TICKS = 6.0F;
+    // Middle of the longest gun the bed takes (bench pixels): the point whose camera distance picks high-poly or LOD.
+    private static final double GUN_CENTRE_X = GunsmithGunBed.BUTT_X - GunsmithGunBed.MAX_LENGTH / 2.0D;
+    private static final double GUN_CENTRE_Y = GunsmithGunBed.TOP_Y + GunsmithGunBed.ENVELOPE_THICKNESS / 2.0D;
+    private static final double GUN_CENTRE_Z = GunsmithGunBed.AXIS_Z;
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/gunsmith-assembly");
+    // Set when the TaCZ helper class itself cannot link against the installed TaCZ; no gun is drawn after that.
+    private static boolean taczGunBroken;
 
     // Fallback clock for benches that were already ACTIVE when their chunk loaded (no ACTIVE flip was seen, so the
     // block entity has no start tick): the program then runs from the first frame this renderer sees.
@@ -56,15 +69,23 @@ public final class GunsmithAssemblyBenchRenderer
     private final Map<GunsmithAssemblyBenchBlockEntity, ReturnToDock> returns = new WeakHashMap<>();
     // render() runs every frame; sparks are world particles, so they are limited to one burst per game tick.
     private final Map<GunsmithAssemblyBenchBlockEntity, Long> lastSparkTicks = new WeakHashMap<>();
+    // TaCZ is an optional dependency: without it the bench shows no gun, and the TaCZ helper class is never loaded.
+    private final boolean taczLoaded = MunitionsAmmoFactory.isTaczLoaded();
     private final GunsmithArmProgram.Pose pose = new GunsmithArmProgram.Pose();
     private final GunsmithArmProgram.Pose idlePose = GunsmithArmProgram.idle(new GunsmithArmProgram.Pose());
     private final float[] contact = new float[3];
+    // Place drops {bolt station, stock station} for the bench being rendered, from the gun it is about to draw.
+    private final float[] drops = new float[2];
+    private final double[] world = new double[3];
 
     // Game time stays a long: a float cannot hold sub-tick precision once a world is a few million ticks old.
     private record ReturnToDock(float fromProgramTick, long startTick, float startPartial) {
     }
 
-    private record LastDrawn(float programTick, long gameTick) {
+    // Mutable and reused per bench: it is rewritten every frame while the program runs.
+    private static final class LastDrawn {
+        private float programTick;
+        private long gameTick;
     }
 
     public GunsmithAssemblyBenchRenderer(BlockEntityRendererProvider.Context context) {
@@ -142,7 +163,6 @@ public final class GunsmithAssemblyBenchRenderer
     public void render(GunsmithAssemblyBenchBlockEntity blockEntity, float partialTick,
                        PoseStack poseStack, MultiBufferSource bufferSource,
                        int packedLight, int packedOverlay) {
-        boolean running = applyPose(blockEntity, partialTick);
         Direction facing = blockEntity.getBlockState().getValue(GunsmithAssemblyBenchBlock.FACING);
         float rotation = switch (facing) {
             case EAST -> -90.0F;
@@ -150,6 +170,9 @@ public final class GunsmithAssemblyBenchRenderer
             case WEST -> 90.0F;
             default -> 0.0F;
         };
+        // The gun goes first: the arm lowers the carried part onto whatever the bench is actually going to draw.
+        boolean gunDrawn = prepareDisplayGun(blockEntity, rotation);
+        boolean running = applyPose(blockEntity, partialTick, drops[0], drops[1]);
 
         poseStack.pushPose();
         poseStack.translate(0.5D, 1.0D, 0.5D);
@@ -160,34 +183,115 @@ public final class GunsmithAssemblyBenchRenderer
         root.render(poseStack, consumer, packedLight, OverlayTexture.NO_OVERLAY);
         poseStack.popPose();
 
+        if (gunDrawn) {
+            drawDisplayGun(rotation, poseStack, packedLight);
+        }
+
         if (running && pose.spark) {
             emitWeldSparks(blockEntity, rotation);
         }
     }
 
+    /**
+     * Picks the model the bench is about to draw (high-poly, LOD, or none) and fills {@link #drops} with the two place
+     * drops for it. With no gun drawn (empty bench, no TaCZ, model still loading or broken) both drops are
+     * {@link GunsmithArmProgram#MAX_PLACE_DROP}, which lowers the part onto the empty bed. All TaCZ types stay inside the
+     * helper, which is only reached once TaCZ is known to be loaded.
+     */
+    private boolean prepareDisplayGun(GunsmithAssemblyBenchBlockEntity blockEntity, float rotation) {
+        drops[0] = GunsmithArmProgram.MAX_PLACE_DROP;
+        drops[1] = GunsmithArmProgram.MAX_PLACE_DROP;
+        ResourceLocation gunId = blockEntity.clientDisplayGunId();
+        if (gunId == null || !taczLoaded || taczGunBroken) {
+            return false;
+        }
+        BlockPos pos = blockEntity.getBlockPos();
+        benchToWorld(pos, rotation, GUN_CENTRE_X, GUN_CENTRE_Y, GUN_CENTRE_Z, world);
+        Vec3 camera = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        double distanceSq = camera.distanceToSqr(world[0], world[1], world[2]);
+        try {
+            if (GunsmithBenchGunRenderer.prepare(gunId, pos.asLong(), distanceSq, drops)) {
+                return true;
+            }
+        } catch (LinkageError e) {
+            // The helper handles TaCZ mismatches inside its own calls; this only catches the helper class itself
+            // failing to link against the installed TaCZ.
+            taczGunBroken = true;
+            LOGGER.error("The gunsmith assembly bench cannot load its TaCZ gun renderer; benches show no gun", e);
+        }
+        drops[0] = GunsmithArmProgram.MAX_PLACE_DROP;
+        drops[1] = GunsmithArmProgram.MAX_PLACE_DROP;
+        return false;
+    }
+
+    /**
+     * The real TaCZ gun lying on the bed. Same anchor and facing turn as the arm, but without the arm's ModelPart y flip:
+     * the helper places the gun in bench pixels itself.
+     */
+    private static void drawDisplayGun(float rotation, PoseStack poseStack, int packedLight) {
+        poseStack.pushPose();
+        poseStack.translate(0.5D, 1.0D, 0.5D);
+        poseStack.mulPose(Axis.YP.rotationDegrees(rotation));
+        try {
+            GunsmithBenchGunRenderer.drawPrepared(poseStack, packedLight);
+        } catch (LinkageError e) {
+            taczGunBroken = true;
+            LOGGER.error("The gunsmith assembly bench cannot load its TaCZ gun renderer; benches show no gun", e);
+        }
+        poseStack.popPose();
+    }
+
+    /**
+     * North-facing bench pixels -> world position, turned the same way render() turns the model; out = {x, y, z}.
+     */
+    private static double[] benchToWorld(BlockPos pos, float rotationDegrees, double pixelX, double pixelY,
+                                         double pixelZ, double[] out) {
+        double localX = pixelX / 16.0D - 0.5D;
+        double localZ = pixelZ / 16.0D - 0.5D;
+        double radians = Math.toRadians(rotationDegrees);
+        double cos = Math.cos(radians);
+        double sin = Math.sin(radians);
+        out[0] = pos.getX() + 0.5D + localX * cos + localZ * sin;
+        out[1] = pos.getY() + pixelY / 16.0D;
+        out[2] = pos.getZ() + 0.5D - localX * sin + localZ * cos;
+        return out;
+    }
+
     /** Poses the arm from the shared keyframe program; returns whether the assembly program is running. */
-    private boolean applyPose(GunsmithAssemblyBenchBlockEntity blockEntity, float partialTick) {
+    private boolean applyPose(GunsmithAssemblyBenchBlockEntity blockEntity, float partialTick,
+                              float boltDrop, float stockDrop) {
         boolean running = blockEntity.isAnimating();
         long now = blockEntity.getLevel().getGameTime();
         if (running) {
             returns.remove(blockEntity);
             long startedAt = blockEntity.clientProgramStartTick();
             if (startedAt <= 0L) {
-                startedAt = animationStartTicks.computeIfAbsent(blockEntity, ignored -> now);
+                Long firstSeen = animationStartTicks.get(blockEntity);
+                if (firstSeen == null) {
+                    firstSeen = now;
+                    animationStartTicks.put(blockEntity, firstSeen);
+                }
+                startedAt = firstSeen;
             }
             float programTick = Math.max(0.0F, now - startedAt + partialTick);
-            lastDrawn.put(blockEntity, new LastDrawn(programTick, now));
-            GunsmithArmProgram.sample(programTick, pose);
+            LastDrawn last = lastDrawn.get(blockEntity);
+            if (last == null) {
+                last = new LastDrawn();
+                lastDrawn.put(blockEntity, last);
+            }
+            last.programTick = programTick;
+            last.gameTick = now;
+            GunsmithArmProgram.sample(programTick, boltDrop, stockDrop, pose);
         } else {
             animationStartTicks.remove(blockEntity);
             lastSparkTicks.remove(blockEntity);
             LastDrawn stopped = lastDrawn.remove(blockEntity);
             // Only ease if the arm was on screen when it stopped; a bench that finished out of view is simply docked.
-            if (stopped != null && now - stopped.gameTick() <= 2L
-                    && stopped.programTick() % GunsmithArmProgram.CYCLE_TICKS < GunsmithArmProgram.PARKED_TICK) {
-                returns.put(blockEntity, new ReturnToDock(stopped.programTick(), now, partialTick));
+            if (stopped != null && now - stopped.gameTick <= 2L
+                    && stopped.programTick % GunsmithArmProgram.CYCLE_TICKS < GunsmithArmProgram.PARKED_TICK) {
+                returns.put(blockEntity, new ReturnToDock(stopped.programTick, now, partialTick));
             }
-            easeToDock(blockEntity, now, partialTick);
+            easeToDock(blockEntity, now, partialTick, boltDrop, stockDrop);
         }
         shoulder.yRot = pose.yaw;
         upperArm.zRot = pose.upperArm;
@@ -207,7 +311,8 @@ public final class GunsmithAssemblyBenchRenderer
      * mid-move (its clock started late). Six ticks of blending is not collision-swept like the program itself, but a
      * brief brush is far less jarring than the arm teleporting off the rifle with a part in its claws.
      */
-    private void easeToDock(GunsmithAssemblyBenchBlockEntity blockEntity, long now, float partialTick) {
+    private void easeToDock(GunsmithAssemblyBenchBlockEntity blockEntity, long now, float partialTick,
+                            float boltDrop, float stockDrop) {
         ReturnToDock back = returns.get(blockEntity);
         float s = back == null ? 1.0F
                 : Math.max(0.0F, (now - back.startTick()) + partialTick - back.startPartial()) / RETURN_TICKS;
@@ -216,7 +321,11 @@ public final class GunsmithAssemblyBenchRenderer
             GunsmithArmProgram.idle(pose);
             return;
         }
-        GunsmithArmProgram.sample(back.fromProgramTick(), pose);
+        // Same drops as the running program, so a stop mid-weld eases from the lowered pose instead of jumping up first.
+        // The drops are lifted out over the first third of the blend: the joint-space path from a lowered pose would
+        // otherwise swing the claw through the tray's stock part on its way back.
+        float lift = Math.max(0.0F, 1.0F - s / 0.35F);
+        GunsmithArmProgram.sample(back.fromProgramTick(), boltDrop * lift, stockDrop * lift, pose);
         float e = s * s * (3.0F - 2.0F * s);
         pose.yaw += (idlePose.yaw - pose.yaw) * e;
         pose.upperArm += (idlePose.upperArm - pose.upperArm) * e;
@@ -235,17 +344,12 @@ public final class GunsmithAssemblyBenchRenderer
         if (last != null && last == now) {
             return;
         }
+        // The pose already carries the place drops, so the sparks sit where the part meets the gun (or the empty bed).
         GunsmithArmProgram.contactPosition(pose, contact);
-        // North-facing bench pixels -> offset from the main block centre, turned the same way render() turns the model.
-        double localX = contact[0] / 16.0D - 0.5D;
-        double localZ = contact[2] / 16.0D - 0.5D;
-        double radians = Math.toRadians(rotationDegrees);
-        double cos = Math.cos(radians);
-        double sin = Math.sin(radians);
-        BlockPos pos = blockEntity.getBlockPos();
-        double x = pos.getX() + 0.5D + localX * cos + localZ * sin;
-        double y = pos.getY() + contact[1] / 16.0D;
-        double z = pos.getZ() + 0.5D - localX * sin + localZ * cos;
+        benchToWorld(blockEntity.getBlockPos(), rotationDegrees, contact[0], contact[1], contact[2], world);
+        double x = world[0];
+        double y = world[1];
+        double z = world[2];
         RandomSource random = level.random;
         for (int i = 0; i < 2; i++) {
             level.addParticle(ParticleTypes.ELECTRIC_SPARK, x, y, z,

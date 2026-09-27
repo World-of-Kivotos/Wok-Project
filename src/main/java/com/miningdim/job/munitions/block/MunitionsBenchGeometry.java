@@ -1,7 +1,8 @@
 package com.miningdim.job.munitions.block;
 
 /**
- * 军火台 WIDE 布局 (弹药流水线) 的几何常量: 轮廓箱 (静态件 + 运动件)、模型高度、运动件的活动范围、冲压火花的位置。
+ * 军火台 WIDE 布局 (弹药流水线) 的几何常量: 轮廓箱 (静态件 + 运动件)、模型高度、运动件的活动范围、冲压火花的位置,
+ * 以及弹药箱计数屏 (COUNTER_*) 的显示面、布局与每档颜色。
  * <p>
  * 由 tools/munitions_bench/generate_munitions_bench.mjs 按方块模型的同一份场景整个写出, 不要手改。
  * 刻意不依赖任何 Minecraft 类, 方块、方块实体、渲染器与 GameTest 都能直接用。
@@ -28,7 +29,7 @@ public final class MunitionsBenchGeometry {
     public static final float[][] MAIN_BOXES = {
             {0.0F, 0.0F, 0.0F, 16.0F, 8.0F, 16.0F}, // body: 底座 + 柜体 + 台面
             {1.0F, 3.0F, 0.5F, 8.0F, 8.5F, 10.0F}, // can: 弹药箱
-            {1.0F, 8.5F, 10.0F, 8.0F, 17.25F, 14.0F}, // lid: 掀开的箱盖
+            {0.5F, 8.25F, 10.0F, 8.5F, 17.25F, 14.25F}, // lid: 掀开的箱盖 (计数屏)
             {1.0F, 8.0F, 12.0F, 7.5F, 11.5F, 15.5F}, // spare: 备用弹药箱
             {8.0F, 8.0F, 5.0F, 16.0F, 10.5F, 10.0F}, // belt: 皮带 + 护栏
             {12.0F, 8.0F, 4.25F, 13.0F, 18.5F, 5.25F}, // press_posts_front: 压机前立柱
@@ -83,6 +84,49 @@ public final class MunitionsBenchGeometry {
     /** 运动件贴图 textures/entity/munitions_bench_parts.png 的尺寸 (与 MunitionsBenchParts 的 LayerDefinition 相同)。 */
     public static final int PARTS_TEXTURE_WIDTH = 128;
     public static final int PARTS_TEXTURE_HEIGHT = 64;
+
+    // ---- 弹药箱计数屏 (方案 C): 掀开的箱盖内面一块凹窗 (上 满度条, 下 4x7 大字发数), 口径是箱身正面的黄漆模板字 ----
+    // 布局与 tools/munitions_bench/counter.mjs 同一份 (生成器写出后解析回来核对); 字形、排版、格式在 MunitionsBenchCounter。
+    /** 布局单位 (px): 1 qt = 0.25 px, 即箱盖 4 倍贴图的一个贴图像素。下面的 *_QT 都以它为单位, 面上 u 向右 (北面 = -x)、v 向下。 */
+    public static final float COUNTER_QT_PX = 0.25F;
+    /** 字浮在窗面 / 箱身外的距离 (px, 1/128 格): 离面够远, 渲染器画字的距离内 24 位深度不会闪; 仍在框条前沿之后。 */
+    public static final float COUNTER_LIFT_PX = 0.125F;
+    /** 屏窗凹进框条前沿的深度 (px)。 */
+    public static final float COUNTER_RECESS_PX = 0.25F;
+    /** 相机离主格中心超过这么多格就不画字 (读不出, 也避开远处的深度精度)。 */
+    public static final float COUNTER_MAX_DISTANCE_BLOCKS = 24.0F;
+    /** 窗面 (箱盖里凹进去的那块本体的北面) 左上角, 整台坐标 (px, 朝北, 箱盖旋转之前); 从正面看的左 = 东 = +x。 */
+    public static final float[] COUNTER_WINDOW_FACE_TOP_LEFT = {8.5F, 17.5F, 10.25F};
+    /** 箱盖内面的尺寸 {宽, 高} (qt)。 */
+    public static final int[] COUNTER_LID_FACE_QT = {32, 36};
+    /** 箱盖的旋转 (与静态 JSON 的 can_lid 元素相同): 绕 x 轴 +COUNTER_LID_ROTATION_X_DEGREES 度, 原点 (px)。 */
+    public static final float[] COUNTER_LID_ROTATION_ORIGIN = {4.5F, 8.5F, 10.5F};
+    public static final float COUNTER_LID_ROTATION_X_DEGREES = 22.5F;
+    /** 屏窗 {x, y, w, h} (qt, 箱盖内面左上角起)。 */
+    public static final int[] COUNTER_WINDOW_QT = {4, 10, 24, 12};
+    /** 满度条 {x, y, w, h} (qt): 亮的格数 = MunitionsBenchCounter.barCells, 从左往右。 */
+    public static final int[] COUNTER_BAR_QT = {5, 11, 22, 2};
+    /** 发数 {x, y, w} (qt): 4x7 字, 右对齐在 [x, x + w) 里; 字体一个像素占 COUNTER_COUNT_TEXEL_QT 个 qt。 */
+    public static final int[] COUNTER_COUNT_QT = {5, 14, 22};
+    public static final int COUNTER_COUNT_TEXEL_QT = 1;
+    /** 箱身正面 (口径模板字) 左上角 (px, 不旋转, 不凹) 与尺寸 {宽, 高} (qt)。 */
+    public static final float[] COUNTER_STENCIL_FACE_TOP_LEFT = {8.0F, 8.5F, 1.0F};
+    public static final int[] COUNTER_STENCIL_FACE_QT = {28, 22};
+    /** 口径 3x5 模板字: 顶行 y (qt), 水平居中在箱身正面; 字体一个像素占 COUNTER_STENCIL_TEXEL_QT 个 qt。 */
+    public static final int COUNTER_STENCIL_Y_QT = 8;
+    public static final int COUNTER_STENCIL_TEXEL_QT = 1;
+    /**
+     * 颜色 0xRRGGBB, 下标 [档位 0..5][角色 × 2 + (待机 ? 1 : 0)], 角色 = MunitionsBenchCounter.ROLE_* (发数 / 空箱的 0 / 满度条 /
+     * 满仓的满度条 / 箱身模板字), 由 tiers.mjs 的档位灯色推出 (counter.mjs counterColours)。
+     */
+    public static final int[][] COUNTER_COLOURS = {
+            {0x60F4F0, 0x50CECF, 0x2A8F9B, 0x2B808C, 0x24C8D6, 0x26AFBD, 0xFFB234, 0xE29228, 0xF4C22C, 0xF4C22C}, // 档位 0
+            {0x73D291, 0x63B680, 0x458F61, 0x42805B, 0x54C879, 0x4EAF6F, 0xFFB234, 0xE29228, 0xF4C22C, 0xF4C22C}, // 档位 1
+            {0x78AEEC, 0x6897CE, 0x4973A6, 0x456994, 0x5A9CE8, 0x538BCC, 0xFFB234, 0xE29228, 0xF4C22C, 0xF4C22C}, // 档位 2
+            {0xB686E6, 0x9D75C9, 0x7856A1, 0x6C5191, 0xA66CE0, 0x9263C5, 0xFFB234, 0xE29228, 0xF4C22C, 0xF4C22C}, // 档位 3
+            {0xE67179, 0xC7636B, 0x9B464F, 0x8A434C, 0xE0525C, 0xC34D57, 0xFFB234, 0xE29228, 0xF4C22C, 0xF4C22C}, // 档位 4
+            {0xDE8CFF, 0xC07ADF, 0x965BB4, 0x8554A1, 0xD773FF, 0xBB69DF, 0xFFB234, 0xE29228, 0xF4C22C, 0xF4C22C}, // 档位 5
+    };
 
     private MunitionsBenchGeometry() {
     }

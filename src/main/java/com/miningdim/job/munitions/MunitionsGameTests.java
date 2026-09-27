@@ -1,5 +1,8 @@
 package com.miningdim.job.munitions;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.economy.AbuseGuard;
 import com.miningdim.economy.Currency;
@@ -15,6 +18,7 @@ import com.miningdim.job.JobProgress;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.munitions.block.MunitionsBenchBlock;
 import com.miningdim.job.munitions.block.MunitionsBenchBlockEntity;
+import com.miningdim.job.munitions.block.MunitionsBenchCounter;
 import com.miningdim.job.munitions.block.MunitionsBenchGeometry;
 import com.miningdim.job.munitions.block.MunitionsBenchProgram;
 import com.miningdim.job.munitions.menu.MunitionsBenchMenu;
@@ -26,6 +30,10 @@ import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.PacketFlow;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.network.protocol.game.ClientboundSoundPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -56,9 +64,11 @@ import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -83,6 +93,8 @@ public final class MunitionsGameTests {
     private static final String BATCH = "munitions";
     /** 军火台冲压音节拍用例独占的批 (要把职业门面替身挂一百多 tick, 见 wideBenchStrikeSoundFollowsTheProgramPhase)。 */
     private static final String TIMING_BATCH = "munitions_bench_timing";
+    /** 计数屏同步用例独占的批 (要挂几十 tick 数方块实体数据包, 见 wideBenchCounterPushesOneUpdatePerVisibleChange)。 */
+    private static final String COUNTER_SYNC_BATCH = "munitions_bench_counter_sync";
 
     /**
      * 批前钩子: 绑定 MunitionsConfig 默认值 (本子系统集成阶段才接进 MiningDim, runGameTestServer 时其 SERVER spec
@@ -95,6 +107,11 @@ public final class MunitionsGameTests {
 
     @BeforeBatch(batch = TIMING_BATCH)
     public static void beforeMunitionsBenchTimingBatch(ServerLevel level) {
+        MunitionsConfig.ensureLoadedForTest();
+    }
+
+    @BeforeBatch(batch = COUNTER_SYNC_BATCH)
+    public static void beforeMunitionsBenchCounterSyncBatch(ServerLevel level) {
         MunitionsConfig.ensureLoadedForTest();
     }
 
@@ -606,7 +623,7 @@ public final class MunitionsGameTests {
             MunitionsBenchBlockEntity clientCopy = new MunitionsBenchBlockEntity(mainPos, level.getBlockState(mainPos));
             clientCopy.handleUpdateTag(be.getUpdateTag());
             helper.assertTrue(clientCopy.programStartTick() == start && clientCopy.owner() == null,
-                    "a client copy reads only the program start from the update tag");
+                    "a client copy reads only the program start (and the counter) from the update tag, never load()");
 
             // 区块加载时台子已在工作 (读档后状态本来就是 ACTIVE, 没经过翻转, 服务端也还没 tick 过它): 区块包早于这台机器的
             // 第一次 tick (视距边缘的区块根本不 tick), 所以发区块的那一刻服务端就要把起点定下, 更新标签带着它, 冲压音也按它走。
@@ -700,6 +717,441 @@ public final class MunitionsGameTests {
                 }
             }
         }
+    }
+
+    // ============================================================
+    // 弹药箱计数屏 (方案 C): 数字格式 / 满度条 / 满仓 / 显示键 / 同步标签 / 画字的位置
+    // ============================================================
+
+    /**
+     * 期望值取方案 C 定下的口径 (与 tools/munitions_bench/counter.mjs 的样例同一组), 不抄实现: ≤ 9999 原样, 上万 "12.4K",
+     * 上百万 "3.2M", 只舍不入、去掉小数末尾的 0、最多 5 个字且放得进 22 qt 的发数框; 负数当空箱, 超大按 "999G"。
+     * 满度条 = floor(发数 × 22 / 上限), 有弹至少 1 格; 满仓 = 有弹且装不下下一批; 显示键只跟着看得见的东西变。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchCounterFormatsBarsAndKeysLikeTheApprovedDesign(GameTestHelper helper) {
+        Object[][] formats = {
+                {0L, "0"}, {1L, "1"}, {347L, "347"}, {9999L, "9999"}, {10000L, "10K"}, {10099L, "10K"},
+                {12480L, "12.4K"}, {123456L, "123K"}, {999999L, "999K"}, {1000000L, "1M"}, {1010000L, "1.01M"},
+                {3200000L, "3.2M"}, {12345678L, "12.3M"}, {2147483647L, "2.14G"},
+                {-1L, "0"}, {Long.MIN_VALUE, "0"}, {999_999_999_999L, "999G"}, {1_000_000_000_000L, "999G"},
+                {Long.MAX_VALUE, "999G"},
+        };
+        helper.assertTrue(MunitionsBenchGeometry.COUNTER_COUNT_QT[2] == 22 && MunitionsBenchGeometry.COUNTER_BAR_QT[2] == 22,
+                "option C: the count box and the fill bar are both 22 qt (5.5 px) wide inside the 24 qt lid window");
+        for (Object[] sample : formats) {
+            long rounds = (Long) sample[0];
+            String text = MunitionsBenchCounter.format(rounds);
+            helper.assertTrue(sample[1].equals(text), "format(" + rounds + ") must be " + sample[1] + ", got " + text);
+            int width = MunitionsBenchCounter.FONT_4X7.textWidth(text) * MunitionsBenchGeometry.COUNTER_COUNT_TEXEL_QT;
+            helper.assertTrue(text.length() <= 5 && width <= MunitionsBenchGeometry.COUNTER_COUNT_QT[2],
+                    "\"" + text + "\" must fit the count box: " + text.length() + " chars, " + width + " qt");
+        }
+
+        int[][] bars = {{0, 800, 0}, {-3, 800, 0}, {1, 800, 1}, {347, 800, 9}, {400, 800, 11}, {800, 800, 22},
+                {5000, 800, 22}, {5, 0, 22}};
+        for (int[] bar : bars) {
+            helper.assertTrue(MunitionsBenchCounter.barCells(bar[0], bar[1]) == bar[2],
+                    "barCells(" + bar[0] + ", cap " + bar[1] + ") must be " + bar[2] + ", got "
+                            + MunitionsBenchCounter.barCells(bar[0], bar[1]));
+        }
+        helper.assertFalse(MunitionsBenchCounter.isFull(460, 500, 40), "exactly one batch of room left is not full");
+        helper.assertTrue(MunitionsBenchCounter.isFull(461, 500, 40), "one round short of a batch is full (the bar turns amber)");
+        helper.assertTrue(MunitionsBenchCounter.isFull(4000, 4000, 70), "the default top cap filled to the brim is full");
+        helper.assertTrue(MunitionsBenchCounter.cannotTakeBatch(0, 30, 40) && !MunitionsBenchCounter.isFull(0, 30, 40),
+                "an empty buffer is never shown full (there is no bar), even with a cap below one batch");
+
+        long shown = MunitionsBenchCounter.displayKey(12480, 1, 500, true);
+        helper.assertTrue(shown == MunitionsBenchCounter.displayKey(12479, 1, 500, true),
+                "taking one round from 12.4K changes nothing visible, so the key must not change");
+        helper.assertTrue(shown != MunitionsBenchCounter.displayKey(9999, 1, 500, true), "12.4K -> 9999 is visible");
+        long base = MunitionsBenchCounter.displayKey(347, 1, 800, false);
+        helper.assertTrue(base != MunitionsBenchCounter.displayKey(346, 1, 800, false), "below 10000 every round shows");
+        helper.assertTrue(base != MunitionsBenchCounter.displayKey(347, 9, 800, false), "a calibre change shows on the can");
+        helper.assertTrue(base != MunitionsBenchCounter.displayKey(347, 1, 700, false), "9 -> 10 bar cells shows");
+        helper.assertTrue(base == MunitionsBenchCounter.displayKey(347, 1, 790, false),
+                "a cap change that moves no bar cell is invisible");
+        helper.assertTrue(MunitionsBenchCounter.displayKey(461, 1, 500, false)
+                        != MunitionsBenchCounter.displayKey(461, 1, 500, true), "the amber full bar shows");
+        long empty = MunitionsBenchCounter.displayKey(0, 1, 500, true);
+        helper.assertTrue(empty == MunitionsBenchCounter.displayKey(0, -1, 800, false) && empty != MunitionsBenchCounter.NO_KEY,
+                "an empty buffer shows a dim 0 only: calibre, cap and full do not show");
+        helper.assertTrue(new MunitionsBenchCounter.Shown(347, 1, 800, false).displayKey() == base,
+                "Shown.displayKey is the same key");
+
+        // 画什么: 发数右对齐贴着发数框右沿; 满度条从条左端起; 口径 "7.62" (13 qt) 居中在 28 qt 宽的箱身正面
+        int right = MunitionsBenchGeometry.COUNTER_COUNT_QT[0] + MunitionsBenchGeometry.COUNTER_COUNT_QT[2];
+        int[] zero = MunitionsBenchCounter.rects(0, "7.62", 800, true);
+        helper.assertTrue(zero.length > 0 && allRects(zero, r -> r[0] == MunitionsBenchCounter.FACE_WINDOW
+                        && r[1] == MunitionsBenchCounter.ROLE_ZERO) && maxRect(zero, 4, -1, -1) == right,
+                "an empty buffer draws only a dim right-aligned 0: no bar, no calibre, got " + Arrays.toString(zero));
+        int[] full = MunitionsBenchCounter.rects(347, "7.62", 800, false);
+        helper.assertTrue(maxRect(full, 4, MunitionsBenchCounter.FACE_WINDOW, MunitionsBenchCounter.ROLE_COUNT) == right,
+                "the count is right-aligned in the count box");
+        int[] bar = MunitionsBenchGeometry.COUNTER_BAR_QT;
+        helper.assertTrue(countRects(full, r -> r[1] == MunitionsBenchCounter.ROLE_BAR && r[2] == bar[0] && r[3] == bar[1]
+                        && r[4] == bar[0] + 9 && r[5] == bar[1] + bar[3]) == 1,
+                "347 of 800 lights 9 bar cells from the left end, got " + Arrays.toString(full));
+        helper.assertTrue(minRect(full, 2, MunitionsBenchCounter.FACE_STENCIL, MunitionsBenchCounter.ROLE_STENCIL) == 7
+                        && maxRect(full, 4, MunitionsBenchCounter.FACE_STENCIL, MunitionsBenchCounter.ROLE_STENCIL) == 20
+                        && minRect(full, 3, MunitionsBenchCounter.FACE_STENCIL, MunitionsBenchCounter.ROLE_STENCIL)
+                        == MunitionsBenchGeometry.COUNTER_STENCIL_Y_QT,
+                "the calibre stencil 7.62 is centred on the can front (x 7..20 qt)");
+        helper.assertTrue(countRects(MunitionsBenchCounter.rects(461, "7.62", 500, true),
+                        r -> r[1] == MunitionsBenchCounter.ROLE_BAR_FULL) == 1,
+                "a full buffer draws the amber bar");
+        helper.assertTrue(countRects(MunitionsBenchCounter.rects(347, null, 800, false),
+                        r -> r[0] == MunitionsBenchCounter.FACE_STENCIL) == 0,
+                "no calibre label, no stencil");
+
+        // 颜色: 六档一行; 待机比工作暗; 满仓琥珀与模板字黄漆每档相同
+        helper.assertTrue(MunitionsBenchGeometry.COUNTER_COLOURS.length == MunitionsBenchAssets.TIER_IDS.length,
+                "one colour row per tier");
+        for (int tier = 0; tier < MunitionsBenchGeometry.COUNTER_COLOURS.length; tier++) {
+            int working = MunitionsBenchCounter.colour(tier, MunitionsBenchCounter.ROLE_COUNT, true);
+            int idle = MunitionsBenchCounter.colour(tier, MunitionsBenchCounter.ROLE_COUNT, false);
+            helper.assertTrue(luma(idle) < luma(working), "tier " + tier + ": idle digits must be dimmer than working");
+            helper.assertTrue(MunitionsBenchCounter.colour(tier, MunitionsBenchCounter.ROLE_BAR_FULL, true) == 0xFFB234
+                            && MunitionsBenchCounter.colour(tier, MunitionsBenchCounter.ROLE_STENCIL, false) == 0xF4C22C,
+                    "tier " + tier + ": the full bar is amber and the can stencil is hazard yellow in every tier");
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 同步标签只带计数屏看得见的四个值 (+ 工作时的程序起点), 方块实体数据包与区块包同一份; 客户端两条入口都只读这几个值,
+     * 不走 load() (台主、缓冲字段都不动); 满仓按下一批的口径算 (没选口径时按缓冲里的); 空包 (null 标签) 不清掉已有的状态。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchCounterUpdateTagCarriesOnlyTheDisplayedState(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        MunitionsBenchBlockEntity be = newBench(helper, player);
+        int cap = MunitionsLevels.bufferPerTable(1);
+        seedBuffer(be, MunitionsCaliber.RIFLE, 347);
+
+        CompoundTag tag = be.getUpdateTag();
+        helper.assertTrue(tag.getAllKeys().equals(Set.of("BufferedRounds", "BufferedCaliber", "BufferCap", "BufferFull")),
+                "an idle bench's update tag carries the four counter values only (no inventory / owner), got "
+                        + tag.getAllKeys());
+        helper.assertTrue(tag.getInt("BufferedRounds") == 347 && tag.getInt("BufferedCaliber") == MunitionsCaliber.RIFLE.index()
+                        && tag.getInt("BufferCap") == cap && !tag.getBoolean("BufferFull"),
+                "the update tag must carry 347 rounds of RIFLE, cap " + cap + ", not full; got " + tag);
+        if (!(be.getUpdatePacket() instanceof ClientboundBlockEntityDataPacket packet)) {
+            throw new IllegalStateException("the munitions bench must send a block entity data packet");
+        }
+        helper.assertTrue(tag.equals(packet.getTag()), "the data packet must carry the same tag as the chunk packet");
+
+        MunitionsBenchBlockEntity client = new MunitionsBenchBlockEntity(be.getBlockPos(), be.getBlockState());
+        client.onDataPacket(new Connection(PacketFlow.CLIENTBOUND), packet);
+        MunitionsBenchCounter.Shown expected = new MunitionsBenchCounter.Shown(347, MunitionsCaliber.RIFLE.index(), cap, false);
+        helper.assertTrue(expected.equals(client.clientCounter()),
+                "onDataPacket must read the counter, got " + client.clientCounter());
+        helper.assertTrue(client.owner() == null && client.bufferedRounds() == 0,
+                "onDataPacket must not load() the tag into the client copy (owner / buffer stay untouched)");
+        MunitionsBenchBlockEntity chunkClient = new MunitionsBenchBlockEntity(be.getBlockPos(), be.getBlockState());
+        chunkClient.handleUpdateTag(tag);
+        helper.assertTrue(expected.equals(chunkClient.clientCounter()), "the chunk packet path reads the same counter");
+        // 没有 level 的副本 (别的模组的客户端预览) 组标签时交出同步来的值, 不读服务端状态与 SERVER config
+        CompoundTag levelless = chunkClient.getUpdateTag();
+        helper.assertTrue(levelless.equals(tag),
+                "a level-less copy must hand back the synced counter, not its own (empty) server state; got " + levelless);
+        // 别的模组发来整份存档 NBT (同名的 BufferedRounds / BufferedCaliber, 但没有 BufferCap): 不动计数屏
+        CompoundTag saved = be.saveWithoutMetadata();
+        helper.assertTrue(saved.contains("BufferedRounds") && !saved.contains("BufferCap"),
+                "precondition: the save shares BufferedRounds with the update tag but has no BufferCap; got " + saved.getAllKeys());
+        seedBuffer(be, MunitionsCaliber.RIFLE, 12);
+        chunkClient.handleUpdateTag(be.saveWithoutMetadata());
+        helper.assertTrue(expected.equals(chunkClient.clientCounter()),
+                "a full save NBT (no BufferCap) must not replace the counter with cap 0, got " + chunkClient.clientCounter());
+
+        // 装不下下一批 (步枪 L1 一批 40 发, 只剩 20 发空间) = 满仓; 没选口径时按缓冲里的口径算
+        seedBuffer(be, MunitionsCaliber.RIFLE, cap - 20);
+        helper.assertTrue(be.getUpdateTag().getBoolean("BufferFull"),
+                "a buffer 20 rounds short of the cap cannot take a 40-round RIFLE batch: full");
+
+        be.onOutputTaken(player, cap - 20);
+        CompoundTag emptied = be.getUpdateTag();
+        helper.assertTrue(emptied.getInt("BufferedRounds") == 0 && emptied.getInt("BufferedCaliber") == -1
+                        && !emptied.getBoolean("BufferFull"),
+                "an emptied buffer sends 0 rounds, no calibre and not full, got " + emptied);
+        client.handleUpdateTag(emptied);
+        helper.assertTrue(client.clientCounter().equals(new MunitionsBenchCounter.Shown(0, -1, cap, false)),
+                "the client copy follows the emptied buffer, got " + client.clientCounter());
+
+        ClientboundBlockEntityDataPacket nullTagPacket = ClientboundBlockEntityDataPacket.create(be, ignored -> new CompoundTag());
+        helper.assertTrue(nullTagPacket.getTag() == null, "precondition: vanilla turns an empty packet tag into null");
+        client.handleUpdateTag(tag);
+        client.onDataPacket(new Connection(PacketFlow.CLIENTBOUND), nullTagPacket);
+        helper.assertTrue(expected.equals(client.clientCounter()), "a data packet without a tag must leave the counter as it was");
+        helper.succeed();
+    }
+
+    /**
+     * 画字的位置与绕序: 渲染器摆角用的 {@link MunitionsBenchCounter#blockCorners} (朝向 rotY → scale(1/16) → 窗面再绕 x 转箱盖的角度,
+     * 箱身不转; 渲染器只把结果交给 BER 的 poseStack) 把整块窗 / 整块箱身正面摆到的四个角, 必须正是静态 JSON 里箱盖窗后本体
+     * (can_lid) / 箱身 (can) 的北面按 JSON 的旋转与方块状态的朝向转过去、再往面外挪 LIFT 的地方, 顺序 左上 → 左下 → 右下 → 右上,
+     * 四个朝向下绕序都朝外 (textBackground 剔除背面, 反了字就没了); 字浮在面外 LIFT, 比凹窗的深度浅 (藏在框条前沿之后)。
+     * 一屏真实的字 (12.4K / 7.62 / 满仓) 的每个角也都落在各自的面里。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void wideBenchCounterFacesLandOnTheLidWindowAndTheCanFront(GameTestHelper helper) {
+        JsonObject model = MunitionsBenchAssets.blockModel(MunitionsBenchAssets.lineModelName("munitions_bench", "main", false));
+        JsonObject lid = modelElement(model, "can_lid");
+        JsonObject can = modelElement(model, "can");
+        float[] lidFrom = floats(lid.getAsJsonArray("from"));
+        float[] lidTo = floats(lid.getAsJsonArray("to"));
+        float[] canFrom = floats(can.getAsJsonArray("from"));
+        float[] canTo = floats(can.getAsJsonArray("to"));
+        JsonObject rotation = lid.getAsJsonObject("rotation");
+        helper.assertTrue(rotation != null && "x".equals(rotation.get("axis").getAsString()) && !can.has("rotation"),
+                "the lid turns about x in the model and the can front does not turn");
+        float jsonAngle = rotation.get("angle").getAsFloat();
+        float[] jsonOrigin = floats(rotation.getAsJsonArray("origin"));
+        helper.assertTrue(MunitionsBenchGeometry.COUNTER_LIFT_PX > 0.0F
+                        && MunitionsBenchGeometry.COUNTER_LIFT_PX < MunitionsBenchGeometry.COUNTER_RECESS_PX,
+                "the digits float off the window face but stay behind the frame strips");
+
+        float lift = MunitionsBenchGeometry.COUNTER_LIFT_PX;
+        int[] window = MunitionsBenchGeometry.COUNTER_WINDOW_QT;
+        int[] stencilSize = MunitionsBenchGeometry.COUNTER_STENCIL_FACE_QT;
+        // 整块窗与整块箱身正面当作两个矩形, 交给渲染器摆角的同一个方法
+        int[] wholeFaces = {
+                MunitionsBenchCounter.FACE_WINDOW, MunitionsBenchCounter.ROLE_COUNT,
+                window[0], window[1], window[0] + window[2], window[1] + window[3],
+                MunitionsBenchCounter.FACE_STENCIL, MunitionsBenchCounter.ROLE_STENCIL, 0, 0, stencilSize[0], stencilSize[1],
+        };
+        int[] screen = MunitionsBenchCounter.rects(12480, MunitionsCaliber.RIFLE.shortLabel(), 500, true);
+        helper.assertTrue(countRects(screen, r -> r[0] == MunitionsBenchCounter.FACE_STENCIL) > 0
+                        && countRects(screen, r -> r[1] == MunitionsBenchCounter.ROLE_BAR_FULL) == 1,
+                "precondition: the sample screen has digits, a full bar and a calibre stencil");
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            float yRotation = MunitionsBenchBlock.partsYRotationDegrees(facing);
+            float[] drawn = MunitionsBenchCounter.blockCorners(wholeFaces, yRotation);
+            helper.assertTrue(drawn.length == 2 * MunitionsBenchCounter.CORNER_FLOATS, "two rects, four corners each");
+            // 窗: 左上 (to.x, to.y) → 左下 (to.x, from.y) → 右下 (from.x, from.y) → 右上 (from.x, to.y), 在 can_lid 北面外 LIFT
+            float lidZ = lidFrom[2] - lift;
+            assertCorners(helper, facing + " window", drawn, 0, new Vec3[]{
+                    modelPoint(facing, lidTo[0], lidTo[1], lidZ, jsonOrigin, jsonAngle),
+                    modelPoint(facing, lidTo[0], lidFrom[1], lidZ, jsonOrigin, jsonAngle),
+                    modelPoint(facing, lidFrom[0], lidFrom[1], lidZ, jsonOrigin, jsonAngle),
+                    modelPoint(facing, lidFrom[0], lidTo[1], lidZ, jsonOrigin, jsonAngle)});
+            float canZ = canFrom[2] - lift;
+            assertCorners(helper, facing + " can front", drawn, MunitionsBenchCounter.CORNER_FLOATS, new Vec3[]{
+                    modelPoint(facing, canTo[0], canTo[1], canZ, null, 0.0F),
+                    modelPoint(facing, canTo[0], canFrom[1], canZ, null, 0.0F),
+                    modelPoint(facing, canFrom[0], canFrom[1], canZ, null, 0.0F),
+                    modelPoint(facing, canFrom[0], canTo[1], canZ, null, 0.0F)});
+            assertFacesOut(helper, facing + " window", drawn, 0,
+                    modelPoint(facing, lidTo[0], lidTo[1], lidFrom[2] - 1.0F, jsonOrigin, jsonAngle)
+                            .subtract(modelPoint(facing, lidTo[0], lidTo[1], lidFrom[2], jsonOrigin, jsonAngle)));
+            assertFacesOut(helper, facing + " can front", drawn, MunitionsBenchCounter.CORNER_FLOATS,
+                    modelPoint(facing, canTo[0], canTo[1], canFrom[2] - 1.0F, null, 0.0F)
+                            .subtract(modelPoint(facing, canTo[0], canTo[1], canFrom[2], null, 0.0F)));
+
+            // 一屏真实的字: 每个角都在各自那块面的四个角围成的矩形里 (按面上的两条边投影, 允许浮点误差)
+            float[] corners = MunitionsBenchCounter.blockCorners(screen, yRotation);
+            for (int r = 0; r * MunitionsBenchCounter.RECT_INTS < screen.length; r++) {
+                int faceOffset = screen[r * MunitionsBenchCounter.RECT_INTS] == MunitionsBenchCounter.FACE_WINDOW
+                        ? 0 : MunitionsBenchCounter.CORNER_FLOATS;
+                for (int k = 0; k < 4; k++) {
+                    assertInsideFace(helper, facing + " rect " + r + " corner " + k, drawn, faceOffset,
+                            corners, r * MunitionsBenchCounter.CORNER_FLOATS + k * 3);
+                }
+            }
+        }
+        helper.succeed();
+    }
+
+    /** 模型像素点 (朝北) 先按 JSON 元素的旋转 (绕 x, 右手系) 转, 再按方块状态的朝向转到世界 (格, 主格在原点)。 */
+    private static Vec3 modelPoint(Direction facing, float x, float y, float z, float[] origin, float angleDegrees) {
+        double py = y;
+        double pz = z;
+        if (origin != null) {
+            double a = Math.toRadians(angleDegrees);
+            double dy = y - origin[1];
+            double dz = z - origin[2];
+            py = origin[1] + dy * Math.cos(a) - dz * Math.sin(a);
+            pz = origin[2] + dy * Math.sin(a) + dz * Math.cos(a);
+        }
+        return MunitionsBenchBlock.benchPixelToWorld(BlockPos.ZERO, facing, x, py, pz);
+    }
+
+    /** blockCorners 里从 offset 起的四个角 (左上, 左下, 右下, 右上) 必须依次落在 expected 上 (方块坐标, 主格在原点)。 */
+    private static void assertCorners(GameTestHelper helper, String label, float[] corners, int offset, Vec3[] expected) {
+        String[] names = {"top-left", "bottom-left", "bottom-right", "top-right"};
+        for (int k = 0; k < 4; k++) {
+            Vec3 drawn = corner(corners, offset + k * 3);
+            helper.assertTrue(drawn.distanceTo(expected[k]) < 1.0E-4D,
+                    label + " " + names[k] + ": the renderer puts it at " + drawn + " but the static model has it at " + expected[k]);
+        }
+    }
+
+    /** 渲染器的顶点顺序 (左上, 左下, 右下, 右上) 叉乘出的法线必须朝面外 (outward = 模型里往北挪一点的方向)。 */
+    private static void assertFacesOut(GameTestHelper helper, String label, float[] corners, int offset, Vec3 outward) {
+        Vec3 topLeft = corner(corners, offset);
+        Vec3 normal = corner(corners, offset + 3).subtract(topLeft)
+                .cross(corner(corners, offset + 6).subtract(topLeft)).normalize();
+        double dot = normal.dot(outward.normalize());
+        helper.assertTrue(dot > 0.999D, label + ": the TL, BL, BR, TR winding must face out of the model (dot " + dot
+                + "), otherwise textBackground culls the digits");
+    }
+
+    /** corners[p..p+2] 落在 face[f..] (左上, 左下, 右下, 右上) 围成的矩形里: 沿两条边的投影在 [0, 1] 内, 且与它同一平面。 */
+    private static void assertInsideFace(GameTestHelper helper, String label, float[] face, int f, float[] corners, int p) {
+        Vec3 topLeft = corner(face, f);
+        Vec3 down = corner(face, f + 3).subtract(topLeft);
+        Vec3 right = corner(face, f + 9).subtract(topLeft);
+        Vec3 d = corner(corners, p).subtract(topLeft);
+        double s = d.dot(down) / down.lengthSqr();
+        double t = d.dot(right) / right.lengthSqr();
+        double off = Math.abs(d.dot(down.cross(right).normalize()));
+        double eps = 1.0E-4D;
+        helper.assertTrue(s >= -eps && s <= 1.0D + eps && t >= -eps && t <= 1.0D + eps && off < eps,
+                label + ": " + corner(corners, p) + " is outside its face (down " + s + ", right " + t + ", off the plane " + off + ")");
+    }
+
+    private static Vec3 corner(float[] corners, int i) {
+        return new Vec3(corners[i], corners[i + 1], corners[i + 2]);
+    }
+
+    private static JsonObject modelElement(JsonObject model, String name) {
+        for (JsonElement element : model.getAsJsonArray("elements")) {
+            JsonObject object = element.getAsJsonObject();
+            if (object.has("name") && name.equals(object.get("name").getAsString())) {
+                return object;
+            }
+        }
+        throw new IllegalStateException("munitions bench model has no element named " + name);
+    }
+
+    private static float[] floats(JsonArray array) {
+        float[] out = new float[array.size()];
+        for (int i = 0; i < out.length; i++) {
+            out[i] = array.get(i).getAsFloat();
+        }
+        return out;
+    }
+
+    private static boolean allRects(int[] rects, java.util.function.Predicate<int[]> test) {
+        return countRects(rects, test) == rects.length / MunitionsBenchCounter.RECT_INTS;
+    }
+
+    private static int countRects(int[] rects, java.util.function.Predicate<int[]> test) {
+        int n = 0;
+        for (int i = 0; i + MunitionsBenchCounter.RECT_INTS <= rects.length; i += MunitionsBenchCounter.RECT_INTS) {
+            if (test.test(Arrays.copyOfRange(rects, i, i + MunitionsBenchCounter.RECT_INTS))) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** 某面某角色的矩形里, 第 field 个 int 的最大值 (face / role 为 -1 = 不限)。 */
+    private static int maxRect(int[] rects, int field, int face, int role) {
+        int best = Integer.MIN_VALUE;
+        for (int i = 0; i + MunitionsBenchCounter.RECT_INTS <= rects.length; i += MunitionsBenchCounter.RECT_INTS) {
+            if ((face < 0 || rects[i] == face) && (role < 0 || rects[i + 1] == role)) {
+                best = Math.max(best, rects[i + field]);
+            }
+        }
+        return best;
+    }
+
+    private static int minRect(int[] rects, int field, int face, int role) {
+        int best = Integer.MAX_VALUE;
+        for (int i = 0; i + MunitionsBenchCounter.RECT_INTS <= rects.length; i += MunitionsBenchCounter.RECT_INTS) {
+            if ((face < 0 || rects[i] == face) && (role < 0 || rects[i + 1] == role)) {
+                best = Math.min(best, rects[i + field]);
+            }
+        }
+        return best;
+    }
+
+    private static int luma(int rgb) {
+        return (rgb >> 16 & 0xFF) * 3 + (rgb >> 8 & 0xFF) * 6 + (rgb & 0xFF);
+    }
+
+    /**
+     * 计数屏只在看得见的样子变了时推给客户端: 读档后第一次结算推一次; 上万以后取走 1 发 ("12.4K" 不变)、重复结算都不推;
+     * 同一 tick 里两次看得见的变化合并成恰好一个方块实体数据包 (包体是发送那一刻的标签); 取空推一次空箱。
+     * 从 mock 玩家的 EmbeddedChannel 出站队列里数主格的 ClientboundBlockEntityDataPacket (与冲压音节拍用例同一手法)。
+     * 单独一个 batch: 要挂几十 tick 数包, 不与同批其他用例的方块更新混在一起。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = COUNTER_SYNC_BATCH, timeoutTicks = 100)
+    public static void wideBenchCounterPushesOneUpdatePerVisibleChange(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        ServerLevel level = helper.getLevel();
+        MunitionsBenchBlockEntity be = newBench(helper, player);
+        BlockPos mainPos = be.getBlockPos();
+        BlockState wide = be.getBlockState()
+                .setValue(MunitionsBenchBlock.FACING, Direction.NORTH)
+                .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE);
+        placeBenchPair(level, mainPos, MunitionsBenchBlock.extensionPos(mainPos, wide), wide);
+        // mock 玩家的连接不 tick, 挪到台前后要自己登记区块追踪, 区块里的方块更新才会发给它
+        player.moveTo(mainPos.getX() + 0.5D, mainPos.getY(), mainPos.getZ() - 2.5D);
+        level.getChunkSource().move(player);
+        EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
+        int cap = MunitionsLevels.bufferPerTable(1);
+        int rifle = MunitionsCaliber.RIFLE.index();
+        seedBuffer(be, MunitionsCaliber.RIFLE, 12480);
+        helper.assertTrue(be.syncedCounterKeyForTest() == MunitionsBenchCounter.NO_KEY,
+                "an in-place load must forget the last pushed counter");
+
+        helper.startSequence()
+                .thenIdle(5)
+                .thenExecute(() -> {
+                    // 台主在线, 每 tick 都结算: 读档后的第一次结算已把 12.4K 推出去 (放台子的方块更新也带着同一份标签)
+                    List<CompoundTag> pushed = counterPackets(channel, mainPos);
+                    helper.assertTrue(!pushed.isEmpty() && pushed.get(pushed.size() - 1).getInt("BufferedRounds") == 12480,
+                            "the first settle after the load must push 12480 rounds to the watching player, got " + pushed);
+                    helper.assertTrue(be.syncedCounterKeyForTest() == MunitionsBenchCounter.displayKey(12480, rifle, cap, true),
+                            "the pushed key is 12.4K / RIFLE / full bar / full");
+                    be.onOutputTaken(player, 1); // 12479: 还是 "12.4K", 条满, 满仓
+                    be.settleForOwner(player);   // 结算什么也没变
+                })
+                .thenIdle(3)
+                .thenExecute(() -> {
+                    List<CompoundTag> pushed = counterPackets(channel, mainPos);
+                    helper.assertTrue(pushed.isEmpty(), "no visible change must push nothing, got " + pushed);
+                    be.onOutputTaken(player, 2480); // 9999
+                    be.onOutputTaken(player, 1);    // 9998, 同一 tick
+                })
+                .thenIdle(3)
+                .thenExecute(() -> {
+                    List<CompoundTag> pushed = counterPackets(channel, mainPos);
+                    helper.assertTrue(pushed.size() == 1,
+                            "two visible changes in one tick must reach the client as exactly one packet, got " + pushed);
+                    CompoundTag tag = pushed.get(0);
+                    helper.assertTrue(tag.getInt("BufferedRounds") == 9998 && tag.getInt("BufferedCaliber") == rifle
+                                    && tag.getInt("BufferCap") == cap && tag.getBoolean("BufferFull"),
+                            "the packet carries the state at send time: 9998 RIFLE, cap " + cap + ", full; got " + tag);
+                    be.onOutputTaken(player, 9998); // 取空
+                })
+                .thenIdle(3)
+                .thenExecute(() -> {
+                    List<CompoundTag> pushed = counterPackets(channel, mainPos);
+                    helper.assertTrue(pushed.size() == 1 && pushed.get(0).getInt("BufferedRounds") == 0
+                                    && pushed.get(0).getInt("BufferedCaliber") == -1 && !pushed.get(0).getBoolean("BufferFull"),
+                            "emptying the buffer must push one empty counter, got " + pushed);
+                    MunitionsBenchBlockEntity client = new MunitionsBenchBlockEntity(mainPos, wide);
+                    client.handleUpdateTag(pushed.get(0));
+                    helper.assertTrue(client.clientCounter().equals(new MunitionsBenchCounter.Shown(0, -1, cap, false)),
+                            "the client copy shows the empty can, got " + client.clientCounter());
+                })
+                .thenSucceed();
+    }
+
+    /** 把出站队列读空, 返回主格的方块实体数据包里的标签 (按到达顺序; 别处、别的包一律忽略)。 */
+    private static List<CompoundTag> counterPackets(EmbeddedChannel channel, BlockPos pos) {
+        List<CompoundTag> out = new ArrayList<>();
+        Object message;
+        while ((message = channel.readOutbound()) != null) {
+            if (message instanceof ClientboundBlockEntityDataPacket packet && packet.getPos().equals(pos)
+                    && packet.getTag() != null) {
+                out.add(packet.getTag());
+            }
+        }
+        return out;
     }
 
     // ============================================================

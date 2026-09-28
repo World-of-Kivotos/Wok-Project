@@ -2,7 +2,7 @@ package com.miningdim.job.munitions.block;
 
 /**
  * 军火台 WIDE 布局 (弹药流水线) 的几何常量: 轮廓箱 (静态件 + 运动件)、模型高度、运动件的活动范围、冲压火花的位置,
- * 以及弹药箱计数屏 (COUNTER_*) 的显示面、布局与每档颜色。
+ * 弹药箱计数屏 (COUNTER_*) 的显示面、布局与每档颜色, 以及运行灯效 (LIGHT_*) 的目标面、时间、透明度与每档颜色。
  * <p>
  * 由 tools/munitions_bench/generate_munitions_bench.mjs 按方块模型的同一份场景整个写出, 不要手改。
  * 刻意不依赖任何 Minecraft 类, 方块、方块实体、渲染器与 GameTest 都能直接用。
@@ -73,8 +73,11 @@ public final class MunitionsBenchGeometry {
     /** 运动件 (方块实体渲染器画的件) 在整个循环与待机里扫过的范围, 整台坐标 {x, y, z} (px)。 */
     public static final float[] PARTS_MIN = {5.75F, 4.25F, 6.25F};
     public static final float[] PARTS_MAX = {27.25F, 22.25F, 8.75F};
-    /** 运动件的最高点 (px), 方块实体渲染包围盒至少要到这里。 */
-    public static final float RENDER_TOP_PX = 22.25F;
+    /**
+     * 方块实体渲染包围盒的顶 (px): 方块实体渲染器画的东西 —— 运动件 (最高 PARTS_MAX[1]) 与运行灯效的覆盖层 (闪耀宝石顶面浮出后
+     * 最高, 见 LIGHT_*) —— 的最高点, 向上取整到 0.25 px。低了的话画面里只剩宝石时整个方块实体被视锥剔掉, 那一帧的灯效就没了。
+     */
+    public static final float RENDER_TOP_PX = 24.25F;
 
     /** 冲压火花的位置 (整台坐标 = 主格局部坐标, px): 压弹头位那发的壳口, 冲头在 MunitionsBenchProgram.STRIKE_TICK 压到这里。 */
     public static final float SPARK_X = 14.5F;
@@ -143,6 +146,110 @@ public final class MunitionsBenchGeometry {
             {0xB686E6, 0x9D75C9, 0x7856A1, 0x6C5191, 0xA66CE0, 0x9263C5, 0xFFB234, 0xE29228, 0xF4C22C, 0xF4C22C}, // 档位 3
             {0xE67179, 0xC7636B, 0x9B464F, 0x8A434C, 0xE0525C, 0xC34D57, 0xFFB234, 0xE29228, 0xF4C22C, 0xF4C22C}, // 档位 4
             {0xDE8CFF, 0xC07ADF, 0x965BB4, 0x8554A1, 0xD773FF, 0xBB69DF, 0xFFB234, 0xE29228, 0xF4C22C, 0xF4C22C}, // 档位 5
+    };
+
+    // ---- 运行灯效 (MunitionsBenchLights): 工作时在静态灯带上叠一层随程序动作的发光四边形, 按档位解锁 ----
+    // 与 tools/munitions_bench/lights.mjs 同一份 (生成器写出后解析回来核对, 并按生成的 JSON 核对每个目标面); 画法在 MunitionsBenchLights。
+    /** 覆盖层 α 低于这个不画 (rendertype_text_background.fsh 的 discard 阈值; 每个顶点都要 ≥ 它)。 */
+    public static final double LIGHT_ALPHA_CUTOFF = 0.1;
+    /** 相机离主格中心超过这么多格不画 (= COUNTER_MAX_DISTANCE_BLOCKS); 运行呼吸从 LIGHT_FADE_START_BLOCKS 起渐隐。 */
+    public static final float LIGHT_MAX_DISTANCE_BLOCKS = 24.0F;
+    public static final float LIGHT_FADE_START_BLOCKS = 20.0F;
+    /** 一帧最多几个覆盖四边形 (MunitionsBenchLights.Frame 的定长数组; 生成器逐 0.25 tick 核对六档都不超过它)。 */
+    public static final int LIGHT_MAX_QUADS = 32;
+    /** 工位灯亮度低于这个就不单独切段 (并进呼吸段)。 */
+    public static final double LIGHT_LED_MERGE_EPSILON = 0.00390625;
+    /**
+     * 覆盖层贴的静态元素面 (整台像素, 朝北), 下标 = MunitionsBenchLights 的目标下标。面 = 原版 Direction.get3DDataValue() (下 0 上 1 北 2 南 3 西 4 东 5);
+     * 矩形 {x0, y0, z0, x1, y1, z1} (法线轴上两值相同 = 面所在的平面); 胀 {x0, x1, y0, y1, z0, z1} = 这条边往外胀 LIFT (相邻两个覆盖面在棱上接成壳);
+     * 浮出 = 沿面外法线离开面的距离 (px); 明暗 = 元素的 shade 标志 (渲染器按 level.getShade(面方向, 它) 乘颜色)。
+     */
+    public static final int[] LIGHT_TARGET_FACES = {2, 1, 2, 2, 1, 4, 5, 2, 2, 1, 4, 5, 2, 3, 5, 4, 1};
+    public static final float[][] LIGHT_TARGET_RECTS_PX = {
+            {8.5F, 7.0F, 0.0F, 31.5F, 7.5F, 0.0F}, // 0 strip_n: strip.north
+            {8.5F, 7.5F, 0.0F, 31.5F, 7.5F, 0.5F}, // 1 strip_u: strip.up
+            {8.0F, 9.0F, 9.5F, 31.0F, 10.0F, 9.5F}, // 2 rail_b_n: rail_b.north
+            {12.0F, 19.0F, 3.25F, 17.0F, 19.5F, 3.25F}, // 3 crown_n: crown_light.north
+            {12.0F, 19.5F, 3.25F, 17.0F, 19.5F, 3.75F}, // 4 crown_u: crown_light.up
+            {12.0F, 19.0F, 3.25F, 12.0F, 19.5F, 3.75F}, // 5 crown_w: crown_light.west
+            {17.0F, 19.0F, 3.25F, 17.0F, 19.5F, 3.75F}, // 6 crown_e: crown_light.east
+            {0.5F, 2.5F, 1.0F, 1.0F, 3.0F, 1.0F}, // 7 can_n_open: can_strip.north
+            {1.0F, 2.5F, 1.0F, 8.0F, 3.0F, 1.0F}, // 8 can_n_under: can_strip.north
+            {0.5F, 3.0F, 1.0F, 1.0F, 3.0F, 1.5F}, // 9 can_u: can_strip.up
+            {0.5F, 2.5F, 1.0F, 0.5F, 3.0F, 1.5F}, // 10 can_w: can_strip.west
+            {8.0F, 2.5F, 1.0F, 8.0F, 3.0F, 1.5F}, // 11 can_e: can_strip.east
+            {14.0F, 23.0F, 7.0F, 15.0F, 24.0F, 7.0F}, // 12 gem_n: gem.north
+            {14.0F, 23.0F, 8.0F, 15.0F, 24.0F, 8.0F}, // 13 gem_s: gem.south
+            {15.0F, 23.0F, 7.0F, 15.0F, 24.0F, 8.0F}, // 14 gem_e: gem.east
+            {14.0F, 23.0F, 7.0F, 14.0F, 24.0F, 8.0F}, // 15 gem_w: gem.west
+            {14.0F, 24.0F, 7.0F, 15.0F, 24.0F, 8.0F}, // 16 gem_u: gem.up
+    };
+    public static final int[][] LIGHT_TARGET_GROW = {
+            {0, 0, 0, 1, 0, 0}, // 0 strip_n
+            {0, 0, 0, 0, 1, 0}, // 1 strip_u
+            {0, 0, 0, 0, 0, 0}, // 2 rail_b_n
+            {1, 1, 0, 1, 0, 0}, // 3 crown_n
+            {1, 1, 0, 0, 1, 0}, // 4 crown_u
+            {0, 0, 0, 1, 1, 0}, // 5 crown_w
+            {0, 0, 0, 1, 1, 0}, // 6 crown_e
+            {1, 0, 0, 1, 0, 0}, // 7 can_n_open
+            {0, 1, 0, 0, 0, 0}, // 8 can_n_under
+            {1, 0, 0, 0, 1, 0}, // 9 can_u
+            {0, 0, 0, 1, 1, 0}, // 10 can_w
+            {0, 0, 0, 0, 1, 0}, // 11 can_e
+            {1, 1, 0, 1, 0, 0}, // 12 gem_n
+            {1, 1, 0, 1, 0, 0}, // 13 gem_s
+            {0, 0, 0, 1, 1, 1}, // 14 gem_e
+            {0, 0, 0, 1, 1, 1}, // 15 gem_w
+            {1, 1, 0, 0, 1, 1}, // 16 gem_u
+    };
+    public static final float[] LIGHT_TARGET_LIFT_PX = {0.125F, 0.125F, 0.125F, 0.125F, 0.125F, 0.125F, 0.125F, 0.125F, 0.125F, 0.125F, 0.125F, 0.125F, 0.03125F, 0.03125F, 0.03125F, 0.03125F, 0.03125F};
+    public static final boolean[] LIGHT_TARGET_SHADED = {true, true, true, true, true, true, true, true, true, true, true, true, false, false, false, false, false};
+    /** 目标组 (下标 = MunitionsBenchLights.GROUP_*: 前沿灯带 / 后护栏背光 / 压机横梁灯条 / 弹药箱下灯带 / 闪耀宝石), 每组一起亮的目标。 */
+    public static final int[][] LIGHT_GROUPS = {
+            {0, 1}, // strip
+            {2}, // rail
+            {3, 4, 5, 6}, // crown
+            {7, 8, 9, 10, 11}, // can
+            {12, 13, 14, 15, 16}, // gem
+    };
+    /** 工位指示灯 (前沿灯带上、各弹位正下方一段 LIGHT_LED_WIDTH_PX 宽; 按 x 从小到大 = 出弹 / 压弹头 / 装药 / 底火 / 入口) 的中心 x 与脉冲峰 (循环 tick)。 */
+    public static final float[] LIGHT_LED_X_PX = {10.5F, 14.5F, 18.5F, 22.5F, 26.5F};
+    public static final double[] LIGHT_LED_PEAK_TICKS = {35.0, 10.0, 5.0, 0.0, 38.0};
+    public static final float LIGHT_LED_WIDTH_PX = 1.5F;
+    /** 脉冲 {缓入 tick, 衰减 tick} / {峰 tick, 缓入, 衰减}: 峰前二次缓入, 峰后二次衰减 (MunitionsBenchLights.pulse)。 */
+    public static final double[] LIGHT_LED_PULSE = {1.0, 5.0};
+    public static final double[] LIGHT_STRIKE_PULSE = {10.0, 1.0, 6.0};
+    public static final double[] LIGHT_DROP_PULSE = {35.0, 2.0, 8.0};
+    public static final double LIGHT_DROP_ALPHA = 0.9;
+    public static final double[] LIGHT_GEM_PULSE = {10.0, 1.0, 8.0};
+    public static final double[] LIGHT_GEM_ECHO_PULSE = {35.0, 1.0, 6.0};
+    public static final double LIGHT_GEM_ECHO_LEVEL = 0.8;
+    /** 满仓提示 (待机): 客户端时钟每 LIGHT_FULL_BLINK_PERIOD_TICKS 一次梯形闪, 拐点 {起, 全亮, 开始暗, 灭} (tick)。 */
+    public static final int LIGHT_FULL_BLINK_PERIOD_TICKS = 40;
+    public static final double[] LIGHT_FULL_BLINK_RAMP = {0.0, 4.0, 16.0, 20.0};
+    public static final double LIGHT_FULL_ALPHA = 0.95;
+    /** 运行呼吸: 周期 (tick) 与 α {最低, 最高} (只往亮的一侧)。 */
+    public static final int LIGHT_BREATH_PERIOD_TICKS = 80;
+    public static final double[] LIGHT_BREATH_ALPHA = {0.12, 0.32};
+    /** 皮带追光: 包络拐点 {淡入起, 淡入止, 淡出起, 淡出止} (循环 tick)、图案速度 (× 皮带位移)、彗尾长 (px)、α {头, 暗槽}。 */
+    public static final double[] LIGHT_CHASE_WINDOW = {9.0, 12.0, 23.0, 27.0};
+    public static final double LIGHT_CHASE_SPEED = 1.0;
+    public static final double LIGHT_CHASE_TAIL_PX = 2.5;
+    public static final double[] LIGHT_CHASE_ALPHA = {0.9, 0.6};
+    /** 每个效果从哪一档起有 (下标 = MunitionsBenchLights.EFFECT_*: 追光 / 呼吸 / 工位灯 / 冲压 / 落箱 / 满仓 / 宝石)。 */
+    public static final int[] LIGHT_UNLOCK_TIERS = {3, 2, 0, 0, 0, 0, 5};
+    /**
+     * 颜色 0xRRGGBB, 下标 [档位 0..5][角色 = MunitionsBenchLights.ROLE_*: 工位灯 / 冲压回落色 / 落箱 / 满仓琥珀 / 宝石白闪 / 宝石回响 /
+     * 呼吸 / 追光头 / 追光暗槽], 由 tiers.mjs 的档位灯色推出 (lights.mjs lightPalette)。
+     */
+    public static final int[][] LIGHT_COLOURS = {
+            {0xE1FFFD, 0xC8FFFC, 0xE4FFFE, 0xFFB234, 0xEFFFFE, 0xC8FFFC, 0xC8FFFC, 0xD6FFFD, 0x31838D}, // 档位 0
+            {0xDBF3E3, 0xBEEACC, 0xDFF5E6, 0xFFB234, 0xECF9F0, 0xBEEACC, 0xBEEACC, 0xCEEFD9, 0x447F5D}, // 档位 1
+            {0xDCEAFA, 0xC0D9F6, 0xE0ECFB, 0xFFB234, 0xECF4FC, 0xC0D9F6, 0xC0D9F6, 0xD0E3F8, 0x476A93}, // 档位 2
+            {0xECE0F8, 0xDDC7F3, 0xEEE3F9, 0xFFB234, 0xF5EEFB, 0xDDC7F3, 0xDDC7F3, 0xE6D5F6, 0x6C5390}, // 档位 3
+            {0xF8DBDD, 0xF3BDC1, 0xF9DEE0, 0xFFB234, 0xFBEBEC, 0xF3BDC1, 0xF3BDC1, 0xF6CED1, 0x88464F}, // 档位 4
+            {0xF7E2FF, 0xF0CAFF, 0xF8E5FF, 0xFFB234, 0xFBEFFF, 0xECCF87, 0xF0CAFF, 0xF3E0B1, 0x84569F}, // 档位 5
     };
 
     private MunitionsBenchGeometry() {

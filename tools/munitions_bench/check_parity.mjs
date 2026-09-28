@@ -9,7 +9,9 @@
 // 若本机有 JDK (JAVA_HOME 或 PATH 里的 javac), 单独编译 MunitionsBenchProgram.java, 逐 tick 与 JS 镜像对拍;
 // 再单独编译 MunitionsBenchCounter.java + MunitionsBenchGeometry.java (计数屏), 数字格式、字形、排版、满度条、满仓、显示键、颜色
 // 与渲染器摆角用的 benchCorners / blockCorners (四个朝向) 与 counter.mjs 逐值对拍, 布局常量与 parseCounterJava 解析出来的对拍,
-// 口径标签与 MunitionsCaliber.java 对拍。
+// 口径标签与 MunitionsCaliber.java 对拍;
+// 再单独编译 MunitionsBenchLights.java (运行灯效, 连同 Geometry / Counter / Program), 六档 × 工作 / 待机 / 满仓 × 每 0.25 tick 与 lights.mjs 逐值对拍,
+// Geometry 的 LIGHT_* 与 lights.mjs 的 lightsLayout() 对拍。
 // 用法:
 //   node tools/munitions_bench/check_parity.mjs [--cand <候选输出目录 (generate.mjs --out 的目录)>] --out-dir <目录> [--repo <仓库根>] [--no-java]
 //   候选输出: cd .candidates; node munitions_b/generate.mjs --out <目录>
@@ -33,6 +35,7 @@ import {
 import { drawText } from '../gunsmith_workstation/font.mjs';
 import * as C from './counter.mjs';
 import { CALIBER_LABELS } from './counter.mjs';
+import * as LI from './lights.mjs';
 
 function parseArgs(argv) {
     const a = {};
@@ -400,6 +403,149 @@ if (!ARGS['no-java']) {
     }
 }
 
+// ================================================================ Java 对拍 (运行灯效: MunitionsBenchLights + Geometry + Counter + Program 单独编译, 与 lights.mjs 逐值比较)
+// 常量: parseLightsJava(Geometry 源码) 与 lights.mjs 的 lightsLayout() 相同 (生成器也核对, 这里防手改);
+// 每帧: 六档 (+ 越界的 -1 / 6) × 工作 / 待机 / 待机满仓 / 工作满仓 × 程序时间 -2..170 每 0.25 tick (+ 几个很大的 long) × 轮换的相机距离,
+// 另外六档 × 四种状态 × 程序时间 -1..90 × 七个不是 0.25 倍数的 float partialTick (第一轮开工的头几 tick 在里面):
+// 时钟、各效果标量、四边形 (效果、目标、矩形、渐变轴、两端颜色与 α)、benchCorners (角 + 顶点色)、blockCorners (四个朝向轮换);
+// 另外 effectMask (档位 -1..7)、worldFace (六个面 × 四个朝向角)。
+let lightsJavaResult = 'skipped (--no-java)';
+{
+    const src = fs.readFileSync(path.join(REPO, 'src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'block', 'MunitionsBenchGeometry.java'), 'utf8');
+    let d = null;
+    try { d = LI.layoutDiff(LI.parseLightsJava(src), LI.lightsLayout()); } catch (e) { d = e.message; }
+    if (d) problems.push('LIGHT_* constants in MunitionsBenchGeometry.java differ from lights.mjs (rerun the generator): ' + d);
+}
+if (!ARGS['no-java']) {
+    const javac = findJavac();
+    if (!javac) lightsJavaResult = 'skipped (no javac: set JAVA_HOME)';
+    else {
+        const java = path.join(path.dirname(javac), os.platform() === 'win32' ? 'java.exe' : 'java');
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-lights-'));
+        const harness = [
+            'import com.miningdim.job.munitions.block.MunitionsBenchLights;',
+            'public class LightsHarness {',
+            '    static final StringBuilder SB = new StringBuilder();',
+            '    static void line(Object... parts) { for (int i = 0; i < parts.length; i++) { if (i > 0) SB.append(\' \'); SB.append(parts[i]); } SB.append(\'\\n\'); }',
+            '    static String joinF(float[] v, int n) { StringBuilder s = new StringBuilder(); for (int i = 0; i < n; i++) { if (i > 0) s.append(\',\'); s.append(v[i]); } return s.length() == 0 ? "_" : s.toString(); }',
+            '    static final MunitionsBenchLights.Frame F = new MunitionsBenchLights.Frame();',
+            '    static final float[] PTS = new float[MunitionsBenchLights.MAX_QUADS * MunitionsBenchLights.CORNER_FLOATS];',
+            '    static final float[] COLS = new float[MunitionsBenchLights.MAX_QUADS * MunitionsBenchLights.COLOUR_FLOATS];',
+            '    static final double[] DISTANCES = {0.0, 10.0, 20.5, 21.75, 23.5, 23.99, 30.0};',
+            '    static final float[] ROTS = {0.0F, -90.0F, 180.0F, 90.0F};',
+            '    static void frame(int tier, boolean active, boolean full, long e, float partial, long gameTime, double dist, float rot) {',
+            '        MunitionsBenchLights.Frame f = F;',
+            '        int n = MunitionsBenchLights.compute(f, tier, active, full, e, gameTime, partial, dist);',
+            '        StringBuilder lv = new StringBuilder(); for (double v : f.leds) lv.append(v).append(\' \');',
+            '        line("F", tier, active, full, e, partial, gameTime, dist, n, f.overflowed, f.cycleTick, f.elapsed, f.breathTick, f.clockTick, f.beltX,',
+            '                lv.toString().trim(), f.strike, f.drop, f.full, f.gem, f.gemEcho, f.breath, f.chase);',
+            '        for (int q = 0; q < n; q++) line("Q", f.effect[q], f.target[q], f.lo[q * 3], f.lo[q * 3 + 1], f.lo[q * 3 + 2], f.hi[q * 3], f.hi[q * 3 + 1], f.hi[q * 3 + 2], f.grad[q], f.rgb0[q], f.alpha0[q], f.rgb1[q], f.alpha1[q]);',
+            '        MunitionsBenchLights.benchCorners(f, PTS, COLS);',
+            '        line("B", joinF(PTS, n * MunitionsBenchLights.CORNER_FLOATS), joinF(COLS, n * MunitionsBenchLights.COLOUR_FLOATS));',
+            '        MunitionsBenchLights.blockCorners(f, rot, PTS, COLS);',
+            '        line("K", rot, joinF(PTS, n * MunitionsBenchLights.CORNER_FLOATS));',
+            '    }',
+            '    public static void main(String[] a) {',
+            '        boolean[][] states = {{true, false}, {false, false}, {false, true}, {true, true}};',
+            '        for (int tier = -1; tier <= 6; tier++) for (boolean[] s : states) for (int q = -8; q <= 680; q++) {',
+            '            if ((tier < 0 || tier > 5) && q % 4 != 0) continue;',
+            '            long e = Math.floorDiv(q, 4); float partial = Math.floorMod(q, 4) * 0.25F;',
+            '            frame(tier, s[0], s[1], e, partial, e * 3L + 11L, DISTANCES[Math.floorMod(q * 7 + tier, DISTANCES.length)], ROTS[Math.floorMod(q + tier, 4)]);',
+            '        }',
+            '        // 任意 float 的 partialTick (不只 0.25 的倍数; 游戏里的 partialTick 什么值都有): 程序时间 -1..90 (含第一轮开工的头几 tick)',
+            '        float[] odd = {0.1F, 0.15957803F, 0.3F, 0.4065408F, 0.7F, 0.8456556F, 0.9999F};',
+            '        for (int tier = 0; tier <= 5; tier++) for (boolean[] s : states) for (long e = -1L; e <= 90L; e++) for (int j = 0; j < odd.length; j++) {',
+            '            int q = (int) e * 7 + j;',
+            '            frame(tier, s[0], s[1], e, odd[j], e * 3L + 11L, DISTANCES[Math.floorMod(q + tier, DISTANCES.length)], ROTS[Math.floorMod(q + tier, 4)]);',
+            '        }',
+            '        long[] big = {123457L, 2000000011L, 17179869183L, 40L * 1000000007L + 38L};',
+            '        for (int tier = 0; tier <= 5; tier++) for (long e : big) for (int j = 0; j < 4; j++) frame(tier, true, false, e, j * 0.25F, e + 5L, 12.0, ROTS[j]);',
+            '        for (int t = -1; t <= 7; t++) line("M", t, MunitionsBenchLights.effectMask(t));',
+            '        for (int face = 0; face < 6; face++) for (float rot : ROTS) line("W", face, rot, MunitionsBenchLights.worldFace(face, rot));',
+            '        System.out.print(SB);',
+            '    }',
+            '}',
+        ].join('\n');
+        fs.writeFileSync(path.join(tmp, 'LightsHarness.java'), harness);
+        const J = (...p) => path.join(REPO, 'src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'block', ...p);
+        try {
+            execFileSync(javac, ['-encoding', 'UTF-8', '-d', tmp, J('MunitionsBenchLights.java'), J('MunitionsBenchGeometry.java'), J('MunitionsBenchCounter.java'), J('MunitionsBenchProgram.java'), path.join(tmp, 'LightsHarness.java')], { stdio: 'pipe' });
+            const out = execFileSync(java, ['-cp', tmp, 'LightsHarness'], { encoding: 'utf8', maxBuffer: 512 * 1024 * 1024 }).trim().split(/\r?\n/);
+            const counts = {};
+            let bad = 0, frames = 0, quads = 0;
+            const check = (kind, ok, what) => { counts[kind] = (counts[kind] || 0) + 1; if (!ok && bad++ < 8) problems.push(`lights java vs js ${kind}: ${what}`); };
+            const near = (a, b, tol) => Math.abs(a - b) <= tol * Math.max(1, Math.abs(b));
+            const B = (s) => s === 'true';
+            const nums = (s) => (s === '_' ? [] : s.split(',').map(Number));
+            let cur = null;   // 当前帧: {label, rects (JS), qi}
+            const effectCount = {};
+            for (const line of out) {
+                const p = line.split(' ');
+                switch (p[0]) {
+                    case 'F': {
+                        frames++;
+                        const [tier, active, full, e, partial, gameTime, dist, n, overflowed] = [Number(p[1]), B(p[2]), B(p[3]), Number(p[4]), Number(p[5]), Number(p[6]), Number(p[7]), Number(p[8]), B(p[9])];
+                        const s = LI.lightFrame({ active, full, elapsedTicks: e, gameTime, partialTick: partial, distance: dist }, game.program);
+                        const L = LI.levels(s);
+                        const rects = LI.lightOverlays(s, tier);
+                        const label = `tier ${tier} ${active ? 'work' : 'idle'}${full ? '+full' : ''} e ${e}+${partial} d ${dist}`;
+                        check('count', n === Math.min(rects.length, LI.MAX_QUADS) && overflowed === rects.length > LI.MAX_QUADS, `${label}: java ${n}${overflowed ? '+' : ''} / js ${rects.length}`);
+                        const clocks = [s.cycleTick, s.elapsed, s.breathTick, s.clockTick, s.beltX];
+                        const jc = p.slice(10, 15).map(Number);
+                        check('clock', clocks.every((v, i) => near(jc[i], v, i === 4 ? 1e-5 : 1e-9)), `${label}: java ${jc} / js ${clocks}`);
+                        const jl = p.slice(15).map(Number), js = [...L.leds, L.strike, L.drop, L.full, L.gem, L.gemEcho, L.breath, L.chase];
+                        check('levels', jl.length === js.length && js.every((v, i) => near(jl[i], v, 1e-9)), `${label}: java ${jl.join(',')} / js ${js.join(',')}`);
+                        cur = { label, rects: rects.slice(0, LI.MAX_QUADS), qi: 0 };
+                        for (const r of cur.rects) effectCount[LI.EFFECTS[r.effect].id + '@' + tier] = (effectCount[LI.EFFECTS[r.effect].id + '@' + tier] || 0) + 1;
+                        break;
+                    }
+                    case 'Q': {
+                        quads++;
+                        const r = cur.rects[cur.qi++];
+                        const v = p.slice(1).map(Number);
+                        const hex = (c) => (c[0] << 16) | (c[1] << 8) | c[2];
+                        const ok = r && v[0] === r.effect && v[1] === r.target && [...r.lo, ...r.hi].every((x, i) => near(v[2 + i], x, 1e-5)) && v[8] === r.grad
+                            && v[9] === hex(r.c0) && near(v[10], r.c0[3], 1e-6) && v[11] === hex(r.c1) && near(v[12], r.c1[3], 1e-6);
+                        check('quad', ok, `${cur.label} #${cur.qi - 1}: java ${v.join(',')} / js ${r ? JSON.stringify(r) : 'none'}`);
+                        break;
+                    }
+                    case 'B': {
+                        const jp = nums(p[1]), jcol = nums(p[2]);
+                        const cs = cur.rects.map((r) => LI.overlayCorners(r));
+                        const pts = cs.flatMap((c) => c.pts.flat()), cols = cs.flatMap((c) => c.cols.flat());
+                        check('benchCorners', jp.length === pts.length && pts.every((x, i) => near(jp[i], x, 1e-5)), `${cur.label}: java ${jp.slice(0, 6)}.. (${jp.length}) / js ${pts.slice(0, 6)}.. (${pts.length})`);
+                        check('vertexColours', jcol.length === cols.length && cols.every((x, i) => (i % 4 === 3 ? near(jcol[i], x, 1e-6) : jcol[i] === x)), `${cur.label}: java ${jcol.slice(0, 8)}.. / js ${cols.slice(0, 8)}..`);
+                        break;
+                    }
+                    case 'K': {
+                        const rot = Number(p[1]), jp = nums(p[2]);
+                        const pts = LI.blockCorners(cur.rects, rot).flat(2);
+                        check('blockCorners', jp.length === pts.length && pts.every((x, i) => near(jp[i], x, 1e-5)), `${cur.label} rot ${rot}: java ${jp.slice(0, 6)}.. / js ${pts.slice(0, 6)}..`);
+                        break;
+                    }
+                    case 'M': check('effectMask', Number(p[2]) === LI.effectMask(Number(p[1])), `tier ${p[1]}: java ${p[2]} / js ${LI.effectMask(Number(p[1]))}`); break;
+                    case 'W': {
+                        const js = LI.FACE_CODES[LI.worldFace(LI.FACE_BY_CODE[Number(p[1])], Number(p[2]))];
+                        check('worldFace', Number(p[3]) === js, `face ${p[1]} rot ${p[2]}: java ${p[3]} / js ${js}`); break;
+                    }
+                    default: check('unknown', false, line);
+                }
+            }
+            // 档位门的覆盖面 (对拍样本里确实出现过): 呼吸只在 ≥ 高级、追光只在 ≥ 极品、宝石只在闪耀
+            const seen = (id, tier) => (effectCount[id + '@' + tier] || 0) > 0;
+            const gate = LI.EFFECTS.every((e) => [0, 1, 2, 3, 4, 5].every((t) => seen(e.id, t) === t >= e.unlock));
+            check('tierGate', gate, `effects seen per tier: ${JSON.stringify(effectCount)}`);
+            const total = Object.values(counts).reduce((a, b) => a + b, 0);
+            lightsJavaResult = bad ? `FAIL (${bad} of ${total} values differ)` : `OK (${total} values over ${frames} frames / ${quads} quads: ${Object.entries(counts).map(([k, n]) => `${k} ${n}`).join(', ')})`;
+        } catch (e) {
+            lightsJavaResult = 'FAIL (compile/run): ' + String(e.stderr || e.message).slice(0, 400);
+            problems.push('lights java harness: ' + lightsJavaResult);
+        } finally {
+            fs.rmSync(tmp, { recursive: true, force: true });
+        }
+    }
+}
+
 // ================================================================ 参考图 (游戏样子: 运动件实体光照)
 writePng(path.join(OUT, 'game-motion.png'), motionStrip(game, Array.from({ length: 16 }, (_, i) => i * 2.5)));
 writePng(path.join(OUT, 'game-base-active.png'), tierSheet(game, 0, 'active'));
@@ -441,6 +587,7 @@ report.push('## 运动件背面检查 (游戏里不剔除背面)', '',
 report.push(`与方案对拍时不画的有意补面: ${DELIBERATE_FACES.map(([p, f]) => p + '.' + f).join(', ')} (方案里省掉、游戏里不剔除背面时必须有的面)。`, '');
 report.push('## Java ↔ JS 程序对拍', '', javaResult, '');
 report.push('## Java ↔ JS 计数屏对拍 (MunitionsBenchCounter / MunitionsBenchGeometry COUNTER_* vs counter.mjs)', '', counterJavaResult, '');
+report.push('## Java ↔ JS 运行灯效对拍 (MunitionsBenchLights / MunitionsBenchGeometry LIGHT_* vs lights.mjs)', '', lightsJavaResult, '');
 report.push('## 结论', '', problems.length ? `有 ${problems.length} 处问题:\n\n` + problems.map((p) => '- ' + p).join('\n') : '全部一致。', '');
 fs.writeFileSync(path.join(OUT, 'parity-report.md'), report.join('\n'));
 console.log(report.join('\n'));

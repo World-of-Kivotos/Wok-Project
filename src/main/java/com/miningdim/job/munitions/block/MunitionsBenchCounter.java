@@ -340,17 +340,26 @@ public final class MunitionsBenchCounter {
      */
     public static float[] blockCorners(int[] rects, float yRotationDegrees) {
         float[] out = benchCorners(rects);
+        benchToBlock(out, 0, out.length, yRotationDegrees);
+        return out;
+    }
+
+    /**
+     * 整台像素 (朝北) 的点 → 主格方块坐标, 原地改写 points[from..to) 里的每个 (x, y, z) (counter.mjs benchToBlock):
+     * translate(0.5, 0, 0.5) → 绕 y 转 yRotationDegrees (右手系, = MunitionsBenchBlock.partsYRotationDegrees(朝向)) →
+     * translate(-0.5, 0, -0.5) → scale(1/16)。计数屏 ({@link #blockCorners}) 与运行灯效 ({@link MunitionsBenchLights#blockCorners}) 共用, 不分配。
+     */
+    public static void benchToBlock(float[] points, int from, int to, float yRotationDegrees) {
         double a = Math.toRadians(yRotationDegrees);
         double cos = Math.cos(a);
         double sin = Math.sin(a);
-        for (int i = 0; i < out.length; i += 3) {
-            double x = out[i] / 16.0D - 0.5D;
-            double z = out[i + 2] / 16.0D - 0.5D;
-            out[i] = (float) (0.5D + x * cos + z * sin);
-            out[i + 1] = (float) (out[i + 1] / 16.0D);
-            out[i + 2] = (float) (0.5D - x * sin + z * cos);
+        for (int i = from; i + 2 < to; i += 3) {
+            double x = points[i] / 16.0D - 0.5D;
+            double z = points[i + 2] / 16.0D - 0.5D;
+            points[i] = (float) (0.5D + x * cos + z * sin);
+            points[i + 1] = (float) (points[i + 1] / 16.0D);
+            points[i + 2] = (float) (0.5D - x * sin + z * cos);
         }
-        return out;
     }
 
     /** 某档某角色的颜色 0xRRGGBB (工作 / 待机), 档位越界按普通档。 */

@@ -73,7 +73,12 @@ public final class TarotClientSetup {
                         if (stack.getTag() == null || !stack.getTag().contains("Upright")) {
                             return 0.0F;
                         }
-                        return TarotCardItem.upright(stack) ? 0.1F : 0.2F;
+                        boolean upright = TarotCardItem.upright(stack);
+                        if (TarotCardItem.hasReadableCardIdentity(stack)) {
+                            // 闪耀不分正逆位: 更新前生成的逆位闪耀牌也按正位画。
+                            upright = TarotCardItem.quality(stack).displayUpright(upright);
+                        }
+                        return upright ? 0.1F : 0.2F;
                     });
 
             MenuScreens.register(TarotRegistry.CRAFT_MENU.get(), TarotCraftScreen::new);

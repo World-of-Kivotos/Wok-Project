@@ -12,6 +12,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
@@ -48,6 +49,9 @@ public final class TarotPackRevealScreen extends Screen {
     private int page;
     private boolean skipped;
     private boolean completionSoundPlayed;
+    private Button prevButton;
+    private Button doneButton;
+    private Button nextButton;
 
     private TarotPackRevealScreen(TarotPackRevealS2C result) {
         super(titleFor(result.packKind()));
@@ -71,16 +75,49 @@ public final class TarotPackRevealScreen extends Screen {
 
     @Override
     protected void init() {
-        this.age = 0;
-        this.page = 0;
-        this.skipped = false;
-        this.lastRevealSoundCount = 0;
-        this.completionSoundPlayed = false;
+        // init 在窗口缩放时也会重跑: 只在首次打开时复位演出进度, 缩放不该把演出从头放一遍。
+        if (this.prevButton == null) {
+            this.age = 0;
+            this.page = 0;
+            this.skipped = false;
+            this.lastRevealSoundCount = 0;
+            this.completionSoundPlayed = false;
+        }
+        int cx = this.width / 2;
+        int y = this.height - 26;
+        this.prevButton = addRenderableWidget(Button.builder(Component.literal("<"), b -> turnPage(-1))
+                .bounds(cx - 88, y, 36, 20).build());
+        this.doneButton = addRenderableWidget(Button.builder(
+                        Component.translatable("screen.miningdim.tarot.pack_reveal.done"), b -> onClose())
+                .bounds(cx - 48, y, 96, 20).build());
+        this.nextButton = addRenderableWidget(Button.builder(Component.literal(">"), b -> turnPage(1))
+                .bounds(cx + 52, y, 36, 20).build());
+        updateButtons();
+    }
+
+    /** 结果页的三个按钮只在结果页出现; 翻页按钮按是否还有上一页/下一页启用。 */
+    private void updateButtons() {
+        if (this.prevButton == null) {
+            return;
+        }
+        boolean results = showFinalGrid();
+        int pages = pageCount();
+        this.doneButton.visible = results;
+        this.prevButton.visible = results && pages > 1;
+        this.nextButton.visible = results && pages > 1;
+        this.prevButton.active = this.page > 0;
+        this.nextButton.active = this.page < pages - 1;
+    }
+
+    private void turnPage(int delta) {
+        this.page = Mth.clamp(this.page + delta, 0, pageCount() - 1);
+        updateButtons();
     }
 
     @Override
     public void tick() {
         this.age++;
+        updateButtons();
         if (this.age == 1) {
             play(TarotSounds.PACK_SCAN.get(), 1.0F);
         } else if (this.age == 42) {
@@ -113,6 +150,7 @@ public final class TarotPackRevealScreen extends Screen {
         }
 
         renderFlash(graphics, time);
+        super.render(graphics, mouseX, mouseY, partialTick); // 结果页的翻页/完成按钮
     }
 
     private void renderAcademyBackdrop(GuiGraphics graphics, float time) {
@@ -194,7 +232,9 @@ public final class TarotPackRevealScreen extends Screen {
         drawOrbit(graphics, cx, this.height / 2 - 25, 128, 44,
                 withAlpha(color, 150), -time * 2.0F, 144);
 
-        float scale = 3.0F + eased * 5.5F;
+        // 放大到 8.5 倍时卡面约 136 像素高, 下面还有三行字; GUI 缩放调高、窗口较矮时按可用高度收小, 不顶出屏幕。
+        float maxScale = Mth.clamp((this.height - 120) / 16.0F, 3.0F, 8.5F);
+        float scale = 3.0F + eased * (maxScale - 3.0F);
         int cardTop = this.height / 2 - (int) (8.0F * scale) - 30;
         float faceWidth = Math.max(0.04F, Math.abs(Mth.cos(eased * Mth.PI)));
         if (eased < 0.5F) {
@@ -203,7 +243,8 @@ public final class TarotPackRevealScreen extends Screen {
             renderItem(graphics, this.cards.get(index), cx, cardTop, scale, 0.0F, faceWidth);
         }
 
-        int textY = this.height / 2 + 68;
+        // 文字跟着卡面底边走 (最大缩放时与原先的 height/2+68 重合), 卡面收小时一起上移。
+        int textY = cardTop + (int) (16.0F * scale) + 30;
         graphics.drawCenteredString(this.font, arcanaName(card.cardId()), cx, textY, 0xFFFFFFFF);
         graphics.drawCenteredString(this.font,
                 qualityAndOrientation(card), cx, textY + 15, color);
@@ -223,10 +264,9 @@ public final class TarotPackRevealScreen extends Screen {
                     Component.translatable("screen.miningdim.tarot.pack_reveal.duplicates"),
                     cx, this.height / 2 - 20, 0xFFFFDE84);
         } else {
-            int cols = Math.max(1, Math.min(5, Math.max(1, (this.width - 40) / 108)));
-            int rows = Math.max(1, Math.min(2, Math.max(1, (this.height - 170) / 106)));
-            int pageSize = cols * rows;
-            int pages = Math.max(1, (this.cards.size() + pageSize - 1) / pageSize);
+            int cols = gridColumns();
+            int pageSize = cols * gridRows();
+            int pages = pageCount();
             this.page = Mth.clamp(this.page, 0, pages - 1);
             int first = this.page * pageSize;
             int count = Math.min(pageSize, this.cards.size() - first);
@@ -267,32 +307,47 @@ public final class TarotPackRevealScreen extends Screen {
                 graphics.drawCenteredString(this.font,
                         Component.translatable("screen.miningdim.tarot.pack_reveal.page",
                                 this.page + 1, pages),
-                        cx, this.height - 58, 0xFF8EDCF5);
+                        cx, this.height - 40, 0xFF8EDCF5);
             }
         }
 
-        int summaryY = this.height - 42;
-        if (this.result.shardRefund() > 0) {
+        // 汇总行自下而上排在翻页提示与按钮上方 (按钮在 height-26, 页码在 height-40)。
+        int summaryY = this.height - 56;
+        if (this.result.totalCards() > this.result.cards().size()) {
             graphics.drawCenteredString(this.font,
-                    Component.translatable("screen.miningdim.tarot.pack_reveal.shards",
-                            this.result.shardRefund()),
-                    cx, summaryY - 13, 0xFFFFD97C);
+                    Component.translatable("screen.miningdim.tarot.pack_reveal.truncated",
+                            this.result.cards().size(), this.result.totalCards()),
+                    cx, summaryY, 0xFFBBD2DC);
+            summaryY -= 13;
         }
         if (this.result.derivedPacks() > 0) {
             graphics.drawCenteredString(this.font,
                     Component.translatable("screen.miningdim.tarot.pack_reveal.derived",
                             this.result.derivedPacks()),
                     cx, summaryY, 0xFF86E8FF);
+            summaryY -= 13;
         }
-        if (this.result.totalCards() > this.result.cards().size()) {
+        if (this.result.shardRefund() > 0) {
             graphics.drawCenteredString(this.font,
-                    Component.translatable("screen.miningdim.tarot.pack_reveal.truncated",
-                            this.result.cards().size(), this.result.totalCards()),
-                    cx, summaryY + 13, 0xFFBBD2DC);
+                    Component.translatable("screen.miningdim.tarot.pack_reveal.shards",
+                            this.result.shardRefund()),
+                    cx, summaryY, 0xFFFFD97C);
         }
-        graphics.drawCenteredString(this.font,
-                Component.translatable("screen.miningdim.tarot.pack_reveal.close"),
-                cx, this.height - 16, 0xBFD6E8F0);
+    }
+
+    /** 结果网格列数: 每格 108 像素宽, 最多 5 列。 */
+    private int gridColumns() {
+        return Mth.clamp((this.width - 40) / 108, 1, 5);
+    }
+
+    /** 结果网格行数: 每行 108 像素, 最多 2 行; 顶部标题与底部汇总/按钮共留 184 像素。 */
+    private int gridRows() {
+        return Mth.clamp((this.height - 184) / 106, 1, 2);
+    }
+
+    private int pageCount() {
+        int pageSize = gridColumns() * gridRows();
+        return Math.max(1, (this.cards.size() + pageSize - 1) / pageSize);
     }
 
     private void renderFlash(GuiGraphics graphics, float time) {
@@ -336,22 +391,25 @@ public final class TarotPackRevealScreen extends Screen {
         this.lastRevealSoundCount = this.cards.size();
         this.completionSoundPlayed = true;
         play(TarotSounds.PACK_COMPLETE.get(), 1.0F);
+        updateButtons();
     }
 
+    /**
+     * 演出中点任意处跳到结果页; 结果页只响应按钮 —— 原先结果页点哪都直接关闭, 翻页时一不小心就把结果关掉了。
+     */
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (!showFinalGrid()) {
             skipToResults();
-        } else {
-            onClose();
+            return true;
         }
-        return true;
+        return super.mouseClicked(mouseX, mouseY, button);
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
         if (showFinalGrid() && !this.cards.isEmpty()) {
-            this.page = Math.max(0, this.page + (delta < 0.0D ? 1 : -1));
+            turnPage(delta < 0.0D ? 1 : -1);
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, delta);
@@ -360,11 +418,11 @@ public final class TarotPackRevealScreen extends Screen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == GLFW.GLFW_KEY_LEFT && showFinalGrid()) {
-            this.page = Math.max(0, this.page - 1);
+            turnPage(-1);
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_RIGHT && showFinalGrid()) {
-            this.page++;
+            turnPage(1);
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_SPACE || keyCode == GLFW.GLFW_KEY_ENTER) {
@@ -442,22 +500,21 @@ public final class TarotPackRevealScreen extends Screen {
                 + TarotArcana.byId(cardId).id());
     }
 
+    /** "品质 · 正位/逆位"; 闪耀不分正逆位, 只写品质。 */
     private static Component qualityAndOrientation(TarotPackRevealS2C.RevealedCard card) {
-        return Component.translatable("tooltip.miningdim.tarot.quality." + card.quality().id())
-                .append(Component.literal(" · "))
+        net.minecraft.network.chat.MutableComponent text =
+                Component.translatable("tooltip.miningdim.tarot.quality." + card.quality().id());
+        if (!card.quality().hasOrientation()) {
+            return text;
+        }
+        return text.append(Component.literal(" · "))
                 .append(Component.translatable(card.upright()
                         ? "tooltip.miningdim.tarot.orientation.upright"
                         : "tooltip.miningdim.tarot.orientation.reversed"));
     }
 
     private static int qualityColor(TarotQuality quality) {
-        return switch (quality) {
-            case R -> 0xFFF0F7FF;
-            case SR -> 0xFF347EFF;
-            case SSR -> 0xFFA64FFF;
-            case UR -> 0xFFFF69B8;
-            case SHINY -> 0xFFFF313E;
-        };
+        return quality.argb();
     }
 
     private static int withAlpha(int color, int alpha) {

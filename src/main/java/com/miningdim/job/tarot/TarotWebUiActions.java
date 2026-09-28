@@ -27,7 +27,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 塔罗师面板的 job.tarot.* WebUiAction (牌库只读态 + 买卡包写操作)。
+ * 塔罗师面板的 job.tarot.* WebUiAction (牌库只读态 / 单牌牌效说明 + 买卡包 / 碎片兑换两个写操作)。
  *
  * 服务端权威 (架构铁律 1): 买包的扣款/每日限购/发包全部复用 {@link TarotPackService#buy} 这唯一入口, 与
  * {@code /tarot pack buy} 同一条路径 —— 卡包是信用点主力 sink, 面板另写一套结算等于开一个绕过每日限购的印钞口。
@@ -63,10 +63,12 @@ public final class TarotWebUiActions {
     private TarotWebUiActions() {
     }
 
-    /** 把两条 job.tarot.* action 注册进派发器 (由 {@link TarotSystem#register} 调用一次)。 */
+    /** 把 job.tarot.* action 注册进派发器 (由 {@link TarotSystem#register} 调用一次)。 */
     public static void registerAll() {
         WebUiServerDispatcher.register("job.tarot.state", STATE);
         WebUiServerDispatcher.register("job.tarot.buyPack", BUY_PACK);
+        WebUiServerDispatcher.register("job.tarot.cardEffects", CARD_EFFECTS);
+        WebUiServerDispatcher.register("job.tarot.exchange", EXCHANGE);
     }
 
     // ============================================================
@@ -81,9 +83,12 @@ public final class TarotWebUiActions {
      *    ownerUUID 校验, 别人的牌拿在手里也打不出, 计进"持有"等于在面板上承诺一个打不出的效果;
      *  - inInventory 数背包里同 cardId 的<b>全部</b>可读牌 (不论绑定) —— 老实回答"背包里有几张", 与
      *    {@link com.miningdim.job.tarot.pack.PackGachaService} 判重复的口径不再等价 (见下一条, F079);
-     *  - collected 才是 {@link com.miningdim.job.tarot.pack.PackGachaService} 判"重复牌转碎片"的真实口径
-     *    (F079 修正后): 持久化的已收集集合并集当前背包。只看 inInventory 会被"把牌放进箱子"绕过, 是修复前的
-     *    旧口径, 面板必须换成 collected 才不会承诺一个已经绕不过去的假重复保护。
+     *  - collectedByQuality 才是 {@link com.miningdim.job.tarot.pack.PackGachaService} 判"重复牌转碎片"的真实口径:
+     *    逐品质发 (判重本就按牌 + 品质), 持久化净额账本并集背包里同牌同档的牌。只看 inInventory 会被"把牌放进
+     *    箱子"绕过; 只发一个"任一档收集过"的布尔又会让玩家以为其它档也会转碎片。
+     *
+     * cooldownRemainingTicks / shinyCooldownRemainingTicks / gcdRemainingTicks 是 {@link TarotCooldownManager}
+     * 的只读查询 (不占用冷却), 单位 tick。
      */
     static final WebUiAction STATE = (sender, payload) -> {
         int level = TarotLeveling.level(sender);
@@ -116,21 +121,26 @@ public final class TarotWebUiActions {
         }
         result.add("qualities", qualities);
 
-        // 满 CD 时长 (ticks)。剩余 CD 发不出去: 见交付报告 blockers —— TarotCooldownManager 只有"校验并占用"的
-        // tryUse, 面板一调就把玩家的冷却吃掉, 而它的三张截止 tick 表是私有的, 现阶段没有只读入口。
+        // 满 CD 时长 (ticks), 用来画"这一类牌的 CD 有多长"。
         JsonObject cooldownTicks = new JsonObject();
         cooldownTicks.addProperty("gcd", TarotConfig.GCD_TICKS.get());
         cooldownTicks.addProperty("utility", TarotConfig.CD_UTILITY_TICKS.get());
         cooldownTicks.addProperty("buff", TarotConfig.CD_BUFF_TICKS.get());
         cooldownTicks.addProperty("combat", TarotConfig.CD_COMBAT_TICKS.get());
         result.add("cooldownTicks", cooldownTicks);
+        // 剩余冷却 (ticks, 0 = 就绪): TarotCooldownManager 的只读查询, 不占用任何冷却。前端按回执到达时刻折算成
+        // 本地截止时刻倒计时 (tickDeadline), 不要求轮询。
+        long now = sender.server.getTickCount();
+        TarotCooldownManager cooldowns = TarotRuntime.cooldown();
+        result.addProperty("gcdRemainingTicks", cooldowns.remainingGcd(sender.getUUID(), now));
 
         boolean cardDataLoaded = TarotRuntime.cardLoader().isLoaded();
         result.addProperty("cardDataLoaded", cardDataLoaded);
 
         int[][] ownedByQuality = new int[TarotArcana.COUNT][TarotQuality.values().length];
+        int[][] heldByQuality = new int[TarotArcana.COUNT][TarotQuality.values().length];
         int[] inInventory = new int[TarotArcana.COUNT];
-        countCards(sender, ownedByQuality, inInventory);
+        countCards(sender, ownedByQuality, heldByQuality, inInventory);
 
         JsonArray deck = new JsonArray();
         for (TarotArcana arcana : TarotArcana.values()) {
@@ -149,9 +159,17 @@ public final class TarotWebUiActions {
             row.add("ownedByQuality", counts);
             row.addProperty("owned", owned);
             row.addProperty("inInventory", inInventory[arcana.cardId()]);
-            // F079: 与 PackGachaService.grantOrRefund 的重复判据逐字一致 —— 持久化的已收集集合并集当前背包。
-            row.addProperty("collected",
-                    packData.hasCollectedAny(sender.getUUID(), arcana.cardId()) || inInventory[arcana.cardId()] > 0);
+            // 开包判重按"牌 + 品质"逐档判 (PackGachaService.grantOrRefund): 某档已收集, 开到同牌同档才转碎片, 别的
+            // 档照样可能开出真牌。故按品质逐档发, 与判重同一判据 (持久化净额账本, 或背包里正放着同牌同档的牌, 不论绑定)。
+            JsonArray collectedByQuality = new JsonArray();
+            for (TarotQuality quality : TarotQuality.values()) {
+                collectedByQuality.add(packData.hasCollected(sender.getUUID(), arcana.cardId(), quality)
+                        || heldByQuality[arcana.cardId()][quality.ordinal()] > 0);
+            }
+            row.add("collectedByQuality", collectedByQuality);
+            row.addProperty("cooldownRemainingTicks", cooldowns.remainingCard(sender.getUUID(), arcana.cardId(), now));
+            row.addProperty("shinyCooldownRemainingTicks",
+                    cooldowns.remainingShinyCard(sender.getUUID(), arcana.cardId(), now));
 
             if (cardDataLoaded) {
                 TarotCardData data = TarotRuntime.cardLoader().get(arcana);
@@ -262,8 +280,92 @@ public final class TarotWebUiActions {
     };
 
     // ============================================================
+    // job.tarot.cardEffects: {cardId} -> 该牌四档正/逆位 + 闪耀的牌效说明
+    // ============================================================
+
+    /**
+     * 一张牌的全部牌效说明, 与卡牌 tooltip 同一份 {@link TarotEffectTooltipFormatter} 输出, 逐行发 Component 的 JSON
+     * 序列化串。服务端不加载 lang, 解不出中文 —— 前端把这些串交给客户端本地动作 client.formatText, 在玩家客户端
+     * 按当前语言排版成文字。
+     *
+     * 一次只发一张 (约 10KB), 玩家点开哪张取哪张, 不塞进 state 的 22 行里撑大首屏回执。牌效表未加载时
+     * loaded=false 且三栏为空, 不发半截数据。upright/reversed 各 4 项, 顺序 = R/SR/SSR/UR。
+     */
+    static final WebUiAction CARD_EFFECTS = (sender, payload) -> {
+        int cardId = requireCardId(payload);
+        JsonObject result = new JsonObject();
+        result.addProperty("cardId", cardId);
+        boolean loaded = TarotRuntime.cardLoader().isLoaded();
+        result.addProperty("loaded", loaded);
+        JsonArray upright = new JsonArray();
+        JsonArray reversed = new JsonArray();
+        JsonArray shiny = new JsonArray();
+        if (loaded) {
+            TarotCardData data = TarotRuntime.cardLoader().get(TarotArcana.byId(cardId));
+            for (TarotQuality quality : TarotQuality.values()) {
+                if (quality.hasOrientation()) {
+                    upright.add(effectLines(data, quality, true));
+                    reversed.add(effectLines(data, quality, false));
+                }
+            }
+            shiny = effectLines(data, TarotQuality.SHINY, true);
+        }
+        result.add("upright", upright);
+        result.add("reversed", reversed);
+        result.add("shiny", shiny);
+        return GSON.toJson(result);
+    };
+
+    // ============================================================
+    // job.tarot.exchange: {cardId, upright} -> 碎片兑换一张指定 SSR 牌
+    // ============================================================
+
+    /**
+     * 碎片兑换 (写操作), 复用 {@link TarotShardExchange#exchange} —— 与 {@code /tarot exchange} 同一入口, 本层一步
+     * 结算都不重写, 只做入参校验与 JSON 化。碎片不足按业务拒绝返回 (未扣碎片未发牌)。兑换出的牌固定 SSR、绑定本人,
+     * 朝向由玩家选 (与命令一致)。
+     */
+    static final WebUiAction EXCHANGE = (sender, payload) -> {
+        int cardId = requireCardId(payload);
+        boolean upright = WebUiPayloads.requiredBoolean(payload, "upright");
+        int cost = TarotConfig.SHARD_EXCHANGE_COST.get();
+        TarotShardExchange.ExchangeResult exchanged = TarotShardExchange.exchange(sender, cardId, upright);
+        if (!exchanged.success()) {
+            int held = TarotShardExchange.countShards(sender);
+            throw new WebUiBusinessException(WebUiErrorCodes.INSUFFICIENT_FUNDS,
+                    "塔罗碎片不足, 需要 " + cost + " 张, 现有 " + held + " 张", false,
+                    Map.of("resource", "tarot_shard",
+                            "required", Integer.toString(cost),
+                            "held", Integer.toString(held)));
+        }
+        JsonObject result = new JsonObject();
+        result.addProperty("cardId", cardId);
+        result.addProperty("upright", upright);
+        result.addProperty("shardsSpent", exchanged.shardsSpent());
+        result.addProperty("shardsLeft", TarotShardExchange.countShards(sender));
+        return GSON.toJson(result);
+    };
+
+    // ============================================================
     // 取数 helper
     // ============================================================
+
+    private static int requireCardId(JsonObject payload) {
+        int cardId = WebUiPayloads.requiredInt(payload, "cardId");
+        if (cardId < 0 || cardId >= TarotArcana.COUNT) {
+            throw WebUiPayloads.illegalValue("cardId", Integer.toString(cardId),
+                    "cardId 必须在 [0," + (TarotArcana.COUNT - 1) + "] 内");
+        }
+        return cardId;
+    }
+
+    private static JsonArray effectLines(TarotCardData data, TarotQuality quality, boolean upright) {
+        JsonArray out = new JsonArray();
+        for (net.minecraft.network.chat.Component line : TarotEffectTooltipFormatter.format(data, quality, upright)) {
+            out.add(net.minecraft.network.chat.Component.Serializer.toJson(line));
+        }
+        return out;
+    }
 
     /**
      * 一次遍历同时数出两栏 (语义见 {@link #STATE} 的注释): ownedByQuality 只计绑定本人的牌, inInventory 计
@@ -272,14 +374,15 @@ public final class TarotWebUiActions {
      * 扫描范围 = 主背包 + 副手, 与 {@link TarotShardExchange#countShards} 及开包重复判定逐字一致 (末影箱与
      * 盔甲位不在内): 三处口径必须同源, 否则面板说"没有"而开包判"重复"。
      */
-    private static void countCards(ServerPlayer player, int[][] ownedByQuality, int[] inInventory) {
+    private static void countCards(ServerPlayer player, int[][] ownedByQuality, int[][] heldByQuality,
+                                   int[] inInventory) {
         UUID self = player.getUUID();
-        accumulateCards(player.getInventory().items, self, ownedByQuality, inInventory);
-        accumulateCards(player.getInventory().offhand, self, ownedByQuality, inInventory);
+        accumulateCards(player.getInventory().items, self, ownedByQuality, heldByQuality, inInventory);
+        accumulateCards(player.getInventory().offhand, self, ownedByQuality, heldByQuality, inInventory);
     }
 
-    private static void accumulateCards(List<ItemStack> slots, UUID self,
-                                        int[][] ownedByQuality, int[] inInventory) {
+    private static void accumulateCards(List<ItemStack> slots, UUID self, int[][] ownedByQuality,
+                                        int[][] heldByQuality, int[] inInventory) {
         for (ItemStack stack : slots) {
             if (stack.isEmpty() || !(stack.getItem() instanceof TarotCardItem)) {
                 continue;
@@ -289,9 +392,11 @@ public final class TarotWebUiActions {
                 continue;
             }
             int cardId = TarotCardItem.cardId(stack);
+            int quality = TarotCardItem.quality(stack).ordinal();
             inInventory[cardId] += stack.getCount();
+            heldByQuality[cardId][quality] += stack.getCount();
             if (self.equals(TarotCardItem.owner(stack))) {
-                ownedByQuality[cardId][TarotCardItem.quality(stack).ordinal()] += stack.getCount();
+                ownedByQuality[cardId][quality] += stack.getCount();
             }
         }
     }

@@ -67,6 +67,8 @@ export const SERVER_ACTIONS = [
   'job.munitions.state',
   'job.progress',
   'job.tarot.buyPack',
+  'job.tarot.cardEffects',
+  'job.tarot.exchange',
   'job.tarot.state',
   'market.baseValue',
   'market.buy',
@@ -116,6 +118,7 @@ export const SERVER_ACTIONS = [
  */
 export const CLIENT_LOCAL_ACTIONS = [
   'client.i18n',
+  'client.formatText',
   'client.playCaseSound',
   'client.closePanel',
   'client.textFocus',

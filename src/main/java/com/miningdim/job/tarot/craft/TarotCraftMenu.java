@@ -39,7 +39,9 @@ public final class TarotCraftMenu extends AbstractMiningMenu {
     private static final int DATA_LAST_OUTCOME = 0;
     private static final int DATA_OUTCOME_SEQUENCE = 1;
     private static final int DATA_REVEAL_CARD = 2;
-    private static final int DATA_COUNT = 3;
+    /** 最近一次破碎实际返还的碎片数 (返还量是配置项, 界面不能写死"1/2 枚")。 */
+    private static final int DATA_LAST_SHARDS = 3;
+    private static final int DATA_COUNT = 4;
     private static final int NO_OUTCOME = 0;
     private static final int NO_REVEAL_CARD = 0;
 
@@ -89,6 +91,58 @@ public final class TarotCraftMenu extends AbstractMiningMenu {
     /** Whether at least one of the two visual input slots currently contains a stack. */
     public boolean hasAnyInput() {
         return getSlot(0).hasItem() || getSlot(1).hasItem();
+    }
+
+    /** 界面上"为什么现在不能合成"的原因 (NONE = 可以合成)。 */
+    public enum Blocker {
+        NONE, INSERT_CARDS, NEED_TWO, BAD_CARD, SHINY_TOP, MISMATCH, NOT_OWNER, NEED_L10;
+
+        /** lang 键后缀 (gui.miningdim.tarot.craft.blocked.&lt;id&gt;)。 */
+        public String id() {
+            return name().toLowerCase(java.util.Locale.ROOT);
+        }
+    }
+
+    /**
+     * 客户端预判当前两张牌能否合成, 把 {@link #tryCraft} 会拒绝的原因提前显示在界面里 —— 服务端的拒绝提示走动作栏,
+     * 开着界面时被面板挡住, 玩家只看到"点了没反应"。判据与 tryCraft 相同, 结果仍以服务端为准。
+     *
+     * @param viewer     打开界面的玩家 (判归属)
+     * @param tarotLevel 该玩家的塔罗师等级 (客户端镜像; 判 UR→闪耀的 L10 门槛)
+     */
+    public Blocker previewBlocker(UUID viewer, int tarotLevel) {
+        ItemStack a = getSlot(0).getItem();
+        ItemStack b = getSlot(1).getItem();
+        if (a.isEmpty() && b.isEmpty()) {
+            return Blocker.INSERT_CARDS;
+        }
+        if (a.isEmpty() || b.isEmpty()) {
+            return Blocker.NEED_TWO;
+        }
+        if (!(a.getItem() instanceof TarotCardItem) || !(b.getItem() instanceof TarotCardItem)
+                || !TarotCardItem.hasReadableCardIdentity(a) || !TarotCardItem.hasReadableCardIdentity(b)) {
+            return Blocker.BAD_CARD;
+        }
+        TarotQuality qa = TarotCardItem.quality(a);
+        TarotQuality qb = TarotCardItem.quality(b);
+        if (qa == TarotQuality.SHINY || qb == TarotQuality.SHINY) {
+            return Blocker.SHINY_TOP;
+        }
+        if (qa != qb) {
+            return Blocker.MISMATCH;
+        }
+        if (viewer == null || !viewer.equals(TarotCardItem.owner(a)) || !viewer.equals(TarotCardItem.owner(b))) {
+            return Blocker.NOT_OWNER;
+        }
+        if (qa.next() == TarotQuality.SHINY && tarotLevel < TarotQuality.SHINY.requiredLevel()) {
+            return Blocker.NEED_L10;
+        }
+        return Blocker.NONE;
+    }
+
+    /** 最近一次破碎/大破碎返还的碎片数 (成功与逆转为 0)。 */
+    public int lastShardRefund() {
+        return outcomeData.get(DATA_LAST_SHARDS);
     }
 
     /** Sequence used by the client to trigger exactly one animation per completed craft. */
@@ -191,7 +245,7 @@ public final class TarotCraftMenu extends AbstractMiningMenu {
         int revealCard = encodeRevealCard(outcome.product());
         applyOutcome(player, level, outcome);
         updateCollectedLedger(player, a, b, outcome);
-        publishOutcome(outcome.result(), revealCard);
+        publishOutcome(outcome.result(), revealCard, outcome.shardRefund());
         return true;
     }
 
@@ -226,9 +280,10 @@ public final class TarotCraftMenu extends AbstractMiningMenu {
     }
 
     /** Publishes the result after all authoritative inventory mutations have completed. */
-    private void publishOutcome(TarotCraftService.Result result, int revealCard) {
+    private void publishOutcome(TarotCraftService.Result result, int revealCard, int shardRefund) {
         outcomeData.set(DATA_LAST_OUTCOME, result.ordinal() + 1);
         outcomeData.set(DATA_REVEAL_CARD, revealCard);
+        outcomeData.set(DATA_LAST_SHARDS, Math.max(0, shardRefund));
         outcomeData.set(DATA_OUTCOME_SEQUENCE, outcomeData.get(DATA_OUTCOME_SEQUENCE) + 1);
     }
 

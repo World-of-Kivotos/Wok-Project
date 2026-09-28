@@ -40,6 +40,10 @@ import type {
   TarotStateResult,
   TarotBuyPackPayload,
   TarotBuyPackResult,
+  TarotCardEffectsPayload,
+  TarotCardEffectsResult,
+  TarotExchangePayload,
+  TarotExchangeResult,
   MarriageStatePayload,
   MarriageStateResult,
   MarriageBuyRingPayload,
@@ -100,6 +104,8 @@ import type {
   ChefStateResult,
   ClientI18nPayload,
   ClientI18nResult,
+  ClientFormatTextPayload,
+  ClientFormatTextResult,
   ClientClosePanelPayload,
   ClientClosePanelResult,
   ClientPlayCaseSoundPayload,
@@ -211,6 +217,7 @@ type WebUiContractMap = {
   'case.open': { payload: CaseOpenPayload; result: CaseOpenResult }
   'case.apply': { payload: CaseApplyPayload; result: CaseApplyResult }
   'client.i18n': { payload: ClientI18nPayload; result: ClientI18nResult }
+  'client.formatText': { payload: ClientFormatTextPayload; result: ClientFormatTextResult }
   'client.playCaseSound': { payload: ClientPlayCaseSoundPayload; result: ClientPlayCaseSoundResult }
   'client.closePanel': { payload: ClientClosePanelPayload; result: ClientClosePanelResult }
   'client.textFocus': { payload: ClientTextFocusPayload; result: ClientTextFocusResult }
@@ -227,6 +234,8 @@ type WebUiContractMap = {
   'job.engineer.state': { payload: EngineerStatePayload; result: EngineerStateResult }
   'job.tarot.state': { payload: TarotStatePayload; result: TarotStateResult }
   'job.tarot.buyPack': { payload: TarotBuyPackPayload; result: TarotBuyPackResult }
+  'job.tarot.cardEffects': { payload: TarotCardEffectsPayload; result: TarotCardEffectsResult }
+  'job.tarot.exchange': { payload: TarotExchangePayload; result: TarotExchangeResult }
   'marriage.state': { payload: MarriageStatePayload; result: MarriageStateResult }
   'marriage.buyRing': { payload: MarriageBuyRingPayload; result: MarriageBuyRingResult }
   'marriage.propose': { payload: MarriageProposePayload; result: MarriageProposeResult }

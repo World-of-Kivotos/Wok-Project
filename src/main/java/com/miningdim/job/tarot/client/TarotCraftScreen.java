@@ -1,6 +1,10 @@
 package com.miningdim.job.tarot.client;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.job.ClientJobState;
+import com.miningdim.job.JobId;
+import com.miningdim.job.tarot.TarotArcana;
+import com.miningdim.job.tarot.TarotCardItem;
 import com.miningdim.job.tarot.TarotSounds;
 import com.miningdim.job.tarot.TarotQuality;
 import com.miningdim.job.tarot.craft.TarotCraftMenu;
@@ -14,7 +18,9 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
 
+import java.util.Locale;
 import java.util.Optional;
 
 /** Celestial two-card synthesis screen with a live astrolabe and exact outcome odds. */
@@ -47,6 +53,11 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
     private static final int CARD_HEIGHT = 96;
     private static final int CARD_TEXTURE_WIDTH = 184;
     private static final int CARD_TEXTURE_HEIGHT = 326;
+    /** 卡框下方牌名行: 两框中心 x 与底图上框下沿 (y≈91) 到装饰线 (y≈106) 之间的空档。 */
+    private static final int INPUT_NAME_LEFT_X = 40;
+    private static final int INPUT_NAME_RIGHT_X = 176;
+    private static final int INPUT_NAME_Y = 95;
+    private static final int INPUT_NAME_MAX_W = 46;
 
     private int observedOutcomeSequence = -1;
     private float resultEffectStart = Float.NEGATIVE_INFINITY;
@@ -70,11 +81,19 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
                 this.inventoryLabelX, this.inventoryLabelY, 0x9BEEFF, false);
     }
 
+    /** 当前两张牌为什么不能合成 (客户端预判, 与服务端 tryCraft 同判据); NONE 即可合成。 */
+    private TarotCraftMenu.Blocker blocker() {
+        java.util.UUID viewer = this.minecraft == null || this.minecraft.player == null
+                ? null : this.minecraft.player.getUUID();
+        return this.menu.previewBlocker(viewer, ClientJobState.level(JobId.TAROT));
+    }
+
     @Override
     protected void renderExtra(GuiGraphics graphics, int leftPos, int topPos,
                                int mouseX, int mouseY, float partialTick) {
         Optional<TarotQuality> source = this.menu.previewInputQuality();
-        boolean ready = source.isPresent();
+        TarotCraftMenu.Blocker blocker = blocker();
+        boolean ready = blocker == TarotCraftMenu.Blocker.NONE;
         float time = (this.minecraft == null || this.minecraft.level == null)
                 ? partialTick
                 : this.minecraft.level.getGameTime() + partialTick;
@@ -90,10 +109,12 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
         graphics.fill(leftPos + CORE_X - pulse, topPos + CORE_Y - pulse,
                 leftPos + CORE_X + pulse + 1, topPos + CORE_Y + pulse + 1, glow);
 
-        Component target = targetLabel(source);
-        graphics.drawCenteredString(this.font, target, leftPos + CORE_X, topPos + 21,
-                ready ? 0xFFE8C879 : 0xFF8EB5CA);
+        Component target = targetLabel(source, blocker);
+        int targetColor = ready ? 0xFFE8C879
+                : isHardBlock(blocker) ? 0xFFFF8A8A : 0xFF8EB5CA;
+        drawFitted(graphics, target, leftPos + CORE_X, topPos + 21, W - 16, targetColor);
 
+        renderInputNames(graphics, leftPos, topPos);
         renderChanceStrip(graphics, leftPos, topPos, source);
 
         boolean buttonHover = inside(mouseX, mouseY,
@@ -195,16 +216,20 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
                         Component.translatable("gui.miningdim.tarot.craft.great_success"),
                         centerX, topPos + 8, withAlpha(0xFFFFE27A, alpha));
             }
-            Component quality = qualityName(activeRevealCard.quality());
-            Component orientation = Component.translatable(activeRevealCard.upright()
-                    ? "tooltip.miningdim.tarot.orientation.upright"
-                    : "tooltip.miningdim.tarot.orientation.reversed");
-            graphics.drawCenteredString(this.font,
-                    Component.translatable("gui.miningdim.tarot.craft.revealed", quality, orientation),
-                    centerX, topPos + 119, withAlpha(qualityColor(activeRevealCard.quality()), alpha));
+            // 揭示行: 牌名 · 品质 (· 正逆位; 闪耀不分正逆位)。
+            TarotQuality revealedQuality = activeRevealCard.quality();
+            net.minecraft.network.chat.MutableComponent revealed = arcanaName(activeRevealCard.cardId()).copy()
+                    .append(" · ").append(qualityName(revealedQuality));
+            if (revealedQuality.hasOrientation()) {
+                revealed.append(" · ").append(Component.translatable(activeRevealCard.upright()
+                        ? "tooltip.miningdim.tarot.orientation.upright"
+                        : "tooltip.miningdim.tarot.orientation.reversed"));
+            }
+            drawFitted(graphics, revealed, centerX, topPos + 119, W - 8,
+                    withAlpha(qualityColor(revealedQuality), alpha));
         } else {
-            Component result = Component.translatable("message.miningdim.tarot.craft.result."
-                    + activeResultEffect.name().toLowerCase());
+            Component result = Component.translatable("gui.miningdim.tarot.craft.outcome."
+                    + activeResultEffect.name().toLowerCase(Locale.ROOT), this.menu.lastShardRefund());
             int color = activeResultEffect == TarotCraftService.Result.BIG_SHATTER
                     ? 0xFFFF526F : 0xFFE58CFF;
             graphics.drawCenteredString(this.font, result, centerX, centerY - 5,
@@ -231,7 +256,7 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
                 CARD_WIDTH / 2 + 3, CARD_HEIGHT / 2 + 3, withAlpha(0xFF071124, alpha));
         graphics.fill(-CARD_WIDTH / 2 - 2, -CARD_HEIGHT / 2 - 2,
                 CARD_WIDTH / 2 + 2, CARD_HEIGHT / 2 + 2, frame);
-        if (!card.upright()) {
+        if (!card.quality().displayUpright(card.upright())) {
             graphics.pose().mulPose(Axis.ZP.rotationDegrees(180.0F));
         }
         graphics.blit(texture, -CARD_WIDTH / 2, -CARD_HEIGHT / 2,
@@ -291,6 +316,10 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
         graphics.pose().popPose();
     }
 
+    /**
+     * 四格概率: 每格写"结果名 百分比" (原先只有百分比, 四种结果只靠左侧色块区分, 要悬停才知道哪格是哪种)。
+     * 格宽 46 像素, 放不下时整行按比例缩小。
+     */
     private void renderChanceStrip(GuiGraphics graphics, int leftPos, int topPos,
                                    Optional<TarotQuality> source) {
         double[] chances = source.map(TarotCraftService::chances)
@@ -298,33 +327,83 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
                 .orElseGet(() -> new double[]{0.0D, 0.0D, 0.0D, 0.0D});
         for (int i = 0; i < RESULT_X.length; i++) {
             String value = source.isPresent() ? Math.round(chances[i] * 100.0D) + "%" : "--";
-            graphics.drawCenteredString(this.font, value,
-                    leftPos + RESULT_X[i] + 27, topPos + RESULT_Y + 2, RESULT_COLORS[i]);
+            Component cell = Component.translatable("gui.miningdim.tarot.craft.result_short." + i)
+                    .append(" " + value);
+            drawFitted(graphics, cell, leftPos + RESULT_X[i] + 27, topPos + RESULT_Y + 2,
+                    RESULT_W - 12, RESULT_COLORS[i]);
         }
     }
 
-    private Component targetLabel(Optional<TarotQuality> source) {
-        if (source.isPresent()) {
+    /** 两个卡框下方各写一行牌名 (品质色); 卡框里只有 16 像素的物品图标, 认不出是哪张牌。 */
+    private void renderInputNames(GuiGraphics graphics, int leftPos, int topPos) {
+        for (int slot = 0; slot < 2; slot++) {
+            ItemStack stack = this.menu.getSlot(slot).getItem();
+            if (stack.isEmpty() || !(stack.getItem() instanceof TarotCardItem)
+                    || !TarotCardItem.hasReadableCardIdentity(stack)) {
+                continue;
+            }
+            int centerX = leftPos + (slot == 0 ? INPUT_NAME_LEFT_X : INPUT_NAME_RIGHT_X);
+            drawFitted(graphics, arcanaName(TarotCardItem.cardId(stack)), centerX, topPos + INPUT_NAME_Y,
+                    INPUT_NAME_MAX_W, qualityColor(TarotCardItem.quality(stack)));
+        }
+    }
+
+    private Component targetLabel(Optional<TarotQuality> source, TarotCraftMenu.Blocker blocker) {
+        if (blocker == TarotCraftMenu.Blocker.NONE && source.isPresent()) {
             TarotQuality from = source.get();
             return Component.translatable("gui.miningdim.tarot.craft.target",
                     qualityName(from), qualityName(from.next()));
         }
-        return Component.translatable(this.menu.hasAnyInput()
-                ? "gui.miningdim.tarot.craft.mismatch"
-                : "gui.miningdim.tarot.craft.insert_cards");
+        return Component.translatable("gui.miningdim.tarot.craft.blocked." + blocker.id());
+    }
+
+    /** 放了牌但规则不允许 (而不是"还没放够") —— 用醒目色提示。 */
+    private static boolean isHardBlock(TarotCraftMenu.Blocker blocker) {
+        return blocker != TarotCraftMenu.Blocker.NONE
+                && blocker != TarotCraftMenu.Blocker.INSERT_CARDS
+                && blocker != TarotCraftMenu.Blocker.NEED_TWO;
+    }
+
+    /** 居中绘制一行字, 超出 maxWidth 时整行按比例缩小 (最小 0.6 倍, 仍放不下再截断)。 */
+    private void drawFitted(GuiGraphics graphics, Component text, int centerX, int y, int maxWidth, int color) {
+        int width = this.font.width(text);
+        if (width <= maxWidth) {
+            graphics.drawCenteredString(this.font, text, centerX, y, color);
+            return;
+        }
+        float scale = Math.max(0.6F, (float) maxWidth / width);
+        graphics.pose().pushPose();
+        graphics.pose().translate(centerX, y + (1.0F - scale) * 4.0F, 0.0F);
+        graphics.pose().scale(scale, scale, 1.0F);
+        net.minecraft.util.FormattedCharSequence line = this.font.width(text) * scale > maxWidth
+                ? net.minecraft.locale.Language.getInstance().getVisualOrder(
+                        this.font.substrByWidth(text, (int) (maxWidth / scale)))
+                : text.getVisualOrderText();
+        graphics.drawString(this.font, line, -this.font.width(line) / 2, 0, color);
+        graphics.pose().popPose();
     }
 
     private static Component qualityName(TarotQuality quality) {
         return Component.translatable("tooltip.miningdim.tarot.quality." + quality.id());
     }
 
+    private static Component arcanaName(int cardId) {
+        return Component.translatable("tooltip.miningdim.tarot.arcana." + TarotArcana.byId(cardId).id());
+    }
+
+    /**
+     * 演出进行中: 点一下 (或按空格/回车) 跳过 —— 星图演算阶段直接进入揭示, 揭示阶段直接结束。整段演出约 6 秒,
+     * 连续合成时每次都得干等。跳过只影响本地画面, 结果早已由服务端结算完毕。
+     */
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (sequenceActive()) {
+            skipSequence();
             return true;
         }
         if (inside(mouseX, mouseY, this.leftPos + BUTTON_X, this.topPos + BUTTON_Y, BUTTON_W, BUTTON_H)) {
-            if (this.minecraft != null && this.minecraft.gameMode != null) {
+            if (blocker() == TarotCraftMenu.Blocker.NONE
+                    && this.minecraft != null && this.minecraft.gameMode != null) {
                 this.minecraft.gameMode.handleInventoryButtonClick(
                         this.menu.containerId, TarotCraftMenu.BUTTON_CRAFT);
             }
@@ -334,17 +413,46 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
     }
 
     @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (sequenceActive() && (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_SPACE
+                || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER)) {
+            skipSequence();
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    private void skipSequence() {
+        float time = this.minecraft == null || this.minecraft.level == null
+                ? 0.0F : this.minecraft.level.getGameTime();
+        float age = time - resultEffectStart;
+        if (TarotCraftStarfieldEffect.isActive(age)) {
+            // 跳到揭示阶段开头 (揭示音效照常播一次)。
+            resultEffectStart = time - TarotCraftStarfieldEffect.DURATION_TICKS;
+        } else {
+            activeResultEffect = null;
+            activeRevealCard = null;
+        }
+    }
+
+    @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         boolean locked = sequenceActive();
         super.render(graphics, locked ? -10_000 : mouseX, locked ? -10_000 : mouseY, partialTick);
         if (locked) {
+            graphics.pose().pushPose();
+            graphics.pose().translate(0.0F, 0.0F, 400.0F);
+            graphics.drawCenteredString(this.font, Component.translatable("gui.miningdim.tarot.craft.skip"),
+                    this.leftPos + W / 2, this.topPos + H + 4, 0xAAD6E8F0);
+            graphics.pose().popPose();
             return;
         }
         if (inside(mouseX, mouseY, this.leftPos + BUTTON_X, this.topPos + BUTTON_Y, BUTTON_W, BUTTON_H)) {
+            TarotCraftMenu.Blocker blocker = blocker();
             graphics.renderTooltip(this.font, Component.translatable(
-                    this.menu.previewInputQuality().isPresent()
+                    blocker == TarotCraftMenu.Blocker.NONE
                             ? "gui.miningdim.tarot.craft.button_ready"
-                            : "gui.miningdim.tarot.craft.button_blocked"), mouseX, mouseY);
+                            : "gui.miningdim.tarot.craft.blocked." + blocker.id()), mouseX, mouseY);
             return;
         }
         for (int i = 0; i < RESULT_X.length; i++) {
@@ -371,13 +479,7 @@ public final class TarotCraftScreen extends AbstractMiningScreen<TarotCraftMenu>
     }
 
     private static int qualityColor(TarotQuality quality) {
-        return switch (quality) {
-            case R -> 0xFFF0F7FF;
-            case SR -> 0xFF347EFF;
-            case SSR -> 0xFFA64FFF;
-            case UR -> 0xFFFF69B8;
-            case SHINY -> 0xFFFF313E;
-        };
+        return quality.argb();
     }
 
     private static int withAlpha(int color, float alpha) {

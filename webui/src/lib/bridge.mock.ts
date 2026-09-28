@@ -94,6 +94,8 @@ import type {
   ChefStateResult,
   ClientI18nPayload,
   ClientI18nResult,
+  ClientFormatTextPayload,
+  ClientFormatTextResult,
   ClientPlayCaseSoundPayload,
   ClientPlayCaseSoundResult,
   EconomyPriceAnchor,
@@ -199,6 +201,10 @@ import type {
   TarotQualityId,
   TarotQualityRow,
   TarotStateResult,
+  TarotCardEffectsPayload,
+  TarotCardEffectsResult,
+  TarotExchangePayload,
+  TarotExchangeResult,
   WebUiBlockPos,
   WebUiCurrency,
   WebUiJobId,
@@ -586,6 +592,11 @@ const I18N_NAMES: Readonly<Record<string, string>> = {
   'tooltip.miningdim.tarot.arcana.sun': 'XIX 太阳',
   'tooltip.miningdim.tarot.arcana.judgement': 'XX 审判',
   'tooltip.miningdim.tarot.arcana.world': 'XXI 世界',
+  // job.tarot.cardEffects 的 mock 说明模板 (真服的键与措辞在 TarotEffectTooltipFormatter/lang, 这里只练排版链路)。
+  'mock.tarot.effect.self_potion': '自身获得 %s %s，持续 %s 秒',
+  'mock.tarot.effect.absorption': '获得 %s 点伤害吸收',
+  'mock.tarot.effect.enemy_potion': '半径 %s 格内敌人：%s %s，持续 %s 秒',
+  'mock.tarot.effect.cost': '代价：自身 %s %s，持续 %s 秒',
   'item.miningdim.engagement_ring': '订婚戒指',
   'item.miningdim.wedding_ring': '结婚戒指',
   'difficulty.miningdim.easy': '简单',
@@ -1553,6 +1564,48 @@ function mockI18n(payload: ClientI18nPayload): ClientI18nResult {
     names[key] = translated === undefined ? key : translated
   }
   return { names }
+}
+
+/**
+ * client.formatText 的 mock: 按原版 Component 的 JSON 形状 (text / translate+with / extra) 拼纯文本, 翻译键
+ * 查 I18N_NAMES, 参数按 %s / %n$s 代入。只覆盖 mock 牌效实际用到的形状; 解析失败的行返回空串 (与宿主同口径)。
+ */
+function mockFormatText(payload: ClientFormatTextPayload): ClientFormatTextResult {
+  const texts = Array.isArray(payload.texts) ? payload.texts : []
+  return {
+    texts: texts.map((json) => {
+      try {
+        return flattenMockComponent(JSON.parse(json) as unknown)
+      } catch {
+        return ''
+      }
+    }),
+  }
+}
+
+function flattenMockComponent(node: unknown): string {
+  if (typeof node === 'string') {
+    return node
+  }
+  if (typeof node !== 'object' || node === null) {
+    return ''
+  }
+  const record = node as { text?: unknown; translate?: unknown; with?: unknown; extra?: unknown }
+  let out = ''
+  if (typeof record.text === 'string') {
+    out += record.text
+  } else if (typeof record.translate === 'string') {
+    const template = I18N_NAMES[record.translate] ?? record.translate
+    const args = Array.isArray(record.with) ? record.with.map(flattenMockComponent) : []
+    let next = 0
+    out += template.replace(/%(?:(\d+)\$)?s/g, (_match, index: string | undefined) =>
+      index === undefined ? (args[next++] ?? '') : (args[Number(index) - 1] ?? ''),
+    )
+  }
+  if (Array.isArray(record.extra)) {
+    out += record.extra.map(flattenMockComponent).join('')
+  }
+  return out
 }
 
 const CASE_SOUND_CUES: readonly string[] = [
@@ -2683,8 +2736,8 @@ const TAROT_ADVANCED_PITY_THRESHOLD = 10
  */
 let tarotPacksBoughtToday = 18
 
-/** 碎片数刻意低于兑换线 40: 面板要显示的是"还差 13 张", 给够反而看不见未达成态。 */
-const TAROT_SHARDS_HELD = 27
+/** 碎片数刻意低于兑换线 40: 面板要显示的是"还差 13 张", 给够反而看不见未达成态。兑换成交会扣减, 故可变。 */
+let tarotShardsHeld = 27
 
 /** 高级包保底进度 (未满 10 即"下一包不保底"那一态)。 */
 const TAROT_ADVANCED_PITY_STREAK = 7
@@ -2709,9 +2762,11 @@ const TAROT_SHINY_COOLDOWN_TICKS: Readonly<Record<TarotCooldownCategory, number>
  * inInventory 另在 1/4 的牌上比 owned 多一张 (背包里有别人绑定的同名牌): owned 与 inInventory 讲的是
  * "能不能打"与"背包里实际有几张"两件事, 两栏恒等的话面板上永远分不出这个区别。
  *
- * collected (复核 finding 3/5) 特意在 cardId 是 6 的倍数、owned=0 且 inInventory=0 的那几张 (0/6/12/18)
- * 上仍置 true, 用来在 dev 通路里练出"账本记着但背包/持有栏都是 0"这一态 (牌被放进箱子, 或曾经收集过、
- * 品质净额还没被打出/合成消耗掉) —— 只看 owned/inInventory 推 collected 会让这条状态在 mock 里永远造不出来。
+ * collectedByQuality 特意在 cardId 是 6 的倍数、owned=0 且 inInventory=0 的那几张 (0/6/12/18) 上仍把 R 档
+ * 置 true, 用来在 dev 通路里练出"账本记着但背包/持有栏都是 0"这一态 (牌被放进箱子, 或曾经收集过、品质净额
+ * 还没被打出/合成消耗掉) —— 只看 owned/inInventory 推会让这条状态在 mock 里永远造不出来。
+ *
+ * 剩余冷却: 1 号与 4 号牌在冷却中 (一短一长), 世界牌闪耀级在冷却中, 面板的倒计时三种形态都练得到。
  */
 function tarotDeck(): TarotDeckEntry[] {
   return TAROT_ARCANA_IDS.map((arcanaId, cardId) => {
@@ -2727,6 +2782,9 @@ function tarotDeck(): TarotDeckEntry[] {
             : [2, 1, 0, 0, 0]
     const owned = ownedByQuality.reduce((sum, count) => sum + count, 0)
     const inInventory = cardId % 4 === 0 ? owned + 1 : owned
+    const collectedByQuality = ownedByQuality.map(
+      (count, qualityIndex) => count > 0 || (qualityIndex === 0 && (cardId % 6 === 0 || inInventory > owned)),
+    )
     return {
       cardId,
       arcanaId,
@@ -2734,7 +2792,9 @@ function tarotDeck(): TarotDeckEntry[] {
       ownedByQuality,
       owned,
       inInventory,
-      collected: owned > 0 || inInventory > 0 || cardId % 6 === 0,
+      collectedByQuality,
+      cooldownRemainingTicks: cardId === 1 ? 140 : cardId === 4 ? 620 : 0,
+      shinyCooldownRemainingTicks: cardId === 21 ? 7_200 : 0,
       /*
        * cardDataLoaded 为真, 故这两栏一律有值。它们为 null 的那一态只在 datapack 重载中/失败时出现,
        * 而那是**整份牌组同时**为 null (不是逐牌的), 与本回执的 cardDataLoaded=true 互斥, 造不出来。
@@ -2776,11 +2836,12 @@ function mockTarotState(): TarotStateResult {
     level,
     // 测试模式关着: 开着的话买包免费且不计日限, 那是运营开关不是常态, mock 不默认打开。
     testMode: false,
-    shards: TAROT_SHARDS_HELD,
+    shards: tarotShardsHeld,
     shardExchangeCost: TAROT_SHARD_EXCHANGE_COST,
     duplicateShardRefund: TAROT_DUPLICATE_SHARD_REFUND,
     qualities,
     cooldownTicks: { ...TAROT_COOLDOWN_TICKS },
+    gcdRemainingTicks: 0,
     cardDataLoaded: true,
     deck: tarotDeck(),
     packs: tarotPackRows(),
@@ -2790,6 +2851,62 @@ function mockTarotState(): TarotStateResult {
     advancedPityStreak: TAROT_ADVANCED_PITY_STREAK,
     advancedPityThreshold: TAROT_ADVANCED_PITY_THRESHOLD,
   }
+}
+
+/**
+ * 牌效说明 mock: 形状与真服一致 (每行是 Component 的 JSON 串, 要经 client.formatText 排版), 内容是按档位递增的
+ * 示意文字 —— 真实数值只在服务端 datapack 里, mock 不抄一份以免与之漂移。
+ */
+function mockTarotCardEffects(payload: TarotCardEffectsPayload): TarotCardEffectsResult {
+  const cardId = requireTarotCardId('job.tarot.cardEffects', payload.cardId)
+  const roman = ['I', 'II', 'III', 'IV']
+  const line = (key: string, ...args: (string | number)[]): string =>
+    JSON.stringify({ translate: key, with: args.map((arg) => String(arg)) })
+  const upright = [0, 1, 2, 3].map((tier) => [
+    line('mock.tarot.effect.self_potion', '力量', roman[tier] ?? 'I', 15 + tier * 5),
+    line('mock.tarot.effect.absorption', 15 + tier * 5),
+  ])
+  const reversed = [0, 1, 2, 3].map((tier) => [
+    line('mock.tarot.effect.enemy_potion', 5 + tier, '缓慢', 'III', 6 + tier * 2),
+    line('mock.tarot.effect.cost', '易伤', 'II', 8 - tier),
+  ])
+  const shiny = [
+    line('mock.tarot.effect.self_potion', '抗性提升', 'III', 30),
+    line('mock.tarot.effect.enemy_potion', 12, '失明', 'I', 8),
+  ]
+  return { cardId, loaded: true, upright, reversed, shiny }
+}
+
+/** 碎片兑换 mock: 碎片够才成交 (起始 27 < 40, 默认走"碎片不足"那一支, 与面板要展示的未达成态一致)。 */
+function mockTarotExchange(payload: TarotExchangePayload): TarotExchangeResult {
+  const cardId = requireTarotCardId('job.tarot.exchange', payload.cardId)
+  if (typeof payload.upright !== 'boolean') {
+    throw businessFailure('job.tarot.exchange', 'INVALID_REQUEST', 'upright 必须是布尔值', false, {
+      field: 'upright',
+    })
+  }
+  if (tarotShardsHeld < TAROT_SHARD_EXCHANGE_COST) {
+    throw businessFailure(
+      'job.tarot.exchange',
+      'INSUFFICIENT_FUNDS',
+      `塔罗碎片不足, 需要 ${String(TAROT_SHARD_EXCHANGE_COST)} 张, 现有 ${String(tarotShardsHeld)} 张`,
+      false,
+      { resource: 'tarot_shard', required: String(TAROT_SHARD_EXCHANGE_COST), held: String(tarotShardsHeld) },
+    )
+  }
+  tarotShardsHeld -= TAROT_SHARD_EXCHANGE_COST
+  depositToInventory('job.tarot.exchange', 'miningdim:tarot_card', 1)
+  return { cardId, upright: payload.upright, shardsSpent: TAROT_SHARD_EXCHANGE_COST, shardsLeft: tarotShardsHeld }
+}
+
+function requireTarotCardId(action: 'job.tarot.cardEffects' | 'job.tarot.exchange', raw: unknown): number {
+  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0 || raw >= TAROT_ARCANA_IDS.length) {
+    throw businessFailure(action, 'INVALID_REQUEST', 'cardId 必须在 [0,21] 内', false, {
+      field: 'cardId',
+      value: truncateValue(String(raw)),
+    })
+  }
+  return raw
 }
 
 /**
@@ -5357,6 +5474,10 @@ function resolveMock(action: WebUiActionName, payload: unknown): unknown {
       return mockTarotState()
     case 'job.tarot.buyPack':
       return mockTarotBuyPack(payload as TarotBuyPackPayload)
+    case 'job.tarot.cardEffects':
+      return mockTarotCardEffects(payload as TarotCardEffectsPayload)
+    case 'job.tarot.exchange':
+      return mockTarotExchange(payload as TarotExchangePayload)
     case 'job.agent.state':
       return mockAgentState()
     case 'job.agent.scan':
@@ -5453,6 +5574,8 @@ function resolveMock(action: WebUiActionName, payload: unknown): unknown {
       return mockCaseApply(payload as CaseApplyPayload)
     case 'client.i18n':
       return mockI18n(payload as ClientI18nPayload)
+    case 'client.formatText':
+      return mockFormatText(payload as ClientFormatTextPayload)
     case 'client.playCaseSound':
       return mockPlayCaseSound(payload as ClientPlayCaseSoundPayload)
     // 两条宿主动作在浏览器里没有对应物 (没有 Screen 可关, 也没有 Java 侧的焦点标记),

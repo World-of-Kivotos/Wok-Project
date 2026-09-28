@@ -53,8 +53,9 @@ import java.util.function.Function;
  *     信用点/青辉石按包种分流、钱包真少、包真进背包且绑定买家、每日计数真涨。
  *  3. 三条失败态一分钱不动一个包不发: 余额不足 / 撞每日上限 / 入参非法。
  *
- * 冷却剩余量不在断言范围内 —— 服务端目前没有只读 peek (见交付报告 blockers), 面板绝不允许调
- * {@link TarotCooldownManager#tryUse} 去"看一眼", 那一调就把玩家的冷却吃掉了。
+ * 冷却剩余量、逐品质收集、牌效说明与碎片兑换见 {@link TarotUiGameTests}。面板取剩余冷却只走
+ * {@link TarotCooldownManager} 的只读查询, 绝不允许调 {@link TarotCooldownManager#tryUse} 去"看一眼",
+ * 那一调就把玩家的冷却吃掉了。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)

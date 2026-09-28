@@ -120,6 +120,8 @@ const MIRROR_AFTER_INVENTORY = new Set<string>([
   'job.farmer.sell',
   // 把卡包**实物**发进背包 (回执 itemId 就是那件卡包)。
   'job.tarot.buyPack',
+  // 从背包扣碎片、把兑换出的 SSR 牌发进背包。
+  'job.tarot.exchange',
   // 背包满时戒指掉在脚下, 那一次背包不变; 其余情形戒指会进背包。
   'marriage.buyRing',
   // 典礼与离婚都要收费 (两者都有 INSUFFICIENT_FUNDS 态)。离婚提交即扣费 —— 但只做"提交进公示期"这一步,

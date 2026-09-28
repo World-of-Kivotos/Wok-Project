@@ -6,10 +6,15 @@ import com.miningdim.job.tarot.TarotQuality;
 import com.mojang.math.Axis;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 
-/** 在物品 tooltip 内绘制 Git 原图的完整竖版卡面。 */
+/**
+ * 物品 tooltip 里的竖版卡面。默认只占一行提示, 按住 Shift 才展开整张卡面: 卡面 154 像素高, 再叠上多行牌效,
+ * GUI 缩放调高时会顶出屏幕, 挡住的恰好是牌效文字。
+ */
 public final class ClientTarotCardTooltip implements ClientTooltipComponent {
 
     private static final int CARD_WIDTH = 84;
@@ -30,6 +35,10 @@ public final class ClientTarotCardTooltip implements ClientTooltipComponent {
     private static final int HEIGHT = 154;
     private static final int CARD_X = 20;
     private static final int CARD_Y = 2;
+    private static final int HINT_HEIGHT = 10;
+
+    private static final Component SHIFT_HINT =
+            Component.translatable("tooltip.miningdim.tarot.hold_shift_for_art");
 
     private final ResourceLocation texture;
     private final ResourceLocation frameTexture;
@@ -40,31 +49,36 @@ public final class ClientTarotCardTooltip implements ClientTooltipComponent {
         String id = tooltip.cardId() < 10 ? "0" + tooltip.cardId() : Integer.toString(tooltip.cardId());
         this.texture = new ResourceLocation(MiningConstants.MODID, "textures/gui/tarot/cards/" + id + ".png");
         this.quality = tooltip.quality();
+        this.upright = quality.displayUpright(tooltip.upright());
         this.frameTexture = new ResourceLocation(MiningConstants.MODID,
-                "textures/item/tarot/border_" + quality.id()
-                        + (tooltip.upright() ? "" : "_reversed") + ".png");
-        this.upright = tooltip.upright();
+                "textures/item/tarot/border_" + quality.id() + (upright ? "" : "_reversed") + ".png");
+    }
+
+    private static boolean expanded() {
+        return Screen.hasShiftDown();
     }
 
     @Override
     public int getHeight() {
-        return HEIGHT + 4;
+        return expanded() ? HEIGHT + 4 : HINT_HEIGHT;
     }
 
     @Override
     public int getWidth(Font font) {
-        return WIDTH;
+        return expanded() ? WIDTH : font.width(SHIFT_HINT);
     }
 
     @Override
     public void renderImage(Font font, int x, int y, GuiGraphics graphics) {
-        int color = qualityColor(quality);
+        if (!expanded()) {
+            return; // 提示文字在 renderText 里画 (与其它 tooltip 行同一批文字渲染)。
+        }
         graphics.fill(x + CARD_X - 3, y + CARD_Y - 3,
                 x + CARD_X + CARD_WIDTH + 3, y + CARD_Y + CARD_HEIGHT + 3,
                 0xE0101B32);
         graphics.fill(x + CARD_X - 1, y + CARD_Y - 1,
                 x + CARD_X + CARD_WIDTH + 1, y + CARD_Y + CARD_HEIGHT + 1,
-                color);
+                quality.argb());
 
         graphics.pose().pushPose();
         if (!upright) {
@@ -85,13 +99,12 @@ public final class ClientTarotCardTooltip implements ClientTooltipComponent {
                 FRAME_TEXTURE_SIZE, FRAME_TEXTURE_SIZE);
     }
 
-    private static int qualityColor(TarotQuality quality) {
-        return switch (quality) {
-            case R -> 0xFFF0F7FF;
-            case SR -> 0xFF347EFF;
-            case SSR -> 0xFFA64FFF;
-            case UR -> 0xFFFF69B8;
-            case SHINY -> 0xFFFF313E;
-        };
+    @Override
+    public void renderText(Font font, int x, int y, org.joml.Matrix4f matrix,
+                           net.minecraft.client.renderer.MultiBufferSource.BufferSource buffer) {
+        if (!expanded()) {
+            font.drawInBatch(SHIFT_HINT, x, y, 0xFF7F93A8, true, matrix, buffer,
+                    Font.DisplayMode.NORMAL, 0, 0xF000F0);
+        }
     }
 }

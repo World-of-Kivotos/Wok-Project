@@ -84,6 +84,27 @@ public final class TarotCooldownManager {
         return true;
     }
 
+    /** 只读: 该玩家 GCD 还剩多少 tick (0 = 就绪)。面板展示用, 不占用任何冷却 (与 {@link #tryUse} 不同)。 */
+    public int remainingGcd(UUID player, long now) {
+        return remaining(gcdEnd.get(player), now);
+    }
+
+    /** 只读: 该玩家某张牌 (非闪耀级) 还剩多少 tick。 */
+    public int remainingCard(UUID player, int cardId, long now) {
+        Map<Integer, Long> cards = cardEnd.get(player);
+        return cards == null ? 0 : remaining(cards.get(cardId), now);
+    }
+
+    /** 只读: 该玩家某张牌闪耀级 CD 还剩多少 tick。 */
+    public int remainingShinyCard(UUID player, int cardId, long now) {
+        Map<Integer, Long> cards = shinyCardEnd.get(player);
+        return cards == null ? 0 : remaining(cards.get(cardId), now);
+    }
+
+    private static int remaining(Long endTick, long now) {
+        return endTick == null || now >= endTick ? 0 : (int) Math.min(Integer.MAX_VALUE, endTick - now);
+    }
+
     private static boolean cardCooling(Map<UUID, Map<Integer, Long>> table, UUID id, int cardId, long now) {
         Map<Integer, Long> cards = table.get(id);
         if (cards == null) {

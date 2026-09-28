@@ -63,7 +63,8 @@ public final class ClientTarotVisuals {
         if (ACTIVE.size() >= MAX_ACTIVE_CASTS) {
             ACTIVE.remove(0);
         }
-        ACTIVE.add(new Cast(message.casterEntityId(), message.cardId(), message.quality(), message.upright(), 0));
+        ACTIVE.add(new Cast(message.casterEntityId(), message.cardId(), message.quality(),
+                message.quality().displayUpright(message.upright()), 0));
     }
 
     private static void onClientTick(TickEvent.ClientTickEvent event) {
@@ -260,13 +261,10 @@ public final class ClientTarotVisuals {
     }
 
     private static Palette palette(TarotQuality quality, boolean upright) {
-        Vector3f primary = switch (quality) {
-            case R -> new Vector3f(0.72F, 0.86F, 1.0F);
-            case SR -> new Vector3f(0.18F, 0.78F, 1.0F);
-            case SSR -> new Vector3f(0.58F, 0.36F, 1.0F);
-            case UR -> new Vector3f(1.0F, 0.65F, 0.16F);
-            case SHINY -> new Vector3f(0.42F, 0.95F, 1.0F);
-        };
+        // 主色与卡面品质边框同一份 (TarotQuality.rgb), 施法光效与 tooltip/界面里看到的品质颜色一致。
+        int rgb = quality.rgb();
+        Vector3f primary = new Vector3f(((rgb >> 16) & 0xFF) / 255.0F, ((rgb >> 8) & 0xFF) / 255.0F,
+                (rgb & 0xFF) / 255.0F);
         Vector3f secondary = upright
                 ? new Vector3f(1.0F, 0.82F, 0.34F)
                 : new Vector3f(0.96F, 0.26F, 0.72F);

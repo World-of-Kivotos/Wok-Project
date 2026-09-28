@@ -60,7 +60,7 @@ public final class TarotCardItemRenderer extends BlockEntityWithoutLevelRenderer
         try {
             String id = String.format("%02d", TarotCardItem.cardId(stack));
             TarotQuality quality = TarotCardItem.quality(stack);
-            String orientation = TarotCardItem.upright(stack) ? "" : "_reversed";
+            String orientation = quality.displayUpright(TarotCardItem.upright(stack)) ? "" : "_reversed";
             face = texture(id + orientation);
             frame = texture("border_" + quality.id() + orientation);
         } catch (RuntimeException malformedCard) {

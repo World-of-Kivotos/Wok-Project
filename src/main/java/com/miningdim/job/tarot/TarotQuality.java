@@ -11,24 +11,49 @@ package com.miningdim.job.tarot;
 public enum TarotQuality {
 
     /** 低级 R: 档 a, 门控 L1。 */
-    R("r", 0, 1),
+    R("r", 0, 1, 0xE6EEF7),
     /** 中级 SR: 档 b, 门控 L3。 */
-    SR("sr", 1, 3),
+    SR("sr", 1, 3, 0x4A8DFF),
     /** 高级 SSR: 档 c, 门控 L5。 */
-    SSR("ssr", 2, 5),
+    SSR("ssr", 2, 5, 0xB067FF),
     /** 超凡 UR: 档 d, 门控 L8。 */
-    UR("ur", 3, 8),
+    UR("ur", 3, 8, 0xFF6FC1),
     /** 闪耀: 签名大招品质, 门控 L10; 无档位索引 (tierIndex 返回 -1)。 */
-    SHINY("shiny", -1, 10);
+    SHINY("shiny", -1, 10, 0xFFC53D);
 
     private final String id;
     private final int tierIndex;
     private final int requiredLevel;
+    private final int rgb;
 
-    TarotQuality(String id, int tierIndex, int requiredLevel) {
+    TarotQuality(String id, int tierIndex, int requiredLevel, int rgb) {
         this.id = id;
         this.tierIndex = tierIndex;
         this.requiredLevel = requiredLevel;
+        this.rgb = rgb;
+    }
+
+    /**
+     * 品质主色 (0xRRGGBB), 取自品质边框贴图 (textures/item/tarot/border_*.png) 的主框色: 白银 / 蓝 / 紫 / 粉 / 金。
+     * tooltip 文字、合成台与开包界面、施法粒子、G 面板一律用这一份, 不再各自挑色。
+     */
+    public int rgb() {
+        return rgb;
+    }
+
+    /** {@link #rgb()} 加不透明 alpha, 供 GuiGraphics 直接使用。 */
+    public int argb() {
+        return 0xFF000000 | rgb;
+    }
+
+    /** 是否区分正逆位: 闪耀是签名大招, 不分正逆位 (spec 第六章), 生成与展示都按正位处理。 */
+    public boolean hasOrientation() {
+        return this != SHINY;
+    }
+
+    /** 展示用朝向: 不分正逆位的品质一律按正位 (更新前生成的闪耀牌可能带着逆位标记)。 */
+    public boolean displayUpright(boolean upright) {
+        return upright || !hasOrientation();
     }
 
     /** 小写稳定 id (lang key / datapack 字段名)。 */

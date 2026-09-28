@@ -577,8 +577,7 @@
         "assets/miningdim/textures/item/tarot"
       ],
       "resourceNamePrefixes": [
-        "tarot_",
-        "shiny_select"
+        "tarot_"
       ],
       "dependencies": [
         "wok-core",

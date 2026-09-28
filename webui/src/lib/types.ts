@@ -1472,7 +1472,7 @@ export interface TarotQualityRow {
   rawXp: number
 }
 
-/** 四个"满 CD 时长" (tick), **不是剩余量** —— 剩余量上游没有只读入口 (TarotCooldownManager 的三张表全私有)。 */
+/** 四个"满 CD 时长" (tick), 不是剩余量; 剩余量见 TarotStateResult.gcdRemainingTicks 与 deck 行的 *RemainingTicks。 */
 export interface TarotCooldownTicks {
   gcd: number
   utility: number
@@ -1495,20 +1495,23 @@ export interface TarotDeckEntry {
   owned: number
   /**
    * 背包里同 cardId 的全部可读牌 (不论绑定谁)。老实回答"背包里有几张", 不是开包判重的口径 ——
-   * 判重口径见 {@link collected} (复核 finding 3/5: 放进箱子后本栏会掉到 0, 但 collected 仍可能是 true)。
+   * 判重口径见 {@link collectedByQuality} (放进箱子后本栏会掉到 0, 但对应品质仍可能已收集)。
    */
   inInventory: number
   /**
-   * 服务端持久账本 (TarotPackSavedData) 判"重复转碎片"的真实口径: 五档品质中任一档净持有 (含被放进箱子、
-   * 未被打出/合成消耗掉的牌) 即为 true。品质独立记账 —— 本栏是"任一品质已收集"的聚合, 不代表每个品质都挡;
-   * 未收集的品质仍可能开出真牌。塔罗牌是消耗品: 打出/合成材料耗用后账本会释放净额, collected 不是永久标记
-   * (复核 finding 1/3/5)。
+   * 长度恒 5, 下标 = TarotQuality ordinal。开包判"重复转碎片"的真实口径, **按品质逐档**: 某档为 true 时开到
+   * 同牌同档会转碎片, 其它档仍可能开出真牌。判据 = 服务端持久净额账本 (含放进箱子、未被打出/合成消耗掉的牌)
+   * 并集背包里同牌同档的牌。塔罗牌是消耗品: 打出/合成耗用后账本释放净额, 不是永久标记。
    */
-  collected: boolean
+  collectedByQuality: boolean[]
   /** cardDataLoaded=false (datapack 重载中或失败) 时为 null —— 发 0 会被画成零冷却。 */
   cooldownCategory: TarotCooldownCategory | null
   /** 同上, cardDataLoaded=false 时为 null。 */
   shinyCooldownTicks: number | null
+  /** 这张牌 (非闪耀级) 的剩余冷却 tick, 0 = 就绪 (TarotCooldownManager 只读查询, 不占冷却)。 */
+  cooldownRemainingTicks: number
+  /** 这张牌闪耀级的剩余冷却 tick, 0 = 就绪。 */
+  shinyCooldownRemainingTicks: number
 }
 
 /** 一种卡包的定价 (TarotPackItem + PackKind)。 */
@@ -1540,6 +1543,8 @@ export interface TarotStateResult {
   /** 恒 5 行, 顺序 = TarotQuality 声明序。 */
   qualities: TarotQualityRow[]
   cooldownTicks: TarotCooldownTicks
+  /** 公共 CD (GCD) 剩余 tick, 0 = 就绪。前端按回执到达时刻折算本地截止时刻 (tickDeadline), 不轮询。 */
+  gcdRemainingTicks: number
   /** 牌效 datapack 是否已加载完; false 时 deck 行的两个 CD 字段是 null。 */
   cardDataLoaded: boolean
   /** 恒 22 行, 按 cardId 升序 (即 TarotArcana 声明序)。 */
@@ -1608,6 +1613,64 @@ export type TarotBuyPackErrorCode =
   | 'ECONOMY_OFFLINE'
 
 export type TarotBuyPackErrorEnvelope = WebUiBusinessErrorEnvelope<TarotBuyPackErrorCode>
+
+/** job.tarot.cardEffects 入参 (TarotWebUiActions.CARD_EFFECTS)。 */
+export interface TarotCardEffectsPayload {
+  /** 必填, 整数, 域 [0,21]。 */
+  cardId: number
+}
+
+/**
+ * job.tarot.cardEffects 回执: 一张牌全部牌效说明, 与卡牌 tooltip 同源 (TarotEffectTooltipFormatter)。
+ *
+ * 每行是原版 Component 的 **JSON 序列化串**, 不是可显示文字 —— 服务端不加载 lang, 解不出中文。前端必须经
+ * client.formatText 在客户端本地排版后再显示, 严禁把这些串原样画在页面上。
+ * loaded=false (牌效 datapack 未加载完) 时三栏均为空数组。
+ */
+export interface TarotCardEffectsResult {
+  cardId: number
+  loaded: boolean
+  /** 恒 4 项 (loaded 时), 顺序 = R/SR/SSR/UR; 每项是该档正位的说明行。 */
+  upright: string[][]
+  /** 同上, 逆位。 */
+  reversed: string[][]
+  /** 闪耀签名技的说明行 (闪耀不分正逆位)。 */
+  shiny: string[]
+}
+
+/** job.tarot.exchange 入参 (TarotWebUiActions.EXCHANGE): 碎片兑换一张指定牌的 SSR。 */
+export interface TarotExchangePayload {
+  /** 必填, 整数, 域 [0,21]。 */
+  cardId: number
+  /** 必填: 兑换出的牌的朝向 (与 /tarot exchange 一致, 由玩家选)。 */
+  upright: boolean
+}
+
+/** job.tarot.exchange 回执。兑换出的牌固定 SSR、绑定本人, 已直接进背包 (背包满落地)。 */
+export interface TarotExchangeResult {
+  cardId: number
+  upright: boolean
+  shardsSpent: number
+  /** 兑换后背包 (主背包 + 副手) 剩余碎片。 */
+  shardsLeft: number
+}
+
+/**
+ * job.tarot.exchange 的业务拒绝码。
+ *   INVALID_REQUEST     cardId/upright 缺失或域外
+ *   INSUFFICIENT_FUNDS  碎片不足 (params: resource='tarot_shard'/required/held), 未扣碎片未发牌
+ */
+export type TarotExchangeErrorCode = 'INVALID_REQUEST' | 'INSUFFICIENT_FUNDS'
+
+/** client.formatText 入参: 服务端发来的 Component JSON 串, 一次最多 256 行。 */
+export interface ClientFormatTextPayload {
+  texts: string[]
+}
+
+/** client.formatText 回执: 与入参等长, 按当前客户端语言排好的纯文本; 解析失败的行为空串。 */
+export interface ClientFormatTextResult {
+  texts: string[]
+}
 
 // ============================================================
 // market.* — MarketActions.java

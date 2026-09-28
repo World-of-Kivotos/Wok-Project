@@ -34,6 +34,8 @@ public final class TarotCardLoader extends SimpleJsonResourceReloadListener {
     private static final String DIRECTORY = "tarot/cards";
 
     private volatile Map<TarotArcana, TarotCardData> cards = new EnumMap<>(TarotArcana.class);
+    /** 每张牌 datapack JSON 的内容哈希 (牌效说明缓存据此判断是否过期; 同一份数据跨重启哈希不变)。 */
+    private volatile Map<TarotArcana, Integer> contentHashes = new EnumMap<>(TarotArcana.class);
 
     public TarotCardLoader() {
         super(GSON, DIRECTORY);
@@ -42,6 +44,7 @@ public final class TarotCardLoader extends SimpleJsonResourceReloadListener {
     @Override
     protected void apply(Map<ResourceLocation, JsonElement> parsed, ResourceManager manager, ProfilerFiller profiler) {
         Map<TarotArcana, TarotCardData> loaded = new EnumMap<>(TarotArcana.class);
+        Map<TarotArcana, Integer> hashes = new EnumMap<>(TarotArcana.class);
         // SimpleJsonResourceReloadListener 用 FileToIdConverter.json(DIRECTORY).fileToId 把扫到的物理文件
         // miningdim:tarot/cards/NN_id.json 去掉目录前缀与 .json 后缀后作为 parsed 键 (即 miningdim:NN_id)。
         // arcana.dataKey() 是含目录前缀的完整资源路径 miningdim:tarot/cards/NN_id (同时被 GameTest classpath
@@ -61,7 +64,9 @@ public final class TarotCardLoader extends SimpleJsonResourceReloadListener {
             }
             TarotCardData data = TarotCardData.fromJson(GsonHelper.convertToJsonObject(el, "tarot card"));
             loaded.put(arcana, data);
+            hashes.put(arcana, el.toString().hashCode());
         }
+        this.contentHashes = hashes;
         this.cards = loaded;
         LOGGER.info("[miningdim] loaded {} tarot card effect tables", loaded.size());
     }
@@ -74,6 +79,12 @@ public final class TarotCardLoader extends SimpleJsonResourceReloadListener {
                     + " (datapack reload not completed or failed)");
         }
         return data;
+    }
+
+    /** 某牌当前已加载 JSON 的内容哈希; 未加载时为 0。 */
+    public int contentHash(TarotArcana arcana) {
+        Integer hash = contentHashes.get(arcana);
+        return hash == null ? 0 : hash;
     }
 
     /** 是否已加载全部 22 张 (供用牌前快速判定; 未加载时 use 应拒绝并提示)。 */

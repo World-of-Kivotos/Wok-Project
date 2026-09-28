@@ -242,6 +242,10 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
             handleDisplaySet(payloadJson, callback);
             return;
         }
+        if ("client.formatText".equals(action)) {
+            handleFormatText(payloadJson, callback);
+            return;
+        }
         if (!"client.i18n".equals(action)) {
             callback.failure(-1, "unknown client-local action: " + action);
             return;
@@ -262,6 +266,44 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
             callback.success(GSON.toJson(result));
         } catch (RuntimeException e) {
             callback.failure(-1, "client.i18n failed: " + e.getMessage());
+        }
+    }
+
+    /** 单次 client.formatText 最多排版的行数 (一张塔罗牌全部牌效约 40 行, 留足余量, 防页面一次塞入海量 JSON)。 */
+    private static final int FORMAT_TEXT_MAX_LINES = 256;
+
+    /**
+     * client.formatText: {texts:[Component JSON...]} -> {texts:[当前语言的纯文本...]}。服务端发来的带参数说明
+     * (如塔罗牌效: 翻译键 + 数值参数 + 嵌套的效果名) 在专用服务器上解不出中文, client.i18n 又只认不带参数的裸键,
+     * 故由客户端用原版 Component 反序列化后 getString() 排版。纯本地、只读, 解析失败的行返回空串而不是整批失败。
+     */
+    private void handleFormatText(String payloadJson, CefQueryCallback callback) {
+        try {
+            JsonObject payload = JsonParser.parseString(payloadJson).getAsJsonObject();
+            JsonArray texts = payload.has("texts") && payload.get("texts").isJsonArray()
+                    ? payload.getAsJsonArray("texts")
+                    : new JsonArray();
+            if (texts.size() > FORMAT_TEXT_MAX_LINES) {
+                callback.failure(-1, "client.formatText 一次最多 " + FORMAT_TEXT_MAX_LINES + " 行, 实得 " + texts.size());
+                return;
+            }
+            JsonArray out = new JsonArray();
+            for (JsonElement element : texts) {
+                String formatted = "";
+                try {
+                    net.minecraft.network.chat.Component component =
+                            net.minecraft.network.chat.Component.Serializer.fromJson(element.getAsString());
+                    formatted = component == null ? "" : component.getString();
+                } catch (RuntimeException malformedLine) {
+                    // 单行坏数据不拖累整批: 返回空串, 由页面按"该行不可读"展示。
+                }
+                out.add(formatted);
+            }
+            JsonObject result = new JsonObject();
+            result.add("texts", out);
+            callback.success(GSON.toJson(result));
+        } catch (RuntimeException e) {
+            callback.failure(-1, "client.formatText failed: " + e.getMessage());
         }
     }
 

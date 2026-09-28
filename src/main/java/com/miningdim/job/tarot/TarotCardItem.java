@@ -1,6 +1,7 @@
 package com.miningdim.job.tarot;
 
 import com.miningdim.job.tarot.card.TarotCardData;
+import com.miningdim.job.tarot.card.TarotCardLoader;
 import com.miningdim.job.tarot.client.TarotCardClient;
 import net.minecraft.ChatFormatting;
 import net.minecraft.nbt.CompoundTag;
@@ -8,6 +9,7 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.TextColor;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
@@ -19,7 +21,9 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.inventory.tooltip.TooltipComponent;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.extensions.common.IClientItemExtensions;
+import net.minecraftforge.fml.DistExecutor;
 
 import java.util.List;
 import java.util.Optional;
@@ -44,7 +48,12 @@ public final class TarotCardItem extends Item {
     private static final String K_OWNER = "OwnerUUID";
     private static final String K_EFFECT_TOOLTIP = "EffectTooltip";
     private static final String K_EFFECT_TOOLTIP_VERSION = "EffectTooltipVersion";
-    private static final int EFFECT_TOOLTIP_VERSION = 1;
+    /**
+     * 牌效说明缓存的格式版本。实际写进 NBT 的版本号还混入了该牌 datapack JSON 的内容哈希
+     * ({@link #effectTooltipVersion}), 数据包改了数值, 旧牌下次进玩家背包时就会重写说明 —— 专用服务器的客户端
+     * 只读得到这份缓存, 版本号写死时改数值后旧牌会一直显示旧数值。
+     */
+    private static final int EFFECT_TOOLTIP_FORMAT = 2;
 
     public TarotCardItem(Properties properties) {
         super(properties.stacksTo(1));
@@ -67,7 +76,8 @@ public final class TarotCardItem extends Item {
         CompoundTag tag = stack.getOrCreateTag();
         tag.putInt(K_CARD_ID, cardId);
         tag.putInt(K_QUALITY, quality.ordinal());
-        tag.putBoolean(K_ORIENTATION, upright);
+        // 闪耀不分正逆位 (spec 第六章): 一律按正位生成, 免得卡面倒着画、说明里写"逆位"。
+        tag.putBoolean(K_ORIENTATION, quality.displayUpright(upright));
         tag.putUUID(K_OWNER, owner);
         refreshEffectTooltip(stack);
         return stack;
@@ -179,11 +189,14 @@ public final class TarotCardItem extends Item {
         tooltip.add(Component.translatable("tooltip.miningdim.tarot.arcana." + arcana.id())
                 .withStyle(ChatFormatting.GOLD));
         tooltip.add(Component.translatable("tooltip.miningdim.tarot.quality." + quality.id())
-                .withStyle(qualityColor(quality)));
-        tooltip.add(Component.translatable(upright
-                        ? "tooltip.miningdim.tarot.orientation.upright"
-                        : "tooltip.miningdim.tarot.orientation.reversed")
-                .withStyle(ChatFormatting.GRAY));
+                .withStyle(style -> style.withColor(TextColor.fromRgb(quality.rgb()))));
+        if (quality.hasOrientation()) {
+            tooltip.add(Component.translatable(upright
+                            ? "tooltip.miningdim.tarot.orientation.upright"
+                            : "tooltip.miningdim.tarot.orientation.reversed")
+                    .withStyle(ChatFormatting.GRAY));
+        }
+        appendOwnerLine(tag, level, tooltip);
 
         tooltip.add(Component.empty());
         tooltip.add(Component.translatable("tooltip.miningdim.tarot.effect.title")
@@ -206,12 +219,12 @@ public final class TarotCardItem extends Item {
     @Override
     public void inventoryTick(ItemStack stack, Level level, Entity entity, int slotId, boolean isSelected) {
         super.inventoryTick(stack, level, entity, slotId, isSelected);
-        // F073: 只判 NBT 是否存在非空缓存表 (ListTag map 查表), 不反序列化其内容——每张牌每 tick 全量 Gson
-        // 解析整份 tooltip JSON 结果只为判空即丢, 是纯浪费。若缓存行本身写坏 (JSON 串损坏), 不再靠背包 tick
-        // 反复重试修复, 而是等 EFFECT_TOOLTIP_VERSION 变更时统一重写；期间显示侧已有兜底——appendHoverText 在
-        // cachedEffectTooltip 解析失败返回空表时会回落到 liveEffectTooltip, 玩家看到的说明不会因此消失。
+        // F073: 只比对 NBT 里的版本号与非空缓存表 (map 查表 + 一次 int 比较), 不反序列化其内容——每张牌每 tick
+        // 全量 Gson 解析整份 tooltip JSON 结果只为判空即丢, 是纯浪费。缓存行本身写坏 (JSON 串损坏) 时不靠背包 tick
+        // 反复重试, 显示侧已有兜底——appendHoverText 在 cachedEffectTooltip 解析失败返回空表时会回落到
+        // liveEffectTooltip, 玩家看到的说明不会因此消失。
         if (!level.isClientSide && !hasUsableEffectTooltip(stack.getTag())) {
-            // 兼容更新前已经存在的卡牌：第一次进入玩家背包后补写真实牌效，随后由原版物品同步送到客户端。
+            // 兼容更新前已经存在的卡牌, 以及数据包改过数值的旧牌: 进入玩家背包后按当前牌效重写, 由原版物品同步送到客户端。
             refreshEffectTooltip(stack);
         }
     }
@@ -223,15 +236,26 @@ public final class TarotCardItem extends Item {
                 && tag.contains(K_ORIENTATION, Tag.TAG_BYTE);
     }
 
-    private static boolean hasCurrentEffectTooltip(CompoundTag tag) {
-        return hasCardIdentity(tag)
-                && tag.getInt(K_EFFECT_TOOLTIP_VERSION) == EFFECT_TOOLTIP_VERSION
-                && tag.contains(K_EFFECT_TOOLTIP, Tag.TAG_LIST);
+    /**
+     * 当前牌效说明应有的版本号: 格式版本混入该牌 datapack JSON 的内容哈希。牌效表未加载 (客户端、重载中) 时返回 0,
+     * 调用方据此不判"过期"—— 拿不到当前数据就无从重写。
+     */
+    private static int effectTooltipVersion(int cardId) {
+        TarotCardLoader loader = TarotRuntime.cardLoader();
+        if (!loader.isLoaded() || cardId < 0 || cardId >= TarotArcana.COUNT) {
+            return 0;
+        }
+        int version = EFFECT_TOOLTIP_FORMAT * 31 + loader.contentHash(TarotArcana.byId(cardId));
+        return version == 0 ? 1 : version; // 0 留给"未知", 哈希恰好撞上时挪开。
     }
 
-    /** 缓存表版本匹配且非空——只查 NBT 结构, 不反序列化内容 (F073 热路径判据)。 */
+    /** 缓存表非空且版本与当前牌效一致——只查 NBT 结构, 不反序列化内容 (F073 热路径判据)。 */
     private static boolean hasUsableEffectTooltip(CompoundTag tag) {
-        return hasCurrentEffectTooltip(tag) && tag.getList(K_EFFECT_TOOLTIP, Tag.TAG_STRING).size() > 0;
+        if (!hasCardIdentity(tag) || tag.getList(K_EFFECT_TOOLTIP, Tag.TAG_STRING).isEmpty()) {
+            return false;
+        }
+        int expected = effectTooltipVersion(tag.getInt(K_CARD_ID));
+        return expected == 0 || tag.getInt(K_EFFECT_TOOLTIP_VERSION) == expected;
     }
 
     private static void refreshEffectTooltip(ItemStack stack) {
@@ -252,14 +276,33 @@ public final class TarotCardItem extends Item {
                 encoded.add(StringTag.valueOf(Component.Serializer.toJson(line)));
             }
             tag.put(K_EFFECT_TOOLTIP, encoded);
-            tag.putInt(K_EFFECT_TOOLTIP_VERSION, EFFECT_TOOLTIP_VERSION);
+            tag.putInt(K_EFFECT_TOOLTIP_VERSION, effectTooltipVersion(arcana.cardId()));
         } catch (RuntimeException dataNotReadyOrMalformed) {
             // 物品可能在客户端视觉预览或资源重载完成前被构造；缺数据只让说明暂不可用，不能让 tooltip/渲染崩溃。
         }
     }
 
+    /**
+     * 绑定行: 本人的牌不打扰; 绑定在别人名下 (买来的/捡到的) 明确写"打不出", 无主牌也写明。只在客户端判定
+     * (需要本地玩家 UUID), 服务端调用 (极少见) 不加这一行。
+     */
+    private static void appendOwnerLine(CompoundTag tag, Level level, List<Component> tooltip) {
+        if (level == null || !level.isClientSide) {
+            return;
+        }
+        UUID local = DistExecutor.unsafeCallWhenOn(Dist.CLIENT, () -> () -> TarotCardClient.localPlayerId());
+        UUID owner = tag.hasUUID(K_OWNER) ? tag.getUUID(K_OWNER) : null;
+        if (local == null || local.equals(owner)) {
+            return;
+        }
+        tooltip.add(Component.translatable(owner == null
+                        ? "tooltip.miningdim.tarot.owner.none"
+                        : "tooltip.miningdim.tarot.owner.other")
+                .withStyle(ChatFormatting.RED));
+    }
+
     private static List<Component> cachedEffectTooltip(CompoundTag tag) {
-        if (!hasCurrentEffectTooltip(tag)) {
+        if (!hasCardIdentity(tag) || !tag.contains(K_EFFECT_TOOLTIP, Tag.TAG_LIST)) {
             return List.of();
         }
         ListTag encoded = tag.getList(K_EFFECT_TOOLTIP, Tag.TAG_STRING);
@@ -283,16 +326,6 @@ public final class TarotCardItem extends Item {
         } catch (RuntimeException dataNotReadyOrMalformed) {
             return List.of();
         }
-    }
-
-    private static ChatFormatting qualityColor(TarotQuality quality) {
-        return switch (quality) {
-            case R -> ChatFormatting.WHITE;
-            case SR -> ChatFormatting.AQUA;
-            case SSR -> ChatFormatting.LIGHT_PURPLE;
-            case UR -> ChatFormatting.GOLD;
-            case SHINY -> ChatFormatting.YELLOW;
-        };
     }
 
     /** 该牌当前 datapack 效果表 (供 use handler 取 CD 分档/效果列表)。 */

@@ -93,6 +93,8 @@ public final class MunitionsGameTests {
     private static final String BATCH = "munitions";
     /** 军火台冲压音节拍用例独占的批 (要把职业门面替身挂一百多 tick, 见 wideBenchStrikeSoundFollowsTheProgramPhase)。 */
     private static final String TIMING_BATCH = "munitions_bench_timing";
+    /** 普通档的档位下标 (运动程序按档位取速度: 普通 40 tick 一个循环, 即程序原速)。 */
+    private static final int BASE_TIER = 0;
     /** 计数屏同步用例独占的批 (要挂几十 tick 数方块实体数据包, 见 wideBenchCounterPushesOneUpdatePerVisibleChange)。 */
     private static final String COUNTER_SYNC_BATCH = "munitions_bench_counter_sync";
 
@@ -600,22 +602,152 @@ public final class MunitionsGameTests {
             helper.assertTrue(samePose(a, b), "negative times must fold back into the cycle (t = " + t + ")");
         }
         MunitionsBenchProgram.sample(12.5F, a);
-        MunitionsBenchProgram.sample(40L * 1_000_000_007L + 12L, 0.5F, b);
+        MunitionsBenchProgram.sample(40L * 1_000_000_007L + 12L, 0.5F, BASE_TIER, b);
         helper.assertTrue(samePose(a, b),
                 "a clock billions of ticks old must sample the same phase as its remainder, got beltX "
                         + b.beltX + " vs " + a.beltX);
 
-        helper.assertTrue(MunitionsBenchProgram.isStrikeTick(10L) && MunitionsBenchProgram.isStrikeTick(50L)
-                        && MunitionsBenchProgram.isStrikeTick(40L * 1_000_000L + 10L),
-                "the strike repeats at start + 10 + 40n");
-        helper.assertTrue(!MunitionsBenchProgram.isStrikeTick(0L) && !MunitionsBenchProgram.isStrikeTick(11L)
-                        && !MunitionsBenchProgram.isStrikeTick(-30L),
+        helper.assertTrue(MunitionsBenchProgram.isStrikeTick(10L, BASE_TIER) && MunitionsBenchProgram.isStrikeTick(50L, BASE_TIER)
+                        && MunitionsBenchProgram.isStrikeTick(40L * 1_000_000L + 10L, BASE_TIER),
+                "the base tier strikes at start + 10 + 40n");
+        helper.assertTrue(!MunitionsBenchProgram.isStrikeTick(0L, BASE_TIER) && !MunitionsBenchProgram.isStrikeTick(11L, BASE_TIER)
+                        && !MunitionsBenchProgram.isStrikeTick(-30L, BASE_TIER),
                 "no strike off the beat, and none before the program started");
-        helper.assertTrue(MunitionsBenchProgram.nextStrikeTickAfter(0L) == 10L
-                        && MunitionsBenchProgram.nextStrikeTickAfter(9L) == 10L
-                        && MunitionsBenchProgram.nextStrikeTickAfter(10L) == 50L
-                        && MunitionsBenchProgram.nextStrikeTickAfter(49L) == 50L,
+        helper.assertTrue(MunitionsBenchProgram.nextStrikeTickAfter(0L, BASE_TIER) == 10L
+                        && MunitionsBenchProgram.nextStrikeTickAfter(9L, BASE_TIER) == 10L
+                        && MunitionsBenchProgram.nextStrikeTickAfter(10L, BASE_TIER) == 50L
+                        && MunitionsBenchProgram.nextStrikeTickAfter(49L, BASE_TIER) == 50L,
                 "nextStrikeTickAfter must return the first strike strictly after the given tick");
+        helper.succeed();
+    }
+
+    /**
+     * 用户拍板: 档位越高生产动画越快, 均匀阶梯到 2 倍速 —— 一个循环 普通 40 / 中级 36 / 高级 32 / 极品 28 / 超凡 24 / 闪耀 20 tick,
+     * 冲压在循环的 1/4 (10 / 9 / 8 / 7 / 6 / 5)。期望值取这张拍板的表本身, 不照抄常量。关键帧仍在 40 tick 的程序时间里:
+     * 游戏时间按 programTick 映射过去, 循环内单调递增、到该档循环的整数倍正好折回 0、冲压那一 tick 正好是程序的 STRIKE_TICK
+     * (冲头最低), 连开几天的时钟 (long) 与它的余数逐位相同; 冲压音 / 火花的拍子 (isStrikeTick / nextStrikeTickAfter) 与之一致;
+     * 渲染器每帧的两个决定 (sampleRunning 的姿态、strikeBetween 的火花) 逐档与服务端同拍; 每块台子构造时给的档位与它的注册名对得上。
+     * 循环里的失败信息只在失败时拼。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchProgramRunsFasterByTierOnAUniformLadderUpToDoubleSpeed(GameTestHelper helper) {
+        int[] approvedCycles = {40, 36, 32, 28, 24, 20};
+        helper.assertTrue(MunitionsBenchProgram.tierCount() == MunitionsBenchAssets.TIER_IDS.length
+                        && approvedCycles.length == MunitionsBenchAssets.TIER_IDS.length,
+                "one cycle length per bench tier, got " + MunitionsBenchProgram.tierCount());
+        MunitionsBenchProgram.Pose pose = new MunitionsBenchProgram.Pose();
+        MunitionsBenchProgram.Pose expectedPose = new MunitionsBenchProgram.Pose();
+        MunitionsBenchProgram.Pose strikePose = MunitionsBenchProgram.sample((float) MunitionsBenchProgram.STRIKE_TICK,
+                new MunitionsBenchProgram.Pose());
+        float[] partials = {0.0F, 0.1F, 0.15957803F, 0.25F, 0.5F, 0.75F, 0.8456556F, 0.9999F};
+        for (int tier = 0; tier < approvedCycles.length; tier++) {
+            int cycle = approvedCycles[tier];
+            int strike = cycle / 4;
+            helper.assertTrue(MunitionsBenchProgram.cycleTicks(tier) == cycle,
+                    "tier " + tier + " must run a " + cycle + "-tick cycle, got " + MunitionsBenchProgram.cycleTicks(tier));
+            helper.assertTrue(MunitionsBenchProgram.strikeTick(tier) == strike,
+                    "tier " + tier + " must strike a quarter into its cycle (tick " + strike + "), got " + MunitionsBenchProgram.strikeTick(tier));
+            helper.assertTrue(40.0D / cycle <= 2.0D, "tier " + tier + " runs faster than the approved 2x");
+
+            // 映射: 两个循环里按游戏时间排好的样本, 程序时间在 [0, 40) 里、循环内严格递增、到整循环正好折回 0
+            double previous = -1.0D;
+            for (long e = 0L; e < 2L * cycle; e++) {
+                for (float partial : partials) {
+                    double t = MunitionsBenchProgram.programTick(e, partial, tier);
+                    if (!(t >= 0.0D && t < MunitionsBenchProgram.CYCLE_TICKS)) {
+                        helper.fail("tier " + tier + " e " + e + " + " + partial + ": program time " + t + " leaves [0, 40)");
+                    }
+                    boolean wrapped = e % cycle == 0L && partial == 0.0F;
+                    if (wrapped) {
+                        if (t != 0.0D) {
+                            helper.fail("tier " + tier + ": the program must wrap to exactly 0 at " + e + ", got " + t);
+                        }
+                    } else if (!(t > previous)) {
+                        helper.fail("tier " + tier + ": program time must increase within a cycle, " + previous + " then " + t
+                                + " at " + e + " + " + partial);
+                    }
+                    previous = t;
+                }
+            }
+            helper.assertTrue(MunitionsBenchProgram.programTick(cycle - 1L, 0.9999F, tier) > 39.99D,
+                    "tier " + tier + ": the last moment of a cycle is the end of the program");
+            // 冲压那一 tick = 程序的 STRIKE_TICK (冲头最低), 姿态与程序时间 10 逐位相同
+            helper.assertTrue(MunitionsBenchProgram.programTick(strike, 0.0F, tier) == MunitionsBenchProgram.STRIKE_TICK,
+                    "tier " + tier + ": its strike tick " + strike + " must map exactly onto the program's strike");
+            MunitionsBenchProgram.sample(strike, 0.0F, tier, pose);
+            helper.assertTrue(samePose(pose, strikePose) && pose.ramY < 0.0F && pose.dieHeat >= 0.5F,
+                    "tier " + tier + ": the ram bottoms out on tick " + strike + ", ramY " + pose.ramY);
+            // 连开几天: long 里取模, 与余数逐位相同
+            for (long days : new long[]{1_000_000_007L, 123_456_789_011L}) {
+                for (float partial : partials) {
+                    long e = days * cycle + strike + 3L;
+                    if (MunitionsBenchProgram.programTick(e, partial, tier) != MunitionsBenchProgram.programTick(strike + 3L, partial, tier)) {
+                        helper.fail("tier " + tier + ": a clock " + e + " ticks old drifts off its remainder");
+                    }
+                }
+            }
+            // 冲压音 / 火花的拍子: 起点 + strike + cycle × n, 起点之前没有
+            for (long e = -3L * cycle; e <= 5L * cycle; e++) {
+                boolean expected = e >= 0L && Math.floorMod(e, (long) cycle) == strike;
+                if (MunitionsBenchProgram.isStrikeTick(e, tier) != expected) {
+                    helper.fail("tier " + tier + ": isStrikeTick(" + e + ") should be " + expected);
+                }
+                long next = MunitionsBenchProgram.nextStrikeTickAfter(e, tier);
+                if (!(next > e && next - e <= cycle && Math.floorMod(next, (long) cycle) == strike)) {
+                    helper.fail("tier " + tier + ": nextStrikeTickAfter(" + e + ") = " + next);
+                }
+            }
+
+            // 渲染器每帧的决定 (MunitionsBenchRenderer 直接调这两个): 工作时的姿态 = 这一档的映射, 起点比本地时钟快时停在首帧;
+            // 火花 = (上一帧, 这一帧] 里有没有冲压 tick, 与服务端逐 tick 的 isStrikeTick 同拍 (逐帧、隔几帧、隔一两个循环)
+            MunitionsBenchProgram.sample(0.0F, expectedPose);
+            for (long e = -3L; e < 0L; e++) {
+                MunitionsBenchProgram.sampleRunning(e, 0.5F, tier, pose);
+                if (!samePose(pose, expectedPose)) {
+                    helper.fail("tier " + tier + ": a start tick " + (-e) + " ahead of the client clock must hold the first frame");
+                }
+            }
+            for (long e = 0L; e < 2L * cycle; e++) {
+                for (float partial : partials) {
+                    MunitionsBenchProgram.sampleRunning(e, partial, tier, pose);
+                    MunitionsBenchProgram.sample((float) MunitionsBenchProgram.programTick(e, partial, tier), expectedPose);
+                    if (!samePose(pose, expectedPose)) {
+                        helper.fail("tier " + tier + ": the running pose at " + e + " + " + partial + " must be this tier's mapping");
+                    }
+                }
+            }
+            MunitionsBenchProgram.sampleRunning(strike, 0.0F, tier, pose);
+            helper.assertTrue(samePose(pose, strikePose), "tier " + tier + ": the renderer's ram bottoms out on the strike tick " + strike);
+            for (long since = -2L * cycle; since <= 3L * cycle; since++) {
+                for (long gap : new long[]{-1L, 0L, 1L, 2L, 3L, cycle - 1L, cycle, cycle + 1L, 2L * cycle + 1L}) {
+                    long until = since + gap;
+                    boolean beat = false;
+                    for (long t = since + 1L; t <= until; t++) {
+                        beat |= MunitionsBenchProgram.isStrikeTick(t, tier);
+                    }
+                    if (MunitionsBenchProgram.strikeBetween(since, until, tier) != beat) {
+                        helper.fail("tier " + tier + ": strikeBetween(" + since + ", " + until + ") must be " + beat
+                                + " like the server's isStrikeTick beats in that window");
+                    }
+                }
+            }
+        }
+        // 越界的档位 (不该发生) 按普通档
+        helper.assertTrue(MunitionsBenchProgram.cycleTicks(-1) == 40 && MunitionsBenchProgram.cycleTicks(6) == 40
+                        && MunitionsBenchProgram.strikeTick(99) == 10,
+                "an out-of-range tier falls back to the base speed");
+        // 方块的档位 (构造时给定, 渲染器与服务端都按它取速度): 期望按 ModMunitionsBlocks 的档位顺序写死, 再与注册名对上
+        // (注册名 = 资产文件名 / 计数屏颜色的档位, MunitionsBenchAssets.TIER_IDS)
+        Block[] blocks = {
+                ModMunitionsBlocks.MUNITIONS_BENCH.get(), ModMunitionsBlocks.MUNITIONS_BENCH_MEDIUM.get(),
+                ModMunitionsBlocks.MUNITIONS_BENCH_HIGH.get(), ModMunitionsBlocks.MUNITIONS_BENCH_SUPERIOR.get(),
+                ModMunitionsBlocks.MUNITIONS_BENCH_TRANSCENDENT.get(), ModMunitionsBlocks.MUNITIONS_BENCH_RADIANT.get()};
+        for (int tier = 0; tier < blocks.length; tier++) {
+            int got = ((MunitionsBenchBlock) blocks[tier]).tier();
+            String path = net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(blocks[tier]).getPath();
+            helper.assertTrue(got == tier && MunitionsBenchAssets.TIER_IDS[tier].equals(path),
+                    path + " must be tier " + tier + " (" + MunitionsBenchAssets.TIER_IDS[tier] + "), got " + got);
+        }
         helper.succeed();
     }
 
@@ -628,9 +760,11 @@ public final class MunitionsGameTests {
     }
 
     /**
-     * 服务端冲压音与客户端运动件同拍: 程序起点是 ACTIVE 由假变真的 tick, 冲压音恰在起点 + 10 + 40n 播, 从 WIDE 台子的冲压点出声;
+     * 服务端冲压音与客户端运动件同拍: 程序起点是 ACTIVE 由假变真的 tick, 冲压音恰在起点 + 该档冲压时刻 + 该档循环 × n 播
+     * (用户拍板的速度阶梯: 普通 10 + 40n, 高级 8 + 32n, 闪耀 5 + 20n), 从 WIDE 台子的冲压点出声; LEGACY 老台子 (主格中上方出声)
+     * 同样按档位的节拍 (闪耀 5 + 20n);
      * 同一 tick 里先灭后亮 (连续模式换批, 客户端只看得到 "一直亮着") 不重置相位, 隔 tick 重新点亮才重来;
-     * 发给客户端的区块更新标签带着这个起点 (玩家走远再回来也能对上拍); 区块加载时已在工作、没经过翻转的台子在组区块包的
+     * 发给客户端的区块更新标签带着这个起点 (玩家走远再回来也能对上拍); 区块加载时已在工作、没经过翻转的台子 (高级) 在组区块包的
      * 那一刻就定下起点, 冲压音也按它走。
      * <p>
      * 单独一个 batch: 本用例要把职业门面替身挂 100 多 tick, 不能与同批其他用例的同步替换互相覆盖。
@@ -643,7 +777,7 @@ public final class MunitionsGameTests {
         boolean handedOff = false;
         try {
             ServerLevel level = helper.getLevel();
-            MunitionsBenchBlockEntity be = newBench(helper, player);
+            MunitionsBenchBlockEntity be = newBench(helper, player, ModMunitionsBlocks.MUNITIONS_BENCH.get()); // 普通: 40 tick 一个循环
             BlockPos mainPos = be.getBlockPos();
             BlockState wide = be.getBlockState()
                     .setValue(MunitionsBenchBlock.FACING, Direction.NORTH)
@@ -671,8 +805,12 @@ public final class MunitionsGameTests {
 
             // 区块加载时台子已在工作 (读档后状态本来就是 ACTIVE, 没经过翻转, 服务端也还没 tick 过它): 区块包早于这台机器的
             // 第一次 tick (视距边缘的区块根本不 tick), 所以发区块的那一刻服务端就要把起点定下, 更新标签带着它, 冲压音也按它走。
+            // 这一台是高级 (32 tick 一个循环)。
             BlockPos loadedPos = mainPos.south(2);
-            BlockState loadedState = wide.setValue(MunitionsBenchBlock.ACTIVE, true);
+            BlockState loadedState = ModMunitionsBlocks.MUNITIONS_BENCH_HIGH.get().defaultBlockState()
+                    .setValue(MunitionsBenchBlock.FACING, Direction.NORTH)
+                    .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE)
+                    .setValue(MunitionsBenchBlock.ACTIVE, true);
             placeBenchPair(level, loadedPos, MunitionsBenchBlock.extensionPos(loadedPos, loadedState), loadedState);
             MunitionsBenchBlockEntity loaded = (MunitionsBenchBlockEntity) level.getBlockEntity(loadedPos);
             helper.assertTrue(loaded != null && loaded.programStartTick() == MunitionsBenchBlockEntity.NO_PROGRAM_START,
@@ -691,21 +829,79 @@ public final class MunitionsGameTests {
             Vec3 loadedStrikeAt = MunitionsBenchBlock.benchPixelToWorld(loadedPos, Direction.NORTH,
                     MunitionsBenchGeometry.SPARK_X, MunitionsBenchGeometry.SPARK_Y, MunitionsBenchGeometry.SPARK_Z);
             List<Long> loadedStrikes = new ArrayList<>();
-            Map<Vec3, List<Long>> listeners = Map.of(strikeAt, strikes, loadedStrikeAt, loadedStrikes);
+
+            // 闪耀: 20 tick 一个循环 (2 倍速), 与普通那台同一 tick 开工
+            BlockPos radiantPos = mainPos.south(4);
+            BlockState radiantState = ModMunitionsBlocks.MUNITIONS_BENCH_RADIANT.get().defaultBlockState()
+                    .setValue(MunitionsBenchBlock.FACING, Direction.NORTH)
+                    .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE);
+            placeBenchPair(level, radiantPos, MunitionsBenchBlock.extensionPos(radiantPos, radiantState), radiantState);
+            MunitionsBenchBlockEntity radiant = (MunitionsBenchBlockEntity) level.getBlockEntity(radiantPos);
+            helper.assertTrue(radiant != null, "the radiant bench has a block entity");
+            radiant.setOwner(player.getUUID());
+            radiant.getCapability(ForgeCapabilities.ENERGY).ifPresent(storage -> storage.receiveEnergy(Integer.MAX_VALUE, false));
+            helper.assertTrue(radiant.trySelectCaliber(MunitionsCaliber.RIFLE, player), "select RIFLE at L5 (radiant bench)");
+            stockParts(radiant, 1);
+            helper.assertTrue(radiant.tryStartCraft(player), "owner starts a manual craft on the radiant bench");
+            long radiantStart = level.getGameTime();
+            helper.assertTrue(radiant.programStartTick() == radiantStart, "the radiant program starts on its flip");
+            Vec3 radiantStrikeAt = MunitionsBenchBlock.benchPixelToWorld(radiantPos, Direction.NORTH,
+                    MunitionsBenchGeometry.SPARK_X, MunitionsBenchGeometry.SPARK_Y, MunitionsBenchGeometry.SPARK_Z);
+            List<Long> radiantStrikes = new ArrayList<>();
+
+            // LEGACY 老台子 (没有运动件, 在主格中上方出声): 冲压音同样跟着程序时间按档位变快, 闪耀的 LEGACY 与 WIDE 同一个 5 + 20n
+            // (拍板的是 "冲压音 = 起点 + 该档冲压时刻 + 该档循环 × n", 不分布局; 这一台把这个选择钉住)。副格在它南面 (LEGACY = 朝向的反面)。
+            BlockPos legacyPos = mainPos.west(3);
+            BlockState legacyState = ModMunitionsBlocks.MUNITIONS_BENCH_RADIANT.get().defaultBlockState()
+                    .setValue(MunitionsBenchBlock.FACING, Direction.NORTH)
+                    .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.LEGACY_DEPTH);
+            placeBenchPair(level, legacyPos, MunitionsBenchBlock.extensionPos(legacyPos, legacyState), legacyState);
+            MunitionsBenchBlockEntity legacy = (MunitionsBenchBlockEntity) level.getBlockEntity(legacyPos);
+            helper.assertTrue(legacy != null, "the legacy radiant bench has a block entity");
+            legacy.setOwner(player.getUUID());
+            legacy.getCapability(ForgeCapabilities.ENERGY).ifPresent(storage -> storage.receiveEnergy(Integer.MAX_VALUE, false));
+            helper.assertTrue(legacy.trySelectCaliber(MunitionsCaliber.RIFLE, player), "select RIFLE at L5 (legacy radiant bench)");
+            stockParts(legacy, 1);
+            helper.assertTrue(legacy.tryStartCraft(player), "owner starts a manual craft on the legacy radiant bench");
+            long legacyStart = level.getGameTime();
+            helper.assertTrue(legacy.programStartTick() == legacyStart, "the legacy program starts on its flip");
+            Vec3 legacyStrikeAt = new Vec3(legacyPos.getX() + 0.5D, legacyPos.getY() + 0.72D, legacyPos.getZ() + 0.5D);
+            List<Long> legacyStrikes = new ArrayList<>();
+            Map<Vec3, List<Long>> listeners = Map.of(strikeAt, strikes, loadedStrikeAt, loadedStrikes, radiantStrikeAt, radiantStrikes,
+                    legacyStrikeAt, legacyStrikes);
 
             helper.onEachTick(() -> collectStrikeSounds(channel, level.getGameTime(), listeners));
             handedOff = true;
             helper.runAfterDelay(100L, () -> {
                 try {
                     collectStrikeSounds(channel, level.getGameTime(), listeners);
-                    helper.assertTrue(strikes.equals(List.of(start + 10L, start + 50L, start + 90L)),
-                            "the press sound must play exactly at start + 10 + 40n (start " + start + "), got "
-                                    + strikes);
-                    helper.assertTrue(loadedStrikes.equals(
-                                    List.of(loadedStart + 10L, loadedStart + 50L, loadedStart + 90L)),
-                            "a bench that was already running when its chunk was sent must strike at the start its "
-                                    + "update tag announced + 10 + 40n (start " + loadedStart + "), got " + loadedStrikes);
+                    // 期望取拍板的速度阶梯本身 (普通 40 / 高级 32 / 闪耀 20 tick 一个循环, 冲压在 1/4 处), 不照抄常量。
+                    // 比较到 now - 2 为止 (回调与本 tick 方块实体 tick 的先后不影响结论), 之后收到的也必须在拍上。
+                    long until = level.getGameTime() - 2L;
+                    List<Long> baseExpected = beats(start, 10L, 40L, until);
+                    List<Long> highExpected = beats(loadedStart, 8L, 32L, until);
+                    List<Long> radiantExpected = beats(radiantStart, 5L, 20L, until);
+                    List<Long> legacyExpected = beats(legacyStart, 5L, 20L, until);
+                    helper.assertTrue(baseExpected.size() >= 2 && highExpected.size() >= 2 && radiantExpected.size() >= 4
+                                    && legacyExpected.size() >= 4,
+                            "precondition: the window covers several beats, got " + baseExpected + " / " + highExpected + " / "
+                                    + radiantExpected + " / " + legacyExpected);
+                    helper.assertTrue(upTo(strikes, until).equals(baseExpected) && onBeat(strikes, start, 10L, 40L),
+                            "the base bench must play the press sound exactly at start + 10 + 40n (start " + start + "), expected "
+                                    + baseExpected + ", got " + strikes);
+                    helper.assertTrue(upTo(loadedStrikes, until).equals(highExpected) && onBeat(loadedStrikes, loadedStart, 8L, 32L),
+                            "a high bench that was already running when its chunk was sent must strike at the start its "
+                                    + "update tag announced + 8 + 32n (start " + loadedStart + "), expected " + highExpected
+                                    + ", got " + loadedStrikes);
+                    helper.assertTrue(upTo(radiantStrikes, until).equals(radiantExpected) && onBeat(radiantStrikes, radiantStart, 5L, 20L),
+                            "the radiant bench runs at double speed: press sound exactly at start + 5 + 20n (start "
+                                    + radiantStart + "), expected " + radiantExpected + ", got " + radiantStrikes);
+                    helper.assertTrue(upTo(legacyStrikes, until).equals(legacyExpected) && onBeat(legacyStrikes, legacyStart, 5L, 20L),
+                            "a legacy radiant bench keeps the tier's press cadence too: exactly at start + 5 + 20n (start "
+                                    + legacyStart + "), expected " + legacyExpected + ", got " + legacyStrikes);
                     loaded.cancelCraft(player);
+                    radiant.cancelCraft(player);
+                    legacy.cancelCraft(player);
                     BlockState lit = level.getBlockState(mainPos);
                     helper.assertTrue(lit.getValue(MunitionsBenchBlock.ACTIVE), "the craft keeps the bench ACTIVE");
 
@@ -740,6 +936,25 @@ public final class MunitionsGameTests {
                 restoreJob(prevJob);
             }
         }
+    }
+
+    /** 起点 + strike + cycle × n (n ≥ 0) 里不晚于 until 的那些 tick。 */
+    private static List<Long> beats(long start, long strike, long cycle, long until) {
+        List<Long> out = new ArrayList<>();
+        for (long t = start + strike; t <= until; t += cycle) {
+            out.add(t);
+        }
+        return out;
+    }
+
+    /** 列表里不晚于 until 的那些。 */
+    private static List<Long> upTo(List<Long> ticks, long until) {
+        return ticks.stream().filter(t -> t <= until).toList();
+    }
+
+    /** 每一个都在拍上 (起点 + strike + cycle × n)。 */
+    private static boolean onBeat(List<Long> ticks, long start, long strike, long cycle) {
+        return ticks.stream().allMatch(t -> t >= start + strike && Math.floorMod(t - start - strike, cycle) == 0L);
     }
 
     /**

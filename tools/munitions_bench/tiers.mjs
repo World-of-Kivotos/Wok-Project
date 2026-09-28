@@ -12,6 +12,13 @@
 // 颜色按"角色"给出 (trim.base / trim.hi / light.on ...), 生成器按角色登记图集色块, 所以六档图集的布局完全相同,
 // 同一个元素在每一档用同一组 uv, 只是图集里那一格的颜色不同。
 //
+// 生产动画的速度 (2026-09 用户拍板: 档位越高动画越快, 均匀阶梯到 2 倍速): 每档一个循环的实际长度 cycleTicks (游戏 tick)
+//   普通 40 / 中级 36 / 高级 32 / 极品 28 / 超凡 24 / 闪耀 20 (1× / 1.11× / 1.25× / 1.43× / 1.67× / 2×)。关键帧仍在 40 tick 的
+//   程序时间里写, 游戏里按 程序 tick = ((已过 tick mod cycleTicks) + partialTick) × 40 / cycleTicks 映射 (MunitionsBenchProgram.programTick);
+//   冲压时刻随之是循环的 1/4 (10 / 9 / 8 / 7 / 6 / 5)。生成器把这张表写进 MunitionsBenchProgram 的 CYCLE_TICKS_BY_TIER /
+//   STRIKE_TICKS_BY_TIER (Java 两端与 ber.mjs / lights.mjs 的镜像都读这一份), 并核对: 普通 = 程序长度、逐档变快、冲压时刻是整 tick、
+//   最快不超过 2 倍 (皮带追光的瞬时频率 = 1.5 Hz × 倍速, 2 倍正好是光敏上限 3 Hz)。
+//
 // 角色 (每档都有, 结构相同):
 //   trim  {base, hi, lo, dk}          大面积饰板: 侧板、门板、铭牌底框
 //   band  {base, hi, lo, dk}          窄色带: 边条、铭牌描边、档位刻痕 (闪耀 = 金; 其余与 trim 同色系)
@@ -45,11 +52,14 @@ const STEEL = { base: hex('#B0B9C3'), hi: hex('#D6DDE4'), lo: hex('#7F8994'), dk
 const CHROME = { base: hex('#C9D1DA'), hi: hex('#EEF2F6'), lo: hex('#8E98A3'), dk: hex('#5F6873') };
 const IVORY = { base: hex('#EDE6D6'), hi: hex('#FFFCF4'), lo: hex('#BDB5A3'), dk: hex('#8C8577') };
 
+/** 每档一个生产循环的实际长度 (游戏 tick), 下标 = 档位 0..5 (见文件头 "生产动画的速度")。 */
+export const CYCLE_TICKS_BY_TIER = [40, 36, 32, 28, 24, 20];
+
 function tier(index, key, label, en, trim, band, light, note) {
     const L = light;
     return {
         index, key, suffix: index === 0 ? '' : '_' + key, id: 'munitions_bench' + (index === 0 ? '' : '_' + key),
-        label, en, note,
+        label, en, note, cycleTicks: CYCLE_TICKS_BY_TIER[index],
         roles: {
             trim, band, light: L,
             glow: { on: L.on, soft: mixc(L.mid, GUN_DARK, 0.3) },

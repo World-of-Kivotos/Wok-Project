@@ -1,6 +1,5 @@
 package com.miningdim.job.munitions.client;
 
-import com.miningdim.job.munitions.MunitionsBenchAssets;
 import com.miningdim.job.munitions.MunitionsCaliber;
 import com.miningdim.job.munitions.block.MunitionsBenchBlock;
 import com.miningdim.job.munitions.block.MunitionsBenchBlockEntity;
@@ -13,15 +12,10 @@ import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.Direction;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.registries.ForgeRegistries;
 import org.joml.Matrix4f;
 
-import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -56,8 +50,6 @@ final class MunitionsBenchCounterRenderer {
      * 两样都没变就原样复用, 每帧不分配。
      */
     private final Map<MunitionsBenchBlockEntity, Cached> cache = new WeakHashMap<>();
-    /** 方块 → 档位下标 (颜色表的行), 按注册名查一次。 */
-    private final Map<Block, Integer> tiers = new IdentityHashMap<>();
     /**
      * 运行灯效这一帧的覆盖层与摆好的角 / 顶点色: 方块实体在渲染线程上一台一台画, 一份就够, 每帧复用、不分配
      * (灯效随程序时间逐帧变, 不像计数屏那样按状态缓存)。
@@ -72,10 +64,11 @@ final class MunitionsBenchCounterRenderer {
     /**
      * 画计数屏, 再在同一个 textBackground 的 VertexConsumer 里画运行灯效 (渲染类型相同, 不结束批次, 额外 draw call 0)。
      *
-     * @param programTicks 程序时间的整 tick (与运动件相同: 游戏 tick − 程序起点; 待机时不用, 负数 = 停在首帧)
+     * @param tier         档位下标 (MunitionsBenchBlock#tier: 颜色, 以及灯效的程序时间按它的循环长度映射, 与运动件相同)
+     * @param programTicks 开工以来的整 tick (与运动件相同: 游戏 tick − 程序起点; 待机时不用, 负数 = 停在首帧)
      * @param partialTick  渲染的 partialTick
      */
-    void render(MunitionsBenchBlockEntity blockEntity, BlockState state, Direction facing, boolean working,
+    void render(MunitionsBenchBlockEntity blockEntity, int tier, Direction facing, boolean working,
                 long programTicks, float partialTick, PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
                 Vec3 cameraPosition) {
         Level level = blockEntity.getLevel();
@@ -88,7 +81,6 @@ final class MunitionsBenchCounterRenderer {
         }
         float yRotation = MunitionsBenchBlock.partsYRotationDegrees(facing);
         Cached cached = cachedFor(blockEntity, yRotation);
-        int tier = tierOf(state.getBlock());
         VertexConsumer consumer = bufferSource.getBuffer(RenderType.textBackground());
         Matrix4f matrix = poseStack.last().pose();
         drawCounter(consumer, matrix, cached, level.getShade(facing, true), tier, working, packedLight);
@@ -161,19 +153,5 @@ final class MunitionsBenchCounterRenderer {
             cache.put(blockEntity, cached);
         }
         return cached;
-    }
-
-    private int tierOf(Block block) {
-        return tiers.computeIfAbsent(block, candidate -> {
-            ResourceLocation id = ForgeRegistries.BLOCKS.getKey(candidate);
-            if (id != null) {
-                for (int tier = 0; tier < MunitionsBenchAssets.TIER_IDS.length; tier++) {
-                    if (MunitionsBenchAssets.TIER_IDS[tier].equals(id.getPath())) {
-                        return tier;
-                    }
-                }
-            }
-            return 0;
-        });
     }
 }

@@ -38,6 +38,8 @@ import static com.miningdim.job.munitions.block.MunitionsBenchGeometry.LIGHT_UNL
  * <p>
  * 按档位 (用户拍板, 唯一行为): 工位指示灯 / 冲压闪光 / 落箱脉冲 / 满仓提示 全档都有; 运行呼吸从高级 (档 2) 起, 皮带追光从极品 (档 3) 起,
  * 宝石脉冲只有闪耀 (档 5)。目标面、时间、透明度、每档颜色与解锁档位都是生成器写进 {@link MunitionsBenchGeometry} 的 LIGHT_* 常量。
+ * 时间: 脉冲、工位灯、追光包络定义在 40 tick 的程序时间里 ({@link MunitionsBenchProgram#programTick}), 与运动件一起按档位变快
+ * (闪耀 2 倍速: 冲压闪光 1 Hz、宝石 2 Hz、追光 3 Hz = 光敏上限); 运行呼吸与满仓闪烁是游戏时间, 不随档位变。
  * <ul>
  *   <li>{@link #compute} 算出这一帧的覆盖矩形 (整台像素, 朝北) 与颜色, 写进调用方预先分配的 {@link Frame} (定长数组, 每帧不分配);</li>
  *   <li>{@link #blockCorners} 把矩形胀成闭合的壳、浮出面外、按台子朝向摆进主格 (与计数屏同一个 {@link MunitionsBenchCounter#benchToBlock}),
@@ -143,7 +145,10 @@ public final class MunitionsBenchLights {
         public final float[] alpha0 = new float[MAX_QUADS];
         public final float[] alpha1 = new float[MAX_QUADS];
 
-        /** 时钟 (tick, 已加 partialTick): 循环内时刻、程序时间、呼吸相位、待机时钟; 皮带位移 (px, 追光用)。 */
+        /**
+         * 时钟 (tick, 已加 partialTick): 循环内的程序时刻 (0..40, 按档位映射过)、开工以来的程序时间、呼吸相位 (游戏时间)、待机时钟 (游戏时间);
+         * 皮带位移 (px, 追光用)。
+         */
         public double cycleTick;
         public double elapsed;
         public double breathTick;
@@ -200,10 +205,10 @@ public final class MunitionsBenchLights {
     /**
      * 算这一帧的覆盖层, 写进 out, 返回四边形个数。
      *
-     * @param tier           档位下标 0..5 (决定有哪些效果与颜色; 越界按普通档)
+     * @param tier           档位下标 0..5 (决定有哪些效果与颜色, 以及循环长度 = MunitionsBenchProgram.cycleTicks(tier); 越界按普通档)
      * @param active         方块状态 ACTIVE (工作)
      * @param full           同步来的满仓 (只在待机时闪)
-     * @param elapsedTicks   程序时间的整 tick (游戏 tick − 程序起点, 与运动件相同; 待机时不用; 负数 = 起点比本地时钟快, 停在首帧)
+     * @param elapsedTicks   开工以来的整 tick (游戏 tick − 程序起点, 与运动件相同; 待机时不用; 负数 = 起点比本地时钟快, 停在首帧)
      * @param gameTime       客户端的 level.getGameTime() (待机满仓闪烁的时钟)
      * @param partialTick    渲染的 partialTick
      * @param distanceBlocks 相机到主格中心的距离 (格; 运行呼吸在 LIGHT_FADE_START_BLOCKS..LIGHT_MAX_DISTANCE_BLOCKS 渐隐)
@@ -216,12 +221,14 @@ public final class MunitionsBenchLights {
             e = 0L;
             p = 0.0F;
         }
-        // 与 MunitionsBenchProgram.sample(long, float) 同一个取模: 先在 long 里取模再加小数。时钟全在 double 里加 (整 tick + float 小数
-        // 在 double 里是精确的, = lights.mjs): 若循环 tick 按 float 加, 取整后可能比 elapsed 大一个 ulp, 第一轮开工时底火灯 (峰 0) 的
-        // d ≤ elapsed 就会误判成 "没发生过" 而闪断。皮带取样仍用 float: (float) 精确和 = 运动件那边的 float 加法, 与运动件逐位相同。
-        double cycle = Math.floorMod(e, (long) MunitionsBenchProgram.CYCLE_TICKS) + (double) p;
+        // 程序时间 = 运动件的 MunitionsBenchProgram.programTick (按档位的循环长度映射到 40 tick 的程序时间, 先在 long 里取模再加小数):
+        // 脉冲、工位灯、追光包络都定义在程序时间里, 跟着运动件一起按档位变快。时钟全在 double 里加 (整 tick + float 小数在 double 里是
+        // 精确的, = lights.mjs): 若循环 tick 按 float 加, 取整后可能比 elapsed 大一个 ulp, 第一轮开工时底火灯 (峰 0) 的 d ≤ elapsed 就会
+        // 误判成 "没发生过" 而闪断; elapsed 与 cycle 按同一个顺序 (先加、再乘、再除) 映射, 第一轮里两者逐位相同。
+        // 皮带取样用 (float) cycle, 与运动件的 sample(long, float, tier, Pose) 逐位相同。呼吸与满仓闪烁是游戏时间, 不随档位变快。
+        double cycle = MunitionsBenchProgram.programTick(e, p, tier);
         out.cycleTick = cycle;
-        out.elapsed = (double) e + p;
+        out.elapsed = ((double) e + p) * MunitionsBenchProgram.CYCLE_TICKS / MunitionsBenchProgram.cycleTicks(tier);
         out.breathTick = Math.floorMod(e, (long) LIGHT_BREATH_PERIOD_TICKS) + (double) p;
         out.clockTick = Math.floorMod(gameTime, (long) LIGHT_FULL_BLINK_PERIOD_TICKS) + (double) partialTick;
         out.beltX = active ? MunitionsBenchProgram.sample((float) cycle, out.pose).beltX : 0.0F;
@@ -414,9 +421,14 @@ public final class MunitionsBenchLights {
 
     // ---------------------------------------------------------------- 曲线 (lights.mjs wrap / ramp / pulse / distanceFade)
 
-    /** t 折回 [0, p)。 */
+    /**
+     * t 折回 [0, p)。% (fmod) 本身是精确的: 非负的 t 原样取余, 负数再加一个 p (极小的负数加 p 可能舍入成 p, 调用方都按连续处理)。
+     * 不写成 (t % p + p) % p: 按档位映射过的程序时间有满 53 位尾数, 先加 p 会舍掉末位, 第一轮开工时脉冲的 d 比 elapsed 大一个 ulp,
+     * 底火灯 (峰 0) 被误判成 "没发生过" 而闪断 (GameTest benchLightPulsesPeakOnTheProgramBeats 在中级档抓到的)。
+     */
     public static double wrap(double t, double p) {
-        return (t % p + p) % p;
+        double r = t % p;
+        return r < 0.0D ? r + p : r;
     }
 
     /** smoothstep(a, b, t) (a &lt; b)。 */

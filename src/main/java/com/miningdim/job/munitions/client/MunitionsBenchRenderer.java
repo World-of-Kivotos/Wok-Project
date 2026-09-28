@@ -33,9 +33,10 @@ import java.util.WeakHashMap;
  * 军火台 (WIDE 布局, 弹药流水线) 的运动件渲染器: 皮带上的弹、出弹、压弹头冲头、底火冲杆、装药管
  * ({@link MunitionsBenchParts})。静态机身是区块网格里的 JSON 模型, 这里只画运动件, 待机也画 (停在待机布局)。
  * <p>
- * 姿态取自 {@link MunitionsBenchProgram}: 工作时按 "游戏 tick - 程序起点 + partialTick" 取样, 起点是这个客户端看到
- * ACTIVE 由假变真的 tick (或区块更新标签带来的服务端起点, 见 {@link MunitionsBenchBlockEntity#programStartTickOr}),
- * 与服务端播冲压音用的是同一张帧表; 冲头压到底 ({@link MunitionsBenchProgram#STRIKE_TICK}) 的那一 tick 从冲压点放火花。
+ * 姿态取自 {@link MunitionsBenchProgram}: 工作时按 "游戏 tick - 程序起点 + partialTick" 按档位映射到程序时间取样 (档位越高越快,
+ * 闪耀 2 倍速, 见 {@link MunitionsBenchProgram#programTick}), 起点是这个客户端看到 ACTIVE 由假变真的 tick (或区块更新标签带来的
+ * 服务端起点, 见 {@link MunitionsBenchBlockEntity#programStartTickOr}), 与服务端播冲压音用的是同一张帧表、同一个档位;
+ * 冲头压到底 ({@link MunitionsBenchProgram#strikeTick}) 的那一 tick 从冲压点放火花。
  * 停机时直接回到待机布局 (中途停也一样, 不做缓动)。运动件之后画弹药箱计数屏与运行灯效 ({@link MunitionsBenchCounterRenderer}:
  * 箱盖窗里的发数 + 满度条, 箱身的口径模板字, 再在同一个 textBackground 批次里画灯带上随程序动作的发光层, 程序时间与运动件相同)。
  * LEGACY 老台子没有运动件也没有计数屏与灯效, 整个跳过。
@@ -80,19 +81,17 @@ public final class MunitionsBenchRenderer implements BlockEntityRenderer<Munitio
         }
         Direction facing = state.getValue(MunitionsBenchBlock.FACING);
         boolean running = state.getValue(MunitionsBenchBlock.ACTIVE);
-        // 程序时间 (整 tick): 运动件、火花与运行灯效共用; 待机时不用 (灯效只剩满仓闪烁, 它走客户端的 gameTime)
+        // 档位定生产动画的速度 (MunitionsBenchProgram.cycleTicks: 普通 40 .. 闪耀 20 tick 一个循环) 与灯效 / 计数屏的颜色
+        int tier = ((MunitionsBenchBlock) state.getBlock()).tier();
+        // 开工以来的整 tick: 运动件、火花与运行灯效共用 (各自按档位映射到程序时间); 待机时不用 (灯效只剩满仓闪烁, 它走客户端的 gameTime)
         long programTicks = 0L;
         if (running) {
             long now = level.getGameTime();
-            // 更新标签带来的服务端起点可能比本地时钟快一两 tick (客户端时钟落后一个网络延迟): 先停在首帧等它。
+            // 更新标签带来的服务端起点可能比本地时钟快一两 tick (客户端时钟落后一个网络延迟): sampleRunning 先停在首帧等它。
             long elapsed = now - blockEntity.programStartTickOr(now);
             programTicks = elapsed;
-            if (elapsed < 0L) {
-                MunitionsBenchProgram.sample(0.0F, pose);
-            } else {
-                MunitionsBenchProgram.sample(elapsed, partialTick, pose);
-            }
-            emitStrikeSparksIfDue(blockEntity, level, facing, elapsed);
+            MunitionsBenchProgram.sampleRunning(elapsed, partialTick, tier, pose);
+            emitStrikeSparksIfDue(blockEntity, level, facing, elapsed, tier);
         } else {
             lastDrawnProgramTicks.remove(blockEntity);
             MunitionsBenchProgram.idle(pose);
@@ -123,7 +122,7 @@ public final class MunitionsBenchRenderer implements BlockEntityRenderer<Munitio
         poseStack.popPose();
 
         Camera camera = dispatcher.camera;
-        counter.render(blockEntity, state, facing, running, programTicks, partialTick, poseStack, bufferSource, packedLight,
+        counter.render(blockEntity, tier, facing, running, programTicks, partialTick, poseStack, bufferSource, packedLight,
                 camera == null ? null : camera.getPosition());
     }
 
@@ -135,11 +134,12 @@ public final class MunitionsBenchRenderer implements BlockEntityRenderer<Munitio
     }
 
     /**
-     * 冲头压到底的那一 tick 从冲压点 (压弹头位那发的壳口) 放一把火花, 与服务端的冲压音同拍。
-     * 看的是上一帧到这一帧之间有没有跨过冲压 tick, 所以帧率低于 20 时也不漏; 同一 tick 的多帧只放一次。
+     * 冲头压到底的那一 tick (这一档的 {@link MunitionsBenchProgram#strikeTick} + n × 循环长度) 从冲压点 (压弹头位那发的壳口) 放一把火花,
+     * 与服务端的冲压音同拍。看的是上一帧到这一帧之间有没有跨过冲压 tick ({@link MunitionsBenchProgram#strikeBetween}, GameTest 逐档
+     * 核对它与服务端的 isStrikeTick 同拍), 所以帧率低于 20 时也不漏; 同一 tick 的多帧只放一次。
      */
     private void emitStrikeSparksIfDue(MunitionsBenchBlockEntity blockEntity, Level level, Direction facing,
-                                       long elapsed) {
+                                       long elapsed, int tier) {
         if (elapsed < 0L) {
             return;
         }
@@ -149,8 +149,7 @@ public final class MunitionsBenchRenderer implements BlockEntityRenderer<Munitio
             return;
         }
         long since = previous == null ? elapsed - 1L : previous;
-        if (elapsed == since || elapsed - since > MAX_SPARK_CATCH_UP_TICKS
-                || MunitionsBenchProgram.nextStrikeTickAfter(since) > elapsed) {
+        if (elapsed - since > MAX_SPARK_CATCH_UP_TICKS || !MunitionsBenchProgram.strikeBetween(since, elapsed, tier)) {
             return;
         }
         Vec3 at = MunitionsBenchBlock.benchPixelToWorld(blockEntity.getBlockPos(), facing,

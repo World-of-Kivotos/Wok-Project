@@ -19,7 +19,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 军火台运行灯效 ({@link MunitionsBenchLights}) 的契约测试: 脉冲卡在程序真实动作的那一刻、按档位解锁、α 永远不落在着色器会丢掉的
+ * 军火台运行灯效 ({@link MunitionsBenchLights}) 的契约测试: 脉冲卡在程序真实动作的那一刻 (各档按自己的速度, 冲压闪光落在该档的冲压 tick)、
+ * 按档位解锁、任何一档都不超过 3 Hz 的光敏上限、α 永远不落在着色器会丢掉的
  * (0, 0.1) 里、同一块面上从不叠两层、不超过定长数组, 以及每个四边形在四个朝向下都正好贴在静态模型那条灯带的那个面外。
  * <p>
  * 期望值取设计口径本身 (程序帧表里动作到底的时刻、用户拍板的档位阶梯、静态 JSON 里的元素), 不照抄 LIGHT_* 常量;
@@ -31,8 +32,11 @@ public final class MunitionsBenchLightsGameTests {
 
     private static final String EMPTY = "empty";
     private static final String BATCH = "munitions_bench_lights";
-    /** 很早就开工了 (排除第一轮开工时不画的跨接缝尾巴): 程序时间从这么多个循环之后取。 */
-    private static final long LONG_RUNNING = 40L * 1000L;
+    /**
+     * 很早就开工了 (排除第一轮开工时不画的跨接缝尾巴): 从这么多 tick 之后取样。10080 是六档循环 (40 / 36 / 32 / 28 / 24 / 20) 与
+     * 呼吸周期 (80) 的最小公倍数, 所以 LONG_RUNNING + t 在每一档都与开工后第 t tick 同一相位 (测试开头核对)。
+     */
+    private static final long LONG_RUNNING = 10080L * 4L;
     private static final int TIERS = 6;
     private static final int HIGH = 2;
     private static final int SUPERIOR = 3;
@@ -42,10 +46,11 @@ public final class MunitionsBenchLightsGameTests {
     }
 
     /**
-     * 每个脉冲的峰正好在程序里那个动作到底的那一刻 (从 MunitionsBenchProgram 的姿态量出来, 不照抄常量):
-     * 冲压闪光 / 压弹头工位灯 / 宝石白闪 = 冲头最低 (STRIKE_TICK); 底火灯 = 底火冲杆最低; 装药灯 = 装药管最低; 出弹灯 / 落箱脉冲 /
-     * 宝石回响 = 出弹没入弹药箱; 入口灯在出弹落定之后、循环接缝 (新壳落进入口位) 之前。第一轮开工时不画上一轮 "没发生过" 的尾巴,
-     * 而开工之后已经发生过的拍 (任意 float 的 partialTick) 与跑了很久之后同一相位逐位相同。
+     * 每个脉冲的峰正好在程序里那个动作到底的那一刻 (从 MunitionsBenchProgram 的姿态量出来, 不照抄常量), 六档都是 (档位越高越快,
+     * 灯效与运动件按同一个程序时间走): 冲压闪光 / 压弹头工位灯 / 宝石白闪 = 冲头最低 (程序的 STRIKE_TICK), 在游戏时间里正好落在
+     * 这一档的冲压 tick (与冲压音、火花同一刻); 底火灯 = 底火冲杆最低; 装药灯 = 装药管最低; 出弹灯 / 落箱脉冲 / 宝石回响 = 出弹没入弹药箱;
+     * 入口灯在出弹落定之后、循环接缝 (新壳落进入口位) 之前。第一轮开工时不画上一轮 "没发生过" 的尾巴, 而开工之后已经发生过的拍
+     * (任意 float 的 partialTick) 与跑了很久之后同一相位逐位相同。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void benchLightPulsesPeakOnTheProgramBeats(GameTestHelper helper) {
@@ -56,77 +61,177 @@ public final class MunitionsBenchLightsGameTests {
         float dropLowest = firstLowest(pose, 3);
         helper.assertTrue(ramLowest == MunitionsBenchProgram.STRIKE_TICK,
                 "precondition: the ram bottoms out at STRIKE_TICK, got " + ramLowest);
+        helper.assertTrue(LONG_RUNNING % MunitionsBenchGeometry.LIGHT_BREATH_PERIOD_TICKS == 0L,
+                "precondition: LONG_RUNNING is a whole number of breath periods");
+        for (int tier = 0; tier < TIERS; tier++) {
+            helper.assertTrue(LONG_RUNNING % MunitionsBenchProgram.cycleTicks(tier) == 0L,
+                    "precondition: LONG_RUNNING is a whole number of tier " + tier + " cycles");
+        }
 
         MunitionsBenchLights.Frame frame = new MunitionsBenchLights.Frame();
-        int steps = MunitionsBenchProgram.CYCLE_TICKS * 4;
-        double[] best = new double[4 + MunitionsBenchLights.LED_COUNT];
-        float[] bestAt = new float[best.length];
-        for (int step = 0; step < steps; step++) {
-            long ticks = LONG_RUNNING + step / 4;
-            float partial = (step % 4) * 0.25F;
-            MunitionsBenchLights.compute(frame, RADIANT, true, false, ticks, 0L, partial, 2.0D);
-            float t = step * 0.25F;
-            double[] now = new double[best.length];
-            now[0] = frame.strike;
-            now[1] = frame.drop;
-            now[2] = frame.gem;
-            now[3] = frame.gemEcho;
-            System.arraycopy(frame.leds, 0, now, 4, MunitionsBenchLights.LED_COUNT);
-            for (int i = 0; i < best.length; i++) {
-                if (now[i] > best[i] + 1.0E-9D) {
-                    best[i] = now[i];
-                    bestAt[i] = t;
-                }
-            }
-        }
-        helper.assertTrue(bestAt[0] == ramLowest && Math.abs(best[0] - 1.0D) < 1.0E-9D,
-                "the strike flash must peak (at 1) exactly when the ram bottoms out (" + ramLowest + "), got " + best[0] + " at " + bestAt[0]);
-        helper.assertTrue(bestAt[2] == ramLowest, "the radiant gem flashes with the strike, peak at " + bestAt[2]);
-        helper.assertTrue(bestAt[1] == dropLowest && bestAt[3] == dropLowest,
-                "the drop pulse and the gem echo peak when the finished round lands in the can (" + dropLowest + "), got "
-                        + bestAt[1] + " / " + bestAt[3]);
-        // 工位灯: 按 x 从小到大 = 出弹 / 压弹头 / 装药 / 底火 / 入口 (弹位 x 从 MunitionsBenchGeometry 取)
         float[] slotX = MunitionsBenchGeometry.SLOT_X_PX; // 入口 / 底火 / 装药 / 压弹头 / 出弹
-        float[] expectedPeak = {dropLowest, ramLowest, powderLowest, primeLowest};
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < MunitionsBenchLights.LED_COUNT; i++) {
             helper.assertTrue(Math.abs(MunitionsBenchGeometry.LIGHT_LED_X_PX[i] - slotX[slotX.length - 1 - i]) < 1.0E-5F,
                     "station light " + i + " sits under its slot x " + slotX[slotX.length - 1 - i]);
-            helper.assertTrue(bestAt[4 + i] == expectedPeak[i] && Math.abs(best[4 + i] - 1.0D) < 1.0E-9D,
-                    "station light " + i + " must peak when its station bottoms out (" + expectedPeak[i] + "), got " + bestAt[4 + i]);
         }
-        float feedPeak = bestAt[4 + 4];
-        helper.assertTrue(Math.abs(MunitionsBenchGeometry.LIGHT_LED_X_PX[4] - slotX[0]) < 1.0E-5F && feedPeak > dropLowest
-                        && feedPeak < MunitionsBenchProgram.CYCLE_TICKS,
-                "the feed light blinks after the drop lands and before the seam drops a new case, got " + feedPeak);
-
-        // 第一轮开工: t 1 时上一轮的落箱尾巴没发生过, 不画; 跑满一轮之后同一相位才有
-        MunitionsBenchLights.compute(frame, 0, true, false, 1L, 0L, 0.0F, 2.0D);
-        double firstCycle = frame.drop;
-        MunitionsBenchLights.compute(frame, 0, true, false, 1L + MunitionsBenchProgram.CYCLE_TICKS, 0L, 0.0F, 2.0D);
-        helper.assertTrue(firstCycle == 0.0D && frame.drop > 0.0D,
-                "no drop tail in the first cycle after a start (" + firstCycle + "), but one a cycle later (" + frame.drop + ")");
-        // 反过来: 开工之后真的发生过的那一拍, 第一轮里与跑了很久之后同一相位一模一样 (不许误判成没发生过)。partialTick 取任意的 float,
-        // 不只 0.25 的倍数: 时钟按 float 加时, 循环 tick 会比 elapsed 大一个 ulp, 底火灯 (峰 0) 在开工后的头几 tick 里约四分之一的帧闪断。
-        float[] beats = {ramLowest, dropLowest, ramLowest, dropLowest, dropLowest, ramLowest, powderLowest, primeLowest, feedPeak};
-        float[] partials = {0.0F, 0.1F, 0.15957803F, 0.3F, 0.4065408F, 0.5F, 0.7F, 0.8456556F, 0.9999F};
-        MunitionsBenchLights.Frame steady = new MunitionsBenchLights.Frame();
-        for (int channel = 0; channel < beats.length; channel++) {
-            for (long e = (long) beats[channel]; e < beats[channel] + 5L && e < MunitionsBenchProgram.CYCLE_TICKS; e++) {
-                for (float partial : partials) {
-                    MunitionsBenchLights.compute(frame, RADIANT, true, false, e, 0L, partial, 2.0D);
-                    MunitionsBenchLights.compute(steady, RADIANT, true, false, LONG_RUNNING + e, 0L, partial, 2.0D);
-                    double first = beat(frame, channel);
-                    double later = beat(steady, channel);
-                    if (!(later > 0.0D && first == later)) {
-                        helper.fail("channel " + channel + " (beat at " + beats[channel] + "), first cycle e " + e + " + " + partial
-                                + ": the beat already happened after the start, so it must draw as it does later (" + later + "), got " + first);
+        float[] feedPeaks = new float[TIERS];
+        for (int tier = 0; tier < TIERS; tier++) {
+            // 这一档一个循环, 每 1/4 游戏 tick: 记下每一路最亮的那一刻 (程序时间与游戏时间)
+            int cycle = MunitionsBenchProgram.cycleTicks(tier);
+            double[] best = new double[4 + MunitionsBenchLights.LED_COUNT];
+            double[] bestAt = new double[best.length];
+            float[] bestReal = new float[best.length];
+            for (int step = 0; step < cycle * 4; step++) {
+                long ticks = LONG_RUNNING + step / 4;
+                float partial = (step % 4) * 0.25F;
+                MunitionsBenchLights.compute(frame, tier, true, false, ticks, 0L, partial, 2.0D);
+                for (int i = 0; i < best.length; i++) {
+                    double now = beat(frame, i);
+                    if (now > best[i] + 1.0E-9D) {
+                        best[i] = now;
+                        bestAt[i] = frame.cycleTick;
+                        bestReal[i] = step * 0.25F;
                     }
                 }
             }
+            String where = "tier " + tier + " (" + cycle + "-tick cycle)";
+            // 冲压: 程序的冲头最低, 游戏时间里正好是这一档的冲压 tick (服务端在这一 tick 播冲压音, 渲染器放火花)
+            int strike = MunitionsBenchProgram.strikeTick(tier);
+            helper.assertTrue(bestAt[0] == ramLowest && bestReal[0] == strike && Math.abs(best[0] - 1.0D) < 1.0E-9D,
+                    where + ": the strike flash must peak (at 1) exactly when the ram bottoms out (program " + ramLowest + ", tick "
+                            + strike + "), got " + best[0] + " at program " + bestAt[0] + " / tick " + bestReal[0]);
+            helper.assertTrue(bestAt[2] == ramLowest && bestReal[2] == strike,
+                    where + ": the gem flashes with the strike, peak at " + bestAt[2] + " / tick " + bestReal[2]);
+            helper.assertTrue(bestAt[1] == dropLowest && bestAt[3] == dropLowest,
+                    where + ": the drop pulse and the gem echo peak when the finished round lands in the can (" + dropLowest + "), got "
+                            + bestAt[1] + " / " + bestAt[3]);
+            // 工位灯: 按 x 从小到大 = 出弹 / 压弹头 / 装药 / 底火 / 入口
+            float[] expectedPeak = {dropLowest, ramLowest, powderLowest, primeLowest};
+            for (int i = 0; i < 4; i++) {
+                helper.assertTrue(bestAt[4 + i] == expectedPeak[i] && Math.abs(best[4 + i] - 1.0D) < 1.0E-9D,
+                        where + ": station light " + i + " must peak when its station bottoms out (" + expectedPeak[i] + "), got " + bestAt[4 + i]);
+            }
+            helper.assertTrue(bestReal[4 + 1] == strike, where + ": the press station light peaks on the strike tick " + strike);
+            feedPeaks[tier] = (float) bestAt[4 + 4];
+            helper.assertTrue(feedPeaks[tier] > dropLowest && feedPeaks[tier] < MunitionsBenchProgram.CYCLE_TICKS,
+                    where + ": the feed light blinks after the drop lands and before the seam drops a new case, got " + feedPeaks[tier]);
+
+            // 第一轮开工: 游戏时间 1 tick 时上一轮的落箱尾巴没发生过, 不画; 跑满一轮之后同一相位才有
+            MunitionsBenchLights.compute(frame, tier, true, false, 1L, 0L, 0.0F, 2.0D);
+            double firstCycle = frame.drop;
+            MunitionsBenchLights.compute(frame, tier, true, false, 1L + cycle, 0L, 0.0F, 2.0D);
+            helper.assertTrue(firstCycle == 0.0D && frame.drop > 0.0D,
+                    where + ": no drop tail in the first cycle after a start (" + firstCycle + "), but one a cycle later (" + frame.drop + ")");
+        }
+
+        // 反过来: 开工之后真的发生过的那一拍 (程序时间已过了它的峰), 第一轮里与跑了很久之后同一相位一模一样 (不许误判成没发生过)。
+        // partialTick 取任意的 float, 不只 0.25 的倍数: 时钟按 float 加时, 循环 tick 会比 elapsed 大一个 ulp, 底火灯 (峰 0) 在开工后的
+        // 头几 tick 里约四分之一的帧闪断; 程序时间按档位映射后 (乘除 40 / 循环) 同样不许。
+        float[] partials = {0.0F, 0.1F, 0.15957803F, 0.3F, 0.4065408F, 0.5F, 0.7F, 0.8456556F, 0.9999F};
+        MunitionsBenchLights.Frame steady = new MunitionsBenchLights.Frame();
+        for (int tier = 0; tier < TIERS; tier++) {
+            float[] beats = {ramLowest, dropLowest, ramLowest, dropLowest, dropLowest, ramLowest, powderLowest, primeLowest, feedPeaks[tier]};
+            int[] lit = new int[beats.length];
+            int cycle = MunitionsBenchProgram.cycleTicks(tier);
+            for (long e = 0L; e < cycle; e++) {
+                for (float partial : partials) {
+                    MunitionsBenchLights.compute(frame, tier, true, false, e, 0L, partial, 2.0D);
+                    MunitionsBenchLights.compute(steady, tier, true, false, LONG_RUNNING + e, 0L, partial, 2.0D);
+                    if (frame.cycleTick != steady.cycleTick) {
+                        helper.fail("tier " + tier + " e " + e + " + " + partial + ": the first cycle and a long-running bench disagree on the phase");
+                    }
+                    for (int channel = 0; channel < beats.length; channel++) {
+                        if (frame.cycleTick < beats[channel]) {
+                            continue; // 这一拍在第一轮里还没到 (跨接缝的尾巴属于上一轮, 没发生过)
+                        }
+                        double first = beat(frame, channel);
+                        double later = beat(steady, channel);
+                        if (first != later) {
+                            helper.fail("tier " + tier + " channel " + channel + " (beat at " + beats[channel] + "), first cycle e " + e + " + "
+                                    + partial + ": the beat already happened after the start, so it must draw as it does later (" + later
+                                    + "), got " + first);
+                        }
+                        lit[channel] += later > 0.0D ? 1 : 0;
+                    }
+                }
+            }
+            for (int channel = 0; channel < beats.length; channel++) {
+                helper.assertTrue(lit[channel] > 0, "precondition: tier " + tier + " channel " + channel + " was compared while lit");
+            }
         }
         // 起点比本地时钟快 (elapsed < 0): 与运动件一样停在首帧
-        MunitionsBenchLights.compute(frame, 0, true, false, -3L, 0L, 0.5F, 2.0D);
+        MunitionsBenchLights.compute(frame, RADIANT, true, false, -3L, 0L, 0.5F, 2.0D);
         helper.assertTrue(frame.cycleTick == 0.0D && frame.beltX == 0.0F, "a start tick ahead of the client clock holds the first frame");
+        helper.succeed();
+    }
+
+    /**
+     * 光敏 (档位越高越快, 闪耀 2 倍速, 用户认可的上限 3 Hz): 每一档每一路脉冲 (冲压 / 落箱 / 宝石 (白闪与回响取大的) / 各工位灯段)
+     * 每个循环正好亮一次 (宝石两次), 实测的次数 ÷ 秒数都 ≤ 3 Hz; 皮带追光的瞬时频率 = 皮带在游戏时间里的最快速度 × 追光速度 / 节距
+     * × 20 tick/s ≤ 3 Hz (闪耀正好 3 Hz, 普通 1.5 Hz)。运行呼吸 (80 tick) 与待机满仓闪烁 (40 tick) 是游戏时间, 与档位无关, 不随之变快。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void benchLightsNeverFlashFasterThanThreeHertzOnAnyTier(GameTestHelper helper) {
+        MunitionsBenchLights.Frame frame = new MunitionsBenchLights.Frame();
+        MunitionsBenchLights.Frame base = new MunitionsBenchLights.Frame();
+        int cycles = 4;
+        int channels = 4 + MunitionsBenchLights.LED_COUNT;
+        for (int tier = 0; tier < TIERS; tier++) {
+            int cycle = MunitionsBenchProgram.cycleTicks(tier);
+            int[] rises = new int[channels];
+            double[] previous = new double[channels];
+            double fastest = 0.0D;
+            float previousBelt = 0.0F;
+            for (int q = 0; q < cycle * cycles * 8; q++) {
+                MunitionsBenchLights.compute(frame, tier, true, false, LONG_RUNNING + q / 8, 0L, (q % 8) * 0.125F, 2.0D);
+                for (int channel = 0; channel < channels; channel++) {
+                    // 宝石: 白闪与回响取大的 (渲染器画的就是它)
+                    double v = channel == 2 ? Math.max(frame.gem, frame.gemEcho) : channel == 3 ? 0.0D : beat(frame, channel);
+                    if (q > 0 && previous[channel] < 0.5D && v >= 0.5D) {
+                        rises[channel]++;
+                    }
+                    previous[channel] = v;
+                }
+                if (q > 0) {
+                    // 皮带在接缝处跳回一个节距 (弹位换号, 画面不动): 按节距折回再量速度
+                    double step = frame.beltX - previousBelt;
+                    double pitch = MunitionsBenchProgram.BELT_PITCH;
+                    step -= pitch * Math.rint(step / pitch);
+                    fastest = Math.max(fastest, Math.abs(step) / 0.125D);
+                }
+                previousBelt = frame.beltX;
+            }
+            double seconds = cycle * cycles / 20.0D;
+            String where = "tier " + tier + " (" + cycle + "-tick cycle)";
+            helper.assertTrue(rises[0] == cycles && rises[1] == cycles && rises[2] == 2 * cycles,
+                    where + ": one strike flash and one drop pulse per cycle, two gem flashes, got " + rises[0] + " / " + rises[1] + " / " + rises[2]);
+            for (int channel = 0; channel < channels; channel++) {
+                double hz = rises[channel] / seconds;
+                if (hz > 3.0D + 1.0E-9D) {
+                    helper.fail(where + ": light channel " + channel + " flashes at " + hz + " Hz (> 3 Hz)");
+                }
+            }
+            double chaseHz = MunitionsBenchGeometry.LIGHT_CHASE_SPEED * fastest / MunitionsBenchProgram.BELT_PITCH * 20.0D;
+            helper.assertTrue(chaseHz <= 3.0D + 1.0E-3D, where + ": the belt chase sweeps a point at " + chaseHz + " Hz (> 3 Hz)");
+            helper.assertTrue(Math.abs(chaseHz - 1.5D * 40.0D / cycle) < 1.0E-3D,
+                    where + ": the chase runs with the belt, 1.5 Hz x the tier speed, got " + chaseHz);
+
+            // 游戏时间的效果不随档位变快: 呼吸与满仓闪烁与普通档同一刻逐位相同
+            for (int step = 0; step < 80 * 4; step += 3) {
+                long ticks = LONG_RUNNING + step / 4;
+                float partial = (step % 4) * 0.25F;
+                MunitionsBenchLights.compute(frame, tier, true, false, ticks, ticks, partial, 2.0D);
+                MunitionsBenchLights.compute(base, 0, true, false, ticks, ticks, partial, 2.0D);
+                if (!(frame.breathTick == base.breathTick && frame.breath == base.breath)) {
+                    helper.fail(where + ": the running breath keeps its 4 s period at every tier (step " + step + ")");
+                }
+                MunitionsBenchLights.compute(frame, tier, false, true, ticks, ticks, partial, 2.0D);
+                MunitionsBenchLights.compute(base, 0, false, true, ticks, ticks, partial, 2.0D);
+                if (!(frame.clockTick == base.clockTick && frame.full == base.full)) {
+                    helper.fail(where + ": the idle full-buffer blink keeps its 2 s period at every tier (step " + step + ")");
+                }
+            }
+        }
         helper.succeed();
     }
 
@@ -146,14 +251,16 @@ public final class MunitionsBenchLightsGameTests {
                     int n = MunitionsBenchLights.compute(frame, tier, true, full, ticks, ticks, partial, 2.0D);
                     for (int q = 0; q < n; q++) {
                         seen[frame.effect[q]] = true;
-                        helper.assertTrue(frame.effect[q] != MunitionsBenchLights.EFFECT_FULL,
-                                "tier " + tier + ": the full blink never shows while the bench is working");
+                        if (frame.effect[q] == MunitionsBenchLights.EFFECT_FULL) {
+                            helper.fail("tier " + tier + ": the full blink never shows while the bench is working");
+                        }
                     }
                     n = MunitionsBenchLights.compute(frame, tier, false, full, ticks, ticks, partial, 2.0D);
                     for (int q = 0; q < n; q++) {
                         seen[frame.effect[q]] = true;
-                        helper.assertTrue(full && frame.effect[q] == MunitionsBenchLights.EFFECT_FULL,
-                                "tier " + tier + ": an idle bench only ever shows the full blink, and only when full");
+                        if (!(full && frame.effect[q] == MunitionsBenchLights.EFFECT_FULL)) {
+                            helper.fail("tier " + tier + ": an idle bench only ever shows the full blink, and only when full");
+                        }
                     }
                 }
             }

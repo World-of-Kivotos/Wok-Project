@@ -142,7 +142,8 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     private boolean settleInitialized;
     /**
      * 弹药流水线运动程序 ({@link MunitionsBenchProgram}) 的起点: ACTIVE 由假变真的那个游戏 tick, 两端各记各的。
-     * 服务端据它在起点 + STRIKE_TICK + n × CYCLE_TICKS 播冲压音, 客户端的渲染器据它摆运动件、放火花, 两边同拍。
+     * 服务端据它在起点 + 该档冲压时刻 + n × 该档循环长度 (MunitionsBenchProgram.strikeTick / cycleTicks) 播冲压音,
+     * 客户端的渲染器据它摆运动件、放火花, 两边同拍。
      * 纯运行态, 不进 NBT: 读档时 ACTIVE 已为真就从第一次用到它的那一 tick 起算 (见 {@link #programStartTickOr})。
      */
     private long programStartTick = NO_PROGRAM_START;
@@ -723,7 +724,7 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
         // 复核 (major, F049 同源): 扣费失败不撤销本 tick 已点亮的 active 状态。
         // 本 tick 的产出条件本就成立 (料/缓冲/时间三门都过了), 只是差信用点, 不是"没在产"; lastSettleTick 未推进
         // 故下一 tick elapsed 继续累积、result.produced() 大概率仍为 true, 若这里强制拉黑再在下一 tick 重新点亮,
-        // 就是每 tick 一次熄灭再点亮 —— 运动程序每 tick 从头开始、冲压音永远到不了 STRIKE_TICK, 外加方块状态
+        // 就是每 tick 一次熄灭再点亮 —— 运动程序每 tick 从头开始、冲压音永远到不了该档的冲压时刻 (strikeTick), 外加方块状态
         // 每 tick 两次 (主+副半块) 的更新包风暴。保留当前 active 即可: setPartActive 本身按值变判据去重
         // (已是 true 就不会重复发包), 冲压音则继续按程序相位的正常节奏播, 不因反复欠费而失效。
         if (!tryChargeWorkFee(owner, result.workFeeCredits())) {
@@ -846,8 +847,9 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
     }
 
     /**
-     * 冲压音跟着运动程序走: 只在程序起点 + {@link MunitionsBenchProgram#STRIKE_TICK} + n × CYCLE_TICKS 那一 tick 播,
-     * 正是客户端渲染器里冲头压到底、放火花的那一刻 (两边的起点都是各自看到 ACTIVE 由假变真的 tick, 见 {@link #setBlockState})。
+     * 冲压音跟着运动程序走: 只在程序起点 + 该档的 {@link MunitionsBenchProgram#strikeTick} + n × 该档的 {@link MunitionsBenchProgram#cycleTicks}
+     * (档位越高越快, 闪耀 2 倍速; 档位 = {@link MunitionsBenchBlock#tier()}) 那一 tick 播, 正是客户端渲染器里冲头压到底、放火花的那一刻
+     * (两边的起点都是各自看到 ACTIVE 由假变真的 tick, 见 {@link #setBlockState})。
      * WIDE 从冲压点 ({@link MunitionsBenchGeometry#SPARK_X} ..) 出声; LEGACY 老模型没有冲头, 仍在主格中上方。
      * 同一 tick 可能被结算调到两次 (tick 帧 + GUI 打开帧), 所以按 tick 去重。
      */
@@ -856,8 +858,9 @@ public final class MunitionsBenchBlockEntity extends BlockEntity implements Menu
             return;
         }
         BlockState state = getBlockState();
+        int tier = state.getBlock() instanceof MunitionsBenchBlock bench ? bench.tier() : 0;
         if (!isActive(state) || lastStrikeSoundTick == now
-                || !MunitionsBenchProgram.isStrikeTick(now - programStartTickOr(now))) {
+                || !MunitionsBenchProgram.isStrikeTick(now - programStartTickOr(now), tier)) {
             return;
         }
         lastStrikeSoundTick = now;

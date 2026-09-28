@@ -24,12 +24,13 @@ public final class ModMunitionsBlocks {
 
     // 存量兼容 (审查 M-5): 旧注册名 "munitions_bench" 是 main 时代唯一军火台 (口径只由职业等级门控),
     // 区块按注册名持久化, 在役台若被降为低档会静默砍产能 —— 旧名保持全档能力 (1,10), 新档位一律用新注册名。
-    public static final RegistryObject<Block> MUNITIONS_BENCH = registerBench("munitions_bench", 1, 10);
-    public static final RegistryObject<Block> MUNITIONS_BENCH_MEDIUM = registerBench("munitions_bench_medium", 3, 4);
-    public static final RegistryObject<Block> MUNITIONS_BENCH_HIGH = registerBench("munitions_bench_high", 5, 6);
-    public static final RegistryObject<Block> MUNITIONS_BENCH_SUPERIOR = registerBench("munitions_bench_superior", 7, 8);
-    public static final RegistryObject<Block> MUNITIONS_BENCH_TRANSCENDENT = registerBench("munitions_bench_transcendent", 9, 9);
-    public static final RegistryObject<Block> MUNITIONS_BENCH_RADIANT = registerBench("munitions_bench_radiant", 10, 10);
+    // 参数: 注册名, 档位下标 (0 普通 .. 5 闪耀: 外观颜色与生产动画速度, 见 MunitionsBenchBlock#tier), 解锁等级, 最高有效等级。
+    public static final RegistryObject<Block> MUNITIONS_BENCH = registerBench("munitions_bench", 0, 1, 10);
+    public static final RegistryObject<Block> MUNITIONS_BENCH_MEDIUM = registerBench("munitions_bench_medium", 1, 3, 4);
+    public static final RegistryObject<Block> MUNITIONS_BENCH_HIGH = registerBench("munitions_bench_high", 2, 5, 6);
+    public static final RegistryObject<Block> MUNITIONS_BENCH_SUPERIOR = registerBench("munitions_bench_superior", 3, 7, 8);
+    public static final RegistryObject<Block> MUNITIONS_BENCH_TRANSCENDENT = registerBench("munitions_bench_transcendent", 4, 9, 9);
+    public static final RegistryObject<Block> MUNITIONS_BENCH_RADIANT = registerBench("munitions_bench_radiant", 5, 10, 10);
     public static final RegistryObject<Block> GUNSMITH_PRESS = BLOCKS.register("gunsmith_press",
             () -> new GunsmithPressBlock(
                     BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK)
@@ -53,11 +54,12 @@ public final class ModMunitionsBlocks {
             MUNITIONS_BENCH_TRANSCENDENT,
             MUNITIONS_BENCH_RADIANT);
 
-    private static RegistryObject<Block> registerBench(String name, int unlockLevel, int maxEffectiveLevel) {
+    private static RegistryObject<Block> registerBench(String name, int tier, int unlockLevel, int maxEffectiveLevel) {
         return BLOCKS.register(name,
                 () -> new MunitionsBenchBlock(
                         BlockBehaviour.Properties.copy(Blocks.SMITHING_TABLE).noOcclusion(),
                         () -> ModMunitionsBlockEntities.MUNITIONS_BENCH.get(),
+                        tier,
                         unlockLevel,
                         maxEffectiveLevel));
     }

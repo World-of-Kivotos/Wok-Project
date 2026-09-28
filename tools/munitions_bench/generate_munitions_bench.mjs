@@ -19,7 +19,7 @@
 //     textures/entity/munitions_bench_parts.png                               运动件贴图 (六档共用)
 //     blockstates/munitions_bench{档}.json                                    layout=legacy_depth → 旧 JSON 模型 (原样), layout=wide → 上面的新模型
 //   src/main/java/com/miningdim/job/munitions/
-//     block/MunitionsBenchProgram.java    只替换 "<generated>" 与 "</generated>" 两行注释之间 (循环常量 + 关键帧表 + 待机行)
+//     block/MunitionsBenchProgram.java    只替换 "<generated>" 与 "</generated>" 两行注释之间 (循环常量 + 每档的循环长度与冲压时刻 + 关键帧表 + 待机行)
 //     block/MunitionsBenchGeometry.java   整个写出 (碰撞/轮廓箱、模型高度、运动件范围、火花位置、计数屏的布局与颜色、运行灯效的 LIGHT_* (lights.mjs))
 //     client/MunitionsBenchParts.java     整个写出 (运动件 ModelPart 层 + applyPose)
 // {档} = '' | _medium | _high | _superior | _transcendent | _radiant。
@@ -41,7 +41,7 @@ import {
 } from './counter.mjs';
 import {
     lightsLayout, lightsJavaLines, parseLightsJava, layoutDiff, targetProblems, elementsOf, programProblems, frameProblems, overlayTopPx,
-    MAX_DISTANCE_BLOCKS as LIGHT_MAX_DISTANCE_BLOCKS, EFFECTS as LIGHT_EFFECTS,
+    photosensitivity, MAX_DISTANCE_BLOCKS as LIGHT_MAX_DISTANCE_BLOCKS, MAX_FLASH_HZ as LIGHT_MAX_FLASH_HZ, EFFECTS as LIGHT_EFFECTS,
 } from './lights.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -1332,6 +1332,21 @@ function main() {
     if (rows.slice(0, CYCLE).filter((r) => r.ramY === strikeRow.ramY).length !== 1) errors.push('program: the ram bottoms out in more than one frame (STRIKE_TICK is ambiguous)');
     if (strikeTick !== ACTIVE_FRAME * TICKS_PER_FRAME || DIE_HEAT[ACTIVE_FRAME] !== 1) errors.push(`program: the strike (tick ${strikeTick}) is not the hot frame f${ACTIVE_FRAME}`);
     if (BELT[CYCLE - 1] !== BELT[0] - PITCH) errors.push('program: the belt must end the cycle exactly one pitch on (BELT[7] = BELT[0] - PITCH)');
+    // ---- 5b. 每档的速度 (tiers.mjs cycleTicks, 用户拍板: 逐档变快, 均匀阶梯到 2 倍速): 关键帧仍在 40 tick 的程序时间里,
+    //          游戏里按 程序 tick = ((已过 tick mod 该档循环) + partialTick) × 40 / 该档循环 映射; 冲压时刻随之缩放, 必须是整 tick
+    //          (服务端在整 tick 上播冲压音)。光敏上限 (追光 ≤ 3 Hz 等) 在 lights.mjs programProblems 里按每档核对。
+    const PROGRAM_TICKS = CYCLE * TICKS_PER_FRAME;
+    const cycleByTier = TIERS.map((T) => T.cycleTicks);
+    const strikeByTier = cycleByTier.map((c) => (strikeTick * c) / PROGRAM_TICKS);
+    if (cycleByTier[0] !== PROGRAM_TICKS) errors.push(`tier speed: the base tier must play the program at 1x (cycle ${cycleByTier[0]} != ${PROGRAM_TICKS})`);
+    cycleByTier.forEach((c, t) => {
+        const key = TIERS[t].key;
+        if (!Number.isInteger(c) || c <= 0) errors.push(`tier speed: ${key} cycle ${c} is not a positive whole number of ticks`);
+        if (t > 0 && !(c < cycleByTier[t - 1])) errors.push(`tier speed: ${key} (${c} ticks) is not faster than ${TIERS[t - 1].key} (${cycleByTier[t - 1]} ticks)`);
+        if (t > 1 && c - cycleByTier[t - 1] !== cycleByTier[1] - cycleByTier[0]) errors.push(`tier speed: ${key} breaks the uniform ladder (${cycleByTier.join(' / ')})`);
+        if (!Number.isInteger(strikeByTier[t])) errors.push(`tier speed: ${key} would strike at ${strikeByTier[t]} ticks (STRIKE_TICK ${strikeTick} scaled to a ${c}-tick cycle must be a whole tick)`);
+        if (PROGRAM_TICKS / c > 2) errors.push(`tier speed: ${key} runs at ${PROGRAM_TICKS / c}x, above the approved 2x`);
+    });
 
     // ---- 6. 运动件: 取场景里的运动件元素 → 平移回待机布局 → 4 倍 ModelPart 层 + 共用贴图
     const planOf = (e, opt) => Object.fromEntries(Object.entries(e.faces).map(([face, desc]) => [face, planFace(e, face, desc, opt)]));
@@ -1410,7 +1425,7 @@ function main() {
         const i = PROGRAM_COLUMNS.findIndex(([c]) => c === cname);
         if (!new RegExp(`${cname} = ${i};`).test(pBase.src)) errors.push(`MunitionsBenchProgram base: hand-written ${cname} = ${i} not found (the table columns would be misread)`);
     }
-    const program = pBase.src.replace(RE_GENERATED, (m, open, close) => open + programBlock({ frames: CYCLE, ticksPerFrame: TICKS_PER_FRAME, cycleTicks: CYCLE * TICKS_PER_FRAME, strikeTick, pitch: PITCH, rows, idle: IDLE_POSE }) + close);
+    const program = pBase.src.replace(RE_GENERATED, (m, open, close) => open + programBlock({ frames: CYCLE, ticksPerFrame: TICKS_PER_FRAME, cycleTicks: PROGRAM_TICKS, strikeTick, pitch: PITCH, rows, idle: IDLE_POSE, cycleByTier, strikeByTier }) + close);
     if (program.replace(RE_GENERATED, '') !== pBase.src.replace(RE_GENERATED, '')) errors.push('program patch touched text outside the generated block');
     emit(path.join(OUT, PROGRAM_REL), pBase.crlf ? program.replace(/\n/g, '\r\n') : program);
     {
@@ -1422,6 +1437,7 @@ function main() {
         if (!same(boxesOf(idlePose(prog)), want(byTier[0].idle))) errors.push('Java round trip: idle() + applyPose do not reproduce the idle layout');
         frames.forEach((E, f) => { if (!same(boxesOf(sampleProgram(prog, f * TICKS_PER_FRAME)), want(E))) errors.push(`Java round trip: sample(${f * TICKS_PER_FRAME}) + applyPose do not reproduce frame f${f}`); });
         if (prog.cycleTicks !== 40 || prog.strikeTick !== strikeTick || prog.rows.length !== rows.length) errors.push('Java round trip: program constants/rows');
+        if (prog.cycleByTier.join() !== cycleByTier.join() || prog.strikeByTier.join() !== strikeByTier.join()) errors.push(`Java round trip: CYCLE_TICKS_BY_TIER / STRIKE_TICKS_BY_TIER ${prog.cycleByTier} / ${prog.strikeByTier} != tiers.mjs ${cycleByTier} / ${strikeByTier}`);
         if (parsed.texW !== layer.texW || parsed.texH !== layer.texH || parsed.parts.length !== layer.parts.length) errors.push('Java round trip: parts layer');
     }
 
@@ -1497,14 +1513,15 @@ function main() {
     // ---- 8c. 运行灯效 (lights.mjs): 目标面落在每档刚生成的 JSON 的那个元素的那个面上 (shade / 自发光 / grow 的棱), 脉冲的峰与帧表对得上,
     //          任何时刻覆盖层不重叠、α 不落在 (0, 0.1)、不超过 LIGHT_MAX_QUADS; 常量写进 Geometry 的 LIGHT_*
     const lights = lightsLayout();
-    let lightMax = [];
+    let lightMax = [], lightHz = [];
     {
         errors.push(...targetProblems(lightModels).map((p) => 'lights: ' + p));
-        const prog = { cycleTicks: CYCLE * TICKS_PER_FRAME, strikeTick, pitch: PITCH, rows };
+        const prog = { cycleTicks: PROGRAM_TICKS, strikeTick, pitch: PITCH, rows, cycleByTier, strikeByTier };
         errors.push(...programProblems(prog).map((p) => 'lights: ' + p));
         const fp = frameProblems(prog);
         errors.push(...fp.problems.map((p) => 'lights: ' + p));
         lightMax = fp.max;
+        lightHz = photosensitivity(prog);
         if (LIGHT_MAX_DISTANCE_BLOCKS !== counter.layout.maxDist) errors.push(`lights: MAX_DISTANCE_BLOCKS ${LIGHT_MAX_DISTANCE_BLOCKS} != the counter's ${counter.layout.maxDist} (they share one early return in the renderer)`);
     }
     // 方块实体渲染包围盒的顶: 运动件与灯效覆盖层 (宝石顶面浮出 1/32) 里高的那个, 向上取整到 0.25 px
@@ -1532,12 +1549,17 @@ function main() {
     console.log(`atlas ${A}x${A}: ${layout.regions} painted regions, ${layout.swatches} swatches; parts texture ${layer.texW}x${layer.texH} (${layer.blocks.length} box-UV blocks for ${layer.parts.reduce((n, p) => n + p.cubes.length, 0)} cubes in ${layer.parts.length} parts)`);
     for (const s of stats) console.log(`  ${s.key.padEnd(13)} static ${Object.values(s.models).join('/')} elements (main/ext idle, main/ext active), item ${s.item}${s.itemDropped ? ` (${s.itemDropped} too thin, dropped)` : ''}, add-ons [${s.addOns.join(', ')}]`);
     console.log(`  model tops ${modelTops.join(' / ')} px; outline main ${boxes.main.length} + ${partBoxes.main.length} part boxes, extension ${boxes.extension.length} + ${partBoxes.extension.length} part boxes, top ${geo.shapeTop} px; parts sweep ${geo.partsMin} .. ${geo.partsMax}; render box top ${geo.renderTop} px`);
-    console.log(`  program: ${rows.length} keyframes / ${CYCLE * TICKS_PER_FRAME} ticks, strike at tick ${strikeTick}; parts: ${layer.parts.map((p) => p.name).join(', ')}`);
+    console.log(`  program: ${rows.length} keyframes / ${PROGRAM_TICKS} ticks, strike at tick ${strikeTick}; parts: ${layer.parts.map((p) => p.name).join(', ')}`);
+    console.log(`  tier speed: cycle ${cycleByTier.join(' / ')} ticks (${cycleByTier.map((c) => (PROGRAM_TICKS / c).toFixed(2) + 'x').join(' / ')}), strike at ${strikeByTier.join(' / ')}`);
     {
         const L = counter.layout;
         console.log(`  counter (option C): window face ${L.window.tl} px turned ${L.window.rot.angle} deg about x at ${L.window.rot.origin}, window ${Object.values(L.window.rect)} qt, bar ${Object.values(L.bar)}, count ${L.count.x},${L.count.y} w ${L.count.w}; stencil face ${L.stencil.tl} px row ${L.stencil.y}; lift ${L.lift} px`);
     }
     console.log(`  lights: ${lights.targets.length} target faces in ${lights.groups.length} groups; unlocks ${LIGHT_EFFECTS.map((e, i) => `${e.id}>=${lights.unlock[i]}`).join(' ')}; max quads per tier ${lightMax.join(' / ')} (cap ${lights.maxQuads})`);
+    {
+        const fastestPulse = (r) => { const m = Math.max(...Object.values(r.pulses)); const who = Object.keys(r.pulses).filter((k) => r.pulses[k] === m); return `${+m.toFixed(3)}${who.length <= 2 ? ' ' + who.join('+') : ''}`; };
+        console.log(`  photosensitivity (Hz, cap ${LIGHT_MAX_FLASH_HZ}): chase ${lightHz.map((r) => (r.chaseUnlocked ? `${+r.chase.toFixed(3)}` : `(${+r.chase.toFixed(3)})`)).join(' / ')} (parenthesised = checked but not unlocked at that tier); fastest pulse ${lightHz.map(fastestPulse).join(' / ')}`);
+    }
     if (offGrid) console.log(`  note: ${offGrid} block-model coordinates on the 0.25 grid but not the 0.5 grid`);
     for (const w of warns) console.warn('  WARN ' + w);
     if (errors.length) {

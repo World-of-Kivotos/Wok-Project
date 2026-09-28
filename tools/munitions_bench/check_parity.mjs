@@ -27,7 +27,10 @@ import { fileURLToPath } from 'node:url';
 import * as R from '../gunsmith_workstation/raster.mjs';
 import { writePng } from '../gunsmith_workstation/png.mjs';
 import { TIERS } from './tiers.mjs';
-import { applyPoseMirror, bakeParts, idlePose, sampleProgram, sampleProgramAt, POSE_FLOATS, POSE_BOOLS } from './ber.mjs';
+import {
+    applyPoseMirror, bakeParts, idlePose, sampleProgram, sampleProgramAt, programTick, cycleTicksOf, strikeTickOf, isStrikeTickMirror, nextStrikeTickAfterMirror,
+    sampleRunningMirror, strikeBetweenMirror, POSE_FLOATS, POSE_BOOLS,
+} from './ber.mjs';
 import {
     DEFAULT_REPO, loadGame, loadCandidate, gameQuads, candQuads, gameItem, candItem, renderRaw, newImage, blit, FRAMES, VIEWS, footer,
     motionStrip, tierSheet, tierStrip, closeup, CELL_OFFSETS,
@@ -222,10 +225,20 @@ if (!ARGS['no-java']) {
             '        StringBuilder sb = new StringBuilder();',
             '        MunitionsBenchProgram.Pose p = new MunitionsBenchProgram.Pose();',
             '        for (int i = -40; i <= 360; i++) { float t = i * 0.25F; sb.append(row("f " + t, MunitionsBenchProgram.sample(t, p))).append("\\n"); }',
-            '        long[] es = {0L, 1L, 9L, 10L, 39L, 40L, 41L, 123457L, 2000000011L, 17179869183L, -1L, -41L};',
-            '        for (long e : es) for (int j = 0; j < 4; j++) { float pt = j * 0.25F; sb.append(row("l " + e + " " + pt, MunitionsBenchProgram.sample(e, pt, p))).append("\\n"); }',
+            '        // 每档的时间映射 (游戏时间 → 程序时间, 越界的档位 -1 / 6 按普通档): 很大的 long (连开几天 .. 2^52) × 0.25 倍数与任意的 float partialTick',
+            '        long[] es = {0L, 1L, 9L, 10L, 19L, 20L, 39L, 40L, 41L, 123457L, 2000000011L, 17179869183L, 40L * 1000000007L + 38L, 10080L * 100000000000L + 7L, 4503599627370495L, -1L, -41L};',
+            '        float[] ps = {0.0F, 0.25F, 0.5F, 0.75F, 0.1F, 0.15957803F, 0.4065408F, 0.8456556F, 0.9999F};',
+            '        for (int tier = -1; tier <= 6; tier++) for (long e : es) for (float pt : ps) sb.append(row("l " + tier + " " + e + " " + pt + " " + MunitionsBenchProgram.programTick(e, pt, tier), MunitionsBenchProgram.sample(e, pt, tier, p))).append("\\n");',
+            '        // 每档逐 tick 两个多循环 (含起点前), 同样的 partialTick',
+            '        for (int tier = 0; tier <= 5; tier++) for (long e = -2L; e <= 2L * MunitionsBenchProgram.cycleTicks(tier) + 1L; e++) for (float pt : ps) sb.append(row("l " + tier + " " + e + " " + pt + " " + MunitionsBenchProgram.programTick(e, pt, tier), MunitionsBenchProgram.sample(e, pt, tier, p))).append("\\n");',
             '        sb.append(row("idle", MunitionsBenchProgram.idle(p))).append("\\n");',
-            '        for (long e = -45; e <= 125; e++) sb.append("s " + e + " " + MunitionsBenchProgram.isStrikeTick(e) + " " + MunitionsBenchProgram.nextStrikeTickAfter(e)).append("\\n");',
+            '        for (int tier = -1; tier <= 6; tier++) {',
+            '            sb.append("c " + tier + " " + MunitionsBenchProgram.cycleTicks(tier) + " " + MunitionsBenchProgram.strikeTick(tier)).append("\\n");',
+            '            for (long e = -45; e <= 125; e++) sb.append("s " + tier + " " + e + " " + MunitionsBenchProgram.isStrikeTick(e, tier) + " " + MunitionsBenchProgram.nextStrikeTickAfter(e, tier)).append("\\n");',
+            '            // 渲染器每帧的决定: 工作时的姿态 (起点比本地时钟快时停在首帧) 与火花 ((上一帧, 这一帧] 里有没有冲压 tick; 隔几帧、隔一两个循环)',
+            '            for (long e = -3L; e <= 2L * MunitionsBenchProgram.cycleTicks(tier) + 1L; e++) for (float pt : ps) sb.append(row("r " + tier + " " + e + " " + pt, MunitionsBenchProgram.sampleRunning(e, pt, tier, p))).append("\\n");',
+            '            for (long since = -45; since <= 125; since++) for (long gap : new long[]{-1L, 0L, 1L, 2L, 3L, 4L, 19L, 20L, 21L, 41L}) sb.append("b " + tier + " " + since + " " + (since + gap) + " " + MunitionsBenchProgram.strikeBetween(since, since + gap, tier)).append("\\n");',
+            '        }',
             '        System.out.print(sb);',
             '    }',
             '}',
@@ -235,27 +248,50 @@ if (!ARGS['no-java']) {
             execFileSync(javac, ['-encoding', 'UTF-8', '-d', tmp, path.join(REPO, 'src', 'main', 'java', 'com', 'miningdim', 'job', 'munitions', 'block', 'MunitionsBenchProgram.java'), path.join(tmp, 'Harness.java')], { stdio: 'pipe' });
             const out = execFileSync(java, ['-cp', tmp, 'Harness'], { encoding: 'utf8' }).trim().split(/\r?\n/);
             const P = game.program;
-            let bad = 0, n = 0;
+            let bad = 0, n = 0, mapped = 0, running = 0, between = 0;
             const cmp = (key, vals, js) => {
                 n++;
                 const ok = POSE_FLOATS.every((k, i) => Math.abs(Number(vals[i]) - js[k]) < 1e-5) && POSE_BOOLS.every((k, i) => (vals[POSE_FLOATS.length + i] === 'true') === js[k]);
                 if (!ok && bad++ < 5) problems.push(`java vs js ${key}: java ${vals.join(' ')} / js ${JSON.stringify(js)}`);
             };
+            // 每档的循环表: Java 解析出来的 = tiers.mjs (生成器也核对, 这里防手改)
+            const tiersCycles = TIERS.map((T) => T.cycleTicks);
+            if (P.cycleByTier.join() !== tiersCycles.join()) problems.push(`CYCLE_TICKS_BY_TIER ${P.cycleByTier} in MunitionsBenchProgram.java != tiers.mjs cycleTicks ${tiersCycles} (rerun the generator)`);
             for (const line of out) {
                 const p = line.split(' ');
                 if (p[0] === 'f') cmp(line.slice(0, 14), p.slice(2), sampleProgram(P, Number(p[1])));
-                else if (p[0] === 'l') cmp(`l ${p[1]} ${p[2]}`, p.slice(3), sampleProgramAt(P, Number(p[1]), Number(p[2])));
-                else if (p[0] === 'idle') cmp('idle', p.slice(1), idlePose(P));
-                else if (p[0] === 's') {
+                else if (p[0] === 'l') {
+                    // 程序时间 (double) 逐位相同, 姿态 (Java 在 float 里插值) 容差 1e-5
+                    const [tier, e, pt, jt] = [Number(p[1]), Number(p[2]), Number(p[3]), Number(p[4])];
+                    const t = programTick(P, e, pt, tier);
+                    n++; mapped++;
+                    if (t !== jt && bad++ < 5) problems.push(`java vs js programTick tier ${tier} e ${e} + ${pt}: java ${jt} / js ${t}`);
+                    cmp(`l ${tier} ${e} ${pt}`, p.slice(5), sampleProgramAt(P, e, pt, tier));
+                } else if (p[0] === 'idle') cmp('idle', p.slice(1), idlePose(P));
+                else if (p[0] === 'c') {
                     n++;
-                    const e = Number(p[1]), within = ((e % P.cycleTicks) + P.cycleTicks) % P.cycleTicks;
-                    const strike = e >= 0 && within === P.strikeTick;
-                    const cycleStart = Math.floor(e / P.cycleTicks) * P.cycleTicks, s = cycleStart + P.strikeTick;
-                    const next = s > e ? s : s + P.cycleTicks;
-                    if (String(strike) !== p[2] || String(next) !== p[3]) { if (bad++ < 5) problems.push(`java vs js strike ${e}: java ${p[2]} ${p[3]} / js ${strike} ${next}`); }
+                    const tier = Number(p[1]);
+                    if (Number(p[2]) !== cycleTicksOf(P, tier) || Number(p[3]) !== strikeTickOf(P, tier)) { if (bad++ < 5) problems.push(`java vs js tier ${tier}: java cycle ${p[2]} strike ${p[3]} / js ${cycleTicksOf(P, tier)} ${strikeTickOf(P, tier)}`); }
+                } else if (p[0] === 's') {
+                    n++;
+                    const tier = Number(p[1]), e = Number(p[2]);
+                    const strike = isStrikeTickMirror(P, e, tier), next = nextStrikeTickAfterMirror(P, e, tier);
+                    if (String(strike) !== p[3] || String(next) !== p[4]) { if (bad++ < 5) problems.push(`java vs js strike tier ${tier} e ${e}: java ${p[3]} ${p[4]} / js ${strike} ${next}`); }
+                } else if (p[0] === 'r') {
+                    running++;
+                    const [tier, e, pt] = [Number(p[1]), Number(p[2]), Number(p[3])];
+                    cmp(`r ${tier} ${e} ${pt}`, p.slice(4), sampleRunningMirror(P, e, pt, tier));
+                } else if (p[0] === 'b') {
+                    n++; between++;
+                    const [tier, since, e] = [Number(p[1]), Number(p[2]), Number(p[3])];
+                    const js = strikeBetweenMirror(P, since, e, tier);
+                    // 火花与冲压音同拍: (since, e] 里逐 tick 问服务端的 isStrikeTick, 有一个就该放
+                    let beat = false;
+                    for (let t = since + 1; t <= e; t++) if (isStrikeTickMirror(P, t, tier)) beat = true;
+                    if (String(js) !== p[4] || js !== beat) { if (bad++ < 5) problems.push(`strikeBetween tier ${tier} (${since}, ${e}]: java ${p[4]} / js ${js} / server beats ${beat}`); }
                 }
             }
-            javaResult = bad ? `FAIL (${bad} of ${n} samples differ)` : `OK (${n} samples: sample(float) at every 0.25 tick over -10..90, sample(long, partial) incl. 17179869183 ticks, idle(), isStrikeTick / nextStrikeTickAfter over -45..125)`;
+            javaResult = bad ? `FAIL (${bad} of ${n} samples differ)` : `OK (${n} samples: sample(float) at every 0.25 tick over -10..90; ${mapped} tier time mappings (programTick bit-identical + sample(long, partial, tier)) over tiers -1..6 × 9 partialTicks (4 off the 0.25 grid) × every tick of two cycles + long clocks up to 2^52; idle(); cycleTicks / strikeTick and isStrikeTick / nextStrikeTickAfter per tier over -45..125; renderer decisions per tier: ${running} sampleRunning (hold before the start) + ${between} strikeBetween windows, each = the server's isStrikeTick beats in the window)`;
         } catch (e) {
             javaResult = 'FAIL (compile/run): ' + String(e.stderr || e.message).slice(0, 400);
             problems.push('java harness: ' + javaResult);
@@ -405,8 +441,9 @@ if (!ARGS['no-java']) {
 
 // ================================================================ Java 对拍 (运行灯效: MunitionsBenchLights + Geometry + Counter + Program 单独编译, 与 lights.mjs 逐值比较)
 // 常量: parseLightsJava(Geometry 源码) 与 lights.mjs 的 lightsLayout() 相同 (生成器也核对, 这里防手改);
-// 每帧: 六档 (+ 越界的 -1 / 6) × 工作 / 待机 / 待机满仓 / 工作满仓 × 程序时间 -2..170 每 0.25 tick (+ 几个很大的 long) × 轮换的相机距离,
-// 另外六档 × 四种状态 × 程序时间 -1..90 × 七个不是 0.25 倍数的 float partialTick (第一轮开工的头几 tick 在里面):
+// 每帧: 六档 (+ 越界的 -1 / 6) × 工作 / 待机 / 待机满仓 / 工作满仓 × 开工后 -2..170 每 0.25 tick × 轮换的相机距离,
+// 另外六档 × 四种状态 × 开工后 -1..90 × 七个不是 0.25 倍数的 float partialTick (第一轮开工的头几 tick 在里面),
+// 以及六档 × 几个很大的 long (到 2^52) × 0.25 倍数与七个任意的 partialTick —— 每档按自己的循环长度映射到程序时间 (闪耀 2 倍速):
 // 时钟、各效果标量、四边形 (效果、目标、矩形、渐变轴、两端颜色与 α)、benchCorners (角 + 顶点色)、blockCorners (四个朝向轮换);
 // 另外 effectMask (档位 -1..7)、worldFace (六个面 × 四个朝向角)。
 let lightsJavaResult = 'skipped (--no-java)';
@@ -458,8 +495,12 @@ if (!ARGS['no-java']) {
             '            int q = (int) e * 7 + j;',
             '            frame(tier, s[0], s[1], e, odd[j], e * 3L + 11L, DISTANCES[Math.floorMod(q + tier, DISTANCES.length)], ROTS[Math.floorMod(q + tier, 4)]);',
             '        }',
-            '        long[] big = {123457L, 2000000011L, 17179869183L, 40L * 1000000007L + 38L};',
-            '        for (int tier = 0; tier <= 5; tier++) for (long e : big) for (int j = 0; j < 4; j++) frame(tier, true, false, e, j * 0.25F, e + 5L, 12.0, ROTS[j]);',
+            '        // 很大的 long (连开几天 .. 2^52; 每档的循环都在 long 里取模) × 0.25 倍数与任意的 float partialTick, 六档',
+            '        long[] big = {123457L, 2000000011L, 17179869183L, 40L * 1000000007L + 38L, 10080L * 100000000000L + 7L, 4503599627370495L};',
+            '        for (int tier = 0; tier <= 5; tier++) for (long e : big) {',
+            '            for (int j = 0; j < 4; j++) frame(tier, true, false, e, j * 0.25F, e + 5L, 12.0, ROTS[j]);',
+            '            for (int j = 0; j < odd.length; j++) frame(tier, true, false, e, odd[j], e + 5L, 12.0, ROTS[j % 4]);',
+            '        }',
             '        for (int t = -1; t <= 7; t++) line("M", t, MunitionsBenchLights.effectMask(t));',
             '        for (int face = 0; face < 6; face++) for (float rot : ROTS) line("W", face, rot, MunitionsBenchLights.worldFace(face, rot));',
             '        System.out.print(SB);',
@@ -485,9 +526,9 @@ if (!ARGS['no-java']) {
                     case 'F': {
                         frames++;
                         const [tier, active, full, e, partial, gameTime, dist, n, overflowed] = [Number(p[1]), B(p[2]), B(p[3]), Number(p[4]), Number(p[5]), Number(p[6]), Number(p[7]), Number(p[8]), B(p[9])];
-                        const s = LI.lightFrame({ active, full, elapsedTicks: e, gameTime, partialTick: partial, distance: dist }, game.program);
+                        const s = LI.lightFrame({ tier, active, full, elapsedTicks: e, gameTime, partialTick: partial, distance: dist }, game.program);
                         const L = LI.levels(s);
-                        const rects = LI.lightOverlays(s, tier);
+                        const rects = LI.lightOverlays(s);
                         const label = `tier ${tier} ${active ? 'work' : 'idle'}${full ? '+full' : ''} e ${e}+${partial} d ${dist}`;
                         check('count', n === Math.min(rects.length, LI.MAX_QUADS) && overflowed === rects.length > LI.MAX_QUADS, `${label}: java ${n}${overflowed ? '+' : ''} / js ${rects.length}`);
                         const clocks = [s.cycleTick, s.elapsed, s.breathTick, s.clockTick, s.beltX];

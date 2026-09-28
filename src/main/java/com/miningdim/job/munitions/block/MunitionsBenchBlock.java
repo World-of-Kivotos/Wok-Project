@@ -70,15 +70,27 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
     private static final Map<Part, VoxelShape> WIDE_COLLISIONS = createWideCollisions();
 
     private final Supplier<BlockEntityType<MunitionsBenchBlockEntity>> beType;
+    /** 档位下标, 见 {@link #tier()}。 */
+    private final int tier;
     private final int unlockLevel;
     private final int maxEffectiveLevel;
 
+    /**
+     * @param tier 档位下标 0..5 (普通..闪耀), 注册时由 ModMunitionsBlocks 按注册名给定 (GameTest 逐块核对它与注册名对应的档位相同);
+     *             越界直接拒绝 (注册期的编程错误, 不静默按普通档)
+     */
     public MunitionsBenchBlock(BlockBehaviour.Properties properties,
                               Supplier<BlockEntityType<MunitionsBenchBlockEntity>> beType,
+                              int tier,
                               int unlockLevel,
                               int maxEffectiveLevel) {
         super(properties);
+        if (tier < 0 || tier >= MunitionsBenchProgram.tierCount()) {
+            throw new IllegalArgumentException("munitions bench tier must be 0.." + (MunitionsBenchProgram.tierCount() - 1)
+                    + ", got " + tier);
+        }
         this.beType = beType;
+        this.tier = tier;
         this.unlockLevel = clampLevel(unlockLevel);
         this.maxEffectiveLevel = Math.max(this.unlockLevel, clampLevel(maxEffectiveLevel));
         registerDefaultState(stateDefinition.any()
@@ -98,6 +110,15 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
 
     public int effectiveLevelFor(int playerLevel) {
         return Math.min(clampLevel(playerLevel), maxEffectiveLevel);
+    }
+
+    /**
+     * 档位下标 0..5 (普通..闪耀, 与注册名、资产文件名的档位同序), 构造时给定, 不查注册表 (注册完成前后都一样, 不会把没注册时的普通档记下来)。
+     * 渲染器 (运动件、火花、灯效、计数屏颜色) 与服务端的冲压音都按它取 {@link MunitionsBenchProgram#cycleTicks} (档位越高生产动画越快),
+     * 两端同一个数。
+     */
+    public int tier() {
+        return tier;
     }
 
     private static int clampLevel(int level) {
@@ -376,7 +397,7 @@ public final class MunitionsBenchBlock extends Block implements EntityBlock {
 
     /**
      * 只给 LEGACY 老台子发随机火花 (老模型没有运动件, 保持原样)。WIDE 的火花由运动件渲染器在冲头压到底的那一刻
-     * ({@link MunitionsBenchProgram#STRIKE_TICK}) 从冲压点放, 与服务端的冲压音同拍, 这里不再按手调位置乱发。
+     * (这一档的 {@link MunitionsBenchProgram#strikeTick} + n × 循环长度) 从冲压点放, 与服务端的冲压音同拍, 这里不再按手调位置乱发。
      */
     @Override
     public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {

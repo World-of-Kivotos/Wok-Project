@@ -5,16 +5,18 @@
 // 画之前先核对: MunitionsBenchGeometry 的 LIGHT_* 与 lights.mjs 相同; 仓库里的 JSON 满足 targetProblems (与生成器同一套前提)。
 // 用法 (PowerShell):
 //   $env:Path = 'D:\DevTools\node-v22.23.3-win-x64;' + $env:Path
-//   node tools/munitions_bench/render_lights.mjs --out-dir <目录> [--repo <仓库根>] [--mode all|cycle|ladder|full|close] [--tier base,high,superior,radiant]
+//   node tools/munitions_bench/render_lights.mjs --out-dir <目录> [--repo <仓库根>] [--mode all|cycle|ladder|full|close|speed] [--tier base,high,superior,radiant]
 // 输出: lights-cycle-<档>.png (夜里玩家视角一个循环 10 帧, 默认 普通 / 高级 / 极品 / 闪耀), lights-ladder.png (六档 × t 11 / 17 / 35),
-//   lights-full.png (待机满仓的闪烁各相位, 普通 / 闪耀), lights-close.png (各灯效特写: 上 = 开, 下 = 同一刻不画灯效)。
+//   lights-full.png (待机满仓的闪烁各相位, 普通 / 闪耀), lights-close.png (各灯效特写: 上 = 开, 下 = 同一刻不画灯效),
+//   speed-strip.png (档位速度: 同一秒 20 游戏 tick 每 2 tick 一帧, 默认 普通 / 高级 / 闪耀 各一行)。
+// 前四种按程序时间取帧 (t = 程序 tick, 按该档的循环长度换成游戏时间, 各档同一个动作相位); speed 按游戏时间取帧 (档位越高越快)。
 import fs from 'node:fs';
 import path from 'node:path';
 import * as RA from '../gunsmith_workstation/raster.mjs';
 import { writePng } from '../gunsmith_workstation/png.mjs';
 import { drawText } from '../gunsmith_workstation/font.mjs';
 import { TIERS, tierIndex } from './tiers.mjs';
-import { sampleProgram, idlePose, applyPoseMirror, bakeParts } from './ber.mjs';
+import { sampleProgram, idlePose, applyPoseMirror, bakeParts, cycleTicksOf, strikeTickOf } from './ber.mjs';
 import * as CT from './counter.mjs';
 import * as LI from './lights.mjs';
 import * as X from './lraster.mjs';
@@ -22,7 +24,7 @@ import { loadGame, CELL_OFFSETS, DEFAULT_REPO } from './render_mb.mjs';
 
 const args = {};
 { const av = process.argv.slice(2); for (let i = 0; i < av.length; i++) if (av[i].startsWith('--')) { const n = av[i + 1]; if (n === undefined || n.startsWith('--')) args[av[i].slice(2)] = true; else { args[av[i].slice(2)] = n; i++; } } }
-if (!args['out-dir']) { console.error('usage: node render_lights.mjs --out-dir <dir> [--repo <root>] [--mode all|cycle|ladder|full|close] [--tier base,high,superior,radiant]'); process.exit(2); }
+if (!args['out-dir']) { console.error('usage: node render_lights.mjs --out-dir <dir> [--repo <root>] [--mode all|cycle|ladder|full|close|speed] [--tier base,high,superior,radiant]'); process.exit(2); }
 const OUT = path.resolve(args['out-dir']);
 const REPO = path.resolve(args.repo || DEFAULT_REPO);
 const MODE = args.mode || 'all';
@@ -82,26 +84,31 @@ function overlayQuads(rects) {
         return { pts: c.pts, cols: c.cols.map((k) => [k[0], k[1], k[2], alphaByte(k[3]) / 255]), normal: c.normal, fullBright: true, shaded: LI.TARGETS[o.target].shade, cull: true };
     });
 }
-/** 很早就开工了 (不看第一轮不画的接缝尾巴); 4000 是 40 与 80 的倍数, 所以循环 tick = 呼吸相位 = t。 */
-const LONG_RUNNING = 4000;
+/**
+ * 很早就开工了 (不看第一轮不画的接缝尾巴); 10080 是六档循环 (40 / 36 / 32 / 28 / 24 / 20) 与呼吸周期 80 的最小公倍数,
+ * 所以 LONG_RUNNING + t 在每一档都是循环起点 + t、呼吸相位 = t。
+ */
+const LONG_RUNNING = 10080;
 /** 玩家眼睛 (主格正前方 1.6 格, 眼高 1.62 格) 到主格中心的距离 (格): 呼吸的距离渐隐用。 */
 const EYE = { kind: 'persp', eye: [12, 25.92, -25.6], target: [16, 10, 8], fovY: 70 };
 const EYE_DIST = Math.hypot(12 - 8, 25.92 - 8, -25.6 - 8) / 16;
 /**
- * ui: {tier, mode ('work' | 'idle' | 'full'), t (工作: 循环 tick; 待机: 客户端时钟), lights (默认 true)}。
- * 返回 {static, dynamic (运动件), textBg (计数屏 + 覆盖层), rects}。
+ * ui: {tier, mode ('work' | 'idle' | 'full'), t (工作: 程序 tick, 按档位的循环长度换成游戏时间; 待机: 客户端时钟) 或
+ *      real (工作: 循环起点起的游戏 tick, 档位越高越快), lights (默认 true)}。
+ * 返回 {static, dynamic (运动件), textBg (计数屏 + 覆盖层), rects, s (lightFrame 的时钟)}。
  */
 function frame(ui) {
     const active = ui.mode === 'work', full = ui.mode === 'full';
-    const whole = Math.floor(ui.t), partial = ui.t - whole;
-    const s = LI.lightFrame({ active, full, elapsedTicks: LONG_RUNNING + whole, gameTime: LONG_RUNNING + whole, partialTick: partial, distance: EYE_DIST }, game.program);
-    const pose = active ? sampleProgram(game.program, s.cycleTick) : idlePose(game.program);
-    const rects = ui.lights === false ? [] : LI.lightOverlays(s, ui.tier);
+    const real = ui.real != null ? ui.real : active ? (ui.t * cycleTicksOf(game.program, ui.tier)) / game.program.cycleTicks : ui.t;
+    const whole = Math.floor(real), partial = real - whole;
+    const s = LI.lightFrame({ tier: ui.tier, active, full, elapsedTicks: LONG_RUNNING + whole, gameTime: LONG_RUNNING + whole, partialTick: partial, distance: EYE_DIST }, game.program);
+    const pose = active ? sampleProgram(game.program, Math.fround(s.cycleTick)) : idlePose(game.program);
+    const rects = ui.lights === false ? [] : LI.lightOverlays(s);
     return {
         static: staticQuads(ui.tier, active),
         dynamic: bakeParts(game.parts, applyPoseMirror(game.parts, pose), game.partsImage, { entity: true }),
         textBg: counterQuads(ui.tier, COUNTER[ui.mode], active).concat(overlayQuads(rects)),
-        rects,
+        rects, s,
     };
 }
 const MACHINE_BOX = { min: [-0.5, 0, -0.5], max: [32.5, 24.5, 16] };
@@ -113,7 +120,7 @@ function panel(ui, cam, w, h, light, box = MACHINE_BOX, zoom = 1) {
     X.drawQuads(f.static, t, view, { brightness: light.brightness });
     X.drawQuads(f.dynamic, t, view, { brightness: light.brightness });
     X.drawQuads(f.textBg, t, view, { brightness: light.brightness, sort: true });
-    return { img: t, rects: f.rects };
+    return { img: t, rects: f.rects, s: f.s };
 }
 
 // ================================================================ 组图
@@ -207,4 +214,32 @@ if (MODE === 'all' || MODE === 'close') {
     });
     label(img, 6, img.height - 18, 'NIGHT CLOSE-UPS: ROW PAIRS = LIGHTS ON / OFF AT THE SAME MOMENT', [255, 220, 120]);
     save('lights-close.png', img);
+}
+
+if (MODE === 'all' || MODE === 'speed') {
+    // 档位速度对比: 同一秒 (20 游戏 tick, 每 2 tick 一帧, 循环起点起) 里 普通 / 高级 / 闪耀 (或 --tier) 各一行, 玩家眼睛近看, 夜里。
+    // 每格标游戏 tick (T) 与映射到的程序 tick (P); 冲头压到底 (该档的冲压 tick) 那一格标 STRIKE, 刚压过 (冲压闪光还亮) 标 FLASH。
+    const speedTiers = args.tier ? tiers : [0, 2, 5];
+    const reals = Array.from({ length: 11 }, (_, i) => i * 2);
+    const pw = 360, ph = 270;
+    // 近看流水线 (皮带、冲头、两根杆、出弹、前沿灯带与后护栏背光), 眼睛仍在玩家的位置
+    const LINE_EYE = { kind: 'persp', eye: [12, 25.92, -25.6], target: [18, 12, 6], fovY: 70 };
+    const LINE_BOX = { min: [4, 5, -0.5], max: [31.5, 24.5, 11] };
+    const img = sheet(reals.length, speedTiers.length, pw, ph);
+    speedTiers.forEach((tier, r) => {
+        const c = cycleTicksOf(game.program, tier), strike = strikeTickOf(game.program, tier);
+        reals.forEach((real, i) => {
+            const { img: p, rects, s } = panel({ tier, mode: 'work', real }, LINE_EYE, pw - 2, ph - 2, NIGHT, LINE_BOX, 1.1);
+            const x = i * pw + 1, y = r * ph + 1;
+            blit(img, p, x, y);
+            const phase = real % c;
+            const tag = phase === strike ? '  STRIKE' : phase > strike && phase - strike <= 3 * c / 40 ? '  FLASH' : phase === 0 ? '  LOOP' : '';
+            label(img, x + 6, y + 5, `${TIERS[tier].en} T ${real}  P ${+s.cycleTick.toFixed(2)}${tag}`, tag.includes('STRIKE') ? [255, 150, 120] : [235, 235, 235]);
+            label(img, x + 6, y + ph - 20, effectsIn(rects), [150, 220, 255]);
+        });
+    });
+    label(img, 6, img.height - 18,
+        `ONE SECOND OF REAL TIME (20 TICKS, EVERY 2 TICKS), NIGHT, PLAYER EYE, T = GAME TICK, P = PROGRAM TICK: ${speedTiers.map((t) => `${TIERS[t].en} ${cycleTicksOf(game.program, t)} T/CYCLE (${(game.program.cycleTicks / cycleTicksOf(game.program, t)).toFixed(2)}X) STRIKE AT ${strikeTickOf(game.program, t)}`).join('  /  ')}`,
+        [255, 220, 120]);
+    save('speed-strip.png', img);
 }

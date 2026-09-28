@@ -10,9 +10,9 @@
 | `check_parity.mjs [--cand <候选输出目录>] --out-dir <目录> [--repo <仓库根>] [--no-java]` | 四个朝向对齐检查 + 背面检查 + Java/JS 程序对拍 + Java/JS 计数屏对拍 (见下文); 与方案 B v2 逐像素对拍只在给了 `--cand` 时做 (弹缩小之后本来就对不上, 平时不给) |
 | `counter.mjs` | 弹药箱计数屏 (方案 C) 的布局真源 (`DISPLAY`)、颜色、Java 常量的写出与解析, 以及 `MunitionsBenchCounter.java` 的 JS 镜像 (格式、字形、排版、满度条、满仓、显示键、颜色、角的摆法 `facePoint` / `rectCorners` / `blockCorners`, 朝向变换 `benchToBlock` 与灯效共用) 和预览四边形 |
 | `lights.mjs` | 运行灯效的真源 (目标面 `TARGETS`、时间与透明度、档位阶梯 `EFFECTS[].unlock`、每档颜色 `lightPalette`)、Java 常量 `LIGHT_*` 的写出与解析、前提核对 (`targetProblems` / `programProblems` / `frameProblems`), 以及 `MunitionsBenchLights.java` 的 JS 镜像 (`lightFrame` / `levels` / `lightOverlays` / `overlayCorners` / `blockCorners` / `worldFace`), 见下文"运行灯效" |
-| `render_lights.mjs --out-dir <目录> [--repo <仓库根>] [--mode all\|cycle\|ladder\|full\|close] [--tier ..]` | 灯效预览组图 (夜里玩家视角的透视, 用 `lraster.mjs` 按游戏里的方式画 textBackground 批次: 按距离排序、写深度、α < 0.1 丢弃、α 取整成字节): `lights-cycle-<档>.png` (一个循环 10 帧, 默认普通 / 高级 / 极品 / 闪耀)、`lights-ladder.png`、`lights-full.png`、`lights-close.png`。画之前核对 `LIGHT_*` = lights.mjs、仓库 JSON 满足目标面前提 |
+| `render_lights.mjs --out-dir <目录> [--repo <仓库根>] [--mode all\|cycle\|ladder\|full\|close\|speed] [--tier ..]` | 灯效预览组图 (夜里玩家视角的透视, 用 `lraster.mjs` 按游戏里的方式画 textBackground 批次: 按距离排序、写深度、α < 0.1 丢弃、α 取整成字节): `lights-cycle-<档>.png` (一个循环 10 帧, 默认普通 / 高级 / 极品 / 闪耀)、`lights-ladder.png`、`lights-full.png`、`lights-close.png` (这四种按程序 tick 取帧, 各档同一个动作相位), `speed-strip.png` (档位速度: 同一秒 20 游戏 tick 每 2 tick 一帧, 默认普通 / 高级 / 闪耀各一行, 每格标游戏 tick T 与程序 tick P)。画之前核对 `LIGHT_*` = lights.mjs、仓库 JSON 满足目标面前提、帧表与每档速度的前提 (含光敏) |
 | `lraster.mjs` | 灯效预览的光栅器 (透视 / 正交相机、顶点色半透明四边形、textBackground 的排序与 discard), 由方案评选时的候选原样搬来 |
-| `core.mjs` / `tiers.mjs` / `ber.mjs` | 生成核心 (材质、画布、面描述、剔除、共面检查、图集、切两格、校验) / 六档政策 / 运动件工具 (原版盒式 UV、Java 写出与解析、程序与 applyPose 的 JS 镜像) |
+| `core.mjs` / `tiers.mjs` / `ber.mjs` | 生成核心 (材质、画布、面描述、剔除、共面检查、图集、切两格、校验) / 六档政策 (颜色、加件, 以及每档的生产速度 `cycleTicks`, 见"档位速度") / 运动件工具 (原版盒式 UV、Java 写出与解析、程序、时间映射与 applyPose 的 JS 镜像) |
 
 ```powershell
 $env:Path = 'D:\DevTools\node-v22.23.3-win-x64;' + $env:Path
@@ -34,7 +34,7 @@ node tools/munitions_bench/check_parity.mjs --out-dir <临时目录>\parity
 | `textures/block/munitions_bench{档}_atlas.png` / `_particle.png` | 每档一张 128² 图集 (六档布局相同, 只换颜色) + 16² 破坏粒子 |
 | `textures/entity/munitions_bench_parts.png` | 运动件贴图 128×64, 六档共用 (生成器逐档画一遍比对, 运动件必须与档位无关) |
 | `blockstates/munitions_bench{档}.json` | 32 个变体: `layout=legacy_depth` 原样指向旧 JSON (`munitions_bench{档}_{main\|extension}[_active]`, 生成前逐条核对仓库里现有的旧变体); `layout=wide` 指向上面的 `_line_` 模型。两种布局 y 旋转相同: 北 0 / 东 90 / 南 180 / 西 270 |
-| `block/MunitionsBenchProgram.java` | 只替换 `// <generated>` 与 `// </generated>` 之间: `CYCLE_TICKS`、`STRIKE_TICK`、`BELT_PITCH`、关键帧表、待机行。其余 (Pose、sample、idle、冲压时刻) 是手写的 |
+| `block/MunitionsBenchProgram.java` | 只替换 `// <generated>` 与 `// </generated>` 之间: `CYCLE_TICKS`、`STRIKE_TICK` (程序时间)、`CYCLE_TICKS_BY_TIER` / `STRIKE_TICKS_BY_TIER` (每档的循环长度与冲压时刻, 游戏 tick, 来自 `tiers.mjs`; 私有数组, 外面经 `cycleTicks` / `strikeTick` / `tierCount` 读)、`BELT_PITCH`、关键帧表、待机行。其余 (Pose、sample、programTick、idle、冲压时刻的判断) 是手写的 |
 | `block/MunitionsBenchGeometry.java` | 整个写出: 轮廓箱 (静态件 + 运动件)、台面高度、各档模型高度、运动件扫过的范围、冲压火花位置、流水线设计尺寸 (皮带面、弹位、壳高 / 弹头高、静止位时冲头夹着的弹头底与两根杆的下端, 从待机场景量出来, GameTest 用它们核对帧表)、运动件贴图尺寸、`rotated()`, 计数屏的 `COUNTER_*` (显示面、布局、每档颜色, 见下文), 以及运行灯效的 `LIGHT_*` (目标面、组、工位灯、脉冲时间与透明度、档位阶梯、每档颜色, 见下文) |
 | `client/MunitionsBenchParts.java` | 整个写出: 运动件的 `createBodyLayer()` 与 `applyPose()` |
 
@@ -51,6 +51,34 @@ node tools/munitions_bench/check_parity.mjs --out-dir <临时目录>\parity
 - 档位: 机身每档中性; 饰色 (两端侧板、皮带侧板下行、压机横梁两侧)、色带 (前护栏、铭牌框、箱盖内的密封框, 闪耀 = 金)、灯色, 外加逐档累加的小件:
   中级 料斗色带 → 高级 料斗顶信号灯 → 极品 料斗正面两侧竖灯条 → 超凡 柜体踢脚条 (色带色) → 闪耀 压机缸顶金座 + 发光宝石 (高 24)。铭牌右侧亮 1..6 格档位刻痕。
 - 物品图标: 缩到 0.46 的整台 + 档位色底板上一发细高整发弹, gui 旋转 [26, 200, 0]、平移 [0, 2, 0]、缩放 0.9 (32 px 槽外 0 像素)。
+- 生产动画的速度按档位变快 (用户拍板, 均匀阶梯到 2 倍速), 见下节。
+
+## 档位速度 (2026-09 用户拍板)
+
+| 档 | 普通 | 中级 | 高级 | 极品 | 超凡 | 闪耀 |
+|---|---|---|---|---|---|---|
+| 一个循环 (游戏 tick) | 40 | 36 | 32 | 28 | 24 | 20 |
+| 倍速 | 1× | 1.11× | 1.25× | 1.43× | 1.67× | 2× |
+| 冲压时刻 (循环的 1/4) | 10 | 9 | 8 | 7 | 6 | 5 |
+| 皮带追光 (瞬时, 极品起才有) | — | — | — | 2.14 Hz | 2.5 Hz | 3.0 Hz |
+| 冲压闪光 / 落箱 / 各工位灯 | 0.5 Hz | 0.56 Hz | 0.63 Hz | 0.71 Hz | 0.83 Hz | 1 Hz |
+
+(普通 / 中级 / 高级没有追光; 生成器仍按倍速算出 1.5 / 1.67 / 1.88 Hz 一并核对 (保守, 以后下放追光也不会超限), 打印时加括号。)
+
+- 表只有一份: `tiers.mjs` 的 `CYCLE_TICKS_BY_TIER` (`TIERS[i].cycleTicks`), 生成器写进 `MunitionsBenchProgram.CYCLE_TICKS_BY_TIER` / `STRIKE_TICKS_BY_TIER`,
+  Java 两端 (客户端渲染器 + 服务端冲压音) 与 JS 镜像 (`ber.mjs` / `lights.mjs`, 读解析出来的 Java 或生成器的同一份表) 都读它。
+- 关键帧仍在 40 tick 的**程序时间**里写 (生成器的校验、接触核对、预览的 `t` 都在程序时间里); 游戏时间按
+  `程序 tick = ((已过 tick mod 该档循环) + partialTick) × 40 / 该档循环` 映射 (`MunitionsBenchProgram.programTick`, 在 long 里取模, 台子连开几天也不抖;
+  double 里按 先加、再乘、再除 的顺序算, 与 `ber.mjs programTick` 逐位相同)。循环内单调、到该档循环的整数倍正好折回 0; 普通档就是原来的 `elapsed mod 40 + partial`。
+- 跟着程序走、一起变快的: 皮带 / 杆 / 冲头 / 出弹、冲压火花、服务端冲压音 (起点 + `strikeTick(档)` + `cycleTicks(档)` × n, 都是整 tick)、工位灯 / 冲压闪光 / 落箱脉冲 / 宝石 / 追光 (它们定义在程序时间里)。
+  **不**变快的 (游戏时间): 运行呼吸 (80 tick 一周) 与待机满仓的琥珀闪烁 (40 tick 一周)。
+- 档位来自方块: `MunitionsBenchBlock.tier()`, 注册时由 `ModMunitionsBlocks.registerBench(注册名, 档位, ..)` 给进构造器 (越界直接抛异常), 不查注册表
+  (Forge 的 `getKey` 对没注册的方块返回 `minecraft:air` 而不是 null, 按注册名查会在注册前把普通档记死); GameTest 逐块核对它与注册名在 `MunitionsBenchAssets.TIER_IDS` 里的下标相同。
+  `cycleTicks` / `strikeTick` 收到越界的档位 (不该发生) 按普通档。
+- LEGACY 老台子 (2026-09 以前放下的, 没有运动件) 的冲压音也按档位的节拍 (拍板的是"冲压音 = 起点 + 该档冲压时刻 + 该档循环 × n", 不分布局; 同档的新旧台子听起来一样快),
+  timing GameTest 里有一台闪耀的 LEGACY 钉住这个选择; 它的随机火花 (`animateTick`) 不跟程序, 不变。
+- 生成器核对: 普通 = 程序长度 40、逐档严格变快且步长相同、冲压时刻是整 tick、最快不超过 2 倍; 光敏逐档 ≤ 3 Hz (`lights.mjs photosensitivity`: 追光按皮带最快一段 × 倍速算,
+  脉冲按 `lightFrame + levels` 在游戏时间里跑 4 个整循环实测), 生成时打印 `tier speed` 与 `photosensitivity` 两行 (追光括号里的是没解锁的档)。改成 18 tick 的闪耀试过一次: 报 "不是均匀阶梯 / 冲压 4.5 不是整 tick / 2.22× 超过 2 倍 / 追光 3.33 Hz"。
 
 ## 弹的尺寸 (2026-09 缩到约 2/3)
 
@@ -101,8 +129,9 @@ node tools/munitions_bench/check_parity.mjs --out-dir <临时目录>\parity
   `COUNTER_*` 写出后解析回来与布局 / 颜色相同。待机字对比度 < 4.5:1 只报 WARN。
 - 运行灯效 (`lights.mjs`, 按刚生成的那份 JSON): 每档会用到的每个目标矩形都落在那一档工作态 (满仓提示另查待机态) 模型里同名元素的那个面上 (跨两格的元素拼起来盖住)、
   元素的 shade 标志与目标相同、工作态的 `block_light` 与目标相同、grow 的边是元素的棱; 胀的边正好接上同组往回胀的覆盖面、不胀的边不与同组相接 (`growProblems`: 壳是闭合的, 也不会伸到别的零件上); 六个面的绕序; 工位灯按 x 排序不重叠、在前沿灯带里;
-  脉冲的峰与帧表对得上 (各工位动作第一次到底的 tick、冲头最低 = `STRIKE_TICK`、出弹没入 = 35、入口灯在 35..40 之间)、追光包络包住皮带步进、追光瞬时频率 ≤ 3 Hz;
-  六档 × 工作 / 待机 / 满仓 × 程序时间 0..160 每 0.25 tick × 三个距离: 不重叠、每个顶点 α ∈ [0.1, 1]、rgb 是整数、不超过 `LIGHT_MAX_QUADS`、没有未解锁的效果;
+  脉冲的峰与帧表对得上 (各工位动作第一次到底的 tick、冲头最低 = `STRIKE_TICK`、出弹没入 = 35、入口灯在 35..40 之间)、追光包络包住皮带步进、每档的循环表 = tiers.mjs 且冲压时刻是映射过去的整 tick、
+  光敏逐档 ≤ 3 Hz (追光瞬时频率与各路脉冲, 见"档位速度"); 第一轮开工时已经发生过的拍与跑久了逐位相同 (六档 × 每 tick × 九个 partialTick, `firstCycleProblems`);
+  六档 × 工作 / 待机 / 满仓 × 游戏时间 0..160 每 1/8 tick (按该档的速度映射, 最快的闪耀在程序时间里也是每 0.25 tick 一个样本) × 三个距离: 不重叠、每个顶点 α ∈ [0.1, 1]、rgb 是整数、不超过 `LIGHT_MAX_QUADS`、没有未解锁的效果;
   `LIGHT_*` 写出后解析回来与 `lightsLayout()` 相同; `MAX_DISTANCE_BLOCKS` = 计数屏的。(挪动横梁灯条的目标、改错宝石的 shade、错开一个工位灯的峰、在不是棱的边上胀、让弹药箱下那段灯带往上胀 / 横梁端面忘了往前胀, 各试过一次, 都会报。)
 
 ## 运动件 (方块实体渲染器)
@@ -140,9 +169,10 @@ node tools/munitions_bench/check_parity.mjs --out-dir <临时目录>\parity
   `applyPose` 把每个件从 `getInitialPose()` 平移 `(dx, dy) × UNITS_PER_PX` (y 取反) 并设 `visible`。
   **法线**: 1.20.1 的 `PoseStack.scale` 在三个缩放之积为负时 (一个轴取负; 三轴同为负也一样) 用 `Mth.fastInvCubeRoot` 算法线缩放, 它不收负数,
   法线被放大约 1e25 倍, 写进顶点时每个分量截成 ±1, 实体光照随视角乱跳 (javap 核对过)。diag(s, -s, s) 的逆转置与 diag(1, -1, 1) 同向, 所以把缩放前的法线矩阵右乘它。
-- 手写的一侧 (不由生成器写): `client/MunitionsBenchRenderer.java` 按上面的契约画运动件 (LEGACY 台子跳过, 停机直接回待机布局; 件的中心在副格 (x ≥ 16) 时用副格的光照), 冲压那一 tick 从 `SPARK_*` 放火花;
-  `block/MunitionsBenchBlockEntity.java` 在 `setBlockState` 里记 ACTIVE 由假变真的 tick 作程序起点 (服务端据它在起点 + `STRIKE_TICK` + 40n 播冲压音, 区块更新标签把它带给后加载区块的客户端; 读档后还不知道起点时, 组区块包的那一刻当场定下);
-  `block/MunitionsBenchBlock.java` 用 `MAIN_BOXES` / `EXTENSION_BOXES` 加 `*_PART_BOXES` 按朝向转出轮廓, 碰撞每格一整块实心柱, `benchPixelToWorld` 把整台像素转到世界坐标, `partsYRotationDegrees` 是渲染器的朝向角 (GameTest 拿它和 `benchPixelToWorld` 对)。
+- 手写的一侧 (不由生成器写): `client/MunitionsBenchRenderer.java` 按上面的契约画运动件 (LEGACY 台子跳过, 停机直接回待机布局; 件的中心在副格 (x ≥ 16) 时用副格的光照; 姿态 = `MunitionsBenchProgram.sampleRunning(已过 tick, partialTick, 档位, pose)`, 档位越高越快, 起点比本地时钟快时停在首帧), 冲压那一 tick (`strikeTick(档)` + `cycleTicks(档)` × n; 判断 = `strikeBetween(上一帧, 这一帧, 档位)`) 从 `SPARK_*` 放火花, 档位一并交给计数屏 / 灯效
+  (每帧的两个决定都在纯 Java 的 `MunitionsBenchProgram` 里, GameTest 与对拍逐档核对它们与服务端的 `isStrikeTick` 同拍; 渲染器里只剩 "档位 = `bench.tier()`、三处都传它" 这一行胶水, 靠评审);
+  `block/MunitionsBenchBlockEntity.java` 在 `setBlockState` 里记 ACTIVE 由假变真的 tick 作程序起点 (服务端据它在起点 + `strikeTick(档)` + `cycleTicks(档)` × n 播冲压音, 区块更新标签把它带给后加载区块的客户端; 读档后还不知道起点时, 组区块包的那一刻当场定下);
+  `block/MunitionsBenchBlock.java` 用 `MAIN_BOXES` / `EXTENSION_BOXES` 加 `*_PART_BOXES` 按朝向转出轮廓, 碰撞每格一整块实心柱, `benchPixelToWorld` 把整台像素转到世界坐标, `partsYRotationDegrees` 是渲染器的朝向角 (GameTest 拿它和 `benchPixelToWorld` 对), `tier()` 是档位 (注册时给进构造器, 渲染器与冲压音共用)。
 - 热压模的底面在方案里是不发光的钢色, 做成一个件后整块按自发光画 (底面从上方看不到)。
 - 游戏里运动件按实体光照 (两盏方向光), 侧面比方块面明暗略暗一点 (东西面约 0.50 对 0.60, 南北面 0.74 对 0.80); 对拍用方块面明暗, 预览默认实体光照。
 
@@ -192,7 +222,7 @@ node tools/munitions_bench/check_parity.mjs --out-dir <临时目录>\parity
 
 | 效果 | 档位 | 贴在哪 (元素.面) | 时间 (程序 tick) | 颜色 / α |
 |---|---|---|---|---|
-| 工位指示灯 | 全档 | `strip` 北 + 顶, 各弹位正下方 1.5 px 一段 | 入口 38 → 底火 0 → 装药 5 → 压弹头 10 (从玩家看从左往右扫过), 出弹 35; 1 tick 缓入、5 tick 衰减 | mix(灯 hi, 白, .45), α = 脉冲 |
+| 工位指示灯 | 全档 | `strip` 北 + 顶, 各弹位正下方 1.5 px 一段 | 入口 38 → 底火 0 → 装药 5 → 压弹头 10 (从玩家看从左往右扫过), 出弹 35; 1 tick 缓入、5 tick 衰减 (都是程序 tick, 见表下) | mix(灯 hi, 白, .45), α = 脉冲 |
 | 冲压闪光 | 全档 | `crown_light` 北 + 顶 + 两端 | 峰 = `STRIKE_TICK` (与冲压音、火花同一刻), α = √脉冲 = 6 tick 线性衰减 | 纯白 → 灯 hi |
 | 落箱脉冲 | 全档 | `can_strip` 北 + 露出的顶 + 两端 | 峰 35 (出弹没入弹药箱), 2 起 8 落, 跨接缝到下一轮 t 3 | mix(hi, 白, .5), α 0.9 × 脉冲 |
 | 满仓提示 | 全档 | 同上 | 只在待机且满仓: 客户端时钟 40 tick 一周梯形 (0–4 亮起, 4–16 亮, 16–20 暗下) | 琥珀 `#FFB234`, α 0.95 |
@@ -200,9 +230,15 @@ node tools/munitions_bench/check_parity.mjs --out-dir <临时目录>\parity
 | 皮带追光 | 极品 (档 3) 起 | `rail_b` 北面发光的两行 | 只在皮带步进 (包络 9→12 淡入, 23→27 淡出), 与皮带同速, 每 4 px 一颗彗星 (2.5 px 渐变尾 + 1.5 px 暗槽) | 头 mix(hi, 白, .25) (闪耀金) α 0.9, 暗槽 α 0.6 |
 | 宝石脉冲 | 闪耀 (档 5) | `gem` 北 / 南 / 东 / 西 / 顶 | 冲压白闪 (1 起 8 落) / 落箱回响 × 0.8 (1 起 6 落), 取大的 | mix(hi, 白, .7) / 饰带金 |
 
-- **一帧** (`MunitionsBenchLights.compute(frame, 档, ACTIVE, 满仓, 程序整 tick, gameTime, partialTick, 距离)`, 结果写进调用方预先分配的定长 `Frame`, 每帧不分配):
-  循环 tick = `floorMod(elapsed, 40) + partial` (与 `MunitionsBenchProgram.sample(long, float)` 同一个取模), 呼吸相位 = `floorMod(elapsed, 80) + partial`, 待机时钟 = `floorMod(gameTime, 40) + partial`;
-  起点比本地时钟快 (elapsed < 0) 时与运动件一样停在首帧; 第一轮开工时跨接缝的尾巴 (落箱 / 入口灯) "没发生过", 不画 (`d ≤ elapsed`)。
+- 表里的时间都是**程序 tick** (40 一个循环): 与运动件一起按档位变快 (见"档位速度", 闪耀 2 倍); 运行呼吸与满仓闪烁是游戏时间, 不变。
+- **一帧** (`MunitionsBenchLights.compute(frame, 档, ACTIVE, 满仓, 开工以来的整 tick, gameTime, partialTick, 距离)`, 结果写进调用方预先分配的定长 `Frame`, 每帧不分配):
+  循环 tick = `MunitionsBenchProgram.programTick(elapsed, partial, 档)` = `((elapsed mod 该档循环) + partial) × 40 / 该档循环` (与运动件的 `sample(long, float, 档, Pose)` 同一个映射),
+  开工以来的程序时间 = `(elapsed + partial) × 40 / 该档循环` (按同一个顺序算, 第一轮里与循环 tick 逐位相同), 呼吸相位 = `floorMod(elapsed, 80) + partial`, 待机时钟 = `floorMod(gameTime, 40) + partial` (后两个是游戏时间);
+  起点比本地时钟快 (elapsed < 0) 时与运动件一样停在首帧; 第一轮开工时跨接缝的尾巴 (落箱 / 入口灯) "没发生过", 不画 (`d ≤ elapsed`, 程序时间)。
+  `d = wrap(t − 峰, 40)` 的 `wrap` 用 fmod (非负原样取余, 负数加 40): 映射过的程序时间有满 53 位尾数, 旧写法 `((t % p) + p) % p` 先加 p 会舍掉末位,
+  第一轮里 d 比 elapsed 大一个 ulp, 中级档起开工头一 tick 的底火灯闪断 (档位速度落地时 GameTest 抓到; 生成器的 `firstCycleProblems` 现在也逐档查这一条)。
+  JS 镜像与 Java 一样一次只有一个档位: `lightFrame({tier, ..})` 必须给档位 (整数, 漏给直接报错, 不静默按普通档), 记在返回的帧上 (`s.tier`);
+  `lightOverlays(s)` 的效果与颜色取帧上的档位 (手搭的帧可以另给, 两处不同也报错), 预览不会出现 "普通档的速度配闪耀的颜色"。`ber.mjs` 的 `programTick` / `cycleTicksOf` 等同样要求给档位 (`requireTier`)。
   顺序固定: 追光 → 前沿灯带 (呼吸 + 工位灯) → 冲压 → 落箱 → 满仓 → 宝石。最多 `LIGHT_MAX_QUADS` = 32, 实际各档最多 9 / 9 / 19 / 22 / 22 / 27 (生成器逐 0.25 tick 数)。
 - **三条硬约束** (lights.mjs 文件头): `rendertype_text_background.fsh` 丢掉 α < 0.1 的片元 → 每个顶点的 α 要么 ≥ 0.1 要么整块不画 (追光按暗槽的 α 判, 彗尾渐变两端都 ≥ 0.1;
   顶点 α 按 `alphaByte` = round(a × 255) 写, ≥ 26); textBackground 按距离排序并写深度 → 同一块面上任何两个四边形不重叠 (呼吸与工位灯切段, 工位灯段 `A = 1 − (1 − b)(1 − I)`,
@@ -213,14 +249,16 @@ node tools/munitions_bench/check_parity.mjs --out-dir <临时目录>\parity
 - **BER 契约** (`MunitionsBenchCounterRenderer`, 计数屏的字之后): 同一个 `RenderType.textBackground()` 的 VertexConsumer (额外 draw call 0, 不放在任何提前 return 之后),
   距离门与计数屏共用 (> 24 格不画); 角 = `MunitionsBenchLights.blockCorners(frame, partsYRotationDegrees(朝向), ..)` (朝向变换 = 计数屏的 `MunitionsBenchCounter.benchToBlock`,
   不做运动件的 y 翻转), 顶点顺序从面外看逆时针, 每个角自己的顶点色; 面明暗方向 = `Direction.from3DDataValue(worldFace(LIGHT_TARGET_FACES[目标], 朝向角))`;
-  `LightTexture.FULL_BRIGHT`; 程序时间与运动件同一个 (`MunitionsBenchRenderer` 算好传进来)。LEGACY 台子不画。
-- **光敏**: 每块灯面每个循环 (2 s) 最多亮暗一次, 只有宝石两次 (冲压白闪 + 落箱回响, 1 Hz); 满仓 0.5 Hz; 呼吸 4 s 一周; 追光瞬时 1.5 Hz (生成器按帧表里皮带最快的一段核对 ≤ 3 Hz)。都远低于 3 Hz; 除追光暗槽外都只往亮的方向拉。
+  `LightTexture.FULL_BRIGHT`; 开工以来的 tick 与档位与运动件同一个 (`MunitionsBenchRenderer` 算好传进来)。LEGACY 台子不画。
+- **光敏** (上限 3 Hz, 生成器与 GameTest 逐档核对): 每块灯面每个循环最多亮暗一次 (工位灯各段、冲压闪光、落箱脉冲: 普通 0.5 Hz, 闪耀 1 Hz), 只有宝石两次 (冲压白闪 + 落箱回响; 宝石只有闪耀, 2 Hz);
+  满仓 0.5 Hz 与呼吸 4 s 一周走游戏时间, 不随档位变; 追光瞬时 = 1.5 Hz × 倍速, 闪耀正好 3.0 Hz = 上限 (用户认可: 只是后护栏背光两行 23 × 1 px 的小面)。除追光暗槽外都只往亮的方向拉。
 - **渲染包围盒**: 方块实体的渲染包围盒 (视锥剔除用) 高到 `RENDER_TOP_PX` = 24.25 px, 由生成器取运动件 (22.25) 与覆盖层最高点 (宝石顶面浮出后 24.03, `lights.mjs overlayTopPx`)
   里高的那个向上取整; 方块实体代码没改, 只是这个常量变了 (GameTest 核对每个覆盖层的角都在它以下)。
   **已知 / 有意不做**: 前沿覆盖层浮出正面 1/128 格, 包围盒水平方向仍是两整格 (要改就得动方块实体): 只有画面里恰好只剩这 1/8 px 时才会被剔掉, 看不出来。
 - **改灯效**: 改 `lights.mjs` 的目标面 / 时间 / 颜色, 重新生成 (前提核对不过不写文件); 改画法 (曲线、切段、合成、顺序、角), `MunitionsBenchLights.java` 与 `lights.mjs` 两边一起改,
-  再跑 `check_parity.mjs` 的灯效对拍与 `render_lights.mjs` 看图。GameTest (`MunitionsBenchLightsGameTests`) 核对: 脉冲的峰在程序动作到底的那一刻 (从 `MunitionsBenchProgram` 量出来)、
-  第一轮开工时没发生过的尾巴不画而发生过的拍 (任意 float 的 partialTick) 与跑久了逐位相同、
+  再跑 `check_parity.mjs` 的灯效对拍与 `render_lights.mjs` 看图。GameTest (`MunitionsBenchLightsGameTests`) 核对: 六档各自的速度下脉冲的峰都在程序动作到底的那一刻 (从 `MunitionsBenchProgram` 量出来;
+  冲压闪光 / 压弹头工位灯 / 宝石白闪在游戏时间里正好落在该档的冲压 tick)、第一轮开工时没发生过的尾巴不画而发生过的拍 (六档 × 任意 float 的 partialTick) 与跑久了逐位相同、
+  光敏 (六档每路脉冲每循环正好一次、宝石两次, 实测 ≤ 3 Hz; 追光 = 1.5 Hz × 倍速 ≤ 3 Hz; 呼吸与满仓闪烁与普通档逐位相同, 不随档位变快)、
   档位阶梯、α 从不落在 (0, 0.1)、不重叠、不溢出、24 格处呼吸已淡出, 以及每个四边形在四个朝向下都贴在各档静态 JSON 那条灯带的那个面外 (与 `benchPixelToWorld` 相同、绕序朝外、
   `worldFace` 就是它朝的方向、shade 标志与元素相同)、角都在渲染包围盒顶 `RENDER_TOP_PX` 以下。失败信息只在失败时拼 (通过时不为九万多帧造字符串)。
 
@@ -228,13 +266,19 @@ node tools/munitions_bench/check_parity.mjs --out-dir <临时目录>\parity
 
 - 一个循环 8 帧 × 5 tick = 40 tick。关键帧表每行: `tick, beltX, primeY, powderY, ramY, dropY, dieHeat, ramBulletVisible, powderCharged, seated`, 第 0..7 行是方案的 f0..f7, 第 8 行 (tick 40) 是接缝。
 - 帧表来自生成器里的 `BELT / PRIME / POWDER / RAM / DROP_Y / DIE_HEAT / RAM_BULLET / POWDER_CHARGED / SEATED`, 场景的逐帧也读同一组表, 两边不会分叉。
-- **插值**: 连续量在相邻两行间**线性**插值 (帧表本身就是按缓动取样写的: 皮带 -1 / -2.5 / -4, 出弹 -1 / -2.5 / -4.75; 逐帧 smoothstep 会让皮带在中间帧各停一下); 布尔量取"到达的那一行"。取模 `CYCLE_TICKS`, 负数折回, NaN 取首行。`sample(long elapsedTicks, float partialTick, out)` 先在 long 里取模, 台子连开几天也不抖。
+- **插值**: 连续量在相邻两行间**线性**插值 (帧表本身就是按缓动取样写的: 皮带 -1 / -2.5 / -4, 出弹 -1 / -2.5 / -4.75; 逐帧 smoothstep 会让皮带在中间帧各停一下); 布尔量取"到达的那一行"。取模 `CYCLE_TICKS`, 负数折回, NaN 取首行。
+  `sample(long elapsedTicks, float partialTick, int tier, out)` = `sample((float) programTick(elapsedTicks, partialTick, tier), out)`: 按档位的循环长度映射到程序时间 (见"档位速度"), 先在 long 里取模, 台子连开几天也不抖。
 - **接缝**: 接缝行 = 下一轮 f0 的机器姿态, 但皮带上的弹仍按这一轮编号 (`beltX = f0 - BELT_PITCH`, 出弹留在箱里, 装药/压弹头状态同 f7)。到下一轮 f0 时弹位整体换一次号, 画面只多出入口位落下的一只新壳, 箱里那发 (已被箱体完全挡住) 消失。生成器核对这两点以外画面不变。
 - `STRIKE_TICK` = 冲头最低的那一行 (f2, tick 10), 也是压模最热的一帧; 冲头夹着的弹头此刻正好落在壳口 (`MunitionsBenchGeometry.SPARK_*` = 14.5, 11.5, 7.5, 生成器核对; GameTest 另用 `RAM_BULLET_REST_BOTTOM_PX` + 此刻的 ramY 核对一遍)。
-- 冲程 (弹缩小后): 底火冲杆 / 装药管 -1.5 (f0 / f1), 冲头 0 / -1.75 / -3.75 (f0 / f1 / f2)。两根杆下探到底与冲压时刻的弹头底都正好是壳口 (`BELT_TOP_PX` + `ROUND_CASE_HEIGHT_PX` = `SPARK_Y`), GameTest `benchProgramStrikesOncePerCycleAndIdlesAtRest` 按 Geometry 的静止位下端 + 程序偏移核对。服务端在程序起点 + `STRIKE_TICK` + n × 40 播冲压音 (`isStrikeTick` / `nextStrikeTickAfter`), 渲染器在同一时刻在火花位置放粒子。
+- 冲程 (弹缩小后): 底火冲杆 / 装药管 -1.5 (f0 / f1), 冲头 0 / -1.75 / -3.75 (f0 / f1 / f2)。两根杆下探到底与冲压时刻的弹头底都正好是壳口 (`BELT_TOP_PX` + `ROUND_CASE_HEIGHT_PX` = `SPARK_Y`), GameTest `benchProgramStrikesOncePerCycleAndIdlesAtRest` 按 Geometry 的静止位下端 + 程序偏移核对。
+  服务端在程序起点 + `strikeTick(档)` + n × `cycleTicks(档)` 播冲压音 (`isStrikeTick(e, 档)` / `nextStrikeTickAfter(e, 档)`; 普通 10 + 40n .. 闪耀 5 + 20n), 渲染器在同一时刻在火花位置放粒子
+  (`strikeBetween(上一帧, 这一帧, 档)` = 这段里有没有 `isStrikeTick` 的拍); 渲染器工作时的姿态 = `sampleRunning(e, partial, 档, out)` (e < 0 停在首帧, 否则 = `sample(long, float, 档)`)。
+  该档的冲压 tick 映射到程序时间正好是 `STRIKE_TICK` (生成器与 Java 的静态初始化都核对)。GameTest `benchProgramRunsFasterByTierOnAUniformLadderUpToDoubleSpeed` 按拍板的表核对每档的循环 / 冲压、映射单调且整循环折回 0、冲压那一 tick 冲头最低、长时钟与余数逐位相同、拍子、
+  渲染器的两个决定 (`sampleRunning` 逐档 = 该档的映射且起点前停在首帧; `strikeBetween` 对逐帧 / 隔几帧 / 隔一两个循环的窗口都 = 服务端逐 tick 的 `isStrikeTick`)、方块的 `tier()` 与注册名对应的档位相同;
+  `wideBenchStrikeSoundFollowsTheProgramPhase` (batch `munitions_bench_timing`) 从 mock 玩家的出站包里收冲压音: 普通 10 + 40n、区块包时已在工作的高级 8 + 32n、闪耀 5 + 20n、闪耀的 LEGACY 老台子 5 + 20n。
 - `idle()` = 待机布局: 与 f0 相同, 只是底火冲杆收着 (所有偏移 0, 冲头夹着弹头, 装药位与压弹头位都还没做)。
 
-**JS 镜像必须与 Java 一致**: `ber.mjs` 的 `sampleProgram` / `sampleProgramAt` / `idlePose` 逐行对应 `MunitionsBenchProgram.sample` / `idle`, `applyPoseMirror` 对应生成的 `MunitionsBenchParts.applyPose` (直接解析它的 `place(...)` 行); 预览与对拍只读 Java 源 (`parsePartsJava` / `parseProgramJava`), 不读生成器内部的表。改了 Java 的手写部分 (插值、取模、列号) 必须同步改 `ber.mjs`, 改了写出格式必须同步改解析器; `check_parity.mjs` 会单独编译 `MunitionsBenchProgram.java`, 每 0.25 tick 与 JS 镜像对拍。
+**JS 镜像必须与 Java 一致**: `ber.mjs` 的 `sampleProgram` / `sampleProgramAt` / `programTick` / `cycleTicksOf` / `strikeTickOf` / `isStrikeTickMirror` / `nextStrikeTickAfterMirror` / `sampleRunningMirror` / `strikeBetweenMirror` / `idlePose` 逐行对应 `MunitionsBenchProgram.sample` / `programTick` / `cycleTicks` / `strikeTick` / `isStrikeTick` / `nextStrikeTickAfter` / `sampleRunning` / `strikeBetween` / `idle` (档位参数必须给, 见 `requireTier`), `applyPoseMirror` 对应生成的 `MunitionsBenchParts.applyPose` (直接解析它的 `place(...)` 行); 预览与对拍只读 Java 源 (`parsePartsJava` / `parseProgramJava`, 含每档的循环表), 不读生成器内部的表。改了 Java 的手写部分 (插值、取模、时间映射的运算顺序、列号) 必须同步改 `ber.mjs`, 改了写出格式必须同步改解析器; `check_parity.mjs` 会单独编译 `MunitionsBenchProgram.java`, 与 JS 镜像对拍 (程序时间逐位、姿态 1e-5)。
 
 ## 轮廓箱与碰撞 (`MunitionsBenchGeometry`)
 
@@ -258,15 +302,22 @@ node tools/munitions_bench/check_parity.mjs --out-dir <临时目录>\parity
   格式 (定点 + 各数量级 3000 个伪随机数)、两套字形与字宽、满度条、满仓、显示键、rects (发数 × 口径 × 上限 × 满仓)、颜色表 (`colourOf`, 含档位越界回退)、
   渲染器摆角用的 `benchCorners` / `blockCorners` (四个朝向角, 容差 1e-5), 以及 Java 运行时的 `COUNTER_*` 与 `parseCounterJava` 从源码解析出的布局;
   另外核对 `CALIBER_LABELS` 与 `MunitionsCaliber.java` 的 shortLabel。
+- **程序对拍** (不需要 `--cand`): 单独编译 `MunitionsBenchProgram.java`: `sample(float)` 程序时间 -10..90 每 0.25 tick; 每档的时间映射 (档位 -1..6, 越界按普通档) ×
+  九个 partialTick (四个不是 0.25 的倍数) × (每档逐 tick 两个多循环, 含起点之前 + 很大的 long: 连开几天、`10080 × 10^11 + 7`、2^52 − 1), `programTick` 逐位相同、`sample(long, float, tier)` 容差 1e-5;
+  `cycleTicks` / `strikeTick`、`isStrikeTick` / `nextStrikeTickAfter` 每档 -45..125; 渲染器的两个决定: `sampleRunning` (每档 -3..两个多循环 × 九个 partialTick) 与
+  `strikeBetween` (每档 since -45..125 × 窗口 -1..41 tick, 另核对每个窗口 = JS 里逐 tick 数服务端 `isStrikeTick` 的拍); `idle()`; Java 解析出来的 `CYCLE_TICKS_BY_TIER` = tiers.mjs。
 - **灯效对拍** (不需要 `--cand`): `MunitionsBenchGeometry.java` 的 `LIGHT_*` 解析回来与 `lights.mjs` 的 `lightsLayout()` 相同 (防手改);
-  单独编译 `MunitionsBenchLights` + `Geometry` + `Counter` + `Program`, 六档 (+ 越界的 -1 / 6) × 工作 / 待机 / 待机满仓 / 工作满仓 × 程序时间 -2..170 每 0.25 tick
-  (+ 几个很大的 long) × 轮换的相机距离, 另加六档 × 四种状态 × 程序时间 -1..90 × 七个不是 0.25 倍数的 float partialTick (含第一轮开工的头几 tick), 逐帧比较时钟、各效果标量、四边形 (效果、目标、矩形、渐变轴、两端颜色与 α)、`benchCorners` (角 + 顶点色)、
+  单独编译 `MunitionsBenchLights` + `Geometry` + `Counter` + `Program`, 六档 (+ 越界的 -1 / 6) × 工作 / 待机 / 待机满仓 / 工作满仓 × 开工后 -2..170 每 0.25 tick (每档按自己的速度映射)
+  × 轮换的相机距离, 另加六档 × 四种状态 × 开工后 -1..90 × 七个不是 0.25 倍数的 float partialTick (含第一轮开工的头几 tick), 以及六档 × 很大的 long (到 2^52 − 1) × 0.25 倍数与七个任意的 partialTick,
+  逐帧比较时钟、各效果标量、四边形 (效果、目标、矩形、渐变轴、两端颜色与 α)、`benchCorners` (角 + 顶点色)、
   `blockCorners` (四个朝向轮换), 以及 `effectMask`、`worldFace`; 再核对样本里每档出现过的效果正好是档位阶梯。呼吸用 `StrictMath.cos` (fdlibm, 与 JS 逐位相同)。
 - 输出 `parity-report.md`、`parity-frames.png`、`parity-tiers.png`、`parity-items.png` (给了 `--cand` 时), 以及游戏样子的参考图 (实体光照): `game-motion.png` (每 2.5 tick 一列)、`game-base-{active,idle}.png`、`game-tiers.png`、`game-shapes.png` (轮廓箱线框)。有差异时退出码 1。
 - 当前结果: 换上计数屏方案 C 之前, 与方案 B v2 除有意补面外全部 0 像素差异 (之后箱盖与箱身正面、再之后弹缩到 2/3 连同冲头 / 两根杆 / 落壳管 / 箱顶 / 托盘 / 料斗顶,
   都按设计与 B v2 不同, 不再对拍; 改动靠同视角的前后对比图人工看)。弹缩小之后 (不给 `--cand`): 四个朝向对齐 (每朝向 382 个四边形), 没有背面露出,
-  Java/JS 程序 621 个采样一致, 计数屏 6877 个值一致 (含四个朝向的 blockCorners 416 组、benchCorners 104 组),
-  灯效 320928 个值一致 (33472 帧 / 120062 个四边形; 把 Java 的循环 tick 改回 float 加法时报 14240 处不同, 即评审抓到的第一轮底火灯闪断)。
+  Java/JS 程序 11138 个采样一致 (其中 4680 个档位时间映射), 计数屏 6877 个值一致 (含四个朝向的 blockCorners 416 组、benchCorners 104 组),
+  灯效 328185 个值一致 (33772 帧 / 125519 个四边形; 把 Java 的循环 tick 改回 float 加法时报 14240 处不同, 即评审抓到的第一轮底火灯闪断)。
+  档位速度的变异各试过一次: 灯效不按档位映射 (174450 处不同)、程序映射改成乘 40 / 循环 (程序 501 + 灯效 188 处, 不再逐位相同)、取模改成 `%` (程序 252 处)、
+  只把 Java 的 `wrap` 改回 `(t % p + p) % p` (灯效 488 处)。
 
 ## 改模型
 

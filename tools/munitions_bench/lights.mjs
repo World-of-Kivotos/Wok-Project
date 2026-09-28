@@ -37,26 +37,33 @@
 //   程序时间与运动件相同 (程序起点 + partialTick; 起点比本地时钟快时停在首帧)。
 //
 // 时间 (浮点 tick, 已加 partialTick; partial 是 Java 的 float, 各时钟在 double 里加 = 精确, 见 lightFrame):
-//   cycleTick  = floorMod(elapsed, CYCLE_TICKS) + partial      —— 与 MunitionsBenchProgram.sample(long, float) 同一个取模 (在 long 里取)
-//   breathTick = floorMod(elapsed, BREATH_PERIOD_TICKS) + partial
-//   clockTick  = floorMod(gameTime, FULL_BLINK_PERIOD_TICKS) + partial   (待机的满仓闪烁)
-//   跨循环接缝的脉冲尾巴 (落箱 t 35 → 下一轮 t 3、入口灯 t 38 → t 3) 只在那一拍真的发生过时画: d ≤ elapsed (见 pulse)。
+//   档位越高生产动画越快 (tiers.mjs cycleTicks = MunitionsBenchProgram.CYCLE_TICKS_BY_TIER: 普通 40 .. 闪耀 20 tick 一个循环, 2 倍速)。
+//   脉冲、工位灯、追光包络都定义在 40 tick 的程序时间里, 所以跟着运动件一起变快; 呼吸与满仓闪烁是游戏时间, 不随档位变。
+//   cycleTick  = 程序时间 = ((elapsed mod 该档循环) + partial) × CYCLE_TICKS / 该档循环  —— = MunitionsBenchProgram.programTick
+//                (与运动件 sample(long, float, tier, Pose) 同一个映射, 在 long 里取模)
+//   elapsed    = 开工以来的程序时间 = (elapsed + partial) × CYCLE_TICKS / 该档循环 (只用来判断跨接缝的尾巴发生过没有)
+//   breathTick = floorMod(elapsed, BREATH_PERIOD_TICKS) + partial     (游戏时间)
+//   clockTick  = floorMod(gameTime, FULL_BLINK_PERIOD_TICKS) + partial   (待机的满仓闪烁, 游戏时间)
+//   跨循环接缝的脉冲尾巴 (落箱 t 35 → 下一轮 t 3、入口灯 t 38 → t 3, 程序时间) 只在那一拍真的发生过时画: d ≤ elapsed (见 pulse)。
 //
-// 光敏安全: 每块灯面每个循环 (2 s) 最多亮暗一次, 只有宝石两次 (冲压白闪 t 10 + 落箱回响 t 35, 即 1 Hz); 满仓 0.5 Hz;
-//   呼吸 4 s 一周、只往亮的一侧、幅度 0.2; 追光与皮带同速 (每一点每循环只过一次头, 瞬时 1.5 Hz)。都远低于 3 Hz。
+// 光敏安全 (频率按最快的闪耀档 = 2 倍速算; programProblems 逐档核对, 上限 MAX_FLASH_HZ = 3 Hz): 每块灯面每个循环最多亮暗一次
+//   (工位灯各段、横梁冲压闪光、落箱脉冲: 普通 0.5 Hz, 闪耀 1 Hz), 只有宝石两次 (冲压白闪 t 10 + 落箱回响 t 35: 闪耀 2 Hz);
+//   满仓 0.5 Hz 与呼吸 (4 s 一周、只往亮的一侧、幅度 0.2) 走游戏时间, 不随档位变快; 追光与皮带同速 (每一点每循环只过一次头),
+//   瞬时频率 = 1.5 Hz × 倍速, 闪耀正好 3.0 Hz = 上限 (用户认可: 只是后护栏背光两行 23 × 1 px 的小面)。其余都低于 3 Hz。
 //   最大的闪光面是压机横梁灯条 5 × 0.5 px (北面 + 顶面 + 两端)。
 // 读得清: 不碰计数屏 (字和满度条都不动); 除了追光的暗槽, 所有覆盖层都只往亮的方向拉, 工作态任何时刻都不比静态模型暗。
 import { TIERS } from './tiers.mjs';
 import { benchToBlock } from './counter.mjs';
-import { sampleProgram } from './ber.mjs';
+import { sampleProgram, programTick, cycleTicksOf, requireTier } from './ber.mjs';
 
 export const LIFT_PX = 0.125;                 // 覆盖层浮出面外 (px) = COUNTER_LIFT_PX: 24 格内 24 位深度不会闪, 仍小于任何相邻台阶
 export const GEM_LIFT_PX = 0.03125;           // 宝石只有 1 px, 浮 0.125 会大出 25% 像一层壳; 1/32 px 在 24 格处仍有约 3 倍深度余量
 export const ALPHA_CUTOFF = 0.1;              // rendertype_text_background.fsh 的 discard 阈值
 export const MAX_DISTANCE_BLOCKS = 24;        // = COUNTER_MAX_DISTANCE_BLOCKS (生成器核对)
 export const FADE_START_BLOCKS = 20;          // 常亮的大面积层 (呼吸) 在 20..24 格渐隐, 不在 24 格整条跳变
-export const CYCLE_TICKS = 40;                // = MunitionsBenchProgram.CYCLE_TICKS (生成器核对)
-export const STRIKE_TICK = 10;                // = MunitionsBenchProgram.STRIKE_TICK
+export const CYCLE_TICKS = 40;                // = MunitionsBenchProgram.CYCLE_TICKS (程序时间, 生成器核对; 各档的实际循环长度见 tiers.mjs cycleTicks)
+export const STRIKE_TICK = 10;                // = MunitionsBenchProgram.STRIKE_TICK (程序时间)
+export const MAX_FLASH_HZ = 3;                // 光敏上限: 任何一块灯面亮暗 (追光: 彗星扫过一点) 都不超过 3 Hz, 逐档核对 (programProblems)
 export const BELT_PITCH = 4;                  // = MunitionsBenchProgram.BELT_PITCH
 export const DROP_LAND_TICK = 35;             // 关键帧 f7: 出弹整发没入弹药箱 (dropY 到底)
 export const MAX_QUADS = 32;                  // Java 定长数组的上限 (各档实际最多几个见生成器输出 "lights: max quads", 生成器逐 0.25 tick 核对)
@@ -189,7 +196,11 @@ export function paletteOf(tier) {
 }
 
 // ---------------------------------------------------------------- 曲线
-export const wrap = (t, p) => ((t % p) + p) % p;
+/**
+ * t 折回 [0, p) (MunitionsBenchLights.wrap): % (fmod) 是精确的, 非负原样取余, 负数再加一个 p。不写成 ((t % p) + p) % p: 按档位映射过的
+ * 程序时间有满 53 位尾数, 先加 p 会舍掉末位, 第一轮开工时脉冲的 d 比 elapsed 大一个 ulp, 底火灯 (峰 0) 闪断 (中级档的 GameTest 抓到的)。
+ */
+export const wrap = (t, p) => { const r = t % p; return r < 0 ? r + p : r; };
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 /** smoothstep(a, b, t) (a < b)。 */
 export const ramp = (t, a, b) => { const k = clamp01((t - a) / (b - a)); return k * k * (3 - 2 * k); };
@@ -210,24 +221,28 @@ export const distanceFade = (d) => (d == null ? 1 : 1 - ramp(d, FADE_START_BLOCK
 // ---------------------------------------------------------------- 一帧的输入 (MunitionsBenchLights.compute 的开头)
 const floorMod = (a, m) => ((a % m) + m) % m;
 /**
- * 渲染器给的输入 → 各时钟。inp: {active, full, elapsedTicks (整 tick, 程序起点起; 待机时不用), gameTime (整 tick), partialTick, distance};
- * program = parseProgramJava / 生成器的帧表 (取 beltX, 与 MunitionsBenchProgram.sample 同一张表)。
+ * 渲染器给的输入 → 各时钟。inp: {tier (档位 0..5, 必须给: 定循环长度, 也记在返回的帧上给 lightOverlays 定效果与颜色; 越界的整数按普通档),
+ * active, full, elapsedTicks (整 tick, 程序起点起; 待机时不用), gameTime (整 tick), partialTick, distance};
+ * program = parseProgramJava / 生成器的帧表 (取 beltX 与 cycleByTier, 与 MunitionsBenchProgram 同一张表)。
  * 起点比本地时钟快 (elapsed < 0) 时停在首帧 (与运动件相同: sample(0))。
  * partialTick 在 Java 里是 float: 先 Math.fround 成同一个 float, 各时钟 = 整 tick + 它, 在 double 里精确 (Java 同样在 double 里加;
- * 循环 tick 若按 float 加会比 elapsed 大一个 ulp, 第一轮的底火灯就被 d ≤ elapsed 误判成没发生过)。
+ * 循环 tick 若按 float 加会比 elapsed 大一个 ulp, 第一轮的底火灯就被 d ≤ elapsed 误判成没发生过); 程序时间再 × CYCLE_TICKS / 该档循环,
+ * cycleTick 与 elapsed 按同一个顺序算, 第一轮里两者逐位相同。皮带取样与运动件一样用 float 的程序时间 (Java 的 (float) cycle)。
+ * Java 的 compute(frame, tier, ..) 一次调用只有一个档位, 所以档位只在这里给一次 (帧上的 tier), 不许时间按一档、颜色按另一档。
  */
 export function lightFrame(inp, program) {
     const active = !!inp.active;
     const partial = Math.fround(inp.partialTick || 0);
+    const tier = requireTier(inp.tier, 'lightFrame');
     let e = active ? inp.elapsedTicks : 0, p = partial;
     if (e < 0) { e = 0; p = 0; }
-    const cycleTick = floorMod(e, CYCLE_TICKS) + p;
+    const cycleTick = programTick(program, e, p, tier);
     return {
-        active, full: !!inp.full,
-        cycleTick, elapsed: e + p,
+        tier, active, full: !!inp.full,
+        cycleTick, elapsed: (e + p) * program.cycleTicks / cycleTicksOf(program, tier),
         breathTick: floorMod(e, BREATH_PERIOD_TICKS) + p,
         clockTick: floorMod(inp.gameTime || 0, FULL_BLINK_PERIOD_TICKS) + partial,
-        beltX: active ? sampleProgram(program, cycleTick).beltX : 0,
+        beltX: active ? sampleProgram(program, Math.fround(cycleTick)).beltX : 0,
         distance: inp.distance,
     };
 }
@@ -305,11 +320,14 @@ function chaseRects(out, env, beltX, pal) {
     }
 }
 /**
- * 此刻要画的覆盖层 (MunitionsBenchLights.compute 的输出)。s = lightFrame(...); tier = 档位下标 (决定有哪些效果与颜色)。
+ * 此刻要画的覆盖层 (MunitionsBenchLights.compute 的输出)。s = lightFrame(...); 档位 (决定有哪些效果与颜色) 取帧上的 s.tier,
+ * 与时间映射同一个 (手搭的 s 没有 tier 时第二个参数给; 两个都给就必须相同, 否则报错)。
  * 顺序固定 (Java 同序, 对拍按顺序比; 游戏里上传时还会再按距离排序, 因为互不重叠, 顺序不影响画面):
  *   追光 → 前沿灯带 (呼吸 + 工位灯) → 冲压 → 落箱 → 满仓 → 宝石。
  */
-export function lightOverlays(s, tier) {
+export function lightOverlays(s, tier = s.tier) {
+    requireTier(tier, 'lightOverlays');
+    if (s.tier != null && s.tier !== tier) throw new Error(`lightOverlays: tier ${tier} differs from the frame's tier ${s.tier} (Java times and colours one tier per compute)`);
     const L = levels(s), out = [], mask = effectMask(tier), pal = paletteOf(tier);
     const on = (id) => (mask & (1 << EI[id])) !== 0;
     if (on('chase') && L.chase > 0) chaseRects(out, L.chase, s.beltX || 0, pal);
@@ -534,22 +552,94 @@ export function programProblems(prog) {
     const end = Math.min(...prog.rows.filter((r) => r.beltX === -BELT_PITCH).map((r) => r.tick));
     if (!(CHASE_WINDOW[0] <= start && start <= CHASE_WINDOW[1] && CHASE_WINDOW[2] <= end && end <= CHASE_WINDOW[3])) P.push(`chase window ${CHASE_WINDOW} does not wrap the belt step ${start}..${end}`);
     if (!(ALPHA_CUTOFF < BREATH_ALPHA[0] && BREATH_ALPHA[0] < BREATH_ALPHA[1])) P.push('breath alpha must stay above the discard cutoff');
-    // 光敏: 追光的瞬时频率 = 图案速度 (px/tick, 取帧表里皮带最快的一段) / 节距 × 20 tick/s, 不超过 3 Hz
-    let fastest = 0;
-    for (let i = 1; i < prog.rows.length; i++) fastest = Math.max(fastest, Math.abs(prog.rows[i].beltX - prog.rows[i - 1].beltX) / (prog.rows[i].tick - prog.rows[i - 1].tick));
-    if (CHASE_SPEED * fastest / BELT_PITCH * 20 > 3) P.push(`belt chase flashes at ${CHASE_SPEED * fastest / BELT_PITCH * 20} Hz (> 3 Hz)`);
+    // 每档的速度: 表与 tiers.mjs 相同 (生成器 / 预览 / 对拍读的是同一份), 冲压时刻 = STRIKE_TICK 映射过去的整 tick
+    const want = TIERS.map((T) => T.cycleTicks);
+    const cyc = prog.cycleByTier || [], stk = prog.strikeByTier || [];
+    if (cyc.join() !== want.join()) P.push(`CYCLE_TICKS_BY_TIER ${cyc} != tiers.mjs cycleTicks ${want}`);
+    cyc.forEach((c, t) => { if (stk[t] * CYCLE_TICKS !== STRIKE_TICK * c) P.push(`tier ${t}: strike tick ${stk[t]} is not STRIKE_TICK scaled to a ${c}-tick cycle`); });
+    // 光敏, 逐档 (photosensitivity): 追光与各路脉冲都不超过 MAX_FLASH_HZ
+    for (const [t, r] of photosensitivity(prog).entries()) {
+        if (r.chase > MAX_FLASH_HZ + 1e-9) P.push(`tier ${t}: belt chase flashes at ${r.chase} Hz (> ${MAX_FLASH_HZ} Hz)`);
+        for (const [ch, hz] of Object.entries(r.pulses)) if (hz > MAX_FLASH_HZ + 1e-9) P.push(`tier ${t}: ${ch} flashes at ${hz} Hz (> ${MAX_FLASH_HZ} Hz)`);
+    }
+    P.push(...firstCycleProblems(prog));
     return P;
 }
 /**
- * 覆盖层核对: 六档 × (工作 / 待机 / 待机满仓 / 工作满仓) × 程序时间 0..160 每 0.25 tick (呼吸两整周, 含第一轮的接缝尾巴) × 几个距离:
- * 两两不重叠、每个顶点的 α ≥ ALPHA_CUTOFF、rgb 是 0..255 整数、不超过 MAX_QUADS。返回 {problems, max: [每档最多几个]}。
+ * 第一轮开工: 开工之后真的发生过的拍 (循环里的程序时间已过了它的峰) 与跑了很久之后同一相位逐位相同, 不许被 d ≤ elapsed 误判成没发生过;
+ * 六档 × 开工后第一个循环的每一 tick × 九个 partialTick (五个不是 0.25 的倍数)。峰在上一轮的尾巴 (本来就不画) 不在这里查。
+ * (wrap 写成 ((t % p) + p) % p 时, 按档位映射过的程序时间会多一个 ulp, 中级档起报这一条。)
+ */
+export function firstCycleProblems(prog) {
+    const P = [];
+    const partials = [0, 0.1, 0.15957803, 0.25, 0.3, 0.4065408, 0.5, 0.8456556, 0.9999];
+    const beats = [['strike', STRIKE_PULSE.peak], ['drop', DROP_PULSE.peak], ['gem', GEM_PULSE.peak], ['gemEcho', GEM_ECHO_PULSE.peak], ...LEDS.map((l, i) => ['led_' + l.name, l.peak, i])];
+    for (let tier = 0; tier < TIERS.length; tier++) {
+        const c = cycleTicksOf(prog, tier), later = 10080 * 4;
+        for (let e = 0; e < c; e++) for (const p of partials) {
+            const a = lightFrame({ tier, active: true, elapsedTicks: e, partialTick: p }, prog);
+            const b = lightFrame({ tier, active: true, elapsedTicks: later + e, partialTick: p }, prog);
+            const la = levels(a), lb = levels(b);
+            for (const [k, peak, led] of beats) {
+                if (a.cycleTick < peak) continue;
+                const va = led == null ? la[k] : la.leds[led], vb = led == null ? lb[k] : lb.leds[led];
+                if (va !== vb) { P.push(`tier ${tier} first cycle e ${e} + ${p}: ${k} (peak ${peak}) already happened but draws ${va}, later ${vb}`); return P; }
+            }
+        }
+    }
+    return P;
+}
+/**
+ * 光敏, 每档一条 {cycleTicks, chase, pulses: {路: Hz}}:
+ *   chase = 皮带追光的瞬时频率 = 图案速度 (帧表里皮带最快的一段, px / 程序 tick × 倍速 CYCLE_TICKS / 该档循环 = px / 游戏 tick) × CHASE_SPEED / 节距 × 20 tick/s
+ *           (每一点每 "节距 / 速度" 过一次彗星头; 普通 1.5 Hz, 闪耀 3.0 Hz);
+ *   pulses = 这一档画得出的各路脉冲实测的闪烁频率: 按 lightFrame + levels 在游戏时间里跑该档 FLASH_WINDOW_CYCLES 个整循环 (每 1/8 tick),
+ *           数这一路从 < 0.5 升到 ≥ 0.5 的次数 ÷ 秒数 (路 = 冲压 / 落箱 / 宝石 (白闪与回响取大的, 与渲染器画的一样, 只有闪耀) / 各工位灯段)。
+ * 呼吸 (80 tick) 与满仓 (40 tick) 走游戏时间, 与档位无关 (0.25 / 0.5 Hz), 不在这里。
+ * 追光只在极品 (档 3) 起解锁, 但 chase 每档都按倍速算出来并核对 (保守: 以后下放追光也不会超限); chaseUnlocked 标出这一档画不画它。
+ */
+export const FLASH_WINDOW_CYCLES = 4;
+export function photosensitivity(prog) {
+    let fastest = 0;
+    for (let i = 1; i < prog.rows.length; i++) fastest = Math.max(fastest, Math.abs(prog.rows[i].beltX - prog.rows[i - 1].beltX) / (prog.rows[i].tick - prog.rows[i - 1].tick));
+    const pulses = flashRates(prog);
+    return (prog.cycleByTier || []).map((c, t) => ({
+        cycleTicks: c, chase: CHASE_SPEED * fastest * (CYCLE_TICKS / c) / BELT_PITCH * 20, chaseUnlocked: (effectMask(t) & (1 << EI.chase)) !== 0, pulses: pulses[t],
+    }));
+}
+function flashRates(program) {
+    return TIERS.map((T, tier) => {
+        const mask = effectMask(tier), on = (id) => (mask & (1 << EI[id])) !== 0;
+        const c = cycleTicksOf(program, tier), cycles = FLASH_WINDOW_CYCLES;
+        const count = {}, prev = {};
+        // 从一个很久以前开工的循环起点 (10080 = 各档循环与呼吸周期的公倍数) 跑整 cycles 个循环, 每 1/8 游戏 tick 一个样本
+        for (let q = 0; q < c * cycles * 8; q++) {
+            const L = levels(lightFrame({ tier, active: true, full: false, elapsedTicks: 10080 + Math.floor(q / 8), gameTime: 0, partialTick: (q % 8) / 8 }, program));
+            const ch = {};
+            if (on('strike')) ch.strike = L.strike;
+            if (on('drop')) ch.drop = L.drop;
+            if (on('gem')) ch.gem = Math.max(L.gem, L.gemEcho);
+            if (on('leds')) LEDS.forEach((l, i) => { ch['led_' + l.name] = L.leds[i]; });
+            for (const [k, v] of Object.entries(ch)) {
+                if (!(k in count)) count[k] = 0;
+                if (q > 0 && prev[k] < 0.5 && v >= 0.5) count[k]++;
+                prev[k] = v;
+            }
+        }
+        return Object.fromEntries(Object.entries(count).map(([k, n]) => [k, n / (c * cycles / 20)]));
+    });
+}
+/**
+ * 覆盖层核对: 六档 × (工作 / 待机 / 待机满仓 / 工作满仓) × 游戏时间 0..160 每 1/8 tick (呼吸两整周, 含第一轮的接缝尾巴; 程序时间里
+ * 最快的闪耀档也是每 0.25 tick 一个样本) × 几个距离: 两两不重叠、每个顶点的 α ≥ ALPHA_CUTOFF、rgb 是 0..255 整数、不超过 MAX_QUADS。
+ * 返回 {problems, max: [每档最多几个]}。
  */
 export function frameProblems(program) {
     const P = [], max = TIERS.map(() => 0);
     for (let tier = 0; tier < TIERS.length; tier++) for (const [active, full] of [[true, false], [false, false], [false, true], [true, true]]) {
-        for (const distance of [0, 21.5, 23.99]) for (let q = 0; q <= 640; q++) {
-            const e = Math.floor(q / 4), partial = (q % 4) / 4;
-            const rects = lightOverlays(lightFrame({ active, full, elapsedTicks: e, gameTime: e + 7, partialTick: partial, distance }, program), tier);
+        for (const distance of [0, 21.5, 23.99]) for (let q = 0; q <= 1280; q++) {
+            const e = Math.floor(q / 8), partial = (q % 8) / 8;
+            const rects = lightOverlays(lightFrame({ tier, active, full, elapsedTicks: e, gameTime: e + 7, partialTick: partial, distance }, program));
             max[tier] = Math.max(max[tier], rects.length);
             const where = `tier ${tier} ${active ? 'work' : 'idle'}${full ? '+full' : ''} d ${distance} t ${e + partial}`;
             const ov = overlapProblems(rects);

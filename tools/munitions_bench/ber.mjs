@@ -306,7 +306,10 @@ export const PROGRAM_COLUMNS = [
 export const POSE_FLOATS = ['beltX', 'primeY', 'powderY', 'ramY', 'dropY', 'dieHeat'];
 export const POSE_BOOLS = ['ramBulletVisible', 'powderCharged', 'seated'];
 
-/** 生成区块正文 (两行 <generated> 注释之间)。rows: [{tick, ...Pose 字段, label}], idle: Pose 字段。 */
+/**
+ * 生成区块正文 (两行 <generated> 注释之间)。rows: [{tick, ...Pose 字段, label}], idle: Pose 字段;
+ * cycleByTier / strikeByTier: 每档的循环长度与冲压时刻 (游戏 tick; tiers.mjs 的 cycleTicks, 生成器核对后给)。
+ */
 export function programBlock(meta) {
     const pad = (s, n) => (s.length >= n ? s : ' '.repeat(n - s.length) + s);
     const headers = PROGRAM_COLUMNS.map(([, k]) => k);
@@ -318,10 +321,18 @@ export function programBlock(meta) {
     };
     const line = (row) => '{' + headers.map((k, i) => cell(row, k, i)).join(', ') + '}';
     return [
-        '    /** 一个生产循环的长度 (tick): ' + meta.frames + ' 帧, 每帧 ' + meta.ticksPerFrame + ' tick。 */',
+        '    /** 一个生产循环的程序时间长度 (tick): ' + meta.frames + ' 帧, 每帧 ' + meta.ticksPerFrame + ' tick。关键帧按它写; 普通档按原速放 (= CYCLE_TICKS_BY_TIER[0])。 */',
         `    public static final int CYCLE_TICKS = ${meta.cycleTicks};`,
-        '    /** 冲头压到底 (弹头落到壳口上) 的时刻: 服务端在程序起点 + STRIKE_TICK + n × CYCLE_TICKS 播冲压音, 渲染器在同一时刻放火花。 */',
+        '    /** 冲头压到底 (弹头落到壳口上) 的程序时刻; 各档在游戏里的冲压时刻见 STRIKE_TICKS_BY_TIER (程序时间映射过去正好是它)。 */',
         `    public static final int STRIKE_TICK = ${meta.strikeTick};`,
+        '    /**',
+        '     * 各档一个生产循环的实际长度 (游戏 tick), 下标 = 档位 0..5 (普通..闪耀, 与 MunitionsBenchAssets.TIER_IDS 同序; tiers.mjs 的 cycleTicks):',
+        '     * 档位越高越快, 均匀阶梯到 2 倍速。游戏时间按 {@link #programTick} 映射到上面的程序时间。',
+        '     * 私有 (数组可写): 外面只经 {@link #cycleTicks} / {@link #tierCount} 读, 两端不会被哪一处误写而错拍。',
+        '     */',
+        `    private static final int[] CYCLE_TICKS_BY_TIER = {${meta.cycleByTier.join(', ')}};`,
+        '    /** 各档的冲压时刻 (游戏 tick, 循环内) = STRIKE_TICK 按比例缩到该档的循环: 服务端在程序起点 + 它 + n × 该档循环长度播冲压音, 渲染器在同一时刻放火花 (经 {@link #strikeTick} 读)。 */',
+        `    private static final int[] STRIKE_TICKS_BY_TIER = {${meta.strikeByTier.join(', ')}};`,
         '    /** 皮带节距 (px): 一个循环皮带正好走一个节距; 循环接缝处 beltX 从 -BELT_PITCH 跳回 0, 同时弹位整体换一次号, 画面不变。 */',
         `    public static final float BELT_PITCH = ${f1(meta.pitch)};`,
         '    private static final float[][] KEYFRAMES = {',
@@ -343,6 +354,7 @@ export function parseProgramJava(src) {
         cols[key] = Number(m[1]);
     }
     const intConst = (n) => { const m = new RegExp(`static final int ${n} = (\\d+);`).exec(src); if (!m) throw new Error('program parse: ' + n); return Number(m[1]); };
+    const intArray = (n) => { const m = new RegExp(`static final int\\[\\] ${n} = \\{([^}]*)\\};`).exec(src); if (!m) throw new Error('program parse: ' + n); return m[1].split(',').map((s) => Number(s.trim())); };
     const pitch = /static final float BELT_PITCH = ([-\d.]+)F;/.exec(src);
     const block = /KEYFRAMES\s*=\s*\{([\s\S]*?)\n\s*\};/.exec(src);
     if (!block) throw new Error('program parse: KEYFRAMES not found');
@@ -355,7 +367,10 @@ export function parseProgramJava(src) {
     for (const m of block[1].matchAll(/\{([^{}]*)\},?[ \t]*(?:\/\/[ \t]*([^\n]*))?/g)) rows.push(toRow(m[1].split(','), (m[2] || '').trim()));
     const idle = /float\[\] IDLE = \{([^}]*)\};/.exec(src);
     if (!idle) throw new Error('program parse: IDLE not found');
-    return { cycleTicks: intConst('CYCLE_TICKS'), strikeTick: intConst('STRIKE_TICK'), pitch: pitch ? num(pitch[1]) : null, cols, rows, idle: toRow(idle[1].split(',')) };
+    return {
+        cycleTicks: intConst('CYCLE_TICKS'), strikeTick: intConst('STRIKE_TICK'), pitch: pitch ? num(pitch[1]) : null, cols, rows, idle: toRow(idle[1].split(',')),
+        cycleByTier: intArray('CYCLE_TICKS_BY_TIER'), strikeByTier: intArray('STRIKE_TICKS_BY_TIER'),
+    };
 }
 
 // ================================================================ JS 镜像 (必须与 Java 逐行一致)
@@ -377,10 +392,48 @@ export function sampleProgram(prog, cycleTick) {
     for (const k of POSE_BOOLS) out[k] = b[k];
     return out;
 }
-/** MunitionsBenchProgram.sample(long elapsedTicks, float partialTick, Pose) 的镜像。 */
-export function sampleProgramAt(prog, elapsed, partial) {
-    const within = ((elapsed % prog.cycleTicks) + prog.cycleTicks) % prog.cycleTicks;
-    return sampleProgram(prog, within + partial);
+const floorMod = (a, m) => ((a % m) + m) % m;
+/**
+ * 档位参数必须给 (整数; 越界的整数与 Java 一样按普通档): 漏给档位时不静默按普通档算, 否则预览会拿普通档的速度配别档的颜色而不报错。
+ */
+export function requireTier(tier, who = 'tier') {
+    if (!Number.isInteger(tier)) throw new Error(`${who}: the tier (0..5) is required, got ${tier}`);
+    return tier;
+}
+/** MunitionsBenchProgram.cycleTicks(tier) / strikeTick(tier) 的镜像: 该档的循环长度 / 冲压时刻 (游戏 tick); 档位越界按普通档。 */
+export const cycleTicksOf = (prog, tier) => { const t = requireTier(tier, 'cycleTicksOf'); return prog.cycleByTier[t >= 0 && t < prog.cycleByTier.length ? t : 0]; };
+export const strikeTickOf = (prog, tier) => { const t = requireTier(tier, 'strikeTickOf'); return prog.strikeByTier[t >= 0 && t < prog.strikeByTier.length ? t : 0]; };
+/**
+ * MunitionsBenchProgram.programTick(long elapsedTicks, float partialTick, int tier) 的镜像: 游戏时间 → 程序时间
+ * ((elapsed mod 该档循环) + partial) × CYCLE_TICKS / 该档循环。partial 是 Java 的 float (先 fround), 其余在 double 里按与 Java
+ * 相同的顺序算 (先加、再乘、再除), 逐位相同。elapsed 要是整数且 < 2^53 (Java 的 long 在 JS 里只到这里精确)。
+ */
+export function programTick(prog, elapsed, partial, tier) {
+    const c = cycleTicksOf(prog, tier);
+    return (floorMod(elapsed, c) + Math.fround(partial)) * prog.cycleTicks / c;
+}
+/** MunitionsBenchProgram.sample(long elapsedTicks, float partialTick, int tier, Pose) 的镜像 (Java 把程序时间转成 float 再取样)。 */
+export function sampleProgramAt(prog, elapsed, partial, tier) {
+    return sampleProgram(prog, Math.fround(programTick(prog, elapsed, partial, tier)));
+}
+/** MunitionsBenchProgram.sampleRunning(long, float, int tier, Pose) 的镜像: 渲染器工作时的姿态, 起点比本地时钟快 (e < 0) 时停在首帧。 */
+export function sampleRunningMirror(prog, elapsed, partial, tier) {
+    requireTier(tier, 'sampleRunningMirror');
+    return elapsed < 0 ? sampleProgram(prog, 0) : sampleProgramAt(prog, elapsed, partial, tier);
+}
+/** MunitionsBenchProgram.isStrikeTick(long, int tier) 的镜像: 程序开始后第 e tick 是不是该档的冲压时刻 (起点之前没有)。 */
+export function isStrikeTickMirror(prog, e, tier) {
+    return e >= 0 && floorMod(e, cycleTicksOf(prog, tier)) === strikeTickOf(prog, tier);
+}
+/** MunitionsBenchProgram.nextStrikeTickAfter(long, int tier) 的镜像: e 之后 (严格大于) 的下一次冲压。 */
+export function nextStrikeTickAfterMirror(prog, e, tier) {
+    const c = cycleTicksOf(prog, tier), s = Math.floor(e / c) * c + strikeTickOf(prog, tier);
+    return s > e ? s : s + c;
+}
+/** MunitionsBenchProgram.strikeBetween(long since, long elapsed, int tier) 的镜像: (since, elapsed] 里有没有该档的冲压 tick (起点之前没有)。 */
+export function strikeBetweenMirror(prog, since, elapsed, tier) {
+    const from = Math.max(since, -1);
+    return elapsed > from && nextStrikeTickAfterMirror(prog, from, tier) <= elapsed;
 }
 export const idlePose = (prog) => copyRow(prog.idle);
 

@@ -20,7 +20,7 @@
 //     blockstates/munitions_bench{档}.json                                    layout=legacy_depth → 旧 JSON 模型 (原样), layout=wide → 上面的新模型
 //   src/main/java/com/miningdim/job/munitions/
 //     block/MunitionsBenchProgram.java    只替换 "<generated>" 与 "</generated>" 两行注释之间 (循环常量 + 关键帧表 + 待机行)
-//     block/MunitionsBenchGeometry.java   整个写出 (碰撞/轮廓箱、模型高度、运动件范围、火花位置、计数屏的布局与颜色)
+//     block/MunitionsBenchGeometry.java   整个写出 (碰撞/轮廓箱、模型高度、运动件范围、火花位置、计数屏的布局与颜色、运行灯效的 LIGHT_* (lights.mjs))
 //     client/MunitionsBenchParts.java     整个写出 (运动件 ModelPart 层 + applyPose)
 // {档} = '' | _medium | _high | _superior | _transcendent | _radiant。
 import fs from 'node:fs';
@@ -39,6 +39,10 @@ import {
     DISPLAY, QT, counterColours, layoutFromDisplay, colourTable, counterJavaLines, parseCounterJava, windingProblems,
     formatCount, textWidth, FONT_4x7, FONT_3x5, CALIBER_LABELS, MAX_ROUNDS, contrast,
 } from './counter.mjs';
+import {
+    lightsLayout, lightsJavaLines, parseLightsJava, layoutDiff, targetProblems, elementsOf, programProblems, frameProblems, overlayTopPx,
+    MAX_DISTANCE_BLOCKS as LIGHT_MAX_DISTANCE_BLOCKS, EFFECTS as LIGHT_EFFECTS,
+} from './lights.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1085,7 +1089,7 @@ function geometryJava(g) {
         '',
         '/**',
         ' * 军火台 WIDE 布局 (弹药流水线) 的几何常量: 轮廓箱 (静态件 + 运动件)、模型高度、运动件的活动范围、冲压火花的位置,',
-        ' * 以及弹药箱计数屏 (COUNTER_*) 的显示面、布局与每档颜色。',
+        ' * 弹药箱计数屏 (COUNTER_*) 的显示面、布局与每档颜色, 以及运行灯效 (LIGHT_*) 的目标面、时间、透明度与每档颜色。',
         ' * <p>',
         ' * 由 tools/munitions_bench/generate_munitions_bench.mjs 按方块模型的同一份场景整个写出, 不要手改。',
         ' * 刻意不依赖任何 Minecraft 类, 方块、方块实体、渲染器与 GameTest 都能直接用。',
@@ -1132,8 +1136,11 @@ function geometryJava(g) {
         '    /** 运动件 (方块实体渲染器画的件) 在整个循环与待机里扫过的范围, 整台坐标 {x, y, z} (px)。 */',
         `    public static final float[] PARTS_MIN = ${arr(g.partsMin)};`,
         `    public static final float[] PARTS_MAX = ${arr(g.partsMax)};`,
-        '    /** 运动件的最高点 (px), 方块实体渲染包围盒至少要到这里。 */',
-        `    public static final float RENDER_TOP_PX = ${f1(g.partsMax[1])};`,
+        '    /**',
+        '     * 方块实体渲染包围盒的顶 (px): 方块实体渲染器画的东西 —— 运动件 (最高 PARTS_MAX[1]) 与运行灯效的覆盖层 (闪耀宝石顶面浮出后',
+        '     * 最高, 见 LIGHT_*) —— 的最高点, 向上取整到 0.25 px。低了的话画面里只剩宝石时整个方块实体被视锥剔掉, 那一帧的灯效就没了。',
+        '     */',
+        `    public static final float RENDER_TOP_PX = ${f1(g.renderTop)};`,
         '',
         '    /** 冲压火花的位置 (整台坐标 = 主格局部坐标, px): 压弹头位那发的壳口, 冲头在 MunitionsBenchProgram.STRIKE_TICK 压到这里。 */',
         `    public static final float SPARK_X = ${f1(g.spark[0])};`,
@@ -1162,6 +1169,8 @@ function geometryJava(g) {
         `    public static final int PARTS_TEXTURE_HEIGHT = ${g.texH};`,
         '',
         ...counterJavaLines(g.counter.layout, g.counter.colours, f1),
+        '',
+        ...lightsJavaLines(g.lights),
         '',
         '    private MunitionsBenchGeometry() {',
         '    }',
@@ -1271,6 +1280,8 @@ function main() {
     // ---- 4. 方块模型 (静态件) + 物品模型 + 贴图
     const stats = [];
     const modelTops = [];
+    // 运行灯效的前提核对用: 每档 待机 / 工作 两格 JSON (即写出去的那份), 平移到整台坐标
+    const lightModels = TIERS.map(() => ({ idle: [], active: [] }));
     let offGrid = 0;
     TIERS.forEach((T, t) => {
         const sfx = T.suffix;
@@ -1285,6 +1296,7 @@ function main() {
                 errors.push(...v.errs);
                 top = Math.max(top, v.maxY); offGrid += v.offGrid;
                 st.models[name] = json.elements.length;
+                lightModels[t][state].push(...elementsOf([{ model: json, offset: [CELLS[cell][0], 0, CELLS[cell][1]] }]));
                 emit(path.join(RES, 'models', 'block', name + '.json'), stringifyModel(json));
             }
         }
@@ -1482,9 +1494,24 @@ function main() {
             if (k < 4.5) warns.push(`counter: idle digits in tier ${T.key} have ${k.toFixed(2)}:1 contrast against the window (target 4.5:1)`);
         });
     }
+    // ---- 8c. 运行灯效 (lights.mjs): 目标面落在每档刚生成的 JSON 的那个元素的那个面上 (shade / 自发光 / grow 的棱), 脉冲的峰与帧表对得上,
+    //          任何时刻覆盖层不重叠、α 不落在 (0, 0.1)、不超过 LIGHT_MAX_QUADS; 常量写进 Geometry 的 LIGHT_*
+    const lights = lightsLayout();
+    let lightMax = [];
+    {
+        errors.push(...targetProblems(lightModels).map((p) => 'lights: ' + p));
+        const prog = { cycleTicks: CYCLE * TICKS_PER_FRAME, strikeTick, pitch: PITCH, rows };
+        errors.push(...programProblems(prog).map((p) => 'lights: ' + p));
+        const fp = frameProblems(prog);
+        errors.push(...fp.problems.map((p) => 'lights: ' + p));
+        lightMax = fp.max;
+        if (LIGHT_MAX_DISTANCE_BLOCKS !== counter.layout.maxDist) errors.push(`lights: MAX_DISTANCE_BLOCKS ${LIGHT_MAX_DISTANCE_BLOCKS} != the counter's ${counter.layout.maxDist} (they share one early return in the renderer)`);
+    }
+    // 方块实体渲染包围盒的顶: 运动件与灯效覆盖层 (宝石顶面浮出 1/32) 里高的那个, 向上取整到 0.25 px
+    const renderTop = Math.ceil(Math.max(r4(partsHi[1]), overlayTopPx()) * 4) / 4;
     const geo = {
         bodyTop: worktop.to[1], modelTops, shapeTop: Math.max(...[...boxes.main, ...boxes.extension].map((b) => b.box[4])), boxes, partBoxes,
-        partsMin: partsLo.map(r4), partsMax: partsHi.map(r4), spark, line, texW: layer.texW, texH: layer.texH, counter,
+        partsMin: partsLo.map(r4), partsMax: partsHi.map(r4), renderTop, spark, line, texW: layer.texW, texH: layer.texH, counter, lights,
     };
     const geometrySrc = geometryJava(geo);
     {
@@ -1493,18 +1520,24 @@ function main() {
         let parsed = null;
         try { parsed = parseCounterJava(geometrySrc); } catch (e) { errors.push('Java round trip: ' + e.message); }
         if (parsed && JSON.stringify(canon(parsed)) !== JSON.stringify(canon({ ...counter.layout, colours: counter.colours }))) errors.push('Java round trip: COUNTER_* constants do not parse back to the counter layout / colours');
+        // LIGHT_* 同样
+        let pl = null;
+        try { pl = parseLightsJava(geometrySrc); } catch (e) { errors.push('Java round trip: ' + e.message); }
+        const d = pl && layoutDiff(pl, lights);
+        if (d) errors.push('Java round trip: LIGHT_* constants do not parse back to lights.mjs: ' + d);
     }
     emit(path.join(OUT, GEOMETRY_REL), geometrySrc);
 
     // ---- 9. 汇报 + 写盘
     console.log(`atlas ${A}x${A}: ${layout.regions} painted regions, ${layout.swatches} swatches; parts texture ${layer.texW}x${layer.texH} (${layer.blocks.length} box-UV blocks for ${layer.parts.reduce((n, p) => n + p.cubes.length, 0)} cubes in ${layer.parts.length} parts)`);
     for (const s of stats) console.log(`  ${s.key.padEnd(13)} static ${Object.values(s.models).join('/')} elements (main/ext idle, main/ext active), item ${s.item}${s.itemDropped ? ` (${s.itemDropped} too thin, dropped)` : ''}, add-ons [${s.addOns.join(', ')}]`);
-    console.log(`  model tops ${modelTops.join(' / ')} px; outline main ${boxes.main.length} + ${partBoxes.main.length} part boxes, extension ${boxes.extension.length} + ${partBoxes.extension.length} part boxes, top ${geo.shapeTop} px; parts sweep ${geo.partsMin} .. ${geo.partsMax}`);
+    console.log(`  model tops ${modelTops.join(' / ')} px; outline main ${boxes.main.length} + ${partBoxes.main.length} part boxes, extension ${boxes.extension.length} + ${partBoxes.extension.length} part boxes, top ${geo.shapeTop} px; parts sweep ${geo.partsMin} .. ${geo.partsMax}; render box top ${geo.renderTop} px`);
     console.log(`  program: ${rows.length} keyframes / ${CYCLE * TICKS_PER_FRAME} ticks, strike at tick ${strikeTick}; parts: ${layer.parts.map((p) => p.name).join(', ')}`);
     {
         const L = counter.layout;
         console.log(`  counter (option C): window face ${L.window.tl} px turned ${L.window.rot.angle} deg about x at ${L.window.rot.origin}, window ${Object.values(L.window.rect)} qt, bar ${Object.values(L.bar)}, count ${L.count.x},${L.count.y} w ${L.count.w}; stencil face ${L.stencil.tl} px row ${L.stencil.y}; lift ${L.lift} px`);
     }
+    console.log(`  lights: ${lights.targets.length} target faces in ${lights.groups.length} groups; unlocks ${LIGHT_EFFECTS.map((e, i) => `${e.id}>=${lights.unlock[i]}`).join(' ')}; max quads per tier ${lightMax.join(' / ')} (cap ${lights.maxQuads})`);
     if (offGrid) console.log(`  note: ${offGrid} block-model coordinates on the 0.25 grid but not the 0.5 grid`);
     for (const w of warns) console.warn('  WARN ' + w);
     if (errors.length) {

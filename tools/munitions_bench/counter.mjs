@@ -340,15 +340,17 @@ export function cornersTLBLBRTR(r) { return [[r.x0, r.y0], [r.x0, r.y1], [r.x1, 
 /** 一个矩形的四个角 (整台像素, 朝北, 浮在面外 LIFT), 顺序同上 (MunitionsBenchCounter.benchCorners 的一个矩形)。 */
 export function rectCorners(L, r) { return cornersTLBLBRTR(r).map(([u, v]) => facePoint(L, r.face, u, v)); }
 /**
- * 按台子朝向摆进主格 (方块坐标, MunitionsBenchCounter.blockCorners): translate(0.5, 0, 0.5) → 绕 y 转 yRot 度 (右手系,
- * = partsYRotationDegrees: 北 0 / 东 -90 / 南 180 / 西 90) → translate(-0.5, 0, -0.5) → scale(1/16)。返回每个矩形四个 [x, y, z]。
+ * 整台像素 (朝北) 的一点 → 主格方块坐标 (MunitionsBenchCounter.benchToBlock): translate(0.5, 0, 0.5) → 绕 y 转 yRot 度 (右手系,
+ * = partsYRotationDegrees: 北 0 / 东 -90 / 南 180 / 西 90) → translate(-0.5, 0, -0.5) → scale(1/16)。计数屏与灯效 (lights.mjs) 共用。
  */
-export function blockCorners(L, rects, yRot) {
+export function benchToBlock([px, py, pz], yRot) {
     const a = yRot * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
-    return rects.map((r) => rectCorners(L, r).map(([px, py, pz]) => {
-        const x = px / 16 - 0.5, z = pz / 16 - 0.5;
-        return [0.5 + x * c + z * s, py / 16, 0.5 - x * s + z * c];
-    }));
+    const x = px / 16 - 0.5, z = pz / 16 - 0.5;
+    return [0.5 + x * c + z * s, py / 16, 0.5 - x * s + z * c];
+}
+/** 按台子朝向摆进主格 (方块坐标, MunitionsBenchCounter.blockCorners): 每个矩形的四个角过一遍 benchToBlock。返回每个矩形四个 [x, y, z]。 */
+export function blockCorners(L, rects, yRot) {
+    return rects.map((r) => rectCorners(L, r).map((p) => benchToBlock(p, yRot)));
 }
 /** 顶点顺序自检: 两个面的绕序法线都必须与面的外法线 (北面, 窗面再转过箱盖的角度) 同向, 否则 textBackground 会把字当背面剔掉。 */
 export function windingProblems(L) {

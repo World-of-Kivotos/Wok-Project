@@ -661,6 +661,42 @@ runCheck(
 )
 
 // ============================================================
+// 12. 服务端推送事件名两侧逐条相等 (前端 lib/server-events.ts <-> 服务端 WebUiEventNames.java)
+// ============================================================
+//
+// 与上一条同理由, 且后果更隐蔽: 事件名对不上时推送照发、页面照收, 只是没有任何订阅者 —— 事件被静默丢弃,
+// 表现为"推送偶尔不到" (WebUI_ServerPush_DesignSpec 第三章)。两张表都只登记值, 键名各按语言习惯写。
+
+runCheck(
+  'server-event-names-parity',
+  'lib/server-events.ts 的 SERVER_EVENTS 与 WebUiEventNames.java 的事件名逐条相等',
+  () => {
+    const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..')
+    const javaFile = path.join(
+      REPO_ROOT, 'src', 'main', 'java', 'com', 'miningdim', 'webui', 'server', 'WebUiEventNames.java',
+    )
+    const tsText = stripComments(readFileSync(path.join(SRC_ROOT, 'lib', 'server-events.ts'), 'utf8'))
+    const javaText = readFileSync(javaFile, 'utf8')
+
+    const tsBlock = /SERVER_EVENTS\s*=\s*\{([^}]*)\}\s*as const/.exec(tsText)
+    assert.ok(tsBlock, 'lib/server-events.ts 里找不到 SERVER_EVENTS = { ... } as const (表的写法变了? 请同步本守卫)')
+    const frontend = [...tsBlock[1].matchAll(/:\s*'([^']+)'|:\s*"([^"]+)"/g)]
+      .map((match) => match[1] ?? match[2])
+      .sort()
+    const server = [...javaText.matchAll(/public static final String [A-Z_]+ = "([^"]+)";/g)]
+      .map((match) => match[1])
+      .sort()
+
+    assert.ok(server.length >= 1, 'WebUiEventNames.java 里一个事件名都没解析出来 (常量写法变了? 请同步本守卫)')
+    const onlyFrontend = frontend.filter((name) => !server.includes(name))
+    const onlyServer = server.filter((name) => !frontend.includes(name))
+    assert.deepEqual(onlyFrontend, [], `前端订阅了服务端从不推送的事件名: ${onlyFrontend.join(', ')}`)
+    assert.deepEqual(onlyServer, [], `服务端推送但前端没登记的事件名: ${onlyServer.join(', ')} (这些推送会被静默丢弃)`)
+    return `两侧各 ${String(frontend.length)} 个事件名, 逐条相等`
+  },
+)
+
+// ============================================================
 // 汇总输出
 // ============================================================
 

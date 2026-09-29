@@ -5,6 +5,7 @@ import {
   GiftIcon,
   HeartIcon,
   HomeIcon,
+  LockIcon,
   type LucideIcon,
   PickaxeIcon,
   SettingsIcon,
@@ -14,11 +15,17 @@ import {
   XIcon,
 } from 'lucide-react'
 import type { ReactElement, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
-import { Button, Currency, LoadingBlock, Tag, Toggle } from '@/components/kit'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { subscribeWebUiEvent } from '@/bridge/events'
+import { Button, Currency, EmptyBlock, LoadingBlock, Tag, Toggle } from '@/components/kit'
 import { handshake, isMockActive } from '@/lib/bridge'
 import { useBrand } from '@/lib/brand'
+import type { LoginGateCode } from '@/lib/login-gate'
+import { clearLoginGate, currentLoginGate, LOGIN_CHECK_UNAVAILABLE, useLoginGate } from '@/lib/login-gate'
+import { usePanelVisible } from '@/lib/panel-visibility'
 import { prefetchQuery } from '@/lib/query-cache'
+import { invalidateAll } from '@/lib/refresh'
+import { SERVER_EVENTS } from '@/lib/server-events'
 import { useTheme } from '@/lib/theme'
 import {
   callMock,
@@ -192,6 +199,47 @@ function describeMissingActions(missingOnServer: readonly string[]): string {
   return rest > 0 ? `${shown} 等 ${String(missingOnServer.length)} 条` : shown
 }
 
+interface LoginGateNoticeProps {
+  code: LoginGateCode
+  onRetry: () => void
+}
+
+/**
+ * 登录门提示 (见 lib/login-gate)。由外壳以不透明遮罩盖住整块内容区, 页面本身不卸载 (见外壳 main 处的说明)。
+ *
+ * 两个码分开措辞: 没登录的人该去输 /login; 登录校验不可用时输密码也没用, 只能找管理员。
+ * 按钮只是兜底: 登录落地后服务端会推一条事件, 提示挂着期间外壳也在退避重试, 两条都会自动撤掉提示。
+ */
+function LoginGateNotice({ code, onRetry }: LoginGateNoticeProps): ReactElement {
+  const unavailable = code === LOGIN_CHECK_UNAVAILABLE
+  return (
+    <EmptyBlock
+      action={
+        <Button onClick={onRetry} variant="outline">
+          {unavailable ? '重新检查' : '我已登录, 重新加载'}
+        </Button>
+      }
+      hint={
+        unavailable
+          ? '服务器暂时无法确认你的登录状态, 平板功能已全部暂停。请联系管理员。'
+          : '服务器还没有确认你的身份。请在聊天栏输入 /login <密码> 登录, 登录成功后这里会自动恢复。'
+      }
+      icon={<LockIcon aria-hidden="true" />}
+      title={unavailable ? '登录校验暂不可用' : '请先登录'}
+    />
+  )
+}
+
+/**
+ * 登录提示挂着期间的自动探测节奏: 首次 1 秒后, 之后每次翻倍, 封顶 15 秒。
+ *
+ * 为什么要有它 (推送之外): 推送是"快", 这里是"准"。AccessHub 的 /login 在后台线程算完才回写, 玩家敲完 /login
+ * 立刻打开平板往往还是被拒; 服务端会在回写落地时推 auth.loginConfirmed, 但推送按红线不保证送达 (桥没就绪时
+ * 宿主直接丢弃)。起步 1 秒盖住 /login 的常见耗时, 封顶 15 秒让忘了登录、把平板开着挂机的人每分钟只多四个请求。
+ */
+const LOGIN_PROBE_FIRST_DELAY_MS = 1000
+const LOGIN_PROBE_MAX_DELAY_MS = 15_000
+
 /*
  * StrictMode (main.tsx) 会在 dev 下把挂载期 effect 跑两遍。握手自检没有幂等性可言 —— 两遍各发一次
  * system.handshake、各打一遍诊断日志, 模块级守卫拦掉第二遍。
@@ -246,6 +294,85 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
     // (recordMirrorError 是全库唯一的失败落点, 见 mock/handlers.ts)。
     primeRealDomainMirror().catch(recordMirrorError)
   }, [])
+
+  /*
+   * 登录门 (lib/login-gate): 服务端说"还没 /login"之后, 内容区盖上一层登录提示。
+   *
+   * 重试 = 摘提示 + 全量作废 + 重拉背包镜像。仍未登录的话, 重拉的第一条回执就会把提示重新挂上, 所以这里不必
+   * 自己先问一次服务端。镜像要单独重拉: 它只在外壳挂载时预热一次, 登录前那次失败会一直挂在顶栏上。
+   */
+  const loginGate = useLoginGate()
+  const panelVisible = usePanelVisible()
+  const retryAfterLogin = useCallback(() => {
+    clearLoginGate()
+    invalidateAll()
+    primeRealDomainMirror().catch(recordMirrorError)
+  }, [])
+
+  /*
+   * 平板重新打开时自动重试一次: 玩家最自然的动作是关掉平板、去聊天栏 /login、再按 G 打开, 不该还要去点按钮。
+   * 全量作废已由 App 的同一条 panelOpened 订阅做了, 这里只补"摘提示 + 重拉镜像"。
+   */
+  useEffect(
+    () =>
+      subscribeWebUiEvent('panelOpened', () => {
+        if (currentLoginGate() !== null) {
+          clearLoginGate()
+          primeRealDomainMirror().catch(recordMirrorError)
+        }
+      }),
+    [],
+  )
+
+  /*
+   * 服务端确认登录 (WebUiEventNames.LOGIN_CONFIRMED): /login 的回写落地、登录门判定翻为放行时推来。
+   * 没挂提示时收到就忽略 —— 没有什么要恢复的, 不该为此把全部缓存作废一遍。
+   */
+  useEffect(
+    () =>
+      subscribeWebUiEvent(SERVER_EVENTS.loginConfirmed, () => {
+        if (currentLoginGate() !== null) {
+          retryAfterLogin()
+        }
+      }),
+    [retryAfterLogin],
+  )
+
+  /*
+   * 推送的兜底: 提示挂着且平板在屏幕上时, 按 LOGIN_PROBE_* 的退避节奏探测一次登录门。
+   *
+   * 探针是 player.isOp: 最轻的一条要过登录门的只读 action (system.handshake 在登录前也放行, 拿它探测永远"成功")。
+   * 它成功就说明门已放行, 当场撤提示重拉; 失败 (仍被拒会顺手把同一个码再记一遍, 不改状态) 就排下一次。
+   * 平板关着时不探: 宿主的关屏门会把请求挡掉, 重新打开时 panelOpened 那条已经会重试。
+   */
+  useEffect(() => {
+    if (loginGate === null || !panelVisible) {
+      return
+    }
+    let cancelled = false
+    let delay = LOGIN_PROBE_FIRST_DELAY_MS
+    let timer: number | undefined
+    const probe = (): void => {
+      callMock('player.isOp', EMPTY_PAYLOAD).then(
+        () => {
+          if (!cancelled) {
+            retryAfterLogin()
+          }
+        },
+        () => {
+          if (!cancelled) {
+            delay = Math.min(delay * 2, LOGIN_PROBE_MAX_DELAY_MS)
+            timer = window.setTimeout(probe, delay)
+          }
+        },
+      )
+    }
+    timer = window.setTimeout(probe, delay)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [loginGate, panelVisible, retryAfterLogin])
 
   useEffect(() => {
     if (handshakeStarted) {
@@ -499,10 +626,25 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
           内容区自己承接滚动: 根节点是 h-screen + overflow-hidden (见 App.tsx), 若这里不给滚动容器,
           超长页面会被直接裁掉而不是可滚。
           min-h-0 是必须的 —— flex 子项默认 min-height:auto, 不归零则 flex-1 撑不下去, overflow 永不触发。
+
+          登录提示是盖在内容区上的不透明遮罩, 不是替换 children: 页面一直挂着, 登录后回来还是原来那一页、原来的
+          筛选与没提交的输入, 只是数据随全量作废重拉。遮罩必须不透明 (bg-card), 否则被挡期间每个面板的请求都会
+          失败, 提示后面会透出一整页红色的"读取失败"; 被盖住的页面设 inert, 键盘 Tab 与读屏都进不去。
+          遮罩放在 main 的兄弟位而不是里面: main 自己在滚, 放里面会随页面一起滚走。
         */}
-        <main className="page-transition-surface min-h-0 flex-1 overflow-y-auto p-4">
-          {children}
-        </main>
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <main
+            className="page-transition-surface min-h-0 flex-1 overflow-y-auto p-4"
+            inert={loginGate !== null}
+          >
+            {children}
+          </main>
+          {loginGate === null ? null : (
+            <div className="absolute inset-0 overflow-y-auto bg-card p-4">
+              <LoginGateNotice code={loginGate} onRetry={retryAfterLogin} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

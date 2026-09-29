@@ -1,5 +1,6 @@
 package com.miningdim.config;
 
+import com.miningdim.core.auth.LoginGateMode;
 import net.minecraftforge.common.ForgeConfigSpec;
 
 import java.util.List;
@@ -121,6 +122,9 @@ public final class MiningServerConfig {
 
     // ---- 运维项 (不属 16.2 表, 与 maxGenWorkers 同性质): 移动校验 (movement) ----
     public static final ForgeConfigSpec.IntValue CREATIVE_FLIGHT_MAX_BLOCKS_PER_TICK;
+
+    // ---- 运维项: 登录门 (security; 判定真源 core.auth.PlayerLoginGate, 由 ConfigSystem 注入 getter) ----
+    public static final ForgeConfigSpec.EnumValue<LoginGateMode> LOGIN_GATE_MODE;
 
     /** 16.2.1 instance.overflowPolicy 枚举值 (REJECT 拒绝 / QUEUE 排队)。 */
     public enum OverflowPolicy {
@@ -327,6 +331,28 @@ public final class MiningServerConfig {
                         "Default 280 = roughly 5x the 54 blocks/tick measured at /flyspeed's 50x ceiling (flyingSpeed",
                         "2.5), so the whole range the script can produce stays clear of the check with margin to spare.")
                 .defineInRange("creativeFlightMaxBlocksPerTick", 280, 10, 2048);
+        b.pop();
+
+        b.push("security");
+        LOGIN_GATE_MODE = b.comment(
+                        "Login gate for this mod's client->server requests (tablet WebUI actions, miner skill keys,",
+                        "seasoning minigame input, and this mod's menus). The server runs in offline mode, so player",
+                        "identity is confirmed by AccessHub's /login; until a player has passed /login, this mod does",
+                        "not act on any of their requests.",
+                        "For players AccessHub reports as not logged in, the gate also cancels the interactions, chat",
+                        "and commands AccessHub itself blocks, at the highest event priority, so no mod listener acts",
+                        "on them first (AccessHub registers its own listeners at normal priority), and cancels",
+                        "damage and explosions they cause.",
+                        "Only applies on dedicated servers: AccessHub itself only runs there.",
+                        "AUTO     = enforce AccessHub (shinoyuki_accesshub) login when that mod is installed; if it is",
+                        "           installed but its API cannot be bound, reject everything (fail closed); if it is",
+                        "           not installed, allow everything (dev, GameTests, other servers).",
+                        "REQUIRED = like AUTO, but a dedicated server without AccessHub also rejects everything. Use",
+                        "           this on the production server so a missing AccessHub fails closed instead of",
+                        "           silently turning the login check off.",
+                        "OFF      = never check. Emergency switch only (e.g. an AccessHub update broke the binding);",
+                        "           while OFF, this mod does not check anyone's login state.")
+                .defineEnum("loginGate", LoginGateMode.AUTO);
         b.pop();
 
         SPEC = b.build();

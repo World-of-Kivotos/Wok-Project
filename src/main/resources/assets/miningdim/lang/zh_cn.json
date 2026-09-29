@@ -1305,5 +1305,8 @@
   "gun.miningdim.m16a4_gunsmith_burst.name": "枪匠三连发 M16A4",
   "gun.miningdim.m16a4_gunsmith_burst.desc": "枪匠冲压机装配的三连发 M16A4，实际战斗属性由零件 NBT 动态计算。",
   "gun.miningdim.hk416d_gunsmith_burst.name": "枪匠三连发 HK-416A5",
-  "gun.miningdim.hk416d_gunsmith_burst.desc": "枪匠冲压机装配的三连发 HK-416A5，实际战斗属性由零件 NBT 动态计算。"
+  "gun.miningdim.hk416d_gunsmith_burst.desc": "枪匠冲压机装配的三连发 HK-416A5，实际战斗属性由零件 NBT 动态计算。",
+  "message.miningdim.login_gate.required": "请先在聊天栏输入 /login 登录",
+  "message.miningdim.login_gate.unavailable": "登录校验暂不可用，请联系管理员",
+  "message.miningdim.login_gate.command_blocked": "登录前只能使用 /login、/register、/changepassword"
 }

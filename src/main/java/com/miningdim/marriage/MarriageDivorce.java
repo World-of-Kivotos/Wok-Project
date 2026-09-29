@@ -1,5 +1,6 @@
 package com.miningdim.marriage;
 
+import com.miningdim.core.auth.PlayerLoginGate;
 import com.miningdim.economy.Currency;
 import com.miningdim.economy.EconomyServices;
 import com.miningdim.economy.IEconomyService;
@@ -36,11 +37,12 @@ import java.util.UUID;
  * 按槽归属分配, 无归属的槽按槽号奇偶确定性平分 (旧存档/非菜单写入路径没有归属记录, 全给发起方正是设计文档点名
  * 要防的"离婚资产抢劫")。
  *
- * 清算口径: 分配出的物品统一进 {@link MarriageHistory} 的待领取清算表, 不直接塞玩家背包 —— 在线方由 settle 内
- * 的 {@link #deliverClaims} 立即下发, 离线方在下次登录时由 {@link MarriageSystem} 调同一方法补发。
+ * 清算口径: 分配出的物品统一进 {@link MarriageHistory} 的待领取清算表, 不直接塞玩家背包 —— 在线且已通过登录门的
+ * 一方由 settle 内的 {@link #deliverClaims} 立即下发, 其余在登录门确认身份后由 {@link MarriageSystem#deliverAfterLogin}
+ * 调同一方法补发。
  *
- * 离线侧: 提交/撤回/确认/结算全程不要求配偶在线。配偶离线时: 提交阶段的知情由登录时补发 filed_notify (见
- * {@link MarriageSystem#onPlayerLoggedIn}); capability 指针在其下次登录由 {@link MarriageSystem#reconcileMarriagePointer}
+ * 离线侧: 提交/撤回/确认/结算全程不要求配偶在线。配偶离线时: 提交阶段的知情在其登录门确认身份后补发 filed_notify
+ * (见 {@link MarriageSystem#deliverAfterLogin}); capability 指针在其下次登录由 {@link MarriageSystem#reconcileMarriagePointer}
  * 经 Registry 反查自愈 (关系已 dissolve, forPlayer 返 null -&gt; 清指针); 戒指 NBT 同样在登录时校验回收
  * (marriageId 已不在 Registry -&gt; RingItem 显占位); 清算物走上面的待领取表。
  */
@@ -140,11 +142,10 @@ public final class MarriageDivorce {
 
         initiator.sendSystemMessage(Component.translatable("message.miningdim.marriage.divorce.filed", remainingSeconds));
         ServerPlayer spouse = overworld.getServer().getPlayerList().getPlayer(spouseId);
-        if (spouse != null) {
-            spouse.sendSystemMessage(Component.translatable("message.miningdim.marriage.divorce.filed_notify",
-                    initiator.getGameProfile().getName(), remainingSeconds));
+        if (spouse != null && PlayerLoginGate.allows(spouse)) {
+            notifyPendingDivorce(spouse, state, overworld);
         }
-        // 离线配偶的知情由登录时补发 filed_notify (见 MarriageSystem#onPlayerLoggedIn)。
+        // 离线配偶 (以及在线但还没通过登录门的配偶) 的知情由登录门确认身份后补发 (见 MarriageSystem#deliverAfterLogin)。
 
         LOGGER.info("[marriage] divorce filed: marriageId={} initiator={} spouse={} cost={} effectiveAtTick={}",
                 marriageId, initiator.getUUID(), spouseId, cost, effectiveAtTick);
@@ -305,7 +306,28 @@ public final class MarriageDivorce {
         }
         recycleRings(player, marriageId);
         player.sendSystemMessage(Component.translatable("message.miningdim.marriage.divorce.done"));
-        deliverClaims(player);
+        // 还没通过登录门的一方: 清算物留在待领取表里, 登录门确认身份后由 MarriageSystem#deliverAfterLogin 下发
+        // (背包满时要落地; 身份确认之前不向这条连接交付物品)。
+        if (PlayerLoginGate.allows(player)) {
+            deliverClaims(player);
+        }
+    }
+
+    /**
+     * 给非发起方发一条公示期知情通知 (提交时在线且已登录的配偶当场收到; 其余情形由
+     * {@link MarriageSystem#deliverAfterLogin} 在登录门确认身份后补发)。剩余秒数按关系上的提交时刻现算。
+     */
+    static void notifyPendingDivorce(ServerPlayer player, MarriageState state, ServerLevel overworld) {
+        long remainingSeconds = Math.max(0L,
+                state.pendingDivorceFiledTick() + MarriageTuning.divorceEscrowTicks() - overworld.getGameTime()) / 20L;
+        ServerPlayer initiator = overworld.getServer().getPlayerList().getPlayer(state.pendingDivorceInitiator());
+        // 发起方此刻也可能离线: 离线玩家名字本 mod 拿不到 (全库零 GameProfileCache 用法, 与
+        // MarriageWebUiActions#addNameOrNull 同一处已知缺口), 退化用 UUID 兜底而不是编一个假名。
+        String initiatorName = initiator != null
+                ? initiator.getGameProfile().getName()
+                : state.pendingDivorceInitiator().toString();
+        player.sendSystemMessage(Component.translatable(
+                "message.miningdim.marriage.divorce.filed_notify", initiatorName, remainingSeconds));
     }
 
     /**
@@ -337,7 +359,8 @@ public final class MarriageDivorce {
     }
 
     /**
-     * 下发该玩家的全部待领取离婚清算物 (settle 内在线立即调, {@link MarriageSystem#onPlayerLoggedIn} 登录时补调)。
+     * 下发该玩家的全部待领取离婚清算物 (settle 内在线且已登录的一方立即调, {@link MarriageSystem#deliverAfterLogin}
+     * 在登录门确认身份后补调)。
      * 背包满则落地, 不吞物; 空表静默返回 (不刷屏)。
      */
     public static void deliverClaims(ServerPlayer player) {

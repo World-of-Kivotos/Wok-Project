@@ -17,6 +17,7 @@ import { BRIDGE_UNAVAILABLE_CODE, WebUiQueryError, webUiQuery } from '../bridge/
 import type { WebUiActionName } from './actions'
 import { SERVER_ACTIONS } from './actions'
 import { enqueueBatched, installBatchTransport, isBatchableAction } from './batch'
+import { noteLoginGateRejection } from './login-gate'
 import type {
   EconomyPriceTablePayload,
   EconomyPriceTableResult,
@@ -472,7 +473,10 @@ async function callDirect<A extends WebUiActionName>(
   } catch (queryError) {
     // 只翻译桥层错误 (把失败信封解成人话) 后原样重抛; 其它异常直接冒泡。这是转换, 不是吞异常。
     if (queryError instanceof WebUiQueryError) {
-      throw toCallError(action, queryError)
+      const callError = toCallError(action, queryError)
+      // 登录门拒绝顺手记进全局状态 (外壳据此换成登录提示, 见 lib/login-gate)。批量那条 system.batch 也走这里。
+      noteLoginGateRejection(callError)
+      throw callError
     }
     throw queryError
   }
@@ -500,11 +504,10 @@ export type WebUiEventHandler = (data: unknown) => void
 /**
  * 订阅服务端下行事件, 返回退订函数。
  *
- * data 是 unknown 而非具体类型: 服务端 sendWebUiEvent 至今零业务调用方, 现在给事件定字段名
- * 等于凭空发明契约; 首个真实发送方落地时再收窄 (决策 J2 把成交/求婚/击杀结算划给推送)。
+ * data 是 unknown 而非具体类型: 服务端目前唯一的业务推送 auth.loginConfirmed 载荷为空对象, 带数据的
+ * 推送 (决策 J2 把成交/求婚/击杀结算划给推送) 落地时再逐条收窄。事件名一律取 lib/server-events.ts 的登记表。
  *
- * 红线: 任何功能都不能依赖本通道到达才能工作 —— 进度类数据一律轮询。这里接住它, 只是为了
- * 首个生产发送方上线时事件不会被静默丢弃。
+ * 红线: 任何功能都不能依赖本通道到达才能工作 —— 进度类数据一律轮询。
  */
 export function on(eventName: string, handler: WebUiEventHandler): () => void {
   // installWebUiEventBridge 内部按引用计数装卸全局入口, 与 App 的挂载期安装叠加不会互相摘掉。

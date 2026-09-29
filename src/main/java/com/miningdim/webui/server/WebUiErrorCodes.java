@@ -158,6 +158,24 @@ public final class WebUiErrorCodes {
     public static final String TOO_MANY_REQUESTS = "TOO_MANY_REQUESTS";
 
     /**
+     * 发送者还没通过 AccessHub 的 /login (离线模式服务器上名字不经验证, 身份以 /login 为准)。
+     * 抛出点: {@link WebUiServerDispatcher#dispatchAndRespond} 的登录门 (限流之后、判重之前)。无 params。
+     *
+     * 与 {@link #PERMISSION_DENIED} 分开: 那是"你是谁已确定, 但没这个权限", 这里是"还不能确定你是谁"。
+     * 合成一个码会让前端对一个刚进服还没登录的 OP 显示"需要 OP 权限"。
+     */
+    public static final String NOT_LOGGED_IN = "NOT_LOGGED_IN";
+
+    /**
+     * 登录态无从判定 (装了 AccessHub 但没跑起来或 API 对不上, 或正式服设了 REQUIRED 却没装它), 按拒绝处理。
+     * 抛出点同 {@link #NOT_LOGGED_IN}。无 params。
+     *
+     * 单立一码而不并进 {@link #NOT_LOGGED_IN}: 这时玩家做什么都没用 (/login 了也照样被拒), 文案必须引导他去找
+     * 管理员, 而不是让他反复输密码。
+     */
+    public static final String LOGIN_CHECK_UNAVAILABLE = "LOGIN_CHECK_UNAVAILABLE";
+
+    /**
      * 查注册表落空 (action 名未注册)。抛出点: {@link WebUiServerDispatcher#dispatchAndRespond}。无 params。
      *
      * 改用业务码而非裸异常的理由: 未知 action 是任何改版客户端都能无限触发的失败, 走裸异常会让每个垃圾包在

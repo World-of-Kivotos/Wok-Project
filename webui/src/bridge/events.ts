@@ -2,8 +2,9 @@
  * 服务端事件下行 (S2CWebUiEvent -> WebUiBridge.onEvent -> window.miningdimOnEvent)。
  * window 上那三个全局的类型声明在 ./types.ts (全局增强, 无需 import)。
  *
- * 重要现状: 服务端侧 sendWebUiEvent 目前**零业务调用方**, 这条是空管道。前端必须接住它 (否则首个
- * 生产调用方落地时事件会静默丢弃), 但任何业务逻辑都不能依赖它到达 —— 进度类数据一律轮询 (决策 J2)。
+ * 现状: 服务端侧 sendWebUiEvent 目前只有一个业务调用方 —— 登录门确认登录时推 auth.loginConfirmed
+ * (事件名登记在 lib/server-events.ts, 与 Java 的 WebUiEventNames 逐条相等)。宿主自己另派 panelOpened /
+ * panelClosed 两条。任何业务逻辑都不能依赖事件到达 —— 进度类数据一律轮询 (决策 J2), 登录提示也另有退避探测兜底。
  */
 
 type WebUiEventListener = (data: unknown) => void

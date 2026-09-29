@@ -1,6 +1,7 @@
 package com.miningdim.marriage;
 
 import com.miningdim.core.Subsystem;
+import com.miningdim.core.auth.PlayerLoginGate;
 import com.miningdim.entry.IMiningPlayerData;
 import com.miningdim.entry.MiningCapabilities;
 import net.minecraft.network.chat.Component;
@@ -36,9 +37,9 @@ import java.util.Objects;
  *  - 离婚: /marriage divorce 三段式经 {@link MarriageDivorce} —— 提交 (扣成本 + 开公示期) -&gt; 公示期 (共享背包冻结,
  *    可撤回/可提前确认) -&gt; 到期低频扫描自动生效 (本类 onServerTick 每 100 tick 调 finalizeMatured) -&gt; 按槽归属清算
  *    共享背包 + 记再婚冷却 ({@link MarriageHistory})。
- *  - 登录自愈: capability 婚姻指针指向已解除关系时清指针 (离线配偶离婚后登录自愈) + 下发待领取的离婚清算物
- *    ({@link MarriageDivorce#deliverClaims}) + 补发离线期间错过的公示期知情通知 + 清掉该玩家牵涉的求婚意向
- *    (F098: 意向寿命上界是连续在线的这一段会话, 登出即作废)。
+ *  - 登录自愈: capability 婚姻指针指向已解除关系时清指针 (离线配偶离婚后登录自愈) + 清掉该玩家牵涉的求婚意向
+ *    (F098: 意向寿命上界是连续在线的这一段会话, 登出即作废); 登录门确认身份之后 ({@link #deliverAfterLogin})
+ *    再下发待领取的离婚清算物 ({@link MarriageDivorce#deliverClaims}) 并补发错过的公示期知情通知。
  *
  * 注入顺序: 经济门面经 {@link com.miningdim.economy.EconomyServices} 定位器在事件回调取用, 对 register 顺序不敏感。
  */
@@ -82,6 +83,8 @@ public final class MarriageSystem implements Subsystem {
         MarriageWebUiActions.registerAll(proposals, backpackSessions);
         wiredProposals = proposals;
         wiredBackpackSessions = backpackSessions;
+        // 进服时要发给本人的离婚清算物与公示期知情通知, 等登录门确认身份后再发 (见 deliverAfterLogin)。
+        PlayerLoginGate.onLoginConfirmed((player, atJoin) -> deliverAfterLogin(player));
         LOGGER.info("[miningdim] marriage subsystem registered (rings + ceremony + shared backpack + teleport + divorce)");
     }
 
@@ -118,6 +121,15 @@ public final class MarriageSystem implements Subsystem {
         }
         // 主手才响应 (避免主副手双触)。
         if (event.getHand() != InteractionHand.MAIN_HAND) {
+            return;
+        }
+        // 登录门: 本监听器排在 AccessHub 之前 (AccessHub 开服时才注册自己的监听器)。"还没 /login" 这一种已由
+        // LoginGateSubsystem 在 HIGHEST 取消, 事件到不了这里; 这里补的是登录态无从判定 (UNAVAILABLE) —— 那时原版
+        // 交互照常放行, 但本 mod 的功能 (戒指传送、共享背包) 一律关门。
+        PlayerLoginGate.Verdict login = PlayerLoginGate.check(player);
+        if (!login.allowed()) {
+            player.displayClientMessage(PlayerLoginGate.rejectionMessage(login), true);
+            event.setCanceled(true);
             return;
         }
         ServerLevel overworld = player.getServer().overworld();
@@ -225,8 +237,11 @@ public final class MarriageSystem implements Subsystem {
     }
 
     /**
-     * 登录: capability 婚姻指针指向已解除关系时清指针 (离线配偶离婚后登录自愈; spec 第六章离线侧) + 下发离线期间
-     * 积压的离婚清算物 + 若当前关系正处于公示期且本人不是发起方, 补发一条知情通知 (提交阶段离线时错过的那条)。
+     * 登录: capability 婚姻指针指向已解除关系时清指针 (离线配偶离婚后登录自愈; spec 第六章离线侧)。
+     *
+     * 离线期间积压的离婚清算物与公示期知情通知<b>不在这里发</b>, 改由 {@link #deliverAfterLogin} 在登录门确认身份
+     * 之后发: 进服那一刻连接还可能没通过 AccessHub /login, 通知里有配偶的名字与离婚进度, 清算物则会在背包满时
+     * 落地, 两者都应等身份确认之后再交付。没装 AccessHub 的服务器上两者照旧在进服时送达。
      */
     @SubscribeEvent
     public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
@@ -234,6 +249,16 @@ public final class MarriageSystem implements Subsystem {
             return;
         }
         reconcileMarriagePointer(player);
+    }
+
+    /**
+     * 登录门确认身份之后 ({@link PlayerLoginGate#onLoginConfirmed}; 进服即放行时在进服当刻, 否则在 /login 落地时):
+     * 下发离线期间积压的离婚清算物 + 若当前关系正处于公示期且本人不是发起方, 补发一条知情通知 (提交阶段离线或
+     * 未登录时错过的那条)。
+     *
+     * 同一连接里管理员重置后重新 /login 会再触发一次: 清算物表已空, 不重复发放; 知情通知再发一遍无害。
+     */
+    static void deliverAfterLogin(ServerPlayer player) {
         MarriageDivorce.deliverClaims(player);
 
         IMiningPlayerData data = MiningCapabilities.get(player).orElse(null);
@@ -243,16 +268,7 @@ public final class MarriageSystem implements Subsystem {
         ServerLevel overworld = player.getServer().overworld();
         MarriageState state = MarriageRegistry.get(overworld).byId(data.marriageId());
         if (state != null && state.hasPendingDivorce() && !player.getUUID().equals(state.pendingDivorceInitiator())) {
-            long remainingSeconds = Math.max(0L,
-                    state.pendingDivorceFiledTick() + MarriageTuning.divorceEscrowTicks() - overworld.getGameTime()) / 20L;
-            ServerPlayer initiator = overworld.getServer().getPlayerList().getPlayer(state.pendingDivorceInitiator());
-            // 发起方此刻也可能离线: 离线玩家名字本 mod 拿不到 (全库零 GameProfileCache 用法, 与
-            // MarriageWebUiActions#addNameOrNull 同一处已知缺口), 退化用 UUID 兜底而不是编一个假名。
-            String initiatorName = initiator != null
-                    ? initiator.getGameProfile().getName()
-                    : state.pendingDivorceInitiator().toString();
-            player.sendSystemMessage(Component.translatable(
-                    "message.miningdim.marriage.divorce.filed_notify", initiatorName, remainingSeconds));
+            MarriageDivorce.notifyPendingDivorce(player, state, overworld);
         }
     }
 

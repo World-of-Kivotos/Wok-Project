@@ -9,7 +9,7 @@
 | 模块键 | 模块 | Java 文件 | GameTest | 主要入口 | 直接目标依赖 |
 | --- | --- | ---: | ---: | --- | --- |
 | `wok-app` | WOK-综合装配模块 | 1 | 0 | `MiningDim` | 全部业务模块 |
-| `wok-core` | WOK-核心模块 | 73 | 40 | `ConfigSystem`、`NetworkSystem`、`EntrySystem`、`ErrorSystem` | 无；现有反向引用见债务表 |
+| `wok-core` | WOK-核心模块 | 73 | 40 | `ConfigSystem`、`NetworkSystem`、`LoginGateSubsystem`（`core.auth` 登录门）、`EntrySystem`、`ErrorSystem` | 无；现有反向引用见债务表 |
 | `wok-store` | WOK-持久化存储模块 | 10 | 13 | `MiningStoreSubsystem` | 核心；SQLite 可选 |
 | `wok-experience` | WOK-全服经验模块 | 8 | 8 | `ExperienceModule` | 核心 |
 | `wok-job-core` | WOK-职业框架模块 | 19 | 26 | `JobFrameworkSystem` | 核心、全服经验、经济、WebUI |

@@ -2,6 +2,7 @@ package com.miningdim.config;
 
 import com.miningdim.core.MiningServices;
 import com.miningdim.core.Subsystem;
+import com.miningdim.core.auth.PlayerLoginGate;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.event.config.ModConfigEvent;
@@ -34,6 +35,9 @@ public final class ConfigSystem implements Subsystem {
 
         // 门面注入: 构造期绑定, 业务系统按接口取用。
         MiningServices.registerConfig(config);
+        // 登录门模式 (security.loginGate) 同样由这里注入: core.auth 不反向引用 config 包 (core 是最底层)。
+        // 传的是 getter 而不是当前值, 判定每次现读, 运维改完即生效。
+        PlayerLoginGate.bindModeSource(MiningServerConfig.LOGIN_GATE_MODE::get);
 
         // 16.7 跨字段一致性校验: Loading 与 Reloading 都校验 (改值后立即复核)。
         modBus.addListener(this::onConfigLoad);

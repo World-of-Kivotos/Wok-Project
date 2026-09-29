@@ -3,6 +3,7 @@ package com.miningdim.economy;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.miningdim.core.MiningConstants;
+import com.miningdim.core.auth.PlayerLoginGate;
 import com.miningdim.testutil.MockGameTestPlayers;
 import com.miningdim.webui.server.WebUiBusinessException;
 import com.miningdim.webui.server.WebUiServerDispatcher;
@@ -68,6 +69,46 @@ public final class EconomyAdminWebUiGameTests {
                     "被 OP 门拒的 set 一分钱都不许改, 实得 " + ledger.balance(target.getUUID(), Currency.CREDIT));
             helper.succeed();
         } finally {
+            restoreEconomy(prev);
+        }
+    }
+
+    /**
+     * 登录门: 还没 /login 的 OP 玩家经真实网关调 admin.economy.set 不生效; 同一个人登录之后同一条请求照常生效。
+     *
+     * 权限与身份是两道独立的检查: OP 门 ({@link com.miningdim.webui.server.WebUiPermissions#requireOp}) 只判权限,
+     * 身份由登录门按 AccessHub 的登录态确认, 两者互不替代。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void opNamedPlayerCannotSetBalancesBeforeLogin(GameTestHelper helper) {
+        SqliteEconomyLedger ledger = SqliteEconomyLedger.openInMemory();
+        IEconomyService prev = swapEconomy(new EconomyService(ledger, new AbuseGuard(), newStateResolver()));
+        ServerPlayer sender = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        try {
+            helper.getLevel().getServer().getPlayerList().op(sender.getGameProfile());
+            ServerPlayer target = resolveTarget(helper, sender);
+            EconomyServices.economyService().grant(target, Currency.CREDIT, 500L);
+            ensureAdminActionsRegistered();
+
+            String payload = setPayload(target, Currency.CREDIT, 9_999_999L).toString();
+            try (PlayerLoginGate.ForcedVerdict ignored = PlayerLoginGate.forceVerdictForTest(
+                    sender.getUUID(), PlayerLoginGate.Verdict.NOT_LOGGED_IN)) {
+                helper.assertTrue(helper.getLevel().getServer().getPlayerList().isOp(sender.getGameProfile()),
+                        "前提校验: 该玩家是 OP, 权限检查本身会放行");
+                WebUiServerDispatcher.dispatchAndRespond(sender, 7_300_001L, SET_ACTION, payload);
+                helper.assertTrue(ledger.balance(target.getUUID(), Currency.CREDIT) == 500L,
+                        "未登录时经网关调 admin.economy.set 不得修改余额, 账本实得 "
+                                + ledger.balance(target.getUUID(), Currency.CREDIT));
+            }
+
+            // 登录之后: 同一条请求 (新 requestId) 经同一个网关照常生效, 证明上面挡住它的是登录门而不是别的环节。
+            WebUiServerDispatcher.dispatchAndRespond(sender, 7_300_002L, SET_ACTION, payload);
+            helper.assertTrue(ledger.balance(target.getUUID(), Currency.CREDIT) == 9_999_999L,
+                    "登录后的 OP 经网关调 admin.economy.set 必须生效, 账本实得 "
+                            + ledger.balance(target.getUUID(), Currency.CREDIT));
+            helper.succeed();
+        } finally {
+            helper.getLevel().getServer().getPlayerList().deop(sender.getGameProfile());
             restoreEconomy(prev);
         }
     }

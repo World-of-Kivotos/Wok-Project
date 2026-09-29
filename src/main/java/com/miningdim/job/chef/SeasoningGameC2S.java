@@ -1,5 +1,6 @@
 package com.miningdim.job.chef;
 
+import com.miningdim.core.auth.PlayerLoginGate;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -62,6 +63,13 @@ public record SeasoningGameC2S(Action action, int target) {
             // 且不回发任何数据包: 记 WARN 会被单个玩家把日志与磁盘 IO 拉爆, 回消息等于让服务端自己放大出站带宽。
             if (msg.action == null) {
                 LOGGER.debug("Rejected invalid seasoning packet from {}", sender.getGameProfile().getName());
+                return;
+            }
+            // 登录门: 未通过 AccessHub /login 的连接不处理。正常情况下这时调味台菜单根本开不着 (AccessHub
+            // 与 LoginGateSubsystem 都会把菜单关掉), 这里兜的是菜单开着时登录态被管理员重置的那一段。
+            if (!PlayerLoginGate.allows(sender)) {
+                LOGGER.debug("Rejected seasoning action {} from {}: not past the login gate", msg.action,
+                        sender.getGameProfile().getName());
                 return;
             }
             AbstractContainerMenu menu = sender.containerMenu;

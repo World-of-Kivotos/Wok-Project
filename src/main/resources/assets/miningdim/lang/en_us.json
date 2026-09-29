@@ -1305,5 +1305,8 @@
   "gun.miningdim.m16a4_gunsmith_burst.name": "Gunsmith Burst M16A4",
   "gun.miningdim.m16a4_gunsmith_burst.desc": "A three-round-burst M16A4 assembled at the Gunsmith Press; its real combat stats are computed dynamically from part NBT.",
   "gun.miningdim.hk416d_gunsmith_burst.name": "Gunsmith Burst HK-416A5",
-  "gun.miningdim.hk416d_gunsmith_burst.desc": "A three-round-burst HK-416A5 assembled at the Gunsmith Press; its real combat stats are computed dynamically from part NBT."
+  "gun.miningdim.hk416d_gunsmith_burst.desc": "A three-round-burst HK-416A5 assembled at the Gunsmith Press; its real combat stats are computed dynamically from part NBT.",
+  "message.miningdim.login_gate.required": "Log in first: type /login in chat",
+  "message.miningdim.login_gate.unavailable": "Login check is unavailable right now; please contact an admin",
+  "message.miningdim.login_gate.command_blocked": "Before you log in, only /login, /register and /changepassword work"
 }

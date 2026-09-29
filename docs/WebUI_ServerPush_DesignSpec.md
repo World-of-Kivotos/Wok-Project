@@ -5,6 +5,11 @@
 > **本规格未作废, 仍是计划之内的工作**, 只是排在接线批次之后 (理由见第二章)。
 > 通道整条已建好, 但**生产侧至今零调用方** (2026-09-20 复核: 全库搜 `sendWebUiEvent` 仍只命中门面定义处),
 > 故本文的"三个发送方""事件名常量表"全是待做项, 不是现状描述。
+>
+> 2026-09-29 更新: 登录门分支落了第一个生产发送方 `auth.loginConfirmed` (`WebUiServerSubsystem` 挂在
+> `PlayerLoginGate.onLoginConfirmed` 上), 事件名常量表按第三章规格建成 (`webui/server/WebUiEventNames.java` <->
+> `webui/src/lib/server-events.ts`, 两侧逐条相等由 `pnpm check:contract` 核对)。本文的三个业务发送方仍是待做项;
+> handshake 回报事件名一项也没有做。
 
 所属: WebUI 全量接线 W12 横切分支
 前置文档: `WebUI_Architecture_DesignSpec.md` 第 5.1 节、`WebUI_Wiring_Execution_Scope.md` 第四章 W12
@@ -20,7 +25,7 @@
 |---|---|---|
 | S2C 包定义 | `network/S2CWebUiEvent.java` (`record(String eventName, String dataJson)`) | 已实现 |
 | 包注册 | `MiningNetwork.register()` 里 Web UI 三包的 `registerMessage(nextId(), S2CWebUiEvent.class, ...)` | 已注册 |
-| 服务端发送门面 | `MiningNetwork.sendWebUiEvent(ServerPlayer, S2CWebUiEvent)` | 已实现, **零生产调用方** |
+| 服务端发送门面 | `MiningNetwork.sendWebUiEvent(ServerPlayer, S2CWebUiEvent)` | 已实现; 生产调用方只有登录门的 `auth.loginConfirmed` (2026-09-29) |
 | 断连守卫 | 同上, 内部 `canReceive(player)` 短路 | 已实现 |
 | 客户端接收 | `client/webui/WebUiClientReceiver.onEvent` | 已实现 |
 | 桥未就绪处置 | 同上, 静默 `LOGGER.debug` 后丢弃 | 已实现 (刻意丢弃, 见第五章) |
@@ -63,7 +68,7 @@
 - **两张表仍是手工同步**——与现有 action 表同病。缓解手段是让 `system.handshake` 的自检把事件名一并回报,
   前端启动时比对, 缺一个就在控制台报出来 (与 `missingOnServer` 同机制)。
 
-初版三个名字:
+初版三个名字 (另有已落地的 `LOGIN_CONFIRMED` = `auth.loginConfirmed`, 见文首更新):
 
 | 常量 | 值 |
 |---|---|

@@ -85,6 +85,7 @@
 [webui.server 网关]  com.miningdim.core.Subsystem.register(modBus, forgeBus)
   - WebUiServerDispatcher：全局 action 派发表（条数不在本文写死，真源是 registeredActions()）+ requestId 去重防重放 + 自省下发
   - WebUiRateLimiter：每玩家令牌桶限流（F008）
+  - 登录门：`core.auth.PlayerLoginGate`，AccessHub `/login` 通过前拒绝一切服务端 action（见第八章第 8 条）
   - WebUiPermissions（权限门）/ WebUiErrorCodes（错误码）/ WebUiBusinessException（业务异常）
   - WebUiBatchAction：只读批量通道 system.batch（白名单即安全边界，见 5.4）
   - HubWebUiActions：平板 hub 面板目录
@@ -180,6 +181,7 @@ MC 原生 `EditBox` 浮在 WebUiScreen 上接收键盘（含中文 IME，因为�
 5. 无 localhost 端口：远端模式不起 `EmbeddedWebServer`，消除本机 HTTP 攻击面。
 6. requestId 去重防重放（**`system.batch` 批内子 action 除外，见 5.4**：整批只占一个 requestId，故白名单只收只读 handler）；交易事务原子，失败回滚不留半成品。
 7. 每玩家令牌桶限流（`webui.server.WebUiRateLimiter`，F008）：派发前先过限流门，挡住单客户端刷 action 打爆服务端主线程。
+8. 登录门（`core.auth.PlayerLoginGate`）：服务器是离线模式，名字不经 Mojang 验证，玩家身份以 AccessHub `/login` 为准；未通过 `/login` 的连接不得触发本 mod 的任何操作。派发器在限流之后、判重之前逐请求现查 AccessHub 登录态（反射读 `PlayerAuthService.isAuthed`，不编译依赖闭源 jar），未登录回 `NOT_LOGGED_IN`，登录态无从判定回 `LOGIN_CHECK_UNAVAILABLE`，handler 一条都不跑（`system.batch` 整批拒）。登录前唯一放行的是 `system.handshake`（公开的版本号与 action 名单）。同一个门还挡着矿工三个键位包、调味台小游戏包、结婚戒指右键和本 mod 菜单的打开。对 AccessHub 报告为未登录的玩家，还在 HIGHEST 优先级统一取消 AccessHub 自己会取消的那批交互、聊天与命令事件：AccessHub 开服时才以 NORMAL 注册监听器，排在本 mod 的同优先级监听器（如实体堆叠）之后，在 HIGHEST 先行取消保证任何监听器都不会处理未登录玩家的交互。另有两项防御性检查：连接核对（`core.auth.LoginRaceGuard`，把登录结果与发出 `/login` 的连接核对，该连接已断开时撤销这次登录），以及开服审计（列出尚未注册 AccessHub 账号的 OP 名字，提醒尽快注册）。行为由服务端配置 `security.loginGate` 决定：`AUTO`（默认，装了 AccessHub 才强制，API 对不上即全拒）/ `REQUIRED`（正式服用，没装 AccessHub 也全拒）/ `OFF`（应急）；只在专用服务器上生效，单人、局域网与 GameTest 行为不变。未登录玩家造成的伤害（按伤害来源，弹射物与爆炸回溯到发射者 / 点燃者）与引发的爆炸同样在 HIGHEST 取消。模式由 `config/ConfigSystem` 注入 getter，`core.auth` 不引用 `config` 包。前端收到这两个码后在内容区盖一层不透明的登录提示（`webui/src/lib/login-gate.ts`），页面本身不卸载；提示由四条路撤掉：服务端在登录门判定由拒绝翻为放行时推 `auth.loginConfirmed`（`webui.server.WebUiEventNames`，逐 tick 巡检被拒过的在线玩家，/login 的结果是异步生效的）、提示挂着期间以 1 秒起翻倍、封顶 15 秒的节奏探测 `player.isOp`（推送不保证送达，这是兜底）、重新打开平板、手动点按钮。同一个"登录已确认"钩子（`PlayerLoginGate.onLoginConfirmed`）也用于婚姻模块把进服时的离婚清算物与公示期通知推迟到登录之后。
 
 ---
 

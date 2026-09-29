@@ -100,6 +100,17 @@ const ERROR_CODE_TEXT: Readonly<Record<string, ErrorCodeText>> = {
   QUEST_DISABLED: {
     text: '任务系统当前未启用',
   },
+  /*
+   * 登录门两码 (服务端 WebUiServerDispatcher 的登录门, 任何 action 都可能收到)。平时整块平板已经被外壳换成了
+   * 登录提示 (lib/login-gate), 这两条是给提示出现之前那一刻、以及不经外壳直接展示错误的页面兜底的。
+   */
+  NOT_LOGGED_IN: {
+    text: '请先在聊天栏输入 /login 登录, 再使用平板',
+  },
+  LOGIN_CHECK_UNAVAILABLE: {
+    // 不提 /login: 这时登录了也没用, 让玩家反复输密码只会更糟。
+    text: '登录校验暂不可用, 请联系管理员',
+  },
   ITEM_NOT_TRADABLE: {
     /*
      * 一码两用: market.place 拒绝时它是失败信封里的 errorCode (带 params.rule), market.tradable 判定为

@@ -2,6 +2,7 @@ package com.miningdim.job.miner;
 
 import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningServices;
+import com.miningdim.core.auth.PlayerLoginGate;
 import com.miningdim.entry.IMiningPlayerData;
 import com.miningdim.entry.MiningCapabilities;
 import com.miningdim.job.miner.network.MinerChainPreviewS2C;
@@ -36,8 +37,18 @@ public final class MinerActions {
     private MinerActions() {
     }
 
-    /** 网络 handler 入口: 按技能种类分派 (主线程)。 */
+    /**
+     * 网络 handler 入口: 按技能种类分派 (主线程)。
+     *
+     * 本方法与下面的 {@link #handleChainHold} / {@link #handleChainPreview} 是三个矿工 C2S 包的唯一去处, 三者
+     * 开头都先过登录门 ({@link PlayerLoginGate}): 未通过 AccessHub /login 的连接不得触发本 mod 的任何操作。
+     * 被拒一律静默丢弃, 不回消息: 这些包的触发频率完全由客户端决定, 每包回一条提示等于让服务端替改包客户端
+     * 放大出站流量 (与 SeasoningGameC2S 同纪律); AccessHub 自己会反复提示玩家去 /login。
+     */
     public static void handleToggle(ServerPlayer player, MinerSkill skill) {
+        if (!PlayerLoginGate.allows(player)) {
+            return;
+        }
         MinerSystem sys = MinerSystem.get();
         MinerChargeState state = sys.stateOf(player);
         int level = sys.minerLevel(player);
@@ -70,6 +81,9 @@ public final class MinerActions {
      * 于此静默丢弃反而使服务端与客户端按住态不一致; 故照存, 无副作用。
      */
     public static void handleChainHold(ServerPlayer player, boolean held) {
+        if (!PlayerLoginGate.allows(player)) {
+            return; // 登录门, 见 handleToggle。
+        }
         MinerSystem sys = MinerSystem.get();
         MinerChargeState state = sys.stateOf(player);
         long now = serverTick(player);
@@ -93,6 +107,9 @@ public final class MinerActions {
      * 故预览计数/位置不泄漏任何陷阱位。budget 取当前充能, 预览范围与真连锁一致。
      */
     public static void handleChainPreview(ServerPlayer player, BlockPos target) {
+        if (!PlayerLoginGate.allows(player)) {
+            return; // 登录门, 见 handleToggle。
+        }
         MinerSystem sys = MinerSystem.get();
         MinerChargeState state = sys.stateOf(player);
         int level = sys.minerLevel(player);

@@ -1795,5 +1795,8 @@
   "district.miningdim.notice.friend_added": "你成为了 %1$s 的地块 %2$s 的朋友。",
   "district.miningdim.notice.friend_removed": "你已不再是 %1$s 的地块 %2$s 的朋友。",
   "district.miningdim.notice.friend_restored": "你在 %1$s 的地块 %2$s 的朋友身份已恢复。",
-  "district.miningdim.notice.purchase_opened": "自管区「%1$s」开放购买地块了（%2$s/格），可以在平板的「本区地块」里挑选。"
+  "district.miningdim.notice.purchase_opened": "自管区「%1$s」开放购买地块了（%2$s/格），可以在平板的「本区地块」里挑选。",
+  "message.miningdim.login_gate.required": "请先在聊天栏输入 /login 登录",
+  "message.miningdim.login_gate.unavailable": "登录校验暂不可用，请联系管理员",
+  "message.miningdim.login_gate.command_blocked": "登录前只能使用 /login、/register、/changepassword"
 }

@@ -3,6 +3,7 @@ package com.miningdim.webui.server;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.miningdim.core.auth.PlayerLoginGate;
 import com.miningdim.network.MiningNetwork;
 import com.miningdim.network.S2CWebUiResponse;
 import net.minecraft.network.FriendlyByteBuf;
@@ -71,6 +72,35 @@ public final class WebUiServerDispatcher {
      */
     static final String TOO_MANY_REQUESTS_JSON = businessErrorJson(new WebUiBusinessException(
             WebUiErrorCodes.TOO_MANY_REQUESTS, "操作太频繁了，请稍后再试", false));
+
+    /**
+     * 登录门拒绝回执: 发送者还没通过 AccessHub 的 /login。与上面几条同规格预先算好。
+     *
+     * message 必须是能直接给玩家看的整句中文: 平板顶栏、开箱页与管理页都会原样展示服务端 message。
+     *
+     * retrySameOpeningId 取 true: 登录门证明的只是<b>这一次</b>请求没执行, 而开箱页此刻挂着的 openingId 可能
+     * 属于更早一次结果未知的请求 (比如断线重连前发出、回执没收到的那次)。回 false 会让页面丢掉它、登录后
+     * 铸一个新号重开, 若那次其实已扣费就是二次收费; 回 true 让它登录后用同一个幂等键续跑, 两种情况都安全。
+     */
+    static final String NOT_LOGGED_IN_JSON = businessErrorJson(new WebUiBusinessException(
+            WebUiErrorCodes.NOT_LOGGED_IN, "请先在聊天栏输入 /login 登录，再使用平板", true));
+
+    /** 登录态无从判定时的拒绝回执 (见 {@link WebUiErrorCodes#LOGIN_CHECK_UNAVAILABLE})。retry 取值理由同上。 */
+    static final String LOGIN_CHECK_UNAVAILABLE_JSON = businessErrorJson(new WebUiBusinessException(
+            WebUiErrorCodes.LOGIN_CHECK_UNAVAILABLE, "登录校验暂不可用，请联系管理员", true));
+
+    /**
+     * 登录门之前放行的 action。只有握手一条, 且只该有它:
+     *
+     *  - 它不读任何玩家数据、不改任何状态, 回的是 mod 版本号与已注册 action 名单 —— 名单本来就逐字写在前端构建
+     *    产物里, 版本号就是客户端自己装的那个 jar;
+     *  - 平板外壳每个页面生命周期只握手一次 (TabletShell 模块级守卫), 登录前被拒的话顶栏的"契约自检失败"会一直
+     *    挂到页面重载, 玩家登录之后也不会消失。
+     *
+     * 往这里加名字等于宣称"身份未确认的连接调它无害"。system.serverStatus 之类虽然也公开, 但登录前的平板本来就整页被
+     * 登录提示挡住, 放行它们没有收益, 故不放。
+     */
+    static final Set<String> PRE_LOGIN_ACTIONS = Set.of("system.handshake");
 
     /**
      * 每玩家令牌桶 (F008): 突发 120、每秒补充 30。
@@ -150,6 +180,26 @@ public final class WebUiServerDispatcher {
                     action, sender.getName().getString(), requestId);
             respond(sender, requestId, false, TOO_MANY_REQUESTS_JSON);
             return;
+        }
+        // 登录门 (AccessHub /login; 离线模式下名字不经验证, 身份以 /login 为准)。这是身份认证而不是权限:
+        // 派发器依旧不做任何权限判断 (OP 门仍由各 admin.* 自己调 WebUiPermissions), 它只确认"发送者就是这个名字
+        // 的主人"。位置有讲究:
+        //  - 在限流之后: 未登录玩家刷包照样被令牌桶挡住, 登录门本身不成为放大器;
+        //  - 在判重之前: 被拒的请求不该把 requestId 烧进防重放窗口, 登录后拿同一 id 重试 (开箱页会这么做) 才能
+        //    真正执行, 而不是得到 duplicate_request;
+        //  - 在查注册表之前: 连 unknown action 都不回, 未登录者探不到服务端装了哪些 action (握手除外, 见
+        //    PRE_LOGIN_ACTIONS)。
+        // system.batch 整批在这里被拒, 批内任何一条 handler 都不会跑。每次请求现查, 不缓存: 管理员重置会在玩家
+        // 在线时清掉登录态。DEBUG 而非 WARN: 任何人都能无限触发这条拒绝。
+        if (!PRE_LOGIN_ACTIONS.contains(action)) {
+            PlayerLoginGate.Verdict login = PlayerLoginGate.check(sender);
+            if (!login.allowed()) {
+                LOGGER.debug("Web UI action '{}' rejected by the login gate for player {} (requestId={}, verdict={})",
+                        action, sender.getName().getString(), requestId, login);
+                respond(sender, requestId, false, login == PlayerLoginGate.Verdict.NOT_LOGGED_IN
+                        ? NOT_LOGGED_IN_JSON : LOGIN_CHECK_UNAVAILABLE_JSON);
+                return;
+            }
         }
         // 防重放/防重复提交 (契约第八章红线 6 / 5.3): 在执行任何 handler 副作用前先登记 requestId。命中已处理窗口即
         // 短路回 success=false + errorCode DUPLICATE_REQUEST, 不再触达 handler。登记前置 (而非业务成功后) 保证即便

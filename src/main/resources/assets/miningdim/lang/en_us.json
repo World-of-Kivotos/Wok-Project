@@ -1795,5 +1795,8 @@
   "district.miningdim.notice.friend_added": "You are now a friend of %1$s's plot %2$s.",
   "district.miningdim.notice.friend_removed": "You are no longer a friend of %1$s's plot %2$s.",
   "district.miningdim.notice.friend_restored": "Your friendship on %1$s's plot %2$s was restored.",
-  "district.miningdim.notice.purchase_opened": "Plots in the district \"%1$s\" are now for sale (%2$s per block); pick one under \"District plots\" on the tablet."
+  "district.miningdim.notice.purchase_opened": "Plots in the district \"%1$s\" are now for sale (%2$s per block); pick one under \"District plots\" on the tablet.",
+  "message.miningdim.login_gate.required": "Log in first: type /login in chat",
+  "message.miningdim.login_gate.unavailable": "Login check is unavailable right now; please contact an admin",
+  "message.miningdim.login_gate.command_blocked": "Before you log in, only /login, /register and /changepassword work"
 }

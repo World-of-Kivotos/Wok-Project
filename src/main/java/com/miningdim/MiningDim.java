@@ -81,6 +81,10 @@ public final class MiningDim {
         subsystems.add(new com.miningdim.config.ConfigSystem());
         // 2. 网络门面 (构造期注入, 供命令/进入流程在运行期下发包)。
         subsystems.add(new com.miningdim.network.NetworkSystem());
+        // 2b. 登录门 (AccessHub /login 之前拒绝本 mod 的 C2S 意图): 开服解析 AccessHub 绑定 + 进服撤销残留登录态 +
+        //     未登录玩家打开本 mod 菜单即关。判定门面 PlayerLoginGate 是静态的, 各入口直接调用, 对 register 顺序
+        //     不敏感; 列在这里只因它与网络门面同属入口基础设施。
+        subsystems.add(new com.miningdim.core.auth.LoginGateSubsystem());
         // 3. 世界生成: 仅注册 BiomeSource codec (维度走 minecraft:noise, 自定义 ChunkGenerator 已下线)。
         subsystems.add(new com.miningdim.worldgen.WorldgenSystem());
         // 4. 实例后端: InstanceManager / SavedData / 区块强加载调度 / GC (玩家 Capability 归 entry, 见类注释)。

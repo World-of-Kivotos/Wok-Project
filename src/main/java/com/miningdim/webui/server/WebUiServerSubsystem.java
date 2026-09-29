@@ -5,6 +5,9 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.Subsystem;
+import com.miningdim.core.auth.PlayerLoginGate;
+import com.miningdim.network.MiningNetwork;
+import com.miningdim.network.S2CWebUiEvent;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -39,9 +42,11 @@ public final class WebUiServerSubsystem implements Subsystem {
         // 避免两组人各改一处注册点后合并时互相覆盖。
         HubWebUiActions.registerAll();
         // 玩家登出清理其 requestId 防重放窗口 (派发器维护, 见红线 6); 防离线玩家窗口驻留内存泄漏。
-        // forgeBus 可能为 null (GameTest 纯逻辑路径只验 dispatcher 不订阅事件), 此时跳过订阅。
+        // forgeBus 可能为 null (GameTest 纯逻辑路径只验 dispatcher 不订阅事件), 此时跳过订阅 —— 登录确认监听器
+        // 同理只在真实装配时挂, 纯逻辑路径重跑 register 不会挂出第二个。
         if (forgeBus != null) {
             forgeBus.addListener(WebUiServerSubsystem::onPlayerLoggedOut);
+            PlayerLoginGate.onLoginConfirmed(WebUiServerSubsystem::onLoginConfirmed);
         }
     }
 
@@ -49,6 +54,19 @@ public final class WebUiServerSubsystem implements Subsystem {
     private static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             WebUiServerDispatcher.clearPlayer(player.getUUID());
+        }
+    }
+
+    /**
+     * 登录门确认了这名玩家的身份 -> 推一条 {@link WebUiEventNames#LOGIN_CONFIRMED}, 平板据此撤掉登录提示并重拉数据。
+     *
+     * 只推"进服后才翻为放行"的那一种: 进服即放行的玩家 (单人存档、没装 AccessHub) 从没见过登录提示, 推了也只是
+     * 每次进服多一个没人听的包。AccessHub 的 /login 在后台线程算完才回写, 玩家敲完 /login 立刻打开平板往往还是
+     * 被拒, 没有这条推送就只能等下一次手动重试。
+     */
+    private static void onLoginConfirmed(ServerPlayer player, boolean atJoin) {
+        if (!atJoin) {
+            MiningNetwork.sendWebUiEvent(player, new S2CWebUiEvent(WebUiEventNames.LOGIN_CONFIRMED, "{}"));
         }
     }
 

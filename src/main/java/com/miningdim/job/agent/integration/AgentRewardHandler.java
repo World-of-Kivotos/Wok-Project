@@ -127,11 +127,11 @@ public final class AgentRewardHandler {
         // 继续只给做过特勤活计的人 (isActiveAgent)。经验不算福利泄漏: 它只是职业曲线, 不产货币, 且走职业框架经验
         // 软上限, 与"泄漏信用点/伤害放大"性质不同。
         // fixedPoolRaw (= 该星固定信用点总池) 是占比反推分母 (payout = pool × 占比), 传给经验入账复用同一口径。
-        // 悬赏只认精英"本来"带的词条: 击杀瞬间仍挂着的 + 正被封印摘走的 (见 BountyKill 注释)。封印记录在默认优先级的
-        // AgentSealHandler.onChampionDeath 才清, 本 handler 在 HIGHEST, 此刻一定还读得到。
+        // 悬赏只认精英"本来"带的词条: 击杀瞬间仍挂着的 + 正被封印摘走的 (见 BountyKill 注释)。被封词条登记在精英
+        // capability 上 (随 NBT 持久), 精英死了也不会再有人去恢复它, 此刻直接读就是封印前的原词条。
         EnumSet<AffixDef> originalAffixes = EnumSet.noneOf(AffixDef.class);
         originalAffixes.addAll(champ.affixes().keySet());
-        originalAffixes.addAll(AgentSealExecutor.sealedAffixesOf(championId).keySet());
+        originalAffixes.addAll(champ.sealedAffixes().keySet());
         BountyKill bountyKill = new BountyKill(star, BountyKill.poolsOf(originalAffixes), champ.isWorldBoss(), true);
 
         int xpGranted = 0;

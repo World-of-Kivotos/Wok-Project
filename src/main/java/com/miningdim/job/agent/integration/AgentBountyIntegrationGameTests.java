@@ -90,7 +90,7 @@ public final class AgentBountyIntegrationGameTests {
                             + " claimed=" + target.claimed());
         } finally {
             SealRegistry.discard(champion.getUUID());
-            AgentSealExecutor.discard(champion.getUUID());
+            AgentSealExecutor.untrack(champion.getUUID());
         }
         helper.succeed();
     }

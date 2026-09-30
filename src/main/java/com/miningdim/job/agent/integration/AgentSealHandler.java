@@ -120,9 +120,9 @@ public final class AgentSealHandler {
             return Result.fail(FailReason.AFFIX_NOT_SEALABLE);
         }
 
-        // 入职标志置位 (用户定: 玩家真正执行任一特勤活计时置 activeAgent): 封印申请成功是现存唯一已接线的特勤活计
-        // 入口, 此处把申请者标记为做过特勤工作, 其特勤专属福利 (加强奖励 / 对精英伤害放大) 由此解锁。其余活计入口
-        // (扫描探测脉冲 / 接悬赏 / 悬赏击杀记账) 属 b 阶段面板接线, 待接线时在各入口同样 markActiveAgent (见交付 notes)。
+        // 入职标志置位 (用户定: 玩家真正执行任一特勤活计时置 activeAgent): 置位点有二 —— 此处封印申请成功, 与
+        // AgentBountyService.accept 接取悬赏成功 (2026-09-30 拍板, 让 L1/L2 也能入职)。扫描刻意不置位: 扫描对全员开放,
+        // 在那里置位等于把特勤专属福利 (加强奖励 / 对精英伤害放大) 敞给每个点过一次按钮的人。
         AgentBountySavedData.get(agent.server.overworld()).markActiveAgent(agent.getUUID());
 
         // 占槽、真改与入职标志都已落定, 最后才广播 (成就等只读消费方, 见 AgentEvents)。

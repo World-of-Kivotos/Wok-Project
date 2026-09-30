@@ -19,6 +19,7 @@ import {
   ROUTE_ADMIN,
   ROUTE_CASE,
   ROUTE_CODEX,
+  ROUTE_DISTRICT,
   ROUTE_HOME,
   ROUTE_JOBS,
   ROUTE_MARKET,
@@ -53,6 +54,8 @@ export const HUB_PANEL_META: Record<HubPanelId, HubPanelMeta> = {
   codex: { label: '精英怪图鉴', route: ROUTE_CODEX, iconItemId: 'minecraft:wither_skeleton_skull' },
   marriage: { label: '婚姻', route: ROUTE_MARRIAGE, iconItemId: 'minecraft:golden_apple' },
   case: { label: '开箱', route: ROUTE_CASE, iconItemId: 'minecraft:ender_chest' },
+  // 受门控: 服务端只在自管区功能生效时下发 (不下发成锁着的), 所以不需要锁文案。
+  district: { label: '自管区', route: ROUTE_DISTRICT, iconItemId: 'minecraft:grass_block' },
   settings: { label: '设置', route: ROUTE_SETTINGS, iconItemId: 'minecraft:comparator' },
   admin: { label: '管理后台', route: ROUTE_ADMIN, iconItemId: 'minecraft:command_block' },
 }

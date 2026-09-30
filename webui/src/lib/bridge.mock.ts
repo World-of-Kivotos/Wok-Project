@@ -24,6 +24,10 @@
  *      那几条的阈值住在服务端配置 miningdim-title.toml 里, 编辑器要看的权威结论只能来自真服。
  * 六处都不改成"更真"的实现: 真实现会与 Java 侧无声漂移, 而漂移的假规则比明写的近似危险得多。
  *
+ * 唯一的例外是自管区二十六条 (district.* / plot.* / admin.district.* / admin.plot.*): 它们整组转给
+ * mock/district-handlers.ts, 那里刻意复刻了已拍板的三层权限模型与拒绝码 —— 页面按身份画出四种视角, 开发构建要能用
+ * 预览身份切换器逐个看, 没有规则就看不出任何区别。规则以 Java (com.miningdim.district) 为准, 两边有出入时改那个文件。
+ *
  * 与上面五条不同的另一类东西 (不是近似, 照抄即真值): 各 config / 枚举的**常量表** (塔罗定价与 CD、
  * 干员分级表、纳米板档表、军火台数量、婚姻五项定价、精英星表与词条表)。它们是定长常量而不是曲线,
  * 逐字照抄不会算错; 但服务端改 toml / 改枚举时本文件同样要跟着改。
@@ -37,6 +41,7 @@
  *   - 注册表缺失  一件已卸载 mod 的遗留物品: market 回退成 itemId, admin 回退成空串 (两处口径本就不同)
  */
 
+import { resolveDistrictMock } from '../mock/district-handlers'
 import { getWorld, mutateWorld } from '../mock/store'
 import type { WebUiActionName } from './actions'
 import { SERVER_ACTIONS } from './actions'
@@ -2049,8 +2054,9 @@ function mockPrefsSet(payload: PlayerPrefsSetPayload): PlayerPrefsSetResult {
 }
 
 /**
- * 面板域与顺序 = 服务端 HubWebUiActions 的 12 项硬编码表 (任务叫 quests, 成就点商店叫 achievementShop,
- * 精英怪图鉴叫 codex)。
+ * 面板域与顺序 = 服务端 HubWebUiActions 的硬编码表 (任务叫 quests, 成就点商店叫 achievementShop,
+ * 精英怪图鉴叫 codex)。自管区 (district) 在真服上受门控 (功能生效才下发); 假数据里恒按生效下发, 开发构建 (无宿主)
+ * 因此照旧显示自管区入口。
  * 这里只发 panelId/enabled/lockCode, 展示层三项 (route/label/iconItemId) 归前端 lib/panels.ts。
  */
 const HUB_PANEL_IDS: readonly HubPanelId[] = [
@@ -2064,6 +2070,7 @@ const HUB_PANEL_IDS: readonly HubPanelId[] = [
   'codex',
   'marriage',
   'case',
+  'district',
   'settings',
   'admin',
 ]
@@ -6173,6 +6180,35 @@ function resolveMock(action: WebUiActionName, payload: unknown): unknown {
       return mockTitleCustomPreview(payload as TitleCustomDraftPayload)
     case 'title.customSet':
       return mockTitleCustomSet()
+    // 自管区二十六条 (接线清单 K 组) 整组转给 mock/district-handlers.ts 的内存世界: 那里连同权限规则、拒绝码与
+    // 预览身份切换一起复刻, 不在本文件逐条写。
+    case 'district.state':
+    case 'district.detail':
+    case 'district.addResident':
+    case 'district.removeResident':
+    case 'admin.district.retrySync':
+    case 'admin.district.setWarden':
+    case 'admin.district.delete':
+    case 'district.permissions':
+    case 'district.setPermission':
+    case 'district.resetPermissions':
+    case 'district.plots':
+    case 'plot.detail':
+    case 'plot.setPermission':
+    case 'plot.resetPermissions':
+    case 'plot.addFriend':
+    case 'plot.removeFriend':
+    case 'plot.create':
+    case 'plot.resize':
+    case 'plot.delete':
+    case 'plot.buy':
+    case 'admin.district.setPlotPricing':
+    case 'admin.district.setPurchaseOpen':
+    case 'admin.plot.unfreeze':
+    case 'admin.plot.reclaimNow':
+    case 'plot.restoreFriend':
+    case 'admin.district.archive':
+      return resolveDistrictMock(action, payload)
     case 'client.i18n':
       return mockI18n(payload as ClientI18nPayload)
     case 'client.playCaseSound':

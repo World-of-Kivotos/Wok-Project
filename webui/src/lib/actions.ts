@@ -12,7 +12,7 @@
 /**
  * 全部服务端 action 名 (system.handshake 回执 actions 字段的镜像, 不含 client.* 本地 action)。
  *
- * 二十五个注册点 (每个 *WebUiActions 类的 registerAll 各占一个):
+ * 二十六个注册点 (每个 *WebUiActions 类的 registerAll 各占一个):
  *   system.*            WebUiServerSubsystem
  *   player.*            PlayerWebUiActions
  *   hub.*               HubWebUiActions
@@ -38,22 +38,39 @@
  *   champion.*          ChampionWebUiActions
  *   achievement.*       AchievementWebUiActions
  *   title.*             TitleWebUiActions
+ *   district.* / plot.* / admin.district.* / admin.plot.*   DistrictWebUiActions
  */
 export const SERVER_ACTIONS = [
   'achievement.claimRewards',
   'achievement.pointShop',
   'achievement.pointShopBuy',
+  'admin.district.archive',
+  'admin.district.delete',
+  'admin.district.retrySync',
+  'admin.district.setPlotPricing',
+  'admin.district.setPurchaseOpen',
+  'admin.district.setWarden',
   'admin.economy.balance',
   'admin.economy.set',
   'admin.job.setLevel',
   'admin.listItems',
   'admin.mining.reset',
+  'admin.plot.reclaimNow',
+  'admin.plot.unfreeze',
   'admin.setBaseValue',
   'case.apply',
   'case.open',
   'case.state',
   'champion.codex',
   'champion.inspect',
+  'district.addResident',
+  'district.detail',
+  'district.permissions',
+  'district.plots',
+  'district.removeResident',
+  'district.resetPermissions',
+  'district.setPermission',
+  'district.state',
   'economy.priceTable',
   'economy.status',
   'economy.today',
@@ -105,6 +122,16 @@ export const SERVER_ACTIONS = [
   'player.profile',
   'player.roster',
   'player.wallet',
+  'plot.addFriend',
+  'plot.buy',
+  'plot.create',
+  'plot.delete',
+  'plot.detail',
+  'plot.removeFriend',
+  'plot.resetPermissions',
+  'plot.resize',
+  'plot.restoreFriend',
+  'plot.setPermission',
   'quest.board',
   'quest.claim',
   'quest.refresh',

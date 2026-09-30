@@ -504,7 +504,8 @@ export type PlayerPrefsSetResult = PlayerPrefs
 export type HubPanelsPayload = EmptyPayload
 
 /**
- * 稳定面板 id。域按 router.ts 的实际路由定死, 恒 12 条, 顺序即服务端写入顺序。
+ * 稳定面板 id。域按 router.ts 的实际路由定死, 顺序即服务端写入顺序: 12 条; 自管区生效时 13 条, district 排在 case
+ * 之后 (district 是唯一"受门控"的面板: 服务端只在自管区功能生效时下发它, 不下发成锁着的, District_Backend_Design 20.9)。
  * quests 已接入真实任务板路由; 成就点商店是 achievementShop (路由 ROUTE_ACHIEVEMENT_SHOP);
  * 精英怪图鉴的稳定 id 是 codex (真实路由 ROUTE_CODEX)。前端的
  * panelId -> {route,label,iconItemId} 映射表 (lib/panels.ts 的 HUB_PANEL_META) 是这份 id 的唯一消费方。
@@ -520,6 +521,7 @@ export type HubPanelId =
   | 'codex'
   | 'marriage'
   | 'case'
+  | 'district'
   | 'settings'
   | 'admin'
 
@@ -3741,4 +3743,1239 @@ export interface TitleCustomSetResult {
   badge: TextSegment[]
   /** 此后下次可修改的时间 (epoch millis)。 */
   nextEditAt: number
+}
+
+// ============================================================
+// district.* / plot.* / admin.district.* / admin.plot.* — com.miningdim.district.web.DistrictWebUiActions
+//   (Gson serializeNulls: 可空字段一律写 JSON null, 不省键; 回执全部由 DistrictJson 构造并按身份裁剪,
+//    入参读取见 DistrictPayloads)
+// ============================================================
+//
+// 自管区 (wok-district, 设计见 docs/District_Backend_Design.md)。接线清单第三章 K 组 K1-K26; 注释里的 K 编号与当初在
+// mock/planned.ts 里的 D1-D26 一一对应 (清单已有"D 组 · 经济", 故改用 K)。Java 里一律写 action 名, 不写编号。
+//
+// 已拍板、界面必须如实体现的前提 (改这些前提要先改决策, 不是改这里的类型):
+//   - 三层权限: 管理员 (OP) 管领地 (自管区是 Flan 的管理员领地; 改边界/删区/任免区务长/区域规则/地块定价);
+//     区务长由 OP 任命, 本身**不是 OP**: 管人 (加/移住户、看记录)、本区**公共区域**住户/外人的权限开关, 以及在自管区里
+//     划、调、删空置地块 (K17-K19), 在 Flan 里没有任何编辑权限, 一切由服务端代办; 区务长不能新建、改大小、删除自管区。
+//   - 按户分地 (K11-K16): 区务长管公共区域, 户主在自己的地块上自己开关。住户直接购买空置地块, 先到先得 (K20);
+//     单价只有管理员能设 (K21), 开放购买由管理员按区开关 (K22, 默认关)。
+//   - 户主被移出本区: 地块原地冻结 7 天再收回 (K4 / K23 / K24); 因"违反区规"被移出的人, 在本区别人地块的朋友身份
+//     自动暂停, 户主可以自己恢复 (K25)。
+//   - 删除自管区 = 只解除与学院的绑定 (K7): 不删 Flan 领地, 学院成员名单保留, 操作记录归档 (K26)。
+//   - 自管区内与外围 8 格内不能个人圈地、禁放机械动力的机器 (装饰方块放行; 服务端规则, 不是 Flan 开关, 见 K8
+//     fixedRules); 机械动力禁令对 OP 例外 (hasPermissions(2) 且不是假玩家, 只到亲手放置为止: OP 的机器同样改不了
+//     自管区里的方块)。OP 在地块里不受三列开关限制 (Flan 管理员领地的 OP 绕过, 服务端刻意不拦)。
+//   - 主城 DU 由管理员直接管理, 不设自管区。"添加住户"就是"把玩家加入本学院": 一人只属于一个学院。
+//   - 从没进过服的玩家名单上先记着 (pending), 首次登录后服务端自动补写 —— 界面不许把它说成"已生效"。
+//
+// 服务端的通用口径:
+//   - 身份每次从服务端状态现算: OP (WebUiPermissions.isOp) 恒为 admin; 放行与裁剪按"对这个区的身份" (管理员 /
+//     本区区务长 / 本区住户 / 其他) 判 —— 别区的区务长在这里就是外人。对某块地另有关系 (户主 / 管理员 / 无关)。
+//   - admin.* 先过管理员门 (PERMISSION_DENIED + {action}, 文案"需要 OP 权限"), 再读入参、查区。其余身份不够一律
+//     PERMISSION_DENIED + {action, requires}, 文案是给玩家看的中文句子。机器字段缺失或类型不对、开关值不是布尔、枚举
+//     取值不对一律 INVALID_REQUEST + {field[, value]}; 其余业务码见 WebUiErrorCodes 的"自管区"一节。这些码 (除
+//     INVALID_REQUEST 等通用码) 不在 errorText 表里, 界面直接显示服务端原文; 前端只按 PLAYER_NEVER_JOINED 与地块购买
+//     的四个 viewerBlock 值分支。
+//   - 列表没有分页: 服务端按条数上限与 30000 字符的回执预算装入, 装不下的置 ★ 截断标记。★ 字段是本契约在当初
+//     planned 形状之外新增的。
+//   - 写动作一律不进 system.batch; 读动作 (K1 K2 K8 K11 K12 K26) 阶段 1 也不进。
+//   - 功能开关在服务端 (miningdim-district.toml, 默认关): 关着时 26 条动作一律回 DISTRICT_DISABLED; 开着但 Flan 用不了
+//     (降级) 时只读: 6 条读动作照常 (住户与地块的 syncStatus 如实显示 failed, 原因是"领地对接未启用：{原因}"), 20 条写
+//     动作回 DISTRICT_DISABLED, 文案带降级原因 (界面直接显示原文)。导航入口只在服务端经 hub.panels 报告自管区生效时
+//     出现 (TabletShell 的 hubGated, District_Backend_Design 20.9)。
+//   - 时间一律 epoch millis (Java long); 面积、价格、余额是 Java long, 服务端的业务上限保证它们在 2^53 以内。
+//
+// 回执落点 (DistrictWebUiActions 的 handler 常量 -> DistrictJson 的方法):
+//   K1 STATE -> state · K2 DETAIL -> detail · K8 PERMISSIONS -> permissions · K11 PLOTS -> plots ·
+//   K12 PLOT_DETAIL -> plotDetail · K26 ARCHIVE -> archive · K10 RESET_PERMISSIONS -> resetPermissions ·
+//   K14 PLOT_RESET_PERMISSIONS -> resetPlotPermissions。其余写动作在各自的 handler 里就地拼回执, 用到的共享子结构
+//   (记录一条 districtLog / plotLog、名单一行 resident、地块一行 plotSummary、开关一项 permissionItem /
+//   plotPermissionItem、朋友一行 friend、地块指针 plotRef) 同样出自 DistrictJson —— 裁剪规则只在那一处。
+
+/** 服务端判定的查看者身份。一个人只会是其中之一: OP 恒为 admin, 其余按"是否某区区务长 / 是否某区住户"判。 */
+export type DistrictRole = 'admin' | 'warden' | 'resident' | 'outsider'
+
+/**
+ * 某住户在 Flan 领地居民组里的生效状态。
+ *   synced   已写入居民组, 放置/破坏/交互已生效;
+ *   pending  玩家从没进过服 (Flan 没有 UUID 可写), 名单上先记着, 首次登录时服务端自动补写;
+ *   failed   服务端写 Flan 失败 (区块未加载 / UUID 解析超时等), 需要管理员重试。
+ */
+export type DistrictSyncStatus = 'synced' | 'pending' | 'failed'
+
+/**
+ * 操作记录的动作种类。resync = 管理员对"同步失败"的住户重试写入 Flan; permission = 改了一项公共区域的权限开关
+ * (恢复默认也按实际改动的项逐条记, reason 写"恢复默认");
+ * 地块: createPlot / resizePlot / deletePlot = 区务长或管理员划、调、删地块 (area 记范围); buyPlot = 住户买下空置地块
+ * (操作人是买家, reason 写价格); freezePlot = 移出户主时连带冻结 TA 的地块; unfreezePlot = 管理员解除冻结;
+ * vacatePlot = 收回地块变空置 (冻结期满由服务器收回, 或管理员立即收回); suspendFriends = 因违反区规移出时连带暂停
+ * TA 在本区别人地块的朋友身份 (reason 只写块数, 不写是哪几块);
+ * setPlotPricing / setPurchaseOpen = 管理员改本区的地块单价与尺寸上下限 / 开关购买。
+ */
+export type DistrictLogAction =
+  | 'add'
+  | 'remove'
+  | 'appoint'
+  | 'revoke'
+  | 'resync'
+  | 'permission'
+  | 'createPlot'
+  | 'resizePlot'
+  | 'deletePlot'
+  | 'buyPlot'
+  | 'freezePlot'
+  | 'unfreezePlot'
+  | 'vacatePlot'
+  | 'suspendFriends'
+  | 'setPlotPricing'
+  | 'setPurchaseOpen'
+
+/**
+ * 本区操作记录的操作人身份。resident = 住户自己买地 (buyPlot); system = 服务器自己做的 (冻结期满自动收回),
+ * 这时 actorName 固定写"服务器"。
+ */
+export type DistrictLogActorRole = 'admin' | 'warden' | 'resident' | 'system'
+
+/** 自管区范围: Flan 领地是按 x/z 圈的柱体, 故只给水平两角 + 维度 (y 不参与圈地)。 */
+export interface DistrictBounds {
+  dimension: string
+  minX: number
+  minZ: number
+  maxX: number
+  maxZ: number
+}
+
+/**
+ * 划 / 调地块时提交的水平范围 (含两端的整数方块坐标, min <= max)。维度跟着自管区走, 不单独传。
+ * 不做 Y 轴: 地块默认是整列高度 (与自管区一样是柱体)。
+ */
+export interface PlotArea {
+  minX: number
+  minZ: number
+  maxX: number
+  maxZ: number
+}
+
+/** 一次范围变动: 新划的 from 为 null, 删除的 to 为 null, 调整两者都有。 */
+export interface PlotAreaChange {
+  from: PlotArea | null
+  to: PlotArea | null
+}
+
+/**
+ * 自管区的公开摘要 (外人也能看): 有哪些自管区、区务长是谁、多少人。
+ * syncIssues 只下发给管理员 (总览表的"Flan 领地状态"列), 其余身份一律 null。
+ */
+export interface DistrictSummary {
+  /** 稳定 ASCII 标识, 兼作删除确认的二道锁 (游戏内中文输入未开放, 见 docs/WebUI_ChineseIME_DesignSpec.md)。 */
+  districtId: string
+  displayName: string
+  /** 学院简称 (如"千年""狂猎"): 地块编号的前缀、"请区务长把你加入千年"这类短句。 */
+  academyName: string
+  /** 学院全称 (如"千年学院""狂猎艺术学院"): 界面写"某某学院"的地方一律用它, 不拿简称拼"学院"二字。 */
+  academyFullName: string
+  /** null = 暂无区务长。 */
+  wardenName: string | null
+  residentCount: number
+  /** 方块面积 (x 跨度 x z 跨度), 服务端按 bounds 算好下发, 前端不自己乘。 */
+  area: number
+  /** 本区划了几块地块 (公开: 外人也能看"共 N 块地, M 块空置")。 */
+  plotCount: number
+  /** 其中空置 (没有户主) 的块数。 */
+  vacantPlotCount: number
+  syncIssues: DistrictSyncIssues | null
+}
+
+export interface DistrictSyncIssues {
+  pending: number
+  failed: number
+}
+
+/** "我的居住权"。区务长同时也是本区住户, 故区务长也有这一张。 */
+export interface DistrictResidency {
+  districtId: string
+  districtName: string
+  /** 简称与全称, 口径同 DistrictSummary。 */
+  academyName: string
+  academyFullName: string
+  /** 被加入学院 (= 获得居住权) 的时刻, epoch millis。 */
+  grantedAt: number
+  /** 谁把我加进来的 (区务长或管理员的玩家名)。 */
+  grantedBy: string
+  isWarden: boolean
+  /**
+   * 我自己在 Flan 居民组里的生效状态。名单上有我 ≠ 游戏里能建造: 同步失败时 Flan 照样拦我,
+   * 故"我的居住权"卡片与 abilities.build/interact 都必须跟着它走, 不许一律画成"有效"。
+   */
+  syncStatus: DistrictSyncStatus
+  /**
+   * 我在本区的地块 (K11-K16); null = 还没有 (可以在本区地块里直接买空置的, 见 K20)。有地块才出现"我的地块"页签。
+   * 冻结中的旧地块不算 (那时我已经不是户主)。
+   */
+  plot: PlotRef | null
+}
+
+/** 自管区详情里的完整信息 (住户与管理员可见)。 */
+export interface DistrictInfo {
+  districtId: string
+  displayName: string
+  /** 简称与全称, 口径同 DistrictSummary。 */
+  academyName: string
+  academyFullName: string
+  wardenName: string | null
+  bounds: DistrictBounds
+  area: number
+  residentCount: number
+  /** 区规, 一条一句。阶段 1 由 OP 用 /district rules 维护 (最多 20 条, 每条最多 200 字); 平板上的编辑入口本轮不做。 */
+  rules: string[]
+  createdAt: number
+  /** 口径同 DistrictSummary.plotCount / vacantPlotCount。 */
+  plotCount: number
+  vacantPlotCount: number
+}
+
+/**
+ * 查看者对**这个**自管区能做什么。服务端按身份算好下发, 界面据此决定哪些入口可点、哪些画成锁定态 ——
+ * 前端不许拿 viewer.role 自己再推一遍 (那会变成第二份权限规则, 必然与服务端漂移)。
+ */
+export interface DistrictAbilities {
+  /**
+   * 居住权带来的建造 (按本区住户那一列)。住户/区务长本人的 Flan 写入未生效 (待生效/同步失败) 时为 false ——
+   * 那时本人不在居民组里, 游戏里按外人那一列算 (见 K8), 不是"什么都不能做"。
+   */
+  build: boolean
+  /** 居住权带来的开门、开箱子等日常交互。生效口径同 build。 */
+  interact: boolean
+  /** 添加/移出住户。 */
+  manageResidents: boolean
+  /** 查看住户名单与操作记录。 */
+  viewRoster: boolean
+  /** 圈地、调整边界 (实际操作在游戏里用金锄头完成, 平板只展示)。 */
+  editClaim: boolean
+  deleteDistrict: boolean
+  appointWarden: boolean
+  /** 对"同步失败"的住户重试写入 Flan。 */
+  retrySync: boolean
+  /** 开关本区**公共区域** (地块以外的地方) 住户 / 外人的具体权限 (开箱子、放方块等)。区务长与管理员。 */
+  managePermissions: boolean
+  /** 改区域规则 (PvP、爆炸、刷怪这类整片统一的开关, 各户地块也跟着)。仅管理员。 */
+  manageRegionRules: boolean
+  /**
+   * "本区地块"页签: 本区全部地块的列表 (编号、户主、面积、状态)。本区住户、区务长、管理员都有 ——
+   * 只能看, 改不了别人的地块。朋友数与生效状态另看 viewPlotStatus。
+   */
+  viewPlotList: boolean
+  /** 地块列表里的朋友数与领地权限生效状态。区务长与管理员; 住户为 false (朋友名单是户主的私事)。 */
+  viewPlotStatus: boolean
+  /** 打开任一地块查看朋友名单和三列权限。仅管理员。 */
+  inspectPlots: boolean
+  /**
+   * 替户主改别人地块的朋友、权限和范围 (每次都记为"管理员代改", 户主在地块记录里看得到)。仅管理员。
+   */
+  overridePlots: boolean
+  /** 在本区划新地块、调整或删除**空置**地块 (K17-K19)。区务长 (仅本区) 与管理员。有户主的地块另看 overridePlots。 */
+  managePlots: boolean
+  /** 设本区地块单价与尺寸上下限、开关购买 (K21 / K22)。仅管理员 —— 区务长不能定价。 */
+  managePlotMarket: boolean
+  /** 解除冻结、立即收回冻结中的地块 (K23 / K24)。仅管理员; 区务长只能看 (移出户主会自动触发冻结)。 */
+  manageFrozenPlots: boolean
+}
+
+export interface DistrictResident {
+  playerName: string
+  joinedAt: number
+  addedBy: string
+  /** 最近在线时刻; null = 从没进过服 (与 syncStatus = pending 同源)。 */
+  lastSeenAt: number | null
+  syncStatus: DistrictSyncStatus
+  /** 同步失败的原因原文, 只下发给管理员; 区务长看到的恒为 null。 */
+  syncError: string | null
+  isWarden: boolean
+  /** TA 在本区的地块; null = 没有。移出确认框据此写明"TA 的地块 X 会原地冻结 7 天"。 */
+  plot: PlotRef | null
+  /**
+   * TA 是本区几块别人地块的 (未暂停的) 朋友。只给个数, 不给是哪几块: 区务长看不到别人地块的朋友名单。
+   * 移出确认框据此按所选原因实时写后果 ("朋友身份会暂停" / "朋友身份保留")。
+   */
+  friendOfPlotCount: number
+}
+
+export interface DistrictLogEntry {
+  entryId: string
+  at: number
+  actorName: string
+  actorRole: DistrictLogActorRole
+  action: DistrictLogAction
+  /**
+   * 被操作的玩家; 地块类动作 (createPlot / resizePlot / deletePlot / buyPlot / freezePlot / unfreezePlot /
+   * vacatePlot) 写地块编号 (如"千年-04"); 改权限、改定价、开关购买为 null —— 改的是设置, 不针对某个人。
+   */
+  targetName: string | null
+  /**
+   * 移出必填; 恢复默认写出的改权限记录为"恢复默认"; 冻结 / 收回 / 解冻写一句缘由 (如"原户主 X 被移出本区");
+   * 买地写价格; 暂停朋友写块数; 改定价写新旧值; 开关购买写"开放" / "关闭"; 其余动作为 null。
+   */
+  reason: string | null
+  /** 改了哪一项、对谁、从什么改成什么。action = permission 时必有, 其余动作为 null。 */
+  permission: DistrictPermissionChange | null
+  /** 划 / 调 / 删地块时的范围变动; 其余动作为 null。 */
+  area: PlotAreaChange | null
+}
+
+/** 一条改权限记录的内容。 */
+export interface DistrictPermissionChange {
+  permissionId: string
+  /** 改动当时这一项的名称。记录是历史: 条目日后改名, 旧记录不跟着改。 */
+  label: string
+  audience: DistrictPermissionAudience
+  from: boolean
+  to: boolean
+}
+
+/** K1 district.state 入参 —— 不读 payload。 */
+export type DistrictStatePayload = EmptyPayload
+
+/** K1 district.state 回执 (DistrictJson.state): 平板打开自管区页时的第一份数据。 */
+export interface DistrictStateResult {
+  viewer: { playerName: string; role: DistrictRole }
+  residency: DistrictResidency | null
+  districts: DistrictSummary[]
+  /**
+   * 查看者本人是哪几块地的朋友 (跨全部自管区, 按自管区、编号排)。只是查看者自己的数据, 谁都拿得到自己的这一份:
+   * 朋友可以是任何玩家, 外人被户主加成朋友后, 平板上要有地方告诉 TA "你在那块地里按朋友算"。空置地块没有朋友。
+   */
+  friendOf: PlotFriendship[]
+  /** ★ friendOf 超过条数上限或回执体积预算时截断, 此时为 true (District_Backend_Design 14.3)。 */
+  friendOfTruncated: boolean
+}
+
+/** 查看者是某块地的朋友。 */
+export interface PlotFriendship {
+  districtId: string
+  plotId: string
+  code: string
+  ownerName: string
+  /** pending = 查看者自己还没进过服 (真服上本人很少看得到, 首次登录即补写)。 */
+  syncStatus: DistrictSyncStatus
+  /**
+   * 朋友身份已暂停 (查看者因违反区规被移出过这个自管区, 见 K4), 户主可以恢复 (K25)。暂停期间在那块地不按朋友算:
+   * 查看者现在不是本区住户就按外人算; 之后又被加回本区的, 按其他住户算。
+   * 冻结中的地块不出现在这里 (冻结期间除管理员外谁都进不去, 朋友也一样)。
+   */
+  suspended: boolean
+}
+
+/** K2 district.detail 入参。 */
+export interface DistrictDetailPayload {
+  districtId: string
+}
+
+/**
+ * K2 district.detail 回执。residents / log 为 null = 查看者无权看 (住户只看得到本区信息),
+ * 与"有权看但是空的" ([]) 必须区分开。
+ */
+export interface DistrictDetailResult {
+  district: DistrictInfo
+  abilities: DistrictAbilities
+  residents: DistrictResident[] | null
+  log: DistrictLogEntry[] | null
+  /** ★ 名单超过条数上限或回执体积预算时截断, 此时为 true (District_Backend_Design 14.3)。 */
+  residentsTruncated: boolean
+  /** ★ 记录超过条数上限或回执体积预算时截断, 此时为 true (District_Backend_Design 14.3)。 */
+  logTruncated: boolean
+}
+
+/**
+ * K3 district.addResident 入参。
+ *
+ * allowNeverJoined: 目标从没进过服时, 第一次提交 (false) 会被拒 (errorCode PLAYER_NEVER_JOINED),
+ * 界面据此明确告诉操作者"TA 首次登录后才生效 / 也可能是 ID 拼错了", 操作者确认后再以 true 重交。
+ * 不把这一步做成"静默成功": 拼错一个字母的 ID 会在名单上永远挂着待生效, 而谁都不会发现。
+ */
+export interface DistrictAddResidentPayload {
+  districtId: string
+  playerName: string
+  allowNeverJoined: boolean
+}
+
+export interface DistrictAddResidentResult {
+  resident: DistrictResident
+  logEntry: DistrictLogEntry
+  /**
+   * TA 以前被移出时冻结、还没收回的旧地块; null = 没有。加回来不会自动解冻 (要管理员 K23), 在那之前 TA 也买不了
+   * 别的地块 (HAS_FROZEN_PLOT) —— 回执据此如实告诉操作者, 不说"TA 可以直接买一块"。
+   */
+  frozenPlot: PlotRef | null
+}
+
+/**
+ * 移出原因的种类。服务端按它决定连带后果, 不去解析 reason 原文:
+ * violation (违反区规) 会暂停 TA 在本区别人地块的朋友身份; 其余三种保留朋友身份。
+ */
+export type RemoveReasonKind = 'inactive' | 'violation' | 'selfRequest' | 'other'
+
+/**
+ * K4 district.removeResident 入参。reason 必填 (去掉首尾空白后非空), 原文进操作记录; reasonKind 必须是四种之一
+ * (INVALID_REQUEST)。
+ */
+export interface DistrictRemoveResidentPayload {
+  districtId: string
+  playerName: string
+  reasonKind: RemoveReasonKind
+  /**
+   * 原文去掉首尾空白后存进本区记录。空白报 REASON_REQUIRED; 超过 200 个字符 (UTF-16 码元,
+   * DistrictLimits.MAX_REMOVE_REASON_CHARS) 报 INVALID_REQUEST {field: 'reason'}, 不写任何东西。
+   * 界面的补充说明限 60 字, 碰不到这个上限。
+   */
+  reason: string
+}
+
+export interface DistrictRemoveResidentResult {
+  logEntry: DistrictLogEntry
+  /**
+   * 随之冻结的地块 (被移出的人原来的地块); null = TA 没有地块。冻结 = 原地封存 7 天: 地块里的东西不动,
+   * 户主组、朋友组、其他住户、外人一律不能进出和操作 (子领地整块重写成"全关", 不改户主存下的朋友和三列设置;
+   * OP 照常绕过, 不拦, 见段首前提);
+   * 期间管理员可以解除冻结 (K23, 原户主重新成为本区住户时) 或立即收回 (K24)。到期由服务端定时收回:
+   * 变空置、朋友清空、三列回到默认、此前的地块记录归档 (只下发给管理员, 见 K12 的 log)。
+   * 移出原因只进本区记录, 地块记录那条只写一句固定的缘由 (下一任户主也看得到地块记录)。
+   * "不能进出"对应 Flan 的哪一条权限 (can_stay) 在阶段 2 真网关接通时实机核对 (District_Backend_Design 20.7)。
+   */
+  frozenPlot: PlotRef | null
+  /** 冻结到期、服务端自动收回的时刻 (epoch millis); 没有地块为 null。 */
+  reclaimAt: number | null
+  /**
+   * reasonKind = violation 时: TA 在本区别人地块的朋友身份被暂停的块数 (各户主会在地块记录里收到一条通知,
+   * 可以自己恢复, 见 K25); 其余原因恒为 0。只给个数, 不给是哪几块: 区务长看不到别人地块的朋友名单。
+   */
+  suspendedFriendOfPlots: number
+  /**
+   * 其余原因: TA 仍是本区别的地块的朋友的块数 (朋友可以是任何玩家, 要不要移除由各户主决定); violation 时恒为 0。
+   * 两种情况服务端都把 TA 从每块地的"其他住户"组删掉。口径同上, 只给个数。
+   */
+  stillFriendOfPlots: number
+}
+
+/** K5 admin.district.retrySync 入参 (仅管理员)。 */
+export interface DistrictRetrySyncPayload {
+  districtId: string
+  playerName: string
+}
+
+export interface DistrictRetrySyncResult {
+  resident: DistrictResident
+}
+
+/** K6 admin.district.setWarden 入参 (仅管理员)。playerName 为 null = 撤销现任区务长。 */
+export interface DistrictSetWardenPayload {
+  districtId: string
+  playerName: string | null
+}
+
+export interface DistrictSetWardenResult {
+  wardenName: string | null
+  logEntry: DistrictLogEntry
+}
+
+/**
+ * K7 admin.district.delete 入参 (仅管理员)。
+ *
+ * 已拍板: 删除自管区 = **只解除与学院的绑定**。
+ *   - 不删 Flan 领地: 自管区那块管理员领地和下面各户地块的子领地在 Flan 里原样保留, 只是不再由本面板管理;
+ *   - 学院成员名单保留: 成员仍属于这个学院 (一个人仍只能属于一个学院), 只是学院暂时没有自管区;
+ *   - 本区操作记录归档, 管理员仍可在 K26 查。
+ * 服务端要做的只是删掉"学院 <-> 领地"这条绑定, 以及停掉本区的面板写入 (住户组同步、地块代办等)。
+ */
+export interface DistrictDeletePayload {
+  districtId: string
+}
+
+export interface DistrictDeleteResult {
+  districtId: string
+  /** 学院成员名单里保留下来的人数, 回执里带出来让管理员当场核对 (他们在面板上不再是"住户")。 */
+  keptMembers: number
+  /** 在 Flan 里原样保留、不再由面板管理的地块块数。 */
+  keptPlots: number
+}
+
+// ------------------------------------------------------------
+// K8-K10 · 本区权限开关
+// ------------------------------------------------------------
+//
+// 服主原话"要能让玩家开启各种权限, 比如开关箱子放方块这些"的落地形状: 每个自管区一张开关表, 按"住户 / 外人"
+// 两列分别开关; 另有一组只能整片统一开关的"区域规则"。外人 = 不是本区住户的任何玩家 (含别的学院的人)。
+// 按户分地 (K11-K16) 之后, 住户 / 外人两列**只管公共区域** (自管区里地块以外的地方); 各户地块由户主自己设置,
+// 不受这两列影响。区域规则仍管整片自管区, 地块里也跟着它。
+//
+// 与 Flan 的对应 (服务端 DistrictFlanSync 照此写, 界面不感知):
+//   住户列 -> 该领地"居民"组的组权限。一律显式写成启用/禁用, 不留"默认" —— 留了就回落到外人那一列。
+//   外人列 -> 该领地的全域权限, 对不在任何组里的玩家生效。名单上待生效/同步失败的住户在 Flan 里不在居民组,
+//            游戏里按的正是这一列 (界面已照此提示)。
+//   全区   -> Flan 的全局类权限 (PvP、爆炸、刷怪等)。这类只能整块地统一设, 组权限里根本没有。
+//   地块是这块领地下的子领地, 每一格都显式写死 (见 K11 段头"防漏"), 这里的住户、外人两列改了也漏不进地块。
+// 管理类权限 (编辑领地、编辑权限、附加效果、进出提示语) 不在表里, 任何人都不能经这里开启; 表里没列的其余
+// Flan 权限由服务端按固定值写入, 本面板改不了。区务长本人在 Flan 里仍然没有任何编辑权限, 开关由服务端代写。
+//
+// 有哪些项、叫什么、默认值、对应哪条 Flan 权限, 是服务端配置, 随 K8 回执下发; 前端不另存一份清单。
+
+/** 一个开关管谁。resident = 本区住户; outsider = 不是本区住户的任何玩家; district = 全区 (区域规则)。 */
+export type DistrictPermissionAudience = 'resident' | 'outsider' | 'district'
+
+/** member = 住户、外人两列各一个开关; region = 区域规则, 只有"全区"一个开关, 仅管理员可改。 */
+export type DistrictPermissionScope = 'member' | 'region'
+
+/**
+ * 一项在三个对象上的开关值。member 项的 district 恒为 null, region 项的 resident / outsider 恒为 null;
+ * 查看者无权看的那一列也是 null (不是本区住户的人拿不到住户列; 外人列与全区列对谁都公开)。
+ */
+export interface DistrictPermissionValues {
+  resident: boolean | null
+  outsider: boolean | null
+  district: boolean | null
+}
+
+export interface DistrictPermissionItem {
+  /** 稳定 ASCII 标识 (如 open_container), setPermission 用它指明改哪一项。不是 Flan 的权限 id。 */
+  permissionId: string
+  label: string
+  /** 一句话补充; 没有为 null。 */
+  detail: string | null
+  scope: DistrictPermissionScope
+  current: DistrictPermissionValues
+  /** 默认值。"恢复默认"恢复的就是它; 与 current 不同的格子界面标"非默认"。 */
+  defaults: DistrictPermissionValues
+  /**
+   * 背后对应的 Flan 权限 id。一项可对多条 (如"坐船和矿车" = flan:boat + flan:minecart)。
+   * 只下发给管理员 (排障用), 其余身份为 null —— 与住户的 syncError 同一口径。
+   */
+  flanIds: string[] | null
+  /** Flan 那条是反向语义 (flan:mob_spawn 开启 = 不刷怪; 本项"怪物自然生成"开启 = 刷怪)。只下发给管理员, 其余为 null。 */
+  flanInverted: boolean | null
+  /** 给外人开启前必须让操作者确认的后果; null = 不是高风险项, 或查看者本来就改不了外人列。 */
+  outsiderRisk: string | null
+  /**
+   * 区域规则给全区开启前必须让操作者确认的后果 (如爆炸、火焰蔓延); null = 不是高风险项、不是区域规则,
+   * 或查看者本来就改不了区域规则 (只下发给管理员)。
+   */
+  districtRisk: string | null
+}
+
+export interface DistrictPermissionGroup {
+  groupId: string
+  label: string
+  scope: DistrictPermissionScope
+  items: DistrictPermissionItem[]
+}
+
+/** 查看者能改开关表的哪一部分。 */
+export interface DistrictPermissionEditable {
+  /** 住户、外人两列。管理员与本区区务长为 true。 */
+  member: boolean
+  /** 区域规则。仅管理员为 true。 */
+  region: boolean
+}
+
+/** K8 district.permissions 入参。 */
+export interface DistrictPermissionsPayload {
+  districtId: string
+}
+
+/**
+ * 服务端写死、谁都改不了的区域规则 (不是 Flan 开关, 是服务端自己的拦截, 如"机械动力：机器禁用")。
+ * 画在区域规则里一行锁定的只读行。对谁都公开 (外人在游戏里一试便知)。
+ */
+export interface DistrictFixedRule {
+  ruleId: string
+  label: string
+  /** 现在的取值, 一句短话 (锁定行的取值列很窄, 细节放 detail), 如"机器禁用，装饰可放，OP 例外"。 */
+  valueText: string
+  detail: string | null
+}
+
+/**
+ * K8 district.permissions 回执。按查看者对这个区的身份裁剪:
+ *   管理员 / 本区区务长   三列都给, editable 标明能改哪部分;
+ *   本区住户              三列都给, 只读 (页面据此画"我在本区能做什么")。外人列本就公开, 住户也要它:
+ *                         本人的居住权待生效 / 同步失败时不在居民组里, 游戏里按的正是外人那一列;
+ *   其他人 (外人、别的学院的人)   外人列 + 全区列, 住户列为 null, 只读 (各学院公开信息里的"外人可以…")。
+ * 与 district.detail 不同, 这里不拒绝外人: "外人在这里能做什么"本来就是公开的 —— 在游戏里走进领地一试便知。
+ */
+export interface DistrictPermissionsResult {
+  districtId: string
+  editable: DistrictPermissionEditable
+  groups: DistrictPermissionGroup[]
+  /**
+   * 服务端写死的区域规则 (机械动力的机器禁用、外围多少格内不能个人圈地这类)。谁都改不了, 界面画成锁定的只读行。
+   * 服主 2026-09-29 拍板: 机械动力禁令对 OP 例外; 服务端拦截时跳过 OP (hasPermissions(2) 且不是假玩家), 装饰方块
+   * 放行, valueText / detail 要写明。机械动力的拦截在阶段 3 落地 (District_Backend_Design 第二十二章)。
+   */
+  fixedRules: DistrictFixedRule[]
+}
+
+/**
+ * K9 district.setPermission 入参。改一格, 立即生效。
+ * audience 必须与该项的 scope 对得上: member 项只收 resident / outsider, region 项只收 district。
+ * 区务长只能改本区的 member 项; 区务长改区域规则、住户或外人调用一律以 PERMISSION_DENIED 拒绝。
+ * enabled 不是 boolean (缺省、null、字符串) -> INVALID_REQUEST; 服务端绝不能把缺省或 null 当成"不设置"写进领地
+ * (住户列留空就回落到外人那一列, 见段头)。
+ */
+export interface DistrictSetPermissionPayload {
+  districtId: string
+  permissionId: string
+  audience: DistrictPermissionAudience
+  enabled: boolean
+}
+
+export interface DistrictSetPermissionResult {
+  /** 改完之后的这一项 (按查看者裁剪, 口径同 K8)。 */
+  item: DistrictPermissionItem
+  /** null = 本来就是这个值, 没有改动, 也不写记录。 */
+  logEntry: DistrictLogEntry | null
+}
+
+/**
+ * K10 district.resetPermissions 入参。
+ * scope: member = 只恢复住户、外人两列 (区务长只能用这一档); all = 连区域规则一起恢复 (仅管理员)。
+ */
+export interface DistrictResetPermissionsPayload {
+  districtId: string
+  scope: 'member' | 'all'
+}
+
+export interface DistrictResetPermissionsResult {
+  /** 恢复之后的整张开关表 (口径同 K8)。 */
+  permissions: DistrictPermissionsResult
+  /** 实际改动了的格子逐条一条记录 (reason = 恢复默认); 本来就是默认值的不记。 */
+  logEntries: DistrictLogEntry[]
+  /** ★ 实际改动的格数 (界面写"已把 N 处恢复成默认值"读它; logEntries 可能被预算截断)。 */
+  changedCount: number
+  /** ★ 改动记录超过条数上限或回执体积预算时截断, 此时为 true (District_Backend_Design 14.3)。 */
+  logEntriesTruncated: boolean
+}
+
+// ------------------------------------------------------------
+// K11-K16 · 地块 (按户分地)
+// ------------------------------------------------------------
+//
+// 服主原话"都要有 因为住户也要自己开关": 区务长管公共区域 (K8-K10), 住户在自己的地块上自己开关。
+//
+// 形状:
+//   - 每个自管区里划有若干块地块, 每块是该自管区 Flan 领地下的一块子领地。一块地一个户主 (必须是本区住户),
+//     一个住户最多一块地; 有的地块空置, 有的冻结中。自管区里除去地块的部分叫"公共区域"。
+//   - 地块由区务长划 (K17-K19, 服务端代建子领地), 住户直接购买空置地块, 先到先得 (K20)。价格 = 面积 x 本区单价。
+//   - 户主被移出本区时地块原地冻结 7 天再收回 (见 K4)。冻结期间 status = frozen, 除管理员 (OP) 外谁都不能进出和操作。
+//   - 户主在自己的地块里永远拥有全部非管理类权限 (不做开关)。其余三类人各一列开关: 朋友 / 其他住户 / 外人。
+//     条目沿用 K8 的目录, 去掉区域规则; 管理类权限照旧不出现。
+//   - 朋友可以是任何玩家 (不一定是本区住户), 上限按地块档位定 (【待拍板】, 服务端先按 8 人, DistrictLimits.FRIEND_LIMIT); 朋友不能再把权限转给别人。
+//   - 区务长只能看地块列表, 不能改别人地块的朋友或权限 (户主的家由户主做主); 区务长本人的地块照常自己管。
+//   - 管理员可以打开任一地块查看; 也可以代改, 但每次都以"管理员代改"记进该地块的记录 (户主看得到)。
+//     游戏里 OP 可以进入所有地块并拥有全部权限, 不受三列开关限制 —— Flan 的 OP 绕过, 按拍板不拦 (见本节段首前提)。
+//   - 区域规则 (PvP、爆炸等) 仍全区生效、仅管理员可改, 地块里不能改。
+//
+// 与 Flan 的对应 (服务端 DistrictFlanSync 照此写, 界面不感知; 子领地的回退与复制行为已按
+// docs/District_Flan_Integration_Notes.md 逐条对过 jar 与源码):
+//   户主     -> 子领地"户主"组: 全部非管理类权限显式写成开启。
+//   朋友     -> 子领地"朋友"组。
+//   其他住户 -> 子领地"居民"组 (本区住户, 户主和朋友除外)。
+//   外人     -> 子领地的全域权限 (不在任何组里的玩家)。名单上待生效 / 同步失败的住户不在居民组, 在地块里也按外人算。
+//   一个玩家在一块地里只能在一个组, 优先级 户主 > 朋友 > 其他住户: 本区住户被加成朋友, 进朋友组, 不进居民组。
+//
+// 防漏 (关键): Flan 子领地里没设置的权限会回退去看父领地 (自管区)。区里给住户开了"破坏方块", 某块地"其他住户"
+// 那一格若没写, 别的住户就能拆这户的家。故:
+//   - 每块地的每一项、每一类人都必须写成明确的开或关, 绝不留空去"跟随自管区"。本组的开关值三列都是 boolean,
+//     没有 null / 继承态 (与 K8 的 DistrictPermissionValues 刻意不同), 服务端、假数据与界面都不存在第三种状态;
+//   - 表里没列的其余 Flan 权限 (传送、音符盒等) 在子领地里也按固定值显式写入, 同样不许留空;
+//   - 管理类权限 (编辑领地、编辑权限、附加效果、进出提示语) 对所有组、包括户主组一律显式禁用, 改动全由服务端代办;
+//   - 唯一刻意不写、让它跟随自管区的是区域规则 (Flan 全局类): 它本来就要全区统一。
+//
+// 快照 (关键): Flan 子领地的组和成员只在创建子领地时从父领地复制一次快照, 之后父领地的居民组再变, 子领地不会跟着变。
+// 服务端必须:
+//   - 住户增删 (K3 / K4, 以及首次登录补写、同步重试 K5 等一切改动居民组的路径) 时, 同步更新本区**每一块地**的
+//     "其他住户"(居民) 组 —— 漏了的话, 新住户在各户地块里按外人算, 被移出的人却还留着"其他住户"的权限;
+//   - 住户被移出且 TA 有地块时, 那块地冻结 7 天 (见 K4): 子领地整块重写成全关 (户主组、朋友组也不放行),
+//     但服务端存着的户主、朋友名单与三列设置不动, 解除冻结 (K23) 时照原样写回; 到期或立即收回 (K24) 才变空置:
+//     户主组清空、朋友组清空、三列权限写回默认; 这块地此前的地块记录归档, 下一任户主看不到, 只有管理员还查得到;
+//   - 被移出的人若是别的地块的朋友: 原因是违反区规时, 本区那几块地的朋友组里把 TA 拿掉、名单上标"已暂停"
+//     (户主在地块记录里收到通知, 可以自己恢复, K25); 其余原因朋友组不动。两种情况都要从居民组删掉;
+//   - 朋友从没进过服时同 K3: 名单上先记着 (pending), 首次登录时补进朋友组。
+// 地块的每一次写操作都把这块子领地的三组与全域权限整块重写一遍 (不做增量): 上一次写入失败的地块, 下一次改动时自然补齐。
+//
+// 服务端代建子领地 (K17 划地块 / K18 调范围) 的两条硬要求:
+//   - 建好后立刻把每一项、每一类人的权限写成明确值 (按地块默认值), 绝不留空 —— 同"防漏";
+//   - 地块的"户主 / 朋友 / 居民"组一律用**本地块独立的组名** (如 plot_<plotId>_friend), 不能与父领地同名。
+//     Flan 建子领地时复制父领地的组是浅拷贝 (对接说明 2.2 已核实): 同名组与父领地共用同一份设置, 改地块的朋友组会改到
+//     整个自管区, 改自管区的居民组也会漏进地块。
+
+/** 地块开关管谁。friend = 户主加的朋友; resident = 本区其他住户; outsider = 不是本区住户的任何玩家。 */
+export type PlotAudience = 'friend' | 'resident' | 'outsider'
+
+/**
+ * 一项在三类人上的开关值。三列都是明确的 boolean —— 没有 null, 也没有"跟随自管区"(见段头"防漏"):
+ * 地块里任何一格留空, Flan 都会回退到自管区的设置, 别人就能按公共区域的权限动这户的家。
+ */
+export interface PlotPermissionValues {
+  friend: boolean
+  resident: boolean
+  outsider: boolean
+}
+
+/**
+ * 地块子领地的写入状态。没有 pending: 地块本身不依赖谁登录过服 (朋友的待生效记在朋友那一条上)。
+ * failed = 服务端上一次整块重写没成功 (区块未加载等), 下一次改动这块地时会整块重写。
+ */
+export type PlotSyncStatus = 'synced' | 'failed'
+
+/** 指向一块地。code 是给人看的编号 (如"千年-07", 服务端建地块时按本区序号自动生成), plotId 是稳定 ASCII 标识。 */
+export interface PlotRef {
+  plotId: string
+  code: string
+}
+
+/** 地块状态。owned = 有户主; vacant = 空置 (可以买); frozen = 原户主被移出后冻结中 (除管理员外谁都不能进出和操作)。 */
+export type PlotStatus = 'owned' | 'vacant' | 'frozen'
+
+/** 冻结中的地块的冻结信息。 */
+export interface PlotFreezeInfo {
+  /** 被移出的原户主。 */
+  formerOwnerName: string
+  frozenAt: number
+  /** 到期由服务端自动收回的时刻 (= frozenAt + 7 天)。剩几天由界面按当前时间算, 只做展示。 */
+  reclaimAt: number
+  /**
+   * 原户主现在是不是本区住户 (且没有别的地块) —— 管理员"解除冻结"的前提。只下发给区务长和管理员, 住户为 null。
+   */
+  canRestore: boolean | null
+}
+
+/**
+ * 地块列表的一行 (K11)。按查看者裁剪:
+ *   管理员         全部字段, 含写入失败原因;
+ *   本区区务长     朋友数、生效状态都给, 失败原因为 null (同住户名单的 syncError 口径);
+ *   本区住户       编号、户主、范围、面积、"其他住户能做什么"; 朋友数与生效状态为 null (朋友名单是户主的私事)。
+ * 外人拿不到列表 (K11 直接拒绝), 只看得到 K1 摘要里的块数。
+ */
+export interface PlotSummary {
+  plotId: string
+  code: string
+  status: PlotStatus
+  /** 现任户主; 空置与冻结中为 null (冻结中的原户主见 frozen)。 */
+  ownerName: string | null
+  /** status = frozen 时必有, 其余为 null。 */
+  frozen: PlotFreezeInfo | null
+  bounds: DistrictBounds
+  area: number
+  /** 空置地块的价格 (信用点) = 面积 x 本区单价, 服务端算好下发; 其余状态为 null。 */
+  price: number | null
+  /** 朋友人数。区务长、管理员可见; 住户为 null。 */
+  friendCount: number | null
+  /** 子领地写入状态。区务长、管理员可见; 住户为 null。 */
+  syncStatus: PlotSyncStatus | null
+  /** 写入失败的原文, 只给管理员。 */
+  syncError: string | null
+  /**
+   * 其他住户在这块地能做什么: "其他住户"那一列开着的项的名称, 按目录顺序。本区住户、区务长、管理员都给 ——
+   * 住户本来就是这一列管的人, 在游戏里走进去一试便知, 不是私事。空置地块给默认值; 冻结中为空 (住户谁都不能进)。
+   */
+  openToResidents: string[]
+  /** "其他住户"那一列是否整列都是默认值 (住户视角据此把"按默认的"几块并成一行)。 */
+  residentColumnIsDefault: boolean
+}
+
+/** K12 plot.detail 里的地块信息。 */
+export interface PlotInfo {
+  plotId: string
+  code: string
+  districtId: string
+  status: PlotStatus
+  /** 现任户主; 空置与冻结中为 null。 */
+  ownerName: string | null
+  /** 口径同 PlotSummary.frozen。 */
+  frozen: PlotFreezeInfo | null
+  bounds: DistrictBounds
+  area: number
+  syncStatus: PlotSyncStatus
+  /** 写入失败的原文, 只给管理员。 */
+  syncError: string | null
+}
+
+export interface PlotFriend {
+  playerName: string
+  addedAt: number
+  /** 谁加的: 户主本人, 或代改的管理员。 */
+  addedBy: string
+  /** pending = 从没进过服, 首次登录后才进朋友组 (同 K3)。 */
+  syncStatus: DistrictSyncStatus
+  /** 是不是本区住户。是的话在这块地按朋友算, 不再按"其他住户"算。 */
+  isResident: boolean
+  /**
+   * 朋友身份已暂停: TA 因违反区规被移出本区时自动暂停 (见 K4)。暂停期间在这块地不按朋友算: isResident 为假按外人算,
+   * TA 之后又被加回本区 (isResident 为真) 则按其他住户算。
+   * 仍占朋友名额; 户主 (或代改的管理员) 可以恢复 (K25) 或直接移除。
+   */
+  suspended: boolean
+  /** 暂停的时刻; 没暂停为 null。 */
+  suspendedAt: number | null
+}
+
+export interface PlotPermissionItem {
+  /** 与 K8 同一套 permissionId (同一份目录, 去掉区域规则)。 */
+  permissionId: string
+  label: string
+  detail: string | null
+  current: PlotPermissionValues
+  /** 地块的默认值 (与公共区域的默认不同: 这是别人的家, 更保守)。"恢复默认"恢复的就是它。 */
+  defaults: PlotPermissionValues
+  /** 背后对应的 Flan 权限 id, 只下发给管理员 (口径同 K8)。 */
+  flanIds: string[] | null
+  flanInverted: boolean | null
+  /** 给其他住户或外人开启前必须让操作者确认的后果; null = 不是高风险项。朋友那一列不拦。 */
+  risk: string | null
+}
+
+export interface PlotPermissionGroup {
+  groupId: string
+  label: string
+  items: PlotPermissionItem[]
+}
+
+/**
+ * 地块记录的动作种类。
+ *   create / resize = 区务长或管理员划出 / 调整这块地 (area 记范围); purchase = 住户买下 (操作人是买家, reason 写价格);
+ *   freeze = 户主被移出本区, 地块冻结 (由移出 TA 的区务长或管理员连带触发); unfreeze = 管理员解除冻结;
+ *   vacate = 收回变空置 (冻结期满由服务器收回, 或管理员立即收回);
+ *   suspendFriend = 某位朋友因违反区规被移出本区, 朋友身份自动暂停 —— 这条就是给户主的通知; restoreFriend = 恢复。
+ * permission 的恢复默认同 K10: 按实际改动的格子逐条记, reason 写"恢复默认"。
+ */
+export type PlotLogAction =
+  | 'create'
+  | 'resize'
+  | 'purchase'
+  | 'addFriend'
+  | 'removeFriend'
+  | 'suspendFriend'
+  | 'restoreFriend'
+  | 'permission'
+  | 'freeze'
+  | 'unfreeze'
+  | 'vacate'
+
+/**
+ * 地块记录的操作人身份。owner = 户主本人 (含买下这块地的那一条); admin = 管理员; warden = 区务长 (划地块、
+ * 调空置地块的范围、移出住户时连带冻结地块或暂停朋友 —— 区务长改不了别人地块的朋友、权限和范围);
+ * system = 服务器自己做的 (冻结期满自动收回), actorName 固定写"服务器"。
+ */
+export type PlotActorRole = 'owner' | 'admin' | 'warden' | 'system'
+
+export interface PlotPermissionChange {
+  permissionId: string
+  /** 改动当时的名称 (记录是历史, 同 K8)。 */
+  label: string
+  audience: PlotAudience
+  from: boolean
+  to: boolean
+}
+
+export interface PlotLogEntry {
+  entryId: string
+  at: number
+  actorName: string
+  actorRole: PlotActorRole
+  action: PlotLogAction
+  /** 加 / 移除 / 暂停 / 恢复的朋友; freeze / unfreeze / vacate 为原户主; purchase 为买家; 其余为 null。 */
+  targetName: string | null
+  /**
+   * 恢复默认写出的改权限记录为"恢复默认"; freeze / vacate / suspendFriend 写一句固定的缘由 —— 不抄移出原因
+   * (那只进本区操作记录, 地块记录下一任户主也看得到); purchase 写价格; 其余为 null。
+   */
+  reason: string | null
+  /** action = permission 时必有, 其余为 null。 */
+  permission: PlotPermissionChange | null
+  /** create / resize 时的范围变动; 其余为 null。 */
+  area: PlotAreaChange | null
+  /**
+   * 管理员替户主做的改动 (加减朋友、改权限、改有户主的地块范围、恢复朋友)。界面据此标"管理员代改" ——
+   * 户主一眼要看出这条不是自己改的。管理员立即收回、解除冻结不是改户主的设置, 为 false。
+   */
+  onBehalfOfOwner: boolean
+}
+
+/** K11 district.plots 入参。 */
+export interface DistrictPlotsPayload {
+  districtId: string
+}
+
+/**
+ * K11 district.plots 回执: 本区地块列表, 按查看者裁剪 (见 PlotSummary)。本区住户、区务长、管理员可调,
+ * 外人与别的学院的人一律 PERMISSION_DENIED (他们只看得到 K1 摘要里的块数)。
+ */
+export interface DistrictPlotsResult {
+  districtId: string
+  /** 自管区范围 (俯视平面图按它等比绘制)。 */
+  bounds: DistrictBounds
+  /** 查看者自己在本区的地块; null = 没有。 */
+  myPlotId: string | null
+  /** 各地块"其他住户"那一列的默认值开着的项的名称 (按目录顺序), 住户视角写"按默认的 N 块: …"用。 */
+  residentDefaults: string[]
+  /** 划地块的规则 (界面据此实时校验、提示; 服务端按同一口径再验一遍)。 */
+  rules: PlotRules
+  market: PlotMarket
+  plots: PlotSummary[]
+  /**
+   * 删掉的空置地块留下的墓碑 (K19), 删除时间新的在前。只下发给管理员, 其余身份为 null ——
+   * 墓碑里是这块地历任户主期间的地块记录 (谁加过谁当朋友), 口径同 K12 的归档。
+   */
+  deletedPlots: DeletedPlot[] | null
+  /** ★ 地块列表超过条数上限或回执体积预算时截断, 此时为 true (District_Backend_Design 14.3)。 */
+  plotsTruncated: boolean
+  /** ★ 墓碑 (最多 20 个) 超过条数上限或回执体积预算时截断, 此时为 true (District_Backend_Design 14.3)。 */
+  deletedPlotsTruncated: boolean
+}
+
+/**
+ * 一块已删除地块的墓碑。区务长能删空置地块, 但删地块不能顺带抹掉记录: 删除时服务端把这块地自己的地块记录
+ * (本任 + 历任户主的归档) 整份挪进墓碑, 管理员仍可查。
+ */
+export interface DeletedPlot {
+  plotId: string
+  code: string
+  /** 删除前的范围。 */
+  bounds: DistrictBounds
+  deletedAt: number
+  /** 删掉它的区务长或管理员。 */
+  deletedBy: string
+  /** 这块地删除前的全部地块记录, 新的在前。 */
+  log: PlotLogEntry[]
+  /** ★ 这块地的记录 (最多 20 条) 超过条数上限或回执体积预算时截断, 此时为 true (District_Backend_Design 14.3)。 */
+  logTruncated: boolean
+}
+
+/**
+ * 划地块的规则。
+ *   edgeGap: 地块与自管区边界之间至少留几格公共区域。全服常量, 数值【待拍板】(服务端先按 2 格, DistrictLimits.EDGE_GAP)。
+ *   minSide / maxSide: 地块每一边的格数上下限 (如 8 ~ 48), 每区一份, 由管理员设 (K21)。
+ * 其余硬规则不带参数, 不下发: 必须在自管区范围内 (OUT_OF_DISTRICT)、不能和别的地块重叠 (OVERLAPS_PLOT, 贴边可以)。
+ */
+export interface PlotRules {
+  edgeGap: number
+  minSide: number
+  maxSide: number
+}
+
+/**
+ * 本区地块的购买信息。直接购买, 先到先得 (不抽签)。
+ *   unitPrice: 每格单价 (信用点), 每区一个, 只有管理员能设 (K21); 地块价格 = 面积 x unitPrice, 服务端算好随 price 下发。
+ *   open: 本区是否开放购买 (K22, 管理员开关, 默认关)。
+ *   viewerBlock: 查看者现在为什么不能买; null = 能买 (空置地块旁出"购买"按钮)。服务端按身份算好下发, 前端不自己推。
+ *   viewerBalance: 查看者本人当前的信用点余额; 只在 viewerBlock 为 null 时下发 (买地确认框写"买完剩多少"), 其余 null。
+ * 付款去向 (销毁还是进钱仓) 还在定, 与本契约无关: 扣的永远是买家自己的余额。
+ */
+export interface PlotMarket {
+  unitPrice: number
+  open: boolean
+  viewerBlock: PlotBuyBlock | null
+  viewerBalance: number | null
+}
+
+/**
+ * 查看者不能买地的原因。
+ *   NOT_RESIDENT       不是本区住户 (外人拿不到本回执; 管理员看别的区时是这个);
+ *   ALREADY_OWNS_PLOT  已有一块地 (一人最多一块);
+ *   HAS_FROZEN_PLOT    原来的地块还在冻结中 (等管理员解除冻结或收回);
+ *   PURCHASE_CLOSED    本区暂未开放购买。
+ */
+export type PlotBuyBlock = 'NOT_RESIDENT' | 'ALREADY_OWNS_PLOT' | 'HAS_FROZEN_PLOT' | 'PURCHASE_CLOSED'
+
+/** K12 plot.detail 入参。 */
+export interface PlotDetailPayload {
+  districtId: string
+  plotId: string
+}
+
+/**
+ * K12 plot.detail 回执: 一块地的朋友名单、三列权限和地块记录。只有户主本人和管理员能调;
+ * 区务长看别人的地块、住户看别人的地块一律 PERMISSION_DENIED (列表层信息走 K11)。
+ */
+export interface PlotDetailResult {
+  plot: PlotInfo
+  /** 查看者和这块地的关系: owner = 户主本人; admin = 管理员看别人的 (或空置的) 地块。 */
+  viewerRelation: 'owner' | 'admin'
+  /**
+   * 能不能改朋友和权限。户主为 true; 管理员为 true (代改, 每次都记为"管理员代改"); 空置地块对谁都是 false
+   * (没有户主, 朋友无从谈起; 三列恒为默认值); 冻结中的地块也是 false (朋友与三列是原户主存下的设置, 冻结期间不动)。
+   */
+  editable: boolean
+  /** 朋友人数上限 (按地块档位定,【待拍板】)。 */
+  friendLimit: number
+  friends: PlotFriend[]
+  groups: PlotPermissionGroup[]
+  /**
+   * 新的在前。户主只拿到本任户主期间的记录 (收回地块时之前的记录归档); 管理员另接上历任户主期间的归档,
+   * 排在收回那条之后。
+   */
+  log: PlotLogEntry[]
+  /** ★ 记录 (本任期与归档合计最多 100 条) 超过条数上限或回执体积预算时截断, 此时为 true (District_Backend_Design 14.3)。 */
+  logTruncated: boolean
+}
+
+/**
+ * K13 plot.setPermission 入参。改一格, 立即生效。
+ * 拒绝: 不是户主也不是管理员 (区务长改别人的地块同样拒绝) -> PERMISSION_DENIED; 空置地块 -> PLOT_VACANT;
+ * 冻结中 -> PLOT_FROZEN; audience 不是 friend / resident / outsider -> INVALID_REQUEST; 区域规则的 id -> REGION_RULE_NOT_IN_PLOT;
+ * 目录里没有 -> PERMISSION_ITEM_UNKNOWN; enabled 不是 boolean (缺省、null、字符串) -> INVALID_REQUEST ——
+ * 服务端绝不能把缺省或 null 当成"不设置"写进子领地 (留空就回退到自管区的设置, 见 K11 段头"防漏")。
+ * 管理员改别人的地块照常生效, 记录的 actorRole 为 admin。
+ */
+export interface PlotSetPermissionPayload {
+  districtId: string
+  plotId: string
+  permissionId: string
+  audience: PlotAudience
+  enabled: boolean
+}
+
+export interface PlotSetPermissionResult {
+  item: PlotPermissionItem
+  /** null = 本来就是这个值, 没有改动, 也不写记录。 */
+  logEntry: PlotLogEntry | null
+}
+
+/** K14 plot.resetPermissions 入参: 三列全部回到地块默认值。拒绝口径同 K13。 */
+export interface PlotResetPermissionsPayload {
+  districtId: string
+  plotId: string
+}
+
+export interface PlotResetPermissionsResult {
+  /** 恢复之后的整块地 (口径同 K12)。 */
+  detail: PlotDetailResult
+  /** 实际改动了的格子逐条一条记录 (reason = 恢复默认)。 */
+  logEntries: PlotLogEntry[]
+  /** ★ 实际改动的格数 (界面读它; logEntries 可能被预算截断)。 */
+  changedCount: number
+  /** ★ 改动记录超过条数上限或回执体积预算时截断, 此时为 true (District_Backend_Design 14.3)。 */
+  logEntriesTruncated: boolean
+}
+
+/**
+ * K15 plot.addFriend 入参。allowNeverJoined 同 K3: 目标从没进过服时第一次提交 (false) 以 PLAYER_NEVER_JOINED 拒绝,
+ * 操作者确认后以 true 重交, 以待生效记入。
+ * 拒绝: PERMISSION_DENIED / PLOT_VACANT / PLOT_FROZEN (同 K13); INVALID_PLAYER_NAME; FRIEND_IS_OWNER (户主不用加自己);
+ * ALREADY_FRIEND (已暂停的也算, 那时应走 K25 恢复); FRIEND_LIMIT_REACHED (已到上限, 先移除一位; 已暂停的也占名额)。
+ */
+export interface PlotAddFriendPayload {
+  districtId: string
+  plotId: string
+  playerName: string
+  allowNeverJoined: boolean
+}
+
+export interface PlotAddFriendResult {
+  friend: PlotFriend
+  logEntry: PlotLogEntry
+}
+
+/** K16 plot.removeFriend 入参。拒绝: PERMISSION_DENIED / PLOT_VACANT / PLOT_FROZEN (同 K13); FRIEND_NOT_FOUND。 */
+export interface PlotRemoveFriendPayload {
+  districtId: string
+  plotId: string
+  playerName: string
+}
+
+export interface PlotRemoveFriendResult {
+  logEntry: PlotLogEntry
+}
+
+// ------------------------------------------------------------
+// K17-K26 · 划地块、直接购买、冻结与收回、朋友暂停、解绑归档
+// ------------------------------------------------------------
+//
+// 通用拒绝码 (各条不再重复): DISTRICT_NOT_FOUND; PLOT_NOT_FOUND (页面过期); PERMISSION_DENIED (身份不够)。
+//
+// 划地块的范围校验 (K17 / K18 共用, 按下面顺序报第一条不满足的):
+//   INVALID_AREA        坐标不是整数, 或 min > max;
+//   OUT_OF_DISTRICT     超出自管区范围;
+//   TOO_CLOSE_TO_EDGE   离自管区边界不足 edgeGap 格 (四周都要留出公共区域, 见 PlotRules);
+//   SIZE_OUT_OF_RANGE   任一边的格数不在 [minSide, maxSide];
+//   OVERLAPS_PLOT       与本区别的地块 (含冻结中的) 重叠; 贴边不算重叠。
+// 服务端建 / 改子领地后必须把每一格权限写成明确值, 地块组用独立组名 (见 K11 段头"代建子领地")。
+
+/** K17 plot.create 入参。区务长 (仅本区) 与管理员。新地块空置, 编号按本区序号自动生成 (删掉的编号不复用)。 */
+export interface PlotCreatePayload {
+  districtId: string
+  area: PlotArea
+}
+
+export interface PlotCreateResult {
+  plot: PlotSummary
+  /** 本区操作记录新写的那条 (createPlot)。 */
+  logEntry: DistrictLogEntry
+}
+
+/**
+ * K18 plot.resize 入参。
+ * 区务长只能调**本区空置**地块: 有户主 -> PLOT_OCCUPIED ("那是别人的家"); 冻结中 -> PLOT_FROZEN。
+ * 管理员可以调有户主的地块 (代改): 地块记录写一条 onBehalfOfOwner = true 的 resize, 户主在地块记录里看得到 (这就是通知);
+ * 冻结中的管理员也不能调 (PLOT_FROZEN), 要先解除冻结或收回。范围校验见段头, 调整时不和自己比重叠;
+ * 与原范围完全一样 -> PLOT_AREA_UNCHANGED。
+ */
+export interface PlotResizePayload {
+  districtId: string
+  plotId: string
+  area: PlotArea
+}
+
+export interface PlotResizeResult {
+  plot: PlotSummary
+  logEntry: DistrictLogEntry
+  /** 这次改的是有户主的地块 (管理员代改), 已在地块记录里通知户主。 */
+  ownerNotified: boolean
+}
+
+/**
+ * K19 plot.delete 入参。只能删**空置**地块 (区务长仅本区; 管理员也一样, 有户主的地块管理员只能调范围、不能删):
+ * 有户主 -> PLOT_OCCUPIED; 冻结中 -> PLOT_FROZEN。删掉 = 服务端删这块子领地, 那片地回到公共区域。
+ * 本区操作记录里划出、删除两条仍在; 这块地自己的地块记录 (含历任户主的归档) 不随之删除, 整份挪进本区的
+ * 已删除地块墓碑, 管理员在 K11 的 deletedPlots 里仍可查 —— 区务长删得了地块, 删不了记录。
+ */
+export interface PlotDeletePayload {
+  districtId: string
+  plotId: string
+}
+
+export interface PlotDeleteResult {
+  logEntry: DistrictLogEntry
+}
+
+/**
+ * K20 plot.buy 入参。买家永远是调用者本人 —— 没有"替谁买"的参数, 区务长替别人买在结构上就不存在。
+ * 拒绝 (按顺序, 与 K11 的 market.viewerBlock 同一口径): NOT_RESIDENT (不是本区住户, 含管理员); ALREADY_OWNS_PLOT
+ * (一人最多一块); HAS_FROZEN_PLOT (原来的地块还冻结着); PURCHASE_CLOSED (本区没开放购买); PLOT_FROZEN;
+ * PLOT_OCCUPIED (被人抢先买走了 —— 先到先得); PLOT_CHANGED (expectedBounds 与当前范围不同: 确认期间区务长或管理员
+ * 挪了这块地、改了形状, 面积与价格可能都没变; params 带现在的 minX/minZ/maxX/maxZ); PRICE_CHANGED (expectedPrice 与
+ * 当前价格不同: 管理员刚改了单价, 按新价重新确认); INSUFFICIENT_FUNDS (余额不足)。
+ * expectedBounds / expectedPrice 缺失或类型不对是 INVALID_REQUEST {field} (机器字段, 排在一切业务检查之前)。
+ * 成功: 扣款 (付款去向【待拍板】, 阶段 1 直接销毁)、买家成为户主、子领地按默认值整块写好, 本区记录与地块记录各写一条。
+ */
+export interface PlotBuyPayload {
+  districtId: string
+  plotId: string
+  /** 买家在确认框里看到的范围 (PlotSummary.bounds 的四个坐标)。与当前范围不同则拒绝, 防止确认的一瞬间地块被挪走。 */
+  expectedBounds: PlotArea
+  /** 买家在确认框里看到的价格。与当前价格不同则拒绝, 防止确认的一瞬间单价被改。 */
+  expectedPrice: number
+}
+
+export interface PlotBuyResult {
+  plot: PlotRef
+  price: number
+  balanceAfter: number
+  logEntry: DistrictLogEntry
+}
+
+/**
+ * K21 admin.district.setPlotPricing 入参 (仅管理员; 区务长不能定价)。
+ * 拒绝: INVALID_PRICE (单价不是正整数); INVALID_SIZE_LIMIT (上下限不是正整数, 或下限大于上限, 或下限小于 1)。
+ * 改尺寸上下限不影响已有地块, 只管以后划 / 调的。
+ */
+export interface DistrictSetPlotPricingPayload {
+  districtId: string
+  unitPrice: number
+  minSide: number
+  maxSide: number
+}
+
+export interface DistrictSetPlotPricingResult {
+  rules: PlotRules
+  unitPrice: number
+  /** null = 与原来一样, 没有改动也不写记录。 */
+  logEntry: DistrictLogEntry | null
+}
+
+/**
+ * K22 admin.district.setPurchaseOpen 入参 (仅管理员)。默认关。
+ * 拒绝: PERMISSION_DENIED (不是管理员); INVALID_REQUEST (open 不是 boolean: 缺省、null、字符串一律拒绝, 不当成"关")。
+ * 与现值相同不算失败: 照常回当前值, logEntry 为 null。
+ * 平板请求者的身份由派发器入口的 AccessHub 登录门保证 (另一分支): 那道门上线之前不要在正式服打开,
+ * 否则谁都能以别人的名义买地。
+ */
+export interface DistrictSetPurchaseOpenPayload {
+  districtId: string
+  open: boolean
+}
+
+export interface DistrictSetPurchaseOpenResult {
+  open: boolean
+  logEntry: DistrictLogEntry | null
+}
+
+/**
+ * K23 admin.plot.unfreeze 入参 (仅管理员; 区务长只能看)。把冻结中的地块照原样还给原户主 (朋友与三列设置都恢复)。
+ * 拒绝: PLOT_NOT_FROZEN; FORMER_OWNER_NOT_RESIDENT (原户主还不是本区住户: 先把 TA 加回来); ALREADY_OWNS_PLOT
+ * (原户主回来后已经另买了一块)。
+ */
+export interface PlotUnfreezePayload {
+  districtId: string
+  plotId: string
+}
+
+export interface PlotUnfreezeResult {
+  plot: PlotRef
+  ownerName: string
+  logEntry: DistrictLogEntry
+}
+
+/**
+ * K24 admin.plot.reclaimNow 入参 (仅管理员)。不等 7 天, 立即收回冻结中的地块: 变空置、朋友清空、三列回到默认、
+ * 此前的地块记录归档 (只有管理员看得到)。拒绝: PLOT_NOT_FROZEN (只收冻结中的; 有户主的地块不能直接收)。
+ */
+export interface PlotReclaimNowPayload {
+  districtId: string
+  plotId: string
+}
+
+export interface PlotReclaimNowResult {
+  logEntry: DistrictLogEntry
+}
+
+/**
+ * K25 plot.restoreFriend 入参。户主本人 (或代改的管理员) 恢复一位被暂停的朋友, 马上重新按"朋友"那一列算。
+ * 拒绝: PERMISSION_DENIED / PLOT_VACANT / PLOT_FROZEN (同 K13); FRIEND_NOT_FOUND; FRIEND_NOT_SUSPENDED。
+ */
+export interface PlotRestoreFriendPayload {
+  districtId: string
+  plotId: string
+  playerName: string
+}
+
+export interface PlotRestoreFriendResult {
+  friend: PlotFriend
+  logEntry: PlotLogEntry
+}
+
+/** 已解除绑定 (K7) 的自管区的归档。 */
+export interface ArchivedDistrict {
+  districtId: string
+  displayName: string
+  /** 简称与全称, 口径同 DistrictSummary。 */
+  academyName: string
+  academyFullName: string
+  unboundAt: number
+  unboundBy: string
+  /** 保留下来的学院成员人数。 */
+  memberCount: number
+  /** 解绑前的本区操作记录, 新的在前 (最后一条是解绑本身之前的那条)。 */
+  log: DistrictLogEntry[]
+  /** ★ 这个区的记录 (最多 50 条) 超过条数上限或回执体积预算时截断, 此时为 true (District_Backend_Design 14.3)。 */
+  logTruncated: boolean
+}
+
+/** K26 admin.district.archive 入参 —— 不读 payload。 */
+export type DistrictArchivePayload = EmptyPayload
+
+/** K26 admin.district.archive 回执 (仅管理员): 已解除绑定的自管区与它们的操作记录, 解绑时间新的在前。 */
+export interface DistrictArchiveResult {
+  districts: ArchivedDistrict[]
+  /** ★ 已解绑的区 (最多 20 个) 超过条数上限或回执体积预算时截断, 此时为 true (District_Backend_Design 14.3)。 */
+  truncated: boolean
 }

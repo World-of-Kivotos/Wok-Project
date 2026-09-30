@@ -24,8 +24,9 @@ src/pages/            业务页。只从 '@/components/kit' 导入, 不直接碰
    fragment。页面一旦改 hash, 此后所有 `cefQuery` 被以 -3 拒绝 —— 症状是"界面能翻页但所有数据请求全废"。
    详见 `src/router.ts` 文件头。
 2. **`callMock` 的 planned 分流必须在生产构建下硬失败**。见 `src/mock/handlers.ts`。缺了这道门,
-   `planned.ts` 里剩下的假 action 会在真客户端里由内存世界作答 (当前只剩 `shop.catalog` / `shop.detail`
-   两条, 后端在 WOK-ChestShop 跨仓; 条数以 `src/mock/planned.ts` 的 `PLANNED_ACTIONS` 为准, 别在此写死数字)。
+   `planned.ts` 里剩下的假 action 会在真客户端里由内存世界作答 (当前是系统商店 `shop.*` 两条, 后端在
+   WOK-ChestShop 跨仓; 自管区二十六条已于 2026-09-29 接线核销; 条数以 `src/mock/planned.ts` 的 `PLANNED_ACTIONS` 为准,
+   别在此写死数字)。
 
 ## 导入方式
 
@@ -60,10 +61,10 @@ const CONTROL_SIZES: readonly ControlSize[]
 | 组件 | 签名 |
 | --- | --- |
 | `Button` | Coss 原件直转。`variant`: `default` \| `brand` \| `secondary` \| `outline` \| `ghost` \| `link` \| `destructive` \| `destructive-outline`；`size`: `xs` \| `sm` \| `default` \| `lg` \| `xl` \| `icon` \| `icon-xs` \| `icon-sm` \| `icon-lg` \| `icon-xl`；另有 `loading` / `disabled`。注意档位名是 `default` 不是 `md`。 |
-| `TextInput` | `{ value, onChange(next: string), placeholder?, disabled?, invalid?, size?, maxLength?, type?: 'text'\|'search'\|'password', onRequestEdit?, className? }` |
+| `TextInput` | `{ value, onChange(next: string), placeholder?, disabled?, invalid?, size?, maxLength?, type?: 'text'\|'search'\|'password', onRequestEdit?, ariaLabel?, className? }` |
 | `NumberInput` | `{ value, onChange(next: number), min, max, step?=1, disabled?, size?, className? }` 带增减按钮。 |
 | `Dropdown<T extends string>` | `{ value, onChange(next: T), options: {value: T, label: string, disabled?}[], placeholder?, disabled?, size?, className? }` |
-| `Toggle` | `{ checked, onChange(next: boolean), label, disabled?, size?, className? }` 复选框 + 文字。 |
+| `Toggle` | `{ checked, onChange(next: boolean), label, ariaLabel?, labelClassName?, disabled?, size?, className? }` 复选框 + 文字。本项目的"开关"控件就是它, 不另造 Switch。 |
 | `Meter` | `{ value, max, tone?='brand', size?, label?, valueText?, bare?, className? }` 进度条。`max` 必须为正。 |
 | `TabBar` | `{ tabs: {id, label, disabled?, badge?}[], activeId, onChange(id), variant?: 'default'\|'underline', className? }` |
 | `Hint` | `{ content: ReactNode, children }` 悬停提示。`TooltipProvider` 已挂在 App 根部。 |
@@ -76,7 +77,7 @@ const CONTROL_SIZES: readonly ControlSize[]
 | `ErrorBlock` | `{ message, code?, onRetry?, className? }` 带 `role="alert"`。 |
 | `EmptyBlock` | `{ title, hint?, icon?: ReactNode, action?: ReactNode, className? }` icon 传 lucide 元素。 |
 | `FeedbackAlert` | `{ tone: 'neutral'\|'success'\|'warning'\|'danger'\|'info', message, title?, action?, className? }` 写操作回执条。**message 放服务端回执原文, 不改写**。 |
-| `ConfirmDangerDialog` | `{ open, onOpenChange(open), title, message, confirmLabel, onConfirm, loading?, confirmWord? }` 破坏性操作二次确认。给 `confirmWord` 则要求逐字输入才解锁。 |
+| `ConfirmDangerDialog` | `{ open, onOpenChange(open), title, message, confirmLabel, onConfirm, loading?, confirmWord?, children?, confirmDisabled? }` 破坏性操作二次确认。给 `confirmWord` 则要求逐字输入才解锁；`children` 是说明下方的附加表单区，`confirmDisabled` 在表单没填完时锁住确认键。 |
 
 ### 展示
 
@@ -116,6 +117,16 @@ tsconfig 开着这个档。kit 的全部可选 props 都显式写了 `| undefine
   `action` 槽由本组件负责套 `AlertAction` —— Coss 的 Alert 靠 `data-slot="alert-action"` 决定网格列，
   裸节点会掉到第二行。业务页直接传按钮即可。
 - `Meter` 增加 `thresholds`：轨道上的参考刻度（TPS 的 15 那条线、精通度的升段坎）。
+- `ConfirmDangerDialog` 增加 `children` 与 `confirmDisabled`（2026-09 自管区预览时补）：移出住户必须
+  顺带选一个原因，原因表单画在说明文字下方，没选就锁住确认键。表单状态归调用方持有。
+- `Toggle` 增加 `ariaLabel`（2026-09 自管区权限开关时补）：权限表一行两个开关、可见文字都是"开 / 关"，
+  读屏要念成"外人：开箱子等容器"才分得清是哪一格。不给时照旧念 `label`。禁用态的鼠标指针同时改成
+  `not-allowed`，不再是可点的手形。
+- `Toggle` 增加 `labelClassName`（同一轮补）：可见文字本身就是状态时（"开 / 关"）按状态上色，
+  如开用 `text-success`、关用 `text-muted-foreground`。一整列同色的"开 / 关"扫不出哪些开着，
+  "☐ 关"还容易被读成"勾上就是关掉"。不给时照旧跟随外层的 `text-foreground`。
+- `TextInput` 增加 `ariaLabel`（2026-09 自管区划地块时补）：四个坐标框只靠表头"X / Z"和行首"角 1 / 角 2"
+  说明是哪一格，没有 `<label>` 包着，placeholder 又不算可访问名称，读屏只会念"编辑框"。不给时照旧。
 - `ItemSlotGrid` 的键盘焦点改为组件内部状态，不再跟随 `selectedSlot`。
   调用方常常拒绝某些格子的选中（挂单页对空格子的 `onSelect` 直接 return），焦点若跟着选中走，
   方向键碰到第一个空格就再也推不动。**焦点是"我在看哪一格"，选中是"我要哪一格"，两者不是一回事。**

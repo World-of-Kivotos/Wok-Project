@@ -14,6 +14,9 @@
  *      handlers.ts 里对应的实现改为转调 lib/bridge 的 call()。三步做完才算这一行核销掉。
  *
  * 本轮核销后只剩 H 组两条 (shop.catalog / shop.detail): 它们的服务端在 WOK-ChestShop 跨仓, 本轮不做。
+ * 后来登记的自管区二十六条 (district.* / plot.* / admin.district.* / admin.plot.*) 已于 2026-09-29 随 wok-district
+ * 后端阶段 1 整组核销: 类型去掉 Planned 前缀搬进 lib/types.ts, 在接线清单里登记为 K 组 (K1-K26),
+ * 假数据改由 lib/bridge.mock 转给 mock/district-handlers.ts 回答 (见 docs/District_Backend_Design.md 第十七章)。
  * 另有一条 shop.buy 是**直接删除**而不是核销 —— 已拍板"系统商店只做浏览比价, 不做隔空下单",
  * 它不会有后端实现 (ShopTransaction.buy 只接受玩家物理点击真实告示牌的路径, 内嵌 reach/tamper/冷却校验)。
  *
@@ -31,7 +34,9 @@
 /** 不吃任何字段的 planned action 用它占位 (等价 `{}`, 但不触发 no-empty-object-type)。 */
 export type PlannedEmptyPayload = Record<string, never>
 
-/** 三维坐标。当前只剩告示牌商店在用 (矿洞落点/军械台方块位已随各自 action 核销, 改用真契约的 WebUiBlockPos)。 */
+/**
+ * 三维坐标。当前只剩告示牌商店在用 (矿洞落点/军械台方块位已随各自 action 核销, 改用真契约的 WebUiBlockPos)。
+ */
 export interface PlannedBlockPos {
   x: number
   y: number
@@ -99,7 +104,10 @@ export type PlannedResultOf<A extends PlannedActionName> = PlannedContractMap[A]
  * 用途有二: handlers 据此判"这个 action 走内存世界还是转调真桥"; 接线时它就是核销进度表 ——
  * 数组变短一条, 代表后端真落地了一行。按接线清单的分组顺序排列, 便于与文档对照。
  */
-export const PLANNED_ACTIONS = ['shop.catalog', 'shop.detail'] as const
+export const PLANNED_ACTIONS = [
+  'shop.catalog',
+  'shop.detail',
+] as const
 
 /**
  * 编译期双向核对 (同 lib/bridge.ts 的 AssertContractCoverage): 清单数组与契约表任一方少一条或多一条,

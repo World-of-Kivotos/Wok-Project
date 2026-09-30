@@ -182,6 +182,58 @@ import type {
   TitleEquipResult,
   TitleListPayload,
   TitleListResult,
+  DistrictAddResidentPayload,
+  DistrictAddResidentResult,
+  DistrictArchivePayload,
+  DistrictArchiveResult,
+  DistrictDeletePayload,
+  DistrictDeleteResult,
+  DistrictDetailPayload,
+  DistrictDetailResult,
+  DistrictPermissionsPayload,
+  DistrictPermissionsResult,
+  DistrictPlotsPayload,
+  DistrictPlotsResult,
+  DistrictRemoveResidentPayload,
+  DistrictRemoveResidentResult,
+  DistrictResetPermissionsPayload,
+  DistrictResetPermissionsResult,
+  DistrictRetrySyncPayload,
+  DistrictRetrySyncResult,
+  DistrictSetPermissionPayload,
+  DistrictSetPermissionResult,
+  DistrictSetPlotPricingPayload,
+  DistrictSetPlotPricingResult,
+  DistrictSetPurchaseOpenPayload,
+  DistrictSetPurchaseOpenResult,
+  DistrictSetWardenPayload,
+  DistrictSetWardenResult,
+  DistrictStatePayload,
+  DistrictStateResult,
+  PlotAddFriendPayload,
+  PlotAddFriendResult,
+  PlotBuyPayload,
+  PlotBuyResult,
+  PlotCreatePayload,
+  PlotCreateResult,
+  PlotDeletePayload,
+  PlotDeleteResult,
+  PlotDetailPayload,
+  PlotDetailResult,
+  PlotReclaimNowPayload,
+  PlotReclaimNowResult,
+  PlotRemoveFriendPayload,
+  PlotRemoveFriendResult,
+  PlotResetPermissionsPayload,
+  PlotResetPermissionsResult,
+  PlotResizePayload,
+  PlotResizeResult,
+  PlotRestoreFriendPayload,
+  PlotRestoreFriendResult,
+  PlotSetPermissionPayload,
+  PlotSetPermissionResult,
+  PlotUnfreezePayload,
+  PlotUnfreezeResult,
 } from './types'
 
 /**
@@ -272,6 +324,36 @@ type WebUiContractMap = {
   'title.equip': { payload: TitleEquipPayload; result: TitleEquipResult }
   'title.customPreview': { payload: TitleCustomDraftPayload; result: TitleCustomPreviewResult }
   'title.customSet': { payload: TitleCustomDraftPayload; result: TitleCustomSetResult }
+  // 自管区 (接线清单 K 组, com.miningdim.district.web.DistrictWebUiActions)
+  'district.state': { payload: DistrictStatePayload; result: DistrictStateResult }
+  'district.detail': { payload: DistrictDetailPayload; result: DistrictDetailResult }
+  'district.addResident': { payload: DistrictAddResidentPayload; result: DistrictAddResidentResult }
+  'district.removeResident': { payload: DistrictRemoveResidentPayload; result: DistrictRemoveResidentResult }
+  'admin.district.retrySync': { payload: DistrictRetrySyncPayload; result: DistrictRetrySyncResult }
+  'admin.district.setWarden': { payload: DistrictSetWardenPayload; result: DistrictSetWardenResult }
+  'admin.district.delete': { payload: DistrictDeletePayload; result: DistrictDeleteResult }
+  'district.permissions': { payload: DistrictPermissionsPayload; result: DistrictPermissionsResult }
+  'district.setPermission': { payload: DistrictSetPermissionPayload; result: DistrictSetPermissionResult }
+  'district.resetPermissions': { payload: DistrictResetPermissionsPayload; result: DistrictResetPermissionsResult }
+  'district.plots': { payload: DistrictPlotsPayload; result: DistrictPlotsResult }
+  'plot.detail': { payload: PlotDetailPayload; result: PlotDetailResult }
+  'plot.setPermission': { payload: PlotSetPermissionPayload; result: PlotSetPermissionResult }
+  'plot.resetPermissions': { payload: PlotResetPermissionsPayload; result: PlotResetPermissionsResult }
+  'plot.addFriend': { payload: PlotAddFriendPayload; result: PlotAddFriendResult }
+  'plot.removeFriend': { payload: PlotRemoveFriendPayload; result: PlotRemoveFriendResult }
+  'plot.create': { payload: PlotCreatePayload; result: PlotCreateResult }
+  'plot.resize': { payload: PlotResizePayload; result: PlotResizeResult }
+  'plot.delete': { payload: PlotDeletePayload; result: PlotDeleteResult }
+  'plot.buy': { payload: PlotBuyPayload; result: PlotBuyResult }
+  'admin.district.setPlotPricing': { payload: DistrictSetPlotPricingPayload; result: DistrictSetPlotPricingResult }
+  'admin.district.setPurchaseOpen': {
+    payload: DistrictSetPurchaseOpenPayload
+    result: DistrictSetPurchaseOpenResult
+  }
+  'admin.plot.unfreeze': { payload: PlotUnfreezePayload; result: PlotUnfreezeResult }
+  'admin.plot.reclaimNow': { payload: PlotReclaimNowPayload; result: PlotReclaimNowResult }
+  'plot.restoreFriend': { payload: PlotRestoreFriendPayload; result: PlotRestoreFriendResult }
+  'admin.district.archive': { payload: DistrictArchivePayload; result: DistrictArchiveResult }
 }
 
 /**

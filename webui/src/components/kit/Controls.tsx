@@ -46,6 +46,11 @@ export interface TextInputProps {
    * 在浏览器里的设计预览下这是对的, 装进游戏后再统一接。
    */
   onRequestEdit?: ((current: string) => void) | undefined
+  /**
+   * 读屏念的名字。旁边没有 <label> 包着、只靠表头或行首小字说明是哪一格时必须给 (placeholder 不算可访问名称),
+   * 如划地块的四个坐标框"角 1 X"。
+   */
+  ariaLabel?: string | undefined
   className?: string | undefined
 }
 
@@ -59,12 +64,14 @@ export function TextInput({
   maxLength,
   type = 'text',
   onRequestEdit,
+  ariaLabel,
   className,
 }: TextInputProps): ReactElement {
   const hostEdit = onRequestEdit !== undefined
   return (
     <Input
       aria-invalid={invalid || undefined}
+      aria-label={ariaLabel}
       className={className}
       disabled={disabled}
       maxLength={maxLength}
@@ -204,6 +211,16 @@ export interface ToggleProps {
   checked: boolean
   onChange: (next: boolean) => void
   label: string
+  /**
+   * 读屏念的名字; 不给就念 label。给表格里的开关用: 一整列开关的可见文字都是"开 / 关",
+   * 读屏若只念"开 复选框"就分不清是哪一行哪一列 (如"外人：开箱子等容器")。
+   */
+  ariaLabel?: string | undefined
+  /**
+   * 可见文字的额外类名。给"文字本身就是状态"的开关用 (如权限表里的"开 / 关"): 按状态上色,
+   * 一整列扫过去才看得出哪些开着; 同色的"☐ 关"还容易被读成"勾上 = 关掉"。
+   */
+  labelClassName?: string | undefined
   disabled?: boolean | undefined
   size?: ControlSize | undefined
   className?: string | undefined
@@ -213,24 +230,27 @@ export function Toggle({
   checked,
   onChange,
   label,
+  ariaLabel,
+  labelClassName,
   disabled = false,
   size = 'md',
   className,
 }: ToggleProps): ReactElement {
   return (
     <label
-      className={`inline-flex cursor-pointer items-center gap-2 ${TEXT_SIZE_CLASS[size]} text-foreground${
-        className === undefined ? '' : ` ${className}`
-      }`}
+      className={`inline-flex items-center gap-2 ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${
+        TEXT_SIZE_CLASS[size]
+      } text-foreground${className === undefined ? '' : ` ${className}`}`}
     >
       <Checkbox
+        aria-label={ariaLabel}
         checked={checked}
         disabled={disabled}
         onCheckedChange={(next) => {
           onChange(next)
         }}
       />
-      <span>{label}</span>
+      <span className={labelClassName}>{label}</span>
     </label>
   )
 }

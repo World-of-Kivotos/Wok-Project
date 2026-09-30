@@ -12,6 +12,8 @@
  *
  * 本轮核销 (28 条 action 落地真服) 之后, 假世界只剩系统商店 shops 一块 —— 职业/经济/婚姻/矿洞/图鉴/管理
  * 六块连同各自的种子已随对应 handler 一并删除, 它们现在整条走真桥。
+ * 之后新增了自管区 district 一块, 形状与种子见 district-seed.ts。自管区 2026-09-29 接线后它仍留在这里: 真服只在
+ * 装进游戏时作答, 开发构建里是 lib/bridge.mock 把那 26 条转给 district-handlers.ts, 由这一块回答 (预览身份切换也读它)。
  *
  * 于是"同一份数据两个权威"这个经典 mock 事故在这里不成立: 钱包/背包/挂单的权威恒在 bridge.mock (接线后
  * 是真服), 本文件只存它回来的样子; 唯一的例外是 walletOverlay, 那是刻意留的、有明确销毁条件的叠加层,
@@ -23,6 +25,7 @@
  */
 
 import type { PlayerInventoryItem, PlayerJobProgressEntry } from '../lib/types'
+import type { MockDistrictWorld } from './district-seed'
 import type { PlannedShopEntry } from './planned'
 import { createInitialWorld } from './seed'
 
@@ -94,6 +97,8 @@ export interface MockWorld {
   walletOverlay: MockWalletOverlay
   jobs: MockJobState
   shops: PlannedShopEntry[]
+  /** 自管区的内存世界 (开发构建的假后端)。只由 district-handlers.ts 读写, 页面一律经 callMock 取回执。 */
+  district: MockDistrictWorld
 }
 
 let world: MockWorld = createInitialWorld()

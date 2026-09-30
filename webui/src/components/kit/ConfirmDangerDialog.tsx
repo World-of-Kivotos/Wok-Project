@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import {
   AlertDialog,
@@ -21,6 +21,10 @@ import { TextInput } from './Controls'
  *
  * confirmWord 是可选的二道锁: 给了就必须逐字敲对才解锁确认按钮。留给"改玩家余额""重置职业等级"
  * 这类改动经济数据、无法撤销的操作 —— 单纯一个确认按钮挡不住手快。
+ *
+ * children + confirmDisabled 是给"确认时必须顺带交代一句"的操作用的 (如移出住户必须选原因):
+ * 表单画在说明文字下方, 表单没填完就由调用方用 confirmDisabled 锁住确认键。表单状态归调用方持有 ——
+ * 本组件只负责摆位置, 不知道也不该知道表单里有什么。
  */
 
 export interface ConfirmDangerDialogProps {
@@ -35,6 +39,15 @@ export interface ConfirmDangerDialogProps {
   loading?: boolean | undefined
   /** 给了就要求用户逐字输入这段文本才能确认。 */
   confirmWord?: string | undefined
+  /** 说明文字下方的附加表单区 (如移出原因)。 */
+  children?: ReactNode | undefined
+  /** 置真时锁住确认键 (附加表单未填完)。与 confirmWord 的锁叠加生效。 */
+  confirmDisabled?: boolean | undefined
+  /**
+   * 确认键的样式, 默认 destructive (红色)。只给"不可随手撤回、但本身不是破坏"的操作 (买东西、把东西还回去)
+   * 改成 default: 红色确认键读起来像删除, 用户会以为自己在毁掉什么。不能撤回的交代照样写在 message 里。
+   */
+  confirmVariant?: 'destructive' | 'default' | undefined
 }
 
 export function ConfirmDangerDialog({
@@ -46,6 +59,9 @@ export function ConfirmDangerDialog({
   onConfirm,
   loading = false,
   confirmWord,
+  children,
+  confirmDisabled = false,
+  confirmVariant = 'destructive',
 }: ConfirmDangerDialogProps): ReactElement {
   const [typed, setTyped] = useState('')
 
@@ -56,7 +72,7 @@ export function ConfirmDangerDialog({
     }
   }, [open])
 
-  const locked = confirmWord !== undefined && typed !== confirmWord
+  const locked = confirmDisabled || (confirmWord !== undefined && typed !== confirmWord)
 
   return (
     <AlertDialog
@@ -74,8 +90,10 @@ export function ConfirmDangerDialog({
           <AlertDialogDescription>{message}</AlertDialogDescription>
         </AlertDialogHeader>
 
+        {children === undefined ? null : <div className="flex flex-col gap-3 px-6 pb-4">{children}</div>}
+
         {confirmWord === undefined ? null : (
-          <div className="flex flex-col gap-2 px-6">
+          <div className="flex flex-col gap-2 px-6 pb-4">
             <label className="text-muted-foreground text-xs" htmlFor="confirm-word">
               输入 <span className="font-mono text-foreground">{confirmWord}</span> 以确认
             </label>
@@ -93,7 +111,7 @@ export function ConfirmDangerDialog({
           <AlertDialogClose render={<Button disabled={loading} variant="outline" />}>
             取消
           </AlertDialogClose>
-          <Button disabled={locked} loading={loading} onClick={onConfirm} variant="destructive">
+          <Button disabled={locked} loading={loading} onClick={onConfirm} variant={confirmVariant}>
             {confirmLabel}
           </Button>
         </AlertDialogFooter>

@@ -12,7 +12,7 @@ import {
   Surface,
   Tag,
 } from '@/components/kit'
-import { MS_PER_TICK, tickDeadline } from '@/hooks/use-live-updates'
+import { MS_PER_TICK, POLL_INTERVAL_MS, tickDeadline, usePolling } from '@/hooks/use-live-updates'
 import { WebUiCallError } from '../../../lib/bridge'
 import { callErrorText } from '../../../lib/errorText'
 import { useItemNames } from '../../../lib/i18n'
@@ -22,11 +22,15 @@ import type {
   AgentBountyBoard,
   AgentBountyEntry,
   AgentBountyPeriod,
+  AgentScanFieldName,
+  AgentScanLive,
+  AgentScanMechanic,
   AgentScanResult,
   AgentScanTarget,
   AgentSealOutcomeCode,
   AgentSealResult,
   AgentStateResult,
+  ChampionAffixQuality,
 } from '../../../lib/types'
 import { callMock, nowMs, useMockAction } from '../../../mock'
 import { formatCountdown, toError, useLiveNow } from './shared'
@@ -35,7 +39,7 @@ import { formatCountdown, toError, useLiveNow } from './shared'
  * 特勤干员面板 (`job.agent.state` / `job.agent.scan` / `job.agent.seal`, Java 落点
  * com.miningdim.job.agent.AgentWebUiActions)。回执形状见 lib/types.ts。
  *
- * 四条决定本页形状的契约事实:
+ * 六条决定本页形状的契约事实:
  *   1. **分级解密**: 目标身上的词条是逐条裁决的, 未解密行的 affixId / displayKey / category 三格
  *      同时是 JSON null —— 这是服务端在回执层刻意做的脱敏 (真值送进浏览器等于在开发者工具里明码
  *      给出词条身份)。故未解密行只能渲染成不可点的占位, 列表 key 只能用行下标。
@@ -45,6 +49,12 @@ import { formatCountdown, toError, useLiveNow } from './shared'
  *      (与矿工面板同纪律)。快照倒计时归零即 targetNetworkId 作废, 封印按钮必须跟着变灰。
  *   4. **悬赏板全在服务端**: 可接悬赏、槽位、进度、翻期都由服务端悬赏板裁决 (AgentBountyWebUi); 接取回执带
  *      整段最新 bounty, 前端直接替换, 不在本地推算"还剩几个槽"。完成即自动发奖, 没有领取按钮。
+ *   5. **数值情报的 null 是"加密"不是 0**: 有效血 / 减伤 / 子弹抗性 / 攻击单击移速 / 技能时序 / 品质各格
+ *      按脉冲等级逐格解密, 未解锁即 null, 画成"需要 Lv.N" (等级取 state 的 scanFieldUnlockLevels, 不在
+ *      前端另抄)。减伤率、单击补足的真值本来就可能是 0, 把 null 画成 0 就是在对玩家撒谎。只给数, 不替玩家
+ *      下"它怕什么"的结论。
+ *   6. **实时透视靠轮询**: L9+ 脉冲的目标带 live, 服务端每次被读 job.agent.state 才重读活数值; 本页只在这种
+ *      快照有效期内按 POLL_INTERVAL_MS.agentLiveIntel 轮询, 快照一过期即停。
  *
  * scanOnline=false (Champions 未加载) 必须显示"扫描离线"而不是渲染一张空的候选表: 前者是"这台服务器
  * 现在读不到精英词条", 后者是"周围没有精英", 对玩家是完全不同的两句话。
@@ -63,6 +73,18 @@ const SEAL_OUTCOME_TEXT: Record<AgentSealOutcomeCode, string> = {
   ALL_SLOTS_OCCUPIED: '这只精英的封印位已经满了',
   AFFIX_ALREADY_SEALED: '这条词条已被其他干员封印中',
   ON_COOLDOWN: '该类别的封印还在冷却中',
+}
+
+/**
+ * 词条品质色标 (ChampionStarAffix 9A.7: 普通灰白 / 中级绿 / 高级蓝 / 超凡紫 / 闪耀金; 色值即 Java
+ * AffixQuality.displayColor)。类名必须是完整字面量: Tailwind 只为源码里整串出现过的类生成样式。
+ */
+const QUALITY_STYLE: Record<ChampionAffixQuality, { label: string; dotClass: string }> = {
+  COMMON: { label: '普通', dotClass: 'bg-[#c8c8c8]' },
+  UNCOMMON: { label: '中级', dotClass: 'bg-[#55c040]' },
+  RARE: { label: '高级', dotClass: 'bg-[#3070e0]' },
+  EPIC: { label: '超凡', dotClass: 'bg-[#9b30e0]' },
+  LEGENDARY: { label: '闪耀', dotClass: 'bg-[#e0b020]' },
 }
 
 interface SealFeedback {
@@ -133,13 +155,16 @@ interface ScanSnapshot {
   receivedAt: number
 }
 
-/** 当前该渲染哪一份候选表 —— 刚扫的那次, 或 state 带回来的上一次脉冲投影, 两者同形。 */
+/** 当前该渲染哪一份候选表 —— 刚扫的那次, 或 state 带回来的脉冲投影, 两者同形。 */
 interface ActiveSnapshot {
   targets: readonly AgentScanTarget[]
   expiresAt: number
   truncated: boolean
   scanOnline: boolean
+  glowingHighlight: boolean
 }
+
+type UnlockLevels = Record<AgentScanFieldName, number>
 
 /**
  * 封印的两道**前置门**不走 outcomeCode 而是抛 INVALID_REQUEST, 且服务端刻意把"没有这条词条"与
@@ -170,6 +195,114 @@ function sealResultText(result: AgentSealResult): string {
   return base
 }
 
+function lockedText(level: number): string {
+  return `需要 Lv.${String(level)}`
+}
+
+function percentText(fraction: number): string {
+  return `${(fraction * 100).toFixed(1)}%`
+}
+
+/** 属性值原样显示: 整数不补小数, 其余保留到能看出差别的位数 (移速属性常见 0.23 这种量级)。 */
+function attributeText(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(3)
+}
+
+/** 一格数值情报: null 即加密, 显示解锁等级; 否则格式化真值。 */
+function intelText(value: number | null, unlockLevel: number, format: (value: number) => string): string {
+  return value === null ? lockedText(unlockLevel) : format(value)
+}
+
+/** 数值情报网格 (L3-L6)。L10 快照带实时全属性时改用现值, 与快照同口径。 */
+function IntelGrid({ target, unlock }: { target: AgentScanTarget; unlock: UnlockLevels }): ReactElement {
+  const live = target.live?.attributes ?? null
+  const effectiveHp = live?.effectiveHp ?? target.effectiveHp
+  const armor = live?.armor ?? target.armor
+  const damageReduction = live?.damageReductionPct ?? target.damageReductionPct
+  const bulletResistance = live?.bulletResistancePct ?? target.bulletResistancePct
+  const attackDamage = live?.attackDamage ?? target.attackDamage
+  const singleHit = live?.singleHitPct ?? target.singleHitPct
+  const movementSpeed = live?.movementSpeed ?? target.movementSpeed
+  return (
+    <div className="flex flex-col gap-1">
+      {live === null ? null : <span className="text-muted-foreground text-xs">以下数值为实时读数 (Lv.10 全属性实时)</span>}
+      <div className="grid grid-cols-3 gap-x-6 gap-y-1">
+        <Stat
+          label="有效血量"
+          layout="inline"
+          value={intelText(effectiveHp, unlock.EFFECTIVE_HP, (value) => String(Math.round(value)))}
+        />
+        <Stat label="护甲" layout="inline" value={intelText(armor, unlock.ARMOR_DR_PERCENT, attributeText)} />
+        <Stat
+          label="减伤 (满层)"
+          layout="inline"
+          value={intelText(damageReduction, unlock.ARMOR_DR_PERCENT, percentText)}
+        />
+        <Stat
+          label="子弹抗性"
+          layout="inline"
+          value={intelText(bulletResistance, unlock.BULLET_RESISTANCE, percentText)}
+        />
+        <Stat label="攻击" layout="inline" value={intelText(attackDamage, unlock.ATTACK_AND_SPEED, attributeText)} />
+        <Stat
+          label="近战单击"
+          layout="inline"
+          value={intelText(singleHit, unlock.ATTACK_AND_SPEED, (value) =>
+            // 0 是真值: 这只精英的近战不按玩家最大血量补足, 伤害就是攻击值。
+            value === 0 ? '按攻击值结算' : `玩家最大血量 ${percentText(value)}`,
+          )}
+        />
+        <Stat
+          label="移速属性"
+          layout="inline"
+          value={intelText(movementSpeed, unlock.ATTACK_AND_SPEED, attributeText)}
+        />
+      </div>
+    </div>
+  )
+}
+
+/** L9 实时透视一块: 未解锁 / 信号丢失 / 实时读数三态。 */
+function LiveBlock({ live, unlock }: { live: AgentScanLive | null; unlock: UnlockLevels }): ReactElement {
+  if (live === null) {
+    return <span className="text-muted-foreground text-xs">实时透视 (血量 / 吸收 / 层数) {lockedText(unlock.REALTIME_NUMBERS)}</span>
+  }
+  if (!live.tracked || live.currentHp === null || live.maxHp === null || live.maxHp <= 0) {
+    return <span className="text-muted-foreground text-xs">实时信号丢失: 目标已死亡、离场或所在区块已卸载</span>
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <Meter
+        label="实时血量"
+        max={live.maxHp}
+        size="sm"
+        tone="danger"
+        value={Math.min(live.currentHp, live.maxHp)}
+        valueText={`${String(Math.round(live.currentHp))} / ${String(Math.round(live.maxHp))}`}
+      />
+      <span className="text-muted-foreground text-xs">
+        伤害吸收 {String(Math.round(live.absorption ?? 0))} · 叠在你身上: 寒霜 {String(live.frostStacksOnYou ?? 0)} 层,
+        燃烧 {String(live.burningStacksOnYou ?? 0)} 层
+      </span>
+    </div>
+  )
+}
+
+/** L7 技能时序一行; 缺键 = 这条技能没有这个概念, 不画 0。 */
+function mechanicText(mechanic: AgentScanMechanic): string {
+  const parts: string[] = []
+  if (mechanic.chargeSeconds !== undefined) {
+    parts.push(`起手窗口 ${String(mechanic.chargeSeconds)} 秒`)
+  }
+  if (mechanic.interruptDamagePerPlayer !== undefined) {
+    parts.push(`打断门槛 每人 ${String(mechanic.interruptDamagePerPlayer)} 伤害`)
+  }
+  if (mechanic.cooldownSeconds !== undefined) {
+    parts.push(`冷却 ${String(mechanic.cooldownSeconds)} 秒`)
+  }
+  return parts.join(' · ')
+}
+
 export function AgentPanel(): ReactElement {
   const stateQuery = useMockAction('job.agent.state', EMPTY_PAYLOAD)
   const now = useLiveNow()
@@ -177,6 +310,7 @@ export function AgentPanel(): ReactElement {
   const [scan, setScan] = useState<ScanSnapshot | null>(null)
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState<Error | null>(null)
+  const [discoveryNotice, setDiscoveryNotice] = useState<string | null>(null)
   const [sealingKey, setSealingKey] = useState<string | null>(null)
   const [sealFeedback, setSealFeedback] = useState<Record<string, SealFeedback>>({})
   const [bountyOverride, setBountyOverride] = useState<BountyOverride | null>(null)
@@ -208,6 +342,7 @@ export function AgentPanel(): ReactElement {
    * 回执里的剩余 tick 只在"收到它那一刻"有意义, 故在 data 换引用时折一次本地时刻。
    * data 只在一次新回执到达时才换引用, 这份折算因此恰好每条回执做一次。
    */
+  const stateReceivedAt = useMemo(() => (data === null ? 0 : nowMs()), [data])
   const stateScanReadyAt = useMemo(
     () => (data === null ? 0 : tickDeadline(data.scanCooldownRemainingTicks, nowMs())),
     [data],
@@ -228,30 +363,43 @@ export function AgentPanel(): ReactElement {
   const scanExpiresAt =
     scan === null ? 0 : tickDeadline(scan.result.snapshotRemainingTicks, scan.receivedAt)
   /*
-   * 冷却取"state 折出来的"与"刚扫那次折出来的"较大值: 冷却只会因扫描而变长, 这样就不必为刷新一个字段
-   * 重查整个 job.agent.state (重查会闪一次骨架屏, 把刚展示出来的候选表盖掉)。
+   * 冷却取"state 折出来的"与"刚扫那次折出来的"较大值: 冷却只会因扫描而变长, 这样不必为刷新一个字段
+   * 专门重查整个 job.agent.state。
    */
   const scanReadyAt =
     scan === null
       ? stateScanReadyAt
       : Math.max(stateScanReadyAt, tickDeadline(scan.result.scanCooldownRemainingTicks, scan.receivedAt))
 
+  /*
+   * 两份同形投影取**较新**的一份: L9+ 的实时透视靠轮询 state 刷新活数值, 若刚扫那次的回执一直压在上面,
+   * 轮询回来的新读数永远画不出来。扫描之后的第一次 state 回执已是新脉冲的投影 (扫描期间不可能再有旧快照:
+   * 冷却与快照同长), 故按到达先后取即可。
+   */
+  const scanValid = scan !== null && scanExpiresAt > now
+  const stateValid = data !== null && stateSnapshotExpiresAt > now
   let activeSnapshot: ActiveSnapshot | null = null
-  if (scan !== null && scanExpiresAt > now) {
-    activeSnapshot = {
-      targets: scan.result.targets,
-      expiresAt: scanExpiresAt,
-      truncated: scan.result.truncated,
-      scanOnline: scan.result.scanOnline,
-    }
-  } else if (data !== null && stateSnapshotExpiresAt > now) {
+  if (data !== null && stateValid && (scan === null || !scanValid || stateReceivedAt >= scan.receivedAt)) {
     activeSnapshot = {
       targets: data.targets,
       expiresAt: stateSnapshotExpiresAt,
       truncated: data.truncated,
       scanOnline: data.scanOnline,
+      glowingHighlight: data.glowingHighlight,
+    }
+  } else if (scan !== null && scanValid) {
+    activeSnapshot = {
+      targets: scan.result.targets,
+      expiresAt: scanExpiresAt,
+      truncated: scan.result.truncated,
+      scanOnline: scan.result.scanOnline,
+      glowingHighlight: scan.result.glowingHighlight,
     }
   }
+
+  // 只有 L9+ 脉冲的目标带 live; 这种快照有效期内才轮询, 过期或低等级快照一个定时器都不挂。
+  const liveTracking = activeSnapshot !== null && activeSnapshot.targets.some((target) => target.live !== null)
+  usePolling(stateQuery.reload, POLL_INTERVAL_MS.agentLiveIntel, liveTracking)
 
   // 实体名与已解密词条名一次批量解 (未解密行的 displayKey 是 null, 本来就没有键可解)。
   const names = useItemNames(
@@ -278,6 +426,7 @@ export function AgentPanel(): ReactElement {
     return <ErrorBlock message="job.agent.state 回执为空" onRetry={stateQuery.reload} />
   }
 
+  const unlock = data.scanFieldUnlockLevels
   const scanReady = now >= scanReadyAt
 
   async function handleScan(): Promise<void> {
@@ -288,6 +437,11 @@ export function AgentPanel(): ReactElement {
       // 收到的那一刻就是快照与冷却的起点, 之后一律本地算, 不再问服务端。
       setScan({ result, receivedAt: nowMs() })
       setSealFeedback({})
+      setDiscoveryNotice(
+        result.discoveryCount > 0
+          ? `首次发现 ${String(result.discoveryCount)} 只精英, 特勤经验 +${String(result.discoveryXp)}`
+          : null,
+      )
     } catch (error) {
       setScanError(toError(error))
     } finally {
@@ -455,6 +609,15 @@ export function AgentPanel(): ReactElement {
             </span>
           </div>
           {scanError === null ? null : <FeedbackAlert message={callErrorText(scanError)} tone="danger" />}
+          {discoveryNotice === null ? null : (
+            <FeedbackAlert
+              message={discoveryNotice}
+              onDismiss={() => {
+                setDiscoveryNotice(null)
+              }}
+              tone="success"
+            />
+          )}
 
           {activeSnapshot === null ? (
             <EmptyBlock
@@ -472,6 +635,7 @@ export function AgentPanel(): ReactElement {
               <span className="text-muted-foreground text-xs">
                 本轮快照将于 {formatCountdown(activeSnapshot.expiresAt, now)} 后失效, 届时封印按钮全部作废
                 {activeSnapshot.truncated ? ' · 仅显示最近 8 个' : ''}
+                {activeSnapshot.glowingHighlight ? ' · 目标正在对你高亮 (穿墙可见, 仅你本人看得见)' : ''}
               </span>
               {activeSnapshot.targets.map((target) => (
                 <Surface key={target.targetNetworkId}>
@@ -486,7 +650,7 @@ export function AgentPanel(): ReactElement {
                       </span>
                       {target.pos === null ? (
                         <span className="text-muted-foreground text-xs">
-                          精确坐标需要 8 级干员
+                          精确坐标{lockedText(unlock.GLOWING_HIGHLIGHT)}
                         </span>
                       ) : (
                         <span className="text-muted-foreground text-xs">
@@ -494,54 +658,89 @@ export function AgentPanel(): ReactElement {
                         </span>
                       )}
                     </div>
+                    <IntelGrid target={target} unlock={unlock} />
+                    <LiveBlock live={target.live} unlock={unlock} />
                     {target.entries.length === 0 ? (
                       <span className="text-muted-foreground text-xs">这只精英身上没有可封的词条</span>
                     ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {target.entries.map((entry, index) => {
-                          /*
-                           * key 只能用行下标: 未解密行的 affixId 是 null (服务端脱敏), 拿它当 key 会让
-                           * 同一目标上的多条加密行撞成一个 key。
-                           */
-                          const rowKey = `${String(target.targetNetworkId)}#${String(index)}`
-                          if (!entry.decrypted || entry.affixId === null) {
-                            return (
-                              <span
-                                className="rounded-md border border-border border-dashed px-2 py-1 text-muted-foreground text-xs"
-                                key={rowKey}
-                              >
-                                未解密词条 (提升干员等级后可见)
-                              </span>
-                            )
-                          }
-                          const affixId = entry.affixId
-                          const buttonKey = `${String(target.targetNetworkId)}:${affixId}`
-                          const feedback = sealFeedback[buttonKey]
-                          const label = entry.displayKey === null ? affixId : nameOf(entry.displayKey)
-                          return (
-                            <div className="flex items-center gap-2" key={rowKey}>
-                              <Button
-                                disabled={entry.sealed || !entry.sealable}
-                                loading={sealingKey === buttonKey}
-                                onClick={() => {
-                                  void handleSeal(target.targetNetworkId, affixId)
-                                }}
-                                size="sm"
-                                variant="outline"
-                              >
-                                {entry.sealed ? `${label} (封印中)` : `封印 ${label}`}
-                              </Button>
-                              {feedback === undefined ? null : (
+                      <div className="flex flex-col gap-1">
+                        <div className="flex flex-wrap gap-2">
+                          {target.entries.map((entry, index) => {
+                            /*
+                             * key 只能用行下标: 未解密行的 affixId 是 null (服务端脱敏), 拿它当 key 会让
+                             * 同一目标上的多条加密行撞成一个 key。
+                             */
+                            const rowKey = `${String(target.targetNetworkId)}#${String(index)}`
+                            if (!entry.decrypted || entry.affixId === null) {
+                              return (
                                 <span
-                                  className={`text-xs ${feedback.ok ? 'text-success' : 'text-destructive'}`}
+                                  className="rounded-md border border-border border-dashed px-2 py-1 text-muted-foreground text-xs"
+                                  key={rowKey}
                                 >
-                                  {feedback.message}
+                                  未解密词条 (提升干员等级后可见)
                                 </span>
-                              )}
-                            </div>
-                          )
-                        })}
+                              )
+                            }
+                            const affixId = entry.affixId
+                            const buttonKey = `${String(target.targetNetworkId)}:${affixId}`
+                            const feedback = sealFeedback[buttonKey]
+                            const label = entry.displayKey === null ? affixId : nameOf(entry.displayKey)
+                            const quality = entry.quality === null ? null : QUALITY_STYLE[entry.quality]
+                            return (
+                              <div className="flex items-center gap-2" key={rowKey}>
+                                <Button
+                                  disabled={entry.sealed || !entry.sealable}
+                                  loading={sealingKey === buttonKey}
+                                  onClick={() => {
+                                    void handleSeal(target.targetNetworkId, affixId)
+                                  }}
+                                  size="sm"
+                                  variant="outline"
+                                >
+                                  {quality === null ? null : (
+                                    <span
+                                      aria-hidden="true"
+                                      className={`inline-block size-2 rounded-full ${quality.dotClass}`}
+                                    />
+                                  )}
+                                  {entry.sealed ? `${label} (封印中)` : `封印 ${label}`}
+                                  {quality === null ? null : ` · ${quality.label}`}
+                                </Button>
+                                {feedback === undefined ? null : (
+                                  <span
+                                    className={`text-xs ${feedback.ok ? 'text-success' : 'text-destructive'}`}
+                                  >
+                                    {feedback.message}
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                        {target.entries.some((entry) => entry.decrypted && entry.quality === null) ? (
+                          <span className="text-muted-foreground text-xs">
+                            词条品质表{lockedText(unlock.QUALITY_TABLE)}
+                          </span>
+                        ) : null}
                       </div>
+                    )}
+                    {target.mechanics === null ? (
+                      <span className="text-muted-foreground text-xs">
+                        技能机制 (起手窗口 / 打断门槛 / 冷却){lockedText(unlock.SKILL_MECHANICS)}
+                      </span>
+                    ) : (
+                      target.mechanics.map((mechanic) => {
+                        const entry = target.entries.find((candidate) => candidate.affixId === mechanic.affixId)
+                        const name =
+                          entry === undefined || entry.displayKey === null
+                            ? mechanic.affixId
+                            : nameOf(entry.displayKey)
+                        return (
+                          <span className="text-muted-foreground text-xs" key={mechanic.affixId}>
+                            {name}: {mechanicText(mechanic)}
+                          </span>
+                        )
+                      })
                     )}
                   </div>
                 </Surface>
@@ -602,7 +801,7 @@ export function AgentPanel(): ReactElement {
             </Surface>
           </div>
           <p className="text-muted-foreground text-xs">
-            两类各有一本冷却账本, 封被动不会锁住机制; 与游戏内按键封印共用同一本
+            两类各有一本冷却账本, 封被动不会锁住机制; 封印只能在本面板点已解密的词条发起
           </p>
         </div>
       </Panel>

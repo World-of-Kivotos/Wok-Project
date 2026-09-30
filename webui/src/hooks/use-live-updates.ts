@@ -53,6 +53,12 @@ export const POLL_INTERVAL_MS = {
    * 十秒内看到通知足够, 而它每次要读关系登记表 + 扫 36 格背包算婚戒。
    */
   marriageState: 10_000,
+  /**
+   * job.agent.state, **仅当**当前快照是 L9+ 脉冲 (目标带实时透视) 时。实时透视没有推送, 活数值只能靠重读;
+   * 快照最长 30-60 秒、每轮最多 8 个目标, 本 action 零 SQLite (读 capability + 原版属性 + 至多 8 次按 id 查实体),
+   * 取 2 秒: 血条一秒一跳的精度对玩家没有意义, 快于 2 秒只是白给主线程加查询。快照一过期即停。
+   */
+  agentLiveIntel: 2_000,
 } as const
 
 /**

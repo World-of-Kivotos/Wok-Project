@@ -71,6 +71,9 @@ import type {
   AgentBountyBoard,
   AgentBountyEntry,
   AgentBountyPeriod,
+  AgentScanFieldName,
+  AgentScanLive,
+  AgentScanMechanic,
   AgentScanResult,
   AgentScanTarget,
   AgentSealCategory,
@@ -3125,6 +3128,21 @@ type MockAgentEntrySeed = {
   decrypted: boolean
   /** 服务端集成层已滤掉外来/纯防御词条, 但"解密了却封不动"仍是真形态 (对应 AFFIX_NOT_SEALABLE)。 */
   sealable: boolean
+  /** 盖章品质; 只有 L8+ 脉冲且该行已解密时才下发 (见 agentTargets)。 */
+  quality: ChampionAffixQuality
+  /** 机制行的技能时序 (取自各技能 Plan 类的真常量); 缺键 = 该技能没有这个概念, 与 Java 缺键同口径。 */
+  mechanic?: Omit<AgentScanMechanic, 'affixId'>
+}
+
+/** 数值情报真值 (L3-L6 各格)。发给前端前按脉冲等级逐格打成 null, 与构建层同一张解锁表。 */
+type MockAgentIntelSeed = {
+  effectiveHp: number
+  armor: number
+  damageReductionPct: number
+  bulletResistancePct: number
+  attackDamage: number
+  singleHitPct: number
+  movementSpeed: number
 }
 
 type MockAgentTargetSeed = {
@@ -3134,8 +3152,46 @@ type MockAgentTargetSeed = {
   entityTypeId: string
   /** 脉冲当刻的坐标; 只有 L8+ 发出的脉冲才会把它带给前端 (见 agentTargets)。 */
   pos: WebUiBlockPos
+  intel: MockAgentIntelSeed
+  /**
+   * 实时透视里这只精英在快照后多少秒"信号丢失" (死亡 / 离场); undefined = 一直可读。
+   * 种一只会丢的, 面板的 tracked=false 分支才看得到。
+   */
+  lostAfterSeconds?: number
   entries: readonly MockAgentEntrySeed[]
 }
+
+/**
+ * AgentScanField 解锁等级 (第四章探测列), 逐格抄 Java 枚举; job.agent.state 的 scanFieldUnlockLevels 即这张表。
+ * 它是一张定长表不是曲线, 抄过来不会漂 (与本节上方 AgentSkillTable 各表同理)。
+ */
+const AGENT_SCAN_FIELD_UNLOCK_LEVELS: Record<AgentScanFieldName, number> = {
+  AFFIX_LIST: 1,
+  STAR: 1,
+  EFFECTIVE_HP: 3,
+  ARMOR_DR_PERCENT: 4,
+  SKILL_NAME: 5,
+  BULLET_RESISTANCE: 5,
+  ATTACK_AND_SPEED: 6,
+  BOUNTY_RADAR: 6,
+  SKILL_MECHANICS: 7,
+  QUALITY_TABLE: 8,
+  GLOWING_HIGHLIGHT: 8,
+  REALTIME_NUMBERS: 9,
+  REALTIME_ALL_ATTRIBUTES: 10,
+}
+
+const AGENT_UNLOCK = {
+  effectiveHp: AGENT_SCAN_FIELD_UNLOCK_LEVELS.EFFECTIVE_HP,
+  armorAndReduction: AGENT_SCAN_FIELD_UNLOCK_LEVELS.ARMOR_DR_PERCENT,
+  bulletResistance: AGENT_SCAN_FIELD_UNLOCK_LEVELS.BULLET_RESISTANCE,
+  attackAndSpeed: AGENT_SCAN_FIELD_UNLOCK_LEVELS.ATTACK_AND_SPEED,
+  mechanics: AGENT_SCAN_FIELD_UNLOCK_LEVELS.SKILL_MECHANICS,
+  quality: AGENT_SCAN_FIELD_UNLOCK_LEVELS.QUALITY_TABLE,
+  glowing: AGENT_SCAN_FIELD_UNLOCK_LEVELS.GLOWING_HIGHLIGHT,
+  realtimeNumbers: AGENT_SCAN_FIELD_UNLOCK_LEVELS.REALTIME_NUMBERS,
+  realtimeAttributes: AGENT_SCAN_FIELD_UNLOCK_LEVELS.REALTIME_ALL_ATTRIBUTES,
+} as const
 
 /**
  * 三个扫描目标。星级刻意跨开 3/7/9:
@@ -3152,12 +3208,22 @@ const AGENT_TARGET_SEEDS: readonly MockAgentTargetSeed[] = [
     distanceBlocks: 18.42,
     entityTypeId: 'minecraft:zombie',
     pos: { x: 141, y: 38, z: -52 },
+    // 复合装甲中级满层 0.45; 重炮中级 +47.5% 把 3 星基线 6% 单击补足到 8.85%; 无子弹抗性词条故子弹抗性真值 0。
+    intel: {
+      effectiveHp: 288.4,
+      armor: 2,
+      damageReductionPct: 0.45,
+      bulletResistancePct: 0,
+      attackDamage: 3,
+      singleHitPct: 0.0885,
+      movementSpeed: 0.23,
+    },
     entries: [
-      { affixId: 'COMPOSITE_ARMOR', category: 'PASSIVE', decrypted: true, sealable: true },
-      { affixId: 'BURNING', category: 'PASSIVE', decrypted: true, sealable: true },
+      { affixId: 'COMPOSITE_ARMOR', category: 'PASSIVE', decrypted: true, sealable: true, quality: 'UNCOMMON' },
+      { affixId: 'BURNING', category: 'PASSIVE', decrypted: true, sealable: true, quality: 'COMMON' },
       // 解密了但封不动的一条 (AFFIX_NOT_SEALABLE 那一态)。
-      { affixId: 'FORTITUDE_SHIELD', category: 'PASSIVE', decrypted: true, sealable: false },
-      { affixId: 'HEAVY_CANNON', category: 'PASSIVE', decrypted: false, sealable: false },
+      { affixId: 'FORTITUDE_SHIELD', category: 'PASSIVE', decrypted: true, sealable: false, quality: 'RARE' },
+      { affixId: 'HEAVY_CANNON', category: 'PASSIVE', decrypted: false, sealable: false, quality: 'UNCOMMON' },
     ],
   },
   {
@@ -3166,11 +3232,30 @@ const AGENT_TARGET_SEEDS: readonly MockAgentTargetSeed[] = [
     distanceBlocks: 61.25,
     entityTypeId: 'minecraft:skeleton',
     pos: { x: 96, y: 44, z: -118 },
+    // 重型护甲超凡子弹抗 0.42; 没有通用减伤词条, 减伤真值 0; 无重炮/穿甲, 单击不补足 (真值 0)。
+    intel: {
+      effectiveHp: 4180,
+      armor: 0,
+      damageReductionPct: 0,
+      bulletResistancePct: 0.42,
+      attackDamage: 2,
+      singleHitPct: 0,
+      movementSpeed: 0.25,
+    },
+    lostAfterSeconds: 20,
     entries: [
-      { affixId: 'HEAVY_ARMOR', category: 'PASSIVE', decrypted: true, sealable: true },
-      { affixId: 'DEATH_MARK', category: 'MECHANIC', decrypted: true, sealable: true },
-      { affixId: 'FROST', category: 'PASSIVE', decrypted: false, sealable: false },
-      { affixId: 'OVERDRIVE', category: 'PASSIVE', decrypted: false, sealable: false },
+      { affixId: 'HEAVY_ARMOR', category: 'PASSIVE', decrypted: true, sealable: true, quality: 'EPIC' },
+      {
+        affixId: 'DEATH_MARK',
+        category: 'MECHANIC',
+        decrypted: true,
+        sealable: true,
+        quality: 'EPIC',
+        // 标记到处决倒计时 8s / CD 45s (ChampionDeathMarkMath); 解除阈值按玩家实测 DPS 动态算, 没有定值故无打断键。
+        mechanic: { chargeSeconds: 8, cooldownSeconds: 45 },
+      },
+      { affixId: 'FROST', category: 'PASSIVE', decrypted: false, sealable: false, quality: 'UNCOMMON' },
+      { affixId: 'OVERDRIVE', category: 'PASSIVE', decrypted: false, sealable: false, quality: 'RARE' },
     ],
   },
   {
@@ -3179,10 +3264,36 @@ const AGENT_TARGET_SEEDS: readonly MockAgentTargetSeed[] = [
     distanceBlocks: 143.9,
     entityTypeId: 'minecraft:wither_skeleton',
     pos: { x: -12, y: 31, z: -207 },
+    // 巨大化闪耀把有效血抬到 9 星基线之上; 没有任何减伤词条, 两格减伤真值都是 0。
+    intel: {
+      effectiveHp: 98_100,
+      armor: 2,
+      damageReductionPct: 0,
+      bulletResistancePct: 0,
+      attackDamage: 8,
+      singleHitPct: 0,
+      movementSpeed: 0.25,
+    },
     entries: [
-      { affixId: 'THUNDER', category: 'MECHANIC', decrypted: true, sealable: true },
-      { affixId: 'GIGANTISM', category: 'PASSIVE', decrypted: false, sealable: false },
-      { affixId: 'SUMMON_SUPPORT', category: 'MECHANIC', decrypted: false, sealable: false },
+      {
+        affixId: 'THUNDER',
+        category: 'MECHANIC',
+        decrypted: true,
+        sealable: true,
+        quality: 'LEGENDARY',
+        // 落点预兆 1.5s / 闪耀周期 12s (ChampionThunderPlan)。
+        mechanic: { chargeSeconds: 1.5, cooldownSeconds: 12 },
+      },
+      { affixId: 'GIGANTISM', category: 'PASSIVE', decrypted: false, sealable: false, quality: 'LEGENDARY' },
+      {
+        affixId: 'SUMMON_SUPPORT',
+        category: 'MECHANIC',
+        decrypted: false,
+        sealable: false,
+        quality: 'LEGENDARY',
+        // 未解密行: 时序即便有也绝不下发 (构建层只放行已解密机制行)。
+        mechanic: { cooldownSeconds: 14 },
+      },
     ],
   },
 ]
@@ -3203,8 +3314,59 @@ let agentScanReadyAt = 0
  */
 let agentSnapshotLevel = 1
 
+/** 写快照那一刻 (epoch ms); 实时透视的"掉血"与"信号丢失"都从这一刻起算。 */
+let agentSnapshotTakenAt = 0
+
+/**
+ * 已被本玩家首次发现过的目标 (设计 8.1 去重键是 (玩家, 精英), mock 只有一个玩家, 按网络 id 记即可)。
+ * mock 只在回执里报 discoveryXp, 不去改经验条: 等级曲线与每日衰减只在 Java 职业框架里, 在这里复刻一份
+ * 必然漂移 (与本文件对矿工被动"只存快照不抄曲线"同一条纪律)。
+ */
+const agentDiscoveredTargets = new Set<number>()
+
+/** 首次发现经验每星 (AgentDiscoveryXp.XP_PER_STAR)。 */
+const AGENT_DISCOVERY_XP_PER_STAR = 8
+
+/** 该格在这次脉冲的等级下是否已解密; 未解密发 null (0 是真实存在的数值, 不能拿来表示"加密")。 */
+function unlockedOrNull<T>(snapshotLevel: number, unlockLevel: number, value: T): T | null {
+  return snapshotLevel >= unlockLevel ? value : null
+}
+
+/**
+ * 实时透视 (L9+)。mock 让血量随快照龄匀速往下掉 (90 秒掉到一成), 好让轮询的效果肉眼可见;
+ * 种了 lostAfterSeconds 的那只到点后报 tracked=false 且其余全 null —— 与服务端"读不到就不发旧值"同口径。
+ */
+function agentLive(seed: MockAgentTargetSeed, snapshotLevel: number): AgentScanLive | null {
+  if (snapshotLevel < AGENT_UNLOCK.realtimeNumbers) {
+    return null
+  }
+  const elapsedSeconds = (Date.now() - agentSnapshotTakenAt) / 1000
+  if (seed.lostAfterSeconds !== undefined && elapsedSeconds >= seed.lostAfterSeconds) {
+    return {
+      tracked: false,
+      currentHp: null,
+      maxHp: null,
+      absorption: null,
+      frostStacksOnYou: null,
+      burningStacksOnYou: null,
+      attributes: null,
+    }
+  }
+  const hasAffix = (affixId: string): boolean => seed.entries.some((entry) => entry.affixId === affixId)
+  return {
+    tracked: true,
+    currentHp: seed.intel.effectiveHp * Math.max(0.1, 1 - elapsedSeconds / 90),
+    maxHp: seed.intel.effectiveHp,
+    absorption: 0,
+    frostStacksOnYou: hasAffix('FROST') ? 2 : 0,
+    burningStacksOnYou: hasAffix('BURNING') ? 1 : 0,
+    attributes: snapshotLevel >= AGENT_UNLOCK.realtimeAttributes ? { ...seed.intel } : null,
+  }
+}
+
 function agentTargets(snapshotLevel: number): AgentScanTarget[] {
   return AGENT_TARGET_SEEDS.map((seed) => {
+    const showsQuality = snapshotLevel >= AGENT_UNLOCK.quality
     const entries: AgentAffixEntry[] = seed.entries.map((entry) =>
       entry.decrypted
         ? {
@@ -3214,17 +3376,26 @@ function agentTargets(snapshotLevel: number): AgentScanTarget[] {
             decrypted: true,
             sealable: entry.sealable,
             sealed: agentSealedAffixes.has(`${String(seed.targetNetworkId)}:${entry.affixId}`),
+            quality: showsQuality ? entry.quality : null,
           }
         : {
-            // 未解密行的三格同时为 null, 后两个布尔一律 false —— 前端本就不该让这一行可点。
+            // 未解密行的四格同时为 null, 后两个布尔一律 false —— 前端本就不该让这一行可点。
             affixId: null,
             displayKey: null,
             category: null,
             decrypted: false,
             sealable: false,
             sealed: false,
+            quality: null,
           },
     )
+    // 技能时序只放行已解密的机制行 (与构建层同一道行级门)。
+    const mechanics: AgentScanMechanic[] = seed.entries.flatMap((entry) =>
+      entry.decrypted && entry.category === 'MECHANIC' && entry.mechanic !== undefined
+        ? [{ affixId: entry.affixId, ...entry.mechanic }]
+        : [],
+    )
+    const { intel } = seed
     return {
       targetNetworkId: seed.targetNetworkId,
       star: seed.star,
@@ -3232,7 +3403,16 @@ function agentTargets(snapshotLevel: number): AgentScanTarget[] {
       entityTypeId: seed.entityTypeId,
       entityNameKey: `entity.minecraft.${seed.entityTypeId.slice('minecraft:'.length)}`,
       // 精确坐标绑在 L8 那一格; 未到就只能显示 distanceBlocks。
-      pos: snapshotLevel >= 8 ? { ...seed.pos } : null,
+      pos: snapshotLevel >= AGENT_UNLOCK.glowing ? { ...seed.pos } : null,
+      effectiveHp: unlockedOrNull(snapshotLevel, AGENT_UNLOCK.effectiveHp, intel.effectiveHp),
+      armor: unlockedOrNull(snapshotLevel, AGENT_UNLOCK.armorAndReduction, intel.armor),
+      damageReductionPct: unlockedOrNull(snapshotLevel, AGENT_UNLOCK.armorAndReduction, intel.damageReductionPct),
+      bulletResistancePct: unlockedOrNull(snapshotLevel, AGENT_UNLOCK.bulletResistance, intel.bulletResistancePct),
+      attackDamage: unlockedOrNull(snapshotLevel, AGENT_UNLOCK.attackAndSpeed, intel.attackDamage),
+      singleHitPct: unlockedOrNull(snapshotLevel, AGENT_UNLOCK.attackAndSpeed, intel.singleHitPct),
+      movementSpeed: unlockedOrNull(snapshotLevel, AGENT_UNLOCK.attackAndSpeed, intel.movementSpeed),
+      mechanics: unlockedOrNull(snapshotLevel, AGENT_UNLOCK.mechanics, mechanics),
+      live: agentLive(seed, snapshotLevel),
       entries,
     }
   })
@@ -3253,6 +3433,8 @@ function mockAgentState(): AgentStateResult {
     snapshotRemainingTicks: remaining,
     // 语义是"球内还有未检视的活体", 不是"还有更多精英"; 目标只有 3 个, 没被 8 个上限截断。
     truncated: false,
+    glowingHighlight: remaining > 0 && agentSnapshotLevel >= AGENT_UNLOCK.glowing,
+    scanFieldUnlockLevels: { ...AGENT_SCAN_FIELD_UNLOCK_LEVELS },
     targets: remaining > 0 ? agentTargets(agentSnapshotLevel) : [],
     seal: {
       passiveUnlockLevel: AGENT_SEAL_UNLOCK_LEVEL,
@@ -3293,6 +3475,17 @@ function mockAgentScan(): AgentScanResult {
   const pulseCooldownTicks = agentPulseCooldownTicks(level)
   agentScanReadyAt = Date.now() + pulseCooldownTicks * MS_PER_TICK
   agentSnapshotLevel = level
+  agentSnapshotTakenAt = Date.now()
+  // 首次发现: 每只只算一次, 第二轮起同一批目标不再给 (8.1 "防重复扫刷")。
+  let discoveryXp = 0
+  let discoveryCount = 0
+  for (const seed of AGENT_TARGET_SEEDS) {
+    if (!agentDiscoveredTargets.has(seed.targetNetworkId)) {
+      agentDiscoveredTargets.add(seed.targetNetworkId)
+      discoveryXp += seed.star * AGENT_DISCOVERY_XP_PER_STAR
+      discoveryCount += 1
+    }
+  }
   return {
     agentLevel: level,
     radiusBlocks: requireAt(AGENT_SCAN_RANGE_BLOCKS, clampJobLevel(level) - 1, '扫描范围表'),
@@ -3303,6 +3496,9 @@ function mockAgentScan(): AgentScanResult {
     // 成功回执里这两栏都等于刚烧起来的整轮 CD。
     scanCooldownRemainingTicks: pulseCooldownTicks,
     snapshotRemainingTicks: pulseCooldownTicks,
+    glowingHighlight: level >= AGENT_UNLOCK.glowing,
+    discoveryXp,
+    discoveryCount,
     targets: agentTargets(level),
   }
 }

@@ -912,7 +912,8 @@ export interface BrewerStateResult {
 
 // ============================================================
 // job.agent.* — com.miningdim.job.agent.AgentWebUiActions
-// (Gson serializeNulls: 全部可空字段一律显式 JSON null, 无缺席键, 故本组只用 `| null` 不用 `?:`)
+// (Gson serializeNulls: 全部可空字段一律显式 JSON null, 故本组只用 `| null` 不用 `?:`。
+//  唯一例外是 L7 技能时序行 AgentScanMechanic 的三个子项: 缺键 = "这条技能没有这个概念", 与 null = "加密" 刻意区分)
 // ============================================================
 
 /** job.agent.state 入参 —— 不读 payload 任何字段。 */
@@ -944,11 +945,84 @@ export interface AgentAffixEntry {
   decrypted: boolean
   sealable: boolean
   sealed: boolean
+  /**
+   * 词条品质 (AffixQuality 枚举名)。第四章 L8 "全品质表" 才解密, 且只随已解密行下发; 未解锁 / 未解密一律 JSON null
+   * (null = 这一格加密, 不是"没有品质")。色标: 普通灰白 / 中级绿 / 高级蓝 / 超凡紫 / 闪耀金 (AffixQuality.displayColor)。
+   */
+  quality: ChampionAffixQuality | null
+}
+
+/** 探测情报格名 (Java AgentScanField 枚举名, 声明序即第四章探测列的解锁序)。 */
+export type AgentScanFieldName =
+  | 'AFFIX_LIST'
+  | 'STAR'
+  | 'EFFECTIVE_HP'
+  | 'ARMOR_DR_PERCENT'
+  | 'SKILL_NAME'
+  | 'BULLET_RESISTANCE'
+  | 'ATTACK_AND_SPEED'
+  | 'BOUNTY_RADAR'
+  | 'SKILL_MECHANICS'
+  | 'QUALITY_TABLE'
+  | 'GLOWING_HIGHLIGHT'
+  | 'REALTIME_NUMBERS'
+  | 'REALTIME_ALL_ATTRIBUTES'
+
+/**
+ * L7 技能时序的一行 (AgentWebUiActions.intelJson, 取自各技能 Plan 类里真实驱动 handler 的常量)。
+ *
+ * 三个数值子项是**缺席键**而不是 null: 整组已随 L7 一并解锁, 缺键表示这条技能根本没有这个概念 ——
+ * 视觉干扰 / 反击单元 / 支援召唤起手即生效没有 chargeSeconds; 只有小男孩有 interruptDamagePerPlayer;
+ * 小男孩是一次性核弹没有 cooldownSeconds。前端不得把缺键画成 0 (0 秒蓄力与"没有蓄力"是两回事)。
+ */
+export interface AgentScanMechanic {
+  /** 与同一目标 entries 里已解密机制行的 affixId 同口径 (AffixDef 枚举名), 按此 join 到词条名。 */
+  affixId: string
+  /** 起手后可反应的窗口秒数: 蓄力 / 落点预兆 / 读条 (自我修复) / 标记到处决的倒计时 (命定之死)。 */
+  chargeSeconds?: number
+  /** 蓄力期打断门槛的每人伤害 (累计伤害 >= 到场人数 x 此值即打断; 至少按 1 人算)。 */
+  interruptDamagePerPlayer?: number
+  /** 施放周期 / 冷却秒数。 */
+  cooldownSeconds?: number
+}
+
+/** L10 实时全属性: 与 AgentScanTarget 同名数值格同口径, 区别只在这是每次读 state 时的现值。 */
+export interface AgentScanLiveAttributes {
+  effectiveHp: number
+  armor: number
+  damageReductionPct: number
+  bulletResistancePct: number
+  attackDamage: number
+  singleHitPct: number
+  movementSpeed: number
+}
+
+/**
+ * 实时透视 (第四章 L9 "全数值实时" / L10 "全属性实时")。只有 L9+ 脉冲才有这一格 (否则整格 null);
+ * job.agent.state 每被读一次就对仍在快照内的目标重读一遍, 目标集合与坐标仍冻结在脉冲那一刻 (防 X 光)。
+ * tracked=false = 目标已死亡 / 离场 / 区块卸载 / 已不是精英, 此时其余字段全是 null —— 读不到就不发旧值。
+ */
+export interface AgentScanLive {
+  tracked: boolean
+  /** 6星+ 是影子血池权威值 (原版血只是渲染镜像), 1-5星 是原版血量。 */
+  currentHp: number | null
+  maxHp: number | null
+  /** 原版伤害吸收量 ("护盾"那一格; 精英体系没有独立护盾池, 只如实读原版吸收)。 */
+  absorption: number | null
+  /** 本精英的寒霜 / 燃烧此刻叠在**扫描者本人**身上的层数 (0-5)。 */
+  frostStacksOnYou: number | null
+  burningStacksOnYou: number | null
+  /** L10 才有; L9 或 tracked=false 时 null。 */
+  attributes: AgentScanLiveAttributes | null
 }
 
 /**
  * 扫描快照里的一个目标 (AgentWebUiActions.targetsJson)。
  * job.agent.state 与 job.agent.scan 的目标条目**完全同形** (同一份脉冲记录的两次投影), 前端用同一个组件渲染两处。
+ *
+ * 数值情报各格按**发出那次脉冲时**的干员等级逐格解密 (第四章探测列), 未解锁一律 JSON null —— null 是"加密",
+ * 不是"没有": 减伤率 / 单击补足的真值本来就可能是 0, 前端必须把 null 画成"需要 Lv.N" 而不是 0。
+ * 只给原始数值, 不给任何"怕什么"的结论 (五章), 前端同样不得替玩家下结论。
  */
 export interface AgentScanTarget {
   /** 网络实体 id; 快照一过期即作废 (见 AgentStateResult.snapshotRemainingTicks)。 */
@@ -966,6 +1040,30 @@ export interface AgentScanTarget {
    * L7 扫完立刻升到 L8, 在旧快照到期前 pos 仍是 null, 要拿坐标必须重扫。null 时只能显示 distanceBlocks。
    */
   pos: WebUiBlockPos | null
+  /** L3。总有效血 (6星+ 即影子血池上限), 不是当前血 —— 当前血在 live.currentHp (L9)。 */
+  effectiveHp: number | null
+  /** L4。原版护甲属性值。 */
+  armor: number | null
+  /** L4。对全部伤害类型生效的比例减伤 0-0.75: 复合装甲按**满层上限**计 + 缩小化体型折算, 已过 75% 净减伤帽。 */
+  damageReductionPct: number | null
+  /**
+   * L5。只对子弹生效的附加抗性 0-1 (超高分子 + 重型护甲子弹抗 + 偏斜期望闪避连乘合成)。
+   * 与 damageReductionPct 再连乘后整体仍受 75% 净减伤帽约束 —— 两格不能简单相加。
+   */
+  bulletResistancePct: number | null
+  /** L6。原版攻击伤害属性值。 */
+  attackDamage: number | null
+  /**
+   * L6。近战单击被补足到的"玩家最大血量比例" 0-0.6; 只在带重炮 / 嗜血已激活 / 穿甲时才有补足,
+   * 否则真值 0 (单击伤害就是 attackDamage)。0 不是加密, null 才是。
+   */
+  singleHitPct: number | null
+  /** L6。原版移速属性当前值 (含高速 / 超速 / 自修定身等词条挂的修饰), 原样发, 不折算成格/秒。 */
+  movementSpeed: number | null
+  /** L7。只列已解密的机制行; 未解锁 null, 已解锁但没有机制词条是空数组。 */
+  mechanics: AgentScanMechanic[] | null
+  /** L9。见 AgentScanLive。 */
+  live: AgentScanLive | null
   /** 顺序即精英词条原始顺序 (集成层已过滤掉外来/纯防御词条)。 */
   entries: AgentAffixEntry[]
 }
@@ -1124,6 +1222,16 @@ export interface AgentStateResult {
    * 严禁写成"还有更多精英未显示"。
    */
   truncated: boolean
+  /**
+   * 当前快照是否正在给你本人高亮全部目标 (第四章 L8 "Glowing 高亮")。只对扫描者本人的客户端生效,
+   * 服务端实体不改, 其他玩家看不见; 快照到期即熄。判据同样取脉冲当刻的等级。
+   */
+  glowingHighlight: boolean
+  /**
+   * 各情报格的解锁等级, 原样取自 Java AgentScanField 枚举 (第四章探测列)。面板上"需要 Lv.N"的占位一律读这张表,
+   * 不在前端另抄等级 —— 与 seal.passiveUnlockLevel 同一做法。
+   */
+  scanFieldUnlockLevels: Record<AgentScanFieldName, number>
   /** 按距离升序, 最多 8 条; 快照过期时是空数组。 */
   targets: AgentScanTarget[]
   seal: AgentSealPermissions
@@ -1159,6 +1267,15 @@ export interface AgentScanResult {
   /** 成功回执里这两栏都等于 pulseCooldownTicks。 */
   scanCooldownRemainingTicks: number
   snapshotRemainingTicks: number
+  /** 语义同 AgentStateResult.glowingHighlight。 */
+  glowingHighlight: boolean
+  /**
+   * 本次脉冲的"首次发现精英"经验 (设计 8.1: 星级 x 8, 每名玩家对每只精英只算一次, 支援召唤物不算),
+   * 是经职业框架每日衰减折算后**实际入账**的有效经验, 与经验条上真涨的数一致。0 = 本次没有新发现。
+   */
+  discoveryXp: number
+  /** 本次首次发现的精英只数。 */
+  discoveryCount: number
   targets: AgentScanTarget[]
 }
 

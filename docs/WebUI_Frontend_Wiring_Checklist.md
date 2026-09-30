@@ -269,6 +269,45 @@ PixelLoading / PixelEmpty / PixelError / PixelConfirmDanger
 | I4 | `admin.mining.reset` | READY | `MiningAdminWebUiActions.RESET`。活跃版 `/mining reset` **无二次确认**（有二次确认的那套在 `com.miningdim.command` 死代码里），面板按钮必须自行加确认弹窗 |
 | I5 | `admin.champion.summon` | WRAP(低优先级) | 需 EntityType 下拉 + 35 词条多选 + 星级输入，复杂度高，建议暂缓 |
 
+### K 组 · 自管区（2026-09-29 随 wok-district 后端阶段 1 接线）
+
+自管区是本表盘点之后才立项的模块，界面预览期间在 `mock/planned.ts` 里编号 D1-D26；清单已有"D 组 · 经济"，故登记为 K 组，K 编号与原 D 编号一一对应。服务端全部在 `com.miningdim.district.web.DistrictWebUiActions`（回执由 `DistrictJson` 构造并按身份裁剪），类型在 `webui/src/lib/types.ts` 的自管区一节，设计见 [District_Backend_Design.md](District_Backend_Design.md)。几条共同说明：
+
+- **生产开关与导航入口（阶段 2，设计文档 20.9）**：服务端 `miningdim-district.toml` 的 `enabled` 默认 false，关着时 26 条动作一律回 `DISTRICT_DISABLED`；开着但 Flan 用不了（降级）时只读：6 条读动作照常，住户与地块的领地权限生效状态如实显示"同步失败"（原因"领地对接未启用：{原因}"）；20 条写动作回 `DISTRICT_DISABLED`，文案"自管区的领地对接暂停（{原因}），现在只能查看、不能修改"，界面直接显示原文（设计文档 P21，2026-09-30 复核改）。导航入口是 `TabletShell` 的 `hubGated`：只在 `hub.panels` 下发了 `district`（排在 `case` 之后，只在功能生效时下发）时显示；开发构建的假后端恒按生效下发。
+- **开发构建没有宿主时**，`lib/bridge.mock` 把这 26 条转给 `mock/district-handlers.ts` 的内存世界回答（预览身份切换器照常可用）；它复刻了拒绝码与权限模型，规则以 Java 为准。
+- **一条都不进 `system.batch`**：写动作重放即二次副作用；读动作（K1 K2 K8 K11 K12 K26）阶段 1 也不进。
+- **发布顺序**：握手会把 `missingOnServer` 非空判为整个平板不兼容，接线后的前端只能对着已经装了 wok-district 的服务端发布（设计文档 17.4）。
+- 列表没有分页：服务端按条数上限与回执体积预算截断，回执带 ★ `…Truncated` 标记；一个区超过约 70 块地时 K11 会截断（设计文档 P7）。
+
+| # | action | 状态 | Java 落点 | 说明 |
+|---|---|---|---|---|
+| K1 | `district.state` | READY | `STATE` → `DistrictJson.state` | 身份、我的居住权、各区公开摘要、我是哪几块地的朋友（★ `friendOfTruncated`）|
+| K2 | `district.detail` | READY | `DETAIL` → `DistrictJson.detail` | 住户名单与本区记录只给管理员与本区区务长，住户拿到 null（★ `residentsTruncated` / `logTruncated`）|
+| K3 | `district.addResident` | READY | `ADD_RESIDENT` | 从没进过服先报 `PLAYER_NEVER_JOINED`，`allowNeverJoined: true` 重交后以待生效记入 |
+| K4 | `district.removeResident` | READY | `REMOVE_RESIDENT` | 户主被移出时地块冻结 7 天；违反区规暂停本区朋友身份；只回块数；原因超过 200 字报 `INVALID_REQUEST {field: reason}`（界面限 60 字，碰不到） |
+| K5 | `admin.district.retrySync` | READY | `RETRY_SYNC` | 重试仍失败报 `SYNC_RETRY_FAILED`（新码，失败原因单独提交）|
+| K6 | `admin.district.setWarden` | READY | `SET_WARDEN` | `playerName` 显式 null 才是撤销，缺键是 `INVALID_REQUEST` |
+| K7 | `admin.district.delete` | READY | `DELETE` | 只解绑：名单、地块、记录一行不删，不调 Flan |
+| K8 | `district.permissions` | READY | `PERMISSIONS` → `DistrictJson.permissions` | 不拒绝外人，按对这个区的身份裁剪住户列、flanIds、两种风险提示 |
+| K9 | `district.setPermission` | READY | `SET_PERMISSION` | 开关值只收 JSON 布尔；区务长改区域规则报 `PERMISSION_DENIED`（requires admin）|
+| K10 | `district.resetPermissions` | READY | `RESET_PERMISSIONS` → `DistrictJson.resetPermissions` | 一格一条记录；★ `changedCount` 为实际改动格数（界面读它），★ `logEntriesTruncated` |
+| K11 | `district.plots` | READY | `PLOTS` → `DistrictJson.plots` | 外人拒绝；墓碑只给管理员；`market.viewerBlock` 与买地同一顺序（★ `plotsTruncated` / `deletedPlotsTruncated`）|
+| K12 | `plot.detail` | READY | `PLOT_DETAIL` → `DistrictJson.plotDetail` | 户主与管理员；户主只看本任期记录，管理员另看归档（★ `logTruncated`）|
+| K13 | `plot.setPermission` | READY | `PLOT_SET_PERMISSION` | 管理员改户主的地块记为代改 |
+| K14 | `plot.resetPermissions` | READY | `PLOT_RESET_PERMISSIONS` → `DistrictJson.resetPlotPermissions` | 同 K10 的两个 ★ 字段 |
+| K15 | `plot.addFriend` | READY | `PLOT_ADD_FRIEND` | 上限 8 人（含已暂停）；从没进过服同 K3 |
+| K16 | `plot.removeFriend` | READY | `PLOT_REMOVE_FRIEND` | 名字不分大小写 |
+| K17 | `plot.create` | READY | `PLOT_CREATE` | 范围校验五个码按顺序报；编号永不复用 |
+| K18 | `plot.resize` | READY | `PLOT_RESIZE` | 区务长只调空置地块；管理员调有户主的记为代改并通知户主 |
+| K19 | `plot.delete` | READY | `PLOT_DELETE` | 只删空置地块；记录进墓碑 |
+| K20 | `plot.buy` | READY | `PLOT_BUY` | 扣款、过户、两条记录同一事务；钱暂时直接销毁；`plot.buy` 已进 mock 的 `BUMP_REVISION_AFTER`；入参钉住确认时看到的 `expectedPrice` 与 `expectedBounds`（地块被挪走或改形状报 `PLOT_CHANGED`，2026-09-29 复核后补） |
+| K21 | `admin.district.setPlotPricing` | READY | `SET_PLOT_PRICING` | 单价 ≤ 1,000,000，边长 ≤ 1024 |
+| K22 | `admin.district.setPurchaseOpen` | READY | `SET_PURCHASE_OPEN` | 默认关；登录门上线前不要在正式服打开 |
+| K23 | `admin.plot.unfreeze` | READY | `PLOT_UNFREEZE` | 原户主须已回到名单且没有别的地块 |
+| K24 | `admin.plot.reclaimNow` | READY | `PLOT_RECLAIM_NOW` | 收回后此前记录归档，只有管理员能看 |
+| K25 | `plot.restoreFriend` | READY | `PLOT_RESTORE_FRIEND` | 只恢复已暂停的朋友 |
+| K26 | `admin.district.archive` | READY | `ARCHIVE` → `DistrictJson.archive` | 最多 20 个已解绑的区，每区最多 50 条记录（★ `truncated` / `logTruncated`）|
+
 ---
 
 ## 四、原"完全没有后端的 10 块系统"（2026-09-20 复核：已交付 4 块）

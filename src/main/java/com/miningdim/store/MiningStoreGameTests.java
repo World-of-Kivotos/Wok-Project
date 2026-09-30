@@ -153,7 +153,10 @@ public final class MiningStoreGameTests {
                     "wallets", "bundle_operations", "daily_counters",
                     "title_owned", "title_equipped", "title_sponsor", "title_custom",
                     "achievement_reward", "achievement_points", "achievement_point_ledger",
-                    "achievement_daily_counter")) {
+                    "achievement_daily_counter", "achievement_market_partner",
+                    "district_academy", "district_member", "district", "district_permission", "district_plot",
+                    "district_plot_permission", "district_plot_friend", "district_plot_tombstone",
+                    "district_log", "district_plot_log", "district_seen_player", "district_notice")) {
                 helper.assertTrue(SchemaMigrator.tableExists(conn, table), "统一库缺表: " + table);
             }
         } finally {
@@ -697,6 +700,72 @@ public final class MiningStoreGameTests {
                     "SELECT SUM(trades) FROM achievement_market_partner WHERE buyer_uuid='" + LEGACY_BUYER_ID + "'");
             helper.assertTrue(plan.contains("idx_achievement_market_partner_buyer"),
                     "买家侧的笔数查询应走 buyer_uuid 索引, 实为 " + plan);
+        } finally {
+            MiningDb.close(conn);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 停在 V8 的库 (成就分支落地时的最新版) 升级时补跑 V9, 建出自管区的十二张表与四个触发器, 既有的钱包与成就行
+     * 逐值保留。约束逐条钉住: 一人一学院 (player_uuid 唯一)、每个学院最多一个未解绑的自管区 (部分唯一索引)、
+     * 新地块必须空置 (触发器)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void databaseStoppedAtV8GetsDistrictTablesOnUpgradeWithoutLosingRows(GameTestHelper helper) {
+        Connection conn = MiningDb.openInMemory();
+        try {
+            SchemaMigrator.migrate(conn, MiningSchema.MIGRATIONS.subList(0, 8));
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == 8,
+                    "停在 V8 的库 user_version 必须是 8, 实为 " + SchemaMigrator.userVersion(conn));
+            List<String> districtTables = List.of("district_academy", "district_member", "district",
+                    "district_permission", "district_plot", "district_plot_permission", "district_plot_friend",
+                    "district_plot_tombstone", "district_log", "district_plot_log", "district_seen_player",
+                    "district_notice");
+            for (String table : districtTables) {
+                helper.assertTrue(!SchemaMigrator.tableExists(conn, table), "V8 库里不应已有 " + table + " 表");
+            }
+            exec(conn, "INSERT INTO wallets (player_id, credit, azure) VALUES ('"
+                    + LEGACY_PAYOUT_SELLER_ID + "', 4321, 0)");
+            exec(conn, "INSERT INTO achievement_market_partner (seller_uuid, buyer_uuid, trades, counted_volume) "
+                    + "VALUES ('" + LEGACY_SELLER_ID + "', '" + LEGACY_BUYER_ID + "', 3, 900)");
+
+            MiningSchema.apply(conn);
+
+            helper.assertTrue(SchemaMigrator.userVersion(conn) == 9,
+                    "升级后 user_version 必须是 9, 实为 " + SchemaMigrator.userVersion(conn));
+            for (String table : districtTables) {
+                helper.assertTrue(SchemaMigrator.tableExists(conn, table), "升级后必须建出 " + table);
+            }
+            helper.assertTrue(singleLong(conn, "SELECT credit FROM wallets WHERE player_id='"
+                    + LEGACY_PAYOUT_SELLER_ID + "'") == 4321L, "升级不得改动既有钱包行");
+            helper.assertTrue(singleLong(conn, "SELECT counted_volume FROM achievement_market_partner WHERE seller_uuid='"
+                    + LEGACY_SELLER_ID + "'") == 900L, "升级不得改动既有市场成就记账行");
+
+            exec(conn, "INSERT INTO district_academy (academy_id, short_name, full_name, sort_order, created_at) "
+                    + "VALUES ('abydos', '阿拜多斯', '阿拜多斯学院', 1, 1)");
+            exec(conn, "INSERT INTO district_academy (academy_id, short_name, full_name, sort_order, created_at) "
+                    + "VALUES ('millennium', '千年', '千年学院', 2, 1)");
+            exec(conn, "INSERT INTO district_member (player_uuid, player_name, name_lower, academy_id, joined_at, "
+                    + "added_by_name, sync_status) VALUES ('" + LEGACY_BUYER_ID + "', 'Pebble_Fox', 'pebble_fox', "
+                    + "'abydos', 1, 'op', 'synced')");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO district_member (player_uuid, player_name, name_lower, "
+                            + "academy_id, joined_at, added_by_name, sync_status) VALUES ('" + LEGACY_BUYER_ID
+                            + "', 'Pebble_Fox', 'pebble_fox2', 'millennium', 1, 'op', 'synced')"),
+                    "district_member.player_uuid 必须唯一 (一人只属于一个学院)");
+            String districtColumns = "(district_id, academy_id, display_name, dimension, min_x, min_z, max_x, max_z, "
+                    + "unit_price, min_side, max_side, created_at, created_by_name)";
+            exec(conn, "INSERT INTO district " + districtColumns
+                    + " VALUES ('abydos', 'abydos', '阿拜多斯自管区', 'minecraft:overworld', 0, 0, 99, 99, 5, 8, 48, 1, 'op')");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO district " + districtColumns
+                            + " VALUES ('abydos-2', 'abydos', '阿拜多斯自管区', 'minecraft:overworld', 200, 0, 299, 99, "
+                            + "5, 8, 48, 1, 'op')"),
+                    "同一学院第二个未解绑的自管区必须被部分唯一索引拒绝");
+            helper.assertTrue(rejectsStatement(conn, "INSERT INTO district_plot (plot_id, district_id, plot_no, code, "
+                            + "min_x, min_z, max_x, max_z, owner_uuid, owner_name, sync_status, created_at) VALUES "
+                            + "('abydos-01', 'abydos', 1, '阿拜多斯-01', 2, 2, 10, 10, '" + LEGACY_BUYER_ID
+                            + "', 'Pebble_Fox', 'synced', 1)"),
+                    "新地块必须空置, 带户主的 INSERT 必须被触发器拒绝");
         } finally {
             MiningDb.close(conn);
         }

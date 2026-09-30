@@ -97,6 +97,14 @@ public final class WebUiErrorCodes {
     /** 任务系统已被配置关闭。抛出点: 所有 {@code quest.*} action 的统一前置门。 */
     public static final String QUEST_DISABLED = "QUEST_DISABLED";
 
+    /**
+     * 自管区功能没有开启 (serverconfig/miningdim-district.toml 的 enabled 为 false, 服务没有绑定)。抛出点: 26 条
+     * 自管区动作 (district.* / plot.* / admin.district.* / admin.plot.*) 取服务时的统一前置门
+     * (docs/District_Backend_Design.md 20.9)。不可同 id 重试, 无 params。平板在功能没开时本来就不显示入口, 只有直接
+     * 输网址才会撞上它。
+     */
+    public static final String DISTRICT_DISABLED = "DISTRICT_DISABLED";
+
     /** 开箱系统已关闭, 或 TaCZ / 武器箱资源包未就绪。抛出点: {@code CaseOpeningService.open}。 */
     public static final String CASE_DISABLED = "CASE_DISABLED";
 
@@ -128,7 +136,10 @@ public final class WebUiErrorCodes {
     public static final String RESPONSE_TOO_LARGE = "RESPONSE_TOO_LARGE";
 
     /**
-     * 权限不足 (当前只有 OP 一档)。抛出点: {@link WebUiPermissions#requireOp}, 由每条 admin.* 动作各自调用。
+     * 权限不足。抛出点: {@link WebUiPermissions#requireOp}, 由每条 admin.* 动作各自调用, params {@code action};
+     * 另有自管区动作的三档身份门 (docs/District_Backend_Design.md 15.1): 区务长门、住户门、户主门, 身份按"对这个区 /
+     * 这块地"从服务端状态实时判定, params {@code action} 与 {@code requires} ({@code manager} / {@code member} /
+     * {@code owner}; 区域规则只许管理员改时为 {@code admin}), message 是给玩家看的中文句子。
      *
      * 单立一码而不复用 {@link #INVALID_REQUEST}: 后者的语义是"入参形状或取值非法", 拿它表达权限拒绝会让
      * 前端把"你不是 OP"渲染成"某个字段填错了"。而在补出本码之前, 各 admin 动作只能二选一 —— 要么套
@@ -272,4 +283,143 @@ public final class WebUiErrorCodes {
      * 抛出点: title.customSet。
      */
     public static final String CUSTOM_TITLE_INVALID = "CUSTOM_TITLE_INVALID";
+
+    // ---- 自管区 (District_Backend_Design 第十五章) ----
+    //
+    // 抛出点一律是 com.miningdim.district 的服务方法 (DistrictRuleException 一对一转成本类的业务异常), 由 district.* /
+    // plot.* / admin.district.* / admin.plot.* 动作下发。这些码不在前端 errorText 表里, 界面直接显示服务端的中文原文,
+    // 所以 message 必须是给玩家看的句子; 前端只按 PLAYER_NEVER_JOINED 与地块购买的四个 viewerBlock 值分支。
+    // 身份不够复用 PERMISSION_DENIED, 开关值 / 枚举取值 / 机器字段形状不对复用 INVALID_REQUEST, 钱与存储复用
+    // INSUFFICIENT_FUNDS / ECONOMY_OFFLINE / STORE_FAILED。
+
+    /** 没有这个自管区 (或已解绑)。params: {@code districtId}。抛出点: 带 districtId 的全部自管区动作。 */
+    public static final String DISTRICT_NOT_FOUND = "DISTRICT_NOT_FOUND";
+
+    /** 本区没有这块地。params: {@code districtId} / {@code plotId}。抛出点: 地块详情、改地块、买地、冻结处置。 */
+    public static final String PLOT_NOT_FOUND = "PLOT_NOT_FOUND";
+
+    /** 玩家 ID 不合格式 (3-16 位字母数字下划线)。params: {@code playerName}。抛出点: 加住户、加朋友。 */
+    public static final String INVALID_PLAYER_NAME = "INVALID_PLAYER_NAME";
+
+    /** 已经是本区住户。params: {@code playerName}。抛出点: 加住户。 */
+    public static final String ALREADY_RESIDENT = "ALREADY_RESIDENT";
+
+    /**
+     * 已是别的学院 (含已解绑学院) 的成员, 一人只属于一个学院。params: {@code playerName} / {@code academyId} /
+     * {@code unbound} ("true" / "false")。抛出点: 加住户。
+     */
+    public static final String RESIDENT_ELSEWHERE = "RESIDENT_ELSEWHERE";
+
+    /**
+     * 没有这名玩家的登录记录, 界面按此码弹出"仍要添加"的确认。params: {@code playerName}。抛出点: 加住户、加朋友。
+     */
+    public static final String PLAYER_NEVER_JOINED = "PLAYER_NEVER_JOINED";
+
+    /** 移出住户没填原因。无 params。抛出点: 移出住户。 */
+    public static final String REASON_REQUIRED = "REASON_REQUIRED";
+
+    /**
+     * 不是本区住户。params: {@code playerName} (买地为 {@code districtId})。抛出点: 移出住户、重试同步、任命区务长、
+     * 买地 (OP 恒报此码)。
+     */
+    public static final String NOT_RESIDENT = "NOT_RESIDENT";
+
+    /** 要移出的人是本区区务长, 须先撤销。params: {@code playerName}。抛出点: 移出住户。 */
+    public static final String RESIDENT_IS_WARDEN = "RESIDENT_IS_WARDEN";
+
+    /** 该住户不是"同步失败", 没有可重试的。params: {@code playerName} / {@code syncStatus}。抛出点: 重试同步。 */
+    public static final String SYNC_NOTHING_TO_RETRY = "SYNC_NOTHING_TO_RETRY";
+
+    /** 重试后领地写入仍然失败, 文案带失败原因。params: {@code playerName}。抛出点: 重试同步。 */
+    public static final String SYNC_RETRY_FAILED = "SYNC_RETRY_FAILED";
+
+    /** 撤销区务长时本区没有区务长。无 params。抛出点: 任命 / 撤销区务长。 */
+    public static final String WARDEN_NOT_APPOINTED = "WARDEN_NOT_APPOINTED";
+
+    /** 任命的人已经是本区区务长。params: {@code playerName}。抛出点: 任命区务长。 */
+    public static final String ALREADY_WARDEN = "ALREADY_WARDEN";
+
+    /** 权限目录里没有这一项。params: {@code permissionId}。抛出点: 改公共区域权限、改地块权限。 */
+    public static final String PERMISSION_ITEM_UNKNOWN = "PERMISSION_ITEM_UNKNOWN";
+
+    /** 区域规则不能在地块里单独改。params: {@code permissionId}。抛出点: 改地块权限。 */
+    public static final String REGION_RULE_NOT_IN_PLOT = "REGION_RULE_NOT_IN_PLOT";
+
+    /** 地块冻结中。params: {@code plotId} / {@code code}。抛出点: 改地块朋友与权限、调范围、删地块、买地。 */
+    public static final String PLOT_FROZEN = "PLOT_FROZEN";
+
+    /** 地块空置, 没有户主。params: {@code plotId} / {@code code}。抛出点: 改地块朋友与权限。 */
+    public static final String PLOT_VACANT = "PLOT_VACANT";
+
+    /** 户主本人不用加成朋友。params: {@code playerName}。抛出点: 加朋友。 */
+    public static final String FRIEND_IS_OWNER = "FRIEND_IS_OWNER";
+
+    /** 已在朋友名单上 (含已暂停)。params: {@code playerName} / {@code suspended}。抛出点: 加朋友。 */
+    public static final String ALREADY_FRIEND = "ALREADY_FRIEND";
+
+    /** 朋友已满 (已暂停的也占名额)。params: {@code limit}。抛出点: 加朋友。 */
+    public static final String FRIEND_LIMIT_REACHED = "FRIEND_LIMIT_REACHED";
+
+    /** 不是这块地的朋友。params: {@code playerName}。抛出点: 移除朋友、恢复朋友。 */
+    public static final String FRIEND_NOT_FOUND = "FRIEND_NOT_FOUND";
+
+    /** 朋友身份没有暂停, 不需要恢复。params: {@code playerName}。抛出点: 恢复朋友。 */
+    public static final String FRIEND_NOT_SUSPENDED = "FRIEND_NOT_SUSPENDED";
+
+    /** 坐标不是整数或两个角分不开。params: 类型错时 {@code field}。抛出点: 划地块、调范围。 */
+    public static final String INVALID_AREA = "INVALID_AREA";
+
+    /** 超出自管区范围。params: {@code minX} / {@code maxX} / {@code minZ} / {@code maxZ}。抛出点: 划地块、调范围。 */
+    public static final String OUT_OF_DISTRICT = "OUT_OF_DISTRICT";
+
+    /** 离自管区边界太近。params: {@code edgeGap}。抛出点: 划地块、调范围。 */
+    public static final String TOO_CLOSE_TO_EDGE = "TOO_CLOSE_TO_EDGE";
+
+    /**
+     * 边长不在本区上下限内。params: {@code minSide} / {@code maxSide} / {@code width} / {@code depth}。
+     * 抛出点: 划地块、调范围。
+     */
+    public static final String SIZE_OUT_OF_RANGE = "SIZE_OUT_OF_RANGE";
+
+    /** 和已有地块 (含冻结中的) 重叠, 共用一个坐标就算。params: {@code plotId} / {@code code}。抛出点: 划地块、调范围。 */
+    public static final String OVERLAPS_PLOT = "OVERLAPS_PLOT";
+
+    /**
+     * 地块有户主。params: {@code plotId} / {@code code} / {@code ownerName}。抛出点: 区务长调有户主的地块、删有户主的
+     * 地块、买已被买下的地块 (先到先得)。
+     */
+    public static final String PLOT_OCCUPIED = "PLOT_OCCUPIED";
+
+    /** 调范围时范围与原来相同。params: {@code plotId}。抛出点: 调范围。 */
+    public static final String PLOT_AREA_UNCHANGED = "PLOT_AREA_UNCHANGED";
+
+    /** 已经有一块地了 (一人最多一块)。params: {@code plotId} / {@code code}。抛出点: 买地、解除冻结。 */
+    public static final String ALREADY_OWNS_PLOT = "ALREADY_OWNS_PLOT";
+
+    /** 自己原来的地块还在冻结中。params: {@code plotId} / {@code code}。抛出点: 买地。 */
+    public static final String HAS_FROZEN_PLOT = "HAS_FROZEN_PLOT";
+
+    /** 本区未开放购买。params: {@code districtId}。抛出点: 买地。 */
+    public static final String PURCHASE_CLOSED = "PURCHASE_CLOSED";
+
+    /** 确认时的价格与现价不符。params: {@code expectedPrice} / {@code price}。抛出点: 买地。 */
+    public static final String PRICE_CHANGED = "PRICE_CHANGED";
+
+    /**
+     * 确认时看到的地块范围与现在的不符 (买家确认期间区务长或管理员调了这块空置地块的范围或位置)。params:
+     * {@code plotId} / {@code code} / {@code minX} / {@code minZ} / {@code maxX} / {@code maxZ} (现在的范围)。抛出点: 买地。
+     */
+    public static final String PLOT_CHANGED = "PLOT_CHANGED";
+
+    /** 单价不是 1 到 1,000,000 之间的整数。params: {@code field}。抛出点: 设定价与尺寸。 */
+    public static final String INVALID_PRICE = "INVALID_PRICE";
+
+    /** 尺寸上下限不合法 (非整数、下限 < 1、下限 > 上限、上限 > 1024)。params: {@code field}。抛出点: 设定价与尺寸。 */
+    public static final String INVALID_SIZE_LIMIT = "INVALID_SIZE_LIMIT";
+
+    /** 地块没有冻结。params: {@code plotId} / {@code code}。抛出点: 解除冻结、立即收回。 */
+    public static final String PLOT_NOT_FROZEN = "PLOT_NOT_FROZEN";
+
+    /** 冻结地块的原户主现在不是本区住户。params: {@code playerName}。抛出点: 解除冻结。 */
+    public static final String FORMER_OWNER_NOT_RESIDENT = "FORMER_OWNER_NOT_RESIDENT";
 }

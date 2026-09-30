@@ -321,8 +321,265 @@ public final class MiningSchema {
                     + "PRIMARY KEY (seller_uuid, buyer_uuid))",
             "CREATE INDEX idx_achievement_market_partner_buyer ON achievement_market_partner(buyer_uuid)");
 
+    /**
+     * 版本 9: 自管区模块 (wok-district) 的十二张表与四个触发器, 结构见 docs/District_Backend_Design.md 第四章与 22.11。
+     *
+     * <ul>
+     *   <li>district_academy: 学院, 主键 academy_id, sort_order 唯一 (自管区列表按它排序)。六校由模块开服时
+     *       INSERT OR IGNORE, 不在迁移里写死行: 学院名单是运营数据, 迁移只管结构。</li>
+     *   <li>district_member: 学院名单一行 = 住户一名。id 自增即入学顺序; player_uuid 唯一 = 一人只属于一个学院
+     *       (含已解绑学院); name_lower 唯一防止大小写不同的同一个名字被加两次 (由 Java 用 Locale.ROOT 算好写入,
+     *       不用 SQLite 的 lower(): 后者只处理 ASCII, 两边口径会分叉)。按学院列名单走 (academy_id, id) 索引。</li>
+     *   <li>district: 学院与领地的一次绑定, 解绑后行保留作归档。部分唯一索引 ux_district_live_academy 保证每个学院
+     *       最多一个未解绑的自管区, 解绑后可以重新绑定。已解绑的自管区没有区务长 (CHECK)。</li>
+     *   <li>district_permission / district_plot_permission: 公共区域与地块开关表, 每一格一行、只有开或关
+     *       (enabled NOT NULL 且只取 0/1): 写进 Flan 的"不设置"会回退到上一层, 这正是要堵死的漏。地块格随地块级联删除。</li>
+     *   <li>district_plot: 现存地块。(district_id, plot_no) 唯一; 部分唯一索引 ux_district_plot_owner 保证一人最多
+     *       一块地 (对全部地块生效, 含已解绑自管区的地块); 户主与冻结中的原户主互斥, 名 / UUID / 时间成组出现 (CHECK)。</li>
+     *   <li>district_plot_friend: 地块朋友, id 自增即存储顺序, 同一块地里 UUID 与小写名各自唯一, 随地块级联删除。
+     *       按玩家查朋友身份走 player_uuid 索引, 首次登录找待生效朋友走 name_lower 的部分索引。</li>
+     *   <li>district_plot_tombstone: 已删地块的墓碑; 刻意不对 district 建外键, 与记录表同属审计性质。</li>
+     *   <li>district_log / district_plot_log: 只追加的操作记录, 性质同 V7 的流水, 刻意不建外键 —— 地块删除后它的记录
+     *       必须留下来挪进墓碑。地块记录用 tenure 区分属于哪一任户主, 收回时只把任期 +1, 不搬行。两表的 action 与
+     *       actor_role 只收契约枚举值 (前端的标签表按它们索引, 枚举外的值会显示成空白)。</li>
+     *   <li>district_seen_player: 进过服的玩家, "有没有进过服"与最后在线时间的唯一来源。</li>
+     *   <li>district_notice: 离线玩家的聊天通知队列 (阶段 3 追加在末尾, 22.11)。kind 不进 CHECK (加一种通知不用开迁移,
+     *       投递时不认识的 kind 记 WARN 后删掉); args_json 是格式化好的字符串数组; district_id、plot_id 只为排障, 不建外键
+     *       (同两张记录表)。按 (recipient_uuid, id) 取、按插入顺序发; 每人最多 30 条、保留 30 天由模块自己删。
+     *       V9 在追加这张表时还没有发布过 (铁律只约束已发布的迁移); 用追加之前的开发构建开过的库停在 9 却没有这张表,
+     *       模块开服时查出来降级为只读并记 ERROR (附手工补建的两条语句, 绝不让人删库), 不在迁移之外自动补建。</li>
+     * </ul>
+     *
+     * 四个触发器是服务层之外的最后一道闸: 新地块必须空置、户主必须是该区学院成员、区务长必须是本学院成员、
+     * 还是户主或区务长的成员不能被删除。服务层会先按契约报业务码, 触发器只拦代码 bug。
+     * 每个 CREATE TRIGGER 是一个字符串: sqlite-jdbc 把整个触发器当一条语句准备, 体内的分号不会把它拆开。
+     *
+     * 业务上限 (单价 ≤ 1,000,000、边长 ≤ 1024) 刻意不进 CHECK: 数值还没拍板, 写进 CHECK 的话每改一次都得开一版迁移。
+     */
+    private static final List<String> V9 = List.of(
+            "CREATE TABLE district_academy ("
+                    + "academy_id TEXT PRIMARY KEY, "
+                    + "short_name TEXT NOT NULL, "
+                    + "full_name TEXT NOT NULL, "
+                    + "sort_order INTEGER NOT NULL UNIQUE, "
+                    + "created_at INTEGER NOT NULL)",
+
+            "CREATE TABLE district_member ("
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    + "player_uuid TEXT NOT NULL UNIQUE, "
+                    + "player_name TEXT NOT NULL, "
+                    + "name_lower TEXT NOT NULL UNIQUE, "
+                    + "academy_id TEXT NOT NULL REFERENCES district_academy(academy_id), "
+                    + "joined_at INTEGER NOT NULL, "
+                    + "added_by_uuid TEXT, "
+                    + "added_by_name TEXT NOT NULL, "
+                    + "sync_status TEXT NOT NULL CHECK (sync_status IN ('synced','pending','failed')), "
+                    + "sync_error TEXT)",
+            "CREATE INDEX idx_district_member_academy ON district_member(academy_id, id)",
+
+            "CREATE TABLE district ("
+                    + "district_id TEXT PRIMARY KEY, "
+                    + "academy_id TEXT NOT NULL REFERENCES district_academy(academy_id), "
+                    + "display_name TEXT NOT NULL, "
+                    + "dimension TEXT NOT NULL, "
+                    + "min_x INTEGER NOT NULL, "
+                    + "min_z INTEGER NOT NULL, "
+                    + "max_x INTEGER NOT NULL, "
+                    + "max_z INTEGER NOT NULL, "
+                    + "rules_json TEXT NOT NULL DEFAULT '[]', "
+                    + "warden_uuid TEXT, "
+                    + "warden_name TEXT, "
+                    + "unit_price INTEGER NOT NULL, "
+                    + "min_side INTEGER NOT NULL, "
+                    + "max_side INTEGER NOT NULL, "
+                    + "purchase_open INTEGER NOT NULL DEFAULT 0, "
+                    + "next_plot_no INTEGER NOT NULL DEFAULT 1, "
+                    + "flan_claim_id TEXT, "
+                    + "needs_reconcile INTEGER NOT NULL DEFAULT 0, "
+                    + "created_at INTEGER NOT NULL, "
+                    + "created_by_name TEXT NOT NULL, "
+                    + "unbound_at INTEGER, "
+                    + "unbound_by_name TEXT, "
+                    + "unbound_member_count INTEGER, "
+                    + "unbound_plot_count INTEGER, "
+                    + "CHECK (min_x <= max_x AND min_z <= max_z), "
+                    + "CHECK (unit_price >= 1), "
+                    + "CHECK (min_side >= 1 AND min_side <= max_side), "
+                    + "CHECK (purchase_open IN (0,1)), "
+                    + "CHECK (needs_reconcile IN (0,1)), "
+                    + "CHECK (next_plot_no >= 1), "
+                    + "CHECK ((warden_uuid IS NULL) = (warden_name IS NULL)), "
+                    + "CHECK ((unbound_at IS NULL) = (unbound_by_name IS NULL)), "
+                    + "CHECK (unbound_at IS NULL OR warden_uuid IS NULL))",
+            "CREATE UNIQUE INDEX ux_district_live_academy ON district(academy_id) WHERE unbound_at IS NULL",
+
+            "CREATE TABLE district_permission ("
+                    + "district_id TEXT NOT NULL REFERENCES district(district_id), "
+                    + "permission_id TEXT NOT NULL, "
+                    + "audience TEXT NOT NULL CHECK (audience IN ('resident','outsider','district')), "
+                    + "enabled INTEGER NOT NULL CHECK (enabled IN (0,1)), "
+                    + "PRIMARY KEY (district_id, permission_id, audience))",
+
+            "CREATE TABLE district_plot ("
+                    + "plot_id TEXT PRIMARY KEY, "
+                    + "district_id TEXT NOT NULL REFERENCES district(district_id), "
+                    + "plot_no INTEGER NOT NULL, "
+                    + "code TEXT NOT NULL, "
+                    + "min_x INTEGER NOT NULL, "
+                    + "min_z INTEGER NOT NULL, "
+                    + "max_x INTEGER NOT NULL, "
+                    + "max_z INTEGER NOT NULL, "
+                    + "owner_uuid TEXT, "
+                    + "owner_name TEXT, "
+                    + "frozen_owner_uuid TEXT, "
+                    + "frozen_owner_name TEXT, "
+                    + "frozen_at INTEGER, "
+                    + "tenure INTEGER NOT NULL DEFAULT 1, "
+                    + "sync_status TEXT NOT NULL CHECK (sync_status IN ('synced','failed')), "
+                    + "sync_error TEXT, "
+                    + "flan_claim_id TEXT, "
+                    + "created_at INTEGER NOT NULL, "
+                    + "UNIQUE (district_id, plot_no), "
+                    + "CHECK (plot_no >= 1), "
+                    + "CHECK (tenure >= 1), "
+                    + "CHECK (min_x <= max_x AND min_z <= max_z), "
+                    + "CHECK ((owner_uuid IS NULL) = (owner_name IS NULL)), "
+                    + "CHECK ((frozen_owner_uuid IS NULL) = (frozen_owner_name IS NULL)), "
+                    + "CHECK ((frozen_owner_uuid IS NULL) = (frozen_at IS NULL)), "
+                    + "CHECK (owner_uuid IS NULL OR frozen_owner_uuid IS NULL))",
+            "CREATE UNIQUE INDEX ux_district_plot_owner ON district_plot(owner_uuid) WHERE owner_uuid IS NOT NULL",
+            "CREATE INDEX idx_district_plot_frozen_owner ON district_plot(frozen_owner_uuid) "
+                    + "WHERE frozen_owner_uuid IS NOT NULL",
+            "CREATE INDEX idx_district_plot_frozen_at ON district_plot(frozen_at) WHERE frozen_at IS NOT NULL",
+
+            "CREATE TABLE district_plot_permission ("
+                    + "plot_id TEXT NOT NULL REFERENCES district_plot(plot_id) ON DELETE CASCADE, "
+                    + "permission_id TEXT NOT NULL, "
+                    + "audience TEXT NOT NULL CHECK (audience IN ('friend','resident','outsider')), "
+                    + "enabled INTEGER NOT NULL CHECK (enabled IN (0,1)), "
+                    + "PRIMARY KEY (plot_id, permission_id, audience))",
+
+            "CREATE TABLE district_plot_friend ("
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    + "plot_id TEXT NOT NULL REFERENCES district_plot(plot_id) ON DELETE CASCADE, "
+                    + "player_uuid TEXT NOT NULL, "
+                    + "player_name TEXT NOT NULL, "
+                    + "name_lower TEXT NOT NULL, "
+                    + "added_at INTEGER NOT NULL, "
+                    + "added_by_name TEXT NOT NULL, "
+                    + "sync_status TEXT NOT NULL CHECK (sync_status IN ('synced','pending')), "
+                    + "suspended_at INTEGER, "
+                    + "UNIQUE (plot_id, player_uuid), "
+                    + "UNIQUE (plot_id, name_lower))",
+            "CREATE INDEX idx_district_plot_friend_player ON district_plot_friend(player_uuid)",
+            "CREATE INDEX idx_district_plot_friend_pending ON district_plot_friend(name_lower) "
+                    + "WHERE sync_status = 'pending'",
+
+            "CREATE TABLE district_plot_tombstone ("
+                    + "plot_id TEXT PRIMARY KEY, "
+                    + "district_id TEXT NOT NULL, "
+                    + "code TEXT NOT NULL, "
+                    + "min_x INTEGER NOT NULL, "
+                    + "min_z INTEGER NOT NULL, "
+                    + "max_x INTEGER NOT NULL, "
+                    + "max_z INTEGER NOT NULL, "
+                    + "deleted_at INTEGER NOT NULL, "
+                    + "deleted_by_uuid TEXT, "
+                    + "deleted_by_name TEXT NOT NULL)",
+            "CREATE INDEX idx_district_plot_tombstone_district ON district_plot_tombstone(district_id, deleted_at)",
+
+            "CREATE TABLE district_log ("
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    + "district_id TEXT NOT NULL, "
+                    + "at INTEGER NOT NULL, "
+                    + "actor_uuid TEXT, "
+                    + "actor_name TEXT NOT NULL, "
+                    + "actor_role TEXT NOT NULL CHECK (actor_role IN ('admin','warden','resident','system')), "
+                    + "action TEXT NOT NULL CHECK (action IN ('add','remove','appoint','revoke','resync','permission',"
+                    + "'createPlot','resizePlot','deletePlot','buyPlot','freezePlot','unfreezePlot','vacatePlot',"
+                    + "'suspendFriends','setPlotPricing','setPurchaseOpen')), "
+                    + "target_name TEXT, "
+                    + "reason TEXT, "
+                    + "perm_id TEXT, "
+                    + "perm_label TEXT, "
+                    + "perm_audience TEXT CHECK (perm_audience IS NULL OR perm_audience IN "
+                    + "('resident','outsider','district')), "
+                    + "perm_from INTEGER, "
+                    + "perm_to INTEGER, "
+                    + "from_min_x INTEGER, from_min_z INTEGER, from_max_x INTEGER, from_max_z INTEGER, "
+                    + "to_min_x INTEGER, to_min_z INTEGER, to_max_x INTEGER, to_max_z INTEGER, "
+                    + "CHECK ((action = 'permission') = (perm_id IS NOT NULL)))",
+            "CREATE INDEX idx_district_log_district ON district_log(district_id, at, id)",
+
+            "CREATE TABLE district_plot_log ("
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    + "plot_id TEXT NOT NULL, "
+                    + "district_id TEXT NOT NULL, "
+                    + "tenure INTEGER NOT NULL, "
+                    + "at INTEGER NOT NULL, "
+                    + "actor_uuid TEXT, "
+                    + "actor_name TEXT NOT NULL, "
+                    + "actor_role TEXT NOT NULL CHECK (actor_role IN ('owner','admin','warden','system')), "
+                    + "action TEXT NOT NULL CHECK (action IN ('create','resize','purchase','addFriend','removeFriend',"
+                    + "'suspendFriend','restoreFriend','permission','freeze','unfreeze','vacate')), "
+                    + "target_name TEXT, "
+                    + "reason TEXT, "
+                    + "perm_id TEXT, "
+                    + "perm_label TEXT, "
+                    + "perm_audience TEXT CHECK (perm_audience IS NULL OR perm_audience IN "
+                    + "('friend','resident','outsider')), "
+                    + "perm_from INTEGER, "
+                    + "perm_to INTEGER, "
+                    + "from_min_x INTEGER, from_min_z INTEGER, from_max_x INTEGER, from_max_z INTEGER, "
+                    + "to_min_x INTEGER, to_min_z INTEGER, to_max_x INTEGER, to_max_z INTEGER, "
+                    + "on_behalf_of_owner INTEGER NOT NULL DEFAULT 0 CHECK (on_behalf_of_owner IN (0,1)), "
+                    + "CHECK ((action = 'permission') = (perm_id IS NOT NULL)))",
+            "CREATE INDEX idx_district_plot_log_plot ON district_plot_log(plot_id, tenure, at, id)",
+
+            "CREATE TABLE district_seen_player ("
+                    + "player_uuid TEXT PRIMARY KEY, "
+                    + "player_name TEXT NOT NULL, "
+                    + "name_lower TEXT NOT NULL, "
+                    + "first_seen_at INTEGER NOT NULL, "
+                    + "last_seen_at INTEGER NOT NULL, "
+                    + "source TEXT NOT NULL CHECK (source IN ('login','backfill')))",
+            "CREATE INDEX idx_district_seen_player_name ON district_seen_player(name_lower, last_seen_at)",
+
+            "CREATE TRIGGER trg_district_plot_insert_vacant "
+                    + "BEFORE INSERT ON district_plot "
+                    + "WHEN NEW.owner_uuid IS NOT NULL OR NEW.frozen_owner_uuid IS NOT NULL "
+                    + "BEGIN SELECT RAISE(ABORT, 'district_plot: a new plot must be vacant'); END",
+            "CREATE TRIGGER trg_district_plot_owner_is_member "
+                    + "BEFORE UPDATE OF owner_uuid ON district_plot "
+                    + "WHEN NEW.owner_uuid IS NOT NULL AND NOT EXISTS ("
+                    + "SELECT 1 FROM district_member m JOIN district d ON d.academy_id = m.academy_id "
+                    + "WHERE d.district_id = NEW.district_id AND m.player_uuid = NEW.owner_uuid) "
+                    + "BEGIN SELECT RAISE(ABORT, 'district_plot: owner must be a member of the district academy'); END",
+            "CREATE TRIGGER trg_district_warden_is_member "
+                    + "BEFORE UPDATE OF warden_uuid ON district "
+                    + "WHEN NEW.warden_uuid IS NOT NULL AND NOT EXISTS ("
+                    + "SELECT 1 FROM district_member m "
+                    + "WHERE m.player_uuid = NEW.warden_uuid AND m.academy_id = NEW.academy_id) "
+                    + "BEGIN SELECT RAISE(ABORT, 'district: warden must be a member of the academy'); END",
+            "CREATE TRIGGER trg_district_member_delete_guard "
+                    + "BEFORE DELETE ON district_member "
+                    + "WHEN EXISTS (SELECT 1 FROM district_plot p WHERE p.owner_uuid = OLD.player_uuid) "
+                    + "OR EXISTS (SELECT 1 FROM district d WHERE d.warden_uuid = OLD.player_uuid) "
+                    + "BEGIN SELECT RAISE(ABORT, 'district_member: still owns a plot or is a warden'); END",
+
+            // 阶段 3 追加 (设计文档 22.11, P27): V9 从没发布过, 只在末尾追加, 不改上面任何一条。
+            "CREATE TABLE district_notice ("
+                    + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    + "recipient_uuid TEXT NOT NULL, "
+                    + "kind TEXT NOT NULL, "
+                    + "args_json TEXT NOT NULL DEFAULT '[]', "
+                    + "district_id TEXT, "
+                    + "plot_id TEXT, "
+                    + "created_at INTEGER NOT NULL)",
+            "CREATE INDEX idx_district_notice_recipient ON district_notice(recipient_uuid, id)");
+
     /** 全部迁移, 下标 + 1 即其版本号。 */
-    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3, V4, V5, V6, V7, V8);
+    static final List<List<String>> MIGRATIONS = List.of(V1, V2, V3, V4, V5, V6, V7, V8, V9);
 
     /** 把连接上的库推进到本版代码支持的最新结构。 */
     public static void apply(Connection conn) {

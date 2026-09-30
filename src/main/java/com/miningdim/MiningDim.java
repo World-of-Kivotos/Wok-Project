@@ -197,6 +197,11 @@ public final class MiningDim {
         //      + 进度与元数据的 datagen。依赖称号门面发放称号, 须排在 TitleSystem 与 QuestSystem 之后、Web UI 客户端
         //      外壳之前 (Achievement_System_DesignSpec 第二章)。
         subsystems.add(new com.miningdim.achievement.AchievementSystem());
+        // 26e. 自管区 (学院领地): 学院名单 + 自管区绑定 + 地块 (统一库 MiningSchema V9) + Flan 网关接缝 + 26 条
+        //      district.* / plot.* / admin.district.* / admin.plot.* WebUI 动作 + /district 命令。register 期向派发器
+        //      登记这 26 条 action, 须排在 WebUiServerSubsystem 之后; 买地运行期经 EconomyServices 门面扣款, 须排在
+        //      EconomySystem 之后 (docs/District_Backend_Design.md 第二章)。
+        subsystems.add(new com.miningdim.district.DistrictSystem());
         // 27. Web UI 客户端外壳 (MCEF 浏览器/Screen/路由): register 内全部客户端逻辑用 DistExecutor.unsafeRunWhenOn
         //     (Dist.CLIENT) + 双箭头 () -> () -> ... 关进 client-only lambda, 故主类无条件加入列表即可 (服务端 GameTest
         //     进程不 classload MCEF, 不崩)。注意必须是 unsafeRunWhenOn 而非 safeRunWhenOn —— 后者触 SafeReferent

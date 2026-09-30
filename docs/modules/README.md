@@ -39,6 +39,7 @@
 | 玩法 | WOK-开箱模块 | `wok-case-opening` | `caseopening` |
 | 支撑 | WOK-实体堆叠模块 | `wok-stacking` | `stacking` |
 | 玩法 | WOK-成就模块 | `wok-achievement` | `achievement` |
+| 玩法 | WOK-自管区模块 | `wok-district` | `district` |
 | 装配 | WOK-综合装配模块 | `wok-app` | `MiningDim.java` |
 
 读表须知：
@@ -87,7 +88,7 @@
 
 ## 配置文件登记表
 
-代码共注册 15 份配置文件（注册点即 `ModLoadingContext.registerConfig` 的调用处）。除 `miningdim-client.toml` 是 CLIENT 类型外，其余都是 SERVER 类型，落在存档的 `serverconfig` 目录下。服主拿到一份 toml 要先能查到它归哪个模块、参数写在哪，所以这张表按文件名而不是按模块排。
+代码共注册 16 份配置文件（注册点即 `ModLoadingContext.registerConfig` 的调用处）。除 `miningdim-client.toml` 是 CLIENT 类型外，其余都是 SERVER 类型，落在存档的 `serverconfig` 目录下。服主拿到一份 toml 要先能查到它归哪个模块、参数写在哪，所以这张表按文件名而不是按模块排。
 
 | 配置文件 | 归属模块 | 注册点 | 可对照的文档 |
 | --- | --- | --- | --- |
@@ -105,6 +106,7 @@
 | `miningdim-tarot.toml` | `wok-job-tarot` | `job/tarot/TarotSystem` | [`../TarotReader_Mod_DesignSpec.md`](../TarotReader_Mod_DesignSpec.md) 第七、八章（gacha 与 craft 两段出率） |
 | `miningdim-munitions.toml` | `wok-job-munitions` | `job/munitions/MunitionsSystem` | [`../Munitions_Job_DesignSpec.md`](../Munitions_Job_DesignSpec.md) |
 | `miningdim-title.toml` | `wok-title` | `title/TitleSystem` | [`../Title_System_DesignSpec.md`](../Title_System_DesignSpec.md) 13.3、13.4（赞助专属称号的校验阈值与修改冷却） |
+| `miningdim-district.toml` | `wok-district` | `district/DistrictSystem` | [`../District_Backend_Design.md`](../District_Backend_Design.md) 20.9（`enabled` 总开关，默认 false；改完要重启）与 20.2（开着但 Flan 不可用时降级）；22.1 的 `[district.guards]`（`crossPlot` 地块边界守卫、`createMachinery` 机械动力机器拦截，以及 22.20 的 `personalClaims` 个人圈地限制，三个急停开关）与 `[district.createBan]`（`namespaces`、`denyBlocks`、`allowBlocks` 三张名单与 `denyUse`；`namespaces` 默认 `create` 与 `ignored_void`，已有的文件要手工加后者，见 22.1），同样只在开服读一次 |
 | `miningdim-achievement.toml` | `wok-achievement` | `achievement/AchievementSystem` | [`../Achievement_System_DesignSpec.md`](../Achievement_System_DesignSpec.md) 6.1、6.3（有效撤离的停留与挖掘门槛、每日计数上限、困难作业时长的封顶）与 9.5 实现口径（任务领取计数的每日上限） |
 
 这张表也是本文「文档所有权与子 README」第 2 条的判定依据：新增一份配置文件而不在这里登记，等同于交付了一组服主调不明白的旋钮。

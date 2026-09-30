@@ -138,6 +138,8 @@ public final class ChampionFoundationGameTests {
     public static void registriesCreateReuseAndClear(GameTestHelper helper) {
         UUID player = UUID.randomUUID();
         UUID attacker = UUID.randomUUID();
+        // 注册表是进程级的全局状态: 先清空, 不依赖同 batch / 前序 batch 的用例有没有收尾 (GameTest 的执行顺序随用例总数变)。
+        ChampionEffectRegistries.reset();
         try {
             helper.assertTrue(!ChampionEffectRegistries.hasDot(player), "no dot accumulator before access");
             helper.assertTrue(!ChampionEffectRegistries.hasControl(player), "no control aggregator before access");
@@ -179,6 +181,8 @@ public final class ChampionFoundationGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void registriesResetClearsAll(GameTestHelper helper) {
+        // 同上: 从空注册表起算, 不依赖执行顺序。
+        ChampionEffectRegistries.reset();
         ChampionEffectRegistries.dotFor(UUID.randomUUID());
         ChampionEffectRegistries.controlFor(UUID.randomUUID());
         ChampionEffectRegistries.retaliationFor(UUID.randomUUID(), 80.0D);

@@ -825,6 +825,37 @@
       "scope": "achievements as vanilla advancements: seven tiers driving frame, announcement and title colour via datagen, achievement meta with runtime consistency check, custom stats and criterion triggers fed by mining trip, counted break, trap, champion kill, gun kill, marriage and achievement count hooks, by the experience award and job listener seams (job level, farmer harvest, chef dish, brew, tarot play, agent seal, nano plate, munitions batch), and by the faucet, market trade, case opening, quest claim, wedding and spouse teleport listener seams of the gameplay modules, market anti-abuse partner ledger, silent login backfill, SQLite pending rewards, point balance, point ledger and daily stat caps, atomic reward claiming with achievement titles, the achievement point shop (datapack goods, atomic purchases with owner-bound items), the achievement.* WebUI actions, and the /machievement player and admin commands"
     },
     {
+      "id": "wok-district",
+      "name": "WOK-自管区模块",
+      "category": "gameplay",
+      "javaPackagePrefixes": [
+        "com.miningdim.district"
+      ],
+      "currentPaths": [
+        "district"
+      ],
+      "resourcePaths": [
+        "miningdim.district.mixins.json",
+        "miningdim.district.create.mixins.json",
+        "miningdim.district.flan.mixins.json",
+        "data/miningdim/structures/district_guard.nbt"
+      ],
+      "resourceNamePrefixes": [],
+      "dependencies": [
+        "wok-core",
+        "wok-store",
+        "wok-economy",
+        "wok-webui"
+      ],
+      "optionalIntegrations": [
+        "sqlite-jdbc",
+        "flan",
+        "create"
+      ],
+      "publicEntry": "com.miningdim.district.DistrictServices",
+      "scope": "academy self-governed districts: academy rosters (one academy per player), district bindings and archives, public-area permission tables, resident plots (warden-drawn vacant plots, first-come direct purchase with an atomic wallet debit, owner friends and three-column permissions, 7-day freeze and reclaim), district and plot logs, the FlanGateway seam with the real Flan 1.20.1-1.11.16 gateway (startup self-check, fail-safe fallback, logical claim backups outside data/claims, diff-based writes, periodic reconciliation; only district/flan/real imports Flan) plus recording and disabled implementations, the miningdim-district.toml feature switch with the guard and Create ban sections, SQLite V9 tables, the zone index (district and plot by coordinate) with the plot-boundary guards (pistons, fluids, dispensers and droppers, falling blocks, sponges, lava ignition; vanilla mixins in district/mixin/world) and the Create ban (placement ban inside districts and their 8-block buffer with OP exemption, Create machinery kept off district land through optional @Pseudo mixins in district/mixin/create with no compile-time dependency, startup mixin check, /district machines), the personal claim limit (no new or enlarged personal Flan claims inside districts and their 8-block buffer, OP exemption, optional @Pseudo mixins on Flan's ClaimStorage.createClaim / resizeClaim in district/mixin/flan, existing buffer claims only reported through /district personalclaims), chat notices for residents, wardens, owners and friends (queued in the V9 district_notice table for offline players, delivered after login through a NoticeDeliveryGate seam that holds them back on offline-mode servers until the login-gate branch replaces it on merge), the district.* / plot.* / admin.district.* / admin.plot.* WebUI actions and the /district OP bootstrap and repair commands"
+    },
+    {
       "id": "wok-app",
       "name": "WOK-综合装配模块",
       "category": "assembly",
@@ -870,7 +901,8 @@
         "wok-marriage",
         "wok-case-opening",
         "wok-stacking",
-        "wok-achievement"
+        "wok-achievement",
+        "wok-district"
       ],
       "optionalIntegrations": []
     }

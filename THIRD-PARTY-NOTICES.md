@@ -65,6 +65,7 @@
 | MCEF | forge-2.1.6-1.20.1 | `LGPL` | `compileOnly files("libs/...")` |
 | JEI（Just Enough Items） | 15.20.0.135（`common-api` + `forge-api`） | 许可待补 | `compileOnly fg.deobf(...)`，BlameJared Maven |
 | Jade | 11.13.2+forge | `CC BY-NC-SA 4.0` | `compileOnly fg.deobf(...)`，Modrinth Maven |
+| Flan | 1.20.1-1.11.16（Forge，Modrinth 版本 `Gh42Sknw`） | `All rights reserved`（内嵌的 lingua_bib 1.20.1-1.0.6 为 `MIT`） | `compileOnly` + 开发期 `runtimeOnly fg.deobf(...)`，Modrinth Maven；`verifyFlanArtifact` 钉死服主批准的那个文件的 SHA1。开发运行时另把它内嵌的 lingua_bib 原样取到 `build/flan-dev-libs/`（取前核对 Flan jar、取后核对 lingua_bib 的 SHA1），经 `fg.deobf` 作为根 mod 加载，供真 Flan 的 GameTest 使用（自管区设计文档 20.1 的出路 ③）；两者都不进产物，正式服由服主自装 |
 | Farmer's Delight | 1.20.1-1.3.2 | 许可待补 | 仅开发期 `runtimeOnly`，`libs/` 下存在该 jar 时才加载 |
 | flavor_immersed_daily | 1.1.0.3-forge-1.20.1 | 许可待补 | 仅开发期 `runtimeOnly`，`libs/` 下存在该 jar 时才加载 |
 

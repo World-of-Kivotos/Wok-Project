@@ -21,6 +21,12 @@ import java.util.Map;
  *
  * currentHp 随 NBT 持久是为了让 6★+ 影子血池在服务端重启/区块重载后可被原样重建 (F040): 否则
  * {@code BloodPoolRegistry.get} 返 null 会让战斗权威静默切回 vanilla 血, 违反 spec 6.2 #2。
+ *
+ * sealedAffixes (被临时封印而摘下的词条→原品质) 随 NBT 持久是为了让封印真正"临时" (SpecialAgent spec 六/九章
+ * "绝不永久削废"): 封印方把词条从词条表摘掉的同一刻把原品质登记在这里, 登记跟着实体一起存盘、跨维度、随区块卸载
+ * 重载。此前这份恢复源只在封印方的进程内存里, 封印窗口内服务端重启、或封完让区块卸载超过恢复宽限期, 被封词条就
+ * 永久蒸发 —— 精英仍按初始星级发全额奖励池, 却被永久削弱。本类只负责"存得住、取一次", 何时恢复由封印方决定
+ * (本类不知道封印窗口多长, 也不反向依赖任何职业模块)。
  */
 public final class MiningChampionData {
 
@@ -33,6 +39,7 @@ public final class MiningChampionData {
     private static final String NBT_SUMMONED = "summoned_by_affix";
     private static final String NBT_CURRENT_HP = "current_hp";
     private static final String NBT_WORLD_BOSS = "world_boss";
+    private static final String NBT_SEALED_AFFIXES = "sealed_affixes";
 
     private int star = NOT_CHAMPION;
     private final EnumMap<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
@@ -40,6 +47,8 @@ public final class MiningChampionData {
     private boolean summonedByAffix = false;
     private double currentHp = 0.0D;
     private boolean worldBoss = false;
+    /** 被临时封印而从 {@link #affixes} 摘下的词条→摘下时的品质 (封印恢复源, 随 NBT 持久; 见类注释)。 */
+    private final EnumMap<AffixDef, AffixQuality> sealedAffixes = new EnumMap<>(AffixDef.class);
 
     /** 是否已被盖章为冠军 (star ∈ [1,10])。非冠军的默认 capability 恒 false。 */
     public boolean isChampion() {
@@ -137,12 +146,14 @@ public final class MiningChampionData {
         this.summonedByAffix = false; // 重新盖章即普通冠军; 召唤物身份由 markSummonedByAffix 在 promote 后补盖。
         this.worldBoss = false; // 世界 BOSS 身份同理, 由 markWorldBoss 在 promote 后补盖。
         this.currentHp = effectiveHp; // 新盖章的冠军恒为满血 (spawn 期/命令召唤同一入口, 无旧血量可延续)。
+        // 重新盖章是一只新冠军: 旧词条表的封印登记若留着, 到期会被合并进这张新词条表, 凭空多出词条。
+        this.sealedAffixes.clear();
     }
 
     /**
-     * 只换掉词条→品质映射, 星级、有效血、当前血量、召唤物标记与世界 BOSS 标记一律不动 (特勤封印到期恢复用: 把被封的词条
-     * 合并回当前词条表)。与 {@link #promote} 的区别正在这里 —— promote 是重新盖章, 会复位两个身份标记并回满当前血量,
-     * 拿它做恢复会把被封印过的世界 BOSS 变回普通冠军。
+     * 只换掉词条→品质映射, 星级、有效血、当前血量、召唤物标记、世界 BOSS 标记与被封词条登记一律不动 (特勤封印到期恢复
+     * 用: 把被封的词条合并回当前词条表)。与 {@link #promote} 的区别正在这里 —— promote 是重新盖章, 会复位两个身份标记并
+     * 回满当前血量, 拿它做恢复会把被封印过的世界 BOSS 变回普通冠军。
      *
      * @param newAffixes 词条→品质映射 (拷入, 不持外部引用)
      * @throws IllegalStateException 尚未盖章 (非冠军没有可替换的词条表, 也不写 NBT)
@@ -168,6 +179,7 @@ public final class MiningChampionData {
         this.summonedByAffix = false;
         this.currentHp = 0.0D;
         this.worldBoss = false;
+        this.sealedAffixes.clear();
     }
 
     /**
@@ -183,6 +195,48 @@ public final class MiningChampionData {
      */
     public boolean removeAffix(AffixDef def) {
         return affixes.remove(def) != null;
+    }
+
+    /**
+     * 登记一条因临时封印而从词条表摘下的词条及其摘下时的品质 (封印方写穿本表, 恢复源即本表, 见类注释)。合并语义:
+     * 已登记的其它词条保留 (8★+ 两个封印槽先后封两条), 同一词条重复登记以最新品质为准。本方法不动词条表本身 —— 摘
+     * 词条仍由调用方经 {@link #removeAffix} 完成; 两步都在服务端主线程同一 tick 内, 存盘不会落在两步之间。
+     *
+     * @param def     被封词条
+     * @param quality 该词条被摘下时的品质 (恢复时按此原样放回)
+     * @throws IllegalStateException 尚未盖章 (非冠军不写 NBT, 登记了也存不下来)
+     */
+    public void recordSealedAffix(AffixDef def, AffixQuality quality) {
+        if (def == null || quality == null) {
+            throw new IllegalArgumentException("sealed affix and its quality must not be null");
+        }
+        if (!isChampion()) {
+            throw new IllegalStateException("only a promoted champion can have sealed affixes");
+        }
+        sealedAffixes.put(def, quality);
+    }
+
+    /** 当前被封印中、待恢复的词条→原品质 (不可变视图; 遍历顺序 = AffixDef 声明序; 无登记返空视图)。 */
+    public Map<AffixDef, AffixQuality> sealedAffixes() {
+        return Collections.unmodifiableMap(sealedAffixes);
+    }
+
+    /** 是否有被封印中、待恢复的词条 (入世/tick 对账据此快速跳过绝大多数实体)。 */
+    public boolean hasSealedAffixes() {
+        return !sealedAffixes.isEmpty();
+    }
+
+    /**
+     * 取走全部待恢复的被封词条并清空登记 (恢复方据此把它们增量合并回词条表)。取走即清, 同一份登记只能被恢复一次 ——
+     * 到期 tick、入世对账等多条恢复路径谁先到谁恢复, 后到者拿到空表空转, 不会重复合并。
+     *
+     * @return 被封词条→原品质的独立拷贝 (无登记返空表; 调用方可自由修改, 不影响本类)
+     */
+    public Map<AffixDef, AffixQuality> takeSealedAffixes() {
+        EnumMap<AffixDef, AffixQuality> taken = new EnumMap<>(AffixDef.class);
+        taken.putAll(sealedAffixes);
+        sealedAffixes.clear();
+        return taken;
     }
 
     /**
@@ -203,17 +257,17 @@ public final class MiningChampionData {
         if (worldBoss) {
             tag.putBoolean(NBT_WORLD_BOSS, true); // 仅世界 BOSS 写键, 同上。
         }
-        CompoundTag affixTag = new CompoundTag();
-        for (Map.Entry<AffixDef, AffixQuality> e : affixes.entrySet()) {
-            affixTag.putInt(e.getKey().name(), e.getValue().ordinal());
+        tag.put(NBT_AFFIXES, writeAffixMap(affixes));
+        if (!sealedAffixes.isEmpty()) {
+            // 仅封印窗口内的冠军写键, 同上; 与词条表同格式 (词条名 -> 品质 ordinal)。
+            tag.put(NBT_SEALED_AFFIXES, writeAffixMap(sealedAffixes));
         }
-        tag.put(NBT_AFFIXES, affixTag);
         return tag;
     }
 
     /**
      * 反序列化 NBT (存盘读回)。脏/缺失 star 视为非冠军; 未知词条名 (版本漂移删词条) / 越界品质 ordinal 静默跳过
-     * 该条 (不抛, 不让单条脏词条毁掉整只冠军还原)。
+     * 该条 (不抛, 不让单条脏词条毁掉整只冠军还原)。被封词条登记同一容忍口径; 旧存档 (本键上线前) 缺键即无登记。
      */
     public void deserializeNBT(CompoundTag tag) {
         clear();
@@ -232,7 +286,21 @@ public final class MiningChampionData {
         this.currentHp = tag.contains(NBT_CURRENT_HP) ? tag.getDouble(NBT_CURRENT_HP) : this.effectiveHp;
         this.summonedByAffix = tag.getBoolean(NBT_SUMMONED);
         this.worldBoss = tag.getBoolean(NBT_WORLD_BOSS);
-        CompoundTag affixTag = tag.getCompound(NBT_AFFIXES);
+        readAffixMap(tag.getCompound(NBT_AFFIXES), affixes);
+        readAffixMap(tag.getCompound(NBT_SEALED_AFFIXES), sealedAffixes); // 缺键时 getCompound 返空 tag: 无登记。
+    }
+
+    /** 词条→品质映射写成子 tag (词条名 -> 品质 ordinal); 词条表与被封词条登记共用同一格式。 */
+    private static CompoundTag writeAffixMap(Map<AffixDef, AffixQuality> source) {
+        CompoundTag affixTag = new CompoundTag();
+        for (Map.Entry<AffixDef, AffixQuality> e : source.entrySet()) {
+            affixTag.putInt(e.getKey().name(), e.getValue().ordinal());
+        }
+        return affixTag;
+    }
+
+    /** 把 {@link #writeAffixMap} 格式的子 tag 读进 target; 未知词条名 / 越界品质 ordinal 跳过该条。 */
+    private static void readAffixMap(CompoundTag affixTag, EnumMap<AffixDef, AffixQuality> target) {
         AffixQuality[] qualities = AffixQuality.values();
         for (String key : affixTag.getAllKeys()) {
             AffixDef def = affixByName(key);
@@ -243,7 +311,7 @@ public final class MiningChampionData {
             if (ordinal < 0 || ordinal >= qualities.length) {
                 continue; // 越界品质 ordinal: 跳过。
             }
-            affixes.put(def, qualities[ordinal]);
+            target.put(def, qualities[ordinal]);
         }
     }
 

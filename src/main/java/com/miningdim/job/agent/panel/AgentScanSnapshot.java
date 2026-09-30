@@ -16,16 +16,22 @@ import java.util.List;
  * @param star            目标精英初始星级 (1-10; 面板顶部显示 + 客户端只读, 服务端再校验)
  * @param agentLevel      构建本快照时的干员等级 (面板顶部显示 + 决定哪些条目解密; 服务端权威)
  * @param entries         词条条目列表 (按精英词条原始顺序; 已解密在前由集成层决定, 本 record 不重排)
+ * @param intel           分级数值情报 (有效血 / 减伤 / 子弹抗性 / 攻击移速 / 技能时序; 未解锁格为 null, 见
+ *                        {@link AgentScanIntel})。与词条行同一次裁决、同一个干员等级, 不单独刷新
  */
 public record AgentScanSnapshot(
         int targetNetworkId,
         int star,
         int agentLevel,
-        List<AgentScanEntry> entries) {
+        List<AgentScanEntry> entries,
+        AgentScanIntel intel) {
 
     public AgentScanSnapshot {
         if (entries == null) {
             throw new IllegalArgumentException("entries must not be null (use empty list for no affixes)");
+        }
+        if (intel == null) {
+            throw new IllegalArgumentException("intel must not be null (use AgentScanIntel.WITHHELD when no raw stats)");
         }
         entries = List.copyOf(entries); // 不可变副本: 防构建后外部改, 网络编码读到稳定快照。
     }

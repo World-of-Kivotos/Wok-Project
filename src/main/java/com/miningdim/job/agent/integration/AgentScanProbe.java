@@ -24,7 +24,8 @@ import java.util.Map;
  *
  * 解密分级 (哪些条目对客户端可见) + 可封门 (类别/星级) 全在纯逻辑 {@link AgentScanSnapshotBuilder} (GameTest 可断言);
  * 本集成层只负责: (1) 探测目标是否本工程盖章精英 (非则不扫); (2) 读词条→品质 Map 并经 {@link AgentAffixClassifier}
- * 过滤出可封候选 + 归类 + 取显示名 lang key; (3) 查 {@link SealRegistry} 活跃账本标注哪些词条当前已封印中。
+ * 过滤出可封候选 + 归类 + 取显示名 lang key; (3) 查 {@link SealRegistry} 活跃账本标注哪些词条当前已封印中;
+ * (4) 经 {@link AgentScanStatsReader} 读数值情报与实时原料的真值 (分级同样交构建器)。
  */
 final class AgentScanProbe {
 
@@ -68,9 +69,21 @@ final class AgentScanProbe {
             String affixId = AgentAffixClassifier.affixId(def);
             String displayKey = AgentAffixClassifier.displayKey(def);
             boolean sealed = SealRegistry.isAffixSealed(target.getUUID(), affixId, nowTick);
-            raws.add(new AgentScanSnapshotBuilder.RawAffix(affixId, displayKey, category, sealed));
+            // 品质原样随原料走 (枚举名); 发不发、给哪一级看由构建器按 L8 "全品质表"裁决, 本层不做等级判断。
+            raws.add(new AgentScanSnapshotBuilder.RawAffix(affixId, displayKey, category, sealed,
+                    entry.getValue().name()));
         }
 
-        return AgentScanSnapshotBuilder.build(target.getId(), star, level, raws);
+        // 数值情报 (有效血 / 减伤 / 子弹抗性 / 攻击移速 / 技能时序) 同样只读真值, 分级交构建器。
+        AgentScanSnapshotBuilder.RawStats stats = AgentScanStatsReader.readStats(target, champ, visible);
+        return AgentScanSnapshotBuilder.build(target.getId(), star, level, raws, stats);
+    }
+
+    /**
+     * 重读一个仍在有效快照里的目标的实时原料 (经 {@code AgentSealSeam.LiveReadRequest} bind 调用; L9/L10 实时透视)。
+     * 目标已死 / 已不是精英返 null。只读, 不碰快照、不补扫新目标。
+     */
+    static AgentScanSnapshotBuilder.RawLive readLive(ServerPlayer agent, LivingEntity target) {
+        return AgentScanStatsReader.readLive(agent, target);
     }
 }

@@ -228,4 +228,171 @@ public final class AgentScanPanelGameTests {
         helper.assertTrue(s.targetNetworkId() == 5, "empty snapshot still carries header (target id)");
         helper.succeed();
     }
+
+    // ============================================================
+    // 数值情报分级 (第四章探测列 L3-L10): 每格恰在自己那一级解锁, 早一级是 null
+    // ============================================================
+
+    /** 带品质的一条原料 (L8 品质格用)。 */
+    private static AgentScanSnapshotBuilder.RawAffix rawWithQuality(String id, SealCategory cat, String quality) {
+        return new AgentScanSnapshotBuilder.RawAffix("miningdim:" + id, "affix.miningdim." + id, cat, false, quality);
+    }
+
+    /** 一被动一机制两条候选 (L5 起两条都解密), 机制行 m1 带时序。 */
+    private static final List<AgentScanSnapshotBuilder.RawAffix> INTEL_RAWS = List.of(
+            rawWithQuality("p1", SealCategory.PASSIVE, "RARE"),
+            rawWithQuality("m1", SealCategory.MECHANIC, "EPIC"));
+
+    /**
+     * 数值原料: 每格取一个不会与 0 / 默认值混淆的真值。时序表里另塞一条<b>不在词条行里</b>的 ghost 机制, 用来验
+     * 构建层只放行已解密机制行对应的时序 (不能靠时序表旁路漏出词条身份)。
+     */
+    private static AgentScanSnapshotBuilder.RawStats intelStats() {
+        return new AgentScanSnapshotBuilder.RawStats(2700.0D, 4.0D, 0.55D, 0.22D, 7.5D, 0.198D, 0.3D, List.of(
+                new AgentScanIntel.Mechanic("miningdim:m1", 2.0D, null, 12.0D),
+                new AgentScanIntel.Mechanic("miningdim:ghost", 5.0D, 120.0D, null)));
+    }
+
+    private static AgentScanIntel intelAt(int level) {
+        return AgentScanSnapshotBuilder.build(7, 5, level, INTEL_RAWS, intelStats()).intel();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void buildEffectiveHpUnlocksAtL3(GameTestHelper helper) {
+        helper.assertTrue(intelAt(2).effectiveHp() == null, "L2 有效血量仍加密 (第四章 L3 才解), 必须是 null");
+        Double hp = intelAt(3).effectiveHp();
+        helper.assertTrue(hp != null && hp == 2700.0D, "L3 解密有效血量且原样透传原料真值, 实得 " + hp);
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void buildArmorAndReductionUnlockAtL4(GameTestHelper helper) {
+        AgentScanIntel l3 = intelAt(3);
+        helper.assertTrue(l3.armor() == null && l3.damageReductionPct() == null,
+                "L3 护甲/减伤仍加密 (第四章 L4 才解)");
+        AgentScanIntel l4 = intelAt(4);
+        helper.assertTrue(l4.armor() != null && l4.armor() == 4.0D, "L4 解密护甲, 实得 " + l4.armor());
+        helper.assertTrue(l4.damageReductionPct() != null && l4.damageReductionPct() == 0.55D,
+                "L4 解密减伤率, 实得 " + l4.damageReductionPct());
+        helper.assertTrue(l4.bulletResistancePct() == null, "L4 子弹抗性仍加密 (L5 才解)");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void buildBulletResistanceUnlocksAtL5(GameTestHelper helper) {
+        helper.assertTrue(intelAt(4).bulletResistancePct() == null, "L4 子弹抗性必须是 null");
+        Double bullet = intelAt(5).bulletResistancePct();
+        helper.assertTrue(bullet != null && bullet == 0.22D, "L5 解密子弹抗性, 实得 " + bullet);
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void buildAttackSingleHitAndSpeedUnlockAtL6(GameTestHelper helper) {
+        AgentScanIntel l5 = intelAt(5);
+        helper.assertTrue(l5.attackDamage() == null && l5.singleHitPct() == null && l5.movementSpeed() == null,
+                "L5 攻击/单击/移速三格仍加密 (第四章 L6 才解)");
+        AgentScanIntel l6 = intelAt(6);
+        helper.assertTrue(l6.attackDamage() != null && l6.attackDamage() == 7.5D
+                        && l6.singleHitPct() != null && l6.singleHitPct() == 0.198D
+                        && l6.movementSpeed() != null && l6.movementSpeed() == 0.3D,
+                "L6 三格一起解密且原样透传, 实得 " + l6);
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void buildSkillMechanicsUnlockAtL7ForDecryptedMechanicRowsOnly(GameTestHelper helper) {
+        helper.assertTrue(intelAt(6).mechanics() == null, "L6 技能时序整格加密, 必须是 null (不是空表)");
+        List<AgentScanIntel.Mechanic> l7 = intelAt(7).mechanics();
+        helper.assertTrue(l7 != null && l7.size() == 1,
+                "L7 只放行词条行里已解密的机制 m1, 时序表里的 ghost 不得旁路漏出, 实得 " + l7);
+        AgentScanIntel.Mechanic m1 = l7.get(0);
+        helper.assertTrue("miningdim:m1".equals(m1.affixId()) && m1.chargeSeconds() == 2.0D
+                        && m1.cooldownSeconds() == 12.0D && m1.interruptDamagePerPlayer() == null,
+                "时序子项原样透传, 没有的概念保持 null (不补 0), 实得 " + m1);
+        // 目标没有机制词条时 L7 是空表而不是 null: 空表 = "解锁了, 它没有技能", null = "还没解锁"。
+        AgentScanIntel noMechanic = AgentScanSnapshotBuilder.build(7, 5, 7,
+                List.of(rawWithQuality("p1", SealCategory.PASSIVE, "RARE")), intelStats()).intel();
+        helper.assertTrue(noMechanic.mechanics() != null && noMechanic.mechanics().isEmpty(),
+                "L7 且没有已解密机制行: 必须是空表, 实得 " + noMechanic.mechanics());
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void buildQualityUnlocksAtL8(GameTestHelper helper) {
+        AgentScanSnapshot l7 = AgentScanSnapshotBuilder.build(7, 5, 7, INTEL_RAWS, intelStats());
+        helper.assertTrue(l7.entries().get(0).decrypted() && l7.entries().get(0).quality() == null
+                        && l7.entries().get(1).quality() == null,
+                "L7 词条已解密但品质表仍加密 (第四章 L8 才解), 品质必须是 null");
+        AgentScanSnapshot l8 = AgentScanSnapshotBuilder.build(7, 5, 8, INTEL_RAWS, intelStats());
+        helper.assertTrue("RARE".equals(l8.entries().get(0).quality()) && "EPIC".equals(l8.entries().get(1).quality()),
+                "L8 每条已解密词条带原料品质, 实得 " + l8.entries());
+        // 低级脉冲里加密行永远不带品质 (值对象层也拒); 这里用 L1 看第二条被动。
+        AgentScanSnapshot l1 = AgentScanSnapshotBuilder.build(7, 1, 1, List.of(
+                rawWithQuality("p1", SealCategory.PASSIVE, "COMMON"),
+                rawWithQuality("p2", SealCategory.PASSIVE, "COMMON")), intelStats());
+        helper.assertTrue(!l1.entries().get(1).decrypted() && l1.entries().get(1).quality() == null,
+                "加密行不带品质");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void buildLiveUnlocksNumbersAtL9AndAttributesAtL10(GameTestHelper helper) {
+        AgentScanSnapshotBuilder.RawLive raw = new AgentScanSnapshotBuilder.RawLive(
+                1800.0D, 2700.0D, 4.0D, 3, 1, intelStats());
+        helper.assertTrue(AgentScanSnapshotBuilder.buildLive(8, raw) == null,
+                "L8 脉冲没有实时透视 (第四章 L9 才解), 必须整格 null");
+        helper.assertTrue(!AgentScanSnapshotBuilder.refreshesLive(8) && AgentScanSnapshotBuilder.refreshesLive(9),
+                "实时刷新门恰在 L9");
+
+        AgentScanLive l9 = AgentScanSnapshotBuilder.buildLive(9, raw);
+        helper.assertTrue(l9 != null && l9.tracked() && l9.currentHp() == 1800.0D && l9.maxHp() == 2700.0D
+                        && l9.absorption() == 4.0D && l9.frostStacksOnYou() == 3 && l9.burningStacksOnYou() == 1,
+                "L9 实时数值原样透传, 实得 " + l9);
+        helper.assertTrue(l9.attributes() == null, "L9 全属性实时仍加密 (L10 才解)");
+
+        AgentScanLive l10 = AgentScanSnapshotBuilder.buildLive(10, raw);
+        helper.assertTrue(l10 != null && l10.attributes() != null && l10.attributes().damageReductionPct() == 0.55D
+                        && l10.attributes().movementSpeed() == 0.3D,
+                "L10 带全属性现值, 实得 " + l10);
+
+        AgentScanLive lost = AgentScanSnapshotBuilder.buildLive(10, null);
+        helper.assertTrue(lost != null && !lost.tracked() && lost.currentHp() == null && lost.attributes() == null,
+                "目标读不到时报 tracked=false 且不发任何旧值, 实得 " + lost);
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void buildWithoutRawStatsWithholdsEveryIntelField(GameTestHelper helper) {
+        AgentScanIntel intel = AgentScanSnapshotBuilder.build(7, 5, 10, INTEL_RAWS).intel();
+        helper.assertTrue(intel.equals(AgentScanIntel.WITHHELD),
+                "不提供数值原料时即便 L10 也全格加密, 绝不拿 0 充数, 实得 " + intel);
+        helper.succeed();
+    }
+
+    /**
+     * 全表扫一遍: 1-10 级每一格"是否解密"必须与 {@link com.miningdim.job.agent.AgentScanField} 的解锁等级逐级一致。
+     * 上面几条各盯一个边界, 这条兜住"改了某格解锁等级却没人改构建层"的漂移。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void buildIntelTieringMatchesTheScanFieldTableAtEveryLevel(GameTestHelper helper) {
+        for (int level = 1; level <= 10; level++) {
+            AgentScanIntel intel = intelAt(level);
+            assertTier(helper, level, "effectiveHp", intel.effectiveHp() != null, 3);
+            assertTier(helper, level, "armor", intel.armor() != null, 4);
+            assertTier(helper, level, "damageReductionPct", intel.damageReductionPct() != null, 4);
+            assertTier(helper, level, "bulletResistancePct", intel.bulletResistancePct() != null, 5);
+            assertTier(helper, level, "attackDamage", intel.attackDamage() != null, 6);
+            assertTier(helper, level, "singleHitPct", intel.singleHitPct() != null, 6);
+            assertTier(helper, level, "movementSpeed", intel.movementSpeed() != null, 6);
+            assertTier(helper, level, "mechanics", intel.mechanics() != null, 7);
+            assertTier(helper, level, "highlight", AgentScanSnapshotBuilder.highlightsTargets(level), 8);
+            assertTier(helper, level, "live", AgentScanSnapshotBuilder.refreshesLive(level), 9);
+        }
+        helper.succeed();
+    }
+
+    private static void assertTier(GameTestHelper helper, int level, String field, boolean present, int unlock) {
+        helper.assertTrue(present == (level >= unlock),
+                field + " 在 L" + level + " 的解密态应为 " + (level >= unlock) + " (第四章 L" + unlock + " 解锁)");
+    }
 }

@@ -1,6 +1,7 @@
 package com.miningdim.job.agent;
 
 import com.miningdim.job.agent.panel.AgentScanSnapshot;
+import com.miningdim.job.agent.panel.AgentScanSnapshotBuilder;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 
@@ -84,9 +85,23 @@ public final class AgentSealSeam {
         void onServerStopping();
     }
 
+    /** 实时透视重读回调 (integration 层 bind 真实现; 未绑定 = 集成层尚未装配, 接缝返 null)。 */
+    @FunctionalInterface
+    public interface LiveReadRequest {
+        /**
+         * 对一个仍在有效快照内、调用方已按 UUID 核对过身份的目标重读实时原料 (五章"实时透视 L9+")。
+         *
+         * @param agent  扫描干员 (读"本精英叠在你身上的 DoT 层数")
+         * @param target 目标实体 (已加载)
+         * @return 实时原料; 目标已死 / 已不是精英返 null
+         */
+        AgentScanSnapshotBuilder.RawLive readLive(ServerPlayer agent, LivingEntity target);
+    }
+
     private static volatile SealResultRequest sealRequest;
     private static volatile ScanSnapshotRequest scanRequest;
     private static volatile ServerStopCleanup stopCleanup;
+    private static volatile LiveReadRequest liveRequest;
 
     /**
      * 绑定真封印 + 扫描执行 (由集成层 bootstrap 装配期调用一次; GameTest 亦可 unbind 后重新调用装回真实现)。
@@ -104,11 +119,26 @@ public final class AgentSealSeam {
         stopCleanup = cleanup;
     }
 
-    /** 解绑 (服务端停止防跨存档脏引用; 范式对齐 ChampionSpawnSeam.unbind)。 */
+    /**
+     * 单独绑定实时透视重读 (由集成层 bootstrap 与 {@link #bind} 同时调用)。刻意不并进 {@link #bind} 的三参签名:
+     * GameTest 用桩整体替换扫描/封印两路时, 实时重读仍应读真精英 —— 实时数值本身就是"读活实体"这一件事, 桩不出
+     * 比真值更可控的东西, 并进同一个 bind 只会逼每处装桩的地方都陪着多写一个假实现。
+     *
+     * @param live 实时透视重读真实现
+     */
+    public static void bindLive(LiveReadRequest live) {
+        if (live == null) {
+            throw new IllegalArgumentException("live read request must not be null");
+        }
+        liveRequest = live;
+    }
+
+    /** 解绑 (服务端停止防跨存档脏引用; 范式对齐 ChampionSpawnSeam.unbind)。实时重读随之一并解绑 (同属集成层装配)。 */
     public static void unbind() {
         sealRequest = null;
         scanRequest = null;
         stopCleanup = null;
+        liveRequest = null;
     }
 
     /** 接缝是否已绑定 (= 集成层已装配)。 */
@@ -141,6 +171,19 @@ public final class AgentSealSeam {
             return null; // 集成层尚未装配: 无法读精英词条, 不构建快照。
         }
         return request.buildSnapshot(agent, target);
+    }
+
+    /**
+     * 经接缝重读实时原料 (job.agent.state 对 L9+ 快照目标调用)。未绑定返 null (调用方据此报目标读不到, 不发旧值)。
+     *
+     * @return 实时原料; 未绑定 / 目标已死 / 已不是精英时返 null
+     */
+    public static AgentScanSnapshotBuilder.RawLive readLive(ServerPlayer agent, LivingEntity target) {
+        LiveReadRequest request = liveRequest;
+        if (request == null) {
+            return null;
+        }
+        return request.readLive(agent, target);
     }
 
     /** 经接缝执行服务端停止清理 (清执行侧封印 tick 索引; 未绑定空操作)。 */

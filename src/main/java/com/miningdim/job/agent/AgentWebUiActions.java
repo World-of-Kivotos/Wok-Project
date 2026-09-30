@@ -7,7 +7,10 @@ import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.miningdim.champion.MiningChampions;
 import com.miningdim.job.agent.panel.AgentScanEntry;
+import com.miningdim.job.agent.panel.AgentScanIntel;
+import com.miningdim.job.agent.panel.AgentScanLive;
 import com.miningdim.job.agent.panel.AgentScanSnapshot;
+import com.miningdim.job.agent.panel.AgentScanSnapshotBuilder;
 import com.miningdim.webui.server.WebUiBusinessException;
 import com.miningdim.webui.server.WebUiErrorCodes;
 import com.miningdim.webui.server.WebUiPayloads;
@@ -49,6 +52,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * 归零。跨存档脏读由 {@link #activePulse} 的时钟回退判据自愈 —— 单人重开另一个世界时 gameTime 会倒退, 那条旧记录
  * 会把冷却顶到一个永远到不了的未来。
  *
+ * 扫描脉冲顺带的两件副作用都挂在同一次脉冲上: L8+ 给本人开逐玩家高亮 ({@link AgentScanGlow}, 生命期 = 快照),
+ * 以及 8.1 首次发现经验 ({@link AgentDiscoveryXp}, 每 (玩家, 精英) 一次)。
+ *
  * 前端契约 (逐字见交付报告): 三条 action 的回执一律 {@code serializeNulls}, null 是"这一格没解密/没有值"的真值
  * (默认 Gson 会把 null 成员整键丢掉, 前端拿到 undefined 即契约破裂)。时间一律发剩余 tick 不发墙钟 epoch
  * (与 job.miner.* 同口径: 服务端手里只有 game tick)。
@@ -67,9 +73,11 @@ public final class AgentWebUiActions {
     /**
      * 一次脉冲最多下发的目标数 (回执体积硬上限, 非兜底)。
      *
-     * 预算: 单个目标最坏是 10★ 的 {@code StarRank.STAR_10.maxAffixes()} = 13 条词条, 每条 JSON 约 180 字符,
-     * 加目标头部约 2.5 KB; 8 个目标约 20 KB, 仍在 {@code WebUiServerDispatcher.respond} 的 32767 字符收口之内。
-     * 收口是保命不是设计, 列表类 action 自带上限。
+     * 预算: 单个目标最坏是 10★ 的 {@code StarRank.STAR_10.maxAffixes()} = 13 条词条 (纯防御的生存池词条不进面板,
+     * 实际更少), 每条 JSON 最长约 170 字符 (含 L8 品质格) 约 2.2 KB; 头部约 0.2 KB, L3-L6 数值情报约 0.2 KB,
+     * 技能时序最多 4 条 (技能数上限) 约 0.3 KB, L10 实时透视 (含全属性) 约 0.35 KB, 合计单目标约 3.3 KB; 8 个目标
+     * 约 27 KB, 加 job.agent.state 其余字段约 1 KB, 仍在 {@code WebUiServerDispatcher.respond} 的 32767 字符收口
+     * 之内。收口是保命不是设计, 列表类 action 自带上限; 往目标行里再加字段前先重算这笔账。
      *
      * 包私有: 同包 GameTest 直接断言截断行为, 不在测试里另写一个魔数。
      */
@@ -103,10 +111,13 @@ public final class AgentWebUiActions {
      * 一次脉冲扫到的单个目标。
      *
      * 坐标存脉冲当刻的方块坐标而非每次回执现读实体位置: 快照就是快照, 目标跑了不该让面板跟着它走 —— 那等于把
-     * 长 CD 的一次性脉冲变成实时追踪器。
+     * 长 CD 的一次性脉冲变成实时追踪器。L9+ 的实时透视也只重读数值、从不重读坐标, 守的是同一条线。
+     *
+     * entityUuid 用于实时透视与高亮复原目标时核对身份: 网络 id 在实体死亡后会被新实体复用, 只凭它回查会把一只
+     * 从没被扫过的新怪的活数值 (或高亮) 发给干员 —— 那就是一次免费的新扫描。
      */
-    private record ScanTarget(int networkId, double distanceBlocks, String entityTypeId, String entityNameKey,
-                              int posX, int posY, int posZ, AgentScanSnapshot snapshot) {
+    private record ScanTarget(int networkId, UUID entityUuid, double distanceBlocks, String entityTypeId,
+                              String entityNameKey, int posX, int posY, int posZ, AgentScanSnapshot snapshot) {
     }
 
     /**
@@ -123,6 +134,10 @@ public final class AgentWebUiActions {
 
     /**
      * 特勤面板只读态。本 action <b>不烧 CD、不发脉冲、不写快照</b>: 它读当前脉冲记录, 记录已到期则如实报 0 与空表。
+     *
+     * L9+ 脉冲的实时透视 (五章"实时透视") 也在这里: 对快照内每个目标按网络 id + UUID 回查, 仍加载且活着的重读
+     * 数值 (血 / 吸收 / 叠在你身上的 DoT 层数; L10 另加全部属性), 面板在这种快照有效期内以适中间隔轮询本 action。
+     * 这仍是只读: 不补扫新目标 (目标集合冻结在脉冲那一刻)、不重读坐标, 快照一过期实时数据随之消失。
      */
     static final WebUiAction STATE = (sender, payload) -> {
         long now = sender.serverLevel().getGameTime();
@@ -142,7 +157,16 @@ public final class AgentWebUiActions {
         result.addProperty("snapshotRemainingTicks", remainingTicks(pulse, now));
         // 与 job.agent.scan 同名同义 (是同一份脉冲记录的两次投影), 前端可用同一个列表组件渲染两处。
         result.addProperty("truncated", pulse != null && pulse.truncated());
-        result.add("targets", targetsJson(pulse));
+        result.addProperty("glowingHighlight",
+                pulse != null && AgentScanSnapshotBuilder.highlightsTargets(pulse.agentLevel()));
+        // 各情报格的解锁等级 (第四章探测列) 原样发 AgentScanField 表: 面板上"需要 Lv.N"的占位文案据此显示, 前端
+        // 不另抄一份等级表 —— 抄了就会在有人调表时与服务端的真裁决分叉 (与 seal.passiveUnlockLevel 同一做法)。
+        JsonObject unlockLevels = new JsonObject();
+        for (AgentScanField field : AgentScanField.values()) {
+            unlockLevels.addProperty(field.name(), field.unlockLevel());
+        }
+        result.add("scanFieldUnlockLevels", unlockLevels);
+        result.add("targets", targetsJson(pulse, sender));
 
         JsonObject seal = new JsonObject();
         seal.addProperty("passiveUnlockLevel", AgentSkillTable.SEAL_UNLOCK_LEVEL);
@@ -219,6 +243,9 @@ public final class AgentWebUiActions {
             result.addProperty("truncated", false);
             result.addProperty("scanCooldownRemainingTicks", 0L);
             result.addProperty("snapshotRemainingTicks", 0L);
+            result.addProperty("glowingHighlight", false);
+            result.addProperty("discoveryXp", 0L);
+            result.addProperty("discoveryCount", 0);
             result.add("targets", new JsonArray());
             return GSON.toJson(result);
         }
@@ -238,6 +265,8 @@ public final class AgentWebUiActions {
         double radiusSqr = (double) radius * (double) radius;
         List<ScanTarget> targets = new ArrayList<>();
         boolean truncated = false;
+        long discoveryRawXp = 0L;
+        int discoveryCount = 0;
         for (LivingEntity candidate : candidates) {
             double distanceSqr = sender.distanceToSqr(candidate);
             if (distanceSqr > radiusSqr) {
@@ -256,6 +285,7 @@ public final class AgentWebUiActions {
             }
             targets.add(new ScanTarget(
                     snapshot.targetNetworkId(),
+                    candidate.getUUID(),
                     Math.sqrt(distanceSqr),
                     EntityType.getKey(candidate.getType()).toString(),
                     candidate.getType().getDescriptionId(),
@@ -263,11 +293,36 @@ public final class AgentWebUiActions {
                     candidate.blockPosition().getY(),
                     candidate.blockPosition().getZ(),
                     snapshot));
+            // 8.1 首次发现经验: 只算真正进了快照的目标 (被硬上限截掉的没"找到", 不给)。去重 / 召唤物排除 /
+            // 持久化口径见 AgentDiscoveryXp; 这里只累加, 循环结束后一次入账。
+            long claimed = AgentDiscoveryXp.claim(candidate, MiningChampions.get(candidate).orElse(null),
+                    sender.getUUID());
+            if (claimed > 0L) {
+                discoveryRawXp += claimed;
+                discoveryCount++;
+            }
         }
 
         ScanPulse pulse = new ScanPulse(now, agentLevel, cooldownTicks, radius,
                 isCrossChunk(agentLevel), truncated, List.copyOf(targets));
         PULSES.put(sender.getUUID(), pulse);
+
+        // L8 逐玩家高亮 (只有本人看得见, 实现见 AgentScanGlow): 生命期与快照同长。低于 L8 的脉冲也要先熄一次旧的
+        // —— 正常流程里旧快照必然已到期 (CD 与快照同长), 但跨存档时钟回退等脏记录路径下不能指望这一点。
+        boolean glowing = AgentScanSnapshotBuilder.highlightsTargets(agentLevel);
+        if (glowing) {
+            List<AgentScanGlow.Target> glowTargets = new ArrayList<>(targets.size());
+            for (ScanTarget target : targets) {
+                glowTargets.add(new AgentScanGlow.Target(target.networkId(), target.entityUuid()));
+            }
+            AgentScanGlow.start(sender, glowTargets, now, now + cooldownTicks);
+        } else {
+            AgentScanGlow.clear(sender);
+        }
+
+        // 首次发现经验一次入账 (不受入职标志约束, 理由见 AgentDiscoveryXp); 回执报的是经每日衰减折算后
+        // 实际入账的有效经验, 与玩家经验条上真涨的数一致。
+        long discoveryXp = discoveryRawXp > 0L ? AgentLevels.grantRawXp(sender, discoveryRawXp) : 0L;
 
         // 刻意不在这里 markActiveAgent。该标志是加强奖励 (每星 600 信用点) 与对精英伤害放大的唯一资格门,
         // 且一经置位永久保留; 它原本的唯一置位点是"封印成功"(经 SealPlan 要求被动 L3+)。扫描对全员开放且
@@ -280,7 +335,10 @@ public final class AgentWebUiActions {
         result.addProperty("truncated", truncated);
         result.addProperty("scanCooldownRemainingTicks", (long) cooldownTicks);
         result.addProperty("snapshotRemainingTicks", (long) cooldownTicks);
-        result.add("targets", targetsJson(pulse));
+        result.addProperty("glowingHighlight", glowing);
+        result.addProperty("discoveryXp", discoveryXp);
+        result.addProperty("discoveryCount", discoveryCount);
+        result.add("targets", targetsJson(pulse, sender));
         return GSON.toJson(result);
     };
 
@@ -389,6 +447,8 @@ public final class AgentWebUiActions {
         PULSES.put(playerId, new ScanPulse(pulse.pulseTick() - deltaTicks, pulse.agentLevel(),
                 pulse.cooldownTicks(), pulse.radiusBlocks(), pulse.crossChunk(), pulse.truncated(),
                 pulse.targets()));
+        // 高亮会话与快照同源同长, 一起拨, 否则测试里"快照到期"与"高亮到期"会被拆成两个时刻。
+        AgentScanGlow.rewindForTest(playerId, deltaTicks);
         return true;
     }
 
@@ -464,12 +524,19 @@ public final class AgentWebUiActions {
     // JSON
     // ============================================================
 
-    private static JsonArray targetsJson(ScanPulse pulse) {
+    /**
+     * 快照目标表。数值格 (有效血 / 减伤 / 子弹抗性 / 攻击移速 / 技能时序 / 品质) 直接取快照里构建层已裁决好的值,
+     * 未解锁即 JSON null; 实时透视 (live) 对 L9+ 脉冲在此刻重读, 同样经构建层裁决。本层不做任何等级判断。
+     *
+     * @param viewer 读回执的干员 (实时透视在其当前维度里按网络 id + UUID 回查目标, 并读"叠在你身上"的 DoT 层数)
+     */
+    private static JsonArray targetsJson(ScanPulse pulse, ServerPlayer viewer) {
         JsonArray array = new JsonArray();
         if (pulse == null) {
             return array;
         }
         boolean positionUnlocked = AgentScanTier.canDecrypt(pulse.agentLevel(), AgentScanField.GLOWING_HIGHLIGHT);
+        boolean refreshesLive = AgentScanSnapshotBuilder.refreshesLive(pulse.agentLevel());
         for (ScanTarget target : pulse.targets()) {
             JsonObject json = new JsonObject();
             json.addProperty("targetNetworkId", target.networkId());
@@ -489,6 +556,15 @@ public final class AgentWebUiActions {
                 // 七级拿到穿墙透视。发 JSON null 而不是 0 —— 0 是一个真实存在的坐标。
                 json.add("pos", JsonNull.INSTANCE);
             }
+            // 悬赏雷达 (第四章 L6, AgentScanField.BOUNTY_RADAR) 的逐目标"是否当前悬赏目标"布尔位留在这里: 悬赏
+            // 系统接线时由悬赏侧提供判据, 在此按 BOUNTY_RADAR 解锁等级加一个键 (未解锁发 JSON null)。本轮不发。
+            intelJson(target.snapshot().intel(), json);
+            if (refreshesLive) {
+                AgentScanLive live = AgentScanSnapshotBuilder.buildLive(pulse.agentLevel(), readLive(viewer, target));
+                json.add("live", liveJson(live));
+            } else {
+                json.add("live", JsonNull.INSTANCE); // L9 以下: 实时透视整格加密。
+            }
             JsonArray entries = new JsonArray();
             for (AgentScanEntry entry : target.snapshot().entries()) {
                 entries.add(entryJson(entry));
@@ -497,6 +573,80 @@ public final class AgentWebUiActions {
             array.add(json);
         }
         return array;
+    }
+
+    /**
+     * 回查快照目标并重读实时原料。三道门缺一不可: 目标必须在读者<b>当前</b>维度里查得到 (没加载 = 读不到, 不跨维度
+     * 找)、UUID 必须与脉冲当刻一致 (网络 id 会被复用)、必须仍是活体。任一不满足返 null, 构建层据此报 tracked=false。
+     */
+    private static AgentScanSnapshotBuilder.RawLive readLive(ServerPlayer viewer, ScanTarget target) {
+        Entity entity = viewer.serverLevel().getEntity(target.networkId());
+        if (!(entity instanceof LivingEntity living) || !living.getUUID().equals(target.entityUuid())
+                || !living.isAlive()) {
+            return null;
+        }
+        return AgentSealSeam.readLive(viewer, living);
+    }
+
+    /**
+     * 数值情报格 (L3-L7), 平铺在目标行上。每格未解锁即 JSON null (快照里就是 null; Gson serializeNulls 保证键在)。
+     * 技能时序的子项与其它格不同: 子项缺失表示"这条技能没有这个概念" (如瞬发技能没有蓄力), 整组已随 L7 解锁, 故
+     * 用缺键而不是 null 表达, 以免与"加密"混淆。
+     */
+    private static void intelJson(AgentScanIntel intel, JsonObject json) {
+        json.addProperty("effectiveHp", intel.effectiveHp());
+        json.addProperty("armor", intel.armor());
+        json.addProperty("damageReductionPct", intel.damageReductionPct());
+        json.addProperty("bulletResistancePct", intel.bulletResistancePct());
+        json.addProperty("attackDamage", intel.attackDamage());
+        json.addProperty("singleHitPct", intel.singleHitPct());
+        json.addProperty("movementSpeed", intel.movementSpeed());
+        if (intel.mechanics() == null) {
+            json.add("mechanics", JsonNull.INSTANCE);
+            return;
+        }
+        JsonArray mechanics = new JsonArray();
+        for (AgentScanIntel.Mechanic mechanic : intel.mechanics()) {
+            JsonObject row = new JsonObject();
+            row.addProperty("affixId", mechanic.affixId());
+            if (mechanic.chargeSeconds() != null) {
+                row.addProperty("chargeSeconds", mechanic.chargeSeconds());
+            }
+            if (mechanic.interruptDamagePerPlayer() != null) {
+                row.addProperty("interruptDamagePerPlayer", mechanic.interruptDamagePerPlayer());
+            }
+            if (mechanic.cooldownSeconds() != null) {
+                row.addProperty("cooldownSeconds", mechanic.cooldownSeconds());
+            }
+            mechanics.add(row);
+        }
+        json.add("mechanics", mechanics);
+    }
+
+    /** 实时透视一格。tracked=false 时其余全为 null (读不到就不发旧值); attributes 仅 L10 非 null。 */
+    private static JsonObject liveJson(AgentScanLive live) {
+        JsonObject json = new JsonObject();
+        json.addProperty("tracked", live.tracked());
+        json.addProperty("currentHp", live.currentHp());
+        json.addProperty("maxHp", live.maxHp());
+        json.addProperty("absorption", live.absorption());
+        json.addProperty("frostStacksOnYou", live.frostStacksOnYou());
+        json.addProperty("burningStacksOnYou", live.burningStacksOnYou());
+        AgentScanLive.Attributes attributes = live.attributes();
+        if (attributes == null) {
+            json.add("attributes", JsonNull.INSTANCE);
+        } else {
+            JsonObject attributesJson = new JsonObject();
+            attributesJson.addProperty("effectiveHp", attributes.effectiveHp());
+            attributesJson.addProperty("armor", attributes.armor());
+            attributesJson.addProperty("damageReductionPct", attributes.damageReductionPct());
+            attributesJson.addProperty("bulletResistancePct", attributes.bulletResistancePct());
+            attributesJson.addProperty("attackDamage", attributes.attackDamage());
+            attributesJson.addProperty("singleHitPct", attributes.singleHitPct());
+            attributesJson.addProperty("movementSpeed", attributes.movementSpeed());
+            json.add("attributes", attributesJson);
+        }
+        return json;
     }
 
     /**
@@ -515,10 +665,13 @@ public final class AgentWebUiActions {
             json.addProperty("affixId", entry.affixId());
             json.addProperty("displayKey", entry.displayKey());
             json.addProperty("category", entry.category().name());
+            // L8 "全品质表": 构建层未解锁时已置 null, 这里原样发 (null 即加密)。
+            json.addProperty("quality", entry.quality());
         } else {
             json.add("affixId", JsonNull.INSTANCE);
             json.add("displayKey", JsonNull.INSTANCE);
             json.add("category", JsonNull.INSTANCE);
+            json.add("quality", JsonNull.INSTANCE);
         }
         json.addProperty("decrypted", entry.decrypted());
         json.addProperty("sealable", entry.sealable());

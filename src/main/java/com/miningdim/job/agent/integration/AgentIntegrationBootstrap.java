@@ -15,7 +15,7 @@ import net.minecraftforge.eventbus.api.IEventBus;
  *  4. 封印 + 扫描接缝 ({@link AgentSealSeam#bind}): 注入封印申请真实现 ({@link AgentSealHandler#requestSealOutcome})
  *     + 扫描快照构建真实现 ({@link AgentScanProbe#buildSnapshot}, 读自研词条表做分级解密) + 服务端停止清执行侧封印
  *     tick 索引 (被封词条本身随精英 capability 存盘, 不在此清), 供 champions-free 的 AgentSystem / 五章面板网络层经
- *     接缝调用。
+ *     接缝调用; 另绑实时透视重读 ({@link AgentScanProbe#readLive}, L9/L10 job.agent.state 刷活数值)。
  */
 public final class AgentIntegrationBootstrap {
 
@@ -46,5 +46,6 @@ public final class AgentIntegrationBootstrap {
                 AgentSealHandler::requestSealOutcome,
                 AgentScanProbe::buildSnapshot,
                 AgentSealExecutor::reset);
+        AgentSealSeam.bindLive(AgentScanProbe::readLive);
     }
 }

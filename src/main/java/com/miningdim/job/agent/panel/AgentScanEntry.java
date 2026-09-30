@@ -26,6 +26,9 @@ import com.miningdim.job.agent.SealCategory;
  * @param sealable   本条目在当前干员等级 + 目标星级下是否可封 (经 {@code SealPlan} 三门; false = 不可封, 点击无效)
  * @param sealed     本条目当前是否已被封印中 (经 {@link com.miningdim.job.agent.SealRegistry} 活跃账本; true = 面板
  *                   标注封印中, 不可重复点)
+ * @param quality    词条品质 ({@code AffixQuality} 枚举名, 如 COMMON / LEGENDARY)。第四章 L8 "全品质表" 那一格才解密,
+ *                   且只随已解密条目下发; 未解锁或未解密时为 null (null = 这一格加密, 不是"没有品质")。品质决定
+ *                   词条强度档, 提前给出等于把 L8 的情报白送给低级干员, 故与真名同在构建层脱敏
  */
 public record AgentScanEntry(
         String affixId,
@@ -33,7 +36,8 @@ public record AgentScanEntry(
         SealCategory category,
         boolean decrypted,
         boolean sealable,
-        boolean sealed) {
+        boolean sealed,
+        String quality) {
 
     public AgentScanEntry {
         if (affixId == null) {
@@ -44,6 +48,10 @@ public record AgentScanEntry(
         }
         if (category == null) {
             throw new IllegalArgumentException("category must not be null");
+        }
+        if (quality != null && !decrypted) {
+            // 未解密行带品质 = 构建层脱敏写反了; 在值对象这一层直接拒, 不让它流到任何下行通道。
+            throw new IllegalArgumentException("encrypted entry must not carry quality");
         }
     }
 }

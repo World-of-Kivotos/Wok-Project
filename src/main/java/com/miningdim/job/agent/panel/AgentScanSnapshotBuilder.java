@@ -1,11 +1,14 @@
 package com.miningdim.job.agent.panel;
 
+import com.miningdim.job.agent.AgentScanField;
 import com.miningdim.job.agent.AgentScanTier;
 import com.miningdim.job.agent.SealCategory;
 import com.miningdim.job.agent.SealPlan;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 战术扫描快照构建纯逻辑 (SpecialAgent_Job_DesignSpec 五章面板 + 第四章探测词条列): 给定干员等级 + 目标星级 +
@@ -27,6 +30,11 @@ import java.util.List;
  *
  * 纯逻辑, 不触 Champions/实体: 入参 {@link RawAffix} 是 champions-free 描述 (集成层从真 IAffix 翻译, GameTest 喂
  * 合成描述), 故解密分级 + 可封门 逻辑可在 dev GameTest 直断言 (删本类逻辑必挂)。
+ *
+ * 数值情报分级 (第四章探测列 L3-L10): 词条行之外的每一格 (有效血 / 护甲减伤 / 子弹抗性 / 攻击单击移速 / 技能时序 /
+ * 品质 / 实时数值 / 实时属性) 同样在本类按 {@link AgentScanField} 的解锁等级逐格裁决 —— 集成层 ({@link RawStats} /
+ * {@link RawLive}) 只管把真值读全, 哪一格发、哪一格打成 null 一律在这里定。把分级散到集成层或 JSON 层, 就等于
+ * 把同一道门开在两处, 迟早一处漏改 (与未解密条目脱敏下沉到本层是同一条理由)。
  */
 public final class AgentScanSnapshotBuilder {
 
@@ -40,12 +48,53 @@ public final class AgentScanSnapshotBuilder {
      * @param displayKey 词条显示名 lang key
      * @param category   封印类别 (被动/机制)
      * @param sealed     该词条当前是否已被封印中 (集成层先查 {@link com.miningdim.job.agent.SealRegistry} 活跃账本)
+     * @param quality    词条品质 ({@code AffixQuality} 枚举名); null = 原料方不提供品质 (只测词条行的调用方),
+     *                   此时无论等级多高品质格都发 null
      */
-    public record RawAffix(String affixId, String displayKey, SealCategory category, boolean sealed) {
+    public record RawAffix(String affixId, String displayKey, SealCategory category, boolean sealed, String quality) {
 
         public RawAffix {
             if (affixId == null || displayKey == null || category == null) {
                 throw new IllegalArgumentException("affixId/displayKey/category must not be null");
+            }
+        }
+
+        /** 不带品质的原料 (只关心解密/可封裁决的调用方用)。 */
+        public RawAffix(String affixId, String displayKey, SealCategory category, boolean sealed) {
+            this(affixId, displayKey, category, sealed, null);
+        }
+    }
+
+    /**
+     * 集成层读出的某精英全部数值原料 (champions-free; 字段口径逐一对应 {@link AgentScanIntel} 的同名字段, 见那里的
+     * 注释)。这里一律是真值, 分级由 {@link #build} 裁决。
+     *
+     * @param mechanics 该精英全部机制类词条的技能时序 (含封印中的); 构建器只保留已解密行对应的那几条
+     */
+    public record RawStats(double effectiveHp, double armor, double damageReductionPct, double bulletResistancePct,
+                           double attackDamage, double singleHitPct, double movementSpeed,
+                           List<AgentScanIntel.Mechanic> mechanics) {
+
+        public RawStats {
+            if (mechanics == null) {
+                throw new IllegalArgumentException("mechanics must not be null (use empty list)");
+            }
+            mechanics = List.copyOf(mechanics);
+        }
+    }
+
+    /**
+     * 集成层对一个仍在快照内的目标重读出的实时原料。目标读不到 (死亡 / 离场 / 卸载 / 不再是精英) 时集成层返回
+     * null 而不是本对象, 构建器据此给出 {@link AgentScanLive#lost()}。
+     *
+     * @param attributes 与快照同口径的数值现值 (mechanics 忽略; 技能时序是按品质查表的定值, 不随时间变)
+     */
+    public record RawLive(double currentHp, double maxHp, double absorption, int frostStacksOnYou,
+                          int burningStacksOnYou, RawStats attributes) {
+
+        public RawLive {
+            if (attributes == null) {
+                throw new IllegalArgumentException("attributes must not be null");
             }
         }
     }
@@ -57,15 +106,28 @@ public final class AgentScanSnapshotBuilder {
      * @param star            目标精英初始星级 (1-10)
      * @param agentLevel      干员等级 (内部经 clampLevel 夹 [1,10])
      * @param rawAffixes      目标精英全部可封候选词条 (集成层已过滤掉不可封/外来词条; 按精英词条原始顺序)
-     * @return 不可变扫描快照; 未解密条目的 affixId/displayKey 已在此脱敏为空串 (见类注释 F081)
+     * @return 不可变扫描快照; 未解密条目的 affixId/displayKey 已在此脱敏为空串 (见类注释 F081); 数值情报全部加密
+     *         ({@link AgentScanIntel#WITHHELD}, 本重载不收数值原料, 只供只测词条行裁决的调用方)
      */
     public static AgentScanSnapshot build(int targetNetworkId, int star, int agentLevel, List<RawAffix> rawAffixes) {
+        return build(targetNetworkId, star, agentLevel, rawAffixes, null);
+    }
+
+    /**
+     * 装配某干员等级对某精英的完整扫描快照: 词条行逐条裁决 (同上一重载) + 品质格 (L8) + 数值情报逐格裁决 (L3-L7)。
+     *
+     * @param rawStats 该精英的数值原料 (集成层读真值); null = 不提供, 数值情报全部加密
+     * @return 不可变扫描快照
+     */
+    public static AgentScanSnapshot build(int targetNetworkId, int star, int agentLevel, List<RawAffix> rawAffixes,
+                                          RawStats rawStats) {
         if (rawAffixes == null) {
             throw new IllegalArgumentException("rawAffixes must not be null (use empty list for no affixes)");
         }
         int visibleCount = AgentScanTier.visibleAffixCount(agentLevel); // L1-L3=N条; L4+= -1 哨兵 (全词条按类别)。
         boolean showsAllPassive = AgentScanTier.showsAllPassiveAffixes(agentLevel); // L4+
         boolean showsSkill = AgentScanTier.showsSkillAffixes(agentLevel);           // L5+
+        boolean showsQuality = AgentScanTier.canDecrypt(agentLevel, AgentScanField.QUALITY_TABLE); // L8+
 
         List<AgentScanEntry> entries = new ArrayList<>(rawAffixes.size());
         for (int i = 0; i < rawAffixes.size(); i++) {
@@ -81,9 +143,85 @@ public final class AgentScanSnapshotBuilder {
                     raw.category(),
                     decrypted,
                     sealable,
-                    raw.sealed()));
+                    raw.sealed(),
+                    // 品质是 L8 "全品质表"那一格, 且只跟已解密行走: 加密行连是哪条都不知道, 谈不上它的品质。
+                    decrypted && showsQuality ? raw.quality() : null));
         }
-        return new AgentScanSnapshot(targetNetworkId, star, agentLevel, entries);
+        AgentScanIntel intel = rawStats == null ? AgentScanIntel.WITHHELD : tierIntel(agentLevel, rawStats, entries);
+        return new AgentScanSnapshot(targetNetworkId, star, agentLevel, entries, intel);
+    }
+
+    /**
+     * 数值情报逐格裁决 (第四章探测列): L3 有效血 / L4 护甲+减伤 / L5 子弹抗性 / L6 攻击+单击+移速 / L7 技能时序。
+     * 未解锁格一律 null。技能时序另加一道行级门: 只保留在本快照里已解密的机制行对应的那几条 —— 今天 L7 时机制行
+     * 恒已解密 (L5 起), 这道门是防将来有人调低 SKILL_MECHANICS 或调高机制解密等级时, 时序表把加密行的身份
+     * (affixId) 从旁路漏出去。
+     */
+    private static AgentScanIntel tierIntel(int agentLevel, RawStats raw, List<AgentScanEntry> entries) {
+        boolean hp = AgentScanTier.canDecrypt(agentLevel, AgentScanField.EFFECTIVE_HP);
+        boolean armor = AgentScanTier.canDecrypt(agentLevel, AgentScanField.ARMOR_DR_PERCENT);
+        boolean bullet = AgentScanTier.canDecrypt(agentLevel, AgentScanField.BULLET_RESISTANCE);
+        boolean attack = AgentScanTier.canDecrypt(agentLevel, AgentScanField.ATTACK_AND_SPEED);
+        boolean mechanics = AgentScanTier.canDecrypt(agentLevel, AgentScanField.SKILL_MECHANICS);
+
+        List<AgentScanIntel.Mechanic> visibleMechanics = null;
+        if (mechanics) {
+            Set<String> decryptedMechanicIds = new HashSet<>();
+            for (AgentScanEntry entry : entries) {
+                if (entry.decrypted() && entry.category() == SealCategory.MECHANIC) {
+                    decryptedMechanicIds.add(entry.affixId());
+                }
+            }
+            visibleMechanics = new ArrayList<>();
+            for (AgentScanIntel.Mechanic mechanic : raw.mechanics()) {
+                if (decryptedMechanicIds.contains(mechanic.affixId())) {
+                    visibleMechanics.add(mechanic);
+                }
+            }
+        }
+        return new AgentScanIntel(
+                hp ? raw.effectiveHp() : null,
+                armor ? raw.armor() : null,
+                armor ? raw.damageReductionPct() : null,
+                bullet ? raw.bulletResistancePct() : null,
+                attack ? raw.attackDamage() : null,
+                attack ? raw.singleHitPct() : null,
+                attack ? raw.movementSpeed() : null,
+                visibleMechanics);
+    }
+
+    /**
+     * 实时透视裁决 (第四章 L9 "全数值实时" / L10 "全属性实时")。
+     *
+     * @param agentLevel 发出这次脉冲时的干员等级 (与快照同一判据: 脉冲之后才升级不会让旧快照凭空多出实时格)
+     * @param raw        集成层重读的实时原料; null = 目标已读不到
+     * @return L9 以下 null (整格加密); 目标读不到时 {@link AgentScanLive#lost()}; 否则 L9 数值 + L10 起带属性现值
+     */
+    public static AgentScanLive buildLive(int agentLevel, RawLive raw) {
+        if (!refreshesLive(agentLevel)) {
+            return null;
+        }
+        if (raw == null) {
+            return AgentScanLive.lost();
+        }
+        AgentScanLive.Attributes attributes = null;
+        if (AgentScanTier.canDecrypt(agentLevel, AgentScanField.REALTIME_ALL_ATTRIBUTES)) {
+            RawStats now = raw.attributes();
+            attributes = new AgentScanLive.Attributes(now.effectiveHp(), now.armor(), now.damageReductionPct(),
+                    now.bulletResistancePct(), now.attackDamage(), now.singleHitPct(), now.movementSpeed());
+        }
+        return new AgentScanLive(true, raw.currentHp(), raw.maxHp(), raw.absorption(),
+                raw.frostStacksOnYou(), raw.burningStacksOnYou(), attributes);
+    }
+
+    /** 该等级发出的脉冲是否带实时透视 (L9+; job.agent.state 据此决定要不要为快照目标重读活数值)。 */
+    public static boolean refreshesLive(int agentLevel) {
+        return AgentScanTier.canDecrypt(agentLevel, AgentScanField.REALTIME_NUMBERS);
+    }
+
+    /** 该等级发出的脉冲是否给扫描干员本人高亮全部目标 (L8+; 第四章"Glowing 高亮")。 */
+    public static boolean highlightsTargets(int agentLevel) {
+        return AgentScanTier.canDecrypt(agentLevel, AgentScanField.GLOWING_HIGHLIGHT);
     }
 
     /**

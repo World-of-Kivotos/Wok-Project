@@ -45,6 +45,9 @@ public final class AgentSystem implements Subsystem {
         // 平板特勤页的 job.agent.* (扫描/封印经 AgentSealSeam 接缝走)。
         AgentWebUiActions.registerAll();
 
+        // 扫描 L8 逐玩家高亮的每 tick 维持 / 到期熄灭 / 重新追踪补发。
+        forgeBus.register(new AgentScanGlow.Handler());
+
         // 集成层已自研化, 无条件装配 (封印/奖励/伤害加成 handler 挂 forgeBus + bind 封印接缝)。
         com.miningdim.job.agent.integration.AgentIntegrationBootstrap.assemble(forgeBus);
         LOGGER.info("[agent] agent integration assembled (detect + seal + enhanced reward + bounty + damage bonus)");
@@ -69,6 +72,7 @@ public final class AgentSystem implements Subsystem {
     public void onServerStopping(ServerStoppingEvent event) {
         SealRegistry.reset();
         AgentSealSeam.onServerStopping(); // 经接缝清执行侧封印 tick 索引。
+        AgentScanGlow.reset(); // 高亮会话只在进程内存, 客户端随断线整体丢弃, 清表即可。
     }
 
     /**

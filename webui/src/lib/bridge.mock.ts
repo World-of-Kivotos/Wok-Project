@@ -3065,6 +3065,14 @@ function mockAgentBounty(level: number): AgentBountyBoard {
   }
 }
 
+/** 某星级目标能否推进当前已接未完成的星级类悬赏 (悬赏雷达的 mock 判据)。 */
+function agentBountyWouldAdvance(star: number): boolean {
+  const board = mockAgentBounty(mockJobLevel('agent'))
+  return [...board.daily, ...board.weekly].some(
+    (entry) => entry.accepted && !entry.completed && entry.targetPool === null && star >= entry.minStar,
+  )
+}
+
 /** 接取: 与 BountyBoard.accept 同序裁决 (找不到 -> 已接 -> 未解锁 -> 槽满 -> 星级过高)。 */
 function mockAgentBountyAccept(payload: AgentBountyAcceptPayload): AgentBountyAcceptResult {
   if (payload.period !== 'DAILY' && payload.period !== 'WEEKLY') {
@@ -3413,6 +3421,8 @@ function agentTargets(snapshotLevel: number): AgentScanTarget[] {
       movementSpeed: unlockedOrNull(snapshotLevel, AGENT_UNLOCK.attackAndSpeed, intel.movementSpeed),
       mechanics: unlockedOrNull(snapshotLevel, AGENT_UNLOCK.mechanics, mechanics),
       live: agentLive(seed, snapshotLevel),
+      // L6 悬赏雷达: mock 只按星级类悬赏判 (种子目标没带词条池映射), 对照的是当前悬赏板, 与服务端同口径。
+      bountyTarget: snapshotLevel >= 6 ? agentBountyWouldAdvance(seed.star) : null,
       entries,
     }
   })

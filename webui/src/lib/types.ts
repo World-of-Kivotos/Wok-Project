@@ -1064,6 +1064,11 @@ export interface AgentScanTarget {
   mechanics: AgentScanMechanic[] | null
   /** L9。见 AgentScanLive。 */
   live: AgentScanLive | null
+  /**
+   * L6 悬赏雷达: 打死它能不能推进你已接未完成的悬赏 (L8+ 已入职时世界 BOSS 也算)。对照的是你**现在**的悬赏板,
+   * 扫完再接的悬赏也会亮; 入池门槛要到击杀时才知道, 这里不管。未解锁 null。
+   */
+  bountyTarget: boolean | null
   /** 顺序即精英词条原始顺序 (集成层已过滤掉外来/纯防御词条)。 */
   entries: AgentAffixEntry[]
 }

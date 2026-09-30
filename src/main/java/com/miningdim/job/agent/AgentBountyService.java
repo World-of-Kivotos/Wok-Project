@@ -115,6 +115,33 @@ public final class AgentBountyService {
         return true;
     }
 
+    /**
+     * 悬赏雷达 (第四章 L6): 击杀这个目标能不能推进该玩家已接未完成的悬赏, 或 (L8+ 已入职时) 结算世界 BOSS 讨伐令。
+     * 只读已有的悬赏板 (不为没打开过悬赏板的人建板), 但会先按当前时钟翻期 —— 否则昨天那张已作废的日常会让雷达误亮。
+     *
+     * @param facts 目标事实 (qualified 取 true: 雷达回答的是"打它算不算", 入池门槛要到击杀时才知道)
+     */
+    public static boolean isBountyTarget(ServerPlayer player, BountyKill facts) {
+        if (!AgentBountyConfig.enabled()) {
+            return false;
+        }
+        int level = AgentLevels.agentLevel(player);
+        AgentBountySavedData data = data(player);
+        if (facts.worldBoss() && AgentSkillTable.isWorldBossBountyUnlocked(level)
+                && data.isActiveAgent(player.getUUID())) {
+            return true;
+        }
+        BountyBoard board = data.existingBoard(player.getUUID());
+        if (board == null) {
+            return false;
+        }
+        if (board.refresh(AgentClock.currentUtcDayStamp(), AgentClock.currentUtcWeekStamp(), level,
+                AgentBountyConfig.table(), player.getRandom())) {
+            data.setDirty();
+        }
+        return board.wouldAdvance(facts);
+    }
+
     /** 补发日上限截掉的悬赏青辉石 (登录时调用; 完成悬赏时 {@link #pay} 也会顺带补)。 */
     public static void flushPendingAzure(ServerPlayer player) {
         AgentBountySavedData data = data(player);

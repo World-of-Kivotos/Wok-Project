@@ -645,6 +645,7 @@ export function AgentPanel(): ReactElement {
                         {nameOf(target.entityNameKey)}
                       </h3>
                       <Tag tone="warning">{target.star} 星</Tag>
+                      {target.bountyTarget === true ? <Tag tone="success">悬赏目标</Tag> : null}
                       <span className="text-muted-foreground text-xs">
                         距离 {target.distanceBlocks.toFixed(1)} 格
                       </span>

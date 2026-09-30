@@ -27,6 +27,7 @@ import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
@@ -337,6 +338,55 @@ public final class AgentScanIntelGameTests {
     // ============================================================
     // 工具
     // ============================================================
+
+    // ============================================================
+    // 悬赏雷达 (第四章 L6): 目标能推进已接悬赏才亮, L6 以下整格 null
+    // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void bountyRadarMarksTargetsOfAcceptedBountiesFromLevelSix(GameTestHelper helper) {
+        AgentIntegrationBootstrap.bindSeam();
+        ServerPlayer six = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setAgentLevel(six, 6);
+        ServerPlayer five = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setAgentLevel(five, 5);
+        five.setNoGravity(true);
+        five.teleportTo(six.getX(), six.getY(), six.getZ());
+
+        // 固定种子把 six 的悬赏板掷成"第一张日常是星级类", 与悬赏集成用例同一手法 (掷取确定, 同期同级不重掷)。
+        BountyDefinition wanted = null;
+        long day = AgentClock.currentUtcDayStamp();
+        long week = AgentClock.currentUtcWeekStamp();
+        for (long seed = 0L; seed < 200L && wanted == null; seed++) {
+            BountyBoard probe = new BountyBoard();
+            probe.refresh(day, week, 6, AgentBountyConfig.table(), RandomSource.create(seed));
+            if (probe.daily().get(0).definition().targetType() == BountyDefinition.TargetType.KILL_STAR_AT_LEAST) {
+                AgentBountySavedData.get(six.server.overworld()).board(six.getUUID())
+                        .refresh(day, week, 6, AgentBountyConfig.table(), RandomSource.create(seed));
+                wanted = probe.daily().get(0).definition();
+            }
+        }
+        helper.assertTrue(wanted != null, "前提: 应能掷出首张为星级类的日常");
+        helper.assertTrue(AgentBountyService.accept(six, BountyDefinition.Period.DAILY, wanted.id()).outcome()
+                == BountyBoard.AcceptOutcome.OK, "前提: 接取成功");
+
+        Map<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
+        affixes.put(AffixDef.BURNING, AffixQuality.COMMON);
+        LivingEntity target = spawnChampion(helper, six, 2.0D, wanted.minStar(), affixes);
+        LivingEntity tooLow = spawnChampion(helper, six, -2.0D, 1, affixes);
+
+        JsonArray sixRows = handle(helper, SCAN_ACTION, six).getAsJsonArray("targets");
+        helper.assertTrue(findRow(helper, sixRows, target.getId()).get("bountyTarget").getAsBoolean(),
+                "L6: 达到已接悬赏星级门的目标亮起");
+        helper.assertTrue(!findRow(helper, sixRows, tooLow.getId()).get("bountyTarget").getAsBoolean(),
+                "L6: 星级不够的目标不亮 (是 false 不是 null)");
+
+        JsonObject fiveRow = findRow(helper, handle(helper, SCAN_ACTION, five).getAsJsonArray("targets"),
+                target.getId());
+        helper.assertTrue(fiveRow.has("bountyTarget") && fiveRow.get("bountyTarget").isJsonNull(),
+                "L5: 雷达未解锁, 键在、值为 JSON null, 实得 " + fiveRow.get("bountyTarget"));
+        helper.succeed();
+    }
 
     /**
      * 在玩家身边放一只真盖章精英 (相对玩家而非结构: mock 玩家落在世界出生点, 见 AgentWebUiGameTests 同名说明)。

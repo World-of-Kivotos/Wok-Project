@@ -5,6 +5,8 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
+import com.miningdim.champion.AffixDef;
+import com.miningdim.champion.MiningChampionData;
 import com.miningdim.champion.MiningChampions;
 import com.miningdim.job.agent.panel.AgentScanEntry;
 import com.miningdim.job.agent.panel.AgentScanIntel;
@@ -24,6 +26,7 @@ import net.minecraft.world.entity.LivingEntity;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -117,7 +120,8 @@ public final class AgentWebUiActions {
      * 从没被扫过的新怪的活数值 (或高亮) 发给干员 —— 那就是一次免费的新扫描。
      */
     private record ScanTarget(int networkId, UUID entityUuid, double distanceBlocks, String entityTypeId,
-                              String entityNameKey, int posX, int posY, int posZ, AgentScanSnapshot snapshot) {
+                              String entityNameKey, int posX, int posY, int posZ, AgentScanSnapshot snapshot,
+                              BountyKill bountyFacts) {
     }
 
     /**
@@ -292,7 +296,8 @@ public final class AgentWebUiActions {
                     candidate.blockPosition().getX(),
                     candidate.blockPosition().getY(),
                     candidate.blockPosition().getZ(),
-                    snapshot));
+                    snapshot,
+                    bountyFacts(candidate)));
             // 8.1 首次发现经验: 只算真正进了快照的目标 (被硬上限截掉的没"找到", 不给)。去重 / 召唤物排除 /
             // 持久化口径见 AgentDiscoveryXp; 这里只累加, 循环结束后一次入账。
             long claimed = AgentDiscoveryXp.claim(candidate, MiningChampions.get(candidate).orElse(null),
@@ -324,13 +329,10 @@ public final class AgentWebUiActions {
         // 实际入账的有效经验, 与玩家经验条上真涨的数一致。
         long discoveryXp = discoveryRawXp > 0L ? AgentLevels.grantRawXp(sender, discoveryRawXp) : 0L;
 
-        // 刻意不在这里 markActiveAgent。该标志是加强奖励 (每星 600 信用点) 与对精英伤害放大的唯一资格门,
-        // 且一经置位永久保留; 它原本的唯一置位点是"封印成功"(经 SealPlan 要求被动 L3+)。扫描对全员开放且
-        // 职业等级默认 1 级, 在此置位等于把入职门槛降成"站在精英旁边点一次按钮", 特勤专属福利就漏给了
-        // 全服每一个打精英的人 —— 那正是 AgentBountySavedData 立这个标志要防的事。入职仍只认封印成功。
-        // 现状 (同 PR): 击杀精英的干员经验已不再受入职标志门约束 (AgentRewardHandler 那道门已解开), 所以
-        // 新号能靠打精英把等级刷到 L3 再去封印 —— 入职门不再是让人进不来的死锁, 只是一道"要封印才给福利"
-        // 的资格线。
+        // 刻意不在这里 markActiveAgent。该标志是加强奖励与对精英伤害放大的唯一资格门, 且一经置位永久保留;
+        // 置位点只有"接取悬赏成功"与"封印成功"两处。扫描对全员开放且职业等级默认 1 级, 在此置位等于把入职门槛
+        // 降成"站在精英旁边点一次按钮", 特勤专属福利就漏给了全服每一个打精英的人 —— 那正是 AgentBountySavedData
+        // 立这个标志要防的事。L1 想入职, 接一张日常悬赏即可 (2026-09-30 拍板)。
         result.addProperty("scanOnline", true);
         result.addProperty("truncated", truncated);
         result.addProperty("scanCooldownRemainingTicks", (long) cooldownTicks);
@@ -537,6 +539,7 @@ public final class AgentWebUiActions {
         }
         boolean positionUnlocked = AgentScanTier.canDecrypt(pulse.agentLevel(), AgentScanField.GLOWING_HIGHLIGHT);
         boolean refreshesLive = AgentScanSnapshotBuilder.refreshesLive(pulse.agentLevel());
+        boolean radarUnlocked = AgentScanTier.canDecrypt(pulse.agentLevel(), AgentScanField.BOUNTY_RADAR);
         for (ScanTarget target : pulse.targets()) {
             JsonObject json = new JsonObject();
             json.addProperty("targetNetworkId", target.networkId());
@@ -556,8 +559,14 @@ public final class AgentWebUiActions {
                 // 七级拿到穿墙透视。发 JSON null 而不是 0 —— 0 是一个真实存在的坐标。
                 json.add("pos", JsonNull.INSTANCE);
             }
-            // 悬赏雷达 (第四章 L6, AgentScanField.BOUNTY_RADAR) 的逐目标"是否当前悬赏目标"布尔位留在这里: 悬赏
-            // 系统接线时由悬赏侧提供判据, 在此按 BOUNTY_RADAR 解锁等级加一个键 (未解锁发 JSON null)。本轮不发。
+            // 悬赏雷达 (第四章 L6): 该目标此刻能不能推进读者已接的悬赏 (或 L8+ 的世界 BOSS 讨伐令)。判据用脉冲当刻
+            // 记下的目标事实, 对照的是读者<b>现在</b>的悬赏板 —— 扫完再接的悬赏也会亮。未解锁发 JSON null。
+            if (radarUnlocked) {
+                json.addProperty("bountyTarget", target.bountyFacts() != null
+                        && AgentBountyService.isBountyTarget(viewer, target.bountyFacts()));
+            } else {
+                json.add("bountyTarget", JsonNull.INSTANCE);
+            }
             intelJson(target.snapshot().intel(), json);
             if (refreshesLive) {
                 AgentScanLive live = AgentScanSnapshotBuilder.buildLive(pulse.agentLevel(), readLive(viewer, target));
@@ -573,6 +582,22 @@ public final class AgentWebUiActions {
             array.add(json);
         }
         return array;
+    }
+
+    /**
+     * 目标对悬赏有意义的事实 (悬赏雷达用), 脉冲当刻记下: 初始星级、本来带的词条池 (仍挂着的 + 正被封印摘走的,
+     * 与击杀结算同口径)、是否世界 BOSS。qualified 恒 true —— 雷达回答的是"打它算不算", 入池门槛要到击杀时才知道。
+     * 雷达 L6 才解锁, 那时词条早已全解密 (L5), 池集合不泄漏任何面板上看不到的东西。
+     */
+    private static BountyKill bountyFacts(LivingEntity candidate) {
+        MiningChampionData champ = MiningChampions.get(candidate).orElse(null);
+        if (champ == null || !champ.isChampion()) {
+            return null;
+        }
+        EnumSet<AffixDef> affixes = EnumSet.noneOf(AffixDef.class);
+        affixes.addAll(champ.affixes().keySet());
+        affixes.addAll(champ.sealedAffixes().keySet());
+        return new BountyKill(champ.star(), BountyKill.poolsOf(affixes), champ.isWorldBoss(), true);
     }
 
     /**

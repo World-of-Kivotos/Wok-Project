@@ -134,10 +134,16 @@ public final class ChampionFoundationGameTests {
     // 聚合器注册表: 按需创建复用 + clearAll/reset (ChampionEffectRegistries)
     // ============================================================
 
+    /*
+     * 注册表是进程级全局表, 早于本批跑完的其它批次 (精英战斗、DoT 用例) 会在里面留下别的玩家的条目; GameTest 的批次
+     * 执行顺序又会随批次集合变化而变。故两条用例只断言"本用例自己加进去的那几条"(相对进门时的基线), 不假设表是空的。
+     */
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void registriesCreateReuseAndClear(GameTestHelper helper) {
         UUID player = UUID.randomUUID();
         UUID attacker = UUID.randomUUID();
+        int baseline = ChampionEffectRegistries.totalSize();
         try {
             helper.assertTrue(!ChampionEffectRegistries.hasDot(player), "no dot accumulator before access");
             helper.assertTrue(!ChampionEffectRegistries.hasControl(player), "no control aggregator before access");
@@ -160,7 +166,8 @@ public final class ChampionFoundationGameTests {
             helper.assertTrue(Math.abs(ret1.perSecondCap() - 24.0D) < EPS, "retaliation per-second cap = 30% of 80");
             helper.assertTrue(Math.abs(ret1.perWindowCap() - 32.0D) < EPS, "retaliation per-window cap = 40% of 80");
 
-            helper.assertTrue(ChampionEffectRegistries.totalSize() == 3, "three instances registered (dot+control+retaliation)");
+            helper.assertTrue(ChampionEffectRegistries.totalSize() == baseline + 3,
+                    "three instances registered (dot+control+retaliation)");
 
             // clearAll 清该玩家三表 (player 占 dot+control, attacker 占 retaliation)。
             ChampionEffectRegistries.clearAll(player);
@@ -170,7 +177,7 @@ public final class ChampionFoundationGameTests {
 
             ChampionEffectRegistries.clearAll(attacker);
             helper.assertTrue(!ChampionEffectRegistries.hasRetaliation(attacker), "attacker retaliation cleared");
-            helper.assertTrue(ChampionEffectRegistries.totalSize() == 0, "all cleared");
+            helper.assertTrue(ChampionEffectRegistries.totalSize() == baseline, "all of this test's entries cleared");
         } finally {
             ChampionEffectRegistries.reset();
         }
@@ -179,10 +186,11 @@ public final class ChampionFoundationGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void registriesResetClearsAll(GameTestHelper helper) {
+        int baseline = ChampionEffectRegistries.totalSize();
         ChampionEffectRegistries.dotFor(UUID.randomUUID());
         ChampionEffectRegistries.controlFor(UUID.randomUUID());
         ChampionEffectRegistries.retaliationFor(UUID.randomUUID(), 80.0D);
-        helper.assertTrue(ChampionEffectRegistries.totalSize() == 3, "three instances before reset");
+        helper.assertTrue(ChampionEffectRegistries.totalSize() == baseline + 3, "three instances before reset");
         ChampionEffectRegistries.reset();
         helper.assertTrue(ChampionEffectRegistries.totalSize() == 0, "reset clears every table");
         helper.succeed();

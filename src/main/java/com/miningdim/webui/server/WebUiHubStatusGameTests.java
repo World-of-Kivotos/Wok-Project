@@ -27,7 +27,8 @@ import java.util.Set;
  *
  * 强断言 (删被测核心逻辑必挂):
  *  1. hub.panels 恒发 12 条且顺序固定, 域与前端路由表逐条对齐 (quests 已接入, champion 必须叫 codex,
- *     成就点商店叫 achievementShop);
+ *     成就点商店叫 achievementShop)。受门控的 district 只在自管区功能生效时下发 (第 13 条, 排在 case 之后); GameTest
+ *     服务端上功能恒为关闭, 所以这里仍是 12 条 —— 生效那一侧由 DistrictFeatureGameTests 翻状态核对;
  *  2. admin 面板的 enabled 随真实 OP 状态翻转, 且锁上时带 lockCode=NOT_OP、开着时整键缺席;
  *  3. 默认启用任务系统时除 admin 外 11 条恒开且一律不带 lockCode (本批不做等级门/婚姻门);
  *  4. 面板只发 panelId/enabled/lockCode 三个键, route/label/iconItemId 一律不下发 (展示层真源在前端);

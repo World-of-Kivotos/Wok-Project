@@ -1,0 +1,20 @@
+{
+  "required": true,
+  "minVersion": "0.8.5",
+  "package": "com.miningdim.district.mixin.world",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "miningdim.refmap.json",
+  "plugin": "com.miningdim.district.guard.DistrictMixinPlugin",
+  "mixins": [
+    "PistonStructureResolverMixin",
+    "FlowingFluidMixin",
+    "DispenserBlockMixin",
+    "FallingBlockEntityMixin",
+    "SpongeBlockMixin"
+  ],
+  "client": [],
+  "server": [],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

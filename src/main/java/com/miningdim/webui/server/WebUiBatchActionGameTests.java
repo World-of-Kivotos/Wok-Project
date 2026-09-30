@@ -127,7 +127,14 @@ public final class WebUiBatchActionGameTests {
                 "job.miner.scan", "job.tarot.buyPack", "market.buy", "market.cancel", "market.place",
                 "marriage.buyRing", "marriage.divorce", "marriage.propose", "marriage.respond",
                 "marriage.wed", "mining.enter", "mining.leave", "player.prefs.set",
-                "quest.claim", "quest.refresh", "quest.turnIn", "system.batch");
+                "quest.claim", "quest.refresh", "quest.turnIn", "system.batch",
+                // 自管区的 20 条写动作 (District_Backend_Design 17.3; 名字逐条写死: webui 不得依赖 wok-district)。
+                "district.addResident", "district.removeResident", "admin.district.retrySync",
+                "admin.district.setWarden", "admin.district.delete", "district.setPermission",
+                "district.resetPermissions", "plot.setPermission", "plot.resetPermissions", "plot.addFriend",
+                "plot.removeFriend", "plot.create", "plot.resize", "plot.delete", "plot.buy",
+                "admin.district.setPlotPricing", "admin.district.setPurchaseOpen", "admin.plot.unfreeze",
+                "admin.plot.reclaimNow", "plot.restoreFriend");
         for (String action : writes) {
             helper.assertFalse(WebUiBatchAction.isBatchable(action),
                     "写 action " + action + " 绝不许进批 (批内无防重放, 重放即二次副作用)");

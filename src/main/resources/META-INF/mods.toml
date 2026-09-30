@@ -118,3 +118,25 @@ mandatory = false
 versionRange = "[1.1.0.3,)"
 ordering = "AFTER"
 side = "BOTH"
+
+# Flan: 自管区的领地后端 (wok-district, docs/District_Backend_Design.md 20.1)。mandatory=false: 没装 Flan 时服务器照常
+# 启动, 自管区降级 (20.2)。版本门在代码里 (FlanCompat 只认 1.20.1-1.11.16, 不符记 ERROR 并退回 Disabled 网关), 这里刻意
+# 放开成 [0,): 写成精确区间的话, 服主换个 Flan 版本整个服务器就起不来, 而自管区只是一个模块。
+# side=BOTH 的理由同 champions (整合包单人的集成服务端 Dist 为 CLIENT); 只在开服后才碰 Flan, 不需要 ordering。
+# Flan 的 DisplayTest 是 IGNORESERVERVERSION, 客户端不用装。
+[[dependencies.miningdim]]
+modId = "flan"
+mandatory = false
+versionRange = "[0,)"
+ordering = "NONE"
+side = "BOTH"
+
+# 机械动力 (Create): 自管区的机械动力禁令 (wok-district, docs/District_Backend_Design.md 22.1)。只经 @Pseudo mixin 与反射接触,
+# 没有编译期依赖。versionRange 刻意放开成 [0,): 可选依赖装着的版本一旦不在区间内, FML 会拒绝启动整个服务器;
+# 版本核对在代码里 (22.7: 只认 6.0.8, 不符记 WARN, 照常尝试注入)。
+[[dependencies.miningdim]]
+modId = "create"
+mandatory = false
+versionRange = "[0,)"
+ordering = "NONE"
+side = "BOTH"

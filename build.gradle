@@ -65,6 +65,16 @@ minecraft {
         // GameTest 专用 run: Forge GameTest + @GameTestHolder / RegisterGameTestsEvent (设计文档第一章测试栈)
         gameTestServer {
             property 'forge.enabledGameTestNamespaces', mod_id
+            // -PwithoutFlan: 开发运行时不加载 Flan (见 dependencies 里 Flan 一段), 自管区的 GameTest 按它改走无 Flan 的
+            // 分支 (DistrictTestEnv.WITHOUT_FLAN_PROPERTY, docs/District_Backend_Design.md 20.10)。
+            if (project.hasProperty('withoutFlan')) {
+                property 'miningdim.district.withoutFlan', 'true'
+            }
+            // -PcreateJar=<路径>: 偶尔跑一次的离线核对 (docs/District_Backend_Design.md 22.14), 用运行时自带的 ASM 读整合包里的
+            // 机械动力 jar, 核对每个注入点的目标类、方法描述符、影子字段与 INVOKE 目标确实存在。只读那个 jar, 不复制、不进构建。
+            if (project.hasProperty('createJar')) {
+                property 'miningdim.district.createJar', project.property('createJar').toString()
+            }
         }
 
         data {
@@ -83,10 +93,24 @@ minecraft {
 // WARN 并停用该 mixin (Mixin 0.8.5 MixinProcessor.handleMixinError: isRequired() ? ERROR : WARN)。
 // TideOreFishMixin 按 Tide 1.6.5 的 retrieve 签名与私有字段写死, 玩家换个 Tide 版本就会对不上,
 // 放在主配置里等于让整个服务端陪葬。
+//
+// 例外 (Mixin 0.8.5, docs/District_Backend_Design.md 22.7): 注入点匹配数少于 require 时 InjectionInfo.postInject 抛的
+// InjectionError 是 Error, 不是 InvalidMixinException, MixinProcessor 不看 required 直接包成 MixinTransformerError ——
+// 可选配置同样崩服。所以可选配置要么 injectors.defaultRequire = 0 并自己核对织入 (district.create.mixins.json 的做法),
+// 要么接受这一条风险 (compat.mixins.json 的 TideOreFishMixin 仍是 require = 1, 不归自管区模块管)。
+//
+// 自管区的三份 (docs/District_Backend_Design.md 22.1、22.20): district.mixins.json 是原版目标 (活塞、流体、发射器、下落的
+// 方块、海绵), required; district.create.mixins.json 是机械动力目标 (全部 @Pseudo), district.flan.mixins.json 是个人圈地
+// 限制的两个 Flan 目标 (@Pseudo, ClaimStorage.createClaim / resizeClaim 的 HEAD), 都可选, defaultRequire = 0, 织没织进去由
+// DistrictMixinPlugin 数处理方法的调用来核对。两处都要加: 开发运行时读这里, 正式服的 FML 只读 jar 清单的 MixinConfigs,
+// 只改一处就是开发能跑、正式服什么都没加载。
 mixin {
     add sourceSets.main, "${mod_id}.refmap.json"
     config "${mod_id}.mixins.json"
     config "${mod_id}.compat.mixins.json"
+    config "${mod_id}.district.mixins.json"
+    config "${mod_id}.district.create.mixins.json"
+    config "${mod_id}.district.flan.mixins.json"
 }
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
@@ -123,6 +147,19 @@ repositories {
         }
     }
     flatDir { dirs 'libs' }
+    // 开发运行时的 lingua_bib: 从服主批准的 Flan jar 里原样取出的内嵌 jar (见下文 extractFlanDevLibs 与 dependencies 里的说明)。
+    flatDir {
+        name = 'flanDevLibs'
+        dirs layout.buildDirectory.dir('flan-dev-libs')
+    }
+}
+
+// 服主批准的 Flan jar 原样 (不经 deobf), 只给 verifyFlanArtifact 算 SHA1 用; 不参与编译与运行。
+configurations {
+    flanPinned {
+        transitive = false
+        canBeConsumed = false
+    }
 }
 
 dependencies {
@@ -160,6 +197,31 @@ dependencies {
     if (farmersDelightDevJar.exists()) {
         runtimeOnly fg.deobf("local:FarmersDelight-1.20.1:1.3.2")
     }
+
+    // Flan 1.20.1-1.11.16 (Forge): 自管区的领地后端 (docs/District_Backend_Design.md 20.1)。
+    //   坐标用 Modrinth 版本 id (不可变), 不用版本号 (Modrinth 上版本号不保证唯一)。
+    //   Modrinth maven 不给 .sha1, Gradle 无从校验: verifyFlanArtifact 钉死服主批准的那个文件的 SHA1。
+    //   fg.deobf: Flan 自己的名字没有混淆, 但 jar 里引用的 Minecraft 成员是 SRG 名, deobf 后编译期与开发运行期一致。
+    //   不进 jarJar、不打进产物: 正式服由服主自己装 (mods.toml 里 mandatory=false, 没装时自管区降级)。
+    //
+    //   开发运行时 (runGameTestServer 等) 也加载同一个 jar, 真 Flan 的 GameTest 靠它 (20.1 探路结果与出路 ③):
+    //   - 只加 Flan 的话, FML 会把它用 JarJar 内嵌的 lingua_bib-1.20.1-1.0.6 原样 (SRG 名, 不经 deobf) 解出来加载:
+    //     PlayerListMixin 的 @Shadow f_11195_ 找不到, ServerLangManager 覆写的是 m_5944_ / m_5787_, 服务端起不来
+    //     (2026-09-29 探路 S3; 而 runGameTestServer 照样报 BUILD SUCCESSFUL, 判断一律看日志里的汇总行)。
+    //   - 出路 ③: 把同一个内嵌 jar 原样取出 (extractFlanDevLibs, 取之前核对 Flan jar 的 SHA1, 取出后核对内嵌 jar 的
+    //     SHA1), 与 Flan 一样经 fg.deobf 作为开发运行时的根 mod 加载。FML 的 JarSelector 见到同 modId 的根 mod 就不再
+    //     加载内嵌的那份 ("Attempted to select a dependency jar for JarJar which was passed in as source")。
+    //     批准的 Flan jar 一个字节都不改, 也不从别处引入构件; 取出的 jar 只在 build/ 里, 不进产物、不分发。
+    //   -PwithoutFlan: 开发运行时不加载这两个 jar, 核对没有 Flan 的生产路径 (自管区降级为 Disabled)。真 Flan 的用例由
+    //     FlanRealGameTests 先查 Flan 在不在位再调用例体 (holder 的签名里没有 Flan 类型, 没有 Flan 也登记得了), 这一轮里
+    //     按 miningdim.district.withoutFlan 算通过。服主要否决出路 ③ 时删掉这两行与 extractFlanDevLibs 即可: 服务端照常
+    //     起来, 真 Flan 的用例与两处"开发运行时有 Flan"的断言在各自的门口失败, 其余照常通过 (20.10)。
+    compileOnly fg.deobf('maven.modrinth:flan:Gh42Sknw')
+    if (!project.hasProperty('withoutFlan')) {
+        runtimeOnly fg.deobf('maven.modrinth:flan:Gh42Sknw')
+        runtimeOnly fg.deobf('local:lingua_bib:1.20.1-1.0.6-forge')
+    }
+    flanPinned 'maven.modrinth:flan:Gh42Sknw'
 
     // Optional in production; when the audited 1.1.0.3 jar is present, load it in dev so chef
     // seasoning tags and the MobEffect blacklist are exercised against the real registry.
@@ -200,7 +262,9 @@ tasks.named('jar', Jar).configure {
             'Implementation-Title'    : project.name,
             'Implementation-Version'  : project.jar.archiveVersion,
             'Implementation-Vendor'   : mod_authors,
-            'MixinConfigs'            : "${mod_id}.mixins.json,${mod_id}.compat.mixins.json",
+            'MixinConfigs'            : "${mod_id}.mixins.json,${mod_id}.compat.mixins.json," +
+                    "${mod_id}.district.mixins.json,${mod_id}.district.create.mixins.json," +
+                    "${mod_id}.district.flan.mixins.json",
         ])
     }
     finalizedBy 'reobfJar'
@@ -241,6 +305,116 @@ tasks.matching { it.name == 'runGameTestServer' }.configureEach {
             }
         }
     }
+}
+
+// Flan 构件钉死 (docs/District_Backend_Design.md 20.1): Modrinth maven 不发 .sha1, Gradle 解析时无从校验,
+// 这里对原始 jar 算 SHA1, 与服主批准的那个文件比对, 不符就让构建失败。compileJava 依赖它, 所以编译前一定核对过。
+// 写法照 verifyModuleRegistry: 配置期捕获局部变量, 输出一个成功戳记。不开全局 verification-metadata.xml
+// (那要给全部依赖补校验和, 面太大)。
+def flanApprovedSha1 = 'be83187dd6717029930e8ca7c1109f4bcd5cf870'
+
+tasks.register('verifyFlanArtifact') {
+    group = 'verification'
+    description = 'Checks that the resolved Flan jar is the owner-approved file (SHA1 pinned).'
+
+    def expectedSha1 = flanApprovedSha1
+    def flanFiles = configurations.flanPinned
+    def stampFile = layout.buildDirectory.file('flan-artifact-verified.txt')
+    inputs.files(flanFiles)
+    outputs.file(stampFile)
+
+    doLast {
+        def jars = flanFiles.files.findAll { it.name.endsWith('.jar') }
+        if (jars.size() != 1) {
+            throw new GradleException("verifyFlanArtifact: expected exactly one Flan jar, got ${jars*.name}")
+        }
+        def jar = jars.first()
+        def digest = java.security.MessageDigest.getInstance('SHA-1')
+        jar.withInputStream { stream ->
+            byte[] buffer = new byte[65536]
+            int read
+            while ((read = stream.read(buffer)) > 0) {
+                digest.update(buffer, 0, read)
+            }
+        }
+        def actual = digest.digest().encodeHex().toString()
+        if (actual != expectedSha1) {
+            throw new GradleException("verifyFlanArtifact: ${jar.name} has SHA1 ${actual}, expected the approved " +
+                    "flan-1.20.1-1.11.16-forge.jar (${expectedSha1}); refusing to build against an unapproved Flan")
+        }
+        def summary = "Verified Flan artifact ${jar.name}: SHA1 ${actual} (${jar.length()} bytes)"
+        def stamp = stampFile.get().asFile
+        stamp.parentFile.mkdirs()
+        stamp.setText(summary + '\n', 'UTF-8')
+        logger.lifecycle(summary)
+    }
+}
+tasks.named('compileJava').configure {
+    dependsOn tasks.named('verifyFlanArtifact')
+}
+
+// 开发运行时的 lingua_bib (出路 ③, 见 dependencies 里 Flan 一段的说明): 从服主批准的 Flan jar 里原样取出内嵌的
+// META-INF/jars/lingua_bib-1.20.1-1.0.6-forge.jar, 放进 build/flan-dev-libs (flatDir 仓库 flanDevLibs), 供
+// runtimeOnly fg.deobf('local:lingua_bib:...') 解析。取之前核对 Flan jar 的 SHA1, 取出后核对内嵌 jar 的 SHA1, 任一不符
+// 就让构建失败; 已取出且 SHA1 相符时什么都不做。
+//
+// 挂在每个配置解析之前 (beforeResolve), flanPinned 自己除外 (取文件要解析它):
+// - 不能在配置期取: 配置期解析 flanPinned 会用到 FG 的 deobf 仓库, FG 之后 (afterEvaluate) 再改它就报
+//   "Cannot mutate content repository descriptor ... after repository has been used" (实测)。
+// - 不能只挂 runtimeClasspath: FG 的 deobf 仓库解析任何一个配置时都会连带去找全部 fg.deobf 构件的原始 jar
+//   (实测解析 compileClasspath 就会找 lingua_bib)。
+// - 每次都查文件在不在: clean 与 runGameTestServer 同一次执行时, 先前取出的文件会被 clean 删掉。
+def flanDevLibsDir = layout.buildDirectory.dir('flan-dev-libs')
+def flanPinnedFiles = configurations.flanPinned
+def extractFlanDevLibs = {
+    def entryPath = 'META-INF/jars/lingua_bib-1.20.1-1.0.6-forge.jar'
+    def expectedSha1 = '844f0315513541c2f55f8def0295e8d88b767b44'
+    def sha1Of = { File file ->
+        def digest = java.security.MessageDigest.getInstance('SHA-1')
+        file.withInputStream { stream ->
+            byte[] buffer = new byte[65536]
+            int read
+            while ((read = stream.read(buffer)) > 0) {
+                digest.update(buffer, 0, read)
+            }
+        }
+        digest.digest().encodeHex().toString()
+    }
+    def dir = flanDevLibsDir.get().asFile
+    def target = new File(dir, 'lingua_bib-1.20.1-1.0.6-forge.jar')
+    if (target.isFile() && sha1Of(target) == expectedSha1) {
+        return
+    }
+    def jars = flanPinnedFiles.files.findAll { it.name.endsWith('.jar') }
+    if (jars.size() != 1) {
+        throw new GradleException("extractFlanDevLibs: expected exactly one Flan jar, got ${jars*.name}")
+    }
+    def flanJar = jars.first()
+    if (sha1Of(flanJar) != flanApprovedSha1) {
+        throw new GradleException("extractFlanDevLibs: ${flanJar.name} is not the approved Flan jar " +
+                "(${flanApprovedSha1}); refusing to extract anything from it")
+    }
+    dir.mkdirs()
+    def temp = new File(dir, target.name + '.tmp')
+    new java.util.zip.ZipFile(flanJar).withCloseable { zip ->
+        def entry = zip.getEntry(entryPath)
+        if (entry == null) {
+            throw new GradleException("extractFlanDevLibs: ${flanJar.name} has no ${entryPath}")
+        }
+        zip.getInputStream(entry).withCloseable { input ->
+            temp.withOutputStream { output -> output << input }
+        }
+    }
+    def actual = sha1Of(temp)
+    if (actual != expectedSha1) {
+        temp.delete()
+        throw new GradleException("extractFlanDevLibs: ${entryPath} has SHA1 ${actual}, expected ${expectedSha1}")
+    }
+    java.nio.file.Files.move(temp.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+    logger.lifecycle("Extracted ${entryPath} from the approved Flan jar for the dev runtime (SHA1 ${actual})")
+}
+configurations.matching { it.name != 'flanPinned' }.configureEach {
+    incoming.beforeResolve { extractFlanDevLibs() }
 }
 
 // WOK 仓库模块登记表校验。第一阶段仍交付单 JAR，但模块 ID、依赖引用和依赖方向必须保持可检查，
@@ -530,6 +704,12 @@ tasks.register('verifyModuleBoundaries') {
             // 去掉块注释和行注释，既检查 import，也检查生产代码里直接书写的全限定类名。
             def code = raw.replaceAll(/(?s)\/\*.*?\*\//, '')
                     .replaceAll(/(?m)\/\/.*$/, '')
+
+            // Flan 是 compileOnly 的可选依赖 (docs/District_Backend_Design.md 20.1): 只有 district/flan/real 能引用它的
+            // 包。别处一旦 import, 没装 Flan 的服务器在加载那个类时就会 NoClassDefFoundError, 自检与降级都来不及拦。
+            if (code.contains('io.github.flemmli97.flan') && !relativePath.startsWith('com/miningdim/district/flan/real/')) {
+                violations << "${reportedPath}: only com.miningdim.district.flan.real may reference io.github.flemmli97.flan (Flan is an optional compileOnly dependency)"
+            }
             def references = code =~ /com\.miningdim(?:\.[A-Za-z_][A-Za-z0-9_]*)+/
             def targetModules = new HashSet<String>()
             references.each { match ->

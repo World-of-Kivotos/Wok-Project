@@ -157,6 +157,48 @@ public final class ModDependencyDeclarationGameTests {
         helper.succeed();
     }
 
+    /**
+     * Flan (自管区的领地后端, docs/District_Backend_Design.md 20.1): mandatory=false (没装时服务器照常启动, 自管区降级),
+     * 版本区间刻意放开成 [0,) —— 版本门在代码里 (FlanCompat 只认 1.20.1-1.11.16), 写成精确区间的话服主换个 Flan 版本
+     * 整个服务器就起不来。反例: 把区间改成 [1.20.1-1.11.16], 1.20.1-1.12.0 不再被包含, 此处必挂。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void modsTomlDeclaresFlanAsAnOpenOptionalDependency(GameTestHelper helper) {
+        IModInfo.ModVersion flan = findDependency("flan");
+        helper.assertTrue(!flan.isMandatory(), "mods.toml 的 flan 依赖必须 mandatory=false");
+        helper.assertTrue(flan.getOrdering() == IModInfo.Ordering.NONE,
+                "flan 只在开服后才被碰, ordering 应为 NONE, 实际读到 " + flan.getOrdering());
+        helper.assertTrue(flan.getSide() == IModInfo.DependencySide.BOTH,
+                "flan 依赖 side 应为 BOTH (理由同 champions), 实际读到 " + flan.getSide());
+        VersionRange range = flan.getVersionRange();
+        helper.assertTrue(range.containsVersion(new DefaultArtifactVersion("1.20.1-1.11.16"))
+                        && range.containsVersion(new DefaultArtifactVersion("1.20.1-1.12.0"))
+                        && range.containsVersion(new DefaultArtifactVersion("1.20.1-1.11.15")),
+                "flan versionRange " + range + " 必须放开 (版本门在代码里), 不能因为换了 Flan 版本就拒绝启动");
+        helper.succeed();
+    }
+
+    /**
+     * 机械动力 (自管区的机械动力禁令, docs/District_Backend_Design.md 22.1): 只经 @Pseudo mixin 与反射接触, mandatory=false;
+     * 版本区间刻意放开成 [0,) —— 版本核对在代码里 (22.7, 只认 6.0.8, 不符记 WARN), 写成精确区间的话服主换个机械动力版本
+     * 整个服务器就起不来。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void modsTomlDeclaresCreateAsAnOpenOptionalDependency(GameTestHelper helper) {
+        IModInfo.ModVersion create = findDependency("create");
+        helper.assertTrue(!create.isMandatory(), "mods.toml 的 create 依赖必须 mandatory=false");
+        helper.assertTrue(create.getOrdering() == IModInfo.Ordering.NONE,
+                "create 只经 mixin 与开服后的反射接触, ordering 应为 NONE, 实际读到 " + create.getOrdering());
+        helper.assertTrue(create.getSide() == IModInfo.DependencySide.BOTH,
+                "create 依赖 side 应为 BOTH (理由同 champions), 实际读到 " + create.getSide());
+        VersionRange range = create.getVersionRange();
+        helper.assertTrue(range.containsVersion(new DefaultArtifactVersion("6.0.8"))
+                        && range.containsVersion(new DefaultArtifactVersion("6.0.9"))
+                        && range.containsVersion(new DefaultArtifactVersion("0.5.1.j")),
+                "create versionRange " + range + " 必须放开 (版本核对在代码里), 不能因为换了机械动力版本就拒绝启动");
+        helper.succeed();
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void jadeProvidersHaveRequiredConfigTranslations(GameTestHelper helper) throws IOException {
         for (String language : List.of("en_us", "zh_cn")) {

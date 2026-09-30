@@ -1,0 +1,64 @@
+package com.miningdim.district.core;
+
+import com.miningdim.webui.server.WebUiErrorCodes;
+
+/**
+ * 自管区的业务拒绝码 (设计文档第十五章)。wire 值直接引用 {@link WebUiErrorCodes} 的常量: 那张表是全仓共用的对外契约,
+ * 码名发布后就冻结; 服务层与平板层因此永远发同一个码。
+ */
+public enum DistrictError {
+    DISTRICT_NOT_FOUND(WebUiErrorCodes.DISTRICT_NOT_FOUND),
+    PLOT_NOT_FOUND(WebUiErrorCodes.PLOT_NOT_FOUND),
+    PERMISSION_DENIED(WebUiErrorCodes.PERMISSION_DENIED),
+    INVALID_REQUEST(WebUiErrorCodes.INVALID_REQUEST),
+    INVALID_PLAYER_NAME(WebUiErrorCodes.INVALID_PLAYER_NAME),
+    ALREADY_RESIDENT(WebUiErrorCodes.ALREADY_RESIDENT),
+    RESIDENT_ELSEWHERE(WebUiErrorCodes.RESIDENT_ELSEWHERE),
+    PLAYER_NEVER_JOINED(WebUiErrorCodes.PLAYER_NEVER_JOINED),
+    REASON_REQUIRED(WebUiErrorCodes.REASON_REQUIRED),
+    NOT_RESIDENT(WebUiErrorCodes.NOT_RESIDENT),
+    RESIDENT_IS_WARDEN(WebUiErrorCodes.RESIDENT_IS_WARDEN),
+    SYNC_NOTHING_TO_RETRY(WebUiErrorCodes.SYNC_NOTHING_TO_RETRY),
+    SYNC_RETRY_FAILED(WebUiErrorCodes.SYNC_RETRY_FAILED),
+    WARDEN_NOT_APPOINTED(WebUiErrorCodes.WARDEN_NOT_APPOINTED),
+    ALREADY_WARDEN(WebUiErrorCodes.ALREADY_WARDEN),
+    PERMISSION_ITEM_UNKNOWN(WebUiErrorCodes.PERMISSION_ITEM_UNKNOWN),
+    REGION_RULE_NOT_IN_PLOT(WebUiErrorCodes.REGION_RULE_NOT_IN_PLOT),
+    PLOT_FROZEN(WebUiErrorCodes.PLOT_FROZEN),
+    PLOT_VACANT(WebUiErrorCodes.PLOT_VACANT),
+    FRIEND_IS_OWNER(WebUiErrorCodes.FRIEND_IS_OWNER),
+    ALREADY_FRIEND(WebUiErrorCodes.ALREADY_FRIEND),
+    FRIEND_LIMIT_REACHED(WebUiErrorCodes.FRIEND_LIMIT_REACHED),
+    FRIEND_NOT_FOUND(WebUiErrorCodes.FRIEND_NOT_FOUND),
+    FRIEND_NOT_SUSPENDED(WebUiErrorCodes.FRIEND_NOT_SUSPENDED),
+    INVALID_AREA(WebUiErrorCodes.INVALID_AREA),
+    OUT_OF_DISTRICT(WebUiErrorCodes.OUT_OF_DISTRICT),
+    TOO_CLOSE_TO_EDGE(WebUiErrorCodes.TOO_CLOSE_TO_EDGE),
+    SIZE_OUT_OF_RANGE(WebUiErrorCodes.SIZE_OUT_OF_RANGE),
+    OVERLAPS_PLOT(WebUiErrorCodes.OVERLAPS_PLOT),
+    PLOT_OCCUPIED(WebUiErrorCodes.PLOT_OCCUPIED),
+    PLOT_AREA_UNCHANGED(WebUiErrorCodes.PLOT_AREA_UNCHANGED),
+    ALREADY_OWNS_PLOT(WebUiErrorCodes.ALREADY_OWNS_PLOT),
+    HAS_FROZEN_PLOT(WebUiErrorCodes.HAS_FROZEN_PLOT),
+    PURCHASE_CLOSED(WebUiErrorCodes.PURCHASE_CLOSED),
+    PRICE_CHANGED(WebUiErrorCodes.PRICE_CHANGED),
+    PLOT_CHANGED(WebUiErrorCodes.PLOT_CHANGED),
+    INSUFFICIENT_FUNDS(WebUiErrorCodes.INSUFFICIENT_FUNDS),
+    ECONOMY_OFFLINE(WebUiErrorCodes.ECONOMY_OFFLINE),
+    INVALID_PRICE(WebUiErrorCodes.INVALID_PRICE),
+    INVALID_SIZE_LIMIT(WebUiErrorCodes.INVALID_SIZE_LIMIT),
+    PLOT_NOT_FROZEN(WebUiErrorCodes.PLOT_NOT_FROZEN),
+    FORMER_OWNER_NOT_RESIDENT(WebUiErrorCodes.FORMER_OWNER_NOT_RESIDENT),
+    STORE_FAILED(WebUiErrorCodes.STORE_FAILED);
+
+    private final String wire;
+
+    DistrictError(String wire) {
+        this.wire = wire;
+    }
+
+    /** 下发给前端的码。 */
+    public String wire() {
+        return wire;
+    }
+}

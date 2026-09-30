@@ -23,8 +23,9 @@ import org.slf4j.LoggerFactory;
  *
  * 接线点:
  *  - 集成层装配: 经 {@code AgentIntegrationBootstrap.assemble} 挂封印/奖励/伤害加成 handler + bind 封印接缝。
- *  - 生命周期清理: ServerStoppingEvent 清纯逻辑封印账本 ({@link SealRegistry#reset}) + 经接缝清执行侧词条快照,
- *    防跨存档脏引用 (执行侧快照清理经 {@link AgentSealSeam})。
+ *  - 生命周期清理: ServerStoppingEvent 清纯逻辑封印账本 ({@link SealRegistry#reset}) + 经接缝清执行侧封印 tick
+ *    索引, 防跨存档脏引用 (执行侧清理经 {@link AgentSealSeam})。被封词条本身随精英 capability 存盘, 重启后由集成层
+ *    在精英入世时对账恢复, 不靠这里。
  *
  * 等级/经验数据: 走共享职业框架 capability (JobProgress, JobId.AGENT), 不新挂 capability (与军火商同范式)。
  * 悬赏进度/周青辉石软上限: 走自有 {@link AgentBountySavedData} (overworld 持久层, 按 ownerUUID), 与经验态解耦;
@@ -55,18 +56,19 @@ public final class AgentSystem implements Subsystem {
     }
 
     /**
-     * 服务端停止: 清纯逻辑层封印账本 ({@link SealRegistry#reset}) + 经接缝清执行侧词条快照,
-     * 防跨存档/跨重启脏引用。AgentBountySavedData 是 overworld 持久层 (随存档落盘), 不在此 reset。
+     * 服务端停止: 清纯逻辑层封印账本 ({@link SealRegistry#reset}) + 经接缝清执行侧封印 tick 索引,
+     * 防跨存档/跨重启脏引用。AgentBountySavedData 是 overworld 持久层 (随存档落盘), 不在此 reset; 被封词条同理
+     * 在各精英 capability 里随存档落盘, 不在此清。
      *
      * 不再调用 {@code AgentSealSeam.unbind()} (F024 复核修复): bind 只在 mod 构造期跑一次, 而
      * ServerStopping 解绑后没有任何重新绑定的入口 —— 单人退出世界再进另一个存档时接缝就会恒为未绑定,
      * 扫描/封印永久离线。接缝里只存三个静态方法引用, 不含任何世界/存档状态, 没有跨存档脏引用可言;
-     * 真正需要清的执行侧词条快照已由 {@link AgentSealSeam#onServerStopping()} 回调清掉。
+     * 真正需要清的执行侧封印 tick 索引已由 {@link AgentSealSeam#onServerStopping()} 回调清掉。
      */
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         SealRegistry.reset();
-        AgentSealSeam.onServerStopping(); // 经接缝清执行侧原词条快照。
+        AgentSealSeam.onServerStopping(); // 经接缝清执行侧封印 tick 索引。
     }
 
     /**

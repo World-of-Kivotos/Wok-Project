@@ -22,6 +22,7 @@ import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
@@ -33,6 +34,7 @@ import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -65,6 +67,10 @@ import java.util.UUID;
  *     OK, 移速一格未变)。
  *  8. 世界 BOSS 封印到期恢复: 恢复只动词条表, 不得像整份重新盖章那样洗掉世界 BOSS 标记 (击倒公告与十星弑神从此失效)
  *     或改写当前血量。
+ *  9. 被封词条随精英 capability 持久化: 封印窗口内服务端重启、封完让区块卸载超过恢复宽限期, 都不得把被封词条永久
+ *     剥掉 (旧版恢复源只在进程内存, 两条路径都会让精英永久削弱却仍按初始星级发全额奖励池)。重载路径用"取实体存档
+ *     NBT -> discard -> 新实体 load 同一份 NBT -> addFreshEntity 入世"模拟, 与区块载入走同一条 Entity.load 反序列化
+ *     capability 的路径, 入世事件经真实事件总线派发到已注册的 {@link AgentSealHandler}。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -72,6 +78,8 @@ public final class AgentChampionIntegrationGameTests {
 
     private static final String EMPTY = "empty";
     private static final String BATCH = "agent_integration";
+    /** {@link MiningChampionData} 的被封词条 NBT 键 (存档格式契约, 改名即旧存档里封印中的精英读不回恢复源)。 */
+    private static final String SEALED_AFFIXES_KEY = "sealed_affixes";
 
     // ============================================================
     // 1. F024 扫描打通: 读自研 capability + 生存池过滤 + 技能池归类
@@ -151,8 +159,8 @@ public final class AgentChampionIntegrationGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void expiredSealRestoresIncrementalSnapshotWithoutReplayingConsumedAffixes(GameTestHelper helper) {
-        // 全局静态账本防污染 (同范式 AgentGameTests.sealRegistryTeardownNoLeak): 本条要断言 snapshotCount()==0,
-        // 先清掉本文件其它用例 (如上一条只封不撤) 遗留的快照, 保证本条只看得到自己制造的那一条。
+        // 全局静态索引防污染 (同范式 AgentGameTests.sealRegistryTeardownNoLeak): 本条要断言 trackedCount()==0,
+        // 先清掉本文件其它用例 (如上一条只封不撤) 遗留的 tick 索引, 保证本条只看得到自己制造的那一条。
         AgentSealExecutor.reset();
 
         ServerPlayer agent = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -184,8 +192,10 @@ public final class AgentChampionIntegrationGameTests {
         helper.assertTrue(champ.has(AffixDef.BURNING) && champ.quality(AffixDef.BURNING) == burningQualityBeforeSeal,
                 "到期后 BURNING 必须按增量快照真恢复且品质与封印前一致 (写死矿洞维度或'找不到实体就 discard' "
                         + "都会使本条挂), 实得 " + (champ.has(AffixDef.BURNING) ? champ.quality(AffixDef.BURNING) : "缺失"));
-        helper.assertTrue(AgentSealExecutor.snapshotCount() == 0,
-                "恢复后执行侧快照必须已清, 实得 " + AgentSealExecutor.snapshotCount());
+        helper.assertTrue(AgentSealExecutor.trackedCount() == 0,
+                "恢复后执行侧 tick 索引必须已清, 实得 " + AgentSealExecutor.trackedCount());
+        helper.assertTrue(!champ.hasSealedAffixes(),
+                "恢复后 capability 里的被封词条登记必须已取走, 否则下次入世对账会再合并一次, 实得 " + champ.sealedAffixes());
         helper.assertTrue(!champ.has(AffixDef.ELECTRO_CHARGE),
                 "增量恢复只补被封的那几条; 若整份覆盖, 窗口内已被别处摘除的技能词条会被重新装回 (可重复触发漏洞)");
 
@@ -457,10 +467,285 @@ public final class AgentChampionIntegrationGameTests {
                             + champ.currentHp() + " (应为 " + wounded + ")");
         } finally {
             SealRegistry.discard(boss.getUUID());
-            AgentSealExecutor.discard(boss.getUUID());
+            AgentSealExecutor.untrack(boss.getUUID());
             boss.discard();
         }
         helper.succeed();
+    }
+
+    // ============================================================
+    // 9. 被封词条随精英 capability 持久化: 重启 / 卸载超过宽限期 / 隐藏区块都不再永久丢词条
+    // ============================================================
+
+    /** capability 本身: 被封词条登记随 NBT 往返原样带回, 取走即清, 重新盖章即清, 无登记不写键。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void championSealedAffixesRoundTripThroughNbt(GameTestHelper helper) {
+        Map<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
+        affixes.put(AffixDef.BURNING, AffixQuality.RARE);
+        affixes.put(AffixDef.ELECTRO_CHARGE, AffixQuality.UNCOMMON);
+        affixes.put(AffixDef.REGEN_TISSUE, AffixQuality.COMMON);
+        MiningChampionData data = new MiningChampionData();
+        data.promote(5, affixes, 500.0D);
+        helper.assertTrue(!data.serializeNBT().contains(SEALED_AFFIXES_KEY),
+                "无被封词条的冠军不得写 " + SEALED_AFFIXES_KEY + " 键 (每只冠军都挂本 capability, 防 NBT 膨胀)");
+
+        // 与 AgentSealExecutor.sealAffix 同一对动作: 摘词条 + 登记原品质。
+        data.removeAffix(AffixDef.BURNING);
+        data.recordSealedAffix(AffixDef.BURNING, AffixQuality.RARE);
+        data.removeAffix(AffixDef.ELECTRO_CHARGE);
+        data.recordSealedAffix(AffixDef.ELECTRO_CHARGE, AffixQuality.UNCOMMON);
+
+        CompoundTag tag = data.serializeNBT();
+        helper.assertTrue(tag.contains(SEALED_AFFIXES_KEY), "封印窗口内的冠军必须把被封词条写进 NBT");
+        MiningChampionData restored = new MiningChampionData();
+        restored.deserializeNBT(tag);
+        helper.assertTrue(restored.sealedAffixes().equals(Map.of(
+                        AffixDef.BURNING, AffixQuality.RARE, AffixDef.ELECTRO_CHARGE, AffixQuality.UNCOMMON)),
+                "NBT 往返必须原样带回被封词条及其原品质 (删掉 sealed_affixes 的写或读, 重启后恢复源即为空), 实得 "
+                        + restored.sealedAffixes());
+        helper.assertTrue(!restored.has(AffixDef.BURNING) && !restored.has(AffixDef.ELECTRO_CHARGE)
+                        && restored.quality(AffixDef.REGEN_TISSUE) == AffixQuality.COMMON,
+                "存盘态就是封印中态: 被封词条不在词条表里, 未封词条原样, 实得 " + restored.affixes());
+
+        Map<AffixDef, AffixQuality> taken = restored.takeSealedAffixes();
+        helper.assertTrue(taken.size() == 2 && !restored.hasSealedAffixes() && restored.takeSealedAffixes().isEmpty(),
+                "取走即清: 第二次取必须为空, 否则多条恢复路径会重复合并, 实得第一次 " + taken);
+        helper.assertTrue(!restored.serializeNBT().contains(SEALED_AFFIXES_KEY), "取走后再存盘不得残留 sealed_affixes 键");
+
+        data.promote(5, affixes, 500.0D);
+        helper.assertTrue(!data.hasSealedAffixes(),
+                "重新盖章是一只新冠军, 旧词条表的封印登记必须清空, 否则到期会被合并进新词条表凭空多出词条");
+        helper.succeed();
+    }
+
+    /** 封印窗口内服务端重启: 进程内封印账本与 tick 索引全丢, 精英重新载入时必须按原品质恢复。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sealedAffixesSurviveServerRestartAndRestoreOnRejoin(GameTestHelper helper) {
+        ServerPlayer agent = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setAgentLevel(agent, 5);
+        Zombie champion = helper.spawn(EntityType.ZOMBIE, new BlockPos(0, 1, 0));
+        Map<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
+        affixes.put(AffixDef.BURNING, AffixQuality.RARE);
+        affixes.put(AffixDef.ELECTRO_CHARGE, AffixQuality.UNCOMMON);
+        ChampionPromoter.applyChampion(champion, 5, affixes);
+        UUID championId = champion.getUUID();
+
+        AgentSealHandler.Result sealed = AgentSealHandler.requestSeal(agent, champion, "BURNING");
+        helper.assertTrue(sealed.ok(), "前提: 封印必须成功, 实得 " + sealed.reason());
+
+        CompoundTag saved = saveAndUnload(champion);
+        // 停服: 与 AgentSystem.onServerStopping 同一组清理, 进程内的封印账本与 tick 索引全部清空。
+        SealRegistry.reset();
+        AgentSealExecutor.reset();
+        helper.assertTrue(!AgentSealExecutor.isTracked(championId), "前提: 重启后 tick 索引里已没有这只精英");
+
+        Zombie reloaded = reload(helper, saved);
+        try {
+            MiningChampionData after = MiningChampions.get(reloaded).orElseThrow();
+            helper.assertTrue(after.quality(AffixDef.BURNING) == AffixQuality.RARE,
+                    "重启后精英入世时必须按原品质恢复 BURNING (旧版恢复源只在进程内存, 重启即永久丢词条), 实得 "
+                            + after.affixes());
+            helper.assertTrue(after.quality(AffixDef.ELECTRO_CHARGE) == AffixQuality.UNCOMMON && after.star() == 5,
+                    "未封词条与星级原样, 实得 star=" + after.star() + " " + after.affixes());
+            helper.assertTrue(!after.hasSealedAffixes(), "恢复后登记必须已取走, 实得 " + after.sealedAffixes());
+        } finally {
+            reloaded.discard();
+        }
+        helper.succeed();
+    }
+
+    /** 封完让区块卸载超过恢复宽限期: 到期 tick 只删索引, 精英重新载入时仍按 capability 恢复, 不再永久丢失。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sealIndexDroppedPastGraceStillRestoresWhenChunkReloads(GameTestHelper helper) {
+        Zombie champion = helper.spawn(EntityType.ZOMBIE, new BlockPos(0, 1, 0));
+        Map<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
+        affixes.put(AffixDef.BURNING, AffixQuality.RARE);
+        affixes.put(AffixDef.ELECTRO_CHARGE, AffixQuality.UNCOMMON);
+        ChampionPromoter.applyChampion(champion, 5, affixes);
+        MiningChampionData champ = MiningChampions.get(champion).orElseThrow();
+        UUID championId = champion.getUUID();
+        ServerLevel level = helper.getLevel();
+
+        // 直接走执行层并把索引保留截止 tick 设为此刻: 等价于封印窗口早已结束、宽限期也已耗尽, 不必真推进 24000 tick
+        // (改全局 gameTime 会打乱整批 GameTest 的超时计时)。SealRegistry 里没有这只精英的活跃封印, 与窗口已过一致。
+        helper.assertTrue(AgentSealExecutor.sealAffix(champion, champ, AffixDef.BURNING, level.getGameTime()),
+                "前提: 执行层封印必须真移除 BURNING");
+
+        CompoundTag saved = saveAndUnload(champion); // 区块卸载: 实体随区块存盘离场, 到期 tick 再也找不到它。
+        AgentSealHandler.processExpiredSeals(level.getServer());
+        helper.assertTrue(!AgentSealExecutor.isTracked(championId),
+                "过了宽限期仍找不到实体时只删 tick 索引 (旧版在这里连同恢复源一起丢弃, 词条从此永久消失)");
+
+        Zombie reloaded = reload(helper, saved);
+        try {
+            MiningChampionData after = MiningChampions.get(reloaded).orElseThrow();
+            helper.assertTrue(after.quality(AffixDef.BURNING) == AffixQuality.RARE,
+                    "区块重新载入时必须按 capability 里的登记恢复 BURNING, 而不是因索引过期永久丢失, 实得 "
+                            + after.affixes());
+            helper.assertTrue(after.quality(AffixDef.ELECTRO_CHARGE) == AffixQuality.UNCOMMON && !after.hasSealedAffixes(),
+                    "未封词条原样且登记已取走, 实得 " + after.affixes() + " / " + after.sealedAffixes());
+        } finally {
+            reloaded.discard();
+        }
+        helper.succeed();
+    }
+
+    /** 封印窗口内卸载重载 (或跨维度): 入世对账不得提前恢复, 只按新位置重新登记索引, 到期再由 tick 恢复。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void rejoinInsideSealWindowKeepsSealUntilExpiry(GameTestHelper helper) {
+        ServerPlayer agent = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setAgentLevel(agent, 5);
+        Zombie champion = helper.spawn(EntityType.ZOMBIE, new BlockPos(0, 1, 0));
+        Map<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
+        affixes.put(AffixDef.BURNING, AffixQuality.COMMON);
+        affixes.put(AffixDef.ELECTRO_CHARGE, AffixQuality.COMMON);
+        ChampionPromoter.applyChampion(champion, 5, affixes);
+        UUID championId = champion.getUUID();
+
+        AgentSealHandler.Result sealed = AgentSealHandler.requestSeal(agent, champion, "BURNING");
+        helper.assertTrue(sealed.ok(), "前提: 封印必须成功, 实得 " + sealed.reason());
+
+        CompoundTag saved = saveAndUnload(champion);
+        // 旧索引作废 (跨维度后旧维度的索引同样找不到人): 入世对账必须自己把它重新登记回来。
+        AgentSealExecutor.untrack(championId);
+        Zombie reloaded = reload(helper, saved);
+        try {
+            MiningChampionData after = MiningChampions.get(reloaded).orElseThrow();
+            helper.assertTrue(!after.has(AffixDef.BURNING) && after.sealedAffixes().get(AffixDef.BURNING) == AffixQuality.COMMON,
+                    "窗口内重载不得提前恢复 (封印时长不因卸载重载缩短), 实得 " + after.affixes() + " / " + after.sealedAffixes());
+            helper.assertTrue(AgentSealExecutor.isTracked(championId),
+                    "窗口内重载必须按当前所在维度重新登记 tick 索引, 否则到期那一 tick 没人去找它");
+
+            // 扫描面板读 capability 登记: 重载后"封印中"那一行仍在, 且仍标为封印中。
+            AgentScanEntry burning = findEntry(helper, AgentScanProbe.buildSnapshot(agent, reloaded), "BURNING");
+            helper.assertTrue(burning.sealed(), "重载后扫描面板仍须把 BURNING 标为封印中");
+
+            SealRegistry.discard(championId); // 等价于封印窗口到期。
+            AgentSealHandler.processExpiredSeals(helper.getLevel().getServer());
+            helper.assertTrue(after.quality(AffixDef.BURNING) == AffixQuality.COMMON && !after.hasSealedAffixes()
+                            && !AgentSealExecutor.isTracked(championId),
+                    "到期后必须由 tick 路径恢复并清索引, 实得 " + after.affixes());
+        } finally {
+            SealRegistry.discard(championId);
+            AgentSealExecutor.untrack(championId);
+            reloaded.discard();
+        }
+        helper.succeed();
+    }
+
+    /** 持久化恢复路径同样只增量合并: 窗口内小男孩自摘的一次性词条, 重启恢复后不得被装回。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void persistedRestoreDoesNotReplayLittleBoyConsumedInsideWindow(GameTestHelper helper) {
+        ServerPlayer agent = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setAgentLevel(agent, 7);
+        Zombie champion = helper.spawn(EntityType.ZOMBIE, new BlockPos(0, 1, 0));
+        Map<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
+        affixes.put(AffixDef.LITTLE_BOY, AffixQuality.EPIC);
+        affixes.put(AffixDef.BURNING, AffixQuality.EPIC);
+        ChampionPromoter.applyChampion(champion, 7, affixes);
+        MiningChampionData champ = MiningChampions.get(champion).orElseThrow();
+
+        AgentSealHandler.Result sealed = AgentSealHandler.requestSeal(agent, champion, "BURNING");
+        helper.assertTrue(sealed.ok(), "前提: L7 干员封 7★ 被动词条必须成功, 实得 " + sealed.reason());
+        // 窗口内小男孩起手即摘 (与 ChampionLittleBoyHandler 同一调用): 这条一次性词条已被消耗。
+        helper.assertTrue(champ.removeAffix(AffixDef.LITTLE_BOY), "前提: 小男孩自摘必须真移除该词条");
+        helper.assertTrue(!champ.sealedAffixes().containsKey(AffixDef.LITTLE_BOY),
+                "被封词条登记只记封印摘下的那几条, 不得把别处摘除的词条记进去");
+
+        CompoundTag saved = saveAndUnload(champion);
+        SealRegistry.reset();
+        AgentSealExecutor.reset();
+        Zombie reloaded = reload(helper, saved);
+        try {
+            MiningChampionData after = MiningChampions.get(reloaded).orElseThrow();
+            helper.assertTrue(after.quality(AffixDef.BURNING) == AffixQuality.EPIC,
+                    "前提: 重启恢复必须把 BURNING 按原品质放回, 实得 " + after.affixes());
+            helper.assertTrue(!after.has(AffixDef.LITTLE_BOY),
+                    "持久化恢复只合并被封的那几条; 若整份还原, 窗口内已引爆的小男孩会被装回 (可重复触发核弹), 实得 "
+                            + after.affixes());
+        } finally {
+            reloaded.discard(); // 7★ 带小男孩的实体不留在测试场里, 防后续 tick 起手。
+        }
+        helper.succeed();
+    }
+
+    /** 持久化恢复路径同样只换词条表: 支援召唤物身份不得被洗掉。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void persistedRestorePreservesSummonedByAffixIdentity(GameTestHelper helper) {
+        ServerPlayer agent = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setAgentLevel(agent, 5);
+        Zombie champion = helper.spawn(EntityType.ZOMBIE, new BlockPos(0, 1, 0));
+        Map<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
+        affixes.put(AffixDef.BURNING, AffixQuality.COMMON);
+        ChampionPromoter.applyChampion(champion, 3, affixes);
+        MiningChampions.get(champion).orElseThrow().markSummonedByAffix();
+        UUID championId = champion.getUUID();
+
+        AgentSealHandler.Result sealed = AgentSealHandler.requestSeal(agent, champion, "BURNING");
+        helper.assertTrue(sealed.ok(), "前提: 封印必须成功, 实得 " + sealed.reason());
+
+        CompoundTag saved = saveAndUnload(champion);
+        SealRegistry.discard(championId);
+        AgentSealExecutor.untrack(championId);
+        Zombie reloaded = reload(helper, saved);
+        try {
+            MiningChampionData after = MiningChampions.get(reloaded).orElseThrow();
+            helper.assertTrue(after.has(AffixDef.BURNING), "前提: 入世对账必须真把词条还回去, 实得 " + after.affixes());
+            helper.assertTrue(after.isSummonedByAffix() && after.serializeNBT().getBoolean("summoned_by_affix"),
+                    "持久化恢复只能换词条表, 不得复位 summonedByAffix, 否则被封印过的支援召唤物会变成正常发奖冠军"
+                            + " (spec 红线 8-a)");
+        } finally {
+            reloaded.discard();
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 隐藏区块兜底: 精英所在区块降为隐藏但未卸载时, 到期 tick 按 UUID 查不到它, 宽限期后删了索引, 它回到可见时又
+     * 不会重新发入世事件。LivingTickEvent 兜底必须在它下一次 tick 时按 capability 恢复。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void untrackedSealedChampionRestoresOnNextLivingTick(GameTestHelper helper) {
+        Zombie champion = helper.spawn(EntityType.ZOMBIE, new BlockPos(0, 1, 0));
+        Map<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
+        affixes.put(AffixDef.BURNING, AffixQuality.RARE);
+        ChampionPromoter.applyChampion(champion, 5, affixes);
+        MiningChampionData champ = MiningChampions.get(champion).orElseThrow();
+
+        helper.assertTrue(AgentSealExecutor.sealAffix(champion, champ, AffixDef.BURNING, helper.getLevel().getGameTime()),
+                "前提: 执行层封印必须真移除 BURNING");
+        // 宽限期后索引已删 (本用例不去真造隐藏区块, 直接删索引得到同一状态); SealRegistry 无活跃封印, 窗口已过。
+        AgentSealExecutor.untrack(champion.getUUID());
+
+        AgentSealHandler handler = new AgentSealHandler();
+        champion.tickCount = 1; // 非检查周期的 tick: 兜底按周期节流, 不做任何事。
+        handler.onLivingTick(new LivingEvent.LivingTickEvent(champion));
+        helper.assertTrue(!champ.has(AffixDef.BURNING), "非检查周期的 tick 不应触发对账 (节流), 实得 " + champ.affixes());
+
+        champion.tickCount = 20;
+        handler.onLivingTick(new LivingEvent.LivingTickEvent(champion));
+        helper.assertTrue(champ.quality(AffixDef.BURNING) == AffixQuality.RARE && !champ.hasSealedAffixes(),
+                "索引已失效的被封精英在下一个检查周期 tick 时必须按 capability 恢复, 否则晾在隐藏区块里的精英会一直"
+                        + "带着封印状态直到下次真正卸载重载, 实得 " + champ.affixes());
+        helper.succeed();
+    }
+
+    /** 模拟区块卸载: 取实体完整存档 NBT (含 ForgeCaps 里的冠军 capability), 再 discard 原实体。 */
+    private static CompoundTag saveAndUnload(Zombie champion) {
+        CompoundTag saved = champion.saveWithoutId(new CompoundTag());
+        champion.discard();
+        return saved;
+    }
+
+    /**
+     * 模拟区块重新载入: 新建同类实体 load 存档 NBT (与区块载入同一条 Entity.load 路径, capability 在 load 内反序列化,
+     * UUID 也随之还原), 再经 addFreshEntity 真实入世 —— EntityJoinLevelEvent 走真实事件总线派发。
+     */
+    private static Zombie reload(GameTestHelper helper, CompoundTag saved) {
+        Zombie reloaded = Objects.requireNonNull(EntityType.ZOMBIE.create(helper.getLevel()));
+        reloaded.load(saved);
+        helper.assertTrue(helper.getLevel().addFreshEntity(reloaded), "前提: 重新载入的实体必须能入世");
+        return reloaded;
     }
 
     private static boolean hasModifierNamed(AttributeInstance attr, String name) {

@@ -78,7 +78,7 @@ public final class AgentSealSeam {
         AgentScanSnapshot buildSnapshot(ServerPlayer agent, LivingEntity target);
     }
 
-    /** 服务端停止清理回调 (integration 层 bind 真实现, 清执行侧词条快照; 未绑定 = 空操作)。 */
+    /** 服务端停止清理回调 (integration 层 bind 真实现, 清执行侧封印 tick 索引; 未绑定 = 空操作)。 */
     @FunctionalInterface
     public interface ServerStopCleanup {
         void onServerStopping();
@@ -143,7 +143,7 @@ public final class AgentSealSeam {
         return request.buildSnapshot(agent, target);
     }
 
-    /** 经接缝执行服务端停止清理 (清执行侧词条快照; 未绑定空操作)。 */
+    /** 经接缝执行服务端停止清理 (清执行侧封印 tick 索引; 未绑定空操作)。 */
     public static void onServerStopping() {
         ServerStopCleanup cleanup = stopCleanup;
         if (cleanup != null) {

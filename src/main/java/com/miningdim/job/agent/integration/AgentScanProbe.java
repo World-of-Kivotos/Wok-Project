@@ -48,15 +48,15 @@ final class AgentScanProbe {
         int level = AgentLevels.agentLevel(agent);
         long nowTick = target.level().getGameTime();
 
-        // 候选表 = 当前装配词条 并入 当前被封印中 (已从 capability 移除, 靠执行侧快照补回, 否则面板永远看不到
-        // "封印中"那一行, sealed 与 AFFIX_ALREADY_SEALED 会成为结构性不可达的死字段)。EnumMap 保证遍历序恒等于
+        // 候选表 = 当前装配词条 并入 当前被封印中 (已从词条表移除, 靠 capability 里的被封词条登记补回, 否则面板永远
+        // 看不到"封印中"那一行, sealed 与 AFFIX_ALREADY_SEALED 会成为结构性不可达的死字段)。EnumMap 保证遍历序恒等于
         // AffixDef 声明序 (分级解密按"原始顺序前 N 条"裁决, 顺序必须确定)。
         // 不用 EnumMap(Map) 拷贝构造: champ.affixes() 是 Collections.unmodifiableMap 包装 (非 EnumMap 实例),
-        // 该构造器对非 EnumMap 来源要求"至少一条映射才能推断键类型", 全部词条已被封印剥空 (仅靠下一行的封印中
-        // 快照补全候选表) 时会抛 IllegalArgumentException("Specified map is empty")。改用 class 构造 + putAll 规避。
+        // 该构造器对非 EnumMap 来源要求"至少一条映射才能推断键类型", 全部词条已被封印剥空 (仅靠下一行的被封词条
+        // 登记补全候选表) 时会抛 IllegalArgumentException("Specified map is empty")。改用 class 构造 + putAll 规避。
         EnumMap<AffixDef, AffixQuality> visible = new EnumMap<>(AffixDef.class);
         visible.putAll(champ.affixes());
-        visible.putAll(AgentSealExecutor.sealedAffixesOf(target.getUUID()));
+        visible.putAll(champ.sealedAffixes());
 
         List<AgentScanSnapshotBuilder.RawAffix> raws = new ArrayList<>();
         for (Map.Entry<AffixDef, AffixQuality> entry : visible.entrySet()) {

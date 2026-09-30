@@ -9,12 +9,13 @@ import net.minecraftforge.eventbus.api.IEventBus;
  * 不再 import 任何 top.theillusivec4.champions.*, 不再需要 {@code ModList.isLoaded("champions")} 守卫。
  *
  * 装配:
- *  1. 封印 handler ({@link AgentSealHandler}): 挂 forgeBus (到期恢复 tick + 死亡清理)。
+ *  1. 封印 handler ({@link AgentSealHandler}): 挂 forgeBus (到期恢复 tick + 入世/tick 持久化对账 + 死亡清理)。
  *  2. 加强奖励 + 悬赏结算 handler ({@link AgentRewardHandler}): 挂 forgeBus (HIGHEST 接管精英死亡结算)。
  *  3. 伤害加成 handler ({@link AgentDamageBonusHandler}): 挂 forgeBus (干员对精英少量放大)。
  *  4. 封印 + 扫描接缝 ({@link AgentSealSeam#bind}): 注入封印申请真实现 ({@link AgentSealHandler#requestSealOutcome})
- *     + 扫描快照构建真实现 ({@link AgentScanProbe#buildSnapshot}, 读自研词条表做分级解密) + 服务端停止清执行侧词条
- *     快照, 供 champions-free 的 AgentSystem / 五章面板网络层经接缝调用。
+ *     + 扫描快照构建真实现 ({@link AgentScanProbe#buildSnapshot}, 读自研词条表做分级解密) + 服务端停止清执行侧封印
+ *     tick 索引 (被封词条本身随精英 capability 存盘, 不在此清), 供 champions-free 的 AgentSystem / 五章面板网络层经
+ *     接缝调用。
  */
 public final class AgentIntegrationBootstrap {
 
